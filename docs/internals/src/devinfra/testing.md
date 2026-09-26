@@ -165,8 +165,23 @@ golden 用例的文件约定：
 > 不要因为「这不是优化用例」就不挂**。
 >
 > ⚠️ 数 `opt_all` 有两种拼写（dir 形态 `opt_all` / flat 形态 `<name>.opt_all`）。
-> 我第一次只数了前者、得出「只有 2 个」并写进了 PR，**是错的** —— 与
-> [[z42-batch-rewrite-context-blindness]] 同族：判据只认一种拼写。
+> 我第一次只数了前者、得出「只有 2 个」并写进了 PR，**是错的** —— 判据只认一种拼写。
+>
+> ✅ **2026-09-27 已铺开**（change `fix-inline-breaks-ref-params`）：19 个特性类目全挂，
+> `opt_all` 从 **11 → 267**。这一个动作**炸出两个既存的 release-only 崩溃**，都在仓库自己的
+> 测试语料里、都是 debug 全绿：
+>
+> | 元凶 pass | 症状 | 影响面 |
+> |---|---|---|
+> | **Inline** | `ref` 形参的 `Value::Ref` 流进算术（7 个 `refs/*` 用例） | 任何被内联的带 `ref` 形参的函数 |
+> | **Devirt** | 去虚化到不存在的 `Std.Type.GetType`（`types/value_type_object_methods`）| 值类型收者上的 `GetType()` |
+>
+> Inline 那条已修（见 [逃逸分析](../runtime/escape-analysis.md) 的 `ref` 调用点一节）；
+> Devirt 那条**尚未修**，故 `value_type_object_methods` 是**唯一刻意不挂 `opt_all`** 的用例 ——
+> 修好那条 pass 时**连它的 sidecar 一起加上**，别忘了。
+>
+> ⭐ **这就是「先补测量，再谈重构」的样本**：两个崩溃的修复成本远小于发现它们的成本，而发现
+> 它们只需要 253 个空文件。
 
 单文件形态（`<category>/<name>.z42`）的 marker 写成同名前缀：`<name>.interp_only` / `<name>.opt_all`。
 

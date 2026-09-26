@@ -108,6 +108,46 @@ n.Next; }` 这类「循环里推进形参」的常见写法判成参数逃逸，
 >（`z42c --emit-zbc --opt-all` → `Opt.All`）并给 `src/tests/optimization/` 全体挂上，这类用例才真正开始
 > 测它们声称要测的东西。见 `src/tests/README.md` sidecar 表。
 
+### 🔴 `ref` 的调用点不可内联（change `fix-inline-breaks-ref-params`，2026-09-27）
+
+上一节说「callee 的 IR 里根本看不出哪个形参是 `ref`」——**同一条信息缺口还咬了内联器一口，而且更狠**。
+
+`ref` 靠「callee **入口** copy-in / **出口** copy-out」实现。**内联把 callee 帧整个去掉了**
+⇒ 没有入口做解引用、没有出口做写回 ⇒ 裸 `Value::Ref` 直接流进 body：
+
+```console
+$ z42c build project.z42.toml --release && z42vm dist/x.zpkg --mode interp
+Error: type mismatch in arithmetic: Ref { idx: 0, frame_id: 1 } vs I64(1)
+```
+
+复现源就是仓库自己的 `src/tests/refs/ref_local`（10 行，`void Increment(ref int x) { x = x + 1; }`）。
+**debug 通过、`--release` 必崩**；`--release --no-opt inline` 通过、`-O0 --opt inline` 复现
+⇒ 单变量锁定 Inline。**interp 与 jit 都崩**（不同于 `fix-stackobj-inline-struct-leaf` 那条只崩一侧）。
+
+**判据取调用点侧**：实参由**任一取址指令**产生就拒绝内联该调用点 ——
+
+| 取址指令 | `ref` 指向 |
+|---|---|
+| `LoadLocalAddrInstr` | 局部变量 |
+| `LoadElemAddrInstr` | **数组元素** |
+| `LoadFieldAddrInstr` | **对象字段** |
+
+⚠️ **三种必须全覆盖**：只判第一种时实测 **4/7** 个 refs fixture 转绿，后两种形态照旧崩
+（本仓反复出现的「只做一格漏掉常见形态」）。
+
+⚠️ **既有的「被写形参材料化」救不了它**：`_writtenParamsAll` 给被写形参 emit
+`copy (p+offset), arg[p]`，而那个 arg 装的就是 `Value::Ref` —— 材料化出来的是**一份地址的
+副本**，不是被指向的值。它解决的是「别把写踩到调用方实参寄存器上」，与解引用无关。
+
+**取舍**：这是**保守方向** —— 带 `ref` 形参的小函数从此不被内联（少一次优化机会），换来的是
+不必给 IR 加 per-param `ref` 标志、**不动 zbc 格式**。另一条路是让内联器**合成** deref +
+writeback（正确性更完整、工作量大得多、且大概要动格式）；若将来 `ref` 小函数的内联真成为
+热点，那才是该做的事。与本页「铁律」同一姿态：**宁可少一次机会，不要错**。
+
+**为什么活到今天**：`--emit-zbc`（golden 的编译路径）默认优化集**关掉 Inline**，而 `opt_all`
+sidecar 在 2026-09-27 之前只覆盖 `optimization/` 一个类目 —— `refs/` 类目**一个都没挂**。
+挂上 7 个空文件，7 个用例当场全红。详见 [测试怎么跑](../devinfra/testing.md) 的 `opt_all` 一节。
+
 ### 跨过程参数逃逸摘要（`IrEscapeSummary`，change `add-crossproc-escape-summary`）
 
 **动机**：单函数分析里「传进任何调用的实参」一律判逃逸 → 最常见的「造临时对象传给只读它的辅助函数」

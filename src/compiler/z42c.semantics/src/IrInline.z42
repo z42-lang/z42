@@ -94,15 +94,19 @@ public sealed class IrInline {
     private static void _inlineInto(IrModule m, IrFunction caller) {
         if (caller.BlockCount == 0) { return; }   // 抽象/extern 桩：无体
         InlineState st = new InlineState(caller.MaxReg);
-        IrInline._inlineSingleBlock(m, caller, st);   // Phase A
-        IrInline._inlineMultiBlock(m, caller, st);    // Phase B
+        // ref 实参的调用点不可内联（fix-inline-breaks-ref-params）——两个 Phase 共用同一份判据。
+        // 在两个 Phase **之前**算：Phase B 会拆块，但 `LoadLocalAddrInstr` 只在 caller 原有块里，
+        // 且内联进来的 curated 体不含取址指令（白名单里没有）⇒ 集合不会因内联而变。
+        bool[] addrRegs = IrInline._addrRegsOf(caller);
+        IrInline._inlineSingleBlock(m, caller, st, addrRegs);   // Phase A
+        IrInline._inlineMultiBlock(m, caller, st, addrRegs);    // Phase B
         if (!st.Changed) { return; }
         caller.MaxReg = st.RunningMax;
         IrInline._extendRegTypes(caller, st.RunningMax, st.RecOff, st.RecFn, st.RecCount);
     }
 
     // Phase A：单块 callee 就地 splice（每块重建指令列表）。多块 callee 留给 Phase B。
-    private static void _inlineSingleBlock(IrModule m, IrFunction caller, InlineState st) {
+    private static void _inlineSingleBlock(IrModule m, IrFunction caller, InlineState st, bool[] addrRegs) {
         int bi = 0;
         while (bi < caller.BlockCount) {
             IrBlock blk = caller.Blocks[bi];
@@ -112,7 +116,7 @@ public sealed class IrInline {
             int ii = 0;
             while (ii < blk.InstrCount) {
                 IrInstr ins = blk.Instrs[ii];
-                IrFunction callee = IrInline._eligibleCallee(m, caller, ins, st.Budget);
+                IrFunction callee = IrInline._eligibleCallee(m, caller, ins, st.Budget, addrRegs);
                 if (callee != null && callee.BlockCount == 1) {
                     CallInstr call = ins as CallInstr;
                     IrBlock cb = callee.Blocks[0];
@@ -156,7 +160,7 @@ public sealed class IrInline {
 
     // Phase B：多块 callee split+insert。迭代找第一个多块合格调用点 → 拆 caller 块并插入 callee 块，
     // 直到没有多块调用点或预算耗尽。callee 体 curated（无 call）→ 插入块不含新调用点 → 终止。
-    private static void _inlineMultiBlock(IrModule m, IrFunction caller, InlineState st) {
+    private static void _inlineMultiBlock(IrModule m, IrFunction caller, InlineState st, bool[] addrRegs) {
         bool progress = true;
         while (progress) {
             progress = false;
@@ -165,7 +169,7 @@ public sealed class IrInline {
                 IrBlock blk = caller.Blocks[bi];
                 int ii = 0;
                 while (ii < blk.InstrCount && !progress) {
-                    IrFunction callee = IrInline._eligibleCallee(m, caller, blk.Instrs[ii], st.Budget);
+                    IrFunction callee = IrInline._eligibleCallee(m, caller, blk.Instrs[ii], st.Budget, addrRegs);
                     if (callee != null && callee.BlockCount > 1) {
                         IrInline._spliceMultiBlock(caller, bi, ii, blk.Instrs[ii] as CallInstr, callee, st);
                         progress = true;
@@ -279,10 +283,68 @@ public sealed class IrInline {
 
     // ── 资格判定（D4）────────────────────────────────────────────────────────────────
     // 返回可内联的 callee IrFunction；任一阻断特征 → null（跳过，保守）。
-    private static IrFunction _eligibleCallee(IrModule m, IrFunction caller, IrInstr ins, int budget) {
+    // caller 里由**任一取址指令**定义的寄存器集（fix-inline-breaks-ref-params）：
+    // `LoadLocalAddrInstr`（局部）/ `LoadElemAddrInstr`（数组元素）/ `LoadFieldAddrInstr`（对象字段）。
+    // 一个寄存器只要**曾经**被取址指令定义过就算，不做流敏感分析 —— 过近似方向安全：
+    // 多判一个 = 少一次内联机会，判漏一个 = 破坏 `ref` 协议。
+    private static bool[] _addrRegsOf(IrFunction caller) {
+        bool[] a = new bool[caller.MaxReg + 1];
+        int bi = 0;
+        while (bi < caller.BlockCount) {
+            IrBlock blk = caller.Blocks[bi];
+            int ii = 0;
+            while (ii < blk.InstrCount) {
+                // 🔴 **三种取址指令必须全覆盖**：`ref` 可以指向局部、**数组元素**、**对象字段**。
+                // 只判 `LoadLocalAddrInstr` 时实测 4/7 个 refs fixture 转绿、剩下
+                // `ref_array_elem` / `ref_field_array_elem` / `ref_obj_field` 照旧崩 ——
+                // 「只做一格会漏掉最常见形态」在本仓已是反复出现的形态。
+                if ((blk.Instrs[ii] is LoadLocalAddrInstr)
+                    || (blk.Instrs[ii] is LoadElemAddrInstr)
+                    || (blk.Instrs[ii] is LoadFieldAddrInstr)) {
+                    int d = IrOptInfo.DstId(blk.Instrs[ii]);
+                    if (d >= 0 && d < a.Length) { a[d] = true; }
+                }
+                ii = ii + 1;
+            }
+            bi = bi + 1;
+        }
+        return a;
+    }
+
+    // 🔴 `ref` 实参的调用点**不可内联**（fix-inline-breaks-ref-params）。
+    //
+    // `ref` 在运行期靠「callee **入口** copy-in / **出口** copy-out」实现
+    // （`exec_function_body` 把持 `Value::Ref` 的形参槽解引用成底层值，`run_ref_writebacks`
+    // 在每条退出路径写回 caller 的 lvalue）。**内联把 callee 帧整个去掉了** ⇒ 没有入口做
+    // 解引用、没有出口做写回 ⇒ 裸 `Value::Ref` 直接流进 body 的算术。
+    //
+    // 实测（仓库自己的 `src/tests/refs/ref_local`，10 行）：`z42c build --release` 后运行期
+    // `type mismatch in arithmetic: Ref { idx: 0, frame_id: 1 } vs I64(1)`；
+    // `--release --no-opt inline` 通过，`-O0 --opt inline` 复现 ⇒ 单变量锁定 Inline。
+    //
+    // ⚠️ **既有的「被写形参材料化」救不了它**：`_writtenParamsAll` 会给被写形参 emit
+    // `copy (p+offset), arg[p]`，而那个 arg 装的就是 `Value::Ref` —— 材料化出来的是**一份
+    // 地址的副本**，不是被指向的值。它解决的是「别把写踩到调用方实参寄存器上」，与解引用无关。
+    //
+    // 判据取**调用点侧**：`ref` 实参由 caller 的取址指令产生（`Param.IsRef`
+    // 只影响 caller 发不发 `load_local_addr`，callee 的 IR 里根本看不出哪个形参是 `ref`
+    // —— 见 escape-analysis.md 同一条信息缺口）。所以不需要给 IR 加 per-param 标志，也不需要
+    // 动 zbc 格式：看实参是不是地址就够。
+    private static bool _passesAddress(CallInstr call, bool[] addrRegs) {
+        int i = 0;
+        while (i < call.ArgCount) {
+            int r = call.Args[i].Id;
+            if (r >= 0 && r < addrRegs.Length && addrRegs[r]) { return true; }
+            i = i + 1;
+        }
+        return false;
+    }
+
+    private static IrFunction _eligibleCallee(IrModule m, IrFunction caller, IrInstr ins, int budget, bool[] addrRegs) {
         if (budget >= IrInline.INLINE_CALLER_BUDGET) { return null; }   // ⑦ 预算耗尽
         if (!(ins is CallInstr)) { return null; }                        // ① 仅直接调用
         CallInstr call = ins as CallInstr;
+        if (IrInline._passesAddress(call, addrRegs)) { return null; }    // ⑧ ref 实参 → 不可内联
         IrFunction callee = IrInline._findFunc(m, call.Func);
         if (callee == null) { return null; }                             // ② 同模块可解析
         if (callee.Name == caller.Name) { return null; }                 // ③ 非递归（curated 体无嵌套调用 → 无间接递归）
