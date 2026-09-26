@@ -149,6 +149,13 @@ xtask / build 基础设施驱动；stdlib 又被两者依赖。任何「从源�
 > （见 [test-gate.md](../../internals/src/devinfra/test-gate.md)）。
 > **新开一个分阶段引入时，先想好阶段 2 由什么来提醒你**——没有提醒就等于没打算做。
 >
+> ✅ **2026-09-26：这条不再靠自觉了。** 在过渡形态所在文件写一行
+> `// STAGE2-DEBT(<tag>): <阶段 2 要做的那件事>`，`xtask test stage2 --update` 记进
+> `scripts/test/stage2-debt.txt`；门做双向棘轮（源里多一条/清单多一条都红）+ 挂账超 7 天即红。
+> ⚠️ **它只看得见带标记的债** —— 这个边界写在门的头注里。立门当天全仓一扫就抓到 4 条**现在时的
+> 假断言**（支持侧注释还写着「今天没有生产调用方 / z42c 尚不读」，而消费早已落地），
+> 以及一条**已超期 12 天**的真欠账（`store-sync-values-in-heap` 阶段 2）。
+>
 > 🔴 **阶段 2 的收尾不止于代码：过渡形态也写在散文里，而散文不会跟着切回。** 2026-09-23 那次清账
 > 切回了 100 个发射点，但登记表注释里 **30 条**「XX 层用字面量 `E04xx` 发码」原样留着，一夜之间
 > 全成了假话——连它们给出的理由（避 core→semantics 冷启动 stale-cache）都早已被修掉。没人发现，
@@ -190,6 +197,29 @@ z42c *自己运行期就要用* 的 stdlib 库**（如 `converge-z42c-ir-metadat
 >
 > **残余真约束**：给这 6 个库的既有导出类型加字段，新字段**不得进 ctor 签名**，须 ctor 内给默认值 +
 > 消费方构造后赋值（种子 ABI）。违反 = 旧种子构造调用元数对不上。
+> 🔴🔴 **那条豁免只对「增量」成立 —— 改名 / 删除不在内**（2026-09-26 实测补）。
+>
+> 破环预建用**当前源**重建那 6 个库，所以「加一个新 API 并同 commit 用它」没问题：新的加上了、
+> **旧的还在**，上一版 driver 二进制运行期照旧解析得到。但**重命名或删除**会抹掉旧 FQN，
+> 而那个 driver 正是拿来跑这轮 bootstrap 的 ⇒ 它在中途就死。
+>
+> 实测（`add-deployment-model` 想把 `Z42.Build.Project` ↔ `Z42.Project` 互换）：改完源码
+> `xtask build stdlib` 当场红在
+>
+> ```
+> Std.MissingSymbolException: undefined function `Z42.Build.Project.ManifestLoader.Load$1$string`
+>   at Z42.Driver._build (Main.z42:166)
+> ```
+>
+> 两个方向都踩（`Z42.Project.ZpkgWriterZ` 种子也在调）。**⇒ 动这 6 个库里「driver 运行期会调」的
+> 符号的名字或存在性，仍是跨 nightly 的两/三阶段改动**，不受本节豁免保护。
+>
+> ⭐ 顺带测出的一条：把旧 `<pkg>.zpkg` 拷进 driver **自己的 dist**（搜索序
+> `[entry-dir] ++ probing ++ [libs]`，entry-dir 最优先）后，带改名的 stdlib 重建就过去了 ——
+> 「让编译器对它运行期要用的 stdlib 库自包含」能消掉这一整类危险。注意 `xtask_stdlib.z42` 步骤 4
+> 的注释本来就写着要给 driver「稳定 stdlib 快照」，而 `fresh member 从 workspace dist 解析、
+> **优先于**快照`恰好把那个意图吃掉了。
+
 - **教训**：**新增/收敛「z42c 自依赖的 stdlib 库」的 change，冷启动路径本地必验**（下载上一 nightly
   作种子跑一遍 cold `build compiler` + `build stdlib`），别只验 warm 就推 main。
 

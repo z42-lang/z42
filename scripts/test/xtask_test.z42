@@ -428,7 +428,8 @@ string[] _gateStageNames() {
         "vscode-syntax",
         "lines",
         "walkers",
-        "diagcodes"
+        "diagcodes",
+        "stage2"
     };
 }
 
@@ -657,6 +658,14 @@ int _testAll(bool noBuild, string skip) {
         swStage = _stageStart("diagcodes");
         c = _testDiagCodes(false); if (c != 0) { return c; }
         _stageEnd(slog, "diagcodes", swStage);
+    }
+    // stage 10: 阶段-2 欠账（bootstrap-seed 分阶段引入纪律）：过渡形态必须挂账、且不得超期。
+    // 「阶段 2 忘了不会红」是本仓库反复吃过的亏 —— 诊断码那条线有 ④⑥ 盯着，其余一直靠谁记得。
+    // 纯文本扫描（~1s），host-independent。Skippable: "stage2"。
+    if (!_skipHas(skip, "stage2")) {
+        swStage = _stageStart("stage2");
+        c = _testStage2Debt(false); if (c != 0) { return c; }
+        _stageEnd(slog, "stage2", swStage);
     }
     Console.WriteLine("\n✅ GREEN — all stages passed");
     _stageSummary(slog, sw.Elapsed().TotalMilliseconds());

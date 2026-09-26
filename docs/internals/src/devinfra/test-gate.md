@@ -50,6 +50,7 @@ graph LR
 - `lines`
 - `walkers`
 - `diagcodes`
+- `stage2`
 <!-- gate-stages:end -->
 
 先备工具链与基线（build wave），再依序跑其余验证 stage；任一步失败立即终止。

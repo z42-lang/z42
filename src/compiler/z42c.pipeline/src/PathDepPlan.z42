@@ -8,8 +8,9 @@
 // （`_ensureBootstrapSelfDepLibs` 逐个单独编那 6 个自依赖库时就是 top-level build ⇒ 真会走到）。
 // 直接删 = 种子在 bootstrap 中途 `MissingSymbolException`。
 //
-// ⏳ **阶段 2（下一个 nightly 发布后）：删掉本文件。** 届时种子 driver 调的已是新落点。
+// STAGE2-DEBT(pathdep-forwarder): 删掉本文件（届时种子 driver 调的已是 z42.project 那个落点）
 //    到期检查：`grep -rn "Z42.Pipeline.PathDepPlan\|Z42.Pipeline.PathDepClosure" src/` 应只剩本文件。
+//    挂账由 `xtask test stage2` 盯着 —— 这条纪律以前只写在文档里、没有任何东西执行。
 namespace Z42.Pipeline;
 
 using Std;

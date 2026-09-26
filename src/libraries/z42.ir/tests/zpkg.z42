@@ -134,7 +134,8 @@ void matching_version_does_not_warn() {
 
 // ── DEPS 往返：写进去的依赖文件名，读得回来（add-deployment-model 批 2 support）──────────
 //
-// `ReadDependencies` 今天**没有生产调用方**（support 先行，消费要等它随 nightly 进种子）。
+// `ReadDependencies` 的生产调用方 = `_bundleExeDeps`（#849，按 DEPS 段建传递闭包）。
+// （原注写「今天没有生产调用方」—— 那是 support 阶段的事实，消费落地后没跟着改。）
 // 正因为没人用，写错了也不会有任何东西变红 —— 等到 use 那一轮才发现解码是歪的，届时要同时
 // 怀疑「闭包逻辑」和「解码」两处。往返测试把解码**现在**就钉住。
 //

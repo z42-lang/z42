@@ -20,7 +20,8 @@ public sealed class DepEntry {
     /// 编不动当前源码。同 `Pipeline.ParentPkg` / `ProjectManifest` 的那几个「构造后填」字段。
     ///
     /// 🔴 **support 阶段：本字段今天无人消费**（z42c 不读它）⇒ 产物逐字节不变、可立即合并。
-    /// 消费要等它随 nightly 进种子之后（bootstrap-seed 的分阶段引入纪律）。
+    /// ✅ 阶段 2 已落地（#848）：`_validateDeployDecls` 校验取值、`_bundleExeDeps` 按它决定复制。
+    ///    （原注写「消费要等它随 nightly 进种子之后」，消费落地后没跟着改。）
     public string Deploy;
     public DepEntry(string name, string version, string path) {
         this.Name = name;

@@ -1,0 +1,7 @@
+# 阶段-2 欠账清单（bootstrap-seed 分阶段引入纪律的配套；门 = `xtask test stage2`）。
+# 每条 = 一个**阶段 1 过渡形态**：为让上一版 z42c/种子仍能编当前源，而暂留的形状
+# （新 API 未消费 / 旧 FQN 的转发层 / 字面量替常量 / 空转桩……）。
+# 挂账超过宽限期即红 —— 因为「阶段 2 忘了不会红」是本仓库反复吃过的亏。
+# 格式：<相对 src/ 的路径>#<tag> <挂账日> <阶段 2 要做的那件事>
+# 重生成：`xtask test stage2 --update`（已有条目**保留原挂账日**，不会把时钟拨回今天）。
+compiler/z42c.pipeline/src/PathDepPlan.z42#pathdep-forwarder 2026-09-26 删掉本文件（届时种子 driver 调的已是 z42.project 那个落点）
