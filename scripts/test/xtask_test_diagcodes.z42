@@ -21,7 +21,27 @@
 //   ⑥ **清单里的每条欠账必须按时结清**——字面量发码的正当理由（常量还没进种子）会过期，
 //      挂账超过宽限期即红，逼它切回常量；
 //   ⑦ **任何源文件的散文里都不得断言发射形态**（「XX 层用字面量 E04xx 发码」）——形态是会变的
-//      状态，唯一 SoT 是 ④ 的清单；散文不会跟着切回，只会腐成假话。
+//      状态，唯一 SoT 是 ④ 的清单；散文不会跟着切回，只会腐成假话；
+//   ⑧ **活性与 error-codes.md 的状态列双向对账**——有发射面却标着零发射/退役 → 红；
+//      零发射面却没标 → 红。
+//
+// ⑧ 为什么后补上（第四次同形状事故，而这次换到了「码还活着吗」这一维）：①-⑦ 盯的全是
+// **码这个对象**——谁占了它、谁发射它、欠账多久、散文有没有乱说形态。**没有一条盯「它还活着吗」**：
+// 发射点被删掉之后，②③ 只管「发出去的 / 引用到的」必须在表里、反方向不管；④ 只管字面量站点；
+// ⑤ 只比码号集合。于是 **E0407 那一形**——常量在、文档写着 ✅、而发它的 pass 随老 C# 编译器一起
+// 没了（528 行的 `FlowAnalyzer.cs` 整个丢了）——能一路绿到有人手工 grep 才发现。
+//
+// ⑧ **不新增一份真相**：`error-codes.md` 的状态列本来就记着每个码是 `✅ <文件>` 还是
+// `⚠️ 零发射点` / `❌ 已退役` —— 只是那一列此前由**人工 grep** 产生、零机器校验（该页「这张表
+// 怎么来的」自己写着做法就是 grep）。⑧ 把已经存在的人工列变成对账，维护成本为零。
+//
+// ⭐ 它顺带补掉 ⑤ 留下的一个盲区：**「刻意保留 / 退役」与「已经腐坏」此前长得一模一样**
+//（都是「登记表里有、零发射点」），机器无法分辨——⑤ 甚至**要求**零发射常量存在。⑧ 之后两者
+// 形状不同了：前者在文档里标着、对账成立；后者标不出来、必红。
+//
+// ⚠️ 「有发射面」= 字面量发码（④ 那批站点）∪ `DiagnosticCodes.<Name>` 引用，**排除 tests/**
+//（与 ②③ 同一份扫描面）。测试里断言一个码**不算**它活着——那恰恰是 E0407 当年「有测试、零发射」
+// 的形状。账面（活 / 零发射各几个）打在汇总行上：**这两个数就是「有多少条保护真的在跑」**。
 //
 // ⑤ 为什么后补上（同样是按事故加的，不是补完整性）：①-④ 只盯「发射出去的码」，于是**保留号和
 // 退役号**——被占住、但故意零发射点的号——可以完全不进登记表。实测 main 上有 5 个这样的号
@@ -82,6 +102,11 @@ int _testDiagCodes(bool update) {
 
     string[] viol = new string[128]; int vc = 0;
     string[] pairs = new string[256]; int pc = 0;      // ④ 字面量发码站点：`<CODE> <relpath>`
+    // ⑧ 的输入：本次扫描实际见到的**发射面**。两条通道各记一份——
+    //   · litCodes：字面量发码（与 ④ 同一批站点，但只留码值、不留文件）
+    //   · refNames：`DiagnosticCodes.<Name>` 引用到的常量名（③ 已在扫，此前只计数不留名）
+    string[] litCodes = new string[512]; int lc = 0;
+    string[] refNames = new string[512]; int rn = 0;
 
     // 规则 ①：登记表内无重复码值。
     int i = 0;
@@ -126,6 +151,9 @@ int _testDiagCodes(bool update) {
                             if (_dcIndexOfStr(pairs, pc, pair) < 0) {
                                 pairs = _dcPush(pairs, pc, pair); pc = pc + 1;
                             }
+                            if (_dcIndexOfStr(litCodes, lc, lits[k]) < 0) {
+                                litCodes = _dcPush(litCodes, lc, lits[k]); lc = lc + 1;
+                            }
                             if (_dcIndexOfStr(rCode, rc, lits[k]) < 0) {
                                 viol = _dcPush(viol, vc, "src/" + relp + ":" + (li + 1).ToString()
                                     + ": emits unregistered code \"" + lits[k]
@@ -154,6 +182,9 @@ int _testDiagCodes(bool update) {
                     k = 0;
                     while (k < nn) {
                         refs = refs + 1;
+                        if (_dcIndexOfStr(refNames, rn, names[k]) < 0) {
+                            refNames = _dcPush(refNames, rn, names[k]); rn = rn + 1;
+                        }
                         if (_dcIndexOfStr(rName, rc, names[k]) < 0) {
                             viol = _dcPush(viol, vc, "src/" + relp + ":" + (li + 1).ToString()
                                 + ": references `DiagnosticCodes." + names[k] + "` which is not in the registry");
@@ -301,6 +332,73 @@ int _testDiagCodes(bool update) {
         }
     }
 
+    // ── ⑧ 活性 ↔ error-codes.md 状态列双向对账 ────────────────────────────
+    // ①-⑦ 盯的全是「码这个对象」——谁占了它、谁发射它、欠账多久、散文有没有乱说形态。
+    // **没有一条盯「它还活着吗」**：一个码的发射点被删掉之后，①②③ 全部照旧放行
+    //（②③ 只管「发出去的/引用到的」必须在表里，反方向不管），④ 只管字面量站点，
+    // ⑤ 只比码号集合。于是 **E0407 那一形**——常量在、文档写着 ✅、而发它的 pass 随老 C#
+    // 编译器一起没了——能一路绿到有人手工 grep 才发现。
+    //
+    // 这条规则不新增一份真相：`error-codes.md` 的**状态列本来就记着**每个码是 `✅ <文件>`
+    // 还是 `⚠️ 零发射点` / `❌ 已退役`，只是那一列此前由**人工 grep** 产生、零机器校验
+    //（本页「这张表怎么来的」自己写着做法是 grep）。⑧ 把它变成对账：
+    //   · 实际有发射面、文档却写零发射/退役 ⇒ 红（号被复活了，或文档腐了）
+    //   · 实际零发射面、文档却没说 ⇒ 红（**这就是 E0407 那道门**）
+    //
+    // 「有发射面」两条通道取并集：字面量发码（④ 那批站点）∪ `DiagnosticCodes.<Name>` 引用。
+    // 保留号 / 退役号照旧可以零发射——它们在文档里**已经**标着，对账自然成立；于是
+    // 「刻意保留」与「已经腐坏」第一次有了机器可分辨的形状（此前两者长得一模一样）。
+    int liveN = 0; int deadN = 0;
+    if (docText != "") {
+        string[] deadDoc = new string[512]; int ddn = 0;
+        string[] dLines = docText.Split("\n");
+        int dl = 0;
+        while (dl < dLines.Length) {
+            string dln = dLines[dl];
+            dl = dl + 1;
+            if (!dln.StartsWith("|")) { continue; }
+            if (!_dcContains(dln, "零发射点") && !_dcContains(dln, "已退役")) { continue; }
+            string[] cols = dln.Split("|");
+            if (cols.Length < 3) { continue; }
+            // 只认**第一列**里的码：状态/描述列里提到别的码是常事（「见 E0466 一节」），
+            // 拿整行去抽会把无关的码一起判死。`E0901 / E0902` 那种一行两码也在第一列。
+            string[] rowCodes = new string[8];
+            int rcn = _dcScanCodes(cols[1], rowCodes);
+            int rci = 0;
+            while (rci < rcn) {
+                if (_dcIndexOfStr(deadDoc, ddn, rowCodes[rci]) < 0) {
+                    deadDoc = _dcPush(deadDoc, ddn, rowCodes[rci]); ddn = ddn + 1;
+                }
+                rci = rci + 1;
+            }
+        }
+        int q = 0;
+        while (q < rc) {
+            bool live = _dcIndexOfStr(litCodes, lc, rCode[q]) >= 0
+                     || _dcIndexOfStr(refNames, rn, rName[q]) >= 0;
+            bool docDead = _dcIndexOfStr(deadDoc, ddn, rCode[q]) >= 0;
+            if (live) { liveN = liveN + 1; } else { deadN = deadN + 1; }
+            if (live && !docDead) { q = q + 1; continue; }
+            if (!live && docDead) { q = q + 1; continue; }
+            if (live) {
+                viol = _dcPush(viol, vc, "`" + rCode[q] + "` (`" + rName[q] + "`) HAS an emission site,"
+                    + " but " + _dcDocPath() + " marks it 零发射点/已退役 — either the code came back to life"
+                    + " (update the status column to `✅ <file>`) or a retired number got reused."
+                    + " The status column is the user-visible answer to 「这条保护生效吗」; a stale ⚠️ tells"
+                    + " people a live check does not exist.");
+                vc = vc + 1;
+            } else {
+                viol = _dcPush(viol, vc, "`" + rCode[q] + "` (`" + rName[q] + "`) has NO emission site"
+                    + " (no literal, no `DiagnosticCodes." + rName[q] + "` reference outside tests) yet "
+                    + _dcDocPath() + " does not mark it 零发射点/已退役 — this is the E0407 shape: the constant"
+                    + " is there, the doc says it works, and the pass that emitted it is gone. Either wire it up,"
+                    + " or mark the row `⚠️ 零发射点` so readers stop counting on a protection that does not run.");
+                vc = vc + 1;
+            }
+            q = q + 1;
+        }
+    }
+
     _dcSort(viol, vc);
     int v = 0;
     while (v < vc) { ConsoleError.WriteLine("  ✗ " + viol[v]); v = v + 1; }
@@ -308,7 +406,10 @@ int _testDiagCodes(bool update) {
     Console.WriteLine("  registry: " + rc.ToString() + " code constant(s); scanned " + files.ToString()
         + " source file(s): " + emitted.ToString() + " literal emission(s) + " + refs.ToString()
         + " constant reference(s) across " + pc.ToString() + " literal-emission site(s); "
-        + dn.ToString() + " code(s) documented in error-codes.md, "
+        + dn.ToString() + " code(s) documented in error-codes.md; "
+        // ⑧ 的账面：**这两个数就是「有多少条保护真的在跑」**。零发射那一格是欠债，不是噪音——
+        // 它此前只存在于文档的一列人工 grep 结果里，现在每跑一次门都被重算一次。
+        + liveN.ToString() + " live / " + deadN.ToString() + " zero-emission (documented as such); "
         + vc.ToString() + " violation(s)");
     // ⑥ 的欠账要**主动报出来**，别等它超期才第一次被提起——清单短的时候这一行就是全部账面。
     if (!update && pc > 0) {
@@ -325,7 +426,8 @@ int _testDiagCodes(bool update) {
             + _dcRegistryPath() + " (enforce-diagnostic-code-uniqueness)");
         return 1;
     }
-    Console.WriteLine("  ✓ every diagnostic code is claimed exactly once in the registry and documented exactly once in error-codes.md");
+    Console.WriteLine("  ✓ every diagnostic code is claimed exactly once in the registry, documented exactly once"
+        + " in error-codes.md, and its documented status matches whether it actually has an emission site");
     _procEnd("test diagcodes", sw);
     return 0;
 }
