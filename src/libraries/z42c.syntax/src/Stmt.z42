@@ -112,6 +112,37 @@ public sealed class ThrowStmt : Stmt {
     public override string Dump() { return "(throw " + this.E.Dump() + ")"; }
 }
 
+// `using` 语句（add-using-statement 批 3）。四种形态共用一个节点：
+//
+//   using (e) { B }          HasDecl=false, Type=空, Name="", Init=e
+//   using (T v = e) { B }    HasDecl=true,  Type=T,  Name=v,  Init=e   （块形态）
+//   using var v = e;         HasDecl=true,  Type=var, Name=v, Init=e,  IsScoped=true
+//   using T v = e;           HasDecl=true,  Type=T,  Name=v,  Init=e,  IsScoped=true
+//
+// `IsScoped` = 简化形态（无自己的块，作用域到**所在块末尾**）⇒ binder 降糖时要把
+// **它之后的兄弟语句**收进 try 体，这与块形态不同。
+//
+// 🔴 **不在 parser 里降糖**（照 `ForeachStmt` 的分法）：要判「目标可 dispose 吗」得有类型信息，
+// 那是 binder 的事；语法层降糖还会让 AST 不再对应源码（REPL / analyzer / Dump 都看这棵树）。
+public sealed class UsingStmt : Stmt {
+    public bool     HasDecl;    // 有没有声明一个名字
+    public TypeExpr Type;       // HasDecl 时的声明类型（`var` 也是一个 NamedType）
+    public string   Name;       // HasDecl 时的变量名
+    public Expr     Init;       // 资源表达式
+    public bool     IsScoped;   // true = `using var v = e;` / `using T v = e;`（无自己的块）
+    public Stmt     Body;       // 块形态的块；IsScoped 时是空块占位
+    public UsingStmt(bool hasDecl, TypeExpr type, string name, Expr init, bool isScoped, Stmt body, Span span) {
+        this.Span = span; this.HasDecl = hasDecl; this.Type = type; this.Name = name;
+        this.Init = init; this.IsScoped = isScoped; this.Body = body;
+    }
+    public override string Dump() {
+        string head = this.IsScoped ? "using-scoped " : "using ";
+        string decl = this.HasDecl ? (this.Type.Dump() + " " + this.Name + " ") : "";
+        string tail = this.IsScoped ? "" : (" " + this.Body.Dump());
+        return "(" + head + decl + this.Init.Dump() + tail + ")";
+    }
+}
+
 public sealed class ForeachStmt : Stmt {
     public TypeExpr Type;
     public string   Name;

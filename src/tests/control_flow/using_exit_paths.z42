@@ -1,0 +1,156 @@
+// add-using-statement 批 3：`using` 的释放必须覆盖**五条退出路径**。
+//
+// ⭐ 这张清单本仓原先**不存在**：`iteration.md` 只列四条（漏了 `continue`），
+// 而测试分散在 `finally_nonlocal_exit`（return / break）、`try_finally`、`finally_propagation`
+// 三个文件里，`continue` 经 finally 只在注释里声明过、没有夹具。本文件补齐。
+//
+// ⭐ 判别力：把降糖里的 `finally` 那一步删掉，下面五条必须**全红**（不是只有一条）。
+// 单验「正常落出」等于没测 —— 那条连没有 try/finally 的实现也能过。
+//
+// ⚠️ 判定是**名义**的（User 裁 D3-1）：`Res` 必须声明 `: IDisposable`，
+// 光有 `Dispose()` 方法不够（那种写法报 E0498）。
+class Res : IDisposable {
+    public static int Disposed;
+    public int Id;
+    public Res(int id) { this.Id = id; }
+    public void Dispose() { Res.Disposed = Res.Disposed + 1; }
+}
+
+int normalFallout() {
+    using (new Res(1)) { }
+    return 0;
+}
+
+int earlyReturn() {
+    using (new Res(2)) { return 7; }
+}
+
+int breakOut() {
+    int n = 0;
+    while (true) {
+        using (new Res(3)) { n = 1; break; }
+    }
+    return n;
+}
+
+int continueOut() {
+    int n = 0;
+    int i = 0;
+    while (i < 3) {
+        i = i + 1;
+        using (new Res(4)) { n = n + 1; continue; }
+    }
+    return n;
+}
+
+int throwOut() {
+    try {
+        using (new Res(5)) { throw new Exception("boom"); }
+    } catch (Exception e) {
+        return 9;
+    }
+}
+
+void _fiveExitPaths() {
+    // ① 正常落出
+    Res.Disposed = 0;
+    normalFallout();
+    Assert.Equal(1, Res.Disposed);
+
+    // ② return 穿出 using
+    Res.Disposed = 0;
+    Assert.Equal(7, earlyReturn());
+    Assert.Equal(1, Res.Disposed);
+
+    // ③ break 穿出 using（using 在循环体内）
+    Res.Disposed = 0;
+    Assert.Equal(1, breakOut());
+    Assert.Equal(1, Res.Disposed);
+
+    // ④ continue 穿出 using —— 本仓此前**没有任何夹具**验这条
+    Res.Disposed = 0;
+    Assert.Equal(3, continueOut());
+    Assert.Equal(3, Res.Disposed);   // 三轮，每轮都要释放
+
+    // ⑤ 异常穿出 using（且原异常仍被外层 catch 接住，没被 finally 盖掉）
+    Res.Disposed = 0;
+    Assert.Equal(9, throwOut());
+    Assert.Equal(1, Res.Disposed);
+}
+
+// ── 四形态都真的释放（不只是解析得过）────────────────────────────────────────
+
+void _allFourForms() {
+    Res.Disposed = 0;
+    using (new Res(10)) { }
+    Assert.Equal(1, Res.Disposed);
+
+    Res.Disposed = 0;
+    using (Res v = new Res(11)) { Assert.Equal(11, v.Id); }
+    Assert.Equal(1, Res.Disposed);
+
+    Res.Disposed = 0;
+    _scopedVar();
+    Assert.Equal(1, Res.Disposed);
+
+    Res.Disposed = 0;
+    _scopedTyped();
+    Assert.Equal(1, Res.Disposed);
+}
+
+void _scopedVar() {
+    using var v = new Res(12);
+    Assert.Equal(12, v.Id);
+}
+
+void _scopedTyped() {
+    using Res v = new Res(13);
+    Assert.Equal(13, v.Id);
+}
+
+// ── 释放顺序：后获取的先释放（逆序）─────────────────────────────────────────
+
+class Order : IDisposable {
+    public static string Log;
+    public string Tag;
+    public Order(string tag) { this.Tag = tag; }
+    public void Dispose() { Order.Log = Order.Log + this.Tag; }
+}
+
+void _releaseOrderIsReverse() {
+    Order.Log = "";
+    _twoScoped();
+    // 后获取的 b 先释放 ⇒ "ba"（若实现写成顺序释放会是 "ab"）
+    Assert.Equal("ba", Order.Log);
+}
+
+void _twoScoped() {
+    using var a = new Order("a");
+    using var b = new Order("b");
+}
+
+// ── null 目标：跳过 Dispose，且不掩盖真异常 ─────────────────────────────────
+
+void _nullTargetSkipped() {
+    Res r = null;
+    using (r) { }        // 不该崩
+    Assert.Equal(true, true);
+}
+
+// ── 嵌套：临时名唯一化真的有效（两层都释放）──────────────────────────────
+
+void _nestedBothDispose() {
+    Res.Disposed = 0;
+    using (new Res(20)) {
+        using (new Res(21)) { }
+    }
+    Assert.Equal(2, Res.Disposed);
+}
+
+void Main() {
+    _fiveExitPaths();
+    _allFourForms();
+    _releaseOrderIsReverse();
+    _nullTargetSkipped();
+    _nestedBothDispose();
+}

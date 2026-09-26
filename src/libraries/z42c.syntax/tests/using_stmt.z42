@@ -1,0 +1,86 @@
+// `using` 语句的解析单测（add-using-statement 批 3，T3/T2）。
+//
+// 两件事要守：① 四种形态都解析成 `UsingStmt`（看 Dump）；② **消歧**——`using` 兼着
+// import/别名指令，那两种在语句位仍须报 E0209。判别力全在②：只验①的话，把 E0209
+// 那段拦截整个删掉也能绿。
+namespace Z42cSyntaxUsingTests;
+
+using Std;
+using Std.Test;
+using Z42.Syntax;
+using Z42.Core;
+
+string dumpStmt(string src) {
+    var p = new Parser("class C { void M() { " + src + " } }", "t.z42");
+    var u = p.ParseCompilationUnit();
+    return u.Dump();
+}
+
+string codes(string src) {
+    var p = new Parser("class C { void M() { " + src + " } }", "t.z42");
+    p.ParseCompilationUnit();
+    var diags = p.Diagnostics();
+    string acc = "";
+    int i = 0;
+    while (i < diags.Count()) {
+        if (i > 0) { acc = acc + ","; }
+        acc = acc + diags.Get(i).Code;
+        i = i + 1;
+    }
+    return acc;
+}
+
+// ── ① 四种形态 ───────────────────────────────────────────────────────────────
+
+[Test]
+void test_form1_expression() {
+    Assert.Equal("", codes("using (r) { }"));
+    Assert.True(dumpStmt("using (r) { }").IndexOf("(using r") >= 0);
+}
+
+[Test]
+void test_form2_typed_decl_in_parens() {
+    Assert.Equal("", codes("using (Res v = Open()) { }"));
+    string d = dumpStmt("using (Res v = Open()) { }");
+    Assert.True(d.IndexOf("(using Res v") >= 0);
+}
+
+[Test]
+void test_form3_using_var() {
+    Assert.Equal("", codes("using var v = Open();"));
+    string d = dumpStmt("using var v = Open();");
+    Assert.True(d.IndexOf("(using-scoped var v") >= 0);
+}
+
+[Test]
+void test_form4_using_explicit_type() {
+    Assert.Equal("", codes("using Res v = Open();"));
+    string d = dumpStmt("using Res v = Open();");
+    Assert.True(d.IndexOf("(using-scoped Res v") >= 0);
+}
+
+// ── ② 消歧：import / 别名在语句位仍须报 E0209 ────────────────────────────────
+
+[Test]
+void test_import_in_statement_position_still_reported() {
+    // 🔴 判别力核心：这四条是 #(批 2 之前) 就有的门，本批**扩充而不是替换**它们。
+    // 若把拦截删掉，这里会变成零诊断。
+    Assert.Equal(DiagnosticCodes.DeclarationInStatement, codes("using Std.Toml;"));
+    Assert.Equal(DiagnosticCodes.DeclarationInStatement, codes("using Foo.Bar.Baz;"));
+    // 类型别名 `using X = Y;` 也是指令，不是语句 —— 与形态 4（`using T v = e;`）的区别是
+    // `=` 之前只有**一个** token。
+    Assert.Equal(DiagnosticCodes.DeclarationInStatement, codes("using Alias = Std.Toml;"));
+}
+
+[Test]
+void test_namespace_in_statement_position_unaffected() {
+    Assert.Equal(DiagnosticCodes.DeclarationInStatement, codes("namespace Foo;"));
+}
+
+// ── 嵌套与多个（临时名唯一化 / 逆序释放的解析前提）──────────────────────────
+
+[Test]
+void test_nested_and_multiple() {
+    Assert.Equal("", codes("using (a) { using (b) { } }"));
+    Assert.Equal("", codes("using var a = A(); using var b = B();"));
+}

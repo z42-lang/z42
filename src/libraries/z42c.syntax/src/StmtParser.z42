@@ -100,6 +100,63 @@ public sealed class StmtParser {
         return new SwitchStmt(subject, cases, cc, sp);
     }
 
+    // `using` 语句（add-using-statement 批 3）—— 四种形态，见 `UsingStmt` 抬头。
+    //
+    // ⚠️ 进到这里之前，`Parser.ParseStatement` 开头那段「`using` 只能出现在文件顶部」的拦截
+    // 已经用 `_isUsingStmtStart()` 放过行了；两处判据**必须是同一个函数**，否则会出现
+    // 「拦截放行了但这里不认」或反之 —— 那种不一致表现为莫名的级联错。
+    internal Stmt _parseUsing() {
+        Span sp = this._p._peek().Span;
+        this._p._advance();   // using
+        if (this._p._peek().Kind == TokenKind.LParen) {
+            this._p._advance();
+            // `using (T v = e)` 与 `using (e)`：前者是「类型 标识符 =」开头。复用 var-decl 那套前瞻。
+            bool hasDecl = this._isVarDeclStart();
+            TypeExpr ty = this._p._typeP._emptyType();
+            string nm = "";
+            if (hasDecl) {
+                ty = this._p._typeP._parseType();
+                nm = this._p._peek().Text;
+                this._p._expect(TokenKind.Identifier, "identifier");
+                this._p._expect(TokenKind.Eq, "=");
+            }
+            Expr init = this._p._exprP._parseExpr(0);
+            this._p._expect(TokenKind.RParen, ")");
+            Stmt body = this._parseBlock();
+            return new UsingStmt(hasDecl, ty, nm, init, false, body, sp);
+        }
+        // 简化形态：`using var v = e;` / `using T v = e;`（作用域到所在块末尾）
+        TypeExpr sty = this._p._typeP._parseType();
+        string snm = this._p._peek().Text;
+        this._p._expect(TokenKind.Identifier, "identifier");
+        this._p._expect(TokenKind.Eq, "=");
+        Expr sinit = this._p._exprP._parseExpr(0);
+        this._p._expectSemi();
+        Stmt empty = new BlockStmt(new Stmt[0], 0, sp);
+        return new UsingStmt(true, sty, snm, sinit, true, empty, sp);
+    }
+
+    // 语句位的 `using` 是**语句**还是**放错位置的 import**？
+    //
+    // 这是本 change 唯一的歧义点，判据集中在这里（`Parser.ParseStatement` 的拦截与
+    // `_parseUsing` 都问它）：
+    //   `using (`                 ⇒ 语句
+    //   `using var`               ⇒ 语句
+    //   `using <类型> <标识符> =`  ⇒ 语句（形态 4；与 `using X = Y;` 别名 import 的区别是
+    //                              **`=` 之前有两个 token**：类型 + 名字）
+    //   其它（`using A.B;` / `using X = Y;`）⇒ import，不是语句
+    internal bool _isUsingStmtStart() {
+        int n1 = this._p._peekAt(1).Kind;
+        if (n1 == TokenKind.LParen) { return true; }
+        if (n1 == TokenKind.Var)    { return true; }
+        // 形态 4：跳过类型后必须是 `标识符 =`。`_skipTypeOffset` 从给定偏移起跳一个类型，
+        // 返回其后的偏移；**失败返回 -1**（不是 0 —— `_isLocalFnStart` 用的判据是 `o <= 0`）。
+        int after = this._skipTypeOffset(1);
+        if (after <= 0) { return false; }
+        if (this._p._peekAt(after).Kind != TokenKind.Identifier) { return false; }
+        return this._p._peekAt(after + 1).Kind == TokenKind.Eq;
+    }
+
     internal Stmt _parseTry() {
         Span sp = this._p._peek().Span;
         this._p._advance();   // try

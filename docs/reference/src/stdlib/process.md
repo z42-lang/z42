@@ -349,8 +349,9 @@ void Main() {
   `SIGTERM` 入口，也没有发送任意信号的 API。
 - **`Stdio.ToFile` 不能用于 stdin**（会抛 `Std.Exception`）；也没有「追加到文件」的模式。
 - **`Spawn()` 忽略 `StdinBytes` 与 `ShareProcessGroup`**。
-- **没有 `using (...)` 语句**：`ProcessHandle` 虽然实现 `Std.IDisposable`，仍要自己
-  `try` / `finally` 里调 `Dispose()`（或者走 `Wait()`——它同样会终结句柄）。
+- ~~没有 `using (...)` 语句~~ **已可用**：`ProcessHandle` 实现 `Std.IDisposable` ⇒
+  `using (var p = Process.Spawn(...)) { ... }` 即可，任一退出路径都终结句柄。
+  手写 `try` / `finally` 或 `Wait()` 仍然可以。
 - **没有 async / 事件回调**：不存在 `OutputDataReceived` 之类；流式读写是阻塞的。
 - **拿不到资源统计**：没有 CPU 时间、内存峰值、启动 / 结束时间戳。
 - **没有进程枚举 / attach**：只能管自己启动的子进程，无法按 pid 找一个已有进程。

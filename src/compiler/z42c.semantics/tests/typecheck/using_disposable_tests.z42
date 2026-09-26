@@ -1,0 +1,96 @@
+// `using` 的**名义**可 dispose 判定单测（add-using-statement 批 3，T5）。
+//
+// User 2026-09-26 裁 D3-1：判定取**名义**（必须声明 `: IDisposable`），对齐 C#。
+// 🔴 这与 **foreach 刻意不同源** —— foreach 走鸭子类型（有 `Dispose` 成员就调，见
+// `foreach_protocol_tests.z42`）。本文件最后一组就是这个差异的对照，别把它当漏改。
+//
+// 三条契约：
+//   ① 只有 `Dispose()` 方法、没声明 `: IDisposable` → **E0498**（光有形状不够）
+//   ② 声明了 `: IDisposable` → 零诊断
+//   ③ 判据问**接口闭包**、不是直接基表：经基类继承、经父接口继承都必须成立
+//      （同 #827 的教训形状：查直接表会让继承来的那档静默落空）
+namespace Z42cSemanticsUsingDisposableTests;
+
+using Std;
+using Std.Test;
+using Z42.Semantics;
+
+// ── ① 形状不够（这正是与 foreach 的分界）──────────────────────────────────
+
+[Test]
+void test_shape_only_is_not_enough_e0498() {
+    string src = "namespace D; class R { public void Dispose() { } }"
+        + " class T { void M() { using (new R()) { } } }";
+    Assert.Equal("E0498", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_no_dispose_at_all_e0498() {
+    string src = "namespace D; class R { }"
+        + " class T { void M() { using (new R()) { } } }";
+    Assert.Equal("E0498", SemanticDump.FirstErrorCode(src));
+}
+
+// ── ② 名义声明 → 过 ────────────────────────────────────────────────────────
+
+[Test]
+void test_nominal_declaration_is_accepted() {
+    string src = "namespace D; interface IDisposable { void Dispose(); }"
+        + " class R : IDisposable { public void Dispose() { } }"
+        + " class T { void M() { using (new R()) { } } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// ── ③ 闭包：基类继承 / 父接口继承（判据不能只看直接基表）──────────────────
+
+[Test]
+void test_inherited_from_base_class() {
+    // `D2 : B`，而 `B : IDisposable` ⇒ `D2` 也可 dispose。
+    string src = "namespace D; interface IDisposable { void Dispose(); }"
+        + " class B : IDisposable { public void Dispose() { } }"
+        + " class D2 : B { }"
+        + " class T { void M() { using (new D2()) { } } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_inherited_via_parent_interface() {
+    // 静态类型是 `IRes`，而 `IRes : IDisposable` ⇒ 经父接口闭包成立。
+    string src = "namespace D; interface IDisposable { void Dispose(); }"
+        + " interface IRes : IDisposable { }"
+        + " class R : IRes { public void Dispose() { } }"
+        + " class T { void M() { IRes r = new R(); using (r) { } } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// ── 四形态都走同一条判定 ────────────────────────────────────────────────────
+
+[Test]
+void test_all_four_forms_go_through_the_same_check() {
+    string head = "namespace D; interface IDisposable { void Dispose(); }"
+        + " class R : IDisposable { public void Dispose() { } }"
+        + " class Bad { public void Dispose() { } } class T { void M() { ";
+    // 形态 2 / 3 / 4 各自也必须拦住「只有形状」的类型
+    Assert.Equal("E0498", SemanticDump.FirstErrorCode(head + "using (Bad b = new Bad()) { } } }"));
+    Assert.Equal("E0498", SemanticDump.FirstErrorCode(head + "using var b = new Bad(); } }"));
+    Assert.Equal("E0498", SemanticDump.FirstErrorCode(head + "using Bad b = new Bad(); } }"));
+    // 名义类型在四形态下都过
+    Assert.Equal("", SemanticDump.FirstErrorCode(head + "using (new R()) { } } }"));
+    Assert.Equal("", SemanticDump.FirstErrorCode(head + "using var r = new R(); } }"));
+}
+
+// ── 与 foreach 的差异（刻意不同源的对照）──────────────────────────────────
+
+[Test]
+void test_foreach_still_duck_typed_while_using_is_nominal() {
+    // 同一个「只有 Dispose 形状」的枚举器：foreach **接受**（鸭子类型）……
+    string fe = "namespace D; class It { int _n; public bool MoveNext() { this._n = this._n + 1; return this._n < 2; }"
+        + " public int Current { get { return 1; } } public void Dispose() { } }"
+        + " class C { public It GetEnumerator() { return new It(); } }"
+        + " class T { void M() { foreach (int x in new C()) { } } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(fe));
+    // ……而 `using` 对同样的形状报 E0498（名义）。这个差异是裁决，不是漏改。
+    string us = "namespace D; class It { public void Dispose() { } }"
+        + " class T { void M() { using (new It()) { } } }";
+    Assert.Equal("E0498", SemanticDump.FirstErrorCode(us));
+}

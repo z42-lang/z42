@@ -25,7 +25,10 @@ using Std;
 // Not supported (see docs/reference/src/stdlib/io-stream.md):
 //   * `CopyTo(Stream)` — manual loop is one-liner in v0
 //   * `BeginRead` / async — gated on L3 async/await
-//   * `Dispose` pattern — z42 has no `IDisposable` yet; use Close()
+//   * `Dispose` pattern — this base class only has `Close()`; `Std.IDisposable` **does exist**
+//     (z42.core/src/Protocols/IDisposable.z42) and `using` works on types that declare it.
+//     Stream itself declaring it is a separate item (it would add a public member). ⚠️ the old
+//     comment here claimed "z42 has no IDisposable yet" — that was false for a long time.
 //   * `Timeout` / `ReadTimeout` / `WriteTimeout` — needs concrete
 //     subclass with timer (NetworkStream)
 

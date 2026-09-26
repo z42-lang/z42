@@ -301,7 +301,12 @@ public sealed class Parser {
         // expression" → "expected ';'" → 两条 "undefined"），没有一条说得出真正原因，
         // 写错的人得自己猜。这里在唯一的语句分发点截住，给一条说清楚的诊断并跳到
         // 分号恢复（后续语句照常解析，不再连锁误报）。
-        if (k == TokenKind.Using || k == TokenKind.Namespace
+        // add-using-statement 批 3：`using` 现在**也是一种语句**（四形态见 `UsingStmt`）⇒ 这段拦截
+        // 必须先放行它，否则语句形态永远先撞下面这条 E0209。判据集中在
+        // `StmtParser._isUsingStmtStart()`（拦截与 `_parseUsing` 共用同一个函数，避免两处走散）。
+        // 🔴 这段拦截在 `_steps` 循环**之外**、优先于语句表命中，所以开口只能开在这里。
+        bool usingIsStmt = (k == TokenKind.Using) && this._stmtP._isUsingStmtStart();
+        if ((k == TokenKind.Using && !usingIsStmt) || k == TokenKind.Namespace
             || (k == TokenKind.Identifier && st.Text == "global"
                 && this._peekAt(1).Kind == TokenKind.Using)) {
             string what = (k == TokenKind.Namespace) ? "namespace" : "using";
@@ -374,6 +379,7 @@ public sealed class Parser {
         if (k == TokenKind.Do)      { return this._stmtP._parseDoWhile(); }
         if (k == TokenKind.Switch)  { return this._stmtP._parseSwitch(); }
         if (k == TokenKind.Try)     { return this._stmtP._parseTry(); }
+        if (k == TokenKind.Using)   { return this._stmtP._parseUsing(); }
         if (k == TokenKind.Break)   { this._advance(); this._expectSemi(); return new BreakStmt(st.Span); }
         if (k == TokenKind.Continue){ this._advance(); this._expectSemi(); return new ContinueStmt(st.Span); }
         this._advance(); Expr te = this._exprP._parseExpr(0); this._expectSemi(); return new ThrowStmt(te, st.Span);

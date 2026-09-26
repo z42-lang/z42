@@ -51,6 +51,7 @@ public static class FeatureNames {
     public static string ControlFlow  = "control_flow";   // if/while/for/foreach/do/switch + break/continue
     public static string Exceptions   = "exceptions";     // try + throw
     public static string PatternMatch = "pattern_match";  // 进模式引擎的那几条路（`x is T` 不算，见下）
+    public static string UsingStmt    = "using_stmt";     // `using` **语句**（import/别名指令不受它管）
 }
 
 // 后缀角色（「最紧」的一档：今天在主循环里无守卫地 `continue`）。
@@ -209,6 +210,10 @@ public static class StmtRules {
         if (k == TokenKind.For || k == TokenKind.Foreach || k == TokenKind.Do) { return true; }
         if (k == TokenKind.Switch || k == TokenKind.Try) { return true; }
         if (k == TokenKind.Break || k == TokenKind.Continue || k == TokenKind.Throw) { return true; }
+        // `using` 是**语句**的那几种形态（add-using-statement 批 3）。⚠️ 同一个 token 还兼着
+        // import/别名指令 —— 那两种不是语句，由 `StmtParser._isUsingStmtStart()` 在
+        // `ParseStatement` 的拦截处分流，**进不到这张表**。
+        if (k == TokenKind.Using) { return true; }
         return false;
     }
 
@@ -223,6 +228,10 @@ public static class StmtRules {
             || k == TokenKind.Foreach || k == TokenKind.Do || k == TokenKind.Switch
             || k == TokenKind.Break || k == TokenKind.Continue) { return FeatureNames.ControlFlow; }
         if (k == TokenKind.Try || k == TokenKind.Throw) { return FeatureNames.Exceptions; }
+        // `using_stmt`：#783 删掉的 6 个**幻影特性**之一（那时它宣告了一个不存在的语法），
+        // 本批让它以真名回来 —— 按批 2 立的纪律，加名字必须同时有「parser 真的消费它」
+        // 与「一条会红的门」，两者都在本批。
+        if (k == TokenKind.Using) { return FeatureNames.UsingStmt; }
         return "";   // return：没有哪个特性名该管它（关掉它等于关掉函数）
     }
 }

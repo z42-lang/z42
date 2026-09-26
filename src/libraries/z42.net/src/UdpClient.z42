@@ -21,7 +21,7 @@ using Std;
 // `("0.0.0.0", 0)` (OS-assigned ephemeral port). This matches BCL
 // `UdpClient.Send` behavior. Caller can then `LocalPort()` to discover
 // the assigned port.
-public class UdpClient {
+public class UdpClient : IDisposable {
     private long   _slotId;
     private bool   _bound;
     private bool   _disposed;

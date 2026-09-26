@@ -17,7 +17,7 @@ using Std;
 // `Bind` performs the bind + listen in one step (Rust `TcpListener::bind`
 // does both). `Start()` is provided as a BCL-compat no-op for code
 // migrating from .NET.
-public class TcpListener {
+public class TcpListener : IDisposable {
     private long _slotId;
     private bool _started;
     private bool _stopped;

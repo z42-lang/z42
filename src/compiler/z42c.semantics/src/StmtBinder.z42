@@ -12,6 +12,88 @@ public sealed class StmtBinder {
     private TypeChecker _tc;
     public StmtBinder(TypeChecker tc) { this._tc = tc; }
 
+    // `using` 语句的降糖（add-using-statement 批 3）。照 `_bindForeachEnumerable` 的路子：
+    // **binder 脱糖成既有 AST 再喂回 `_bindStmt`** ⇒ 零新 Bound 节点、零新 emitter、零新 IR 指令，
+    // 白拿既有 try/finally 栈对五条退出路径（正常落出 / return / break / continue / throw）的覆盖。
+    //
+    //   using (E) { B }        ⇒ { var __u_N = E;  try { B } finally { if (__u_N != null) { __u_N.Dispose(); } } }
+    //   using (T v = E) { B }  ⇒ { T v = E;        try { B } finally { if (v != null) { v.Dispose(); } } }
+    //   using var v = E; 之后  ⇒ { var v = E;      try { <该语句之后的全部兄弟语句> } finally { … } }
+    //
+    // `rest` = 简化形态要收进 try 体的「后续兄弟语句」（由 `_bindBlock` 传入）；块形态传 `us.Body`。
+    //
+    // 🔴 **判定是名义的**（User 2026-09-26 裁 D3-1）：目标类型的**接口闭包**里必须有
+    // `Std.IDisposable`。这与 foreach 的判据**刻意不同源** —— foreach 是鸭子类型（形状匹配
+    // `Dispose` 成员），`using` 对齐 C# 取名义。别把这看成漏改：两处注释都写明了。
+    // 闭包判据复用 `symbols.Implements`（沿 `BaseName` 链 + 接口 BFS 上溯父接口），
+    // 不另写一份 —— `class A : B` 而 `B : IDisposable` 时 `A` 也可 dispose。
+    private BoundStmt _bindUsing(UsingStmt us, Stmt rest, TypeEnv env, Z42Type ret) {
+            Span sp = us.Span;
+            TypeEnv uScope = env.PushScope();
+            BoundExpr uInit = this._tc._expr._bindExpr(us.Init, uScope);
+            Z42Type rt = uInit.Type();
+            if (!StmtBinder._isDisposable(uScope.Symbols, rt)) {
+                this._tc._diags.Error(DiagnosticCodes.UsingTargetNotDisposable,
+                    "`using` requires a type that implements `Std.IDisposable`, but `"
+                    + rt.Name() + "` does not — declare `: IDisposable` on it (a `Dispose()` method alone is not enough)",
+                    sp);
+            }
+            // 资源变量：有声明就用用户的名字/类型，否则合成一个（span 起始偏移唯一化，防嵌套撞名）。
+            TypeExpr rty = us.HasDecl ? us.Type : new NamedType("var", new TypeExpr[0], 0, sp);
+            string rname = us.HasDecl ? us.Name : ("__u_" + sp.Start.ToString());
+            Stmt declR = new VarDeclStmt(rty, rname, us.Init, sp);
+            // finally { if (r != null) { r.Dispose(); } }
+            //
+            // null 判是**必须**的（C# 口径「null 则跳过 Dispose」）：少了它，`using (MaybeNull())`
+            // 会在 finally 里空引用崩，而那会**盖掉 try 体里的真异常** —— 比泄漏更难查。
+            Expr notNull = new BinaryExpr("!=", new IdentExpr(rname, sp), new NullLitExpr(sp), sp);
+            Expr disposeCall = new CallExpr(new MemberExpr(new IdentExpr(rname, sp), ProtocolNames.Dispose, sp), new Expr[0], 0, sp);
+            Stmt[] dstmts = new Stmt[1];
+            dstmts[0] = new ExprStmt(disposeCall, sp);
+            Stmt disposeBlock = new BlockStmt(dstmts, 1, sp);
+            Stmt fin = new IfStmt(notNull, disposeBlock, false, disposeBlock, sp);
+            Stmt tryStmt = new TryCatchStmt(rest, new CatchClause[0], 0, true, fin, sp);
+            Stmt[] blockStmts = new Stmt[2];
+            blockStmts[0] = declR;
+            blockStmts[1] = tryStmt;
+            Stmt block = new BlockStmt(blockStmts, 2, sp);
+            return this._bindStmt(block, env, ret);
+    }
+
+    // 名义判定：`t` 的接口闭包里有 `Std.IDisposable` 吗。
+    // 判据不足（型参 / Unknown / 错误类型）时**返回 true**（保守放行）——与 `ForeachProtocol._hasDispose`
+    // 同一口径：宁可漏报一次，也不要对着一个本来就没解析出来的类型再叠一条误报。
+    // 🔴 **两种拼写都要认**：本包类的 `InterfaceNames` 存的是**源码里写的短名**（`IDisposable`），
+    // 而**导入**类的存的是 **FQ 名**（`Std.IDisposable`）——`ExportedTypes.z42:155` 明写「名字形态是
+    // FQ，与 `IrClassDesc.Interfaces` 一致（zbc 1.20 起）」。只比短名的话，跨包用 `using` 会对
+    // 每一个 stdlib 资源类型误报 E0498（实测：`TextReader` 明明声明了 `: IDisposable` 也被拦）。
+    private static bool _implementsDisposable(SymbolTable symbols, string typeName) {
+        if (symbols.Implements(typeName, ProtocolNames.IDisposable)) { return true; }
+        return symbols.Implements(typeName, "Std." + ProtocolNames.IDisposable);
+    }
+
+    private static bool _isDisposable(SymbolTable symbols, Z42Type t) {
+        if (t == null) { return true; }
+        if (t is Z42UnknownType) { return true; }
+        if (t is Z42InterfaceType) {
+            if (t.Name() == ProtocolNames.IDisposable) { return true; }
+            if (t.Name() == "Std." + ProtocolNames.IDisposable) { return true; }
+            // 🔴 **接口那条线不能用 `Implements`**：它从 `this.Classes.Find(cur)` 起步、只沿**类**的
+            // `BaseName` 链走 ⇒ 第一个参数是接口名时直接落空（`IRes : IDisposable` 上的
+            // `using` 会被误报 E0498）。接口→父接口的那半在 `InterfaceDerivesFrom`（不含自身，
+            // 所以上面先单独比一次名字）。
+            // ⚠️ 这个分裂是既有的（`Conversion` 与 `ConstraintChecker` 都直接用 `Implements`，
+            // 于是「接口→父接口赋值关系」至今不成立 —— 那是独立记账的一条，不在本 change 范围）。
+            if (symbols.InterfaceDerivesFrom(t.Name(), ProtocolNames.IDisposable)) { return true; }
+            return symbols.InterfaceDerivesFrom(t.Name(), "Std." + ProtocolNames.IDisposable);
+        }
+        if (t is Z42InstantiatedType) {
+            return StmtBinder._implementsDisposable(symbols, (t as Z42InstantiatedType).Def.Name());
+        }
+        if (t is Z42ClassType) { return StmtBinder._implementsDisposable(symbols, t.Name()); }
+        return true;
+    }
+
     private BoundStmt _bindForeach(ForeachStmt fe, TypeEnv env, Z42Type ret) {
             TypeEnv feScope = env.PushScope();
             BoundExpr feIter = this._tc._expr._bindExpr(fe.Iter, feScope);
@@ -412,7 +494,24 @@ public sealed class StmtBinder {
             }
             BoundStmt[] outs = new BoundStmt[b.Count];
             int i = 0;
-            while (i < b.Count) { outs[i] = this._bindStmt(b.Stmts[i], scope, ret); i = i + 1; }
+            while (i < b.Count) {
+                // `using var v = e;` / `using T v = e;`（简化形态）的作用域是**到所在块末尾** ⇒
+                // 降糖时它之后的全部兄弟语句要成为 try 体。这件事只有块上下文知道，所以特判在这里。
+                // 多个简化形态叠加时天然得到**嵌套** try/finally ⇒ 释放顺序逆序（后获取先释放），
+                // 与 C# 一致，不需要额外机制。
+                if (b.Stmts[i] is UsingStmt && (b.Stmts[i] as UsingStmt).IsScoped) {
+                    UsingStmt su = b.Stmts[i] as UsingStmt;
+                    int restN = b.Count - i - 1;
+                    Stmt[] restArr = new Stmt[restN];
+                    int r = 0;
+                    while (r < restN) { restArr[r] = b.Stmts[i + 1 + r]; r = r + 1; }
+                    Stmt restBlock = new BlockStmt(restArr, restN, su.Span);
+                    outs[i] = this._bindUsing(su, restBlock, scope, ret);
+                    return new BoundBlock(outs, i + 1, b.Span);
+                }
+                outs[i] = this._bindStmt(b.Stmts[i], scope, ret);
+                i = i + 1;
+            }
             return new BoundBlock(outs, b.Count, b.Span);
     }
 
@@ -456,6 +555,13 @@ public sealed class StmtBinder {
         // GS6: foreach → BoundForeach（镜像 C# TypeChecker：保留语义节点，FunctionEmitter 专用 _emitForeach
         // 产出 ArrayLen+ConstI32 计数器 byte-identical IR；替代旧脱糖到 while+BoundMember.Length 路径）。
         if (s is ForeachStmt) { return this._bindForeach(s as ForeachStmt, env, ret); }
+        // `using` 块形态。简化形态（`using var v = e;`）走 `_bindBlock` 那条特判 —— 它要把
+        // **后续兄弟语句**收进 try 体，只有块上下文知道那些语句是什么。落到这里的简化形态
+        // （例如 `if (c) using var v = e;` 这种无花括号单语句位）try 体为空，语义上也对。
+        if (s is UsingStmt) {
+            UsingStmt us0 = s as UsingStmt;
+            return this._bindUsing(us0, us0.IsScoped ? (new BlockStmt(new Stmt[0], 0, us0.Span) as Stmt) : us0.Body, env, ret);
+        }
         this._tc._diags.Error(DiagnosticCodes.TypeMismatch, "unsupported statement (1A)", s.Span);
         return new BoundExprStmt(new BoundError("unsupported stmt", new Z42ErrorType(), s.Span), s.Span);
     }
