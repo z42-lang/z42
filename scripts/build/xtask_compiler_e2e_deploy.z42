@@ -323,3 +323,91 @@ int _e2eZpkgRefChecks(string root, string vm, string driverZpkg) {
     Console.WriteLine("  ✓ zpkg 产物引用：引用得到 + 随产物走 + 三条错误各自说清");
     return 0;
 }
+
+// ── `deploy = "copy" | "shared"`（add-deployment-model 批 4 use）──────────────────────────
+//
+// **守的是什么**：清单里显式声明的部署方式能不能压过默认判据。
+// 默认判据（批 1）是「从哪个目录找到的」：shipped `libs/` 里的不复制，其余复制。
+// `deploy` 是它的**显式覆盖**。
+//
+// 四格：
+//   ① 未声明 → 框架包不复制（默认判据照常生效，也是下面几格的**对照**）；
+//   ② `copy` → **强制复制框架包**（显式要自包含，即使它在 libs/ 里）；
+//   ③ `shared` → **强制不复制**（即使它不在 libs/ 里）；
+//   ④ 非法取值（`"Copy"` / typo）→ 报错。不校验的话会被当成未声明静默走默认判据
+//      —— 又一个「配了以为生效」。
+string _e2eDeployAppSrc2() { return "namespace DeployUseApp;\n\nusing Std.IO;\n\nvoid Main() { Console.WriteLine(\"ok\"); }\n"; }
+
+string _e2eDeployUseToml(string depSpec) {
+    return "[project]\nname    = \"deployuse\"\nversion = \"0.1.0\"\nkind    = \"exe\"\n"
+         + "entry   = \"DeployUseApp.Main\"\n\n[sources]\ninclude = [\"*.z42\"]\n\n"
+         + "[dependencies]\n\"z42.io\" = " + depSpec + "\n";
+}
+
+int _e2eDeployUseChecks(string root, string vm, string driverZpkg) {
+    string flat = _libsFlatDist(root, "release");
+    string tmp  = Path.Join("/tmp", "z42c-e2e-deployuse");
+    if (Directory.Exists(tmp)) { try { Directory.Delete(tmp, true); } catch (Exception e) {} }
+    string libsDir = Path.Join(tmp, "libs");
+    string appDir  = Path.Join(tmp, "app");
+    Directory.Create(libsDir); Directory.Create(appDir);
+    string[] stdlib = Path.Glob(flat, "*.zpkg");
+    int si = 0;
+    while (si < stdlib.Length) { File.Copy(stdlib[si], Path.Join(libsDir, Path.GetFileName(stdlib[si]))); si = si + 1; }
+    File.WriteAllText(Path.Join(appDir, "app.z42"), _e2eDeployAppSrc2());
+    string appToml = Path.Join(appDir, "deployuse.z42.toml");
+    string distDir = Path.Join(appDir, "dist");
+    string copied  = Path.Join(distDir, "z42.io.zpkg");
+    // 🔴 每格构建前必须清 dist：`_bundleExeDeps` 只**写入**、不清理，上一格复制进去的副本
+    // 会被下一格当成「本格复制了」。初稿没清，③ 读到 ② 的残留 ⇒ 门报「shared 没能阻止复制」，
+    // 而实现是好的 —— **门自己的状态污染**。
+
+    // ① 未声明 → 不复制（对照）。
+    if (Directory.Exists(distDir)) { try { Directory.Delete(distDir, true); } catch (Exception e) {} }
+    File.WriteAllText(appToml, _e2eDeployUseToml("\"0.1.0\""));
+    ProcessResult b1 = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(appToml).Arg("--release")
+        .Env("Z42_LIBS", libsDir).Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
+    if (b1.ExitCode != 0) { Console.WriteLine("  ✗ deploy use: 基线构建失败: " + b1.Stderr); return 1; }
+    if (File.Exists(copied)) {
+        Console.WriteLine("  ✗ deploy use: 未声明时框架包竟被复制 —— 默认判据坏了，下面几格失去对照");
+        return 1;
+    }
+
+    // ② copy → 强制复制框架包。
+    if (Directory.Exists(distDir)) { try { Directory.Delete(distDir, true); } catch (Exception e) {} }
+    File.WriteAllText(appToml, _e2eDeployUseToml("{ version = \"0.1.0\", deploy = \"copy\" }"));
+    ProcessResult b2 = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(appToml).Arg("--release")
+        .Env("Z42_LIBS", libsDir).Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
+    if (b2.ExitCode != 0) { Console.WriteLine("  ✗ deploy use: deploy=copy 构建失败: " + b2.Stderr); return 1; }
+    if (!File.Exists(copied)) {
+        Console.WriteLine("  ✗ deploy use: `deploy = \"copy\"` 没能压过「在 libs/ 里就不复制」");
+        return 1;
+    }
+
+    // ③ shared → 强制不复制。用 vendored 副本（不在 libs/），否则默认判据本来就不复制、测不出。
+    string vend = Path.Join(tmp, "vendor");
+    Directory.Create(vend);
+    File.Copy(Path.Join(libsDir, "z42.io.zpkg"), Path.Join(vend, "z42.io.zpkg"));
+    if (Directory.Exists(distDir)) { try { Directory.Delete(distDir, true); } catch (Exception e) {} }
+    File.WriteAllText(appToml, _e2eDeployUseToml("{ path = \"../vendor/z42.io.zpkg\", deploy = \"shared\" }"));
+    ProcessResult b3 = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(appToml).Arg("--release")
+        .Env("Z42_LIBS", libsDir).Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
+    if (b3.ExitCode != 0) { Console.WriteLine("  ✗ deploy use: deploy=shared 构建失败: " + b3.Stderr); return 1; }
+    if (File.Exists(copied)) {
+        Console.WriteLine("  ✗ deploy use: `deploy = \"shared\"` 没能阻止复制 —— 声明了共享却仍自包含");
+        return 1;
+    }
+
+    // ④ 非法取值。
+    File.WriteAllText(appToml, _e2eDeployUseToml("{ version = \"0.1.0\", deploy = \"Copy\" }"));
+    ProcessResult b4 = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(appToml).Arg("--release")
+        .Env("Z42_LIBS", libsDir).Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
+    string all4 = b4.Stdout + b4.Stderr;
+    if (b4.ExitCode == 0 || all4.IndexOf("不是合法取值") < 0) {
+        Console.WriteLine("  ✗ deploy use: 非法取值没被拒绝（会被当成未声明静默走默认判据）: " + all4);
+        return 1;
+    }
+
+    Console.WriteLine("  ✓ deploy 声明：copy 压过默认、shared 阻止复制、非法取值被拒");
+    return 0;
+}
