@@ -95,7 +95,10 @@ try {
 }
 ```
 
-`try` / `finally` 保证**任何离开方式**（正常结束、`break`、`return`、抛异常）都会调到 `Dispose()`。
+`try` / `finally` 保证**任何离开方式**都会调到 `Dispose()` —— **五条**：正常结束、`break`、
+`continue`、`return`、抛异常。（此前这里只列了四条、漏了 `continue`；五条各自的夹具见
+`src/tests/control_flow/using_exit_paths.z42`，[`using` 语句](using-statement.md) 与 foreach
+共用同一套保证。）
 `IEnumerator<T>` 继承 `IDisposable` 正是为了这个。
 
 > **`Dispose` 是条件步骤，不是必需成员。** 枚举器**没有** `Dispose` 时，脱糖就只剩那个 `while`

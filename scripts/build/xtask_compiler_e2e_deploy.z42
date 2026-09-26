@@ -412,6 +412,81 @@ int _e2eDeployUseChecks(string root, string vm, string driverZpkg) {
     return 0;
 }
 
+// ── `deploy` 声明校验提到清单层（add-deployment-model 批 4.3）────────────────────────────
+//
+// **守的是什么**：`deploy` 的校验此前住在 `_bundleExeDeps` 里，而那个函数**只在 exe 分支跑** ⇒
+//   · `kind = "lib"` 里写 `deploy = "Copy"`（大写 typo）→ 校验从未执行、静默无效；
+//   · `kind = "analyzer"` 里写任何 `deploy` → 那个键在编译期扩展上没有意义，也没人说话；
+//   · `[analyzers]` 条目写 `deploy` → 同上（它与 `[dependencies]` 共用 `DepEntry`，键写得出来）。
+// 三格都是同一个形状：**配了，没报错，就是不生效**。校验移到 `_build` 开头后对所有 kind 生效。
+//
+// ⚠️ exe 的非法取值那格在 `_e2eDeployUseChecks` ④ 已有 —— 这里刻意只盖**非-exe** 那半，
+// 否则两个门守同一件事，其中一个坏了不会有人知道。
+string _e2eDeclLibSrc() { return "namespace DvLib;\n\npublic class A { public int F() { return 1; } }\n"; }
+
+string _e2eDeclToml(string kind, string depSpec, string analyzersSection) {
+    return "[project]\nname    = \"dvdecl\"\nversion = \"0.1.0\"\nkind    = \"" + kind + "\"\n\n"
+         + "[sources]\ninclude = [\"*.z42\"]\n\n"
+         + "[dependencies]\n\"z42.core\" = \"0.1.0\"\n\"z42.io\" = " + depSpec + "\n" + analyzersSection;
+}
+
+int _e2eDeployDeclChecks(string root, string vm, string driverZpkg) {
+    string flat = _libsFlatDist(root, "release");
+    string tmp  = Path.Join("/tmp", "z42c-e2e-deploydecl");
+    if (Directory.Exists(tmp)) { try { Directory.Delete(tmp, true); } catch (Exception e) {} }
+    string libsDir = Path.Join(tmp, "libs");
+    string prjDir  = Path.Join(tmp, "prj");
+    Directory.Create(libsDir); Directory.Create(prjDir);
+    string[] stdlib = Path.Glob(flat, "*.zpkg");
+    int si = 0;
+    while (si < stdlib.Length) { File.Copy(stdlib[si], Path.Join(libsDir, Path.GetFileName(stdlib[si]))); si = si + 1; }
+    File.WriteAllText(Path.Join(prjDir, "a.z42"), _e2eDeclLibSrc());
+    string toml = Path.Join(prjDir, "dvdecl.z42.toml");
+
+    // ① 对照：lib + 合法取值 → 照样编过（否则下面三格的红说明不了任何事）。
+    File.WriteAllText(toml, _e2eDeclToml("lib", "{ version = \"0.1.0\", deploy = \"shared\" }", ""));
+    ProcessResult b1 = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(toml).Arg("--release")
+        .Env("Z42_LIBS", libsDir).Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
+    if (b1.ExitCode != 0) {
+        Console.WriteLine("  ✗ deploy 声明: lib + 合法 deploy 竟构建失败（对照格坏了）: " + b1.Stdout + b1.Stderr);
+        return 1;
+    }
+
+    // ② lib 里的非法取值 —— 改前这格静默通过。
+    File.WriteAllText(toml, _e2eDeclToml("lib", "{ version = \"0.1.0\", deploy = \"Copy\" }", ""));
+    ProcessResult b2 = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(toml).Arg("--release")
+        .Env("Z42_LIBS", libsDir).Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
+    string a2 = b2.Stdout + b2.Stderr;
+    if (b2.ExitCode == 0 || a2.IndexOf("不是合法取值") < 0) {
+        Console.WriteLine("  ✗ deploy 声明: **lib** 工程里的非法取值没被拒绝 —— 校验只对 exe 生效: " + a2);
+        return 1;
+    }
+
+    // ③ analyzer 工程的依赖写 deploy（取值合法，但在编译期扩展上没有意义）。
+    File.WriteAllText(toml, _e2eDeclToml("analyzer", "{ version = \"0.1.0\", deploy = \"copy\" }", ""));
+    ProcessResult b3 = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(toml).Arg("--release")
+        .Env("Z42_LIBS", libsDir).Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
+    string a3 = b3.Stdout + b3.Stderr;
+    if (b3.ExitCode == 0 || a3.IndexOf("kind = \"analyzer\"") < 0) {
+        Console.WriteLine("  ✗ deploy 声明: analyzer 工程的依赖写 deploy 没被拒绝: " + a3);
+        return 1;
+    }
+
+    // ④ `[analyzers]` 条目写 deploy。
+    File.WriteAllText(toml, _e2eDeclToml("lib", "\"0.1.0\"",
+        "\n[analyzers]\n\"some.handler\" = { version = \"0.1.0\", deploy = \"copy\" }\n"));
+    ProcessResult b4 = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(toml).Arg("--release")
+        .Env("Z42_LIBS", libsDir).Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
+    string a4 = b4.Stdout + b4.Stderr;
+    if (b4.ExitCode == 0 || a4.IndexOf("[analyzers]") < 0) {
+        Console.WriteLine("  ✗ deploy 声明: [analyzers] 条目写 deploy 没被拒绝: " + a4);
+        return 1;
+    }
+
+    Console.WriteLine("  ✓ deploy 声明校验对所有 kind 生效：lib 的 typo、analyzer 工程、[analyzers] 条目都被拒");
+    return 0;
+}
+
 // ── 按名/产物引用的**传递闭包**（add-deployment-model 批 2.2 use）────────────────────────
 //
 // **守的是什么**：`app → mid → leaf` 时 `leaf` 也得随产物走。

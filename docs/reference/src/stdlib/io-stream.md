@@ -371,9 +371,11 @@ void Main() {
 
 - **没有 `abstract`**：`Stream` / `TextReader` / `TextWriter` 都可以被 `new` 出来，
   误用只能在运行期以 `NotSupportedException` 暴露。
-- **不实现 `Std.IDisposable`，也没有 `using (...)` 语句**：一律手写 `Close()`，配
-  `try` / `finally`。`TextReader.Dispose()` / `TextWriter.Dispose()` 只是 `Close()`
-  的普通别名方法，不代表实现了那个接口。
+- **`Stream` 本身仍不实现 `Std.IDisposable`**（只有 `Close()`）⇒ 它还不能直接进 `using`；
+  给它加那个接口是独立一条（会新增公开成员）。
+  但 **`TextReader` / `TextWriter` 现在名义实现了 `Std.IDisposable`**
+  （add-using-statement 批 3）⇒ `using (var r = new StreamReader(s)) { ... }` 可用。
+  ⚠️ 旧版本这里写「z42 没有 `using (...)` 语句」—— 那句话在 `using` 语句落地后已作废。
 - **没有 async**：不存在 `ReadAsync` / `WriteAsync`。
 - **没有超时旋钮**：`ReadTimeout` / `WriteTimeout` 不存在。
 - **没有 `ObjectDisposedException`**：关闭后的误用要么抛 `InvalidOperationException`，

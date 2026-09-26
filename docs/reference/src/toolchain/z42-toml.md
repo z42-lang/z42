@@ -624,7 +624,17 @@ entry   = "MyApp.main"
 | `shared` | **不复制**，运行期从 [`probing-paths`](runtime-settings.md#probing-paths--依赖的额外搜索目录) 或 `libs/` 解析 |
 | 省略 | 由默认规则决定：**从 shipped `libs/` 找到的不复制**（框架），从别处找到的复制（私有）|
 
-只接受这两个值，写错（`Copy` / typo）**报错** —— 否则会被当成未声明静默走默认规则。
+只接受这两个值，写错（`Copy` / typo）**报错** —— 否则会被当成未声明静默走默认规则。校验在编译**之前**
+跑，对**所有 `kind`** 生效（此前只在 exe 构建时跑，于是 lib 里的 typo 静默无效）。
+
+`deploy` 在两个地方**没有意义、写了报错**：
+
+| 写在哪 | 为什么 |
+|---|---|
+| `kind = "analyzer"` 工程的 `[dependencies]` | 编译期扩展永不链入运行期产物，它的依赖也就没有「部署到哪」 |
+| 任何工程的 [`[analyzers]`](#analyzers--加载进编译器编译期运行不链入产物) 条目 | handler zpkg 只加载进编译器进程、编译期运行，永不随产物走 |
+
+（两处都与 `[dependencies]` 共用同一套条目语法，所以键写得出来 —— 报错是为了不让它静默无效。）
 
 > `shared` **不要求那个包此刻存在于任何地方** —— 它的解析是运行期的事。构建期不校验
 > 「运行期够不够得着」：那需要把 VM 的 probing-paths 展开规则（相对 entry、通配符、去重）
@@ -1074,6 +1084,7 @@ exceptions    = false     # 关掉 try + throw
 bitwise       = false     # 关掉 | ^ & << >>
 ternary       = false     # 关掉 ?:
 pattern_match = false     # 关掉模式（`x is 1` / `case 1:` / switch 表达式 / 解构声明）
+using_stmt    = false     # 关掉 `using` **语句**（import / 别名**指令**不受影响）
 ```
 
 | 事项 | 说明 |
@@ -1083,7 +1094,7 @@ pattern_match = false     # 关掉模式（`x is 1` / `case 1:` / switch 表达�
 | 粒度 | 一般是**整个语法构造**；`pattern_match` 例外，它只关「进模式引擎」的那几条路 —— **`x is T` / `x is T v` 是类型测试，仍然可用** |
 | 缓存 | 特性集折进包级缓存身份（`depsId`）⇒ 只改 toml 不碰源码也会重编，不会「全量生效、增量被忽略」|
 
-> ⚠️ **上面这 5 个是今天真的关得掉东西的全部。**
+> ⚠️ **上面这 6 个是今天真的关得掉东西的全部。**
 > `LanguageFeatures` 里还有 10 个名字（`oop` / `generics` / `lambda` / `tuples` / `delegates` /
 > `reflection` / `nullable` / `cast` / `arrays` / `interpolated_str`）—— 它们已登记、可以写进
 > `[syntax]` 而不报「未知名」，但**关掉它们不会挡住任何语法**。这是有意暴露的现状而不是承诺：

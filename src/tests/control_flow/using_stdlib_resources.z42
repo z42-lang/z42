@@ -1,0 +1,34 @@
+// add-using-statement 批 3 / T7：`using` 对 **stdlib 自己的资源类型**真的可用。
+//
+// ⭐ 这条夹具是本批「库侧账」的验收：落地前全仓 24 个声明 `void Dispose()` 的类型里，
+// 名义写 `: IDisposable` 的只有 5 个 —— z42 自己的资源类型（TcpClient / TcpListener /
+// UdpClient / TlsClient / WebSocket* / HttpClient / HttpServer / TextReader / TextWriter）
+// **一个都不在其中**，于是「纯名义」的 `using` 对它们全都报 E0498。本批把那 10 个补上了。
+//
+// ⚠️ 本夹具只覆盖 `z42.io`（`TextReader`/`TextWriter`）—— 单文件 e2e 只链一部分库，
+// `z42.net` 的类型在这里不可见（E0443）。net 那 8 个类型由「z42.net 自身能编过」+
+// 语义层单测覆盖（补基表后满足性校验会对每个类型跑一次）。
+// ⚠️ 只验「编得过」就够 —— 真开 socket 会让夹具依赖网络。可 dispose 的判定是**编译期**的，
+// 编得过即证明名义判定认了它们；释放行为由 `using_exit_paths.z42` 用自定义类型钉住。
+// ⭐ 判别力：把任一个类型的 `: IDisposable` 撤掉，本夹具**必须**编译失败（E0498）。
+
+using Std.IO;
+
+void _textReaderIsUsable(TextReader r) {
+    using (r) { }
+}
+
+void _textWriterIsUsable(TextWriter w) {
+    using var ww = w;
+}
+
+
+
+
+
+void Main() {
+    // 传 null 进去：`using` 的 null 判会跳过 Dispose ⇒ 不碰网络也能验编译 + 运行两侧。
+    _textReaderIsUsable(null);
+    _textWriterIsUsable(null);
+    Assert.Equal(1, 1);
+}

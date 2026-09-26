@@ -13,14 +13,17 @@ void test_phase1_profile_all_on() {
     Assert.Equal(true, f.IsEnabled("generics"));
     Assert.Equal(true, f.IsEnabled("pattern_match"));
     Assert.Equal(true, f.IsEnabled("delegates"));
+    Assert.Equal(true, f.IsEnabled("using_stmt"));   // add-using-statement 批 3 新增
     Assert.Equal(1, f.Phase);
-    Assert.Equal(15, f.Count());
+    Assert.Equal(16, f.Count());                     // 15 → 16（加了 using_stmt）
 }
 
 // 🔴 这张表只能列**真实存在**的语法构造。此前它宣告了 6 个不存在的特性，而当时的单测
 // 恰恰在断言其中两个「已启用」—— 门在守护假话。这条测试钉住那 6 个名字不再出现：
 // 名字回来之前，得先有 parser 真的消费对应语法。
-//   · using_stmt    —— z42 没有 using 语句（`using` 只做 import / 别名）
+//   · ~~using_stmt~~ —— ✅ **已以真名回来**（add-using-statement 批 3）：`using` 现在**也是**
+//     一种语句（四形态），parser 真的消费它、并有一条会红的特性门。这正是这条测试当年写下的
+//     放行条件：「名字回来之前，得先有 parser 真的消费对应语法」。下面因此断言它 **true**。
 //   · null_coalesce —— `??` / `?.` 已从语言移除，parser 见到报 E0480
 //   · async         —— `await` 从不被任何 parser 消费，也没有 Task 类型
 //   · list_patterns —— 全仓零 ListPattern，模式解析器没有 `[` 分支
@@ -29,7 +32,8 @@ void test_phase1_profile_all_on() {
 [Test]
 void test_phase1_profile_has_no_phantom_features() {
     var f = LanguageFeatures.Phase1Profile();
-    Assert.Equal(false, f.IsEnabled("using_stmt"));
+    // ⚠️ 这一条曾是 `false` —— #783 删幻影特性时留下的墓志铭。批 3 让它以真名回来 ⇒ 翻成 true。
+    Assert.Equal(true, f.IsEnabled("using_stmt"));
     Assert.Equal(false, f.IsEnabled("null_coalesce"));
     Assert.Equal(false, f.IsEnabled("async"));
     Assert.Equal(false, f.IsEnabled("list_patterns"));

@@ -120,6 +120,14 @@ public static class MethodTypeParamUse {
             if (MethodTypeParamUse._expr(f.Iter, ns, nc)) { return true; }
             return MethodTypeParamUse._stmt(f.Body, ns, nc);
         }
+        // `using`（add-using-statement 批 3）：资源表达式 + 声明类型 + 块体都可能提到型参。
+        // 简化形态（`using var v = e;`）没有自己的块 ⇒ `Body` 是空块占位，走同一条也无害。
+        if (s is UsingStmt) {
+            UsingStmt us = s as UsingStmt;
+            if (MethodTypeParamUse._expr(us.Init, ns, nc)) { return true; }
+            if (us.HasDecl && MethodTypeParamUse._type(us.Type, ns, nc)) { return true; }
+            return MethodTypeParamUse._stmt(us.Body, ns, nc);
+        }
         if (s is SwitchStmt) {
             SwitchStmt sw = s as SwitchStmt;
             if (MethodTypeParamUse._expr(sw.Subject, ns, nc)) { return true; }
