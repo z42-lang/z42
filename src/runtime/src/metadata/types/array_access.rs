@@ -71,6 +71,12 @@ impl ArrayObj {
             }
         }
     }
+    /// 转发到 [`prim_value_mismatch`]（判据只有一份，见那里的头注）。
+    #[inline]
+    fn prim_store_mismatch(val: &Value, backing: &str) {
+        prim_value_mismatch(val, backing, "set_boxed");
+    }
+
     /// Write `Value` into element `i` (unboxes into packed primitives). Caller
     /// ensures `i < len()`. SAFETY of block writes: [`Self::slice_of_mut`] (held under
     /// `&mut self` = exclusive region lock).
@@ -83,12 +89,14 @@ impl ArrayObj {
                 crate::gc::satb::record_overwrite(&s[i]); // add-incremental-major-gc M2a
                 s[i] = val;
             }
-            ArrayBacking::Bool { block, len }  => { let s = unsafe { Self::slice_of_mut::<bool>(block, *len) }; s[i] = matches!(val, Value::Bool(true)); }
-            ArrayBacking::Bytes { block, len } => { let s = unsafe { Self::slice_of_mut::<u8>(block, *len) }; s[i] = if let Value::I64(n) = val { n as u8 } else { 0 }; }
-            ArrayBacking::I32 { block, len }   => { let s = unsafe { Self::slice_of_mut::<i32>(block, *len) }; s[i] = if let Value::I64(n) = val { n as i32 } else { 0 }; }
-            ArrayBacking::I64 { block, len }   => { let s = unsafe { Self::slice_of_mut::<i64>(block, *len) }; s[i] = if let Value::I64(n) = val { n } else { 0 }; }
-            ArrayBacking::Chars { block, len } => { let s = unsafe { Self::slice_of_mut::<char>(block, *len) }; s[i] = if let Value::Char(c) = val { c } else { '\0' }; }
-            ArrayBacking::F64 { block, len }   => { let s = unsafe { Self::slice_of_mut::<f64>(block, *len) }; s[i] = if let Value::F64(f) = val { f } else { 0.0 }; }
+            // 类型不符的 else 分支一律先过 `prim_store_mismatch`（debug 响一声）——此前这六个臂
+            // debug 与 release **都不响**，直接存 `0` / `'\0'` / `false` / `0.0`。见该函数头注。
+            ArrayBacking::Bool { block, len }  => { let s = unsafe { Self::slice_of_mut::<bool>(block, *len) }; if !matches!(val, Value::Bool(_)) { Self::prim_store_mismatch(&val, "bool[]"); } s[i] = matches!(val, Value::Bool(true)); }
+            ArrayBacking::Bytes { block, len } => { let s = unsafe { Self::slice_of_mut::<u8>(block, *len) }; s[i] = if let Value::I64(n) = val { n as u8 } else { Self::prim_store_mismatch(&val, "byte[]"); 0 }; }
+            ArrayBacking::I32 { block, len }   => { let s = unsafe { Self::slice_of_mut::<i32>(block, *len) }; s[i] = if let Value::I64(n) = val { n as i32 } else { Self::prim_store_mismatch(&val, "int[]"); 0 }; }
+            ArrayBacking::I64 { block, len }   => { let s = unsafe { Self::slice_of_mut::<i64>(block, *len) }; s[i] = if let Value::I64(n) = val { n } else { Self::prim_store_mismatch(&val, "long[]"); 0 }; }
+            ArrayBacking::Chars { block, len } => { let s = unsafe { Self::slice_of_mut::<char>(block, *len) }; s[i] = if let Value::Char(c) = val { c } else { Self::prim_store_mismatch(&val, "char[]"); '\0' }; }
+            ArrayBacking::F64 { block, len }   => { let s = unsafe { Self::slice_of_mut::<f64>(block, *len) }; s[i] = if let Value::F64(f) = val { f } else { Self::prim_store_mismatch(&val, "double[]"); 0.0 }; }
             // Escape-analysis stack array: store the boxed Value directly in the arena Vec.
             ArrayBacking::StackVec(v) => v[i] = val,
             // add-struct-heap-inline (P3b): writing a whole struct[] element from a

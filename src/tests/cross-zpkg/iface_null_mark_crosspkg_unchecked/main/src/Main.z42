@@ -1,0 +1,16 @@
+// 阴性对照 ①（**调用点**这一端）：跨包经接口收者拿到标了 `?` 的返回值并**直接解引用**
+// → 必须报 E0478。
+//
+// 机制没接通时，导入侧标记位落成 false、这个文件会**静默编过** —— 正例那条在两种情况下
+// 都绿，分辨不出来。全仓标了 `?` 的接口成员原本是 **0 处**，所以没有这条负例，
+// 交付的就是一道恒不响的门。
+namespace Demo.INullUcApp;
+
+using Std;
+using Std.IO;
+using Demo.INull;
+
+void Main() {
+    IFinder f = new Finder();
+    Console.WriteLine(f.Find("x").Length.ToString());
+}

@@ -71,6 +71,38 @@ public Attribute __attr$cls$C$0() { return new RouteAttribute("/u", method: "POS
 
 逐字段偏移见 [zbc 格式](../formats/zbc.md)。
 
+### 内部哨兵：借这条通道运编译器自己的元数据
+
+attr-ref 块存的是两个字符串引用，所以**任何**「每个成员一位 / 一小串」的编译器元数据都能
+骑它过包边界，而不必扩 zbc 格式。约定是 `type_name` 以 `$` 打头（`$` 在标识符里非法 ⇒ 与
+用户 attribute 零撞名），反射侧一条通用的 `$` 前缀过滤（`corelib/reflection/attributes.rs`）
+把它们整体挡在 `GetCustomAttributes()` 之外。
+
+现有哨兵（常量都在 `z42.ir/IrModule.z42`，生产方 `ClassDescBuilder`、消费方 `TsigReconcile`）：
+
+| 哨兵 | 挂在 | 载的是 |
+|---|---|---|
+| `$Deprecated` | 类 / 字段 / 方法 / 自由函数 | `[Deprecated]` + 消息（`FactoryFunc`）|
+| `$Cctor` | 类级 | 静态构造器的发射函数名 |
+| `$Default` / `$Caller:<kind>` | 形参级 | 默认值 ConstBlob / caller 宏种类 |
+| `$ByRef` / `$RefSig` | 形参级 | `ref` 形参 + **完备性**标记 |
+| `$Nullable` / `$RetNullable` | 形参级 / 方法级 / 字段级 | `?` 标记（形参、返回位、字段与属性）|
+| `$IfaceNull` | **类级**（接口的 TYPE 记录）| 接口成员的 `?` 标记 |
+
+最后一行是这批里唯一**挂错层**的：接口成员的签名既不在 SIGS（接口方法没有函数体 ⇒ 没有
+`IrFunction`），也不在字段表里，而在 TYPE 记录的**接口方法块**（`name / ret / pcount /
+is_static / ptypes` 五条平行数组）——那个块**没有任何 attr 槽**。而类级 attr 块是**无条件**
+写的、接口的记录早就带着它且一直空着，于是标记改挂类级，`FactoryFunc` 编成
+`"<方法下标>:r"`（返回位）或 `"<方法下标>:<形参下标>"`。下标对齐靠的是生产方
+（`ClassDescBuilder._interfaceDesc` 的 `_IfaceMethodBuf`）与消费方
+（`TsigReconcile._rebuildInterface`）遍历的是同一个数组、同一个顺序。
+
+> 扩这条通道前先问一句「这位真的没地方放吗」：`$IfaceNull` 之所以值得，是因为接口方法块
+> 里加一个 `u8` 要动 zbc 格式（`is_static` 那次就是这么加的，走了 zbc 1.41 的 minor bump），
+> 而哨兵零格式 bump。反过来，形参 / 方法 / 字段这三层**本来就有** attr 槽，硬塞进类级只会
+> 让寻址凭空多出一层下标。
+
+
 > **「顶层函数」这一格曾经是空头支票**（fix-free-function-attrs 修）。wire 一直在、读端一直在，
 > 只有**写端**漏了：`IrGenMemberEmitter` 给类方法填 `irf.Attrs`，而自由函数走的是另一条发射路径
 > `IrGenAuxEmitter.EmitFreeFunctions`，它一进循环就 `IrGenFacts._unwrap` 剥掉 `AttributedDecl` 外壳

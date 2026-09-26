@@ -68,7 +68,19 @@ int _writeRuntimeConfigSidecar(ProjectManifest pm, string distDir, string name, 
             if (eq > 0) {
                 string k = knobs[i].Substring(0, eq);
                 string v = knobs[i].Substring(eq + 1, knobs[i].Length - eq - 1);
-                rt.Set(k, TomlValue.OfString(v));
+                // `"\n"` = ManifestLoader 给「清单里写成数组」的运输标记（见 `_profileKnobs`
+                // 头注）。在这里还原成 **TOML 数组**原样写进侧车，**不**在这里拼成一个字符串：
+                // 路径分隔符是平台相关的，拼就绑死构建机的平台（#842 的红就是这么来的）。
+                // 摊平交给 VM —— 只有它知道自己跑在哪个平台上。
+                if (v.IndexOf("\n") >= 0) {
+                    TomlValue arr = TomlValue.OfArray();
+                    foreach (var piece in v.Split("\n")) {
+                        if (piece.Length > 0) { arr.Add(TomlValue.OfString(piece)); }
+                    }
+                    rt.Set(k, arr);
+                } else {
+                    rt.Set(k, TomlValue.OfString(v));
+                }
             }
             i = i + 1;
         }

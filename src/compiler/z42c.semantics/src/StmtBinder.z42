@@ -76,16 +76,14 @@ public sealed class StmtBinder {
         if (t == null) { return true; }
         if (t is Z42UnknownType) { return true; }
         if (t is Z42InterfaceType) {
-            if (t.Name() == ProtocolNames.IDisposable) { return true; }
-            if (t.Name() == "Std." + ProtocolNames.IDisposable) { return true; }
             // 🔴 **接口那条线不能用 `Implements`**：它从 `this.Classes.Find(cur)` 起步、只沿**类**的
             // `BaseName` 链走 ⇒ 第一个参数是接口名时直接落空（`IRes : IDisposable` 上的
-            // `using` 会被误报 E0498）。接口→父接口的那半在 `InterfaceDerivesFrom`（不含自身，
-            // 所以上面先单独比一次名字）。
-            // ⚠️ 这个分裂是既有的（`Conversion` 与 `ConstraintChecker` 都直接用 `Implements`，
-            // 于是「接口→父接口赋值关系」至今不成立 —— 那是独立记账的一条，不在本 change 范围）。
-            if (symbols.InterfaceDerivesFrom(t.Name(), ProtocolNames.IDisposable)) { return true; }
-            return symbols.InterfaceDerivesFrom(t.Name(), "Std." + ProtocolNames.IDisposable);
+            // `using` 会被误报 E0498）。
+            // interface-assignability：改走与其余消费点同一个出口。这里原本是全仓**唯一**绕过了
+            // 那个洞的地方（手写「先比名字、再 `InterfaceDerivesFrom`、两种拼写都认」），现在
+            // 那三件事都在 `IsInterfaceSubtypeByName` 里，本函数不必再自带一份。
+            if (InterfaceClosure.IsInterfaceSubtypeByName(symbols, t as Z42InterfaceType, ProtocolNames.IDisposable)) { return true; }
+            return InterfaceClosure.IsInterfaceSubtypeByName(symbols, t as Z42InterfaceType, "Std." + ProtocolNames.IDisposable);
         }
         if (t is Z42InstantiatedType) {
             return StmtBinder._implementsDisposable(symbols, (t as Z42InstantiatedType).Def.Name());

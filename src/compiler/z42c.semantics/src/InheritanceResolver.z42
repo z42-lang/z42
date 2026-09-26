@@ -580,6 +580,12 @@ public sealed class InheritanceResolver {
                         if (implRet is Z42InstantiatedType) { implName = (implRet as Z42InstantiatedType).Def.Name(); }
                         retOk = table.IsSubclassOf(implName, wantRet.Name()) || table.Implements(implName, wantRet.Name());
                     }
+                    // interface-assignability：实现方返回**接口**时的协变。上面那格的守卫只认
+                    // class / instantiated ⇒ 接口整个被排除在外：接口声明 `IBase Make()`、实现写
+                    // `IDerived Make()`（C# 里成立的返回协变）此前一律 E0412，实现方**怎么写都过不了**。
+                    if (!retOk && (implRet is Z42InterfaceType) && (wantRet is Z42InterfaceType)) {
+                        retOk = InterfaceClosure.IsInterfaceSubtype(table, implRet as Z42InterfaceType, wantRet as Z42InterfaceType);
+                    }
                     if (!retOk) {
                         this._sc.Diags.Error(DiagnosticCodes.InterfaceMismatch,
                             "`" + cName + "` implements `" + it.Name() + "` but `" + ims.Name

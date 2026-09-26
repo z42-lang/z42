@@ -299,9 +299,17 @@ public static class ManifestLoader {
         return r;
     }
 
-    // `[profile.<n>.runtime]` 的标量键，扁平 `"key=value"`。非标量（子表 / 数组）跳过
-    // ——旋钮都是标量，结构化的东西属于 `.properties`。旋钮名的合法性由 **VM 的登记表**
-    // 判定，manifest 侧不复制一份清单（否则加一个旋钮要改两处）。
+    // `[profile.<n>.runtime]` 的键，扁平 `"key=value"`。旋钮名的合法性由 **VM 的登记表**判定，
+    // manifest 侧不复制一份清单（否则加一个旋钮要改两处）。
+    //
+    // **字符串数组**（`probing-paths = ["../a", "../b"]`）用 `"\n"` 连接成一个值。
+    // 🔴 为什么是 `\n` 而不是路径分隔符：路径分隔符是**平台相关**的（unix `:` / win `;`），
+    // 在清单解析这一层拼就绑死了构建机的平台 —— 跨平台清单必然在某个平台上错（#842 正是如此）。
+    // `\n` 只是个**运输用的标记**：侧车写入器据它还原成 TOML 数组，最终由 **VM**（它知道自己
+    // 在哪个平台）摊平。⇒ 平台假设被推到唯一有权做它的地方。
+    // 此前数组被**静默跳过** ⇒ 用户写了数组等于没配，又一个「配了以为生效」。
+    //
+    // 子表仍跳过：结构化配置属于 `[properties]`。
     private static string[] _profileKnobs(TomlValue rt) {
         string[] keys = rt.Keys();
         string[] tmp = new string[keys.Length];
@@ -315,12 +323,34 @@ public static class ManifestLoader {
             else if (v.IsLong())   { s = v.AsLong().ToString(); }
             else if (v.IsBool())   { s = v.AsBool() ? "true" : "false"; }
             else if (v.IsDouble()) { s = v.AsDouble().ToString(); }
+            else if (v.IsArray())  { s = _joinKnobArray(v); }
             if (s.Length > 0) { tmp[n] = k + "=" + s; n = n + 1; }
             i = i + 1;
         }
         string[] outv = new string[n];
         int j = 0;
         while (j < n) { outv[j] = tmp[j]; j = j + 1; }
+        return outv;
+    }
+
+    // 旋钮数组 → `"\n"` 连接（见 `_profileKnobs` 头注：`\n` 是运输标记，不是路径分隔符）。
+    // 非标量元素跳过；全空 → 返回 ""，于是该键被当作没配。
+    private static string _joinKnobArray(TomlValue arr) {
+        int n = arr.Count();
+        string outv = "";
+        int i = 0;
+        while (i < n) {
+            TomlValue e = arr.At(i);
+            i = i + 1;
+            string piece = "";
+            if (e.IsString())      { piece = e.AsString().Trim(); }
+            else if (e.IsLong())   { piece = e.AsLong().ToString(); }
+            else if (e.IsBool())   { piece = e.AsBool() ? "true" : "false"; }
+            else if (e.IsDouble()) { piece = e.AsDouble().ToString(); }
+            if (piece.Length == 0) { continue; }
+            if (outv.Length > 0) { outv = outv + "\n"; }
+            outv = outv + piece;
+        }
         return outv;
     }
 

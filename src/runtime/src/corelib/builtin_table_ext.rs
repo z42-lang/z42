@@ -1,7 +1,16 @@
 //! `BUILTINS` 第 2 段 —— 2026-05-14 起的历次**追加**（每个 change 一节）。
 //!
-//! 新 builtin 一律加在**本文件末尾**：最终表 = PART1 ++ PART2，BuiltinId 就是拼接
-//! 后的下标，插在中间会让既有 zbc 里的调用全部错位。
+//! 新 builtin 一律加在**本文件末尾**：最终表 = PART1 ++ PART2，`BuiltinId` 就是拼接后的下标。
+//!
+//! 📌 **这条是约定，不是格式约束**（2026-09-26 读码核实）：zbc 里存的是**名字**
+//! （`BuiltinInsn { dst, name, args }`，见 `zbc_reader/instr_decode.rs`），`BuiltinId` 由 resolver
+//! 在**加载期**经 `builtin_id_of(name)` 填进 `Function.resolved.builtin_tokens`，AOT 也不烤它
+//! ⇒ id 是**单次运行内的派发优化令牌**，不跨进程持久化。所以「在中间插一条会让既有 zbc 错位」
+//! 这句话（本注原文）并不成立；append-only 的价值在于让按 id 做的测试/遥测保持稳定，
+//! 以及避免 review 时要重新核对一整张表。
+//!
+//! ⇒ 反过来：**槽位是可以真删的**，判据是「已发布种子里还有没有 z42 源声明这个名字」
+//! （`strings -n 3 | grep <name>`，必须先 strings；直接 grep 二进制会假缺席）。
 //!
 //! 拆成两个文件是行数硬限所迫（合并后 515 行 > 500）；切点选在历史首个
 //! 「appended to preserve BuiltinIds」边界，语义上即「原始表 ++ 追加日志」。
@@ -29,33 +38,14 @@ pub(crate) const PART2: &[(&str, NativeFn)] = &[
     ("__thread_spawn",        threading::builtin_thread_spawn),
     ("__thread_join",         threading::builtin_thread_join),
 
-    // ── add-sync-primitives (2026-05-20) — appended to preserve existing BuiltinIds ──
-    ("__mutex_new",           sync::builtin_mutex_new),
-    ("__mutex_lock_acquire",  sync::builtin_mutex_lock_acquire),
-    ("__mutex_store",         sync::builtin_mutex_store),
-    ("__mutex_unlock",        sync::builtin_mutex_unlock),
-    ("__channel_new",         sync::builtin_channel_new),
-    ("__channel_send",        sync::builtin_channel_send),
-    ("__channel_recv",        sync::builtin_channel_recv),
-    ("__channel_try_recv",    sync::builtin_channel_try_recv),
-    ("__channel_close",       sync::builtin_channel_close),
-
-    // ── add-sync-primitives-bounded-channel (2026-05-20) — appended to preserve existing BuiltinIds ──
-    ("__channel_new_bounded", sync::builtin_channel_new_bounded),
-
-    // ── add-sync-primitives-rwlock (2026-05-20) — appended to preserve existing BuiltinIds ──
-    ("__rwlock_new",           sync::builtin_rwlock_new),
-    ("__rwlock_read_acquire",  sync::builtin_rwlock_read_acquire),
-    ("__rwlock_read_release",  sync::builtin_rwlock_read_release),
-    ("__rwlock_write_acquire", sync::builtin_rwlock_write_acquire),
-    ("__rwlock_write_store",   sync::builtin_rwlock_write_store),
-    ("__rwlock_write_release", sync::builtin_rwlock_write_release),
-
-    // ── add-sync-primitives-try-variants (2026-05-20) — appended to preserve existing BuiltinIds ──
-    ("__channel_try_send",     sync::builtin_channel_try_send),
-    ("__rwlock_try_read",      sync::builtin_rwlock_try_read),
-    ("__rwlock_try_write",     sync::builtin_rwlock_try_write),
-
+    // ── add-sync-primitives (2026-05-20) ── 🪦 **已删除**（store-sync-values-in-heap 阶段 2，2026-09-26）
+    //
+    // 原先这里有 19 个槽（`__mutex_*` 4 / `__channel_*` 7 / `__rwlock_*` 8）。stdlib 自 2026-09-14
+    // 改走 `__monitor_*`，此后没有任何 z42 源声明它们；按归档
+    // `2026-09-14-store-sync-values-in-heap` 规定的触发条件核过种子（`strings -n 3 | grep` 旧名，
+    // programs/z42c 与 libs 皆 0 引用）后整批删除，连同 `corelib/sync.rs`（596 行）与
+    // `VmCore.{mutexes,rwlocks,channels}` 三个 registry。
+    //
     // ── add-gc-pause-histogram (2026-05-22) — appended to preserve existing BuiltinIds ──
     ("__gc_pause_histogram", gc::builtin_gc_pause_histogram),
     ("__gc_pause_stats_raw", gc::builtin_gc_pause_stats_raw),

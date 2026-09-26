@@ -198,7 +198,11 @@ fn table_value(table: Option<&toml::Table>, spec: &KnobSpec) -> Option<String> {
     if spec.toml_key.is_empty() {
         return None; // 元旋钮不是配置文件里的值键
     }
-    table?.get(spec.toml_key).and_then(toml_scalar_to_string)
+    // `PathList` 走 `toml_value_to_string`：它额外认 TOML 数组，并用**本机**分隔符摊平
+    // （清单侧写数组才能跨平台无歧义，见该函数头注）。
+    table?
+        .get(spec.toml_key)
+        .and_then(|v| toml_value_to_string(v, spec.value))
 }
 
 fn display_key(spec: &KnobSpec) -> &'static str {

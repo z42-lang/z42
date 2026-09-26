@@ -23,9 +23,34 @@
 6. class/instantiated → 基/接口  → 命中 symbols 上转查询则 ImplicitRef；下转则 ExplicitRef；否则 None
    6a. instantiated → 接口（G）  6b. instantiated → 裸 class（H）
    6c. instantiated → instantiated（H2）  6d. 裸 class → instantiated（I）
+   6e. interface → 祖先 interface（F2）
 7. object/接口 → 值 prim         → Unboxing
 8. 否则                          → None
 ```
+
+> **步 6e（F2）也是后补的**（`interface-assignability`，2026-09-26），形状与 H2 一模一样：
+> class→iface（F）、inst→iface（G）、class→class（E）都在，**独缺 iface→iface** ⇒
+> `IBase b = derivedIface` 落到步 8 报 E0402。同一个洞在五个消费点各露一次面（赋值 / 实参 /
+> 返回 / 函数位约束 `ConstraintChecker._funcPosOk` / 接口实现的返回协变
+> `InheritanceResolver`），现已全部收敛到 `InterfaceClosure.IsInterfaceSubtype` 这**一个出口**。
+>
+> 判定走 `InterfaceClosure.BaseAt` 沿父接口链上溯，**不走** `SymbolTable.InterfaceDerivesFrom`：
+> 后者比的是 `BaseNames` 里的字符串，既认不出两种拼写（`: IDisposable` vs `: Std.IDisposable`），
+> 也在裸名化时把链上的类型实参丢了。`BaseAt` 这两件事本来就做对了（解析声明形态 + 逐层代换
+> 实参），所以这条边是搭在既有机制上的，没有第二套遍历。
+>
+> ⚠️ 同一次变更修掉了**步 5 的对称缺陷**：`Z42InterfaceType.IsAssignableTo` 此前只比 `Name()`，
+> 而 `Z42InstantiatedInterfaceType.Name()` **刻意返回裸名**（元数据拼写要稳）⇒ `IBox<int>` 与
+> `IBox<string>` 在步 5 就被判成 `Identity`。这与 H2 那条「只比 `Name()` 全等」是同一个坑的
+> 接口版，但后果更重：类那半是**误报**（编不过、拦住正确代码），接口这半是**静默错值** ——
+> 实测 `IBox<string> s; IBox<int> i = s; int bad = i.Get();` 编译期零诊断，跑出 `bad = hello`、
+> `bad + 1 = hello1`，exit 0。接口身份的判据现已收敛到 `Z42InterfaceType.SameInterface`
+> （两侧 ns 齐备时比 FQ、否则比短名；再逐位比类型实参的规范名。一侧是**裸定义**时按名放行 ——
+> 那表示实参未知，与本仓「信息不足一律放行」的口径一致）。
+>
+> **`Name()` 保持裸名不变**：它同时是元数据拼写与查找键，改它会打烂派发与 golden。诊断文本
+> 另走 `Z42Type.DiagName`（实例化接口 → `NameWithArgs()`，其余原样），否则实参不符会打印成
+> 「cannot assign IBox to IBox」。也刻意**不改 `Dump()`** —— 那是 `--dump-bound` 的既有形态。
 
 > **步 6c（H2）是后补的**（`fix-binder-emitter-gaps-batch2`，欠债表 bug B）。G/H/I 三条早就在，
 > **独缺 inst→inst**，而步 5 的 `Z42InstantiatedType.IsAssignableTo` 只比 `Name()` 全等 ⇒

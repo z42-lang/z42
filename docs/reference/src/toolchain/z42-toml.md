@@ -577,7 +577,7 @@ entry   = "MyApp.main"
 
 | `path` 指向 | 语义 | 对标 |
 |---|---|---|
-| **工程目录**（其中恰一份 `*.z42.toml`） | z42c 先建该依赖闭包再解析 —— 私有组件跟随工程走 | `<ProjectReference>` / Cargo `{ path = … }` |
+| **工程目录**（其中恰一份工程清单） | z42c 先建该依赖闭包再解析 —— 私有组件跟随工程走 | `<ProjectReference>` / Cargo `{ path = … }` |
 | **`.zpkg` 文件** | 已经是产物：**不代建**，直接引用 | `<Reference HintPath="….dll">` |
 
 ```toml
@@ -587,7 +587,15 @@ entry   = "MyApp.main"
 ```
 
 判据是**扩展名**（`.zpkg`），不是「这个路径上有没有文件」—— 否则把路径写错会被静默当成工程
-引用，然后报一句「期望恰 1 份 `*.z42.toml`」，一条指向错误方向的诊断。
+引用，然后报一句「那里没有工程清单」，一条指向错误方向的诊断。
+
+> **「工程目录」的判据与 `z42c build <dir>` 完全一致**（同一个 `ManifestLocator.FindIn`）：
+> 先认裸 `z42.toml`，再认唯一一份 `*.z42.toml`，多份则报歧义并列出候选。
+> 所以 `z42 new` 造出来的工程（它写的是**裸 `z42.toml`**）可以直接当 path 依赖。
+>
+> 📜 此前 path 依赖解析自己 glob `"*.z42.toml"`，比这条判据**更严** —— `z42 new` 的产物
+> 因此当不了 path 依赖，而报错文本（「期望恰 1 份 `*.z42.toml`，实得 0」）离真正的原因
+> 很远。同一个「工程清单在哪」的问题曾有三份判据、三份都比权威那份严。
 
 产物引用的三条语义：
 
@@ -1006,7 +1014,8 @@ artifacts/build/libraries/<lib>/<profile>/
 | `path = "..."` | 支持，z42c 代建整个**闭包** | 支持，z42c 代建**那一个工程**（它的依赖由它自己解析）|
 | 被引工程的 `kind` | `lib`（引 `analyzer` 会被拒绝）| 必须是 `analyzer`（引普通库会被拒绝）|
 
-**path 条目**（add-package-roles 批 2）：指向目录，其中须恰有一份 `*.z42.toml`，且
+**path 条目**（add-package-roles 批 2）：指向目录，其中须恰有一份**工程清单**（判据同
+`[dependencies]` 的 path：裸 `z42.toml` 优先，否则唯一一份 `*.z42.toml`），且
 `[project].name` 与这里写的名字一致。z42c 会定位它 → 校验 `kind = "analyzer"` → **代为构建** →
 把产出的 zpkg 交给 generator/analyzer 引擎。改了扩展的源码，消费方下次构建会重编（handler
 指纹含该 zpkg 内容）。

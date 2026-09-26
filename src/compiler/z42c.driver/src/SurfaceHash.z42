@@ -16,8 +16,25 @@
 //
 // 为什么名字级是对的（= 为什么「我引用到的名字没变 ⇒ 我的 cached zbc 仍然成立」）：
 // 一个文件只可能通过它 token 流里出现过的名字依赖别处；跨文件依赖又只经声明面
-//（内联 `IrInline` 限同一 IrModule = 单 CU、逃逸/纯度摘要亦模块级、泛型走运行期类型实参
-//  不单态化进调用方；唯一把值抄进消费方的 const 字段，其初值写在字段声明里 → 本就在声明面内）。
+//（内联 `IrInline` 限同一 IrModule = 单 CU、逃逸/纯度摘要亦模块级；唯一把值抄进消费方的
+//  const 字段，其初值写在字段声明里 → 本就在声明面内）。
+//
+// 🔴 **泛型是这条论证的例外，而且是后来才变成例外的**（fix-incr-generic-body-surface）。
+// 本文件原先的论证里写着「泛型走运行期类型实参**不单态化进调用方**」——那句话在
+// `complete-generic-instantiation` S1（#820 / #825）之后**不再成立**：`IrGen` 把泛型体的
+// 特化副本发进**当前 CU 的 sink**（即消费方的 IrModule），偏移按实例化烘焙。于是泛型体
+// 确实会被抄进消费方，而「体」正是本文件刻意折叠掉的东西。
+//
+// 实测（本修复之前，release，两文件工程）：
+//   a.z42 `long Second<T>(Loc<T,long> p) { return p.b; }` / b.z42 调 `G.Second<P2>(t)` → 打印 7
+//   只把 a 的体改成 `return p.b + 100;` → 增量构建 `cached: 1/2 files` → 仍打印 **7**
+//   同源全量重建 → 打印 **107**。b 的 cached zbc 里留着**旧体的特化**。
+//
+// 修法走本文件自己的保守方向（见下）：**泛型声明的体不折叠**。判据两条——
+//   ① 声明自带型参（泛型自由函数 / 泛型方法）⇒ `_emitSpecializedFreeFn` 会抄它
+//   ② 所属类型自带型参（泛型类 / 泛型 struct 的成员）⇒ `EmitInstantiation` 会抄它
+// 于是体 token 留在该名字的指纹里 ⇒ 体一改指纹就变 ⇒ 提到它的文件照旧失效。代价是
+// 「改一个泛型体会让它的全部消费方重编」——在编译期单调化下这是**正确且不可避免**的。
 //
 // **每个名字的指纹都带上「文件头」前缀**（`namespace` + 全部 `using`）：它们不属于任何名字，
 // 却决定该文件里的类型名解析到谁 —— 换了 ns / 换了 using，同一份签名文本的**含义**就变了。
@@ -347,6 +364,9 @@ public static class SurfaceHash {
         return n;   // 不配平（parse 已报错）→ 吞到末尾，保守
     }
 
+    // 「这个声明自带型参吗」—— 折不折叠体的唯一判据入口（见文件头）。
+    private static bool _isGeneric(TypeParamList tp) { return tp != null && tp.Count > 0; }
+
     // 登记体起点 + 名字起点。漏登记 = 保守（见文件头）。
     private static void _collect(Decl d, BodyStartsZ bodies, DeclSitesZ tops, DeclSitesZ mems, DeclSitesZ heads) {
         if (d == null) { return; }
@@ -357,8 +377,10 @@ public static class SurfaceHash {
         if (inner is ClassDecl) {
             ClassDecl c = inner as ClassDecl;
             tops.Add(c.Name, d.Span);
+            // 泛型类型的成员体会被 `EmitInstantiation` 抄进消费方 CU ⇒ 不折叠（见文件头 ②）。
+            bool ownerGeneric = SurfaceHash._isGeneric(c.TypeParams);
             int m = 0;
-            while (m < c.MemberCount) { SurfaceHash._collectMember(c.Members[m], bodies, mems); m = m + 1; }
+            while (m < c.MemberCount) { SurfaceHash._collectMember(c.Members[m], bodies, mems, ownerGeneric); m = m + 1; }
             return;
         }
         if (inner is EnumDecl) {
@@ -370,14 +392,19 @@ public static class SurfaceHash {
         }
         if (inner is ImplDecl) {
             ImplDecl im = inner as ImplDecl;
+            // `impl ... for G<T>`：目标带类型实参即视为泛型所属（保守——误判只会多编）。
+            bool implGeneric = false;
+            if (im.TargetType is NamedType) { implGeneric = (im.TargetType as NamedType).ArgCount > 0; }
             int k = 0;
-            while (k < im.MethodCount) { SurfaceHash._collectMember(im.Methods[k], bodies, mems); k = k + 1; }
+            while (k < im.MethodCount) { SurfaceHash._collectMember(im.Methods[k], bodies, mems, implGeneric); k = k + 1; }
             return;
         }
         if (inner is MethodDecl) {                       // 顶层自由函数
             MethodDecl md = inner as MethodDecl;
             tops.Add(md.Name, d.Span);
-            if (md.HasBody && md.Body != null && md.Body.Span != null) { bodies.Add(md.Body.Span.Start); }
+            // 泛型自由函数的体会被 `_emitSpecializedFreeFn` 抄进消费方 CU ⇒ 不折叠（见文件头 ①）。
+            if (md.HasBody && md.Body != null && md.Body.Span != null
+                && !SurfaceHash._isGeneric(md.TypeParams)) { bodies.Add(md.Body.Span.Start); }
             return;
         }
         if (inner is DelegateDecl) { tops.Add((inner as DelegateDecl).Name, d.Span); return; }
@@ -385,7 +412,7 @@ public static class SurfaceHash {
 
     // 类型成员：登记名字起点 + 体起点。嵌套类型作为「一个成员名」登记（其内成员不再单独切——
     // 粒度更粗，方向仍保守）。
-    private static void _collectMember(Decl d, BodyStartsZ bodies, DeclSitesZ mems) {
+    private static void _collectMember(Decl d, BodyStartsZ bodies, DeclSitesZ mems, bool ownerGeneric) {
         if (d == null) { return; }
         Decl inner = d;
         if (inner is AttributedDecl) { inner = (inner as AttributedDecl).Inner; }
@@ -393,21 +420,24 @@ public static class SurfaceHash {
         if (inner is MethodDecl) {
             MethodDecl md = inner as MethodDecl;
             mems.Add(md.IsCtor ? "$ctor" : md.Name, d.Span);
-            if (md.HasBody && md.Body != null && md.Body.Span != null) { bodies.Add(md.Body.Span.Start); }
+            // 不折叠的两种：所属类型泛型（`EmitInstantiation` 会抄）或方法自带型参
+            //（`_emitSpecializedFreeFn` 会抄）。见文件头。
+            if (md.HasBody && md.Body != null && md.Body.Span != null
+                && !ownerGeneric && !SurfaceHash._isGeneric(md.TypeParams)) { bodies.Add(md.Body.Span.Start); }
             return;
         }
         if (inner is FieldDecl) { mems.Add((inner as FieldDecl).Name, d.Span); return; }
         if (inner is PropertyDecl) {
             PropertyDecl pd = inner as PropertyDecl;
             mems.Add(pd.Name, d.Span);
-            if (pd.HasGetBody && pd.GetBody != null && pd.GetBody.Span != null) { bodies.Add(pd.GetBody.Span.Start); }
+            if (pd.HasGetBody && pd.GetBody != null && pd.GetBody.Span != null && !ownerGeneric) { bodies.Add(pd.GetBody.Span.Start); }
             return;
         }
         if (inner is IndexerDecl) {
             IndexerDecl ix = inner as IndexerDecl;
             mems.Add("$indexer", d.Span);
-            if (ix.HasGet && ix.GetBody != null && ix.GetBody.Span != null) { bodies.Add(ix.GetBody.Span.Start); }
-            if (ix.HasSet && ix.SetBody != null && ix.SetBody.Span != null) { bodies.Add(ix.SetBody.Span.Start); }
+            if (ix.HasGet && ix.GetBody != null && ix.GetBody.Span != null && !ownerGeneric) { bodies.Add(ix.GetBody.Span.Start); }
+            if (ix.HasSet && ix.SetBody != null && ix.SetBody.Span != null && !ownerGeneric) { bodies.Add(ix.SetBody.Span.Start); }
             return;
         }
         if (inner is ClassDecl) { mems.Add((inner as ClassDecl).Name, d.Span); return; }   // 嵌套类型

@@ -192,13 +192,18 @@ HandlerZpkgs _resolveHandlerZpkgs(ProjectManifest pm, string projectDir, string 
 string _handlerFromPath(string aname, string apath, string projectDir, string consumerToml,
                         bool isRelease, bool noIncremental, int cliAdd, int cliRemove) {
     string adir = Path.Join(projectDir, apath);
-    string[] manifests = Path.Glob(adir, "*.z42.toml");
-    if (manifests.Length != 1) {
+    // 判据委托 `ManifestLocator.FindIn`（同 `PathDepPlan._resolveDepToml`）——自己 glob
+    // `"*.z42.toml"` 会漏掉**裸 `z42.toml`**，而那正是 `z42 new` 写出来的形态。
+    ManifestLocation aloc = ManifestLocator.FindIn(adir);
+    if (aloc.Kind != ManifestLocateKind.Project) {
         ConsoleError.WriteLine("z42c build: [analyzers] `" + aname + "` 的 path 指向 " + adir
-            + "，期望恰 1 份 *.z42.toml，实得 " + manifests.Length.ToString() + "。");
+            + "，那里没有单个工程清单"
+            + (aloc.Kind == ManifestLocateKind.Ambiguous ? "（同层有多份 *.z42.toml）"
+               : (aloc.Kind == ManifestLocateKind.Workspace ? "（那是一个 workspace）"
+                  : "（既无 z42.toml，也无 *.z42.toml）")) + "。");
         return "";
     }
-    string atoml = manifests[0];
+    string atoml = aloc.ManifestPath;
     // 自指 → 无限递归。消费方自己就是 analyzer 时最容易写出来（`path = "."`）。
     if (_samePath(atoml, consumerToml)) {
         ConsoleError.WriteLine("z42c build: [analyzers] `" + aname + "` 的 path 指回本工程自身（"

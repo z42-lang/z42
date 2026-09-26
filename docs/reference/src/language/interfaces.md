@@ -179,6 +179,23 @@ int n = l.Get() + 1;                   // 经接口静态类型读出来也是 i
 
 跨包同样成立（父接口的实参随 TSIG 过 wire）。
 
+### 类型实参是不变的
+
+泛型接口的身份**包含它的类型实参**：`IRepo<int>` 与 `IRepo<string>` 是两个不同的类型，彼此不可赋值
+（与泛型类同一口径，z42 没有 `in` / `out` 变型标注）。沿继承链上溯时同样按实参比：
+
+```z42
+IRepo<string> s = ...;
+IRepo<int> i = s;          // ✗ E0402: cannot assign IRepo<string> to IRepo<int>
+
+IRelay<int> r = ...;
+IMid<int>    ok  = r;      // ✓ 实参一致
+IMid<string> bad = r;      // ✗ E0402
+```
+
+> 2026-09-26 之前**这条不成立**：接口身份只比裸名，`IRepo<int> i = repoOfString;` 编译期零诊断，
+> 于是 `int n = i.Get();` 拿到的其实是个 string —— 静态类型与运行期值不符，且一路静默流下去。
+
 接口作为**泛型约束**（`where T : IShape`）的规则见[泛型约束](generic-constraints.md)。
 
 ## `Self` 类型
@@ -250,7 +267,7 @@ Sum3(1, 2, 3);                                          // 6 —— 基元类型
 >
 > 需要这类能力时，请实现标准库的 `Std.INumber`，而不是自己声明 `static abstract` 接口。
 
-## 接口继承：成员可见，但还不构成子类型
+## 接口继承：成员可见，且构成子类型
 
 `interface IDerived : IBase { ... }` 的**成员继承是生效的** —— 在 `IDerived` 类型的值上
 可以调用 `IBase` 声明的成员，多层继承与菱形继承都走父接口闭包：
@@ -272,18 +289,33 @@ d.Base();         // ✓ 继承自 IBase
 导入侧一样可调 —— 实现 `Std.IEnumerable<T>` 的类型能 `foreach`，靠的正是这条（`foreach`
 脱糖出的 `__e.Dispose()` 走 `IEnumerator<T> : IDisposable` 继承来的成员）。
 
-### 仍缺的一半：接口之间不成立赋值关系
+### 接口之间的赋值关系
+
+子接口的值可以直接赋给它的任一**祖先**接口，隔多少层都行：
 
 ```z42
-IBase b = d;      // ✗ E0402: cannot assign IDerived to IBase
-IBase b2 = new Impl();   // ✓ 类 → 祖先接口可以
+interface IGrand : IDerived { }
+
+IGrand  g = new Impl();
+IDerived m = g;   // ✓
+IBase    b = g;   // ✓ 隔一层
+IBase    c = d;   // ✓
 ```
 
-**类**到它任一祖先接口的赋值是成立的（走实现关系的传递闭包）；缺的是**接口到父接口**
-这一步 —— 接口类型之间的赋值判定目前只比较名字是否相等，不走继承链。
+赋值位、**实参位**、**返回位**是同一条判定门，三处口径一致；接口实现的**返回协变**同样成立
+（接口声明 `IBase Make()`，实现方写 `IDerived Make()` 可以）。跨包也成立——父接口是从别的包
+`using` 进来的（例如 `interface IRes : IDisposable`）时，`IDisposable d = res;` 照样通过。
 
-需要 `IBase` 视图时，用具体类型赋值（`IBase b = impl;`），或让实现类**直接列出所有接口**
-（`class Impl : IBase, IDerived`）。
+反方向**不成立**，与类一致：父接口赋给子接口是下转，要显式写 cast。
+
+```z42
+IBase b = ...;
+IDerived d2 = b;        // ✗ E0402 —— 下转，隐式不成立
+IDerived d3 = (IDerived)b;   // ✓
+```
+
+> 2026-09-26 之前这条边不存在：`IBase b = d;` 会报 `E0402: cannot assign IDerived to IBase`，
+> 只有**类**到祖先接口可以。当时的绕法（用具体类型赋值、或让实现类直接列出所有接口）现已不必要。
 
 ## 已知缺口：没有默认实现
 
