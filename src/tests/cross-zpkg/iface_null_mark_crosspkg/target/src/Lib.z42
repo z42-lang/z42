@@ -1,0 +1,29 @@
+// 跨包**接口成员** `?` 标记的正例依赖包。
+//
+// 接口成员的签名不走 SIGS（接口方法没有函数体 ⇒ 没有 `IrFunction` 的 attr 槽），而住在
+// TYPE 记录的接口方法块里，那里也没有 attr 槽。标记因此挂在**类级** attr-ref 块的
+// `$IfaceNull` 哨兵上（见 `IrIfaceNullable`），按 (方法下标, 槽位) 寻址。
+namespace Demo.INull;
+
+public interface IFinder {
+    // 标了 `?` ⇒ 调用方有检查义务（跨包也必须有）。
+    string? Find(string key);
+
+    // 🔒 没标 ⇒ 调用方**完全不受检**。这条是「缺席 = 不强制」支点的跨包对照组：
+    // 它一旦跟着报错，就说明标记被当成了「所有引用类型都查」的悲观档。
+    string Plain(string key);
+
+    // 属性：接口属性在 TYPE 记录里就是一个 `get_Current` 方法 ⇒ 标记落在它的**返回位**。
+    string? Current { get; }
+
+    // 形参位的 `?`：契约是「任何实现都必须检查」⇒ 实现方**去掉**它要报 E0489
+    // （那一侧由 iface_null_mark_crosspkg_impl 钉）。
+    void Take(string? maybe);
+}
+
+public class Finder : IFinder {
+    public string? Find(string key) { if (key == "miss") { return null; } return key; }
+    public string Plain(string key) { return key; }
+    public string? Current { get { return null; } }
+    public void Take(string? maybe) { }
+}

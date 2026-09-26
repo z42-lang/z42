@@ -384,12 +384,21 @@ public static class TsigReconcile {
             int ipc = cd.IfaceMethodParamCounts[mi];
             ExportedParamZ[] ps = new ExportedParamZ[ipc];
             int pi = 0;
-            while (pi < ipc) { ps[pi] = new ExportedParamZ("p" + pi.ToString(), cd.IfaceMethodParamTypes[ipbase + pi]); pi = pi + 1; }
+            while (pi < ipc) {
+                ps[pi] = new ExportedParamZ("p" + pi.ToString(), cd.IfaceMethodParamTypes[ipbase + pi]);
+                // carry-iface-null-marks：形参的 `?`。接口方法块本身没有 attr 槽 ⇒ 标记住在
+                // **类级** attr-ref 块里，按 (方法下标, 形参下标) 寻址（见 `IrIfaceNullable`）。
+                ps[pi].IsNullable = IrIfaceNullable.Has(cd.Attrs, cd.AttrCount, mi, pi.ToString());
+                pi = pi + 1;
+            }
             // fix-imported-iface-static-fidelity（zbc 1.41）：static 位取自 wire（此前硬编码 false）。
             // virtual 派生：static 接口成员经类型参数见证派发、非 vtable 虚方法 → !isStat；abstract 恒 true（接口方法无 body）。
             bool isStat = cd.IfaceMethodStatic[mi] != 0;
             methods[mi] = new ExportedMethodZ(cd.IfaceMethodNames[mi], cd.IfaceMethodRets[mi], "public",
                                               isStat, !isStat, true, ipc, ps, ipc);
+            // carry-iface-null-marks：返回位的 `?`（同 `ExportedMethodZ.RetIsNullable` 在类那半
+            // 由 `$RetNullable` 填的位——消费侧 `ImportedSymbolLoader._fillParamMeta` 是同一个漏斗）。
+            methods[mi].RetIsNullable = IrIfaceNullable.Has(cd.Attrs, cd.AttrCount, mi, IrIfaceNullable.RetSlot);
             ipbase = ipbase + ipc;
             mi = mi + 1;
         }

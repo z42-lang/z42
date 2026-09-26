@@ -1,0 +1,27 @@
+// 正例：跨包经**接口收者**调用标了 `?` 的成员，先存局部再查 ⇒ 编得过、跑得出结果；
+// 未标 `?` 的成员直接解引用 ⇒ 同样编得过（缺席 = 不强制）。
+namespace Demo.INullApp;
+
+using Std;
+using Std.IO;
+using Demo.INull;
+
+void Main() {
+    IFinder f = new Finder();
+
+    string v = f.Find("hit");
+    if (v != null) { Console.WriteLine(v.Length.ToString()); }
+
+    string w = f.Find("miss");
+    if (w == null) { Console.WriteLine("miss"); }
+
+    // 🔒 没标：不受检，直接解引用合法。
+    Console.WriteLine(f.Plain("abcd").Length.ToString());
+
+    // 接口**属性**的返回位标记同样跨包跟过来。
+    string c = f.Current;
+    if (c == null) { Console.WriteLine("cur-null"); }
+
+    f.Take(null);
+    Console.WriteLine("done");
+}

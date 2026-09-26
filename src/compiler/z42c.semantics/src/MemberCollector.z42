@@ -108,7 +108,13 @@ public sealed class MemberCollector {
                     string gkey = "get_" + pd.Name;
                     Z42Type gret = table.ResolveTypeP(pd.Type, tp, tpc);
                     Z42Type[] gps = new Z42Type[0];
-                    it.Methods.Put(gkey, new MethodSymbol(gkey, "public", new Z42FuncType(gps, 0, gret), false, c.Name, false, null));
+                    var gsig = new Z42FuncType(gps, 0, gret);
+                    // carry-iface-null-marks：`?` 标记。方法那条路由 `_methodSymbol` 统一填，
+                    // 访问器这几条是**手搓 Z42FuncType**、一直漏填 ⇒ 接口属性标了 `?` 在**本包**
+                    // 也不受检（跨包那半由 `$IfaceNull` 哨兵携带，两边必须同时有，否则导入侧
+                    // 比声明包自己还严）。判据同 `_methodSymbol`：AST 里 `NullableType` 还在。
+                    gsig.RetIsNullable = (pd.Type is NullableType);
+                    it.Methods.Put(gkey, new MethodSymbol(gkey, "public", gsig, false, c.Name, false, null));
                 }
                 if (pd.HasSet) {
                     // fix-iface-property-setter：接口属性 setter → set_X(value) 方法符号（镜像下面索引器的
@@ -118,7 +124,10 @@ public sealed class MemberCollector {
                     Z42Type sret = table.ResolveTypeP(pd.Type, tp, tpc);
                     Z42Type[] sps = new Z42Type[1];
                     sps[0] = sret;
-                    it.Methods.Put(skey, new MethodSymbol(skey, "public", new Z42FuncType(sps, 1, new Z42VoidType()), false, c.Name, false, null));
+                    var ssig = new Z42FuncType(sps, 1, new Z42VoidType());
+                    bool[] snull = new bool[1]; snull[0] = (pd.Type is NullableType);   // carry-iface-null-marks：value 参
+                    ssig.ParamIsNullable = snull;
+                    it.Methods.Put(skey, new MethodSymbol(skey, "public", ssig, false, c.Name, false, null));
                 }
             } else if (mem is IndexerDecl) {
                 // fix-iface-self-completeness-gaps A3：接口索引器 `T this[params]` → get_Item / set_Item
@@ -130,18 +139,33 @@ public sealed class MemberCollector {
                 Z42Type idRet = table.ResolveTypeP(id.RetType, tp, tpc);
                 if (id.HasGet) {
                     Z42Type[] getPs1 = new Z42Type[id.ParamCount];
+                    bool[] getNull = new bool[id.ParamCount];   // carry-iface-null-marks
                     int qi0 = 0;
-                    while (qi0 < id.ParamCount) { getPs1[qi0] = table.ResolveTypeP(id.Params[qi0].Type, tp, tpc); qi0 = qi0 + 1; }
+                    while (qi0 < id.ParamCount) {
+                        getPs1[qi0] = table.ResolveTypeP(id.Params[qi0].Type, tp, tpc);
+                        getNull[qi0] = (id.Params[qi0].Type is NullableType);
+                        qi0 = qi0 + 1;
+                    }
+                    var gisig = new Z42FuncType(getPs1, id.ParamCount, idRet);
+                    gisig.ParamIsNullable = getNull; gisig.RetIsNullable = (id.RetType is NullableType);
                     it.Methods.Put("get_Item", new MethodSymbol("get_Item", "public",
-                        new Z42FuncType(getPs1, id.ParamCount, idRet), false, c.Name, false, null));
+                        gisig, false, c.Name, false, null));
                 }
                 if (id.HasSet) {
                     Z42Type[] setPs1 = new Z42Type[id.ParamCount + 1];
+                    bool[] setNull = new bool[id.ParamCount + 1];   // carry-iface-null-marks
                     int qi1 = 0;
-                    while (qi1 < id.ParamCount) { setPs1[qi1] = table.ResolveTypeP(id.Params[qi1].Type, tp, tpc); qi1 = qi1 + 1; }
+                    while (qi1 < id.ParamCount) {
+                        setPs1[qi1] = table.ResolveTypeP(id.Params[qi1].Type, tp, tpc);
+                        setNull[qi1] = (id.Params[qi1].Type is NullableType);
+                        qi1 = qi1 + 1;
+                    }
                     setPs1[id.ParamCount] = idRet;
+                    setNull[id.ParamCount] = (id.RetType is NullableType);   // 末位 value 参 = 索引器类型
+                    var sisig = new Z42FuncType(setPs1, id.ParamCount + 1, new Z42VoidType());
+                    sisig.ParamIsNullable = setNull;
                     it.Methods.Put("set_Item", new MethodSymbol("set_Item", "public",
-                        new Z42FuncType(setPs1, id.ParamCount + 1, new Z42VoidType()), false, c.Name, false, null));
+                        sisig, false, c.Name, false, null));
                 }
             } else if (mem is FieldDecl) {
                 // add-interface-member-check：接口没有字段（静态/实例都没有）。此前 FieldDecl 被本循环
