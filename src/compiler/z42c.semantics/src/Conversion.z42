@@ -189,6 +189,17 @@ public static class Conversion {
             if (symbols.Implements(from.Name(), to.Name())) { return new ConvResult(ConvKind.ImplicitRef); }
             return new ConvResult(ConvKind.None);
         }
+        // F2（interface-assignability）: interface → 祖先 interface。**此前没有这条分支** ——
+        // 类赋给祖先接口走 F、实例化类走 G，唯独「子接口赋给父接口」落到函数末尾的 `None`
+        // ⇒ `IBase b = derivedIface` 报 E0402（var-decl / 实参 / 返回三个位置都中）。
+        // 同一个接口（含实参相同）那格由上方分支 D（`IsAssignableTo`）先接走，这里只管真正
+        // 上溯继承链的情形。
+        if ((from is Z42InterfaceType) && (to is Z42InterfaceType)) {
+            if (InterfaceClosure.IsInterfaceSubtype(symbols, from as Z42InterfaceType, to as Z42InterfaceType)) {
+                return new ConvResult(ConvKind.ImplicitRef);
+            }
+            return new ConvResult(ConvKind.None);
+        }
         // G: instantiated → interface
         if ((from is Z42InstantiatedType) && (to is Z42InterfaceType)) {
             if (symbols.Implements((from as Z42InstantiatedType).Def.Name(), to.Name())) { return new ConvResult(ConvKind.ImplicitRef); }

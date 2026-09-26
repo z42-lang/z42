@@ -1,0 +1,76 @@
+// interface-assignability：接口 → 祖先接口的赋值关系，以及实例化接口按实参区分身份。
+//
+// 语义层单测（`z42c.semantics/tests/typecheck/iface_assignability_tests.z42`）用的是**同文件内
+// 声明**的接口 ⇒ 走本包短名那条路，对**跨包**这一维零判别力：导入接口的名字形态是 FQ
+// （`Std.IDisposable`），只认一种拼写就会跨包全线误判，而这种误判**只有拿真实 stdlib 类型
+// 写夹具才暴露**（add-using-statement 批 3 正是这么栽的）。本文件补的就是那一档：
+// 下面 ① ② 的父接口是真的 `Std.IDisposable`，一个写短名、一个写限定名。
+//
+// ③ 是**静默错值**那条的运行期证据：修前 `IBox<int> i = iboxOfString` 编译零诊断，
+// `int bad = i.Get();` 跑出来 `bad = "hello"`、`bad + 1 = "hello1"`，exit 0 —— 静态类型
+// 是 `int` 的变量装着 string。现在那行编不过，所以这里只能正向验「实参相同才通得过」。
+namespace Demo;
+
+using Std;
+
+interface IRes : IDisposable { int Tag(); }
+
+class Res : IRes {
+    public bool Disposed;
+    public int Tag() { return 7; }
+    public void Dispose() { this.Disposed = true; }
+}
+
+// ⚠️ **这里刻意不覆盖「基类型写限定名」**（`interface IResQ : Std.IDisposable`）——
+// 那条在 main 上就是坏的，且坏在**类**那半：`InterfaceNames` / `BaseNames` 存的是源码
+// 原样的串（`"Std.IDisposable"`），而 `Classes` / `Interfaces` 表的键是**裸短名** ⇒
+// 字符串比永远不中。实测基线（未带本改动的 z42c）：
+//   `class R : Std.IDisposable { … }  IDisposable s = new R();`  → E0402
+// 两种目标拼写都报。本 change 只收敛**接口→接口**那条边，不动类侧的名字存储，
+// 所以这里不立一道自己管不着的门。独立记账，别在这里补半个。
+
+interface IBase { int Which(); }
+interface IDerived : IBase { }
+interface IGrand : IDerived { }
+
+class Impl : IGrand { public int Which() { return 42; } }
+
+interface IBox<T> { T Get(); }
+interface IBoxEx<T> : IBox<T> { }
+class IntBox : IBoxEx<int> { public int Get() { return 5; } }
+
+void Main() {
+    // ── ① 跨包：本包接口 → 导入的父接口（短名拼写）────────────────────────
+    IRes r = new Res();
+    IDisposable d1 = r;                 // 修前 E0402
+    Assert.True(d1 != null);
+
+    // ── ② `using` 走的是同一个判定出口（StmtBinder._isDisposable），不能被改坏 ──
+    Res raw = new Res();
+    IRes viaIface = raw;
+    using (viaIface) { Assert.Equal(7, viaIface.Tag()); }
+    Assert.True(raw.Disposed);
+
+    // ── ③ 接口 → 祖先接口，隔一层；派发必须仍落到真实现 ────────────────────
+    IGrand g = new Impl();
+    IDerived mid = g;                   // 修前 E0402
+    IBase b = g;                        // 修前 E0402（隔一层）
+    IBase b2 = mid;                     // 修前 E0402
+    Assert.Equal(42, b.Which());
+    Assert.Equal(42, b2.Which());
+    Assert.Equal(42, mid.Which());
+
+    // ── ④ 实参位 / 返回位（与 var-decl 同一条门，但各是一个调用点）──────────
+    Assert.Equal(42, TakeBase(g));
+    Assert.Equal(42, RetBase(g).Which());
+
+    // ── ⑤ 泛型接口 → 泛型父接口，实参相同 ⇒ 通过，且取值正确 ────────────────
+    IBoxEx<int> bx = new IntBox();
+    IBox<int> bi = bx;                  // 修前 E0402
+    int v = bi.Get();
+    Assert.Equal(5, v);
+    Assert.Equal(6, v + 1);             // 真是 int：加法是算术，不是字符串拼接
+}
+
+int TakeBase(IBase x) { return x.Which(); }
+IBase RetBase(IDerived x) { return x; }
