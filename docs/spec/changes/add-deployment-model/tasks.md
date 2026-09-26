@@ -141,9 +141,9 @@ preserved 早退 ⇒ **侧车留在上一次的值**。实测：probing-paths �
 
 ### 已知限制
 
-`probing-paths` 是**平台分隔符**分隔的字符串（与 `path`／`native-path` 一致），跨平台清单写多条
-时分隔符不同。数组写法要改清单模型（`pr.Knobs` 是扁平 `"key=value"`）= 卡 nightly ⇒ 随批 4 的
-清单改动一起做。
+~~`probing-paths` 是**平台分隔符**分隔的字符串，跨平台清单写多条时分隔符不同。数组写法要改清单
+模型（`pr.Knobs` 是扁平 `"key=value"`）= 卡 nightly。~~ ✅ **已解决（2026-09-26，见批 3.6）**，
+**而且不卡 nightly** —— 当初判「卡 nightly」是因为以为要改 `Knobs` 的形状，实际不用。
 
 另：`deploy = "shared"` 的依赖**编译期仍须可解析**（z42c 要读它的元数据），probing-paths 只管
 运行期 —— fixture 要按「构建机有完整 libs、目标机只有 shared/」来搭。
@@ -243,3 +243,27 @@ vendored 目录不是 shipped `libs/` ⇒ 自动复制进 dist。**批 1 那个�
          是加载期按名填的派发令牌、AOT 不烤 ⇒ 能真删。两处文档互相矛盾时，**必须去代码里定论**。
       判据按归档规定核过：nightly 种子 `strings -n 3 | grep` 旧名，programs/z42c 与 libs 皆 0 引用。
       ⭐ 顺带：删掉的两个 Rust 测试的覆盖在 z42 那层活着（`z42.threading/tests/` 17 单元），留了指路注释。
+
+## 批 3.6 —— `probing-paths` 的数组写法（2026-09-26）
+
+- [x] 3.6 清单里 `probing-paths = ["../a", "../b"]` 生效。
+
+      ⭐ **「卡 nightly」这个判断是错的**：当初以为要改 `Profile.Knobs` 的形状（扁平 `"key=value"`）
+      才能承载数组 ⇒ 记成「随批 4 的清单改动一起做」。实际只要**不在 z42 侧摊平**就不用改形状：
+      · `ManifestLoader._profileKnobs`：数组元素用 `"\n"` 连接成一个值。`\n` 只是**运输标记**，
+        不是路径分隔符 —— 选它正因为它在任何平台都不会被误当成分隔符。
+      · 侧车写入器：见到 `\n` 就还原成 **TOML 数组**写进 `[runtime]`，**不拼字符串**。
+      · VM（`config/parse.rs` 的 `toml_value_to_string`）：`PathList` 旋钮接受 TOML 数组，用
+        **本机**分隔符摊平。
+      ⇒ **平台假设被推到唯一有权做它的地方**（运行这个应用的那台机器），中间各层都不碰它。
+
+      🔴 **改前是「配了以为生效」**：`_profileKnobs` **静默跳过数组** —— 用户写了数组等于没配，
+      没有任何东西会说话。这是本 change 一路在消灭的那个形状的最后一例。
+
+      门：Rust 单测 4 条（本机分隔符拼接 / 空白与空串剔除 / 空数组=没配 / **非 PathList 的数组仍非法**）
+      + e2e `_e2eProbingArrayChecks` 两格（侧车保持数组形态、两条共享目录都解析得到）。
+      判别力：让 `_profileKnobs` 退回静默跳过 → 门红在①格「侧车里不是 TOML 数组」，rc=1。
+
+      ⚠️ 顺带踩到一个**与本改动无关**的坑：`cargo test --release` 必然报 6 个
+      `debug_validate_invariants` 错误 —— 那个方法是 `#[cfg(debug_assertions)]` 的，release 下不存在。
+      仓库自己的入口是 **`xtask test runtime`**（debug）。别用 `cargo test --release` 判断 Rust 单测健康。

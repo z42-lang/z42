@@ -412,6 +412,92 @@ int _e2eDeployUseChecks(string root, string vm, string driverZpkg) {
     return 0;
 }
 
+// ── `probing-paths` 的数组写法（2026-09-26）────────────────────────────────────────────────
+//
+// **守的是什么**：路径列表的分隔符是**平台相关**的（unix `:` / windows `;`），所以「在清单里写
+// 多条」一旦落成一个字符串，就绑死了一个平台 —— #842 正是这么红的（`probing-paths = "../a:../b"`
+// 在 `package-host(windows-x64)` 整串被当成一条不存在的路径）。
+//
+// 数组形态让清单无歧义，而**摊平只发生在运行这个应用的那台机器上**（VM 知道自己的分隔符）。
+// 改前：`ManifestLoader._profileKnobs` **静默跳过数组** ⇒ 用户写了数组等于没配 —— 又一个
+// 「配了以为生效」，而且没有任何东西会说话。
+//
+// 两格：① 侧车里是**TOML 数组**（不是拼好的字符串）；② 两个共享目录都解析得到、跑得起来。
+string _e2ePpArrLibSrc(string ns, string cls, string who) {
+    return "namespace " + ns + ";\n\npublic class " + cls + " { public string Who() { return \"" + who + "\"; } }\n";
+}
+
+int _e2eProbingArrayChecks(string root, string vm, string driverZpkg) {
+    string flat = _libsFlatDist(root, "release");
+    string tmp  = Path.Join("/tmp", "z42c-e2e-pparr");
+    if (Directory.Exists(tmp)) { try { Directory.Delete(tmp, true); } catch (Exception e) {} }
+    string libsDir = Path.Join(tmp, "libs");
+    Directory.Create(libsDir);
+    string[] stdlib = Path.Glob(flat, "*.zpkg");
+    int si = 0;
+    while (si < stdlib.Length) { File.Copy(stdlib[si], Path.Join(libsDir, Path.GetFileName(stdlib[si]))); si = si + 1; }
+
+    // 两个库，各建各的，产物分别放进两个**不同的**共享目录（单条字符串写法在跨平台清单里必错，
+    // 这正是数组要解决的场景）。
+    string[] names = new string[2]; names[0] = "pparr_a"; names[1] = "pparr_b";
+    string[] clss  = new string[2]; clss[0]  = "Ka";     clss[1]  = "Kb";
+    string[] nss   = new string[2]; nss[0]   = "PparrA"; nss[1]   = "PparrB";
+    int li = 0;
+    while (li < 2) {
+        string bd = Path.Join(tmp, "build_" + names[li]);
+        Directory.Create(bd);
+        File.WriteAllText(Path.Join(bd, "x.z42"), _e2ePpArrLibSrc(nss[li], clss[li], names[li]));
+        File.WriteAllText(Path.Join(bd, names[li] + ".z42.toml"),
+            "[project]\nname    = \"" + names[li] + "\"\nversion = \"0.1.0\"\nkind    = \"lib\"\n\n"
+            + "[sources]\ninclude = [\"x.z42\"]\n\n[dependencies]\n\"z42.core\" = \"0.1.0\"\n");
+        ProcessResult lb = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build")
+            .Arg(Path.Join(bd, names[li] + ".z42.toml")).Arg("--release")
+            .Env("Z42_LIBS", libsDir).Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
+        if (lb.ExitCode != 0) { Console.WriteLine("  ✗ probing 数组: 预建 " + names[li] + " 失败: " + lb.Stderr); return 1; }
+        string shDir = Path.Join(tmp, "sh_" + names[li]);
+        Directory.Create(shDir);
+        File.Copy(Path.Join(Path.Join(bd, "dist"), names[li] + ".zpkg"), Path.Join(shDir, names[li] + ".zpkg"));
+        li = li + 1;
+    }
+
+    string appDir = Path.Join(tmp, "app");
+    Directory.Create(appDir);
+    File.WriteAllText(Path.Join(appDir, "app.z42"),
+        "namespace PparrApp;\n\nusing Std.IO;\nusing PparrA;\nusing PparrB;\n\n"
+        + "void Main() { Console.WriteLine(new Ka().Who() + \"+\" + new Kb().Who()); }\n");
+    // probing-paths 相对 **entry zpkg 所在目录**（= app/dist/）⇒ 上溯两级才到 tmp。
+    string appToml = Path.Join(appDir, "pparr_app.z42.toml");
+    File.WriteAllText(appToml,
+        "[project]\nname    = \"pparr_app\"\nversion = \"0.1.0\"\nkind    = \"exe\"\n"
+        + "entry   = \"PparrApp.Main\"\npack    = true\n\n[sources]\ninclude = [\"app.z42\"]\n\n"
+        + "[dependencies]\n\"z42.core\" = \"0.1.0\"\n\"z42.io\" = \"0.1.0\"\n"
+        + "\"pparr_a\" = { path = \"../sh_pparr_a/pparr_a.zpkg\", deploy = \"shared\" }\n"
+        + "\"pparr_b\" = { path = \"../sh_pparr_b/pparr_b.zpkg\", deploy = \"shared\" }\n\n"
+        + "[profile.release.runtime]\nprobing-paths = [\"../../sh_pparr_a\", \"../../sh_pparr_b\"]\n");
+    ProcessResult b = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(appToml).Arg("--release")
+        .Env("Z42_LIBS", libsDir).Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
+    if (b.ExitCode != 0) { Console.WriteLine("  ✗ probing 数组: 应用构建失败: " + b.Stderr); return 1; }
+
+    // ① 侧车里必须是 TOML 数组 —— 若被拼成一条字符串，就又把平台假设烤进产物了。
+    string side = Path.Join(Path.Join(appDir, "dist"), "pparr_app.runtimeconfig.toml");
+    string sideText = "";
+    try { sideText = File.ReadAllText(side); } catch (Exception e) { sideText = ""; }
+    if (sideText.IndexOf("probing-paths = [") < 0) {
+        Console.WriteLine("  ✗ probing 数组: 侧车里不是 TOML 数组（清单写了数组却被摊成字符串/丢弃）:\n" + sideText);
+        return 1;
+    }
+    // ② 两个共享目录都要解析得到。
+    ProcessResult r = new Process(vm).Arg(Path.Join(Path.Join(appDir, "dist"), "pparr_app.zpkg"))
+        .Env("Z42_LIBS", libsDir).Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
+    string ro = r.Stdout + r.Stderr;
+    if (r.ExitCode != 0 || ro.IndexOf("pparr_a+pparr_b") < 0) {
+        Console.WriteLine("  ✗ probing 数组: 数组里的两条路径没都生效: " + ro);
+        return 1;
+    }
+    Console.WriteLine("  ✓ probing-paths 数组：侧车保持数组形态、两条共享目录都解析得到");
+    return 0;
+}
+
 // ── `z42b build` 的 path 依赖闭包（2026-09-26）────────────────────────────────────────────
 //
 // **守的是什么**：闭包解析此前只写在 z42c.driver 的 `_build` 上；z42b 的编排路（`z42b build`，
