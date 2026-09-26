@@ -136,10 +136,10 @@ public sealed partial class ExprParser {
                     if (this._p._peek().Kind == TokenKind.Underscore) { this._p._advance(); hasPat = false; }   // 顶层 `_` = 默认臂（byte-identical 保持）
                     else {
                         pat = this._p._patP._parsePattern();
-                        if (this._p._peek().Kind == TokenKind.If) { this._p._advance(); guard = this._parseExpr(11); }
+                        if (this._p._peek().Kind == TokenKind.If) { this._p._advance(); guard = this._parseExpr(ParseTable.AboveAssign()); }
                     }
                     this._p._expect(TokenKind.FatArrow, "=>");
-                    Expr armBody = this._parseExpr(11);
+                    Expr armBody = this._parseExpr(ParseTable.AboveAssign());
                     arms[ac] = new SwitchArm(hasPat, pat, guard, armBody, asp); ac = ac + 1;
                     if (this._p._peek().Kind == TokenKind.Comma) { this._p._advance(); } else { break; }
                 }
@@ -208,7 +208,7 @@ public sealed partial class ExprParser {
             if (led == LedKind.NullCoalesce) {
                 Span qqs = this._p._peek().Span;
                 this._p._advance();
-                Expr rr = this._parseExpr(25);
+                Expr rr = this._parseExpr(bp);                  // 右结合 ⇒ 同 bp
                 this._p._diags.Error(DiagnosticCodes.ObsoleteNullOperator,
                     "`??` is no longer supported — write the fallback out: "
                     + "`var v = <left>; if (v == null) { v = <right>; }`. "
@@ -221,7 +221,7 @@ public sealed partial class ExprParser {
                 this._p._advance();
                 Expr thenE = this._parseExpr(0);
                 this._p._expect(TokenKind.Colon, ":");
-                Expr elseE = this._parseExpr(20);
+                Expr elseE = this._parseExpr(bp);               // 右结合 ⇒ 同 bp
                 left = new TernaryExpr(left, thenE, elseE, left.Span);
                 continue;
             }
@@ -229,7 +229,7 @@ public sealed partial class ExprParser {
             if (led == LedKind.Assign) {
                 string aop = this._p._peek().Text;
                 this._p._advance();
-                Expr rhs = this._parseExpr(10);
+                Expr rhs = this._parseExpr(bp);                 // 右结合 ⇒ 同 bp
                 left = new AssignExpr(aop, left, rhs, left.Span);
                 continue;
             }
@@ -348,14 +348,14 @@ public sealed partial class ExprParser {
         if (k == TokenKind.LBrace)   { return this._parseBraceLit(t); }
         if (k == TokenKind.Minus || k == TokenKind.Bang || k == TokenKind.Tilde || k == TokenKind.Plus) {
             this._p._advance();
-            Expr operand = this._parseExpr(85);
+            Expr operand = this._parseExpr(ParseTable.UnaryBp());
             return new UnaryExpr(t.Text, operand, t.Span);
         }
         // 前置 ++/--（此前 prefix 解析未处理 → ++i 无法解析）。用 "pre++"/"pre--" 区别于
         // 后置 "++"/"--"（emitter 据此返回新值 vs 旧值）。
         if (k == TokenKind.PlusPlus || k == TokenKind.MinusMinus) {
             this._p._advance();
-            Expr operand = this._parseExpr(85);
+            Expr operand = this._parseExpr(ParseTable.UnaryBp());
             return new UnaryExpr("pre" + t.Text, operand, t.Span);
         }
         // C 风格强制转换 `(Type)expr`：`( 类型关键字 )` 无歧义（类型关键字不能作值）。
@@ -365,7 +365,7 @@ public sealed partial class ExprParser {
             this._p._advance();
             TypeExpr ct = this._p._typeP._parseType();
             this._p._expect(TokenKind.RParen, ")");
-            Expr operand = this._parseExpr(85);
+            Expr operand = this._parseExpr(ParseTable.UnaryBp());
             return new CastExpr(ct, operand, t.Span);
         }
         // GS6: 数组类型强转 (T[])expr：类型关键字或类名后跟 []，区别于 (T)expr（peek(2) 不同）。
@@ -377,7 +377,7 @@ public sealed partial class ExprParser {
             this._p._advance();
             TypeExpr ct = this._p._typeP._parseType();
             this._p._expect(TokenKind.RParen, ")");
-            Expr operand = this._parseExpr(85);
+            Expr operand = this._parseExpr(ParseTable.UnaryBp());
             return new CastExpr(ct, operand, t.Span);
         }
         // 用户类型 / 泛型形参 cast `(T)operand`：( Identifier ) <operand-start>。
@@ -391,7 +391,7 @@ public sealed partial class ExprParser {
             this._p._advance();
             TypeExpr ct = this._p._typeP._parseType();
             this._p._expect(TokenKind.RParen, ")");
-            Expr operand = this._parseExpr(85);
+            Expr operand = this._parseExpr(ParseTable.UnaryBp());
             return new CastExpr(ct, operand, t.Span);
         }
         // complete-generic-class-identity P5：**闭合泛型**的 cast `(GBox<string>)o`。
@@ -414,7 +414,7 @@ public sealed partial class ExprParser {
             if (gct != null && this._p._peek().Kind == TokenKind.RParen
                 && ExprParser._castOperandStart(this._p._peekAt(1).Kind)) {
                 this._p._advance();                 // ')'
-                Expr gop = this._parseExpr(85);
+                Expr gop = this._parseExpr(ParseTable.UnaryBp());
                 return new CastExpr(gct, gop, t.Span);
             }
             this._p._reset(cMark);
@@ -836,7 +836,7 @@ public sealed partial class ExprParser {
             Stmt blk = this._p.ParseStatement();
             return new LambdaExpr(ps, pc, true, null, blk, sp);
         }
-        Expr body = this._parseExpr(10);                            // 含赋值层（lambda 体 `=> x = y` = `=> (x=y)`，镜像 C#；逗号仍停）
+        Expr body = this._parseExpr(ParseTable.AtAssign());         // 含赋值层（`=> x = y` = `=> (x=y)`，镜像 C#；逗号仍停）
         return new LambdaExpr(ps, pc, false, body, null, sp);
     }
 
