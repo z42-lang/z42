@@ -256,6 +256,41 @@ public sealed partial class SymbolTable {
         return m;
     }
 
+    // ── 基表分流的**唯一判定**（qualified-base-name）──────────────────────────────────
+    // 「源码里写下的这个基类型名，指的是接口吗？」是则返回 `Interfaces` 表的查找键（裸短名），
+    // 不是则返回 ""（调用方按类处理）。
+    //
+    // 🔴 **必须只有这一份**。此前判据有两处各写一遍 —— `StubCollector._passClassStubs`（符号层）
+    // 与 `ClassDescBuilder._classDesc`（发射层）—— 且两处都直接拿**源码原样串**查 `Interfaces`
+    // （键是裸短名）⇒ 限定名一律查不中、被当成基类。两份同错时症状还只是「接口关系丢了」；
+    // 一旦**只修一份**，就变成「符号层认得、发射层不认」：`class E : Std.IDisposable, Base`
+    // 编译通过而运行期 `VCall: Demo.E.Tag not found`（实测踩过）。同一形状仓里记过多次 ——
+    // `_constraintDescs` 抬头那条「writer 与 checker 从此共用同一个判定」就是上一次。
+    //
+    // 三步回落，顺序有意义：
+    //   ① **原样**（调用方已剥 `<...>`）—— 短名写法走这步，与改动前逐字等价、零风险。
+    //   ② **限定名 → FQN 视图**（`InterfacesByFqn`；本地由 `_passInterfaces` 写、导入由
+    //      `_mergeImportedInterfaces` 并入，**两者都在 `_passClassStubs` 之前完成** ⇒ 可靠）。
+    //   ③ 退回裸短名 —— FQN 视图里没有的情形（ns 拼写与 `Fqn()` 不一致等）。
+    // ⚠️ 第 ③ 步在「跨 ns 同短名」时可能认错 —— 与全仓短名键同病，不更坏；根治见「推进 FQN 键」。
+    public static string InterfaceKeyOf(SymbolTable table, string written) {
+        if (table.Interfaces.ContainsKey(written)) { return written; }
+        string s = SymbolTable.ShortNameOf(written);
+        if (s == written) { return ""; }                       // 非限定名且 ① 未命中 ⇒ 不是接口
+        if (table.InterfacesByFqn.ContainsKey(written)) { return s; }
+        if (table.Interfaces.ContainsKey(s)) { return s; }
+        return "";
+    }
+
+    // 取最后一段（`Std.IDisposable` → `IDisposable`）。无点则恒等。
+    public static string ShortNameOf(string n) {
+        int dot = 0 - 1;
+        int i = 0;
+        while (i < n.Length) { if (n.CharAt(i) == '.') { dot = i; } i = i + 1; }
+        if (dot < 0) { return n; }
+        return n.Substring(dot + 1, n.Length - dot - 1);
+    }
+
     public bool          HasClass(string name) { return this.Classes.ContainsKey(name); }
     public bool             HasInterface(string name) { return this.Interfaces.ContainsKey(name); }
     public Z42InterfaceType GetInterface(string name) { return this.Interfaces.Get(name) as Z42InterfaceType; }
