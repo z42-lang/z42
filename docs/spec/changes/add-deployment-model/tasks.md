@@ -139,11 +139,27 @@ preserved 早退 ⇒ **侧车留在上一次的值**。实测：probing-paths �
       构建侧就得把 VM 的 probing-paths 展开规则（相对 entry / 通配符 / 去重）重做一遍 ⇒
       **两份规则各自漂移**，正是本 change 一路在消灭的东西。等有共享途径（把展开暴露成
       可在构建期调用的能力）再补。
-- [ ] 4.3 `role = compile-time` 的包写 `deploy` → 报错（它不在运行期出现）。
+- [x] 4.3 ~~`role = compile-time`~~ → **`kind = "analyzer"`** 的工程写 `deploy` → 报错。
+      ⚠️ role 字段已取消（见 add-package-roles/design.md 复盘），本条载体随之改成 `kind`。
+
+      开工后发现范围比记的大：校验此前住在 `_bundleExeDeps` 里，而那个函数**只在 exe 分支跑**
+      ⇒ 🔴 **`kind = "lib"` 里写 `deploy = "Copy"`（大写 typo）一直是静默无效的** —— 本 change
+      一路在消灭的那个形状，自己身上还留着一处。
+      ⇒ 校验提到 `_validateDeployDecls`，由 `_build` 在编译**之前**调用（与 `_validateProfileKnobs`
+      同款「清单有问题不等一趟全量编译」），对所有 kind 生效；`_bundleExeDeps` 里那份删掉，
+      不留第二处。覆盖三条：非法取值（全 kind）／analyzer 工程的 `[dependencies]`／任何工程的
+      `[analyzers]` 条目。
+      **不发新诊断码**：driver 的清单/CLI 错误一律不带码（E0496 那类来自 pipeline/semantics），
+      加一个会破掉这条约定、并给码表凭空添一笔欠账。
+      门 `_e2eDeployDeclChecks` 四格（含对照格），刻意只盖**非-exe** 那半 —— exe 的非法取值已由
+      `_e2eDeployUseChecks` ④ 守着，两个门守同一件事的话，其中一个坏了不会有人知道。
+      判别力实证分两步：① 撤掉整条接线 → `_e2eDeployUseChecks` ④ 先红（说明校验确实只有一个来源）；
+      ② 退回「只对 exe 生效」→ 新门精准红在②格、exe 那格仍绿。
 
 ## 批 X —— `Z42_PATH` 死旋钮
 
-- [ ] X.1 裁决：接通它原本承诺的 `.zbc` module search 语义，还是明确退役 + 从 `--list-knobs` 移除。
+- [x] X.1 User 裁「退役」（2026-09-25）：旋钮删除、`module_paths` 参数一并从加载器拿掉，
+      `runtime-settings.md` 留一行退役记录说明它承诺的语义从未生效过。
       **不要让它的历史债决定 `probing-paths` 的形状**（见 proposal 裁决 C）。
 
 ## 批 5 —— `ModuleSearch.Dirs()`（#832，support）
@@ -154,8 +170,8 @@ VM 内部一直算着一份搜索序，但它是 `app.rs::run` 的**局部变量
 重复已去重）暴露出来。
 
 - [x] 5.1 builtin `__search_dirs` + `Std.Runtime.ModuleSearch`；门挂 `runtime_config_query` golden。
-- [ ] 5.2 **use**（待 nightly）：两份 `_findCompilerZpkg` 改读它，塌缩成几行且不再硬编码
-      `programs/z42c/`。⭐ 空数组是**有意义的答案**：这个部署形态不带编译能力，而不是"路径没配对"。
+- [x] 5.2 **use**（#842）：两份 `_findCompilerZpkg` 改读它 —— z42b 只剩一档开发树兜底，
+      位置改由清单的 `probing-paths` 声明；scripting 保留 `Z42_LIBS` 兜底。⭐ 空数组是**有意义的答案**：这个部署形态不带编译能力，而不是"路径没配对"。
 
 ## 批 6 —— zpkg 产物引用（#836，已完成）
 

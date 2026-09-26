@@ -104,15 +104,8 @@ int _bundleExeDeps(ProjectManifest pm, string[] closureNames, int closureN, stri
         string dep = names[i];
         string dpl = deploys[i];
         i = i + 1;
-        // `deploy` 取值校验：只认两个值。写错了（`Copy` / `static` / typo）此前会被当成未声明
-        // 静默走默认判据 —— 又一个「配了以为生效」。
-        if (dpl.Length > 0 && dpl != "copy" && dpl != "shared") {
-            ConsoleError.WriteLine("z42c build: [dependencies] `" + dep + "` 的 deploy = \"" + dpl
-                + "\" 不是合法取值。只接受 \"copy\"（复制进 exe 的 dist，私有）"
-                + "或 \"shared\"（不复制，运行期从 probing-paths 解析）；省略 = 由默认规则决定"
-                + "（在 shipped libs/ 里的不复制，其余复制）。");
-            return ExitCode.BuildError;
-        }
+        // 取值合法性已由 `_validateDeployDecls`（`_build` 开头）统一校验过 —— 批 4.3 起不在这里
+        // 重做一遍：那份只在 exe 分支跑，lib / analyzer 写错的 `deploy` 会被整条跳过。
         // 🔴 `shared` **不复制**，且**不需要它在任何地方存在**——它的解析是运行期的事
         // （probing-paths / libs）。这里若去校验「运行期够不够得着」，就得把 VM 那套展开规则
         // （相对 entry、通配符、去重）在 z42 侧重做一遍 ⇒ 两份规则各自漂移，正是本 change
@@ -208,6 +201,56 @@ int _bundleExeDeps(ProjectManifest pm, string[] closureNames, int closureN, stri
 // Milestone 1（显式 --output-dir <flat>）：全成员产物落该 flat dir（= 各成员 libsDir，
 // deps-first 解析兄弟）。产物 zpkg 与 C# `build --workspace` byte-identical（字节与
 // 目录无关）。注意：flat dir 须含 stdlib 依赖（调用方 seed Z42_LIBS 内容）。
+
+// `deploy` 声明的合法性（add-deployment-model 批 4.3）。由 `_build` 在**编译之前**调用 ——
+// 与 `_validateProfileKnobs` 同款「清单有问题不等一趟全量编译」。
+//
+// 为什么不留在 `_bundleExeDeps` 里：那个函数**只在 exe 分支跑**。于是
+//   · `kind = "lib"` 工程里写 `deploy = "Copy"`（大写 typo）→ 整条校验从未执行 ⇒ 静默无效；
+//   · `kind = "analyzer"` 工程里写任何 `deploy` → 它永不链入运行期产物，这个键在那儿没有意义。
+// 两者都是本 change 一路在消灭的那个形状：**配了，没报错，就是不生效**。
+//
+// `[analyzers]` 条目同理 —— handler zpkg 加载进编译器进程、编译期运行、**永不随产物走**，
+// 所以那里的 `deploy` 也无从生效。它与 `[dependencies]` 共用 `DepEntry`，键因此写得出来。
+int _validateDeployDecls(ProjectManifest pm) {
+    bool isAnalyzer = pm.Project.Kind == "analyzer";
+    int i = 0;
+    while (i < pm.DepCount) {
+        DepEntry d = pm.Deps[i];
+        i = i + 1;
+        if (d.Deploy.Length == 0) { continue; }
+        if (isAnalyzer) {
+            ConsoleError.WriteLine("z42c build: [dependencies] `" + d.Name + "` 写了 deploy = \""
+                + d.Deploy + "\"，但本工程是 kind = \"analyzer\" —— 编译期扩展永不链入运行期产物，"
+                + "它的依赖也就没有「部署到哪」这件事。删掉该键。");
+            return ExitCode.BuildError;
+        }
+        int rc = _chkDeployValue("[dependencies]", d.Name, d.Deploy);
+        if (rc != 0) { return rc; }
+    }
+    int a = 0;
+    while (a < pm.AnalyzerCount) {
+        DepEntry h = pm.Analyzers[a];
+        a = a + 1;
+        if (h.Deploy.Length == 0) { continue; }
+        ConsoleError.WriteLine("z42c build: [analyzers] `" + h.Name + "` 写了 deploy = \""
+            + h.Deploy + "\"，但 handler zpkg 只加载进编译器进程、编译期运行，永不随产物走 —— "
+            + "deploy 在这里没有意义。删掉该键。");
+        return ExitCode.BuildError;
+    }
+    return ExitCode.Ok;
+}
+
+// 取值只认两个。写错了（`Copy` / `static` / typo）若当成未声明静默走默认判据，就又是一个
+// 「配了以为生效」。`section` 用来把错误指回用户写它的那张表。
+int _chkDeployValue(string section, string name, string value) {
+    if (value == "copy" || value == "shared") { return ExitCode.Ok; }
+    ConsoleError.WriteLine("z42c build: " + section + " `" + name + "` 的 deploy = \"" + value
+        + "\" 不是合法取值。只接受 \"copy\"（复制进 exe 的 dist，私有）"
+        + "或 \"shared\"（不复制，运行期从 probing-paths 解析）；省略 = 由默认规则决定"
+        + "（在 shipped libs/ 里的不复制，其余复制）。");
+    return ExitCode.BuildError;
+}
 
 // ── `[dependencies]` 的 zpkg 产物引用（add-deployment-model）──────────────────────────────
 //
