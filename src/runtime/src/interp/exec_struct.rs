@@ -181,6 +181,28 @@ pub(crate) fn struct_field_get_val(
                 decode_prim(&obj.bytes(), off, w, kind)?
             }
         }
+        // fix-stackobj-inline-struct-leaf: same as `Value::Object` above, but the object
+        // lives in the **stack arena** (escape analysis stack-allocated it). Identical
+        // layout and `byte_off` semantics — a stack object is the same type descriptor,
+        // just a different home. Without this arm the read fell through to
+        // `as_struct_ref` and bailed `expected a struct value (StructRef), got StackObject`.
+        Value::StackObject { idx, frame_id } => {
+            let (idx, frame_id) = (*idx, *frame_id);
+            ctx.stack_arena.lock().with_obj(idx, frame_id, |obj| {
+                if is_ref_tag(kind) {
+                    let col = obj.type_desc.composed_object_layout().ok_or_else(|| {
+                        anyhow::anyhow!("StructFieldGetPrim: stack object `{}` has no object layout", obj.type_desc.name)
+                    })?;
+                    let ri = col.ref_index(byte_off).ok_or_else(|| {
+                        anyhow::anyhow!("inline struct ref leaf at byte offset {byte_off} not in object layout")
+                    })?;
+                    Ok(obj.refs()[ri].clone())
+                } else {
+                    let w = prim_width(kind)?;
+                    decode_prim(&obj.bytes(), byte_off as usize, w, kind)
+                }
+            })??
+        }
         // add-static-struct-bytecization (PR-2 S): leaf of a **boxed** value struct (a
         // static struct field is stored as a `BoxedStruct` for process-lifetime +
         // reference identity — `Holder.P.X` mutates it in place). The box's `bytes`/`refs`
@@ -291,6 +313,34 @@ pub(crate) fn struct_field_set_val(
                 let mut obj = gc.borrow_mut();
                 encode_prim(&mut obj.bytes_mut(), off, w, kind, v)
             }
+        }
+        // fix-stackobj-inline-struct-leaf: same as `Value::Object` above, but the object
+        // lives in the **stack arena** (escape analysis stack-allocated it).
+        //
+        // 🔴 **No write barrier**, unlike the heap-object arm — and that asymmetry is
+        // deliberate, mirroring `exec_object.rs::field_set`: a stack object is not a heap
+        // slot, and its heap-ref fields are kept live by **root-scanning the arena** every
+        // cycle. Adding a barrier here would be harmless-but-wrong (it would card-mark a
+        // non-heap address).
+        Value::StackObject { idx, frame_id } => {
+            let (idx, frame_id) = (*idx, *frame_id);
+            ctx.stack_arena.lock().with_obj_mut(idx, frame_id, |obj| {
+                if is_ref_tag(kind) {
+                    let ri = {
+                        let col = obj.type_desc.composed_object_layout().ok_or_else(|| {
+                            anyhow::anyhow!("StructFieldSetPrim: stack object `{}` has no object layout", obj.type_desc.name)
+                        })?;
+                        col.ref_index(byte_off).ok_or_else(|| {
+                            anyhow::anyhow!("inline struct ref leaf at byte offset {byte_off} not in object layout")
+                        })?
+                    };
+                    obj.set_ref_slot(ri, v);
+                    Ok(())
+                } else {
+                    let w = prim_width(kind)?;
+                    encode_prim(&mut obj.bytes_mut(), byte_off as usize, w, kind, v)
+                }
+            })?
         }
         // add-static-struct-bytecization (PR-2 S): leaf write into a **boxed** value
         // struct in place (static struct field `Holder.P.X = 5`; the box has reference
