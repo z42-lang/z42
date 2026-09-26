@@ -830,7 +830,7 @@ public class HttpClient : IDisposable {
         if (respConn != null && respConn.ToLower() == "close") {
             serverWantsClose = true;
         }
-        if (this._keepAlive && !serverWantsClose) {
+        if (this._keepAlive && !serverWantsClose) {   // ⚠️ 不能用 `using`：所有权有条件转移（入池 or 释放）
             this._returnToPool(poolKey, client);
         } else {
             try { client.Dispose(); } catch (Exception e) { /* swallow */ }
