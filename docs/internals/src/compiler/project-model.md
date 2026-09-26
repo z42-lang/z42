@@ -65,7 +65,7 @@ vtable fixup 触发假警报）。这条策略经 workspace 两条构建路径�
 
 path 依赖与名字依赖的关键差异：名字依赖假定其 zpkg **已在** `Z42_LIBS`（stdlib / 预建）；path 依赖是**私有**、随消费方走，编译时才**现建**。`z42c build <consumer>`（single build，非 `--workspace`）遇到 path 依赖时：
 
-1. **闭包发现（`PathDepPlan.Resolve`，`z42c.pipeline`）**：从消费方 manifest 沿 `DepEntry.Path` 非空的边做 **post-order DFS**——`visiting` 集（in-progress）检测回边报环，`visited` 集（按**规范化** toml 绝对路径）去重使钻石依赖只建一次，post-order 发射得到**叶子在前**的传递闭包（消费方自身不发射）。每条边经 `Glob(<consumerDir>/<path>, "*.z42.toml")` 恰配 1 份 manifest 解析（0/多份报错）。
+1. **闭包发现（`PathDepPlan.Resolve`，`z42.project`）**：从消费方 manifest 沿 `DepEntry.Path` 非空的边做 **post-order DFS**——`visiting` 集（in-progress）检测回边报环，`visited` 集（按**规范化** toml 绝对路径）去重使钻石依赖只建一次，post-order 发射得到**叶子在前**的传递闭包（消费方自身不发射）。每条边经 `Glob(<consumerDir>/<path>, "*.z42.toml")` 恰配 1 份 manifest 解析（0/多份报错）。
 2. **逐成员构建 + libsDirs 累积（driver `_build`）**：按闭包序（叶子在前）逐个 `_build`，把已建成员的 dist 目录累积起来，作为**后续成员**与**最终消费方**的 `libsDirs`（并入继承的 `Z42_LIBS`）。因是 post-order，任一成员被建时其 path 依赖的 dist 都已在累积集里——单遍即可，无需二次扫描。
 3. **私有组件 colocate（`_bundleExeDeps`）**：消费方为 exe 时，把 **闭包全体**的 `<name>.zpkg`（+ `.zsym`）从 libsDirs **复制进消费方 dist**，使 `z42 run dist/<exe>.zpkg` 能从 entry-zpkg 同目录解析到它们（运行期惰性加载器把 entry-zpkg 所在目录并入搜索路径）。待拷名单 = **消费方直接依赖 ∪ 第 1 步算出的 path 闭包全体**（去重）；闭包名单由 `_build` 透下来，**不在这里重算**——非 top-level 子建（`libsDirsCount>0`）本就跳过闭包解析，那个语境下重算会抛 `No such file or directory`。复制判据是**真-stdlib**（`<srcRoot>/libraries/<name>` 存在）走 `Z42_LIBS` 不复制、其余（path 依赖 / 非 stdlib 命名依赖）复制——与 publish 侧 `_pubBundleProjectDeps` 一致；path 依赖名即便形如 `z42.*`（如 `z42.repl`）也因不在 `src/libraries/` 而被正确复制。
 
@@ -98,6 +98,14 @@ path 依赖与名字依赖的关键差异：名字依赖假定其 zpkg **已在*
 > ⭐ **这个缺口的症状离原因很远**：`app → mid → leaf`、`dist/` 里只有 `mid.zpkg` 时，拷出去运行
 > **死在 `mid` 的方法里**（`MissingSymbolException: NcLeaf.Deep`）—— 报的像是「mid 的代码有问题」，
 > 实际是打包漏了 `leaf`。编译期全绿（vendored 目录早已并进 libsDirs）。
+
+> 📌 **解析器住在 `z42.project` 而不是编译器里**（2026-09-26 搬的）：它只依赖清单模型、零编译器
+> 依赖。搬下去的理由是 **`z42b` 要用它** —— z42b 刻意 stdlib-only、只经注入的 `ICompiler` 碰编译器，
+> 解析器留在 `z42c.pipeline` 它就够不着，于是 `z42b build` 长期**完全不解析 path 依赖**（repo 外对着
+> 带 path 依赖的工程报 `E0494`；repo 内看着能用只因依赖早已预建进 libs）。
+> **共用的是解析器，不是循环** —— per-member 构建两边本就不同（driver 调 `_build` 走增量缓存与侧车，
+> z42b 调 `_orchestrate` 走 rid/workload/hooks）。`z42c.pipeline` 暂留一层同名转发，是因为上一 nightly
+> 的 driver 二进制在运行期还按旧 FQN 调它（种子 ABI），下一 nightly 后删。
 
 > 📌 **发布（`z42 publish`）不另建一份闭包**：payload 里的依赖 zpkg 全部来自
 > `_pubCopyDistDeps(dist → payload)`，即上面这份 dist。publisher 侧曾有第二份走源码树 toml 的

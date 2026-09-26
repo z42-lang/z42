@@ -42,6 +42,75 @@ string _locateManifest(string verb, string given) {
     return "";
 }
 
+
+// path 依赖闭包的构建结果：各成员 dist 目录（叶子在前）+ 退出码。
+class ClosurePlan {
+    public int      Rc    { get; set; }
+    public string[] Dists { get; set; }
+    public string[] Names { get; set; }
+    public int      Count { get; set; }
+}
+
+// 按拓扑序（叶子在前）逐个建 path 依赖闭包成员，累积其 dist 目录。
+//
+// 与 driver 的那份**共用同一个解析器**（`Z42.Build.Project.PathDepPlan`）；不同的只是「怎么建
+// 一个成员」—— driver 调它自己的 `_build`，这里调 `_orchestrate` + 落 dist（本编排路的等价动作）。
+// 这一层差异无法消掉：两条路的 per-member 构建语义本就不同（rid/workload/hooks vs 纯包编译）。
+//
+// 每个成员的依赖扫描面 = **已建成员的 dist**（post-order ⇒ 它的依赖都已在内）+ Z42_LIBS。
+ClosurePlan _buildPathDepClosure(string tomlPath, Target t, string consumerHooksRel) {
+    ClosurePlan r = new ClosurePlan();
+    r.Rc = 0; r.Dists = new string[0]; r.Names = new string[0]; r.Count = 0;
+    // 🔴 `Resolve` 会抛（依赖成环 / 目录里不是恰一份 manifest）——异常消息本身是好的，
+    // 接住只打消息，别让用户拿到一串 z42b 内部栈帧（同 driver 那处）。
+    PathDepClosure closure;
+    try {
+        closure = PathDepPlan.Resolve(tomlPath);
+    } catch (Exception e) {
+        ConsoleError.WriteLine(e.Message);
+        r.Rc = 1;
+        return r;
+    }
+    if (closure.Count == 0) { return r; }
+    string[] dists = new string[closure.Count];
+    string[] names = new string[closure.Count];
+    int dn = 0;
+    int ci = 0;
+    while (ci < closure.Count) {
+        string depToml = closure.Tomls[ci];
+        ci = ci + 1;
+        ProjectManifest depPm = ManifestLoader.Load(depToml);
+        // 双向校验：编译期扩展不得作运行期依赖（与 driver 同判据、同改法指路）。
+        if (depPm.Project.Kind == "analyzer") {
+            ConsoleError.WriteLine("z42b build: [dependencies] `" + depPm.Project.Name
+                + "` 是 kind = \"analyzer\" 的编译期扩展工程，不能作运行期依赖。"
+                + "改法：把它挪进 [analyzers] 段（同样支持 `{ path = \"...\" }`）。");
+            r.Rc = 1;
+            return r;
+        }
+        string depDir = Path.GetDirectoryName(depToml);
+        if (depDir.Length == 0) { depDir = "."; }
+        // 成员自己的 `[build] hooks`（不是消费方的）。
+        string depHooks = _pubTomlStr(TomlValue.Parse(File.ReadAllText(depToml)), "build", "hooks", "");
+        int drc = _orchestrate(depPm, t, depDir, depHooks, "", dists, dn);
+        if (drc != 0) { r.Rc = drc; return r; }
+        // 落 dist（下一个成员与消费方都从这里解析它）。
+        Dirs dd = _computeDirs(depPm, depDir, t.Profile);
+        string depBuilt = Path.Join(dd.Intermediate, "app.zpkg");
+        if (!File.Exists(depBuilt)) {
+            ConsoleError.WriteLine("z42b build: path 依赖 `" + depPm.Project.Name + "` 没有产出 app.zpkg（"
+                + depBuilt + "）");
+            r.Rc = 1;
+            return r;
+        }
+        Directory.Create(dd.Dist);
+        File.Copy(depBuilt, Path.Join(dd.Dist, depPm.Project.Name + ".zpkg"));
+        dists[dn] = dd.Dist; names[dn] = depPm.Project.Name; dn = dn + 1;
+    }
+    r.Dists = dists; r.Names = names; r.Count = dn;
+    return r;
+}
+
 // ── build / publish / export：共用 _runVerb（仅 Mode 不同）──────────────────────
 
 int _cmdBuild(ParseResult r)   { return _runVerb(r, ""); }
@@ -80,7 +149,19 @@ BuildOutcome _buildProject(ParseResult r, string mode) {
     // 沿 builder_publish 的 TomlValue 直读先例（z42.project 面零改动）。
     TomlValue toml = TomlValue.Parse(File.ReadAllText(tomlPath));
     string hooksRel = _pubTomlStr(toml, "build", "hooks", "");
-    int rc = _orchestrate(m, t, sourceDir, hooksRel);
+    // ── path 依赖闭包（2026-09-26）────────────────────────────────────────────
+    // 此前这条编排路**完全不解析 path 依赖** —— 闭包解析只写在 z42c.driver 的 `_build` 上 ⇒
+    // repo 外对着一个 `dep = { path = "../foo" }` 的工程，`z42b build` 连编译都过不了
+    // （实测 `E0494: 命名空间 ... 不存在`）；repo 内看着能用，只因依赖早已预建进 libs。
+    // 解析器 `PathDepPlan` 已从 z42c.pipeline 搬进 z42.project（零编译器依赖）⇒ 这里够得着，
+    // 与 driver **同一份实现**。
+    string[] closureDists = new string[0];
+    int closureDistN = 0;
+    ClosurePlan cp = _buildPathDepClosure(tomlPath, t, hooksRel);
+    if (cp.Rc != 0) { o.Rc = cp.Rc; return o; }
+    closureDists = cp.Dists; closureDistN = cp.Count;
+
+    int rc = _orchestrate(m, t, sourceDir, hooksRel, "", closureDists, closureDistN);
     if (rc != 0) { o.Rc = rc; return o; }
     if (mode != BuildMode.Export) {
         Dirs dirs = _computeDirs(m, sourceDir, t.Profile);
@@ -89,9 +170,21 @@ BuildOutcome _buildProject(ParseResult r, string mode) {
             Directory.Create(dirs.Dist);
             string distZpkg = Path.Join(dirs.Dist, m.Project.Name + ".zpkg");
             File.Copy(builtZpkg, distZpkg);
+            // path 闭包成员随产物走（2026-09-26）：名单直接来自上面刚建的闭包，**不是**去源码树
+            // 按名搜。少了这一步，闭包只买到「能编」——拷出去运行会死在中间那个包的方法里
+            // （实测 `MissingSymbolException: OoMid.Mid.Call`）。
+            int cj = 0;
+            while (cj < closureDistN) {
+                string cz = Path.Join(closureDists[cj], cp.Names[cj] + ".zpkg");
+                cj = cj + 1;
+                if (File.Exists(cz)) { File.Copy(cz, Path.Join(dirs.Dist, Path.GetFileName(cz))); }
+            }
             // fix-call-arity-skew 抓出的调用点 bug：此处一直少传第 4 个实参 `noBuild`（无默认值），编译器却没报
             // （实参不足的诊断缺失，另行登记），运行期它静默为 Null ⇒ 当 false 用 ⇒「依赖缺失就现编」。
             // 显式传 false，行为与此前逐字一致；新的运行期签名判定正是因这一处少传而拒绝派发。
+            //
+            // 📌 它现在只还剩**按名依赖**那半（在 repo 内按 srcRoot 搜源码树）。path 依赖那半已由
+            // 上面的闭包名单接管 —— 那份走 srcRoot 的实现在 repo 外恒为空转（见 #852）。
             rc = _pubBundleProjectDeps(tomlPath, toml, dirs.Dist, false);
             if (rc == 0) { o.Dist = distZpkg; }
         }
