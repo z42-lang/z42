@@ -94,6 +94,10 @@ SubcommandRouter _testRouter() {
     ArgParser diagcodes = new ArgParser("xtask test diagcodes", "reconcile the code registry vs every literal emission / constant reference in src");
     diagcodes.AddFlag("update", "", "rewrite scripts/test/diag-literal-emitters.txt from the current tree");
     t.Add("diagcodes", "diagnostic-code uniqueness gate (every emitted code is claimed exactly once in DiagnosticCodes.z42)", diagcodes);
+
+    ArgParser stage2 = new ArgParser("xtask test stage2", "staged-introduction debt: every STAGE2-DEBT marker is ledgered and not overdue");
+    stage2.AddFlag("update", "", "rewrite scripts/test/stage2-debt.txt from the current tree");
+    t.Add("stage2", "stage-2 debt gate (bootstrap-seed staged introduction: transitional forms must be ledgered + aged)", stage2);
     t.Add("incremental", "file-level incremental reconciler (per-file touch: incr == full, byte-exact)",
         new ArgParser("xtask test incremental", "brute-force reconcile incremental vs full builds + timing"));
     ArgParser fingerprint = new ArgParser("xtask test fingerprint", "base 与本树编译器编同一份 base stdlib，输出变了则版本号必须累加");
@@ -149,6 +153,7 @@ int _dispatchTest(string[] p, ParseResult r) {
     if (sub == "lines")        { return _testLines(r.GetFlag("update")); }          // 文件行数硬上限（棘轮基线）
     if (sub == "walkers")      { return _testWalkers(); }                            // AST walker 完备性对账
     if (sub == "diagcodes")    { return _testDiagCodes(r.GetFlag("update")); }                          // 诊断码唯一性对账
+    if (sub == "stage2")       { return _testStage2Debt(r.GetFlag("update")); }                        // 阶段-2 欠账挂账 + 到期
     if (sub == "incremental")  { return _testIncremental(r); }   // 文件级增量暴力对账（D4/D8）
     if (sub == "fingerprint")  { return _testFingerprint(r); }   // 编译器输出变 ⇒ 版本号必须累加
     if (sub == "changed")      { return _testChanged(r); }

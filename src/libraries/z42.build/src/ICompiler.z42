@@ -25,10 +25,12 @@ namespace Z42.Build;
                               // 支持 compile-then-test 直接编测试工程（add-z42b-compile-then-test）
     string[] Excludes,        // fix-hooks-source-scan 阶段4：源发现排除 glob（相对 SourceDir，
     int      ExcludesCount)  // 如 `hooks/**` / `[sources] exclude`），传给 SourceDiscovery.
-                              // DiscoverWithExclude。**阶段4.1 additive**：字段先行、z42c 尚不读
-                              // （让 z42b/publish in-process 编译路径的产物也排除 hooks 死类）；
-                              // 待本字段随 nightly 发布后，阶段4.2 才让 Z42cCompiler 读它
-                              // （bootstrap-seed 轴②：z42c 源引用 stdlib API 须晚一个 nightly）。
+                              // DiscoverWithExclude。**阶段4.1 additive**：字段先行、z42c 先不读
+                              // （让 z42b/publish in-process 编译路径的产物也排除 hooks 死类），
+                              // 因为 bootstrap-seed 轴②要求 z42c 源引用新 stdlib API 晚一个 nightly。
+                              // ✅ **阶段4.2 已落地**：`Z42cCompiler` 现在读它
+                              // （`DiscoverWithExclude(req.SourceDir, …, req.Excludes, req.ExcludesCount)`）。
+                              // 原注写着「z42c 尚不读…阶段4.2 才让它读」，消费落地后没跟着改。
 {
     /// z42b-owns-test-targets：本次编译若是 `<ParentPkg>` 的**测试/bench 目标**，则加载该包时
     /// 按同包待遇 —— 其 `internal` 成员对测试可见（`ImportedSymbolLoader` 不设 `IsImported`）。

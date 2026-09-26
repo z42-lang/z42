@@ -261,7 +261,9 @@ public static class ZpkgReader {
     // 另一条路（顺着源码树的 toml 找）在 repo 外整个失效（publisher 今天就是那样），不能用。
     //
     // 🔴 **support 阶段：本方法今天无人调用** ⇒ 产物逐字节不变、可立即合并。
-    // 消费（`_bundleExeDeps` 改建闭包）要等它随 nightly 进种子之后。
+    // ✅ 阶段 2 已落地（#849）：`_bundleExeDeps` 用它按 DEPS 段建按名/产物引用的传递闭包。
+    //    （此前这里写着「消费要等它随 nightly 进种子之后」—— 消费落地后没人回来改这句，
+    //     于是支持侧的注释变成假话。这类腐坏现在由 `xtask test stage2` 的双向棘轮盯着。）
     public static string[] ReadDependencies(ZpkgInfo z) {
         ZpkgSection s = z.Section("DEPS");
         if (s == null) { return new string[0]; }
