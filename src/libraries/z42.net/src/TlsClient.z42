@@ -97,7 +97,7 @@ public class TlsStream : Stream {
 // Unlike TcpClient this has no listener/accept side (TLS server is a future
 // follow-up) and no connection pool — `HttpClient` opens a fresh TLS
 // connection per https request in v1 (keep-alive pooling is TCP-only).
-public class TlsClient {
+public class TlsClient : IDisposable {
     private long      _slotId;
     private bool      _connected;
     private bool      _disposed;

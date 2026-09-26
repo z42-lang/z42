@@ -25,7 +25,7 @@ using Std;
 // for direct-typed callers — the "Base" suffix here lets polymorphic
 // callers reach the default-impl variants when needed.
 
-public class TextReader {
+public class TextReader : IDisposable {
     // ── Core (subclasses override) ──────────────────────────────────────────
 
     public virtual int Peek() {

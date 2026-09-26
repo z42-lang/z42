@@ -63,23 +63,34 @@ public sealed class StmtBinder {
     // 名义判定：`t` 的接口闭包里有 `Std.IDisposable` 吗。
     // 判据不足（型参 / Unknown / 错误类型）时**返回 true**（保守放行）——与 `ForeachProtocol._hasDispose`
     // 同一口径：宁可漏报一次，也不要对着一个本来就没解析出来的类型再叠一条误报。
+    // 🔴 **两种拼写都要认**：本包类的 `InterfaceNames` 存的是**源码里写的短名**（`IDisposable`），
+    // 而**导入**类的存的是 **FQ 名**（`Std.IDisposable`）——`ExportedTypes.z42:155` 明写「名字形态是
+    // FQ，与 `IrClassDesc.Interfaces` 一致（zbc 1.20 起）」。只比短名的话，跨包用 `using` 会对
+    // 每一个 stdlib 资源类型误报 E0498（实测：`TextReader` 明明声明了 `: IDisposable` 也被拦）。
+    private static bool _implementsDisposable(SymbolTable symbols, string typeName) {
+        if (symbols.Implements(typeName, ProtocolNames.IDisposable)) { return true; }
+        return symbols.Implements(typeName, "Std." + ProtocolNames.IDisposable);
+    }
+
     private static bool _isDisposable(SymbolTable symbols, Z42Type t) {
         if (t == null) { return true; }
         if (t is Z42UnknownType) { return true; }
         if (t is Z42InterfaceType) {
             if (t.Name() == ProtocolNames.IDisposable) { return true; }
+            if (t.Name() == "Std." + ProtocolNames.IDisposable) { return true; }
             // 🔴 **接口那条线不能用 `Implements`**：它从 `this.Classes.Find(cur)` 起步、只沿**类**的
             // `BaseName` 链走 ⇒ 第一个参数是接口名时直接落空（`IRes : IDisposable` 上的
             // `using` 会被误报 E0498）。接口→父接口的那半在 `InterfaceDerivesFrom`（不含自身，
             // 所以上面先单独比一次名字）。
             // ⚠️ 这个分裂是既有的（`Conversion` 与 `ConstraintChecker` 都直接用 `Implements`，
             // 于是「接口→父接口赋值关系」至今不成立 —— 那是独立记账的一条，不在本 change 范围）。
-            return symbols.InterfaceDerivesFrom(t.Name(), ProtocolNames.IDisposable);
+            if (symbols.InterfaceDerivesFrom(t.Name(), ProtocolNames.IDisposable)) { return true; }
+            return symbols.InterfaceDerivesFrom(t.Name(), "Std." + ProtocolNames.IDisposable);
         }
         if (t is Z42InstantiatedType) {
-            return symbols.Implements((t as Z42InstantiatedType).Def.Name(), ProtocolNames.IDisposable);
+            return StmtBinder._implementsDisposable(symbols, (t as Z42InstantiatedType).Def.Name());
         }
-        if (t is Z42ClassType) { return symbols.Implements(t.Name(), ProtocolNames.IDisposable); }
+        if (t is Z42ClassType) { return StmtBinder._implementsDisposable(symbols, t.Name()); }
         return true;
     }
 

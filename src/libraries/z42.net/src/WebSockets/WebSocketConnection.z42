@@ -18,7 +18,7 @@ using Std.Net.Sockets;
 // when either side sends a Close frame (or the underlying TCP socket
 // closes / errors). `Dispose` releases the TCP socket; `Close(code,
 // reason)` sends a Close control frame first then disposes.
-public class WebSocketConnection {
+public class WebSocketConnection : IDisposable {
     private TcpClient _tcp;
     private Stream    _stream;
     private int       _state;

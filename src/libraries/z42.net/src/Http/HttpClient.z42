@@ -24,7 +24,7 @@ using Std.Net.Sockets;
 //
 // Chunked transfer encoding: incoming supported (servers commonly use it);
 // outgoing always Content-Length.
-public class HttpClient {
+public class HttpClient : IDisposable {
     private string    _userAgent;
     private CookieJar _cookieJar;
     private int       _maxRedirects;

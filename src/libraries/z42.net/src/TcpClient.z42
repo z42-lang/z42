@@ -15,10 +15,12 @@ using Std;
 // Connect can be deferred (default constructor creates an unconnected client)
 // or eager via `new TcpClient(host, port)`. Mirrors .NET BCL.
 //
-// IDisposable: z42 没有正式的 IDisposable protocol，但 stdlib 约定带
-// `Dispose()` 方法 + GC finalizer drop。这里 explicit Dispose 必须在
-// 用户 main path 上调用以及时释放 fd；GC fallback 只是保险。
-public class TcpClient {
+// IDisposable: 本类型**名义实现** `Std.IDisposable`（add-using-statement 批 3 补上 ——
+// 此前这里写的是「z42 没有正式的 IDisposable protocol」，那是**假话**：接口一直在
+// `z42.core/src/Protocols/IDisposable.z42`，同包的 `ProcessHandle` 早就在实现它）。
+// ⇒ 现在可以 `using (var c = new TcpClient(host, port)) { … }`，退出任一路径都释放 fd。
+// 手工 `Dispose()` 仍然可用；GC fallback 只是保险。
+public class TcpClient : IDisposable {
     private long _slotId;
     private bool _connected;
     private bool _disposed;

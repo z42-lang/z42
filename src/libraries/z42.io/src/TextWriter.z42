@@ -21,7 +21,7 @@ using Std;
 // emit `\n` regardless of platform. Callers wanting CRLF should write
 // `"line\r\n"` explicitly.
 
-public class TextWriter {
+public class TextWriter : IDisposable {
     // ── Core (subclasses override) ──────────────────────────────────────────
 
     public virtual void Write(string s) {

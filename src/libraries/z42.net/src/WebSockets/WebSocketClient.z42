@@ -28,7 +28,7 @@ using Std.Net.Sockets;
 //     sufficient v0; SHA-1 validation is `add-z42-net-websocket-accept-validate`
 //     follow-up since z42.crypto lacks SHA-1)
 //   - No per-message-deflate, no subprotocol negotiation
-public class WebSocketClient {
+public class WebSocketClient : IDisposable {
     private TcpClient     _tcp;
     private NetworkStream _stream;
     private int           _state;

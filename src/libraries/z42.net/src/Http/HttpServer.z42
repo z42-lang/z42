@@ -25,7 +25,7 @@ using Std.Net.Sockets;
 //
 // Multi-threaded variant is `add-z42-net-http-server-threaded` follow-up:
 // dispatch each `AcceptTcpClient` to a `Std.Threading.Thread` worker.
-public class HttpServer {
+public class HttpServer : IDisposable {
     private TcpListener _listener;
     private bool        _stopped;
     private int         _localPort;
