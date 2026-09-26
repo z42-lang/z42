@@ -1,6 +1,6 @@
 # ANCHOR: onefield
 $ z42 run onefield.z42
-单字段: a.X=50  b.X=50
+单字段: a.X=1  b.X=50
 两字段: c.X=1  d.X=50
 # ANCHOR_END: onefield
 # ANCHOR: exprctor

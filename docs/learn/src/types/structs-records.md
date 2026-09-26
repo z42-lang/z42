@@ -65,11 +65,9 @@
 > ⚠️ `with` 目前**只支持 record class**，用在 record struct 上会报错
 > （`with on a struct record is not yet supported`）。
 
-## 🔴 两个坑
+## 🔴 一个坑
 
-### 单字段 struct 没有值语义
-
-值语义目前只对**两个及以上字段**的 struct 生效：
+### 值语义与字段数无关（一个字段也是值语义）
 
 ```z42
 // examples/types/structs-records/gaps/onefield.z42
@@ -80,8 +78,11 @@
 {{#include ../../../../examples/types/structs-records/gaps/run.console:onefield}}
 ```
 
-单字段那个 `a.X` 跟着 `b` 一起变了——**它表现得像引用类型**。这是当前实现的缺口，
-不是设计意图。真需要一个字段的值类型时，加一个占位字段，或者先用类。
+两边都是「改副本不动原值」——**字段数不影响语义**。
+
+> 📜 **2026-09-26 之前这里是坏的**：单字段 struct 走的是引用模型，上面那个 `a.X` 会跟着
+> `b` 一起变成 50（值语义只对两个及以上字段生效）。当时的建议是「加一个占位字段，或者先用类」
+> —— 现在不需要了。
 
 ### 表达式体构造器里的元组赋值
 
@@ -135,7 +136,7 @@ Console.WriteLine(p.ToString());   // (1, 2)
 - **`struct` 是值类型**：赋值和传参复制内容，`Equals` 逐字段比；**不参与继承**。
 - `[Record]` 一行合成主构造器、值相等、`ToString`、`with`。
 - ⚠️ `with` 只支持 record **class**。
-- 🔴 **单字段 struct 仍表现为引用语义**——当前实现缺口。
+- **字段数不影响值语义**：一个字段的 struct 也是复制（2026-09-26 起）。
 - ⚠️ **表达式体构造器里 `(A, B) = (a, b)` 不是赋值**（报 E0482）；构造器写花括号体。
 - 自己写的 `ToString` 在插值 / 拼接 / `WriteLine` / 显式调用四条路上**答案一致**。
 

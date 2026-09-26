@@ -45,7 +45,11 @@ pub(crate) fn try_struct_backed(ctx: &VmContext, element_type: &str, len: usize)
             ctx.try_lookup_type(erased)?
         }
     };
-    if td.fields.len() < 2 { return None; }   // FieldCount >= 2 (matches IsBlobStruct)
+    // single-field-struct-value-semantics（坑点 ⑤）：闸门与编译器 `StructLayout.IsBlobStruct` **必须逐字一致**
+    // —— 它翻成 `FieldCount >= 1` 之后这里没跟上的话，`S[]`（单字段）会退化成引用数组、元素全 Null，
+    // 首次 `arr[0].X = v` 就抛 `StructFieldSetPrim base: expected a struct value (StructRef), got Null`。
+    // 这是全 VM **唯一**一份该判据的镜像（其余地方问 `struct_layout()` 有没有交付）。
+    if td.fields.is_empty() { return None; }   // FieldCount >= 1 (matches IsBlobStruct)
     let layout = td.struct_layout()?;         // value struct with a delivered byte layout
     if layout.size == 0 { return None; }      // self-referential / empty guard
     // unify-gc-heap PR-3: the constructor allocates the struct[] byte + ref blocks in the GC heap.

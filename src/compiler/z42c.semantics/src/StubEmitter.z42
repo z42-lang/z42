@@ -68,7 +68,18 @@ public sealed class StubEmitter {
     internal IrFunction _emitNativeStub(string name, MethodDecl md, string nat, bool isStatic, Decl rawMem) {
         int totalParams = md.ParamCount;
         if (!isStatic) { totalParams = totalParams + 1; }
-        bool isVoid = this._g._symbols.ResolveType(md.RetType).Name() == "void";
+        string natRetName = this._g._symbols.ResolveType(md.RetType).Name();
+        bool isVoid = natRetName == "void";
+        // fix-native-stub-sret：声明返回 **blob 值 struct** 的 extern —— 调用点按返回类型传 sret 槽
+        // （`CallEmitter` 的唯一判据），而本桩此前只发 `builtin nat(args…)` 并把 Value 直接 `ret`
+        // ⇒ 物理签名少一个槽 ⇒ 运行期 `takes N+1 physical argument(s), the call passes N`。
+        // 之所以四个月没响：全仓**唯一**这种形状是 `Std.GCHandle.Alloc`，而 GCHandle 是**单字段**
+        // struct ⇒ 翻 `IsBlobStruct` 闸门（坑点 ⑤）之前它不是 blob、桩与调用点「N 对 N」巧合一致。
+        // 形状：`%r = builtin nat(args…)`（Rust 侧产装箱 struct）→ `as_cast` 拆箱进帧 arena
+        //      → `struct_copy` 写进调用方给的 sret 槽 → `ret`（void）。全用现有指令。
+        bool natRetStruct = !isVoid && this._g.Layouts != null && this._g.Layouts.IsBlobStruct(natRetName)
+                            && this._g.Layouts.StructSize(natRetName) > 0;
+        if (natRetStruct) { return this._emitNativeStubSret(name, md, nat, isStatic, rawMem, natRetName, totalParams); }
         TypedReg[] args = new TypedReg[totalParams];
         int i = 0;
         while (i < totalParams) { args[i] = new TypedReg(i, IrType.Unknown); i = i + 1; }
@@ -133,6 +144,43 @@ public sealed class StubEmitter {
         return new IrFunction(name, totalParams, retName, false, blocks, 1, totalParams + 1,
                               "Interp", ptypes, totalParams, new int[0], 0,
                               new IrLineEntry[0], 0, new IrLocalVarEntry[0], 0);
+    }
+
+    // fix-native-stub-sret：`_emitNativeStub` 的 blob-返回变体（见那里的注释）。
+    // 物理形参 = 声明形参(+this) + **末尾 sret 槽**；`MethodFlagSret` 必须置位，
+    // 否则 VM 按 `param_count` 算期望物理数、又把调用方传的 sret 当多余实参。
+    private IrFunction _emitNativeStubSret(string name, MethodDecl md, string nat, bool isStatic,
+                                           Decl rawMem, string retStructName, int declaredParams) {
+        int sretIdx = declaredParams;                 // 末尾隐藏槽的寄存器号
+        int totalPhys = declaredParams + 1;
+        TypedReg[] args = new TypedReg[declaredParams];
+        int i = 0;
+        while (i < declaredParams) { args[i] = new TypedReg(i, IrType.Unknown); i = i + 1; }
+        TypedReg sret = new TypedReg(sretIdx, IrType.Ref);
+        TypedReg boxed = new TypedReg(totalPhys, IrType.Ref);       // builtin 的返回（装箱 struct）
+        TypedReg unboxed = new TypedReg(totalPhys + 1, IrType.Ref); // as_cast 后的帧 arena 句柄
+        int rsz = this._g.Layouts.StructSize(retStructName);
+        IrInstr[] instrs = new IrInstr[3];
+        string[] lt = this._nativeLibType(rawMem);
+        if (lt[1] != "") { instrs[0] = new CallNativeInstr(boxed, lt[0], lt[1], nat, args, declaredParams); }
+        else            { instrs[0] = new BuiltinInstr(boxed, nat, args, declaredParams); }
+        instrs[1] = new AsCastInstr(unboxed, boxed, this._g._q(retStructName));
+        instrs[2] = new StructCopyInstr(sret, unboxed, rsz);
+        IrBlock[] blocks = new IrBlock[1];
+        blocks[0] = new IrBlock("entry", instrs, 3, new RetTerm(false, sret), true);
+        // 🔴 `ParamCount` **不含 sret**（`FunctionEmitter` 的同款约定：sret 是物理签名的一部分，
+        // 却只由 `MethodFlagSret` 承载）。第一版把含 sret 的 `totalPhys` 当 ParamCount 传进来，
+        // 于是 VM 按 `param_count + sret` 算出 **4**、而调用方传 3 ⇒ 同一条门反向报
+        // `takes 4 physical argument(s), the call passes 3`。双重计数是这条路最容易踩的坑。
+        string[] ptypes = new string[declaredParams];
+        int pk = 0;
+        while (pk < declaredParams) { ptypes[pk] = "?"; pk = pk + 1; }
+        // retName 仍是**声明**的返回类型（反射/跨包签名保真；sret 由 MethodFlags 承载，不污染签名）
+        IrFunction irf = new IrFunction(name, declaredParams, retStructName, false, blocks, 1, totalPhys + 2,
+                              "Interp", ptypes, declaredParams, new int[0], 0,
+                              new IrLineEntry[0], 0, new IrLocalVarEntry[0], 0);
+        irf.MethodFlags = irf.MethodFlags | IrGenFacts.MethodFlagSret;
+        return irf;
     }
 
     internal IrFunction _emitDelegateInvoke(string dfq, DelegateDecl dd) {
