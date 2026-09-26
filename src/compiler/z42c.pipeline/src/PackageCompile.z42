@@ -20,8 +20,22 @@ using Z42.Project;
 // 用 pipeline 本地类型承载，避免核心反向依赖 driver 的 IncrementalDriver.Meta（依赖方向：driver→pipeline）。
 public sealed class CachedNsMeta {
     public string[] UsedDepNs; public int UsedDepNsCount;
+    // warnings-survive-cache：同理由的第二格——cached CU 的 per-CU typecheck 诊断也是本轮跳过的
+    // 产物，必须从 meta 回填，否则**警告只在冷构建那一次可见**。
+    public string[] Diags;     public int DiagCount;
     public CachedNsMeta(string[] usedDepNs, int count) {
         this.UsedDepNs = usedDepNs; this.UsedDepNsCount = count;
+        this.Diags = new string[0]; this.DiagCount = 0;
+    }
+}
+
+// 一个 CU 的 per-CU typecheck 诊断快照（warnings-survive-cache）。
+// 用包装类而非 `string[][]` —— **z42 不原生支持锯齿数组**（`z42.cli/ArgParser.z42` 里
+// `_MutexGroup` 是同一个办法、同一个理由）。
+public sealed class CuDiagSnapshot {
+    public string[] Msgs; public int Count;
+    public CuDiagSnapshot(string[] msgs, int count) {
+        this.Msgs = msgs; this.Count = count;
     }
 }
 
@@ -119,12 +133,17 @@ public sealed class CompileArtifacts {
     public string[] GenFiles;
     public string[] GenTexts;
     public int      GenCount;
+    // warnings-survive-cache：**per-CU typecheck 诊断的快照**，逐 CU 一项（长度 = CmCount）。
+    // 快照点在 `EnforceFileScopeAll`（E0436）与 `_runAnalyzers` **之前** —— 那两层每次构建都会
+    // 重新发，存进 cache 就会重复打印。driver 拿它写 meta，不要改用 `Cms[i].DiagMsgs`。
+    public CuDiagSnapshot[] CuDiags;
     public CompileArtifacts(ZpkgFileZ z, ZbcFileZ[] mods, int modCount,
                             CompiledModuleZ[] cms, int cmCount, int errorCount, string entryStatus) {
         this.Z = z; this.Mods = mods; this.ModCount = modCount;
         this.Cms = cms; this.CmCount = cmCount; this.ErrorCount = errorCount; this.EntryStatus = entryStatus;
         this.Scan = null;
         this.GenFiles = new string[0]; this.GenTexts = new string[0]; this.GenCount = 0;
+        this.CuDiags = new CuDiagSnapshot[0];
     }
 }
 
@@ -266,15 +285,33 @@ public static class PackageCompile {
         CompiledModuleZ[] cms = IrDump.BuildPackageCus(texts, files, srcCount, cus,
                                                        depIndex, imported, inp.IsRelease, cachedMods, optSet);
         // cached 的 UsedDepNs 是 typecheck 产物（本轮跳过）→ 从 meta 回填（源不变即不变）。
+        // 诊断同理（warnings-survive-cache）：`CompileCuTask.Run` 的 cached 分支把 `DiagMsgs`
+        // 置空，此前无人回填 ⇒ **警告只在冷构建那一次可见**（实测 W0700：第 ① 次打印，第 ②
+        // 次起 `cached: 1/1` 彻底消失、源码一字未改）。与 E0436 那条（#879
+        // fix-incremental-file-scope-diagnostics）是**同一个毛病的第三例**。
         if (cachedMods != null && inp.CachedMetas != null) {
             int ci = 0;
             while (ci < inp.SrcCount) {
                 if (cachedMods[ci] != null && inp.CachedMetas[ci] != null) {
                     cms[ci].UsedDepNs = inp.CachedMetas[ci].UsedDepNs;
                     cms[ci].UsedDepNsCount = inp.CachedMetas[ci].UsedDepNsCount;
+                    cms[ci].DiagMsgs = inp.CachedMetas[ci].Diags;
+                    cms[ci].DiagCount = inp.CachedMetas[ci].DiagCount;
+                    // ErrorCount 不回填：ErrorCount>0 的编译**根本不写 cache** ⇒ 存下来的
+                    // 只会是 warning。若哪天这个前提变了，这里必须跟着改（否则 cached
+                    // 命中会把错误降级成警告 —— 比丢警告坏得多）。
                 }
                 ci = ci + 1;
             }
+        }
+        // per-CU typecheck 诊断快照 —— **必须在下面两层之前**取：`EnforceFileScopeAll`（E0436）
+        // 与 `_runAnalyzers` 每次构建都重新发（analyzer 跑在 AST 上，cached CU 的 AST 是在的），
+        // 把它们也存进 meta 就会在 cached 命中时**重复打印**。
+        CuDiagSnapshot[] snap = new CuDiagSnapshot[srcCount];
+        int si = 0;
+        while (si < srcCount) {
+            snap[si] = new CuDiagSnapshot(cms[si].DiagMsgs, cms[si].DiagCount);
+            si = si + 1;
         }
 
         // 文件级 using 强制（E0436）——**必须在上面那段回填之后**。
@@ -387,6 +424,7 @@ public static class PackageCompile {
         if (totalErr > 0) {
             CompileArtifacts errArt = new CompileArtifacts(null, null, 0, cms, srcCount, totalErr, "");
             errArt.Scan = scan;   // perf ②：回显 scan（首轮出错也让调用方缓存已建 scan）
+            errArt.CuDiags = snap;
             return errArt;
         }
 
@@ -443,6 +481,7 @@ public static class PackageCompile {
         }
         CompileArtifacts okArt = new CompileArtifacts(z, mods, srcCount, cms, srcCount, 0, entryStatus);
         okArt.GenFiles = genFiles; okArt.GenTexts = genTexts; okArt.GenCount = genCount;
+        okArt.CuDiags = snap;
         okArt.Scan = scan;   // perf ②：回显 scan 供调用方缓存 + 后续 ExtendWithPackage
         return okArt;
     }

@@ -196,7 +196,7 @@ public static class IncrementalDriver {
     public static void WriteMetas(string cacheDir, string projectDir, string[] srcs, string[] texts,
                                   string[] hashes, int n, CompiledModuleZ[] cms, ZbcFileZ[] mods,
                                   IncrFilePlan plan, NameListZ[] idents, NameSurfacesZ[] surfaces, string depsId,
-                                  LanguageFeatures feats) {
+                                  LanguageFeatures feats, CuDiagSnapshot[] cuDiags) {
         string[] rels = new string[n];
         int i = 0;
         while (i < n) {
@@ -237,6 +237,12 @@ public static class IncrementalDriver {
                     f = f + 1;
                 }
                 m.FnLabels = fl; m.FnLabelsCount = irm.FuncCount;
+                // per-CU typecheck 诊断（warnings-survive-cache）。取 **pipeline 的快照**，不是
+                // `cms[i].DiagMsgs` —— 后者到这一步已经被 E0436 与 analyzer 那两层追加过，
+                // 而那两层每次构建都会重新发，存进来会在 cached 命中时重复打印。
+                if (cuDiags != null && i < cuDiags.Length && cuDiags[i] != null) {
+                    m.Diags = cuDiags[i].Msgs; m.DiagCount = cuDiags[i].Count;
+                }
                 CacheStore.Save(cacheDir, m);
             }
             i = i + 1;

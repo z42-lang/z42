@@ -61,12 +61,17 @@ int _testIncremental(ParseResult r) {
     // 「改泛型体」必须失效消费方。上面每一轮都测不到它（见该函数头注）。
     rc = _reconcileGenericBodyTouch(vm, driver, libs, _genBodyDir(scratch));
     if (rc != 0) { return rc; }
+    // warnings-survive-cache：警告的可见性此前**取决于缓存命中状态** —— 与「产物字节对账」
+    // 完全正交（增量与全量的产物一直是相同的，丢的只有终端上的那几行），所以上面每一轮都
+    // 测不到它。判据必须看 **stderr**。
+    rc = _warningsSurviveCache(vm, driver, libs, _warnCacheDir(scratch));
+    if (rc != 0) { return rc; }
     rc = _reconcileStdlibReadback(root, vm, driver, libs, scratch);
     if (rc != 0) { return rc; }
 
     Console.WriteLine("\n✅ incremental reconciler: all dist files byte-identical (demo + demo-packed + xtask + stdlib readback)"
         + " + [build] incremental / [optimize] / [syntax] knobs take effect + manifest identity in cache key"
-        + " + generic body touch invalidates consumers");
+        + " + generic body touch invalidates consumers + warnings survive cache hits");
     _procEnd("test incremental", sw);
     return 0;
 }
@@ -765,5 +770,89 @@ string _incrXtaskCopy(string root, string scratch) {
     }
     File.WriteAllText(Path.Join(d, "t.z42.toml"),
         "[project]\nname = \"incrpkg\"\nversion = \"0.1.0\"\nkind = \"lib\"\n[sources]\ninclude = [\"**/*.z42\"]\n");
+    return d;
+}
+
+// ── 警告必须活过缓存命中（warnings-survive-cache）──────────────────────────────
+//
+// 为什么要单独一道、且判据看 stderr：本门其余各轮全在比**产物字节**，而这个缺陷不动产物
+// 一个字节 —— 增量与全量编出来的 zbc 一直相同，丢的只有终端上那几行警告。「产物对账全绿」
+// 与「警告一条都看不见」可以同时成立。
+//
+// 实测的缺陷形态（修前）：带 W0700 的工程连续构建三次，**只有第 ① 次打印**。两个独立的
+// 静默器叠在一起：
+//   ① 整包全命中 → driver 在 `no changes; preserved` 处早退，压根不编译 ⇒ 无人呈现警告；
+//   ② 部分命中 → `CompileCuTask.Run` 的 cached 分支把 `DiagMsgs` 置空，而无人回填。
+// 两格都要测：只修一格的话，另一格会让「构建两次」这个最常见的用法继续静默。
+int _warningsSurviveCache(string vm, string driver, string libs, string projDir) {
+    Console.WriteLine("\n── warnings survive cache hits (" + projDir + ") ──");
+    string toml = Path.Join(projDir, "t.z42.toml");
+    string errLog = Path.Join(projDir, "build.err");
+    string bF = Path.Join(projDir, "b.z42");
+
+    // ① 冷构建：警告必须出现（这一格修前也是对的 —— 作为判据有效性的阳性对照）。
+    if (_incrBuildErrTo(vm, driver, libs, toml, errLog) != 0) {
+        ConsoleError.WriteLine("  ✗ warn-cache: 冷构建失败"); return 1;
+    }
+    if (!File.ReadAllText(errLog).Contains("W0700")) {
+        ConsoleError.WriteLine("  ✗ warn-cache: **冷构建**就没打印 W0700 —— 判据失去对象。");
+        ConsoleError.WriteLine("    查夹具：a.z42 里的 switch 表达式是否真的对 enum 不穷尽（加了 `_` 兜底就不再警告）。");
+        return 1;
+    }
+    Console.WriteLine("  ✓ ① 冷构建打印 W0700");
+
+    // ② 什么都不改再构建一次 —— 整包全命中，走 `no changes; preserved` 早退路径。
+    if (_incrBuildErrTo(vm, driver, libs, toml, errLog) != 0) {
+        ConsoleError.WriteLine("  ✗ warn-cache: 第二次构建失败"); return 1;
+    }
+    string e2 = File.ReadAllText(errLog);
+    if (!e2.Contains("W0700")) {
+        ConsoleError.WriteLine("  ✗ warn-cache: 源码一字未改、缺陷还在，第二次构建却**不再打印** W0700。");
+        ConsoleError.WriteLine("    形态：整包全命中 ⇒ driver 在 `no changes; preserved` 处早退 ⇒ 无人呈现警告。");
+        ConsoleError.WriteLine("    接线点：z42c.driver/src/Main.z42 preserved 早退前的警告回放（与侧车重写同一理由）。");
+        return 1;
+    }
+    Console.WriteLine("  ✓ ② 全命中（preserved 早退）仍打印 W0700");
+
+    // ③ 只改 b.z42 —— a.z42 命中缓存、b 重编，包仍然真的编一遍（部分命中那一格）。
+    string orig = File.ReadAllText(bF);
+    File.WriteAllText(bF, orig + "\n// warn-cache-touch\n");
+    int rc3 = _incrBuildErrTo(vm, driver, libs, toml, errLog);
+    string e3 = File.ReadAllText(errLog);
+    File.WriteAllText(bF, orig);
+    if (rc3 != 0) {
+        ConsoleError.WriteLine("  ✗ warn-cache: 改 b 后构建失败"); return 1;
+    }
+    if (!e3.Contains("W0700")) {
+        ConsoleError.WriteLine("  ✗ warn-cache: 只改了 b.z42，a.z42 的 W0700 却**不再打印**。");
+        ConsoleError.WriteLine("    形态：cached CU 的 `DiagMsgs` 被置空而无人回填（诊断是本轮跳过的 typecheck 产物）。");
+        ConsoleError.WriteLine("    接线点：z42c.pipeline/src/PackageCompile.z42 的 CachedNsMeta 回填 + CacheStore 的 `diag` 行。");
+        return 1;
+    }
+    Console.WriteLine("  ✓ ③ 部分命中（a cached / b fresh）仍打印 a 的 W0700");
+    return 0;
+}
+
+// 本门专用夹具。两个文件缺一不可：警告在 a，**可被单独 touch 的** b 用来制造「部分命中」
+// —— 单文件工程只能试出全命中那一格。kind=lib 是刻意的：exe 还要 Main / entry 探测，
+// 与本判据无关且会在 preserved 路径上多跑一段。
+string _warnCacheDir(string scratch) {
+    string d = Path.Join(scratch, "warncache");
+    Directory.Create(d);
+    File.WriteAllText(Path.Join(d, "t.z42.toml"),
+        "[project]\nname = \"warncachepkg\"\nversion = \"0.1.0\"\nkind = \"lib\"\n"
+        + "[sources]\ninclude = [\"**/*.z42\"]\n");
+    // 对 enum 不穷尽的 switch 表达式 → W0700。**不能加 `_` 兜底**，那会让警告消失。
+    File.WriteAllText(Path.Join(d, "a.z42"),
+        "namespace WC;\n"
+        + "public enum Color { Red, Green, Blue }\n"
+        + "public static class A {\n"
+        + "    public static int Rank(Color c) { return c switch { Color.Red => 1, Color.Green => 2 }; }\n"
+        + "}\n");
+    File.WriteAllText(Path.Join(d, "b.z42"),
+        "namespace WC;\n"
+        + "public static class B {\n"
+        + "    public static int One() { return 1; }\n"
+        + "}\n");
     return d;
 }
