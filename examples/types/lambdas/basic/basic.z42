@@ -1,0 +1,31 @@
+using Std.IO;
+
+// ANCHOR: forms
+void Main() {
+    // 表达式体：`=>` 右边是一个表达式，它的值就是返回值
+    (int) -> int sq = (int x) => x * x;
+
+    // 多个参数用逗号隔开
+    (int, int) -> int add = (int a, int b) => a + b;
+
+    // 语句体：花括号里可以写多条语句，用 return 给出结果
+    (int) -> int step = (int x) => {
+        int y = x * 2;
+        return y + 1;
+    };
+
+    Console.WriteLine(sq(7));
+    Console.WriteLine(add(3, 4));
+    Console.WriteLine(step(10));
+    // ANCHOR_END: forms
+
+    // ANCHOR: infer
+    // 形参类型已知时，lambda 的参数类型可以省略
+    Console.WriteLine(Apply(5, x => x + 1));
+    // ANCHOR_END: infer
+}
+
+// ANCHOR: param
+// 函数类型可以当形参类型——这就是「把行为传进去」
+int Apply(int v, (int) -> int f) { return f(v); }
+// ANCHOR_END: param

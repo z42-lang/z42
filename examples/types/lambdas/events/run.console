@@ -1,0 +1,10 @@
+# ANCHOR: multi
+$ z42 run events.z42
+挂了 2 个处理器
+  处理器一：5
+  处理器二：10
+# ANCHOR_END: multi
+# ANCHOR: uni
+  按下了 Enter
+  再挂一个：InvalidOperationException
+# ANCHOR_END: uni

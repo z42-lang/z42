@@ -1,0 +1,6 @@
+using Std.IO;
+
+void Main() {
+    (int, int) -> int add = (int a, int b) => a + b;
+    add(1);                       // ✗ 形参有两个
+}

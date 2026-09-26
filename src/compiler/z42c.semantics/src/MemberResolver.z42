@@ -306,6 +306,8 @@ public sealed partial class MemberResolver {
                 }
             }
         }
+        // 委托 / 函数类型收者（都是 `Z42FuncType`）：只有 `Invoke`。整块在 MemberResolver.Func.z42。
+        if (rt is Z42FuncType) { return this.BindFuncValueMemberCall(mem, recv, rt as Z42FuncType, args, argCount, rawArgs, env, sp); }
         // prim 收者（`string` / 数值 / `char`… → stdlib 包装类）的实例调用派发 + 松绑定兜底：
         // 整块在 MemberResolver.Static.z42（partial 拆分只为守 code-organization 行数上限）。
         return this.BindPrimInstanceCall(mem, recv, rt, args, argCount, rawArgs, env, sp, call);
@@ -589,7 +591,7 @@ public sealed partial class MemberResolver {
             Z42Type vfn = env.LookupVar(id.Name);
             if (vfn != null && (vfn is Z42FuncType)) {              // Func 值间接调用（port-z42c-closures）
                 BoundExpr callee = this._tc._expr._bindExpr(call.Callee, env);
-                args = this._tc._overload.BindArgsToSignature(args, call.Args, call.ArgCount, vfn as Z42FuncType, env);
+                args = this.BindIndirectArgs(args, call.Args, call.ArgCount, vfn as Z42FuncType, "`" + id.Name + "`", env, call.Span);
                 return new BoundIndirectCall(callee, args, call.ArgCount, (vfn as Z42FuncType).Ret, call.Span);
             }
             // fix-generic-func-param-indirect-call：**型参**局部/形参被当函数调用（`T f` 且
@@ -664,7 +666,7 @@ public sealed partial class MemberResolver {
             BoundExpr callee = this._tc._expr._bindExpr(call.Callee, env);
             Z42Type ct = callee.Type();
             if (ct is Z42FuncType) {
-                args = this._tc._overload.BindArgsToSignature(args, call.Args, call.ArgCount, ct as Z42FuncType, env);
+                args = this.BindIndirectArgs(args, call.Args, call.ArgCount, ct as Z42FuncType, "this function value", env, call.Span);
                 return new BoundIndirectCall(callee, args, call.ArgCount, (ct as Z42FuncType).Ret, call.Span);
             }
             if (ct is Z42GenericParamType) {

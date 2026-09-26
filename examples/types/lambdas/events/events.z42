@@ -1,0 +1,33 @@
+using Std.IO;
+
+// ANCHOR: decl
+class Button {
+    // 多播事件：可以挂任意多个处理器，字段由编译器自动初始化
+    public event MulticastAction<int> Clicked;
+
+    // 单播事件：至多一个处理器，默认是 null
+    public event Action<string> KeyDown;
+
+    public void Click(int x)     { this.Clicked.Invoke(x); }
+    public void Key(string k)    { var h = this.KeyDown; if (h != null) { h.Invoke(k); } }
+}
+// ANCHOR_END: decl
+
+void Main() {
+    // ANCHOR: multi
+    Button b = new Button();
+    b.Clicked += (int x) => Console.WriteLine("  处理器一：" + x);
+    b.Clicked += (int x) => Console.WriteLine("  处理器二：" + (x * 2));
+    Console.WriteLine("挂了 " + b.Clicked.Count() + " 个处理器");
+    b.Click(5);
+    // ANCHOR_END: multi
+
+    // ANCHOR: uni
+    b.Key("Esc");                                  // 还没挂，什么都不发生
+    b.KeyDown += (string k) => Console.WriteLine("  按下了 " + k);
+    b.Key("Enter");
+    // 单播已经有主了，再挂一个会抛
+    try { b.KeyDown += (string k) => Console.WriteLine("第二个"); }
+    catch (InvalidOperationException e) { Console.WriteLine("  再挂一个：" + e.GetType().Name); }
+    // ANCHOR_END: uni
+}

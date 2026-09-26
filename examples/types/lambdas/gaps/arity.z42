@@ -1,0 +1,6 @@
+using Std.IO;
+
+void Main() {
+    (int) -> int f = (int x) => x * 2;
+    f(1, 2);                      // ✗ 形参只有一个
+}

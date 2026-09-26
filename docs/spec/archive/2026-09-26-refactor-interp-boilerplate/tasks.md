@@ -44,7 +44,7 @@
       / stack_alloc stats_enabled / resource_registry get_cloned；均非本 diff 触及）
 - [x] 5.2 `cargo test --lib` 全绿：z42 960/0（含 semantics_tests 覆盖 convert_value 各 T_* 臂）+ compression 21/0
 - [x] 5.3 文档同步：runtime_review.md #8 勾选；无 README 需改（未增删文件、interp 无新对外入口、exception/ 为 4 层无 README）
-- [ ] 5.4 PR（本机 z42vm 挂起 → 完整 xtask GREEN 以 CI 为准，见 memory）
+- [x] 5.4 PR（本机 z42vm 挂起 → 完整 xtask GREEN 以 CI 为准，见 memory）——**#285 已合并**（归档时核实）
 
 ## 备注
 - 纯搬移/收敛，零格式 bump，行为字节不变（宏展开 token-identical、常量值逐一核对、OOM helper 逻辑逐字封装）。

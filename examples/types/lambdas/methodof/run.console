@@ -1,0 +1,5 @@
+# ANCHOR: use
+$ z42 run methodof.z42
+Handle / Handle
+true
+# ANCHOR_END: use

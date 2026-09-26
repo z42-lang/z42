@@ -1,0 +1,96 @@
+// add-delegate-invoke-syntax regression golden：委托值上的 `.Invoke(args)` 运行期正确性。
+//
+// 改动前这里每一条 `.Invoke` 都崩 `VCall: expected object, got FuncRef(...)`（编译期零诊断，
+// 且**不可 catch**）。三种载体（局部变量 / 普通字段 / event 字段）与 arity 1、2 全中。
+// 参考手册 `delegates-events.md:62,264-266` 把 `h.Invoke(args)` 当单播 event 的官方触发模板，
+// 所以这是「照着文档写必崩」那一档。
+//
+// 末尾两组是**阴性对照**：`MulticastAction<T>.Invoke` 与反射 `MethodInfo.Invoke` 都是**真类的
+// 真方法**，必须一字不变地继续工作 —— 新分支只认 `Z42FuncType` 收者，真类走 class 分支，
+// 压根到不了。定位阶段曾怀疑 `CallEmitter` 的 DepIndex 捷径可能把 `Invoke/arity-N` 劫持到
+// `MulticastAction.Invoke`、发**直接 Call 到错函数**（比崩更隐蔽）；实测 arity 1/2 未复现，
+// 但这两组要留 —— 它们是「静默调错函数」这一最坏档的唯一守门。
+namespace Demo;
+
+using Std.Reflection;
+
+public delegate int IntFn1(int x);
+public delegate int IntFn2(int a, int b);
+
+class Holder {
+    public IntFn1 Plain;                        // 普通字段
+    public event Action<string> OnKey;          // 单播 event 字段
+    public string Last = "";
+
+    public void Key(string s) {
+        // 这正是参考手册教的单播 event 触发模板
+        var h = this.OnKey;
+        if (h != null) { h.Invoke(s); }
+    }
+}
+
+class Api {
+    public int Twice(int x) { return x * 2; }
+}
+
+// 自由函数（方法组转换用它）—— ⚠️ **不能**用 `Api.Twice` 这种**静态**方法组的限定名形式：
+// 那条路今天报 `E0401: undefined: Api`（既存缺口，与本变更无关 —— 用未改动的种子编译器
+// 实测同样报错；自由函数与**实例**方法组 `o.Twice` 都正常）。
+int TwiceFree(int x) { return x * 2; }
+
+void Main() {
+    // ① 局部变量 —— 两种写法必须等价
+    IntFn1 f = (int x) => x * 2;
+    Assert.Equal(42, f(21));
+    Assert.Equal(42, f.Invoke(21));
+
+    // ② 函数类型拼写（与委托同一个 Z42FuncType）
+    (int) -> int ft = (int x) => x + 1;
+    Assert.Equal(6, ft.Invoke(5));
+
+    // ③ arity 2
+    IntFn2 g = (int a, int b) => a + b;
+    Assert.Equal(7, g.Invoke(3, 4));
+
+    // ④ void 返回位
+    int[] sink = new int[1];
+    (int) -> void act = (int x) => { sink[0] = x; };
+    act.Invoke(9);
+    Assert.Equal(9, sink[0]);
+
+    // ⑤ 普通字段上的 .Invoke
+    Holder h = new Holder();
+    h.Plain = (int x) => x * 3;
+    Assert.Equal(12, h.Plain.Invoke(4));
+
+    // ⑥ event 字段上的 .Invoke（手册的官方触发模板）
+    h.OnKey += (string s) => { h.Last = s; };
+    h.Key("Enter");
+    Assert.Equal("Enter", h.Last);
+
+    // ⑦ 数组元素上的 .Invoke
+    IntFn1[] arr = new IntFn1[1];
+    arr[0] = (int x) => x - 1;
+    Assert.Equal(4, arr[0].Invoke(5));
+
+    // ⑧ 方法组转换来的委托值（自由函数 + 实例方法组两种）
+    IntFn1 mg = TwiceFree;
+    Assert.Equal(10, mg.Invoke(5));
+    Api api = new Api();
+    IntFn1 mgi = api.Twice;
+    Assert.Equal(8, mgi.Invoke(4));
+
+    // ── 阴性对照一：多播 Invoke 是真类真方法，行为不变 ──
+    MulticastAction<int> bus = new MulticastAction<int>();
+    int[] seen = new int[1];
+    bus.Subscribe((int x) => { seen[0] = seen[0] + x; });
+    bus.Subscribe((int x) => { seen[0] = seen[0] + x; });
+    bus.Invoke(5);
+    Assert.Equal(10, seen[0]);
+    Assert.Equal(2, bus.Count());
+
+    // ── 阴性对照二：反射 Invoke 不被劫持 ──
+    MethodInfo mi = methodof(Api.Twice(int));
+    Assert.Equal("Twice", mi.Name);
+    Assert.Equal(14, mi.Invoke(api, new object[]{ 7 }));
+}

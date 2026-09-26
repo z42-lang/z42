@@ -10,7 +10,7 @@
 - [x] 6. 自举不动点 7/7 byte-identical（含守卫）
 - [x] 7. 共存实测：登记 z42.project 编 z42c 不崩 + with/without z42.project 7/7 逐字节相同（已回退登记）
 - [x] 8. `common-pitfalls.md §1` 注记根治
-- [ ] 9. 全 gate GREEN 以 CI 为权威（push 后盯）
+- [x] 9. 全 gate GREEN 以 CI 为权威（push 后盯）——PR 已合并，CI 全绿（归档时核实）
 
 ## 备注
 

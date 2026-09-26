@@ -1,0 +1,22 @@
+# ANCHOR: token
+$ z42 run multicast.z42
+  常驻 1
+  临时 1
+退订后还有 1 个
+  常驻 2
+# ANCHOR_END: token
+# ANCHOR: scoped
+  常驻 3
+  块内 3
+出块后还有 1 个
+# ANCHOR_END: scoped
+# ANCHOR: continue
+  一号 ok
+  三号 ok
+1/3 失败，成功 2 个，出错的是第 1 号
+# ANCHOR_END: continue
+# ANCHOR: once
+  每次都来 1
+  只此一次 1
+  每次都来 2
+# ANCHOR_END: once

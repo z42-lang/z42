@@ -1,0 +1,8 @@
+using Std.IO;
+
+void Main() {
+    Action<string> a = null;
+    try { a("x"); }
+    catch (Exception e) { Console.WriteLine("抓到了：" + e.GetType().Name); }
+    Console.WriteLine("这一行不会被执行");
+}

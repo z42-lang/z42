@@ -349,8 +349,28 @@ public sealed partial class OverloadBinder {
 
     // 局部函数：签名不携带默认值（`StmtBinder` 注册时只有形参类型），故按精确个数校验。
     internal void _checkLocalFnArity(string name, Z42FuncType sig, int got, Span sp) {
+        this._checkFuncValueArity("local function `" + name + "`", sig, got, sp);
+    }
+
+    // add-delegate-invoke-syntax：**函数类型值**调用的实参个数校验 —— `f(args)` 与
+    // `f.Invoke(args)` 两种拼写共用这一条（间接调用只有一个绑定节点 `BoundIndirectCall`）。
+    //
+    // 此前这条路**从不校验个数**，两个方向各有一副面孔（形参 1 个时实测）：
+    //   `f(1, 2)` → 🔴 多余实参被**静默丢掉**，lambda 照常收到 x=1、返回 2，零诊断
+    //   `f()`     → 🔴 形参拿到 `Null`，崩在**别处**（`type mismatch in arithmetic: Null vs I64(2)`，
+    //                 栈顶指向 lambda 体而不是调用点）
+    // 实参**类型**一直是查的（`BindArgsToSignature` → E0402），缺的只有个数。
+    //
+    // 默认值按「精确个数」判，与局部函数同口径：委托形参写了默认值今天是**静默失效**的
+    // （`delegate void D(int a, int b = 5)` 调 `d(1)` 运行期得 `b=null` 而非 5），
+    // 于是这里报 E1005 是把静默错值换成编译期错误 —— 严格更好。真要让默认值生效是另一刀。
+    // （摸底：全仓 81 个 delegate 声明里带默认值的 **0 个**。）
+    //
+    // ⚠️ **型参收者不走这里**（`where T : Func<..>` 的 `T f`）：它的返回类型是 Unknown、
+    // 形参表在擦除后不可信，校验会误报。
+    internal void _checkFuncValueArity(string who, Z42FuncType sig, int got, Span sp) {
         if (sig == null || sig.ParamsFrom >= 0 || got == sig.ParamCount) { return; }
-        OverloadBinder.ReportArity(this._tc._diags, "local function `" + name + "`", false, got, sig.ParamCount, "", sp);
+        OverloadBinder.ReportArity(this._tc._diags, who, false, got, sig.ParamCount, "", sp);
     }
 
     // PR6：跨包省略实参的默认值物化——从导入签名的 `$Default` ConstBlob 解码 → AST → 重绑（复用

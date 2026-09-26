@@ -322,13 +322,14 @@
 所以 `class Wrong : IFoo<string>` 也能满足 `where T : IFoo<T>`。这正是标准库把三个协议
 接口改成 `Self` 的原因：不写类型实参，就没有实参可以写错。
 
-### 一个会崩的组合
+### 曾经会崩的两个组合，现在都好了
 
-- **字段数 ≥ 2 的 struct 走 `where T : INumber` 的运算符派发**：崩
-  `VCall on boxed struct ...: method 'op_Add' not found`。单字段 struct 与基元不受影响。
-
-> 📜 原本还列着「**`new T()` 且 T 是基元**会崩」——那条**已经修了**：
-> `new T()` 对基元产出零值（与 `default(T)` 一致；`string` 为 `""`）。
+> 📜 **这一节原本列着两条会崩的组合，两条都已经修了**：
+> - 「**字段数 ≥ 2 的 struct 走 `where T : INumber` 的运算符派发**会崩」——现在
+>   自定义 struct 与基元走同一条路，`Add(new Vec2(1, 2), new Vec2(10, 20))` 正常得到
+>   `(11, 22)`。根因是泛型边界两侧对「返回值怎么传」的约定不一致，已统一。
+> - 「**`new T()` 且 T 是基元**会崩」——`new T()` 对基元产出零值
+>   （与 `default(T)` 一致；`string` 为 `""`）。
 
 ## 小结
 
@@ -341,8 +342,8 @@
 - 🔴 **`Self` 是 z42 的特色**：接口里指代实现者自己，省掉 `IEquatable<T>` 那种自引用样板。
   形参位的 `Self` 不能经接口类型调用——改用型参。
 - 关联类型 `type Item;` 让实现方决定一个类型，约束侧用 `IStore<Item = int>` 要求它。
-- 🔴 记住三个边界：类级 `typeof(T)` 要有实例才拿得到（静态方法 / 继承来的型参得占位名）、
-  接口约束只比名字、字段数 ≥ 2 的 struct 走 `where T : INumber` 的运算符派发会崩。
+- 🔴 记住两个边界：**静态方法**里 `typeof(T)` 拿不到类级型参（得占位名 `"T"`——实例方法与
+  继承来的型参都是对的），以及接口约束只比名字、不比类型实参。
 
 完整的约束语义、校验时机与跨包传递，见
 [泛型约束](https://z42-lang.github.io/z42/reference/language/generic-constraints.html)

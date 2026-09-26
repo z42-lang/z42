@@ -1,0 +1,35 @@
+using Std.IO;
+
+class Counter { public int n = 0; }
+
+void Main() {
+    // ANCHOR: snapshot
+    // 值类型：闭包记下的是创建那一刻的**值**
+    int x = 5;
+    () -> void show = () => Console.WriteLine(x);
+    x = 10;
+    show();                      // 5 —— 不是 10
+    // ANCHOR_END: snapshot
+
+    // ANCHOR: shared
+    // 引用类型：闭包记下的是**那个对象**，内外是同一个
+    Counter c = new Counter();
+    () -> void inc = () => c.n = c.n + 1;
+    inc(); inc();
+    Console.WriteLine(c.n);      // 2
+    // ANCHOR_END: shared
+
+    // ANCHOR: write
+    // 在闭包里给捕获来的值类型变量赋值，只改到闭包自己的副本
+    bool seen = false;
+    () -> void mark = () => { seen = true; };
+    mark();
+    Console.WriteLine(seen);     // false
+
+    // 要把结果传出来，就改一个引用类型对象的内部状态
+    Counter cell = new Counter();
+    () -> void publish = () => { cell.n = 42; };
+    publish();
+    Console.WriteLine(cell.n);   // 42
+    // ANCHOR_END: write
+}

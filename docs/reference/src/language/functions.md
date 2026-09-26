@@ -280,9 +280,28 @@ bus.Handlers.Add((int x) => Console.WriteLine($"h {x}"));
 h(9);                                // 再调用
 ```
 
-> 函数值取出后**不能就地调用**：`bus.Handlers[0](9)` 报 `E0402: unsupported call form`，
-> 用 `var` 接也认不出是函数（`E0401: undefined function`）。
+> 从 **`List` 的索引器**里取出的函数值**不能就地调用**：`bus.Handlers[0](9)` 报
+> `E0402: unsupported call form`，用 `var` 接也认不出是函数（`E0401: undefined function`）。
 > 必须像上面那样先赋给一个写明 `(T) -> R` 类型的局部变量。
+>
+> ⚠️ **这条只管 `List` 索引器，不是「函数值取出后一律不能就地调用」**（2026-09-26 前本页
+> 是后一种说法，边界记宽了）：**数组下标可以**就地调 ——
+> `Action<int>[] arr; arr[0](9)` 正常，标准库自己就这么用
+> （`MulticastAction.Invoke` 里的 `snapStrong[i](arg)`）。区别在载体是数组还是索引器（属性）。
+>
+> 🔴 但**函数类型不能当数组元素类型**：`((int) -> void)[] arr` 连声明都过不去
+> （报 `E0401: undefined: arr`）。要数组就用**委托类型**写（`Action<int>[]`），
+> 要 `(T) -> R` 拼写就用 `List<(int) -> void>`（代价是取出后不能就地调，见上）。
+
+**函数类型与委托类型可以双向互赋**——`(T) -> R` 和 `Action` / `Func` / `Predicate` /
+用户 `delegate` 在编译器里是**同一种类型**，赋值按**结构**（arity + 各形参 + 返回类型）判定，
+不看名字：
+
+```z42
+Func<int, int> dg = (int x) => x * 2;
+(int) -> int   ft = dg;      // 委托 → 函数类型
+Func<int, int> back = ft;    // 函数类型 → 委托
+```
 
 **参数类型推断是有限的**：目标类型是具体函数类型时，`x => ...` 可以省略参数类型；
 目标类型里还含未定的型参（例如在 `List<T>` 的泛型方法上）时必须写全，

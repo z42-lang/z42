@@ -1,0 +1,8 @@
+using Std.IO;
+
+class Api { public static int Twice(int x) { return x * 2; } }
+
+void Main() {
+    Func<int, int> f = Api.Twice;      // ✗ 静态方法取引用
+    Console.WriteLine(f(5));
+}
