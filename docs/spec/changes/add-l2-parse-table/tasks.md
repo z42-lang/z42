@@ -91,7 +91,7 @@
       「关掉任何开关都不会改变解析行为」（`:64`）/ 一致性检查一节（`:197`）——按 proposal Why #4 逐行订正
 - [x] 同页 `:140-146,177-193`：`nud:`/`led:`/`handler:` **函数指针形态在 z42c 里写不出来**（L1/L2）
       ⇒ 改为 int tag + 集中派发的实际形态
-- [x] 「死旋钮 13 个」→ **11 个**，三处同步（`LanguageFeatures.z42` 抬头 / `z42-toml.md` /
+- [x] 「死旋钮 13 个」→ **10 个**，三处同步（`LanguageFeatures.z42` 抬头 / `z42-toml.md` /
       `syntax-customization.md`）
 - [x] `MinimalProfile` 的事实（D2-5 甲）：profile 不可从 manifest 选择；订正 `:311` 教学场景措辞
 - [x] `z42-toml.md` 的 `[syntax]` 节补上新变活的名字（`bitwise` / `ternary`）
