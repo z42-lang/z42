@@ -142,7 +142,6 @@ pub struct VmCore {
     /// thread keep the inner mutex alive across builtin call boundaries
     /// via a thread-local guard registry — see `corelib/sync.rs`.
     /// (**M2**: slot-id counter embedded in the registry.)
-    pub(crate) mutexes:            ResourceRegistry<Arc<parking_lot::Mutex<Value>>>,
     /// **add-sync-primitives (2026-05-20)**: `Std.Threading.Channel<T>`
     /// slot table. `__channel_new` inserts; `__channel_close` flips
     /// `sender = None` so subsequent recv sees disconnected. Entries
@@ -151,7 +150,6 @@ pub struct VmCore {
     /// run, which is acceptable for normal workloads but documented as
     /// a Deferred for future cleanup (`add-sync-primitives-future-gc`).
     /// (**M2**: slot-id counter embedded in the registry.)
-    pub(crate) channels:           ResourceRegistry<crate::corelib::sync::ChannelSlot>,
     /// **add-gc-safepoint (2026-05-20)**: cooperative-polling GC safepoint
     /// phase. Mutators read this at each `check_safepoint` and park when
     /// non-Idle. The collector flips Idle → Requested → Marking → Idle
@@ -190,7 +188,6 @@ pub struct VmCore {
     /// Mutex, with an additional Read/Write variant tracked per slot so
     /// release picks the correct unlock path.
     /// (**M2**: slot-id counter embedded in the registry.)
-    pub(crate) rwlocks:            ResourceRegistry<Arc<parking_lot::RwLock<Value>>>,
     /// **add-z42-compression (2026-05-22)**: stdlib native extension builtins
     /// (e.g. `__deflate_compress` from libz42_compression). Populated at VM
     /// startup by `crate::native::ext::load_all`, which scans the SDK native
@@ -204,7 +201,7 @@ pub struct VmCore {
     /// **add-z42-io-filestream (2026-05-24)**: live `Std.IO.FileStream`
     /// handles keyed by monotonic slot id. `__file_open` inserts;
     /// `__file_close` removes (or marks slot dead). Pattern mirrors
-    /// `processes` / `mutexes` / `channels` / `compressors` slot tables.
+    /// `processes` / `compressors` slot tables（`mutexes`/`channels`/`rwlocks` 随旧同步原语退役一并删除）。
     /// (**M2**: slot-id counter embedded in the registry.)
     pub(crate) file_handles:       ResourceRegistry<crate::corelib::fs::FileHandleSlot>,
 
@@ -264,7 +261,7 @@ pub struct VmCore {
 
     /// **add-concurrency-probes (2026-08-23)**: user-lock (`Std.Threading.Mutex` /
     /// `RwLock`) contention counters. Written ONLY when the VM is built with the
-    /// `profile-contention` cargo feature (the probe in `corelib::sync` is
+    /// `profile-contention` cargo feature (the probe in `corelib::sync_contention` is
     /// `#[cfg]`-gated); the default build never touches them → they stay 0.
     /// `lock_contentions` = acquires that found the lock already held (`try_lock`
     /// failed); `lock_wait_us` = cumulative µs blocked on those contended acquires.

@@ -114,6 +114,29 @@ pub enum ArrayBacking {
     StackVec(Vec<Value>),
 }
 
+/// 一个 `Value` 与它要写进的**基元 backing** 类型不符时的信号（make-silent-fallbacks-signal）。
+///
+/// 此前 `set_boxed` 与 `pack_backing` 的每个「类型不符」回落都是**静默存 0**
+/// （`0` / `'\0'` / `false` / `0.0`），debug 与 release 都不响 —— 而 `set_boxed` 同一个
+/// `match` 里的两个 `StructBytes` 臂**是带 `debug_assert!(false)` 的**。
+///
+/// 为什么这比同族的「读不到就给 `Null`」更坏：`Null` 至少是个可疑值，会在下游某处炸出来；
+/// `0` 是程序**完全无法与合法写入区分**的答案 —— 一个 `int[]` 里的 `0` 既可能是用户写的，
+/// 也可能是这里吞掉的一次类型错误。
+///
+/// 取 `debug_assert!` 而不是 `bail!`，判据同 `__box_prim` 收到 `Null` 那条：
+/// - golden 语料默认跑 debug VM ⇒ **CI 本身就是探测器**；
+/// - 「类型不符」是编译器该在 `ArraySet` / `ArrayNewLit` 站点转换/拆箱掉的事，**不是用户的错**，
+///   所以 release 放行、保持今天的行为（不拿用户崩溃换诊断能力）；
+/// - 若若干版本一直不响，再按 `gc/refs.rs` 那条先例考虑提升为无条件 `assert!`。
+#[inline]
+pub(super) fn prim_value_mismatch(val: &Value, backing: &str, site: &str) {
+    debug_assert!(false,
+        "array {site}: {backing} backing got a non-matching Value ({val:?}) — stored a zero. \
+         The compiler should have converted/unboxed before this point; a silent zero is \
+         indistinguishable from a legitimate write.");
+}
+
 impl ArrayObj {
     // ── block payload accessors (unify-gc-heap PR-3) ────────────────────────
     // Reinterpret a backing block's inline payload as a `&[T]` / `&mut [T]`.
@@ -264,33 +287,36 @@ impl ArrayObj {
     /// Select a packed value-type backing for a primitive `element_type`,
     /// unboxing `elems` into it. Conservative + sign-safe: only widths that
     /// round-trip losslessly through `get_boxed`/`set_boxed` are packed.
+    ///
+    /// ⚠️ 每个「类型不符」的回落都先过 [`prim_value_mismatch`]（debug 响一声）——此前这里与
+    /// `set_boxed` 一样是**静默存 0**（见那个函数的头注）。
     pub(super) fn pack_backing(heap: &dyn MagrGC, element_type: &str, elems: Vec<Value>) -> ArrayBacking {
         match element_type {
             // byte[] → contiguous u8: the FFI zero-copy + 24× memory win.
             "byte" | "u8" => {
-                let v: Vec<u8> = elems.iter().map(|x| if let Value::I64(n) = x { *n as u8 } else { 0 }).collect();
+                let v: Vec<u8> = elems.iter().map(|x| if let Value::I64(n) = x { *n as u8 } else { prim_value_mismatch(x, "byte[]", "pack_backing"); 0 }).collect();
                 ArrayBacking::Bytes { block: Self::alloc_packed(heap, &v), len: v.len() }
             }
             "char" => {
-                let v: Vec<char> = elems.iter().map(|x| if let Value::Char(c) = x { *c } else { '\0' }).collect();
+                let v: Vec<char> = elems.iter().map(|x| if let Value::Char(c) = x { *c } else { prim_value_mismatch(x, "char[]", "pack_backing"); '\0' }).collect();
                 ArrayBacking::Chars { block: Self::alloc_packed(heap, &v), len: v.len() }
             }
             "bool" => {
-                let v: Vec<bool> = elems.iter().map(|x| matches!(x, Value::Bool(true))).collect();
+                let v: Vec<bool> = elems.iter().map(|x| { if !matches!(x, Value::Bool(_)) { prim_value_mismatch(x, "bool[]", "pack_backing"); } matches!(x, Value::Bool(true)) }).collect();
                 ArrayBacking::Bool { block: Self::alloc_packed(heap, &v), len: v.len() }
             }
             // fits i32 signed range (i8/i16/i32 and u16 ≤ 65535).
             "sbyte" | "i8" | "short" | "i16" | "int" | "i32" | "ushort" | "u16" => {
-                let v: Vec<i32> = elems.iter().map(|x| if let Value::I64(n) = x { *n as i32 } else { 0 }).collect();
+                let v: Vec<i32> = elems.iter().map(|x| if let Value::I64(n) = x { *n as i32 } else { prim_value_mismatch(x, "int[]", "pack_backing"); 0 }).collect();
                 ArrayBacking::I32 { block: Self::alloc_packed(heap, &v), len: v.len() }
             }
             // 64-bit (uint/u32 fit i64; u64 keeps existing i64-store semantics).
             "long" | "i64" | "uint" | "u32" | "ulong" | "u64" | "isize" | "usize" => {
-                let v: Vec<i64> = elems.iter().map(|x| if let Value::I64(n) = x { *n } else { 0 }).collect();
+                let v: Vec<i64> = elems.iter().map(|x| if let Value::I64(n) = x { *n } else { prim_value_mismatch(x, "long[]", "pack_backing"); 0 }).collect();
                 ArrayBacking::I64 { block: Self::alloc_packed(heap, &v), len: v.len() }
             }
             "double" | "float" | "f32" | "f64" => {
-                let v: Vec<f64> = elems.iter().map(|x| if let Value::F64(f) = x { *f } else { 0.0 }).collect();
+                let v: Vec<f64> = elems.iter().map(|x| if let Value::F64(f) = x { *f } else { prim_value_mismatch(x, "double[]", "pack_backing"); 0.0 }).collect();
                 ArrayBacking::F64 { block: Self::alloc_packed(heap, &v), len: v.len() }
             }
             // object / string / nested arrays / structs / unknown FQN → reference array.

@@ -162,6 +162,46 @@ int _testRuntime() {
     return __rc;
 }
 
+// GREEN 里的 Rust 单测（`test runtime` 的**窄版**，2026-09-26）。
+//
+// ## 为什么以前整条不在 GREEN 里，而这一版可以进
+//
+// 原注（`_testAll` 里 build wave 之后）说得对：完整的 `test runtime` 会拉起 signal 崩溃辅助进程
+// （`tests/signal_handler_e2e.rs`），在限制信号的沙箱里**挂住**，常驻门就没法用了。
+//
+// 但记录在案的三次事故**都不需要跑那批**：
+//   · 2026-08-01 `jit::lazy::lazy_tests::tiering_cold_jit_call_callee_stays_interp` —— **lib 单测**；
+//   · 2026-09-08 `corelib::native_decl_tests::every_builtin_is_declared_or_allowlisted` —— **lib 单测**；
+//   · 2026-08-04 给 `Function` 加字段后 `tests/` 里的字面构造点没补 —— 那是**编译**失败，
+//     `--no-run` 就能抓（编所有 target、一个都不跑）。
+// 三次都是「本地 GREEN 全绿、CI test-host 四平台红」，每次损失约 18 分钟的 CI 反馈。
+//
+// ⇒ 本 stage = `--lib`（跑）+ `--no-run`（只编）。
+// 🔴 **`--lib` 排除 `tests/` 是结构性的，不是靠过滤器**：signal / loom 那几个都在 `tests/` 下，
+// `--lib` 根本到不了它们。**不用 `--skip <名字>` 这类过滤**——那种写法会随文件改名悄悄失效
+// （本仓库踩过「带过滤器跑 cargo test = 等于没跑全局门」）。
+//
+// 实测成本（warm）：`--lib` 66s（1402 条：1367 + z42-abi 21 + 其余 14）、`--no-run` 0s（全缓存）。
+// 完整版仍保留为 `xtask test runtime` / CI 的独立 leg / `test changed`。
+int _testRuntimeUnits() {
+    string m = _runtimeManifest();
+    // `--workspace`：不带它包选择会落到 default-members，z42-abi/z42-repl/z42-rs/z42-macros
+    // 的单测就整批不跑（fix-more-silent-gates 修过一次，别在这里重新引入）。
+    // `--features z42-test-fixtures`：见 `_testRuntime` 的头注（fixture 只有 Rust 单测需要）。
+    int rc = _exec(new Process("cargo").Arg("test").Arg("--locked").Arg("--workspace")
+        .Arg("--features").Arg("z42-test-fixtures")
+        .Arg("--manifest-path").Arg(m)
+        .Arg("--lib")
+        .Arg("--").Arg("--test-threads=1")
+        .Env("RUST_MIN_STACK", "8388608"));
+    if (rc != 0) { return rc; }
+    // 只编不跑：抓「跨 src/ 与 tests/ 都构造的公共 struct 加了字段却没补齐」这类编译漏。
+    return _exec(new Process("cargo").Arg("test").Arg("--locked").Arg("--workspace")
+        .Arg("--features").Arg("z42-test-fixtures")
+        .Arg("--manifest-path").Arg(m)
+        .Arg("--no-run"));
+}
+
 // regen goldens for a test stage: --toolchain active OR --no-build set → z42c+stdlib
 // already present, only regen the golden .zbc (_regenGolden, --toolchain-aware);
 // else full _regenCore (rebuild stdlib + runtime + goldens). Shared: _testE2eCore + _testAll.
@@ -415,6 +455,7 @@ bool _skipHas(string skip, string stage) {
 string[] _gateStageNames() {
     return new string[]{
         "build wave (debug vm + regen)",
+        "rust units (cargo test --lib + --no-run)",
         "e2e goldens (interp; jit → vm-jit-consistency)",
         "e2e cross-zpkg",
         "e2e multi-exe",
@@ -524,11 +565,19 @@ int _testAll(bool noBuild, string skip) {
     c = _regenForTest(haveTc, noBuild);
     if (c != 0) { return c; }
     _stageEnd(slog, "build wave (debug vm + regen)", swStage);
-    // NOTE: the Rust VM unit harness (`test runtime` = cargo test) is intentionally
-    // NOT a stage here. It spawns signal-crash helpers (signal_handler_e2e) that hang
-    // in signal-restricted sandboxes, which would make the always-run gate unusable.
-    // It runs as its own per-leg CI step + on-demand `xtask test runtime` +
-    // `test changed` (src/runtime → test runtime). (redesign-xtask-test)
+    // stage 2: Rust 单测（窄版 —— `--lib` 跑 + `--no-run` 编；见 `_testRuntimeUnits` 头注）。
+    //
+    // NOTE（改前的原注，保留其判断）：**完整**的 `test runtime` 仍然不是 stage —— 它会拉起
+    // signal 崩溃辅助进程（`tests/signal_handler_e2e.rs`），在限制信号的沙箱里挂住，常驻门就没法用。
+    // 完整版继续走独立 CI leg + 按需 `xtask test runtime` + `test changed`。
+    // 2026-09-26 补上的是那条边界**之内**的部分：`--lib` 结构性地到不了 `tests/`，所以拿不到那批
+    // helper，而三次「本地全绿 / CI test-host 四平台红」的事故恰好全落在 lib 单测与编译失败上。
+    // 放在这里（build wave 之后、最靠前）是为了让 Rust 逻辑坏掉**第一时间**红，而不是 18 分钟后。
+    if (!_skipHas(skip, "rust-units")) {
+        swStage = _stageStart("rust units (cargo test --lib + --no-run)");
+        c = _testRuntimeUnits(); if (c != 0) { return c; }
+        _stageEnd(slog, "rust units (cargo test --lib + --no-run)", swStage);
+    }
     // replace-csharp Phase C：删除 dotnet build/test stage——z42c 编译器正确性由 stage「compiler」
     // （自举不动点 gen1==gen2 + units）保证，golden 编译已全程 z42c（_regenGolden）。
     // stage 2: e2e goldens — INTERP only. JIT is gated by the dedicated

@@ -96,4 +96,51 @@ public sealed class InterfaceClosure {
         }
         return null;
     }
+
+    // ── 接口 → 祖先接口的名义可赋性（interface-assignability）──────────────────────────
+    // 「`from` 这个接口当得了 `to` 用吗」——**这条边此前全仓没有**。`Conversion.Classify` 备齐了
+    // class→iface（分支 F）、inst→iface（G）、class→class（E）…… 独缺 iface→iface ⇒
+    // `IBase b = derivedIface` 报 E0402。实测七个位置全中：var-decl / 实参 / 返回 / 隔一层 /
+    // 跨包 / 泛型接口 / 接口实现的返回协变。
+    //
+    // 🔴 **为什么走 `BaseAt` 而不是 `SymbolTable.InterfaceDerivesFrom`** —— 后者比的是
+    // `BaseNames` 里的**字符串**，于是两件事都做不对：
+    //   · 拼写：源码写 `: Std.IDisposable` 与写 `: IDisposable` 存下来是两个串，只认一种 ⇒ 跨包误判。
+    //   · 型参：裸名把 `IStrLeaf : IBase<string>` 的 `string` 丢了，上溯只剩未实例化的 `IBase`。
+    // `BaseAt` 这两件事**已经做对了**（它解析声明形态、逐层代换实参，返回「当前视角下」的父接口），
+    // 所以本条边是搭在既有机制上的，没有第二套遍历。
+    //
+    // 消费端一律走这里（`Conversion` / `ConstraintChecker` ×2 / `InheritanceResolver` /
+    // `StmtBinder`）：判定散成多份的代价这个子系统已经付过——那正是「接口那半其实早就有实现、
+    // 只是没人用」的由来。
+    public static bool IsInterfaceSubtype(SymbolTable symbols, Z42InterfaceType from, Z42InterfaceType to) {
+        if (from == null || to == null) { return false; }
+        if (Z42InterfaceType.SameInterface(from, to)) { return true; }
+        if (symbols == null) { return false; }
+        return InterfaceClosure._anyBaseIs(symbols, from, to, 0);
+    }
+
+    // 只有接口**名**时用（`where T : IFoo` 这类）。名字解析不到就判否——解析不到意味着这个约束
+    // 本来就已经在别处报过错，这里不叠第二条诊断。
+    public static bool IsInterfaceSubtypeByName(SymbolTable symbols, Z42InterfaceType from, string toName) {
+        if (symbols == null || from == null) { return false; }
+        if (from.Name() == toName || from.Fqn() == toName) { return true; }
+        if (!symbols.HasInterface(toName)) { return false; }
+        return InterfaceClosure.IsInterfaceSubtype(symbols, from, symbols.GetInterface(toName));
+    }
+
+    // 沿父接口链递归找 `to`。`depth` 是成环护栏，口径同 `_walkBases`（接口继承实际是个位数深度）。
+    private static bool _anyBaseIs(SymbolTable symbols, Z42InterfaceType it, Z42InterfaceType to, int depth) {
+        if (depth > 32) { return false; }
+        int i = 0;
+        while (i < it.BaseCount) {
+            Z42InterfaceType bit = InterfaceClosure.BaseAt(symbols, it, i);
+            if (bit != null) {
+                if (Z42InterfaceType.SameInterface(bit, to)) { return true; }
+                if (InterfaceClosure._anyBaseIs(symbols, bit, to, depth + 1)) { return true; }
+            }
+            i = i + 1;
+        }
+        return false;
+    }
 }

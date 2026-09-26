@@ -1,0 +1,157 @@
+// 接口 → 祖先接口的**赋值关系**（interface-assignability）。
+//
+// 此前 `Conversion.Classify` 备齐了 class→iface（分支 F）、inst→iface（G）、class→class（E），
+// 独缺 iface→iface ⇒ `IBase b = derivedIface` 落到末尾的 `None`、报 E0402。同一个洞在五个
+// 消费点各露一次面：赋值 / 实参 / 返回（`Conversion`）、函数位约束（`ConstraintChecker._funcPosOk`
+// 对接口返回 "" 提前判否）、接口实现的返回协变（`InheritanceResolver` 的守卫只认 class）。
+//
+// 连带修的是**对称的另一半**：`Z42InterfaceType.IsAssignableTo` 只比 `Name()`，而
+// `Z42InstantiatedInterfaceType.Name()` 刻意返回裸名 ⇒ `IBox<int>` 与 `IBox<string>` 判成同一个。
+// 那一条是**静默错值**（编译期零诊断、运行期 `int` 变量里装着 string），负例见本文件末尾。
+//
+// ⚠️ 本文件全部用**同文件内声明**的接口 ⇒ 走的是本包短名那条路，对**跨包**（导入接口存 FQ）
+// 这一维**零判别力**。跨包那一档在 e2e `src/tests/types/interface_assignability.z42`
+// （对着真实 stdlib 的 `Std.IDisposable` 写）。两处缺一不可。
+namespace Z42cSemanticsIfaceAssignabilityTests;
+using Std;
+using Std.Test;
+using Z42.Semantics;
+
+// ── 正例：这些此前全部报 E0402 ──────────────────────────────────────────────
+
+[Test]
+void test_derived_iface_to_base_vardecl() {
+    string src = "namespace D; interface IB { } interface ID : IB { }"
+        + " class T2 { void M(ID d) { IB b = d; } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+// 隔一层：ID2 : ID : IB —— 闭包要一路上溯，不是只看直接父接口。
+[Test]
+void test_grandparent_iface() {
+    string src = "namespace D; interface IB { } interface ID : IB { } interface ID2 : ID { }"
+        + " class T2 { void M(ID2 g) { IB b = g; } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+[Test]
+void test_derived_iface_as_argument() {
+    string src = "namespace D; interface IB { } interface ID : IB { }"
+        + " class T2 { void Take(IB x) { } void M(ID d) { this.Take(d); } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+[Test]
+void test_derived_iface_as_return() {
+    string src = "namespace D; interface IB { } interface ID : IB { }"
+        + " class T2 { IB M(ID d) { return d; } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+// 泛型接口、实参相同：ID<int> → IB<int>。链上的型参代换由 `InterfaceClosure.BaseAt` 负责。
+[Test]
+void test_generic_iface_to_base_same_args() {
+    string src = "namespace D; interface IB<T> { } interface ID<T> : IB<T> { }"
+        + " class T2 { void M(ID<int> d) { IB<int> b = d; } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+// 中间接口把实参写死：IStrLeaf : IB<string> ⇒ 上溯拿到的必须是 IB<string> 而非裸 IB。
+[Test]
+void test_iface_base_with_fixed_type_arg() {
+    string src = "namespace D; interface IB<T> { } interface IStrLeaf : IB<string> { }"
+        + " class T2 { void M(IStrLeaf s) { IB<string> b = s; } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+// 接口实现的**返回协变**：接口声明 `IB Make()`、实现写 `ID Make()`。
+// `InheritanceResolver` 那格守卫此前只认 class / instantiated ⇒ 接口一律 E0412，怎么写都过不了。
+[Test]
+void test_impl_return_covariance_interface() {
+    string src = "namespace D; interface IB { } interface ID : IB { } interface IFac { IB Make(); }"
+        + " class Impl : ID { } class Fac : IFac { public ID Make() { return new Impl(); } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+// 函数类型约束的**形参逆变**：约束要 Func<ID,IB>，实参 Func<IB,IB> 的形参更宽 ⇒ 成立。
+// `_funcPosOk` 的 `_defName` 对接口返回 "" ⇒ 此前提前判否、误报 E0422。
+[Test]
+void test_func_constraint_param_contravariance() {
+    string src = "namespace D; interface IB { } interface ID : IB { }"
+        + " class T2 { void Apply<T>(T f) where T : Func<ID, IB> { } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+// ── 回归：这几条此前就是对的，不能被改坏 ────────────────────────────────────
+
+// 约束位（`_satisfiesInterface`）此前是**唯一**没落空的消费点；换走新出口后必须仍然通过。
+[Test]
+void test_constraint_position_still_ok() {
+    string src = "namespace D; interface IB { } interface ID : IB { }"
+        + " class Box<T> where T : IB { } class T2 { void M() { Box<ID> b = new Box<ID>(); } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+// 同一个接口赋给自己：由分支 D 接走，不经新分支。
+[Test]
+void test_same_interface_identity() {
+    string src = "namespace D; interface IB { } class T2 { void M(IB a) { IB b = a; } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+// 类 → 祖先接口：本来就成立，新分支不能抢走它。
+[Test]
+void test_class_to_ancestor_iface_still_ok() {
+    string src = "namespace D; interface IB { } interface ID : IB { } class C : ID { }"
+        + " class T2 { void M() { IB b = new C(); } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+// ── 负例：放行这些就是漏报，不是「修好了」 ──────────────────────────────────
+
+// 毫无关系的两个接口。
+[Test]
+void test_unrelated_ifaces_must_error() {
+    string src = "namespace D; interface IB { } interface IOther { }"
+        + " class T2 { void M(IOther o) { IB b = o; } }";
+    Assert.Equal(1, SemanticDump.ErrorCount(src));
+    Assert.Equal("E0402", SemanticDump.FirstErrorCode(src));
+}
+
+// **反方向**：父接口赋给子接口是下转，隐式不成立（对齐 C#，要写 cast）。
+// 只做「沿链找得到就放行」而不管方向，这条就会静默通过。
+[Test]
+void test_base_to_derived_iface_must_error() {
+    string src = "namespace D; interface IB { } interface ID : IB { }"
+        + " class T2 { void M(IB b) { ID d = b; } }";
+    Assert.Equal(1, SemanticDump.ErrorCount(src));
+    Assert.Equal("E0402", SemanticDump.FirstErrorCode(src));
+}
+
+// 🔴 **静默错值那条**：实参不同的同名泛型接口此前被判成同一个类型、零诊断放行。
+// 实跑（修前）：`int bad = i.Get();` 得到 "hello"、`bad + 1` 得到 "hello1"，exit 0。
+[Test]
+void test_instantiated_iface_diff_args_must_error() {
+    string src = "namespace D; interface IBox<T> { T Get(); }"
+        + " class T2 { void M(IBox<string> s) { IBox<int> i = s; } }";
+    Assert.Equal(1, SemanticDump.ErrorCount(src));
+    Assert.Equal("E0402", SemanticDump.FirstErrorCode(src));
+}
+
+// 沿继承链上溯时同样要比实参：ID<int> 的祖先是 IB<int>，不是 IB<string>。
+// 退回裸名匹配的话这条会静默通过 —— 那就是把一个误报换成了一个漏报。
+[Test]
+void test_generic_iface_wrong_type_arg_must_error() {
+    string src = "namespace D; interface IB<T> { } interface ID<T> : IB<T> { }"
+        + " class T2 { void M(ID<int> d) { IB<string> b = d; } }";
+    Assert.Equal(1, SemanticDump.ErrorCount(src));
+}
+
+// 返回协变**反方向**：接口声明 `ID Make()`、实现只给 IB ⇒ 仍须 E0412。
+[Test]
+void test_impl_return_contravariance_must_error() {
+    string src = "namespace D; interface IB { } interface ID : IB { } interface IFac { ID Make(); }"
+        + " class Fac : IFac { public IB Make() { return null; } }";
+    Assert.Equal(1, SemanticDump.ErrorCount(src));
+    Assert.Equal("E0412", SemanticDump.FirstErrorCode(src));
+}

@@ -148,6 +148,83 @@ var r = Max<int>(3, 5);
 %7 = call  @Max  %5, %6              ; 无需 @Max_int
 ```
 
+### 代码共享不是全部：布局不同就特化，而特化副本落在**消费方**
+
+上面那段是**默认**路径。`complete-generic-instantiation` S1（#820 / #825）之后，模型是混合的：
+
+- **默认共享一份体**（型参当句柄，`v_call` 走 vtable）；
+- **当实例化布局与擦除布局不同时**（判据 `StructLayout.InstDiffersFromDef`，实务上就是
+  「型参被一个多字段值 struct 具化」）⇒ 该泛型体按具体实参**各特化一份**，体内 struct 访问的
+  字节偏移按实例化布局烘焙。
+
+关键的一条、也是最容易踩的一条：**特化副本是发进「实例化点所在的那个编译单元」的 sink**
+（`IrGen._emitSpecializedFreeFn` / `IrGenTypeEmitter.EmitInstantiation`），不是发在泛型的声明处。
+换句话说 —— **消费方的 `.zbc` 里烘焙着生产方泛型体的一份副本**。
+
+#### 由此而来的增量失效不变式
+
+> **泛型声明的「体」属于它的声明面。**
+
+`SurfaceHash`（文件级增量的失效闭包）默认把每个方法体折成 `{}`，好处是「只改函数体 ⇒ 零传播」。
+这条优化对泛型**不成立**，因为消费方抄了那个体。判据两条，落在 `SurfaceHash._isGeneric`：
+
+| 形态 | 谁抄走了体 |
+|---|---|
+| 声明自带型参（泛型自由函数 / 泛型方法）| `_emitSpecializedFreeFn` |
+| 所属类型自带型参（泛型 class / struct 的成员、`impl ... for G<T>`）| `EmitInstantiation` |
+
+这两类**不折叠体** ⇒ 体 token 留在该名字的指纹里 ⇒ 改体就改指纹 ⇒ 提到它的文件照旧失效。
+代价是「改一个泛型体会让它的全部消费方重编」—— 在编译期单调化下这是正确且不可避免的。
+
+> 📜 **这条不变式是后补的，而缺陷曾经是活的**。`SurfaceHash` 的正确性论证里原本写着
+> 「泛型走运行期类型实参**不单态化进调用方**」—— S1 之后那句话不再成立，而论证没跟着改。
+> 实测（release，两文件工程）：`gen.z42` 里 `long Second<T>(Loc<T,long> p) { return p.b; }`、
+> `use.z42` 调 `Second<P2>` ⇒ 打印 7；**只把体改成 `return p.b + 100;`** ⇒ 增量构建
+> `cached: 1/2 files` ⇒ 仍打印 **7**，而同源全量重建打印 **107**。消费方的 cached `.zbc`
+> 里留着旧体的特化 —— **静默错答案，不是崩**。
+>
+> ⭐ 为什么三份增量语料都没抓到：逐文件 touch 轮只追加注释、decl-touch 轮只追加**新**函数，
+> 而三份语料里**没有一处「跨文件泛型实例化且带 blob struct 实参」**—— 那正是特化被触发的
+> 唯一条件。门禁 `_reconcileGenericBodyTouch` 自带夹具补上这一格。
+
+#### 布局层的代换必须与语义层同口径
+
+「型参代换」这个概念在编译器里有多个表示层，而它们的语义**必须一致**，否则同一批字节会被
+两端按不同布局理解。最容易分叉的一对是：
+
+| 层 | 表示 | 代换方式 |
+|---|---|---|
+| 语义层 | `Z42Type`（`MemberResolver._substGeneric` 等）| **结构递归**：数组元素、实例化实参逐层进去 |
+| 布局层 | 字段类型的**字符串名**（`StructLayout`）| 历史上**只做整名匹配** |
+
+于是「字段类型本身是一个实例化」这一格曾经分裂：
+
+```z42
+struct Loc<A, B> { A a; B b; }
+struct Wrap<T>   { Loc<T, long> inner; }   // ← 不是裸型参，是实例化
+```
+
+`Wrap<P2>` 时 `subst = {T→P2}`，而字段类型串是 `"Loc<T,long>"` —— 整名不在表里 ⇒ 布局层按
+**擦除**的 `Loc`（`a` 当 8B 句柄）算出 16B；访问侧的静态类型却是语义层结构递归出来的
+`Loc<P2,long>`（`a` 内联 16B + `b` @16）= 24B。实测崩在：
+
+```
+struct field write out of blob bounds (off=16, w=8, len=16)
+```
+
+—— 分配端给 16 字节、访问端按 off=16 写。
+
+`StructLayout._substFieldTypeName` 现在**整名匹配 + 递归进实例化实参**，重组时用
+`StructLayout.InstName`。**重组必须用 `InstName`**：那是「编译器 / wire / 运行期三方必须用的
+同一份拼法」，自己拼一份会让描述符名对不上，而运行期 `resolve_layout` 查不到是**静默落兜底
+布局**（只有 size、空引用位图）—— 零引用叶子的实例化恰好照常工作、有引用叶子的才崩，
+规律不自解释。`_compute` 与 `_computeObjFields` 两处同口径，否则类里的内联 struct 字段与裸
+struct 的同名布局会分叉。
+
+> ⭐ **与「字段是裸型参」是两格，缺一格照样崩**：裸型参（`A First`）擦除成**引用叶子**、存
+> 另一块 blob 的句柄（`generic_struct_chain` 那条覆盖）；实例化字段是 struct ⇒ 应当**内联**
+> ⇒ 两端必须对「它有多大」达成一致（`generic_struct_inst_field` 覆盖）。
+
 ### zbc 二进制扩展
 
 SIGS section 扩展：
@@ -298,6 +375,28 @@ per-instance `type_args` 只覆盖「实例自己那一层泛型」，两种形�
 两条保命细节：① 代换**必须产出新的 `FieldSymbol`**，原对象被基类的 `Fields` 表共享，就地改会让
 `GBox<int>` 与 `GBox<string>` 两个派生类互相污染；② 判「写没写实参」看 AST 的 `ArgCount`，
 **不看** `GenericParamCount`（后者只说基类是泛型定义，`class D : GBox` 也命中它）。
+
+### 第三半：接口**身份**也要带实参（`interface-assignability`）
+
+上面两条修的是「沿链代换」，还剩一条**同族**的：两个接口类型算不算同一个。
+`Z42InstantiatedInterfaceType.Name()` **刻意返回裸名**（元数据拼写与 `is`/`as` 路径要逐字节
+稳定，见该类抬头），而 `Z42InterfaceType.IsAssignableTo` 恰好只比 `Name()` ⇒ `IBox<int>` 与
+`IBox<string>` 被判成同一个类型。
+
+与字段那条对照，**后果的方向正好相反、而且更重**：
+
+| | 类那半（`fix-inherited-typeparam-field-type`） | 接口这半 |
+|---|---|---|
+| 主要症状 | 误报 E0402（拦住正确代码） | **静默错值**（放过错误代码） |
+| 实测 | `d.V + 1` 报 `got T` | `IBox<int> i = iboxOfString; int bad = i.Get();` 零诊断，跑出 `bad = hello`、`bad + 1 = hello1`，exit 0 |
+
+判据收敛到 `Z42InterfaceType.SameInterface`（两侧 ns 齐备时比 FQ、否则比短名，再逐位比类型
+实参的规范名），`IsAssignableTo` 与 `InterfaceClosure` 的链上比较共用它。一侧是**裸定义**时
+按名放行 —— 那表示实参未知（跨包声明形态尚未解析出来），保守放行、不叠第二条诊断。
+
+`Name()` 本身**不动**（它同时是元数据拼写与查找键）；诊断文本另走 `Z42Type.DiagName`，
+否则实参不符会打印成「cannot assign IBox to IBox」。分类器侧的接线见
+[类型转换的实现](conversions.md)的步 6e。
 
 🔴 **跨包只通了编译期**：`class DInt : GBox<int>` 其中 `GBox` 来自别的 zpkg，现在**编得过**，
 但运行期抛 `MissingSymbolException: base type \`...GBox<int>\` ... could not be resolved`。

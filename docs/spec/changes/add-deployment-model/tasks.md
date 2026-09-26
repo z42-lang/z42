@@ -141,9 +141,9 @@ preserved 早退 ⇒ **侧车留在上一次的值**。实测：probing-paths �
 
 ### 已知限制
 
-`probing-paths` 是**平台分隔符**分隔的字符串（与 `path`／`native-path` 一致），跨平台清单写多条
-时分隔符不同。数组写法要改清单模型（`pr.Knobs` 是扁平 `"key=value"`）= 卡 nightly ⇒ 随批 4 的
-清单改动一起做。
+~~`probing-paths` 是**平台分隔符**分隔的字符串，跨平台清单写多条时分隔符不同。数组写法要改清单
+模型（`pr.Knobs` 是扁平 `"key=value"`）= 卡 nightly。~~ ✅ **已解决（2026-09-26，见批 3.6）**，
+**而且不卡 nightly** —— 当初判「卡 nightly」是因为以为要改 `Knobs` 的形状，实际不用。
 
 另：`deploy = "shared"` 的依赖**编译期仍须可解析**（z42c 要读它的元数据），probing-paths 只管
 运行期 —— fixture 要按「构建机有完整 libs、目标机只有 shared/」来搭。
@@ -233,7 +233,37 @@ vendored 目录不是 shipped `libs/` ⇒ 自动复制进 dist。**批 1 那个�
 - [x] 2.5.3 `bootstrap-seed.md` 补**轴 ④ 豁免的边界**：「加 API 可同 commit 加+用」**只对增量成立**，
       改名/删除会抹掉旧 FQN ⇒ 跑这轮 bootstrap 的那个 driver 中途就死（实测见该节）。此前只写了
       ctor 签名一条残余约束。
-- [ ] 2.5.4 🔴 **已知未挂账的真债**：`store-sync-values-in-heap` 阶段 2（挂 2026-09-14，**已超期**）——
-      19 个旧同步 builtin + `corelib/sync.rs`。没挂进清单是因为它的阶段 2 不是机械删除
-      （`vm_context/types.rs` 还在用 `sync::ChannelSlot`），需单独立项；挂上去会让 GREEN 当天红在
-      一条本 PR 修不了的债上。⇒ **待裁：是否开这个 change。**
+- [x] 2.5.4 **已知未挂账的真债 → 已清**（`store-sync-values-in-heap` 阶段 2，2026-09-26）。
+      19 个旧同步 builtin + 三个 registry + `corelib/sync.rs`（596 行）整批删除。
+      ⭐ **我对这条债的判断连错两次，都是靠读码纠正的**：
+      ① 第一次说「阶段 2 不是机械删除，因为 `vm_context/types.rs` 还在用 `sync::ChannelSlot`」——
+         查下去那三个 registry 除声明与构造外**零使用**，是跟着旧 builtin 一起死的。
+      ② 第二次改判「槽位永久不可删，因为 BuiltinId 是下标」并写了墓碑桩 —— 那是照 `builtin_table_ext.rs`
+         头注写的，而**那句头注本身是错的**：zbc 存的是名字（`BuiltinInsn { name }`），`BuiltinId`
+         是加载期按名填的派发令牌、AOT 不烤 ⇒ 能真删。两处文档互相矛盾时，**必须去代码里定论**。
+      判据按归档规定核过：nightly 种子 `strings -n 3 | grep` 旧名，programs/z42c 与 libs 皆 0 引用。
+      ⭐ 顺带：删掉的两个 Rust 测试的覆盖在 z42 那层活着（`z42.threading/tests/` 17 单元），留了指路注释。
+
+## 批 3.6 —— `probing-paths` 的数组写法（2026-09-26）
+
+- [x] 3.6 清单里 `probing-paths = ["../a", "../b"]` 生效。
+
+      ⭐ **「卡 nightly」这个判断是错的**：当初以为要改 `Profile.Knobs` 的形状（扁平 `"key=value"`）
+      才能承载数组 ⇒ 记成「随批 4 的清单改动一起做」。实际只要**不在 z42 侧摊平**就不用改形状：
+      · `ManifestLoader._profileKnobs`：数组元素用 `"\n"` 连接成一个值。`\n` 只是**运输标记**，
+        不是路径分隔符 —— 选它正因为它在任何平台都不会被误当成分隔符。
+      · 侧车写入器：见到 `\n` 就还原成 **TOML 数组**写进 `[runtime]`，**不拼字符串**。
+      · VM（`config/parse.rs` 的 `toml_value_to_string`）：`PathList` 旋钮接受 TOML 数组，用
+        **本机**分隔符摊平。
+      ⇒ **平台假设被推到唯一有权做它的地方**（运行这个应用的那台机器），中间各层都不碰它。
+
+      🔴 **改前是「配了以为生效」**：`_profileKnobs` **静默跳过数组** —— 用户写了数组等于没配，
+      没有任何东西会说话。这是本 change 一路在消灭的那个形状的最后一例。
+
+      门：Rust 单测 4 条（本机分隔符拼接 / 空白与空串剔除 / 空数组=没配 / **非 PathList 的数组仍非法**）
+      + e2e `_e2eProbingArrayChecks` 两格（侧车保持数组形态、两条共享目录都解析得到）。
+      判别力：让 `_profileKnobs` 退回静默跳过 → 门红在①格「侧车里不是 TOML 数组」，rc=1。
+
+      ⚠️ 顺带踩到一个**与本改动无关**的坑：`cargo test --release` 必然报 6 个
+      `debug_validate_invariants` 错误 —— 那个方法是 `#[cfg(debug_assertions)]` 的，release 下不存在。
+      仓库自己的入口是 **`xtask test runtime`**（debug）。别用 `cargo test --release` 判断 Rust 单测健康。

@@ -425,6 +425,38 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
         depsId = depsId + "|syn:" + pm.SyntaxNames[sd] + "=" + (pm.SyntaxValues[sd] ? "1" : "0");
         sd = sd + 1;
     }
+    // 🔴 **清单自身的身份也必须进包级缓存身份**（fix-cache-key-manifest-inputs）。
+    //
+    // 这是 `|opt` / `|syn:` 同一族的第三、四次：**「只改 toml、源码一字未动」恰好全命中缓存
+    // ⇒ 早退 preserved ⇒ 改动没进产物，而构建报成功**。前两次的处置是在 preserved 路径上各打
+    // 一个补偿补丁（上方 `_writeRuntimeConfigSidecar` 与 `_bundleExeDeps` 就是那两个），
+    // 这次改为**扩键**——补偿补丁只能救已知的那一个产出物，扩键才是「缓存键涵盖全部影响
+    // 产物的输入」这条前置条件本身。
+    //
+    // 逐项为什么在这里（都是**会进产物字节或会改诊断**的输入，而此前一项都不在任何 key 里）：
+    //   · Name / Version / Entry —— `ZpkgWriterZ._buildMeta` 把三者写进 zpkg 的 META 段。
+    //     `DepIdentity.Of` 的 `excludeName` 只用来**把自身排除出依赖集**，不进哈希 ⇒ 连改包名
+    //     都不失效。实测形态：改 `[project].version` 重建，报 `no changes; preserved`，
+    //     **发布出去的 zpkg 里还是旧版本号**。
+    //   · Kind —— `exe` / `lib` / `analyzer` 决定 zpkg 头的 FlagExe 与装配路径。
+    //   · 声明依赖名单 —— `DepScan` 拿它当过滤白名单、`E0497`（用了没声明）据它发码、DEPS 段
+    //     据它写。按名依赖删掉一条**不改变 libsDirs 里 zpkg 的集合与内容** ⇒ `DepIdentity.Of`
+    //     不变 ⇒ 全命中 ⇒ DEPS 段陈旧（#849 的传递闭包据此建）+ 本该报的 E0497 静默消失。
+    //   · isRelease —— 默认 cache 目录模板含 `${profile}`，所以通常被目录隔开；但 manifest
+    //     可以把 `cache_dir` 配成不含 `${profile}` 的路径，那时两个 profile 共用一份条目。
+    //
+    // 代价：本次提交后全仓所有包的既有缓存条目一次性失效（键变了 ⇒ 当 fresh），此后自愈。
+    // 依赖名单按**清单顺序**折入：重排 `[dependencies]` 会多触发一次全量，而漏失效是错产物
+    // ——过度失效是安全方向（同 `DepIdentity` 不按 declaredDeps 过滤那条的取舍）。
+    depsId = depsId + "|mf:" + pm.Project.Name + "@" + pm.Project.Version
+           + "/" + pm.Project.Kind
+           + "/" + (pm.Project.HasEntry ? pm.Project.Entry : "-")
+           + "/" + (isRelease ? "rel" : "dbg");
+    int mdi = 0;
+    while (mdi < pm.DepCount) {
+        depsId = depsId + "|dep:" + pm.Deps[mdi].Name;
+        mdi = mdi + 1;
+    }
     // workspace-read-cache：workspace 成员（cacheDirOverride 非空）也 probe。单工程 `--output-dir`（自举预建 build-libs 等）
     // 仍不 probe——那条路径没有 workspace 布局给出的 cache 目录，dist 是临时拼的平铺目录。
     // 实际生效的 cache 目录：workspace 成员由 WsPlan 给出，否则按本工程 manifest 解析。probe / indexed dist 读回 /
