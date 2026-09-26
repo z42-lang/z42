@@ -99,6 +99,11 @@ path 依赖与名字依赖的关键差异：名字依赖假定其 zpkg **已在*
 > **死在 `mid` 的方法里**（`MissingSymbolException: NcLeaf.Deep`）—— 报的像是「mid 的代码有问题」，
 > 实际是打包漏了 `leaf`。编译期全绿（vendored 目录早已并进 libsDirs）。
 
+> 📌 **发布（`z42 publish`）不另建一份闭包**：payload 里的依赖 zpkg 全部来自
+> `_pubCopyDistDeps(dist → payload)`，即上面这份 dist。publisher 侧曾有第二份走源码树 toml 的
+> BFS（`_pubBundleProjectDeps`），2026-09-26 实测撤除后 payload 清单逐字不变 ⇒ 已删。
+> 守着这条不变式的门 = `xtask_toolchain.z42` 的 `_assertPayloadComplete`。
+
 > **packed 前提（运行期约束）**：colocate 的依赖 zpkg 必须是 **packed**（release 布局）——运行期惰性加载器只把 packed zpkg 当依赖候选，**indexed**（debug 多文件开发态布局）不作候选。故私有 path 依赖的**部署构建走 `--release`**（消费方与其闭包一并 packed；z42.interactive→z42.repl 即如此）。debug 单包 build 仍可编译解析（编译期读 `.zsym`），只是产出的 indexed 依赖不适合 colocate 运行——这是既有惰性加载器约束，非 path 依赖新引入。
 
 > **与 workspace 编译的关系**：两者都做「拓扑序逐成员建」，但正交——workspace 沿*成员目录内*的依赖边（`z42.workspace.toml` 的 `members`），path 依赖沿*manifest 显式 `path`* 边跨目录。single build 才触发 path 闭包；workspace 成员建带 `libsDirsOverride`（已由 orchestrator 组装 libsDirs）→ 跳过 path 闭包解析。native 库的同族跟随见 [Native 库的布局与解析](../runtime/native-libraries.md)。

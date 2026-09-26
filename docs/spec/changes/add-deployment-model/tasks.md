@@ -50,9 +50,46 @@
       门红在「间接依赖没随产物走」。
       ⭐ **缺口的症状离原因很远**：改前 `dist/` 只有 mid，拷出去运行**死在 mid 的方法里**
       （`MissingSymbolException: NcLeaf.Deep`）——报的像是「mid 的代码有问题」，实际是打包漏了 leaf。
-- [ ] 2.3 🔴 **publisher 的闭包在 repo 外失效**（`srcRoot == ""` ⇒ 每个依赖 continue，零复制
-      零递归）也一并修：改按 DEPS 段或 `{ path }` 解析，镜像 `_pubBundleProjectNativeDeps`
-      的 Decision 5（那条已经修过，zpkg 这条漏了）。
+- [x] 2.3 **publisher 的闭包** —— 实测把本条原先记的修法**整个翻掉了**（记的是「改按 DEPS 段或
+      `{ path }` 解析，镜像 native 那条的 Decision 5」）。实际情况分两半：
+
+      **① publish 这条路上它是死重，删。** `z42 publish` 走 `_pubEnsureBuilt` → **z42c driver**，
+      dist/ 早已由 `_bundleExeDeps` 填满（复制判据 #813 + 闭包 #811/2.2），`_pubCopyDistDeps`
+      再把 dist 搬进 payload。撤除整条 `_pubBundleProjectDeps` 后，四个组件的 payload 文件清单
+      **逐字不变**、`z42i` 行为一致 ⇒ 三个 publish 调用点删除。
+      ⭐ **对账前必须清空 publish 目录**：`File.Copy` 只覆盖不删除，残留会让「撤除后仍一致」
+      变成假结论 —— 同一轮里刚在门自己身上踩过这个（批 4.1）。
+      顺带删掉 `_pubProjectDepNames` + `_pubMemberTomlPath`（零调用方，是被本函数取代时留下的）。
+
+      **② 它还有第四个调用方，在 `z42b build` 编排路上（`builder_commands.z42`）—— 但那条路的
+      问题比「闭包搬不全」更靠前：它根本不解析 path 依赖**（闭包解析住在 z42c driver 的 `_build`
+      里）。repo 外对着一个有 path 依赖的工程连编译都过不了（实测 `E0494: 命名空间 `OoMid`
+      不存在`）；repo 内看着能用，只因依赖早已预建进 libs。
+      ⇒ **不照 z42c 那份去改它**。🔴 **待 User 裁决**：这条比 `z42c build` 弱的编排路存在的意义是
+      什么？（`z42 build` 是转发给 z42c 的；构建系统里没有谁用 `z42b build`。）裁完再决定是
+      补齐、还是让它转发。
+
+      **③ 新门 `_assertPayloadComplete`**（`xtask_toolchain.z42`，每次 publish 后）：dist 里每个
+      非-app 产物（zpkg + 同族 native）都必须在 payload 里出现。**在此之前没有任何东西盯着
+      payload 完整性** —— payload 少一个包，`build toolchain` 照样打印 ✅。
+      判据刻意是**结构对账**而非写死名单（名单会随依赖变化腐坏）。
+      判别力实证：把 `_pubCopyDistDeps` 的 `take` 钉死成 false → 门红并逐个点名
+      （`dist 有 z42.workload.android.zpkg 而 payload 没有`），rc=1。
+      ⚠️ 实证时先踩了一次**空门**：`./xtask` 是二进制，不从 `scripts/` 重建 ⇒ 门代码没进
+      `xtask.zpkg`，第一次注入「绿」了。重建命令 = `z42c build scripts/xtask.z42.toml --release`。
+
+      **④ 顺带（User 指出「xtask 里尽量按 toml 配置取，不要写死」）：补上 `[build] output_dir` 的
+      workspace 继承档。** 门初稿把 `distDir` 交给调用方传、z42c 那格传的是硬编码 helper ——
+      而 `xtask_toolchain.z42` 开篇的 SoT 原则写着「every toolchain output/publish path is READ
+      from the component's own z42.toml」。`_wsOutputDir` 实现 `[workspace.build] output_dir`
+      （`${project_name}` / `${profile}` 模板、**相对 workspace 根**解析），`_toolchainDistDir` /
+      `_desktopPublishDir` 一律经它读配置。
+      🔴 **这一档缺失本身就是一个活 bug**：z42c 的 publish_dir 被猜成 `<projDir>/publish` ⇒
+      **发布产物一直漏在源码树** `src/compiler/z42c.driver/publish/`，而 z42c.driver 清单的注释
+      白纸黑字写着它该落 `${output_dir}/publish`。补完之后落点变
+      `artifacts/build/compiler/z42c.driver/release/publish`，与清单一致。
+      ⭐ 门是这么被发现的：它在 z42c 那格红在「dist 目录不存在」—— **门报的失败先怀疑门自己**，
+      查下去发现门没错、是路径来源写死了。
 
 ## 批 3 —— probing-paths
 
