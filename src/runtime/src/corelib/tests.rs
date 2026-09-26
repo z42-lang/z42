@@ -40,7 +40,9 @@ fn ctx_with_std_type() -> std::pin::Pin<Box<VmContext>> {
     });
     let mut types = rustc_hash::FxHashMap::default();
     types.insert("Std.Type".to_string(), td);
-    c.seed_lazy_loader_types(&types);
+    // 这个 fixture 没有自由函数，归属判定用不到函数表 ⇒ 传空切片（参数是必填的，见
+    // `LazyLoader::seed_types_for_lookup`：必填正是为了让漏供的路径编译期就红）。
+    c.seed_lazy_loader_types(&types, &[]);
     c
 }
 

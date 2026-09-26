@@ -1,0 +1,14 @@
+// fix-module-init-ownership（2026-09-27）：触达失败包的**兄弟命名空间**。
+//
+// 🔴 为什么要单开一个文件：`using` 是**文件级**的。`Main.z42` 里同时
+// `using Demo.MiFail; using Demo.Sibling;` 会让自由函数 `Touch` 被判成 `E0456` 歧义
+// （那是与本修复无关的既有行为，单独记一笔）。这里只 `using Demo.Sibling;`，避开它。
+//
+// 本函数自身属于**消费方**包，调用它不触达失败包；真正的触达发生在它体内的 `Thing.Use`，
+// 异常照常沿调用栈传回 `Main` 的 try。
+namespace Demo.MiFailApp;
+
+using Std;
+using Demo.Sibling;
+
+int TouchSibling(int x) { return Thing.Use(x); }
