@@ -113,6 +113,7 @@ public sealed class LanguageFeatures {
         f.Set("delegates",        true);
         f.Set("reflection",       true);
         f.Set("bitwise",          true);
+        f.Set("using_stmt",       true);   // `using` 语句（add-using-statement 批 3；曾是幻影名）
         f.Phase = 1;
         return f;
     }

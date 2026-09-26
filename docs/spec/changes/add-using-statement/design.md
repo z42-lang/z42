@@ -162,6 +162,7 @@ using 后的下一个 token：
 | # | 事项 |
 |---|---|
 | I1 | **零新 IR 指令、零格式 bump**：降糖全用既有 `try/finally` + 调用 + null 判 |
+| I6 | 🔴 **要新增一个 `UsingStmt` AST 节点**（初稿写「不新增」是错的 —— foreach 模板本身有 `ForeachStmt`，降糖在 binder；名义判定要类型信息，parser 里降糖做不到）。代价 = 5 个消费点，漏一处 `test walkers` 门会红 |
 | I2 | **不需要 bump `CompilerFingerprint`**：`using` 语句此前**编不过**（报 E0209）⇒ 不存在「哈希不变而结果变」的缓存条目。这是 version-bumping.md 那条判据的正面例子 |
 | I3 | support 阶段**编译器自身/stdlib/xtask 一处都不用** `using`（L6 的死锁纪律）⇒ 判据 = `xtask test bootstrap` 必须绿 |
 | I4 | 语句位拦截改动**不得**让 `using Foo.Bar;`（放错位置的 import）静默通过 —— 门要成对（D3-4）|

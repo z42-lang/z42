@@ -47,7 +47,12 @@
 - [ ] `using (T v = expr) { … }`
 - [ ] `using var v = expr;`（作用域到所在块末尾）
 - [ ] `using T v = expr;`（显式类型的简化形态；**与 import 真歧义**，判据见 T2）
-- [ ] AST：**不新增节点**，复用既有 `BlockStmt` / `VarDeclStmt` / `TryCatchStmt`（照 L9 的 foreach 模板）
+- [ ] 🔴 **AST 要新增一个 `UsingStmt` 节点**（我的 DRAFT 初稿写「不新增节点」是**错的**：
+      foreach 模板本身就有专用 `ForeachStmt` 节点、降糖在 binder；而名义判定要类型信息
+      ⇒ 只能在 binder 做 ⇒ 语法层必须留一个节点，不能在 parser 里就降糖掉）
+      ⚠️ 新节点的代价 = **5 个消费点**（照 `ForeachStmt` 的分布）：`Stmt.z42`（声明 + `Dump()`）/
+      `StmtParser.z42` / `StmtBinder.z42` / `MethodTypeParamUse.z42` / `AnalyzerDriver.z42`
+      —— 漏任一处，`xtask test walkers` 门会红（它逐 node×walker 对账，129 对 0 gap）
 - [ ] 缺初始化器 / 缺 `)` / 缺块 各一条恢复路径（别级联）
 
 ## T4 —— 降糖（binder 侧，照 `StmtBinder._bindForeachEnumerable` 的路子）
