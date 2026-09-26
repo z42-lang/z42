@@ -65,9 +65,33 @@
       问题比「闭包搬不全」更靠前：它根本不解析 path 依赖**（闭包解析住在 z42c driver 的 `_build`
       里）。repo 外对着一个有 path 依赖的工程连编译都过不了（实测 `E0494: 命名空间 `OoMid`
       不存在`）；repo 内看着能用，只因依赖早已预建进 libs。
-      ⇒ **不照 z42c 那份去改它**。🔴 **待 User 裁决**：这条比 `z42c build` 弱的编排路存在的意义是
-      什么？（`z42 build` 是转发给 z42c 的；构建系统里没有谁用 `z42b build`。）裁完再决定是
-      补齐、还是让它转发。
+      ⇒ **User 裁决（2026-09-26）：把闭包循环下沉，两边共用**。但裁决前我给的选项描述有一处
+      事实错误，实施时查出来并纠正了：**`z42b build` 不是「比 `z42c build` 弱的重复路」** ——
+      它带 `--rid`、`_selectWorkload(target.Family)`、`[build] hooks`，而 **z42c 根本没有 rid 概念**
+      （源码里零出现）。转发过去会丢掉 rid + workload + hooks 三样。
+      真正的事实是：`PathDepPlan` **只 `using Std / Std.IO / Z42.Build.Project`，零编译器依赖**，
+      住在 `z42c.pipeline` 纯属历史落点 ⇒ 这不是「两条能力不同的路」，是**一个解析器放错了包**。
+      落地见 2.4。
+
+- [x] 2.4 **闭包解析下沉 + z42b 接上**（2026-09-26）：
+      · `PathDepPlan` / `PathDepClosure` 搬进 **`z42.project`**（它唯一依赖的那个包）。z42b 刻意
+        stdlib-only、只经注入的 `ICompiler` 碰编译器，搬下去之后它才够得着 ⇒ 解析器**一份实现**。
+      · `z42c.pipeline` 留一层**转发**（种子 ABI）：上一 nightly 的 driver 二进制在运行期调
+        `Z42.Pipeline.PathDepPlan.Resolve` 并按 `Z42.Pipeline.PathDepClosure` 的字段读结果，而
+        `_ensureBootstrapSelfDepLibs` 逐个单独编那 6 个自依赖库时正是 top-level build ⇒ 真会走到。
+        直接删 = 种子在 bootstrap 中途 `MissingSymbolException`（实测过）。
+        ⏳ **阶段 2（下一 nightly 后）删掉 `z42c.pipeline/src/PathDepPlan.z42`**。
+      · z42b 的 `_buildPathDepClosure`：按拓扑序逐成员 `_orchestrate` + 落 dist，累积 dist 目录。
+        **共用的是解析器、不是循环** —— per-member 构建语义两边本就不同（driver 调 `_build` 走增量
+        缓存与侧车，z42b 调 `_orchestrate` 走 rid/workload/hooks），这层差异不该消掉。
+        `_initialInputs` / `_orchestrate` 加了收多个额外依赖目录的重载（原先只收一个，那是
+        「父包 dist」一个用例留下的形状）。
+      · ⭐ **闭包只买到「能编」是不够的**：补完解析后两层链编过了，但拷出去**跑不起来**
+        （`MissingSymbolException: OoMid.Mid.Call`）—— dist 里没有闭包成员。补 colocate，名单直接
+        取自刚建的闭包，**不是**去源码树按名搜（那份走 srcRoot 的实现在 repo 外恒空转，见 2.3）。
+        `_pubBundleProjectDeps` 因此只剩**按名依赖**那半，保留不动（避免 in-repo 回归）。
+      · 门 `_e2eZ42bClosureChecks` 两格（fixture **必须落 repo 外**，否则依赖早已预建进 libs、
+        门看不见差别）。判别力：让 `_buildPathDepClosure` 直接返回空 → 门红在①格、rc=1。
 
       **③ 新门 `_assertPayloadComplete`**（`xtask_toolchain.z42`，每次 publish 后）：dist 里每个
       非-app 产物（zpkg + 同族 native）都必须在 payload 里出现。**在此之前没有任何东西盯着

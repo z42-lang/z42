@@ -412,6 +412,86 @@ int _e2eDeployUseChecks(string root, string vm, string driverZpkg) {
     return 0;
 }
 
+// ── `z42b build` 的 path 依赖闭包（2026-09-26）────────────────────────────────────────────
+//
+// **守的是什么**：闭包解析此前只写在 z42c.driver 的 `_build` 上；z42b 的编排路（`z42b build`，
+// 带 rid/workload/hooks 那条）**完全不解析 path 依赖** ⇒ repo 外对着
+// `dep = { path = "../foo" }` 的工程连编译都过不了（实测 `E0494: 命名空间 ... 不存在`）。
+// repo 内看着能用，只因依赖早已预建进 libs —— 所以 fixture **必须落 repo 外**，否则门看不见差别
+// （同 `_e2eDeployPredicateChecks` 头注那条）。
+//
+// 解析器已从 z42c.pipeline 搬进 z42.project（零编译器依赖）⇒ driver 与 z42b **共用同一份**。
+// 两格：① 两层链 `app → mid → leaf` 编得过（改前这里就断）；② 闭包成员随产物走、拷出去跑得起来。
+int _e2eZ42bClosureChecks(string root, string vm) {
+    string z42b = _toolchainZpkg(root, _z42bToml());
+    if (!File.Exists(z42b)) {
+        Console.WriteLine("  ⚠ z42b 闭包: z42.builder.zpkg 不在（" + z42b + "）—— 跳过");
+        return 0;
+    }
+    string flat = _libsFlatDist(root, "release");
+    string tmp  = Path.Join("/tmp", "z42c-e2e-z42bclos");
+    if (Directory.Exists(tmp)) { try { Directory.Delete(tmp, true); } catch (Exception e) {} }
+    string libsDir = Path.Join(tmp, "libs");
+    Directory.Create(libsDir);
+    string[] stdlib = Path.Glob(flat, "*.zpkg");
+    int si = 0;
+    while (si < stdlib.Length) { File.Copy(stdlib[si], Path.Join(libsDir, Path.GetFileName(stdlib[si]))); si = si + 1; }
+
+    string leafDir = Path.Join(tmp, "leaf");
+    string midDir  = Path.Join(tmp, "mid");
+    string appDir  = Path.Join(tmp, "app");
+    Directory.Create(leafDir); Directory.Create(midDir); Directory.Create(appDir);
+    File.WriteAllText(Path.Join(leafDir, "leaf.z42"), _e2eClosureLeafSrc());
+    File.WriteAllText(Path.Join(midDir,  "mid.z42"),  _e2eClosureMidSrc());
+    File.WriteAllText(Path.Join(appDir,  "app.z42"),  _e2eClosureAppSrc());
+    File.WriteAllText(Path.Join(leafDir, "ncleaf.z42.toml"), _e2eZ42bLibToml("ncleaf", ""));
+    File.WriteAllText(Path.Join(midDir,  "ncmid.z42.toml"),
+        _e2eZ42bLibToml("ncmid", "\"ncleaf\" = { path = \"../leaf\" }\n"));
+    File.WriteAllText(Path.Join(appDir,  "ncapp.z42.toml"), _e2eZ42bExeToml());
+
+    string appToml = Path.Join(appDir, "ncapp.z42.toml");
+    ProcessResult b = new Process(vm).Arg(z42b).Arg("--").Arg("build").Arg(appToml).Arg("--release")
+        .Env("Z42_LIBS", libsDir).Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
+    string all = b.Stdout + b.Stderr;
+    // ① 编得过（改前：E0494 命名空间不存在）。
+    if (b.ExitCode != 0) {
+        Console.WriteLine("  ✗ z42b 闭包: `z42b build` 建不了带 path 依赖的工程 —— 编排路没解析闭包: " + all);
+        return 1;
+    }
+    // ② 闭包成员随产物走 + 拷出去跑得起来。
+    string dist = Path.Join(Path.Join(Path.Join(Path.Join(appDir, "artifacts"), "ncapp"), "release"), "dist");
+    string runDir = Path.Join(tmp, "run");
+    Directory.Create(runDir);
+    foreach (var z in Path.Glob(dist, "*.zpkg")) { File.Copy(z, Path.Join(runDir, Path.GetFileName(z))); }
+    if (!File.Exists(Path.Join(runDir, "ncleaf.zpkg"))) {
+        Console.WriteLine("  ✗ z42b 闭包: 间接依赖 ncleaf 没随产物走 —— 拷出去会死在 mid 的方法里");
+        return 1;
+    }
+    ProcessResult rr = new Process(vm).Arg(Path.Join(runDir, "ncapp.zpkg"))
+        .Env("Z42_LIBS", libsDir).Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
+    string ro = rr.Stdout + rr.Stderr;
+    if (rr.ExitCode != 0 || ro.IndexOf("leaf") < 0) {
+        Console.WriteLine("  ✗ z42b 闭包: 拷出去跑不起来: " + ro);
+        return 1;
+    }
+    Console.WriteLine("  ✓ z42b build 的 path 闭包：两层链编得过、闭包随产物走、拷出去照样跑");
+    return 0;
+}
+
+string _e2eZ42bLibToml(string name, string extraDep) {
+    return "[project]\nname    = \"" + name + "\"\nversion = \"0.1.0\"\nkind    = \"lib\"\n\n"
+         + "[sources]\ninclude = [\"*.z42\"]\n\n"
+         + "[dependencies]\n\"z42.core\" = \"0.1.0\"\n" + extraDep;
+}
+
+string _e2eZ42bExeToml() {
+    return "[project]\nname    = \"ncapp\"\nversion = \"0.1.0\"\nkind    = \"exe\"\n"
+         + "entry   = \"NcApp.Main\"\npack    = true\n\n"
+         + "[sources]\ninclude = [\"*.z42\"]\n\n"
+         + "[dependencies]\n\"z42.core\" = \"0.1.0\"\n\"z42.io\" = \"0.1.0\"\n"
+         + "\"ncmid\" = { path = \"../mid\" }\n";
+}
+
 // ── `deploy` 声明校验提到清单层（add-deployment-model 批 4.3）────────────────────────────
 //
 // **守的是什么**：`deploy` 的校验此前住在 `_bundleExeDeps` 里，而那个函数**只在 exe 分支跑** ⇒

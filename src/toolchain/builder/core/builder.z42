@@ -46,6 +46,14 @@ int _orchestrate(ProjectManifest manifest, Target target, string sourceDir, stri
 // **刚建好的父包**，而父包的 dist 不在 Z42_LIBS 里。
 int _orchestrate(ProjectManifest manifest, Target target, string sourceDir, string hooksRel,
                  string parentPkg, string extraDepDir) {
+    string[] one = new string[1];
+    one[0] = extraDepDir;
+    return _orchestrate(manifest, target, sourceDir, hooksRel, parentPkg, one, 1);
+}
+
+// extraDepDirs（path 依赖闭包，2026-09-26）：闭包成员的 dist 目录列表，叶子在前。
+int _orchestrate(ProjectManifest manifest, Target target, string sourceDir, string hooksRel,
+                 string parentPkg, string[] extraDepDirs, int extraN) {
     Pipeline p = new Pipeline();
     p.ParentPkg = parentPkg;
     p.Compiler = _hostCompiler();                  // 共享 z42c 编译实现（ICompiler），in-process
@@ -66,7 +74,7 @@ int _orchestrate(ProjectManifest manifest, Target target, string sourceDir, stri
     ctx.Manifest    = manifest;
     ctx.Target      = target;
     ctx.Dirs        = dirs;
-    ctx.Inputs      = _initialInputs(manifest, extraDepDir);
+    ctx.Inputs      = _initialInputs(manifest, extraDepDirs, extraN);
     ctx.WorkloadDir = "";                          // 实现期：选中 workload 的安装目录
     return p.Run(ctx);
 }
@@ -191,6 +199,27 @@ Inputs _initialInputs(ProjectManifest m) { return _initialInputs(m, ""); }
 
 // free-function-overloads 阶段 2（use）：同名重载（2 参版，附加 extraDepDir）——此前因不支持
 // 自由函数重载而分名 _initialInputsWith。
+// path 依赖闭包（2026-09-26）：闭包有 N 个成员，每个成员的 dist 都要进依赖扫描面 ⇒ 需要
+// **多个**额外目录，而 1 参版只收一个（那是「父包 dist」一个用例留下的形状）。
+Inputs _initialInputs(ProjectManifest m, string[] extraDepDirs, int extraN) {
+    string libs = Environment.GetEnvironmentVariable("Z42_LIBS", "");
+    string[] baseDeps = (libs.Length > 0) ? Path.Glob(libs, "*.zpkg") : new string[0];
+    string[] acc = baseDeps;
+    int k = 0;
+    while (k < extraN) {
+        string d = extraDepDirs[k];
+        k = k + 1;
+        if (d.Length == 0) { continue; }
+        string[] extra = Path.Glob(d, "*.zpkg");
+        string[] all = new string[acc.Length + extra.Length];
+        int i = 0; while (i < acc.Length) { all[i] = acc[i]; i = i + 1; }
+        int j = 0; while (j < extra.Length) { all[acc.Length + j] = extra[j]; j = j + 1; }
+        acc = all;
+    }
+    if (acc.Length == 0) { return new Inputs("", "", new string[0]); }
+    return new Inputs("", "", acc);
+}
+
 Inputs _initialInputs(ProjectManifest m, string extraDepDir) {
     string libs = Environment.GetEnvironmentVariable("Z42_LIBS", "");
     if (libs.Length == 0 && extraDepDir.Length == 0) { return new Inputs("", "", new string[0]); }
