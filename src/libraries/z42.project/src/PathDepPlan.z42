@@ -128,15 +128,41 @@ public static class PathDepPlan {
         return tail == ".zpkg" || tail == ".ZPKG";
     }
 
-    // consumerDir/relPath 下恰一份 *.z42.toml → 依赖 manifest；0/多份 → 报错。
+    // `consumerDir/relPath` 下的依赖 manifest。判据**委托 `ManifestLocator.FindIn`**，不自己拼。
+    //
+    // 🔴 此前这里自己 `Path.Glob(depDir, "*.z42.toml")` —— 比权威判据**更严**，于是
+    // `z42 new` 造出来的工程当不了 path 依赖：`builder_new.z42` 写的是**裸 `z42.toml`**，
+    // 而 `"*.z42.toml"` 要求文本含字面 `.z42.toml` 后缀（`z42.toml` 里 `z42` 前没有点）⇒ 不匹配。
+    // `ManifestLocator.FindIn` 恰恰把裸名当**首选**形态（先查 `z42.toml`，再 glob `*.z42.toml`，
+    // 多份则 Ambiguous）。同一个「工程清单在哪」的问题不该有第二份、还更严的判据。
+    //
+    // ⭐ 它藏住的原因：全部 e2e fixture 都写 `<name>.z42.toml`（`xtask_compiler_e2e_deploy.z42`
+    // 的四处、cross-zpkg 语料同理），恰好都落在两份判据的交集里。而报错文本
+    // 「期望恰 1 份 *.z42.toml，实得 0」离真正的原因（你的清单叫 z42.toml）很远。
+    //
+    // 只接受 `Project`：`FindIn` 也会认 `z42.workspace.toml`，但闭包算法要的是单包清单，
+    // 把 workspace 当 path 依赖是另一种错，得说清楚而不是静默当成 0 份。
     static string _resolveDepToml(string consumerDir, string relPath, string depName) {
         string depDir = Path.Join(consumerDir, relPath);
-        string[] manifests = Path.Glob(depDir, "*.z42.toml");
-        if (manifests.Length != 1) {
+        ManifestLocation loc = ManifestLocator.FindIn(depDir);
+        if (loc.Kind == ManifestLocateKind.Project) { return loc.ManifestPath; }
+        if (loc.Kind == ManifestLocateKind.Ambiguous) {
+            string cands = "";
+            int ci = 0;
+            while (ci < loc.Candidates.Length) {
+                cands = cands + (ci > 0 ? ", " : "") + Path.GetFileName(loc.Candidates[ci]);
+                ci = ci + 1;
+            }
             throw new Exception("z42c build: path 依赖 '" + depName + "' 在 " + depDir
-                + " 期望恰 1 份 *.z42.toml，实得 " + manifests.Length.ToString());
+                + " 有多份工程清单（" + cands + "）—— 无从判断该用哪一份。");
         }
-        return manifests[0];
+        if (loc.Kind == ManifestLocateKind.Workspace) {
+            throw new Exception("z42c build: path 依赖 '" + depName + "' 指向的 " + depDir
+                + " 是一个 workspace（z42.workspace.toml），不是单个工程。"
+                + " path 依赖要指向具体成员目录。");
+        }
+        throw new Exception("z42c build: path 依赖 '" + depName + "' 在 " + depDir
+            + " 找不到工程清单（既无 z42.toml，也无 *.z42.toml）。");
     }
 
     static bool _contains(string[] arr, int n, string v) {

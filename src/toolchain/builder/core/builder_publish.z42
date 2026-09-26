@@ -20,6 +20,7 @@ using Std.IO;
 using Std.Toml;
 using Std.Cli;
 using Z42.Build;
+using Z42.Build.Project;   // ManifestLocator —— 「工程清单在哪」的单一判据
 // apphost patching is inlined in builder_apphost.z42 (_pubProduceApphost) so z42b
 // stays on stdlib-only deps and still builds in the test-runner context. NOT
 // `using Z42.Workload.Desktop` (that workload isn't in Z42_LIBS there).
@@ -609,9 +610,13 @@ string _pubResolveDepToml(string parentTomlPath, TomlValue parentToml, string de
     if (path.Length > 0) {
         string base = Path.GetDirectoryName(parentTomlPath);
         if (base.Length == 0) { base = "."; }
-        string cand = Path.Join(Path.Join(base, path), depName + ".z42.toml");
-        if (File.Exists(cand)) { return cand; }
-        return "";   // declared path but no toml there → conservative skip
+        // 判据委托 `ManifestLocator.FindIn`（同 `PathDepPlan._resolveDepToml` /
+        // `BuildPaths._handlerFromPath`）。此前这里硬编码 `<depName>.z42.toml` —— 三处判据里
+        // **最严的一份**：既漏掉裸 `z42.toml`（`z42 new` 写的就是它），也要求文件名等于依赖名。
+        // 而失败是 `return ""` + 调用方静默 skip ⇒ 该带的 native 依赖没带上，且零提示。
+        ManifestLocation dloc = ManifestLocator.FindIn(Path.Join(base, path));
+        if (dloc.Kind == ManifestLocateKind.Project) { return dloc.ManifestPath; }
+        return "";   // declared path but no single project manifest there → conservative skip
     }
     if (srcRoot.Length > 0) { return _pubLocateDepToml(srcRoot, depName); }
     return "";

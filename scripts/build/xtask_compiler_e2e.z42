@@ -176,7 +176,14 @@ int _e2eBuildChecks(string root, string vm, string driverZpkg, string e2eDir, st
     Directory.Create(bazDir);
     File.WriteAllText(Path.Join(bazDir, "baz.z42"),
         "namespace PathDep.Baz;\n\npublic static class Baz {\n    public static int Two() { return 2; }\n}\n");
-    File.WriteAllText(Path.Join(bazDir, "pathdep.baz.z42.toml"),
+    // 🔴 **baz 的清单刻意用裸 `z42.toml`**（其余两层仍用 `<name>.z42.toml`）——
+    // 这正是 `z42 new` 写出来的形态（`builder_new.z42` 写的就是裸名），而 path 依赖解析
+    // 此前自己 glob `"*.z42.toml"`：那个 pattern 要求文本含字面 `.z42.toml` 后缀，
+    // 而 `z42.toml` 里 `z42` 前没有点 ⇒ **不匹配** ⇒ `z42 new` 造的工程当不了 path 依赖，
+    // 报的还是「期望恰 1 份 *.z42.toml，实得 0」——离真正的原因很远。
+    // 判据已收敛到 `ManifestLocator.FindIn`（它把裸名当首选形态）；这一格让两种拼写
+    // 在同一次 e2e 里都被走到。**它藏了这么久，正是因为全部 fixture 都写 `<name>.z42.toml`。**
+    File.WriteAllText(Path.Join(bazDir, "z42.toml"),
         "[project]\nname    = \"pathdep.baz\"\nversion = \"0.1.0\"\nkind    = \"lib\"\n\n[sources]\ninclude = [\"*.z42\"]\n");
     File.WriteAllText(Path.Join(fooDir, "foo.z42"),
         "namespace PathDep.Foo;\n\nusing PathDep.Baz;\n\npublic static class Foo {\n    public static int Answer() { return 40 + Baz.Two(); }\n}\n");
