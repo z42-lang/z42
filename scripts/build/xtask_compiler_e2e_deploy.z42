@@ -35,11 +35,31 @@ string _e2eDeployAppSrc() {
 }
 
 // repo 外的临时根（`_srcRoot` 上溯到 / 都找不到 libraries/+compiler/ ⇒ 返回 ""）。
-string _e2eDeployRoot() { return Path.Join("/tmp", "z42c-e2e-deploy"); }
+//
+// 🔴 **必须按树区分**（fix-e2e-tmp-per-tree）：本文件的每个 fixture 开头都
+// `Directory.Delete(tmp, true)`，而这些根此前是 `/tmp` 里的**固定名字** ⇒ 同一台机器上并行跑
+// 两棵 worktree 的 `xtask test compiler` 会互相抹掉对方的中间产物。
+//
+// 实测形态（2026-09-27）：`probing 数组` 那格红在 `pparr_b` 上，报
+// 「`[dependencies] z42.core` 未找到 z42.core.zpkg；已查找：/tmp/z42c-e2e-pparr/libs」——
+// 而那个 `libs/` 目录**事后根本不存在**：`pparr_a` 建成之后、`pparr_b` 之前，另一棵树的同一格
+// 把它删了。同一份源码原样重跑即绿 ⇒ 这类红**看起来像被测对象的 bug**，实际是测试基建的共享状态。
+//
+// 为什么不搬进 `artifacts/.scratch/`：这些 fixture 刻意住在**仓库外**，为的是覆盖
+// 「repo 外的消费方」这条路（`_srcRoot` 上溯找不到 `libraries/+compiler/` ⇒ 返回 ""）。
+// 所以保持在 `/tmp`，只把树名掺进路径。树名取 `_root()` 的最后一段（`wt-xxx` / `z42`），
+// 短、可读 —— 它会出现在诊断文本里，可读比哈希有用。
+string _e2eTmpRoot(string root, string name) {
+    string tag = Path.GetFileName(root);
+    if (tag.Length == 0) { tag = "z42"; }
+    return Path.Join("/tmp", "z42c-e2e-" + tag + "-" + name);
+}
+
+string _e2eDeployRoot(string root) { return _e2eTmpRoot(root, "deploy"); }
 
 int _e2eDeployPredicateChecks(string root, string vm, string driverZpkg) {
     string flat = _libsFlatDist(root, "release");
-    string tmp  = _e2eDeployRoot();
+    string tmp  = _e2eDeployRoot(root);
     if (Directory.Exists(tmp)) { try { Directory.Delete(tmp, true); } catch (Exception e) {} }
     string libsDir = Path.Join(tmp, "libs");
     string appDir  = Path.Join(tmp, "app");
@@ -135,7 +155,7 @@ string _e2eProbeAppToml(string probing) {
 
 int _e2eProbingPathChecks(string root, string vm, string driverZpkg) {
     string flat = _libsFlatDist(root, "release");
-    string tmp  = Path.Join("/tmp", "z42c-e2e-probing");
+    string tmp  = _e2eTmpRoot(root, "probing");
     if (Directory.Exists(tmp)) { try { Directory.Delete(tmp, true); } catch (Exception e) {} }
     string libsDir = Path.Join(tmp, "libs");
     string shared  = Path.Join(tmp, "shared");
@@ -238,7 +258,7 @@ string _e2eZrefAppToml(string key, string path) {
 
 int _e2eZpkgRefChecks(string root, string vm, string driverZpkg) {
     string flat = _libsFlatDist(root, "release");
-    string tmp  = Path.Join("/tmp", "z42c-e2e-zref");
+    string tmp  = _e2eTmpRoot(root, "zref");
     if (Directory.Exists(tmp)) { try { Directory.Delete(tmp, true); } catch (Exception e) {} }
     string libsDir = Path.Join(tmp, "libs");
     string vendor  = Path.Join(tmp, "vendor");
@@ -346,7 +366,7 @@ string _e2eDeployUseToml(string depSpec) {
 
 int _e2eDeployUseChecks(string root, string vm, string driverZpkg) {
     string flat = _libsFlatDist(root, "release");
-    string tmp  = Path.Join("/tmp", "z42c-e2e-deployuse");
+    string tmp  = _e2eTmpRoot(root, "deployuse");
     if (Directory.Exists(tmp)) { try { Directory.Delete(tmp, true); } catch (Exception e) {} }
     string libsDir = Path.Join(tmp, "libs");
     string appDir  = Path.Join(tmp, "app");
@@ -429,7 +449,7 @@ string _e2ePpArrLibSrc(string ns, string cls, string who) {
 
 int _e2eProbingArrayChecks(string root, string vm, string driverZpkg) {
     string flat = _libsFlatDist(root, "release");
-    string tmp  = Path.Join("/tmp", "z42c-e2e-pparr");
+    string tmp  = _e2eTmpRoot(root, "pparr");
     if (Directory.Exists(tmp)) { try { Directory.Delete(tmp, true); } catch (Exception e) {} }
     string libsDir = Path.Join(tmp, "libs");
     Directory.Create(libsDir);
@@ -515,7 +535,7 @@ int _e2eZ42bClosureChecks(string root, string vm) {
         return 0;
     }
     string flat = _libsFlatDist(root, "release");
-    string tmp  = Path.Join("/tmp", "z42c-e2e-z42bclos");
+    string tmp  = _e2eTmpRoot(root, "z42bclos");
     if (Directory.Exists(tmp)) { try { Directory.Delete(tmp, true); } catch (Exception e) {} }
     string libsDir = Path.Join(tmp, "libs");
     Directory.Create(libsDir);
@@ -598,7 +618,7 @@ string _e2eDeclToml(string kind, string depSpec, string analyzersSection) {
 
 int _e2eDeployDeclChecks(string root, string vm, string driverZpkg) {
     string flat = _libsFlatDist(root, "release");
-    string tmp  = Path.Join("/tmp", "z42c-e2e-deploydecl");
+    string tmp  = _e2eTmpRoot(root, "deploydecl");
     if (Directory.Exists(tmp)) { try { Directory.Delete(tmp, true); } catch (Exception e) {} }
     string libsDir = Path.Join(tmp, "libs");
     string prjDir  = Path.Join(tmp, "prj");
@@ -678,7 +698,7 @@ string _e2eClosureLibToml(string name, string dep) {
 
 int _e2eNamedClosureChecks(string root, string vm, string driverZpkg) {
     string flat = _libsFlatDist(root, "release");
-    string tmp  = Path.Join("/tmp", "z42c-e2e-closure");
+    string tmp  = _e2eTmpRoot(root, "closure");
     if (Directory.Exists(tmp)) { try { Directory.Delete(tmp, true); } catch (Exception e) {} }
     string libsDir = Path.Join(tmp, "libs");
     string vendor  = Path.Join(tmp, "vendor");
