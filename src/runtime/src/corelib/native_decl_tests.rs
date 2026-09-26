@@ -55,29 +55,13 @@ const UNDECLARED_ALLOWLIST: &[(&str, &str)] = &[
     ("__concat",   "legacy: kept for BuiltinId stability"),
     ("__contains", "legacy: kept for BuiltinId stability"),
     ("__len",      "legacy: kept for BuiltinId stability"),
-    // store-sync-values-in-heap（2026-09-14）阶段 1 种子例外：stdlib 已改走 `__monitor_*`，这 19 个
-    // 旧同步原语 builtin 不再被任何 z42 源声明；只为上一版 nightly 种子的 `z42.core` 仍声明着它们
-    // 而保留一个 nightly（bootstrap-seed.md「删 runtime builtin = 两 nightly」）。阶段 2 连同
-    // `sync.rs` 一起删，届时这里的条目同步删除（Deferred：store-sync-values-in-heap-remove-legacy）。
-    ("__mutex_new",            "seed exception: store-sync-values-in-heap stage 1"),
-    ("__mutex_lock_acquire",   "seed exception: store-sync-values-in-heap stage 1"),
-    ("__mutex_store",          "seed exception: store-sync-values-in-heap stage 1"),
-    ("__mutex_unlock",         "seed exception: store-sync-values-in-heap stage 1"),
-    ("__channel_new",          "seed exception: store-sync-values-in-heap stage 1"),
-    ("__channel_new_bounded",  "seed exception: store-sync-values-in-heap stage 1"),
-    ("__channel_send",         "seed exception: store-sync-values-in-heap stage 1"),
-    ("__channel_recv",         "seed exception: store-sync-values-in-heap stage 1"),
-    ("__channel_try_recv",     "seed exception: store-sync-values-in-heap stage 1"),
-    ("__channel_try_send",     "seed exception: store-sync-values-in-heap stage 1"),
-    ("__channel_close",        "seed exception: store-sync-values-in-heap stage 1"),
-    ("__rwlock_new",           "seed exception: store-sync-values-in-heap stage 1"),
-    ("__rwlock_read_acquire",  "seed exception: store-sync-values-in-heap stage 1"),
-    ("__rwlock_read_release",  "seed exception: store-sync-values-in-heap stage 1"),
-    ("__rwlock_write_acquire", "seed exception: store-sync-values-in-heap stage 1"),
-    ("__rwlock_write_store",   "seed exception: store-sync-values-in-heap stage 1"),
-    ("__rwlock_write_release", "seed exception: store-sync-values-in-heap stage 1"),
-    ("__rwlock_try_read",      "seed exception: store-sync-values-in-heap stage 1"),
-    ("__rwlock_try_write",     "seed exception: store-sync-values-in-heap stage 1"),
+    // 🪦 store-sync-values-in-heap 阶段 2 已落地（2026-09-26）：旧同步原语的 19 条豁免连同它们的
+    // 表槽、`corelib/sync.rs`、三个 registry 一并删除 —— 所以这里**不再需要**对应条目。
+    //
+    // 📌 删得掉的依据（读码核实，与本文件原注的说法不同）：zbc 存的是 builtin **名字**，
+    // `BuiltinId` 是 resolver 在加载期按名填的派发令牌、不跨进程持久化 ⇒ 抽掉槽位不会让既有 zbc
+    // 错位。真正的判据是「已发布种子里还有没有 z42 源声明这个名字」，按归档
+    // `2026-09-14-store-sync-values-in-heap` 规定的 `strings -n 3 | grep` 核过：0 引用。
 ];
 
 fn libraries_root() -> PathBuf {
