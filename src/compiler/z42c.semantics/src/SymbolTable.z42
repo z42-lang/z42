@@ -37,9 +37,14 @@ public sealed partial class SymbolTable {
     public StrMap EnumConsts;       // "EnumName.MemberName" → 整数值字符串
     public StrMap Delegates;        // name → Z42FuncType（用户 delegate，非泛型；委托类型即函数类型）
     // add-bare-name-ambiguity-diagnostic：**短名 → 声明过它的全部命名空间**（值 StrBox，"|" 连接）。
-    // 为什么必须单独存：`Classes` 是裸名单赢家（同短名跨 ns 只活一份）、`ClassesByFqn` 只登记**本地**类
-    // （imported 从不进）、`ImportedSymbols.ClassNamespaces` 是裸名 → **单个** ns —— 三个生产点都把
+    // 为什么必须单独存：`Classes` 是裸名单赢家（同短名跨 ns 只活一份）、
+    // `ImportedSymbols.ClassNamespaces` 是裸名 → **单个** ns —— 两个生产点都把
     // 「同一短名有几份」这个信息塌掉了。不重建它就无从判歧义（C# CS0104 的判据）。
+    // ⚠️ 2026-09-27 更正：这段原本还写着「`ClassesByFqn` 只登记**本地**类（imported 从不进）」——
+    // **已经不成立**。`ImportedSymbolLoader` 在 first-wins 守卫**之外** `ClassesByFqn.Put(fqnKey, nct)`
+    // （每一份都留），`SymbolCollector._mergeImports` 再并进主表。那句话大概是守卫收窄之前写的，
+    // 之后没人回来改 —— 又一条「没有东西盯着的断言迟早变谎言」。
+    // 但 `ClassNsAll` 仍**不可删**：它要答的是「同一**短名**有几个 ns」的 O(1) 反查，FQN 键表给不了。
     public StrMap ClassNsAll;
     // report-crosspkg-duplicate-type：**FQN → 声明它的全部依赖包名**（值 StrBox，"|" 连接）。
     // 与 ClassNsAll 同构、但另一根轴：那张表答「同一个短名有几个 ns」（E0456），这张答
@@ -291,9 +296,31 @@ public sealed partial class SymbolTable {
         return n.Substring(dot + 1, n.Length - dot - 1);
     }
 
-    public bool          HasClass(string name) { return this.Classes.ContainsKey(name); }
-    public bool             HasInterface(string name) { return this.Interfaces.ContainsKey(name); }
-    public Z42InterfaceType GetInterface(string name) { return this.Interfaces.Get(name) as Z42InterfaceType; }
+    // ── 类型查找的四个访问器：**双键过渡形态**（fqn-symbol-key 步 1）────────────────────
+    // STAGE2-DEBT(fqn-symbol-key): 删掉这四个函数里的「短名回落」那一支，只留 FQN 查找
+    //
+    // 目标形态是「符号表的键就是 FQN」。直接翻键会让 167 个调用点同时失准，且**全是字符串键、
+    // 一处都不会编译报错**（会静默截断 base 链 / 漏检约束 / 让布局键与查询键分叉 ⇒ 运行期
+    // blob 越界）。故走绞杀者：
+    //   步 1（本次）：访问器认**两种**键 —— FQN 优先、短名回落。是今天行为的**超集**，
+    //                 验收靠与 main 做 stdlib **字节对账**（必须逐字节相同）。
+    //   步 2：名字数组（`BaseName`/`InterfaceNames`/`BaseNames`）与声明键翻 FQN ⇒ 自然走 FQN 路。
+    //   步 3：**响亮探测**找出残留的短名调用方（不是静默回落——那是假门），修完删回落支。
+    //
+    // 🔴 顺序不能反：先翻键再改调用点，中间态就是「静默错答案」；先加双键则中间态恒为超集。
+    public bool HasClass(string name) {
+        if (this.ClassesByFqn.ContainsKey(name)) { return true; }
+        return this.Classes.ContainsKey(name);
+    }
+    public bool HasInterface(string name) {
+        if (this.InterfacesByFqn.ContainsKey(name)) { return true; }
+        return this.Interfaces.ContainsKey(name);
+    }
+    public Z42InterfaceType GetInterface(string name) {
+        int f = this.InterfacesByFqn.Find(name);
+        if (f >= 0) { return this.InterfacesByFqn.ValAt(f) as Z42InterfaceType; }
+        return this.Interfaces.Get(name) as Z42InterfaceType;
+    }
 
     // class（含 base 链）是否实现接口（可赋性 class→iface）。
     //
@@ -383,7 +410,12 @@ public sealed partial class SymbolTable {
         }
         return false;
     }
-    public Z42ClassType  GetClass(string name) { return this.Classes.Get(name) as Z42ClassType; }
+    // 双键过渡形态；这笔阶段-2 欠账登记在 `HasClass` 抬头（同一笔，不在此重复挂标记）。
+    public Z42ClassType  GetClass(string name) {
+        int f = this.ClassesByFqn.Find(name);
+        if (f >= 0) { return this.ClassesByFqn.ValAt(f) as Z42ClassType; }
+        return this.Classes.Get(name) as Z42ClassType;
+    }
     public bool          HasConstraints(string name) { return this.ClassConstraints.ContainsKey(name); }
     public ConstraintSet GetConstraints(string name) { return this.ClassConstraints.Get(name) as ConstraintSet; }
     public bool          HasIfaceConstraints(string name) { return this.InterfaceConstraints.ContainsKey(name); }
