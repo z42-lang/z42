@@ -1,6 +1,11 @@
 # Tasks: `using` 语句（批 3 = support）
 
-> 状态：🔵 DRAFT 待审批 ｜ 前置：[design.md](design.md)
+> 状态：🟢 已裁决，IMPL 中 ｜ 前置：[design.md](design.md)
+> 裁决（User，2026-09-26）：D3-1 **纯名义**（只认 `: IDisposable`，对齐 C#）｜
+> D3-2 **四种形态全做**（含 `using T v = e;` ⇒ 需前瞻消歧）｜ D3-6 **`using_stmt`** ｜
+> 库侧账 **并进本批**（10 个资源类型补基表 + 删两句假注释）。
+> ✅ 阻塞前提已实测：跨包声明 `: IDisposable` 今天**能编过**（25/25），且满足性校验**真在跑**
+> （改名 `Dispose` ⇒ `E0412`）。
 > ⚠️ **本文件只覆盖批 3（support）**。批 4（在 z42c/stdlib/示例里**使用** `using`）必须等
 > 一个 nightly 发布之后另立 PR —— `bootstrap-seed.md:122-129`，违反即自举死锁。
 
@@ -10,9 +15,8 @@
 - [ ] 诊断码：E0498 是否仍空 —— 扫全源**不够**，还要 `git show <每个在飞 PR 分支>:DiagnosticCodes.z42`
 - [ ] 取**同命令**字节基线：`xtask build stdlib` → 25 包 sha256
       （⚠️ 别用 `build all` 取：它与 `build stdlib` 对 `z42.core` 产出不同字节，批 2 实测）
-- [ ] **实测 L7 的猜测**：给 `z42.io/TextReader`（或 `TcpClient`）临时加 `: IDisposable` 看能不能编过
-      ⇒ 坐实「当年放弃声明是撞了已修掉的跨包接口缺陷」还是「今天仍编不过」。**结论写回 design L7**
-      （这决定 D3-1 选甲时的代价是「一条小 PR」还是「又一串缺陷」）
+- [x] **实测 L7 的猜测** ✅ 能编过（`TextReader` + `TcpClient` 加基表 ⇒ 25/25 全绿），
+      且反向探针证明校验真在跑（改名 `Dispose` ⇒ `E0412`）。结论已写回 design L7
 - [ ] **实测 prelude 缺口**：`BuiltinTypeDefs` 的 `IEnumerator` 无 base `IDisposable`，在冷启动路径上
       会不会让名义判据答错（D3-1 选甲/丙时是风险点）
 
@@ -27,17 +31,22 @@
 
 ## T2 —— 🔴 E0209 拦截开口（L8：它在 `_steps` 之外、优先于表）
 
-- [ ] 判据改为看 `using` 后**一个** token：`(` 或 `var` ⇒ 交给语句路径；其它 ⇒ 照旧 E0209
+- [ ] 判据（D3-2 四种形态 ⇒ 需**有限前瞻**，不是只看一个 token）：
+      · `using (`            ⇒ 语句（形态 1/2）
+      · `using var`          ⇒ 语句（形态 3）
+      · `using <类型> <标识符> =` ⇒ 语句（形态 4）—— 复用 `_skipTypeOffset` 那套前瞻，**别造第二套**
+      · 其它（`using Foo.Bar;` / `using X = Y;` / `global using`）⇒ 照旧 E0209
 - [ ] **G1 扩充而非替换**：`tests/stmt.z42:158-190` 原四条 E0209 门全部保留，新增
       ① `using (r) { }` 在方法体里零诊断（正例）② `using var r = e;` 零诊断
       ⚠️ 判别力：只加正例等于把拦截删掉也能绿 ⇒ 原四条负例必须仍在
 - [ ] 顺手修 `error-codes.md:90` 里 E0209 的过期行号（`Parser.z42:246` → 实际发射点）
 
-## T3 —— 解析：三种形态（D3-2 建议只做前三种）
+## T3 —— 解析：**四种**形态（D3-2 裁决：全做）
 
 - [ ] `using (expr) { … }`
 - [ ] `using (T v = expr) { … }`
 - [ ] `using var v = expr;`（作用域到所在块末尾）
+- [ ] `using T v = expr;`（显式类型的简化形态；**与 import 真歧义**，判据见 T2）
 - [ ] AST：**不新增节点**，复用既有 `BlockStmt` / `VarDeclStmt` / `TryCatchStmt`（照 L9 的 foreach 模板）
 - [ ] 缺初始化器 / 缺 `)` / 缺块 各一条恢复路径（别级联）
 
@@ -48,8 +57,11 @@
 - [ ] 只造 AST 再喂回 `_bindStmt` —— **零新 Bound 节点、零新 emitter、零新 IR 指令**
 - [ ] `null` 判（D3-5）：C# 口径「null 则跳过 Dispose」
 - [ ] 多个 `using var` ⇒ 嵌套 try/finally ⇒ **逆序释放天然成立**（D3-3）
-- [ ] 判定「可 dispose 吗」：**复用 `ForeachProtocol` 那条判据**（D3-1 定的链），
-      🔴 **必须问继承面**（#827 教训：查直接成员表会让继承来的 `Dispose` 被静默跳过）
+- [ ] 判定「可 dispose 吗」= **名义**（D3-1 裁决）：该类型的**接口闭包**里有 `Std.IDisposable` 吗
+      🔴 **必须问闭包、不是直接基表**：`class A : B`、`B : IDisposable` 时 `A` 也可 dispose
+      （同 #827 的教训形状，只是这次问的是接口闭包而非成员表）⇒ 走 `InterfaceClosure`
+      ⚠️ 与 foreach 的形状判据**刻意不同源**（foreach 是鸭子类型、`using` 是名义）——
+      这个差异必须在两处代码注释里都写明，否则下一个人会以为是漏改
 
 ## T5 —— 门（判别力，每条都要有「红的理由对不对」那一层）
 
@@ -62,6 +74,17 @@
       父接口继承 + 基类继承，这正是 #823 栽过的两种）
 - [ ] **释放顺序门**：两个 `using var` + 记录顺序，断言 `b, a`
 - [ ] `using` 嵌套 `using`（临时名唯一化真的有效）
+
+## T7 —— 库侧账（**裁决：并进本批**）
+
+- [ ] 给资源类型补 `: IDisposable`：`TcpClient` / `TcpListener` / `UdpClient` / `TlsClient` /
+      `WebSocketClient` / `WebSocketConnection` / `HttpClient` / `HttpServer` / `TextReader` / `TextWriter`
+      （逐个核实 `Dispose()` 签名与接口一致；实测已证两个样本可编过）
+- [ ] 删两句**假注释**：`z42.net/src/TcpClient.z42:18`「z42 没有正式的 IDisposable protocol」、
+      `z42.io/src/Stream.z42:28`「z42 has no `IDisposable` yet」—— 接口一直存在，同包 `ProcessHandle` 正在实现
+- [ ] ⚠️ 这会动 **stdlib TSIG 字节**（V1 的预期因此改变）
+- [ ] `Stream` 族本身要不要也补（它只有 `Close()`、没有 `Dispose()`）⇒ 若补，是**新增公开成员**，
+      先判断是不是跨成员变更（跑 `xtask test bootstrap`，别猜）
 
 ## T6 —— 文档（G3：三处明文否认必须同批改）
 
@@ -81,7 +104,7 @@
 
 | # | 判据 | 怎么验「红的理由对」 |
 |---|---|---|
-| V1 | 字节：只有被改源码的包变（`z42c.syntax` / `z42c.semantics` / `z42c.core`）；**stdlib 25 包不变**（support 阶段没人用 `using`）| 不为零就逐 commit 二分 |
+| V1 | 字节：编译器侧只有被改源码的包变（`z42c.syntax` / `z42c.semantics` / `z42c.core`）。**stdlib 侧因 T7 会变**（补基表动 TSIG）⇒ 逐 task 分别对账：T1–T6 阶段 stdlib 必须不变，T7 阶段只允许被补基表的那几个包变 | 不为零就逐 commit 二分 |
 | V2 | 五条退出路径夹具全绿 | 把 `finally` 那步临时删掉 ⇒ 五条必须全红 |
 | V3 | 特性门：关掉 ⇒ E0301；不写 ⇒ 编得过 | 阳性对照必须先绿 |
 | V4 | 消歧：`using Foo.Bar;` 在方法体里**仍** E0209 | 把拦截整个删掉 ⇒ 这条必须红 |
@@ -92,4 +115,5 @@
 
 ## 顺序
 
-T0 → T1 → T2 → T3 → T4 → T5 → T6。T2 必须早于 T3（拦截不开口，语句永远撞 E0209）。
+T0 → T1 → T2 → T3 → T4 → T5 → T7 → T6。T2 必须早于 T3（拦截不开口，语句永远撞 E0209）；
+T7（库侧补基表）放在语法与门都绿之后，好让「stdlib 字节变」这件事单独一段账。
