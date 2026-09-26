@@ -33,9 +33,9 @@
 | 13 | 类与对象 | `types/classes` | 类定义、**引用语义**、字段与可见性、构造器与 `: this()`、自动/计算属性与索引器、对象初始化器与 `new()`、静态成员、重写 ToString | 🟢 |
 | 14 | 继承与多态 | `types/inheritance` | `virtual`/`override`、多态按运行时派发、构造顺序与 `base`、`abstract`（**不能 new**）、`sealed`、无 `new` 方法隐藏 | 🟢 |
 | 15 | 接口 | `types/interfaces` | 声明与实现（E0412）、多接口、`is`/`as`、接口属性（get/set 两份契约）、接口继承接口（成员生效、🔴 赋值关系仍缺）、接口 vs 抽象类 | 🟢 |
-| 16 | 值类型与记录 | `types/structs-records` | `struct` 值语义与不参与继承、`[Record]` 四样合成、`with`（仅 record class）、🔴 单字段 struct 仍是引用语义、🔴 表达式体构造器静默失效、打印 struct | 🟢 |
-| 17 | 枚举与模式匹配 | `types/patterns` | `enum`（独立类型）、`switch` 语句/表达式、🔴 穷尽性只是警告（无匹配臂静默产 null/垃圾值）、位置与属性解构、嵌套、守卫、组合子 `..=`/关系/`\|`/`@`、解构声明 | 🟢 |
-| 18 | 泛型 | `types/generics` | 泛型类型、泛型方法、`where` 约束 | ✅ |
+| 16 | 值类型与记录 | `types/structs-records` | `struct` 值语义与不参与继承（**字段数无关**）、`[Record]` 四样合成、`with`（仅 record class）、🔴 表达式体构造器里的元组赋值不动字段（报 E0482）、打印 struct 走 `ToString` | 🟢 |
+| 17 | 枚举与模式匹配 | `types/patterns` | `enum`（独立类型）、`switch` 语句/表达式、🔴 穷尽性在编译期只是警告（运行期无匹配臂抛 `Std.SwitchExpressionException`）、位置与属性解构、嵌套、守卫、组合子 `..=`/关系/`\|`/`@`、解构声明 | 🟢 |
+| 18 | 泛型 | `types/generics` | 泛型类型、泛型方法、`where` 约束、`Self`、关联类型、型参上的运算符 | 🟢 |
 | 19 | Lambda、闭包与委托 | `types/lambdas` | lambda 语法、捕获语义、委托、`methodof` | ✅ |
 | 20 | 异常处理 | `types/exceptions` | `try` / `catch` / `finally` / `throw`、自定义异常 | ✅ |
 | 21 | 组织代码 | `types/organization` | `namespace`、`using` / `global using` / 类型别名、访问控制、`partial`（`global using` 跨文件目前没有端到端测试，本章示例将是首个覆盖） | ✅ |
