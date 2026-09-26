@@ -55,32 +55,71 @@ string _resolveFromToml(string absToml, string value) {
     if (Path.IsRooted(value)) { return value; }
     return Path.Join(Path.GetDirectoryName(absToml), value);
 }
+// `[build] output_dir` 的 **workspace 继承档**（`[workspace.build] output_dir`）。
+//
+// 清单模型允许 member 省略 `output_dir`、由所在 workspace 的 `[workspace.build]` 供给，值里可带
+// `${project_name}` / `${profile}` 模板，且**相对 workspace 根**解析（不是相对 member 清单）。
+// z42c.driver 就是这么写的；四个 toolchain 清单各自显式写了，所以本文件此前跳过了这一档 ——
+// 代价是 z42c 的输出位置由 xtask 自己猜，而不是从配置读：
+//   · dist 猜成 `<projDir>/dist`（真身在 `artifacts/build/compiler/z42c.driver/release/dist`）；
+//   · publish 猜成 `<projDir>/publish` —— **把发布产物漏进了源码树**，而 z42c.driver 清单的注释
+//     白纸黑字写着它该落 `${output_dir}/publish`。
+// ⇒ 补上这一档，`_toolchainZpkg` / `_desktopPublishDir` 一律从配置读，不再写死路径。
+// 返回 "" = 上溯没找到 workspace 清单，或它没声明 output_dir。
+string _wsOutputDir(string absToml, string profile) {
+    string dir = Path.GetDirectoryName(absToml);
+    while (dir.Length > 0) {
+        string wsToml = Path.Join(dir, "z42.workspace.toml");
+        if (File.Exists(wsToml)) {
+            string raw = _tomlField(wsToml, "workspace.build.output_dir", "");
+            if (raw.Length == 0) { return ""; }
+            string expanded = raw.Replace("${project_name}", _tomlField(absToml, "project.name", ""))
+                                 .Replace("${profile}", profile);
+            // workspace-root-relative（**不是** member 相对）。
+            if (Path.IsRooted(expanded)) { return expanded; }
+            return Path.Join(dir, expanded);
+        }
+        string parent = Path.GetDirectoryName(dir);
+        if (parent.Length == 0 || parent == dir) { return ""; }
+        dir = parent;
+    }
+    return "";
+}
+
 // [platform.desktop].publish_dir → absolute dir. Unset → ${output_dir}/publish
-// (mirrors z42b _pubDefaultPublishDir; the toolchain tomls all set it explicitly,
-// so the workspace-inheritance leg is deliberately omitted here).
+// (mirrors z42b _pubDefaultPublishDir，含 workspace 继承档 —— 见 `_wsOutputDir`)。
 string _desktopPublishDir(string root, string tomlPath) {
     string abs = _absToml(root, tomlPath);
     string pub = _tomlField(abs, "platform.desktop.publish_dir", "");
     if (pub.Length > 0) { return _resolveFromToml(abs, pub); }
-    string outDir = _resolveFromToml(abs, _tomlField(abs, "build.output_dir", ""));
-    return Path.Join(outDir, "publish");
+    return Path.Join(_outputDirOf(abs, "release"), "publish");
+}
+
+// `[build] output_dir` 的完整级联：本清单显式 → workspace 继承 → 清单自身目录。
+string _outputDirOf(string absToml, string profile) {
+    string outRaw = _tomlField(absToml, "build.output_dir", "");
+    if (outRaw.Length > 0) { return _resolveFromToml(absToml, outRaw); }
+    string ws = _wsOutputDir(absToml, profile);
+    if (ws.Length > 0) { return _cleanPath(ws); }
+    return Path.GetDirectoryName(absToml);
 }
 // built zpkg path = dist dir + [project].name + ".zpkg". dist cascade mirrors z42c
 // _resolveDistDir: dist_dir (with ${output_dir} template) → ${output_dir}/dist →
 // <projDir>/dist.
 string _toolchainZpkg(string root, string tomlPath) {
+    return _cleanPath(Path.Join(_toolchainDistDir(root, tomlPath),
+        _tomlField(_absToml(root, tomlPath), "project.name", "") + ".zpkg"));
+}
+
+// dist 目录（`_toolchainZpkg` 与 payload 完整性门共用）。
+string _toolchainDistDir(string root, string tomlPath) {
     string abs = _absToml(root, tomlPath);
-    string outRaw  = _tomlField(abs, "build.output_dir", "");
     string distRaw = _tomlField(abs, "build.dist_dir", "");
-    string distDir;
     if (distRaw.Length > 0) {
-        distDir = _resolveFromToml(abs, distRaw.Replace("${output_dir}", outRaw));
-    } else if (outRaw.Length > 0) {
-        distDir = Path.Join(_resolveFromToml(abs, outRaw), "dist");
-    } else {
-        distDir = Path.Join(Path.GetDirectoryName(abs), "dist");
+        string outRaw = _tomlField(abs, "build.output_dir", "");
+        return _cleanPath(_resolveFromToml(abs, distRaw.Replace("${output_dir}", outRaw)));
     }
-    return _cleanPath(Path.Join(distDir, _tomlField(abs, "project.name", "") + ".zpkg"));
+    return _cleanPath(Path.Join(_outputDirOf(abs, "release"), "dist"));
 }
 
 // self-contained z42c.driver dist (driver + 6 siblings colocated; simplify-compiler-
@@ -174,6 +213,42 @@ int _buildWorkload() {
 }
 
 // ── build toolchain ──────────────────────────────────────────────────────────
+// payload 完整性门（add-deployment-model 批 2.3）。
+//
+// **为什么需要它**：payload 里那些依赖 zpkg 的唯一来源是 `_pubCopyDistDeps(dist → payload)`，
+// 而 dist 的内容由 **z42c 的 `_bundleExeDeps`** 决定（复制判据 + 传递闭包）。也就是说
+// 「发布出去的东西全不全」取决于另一个组件的两条规则，而在本门之前**没有任何东西盯着它** ——
+// payload 少一个包，`build toolchain` 照样打印 ✅，症状要等到用户跑起来才现形（而且会现形成
+// 「某个包的方法有问题」，见 project-model.md 那条记录）。
+//
+// 判据刻意是**结构对账**而不是写死名单：dist 里每个非-app 产物（zpkg + 同族 native）都必须在
+// payload 里有同名文件。写死名单会随组件依赖变化腐坏（本仓库在别处已被这条咬过多次）。
+int _assertPayloadComplete(string root, string tomlPath) {
+    string abs = _absToml(root, tomlPath);
+    string distDir = _toolchainDistDir(root, tomlPath);
+    string payloadRel = _tomlField(abs, "platform.desktop.payload", "");
+    if (payloadRel.Length == 0) { return 0; }   // legacy flat：zpkg 原地嵌入，无 payload 目录
+    string projName = _tomlField(abs, "project.name", "");
+    string payloadDir = Path.GetDirectoryName(Path.Join(_desktopPublishDir(root, tomlPath), payloadRel));
+    if (!Directory.Exists(distDir) || !Directory.Exists(payloadDir)) {
+        ConsoleError.WriteLine("  ✗ payload 完整性: 目录不存在 (dist=" + distDir + " payload=" + payloadDir + ")");
+        return 1;
+    }
+    string mainZpkg = projName + ".zpkg";
+    int missing = 0;
+    foreach (var name in Directory.Enumerate(distDir)) {
+        bool shipped = (name.EndsWith(".zpkg") && name != mainZpkg)
+                    || name.EndsWith(".dylib") || name.EndsWith(".so") || name.EndsWith(".dll");
+        if (!shipped) { continue; }
+        if (!File.Exists(Path.Join(payloadDir, name))) {
+            ConsoleError.WriteLine("  ✗ payload 完整性: dist 有 " + name + " 而 payload 没有 —— "
+                + projName + " 发布出去会缺件 (" + payloadDir + ")");
+            missing = missing + 1;
+        }
+    }
+    return (missing > 0) ? 1 : 0;
+}
+
 // Publish the 4 apphost components → each toml's publish_dir. Auto-builds workloads
 // first (launcher depends on them, User Q1). z42b compiled first since it publishes
 // the others. Every output/publish location is read from the component toml.
@@ -207,6 +282,8 @@ int _buildToolchain() {
         _vNormal("  publish: " + toml + " → " + pubDir);
         c = _z42bPublish(vm, z42bZpkg, libs, apphostStub, toml, rid, pubDir);
         if (c != 0) { ConsoleError.WriteLine("  ✗ publish failed: " + toml); return c; }
+        c = _assertPayloadComplete(root, toml);
+        if (c != 0) { return c; }
     }
     _procEnd("build toolchain (apphosts via publish)", sw);
     return 0;
@@ -232,6 +309,8 @@ int _sdkMergeApphosts(string root, string outDir, bool noBuild) {
         int zc = _z42bPublish(vm, z42bZpkg, _libsDir(root), stub, z42cToml, rid,
             _desktopPublishDir(root, z42cToml));
         if (zc != 0) { ConsoleError.WriteLine("  ✗ z42c apphost publish failed"); return zc; }
+        zc = _assertPayloadComplete(root, z42cToml);
+        if (zc != 0) { return zc; }
     }
     // merge z42c + 4 toolchain apphost publish trees into the SDK.
     string[] tc4 = _toolchainApphostTomls();
