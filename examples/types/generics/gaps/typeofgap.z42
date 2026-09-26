@@ -3,17 +3,17 @@ using Std.IO;
 class Box<T> {
     public string full()  { return typeof(T).FullName; }
     public bool   isInt() { return typeof(T) == typeof(int); }
-    // 静态方法里没有实例，类级 T 取不到实参 → 占位名 "T"
+    // 静态方法里没有实例、调用点也没把类级实参传进来 → 占位名 "T"
     public static string staticFull() { return typeof(T).FullName; }
 }
 
-// 派生类非泛型，实例不携带基类的类型实参 → 基类体内的 T 也取不到
+// 派生类非泛型，但它的基是**闭合**泛型 `Box<int>` —— 实参写在基的名字里，取得到
 class Derived : Box<int> { }
 
 void Main() {
     Box<int> b = new Box<int>();
-    Console.WriteLine(b.full());            // Std.Int32
-    Console.WriteLine(b.isInt());           // true
-    Console.WriteLine(Box.staticFull());    // T ← 静态语境仍是占位名
-    Console.WriteLine(new Derived().full()); // T ← 继承来的型参仍是占位名
+    Console.WriteLine(b.full());             // Std.Int32
+    Console.WriteLine(b.isInt());            // true
+    Console.WriteLine(Box.staticFull());     // T ← 静态语境仍是占位名（剩下的那道洞）
+    Console.WriteLine(new Derived().full()); // Std.Int32 ← 继承来的型参现在取得到了
 }
