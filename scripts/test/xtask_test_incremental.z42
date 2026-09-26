@@ -53,6 +53,10 @@ int _testIncremental(ParseResult r) {
     // add-l0-protocol-table 批 1：`[syntax]` 与上面两道同族（解析了没人读）。此前 E0301 零发射点。
     rc = _syntaxKnobTakesEffect(vm, driver, libs, _synKnobDir(Path.Join(scratch, "synknob")));
     if (rc != 0) { return rc; }
+    // fix-cache-key-manifest-inputs：清单自身的身份（name/version/kind/entry/声明依赖）此前
+    // 一项都不在任何 cache key 里 ⇒ 「只改 toml」既能发出旧产物、也能吞掉本该判红的诊断。
+    rc = _manifestIdentityTakesEffect(vm, driver, libs, _incrDemoDir(Path.Join(scratch, "mfknob")));
+    if (rc != 0) { return rc; }
     // fix-incr-generic-body-surface：S1（#820/#825）之后泛型体的特化副本落**消费方 CU** ⇒
     // 「改泛型体」必须失效消费方。上面每一轮都测不到它（见该函数头注）。
     rc = _reconcileGenericBodyTouch(vm, driver, libs, _genBodyDir(scratch));
@@ -61,7 +65,8 @@ int _testIncremental(ParseResult r) {
     if (rc != 0) { return rc; }
 
     Console.WriteLine("\n✅ incremental reconciler: all dist files byte-identical (demo + demo-packed + xtask + stdlib readback)"
-        + " + [build] incremental / [optimize] / [syntax] knobs take effect + generic body touch invalidates consumers");
+        + " + [build] incremental / [optimize] / [syntax] knobs take effect + manifest identity in cache key"
+        + " + generic body touch invalidates consumers");
     _procEnd("test incremental", sw);
     return 0;
 }
@@ -200,6 +205,89 @@ string _optKnobDir(string scratch) {
         + "    }\n"
         + "}\n");
     return d;
+}
+
+// 清单**自身**的身份进没进包级缓存身份（fix-cache-key-manifest-inputs）。
+//
+// 与上面三道旋钮门同族（「只改 toml、源码一字不动」），但漏的东西更重：那三道漏的是
+// 「旋钮不生效」，这道漏的是**发错产物**与**吞掉本该判红的诊断**。
+//
+// **两格判据，第二格是第一格换不来的**：
+//   ① `[project].version` ⇒ 产物字节**必须变**（它进 zpkg 的 META 段）。
+//      漏失效时的实测形态：`no changes; preserved`，构建报成功、而发出去的 zpkg 里是旧版本号。
+//   ② `[dependencies]` 加一条**不存在**的依赖 ⇒ 构建**必须判红**。
+//      注意这一格测的不是字节而是**红没红**：那条「声明了却不存在」的检查在
+//      `Main.z42` 的 declaredDeps 循环里，位置在 **preserved 早退之后** ⇒ 全命中时它
+//      根本跑不到。所以「声明依赖名单不在 cache key 里」的后果不是产物旧，而是**红被吞**。
+//   把声明依赖名单从键里去掉，① 照样绿 —— 这就是为什么必须有 ②。
+int _manifestIdentityTakesEffect(string vm, string driver, string libs, string projDir) {
+    Console.WriteLine("\n── knob: manifest identity in cache key (" + projDir + ") ──");
+    string toml = Path.Join(projDir, "t.z42.toml");
+
+    File.WriteAllText(toml, _mfToml("0.1.0", ""));
+    if (_incrBuild(vm, driver, libs, toml, true) != 0) {
+        ConsoleError.WriteLine("  ✗ baseline build (version 0.1.0) failed"); return 1;
+    }
+    // ⚠️ 定位产物必须在**首次构建之后**（dist 此前不存在）—— 同 `[optimize]` 门踩过的那一条。
+    string zpkg = _onlyDistZpkg(projDir);
+    if (zpkg == "") {
+        ConsoleError.WriteLine("  ✗ 构建后仍找不到 dist 下唯一的 .zpkg（本判据依赖它）"); return 1;
+    }
+    byte[] v1 = File.ReadAllBytes(zpkg);
+
+    // ① 只改 version、源码一个字节不动。
+    File.WriteAllText(toml, _mfToml("0.2.0", ""));
+    if (_incrBuild(vm, driver, libs, toml, false) != 0) {
+        ConsoleError.WriteLine("  ✗ rebuild with version 0.2.0 failed"); return 1;
+    }
+    if (_bytesEqual(v1, File.ReadAllBytes(zpkg))) {
+        ConsoleError.WriteLine("  ✗ 改 `[project].version` 没有进产物 —— 与 0.1.0 逐字节相同。");
+        ConsoleError.WriteLine("    形态：只改 toml、源码未动 ⇒ probe 全命中 ⇒ `no changes; preserved` 早退，");
+        ConsoleError.WriteLine("    构建报成功而 zpkg 的 META 段里还是旧版本号（发布级事故形态）。");
+        ConsoleError.WriteLine("    接线点：z42c.driver/src/Main.z42 把 `|mf:` 折进 depsId 的那一段。");
+        return 1;
+    }
+    Console.WriteLine("  ✓ 改 version 改变了产物字节（清单身份进了包级 cache key）");
+
+    // 改回去必须回到原字节 —— 否则「生效」可能只是某种不确定性。
+    File.WriteAllText(toml, _mfToml("0.1.0", ""));
+    if (_incrBuild(vm, driver, libs, toml, false) != 0) {
+        ConsoleError.WriteLine("  ✗ rebuild back to version 0.1.0 failed"); return 1;
+    }
+    if (!_bytesEqual(v1, File.ReadAllBytes(zpkg))) {
+        ConsoleError.WriteLine("  ✗ 改回 0.1.0 没有回到原字节 —— 效果不可复现。"); return 1;
+    }
+    Console.WriteLine("  ✓ 改回 version 回到原字节（可复现）");
+
+    // ② 声明依赖名单那一格。走 err 捕获版：z42c 的诊断在 **stderr**（`[syntax]` 门为此栽过一次）。
+    string log = Path.Join(projDir, "declared-dep.err");
+    File.WriteAllText(toml, _mfToml("0.1.0", "[dependencies]\nz42-no-such-dep = \"1.0\"\n"));
+    int rcDep = _incrBuildErrTo(vm, driver, libs, toml, log);
+    string depErr = File.Exists(log) ? File.ReadAllText(log) : "";
+    if (rcDep == 0) {
+        ConsoleError.WriteLine("  ✗ 声明了不存在的依赖 `z42-no-such-dep`，构建却成功了。");
+        ConsoleError.WriteLine("    这**不是**「检查没写」—— 检查在 Main.z42 的 declaredDeps 循环里，");
+        ConsoleError.WriteLine("    但它的位置在 preserved 早退**之后**：声明依赖名单没进 depsId ⇒");
+        ConsoleError.WriteLine("    只改 toml 时 probe 全命中 ⇒ 早退 ⇒ 这条检查根本跑不到，红被吞掉。");
+        File.WriteAllText(toml, _mfToml("0.1.0", "")); return 1;
+    }
+    // 只判退出码会得到一道「读不到东西却自称通过」的门 —— 连红的理由一起判。
+    if (depErr.IndexOf("z42-no-such-dep") < 0) {
+        ConsoleError.WriteLine("  ✗ 构建失败了，但理由不是「[dependencies] 找不到」—— 红的理由不对。");
+        ConsoleError.WriteLine("    实际输出：" + depErr);
+        File.WriteAllText(toml, _mfToml("0.1.0", "")); return 1;
+    }
+    Console.WriteLine("  ✓ 声明不存在的依赖 ⇒ 判红且理由正确（声明依赖名单进了 cache key）");
+
+    File.WriteAllText(toml, _mfToml("0.1.0", ""));
+    return 0;
+}
+
+// 本门专用：与 `_incrDemoDirNamed` 写出的 toml 逐字节一致（version 0.1.0 / 无 extra），
+// 于是「重写 toml」不会顺手改掉别的维度，判据只动一个变量。
+string _mfToml(string version, string extra) {
+    return "[project]\nname = \"incrpkg\"\nversion = \"" + version + "\"\nkind = \"lib\"\n"
+         + "[sources]\ninclude = [\"**/*.z42\"]\n" + extra;
 }
 
 // `[syntax]` 语法特性门。此前 `LanguageFeatures` 零调用方、`E0301 FeatureDisabled` 零发射点 ——

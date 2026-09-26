@@ -22,6 +22,16 @@ use z42::metadata::types::ExecMode;
 use z42::metadata::Value;
 use z42::vm_context::VmContext;
 
+// 🪦 这里原有两个测试 `mutex_serializes_concurrent_increments_across_threads` /
+// `channel_producer_consumer_hand_off_across_threads`，直接调 `corelib::sync` 的
+// `__mutex_*` / `__channel_*` builtin。那批原语已于 store-sync-values-in-heap 退役
+// （stdlib 改走 `__monitor_*`），实现随 2026-09-26 的阶段 2 删除 ⇒ 这两个测试测的是死路径。
+//
+// **覆盖没有蒸发，在 z42 那一层**：`src/libraries/z42.threading/tests/` 的 17 个单元跑在活路径上
+// （`mutex_basic` / `channel_basic` / `channel_bounded` / `channel_disconnect` / `rwlock_basic` /
+// `try_variants` / `gc_sync_values_rooted` …），由 GREEN 的 `stdlib [Test]` 阶段执行。
+// 本文件头注那条「Send/Sync 端到端证明」由其余 8 个测试继续扛着。
+
 #[test]
 fn vm_context_alloc_array_then_read_on_worker_thread() {
     // Construct a VmContext on the main thread, allocate an array, then
@@ -133,84 +143,7 @@ fn spawn_via_builtin_then_join_runs_action_on_worker_thread() {
     }
 }
 
-// ── add-sync-primitives Phase 4 (2026-05-20) ─────────────────────────────────
 
-#[test]
-fn mutex_serializes_concurrent_increments_across_threads() {
-    // Two worker threads each increment a shared Mutex<i64> 100 times via
-    // acquire → +1 → store → unlock. Without serialisation, lost updates
-    // would push the final value below 200.
-    let module = make_void_action_module("MutexTestWorkerReal");
-    let ctx = VmContext::with_module(module);
-
-    let new_v = corelib::sync::builtin_mutex_new(&ctx, &[Value::I64(0)]).unwrap();
-    let mutex_id = match new_v { Value::I64(n) => n, _ => panic!() };
-
-    fn worker_body(core: Arc<z42::vm_context::VmCore>, mid: i64, iters: usize) {
-        let w = z42::vm_context::VmContext::new_with_core(core);
-        for _ in 0..iters {
-            let cur = corelib::sync::builtin_mutex_lock_acquire(&w, &[Value::I64(mid)]).unwrap();
-            let new = match cur { Value::I64(n) => Value::I64(n + 1), other => panic!("{other:?}") };
-            corelib::sync::builtin_mutex_store(&w, &[Value::I64(mid), new]).unwrap();
-            corelib::sync::builtin_mutex_unlock(&w, &[Value::I64(mid)]).unwrap();
-        }
-    }
-
-    let core_a = ctx.core_arc();
-    let core_b = ctx.core_arc();
-    let ha = thread::spawn(move || worker_body(core_a, mutex_id, 100));
-    let hb = thread::spawn(move || worker_body(core_b, mutex_id, 100));
-    ha.join().expect("worker A panicked");
-    hb.join().expect("worker B panicked");
-
-    let final_val = corelib::sync::builtin_mutex_lock_acquire(&ctx, &[Value::I64(mutex_id)]).unwrap();
-    corelib::sync::builtin_mutex_unlock(&ctx, &[Value::I64(mutex_id)]).unwrap();
-    match final_val {
-        Value::I64(200) => {}
-        other => panic!("expected I64(200), got {other:?} — mutex failed to serialise"),
-    }
-}
-
-#[test]
-fn channel_producer_consumer_hand_off_across_threads() {
-    // Producer thread sends 5 sequential values; consumer (main) recv 5.
-    // FIFO order is mpsc's contract; this test catches regression in our
-    // wrapping (e.g., if registry locking accidentally reordered values).
-    let module = make_void_action_module("ChannelTestWorker");
-    let ctx = VmContext::with_module(module);
-
-    let new_v = corelib::sync::builtin_channel_new(&ctx, &[]).unwrap();
-    let channel_id = match new_v { Value::I64(n) => n, _ => panic!() };
-
-    let core_producer = ctx.core_arc();
-    let cid = channel_id;
-    let producer = thread::spawn(move || {
-        let w = z42::vm_context::VmContext::new_with_core(core_producer);
-        for n in 0..5_i64 {
-            corelib::sync::builtin_channel_send(&w, &[Value::I64(cid), Value::I64(n)]).unwrap();
-        }
-    });
-
-    // Consumer (main thread) — read in FIFO order.
-    let mut got = Vec::with_capacity(5);
-    for _ in 0..5 {
-        // __channel_recv returns [I64(0), value] for ok / [I64(2)] for disconnected.
-        let result = corelib::sync::builtin_channel_recv(&ctx, &[Value::I64(channel_id)]).unwrap();
-        let arr = match result {
-            Value::Array(rc) => rc,
-            other => panic!("expected Array, got {other:?}"),
-        };
-        let borrowed = arr.borrow();
-        assert!(matches!(borrowed.get_boxed(0), Value::I64(0)),
-            "expected ok discriminator, got {:?}", borrowed.get_boxed(0));
-        match &borrowed.get_boxed(1) {
-            Value::I64(n) => got.push(*n),
-            other => panic!("expected I64, got {other:?}"),
-        }
-    }
-    producer.join().expect("producer panicked");
-    assert_eq!(got, vec![0, 1, 2, 3, 4]);
-}
 
 // ── add-gc-safepoint Phase 5 (2026-05-20) ────────────────────────────────────
 

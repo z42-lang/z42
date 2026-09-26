@@ -211,16 +211,30 @@ Channel 变慢**：旧实现底下是 `std::sync::mpsc`，生产者和消费者�
 
 ## Deferred / Future Work
 
-### store-sync-values-in-heap-remove-legacy：删除旧同步原语 builtin
+### store-sync-values-in-heap-remove-legacy：删除旧同步原语 builtin ✅ 已完成（2026-09-26）
 
-**现状**：19 个旧 builtin（`__mutex_*` 4 / `__rwlock_*` 8 / `__channel_*` 7）、`VmCore.{mutexes,rwlocks,channels}`
-三个 registry、`corelib/sync.rs` 与其单测仍在，`native_decl_tests.rs` 的豁免清单里有对应条目。当前 stdlib
-已不引用它们。
+19 个旧 builtin（`__mutex_*` 4 / `__channel_*` 7 / `__rwlock_*` 8）、`VmCore.{mutexes,rwlocks,channels}`
+三个 registry、`corelib/sync.rs`（596 行）与 `native_decl_tests.rs` 的豁免条目**已全部删除**。
 
-**为什么没一起删**：builtin id 在加载时按名解析，上一版 nightly 种子的 `z42.core` 仍声明着这些
-`[Native]`。当前 VM 删掉它们会不会让冷启动加载旧种子失败，本地无法可靠验证；按
-`bootstrap-seed.md`「删 runtime builtin = 两 nightly」纪律分两阶段。
+**触发条件是怎么核的**（按本节原先写下的办法）：对下载到本地的 nightly 种子
+（`artifacts/build/compiler/bootstrap-check/nightly/`）的 `programs/z42c/*.zpkg` 与 `libs/*.zpkg`
+执行 `strings -n 3 | grep -E "__mutex_|__channel_|__rwlock_"` —— **必须先 `strings` 再 grep**，
+直接 grep 二进制会假缺席。结果两处皆 **0 引用**（同一份种子里 `__monitor_` 有 5 处，
+说明它确实是 2026-09-14 之后的）。
 
-**触发条件**：本变更进入 nightly 之后。先下载 nightly SDK，对 `programs/z42c/*.zpkg` 与 `libs/*.zpkg`
-执行 `strings -n 3 | grep __mutex_`（**必须先 `strings` 再 grep**，直接 grep 二进制会假缺席），
-确认种子不再引用，再删 builtin、registry、`sync.rs`、`sync_tests.rs` 与豁免清单条目。
+> 📌 **原先记的「为什么没一起删」有一处说法需要更正。** 本节原文写「builtin id 在加载时按名解析」
+> 是对的，但 `builtin_table_ext.rs` 的头注同时写着「BuiltinId 就是下标，插在中间会让既有 zbc 里的
+> 调用全部错位」—— 两处互相矛盾。读码定论（2026-09-26）：
+>
+> - zbc 里存的是**名字**：`BuiltinInsn { dst, name, args }`（`zbc_reader/instr_decode.rs`）；
+> - `BuiltinId` 由 resolver 在**加载期**经 `builtin_id_of(name)` 填进
+>   `Function.resolved.builtin_tokens`，解释器与 JIT 都只把它当**单次运行内的派发令牌**；
+> - AOT 不烤它。
+>
+> ⇒ **槽位可以真删**，append-only 是便于 review / 稳定 id 类测试的**约定**，不是格式约束。
+> 该头注已一并更正。真正的判据始终是上面那条：**已发布种子里还有没有 z42 源声明这个名字**。
+
+**顺带**：`runtime/tests/cross_thread_smoke.rs` 里直接调旧 builtin 的两个测试（mutex 自增、channel
+生产消费）随之删除 —— 覆盖没有蒸发，它在 z42 那一层：`src/libraries/z42.threading/tests/` 的
+17 个单元跑在活路径（`__monitor_*`）上，由 GREEN 的 `stdlib [Test]` 阶段执行。该文件头注声明的
+「Send/Sync 端到端证明」由其余 8 个测试继续扛着。
