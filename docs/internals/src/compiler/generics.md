@@ -299,6 +299,28 @@ per-instance `type_args` 只覆盖「实例自己那一层泛型」，两种形�
 `GBox<int>` 与 `GBox<string>` 两个派生类互相污染；② 判「写没写实参」看 AST 的 `ArgCount`，
 **不看** `GenericParamCount`（后者只说基类是泛型定义，`class D : GBox` 也命中它）。
 
+### 第三半：接口**身份**也要带实参（`interface-assignability`）
+
+上面两条修的是「沿链代换」，还剩一条**同族**的：两个接口类型算不算同一个。
+`Z42InstantiatedInterfaceType.Name()` **刻意返回裸名**（元数据拼写与 `is`/`as` 路径要逐字节
+稳定，见该类抬头），而 `Z42InterfaceType.IsAssignableTo` 恰好只比 `Name()` ⇒ `IBox<int>` 与
+`IBox<string>` 被判成同一个类型。
+
+与字段那条对照，**后果的方向正好相反、而且更重**：
+
+| | 类那半（`fix-inherited-typeparam-field-type`） | 接口这半 |
+|---|---|---|
+| 主要症状 | 误报 E0402（拦住正确代码） | **静默错值**（放过错误代码） |
+| 实测 | `d.V + 1` 报 `got T` | `IBox<int> i = iboxOfString; int bad = i.Get();` 零诊断，跑出 `bad = hello`、`bad + 1 = hello1`，exit 0 |
+
+判据收敛到 `Z42InterfaceType.SameInterface`（两侧 ns 齐备时比 FQ、否则比短名，再逐位比类型
+实参的规范名），`IsAssignableTo` 与 `InterfaceClosure` 的链上比较共用它。一侧是**裸定义**时
+按名放行 —— 那表示实参未知（跨包声明形态尚未解析出来），保守放行、不叠第二条诊断。
+
+`Name()` 本身**不动**（它同时是元数据拼写与查找键）；诊断文本另走 `Z42Type.DiagName`，
+否则实参不符会打印成「cannot assign IBox to IBox」。分类器侧的接线见
+[类型转换的实现](conversions.md)的步 6e。
+
 🔴 **跨包只通了编译期**：`class DInt : GBox<int>` 其中 `GBox` 来自别的 zpkg，现在**编得过**，
 但运行期抛 `MissingSymbolException: base type \`...GBox<int>\` ... could not be resolved`。
 实测确认那是**既有缺口**（撤回本变更、改用不含算术的写法，同一条错照样抛），归泛型实例化线。

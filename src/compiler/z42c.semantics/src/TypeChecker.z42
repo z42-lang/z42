@@ -393,7 +393,10 @@ public sealed class TypeChecker {
                 + "'; an explicit conversion exists (are you missing a cast?)", sp);
             return false;
         }
-        string msg = "cannot assign " + from.Name() + " to " + target.Name() + " (" + ctx + ")";
+        // `DiagName` 而非 `Name()`：实例化接口的 `Name()` 是裸名 ⇒ 实参不符会打印成
+        // 「cannot assign IBox to IBox」，读起来像胡话。这条门是赋值 / 实参 / return **共用**的
+        // 唯一漏斗（见本方法抬头），改这一处三个位置一起受益。
+        string msg = "cannot assign " + Z42Type.DiagName(from) + " to " + Z42Type.DiagName(target) + " (" + ctx + ")";
         string via = this._suggestVia(from, target, syms);   // add-user-conversions ③：走中间类型提示
         if (via != "") { msg = msg + "; a conversion through '" + via + "' exists — write (" + target.Name() + ")(" + via + ")x"; }
         this._diags.Error(DiagnosticCodes.TypeMismatch, msg, sp);

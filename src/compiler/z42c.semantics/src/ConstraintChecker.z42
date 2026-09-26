@@ -617,8 +617,10 @@ public sealed class ConstraintChecker {
         if (arg is Z42InstantiatedType) { return symbols.Implements((arg as Z42InstantiatedType).Def.Name(), ifaceName); }
         if (arg is Z42InterfaceType) {
             // 接口自身作实参：同名满足；否则沿父接口链判（IDerived 满足 IBase）。
-            if (arg.Name() == ifaceName) { return true; }
-            return symbols.InterfaceDerivesFrom(arg.Name(), ifaceName);
+            // interface-assignability：改走与其余消费点同一个出口。此前这里是**唯一**没落空的
+            // 消费点（`InterfaceDerivesFrom` 比 `BaseNames` 字符串），换成 `BaseAt` 那条链后
+            // 顺带认了限定拼写（`: Std.IFoo`）与链上的型参代换。
+            return InterfaceClosure.IsInterfaceSubtypeByName(symbols, arg as Z42InterfaceType, ifaceName);
         }
         // 未解析的型参（`class Outer<T> { Box<T> b; }` 里的 T）：此处无从判定——T 的约束
         // 由 Outer 自己的实例化点校验。**按满足处理**，否则每个泛型类内部转发都会误报。

@@ -11,6 +11,19 @@ public class Z42Type {
     public virtual bool   IsAssignableTo(Z42Type other) { return false; }
     public virtual string Dump() { return this.Name(); }
 
+    // 诊断文本里给人看的类型名。绝大多数类型就是 `Name()`；唯一的例外是**实例化接口**——
+    // 它的 `Name()` 刻意返回裸名（元数据拼写要稳，见 `Z42InstantiatedInterfaceType` 抬头），
+    // 于是实参不符的两个接口会被打印成「cannot assign IBox to IBox」，读起来像胡话。
+    // 类那半的 `Z42InstantiatedType.Name()` 本就带实参（打印 `Box<String>`），这里把接口补齐。
+    //
+    // 🔴 **只用于诊断文本** —— 别拿它当查找键、别写进元数据，那正是 `Name()` 保持裸名的理由。
+    // 也刻意**不改 `Dump()`**：那是 `--dump-bound` 的既有形态，动它会打到 golden。
+    public static string DiagName(Z42Type t) {
+        if (t == null) { return "<null>"; }
+        if (t is Z42InstantiatedInterfaceType) { return (t as Z42InstantiatedInterfaceType).NameWithArgs(); }
+        return t.Name();
+    }
+
     // 规范化基本类型名的唯一入口是 `PrimModel.Canon`（剥 nullable `?` + 别名归一：`byte`≡`u8`、
     // wrapper `Int32` / FQ `Std.Int32` → 关键字 `int`（drop-short-primitive-aliases：canonical 即关键字）；
     // 须等价）。此处历史上有一个同名转发器 `Z42Type.Canon`，2026-09-06 删除 —— 纯转发也要付一整个
@@ -426,7 +439,39 @@ public class Z42InterfaceType : Z42Type {
     public override string Name() { return this._name; }
     public override bool IsAssignableTo(Z42Type other) {
         if (other is Z42ErrorType) { return true; }
-        return (other is Z42InterfaceType) && this._name == other.Name();
+        return (other is Z42InterfaceType) && Z42InterfaceType.SameInterface(this, other as Z42InterfaceType);
+    }
+
+    // 两个接口类型是不是**同一个**接口（含类型实参）。接口身份的唯一判据；
+    // `IsAssignableTo` 与 `InterfaceClosure` 的链上比较都走这里。
+    //
+    // 🔴 **为什么不能只比 `Name()`**（这里此前就是）：`Z42InstantiatedInterfaceType.Name()`
+    // **刻意返回裸名**（见该类抬头：为了让既有 `is/as` 路径与元数据拼写逐字节不变）⇒ 只比名字
+    // 就把 `IBox<int>` 与 `IBox<string>` 判成同一个。实测这是条**静默错值**，不是误报：
+    //   `IBox<string> s = new SBox(); IBox<int> i = s; int bad = i.Get();`
+    // 编译期零诊断，跑出来 `bad = hello`、`bad + 1 = hello1`（exit 0）——静态类型 `int` 的变量
+    // 装着 string，加法静默变成拼接。**类那半一直是对的**（`Z42InstantiatedType.Name()` 带实参、
+    // `Conversion` H2 另有 `_sameTypeArgs`），只有接口这半漏，是不对称造成的洞。
+    //
+    // 一侧带实参、另一侧是**裸定义**时按名字放行：那表示实参**未知**（跨包声明形态尚未解析出来），
+    // 与本仓「信息不足一律放行、不叠第二条诊断」的既有口径一致（`_funcPosOk` / `_isDisposable`）。
+    // 身份用 FQ（两侧 ns 都有时才用）：短名在跨 ns 同短名时会把「没信息」变成自信的错答案。
+    public static bool SameInterface(Z42InterfaceType a, Z42InterfaceType b) {
+        if (a == null || b == null) { return false; }
+        bool nameOk = false;
+        if (a.Namespace != "" && b.Namespace != "") { nameOk = a.Fqn() == b.Fqn(); }
+        else { nameOk = a.Name() == b.Name(); }
+        if (!nameOk) { return false; }
+        if (!(a is Z42InstantiatedInterfaceType) || !(b is Z42InstantiatedInterfaceType)) { return true; }
+        Z42InstantiatedInterfaceType ia = a as Z42InstantiatedInterfaceType;
+        Z42InstantiatedInterfaceType ib = b as Z42InstantiatedInterfaceType;
+        if (ia.ArgCount != ib.ArgCount) { return false; }
+        int i = 0;
+        while (i < ia.ArgCount) {
+            if (ia.TypeArgs[i].CanonName() != ib.TypeArgs[i].CanonName()) { return false; }
+            i = i + 1;
+        }
+        return true;
     }
 }
 
