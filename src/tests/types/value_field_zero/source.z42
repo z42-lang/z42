@@ -71,19 +71,19 @@ void Main() {
     // 所以只能由编译期的泛型实例化单调化解决（complete-generic-instantiation）。
     // ⇒ 这两条断言钉的是**那条线**的成果，别把它们当成分配点那层的回归。
 
-    // ① 继承来的型参字段 —— **存储**已经是零值了
+    // ① 继承来的型参字段
     DInt d = new DInt();
     Assert.Equal(0, d.V);
+    Assert.Equal(1, d.V + 1);              // 算术：Null 会炸 type mismatch
     DBool dbl = new DBool();
     Assert.Equal(false, dbl.V == true);
     Assert.Equal(true,  dbl.V == false);   // Null 会让这两条同时为假
+    if (dbl.V) { Assert.Equal(1, 2); }     // 走到这里就说明 if 把零值判成了真
     //
-    // ⚠️ 这一格**只能断言到这里**：继承来的型参字段在**编译期仍被当成 `T`**（没有按闭合基类
-    // `GBox<int>` 代换）⇒ 下面两行今天编不过，各报 E0402：
-    //     Assert.Equal(1, d.V + 1);   // operator `+` requires numeric operand, got `T`
-    //     if (dbl.V) { … }            // `if` condition must be `bool`, got `T`
-    // 那是**编译期代换**的缺口（另一条线：complete-generic-instantiation），与本页钉的
-    // **存储零值**是两件事。⇒ 那个缺口补上后，把这两行取消注释。
+    // ⚠️ 上面这两行（算术 / `if`）曾经编不过 —— 继承来的型参字段在编译期被当成 `T`，
+    // 各报 E0402。那是**编译期代换**的缺口，与本页钉的**存储零值**是两件事，
+    // 已由 `fix-inherited-typeparam-field-type` 补上（用例见
+    // `src/tests/generics/inherited_typeparam_field.z42`）。
 
     // ② 泛型 struct 的型参字段 —— 这一格连**编译期类型**都已代换（算术 / `if` 都能写），
     //    与 ① 的差别本身就是个结论：两格不是同一条实现路径。
