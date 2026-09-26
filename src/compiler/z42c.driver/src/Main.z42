@@ -168,6 +168,11 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
     // 一趟全量编译，放在编译前 fail fast。旧形状（直接写键）致命；未知旋钮名只 warn。
     int pkc = _validateProfileKnobs(pm);
     if (pkc != 0) { return pkc; }
+    // `deploy` 声明校验（add-deployment-model 批 4.3）：与旋钮名校验同款——**清单有问题不等一趟
+    // 全量编译**。放在这里而不是 `_bundleExeDeps` 里，是因为那个只在 exe 分支跑：lib / analyzer
+    // 工程写错的 `deploy` 会被整条跳过 ⇒「配了以为生效」。
+    int dvc = _validateDeployDecls(pm);
+    if (dvc != 0) { return dvc; }
     string projectDir = Path.GetDirectoryName(tomlPath);
     if (projectDir == "") { projectDir = "."; }
     // fix-hooks-source-scan 阶段2：有效 exclude = `[sources].exclude` ++（`[build] hooks` 目录，若声明）。
