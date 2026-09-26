@@ -308,7 +308,7 @@ public sealed class StructLayout {
     public bool IsBlobStruct(string typeName) {
         if (!this.IsStructType(typeName)) { return false; }
         StructLayoutInfo li = this.LayoutOf(typeName);
-        if (li.FieldCount < 1) { return false; }   // WIP ⑤
+        if (li.FieldCount < 1) { return false; }
         // add-struct-nested-fields：嵌套 struct 字段（Line{a:P,b:P}）现予接受——布局早已递归展平其叶子
         // （_compute），codegen 沿成员链累积 byte offset 发射 StructFieldGet/SetPrim（整字段走逐叶子复制）。
         // 防护：自引用/环 struct 的布局是空兜底（Size 0，见 LayoutOf 的 _inProgress 环检测 + E0438 诊断）——
