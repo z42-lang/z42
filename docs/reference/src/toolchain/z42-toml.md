@@ -598,6 +598,26 @@ entry   = "MyApp.main"
 - **运行期自动随产物走**：vendored 目录不是 shipped `libs/`，所以 exe 构建时会把它复制进
   `dist/` —— 不需要额外声明什么。
 
+**`deploy` —— 这个依赖运行期从哪儿来**：
+
+```toml
+[dependencies]
+"bigdata" = { version = "1.0", deploy = "shared" }   # 不复制，运行期从 probing-paths 解析
+"z42.io"  = { version = "0.1.0", deploy = "copy" }   # 强制复制进 exe 的 dist（即使它是框架包）
+```
+
+| 值 | 行为 |
+|---|---|
+| `copy` | 构建期复制进 exe 的 `dist/`，私有、不共享 |
+| `shared` | **不复制**，运行期从 [`probing-paths`](runtime-settings.md#probing-paths--依赖的额外搜索目录) 或 `libs/` 解析 |
+| 省略 | 由默认规则决定：**从 shipped `libs/` 找到的不复制**（框架），从别处找到的复制（私有）|
+
+只接受这两个值，写错（`Copy` / typo）**报错** —— 否则会被当成未声明静默走默认规则。
+
+> `shared` **不要求那个包此刻存在于任何地方** —— 它的解析是运行期的事。构建期不校验
+> 「运行期够不够得着」：那需要把 VM 的 probing-paths 展开规则（相对 entry、通配符、去重）
+> 在构建侧重做一遍，两份规则必然漂移。
+
 **设计原则：命名空间与包名解耦**
 
 `[dependencies]` 中填写的是 **zpkg 的 `[project] name` 字段**，而非命名空间名称。编译器在 libs/ 搜索路径中找到对应 zpkg 后，读取其 `namespaces` 字段，将导出的命名空间注册为可用。

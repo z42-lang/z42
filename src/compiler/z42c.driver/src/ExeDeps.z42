@@ -59,10 +59,14 @@ int _bundleExeDeps(ProjectManifest pm, string[] closureNames, int closureN, stri
     // 闭包成员恒为私有包（按路径引入、其 dist 不在 Z42_LIBS）⇒ 判据自然判出「拷」，
     // 不需要再单独记「这一项是不是 path 依赖」——那份平行数组随判据统一一起退休。
     string[] names = new string[pm.DepCount + 8];
+    // `deploy`（add-deployment-model 批 4 use）与 names **并行**：直接依赖取清单声明的值，
+    // path 闭包成员取 `""`（它们不在 `[dependencies]` 里，无从声明）。
+    string[] deploys = new string[pm.DepCount + 8];
     int nameN = 0;
     int pi = 0;
     while (pi < pm.DepCount) {
         names[nameN] = pm.Deps[pi].Name;
+        deploys[nameN] = pm.Deps[pi].Deploy;
         nameN = nameN + 1;
         pi = pi + 1;
     }
@@ -76,24 +80,41 @@ int _bundleExeDeps(ProjectManifest pm, string[] closureNames, int closureN, stri
         if (dup) { continue; }
         if (nameN == names.Length) {
             string[] nb = new string[names.Length * 2];
+            string[] db = new string[names.Length * 2];
             int k = 0;
-            while (k < nameN) { nb[k] = names[k]; k = k + 1; }
-            names = nb;
+            while (k < nameN) { nb[k] = names[k]; db[k] = deploys[k]; k = k + 1; }
+            names = nb; deploys = db;
         }
-        names[nameN] = cn; nameN = nameN + 1;
+        names[nameN] = cn; deploys[nameN] = ""; nameN = nameN + 1;
     }
     int i = 0;
     while (i < nameN) {
         string dep = names[i];
+        string dpl = deploys[i];
         i = i + 1;
+        // `deploy` 取值校验：只认两个值。写错了（`Copy` / `static` / typo）此前会被当成未声明
+        // 静默走默认判据 —— 又一个「配了以为生效」。
+        if (dpl.Length > 0 && dpl != "copy" && dpl != "shared") {
+            ConsoleError.WriteLine("z42c build: [dependencies] `" + dep + "` 的 deploy = \"" + dpl
+                + "\" 不是合法取值。只接受 \"copy\"（复制进 exe 的 dist，私有）"
+                + "或 \"shared\"（不复制，运行期从 probing-paths 解析）；省略 = 由默认规则决定"
+                + "（在 shipped libs/ 里的不复制，其余复制）。");
+            return ExitCode.BuildError;
+        }
+        // 🔴 `shared` **不复制**，且**不需要它在任何地方存在**——它的解析是运行期的事
+        // （probing-paths / libs）。这里若去校验「运行期够不够得着」，就得把 VM 那套展开规则
+        // （相对 entry、通配符、去重）在 z42 侧重做一遍 ⇒ 两份规则各自漂移，正是本 change
+        // 一路在消灭的东西。等有共享途径再补，见 tasks 批 4 的「明确不做」。
+        if (dpl == "shared") { continue; }
         string zname = dep + ".zpkg";
         bool copied = false;
         int d = 0;
         while (d < libsDirsN) {
             string cand = Path.Join(libsDirs[d], zname);
             if (File.Exists(cand)) {
-                // 从 shipped libs/ 找到 ⇒ 框架，不复制（运行期同样从那儿解析）。
-                if (shippedLibs.Length > 0 && libsDirs[d] == shippedLibs) {
+                // 从 shipped libs/ 找到 ⇒ 框架，默认不复制（运行期同样从那儿解析）。
+                // `deploy = "copy"` **压过**这条：显式要自包含的，即使是框架包也复制。
+                if (dpl != "copy" && shippedLibs.Length > 0 && libsDirs[d] == shippedLibs) {
                     copied = true;
                     d = libsDirsN;
                     continue;
