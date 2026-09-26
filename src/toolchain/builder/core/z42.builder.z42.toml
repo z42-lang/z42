@@ -50,12 +50,16 @@ dist_dir = "../../../../artifacts/build/toolchain/builder"
 [profile.release.runtime]
 mode = "interp"
 # add-deployment-model 批 5 use：编译器组件的位置**声明在这里**，不再硬编码进代码。
-# `_findCompilerZpkg` 读 `ModuleSearch.Dirs()`（= VM 已解析的搜索序）在其中找
-# `z42c.pipeline.zpkg`。两条都配上，命不中的自动跳过（probing-paths 的规则）：
-#   · `../z42c`                                → SDK 态：programs/<self>/ 旁边的 programs/z42c/
-#   · `../../compiler/z42c.driver/release/dist` → 开发树：artifacts/build/toolchain/<self>/ 上溯
-# 相对基准是 **entry zpkg 所在目录**（不是 cwd）——同一份安装从任何工作目录启动都一致。
-probing-paths = "../z42c:../../compiler/z42c.driver/release/dist"
+# `_findCompilerZpkg` 读 `ModuleSearch.Dirs()`（= VM 已解析的搜索序）在其中找 `z42c.pipeline.zpkg`。
+#
+# 🔴 **只配一条**：`probing-paths` 是**平台分隔符**分隔的（unix `:` / windows `;`），
+# 跨平台清单里写多条就必然在一个平台上错。初稿配了两条（SDK 态 + 开发树），
+# `package-host(windows-x64)` 当场红在 `no compiler injected` —— 整串被当成一条不存在的路径。
+# **这条限制是 #816 自己记下的，我却先踩了一遍。**
+#
+# 开发树不需要第二条：`ModuleSearch.Dirs()` 的末项本来就是 `libs`，而开发树下它指向
+# alllibs（stdlib + 全部 compiler member，见 `_assembleAllLibs`）—— 编译器组件在那儿。
+probing-paths = "../z42c"
 
 # apphost-as-config: this binary publishes a native desktop apphost.
 #   apphost = true  → gate（无此则 `z42 publish` 不产 apphost）。

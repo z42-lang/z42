@@ -122,6 +122,24 @@ string _findCompilerZpkg() {
         if (File.Exists(pm)) { return pm; }
         msI = msI + 1;
     }
+    // ② **开发树兜底**：编译器 member 的 exe 自包含 bundle（7 兄弟共存）。
+    //
+    // 🔴 为什么这一档还留着硬编码：`probing-paths` 是**平台分隔符**分隔的（unix `:` /
+    // windows `;`），跨平台清单里写多条必然在某个平台上错 —— 初稿配了两条，
+    // `package-host(windows-x64)` 当场红在 `no compiler injected`。而单条覆盖不了两种布局：
+    // 开发树里 z42b 的 entry-dir 是 `artifacts/build/toolchain/builder/`，SDK 里是
+    // `programs/z42b/`，相对路径结构完全不同。
+    //
+    // 取舍：**SDK 布局（会变、要可配）走清单的 probing-paths；开发树路径（仓库内约定、不会变）
+    // 留这一档硬编码**。等 `probing-paths` 支持 TOML 数组（跨平台无歧义，需清单模型改动 ⇒ 又一轮
+    // support）之后，这一档也搬进清单，届时代码里就一条路径都没有了。
+    //
+    // ⚠️ 只靠 `ModuleSearch.Dirs()` 末项的 `libs` 兜底**不够**：开发树里两个场景的 Z42_LIBS
+    // 不同——`test targets` 指 alllibs（含编译器包，命中），而 `build toolchain` 期间 z42b 编
+    // z42i 的 hooks 时不含（落空）。后者在 macOS 只降级为无 hook，在 Windows 的 package-host
+    // 里是硬失败：**同一个洞，两个平台不同后果**。
+    string p3 = "artifacts/build/compiler/z42c.driver/release/dist/z42c.pipeline.zpkg";
+    if (File.Exists(p3)) { return p3; }
     // 找不到 = **这个部署形态不带编译能力**，不是"路径没配对"。
     //
     // 2026-09-26（批 5 use）：此处原有四档硬编码探测（Z42_HOME/programs/z42c → Z42_PORTABLE_VM
