@@ -1,0 +1,9 @@
+[project]
+name    = "demo.sfsapp"
+version = "0.1.0"
+kind    = "exe"
+entry   = "Demo.SfsApp.Main"
+pack    = true
+
+[dependencies]
+"demo.sfstarget" = "0.1.0"

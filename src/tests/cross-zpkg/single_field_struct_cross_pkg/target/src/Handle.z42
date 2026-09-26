@@ -1,0 +1,20 @@
+// unify-blob-return-abi / ⑤：**单字段** struct 跨包（生产方）。
+// 私有字段 + 静态工厂 + 返回位 —— 与 `Std.GCHandle` 同形（它是 z42.core 里唯一这种形状，
+// 而 z42.core 里一个多字段 struct 都没有 ⇒ 「imported blob struct」这条路此前只被
+// 测试 fixture（public 字段、双字段）走过）。
+namespace Demo.SfsTarget;
+
+public struct Handle {
+    private long _slot;
+    public Handle(long s) { this._slot = s; }
+    public long Slot() { return this._slot; }
+    public static Handle Make(long s) { return new Handle(s); }   // 返回位：跨包调用点要不要传 sret
+}
+
+// 对照：同一个包里的**双字段** struct（blob 在翻门前就成立）
+public struct Pair {
+    public long A;
+    public long B;
+    public Pair(long a, long b) { this.A = a; this.B = b; }
+    public static Pair Make(long a, long b) { return new Pair(a, b); }
+}
