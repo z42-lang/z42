@@ -160,3 +160,57 @@ public static class ParseTable {
     // 同步门用：需要遍历的 token kind 上界（`TokenKind.Methodof` = 155 是当前最大值）。
     public static int MaxKind() { return 156; }
 }
+
+// ── 语句位的**步骤**（顺序即数据）────────────────────────────────────────────
+// `ParseStatement` 此前是一串平铺 if，其中四个位置承载真实的**顺序约束**，而记录方式是
+// 两条散注释（`{`-解构须先于块语句；local-fn 须先于 var-decl），第三条（非 `{` 形态的解构
+// 排在 var-decl **之后**）**一个字都没写**，理由散在 `StmtParser.z42:217-219,339-342,347-348`。
+//
+// ⭐ 顺序成为数据的真正收益：**顺序是手写 if 链时，测试注入不了一个错误的顺序**。
+// 成为数据后，单测可以拿一张故意写反的顺序表跑同一批夹具，断言「反序会解析成另一种东西」——
+// 这才是一道会红的顺序门（见 `tests/stmt_order.z42`）。
+public static class StmtStep {
+    public static int None             = 0;
+    public static int DeconstructBrace = 1;   // `{ X: x } = e;`（省类型的属性形态）——**须先于块语句**
+    public static int Block            = 2;   // `{ … }`
+    public static int KeywordRules     = 3;   // 查 `StmtRules`：return/if/while/…/throw
+    public static int LocalFn          = 4;   // `int F() { … }`——**须先于 var-decl**
+    public static int VarDecl          = 5;   // `var x = …` / `T x = …` / `(T1,T2) t = …`
+    public static int DeconstructParen = 6;   // `T(x,y) = e;` / `(a,b) = e;`——在 var-decl **之后**
+}
+
+public static class StmtRules {
+    // 默认步骤顺序。`Parser._steps` 从这里起底（测试可覆写以注入错误顺序）。
+    public static int StepCount() { return 6; }
+    public static int StepAt(int i) {
+        if (i == 0) { return StmtStep.DeconstructBrace; }
+        if (i == 1) { return StmtStep.Block; }
+        if (i == 2) { return StmtStep.KeywordRules; }
+        if (i == 3) { return StmtStep.LocalFn; }
+        if (i == 4) { return StmtStep.VarDecl; }
+        return StmtStep.DeconstructParen;
+    }
+
+    // 关键字引导的语句：token 上有没有规则。
+    public static bool IsKeywordStmt(int k) {
+        if (k == TokenKind.Return || k == TokenKind.If || k == TokenKind.While) { return true; }
+        if (k == TokenKind.For || k == TokenKind.Foreach || k == TokenKind.Do) { return true; }
+        if (k == TokenKind.Switch || k == TokenKind.Try) { return true; }
+        if (k == TokenKind.Break || k == TokenKind.Continue || k == TokenKind.Throw) { return true; }
+        return false;
+    }
+
+    // 语句的特性门。"" = 永远启用。
+    //
+    // 🔴 `break` / `continue` / `throw` 是本批**补上的洞**：批 1 只挂了 if/while/for/foreach/
+    // do/switch 与 try ⇒ `control_flow = false` 时写 `break;` 不报 E0301，而是一路走到语义层
+    // 报别的。那正是批 1 自己的注释警告过的形状（「部分接线会让特性名变成一句假话」）——
+    // 写下那句警告的人漏了这三个。
+    public static string Feature(int k) {
+        if (k == TokenKind.If || k == TokenKind.While || k == TokenKind.For
+            || k == TokenKind.Foreach || k == TokenKind.Do || k == TokenKind.Switch
+            || k == TokenKind.Break || k == TokenKind.Continue) { return "control_flow"; }
+        if (k == TokenKind.Try || k == TokenKind.Throw) { return "exceptions"; }
+        return "";   // return：没有哪个特性名该管它（关掉它等于关掉函数）
+    }
+}

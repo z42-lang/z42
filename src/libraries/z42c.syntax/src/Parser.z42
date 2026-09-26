@@ -35,6 +35,12 @@ public sealed class Parser {
     // 也不该因为没喂开关就被裁掉语法（门只在 driver 喂了表时才生效）。
     public LanguageFeatures _features;
 
+    // add-l2-parse-table 批 2：语句位的**步骤顺序**（`StmtStep` tag 的有序表）。
+    // 此前这个顺序是 `ParseStatement` 里一串 if 的**行文位置**，测试因此注入不了一个错误的
+    // 顺序 —— 没有可注入性就没有会红的顺序门。起底自 `StmtRules.StepAt`；`internal` 是为了
+    // 让 `tests/stmt_order.z42` 能拿一张写反的表跑同一批夹具（那道门的判别力全在这里）。
+    internal int[] _steps;
+
     // attribute-handler-registry PR3c：`#suppress`/`#restore` 局部抑制收集。子解析器经 `this._p`
     // 引用共享同一累加器。_supRegions=已闭合区间；_supOpen*=开区间栈（LIFO 按 RuleId 配对）。收尾
     // `_finalizeSuppress` 把未闭合的延伸到 EOF 并挂到 CU。见 SuppressRegion / design PR3c 落地。
@@ -60,6 +66,9 @@ public sealed class Parser {
         this._supRegions = new SuppressRegion[0]; this._supCount = 0;
         this._supOpenIds = new string[0]; this._supOpenStarts = new int[0]; this._supOpenCount = 0;
         this._features = null;   // 可空 = 全开，见字段抬头
+        this._steps = new int[StmtRules.StepCount()];
+        int si = 0;
+        while (si < StmtRules.StepCount()) { this._steps[si] = StmtRules.StepAt(si); si = si + 1; }
     }
 
     // 语法特性门：该特性被 `[syntax]` 关掉时发 E0301 并返回 false（调用方据此跳过该构造）。
@@ -303,24 +312,61 @@ public sealed class Parser {
             this._skipToSemicolon();
             return new ExprStmt(new NullLitExpr(st.Span), st.Span);
         }
-        if (k == TokenKind.LBrace)  {
-            // 属性形态解构声明 `{ X: x } = e;`（省类型）须先于块语句判别——配平 `}` 后见 `=` 才是解构声明，
-            // 否则是普通块（块不作 lvalue、后不跟 `=`，无歧义）。complete-pattern-engine 特性 1。
-            if (this._stmtP._isDeconstructDeclStart()) { return this._stmtP._parseDeconstructDecl(); }
-            return this._stmtP._parseBlock();
+        // ── 按 `_steps` 逐步试（顺序即数据，见 StmtStep 抬头）───────────────────────
+        // 每步命中就返回；全不命中落到函数尾的表达式语句兜底（**没有 else** —— 语句位的
+        // 未知 token 由表达式层报错，`:295-305` 那条拦截注释吐槽的级联就来自这里）。
+        int stepI = 0;
+        while (stepI < this._steps.Length) {
+            int step = this._steps[stepI];
+            if (step == StmtStep.DeconstructBrace) {
+                // 属性形态解构声明 `{ X: x } = e;`（省类型）须先于块语句判别——配平 `}` 后见 `=`
+                // 才是解构声明，否则是普通块（块不作 lvalue、后不跟 `=`，无歧义）。
+                // complete-pattern-engine 特性 1。
+                if (k == TokenKind.LBrace && this._stmtP._isDeconstructDeclStart()) {
+                    return this._stmtP._parseDeconstructDecl();
+                }
+            }
+            if (step == StmtStep.Block) {
+                if (k == TokenKind.LBrace) { return this._stmtP._parseBlock(); }
+            }
+            if (step == StmtStep.KeywordRules) {
+                Stmt kw = this._parseKeywordStmt(k, st);
+                if (kw != null) { return kw; }
+            }
+            if (step == StmtStep.LocalFn) {
+                if (this._stmtP._isLocalFnStart()) { return this._stmtP._parseLocalFn(); }
+            }
+            if (step == StmtStep.VarDecl) {
+                if (this._stmtP._isVarDeclStart()) { return this._stmtP._parseVarDecl(); }
+            }
+            if (step == StmtStep.DeconstructParen) {
+                // 模式匹配 B：`T(x,y) = e;` / `(a,b) = e;`。**在 var-decl 之后**：与元组 var-decl
+                // `(T1,T2) name` 靠「`)` 后是 `=` 还是标识符」互斥（`StmtParser.z42:217-219,347-348`），
+                // 理论上两序都对，但这条依赖此前无人写下，也无人守 —— 现在由顺序门守。
+                if (this._stmtP._isDeconstructDeclStart()) { return this._stmtP._parseDeconstructDecl(); }
+            }
+            stepI = stepI + 1;
+        }
+        Expr e = this._exprP._parseExpr(0);
+        this._expectSemi();
+        return new ExprStmt(e, st.Span);
+    }
+
+    // 关键字引导的语句：规则在 `StmtRules`（是不是规则 + 挂哪个特性名），派发在这里。
+    // 未命中返回 null（调用方继续下一个步骤）。
+    //
+    // add-l0-protocol-table 批 1 把特性门挂在了语句派发上（E0301 的第一个发射点），但只盖了
+    // if/while/for/foreach/do/switch 与 try；批 2 把门改成**遍历表取 `Feature`** ⇒
+    // ① 加一条语句时漏挂门这件事不再可能（表项必须填 feature 或显式留空）；
+    // ② 顺带补上 `break`/`continue`/`throw` 那三个洞（见 StmtRules.Feature 抬头）。
+    // 门不通过时仍要**消费掉该语句**再返回占位节点，否则一条禁用语法会引发连环 parse 错误。
+    private Stmt _parseKeywordStmt(int k, Token st) {
+        if (!StmtRules.IsKeywordStmt(k)) { return null; }
+        string feat = StmtRules.Feature(k);
+        if (feat != "") {
+            if (!this._requireFeature(feat, st.Span)) { return this._skipStmtPlaceholder(st.Span); }
         }
         if (k == TokenKind.Return)  { return this._stmtP._parseReturn(); }
-        // add-l0-protocol-table 批 1：**特性门的第一个真客户**（此前 E0301 零发射点）。
-        // 挂在这一处唯一的语句关键字派发上 ⇒ `control_flow = false` 关掉的是 if/while/for/
-        // foreach/do/switch **全部**，而不是其中几个（部分接线会让特性名变成一句假话）。
-        // 门不通过时仍要**消费掉该语句**再返回占位节点，否则一条禁用语法会引发连环 parse 错误。
-        if (k == TokenKind.If || k == TokenKind.While || k == TokenKind.For
-            || k == TokenKind.Foreach || k == TokenKind.Do || k == TokenKind.Switch) {
-            if (!this._requireFeature("control_flow", st.Span)) { return this._skipStmtPlaceholder(st.Span); }
-        }
-        if (k == TokenKind.Try) {
-            if (!this._requireFeature("exceptions", st.Span)) { return this._skipStmtPlaceholder(st.Span); }
-        }
         if (k == TokenKind.If)      { return this._stmtP._parseIf(); }
         if (k == TokenKind.While)   { return this._stmtP._parseWhile(); }
         if (k == TokenKind.For)     { return this._stmtP._parseFor(); }
@@ -330,13 +376,7 @@ public sealed class Parser {
         if (k == TokenKind.Try)     { return this._stmtP._parseTry(); }
         if (k == TokenKind.Break)   { this._advance(); this._expectSemi(); return new BreakStmt(st.Span); }
         if (k == TokenKind.Continue){ this._advance(); this._expectSemi(); return new ContinueStmt(st.Span); }
-        if (k == TokenKind.Throw)   { this._advance(); Expr te = this._exprP._parseExpr(0); this._expectSemi(); return new ThrowStmt(te, st.Span); }
-        if (this._stmtP._isLocalFnStart()) { return this._stmtP._parseLocalFn(); }   // impl-local-fn-l2：先于 var-decl 判别
-        if (this._stmtP._isVarDeclStart()) { return this._stmtP._parseVarDecl(); }
-        if (this._stmtP._isDeconstructDeclStart()) { return this._stmtP._parseDeconstructDecl(); }   // 模式匹配 B：`T(x,y) = e;`
-        Expr e = this._exprP._parseExpr(0);
-        this._expectSemi();
-        return new ExprStmt(e, st.Span);
+        this._advance(); Expr te = this._exprP._parseExpr(0); this._expectSemi(); return new ThrowStmt(te, st.Span);
     }
 
 
