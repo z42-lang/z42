@@ -166,6 +166,10 @@ public sealed class StubCollector {
                 if (c.Kind == "class" || c.Kind == "struct") {
                     bool hasBase = false;
                     string baseName = "";
+                    // fix-inherited-typeparam-field-type：基类的**声明形态**（`GBox<int>`）。
+                    // 这里不能就地解析 —— 本 pass 只建 stub，被引用的类型可能还没登记
+                    //（同 `_addIfaceBases` 留 AST 节点的理由，见 Z42ClassType.BaseRef 抬头）。
+                    TypeExpr baseRef = null;
                     string[] ifaces = new string[c.BaseCount];
                     int ifc = 0;
                     int b = 0;
@@ -186,7 +190,7 @@ public sealed class StubCollector {
                         // 上面接口分支早已算出裸名，这里此前却用了带实参的 `bn`。
                         // 遗留限制：同短名多 arity 的泛型基类（`Classes` 键带 `$N`）仍对不上——
                         // 与接口侧（同样存裸名）一致，不在本次修复范围。
-                        else if (!hasBase) { hasBase = true; baseName = bnLookup; }
+                        else if (!hasBase) { hasBase = true; baseName = bnLookup; baseRef = c.Bases[b]; }
                         b = b + 1;
                     }
                     bool needsMangle = c.TypeParams.Count > 0 && multiArityMap.ContainsKey(c.Name);
@@ -201,7 +205,7 @@ public sealed class StubCollector {
                             if (prev.HasBase && prev.BaseName != baseName) {
                                 this._sc.Diags.Error(DiagnosticCodes.PartialBaseConflict,
                                     "partial type `" + c.Name + "` declares a base class in more than one fragment", c.Span);
-                            } else if (!prev.HasBase) { prev.HasBase = true; prev.BaseName = baseName; }
+                            } else if (!prev.HasBase) { prev.HasBase = true; prev.BaseName = baseName; prev.BaseRef = baseRef; }
                         }
                         int ii = 0;
                         while (ii < ifc) { if (!this._ctHasIface(prev, ifaces[ii])) { prev.AddInterfaceName(ifaces[ii]); } ii = ii + 1; }
@@ -237,7 +241,7 @@ public sealed class StubCollector {
                                     + " — rename one of them, or mark both `partial` to merge them", c.Span);
                             }
                         }
-                        this._putClassStub(table, key, c, hasBase, baseName, ifaces, ifc, needsMangle, file,
+                        this._putClassStub(table, key, c, hasBase, baseName, baseRef, ifaces, ifc, needsMangle, file,
                                            dupNs);   // fix-type-ref-ns-collision
                     }
                     // add-deprecated-directive：本地类级 `[Deprecated]`（任一碎片带即标记）。stub 已注册 → 回查设位。
@@ -266,8 +270,9 @@ public sealed class StubCollector {
 
     // 建并注册一条类 stub（新键 / 非-partial 碰撞覆盖共用；抽出避免 z42 函数级作用域下 `ct` 重复声明）。
     private void _putClassStub(SymbolTable table, string key, ClassDecl c, bool hasBase, string baseName,
-                               string[] ifaces, int ifc, bool needsMangle, string file, string ns) {
+                               TypeExpr baseRef, string[] ifaces, int ifc, bool needsMangle, string file, string ns) {
         Z42ClassType ct = new Z42ClassType(c.Name, hasBase, baseName);
+        ct.BaseRef = baseRef;   // fix-inherited-typeparam-field-type：保住 `<...>`，供基类链型参代换
         ct.Namespace = ns;   // fix-type-ref-ns-collision：声明 ns（供 Fqn() + 限定名解析）
         ct.IsStruct = c.Kind == "struct";   // add-struct-value-semantics：值类型标志（`[Record] class` 仍是引用类型，IsStruct=false）
         ct.IsSealed = this._sc._hasWord(c.Mods, "sealed");   // impl-sealed-semantics-devirt：本地 sealed class

@@ -42,6 +42,17 @@ public sealed class Z42ClassType : Z42Type {
     public string Namespace;
     public bool   HasBase;
     public string BaseName;
+    // 基类的**声明形态**（`class DInt : GBox<int>` 的 `GBox<int>`），与 `BaseName` 平行；
+    // 没有实参可保的场合（`: Base` / 跨包尚未解析）为 null。
+    //
+    // 为什么裸名不够 —— 与 `Z42InterfaceType.BaseRefs` 抬头是**同一条理由**，只是那边修的是接口：
+    // `BaseName` 刻意去了 `<...>`（它是**查找键**，每个消费方都拿它当 `Classes` 的键，见
+    // `fix-generic-base-name` 在 StubCollector 留的注释）。但沿基类链上溯做**型参代换**时，
+    // 需要知道派生类把哪些实参喂给了基类 —— 只有裸名的话，`DInt : GBox<int>` 上溯拿到的是
+    // 未实例化的 `GBox` 定义，它的 `T` 永远换不掉 ⇒ 继承来的字段在派生类上**类型仍是 `T`**：
+    // `d.V + 1` 报 E0402、`if (d.V)` 报 E0402，而 `int y = d.V;` 更糟 —— **静默**通过
+    // （`T` 对 `int` 可赋），错值一路流下去。
+    public TypeExpr BaseRef;
     public StrMap Fields;    // name → FieldSymbol（1A-3 收集时回填）
     public StrMap Methods;   // name → MethodSymbol
     public StrMap EventFields;   // add-event-keyword-multicast：event 字段名集（`+=`/`-=` desugar 判别）
@@ -143,6 +154,7 @@ public sealed class Z42ClassType : Z42Type {
     public Z42ClassType(string name, bool hasBase, string baseName) {
         this._canon = ""; this._code = -2;
         this._name = name; this.HasBase = hasBase; this.BaseName = baseName;
+        this.BaseRef = null;   // fix-inherited-typeparam-field-type：注册端按 AST 基类节点回填
         this.Namespace = "";   // fix-type-ref-ns-collision：默认全局；注册端按声明 ns 覆写
         this.Fields = new StrMap();
         this.Methods = new StrMap();
