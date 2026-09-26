@@ -184,10 +184,111 @@ pub(super) fn type_has_no_arg_ctor(ctx: &VmContext, name: &str) -> bool {
 /// therefore keep their previous behaviour rather than silently resolving to a
 /// plausible-but-wrong type.
 pub fn builtin_class_type_arg(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    Ok(match class_type_arg_name(args) {
-        Some(n) => make_type_from_name(ctx, &n),
-        None => make_constructed_type(ctx, "T", &[]),
+    match resolve_class_type_arg(ctx, args) {
+        Some(n) => Ok(make_type_from_name(ctx, &n)),
+        None => Ok(make_constructed_type(ctx, "T", &[])),
+    }
+}
+
+/// Companion of [`builtin_class_type_arg`] for **values**: `__class_default(recv, idx, owner)`
+/// → the zero value of the class-level type parameter.
+///
+/// The `DefaultOf` instruction carries only the parameter index, so it can read nothing but
+/// the receiver's *own* `type_args` — and `class DInt : Box<int> {}` has none, which is why
+/// `default(T)` yielded `null` instead of `0` (measured). Widening the instruction would mean
+/// a zbc format bump plus the two-nightly bootstrap dance; a builtin delivers the same
+/// semantics with neither (same precedent as `__class_type_arg`).
+pub fn builtin_class_default(ctx: &VmContext, args: &[Value]) -> Result<Value> {
+    Ok(match resolve_class_type_arg(ctx, args) {
+        Some(n) => crate::metadata::types::default_value_for(&n),
+        None => Value::Null,
     })
+}
+
+/// complete-generic-class-identity（邻线收尾）: resolve a **class-level** type parameter to the
+/// concrete argument bound at the level that **declares** it.
+///
+/// Two carriers, and the order between them is the whole point:
+///
+/// 1. **The declaring level's name.** `class DInt : Box<int> {}` has an empty `type_args` of
+///    its own — the argument lives in the *base name*, which is `Demo.Box<int>` only since P1
+///    stopped stripping closed generic bases. Walk the chain to the level whose erased name is
+///    `owner`, then read the argument off that name.
+/// 2. **The receiver's own `type_args`.** Still needed for cross-package generics, which get no
+///    identity name (so their descriptor name carries no arguments) and rely on the per-instance
+///    carrier `ObjNew` fills in.
+///
+/// 🔴 **(2) must not run when the declaring class is a *base*.** `class DG<U> : Box<int>` has
+/// `type_args = [U's argument]`, so reading index 0 off the receiver answers with `DG`'s
+/// parameter while the question was about `Box`'s — a plausible-but-wrong type, which is worse
+/// than the placeholder. Measured: `DG<string>` reported `Std.String` for `Box`'s `T`.
+fn resolve_class_type_arg(ctx: &VmContext, args: &[Value]) -> Option<String> {
+    let idx = arg_index(args)?;
+    let owner = arg_owner(args);   // absent in bytecode emitted before this change
+    if let Some(o) = &owner {
+        if let Some(n) = inherited_type_arg(ctx, args.first(), o, idx) {
+            return Some(n);
+        }
+    }
+    let own_is_declaring = match (&owner, args.first()) {
+        (None, _) => true,   // old bytecode: keep the previous behaviour verbatim
+        (Some(o), Some(Value::Object(rc))) => {
+            erased_of(&rc.borrow().type_desc.name) == erased_of(o)
+        }
+        _ => false,
+    };
+    if own_is_declaring {
+        return class_type_arg_name(args);
+    }
+    None
+}
+
+fn arg_index(args: &[Value]) -> Option<usize> {
+    match args.get(1) {
+        Some(Value::I64(n)) if *n >= 0 => Some(*n as usize),
+        _ => None,
+    }
+}
+
+fn arg_owner(args: &[Value]) -> Option<String> {
+    match args.get(2) {
+        Some(Value::Str(s)) if !s.is_empty() => Some(s.to_string()),
+        _ => None,
+    }
+}
+
+/// Erased prefix of a (possibly instantiated) type name: `Demo.Box<int>` → `Demo.Box`.
+fn erased_of(name: &str) -> &str {
+    match name.find('<') {
+        Some(i) => &name[..i],
+        None => name,
+    }
+}
+
+/// Walk the receiver's base chain to the level declaring `owner`, and read the `idx`-th
+/// type argument **off that level's name**. `None` when the chain has no such level or it
+/// carries no arguments (both degrade to today's placeholder).
+fn inherited_type_arg(
+    ctx: &VmContext,
+    recv: Option<&Value>,
+    owner: &str,
+    idx: usize,
+) -> Option<String> {
+    let mut cur = match recv {
+        Some(Value::Object(rc)) => rc.borrow().type_desc.name.clone(),
+        _ => return None,
+    };
+    let want = erased_of(owner).to_string();
+    // Bounded: a class hierarchy is finite, but a corrupt `base_name` cycle must not hang us.
+    for _ in 0..64 {
+        if erased_of(&cur) == want {
+            let targs = crate::metadata::types::type_args_from_name(&cur);
+            return targs.get(idx).cloned();
+        }
+        let td = ctx.try_lookup_type(&cur)?;
+        cur = td.base_name.clone()?;
+    }
+    None
 }
 
 /// The pure name-selection half of `builtin_class_type_arg`: `(receiver, index)`

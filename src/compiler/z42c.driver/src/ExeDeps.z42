@@ -29,6 +29,18 @@ using Z42.IR;          // ZpkgReader / ZpkgInfo（产物引用的包名校验）
 // 闭包名单由 `_build` 透下来（top-level 分支算过的那份），**不在这里重算**——
 // 非 top-level 子建（`libsDirsCount>0`）本就跳过解析，那个语境下重算会抛
 // `No such file or directory`（初稿这么写过，被 e2e `buildclos` 当场抳下）。
+//
+// add-deployment-model 批 2.2：闭包**有两条来源**，它们覆盖的依赖种类互不相交。
+//   ① `path` 指向工程目录 → `PathDepPlan.Resolve` 沿源码树 manifest 做 post-order DFS，
+//      结果就是上面那份 `closureNames`。
+//   ② 按名引用 / `path` 指向 `.zpkg` 产物 → **没有工程目录可递归**（引用一个产物时对方的
+//      `.z42.toml` 通常不在本机），闭包来源换成 zpkg 自己的 `DEPS` 段
+//      （`ZpkgReader.ReadDependencies`）。就在下面的复制循环里做 BFS：每拷成功一个包就打开它、
+//      把未见过的依赖名追加到 `names` 尾部——队列即工作表，不需要第二遍扫描。
+//   ⭐ **递归只对「已复制」的包做**：「拷了它」和「该看它的依赖」是同一个条件，不是两个。
+//      框架包不拷也不递归（它的依赖同在 libs/）；`deploy = "shared"` 在循环开头就 continue。
+//   ⭐ 这个缺口的**症状离原因很远**：`app → mid → leaf` 而 dist/ 只有 mid.zpkg 时，拷出去
+//      **死在 mid 的方法里**（`MissingSymbolException`）——报的像是「mid 的代码有问题」。
 int _bundleExeDeps(ProjectManifest pm, string[] closureNames, int closureN, string distDir, string[] libsDirs, int libsDirsN) {
     // 复制判定（add-deployment-model 批 1）：**在不在 shipped `libs/`**（= `Z42_LIBS`）。
     // 在 → 框架，运行期从 libs/ 解析，不复制；不在 → 私有，复制进 dist。
@@ -131,6 +143,42 @@ int _bundleExeDeps(ProjectManifest pm, string[] closureNames, int closureN, stri
                     }
                 }
                 copied = true;
+                // ── 传递闭包（add-deployment-model 批 2.2 use）────────────────────────────
+                // 复制了一个非框架包 ⇒ **它自己的依赖也得跟着走**，否则拷到别处运行时会在
+                // 它的方法里炸（实测：`app → ncmid → ncleaf`，dist 里只有 ncmid，运行期死在
+                // `NcMid.Mid.Call`）。依赖名从 **zpkg 的 DEPS 段**读（`ReadDependencies`，#826
+                // 的 support）——不是源码树的 toml：那条路在 repo 外整个失效（publisher 今天
+                // 就是那样）。
+                //
+                // 只对**已复制**的包递归：框架包（从 shipped libs/ 找到的）不复制也不递归，
+                // 它的依赖同样在 libs/ 里；`deploy = "shared"` 的在循环开头就 continue 了，
+                // 它的闭包由运行期解析。
+                ZpkgInfo zi = null;
+                try { zi = ZpkgReader.Open(File.ReadAllBytes(cand), cand); } catch (Exception e) { zi = null; }
+                if (zi != null) {
+                    string[] sub = ZpkgReader.ReadDependencies(zi);
+                    int sj = 0;
+                    while (sj < sub.Length) {
+                        string sf = sub[sj];
+                        sj = sj + 1;
+                        // DEPS 段存的是**文件名**（`z42.core.zpkg`），names 里是包名。
+                        if (!_isZpkgRef(sf)) { continue; }
+                        string sn = sf.Substring(0, sf.Length - 5);
+                        bool seen = false;
+                        int sq = 0;
+                        while (sq < nameN) { if (names[sq] == sn) { seen = true; } sq = sq + 1; }
+                        if (seen) { continue; }
+                        if (nameN == names.Length) {
+                            string[] nb2 = new string[names.Length * 2];
+                            string[] db2 = new string[names.Length * 2];
+                            int k2 = 0;
+                            while (k2 < nameN) { nb2[k2] = names[k2]; db2[k2] = deploys[k2]; k2 = k2 + 1; }
+                            names = nb2; deploys = db2;
+                        }
+                        // 间接依赖不在 `[dependencies]` 里，无从声明 deploy ⇒ 走默认判据。
+                        names[nameN] = sn; deploys[nameN] = ""; nameN = nameN + 1;
+                    }
+                }
                 d = libsDirsN;   // break
             } else {
                 d = d + 1;

@@ -1,0 +1,25 @@
+// 消费方（正例）：跨包读标了 `?` 的字段 / 属性 —— 必须**快照进局部**再检查。
+//
+// E0484 的规则（define-null-check-marks Q1 取的 (a) 强制快照）：字段每次访问都会重读、
+// 属性每次访问都会重新调用，所以「就地检查」不能让下一次读变成非空。⇒ 只有快照写法合法。
+namespace Demo.FNullApp;
+
+using Std.IO;
+using Demo.FNull;
+
+void Main() {
+    Holder h = new Holder();
+
+    // 标了 `?`：快照 + 检查
+    string m = h.Marked;
+    if (m != null) { Console.WriteLine(m.Length.ToString()); } else { Console.WriteLine("marked-null"); }
+
+    // 🔒 没标：完全不受检，直接解引用合法（「不标 `?` 就不受检」是本设计的支点）
+    Console.WriteLine(h.Unmarked.Length.ToString());
+
+    // 属性：标记挂在背后字段上，规则同字段
+    string p = h.MarkedProp;
+    if (p != null) { Console.WriteLine(p.Length.ToString()); } else { Console.WriteLine("prop-null"); }
+
+    Console.WriteLine(h.UnmarkedProp.Length.ToString());
+}

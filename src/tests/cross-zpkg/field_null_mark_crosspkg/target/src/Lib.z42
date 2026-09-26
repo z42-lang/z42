@@ -1,0 +1,14 @@
+// 生产方：**字段**与**属性**各标一个 `?`，再各留一个**没标**的做对照。
+//
+// `?` 不能拼进字段的 TYPE 段类型名（那串是查找键 / struct 布局判据），所以标记走字段自己的
+// attr-ref 哨兵 `$Nullable`。这条路只有**跨包**才压得到：同包内符号表里本来就有标记位。
+namespace Demo.FNull;
+
+public class Holder {
+    public string? Marked;        // 标了 ⇒ 消费方不检查就解引用要报 E0478
+    public string  Unmarked;      // 🔒 没标 ⇒ 完全不受检（「不标 `?` 就不受检」是本设计的支点）
+    public string? MarkedProp { get; set; }      // 属性：标记挂在背后字段 __prop_MarkedProp 上
+    public string  UnmarkedProp { get; set; }
+
+    public Holder() { this.Unmarked = "u"; this.UnmarkedProp = "up"; }
+}

@@ -596,7 +596,19 @@ entry   = "MyApp.main"
 - zpkg 里的 `[project].name` **必须**与清单里的 key 一致，否则报错。指错文件是最容易犯的错，
   而包名就写在 zpkg 头里，校验零成本；
 - **运行期自动随产物走**：vendored 目录不是 shipped `libs/`，所以 exe 构建时会把它复制进
-  `dist/` —— 不需要额外声明什么。
+  `dist/` —— 不需要额外声明什么。**它自己的依赖也一起走**：见下「间接依赖」。
+
+**间接依赖**：复制进 `dist/` 的包，它**自己**依赖的包也会被复制进去（递归，直到遇到框架包
+或 `deploy = "shared"`）。你只声明自己直接用到的包，不必替别人的依赖操心：
+
+```toml
+[dependencies]
+"mid" = { path = "../vendor/mid.zpkg" }   # mid 自己依赖 leaf
+# 不需要写 "leaf" —— 你的代码里没有它，声明它是替包管理器干活
+```
+
+来源是 **zpkg 自己记的依赖表**，不是对方的源码清单 —— 引用一个产物时，对方的 `.z42.toml`
+通常根本不在你机器上。
 
 **`deploy` —— 这个依赖运行期从哪儿来**：
 
@@ -1057,22 +1069,28 @@ const-fold = false
 
 ```toml
 [syntax]
-control_flow = false      # 关掉 if / while / for / foreach / do / switch
-exceptions   = false      # 关掉 try
+control_flow  = false     # 关掉 if / while / for / foreach / do / switch + break / continue
+exceptions    = false     # 关掉 try + throw
+bitwise       = false     # 关掉 | ^ & << >>
+ternary       = false     # 关掉 ?:
+pattern_match = false     # 关掉模式（`x is 1` / `case 1:` / switch 表达式 / 解构声明）
 ```
 
 | 事项 | 说明 |
 |---|---|
 | 未知名 | **报错退出**并列出已知名单，不静默忽略 |
 | 默认 | 不写本段 = `Phase1Profile`（C# 12 子集全开）|
-| 粒度 | **整个语法构造**。裁不到「某个协议内的某一步」（例如关不掉「foreach 的枚举器回落、只留索引面」）|
+| 粒度 | 一般是**整个语法构造**；`pattern_match` 例外，它只关「进模式引擎」的那几条路 —— **`x is T` / `x is T v` 是类型测试，仍然可用** |
+| 缓存 | 特性集折进包级缓存身份（`depsId`）⇒ 只改 toml 不碰源码也会重编，不会「全量生效、增量被忽略」|
 
-> ⚠️ **今天只有 `control_flow` 与 `exceptions` 真的关得掉东西。**
-> `LanguageFeatures` 里还有 13 个名字（`oop` / `generics` / `pattern_match` / `lambda` / `tuples` /
-> `delegates` / `reflection` / `nullable` / `ternary` / `cast` / `bitwise` / `arrays` /
-> `interpolated_str`）—— 它们已登记、可以写进 `[syntax]` 而不报「未知名」，但**关掉它们不会
-> 挡住任何语法**。这是有意暴露的现状而不是承诺：后续接线见
-> `docs/internals/src/compiler/syntax-customization.md` 的「实施路径」。
+> ⚠️ **上面这 5 个是今天真的关得掉东西的全部。**
+> `LanguageFeatures` 里还有 10 个名字（`oop` / `generics` / `lambda` / `tuples` / `delegates` /
+> `reflection` / `nullable` / `cast` / `arrays` / `interpolated_str`）—— 它们已登记、可以写进
+> `[syntax]` 而不报「未知名」，但**关掉它们不会挡住任何语法**。这是有意暴露的现状而不是承诺：
+> 后续接线见 `docs/internals/src/compiler/syntax-customization.md` 的「实施路径」。
+>
+> ⚠️ **`pattern_match = false` 的连带后果**：`switch` **语句**本身归 `control_flow`（仍解析），
+> 但它的每个 `case` 会报 E0301 ⇒ 实际不可用；只有 `default:` 分支不受影响。
 
 ---
 
