@@ -41,6 +41,18 @@
 // ⚠️ `&=` / `|=` / `^=` **未**挂 `bitwise`：本批裁决的范围是那 5 个运算符，复合赋值的归属待裁。
 namespace Z42.Syntax;
 
+// 本层用到的特性名。`LanguageFeatures.Phase1Profile()` 是**名单**的 SoT，这里只是把
+// 「哪些名字被解析器真正消费」收成一份 —— 散成字面量的下场见 `LanguageFeatures.z42` 抬头
+// 那条（那张表曾长期宣告 6 个不存在的特性而三年无人发现）。
+// ⚠️ 新增名字前先确认 parser 真有消费该语法的代码路径，并为它加一条**会红的**门。
+public static class FeatureNames {
+    public static string Bitwise      = "bitwise";        // `| ^ & << >>`
+    public static string Ternary      = "ternary";        // `?:`
+    public static string ControlFlow  = "control_flow";   // if/while/for/foreach/do/switch + break/continue
+    public static string Exceptions   = "exceptions";     // try + throw
+    public static string PatternMatch = "pattern_match";  // 进模式引擎的那几条路（`x is T` 不算，见下）
+}
+
 // 后缀角色（「最紧」的一档：今天在主循环里无守卫地 `continue`）。
 // 概念绑定力 = `ParseTable.PostfixBp()` = 90，严格高于一元 85 ⇒ 所有调用点（最大 `_parseExpr(85)`）
 // 都满足 `90 >= minBp`，因此「无守卫」与「bp 90 + 统一守卫」等价（`tests/parse_table.z42` V2 断言）。
@@ -134,8 +146,8 @@ public static class ParseTable {
     // "" = 永远启用。粒度是「整个 token 的构造」，见抬头「特性门能表达到什么粒度」。
     public static string Feature(int k) {
         if (k == TokenKind.Pipe || k == TokenKind.Caret || k == TokenKind.Ampersand
-            || k == TokenKind.LtLt || k == TokenKind.GtGt) { return "bitwise"; }
-        if (k == TokenKind.Question) { return "ternary"; }
+            || k == TokenKind.LtLt || k == TokenKind.GtGt) { return FeatureNames.Bitwise; }
+        if (k == TokenKind.Question) { return FeatureNames.Ternary; }
         return "";
     }
 
@@ -209,8 +221,8 @@ public static class StmtRules {
     public static string Feature(int k) {
         if (k == TokenKind.If || k == TokenKind.While || k == TokenKind.For
             || k == TokenKind.Foreach || k == TokenKind.Do || k == TokenKind.Switch
-            || k == TokenKind.Break || k == TokenKind.Continue) { return "control_flow"; }
-        if (k == TokenKind.Try || k == TokenKind.Throw) { return "exceptions"; }
+            || k == TokenKind.Break || k == TokenKind.Continue) { return FeatureNames.ControlFlow; }
+        if (k == TokenKind.Try || k == TokenKind.Throw) { return FeatureNames.Exceptions; }
         return "";   // return：没有哪个特性名该管它（关掉它等于关掉函数）
     }
 }

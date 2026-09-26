@@ -135,6 +135,7 @@ public sealed partial class ExprParser {
                     Expr guard = null;
                     if (this._p._peek().Kind == TokenKind.Underscore) { this._p._advance(); hasPat = false; }   // 顶层 `_` = 默认臂（byte-identical 保持）
                     else {
+                        this._p._requireFeature(FeatureNames.PatternMatch, this._p._peek().Span);
                         pat = this._p._patP._parsePattern();
                         if (this._p._peek().Kind == TokenKind.If) { this._p._advance(); guard = this._parseExpr(ParseTable.AboveAssign()); }
                     }
@@ -161,6 +162,7 @@ public sealed partial class ExprParser {
                 // `@` 绑定：`x is name @ P`（标识符后紧跟 `@` → At-模式，类型名后永不合法跟 `@`，无歧义）。
                 // 经 _parsePattern（含 `@` + 可能的 or-链）。放开自 complete-pattern-engine：@ 入 is。
                 if (nk == TokenKind.Identifier && this._p._peekAt(1).Kind == TokenKind.At) {
+                    this._p._requireFeature(FeatureNames.PatternMatch, this._p._peek().Span);
                     Pattern pat = this._p._patP._parsePattern();
                     left = new IsPatternExpr(left, pat, left.Span);
                     continue;
@@ -169,6 +171,7 @@ public sealed partial class ExprParser {
                 // 用 _parsePrimaryPattern 取首 alt，再判 `|` 续 or-链（`x is 1 | 2` 现为 or-模式；旧解析
                 // `(x is 1) | 2` = bool|int 恒类型错、无合法程序回归 —— 放开自 complete-pattern-engine）。
                 if (this._p._patP._isPatternLead(nk)) {
+                    this._p._requireFeature(FeatureNames.PatternMatch, this._p._peek().Span);
                     Pattern pat = this._p._patP._parsePrimaryPattern();
                     if (this._p._peek().Kind == TokenKind.Pipe) { pat = this._p._patP._continueOrChain(pat); }
                     left = new IsPatternExpr(left, pat, left.Span);
@@ -179,11 +182,13 @@ public sealed partial class ExprParser {
                 int nk2 = this._p._peek().Kind;
                 if (nk2 == TokenKind.LParen || nk2 == TokenKind.LBrace) {
                     // `(`/`{` → 结构化（位置/属性），可续 or-链：`x is Circle(r) | Square(r)`。
+                    this._p._requireFeature(FeatureNames.PatternMatch, ty.Span);
                     Pattern pat = this._p._patP._continueFromType(ty, ty.Span);
                     if (this._p._peek().Kind == TokenKind.Pipe) { pat = this._p._patP._continueOrChain(pat); }
                     left = new IsPatternExpr(left, pat, left.Span);
                 } else if (nk2 == TokenKind.Pipe) {
                     // 纯类型名 or-模式：`x is Circle | Square`（旧解析 (x is Circle)|Square 中 Square 作值恒错）。
+                    this._p._requireFeature(FeatureNames.PatternMatch, ty.Span);
                     Pattern first = new NamePattern(ty, "", ty.Span);
                     Pattern pat = this._p._patP._continueOrChain(first);
                     left = new IsPatternExpr(left, pat, left.Span);

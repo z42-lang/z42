@@ -1,0 +1,114 @@
+// 运算符级 / 语句级特性门的负例单测（add-l2-parse-table 批 2，T6）。
+//
+// 批 1 只让 `control_flow` 与 `exceptions` 真的关得掉东西（其余 13 个名字是死旋钮）。
+// 本批把 `bitwise` / `ternary` / `pattern_match` 接上，并补齐 `break`/`continue`/`throw`
+// 那三个洞。每条都要**两遍**：关掉必须报 E0301（负例）+ 全开必须编得过（阳性对照）——
+// 只验后者等于没测门（批 1 的 `_syntaxKnobTakesEffect` 就是这个形态）。
+namespace Z42cSyntaxFeatureGateTests;
+
+using Std;
+using Std.Test;
+using Z42.Syntax;
+using Z42.Core;
+
+// 关掉一个特性后解析，返回诊断码拼接串。
+string codesWithout(string src, string off) {
+    var f = LanguageFeatures.Phase1Profile();
+    f.Set(off, false);
+    var p = new Parser("class C { void M() { " + src + " } }", "t.z42");
+    p._features = f;
+    p.ParseCompilationUnit();
+    var diags = p.Diagnostics();
+    string acc = "";
+    int i = 0;
+    while (i < diags.Count()) {
+        if (i > 0) { acc = acc + ","; }
+        acc = acc + diags.Get(i).Code;
+        i = i + 1;
+    }
+    return acc;
+}
+
+// 阳性对照：全开（Phase1Profile 原样）⇒ 必须零诊断。
+int diagsAllOn(string src) {
+    var p = new Parser("class C { void M() { " + src + " } }", "t.z42");
+    p._features = LanguageFeatures.Phase1Profile();
+    p.ParseCompilationUnit();
+    return p.Diagnostics().Count();
+}
+
+bool hasFeatureDisabled(string codes) { return codes.IndexOf(DiagnosticCodes.FeatureDisabled) >= 0; }
+
+// ── bitwise（本批新接）────────────────────────────────────────────────────────
+
+[Test]
+void test_bitwise_knob_takes_effect() {
+    Assert.Equal(0, diagsAllOn("int a = 1; int b = 2; int c = a & b;"));      // 阳性对照
+    Assert.True(hasFeatureDisabled(codesWithout("int a = 1; int b = 2; int c = a & b;", "bitwise")));
+    Assert.True(hasFeatureDisabled(codesWithout("int c = 1 | 2;",  "bitwise")));
+    Assert.True(hasFeatureDisabled(codesWithout("int c = 1 ^ 2;",  "bitwise")));
+    Assert.True(hasFeatureDisabled(codesWithout("int c = 1 << 2;", "bitwise")));
+    Assert.True(hasFeatureDisabled(codesWithout("int c = 8 >> 2;", "bitwise")));
+    // 关掉 bitwise **不该**牵连算术与比较（门是按 token 挂的，不是一刀切）。
+    Assert.Equal("", codesWithout("int c = 1 + 2 * 3; bool d = c > 2;", "bitwise"));
+}
+
+// ── ternary（本批新接）────────────────────────────────────────────────────────
+
+[Test]
+void test_ternary_knob_takes_effect() {
+    Assert.Equal(0, diagsAllOn("int x = true ? 1 : 2;"));
+    Assert.True(hasFeatureDisabled(codesWithout("int x = true ? 1 : 2;", "ternary")));
+    // `T?` 空检查标记走类型解析，与 `?:` 不共用表项 ⇒ 关掉 ternary 不该影响它。
+    Assert.Equal("", codesWithout("string s = null;", "ternary"));
+}
+
+// ── control_flow / exceptions：批 1 留下的三个洞（本批补齐）──────────────────
+
+[Test]
+void test_break_continue_now_gated() {
+    // 🔴 批 1 只挂了 if/while/for/foreach/do/switch ⇒ 这两条此前**不报 E0301**，
+    // 而是一路走到语义层报别的。「control_flow 关掉整族」此前是半句假话。
+    Assert.True(hasFeatureDisabled(codesWithout("break;", "control_flow")));
+    Assert.True(hasFeatureDisabled(codesWithout("continue;", "control_flow")));
+    // 批 1 已有的那几条仍然成立（别把补洞写成了替换）。
+    Assert.True(hasFeatureDisabled(codesWithout("while (true) { }", "control_flow")));
+    Assert.True(hasFeatureDisabled(codesWithout("if (true) { }", "control_flow")));
+}
+
+[Test]
+void test_throw_now_gated() {
+    Assert.True(hasFeatureDisabled(codesWithout("throw new Exception();", "exceptions")));
+    Assert.True(hasFeatureDisabled(codesWithout("try { } catch (Exception e) { }", "exceptions")));
+}
+
+[Test]
+void test_return_is_never_gated() {
+    // `return` 刻意没有特性名：关掉它等于关掉函数，那不是一个语法特性该管的事。
+    Assert.Equal("", codesWithout("return;", "control_flow"));
+}
+
+// ── pattern_match（本批新接；边界 = D2-6 甲）──────────────────────────────────
+
+[Test]
+void test_pattern_match_gates_engine_entries() {
+    Assert.Equal(0, diagsAllOn("object o = null; bool b = o is 1;"));          // 阳性对照
+    Assert.True(hasFeatureDisabled(codesWithout("object o = null; bool b = o is 1;", "pattern_match")));
+    Assert.True(hasFeatureDisabled(codesWithout("object o = null; bool b = o is Circle(r);", "pattern_match")));
+    Assert.True(hasFeatureDisabled(codesWithout("object o = null; bool b = o is Circle | Square;", "pattern_match")));
+    Assert.True(hasFeatureDisabled(codesWithout("object o = null; bool b = o is x @ 1;", "pattern_match")));
+    Assert.True(hasFeatureDisabled(codesWithout("int v = o switch { 1 => 2, _ => 3 };", "pattern_match")));
+    Assert.True(hasFeatureDisabled(codesWithout("switch (o) { case 1: break; }", "pattern_match")));
+    Assert.True(hasFeatureDisabled(codesWithout("(a, b) = MakePair();", "pattern_match")));
+}
+
+[Test]
+void test_pattern_match_keeps_plain_is_type_test() {
+    // 🔴 D2-6 的裁决边界：`x is T` / `x is T v` 是**类型测试**、不入模式引擎
+    //（`ExprParser` 那条分支注释写着「byte-identical 保持」）⇒ 关掉 pattern_match 后它必须还能用。
+    // 这条是本批最容易写错的地方：把门挂在 `is` 这个 token 上就会连它一起关掉。
+    Assert.Equal("", codesWithout("object o = null; bool b = o is String;", "pattern_match"));
+    Assert.Equal("", codesWithout("object o = null; bool b = o is String s;", "pattern_match"));
+    // switch 语句的 `default:` 不是模式 ⇒ 也不该被关掉（只有 `case` 走引擎）。
+    Assert.Equal("", codesWithout("switch (o) { default: break; }", "pattern_match"));
+}
