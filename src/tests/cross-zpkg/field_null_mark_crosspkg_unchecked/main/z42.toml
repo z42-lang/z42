@@ -1,0 +1,9 @@
+[project]
+name    = "demo.fnulluncheckedapp"
+version = "0.1.0"
+kind    = "exe"
+entry   = "Demo.FNullUncheckedApp.Main"
+pack    = true
+
+[dependencies]
+"demo.fnull" = "0.1.0"

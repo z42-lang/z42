@@ -1,0 +1,13 @@
+// 消费方（负例）：跨包读标了 `?` 的字段，**不检查就解引用** ⇒ 必须报 E0484。
+//
+// 这条是 `carry-field-null-marks` 的**正面对照**：机制没接通时，导入侧标记位落成 false、
+// 这个文件会**静默编过** —— 正例那条（快照写法）在两种情况下都绿，分辨不出来。
+namespace Demo.FNullUncheckedApp;
+
+using Std.IO;
+using Demo.FNull;
+
+void Main() {
+    Holder h = new Holder();
+    Console.WriteLine(h.Marked.Length.ToString());   // ✗ 不检查就解引用
+}

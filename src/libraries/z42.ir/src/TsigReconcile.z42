@@ -458,6 +458,7 @@ public static class TsigReconcile {
                 if (fldc == fields.Length) { ExportedFieldZ[] b = new ExportedFieldZ[fields.Length * 2]; int k = 0; while (k < fldc) { b[k] = fields[k]; k = k + 1; } fields = b; }
                 ExportedFieldZ efz = new ExportedFieldZ(anc.Fields[fi].Name, anc.Fields[fi].Type, TsigReconcile._visStr(anc.Fields[fi].Visibility), false);
                 efz.IsDeprecated = IrDeprecation.Has(anc.Fields[fi].Attrs, anc.Fields[fi].AttrCount); efz.DeprecationMsg = IrDeprecation.Msg(anc.Fields[fi].Attrs, anc.Fields[fi].AttrCount);   // add-deprecated-directive（attr-ref 哨兵）
+                efz.IsNullable = IrParamDefault.IsNullable(anc.Fields[fi].Attrs, anc.Fields[fi].AttrCount);   // carry-field-null-marks（同一条 attr-ref 通道）
                 fields[fldc] = efz;
                 fldc = fldc + 1; fi = fi + 1;
             }
@@ -468,6 +469,7 @@ public static class TsigReconcile {
             if (fldc == fields.Length) { ExportedFieldZ[] b = new ExportedFieldZ[fields.Length * 2]; int k = 0; while (k < fldc) { b[k] = fields[k]; k = k + 1; } fields = b; }
             ExportedFieldZ sefz = new ExportedFieldZ(cd.StaticFields[sfi].Name, cd.StaticFields[sfi].Type, TsigReconcile._visStr(cd.StaticFields[sfi].Visibility), true);
             sefz.IsDeprecated = IrDeprecation.Has(cd.StaticFields[sfi].Attrs, cd.StaticFields[sfi].AttrCount); sefz.DeprecationMsg = IrDeprecation.Msg(cd.StaticFields[sfi].Attrs, cd.StaticFields[sfi].AttrCount);   // add-deprecated-directive（attr-ref 哨兵）
+            sefz.IsNullable = IrParamDefault.IsNullable(cd.StaticFields[sfi].Attrs, cd.StaticFields[sfi].AttrCount);   // carry-field-null-marks
             fields[fldc] = sefz;
             fldc = fldc + 1; sfi = sfi + 1;
         }

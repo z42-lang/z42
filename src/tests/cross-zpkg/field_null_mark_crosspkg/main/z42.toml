@@ -1,0 +1,9 @@
+[project]
+name    = "demo.fnullapp"
+version = "0.1.0"
+kind    = "exe"
+entry   = "Demo.FNullApp.Main"
+pack    = true
+
+[dependencies]
+"demo.fnull" = "0.1.0"
