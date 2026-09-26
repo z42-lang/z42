@@ -224,7 +224,8 @@ public sealed class DeclBinder {
                         DeclBinder._defineInstanceFields(pgEnv, ct);
                     }
                     Z42Type pgret = pgEnv.ResolveType(pd.Type);
-                    model.AddBody(ctKey + ".get_" + pd.Name, this._tc._stmt._bindStmt(pd.GetBody, pgEnv, pgret));
+                    model.AddBody(ctKey + ".get_" + pd.Name,
+                        this._bindAccessorBody(pd.GetBody, pgEnv, pgret, pd.Type, new Param[0], 0, pd.Span));
                 }
                 if (pd.HasSetBody) {
                     // add-property-custom-setter：自定义 setter body 绑定 → set_<Name>（镜像索引器 set_Item，无索引参数，
@@ -235,7 +236,10 @@ public sealed class DeclBinder {
                         DeclBinder._defineInstanceFields(psEnv, ct);
                     }
                     psEnv.Define("value", psEnv.ResolveType(pd.Type));
-                    model.AddBody(ctKey + ".set_" + pd.Name, this._tc._stmt._bindStmt(pd.SetBody, psEnv, new Z42VoidType()));
+                    TypeExpr psVoid = new NamedType("void", new TypeExpr[0], 0, pd.Span);
+                    Param[] psPs = DeclBinder._accessorSetParams(new Param[0], 0, pd.Type, pd.Span);
+                    model.AddBody(ctKey + ".set_" + pd.Name,
+                        this._bindAccessorBody(pd.SetBody, psEnv, new Z42VoidType(), psVoid, psPs, 1, pd.Span));
                 }
             } else if (mem is IndexerDecl) {
                 // get_Item / set_Item 体绑定（IndexerDecl lowering；镜像 C# IndexerDecl 处理）。
@@ -247,7 +251,8 @@ public sealed class DeclBinder {
                     int gp = 0;
                     while (gp < id.ParamCount) { getEnv.Define(id.Params[gp].Name, getEnv.ResolveType(id.Params[gp].Type)); gp = gp + 1; }
                     Z42Type gret = getEnv.ResolveType(id.RetType);
-                    model.AddBody(ctKey + ".get_Item", this._tc._stmt._bindStmt(id.GetBody, getEnv, gret));
+                    model.AddBody(ctKey + ".get_Item",
+                        this._bindAccessorBody(id.GetBody, getEnv, gret, id.RetType, id.Params, id.ParamCount, id.Span));
                 }
                 if (id.HasSet) {
                     var setEnv = TypeEnv.Root(symbols).WithClassGeneric(ct.Name(), c.TypeParams.Names, c.TypeParams.Count);
@@ -256,7 +261,10 @@ public sealed class DeclBinder {
                     int sp = 0;
                     while (sp < id.ParamCount) { setEnv.Define(id.Params[sp].Name, setEnv.ResolveType(id.Params[sp].Type)); sp = sp + 1; }
                     setEnv.Define("value", setEnv.ResolveType(id.RetType));
-                    model.AddBody(ctKey + ".set_Item", this._tc._stmt._bindStmt(id.SetBody, setEnv, new Z42VoidType()));
+                    TypeExpr isVoid = new NamedType("void", new TypeExpr[0], 0, id.Span);
+                    Param[] isPs = DeclBinder._accessorSetParams(id.Params, id.ParamCount, id.RetType, id.Span);
+                    model.AddBody(ctKey + ".set_Item",
+                        this._bindAccessorBody(id.SetBody, setEnv, new Z42VoidType(), isVoid, isPs, id.ParamCount + 1, id.Span));
                 }
             }
             j = j + 1;
@@ -465,6 +473,42 @@ public sealed class DeclBinder {
         BoundStmt body = this._bindMethodBodyCore(symbols, env, md);
         FlowAnalyzer.Check(body, md, this._tc._diags);
         return body;
+    }
+
+    // 🔴 **accessor 体也必须过流分析** —— 属性 getter / setter 与索引器 getter / setter
+    // 四处此前**直接调 `_bindStmt`**，绕过 `_bindMethodBody` ⇒ `FlowAnalyzer.Check` 不跑 ⇒
+    // **E0407（局部未赋值就读）与整套 `?` 空检查机制在属性 / 索引器体里全是哑的**。
+    //
+    // `_bindMethodBody` 的注释此前声称「保证只有一处调用」；那句话对**方法**成立、对 accessor
+    // 不成立 —— 那四处就是四条旁路。漏报面 = 全部属性与索引器体，而属性体在 stdlib 与用户代码里
+    // 都很常见（计算属性、自定义 setter、索引器）。
+    //
+    // 为什么要合成一个 `MethodDecl` 壳：`FlowAnalyzer._seed` 只从 `md` 读两样东西 ——
+    // 返回类型是否带 `?`（`_retIsNullable`）与形参表（把形参标成「已赋值」，`?` 形参再标
+    // 「可能为 null」）。accessor 没有 `MethodDecl`，但它的这两样都是确定的。
+    // 合成壳这条路在发射侧已有先例（`IrGenMemberEmitter` 的 `synthPg`/`synthPs`/`synthGet`/`synthSet`
+    // 四个壳），这里与它们同形 —— 只是发射侧要的是签名，这里要的是种子。
+    //
+    // ⚠️ setter 的返回类型必须给 `void` 而**不是**属性类型：属性是 `T?` 时，把 `T?` 当返回类型会
+    // 让 `_retIsNullable` 为真，而 setter 根本没有返回值 —— 那是一条凭空的判据。
+    private BoundStmt _bindAccessorBody(Stmt raw, TypeEnv env, Z42Type ret, TypeExpr retTe,
+                                        Param[] ps, int pc, Span sp) {
+        BoundStmt body = this._tc._stmt._bindStmt(raw, env, ret);
+        MethodDecl shell = new MethodDecl("", false, false, retTe, "",
+                                          new TypeParamList(new string[0], 0, sp), new WhereClause[0], 0,
+                                          ps, pc, true, raw, new Expr[0], 0, false, sp);
+        FlowAnalyzer.Check(body, shell, this._tc._diags);
+        return body;
+    }
+
+    // setter 的形参表 = 索引参数（属性无）+ 隐式 `value`。与两处绑定环境里 `Define("value", …)`
+    // 的口径一致（同一个类型）—— 两边必须同源，否则 `value` 会被 DA 当成「未赋值的局部」误报。
+    private static Param[] _accessorSetParams(Param[] idxPs, int idxPc, TypeExpr valueTe, Span sp) {
+        Param[] ps = new Param[idxPc + 1];
+        int i = 0;
+        while (i < idxPc) { ps[i] = idxPs[i]; i = i + 1; }
+        ps[idxPc] = new Param(valueTe, "value", sp);
+        return ps;
     }
 
     private BoundStmt _bindMethodBodyCore(SymbolTable symbols, TypeEnv env, MethodDecl md) {

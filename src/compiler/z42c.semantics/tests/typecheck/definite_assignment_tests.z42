@@ -161,3 +161,59 @@ void test_reported_once_per_variable() {
     string src = "namespace D; class C { static int M() { int x; int a = x; int b = x; return a + b; } }";
     Assert.Equal(1, SemanticDump.ErrorCount(src));
 }
+
+// ── accessor 体（fix-flow-accessor-bypass）────────────────────────────────
+//
+// 🔴 属性 getter / setter 与索引器 getter / setter 四处此前**直接调 `_bindStmt`**，
+// 绕过 `_bindMethodBody` ⇒ `FlowAnalyzer.Check` 不跑 ⇒ **E0407 与整套 `?` 空检查在
+// 属性 / 索引器体里全是哑的**。而 `_bindMethodBody` 的注释当时还声称「保证只有一处调用」。
+//
+// 本组是那四条旁路被接上的凭据。每种形态都配**阴性 + 阳性**两条：只写阴性的话，
+// 「合成的 MethodDecl 壳把形参漏掉了」会让 `value` / 索引参被当成未赋值局部而误报，
+// 而那种门看起来照样是绿的。
+
+[Test]
+void test_property_getter_unassigned_errors() {
+    string src = "namespace D; class C { int P { get { int x; return x; } } }";
+    Assert.Equal("E0407", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_property_getter_assigned_ok() {
+    string src = "namespace D; class C { int P { get { int x; x = 1; return x; } } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_property_setter_unassigned_errors() {
+    string src = "namespace D; class C { int f; int P { get { return this.f; } set { int x; this.f = x; } } }";
+    Assert.Equal("E0407", SemanticDump.FirstErrorCode(src));
+}
+
+// 阳性对照：隐式 `value` 形参**必须**被当成已赋值 —— 合成壳漏掉它就会误报 E0407。
+[Test]
+void test_property_setter_value_param_is_assigned() {
+    string src = "namespace D; class C { int f; int P { get { return this.f; } set { this.f = value; } } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_indexer_getter_unassigned_errors() {
+    string src = "namespace D; class C { int this[int i] { get { int x; return x + i; } } }";
+    Assert.Equal("E0407", SemanticDump.FirstErrorCode(src));
+}
+
+// 阳性对照：索引参数 `i` 与隐式 `value` 都必须算已赋值。
+[Test]
+void test_indexer_params_are_assigned() {
+    string src = "namespace D; class C { int f; int this[int i] { get { return this.f + i; }"
+        + " set { this.f = value + i; } } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_indexer_setter_unassigned_errors() {
+    string src = "namespace D; class C { int f; int this[int i] { get { return this.f; }"
+        + " set { int x; this.f = x + i; } } }";
+    Assert.Equal("E0407", SemanticDump.FirstErrorCode(src));
+}
