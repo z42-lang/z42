@@ -68,7 +68,13 @@ public sealed class StmtBinder {
         if (t is Z42UnknownType) { return true; }
         if (t is Z42InterfaceType) {
             if (t.Name() == ProtocolNames.IDisposable) { return true; }
-            return symbols.Implements(t.Name(), ProtocolNames.IDisposable);
+            // 🔴 **接口那条线不能用 `Implements`**：它从 `this.Classes.Find(cur)` 起步、只沿**类**的
+            // `BaseName` 链走 ⇒ 第一个参数是接口名时直接落空（`IRes : IDisposable` 上的
+            // `using` 会被误报 E0498）。接口→父接口的那半在 `InterfaceDerivesFrom`（不含自身，
+            // 所以上面先单独比一次名字）。
+            // ⚠️ 这个分裂是既有的（`Conversion` 与 `ConstraintChecker` 都直接用 `Implements`，
+            // 于是「接口→父接口赋值关系」至今不成立 —— 那是独立记账的一条，不在本 change 范围）。
+            return symbols.InterfaceDerivesFrom(t.Name(), ProtocolNames.IDisposable);
         }
         if (t is Z42InstantiatedType) {
             return symbols.Implements((t as Z42InstantiatedType).Def.Name(), ProtocolNames.IDisposable);
