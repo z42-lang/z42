@@ -78,17 +78,56 @@ if (t == typeof(string)) { object o = v.AsString(); value = (T)o; return true; }
 
 - [x] 1 三个库各加 `TryGet` / `TryGetValue<T>`
 - [x] 2 三套测试（18 条，各钉三条不变量）
-- [x] 3 上层调用迁移（5 个文件，`ContainsKey` 全部归零）
+- [x] 3 上层调用迁移（**3 个文件**落地；另 2 个因自举纪律回退 + 挂账，见下）
 - [x] 4 全量 GREEN + 文档 + PR
+
+## 🔴🔴 自举纪律把迁移砍掉了两块（CI 判红后才发现）
+
+**本机全绿 + CI 全红。** `compile-toolchain` / `test-host` 四平台全挂在同一句：
+
+```
+scripts/xtask_bench.z42(1134,21): E0401: no method `TryGetValue` on `JsonValue`
+```
+
+根因是 `bootstrap-seed.md` 的**分阶段引入纪律**（support 先行、use 晚一个 nightly）。
+`ci-bootstrap` 的步骤顺序决定了谁受约束：
+
+| 步骤 | 干什么 | 用的 stdlib | 结论 |
+|---|---|---|---|
+| **[2/5]** | 种子 z42c 编**当前 xtask.zpkg** | **种子的** | ❌ `scripts/` 不能用新 stdlib API（**xtask 是全仓受约束最紧的**）|
+| **[3/5]** | 建当前 z42c（含 6 个自依赖库预建）| z42.project 预建时用 **flat 里已有的 z42.toml** = 冷启动下是种子的 | ❌ `ManifestLoader` 不能用新 `TomlValue` API |
+| **[4/5]** | 建当前 stdlib | —— | ✅ 其后的 `src/toolchain/*` 安全 |
+
+⚠️ **轴 ③ 的豁免（「6 个预建库可以同 commit 加+用新 API」）不覆盖这次**：豁免的前提是
+**那 6 个库本身**被当前源重建。`z42.project` 在名单里，但它消费的 `z42.toml` **不在** ——
+`xtask_compiler.z42` 的注释写得明明白白：「z42.project 依赖 z42.core（已上预建）+ **io/toml（flat 已有）**」。
+
+⭐⭐ **最该记的一条：本机全绿证明不了自举纪律。** 本地 flat 里躺的早就是当前源 stdlib，
+预建一跑就对；只有 CI 冷启动才拿种子。⇒ **改了 stdlib API 又在 `scripts/` 或那 6 个预建库里
+用它，本地 GREEN 是假绿**，必须靠 CI 或人肉核对步骤顺序。
+
+### 处置：回退两块 + 挂阶段-2 欠账
+
+**不把 `z42.toml` 塞进 `_ensureBootstrapSelfDepLibs` 的预建链**（有先例——z42.core 为
+`BitConverter` 进过），理由：那是**为一次可读性迁移永久扩大自举临界集**，代价与收益不对等。
+纪律给的正解就是「等一个 nightly」。
+
+两条欠账已进 `scripts/test/stage2-debt.txt`（门 = `xtask test stage2`，宽限 7 天）：
+
+- `libraries/z42.toml/src/TomlValue.z42#tryget-callsites` → 迁 `ManifestLoader` 的 76 处
+- `libraries/z42.json/src/JsonValue.z42#tryget-callsites` → 迁 `xtask_bench.z42` 的 15 处
+
+⚠️ 后者的**过渡形态其实在 `scripts/`，而门只扫 `src/`** ⇒ 只能挂在提供 API 的那一侧，
+标记注释里写明了这一点。（门自己的抬头也承认这个覆盖边界。）
 
 ## 3 迁移账
 
 | 文件 | 迁移前 `ContainsKey` | 迁移后 | 备注 |
 |---|---|---|---|
-| `z42.project/ManifestLoader.z42` | 58 | **0** | 旗舰样板 |
 | `toolchain/builder/core/builder_publish.z42` | 24 | **0** | 顺带消掉一批 `!X.IsTable() \|\|` 守卫 |
-| `scripts/xtask_bench.z42` | 13 | **0** | JSON 侧 |
 | `builder_test.z42` / `agent/src/agent.z42` | 各 2 | **0** | 三元形态 |
+| ~~`z42.project/ManifestLoader.z42`~~ | 76 | — | 🔴 **已回退**，挂阶段-2 欠账（见上）|
+| ~~`scripts/xtask_bench.z42`~~ | 15 | — | 🔴 **已回退**，挂阶段-2 欠账（见上）|
 
 **留着不动的**：`X.Get(keys[i])` 那一类（`Keys()` 遍历，键必然存在）—— `ManifestLoader` 里 8 处。
 那不是「先测再取」，没有第二次查找，也没有键重复。
@@ -98,7 +137,7 @@ if (t == typeof(string)) { object o = v.AsString(); value = (T)o; return true; }
 `object?` 且 #810 已标 `?`；把它们一起改属于另一刀。
 
 ## 4 收尾
-- [x] 4.1 `xtask test` 全量 GREEN（**11m12s / 15 stage 全过**）
+- [x] 4.1 `xtask test` 全量 GREEN（回退后重跑）＋ **CI 全绿**（本机绿不算数，见「自举纪律」那节）
 - [x] 4.2 文档：`reference/stdlib/` 的 `toml.md` / `json.md` / `yaml.md` 各补「取即检查」一节，
       并把 `toml.md` 的用法示例改成新写法
 - [x] 4.3 归档（阶段 9，在本 PR 内）→ `archive/2026-09-27-add-doc-value-tryget/`
