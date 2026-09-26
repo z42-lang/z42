@@ -81,6 +81,12 @@ public sealed class LanguageFeatures {
     public int Count() { return this._count; }
 
     // ── 预置 profile ────────────────────────────────────────────────────────
+    //
+    // 只有一个。`MinimalProfile()`（仅 interpolated_str/ternary/cast/bitwise）已于
+    // add-l2-parse-table 批 2 删除：它**零生产调用方**（只有自己的单测），而且 `[syntax]`
+    // 语法里**选不到 profile**（`Main._build` 固定从 `Phase1Profile()` 起底、只能逐项覆盖）
+    // ⇒ 它不是「能用而没人用」，是「用不上」。真要按 profile 裁剪，得先加 manifest 键，
+    // 那是独立一条（届时它的 4 个名字里已有 3 个真能裁掉语法了）。
 
     // Phase 1 完整特性集（C# 12 子集全开）。
     public static LanguageFeatures Phase1Profile() {
@@ -99,17 +105,6 @@ public sealed class LanguageFeatures {
         f.Set("tuples",           true);
         f.Set("delegates",        true);
         f.Set("reflection",       true);
-        f.Set("bitwise",          true);
-        f.Phase = 1;
-        return f;
-    }
-
-    // 最小可运行子集（Hello World 所需）：仅 interpolated_str / ternary / cast / bitwise。
-    public static LanguageFeatures MinimalProfile() {
-        var f = new LanguageFeatures();
-        f.Set("interpolated_str", true);
-        f.Set("ternary",          true);
-        f.Set("cast",             true);
         f.Set("bitwise",          true);
         f.Phase = 1;
         return f;
