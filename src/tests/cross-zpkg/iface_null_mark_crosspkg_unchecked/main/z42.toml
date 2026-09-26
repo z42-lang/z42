@@ -1,0 +1,9 @@
+[project]
+name    = "demo.inullucapp"
+version = "0.1.0"
+kind    = "exe"
+entry   = "Demo.INullUcApp.Main"
+pack    = true
+
+[dependencies]
+"demo.inulluc" = "0.1.0"
