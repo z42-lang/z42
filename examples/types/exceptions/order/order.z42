@@ -1,0 +1,32 @@
+using Std.IO;
+
+void Main() {
+    // ANCHOR: subclass
+    // 子类异常能被父类的 catch 接住
+    try {
+        throw new ArgumentNullException("name 不能为 null");
+    } catch (ArgumentException e) {
+        Console.WriteLine("被父类接住：" + e.GetType().Name);
+    }
+    // ANCHOR_END: subclass
+
+    // ANCHOR: order
+    // 多个 catch 按源码顺序，第一个匹配的胜——所以父类要写在后面
+    try {
+        throw new ArgumentNullException("x");
+    } catch (ArgumentException e) {
+        Console.WriteLine("先匹配到 ArgumentException");
+    } catch (Exception e) {
+        Console.WriteLine("这条进不来");
+    }
+    // ANCHOR_END: order
+
+    // ANCHOR: catchall
+    // 不关心类型就写 catch(T) 不带变量，或者干脆 catch {}
+    try { throw new FormatException("坏格式"); }
+    catch (FormatException) { Console.WriteLine("不需要变量时可以不写"); }
+
+    try { throw new Exception("随便什么"); }
+    catch { Console.WriteLine("catch {} 接住一切"); }
+    // ANCHOR_END: catchall
+}

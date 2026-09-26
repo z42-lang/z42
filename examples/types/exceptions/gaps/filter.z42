@@ -1,0 +1,8 @@
+using Std.IO;
+
+void Main() {
+    try { throw new Exception("x"); }
+    catch (Exception e) when (e.Message == "x") {   // ✗ 不支持异常过滤器
+        Console.WriteLine("到不了");
+    }
+}

@@ -1,0 +1,6 @@
+# ANCHOR: basic
+$ z42 run basic.z42
+5
+接住了：除数不能为 0
+finally 一定会跑
+# ANCHOR_END: basic

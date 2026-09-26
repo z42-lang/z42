@@ -21,7 +21,8 @@
 
 ### 🔴 下标越界会直接终止程序
 
-不是可以 `catch` 的异常——**整个程序停在那里**：
+越界抛出的东西**不是 `Exception` 的实例**，所以 `catch (Exception e)` 认不出它，
+程序就停在那里：
 
 ```z42
 // examples/basics/collections/arrays/oob.z42
@@ -32,7 +33,9 @@
 {{#include ../../../../examples/basics/collections/arrays/run.console:oob}}
 ```
 
-`try` / `catch` 接不住它。访问下标前自己确认范围。
+**访问下标前自己确认范围**——这是唯一正确的做法。
+（什么都接的 `catch { }` 技术上能拦下它，但那会连你没预料到的问题一起吞掉；
+细节见异常处理一章。）
 
 ### 方括号字面量
 

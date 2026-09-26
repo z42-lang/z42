@@ -1,0 +1,16 @@
+using Std.IO;
+
+// ANCHOR: trace
+void Innermost() { throw new Exception("出错了"); }
+void Middle()    { Innermost(); }
+
+void Main() {
+    try {
+        Middle();
+    } catch (Exception e) {
+        Console.WriteLine("消息：" + e.Message);
+        Console.WriteLine("调用栈：");
+        Console.WriteLine(e.StackTrace);
+    }
+    // ANCHOR_END: trace
+}
