@@ -102,20 +102,30 @@ public sealed class InheritanceResolver {
                     Z42ClassType ct = table.Classes.Get(ctKey) as Z42ClassType;
                     if (ct != null) {
                         Z42ClassType cur = ct;
-                        while (cur != null && cur.HasBase && cur.BaseName != "" && table.Classes.ContainsKey(cur.BaseName)) {
+                        // fix-inherited-typeparam-field-type：`curInst` = **把 `cur` 看成从 `ct` 出发
+                        // 实例化出来的样子**。ct 自身是定义（其型参就是它自己的），故起点为 null。
+                        // 每上一层就把「本层写给基类的实参」与已积累的代换**组合**一次
+                        // ⇒ 任意深度的 `Deep : DInt : GBox<int>` 都能把 `T` 换到底。
+                        // 组合手法照 `InterfaceClosure.BaseAt`（那边是接口侧的同一件事）。
+                        Z42InstantiatedType curInst = null;
+                        int depth = 0;
+                        while (cur != null && cur.HasBase && cur.BaseName != "" && table.Classes.ContainsKey(cur.BaseName) && depth < 32) {
                             Z42ClassType baseCt = table.Classes.Get(cur.BaseName) as Z42ClassType;
                             if (baseCt == null) { cur = null; }
                             else {
+                                Z42InstantiatedType baseInst = this._baseInstOf(table, cur, curInst);
                                 string[] bfns = baseCt.Fields.Keys();
                                 int k = 0;
                                 while (k < bfns.Length) {
                                     FieldSymbol bfs = baseCt.Fields.Get(bfns[k]) as FieldSymbol;
                                     if (bfs != null && !bfs.IsStatic && !ct.Fields.ContainsKey(bfns[k])) {
-                                        ct.Fields.Put(bfns[k], bfs);
+                                        ct.Fields.Put(bfns[k], this._substField(bfs, baseInst));
                                     }
                                     k = k + 1;
                                 }
+                                curInst = baseInst;
                                 cur = baseCt;
+                                depth = depth + 1;
                             }
                         }
                     }
@@ -123,6 +133,50 @@ public sealed class InheritanceResolver {
             }
             i = i + 1;
         }
+    }
+
+    // `cur` 写给它基类的实参，**换算到 ct 的视角**；没写实参 / 解析不出泛型实例化 → null（不代换）。
+    //
+    // ⚠️ 判「有没有实参」用 AST 的 `ArgCount`，**不用** `baseCt.GenericParamCount` ——
+    // 后者只说基类是泛型定义，说不了这一处**写没写**实参（`class D : GBox` 也命中它）。
+    // 这条坑接口侧已经记过一次（`InterfaceClosure.BaseAt` 抬头）。
+    private Z42InstantiatedType _baseInstOf(SymbolTable table, Z42ClassType cur, Z42InstantiatedType curInst) {
+        TypeExpr bref = cur.BaseRef;
+        if (bref == null) { return null; }
+        if (bref is NamedType) { if ((bref as NamedType).ArgCount == 0) { return null; } }
+        // 在 `cur` **自己的型参上下文**里解析：`class Sub<U> : GBox<U>` 的 `U` 要认成 Sub 的型参，
+        // 否则它会解析成一个不存在的类型。
+        Z42Type bt = table.ResolveTypeP(bref, cur.GenericParamNames, cur.GenericParamCount);
+        if (!(bt is Z42InstantiatedType)) { return null; }
+        Z42InstantiatedType bi = bt as Z42InstantiatedType;
+        // 组合：`cur` 本身已经是被实例化看待的（`Deep : DInt : GBox<int>` 走到第二层时），
+        // 就把它的实参代进去 —— `_substGeneric` 对 Z42InstantiatedType 正是逐实参递归。
+        if (curInst != null) {
+            Z42Type composed = MemberResolver._substGeneric(bi, curInst);
+            if (composed is Z42InstantiatedType) { bi = composed as Z42InstantiatedType; }
+        }
+        return bi;
+    }
+
+    // 基类字段搬进派生类时按 `baseInst` 代换字段类型。**必须产出新的 FieldSymbol** ——
+    // 原对象被基类的 Fields 表共享，就地改会把基类自己的字段类型也改掉
+    //（`GBox<int>` 与 `GBox<string>` 两个派生类会互相污染）。
+    //
+    // 不代换就原样返回同一个对象（零额外分配，且保持既有行为不劣化）：
+    // 无实参 / 代换后是 Unknown（形参名不在基类形参表里，例如种子旧 TSIG 没带 GenericParamNames）
+    // ⇒ 宁可留着原类型，也不要把它降成 Unknown。
+    private FieldSymbol _substField(FieldSymbol bfs, Z42InstantiatedType baseInst) {
+        if (baseInst == null) { return bfs; }
+        Z42Type ft = MemberResolver._substGeneric(bfs.FieldType, baseInst);
+        if (ft == null || ft is Z42UnknownType) { return bfs; }
+        if (ft.Name() == bfs.FieldType.Name()) { return bfs; }
+        FieldSymbol ns = new FieldSymbol(bfs.Name, bfs.Visibility, ft, bfs.IsStatic, bfs.ContainingTypeName);
+        ns.IsReadonly = bfs.IsReadonly;
+        ns.IsConst = bfs.IsConst; ns.ConstVal = bfs.ConstVal;
+        ns.IsDeprecated = bfs.IsDeprecated; ns.DeprecationMsg = bfs.DeprecationMsg;
+        ns.SetterVis = bfs.SetterVis;
+        ns.IsNullable = bfs.IsNullable;   // define-null-check-marks：`?` 标记跟着字段走
+        return ns;
     }
 
     // add-type-based-overloads D7（阶段 8 修复，2026-07-01）：override 方法 regKey 对齐。

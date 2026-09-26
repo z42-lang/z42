@@ -1,0 +1,72 @@
+// fix-inherited-typeparam-field-type：从**闭合泛型基类**继承来的字段，在派生类上的类型必须是
+// 代换后的实参，不是基类的型参名。
+//
+// 修前：`BaseName` 只存裸名（它是 `Classes` 的查找键），基类的**声明形态** `GBox<int>` 没人留 ⇒
+// 上溯拿到的是未实例化的 `GBox` 定义，`T` 永远换不掉。表现分两档，第二档更糟：
+//   ① 报错档：`d.V + 1` / `if (d.V)` → E0402（`got T`）—— 合法代码被拒
+//   ② 静默档：`int y = d.V;` **编得过**（`T` 对 `int` 可赋）⇒ 错类型一路流下去
+class GBox<T>          { public T V;            public GBox() { } }
+class Pair<A, B>       { public A X; public B Y; public Pair() { } }
+
+class DInt   : GBox<int>          { public DInt()   { } }
+class DBool  : GBox<bool>         { public DBool()  { } }
+class DStr   : GBox<string>       { public DStr()   { } }
+class DPair  : Pair<int, string>  { public DPair()  { } }
+class Deep   : DInt               { public Deep()   { } }   // 两层：Deep → DInt → GBox<int>
+class Sub<U> : GBox<U>            { public Sub()    { } }   // 派生类自己也是泛型
+class Plain            { public int N; public Plain() { } }
+class DPlain : Plain              { public DPlain() { } }   // 🔒 非泛型基类：不得受影响
+
+void Main() {
+    // ① 报错档：算术 / if 条件 —— 只有具体类型才允许的操作
+    DInt d = new DInt();
+    Assert.Equal(1, d.V + 1);
+    d.V = 41;
+    Assert.Equal(42, d.V + 1);
+
+    DBool db = new DBool();
+    if (db.V) { Assert.Equal(1, 2); }        // 零值必须是 false
+    db.V = true;
+    if (!db.V) { Assert.Equal(3, 4); }
+
+    // ② 静默档：赋给具体类型的局部 —— 修前编得过但类型是 T
+    int y = d.V;
+    Assert.Equal(41, y);
+
+    // ③ 多型参：按名字对位，不是按字段表位置
+    DPair p = new DPair();
+    Assert.Equal(1, p.X + 1);
+    Assert.Equal(true, p.Y == null);
+    p.X = 7; p.Y = "hi";
+    Assert.Equal(8, p.X + 1);
+    Assert.Equal("hi", p.Y);
+
+    // ④ 两层继承：实参要一路换到底
+    Deep dp = new Deep();
+    dp.V = 5;
+    Assert.Equal(6, dp.V + 1);
+
+    // ⑤ 派生类本身是泛型：基类实参是**派生类的型参**，再由收者实例化换成具体类型
+    Sub<int> s = new Sub<int>();
+    s.V = 9;
+    Assert.Equal(10, s.V + 1);
+
+    // ⑥ 🔒 同一个泛型基类的两个不同实例化**不得互相污染**（代换必须产出新的 FieldSymbol，
+    //    就地改会把基类自己的字段类型改掉）
+    DStr ds = new DStr();
+    ds.V = "abc";
+    Assert.Equal("abc", ds.V);
+    Assert.Equal(3, ds.V.Length);
+    Assert.Equal(41, d.V);                   // int 那份没被 string 那份带跑
+
+    // ⑦ 🔒 非泛型基类原样工作
+    DPlain q = new DPlain();
+    Assert.Equal(0, q.N);
+    q.N = 2;
+    Assert.Equal(3, q.N + 1);
+
+    // ⑧ 🔒 基类自身直接用仍然正常
+    GBox<int> g = new GBox<int>();
+    g.V = 100;
+    Assert.Equal(101, g.V + 1);
+}

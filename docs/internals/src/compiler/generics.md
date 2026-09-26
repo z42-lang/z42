@@ -272,6 +272,37 @@ per-instance `type_args` 只覆盖「实例自己那一层泛型」，两种形�
    `T` 都想占下标 0。正解是按**声明类**寻址（声明类可从帧的函数 owner 推导 ⇒ 零指令变更），
    并让 `ObjNew` 携带基链实参；那要 fingerprint bump，故独立成刀。
 
+> ⚠️ 第 2 条说的是**运行期 `type_args`**（`typeof(T)` / `default(T)` 在基类体内怎么求值），
+> **不要**把它与下面那条**符号层**的事混为一谈 —— 两者都叫「继承来的型参」，但一个在运行期、
+> 一个在类型检查期，修法与现状都不同。
+
+### 继承来的型参**字段**：符号层按闭合基类代换（`fix-inherited-typeparam-field-type`）
+
+`class DInt : GBox<int>` 上访问继承来的字段 `d.V`，其**静态类型**必须是 `int`。
+
+关键是 `Z42ClassType` 除了 `BaseName`（**裸名**，`Classes` 的查找键，见
+`fix-generic-base-name`）还要留一份 `BaseRef` —— 基类的**声明形态** `GBox<int>`。
+少了它，`InheritanceResolver._passInheritFields` 沿基类链上溯拿到的是未实例化的 `GBox` 定义，
+`T` 永远换不掉：
+
+| 写法 | 修前 |
+|---|---|
+| `d.V + 1` / `if (d.V)` | ❌ E0402（`got T`）—— 合法代码被拒 |
+| `int y = d.V;` | ⚠️ **静默通过**（`T` 对 `int` 可赋）—— 错类型一路流下去 |
+
+代换沿链**逐层组合**（`curInst` = 把当前层看成从派生类出发实例化出来的样子），
+所以 `Deep : DInt : GBox<int>` 任意深度都换得到底；组合手法与接口侧的
+`InterfaceClosure.BaseAt` 相同 —— **这本来就是同一个 bug 的两半**，接口那半由
+`Z42InterfaceType.BaseRefs` 早先修掉了，类这半一直空着。
+
+两条保命细节：① 代换**必须产出新的 `FieldSymbol`**，原对象被基类的 `Fields` 表共享，就地改会让
+`GBox<int>` 与 `GBox<string>` 两个派生类互相污染；② 判「写没写实参」看 AST 的 `ArgCount`，
+**不看** `GenericParamCount`（后者只说基类是泛型定义，`class D : GBox` 也命中它）。
+
+🔴 **跨包只通了编译期**：`class DInt : GBox<int>` 其中 `GBox` 来自别的 zpkg，现在**编得过**，
+但运行期抛 `MissingSymbolException: base type \`...GBox<int>\` ... could not be resolved`。
+实测确认那是**既有缺口**（撤回本变更、改用不含算术的写法，同一条错照样抛），归泛型实例化线。
+
 ---
 
 ## L3-G2 落地细节（2026-04-22）

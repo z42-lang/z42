@@ -85,6 +85,36 @@ class A {
 > `E0401: undefined function`，必须写 `this.M()`——而裸名读字段、读属性、调静态方法三样
 > 都是通的，唯独这一项不通。现已对齐。
 
+## 继承闭合的泛型基类
+
+基类可以带实参（**闭合**泛型基类）。继承来的成员在派生类上是**代换后**的类型，不是基类的型参名：
+
+```z42
+class GBox<T> { public T V; public GBox() { } }
+
+class DInt : GBox<int> {          // 闭合：把 int 喂给 T
+    public DInt() { }
+}
+
+void Main() {
+    DInt d = new DInt();
+    d.V = 41;
+    Console.WriteLine((d.V + 1).ToString());   // 42 —— `d.V` 的静态类型是 int
+}
+```
+
+派生类本身也可以是泛型，把自己的型参转喂给基类；链上任意深度都会一路代换到底：
+
+```z42
+class Sub<U> : GBox<U> { public Sub() { } }    // Sub<int>().V 是 int
+class Deep : DInt      { public Deep() { } }   // Deep().V 也是 int
+```
+
+> ⚠️ **限制：基类来自别的包时，这条路只通到编译期。** `class DInt : GBox<int>` 其中 `GBox`
+> 由另一个 zpkg 提供 —— 能编过，但运行期抛
+> `MissingSymbolException: base type \`…GBox<int>\` … could not be resolved`。
+> 同包内不受影响。⇒ 跨包场景暂时改用**组合**（把 `GBox<int>` 作为字段持有）而不是继承。
+
 ## 与 C# 的对照
 
 | C# | z42 |
@@ -93,6 +123,7 @@ class A {
 | `virtual` / `override` / `abstract` / `sealed` | ✓ 相同 |
 | `: base(...)` / `: this(...)` | ✓ 相同 |
 | `new` 方法隐藏（method hiding） | ✗ **不支持**——没有这个语义 |
+| 继承闭合泛型基类（`: GBox<int>`） | ✓ 相同（**同包内**；跨包见上面的限制） |
 | `protected` | 见[访问权限控制](access-control.md) |
 
 ## 相关
