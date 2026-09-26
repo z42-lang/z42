@@ -237,3 +237,86 @@ fn boxed_struct_owns_snapshot_and_survives_arena_truncate() {
     assert!(matches!(dec(&snap_bytes, 0, ty::TAG_I32), Value::I64(1)));
     assert!(matches!(dec(&snap_bytes, 4, ty::TAG_I32), Value::I64(2)));
 }
+
+/// fix-stackobj-inline-struct-leaf: the same inline-struct-field round-trip as
+/// `heap_object_inline_struct_field_roundtrips`, but the object lives in the **stack
+/// arena** (`Value::StackObject`) because escape analysis stack-allocated it.
+///
+/// 🔴 Before the fix both handlers had a `Value::Object` arm and **no** `StackObject`
+/// arm, so the base fell through to `as_struct_ref` and bailed
+/// `StructFieldSetPrim base: expected a struct value (StructRef), got StackObject`.
+/// A 12-line program — one class with one struct field — built with
+/// `z42c build --release` crashed at run time under `--mode interp`; JIT was fine,
+/// which is why no jit lane caught it. This test is the mode-independent guard.
+#[test]
+fn stack_object_inline_struct_field_roundtrips() {
+    use crate::vm_context::VmContext;
+    use crate::metadata::types::{TypeDesc, TypeDescCold, ScriptObject};
+    use crate::metadata::NameIndex;
+    use crate::metadata::tokens::TypeId;
+
+    // Same shape as the heap test: Point{x:i32@0, y:i32@4, tag:str@8}, size 12,
+    // one reference leaf at offset 8.
+    let composed = Arc::new(crate::metadata::types::ObjectLayout {
+        size: 12,
+        field_offsets: Box::new([]),
+        field_sizes: Box::new([]),
+        field_kinds: Box::new([]),
+        ref_offsets: Box::new([8]),
+        ref_kinds: Box::new([crate::metadata::types::STRUCT_REF_ARC_STRING]),
+        inline_refs: Box::new([]),
+        field_access: Box::new([]),
+    });
+    let td = Arc::new(TypeDesc {
+        class_flags: 0,
+        visibility: 0,
+        name: "C".to_string(),
+        base_name: None,
+        fields: Vec::new(),
+        field_index: NameIndex::new(),
+        vtable: Vec::new(),
+        vtable_index: NameIndex::new(),
+        cold: Some(Box::new(TypeDescCold { composed_object_layout: Some(composed), ..Default::default() })),
+        id: TypeId::UNRESOLVED,
+    });
+
+    let ctx = VmContext::new();
+    let mut frame = Frame::new(&[], 8);
+    let storage = td.object_storage();
+    let obj = ScriptObject::new(td, storage);
+    let idx = ctx.stack_alloc_obj(frame.frame_id, obj);
+    let base = Value::StackObject { idx, frame_id: frame.frame_id };
+
+    frame.set(0, base);
+    frame.set(1, Value::I64(42));
+    frame.set(2, Value::I64(7));
+    frame.set(3, Value::Str("hi".into()));
+
+    // Writes: two prim leaves + the ref leaf (the ref arm is the risky half — a
+    // stack object takes **no** write barrier, unlike the heap arm).
+    struct_field_set_prim(&ctx, &mut frame, 0, 0, ty::TAG_I32, 1).unwrap();
+    struct_field_set_prim(&ctx, &mut frame, 0, 4, ty::TAG_I32, 2).unwrap();
+    struct_field_set_prim(&ctx, &mut frame, 0, 8, ty::TAG_STR, 3).unwrap();
+
+    struct_field_get_prim(&ctx, &mut frame, 4, 0, 0, ty::TAG_I32).unwrap();
+    struct_field_get_prim(&ctx, &mut frame, 5, 0, 4, ty::TAG_I32).unwrap();
+    struct_field_get_prim(&ctx, &mut frame, 6, 0, 8, ty::TAG_STR).unwrap();
+
+    assert!(matches!(frame.get(4).unwrap(), Value::I64(42)), "pt.x must be 42 on a stack object");
+    assert!(matches!(frame.get(5).unwrap(), Value::I64(7)),  "pt.y must be 7 on a stack object");
+    match frame.get(6).unwrap() {
+        Value::Str(s) => assert_eq!(&**s, "hi", "inline ref leaf must round-trip on a stack object"),
+        o => panic!("expected the string ref leaf, got {o:?}"),
+    }
+
+    // Independent byte slots: rewriting x disturbs neither y nor the ref leaf.
+    frame.set(7, Value::I64(99));
+    struct_field_set_prim(&ctx, &mut frame, 0, 0, ty::TAG_I32, 7).unwrap();
+    struct_field_get_prim(&ctx, &mut frame, 5, 0, 4, ty::TAG_I32).unwrap();
+    struct_field_get_prim(&ctx, &mut frame, 6, 0, 8, ty::TAG_STR).unwrap();
+    assert!(matches!(frame.get(5).unwrap(), Value::I64(7)), "pt.y must stay 7 after pt.x rewrite");
+    match frame.get(6).unwrap() {
+        Value::Str(s) => assert_eq!(&**s, "hi", "ref leaf must survive a prim-leaf rewrite"),
+        o => panic!("expected the string ref leaf, got {o:?}"),
+    }
+}

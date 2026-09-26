@@ -161,6 +161,27 @@ arena 索引在子帧里无意义。**per-thread（per-`VmContext`）arena** 任
   栈对象上跑（`this` = 句柄，FieldGet/Set 经 arena 解）。
 - **访问**：FieldGet/Set、ArrayGet/Set/Len 识别栈句柄 → `ctx.stack_arena` 校验访问。栈对象字段存堆引用
   **不发 GC 写屏障**（栈对象非堆槽；其堆字段由根扫描保活）。
+  > ⚠️ **「识别栈句柄」必须覆盖每一个接受堆对象 base 的处理器，不只是 FieldGet/Set**
+  > （`fix-stackobj-inline-struct-leaf`，2026-09-27）——这是本页同一条不变量的**第三例**
+  > （前两例：根扫描的两半、JIT/OSR 的镜像）。
+  >
+  > `StructFieldGetPrim` / `StructFieldSetPrim`（内联 struct 字段的叶子读写）各有一条
+  > `Value::Object` 臂，却**都没有 `StackObject` 臂** ⇒ base 落到 `as_struct_ref` 兜底、抛
+  > `StructFieldSetPrim base: expected a struct value (StructRef), got StackObject`。
+  > 实测形态：**一个带 struct 字段的普通类**，`z42c build --release`（默认 `Opt.All`）后
+  > `--mode interp` 运行**必崩**，栈帧指向 ctor 的 `this.Item = t`。
+  >
+  > 它活了很久，是三层遮挡刚好叠满：① debug profile 不开优化 ⇒ 没有栈对象；
+  > ② 全部 golden 走**默认 emit-zbc 优化集**（StackAlloc 关），而 `opt_all` 当时的 11 个里
+  > **10 个在 `optimization/`、1 个在 `closures/`** —— `types/`·`generics/`·`classes/` 等
+  > 特性类目**一个都没有**，而优化类目的形状是为触发 pass 挑的，不含「带 struct 字段的
+  > 普通类」；③ **JIT 侧一直是对的** ⇒ jit 泳道两边都绿。
+  > 「两个后端只有一个错」是现有门禁最难发现的形状。
+  >
+  > 判据落在 `src/tests/optimization/stackalloc_inline_struct_field/`（带 `opt_all`，覆盖
+  > prim 叶子读写 / **引用叶子**读写 / copy-out / 值语义传参）+ 单测
+  > `stack_object_inline_struct_field_roundtrips`。两个 ref 分支都实测过是活码
+  > （逐个插 `bail!` 确认被触达，不是写了不跑的代码）。
   **字段访问接单态 inline cache（`opt-stack-field-ic`）**：栈对象 FieldGet/FieldSet **复用堆路径同款
   `FieldIC`**（缓存 `TypeId→slot`）——`type_desc.id` 已解析、`field_index` 按类型定 slot，故 `(TypeId→slot)`
   缓存对堆/栈**同一份有效**。命中即直接 `slots[slot]`，跳过每访问一次的 `field_index` 字符串哈希查找。

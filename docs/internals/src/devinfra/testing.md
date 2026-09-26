@@ -152,6 +152,22 @@ golden 用例的文件约定：
 | `interp_only` | 空文件 marker：JIT 模式跳过该用例 |
 | `opt_all` | 空文件 marker：用 `--emit-zbc --opt-all` 编。默认 emit 优化集关掉了 StackAlloc / Inline / PureCall / DeadBranch / Devirt（开了会改 golden 字节），**不挂这个 sidecar 的用例一条优化 pass 都走不到** |
 
+> 🔴 **`opt_all` 的覆盖面缺口是「类目性」的，不是「数量性」的**：到 2026-09-27 之前全仓 11 个
+> `opt_all`，其中 10 个在 `optimization/`、1 个在 `closures/` —— 也就是说
+> **`types/` · `generics/` · `classes/` · `interfaces/` · `cross-zpkg/` 这些「语言特性」类目一个都没有**。
+>
+> 这个分布看着合理（「优化的用例归优化类目」），但它测的是**pass 本身**，形状是为触发 pass 挑的；
+> 「一个带 struct 字段的普通类」这种日常形状不在其中。于是 `--release` 下的对象表示对特性类目
+> **整体不可见**。给 3 个泛型 fixture 补挂之后**当场炸出一个 release 必崩的真 bug**
+> （`fix-stackobj-inline-struct-leaf`：栈分配对象上的内联 struct 字段读写，interp 崩、jit 正常）。
+>
+> 挂 `opt_all` 的成本是一个空文件 —— **写涉及对象分配 / 字段布局 / 调用约定的用例时默认挂上，
+> 不要因为「这不是优化用例」就不挂**。
+>
+> ⚠️ 数 `opt_all` 有两种拼写（dir 形态 `opt_all` / flat 形态 `<name>.opt_all`）。
+> 我第一次只数了前者、得出「只有 2 个」并写进了 PR，**是错的** —— 与
+> [[z42-batch-rewrite-context-blindness]] 同族：判据只认一种拼写。
+
 单文件形态（`<category>/<name>.z42`）的 marker 写成同名前缀：`<name>.interp_only` / `<name>.opt_all`。
 
 查用例元数据不必读源码：

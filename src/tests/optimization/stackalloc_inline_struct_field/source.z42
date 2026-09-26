@@ -1,0 +1,69 @@
+// fix-stackobj-inline-struct-leaf e2e：**栈分配的对象**上内联 struct 字段的读写。
+//
+// 这条用例的存在理由就是 `opt_all` sidecar —— 没有它，StackAlloc pass 根本不跑，
+// 整个缺陷一条路都走不到（默认 emit-zbc 优化集关掉 StackAlloc / Inline / Devirt…）。
+// 全仓此前只有 2 个 fixture 挂了 opt_all，两个都没有「带 struct 字段的类」这个形状。
+//
+// 缺陷（实测，修前）：`NBox` 不逃逸 ⇒ 逃逸分析把它分配进栈 arena ⇒ `this.Item = t`
+// 发 `StructFieldSetPrim`，base 是 `Value::StackObject`，而 interp 的两个处理器
+// （get/set）只有 `Value::Object` 臂、没有 `StackObject` 臂 ⇒ 落到 `as_struct_ref` 兜底
+// 抛 `StructFieldSetPrim base: expected a struct value (StructRef), got StackObject`。
+//
+// 🔴 **不是泛型问题**：最初是 `generic_inst_value_semantics` 挂上 opt_all 后炸出来的，
+// 但换成这个非泛型的 `NBox` 症状一字不差 —— 是 StackAlloc × 内联 struct 字段的通病。
+//
+// 🔴 **release + interp 是真实部署形态**：`z42c build --release` 默认 `Opt.All`，而
+// 没有 jit 的目标（wasm / 部分移动端）就跑 interp。JIT 侧一直是对的，所以 jit 泳道
+// 抓不到它 —— 「两个后端只有一个错」最难被现有门禁发现。
+namespace Demo;
+
+using Std;
+
+struct P2 {
+    public int X;
+    public long Y;
+    public P2(int x, long y) { this.X = x; this.Y = y; }
+}
+
+// 带**引用叶子**的 struct：ref 那条分支与 prim 分支是两套代码（堆那边要写屏障、
+// 栈这边刻意不要），必须各自有判据。
+struct WithRef {
+    public int N;
+    public string S;
+    public WithRef(int n, string s) { this.N = n; this.S = s; }
+}
+
+class NBox { public P2 Item; public NBox(P2 t) { this.Item = t; } }
+class RBox { public WithRef Item; public RBox(WithRef t) { this.Item = t; } }
+
+long Take(P2 p) { return p.Y; }
+
+void Main() {
+    // ── prim 叶子：读 ──（修前就崩在这条的 ctor 里）
+    NBox b = new NBox(new P2(3, 4L));
+    Assert.Equal(4L, b.Item.Y);
+    Assert.Equal(3, b.Item.X);
+
+    // ── prim 叶子：写 ──
+    b.Item.Y = 55L;
+    Assert.Equal(55L, b.Item.Y);
+    Assert.Equal(3, b.Item.X);          // 相邻叶子不受扰
+
+    // ── 引用叶子：读 + 写 ──
+    RBox r = new RBox(new WithRef(1, "hi"));
+    Assert.Equal("hi", r.Item.S);
+    Assert.Equal(1, r.Item.N);
+    r.Item.S = "bye";
+    Assert.Equal("bye", r.Item.S);
+    Assert.Equal(1, r.Item.N);          // 写引用叶子不踩相邻 prim 叶子
+
+    // ── copy-out：取出来是独立副本，改副本不回写 ──
+    NBox c = new NBox(new P2(6, 7L));
+    P2 got = c.Item;
+    got.Y = 9L;
+    Assert.Equal(7L, c.Item.Y);
+    Assert.Equal(9L, got.Y);
+
+    // ── 值语义传参：callee 拿到副本 ──
+    Assert.Equal(7L, Take(c.Item));
+}
