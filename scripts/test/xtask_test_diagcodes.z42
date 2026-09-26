@@ -23,7 +23,22 @@
 //   ⑦ **任何源文件的散文里都不得断言发射形态**（「XX 层用字面量 E04xx 发码」）——形态是会变的
 //      状态，唯一 SoT 是 ④ 的清单；散文不会跟着切回，只会腐成假话；
 //   ⑧ **活性与 error-codes.md 的状态列双向对账**——有发射面却标着零发射/退役 → 红；
-//      零发射面却没标 → 红。
+//      零发射面却没标 → 红；
+//   ⑨ **每个活码必须被至少一处测试按码断言**——否则必须在 `diag-untested-codes.txt` 里记账
+//      （双向棘轮：少一条 / 多一条都红）。
+//
+// ⑨ 为什么也要有（⑧ 只答了一半）：⑧ 答的是「它还活着吗」，⑨ 答的是「它活着这件事**有人验过**吗」。
+// 一个码可以有发射点、文档写着 ✅，而**全仓没有任何测试提到这个号** —— 于是它的行为（报不报、
+// 报在哪、消息说什么）可以随下一次重构一起消失，而门全绿。这正是 E0407 当年**反过来**的那一半：
+// 那次是「有测试、零发射」，⑨ 盯「有发射、零测试」。实测 main 上有 5 个：
+// E0103 / E0435 / E0436 / E0464 / E0493。
+//
+// ⚠️ ⑨ 的判据有两个坑，都是实测踩出来的，别改回去：
+//   · **注释里提到一个码不算钉住它** ⇒ `.z42` 的测试面文本要先剥行注释。不剥的话 `E0493`
+//     被一句「同 E0493 当年那条的形状」的对比性注释算成已覆盖，而那正是它要抓的东西。
+//   · **本门自己的文件不算测试面**（见 `_dcIsOwnFile`）⇒ 否则棘轮**自我擦除**：允许清单住在
+//     `scripts/test/` 下、正是覆盖面的一个根，清单里的码于是「出现在测试面」⇒ 判为已覆盖 ⇒
+//     下次 `--update` 把它们删掉 ⇒ 再跑又说未覆盖。一个自指的门，两次运行给出互相矛盾的答案。
 //
 // ⑧ 为什么后补上（第四次同形状事故，而这次换到了「码还活着吗」这一维）：①-⑦ 盯的全是
 // **码这个对象**——谁占了它、谁发射它、欠账多久、散文有没有乱说形态。**没有一条盯「它还活着吗」**：
@@ -82,6 +97,122 @@ using Std.Time;
 
 string _dcBaselinePath() { return "scripts/test/diag-literal-emitters.txt"; }
 
+// ⑨ 的允许清单：**活码里还没有任何测试按码断言的**那些。双向棘轮（多一条 / 少一条都红）⇒ 只能缩短。
+string _dcUntestedPath() { return "scripts/test/diag-untested-codes.txt"; }
+
+// ⑨ 的「测试面」：一个码在这些地方出现过，就算被断言过。
+//   · `src/**` 里被 ②③ 排除掉的那些（即 `tests/` 下的，任意扩展名——`expected_build_error.txt`
+//     这类期望文件正是跨包用例的断言载体）
+//   · `examples/**`（`.console` 重放稿）· `scripts/test/**` · `docs/learn/**`
+// 判据刻意宽：本门要答的是「这个码有没有被任何一处钉住」，不是「钉得够不够好」。
+string[] _dcCoverageRoots() { return new string[]{ "examples", "scripts/test", "docs/learn" }; }
+
+// 🔴 **本门自己的文件不算测试面** —— 否则棘轮会自我擦除。
+//
+// 实测踩到：`diag-untested-codes.txt`（⑨ 的允许清单）住在 `scripts/test/` 下，而那正是覆盖面的
+// 一个根 ⇒ 清单里列的码因为「出现在测试面」被判为**已覆盖** ⇒ 下一次跑 `--update` 就把它们从
+// 清单里删掉 ⇒ 再跑又说它们未覆盖……一个自指的门，两次运行给出互相矛盾的答案
+//（第一次报 {E0103,E0435,E0464}、第二次报 {E0436,E0493}）。
+//
+// `diag-literal-emitters.txt`（④ 的清单）同病；门脚本自身也同病 —— 它的诊断文本里逐字写着
+// 码号（`「E0407 那一形」`之类），一旦算进覆盖面，**被它点名讨论过的码就永远显得有测试**。
+//
+// 判据按**文件名**而不是路径前缀：这几份文件将来搬家也不会悄悄失效。
+bool _dcIsOwnFile(string relp) {
+    return relp.EndsWith("diag-untested-codes.txt")
+        || relp.EndsWith("diag-literal-emitters.txt")
+        || relp.EndsWith("xtask_test_diagcodes.z42");
+}
+
+// 只读文本类扩展名（避免把二进制读进来）。
+bool _dcIsTextFile(string relp) {
+    return relp.EndsWith(".z42") || relp.EndsWith(".txt") || relp.EndsWith(".console")
+        || relp.EndsWith(".md") || relp.EndsWith(".out") || relp.EndsWith(".err")
+        || relp.EndsWith(".toml") || relp.EndsWith(".json");
+}
+
+// 读一份「每行一个码、`#` 开头为注释」的清单。文件读不到 → -1（调用方据此判「棘轮没有基线」，
+// 而不是当成空清单——空清单会让门在文件被误删时**变成恒绿**）。
+int _dcLoadCodeList(string root, string relPath, string[] outCodes) {
+    string text = "";
+    try { text = File.ReadAllText(Path.Join(root, relPath)); } catch (Exception ex) { return -1; }
+    string[] lines = text.Split("\n");
+    int n = 0; int i = 0;
+    while (i < lines.Length) {
+        string ln = lines[i].Replace("\r", "");
+        i = i + 1;
+        if (ln.Length == 0 || ln.StartsWith("#")) { continue; }
+        if (n < outCodes.Length) { outCodes[n] = ln; n = n + 1; }
+    }
+    return n;
+}
+
+// ⑨ 的累加器（z42 无多返回值 / out 参数 → 小载体）。
+sealed class DcCovZ {
+    public string[] Codes; public int Cn;    // 测试面里出现过的码值
+    public string[] Names; public int Nn;    // 测试面里引用过的 DiagnosticCodes.<Name>
+    public int Files;
+    public DcCovZ() {
+        this.Codes = new string[512]; this.Cn = 0;
+        this.Names = new string[512]; this.Nn = 0;
+        this.Files = 0;
+    }
+    // `z42` = 这份文本是 z42 源码 ⇒ **逐行剥掉行注释再扫**。
+    //
+    // 🔴 这一步是判据的要点，不是优化：**注释里提到一个码不构成「钉住」它**。第一版没剥，
+    // 于是 `E0493` 被算作已覆盖 —— 它在测试面里唯一的出现是 `xtask_test_targets.z42` 里一句
+    // **对比性注释**（「同 E0493 当年那条的形状」）；`E0436` 同理（三处全是注释，另一处是断言
+    // `ErrorCount == 0` 的**阴性**用例）。把注释算进来的门会报「覆盖了」，而那正是它要抓的东西。
+    // 非 z42 的文本（`.console` 重放稿 / `expected_build_error.txt` / `.md`）没有注释概念，原样扫。
+    public void AddText(string text, bool z42) {
+        this.Files = this.Files + 1;
+        string[] lines = text.Split("\n");
+        int li = 0;
+        while (li < lines.Length) {
+            string raw = lines[li];
+            li = li + 1;
+            string ln = z42 ? _dcStripComment(raw) : raw;
+            string[] found = new string[16];
+            int fn = _dcScanCodes(ln, found);
+            int i = 0;
+            while (i < fn) {
+                if (_dcIndexOfStr(this.Codes, this.Cn, found[i]) < 0) {
+                    this.Codes = _dcPush(this.Codes, this.Cn, found[i]); this.Cn = this.Cn + 1;
+                }
+                i = i + 1;
+            }
+            // 常量名引用（`Assert.Equal(DiagnosticCodes.Foo, …)` 这种形态），复用 ③ 的抽取器。
+            string[] ns = new string[8];
+            int n2 = _dcConstRefs(ln, ns);
+            int k = 0;
+            while (k < n2) {
+                if (_dcIndexOfStr(this.Names, this.Nn, ns[k]) < 0) {
+                    this.Names = _dcPush(this.Names, this.Nn, ns[k]); this.Nn = this.Nn + 1;
+                }
+                k = k + 1;
+            }
+        }
+    }
+}
+
+// 扫一棵子树进累加器。目录不存在 → 静默跳过（`docs/learn` 在某些精简检出里可能没有）。
+void _dcScanCoverageTree(string root, string sub, DcCovZ cov) {
+    string dir = Path.Join(root, sub);
+    if (!Directory.Exists(dir)) { return; }
+    string[] rel = Directory.EnumerateRecursive(dir);
+    int i = 0;
+    while (i < rel.Length) {
+        string relp = rel[i].Replace("\\", "/");
+        i = i + 1;
+        if (!_dcIsTextFile(relp)) { continue; }
+        if (_dcContains(relp, "/artifacts/")) { continue; }
+        if (_dcIsOwnFile(relp)) { continue; }   // 见 `_dcIsOwnFile`：自指会让棘轮自我擦除
+        string text = "";
+        try { text = File.ReadAllText(Path.Join(dir, relp)); } catch (Exception ex) { text = ""; }
+        if (text != "") { cov.AddText(text, relp.EndsWith(".z42")); }
+    }
+}
+
 // ⑥ 的宽限期。nightly 每天发 ⇒ 常量进 main 当晚就该进种子；3 天是给发布链偶发失败留的余量。
 // 调大它之前先问：是真的需要更久，还是 nightly 停了？后者该去修发布链，不是放宽这里。
 int _dcGraceDays() { return 3; }
@@ -127,9 +258,20 @@ int _testDiagCodes(bool update) {
     string dir = Path.Join(root, "src");
     string[] rel = Directory.EnumerateRecursive(dir);
     int files = 0; int emitted = 0; int refs = 0;
+    // ⑨ 的测试面累加器：与 ②③ **同一趟遍历**（`src/` 只走一次），条件互补 ——
+    // ②③ 要的是「非 tests 的 .z42」，⑨ 要的是「tests 下的任意文本文件」。
+    DcCovZ cov = new DcCovZ();
     int f = 0;
     while (f < rel.Length) {
         string relp = rel[f].Replace("\\", "/");
+        // ⑨：`src/**/tests/**` 与 `src/tests/**` 下的文本文件（含 `expected_build_error.txt`
+        // 这类期望文件——跨包用例的断言就载在那里）。排除 `/artifacts/`（构建产物里的拷贝）。
+        bool isTestPath = _dcContains(relp, "/tests/") || relp.StartsWith("tests/");
+        if (isTestPath && _dcIsTextFile(relp) && !_dcContains(relp, "/artifacts/") && !_dcIsOwnFile(relp)) {
+            string ttext = "";
+            try { ttext = File.ReadAllText(Path.Join(dir, relp)); } catch (Exception ex) { ttext = ""; }
+            if (ttext != "") { cov.AddText(ttext, relp.EndsWith(".z42")); }
+        }
         if (relp.EndsWith(".z42") && !_dcIsExcluded(relp)) {
             string text = "";
             try { text = File.ReadAllText(Path.Join(dir, relp)); }
@@ -399,6 +541,85 @@ int _testDiagCodes(bool update) {
         }
     }
 
+    // ── ⑨ 活码必须被至少一处测试按码断言（允许清单 + 双向棘轮）────────────────
+    // ⑧ 答的是「它还活着吗」，⑨ 答的是「它活着的事**有人验过**吗」。两件事都不是 ①-⑦ 在管的：
+    // 一个码可以有发射点、文档写着 ✅、而**全仓没有任何测试提到这个号** —— 于是它的行为
+    // （报不报、报在哪、消息说什么）可以随下一次重构一起消失，而门全绿。
+    //
+    // 这正是 E0407 当年**反过来**的那一半：那次是「有测试、零发射」，本条盯「有发射、零测试」。
+    //
+    // 判据宽（要答的是「有没有被任何一处钉住」，不是「钉得够不够好」）：码值或它的常量名
+    // 出现在测试面任一处即算覆盖。测试面 = `src/**/tests/**` ∪ `src/tests/**`（任意文本扩展名，
+    // 含 `expected_build_error.txt` 这类期望文件——跨包用例的断言就载在那里）∪ `examples/**`
+    // （`.console` 重放稿）∪ `scripts/test/**` ∪ `docs/learn/**`。
+    //
+    // 允许清单是**双向棘轮**（同 ④ 的形态，理由也同）：少一条红（新加的活码没测试就想混过去）、
+    // 多一条也红（某个码补上测试了，清单里那条就是假话，必须删）。于是它**只能缩短**。
+    int ci = 0;
+    string[] covRoots = _dcCoverageRoots();
+    while (ci < covRoots.Length) { _dcScanCoverageTree(root, covRoots[ci], cov); ci = ci + 1; }
+
+    string[] untested = new string[256]; int un = 0;
+    int t = 0;
+    while (t < rc) {
+        bool live = _dcIndexOfStr(litCodes, lc, rCode[t]) >= 0
+                 || _dcIndexOfStr(refNames, rn, rName[t]) >= 0;
+        if (live) {
+            bool covered = _dcIndexOfStr(cov.Codes, cov.Cn, rCode[t]) >= 0
+                        || _dcIndexOfStr(cov.Names, cov.Nn, rName[t]) >= 0;
+            if (!covered) { untested = _dcPush(untested, un, rCode[t]); un = un + 1; }
+        }
+        t = t + 1;
+    }
+    _dcSort(untested, un);
+
+    if (update) {
+        string outp2 = Path.Join(root, _dcUntestedPath());
+        string body2 = "# 活码里**还没有任何测试按码断言**的那些（规则 ⑨，双向棘轮：多一条 / 少一条都红）。\n"
+            + "# 「活码」= 有发射点（字面量或 DiagnosticCodes.<Name> 引用，见规则 ⑧）。\n"
+            + "# 「被断言」判据很宽：码值或常量名出现在测试面任一处即算——测试面 = src/**/tests/** ∪\n"
+            + "# src/tests/**（任意文本扩展名，含 expected_build_error.txt）∪ examples/** ∪ scripts/test/**\n"
+            + "# ∪ docs/learn/**。本门要答的是「有没有被任何一处钉住」，不是「钉得够不够好」。\n"
+            + "# 每一条都是**欠账**：给它补一个按码断言的用例，然后重跑 `xtask test diagcodes --update`。\n"
+            + "# 这份清单只应缩短 —— 新增一个活码而不给它测试，门会红并要求你在这里显式记一笔。\n";
+        int w3 = 0;
+        while (w3 < un) { body2 = body2 + untested[w3] + "\n"; w3 = w3 + 1; }
+        File.WriteAllText(outp2, body2);
+        Console.WriteLine("  ⑨ updated " + _dcUntestedPath() + ": " + un.ToString() + " untested live code(s)");
+    } else {
+        string[] allow = new string[256]; int an = _dcLoadCodeList(root, _dcUntestedPath(), allow);
+        if (an < 0) {
+            ConsoleError.WriteLine("  ✗ cannot read " + _dcUntestedPath()
+                + " — rule ⑨'s ratchet has no baseline to compare against (a gate that cannot find its"
+                + " subject is not a gate). Regenerate with `xtask test diagcodes --update`.");
+            vc = vc + 1;
+        } else {
+            int u2 = 0;
+            while (u2 < un) {
+                if (_dcIndexOfStr(allow, an, untested[u2]) < 0) {
+                    viol = _dcPush(viol, vc, "`" + untested[u2] + "` has an emission site but **no test"
+                        + " asserts it by code** anywhere in the test surface — add a case that pins the code"
+                        + " (a fixture's expected_build_error.txt, an Assert on the code, a replayed .console),"
+                        + " or record the debt in " + _dcUntestedPath() + ". Without a test, the code's behaviour"
+                        + " (whether it fires, where, what it says) can vanish in the next refactor with the gate green.");
+                    vc = vc + 1;
+                }
+                u2 = u2 + 1;
+            }
+            int a2 = 0;
+            while (a2 < an) {
+                if (_dcIndexOfStr(untested, un, allow[a2]) < 0) {
+                    viol = _dcPush(viol, vc, _dcUntestedPath() + " lists `" + allow[a2] + "` as untested,"
+                        + " but it now IS asserted somewhere (or stopped being a live code) — drop the line"
+                        + " (`xtask test diagcodes --update`). A stale allowlist entry is a false claim that"
+                        + " the ratchet then protects: it would let a real regression hide behind it.");
+                    vc = vc + 1;
+                }
+                a2 = a2 + 1;
+            }
+        }
+    }
+
     _dcSort(viol, vc);
     int v = 0;
     while (v < vc) { ConsoleError.WriteLine("  ✗ " + viol[v]); v = v + 1; }
@@ -410,6 +631,9 @@ int _testDiagCodes(bool update) {
         // ⑧ 的账面：**这两个数就是「有多少条保护真的在跑」**。零发射那一格是欠债，不是噪音——
         // 它此前只存在于文档的一列人工 grep 结果里，现在每跑一次门都被重算一次。
         + liveN.ToString() + " live / " + deadN.ToString() + " zero-emission (documented as such); "
+        // ⑨ 的账面：**活码里有几条还没人按码验过**。同 ⑧ 的两个数，这个数也只应往下走。
+        + un.ToString() + " live code(s) with no test asserting them (of " + cov.Files.ToString()
+        + " test-surface file(s) scanned); "
         + vc.ToString() + " violation(s)");
     // ⑥ 的欠账要**主动报出来**，别等它超期才第一次被提起——清单短的时候这一行就是全部账面。
     if (!update && pc > 0) {
