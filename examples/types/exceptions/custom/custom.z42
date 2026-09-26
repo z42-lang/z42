@@ -1,0 +1,33 @@
+using Std.IO;
+
+// ANCHOR: decl
+// 自定义异常：继承 Exception，用 `: base(...)` 把消息交给基类，
+// 想带额外信息就自己加字段。
+class NotFoundException : Exception {
+    public string Key;
+
+    public NotFoundException(string key) : base("找不到：" + key) {
+        this.Key = key;
+    }
+}
+// ANCHOR_END: decl
+
+// ANCHOR: use
+string Lookup(string key) {
+    if (key != "alice") {
+        throw new NotFoundException(key);
+    }
+    return "Alice Smith";
+}
+
+void Main() {
+    Console.WriteLine(Lookup("alice"));
+    try {
+        Lookup("bob");
+    } catch (NotFoundException e) {
+        Console.WriteLine(e.Message);
+        Console.WriteLine("出问题的键：" + e.Key);   // 自己加的字段
+        Console.WriteLine(e.ToString());              // 打的是自己的类名
+    }
+    // ANCHOR_END: use
+}

@@ -1,0 +1,7 @@
+using Std.IO;
+
+void Main() {
+    int[] a = new int[1];
+    try { Console.WriteLine(a[5]); }
+    catch (Exception e) { Console.WriteLine("typed catch 接不住，到不了这里"); }
+}

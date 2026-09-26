@@ -1,0 +1,8 @@
+using Std.IO;
+
+void Main() {
+    int[] a = new int[1];
+    try { Console.WriteLine(a[5]); }
+    catch { Console.WriteLine("catch {} 能接住"); }
+    Console.WriteLine("程序继续跑");
+}
