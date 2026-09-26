@@ -250,11 +250,27 @@
       `readme-writing.md`——新增「待办」「依赖关系」两个可选段 + 库目录的两处细化
       （功能索引写成入口点、核心文件表加「类型」列），原文件删除
 
-### 未做（需 User 定）
+### 两个游离文件（2026-09-26 User 裁决：删，先并入 roadmap）
 
-`docs/library_review.md`（2026-08-30 的一次性 stdlib 分析快照，结论已大部分被
-`batch4-verification.md` 的实测覆盖或推翻）与 `docs/todo-list.md`（速记清单，部分条目已完成）
-**未删也未合并**——删哪些、并哪些进 roadmap 需要 User 定。已在 `docs/README.md` 建「待归置」表登记。
+- [x] `docs/library_review.md` **删**——2026-08-30 的一次性 stdlib 分析快照；🟡 高频痛点节
+      2026-09-04 已自行清空，🔴 结构性缺口（IEnumerable/LINQ、IComparer）已由 `#814`
+      接口返回位桥接与 roadmap 的 0.4.x 标准库线接管，git 留痕
+- [x] `docs/todo-list.md` **删**——⭐ 删前逐条核对了 roadmap 覆盖度：**#3 / #13 / #15 / #16 / #17 / #18
+      六条在 roadmap 全文零命中**（`--version` 入 Std.Cli / 联合类型 / zaia / 测试语料分档 /
+      命名收敛 z42vm→z42r·z42.ir→z42.package / 调试器），直接删会丢掉唯一记录 ⇒ 先在
+      [roadmap.md「未排期心愿单」](../../../roadmap.md)（Deferred Backlog Index 下）立表承接，再删文件。
+      其余条目已分别落在 0.4.x 模块表（#1/#2/#4/#7/#8/#9/#10/#11/#12）与横向工作流里；
+      #14（examples 配合 book）已由 `docs/learn/` + `xtask test examples` 落地
+- [x] `docs/README.md` 的「待归置」表随之删除（表里两行就是这两个文件）
+- [x] 根 `README.md` 过时描述修正（批 6「全仓链接重指」的收尾）：
+      `docs/design/` + `docs/workflow/`（已不存在）从「Repository Layout」清掉、
+      「知识库正在并入 docs/book/」改写成已完成的三书分流、
+      **两处夸大的现在时特性**按实测改为计划态（AOT `cargo` feature = 占位无实现 ⇒ 「三种执行模式」
+      改「两种 + AOT 未实现」；热重载 VM 完整实现在 0.5.x ⇒ 从特性表移进「Planned」一行）
+- [x] 顺带修 `roadmap.md` 的 7 条断链（并书/归档后未跟的路径 + 2 条指向 2026-08-30 已删的
+      `compiler_review.md`）；⚠️ 其中 4 条 `packaging-future-*` 的**正文随 `docs/design/` 并书丢了**
+      （internals 的 packaging.md 没有对应延后节）——本次只把链接指回文件、正文暂留 roadmap 行内，
+      按 philosophy.md「延后特性管理」该回落到书页，**留作本 change 的欠账**
 
 ## 批 7 · 其余门禁
 
