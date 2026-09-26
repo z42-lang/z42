@@ -1,0 +1,77 @@
+// Test: unify-blob-return-abi —— 接口声明返回 `Self`、实现是 **blob struct**（≥ 2 字段）时，
+// 经**接口收者**调用不再 ABI 失配。
+//
+// 形状：`Self` 在接口槽位上是**引用**（调用点不传 sret），而具体实现 `Vec2 Copy()` 返回 blob
+// ⇒ 物理签名是 `this` + sret = 2，接口调用点只传 1 ⇒ 修前运行期抛
+// `Vec2.Copy ... takes 2 physical argument(s), the call passes 1`（编译期零诊断）。
+//
+// 与 `operators/static_abstract_operator.z42` 里 Vec2 那组是**同一个根因的两副面孔**：
+// 那条是 `static abstract Self op_Add(Self,Self)` 在擦除的泛型体里（`this`+1 = 2 物理 vs 3），
+// 这条是实例 `Self Copy()` 经接口收者（1 物理 vs 2）。判据都在「接口声明的返回位是**型参**」。
+//
+// ⚠️ 判据必须看**未代换**的声明：`Self` 经满足性检查已被换成实现类（= Vec2，一个 struct），
+// 单看代换后的类型分不出「声明写的是 Self」（要桥接）与「声明写的就是 Vec2」（调用点知道传 sret，
+// 桥接反而会打坏）。下面 `IExact` 那一组就是后者的守卫。
+
+interface IClone { Self Copy(); }
+
+// 声明就写具体 struct —— 接口调用点**知道**返回 Vec2、会传 sret ⇒ **不该**桥接。
+interface IExact { Vec2 Exact(); }
+
+struct Vec2 : IClone, IExact {
+    public long X;
+    public long Y;
+    public Vec2(long x, long y) { this.X = x; this.Y = y; }
+    public Vec2 Copy()  { return new Vec2(this.X + 1, this.Y + 1); }
+    public Vec2 Exact() { return new Vec2(this.X + 100, this.Y + 100); }
+}
+
+// 单字段 struct：不是 blob、返回位无 sret ⇒ 今天本来就对，桥接不得把它改坏（阴性面）。
+struct One : IClone {
+    public long N;
+    public One(long n) { this.N = n; }
+    public One Copy() { return new One(this.N + 1); }
+}
+
+// class 实现：引用返回、与 sret 无关（另一条不得回归的对照）。
+class Node : IClone {
+    public int V;
+    public Node(int v) { this.V = v; }
+    public Node Copy() { return new Node(this.V + 1); }
+}
+
+void Main() {
+    Vec2 v = new Vec2(1, 2);
+
+    // ① 具体类型收者：仍走带 sret 的 `Copy$struct`，值语义正常
+    Vec2 d = v.Copy();
+    Assert.Equal(2, d.X);
+    Assert.Equal(3, d.Y);
+
+    // ② 接口收者（修前在此抛 takes 2 / passes 1）
+    IClone c = v;
+    object boxed = c.Copy();
+    Assert.Equal(true, boxed != null);
+    // 装箱结果上读字段（#838 让 field_get 认装箱 struct）
+    Vec2 back = (Vec2)boxed;
+    Assert.Equal(2, back.X);
+    Assert.Equal(3, back.Y);
+
+    // ③ 声明返回**具体 struct** 的接口成员：不桥接，照旧走 sret
+    IExact e = v;
+    object ex = e.Exact();
+    Vec2 exv = (Vec2)ex;
+    Assert.Equal(101, exv.X);
+
+    // ④ 单字段 struct（非 blob）：接口收者照旧
+    One o = new One(5);
+    IClone c2 = o;
+    object o2 = c2.Copy();
+    Assert.Equal(true, o2 != null);
+
+    // ⑤ class 实现：不受影响
+    Node n = new Node(7);
+    IClone c3 = n;
+    Node n2 = (Node)c3.Copy();
+    Assert.Equal(8, n2.V);
+}

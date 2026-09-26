@@ -69,8 +69,11 @@ public sealed class IrGenMemberEmitter {
                     var bsyn = new IfaceBridgeSynth(model.Symbols, g);
                     // 必须先 CanBridge：blob 名由它解出（与 CallEmitter 同源），EmitBridge 直接用。
                     if (bsyn.CanBridge(bms.Signature.Ret)) {
+                        // unify-blob-return-abi：形参表按符号算（`static abstract Self op_Add(Self,Self)`
+                        // 是 2 声明形参 + 静态），`isInstance` 与上面发具体实现时用的是同一个变量 ——
+                        // 桥接的物理签名必须与**调用点**一致（擦除的泛型体发 `this`+N，静态实现发 N）。
                         IrFunction bridge = bsyn.EmitBridge(this._irOwner(c) + "." + methKey, irName,
-                                                            bridgeRet, owner);
+                                                            bridgeRet, owner, bms, isInstance);
                         this._out.AddFunc(bridge);
                     }
                 }

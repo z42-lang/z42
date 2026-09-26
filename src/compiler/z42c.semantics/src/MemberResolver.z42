@@ -726,7 +726,7 @@ public sealed partial class MemberResolver {
                     this._tc._access.CheckAccess(ms.Visibility, ms.ContainingTypeName, env, env.Symbols, "method", mem.Name, sp);   // enforce-access-control
                     this._tc._access.CheckDeprecatedM(ms, mem.Name, sp);   // add-deprecated-directive
                     BoundExpr[] fa = this._tc._overload._withDefaults(ms, args, rawArgs, argCount, env, sp, true);
-                    BoundCall bc = BoundCall.Marked(new BoundCall("static", false, null, ct.Name(), ms.RegKey, fa, fa.Length, ms.Signature.Ret, sp), ms.Signature);
+                    BoundCall bc = BoundCall.Marked(new BoundCall("static", false, null, ct.Name(), ms.CallKey(), fa, fa.Length, ms.Signature.Ret, sp), ms.Signature);
                     this._applyMethodTypeArgs(bc, call, ms, env);   // add-generic-methods：静态泛型方法（serde 招牌路径）
                     return bc;
                 }
@@ -756,7 +756,7 @@ public sealed partial class MemberResolver {
                         // 精确重载后，`string.Join("-","x","y","z")` 的 expanded form 需在此打包成 string[]，
                         // 否则以 4 裸实参调 `Join$2$string$string[]`（2 形参）→ arity 不符。
                         BoundExpr[] fa2 = this._tc._overload._withDefaults(wms2, args, rawArgs, argCount, env, sp, true);
-                        return BoundCall.Marked(new BoundCall("static", false, null, pwrap2, wms2.RegKey, fa2, fa2.Length, wms2.Signature.Ret, sp), wms2.Signature);
+                        return BoundCall.Marked(new BoundCall("static", false, null, pwrap2, wms2.CallKey(), fa2, fa2.Length, wms2.Signature.Ret, sp), wms2.Signature);
                     }
                     if (!this._tc._overload.LastAmbiguous) {
                         this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol,
@@ -795,7 +795,7 @@ public sealed partial class MemberResolver {
                         this._tc._access.CheckAccess(qms.Visibility, qms.ContainingTypeName, env, env.Symbols, "method", mem.Name, sp);
                         this._tc._access.CheckDeprecatedM(qms, mem.Name, sp);
                         BoundExpr[] qfa = this._tc._overload._withDefaults(qms, args, rawArgs, argCount, env, sp, true);
-                        BoundCall qbc = BoundCall.Marked(new BoundCall("static", false, null, qct.Name(), qms.RegKey, qfa, qfa.Length, qms.Signature.Ret, sp), qms.Signature);
+                        BoundCall qbc = BoundCall.Marked(new BoundCall("static", false, null, qct.Name(), qms.CallKey(), qfa, qfa.Length, qms.Signature.Ret, sp), qms.Signature);
                         this._applyMethodTypeArgs(qbc, call, qms, env);
                         return qbc;
                     }

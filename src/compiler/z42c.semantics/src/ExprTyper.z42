@@ -679,7 +679,12 @@ public sealed partial class ExprTyper {
             opArgs[0] = left; opArgs[1] = right;
             MethodSymbol opMs = this._tc._overload._resolveOverload(env.Symbols, lct, opMethod, opArgs, 2, 0, bin.Span, null, env);   // 运算符重载无显式类型实参 → typeArgCount=0
             if (opMs != null) {
-                return BoundCall.Marked(new BoundCall("static", false, null, lct.Name(), opMs.RegKey, opArgs, 2, opMs.Signature.Ret, bin.Span), opMs.Signature);
+                // unify-blob-return-abi：目标名必须走 `CallKey()` 而不是裸 `RegKey` —— 被桥接的
+                // 运算符（返回 blob struct 的 `static override op_X`）其裸名槽已让给**无 sret 的桥接**，
+                // 而这条路是**具体类型**收者：它按具体返回类型传了 sret 槽，打在桥接上就是反向失配
+                // （`takes 2 …, the call passes 3`）。`CallKey()` 未桥接时逐字等于 `RegKey`，
+                // 其注释也把「凡以 RegKey 作调用目标名的站点都该改用它」定为纪律。
+                return BoundCall.Marked(new BoundCall("static", false, null, lct.Name(), opMs.CallKey(), opArgs, 2, opMs.Signature.Ret, bin.Span), opMs.Signature);
             }
         }
         BinaryRule rule = BinaryTypeTable.Lookup(bin.Op);

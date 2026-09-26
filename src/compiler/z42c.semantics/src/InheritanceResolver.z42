@@ -594,8 +594,20 @@ public sealed class InheritanceResolver {
                     // `takes 2 physical argument(s), the call passes 1`。
                     // 这里只**打标记**，真要不要桥接由 IrGen 用 `_isBlobStruct` 再判（标量 repr 的
                     // struct 是自描述 Value，经接口返回今天本来就对，不能动）。
-                    if (InheritanceResolver._isStructTypeRef(implRet) && !InheritanceResolver._isStructTypeRef(wantRet)) {
-                        cm.IfaceBridgeRet = wantRet.Name();
+                    // unify-blob-return-abi：**同一个根因的另外两副面孔**。接口声明的返回位是**型参**
+                    // （含 `Self`）时，调用点同样把它当引用槽、不传 sret：
+                    //   ·`static abstract Self op_Add(Self,Self)`（INumber）在**擦除的泛型体**里
+                    //     发接收者驱动 VCall（`this`+1 = 2 物理），而具体实现 2 形参 + sret = 3
+                    //     ⇒ `takes 3 physical argument(s), the call passes 2`（坑点 ④a）;
+                    //   ·`Self Copy()`（实例）经**接口收者**调用 ⇒ `takes 2 …, passes 1`。
+                    // 🔴 判据必须看**未代换**的声明 `ims.Signature.Ret`：`wantRet` 已被 `_substForIface`
+                    // 把 `Self` 换成实现类（= 那个 struct），单看它分不出「声明写的是 `Self`」与
+                    // 「声明写的就是这个具体 struct」—— 后者调用点**知道**要传 sret，桥接会把它打坏。
+                    bool declRetTypeParam = (ims.Signature.Ret is Z42GenericParamType);
+                    if (InheritanceResolver._isStructTypeRef(implRet)
+                        && (declRetTypeParam || !InheritanceResolver._isStructTypeRef(wantRet))) {
+                        // 桥接的声明返回类型：型参位在调用点就是个引用槽 ⇒ `object`（装箱后的形态）。
+                        cm.IfaceBridgeRet = declRetTypeParam ? "object" : wantRet.Name();
                     }
                     // define-null-check-marks D7：`?` 方向一致性（见 _checkNullableDirection）。
                     // 与 static / 可见性 / 返回类型同族——都是「MangleKey 命中不代表契约兑现」。
