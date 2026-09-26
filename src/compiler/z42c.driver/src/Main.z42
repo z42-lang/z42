@@ -201,9 +201,25 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
         libsDirs = libsDirsOverride;
         libsDirsN = libsDirsCount;
     } else {
-        string env = Environment.GetEnvironmentVariable("Z42_LIBS", "");
-        if (env.Length > 0) { libsDirs = new string[1]; libsDirs[0] = env; libsDirsN = 1; }
-        else { libsDirs = new string[0]; libsDirsN = 0; }
+        // ── 编译期依赖解析面 vs driver 自身运行期加载面（2026-09-27）───────────────────────
+        //
+        // `Z42_LIBS` 被**两件事**共用：① VM 给 driver 自己加载 `z42.ir` / `z42.project` 这些
+        // 运行期自依赖；② driver 编译当前工程时解析它的 `[dependencies]`。平时一致，所以没人
+        // 察觉；但**自举期这两件事要的是不同版本**：
+        //   · driver 是上一代二进制，运行期要的是**它自己那代**的库；
+        //   · 而它正在编译的源码，要解析的是**当前源**新建出来的库。
+        // 两者挤在一个变量里 ⇒ 改名/删符号这类变更无路可走：把新库放进去，driver 自己先死；
+        // 放旧库进去，编译看不见新符号；两份都放，编译器判 `E0606`（同 FQN 来自两个包）。
+        //
+        // ⇒ `--compile-libs` 只喂 ②**编译期**解析，未给则回落 `Z42_LIBS`（行为逐字不变）。
+        // 做成旗标而非环境变量的理由见 `CompileLibsOpt` 头注。
+        if (CompileLibsOpt.Count() > 0) {
+            libsDirs = CompileLibsOpt.Dirs(); libsDirsN = CompileLibsOpt.Count();
+        } else {
+            string env = Environment.GetEnvironmentVariable("Z42_LIBS", "");
+            if (env.Length > 0) { libsDirs = new string[1]; libsDirs[0] = env; libsDirsN = 1; }
+            else { libsDirs = new string[0]; libsDirsN = 0; }
+        }
     }
     // ── path 依赖闭包（add-path-dependencies 阶段2 use）──
     // top-level build（libsDirsCount==0）才解析：沿 `dep = { path = "..." }` 边建传递闭包
