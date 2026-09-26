@@ -148,6 +148,45 @@ var r = Max<int>(3, 5);
 %7 = call  @Max  %5, %6              ; 无需 @Max_int
 ```
 
+### 代码共享不是全部：布局不同就特化，而特化副本落在**消费方**
+
+上面那段是**默认**路径。`complete-generic-instantiation` S1（#820 / #825）之后，模型是混合的：
+
+- **默认共享一份体**（型参当句柄，`v_call` 走 vtable）；
+- **当实例化布局与擦除布局不同时**（判据 `StructLayout.InstDiffersFromDef`，实务上就是
+  「型参被一个多字段值 struct 具化」）⇒ 该泛型体按具体实参**各特化一份**，体内 struct 访问的
+  字节偏移按实例化布局烘焙。
+
+关键的一条、也是最容易踩的一条：**特化副本是发进「实例化点所在的那个编译单元」的 sink**
+（`IrGen._emitSpecializedFreeFn` / `IrGenTypeEmitter.EmitInstantiation`），不是发在泛型的声明处。
+换句话说 —— **消费方的 `.zbc` 里烘焙着生产方泛型体的一份副本**。
+
+#### 由此而来的增量失效不变式
+
+> **泛型声明的「体」属于它的声明面。**
+
+`SurfaceHash`（文件级增量的失效闭包）默认把每个方法体折成 `{}`，好处是「只改函数体 ⇒ 零传播」。
+这条优化对泛型**不成立**，因为消费方抄了那个体。判据两条，落在 `SurfaceHash._isGeneric`：
+
+| 形态 | 谁抄走了体 |
+|---|---|
+| 声明自带型参（泛型自由函数 / 泛型方法）| `_emitSpecializedFreeFn` |
+| 所属类型自带型参（泛型 class / struct 的成员、`impl ... for G<T>`）| `EmitInstantiation` |
+
+这两类**不折叠体** ⇒ 体 token 留在该名字的指纹里 ⇒ 改体就改指纹 ⇒ 提到它的文件照旧失效。
+代价是「改一个泛型体会让它的全部消费方重编」—— 在编译期单调化下这是正确且不可避免的。
+
+> 📜 **这条不变式是后补的，而缺陷曾经是活的**。`SurfaceHash` 的正确性论证里原本写着
+> 「泛型走运行期类型实参**不单态化进调用方**」—— S1 之后那句话不再成立，而论证没跟着改。
+> 实测（release，两文件工程）：`gen.z42` 里 `long Second<T>(Loc<T,long> p) { return p.b; }`、
+> `use.z42` 调 `Second<P2>` ⇒ 打印 7；**只把体改成 `return p.b + 100;`** ⇒ 增量构建
+> `cached: 1/2 files` ⇒ 仍打印 **7**，而同源全量重建打印 **107**。消费方的 cached `.zbc`
+> 里留着旧体的特化 —— **静默错答案，不是崩**。
+>
+> ⭐ 为什么三份增量语料都没抓到：逐文件 touch 轮只追加注释、decl-touch 轮只追加**新**函数，
+> 而三份语料里**没有一处「跨文件泛型实例化且带 blob struct 实参」**—— 那正是特化被触发的
+> 唯一条件。门禁 `_reconcileGenericBodyTouch` 自带夹具补上这一格。
+
 ### zbc 二进制扩展
 
 SIGS section 扩展：

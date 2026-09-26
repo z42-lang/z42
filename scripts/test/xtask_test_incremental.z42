@@ -57,11 +57,16 @@ int _testIncremental(ParseResult r) {
     // 一项都不在任何 cache key 里 ⇒ 「只改 toml」既能发出旧产物、也能吞掉本该判红的诊断。
     rc = _manifestIdentityTakesEffect(vm, driver, libs, _incrDemoDir(Path.Join(scratch, "mfknob")));
     if (rc != 0) { return rc; }
+    // fix-incr-generic-body-surface：S1（#820/#825）之后泛型体的特化副本落**消费方 CU** ⇒
+    // 「改泛型体」必须失效消费方。上面每一轮都测不到它（见该函数头注）。
+    rc = _reconcileGenericBodyTouch(vm, driver, libs, _genBodyDir(scratch));
+    if (rc != 0) { return rc; }
     rc = _reconcileStdlibReadback(root, vm, driver, libs, scratch);
     if (rc != 0) { return rc; }
 
     Console.WriteLine("\n✅ incremental reconciler: all dist files byte-identical (demo + demo-packed + xtask + stdlib readback)"
-        + " + [build] incremental / [optimize] / [syntax] knobs take effect + manifest identity in cache key");
+        + " + [build] incremental / [optimize] / [syntax] knobs take effect + manifest identity in cache key"
+        + " + generic body touch invalidates consumers");
     _procEnd("test incremental", sw);
     return 0;
 }
@@ -401,6 +406,99 @@ string _synKnobDir(string scratch) {
 }
 
 // dist 下唯一的 .zpkg 路径（本门的判据载体）；找不到返回 ""。
+// ── 改泛型体必须失效它的消费方（fix-incr-generic-body-surface）────────────────────
+//
+// 为什么上面所有轮次都测不到它：逐文件 touch 轮只追加注释（不改语义）、decl-touch 轮只追加
+// **新**自由函数（不改既有体），而三份语料里**没有一处「跨文件泛型实例化且带 blob struct
+// 实参」** —— 而那正是特化被触发的唯一条件（`InstNeedsOwnBody` = 布局与擦除不同）。
+// 于是本门必须自带夹具。
+//
+// 缺陷形态（本修复前实测，release 两文件工程）：
+//   gen.z42 的体 `return p.b;` → 打印 7；只把体改成 `return p.b + 100;`
+//   ⇒ 增量 `cached: 1/2 files` ⇒ 仍打印 **7**；同源全量重建打印 **107**。
+//   根因：`SurfaceHash` 把体折成 `{}`，而 S1（#820/#825）之后泛型体的特化副本被发进
+//   **消费方 CU** ⇒ 体一改而消费方的名字指纹不变 ⇒ 无人失效 ⇒ 消费方 cached zbc 留着旧体。
+//
+// 判据 = 本文件通用的那条（增量 dist == 全量 dist 逐文件字节），外加一格**阳性对照**：
+// 改完之后的产物必须与改之前**不同** —— 否则「相等」可能只是因为那次编辑压根没生效，
+// 本门就成了恒绿的摆设。
+int _reconcileGenericBodyTouch(string vm, string driver, string libs, string projDir) {
+    Console.WriteLine("\n── generic body touch invalidates consumers (" + projDir + ") ──");
+    string toml = Path.Join(projDir, "t.z42.toml");
+    string genF = Path.Join(projDir, "gen.z42");
+
+    if (_incrBuild(vm, driver, libs, toml, true) != 0) {
+        ConsoleError.WriteLine("  ✗ generic-body: 基线全量构建失败"); return 1;
+    }
+    DistSnapZ before = _distSnapshot(projDir);
+
+    string orig = File.ReadAllText(genF);
+    // 只改**体**，签名一个字节不动（改签名会走声明面那条既有边，测不到本缺陷）。
+    string mutated = orig.Replace("return p.b;", "return p.b + 100;");
+    if (mutated == orig) {
+        ConsoleError.WriteLine("  ✗ generic-body: 夹具里找不到要改的体 `return p.b;` —— 判据失去对象");
+        return 1;
+    }
+    File.WriteAllText(genF, mutated);
+
+    if (_incrBuild(vm, driver, libs, toml, false) != 0) {
+        ConsoleError.WriteLine("  ✗ generic-body: 增量构建失败"); File.WriteAllText(genF, orig); return 1;
+    }
+    DistSnapZ incr = _distSnapshot(projDir);
+
+    // 阳性对照：改了体，产物必须变。
+    if (_snapshotDiff(incr, before).Length == 0) {
+        ConsoleError.WriteLine("  ✗ generic-body: 改了泛型体而产物逐字节未变 —— 这次编辑压根没生效，");
+        ConsoleError.WriteLine("    本门此刻没有判别力（查夹具：`Second<T>` 是否真的被以 blob struct 实参实例化）。");
+        File.WriteAllText(genF, orig); return 1;
+    }
+
+    if (_incrBuild(vm, driver, libs, toml, true) != 0) {
+        ConsoleError.WriteLine("  ✗ generic-body: 全量重建失败"); File.WriteAllText(genF, orig); return 1;
+    }
+    DistSnapZ full = _distSnapshot(projDir);
+    string mism = _snapshotDiff(incr, full);
+    File.WriteAllText(genF, orig);
+    if (mism.Length > 0) {
+        ConsoleError.WriteLine("  ✗ MISMATCH: 改泛型体后 增量 != 全量 (" + mism + ")");
+        ConsoleError.WriteLine("    形态：消费方 CU 里烘焙着该泛型体的**特化副本**，而它没被失效 ⇒");
+        ConsoleError.WriteLine("    cached zbc 留着旧体 ⇒ 静默错答案（不是崩）。");
+        ConsoleError.WriteLine("    接线点：z42c.driver/src/SurfaceHash.z42 的 `_isGeneric` —— 泛型声明的体不得折叠。");
+        return 1;
+    }
+    Console.WriteLine("  ✓ 改泛型体后增量与全量逐文件字节相同（消费方被正确失效）");
+    return 0;
+}
+
+// 本门专用夹具：**必须让特化真的发生**，否则判据没有对象。
+// 三个条件缺一不可 —— ① 泛型体在 a 文件、实例化点在 b 文件（跨 CU，特化副本落消费方）；
+// ② 类型实参是**多字段 blob struct**（`InstNeedsOwnBody` 要求实例化布局与擦除布局不同）；
+// ③ 被改的体真的读那个 struct 的字段（否则布局差异不进指令、改体不改产物）。
+string _genBodyDir(string scratch) {
+    string d = Path.Join(scratch, "genbody");
+    Directory.Create(d);
+    File.WriteAllText(Path.Join(d, "t.z42.toml"),
+        "[project]\nname = \"genbodypkg\"\nversion = \"0.1.0\"\nkind = \"lib\"\n"
+        + "[sources]\ninclude = [\"**/*.z42\"]\n");
+    File.WriteAllText(Path.Join(d, "gen.z42"),
+        "namespace GB;\n"
+        + "public struct P2 { public int X; public long Y; }\n"
+        + "public struct Loc<A, B> { public A a; public B b; }\n"
+        + "public static class G {\n"
+        + "    public static long Second<T>(Loc<T, long> p) { return p.b; }\n"
+        + "}\n");
+    File.WriteAllText(Path.Join(d, "use.z42"),
+        "namespace GB;\n"
+        + "public static class Use {\n"
+        + "    public static long Run() {\n"
+        + "        Loc<P2, long> t = new Loc<P2, long>();\n"
+        + "        t.b = 7;\n"
+        + "        return G.Second<P2>(t);\n"
+        + "    }\n"
+        + "}\n");
+    return d;
+}
+
 string _onlyDistZpkg(string projDir) {
     string[] zs = Path.GlobRecursive(Path.Join(projDir, "dist"), "*.zpkg");
     if (zs.Length != 1) { return ""; }
