@@ -497,7 +497,9 @@ public sealed class StructLayout {
             string fname = def.FieldNames[i];
             string ftype = def.FieldTypeNames[i];
             // generic-struct-erased-slot-value-copy：字段声明类型先过代换表（`T` → `P2`），同 _compute。
-            if (subst.ContainsKey(ftype)) { ftype = (subst.Get(ftype) as StrBox).Value; }
+            // fix-nested-generic-field-layout：同样递归进实例化实参（两处必须同口径，否则
+            // 类里的内联 struct 字段与裸 struct 的同名布局会分叉）。
+            ftype = StructLayout._substFieldTypeName(ftype, subst);
             int kind = this._kindOf(ftype);
             int size = 0;
             int align = 0;
@@ -613,6 +615,38 @@ public sealed class StructLayout {
         return m;
     }
 
+    // 字段声明类型名过代换表。**整名匹配 + 递归进实例化实参**（fix-nested-generic-field-layout）。
+    //
+    // 🔴 此前只做整名匹配，于是「字段类型本身是个实例化」这一格**代换不到**：
+    // `struct Wrap<T> { Loc<T,long> inner; }` + `Wrap<P2>` 时 `subst = {T→P2}`，而字段类型串是
+    // `"Loc<T,long>"` —— 整名不在表里 ⇒ 不代换 ⇒ 这里按**擦除**的 `Loc`（A 当 8B 句柄）算，
+    // 得 16B；而访问侧的类型是语义层结构递归出来的 `Loc<P2,long>`（a 内联 16B + b 8B = 24B）。
+    // 两侧对同一批字节的理解不一致 ⇒ 实测崩在
+    // `struct field write out of blob bounds (off=16, w=8, len=16)`：
+    // 分配端给 16 字节，访问端按 off=16 写 —— 越界。
+    //
+    // ⚠️ 重组必须用 `InstName`（那是「编译器 / wire / 运行期三方必须用的同一份拼法」）。
+    // 自己拼一份会让描述符名对不上，而运行期 `resolve_layout` 查不到是**静默落兜底布局**
+    // ——零引用叶子的实例化恰好照常工作、有引用叶子的才崩，规律不自解释。
+    //
+    // 递归而非一层：`Wrap<Loc<T,long>>` / `Loc<Wrap<T>,long>` 都要代换到底。
+    // 不在表里且无 `<` ⇒ 原样返回（非型参的具体类型名，本就不该动）。
+    private static string _substFieldTypeName(string ftype, StrMap subst) {
+        if (subst.ContainsKey(ftype)) { return (subst.Get(ftype) as StrBox).Value; }
+        if (ftype.IndexOf("<") < 0) { return ftype; }
+        string[] args = StructLayout.InstArgsOf(ftype);
+        if (args.Length == 0) { return ftype; }
+        bool changed = false;
+        int i = 0;
+        while (i < args.Length) {
+            string na = StructLayout._substFieldTypeName(args[i], subst);
+            if (na != args[i]) { args[i] = na; changed = true; }
+            i = i + 1;
+        }
+        if (!changed) { return ftype; }
+        return StructLayout.InstName(StructLayout.BaseNameOf(ftype), args, args.Length);
+    }
+
     // 布局主算法：逐字段按对齐排布，累积 size/align，展平引用叶子。
     private StructLayoutInfo _compute(string typeName, StructFieldsDef def, StrMap subst) {
         StructLayoutInfo info = new StructLayoutInfo(typeName);
@@ -622,10 +656,11 @@ public sealed class StructLayout {
         while (i < def.FieldCount) {
             string fname = def.FieldNames[i];
             string ftype = def.FieldTypeNames[i];
-            // generic-struct-erased-slot-value-copy：字段声明类型名先过代换表（`A` → `P2`），**只做整名匹配**。
+            // generic-struct-erased-slot-value-copy：字段声明类型名先过代换表（`A` → `P2`）。
             // 代换之后一切照旧——下游拿到的已是具体名（可能本身又是实例化名，递归 LayoutOf 会再代换一层）。
-            // 整名之外（如字段类型写成 `List<A>`）本轮不代换 ⇒ 落今天的 GcRef 句柄，与闸门口径一致。
-            if (subst.ContainsKey(ftype)) { ftype = (subst.Get(ftype) as StrBox).Value; }
+            // fix-nested-generic-field-layout：代换**递归进实例化实参**（`Loc<T,long>` → `Loc<P2,long>`），
+            // 不再只认整名 —— 见 `_substFieldTypeName` 头注（只认整名时分配端与访问端布局会分裂）。
+            ftype = StructLayout._substFieldTypeName(ftype, subst);
             int kind = this._kindOf(ftype);
             int size = 0;
             int align = 0;

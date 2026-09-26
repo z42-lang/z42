@@ -187,6 +187,44 @@ var r = Max<int>(3, 5);
 > 而三份语料里**没有一处「跨文件泛型实例化且带 blob struct 实参」**—— 那正是特化被触发的
 > 唯一条件。门禁 `_reconcileGenericBodyTouch` 自带夹具补上这一格。
 
+#### 布局层的代换必须与语义层同口径
+
+「型参代换」这个概念在编译器里有多个表示层，而它们的语义**必须一致**，否则同一批字节会被
+两端按不同布局理解。最容易分叉的一对是：
+
+| 层 | 表示 | 代换方式 |
+|---|---|---|
+| 语义层 | `Z42Type`（`MemberResolver._substGeneric` 等）| **结构递归**：数组元素、实例化实参逐层进去 |
+| 布局层 | 字段类型的**字符串名**（`StructLayout`）| 历史上**只做整名匹配** |
+
+于是「字段类型本身是一个实例化」这一格曾经分裂：
+
+```z42
+struct Loc<A, B> { A a; B b; }
+struct Wrap<T>   { Loc<T, long> inner; }   // ← 不是裸型参，是实例化
+```
+
+`Wrap<P2>` 时 `subst = {T→P2}`，而字段类型串是 `"Loc<T,long>"` —— 整名不在表里 ⇒ 布局层按
+**擦除**的 `Loc`（`a` 当 8B 句柄）算出 16B；访问侧的静态类型却是语义层结构递归出来的
+`Loc<P2,long>`（`a` 内联 16B + `b` @16）= 24B。实测崩在：
+
+```
+struct field write out of blob bounds (off=16, w=8, len=16)
+```
+
+—— 分配端给 16 字节、访问端按 off=16 写。
+
+`StructLayout._substFieldTypeName` 现在**整名匹配 + 递归进实例化实参**，重组时用
+`StructLayout.InstName`。**重组必须用 `InstName`**：那是「编译器 / wire / 运行期三方必须用的
+同一份拼法」，自己拼一份会让描述符名对不上，而运行期 `resolve_layout` 查不到是**静默落兜底
+布局**（只有 size、空引用位图）—— 零引用叶子的实例化恰好照常工作、有引用叶子的才崩，
+规律不自解释。`_compute` 与 `_computeObjFields` 两处同口径，否则类里的内联 struct 字段与裸
+struct 的同名布局会分叉。
+
+> ⭐ **与「字段是裸型参」是两格，缺一格照样崩**：裸型参（`A First`）擦除成**引用叶子**、存
+> 另一块 blob 的句柄（`generic_struct_chain` 那条覆盖）；实例化字段是 struct ⇒ 应当**内联**
+> ⇒ 两端必须对「它有多大」达成一致（`generic_struct_inst_field` 覆盖）。
+
 ### zbc 二进制扩展
 
 SIGS section 扩展：
