@@ -73,6 +73,7 @@ public sealed class StmtParser {
                 this._p._advance(); this._p._expect(TokenKind.Colon, ":");
             } else {
                 this._p._expect(TokenKind.Case, "case");
+                this._p._requireFeature(FeatureNames.PatternMatch, this._p._peek().Span);
                 pattern = this._p._patP._parsePattern(); hasPattern = true;
                 if (this._p._peek().Kind == TokenKind.If) { this._p._advance(); guard = this._p._exprP._parseExpr(0); }
                 this._p._expect(TokenKind.Colon, ":");
@@ -397,6 +398,7 @@ public sealed class StmtParser {
     // 解构声明恒不可失败，or 属可失败故不入）。`{...}`/`T{...}` → PropertyPattern，`T(...)` → PositionalPattern。
     internal Stmt _parseDeconstructDecl() {
         Span sp = this._p._peek().Span;
+        this._p._requireFeature(FeatureNames.PatternMatch, sp);
         Pattern pat = this._p._patP._parsePrimaryPattern();
         if (this._p._peek().Kind == TokenKind.Eq) { this._p._advance(); }
         else { this._p._diags.Error(DiagnosticCodes.ExpectedToken, "expected '=' in destructuring declaration", this._p._peek().Span); }

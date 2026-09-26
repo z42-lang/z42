@@ -8,9 +8,16 @@
 // `IncrementalDriver` 的**两处** `new Parser` → `Parser._requireFeature` 发 **E0301**。
 // 特性集同时折进 `depsId`（否则「全量生效、增量被忽略」）。
 //
-// ⚠️ **但只有两个名字今天真的关得掉东西**：`control_flow`（if/while/for/foreach/do/switch）与
-// `exceptions`（try）。其余 13 个名字**仍是死旋钮** —— 它们描述的是「将来可裁剪的语法面」，
-// 不是「今天生效的配置」。别把「这张表接线了」读成「每个名字都生效了」。
+// ⚠️ **但只有 5 个名字今天真的关得掉东西**（add-l2-parse-table 批 2 起）：
+//   · `control_flow` —— if/while/for/foreach/do/switch **+ break/continue**
+//   · `exceptions`   —— try **+ throw**
+//   · `bitwise`      —— `| ^ & << >>`（`&=`/`|=`/`^=` 的归属待裁，未挂）
+//   · `ternary`      —— `?:`
+//   · `pattern_match`—— **进模式引擎**的那几条路（`x is T` / `x is T v` 是类型测试，**保留**）
+// 其余 10 个名字**仍是死旋钮** —— 它们描述的是「将来可裁剪的语法面」，不是「今天生效的配置」。
+// 别把「这张表接线了」读成「每个名字都生效了」。
+// 前三个的表项在 `z42c.syntax/src/ParseTable.z42`（`FeatureNames` + `Feature(kind)`），
+// 语句那两个在同文件的 `StmtRules.Feature`。
 // 后续接线：在各构造的解析入口加一句 `_requireFeature`，然后**为它加一条会红的门**
 // （`scripts/test/xtask_test_incremental.z42` 的 `_syntaxKnobTakesEffect` 是模板：
 // 负例必须报 E0301、且要验「红的理由对不对」）。
@@ -81,6 +88,12 @@ public sealed class LanguageFeatures {
     public int Count() { return this._count; }
 
     // ── 预置 profile ────────────────────────────────────────────────────────
+    //
+    // 只有一个。`MinimalProfile()`（仅 interpolated_str/ternary/cast/bitwise）已于
+    // add-l2-parse-table 批 2 删除：它**零生产调用方**（只有自己的单测），而且 `[syntax]`
+    // 语法里**选不到 profile**（`Main._build` 固定从 `Phase1Profile()` 起底、只能逐项覆盖）
+    // ⇒ 它不是「能用而没人用」，是「用不上」。真要按 profile 裁剪，得先加 manifest 键，
+    // 那是独立一条（届时它的 4 个名字里已有 3 个真能裁掉语法了）。
 
     // Phase 1 完整特性集（C# 12 子集全开）。
     public static LanguageFeatures Phase1Profile() {
@@ -99,17 +112,6 @@ public sealed class LanguageFeatures {
         f.Set("tuples",           true);
         f.Set("delegates",        true);
         f.Set("reflection",       true);
-        f.Set("bitwise",          true);
-        f.Phase = 1;
-        return f;
-    }
-
-    // 最小可运行子集（Hello World 所需）：仅 interpolated_str / ternary / cast / bitwise。
-    public static LanguageFeatures MinimalProfile() {
-        var f = new LanguageFeatures();
-        f.Set("interpolated_str", true);
-        f.Set("ternary",          true);
-        f.Set("cast",             true);
         f.Set("bitwise",          true);
         f.Phase = 1;
         return f;
