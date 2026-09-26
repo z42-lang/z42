@@ -715,8 +715,9 @@ void test_param_metadata_default_values() {
     foreach (var m in h.GetType().GetMethods()) {
         if (m.Name == "Blend") {
             ParameterInfo[] ps = m.GetParameters();
-            Assert.True(ps[0].DefaultValue == null);        // 必填 → 无默认值
-            Assert.Equal(10, (int)(long)ps[1].DefaultValue); // i64 默认值
+            Assert.True(ps[0].DefaultValue == null);        // 必填 → 无默认值（比较不算解引用）
+            // enforce-null-at-cast：转换到**值类型**也算解引用 ⇒ 同样要过义务。
+            Assert.Equal(10, (int)(long)ps[1].DefaultValue.Expect("Blend 的第 2 个形参声明了 i64 字面量默认值")); // i64 默认值
             // 注：`as string` 对 boxed str 是 pre-existing VM 缺口（as_cast 只认 Object/Array/Null）
             // → 用 ToString 对账（值本身正确）。
             // carry-field-null-marks：`DefaultValue` 标了 `?` ⇒ 解引用前必须过义务。
@@ -724,7 +725,7 @@ void test_param_metadata_default_values() {
             // ⇒ 用 `Expect(理由)`（原先的 `Assert` 对编译器不可见，真为 null 时炸点是 NRE）。
             object dvs = ps[2].DefaultValue.Expect("Blend 的第 3 个形参声明了字符串字面量默认值");
             Assert.Equal("hi", dvs.ToString());
-            Assert.True((bool)ps[3].DefaultValue);
+            Assert.True((bool)ps[3].DefaultValue.Expect("Blend 的第 4 个形参声明了 bool 字面量默认值"));
         }
     }
 }

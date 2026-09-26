@@ -1,0 +1,49 @@
+// enforce-null-at-cast：**转换到不可空值类型**也是解引用点。
+//
+// 界线不是拍的，是 make-hard-cast-fail-properly (#746) 的运行期行为划的：
+//   `(int)o` / `(long)o`（目标**值类型**）  遇 null → 抛 NullReferenceException  ⇒ 编译期该报
+//   `(string)o` / `(Box)o`（目标**引用类型**）遇 null → **合法**，得 null（C# 同）⇒ 编译期不得报
+//
+// 所以本用例既钉「该报」（那部分是**编译期**的，见文末注释），也钉 🔒「不得报」——
+// 后者只能靠**能编过并跑出正确结果**来钉，这才是本文件的正文。
+class Box { public int N; public Box() { this.N = 7; } }
+
+string? maybeStr(bool yes) { if (yes) { return "ab"; } return null; }
+object? maybeObj(bool yes) { if (yes) { return 41; } return null; }
+
+void Main() {
+    // 🔒 转换到**引用类型**：null 合法通过，不得报、也不得抛
+    object? o1 = maybeObj(false);
+    string s1 = (string)o1;
+    Assert.Equal(true, s1 == null);
+
+    object? o2 = maybeObj(false);
+    Box b1 = (Box)o2;
+    Assert.Equal(true, b1 == null);
+
+    // 🔒 比较不是解引用
+    Assert.Equal(true, maybeObj(false) == null);
+
+    // 🔒 `as` 不介入（失败返 null，本就不是解引用）
+    object? o3 = maybeObj(false);
+    string s2 = o3 as string;
+    Assert.Equal(true, s2 == null);
+
+    // 转换到值类型：**先过义务**（窄化）再转，这是合法写法
+    object? o4 = maybeObj(true);
+    if (o4 != null) { Assert.Equal(41, (int)(long)o4); }
+
+    // 逃生口同样解除义务
+    object o5 = maybeObj(true).Expect("yes=true 必有值");
+    Assert.Equal(41, (int)(long)o5);
+
+    // 🔒 未标 `?` 的值照常可转（不受检）
+    object plain = 5;
+    Assert.Equal(5, (int)(long)plain);
+
+    Assert.Equal(2, maybeStr(true).Expect("yes=true 必有值").Length);
+}
+
+// ⚠️ 「该报」那一半是**编译期**诊断，不能写在这个能跑的文件里（写了就编不过）。
+// 它由 `src/tests/cross-zpkg/field_null_mark_crosspkg_unchecked/` 那类
+// `expected_build_error.txt` 负例，以及 z42c 的语义单测覆盖。
