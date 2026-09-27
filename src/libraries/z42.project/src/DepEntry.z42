@@ -1,4 +1,4 @@
-namespace Z42.Project;
+namespace Z42.Build.Project;
 
 // 受限自举子集写法：sealed class + 构造函数；无 record / 无泛型 / 无 nullable。
 // 类型名对齐 z42c.project（DepEntry / WorkspaceManifest），便于日后 z42c 直接引用本库。

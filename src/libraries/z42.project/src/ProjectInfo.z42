@@ -1,4 +1,4 @@
-namespace Z42.Project;
+namespace Z42.Build.Project;
 
 /// `[project]` 段。工程配置确定，字段固定、不开放任意键。
 public sealed class ProjectInfo {

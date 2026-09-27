@@ -14,7 +14,7 @@ IR 模型 + zbc 格式 + zpkg 后端（读/写/构建 + TSIG + PackageTypes）+ 
 
 ## 决策 2：namespace 保持不变（MOVE，非并存）
 
-converge-z42c-onto-z42-project 期 `z42.project` 用了**新** namespace（`Z42.Project`）因它与旧
+converge-z42c-onto-z42-project 期 `z42.project` 用了**新** namespace（`Z42.Build.Project`）因它与旧
 `z42c.project`（`Z42.Package`）**并存过渡**。本 change 是**纯 MOVE**（删编译器副本、同一份进 stdlib，
 无并存），故 `Z42.IR` / `Z42.IR.BinaryFormat` / `Z42.Package`（后端现名）**保持**——好处：所有
 `using Z42.IR;` 调用点**一字不改**，只有 `.z42.toml` 的 deps 换名。churn 最小、字节漂移面最小。

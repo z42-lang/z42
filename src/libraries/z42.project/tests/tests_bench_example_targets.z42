@@ -5,7 +5,7 @@ namespace Z42ProjectTargetsTests;
 
 using Std;
 using Std.Test;
-using Z42.Project;
+using Z42.Build.Project;
 
 // 段缺失 → kind 专属默认 include + auto=true + 无 dev-deps；无显式目标。
 [Test]

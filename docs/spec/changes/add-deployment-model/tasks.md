@@ -69,7 +69,7 @@
       事实错误，实施时查出来并纠正了：**`z42b build` 不是「比 `z42c build` 弱的重复路」** ——
       它带 `--rid`、`_selectWorkload(target.Family)`、`[build] hooks`，而 **z42c 根本没有 rid 概念**
       （源码里零出现）。转发过去会丢掉 rid + workload + hooks 三样。
-      真正的事实是：`PathDepPlan` **只 `using Std / Std.IO / Z42.Project`，零编译器依赖**，
+      真正的事实是：`PathDepPlan` **只 `using Std / Std.IO / Z42.Build.Project`，零编译器依赖**，
       住在 `z42c.pipeline` 纯属历史落点 ⇒ 这不是「两条能力不同的路」，是**一个解析器放错了包**。
       落地见 2.4。
 

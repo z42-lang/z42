@@ -26,7 +26,7 @@ namespace Z42.Driver;
 using Std;
 using Std.IO;
 using Std.Toml;
-using Z42.Project;
+using Z42.Build.Project;
 
 // 生成标记头：再次 build 靠它区分「自己上次产的」与「用户手写的」。
 static class RcSidecar {

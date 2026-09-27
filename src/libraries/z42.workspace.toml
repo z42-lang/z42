@@ -24,7 +24,7 @@ members = ["*"]
 #   z42.io         → (needs z42.time for Std.Process.Timeout/TimeSpan)
 #   z42.json       → (needs z42.text for StringBuilder)
 #   z42.test       → (needs z42.io for Bencher.Std.IO.Console)
-# NOTE: z42.project（namespace Z42.Project）已入 build（converge-onto-z42-project 阶段 1，
+# NOTE: z42.project（namespace Z42.Build.Project）已入 build（converge-onto-z42-project 阶段 1，
 # 2026-07-16）。它与编译器内部 z42c.project 的同名类（SourceDiscovery / ProjectManifest /
 # ManifestLoader …）曾因 flat Z42_LIBS 跨 zpkg 短类名 first-wins 串味 → 炸 z42c 自举；已由
 # fix-crosspkg-static-ns-collision（using-scoped 解析）根治，两者安全共存（实测 with/without

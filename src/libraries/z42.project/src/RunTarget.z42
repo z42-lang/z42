@@ -1,4 +1,4 @@
-namespace Z42.Project;
+namespace Z42.Build.Project;
 
 /// 一个 test / bench / example 运行目标（三类共用；`[[test]]` / `[[bench]]` / `[[example]]`）。
 ///

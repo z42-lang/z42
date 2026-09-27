@@ -1,6 +1,6 @@
 // Path-dependency closure planning —— **转发层**（add-deployment-model 收尾，2026-09-26）。
 //
-// 实现已搬进 `z42.project`（`Z42.Project.PathDepPlan`）：它只依赖清单模型、零编译器依赖，
+// 实现已搬进 `z42.project`（`Z42.Build.Project.PathDepPlan`）：它只依赖清单模型、零编译器依赖，
 // 住在编译器包里纯属历史落点；搬下去后 `z42b` 也够得着，于是闭包解析只有一份实现。
 //
 // 🔴 **这一层为什么还在：种子 ABI。** 上一个 nightly 的 `z42c.driver` 二进制在运行期调
@@ -14,7 +14,7 @@
 namespace Z42.Pipeline;
 
 using Std;
-using Z42.Project;
+using Z42.Build.Project;
 
 // 旧落点的结果类型（种子按字段读，形状不可变）。
 public sealed class PathDepClosure {
@@ -28,7 +28,7 @@ public sealed class PathDepClosure {
 public static class PathDepPlan {
     // 转发 + 结果搬形状。抛出的异常原样上抛（消费方靠它的 Message 报环/清单数不对）。
     public static PathDepClosure Resolve(string consumerToml) {
-        Z42.Project.PathDepClosure c = Z42.Project.PathDepPlan.Resolve(consumerToml);
+        Z42.Build.Project.PathDepClosure c = Z42.Build.Project.PathDepPlan.Resolve(consumerToml);
         return new PathDepClosure(c.Tomls, c.Count);
     }
 }

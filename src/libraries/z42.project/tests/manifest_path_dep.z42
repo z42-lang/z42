@@ -4,7 +4,7 @@ namespace Z42ProjectPathDepTests;
 
 using Std;
 using Std.Test;
-using Z42.Project;
+using Z42.Build.Project;
 
 [Test]
 void test_path_dep_table_form() {

@@ -1,6 +1,6 @@
 namespace Z42.Build;
 
-using Z42.Project;
+using Z42.Build.Project;
 
 /// 传给每个相位的上下文契约：相位实现只通过本接口与外界交互。
 /// 具体实现由 SDK 注入（本库只定义接口，不含实现逻辑）。

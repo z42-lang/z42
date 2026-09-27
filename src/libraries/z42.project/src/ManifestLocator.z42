@@ -8,7 +8,7 @@
 // 最近者优先；到文件系统根仍没有 → NotFound。
 //
 // 种类用 int 常量而非 enum：z42c 消费本库，而 z42c 源码约定不使用 enum（compiler-z42c.md）。
-namespace Z42.Project;
+namespace Z42.Build.Project;
 
 using Std;
 using Std.IO;

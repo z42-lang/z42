@@ -1,6 +1,6 @@
 // Path-dependency closure planning (add-path-dependencies 阶段2 use, 2026-08-29)。
 //
-// 📌 **2026-09-26 从 `z42c.pipeline` 搬来（`Z42.Pipeline` → `Z42.Project`）**。
+// 📌 **2026-09-26 从 `z42c.pipeline` 搬来（`Z42.Pipeline` → `Z42.Build.Project`）**。
 // 它只 `using Std / Std.IO` + 本包的清单模型 —— **零编译器依赖**，住在编译器包里纯属历史落点。
 // 搬下来之后 `z42b` 也够得着它（z42b 刻意 stdlib-only、只经注入的 `ICompiler` 碰编译器），
 // 于是「按 path 依赖建闭包」这件事对 `z42c build` 与 `z42b build` **只有一份实现**。
@@ -18,7 +18,7 @@
 // 经 `BuildLayout`（z42.project）解析，本模块只定拓扑序。
 //
 // z42c 受限子集：无闭包捕获 → 显式 `PathDepState` 状态对象穿透递归；固定数组 + 计数。
-namespace Z42.Project;
+namespace Z42.Build.Project;
 
 using Std;
 using Std.IO;

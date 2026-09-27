@@ -1,4 +1,4 @@
-namespace Z42.Project;
+namespace Z42.Build.Project;
 
 /// `[workspace]` 段（monorepo）。与单项目 `ProjectManifest` 分开解析。
 /// 镜像 z42c.project WorkspaceManifest 核心子集（便于日后 z42c 引用本库）。

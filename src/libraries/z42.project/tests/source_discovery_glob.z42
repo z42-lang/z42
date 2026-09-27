@@ -8,7 +8,7 @@ namespace Z42ProjectSourceDiscoveryTests;
 using Std;
 using Std.IO;
 using Std.Test;
-using Z42.Project;
+using Z42.Build.Project;
 
 // 造一棵固定的临时源树，返回根目录：
 //   <root>/tests/one.z42

@@ -1,4 +1,4 @@
-namespace Z42.Project;
+namespace Z42.Build.Project;
 
 /// `[[exe]]` 的一项（多 exe 目标）。SrcCount == 0 表示沿用 `[sources]`。
 public sealed class ExeTarget {

@@ -1,4 +1,4 @@
-namespace Z42.Project;
+namespace Z42.Build.Project;
 
 /// `[platform.wasm]` 段。固定字段。
 public sealed class WasmConfig {

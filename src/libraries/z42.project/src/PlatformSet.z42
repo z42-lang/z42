@@ -1,4 +1,4 @@
-namespace Z42.Project;
+namespace Z42.Build.Project;
 
 /// `[platform.*]` 各平台配置集合。HasX 标志区分「声明了该平台」与「缺省」。
 /// 平台配置也是项目配置的一部分（z42c 解析、忽略；z42.build / workload 消费）。

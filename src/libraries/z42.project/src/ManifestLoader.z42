@@ -8,7 +8,7 @@
 //
 // 数组段用 `Keys().Length` / `Length()` 预定大小，免去 grow/trim 与 holder 类型（无泛型子集）。
 // 缺省平台配置传 null（HasX 标志守卫，消费方先查 HasX —— L1「空值 + 调用方检查」idiom）。
-namespace Z42.Project;
+namespace Z42.Build.Project;
 
 using Std.IO;
 using Std.Toml;

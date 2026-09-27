@@ -11,4 +11,3 @@ scripts/build/xtask_bootstrap_check.z42#z42ir-bc-runlibs-move 2026-09-27 下一 
 scripts/build/xtask_stdlib.z42#z42ir-name-alias 2026-09-27 下一 nightly 后删掉本函数、别名目录与 probing 传参
 scripts/common/xtask_common.z42#z42ir-probing-wiring 2026-09-27 下一 nightly 后删掉本函数与所有 Z42_PROBING_PATHS 传参
 scripts/common/xtask_common.z42#z42ir-seed-stage-move 2026-09-27 下一 nightly 后删掉本函数与 `_ensureSeed` 里的调用
-scripts/common/xtask_layout.z42#b3-scripts-ns-sweep 2026-09-27 含 B3 的 nightly 出来后把 scripts/ 的 4 处扫成 Z42.Project

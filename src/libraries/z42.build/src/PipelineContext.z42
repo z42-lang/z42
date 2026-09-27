@@ -2,7 +2,7 @@ namespace Z42.Build;
 
 using Std;
 using Std.IO;
-using Z42.Project;
+using Z42.Build.Project;
 
 // IPipelineContext 的 SDK 具体实现 —— 相位与外界交互的落地（受限 fs / exec / 平台原语 /
 // 产物登记）。⚠️ PARKED（无清单，未接编译）。日志 / 受限 fs / 产物登记已落地（纯 Std.IO）；

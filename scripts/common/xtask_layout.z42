@@ -22,12 +22,11 @@ namespace Z42Xtask;
 
 using Std;
 using Std.IO;
-// 🔴 **故意留旧名**（rename-project-namespaces B3）：本轮把 `Z42.Build.Project` 改成了
-// `Z42.Project`，但 xtask 是**跨代消费者** —— CI 用下载的 nightly SDK libs 既**编译**
-// 又**运行** xtask.zpkg（`ci-bootstrap` 步骤 2/3 的 `Z42_LIBS=$boot_libsw`），本地 apphost
-// 也从 `Z42_HOME/libs`（= 安装的 SDK）加载。那份 libs 里是**上一代**，此刻只认旧名。
-// 现在就改 ⇒ 种子编不出 xtask（`E0494`），自举第一步就断。
-// STAGE2-DEBT(b3-scripts-ns-sweep): 含 B3 的 nightly 出来后把 scripts/ 的 4 处扫成 Z42.Project
+// ⚠️ 这个命名空间**不能随手改名**（rename-project-namespaces B3b 因此延后）：xtask 是
+// **两头都挂在上一代 SDK 上**的消费者 —— CI 用下载的 nightly SDK libs **编译** xtask.zpkg，
+// 之后又用**本轮新建的 flat** 当 `Z42_LIBS` **运行**它。抹掉旧 FQN 的改名会让其中一头必炸
+// （实测两种排法各炸一头）。要动它得先在 `z42.project` 里加一版并存、跨一个 nightly。
+// 详见 `docs/spec/changes/rename-project-namespaces/design.md` §6。
 using Z42.Build.Project;   // ManifestLoader / WorkspaceManifest / PathTemplate / TemplateContext
 
 // ── source-of-truth workspace manifests (per-member layout templates) ─────────

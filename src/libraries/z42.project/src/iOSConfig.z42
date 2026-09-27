@@ -1,4 +1,4 @@
-namespace Z42.Project;
+namespace Z42.Build.Project;
 
 /// `[platform.ios]` 段。固定字段 —— 工程配置确定，不开放任意键。
 public sealed class iOSConfig {

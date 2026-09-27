@@ -1,4 +1,4 @@
-namespace Z42.Project;
+namespace Z42.Build.Project;
 
 /// `[sources]` 段。glob 模式（缺省 Include = ["src/**/*.z42"]）。array + count（无泛型）。
 public sealed class Sources {

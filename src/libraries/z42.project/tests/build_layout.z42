@@ -4,7 +4,7 @@ namespace Z42ProjectBuildLayoutTests;
 using Std;
 using Std.IO;
 using Std.Test;
-using Z42.Project;
+using Z42.Build.Project;
 
 ProjectManifest _pm(string buildSection) {
     return ManifestLoader.ParseText("[project]\nname = \"app\"\nkind = \"exe\"\n" + buildSection);

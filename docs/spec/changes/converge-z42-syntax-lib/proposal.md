@@ -56,7 +56,7 @@ playground 加载的可移植 `z42c.*` 库**」。这是门面 PR 与 scripting 
 - **bootstrap 轴④**：z42c 运行期/构建期自依赖 `z42c.core` + `z42c.syntax`，冷启动 flat dist 里没有
   → 必靠 §破环预建。**本地不可验**（种子墙：种子 driver 缺近期字段；z42vm 退出期挂起）→
   **GREEN 判定以 CI 为准**（`ci-bootstrap` 两代自举 + `verify-selfhost` 字节不动点 + test-host×4 + jit）。
-- **跨 workspace 短类名 first-wins 碰撞**：`z42.project`(Z42.Project) 与 `z42c.project` 曾因 flat
+- **跨 workspace 短类名 first-wins 碰撞**：`z42.project`(Z42.Build.Project) 与 `z42c.project` 曾因 flat
   `Z42_LIBS` 短类名 first-wins 串味炸过自举，已由 `fix-crosspkg-static-ns-collision`（using-scoped 解析）
   根治。本 PR 不改命名空间，`Z42.Core` / `Z42.Syntax` 仍单包独占（无第二包同 ns），无新碰撞面。
 - **default-members 双改**：漏改任一 workspace 的 default-members → 该包不建或重复建。搬迁半径清单见 tasks.md。

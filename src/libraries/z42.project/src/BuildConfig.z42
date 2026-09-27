@@ -1,4 +1,4 @@
-namespace Z42.Project;
+namespace Z42.Build.Project;
 
 /// `[build]` 段。目录默认见 docs/reference/src/toolchain/z42-toml.md。HasX 标志区分「显式设置」与「缺省」。
 public sealed class BuildConfig {

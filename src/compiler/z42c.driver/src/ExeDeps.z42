@@ -8,7 +8,7 @@ namespace Z42.Driver;
 using Std;
 using Std.IO;
 using Z42.Package;
-using Z42.Project;
+using Z42.Build.Project;
 using Z42.IR;          // ZpkgReader / ZpkgInfo（产物引用的包名校验）
 
 // **非框架**依赖的已构建 zpkg（+ .zsym）复制进 exe 的 dist。运行时 z42vm 的依赖搜索序

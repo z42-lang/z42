@@ -17,7 +17,7 @@ using Std;
 using Std.IO;
 using Std.Cli;
 using Z42.Build;
-using Z42.Project;
+using Z42.Build.Project;
 
 /// 一个待编译 + 运行的 dev target。`Sources` 是 **glob 原文**（不在这里展开——
 /// 派生 manifest 的 `[sources] include` 直接带着它们，由 `_orchestrate` 统一展开）。

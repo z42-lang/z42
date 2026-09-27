@@ -17,7 +17,7 @@ namespace Z42ProjectBuildLayoutDisplayCwdTests;
 using Std;
 using Std.IO;
 using Std.Test;
-using Z42.Project;
+using Z42.Build.Project;
 
 // 当前目录之下 → `./` 相对形式。
 [Test]
