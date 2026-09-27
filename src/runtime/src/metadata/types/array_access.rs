@@ -77,6 +77,70 @@ impl ArrayObj {
         prim_value_mismatch(val, backing, "set_boxed");
     }
 
+    /// 基元 backing 的**种类标签**（`None` = 非基元 backing：`Boxed` / `StackVec` /
+    /// `StructBytes` —— 它们存的是 `Value` 本身或整块 struct，不做基元种类限制）。
+    /// 标签文本同时用于错误消息。
+    #[inline]
+    pub fn prim_backing_kind(&self) -> Option<&'static str> {
+        match &self.backing {
+            ArrayBacking::Bool  { .. } => Some("bool[]"),
+            ArrayBacking::Bytes { .. } => Some("byte[]"),
+            ArrayBacking::I32   { .. } => Some("int[]"),
+            ArrayBacking::I64   { .. } => Some("long[]"),
+            ArrayBacking::Chars { .. } => Some("char[]"),
+            ArrayBacking::F64   { .. } => Some("double[]"),
+            _ => None,
+        }
+    }
+
+    /// 「这个 `Value` 能**原样**存进本 backing 吗」——**严格同种**，不做拓宽
+    /// （`double[]` 不收 `I64`；change `fix-silent-array-elem-zero` 的裁决）。
+    ///
+    /// 🔴 **这是该问题的唯一判据**，`set_boxed` 每个臂里的 `if let Value::X` 必须与它一致 ——
+    /// 由 `prim_backing_accepts_agrees_with_set_boxed` 那条单测逐格钉住（判据复制是本仓
+    /// 反复出问题的形状，见结构审计 R2）。
+    ///
+    /// ⚠️ `int[]` 收 `I64` 是**正常路径**、不是不符：z42 的整数在 IR 里一律 i64、`int[]` 存 i32
+    /// （已知陷阱），存入时按 `as i32` 截断。
+    #[inline]
+    pub fn prim_backing_accepts(&self, val: &Value) -> bool {
+        match &self.backing {
+            ArrayBacking::Bool  { .. } => matches!(val, Value::Bool(_)),
+            ArrayBacking::Bytes { .. } => matches!(val, Value::I64(_)),
+            ArrayBacking::I32   { .. } => matches!(val, Value::I64(_)),
+            ArrayBacking::I64   { .. } => matches!(val, Value::I64(_)),
+            ArrayBacking::Chars { .. } => matches!(val, Value::Char(_)),
+            ArrayBacking::F64   { .. } => matches!(val, Value::F64(_)),
+            _ => true,   // 非基元 backing：存 Value 本身
+        }
+    }
+
+    /// 与 [`Self::set_boxed`] 同语义，但**类型不符时报错**而不是静默存 0。
+    ///
+    /// 🔴 **为什么需要它**（`fix-silent-array-elem-zero`，2026-09-27）：`set_boxed` 的基元臂
+    /// 在类型不符时走 `prim_store_mismatch` —— **debug 响一声、release 静默存 0**。那条策略
+    /// 是为 **IR 的 `ArraySet`** 写的，那里编译器该先转换，值到得了就说明编译器有 bug、
+    /// 「不是用户的错」⇒ release 放行成立。
+    ///
+    /// 但 `Std.Array` 的**无类型 setter**（`SetValue(Object value, int index)`）与
+    /// `CopyRange` 是另一类调用方：形参声明就是 `Object`、元素类型可不同，**没有任何编译器
+    /// 站点能转换它**，值是用户给的。实测 `int[0]=9` 后 `a.SetValue(objNull, 0)` 在 release
+    /// 下静默把它变成 **0** —— 而 `0` 与合法写入**完全无法区分**。故那两条路改走本方法。
+    #[inline]
+    pub fn try_set_boxed(&mut self, i: usize, val: Value) -> anyhow::Result<()> {
+        if !self.prim_backing_accepts(&val) {
+            let kind = self.prim_backing_kind().unwrap_or("<non-primitive>");
+            anyhow::bail!(
+                "cannot store {} into a {kind} element: the value's kind does not match the \
+                 array's element type (a silent zero would be indistinguishable from a \
+                 legitimate write)",
+                crate::semantics::value_kind_name(&val)
+            );
+        }
+        self.set_boxed(i, val);
+        Ok(())
+    }
+
     /// Write `Value` into element `i` (unboxes into packed primitives). Caller
     /// ensures `i < len()`. SAFETY of block writes: [`Self::slice_of_mut`] (held under
     /// `&mut self` = exclusive region lock).

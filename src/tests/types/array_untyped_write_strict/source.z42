@@ -1,0 +1,76 @@
+// fix-silent-array-elem-zero：`Std.Array` 的**无类型**写入，类型不符不再静默存 0。
+//
+// 修前实测（release）：`int[0]` 原值 9 —— `a.SetValue(objNull, 0)` 静默把它变成 **0**、
+// 不抛、报成功；`Array.CopyRange(string[], 0, int[], 0, 1)` 同样静默清零。
+// debug VM 则 panic ⇒ **release-only 的静默数据损坏**，而 `0` 与合法写入完全无法区分。
+//
+// 根因不是那条 debug-only 策略错了，是它的**适用范围**：它为 IR 的 `ArraySet` 写的
+// （那里编译器该先转换、值到得了就是编译器 bug ⇒「不是用户的错」成立）。而
+// `SetValue(Object value, int index)` 的形参声明就是 `Object`、`CopyRange` 两侧元素类型
+// 可不同，**没有编译器站点能转换它们** —— 值是用户给的。故这两条路改为前置校验并报错；
+// IR 那条路一个字没动。
+//
+// ⚠️ 口径是**严格**（只许同种，不做拓宽）：`double[] <- 整数` 也抛。这是刻意裁决——
+// C# 会拓宽、z42 编译器自己也允许 int→double，但严格版判据无歧义且随时能放宽。
+// 修前那一格是静默把 7.5 变成 0，三种结果里最坏。
+//
+// ⚠️ 本文件一半是**回归门**：`int[] <- 整数` 是正常路径（z42 整数在 IR 里一律 i64、
+// `int[]` 存 i32）、引用数组写 null 合法、同型 CopyRange 走零成本快路。
+// 不钉这三条，「把整条路堵死」也会让正例变绿。
+namespace Demo;
+using Std;
+using Std.IO;
+
+void setNull(string what, Array a, object v) {
+    try { a.SetValue(v, 0); Console.WriteLine(what + ": no throw"); }
+    catch (Exception e) { Console.WriteLine(what + ": threw"); }
+}
+
+void Main() {
+    // ── 正例：SetValue 类型不符必须抛，且不得改动元素 ───────────────────
+    int[] a = new int[1];
+    object oNull = null;
+    object oStr = "not a number";
+    object oF = 1.5;
+
+    a[0] = 9; setNull("int[] <- null  ", a, oNull);   Assert.Equal(9, a[0]);
+    a[0] = 9; setNull("int[] <- string", a, oStr);    Assert.Equal(9, a[0]);
+    a[0] = 9; setNull("int[] <- double", a, oF);      Assert.Equal(9, a[0]);
+
+    // 严格口径：double[] 不收整数（裁决记录）
+    double[] d = new double[1];
+    d[0] = 7.5;
+    object o42 = 42;
+    setNull("double[] <- int ", d, o42);
+    Assert.Equal(true, d[0] == 7.5);
+
+    // ── 回归门 ①：正常路径照旧 ─────────────────────────────────────────
+    object oInt = 42;
+    a.SetValue(oInt, 0);
+    Assert.Equal(42, a[0]);
+    object oDbl = 1.25;
+    d.SetValue(oDbl, 0);
+    Assert.Equal(true, d[0] == 1.25);
+    Console.WriteLine("normal paths still write");
+
+    // ── 回归门 ②：引用数组写 null 合法 ─────────────────────────────────
+    string[] s = new string[1];
+    s[0] = "x";
+    s.SetValue(oNull, 0);
+    Assert.Equal(true, s[0] == null);
+    Console.WriteLine("ref array accepts null");
+
+    // ── 正例：CopyRange 跨不兼容元素类型必须抛 ─────────────────────────
+    int[] ia = new int[1]; ia[0] = 9;
+    string[] sa = new string[1]; sa[0] = "x";
+    try { Array.CopyRange(sa, 0, ia, 0, 1); Console.WriteLine("copy string[]->int[]: no throw"); }
+    catch (Exception e) { Console.WriteLine("copy string[]->int[]: threw"); }
+    Assert.Equal(9, ia[0]);
+
+    // ── 回归门 ③：同型 CopyRange 照旧（零成本快路）────────────────────
+    int[] p = new int[1]; p[0] = 5;
+    int[] q = new int[1];
+    Array.CopyRange(p, 0, q, 0, 1);
+    Assert.Equal(5, q[0]);
+    Console.WriteLine("same-type copy unaffected");
+}

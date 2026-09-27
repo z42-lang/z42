@@ -134,7 +134,12 @@ pub fn builtin_array_set(ctx: &VmContext, args: &[Value]) -> Result<Value> {
         if i >= a.len() {
             bail!("Array.SetValue: index {i} out of bounds (len {})", a.len());
         }
-        a.set_boxed(i, raw.clone());
+        // fix-silent-array-elem-zero：走会报错的那版。此前是 `set_boxed`（release 静默存 0）
+        // ⇒ `a.SetValue(objNull, 0)` 把 `int[0]` 从 9 变成 0、不抛、报成功。
+        // 形参声明是 `Object` ⇒ 没有编译器站点能先转换，值是**用户**给的
+        // （与 IR `ArraySet` 那条路不同，那里 debug-only 的原策略依然正确）。
+        a.try_set_boxed(i, raw.clone())
+            .map_err(|e| anyhow::anyhow!("Array.SetValue: {e}"))?;
     }
     // fix-missing-array-write-barriers (2026-09-10): storing a reference into an array is a
     // heap write like any other, and an **old** array receiving a **young** element must mark
@@ -201,6 +206,28 @@ pub fn builtin_array_copy(ctx: &VmContext, args: &[Value]) -> Result<Value> {
             s.len(),
             d.len()
         );
+    }
+    // fix-silent-array-elem-zero：`copy_elems_from` 的元素转换「exactly what get_boxed/
+    // set_boxed already defines」（本函数头注原话）⇒ 它也继承了那个静默存 0。实测
+    // `Array.CopyRange(string[], 0, int[], 0, 1)` 静默成功并把目的地清零。
+    //
+    // 两侧 backing **同种** ⇒ 不可能不符，零成本跳过（真实用法几乎全在这条，
+    // 本函数存在的理由 `perf-bulk-array-copy` 不受影响）。否则逐元素严格校验。
+    let same_kind = s.prim_backing_kind() == d.prim_backing_kind();
+    if !same_kind {
+        if let Some(kind) = d.prim_backing_kind() {
+            for k in 0..n {
+                let elem = s.get_boxed(si + k);
+                if !d.prim_backing_accepts(&elem) {
+                    anyhow::bail!(
+                        "__array_copy: source element {} is {} — cannot store it into a {kind} \
+                         element (a silent zero would be indistinguishable from a legitimate write)",
+                        si + k,
+                        crate::semantics::value_kind_name(&elem)
+                    );
+                }
+            }
+        }
     }
     d.copy_elems_from(&s, si, di, n);
     drop(d);

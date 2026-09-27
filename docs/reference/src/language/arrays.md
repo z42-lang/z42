@@ -97,6 +97,46 @@ xs.GetType().FullName;                   // "Std.Int32[]"，与 typeof 一致
 `Clear`、`Resize`、`Empty`、`AsReadOnly`、`CreateInstance` / `GetValue` / `SetValue`。逐个签名见
 标准库参考的 `Std.Array` 页。
 
+### 无类型写入：`SetValue` / `CopyRange` 的类型不符会抛
+
+那一套算法里绝大多数是**泛型**的（`Fill<T>(T[] array, T value)` 等），值的类型在调用点绑到元素
+类型、由编译器把关。只有两个入口**不带类型**，因而校验发生在运行期：
+
+| 入口 | 签名 |
+|---|---|
+| `SetValue` | `void SetValue(Object value, int index)` —— 形参就是 `Object` |
+| `CopyRange` | `void CopyRange(Array source, int, Array destination, int, int)` —— 两侧元素类型可不同 |
+
+**口径是严格的：值的种类必须与元素类型同种，否则抛 `Std.Exception`，且目标元素保持原值。**
+不做隐式拓宽 —— `double[]` **不收整数**（`d.SetValue(42, 0)` 抛；要存就传 `42.0`）。
+
+```z42
+int[] a = new int[1];
+a[0] = 9;
+object v = null;
+a.SetValue(v, 0);          // ❌ 抛；a[0] 仍是 9
+
+object n = 42;
+a.SetValue(n, 0);          // ✅ 42（整数进 int[] 是正常路径）
+
+string[] s = new string[1];
+object none = null;
+s.SetValue(none, 0);       // ✅ 引用元素写 null 完全合法
+
+int[] dst = new int[1];
+string[] src = new string[1];
+Array.CopyRange(src, 0, dst, 0, 1);   // ❌ 抛；dst 不被改动
+```
+
+> 🔴 **历史**（fix-silent-array-elem-zero，2026-09-27 修正）：这两个入口此前**静默把目标元素
+> 存成 0**（`0` / `'\0'` / `false` / `0.0`），不抛、报成功。`int[0]` 原值 9 被 `SetValue(null, 0)`
+> 变成 **0**；`double[]` 收一个整数——一个在 C# 里合法的写法——也被静默变成 0。
+> 而 `0` 是程序**完全无法与合法写入区分**的答案。
+>
+> ⚠️ 只在 **release** 如此：debug 构建一直会在那里 panic，所以本地/CI 的 debug 语料看不见它。
+>
+> **严格而不拓宽是刻意选择**：判据无歧义，且严格版随时可以放宽、反过来不行。
+
 ## 相关
 
 - [集合字面量 `{}`](collection-literals.md) —— List / Dictionary 侧，含两侧统一的脱糖表
