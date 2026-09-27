@@ -26,7 +26,7 @@ using Z42.Core;
 using Z42.Syntax;
 using Z42.IR;     // StrMap
 
-public sealed class FlowAnalyzer {
+public sealed partial class FlowAnalyzer {
 
     private DiagnosticBag _diags;
     private StrMap _uninit;     // 声明时无初始化器的局部名 → "1"
@@ -77,6 +77,7 @@ public sealed class FlowAnalyzer {
         FlowAnalyzer fa = new FlowAnalyzer(diags);
         FlowAnalyzer._seed(fa, md);
         fa._stmt(body);
+        FlowAnalyzer._checkMissingReturn(body, md, diags);
     }
 
     private static void _seed(FlowAnalyzer fa, MethodDecl md) {
