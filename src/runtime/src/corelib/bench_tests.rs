@@ -56,8 +56,17 @@ fn black_box_returns_arg_unchanged_string() {
     assert_eq!(r, Value::Str("xyz".into()));
 }
 
+/// split-null-sentinel-channels ⑥（2026-09-28）：**arity 不符报错，不再静默给 Null**。
+///
+/// 🔴 本测试原名 `black_box_no_arg_returns_null`，断言的是「零参调用返回 `Value::Null`」
+/// —— 那正是本 change 要消掉的混用：「少传了参数」与「显式传了 null」压成同一个值。
+/// `Bench.BlackBox` 的 stdlib 声明是 1 个形参，零参只可能来自 stdlib 声明与 Rust 实现
+/// 不一致（编译器会校验 extern 调用点）⇒ 那是维护错误，该报出来而不是吞掉。
 #[test]
-fn black_box_no_arg_returns_null() {
-    let r = builtin_bench_black_box(&ctx(), &[]).unwrap();
-    assert_eq!(r, Value::Null);
+fn black_box_arity_mismatch_raises() {
+    let err = builtin_bench_black_box(&ctx(), &[]).unwrap_err().to_string();
+    assert!(err.contains("expected 1 argument(s), got 0"), "实际消息：{err}");
+    // 回归门：正常一参照旧原样返回（不是「把整条路堵死」）。
+    let r = builtin_bench_black_box(&ctx(), &[Value::I64(7)]).unwrap();
+    assert_eq!(r, Value::I64(7));
 }

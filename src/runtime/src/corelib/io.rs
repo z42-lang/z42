@@ -265,7 +265,12 @@ pub fn builtin_contains(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
             Ok(Value::Bool(s.contains(needle)))
         }
         Some(Value::Array(arr)) => {
-            let item = args.get(1).cloned().unwrap_or(Value::Null);
+            // split-null-sentinel-channels ⑥：此前缺参时会去**搜索 Null**。而
+            // 「在数组里找 null」本身是合法操作（`list.Contains(null)`）—— 正因如此
+            // 「少传参数」与「显式传 null」必须靠 arity 校验才分得开。
+            // 字符串那一支早就经 `arg_str(args, 1, ..)` 校验了，这一支漏了。
+            crate::corelib::expect_args("Contains", args, 2)?;
+            let item = args[1].clone();
             Ok(Value::Bool(arr.borrow().iter_boxed().any(|v| v == item)))
         }
         _ => bail!("Contains: first argument must be a string or List"),

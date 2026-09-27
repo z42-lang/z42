@@ -6,8 +6,11 @@ use super::*;
 /// `builtin_type_properties`). `target` is the receiver (reg 0). A read-only
 /// property (no getter) raises a catchable `Std.Exception`.
 pub fn builtin_property_get_value(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let pi = args.first().cloned().unwrap_or(Value::Null);
-    let target = args.get(1).cloned().unwrap_or(Value::Null);
+    // split-null-sentinel-channels ⑥：显式校验 arity 后直接下标取参 —— 此前用
+    // `args.get(N).unwrap_or(Value::Null)`，「少传参数」与「显式传 null」完全无法区分。
+    crate::corelib::expect_args("PropertyInfo.GetValue", args, 2)?;
+    let pi = args[0].clone();
+    let target = args[1].clone();
     let getter = match read_obj_slot(&pi, "__getterQualified") {
         Value::Str(s) => s.to_string(),
         _ => bail!("PropertyInfo.GetValue: property has no getter (write-only)"),
@@ -21,9 +24,12 @@ pub fn builtin_property_get_value(ctx: &VmContext, args: &[Value]) -> Result<Val
 /// receiver (reg 0), `value` the assigned value. A read-only property (no
 /// setter) raises a catchable `Std.Exception`.
 pub fn builtin_property_set_value(ctx: &VmContext, args: &[Value]) -> Result<()> {
-    let pi = args.first().cloned().unwrap_or(Value::Null);
-    let target = args.get(1).cloned().unwrap_or(Value::Null);
-    let value = args.get(2).cloned().unwrap_or(Value::Null);
+    // split-null-sentinel-channels ⑥：显式校验 arity 后直接下标取参 —— 此前用
+    // `args.get(N).unwrap_or(Value::Null)`，「少传参数」与「显式传 null」完全无法区分。
+    crate::corelib::expect_args("PropertyInfo.SetValue", args, 3)?;
+    let pi = args[0].clone();
+    let target = args[1].clone();
+    let value = args[2].clone();
     let setter = match read_obj_slot(&pi, "__setterQualified") {
         Value::Str(s) => s.to_string(),
         _ => bail!("PropertyInfo.SetValue: property has no setter (read-only)"),
@@ -37,8 +43,11 @@ pub fn builtin_property_set_value(ctx: &VmContext, args: &[Value]) -> Result<()>
 /// `Name` → the object's own `field_index`). Unlike `PropertyInfo.GetValue`
 /// there is no accessor: a field IS a slot. Powers reflective (de)serialization.
 pub fn builtin_field_get_value(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let fi = args.first().cloned().unwrap_or(Value::Null);
-    let target = args.get(1).cloned().unwrap_or(Value::Null);
+    // split-null-sentinel-channels ⑥：显式校验 arity 后直接下标取参 —— 此前用
+    // `args.get(N).unwrap_or(Value::Null)`，「少传参数」与「显式传 null」完全无法区分。
+    crate::corelib::expect_args("FieldInfo.GetValue", args, 2)?;
+    let fi = args[0].clone();
+    let target = args[1].clone();
     let name = match read_obj_slot(&fi, "Name") {
         Value::Str(s) => s.to_string(),
         _ => bail!("FieldInfo.GetValue: receiver is not a FieldInfo"),
@@ -176,9 +185,12 @@ pub(crate) fn boxed_struct_field_get(
 /// an instance field's slot directly (by `Name` → `field_index`). Powers
 /// reflective deserialization (binding JSON members onto plain public fields).
 pub fn builtin_field_set_value(ctx: &VmContext, args: &[Value]) -> Result<()> {
-    let fi = args.first().cloned().unwrap_or(Value::Null);
-    let target = args.get(1).cloned().unwrap_or(Value::Null);
-    let value = args.get(2).cloned().unwrap_or(Value::Null);
+    // split-null-sentinel-channels ⑥：显式校验 arity 后直接下标取参 —— 此前用
+    // `args.get(N).unwrap_or(Value::Null)`，「少传参数」与「显式传 null」完全无法区分。
+    crate::corelib::expect_args("FieldInfo.SetValue", args, 3)?;
+    let fi = args[0].clone();
+    let target = args[1].clone();
+    let value = args[2].clone();
     let name = match read_obj_slot(&fi, "Name") {
         Value::Str(s) => s.to_string(),
         _ => bail!("FieldInfo.SetValue: receiver is not a FieldInfo"),
