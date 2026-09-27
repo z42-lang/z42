@@ -592,8 +592,8 @@ false）→ imported struct 当引用类型。
 非-struct class 恒 `HasBase=true`、struct 恒 `false`），故 `!cl.HasBase` **精确等价** isStruct（读同一份已
 编码的权威 struct-ness，非启发式）。
 
-**为何不加显式 `IsStruct` 字段**（bootstrap 约束，实测抓到）：`ExportedClassZ` 在 z42.ir（stdlib 库），
-z42c.semantics 依赖它作跨包 API。给它加新 `IsStruct` 字段并在 z42c 源立即用 → 上一 nightly 种子的 z42.ir 无
+**为何不加显式 `IsStruct` 字段**（bootstrap 约束，实测抓到）：`ExportedClassZ` 在 z42.package（stdlib 库），
+z42c.semantics 依赖它作跨包 API。给它加新 `IsStruct` 字段并在 z42c 源立即用 → 上一 nightly 种子的 z42.package 无
 此字段 → `xtask test bootstrap` 编当前 z42c 源报 `E0401: no field IsStruct`（bootstrap-seed axis ② stdlib
 API 面越界）。复用既有 `HasBase` 零越界、一个 nightly 落地；若未来去 `HasBase` 重载，走两-nightly 迁移到显式
 `IsStruct`。

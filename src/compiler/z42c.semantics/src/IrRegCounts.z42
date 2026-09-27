@@ -2,7 +2,7 @@
 //
 // 此前 IrOptPipeline / IrDeadBranch / IrEscapeAnalysis / IrLoopAllocReuse 各自持一份逐字相同的
 // `_computeDefs`（+ IrOptPipeline 的 `_computeReads`），四处平行维护。计数语义全部来自 IrOptInfo
-// （`AddDef` / `AddReads` / `AddTermReads`，底层是 z42.ir 的统一操作数接口），本类只负责「扫全函数、
+// （`AddDef` / `AddReads` / `AddTermReads`，底层是 z42.package 的统一操作数接口），本类只负责「扫全函数、
 // 累加、返回数组」这一层。
 //
 // 约定：

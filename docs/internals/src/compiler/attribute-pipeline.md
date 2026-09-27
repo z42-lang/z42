@@ -78,7 +78,7 @@ attr-ref 块存的是两个字符串引用，所以**任何**「每个成员一�
 用户 attribute 零撞名），反射侧一条通用的 `$` 前缀过滤（`corelib/reflection/attributes.rs`）
 把它们整体挡在 `GetCustomAttributes()` 之外。
 
-现有哨兵（常量都在 `z42.ir/IrModule.z42`，生产方 `ClassDescBuilder`、消费方 `TsigReconcile`）：
+现有哨兵（常量都在 `z42.package/IrModule.z42`，生产方 `ClassDescBuilder`、消费方 `TsigReconcile`）：
 
 | 哨兵 | 挂在 | 载的是 |
 |---|---|---|

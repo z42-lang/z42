@@ -4,7 +4,7 @@
 - [x] `git mv src/compiler/z42c.core src/libraries/z42c.core`（含 tests/diag）
 - [x] `git mv src/compiler/z42c.syntax src/libraries/z42c.syntax`（含 tests/{lexer,parser,decl,stmt,dump}）
 - [x] 6 个测试单元 toml：`output_dir` build/compiler→build/libraries；补 `z42.test` 依赖（stdlib 测试
-      谐波要求，对齐 z42.ir 先例）；修注释内旧路径
+      谐波要求，对齐 z42.package 先例）；修注释内旧路径
 
 ## 构建接线
 - [x] `src/compiler/z42.workspace.toml`：`default-members` 去 z42c.core/z42c.syntax，更新拓扑注释
@@ -19,7 +19,7 @@
 - `_compilerMembers`/`_stdlibList` 派生自各 workspace default-members → build/test/package/bootstrap-check
   全部自适应。`_assembleAllLibs`（stdlib dist + compiler members）：前端从 stdlib dist 供。
 - `bench-pr.yml`：glob 拷 stdlib+compiler dist，自适应（非 required perf gate）。
-- packaging：driver 从 libs/ 解析 z42c.core/syntax（与 z42.ir 同机制）；`_compilerMembers` 缩 → programs/z42c/
+- packaging：driver 从 libs/ 解析 z42c.core/syntax（与 z42.package 同机制）；`_compilerMembers` 缩 → programs/z42c/
   只放 semantics/pipeline/driver。
 
 ## 文档

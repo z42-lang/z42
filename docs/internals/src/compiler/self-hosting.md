@@ -25,7 +25,7 @@ src/compiler/                          # 编译器 workspace（语义/编排/驱
 └── z42c.driver/    → z42c.driver.zpkg    (exe)   镜像 z42.Driver   (= z42c 入口别名)
 
 src/libraries/                         # stdlib workspace —— 也承载可移植编译器件
-├── z42.ir/         → z42.ir.zpkg         (lib)   IR 模型 + zbc/zpkg 后端（收敛自旧 z42c.ir+z42c.project）
+├── z42.package/         → z42.package.zpkg         (lib)   IR 模型 + zbc/zpkg 后端（收敛自旧 z42c.ir+z42c.project）
 ├── z42c.core/      → z42c.core.zpkg      (lib)   Z42.Core   (Span/Diagnostic/Features)
 └── z42c.syntax/    → z42c.syntax.zpkg    (lib)   Z42.Syntax (Lexer+Parser+AST)
 ```
@@ -35,7 +35,7 @@ src/libraries/                         # stdlib workspace —— 也承载可移
 故从 `src/compiler/` 挪进 `src/libraries/`，成 z42c 编译器**与** scripting/playground/runtime 共享的
 可移植库。**包名/命名空间不变**（仍 `z42c.*` / `Z42.Core` / `Z42.Syntax`）——它们**非** Std/z42.* 标准库
 API 面，只是恰好与 stdlib 同处 build+ship。`z42c.semantics/pipeline/driver`（编译器后端）经**跨-workspace
-dist 发现**解析它们（与 `z42.ir` / `z42.project` 同机制），冷启动由破环预建（见轴 ④）供给。
+dist 发现**解析它们（与 `z42.package` / `z42.project` 同机制），冷启动由破环预建（见轴 ④）供给。
 
 **目录名 == `[project].name` == zpkg basename**（如 `z42c.core`），与 stdlib 约定一致：member 逻辑名（WS001 / default-members）、`${member_name}` 模板、产物名三者重合，消除歧义。命名空间镜像 C#：`Z42.Core` / `Z42.Syntax` / `Z42.IR` / `Z42.Project` / `Z42.Semantics` / `Z42.Pipeline` / `Z42.Driver`。
 
@@ -71,7 +71,7 @@ driver    ◄── pipeline, ir, core
 |------|--------|-------------|------|
 | **无 `enum` 关键字** | `enum DiagnosticSeverity { ... }` | `static class` + `int` 常量 | stdlib `SplitOptions` / `SeekOrigin` / `FileMode` |
 | **无交错数组 `int[][]`** | `var remaps = new int[n][];` | 循环内按需重算（如 zpkg remap 借 `Intern` 幂等性）或平铺单数组+偏移 | ZpkgWriterZ._buildMods |
-| **`new T[n]` 不能在实参位置** | `F(new string[1], ...)` | 先提升局部变量再传 | `z42.ir/tests/zpkg.z42` |
+| **`new T[n]` 不能在实参位置** | `F(new string[1], ...)` | 先提升局部变量再传 | `z42.package/tests/zpkg.z42` |
 | **`fn` / `module` 是保留字** | 参数/变量名随意 | 改名（fname / irm） | 多处 |
 | **类字段不能带泛型参数**（`private List<X> f;` 的 `<X>` 被 parser 静默丢弃 → 取元素退化为无约束 `T`，无法调其方法）| `List<Diagnostic> _items` | **typed array + count**：`Diagnostic[] _items; int _count;` + 手动 `Grow()` | stdlib `TomlValue._arrayItems` / `Process._args`（typed array 元素访问会正确单态化）|
 | ~~**`List<T>` 过度约束** `where T: IEquatable<T> + IComparable<T>`~~（**已解除**：stdlib-structure-batch 2026-09-03 去掉类级约束，对齐 C#）| `List<T>` 任意元素 | 历史规避：typed array（同上）。约束已放松，编译器代码可按需迁回 `List<T>`（仍受上一条「类字段不能带泛型参数」限制）| List.z42 头注释 |
@@ -204,36 +204,36 @@ z42c / stdlib / xtask (z42)  ──互为前置──►  ★ 自举环 ★
 | **① 语法** | vN 源用新语法 → vN-1 z42c 编不了 | **纪律**（support/use 隔一 release，bootstrap-seed.md）|
 | **② zbc/zpkg 格式** | vN-1 z42vm 读不了 vN 格式 | **锚点自动断**：z42vm 是 Rust 建的，新格式产物跑新建 vm；旧 z42c 产中间件用旧格式跑旧 vm，再 re-stage 产新格式 |
 | **③ stdlib API** | xtask/源用新 API → 旧 stdlib 没有 | **纪律**（同 ①）|
-| **④ z42c 自依赖的共享库**（converge-z42c-ir-metadata / converge-z42-syntax-lib） | z42c 运行期/编译期依赖 `z42.ir` + `z42c.core` + `z42c.syntax`（均落 stdlib workspace），但它们**由 z42c 构建** → 冷启动 flat dist 里还没有它们 | **破环预建（种子先编这些库进 build-libs）**，见下 |
+| **④ z42c 自依赖的共享库**（converge-z42c-ir-metadata / converge-z42-syntax-lib） | z42c 运行期/编译期依赖 `z42.package` + `z42c.core` + `z42c.syntax`（均落 stdlib workspace），但它们**由 z42c 构建** → 冷启动 flat dist 里还没有它们 | **破环预建（种子先编这些库进 build-libs）**，见下 |
 
 > 关键：**格式轴不需纪律**——z42vm 不自举（Rust 建）是打破格式环的锚点。真正靠纪律约束的只有
 > 语法/API 轴。
 
 **轴 ④ 的破环细节**（`_ensureBootstrapSelfDepLibs`，`scripts/build/xtask_compiler.z42`）：z42c 把
-IR 模型 + zbc/zpkg 后端下沉到 stdlib 单库 `z42.ir`（收敛自旧 `z42c.ir` + `z42c.project`），于是
-z42c **运行期依赖 `z42.ir`**——它建任何 zpkg 都要调 `Z42.Project.ZpkgBuilder.Sha256Hex` 等。冷启动
-（fresh checkout / CI 新 runner）flat dist 里没有 `z42.ir`，而上一 nightly 种子只把等价代码作
+IR 模型 + zbc/zpkg 后端下沉到 stdlib 单库 `z42.package`（收敛自旧 `z42c.ir` + `z42c.project`），于是
+z42c **运行期依赖 `z42.package`**——它建任何 zpkg 都要调 `Z42.Project.ZpkgBuilder.Sha256Hex` 等。冷启动
+（fresh checkout / CI 新 runner）flat dist 里没有 `z42.package`，而上一 nightly 种子只把等价代码作
 **`z42c.ir` + `z42c.project`** 两个包携带（包名不同）。若直接建 z42c，编译器只能拿种子的
 `z42c.ir/z42c.project` 作 `Z42.IR/Z42.Project` 的**命名空间兜底**来解析 → fresh z42c emit 的
-`ZpkgBuilder.Sha256Hex` 调用钉在种子包上，运行期加载真正的 `z42.ir` 时**解析不到**
+`ZpkgBuilder.Sha256Hex` 调用钉在种子包上，运行期加载真正的 `z42.package` 时**解析不到**
 （`undefined function ...Sha256Hex`，即 main CI 冷启动全红根因）。破环：`_buildCompilerViaZ42c`
 在 workspace build **前**先用当前 driver（冷启动=上一 nightly 种子，自带等价 `ZpkgBuilder`）把
-当前源码的 `z42.ir` **单独编进 build-libs**（`build <toml> --output-dir <flat>`），fresh z42c 就
-对着**真 `z42.ir`** 编译+运行，一致。随后的 `build stdlib` 全量 workspace 构建用 fresh z42c 把
-`z42.ir` 覆盖为规范产物。与轴 ② 的两代自举同构，但触发条件是**包结构收敛**而非格式 bump。
+当前源码的 `z42.package` **单独编进 build-libs**（`build <toml> --output-dir <flat>`），fresh z42c 就
+对着**真 `z42.package`** 编译+运行，一致。随后的 `build stdlib` 全量 workspace 构建用 fresh z42c 把
+`z42.package` 覆盖为规范产物。与轴 ② 的两代自举同构，但触发条件是**包结构收敛**而非格式 bump。
 
 > **不 warm-skip**（`07596b57`，2026-07-30 改；此前是「已在 flat dist 就跳过」）。早先那个幂等假设
-> 等价于「z42c 不消费 `z42.ir` 的**新** API」——当 z42c 源用到当前源 `z42.ir` 新增的类型/方法，而
-> flat dist 里躺的是上一 nightly 种子带来的旧 `z42.ir`（CI 冷启动 stage 的正是它）时，warm-skip 会让
+> 等价于「z42c 不消费 `z42.package` 的**新** API」——当 z42c 源用到当前源 `z42.package` 新增的类型/方法，而
+> flat dist 里躺的是上一 nightly 种子带来的旧 `z42.package`（CI 冷启动 stage 的正是它）时，warm-skip 会让
 > workspace self-build 对着旧库编 → `unknown type` / `no field` 编译失败。故**总是**用当前 driver 把
-> 当前源 `z42.ir` 建进 build-libs。
+> 当前源 `z42.package` 建进 build-libs。
 >
 > ⭐ **这条直接推论出轴 ③ 的一个例外，务必与轴 ③ 的纪律区分**：对**这 6 个自依赖库**
-> （`z42.core` / `z42.project` / `z42.build` / `z42.ir` / `z42c.core` / `z42c.syntax`），
+> （`z42.core` / `z42.project` / `z42.build` / `z42.package` / `z42c.core` / `z42c.syntax`），
 > 「z42c 源用它们的新 API」**由预建自动破环，无需等一个 nightly**——这已是日常操作，先例包括
 > `ExportedClassZ.IsSealed`(2026-08-07) / `Visibility`(08-13) / `IsDeprecated`(08-23) /
 > `ExportedMethodZ.TypeParamCount`(`a71278b5`, 09-03) / `StrMap.Find`(`04719bbb`, 09-05)，
-> 全部「z42.ir 加成员 + z42c 源**同 commit** 消费」且 CI 绿。轴 ③ 的「晚一个 nightly」纪律
+> 全部「z42.package 加成员 + z42c 源**同 commit** 消费」且 CI 绿。轴 ③ 的「晚一个 nightly」纪律
 > 仍适用于**其余 stdlib 库**（`z42.collections` / `z42.threading` / …）与 **xtask 源**
 > （xtask 在 `ci-bootstrap` step [2] 用种子 stdlib 编，不受预建保护）。
 >
@@ -241,21 +241,21 @@ z42c **运行期依赖 `z42.ir`**——它建任何 zpkg 都要调 `Z42.Project.
 > 须在 ctor 内给默认值 + 由消费方构造后赋值（`ExportedTypes.z42` 的 `IsSealed`/`Visibility`/
 > `IsDeprecated` 三处注释即此约定）。
 
-> **A1 扩展（consolidate-core-intrinsics，2026-08-03）**：`z42.ir` 现调 `Std.BitConverter`（当前源
+> **A1 扩展（consolidate-core-intrinsics，2026-08-03）**：`z42.package` 现调 `Std.BitConverter`（当前源
 > `z42.core` 新增门面，位转换 intrinsic 单一声明点）。冷/首暖构建时 flat 里躺的是种子/上一次的旧
-> `z42.core`（缺 `BitConverter`），若直接单包编 `z42.ir` → `undefined: BitConverter`。故
-> `_ensureBootstrapSelfDepLibs` 在建 `z42.ir` **前**，用同款「先预建覆盖种子」把**当前源 `z42.core`** 也编进
+> `z42.core`（缺 `BitConverter`），若直接单包编 `z42.package` → `undefined: BitConverter`。故
+> `_ensureBootstrapSelfDepLibs` 在建 `z42.package` **前**，用同款「先预建覆盖种子」把**当前源 `z42.core`** 也编进
 > build-libs——即：凡 z42c 运行期自依赖链上、且被当前源新引用了新 API 的库（此处 `z42.core`），都须
-> 先于其消费者（`z42.ir`）进 flat。这不是格式/包结构问题，而是**轴 ④ 在「stdlib 库新增 API」维度的
-> 同一破环**：z42c 运行期自依赖库的新 API，必须在自建前就存在于 flat。实测：老 core 编 `z42.ir` 复现
+> 先于其消费者（`z42.package`）进 flat。这不是格式/包结构问题，而是**轴 ④ 在「stdlib 库新增 API」维度的
+> 同一破环**：z42c 运行期自依赖库的新 API，必须在自建前就存在于 flat。实测：老 core 编 `z42.package` 复现
 > `undefined: BitConverter`，预建当前源 core 后通过。
 
 > **前端下沉扩展（converge-z42-syntax-lib，route A 地基）**：`z42c.core` + `z42c.syntax`（可移植前端）
 > 挪入 `src/libraries/` 后，`z42c.semantics/pipeline/driver` 对它们成**跨-workspace 共享库依赖**——正是
 > 轴 ④ 的又一实例（编译器后端自依赖一组由 z42c 自己构建的库）。冷启动 flat 里躺的是上一 nightly 种子
-> 的旧 `z42c.core/syntax`；`_ensureBootstrapSelfDepLibs` 在 `z42.ir` 之后**追加**预建**当前源**
+> 的旧 `z42c.core/syntax`；`_ensureBootstrapSelfDepLibs` 在 `z42.package` 之后**追加**预建**当前源**
 > `z42c.core` → `z42c.syntax`（顺序：core 靠 `z42.core` 隐式 prelude、syntax 靠 `z42c.core`），
-> 覆盖种子旧版，让 fresh z42c 永远对着**当前源**前端编译+运行。**与 z42.ir 同款「不 warm-skip」**：源
+> 覆盖种子旧版，让 fresh z42c 永远对着**当前源**前端编译+运行。**与 z42.package 同款「不 warm-skip」**：源
 > 未变时增量缓存近零成本；源变了本就该重建。两代自举 CI 路径（`ci-bootstrap`）天然覆盖——它每代先
 > `build --workspace`（stdlib，现含 z42c.core/syntax）再建 `src/compiler`，前端先于后端进 flat。
 

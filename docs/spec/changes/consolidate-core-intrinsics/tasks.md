@@ -27,7 +27,7 @@
 - [x] 3.2 BinaryReader.z42 → BitConverter.*（删 local extern）
 - [x] 3.3 ZbcInstr.DoubleToBits 保签名、委托 core
 - [x] 3.4 ZbcReaderInstr.BitsToDouble 保签名、委托 core
-- [x] 3.5 `_ensureBootstrapZ42Ir`：z42.ir 单包重建前先建当前源 z42.core
+- [x] 3.5 `_ensureBootstrapZ42Ir`：z42.package 单包重建前先建当前源 z42.core
 - [x] 3.6 grep 确认单一声明点（bit-op 仅 BitConverter.z42；clock 仅 Clock.z42）
 
 ## 阶段 4: 文档
@@ -40,8 +40,8 @@
 - [x] 5.1 cargo build z42vm（release）—— exit 0
 - [x] 5.2a stdlib 全量 workspace build（25/25 member 编译通过，delegations + 跨 zpkg 解析 OK）
 - [x] 5.2b 行为 smoke：位转换 round-trip（3.140625 / 2.5 精确回还）+ 时钟（wall/mono 均 true）
-- [x] 5.2c z42c warm 自建成功（7/7 z42c.*；z42.ir 委托 DoubleToBits 在 z42c 运行期工作）
-- [x] 5.2d bootstrap 修正隔离验证：老 core 编 z42.ir → `undefined: BitConverter`（复现）；
+- [x] 5.2c z42c warm 自建成功（7/7 z42c.*；z42.package 委托 DoubleToBits 在 z42c 运行期工作）
+- [x] 5.2d bootstrap 修正隔离验证：老 core 编 z42.package → `undefined: BitConverter`（复现）；
        预建当前源 core 后 → 通过（证明 _ensureBootstrapZ42Ir 修正必要且有效）
 - [ ] 5.3 完整 `xtask test` gate（e2e / cross-zpkg / stdlib [Test] dogfood / compiler / vscode-syntax）
        —— fresh worktree 未跑端到端；**PR/CI 执行**（含 cold 冷启动腿）

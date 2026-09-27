@@ -118,7 +118,7 @@ z42 现在有**两套**静态初始化机制，做同一件事：
 | `src/compiler/z42c.semantics/src/AccessEmitter.z42` | MODIFY | 静态 struct 字段装箱统一走 `_emitStaticStore`（删 `EmitStaticInit` 专用转发） |
 | `src/compiler/z42c.pipeline/src/CtorKnownFixup.z42` | MODIFY | 整包装配后的置位遍历中并入 `owner_init_free`（或新增同形 pass） |
 | `src/compiler/z42c.pipeline/src/PackageCompile.z42` | MODIFY | 装配点调用新置位逻辑 |
-| `src/libraries/z42.ir/src/IrModule.z42` | MODIFY | IR 指令承载 `owner_init_free` 位 + zbc 往返 |
+| `src/libraries/z42.package/src/IrModule.z42` | MODIFY | IR 指令承载 `owner_init_free` 位 + zbc 往返 |
 
 ### runtime
 

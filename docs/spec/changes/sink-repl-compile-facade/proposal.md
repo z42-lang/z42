@@ -7,7 +7,7 @@
 ## 背景与唯一真障碍
 
 PR-A 把编译器**前端**（`z42c.core`=`Z42.Core`：Span；`z42c.syntax`=`Z42.Syntax`：Lexer/Parser/
-Token/CompilationUnit）搬进了 `src/libraries/`，与已在 stdlib 的 `z42.ir`/`z42.project` 并列。故
+Token/CompilationUnit）搬进了 `src/libraries/`，与已在 stdlib 的 `z42.package`/`z42.project` 并列。故
 scripting 里 **tokenize/completeness/classify/rewrite（Lexer/Parser 用法）已是 stdlib-only，无需门面**。
 
 scripting 变 stdlib-only 的**唯一剩余障碍** = 它还直接依赖两个 compiler-only 包：
@@ -81,7 +81,7 @@ NoReplCompiler——但 REPL 本就必须有编译器才有意义，与 z42b「�
 ## scripting 依赖收缩（物理搬迁 DEFERRED）
 
 toml 依赖：**去** `z42c.semantics`/`z42c.pipeline`；**留/加** `z42.build`（门面）+ `z42.test`
-（ModuleLoader）+ `z42c.core`（Span）/`z42c.syntax`（Lexer/Parser/Token/CU）/`z42.ir`
+（ModuleLoader）+ `z42c.core`（Span）/`z42c.syntax`（Lexer/Parser/Token/CU）/`z42.package`
 （ZpkgWriterZ/ZbcVersion/Exported*）/`z42.io`/`z42.core`/`z42.threading`。→ scripting 编译期 **stdlib-only**。
 
 **物理搬迁 `src/toolchain/scripting` → `src/libraries/` 推迟到 follow-up**（User 定，2026-08-28）：
@@ -104,7 +104,7 @@ z42c.pipeline 是**运行期**非构建期 → 无环。新 deps（z42.build/z42
 
 ## 验证
 
-**本地不可验**（种子墙：本机种子 z42c 缺 z42.ir 近期字段编不了编译器；z42vm 退出期挂起）→ **CI 权威**：
+**本地不可验**（种子墙：本机种子 z42c 缺 z42.package 近期字段编不了编译器；z42vm 退出期挂起）→ **CI 权威**：
 verify-selfhost 字节不动点 + test-host×4（含 REPL 端到端）+ test-stdlib interp/jit + bootstrap(轴④/格式)。
 零格式 bump（不动 zbc/zpkg writer）。
 

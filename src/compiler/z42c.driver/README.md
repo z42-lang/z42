@@ -33,7 +33,7 @@ CLI 入口（命令路由）。唯一 **exe** 子包，对外别名 = 用户 `z4
 workspace/flat 模式不落 cache、不 probe（见 [project.md 增量编译节](../../../docs/reference/src/toolchain/z42-toml.md)）。
 
 ## 依赖关系
-→ z42c.syntax, z42c.semantics, z42c.core, z42c.pipeline, z42.ir, z42.project。stdlib（Std / Std.IO）自动可用。
+→ z42c.syntax, z42c.semantics, z42c.core, z42c.pipeline, z42.package, z42.project。stdlib（Std / Std.IO）自动可用。
 
 `_build` 遇本地 path 依赖（`DepEntry.Path` 非空）时，先经 `z42c.pipeline` 的 `PathDepPlan.Resolve` 建叶子在前的传递闭包 → 逐成员现建 + 累积 libsDirs，`_bundleExeDeps` 再把私有 path 依赖 zpkg colocate 进消费方 dist（真-stdlib 走 Z42_LIBS 不复制）。机制见 book `compiler/project-model.md` 路径依赖闭包。
 

@@ -66,9 +66,9 @@
 
 | 文件 | 变更 |
 |---|---|
-| `src/libraries/z42.ir/src/IrModule.z42` | `IrParamDefault` 增 `ByRefSentinel = "$ByRef"` + `IsByRef(attrs, count)` 查询 |
-| `src/libraries/z42.ir/src/ExportedTypes.z42` | `ExportedParamZ.IsRef`（内存 DTO 字段，不入 wire） |
-| `src/libraries/z42.ir/src/TsigReconcile.z42` | 读 `$ByRef` → `p.IsRef` |
+| `src/libraries/z42.package/src/IrModule.z42` | `IrParamDefault` 增 `ByRefSentinel = "$ByRef"` + `IsByRef(attrs, count)` 查询 |
+| `src/libraries/z42.package/src/ExportedTypes.z42` | `ExportedParamZ.IsRef`（内存 DTO 字段，不入 wire） |
+| `src/libraries/z42.package/src/TsigReconcile.z42` | 读 `$ByRef` → `p.IsRef` |
 | `src/compiler/z42c.semantics/src/ClassDescBuilder.z42` | `_paramAttrRefs` 对 ref 形参追加哨兵 |
 | `src/compiler/z42c.semantics/src/ImportedSymbolLoader.z42` | `ExportedParamZ.IsRef` → `Z42FuncType.ParamIsRef`（各签名构造点） |
 | `src/compiler/z42c.semantics/src/RefArgCheck.z42` | 注释更新（跨包缺口已补） |

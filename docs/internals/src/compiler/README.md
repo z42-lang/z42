@@ -15,7 +15,7 @@ z42c —— **用 z42 自己写的编译器**，把 `.z42` 源码编成 `.zpkg`�
 | `z42c.pipeline` | `src/compiler/z42c.pipeline/` | 编译管线编排、依赖扫描、工作区构建、增量缓存 |
 | `z42c.driver` | `src/compiler/z42c.driver/` | CLI 入口（= `z42c` 可执行） |
 
-> IR 模型与 zbc/zpkg 后端已下沉 stdlib 库 `z42.ir`；清单解析在 `z42.project`。
+> IR 模型与 zbc/zpkg 后端已下沉 stdlib 库 `z42.package`；清单解析在 `z42.project`。
 > 格式本身见[产物格式](../formats/README.md)。
 
 ## 从哪读起

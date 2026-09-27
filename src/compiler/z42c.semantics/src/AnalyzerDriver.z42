@@ -14,7 +14,7 @@ namespace Z42.Semantics;
 
 using Z42.Core;     // Diagnostic / DiagnosticBag / DiagnosticSeverity / Span
 using Z42.Syntax;   // Analyzer / DiagSink / DiagRule / SyntaxKind / AST / FixSink / CodeFix / TextEdit
-using Std.IO;       // File —— PR7-wire `--fix` 就地重写源（z42.io 已在 semantics 传递闭包：→z42.ir→z42.io）
+using Std.IO;       // File —— PR7-wire `--fix` 就地重写源（z42.io 已在 semantics 传递闭包：→z42.package→z42.io）
 
 // DiagSink 具体实现：analyzer 报告 → 编译器 DiagnosticBag。severity 决策经 LintConfig（PR3b）：
 // EnabledByDefault + [lints] 覆盖 + 通配 + warnings-as-errors → 最终级别；抑制（规则禁用 / "none"）

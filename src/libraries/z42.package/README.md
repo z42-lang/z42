@@ -1,4 +1,15 @@
-# z42.ir
+# z42.package
+
+> 📌 **2026-09-27 更名：`z42.package` → `z42.package`**（User 裁）。理由：它装的**不只是 IR 模型**，
+> 而是「整个 package 文件的读写」—— IR 内存模型是包文件的**内容模型**，zbc 是它的编码，zpkg 是容器，
+> 三者是一件事。命名空间**一个都没动**（仍 `Z42.IR` / `Z42.IR.BinaryFormat` / `Z42.Project`），
+> 所以调用点零改。
+>
+> 阶段 1 有一份旧文件名的运行期兼容副本（上一代种子的 `DEPS` 仍写 `z42.package`），落在只挂
+> `probing-paths` 的目录、**不进编译期 libs**（进去会让编译器看见两个包导出相同 FQN ⇒ `E0606`）。
+> 下一 nightly 后删除，已挂进阶段-2 欠账清单。
+>
+> `docs/spec/archive/**` 里仍写 `z42.package` —— 那是**历史记录**，按约定不改。
 
 ## 职责
 编译栈**基础库**：IR 内存模型 + zbc 单模块字节码格式 + zpkg 包格式后端 + 类型导出/依赖索引。
@@ -29,12 +40,12 @@ z42.core（prelude）+ z42.encoding（Utf8）+ z42.io（zpkg 文件）+ z42.cryp
 完整 IR→zbc 往返（需 IrGen）在 `z42c.semantics/tests/zbcreader`。
 
 ```bash
-xtask test stdlib z42.ir          # 本库全部单元
-xtask test stdlib z42.ir -k zpkg  # 只跑一个
+xtask test stdlib z42.package          # 本库全部单元
+xtask test stdlib z42.package -k zpkg  # 只跑一个
 ```
 
 > 这三个单元 2026-09-06 前**从未跑过**：它们曾是 `tests/<name>/<name>_tests.z42` +
 > 手写 `.z42.toml`，而 stdlib 的 dir 单元发现要求目录里有 `source.z42`，于是三个目录
-> 全被静默跳过，`test stdlib z42.ir` 报「all 0 file(s) passed」。改成 flat 单文件后
+> 全被静默跳过，`test stdlib z42.package` 报「all 0 file(s) passed」。改成 flat 单文件后
 > 才真正入门禁——首次运行即抓出 `zpkg.z42` 里钉死的 zpkg minor 已过期 10 个版本。
 > 详见 change `tidy-test-layout`。

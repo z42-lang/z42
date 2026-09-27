@@ -64,7 +64,7 @@
 （与既有的 `.Prim` / `.Static` partial 同一模式），不是为绕门禁随便切一刀。
 
 **另需记一笔（环境，非本 change）**：main 同时把 zpkg 格式 bump 到 **minor 49**（#730 删 primitive
-短名别名），本机 48 的种子读不了新 runtime 的产物，两棵 worktree 全挂在 `bootstrap: build z42.ir failed`。
+短名别名），本机 48 的种子读不了新 runtime 的产物，两棵 worktree 全挂在 `bootstrap: build z42.package failed`。
 解法不是跑整套两代自举，而是**从 #730 自己那条 CI 运行的 `z42-host-package-*` 产物取一份 49 的 SDK 换种子**
 （`gh run download <id> -p 'z42-host-package-macos-26'`，里面就是解包好的 SDK 目录）。
 注意 `artifacts/xtask/xtask.zpkg` 也得用新 SDK 的 launcher 重新 `publish` 一遍，否则它自己还是旧格式。

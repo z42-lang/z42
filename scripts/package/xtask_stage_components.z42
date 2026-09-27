@@ -130,7 +130,7 @@ int _pkgStageEditorAssets(string root) {
 // 独立目录 = 独立解析域：只有 `kind = "analyzer"` 的工程看得见（z42c.driver 的 _compilerLibsDirs）。
 //
 // 内容：编译器后端里**被契约暴露**的那些包。当前只有 z42c.semantics —— 其余契约依赖
-// （z42c.core / z42c.syntax / z42.ir）已在 libs/，analyzer 工程同时看两处即可解析。
+// （z42c.core / z42c.syntax / z42.package）已在 libs/，analyzer 工程同时看两处即可解析。
 // z42c.pipeline **不进**：它是 handler 的加载器，不是 handler 作者要引用的东西。
 int _pkgStageCompilerLibs(string root) {
     string dir = _pkgStageDir(root, "compiler-libs");

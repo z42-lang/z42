@@ -30,10 +30,10 @@
 | workspace | 成员 |
 |---|---|
 | `src/compiler/` | 编译器**后端三包**：`z42c.semantics` / `z42c.pipeline` / `z42c.driver`（exe）|
-| `src/libraries/` | stdlib 全部成员，外加三个工具链库 `z42.ir`、`z42c.core`、`z42c.syntax` |
+| `src/libraries/` | stdlib 全部成员，外加三个工具链库 `z42.package`、`z42c.core`、`z42c.syntax` |
 
 可移植前端（`z42c.core` = Span/Diagnostic、`z42c.syntax` = Lexer/Parser/AST）与 IR·后端库
-`z42.ir` 住在 `src/libraries/`，**随 stdlib 一起建、一起进扁平视图**，后端三包经跨-workspace
+`z42.package` 住在 `src/libraries/`，**随 stdlib 一起建、一起进扁平视图**，后端三包经跨-workspace
 dist 发现来解析它们。所以「编译器有几个包」这个数是算出来的，别在文档或代码里写死——
 `scripts/` 与 `src/` 的若干注释里仍留着「7 包 / 6 个兄弟包」的旧口径，那是历史文本，
 以 `default-members` 为准。
@@ -65,7 +65,7 @@ graph TD
 
 `_ensureSeed` 判断 in-tree 产物能不能当种子，**不能只看文件在不在**——还要看它是哪一代：
 读 `z42c.driver.zpkg` 与 `z42.core.zpkg` 头里的 zpkg **格式 minor**（`'Z''P''K'0 | major:u16le
-| minor:u16le`，见 `z42.ir` 的 `ZpkgWriterZ._assemble`），与**本源码树写端**的
+| minor:u16le`，见 `z42.package` 的 `ZpkgWriterZ._assemble`），与**本源码树写端**的
 `ZpkgWriterZ.Minor` 比对；不等就丢弃 `artifacts/build/{compiler,libraries}` 整代产物、
 退回冷启动重新供种，并打印一行说明。
 
@@ -97,7 +97,7 @@ graph TD
 
 | 环 | 现象 | 破法 |
 |---|---|---|
-| z42c ⇄ `z42.ir` | z42c 运行期依赖 stdlib 库 `z42.ir`，而 `z42.ir` 由 z42c 构建；冷树上 fresh z42c 只能拿种子自带的旧 IR 包解析 `Z42.Project.*`，运行期加载真 `z42.ir` 时符号解析不到 | `_ensureBootstrapSelfDepLibs` 在 workspace build 之前先用种子 driver 把当前源的 `z42.ir` 编进 build-libs |
+| z42c ⇄ `z42.package` | z42c 运行期依赖 stdlib 库 `z42.package`，而 `z42.package` 由 z42c 构建；冷树上 fresh z42c 只能拿种子自带的旧 IR 包解析 `Z42.Project.*`，运行期加载真 `z42.package` 时符号解析不到 | `_ensureBootstrapSelfDepLibs` 在 workspace build 之前先用种子 driver 把当前源的 `z42.package` 编进 build-libs |
 | z42c ⇄ z42c（跨成员符号新增）| driver 打包的是**当时** dist 里的旧兄弟包，它遮蔽 fresh dist ⇒ 消费方成员首遍报 `no field` / `undefined type` | 首遍已按拓扑序把被依赖成员建 fresh ⇒ 用 fresh 兄弟重新自包含 driver 再跑一遍即收敛；真编译错重试照样失败 |
 
 ## 4. 不动点验证（`test compiler` 的核心）

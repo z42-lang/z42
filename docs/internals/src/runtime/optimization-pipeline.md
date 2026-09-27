@@ -69,7 +69,7 @@ z42 源码 ──z42c──> z42 IR
 ## 机制 / 实现
 
 **位置**：`z42c.semantics/src/IrOpt{Info,Pipeline}.z42` + `OptSet.z42` + `IrInline.z42`（compiler 源码，
-非 stdlib z42.ir —— 只用 z42.ir 现有 public 字段 type-switch，零 bootstrap API-face 延迟）。挂
+非 stdlib z42.package —— 只用 z42.package 现有 public 字段 type-switch，零 bootstrap API-face 延迟）。挂
 `IrGen.Generate` 末尾。
 
 > **逃逸分析栈上分配（`Opt.StackAlloc=64`，change `add-escape-analysis-stack-alloc`）**：不逃逸的
@@ -103,7 +103,7 @@ reads/defs + 单测逐 pass 单独开跑 golden。**顺序**只影响效果不�
 > 折叠含直接调用的 golden 且脆弱，故排除；该值 = 引入内联前 `Opt.All` 的等价输出，既有 golden 逐字节
 > 不变。内联行为由真实 release 自建（D7）+ `DumpFuncOpt(src,key,optSet)` 专项单测覆盖。
 
-**读/写计数**（`IrRegCounts.Reads` / `Defs`，share-ir-reg-counts 起为各 pass 唯一实现）：一趟扫全函数，`reads[reg]`（每指令读操作数 + 每块终结子读）、`defs[reg]`（每指令定义寄存器）。**枚举来源 = z42.ir 的统一操作数接口**
+**读/写计数**（`IrRegCounts.Reads` / `Defs`，share-ir-reg-counts 起为各 pass 唯一实现）：一趟扫全函数，`reads[reg]`（每指令读操作数 + 每块终结子读）、`defs[reg]`（每指令定义寄存器）。**枚举来源 = z42.package 的统一操作数接口**
 （unify-ir-operand-access：`IrInstr.DefReg / ReadCount / ReadAt`、`IrTerminator.ReadReg`）——每条指令自己回答操作数，
 `IrOptInfo` 不再逐 opcode 镜像 `ZbcWriter._regtInstr`（REGT 收集同走该接口），新增指令实现接口即被所有 pass 正确计入。参数寄存器 seed 为 live-out（out/ref 参数最终值由调用方读，函数内看不到）。
 

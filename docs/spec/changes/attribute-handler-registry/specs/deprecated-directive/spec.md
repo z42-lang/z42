@@ -62,7 +62,7 @@
   - method attrs：zbc1.11（SIGS 段已写 `IrAttrRef[]`）
   - field attrs：zbc1.14（TYPE 段已写实例 + 静态字段 `IrAttrRef[]`）
 - 哨兵编码：`TypeName = "$Deprecated"`（`IrDeprecation.Sentinel`，`$` 前缀避免与真实用户 attr 类名冲突）；`FactoryFunc = msg`（借用工厂函数名槽承载消息串）
-- 读回：`IrDeprecation.Has(attrs, count)` / `IrDeprecation.Msg(attrs, count)`（z42.ir，扫 attr-ref 数组匹配哨兵名）
+- 读回：`IrDeprecation.Has(attrs, count)` / `IrDeprecation.Msg(attrs, count)`（z42.package，扫 attr-ref 数组匹配哨兵名）
 - 反射：Rust `GetCustomAttributes` 未来应过滤 `$Deprecated` 哨兵（不暴露给用户反射）→ Deferred
 
 ## Pipeline Steps

@@ -39,15 +39,15 @@ roadmap 0.5.x 招牌 `JsonSerializer.Deserialize<T>(json)` 是**泛型方法**�
 | `src/compiler/z42c.semantics/src/TypeChecker.z42` | MODIFY | 绑定方法 type_args → 泛型方法 decl；arity/约束校验；方法级 `Z42GenericParamType` 解析 |
 | `src/compiler/z42c.semantics/src/ExprEmitter.z42` | MODIFY | call 发方法 type_args；方法级 `typeof(T)`/`new T()`/`default(T)` 发新指令 |
 
-### IR + 二进制格式（`z42.ir` stdlib）
+### IR + 二进制格式（`z42.package` stdlib）
 
 | 文件 | 变更 | 说明 |
 |------|------|------|
-| `src/libraries/z42.ir/src/IrInstr.z42` | MODIFY | Call 携带方法 type_args；方法级形参解析指令（新增或加 scope 判别）|
-| `src/libraries/z42.ir/src/BinaryFormat/ZbcWriter.z42` | MODIFY | 编码新字段/指令 |
-| `src/libraries/z42.ir/src/BinaryFormat/ZbcReader.z42` | MODIFY | 解码 |
-| `src/libraries/z42.ir/src/BinaryFormat/ZbcVersion.z42` | MODIFY | zbc `Minor` bump |
-| `src/libraries/z42.ir/src/ZpkgWriter.z42` | MODIFY | zpkg `Minor` bump（内嵌 zbc 版本随动）|
+| `src/libraries/z42.package/src/IrInstr.z42` | MODIFY | Call 携带方法 type_args；方法级形参解析指令（新增或加 scope 判别）|
+| `src/libraries/z42.package/src/BinaryFormat/ZbcWriter.z42` | MODIFY | 编码新字段/指令 |
+| `src/libraries/z42.package/src/BinaryFormat/ZbcReader.z42` | MODIFY | 解码 |
+| `src/libraries/z42.package/src/BinaryFormat/ZbcVersion.z42` | MODIFY | zbc `Minor` bump |
+| `src/libraries/z42.package/src/ZpkgWriter.z42` | MODIFY | zpkg `Minor` bump（内嵌 zbc 版本随动）|
 
 ### 运行期（Rust VM）
 
@@ -69,7 +69,7 @@ roadmap 0.5.x 招牌 `JsonSerializer.Deserialize<T>(json)` 是**泛型方法**�
 | `src/tests/e2e/generic-methods/` | NEW | golden：`typeof(T)` / `new T()` / `default(T)` / 直接调用 + 边界（arity 错、约束违背）|
 | `docs/book/src/lang/generics.md` | MODIFY | 方法级泛型章节：机制 + frame 携带 + 与类级对称 |
 | `docs/roadmap.md` | MODIFY | 标注 M1 进度（G2 直接调用部分）|
-| `src/libraries/z42.ir/README.md` | MODIFY | 功能索引 + 格式版本 |
+| `src/libraries/z42.package/README.md` | MODIFY | 功能索引 + 格式版本 |
 | `src/runtime/src/interp/README.md` | MODIFY | Frame / 方法级 type_args 说明 |
 
 **只读引用**：

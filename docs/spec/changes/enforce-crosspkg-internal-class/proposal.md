@@ -40,17 +40,17 @@ importer 还原后即激活 ① 已埋好的 internal deny 分支。
 
 ## Scope（允许改动的文件）
 
-### z42.ir（序列化载体）
+### z42.package（序列化载体）
 
 | 文件路径 | 变更 | 说明 |
 |---------|------|------|
-| `src/libraries/z42.ir/src/IrModule.z42` | MODIFY | `IrClassDesc` 加 `int Visibility`（默认 0） |
-| `src/libraries/z42.ir/src/BinaryFormat/ZbcWriter.z42` | MODIFY | TYPE 记录 `w.WriteU8(cd.Visibility)` 紧随 `WriteU8(cd.Flags)` |
-| `src/libraries/z42.ir/src/BinaryFormat/ZbcReader.z42` | MODIFY | `cd.Visibility = c.U8()` 紧随 `cd.Flags = c.U8()` |
-| `src/libraries/z42.ir/src/BinaryFormat/ZbcFormat.z42` | MODIFY | `ZbcVersion.Minor` 32→33 + changelog |
-| `src/libraries/z42.ir/src/ZpkgWriter.z42` | MODIFY | `ZpkgWriterZ.Minor` 37→38 + changelog |
-| `src/libraries/z42.ir/src/ExportedTypes.z42` | MODIFY | `ExportedClassZ` 加 `string Visibility`（默认 "public"） |
-| `src/libraries/z42.ir/src/TsigReconcile.z42` | MODIFY | `ecz.Visibility = _visStr(cd.Visibility)`（_visStr 已支持 3→internal） |
+| `src/libraries/z42.package/src/IrModule.z42` | MODIFY | `IrClassDesc` 加 `int Visibility`（默认 0） |
+| `src/libraries/z42.package/src/BinaryFormat/ZbcWriter.z42` | MODIFY | TYPE 记录 `w.WriteU8(cd.Visibility)` 紧随 `WriteU8(cd.Flags)` |
+| `src/libraries/z42.package/src/BinaryFormat/ZbcReader.z42` | MODIFY | `cd.Visibility = c.U8()` 紧随 `cd.Flags = c.U8()` |
+| `src/libraries/z42.package/src/BinaryFormat/ZbcFormat.z42` | MODIFY | `ZbcVersion.Minor` 32→33 + changelog |
+| `src/libraries/z42.package/src/ZpkgWriter.z42` | MODIFY | `ZpkgWriterZ.Minor` 37→38 + changelog |
+| `src/libraries/z42.package/src/ExportedTypes.z42` | MODIFY | `ExportedClassZ` 加 `string Visibility`（默认 "public"） |
+| `src/libraries/z42.package/src/TsigReconcile.z42` | MODIFY | `ecz.Visibility = _visStr(cd.Visibility)`（_visStr 已支持 3→internal） |
 
 ### z42c.semantics（本地设值 + 跨包还原）
 
@@ -82,7 +82,7 @@ importer 还原后即激活 ① 已埋好的 internal deny 分支。
 
 ## 验证策略
 
-- **本地（macOS，warm 0.37 上限）**：z42.ir gen0 编译（seed 0.37 编 ② 源过）+ `cargo build` + `cargo test --lib`
+- **本地（macOS，warm 0.37 上限）**：z42.package gen0 编译（seed 0.37 编 ② 源过）+ `cargo build` + `cargo test --lib`
   （②新增 struct-byte / 版本 pin 单测过；committed 0.37 fixture 相关 5 测试 + 依赖本地 stdlib 的 host 集成测试
   因 0.38 格式本地不可产 stdlib 而失败——**格式-bump 本地不可验，属 macOS 两代自举墙，转 CI**）。
 - **CI（权威 GREEN）**：`ci-bootstrap` 版本差 gate → **两代自举**建 0.38 全栈 + **临时 CI 步重生 committed

@@ -196,7 +196,7 @@ bootstrap job。实测（run 35287940676）照样全红。
 
 发布前务必逐个核对 SDK 包**真的带种子**：解包后 `programs/z42c/*.zpkg` 非空、
 `bin/z42vm` 在、`z42c.driver.zpkg` 的 zpkg minor 与当前源码一致
-（`od -An -tu2 -j6 -N2` 读，源码侧看 `z42.ir/src/ZpkgWriter.z42` 的 `Minor`）。
+（`od -An -tu2 -j6 -N2` 读，源码侧看 `z42.package/src/ZpkgWriter.z42` 的 `Minor`）。
 minor 不一致就会把所有 job 推进两代自举那条已知会挂的路。
 
 ### 残留缺口：publish-nightly 仍可能被取消打断

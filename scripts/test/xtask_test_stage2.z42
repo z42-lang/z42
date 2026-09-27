@@ -59,17 +59,41 @@ string _s2BaselinePath() { return "scripts/test/stage2-debt.txt"; }
 // 而这里还要求真的把活干完。
 int _s2GraceDays() { return 7; }
 
-// 扫 src/ 下所有 .z42 与 .rs，抽出 `STAGE2-DEBT(<tag>): <text>` → `<relpath>#<tag>\t<text>`。
+// 扫 `src/` 与 `scripts/` 下所有 .z42 与 .rs，抽出 `STAGE2-DEBT(<tag>): <text>`
+// → `<带根前缀的相对路径>#<tag>`。
+//
+// ⚠️ **`scripts/` 是后补的**（2026-09-27）：立门时只扫 `src/`，于是自举脚本里的过渡形态
+// （兼容副本、临时 env 传参……）**对这道门不可见** —— 我自己在 `xtask_stdlib.z42` /
+// `xtask_common.z42` 挂的两条债当场就漏了。门的覆盖面得跟着「过渡形态实际会出现在哪」走，
+// 而不是跟着「我第一次想到哪」走。
 int _s2Scan(string root, string[] outIds, string[] outTexts) {
-    string dir = Path.Join(root, "src");
-    string[] rel = Directory.EnumerateRecursive(dir);
+    string[] roots = new string[2];
+    roots[0] = "src";
+    roots[1] = "scripts";
     int n = 0;
+    int ri = 0;
+    while (ri < roots.Length) {
+        string rootRel = roots[ri];
+        ri = ri + 1;
+        n = _s2ScanOne(Path.Join(root, rootRel), rootRel, outIds, outTexts, n);
+    }
+    return n;
+}
+
+int _s2ScanOne(string dir, string idPrefix, string[] outIds, string[] outTexts, int startN) {
+    if (!Directory.Exists(dir)) { return startN; }
+    string[] rel = Directory.EnumerateRecursive(dir);
+    int n = startN;
     int f = 0;
     while (f < rel.Length) {
         string relp = rel[f].Replace("\\", "/");
         f = f + 1;
         if (_dcContains(relp, "/artifacts/")) { continue; }
         if (!relp.EndsWith(".z42") && !relp.EndsWith(".rs")) { continue; }
+        // 🔴 **排除本门自己**：头注里写着标记的语法示例、代码里有 `"STAGE2-DEBT("` 字面量，
+        // 扫到自己就凭空多出 `#<tag>` / `#"` 这种垃圾条目（扩到 scripts/ 后当场发生）。
+        // 与 diagcodes 门排除 `DiagnosticCodes.z42` 同一形状、同一理由：**登记器不登记自己**。
+        if (relp.EndsWith("xtask_test_stage2.z42")) { continue; }
         string text = "";
         try { text = File.ReadAllText(Path.Join(dir, relp)); }
         catch (Exception ex) { text = ""; }
@@ -90,7 +114,7 @@ int _s2Scan(string root, string[] outIds, string[] outTexts) {
             if (note.StartsWith(":")) { note = note.Substring(1).Trim(); }
             if (tag == "") { continue; }
             if (n < outIds.Length) {
-                outIds[n] = relp + "#" + tag;
+                outIds[n] = idPrefix + "/" + relp + "#" + tag;
                 outTexts[n] = note;
                 n = n + 1;
             }

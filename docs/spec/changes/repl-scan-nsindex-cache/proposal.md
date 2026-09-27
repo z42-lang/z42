@@ -4,7 +4,7 @@
 > 类型：perf（compiler 子系统 `DepScan.ScanDirsLazy` + toolchain `Script.Prewarm`；仅 REPL 路径，
 > **不碰非惰性 `ScanDirs`（构建路径）→ 自举 byte-identical 不受影响**）
 > 子系统：`compiler`（z42c.pipeline `DepScan`）+ `toolchain`（z42.scripting `Script`）
-> + 借道 `z42.ir`（`LazyReconWorld` 惰性开包，同 lazy-type-world 手法）
+> + 借道 `z42.package`（`LazyReconWorld` 惰性开包，同 lazy-type-world 手法）
 >
 > **核心洞察（对照 Python）**：`z42 repl -c "1+1"` = 1.7s，而 Python `1+1` = 0.01s、z42 VM 裸启动 = 0.00s。
 > 差距全在「每次求值都跑整个 AOT 编译器 + **eager reconcile 整个 prelude+usings 类型世界**」——`1+1` 只需

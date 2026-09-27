@@ -202,7 +202,7 @@ string _dtUnitName(string path) {
 /// 判据是逐行子串扫，**跳过注释行**（行首去空白后以 `//` / `/*` / `*` 开头）。
 ///
 /// 此前是全文子串扫（注释里写了 `[Test]` 也算），理由是「假阳性只是退回既有行为」。但 bench
-/// 转发后这条假阳性**会判红**：z42.ir / z42.project / z42c.syntax 三个库只在注释里提到 `[Test]`，
+/// 转发后这条假阳性**会判红**：z42.package / z42.project / z42c.syntax 三个库只在注释里提到 `[Test]`，
 /// `z42b bench` 零单元 → 回落编本包 → 跑出零用例 → Runner 零测试判红（fix-bench-stage-zero-unit-kind）。
 /// 全仓 4270 处 `[Test]`、66 处 `[Benchmark]` 实测全部写在行首，跳过注释行不会造成假阴性；
 /// 同行写在代码后面（`class C { [Test] void t() {} }`）照样命中。
@@ -238,7 +238,7 @@ bool _textHasTestAttr(string text) {
 ///
 /// 为什么非有不可：零目标时 `_runDevTargets` 会**回落到「编译本包自己再跑」** —— 于是「有源却零
 /// 单元」报出的是「0 passed, 0 failed」的**绿色**，与「这个包真的没有测试」不可区分。这正是 #571
-/// 要根除的「没跑 == 全过」；真实事故是 z42.ir / z42c.core / z42c.syntax 静默数月。
+/// 要根除的「没跑 == 全过」；真实事故是 z42.package / z42c.core / z42c.syntax 静默数月。
 ///
 /// 两条豁免，都不是硬编码名单：
 ///   ① **子目录自带 `*.z42.toml` ⇒ 它是独立工程**，不是本包的孤儿源。这不是新规则 —— 编译器

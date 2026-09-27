@@ -49,8 +49,8 @@ C#（`System.Tuple` 引用版**已弃**→ `System.ValueTuple` struct 值版）�
 | `docs/reference/src/language/pattern-matching.md` | MODIFY | 元组模式接入三位点 |
 
 **只读引用**（理解上下文必须读，不修改）：
-- `src/libraries/z42.ir/src/BinaryFormat/ZpkgWriter.z42`(:340)/`ExportedTypes.z42` — 类型引用=字符串池证据
-- `src/libraries/z42.ir/src/BinaryFormat/ZbcFormat.z42` — struct blob opcode `StructAlloc 0xC0`/`StructFieldGetPrim 0xC2`；Tag(:69-118)
+- `src/libraries/z42.package/src/BinaryFormat/ZpkgWriter.z42`(:340)/`ExportedTypes.z42` — 类型引用=字符串池证据
+- `src/libraries/z42.package/src/BinaryFormat/ZbcFormat.z42` — struct blob opcode `StructAlloc 0xC0`/`StructFieldGetPrim 0xC2`；Tag(:69-118)
 - `src/libraries/z42c.syntax/src/ExprParser.z42` — lambda/cast/分组四方前瞻(:262-301)、`_isLambdaStart`(:12)
 - `src/compiler/z42c.semantics/src/PatternEmitter.z42` — struct 字段 emit 快路（#316）
 - `docs/internals/src/formats/zbc.md`(:103,208) — spec 预留的原生 tuple 编码（**路线 B，本变更不采用**）

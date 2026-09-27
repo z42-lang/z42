@@ -35,10 +35,10 @@
 | `src/compiler/z42c.semantics/src/IrGenFacts.z42` | MODIFY | `_methodFlags`：sealed 连带置 virtual 位 + bit2 |
 | `src/compiler/z42c.semantics/src/SymbolCollector.z42` | MODIFY | 本地类/方法标 IsSealed；2 处 override 识别点认 sealed（简写参与槽对齐）；`_passSealedEnforce` + `_nearestBaseMethod` + 接入 3 条 collect 路径 |
 | `src/compiler/z42c.semantics/src/ImportedSymbolLoader.z42` | MODIFY | 从 `ExportedClassZ.IsSealed` / `ExportedMethodZ.IsSealed` 还原 IsSealed（跨包强制） |
-| `src/libraries/z42.ir/src/ExportedTypes.z42` | MODIFY | `ExportedClassZ.IsSealed` / `ExportedMethodZ.IsSealed`（post-construction 字段，构造函数元数不变 = 旧种子 ABI） |
-| `src/libraries/z42.ir/src/TsigReconcile.z42` | MODIFY | 从 `(cd.Flags & 2)` / `(f.MethodFlags & 4)` 提取 sealed 入 TSIG 模型 |
-| `src/libraries/z42.ir/src/BinaryFormat/ZbcFormat.z42` | MODIFY | `ZbcVersion.Minor` 29→30 + 注释 |
-| `src/libraries/z42.ir/src/ZpkgWriter.z42` | MODIFY | `ZpkgWriterZ.Minor` 34→35 + 注释 |
+| `src/libraries/z42.package/src/ExportedTypes.z42` | MODIFY | `ExportedClassZ.IsSealed` / `ExportedMethodZ.IsSealed`（post-construction 字段，构造函数元数不变 = 旧种子 ABI） |
+| `src/libraries/z42.package/src/TsigReconcile.z42` | MODIFY | 从 `(cd.Flags & 2)` / `(f.MethodFlags & 4)` 提取 sealed 入 TSIG 模型 |
+| `src/libraries/z42.package/src/BinaryFormat/ZbcFormat.z42` | MODIFY | `ZbcVersion.Minor` 29→30 + 注释 |
+| `src/libraries/z42.package/src/ZpkgWriter.z42` | MODIFY | `ZpkgWriterZ.Minor` 34→35 + 注释 |
 | `src/runtime/src/metadata/bytecode.rs` | MODIFY | `METHOD_FLAG_SEALED: u8 = 1 << 2` |
 | `src/runtime/src/metadata/zbc_reader.rs` | MODIFY | `ZBC_VERSION_MINOR` 30 / `ZPKG_VERSION_MINOR` 35 + changelog |
 | `src/runtime/src/corelib/reflection.rs` | MODIFY | `MethodInfo.IsSealed` 从 `METHOD_FLAG_SEALED`（两处构造点） |

@@ -227,7 +227,7 @@ vendored 目录不是 shipped `libs/` ⇒ 自动复制进 dist。**批 1 那个�
       判别力实证三格：① 注入未挂账标记 → 红；② 清单留一条源里没有的 → 红；③ 把挂账日改早 → 红「超期 25 天」。
 - [x] 2.5.2 **立门当天就抓到 4 条「现在时的假断言」**（支持侧注释说「今天没有生产调用方 / z42c 尚不读」，
       而消费早已在后续 PR 落地，没人回来改那句话）：`ZpkgReader.ReadDependencies`（#849 已消费）、
-      `z42.ir/tests/zpkg.z42` 同款、`DepEntry.Deploy`（#848 已消费）、`ICompiler.Excludes`（阶段4.2 已落地）。
+      `z42.package/tests/zpkg.z42` 同款、`DepEntry.Deploy`（#848 已消费）、`ICompiler.Excludes`（阶段4.2 已落地）。
       ⭐ **前三条出自同一条 support→use 链，作者同一个人（我）** —— 这正是诊断码那边规则 ⑦ 治的病，
       换个地方复发。
 - [x] 2.5.3 `bootstrap-seed.md` 补**轴 ④ 豁免的边界**：「加 API 可同 commit 加+用」**只对增量成立**，

@@ -20,7 +20,7 @@
 
 ## MODIFIED Requirements
 
-### Requirement: z42.ir zbc 编码 API 签名保持
+### Requirement: z42.package zbc 编码 API 签名保持
 
 **Before:** `ZbcInstr.DoubleToBits(double)->long` / `ZbcReaderInstr.BitsToDouble(long)->double` 以 `extern` 实现。
 **After:** 同签名，body 委托 `Std.BitConverter`；**公开签名不变**（z42c 源 IrGenFacts 调用点零改动）。
@@ -29,9 +29,9 @@
 - **WHEN** 用改后源自建 z42c（gen1 → gen2）
 - **THEN** 产物与改前 byte-identical（intrinsic 语义 + z42c 源均未变）
 
-#### Scenario: 冷/首暖构建 z42.ir 单包重建成功
+#### Scenario: 冷/首暖构建 z42.package 单包重建成功
 - **WHEN** `_ensureBootstrapZ42Ir` 运行（flat core 为 seed/旧版）
-- **THEN** 先预建当前源 z42.core（含 BitConverter）→ z42.ir 单包编译无 `undefined function`
+- **THEN** 先预建当前源 z42.core（含 BitConverter）→ z42.package 单包编译无 `undefined function`
 
 ## Pipeline Steps
 - [ ] （无 lexer/parser/typechecker/codegen 改动——纯 stdlib 重定位 + 构建脚本）

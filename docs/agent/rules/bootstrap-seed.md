@@ -170,8 +170,8 @@ xtask / build 基础设施驱动；stdlib 又被两者依赖。任何「从源�
 
 比 API 面更隐蔽：**当 z42c 把自身建构期依赖的代码（IR 模型 / zpkg 后端 / 等）下沉进一个
 z42c *自己运行期就要用* 的 stdlib 库**（如 `converge-z42c-ir-metadata` 把 `z42c.ir`+`z42c.project`
-收敛成 stdlib 单库 `z42.ir`），就出现**自依赖环**：z42c 建任何 zpkg 都要调 `z42.ir` 的
-`ZpkgBuilder`，而 `z42.ir` 本身由 z42c 构建。冷启动 flat dist 里还没有它，且上一 nightly 种子只把
+收敛成 stdlib 单库 `z42.package`），就出现**自依赖环**：z42c 建任何 zpkg 都要调 `z42.package` 的
+`ZpkgBuilder`，而 `z42.package` 本身由 z42c 构建。冷启动 flat dist 里还没有它，且上一 nightly 种子只把
 等价代码作**旧包名**（`z42c.ir`/`z42c.project`）携带 → fresh z42c 被编成钉在种子旧包上的调用，
 运行期加载真库时 `undefined function`（**这类漏网正因 `xtask test bootstrap` 只「编」不「跑」
 新建出来的 z42c**——它验语法/格式/非自依赖库的 API 越界，但从不执行产物，故运行期自依赖问题看不见；
@@ -181,7 +181,7 @@ z42c *自己运行期就要用* 的 stdlib 库**（如 `converge-z42c-ir-metadat
   **上一 nightly 种子里不以同名 zpkg 存在**？是 → 踩轴 ④。
 - **破环**（已实现，非纪律）：`_ensureBootstrapSelfDepLibs`（`scripts/build/xtask_compiler.z42`，
   旧名 `_ensureBootstrapZ42Ir`）在建 z42c **前**用当前 driver 把当前源的
-  `z42.core` → `z42.project` → `z42.build` → `z42.ir` → `z42c.core` → `z42c.syntax`
+  `z42.core` → `z42.project` → `z42.build` → `z42.package` → `z42c.core` → `z42c.syntax`
   逐个单独编进 build-libs。**不 warm-skip**（`07596b57`，2026-07-30 改）。机制全文见
   [`docs/internals/src/compiler/self-hosting.md` 轴 ④](../../internals/src/compiler/self-hosting.md)。
 

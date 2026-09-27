@@ -152,7 +152,7 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 | runtime | **R8a host/hostrun/main 统一**（不同平台共享简化）+ **R8b 组件化 cargo-feature 骨架** | 原 0.9.5 上移；R8b 完整裁剪留后续 |
 | 工具链 | **z42b GA**（统一前端）+ publish 脱 desktop + workload 命令自动注册 + xtask 路径读 z42.toml + package 剥离调试符号 | in-flight `wire-z42b-host-build` / `add-workload-command-dispatch`；todo#2/#8/#9/#10 |
 | 编译器 | **增量 + 并发编译** + build 依赖排序 + 版本 hash 触发重编 | todo#1/#4/#7；并入 Pc5 |
-| 标准库 | ~~**z42c 基础库(metadata/ir)入 stdlib**~~ ✅ 2026-07-21 | 已落地：IR + zbc + zpkg 后端合一入 stdlib 单库 `z42.ir`（converge-z42c-ir-metadata-onto-stdlib；User 定单库 + CacheStore 留构建侧）。z42c 现 5 子包，self-host 5/5。（原「后端拆 z42c.zpkg」更正为下沉 z42.ir） |
+| 标准库 | ~~**z42c 基础库(metadata/ir)入 stdlib**~~ ✅ 2026-07-21 | 已落地：IR + zbc + zpkg 后端合一入 stdlib 单库 `z42.package`（converge-z42c-ir-metadata-onto-stdlib；User 定单库 + CacheStore 留构建侧）。z42c 现 5 子包，self-host 5/5。（原「后端拆 z42c.zpkg」更正为下沉 z42.package） |
 | 产品 | **REPL**（原 0.3.15 上移）+ **Playground** | in-flight `add-z42-wasm-playground` |
 | 测试 | **tier2 平台测试补齐**（wasm/ios/android → GitHub Checks）；当前仅全测 tier1 | `versions.toml [platform.*]` tier 定义 |
 | 文档 | **book 整理与内容补充** | docs 不上锁，贯穿 |
@@ -557,7 +557,7 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 |------|------|------|
 | `add-cli-version-flag` | `--version` 内建进 `Std.Cli`（今天每个 CLI 自己手写）。todo#3 | 工具链命令面打磨时 |
 | `add-union-types` | 联合类型（组合类型的快速访问）。todo#13 —— 与 `T?`、模式匹配同一片设计区，需 DRAFT | L2 类型系统阶段 |
-| `rename-toolchain-and-libs` | 命名收敛：标准库明确 `std` / `z42` / `z42c` / `z42b` 分界；`z42vm` → `z42r`；`z42.ir` → `z42.package`。todo#17 —— ⚠️ 命名空间互换实测**跨 nightly**（种子 driver 会从正在重建的 libs 解析旧 FQN），须按 [bootstrap-seed.md](agent/rules/bootstrap-seed.md) 的 support→use 分阶段走 | 有一个 nightly 窗口时 |
+| `rename-toolchain-and-libs` | 命名收敛：标准库明确 `std` / `z42` / `z42c` / `z42b` 分界；`z42vm` → `z42r`；`z42.package` → `z42.package`。todo#17 —— ⚠️ 命名空间互换实测**跨 nightly**（种子 driver 会从正在重建的 libs 解析旧 FQN），须按 [bootstrap-seed.md](agent/rules/bootstrap-seed.md) 的 support→use 分阶段走 | 有一个 nightly 窗口时 |
 | `add-debugger` | 调试器：命令行前端 + 调试协议 + vscode/vs 集成，组件（动态库）形态。todo#18 —— 落点是 `src/toolchain/devtools/` 的 `z42d dbg`（现为占位） | 0.4.x 调试符号落地后 |
 | `zaia` | todo#15，User 只留了名字、尚无定义 | 待 User 补充意图 |
 | `triage-test-corpus-by-tier` | 测试语料按「runtime / 运行模式（interp·JIT）/ 层级」分档，toolchain 档全在 host 平台 ⇒ 削掉 CI 里不必要的流程。todo#16 —— 与 [test-gate.md](internals/src/devinfra/test-gate.md) 的 stage 分档、`xtask test --skip` 的 per-leg 卸载部分重叠，本条是「把分档变成语料属性而非 CI 参数」 | CI 关键路径再成瓶颈时 |

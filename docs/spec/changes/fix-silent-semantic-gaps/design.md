@@ -410,7 +410,7 @@ SIGS 每参写 `type:u32 + name:u32 + default_kind:u8 + payload`，**没有 flag
 | PR | 内容 | 理由 |
 |---|---|---|
 | **PR-0**（推荐先行） | `frame.rs:336-351` 补 `RefKind::Field` 写屏障 | 纯运行时 bug fix、不改格式、不改编译器，可立刻合。**阴性对照先做**：不打屏障时 `ref_field_writebarrier` 用例必须判红 |
-| **PR-1** | `z42.ir` 两条新指令 + `ExprEmitter` 分流 + 三种形态拒绝 + 格式 bump 9 步 + Rust 单测 | 发新 opcode ⇒ bump ⇒ 9 步同 commit（strict-pin 硬要求）；写/读两侧天生对称，分开必坏 cache。**`MangleKey` 加修饰符位建议搭这趟车**（属「键字符串内容变」，与 zbc 1.38 同型，共用同一次 bump 零额外格式代价） |
+| **PR-1** | `z42.package` 两条新指令 + `ExprEmitter` 分流 + 三种形态拒绝 + 格式 bump 9 步 + Rust 单测 | 发新 opcode ⇒ bump ⇒ 9 步同 commit（strict-pin 硬要求）；写/读两侧天生对称，分开必坏 cache。**`MangleKey` 加修饰符位建议搭这趟车**（属「键字符串内容变」，与 zbc 1.38 同型，共用同一次 bump 零额外格式代价） |
 | **PR-2** | `Param.RefMod` 三分 + 调用点校验 + `ForwardGenerator` 修正 | 一改四个消费点同时失配；B 的规则依赖 `ParamRefMods` 与调用点 `Mod`。**唯一会碰 xtask 冷启动的 PR，push 后必须盯 CI** |
 | PR-3 | lvalue 限制 / 跨修饰符类型严格 / lambda 捕获禁止 / `in` 只读 | 纯诊断，零字节漂移，可再拆 |
 | PR-4 | `ref C.sf`：新增 `RefKind::Static` + `0xA3` | 独立运行时语义 + 又一次 bump；PR-1 先报错拦住即可 |
@@ -572,7 +572,7 @@ blob struct 的 tag 是 `IrType.Ref` ⇒ 落到 `:245-247` 的 `ConstNullInstr`�
   `ZbcReader.z42:415-425` 同 gate）。**单字段 struct 的 `StructSize` + 引用位图今天就已写进 TYPE 段**，
   只是编译器不发 blob 指令去用它。
 - ⇒ **不需要 zbc / zpkg bump。** 与第一族形成对比（那族因新 opcode 必须 bump）。
-- **自举零风险**：`src/compiler/**` 与 `src/libraries/z42c.*` / `z42.ir` 声明的 struct 数量 = **0**
+- **自举零风险**：`src/compiler/**` 与 `src/libraries/z42c.*` / `z42.package` 声明的 struct 数量 = **0**
   （命中全在 `tests/` 的源码字符串 fixture 里）。它们消费的 stdlib struct（`ValueTuple*` /
   `KeyValuePair` / 两个 Enumerator）字段数都 ≥2、**今天就已是 blob** ⇒ self-host 不动点应保持。
 
