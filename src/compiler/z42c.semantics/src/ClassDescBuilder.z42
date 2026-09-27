@@ -122,6 +122,11 @@ public sealed partial class ClassDescBuilder {
             string bare = name;
             int lt = name.IndexOf("<");
             if (lt >= 0) { bare = name.Substring(0, lt); }
+            // `IfaceDecls` 的键是**裸短名**（`IrGen` 按 `cfd.Name` 登记）。名字带 ns 时必须先剥，
+            // 否则查不中 ⇒ 父接口不展开 ⇒ **TYPE 段的接口表静默变短** ⇒ 跨包 `is IFace` 失配。
+            // 今天的输入还都是短名（本条恒等），但 `InterfaceNames` 正在往 FQN 迁（fqn-symbol-key），
+            // 先把这道门修好，免得迁移那一刀在这里静默掉一截闭包。
+            bare = SymbolTable.ShortNameOf(bare);
             if (seen.ContainsKey(bare)) { continue; }
             seen.Put(bare, "1");
             if (rc == result.Length) {

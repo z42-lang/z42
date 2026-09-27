@@ -395,8 +395,12 @@ public sealed partial class SymbolTable {
             while (s < qh - 1) { if (queue[s] == name) { dup = true; break; } s = s + 1; }
             if (dup) { continue; }
             if (name == target) { return true; }
-            int _is2 = this.Interfaces.Find(name); if (_is2 < 0) { continue; }
-            Z42InterfaceType it = this.Interfaces.ValAt(_is2) as Z42InterfaceType;
+            // 🔴 此前是 `this.Interfaces.Find(name)` —— **绕过了 `GetInterface` 访问器**。
+            // 访问器已在 fqn-symbol-key 步 1 改成双键（FQN 优先、短名回落），而这条 BFS 直接摸
+            // 底层短名表 ⇒ 名字一旦变成 FQN，整条闭包就静默变浅：`Implements` 假否 ⇒
+            // class→iface 报 E0402（误报）**且** 约束满足性漏检（漏报）。改走访问器后，
+            // 键形态随访问器一起演进，不会再掉队。
+            Z42InterfaceType it = this.GetInterface(name); if (it == null) { continue; }
             int b = 0;
             while (b < it.BaseCount) {
                 if (qt == queue.Length) {
