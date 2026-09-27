@@ -196,7 +196,7 @@ int _buildCompilerViaZ42c(string root, string profile, string[] members, string 
     // 现在：先把 flat 快照成种子代的运行期面（**必须在预建覆盖之前**），随后种子 driver 的调用
     // 用 `Z42_LIBS=快照` + `--compile-libs=flat`。driver 换代之后的步骤（`build stdlib` 步骤 4 等）
     // 仍照旧用 flat 当两者 —— 那时 driver 与 flat 同代。详见
-    // `docs/spec/changes/rename-project-namespaces/design.md` §3 的代际表。
+    // `docs/spec/archive/2026-09-27-rename-project-namespaces/design.md` §3 的代际表。
     // 🔴 **只有在 driver 认 `--compile-libs` 时才分开两个面**。种子 driver 若早于该旗标会
     // **静默忽略**它 ⇒ `Z42_LIBS`（此处本想设成种子代快照）会被当成编译期面，冷树上那个快照
     // 还是空的 ⇒ `z42.package 未找到`（CI compile-toolchain 实测红）。不认就逐字退回旧行为。

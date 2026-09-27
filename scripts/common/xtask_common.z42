@@ -98,7 +98,7 @@ int _z42cWorkspaceBuild(string vm, string driver, string cwd, string libs, bool 
 
 // `compileLibs` 非空 ⇒ 额外传 `--compile-libs`：**编译期**依赖解析面与 `libs`（= driver 自己
 // 运行期的加载面）分开。自举期这两件事要不同代的库，见 `CompileLibsOpt` 头注与
-// `docs/spec/changes/rename-project-namespaces/design.md` §3。
+// `docs/spec/archive/2026-09-27-rename-project-namespaces/design.md` §3。
 int _z42cWorkspaceBuild(string vm, string driver, string cwd, string libs, bool noIncremental,
                         string compileLibs) {
     Process p = new Process(vm).Arg(driver).Arg("--mode").Arg(_z42cMode()).Arg("--")

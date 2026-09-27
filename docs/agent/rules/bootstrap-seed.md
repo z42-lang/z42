@@ -240,7 +240,7 @@ z42c *自己运行期就要用* 的 stdlib 库**（如 `converge-z42c-ir-metadat
 | 改的是 | 别名形态 | 先例 |
 |---|---|---|
 | **包名（文件名）**，命名空间没动 | 同内容**两个文件名** | `z42.ir` → `z42.package`（`_seedLegacyIrAlias`）|
-| **命名空间**，文件名没动 | 旧 FQN 必须与新 FQN **在同一个文件里**，或**旁置**一份到消费者 entry 目录 | 本节 |
+| **命名空间**，文件名没动 | 只能**旁置**一份到消费者的 entry 目录（塞进同一个包 = 同短名类串味，见下面 ❌ 第二条）| 本节 |
 
 ⇒ 命名空间改名时，这两条已实测否证，别再试：
 
@@ -249,7 +249,9 @@ z42c *自己运行期就要用* 的 stdlib 库**（如 `converge-z42c-ir-metadat
 - ❌ **同一个包里同时声明两套命名空间**：同包内两套**同短名类**会串味（`E0401: no field … on
   <Class>`，短名键混同），**且种子 z42c 一样如此** ⇒ 阶段 1 的源码根本编不出来，修当前 z42c 也没用。
 
-✅ **可行形态 = 编译期 overlay + 运行期旁置**（`ci-bootstrap` [1.6]/[2] 是现成模板）：
+✅ **可行形态 = 编译期 overlay + 运行期旁置**（配方与四段实测判据见
+[`docs/spec/archive/2026-09-27-rename-project-namespaces/design.md`](../../spec/archive/2026-09-27-rename-project-namespaces/design.md) §6.2
+——⚠️ CI 里那两段是**一代过渡形态**，阶段 2 当天就撤了，别去 `ci-bootstrap` 里找现成代码）：
 用种子 z42c 先把**当前源**那个库编出来、覆盖进一份种子 libs 的副本供编译期用；再把这份新名产物
 **`cp` 到消费者 zpkg 旁边**（搜索序 `[entry-dir, Z42_LIBS, probing]`，entry-dir 最优先）供运行期用。
 两件齐了，改名就能**一步落**，不必拆成跨 nightly 的三步。
