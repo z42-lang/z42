@@ -204,15 +204,30 @@ string[] _compilerMembers(string root) {
 // artifacts/.scratch/alllibs/<profile>，作为 z42c.driver 编译/运行的单一 Z42_LIBS 查找点
 // （VM 取一个目录、非 colon-list；z42c.driver 的兄弟包与被测 stdlib 须同处一目录）。返回该目录。
 // 三处消费共用：test stdlib（_testLibCore）/ test compiler units（_testCompilerUnits）/ bench。
+// 🔴 **复制而不是硬链接**（relocate-compiler-domain-libs 实测定位，2026-09-27）。
+//
+// `_linkAll` 用 `File.Link`（失败才退回 `File.Copy`）。在 unix 上它让本快照与 **flat** 和
+// **成员 dist** 共享同一 inode —— 本地实测 `z42.core.zpkg` 一度有 **3 个硬链接**。于是任何一处
+// 的**就地改写**都会波及其余名字；而 zpkg 与 zsym 是被不同机制替换的（一个可能被 `preserved`、
+// 另一个被重写）⇒ 配对被撕开 ⇒ VM 加载时打
+// `WARN … z42.core.zsym build_id mismatch`。**那条 WARN 走 stderr，而 golden 判定是
+// `r.Stdout + r.Stderr`（`xtask_test_vm.z42` 注释原话 merge stderr into stdout）⇒ 一条 WARN
+// 让上千个 golden 全红。**
+//
+// 判别证据：#921 的 CI 上 `test-host(windows-x64)` **通过**、linux/macos 全红 —— Windows 上
+// `File.Link` 通常失败、退回复制，天然没有别名。本快照被本 change 放上了工具链/打包的关键路径
+// （编译期解析面），所以这个既有的脚枪从「无人踩到」变成「每轮都踩」。
+//
+// 代价：多拷几 MB 到 scratch；换掉的是一个会让 CI 上千用例假红的别名陷阱。
 string _assembleAllLibs(string root, string profile) {
     string flat = Path.Join(root, "artifacts/.scratch/alllibs/" + profile);
     Directory.Create(flat);
     _cleanGlob(flat, "*.zpkg");
-    _linkAll(_libsFlatDist(root, profile), flat, "*.zpkg");
+    _copyAll(_libsFlatDist(root, profile), flat, "*.zpkg");
     string[] members = _compilerMembers(root);
     int i = 0;
     while (i < members.Length) {
-        _linkAll(_compilerMemberDist(root, members[i], profile), flat, "*.zpkg");
+        _copyAll(_compilerMemberDist(root, members[i], profile), flat, "*.zpkg");
         i = i + 1;
     }
     return flat;
