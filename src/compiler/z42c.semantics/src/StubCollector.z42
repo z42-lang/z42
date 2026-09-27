@@ -100,6 +100,7 @@ public sealed class StubCollector {
                             this._addIfaceBases(itw, c);
                             table.Interfaces.Put(c.Name, itw);
                             table.InterfacesByFqn.Put(itw.Fqn(), itw);   // unify-type-identity-fqn
+                            table.NoteIfaceNs(c.Name, itw.Namespace);    // enforce-fqn-name-identity 阶段 2
                         }
                     } else {
                         Z42InterfaceType it = new Z42InterfaceType(c.Name);
@@ -110,6 +111,7 @@ public sealed class StubCollector {
                         this._addIfaceBases(it, c);
                         table.Interfaces.Put(c.Name, it);
                         table.InterfacesByFqn.Put(it.Fqn(), it);   // unify-type-identity-fqn
+                        table.NoteIfaceNs(c.Name, it.Namespace);   // enforce-fqn-name-identity 阶段 2
                     }
                 }
             }
@@ -124,6 +126,91 @@ public sealed class StubCollector {
         if (target.TypeParamCount > 0) { return; }   // 已由首碎片填过
         target.TypeParamNames = c.TypeParams.Names;
         target.TypeParamCount = c.TypeParams.Count;
+    }
+
+    // ── interface-names-fqn：把两张接口名字数组从**查找键短名**重写成 FQN ──────────────
+    //
+    // 目标：`Z42ClassType.InterfaceNames`（类实现的接口）与 `Z42InterfaceType.BaseNames`
+    // （接口的父接口）统一成 FQN，让名义关系判定不再依赖「同短名跨 ns 只活一份」这个前提。
+    //
+    // 🔴 **为什么必须是独立的一趟、不能在 Pass A 就地写**：Pass A 逐 CU 跑，被引用的接口可能
+    // 声明在**后面的 CU** 里、此刻还没进表 ⇒ 那时根本算不出 FQN。本 pass 在**全部** stub
+    // （本地 + 导入）都进表之后跑一次，把两张数组一起归一。
+    //
+    // 🔴 **两张必须一起翻**：`SymbolTable.Implements` 的传递闭包 BFS **同时**用
+    // `InterfaceNames`（种子）与 `BaseNames`（沿父接口展开）—— 只翻一张，继承来的接口就会在
+    // BFS 里 FQN 与短名混比、**静默失配**（class→iface 误报 E0402 **且** 约束满足性漏报）。
+    //
+    // 幂等：FQN 再查一次（`GetInterface` 双键）仍得同一个 FQN ⇒ 同一个对象被多个键指到、
+    // 或本 pass 被重复调用都安全。查不到就原样留着（型参 / 未解析名，交给别处报错）。
+    //
+    // ⚠️ 四张表都要走：`Classes`/`Interfaces` 是短名单赢家，同短名的第二份**只在** FQN 视图里
+    //（`ImportedSymbolLoader` 的 first-wins 守卫之外每份都 Put）—— 只遍历短名表会漏掉它们。
+    internal void _passQualifyIfaceNames(SymbolTable table) {
+        this._qualifyClassIfaces(table, table.Classes);
+        this._qualifyClassIfaces(table, table.ClassesByFqn);
+        this._qualifyIfaceBases(table, table.Interfaces);
+        this._qualifyIfaceBases(table, table.InterfacesByFqn);
+    }
+
+    private void _qualifyClassIfaces(SymbolTable table, StrMap tbl) {
+        string[] keys = tbl.Keys();
+        int k = 0;
+        while (k < keys.Length) {
+            Z42ClassType ct = tbl.Get(keys[k]) as Z42ClassType;
+            if (ct != null) {
+                // 🔴 **双重边界**：`InterfaceCount` 与 `InterfaceNames.Length` 不保证对齐 ——
+                // 导入侧 `nct.InterfaceNames = cl.Interfaces; nct.InterfaceCount = cl.InterfaceCount`
+                // 直接接管数组，两个值各来各的。只按 count 走会**越界读出野引用**，随后
+                // `GetHashCode` 段错误（实测 SIGSEGV，栈顶停在 `Std.String.GetHashCode`）。
+                int n = ct.InterfaceCount;
+                if (ct.InterfaceNames == null) { n = 0; }
+                else if (ct.InterfaceNames.Length < n) { n = ct.InterfaceNames.Length; }
+                // 🔴 **绝不就地改写**：这个数组不是本表独占的 ——
+                //   · `ClassExtractor:375` `ez.Interfaces = ct.InterfaceNames` 是**别名不是拷贝**；
+                //   · `ImportedSymbolLoader:254` `nct.InterfaceNames = cl.Interfaces` 又把它接管给导入侧。
+                // 就地写会穿透到导出记录与 ImportedSymbols 缓存，且「谁先抓走这个引用」与
+                // 「本 pass 何时写」相互竞争 —— 实测下游包里读到的是野引用（探针：3 个条目、
+                // 无一是 IEquatable，[0] 的"内容"是约 1.6KB 堆字节）。
+                // 改为产出新数组、只换本类型自己的字段引用。长度与 InterfaceCount 都**原样保留**
+                // （`InterfaceCount > Length` 那条既有不一致留给单独一刀，这里不夹带）。
+                if (ct.InterfaceNames != null) {
+                    string[] nn = new string[ct.InterfaceNames.Length];
+                    int c = 0;
+                    while (c < ct.InterfaceNames.Length) { nn[c] = ct.InterfaceNames[c]; c = c + 1; }
+                    int i = 0;
+                    while (i < n) { nn[i] = SymbolTable.IfaceFqnOf(table, nn[i]); i = i + 1; }
+                    ct.InterfaceNames = nn;
+                }
+            }
+            k = k + 1;
+        }
+    }
+
+    private void _qualifyIfaceBases(SymbolTable table, StrMap tbl) {
+        string[] keys = tbl.Keys();
+        int k = 0;
+        while (k < keys.Length) {
+            Z42InterfaceType it = tbl.Get(keys[k]) as Z42InterfaceType;
+            if (it != null) {
+                int n = it.BaseCount;   // 双重边界，同上
+                if (it.BaseNames == null) { n = 0; }
+                else if (it.BaseNames.Length < n) { n = it.BaseNames.Length; }
+                // 同上，不就地改写（`ExportedInterfaceZ.BaseNames` 同样按引用搬运）。
+                // ⚠️ 这里**尤其**不能动长度或 `BaseCount`：`BaseNames` 与 `BaseRefs` 共用同一个
+                // `BaseCount`、永远等长扩容（见 `Z42Type.AddBaseRef` 抬头），改一边就错位，
+                // 而错位是静默的（型参照旧不代换）。
+                if (it.BaseNames != null) {
+                    string[] nb = new string[it.BaseNames.Length];
+                    int c = 0;
+                    while (c < it.BaseNames.Length) { nb[c] = it.BaseNames[c]; c = c + 1; }
+                    int i = 0;
+                    while (i < n) { nb[i] = SymbolTable.IfaceFqnOf(table, nb[i]); i = i + 1; }
+                    it.BaseNames = nb;
+                }
+            }
+            k = k + 1;
+        }
     }
 
     // `interface IDerived : IBase` 的父接口裸名 → Z42InterfaceType.BaseNames

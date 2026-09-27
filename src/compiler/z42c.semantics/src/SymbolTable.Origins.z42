@@ -296,6 +296,92 @@ public sealed partial class SymbolTable {
     // 幂等（同 ns 重复登记不累加）；全局 ns 用空串，读回时保留空串语义。
     public void NoteClassNs(string name, string ns) { SymbolTable.NoteNsInto(this.ClassNsAll, name, ns); }
 
+    // enforce-fqn-name-identity 阶段 2：接口版，与 `NoteClassNs` 同一累积逻辑、另一张表。
+    // 两个生产点：本地 `StubCollector._passInterfaces`、跨包 `ImportedSymbolLoader` 接口循环
+    // （后者**必须在 first-wins 守卫之外**——守卫之内只有赢家能进，那正是「同短名跨 ns」被塌掉
+    // 的地方，是 `ClassNsAll` 当初踩过、上面注释里写明的同一个坑）。
+    public void NoteIfaceNs(string name, string ns) { SymbolTable.NoteNsInto(this.IfaceNsAll, name, ns); }
+
+    // ── enforce-fqn-name-identity B1：名义身份 intern ──────────────────────────────
+    //
+    // 一次扫全部四张类型表给 id。**刻意做成"一次扫"而不是"每个登记点各调一次"**：
+    // 登记点今天有 5 处（本地 class stub / 本地 interface 两分支 / Object stub / imported 合并），
+    // 将来必然还会加 —— 逐点挂钩正是本仓反复失手的形状（[[parallel-pass-sequences-miss-new-hook]]）。
+    // 扫在**全部登记之后**跑，新加的登记点自动被覆盖；漏在扫之后登记的由下面那道门抓。
+    public void InternAllTypes() {
+        SymbolTable._internAllIn(this.Intern, this.Classes);
+        SymbolTable._internAllIn(this.Intern, this.ClassesByFqn);
+        SymbolTable._internAllIn(this.Intern, this.Interfaces);
+        SymbolTable._internAllIn(this.Intern, this.InterfacesByFqn);
+    }
+
+    private static void _internAllIn(TypeIntern intern, StrMap tbl) {
+        int n = tbl.Count();
+        int i = 0;
+        while (i < n) {
+            Z42Type t = tbl.ValAt(i) as Z42Type;
+            if (t != null) { intern.Of(t); }
+            i = i + 1;
+        }
+    }
+
+    // 门：四张表里是否还有没拿到 id 的类型。返回第一个漏网的键；全部合规返回 ""。
+    // 🔴 存在的理由：`InternAllTypes` 是一次性扫，**扫之后**才登记的类型会静默留一个
+    // `TypeId == 0`，而 0 在 B3/B4 之后会被当成"未登记"——静默失配。这道门让它变响。
+    public string FirstUninternedKey() {
+        string k = SymbolTable._firstUninterned(this.Classes);
+        if (k != "") { return k; }
+        k = SymbolTable._firstUninterned(this.ClassesByFqn);
+        if (k != "") { return k; }
+        k = SymbolTable._firstUninterned(this.Interfaces);
+        if (k != "") { return k; }
+        return SymbolTable._firstUninterned(this.InterfacesByFqn);
+    }
+
+    private static string _firstUninterned(StrMap tbl) {
+        int n = tbl.Count();
+        int i = 0;
+        while (i < n) {
+            Z42Type t = tbl.ValAt(i) as Z42Type;
+            if (t != null && t.TypeId <= 0) { return tbl.KeyAt(i); }
+            i = i + 1;
+        }
+        return "";
+    }
+
+    // 接口短名声明过的全部 ns（无记录 → 空数组）。
+    public string[] IfaceNsOf(string name) {
+        int at = this.IfaceNsAll.Find(name);
+        if (at < 0) { return new string[0]; }
+        StrBox box = this.IfaceNsAll.ValAt(at) as StrBox;
+        if (box == null) { return new string[0]; }
+        return box.Value.Split("|");
+    }
+
+    // 接口裸名在**本 CU 可见集**内是否歧义。判据与 `IsBareNameAmbiguous` **逐条同构**
+    // （限定名已消歧 / 外围 ns 自己声明了则按语言规则不算歧义 / 否则数可见 ns 份数），
+    // 只是读另一张表。
+    // ⚠️ 阶段 3 两表合一时这两个方法要**一起塌成一个** —— 别让它们各自漂移，
+    // 「同一判据两份实现」在本仓已经反复出事（只修一份比都不修更糟）。
+    public bool IsBareIfaceNameAmbiguous(string name) {
+        if (name.IndexOf(".") >= 0) { return false; }   // 限定名 = 已消歧
+        int at = this.IfaceNsAll.Find(name);
+        if (at < 0) { return false; }
+        StrBox nsBox = this.IfaceNsAll.ValAt(at) as StrBox;
+        if (nsBox == null) { return false; }
+        if (nsBox.Count < 2) { return false; }
+        string[] nss = nsBox.Value.Split("|");
+        int visible = 0;
+        int i = 0;
+        while (i < nss.Length) {
+            string ns = nss[i];
+            if (ns == this.ScopeNs) { return false; }
+            if (ns == "" || this.IsScopeVisibleNs(ns)) { visible = visible + 1; }
+            i = i + 1;
+        }
+        return visible >= 2;
+    }
+
     // 同一份累积逻辑给两个生产点共用（本地 StubCollector 走 SymbolTable，跨包 ImportedSymbolLoader
     // 走 ImportedSymbols.ClassNsAll，最后由 SymbolCollector._mergeImports 并进来）——**别写两份**：
     // 两份累积逻辑各自演化正是「同短名信息被塌掉」这一类 bug 的温床。

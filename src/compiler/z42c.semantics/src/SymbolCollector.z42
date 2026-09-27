@@ -64,7 +64,9 @@ public sealed class SymbolCollector {
         t.NoteArities(cu);   // fix-arity-mangle-package-wide：mangle 判据必须与符号表同尺度（见 SymbolTable.NoteArities）
         this._stub._passClassStubs(t, cu, "");   // 单-CU 路径（dump/test）：无 partial 主碎片跟踪
         this._mergeImports(t, imported);
+        this._stub._passQualifyIfaceNames(t);   // interface-names-fqn：相位同 CollectAll（全部 stub 进表后、成员解析前）
         this._seedObjectStub(t);   // imported Type 已入表后；GetType 返回真实 Type 类（链式 getter 分派）
+        t.InternAllTypes();        // enforce-fqn-name-identity B1：**必须在 Object stub 之后** —— 它也登记类型
         this._stub._passDelegates(t, cu);
         this._member._passMembers(t, cu);
         this._runCtorInheritance(t, cu);   // add-implicit-base-ctor-call（单 CU 路径，同 CollectAll）
@@ -220,6 +222,18 @@ public sealed class SymbolCollector {
             while (j < nss.Length) { table.NoteClassNs(nsk[i], nss[j]); j = j + 1; }
             i = i + 1;
         }
+        // enforce-fqn-name-identity 阶段 2：接口版，逐 ns 并（同上，本地也可能声明同名接口）。
+        string[] ink = imported.IfaceNsAll.Keys();
+        i = 0;
+        while (i < ink.Length) {
+            StrBox ib = imported.IfaceNsAll.Get(ink[i]) as StrBox;
+            if (ib != null) {
+                string[] inss = ib.Value.Split("|");
+                int j2 = 0;
+                while (j2 < inss.Length) { table.NoteIfaceNs(ink[i], inss[j2]); j2 = j2 + 1; }
+            }
+            i = i + 1;
+        }
         // report-crosspkg-duplicate-type：把「FQN → 全部来源包」并进符号表（逐包并，同 ClassNsAll）。
         // ⚠️ 上面那条 ClassesByFqn 的 local-wins 守卫旁写着「键天然唯一（FQN 不会撞）」——**那句是错的**：
         // 两个包各声明 `Demo.Ns.Widget` 时键就是撞的，实测（`src/tests/cross-zpkg/dup_fqn_crosspkg/`）
@@ -291,7 +305,12 @@ public sealed class SymbolCollector {
         this._enforce._passValidatePartial(cus, files, cuCount);   // add-partial-types：全部标 partial / Kind 一致 / 嵌套 partial 校验
         // seed imported classes + funcs（成员解析前；G18：兄弟包 imported 类字段/方法类型可解析为 Z42ClassType 而非 Unknown）。
         this._mergeImports(table, imported);
+        // interface-names-fqn：全部 stub（本地 + 导入）都进表之后，把类的 `InterfaceNames`
+        // 与接口的 `BaseNames` 一起归一成 FQN。必须在这里 —— Pass A 逐 CU 跑时后面 CU 的
+        // 接口还没进表、算不出 FQN；也必须在 `_passMembers` 之前 —— 成员解析会用到名义关系。
+        this._stub._passQualifyIfaceNames(table);
         this._seedObjectStub(table);   // imported Type 已入表后；GetType 返回真实 Type 类（链式 getter 分派）
+        table.InternAllTypes();   // enforce-fqn-name-identity B1：**必须在 Object stub 之后** —— 它也登记类型
         c = 0;
         while (c < cuCount) { this._stub._passDelegates(table, cus[c]); c = c + 1; }
         c = 0;
@@ -348,6 +367,13 @@ public sealed class SymbolCollector {
         this._stub._passEnums(table, cu);
         table.NoteArities(cu);   // fix-arity-mangle-package-wide：mangle 判据必须与符号表同尺度（见 SymbolTable.NoteArities）
         this._stub._passClassStubs(table, cu, "");   // 单-CU 路径：无 partial 主碎片跟踪
+        // interface-names-fqn：🔴 **三处都要挂**。`Collect` / `CollectWithImports` / `CollectAll`
+        // 是三份平行的 pass 序列（见本函数末尾 ModuleInitScan 那段头注讲的同一个形状）。
+        // 漏挂一处 ⇒ 那条路上 `InterfaceNames` 仍是短名，而 `Implements` 已无条件把查询侧归一成
+        // FQN ⇒ **恒不相等**：class→iface 误报 E0402 **且** 约束满足性漏报。
+        // `Collect` 是活路径（`IrDump` 的 ExtractExports / TSIG 抽取走它），不是只给测试用的。
+        this._stub._passQualifyIfaceNames(table);
+        table.InternAllTypes();   // enforce-fqn-name-identity B1：全部登记之后一次扫
         this._stub._passDelegates(table, cu);
         this._member._passMembers(table, cu);
         this._runCtorInheritance(table, cu);   // add-implicit-base-ctor-call（单 CU 路径，同 CollectAll）

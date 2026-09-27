@@ -294,7 +294,17 @@ public sealed partial class ClassDescBuilder {
             string[] expanded = this._expandIfaces(ctd.InterfaceNames, ctd.InterfaceCount);
             string[] ifqs = new string[expanded.Length];
             int ifi = 0;
-            while (ifi < expanded.Length) { ifqs[ifi] = this._g._qClass(expanded[ifi]); ifi = ifi + 1; }
+            // 🔴 **点号守卫**（镜像 `:196` 基类那格）：`InterfaceNames` 自 interface-names-fqn 起
+            // 已是 FQN，无条件 `_qClass` 会**二次限定**成 `Demo.Std.IDisposable` 写进 TYPE 段。
+            // 守卫的存在证明就在基类那格 —— 两格本该同口径，接口这格此前漏了。
+            // ⚠️ 别指望 `TsigReconcile:561` 的 `_shortName` 兜住：它只掩盖编译路径，
+            // 运行期反射与 golden 字节照样暴露。
+            while (ifi < expanded.Length) {
+                string ifn = expanded[ifi];
+                if (!this._hasDot(ifn)) { ifn = this._g._qClass(ifn); }
+                ifqs[ifi] = ifn;
+                ifi = ifi + 1;
+            }
             cd2.Interfaces = ifqs;
             cd2.InterfaceCount = expanded.Length;
         }
