@@ -7,6 +7,16 @@ using Z42.IR;   // StrMap 统一到 z42c.ir（compiler-review §4.1）
 using Z42.Syntax;   // TypeExpr（Z42InterfaceType.BaseRefs 存父接口的声明形态）
 
 public class Z42Type {
+    // enforce-fqn-name-identity B1：**名义身份句柄**（稠密 id；`-1` = 未登记）。
+    //
+    // 目标形态（B3/B4）：`InterfaceNames` / `BaseNames` / `BaseName` 这些**字符串**名义引用
+    // 换成 `TypeRef`（= 本 id）⇒ 「往符号表里塞一个裸名」从此**写不出来**，
+    // 而不是靠注释和门去防。本批（B1）只建 id、**零消费方**，行为与字节都恒等。
+    //
+    // 🔴 唯一赋值出口 = `SymbolTable.InternType`（单漏斗）；配套门 `AssertAllInterned`
+    // 让「将来有人新加登记点却忘了 intern」变成红的，而不是静默留一个 `-1`。
+    // 这是对本仓反复吃亏的「同一件事多个生产点、新钩子只挂一处」的结构性防法。
+    public int TypeId;
     public virtual string Name() { return "?type"; }
     public virtual bool   IsAssignableTo(Z42Type other) { return false; }
     public virtual string Dump() { return this.Name(); }

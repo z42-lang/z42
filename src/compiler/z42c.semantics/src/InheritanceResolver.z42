@@ -29,7 +29,10 @@ public sealed class InheritanceResolver {
                     Z42ClassType target = table.GetClass(targetName);
                     string traitName = "";
                     if (implD.TraitType is NamedType) { traitName = (implD.TraitType as NamedType).Name; }
-                    if (traitName != "") { target.AddInterfaceName(traitName); }
+                    // interface-names-fqn：`_passImpls` 跑在归一 pass **之后** ⇒ 这里追加的名字
+                    // 必须自己 FQ 化，否则 `InterfaceNames` 里混进一个短名、`Implements` 比不上它
+                    // （impl 块补的接口静默失效）。
+                    if (traitName != "") { target.AddInterfaceName(SymbolTable.IfaceFqnOf(table, traitName)); }
                     int m = 0;
                     while (m < implD.MethodCount) {
                         if (implD.Methods[m] is MethodDecl) {

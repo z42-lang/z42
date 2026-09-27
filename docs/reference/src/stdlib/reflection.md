@@ -341,6 +341,19 @@ public class FieldInfo : MemberInfo {
 `GetValue` / `SetValue` 直接读写实例字段的槽（字段就是槽，不经访问器），是反射式
 (反)序列化落在公开字段上的通路。`protected` 字段 `IsPublic == IsPrivate == false`。
 
+> ⚠️ **`SetValue` 的值必须能装进那个字段**：值与字段类型不符时抛 `Std.Exception`，
+> 字段**保持原值**。落在值类型字段上的 `null` 属于这一类 —— `int` / `bool` / `double` /
+> 用户 `struct` 字段**永不可为 null**（编译期同一条规则是 [E0475/E0476](../appendix/error-codes.md)），
+> 所以 `f.SetValue(obj, null)` 打在 `int` 字段上会抛，而不是静默变 0 或静默无效。
+>
+> **引用类型字段写 `null` 是完全合法的**（`string` / 对象 / 数组 / 委托），照常置空。
+>
+> 🔴 **历史**（fix-silent-prim-field-write，2026-09-27 修正）：此前值类型字段那一格
+> **静默什么都不做还报成功** —— 写入被丢弃、字段留着旧值、调用方拿不到任何信号。
+> 同一个缺陷也盖住了 `PropertyInfo.SetValue`（它经 setter 到达同一个写入点）。
+> 而装箱 struct 的字段、对象内联 struct 的叶子这两条路**一直是抛的** ⇒ 那时的行为
+> 取决于目标恰好是哪种字段，这一刀把三者统一。
+
 ## `Std.Reflection.PropertyInfo`
 
 ```z42
@@ -360,6 +373,8 @@ public class PropertyInfo : MemberInfo {
 - `PropertyType` 取 getter 的返回类型；只写属性取 setter 的值形参类型。
 - `GetValue` / `SetValue` 反射调用 `get_<X>` / `set_<X>`。只读属性 `SetValue`、只写属性
   `GetValue` 抛 `Std.Exception`；访问器内的 `throw` 以原类型传播。
+- **值不符也抛**，与 `FieldInfo.SetValue` 同一条规则（见上面那条 ⚠️）：值类型属性
+  （`int` / `struct` …）收到 `null` 抛 `Std.Exception`，属性值保持原样。
 - 按**声明类**的访问器调用，不做虚 override 派发。
 - auto-property 的 attribute 挂在合成后备字段上并由此解析；纯计算属性（无后备字段）
   没有 attribute。
