@@ -1,0 +1,17 @@
+// 生产方：**两层**接口继承 + 一个实现类。父接口 `IParent` 的短名**故意**与消费方本地声明的
+// 一个无关接口同名。
+//
+// 这是 `iface_shortname_collision_crosspkg`（类的直接接口）的**姊妹用例**，守的是同一个
+// 不变量在**另一条路**上的落实：`Implements` 的 BFS 有两个数据源 —— 类的 `InterfaceNames`
+// （种子）与接口的 `BaseNames`（沿父接口展开）。前者由 `TsigReconcile` 搬运、后者由
+// `ImportedSymbolLoader` 搬运，两条路的剥名点**方向相反**（一个在生产侧、一个在消费侧），
+// 所以必须各有各的门 —— 只守住一条，另一条照样静默放行。
+namespace Demo.IfBase;
+
+public interface IParent { int P(); }
+public interface IChild : IParent { int C(); }
+
+public class Impl : IChild {
+    public int P() { return 1; }
+    public int C() { return 2; }
+}

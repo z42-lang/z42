@@ -1,0 +1,9 @@
+[project]
+name    = "demo.ifcollideapp"
+version = "0.1.0"
+kind    = "exe"
+entry   = "Demo.IfCollideApp.Main"
+pack    = true
+
+[dependencies]
+"demo.ifcollide" = "0.1.0"

@@ -1,0 +1,9 @@
+[project]
+name    = "demo.ifbaseapp"
+version = "0.1.0"
+kind    = "exe"
+entry   = "Demo.IfBaseApp.Main"
+pack    = true
+
+[dependencies]
+"demo.ifbase" = "0.1.0"

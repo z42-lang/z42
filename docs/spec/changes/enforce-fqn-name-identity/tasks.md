@@ -95,9 +95,42 @@
 - [ ] B2.1 `Resolve(scope, name) → id | AMBIGUOUS | NOTFOUND`，唯一入口
 - [ ] B2.2 歧义 → 新诊断码（**实测代价 = 0**，带阳性对照）。分配码必须逐个
       `git show <每个在飞 PR 分支>:DiagnosticCodes.z42`，扫 main 不够（已四次撞码）
-- [ ] B2.3 **不再把「无解」翻成错误**；改为 `TsigReconcile:561` 停止剥短名 ⇒ 让该状态消失。
-      同步收口 5 处过期契约注释（design §7）
-- [ ] B2.4 阳性对照：`$SCRATCH/ambig` 工程必须变红
+- [x] B2.3 ✅ **不再把「无解」翻成错误**；`TsigReconcile._rebuildClass` 停止剥短名
+      （`ExportedClassZ.Interfaces` 形态定为 FQ）⇒ 该状态从源头消失。契约注释同步已落。
+      **stdlib 产物字节恒等**（`test fingerprint`：25 个包逐字节一致）⇒ 无需指纹 slug。
+- [x] B2.4 ✅ 阳性对照 —— **比原计划强**：不是「某工程变红」，而是一条**静默错值**被堵住。
+      新负例 fixture `src/tests/cross-zpkg/iface_shortname_collision_crosspkg/`，
+      单变量对照（同树同命令、只换 driver dist 里的 `z42.package.zpkg`）：
+
+      | | main build | 运行期 |
+      |---|---|---|
+      | 基线 | `EXIT=0` **零诊断** | `VCall: Demo.IfCollide.Widget.Other not found` |
+      | B2a  | `EXIT=1` `E0402: cannot assign Widget to IThing` | — |
+
+      ⚠️ 测这条**必须**先刷 driver 自带的库副本
+      （`cp artifacts/build/libraries/dist/release/z42.package.{zpkg,zsym}`
+      → `artifacts/build/compiler/z42c.driver/release/dist/`），否则改动根本不在运行的编译器里，
+      且完全静默（门全绿、字节只动你改的包）。cp 前后 md5 不同 = 该步不可省的阳性对照。
+- [x] B2.5 ✅ **对称的另一半：接口父链** `ExportedInterfaceZ.BaseNames`。
+      剥名点在**消费侧**（`ImportedSymbolLoader` 接口循环），与类轴（生产侧剥）方向相反。
+      `_bareShortName` → **`_fqTrimTypeArgs`**：只截泛型实参、**保留 ns**
+      （不能简单地「不剥」—— 它兼着截实参，且必须先截 `<` 再动 ns，顺序反了「最后一个点」
+      会落进实参里、剥出 `String>`）。
+
+      ⭐ **先复现再动手，而复现推翻了我自己的保守猜测**。原以为「导入类的 `InterfaceNames`
+      已是传递闭包 ⇒ `Implements` 多半第一层就命中、父链未必可观测」——**恰恰相反**：
+      正因为闭包里装的是 FQ、第一层**必然比不中**本地那个同短名接口，才必然落到
+      `_anyInterfaceDerivesFrom` 的父链那半。实测（在**已打 B2.3** 的编译器上）：
+
+      | | main build | 运行期 |
+      |---|---|---|
+      | 仅 B2.3 | `EXIT=0` **零诊断** | `VCall: Demo.IfBase.Impl.Q not found` |
+      | + B2.5  | `EXIT=1` `E0402: cannot assign Impl to IParent` | — |
+
+      ⇒ 两条路**互不覆盖**，各有各的门：新负例
+      `cross-zpkg/iface_base_shortname_collision_crosspkg`（两层继承 `Impl → IChild → IParent`）。
+      关键对照 `iface_base_chain_crosspkg`（父接口带实参 `ILeaf : IMid<int>`）仍 PASS
+      ⇒ 「截 `<`、保留 ns」没碰坏实参处理。
 
 ## 阶段 3（原字符串路的计划，D-B 选定后由 B2~B5 取代）—— I2 归一唯一出口响亮化
 

@@ -304,13 +304,14 @@ public static partial class ImportedSymbolLoader {
                         // 缺了这一步，跨包接口上调**继承来的**成员一律 E0401 —— 直接后果是实现
                         // `Std.IEnumerable<T>` 的类型不能 foreach（脱糖出的 `__e.Dispose()` 走的正是
                         // `IEnumerator<T> : IDisposable` 继承来的成员）。
-                        // ⚠️ TSIG 存 **FQ + 带泛型实参**的名（`Std.IDisposable`、`Std.IBox<T>`），而
-                        // `SymbolTable.Interfaces` / `InterfaceClosure` 的查找键是**裸短名**
-                        // ⇒ 此处必须先截 `<`（否则 `Std.IComparable<Std.String>` 的「最后一个点」
-                        // 落在实参里，剥出来是 `String>`）再剥短名。
+                        // ⚠️ TSIG 存 **FQ + 带泛型实参**的名（`Std.IDisposable`、`Std.IBox<T>`）
+                        // ⇒ 此处截掉实参、**保留命名空间**（enforce-fqn-name-identity B2.5；
+                        // 此前还剥短名，那会把 ns 扔掉让消费侧去猜，见 `_fqTrimTypeArgs` 抬头）。
+                        // 查找侧不受影响：`SymbolTable.GetInterface` 走 FQN 双键，
+                        // 归一 `IfaceFqnOf` 对已 FQ 的名字幂等。
                         int ibn = 0;
                         while (ibn < iz.BaseCount) {
-                            nift.AddBase(ImportedSymbolLoader._bareShortName(iz.BaseNames[ibn]));
+                            nift.AddBase(ImportedSymbolLoader._fqTrimTypeArgs(iz.BaseNames[ibn]));
                             ibn = ibn + 1;
                         }
                         r.Interfaces.Put(iz.Name, nift);
@@ -543,18 +544,30 @@ public static partial class ImportedSymbolLoader {
         return fq.Substring(dot + 1, fq.Length - dot - 1);
     }
 
-    // fix-crosspkg-iface-basenames：`Std.IComparable<Std.String>` → `IComparable`。
-    // 先截泛型实参再剥短名 —— 顺序不能反：反了的话「最后一个点」会落进实参里（→ `String>`）。
-    // 与本包侧 `StubCollector._addIfaceBases` 的裸名约定对齐（BaseNames 存裸短名）。
+    // fix-crosspkg-iface-basenames + enforce-fqn-name-identity B2.5：
+    // `Std.IComparable<Std.String>` → `Std.IComparable`。**只截泛型实参，保留命名空间。**
     //
-    // ⚠️ 截 `<` 这一支**当前不可达**，且没有用例覆盖：父接口带实参（`interface ILeaf : IMid<int>`）
-    // 在本包满足性校验就撞 E0412（沿继承链上溯时不代换型参），所以这样的类型今天写不出来、
-    // 也就进不了 TSIG。留着是因为它便宜且与本包侧同构 —— 那一洞修好后它立刻转为在用。
-    private static string _bareShortName(string fq) {
-        string bare = fq;
+    // 🔴 此前这里还顺手剥了短名（`→ IComparable`），理由是「与本包侧 `_addIfaceBases` 的裸名
+    // 约定对齐」。那个约定已经没了 —— 归一 pass `StubCollector._qualifyIfaceBases` 把两侧的
+    // `BaseNames` 都转成 FQ，对齐点从「都是裸名」变成了「都是 FQ」。继续剥的后果是**静默错值**，
+    // 与类轴那条（`TsigReconcile._rebuildClass`）一模一样，只是走的是 BFS 的父链那半：
+    //
+    //   包 A  `interface IParent {...}` / `interface IChild : IParent` / `class Impl : IChild`
+    //   主包  另声明一个同短名、成员不同的 `IParent`，然后 `IParent p = new Impl();`
+    //
+    // `Impl.InterfaceNames` 是生产端展开的**传递闭包**且已是 FQ ⇒ `Implements` 第一层比不中
+    // ⇒ 落到 `SymbolTable._anyInterfaceDerivesFrom`，它把 `it.BaseNames[b]` 直接入队再比 target。
+    // 剥名后的 `IChild.BaseNames = ["IParent"]` 被归一猜成**本地**那个 ⇒ 命中 ⇒ 静默放行，
+    // 运行期才炸 `VCall: Demo.IfBase.Impl.Q not found`。
+    // ⇒ 保留 ns 之后，猜这一步连同它的错误答案一起消失。
+    //
+    // ⚠️ 截 `<` 的顺序仍然要紧：先截实参再动 ns —— 反了的话「最后一个点」会落进实参里
+    // （`Std.IComparable<Std.String>` → `String>`）。现在不剥短名了，这条只剩「先截」一半，
+    // 但别把 `Substring` 的边界改掉。
+    private static string _fqTrimTypeArgs(string fq) {
         int lt = fq.IndexOf("<");
-        if (lt >= 0) { bare = fq.Substring(0, lt); }
-        return ImportedSymbolLoader._shortName(bare);
+        if (lt < 0) { return fq; }
+        return fq.Substring(0, lt);
     }
 
     // add-argument-type-check R1：类/接口级型参 ∪ **方法级**型参 → `_resolve` 的型参表。

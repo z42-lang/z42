@@ -83,6 +83,54 @@ AST → Bound 树 + `SemanticModel`。分两步：先由 `SymbolCollector` 遍�
 >
 > ⚠️ 第 ③ 步在「跨 ns 同短名」时仍可能认错 —— 与全仓短名键同病、不更坏；根治要等符号表键本身 FQN 化。
 
+> **第四条路：跨包导入边界上的接口名（2026-09-28 `fqn-import-boundary`）。**
+>
+> 上面三条讲的都是**本包内**怎么把一个名字解析对。第四条路是**名字怎么穿过 zpkg** ——
+> 而它此前是**有损**的：`TsigReconcile._rebuildClass` 从 TYPE 接口块读出的本来就是 FQ 名
+> （`Demo.IfCollide.IThing`），却用 `_shortName` 剥成裸名再交给消费方，理由是当时
+> 「`SymbolTable.Implements` 按裸名匹配」。前提早已不成立（`Implements` 现在入口归一走
+> `IfaceFqnOf`），而剥名留下的后果是：**消费方只能拿短名去自己的包级 first-wins 表里猜回来**。
+>
+> 猜错不会报错，会**静默给出错的答案**：
+>
+> ```z42
+> // 包 A：namespace Demo.IfCollide;
+> public interface IThing { int Id(); }
+> public class Widget : IThing { public int Id() { return 42; } }
+>
+> // 主包：namespace Demo.IfCollideApp;  using Demo.IfCollide;
+> public interface IThing { int Other(); }        // 同短名、成员完全不同
+> IThing t = new Widget();                        // 修前：零诊断通过（!）
+> ```
+>
+> 修前 `Widget.InterfaceNames` 到达消费方时是裸名 `["IThing"]`，归一时猜中了**本地**那个
+> `Demo.IfCollideApp.IThing`（本包声明优先）⇒ 赋值静默放行，直到运行期才炸：
+> `VCall: function Demo.IfCollide.Widget.Other not found`。
+>
+> **修法不是加诊断，是别扔** —— `ExportedClassZ.Interfaces` 的形态契约定为 **FQ**，
+> `_rebuildClass` 原样搬运。「猜」这个步骤连同它的错误答案一起从源头消失，E0402 自然响。
+> 消费侧无需配合：`IfaceFqnOf` 对已 FQ 的名字幂等（`GetInterface` 走 FQN 双键）。
+>
+> **这条路有两半，剥名点方向相反 —— 两半都要收，只收一半照样静默放行：**
+>
+> | | 搬运者 | 剥名点 | `Implements` 里走哪一段 |
+> |---|---|---|---|
+> | 类的直接接口 `ExportedClassZ.Interfaces` | `TsigReconcile._rebuildClass` | **生产侧** | BFS 种子（第一层比较） |
+> | 接口的父接口 `ExportedInterfaceZ.BaseNames` | `ImportedSymbolLoader`（接口循环） | **消费侧** | `_anyInterfaceDerivesFrom` 沿父链展开 |
+>
+> 姊妹缺陷压不到彼此：导入类的 `InterfaceNames` 是生产端展开的**传递闭包**且已是 FQ ⇒
+> 第一层**必然比不中**本地那个同短名接口，于是一路落到父链那半。所以
+> `interface IChild : IParent` + `class Impl : IChild` 这种两层继承，在只修了类轴之后
+> **仍然**零诊断放行，运行期才炸 `VCall: Demo.IfBase.Impl.Q not found`。
+>
+> 消费侧那一刀不能简单地「不剥」：`_bareShortName` 同时兼着**截泛型实参**
+> （`Std.IComparable<Std.String>`，且必须先截 `<` 再动 ns —— 顺序反了「最后一个点」会落进
+> 实参里，剥出 `String>`），正确形态是「**截 `<`、保留 ns**」，即现在的 `_fqTrimTypeArgs`。
+>
+> 回归门（两条各一个负例，都断言 E0402）：
+> `src/tests/cross-zpkg/iface_shortname_collision_crosspkg/`（类的直接接口）·
+> `src/tests/cross-zpkg/iface_base_shortname_collision_crosspkg/`（接口父链）。
+
 > **② 已修**（2026-09-10 `add-bare-name-ambiguity-diagnostic`）：非限定同短名（`using A; using B;`
 > 后裸写 `Foo`）不再静默选一，报 **E0456**（对标 C# CS0104）。判据：候选 ns 取自新表
 > `SymbolTable.ClassNsAll`（本地 `StubCollector` 与跨包 `ImportedSymbolLoader` 都在各自的
