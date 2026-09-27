@@ -98,6 +98,32 @@ CI 的 `ci-bootstrap` 用**独立的两代 job**（SDK 自带的旧 VM，不重�
 2. **拷 zpkg 供种必须用 `--release`**：开发态是 **indexed**（主文件 + 散装 `.zbc`），只拷主文件
    ⇒ 运行期 `undefined function …SourceHashHex$1$string`。这条记忆里有，我还是踩了一次。
 
+## CI 反馈（第一轮）：两组测试红，都是我的改动的直接后果
+
+`verify-selfhost` + 四条 `test-host` 报 `❌ z42c [Test]: 2 unit(s) failed (of 24)`：
+
+| unit | 症状 | 根因 | 处置 |
+|---|---|---|---|
+| `Z42cIrConstraintBundleTests`（5 红）| `array index 51 out of bounds (len=51)` | **手写的 TYPE 记录字节 fixture** 里没有新加的 2 字节 `class_flags2` ⇒ 读端多吃 2 字节就越界 | ✅ 已在 `_typeSection` 的 `Visibility` 之后补 `WriteU16(0)`，并同步头注的布局说明 |
+| `Z42cSemanticsZbcTests`（3 红）| golden hex 不等 | header 版本字段 | ✅ 三条 golden 的 `5a42430001002c00` → `…2d00`。**三条用例的源码都没有类声明** ⇒ TYPE 段只有 4 字节 `class_count=0`、新增的两项一个字节都不进来，故**仅 header minor 变**（沿 1.44 那次的同款判断） |
+
+⚠️ **还有一处已知漂移我没能在本地处理**：入库的字节基线
+`src/tests/zbc-format/*/source.zbc`（6 份）会随 header minor 变。正规做法是
+`xtask regen`（README 明写它对该目录特判、直接就地覆写），但那需要一个**能跑的 0.50 工具链**
+—— 正是本地卡住的地方。留给 CI / 下一轮本地补。
+
+## 顺带发现：版本 bump 的 checklist 自己过期了
+
+`src/runtime/src/metadata/zbc_reader/versions.rs:7-12` 的四条同步清单里**两条指向不存在的东西**：
+
+1. 第 1 条 `src/compiler/z42.IR/BinaryFormat/ZbcWriter.cs` —— **C# 编译器 2026-06-26 已整体删除**；
+2. 第 4 条 `src/tests/zbc-format/generate-fixtures.sh` —— **该脚本不存在**（真实命令是 `xtask regen`，
+   写在 `src/tests/zbc-format/README.md` 里）。
+
+⇒ 「照 checklist 做」会漏掉基线重生这一步。**本 change 不改它**（那是另一处文档修复、且会把 diff 搅大），
+但记在这里：这正是「注释即第二份真相、且先于代码腐坏」的又一例，值得单独一刀连同
+`ZbcFormat.Minor` / `ZpkgWriter.Minor` 那两条 16KB 单行一起治。
+
 ## 不做（Out of Scope）
 
 - **不消费这两项**（符号化访问的 P2/P3 是后续刀）。
