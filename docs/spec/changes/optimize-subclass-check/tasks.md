@@ -2,7 +2,7 @@
 
 > 状态：🟡 进行中 | 创建：2026-08-31 | 类型：perf（VM 行为不变——is/as/catch/vcall 判定逐一相同）
 
-**变更说明：** `is_subclass_or_eq_td`（`interp/dispatch.rs`）是 z42 `is`/`as`/`catch`/vcall 分派的核心。原实现每次检查 `derived.to_string()` + 沿基类链每级 `base.clone()` 分配 String，且 caller 的 `module.type_registry` 常不含跨-zpkg 类型（如 z42c 序列化 z42.ir 的 `IrInstr` 子类）→ 每级落 `try_lookup_type`（lazy_loader 锁）。z42c 的 zpkg 序列化把每条指令过 ~60 路 `is`-链 → 本函数是解释执行头号热点（profile 实证 17.6s 写段全在此）。
+**变更说明：** `is_subclass_or_eq_td`（`interp/dispatch.rs`）是 z42 `is`/`as`/`catch`/vcall 分派的核心。原实现每次检查 `derived.to_string()` + 沿基类链每级 `base.clone()` 分配 String，且 caller 的 `module.type_registry` 常不含跨-zpkg 类型（如 z42c 序列化 z42.package 的 `IrInstr` 子类）→ 每级落 `try_lookup_type`（lazy_loader 锁）。z42c 的 zpkg 序列化把每条指令过 ~60 路 `is`-链 → 本函数是解释执行头号热点（profile 实证 17.6s 写段全在此）。
 
 改：① **memo** `(derived,target)→bool`（per-VmContext 嵌套 map，hit 按 &str 零分配）——关系是全局单调事实（已加载类型的基/接口链不变、lazy-load 只增），可缓存；② **alloc-free walk**（持 `Arc<TypeDesc>` 跨迭代、按 &str 跟 base_name，去 per-level String 分配）。
 

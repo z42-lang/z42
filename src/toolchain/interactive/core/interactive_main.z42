@@ -111,12 +111,12 @@ int _indexOf(string[] a, string x) {
 // `.version` 元指令：REPL 使用的二进制格式版本（zbc + zpkg，strict-pin 值）。
 //
 // add-package-roles 批 0：本函数原是 `Std.Scripting.Script.FormatVersion()`，为它一句话，
-// `z42.scripting`（用户面 eval 内核）整包吊着一条 `z42.ir`（编译器域）依赖。`.version` 是 REPL
+// `z42.scripting`（用户面 eval 内核）整包吊着一条 `z42.package`（编译器域）依赖。`.version` 是 REPL
 // **前端的展示职责**，不是 eval 内核的能力 —— 迁来 z42i（SDK-only apphost，依赖编译器域天经地义），
 // scripting 那条依赖随之断掉。
 //
 // 终局：这两个数该由 **VM 自报**（VM 才是「能加载什么格式」的权威；Rust 侧 ZPKG_VERSION_MAJOR/MINOR
-// 已在，只是未经 builtin 暴露给 z42）。届时本函数改调 Std.Runtime、z42i 也不再需要 z42.ir。
+// 已在，只是未经 builtin 暴露给 z42）。届时本函数改调 Std.Runtime、z42i 也不再需要 z42.package。
 // 见 docs/spec/changes/add-package-roles/design.md 批 0 注。
 string _formatVersion() {
     return "zbc " + ZbcVersion.Major.ToString() + "." + ZbcVersion.Minor.ToString()

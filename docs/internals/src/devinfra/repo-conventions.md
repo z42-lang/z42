@@ -45,7 +45,7 @@ proposal 的「映射」节）；stdlib 违规命名的清理见
 
 | 族 | 含义 | 成员 |
 |---|---|---|
-| `z42.<topic>` | 标准库，随工具链分发，用户永不声明 | `z42.core` `z42.io` `z42.collections` `z42.text` `z42.numerics` `z42.json` `z42.toml` `z42.yaml` `z42.net` `z42.crypto` `z42.compression` `z42.encoding` `z42.regex` `z42.uri` `z42.random` `z42.threading` `z42.diagnostics` `z42.test` `z42.build` `z42.project` `z42.ir` `z42.cli` `z42.scripting` |
+| `z42.<topic>` | 标准库，随工具链分发，用户永不声明 | `z42.core` `z42.io` `z42.collections` `z42.text` `z42.numerics` `z42.json` `z42.toml` `z42.yaml` `z42.net` `z42.crypto` `z42.compression` `z42.encoding` `z42.regex` `z42.uri` `z42.random` `z42.threading` `z42.diagnostics` `z42.test` `z42.build` `z42.project` `z42.package` `z42.cli` `z42.scripting` |
 | `z42c.*` | 编译器自身的库 | `z42c.core` `z42c.syntax` |
 
 > **没有 `z42.math` 包**——数学库叫 **`z42.numerics`**。旧文档里的 `z42.math` 是错的。

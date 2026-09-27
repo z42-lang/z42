@@ -18,16 +18,16 @@ z42c.semantics: IrGen.Generate(cu, model)
 
 ## Decisions
 
-### Decision 1：pass 放 compiler 源码，不放 stdlib z42.ir（避开 bootstrap axis ②/④）
+### Decision 1：pass 放 compiler 源码，不放 stdlib z42.package（避开 bootstrap axis ②/④）
 
-**问题**：pass 要读指令的 Dst/操作数、重建 block。这些类型（`IrInstr`/`IrBlock`/`IrFunction`）在 stdlib `z42.ir`。
-**约束**：`z42.ir` 是 z42c **运行期自依赖**的库（axis ④）;给它加 pass 调用的**新方法**（如 `IrInstr.WrittenReg()`）
-= 新 stdlib API 面,z42c 源调用它要**晚一个 nightly**（axis ②:种子 z42.ir 还没这方法 → 冷启动 undefined）。
+**问题**：pass 要读指令的 Dst/操作数、重建 block。这些类型（`IrInstr`/`IrBlock`/`IrFunction`）在 stdlib `z42.package`。
+**约束**：`z42.package` 是 z42c **运行期自依赖**的库（axis ④）;给它加 pass 调用的**新方法**（如 `IrInstr.WrittenReg()`）
+= 新 stdlib API 面,z42c 源调用它要**晚一个 nightly**（axis ②:种子 z42.package 还没这方法 → 冷启动 undefined）。
 **选项**：
-- A：pass 放 `z42.ir`（stdlib）+ 给 `IrInstr` 加 `WrittenReg`/`ReadRegs` virtual → 触发两-nightly 纪律,拖慢。
-- B：pass 放 `z42c.semantics/src/IrOpt/`（**compiler 源码**）,**只用 z42.ir 现有 public 字段**（`IrBlock.Instrs`/
+- A：pass 放 `z42.package`（stdlib）+ 给 `IrInstr` 加 `WrittenReg`/`ReadRegs` virtual → 触发两-nightly 纪律,拖慢。
+- B：pass 放 `z42c.semantics/src/IrOpt/`（**compiler 源码**）,**只用 z42.package 现有 public 字段**（`IrBlock.Instrs`/
   `IrFunction.Blocks` 已 public;各 opcode `.Dst/.A/.B` 已 public）,在 pass 内 **type-switch** 每个 opcode 读写。
-**决定**：**选 B**。零 z42.ir API 变更 → 零 bootstrap nightly 延迟。代价:pass 内要枚举 opcode（type-switch,
+**决定**：**选 B**。零 z42.package API 变更 → 零 bootstrap nightly 延迟。代价:pass 内要枚举 opcode（type-switch,
 类似 ZbcWriter `_regtInstr`）;**未知 opcode 一律保守**（假设读全部寄存器 + 有副作用 → 不优化、不跨越），安全。
 
 ### Decision 2：只碰单赋值 temp（保守正确性边界）

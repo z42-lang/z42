@@ -83,7 +83,7 @@ int _buildCompilerViaZ42c(string root, string profile, string[] members, string 
     _vNormal("  building z42c via z42c (--workspace)");
     _ensureDriverSelfContained(root, profile, members);   // 种子 driver 自包含 → 可直接跑
     string driver = _driverZpkg(root, profile);
-    _ensureBootstrapSelfDepLibs(root, vm, driver, stdlibFlat);  // 冷启动破 z42c⇄z42.ir 环（须在 workspace build 前）
+    _ensureBootstrapSelfDepLibs(root, vm, driver, stdlibFlat);  // 冷启动破 z42c⇄z42.package 环（须在 workspace build 前）
     string compilerDir = Path.Join(root, "src/compiler");
     int rc = _z42cWorkspaceBuild(vm, driver, compilerDir, stdlibFlat, false);
     // 跨成员符号新增（如 z42c.syntax 新增类型/字段被 z42c.semantics 消费）冷启动收敛（破 z42c⇄z42c 内部环）：
@@ -102,28 +102,28 @@ int _buildCompilerViaZ42c(string root, string profile, string[] members, string 
     return 0;
 }
 
-// 冷启动破环：z42c 运行期依赖 z42.ir（stdlib 库——IR 模型 + zbc/zpkg 后端，含
-// Z42.Project.ZpkgBuilder），但 z42.ir 由 z42c 构建 → 循环。冷启动时（fresh checkout /
-// CI 新 runner）flat dist 里还没有 z42.ir，若直接建 z42c，编译器只能拿**种子**自带的
+// 冷启动破环：z42c 运行期依赖 z42.package（stdlib 库——IR 模型 + zbc/zpkg 后端，含
+// Z42.Project.ZpkgBuilder），但 z42.package 由 z42c 构建 → 循环。冷启动时（fresh checkout /
+// CI 新 runner）flat dist 里还没有 z42.package，若直接建 z42c，编译器只能拿**种子**自带的
 // z42c.ir/z42c.project 作 Z42.IR/Z42.Project 的命名空间兜底来解析 —— 于是 fresh z42c emit
 // 的 `Z42.Project.ZpkgBuilder.Sha256Hex` 调用是钉在种子 z42c.project 上的，运行期加载真正
-// 的 z42.ir 时解析不到 → `undefined function ...Sha256Hex`。破环（converge-z42c-ir-metadata
+// 的 z42.package 时解析不到 → `undefined function ...Sha256Hex`。破环（converge-z42c-ir-metadata
 // 两代自举）：先用当前 driver（冷启动=上一 nightly 种子，自带等价 ZpkgBuilder）把当前源码的
-// z42.ir 单独编进 build-libs，再建 z42c —— fresh z42c 就对着**真 z42.ir** 编译+运行，一致。
-// **不 warm-skip**（lazy-type-world 2026-07-30 修）：早先「z42.ir 已在 flat dist 就跳过」的
-// 幂等假设 = 「z42c 不消费 z42.ir 的**新** API」。当 z42c 自身源码用到当前源 z42.ir 里新增的
-// 类型/方法（如 `LazyReconWorld`），而 flat dist 里躺的是**上一 nightly 种子带来的旧 z42.ir**
-// （CI 冷启动 stage 的就是它）时，warm-skip 会让 z42c 的 workspace self-build 对着旧 z42.ir 编
-// z42c.pipeline → `unknown type LazyReconWorld` 编译失败。故**总是**用当前 driver 把当前源 z42.ir
-// 建进 build-libs（覆盖种子旧版）——z42c 永远对着**当前源** z42.ir 编译，破了 z42c⇄z42.ir 的
+// z42.package 单独编进 build-libs，再建 z42c —— fresh z42c 就对着**真 z42.package** 编译+运行，一致。
+// **不 warm-skip**（lazy-type-world 2026-07-30 修）：早先「z42.package 已在 flat dist 就跳过」的
+// 幂等假设 = 「z42c 不消费 z42.package 的**新** API」。当 z42c 自身源码用到当前源 z42.package 里新增的
+// 类型/方法（如 `LazyReconWorld`），而 flat dist 里躺的是**上一 nightly 种子带来的旧 z42.package**
+// （CI 冷启动 stage 的就是它）时，warm-skip 会让 z42c 的 workspace self-build 对着旧 z42.package 编
+// z42c.pipeline → `unknown type LazyReconWorld` 编译失败。故**总是**用当前 driver 把当前源 z42.package
+// 建进 build-libs（覆盖种子旧版）——z42c 永远对着**当前源** z42.package 编译，破了 z42c⇄z42.package 的
 // 「新 API 需晚一 nightly」轴④约束。warm dev 代价：z42c build 增量缓存命中下近零（源未变 → probe
 // 跳过实际重编）；源变了本就该重建。随后 `build stdlib` 全量 workspace 仍用 fresh z42c 覆盖为规范产物。
 void _ensureBootstrapSelfDepLibs(string root, string vm, string driver, string stdlibFlat) {
-    _vNormal("  bootstrap: (re)building current-source z42.core + z42.project + z42.build + z42.ir + z42c.core + z42c.syntax into build-libs（破 z42c⇄stdlib 轴④环）");
-    // consolidate-core-intrinsics (A1): 当前源 z42.ir 现调 Std.BitConverter（当前源 z42.core 新增门面）。
-    // 冷/首暖构建时 flat 里躺的是种子/上一次的旧 z42.core（缺 BitConverter），若直接单包编 z42.ir 会
-    // `undefined function`。故先用同款「先预建覆盖种子」模式把**当前源 z42.core** 建进 flat，再建 z42.ir。
-    // 与下面 z42.ir 同理由：z42c 运行期自依赖链上的当前源库，必须先于消费者进 flat（轴 ④）。
+    _vNormal("  bootstrap: (re)building current-source z42.core + z42.project + z42.build + z42.package + z42c.core + z42c.syntax into build-libs（破 z42c⇄stdlib 轴④环）");
+    // consolidate-core-intrinsics (A1): 当前源 z42.package 现调 Std.BitConverter（当前源 z42.core 新增门面）。
+    // 冷/首暖构建时 flat 里躺的是种子/上一次的旧 z42.core（缺 BitConverter），若直接单包编 z42.package 会
+    // `undefined function`。故先用同款「先预建覆盖种子」模式把**当前源 z42.core** 建进 flat，再建 z42.package。
+    // 与下面 z42.package 同理由：z42c 运行期自依赖链上的当前源库，必须先于消费者进 flat（轴 ④）。
     string coreToml = Path.Join(root, "src/libraries/z42.core/z42.core.z42.toml");
     int rcCore = _z42cBuildPackage(vm, driver, coreToml, stdlibFlat, stdlibFlat);
     if (rcCore != 0) { ConsoleError.WriteLine("  ✗ bootstrap: build z42.core failed (" + rcCore.ToString() + ")"); }
@@ -131,26 +131,26 @@ void _ensureBootstrapSelfDepLibs(string root, string vm, string driver, string s
     // （新增 `[analyzers]` 段的 Analyzers/AnalyzerCount 字段）。z42c workspace self-build 早于 step-4
     // 全量 stdlib 重建 → 若不先把当前源 z42.project 建进 flat，driver 会对着**旧** z42.project 编 →
     // `no field AnalyzerCount on ProjectManifest`（轴②：z42c 源新用一个 stdlib API，须先于 z42c 自建进
-    // flat）。与 z42.core/z42.ir 同款「先预建覆盖种子」。z42.project 依赖 z42.core（已上预建）+ io/toml（flat 已有）。
+    // flat）。与 z42.core/z42.package 同款「先预建覆盖种子」。z42.project 依赖 z42.core（已上预建）+ io/toml（flat 已有）。
     string projToml = Path.Join(root, "src/libraries/z42.project/z42.project.z42.toml");
     int rcProj = _z42cBuildPackage(vm, driver, projToml, stdlibFlat, stdlibFlat);
     if (rcProj != 0) { ConsoleError.WriteLine("  ✗ bootstrap: build z42.project failed (" + rcProj.ToString() + ")"); }
     // sink-repl-compile-facade：z42c.pipeline **编译期**消费 z42.build 的新 API（`IReplCompiler` +
-    // `ReplCompileResult`，供 REPL 编译门面 `Z42cReplCompiler` 实现）。同 z42.project/z42.ir 的轴② ——
+    // `ReplCompileResult`，供 REPL 编译门面 `Z42cReplCompiler` 实现）。同 z42.project/z42.package 的轴② ——
     // z42c 源新用一个 stdlib API，须先把**当前源** z42.build 建进 flat，否则 z42c 自建 z42c.pipeline
     // 会对着**旧**（种子）z42.build 编 → `E0443: undefined type IReplCompiler`。z42.build 依赖
     // z42.core（已上预建）+ z42.io（flat 已有）+ z42.project（已上预建）。
     string buildToml = Path.Join(root, "src/libraries/z42.build/z42.build.z42.toml");
     int rcBuild = _z42cBuildPackage(vm, driver, buildToml, stdlibFlat, stdlibFlat);
     if (rcBuild != 0) { ConsoleError.WriteLine("  ✗ bootstrap: build z42.build failed (" + rcBuild.ToString() + ")"); }
-    string irToml = Path.Join(root, "src/libraries/z42.ir/z42.ir.z42.toml");
+    string irToml = Path.Join(root, "src/libraries/z42.package/z42.package.z42.toml");
     int rc = _z42cBuildPackage(vm, driver, irToml, stdlibFlat, stdlibFlat);
-    if (rc != 0) { ConsoleError.WriteLine("  ✗ bootstrap: build z42.ir failed (" + rc.ToString() + ")"); }
+    if (rc != 0) { ConsoleError.WriteLine("  ✗ bootstrap: build z42.package failed (" + rc.ToString() + ")"); }
     // converge-z42-syntax-lib（route A 地基）：z42c.core + z42c.syntax（可移植前端）已挪入
     // src/libraries/，成 z42c.semantics/pipeline/driver 的**共享库**依赖。冷启动 flat 里躺的是
     // 上一 nightly 种子的旧 z42c.core/syntax；z42c 自建期若不先把**当前源**建进 flat，semantics/
     // pipeline 会对着旧前端编（`no field`/`undefined type` 首遍失败——见 line 72 内部环重试）。
-    // 与 z42.ir 同款「不 warm-skip、先预建覆盖种子」，让 fresh z42c 永远对着当前源前端编译+运行。
+    // 与 z42.package 同款「不 warm-skip、先预建覆盖种子」，让 fresh z42c 永远对着当前源前端编译+运行。
     // 顺序：z42c.core 靠 z42.core（隐式 prelude，已上建）；z42c.syntax 靠 z42c.core（先于它建）。
     string z42cCoreToml = Path.Join(root, "src/libraries/z42c.core/z42c.core.z42.toml");
     int rcZc = _z42cBuildPackage(vm, driver, z42cCoreToml, stdlibFlat, stdlibFlat);
@@ -249,7 +249,7 @@ int _testCompilerUnits(string root, string profile, string[] members) {
                 ProcessResult br = new Process(vm)
                     .Arg(driverZpkg).Arg("--mode").Arg(_z42cMode()).Arg("--")
                     .Arg("build").Arg(tomls[0]).Arg("--release")
-                    .Env("Z42_LIBS", flat)
+                    .Env("Z42_LIBS", flat).Env("Z42_PROBING_PATHS", _legacyNameAliasProbe())
                     .Stdout(Stdio.Inherit()).Stderr(Stdio.Inherit()).Run();
                 if (br.ExitCode != 0) {
                     Console.WriteLine("  ✗ compile failed: " + unit);
@@ -285,7 +285,7 @@ int _testCompilerUnits(string root, string profile, string[] members) {
                     int rc = new Process(vm)
                         .Arg("--mode").Arg(_z42cMode()).Arg(builderZpkg)
                         .Arg("--").Arg("test").Arg(zps[j])
-                        .Env("Z42_LIBS", flat)
+                        .Env("Z42_LIBS", flat).Env("Z42_PROBING_PATHS", _legacyNameAliasProbe())
                         .Stdout(Stdio.Inherit()).Stderr(Stdio.Inherit()).Run().ExitCode;
                     if (rc != 0) { totalFailed = totalFailed + 1; }
                     j = j + 1;

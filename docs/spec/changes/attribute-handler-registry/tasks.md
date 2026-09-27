@@ -168,7 +168,7 @@ BuildPackageCus(texts, files, count, cus, ...):
 - ✅ ALC.Default().Load + __load_module 对同一 zpkg 双注册无冲突（两独立 registry；集成测试证实）。
 - ✅ 测试内把 analyzer 源编成 zpkg 写盘（`ZpkgWriterZ.WritePacked().ToBytes()` + `TMPDIR`）在 z42c 测试环境可用。
 - ⚠️ **轴② 教训**：z42c.driver 编译期新用 z42.project 字段 → 必须把 z42.project 加进 `_ensureBootstrapZ42Ir`
-  预建集（与 z42.core/z42.ir 同款）；否则 self-build E0401。`build stdlib`/`build compiler` 单独跑的 exit
+  预建集（与 z42.core/z42.package 同款）；否则 self-build E0401。`build stdlib`/`build compiler` 单独跑的 exit
   经 pipe 到 grep 会假 0——必须直接捕获 xtask 的 `$?`。
 
 ## PR3b · [lints] config + severity 决策（当前，🟡 进行中）

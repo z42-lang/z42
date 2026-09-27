@@ -51,9 +51,9 @@ int _fpEntryCount(string tree) {
 
 string _compilerIdentityOf(string tree) {
     string fp = _fpEntryCount(tree).ToString();
-    string zbc = _srcIntConst(Path.Join(tree, "src/libraries/z42.ir/src/BinaryFormat/ZbcFormat.z42"),
+    string zbc = _srcIntConst(Path.Join(tree, "src/libraries/z42.package/src/BinaryFormat/ZbcFormat.z42"),
         "public static int Minor = ").ToString();
-    string zpkg = _srcIntConst(Path.Join(tree, "src/libraries/z42.ir/src/ZpkgWriter.z42"),
+    string zpkg = _srcIntConst(Path.Join(tree, "src/libraries/z42.package/src/ZpkgWriter.z42"),
         "public static int Minor = ").ToString();
     return fp + "/" + zbc + "/" + zpkg;
 }

@@ -451,8 +451,8 @@ public sealed class EmitContext {
     // `add-file-scoped-usings` 的 E0436「用了却没 import」。把本包另一个 ns 记进去 ⇒ 同一个包里
     // 跨 ns 引用被要求写 `using`，**单包构建多命名空间的库直接编不过**。
     //
-    // 实测 z42.ir：`src/BinaryFormat/ZbcStringPool.z42`（`namespace Z42.IR.BinaryFormat`）引用
-    // `Z42.IR` 的 `StrMap` / `TypedReg` → E0436；把 `z42.ir.zpkg` 移出扁平 `Z42_LIBS` 即刻通过。
+    // 实测 z42.package：`src/BinaryFormat/ZbcStringPool.z42`（`namespace Z42.IR.BinaryFormat`）引用
+    // `Z42.IR` 的 `StrMap` / `TypedReg` → E0436；把 `z42.package.zpkg` 移出扁平 `Z42_LIBS` 即刻通过。
     //
     // 两个条件叠加才触发，所以一直隐形：① 包是**多命名空间**的（单 ns 的走 `ns == cu.Namespace`
     // 放行）；② 该包**自己上一次构建出的 zpkg** 躺在扁平 `Z42_LIBS` 里（`xtask build stdlib` 走

@@ -52,7 +52,7 @@
 1. ✅ 进 `libs/` —— 这是我们要的；
 2. ⚠️ 被 publisher 判为 framework，**从每个 apphost 的 payload 闭包里消失**；
 3. ⚠️ 被 `_pubBundleProjectDeps` 判为「真·stdlib 成员 ⇒ 不递归」，而 `z42c.semantics` 依赖
-   `z42.io` / `z42.threading` / `z42.ir`，与「只依赖框架」的前提**不符**；
+   `z42.io` / `z42.threading` / `z42.package`，与「只依赖框架」的前提**不符**；
 4. ⚠️ 语义上宣告「编译器的整个语义层是标准库的一部分」——这是个大得多的承诺，且与
    「尽量减少标准库」（`converge-z42-syntax-lib` 明确写下的减法目标）相反。
 
@@ -137,5 +137,5 @@
 | 3 | 解析域目录名 | **`compiler-libs/`**（与 `libs/` 平级，不嵌套） |
 
 另补一条本提案列为 Out of Scope 的判定：**`z42.scripting` 的归属**——实测发现它在 runtime 包里
-今天已是恒失败的空壳，且四条编译器域依赖里有一条（`z42.ir`）是纯假的。
+今天已是恒失败的空壳，且四条编译器域依赖里有一条（`z42.package`）是纯假的。
 详见 [design.md §scripting 判定](design.md)。完整裁决表见 [design.md §User 裁决](design.md)。

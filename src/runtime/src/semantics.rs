@@ -153,7 +153,7 @@ pub fn div_by_zero_msg(op: &str) -> String {
 // ── 数值转换（cast）───────────────────────────────────────────────────────────
 
 /// 目标类型标签常量 —— 单一真相源在 `crate::metadata::types`（`TAG_*`，镜像 z42
-/// 编译器 `z42.ir` 的 TypeTags）。此处以 `T_*` 别名重导出，供下面 `convert_value`
+/// 编译器 `z42.package` 的 TypeTags）。此处以 `T_*` 别名重导出，供下面 `convert_value`
 /// 的 match 臂简洁引用，避免第二份 0xNN 表漂移。（C# bootstrap 编译器已于
 /// 2026-06-26 移除，权威在 z42 侧。）
 pub use crate::metadata::types::{

@@ -32,10 +32,10 @@ playground 加载的可移植 `z42c.*` 库**」。这是门面 PR 与 scripting 
    - `src/libraries/z42.workspace.toml`：`default-members` 加 `z42c.core` / `z42c.syntax`（`members=["*"]`
      自动发现子目录，`default-members` 补显式序：core 无依赖在前、syntax 依赖 core 次之）。
    - `z42c.semantics` / `z42c.pipeline` / `z42c.driver`（编译器 workspace）经**跨 workspace dist 发现**
-     解析 `z42c.core` / `z42c.syntax`——与它们现在解析 stdlib `z42.ir` / `z42.project` **同机制**。
+     解析 `z42c.core` / `z42c.syntax`——与它们现在解析 stdlib `z42.package` / `z42.project` **同机制**。
 3. **破 bootstrap 轴④环**：`scripts/build/xtask_compiler.z42` 的 `_ensureBootstrapSelfDepLibs`（或旁加
    `_ensureBootstrapZ42cFrontend`）在建 z42c **前**，用种子 driver 把**当前源** `z42c.core` + `z42c.syntax`
-   预建进 build-libs——与 z42.ir 破环**同款**（z42c 自依赖的共享库必须先于消费者进 flat）。
+   预建进 build-libs——与 z42.package 破环**同款**（z42c 自依赖的共享库必须先于消费者进 flat）。
 4. **文档**：`docs/internals/src/compiler/self-hosting.md`（轴④预建列表 + 布局图）、`compiler-architecture.md`、
    相关 README。
 
@@ -46,7 +46,7 @@ playground 加载的可移植 `z42c.*` 库**」。这是门面 PR 与 scripting 
   → **消费方所有 `using Z42.Core` / `using Z42.Syntax`、所有 FQ 引用、所有 toml 依赖名全部不动**，
     本 PR 是**纯物理搬迁 + 构建接线**，无源码符号改动。
 - **不搬** `z42c.semantics` / `z42c.pipeline`（留编译器，走后续门面 PR）。
-- **不动** `z42.ir`（保 `Z42.IR` / `Z42.Project` 真 stdlib 身份）。
+- **不动** `z42.package`（保 `Z42.IR` / `Z42.Project` 真 stdlib 身份）。
 - **零新增 `Std` / `z42.*` API 面**——搬入者全 `z42c.*` 身份，用户面标准库**不增长**（满足「尽量减少标准库」）。
 - **零格式 bump**（zbc / zpkg writer 不动）。
 - scripting 本轮**仍留 toolchain**（其 semantics/pipeline 依赖未解，未到可搬 libraries 的条件）。
@@ -73,6 +73,6 @@ playground 加载的可移植 `z42c.*` 库**」。这是门面 PR 与 scripting 
 
 ## Open Questions
 
-1. 物理落点：`src/libraries/z42c.*`（z42.ir 先例，最少机械改动，本提案采用）vs 保留在 `src/compiler/`
-   并扩 DiscoverMembers 跨树发现（src/libraries 保持纯 z42.*，但需新构建机械）。**倾向前者**（照搬 z42.ir）。
+1. 物理落点：`src/libraries/z42c.*`（z42.package 先例，最少机械改动，本提案采用）vs 保留在 `src/compiler/`
+   并扩 DiscoverMembers 跨树发现（src/libraries 保持纯 z42.*，但需新构建机械）。**倾向前者**（照搬 z42.package）。
 2. 破环 helper：并入现有 `_ensureBootstrapSelfDepLibs`（改名/扩列表）还是旁加独立 helper？倾向扩现有列表（同一破环阶段）。

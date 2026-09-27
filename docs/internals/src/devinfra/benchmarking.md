@@ -357,14 +357,14 @@ zbc/zpkg 格式 bump 的 PR 上，e2e / micro A/B **结构上不可测**——�
 建 base 工具链：PR driver 编 base-src/src/compiler → base driver
                PR stdlib 塞进 BASEALL（base driver 要它才跑得起来）
                base driver 编 base-src/src/libraries → base stdlib
-                  └─ 写出格式由「运行时加载的 z42.ir」决定 = PR 的 z42.ir ⇒ PR 格式
+                  └─ 写出格式由「运行时加载的 z42.package」决定 = PR 的 z42.package ⇒ PR 格式
 实测：         BASEVM（base 源码建的 z42vm，钉 base 格式）读 base stdlib
                   └─ zpkg minor <PR> not supported (writer is at <base>)  ✗
 ```
 
-格式常量住在 `z42.ir`（stdlib 库），**谁的 z42.ir 在跑、就写谁的格式**。
+格式常量住在 `z42.package`（stdlib 库），**谁的 z42.package 在跑、就写谁的格式**。
 
-**处置**：读两棵树 `z42.ir` 的 writer 常量（`ZbcFormat.z42` / `ZpkgWriter.z42` 的 Major/Minor），
+**处置**：读两棵树 `z42.package` 的 writer 常量（`ZbcFormat.z42` / `ZpkgWriter.z42` 的 Major/Minor），
 不同 ⇒ 跳过**依赖 base 产物**的四步（建 base 工具链 / e2e A/B / 两侧 micro 捕获 / micro 判定），
 打 `::warning::` + job summary 明示「本次没测」——**不能静默变绿**。常量读不出来 ⇒ 直接失败
 （不按「无代差」放行）。不读 base zpkg 的两步照跑：判定逻辑自检、criterion A/B。

@@ -126,7 +126,7 @@ public static class Murmur3 {
     }
 
     /// 32 个小写 hex 字符（无前缀）。拼接方式对齐同包的 `ZpkgBuilder.Sha256Hex`
-    /// （z42.ir 不依赖 z42.text，也不值得为 32 个字符引入 StringBuilder）。
+    /// （z42.package 不依赖 z42.text，也不值得为 32 个字符引入 StringBuilder）。
     public static string Hash128Hex(byte[] data) {
         byte[] h = Murmur3.Hash128(data);
         string digits = "0123456789abcdef";

@@ -9,7 +9,7 @@ include = ["**/*.z42"]
 
 [dependencies]
 "z42c.pipeline"  = "0.1.0"
-"z42.ir"        = "0.1.0"   # converge-z42c-ir-metadata: IR+zbc+zpkg 后端
+"z42.package"        = "0.1.0"   # converge-z42c-ir-metadata: IR+zbc+zpkg 后端
 "z42c.semantics" = "0.1.0"
 "z42c.core"      = "0.1.0"
 "z42.io"         = "0.1.0"

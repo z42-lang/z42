@@ -23,7 +23,9 @@
 namespace Z42.Project;
 
 using Std;
-using Z42.IR.BinaryFormat;   // ZpkgBuilder.SourceHashHex
+// `ZpkgBuilder.SourceHashHex` 就在本命名空间（`Z42.Project`，见 z42.package/src/ZpkgBuilder.z42）——
+// 不需要额外 using。⚠️ 别写 `using Z42.IR.BinaryFormat`：那是 zbc 二进制格式的命名空间，
+// 与 ZpkgBuilder 不同（#896 把包名 z42.ir 改成 z42.package，命名空间没跟着改，容易看混）。
 
 public static class CompilerFingerprint {
 

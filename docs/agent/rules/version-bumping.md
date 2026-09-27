@@ -22,13 +22,13 @@ paths:
 ## 版本常量坐标（唯一真相表）
 
 > **路径注**：IR/zbc/zpkg 后端已由 `converge-z42c-ir-metadata-onto-stdlib` 从 `src/compiler/z42c.ir`
-> / `z42c.project` 下沉到 stdlib 库 **`src/libraries/z42.ir`**（namespace 不变）。下表已用收敛后真实路径。
+> / `z42c.project` 下沉到 stdlib 库 **`src/libraries/z42.package`**（namespace 不变）。下表已用收敛后真实路径。
 
 | 端 | 文件 | 常量 | 当前值 |
 |----|------|------|--------|
-| zbc writer（z42c） | `src/libraries/z42.ir/src/BinaryFormat/ZbcFormat.z42` | `ZbcVersion.Major` / `.Minor` | 1 / 44 |
+| zbc writer（z42c） | `src/libraries/z42.package/src/BinaryFormat/ZbcFormat.z42` | `ZbcVersion.Major` / `.Minor` | 1 / 44 |
 | zbc reader（Rust） | `src/runtime/src/metadata/zbc_reader/versions.rs` | `ZBC_VERSION_MAJOR` / `_MINOR` | 1 / 44 |
-| zpkg writer（z42c） | `src/libraries/z42.ir/src/ZpkgWriter.z42` | `ZpkgWriterZ.Major` / `.Minor` | 0 / 49 |
+| zpkg writer（z42c） | `src/libraries/z42.package/src/ZpkgWriter.z42` | `ZpkgWriterZ.Major` / `.Minor` | 0 / 49 |
 | zpkg reader（Rust） | `src/runtime/src/metadata/zbc_reader/versions.rs` | `ZPKG_VERSION_MAJOR` / `_MINOR` | 0 / 49 |
 
 > ⚠️ 这张表**自己也会腐坏**（2026-09-04 发现时停在 1/35 与 0/40，落后 3 个 minor，且路径在
@@ -44,7 +44,7 @@ paths:
 
 修改 `.zbc` wire format（新 opcode / 新 section / 已定义 section 字段语义变化）时，**单次 commit 必须同步以下 5 处**，否则 Rust reader strict-pin 校验、`zbc_compat` 字节基线、或 z42c golden hex 单测任一会 fail：
 
-1. **`ZbcFormat.z42`**（`src/libraries/z42.ir/src/BinaryFormat/`）— `ZbcVersion.Minor++`，常量旁注释本次 bump 内容（参考已有行格式）。若 bump 改了指令/section 布局，`ZbcInstr.z42`（编码）+ `ZbcReaderInstr.z42`（解码）或 `ZbcWriter.z42` 的对应 `Build*` / `_assemble` 逻辑同步。
+1. **`ZbcFormat.z42`**（`src/libraries/z42.package/src/BinaryFormat/`）— `ZbcVersion.Minor++`，常量旁注释本次 bump 内容（参考已有行格式）。若 bump 改了指令/section 布局，`ZbcInstr.z42`（编码）+ `ZbcReaderInstr.z42`（解码）或 `ZbcWriter.z42` 的对应 `Build*` / `_assemble` 逻辑同步。
 2. **`zbc_reader.rs`**（`src/runtime/src/metadata/`）— `ZBC_VERSION_MINOR` 同步到新值（**同时改钉值单测**
    `zbc_reader_tests.rs` 的 `zbc_version_constants_pinned` / `zpkg_version_constants_pinned`——它们只在
    `cargo test --lib` 里跑，`xtask test` 不包含，2026-09-13 encode-ctorless-objnew 差点漏掉）；并在常量上方 changelog 注释块追加一行（日期 / spec / 字段变化）；reader 解码逻辑（`read_*_section`）同步新格式。
@@ -83,7 +83,7 @@ xtask test compiler    # z42c golden hex 单测
 
 **zbc minor bump 必须同步 bump zpkg minor**（zpkg 内嵌 zbc，见 `docs/internals/src/formats/zpkg.md`）。在上述 5 步外加：
 
-6. **`ZpkgWriter.z42`**（`src/libraries/z42.ir/src/`）— `ZpkgWriterZ.Minor++`，注释更新内嵌 zbc 版本。
+6. **`ZpkgWriter.z42`**（`src/libraries/z42.package/src/`）— `ZpkgWriterZ.Minor++`，注释更新内嵌 zbc 版本。
 7. **`zbc_reader.rs`** — `ZPKG_VERSION_MINOR` 同步；上方 zpkg changelog 注释块追加一行（指明耦合的 inner zbc minor）。
 8. **`docs/internals/src/formats/zpkg.md`** — Minor changelog 加一行（触发 spec = 同次 zbc bump 的 spec）。
 9. **regen zpkg-format fixture** — 覆写 `src/tests/zpkg-format/*/source.zpkg`（4 个 committed 基线：`packed-minimal` / `packed-multi-module` / `indexed-minimal` / `sym-only-sidecar`）。
@@ -197,7 +197,7 @@ overlay 成种子，**种子与 cargo VM 就同为新格式** → warm 建/测/r
 > 新 nightly 自愈(它们不 feed publish-nightly,不阻塞)。下面描述的是这类**残留一次性红**。
 >
 > **`bench-regression` 不在此列（2026-09-14 skip-ab-across-format-gap）**：它在 bump PR 上的红
-> 根本不是「旧 nightly」问题，而是 A/B 的 base 侧结构上不可测（base stdlib 被 PR 的 z42.ir 写成
+> 根本不是「旧 nightly」问题，而是 A/B 的 base 侧结构上不可测（base stdlib 被 PR 的 z42.package 写成
 > PR 格式、base VM 读不了）。现在检测到格式代差即**跳过 A/B 并打 warning**，不再亮红。
 > 原理见 book `dev/benchmarking.md`「跨格式代际的 PR 不做 A/B」。
 

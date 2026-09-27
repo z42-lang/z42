@@ -178,7 +178,7 @@ public static class PrimModel {
         "float", "double", "bool", "char", "string", "object" };
     // fix-primtype-static-init-order（2026-09-22）：这里**必须写字面量，不能写 `IrType.X`**。
     //
-    // `IrType`（包 z42.ir）的标签是 `public static int X = N`（有存储、靠静态初始化器赋值），
+    // `IrType`（包 z42.package）的标签是 `public static int X = N`（有存储、靠静态初始化器赋值），
     // 而本表在包 z42c.semantics。两个包的 `__static_init__` 之间没有顺序保证，`IrType` 先于
     // 本表初始化并不成立。读到未初始化的值类型静态槽时，运行期给的不是错误而是**补零**
     // （`vm_context/symres.rs` 的 `fix-static-value-field-null-slot`）⇒ 本表整张变全 0

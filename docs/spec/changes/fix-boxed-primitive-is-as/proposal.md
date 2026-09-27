@@ -13,7 +13,7 @@ bool c = n is int;         // ❌ false（应 true）
 ```
 
 基元值（string/int/bool/…）存进 `object` 变量后，`is`/`as` 该基元类型**永远不匹配**。
-pre-existing（纯 nightly 编译器就这样），z42.ir 收敛的冒烟测试撞见后定位。
+pre-existing（纯 nightly 编译器就这样），z42.package 收敛的冒烟测试撞见后定位。
 
 ## 根因（两处，缺一不可）
 

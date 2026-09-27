@@ -257,7 +257,7 @@
       接口返回位桥接与 roadmap 的 0.4.x 标准库线接管，git 留痕
 - [x] `docs/todo-list.md` **删**——⭐ 删前逐条核对了 roadmap 覆盖度：**#3 / #13 / #15 / #16 / #17 / #18
       六条在 roadmap 全文零命中**（`--version` 入 Std.Cli / 联合类型 / zaia / 测试语料分档 /
-      命名收敛 z42vm→z42r·z42.ir→z42.package / 调试器），直接删会丢掉唯一记录 ⇒ 先在
+      命名收敛 z42vm→z42r·z42.package→z42.package / 调试器），直接删会丢掉唯一记录 ⇒ 先在
       [roadmap.md「未排期心愿单」](../../../roadmap.md)（Deferred Backlog Index 下）立表承接，再删文件。
       其余条目已分别落在 0.4.x 模块表（#1/#2/#4/#7/#8/#9/#10/#11/#12）与横向工作流里；
       #14（examples 配合 book）已由 `docs/learn/` + `xtask test examples` 落地

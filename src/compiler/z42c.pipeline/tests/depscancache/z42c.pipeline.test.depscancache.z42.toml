@@ -9,7 +9,7 @@ include = ["**/*.z42"]
 
 [dependencies]
 "z42c.pipeline" = "0.1.0"
-"z42.ir"        = "0.1.0"   # ZpkgWriterZ.Major/Minor（构造合法/旧版头）
+"z42.package"        = "0.1.0"   # ZpkgWriterZ.Major/Minor（构造合法/旧版头）
 
 [build]
 # Build output → artifacts mirror (mirror-build-output-per-component):

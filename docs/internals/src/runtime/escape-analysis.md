@@ -296,7 +296,7 @@ arena 索引在子帧里无意义。**per-thread（per-`VmContext`）arena** 任
 
 ### 编译器侧：三个发射点全部写死 `false`
 
-`MkClosInstr` 至今带着 `StackAlloc` 字段（`z42.ir/src/IrInstrCall.z42:206`，zbc 有对应的尾字节），
+`MkClosInstr` 至今带着 `StackAlloc` 字段（`z42.package/src/IrInstrCall.z42:206`，zbc 有对应的尾字节），
 但**全部三个发射点都传常量 `false`**：
 
 - `FunctionEmitter.z42:490`（局部函数升级成的闭包）

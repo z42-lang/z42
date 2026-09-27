@@ -36,7 +36,7 @@
 
 ### 3. stdlib 孤儿源守卫**装错了路**
 
-2026-09-06 加的 False-GREEN guard（为「z42.ir / z42c.core / z42c.syntax 静默数月」而加）
+2026-09-06 加的 False-GREEN guard（为「z42.package / z42c.core / z42c.syntax 静默数月」而加）
 条件是 `nReq > 0 && totalFiles == 0`，**两条独立原因**让它在 GREEN gate 路径上永不触发：
 
 - `nReq > 0` = 只在**显式点名 lib** 时查；gate 走的是不点名全扫 → `nReq == 0` →

@@ -1,4 +1,4 @@
-// z42.ir 冒烟单测（converge-z42c-ir-metadata-onto-stdlib 阶段 A）：验证下沉后的库
+// z42.package 冒烟单测（converge-z42c-ir-metadata-onto-stdlib 阶段 A）：验证下沉后的库
 // 自包含单元跨 zpkg 可用——不依赖 Z42.Semantics（IrGen 留编译器侧，stdlib 不可反依赖）。
 // 完整 IR→zbc 往返对账由 z42c 侧集成测试覆盖（那里有 IrGen 造模块）。
 // 注：不用 `object as string`（在 boxed 基元上恒 null 是 pre-existing 语言限制，与本收敛无关）。

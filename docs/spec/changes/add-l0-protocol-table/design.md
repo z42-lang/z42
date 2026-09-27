@@ -7,7 +7,7 @@
 | # | 事实 | 依据 |
 |---|---|---|
 | L1 | **`z42c.core` 是 `z42c.syntax` 与 `z42c.semantics` 唯一共同可见层** | deps 实测：core 无依赖 ← syntax 依赖 core ← semantics 依赖 core+syntax |
-| L2 | 名字要被**语法层**用到（event 降糖在 `MemberParser`）⇒ 名字常量**只能**放 `z42c.core`（或 `z42.ir` 叶子库） | 由 L1 推出 |
+| L2 | 名字要被**语法层**用到（event 降糖在 `MemberParser`）⇒ 名字常量**只能**放 `z42c.core`（或 `z42.package` 叶子库） | 由 L1 推出 |
 | L3 | 判定要用 `Z42Type` / 成员表 / 布局 ⇒ **判定只能在 semantics** | `ForeachProtocol` 现状 |
 | L4 | `z42c.core` 里**没有 enum、没有泛型字段** | 该包 6 个文件；`DiagnosticSeverity` 注释明说「z42 暂无 enum → static class + int 常量」 |
 | L5 | 集中表的在仓先例三种形态 | `DiagnosticCodes`（static class + 串常量）/ `LanguageFeatures`（并行数组）/ `IrModule` 哨兵（常量 + 查询函数）/ `HandlerRegistry`（名字 + `Is*` 谓词） |

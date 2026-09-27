@@ -122,7 +122,7 @@ EndBlock(BrCond(rR, matchL, failL))
 
 - **jit 安全**：四形态均不 emit `as_cast`+`field_get`（range/关系比较基元、or/@ 委派子模式），沿用 A1 直读范式，
   无 record 程序的 as_cast-field_get jit 误编风险。仍**必 jit 双验**（比较指令的 int/char/double 路径）。
-- **`Ge`/`Le`/`Gt`/`Lt` 指令**：`{Lt,Le,Gt,Ge}Instr(dst, a, b)` 已存在（`z42.ir` `IrInstr.z42`，
+- **`Ge`/`Le`/`Gt`/`Lt` 指令**：`{Lt,Le,Gt,Ge}Instr(dst, a, b)` 已存在（`z42.package` `IrInstr.z42`，
   ZbcWriter/Reader Op.Lt/Le/Gt/Ge 已定义），与 A1 用的 `EqInstr(dst,a,b)` 同形。
 
 ### Decision 5: 词法 —— `@`(At) 单字符 / `..=`(DotDotEq) 三字符（须先于 `..`）

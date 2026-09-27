@@ -14,7 +14,7 @@
 | 类别 | 命名空间 | 面向 | 成员 |
 |---|---|---|---|
 | **用户 stdlib** | `Std.*` | 应用开发者 | core / collections / io / text / encoding / toml / json / yaml / uri / regex / cli / diagnostics / random / numerics / net / threading / compression / crypto / test / scripting |
-| **工具链库** | `Z42.*` | 编译器 / 工具自身 | `z42.ir`（`Z42.IR` + `Z42.Project`）、`z42.project`（`Z42.Build.Project`）、`z42.build`（`Z42.Build`）、`z42c.core`（`Z42.Core`）、`z42c.syntax`（`Z42.Syntax`） |
+| **工具链库** | `Z42.*` | 编译器 / 工具自身 | `z42.package`（`Z42.IR` + `Z42.Project`）、`z42.project`（`Z42.Build.Project`）、`z42.build`（`Z42.Build`）、`z42c.core`（`Z42.Core`）、`z42c.syntax`（`Z42.Syntax`） |
 
 **本页的全部规则（层级、interop 归属、R1–R4）只约束 `Std.*`。** 工具链库住在 `src/libraries/` 是因为
 它们要被 z42c 运行期加载、又要被 REPL / z42b 共享，故编译成 zpkg 与 stdlib 同址分发；但它们不是用户
@@ -27,7 +27,7 @@ playground / wasm 当作用户 API 消费。真 tty 交互层 `z42.repl` 平台�
 
 > **这条边界正在被 add-package-roles 重画。** 实测（2026-09-24）：`ReplCompilerHost` 的四条组件探测
 > 路径全部指向 SDK 布局，**纯 runtime 包里的 scripting 是恒失败的空壳**（其头注自陈「组件缺失 →
-> `NoReplCompiler` 兜底，编译恒失败、补全恒空」）。批 0 已断掉其对 `z42.ir` 的假依赖（那条只为
+> `NoReplCompiler` 兜底，编译恒失败、补全恒空」）。批 0 已断掉其对 `z42.package` 的假依赖（那条只为
 > `.version` 拼一句版本串而存在，已迁 z42i）；批 1 将按「能不能在只有 runtime 的环境下工作」拆成
 > eval 内核（零编译器域依赖）+ editing（依赖 `z42c.syntax`）两包。
 > 见 [add-package-roles design §scripting 判定](../../../spec/changes/add-package-roles/design.md)。

@@ -63,7 +63,7 @@ Std.IO,也不读整个 z42.core:
 
 1. **Phase 0 度量**：确认首次 `Console` 的 ~1.7s 中,`ReadModuleTypes(z42.core)` 整包读 + Std.IO 整包 Load
    各占多少 → 定按类型能省多少（若整包读不是大头则重新评估）。
-2. **Phase 1（z42.ir，低风险）**：`ReconcileOne(z, fq, world)` + 按类型 TYPE/SIGS 读。验证:单独 reconcile
+2. **Phase 1（z42.package，低风险）**：`ReconcileOne(z, fq, world)` + 按类型 TYPE/SIGS 读。验证:单独 reconcile
    `Console` 只读 `Console`+`Object`,不读整个 z42.core。**不改上层** → 整包路径不变、自举不动点天然守住。
 3. **Phase 2（compiler 核心，高风险）**：`SymbolTable` 惰性 miss 回调 + arity-mangle/first-wins/impl/接口
    顺序的按类型解。**最需慎重**,自举不动点逐类型对齐。

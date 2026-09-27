@@ -2,7 +2,7 @@
 
 状态：🟡 IMPL（2026-07-30，方向已定：甲=编译器端；两准则已固化到 book）
 类型：**ir**（改变 z42c emit 的 IR/zbc 指令流）→ 完整流程
-子系统：`compiler`（z42c pass）+ `stdlib`（若 pass 落在 `z42.ir`）
+子系统：`compiler`（z42c pass）+ `stdlib`（若 pass 落在 `z42.package`）
 
 ## Why
 
@@ -33,16 +33,16 @@ pass 框架可扩展（后续加 CSE、局部变量 DCE 等作为新 pass）。
 
 | 文件路径 | 变更类型 | 说明 |
 |---------|---------|------|
-| `src/libraries/z42.ir/src/IrOpt/` 目录 | NEW | pass 框架 + 三 pass：`IrOptPipeline.z42` / `CopyProp.z42` / `TempDce.z42` / `ConstFold.z42` |
-| `src/libraries/z42.ir/src/IrModule.z42` | MODIFY | 若 pass 需要指令级 def-use 辅助（读/写寄存器查询） |
+| `src/libraries/z42.package/src/IrOpt/` 目录 | NEW | pass 框架 + 三 pass：`IrOptPipeline.z42` / `CopyProp.z42` / `TempDce.z42` / `ConstFold.z42` |
+| `src/libraries/z42.package/src/IrModule.z42` | MODIFY | 若 pass 需要指令级 def-use 辅助（读/写寄存器查询） |
 | `src/compiler/z42c.semantics/src/IrGen.z42` | MODIFY | `Generate` 末尾调用 IrOptPipeline（emit 后、返回前） |
-| `src/libraries/z42.ir/src/IrOpt/*_tests.z42` | NEW | 各 pass 单测（前后 IR 指令数/语义对比） |
+| `src/libraries/z42.package/src/IrOpt/*_tests.z42` | NEW | 各 pass 单测（前后 IR 指令数/语义对比） |
 | `docs/internals/src/runtime/optimization-pipeline.md` | MODIFY | 补「机制/实现」节：三 pass 算法 + 单赋值前提 |
-| `src/libraries/z42.ir/README.md` | MODIFY | 功能索引加 IrOpt |
+| `src/libraries/z42.package/README.md` | MODIFY | 功能索引加 IrOpt |
 
 **只读引用**：
 - `src/compiler/z42c.semantics/src/EmitContext.z42`、`FunctionEmitter.z42`、`ExprEmitter.z42` — 理解 temp 分配与 Copy emit 规律
-- `src/libraries/z42.ir/src/IrInstr.z42`、`IrTerminator.z42`、`TypedReg.z42` — 指令模型
+- `src/libraries/z42.package/src/IrInstr.z42`、`IrTerminator.z42`、`TypedReg.z42` — 指令模型
 
 ## Out of Scope
 - 运行时 JIT/interp 分层 + 内存回收（准则 2 运行时面）→ 独立 change `runtime-jit-tiering`

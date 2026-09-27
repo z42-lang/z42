@@ -38,7 +38,7 @@
 **本 change 完成时就是格式 bump 的触发点**，两件事应一次办：
 
 - #559（FQN 化）当时裁决**不 bump**（实测双向互操作正确，且带 bump 拿不到本地全绿——
-  格式常量住 `z42.ir`，两代自举是 CI 的活，本地是环境墙）。
+  格式常量住 `z42.package`，两代自举是 CI 的活，本地是环境墙）。
 - 此后 `type-identity-followups`（E0456 声明位）是**纯诊断、零字节影响**，无可 bump 之物。
 - ⇒ 下一次真正改动持久化内容语义的，就是本 change。届时按
   [version-bumping.md](../../../agent/rules/version-bumping.md) 走 zbc + zpkg 双 bump，

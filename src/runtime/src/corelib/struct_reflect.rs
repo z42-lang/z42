@@ -16,7 +16,7 @@
 //! Mirror sources (single source of truth stays in the compiler; keep in sync):
 //! - `canon`         ← `PrimModel.Canon`    (`PrimModel.z42`; keyword 拼写即 canonical)
 //! - `size_of`/`align_of`/`leaf_kind` ← `StructLayout._sizeOf/_alignOf/_kindOf` (`StructLayout.z42:332/343/322`)
-//! - `tag_from_name` ← `Tag.FromName`       (`z42.ir/.../ZbcFormat.z42:75`)
+//! - `tag_from_name` ← `Tag.FromName`       (`z42.package/.../ZbcFormat.z42:75`)
 
 use crate::metadata::types::{self as ty, StructTypeLayout, TypeDesc};
 use anyhow::{bail, Result};

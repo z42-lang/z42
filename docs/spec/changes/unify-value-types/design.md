@@ -145,7 +145,7 @@ z42.core 时可查），**删除降级分支**。若确遇"信息尚未加载"�
   `MemberResolver` stub 受者（imported 兜底对未加载真类名产空方法 stub → 重解析/loose 绑定复刻 prim 路径）、
   `BinaryTypeTable._structPrimName`（IsBool/IsNumeric/IsOrderable 认 keyword）、`ConstraintChecker._isClassArg`
   （scalar 合成体不满足 `where T:class`）、`Conversion` 拆箱须在通用 class→class 分支**之前**（object/int 均
-  ClassType，否则 class→class IsSubclassOf 皆 false 误返 None）。**gen1 能否自编译 z42.core/z42.ir 是最强早期
+  ClassType，否则 class→class IsSubclassOf 皆 false 误返 None）。**gen1 能否自编译 z42.core/z42.package 是最强早期
   信号**（比全量 test 快数量级；每改完先 warm gen1→gen2 看能否自编译）。
 - **⚠️ 翻转后核心不变式：`Z42Type.Name()` 写入任何持久元数据的边界必须过 `PrimModel.SurfaceName`**（翻转
   前内建 leaf 是 `Z42PrimType("int")`、`Name()`="int"；翻转后是 `Z42ClassType("Int32")`、`Name()`="Int32"）。

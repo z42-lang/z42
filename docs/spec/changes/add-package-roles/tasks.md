@@ -7,7 +7,7 @@
 
 | 批 | 内容 | bump | 状态 |
 |----|------|:---:|------|
-| 0 | 断 scripting 对 `z42.ir` 的假依赖：`FormatVersion` → z42i | 否 | ✅ 完成 |
+| 0 | 断 scripting 对 `z42.package` 的假依赖：`FormatVersion` → z42i | 否 | ✅ 完成 |
 | **1** | **`kind="analyzer"` + `compiler-libs/` 解析域** —— 让用户能写 generator | 否 | ✅ 完成 |
 | 2 | `[analyzers]` 支持 `path` + 隔离校验 + handler ABI 握手 | 否 | ✅ 完成（2.5 改为文档对齐；余一条小项另立）|
 | 2.5 | ~~`role` 字段~~ | — | ❌ **取消**（见下：物理位置是更强的声明）|
@@ -21,13 +21,13 @@
 
 **为什么先做它**：独立、纯收益、不阻塞讨论，且让批 1 的拆包干净（少一条要重新安置的依赖）。
 
-- [x] 0.1 查证 `z42.ir` 在 scripting 里的全部用量 → **只有** `Script.FormatVersion()` 一处，
+- [x] 0.1 查证 `z42.package` 在 scripting 里的全部用量 → **只有** `Script.FormatVersion()` 一处，
       为拼 `"zbc M.m, zpkg M.m"` 一句话（`ZbcVersion` + `ZpkgWriterZ` 两个编译期常量）。
 - [x] 0.2 查证 `Script.FormatVersion()` 的调用点 → **唯一**：
       [interactive_main.z42:76](../../../../src/toolchain/interactive/core/interactive_main.z42#L76) 的 `.version` 元指令。
 - [x] 0.3 `Script.z42`：删 `FormatVersion()` + `using Z42.Project` + `using Z42.IR.BinaryFormat`。
-- [x] 0.4 `z42.scripting.z42.toml`：删 `"z42.ir"` 依赖 + 头注记由来与终局。
-- [x] 0.5 z42i：新增 `_formatVersion()`（含终局注：该由 VM 自报）+ 两条 using + 清单加 `z42.ir`。
+- [x] 0.4 `z42.scripting.z42.toml`：删 `"z42.package"` 依赖 + 头注记由来与终局。
+- [x] 0.5 z42i：新增 `_formatVersion()`（含终局注：该由 VM 自报）+ 两条 using + 清单加 `z42.package`。
 - [x] 0.6 GREEN：`build stdlib` 25/25 绿（scripting 断依赖后照常编过 = 假依赖坐实）；
       `build toolchain` z42i apphost ready；实测 `.version` → `zbc 1.44, zpkg 0.49`（与 Rust 侧
       `ZPKG_VERSION_MINOR = 49` 一致，零回归）。
@@ -258,7 +258,7 @@ kind=lib 的工程会在**代建阶段**因解析不到契约包而失败，那�
 |---|---|:---:|---|
 | `z42c.core` / `z42c.syntax` | `libs/` | ✅ | **应该** —— 可移植前端（Lexer/Parser/AST），写 linter、格式化器、语法高亮都是正当用途 |
 | `z42.scripting` | `libs/` | ✅ | **应该** —— 嵌入 eval 就是它存在的理由 |
-| `z42.ir` / `z42.project` / `z42.build` | `libs/` | ✅ | **应该** —— z42b 在用（读 zpkg 格式 / 读清单 / 跑构建管线），是工具链共享库 |
+| `z42.package` / `z42.project` / `z42.build` | `libs/` | ✅ | **应该** —— z42b 在用（读 zpkg 格式 / 读清单 / 跑构建管线），是工具链共享库 |
 | `z42c.semantics` | `compiler-libs/` | ❌ | 对 —— Generator 契约，**批 1 已隔离** |
 | `z42c.pipeline` / `z42c.driver` | `programs/z42c/` | ❌ | 对 —— 编译器程序本体 |
 
@@ -307,7 +307,7 @@ design 把 `Classifier` / `Rewriter` 归进了 editing，**实际它们在 eval 
 ## 批 3 —— 大重命名
 
 - [ ] 3.1 `std.*` 前缀：用户库改名（User 既定方向）。
-- [ ] 3.2 `z42.ir` / `z42.project` / `z42.build` → `z42c.*`（**并进同一批**：重命名成本主要在种子纪律
+- [ ] 3.2 `z42.package` / `z42.project` / `z42.build` → `z42c.*`（**并进同一批**：重命名成本主要在种子纪律
       与引用点扫描，合并做边际成本远低于两次）。
 - [ ] 3.3 support 先行、晚一个 nightly 再 use（[[bootstrap-seed]] 纪律）。
 - [ ] 3.4 `src/libraries/README.md` 那段「两类库（别混淆）」脚注**删除**——它存在的理由被 role + 命名

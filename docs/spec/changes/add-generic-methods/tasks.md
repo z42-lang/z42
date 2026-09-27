@@ -41,7 +41,7 @@
 - [ ] 4.2 `src/tests/e2e/generic-methods/`：arity 错诊断、`where` 约束违背诊断
 - [ ] 4.3 `src/tests/`：`<` 歧义 fixture（`a<b>c` 比较不误判）
 - [ ] 4.4 `docs/book/src/lang/generics.md`：方法级泛型章节（frame 携带 + 与类级对称 + mermaid）
-- [ ] 4.5 `src/libraries/z42.ir/README.md` + `src/runtime/src/interp/README.md`：功能索引 / Frame 说明
+- [ ] 4.5 `src/libraries/z42.package/README.md` + `src/runtime/src/interp/README.md`：功能索引 / Frame 说明
 - [ ] 4.6 `docs/roadmap.md`：标注 M1 进度 + Deferred Backlog Index 加 3 条（reflective-invoke / type-inference / classlevel-typeof）
 
 ## 阶段 5: 验证

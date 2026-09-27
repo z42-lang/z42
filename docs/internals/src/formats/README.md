@@ -5,9 +5,9 @@ zbc（字节码）、zpkg（包）、IR —— **编译器与运行时之间的�
 
 | 格式 | 是什么 | 权威实现 |
 |---|---|---|
-| [zbc](zbc.md) | 单个编译单元的字节码 | `z42.ir/src/ZbcWriter.z42` ↔ `src/runtime/src/metadata/zbc_reader/` |
-| [zpkg](zpkg.md) | 一个包（多个 zbc + 元数据 + TSIG + IMPL） | `z42.ir/src/ZpkgWriter.z42` ↔ `ZpkgReader.z42` |
-| [IR](ir.md) | 指令集与类型映射 | `z42.ir/src/Ir*.z42` |
+| [zbc](zbc.md) | 单个编译单元的字节码 | `z42.package/src/ZbcWriter.z42` ↔ `src/runtime/src/metadata/zbc_reader/` |
+| [zpkg](zpkg.md) | 一个包（多个 zbc + 元数据 + TSIG + IMPL） | `z42.package/src/ZpkgWriter.z42` ↔ `ZpkgReader.z42` |
+| [IR](ir.md) | 指令集与类型映射 | `z42.package/src/Ir*.z42` |
 
 ## strict-pin：没有跨版本兼容
 

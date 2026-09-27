@@ -47,7 +47,7 @@
 
 **只读引用**（理解上下文必须读，不修改）：
 - `src/compiler/z42c.semantics/src/AccessEmitter.z42` — `_emitBlobFieldGet`(:219-235) 嵌套 struct 读模型
-- `src/libraries/z42.ir/src/…/StructLayout.z42` — `FieldIsStruct`(:238)/`StructSize`(:58)/`IsBlobStruct`(:197)/`FieldByteOffset`
+- `src/libraries/z42.package/src/…/StructLayout.z42` — `FieldIsStruct`(:238)/`StructSize`(:58)/`IsBlobStruct`(:197)/`FieldByteOffset`
 - `src/runtime/src/interp/exec_object.rs` — IsInstance(:388)/AsCast·unbox(:407-421)（boxed 支持）
 - `src/runtime/src/interp/exec_struct.rs` — StructFieldGetPrim boxed base(:189-204)/`unbox_struct`(:67)
 - `src/runtime/src/corelib/convert.rs` — `__box_struct`(:54)
