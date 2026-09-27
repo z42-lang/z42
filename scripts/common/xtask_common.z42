@@ -484,23 +484,36 @@ string _driverBuildHelp(string vm, string driver, string libs) {
 // usage 真打出来了 ⇒ 这次探测的答案可信（旗标有无都算答案）。
 bool _helpRan(string text) { return text.IndexOf("usage: z42c build") >= 0; }
 
-// 种子 driver 的运行期 libs 该从哪儿取，按可信度排序：
+// 冷启动 staged 种子时，`_ensureSeed` 把**种子 stdlib 的出处**记在这里 —— 那就是这个 driver
+// 那一代的运行期 libs，是**构造保证**的（它就是从那儿来的）。暖树不 set。
+static class SeedStage {
+    static string _stdlibFrom = "";
+    public static void NoteStdlibFrom(string dir) { SeedStage._stdlibFrom = dir; }
+    public static string StdlibFrom() { return SeedStage._stdlibFrom; }
+}
+
+// 种子 driver 的运行期 libs 该从哪儿取，按可信度排序 —— 判据始终是「**这个 driver 是哪一代**」：
 //
-// ① **本进程启动时的 `Z42_LIBS`** —— 谁启动 xtask，谁就知道这个种子该配哪一代库。CI 的
-//    `ci-bootstrap` 正是这么传的（`boot_libsw`：快路径 = 下载的种子 libs；**格式 bump 在飞时
-//    = 两代路径产出的当代 stdlib**）。
-// ② **SDK libs**（`Z42_HOME/libs`；`Z42_HOME` 未设时回落仓内 dev 装 `.z42/`，那就是
-//    `install-z42.sh` 在树里铺的、与 `--toolchain .z42` 同一个）。
+// ① **本轮 `_ensureSeed` staged 种子的出处**（冷启动）。种子从哪儿来，它那一代的库就在那儿，
+//    构造保证。⚠️ 这条必须排第一：暖 stdlib + 冷 compiler 目录（`rm -rf artifacts/build/compiler`
+//    再 `build compiler`，调试时的常规动作）下，`Z42_LIBS` 可能指着**当前源**的 flat，而 driver
+//    刚从 SDK staged ⇒ 两者不同代，拿 env 就会让种子 driver 崩在旧 FQN 上（本地实测踩到）。
+// ② **本进程启动时的 `Z42_LIBS`**（暖树：driver 是树内自建那代）。谁启动 xtask，谁就知道这个
+//    种子该配哪一代库；`ci-bootstrap` 正是这么传的（`boot_libsw`：快路径 = 下载的种子 libs；
+//    **格式 bump 在飞时 = 两代路径产出的当代 stdlib**）。
+// ③ **SDK libs**（`Z42_HOME/libs`，其次仓内 dev 装 `.z42/`）—— 本地 apphost 启动时会自己把
+//    `Z42_LIBS` 设成 SDK libs，所以 ② 和 ③ 在本地通常同值。
 //
-// 🔴 ① **必须**排在 ② 前面：「SDK 就是种子那一代」这个假设**只在没有格式 bump 时成立**。
+// 🔴 为什么 ③ 不能无条件排前面：「SDK 就是种子那一代」这个假设**只在没有格式 bump 时成立**。
 //    zpkg/zbc 格式 bump 在飞时 SDK 还是**上一代格式**，拿它补 run-libs 会被 strict-pin 当场拒收：
 //      `zpkg minor 49 not supported (writer is at 0.50); regen via xtask build stdlib`
-//    （#905 第二轮 CI 实测 —— #903 把 zpkg 抬到 0.50 而 nightly 还是 0.49）。那种情况下 CI 走
-//    两代路径、种子已是当代格式，而它的 libs 只由 `Z42_LIBS` 说得清。
+//    （#905 第二轮 CI 实测 —— #903 把 zpkg 抬到 0.50 而当时 nightly 还是 0.49）。
 //
 // ⚠️ 这里**故意不加**「minor 必须等于本树写端」的门：两代自举的 gen0 那一腿本就要用**旧** VM
 //    跑旧格式的种子，那道门会当场误报。判「配没配对」得比对**正在用的那个 VM**，不是源码树。
 string _seedLibsSource(string root) {
+    string staged = SeedStage.StdlibFrom();
+    if (staged.Length > 0 && Directory.Exists(staged)) { return staged; }
     string env = Environment.GetEnvironmentVariable("Z42_LIBS", "");
     if (env.Length > 0 && Directory.Exists(env)) { return env; }
     string tc = _toolchainDir(root);
@@ -579,6 +592,8 @@ int _ensureSeed(string root) {
     }
     _vNormal("  seed: z42c   ← " + driverHome);
     _vNormal("  seed: stdlib ← " + stdlibDir);
+    // 记下出处：种子 driver 的运行期 libs 就该是它那一代，见 `_seedLibsSource` ①。
+    SeedStage.NoteStdlibFrom(stdlibDir);
 
     // 种子本身也可能落后一代（刚 bump 完格式、新 nightly 还没发）。这里**只告警不失败**：
     // 「上一版 z42c 能编当前源」是 bootstrap-seed.md 的纪律，落后一代未必不能用；
