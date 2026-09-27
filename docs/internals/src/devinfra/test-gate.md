@@ -28,7 +28,9 @@ graph LR
     S5 --> S6[lines<br/>文件行数硬上限棘轮]
     S6 --> S7[walkers<br/>AST walker 完备性]
     S7 --> S8[diagcodes<br/>诊断码唯一性]
-    S8 --> G((GREEN))
+    S8 --> S9[stage2<br/>阶段-2 欠账挂账 + 到期]
+    S9 --> S10[ci-shell<br/>CI 内嵌 shell 先用后赋]
+    S10 --> G((GREEN))
 ```
 
 **机器可读清单**（`_checkGateStageDoc` 解析此区；条目文本 = `_stageStart` 打的 banner 名，
@@ -52,6 +54,7 @@ graph LR
 - `walkers`
 - `diagcodes`
 - `stage2`
+- `ci-shell`
 <!-- gate-stages:end -->
 
 先备工具链与基线（build wave），再依序跑其余验证 stage；任一步失败立即终止。
@@ -105,6 +108,8 @@ fixture、debug VM 跑 `main.zpkg`——跨包 dispatch 的 debug 断言覆盖�
 | `lines` | 文件行数上限棘轮，见下 | 纯文本扫描 < 1 s |
 | `walkers` | z42c 里**手写穷举** AST walker 的完备性，见下 | 纯文本扫描 < 1 s |
 | `diagcodes` | 诊断码**一码一义**：每个发得出去的码在登记表里登记恰好一次，见下 | 纯文本扫描 < 1 s |
+| `stage2` | 阶段-1 过渡形态必须挂账且不超期（双向棘轮 + 到期），见 `scripts/test/xtask_test_stage2.z42` 头注 | 纯文本扫描 < 1 s |
+| `ci-shell` | `.github/**` 的多行 `run:` 块里**没有先用后赋**的变量（立门时 7 个 yml / 76 块），见下 | 纯文本扫描 < 1 s |
 
 **`stdlib [Benchmark]` 为什么必须在 gate 里**：bench 语料此前唯一的看门人是 `bench-pr.yml`，
 而那个 job **不在分支保护的 required 列表里**。一次把 `Failure.z42` 搬出 `z42.test` 的改动让
@@ -112,6 +117,20 @@ fixture、debug VM 跑 `main.zpkg`——跨包 dispatch 的 debug 断言覆盖�
 等价于没有门**。把它提进 required 不可行：`bench-pr.yml` 是 path-filtered，纯文档 PR 上根本不触发
 ⇒ required check 恒 pending ⇒ PR 永远合不了。正确的收口是拆两层：「语料能不能跑」是确定性事实，
 归本 stage；「跑多快」留给[性能门禁](benchmarking.md)那套 A/B 判红（噪声治理是另一条线）。
+
+**`ci-shell`（`scripts/test/xtask_test_ci_shell.z42`）守的是「CI 内嵌 shell 的变量顺序」**：
+`.github/**` 的多行 `run:` 块 —— 其中包括真正的自举引导逻辑（`ci-bootstrap` 那段 260+ 行 bash）——
+都以 `set -euo pipefail` 开头 ⇒ **引用一个还没赋值的变量 = 当场 exit 1**。判据 = 每个 `run:` 块
+按行序走，用了 `$X` 而 `X` 的首次赋值在更晚的行（或根本没有）就红；`${X:-d}` 这类带默认的、
+`${{ }}` GitHub 表达式、位置参数与 runner 环境变量都刻意不判（判了就是误报）。
+
+为什么值得一道门：这类错**只在 CI 上暴露**，而且代价是一整轮 CI。B3b（`#911`）实打实付过一次——
+新插的一段用了 `$runvm`，而 `runvm=` 在它下面一行，`line 262: runvm: unbound variable`，所有依赖
+`ci-bootstrap` 的 job 在 ~2 min 处全红；而本地跑过的 `bash -n` **只查语法、查不出先用后赋**。
+⚠️ 刻意**不调 `shellcheck`**：它不在 GREEN 的依赖面里，「装了才跑、没装就过」正是假门的标准形态。
+覆盖边界（不扫单行 `run:`）与空门守卫写在该文件头注里；⭐ 立门时本想「只扫 actions，因为 workflow
+按块判会大量误报」，**数一遍发现只报 1 处、且那处是扫描器不认 `mapfile`** —— 补上之后 workflows
+零误报、覆盖面白送。「会误报所以不扫」这种话，先跑一遍数出来再说。
 
 **`lines` 是两档**（`_lineLimitHard()` / `_lineLimitSoft()`，`scripts/test/xtask_test_lines.z42`）：
 

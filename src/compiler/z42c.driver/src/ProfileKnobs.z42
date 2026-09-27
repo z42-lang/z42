@@ -29,7 +29,7 @@ using Std;
 using Std.IO;
 using Std.Runtime;
 using Std.Text;
-using Z42.Build.Project;
+using Z42.Project;
 
 // 校验全部 `[profile.*]`。返回 ExitCode.Ok，或 ExitCode.BuildError（旧形状，致命）。
 // 未知旋钮名只 warn，不影响返回值。

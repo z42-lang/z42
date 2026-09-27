@@ -470,7 +470,8 @@ string[] _gateStageNames() {
         "lines",
         "walkers",
         "diagcodes",
-        "stage2"
+        "stage2",
+        "ci-shell"
     };
 }
 
@@ -715,6 +716,15 @@ int _testAll(bool noBuild, string skip) {
         swStage = _stageStart("stage2");
         c = _testStage2Debt(false); if (c != 0) { return c; }
         _stageEnd(slog, "stage2", swStage);
+    }
+    // stage 11: CI 内嵌 shell 的先用后赋（`.github/actions/**` 的 `run:` 块）。引导逻辑是 260+ 行
+    // `set -euo pipefail` 的 bash，引用未赋值变量当场 exit 1，而这类错**只在 CI 上暴露**、每次代价
+    // 一整轮 CI（B3b 那轮实打实付过一次）。`bash -n` 只查语法查不出它。纯文本扫描（~1s），
+    // host-independent，零外部依赖（刻意不调 shellcheck：装了才跑 = 假门）。Skippable: "ci-shell"。
+    if (!_skipHas(skip, "ci-shell")) {
+        swStage = _stageStart("ci-shell");
+        c = _testCiShell(); if (c != 0) { return c; }
+        _stageEnd(slog, "ci-shell", swStage);
     }
     Console.WriteLine("\n✅ GREEN — all stages passed");
     _stageSummary(slog, sw.Elapsed().TotalMilliseconds());

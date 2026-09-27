@@ -19,7 +19,7 @@ using Std.Runtime;   // ModuleSearch（VM 已解析的 zpkg 搜索序）
 using Std.Test;
 using Std.Reflection;
 using Z42.Build;
-using Z42.Build.Project;
+using Z42.Project;
 
 // 编排入口：命令层解析出 manifest + target + sourceDir（+ manifest `[build] hooks`
 // 相对目录，"" = 无）后调本函数。全在进程内组合 —— 零子进程、零代码生成。

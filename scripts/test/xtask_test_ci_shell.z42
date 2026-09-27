@@ -1,0 +1,350 @@
+// CI 内嵌 shell 的「先用后赋」门（2026-09-27，rename-project-namespaces B3b 之后立）。
+//
+// ## 守的是什么
+//
+// `.github/actions/*/action.yml` 里的 `run:` 块是**真正的自举引导逻辑**（`ci-bootstrap` 那一段
+// 就有 260+ 行 bash：下载种子、两代自举、编 xtask、编 z42c、编 stdlib）。它们都以
+// `set -euo pipefail` 开头 ⇒ **引用一个还没赋值的变量 = 当场 exit 1**。
+//
+// 这类错**只在 CI 上暴露**，而且代价是一整轮 CI：
+//
+// > B3b 那轮我把新的 `── [1.6]` 块插在了 `runvm=` **定义之前**、却用了 `$runvm`
+// > ⇒ `line 262: runvm: unbound variable`，所有依赖 `ci-bootstrap` 的 job 在 ~2min 处全红。
+// > 本地**五段实测判据一条都覆盖不到它** —— 那五段跑的是手拼的命令，不是 action 里那段 bash；
+// > 而验过的 `bash -n` 只查**语法**，查不出「先用后赋」。
+//
+// 所以本门 = 把「那段 bash 的变量顺序」变成本地一秒能查的东西。
+//
+// ## 判据
+//
+// 每个 `run:` 块是**一个独立的 shell 作用域**（GitHub 每步起一个新 shell）。块内按行序走：
+// 某处用了 `$X` / `${X}`，而 `X` 的首次赋值在**更晚的行**或**根本没有** ⇒ 红。
+//
+// 刻意**不判**以下形态（它们不会触发 `set -u`，判了就是误报）：
+//   · `${X:-d}` / `${X-d}` / `${X:+d}` / `${X+d}` / `${X:?msg}` —— 带默认/替代，未设也安全；
+//   · `${{ ... }}` —— GitHub 表达式，在 shell 看到之前就被替换掉了；
+//   · `$1` `$@` `$*` `$?` `$$` `$!` `$#` `$-` `$_` —— 位置/特殊参数；
+//   · `_csEnvNames()` 里列的环境变量 —— runner 或上层 `env:` 提供，不在脚本里赋值。
+//
+// ## ⚠️ 覆盖边界（写在这里，别让它变成隐形假保障）
+//
+// **扫 `.github/**` 全部 yml**（composite action 清单 + workflow）。
+//
+// ⭐ 立门时我先写成「只扫 actions，workflow 按块判会大量误报」—— **那是个没验的断言，实测不成立**：
+// 把 workflows 纳进来一共只报 1 处，而那 1 处（`mapfile -t sdk_dirs < <(…)`）是**我的扫描器不认
+// `mapfile`**，属误报。补上 `mapfile`/`readarray` 后 workflows 归零 ⇒ 覆盖面白送，没有理由不要。
+// 留下的规矩：**「会误报所以不扫」这种话，先跑一遍数出来再说。**
+//
+// **只扫多行块（`run: |`），不扫单行 `run: cmd`。** 单行里不存在「顺序」问题，而「从未赋值」那一半
+// 在单行上几乎只会命中 runner 环境变量 ⇒ 全是误报。引导逻辑（`ci-bootstrap` 那 260+ 行，全仓最长的
+// 一块 bash）本身就是多行块。
+//
+// ⇒ 本门是「CI 内嵌 shell **不会在某一行踩 unbound 而当场 exit 1**」的保障，**不是**「这些 shell
+// 写得对」的保障（引号/分词/退出码传播都不在判据里）。
+//
+// 🔴 **空门守卫**：扫不到任何 action 清单、或一个多行块都没有 ⇒ **判红**。否则哪天引导脚本搬了家，
+// 这道门会安静地变成「0 个块全部通过」—— 那正是本仓反复吃过的假门形态。
+//
+// 另外本门**只查这一类错**（先用后赋）。拼写错的变量名会被它顺带抓到（首次赋值不存在），但
+// 引号/分词/退出码传播那些要靠 `shellcheck`（本仓未纳入 GREEN，见头注末尾）。
+//
+// ⭐ 为什么不直接调 `shellcheck`：它**不在 GREEN 的依赖面里**（本机装了、runner 也装了，但
+// 「装了才跑、没装就过」正是本仓踩过的假门标准形态）。这道门用纯文本扫描，零外部依赖、
+// 必然会跑。想额外跑 shellcheck 的人手动跑，别把 GREEN 架在一个可能缺席的二进制上。
+namespace Z42Xtask;
+
+using Std;
+using Std.IO;
+
+// 扫描根：`.github/` 整个（composite action 清单 + workflow）。见头注「覆盖边界」。
+string _csScanDir(string root) { return Path.Join(root, ".github"); }
+
+// runner / 上层 `env:` 提供的环境变量 —— 脚本里不赋值也能用。
+// 🔴 **加进来之前先确认它真是环境提供的**：把一个「本该在脚本里赋值」的名字放进来 = 亲手
+// 挖一个洞。本表刻意短，缺了就让门报出来、逐个判断再加。
+string[] _csEnvNames() {
+    string[] e = new string[34];
+    e[0]  = "PWD";        e[1]  = "HOME";       e[2]  = "PATH";      e[3]  = "TMPDIR";
+    e[4]  = "USER";       e[5]  = "SHELL";      e[6]  = "OSTYPE";    e[7]  = "LANG";
+    e[8]  = "TERM";       e[9]  = "IFS";        e[10] = "RANDOM";    e[11] = "LINENO";
+    e[12] = "FUNCNAME";   e[13] = "BASH_SOURCE"; e[14] = "PIPESTATUS"; e[15] = "SECONDS";
+    e[16] = "CI";         e[17] = "RUNNER_TEMP"; e[18] = "RUNNER_OS"; e[19] = "RUNNER_ARCH";
+    e[20] = "RUNNER_TOOL_CACHE";
+    e[21] = "GITHUB_WORKSPACE"; e[22] = "GITHUB_ENV";  e[23] = "GITHUB_OUTPUT";
+    e[24] = "GITHUB_PATH";      e[25] = "GITHUB_STEP_SUMMARY"; e[26] = "GITHUB_TOKEN";
+    e[27] = "GITHUB_SHA";       e[28] = "GITHUB_REF";  e[29] = "GITHUB_REPOSITORY";
+    e[30] = "GITHUB_EVENT_NAME"; e[31] = "GITHUB_RUN_ID";
+    e[32] = "CARGO_HOME";       e[33] = "RUSTUP_TOOLCHAIN";
+    return e;
+}
+
+bool _csIdentChar(char c) {
+    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_';
+}
+
+bool _csInList(string[] arr, int n, string v) {
+    int i = 0;
+    while (i < n) { if (arr[i] == v) { return true; } i = i + 1; }
+    return false;
+}
+
+int _csIndent(string line) {
+    int i = 0;
+    while (i < line.Length) {
+        char c = line.CharAt(i);
+        if (c != ' ' && c != '\t') { return i; }
+        i = i + 1;
+    }
+    return line.Length;   // 全空白
+}
+
+bool _csBlank(string line) { return line.Trim() == ""; }
+
+// 一行里能被视作「赋值」的变量名，写进 outNames。覆盖：
+//   `X=…`（含 `A=1 B=2 cmd` 这种 env 前缀连写）、`for X in …`、`read [-r] X …`、`local X=…`。
+// 判据：标识符紧跟 `=`（且不是 `==`），其前一个字符是行首 / 空白 / `;` / `(` / `&` / `|` / `{` / 反引号，
+// 且**不是** `$`（那是取值不是赋值）。
+int _csAssignsIn(string line, string[] outNames) {
+    int n = 0;
+    string s = line;
+    int i = 0;
+    while (i < s.Length) {
+        char c = s.CharAt(i);
+        if (_csIdentChar(c) && (c < '0' || c > '9')) {
+            // 前一个字符必须是「语句边界」
+            bool boundary = (i == 0);
+            if (i > 0) {
+                char p = s.CharAt(i - 1);
+                boundary = (p == ' ' || p == '\t' || p == ';' || p == '(' || p == '&' || p == '|' || p == '{' || p == '`');
+            }
+            int j = i;
+            while (j < s.Length && _csIdentChar(s.CharAt(j))) { j = j + 1; }
+            string name = s.Substring(i, j - i);
+            if (boundary && j < s.Length && s.CharAt(j) == '=') {
+                bool isEq = (j + 1 < s.Length && s.CharAt(j + 1) == '=');
+                if (!isEq) { outNames[n] = name; n = n + 1; }
+            }
+            i = j;
+        } else {
+            i = i + 1;
+        }
+    }
+    // `for X in …`
+    string t = s.Trim();
+    if (t.StartsWith("for ")) {
+        string rest = t.Substring(4, t.Length - 4).Trim();
+        int k = 0;
+        while (k < rest.Length && _csIdentChar(rest.CharAt(k))) { k = k + 1; }
+        if (k > 0) { outNames[n] = rest.Substring(0, k); n = n + 1; }
+    }
+    // `mapfile -t X` / `readarray -t X`（数组读入 —— 立门当天扩到 workflows 时就因为漏了它误报一次）
+    if (t.StartsWith("mapfile ") || t.StartsWith("readarray ")) {
+        int sp0 = t.IndexOf(" ");
+        string rest0 = t.Substring(sp0 + 1, t.Length - sp0 - 1).Trim();
+        while (rest0.StartsWith("-")) {
+            int sp1 = rest0.IndexOf(" ");
+            if (sp1 < 0) { rest0 = ""; } else { rest0 = rest0.Substring(sp1 + 1, rest0.Length - sp1 - 1).Trim(); }
+        }
+        int k0 = 0;
+        while (k0 < rest0.Length && _csIdentChar(rest0.CharAt(k0))) { k0 = k0 + 1; }
+        if (k0 > 0) { outNames[n] = rest0.Substring(0, k0); n = n + 1; }
+    }
+    // `read [-flags] X [Y …]`
+    if (t.StartsWith("read ")) {
+        string rest = t.Substring(5, t.Length - 5).Trim();
+        while (rest.StartsWith("-")) {
+            int sp = rest.IndexOf(" ");
+            if (sp < 0) { rest = ""; } else { rest = rest.Substring(sp + 1, rest.Length - sp - 1).Trim(); }
+        }
+        int k2 = 0;
+        while (k2 < rest.Length && _csIdentChar(rest.CharAt(k2))) { k2 = k2 + 1; }
+        if (k2 > 0) { outNames[n] = rest.Substring(0, k2); n = n + 1; }
+    }
+    return n;
+}
+
+// 一行里「会触发 set -u」的变量取值，写进 outNames。跳过头注列的四类。
+int _csUsesIn(string line, string[] outNames) {
+    int n = 0;
+    string s = line;
+    int i = 0;
+    while (i + 1 < s.Length) {
+        if (s.CharAt(i) != '$') { i = i + 1; continue; }
+        char nx = s.CharAt(i + 1);
+        if (nx == '{') {
+            // `${{ … }}` = GitHub 表达式，shell 看不到
+            if (i + 2 < s.Length && s.CharAt(i + 2) == '{') { i = i + 3; continue; }
+            int j = i + 2;
+            int st = j;
+            // `${#X}` 的 `#` 不属于名字
+            if (j < s.Length && s.CharAt(j) == '#') { j = j + 1; st = j; }
+            while (j < s.Length && _csIdentChar(s.CharAt(j))) { j = j + 1; }
+            string name = s.Substring(st, j - st);
+            // 紧跟 `:-` `-` `:+` `+` `:?` ⇒ 带默认，未设也安全
+            bool guarded = false;
+            if (j < s.Length) {
+                char g = s.CharAt(j);
+                if (g == '-' || g == '+' || g == '?') { guarded = true; }
+                if (g == ':') { guarded = true; }
+            }
+            if (name != "" && !guarded) { outNames[n] = name; n = n + 1; }
+            i = j;
+        } else if (_csIdentChar(nx) && (nx < '0' || nx > '9')) {
+            int j = i + 1;
+            while (j < s.Length && _csIdentChar(s.CharAt(j))) { j = j + 1; }
+            outNames[n] = s.Substring(i + 1, j - i - 1);
+            n = n + 1;
+            i = j;
+        } else {
+            i = i + 2;   // `$1` `$@` `$?` … 位置/特殊参数
+        }
+    }
+    return n;
+}
+
+// workflow 的各步之间靠 `echo "X=…" >> "$GITHUB_ENV"` 传值：那是**跨块**可见的赋值，按块判会误报。
+// ⇒ 先全文件扫一遍这种行，把名字当作「进块前就已存在」。（立门时全仓零命中，但这条形态一出现
+// 就会让门开始喊狼来了 —— 先接住，别等它误报了才回来补。）
+int _csEnvHandoffNames(string[] lines, string[] outNames) {
+    int n = 0;
+    string[] tmp = new string[64];
+    int i = 0;
+    while (i < lines.Length) {
+        string ln = lines[i];
+        i = i + 1;
+        if (ln.IndexOf("GITHUB_ENV") < 0) { continue; }
+        int an = _csAssignsIn(ln, tmp);
+        int k = 0;
+        while (k < an) {
+            if (!_csInList(outNames, n, tmp[k])) { outNames[n] = tmp[k]; n = n + 1; }
+            k = k + 1;
+        }
+    }
+    return n;
+}
+
+// 一个 `run:` 块 → 报告数。`fileRel` / `lineNos` 只用于错误信息（指回 yml 的真实行号）。
+// `pre` / `preN` = 进块前就已存在的名字（`$GITHUB_ENV` 传过来的）。
+int _csCheckBlock(string fileRel, string[] body, int[] lineNos, int count, int[] outBad,
+                  string[] pre, int preN) {
+    string[] names = new string[4096];
+    int[] firstAt = new int[4096];
+    int nv = 0;
+    string[] envs = _csEnvNames();
+    string[] tmp = new string[64];
+
+    // pass 1：首次赋值行序
+    int i = 0;
+    while (i < count) {
+        int an = _csAssignsIn(body[i], tmp);
+        int k = 0;
+        while (k < an) {
+            if (!_csInList(names, nv, tmp[k])) { names[nv] = tmp[k]; firstAt[nv] = i; nv = nv + 1; }
+            k = k + 1;
+        }
+        i = i + 1;
+    }
+
+    // pass 2：取值处比对
+    int bad = 0;
+    int u = 0;
+    while (u < count) {
+        string ln = body[u];
+        if (ln.Trim().StartsWith("#")) { u = u + 1; continue; }
+        int un = _csUsesIn(ln, tmp);
+        int k2 = 0;
+        while (k2 < un) {
+            string v = tmp[k2];
+            k2 = k2 + 1;
+            if (_csInList(envs, envs.Length, v)) { continue; }
+            if (_csInList(pre, preN, v)) { continue; }
+            int at = -1;
+            int q = 0;
+            while (q < nv) { if (names[q] == v) { at = firstAt[q]; q = nv; } else { q = q + 1; } }
+            if (at < 0 || at > u) {
+                string why = "从未赋值（拼错？或本该由上层 env: 提供）";
+                if (at > u) { why = "首次赋值在更晚的第 " + lineNos[at].ToString() + " 行"; }
+                ConsoleError.WriteLine("  ✗ " + fileRel + ":" + lineNos[u].ToString()
+                    + ": `$" + v + "` 先用后赋 —— " + why);
+                ConsoleError.WriteLine("      " + ln.Trim());
+                bad = bad + 1;
+            }
+        }
+        u = u + 1;
+    }
+    outBad[0] = outBad[0] + bad;
+    return bad;
+}
+
+// 从一个 action.yml 里逐个取出 `run:` 块并判。
+int _csCheckFile(string path, string fileRel, int[] outBad, int[] outBlocks) {
+    string text = "";
+    try { text = File.ReadAllText(path); } catch (Exception ex) { text = ""; }
+    if (text == "") { return 0; }
+    string[] lines = text.Replace("\r\n", "\n").Split("\n");
+
+    string[] pre = new string[256];
+    int preN = _csEnvHandoffNames(lines, pre);
+
+    string[] body = new string[4096];
+    int[] lineNos = new int[4096];
+
+    int i = 0;
+    while (i < lines.Length) {
+        string t = lines[i].Trim();
+        bool isRun = (t == "run: |" || t == "run: |-" || t == "run: >" || t.StartsWith("run: |"));
+        if (!isRun) { i = i + 1; continue; }
+        int runIndent = _csIndent(lines[i]);
+        int j = i + 1;
+        int count = 0;
+        while (j < lines.Length) {
+            if (_csBlank(lines[j])) { body[count] = ""; lineNos[count] = j + 1; count = count + 1; j = j + 1; continue; }
+            if (_csIndent(lines[j]) <= runIndent) { j = j + 1 - 1; break; }
+            body[count] = lines[j];
+            lineNos[count] = j + 1;
+            count = count + 1;
+            j = j + 1;
+        }
+        // 末尾若是空行，不影响判定。
+        outBlocks[0] = outBlocks[0] + 1;
+        _csCheckBlock(fileRel, body, lineNos, count, outBad, pre, preN);
+        i = j;
+    }
+    return 0;
+}
+
+int _testCiShell() {
+    string root = _root();
+    string dir = _csScanDir(root);
+    Console.WriteLine("① `.github/**` 的多行 run: 块无「先用后赋」（set -u 会当场退出）");
+    if (!Directory.Exists(dir)) {
+        ConsoleError.WriteLine("  ✗ 找不到 " + dir + " —— 本门没有扫描面（目录搬了？）");
+        return 1;
+    }
+    string[] rel = Directory.EnumerateRecursive(dir);
+    int[] bad = new int[1];
+    int[] blocks = new int[1];
+    int files = 0;
+    int f = 0;
+    while (f < rel.Length) {
+        string relp = rel[f].Replace("\\", "/");
+        f = f + 1;
+        if (!relp.EndsWith(".yml") && !relp.EndsWith(".yaml")) { continue; }
+        files = files + 1;
+        _csCheckFile(Path.Join(dir, relp), ".github/" + relp, bad, blocks);
+    }
+    Console.WriteLine("  扫描 " + files.ToString() + " 个 yml，"
+        + blocks[0].ToString() + " 个多行 run: 块");
+    if (files == 0 || blocks[0] == 0) {
+        ConsoleError.WriteLine("  ✗ 一个多行 run: 块都没扫到 —— 门是空的（yml 结构变了？）");
+        return 1;
+    }
+    if (bad[0] > 0) {
+        ConsoleError.WriteLine("  ❌ ci-shell: " + bad[0].ToString() + " 处先用后赋");
+        ConsoleError.WriteLine("     这类错只在 CI 上暴露、每次代价一整轮 CI：`set -euo pipefail` 的 -u");
+        ConsoleError.WriteLine("     会在那一行当场 exit 1。把赋值挪到第一次使用之前即可。");
+        return 1;
+    }
+    Console.WriteLine("  ✓ 无先用后赋");
+    return 0;
+}

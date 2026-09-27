@@ -58,12 +58,13 @@ Z42.Project.ZpkgWriterZ.* / ZpkgBuilder.* / ZpkgReader.*（写/读 zpkg）
       这正是它能单独先落的理由。`.github/` 零命中（已查）。`docs/spec/archive/**` 不改
 - [x] **B4**：冷启动验证 —— `xtask test bootstrap`（两代，真下载 nightly）+ **手搭的冷树 CI 模拟**
       （真 nightly 种子 + 清空 artifacts，跑 `build compiler` → `build stdlib`）
-- [ ] **B3b**（延后，需三步）：`Z42.Build.Project` → `Z42.Project`
-      1. **support**：`z42.project` **同时**声明 `Z42.Build.Project` 与 `Z42.Project`（两份类型声明，
-         不是转发层 —— 类型身份按 FQN，函数转发救不了类型），挂阶段-2 欠账；
-      2. 跨一个 nightly（种子里于是有了 `Z42.Project`）；
-      3. **use**：扫 `src/**` 与 `scripts/**` 的消费点到新名，再删旧声明。
-      为什么不能一步：见 §6
+- [x] **B3b**：`Z42.Build.Project` → `Z42.Project` —— **一步落**（`src/**` 与 `scripts/**` 同时扫到
+      新名），靠 `ci-bootstrap` 的「编译期 overlay + 运行期旁置」跨过种子代差，见 §6.2。
+      > 🔴 **原计划的「三步走（support 先行：同一个包同时声明两套命名空间 → 跨 nightly → use）」
+      > 已实测否证**：同包内两套同短名类会串味（`E0401`），**种子 z42c 同样如此** ⇒ 阶段 1 的源码
+      > 根本编不出来。另一个备选「独立兼容包」则是运行期空气（`DEPS` 按文件名解析）。两个否证
+      > 与采纳形态见 §6.1 / §6.2 —— **这是本 change 最贵的一条教训：「并存一版」有三种落地形态，
+      > 两种是错的，而判据在「编译期 / 运行期各按什么键解析」，不在「抄上次别名的做法」。**
 - [x] **B6**（z42c 侧）：解析**分档** `WsTier` —— 成员 dist 只答成员包、外部档只答非成员包，见 §7 ①。
       ⚠️ 它自己也受种子纪律（跑 workspace 构建的是种子 driver）⇒ 要跨一个 nightly 才生效
 - [x] **B7**（CI 侧）：bench A/B 的代差判据补上「命名空间」这一维，见 §7 ③
@@ -74,10 +75,12 @@ Z42.Project.ZpkgWriterZ.* / ZpkgBuilder.* / ZpkgReader.*（写/读 zpkg）
 2. **有些代码同时面对改名前后两个版本**：CI 的 base/PR 对比、两代自举、跨 nightly 种子。
    本次 `.github/` 零命中，但 **`test bootstrap` 的 `runlibs` 同时是 `Z42_LIBS` 与 `--output-dir`**，
    必须先分开（B2 覆盖）；
-3. **兼容副本不能进编译期 libs**（会判 `E0606` 同 FQN 两个包）；
+3. **兼容副本进编译期 libs 只在 FQN 交叠时才 `E0606`**（同 FQN 两个包）。⚠️ 这条原写成「兼容副本
+   不能进编译期 libs」，B3b 实测**不成立**：旧名副本与新名本体导出的 FQN 完全不交叠 ⇒ 同处编译期
+   libs 一声不响地编过。真正拦住兼容副本的是**运行期**按文件名解析（§6.1），不是 `E0606`；
 4. **登记表改 id 格式要同时迁移条目**，否则旧条目成幽灵（#900 修过一次）。
 
-## 6. 🔴 xtask 是**两头都挂在上一代 SDK 上**的消费者 —— B3b 因此必须拆
+## 6. 🔴 xtask 是**两头都挂在上一代 SDK 上**的消费者 —— B3b 的全部难处都在这
 
 xtask 不像 `src/toolchain`（从源码编、对着 flat 跑）。它**编译**与**运行**都绑在上一代：
 
@@ -94,6 +97,10 @@ xtask 不像 `src/toolchain`（从源码编、对着 flat 跑）。它**编译**
   `build stage-toolchain` 那一步）；
 - `scripts/` **扫新名** ⇒ 步骤 2 的种子 libs 里还没有新命名空间，`E0494`，自举第一步就断。
 
+还有**第三个约束**（B3b 实测补记）：[`ci.yml` 的 consume-smoke](../../../../.github/workflows/ci.yml)
+用**本代 SDK** 编 `scripts/xtask.z42.toml`。所以「scripts/ 留旧名」不只坏在运行期 —— 那一步的
+**编译期**也会 `E0494`。⇒ 三个约束合起来看，落点被逼到唯一一处（见下面 §6.2）。
+
 ⚠️ **本地四格全绿却 CI 红的原因**：本地 `./xtask` 是 **apphost**，从 `Z42_HOME/libs` 加载，
 **永远看不到 flat**；CI 是显式 `Z42_LIBS=flat`。⇒ 判「xtask 能不能跑」必须按 CI 的方式复现：
 
@@ -102,16 +109,69 @@ Z42_LIBS=$PWD/artifacts/build/libraries/dist/release \
   artifacts/build/runtime/release/z42vm artifacts/xtask/xtask.zpkg -- <任意子命令>
 ```
 
-### 为什么不能靠 colocate 绕过
+## 6.1 🔴🔴 编译期与运行期是**两个独立的解析面** —— 这是本节的总钥匙
 
-`z42c build` 对 exe 会把依赖闭包 colocate 进 dist，运行期搜索序 = `[entry-zpkg 目录, Z42_LIBS]`
-—— 看似只要给 xtask 声明 `[dependencies]` 就能让它自带那一代的 stdlib。**不行**：
-`ExeDeps.z42` 头注明写「**非框架**依赖」才 colocate，框架包（stdlib）一律走 `Z42_LIBS`。
-那是对的设计（不然每个 exe 都拖一份 stdlib），所以这条路不通。
+上一版 §6 只说了「必须并存一版、跨一个 nightly」，没说**并存怎么落地**，于是第一版实现选错了
+形态、白跑一轮。根因是这两个面各按各的键解析，**一件兼容物只能盖住其中一个**：
 
-⇒ 结论：**抹掉旧 FQN 的改名，凡有「上一代二进制 + 本代 libs」的消费者，都只能走「并存一版、
-跨一个 nightly」**。B3a 之所以能一步落，唯一原因是它动的那个命名空间**没有这类消费者**
-（xtask 不用它；种子 z42c 用它，但种子的运行期面已被 §3 的 run-libs 锚隔开）。
+| 面 | 按什么解析 | 依据 |
+|---|---|---|
+| **编译期** | 命名空间（`using` + FQN），**不看包文件名** | `z42c` 语义层；fix-crosspkg-static-ns-collision 的 using-scoped 解析 |
+| **运行期** | **zpkg 文件名**（`DEPS` 段记的名字），**不看命名空间** | `src/runtime/src/metadata/loader/namespace.rs` 的 `resolve_dependency`，头注原话「the VM's lazy loader **no longer routes by namespace; it uses zpkg file names**」 |
+
+运行期搜索序是 **`[entry-zpkg 目录, Z42_LIBS, probing paths]`**（`config.rs`：「Empty = search
+order stays `[entry-dir, libs]`」）—— **entry 目录优先**，这就是落点。
+
+### 三种形态：两个实测否证 + 一个成立
+
+| 形态 | 结果 |
+|---|---|
+| **独立兼容包** `z42.project.compat`（旧名副本另起一个包名） | ❌ **编译期够用、运行期是空气**：它编得出来、也能进 flat，但**没有任何 `DEPS` 指向那个文件名 ⇒ 永不被加载**，xtask 照旧 `MissingSymbolException`。判别实验：把它的产物改名成 `z42.project.zpkg` 放进 flat 副本 ⇒ 同一条命令 exit 0。 |
+| **同包双命名空间**（旧名副本放进 `z42.project/src/legacy-ns/`） | ❌ **根本编不出来**：同包内两套同短名类会串味 —— 新名侧 `BuildLayout.z42` 报 15 个 `E0401: no field 'Project' on 'ProjectManifest'`（短名键混同，与 `unify-type-identity-fqn` / 符号表 FQN 键那一类同源）。改成不同文件基名仍红 ⇒ 不是文件名冲突。**且种子 z42c 同样如此**（隔离实测：把双 ns 包整个拷到 scratch，用上一代 `.z42/bin/z42c` 编，报同样的 15 个 `E0401`）⇒ 就算修了当前 z42c 也没用：阶段 1 的源码必须能被**种子**编。 |
+| ✅ **编译期 overlay + 运行期旁置**（采纳） | 两个面各给一件，见 §6.2。 |
+
+⚠️ 顺带纠正一条：`z42.ir` → `z42.package` 那次的别名之所以是「同内容两个**文件名**」，因为它改的是
+**包名**、命名空间没动；这次改的是**命名空间**、文件名没动 ⇒ 别名形态必须**反过来**。同一个
+「别名」直觉套错了轴就是空气。
+
+## 6.2 采纳的形态：编译期 overlay + 运行期旁置（B3b 一步做完，不再拆三步）
+
+`scripts/**` 本轮**直接扫到新名**，两个面各接一件（都在 `ci-bootstrap` 步骤 [1.6]/[2]）：
+
+1. **编译期 overlay**：先用种子 z42c 把**当前源**的 `z42.project` 编出来，覆盖进一份种子 libs 的
+   副本（`$work/xlibs`），步骤 [2] 用 `Z42_LIBS=$xlibsw` 编 xtask ⇒ 编译期有新命名空间。
+   （种子 z42c 编得动当前源 —— 本地实测 exit 0；它只是个普通库，依赖 `z42.core`/`io`/`toml`
+   在种子 libs 里都有。）
+2. **运行期旁置**：把那份新名 `z42.project.zpkg` **拷到 `artifacts/xtask/`**（xtask.zpkg 旁边）。
+   entry 目录优先于 `Z42_LIBS` ⇒ 之后无论 `Z42_LIBS` 指向种子代（步骤 [3]、本地 apphost）还是
+   本轮 flat（步骤 [4] 之后所有 job），xtask 拿到的都是新名。**隔离是构造保证的**：只有 entry 在
+   `artifacts/xtask/` 的进程（= xtask 自己）看得见它。
+
+### 为什么不能靠 z42c 的**自动** colocate
+
+`z42c build` 对 exe 会 colocate 依赖闭包，看似只要给 xtask 声明 `[dependencies]` 就行。**不行**：
+`ExeDeps.z42` 头注明写「**非框架**依赖」才 colocate，框架包（stdlib）一律走 `Z42_LIBS`。那是对的
+设计（不然每个 exe 都拖一份 stdlib）。⇒ 所以旁置是**引导脚本显式 `cp` 一个文件**，不是让 z42c
+去 colocate 框架包 —— 两者别混。
+
+### 实测判据（四段，都跑过）
+
+| # | 配置 | 期望 | 实测 |
+|---|---|---|---|
+| ① | 种子编的 xtask（旧名）+ 本代 flat，无旁置 | 红 | ✅ `MissingSymbolException: Z42.Build.Project.ManifestLoader.LoadWorkspace$1$string` |
+| ② | 同上 + 把旧名产物旁置 | 绿 | ✅ exit 0（确认 entry 目录优先） |
+| ③ | overlay 编出的 xtask（新名）+ **上一代** libs + 旁置本代产物（= 步骤 [3] 形状，**混代**） | 绿 | ✅ exit 0 ⇒ 混代风险实测不存在 |
+| ④ | 同 ③ 但撤掉旁置件 | 红 | ✅ `MissingSymbolException: Z42.Project.ManifestLoader.LoadWorkspace$1$string` |
+
+⚠️ 做 ④ 这类「撤掉它应该就红」的对照时，**命令必须真的会触碰清单加载**：先用
+`xtask test stage2` 做对照，撤掉旁置件照样绿 —— 因为懒加载根本没走到 `Z42.Project`，那是个空门。
+换 `build stage-toolchain` 才红。
+
+### 阶段 2（下一 nightly 后）
+
+种子自带 `Z42.Project` ⇒ 撤掉 overlay 与旁置两段即可，无任何源码副本要删。欠账登记在
+`.github/actions/ci-bootstrap/action.yml#b3b-project-ns-overlay`（为此把 `xtask test stage2`
+的扫描面扩到了 `.github/**/*.yml` —— 阶段 1 的过渡形态第二次落在门看不见的文件类型里）。
 
 ## 7. 🔴 B3 实测挖出的三个真缺陷（都不是改名本身）
 

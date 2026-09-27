@@ -1,4 +1,4 @@
-namespace Z42.Build.Project;
+namespace Z42.Project;
 
 using Std.Toml;
 

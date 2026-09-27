@@ -65,17 +65,24 @@ string _s2BaselinePath() { return "scripts/test/stage2-debt.txt"; }
 // 而这里还要求真的把活干完。
 int _s2GraceDays() { return 7; }
 
-// 扫 `src/` 与 `scripts/` 下所有 .z42 与 .rs，抽出 `STAGE2-DEBT(<tag>): <text>`
-// → `<带根前缀的相对路径>#<tag>`。
+// 扫 `src/` / `scripts/` 下的 .z42 与 .rs，外加 `.github/` 下的 .yml，抽出
+// `STAGE2-DEBT(<tag>): <text>` → `<带根前缀的相对路径>#<tag>`。
 //
 // ⚠️ **`scripts/` 是后补的**（2026-09-27）：立门时只扫 `src/`，于是自举脚本里的过渡形态
 // （兼容副本、临时 env 传参……）**对这道门不可见** —— 我自己在 `xtask_stdlib.z42` /
 // `xtask_common.z42` 挂的两条债当场就漏了。门的覆盖面得跟着「过渡形态实际会出现在哪」走，
 // 而不是跟着「我第一次想到哪」走。
+//
+// ⚠️ **`.github/**.yml` 同样是后补的**（2026-09-27，rename-project-namespaces B3b）：过渡形态
+// 第二次出现在门看不见的地方 —— 那次的阶段 1 形态是 `ci-bootstrap/action.yml` 里的编译期
+// overlay + 旁置件（自举引导发生在「还没有 xtask」的时刻 ⇒ 只能写成 bash，天然落在 yml 里），
+// 而我第一版把标记写进了 `.z42.toml` 清单头注，**同样不可见**。教训与上一条同形：凡「阶段 1
+// 的过渡形态能落在哪种文件里」，门就得扫到那里。
 int _s2Scan(string root, string[] outIds, string[] outTexts) {
-    string[] roots = new string[2];
+    string[] roots = new string[3];
     roots[0] = "src";
     roots[1] = "scripts";
+    roots[2] = ".github";
     int n = 0;
     int ri = 0;
     while (ri < roots.Length) {
@@ -95,7 +102,7 @@ int _s2ScanOne(string dir, string idPrefix, string[] outIds, string[] outTexts, 
         string relp = rel[f].Replace("\\", "/");
         f = f + 1;
         if (_dcContains(relp, "/artifacts/")) { continue; }
-        if (!relp.EndsWith(".z42") && !relp.EndsWith(".rs")) { continue; }
+        if (!relp.EndsWith(".z42") && !relp.EndsWith(".rs") && !relp.EndsWith(".yml")) { continue; }
         // 🔴 **排除本门自己**：头注里写着标记的语法示例、代码里有 `"STAGE2-DEBT("` 字面量，
         // 扫到自己就凭空多出 `#<tag>` / `#"` 这种垃圾条目（扩到 scripts/ 后当场发生）。
         // 与 diagcodes 门排除 `DiagnosticCodes.z42` 同一形状、同一理由：**登记器不登记自己**。
