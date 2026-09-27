@@ -298,9 +298,17 @@ z42c **运行期依赖 `z42.package`**——它建任何 zpkg 都要调 `Z42.Pac
 `libsDirs = 全成员 dist + 外部档`，纯 basename 命中、**成员 dist 排在前**；而成员 dist 同时是运行期
 载荷目录。于是上一代 colocate 的外部包副本会**盖住** flat 里刚建好的新版（B3 实测：driver dist 的
 种子代 `z42.package.zpkg` 遮蔽 flat 新版 ⇒ `E0494 命名空间不存在`，而 flat 里明明有；两份还同尺寸，
-只核对大小会被骗过去）。搬空成员 dist 里的外部包即根除遮蔽。**正解**是让成员 dist 只对成员名有效
-（外部包一律走外部档）—— 那要改 z42c，而跑 workspace 构建的是种子 driver，得跨一个 nightly 才生效，
-故编排侧先解；详见 `docs/spec/changes/rename-project-namespaces/design.md` §7。
+只核对大小会被骗过去）。搬空成员 dist 里的外部包即根除遮蔽。
+
+**正解已落在 z42c 侧**（`WsTier`，z42c.pipeline）：解析**分档** —— 成员 dist 只回答**成员**包名、
+外部档只回答**非成员**包名。它同时治另一个方向：`build stdlib` 的外部档正是 flat（全成员 dist 的
+聚合），里面有**每个成员**上一轮的副本，会盖住本轮 fresh 的成员 dist；既有的 `_laterMemberNames`
+是那一条的局部补丁（只挡拓扑序在后的成员），分档把它推广到全部。`Hidden` 仍单独存在——后序成员的
+名字会被成员 dist 档放行，必须另挡。
+⚠️ **但它自己也受种子纪律**：跑 workspace 构建的是**种子** driver，故要跨一个 nightly 才生效；
+在那之前编排侧的「搬」仍是唯一防线。进种子之后，`_relocateSeedRunLibs` 可从「搬」退回「拷」
+（运行期载荷留在 dist，编译期不再看它）。详见
+`docs/spec/changes/rename-project-namespaces/design.md` §7。
 
 ### 分阶段流程（每阶段守哪条不变量）
 
