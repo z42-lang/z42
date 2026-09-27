@@ -134,8 +134,12 @@ impl StructArena {
     /// the primitive leaves + clone each reference leaf (`Value::clone` = per-kind
     /// `Arc::clone` / handle copy). This is the value-semantics copy point
     /// (assign/param/return). No write barrier (arena is a GC root).
+    ///
+    /// `size` is the **compiler-computed** blob size carried by the `StructCopy`
+    /// instruction. It does not drive the copy — the two blobs' own layouts do
+    /// (see [`Self::check_copy_invariant`] for why it is still worth passing).
     pub fn copy_into(&mut self, dst_idx: u32, dst_frame_id: u32,
-                     src_idx: u32, src_frame_id: u32, _size: usize) -> Result<()> {
+                     src_idx: u32, src_frame_id: u32, size: usize) -> Result<()> {
         // Two indices into the same Vec. `split_at_mut` hands out two disjoint
         // borrows, so the copy is in-place — **no allocation**.
         //
@@ -158,6 +162,11 @@ impl StructArena {
             if d.frame_id != dst_frame_id {
                 return Err(stale_err(dst_idx, dst_frame_id));
             }
+            // The shape guard lives here, not after the split, so the self-copy
+            // early-return below cannot skip it: `a = a` still has a compiler
+            // `size` worth cross-checking against the layout, even though its two
+            // shapes are trivially equal.
+            Self::check_copy_invariant(s, d, size)?;
         }
         // Self-copy (`a = a`, or two names for one slot): already validated, and
         // `split_at_mut` cannot produce two borrows of one element — nothing to do.
@@ -174,10 +183,71 @@ impl StructArena {
         } else {
             (&right[0], &mut left[lo as usize])
         };
+        // `min` keeps this memory-safe no matter what; `check_copy_invariant`
+        // (run above, before the self-copy early-return) is what makes a violation
+        // *visible* instead of a silent partial copy.
         let n = src.bytes.len().min(dst.bytes.len());
         dst.bytes[..n].copy_from_slice(&src.bytes[..n]);
         let rn = src.refs.len().min(dst.refs.len());
         dst.refs[..rn].clone_from_slice(&src.refs[..rn]);
+        Ok(())
+    }
+
+    /// `StructCopy`'s invariant is "both blobs are the same type", and the copy
+    /// below enforces it only by `min`-ing the two lengths — i.e. a violation
+    /// produces a **silently truncated / partially copied struct** rather than an
+    /// error. That is the shape this codebase has been paying for repeatedly
+    /// (`fix-silent-prim-field-write`, `fix-silent-array-elem-zero`,
+    /// `fix-reflect-struct-field-type-check`): the blame lies with whoever produced
+    /// mismatched layouts, and the corruption surfaces far from them.
+    ///
+    /// Two independent witnesses are available here and were both being discarded:
+    ///
+    ///   1. **The two layouts** — `src.bytes.len()` vs `dst.bytes.len()` (and the
+    ///      reference-slice lengths). Same type ⇒ equal, unconditionally.
+    ///   2. **The compiler's `size`** — `StructCopy` carries the size the *compiler*
+    ///      computed for this type. It used to arrive here as `_size` and be thrown
+    ///      away outright. It is a free cross-check of "does the compiler's idea of
+    ///      this struct's size match the layout the runtime resolved?", which is
+    ///      exactly the skew the generic-instantiation-layout work kept hitting
+    ///      (there it surfaced as `struct field write out of blob bounds` — a crash,
+    ///      but only because a *write* happened to run off the end).
+    ///
+    /// Policy follows the established one for "not the user's fault" signals
+    /// (`__box_prim`, `prim_value_mismatch`): **debug `bail!`, release 放行**. A user
+    /// cannot write z42 that reaches a layout skew — only a compiler or loader bug
+    /// can — so a release build must not start throwing at them. Debug builds
+    /// (including every `cargo test --lib` run) turn it into a loud, located error.
+    #[inline]
+    fn check_copy_invariant(src: &StructSlot, dst: &StructSlot, size: usize) -> Result<()> {
+        #[cfg(debug_assertions)]
+        {
+            if src.bytes.len() != dst.bytes.len() || src.refs.len() != dst.refs.len() {
+                anyhow::bail!(
+                    "StructCopy between blobs of different shape — `{}` is {} byte(s) / {} ref(s) \
+                     but `{}` is {} byte(s) / {} ref(s). StructCopy's invariant is that both \
+                     blobs are the same type; copying anyway would silently truncate. This is a \
+                     compiler or type-layout bug, not user code (release builds copy min(..) \
+                     rather than raising).",
+                    src.type_name, src.bytes.len(), src.refs.len(),
+                    dst.type_name, dst.bytes.len(), dst.refs.len(),
+                );
+            }
+            if size != dst.bytes.len() {
+                anyhow::bail!(
+                    "StructCopy size skew — the compiler encoded {size} byte(s) for `{}`, but the \
+                     runtime layout says {}. The two disagree about this struct's size, which is \
+                     how instantiated-generic layout splits have shown up before. This is a \
+                     compiler or type-layout bug, not user code (release builds ignore the \
+                     encoded size entirely).",
+                    dst.type_name, dst.bytes.len(),
+                );
+            }
+        }
+        #[cfg(not(debug_assertions))]
+        {
+            let _ = (src, dst, size);
+        }
         Ok(())
     }
 

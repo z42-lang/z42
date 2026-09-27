@@ -165,3 +165,67 @@ fn copy_into_rejects_either_side_stale() {
     assert!(a.copy_into(999, 1, src, 1, 8).is_err(), "out-of-range dst must error");
     assert!(a.copy_into(dst, 1, src, 1, 8).is_ok(), "valid handles still copy");
 }
+
+// ─── check-struct-copy-shape-invariant：正面对照 ─────────────────────────────
+//
+// `copy_into` 的不变式是「两个 blob 同类型」，而复制本身只用 `min` 兜 —— 破坏时
+// 会静默截断出半个 struct。新增的 `check_copy_invariant` 把它变成 debug 下的错误。
+//
+// ⚠️ 这三个测试是**这道门唯一的正面对照**。没有它们，门是否还接在 `copy_into` 上
+// 无人知晓 —— 真实程序里不变式**永远成立**（编译器只在同类型之间发 `StructCopy`），
+// 所以「全仓零命中」既是期望结果、也正因此不能证明门还活着。
+//
+// 门只在 debug 存在（release 沿用 `min`，理由见 `check_copy_invariant` 的文档：
+// 用户写不出能走到布局偏斜的 z42），故整组 `#[cfg(debug_assertions)]`。
+
+#[cfg(debug_assertions)]
+#[test]
+fn copy_into_rejects_blobs_of_different_byte_size() {
+    let mut a = StructArena::default();
+    let src = a.alloc(1, Arc::from("Small"), prim_layout(8));
+    let dst = a.alloc(1, Arc::from("Big"), prim_layout(16));
+    let err = a.copy_into(dst, 1, src, 1, 16).unwrap_err().to_string();
+    assert!(err.contains("different shape"), "unexpected error: {err}");
+    // 诊断必须点出两个类型名与各自尺寸 —— 否则定位不到是谁造出了偏斜的布局。
+    assert!(err.contains("Small") && err.contains("Big"), "error names neither type: {err}");
+    assert!(err.contains("8") && err.contains("16"), "error omits the sizes: {err}");
+}
+
+#[cfg(debug_assertions)]
+#[test]
+fn copy_into_rejects_blobs_with_different_reference_slot_counts() {
+    let mut a = StructArena::default();
+    // 同字节宽、引用槽数不同 —— 只比字节长度的门会漏掉这一格。
+    let refful = Arc::new(StructTypeLayout {
+        size: 8,
+        ref_offsets: Box::new([0]),
+        ref_kinds: Box::new([STRUCT_REF_ARC_STRING]),
+        fields: Box::new([]),
+    });
+    let src = a.alloc(1, Arc::from("HasRef"), refful);
+    let dst = a.alloc(1, Arc::from("NoRef"), prim_layout(8));
+    let err = a.copy_into(dst, 1, src, 1, 8).unwrap_err().to_string();
+    assert!(err.contains("different shape"), "unexpected error: {err}");
+    assert!(err.contains("ref(s)"), "error should report the reference-slot counts: {err}");
+}
+
+#[cfg(debug_assertions)]
+#[test]
+fn copy_into_rejects_a_compiler_size_that_disagrees_with_the_layout() {
+    let mut a = StructArena::default();
+    let ty: Arc<str> = Arc::from("P");
+    let src = a.alloc(1, ty.clone(), prim_layout(8));
+    let dst = a.alloc(1, ty, prim_layout(8));
+    // 两个 blob 形状一致，但指令里编码的 size 与布局不符 —— 这是编译器与运行期
+    // 对同一个类型的大小有分歧（instantiated-generic 布局分裂就是这个形态）。
+    let err = a.copy_into(dst, 1, src, 1, 12).unwrap_err().to_string();
+    assert!(err.contains("size skew"), "unexpected error: {err}");
+    assert!(err.contains("12") && err.contains("8"), "error must show both numbers: {err}");
+    // 阴性对照：形状一致且 size 相符时必须照常放行（门不能恒响）。
+    assert!(a.copy_into(dst, 1, src, 1, 8).is_ok(), "a matching copy must still succeed");
+    // 自拷（`a = a`）走的是 `src_idx == dst_idx` 的提前返回 —— 门刻意放在那之前，
+    // 所以偏斜的 size 在自拷上也照样被抓住，而不是被提前返回绕过。
+    let e2 = a.copy_into(src, 1, src, 1, 12).unwrap_err().to_string();
+    assert!(e2.contains("size skew"), "self-copy must not bypass the guard: {e2}");
+    assert!(a.copy_into(src, 1, src, 1, 8).is_ok(), "a matching self-copy is still a no-op");
+}
