@@ -75,9 +75,11 @@ pub fn builtin_type_get_type(ctx: &VmContext, args: &[Value]) -> Result<Value> {
 /// propagated with its ORIGINAL type via `ctx.set_pending_thrown` (consumed by
 /// `exec_call::builtin`), so callers can `try/catch` the real exception.
 pub fn builtin_method_invoke(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let mi = args.first().cloned().unwrap_or(Value::Null);
-    let this_obj = args.get(1).cloned().unwrap_or(Value::Null);
-    let args_arr = args.get(2).cloned().unwrap_or(Value::Null);
+    // split-null-sentinel-channels ⑥：显式校验 arity 后直接下标取参。
+    crate::corelib::expect_args("MethodInfo.Invoke", args, 3)?;
+    let mi = args[0].clone();
+    let this_obj = args[1].clone();
+    let args_arr = args[2].clone();
 
     let qualified = match read_obj_slot(&mi, "__qualified") {
         Value::Str(s) => s.to_string(),
@@ -132,7 +134,9 @@ pub(super) fn read_type_arg_names(mi: &Value) -> Vec<String> {
 /// placeholder `Std.Type`s built from the declared type-parameter names
 /// (`__typeParamNames`, e.g. `T`/`U`); a non-generic method returns an empty array.
 pub fn builtin_method_generic_arguments(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let mi = args.first().cloned().unwrap_or(Value::Null);
+    // split-null-sentinel-channels ⑥：显式校验 arity 后直接下标取参。
+    crate::corelib::expect_args("MethodInfo.GetGenericArguments", args, 1)?;
+    let mi = args[0].clone();
     // Constructed state: the bound Type[] set by MakeGenericMethod.
     if let Value::Array(rc) = read_obj_slot(&mi, "__typeArgs") {
         let elems: Vec<Value> = rc.borrow().iter_boxed().collect();
@@ -162,8 +166,12 @@ pub fn builtin_method_generic_arguments(ctx: &VmContext, args: &[Value]) -> Resu
 /// raises a catchable `Std.Exception` (the native `Err` is wrapped by
 /// `exec_call::builtin`). `Invoke` on the result threads `__typeArgs` into the frame.
 pub fn builtin_method_make_generic(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let mi = args.first().cloned().unwrap_or(Value::Null);
-    let type_args = args.get(1).cloned().unwrap_or(Value::Null);
+    // split-null-sentinel-channels ⑥：显式校验**本 builtin 自身**的 arity 后直接下标。
+    // ⚠️ 别与下方的 `invoke_arity_check` 混淆 —— 那个校验的是**被反射调用的 z42 函数**的
+    // 形参个数 vs 用户给的实参数组，与本 builtin 收几个参数是两件事。
+    crate::corelib::expect_args("MethodInfo.MakeGenericMethod", args, 2)?;
+    let mi = args[0].clone();
+    let type_args = args[1].clone();
     // Genericness + arity, validated against the declared type-param names.
     let expected = match read_obj_slot(&mi, "__typeParamNames") {
         Value::Array(rc) => rc.borrow().len(),
@@ -425,8 +433,12 @@ pub fn builtin_activator_create(ctx: &VmContext, args: &[Value]) -> Result<Value
 /// object. Arity mismatch → catchable `Std.Exception`; a ctor `throw` propagates with
 /// its original type via `ctx.set_pending_thrown`.
 pub fn builtin_ctor_invoke(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let ci = args.first().cloned().unwrap_or(Value::Null);
-    let args_arr = args.get(1).cloned().unwrap_or(Value::Null);
+    // split-null-sentinel-channels ⑥：显式校验**本 builtin 自身**的 arity 后直接下标。
+    // ⚠️ 别与下方的 `invoke_arity_check` 混淆 —— 那个校验的是**被反射调用的 z42 函数**的
+    // 形参个数 vs 用户给的实参数组，与本 builtin 收几个参数是两件事。
+    crate::corelib::expect_args("ConstructorInfo.Invoke", args, 2)?;
+    let ci = args[0].clone();
+    let args_arr = args[1].clone();
     let qualified = match read_obj_slot(&ci, "__qualified") {
         Value::Str(s) => s.to_string(),
         _ => bail!("ConstructorInfo.Invoke: receiver is not a ConstructorInfo (no __qualified)"),

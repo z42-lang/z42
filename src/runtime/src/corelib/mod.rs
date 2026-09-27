@@ -217,6 +217,31 @@ pub fn exec_builtin(ctx: &VmContext, name: &str, args: &[Value]) -> Result<Optio
     Err(anyhow::anyhow!("unknown builtin `{name}`"))
 }
 
+/// 校验 builtin 收到的实参个数 —— **split-null-sentinel-channels ⑥**。
+///
+/// 🔴 **为什么需要它**：此前这些 builtin 用 `args.get(N).cloned().unwrap_or(Value::Null)`
+/// 取参 ⇒ **「少传了参数」与「显式传了 null」完全无法区分**。arity 错配只可能来自
+/// stdlib 的 `[Native]` 声明与 Rust 实现不一致（编译器会校验 extern 调用点），
+/// 而那种维护错误此前被**静默吸收成 Null**，表现为 builtin 深处一个莫名的 Null。
+///
+/// 校验之后调用方可以**直接下标取参**（`args[N]`），`unwrap_or(Value::Null)` 随之消失。
+///
+/// ⚠️ **为什么不做成一道「表 ↔ stdlib」的 arity 对账门**（先前的设想）：实测不可行 ——
+/// Rust 侧从不声明 arity，而 307 个 builtin 里**只有 80 个**的函数体真的字面索引 `args`
+/// （其余用 helper / 解构 / 切片）⇒ 从源码提取会**假红**，而本仓的教训是假红比没门更坏。
+/// 局部校验零假红风险，且仓里本就有先例（`__array_clone` 一直这么做）。
+#[inline]
+pub(crate) fn expect_args(who: &str, args: &[Value], want: usize) -> Result<()> {
+    if args.len() != want {
+        anyhow::bail!(
+            "{who}: expected {want} argument(s), got {} — the stdlib `[Native]` declaration \
+             and this builtin disagree on arity",
+            args.len()
+        );
+    }
+    Ok(())
+}
+
 /// 给**明确期待有返回值**的调用方（`__obj_to_str` 这类）：撞上 void builtin 就报错，
 /// 而不是静默给一个占位值。
 ///

@@ -45,7 +45,8 @@ fn mono_ns() -> i64 {
 }
 
 pub fn builtin_bench_black_box(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    Ok(args.first().cloned().unwrap_or(Value::Null))
+    crate::corelib::expect_args("Bench.BlackBox", args, 1)?;
+    Ok(args[0].clone())
 }
 
 #[cfg(test)]

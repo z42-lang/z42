@@ -66,7 +66,8 @@ fn type_name_of(v: &Value) -> Option<String> {
 /// etc.); reference types get a `Boxed` backing. The array carries its short element
 /// tag so `GetType().GetElementType()` round-trips. add-json-serde.
 pub fn builtin_array_create(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let elem = args.first().cloned().unwrap_or(Value::Null);
+    crate::corelib::expect_args("Array.CreateInstance", args, 2)?;
+    let elem = args[0].clone();
     let n = match args.get(1) {
         Some(Value::I64(n)) if *n >= 0 => *n as usize,
         _ => bail!("Array.CreateInstance: expected (Type, non-negative int)"),
@@ -110,12 +111,15 @@ pub fn builtin_array_get(ctx: &VmContext, args: &[Value]) -> Result<Value> {
 /// C# `Array.SetValue(object value, int index)` (value first) as an instance method
 /// (`this`=array at args[0]). add-array-property-reflection-api (was value-last).
 pub fn builtin_array_set(ctx: &VmContext, args: &[Value]) -> Result<()> {
+    // split-null-sentinel-channels ⑥：显式校验 arity，之后 `args[1]` 直接下标
+    // （此前是 `args.get(1).unwrap_or(Value::Null)` ⇒ 少传参数与传 null 无法区分）。
+    crate::corelib::expect_args("Array.SetValue", args, 3)?;
     let rc = match args.first() {
         Some(Value::Array(rc)) => rc.clone(),
         Some(Value::Null) => bail!("Array.SetValue: null array reference"),
         other => bail!("Array.SetValue: expected an array, got {:?}", other),
     };
-    let value = args.get(1).cloned().unwrap_or(Value::Null);
+    let value = args[1].clone();
     let i = match args.get(2) {
         Some(Value::I64(n)) if *n >= 0 => *n as usize,
         _ => bail!("Array.SetValue: expected a non-negative index"),
