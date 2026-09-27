@@ -108,6 +108,19 @@ ctor 的 `RetType` 是占位 `NamedType("")`、void 是 `NamedType("void")` ⇒ 
 `Exception` 解成 `<unknown>` 并报一条**与 E0403 无关**的错。改用本地声明的 `Ex1` 后全绿。
 实测口径：`--dump-bound` 对 `throw new Exception("x")` 报 `(1 error(s))`、对 `throw new Ex1()` 报 0 条。
 
+## 行数门禁：拆成 partial（CI 第一轮判红后补）
+
+第一轮 CI 的 `test-host` 三条腿红在 **`xtask test lines`** —— 不是我的检查出错，是
+`FlowAnalyzer.z42` 从 807 行被我推到 **954**，越过硬限 **886**
+（`scanned 883 file(s): 7 over 886 lines (6 known, 1 new/grown)`）。
+
+按仓里既有判据 **行数门禁挡路的正解是拆文件，不是压注释**：新块整段搬到
+`FlowAnalyzer.Reachability.z42`，两边同一个类（`public sealed partial class FlowAnalyzer`），
+照 `MemberResolver.Func.z42` 的先例 —— 那个文件的头注也写着「partial 拆分只为守行数上限」。
+
+拆后 808 + 161 行，`test lines` 绿（6 known / **0 new/grown**）；拆分后复跑
+`test compiler`：22 条测试仍全过、不动点 3/3、`test walkers` 绿。
+
 ## 不做（Out of Scope）
 
 - **不做「不可达代码」告警**（`return` 之后还有语句）。那是另一个码、另一条判据。
