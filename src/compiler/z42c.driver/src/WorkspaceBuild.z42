@@ -60,13 +60,30 @@ int _buildWorkspacePerMember(string wsToml, bool isRelease, int cliAdd, int cliR
         ConsoleError.WriteLine("z42c build --workspace: no --output-dir and no [workspace.build].output_dir in " + wsToml);
         return ExitCode.UsageError;
     }
-    // libsDirs = 全成员 dist + Z42_LIBS（外部 stdlib，如 z42c.* → z42.core）。
-    string env = Environment.GetEnvironmentVariable("Z42_LIBS", "");
-    int extra = (env.Length > 0) ? 1 : 0;
+    // libsDirs = 全成员 dist + **编译期外部包目录**（stdlib，如 z42c.* → z42.core）。
+    //
+    // 🔴 外部那一档取 `--compile-libs`（给了的话），否则回落 `Z42_LIBS`。此前这里**直接读
+    // `Z42_LIBS`**，于是 `--compile-libs` 在 workspace 路径上被静默绕过 —— 而 workspace 正是
+    // 自举的主路径（`z42c build --workspace` 重建全部编译器成员 / stdlib 成员）。
+    //
+    // 为什么要能分开：自举时 z42c 是**上一代二进制**，它自己运行期要加载那一代的库，而它
+    // 编译的源码要解析**当前源**新建出来的库。两者挤在 `Z42_LIBS` 一个变量里，改名/删符号
+    // 这类变更就无路可走（见 `CompileLibsOpt` 头注列的三种撞法）。
+    string[] ext;
+    int extra;
+    if (CompileLibsOpt.Count() > 0) {
+        ext = CompileLibsOpt.Dirs();
+        extra = CompileLibsOpt.Count();
+    } else {
+        string env = Environment.GetEnvironmentVariable("Z42_LIBS", "");
+        if (env.Length > 0) { ext = new string[1]; ext[0] = env; extra = 1; }
+        else { ext = new string[0]; extra = 0; }
+    }
     string[] libsDirs = new string[plan.Count + extra];
     int i = 0;
     while (i < plan.Count) { libsDirs[i] = plan.DistDirs[i]; i = i + 1; }
-    if (extra == 1) { libsDirs[plan.Count] = env; }
+    int e = 0;
+    while (e < extra) { libsDirs[plan.Count + e] = ext[e]; e = e + 1; }
     int libsN = plan.Count + extra;
     // 先建全部成员 dist（空目录）→ DepScan 多目录扫描可见（后续成员 dist 在建本成员时尚空）。
     i = 0;
