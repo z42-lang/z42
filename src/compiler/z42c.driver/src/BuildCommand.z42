@@ -34,6 +34,8 @@ int _cmdBuild(string[] argv) {
         else if (a == "--fix") { isFix = true; }
         else if (a == "--quiet" || a == "-q") { BuildLog.SetQuiet(true); }
         else if (a == "--output-dir" && ai + 1 < argv.Length) { outputDir = argv[ai + 1]; ai = ai + 1; }
+        // 只改**编译期**依赖解析面；z42c 自己的运行期加载仍读 Z42_LIBS（见 CompileLibsOpt 头注）。
+        else if (a == "--compile-libs" && ai + 1 < argv.Length) { CompileLibsOpt.Set(argv[ai + 1]); ai = ai + 1; }
         else if (a == "--opt" && ai + 1 < argv.Length) {
             int b = Opt.ByName(argv[ai + 1]);
             if (b < 0) { return _unknownOpt(argv[ai + 1]); }

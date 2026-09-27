@@ -432,6 +432,80 @@ int _e2eDeployUseChecks(string root, string vm, string driverZpkg) {
     return 0;
 }
 
+// ── 编译期依赖面与 driver 运行期加载面分离（`--compile-libs`，2026-09-27）──────────────
+//
+// **守的是什么**：`Z42_LIBS` 长期被两件事共用 —— ① VM 给 driver 自己加载运行期自依赖
+// （`z42.ir` / `z42.project`…）；② driver 编译当前工程时解析它的 `[dependencies]`。
+// 平时一致所以没人察觉，**自举期这两件事要的是不同版本**：driver 是上一代二进制、运行期要它
+// 自己那代的库；而它编译的源码要解析当前源新建出来的库。
+//
+// 挤在一个变量里就无路可走（实测全撞过一遍）：新库放进去 driver 自己先死；放旧库编译看不见新
+// 符号；两份都放编译器判 `E0606`（同 FQN 来自两个包）。这是「包/命名空间改名」「格式 bump」
+// 一整类自举痛苦的共同根因。
+//
+// 两格，差别只有一个旗标：① 只设 `Z42_LIBS`（不含那个依赖）⇒ 必须失败；
+// ② 加 `--compile-libs` 指向含它的目录 ⇒ 必须成功。①就是②的反向对照，不用额外注入。
+//
+// 🔴 做成**旗标**而非环境变量：环境变量会静默影响这台机器上后续每一次 z42c 调用，而它只该在
+// 自举那几步生效（见 driver 的 `CompileLibsOpt` 头注）。
+int _e2eCompileLibsChecks(string root, string vm, string driverZpkg) {
+    string flat = _libsFlatDist(root, "release");
+    string tmp  = Path.Join("/tmp", "z42c-e2e-clibs");
+    if (Directory.Exists(tmp)) { try { Directory.Delete(tmp, true); } catch (Exception e) {} }
+    string libsDir = Path.Join(tmp, "libs");
+    string onlyDir = Path.Join(tmp, "only");
+    string depDir  = Path.Join(tmp, "dep");
+    string appDir  = Path.Join(tmp, "app");
+    Directory.Create(libsDir); Directory.Create(onlyDir); Directory.Create(depDir); Directory.Create(appDir);
+    string[] stdlib = Path.Glob(flat, "*.zpkg");
+    int si = 0;
+    while (si < stdlib.Length) { File.Copy(stdlib[si], Path.Join(libsDir, Path.GetFileName(stdlib[si]))); si = si + 1; }
+
+    // 被依赖库 → 只放进 onlyDir（**不进** libsDir）。
+    File.WriteAllText(Path.Join(depDir, "x.z42"),
+        "namespace ClDep;\n\npublic class Thing { public int V() { return 7; } }\n");
+    File.WriteAllText(Path.Join(depDir, "cldep.z42.toml"),
+        "[project]\nname    = \"cldep\"\nversion = \"0.1.0\"\nkind    = \"lib\"\n\n"
+        + "[sources]\ninclude = [\"x.z42\"]\n\n[dependencies]\n\"z42.core\" = \"0.1.0\"\n");
+    ProcessResult db = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build")
+        .Arg(Path.Join(depDir, "cldep.z42.toml")).Arg("--release")
+        .Env("Z42_LIBS", libsDir).Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
+    if (db.ExitCode != 0) { Console.WriteLine("  ✗ compile-libs: 预建 cldep 失败: " + db.Stderr); return 1; }
+    File.Copy(Path.Join(Path.Join(depDir, "dist"), "cldep.zpkg"), Path.Join(onlyDir, "cldep.zpkg"));
+
+    File.WriteAllText(Path.Join(appDir, "a.z42"),
+        "namespace ClApp;\n\nusing ClDep;\n\npublic class Use { public int Go() { return new Thing().V(); } }\n");
+    string appToml = Path.Join(appDir, "clapp.z42.toml");
+    File.WriteAllText(appToml,
+        "[project]\nname    = \"clapp\"\nversion = \"0.1.0\"\nkind    = \"lib\"\n\n"
+        + "[sources]\ninclude = [\"a.z42\"]\n\n[dependencies]\n\"z42.core\" = \"0.1.0\"\n\"cldep\" = \"0.1.0\"\n");
+
+    // ① 反向对照：只有 Z42_LIBS（不含 cldep）⇒ 必须失败，且理由必须是「找不到那个依赖」。
+    ProcessResult r1 = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(appToml).Arg("--release")
+        .Env("Z42_LIBS", libsDir).Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
+    string o1 = r1.Stdout + r1.Stderr;
+    if (r1.ExitCode == 0 || o1.IndexOf("cldep") < 0) {
+        Console.WriteLine("  ✗ compile-libs: 对照格没有按预期失败（本该找不到 cldep）: " + o1);
+        return 1;
+    }
+    // ② 加 --compile-libs ⇒ 必须成功。Z42_LIBS 原样不动（driver 自己的加载面不受影响）。
+    string sep = Platform.IsWindows() ? ";" : ":";
+    ProcessResult r2 = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(appToml).Arg("--release")
+        .Arg("--compile-libs").Arg(libsDir + sep + onlyDir)
+        .Env("Z42_LIBS", libsDir)
+        .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
+    if (r2.ExitCode != 0) {
+        Console.WriteLine("  ✗ compile-libs: Z42_COMPILE_LIBS 没能让编译期看见那个依赖: " + r2.Stdout + r2.Stderr);
+        return 1;
+    }
+    if (!File.Exists(Path.Join(Path.Join(appDir, "dist"), "clapp.zpkg"))) {
+        Console.WriteLine("  ✗ compile-libs: 报成功却没有产物");
+        return 1;
+    }
+    Console.WriteLine("  ✓ 编译期依赖面可与 driver 运行期加载面分开（--compile-libs）");
+    return 0;
+}
+
 // ── `probing-paths` 的数组写法（2026-09-26）────────────────────────────────────────────────
 //
 // **守的是什么**：路径列表的分隔符是**平台相关**的（unix `:` / windows `;`），所以「在清单里写

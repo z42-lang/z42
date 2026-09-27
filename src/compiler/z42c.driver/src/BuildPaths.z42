@@ -284,3 +284,41 @@ string _normPath(string p) {
     while (j < sp) { outp = outp + "/" + stack[j]; j = j + 1; }
     return outp;
 }
+
+// ── `--compile-libs`：编译期依赖面（2026-09-27）──────────────────────────────────────────
+//
+// `Z42_LIBS` 长期被两件事共用：① VM 给 z42c **自己**加载运行期依赖（它是 z42 写的，要加载
+// `z42.package` / `z42.project` 才跑得起来）；② z42c **编译目标工程**时解析 `[dependencies]`。
+// 平时一致所以看不出问题，**自举期这两件事要不同版本的库** —— z42c 是上一代二进制、运行期要它
+// 那一代的，而它编译的源码要当前源新建出来的。挤在一个变量里就无路可走（三种做法实测全撞过）：
+// 新库放进去 z42c 自己先死；放旧库编译看不见新符号；两份都放判 `E0606`（同 FQN 来自两个包）。
+//
+// 🔴 **刻意做成进程内选项，而不是环境变量**：环境变量是**环境性**的 —— 设上之后会静默影响这台
+// 机器上后续每一次 z42c 调用，而它只该在自举那几步生效。旗标进不了子进程、也不会被谁顺手 export。
+//
+// 改名类迁移做完后重估这个旗标：若届时只剩自举在用，考虑把「编译期/运行期两个面」做成内部默认
+// 行为、连旗标一起撤掉 —— **要删的是旋钮，不是那个区分**。
+// STAGE2-DEBT(compile-libs-knob): 改名迁移做完后重估：只剩自举在用就把旗标撤掉（保留内部区分）
+static class CompileLibsOpt {
+    static string[] _dirs = new string[0];
+    static int _n = 0;
+
+    // 平台分隔符分隔（同 `PATH` 惯例；命令行/环境这一层用分隔符是对的，清单里才该用数组）。
+    public static void Set(string spec) {
+        string sep = Platform.IsWindows() ? ";" : ":";
+        string[] parts = spec.Split(sep);
+        string[] acc = new string[parts.Length];
+        int n = 0;
+        int i = 0;
+        while (i < parts.Length) {
+            string one = parts[i].Trim();
+            i = i + 1;
+            if (one.Length > 0) { acc[n] = one; n = n + 1; }
+        }
+        CompileLibsOpt._dirs = acc;
+        CompileLibsOpt._n = n;
+    }
+
+    public static int Count() { return CompileLibsOpt._n; }
+    public static string[] Dirs() { return CompileLibsOpt._dirs; }
+}
