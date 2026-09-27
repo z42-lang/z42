@@ -43,7 +43,7 @@ EvalResult r2 = Script.Eval(s, "add(4, 5)");       // 跨轮裸调 → r2.Value 
 （`z42c build --workspace`）编入 flat dist：
 ```bash
 cd src/libraries && z42c build --workspace --release
-# 产物：artifacts/build/libraries/z42.scripting/release/dist/z42.scripting.zpkg
+# 产物：artifacts/build/compiler/z42.scripting/release/dist/z42.scripting.zpkg
 ```
 CI 全量 GREEN 以 stdlib 构建（`xtask build stdlib`）+ toolchain 构建（`xtask build toolchain`，编
 `z42.repl` / `z42.interactive`）为准。

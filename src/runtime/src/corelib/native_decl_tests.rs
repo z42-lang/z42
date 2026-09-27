@@ -69,8 +69,13 @@ const UNDECLARED_ALLOWLIST: &[(&str, &str)] = &[
     // `2026-09-14-store-sync-values-in-heap` 规定的 `strings -n 3 | grep` 核过：0 引用。
 ];
 
-fn libraries_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../libraries")
+/// 扫描根 —— **两个都要**（relocate-compiler-domain-libs，2026-09-27）：用户 stdlib 在
+/// `src/libraries/`，编译器域（`z42.scripting` / `z42.package` / `z42c.*` …）在 `src/compiler/`。
+/// 只扫前者时 `__repl_complete_probe` / `__repl_member_names` / `__load_bytecode_in_memory`
+/// 当场变成「未声明」——它们声明在 `z42.scripting` 里，而那个包挪去了 `src/compiler/`。
+fn z42_source_roots() -> Vec<PathBuf> {
+    let base = Path::new(env!("CARGO_MANIFEST_DIR"));
+    vec![base.join("../libraries"), base.join("../compiler")]
 }
 
 fn collect_z42_files(dir: &Path, out: &mut Vec<PathBuf>) {
@@ -97,10 +102,12 @@ fn declared_natives() -> Vec<(String, String)> {
 /// 是否出现 `void` 后紧跟一个标识符 —— 即 `... void Name(...)`。这是与 `declared_natives`
 /// 同一套启发式扫描（本文件一贯手法），足以覆盖 stdlib 的实际写法。
 fn declared_natives_full() -> Vec<(String, bool, String)> {
-    let root = libraries_root();
+    let roots = z42_source_roots();
     let mut files = Vec::new();
-    collect_z42_files(&root, &mut files);
-    assert!(!files.is_empty(), "no .z42 files under {}", root.display());
+    for root in &roots {
+        collect_z42_files(root, &mut files);
+    }
+    assert!(!files.is_empty(), "no .z42 files under {:?}", roots);
     let mut out = Vec::new();
     for f in files {
         let Ok(text) = std::fs::read_to_string(&f) else { continue };
@@ -112,7 +119,10 @@ fn declared_natives_full() -> Vec<(String, bool, String)> {
                 if let Some(end) = after.find('"') {
                     let name = &after[..end];
                     if name.starts_with("__") {
-                        let rel = f.strip_prefix(&root).unwrap_or(&f).display().to_string();
+                        let rel = roots.iter()
+                            .find_map(|r| f.strip_prefix(r).ok())
+                            .unwrap_or(&f)
+                            .display().to_string();
                         // 声明体 = 本行 `[Native(..)]` 之后的剩余部分；为空则往下找第一行
                         // 非空非注释（stdlib 两种写法都有）。
                         // `end` 指向关闭引号 ⇒ 从 end+1 起，再剥掉 `)]` 与空白。

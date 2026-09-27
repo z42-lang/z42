@@ -2,7 +2,7 @@
 
 ## 职责
 REPL **终端交互层（tier1）**：rustyline 行编辑 + 缩进感知键位策略。只在真 tty / 终端 REPL 用；
-求值内核（编译 / 加载 / 反射求值 / 补全 / 完整性判定）在 [z42.scripting](../../../libraries/z42.scripting/)（已下沉 stdlib）。
+求值内核（编译 / 加载 / 反射求值 / 补全 / 完整性判定）在 [z42.scripting](../../../compiler/z42.scripting/)（已下沉 stdlib）。
 拆自 z42.scripting（`split-z42-repl`），以切干净「跨平台 eval-core」与「tier1 tty 交互」的边界。
 
 ## 功能索引

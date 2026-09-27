@@ -60,7 +60,7 @@ proposal 的三个待裁决点已裁，另补一条 proposal 列为 Out of Scope
 ### 实测事实（2026-09-24）
 
 **一、抽象早已做完，缺的不是抽象。**
-[ReplCompilerHost.z42](../../../../src/libraries/z42.scripting/src/ReplCompilerHost.z42) 里编译能力已是
+[ReplCompilerHost.z42](../../../../src/compiler/z42.scripting/src/ReplCompilerHost.z42) 里编译能力已是
 门面 + 运行期反射注入（`IReplCompiler` ← `ModuleLoader.Load` ← `Z42cReplCompiler`）。它的头注自陈：
 
 > 组件缺失（runtime-only SDK）→ `NoReplCompiler` 兜底（**编译恒失败、补全恒空**）

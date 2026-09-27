@@ -1,9 +1,16 @@
 # z42c — z42 自举编译器 workspace（scaffold-z42c-selfhost, 2026-06-07）
 #
-# 编译器**后端** 3 包：z42c.semantics / z42c.pipeline / z42c.driver。
-# 前端 z42c.core + z42c.syntax（可移植：Lexer/Parser/AST/Span/Diagnostic）已下沉
-# src/libraries/（converge-z42-syntax-lib，route A 地基）——包名/命名空间不变、仅物理落点变
-# 共享库层；IR 模型 + zbc/zpkg 后端更早已收敛 stdlib 库 z42.package。三者经跨-workspace dist 发现解析。
+# 本 workspace = **整个编译器域**（relocate-compiler-domain-libs，2026-09-27）：
+#   后端 3 包    z42c.semantics / z42c.pipeline / z42c.driver
+#   可移植前端    z42c.core / z42c.syntax（Lexer/Parser/AST/Span/Diagnostic）
+#   格式与模型    z42.package（IR + zbc/zpkg 后端）/ z42.project（工程清单）/ z42.build（构建管线）
+#   eval 内核     z42.scripting（Std.Scripting；命名空间待后续改名批次归位）
+#
+# 🔴 **物理位置就是「这是编译器域」的声明**：`src/libraries/` 只放用户 stdlib（`Std.*`），
+# 普通工程的解析域只有 shipped `libs/` ⇒ 结构上看不到本 workspace 的包；要用得在
+# `[dependencies]` 里**显式引用**（`${compiler_libs}` 路径宏，见该 change 的 design §5.3）。
+# 这六个包原在 `src/libraries/`（converge-z42-syntax-lib / converge-z42c-ir-metadata-onto-stdlib
+# 等几次下沉的落点），本次挪回。**包名与命名空间一个都没动** ⇒ zpkg 文件名不变 ⇒ 不涉及种子纪律。
 # 产物：artifacts/build/compiler/<pkg>/<profile>/{dist,cache}/，按 build profile 分级。
 #
 # 与 src/libraries/（stdlib workspace）解耦：A 主线 stdlib 重组不冲击本树。
@@ -21,19 +28,30 @@ members = ["*"]
 # 用显式 toml 路径单独构建 + z42-test-runner 运行），非 workspace member。
 # workspace build 会对其报 WS007（orphan manifest）—— 非致命、纯提示，已知可忽略。
 # 拓扑序（叶子在前；z42c 也会 topo-sort，显式序作 fallback）：
-#   z42c.semantics        → z42c.core, z42c.syntax, z42.package(stdlib)
-#   z42c.pipeline         → z42c.core, z42c.syntax, semantics, z42.package(stdlib), z42.project(stdlib)
-#   z42c.driver           → pipeline, z42.package(stdlib), z42c.core
-# 注：z42c.ir + z42c.project 已下沉 stdlib 单库 z42.package（converge-z42c-ir-metadata-onto-stdlib）；
-#     CacheStore 迁 z42c.pipeline。
-# 注：z42c.core + z42c.syntax（可移植前端）已挪入 src/libraries/（converge-z42-syntax-lib，route A
-#     地基）——包名/命名空间不变（仍 z42c.*/Z42.Core/Z42.Syntax），只是物理落点变共享库层，供
-#     scripting/playground/runtime 与本编译器共享。semantics/pipeline/driver 经跨-workspace dist
-#     发现解析它们（与 z42.package/z42.project 同机制）；冷启动由 _ensureBootstrapSelfDepLibs 预建破轴④环。
+#   z42c.core             → (prelude only)
+#   z42c.syntax           → z42c.core
+#   z42.package           → z42.core / encoding / io / crypto（stdlib）
+#   z42.project           → z42.core / io / toml（stdlib）
+#   z42.build             → z42.core / io（stdlib）, z42.project
+#   z42c.semantics        → z42c.core, z42c.syntax, z42.package
+#   z42c.pipeline         → z42c.core, z42c.syntax, semantics, z42.package, z42.project
+#   z42c.driver           → pipeline, z42.package, z42c.core
+#   z42.scripting         → z42c.core, z42c.syntax, z42.build + stdlib(core/io/test/threading)
+#                            置于末尾：依赖面最宽
+# 注：z42c.ir + z42c.project 早先收敛为单库 z42.package（converge-z42c-ir-metadata-onto-stdlib）；
+#     CacheStore 迁 z42c.pipeline。六个包 2026-09-27 从 src/libraries/ 挪回本 workspace ⇒
+#     它们与 semantics/pipeline/driver 现在**同 workspace**，包间依赖走 workspace 拓扑序 + 同
+#     workspace dist 自动发现（不再需要跨-workspace dist 发现那一层）。
 default-members = [
+    "z42c.core",
+    "z42c.syntax",
+    "z42.package",
+    "z42.project",
+    "z42.build",
     "z42c.semantics",
     "z42c.pipeline",
     "z42c.driver",
+    "z42.scripting",
 ]
 
 [workspace.project]

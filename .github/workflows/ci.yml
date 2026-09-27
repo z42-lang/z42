@@ -109,7 +109,7 @@ jobs:
             #
             # z42c 的 member 分布在两处，两处都必须匹配：
             #   src/compiler/       → z42c.driver / z42c.pipeline / z42c.semantics
-            #   src/libraries/z42c.* → z42c.core / z42c.syntax（词法+语法前端，route A 后迁出）
+            #   src/compiler/z42c.*  → z42c.core / z42c.syntax（词法+语法前端；relocate-compiler-domain-libs 挪回）
             # 只写 src/compiler/** 会漏掉整个前端：改 Lexer 加关键字 → compiler=false
             # → compiler-checks 被跳过 → 专为此存在的 `xtask test vscode-syntax`
             # （"Lexer 加关键字未重新生成即红"）恰好在唯一需要它的场景下不跑，
@@ -117,8 +117,8 @@ jobs:
             # ci.yml fallback = 保底全跑.
             compiler:
               - 'src/compiler/**'
-              - 'src/libraries/z42c.core/**'
-              - 'src/libraries/z42c.syntax/**'
+              - 'src/compiler/z42c.core/**'
+              - 'src/compiler/z42c.syntax/**'
               # vscode 语法门（compiler-checks 的 `test vscode-syntax`）比对的是
               # 「入库的生成产物 ↔ 模板 + Lexer 关键字表」。产物与模板都在这个目录下，
               # 却不在本 filter 里 ⇒ 只手改模板/产物的 PR，唯一守它的门静默 skip

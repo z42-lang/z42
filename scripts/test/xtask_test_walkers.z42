@@ -76,7 +76,7 @@ int _testWalkers() {
     string[] nName = new string[128]; string[] nBase = new string[128];
     int nc = _wgCollectNodes(root, nName, nBase);
     if (nc == 0) {
-        ConsoleError.WriteLine("  ✗ found 0 AST node subclasses under src/libraries/z42c.syntax/src — enumeration broke");
+        ConsoleError.WriteLine("  ✗ found 0 AST node subclasses under src/compiler/z42c.syntax/src — enumeration broke");
         return 1;
     }
 
@@ -128,7 +128,7 @@ int _testWalkers() {
 
 // ── 节点类全集：扫 z42c.syntax/src/*.z42 的 `public sealed class NAME : BASE`（BASE ∈ 四族）──
 int _wgCollectNodes(string root, string[] outName, string[] outBase) {
-    string dir = Path.Join(root, "src/libraries/z42c.syntax/src");
+    string dir = Path.Join(root, "src/compiler/z42c.syntax/src");
     string[] rel = Directory.EnumerateRecursive(dir);
     int n = 0;
     int f = 0;

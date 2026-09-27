@@ -4,7 +4,7 @@ namespace Z42.Build;
 // 「空值 + 调用方检查」的 L1 idiom，如 Inputs.Zsym == "" 表示无 sidecar）。
 //
 // 项目清单模型（ProjectInfo / ProjectManifest / PlatformSet 等）住在 z42.project，
-// 不在此处——见 src/libraries/z42.project。
+// 不在此处——见 src/compiler/z42.project。
 
 /// 构建目标。Family ∈ TargetFamily.*；Mode ∈ BuildMode.*。
 [Record] public class Target(string Rid, string Family, string Profile, string Mode);

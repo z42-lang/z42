@@ -7,30 +7,29 @@
 
 本页写 **stdlib 分几个包、谁能依赖谁、新开一个包要满足什么**。
 
-## 1. 两类库，命名空间是唯一区分
+## 1. `src/libraries/` 只放用户 stdlib（`Std.*`）
 
-`src/libraries/` 下同住两类用途完全不同的库：
+**区分靠物理位置，不靠命名空间**（relocate-compiler-domain-libs，2026-09-27 起）：
 
-| 类别 | 命名空间 | 面向 | 成员 |
-|---|---|---|---|
-| **用户 stdlib** | `Std.*` | 应用开发者 | core / collections / io / text / encoding / toml / json / yaml / uri / regex / cli / diagnostics / random / numerics / net / threading / compression / crypto / test / scripting |
-| **工具链库** | `Z42.*` | 编译器 / 工具自身 | `z42.package`（`Z42.IR` + `Z42.Package`）、`z42.project`（`Z42.Project`）、`z42.build`（`Z42.Build`）、`z42c.core`（`Z42.Core`）、`z42c.syntax`（`Z42.Syntax`） |
+| 域 | 在哪 | 命名空间 | 面向 | 普通工程能看见吗 |
+|---|---|---|---|---|
+| **用户 stdlib** | `src/libraries/`（发布到 `<sdk>/libs/`）| `Std.*` | 应用开发者 | ✅ 隐式可见（框架面）|
+| **编译器域** | `src/compiler/`（发布到 `<sdk>/programs/z42c/`）| `Z42.*`（+ 暂留的 `Std.Scripting`）| 编译器 / 工具链自身 | ❌ 结构上看不见；要用得在 `[dependencies]` 里**显式引用** |
 
-**本页的全部规则（层级、interop 归属、R1–R4）只约束 `Std.*`。** 工具链库住在 `src/libraries/` 是因为
-它们要被 z42c 运行期加载、又要被 REPL / z42b 共享，故编译成 zpkg 与 stdlib 同址分发；但它们不是用户
-API，不进用户文档。新增编译器支撑库 → `Z42.*`；新增用户库 → `Std.*`。
+编译器域的成员：`z42c.core`（`Z42.Core`）/ `z42c.syntax`（`Z42.Syntax`）/ `z42.package`（`Z42.IR` +
+`Z42.Package`）/ `z42.project`（`Z42.Project`）/ `z42.build`（`Z42.Build`）/ `z42.scripting`
+（`Std.Scripting` —— 命名空间待后续改名批次归位）+ 编译器后端 `z42c.semantics` / `z42c.pipeline` /
+`z42c.driver`。
 
-`z42.scripting`（`Std.Scripting`）是划在 `Std.*` 这边的边界情形：它虽然「编译代码」，但编译期只依赖
-stdlib（走 `z42.build` 的 `IReplCompiler` 门面，实现 `Z42cReplCompiler` 运行期反射注入），且被
-playground / wasm 当作用户 API 消费。真 tty 交互层 `z42.repl` 平台绑定重，留在 `src/toolchain/`、
-不入 stdlib。
+⭐ **为什么改成按位置**：此前这五个 `Z42.*` 包与用户 stdlib 同住 `src/libraries/`，于是「进不进 SDK
+`libs/`」「publisher 要不要 bundle」「递归穿透算不算框架到此为止」三条判据**共用一个旋钮**（目录在哪），
+而隔离只靠「命名空间不同」这条约定 —— 约定不执行任何检查。挪开之后，**普通工程的解析域只有
+`libs/`，它在结构上就找不到编译器域的包**：关键不变量从「靠约定」变成「构造式不变式」。
 
-> **这条边界正在被 add-package-roles 重画。** 实测（2026-09-24）：`ReplCompilerHost` 的四条组件探测
-> 路径全部指向 SDK 布局，**纯 runtime 包里的 scripting 是恒失败的空壳**（其头注自陈「组件缺失 →
-> `NoReplCompiler` 兜底，编译恒失败、补全恒空」）。批 0 已断掉其对 `z42.package` 的假依赖（那条只为
-> `.version` 拼一句版本串而存在，已迁 z42i）；批 1 将按「能不能在只有 runtime 的环境下工作」拆成
-> eval 内核（零编译器域依赖）+ editing（依赖 `z42c.syntax`）两包。
-> 见 [add-package-roles design §scripting 判定](../../../spec/changes/add-package-roles/design.md)。
+**本页其余规则（层级、interop 归属、R1–R4）只约束 `Std.*` 用户 stdlib。**
+
+🔴 用户要写 linter / 格式化器 / 代码生成 ⇒ **显式引用**编译器域包（`${compiler_libs}` 路径宏），
+引用到的 zpkg 会被拷进该工程的输出目录。隔离**不是禁止**，是「不隐式可见」。
 
 ## 2. 层级：只要求 DAG，不钉固定层
 

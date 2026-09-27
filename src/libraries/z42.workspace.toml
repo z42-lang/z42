@@ -24,23 +24,17 @@ members = ["*"]
 #   z42.io         → (needs z42.time for Std.Process.Timeout/TimeSpan)
 #   z42.json       → (needs z42.text for StringBuilder)
 #   z42.test       → (needs z42.io for Bencher.Std.IO.Console)
-# NOTE: z42.project（namespace Z42.Project）已入 build（converge-onto-z42-project 阶段 1，
-# 2026-07-16）。它与编译器内部 z42c.project 的同名类（SourceDiscovery / ProjectManifest /
-# ManifestLoader …）曾因 flat Z42_LIBS 跨 zpkg 短类名 first-wins 串味 → 炸 z42c 自举；已由
-# fix-crosspkg-static-ns-collision（using-scoped 解析）根治，两者安全共存（实测 with/without
-# z42.project 编出 z42c 逐字节 7/7 相同）。阶段 2 让 z42c 改引用本库、删 z42c.project 自带版
-# （消除重复类）后，本库成 manifest 模型唯一真相。z42.build（Z42.Build：ICompiler 接口 +
-# 八相位 Pipeline 骨架）已入 build（wire-z42b 阶段 1，2026-07-17）——z42c 暂不引用（seed 轴：
-# z42c.pipeline 引用其 ICompiler 须待本库随一个 nightly 发布）；命名空间 Z42.Build 不在 z42c
-# active 集，对 z42c 自举天然惰性（实测带 z42.build 编 z42c 逐字节 7/7 相同 + 全 [Test] 绿）。
+# 🔴 **本 workspace 只放用户 stdlib（`Std.*`）**。工具链/编译器域的包（`z42c.core` / `z42c.syntax` /
+# `z42.package` / `z42.project` / `z42.build` / `z42.scripting`）已挪去 `src/compiler/`
+# （relocate-compiler-domain-libs，2026-09-27）——**物理位置就是「这是编译器域」的声明**，
+# 普通工程的解析域只有 shipped `libs/`，结构上就看不到它们；要用得在 `[dependencies]` 里显式引用。
+# 挪动不改包名/命名空间 ⇒ zpkg 文件名不变 ⇒ 不涉及种子纪律。
 default-members = [
     "z42.core",
     "z42.collections",
     "z42.encoding",
     "z42.text",
     "z42.toml",
-    "z42.project",
-    "z42.build",
     "z42.random",
     "z42.uri",
     "z42.threading",
@@ -50,26 +44,11 @@ default-members = [
     "z42.cli",
     "z42.json",
     "z42.crypto",
-    "z42.package",
     "z42.compression",
     "z42.yaml",
     "z42.net",
     "z42.numerics",
     "z42.test",
-    # 可移植编译器前端（converge-z42-syntax-lib，route A 地基）——从 src/compiler/ 挪入。
-    # 包名/命名空间不变（z42c.*/Z42.Core/Z42.Syntax），落共享库层供 scripting/playground/runtime
-    # 与 z42c 编译器共享。纯 host-platform-independent 计算（Lexer/Parser/AST/Token/Span/Diagnostic），
-    # 无 syscall/native。**非** Std/z42.* 标准库 API 面——仅恰好与 stdlib 同处 build+ship。
-    # 置于末尾：二者靠 z42.core（隐式 prelude）编译，须待其先建。z42c.core→(prelude only)；
-    # z42c.syntax→z42c.core。
-    "z42c.core",
-    "z42c.syntax",
-    # REPL 编译+执行层（move-scripting-to-libraries）——从 src/toolchain/ 挪入。命名空间 Std.Scripting；
-    # 编译期 stdlib-only（编译走 z42.build 的 IReplCompiler 门面，实现运行期反射注入 z42c.pipeline，见
-    # sink-repl-compile-facade / PR-B），前端 z42c.core/syntax 已 stdlib。跨平台 eval-core（Engine/Script/
-    # Classifier/Completeness/Completer/Rewriter/Playground），供 playground/wasm 与 z42.repl(tty) 共享。
-    # 置于末尾：依赖 z42.build/z42.test/z42c.core/z42c.syntax（须待其先建；z42c topo-sort，此序仅 fallback）。
-    "z42.scripting",
 ]
 
 [workspace.project]

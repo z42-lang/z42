@@ -15,10 +15,63 @@ using Std.Toml;
 using Std.Time;
 using Std.Cli;
 
+// 包的源码根 —— **两个 workspace 都要认**（relocate-compiler-domain-libs，2026-09-27）：
+// 用户 stdlib（`Std.*`）在 `src/libraries/`；编译器域（`z42c.core` / `z42c.syntax` / `z42.package` /
+// `z42.project` / `z42.build` / `z42.scripting`）在 `src/compiler/`。
+//
+// 🔴 为什么跑测器必须认两处：`[Test]` 单元的发现以前只扫 `src/libraries/`，六个包挪走后
+// **265 个单元会静默停跑**（z42c.syntax 180 / z42.project 52 / z42.package 22 / z42c.core 11）——
+// 而编译器那条路（`xtask test compiler`）只认 `tests/<unit>/*.z42.toml` 目录单元，接不住它们的
+// 扁平 `tests/*.z42`（实测：`Directory.Exists(unitDir)` 为假 ⇒ 零单元、静默跳过）。
+string _libSrcRoot(string root, string lib) {
+    string a = Path.Join(root, "src/libraries");
+    if (Directory.Exists(Path.Join(a, lib))) { return a; }
+    return Path.Join(root, "src/compiler");
+}
+
+// 一个包的 `tests/` 是不是**编译器格式**（`tests/<unit>/*.z42.toml` 独立工程）—— 那种归
+// `xtask test compiler` 跑，本跑测器必须让开。
+//
+// 🔴 **判据刻意是「有没有 *.z42.toml」而不是「本发现规则找到几个单元」**：我最初想当然地以为
+// 「找到 0 个就自然跳过」，实测**不是** —— 清单感知的发现会去编**包本体**、然后报
+// `error: no [Test] or [Benchmark] found in …/z42c.pipeline.zpkg`，算 2 个文件失败（GREEN 当场红）。
+// 反过来也不能用「单元数为 0 就排除」：`z42.scripting` 的 11 个目录既无 `source.z42` 也无 toml
+// （清单里记的「零约定单元」），单元数正是 0，但它**必须继续被枚举** —— 孤儿源守卫每轮打的那行
+// ⚠ 是有意保留的欠债信号（「欠债不消音」），滤掉它就等于悄悄消音。
+bool _isCompilerFormatTests(string root, string lib) {
+    string td = Path.Join(Path.Join(root, "src/compiler"), Path.Join(lib, "tests"));
+    if (!Directory.Exists(td)) { return false; }
+    foreach (var e in Directory.Enumerate(td)) {
+        string unitDir = Path.Join(td, e);
+        if (!Directory.Exists(unitDir)) { continue; }
+        if (Path.Glob(unitDir, "*.z42.toml").Length > 0) { return true; }
+    }
+    return false;
+}
+
+// 参与 stdlib 跑测器的包 = 两个 workspace 的目录并集（排序稳定），减去编译器格式测试的那些。
+string[] _allTestableLibs(string root) {
+    string[] a = _sortedStrings(Directory.Enumerate(Path.Join(root, "src/libraries")));
+    string[] b = _sortedStrings(Directory.Enumerate(Path.Join(root, "src/compiler")));
+    string[] r = new string[a.Length + b.Length];
+    int n = 0;
+    int i = 0;
+    while (i < a.Length) { r[n] = a[i]; n = n + 1; i = i + 1; }
+    int j = 0;
+    while (j < b.Length) {
+        if (!_isCompilerFormatTests(root, b[j])) { r[n] = b[j]; n = n + 1; }
+        j = j + 1;
+    }
+    string[] outv = new string[n];
+    int k = 0;
+    while (k < n) { outv[k] = r[k]; k = k + 1; }
+    return outv;
+}
+
 // Count a lib's [Test] units (single-file tests/*.z42 + dir-mode tests/<name>/
 // source.z42) — drives shard load balancing.
 int _libUnitCount(string root, string lib) {
-    string td = Path.Join(Path.Join(root, "src/libraries/" + lib), "tests");
+    string td = Path.Join(Path.Join(_libSrcRoot(root, lib), lib), "tests");
     if (!Directory.Exists(td)) { return 0; }
     int c = Path.Glob(td, "*.z42").Length;
     string[] entries = Path.Glob(td, "*");
@@ -34,7 +87,7 @@ int _libUnitCount(string root, string lib) {
 // count desc, then round-robin sorted positions across shards (longest-first
 // keeps the heavy libs in distinct shards → even load).
 string[] _shardLibs(string root, int k, int n) {
-    string[] all = _stdlibList(root);
+    string[] all = _allTestableLibs(root);   // 两个 workspace 并集（见 _libSrcRoot 头注）
     int m = all.Length;
     int[] cnt = new int[m];
     int[] idx = new int[m];
@@ -161,7 +214,6 @@ int _testLibCore(string kind, string[] reqLibsIn, bool noBuild, string filter, s
     Console.WriteLine("→ Building z42b (z42.builder.zpkg; reflective test runner)...");
     int bcRC = _buildZ42bWith(root, vm, driverZpkg, libs);
     if (bcRC != 0) { return bcRC; }
-    string libsRoot = Path.Join(root, "src/libraries");
     string[] libList;
     if (nReq > 0) {
         libList = new string[nReq];
@@ -172,7 +224,7 @@ int _testLibCore(string kind, string[] reqLibsIn, bool noBuild, string filter, s
         // Directory.Enumerate output so first-wins downstream behaviour is
         // platform-stable (common-pitfalls.md §1 — macOS APFS vs Linux ext4
         // give different orderings; CI on Linux blew up here before).
-        libList = _sortedStrings(Directory.Enumerate(libsRoot));
+        libList = _allTestableLibs(root);
     }
     int totalFailed = 0;
     int totalFiles = 0;
@@ -193,7 +245,7 @@ int _testLibCore(string kind, string[] reqLibsIn, bool noBuild, string filter, s
     // exit-code) drive _runLibKind (xtask_manifest_targets.z42). 3-layer dev-deps
     // (target > section > project) via ManifestLoader replace the raw-toml harvest.
     foreach (var lib in libList) {
-        int f = _runLibKind(root, libsRoot, lib, kind, label, filter,
+        int f = _runLibKind(root, _libSrcRoot(root, lib), lib, kind, label, filter,
                             builderZpkg, jobsN, mode, vm, driverZpkg, libs, agg,
                             ref totalFiles, ref libsTested);
         if (f < 0) { return 2; }

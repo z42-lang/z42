@@ -11,7 +11,7 @@
 
 | 步骤 | 做法 |
 |---|---|
-| **码的来源** | [`src/libraries/z42c.core/src/DiagnosticCodes.z42`](../../../../src/libraries/z42c.core/src/DiagnosticCodes.z42) 里的码常量 —— **这是唯一 SoT**。每一个发得出去的码都必须在那里登记，由 `xtask test diagcodes` 强制（见下） |
+| **码的来源** | [`src/compiler/z42c.core/src/DiagnosticCodes.z42`](../../../../src/compiler/z42c.core/src/DiagnosticCodes.z42) 里的码常量 —— **这是唯一 SoT**。每一个发得出去的码都必须在那里登记，由 `xtask test diagcodes` 强制（见下） |
 | **含义** | 取**发射点的诊断消息文本**，而不是常量名。常量名有过一码两义、也有过名实不符（见 `[Forward]` 一节） |
 | **状态** | 对每个码做 `grep -rn 'DiagnosticCodes.<常量名>' src/` + `grep -rn '"<码号>"' src/`，排除 `DiagnosticCodes.z42` 自身与 `tests/` 目录 |
 | **唯一性** | `xtask test diagcodes`（GREEN gate stage）**活体对账**：① 登记表内无重复码值；② 发射出去的每个码都必须在登记表里登记；③ `DiagnosticCodes.<Name>` 引用的常量必须存在；④ 字面量发码站点清单 `scripts/test/diag-literal-emitters.txt` 双向棘轮；⑤ **本页的码表与登记表双向相等**；⑥ 清单里的每条欠账挂账超过 3 天即红（字面量发码的正当理由会过期，到期必须切回常量）；⑦ 任何源文件的散文里都不得断言发射形态（形态是会变的状态，唯一 SoT 是 ④ 的清单）；⑧ **本页状态列与实际发射面双向对账**；⑨ **每个活码必须被至少一处测试按码断言**（否则记账在 `scripts/test/diag-untested-codes.txt`，双向棘轮）（本页多一个码 = 有号被占在文档里而登记表看不见；登记表多一个码 = 新码没进本页） |
@@ -71,7 +71,7 @@ PR 前后脚合入、各拿了一个 E0481，git 毫无反应，门在 main 上�
 
 ## E01xx — 词法（Lexer）
 
-发射点全在 [`src/libraries/z42c.syntax/src/Lexer.z42`](../../../../src/libraries/z42c.syntax/src/Lexer.z42)。
+发射点全在 [`src/compiler/z42c.syntax/src/Lexer.z42`](../../../../src/compiler/z42c.syntax/src/Lexer.z42)。
 
 | 码 | 含义 | 状态 | 触发示例 |
 |---|---|---|---|
@@ -83,7 +83,7 @@ PR 前后脚合入、各拿了一个 E0481，git 毫无反应，门在 main 上�
 
 ## E02xx — 语法（Parser）
 
-发射点在 `src/libraries/z42c.syntax/src/` 下的 `Parser.z42` / `ExprParser.z42` / `DeclParser.z42` /
+发射点在 `src/compiler/z42c.syntax/src/` 下的 `Parser.z42` / `ExprParser.z42` / `DeclParser.z42` /
 `TypeParser.z42` / `MemberParser.z42` / `MethodOfParser.z42`。
 
 | 码 | 含义 | 状态 | 触发示例 |
@@ -459,7 +459,7 @@ E0442 / E0457 / E0462 除外（见上一节）。**E0402 另有一处语法层�
 
 ## 新增一个码
 
-1. 在 [`DiagnosticCodes.z42`](../../../../src/libraries/z42c.core/src/DiagnosticCodes.z42) 加一个码常量。
+1. 在 [`DiagnosticCodes.z42`](../../../../src/compiler/z42c.core/src/DiagnosticCodes.z42) 加一个码常量。
    **这是唯一能占号的地方**——`xtask test diagcodes` 不许发射任何没在这里登记过的码，于是两个并行
    PR 抢同一个号会在这个文件上产生 git 冲突（而不是双双静默合并）。
 2. **加发射点**，并在提交前用 `grep -rn '"<码号>"' src/` 自证它真的会被报出——只加常量不加发射点，

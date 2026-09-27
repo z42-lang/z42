@@ -5,7 +5,7 @@ use super::*;
 // Strict-pin policy (freeze-zbc-v1, 2026-05-14):
 // reader accepts exactly major == ZBC_VERSION_MAJOR && minor == ZBC_VERSION_MINOR.
 // Bumping either requires synchronized update of:
-//   1. src/libraries/z42.package/src/BinaryFormat/ZbcWriter.z42 (ZbcFormat.Major / .Minor)
+//   1. src/compiler/z42.package/src/BinaryFormat/ZbcWriter.z42 (ZbcFormat.Major / .Minor)
 //   2. these two constants
 //   3. docs/internals/src/formats/zbc.md "Minor changelog" table
 //   4. the committed byte baselines — BOTH src/tests/zbc-format/ AND

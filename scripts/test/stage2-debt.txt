@@ -11,4 +11,5 @@ scripts/build/xtask_bootstrap_check.z42#z42ir-bc-runlibs-move 2026-09-27 下一 
 scripts/build/xtask_stdlib.z42#z42ir-name-alias 2026-09-27 下一 nightly 后删掉本函数、别名目录与 probing 传参
 scripts/common/xtask_common.z42#z42ir-probing-wiring 2026-09-27 下一 nightly 后删掉本函数与所有 Z42_PROBING_PATHS 传参
 scripts/common/xtask_common.z42#z42ir-seed-stage-move 2026-09-27 下一 nightly 后删掉本函数与 `_ensureSeed` 里的调用
-.github/workflows/bench-pr.yml#bench-pr-libdir-probe 2026-09-27 旧名彻底退役后删掉 `z42.ir` 那一档
+scripts/common/xtask_common.z42#relocate-seed-scripting-fallback 2026-09-27 含本改动的 nightly 成为种子后，删掉这个
+.github/workflows/bench-pr.yml#bench-pr-libdir-probe 2026-09-27 旧名/旧位置彻底退役后删掉后两档

@@ -8,8 +8,8 @@
 # builder.z42 / builder_commands.z42 / builder_new.z42 已接入）。
 #
 # 编译器接入 = **运行时动态注入**（dynamic-component-registration）：z42b 编译期仅依赖
-# z42.build 的 ICompiler 接口（stdlib）——**零 z42c 编译期依赖**，保持独立 exe +
-# stdlib-only 可构建（test-runner 角色不破）。build 动词运行时经 ModuleLoader.Load
+# z42.build 的 ICompiler 接口——**零 z42c 编译器程序依赖**，保持独立 exe（test-runner 角色不破；
+# 注意 z42.build 自身已属编译器域、不在 shipped libs/，见下方 [dependencies] 头注）。build 动词运行时经 ModuleLoader.Load
 # 加载 programs/z42c/z42c.pipeline.zpkg → 反射实例化 Z42cCompiler → as ICompiler 注入。
 # 换/升级编译器 = 替换 zpkg，z42b 零改动（见 builder.z42 _hostCompiler）。
 [project]
@@ -25,10 +25,15 @@ include = ["builder_cli.z42", "builder_test.z42", "builder_device.z42", "builder
            "builder_dev_targets.z42"]
 
 [dependencies]
-# stdlib-only — z42b doubles as the reflective test-runner, which the `stdlib [Test]`
-# build stage compiles with ONLY stdlib in Z42_LIBS. publish therefore inlines its
-# apphost patcher (builder_apphost.z42) rather than depending on z42.workload.desktop.
-# z42.build/z42.project 均为 stdlib（wire-z42b 阶段 1 / converge 已注册）→ 不破 stdlib-only。
+# z42b 同时是反射 test-runner，故刻意不依赖任何**编译器程序**（z42c.*）；publish 因此内联了
+# apphost patcher（builder_apphost.z42），而不是依赖 z42.workload.desktop。
+#
+# 🔴 **但它不再是「stdlib-only」了**（relocate-compiler-domain-libs，2026-09-27）：`z42.build` /
+# `z42.project` 已随整个编译器域挪去 `src/compiler/`，不在 shipped `libs/` 里。它们仍按**名字**
+# 依赖（下方未显式列出，经 `Z42_LIBS` 解析）—— 构建 z42b 的四个调用点一律传 alllibs
+# （stdlib + compiler 成员的扁平并集，见 `_buildZ42bWith` / `_ensureZ42b` 头注）。
+# 发布态则靠 `probing-paths = "../z42c"` 找它们（与 z42i 同形态），**不复制**。
+# ⇒ 这段注释原话是「z42.build/z42.project 均为 stdlib → 不破 stdlib-only」，挪动后已不成立。
 "z42.core"    = "0.1.0"   # String / core / Platform / Std.Reflection (Activator/Type)
 "z42.io"      = "0.1.0"   # Console / File / Directory / Path / Process / Environment
 "z42.cli"     = "0.1.0"   # Std.Cli nested router + ArgParser

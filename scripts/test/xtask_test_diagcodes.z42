@@ -656,7 +656,7 @@ int _testDiagCodes(bool update) {
     return 0;
 }
 
-string _dcRegistryPath() { return "src/libraries/z42c.core/src/DiagnosticCodes.z42"; }
+string _dcRegistryPath() { return "src/compiler/z42c.core/src/DiagnosticCodes.z42"; }
 string _dcDocPath() { return "docs/reference/src/appendix/error-codes.md"; }
 
 // 基线文件 → `<CODE> <relpath>` 行（`#` 注释与空行跳过）。读不到返回 -1。

@@ -310,7 +310,10 @@ design 把 `Classifier` / `Rewriter` 归进了 editing，**实际它们在 eval 
 - [ ] 3.2 `z42.package` / `z42.project` / `z42.build` → `z42c.*`（**并进同一批**：重命名成本主要在种子纪律
       与引用点扫描，合并做边际成本远低于两次）。
 - [ ] 3.3 support 先行、晚一个 nightly 再 use（[[bootstrap-seed]] 纪律）。
-- [ ] 3.4 `src/libraries/README.md` 那段「两类库（别混淆）」脚注**删除**——它存在的理由被 role + 命名
+- [x] 3.4 `src/libraries/README.md` 那段「两类库（别混淆）」脚注**已删除**
+      （由 `relocate-compiler-domain-libs` 提前兑现，2026-09-27：六个 `Z42.*` 包挪去 `src/compiler/`
+      ⇒ `src/libraries/` 实测只剩 `Std.*`、非 Std 根命名空间归零 ⇒ 那段散文不再为真、可以删）。
+      原文：它存在的理由被 role + 命名
       同时消灭。**这条是本批的验收信号**：补丁性散文能删掉，才说明机制真的替代了约定。
 
 ## 批 4 —— `z42c.abi` 契约包 ⏸️
