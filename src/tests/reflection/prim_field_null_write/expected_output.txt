@@ -1,0 +1,5 @@
+int field: threw
+int property: threw
+boxed struct int field: threw
+ref fields accept null
+prim field still writable: 123

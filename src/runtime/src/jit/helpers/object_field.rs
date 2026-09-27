@@ -242,10 +242,13 @@ pub unsafe extern "C" fn jit_field_set(
                     obj.type_desc.field_index.get(field_name).copied()
                 };
                 if let Some(slot) = slot_opt {
-                    obj.set_field_value(slot, &v);
+                    // fix-silent-prim-field-write: 传播被拒的基元编码（如 `Null` 写进 `int`）。
+                    obj.try_set_field_value(slot, &v)?;
                 }
+                Ok(())
             });
-            match res {
+            // 两层 Result：外层 = 栈句柄校验（stale/越界），内层 = 字段编码。
+            match res.and_then(|inner| inner) {
                 Ok(()) => 0,
                 Err(e) => { set_exception(vm_ctx_ref(ctx), Value::Str(e.to_string().into())); 1 }
             }
@@ -258,8 +261,13 @@ pub unsafe extern "C" fn jit_field_set(
                 if let Some(slot) = crate::metadata::resolver::field_ic_lookup(&*ic_ptr, recv_type) {
                     crate::metadata::resolver::assert_field_ic_slot(&b.type_desc, field_name, slot);
                     let slot = slot as usize;
-                    let wrote_ref = b.set_field_value(slot, &v);
+                    let r = b.try_set_field_value(slot, &v);
                     drop(b);
+                    // fix-silent-prim-field-write：先 drop 借用再置异常（别持着 borrow_mut 回调进 VM）。
+                    let wrote_ref = match r {
+                        Ok(w) => w,
+                        Err(e) => { set_exception(vm_ctx_ref(ctx), Value::Str(e.to_string().into())); return 1; }
+                    };
                     if wrote_ref && v.is_heap_ref() {
                         vm_ctx_ref(ctx).heap().write_barrier_field(&owner, slot, &v);
                     }
@@ -268,15 +276,25 @@ pub unsafe extern "C" fn jit_field_set(
                 let slot_opt = b.type_desc.field_index.get(field_name).copied();
                 if let Some(slot) = slot_opt {
                     crate::metadata::resolver::field_ic_install(&*ic_ptr, recv_type, slot as u32);
-                    let wrote_ref = b.set_field_value(slot, &v);
+                    let r = b.try_set_field_value(slot, &v);
                     drop(b);
+                    // fix-silent-prim-field-write：先 drop 借用再置异常（别持着 borrow_mut 回调进 VM）。
+                    let wrote_ref = match r {
+                        Ok(w) => w,
+                        Err(e) => { set_exception(vm_ctx_ref(ctx), Value::Str(e.to_string().into())); return 1; }
+                    };
                     if wrote_ref && v.is_heap_ref() {
                         vm_ctx_ref(ctx).heap().write_barrier_field(&owner, slot, &v);
                     }
                 }
             } else if let Some(&slot) = b.type_desc.field_index.get(field_name) {
-                let wrote_ref = b.set_field_value(slot, &v);
+                let r = b.try_set_field_value(slot, &v);
                 drop(b);
+                // fix-silent-prim-field-write：先 drop 借用再置异常（别持着 borrow_mut 回调进 VM）。
+                let wrote_ref = match r {
+                    Ok(w) => w,
+                    Err(e) => { set_exception(vm_ctx_ref(ctx), Value::Str(e.to_string().into())); return 1; }
+                };
                 if wrote_ref && v.is_heap_ref() {
                     vm_ctx_ref(ctx).heap().write_barrier_field(&owner, slot, &v);
                 }
@@ -289,3 +307,7 @@ pub unsafe extern "C" fn jit_field_set(
         }
     }
 }
+
+#[cfg(test)]
+#[path = "object_field_tests.rs"]
+mod object_field_tests;

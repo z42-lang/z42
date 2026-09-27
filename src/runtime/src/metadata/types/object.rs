@@ -296,12 +296,44 @@ impl ScriptObject {
     /// Returns `true` iff the target is a reference slot (so the caller fires a GC
     /// `write_barrier_field` when `v.is_heap_ref()`). No-op (returns `false`) for an
     /// out-of-range slot or struct-typed root. Replaces `self.slots[slot] = v`.
+    ///
+    /// **Infallible wrapper** over [`Self::try_set_field_value`]: a rejected primitive
+    /// encode is dropped. Use it ONLY where the value is constructed by the VM itself
+    /// and its type therefore cannot disagree with the slot (zero-init, GC test
+    /// harnesses, stamping a stack trace into an exception object). Any path that can
+    /// receive a value chosen by *user* code — reflection, the interpreter's `FieldSet`,
+    /// the JIT's field-store helper — must call `try_set_field_value` and propagate.
+    /// See `docs/spec/changes/fix-silent-prim-field-write/proposal.md`.
     #[inline]
     pub fn set_field_value(&mut self, slot: usize, v: &Value) -> bool {
-        let fa = match self.field_access_of(slot) { Some(f) => f, None => return false };
+        self.try_set_field_value(slot, v).unwrap_or(false)
+    }
+
+    /// Same as [`Self::set_field_value`], but surfaces a rejected primitive encode
+    /// instead of dropping it.
+    ///
+    /// 🔴 **Why this exists** (fix-silent-prim-field-write, 2026-09-27): the primitive
+    /// arm used to be `let _ = encode_prim(…)`. `encode_prim` *does* reject `Value::Null`
+    /// into any primitive slot, but throwing the `Result` away made
+    /// `FieldInfo.SetValue(obj, null)` on an `int` field **silently do nothing and
+    /// report success** — measured, and reachable from ordinary z42 code. The same
+    /// swallow also hid `PropertyInfo.SetValue(obj, null)`, whose value arrives through
+    /// the setter's own (correctly emitted) `FieldSet` — so this was never a
+    /// "the compiler must have mis-emitted" case that a `debug_assert` could cover.
+    ///
+    /// The asymmetry was the tell: of the 7 `encode_prim` call sites in the tree, 6
+    /// propagate with `?` (`exec_struct.rs` ×5, `reflection/accessors.rs`) and only this
+    /// one dropped it. Two sibling reflection paths (boxed-struct field, object-inlined
+    /// struct leaf) already threw, so "throw" was the house rule already — this aligns
+    /// the odd one out.
+    ///
+    /// ⚠️ Writing `Null` into a **reference** field (`string` / object / array) stays
+    /// perfectly legal: those return above, before `encode_prim` is ever reached.
+    pub fn try_set_field_value(&mut self, slot: usize, v: &Value) -> anyhow::Result<bool> {
+        let fa = match self.field_access_of(slot) { Some(f) => f, None => return Ok(false) };
         if fa.ref_slot >= 0 {
             self.set_ref_slot(fa.ref_slot as usize, v);
-            return true;
+            return Ok(true);
         }
         // PR-3 chunk 2b: an inlined direct object/array reference — write the 8B tagged
         // pointer into `bytes` (`Null`/non-heap → 0). Returns `true` so the caller still
@@ -310,9 +342,9 @@ impl ScriptObject {
             // add-incremental-major-gc M2a: the SATB barrier sees the reference being replaced.
             crate::gc::satb::record_overwrite(&read_inline_ref(&self.bytes(), fa.offset as usize, fa.tag == TAG_ARRAY));
             write_inline_ref(&mut self.bytes_mut(), fa.offset as usize, v);
-            return true;
+            return Ok(true);
         }
-        if fa.tag == TAG_UNKNOWN { return false; } // struct-typed root
+        if fa.tag == TAG_UNKNOWN { return Ok(false); } // struct-typed root
         // Reflection (FieldInfo/PropertyInfo SetValue) passes primitives **boxed**
         // (`int` → a `Std.Int32` `BoxedStruct`); a boxed primitive's bytes ARE its raw
         // scalar, so decode it with the field's tag/width to recover the plain `Value`
@@ -333,8 +365,8 @@ impl ScriptObject {
             }
             _ => v,
         };
-        let _ = encode_prim(&mut self.bytes_mut(), fa.offset as usize, fa.width as usize, fa.tag, src);
-        false
+        encode_prim(&mut self.bytes_mut(), fa.offset as usize, fa.width as usize, fa.tag, src)?;
+        Ok(false)
     }
 
     /// unify-object-byte-layout (PR-3 chunk 2b): visit the object's **byte-inlined**
