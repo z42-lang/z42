@@ -1,15 +1,26 @@
 use super::*;
 
-// ── zbc wire format version (mirror of C# ZbcWriter.VersionMajor/Minor) ──────
+// ── zbc wire format version (mirror of the z42 writer's Major/Minor) ─────────
 //
 // Strict-pin policy (freeze-zbc-v1, 2026-05-14):
 // reader accepts exactly major == ZBC_VERSION_MAJOR && minor == ZBC_VERSION_MINOR.
 // Bumping either requires synchronized update of:
-//   1. src/compiler/z42.IR/BinaryFormat/ZbcWriter.cs (VersionMajor / VersionMinor)
+//   1. src/libraries/z42.package/src/BinaryFormat/ZbcWriter.z42 (ZbcFormat.Major / .Minor)
 //   2. these two constants
 //   3. docs/internals/src/formats/zbc.md "Minor changelog" table
-//   4. src/tests/zbc-format/generate-fixtures.sh regen
-// See docs/internals/src/formats/zbc.md + docs/agent/rules/workflow.md for the full procedure.
+//   4. the committed byte baselines — BOTH src/tests/zbc-format/ AND
+//      src/tests/zpkg-format/; they regen by different commands
+//
+// ⚠️ This list is a convenience pointer, NOT the procedure. The procedure lives in
+// docs/agent/rules/version-bumping.md and has 9+ steps — notably step 5
+// (`cargo test --lib`, unfiltered) and step 9 (regen the zpkg-format fixtures,
+// which `xtask build test` does NOT touch). **Do not grow this comment into a
+// second copy of that doc**; it already rotted once:
+//
+// 🔴 2026-09-27（type-section-flags2-and-struct-fields）：四条里有两条指向不存在的东西 ——
+// 第 1 条指 `src/compiler/z42.IR/BinaryFormat/ZbcWriter.cs`（**C# 编译器 2026-06-26 已整体
+// 删除**），第 4 条指 `src/tests/zbc-format/generate-fixtures.sh`（**该脚本不存在**）。
+// 这就是「摘录一份规范放进代码注释」的必然结局：正本更新了，副本不会跟。
 
 pub const ZBC_VERSION_MAJOR: u16 = 1;
 // 2026-05-30 add-test-timeout-attribute: TIDX v=3 carries per-test
@@ -181,7 +192,17 @@ pub const ZBC_VERSION_MAJOR: u16 = 1;
 // SIGS / TYPE / FUNC changes accordingly; `Tag.FromName` rebinds the narrow integer
 // family onto the keywords (return-type tags stay one-for-one, and the keyword
 // spellings that used to fall through to Object(0x20) now get their correct tag).
-pub const ZBC_VERSION_MINOR: u16 = 44;
+// 2026-09-27 type-section-flags2-and-struct-fields: bumped to 1.45 — the TYPE record
+// gains (1) an **always-present `class_flags2:u16`** right after `visibility`, and
+// (2) a `class_flags2` bit0-gated **per-field struct layout table** after the struct
+// reference-bitmap block (`field_count:u16 + (off:u32, size:u32, kind:u8)×n`, parallel
+// to `fields`). Both are **A-support**: written, symmetrically consumed by both readers,
+// used by nobody yet (same discipline as the 1.34 object block's dormant metadata).
+//
+// Why a second flags word: `class_flags` is a u8 with all 8 bits taken. Running out
+// already cost something concrete — the 1.33/1.34 object block had to be gated by a
+// **derived predicate** mirrored on both sides instead of a flag bit.
+pub const ZBC_VERSION_MINOR: u16 = 45;
 
 // ── zpkg wire format version (mirror of C# ZpkgWriter.VersionMajor/Minor) ────
 //
@@ -305,7 +326,10 @@ pub const ZPKG_VERSION_MAJOR: u16 = 0;
 // 2026-09-22 drop-short-primitive-aliases: bumped to 0.49 — embeds zbc 1.44
 // (canonical primitive spelling short-name -> C# keyword). No zpkg-outer layout change;
 // the bump triggers ci-bootstrap's version-diff two-gen self-host.
-pub const ZPKG_VERSION_MINOR: u16 = 49;
+// 2026-09-27 type-section-flags2-and-struct-fields: bumped to 0.50 — embeds zbc 1.45
+// (TYPE record: always-present class_flags2 + gated per-field struct layout table).
+// Outer layout unchanged.
+pub const ZPKG_VERSION_MINOR: u16 = 50;
 
 // ── Strict-pin header verification ────────────────────────────────────────────
 //

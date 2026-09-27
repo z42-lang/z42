@@ -344,6 +344,9 @@ public static class ZbcWriter {
             }
             w.WriteU8(cd.Flags);   // class-shape flags（zbc 1.12，G12）：abstract/sealed/struct/record
             w.WriteU8(cd.Visibility);   // enforce-class-access（zbc 1.33）：类声明可见性 0/1/2/3（紧随 Flags）
+            // class_flags2（zbc 1.45）：always-present u16。既有 `Flags` 是 u8 且 8 位用满 —— 位用光的
+            // 后果已现形（对象块只能用推导谓词当闸门、判据两侧各抄一份）。bit0 = HAS_STRUCT_FIELD_TABLE。
+            w.WriteU16(cd.Flags2);
             w.WriteU16(cd.StaticFieldCount);   // static-fields count（zbc 1.13；SA-3）
             int sf = 0;
             while (sf < cd.StaticFieldCount) {
@@ -401,6 +404,20 @@ public static class ZbcWriter {
                     w.WriteU32(cd.StructRefOffsets[srl]);
                     w.WriteU8(cd.StructRefKinds[srl]);
                     srl = srl + 1;
+                }
+            }
+            // 值 struct 的**逐字段**布局表（zbc 1.45）：Flags2 bit0 gated，紧随 struct 引用位图块。
+            // field_count:u16 + (off:u32, size:u32, kind:u8)×n，**同序平行于 Fields**（名/类型名不重复承载）。
+            // 🔴 承载它是为了让运行期**有可能**自己解析 struct 字段偏移 —— 那是「泛型必须按实例化
+            // 单态化」的唯一实际动因（见 IrModule 里 StructField* 的头注）。本 change 只承载、无人消费。
+            if ((cd.Flags2 & 1) != 0) {
+                w.WriteU16(cd.StructFieldCount);
+                int sfl = 0;
+                while (sfl < cd.StructFieldCount) {
+                    w.WriteU32(cd.StructFieldOffsets[sfl]);
+                    w.WriteU32(cd.StructFieldSizes[sfl]);
+                    w.WriteU8(cd.StructFieldKinds[sfl]);
+                    sfl = sfl + 1;
                 }
             }
             // 合成内联 struct 布局块（zbc 1.32，add-struct-heap-inline P3b）：Flags bit7(0x80)=class 有内联

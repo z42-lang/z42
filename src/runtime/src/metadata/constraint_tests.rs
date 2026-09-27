@@ -29,6 +29,8 @@ fn simple_class(name: &str) -> ClassDesc {
             object_layout: None,
         class_flags: 0,
         visibility: 0,
+        class_flags2: 0,
+        struct_field_table: Box::new([]),
         name: name.to_owned(),
         base_class: None,
         fields: Box::new([]),
