@@ -351,11 +351,11 @@ fn version_bumping_coordinate_table_matches_the_real_constants() {
 fn writer_and_reader_pin_the_same_format_versions() {
     let root = repo_root();
     let zbc_w = std::fs::read_to_string(
-        root.join("src/libraries/z42.package/src/BinaryFormat/ZbcFormat.z42"),
+        root.join("src/compiler/z42.package/src/BinaryFormat/ZbcFormat.z42"),
     )
     .expect("read ZbcFormat.z42");
     let zpkg_w =
-        std::fs::read_to_string(root.join("src/libraries/z42.package/src/ZpkgWriter.z42"))
+        std::fs::read_to_string(root.join("src/compiler/z42.package/src/ZpkgWriter.z42"))
             .expect("read ZpkgWriter.z42");
 
     assert_eq!(
