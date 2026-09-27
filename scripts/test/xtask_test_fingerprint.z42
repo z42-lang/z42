@@ -34,7 +34,20 @@ string _fingerprintSourceOf(string tree) {
 
 int _fpEntryCount(string tree) {
     string t = _fingerprintSourceOf(tree);
-    if (t.Length == 0) { return -1; }
+    // 🔴 **过渡期回落**：base 树可能早于 fingerprint-content-derived，那时指纹还是
+    // `CacheStore.z42` 里的一个 int 常量、`CompilerFingerprint.z42` 根本不存在。
+    // 没有这条回落，守门读出 -1 并判「读不到版本常量」⇒ **换方案的那个 PR 自己必红**
+    // （实测：`base -1/44/49 · 本树 2/44/49` ⇒ ✗）。
+    //
+    // 回落后：base 读出旧的整数（如 41）、本树读出条目数（如 2）⇒ 两者不同 ⇒ 守门正确地
+    // 认为「编译器身份已变」—— 而那确实是事实：换表示本身就让所有旧 `.meta` 失效。
+    //
+    // ⚠️ 这条回落在两侧都有新文件之后就永远走不到了，但**先留着**：它同时护住
+    // 「拿很旧的 base 跑守门」这个合法用法（`--base <任意旧树>`）。
+    if (t.Length == 0) {
+        return _srcIntConst(Path.Join(tree, "src/compiler/z42c.pipeline/src/CacheStore.z42"),
+            "public static int CompilerFingerprint = ");
+    }
     // 数 `Entries` 初始化块里的字符串字面量行（每条一行，见该文件的「只许追加」纪律）。
     int k = t.IndexOf("Entries = new string[]");
     if (k < 0) { return -1; }
