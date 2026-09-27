@@ -22,6 +22,10 @@ use std::sync::Arc;
 pub const CLASS_FLAG_ABSTRACT: u8 = 1 << 0;
 pub const CLASS_FLAG_SEALED: u8 = 1 << 1;
 pub const CLASS_FLAG_STRUCT: u8 = 1 << 2;
+/// type-section-flags2-and-struct-fields (zbc 1.45): `class_flags2` bit0 —— the
+/// per-field struct layout table is present. **A flag bit, not a derived predicate**:
+/// that distinction is the whole reason `class_flags2` exists (see `ClassDesc::class_flags2`).
+pub const CLASS_FLAGS2_HAS_STRUCT_FIELD_TABLE: u16 = 1 << 0;
 pub const CLASS_FLAG_RECORD: u8 = 1 << 3;
 /// add-reflection-interface-class-predicates (zbc 1.19): set on the minimal
 /// TYPE entry emitted for an `interface`. Backs `Type.IsInterface`; excluded
@@ -88,6 +92,40 @@ pub struct ClassDesc {
     /// `TypeDesc::visibility` for `Type.IsPublic` / `IsNestedPrivate` etc. reflection.
     #[serde(default)]
     pub visibility: u8,
+    /// type-section-flags2-and-struct-fields (zbc 1.45): the **second** class-flags
+    /// word (u16), always present, immediately after `visibility`.
+    ///
+    /// Why a second word: `class_flags` is a `u8` and **all 8 bits are taken**
+    /// (abstract/sealed/struct/record/interface/enum/has-inline-struct/…). Running out
+    /// already cost us something concrete: the zbc 1.33/1.34 object-field block could not
+    /// get a flag bit, so it is gated by a **derived predicate** ("not struct / interface /
+    /// enum / delegate") that is **mirrored on both sides** — see `object_layout_desc`
+    /// below and the writer's `(cd.Flags & 116) == 0`. That mirroring is exactly the
+    /// duplicated-criterion pattern the 2026-09 structural audit calls R2.
+    ///
+    /// bit0 = `CLASS_FLAGS2_HAS_STRUCT_FIELD_TABLE`. Other bits reserved.
+    #[serde(default)]
+    pub class_flags2: u16,
+    /// type-section-flags2-and-struct-fields (zbc 1.45): per-field byte layout of a
+    /// **value struct** — parallel to `fields` (same order, same length), each entry
+    /// `(offset, size, kind)`. Names and type names are **not** repeated here;
+    /// `fields[i].name` / `.field_type` already carry them.
+    ///
+    /// Gated by `class_flags2 bit0` (not by a derived predicate — that is the point of
+    /// having a second flags word).
+    ///
+    /// 🔴 Why it exists: `StructFieldGetPrim/SetPrim` bake the byte offset as an
+    /// **immediate** today, and that baking is the **only live driver** of "a generic
+    /// instantiation needs its own body" (`IrGen.InstNeedsOwnBody`'s other reason,
+    /// `DefHasStaticState`, measures **zero** in product code). Shipping per-field offsets
+    /// is what makes runtime resolution *possible* at all — the prerequisite for symbolic
+    /// struct field access (`symbolic-struct-field-access` proposal, P0).
+    ///
+    /// ⚠️ **Dormant in this change**: parsed and stored, consumed by nobody yet — same
+    /// discipline as `object_layout_desc` ("PR-1 dormant metadata"): support first, use one
+    /// nightly later (`bootstrap-seed.md`).
+    #[serde(default)]
+    pub struct_field_table: Box<[StructFieldEntry]>,
     /// add-reflection-static-fields (zbc 1.13): the class's static fields
     /// (separate from `fields`, which is the instance layout). Threaded into
     /// `TypeDescCold::static_fields`; surfaced by `Type.GetFields()` with
@@ -167,6 +205,16 @@ pub struct ObjectLayoutDesc {
 /// `ClassDesc` (parsed from the zbc TYPE-section struct block). `size` = byte-blob
 /// size; `ref_offsets` / `ref_kinds` = each reference leaf's byte offset + kind
 /// (`STRUCT_REF_*`), parallel arrays. Pure-primitive structs have empty ref arrays.
+/// type-section-flags2-and-struct-fields (zbc 1.45): one direct field's byte layout
+/// inside a value-struct blob. Parallel to `ClassDesc::fields` by index.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct StructFieldEntry {
+    pub offset: u32,
+    pub size: u32,
+    /// `StructLeafKind`: 0=Prim / 1=ArcString / 2=GcRef / 3=Struct / 4=GcRefArray / 5=GcRefClosure.
+    pub kind: u8,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct StructLayoutDesc {
     pub size: u32,

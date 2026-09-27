@@ -93,6 +93,12 @@ pub(super) fn read_type(sec: &[u8], pool: &[String]) -> Result<Vec<ClassDesc>> {
         // reference enforcement; complete-class-access-control surfaces it as
         // `Type.IsPublic` etc. reflection (stored into ClassDesc.visibility below).
         let class_visibility = c.read_u8()?;
+        // type-section-flags2-and-struct-fields (zbc 1.45): the second class-flags word
+        // (u16), always present, right after visibility. `class_flags` is a u8with all 8
+        // bits taken; running out already forced the 1.33/1.34 object block onto a
+        // *derived* predicate mirrored on both sides. Must be consumed even when no bit
+        // is set — skipping it desynchronises the cursor for every later field.
+        let class_flags2 = c.read_u16()?;
         // add-reflection-static-fields (zbc 1.13): static fields block (same
         // shape as the instance fields block above).
         let static_count = c.read_u16()? as usize;
@@ -186,6 +192,26 @@ pub(super) fn read_type(sec: &[u8], pool: &[String]) -> Result<Vec<ClassDesc>> {
         } else {
             None
         };
+        // type-section-flags2-and-struct-fields (zbc 1.45): per-field struct layout table,
+        // gated by `class_flags2` bit0 and following the struct reference-bitmap block.
+        // Layout: field_count:u16 + (off:u32, size:u32, kind:u8)×n, parallel to `fields`.
+        // **Dormant**: stored, consumed by nobody yet (same as the 1.34 object block was).
+        let struct_field_table = if class_flags2
+            & crate::metadata::bytecode::CLASS_FLAGS2_HAS_STRUCT_FIELD_TABLE
+            != 0
+        {
+            let n = c.read_u16()? as usize;
+            let mut v = Vec::with_capacity(n);
+            for _ in 0..n {
+                let offset = c.read_u32()?;
+                let size = c.read_u32()?;
+                let kind = c.read_u8()?;
+                v.push(crate::metadata::bytecode::StructFieldEntry { offset, size, kind });
+            }
+            v.into_boxed_slice()
+        } else {
+            Box::new([]) as Box<[crate::metadata::bytecode::StructFieldEntry]>
+        };
         // add-struct-heap-inline (P3b, zbc 1.32): trailing inline-struct layout block,
         // present only when CLASS_FLAG_HAS_INLINE_STRUCT. Same shape as the struct block
         // (size:u32 + ref_count:u16 + (byte_off:u32, kind:u8)×n) — the class's composed
@@ -266,6 +292,8 @@ pub(super) fn read_type(sec: &[u8], pool: &[String]) -> Result<Vec<ClassDesc>> {
             attributes: attributes.into_boxed_slice(),
             class_flags,
             visibility: class_visibility,
+            class_flags2,
+            struct_field_table,
             static_fields: static_fields.into_boxed_slice(),
             interfaces: interfaces.into_boxed_slice(),
             enum_members,

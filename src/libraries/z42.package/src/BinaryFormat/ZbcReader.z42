@@ -350,6 +350,9 @@ public static class ZbcReader {
             }
             cd.Flags = c.U8();
             cd.Visibility = c.U8();   // enforce-class-access（zbc 1.33）：类声明可见性字节（紧随 Flags）
+            // class_flags2（zbc 1.45）：always-present u16，紧随 Visibility。**必须与 ZbcWriter 对称** ——
+            // 不读会致游标错位、后续字段读越界（同 struct 块那条注释的理由）。
+            cd.Flags2 = c.U16();
             int sfc = c.U16();
             cd.StaticFields = new IrFieldDesc[sfc]; cd.StaticFieldCount = sfc;
             int sf = 0;
@@ -422,6 +425,20 @@ public static class ZbcReader {
                     cd.StructRefOffsets[srx] = c.U32();
                     cd.StructRefKinds[srx] = c.U8();
                     srx = srx + 1;
+                }
+            }
+            // 值 struct 的逐字段布局表（zbc 1.45）：Flags2 bit0 gated，紧随上面的引用位图块。
+            // 同样**必须对称消费**，否则游标错位。
+            if ((cd.Flags2 & 1) != 0) {
+                int sfc = c.U16();
+                cd.StructFieldOffsets = new int[sfc]; cd.StructFieldSizes = new int[sfc];
+                cd.StructFieldKinds = new int[sfc]; cd.StructFieldCount = sfc;
+                int sfx = 0;
+                while (sfx < sfc) {
+                    cd.StructFieldOffsets[sfx] = c.U32();
+                    cd.StructFieldSizes[sfx] = c.U32();
+                    cd.StructFieldKinds[sfx] = c.U8();
+                    sfx = sfx + 1;
                 }
             }
             // 合成内联 struct 布局块（zbc 1.32，add-struct-heap-inline P3b）：Flags bit7(0x80) gated，随 struct 块之后。

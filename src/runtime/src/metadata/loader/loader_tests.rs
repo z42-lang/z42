@@ -200,6 +200,8 @@ fn module_with_one_class(
             object_layout: None,
             class_flags: 0,
             visibility: 0,
+            class_flags2: 0,
+            struct_field_table: Box::new([]),
             name: name.to_owned(),
             base_class: base.map(str::to_owned),
             fields: fields.into_iter().map(|(n, t)| FieldDesc {
@@ -790,6 +792,8 @@ fn module_with_class_names(name: &str, names: &[&str]) -> crate::metadata::bytec
             object_layout: None,
             class_flags: 0,
             visibility: 0,
+            class_flags2: 0,
+            struct_field_table: Box::new([]),
             name: (*n).to_owned(),
             base_class: None,
             fields: Box::new([]),

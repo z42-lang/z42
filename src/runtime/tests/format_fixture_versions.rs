@@ -36,12 +36,12 @@ fn tests_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../tests")
 }
 
-/// Header prelude shared by both containers: 4-byte magic, then `major` and
-/// `minor` as little-endian `u16`.
-fn read_header(path: &Path) -> (String, u16, u16) {
+/// Header prelude shared by both containers: 4-byte magic, then `major`,
+/// `minor` and `flags` as little-endian `u16`s (offsets 4, 6, 8).
+fn read_header(path: &Path) -> (String, u16, u16, u16) {
     let bytes = std::fs::read(path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
     assert!(
-        bytes.len() >= 8,
+        bytes.len() >= 10,
         "{} is too short to hold a format header ({} bytes)",
         path.display(),
         bytes.len()
@@ -49,7 +49,8 @@ fn read_header(path: &Path) -> (String, u16, u16) {
     let magic = String::from_utf8_lossy(&bytes[0..3]).to_string();
     let major = u16::from_le_bytes([bytes[4], bytes[5]]);
     let minor = u16::from_le_bytes([bytes[6], bytes[7]]);
-    (magic, major, minor)
+    let flags = u16::from_le_bytes([bytes[8], bytes[9]]);
+    (magic, major, minor, flags)
 }
 
 /// Every `<dir>/<name>` directly under `src/tests/<category>` that contains
@@ -74,7 +75,7 @@ fn assert_all(paths: &[PathBuf], want_magic: &str, want_major: u16, want_minor: 
     );
     let mut stale = Vec::new();
     for p in paths {
-        let (magic, major, minor) = read_header(p);
+        let (magic, major, minor, _flags) = read_header(p);
         assert_eq!(magic, want_magic, "{}: unexpected magic {magic:?}", p.display());
         if (major, minor) != (want_major, want_minor) {
             stale.push(format!("  {} is {major}.{minor}", p.display()));
@@ -118,5 +119,39 @@ fn committed_zpkg_baselines_match_the_current_writer() {
         "Fix: rebuild each fixture from its committed `<name>.z42.toml` \
          (see src/tests/zpkg-format/README.md) and commit the result \
          (docs/agent/rules/version-bumping.md step 9).",
+    );
+}
+
+/// `FlagSymOnly` in the ZPK container header's `flags` u16 — the bit that says
+/// "these are `.zsym` debug-symbol sidecar bytes, not a loadable package".
+const ZPKG_FLAG_SYM_ONLY: u16 = 0x04;
+
+/// 🔴 **Why this test exists** (found while bumping to zpkg 0.50, 2026-09-27):
+/// the version gate above checks only the header's `major.minor`, so a fixture
+/// can hold *entirely the wrong kind of file* and stay green forever. That is
+/// exactly what had happened: `sym-only-sidecar/source.zpkg` — documented by its
+/// own `sym-only-sidecar.z42.toml` as "the `.zsym` sidecar bytes (META + STRS +
+/// MDBG + BLID), **not** the main zpkg" — was in fact the **main packed zpkg**
+/// (flags = `Packed` only, 8 sections, 535 bytes). A past regen had copied
+/// `dist/demo.sidecar.zpkg` instead of `dist/demo.sidecar.zsym`. The sym-only
+/// sidecar shape therefore had **zero** byte-level coverage while its gate was
+/// green — a gate watching identity (the version number) instead of liveness
+/// (is this still the shape it claims to be).
+///
+/// So: pin the *shape*, not just the version. Cheap, and it cannot rot silently.
+#[test]
+fn sym_only_fixture_really_holds_sidecar_bytes() {
+    let p = tests_root().join("zpkg-format/sym-only-sidecar/source.zpkg");
+    let (magic, _major, _minor, flags) = read_header(&p);
+    assert_eq!(magic, "ZPK", "{}: unexpected magic {magic:?}", p.display());
+    assert_ne!(
+        flags & ZPKG_FLAG_SYM_ONLY,
+        0,
+        "{} does not have FlagSymOnly set (flags = {flags:#06x}) — it is a main \
+         package, not the .zsym sidecar this fixture is supposed to freeze.\n\
+         Fix: rebuild it from sym-only-sidecar.z42.toml with --release and commit \
+         `dist/demo.sidecar.zsym` (NOT dist/demo.sidecar.zpkg) as source.zpkg \
+         (see src/tests/zpkg-format/README.md).",
+        p.display()
     );
 }

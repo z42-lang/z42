@@ -320,6 +320,14 @@ public sealed partial class ClassDescBuilder {
                 cd2.StructRefOffsets = li.RefLeafOffsets;
                 cd2.StructRefKinds = li.RefLeafKinds;
                 cd2.StructRefCount = li.RefLeafCount;
+                // 逐字段布局表（zbc 1.45）：数据早就算好了（`StructLayoutInfo.Field*`），此前只是
+                // 没写进 wire。bit0 = HAS_STRUCT_FIELD_TABLE，让新块**按位 gated**而不是再抄一个
+                // 推导谓词（对象块那条闸门就是因为 Flags 位用光才只能抄谓词）。
+                cd2.StructFieldOffsets = li.FieldOffsets;
+                cd2.StructFieldSizes = li.FieldSizes;
+                cd2.StructFieldKinds = li.FieldKinds;
+                cd2.StructFieldCount = li.FieldCount;
+                if (li.FieldCount > 0) { cd2.Flags2 = cd2.Flags2 | 1; }
             }
         }
         // add-struct-heap-inline (P3b，zbc 1.32)：非-struct class 有内联 struct 字段（`class C { Point pt; }`）→
