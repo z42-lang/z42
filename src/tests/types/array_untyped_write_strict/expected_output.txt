@@ -1,0 +1,8 @@
+int[] <- null  : threw
+int[] <- string: threw
+int[] <- double: threw
+double[] <- int : threw
+normal paths still write
+ref array accepts null
+copy string[]->int[]: threw
+same-type copy unaffected

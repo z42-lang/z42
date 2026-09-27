@@ -129,12 +129,27 @@ pub enum ArrayBacking {
 /// - 「类型不符」是编译器该在 `ArraySet` / `ArrayNewLit` 站点转换/拆箱掉的事，**不是用户的错**，
 ///   所以 release 放行、保持今天的行为（不拿用户崩溃换诊断能力）；
 /// - 若若干版本一直不响，再按 `gc/refs.rs` 那条先例考虑提升为无条件 `assert!`。
+///
+/// ⚠️ **2026-09-27（fix-silent-array-elem-zero）划清了适用范围**：上面第二条
+/// 「不是用户的错」**只对 IR 站点（`ArraySet` / `ArrayNewLit`）成立** —— 那里编译器确实该先
+/// 转换。它**不适用于无类型 API**：`Std.Array.SetValue(Object value, int index)` 的形参声明
+/// 就是 `Object`、`Array.CopyRange` 的两侧元素类型可不同，**没有任何编译器站点能转换它们**，
+/// 值是用户给的。实测那两条路在 release 下静默把 `int[0]` 从 9 变成 **0**（连
+/// `double[] <- 整数` 这种在 C# 合法的写法也一样），故它们已改走
+/// [`ArrayObj::try_set_boxed`] / 前置逐元素校验，**两个 profile 都报错**。
+/// ⇒ 本函数现在只服务 IR 那一类调用方。
 #[inline]
 pub(super) fn prim_value_mismatch(val: &Value, backing: &str, site: &str) {
     debug_assert!(false,
         "array {site}: {backing} backing got a non-matching Value ({val:?}) — stored a zero. \
-         The compiler should have converted/unboxed before this point; a silent zero is \
-         indistinguishable from a legitimate write.");
+         A silent zero is indistinguishable from a legitimate write.\n\
+         → From an IR `ArraySet` / `ArrayNewLit`: the COMPILER should have converted/unboxed at \
+         that site — that is the bug to fix (this is what the debug-only policy below is for).\n\
+         → From an UNTYPED API (`Std.Array.SetValue(Object, int)`, or `Array.CopyRange` across \
+         element types): the value came from user code and NO compiler site could have converted \
+         it. Those two paths validate up front and raise instead (`try_set_boxed`, change \
+         fix-silent-array-elem-zero) — reaching here from them means a validation path was \
+         bypassed, so add the check there rather than relaxing this assert.");
 }
 
 impl ArrayObj {
