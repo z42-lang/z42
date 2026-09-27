@@ -18,6 +18,7 @@
 | `src/Symbol.z42` | 符号模型（MethodSymbol / FieldSymbol）+ Z42FuncType 签名 |
 | `src/CallParams.z42` | **按名字找形参的唯一出处**（`fix-crosspkg-named-args`）：`CanName` / `Count` / `IndexOf`——本地看 `MethodDecl`、导入看 `Z42FuncType.ParamNames`。`OverloadResolver.Map`（重载决议）与 `OverloadBinder._adaptArgs`（实参归位）共用。机制见 [book 命名实参](../../../docs/reference/src/language/named-arguments.md) |
 | `src/StrMap.z42` | 非泛型 hashed map（string→object，开放寻址）—— 规避类字段泛型限制 |
+| `src/TypeIntern.z42` | **名义身份 intern 表**（`enforce-fqn-name-identity` B1）：稠密 id ↔ `Z42Type`。目的不是加速查表，是让 B3/B4 把 `InterfaceNames`/`BaseNames`/`BaseName` 从**字符串**换成句柄后，「往符号表塞一个裸名」**写不出来**。id 从 1 起、0=未登记；状态按引用共享（per-file 视图各拷计数会撞 id） |
 | `src/SymbolTable.z42` | 类名→Z42ClassType / 顶层函数表 + `ResolveType`（TypeExpr→Z42Type 桥） |
 | `src/SymbolCollector.z42` | Pass 0 **hub**：3 编排入口（Collect / CollectWithImports / CollectAll）顺序调各簇 pass + imported 种子 + 共享辅助（_unwrap/_vis/_hasWord/_chkTypeRef/_methodSymbol + 静态 IsProtocolExempt/_isConvOp）+ partial 状态。实际 pass 分入下列 4 簇（`refactor-symbolcollector-concern-split`，hub+spoke）。机制见 [book sealed](../../../docs/reference/src/language/sealed.md) |
 | `src/StubCollector.z42` | Pass A 骨架簇：interface / enum(+常量) / class stub（arity-mangle + partial 碎片合并）/ delegate 注册——建符号表骨架使成员类型可解析兄弟类 |

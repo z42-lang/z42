@@ -1,0 +1,57 @@
+// 名义身份 intern 表（enforce-fqn-name-identity B1）。
+//
+// 目的**不是**加速查表，是让「裸名」在符号表里最终**无法表达**：
+// B3/B4 会把 `Z42ClassType.InterfaceNames` / `Z42InterfaceType.BaseNames` / `.BaseName`
+// 这些**字符串**名义引用换成 `TypeRef`（= 本表的 id）。到那时，
+// 「某处塞进一个短名」不再是「靠注释和门去防的约定」，而是**类型不对、编译期就红**。
+//
+// 本批（B1）只建 id、**零消费方** —— 行为与产物字节都必须恒等。
+//
+// 设计要点：
+//   · **id 从 1 开始，0 = 未登记**。z42 字段默认 0；若让 0 当合法 id，任何漏登记的类型
+//     都会静默地"看起来像 id 0 那个类型"。用 -1 当哨兵则要在每个 Z42Type 子类 ctor 里
+//     赋值（多生产点，必漏）—— 那正是本仓反复吃亏的形状。
+//   · **稠密 id + 数组索引**：仓里没有整数键表（无 IntMap），而 `StrMap` 的值是 object、
+//     存 int 要装箱。id→类型走数组，消费期零哈希；FQN→id 直接复用既有的
+//     `ClassesByFqn` / `InterfacesByFqn`（查到对象再读它的 `TypeId`），不新建第二张表。
+//   · **状态必须是独立对象、按引用共享**：`SymbolTable.WithAliases` 给每个文件建视图，
+//     若把 `_count` 做成 SymbolTable 的 int 字段，各视图会各拷一份计数、分配出**冲突的 id**。
+//     故装进本类，视图间共享同一个实例（并行段内只读，与其余共享字段同纪律）。
+namespace Z42.Semantics;
+using Z42.IR;
+
+public sealed class TypeIntern {
+    private Z42Type[] _byId;
+    private int       _count;   // 已分配的 id 数；下一个 id = _count + 1
+
+    public TypeIntern() {
+        this._byId = new Z42Type[64];
+        this._count = 0;
+    }
+
+    // **唯一**赋 id 出口。幂等：已登记的原样返回既有 id。
+    public int Of(Z42Type t) {
+        if (t == null) { return 0; }
+        if (t.TypeId > 0) { return t.TypeId; }
+        if (this._count + 1 >= this._byId.Length) {
+            Z42Type[] bigger = new Z42Type[this._byId.Length * 2];
+            int i = 0;
+            while (i < this._byId.Length) { bigger[i] = this._byId[i]; i = i + 1; }
+            this._byId = bigger;
+        }
+        this._count = this._count + 1;
+        this._byId[this._count] = t;
+        t.TypeId = this._count;
+        return this._count;
+    }
+
+    // id → 类型对象；越界 / 未登记 → null（**不抛**：B3 之前仍有大量字符串路径共存，
+    // 这里响亮化会在迁移中途误伤；门由 `SymbolTable.FirstUninternedKey` 单独把守）。
+    public Z42Type At(int id) {
+        if (id <= 0) { return null; }
+        if (id > this._count) { return null; }
+        return this._byId[id];
+    }
+
+    public int Count() { return this._count; }
+}

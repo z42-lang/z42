@@ -817,3 +817,38 @@ void test_iface_single_ns_is_not_ambiguous() {
     Assert.Equal(1, t.IfaceNsOf("IA").Length);
     Assert.Equal(false, t.IsBareIfaceNameAmbiguous("IA"));
 }
+
+// ── enforce-fqn-name-identity B1：名义身份 intern ────────────────────────────
+// 🔴 **这是那道门**：四张类型表里每个类型都必须拿到 id。`InternAllTypes` 是一次性扫，
+// 将来有人在扫之后新加登记点，那个类型会静默留 `TypeId == 0` —— 本用例让它变红。
+[Test]
+void test_all_registered_types_are_interned() {
+    var t = collect("namespace Demo; interface IA { } class Foo : IA { } class Bar : Foo { }");
+    Assert.Equal("", t.FirstUninternedKey());
+}
+
+// id 稠密且从 1 开始（0 保留给「未登记」—— z42 字段默认 0，让 0 当合法 id 的话
+// 任何漏登记都会静默地"看起来像 id 0 那个类型"）。
+[Test]
+void test_intern_ids_start_at_one_and_roundtrip() {
+    var t = collect("namespace Demo; interface IA { } class Foo : IA { }");
+    var foo = t.GetClass("Foo");
+    Assert.Equal(true, foo.TypeId > 0);
+    Assert.Equal(true, t.Intern.At(foo.TypeId) == foo);   // id → 对象往返
+    // ⚠️ 不能写 `Assert.Equal(null, ...)` —— 实测崩 `VCall: expected object, got Null`
+    // （null 接收者松绑定，运行期崩且不可捕获）。判空要做在表达式里。
+    Assert.Equal(true, t.Intern.At(0) == null);           // 0 = 未登记
+    Assert.Equal(true, t.Intern.At(999999) == null);      // 越界给 null，不越界读
+}
+
+// 幂等：重复 intern 同一个类型不分配新 id（`InternAllTypes` 在多轮 collect 里会被反复调）。
+[Test]
+void test_intern_is_idempotent() {
+    var t = collect("namespace Demo; interface IA { } class Foo : IA { }");
+    var foo = t.GetClass("Foo");
+    int before = foo.TypeId;
+    int n = t.Intern.Count();
+    t.InternAllTypes();
+    Assert.Equal(before, foo.TypeId);
+    Assert.Equal(n, t.Intern.Count());
+}

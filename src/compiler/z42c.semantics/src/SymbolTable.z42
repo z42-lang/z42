@@ -57,6 +57,10 @@ public sealed partial class SymbolTable {
     // `IsBareNameAmbiguous` 立刻对 11 个 prelude 协议名全仓开火。两表合一是阶段 3 的事；
     // 届时 `IsBareIfaceNameAmbiguous` 与 `IsBareNameAmbiguous` 要**一起塌成一个**，别各自漂移。
     public StrMap IfaceNsAll;
+    // enforce-fqn-name-identity B1：名义身份 intern 表（见 TypeIntern.z42 抬头）。
+    // ⚠️ **必须是对象、按引用共享** —— 做成 SymbolTable 的 int 计数字段的话，
+    // `WithAliases` 的每个 per-file 视图会各拷一份计数、分配出**冲突的 id**。
+    public TypeIntern Intern;
     // report-crosspkg-duplicate-type：**FQN → 声明它的全部依赖包名**（值 StrBox，"|" 连接）。
     // 与 ClassNsAll 同构、但另一根轴：那张表答「同一个短名有几个 ns」（E0456），这张答
     // 「同一个 **FQN** 有几个来源包」（E0601）。两者不可合并 —— 同 FQN 跨包时 ns 完全相同，
@@ -117,6 +121,7 @@ public sealed partial class SymbolTable {
         this.Delegates = new StrMap();
         this.ClassNsAll = new StrMap();
         this.IfaceNsAll = new StrMap();   // enforce-fqn-name-identity 阶段 2
+        this.Intern = new TypeIntern();   // enforce-fqn-name-identity B1
         this.ClassPkgAll = new StrMap();   // report-crosspkg-duplicate-type
         this.FuncOriginAll = new StrMap();   // report-crosspkg-duplicate-function
         this.DeclaredDeps = new StrMap();    // fix-crosspkg-ns-reachability
@@ -159,6 +164,7 @@ public sealed partial class SymbolTable {
         t.Delegates = this.Delegates;
         t.ClassNsAll = this.ClassNsAll;   // add-bare-name-ambiguity-diagnostic：共享（并行段内只读）
         t.IfaceNsAll = this.IfaceNsAll;   // enforce-fqn-name-identity 阶段 2：共享（并行段内只读）
+        t.Intern = this.Intern;           // B1：**必须共享同一实例**（各视图各自分配会撞 id）
         t.ClassPkgAll = this.ClassPkgAll;   // report-crosspkg-duplicate-type：共享（并行段内只读）。⚠️ 漏了这行 = 门恒不响
         t.FuncOriginAll = this.FuncOriginAll;   // report-crosspkg-duplicate-function：同上，漏了这行门就恒不响
         t.DeclaredDeps = this.DeclaredDeps;     // fix-crosspkg-ns-reachability：同上三行，漏了 E0497 就恒不响
