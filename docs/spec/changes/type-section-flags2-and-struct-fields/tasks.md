@@ -107,10 +107,34 @@ CI 的 `ci-bootstrap` 用**独立的两代 job**（SDK 自带的旧 VM，不重�
 | `Z42cIrConstraintBundleTests`（5 红）| `array index 51 out of bounds (len=51)` | **手写的 TYPE 记录字节 fixture** 里没有新加的 2 字节 `class_flags2` ⇒ 读端多吃 2 字节就越界 | ✅ 已在 `_typeSection` 的 `Visibility` 之后补 `WriteU16(0)`，并同步头注的布局说明 |
 | `Z42cSemanticsZbcTests`（3 红）| golden hex 不等 | header 版本字段 | ✅ 三条 golden 的 `5a42430001002c00` → `…2d00`。**三条用例的源码都没有类声明** ⇒ TYPE 段只有 4 字节 `class_count=0`、新增的两项一个字节都不进来，故**仅 header minor 变**（沿 1.44 那次的同款判断） |
 
-⚠️ **还有一处已知漂移我没能在本地处理**：入库的字节基线
-`src/tests/zbc-format/*/source.zbc`（6 份）会随 header minor 变。正规做法是
-`xtask regen`（README 明写它对该目录特判、直接就地覆写），但那需要一个**能跑的 0.50 工具链**
-—— 正是本地卡住的地方。留给 CI / 下一轮本地补。
+### 第二轮：字节基线（已在本地重生并入库）
+
+`compile-test-assets` 两腿红在同一道门上：
+
+```
+committed zbc-format byte baselines are stale — regen rewrote them.
+```
+
+**🔴 我先前的判断错了，在此更正**：我说过「本地重生被 `xtask build compiler` 重建 VM 堵死」。
+真正缺的**不是能跑的 VM**，而是**本分支自己产的 1.45 z42c + stdlib zpkg**。CI 的
+`compile-test-assets` 走的是 `xtask-bootstrap-artifact`：*本 PR 自己* `toolchain-bootstrap`
+的 artifact（已是 1.45 的 zpkg）＋ 一个本地 cargo 编的 VM，再跑 `build test`。
+
+照这条配方本地复刻即通（下载本 PR 的 `toolchain-macos-26` → 铺进 `artifacts/` →
+`cargo build --release` 出 1.45 VM → `build test`）：`Regenerated: 383 ok, 0 failed`。
+
+重生结果**正好印证了格式改动的形状**，这比「门变绿了」更有说服力：
+
+| fixture | 字节 | 解释 |
+|---|---|---|
+| `empty` | 231 → 231 | **无类声明** ⇒ TYPE 段只有 `class_count=0`，只有 header minor 那一字节变 |
+| `cross-import-token` | 439 → 439 | 同上 |
+| `strp-func-minimal` | 541 → **543** | 一个类记录 × 新增 `class_flags2` u16 = **+2** |
+| `multi-method` | 999 → **1001** | +2 |
+| `with-frcs` | 608 → **610** | +2 |
+| `with-tidx` | 802 → **804** | +2 |
+
+⚠️ `src/tests/zpkg-format/` 零漂移（`git status` 里没有它）—— zpkg 头的 minor 不进这些 fixture。
 
 ## 顺带发现：版本 bump 的 checklist 自己过期了
 
@@ -120,9 +144,13 @@ CI 的 `ci-bootstrap` 用**独立的两代 job**（SDK 自带的旧 VM，不重�
 2. 第 4 条 `src/tests/zbc-format/generate-fixtures.sh` —— **该脚本不存在**（真实命令是 `xtask regen`，
    写在 `src/tests/zbc-format/README.md` 里）。
 
-⇒ 「照 checklist 做」会漏掉基线重生这一步。**本 change 不改它**（那是另一处文档修复、且会把 diff 搅大），
-但记在这里：这正是「注释即第二份真相、且先于代码腐坏」的又一例，值得单独一刀连同
-`ZbcFormat.Minor` / `ZpkgWriter.Minor` 那两条 16KB 单行一起治。
+**✅ 改了**（我先前写的是「本 change 不改它」—— 撤回那个决定）。理由：照这份 checklist 做
+**必然漏掉基线重生**，而那一步正是本 PR 第二轮栽的地方。一份被本 PR 当场证伪的清单，
+留着比改掉的 diff 代价更大。第 1 条改指真正的写端 `z42.package/src/BinaryFormat/ZbcWriter.z42`，
+第 4 条改成 `xtask build test` 就地重写 + 必须 commit，并在注释里记下它腐坏过。
+
+⚠️ 仍**不做**的是 `ZbcFormat.Minor` / `ZpkgWriter.Minor` 那两条 16KB 单行注释搬进独立
+格式史文档 —— 那是同一个病（#897 的条目就是这么丢的），但属独立一刀。
 
 ## 不做（Out of Scope）
 

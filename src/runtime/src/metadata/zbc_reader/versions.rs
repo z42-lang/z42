@@ -1,15 +1,24 @@
 use super::*;
 
-// ── zbc wire format version (mirror of C# ZbcWriter.VersionMajor/Minor) ──────
+// ── zbc wire format version (mirror of the z42 writer's Major/Minor) ─────────
 //
 // Strict-pin policy (freeze-zbc-v1, 2026-05-14):
 // reader accepts exactly major == ZBC_VERSION_MAJOR && minor == ZBC_VERSION_MINOR.
 // Bumping either requires synchronized update of:
-//   1. src/compiler/z42.IR/BinaryFormat/ZbcWriter.cs (VersionMajor / VersionMinor)
+//   1. src/libraries/z42.package/src/BinaryFormat/ZbcWriter.z42 (ZbcFormat.Major / .Minor)
 //   2. these two constants
 //   3. docs/internals/src/formats/zbc.md "Minor changelog" table
-//   4. src/tests/zbc-format/generate-fixtures.sh regen
-// See docs/internals/src/formats/zbc.md + docs/agent/rules/workflow.md for the full procedure.
+//   4. the committed byte baselines: `xtask build test` rewrites
+//      src/tests/zbc-format/*/source.zbc IN PLACE — commit the result
+//      (CI gate "Golden byte baselines are up to date" fails otherwise)
+// See docs/internals/src/formats/zbc.md + docs/agent/rules/version-bumping.md for
+// the full procedure.
+//
+// 🔴 这份清单自己腐坏过一次（2026-09-27 修正，type-section-flags2-and-struct-fields）：
+// 第 1 条曾指 `src/compiler/z42.IR/BinaryFormat/ZbcWriter.cs` —— **C# 编译器 2026-06-26
+// 已整体删除**；第 4 条曾指 `src/tests/zbc-format/generate-fixtures.sh` —— **该脚本不存在**。
+// 于是「照 checklist 做」会漏掉基线重生这一步，而那一步恰好只有 CI 才报
+// （regen 跑在每个消费方之前 ⇒ 校验的永远是刚重写的字节、从不是已提交的那份）。
 
 pub const ZBC_VERSION_MAJOR: u16 = 1;
 // 2026-05-30 add-test-timeout-attribute: TIDX v=3 carries per-test
