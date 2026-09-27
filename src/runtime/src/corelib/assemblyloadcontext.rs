@@ -150,10 +150,10 @@ pub fn builtin_lctx_load(ctx: &VmContext, args: &[Value]) -> Result<Value> {
 /// (`Unload()` throws `InvalidOperationException` before reaching here);
 /// `RootRejected` here is a defensive backstop. Actual arena reclamation is
 /// GC-driven (see `ContextRegistry::reclaim`).
-pub fn builtin_lctx_unload(ctx: &VmContext, args: &[Value]) -> Result<Value> {
+pub fn builtin_lctx_unload(ctx: &VmContext, args: &[Value]) -> Result<()> {
     let cid = ctx_handle(args)?;
     match ctx.core.context_registry.lock().unload(cid) {
-        UnloadOutcome::Marked | UnloadOutcome::AlreadyUnloading => Ok(Value::Null),
+        UnloadOutcome::Marked | UnloadOutcome::AlreadyUnloading => Ok(()),
         UnloadOutcome::RootRejected => {
             bail!("AssemblyLoadContext.Unload: the root context cannot be unloaded")
         }

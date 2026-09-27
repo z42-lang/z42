@@ -14,38 +14,38 @@ pub fn builtin_file_read_text(_ctx: &VmContext, args: &[Value]) -> Result<Value>
     let path = arg_str(args, 0, "__file_read_text")?;
     Ok(Value::Str(active().read_to_string(path)?.into()))
 }
-pub fn builtin_file_write_text(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
+pub fn builtin_file_write_text(_ctx: &VmContext, args: &[Value]) -> Result<()> {
     let path    = arg_str(args, 0, "__file_write_text")?;
     let content = arg_str(args, 1, "__file_write_text")?;
     active().write(path, content.as_bytes())?;
-    Ok(Value::Null)
+    Ok(())
 }
-pub fn builtin_file_append_text(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
+pub fn builtin_file_append_text(_ctx: &VmContext, args: &[Value]) -> Result<()> {
     let path    = arg_str(args, 0, "__file_append_text")?;
     let content = arg_str(args, 1, "__file_append_text")?;
     active().append(path, content.as_bytes())?;
-    Ok(Value::Null)
+    Ok(())
 }
 pub fn builtin_file_exists(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let path = arg_str(args, 0, "__file_exists")?;
     Ok(Value::Bool(active().exists(path)))
 }
-pub fn builtin_file_delete(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
+pub fn builtin_file_delete(_ctx: &VmContext, args: &[Value]) -> Result<()> {
     let path = arg_str(args, 0, "__file_delete")?;
     active().remove_file(path)?;
-    Ok(Value::Null)
+    Ok(())
 }
-pub fn builtin_file_copy(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
+pub fn builtin_file_copy(_ctx: &VmContext, args: &[Value]) -> Result<()> {
     let src = arg_str(args, 0, "__file_copy")?;
     let dst = arg_str(args, 1, "__file_copy")?;
     active().copy(src, dst)?;
-    Ok(Value::Null)
+    Ok(())
 }
-pub fn builtin_file_move(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
+pub fn builtin_file_move(_ctx: &VmContext, args: &[Value]) -> Result<()> {
     let src = arg_str(args, 0, "__file_move")?;
     let dst = arg_str(args, 1, "__file_move")?;
     active().rename(src, dst)?;
-    Ok(Value::Null)
+    Ok(())
 }
 
 // add-file-last-write-time (2026-06-09): 文件 mtime，返回 unix epoch 毫秒 (i64)。
@@ -66,28 +66,28 @@ pub fn builtin_file_read_bytes(ctx: &VmContext, args: &[Value]) -> Result<Value>
     Ok(ctx.heap().alloc_bytes(bytes))
 }
 
-pub fn builtin_file_write_bytes(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
+pub fn builtin_file_write_bytes(_ctx: &VmContext, args: &[Value]) -> Result<()> {
     let path = arg_str(args, 0, "__file_write_bytes")?;
     let data = require_byte_array(args, 1, "__file_write_bytes")?;
     active().write(path, &data)?;
-    Ok(Value::Null)
+    Ok(())
 }
 
 // add-file-atomic-write (2026-05-27): tmp sibling + fsync + rename（crash-safe）。
 // 原子保证是 native 后端职责（fsync）；memory 后端降级为普通写。
 
-pub fn builtin_file_write_text_atomic(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
+pub fn builtin_file_write_text_atomic(_ctx: &VmContext, args: &[Value]) -> Result<()> {
     let path = arg_str(args, 0, "__file_write_text_atomic")?;
     let content = arg_str(args, 1, "__file_write_text_atomic")?;
     active().write_atomic(path, content.as_bytes())?;
-    Ok(Value::Null)
+    Ok(())
 }
 
-pub fn builtin_file_write_bytes_atomic(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
+pub fn builtin_file_write_bytes_atomic(_ctx: &VmContext, args: &[Value]) -> Result<()> {
     let path = arg_str(args, 0, "__file_write_bytes_atomic")?;
     let data = require_byte_array(args, 1, "__file_write_bytes_atomic")?;
     active().write_atomic(path, &data)?;
-    Ok(Value::Null)
+    Ok(())
 }
 
 // 2026-04-27 wave1-path-script: 5 builtin_path_* removed.
@@ -104,17 +104,17 @@ pub fn builtin_dir_exists(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
     Ok(Value::Bool(active().is_dir(path)))
 }
 
-pub fn builtin_dir_create(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
+pub fn builtin_dir_create(_ctx: &VmContext, args: &[Value]) -> Result<()> {
     let path = arg_str(args, 0, "__dir_create")?;
     active().create_dir_all(path)?;
-    Ok(Value::Null)
+    Ok(())
 }
 
-pub fn builtin_dir_delete(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
+pub fn builtin_dir_delete(_ctx: &VmContext, args: &[Value]) -> Result<()> {
     let path = arg_str(args, 0, "__dir_delete")?;
     let recursive = matches!(args.get(1), Some(Value::Bool(true)));
     active().remove_dir(path, recursive)?;
-    Ok(Value::Null)
+    Ok(())
 }
 
 pub fn builtin_dir_enumerate(ctx: &VmContext, args: &[Value]) -> Result<Value> {
@@ -155,7 +155,7 @@ fn walk_dir(root: &str, rel: &str, out: &mut Vec<String>) -> Result<()> {
 
 // ── Environment / Process ─────────────────────────────────────────────────────
 
-pub fn builtin_env_set(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
+pub fn builtin_env_set(_ctx: &VmContext, args: &[Value]) -> Result<()> {
     let name = arg_str(args, 0, "__env_set")?;
     // Null value = remove (mirrors .NET Environment.SetEnvironmentVariable(name, null)).
     // fix-wasm-corpus-capability-gate: std::env::set_var/remove_var PANIC on wasm32
@@ -180,7 +180,7 @@ pub fn builtin_env_set(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
             let _ = (name, s);
         }
     }
-    Ok(Value::Null)
+    Ok(())
 }
 pub fn builtin_env_get(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let key = arg_str(args, 0, "__env_get")?;
@@ -201,21 +201,21 @@ pub fn builtin_env_args(ctx: &VmContext, _args: &[Value]) -> Result<Value> {
         .collect();
     Ok(ctx.heap().alloc_array(list))
 }
-pub fn builtin_process_exit(ctx: &VmContext, args: &[Value]) -> Result<Value> {
+pub fn builtin_process_exit(ctx: &VmContext, args: &[Value]) -> Result<()> {
     let code = match args.first() { Some(Value::I64(n)) => *n as i32, _ => 0 };
     // `process::exit` runs no destructors: report before leaving, or every
     // program that exits this way loses it (see `app::report_on_exit`).
     crate::app::report_on_exit(ctx);
     std::process::exit(code);
 }
-pub fn builtin_env_unset(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
+pub fn builtin_env_unset(_ctx: &VmContext, args: &[Value]) -> Result<()> {
     let key = arg_str(args, 0, "__env_unset")?;
     // wasm32: remove_var panics (see builtin_env_set) — no-op in the browser.
     #[cfg(not(target_arch = "wasm32"))]
     std::env::remove_var(key);
     #[cfg(target_arch = "wasm32")]
     let _ = key;
-    Ok(Value::Null)
+    Ok(())
 }
 pub fn builtin_env_vars(ctx: &VmContext, _args: &[Value]) -> Result<Value> {
     let list: Vec<Value> = std::env::vars()
@@ -336,26 +336,26 @@ fn unique_temp_path(prefix: &str, suffix: &str) -> String {
 
 /// Unix: `chmod u+x,g+x,o+x`（owner / group / world execute）；Windows: no-op
 /// （NTFS 文件可执行性由扩展名而非 ACL bit 决定）。
-pub fn builtin_file_make_executable(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
+pub fn builtin_file_make_executable(_ctx: &VmContext, args: &[Value]) -> Result<()> {
     let path = arg_str(args, 0, "__file_make_executable")?;
     crate::pal::fs::make_executable(path)?;
-    Ok(Value::Null)
+    Ok(())
 }
 
 /// 创建 hard link（dst → src）。跨设备时 OS 错误透传。
-pub fn builtin_file_link(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
+pub fn builtin_file_link(_ctx: &VmContext, args: &[Value]) -> Result<()> {
     let src = arg_str(args, 0, "__file_link")?;
     let dst = arg_str(args, 1, "__file_link")?;
     std::fs::hard_link(src, dst)?;
-    Ok(Value::Null)
+    Ok(())
 }
 
 /// 创建 symbolic link（dst → src）。Windows 暂未实现（需 privilege）。
-pub fn builtin_file_symlink(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
+pub fn builtin_file_symlink(_ctx: &VmContext, args: &[Value]) -> Result<()> {
     let src = arg_str(args, 0, "__file_symlink")?;
     let dst = arg_str(args, 1, "__file_symlink")?;
     crate::pal::fs::symlink(src, dst)?;
-    Ok(Value::Null)
+    Ok(())
 }
 
 /// 文件字节数（dir 错误）。
@@ -389,14 +389,14 @@ pub fn builtin_env_get_cwd(_ctx: &VmContext, _args: &[Value]) -> Result<Value> {
 }
 
 /// `cd path`（路径不存在 / 无权限会抛）。
-pub fn builtin_env_set_cwd(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
+pub fn builtin_env_set_cwd(_ctx: &VmContext, args: &[Value]) -> Result<()> {
     let path = arg_str(args, 0, "__env_set_cwd")?;
     // wasm has no working directory — `cd` is a no-op (see builtin_env_get_cwd).
     #[cfg(not(target_arch = "wasm32"))]
     std::env::set_current_dir(path)?;
     #[cfg(target_arch = "wasm32")]
     let _ = path;
-    Ok(Value::Null)
+    Ok(())
 }
 
 // ── add-z42-io-filestream (2026-05-24) — FileStream slot table + 8 ops ────
@@ -518,7 +518,7 @@ pub fn builtin_file_read(ctx: &VmContext, args: &[Value]) -> Result<Value> {
 }
 
 /// `__file_write(slot: long, buf: byte[], offset: int, count: int)`
-pub fn builtin_file_write(ctx: &VmContext, args: &[Value]) -> Result<Value> {
+pub fn builtin_file_write(ctx: &VmContext, args: &[Value]) -> Result<()> {
     use std::io::Write;
     const NAME: &str = "__file_write";
     let slot_id = arg_i64(args, 0, NAME)? as u64;
@@ -535,7 +535,7 @@ pub fn builtin_file_write(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let slot = require_slot_mut(&mut slots, slot_id, NAME)?;
     let f = require_open_file(slot, NAME)?;
     f.write_all(&all_bytes)?;
-    Ok(Value::Null)
+    Ok(())
 }
 
 /// `__file_seek(slot: long, offset: long, origin: int) -> long` (new abs pos)
@@ -583,7 +583,7 @@ pub fn builtin_file_position(ctx: &VmContext, args: &[Value]) -> Result<Value> {
 }
 
 /// `__file_flush(slot: long)`
-pub fn builtin_file_flush(ctx: &VmContext, args: &[Value]) -> Result<Value> {
+pub fn builtin_file_flush(ctx: &VmContext, args: &[Value]) -> Result<()> {
     use std::io::Write;
     const NAME: &str = "__file_flush";
     let slot_id = arg_i64(args, 0, NAME)? as u64;
@@ -591,11 +591,11 @@ pub fn builtin_file_flush(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let slot = require_slot_mut(&mut slots, slot_id, NAME)?;
     let f = require_open_file(slot, NAME)?;
     f.flush()?;
-    Ok(Value::Null)
+    Ok(())
 }
 
 /// `__file_close(slot: long)` — idempotent
-pub fn builtin_file_close(ctx: &VmContext, args: &[Value]) -> Result<Value> {
+pub fn builtin_file_close(ctx: &VmContext, args: &[Value]) -> Result<()> {
     const NAME: &str = "__file_close";
     let slot_id = arg_i64(args, 0, NAME)? as u64;
     let mut slots = ctx.core.file_handles.lock();
@@ -607,7 +607,7 @@ pub fn builtin_file_close(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     }
     // Unknown slot id is silently OK — Close is idempotent and a no-op
     // on already-closed handles is the conventional behaviour.
-    Ok(Value::Null)
+    Ok(())
 }
 
 #[cfg(test)]

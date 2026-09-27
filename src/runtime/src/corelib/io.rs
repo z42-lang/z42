@@ -166,33 +166,33 @@ fn stringify_arg(ctx: &VmContext, args: &[Value]) -> Result<String> {
     }
 }
 
-pub fn builtin_println(ctx: &VmContext, args: &[Value]) -> Result<Value> {
+pub fn builtin_println(ctx: &VmContext, args: &[Value]) -> Result<()> {
     let text = stringify_arg(ctx, args)?;
     route_stdout(&text, true);
-    Ok(Value::Null)
+    Ok(())
 }
 
-pub fn builtin_print(ctx: &VmContext, args: &[Value]) -> Result<Value> {
+pub fn builtin_print(ctx: &VmContext, args: &[Value]) -> Result<()> {
     let text = stringify_arg(ctx, args)?;
     route_stdout(&text, false);
-    Ok(Value::Null)
+    Ok(())
 }
 
-pub fn builtin_eprintln(ctx: &VmContext, args: &[Value]) -> Result<Value> {
+pub fn builtin_eprintln(ctx: &VmContext, args: &[Value]) -> Result<()> {
     let text = stringify_arg(ctx, args)?;
     route_stderr(&text, true);
-    Ok(Value::Null)
+    Ok(())
 }
 
-pub fn builtin_eprint(ctx: &VmContext, args: &[Value]) -> Result<Value> {
+pub fn builtin_eprint(ctx: &VmContext, args: &[Value]) -> Result<()> {
     let text = stringify_arg(ctx, args)?;
     route_stderr(&text, false);
-    Ok(Value::Null)
+    Ok(())
 }
 
-pub fn builtin_test_io_install_stdout_sink(_ctx: &VmContext, _: &[Value]) -> Result<Value> {
+pub fn builtin_test_io_install_stdout_sink(_ctx: &VmContext, _: &[Value]) -> Result<()> {
     push_stdout_sink();
-    Ok(Value::Null)
+    Ok(())
 }
 
 pub fn builtin_test_io_take_stdout_buffer(_ctx: &VmContext, _: &[Value]) -> Result<Value> {
@@ -221,9 +221,9 @@ pub fn take_stdout_sink() -> Vec<u8> {
     STDOUT_SINKS.with(|s| s.borrow_mut().pop().unwrap_or_default())
 }
 
-pub fn builtin_test_io_install_stderr_sink(_ctx: &VmContext, _: &[Value]) -> Result<Value> {
+pub fn builtin_test_io_install_stderr_sink(_ctx: &VmContext, _: &[Value]) -> Result<()> {
     STDERR_SINKS.with(|s| s.borrow_mut().push(Vec::new()));
-    Ok(Value::Null)
+    Ok(())
 }
 
 pub fn builtin_test_io_take_stderr_buffer(_ctx: &VmContext, _: &[Value]) -> Result<Value> {

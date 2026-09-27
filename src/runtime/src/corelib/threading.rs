@@ -165,7 +165,7 @@ impl Drop for SpawnedEnvRoot {
 /// duration. add-thread-sleep (2026-05-27). Negative values saturate to 0
 /// (matches BCL `Thread.Sleep`). Backed by `std::thread::sleep` (POSIX
 /// `nanosleep`); ms precision is sufficient for the scripting use case.
-pub fn builtin_thread_sleep(ctx: &VmContext, args: &[Value]) -> Result<Value> {
+pub fn builtin_thread_sleep(ctx: &VmContext, args: &[Value]) -> Result<()> {
     let millis = match args.first() {
         Some(Value::I64(n)) => *n,
         Some(other) => bail!("__thread_sleep: expected i64 millis, got {:?}", other),
@@ -179,7 +179,7 @@ pub fn builtin_thread_sleep(ctx: &VmContext, args: &[Value]) -> Result<Value> {
         let _park = crate::gc::NativeParkGuard::enter(ctx);
         std::thread::sleep(std::time::Duration::from_millis(clamped));
     }
-    Ok(Value::Null)
+    Ok(())
 }
 
 /// `__thread_join(slot_id) -> Value::Array` — wait for the spawned thread and

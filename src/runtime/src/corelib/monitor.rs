@@ -173,9 +173,9 @@ pub fn builtin_monitor_new(ctx: &VmContext, _args: &[Value]) -> Result<Value> {
 }
 
 /// `__monitor_enter(h) -> Null`
-pub fn builtin_monitor_enter(ctx: &VmContext, args: &[Value]) -> Result<Value> {
+pub fn builtin_monitor_enter(ctx: &VmContext, args: &[Value]) -> Result<()> {
     monitor_arg(args, "__monitor_enter")?.enter(ctx)?;
-    Ok(Value::Null)
+    Ok(())
 }
 
 /// `__monitor_try_enter(h) -> bool`
@@ -184,15 +184,15 @@ pub fn builtin_monitor_try_enter(_ctx: &VmContext, args: &[Value]) -> Result<Val
 }
 
 /// `__monitor_exit(h) -> Null`
-pub fn builtin_monitor_exit(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
+pub fn builtin_monitor_exit(_ctx: &VmContext, args: &[Value]) -> Result<()> {
     monitor_arg(args, "__monitor_exit")?.exit()?;
-    Ok(Value::Null)
+    Ok(())
 }
 
 /// `__monitor_wait(h) -> Null`
-pub fn builtin_monitor_wait(ctx: &VmContext, args: &[Value]) -> Result<Value> {
+pub fn builtin_monitor_wait(ctx: &VmContext, args: &[Value]) -> Result<()> {
     monitor_arg(args, "__monitor_wait")?.wait(ctx)?;
-    Ok(Value::Null)
+    Ok(())
 }
 
 /// 从句柄对象里克隆出 `Arc<Monitor>`，**并在返回前释放对象借用**（D4 第 3 条）。

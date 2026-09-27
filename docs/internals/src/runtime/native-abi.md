@@ -222,18 +222,31 @@ typed 通路之外的那一半：`[Native("__name")]` 把 stdlib 的 z42 声明�
 ### 6.1 表与 id
 
 ```rust
-pub type NativeFn = fn(&VmContext, &[Value]) -> Result<Value>;
+pub type NativeFn     = fn(&VmContext, &[Value]) -> Result<Value>;
+pub type NativeVoidFn = fn(&VmContext, &[Value]) -> Result<()>;   // 无返回值：类型上无法产出 Value
 
-const PART1: &[(&str, NativeFn)] = &[ ("__println", io::builtin_println), … ];  // builtin_table.rs
-const PART2: &[(&str, NativeFn)] = &[ … ];                                      // builtin_table_ext.rs
-static JOINED: [(&str, NativeFn); TOTAL] = joined();   // const fn 编译期拼接
-pub(crate) const BUILTINS: &[(&str, NativeFn)] = &JOINED;
+pub enum Native { Val(NativeFn), Void(NativeVoidFn) }             // 表项两味
+
+const PART1: &[(&str, Native)] = &[ ("__println", Native::Void(io::builtin_println)), … ];  // builtin_table.rs
+const PART2: &[(&str, Native)] = &[ … ];                                                   // builtin_table_ext.rs
+static JOINED: [(&str, Native); TOTAL] = joined();   // const fn 编译期拼接
+pub(crate) const BUILTINS: &[(&str, Native)] = &JOINED;
 ```
 
-**slice 下标就是 `BuiltinId`，而 `BuiltinId` 会被烤进 zbc**。因此：
+**slice 下标就是 `BuiltinId`。**
 
-- **只能表尾追加**。在中间插入会让所有既有产物里的 builtin 调用整体错位——这是本表最重要的一条不变式，
-  表里多处 "appended to preserve existing BuiltinIds" 注释记的就是历次追加点。
+> 🔴 **本节原先写着「而 `BuiltinId` 会被烤进 zbc；在中间插入会让所有既有产物整体错位」——
+> 那句话不成立**（2026-09-27 更正；判据见 `builtin_table_ext.rs` 抬头 2026-09-26 的读码核实）：
+> zbc 里存的是**名字**（`BuiltinInsn { dst, name, args }`），`BuiltinId` 由 resolver 在**加载期**
+> 按名字填进 `Function.resolved.builtin_tokens`，AOT 也不烤它 ⇒ 它是**单次运行内的派发令牌**，
+> 不跨进程持久化。
+>
+> ⚠️ 这句话当时有**三份副本**（本页、`builtin_table.rs` 抬头、`builtin_table_ext.rs` 抬头），
+> 其中只有最后一份是核实过的正确版本 —— 典型的「同一条断言抄成多份，副本不跟着正本更新」。
+> 三份已统一。
+
+- **约定上只在表尾追加**：真实价值是让按 id 做的测试/遥测稳定，以及避免 review 时重核整张表，
+  **不是**格式约束。表里多处 "appended to preserve existing BuiltinIds" 注释记的是历次追加点。
 - 名字 → id 的反查表 `BUILTIN_INDEX: OnceLock<HashMap<&str, u32>>` 首次访问时从 `BUILTINS` 现算
   （`corelib/mod.rs`），保证单一真相。
 - 拆成 `PART1` / `PART2` 两段纯粹是行数门禁：表是按名字线性增长的数据，与 `mod.rs` 里的分发逻辑变更
@@ -242,6 +255,36 @@ pub(crate) const BUILTINS: &[(&str, NativeFn)] = &JOINED;
 加载期由 `metadata::resolver` 把每个 builtin 调用点的名字解析成 token：先查 `BUILTINS`，未命中再查
 per-VM 的 ext 表；两边都没有则留 `UNRESOLVED`，在真正调用时按名字再解一次
 （JIT 在 ext 库尚未加载时就可能走到这里，硬 panic 会整个 VM 崩掉）。
+
+### 6.1b 有返回值 vs 无返回值（`Native::Val` / `Native::Void`）
+
+change `split-null-sentinel-channels` ④（2026-09-27）：**void builtin 不再用 `Value::Null`
+表示「没有返回值」**。
+
+此前所有 builtin 共用 `-> Result<Value>`，无返回值的那些返回 `Ok(Value::Null)`，而
+`exec_call::builtin` / `jit_builtin` 都**无条件** `frame.set(dst, v)` ⇒ 「无返回值」与
+「返回 null」在寄存器里**长得一模一样**。这是审计 R3「`Value::Null` 六义哨兵」里的 ④ 那一义。
+
+| 部件 | 契约 |
+|---|---|
+| 表项 | `Native::Val(f)`（`f: -> Result<Value>`）/ `Native::Void(f)`（`f: -> Result<()>`）|
+| 分发 | `exec_builtin{,_by_id}(..) -> Result<Option<Value>>`，**`None` = void** |
+| interp / jit | `Ok(None)` ⇒ **不写 `dst`**（两侧逐字同款；一侧漏改就是「两个后端只有一个错」那种最难发现的形态）|
+| 期待有值的调用方 | `exec_builtin_value(..) -> Result<Value>` —— 撞上 void **报错**，不给占位值 |
+
+⭐ **为什么用枚举而不是拆两张表**：`BuiltinId` 就是表下标，拆表会让 45 个 void 条目之后的下标
+全部平移。枚举保持下标逐一不动，同时拿到**类型强制** —— 声明为 void 的 builtin
+**在类型上无法产出 `Value`**，不是靠约定。
+
+⚠️ **权威清单从 stdlib 的 `[Native]` 声明推导**（返回类型是否 `void`），不是从
+「哪些 builtin 返回 `Ok(Value::Null)`」反推：全仓 `Ok(Value::Null)` 有 90 处，而真正 void 的只有
+**45** 个 —— 另一半在**有返回值**的 builtin 里，`Null` 是它们的合法返回
+（如 `Type.GetType` 查不到返 null）。按 90 处机械替换会改坏一半。
+
+🔒 **有门**：`corelib/native_decl_tests.rs::declared_voidness_matches_the_builtin_table`
+对账「stdlib 声明 `void` ⟺ 表项是 `Native::Void`」。`Native::Val`/`Void` 是**手写的第三份数据**，
+漂开的后果不是崩而是**悄悄退回旧行为**（声明 void 却登记成 `Val` + 返回 `Ok(Value::Null)`
+—— 那编得过）。只改「味」编不过（签名不匹配），所以门防的正是这个方向。
 
 ### 6.2 命名约定
 

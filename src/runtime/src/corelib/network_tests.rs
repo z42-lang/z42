@@ -155,13 +155,13 @@ fn accept_on_unknown_listener_returns_handle_invalid() {
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn drop_unknown_slot_is_silent_null() {
+fn drop_unknown_slot_is_silent() {
     let ctx = ctx();
     let args = vec![Value::I64(999_999)];
-    let r = builtin_net_tcp_socket_drop(&ctx, &args).expect("call ok");
-    assert!(matches!(r, Value::Null));
-    let r2 = builtin_net_tcp_listener_drop(&ctx, &args).expect("call ok");
-    assert!(matches!(r2, Value::Null));
+    // split-null-sentinel-channels ④：drop 是 void ⇒ 没有返回值可断言，
+    // 「调用成功」本身就是全部语义。此前这里断言 `Value::Null` —— 那是在断言哨兵。
+    builtin_net_tcp_socket_drop(&ctx, &args).expect("call ok");
+    builtin_net_tcp_listener_drop(&ctx, &args).expect("call ok");
 }
 
 // ── End-to-end loopback ─────────────────────────────────────────────────
@@ -280,8 +280,7 @@ fn udp_recv_on_unknown_slot_returns_handle_invalid() {
 fn udp_drop_unknown_slot_is_silent_null() {
     let ctx = ctx();
     let args = vec![Value::I64(999_999)];
-    let r = builtin_net_udp_drop(&ctx, &args).expect("call");
-    assert!(matches!(r, Value::Null));
+    builtin_net_udp_drop(&ctx, &args).expect("call");
 }
 
 #[cfg(not(target_arch = "wasm32"))]

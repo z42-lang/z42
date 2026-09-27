@@ -278,7 +278,11 @@ pub unsafe extern "C" fn jit_builtin(
         crate::corelib::exec_builtin(vm, name, &args)
     };
     match result {
-        Ok(v)  => { frame_ref.regs[dst as usize] = v; 0 }
+        // split-null-sentinel-channels ④：void builtin ⇒ 不写 `dst`（与 interp
+        // `exec_call::builtin` 逐字同款 —— 两个后端必须同时改，否则就是
+        // 「两个后端只有一个错」那种最难发现的形态）。
+        Ok(Some(v)) => { frame_ref.regs[dst as usize] = v; 0 }
+        Ok(None)    => 0,
         Err(e) => {
             // A callback builtin (reflection `MethodInfo.Invoke`) that ran z42
             // code which threw stashed the ORIGINAL exception value — propagate

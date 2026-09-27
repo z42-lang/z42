@@ -82,13 +82,51 @@ use std::sync::OnceLock;
 /// callsites to bypass the heap interface.
 pub type NativeFn = fn(&VmContext, &[Value]) -> Result<Value>;
 
+/// **无返回值** builtin（change `split-null-sentinel-channels` ④）。
+///
+/// 🔴 **为什么要另立一个类型**：此前 void builtin 也声明成 `NativeFn`、用
+/// `Ok(Value::Null)` 表示「没有返回值」—— 于是 `Value::Null` 同时承载「用户的 null」
+/// 与「void」两义，而消费侧无从分辨。改成 `Result<()>` 后，**声明为 void 的 builtin
+/// 在类型上就无法产出值**，不是靠约定。
+///
+/// ⚠️ 与之配套：`exec_builtin*` 返回 `Result<Option<Value>>`，`None` = void ⇒
+/// 调用方**被 `Option` 强制**处理 void 那一格（`frame.set(dst, ..)` 只在 `Some` 时发生）。
+pub type NativeVoidFn = fn(&VmContext, &[Value]) -> Result<()>;
+
+/// 表项里的 builtin 实现 —— 按「有没有返回值」分两味。
+///
+/// 用枚举而不是拆两张表：`BuiltinId` 就是表下标，拆表会让 44 个 void 条目之后的
+/// 下标全部平移。枚举保持下标逐一不动，同时拿到类型强制。
+#[derive(Clone, Copy)]
+pub enum Native {
+    /// 有返回值。
+    Val(NativeFn),
+    /// 无返回值 —— 类型上无法产出 `Value`。
+    Void(NativeVoidFn),
+}
+
+impl Native {
+    /// 统一调用口：`None` = 该 builtin 无返回值。
+    #[inline]
+    pub fn call(&self, ctx: &VmContext, args: &[Value]) -> Result<Option<Value>> {
+        match self {
+            Native::Val(f) => f(ctx, args).map(Some),
+            Native::Void(f) => f(ctx, args).map(|()| None),
+        }
+    }
+
+    /// 是否为无返回值型 —— `native_decl_tests` 用它与 stdlib 的 `[Native]` 声明对账。
+    #[inline]
+    pub fn is_void(&self) -> bool { matches!(self, Native::Void(_)) }
+}
+
 // BUILTINS 表见 `builtin_table.rs`（纯数据；只可表尾追加，下标即 BuiltinId）。
 pub(crate) use builtin_table::BUILTINS;
 
 // runtime-dynamic-load-call stubs (DEFERRED): registered so zpkgs that declare
 // [Native("__load_zpkg")] / [Native("__call_static")] load cleanly; calls fail
 // at runtime until the reflection MVP is complete.
-fn builtin_load_zpkg_stub(_ctx: &VmContext, _args: &[Value]) -> Result<Value> {
+fn builtin_load_zpkg_stub(_ctx: &VmContext, _args: &[Value]) -> Result<()> {
     anyhow::bail!("__load_zpkg: not yet implemented (runtime-dynamic-load-call DEFERRED)")
 }
 fn builtin_call_static_stub(_ctx: &VmContext, _args: &[Value]) -> Result<Value> {
@@ -134,7 +172,7 @@ pub fn ext_builtin_id_of(ctx: &VmContext, name: &str) -> Option<BuiltinId> {
 /// Fast-path dispatch by id. Static ids index into `BUILTINS`; ids with
 /// the ext bit set index into `VmCore.ext_builtins.by_idx`.
 #[inline]
-pub fn exec_builtin_by_id(ctx: &VmContext, id: BuiltinId, args: &[Value]) -> Result<Value> {
+pub fn exec_builtin_by_id(ctx: &VmContext, id: BuiltinId, args: &[Value]) -> Result<Option<Value>> {
     // add-runtime-counters (2026-05-26): observation-only fetch_add on
     // the hot path — single atomic Relaxed op, no control-flow impact.
     ctx.core.counters.builtin_calls.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -147,23 +185,24 @@ pub fn exec_builtin_by_id(ctx: &VmContext, id: BuiltinId, args: &[Value]) -> Res
             ext.dispatch(idx)
                 .ok_or_else(|| anyhow::anyhow!("ext builtin id {} out of range", idx))?
         };
-        return fn_ptr(ctx, args);
+        // ext（dlopen）builtin 恒是值返回型 —— 其 ABI 在 `native/ext.rs` 定死，不在本表内。
+        return fn_ptr(ctx, args).map(Some);
     }
     let idx = id.0 as usize;
     debug_assert!(idx < BUILTINS.len(), "BuiltinId {} out of range", id.0);
-    BUILTINS[idx].1(ctx, args)
+    BUILTINS[idx].1.call(ctx, args)
 }
 
 /// Stable public entry point — called by the interpreter and JIT `jit_builtin`.
 /// Static `BUILTINS[]` first; ext (dlopened) second. A miss in both is a
 /// hard error.
-pub fn exec_builtin(ctx: &VmContext, name: &str, args: &[Value]) -> Result<Value> {
+pub fn exec_builtin(ctx: &VmContext, name: &str, args: &[Value]) -> Result<Option<Value>> {
     // add-runtime-counters (2026-05-26): name-keyed slow path also increments
     // for consistency with exec_builtin_by_id (callers may hit either).
     ctx.core.counters.builtin_calls.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
     if let Some(&id) = builtin_index().get(name) {
-        return BUILTINS[id as usize].1(ctx, args);
+        return BUILTINS[id as usize].1.call(ctx, args);
     }
     #[cfg(feature = "native-interop")]
     {
@@ -171,11 +210,23 @@ pub fn exec_builtin(ctx: &VmContext, name: &str, args: &[Value]) -> Result<Value
         if let Some(idx) = ext.lookup_id(name) {
             if let Some(fn_ptr) = ext.dispatch(idx) {
                 drop(ext);  // release before invoking — wrappers may re-enter
-                return fn_ptr(ctx, args);
+                return fn_ptr(ctx, args).map(Some);
             }
         }
     }
     Err(anyhow::anyhow!("unknown builtin `{name}`"))
+}
+
+/// 给**明确期待有返回值**的调用方（`__obj_to_str` 这类）：撞上 void builtin 就报错，
+/// 而不是静默给一个占位值。
+///
+/// split-null-sentinel-channels ④：此前这些调用方拿到的是 `Value`，void 与「返回 null」
+/// 无从分辨；现在 `None` 会变成一条明确的错误，说明表与调用方对这个 builtin 的
+/// 「有没有返回值」认知不一致。
+pub fn exec_builtin_value(ctx: &VmContext, name: &str, args: &[Value]) -> Result<Value> {
+    exec_builtin(ctx, name, args)?.ok_or_else(|| {
+        anyhow::anyhow!("builtin `{name}` is declared void but its result was used as a value")
+    })
 }
 
 #[cfg(test)]

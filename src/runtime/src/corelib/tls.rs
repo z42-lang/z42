@@ -279,11 +279,11 @@ mod imp {
     }
 
     /// `__net_tls_socket_drop(slot) -> null` — idempotent; closes the fd.
-    pub fn builtin_net_tls_socket_drop(ctx: &VmContext, args: &[Value]) -> Result<Value> {
+    pub fn builtin_net_tls_socket_drop(ctx: &VmContext, args: &[Value]) -> Result<()> {
         const NAME: &str = "__net_tls_socket_drop";
         let slot_id = require_slot_id(args, 0, NAME)?;
         ctx.core.tls_sockets.lock().remove(&slot_id);
-        Ok(Value::Null)
+        Ok(())
     }
 
     // add-z42-net-tls (2026-06-03): read / write deadlines on the underlying
@@ -348,8 +348,8 @@ mod imp {
     pub fn builtin_net_tls_socket_write(ctx: &VmContext, _args: &[Value]) -> Result<Value> {
         Ok(unsupported(ctx))
     }
-    pub fn builtin_net_tls_socket_drop(_ctx: &VmContext, _args: &[Value]) -> Result<Value> {
-        Ok(Value::Null)
+    pub fn builtin_net_tls_socket_drop(_ctx: &VmContext, _args: &[Value]) -> Result<()> {
+        Ok(())
     }
     pub fn builtin_net_tls_socket_set_read_timeout(ctx: &VmContext, _args: &[Value]) -> Result<Value> {
         Ok(unsupported(ctx))

@@ -166,7 +166,7 @@ pub unsafe extern "C" fn jit_to_str(
                 return 0;
             }
         }
-        match crate::corelib::exec_builtin(
+        match crate::corelib::exec_builtin_value(
                 vm_ctx_ref(ctx),
                 crate::metadata::well_known_names::BUILTIN_OBJ_TO_STR,
                 &[val.clone()]) {

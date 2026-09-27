@@ -109,7 +109,7 @@ pub fn builtin_array_get(ctx: &VmContext, args: &[Value]) -> Result<Value> {
 /// element `i`, unboxing a boxed primitive into the packed slot. Arg order mirrors
 /// C# `Array.SetValue(object value, int index)` (value first) as an instance method
 /// (`this`=array at args[0]). add-array-property-reflection-api (was value-last).
-pub fn builtin_array_set(ctx: &VmContext, args: &[Value]) -> Result<Value> {
+pub fn builtin_array_set(ctx: &VmContext, args: &[Value]) -> Result<()> {
     let rc = match args.first() {
         Some(Value::Array(rc)) => rc.clone(),
         Some(Value::Null) => bail!("Array.SetValue: null array reference"),
@@ -148,7 +148,7 @@ pub fn builtin_array_set(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     if raw.is_heap_ref() {
         ctx.heap().write_barrier_array_elem(&Value::Array(rc), i, &raw);
     }
-    Ok(Value::Null)
+    Ok(())
 }
 
 /// `__array_copy(src, srcIndex, dst, dstIndex, length)` — bulk element move,
@@ -162,7 +162,7 @@ pub fn builtin_array_set(ctx: &VmContext, args: &[Value]) -> Result<Value> {
 /// `ArrayObj::copy_elems_within`). Element conversion is exactly what the
 /// single-element `get_boxed`/`set_boxed` pair already defines, so a copy is
 /// indistinguishable from the loop it replaces.
-pub fn builtin_array_copy(ctx: &VmContext, args: &[Value]) -> Result<Value> {
+pub fn builtin_array_copy(ctx: &VmContext, args: &[Value]) -> Result<()> {
     fn arr(v: Option<&Value>, what: &str) -> Result<crate::gc::GcRef<ArrayObj>> {
         match v {
             Some(Value::Array(rc)) => Ok(rc.clone()),
@@ -182,7 +182,7 @@ pub fn builtin_array_copy(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let di = idx(args.get(3), "destinationIndex")?;
     let n = idx(args.get(4), "length")?;
     if n == 0 {
-        return Ok(Value::Null);
+        return Ok(());
     }
     // Same array → one lock (borrow + borrow_mut on the same GcRef would deadlock:
     // both take the entry's blocking Mutex).
@@ -196,7 +196,7 @@ pub fn builtin_array_copy(ctx: &VmContext, args: &[Value]) -> Result<Value> {
             a.copy_elems_within(si, di, n);
         }
         barrier_copied_range(ctx, &dst, di, n);
-        return Ok(Value::Null);
+        return Ok(());
     }
     let s = src.borrow();
     let mut d = dst.borrow_mut();
@@ -233,7 +233,7 @@ pub fn builtin_array_copy(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     drop(d);
     drop(s);
     barrier_copied_range(ctx, &dst, di, n);
-    Ok(Value::Null)
+    Ok(())
 }
 
 /// **fix-missing-array-write-barriers (2026-09-10)**: fire the array write barrier over the
