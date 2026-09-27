@@ -14,7 +14,7 @@
 | 类别 | 命名空间 | 面向 | 成员 |
 |---|---|---|---|
 | **用户 stdlib** | `Std.*` | 应用开发者 | core / collections / io / text / encoding / toml / json / yaml / uri / regex / cli / diagnostics / random / numerics / net / threading / compression / crypto / test / scripting |
-| **工具链库** | `Z42.*` | 编译器 / 工具自身 | `z42.package`（`Z42.IR` + `Z42.Project`）、`z42.project`（`Z42.Build.Project`）、`z42.build`（`Z42.Build`）、`z42c.core`（`Z42.Core`）、`z42c.syntax`（`Z42.Syntax`） |
+| **工具链库** | `Z42.*` | 编译器 / 工具自身 | `z42.package`（`Z42.IR` + `Z42.Package`）、`z42.project`（`Z42.Project`）、`z42.build`（`Z42.Build`）、`z42c.core`（`Z42.Core`）、`z42c.syntax`（`Z42.Syntax`） |
 
 **本页的全部规则（层级、interop 归属、R1–R4）只约束 `Std.*`。** 工具链库住在 `src/libraries/` 是因为
 它们要被 z42c 运行期加载、又要被 REPL / z42b 共享，故编译成 zpkg 与 stdlib 同址分发；但它们不是用户

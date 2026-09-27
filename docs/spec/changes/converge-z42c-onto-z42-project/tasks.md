@@ -19,7 +19,7 @@
 
 ## 阶段 0: 死结实测 spike（design 决策 3）✅ 完成 2026-07-11
 - [x] 0.1 临时给 z42.project 加 toml + 进 default-members（z42c 不动）
-- [x] 0.2 `build stdlib`（23 succeeded，z42.project 干净编译）+ `test compiler` → **崩**：`Z42.Build.Project.SourceDiscovery.Discover` 被 first-wins 误绑，还烤进 z42c.pipeline.zpkg。**共存即炸**坐实
+- [x] 0.2 `build stdlib`（23 succeeded，z42.project 干净编译）+ `test compiler` → **崩**：`Z42.Project.SourceDiscovery.Discover` 被 first-wins 误绑，还烤进 z42c.pipeline.zpkg。**共存即炸**坐实
 - [x] 0.3 结果写回 design 决策 3；**2-nightly「先发 z42.project」路径作废**；回滚 spike 改动（`git diff` 净）+ 用两代自举 scratch 重播种恢复自举 7/7 green
 - [x] 0.4 判定：须「rename-前置」或「atomic」，二者仍卡 ci-bootstrap 种子轴 → 阶段 0.5 micro-probe 定夺（非拆 publish-z42-project）
 
@@ -46,7 +46,7 @@
 >    与带默认尾参各按规则计。5 个单测 + self-host 7/7 逐字节不变。
 > 2. ✅ **单 CU `using` 数硬编码上限 8（已修，1ad03ee0）**（`IrDump._compileCu` 的 `new string[8]`）——第 9 个
 >    using 致 `array index 8 out of bounds`。改为容量翻倍扩容的动态数组。
-> 3. **不支持全限定静态调用**（`Z42.Build.Project.ManifestLoader.Load(...)` 报 `E0401: undefined: Z42`）
+> 3. **不支持全限定静态调用**（`Z42.Project.ManifestLoader.Load(...)` 报 `E0401: undefined: Z42`）
 >    ——`Z42` 被当值解析。类型声明位可全限定，静态调用不行。绕过=靠 `using` 裸名。（待做）
 
 ## 阶段 2: z42c 切引用 z42.project + 删 z42c.project manifest-model（path C 后；ready-to-execute）
@@ -65,8 +65,8 @@
   CacheDir)。z42c **不消费** SharedVersion/License（Decision 2 弃，安全）。
 
 **执行剧本**：
-- [ ] 2.1 imports：`BuildPaths.z42` / `WorkspaceBuild.z42` 的 `using Z42.Project;` → `using Z42.Build.Project;`；
-      `Main.z42` **保留** `using Z42.Project;`（后端 ZpkgWriter/Reader/…）+ **加** `using Z42.Build.Project;`（模型）。
+- [ ] 2.1 imports：`BuildPaths.z42` / `WorkspaceBuild.z42` 的 `using Z42.Package;` → `using Z42.Project;`；
+      `Main.z42` **保留** `using Z42.Package;`（后端 ZpkgWriter/Reader/…）+ **加** `using Z42.Project;`（模型）。
 - [ ] 2.2 字段迁移 flat→composed（3 文件，~40 处，Field Mapping 逐条）：
       `pm.{Name,Version,Kind,Entry,HasEntry,HasPack,Pack}`→`pm.Project.*`；
       `pm.{IncludeGlobs→Sources.Include, IncludeCount→Sources.IncludeCount, ExcludeGlobs→Sources.Exclude, ExcludeCount→Sources.ExcludeCount}`；

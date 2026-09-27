@@ -1,6 +1,6 @@
 // zpkg 包模型（port-z42c-zpkg-build BP-2）。镜像 C# PackageTypes.cs 的 packed 子集。
 // 受限写法：class + typed array + count；后缀 Z 避免与 C# 概念混淆处仅注释说明（类名直接镜像）。
-namespace Z42.Project;
+namespace Z42.Package;
 
 using Z42.IR;
 

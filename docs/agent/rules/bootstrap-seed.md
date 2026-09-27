@@ -203,15 +203,15 @@ z42c *自己运行期就要用* 的 stdlib 库**（如 `converge-z42c-ir-metadat
 > **旧的还在**，上一版 driver 二进制运行期照旧解析得到。但**重命名或删除**会抹掉旧 FQN，
 > 而那个 driver 正是拿来跑这轮 bootstrap 的 ⇒ 它在中途就死。
 >
-> 实测（`add-deployment-model` 想把 `Z42.Build.Project` ↔ `Z42.Project` 互换）：改完源码
+> 实测（`add-deployment-model` 想把 `Z42.Project` ↔ `Z42.Package` 互换）：改完源码
 > `xtask build stdlib` 当场红在
 >
 > ```
-> Std.MissingSymbolException: undefined function `Z42.Build.Project.ManifestLoader.Load$1$string`
+> Std.MissingSymbolException: undefined function `Z42.Project.ManifestLoader.Load$1$string`
 >   at Z42.Driver._build (Main.z42:166)
 > ```
 >
-> 两个方向都踩（`Z42.Project.ZpkgWriterZ` 种子也在调）。**⇒ 动这 6 个库里「driver 运行期会调」的
+> 两个方向都踩（`Z42.Package.ZpkgWriterZ` 种子也在调）。**⇒ 动这 6 个库里「driver 运行期会调」的
 > 符号的名字或存在性，仍是跨 nightly 的两/三阶段改动**，不受本节豁免保护。
 >
 > ⭐ 顺带测出的一条：把旧 `<pkg>.zpkg` 拷进 driver **自己的 dist**（搜索序

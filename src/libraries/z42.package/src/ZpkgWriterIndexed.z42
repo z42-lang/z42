@@ -1,7 +1,7 @@
 // indexed 主文件写入器（add-indexed-zpkg-min-patch）。与 packed 写入器（ZpkgWriterZ）
 // 同 minor 版本；共享段构建助手（_buildMeta/_buildNspc/…/_assemble，均在 ZpkgWriter.z42）。
 // 拆独立文件守 500 行硬限（code-organization）。
-namespace Z42.Project;
+namespace Z42.Package;
 
 using Z42.IR;
 using Z42.IR.BinaryFormat;

@@ -9,14 +9,14 @@ IR 模型 + zbc 格式 + zpkg 后端（读/写/构建 + TSIG + PackageTypes）+ 
 
 合并理由（User 裁决）：zbc（单模块字节码）与 zpkg（包/多模块）单向耦合（zpkg→zbc），REPL 两半都要；
 一个库 = z42c 只加一条 dep、一次拓扑、一个 GREEN gate，最简。轻量消费者背 crypto/io 的代价可忽略
-（谁用 IR 基本都要读包）。namespace 三段（Z42.IR / Z42.IR.BinaryFormat / Z42.Project）在一个库里共存
+（谁用 IR 基本都要读包）。namespace 三段（Z42.IR / Z42.IR.BinaryFormat / Z42.Package）在一个库里共存
 ——库可含多 namespace，无碍。
 
 ## 决策 2：namespace 保持不变（MOVE，非并存）
 
-converge-z42c-onto-z42-project 期 `z42.project` 用了**新** namespace（`Z42.Build.Project`）因它与旧
-`z42c.project`（`Z42.Project`）**并存过渡**。本 change 是**纯 MOVE**（删编译器副本、同一份进 stdlib，
-无并存），故 `Z42.IR` / `Z42.IR.BinaryFormat` / `Z42.Project`（后端现名）**保持**——好处：所有
+converge-z42c-onto-z42-project 期 `z42.project` 用了**新** namespace（`Z42.Project`）因它与旧
+`z42c.project`（`Z42.Package`）**并存过渡**。本 change 是**纯 MOVE**（删编译器副本、同一份进 stdlib，
+无并存），故 `Z42.IR` / `Z42.IR.BinaryFormat` / `Z42.Package`（后端现名）**保持**——好处：所有
 `using Z42.IR;` 调用点**一字不改**，只有 `.z42.toml` 的 deps 换名。churn 最小、字节漂移面最小。
 
 > flat-libs 同名 first-wins 串味风险（converge 的核心顾虑）**不适用**：串味需**两份**同名文件同时在
@@ -27,8 +27,8 @@ converge-z42c-onto-z42-project 期 `z42.project` 用了**新** namespace（`Z42.
 
 CacheStore（增量构建缓存，source-hash → 跳过重编）是**构建工具策略、非格式契约**，不入 z42.package。
 消费者 = z42c.driver（IndexedDist/IncrementalDriver）+ z42c.pipeline（IncrementalBuild）。删 z42c.project
-时把 `CacheStore.z42` **迁入 z42c.pipeline**（driver 已 dep pipeline）；保持 namespace `Z42.Project`
-→ 消费者 `using Z42.Project;` 零改。REPL 不用它，零影响。
+时把 `CacheStore.z42` **迁入 z42c.pipeline**（driver 已 dep pipeline）；保持 namespace `Z42.Package`
+→ 消费者 `using Z42.Package;` 零改。REPL 不用它，零影响。
 
 ## 决策 4：拓扑与依赖
 
@@ -78,7 +78,7 @@ compiler`（step 3）**后** `build stdlib`（step 4）；② 即便调换，`bu
 z42c 运行期依赖 `z42.package`——这正是**自依赖环**（见 self-hosting.md 轴 ④）。冷启动时上一 nightly 种子
 只把等价代码作 **`z42c.ir` + `z42c.project`**（包名不同）携带，没有 `z42.package.zpkg`。于是 fresh z42c
 被编成钉在种子 `z42c.project.ZpkgBuilder` 上的调用，运行期加载真 `z42.package` 解析不到 →
-`undefined function Z42.Project.ZpkgBuilder.Sha256Hex`。**破环**：`_ensureBootstrapZ42Ir`
+`undefined function Z42.Package.ZpkgBuilder.Sha256Hex`。**破环**：`_ensureBootstrapZ42Ir`
 （`scripts/build/xtask_compiler.z42`）在建 z42c **前**用种子 driver 先把当前源 `z42.package` 单独编进
 build-libs（两代自举，同构轴 ②），fresh z42c 遂对着真 z42.package 编译+运行。幂等（warm 跳过 → 不动点
 逐字节不受影响）。完整机制见 [`self-hosting.md` 轴 ④](../../../internals/src/compiler/self-hosting.md)。

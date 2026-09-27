@@ -6,9 +6,9 @@ using Std.IO;
 using Z42.Syntax;
 using Z42.Core;      // LanguageFeatures
 using Z42.Semantics;
-using Z42.Project;
+using Z42.Package;
 using Z42.IR;
-using Z42.Build.Project;
+using Z42.Project;
 using Z42.Pipeline;
 
 // 逐文件写 fullMode .zbc + meta + 包级源清单。**不论是否增量都落盘**（含 workspace / --output-dir /

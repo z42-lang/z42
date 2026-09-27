@@ -7,8 +7,8 @@ namespace Z42.Driver;
 
 using Std;
 using Std.IO;
+using Z42.Package;
 using Z42.Project;
-using Z42.Build.Project;
 using Z42.Pipeline;
 
 // Milestone 2（drop-in，无 --output-dir）：按 [workspace.build].output_dir 模板展开

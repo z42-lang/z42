@@ -10,7 +10,7 @@ using Std.IO;
 using Std.Time;
 using Z42.IR;
 using Z42.IR.BinaryFormat;
-using Z42.Project;
+using Z42.Package;
 
 
 // libs 目录扫描主入口 + 惰性扫描 + 增量并包 + 按需加载/reconcile 编排（refactor-depscan-concern-split）。

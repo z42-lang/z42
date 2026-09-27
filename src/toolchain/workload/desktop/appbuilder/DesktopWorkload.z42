@@ -1,7 +1,7 @@
 namespace Z42.Workload;
 
 using Z42.Build;
-using Z42.Project;
+using Z42.Package;
 
 /// Desktop 平台 workload —— 接管 `configure → package` 尾相位。host 任意；
 /// **无 runtime pack**（复用宿主已装 runtime，apphost 运行时自行定位 z42vm）。

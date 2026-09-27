@@ -16,9 +16,9 @@ using Z42.Core;      // LanguageFeatures —— [syntax] 解出的语法特性�
 using Std.IO;
 using Z42.Syntax;
 using Z42.Semantics;
-using Z42.Project;
+using Z42.Package;
 using Z42.IR;
-using Z42.Build.Project;
+using Z42.Project;
 using Z42.Pipeline;
 
 // 进程 exit code 契约（compiler-review §三/P2-4：原 0/1/2 魔数无契约、语义靠各函数自觉）。
@@ -238,9 +238,9 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
         // 落点已从 `z42c.pipeline` 搬到 `z42.project`（零编译器依赖，且 z42b 也要用它）。
         // **全限定**：`Z42.Pipeline` 还留着一层同名转发（种子 ABI，下一 nightly 删），
         // 不限定就是两个 `PathDepClosure` 打架。
-        Z42.Build.Project.PathDepClosure closure;
+        Z42.Project.PathDepClosure closure;
         try {
-            closure = Z42.Build.Project.PathDepPlan.Resolve(tomlPath);
+            closure = Z42.Project.PathDepPlan.Resolve(tomlPath);
         } catch (Exception e) {
             ConsoleError.WriteLine(e.Message);
             return ExitCode.BuildError;

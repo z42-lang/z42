@@ -2,8 +2,8 @@
 // glob（`**/*.z42` 递归 / `*.z42` 单层）排除 dist/.cache，去重 + Ordinal 排序
 // （common-pitfalls §1：文件系统枚举非确定，显式 sort）。
 //
-// 与 z42c.project 的同名实现一致，但命名空间用 Z42.Build.Project（避开 z42c 内部 Z42.Project 冲突）；z42c 重构后引用本库、删自带版。
-namespace Z42.Build.Project;
+// 与 z42c.project 的同名实现一致，但命名空间用 Z42.Project（避开 z42c 内部 Z42.Package 冲突）；z42c 重构后引用本库、删自带版。
+namespace Z42.Project;
 
 using Std;
 using Std.IO;

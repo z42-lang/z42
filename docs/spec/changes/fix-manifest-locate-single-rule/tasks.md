@@ -31,7 +31,7 @@
 
 - `src/libraries/z42.project/src/PathDepPlan.z42`
 - `src/compiler/z42c.driver/src/BuildPaths.z42`
-- `src/toolchain/builder/core/builder_publish.z42`（+ `using Z42.Build.Project;`）
+- `src/toolchain/builder/core/builder_publish.z42`（+ `using Z42.Project;`）
 - `scripts/build/xtask_compiler_e2e.z42`（门禁：把 path 依赖 e2e 的一层改用裸 `z42.toml`）
 - `docs/reference/src/toolchain/z42-toml.md`、`docs/reference/src/toolchain/compile-time-extensions.md`
 

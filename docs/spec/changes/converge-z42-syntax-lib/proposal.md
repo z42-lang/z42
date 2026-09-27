@@ -46,7 +46,7 @@ playground 加载的可移植 `z42c.*` 库**」。这是门面 PR 与 scripting 
   → **消费方所有 `using Z42.Core` / `using Z42.Syntax`、所有 FQ 引用、所有 toml 依赖名全部不动**，
     本 PR 是**纯物理搬迁 + 构建接线**，无源码符号改动。
 - **不搬** `z42c.semantics` / `z42c.pipeline`（留编译器，走后续门面 PR）。
-- **不动** `z42.package`（保 `Z42.IR` / `Z42.Project` 真 stdlib 身份）。
+- **不动** `z42.package`（保 `Z42.IR` / `Z42.Package` 真 stdlib 身份）。
 - **零新增 `Std` / `z42.*` API 面**——搬入者全 `z42c.*` 身份，用户面标准库**不增长**（满足「尽量减少标准库」）。
 - **零格式 bump**（zbc / zpkg writer 不动）。
 - scripting 本轮**仍留 toolchain**（其 semantics/pipeline 依赖未解，未到可搬 libraries 的条件）。
@@ -56,7 +56,7 @@ playground 加载的可移植 `z42c.*` 库**」。这是门面 PR 与 scripting 
 - **bootstrap 轴④**：z42c 运行期/构建期自依赖 `z42c.core` + `z42c.syntax`，冷启动 flat dist 里没有
   → 必靠 §破环预建。**本地不可验**（种子墙：种子 driver 缺近期字段；z42vm 退出期挂起）→
   **GREEN 判定以 CI 为准**（`ci-bootstrap` 两代自举 + `verify-selfhost` 字节不动点 + test-host×4 + jit）。
-- **跨 workspace 短类名 first-wins 碰撞**：`z42.project`(Z42.Build.Project) 与 `z42c.project` 曾因 flat
+- **跨 workspace 短类名 first-wins 碰撞**：`z42.project`(Z42.Project) 与 `z42c.project` 曾因 flat
   `Z42_LIBS` 短类名 first-wins 串味炸过自举，已由 `fix-crosspkg-static-ns-collision`（using-scoped 解析）
   根治。本 PR 不改命名空间，`Z42.Core` / `Z42.Syntax` 仍单包独占（无第二包同 ns），无新碰撞面。
 - **default-members 双改**：漏改任一 workspace 的 default-members → 该包不建或重复建。搬迁半径清单见 tasks.md。

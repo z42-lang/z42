@@ -6,7 +6,7 @@ using Std;
 using Std.IO;
 using Z42.Pipeline;
 using Z42.Build;
-using Z42.Project;   // ZpkgReader（读回 MODS 头的 SourceFile / SourceHash）
+using Z42.Package;   // ZpkgReader（读回 MODS 头的 SourceFile / SourceHash）
 
 string _tmpRoot() {
     string t = Environment.GetEnvironmentVariable("TMPDIR", "");

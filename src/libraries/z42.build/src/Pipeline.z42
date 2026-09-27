@@ -1,6 +1,6 @@
 namespace Z42.Build;
 
-using Z42.Build.Project;
+using Z42.Project;
 
 /// 管线驱动 —— 定义整条「编译 → 发布」的**流程**。
 ///

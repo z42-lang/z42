@@ -12,7 +12,7 @@ using Std.Collections;
 using Std.Scripting;
 using Std.Repl;
 using Std.Threading;   // Thread（add-repl-prewarm：启动即 spawn 预热 worker）
-using Z42.Project;           // ZpkgWriterZ.Major/Minor（.version 元指令）——add-package-roles 批 0
+using Z42.Package;           // ZpkgWriterZ.Major/Minor（.version 元指令）——add-package-roles 批 0
 using Z42.IR.BinaryFormat;   // ZbcVersion（.version 元指令）——add-package-roles 批 0
 
 void Main() {

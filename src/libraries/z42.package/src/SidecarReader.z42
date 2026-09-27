@@ -6,7 +6,7 @@
 // `at <name>(<types>) +0x<offset>` 还原成 file:line:col。
 //
 // 复用 ZpkgReader 的 public ZpkgCursor（LE + varint）；IrLineEntry 来自 Z42.IR。
-namespace Z42.Project;
+namespace Z42.Package;
 
 using Std;
 using Std.IO;

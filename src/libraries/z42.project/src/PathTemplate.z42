@@ -2,8 +2,8 @@
 // 内置变量：${workspace_dir} / ${member_dir} / ${member_name}（别名 ${project_name}）/
 //   ${profile} / ${output_dir}。`$$` → 字面 `$`；未闭合 `${` → 原样；未知变量 → 保留字面。
 //
-// 与 z42c.project 的同名实现一致，但命名空间用 Z42.Build.Project（避开 z42c 内部 Z42.Project 冲突）；z42c 重构后引用本库、删自带版。
-namespace Z42.Build.Project;
+// 与 z42c.project 的同名实现一致，但命名空间用 Z42.Project（避开 z42c 内部 Z42.Package 冲突）；z42c 重构后引用本库、删自带版。
+namespace Z42.Project;
 
 public sealed class TemplateContext {
     public string WorkspaceDir;

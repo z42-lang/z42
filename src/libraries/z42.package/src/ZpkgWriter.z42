@@ -4,7 +4,7 @@
 // strip-symbols（split-debug，port-z42c-strip-symbols）：release 时主 zpkg MODS dbug_len=0
 // + 末尾 BLID（MurmurHash3 x86_128 build_id）+ 配套 .zsym sidecar（META+STRS(symPool)+MDBG+BLID）。
 // 延后：indexed/FILE。
-namespace Z42.Project;
+namespace Z42.Package;
 
 using Z42.IR;
 using Z42.IR.BinaryFormat;
