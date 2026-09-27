@@ -119,6 +119,49 @@ cargo test --manifest-path src/runtime/Cargo.toml <substr>  # 按名过滤
 CI 只在 Windows 腿跑 `cargo test`，容易静默腐烂——改 ClassDesc / 反射 / 版本相关代码后
 **本地必跑**；版本 bump 还要更新 `zbc_reader_tests` 里的 version-pin 测试。
 
+### `test fingerprint`：本地怎么给它一棵 base 树
+
+这道门要两棵树（本树编译器重编 **base 的** stdlib 源码，逐包比字节），过去多个 change 的
+tasks.md 都记着「本地无从提供 base 树」而只能等 CI。其实当 **nightly release 正好发自
+当前 origin/main** 时很便宜 —— 先对一下：
+
+```bash
+gh release view nightly --json targetCommitish,publishedAt   # == origin/main HEAD？
+```
+
+相等就可以铺一棵：
+
+```bash
+BASE=../z42-base
+git worktree add $BASE --detach <那个 sha>
+# nightly SDK 当冷种子（解包在 $SDK）
+mkdir -p $BASE/artifacts/build/{libraries/dist/release,compiler/z42c.driver/release/dist} $BASE/.seedvm
+cp $SDK/libs/*          $BASE/artifacts/build/libraries/dist/release/
+cp $SDK/programs/z42c/* $BASE/artifacts/build/compiler/z42c.driver/release/dist/
+cp $SDK/bin/z42vm       $BASE/.seedvm/z42vm && chmod +x $BASE/.seedvm/z42vm
+cp -R <warm>/.z42 $BASE/.z42 && cp <warm>/xtask $BASE/xtask      # 种子 + apphost
+# xtask.zpkg 用 SDK 自带的 z42c 现建（**别**用 .z42/bin/z42c，见 bootstrap-seed 的格式墙）
+(cd $BASE && Z42_LIBS=$PWD/artifacts/build/libraries/dist/release ./.seedvm/z42vm \
+   artifacts/build/compiler/z42c.driver/release/dist/z42c.driver.zpkg \
+   -- build scripts/xtask.z42.toml --release)
+# 🔴 关键一步：**必须真跑一遍 build stdlib**
+(cd $BASE && RUSTUP_TOOLCHAIN=1.98.1 Z42_PORTABLE_VM=<本树>/artifacts/build/runtime/release/z42vm \
+   ./xtask build stdlib)
+```
+
+然后在本树 `./xtask test fingerprint --base $BASE`。
+
+两个容易踩的：
+
+- 🔴 **只把 flat libs 铺进 `artifacts/build/libraries/dist/release/` 不够** —— 那是**运行期**
+  libs，而门比的是 **per-member dist**（`artifacts/build/libraries/<pkg>/release/dist/<pkg>.zpkg`）。
+  漏了这步，门会明确报「只有一侧有产物，无从比对」并拒绝出结论
+  （此前它会把这种输入缺失静默报成「N 个包输出变了，请加 slug」—— 25/25 全变，
+  非常像真的）。
+- ⭐ `Z42_PORTABLE_VM` 可以直接借**本树刚建好的** z42vm：VM 与源码树无关，同 sha 下等价，
+  省掉 base 树一次 ~10 分钟的 cargo 全量。（但**别拷 `artifacts/build/runtime/` 目录本身** ——
+  里面 `-sys` crate 的 `CMakeCache.txt` 烤死了绝对路径。）
+
 ## 3. 用例放哪
 
 「被测对象在哪，测试就在哪」+「中央 VM e2e 按特性分类」。
