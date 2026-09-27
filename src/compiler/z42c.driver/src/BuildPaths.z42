@@ -93,37 +93,44 @@ void _stabilizeSourceIdentity(ZpkgFileZ z, string projectDir) {
 
 // ── 编译期扩展的解析域（add-package-roles 批 1）────────────────────────────
 //
+// 编译器域包的解析域 —— 「显式引用编译器域库」的落点（relocate-compiler-domain-libs，2026-09-27）。
+//
 // `kind = "analyzer"` 的工程要 `[dependencies]` 到编译器的契约包（`z42c.semantics` 的
 // `Generator`/`ModuleGenerator`/`GenSink`/`GenTarget`），而这些 zpkg **不在** `libs/` ——
 // 那正是 proposal 记下的症状：契约在 SDK 目录里、却不在解析器会去看的地方，于是插件作者
 // 拿到的是一句位置在别处的 `E0443 undefined type: ModuleGenerator`，没有任何东西诊断它。
 //
-// 本函数返回该解析域目录（存在者为准，按探测序；一个都没有 → 空数组，调用方照旧只看 libs/）。
-// 探测序镜像 `ReplCompilerHost._findCompilerZpkg`（scripting 定位编译器组件的同款三档）：
-//   ① Z42_HOME/compiler-libs/                  —— SDK 安装态
-//   ② Z42_PORTABLE_VM 反推 SDK 根 → <sdk>/compiler-libs/
-//   ③ 开发树：自 Z42_LIBS 上溯到 artifacts/build/ → compiler/z42c.semantics/release/dist/
-//      （仓库内开发无 SDK；driver 手里没有仓库根，Z42_LIBS 是唯一可靠的锚点）
+// 🔴 **落点是 `programs/z42c/`，不是独立的 `compiler-libs/`**（User 2026-09-27 裁：避免复杂）。
+// 旧实现探的 `Z42_HOME/compiler-libs` 与 `<sdk>/compiler-libs` **在发布态恒不存在** ——
+// 实测今天的 nightly SDK 里没有那个目录，`z42c.semantics.zpkg` 躺在 `programs/z42c/`；
+// 两条组装路只有 `build sdk` 那条建了它，发布 tarball 里没有 ⇒ **批 1 声称打通的「用户能写
+// generator」在发布态一直是空的**，只有开发树靠第 ③ 档命中。改指真实存在的那个目录即修复。
 //
-// **只对 analyzer 工程生效**：普通工程的 libsDirs 不含它，编译器域包对普通用户仍不可见
-// （role 维度的「compile-time 不进 runtime 解析域」这条，在 kind 这一侧先落一半）。
-string[] _compilerLibsDirs() {
+// 探测序（存在者为准；一个都没有 → 空数组，调用方照旧只看 libs/）：
+//   ① `Z42_COMPILER_LIBS`                       —— 自定义/非常规 SDK 布局的逃生口
+//   ② `Z42_HOME/programs/z42c/`                 —— SDK 安装态（launcher 转发时已设）
+//   ③ `Z42_PORTABLE_VM` 反推 SDK 根 → `<sdk>/programs/z42c/`
+//   ④ 开发树：自 `Z42_LIBS` 上溯到 `artifacts/build/` → `compiler/z42c.semantics/release/dist/`
+// ①②③ 与 `ReplCompilerHost._findCompilerZpkg`（scripting 定位编译器组件）是**同一套落点**。
+string[] _compilerDomainDirs() {
     string[] found = new string[4];
     int n = 0;
+    string env = Environment.GetEnvironmentVariable("Z42_COMPILER_LIBS", "");
+    if (env.Length > 0 && Directory.Exists(env)) { found[n] = env; n = n + 1; }
     string home = Environment.GetEnvironmentVariable("Z42_HOME", "");
     if (home.Length > 0) {
-        string p1 = Path.Join(home, "compiler-libs");
-        if (Directory.Exists(p1)) { found[n] = p1; n = n + 1; }
+        string p1 = Path.Join(home, Path.Join("programs", "z42c"));
+        if (Directory.Exists(p1) && !_clContains(found, n, p1)) { found[n] = p1; n = n + 1; }
     }
     string pv = Environment.GetEnvironmentVariable("Z42_PORTABLE_VM", "");
     if (pv.Length > 0) {
         string sdk = Path.GetDirectoryName(Path.GetDirectoryName(pv));
-        string p2 = Path.Join(sdk, "compiler-libs");
+        string p2 = Path.Join(sdk, Path.Join("programs", "z42c"));
         if (Directory.Exists(p2) && !_clContains(found, n, p2)) { found[n] = p2; n = n + 1; }
     }
-    // ③ 开发树：Z42_LIBS = <root>/artifacts/build/libraries/dist/release → 上溯 3 级得
+    // ④ 开发树：Z42_LIBS = <root>/artifacts/build/libraries/dist/release → 上溯 3 级得
     //    <root>/artifacts/build，再拼 compiler/z42c.semantics/release/dist。布局若变则目录
-    //    不存在、自然跳过（不猜、不报错——这只是开发便利档，SDK 态走 ①②）。
+    //    不存在、自然跳过（不猜、不报错——这只是开发便利档，SDK 态走 ①②③）。
     string libs = Environment.GetEnvironmentVariable("Z42_LIBS", "");
     if (libs.Length > 0) {
         string buildDir = Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(libs)));
@@ -165,7 +172,7 @@ public sealed class HandlerZpkgs {
 // 包对消费方的**普通代码**可见 —— 解析域隔离当场破掉。故这里只把单个 zpkg 路径交出去。
 //
 // 代建用消费方的 isRelease/optSet，但 **libsDirs 一律不继承**（传 count=0）：analyzer 工程自己会走
-// 它自己的 path 依赖闭包 + Z42_LIBS + compiler-libs 解析域（批 1 接线按 `kind == "analyzer"` 生效）。
+// 它自己的 path 依赖闭包 + Z42_LIBS + 编译器域解析域（`_compilerDomainDirs()`，按 `kind == "analyzer"` 生效）。
 HandlerZpkgs _resolveHandlerZpkgs(ProjectManifest pm, string projectDir, string consumerToml,
                                   string[] libsDirs, int libsDirsN,
                                   bool isRelease, bool noIncremental, int cliAdd, int cliRemove) {
