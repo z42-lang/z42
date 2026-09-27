@@ -181,7 +181,17 @@ pub const ZBC_VERSION_MAJOR: u16 = 1;
 // SIGS / TYPE / FUNC changes accordingly; `Tag.FromName` rebinds the narrow integer
 // family onto the keywords (return-type tags stay one-for-one, and the keyword
 // spellings that used to fall through to Object(0x20) now get their correct tag).
-pub const ZBC_VERSION_MINOR: u16 = 44;
+// 2026-09-27 type-section-flags2-and-struct-fields: bumped to 1.45 — the TYPE record
+// gains (1) an **always-present `class_flags2:u16`** right after `visibility`, and
+// (2) a `class_flags2` bit0-gated **per-field struct layout table** after the struct
+// reference-bitmap block (`field_count:u16 + (off:u32, size:u32, kind:u8)×n`, parallel
+// to `fields`). Both are **A-support**: written, symmetrically consumed by both readers,
+// used by nobody yet (same discipline as the 1.34 object block's dormant metadata).
+//
+// Why a second flags word: `class_flags` is a u8 with all 8 bits taken. Running out
+// already cost something concrete — the 1.33/1.34 object block had to be gated by a
+// **derived predicate** mirrored on both sides instead of a flag bit.
+pub const ZBC_VERSION_MINOR: u16 = 45;
 
 // ── zpkg wire format version (mirror of C# ZpkgWriter.VersionMajor/Minor) ────
 //
@@ -305,7 +315,10 @@ pub const ZPKG_VERSION_MAJOR: u16 = 0;
 // 2026-09-22 drop-short-primitive-aliases: bumped to 0.49 — embeds zbc 1.44
 // (canonical primitive spelling short-name -> C# keyword). No zpkg-outer layout change;
 // the bump triggers ci-bootstrap's version-diff two-gen self-host.
-pub const ZPKG_VERSION_MINOR: u16 = 49;
+// 2026-09-27 type-section-flags2-and-struct-fields: bumped to 0.50 — embeds zbc 1.45
+// (TYPE record: always-present class_flags2 + gated per-field struct layout table).
+// Outer layout unchanged.
+pub const ZPKG_VERSION_MINOR: u16 = 50;
 
 // ── Strict-pin header verification ────────────────────────────────────────────
 //
