@@ -105,7 +105,10 @@ imported 类的符号 `Methods` 由 `ImportedSymbolLoader` 从 TSIG 重建，而
 第一个 FQ 命中即「最近声明」= 对该精确类型对象动态派发的唯一目标。
 
 - **边界**：**可限定（本地/imported）非泛型类** receiver（不再要求整类 sealed，见下 sealed override）+ 可限定
-  非泛型定义类 + 非 abstract 目标。**任何解析不确定即回落 `VCallInstr`**（`ResolveSealedTarget` 返回 ""）——永不 miscall。
+  非泛型定义类 + 非 abstract 目标。**任何解析不确定即回落 `VCallInstr`**（`ResolveSealedTarget` 返回 ""）。
+  🔴 2026-09-27 更正：此处原写「永不 miscall」，而实测有一格会 miscall —— 校验用的依赖表**含裸名别名**，
+  命中别名后拿键当目标名就指向了一个不存在的函数（`typeof(int).GetType()` 在 `--release` 下崩）。已修
+  （`fix-devirt-bare-name-alias`）：判据收紧为「真名逐字相同」。
 - **正确性铁律**：目标名错 = 静默调错。多保险：① 越界回落 VCall；② imported 定义类必过 Deps FQ 校验；
   ③ `--no-opt devirt` before/after 逐字节对拍（单源 IR 路径）+ z42c 自举不动点（z42c 自身大量本地/imported
   sealed 类被去虚化编译，gen1==gen2 覆盖全码库）；④ cross-zpkg e2e `sealed_devirt_imported`（跨包继承基链——
