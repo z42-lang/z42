@@ -247,6 +247,151 @@ User 问「性能有没有损耗」。原 §B 只有 interp 的 +5%。补测 JIT
   且要按 `bootstrap-seed.md` 先 support、晚一个 nightly 再 use。
   ⭐ P2 落地后**必须实测纯隔离的符号化开销**（当前只有含存储差的上界），对照裁决 #3 的门槛。
 
+## 🔴 P2 的规范冲突（待裁决）+ 普查数据 + A 方案完整规格（2026-09-28）
+
+### 冲突
+
+本提案对 P2 的操作数写了**两种互不相容**的答案：
+
+| 位置 | 写的 |
+|---|---|
+| §「下一步」 | `(owner 类型名, **字段序号**)` |
+| 阶段表 P2 行 | `(owner 类型名, **字段路径**)` |
+
+两者给出**不同的 wire 格式**（定长 `u16` vs 变长路径）⇒ 必须裁决后才能实施。
+
+### 普查（10 个 emit 点，全部实测定位）
+
+| 形态 | 站点 | 序号够吗 |
+|---|---|---|
+| 单层，owner struct 名 + 字段名都在手 | `AccessEmitter:274/281`（`_emitStructFieldSet/Get`）· `RecordSynth:321` · `PatternEmitter:287` | ✅ |
+| **累积展平** | `AccessEmitter:303/320`（`_emitBlobFieldGet/Set`，经 `_structChainOffset`）· `AccessEmitter:594/595`（`_copyRegion`，递归）· `OperatorEmitter:408/409`（`_emitLeafEqChecks`，递归） | ❌ 要路径 |
+
+嵌套链恒由**求和展平**（`off(Line,a)+off(P,x)`，可任意深），且**只发射一条**指令。
+
+### 🔴 但决定设计的不是深度，是**编号空间歧义**
+
+编译期有 **2 个偏移编号空间**，运行期有 **4 种 base kind**，而**两个空间在 IR 里无法区分**：
+
+| 空间 | 由谁算 | 运行期 base kind |
+|---|---|---|
+| ① struct 布局相对 | `StructLayout.FieldByteOffset`（嵌套累加） | `StructRef`（arena blob）· `BoxedStruct`（静态 struct 字段箱）· `StructRefHeap`（`struct[]` 元素，运行期再加 `i*elem_size`） |
+| ② composed **对象**布局相对 | `StructLayout.InlineFieldByteOffset` | `Object` · `StackObject` |
+
+站点 3–6 烘出的那个和，**不知道运行期 `Base` 是对象还是 blob 就没有意义**。
+今天的正确性靠编译器（`_isInlineStructFieldRoot` / `_isOwnerInlineField`）与运行时
+（`exec_struct.rs` 按 `Value` 变体分派）**各自独立地**同意该用哪个空间 —— **指令里一个字都没记**。
+这是审计 **R2「判据复制」** 在 struct 路径上的一个实例。
+
+⇒ **P2 的真正价值不是性能**（已实测：符号化边际代价 ≈ helper 内一次查表，helper 调用本来就要付）
+**而是把编号空间显式化、可校验**，消掉一整类混用。
+
+### ⇒ 这把 A vs B 判掉了，而且 A 赢
+
+> ⭐ **root 类型名本身就是那个判别器。** 名字解析出来是 **class** ⇒ 第一级索引进
+> `composed_object_layout().field_offsets`（它**已经**存在，且注释写明
+> 「parallel by index with `TypeDesc::fields`」）；是 **struct** ⇒ 进 `struct_layout().fields`（P0 落的表）。
+>
+> B 的「展平叶子表」解决的是**深度**问题，**根本没碰空间歧义**，还要再加一个 zbc 块。
+
+### A 方案规格（若获裁决即可实施）
+
+**wire**（zbc 1.46 / zpkg 0.51）：
+
+```
+StructFieldGetPrim : op + tag(dst) + dst | base:u16 | root_type:u32(池) | depth:u8 | idx:u16 × depth | kind:u8
+StructFieldSetPrim : op + tag(val) + NoReg | base:u16 | root_type:u32(池) | depth:u8 | idx:u16 × depth | kind:u8 | val:u16
+```
+
+`depth >= 1`。**不需要新增任何 zbc 块** —— 嵌套字段的类型名由 `TypeDesc.fields[i].type_name`
+平行承载（#903 刻意「名/类型名不重复承载」正是为此）。
+
+**解析（VM 侧，`exec_struct.rs`）**：
+
+```
+off = 0；cur = root_type
+第 1 级：cur 是 class  ⇒ off += composed_object_layout().field_offsets[idx[0]]；cur = fields[idx[0]].type_name
+         cur 是 struct ⇒ off += struct_layout().field_offset(idx[0])； cur = fields[idx[0]].type_name
+第 2..depth 级：恒走 struct 分支（链已由编译器在非内联处断开 ⇒ 每一节都真内联）
+```
+
+- 深度 1（绝对多数）= **1 次下标**，与今天的立即数只差一次下标。
+- 深度 d ≥ 2 = d 次下标 + d−1 次类型名注册表查找。⚠️ **这是 A 唯一的代价**，也是要量的那格。
+- `StructRefHeap` 的 `i*elem_size` 仍由运行期加，与今天一致。
+
+**校验（A 白送的那一半）**：`root_type` 解析出的 kind 与运行期 `Base` 的 `Value` 变体必须一致
+（class ↔ `Object`/`StackObject`，struct ↔ `StructRef`/`BoxedStruct`/`StructRefHeap`），
+不一致 ⇒ 报错。今天这条对账**根本无从做起**。
+
+**顺带消掉的 `-1` 危险**：`FieldByteOffset` 查不到返回 **-1**，烘成 u32 立即数即 `4294967295`，
+只在运行期以「offset 4294967295 not in type layout」炸出来（注释记着它造成过真 bug
+`fix-struct-autoprop-layout-name`）。A 之下烘的是**序号**，查不到就是编译期的事。
+⚠️ 注意 `-1` 同时被 `AccessEmitter:540/559`、`FunctionEmitter:72` **当谓词用**
+（「这是内联字段吗」）—— 又一处「一个值两种含义」，所以守卫只能加在**烘焙点**，不能让查询函数抛。
+
+### 🔬 `-1` 危险的可达性实测（2026-09-28）—— 结论：不可达，且**并入 P2 做，不单独动刀**
+
+`FieldByteOffset` / `InlineFieldByteOffset` 查不到返回 **-1**，烘成 u32 立即数即 `4294967295`。
+做了可达性实验（这是决定「要不要单独开一刀」的前置）。
+
+**方法**：在**烘焙那一刻**（`ZbcInstr.z42` 写 `ByteOff` 处，一处覆盖全部 10 个 emit 点）
+插「`ByteOff < 0` 即抛」探针 → 重建 z42.package → 重建编译器 → 用它重编一切。
+
+**结果**：
+
+    25 个 stdlib 库 ×2            全部编过，探针零响
+    387 golden 重生 + 748/89/3 e2e  全绿，探针零响
+    z42c 24 单测 + 自举不动点 3/3   全绿，探针零响
+
+**两格必需的对照**（否则「零响」毫无意义）：
+
+| 对照 | 结果 |
+|---|---|
+| 探针条件翻成恒真 + 真有 struct 的用例 | ✅ 响 ⇒ 探针**确实在烘焙路径上** |
+| 探针恒真 + 无 struct 的用例 | ✅ 不响 ⇒ 探针**能区分** |
+| 强制 `FieldByteOffset` 恒查不到 + 嵌套链用例 | ✅ 抓到 ⇒ 真 miss 能走到守卫 |
+
+🔴 **顺带证实：探针恒真时 25 个 stdlib 库照样全部编过** ⇒ **stdlib 一条
+`StructFieldGetPrim`/`SetPrim` 都不发**。所以实验里「stdlib 全绿」**对这件事零信息量**，
+有效覆盖只有 e2e 语料。（与既有记录「z42c 自己热路径上几乎不用多字段值 struct」一致。）
+
+⇒ **`-1` 在整个 e2e 语料 + golden + z42c 自举上不可达。** 它**不是活 bug**。
+它历史上让项目付过两次代价（`fix-struct-autoprop-layout-name` / `fix-struct-property-getter`），
+每次都以「离现场很远的运行期崩」现形 —— 所以值得有守卫，但那是**防御、不是修复**。
+
+#### ⚠️ 一条**未被证明**的推理（不要当事实引用）
+
+我曾判断「`-1` 会被求和掩盖」：站点 3–6 烘的是
+`_structChainOffset(...) + FieldByteOffset(...)`，若链偏移为 8 而叶子查不到，
+和是 **7** —— 一个看起来合法的错偏移，哨兵消失。
+
+**这条至今只是构造上的推理，实测没能产出它**：把哨兵改回 `-1` 并强制 miss 后，
+`struct_nested` / `generic_struct_chain` **照样被守卫抓到**（`ByteOff=-1`）——
+因为守卫先在一个深度 1 的站点响了（那里链偏移为 0，和仍是 -1）。
+要产出掩盖需要一个「链偏移 ≥1 **且** 叶子恰好 miss」的构造，我没造出来。
+⇒ **标记为未证明。** 它不该被当作「已知缺陷」引用。
+
+#### ⇒ 为什么不单独开一刀
+
+曾考虑两种守卫：① 烘焙点查 `< 0`（**抓不到**被掩盖的情形）；
+② 放大哨兵到 `-2^24` 让掩盖不可能（正确，但只是补救「哨兵进入了算术」）。
+真正对的形态是 **③ 让求和站点根本拿不到哨兵**（查不到就在那一刻抛）。
+
+而 **③ 正是 A 方案自带的性质**：A 之下编译器烘的是**序号**，「查不到」在编译期就是
+一次查表失败，**根本没有偏移算术**，没有哨兵可被掩盖。
+
+⇒ 单独做 ③ 要动 `StructLayout` + `AccessEmitter`（4–6 处）+ `RecordSynth` +
+`PatternEmitter` + `OperatorEmitter` + 编译器/SDK 重建 + 全量 GREEN + golden 重生，
+**而 P2/A 会把它一并消掉**。且它修的是一条**实测不可达**的路。
+⇒ **并入 P2 实施，不在 P2 之前单独动刀。**
+
+### 备选（记录在案）
+
+| | 做法 | 为什么不选 |
+|---|---|---|
+| **B** | 新增「展平叶子表」zbc 块，指令带 `(type_name, leaf_index u16)` | 恒 O(1)，但**不解决空间歧义**，且要加格式块；P0 的表是「逐声明字段」（`Line{P a;P b}` 只有 2 条，叶子有 4 个）⇒ 不能复用 |
+| **C** | A + 每站点 IC 记住解析结果 | 深度 ≥2 的占比未量，先付 IC 的复杂度与失效维护不划算；**留作 A 实测超门槛后的后手** |
+
 ## ③ 的出路（B 已被 User 排除）
 
 | 出路 | 做法 | 代价 | 状态 |
