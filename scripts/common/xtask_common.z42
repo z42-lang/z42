@@ -475,14 +475,10 @@ string _seedRunLibs(string root, string profile) {
                      Path.Join("seed-run-libs", profile));
 }
 
-void _snapshotSeedRunLibs(string root, string profile) {
-    string src = _libsFlatDist(root, profile);
-    string dst = _seedRunLibs(root, profile);
-    if (!Directory.Exists(src)) { return; }
-    _resetDir(dst);
-    _copyAll(src, dst, "*.zpkg");
-    _copyAll(src, dst, "*.zsym");
-}
+// 注：曾有一个 `_snapshotSeedRunLibs`（从 flat 快照出种子代运行期面）——**已删**。
+// flat 会被 `_ensureBootstrapSelfDepLibs` 覆盖成当前源，当不了「代」的锚（快照晚于覆盖、
+// 或上一轮跑到一半，拿到的就是新代 ⇒ 种子 driver `MissingSymbolException`）。现在锚是
+// driver 自己 dist 里的 colocated 闭包，见 `_relocateSeedRunLibs`。
 
 int _ensureSeed(string root) {
     string profile = "release";
