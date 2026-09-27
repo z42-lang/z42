@@ -93,9 +93,18 @@ string _z42cMode() {
 // noIncremental：凡是「必须真编一遍才有意义」的构建（不动点 gen2、编译器输出对比）传 true——
 // 命中 cache 等于没测。增量开关不改变产物字节（cache 正确性前提），故不破坏 gen1==gen2 同参不变量。
 int _z42cWorkspaceBuild(string vm, string driver, string cwd, string libs, bool noIncremental) {
+    return _z42cWorkspaceBuild(vm, driver, cwd, libs, noIncremental, "");
+}
+
+// `compileLibs` 非空 ⇒ 额外传 `--compile-libs`：**编译期**依赖解析面与 `libs`（= driver 自己
+// 运行期的加载面）分开。自举期这两件事要不同代的库，见 `CompileLibsOpt` 头注与
+// `docs/spec/changes/rename-project-namespaces/design.md` §3。
+int _z42cWorkspaceBuild(string vm, string driver, string cwd, string libs, bool noIncremental,
+                        string compileLibs) {
     Process p = new Process(vm).Arg(driver).Arg("--mode").Arg(_z42cMode()).Arg("--")
         .Arg("build").Arg("--workspace").Arg("--release");
     if (noIncremental) { p = p.Arg("--no-incremental"); }
+    if (compileLibs.Length > 0) { p = p.Arg("--compile-libs").Arg(compileLibs); }
     return p
         .WorkingDirectory(cwd)
         .Env("Z42_LIBS", libs).Env("Z42_PROBING_PATHS", _legacyNameAliasProbe())
@@ -119,8 +128,16 @@ string _legacyNameAliasProbe() {
 // （非 workspace 布局）。冷启动破 z42c⇄z42.package 环用（_ensureBootstrapSelfDepLibs）：种子 driver
 // 先把当前源码的 z42.package 编进 build-libs，让 fresh z42c 对着真 z42.package 编译+运行。
 int _z42cBuildPackage(string vm, string driver, string tomlPath, string libs, string outputDir) {
-    return new Process(vm).Arg(driver).Arg("--mode").Arg(_z42cMode()).Arg("--")
-        .Arg("build").Arg(tomlPath).Arg("--release").Arg("--output-dir").Arg(outputDir)
+    return _z42cBuildPackage(vm, driver, tomlPath, libs, outputDir, "");
+}
+
+// `compileLibs` 非空 ⇒ 额外传 `--compile-libs`（同上：编译期面与 driver 运行期面分开）。
+int _z42cBuildPackage(string vm, string driver, string tomlPath, string libs, string outputDir,
+                      string compileLibs) {
+    Process p = new Process(vm).Arg(driver).Arg("--mode").Arg(_z42cMode()).Arg("--")
+        .Arg("build").Arg(tomlPath).Arg("--release").Arg("--output-dir").Arg(outputDir);
+    if (compileLibs.Length > 0) { p = p.Arg("--compile-libs").Arg(compileLibs); }
+    return p
         .Env("Z42_LIBS", libs).Env("Z42_PROBING_PATHS", _legacyNameAliasProbe())
         .Stdout(_verbAtLeast(3) ? Stdio.Inherit() : Stdio.Null()).Stderr(Stdio.Inherit())
         .Run().ExitCode;
@@ -423,6 +440,32 @@ void _moveLegacyIrToAlias(string root, string libsDir, string profile) {
     }
     string sym = Path.Join(libsDir, "z42.ir.zsym");
     if (File.Exists(sym)) { File.Delete(sym); }
+}
+
+// ── 种子代的运行期 libs 快照（rename-project-namespaces B2，2026-09-27）────────────────────
+//
+// **为什么需要它**：自举时跑的是**上一代** z42c 二进制。它运行期要加载那一代的 stdlib
+// （按它自己编译时的 FQN 调用），而它正在编译的源码要解析**当前源**新建出来的库。
+// 两件事此前共用 flat 一个目录 ⇒ 预建一覆盖 flat，种子 driver 自己就崩（改名/删符号时必然）。
+//
+// 本函数在**任何预建覆盖 flat 之前**把 flat 快照下来 —— 那一刻 flat 里正是「当前 in-tree
+// driver 编译时对着的那一代」。之后种子 driver 的调用用这个快照当 `Z42_LIBS`，用 flat 当
+// `--compile-libs`。driver 换代之后的调用两者都用 flat（见 design.md §3 的代际表）。
+//
+// 🔴 **快照每轮重取**，不做「已存在就跳过」：跳过会让它停留在更早的一代，而 driver 已经换过代
+//    —— 那正是这一路反复吃亏的「陈旧快照假装是权威」。
+string _seedRunLibs(string root, string profile) {
+    return Path.Join(Path.Join(Path.Join(root, "artifacts"), ".scratch"),
+                     Path.Join("seed-run-libs", profile));
+}
+
+void _snapshotSeedRunLibs(string root, string profile) {
+    string src = _libsFlatDist(root, profile);
+    string dst = _seedRunLibs(root, profile);
+    if (!Directory.Exists(src)) { return; }
+    _resetDir(dst);
+    _copyAll(src, dst, "*.zpkg");
+    _copyAll(src, dst, "*.zsym");
 }
 
 int _ensureSeed(string root) {

@@ -83,9 +83,21 @@ int _buildCompilerViaZ42c(string root, string profile, string[] members, string 
     _vNormal("  building z42c via z42c (--workspace)");
     _ensureDriverSelfContained(root, profile, members);   // 种子 driver 自包含 → 可直接跑
     string driver = _driverZpkg(root, profile);
-    _ensureBootstrapSelfDepLibs(root, vm, driver, stdlibFlat);  // 冷启动破 z42c⇄z42.package 环（须在 workspace build 前）
+    // ── 按 driver 的「代」分开运行期/编译期 libs（rename-project-namespaces B2）──────────────
+    //
+    // 这一段跑的是**上一代** driver：它运行期要加载**那一代**的 stdlib（按它编译时的 FQN 调用），
+    // 而它编译的源码要解析**当前源**新建出来的库。此前两者共用 `stdlibFlat` 一个目录 ⇒ 下面的
+    // 预建一覆盖 flat，种子 driver 自己就崩（改名/删符号这类变更必然踩到）。
+    //
+    // 现在：先把 flat 快照成种子代的运行期面（**必须在预建覆盖之前**），随后种子 driver 的调用
+    // 用 `Z42_LIBS=快照` + `--compile-libs=flat`。driver 换代之后的步骤（`build stdlib` 步骤 4 等）
+    // 仍照旧用 flat 当两者 —— 那时 driver 与 flat 同代。详见
+    // `docs/spec/changes/rename-project-namespaces/design.md` §3 的代际表。
+    _snapshotSeedRunLibs(root, profile);
+    string seedRun = _seedRunLibs(root, profile);
+    _ensureBootstrapSelfDepLibs(root, vm, driver, stdlibFlat, seedRun);  // 冷启动破 z42c⇄z42.package 环（须在 workspace build 前）
     string compilerDir = Path.Join(root, "src/compiler");
-    int rc = _z42cWorkspaceBuild(vm, driver, compilerDir, stdlibFlat, false);
+    int rc = _z42cWorkspaceBuild(vm, driver, compilerDir, seedRun, false, stdlibFlat);
     // 跨成员符号新增（如 z42c.syntax 新增类型/字段被 z42c.semantics 消费）冷启动收敛（破 z42c⇄z42c 内部环）：
     // 上面 line 67 的自包含把当时 dist 里的**旧**兄弟包（如上一 nightly 种子的 z42c.syntax）打进 driver，
     // 而 driver 作编译器运行时解析 semantics 源里的 `Z42.Syntax.*` 用其**自身加载的旧兄弟包**（遮蔽 fresh
@@ -95,7 +107,8 @@ int _buildCompilerViaZ42c(string root, string profile, string[] members, string 
     if (rc != 0) {
         _vNormal("  self-build 首遍失败 → 用本轮 fresh 成员 dist 重新自包含 driver + 重试（跨成员符号新增冷启动收敛）");
         _ensureDriverSelfContained(root, profile, members);
-        rc = _z42cWorkspaceBuild(vm, driver, compilerDir, stdlibFlat, false);
+        // 重试仍用种子代 driver ⇒ 同样分开两个面。
+        rc = _z42cWorkspaceBuild(vm, driver, compilerDir, seedRun, false, stdlibFlat);
     }
     if (rc != 0) { ConsoleError.WriteLine("  ✗ z42c --workspace self-build failed"); return 1; }
     _ensureDriverSelfContained(root, profile, members);   // 新 gen driver 自包含（幂等兜底）
@@ -118,14 +131,17 @@ int _buildCompilerViaZ42c(string root, string profile, string[] members, string 
 // 建进 build-libs（覆盖种子旧版）——z42c 永远对着**当前源** z42.package 编译，破了 z42c⇄z42.package 的
 // 「新 API 需晚一 nightly」轴④约束。warm dev 代价：z42c build 增量缓存命中下近零（源未变 → probe
 // 跳过实际重编）；源变了本就该重建。随后 `build stdlib` 全量 workspace 仍用 fresh z42c 覆盖为规范产物。
-void _ensureBootstrapSelfDepLibs(string root, string vm, string driver, string stdlibFlat) {
+// `runLibs` = 种子代的运行期 libs 快照（driver 自己加载用）；`stdlibFlat` 仍是**产物落点 +
+// 编译期解析面**。分开的理由见调用点注释与 design.md §3。
+void _ensureBootstrapSelfDepLibs(string root, string vm, string driver, string stdlibFlat,
+                                 string runLibs) {
     _vNormal("  bootstrap: (re)building current-source z42.core + z42.project + z42.build + z42.package + z42c.core + z42c.syntax into build-libs（破 z42c⇄stdlib 轴④环）");
     // consolidate-core-intrinsics (A1): 当前源 z42.package 现调 Std.BitConverter（当前源 z42.core 新增门面）。
     // 冷/首暖构建时 flat 里躺的是种子/上一次的旧 z42.core（缺 BitConverter），若直接单包编 z42.package 会
     // `undefined function`。故先用同款「先预建覆盖种子」模式把**当前源 z42.core** 建进 flat，再建 z42.package。
     // 与下面 z42.package 同理由：z42c 运行期自依赖链上的当前源库，必须先于消费者进 flat（轴 ④）。
     string coreToml = Path.Join(root, "src/libraries/z42.core/z42.core.z42.toml");
-    int rcCore = _z42cBuildPackage(vm, driver, coreToml, stdlibFlat, stdlibFlat);
+    int rcCore = _z42cBuildPackage(vm, driver, coreToml, runLibs, stdlibFlat, stdlibFlat);
     if (rcCore != 0) { ConsoleError.WriteLine("  ✗ bootstrap: build z42.core failed (" + rcCore.ToString() + ")"); }
     // attribute-handler-registry PR3a-load：z42c.driver **编译期**消费 z42.project 的 ProjectManifest
     // （新增 `[analyzers]` 段的 Analyzers/AnalyzerCount 字段）。z42c workspace self-build 早于 step-4
@@ -133,7 +149,7 @@ void _ensureBootstrapSelfDepLibs(string root, string vm, string driver, string s
     // `no field AnalyzerCount on ProjectManifest`（轴②：z42c 源新用一个 stdlib API，须先于 z42c 自建进
     // flat）。与 z42.core/z42.package 同款「先预建覆盖种子」。z42.project 依赖 z42.core（已上预建）+ io/toml（flat 已有）。
     string projToml = Path.Join(root, "src/libraries/z42.project/z42.project.z42.toml");
-    int rcProj = _z42cBuildPackage(vm, driver, projToml, stdlibFlat, stdlibFlat);
+    int rcProj = _z42cBuildPackage(vm, driver, projToml, runLibs, stdlibFlat, stdlibFlat);
     if (rcProj != 0) { ConsoleError.WriteLine("  ✗ bootstrap: build z42.project failed (" + rcProj.ToString() + ")"); }
     // sink-repl-compile-facade：z42c.pipeline **编译期**消费 z42.build 的新 API（`IReplCompiler` +
     // `ReplCompileResult`，供 REPL 编译门面 `Z42cReplCompiler` 实现）。同 z42.project/z42.package 的轴② ——
@@ -141,10 +157,10 @@ void _ensureBootstrapSelfDepLibs(string root, string vm, string driver, string s
     // 会对着**旧**（种子）z42.build 编 → `E0443: undefined type IReplCompiler`。z42.build 依赖
     // z42.core（已上预建）+ z42.io（flat 已有）+ z42.project（已上预建）。
     string buildToml = Path.Join(root, "src/libraries/z42.build/z42.build.z42.toml");
-    int rcBuild = _z42cBuildPackage(vm, driver, buildToml, stdlibFlat, stdlibFlat);
+    int rcBuild = _z42cBuildPackage(vm, driver, buildToml, runLibs, stdlibFlat, stdlibFlat);
     if (rcBuild != 0) { ConsoleError.WriteLine("  ✗ bootstrap: build z42.build failed (" + rcBuild.ToString() + ")"); }
     string irToml = Path.Join(root, "src/libraries/z42.package/z42.package.z42.toml");
-    int rc = _z42cBuildPackage(vm, driver, irToml, stdlibFlat, stdlibFlat);
+    int rc = _z42cBuildPackage(vm, driver, irToml, runLibs, stdlibFlat, stdlibFlat);
     if (rc != 0) { ConsoleError.WriteLine("  ✗ bootstrap: build z42.package failed (" + rc.ToString() + ")"); }
     // converge-z42-syntax-lib（route A 地基）：z42c.core + z42c.syntax（可移植前端）已挪入
     // src/libraries/，成 z42c.semantics/pipeline/driver 的**共享库**依赖。冷启动 flat 里躺的是
@@ -153,10 +169,10 @@ void _ensureBootstrapSelfDepLibs(string root, string vm, string driver, string s
     // 与 z42.package 同款「不 warm-skip、先预建覆盖种子」，让 fresh z42c 永远对着当前源前端编译+运行。
     // 顺序：z42c.core 靠 z42.core（隐式 prelude，已上建）；z42c.syntax 靠 z42c.core（先于它建）。
     string z42cCoreToml = Path.Join(root, "src/libraries/z42c.core/z42c.core.z42.toml");
-    int rcZc = _z42cBuildPackage(vm, driver, z42cCoreToml, stdlibFlat, stdlibFlat);
+    int rcZc = _z42cBuildPackage(vm, driver, z42cCoreToml, runLibs, stdlibFlat, stdlibFlat);
     if (rcZc != 0) { ConsoleError.WriteLine("  ✗ bootstrap: build z42c.core failed (" + rcZc.ToString() + ")"); }
     string z42cSynToml = Path.Join(root, "src/libraries/z42c.syntax/z42c.syntax.z42.toml");
-    int rcZs = _z42cBuildPackage(vm, driver, z42cSynToml, stdlibFlat, stdlibFlat);
+    int rcZs = _z42cBuildPackage(vm, driver, z42cSynToml, runLibs, stdlibFlat, stdlibFlat);
     if (rcZs != 0) { ConsoleError.WriteLine("  ✗ bootstrap: build z42c.syntax failed (" + rcZs.ToString() + ")"); }
 }
 
