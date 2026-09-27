@@ -26,16 +26,28 @@ paths:
 
 | 端 | 文件 | 常量 | 当前值 |
 |----|------|------|--------|
-| zbc writer（z42c） | `src/libraries/z42.package/src/BinaryFormat/ZbcFormat.z42` | `ZbcVersion.Major` / `.Minor` | 1 / 44 |
-| zbc reader（Rust） | `src/runtime/src/metadata/zbc_reader/versions.rs` | `ZBC_VERSION_MAJOR` / `_MINOR` | 1 / 44 |
-| zpkg writer（z42c） | `src/libraries/z42.package/src/ZpkgWriter.z42` | `ZpkgWriterZ.Major` / `.Minor` | 0 / 49 |
-| zpkg reader（Rust） | `src/runtime/src/metadata/zbc_reader/versions.rs` | `ZPKG_VERSION_MAJOR` / `_MINOR` | 0 / 49 |
+| zbc writer（z42c） | `src/libraries/z42.package/src/BinaryFormat/ZbcFormat.z42` | `ZbcVersion.Major` / `.Minor` | 1 / 45 |
+| zbc reader（Rust） | `src/runtime/src/metadata/zbc_reader/versions.rs` | `ZBC_VERSION_MAJOR` / `_MINOR` | 1 / 45 |
+| zpkg writer（z42c） | `src/libraries/z42.package/src/ZpkgWriter.z42` | `ZpkgWriterZ.Major` / `.Minor` | 0 / 50 |
+| zpkg reader（Rust） | `src/runtime/src/metadata/zbc_reader/versions.rs` | `ZPKG_VERSION_MAJOR` / `_MINOR` | 0 / 50 |
 
-> ⚠️ 这张表**自己也会腐坏**（2026-09-04 发现时停在 1/35 与 0/40，落后 3 个 minor，且路径在
-> reader 拆分后已失效）。bump 时请连同本表一起改 —— 它是给人读的索引，没有测试兜底。
-> 二进制 fixture 那边已有防腐门（步骤 4 / 9），这张表还没有。
+> 🔒 **本表有防腐门了**（2026-09-28）：`cargo test --test format_fixture_versions` 的
+> `version_bumping_coordinate_table_matches_the_real_constants` **解析本表自己的四行**，
+> 拿每行的「值」去和**该行指着的那个文件**里的常量对账 —— 路径写错 / 常量改名 / 值过期，
+> 任一即红；行数不是 4 也红（防止悄悄删行）。同文件的
+> `writer_and_reader_pin_the_same_format_versions` 另外钉住 writer↔reader 不许偏斜。
+>
+> ⚠️ 为什么需要这道门：这张表**自己腐坏过三次**——2026-09-04 发现时停在 1/35 与 0/40
+> （落后 3 个 minor，**且路径在 reader 拆分后已失效**）；`type-section-flags2-and-struct-fields`
+> 把四个常量推到 1.45 / 0.50 又把表留在 1.44 / 0.49。根因是**它是散文**：没有任何构建、
+> 测试或 strict-pin 校验会读它，而它偏偏是承重的——过期的行会把下一个 bump 的人送到
+> 错的文件或错的起始号上。形态同步骤 4 / 9 的两道 fixture 门。
+>
+> ⚠️ 这两个测试只在 `cargo test --test format_fixture_versions` 里跑，**`xtask test` 不含**
+> （它的 15 个 stage 既不含 `cargo test --lib` 也不含各 `--test`；那套只在 CI 的 `test-host`
+> 四平台跑）。bump 后务必本地手跑一次，别等 CI。
 
-> reader 端（`zbc_reader.rs`）每个常量旁有逐行 minor changelog 注释（日期 / spec / 格式变化）——bump 时在那里追加一行。
+> reader 端（`zbc_reader/versions.rs`）每个常量旁有逐行 minor changelog 注释（日期 / spec / 格式变化）——bump 时在那里追加一行。
 > writer 端常量旁也有同样的单行 bump 注释，保持格式一致。
 
 ---
@@ -45,7 +57,7 @@ paths:
 修改 `.zbc` wire format（新 opcode / 新 section / 已定义 section 字段语义变化）时，**单次 commit 必须同步以下 5 处**，否则 Rust reader strict-pin 校验、`zbc_compat` 字节基线、或 z42c golden hex 单测任一会 fail：
 
 1. **`ZbcFormat.z42`**（`src/libraries/z42.package/src/BinaryFormat/`）— `ZbcVersion.Minor++`，常量旁注释本次 bump 内容（参考已有行格式）。若 bump 改了指令/section 布局，`ZbcInstr.z42`（编码）+ `ZbcReaderInstr.z42`（解码）或 `ZbcWriter.z42` 的对应 `Build*` / `_assemble` 逻辑同步。
-2. **`zbc_reader.rs`**（`src/runtime/src/metadata/`）— `ZBC_VERSION_MINOR` 同步到新值（**同时改钉值单测**
+2. **`zbc_reader/versions.rs`**（`src/runtime/src/metadata/`）— `ZBC_VERSION_MINOR` 同步到新值（**同时改钉值单测**
    `zbc_reader_tests.rs` 的 `zbc_version_constants_pinned` / `zpkg_version_constants_pinned`——它们只在
    `cargo test --lib` 里跑，`xtask test` 不包含，2026-09-13 encode-ctorless-objnew 差点漏掉）；并在常量上方 changelog 注释块追加一行（日期 / spec / 字段变化）；reader 解码逻辑（`read_*_section`）同步新格式。
 3. **`docs/internals/src/formats/zbc.md`** — "Minor changelog" 表加一行（minor / 日期 / 触发 spec / 引入内容）。
@@ -84,7 +96,7 @@ xtask test compiler    # z42c golden hex 单测
 **zbc minor bump 必须同步 bump zpkg minor**（zpkg 内嵌 zbc，见 `docs/internals/src/formats/zpkg.md`）。在上述 5 步外加：
 
 6. **`ZpkgWriter.z42`**（`src/libraries/z42.package/src/`）— `ZpkgWriterZ.Minor++`，注释更新内嵌 zbc 版本。
-7. **`zbc_reader.rs`** — `ZPKG_VERSION_MINOR` 同步；上方 zpkg changelog 注释块追加一行（指明耦合的 inner zbc minor）。
+7. **`zbc_reader/versions.rs`** — `ZPKG_VERSION_MINOR` 同步；上方 zpkg changelog 注释块追加一行（指明耦合的 inner zbc minor）。
 8. **`docs/internals/src/formats/zpkg.md`** — Minor changelog 加一行（触发 spec = 同次 zbc bump 的 spec）。
 9. **regen zpkg-format fixture** — 覆写 `src/tests/zpkg-format/*/source.zpkg`（4 个 committed 基线：`packed-minimal` / `packed-multi-module` / `indexed-minimal` / `sym-only-sidecar`）。
    每个 fixture 目录自带 **committed 构建配方 `<fixture>.z42.toml`**（refresh-format-fixtures，2026-09-04）：

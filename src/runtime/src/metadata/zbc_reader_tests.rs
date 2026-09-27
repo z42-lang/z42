@@ -113,10 +113,17 @@ fn build_zpkg_header(major: u16, minor: u16, flags: u16) -> Vec<u8> {
 
 #[test]
 fn zbc_version_constants_pinned() {
-    // Sanity: writer's claimed version matches what the reader pins.
-    // If this fails, the constants drifted out of sync with the z42 writer
-    // (`src/libraries/z42.package/src/BinaryFormat/ZbcWriter.z42`) — the C#
-    // ZbcWriter this comment used to name was deleted 2026-06-26.
+    // A **ratchet**, not a cross-check — be precise about which question this
+    // answers. It compares the reader constant against a literal, so bumping the
+    // format cannot happen without someone consciously editing this line too
+    // (`xtask test` does not run it; CI's `test-host` does). It reads nothing on
+    // the writer side, so it cannot notice writer↔reader skew.
+    //
+    // The comment here used to claim "writer's claimed version matches what the
+    // reader pins", which it never did. The real agreement check now lives in
+    // `tests/format_fixture_versions.rs` ::
+    // `writer_and_reader_pin_the_same_format_versions`, which parses
+    // `ZbcFormat.z42` / `ZpkgWriter.z42` and compares against these constants.
     assert_eq!(ZBC_VERSION_MAJOR, 1, "zbc major locked at 1 by freeze-zbc-v1");
     assert_eq!(
         ZBC_VERSION_MINOR, 45,
