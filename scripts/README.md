@@ -365,6 +365,26 @@ scripts/
 - **改 xtask 源码后**：先重建再验证——`z42c build scripts/xtask.z42.toml --release` 产新
   `xtask.zpkg`，再跑 GREEN gate。
 
+  > 🔴 **rename-project-namespaces B3b 阶段 1 期间（下一 nightly 前）多两步**：xtask 源码已用
+  > 新命名空间 `Z42.Project`，而安装的 SDK / 种子那一代仍是旧名 `Z42.Build.Project` ⇒ 直接重建
+  > 会 `E0494`，重建出来直接跑会 `MissingSymbolException`。编译期与运行期是两个独立解析面
+  > （前者按命名空间、后者按 **zpkg 文件名**），各要一件东西：
+  >
+  > ```bash
+  > # ① 编译期 overlay：用种子 z42c 把当前源的 z42.project 编出来，盖进一份种子 libs 副本
+  > XL=$(mktemp -d); cp .z42/libs/*.zpkg .z42/libs/*.zsym "$XL"/
+  > Z42_LIBS=$PWD/.z42/libs .z42/bin/z42c build \
+  >   src/libraries/z42.project/z42.project.z42.toml --release --output-dir "$XL"
+  > rm -rf src/libraries/z42.project/artifacts   # z42c 的 cache 落在成员清单目录下
+  > # ② 用 overlay 编 xtask，再把那份新名产物**旁置**到 xtask.zpkg 旁边
+  > Z42_LIBS="$XL" .z42/bin/z42c build scripts/xtask.z42.toml --release
+  > cp "$XL/z42.project.zpkg" artifacts/xtask/
+  > ```
+  >
+  > 旁置件为什么够：运行期搜索序是 **[entry-zpkg 目录, `Z42_LIBS`, probing]**，entry 目录优先
+  > ⇒ 不管 `Z42_LIBS` 是哪一代（`./xtask` apphost 用安装的 SDK、CI 后半用本轮 flat），xtask
+  > 拿到的都是新名。同一套接线在 CI 的 `ci-bootstrap` 步骤 [1.6]/[2]，阶段 2 两处一并撤。
+
 **commit 前验证**（GREEN 标准）：
 
 ```bash

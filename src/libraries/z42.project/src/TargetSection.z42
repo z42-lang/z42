@@ -1,4 +1,4 @@
-namespace Z42.Build.Project;
+namespace Z42.Project;
 
 /// `[tests]` / `[bench]` / `[example]` 段配置（约定扫描 + dev-deps 隔离）。
 ///

@@ -74,7 +74,8 @@ void _ensureDriverSelfContained(string root, string profile, string[] members) {
 // ① 运行期（代际锚）：`Z42_LIBS` 要给种子 driver **它编译时那一代**的库。此前从 flat 快照，
 //    而 flat 正是本轮要被 `_ensureBootstrapSelfDepLibs` 覆盖成当前源的目录 —— 上一轮跑到一半、
 //    或快照晚于预建，快照拿到的就是新代，种子 driver 随即
-//    `MissingSymbolException: Z42.Build.Project.ManifestLoader.LoadWorkspace`（B3 实测）。
+//    `MissingSymbolException: Z42.Build.Project.ManifestLoader.LoadWorkspace`（B3 实测；
+//    `Z42.Build.Project` 是当时的旧名，B3b 已改叫 `Z42.Project`）。
 //    **flat 是会变的，不能当「代」的锚**。driver 的 dist 里躺的闭包（`z42c build` 对 exe 的
 //    colocate + `_ensureDriverSelfContained`）与 driver 同代是**构造保证**的 —— 换它当锚。
 //

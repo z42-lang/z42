@@ -27,7 +27,7 @@ using Std.IO;
 // 之后又用**本轮新建的 flat** 当 `Z42_LIBS` **运行**它。抹掉旧 FQN 的改名会让其中一头必炸
 // （实测两种排法各炸一头）。要动它得先在 `z42.project` 里加一版并存、跨一个 nightly。
 // 详见 `docs/spec/changes/rename-project-namespaces/design.md` §6。
-using Z42.Build.Project;   // ManifestLoader / WorkspaceManifest / PathTemplate / TemplateContext
+using Z42.Project;   // ManifestLoader / WorkspaceManifest / PathTemplate / TemplateContext
 
 // ── source-of-truth workspace manifests (per-member layout templates) ─────────
 

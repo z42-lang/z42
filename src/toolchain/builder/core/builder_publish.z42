@@ -20,7 +20,7 @@ using Std.IO;
 using Std.Toml;
 using Std.Cli;
 using Z42.Build;
-using Z42.Build.Project;   // ManifestLocator —— 「工程清单在哪」的单一判据
+using Z42.Project;   // ManifestLocator —— 「工程清单在哪」的单一判据
 // apphost patching is inlined in builder_apphost.z42 (_pubProduceApphost) so z42b
 // stays on stdlib-only deps and still builds in the test-runner context. NOT
 // `using Z42.Workload.Desktop` (that workload isn't in Z42_LIBS there).

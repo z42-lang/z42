@@ -15,7 +15,7 @@ namespace Z42Xtask;
 
 using Std;
 using Std.IO;
-using Z42.Build.Project;
+using Z42.Project;
 
 // Resolved toolchain for a manifest-target run (release build-tree paths).
 // Auto-properties (+ implicit default ctor) so `new TargetTooling()` works, per
