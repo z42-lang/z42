@@ -83,6 +83,40 @@ AST → Bound 树 + `SemanticModel`。分两步：先由 `SymbolCollector` 遍�
 >
 > ⚠️ 第 ③ 步在「跨 ns 同短名」时仍可能认错 —— 与全仓短名键同病、不更坏；根治要等符号表键本身 FQN 化。
 
+> **第四条路：跨包导入边界上的接口名（2026-09-28 `fqn-import-boundary`）。**
+>
+> 上面三条讲的都是**本包内**怎么把一个名字解析对。第四条路是**名字怎么穿过 zpkg** ——
+> 而它此前是**有损**的：`TsigReconcile._rebuildClass` 从 TYPE 接口块读出的本来就是 FQ 名
+> （`Demo.IfCollide.IThing`），却用 `_shortName` 剥成裸名再交给消费方，理由是当时
+> 「`SymbolTable.Implements` 按裸名匹配」。前提早已不成立（`Implements` 现在入口归一走
+> `IfaceFqnOf`），而剥名留下的后果是：**消费方只能拿短名去自己的包级 first-wins 表里猜回来**。
+>
+> 猜错不会报错，会**静默给出错的答案**：
+>
+> ```z42
+> // 包 A：namespace Demo.IfCollide;
+> public interface IThing { int Id(); }
+> public class Widget : IThing { public int Id() { return 42; } }
+>
+> // 主包：namespace Demo.IfCollideApp;  using Demo.IfCollide;
+> public interface IThing { int Other(); }        // 同短名、成员完全不同
+> IThing t = new Widget();                        // 修前：零诊断通过（!）
+> ```
+>
+> 修前 `Widget.InterfaceNames` 到达消费方时是裸名 `["IThing"]`，归一时猜中了**本地**那个
+> `Demo.IfCollideApp.IThing`（本包声明优先）⇒ 赋值静默放行，直到运行期才炸：
+> `VCall: function Demo.IfCollide.Widget.Other not found`。
+>
+> **修法不是加诊断，是别扔** —— `ExportedClassZ.Interfaces` 的形态契约定为 **FQ**，
+> `_rebuildClass` 原样搬运。「猜」这个步骤连同它的错误答案一起从源头消失，E0402 自然响。
+> 消费侧无需配合：`IfaceFqnOf` 对已 FQ 的名字幂等（`GetInterface` 走 FQN 双键）。
+> 回归门：`src/tests/cross-zpkg/iface_shortname_collision_crosspkg/`（负例，断言 E0402）。
+>
+> ⚠️ **仍未收口的另一半**：接口的**父接口**链（`ExportedInterfaceZ.BaseNames`）走的是**对称
+> 相反**的一条路 —— 生产侧原样搬 FQ、**消费侧** `ImportedSymbolLoader._bareShortName` 才剥。
+> 那一刀不能简单地「不剥」：该函数同时兼着**截泛型实参**（`Std.IComparable<Std.String>`，
+> 且必须先截 `<` 再动 ns，顺序反了「最后一个点」会落进实参里），正确形态是「截 `<`、保留 ns」。
+
 > **② 已修**（2026-09-10 `add-bare-name-ambiguity-diagnostic`）：非限定同短名（`using A; using B;`
 > 后裸写 `Foo`）不再静默选一，报 **E0456**（对标 C# CS0104）。判据：候选 ns 取自新表
 > `SymbolTable.ClassNsAll`（本地 `StubCollector` 与跨包 `ImportedSymbolLoader` 都在各自的

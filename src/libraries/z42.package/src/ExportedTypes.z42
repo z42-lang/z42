@@ -84,7 +84,13 @@ public sealed class ExportedClassZ {
     public string            BaseName;    // 短名（"Object"——TSIG 用符号表基名，区别于 TYPE 段的 "Std.Object"）
     public ExportedFieldZ[]  Fields;   public int FieldCount;
     public ExportedMethodZ[] Methods;  public int MethodCount;
-    public string[] Interfaces; public int InterfaceCount;   // 实现的接口名（port-z42c-interface）
+    // 实现的接口名（port-z42c-interface）。
+    // 🔴 **形态契约 = FQ**（enforce-fqn-name-identity B2 定）。两个生产者都给 FQ：
+    //   · `ClassExtractor` —— 直接搬 `Z42ClassType.InterfaceNames`（B 批起已是 FQ）
+    //   · `TsigReconcile._rebuildClass` —— TYPE 段本就存 FQ，**原样搬运、不再 `_shortName` 剥**
+    // 此前后者剥成裸名，是**有损**的：把 ns 扔掉再让消费侧去包级 first-wins 表里猜回来，
+    // 猜不中就静默失配（实测 `z42c.driver` 看得见 `Z42cCompiler` 却看不见 `ICompiler`）。
+    public string[] Interfaces; public int InterfaceCount;
     public string[] TypeParams; public int TpCount;          // 泛型类型参数名（如 "T"/"K"/"V"）
     public bool     IsSealed;   // impl-sealed-semantics-devirt：sealed class（CLASS_FLAG_SEALED，TYPE Flags bit1）。
     // 构造函数元数保持不变（旧种子 ABI），默认 false，TsigReconcile 从 (cd.Flags & 2) 构造后赋值。
@@ -158,8 +164,9 @@ public sealed class ExportedInterfaceZ {
     // 写入、且**已展开成传递闭包**）⇒ 只是没人搬运，**无格式 bump**。同 AssocTypeNames 的套路：
     // 构造器给空默认、`TsigReconcile._rebuildInterface` 构造后赋值。
     //
-    // ⚠️ 名字形态是 **FQ**（`Std.IDisposable`），与 `IrClassDesc.Interfaces` 一致（zbc 1.20 起）；
-    // 而 `Z42InterfaceType.BaseNames` 存的是**裸名** ⇒ 消费侧恢复时必须剥短名。
+    // ⚠️ 名字形态是 **FQ**（`Std.IDisposable`），与 `IrClassDesc.Interfaces` 一致（zbc 1.20 起）。
+    // （原注释后半句「而 `Z42InterfaceType.BaseNames` 存裸名 ⇒ 消费侧须剥短名」**已过期**：
+    //  enforce-fqn-name-identity 起 `BaseNames` 也归一成 FQ，消费侧不再剥。）
     public string[]          BaseNames;      public int BaseCount;
     public ExportedInterfaceZ(string name, ExportedMethodZ[] methods, int methodCount,
                               string[] typeParams, int tpCount) {

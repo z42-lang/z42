@@ -1,0 +1,25 @@
+// 消费方：本地声明一个与导入包**同短名、成员完全不同**的接口，然后试图把导入的
+// `Demo.IfCollide.Widget` 赋给**本地那个** `IThing`。
+//
+// `Widget` 实现的是 `Demo.IfCollide.IThing`，与本地 `Demo.IfCollideApp.IThing` 毫无关系
+// ⇒ 这一行必须 **E0402**。
+//
+// 🔴 这是个**静默错值**的守门用例，不是普通的类型检查用例。跑偏的形态不是「报错报得不对」，
+// 而是**一声不吭地放行**：导入侧若把接口名剥成裸名 `IThing`，消费方就只能拿短名去自己的
+// 符号表里猜回来 —— 而本地恰好有一个同短名接口在等着被猜中。于是 `Widget` 被记成实现了
+// **本地** `IThing`，赋值静默通过，`t.Other()` 在运行期才炸（或更糟：调到 `Id()` 的槽上）。
+// 信息本来就在元数据里（TSIG 的 TYPE 接口块存的是 FQ 名），是被导入侧那一刀剥掉的。
+//
+// 裸名 `IThing` 在这里解析到**本地**那个（`Demo.IfCollideApp.IThing`）——本包声明优先于
+// `using` 引入的同短名，与 C# 一致。
+namespace Demo.IfCollideApp;
+
+using Std.IO;
+using Demo.IfCollide;
+
+public interface IThing { int Other(); }
+
+void Main() {
+    IThing t = new Widget();   // 必须 E0402：Widget 实现的是 Demo.IfCollide.IThing
+    Console.WriteLine(t.Other().ToString());
+}

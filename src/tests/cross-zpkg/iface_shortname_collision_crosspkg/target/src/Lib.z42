@@ -1,0 +1,13 @@
+// 生产方：一个接口 + 一个实现它的类。接口短名 `IThing` **故意**与消费方本地声明的一个
+// 无关接口同名（消费方那个的成员完全不同）。
+//
+// 这里守的是**导入边界上的接口名保真**：`Widget` 实现的是 `Demo.IfCollide.IThing`，
+// 这个事实必须原样穿过 zpkg 到达消费方。TSIG 的 TYPE 接口块本来就存 FQ 名 —— 只要
+// 导入侧不把 ns 剥掉，消费方就不可能把它认成自己那个同短名接口。
+namespace Demo.IfCollide;
+
+public interface IThing { int Id(); }
+
+public class Widget : IThing {
+    public int Id() { return 42; }
+}
