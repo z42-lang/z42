@@ -134,9 +134,18 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # rename-z42-ir-to-z42-package：本函数对 **base 与 PR 两棵树**都调用，而改名 PR 里
+          # 只有 PR 侧叫 `z42.package`、base 侧仍叫 `z42.ir` ⇒ **写死任一个名字都会有一侧找不到**
+          # （实测：只改新名，base 侧 `grep: No such file` ⇒ 本门 17s 就红）。两个名字都试。
+          # STAGE2-DEBT(bench-pr-libdir-probe): 旧名彻底退役后删掉 `z42.ir` 那一档
+          libdir() { # <tree-root> → 该树里 IR/package 库的目录（新名优先）
+            if [ -d "$1/src/libraries/z42.package" ]; then echo "$1/src/libraries/z42.package";
+            else echo "$1/src/libraries/z42.ir"; fi
+          }
           ver() { # <tree-root> → "zbcMajor.zbcMinor/zpkgMajor.zpkgMinor"
-            local zf="$1/src/libraries/z42.package/src/BinaryFormat/ZbcFormat.z42"
-            local pf="$1/src/libraries/z42.package/src/ZpkgWriter.z42"
+            local ld; ld=$(libdir "$1")
+            local zf="$ld/src/BinaryFormat/ZbcFormat.z42"
+            local pf="$ld/src/ZpkgWriter.z42"
             local a b c d
             a=$(grep -oE 'public static int Major = [0-9]+' "$zf" | grep -oE '[0-9]+$' || true)
             b=$(grep -oE 'public static int Minor = [0-9]+' "$zf" | grep -oE '[0-9]+$' || true)
