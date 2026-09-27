@@ -210,13 +210,6 @@ public class TomlValue {
     // 签名取 `bool TryX(ref T)` —— 与 `Int32.TryParse` 那套全仓统一（simplify-ref-parameters
     // 之后值类型永不可空，可空返回这条路对 `long` / `bool` 走不通，见 E0476）。
 
-    // STAGE2-DEBT(tryget-callsites): 把 z42.project/ManifestLoader.z42 的 76 处
-    // `ContainsKey(k)` + `Get(k)` 迁到 `TryGet` / `TryGetValue<T>`（本轮已实现并验过，
-    // 因自举纪律回退）。⚠️ 不是「忘了迁」：`z42.project` 属于 `_ensureBootstrapSelfDepLibs`
-    // 的 6 个预建库，而预建它时用的是 **flat 里已有的 z42.toml**，冷启动下那是**种子**的
-    // （见 xtask_compiler.z42「z42.project 依赖 z42.core（已上预建）+ io/toml（flat 已有）」）
-    // ⇒ 本 API 进种子之前，ManifestLoader 用它会让 CI 的 [3/5] 编不过。**本机全绿测不到**
-    // ——本地 flat 里躺的已经是当前源 stdlib。等下一个 nightly 带上本 API 后迁移并清账。
     /// 取即检查：命中则写入 `value` 并返回 true；未命中返回 false 且**不动** `value`。
     ///
     /// 本值不是 table 时返回 false 而**不抛** —— 与 `ContainsKey` 一致（它对非 table 也返回
