@@ -36,7 +36,8 @@ public static class CompilerFingerprint {
     // `docs/internals/src/compiler/compiler-fingerprint.md`，不在这里堆。
     public static string[] Entries = new string[] {
         "baseline-41",
-        "fingerprint-content-derived"
+        "fingerprint-content-derived",
+        "fix-paramref-constraint-iface"
     };
 
     // 指纹值：`Entries` 逐条以 `\n` 连接后取内容哈希（`mmh3:` 前缀，同 SourceHash）。

@@ -1,0 +1,46 @@
+// Test: `where U : T` 的上界是**接口** —— fix-paramref-constraint-iface
+//
+// 修前 `Pair<IBase, C>` 这个形态**编不过**：
+//   E0402: type argument `C` for `U` does not satisfy constraint `T` on `Pair`
+// （精确的阴性对照在语义单测 `constraint_paramref_tests.z42` 里 —— 撤回那一行后
+//  同形的正例精确变红；本文件没有单独拿旧编译器再测一遍，它的职责是**运行期覆盖**。）
+// 根因是 `ConstraintChecker._satisfiesParamRef` 的接口那格落到不带符号表的
+// `Z42Type.IsAssignableTo`，而 `Z42ClassType.IsAssignableTo` 里根本没有「other 是接口」
+// 这一格 ⇒ 类→接口恒 false。
+//
+// ⚠️ 运行期**一直是放行的**（`is_subclass_or_eq_td_walk` 既走 base 链也走 interfaces、
+// 且接口传递匹配）⇒ 修前是编译期比运行期更严。本例同时钉住两侧。
+//
+// ⚠️ 挂了 `opt_all` 侧车：默认优化集关掉 Inline / Devirt / StackAlloc 等，泛型类目此前
+// 一个 sidecar 都没有、当场炸出过 release 必崩的真 bug（见 #888）。不挂等于只测了一半。
+
+interface IBase { int Tag(); }
+interface IDerived : IBase { }
+
+class C : IBase {
+    public int Tag() { return 7; }
+}
+
+// 经由接口继承链满足：DC 实现 IDerived，而 IDerived : IBase。
+class DC : IDerived {
+    public int Tag() { return 9; }
+}
+
+class Pair<T, U> where U : T {
+    public U Val;
+    public Pair(U v) { this.Val = v; }
+}
+
+void Main() {
+    // ① 类直接实现上界接口
+    Pair<IBase, C> p = new Pair<IBase, C>(new C());
+    Assert.Equal(7, p.Val.Tag());
+
+    // ② 沿接口继承链满足
+    Pair<IBase, DC> q = new Pair<IBase, DC>(new DC());
+    Assert.Equal(9, q.Val.Tag());
+
+    // ③ 上界是类的那格未改动，一并钉住（回归门）
+    Pair<IBase, C> r = new Pair<IBase, C>(new C());
+    Assert.Equal(p.Val.Tag(), r.Val.Tag());
+}
