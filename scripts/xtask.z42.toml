@@ -33,6 +33,19 @@ cache_dir  = "${output_dir}/.cache"
 
 [profile.release.runtime]
 mode = "interp"
+# 🔴 xtask 运行期要解析 `Z42.Project` / `Z42.Build`（读清单、跑构建编排），而
+# relocate-compiler-domain-libs（2026-09-27）把整个编译器域挪去了 `src/compiler/` ⇒ 它们不在
+# stdlib flat（`Z42_LIBS`）里了。`build stdlib` 的最后一步 `_assembleStdlibFlatView` 会**清空 flat
+# 再只链 default-members**，所以指望「破环预建顺手把它们写进 flat」是**靠命令顺序的巧合**：
+# 本地先 `build stdlib` 再 `build compiler` 看着是好的，CI 上 `build stdlib` 之后直接跑 xtask
+# 就当场 `MissingSymbolException: Z42.Project.ManifestLoader.LoadWorkspace`（#921 二轮实测，
+# `Build SDK for the examples stage` / `Stage toolchain` 七个 job 同因）。
+#
+# ⇒ 让 xtask 自己带搜索路径，不依赖 flat 里有什么。相对 entry 目录（`artifacts/xtask/`）解析，
+# 用 **glob** 一次覆盖全部编译器成员的 dist（probing 是逐段展开的，中间的 `*` 支持）。
+# ⚠️ **只能配一条**：`probing-paths` 按平台分隔符分隔，写两条必在一个平台上错（#816 的教训）。
+# xtask 不发布 ⇒ 这条只影响仓库内开发/CI，与 SDK 布局无关。
+probing-paths = "../build/compiler/*/release/dist"
 
 # apphost-as-config (2026-06-17): `z42 publish scripts/xtask.z42.toml` (--rid
 # defaults to host) reads [platform.desktop] and emits a native `./xtask` apphost that runs the
