@@ -141,7 +141,7 @@ E0442 / E0457 / E0462 除外（见上一节）。**E0402 另有一处语法层�
 | E0412 | 接口实现不匹配：签名 / `static` 与实例形态不一致 | ✅ `InheritanceResolver.z42:444,457,479,494,499` | 接口声明实例方法，实现方写成 `static` |
 | E0413 | 非法实现 | ⚠️ 零发射点 | — |
 | E0414 | event 字段的外部访问控制 | ⚠️ 零发射点 | — |
-| E0420 | `catch (T e)` 的 `T` 不是 `Exception` 的子类 | ⚠️ 零发射点 —— **catch 类型当前不校验**，`catch (NotAnException e)` 编译器不报错 | — |
+| E0420 | `catch (T e)` 的 `T` 不是 `Exception` 或其子类。此前不校验：写错类型**编译零诊断**、运行期那个 catch **静默永不匹配** ⇒ 异常穿出去变成 `uncaught exception` | ✅ `StmtBinder._chkCatchType` | `class NotEx { } … catch (NotEx e) { }`。⚠️ 本次编译解析不到 `Exception` 时不报（不链 stdlib 的编译路径拿不准）|
 | E0421 | 非法的 `default(T)` 目标类型 | ⚠️ 零发射点 | — |
 | E0424 | 非法强制转换 | ⚠️ 零发射点。非法 cast 实际走 E0402 / E0439，或运行期 `Std.InvalidCastException` | — |
 | E0443 | 类型注解引用了未定义的类型名（对标 C# CS0246） | ✅ `AccessChecker.z42:132`、`ConstraintChecker.z42:212`、`TypeOpTyper.z42:91` | `Nope x = null;` |
