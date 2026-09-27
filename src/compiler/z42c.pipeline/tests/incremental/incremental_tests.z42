@@ -9,7 +9,7 @@ using Std;
 using Std.IO;
 using Std.Test;
 using Z42.Pipeline;
-using Z42.Project;
+using Z42.Package;
 using Z42.Semantics;
 using Z42.IR.BinaryFormat;
 

@@ -969,7 +969,7 @@ artifacts/build/libraries/<lib>/<profile>/
 > z42b 自己崩了，而真正的原因上一行就已经打印过；2026-09-25 修正。
 
 > 📌 **历史**：这几条规则原计划用 `WS012` / `WS040`–`WS043` 诊断码表达，由 C# 侧
-> `Z42.Project.ManifestErrors` 发射。C# bootstrap 编译器 2026-06-26 删除后**那些码一个都不存在**，
+> `Z42.Package.ManifestErrors` 发射。C# bootstrap 编译器 2026-06-26 删除后**那些码一个都不存在**，
 > 而规则本身在 xtask 侧独立实现了（上表，已逐条实测会红）。**码号不再使用**，另见
 > [错误码全表](../appendix/error-codes.md)的 WSxxx 节。
 >

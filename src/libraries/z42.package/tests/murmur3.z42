@@ -11,7 +11,7 @@ using Std;
 using Std.Test;
 using Std.Encoding;
 using Z42.IR;
-using Z42.Project;   // ZpkgBuilder.SourceHashHex
+using Z42.Package;   // ZpkgBuilder.SourceHashHex
 
 string _h(string text) { return Murmur3.Hash128Hex(Utf8.GetBytes(text)); }
 

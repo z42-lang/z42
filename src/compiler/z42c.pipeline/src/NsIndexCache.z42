@@ -7,7 +7,7 @@ using Std;
 using Std.IO;
 using Z42.IR;
 using Z42.IR.BinaryFormat;
-using Z42.Project;
+using Z42.Package;
 
 public static class NsIndexCache {
     // ── repl-scan-nsindex-cache: ns 索引持久化 ──────────────────────────────

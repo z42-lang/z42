@@ -1,6 +1,6 @@
 // zpkg 组装（port-z42c-zpkg-build BP-2）。镜像 C# ZpkgBuilder.BuildPacked +
 // PackageCompiler.AutoDetectEntry + Sha256Hex。cache .zbc 落盘延后（增量编译物质基础，MVP 不需）。
-namespace Z42.Project;
+namespace Z42.Package;
 
 using Std;
 using Std.Crypto;

@@ -6,7 +6,7 @@ using Std;
 using Std.IO;
 using Z42.IR;
 using Z42.IR.BinaryFormat;
-using Z42.Project;
+using Z42.Package;
 
 public static class DepReconcile {
     // 把第 idx 个 lib 包产出 Exported/DepIndex 并并入 scan（对完整 world 重建）。

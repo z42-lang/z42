@@ -1,7 +1,7 @@
 namespace Z42.Workload;
 
 using Z42.Build;
-using Z42.Project;
+using Z42.Package;
 
 /// WASM 平台 workload —— 接管 `configure → package` 尾相位。host 任意；
 /// runtime pack：wasm（z42vm.wasm + wasm-bindgen glue）。无签名。

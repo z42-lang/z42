@@ -39,16 +39,16 @@ IR + zpkg 后端也下沉。
 
 | 库 | 内容（从哪来）| namespace | deps |
 |----|--------------|-----------|------|
-| **z42.package** | ① z42c.ir 全部：IR 模型（IrType/IrInstr/IrModule/IrTerminator/TypedReg/ObjectMethods）+ zbc BinaryFormat（ByteWriter/ZbcFormat/ZbcInstr/ZbcReader/ZbcReaderInstr/ZbcStringPool/ZbcWriter/TokenAllocator）+ ExportedTypes + DependencyIndex + StrMap；② z42c.project zpkg 后端：ZpkgReader/ZpkgWriter/ZpkgWriterIndexed/ZpkgBuilder/PackageTypes/TsigReconcile | `Z42.IR` / `Z42.IR.BinaryFormat` / `Z42.Project`（三者**均不改**，MOVE 无并存 → 调用点零改）| z42.core（prelude）+ z42.encoding + z42.io + z42.crypto |
+| **z42.package** | ① z42c.ir 全部：IR 模型（IrType/IrInstr/IrModule/IrTerminator/TypedReg/ObjectMethods）+ zbc BinaryFormat（ByteWriter/ZbcFormat/ZbcInstr/ZbcReader/ZbcReaderInstr/ZbcStringPool/ZbcWriter/TokenAllocator）+ ExportedTypes + DependencyIndex + StrMap；② z42c.project zpkg 后端：ZpkgReader/ZpkgWriter/ZpkgWriterIndexed/ZpkgBuilder/PackageTypes/TsigReconcile | `Z42.IR` / `Z42.IR.BinaryFormat` / `Z42.Package`（三者**均不改**，MOVE 无并存 → 调用点零改）| z42.core（prelude）+ z42.encoding + z42.io + z42.crypto |
 
 合并为一：IR 与 zpkg 后端本就单向耦合（zpkg→ir），REPL 两半都要；一个库 = z42c 只加一条 dep、
 一次拓扑，最简。namespace 保持三段不变（库可含多 namespace），调用点 `using Z42.IR;` / `using
-Z42.Project;` 一字不改。
+Z42.Package;` 一字不改。
 
 ### 子决策（User 定）
 
 - **CacheStore**（增量构建缓存）→ **留构建侧**：不入 z42.package。消费者是 z42c.driver + z42c.pipeline
-  （增量构建），随删 z42c.project 时**迁入 z42c.pipeline**（保持 namespace `Z42.Project`，消费者零改）。
+  （增量构建），随删 z42c.project 时**迁入 z42c.pipeline**（保持 namespace `Z42.Package`，消费者零改）。
 - **StrMap**：z42c 自带 map util，随 z42.package 平移；与 stdlib 容器去重列后续。
 
 ### 编译器侧改动

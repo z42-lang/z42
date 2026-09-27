@@ -4,7 +4,7 @@
 //! binary's `BLID` section and its sidecar (`.zsym`), so the loader can tell
 //! whether a given `.zsym` belongs to a given `.zpkg`. The writer computes it
 //! over the whole main file with the BLID payload (the trailing 16 bytes)
-//! zeroed; see `Z42.Project.ZpkgWriterZ.WritePackedWithSidecar`.
+//! zeroed; see `Z42.Package.ZpkgWriterZ.WritePackedWithSidecar`.
 //!
 //! **The runtime never recomputes it** — pairing is a plain equality check
 //! between the two stored values (`read_build_id` + `!=` in

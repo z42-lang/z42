@@ -110,7 +110,7 @@ SKIP 的条件字面上就是「被测对象从包里消失了」，而那正是
 ### 一次假红，已定性
 
 `--no-build` 跑 stdlib 时 `Z42IrMurmur3Tests` 4 条失败（`undefined function
-Z42.Project.ZpkgBuilder.SourceHashHex`）。**与本变更无关**：overlay 种子来自落后 15 commit
+Z42.Package.ZpkgBuilder.SourceHashHex`）。**与本变更无关**：overlay 种子来自落后 15 commit
 的树，而 origin/main 的 #490 刚把 zpkg 内容标识换成 MurmurHash3 并新增了该函数；本 diff 只碰
 xtask 五个文件，射程内不可能有 `ZpkgBuilder`。从当前源重建 stdlib 后 332 全过。
 

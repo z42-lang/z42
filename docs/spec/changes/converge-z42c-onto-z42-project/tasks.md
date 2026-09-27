@@ -65,8 +65,8 @@
   CacheDir)。z42c **不消费** SharedVersion/License（Decision 2 弃，安全）。
 
 **执行剧本**：
-- [ ] 2.1 imports：`BuildPaths.z42` / `WorkspaceBuild.z42` 的 `using Z42.Project;` → `using Z42.Build.Project;`；
-      `Main.z42` **保留** `using Z42.Project;`（后端 ZpkgWriter/Reader/…）+ **加** `using Z42.Build.Project;`（模型）。
+- [ ] 2.1 imports：`BuildPaths.z42` / `WorkspaceBuild.z42` 的 `using Z42.Package;` → `using Z42.Build.Project;`；
+      `Main.z42` **保留** `using Z42.Package;`（后端 ZpkgWriter/Reader/…）+ **加** `using Z42.Build.Project;`（模型）。
 - [ ] 2.2 字段迁移 flat→composed（3 文件，~40 处，Field Mapping 逐条）：
       `pm.{Name,Version,Kind,Entry,HasEntry,HasPack,Pack}`→`pm.Project.*`；
       `pm.{IncludeGlobs→Sources.Include, IncludeCount→Sources.IncludeCount, ExcludeGlobs→Sources.Exclude, ExcludeCount→Sources.ExcludeCount}`；

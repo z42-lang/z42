@@ -4,7 +4,7 @@
 // Object 四方法注入（非 struct）、base 链 topmost-first 合并（override 保留祖先位）、参数名
 // "p{i}"、可见性 u8→串、enum 恒=内建 GCHandleType、自由函数=全包 SIGS、IMPL 段→Impls。
 // （P2 期另有对账器 Compare 与 TSIG oracle 逐字段验证 29 包 0-DIFF，P3 删 TSIG 后随之移除。）
-namespace Z42.Project;
+namespace Z42.Package;
 
 using Std;
 using Std.IO;   // repl-scan-nsindex-cache：LazyReconWorld.EnsureIdx 惰性 open（File.ReadAllBytes）
