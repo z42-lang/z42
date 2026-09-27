@@ -408,6 +408,23 @@ string _seedStdlibDir(string root) {
 // (WARM). When absent (COLD), stage the resolved seed (Z42_LIBS / Z42_HOME
 // (--toolchain) / apphost SDK) into the in-tree layout — mirroring what CI used to
 // hand-copy. Returns 0 on success (or already warm), 1 if no seed source.
+// 把编译期 libs 目录里的旧包名 `z42.ir.zpkg` **迁**进别名目录（运行期专用面）。
+// 幂等；两边都没有时什么都不做。
+// STAGE2-DEBT(z42ir-seed-stage-move): 下一 nightly 后删掉本函数与 `_ensureSeed` 里的调用
+void _moveLegacyIrToAlias(string root, string libsDir, string profile) {
+    string aliasDir = _legacyNameAliasProbe();
+    Directory.Create(aliasDir);
+    string src = Path.Join(libsDir, "z42.ir.zpkg");
+    if (File.Exists(src)) {
+        string dst = Path.Join(aliasDir, "z42.ir.zpkg");
+        if (File.Exists(dst)) { File.Delete(dst); }
+        File.Copy(src, dst);
+        File.Delete(src);
+    }
+    string sym = Path.Join(libsDir, "z42.ir.zsym");
+    if (File.Exists(sym)) { File.Delete(sym); }
+}
+
 int _ensureSeed(string root) {
     string profile = "release";
     string flatDir = _libsFlatDist(root, profile);
@@ -490,6 +507,17 @@ int _ensureSeed(string root) {
     _copyAll(driverHome, driverDist, "z42c.*.zpkg");
     Directory.Create(flatDir);
     _copyAll(stdlibDir, flatDir, "z42.*.zpkg");
+    // 🔴 **供种之后立刻把旧包名迁出编译期 libs**（rename-z42-ir-to-z42-package 阶段 1）。
+    //
+    // 种子的 `libs/` 里有 `z42.ir.zpkg`（那一代的包名），而当前源产出 `z42.package.zpkg`。
+    // 两份留在同一个编译期 libs 目录里 ⇒ 编译器看见两个包导出**完全相同的 FQN**（命名空间这次
+    // 没动）⇒ 满屏 `E0606`。**冷启动路径就是这么红的**（本地 `test bootstrap` 与 CI 的
+    // compile-toolchain / test-host 同一个原因）；in-tree 那几个目录我先前清了，独独漏了这条
+    // **供种**通道 —— 而它恰恰是冷树上唯一的来源。
+    //
+    // 种子 driver 运行期仍需要旧名（它的 `DEPS` 写的是 `z42.ir`）⇒ 不是删掉，是**迁**进只挂
+    // `probing-paths` 的别名目录：运行期看得见、编译期看不见。
+    _moveLegacyIrToAlias(root, flatDir, profile);
     if (!File.Exists(inCore)) {
         ConsoleError.WriteLine("error: seed stdlib missing z42.core.zpkg in " + stdlibDir);
         return 1;
