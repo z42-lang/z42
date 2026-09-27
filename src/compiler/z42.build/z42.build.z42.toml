@@ -9,7 +9,14 @@ kind    = "lib"
 [dependencies]
 "z42.core"    = "0.1.0"
 "z42.io"      = "0.1.0"
-"z42.project" = "0.1.0"
+# 🔴 **path 依赖，不是名字依赖**（relocate-compiler-domain-libs，2026-09-27）：
+# 名字依赖对 `PathDepPlan` 的图**不可见** ⇒ 仓库外/仓库内的 path-闭包消费者（如 xtask）拓扑序会
+# 把 `z42.build` 排在 `z42.project` **前面**，于是 z42.build 自建时报
+# `[dependencies] z42.project 未找到…已查找：<sdk>/libs`（#921 实测；当时那句报错看着像是 xtask 的，
+# 其实是闭包里 z42.build 自己发的 —— `cached: 0/10 files` 正是它的文件数）。
+# 写成 path 边后这条依赖进入图，拓扑序把 z42.project 排在前面、其 dist 也随闭包并入解析域。
+# ⚠️ 对 workspace 构建无影响：那条路传 libsDirsOverride ⇒ 闭包解析整个跳过（见 Main.z42 的注释）。
+"z42.project" = { path = "../z42.project", version = "0.1.0" }
 
 [sources]
 include = ["src/**/*.z42"]

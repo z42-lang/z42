@@ -10,10 +10,21 @@ pack    = true
 [sources]
 include = ["**/*.z42"]
 
-# No [dependencies] block: xtask is always run with a complete Z42_LIBS (the SDK
-# libs dir / the build-tree alllibs), and z42c resolves every `using Std.*`
-# (Cli/IO/Toml/Json/Regex; z42.core is prelude) from there — the explicit list was
-# redundant for this dev tool. (Library/SDK projects still declare deps explicitly.)
+# `Std.*` 不列：xtask 总是带着完整的 `Z42_LIBS`（SDK 的 libs/ 或 build-tree 的 alllibs）运行，
+# z42c 从那儿解析每个 `using Std.*`（Cli/IO/Toml/Json/Regex；z42.core 是 prelude）——
+# 对这个 dev 工具来说显式列表是冗余的。（库/SDK 工程仍然显式声明依赖。）
+#
+# 🔴 **但编译器域的两个包必须显式 path 依赖**（relocate-compiler-domain-libs，2026-09-27）：
+# `Z42.Project`（读清单：ManifestLoader / WorkspaceManifest / PathTemplate）与 `Z42.Build`
+# 已随编译器域挪去 `src/compiler/`，**不在任何 `libs/` 里**。靠 `Z42_LIBS` 解析它们会在两处断：
+#   · `test-consume`：用**下载的 current-sdk** 编本清单 ⇒ `E0494: 命名空间 Z42.Project 不存在`
+#     （#921 实测）；SDK 只暴露 `libs/`，编译器域在 `programs/z42c/`。
+#   · `ci-bootstrap` 步骤 [2]：**下一个 nightly 之后**种子的 libs 里也不会再有它们 ⇒ 同样断。
+# path 依赖让 z42c 直接从**源码树**建它们（仓库内消费者天然可用），顺带把「xtask 编译期挂在
+# 上一代 libs 上」这条耦合彻底去掉 —— B3b 那轮 overlay/旁置的根因就是它。
+[dependencies]
+"z42.project" = { path = "../src/compiler/z42.project" }
+"z42.build"   = { path = "../src/compiler/z42.build" }
 
 [build]
 # xtask is the build DRIVER, so its output lives at artifacts/xtask — NOT under
