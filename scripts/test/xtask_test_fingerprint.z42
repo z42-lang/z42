@@ -104,8 +104,10 @@ int _testFingerprint(ParseResult r) {
     string headWs = Path.Join(srcLibs, "z42.workspace.toml");
     string[] dirs = _enumDirsSorted(Path.Join(baseTree, "src/libraries"));
     string changed = "";
+    string missing = "";
     int nChanged = 0;
     int nSame = 0;
+    int nMissing = 0;
     int i = 0;
     while (i < dirs.Length) {
         string m = dirs[i];
@@ -114,9 +116,28 @@ int _testFingerprint(ParseResult r) {
         string a = Path.Join(_memberDist(baseWs, m, "release"), m + ".zpkg");
         string b = Path.Join(_memberDist(headWs, m, "release"), m + ".zpkg");
         if (!File.Exists(a) && !File.Exists(b)) { continue; }
+        // 🔴 **只有一侧在场 ≠ 「字节变了」**。此前这里直接落到 `_filesEqual`，而它对
+        // 「文件不存在」只会答「不相等」⇒ 门把**输入不完整**报成了「编译器输出变了，请加
+        // 指纹 slug」。实测代价：base 树只铺了 flat libs（`dist/release/`）而没有 per-member
+        // 产物时，**25 个包全部**被判为变了，指示去追加一条根本不需要的 slug。
+        // 判别只靠「全变太反常」这种先验，太脆 —— 输入缺失必须自己响。
+        // 同 `audit-silent-gates`：门在输入不完整时给出了看似正当的结论。
+        if (!File.Exists(a) || !File.Exists(b)) {
+            missing = missing + (nMissing > 0 ? ", " : "") + m + (File.Exists(a) ? "(head 缺)" : "(base 缺)");
+            nMissing = nMissing + 1;
+            continue;
+        }
         if (_filesEqual(a, b)) { nSame = nSame + 1; continue; }
         changed = changed + (nChanged > 0 ? ", " : "") + m;
         nChanged = nChanged + 1;
+    }
+    if (nMissing > 0) {
+        ConsoleError.WriteLine("  ✗ 有 " + nMissing.ToString() + " 个包只有一侧有产物，无从比对：" + missing);
+        ConsoleError.WriteLine("    这**不是**「编译器输出变了」——是本门的输入不完整，别据此加指纹 slug。");
+        ConsoleError.WriteLine("    base 侧缺 ⇒ 该树必须**真跑过** `xtask build stdlib`；门比的是 per-member dist");
+        ConsoleError.WriteLine("    （`" + _memberDist(baseWs, "<pkg>", "release") + "`），只把 flat libs 铺进");
+        ConsoleError.WriteLine("    `artifacts/build/libraries/dist/release/` **不够**（那是运行期 libs，不是本门的比对面）。");
+        return 1;
     }
     if (nSame + nChanged == 0) {
         ConsoleError.WriteLine("  ✗ base 树里找不到已建好的 stdlib 产物（先用 base 编译器建 " + baseWs + "）");
