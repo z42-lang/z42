@@ -22,11 +22,15 @@ namespace Z42Xtask;
 
 using Std;
 using Std.IO;
-// ⚠️ 这个命名空间**不能随手改名**（rename-project-namespaces B3b 因此延后）：xtask 是
-// **两头都挂在上一代 SDK 上**的消费者 —— CI 用下载的 nightly SDK libs **编译** xtask.zpkg，
-// 之后又用**本轮新建的 flat** 当 `Z42_LIBS` **运行**它。抹掉旧 FQN 的改名会让其中一头必炸
-// （实测两种排法各炸一头）。要动它得先在 `z42.project` 里加一版并存、跨一个 nightly。
-// 详见 `docs/spec/changes/rename-project-namespaces/design.md` §6。
+// ⚠️ 这个命名空间**不能随手改名**：xtask 是**两头都挂在上一代 SDK 上**的消费者 —— CI 用下载的
+// nightly SDK libs **编译** xtask.zpkg，之后又用**本轮新建的 flat** 当 `Z42_LIBS` **运行**它。
+// 抹掉旧 FQN 的改名会让其中一头必炸（实测两种排法各炸一头）。
+//
+// 🔴 要动它，别按直觉「在 `z42.project` 里加一版并存」——**那条实测编不出来**（同包内两套同短名类
+// 串味 `E0401`，且种子 z42c 一样如此），另立兼容包也没用（运行期按 **zpkg 文件名**解析，没有任何
+// `DEPS` 指向它）。可行形态 = **编译期 overlay + 运行期旁置**，配方与四段实测判据见
+// `docs/spec/archive/2026-09-27-rename-project-namespaces/design.md` §6.1/§6.2。
+// （B3b 已按该形态一步落完，2026-09-27；那两段 CI 接线是一代过渡形态、当天即撤。）
 using Z42.Project;   // ManifestLoader / WorkspaceManifest / PathTemplate / TemplateContext
 
 // ── source-of-truth workspace manifests (per-member layout templates) ─────────

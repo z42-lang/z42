@@ -60,6 +60,7 @@ Z42.Project.ZpkgWriterZ.* / ZpkgBuilder.* / ZpkgReader.*（写/读 zpkg）
       （真 nightly 种子 + 清空 artifacts，跑 `build compiler` → `build stdlib`）
 - [x] **B3b**：`Z42.Build.Project` → `Z42.Project` —— **一步落**（`src/**` 与 `scripts/**` 同时扫到
       新名），靠 `ci-bootstrap` 的「编译期 overlay + 运行期旁置」跨过种子代差，见 §6.2。
+- [x] **B3b 阶段 2**：下一 nightly 出来后撤掉 overlay + 旁置（当天就撤了，见 §6.2「阶段 2」）。
       > 🔴 **原计划的「三步走（support 先行：同一个包同时声明两套命名空间 → 跨 nightly → use）」
       > 已实测否证**：同包内两套同短名类会串味（`E0401`），**种子 z42c 同样如此** ⇒ 阶段 1 的源码
       > 根本编不出来。另一个备选「独立兼容包」则是运行期空气（`DEPS` 按文件名解析）。两个否证
@@ -167,11 +168,35 @@ order stays `[entry-dir, libs]`」）—— **entry 目录优先**，这就是�
 `xtask test stage2` 做对照，撤掉旁置件照样绿 —— 因为懒加载根本没走到 `Z42.Project`，那是个空门。
 换 `build stage-toolchain` 才红。
 
-### 阶段 2（下一 nightly 后）
+### 阶段 2（已完成，2026-09-27 当天）
 
-种子自带 `Z42.Project` ⇒ 撤掉 overlay 与旁置两段即可，无任何源码副本要删。欠账登记在
-`.github/actions/ci-bootstrap/action.yml#b3b-project-ns-overlay`（为此把 `xtask test stage2`
-的扫描面扩到了 `.github/**/*.yml` —— 阶段 1 的过渡形态第二次落在门看不见的文件类型里）。
+nightly（发布于 12:57Z，target = 阶段 1 的合并 commit `4ccd722c1`）**实测**已自带 `Z42.Project`：
+其 `libs/z42.project.zpkg`、`programs/z42c/z42.project.zpkg`、`z42c.driver.zpkg` 里旧名
+`Z42.Build.Project` 命中数均为 **0**（判据不是看 release 的 target sha，是 grep 产物本身）。
+
+⇒ 撤掉 `ci-bootstrap` 的 overlay 与旁置两段（-41 行），欠账
+`action.yml#b3b-project-ns-overlay` 清账，**无任何源码副本要删**。刷新本地种子
+（`scripts/install-z42.sh --force`）后三条路径实测全绿：
+
+| # | 路径 | 实测 |
+|---|---|---|
+| ① | 新种子 libs **直接**编 xtask（无 overlay）| exit 0 —— 阶段 2 的全部意义 |
+| ② | apphost `./xtask`（`Z42_HOME/libs` = 新种子），**已删旁置件** | `✔ build stage-toolchain` |
+| ③ | CI 式 `Z42_LIBS=<本轮 flat>` + `z42vm xtask.zpkg`，**已删旁置件** | `✔ build stage-toolchain` |
+
+⭐ 清账时顺带验到欠账门的**反向棘轮**真会红：标记从源里删掉而清单还挂着 ⇒
+`✗ 阶段-2 欠账已清却还挂着`（exit 1），`--update` 后归零。那半边棘轮不是装饰。
+
+（阶段 1 为登记这条债，把 `xtask test stage2` 的扫描面扩到了 `.github/**/*.yml` —— 过渡形态
+第二次落在门看不见的文件类型里。那之后另立了 `xtask test ci-shell` 门，见下。）
+
+### 阶段 1 的过渡形态本身还留下一道门
+
+阶段 1 的 CI 接线里我把新块插在了 `runvm=` **定义之前**却用了 `$runvm` ⇒ `set -u` 当场
+`unbound variable`，所有依赖 `ci-bootstrap` 的 job 全红一轮。**本地那五段实测判据一条都覆盖不到
+它**（跑的是手拼命令，不是 action 里那段 bash；而 `bash -n` 只查语法）。⇒ 立了
+`xtask test ci-shell`（`scripts/test/xtask_test_ci_shell.z42`），把「CI 内嵌 shell 的变量顺序」
+变成本地 0.1s 能查的事。这道门是本 change 的附带产物，留在仓库里。
 
 ## 7. 🔴 B3 实测挖出的三个真缺陷（都不是改名本身）
 

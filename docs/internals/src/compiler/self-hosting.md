@@ -308,7 +308,7 @@ z42c **运行期依赖 `z42.package`**——它建任何 zpkg 都要调 `Z42.Pac
 ⚠️ **但它自己也受种子纪律**：跑 workspace 构建的是**种子** driver，故要跨一个 nightly 才生效；
 在那之前编排侧的「搬」仍是唯一防线。进种子之后，`_relocateSeedRunLibs` 可从「搬」退回「拷」
 （运行期载荷留在 dist，编译期不再看它）。详见
-`docs/spec/changes/rename-project-namespaces/design.md` §7。
+`docs/spec/archive/2026-09-27-rename-project-namespaces/design.md` §7。
 
 ### 分阶段流程（每阶段守哪条不变量）
 

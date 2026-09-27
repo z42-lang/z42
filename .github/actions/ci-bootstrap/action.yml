@@ -273,42 +273,6 @@ runs:
         mkdir -p "$ROOT/.ci-runvm"; cp -f "$vm" "$runvm"
         runvmw="$(winpath "$runvm")"
 
-        # ── 1.6 命名空间改名的**编译期 overlay** + 旁置件 ────────────────────────────────
-        # (rename-project-namespaces B3b 阶段 1)
-        # STAGE2-DEBT(b3b-project-ns-overlay): 下一 nightly 的种子自带 `Z42.Project` ⇒ 删掉本段
-        # （overlay 构建 + 旁置 cp）、把步骤 [2] 的 Z42_LIBS 用回 boot_libsw
-        #
-        # `scripts/**`（xtask 源码）本轮已扫到新命名空间 `Z42.Project`，而**种子那一代**的
-        # z42.project.zpkg 仍声明旧名 `Z42.Build.Project` ⇒ 步骤 [2] 直接编 xtask 会 `E0494`。
-        # 编译期与运行期是**两个独立的解析面**，各要一件东西：
-        #
-        #  ① 编译期按命名空间（`using`）解析 ⇒ 先用种子 z42c 把**当前源**的 z42.project 编出来、
-        #     覆盖进一份 boot_libs 的副本（XLIBS）。种子 z42c 编得动当前源（本地实测 exit 0）。
-        #  ② 运行期按 **zpkg 文件名**解析（`metadata/loader/namespace.rs` 的 `resolve_dependency`，
-        #     头注原话「the VM's lazy loader no longer routes by namespace; it uses zpkg file
-        #     names」）⇒ xtask.zpkg 的 DEPS 记的是 `z42.project.zpkg` 这一个名字。搜索序是
-        #     **[entry-zpkg 目录, Z42_LIBS, probing]**，entry 目录优先 ⇒ 把这份新名产物**旁置**到
-        #     `artifacts/xtask/` 就够：之后无论 Z42_LIBS 指向种子代（步骤 [3]）还是本轮 flat
-        #     （步骤 [4] 之后的所有 job），xtask 拿到的都是新名。隔离也是构造保证的——只有
-        #     entry 在 `artifacts/xtask/` 的进程（= xtask 自己）看得见它。
-        #
-        # ⭐ 为什么不是「兼容包」：另立一个包（另一个文件名）编译期够用，但**没有任何 DEPS 指向
-        #    那个文件名 ⇒ 运行期永不被加载**（实测：xtask 照旧 MissingSymbolException）。也不能
-        #    把旧名副本塞进同一个包：同包内两套同短名类会串味（`E0401: no field ... on
-        #    ProjectManifest`），且**种子 z42c 同样如此** ⇒ 阶段 1 的源码根本编不出来。
-        XLIBS="$work/xlibs"; rm -rf "$XLIBS"; mkdir -p "$XLIBS"
-        cp -f "$boot_libs"/*.zpkg "$XLIBS"/ 2>/dev/null || true
-        cp -f "$boot_libs"/*.zsym "$XLIBS"/ 2>/dev/null || true
-        xlibsw="$(winpath "$XLIBS")"
-        echo "── [1.6] seed z42c builds current-source z42.project → compile-libs overlay ──"
-        Z42_LIBS="$boot_libsw" "$runvm" "$boot_driverw" --mode interp -- \
-          build src/libraries/z42.project/z42.project.z42.toml --release \
-          --output-dir "$xlibsw" --no-incremental
-        # z42c 把 cache 写在**成员清单目录**下（`--output-dir` 只管 dist；既有行为），清掉以免
-        # 源码树里留下一份会被后续 workspace 构建当输入的陈旧 cache。
-        rm -rf "$ROOT/src/libraries/z42.project/artifacts"
-        grep -ac 'Z42.Build.Project' "$XLIBS/z42.project.zpkg" >/dev/null 2>&1 \
-          && { echo "::error::overlay z42.project.zpkg 仍含旧命名空间 —— overlay 没生效"; exit 1; } || true
 
         # ── 2. seed z42c → build CURRENT xtask.zpkg ──────────────────────────────────
         # --no-incremental: the seed is the DOWNLOADED nightly z42c, which carries
@@ -325,14 +289,10 @@ runs:
         # tolerate the crash and gate on the actual product existing. A real failure
         # (crash before writing xtask.zpkg) still trips the guard.
         # boot_driverw/boot_libsw:快路径=下载种子;两代路径=gen2 z42c + 新 stdlib(见 1.5)。
-        # Z42_LIBS=xlibsw（不是 boot_libsw）：见 [1.6] ①，编译期要有新命名空间。
-        Z42_LIBS="$xlibsw" "$runvm" "$boot_driverw" --mode interp -- \
+        Z42_LIBS="$boot_libsw" "$runvm" "$boot_driverw" --mode interp -- \
           build scripts/xtask.z42.toml --release --no-incremental \
           || echo "  seed z42c exited non-zero (nightly Windows cache write?) — verifying xtask.zpkg below"
         [ -f "$ROOT/artifacts/xtask/xtask.zpkg" ] || { echo "::error::xtask.zpkg not produced"; exit 1; }
-        # 旁置件（见 [1.6] ②）：必须紧跟 xtask.zpkg 产出、在任何 xtask 调用之前就位。
-        cp -f "$XLIBS/z42.project.zpkg" "$ROOT/artifacts/xtask/"
-        echo "   ✓ colocated z42.project.zpkg (current-source ns) next to xtask.zpkg"
 
         # ── 3. xtask builds CURRENT z42c (cold: _ensureSeed stages from Z42_HOME) ────
         # `-v detailed`: CI logs keep the full seed candidate-walk + per-file output
