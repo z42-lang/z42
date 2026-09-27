@@ -53,10 +53,8 @@ public static class ManifestLoader {
         ManifestLoader._parseNative(root, pm);       // [native.*] 本包携带的私有 native 库（同构造后填）
         // [properties] 应用自定义属性基表（add-app-properties，同构造后填）。
         // 只搬运、不解释——z42.project 与 VM 都不理解它的含义。
-        if (root.ContainsKey("properties")) {
-            TomlValue bp = root.Get("properties");
-            if (bp.IsTable()) { pm.Properties = bp; }
-        }
+        TomlValue bp = null;
+        if (root.TryGet("properties", ref bp) && bp.IsTable()) { pm.Properties = bp; }
         return pm;
     }
 
@@ -66,8 +64,8 @@ public static class ManifestLoader {
     // <dir>/<rid>/<prefix><name><suffix> 复制）。键按名稳定排序发射（common-pitfalls §1：禁依赖
     // TOML/容器碰巧序）。文件名/落点由消费方按平台派生 <prefix><name><suffix>，z42.project 不解析文件。
     private static void _parseNative(TomlValue root, ProjectManifest pm) {
-        if (!root.ContainsKey("native")) { return; }
-        var n = root.Get("native");
+        TomlValue n = null;
+        if (!root.TryGet("native", ref n)) { return; }
         string[] keys = n.Keys();
         // 选择排序（稳定名序）
         int a = 0;
@@ -82,7 +80,7 @@ public static class ManifestLoader {
         while (i < keys.Length) {
             var sub = n.Get(keys[i]);
             string dir = "";
-            if (sub.ContainsKey("dir")) { dir = sub.Get("dir").AsString(); }
+            sub.TryGetValue<string>("dir", ref dir);
             arr[i] = new NativeSpec(keys[i], dir);
             i = i + 1;
         }
@@ -103,8 +101,8 @@ public static class ManifestLoader {
     // `warnings-as-errors = true`。前者搬为中性 name/severity 串对（z42.project 不解释规则/级别语义），
     // 后者拎成独立 bool。消费方（z42c 的 LintConfig）做 EnabledByDefault + 覆盖 + 通配 + WAE 决策。
     private static void _parseLints(TomlValue root, ProjectManifest pm) {
-        if (!root.ContainsKey("lints")) { return; }
-        var o = root.Get("lints");
+        TomlValue o = null;
+        if (!root.TryGet("lints", ref o)) { return; }
         string[] keys = o.Keys();
         string[] names = new string[keys.Length];   // 逐规则键（可含通配 `pkg.*`）
         string[] sevs  = new string[keys.Length];   // 对应 severity 串（"warning"/"error"/"none"/…）
@@ -130,8 +128,8 @@ public static class ManifestLoader {
     // z42.project 不映射到编译器 Opt 位（避免耦合）；消费方（z42c.driver）按名映射（add-compiler-inlining，
     // 消费侧受两-nightly 纪律：本解析随 nightly 发布后 driver 才消费）。
     private static void _parseOptimize(TomlValue root, ProjectManifest pm) {
-        if (!root.ContainsKey("optimize")) { return; }
-        var o = root.Get("optimize");
+        TomlValue o = null;
+        if (!root.TryGet("optimize", ref o)) { return; }
         string[] keys = o.Keys();
         string[] names = new string[keys.Length];
         bool[]   vals  = new bool[keys.Length];
@@ -149,8 +147,8 @@ public static class ManifestLoader {
     // z42.project 不认识特性名的语义（避免与 `LanguageFeatures` 的名单耦合）；消费方
     // （z42c.driver 的 `Main._build`）喂给 `LanguageFeatures`，**未知名在那里报错**。
     private static void _parseSyntax(TomlValue root, ProjectManifest pm) {
-        if (!root.ContainsKey("syntax")) { return; }
-        var sy = root.Get("syntax");
+        TomlValue sy = null;
+        if (!root.TryGet("syntax", ref sy)) { return; }
         string[] keys = sy.Keys();
         string[] names = new string[keys.Length];
         bool[]   vals  = new bool[keys.Length];
@@ -177,17 +175,18 @@ public static class ManifestLoader {
         bool hasOut = false; string outDir = "";
         bool hasCache = false; string cacheDir = "";
         DepEntry[] wdeps = new DepEntry[0];
-        if (root.ContainsKey("workspace")) {
-            var w = root.Get("workspace");
-            if (w.ContainsKey("members"))         { members = ManifestLoader._strArray(w.Get("members")); }
-            if (w.ContainsKey("exclude"))         { exclude = ManifestLoader._strArray(w.Get("exclude")); }
-            if (w.ContainsKey("default-members")) { defMembers = ManifestLoader._strArray(w.Get("default-members")); }
+        TomlValue w = null;
+        TomlValue tv = null;   // 取子树用的共用出参（下同：一个函数一个，避免每行一个临时量）
+        if (root.TryGet("workspace", ref w)) {
+            if (w.TryGet("members", ref tv))         { members = ManifestLoader._strArray(tv); }
+            if (w.TryGet("exclude", ref tv))         { exclude = ManifestLoader._strArray(tv); }
+            if (w.TryGet("default-members", ref tv)) { defMembers = ManifestLoader._strArray(tv); }
             // 注：z42.project 的 WorkspaceManifest 按 converge Decision 2 弃 SharedVersion/License
             // （z42c 无消费者）；故此处不解析 [workspace.project]。
-            if (w.ContainsKey("build")) {
-                var wb = w.Get("build");
-                if (wb.ContainsKey("output_dir")) { outDir = wb.Get("output_dir").AsString(); hasOut = true; }
-                if (wb.ContainsKey("cache_dir"))  { cacheDir = wb.Get("cache_dir").AsString(); hasCache = true; }
+            TomlValue wb = null;
+            if (w.TryGet("build", ref wb)) {
+                hasOut   = wb.TryGetValue<string>("output_dir", ref outDir);
+                hasCache = wb.TryGetValue<string>("cache_dir",  ref cacheDir);
             }
             wdeps = ManifestLoader._parseDeps(w, "dependencies");
         }
@@ -202,13 +201,13 @@ public static class ManifestLoader {
         string name = ""; string version = ""; string kind = "lib";
         bool hasEntry = false; string entry = "";
         bool hasPack = false; bool pack = false;
-        if (root.ContainsKey("project")) {
-            var p = root.Get("project");
-            if (p.ContainsKey("name"))    { name = p.Get("name").AsString(); }
-            if (p.ContainsKey("version")) { version = p.Get("version").AsString(); }
-            if (p.ContainsKey("kind"))    { kind = p.Get("kind").AsString(); }
-            if (p.ContainsKey("entry"))   { entry = p.Get("entry").AsString(); hasEntry = true; }
-            if (p.ContainsKey("pack"))    { pack = p.Get("pack").AsBool(); hasPack = true; }
+        TomlValue p = null;
+        if (root.TryGet("project", ref p)) {
+            p.TryGetValue<string>("name",    ref name);
+            p.TryGetValue<string>("version", ref version);
+            p.TryGetValue<string>("kind",    ref kind);      // 未命中保留默认 "lib"
+            hasEntry = p.TryGetValue<string>("entry", ref entry);
+            hasPack  = p.TryGetValue<bool>("pack",    ref pack);
         }
         return new ProjectInfo(name, version, kind, hasEntry, entry, hasPack, pack);
     }
@@ -218,10 +217,11 @@ public static class ManifestLoader {
     private static Sources _parseSources(TomlValue root) {
         string[] inc = new string[1]; inc[0] = "src/**/*.z42";
         string[] exc = new string[0];
-        if (root.ContainsKey("sources")) {
-            var s = root.Get("sources");
-            if (s.ContainsKey("include")) { inc = ManifestLoader._strArray(s.Get("include")); }
-            if (s.ContainsKey("exclude")) { exc = ManifestLoader._strArray(s.Get("exclude")); }
+        TomlValue s = null;
+        TomlValue tv = null;
+        if (root.TryGet("sources", ref s)) {
+            if (s.TryGet("include", ref tv)) { inc = ManifestLoader._strArray(tv); }
+            if (s.TryGet("exclude", ref tv)) { exc = ManifestLoader._strArray(tv); }
         }
         return new Sources(inc, inc.Length, exc, exc.Length);
     }
@@ -234,16 +234,16 @@ public static class ManifestLoader {
         bool incremental = true;
         bool hasHooks = false; string hooksDir = "";
         bool hasGen = false; string genDir = "";
-        if (root.ContainsKey("build")) {
-            var b = root.Get("build");
-            if (b.ContainsKey("output_dir"))  { outDir = b.Get("output_dir").AsString(); hasOut = true; }
-            if (b.ContainsKey("cache_dir"))   { cacheDir = b.Get("cache_dir").AsString(); hasCache = true; }
-            if (b.ContainsKey("dist_dir"))    { distDir = b.Get("dist_dir").AsString(); hasDist = true; }
-            if (b.ContainsKey("incremental")) { incremental = b.Get("incremental").AsBool(); }
+        TomlValue b = null;
+        if (root.TryGet("build", ref b)) {
+            hasOut   = b.TryGetValue<string>("output_dir", ref outDir);
+            hasCache = b.TryGetValue<string>("cache_dir",  ref cacheDir);
+            hasDist  = b.TryGetValue<string>("dist_dir",   ref distDir);
+            b.TryGetValue<bool>("incremental", ref incremental);   // 未命中保留默认 true
             // fix-hooks-source-scan：`[build] hooks`（projDir 相对目录）。z42c 阶段 2 据此自动排除。
-            if (b.ContainsKey("hooks"))       { hooksDir = b.Get("hooks").AsString(); hasHooks = true; }
+            hasHooks = b.TryGetValue<string>("hooks", ref hooksDir);
             // add-member-forwarding：generator 产出源码的落盘目录（"" = 不落盘）。
-            if (b.ContainsKey("generated_dir")) { genDir = b.Get("generated_dir").AsString(); hasGen = true; }
+            hasGen   = b.TryGetValue<string>("generated_dir", ref genDir);
         }
         BuildConfig bc = new BuildConfig(hasOut, outDir, hasCache, cacheDir, hasDist, distDir, incremental,
                                          hasHooks, hooksDir);
@@ -260,8 +260,8 @@ public static class ManifestLoader {
     // 边界是**结构性**的——不再有「哪些键名不算旋钮」的排除清单，因此新增任何一边都
     // 不会泄到另一边。
     private static Profile[] _parseProfiles(TomlValue root) {
-        if (!root.ContainsKey("profile")) { return new Profile[0]; }
-        var pt = root.Get("profile");
+        TomlValue pt = null;
+        if (!root.TryGet("profile", ref pt)) { return new Profile[0]; }
         string[] names = pt.Keys();
         Profile[] r = new Profile[names.Length];
         int i = 0;
@@ -281,15 +281,11 @@ public static class ManifestLoader {
                 d = d + 1;
             }
             string[] knobs = new string[0];
-            if (pv.ContainsKey("runtime")) {
-                TomlValue rt = pv.Get("runtime");
-                if (rt.IsTable()) { knobs = _profileKnobs(rt); }
-            }
+            TomlValue rt = null;
+            if (pv.TryGet("runtime", ref rt) && rt.IsTable()) { knobs = _profileKnobs(rt); }
             TomlValue props = TomlValue.OfTable();
-            if (pv.ContainsKey("properties")) {
-                TomlValue pp = pv.Get("properties");
-                if (pp.IsTable()) { props = pp; }
-            }
+            TomlValue pp = null;
+            if (pv.TryGet("properties", ref pp) && pp.IsTable()) { props = pp; }
             string[] badKeys = new string[badN];
             int bi = 0;
             while (bi < badN) { badKeys[bi] = bad[bi]; bi = bi + 1; }
@@ -357,8 +353,8 @@ public static class ManifestLoader {
     // ── [dependencies] / [workspace.dependencies] ────────────────────────────
     // 值可为字符串版本，或表 { version, path }。键集大小已知 → 直接定长。
     private static DepEntry[] _parseDeps(TomlValue parent, string key) {
-        if (!parent.ContainsKey(key)) { return new DepEntry[0]; }
-        var d = parent.Get(key);
+        TomlValue d = null;
+        if (!parent.TryGet(key, ref d)) { return new DepEntry[0]; }
         string[] keys = d.Keys();
         DepEntry[] deps = new DepEntry[keys.Length];
         int i = 0;
@@ -368,11 +364,11 @@ public static class ManifestLoader {
             string pth = "";
             string dep = "";
             if (dv.IsTable()) {
-                if (dv.ContainsKey("version")) { ver = dv.Get("version").AsString(); }
-                if (dv.ContainsKey("path"))    { pth = dv.Get("path").AsString(); }
+                dv.TryGetValue<string>("version", ref ver);
+                dv.TryGetValue<string>("path",    ref pth);
                 // `deploy`（add-deployment-model 批 4 support）：只忠实搬运，**不校验取值**
                 // ——合法取值是消费方（z42c）的事，ManifestLoader 一贯只解析不解释。
-                if (dv.ContainsKey("deploy"))  { dep = dv.Get("deploy").AsString(); }
+                dv.TryGetValue<string>("deploy",  ref dep);
             }
             else { ver = dv.AsString(); }
             deps[i] = new DepEntry(keys[i], ver, pth);
@@ -384,8 +380,8 @@ public static class ManifestLoader {
 
     // ── [[exe]] （array-of-tables）───────────────────────────────────────────
     private static ExeTarget[] _parseExes(TomlValue root) {
-        if (!root.ContainsKey("exe")) { return new ExeTarget[0]; }
-        var arr = root.Get("exe");
+        TomlValue arr = null;
+        if (!root.TryGet("exe", ref arr)) { return new ExeTarget[0]; }
         int n = arr.Length();
         ExeTarget[] r = new ExeTarget[n];
         int i = 0;
@@ -393,9 +389,10 @@ public static class ManifestLoader {
             var e = arr.At(i);
             string name = ""; string entry = "";
             string[] src = new string[0];
-            if (e.ContainsKey("name"))  { name = e.Get("name").AsString(); }
-            if (e.ContainsKey("entry")) { entry = e.Get("entry").AsString(); }
-            if (e.ContainsKey("include")) { src = ManifestLoader._strArray(e.Get("include")); }  // 统一键名，见 _parseRunTargets
+            e.TryGetValue<string>("name",  ref name);
+            e.TryGetValue<string>("entry", ref entry);
+            TomlValue inc2 = null;
+            if (e.TryGet("include", ref inc2)) { src = ManifestLoader._strArray(inc2); }  // 统一键名，见 _parseRunTargets
             r[i] = new ExeTarget(name, entry, src, src.Length);
             i = i + 1;
         }
@@ -409,11 +406,12 @@ public static class ManifestLoader {
         string[] exc = new string[0];
         bool auto = true;
         DepEntry[] deps = new DepEntry[0];
-        if (root.ContainsKey(key)) {
-            var s = root.Get(key);
-            if (s.ContainsKey("include")) { inc = ManifestLoader._strArray(s.Get("include")); }
-            if (s.ContainsKey("exclude")) { exc = ManifestLoader._strArray(s.Get("exclude")); }
-            if (s.ContainsKey("auto"))    { auto = s.Get("auto").AsBool(); }
+        TomlValue s = null;
+        TomlValue tv = null;
+        if (root.TryGet(key, ref s)) {
+            if (s.TryGet("include", ref tv)) { inc = ManifestLoader._strArray(tv); }
+            if (s.TryGet("exclude", ref tv)) { exc = ManifestLoader._strArray(tv); }
+            s.TryGetValue<bool>("auto", ref auto);   // 未命中保留默认 true
             deps = ManifestLoader._parseDeps(s, "dependencies");
         }
         return new TargetSection(inc, inc.Length, exc, exc.Length, auto, deps, deps.Length);
@@ -442,8 +440,8 @@ public static class ManifestLoader {
     // harness 默认 true（z42b 反射）；harness=false 用 entry Main 退出码判定。
     // example 忽略 harness（发现方按 entry Main 跑）；test 字段默认 false（仅 example：true→纳入 xtask test 执行）。
     private static RunTarget[] _parseRunTargets(TomlValue root, string key) {
-        if (!root.ContainsKey(key)) { return new RunTarget[0]; }
-        var arr = root.Get(key);
+        TomlValue arr = null;
+        if (!root.TryGet(key, ref arr)) { return new RunTarget[0]; }
         int n = arr.Length();
         RunTarget[] r = new RunTarget[n];
         int i = 0;
@@ -453,14 +451,15 @@ public static class ManifestLoader {
             bool hasEntry = false; string entry = "";
             string[] src = new string[0];
             bool runInTest = false;
-            if (t.ContainsKey("name"))    { name = t.Get("name").AsString(); }
-            if (t.ContainsKey("harness")) { harness = t.Get("harness").AsBool(); }
-            if (t.ContainsKey("entry"))   { entry = t.Get("entry").AsString(); hasEntry = true; }
+            t.TryGetValue<string>("name", ref name);
+            t.TryGetValue<bool>("harness", ref harness);   // 未命中保留默认 true
+            hasEntry = t.TryGetValue<string>("entry", ref entry);
             // unify-manifest-include-key：源文件清单在**所有**位置统一叫 `include`
             // （`[sources]` / `[tests]` / `[benches]` / `[examples]` 段本来就是它；此前只有
             // 数组形式的 `[[test]]` 叫 `sources`、`[[exe]]` 叫 `src`，同一个概念三种拼法）。
-            if (t.ContainsKey("include")) { src = ManifestLoader._strArray(t.Get("include")); }
-            if (t.ContainsKey("test"))    { runInTest = t.Get("test").AsBool(); }
+            TomlValue tinc = null;
+            if (t.TryGet("include", ref tinc)) { src = ManifestLoader._strArray(tinc); }
+            t.TryGetValue<bool>("test", ref runInTest);
             DepEntry[] deps = ManifestLoader._parseDeps(t, "dependencies");
             r[i] = new RunTarget(name, harness, hasEntry, entry, src, src.Length, deps, deps.Length, runInTest);
             i = i + 1;
@@ -474,12 +473,13 @@ public static class ManifestLoader {
         bool hasAndroid = false; AndroidConfig android = null;
         bool hasDesktop = false; DesktopConfig desktop = null;
         bool hasWasm = false;    WasmConfig    wasm    = null;
-        if (root.ContainsKey("platform")) {
-            var pf = root.Get("platform");
-            if (pf.ContainsKey("desktop")) { desktop = ManifestLoader._parseDesktop(pf.Get("desktop")); hasDesktop = true; }
-            if (pf.ContainsKey("ios"))     { ios     = ManifestLoader._parseIOS(pf.Get("ios"));         hasIOS = true; }
-            if (pf.ContainsKey("android")) { android = ManifestLoader._parseAndroid(pf.Get("android")); hasAndroid = true; }
-            if (pf.ContainsKey("wasm"))    { wasm    = ManifestLoader._parseWasm(pf.Get("wasm"));       hasWasm = true; }
+        TomlValue pf = null;
+        TomlValue sec = null;
+        if (root.TryGet("platform", ref pf)) {
+            if (pf.TryGet("desktop", ref sec)) { desktop = ManifestLoader._parseDesktop(sec); hasDesktop = true; }
+            if (pf.TryGet("ios",     ref sec)) { ios     = ManifestLoader._parseIOS(sec);     hasIOS     = true; }
+            if (pf.TryGet("android", ref sec)) { android = ManifestLoader._parseAndroid(sec); hasAndroid = true; }
+            if (pf.TryGet("wasm",    ref sec)) { wasm    = ManifestLoader._parseWasm(sec);    hasWasm    = true; }
         }
         return new PlatformSet(hasIOS, ios, hasAndroid, android, hasDesktop, desktop, hasWasm, wasm);
     }
@@ -490,12 +490,12 @@ public static class ManifestLoader {
         bool hasIcon = false; string icon = "";
         bool hasBundleId = false; string bundleId = "";
         string bin = ""; string payload = "";
-        if (d.ContainsKey("apphost"))     { apphost = d.Get("apphost").AsBool(); }
-        if (d.ContainsKey("publish_dir")) { publishDir = d.Get("publish_dir").AsString(); }
-        if (d.ContainsKey("icon"))        { icon = d.Get("icon").AsString(); hasIcon = true; }
-        if (d.ContainsKey("bundle_id"))   { bundleId = d.Get("bundle_id").AsString(); hasBundleId = true; }
-        if (d.ContainsKey("bin"))         { bin = d.Get("bin").AsString(); }
-        if (d.ContainsKey("payload"))     { payload = d.Get("payload").AsString(); }
+        d.TryGetValue<bool>("apphost", ref apphost);
+        d.TryGetValue<string>("publish_dir", ref publishDir);
+        hasIcon     = d.TryGetValue<string>("icon",      ref icon);
+        hasBundleId = d.TryGetValue<string>("bundle_id", ref bundleId);
+        d.TryGetValue<string>("bin",     ref bin);
+        d.TryGetValue<string>("payload", ref payload);
         return new DesktopConfig(apphost, publishDir, hasIcon, icon, hasBundleId, bundleId, bin, payload);
     }
 
@@ -506,13 +506,14 @@ public static class ManifestLoader {
         bool hasTeamId = false; string teamId = "";
         int[] fams = new int[0];
         string[] caps = new string[0];
-        if (d.ContainsKey("bundle_id"))      { bundleId = d.Get("bundle_id").AsString(); }
-        if (d.ContainsKey("display_name"))   { displayName = d.Get("display_name").AsString(); }
-        if (d.ContainsKey("version"))        { version = d.Get("version").AsString(); hasVersion = true; }
-        if (d.ContainsKey("min_ios"))        { minIOS = d.Get("min_ios").AsString(); }
-        if (d.ContainsKey("team_id"))        { teamId = d.Get("team_id").AsString(); hasTeamId = true; }
-        if (d.ContainsKey("device_families")){ fams = ManifestLoader._intArray(d.Get("device_families")); }
-        if (d.ContainsKey("capabilities"))   { caps = ManifestLoader._strArray(d.Get("capabilities")); }
+        d.TryGetValue<string>("bundle_id",    ref bundleId);
+        d.TryGetValue<string>("display_name", ref displayName);
+        hasVersion = d.TryGetValue<string>("version", ref version);
+        d.TryGetValue<string>("min_ios", ref minIOS);
+        hasTeamId  = d.TryGetValue<string>("team_id", ref teamId);
+        TomlValue arr2 = null;
+        if (d.TryGet("device_families", ref arr2)) { fams = ManifestLoader._intArray(arr2); }
+        if (d.TryGet("capabilities",    ref arr2)) { caps = ManifestLoader._strArray(arr2); }
         return new iOSConfig(bundleId, displayName, hasVersion, version, minIOS, hasTeamId, teamId,
                              fams, fams.Length, caps, caps.Length);
     }
@@ -522,20 +523,23 @@ public static class ManifestLoader {
         int versionCode = 0; string versionName = "";
         int minSdk = 0; int targetSdk = 0;
         string[] perms = new string[0];
-        if (d.ContainsKey("app_id"))       { appId = d.Get("app_id").AsString(); }
-        if (d.ContainsKey("display_name")) { displayName = d.Get("display_name").AsString(); }
-        if (d.ContainsKey("version_code")) { versionCode = (int)d.Get("version_code").AsLong(); }
-        if (d.ContainsKey("version_name")) { versionName = d.Get("version_name").AsString(); }
-        if (d.ContainsKey("min_sdk"))      { minSdk = (int)d.Get("min_sdk").AsLong(); }
-        if (d.ContainsKey("target_sdk"))   { targetSdk = (int)d.Get("target_sdk").AsLong(); }
-        if (d.ContainsKey("permissions"))  { perms = ManifestLoader._strArray(d.Get("permissions")); }
+        d.TryGetValue<string>("app_id",       ref appId);
+        d.TryGetValue<string>("display_name", ref displayName);
+        d.TryGetValue<string>("version_name", ref versionName);
+        // TOML 整数是 i64，这三项落进 int 字段 ⇒ 用 long 中转再窄化（共用一个出参）。
+        long num = 0;
+        if (d.TryGetValue<long>("version_code", ref num)) { versionCode = (int)num; }
+        if (d.TryGetValue<long>("min_sdk",      ref num)) { minSdk      = (int)num; }
+        if (d.TryGetValue<long>("target_sdk",   ref num)) { targetSdk   = (int)num; }
+        TomlValue permsv = null;
+        if (d.TryGet("permissions", ref permsv)) { perms = ManifestLoader._strArray(permsv); }
         return new AndroidConfig(appId, displayName, versionCode, versionName, minSdk, targetSdk,
                                  perms, perms.Length);
     }
 
     private static WasmConfig _parseWasm(TomlValue d) {
         bool hasTitle = false; string title = "";
-        if (d.ContainsKey("title")) { title = d.Get("title").AsString(); hasTitle = true; }
+        hasTitle = d.TryGetValue<string>("title", ref title);
         return new WasmConfig(hasTitle, title);
     }
 
