@@ -1,0 +1,118 @@
+// add-doc-value-tryget：`TryGet` / `TryGetValue<T>` —— 取即检查。
+//
+// 这批用例钉的是三件事，缺一条这套 API 就不如原来的 `ContainsKey` + `Get`：
+//   ① 未命中**不动** `value`（「有就覆盖默认值」这个主用法靠它一行写完）
+//   ② 非 table 返回 false 而不抛（与 `ContainsKey` 一致 ⇒ 老写法逐字等价可换）
+//   ③ 命中但**类型不符照抛**（把它吞成 false 会让配置里的类型笔误静默退回默认值）
+namespace Z42TomlTryGetTests;
+
+using Std;
+using Std.Test;
+using Std.Toml;
+
+[Test]
+void test_tryget_hit_and_miss() {
+    var t = TomlValue.Parse("name = \"foo\"");
+
+    TomlValue v = null;
+    Assert.True(t.TryGet("name", ref v));
+    Assert.Equal("foo", v.AsString());
+
+    TomlValue missing = null;
+    Assert.False(t.TryGet("nope", ref missing));
+    Assert.True(missing == null);      // ① 未命中不动出参
+}
+
+[Test]
+void test_tryget_on_non_table_is_false_not_throw() {
+    // ② 与 ContainsKey 对齐：非 table 返回 false。老写法 `if (x.ContainsKey(k))` 在这里
+    // 走 else，新写法也必须走 else —— 否则「逐字等价重写」这条就不成立。
+    var scalar = TomlValue.OfLong(7);
+    Assert.False(scalar.ContainsKey("k"));
+
+    TomlValue v = null;
+    Assert.False(scalar.TryGet("k", ref v));
+    Assert.True(v == null);
+}
+
+[Test]
+void test_trygetvalue_scalars() {
+    var t = TomlValue.Parse("s = \"hi\"\nn = 42\nd = 1.5\nb = true");
+
+    string s = "default";
+    Assert.True(t.TryGetValue<string>("s", ref s));
+    Assert.Equal("hi", s);
+
+    long n = 0;
+    Assert.True(t.TryGetValue<long>("n", ref n));
+    Assert.Equal(42L, n);
+
+    double d = 0.0;
+    Assert.True(t.TryGetValue<double>("d", ref d));
+    Assert.Equal(1.5, d);
+
+    bool b = false;
+    Assert.True(t.TryGetValue<bool>("b", ref b));
+    Assert.True(b);
+}
+
+[Test]
+void test_trygetvalue_miss_keeps_default() {
+    // ① 主用法：「键在就覆盖，不在就保留默认」。这条红了，上层就得退回带 if 的两行写法。
+    var t = TomlValue.Parse("other = 1");
+
+    string name = "fallback";
+    Assert.False(t.TryGetValue<string>("name", ref name));
+    Assert.Equal("fallback", name);
+
+    long port = 8080;
+    Assert.False(t.TryGetValue<long>("port", ref port));
+    Assert.Equal(8080L, port);
+}
+
+[Test]
+void test_trygetvalue_subtree() {
+    var t = TomlValue.Parse("[project]\nname = \"p\"");
+
+    TomlValue sub = null;
+    Assert.True(t.TryGetValue<TomlValue>("project", ref sub));
+    Assert.True(sub.IsTable());
+
+    string name = "";
+    Assert.True(sub.TryGetValue<string>("name", ref name));
+    Assert.Equal("p", name);
+}
+
+[Test]
+void test_trygetvalue_wrong_kind_throws() {
+    // ③ 命中但类型不符 —— 抛，不吞。与直接写 `t.Get("n").AsString()` 的行为一字不差。
+    var t = TomlValue.Parse("n = 42");
+    string s = "untouched";
+    bool threw = false;
+    try {
+        t.TryGetValue<string>("n", ref s);
+    } catch (TomlException e) {
+        threw = true;
+    }
+    Assert.True(threw);
+    Assert.Equal("untouched", s);
+}
+
+[Test]
+void test_trygetvalue_unsupported_type_throws() {
+    // 不支持的 T 是**调用方写错代码**，不是「键不在」⇒ 抛而不是返回 false，
+    // 否则这种错误会伪装成一次正常的「没配这项」，静默走默认值分支。
+    //
+    // 用 `int` 当样本是刻意的：TOML 整数是 i64 ⇒ 本 API 只认 `long`，而 `<int>` 正是最可能
+    // 写出来的手误。抛出的消息里点名了支持清单，这个错自我纠正；返回 false 的话，
+    // 调用方只会看到「这项没配」然后用默认值跑下去。
+    var t = TomlValue.Parse("n = 42");
+    bool threw = false;
+    try {
+        int small = 0;
+        t.TryGetValue<int>("n", ref small);
+    } catch (TomlException e) {
+        threw = true;
+    }
+    Assert.True(threw);
+}

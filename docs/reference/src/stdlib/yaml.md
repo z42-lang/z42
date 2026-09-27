@@ -99,7 +99,31 @@ public YamlValue Get(string key)           // 键不存在 → YamlException("ke
 public void      Set(string key, YamlValue v)
 public string[]  Keys()                    // 插入顺序快照
 public int       Count()                   // 映射键数；序列则为元素数；其余 kind 抛
+
+// 取即检查（取值与存在性测试合成一次）
+public bool      TryGet(string key, ref YamlValue value)
+public bool      TryGetValue<T>(string key, ref T value)
 ```
+
+#### 取即检查：`TryGet` / `TryGetValue<T>`
+
+与 [`Std.Toml.TomlValue`](toml.md) / [`Std.Json.JsonValue`](json.md) **同名同形**：
+
+```z42
+// 旧写法：键写两遍，查两遍
+if (m.ContainsKey("name")) { name = m.Get("name").AsString(); }
+
+// 取即检查：一行，键一遍
+m.TryGetValue<string>("name", ref name);
+```
+
+- **未命中返回 false 且不动 `value`**；**非映射返回 false 而不抛**（与 `ContainsKey` 一致）；
+  **命中但类型不符照抛** `YamlException`。
+
+`T` 取 `string` / `long` / `double` / `bool` / `DateTime` / `YamlValue`。
+
+> ⚠️ YAML 的访问器叫 `AsInt` / `AsFloat`，但 `TryGetValue<T>` 按 **z42 类型**选：
+> 整数写 `<long>`、浮点写 `<double>` —— 三个文档库的调用点写法完全一致，不必记各自的访问器名。
 
 ### DeepClone
 

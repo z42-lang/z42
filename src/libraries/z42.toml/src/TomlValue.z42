@@ -199,6 +199,62 @@ public class TomlValue {
         throw new TomlException("key not found: " + key);
     }
 
+    // ── 取即检查（取值与存在性测试合成一次）──────────────────────────
+    //
+    // 为什么要这一对：`ContainsKey(k)` + `Get(k)` 是**两次独立调用**，
+    // 「ContainsKey 为真 ⇒ Get 不抛」是调用方手里的不变式，**编译器原理上看不见**
+    // （同「`Assert.True(a != null)` 不是控制流窄化」那条）。代价三样：键字面量写两遍
+    // （改一处漏一处 ⇒ 编译零诊断、运行期才抛）、同一个表线性扫两遍、
+    // 以及「在不在」这件事没有任何编译期表示。
+    //
+    // 签名取 `bool TryX(ref T)` —— 与 `Int32.TryParse` 那套全仓统一（simplify-ref-parameters
+    // 之后值类型永不可空，可空返回这条路对 `long` / `bool` 走不通，见 E0476）。
+
+    // STAGE2-DEBT(tryget-callsites): 把 z42.project/ManifestLoader.z42 的 76 处
+    // `ContainsKey(k)` + `Get(k)` 迁到 `TryGet` / `TryGetValue<T>`（本轮已实现并验过，
+    // 因自举纪律回退）。⚠️ 不是「忘了迁」：`z42.project` 属于 `_ensureBootstrapSelfDepLibs`
+    // 的 6 个预建库，而预建它时用的是 **flat 里已有的 z42.toml**，冷启动下那是**种子**的
+    // （见 xtask_compiler.z42「z42.project 依赖 z42.core（已上预建）+ io/toml（flat 已有）」）
+    // ⇒ 本 API 进种子之前，ManifestLoader 用它会让 CI 的 [3/5] 编不过。**本机全绿测不到**
+    // ——本地 flat 里躺的已经是当前源 stdlib。等下一个 nightly 带上本 API 后迁移并清账。
+    /// 取即检查：命中则写入 `value` 并返回 true；未命中返回 false 且**不动** `value`。
+    ///
+    /// 本值不是 table 时返回 false 而**不抛** —— 与 `ContainsKey` 一致（它对非 table 也返回
+    /// false），于是 `if (t.ContainsKey(k)) { … t.Get(k) … }` 换成 `TryGet` 是逐字等价的重写。
+    public bool TryGet(string key, ref TomlValue value) {
+        if (this._kind != 5) { return false; }
+        int i = 0;
+        while (i < this._tableCount) {
+            if (this._tableKeys[i] == key) { value = this._tableValues[i]; return true; }
+            i = i + 1;
+        }
+        return false;
+    }
+
+    /// 取即检查 + 取标量：命中则按 `T` 取出值写入 `value` 并返回 true；
+    /// 未命中返回 false 且**不动** `value` —— 所以「有就覆盖默认值」能一行写完：
+    /// `t.TryGetValue<string>("name", ref name);`
+    ///
+    /// ⚠️ 命中但**类型不符照抛** `TomlException`，与 `AsString()` / `AsLong()` 一字不差。
+    /// 「键不在」与「值类型错」是两种失败：前者是调用方要处理的常态，后者是 TOML 文件写错了。
+    /// 把后者吞成 false 会让配置里的类型笔误**静默退回默认值** —— 那正是这套 API 要消灭的东西。
+    ///
+    /// 支持的 `T`：`string` / `long` / `double` / `bool` / `TomlValue`（原样取子树，
+    /// 等价于 `TryGet`，供泛型调用点写法统一）。其它 `T` 抛异常 —— 那是**调用方写错了代码**，
+    /// 不是数据的问题，返回 false 会把它伪装成「键不在」。
+    public bool TryGetValue<T>(string key, ref T value) {
+        TomlValue v = null;
+        if (!this.TryGet(key, ref v)) { return false; }
+        Type t = typeof(T);
+        if (t == typeof(string))    { object o = v.AsString(); value = (T)o; return true; }
+        if (t == typeof(long))      { object o = v.AsLong();   value = (T)o; return true; }
+        if (t == typeof(double))    { object o = v.AsDouble(); value = (T)o; return true; }
+        if (t == typeof(bool))      { object o = v.AsBool();   value = (T)o; return true; }
+        if (t == typeof(TomlValue)) { object o = v;            value = (T)o; return true; }
+        throw new TomlException("TryGetValue<" + t.FullName + "> is not supported — "
+            + "use string / long / double / bool / TomlValue");
+    }
+
     public void Set(string key, TomlValue v) {
         if (this._kind != 5) {
             throw new TomlException("Set on non-table value (" + this.KindName() + ")");

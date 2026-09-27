@@ -82,7 +82,30 @@ public JsonValue Get(string key)           // 键不存在 → JsonException
 public void      Set(string key, JsonValue v)
 public string[]  Keys()                    // 插入顺序快照
 public int       Count()                   // 对象键数；数组则为元素数；其余 kind 抛
+
+// 取即检查（取值与存在性测试合成一次）
+public bool      TryGet(string key, ref JsonValue value)
+public bool      TryGetValue<T>(string key, ref T value)
 ```
+
+#### 取即检查：`TryGet` / `TryGetValue<T>`
+
+与 [`Std.Toml.TomlValue`](toml.md) **同名同形**（`Std.Yaml.YamlValue` 亦然）：
+
+```z42
+// 旧写法：键写两遍，查两遍
+if (o.ContainsKey("name")) { name = o.Get("name").AsString(); }
+
+// 取即检查：一行，键一遍
+o.TryGetValue<string>("name", ref name);
+```
+
+- **未命中返回 false 且不动 `value`** ⇒「键在就覆盖、不在就保留默认」一行写完。
+- **收者不是对象时返回 false 而不抛** —— 与 `ContainsKey` 一致，老写法可逐字替换。
+- **命中但类型不符照抛** `JsonException`，与 `AsString()` / `AsLong()` 一字不差。
+
+`T` 取 `string` / `long` / `double` / `bool` / `JsonValue`（原样取子树）；其它类型抛异常。
+返回 `bool` 而非可空值，是因为**值类型永不可空**（E0476）—— 同 `Int32.TryParse` 的 `bool TryX(ref T)`。
 
 - **键顺序稳定**：`Keys()`、`Stringify` 与解析顺序一致；`Set` 覆盖已有键时**保持原位置**。
 - **重复键 last-wins**：`{"k":1,"k":2}` 解析成单键 `k = 2`，位置留在首次出现处
