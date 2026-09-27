@@ -58,6 +58,8 @@ pub(crate) fn resolve_layout(ctx: &VmContext, type_name: &str, size: u32) -> Arc
         size: size as usize,
         ref_offsets: Box::new([]),
         ref_kinds: Box::new([]),
+        // 兜底路径没有类型元数据 ⇒ 无字段表（symbolic-struct-field-access P0）。
+        fields: Box::new([]),
     })
 }
 
