@@ -2,7 +2,7 @@
 // 引入 change：optimization-pipeline（编译期 IR 优化，interp-first）。
 //
 // 设计（见 docs/internals/src/runtime/optimization-pipeline.md）：
-//   - pass 放 compiler 源码（非 stdlib z42.ir）；**读/写寄存器枚举走 z42.ir 的统一操作数接口**
+//   - pass 放 compiler 源码（非 stdlib z42.package）；**读/写寄存器枚举走 z42.package 的统一操作数接口**
 //     （unify-ir-operand-access：`IrInstr.DefReg / ReadCount / ReadAt / SetReadAt`、
 //     `IrTerminator.ReadReg / SetReadReg`）——每条指令自己回答操作数，本文件不再逐 opcode 镜像
 //     ZbcWriter 的枚举；新增指令实现接口即自动被 DCE / copy-prop / CSE 正确计入（漏枚举的

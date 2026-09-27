@@ -119,7 +119,7 @@ jobs:
       # skip-ab-across-format-gap：base 与 PR 的 zbc/zpkg **writer 格式常量**不同 ⇒ A/B 结构上不可测。
       #
       # 为什么不可测（不是「慢」或「偶发」，是必然）：下面「Build base toolchain」用 **PR 的 driver**
-      # 编 base 源码，并把 PR stdlib 塞进 BASEALL 让 base driver 跑得起来 —— 而格式常量住在 z42.ir 里，
+      # 编 base 源码，并把 PR stdlib 塞进 BASEALL 让 base driver 跑得起来 —— 而格式常量住在 z42.package 里，
       # 于是 base stdlib 被写成 **PR 的格式**；实测环节却用 BASEVM（base 源码建的旧格式 VM）去读它 ⇒
       # `zpkg minor <PR> not supported (writer is at <base>)`。与 ci-bootstrap 两代自举 gen2 踩的是
       # 同一个坑（encode-ctorless-objnew #629 / #631 实证）。此前这条门在**每一次**格式 bump 的 PR 上
@@ -135,8 +135,8 @@ jobs:
         run: |
           set -euo pipefail
           ver() { # <tree-root> → "zbcMajor.zbcMinor/zpkgMajor.zpkgMinor"
-            local zf="$1/src/libraries/z42.ir/src/BinaryFormat/ZbcFormat.z42"
-            local pf="$1/src/libraries/z42.ir/src/ZpkgWriter.z42"
+            local zf="$1/src/libraries/z42.package/src/BinaryFormat/ZbcFormat.z42"
+            local pf="$1/src/libraries/z42.package/src/ZpkgWriter.z42"
             local a b c d
             a=$(grep -oE 'public static int Major = [0-9]+' "$zf" | grep -oE '[0-9]+$' || true)
             b=$(grep -oE 'public static int Minor = [0-9]+' "$zf" | grep -oE '[0-9]+$' || true)

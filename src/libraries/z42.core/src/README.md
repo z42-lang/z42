@@ -21,7 +21,7 @@ z42 隐式 prelude 的源码。VM 启动时无条件加载；用户项目**不�
 | `Exceptions/` | `Exception` 基类 + 11 个标准子类（`AggregateException` / `MulticastException` / `ArgumentException` 等）|
 | `Collections/` | 基础泛型集合：`List<T>` / `Dictionary<K,V>` / `KeyValuePair<K,V>` |
 | `Convert.z42` | `Convert.ToInt32` / `ToDouble` / `ToString` 等转换辅助 |
-| `BitConverter.z42` | `Std.BitConverter`：IEEE-754 位重解释 `SingleToBits`/`SingleFromBits`/`DoubleToBits`/`DoubleFromBits`（`__*_to_bits`/`__*_from_bits` 唯一声明点；z42.io.binary / z42.ir 调它——consolidate-core-intrinsics A1）|
+| `BitConverter.z42` | `Std.BitConverter`：IEEE-754 位重解释 `SingleToBits`/`SingleFromBits`/`DoubleToBits`/`DoubleFromBits`（`__*_to_bits`/`__*_from_bits` 唯一声明点；z42.io.binary / z42.package 调它——consolidate-core-intrinsics A1）|
 | `Math.z42` | `Std.Math`（= `System.Math`）：libm 原语 `Pow`/`Sqrt`/`Floor`/`Ceiling`/`Round`/`Log`/`Log10`/`Sin`/`Cos`/`Tan`/`Atan2`/`Exp`（`__math_*` 唯一声明点）+ 派生 `Abs`/`Min`/`Max`/`Clamp`/`Sign` + 常量 `Pi`/`E`/`Tau`。move-math-to-core (A2)：整类自 z42.math 迁入，对齐 CoreLib |
 | `Assert.z42` | `Assert.Equal` / `True` / `Null` 等运行时断言 |
 | `GC/` | GC 控制 + 句柄类型（详见 `docs/internals/src/runtime/gc-handle.md`）<br>• `GC.z42` — `Std.GC.*` 静态类（Collect / UsedBytes / ForceCollect / GetStats）<br>• `GCHandle.z42` — `Std.GCHandle` struct + `GCHandleType` enum（C# 风格 weak/strong + 显式 Free，corelib HandleTable backing）<br>• `HeapStats.z42` — `Std.GC.GetStats()` 返回类型（7 long 字段）<br>• `WeakHandle.z42` — 轻量 weak ref primitive（`Delegates/SubscriptionRefs.z42` 内部用）|

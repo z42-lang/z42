@@ -4,7 +4,7 @@ using Std;
 // 一个普通的库：不含任何测试 attribute。
 //
 // 本注释**故意**以字面写出 [Test] 和 [Benchmark] —— 分流判据（_pkgSourcesHaveTests）跳过注释行，
-// 这里被算上的话本 fixture 会走回落、跑出零用例而判红。z42.ir / z42.project / z42c.syntax 就是
+// 这里被算上的话本 fixture 会走回落、跑出零用例而判红。z42.package / z42.project / z42c.syntax 就是
 // 这样在 `z42b bench` 下被误判红的（fix-bench-stage-zero-unit-kind）。
 public class Adder {
     public static int Add(int a, int b) { return a + b; }

@@ -18,7 +18,7 @@
 // ## 为什么是「常量 + 查询函数」而不是 `ParseRule` 对象
 //
 // `_parseExpr` 的主循环是全编译器最热的解析路径，每个 token 每轮都要查一次 ⇒ 返回对象就是
-// **每轮一次分配**。仓内先例是 `z42.ir/src/IrModule.z42` 的「哨兵常量 + 查询函数」；
+// **每轮一次分配**。仓内先例是 `z42.package/src/IrModule.z42` 的「哨兵常量 + 查询函数」；
 // `BinaryTypeTable.Lookup` 那种 `new BinaryRule(...)` 形态只适合「每个表达式一次」的语义层。
 // 代价 = 四条平行 if 链可能不同步（往 `LeftBp` 加了一行却忘了 `Led`）⇒ 由
 // `tests/parse_table.z42` 的同步门守（对全部 token kind 逐个核 `LeftBp != 0 ⇔ Led != None`）。

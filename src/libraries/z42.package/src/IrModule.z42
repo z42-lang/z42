@@ -17,7 +17,7 @@ public sealed class IrAttrRef {
 
 // add-deprecated-directive（PR5，零格式-bump）：`[Deprecated]` 经既有 attr-ref 块持久化的哨兵（TypeName=Sentinel、
 // FactoryFunc=消息）。生产方 ClassDescBuilder._attrRefs 追加、消费方 TsigReconcile/反射按 TypeName 识别并剥离。
-// 常量放 z42.ir（叶子库）供 z42c.semantics（生产）与 z42.ir/TsigReconcile（消费）共用；`$` 前缀不撞 D8 `*Attribute`。
+// 常量放 z42.package（叶子库）供 z42c.semantics（生产）与 z42.package/TsigReconcile（消费）共用；`$` 前缀不撞 D8 `*Attribute`。
 public static class IrDeprecation {
     public static string Sentinel = "$Deprecated";
     // attrs 中是否含弃用哨兵。
@@ -64,7 +64,7 @@ public static class IrStaticCtor {
 
 // 参数默认值统一常量表示（PR6，零格式-bump）：`$Default`（ConstBlob）/ `$Caller:*` 哨兵经 param attr-ref
 // 块持久化。生产方 ClassDescBuilder._paramAttrRefs 追加、消费方 TsigReconcile._params / OverloadBinder / 反射
-// 按 TypeName 识别。常量放 z42.ir（叶子库）供 z42c.semantics（生产）与 z42.ir/TsigReconcile（消费）共用。
+// 按 TypeName 识别。常量放 z42.package（叶子库）供 z42c.semantics（生产）与 z42.package/TsigReconcile（消费）共用。
 // define-null-check-marks 3.3：**返回值**的 `?` 标记。返回值没有形参槽，故挂**方法级** attr-ref
 // 块（与 `$Deprecated` / `$Cctor` 同机制、同零格式 bump）。生产方 ClassDescBuilder、消费方 TsigReconcile。
 // 同 `$Nullable`：缺席 = 不强制 ⇒ 旧包天然正确，不需要完备性标记。

@@ -25,7 +25,7 @@ z42 标准库的 `.z42` 源文件。每个库是独立的 z42 包，通过 `z42 
 | `z42.scripting/` | `z42.scripting` | REPL/脚本的**跨平台编译+执行内核**（`Std.Scripting`：编译一段源 → 内存加载 → 反射求值 + 补全 + 完整性判定）；playground/wasm 与 `z42.repl`(tty) 共享。编译期 stdlib-only（经 `z42.build` `IReplCompiler` 门面 + 运行期注入 `z42c.pipeline`，见 organization.md 特例注） |
 
 > **两类库（别混淆）**：`src/libraries/` 同时住着**用户 stdlib**（`Std.*` 命名空间，面向应用开发者）与
-> **工具链库**（`Z42.*`：`z42.ir` / `z42.project` / `z42.build`——编译器内部件下沉为共享库，供 z42c / REPL /
+> **工具链库**（`Z42.*`：`z42.package` / `z42.project` / `z42.build`——编译器内部件下沉为共享库，供 z42c / REPL /
 > z42b 复用）。下方实现规范与 [organization.md](../../docs/internals/src/stdlib/organization.md) 的划分规则**只约束
 > `Std.*` 用户库**；`Z42.*` 是编译器内部实现、不是用户 API。详见 organization.md「用户 stdlib vs 工具链库」。
 

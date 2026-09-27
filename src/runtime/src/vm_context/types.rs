@@ -374,7 +374,7 @@ pub struct VmContext {
     /// **optimize-subclass-check**: memoizes `is_subclass_or_eq_td(derived, target) → bool`
     /// (interp `is`/`as`/`catch`/vcall dispatch). Without it, every `x is T` check walks the
     /// derived type's whole base+interface chain and — because the module's `type_registry`
-    /// rarely holds cross-zpkg types (e.g. `z42.ir`'s `IrInstr` subclasses while z42c
+    /// rarely holds cross-zpkg types (e.g. `z42.package`'s `IrInstr` subclasses while z42c
     /// serializes) — falls through to `try_lookup_type` (the `lazy_loader` lock) per level.
     /// z42c's zpkg serialization dispatches each instruction through a ~60-way `is`-chain,
     /// making this the top interp hotspot (profiled). The relationship is a global,

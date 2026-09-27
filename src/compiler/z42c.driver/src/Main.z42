@@ -203,7 +203,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
     } else {
         // ── 编译期依赖解析面 vs driver 自身运行期加载面（2026-09-27）───────────────────────
         //
-        // `Z42_LIBS` 被**两件事**共用：① VM 给 driver 自己加载 `z42.ir` / `z42.project` 这些
+        // `Z42_LIBS` 被**两件事**共用：① VM 给 driver 自己加载 `z42.package` / `z42.project` 这些
         // 运行期自依赖；② driver 编译当前工程时解析它的 `[dependencies]`。平时一致，所以没人
         // 察觉；但**自举期这两件事要的是不同版本**：
         //   · driver 是上一代二进制，运行期要的是**它自己那代**的库；

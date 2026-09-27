@@ -1,7 +1,7 @@
 # z42c.pipeline
 
 ## 职责
-编译管线编排（单文件 + 包级 Lexer→Parser→Sem→IR→Emit）+ 依赖扫描 + workspace 构建 + 文件级增量。后端三包的编排层，向下调 `z42c.semantics` 编译、`z42.ir` 产 zpkg。
+编译管线编排（单文件 + 包级 Lexer→Parser→Sem→IR→Emit）+ 依赖扫描 + workspace 构建 + 文件级增量。后端三包的编排层，向下调 `z42c.semantics` 编译、`z42.package` 产 zpkg。
 
 ## 核心文件
 | 文件 | 职责 |
@@ -25,4 +25,4 @@
 `Z42.Pipeline`（命名空间）。
 
 ## 依赖关系
-→ z42c.core, z42c.syntax, z42c.semantics, z42.ir, z42.project, z42.build（ICompiler 接口）。stdlib 自动可用。
+→ z42c.core, z42c.syntax, z42c.semantics, z42.package, z42.project, z42.build（ICompiler 接口）。stdlib 自动可用。

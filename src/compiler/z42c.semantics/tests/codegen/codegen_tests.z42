@@ -901,7 +901,7 @@ void test_generic_nonsealed_stays_vcall() {
 // `ImportedClassNs` **有意含本包跨-ns 自有类**（G17b：好让 `A.Sub` 里能把 `A` 的类限定成
 // `A.X`）。但 `UsedDepNs` 驱动的是 DEPS 与 `add-file-scoped-usings` 的 E0436，语义是**跨包**。
 // 把本包另一个 ns 记进去 ⇒ 同一个包里跨 ns 引用被要求写 `using` ⇒ **单包构建多命名空间的库
-// 直接编不过**（实测 z42.ir：`Z42.IR.BinaryFormat` 引用 `Z42.IR` 的 StrMap/TypedReg → E0436）。
+// 直接编不过**（实测 z42.package：`Z42.IR.BinaryFormat` 引用 `Z42.IR` 的 StrMap/TypedReg → E0436）。
 //
 // 只在「多命名空间的包」+「该包自己的 zpkg 躺在扁平 Z42_LIBS 里」两条同时成立时触发，
 // 所以长期隐形（`xtask build stdlib` 走 --workspace，那时 libs 里还没有自己）。

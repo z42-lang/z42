@@ -29,10 +29,10 @@ argument-hint: <instruction-name>
 > 下面的路径是 2026-09 复核过的。旧版本本文件曾指向 `src/runtime/src/bytecode.rs` /
 > `interp.rs` —— 那些路径**早已被重构掉**，且完全没提 version bump，照着做会严重低估成本。
 
-### 编译器侧（z42.ir + z42c.semantics）
+### 编译器侧（z42.package + z42c.semantics）
 
-1. `src/libraries/z42.ir/src/IrInstr*.z42` — 新 `sealed class XxxInstr : IrInstr`
-2. `src/libraries/z42.ir/src/BinaryFormat/ZbcFormat.z42`（`static class Op`）— 新 opcode 常量
+1. `src/libraries/z42.package/src/IrInstr*.z42` — 新 `sealed class XxxInstr : IrInstr`
+2. `src/libraries/z42.package/src/BinaryFormat/ZbcFormat.z42`（`static class Op`）— 新 opcode 常量
 3. `.../ZbcInstr.z42` — 编码分支（带字符串则同时补 `InternInstrStrings`）
 4. `.../ZbcReaderInstr.z42` — 解码分支 + 寄存器上界/重映射
 5. `src/compiler/z42c.semantics/src/IrOptInfo.z42` — **4 处**：Dst / args 计数 / args 替换 / Dst 改写
@@ -63,7 +63,7 @@ argument-hint: <instruction-name>
 
 ### 文档
 
-20. IR 参考页（⏳ 搬迁中：`docs/internals/src/formats/ir.md` → `docs/internals/src/formats/ir.md`，批 2）、`src/libraries/z42.ir/README.md`、`src/runtime/src/interp/README.md`
+20. IR 参考页（⏳ 搬迁中：`docs/internals/src/formats/ir.md` → `docs/internals/src/formats/ir.md`，批 2）、`src/libraries/z42.package/README.md`、`src/runtime/src/interp/README.md`
 
 ## 自举纪律
 

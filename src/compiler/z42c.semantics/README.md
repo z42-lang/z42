@@ -52,7 +52,7 @@
 | `src/CuCompile.z42` | **单 CU / partial 编译内核**（irdump-pipeline-split 从 IrDump 分出）：per-file typecheck+codegen（`_compileCu`）+ partial 碎片合并（`_buildMergedPartial`/`_mergeFragments`，主碎片发合并 TYPE record）。全私有 `internal`，仅 IrDump 门面同包内调用 |
 | `src/CuPreprocess.z42` | **CU 预处理 + 命名空间遮蔽/作用域解析辅助**（irdump-pipeline-split 从 IrDump 分出，叶子层不调兄弟簇）：global using 注入（`_injectGlobalUsings`）、file-scoped using 强制（`_enforceFileScope`→E0436）、活跃 ns 集（`_activeNamespaces`，static call using-scoped 消歧）、local-wins 遮蔽剔除（`_filterShadowed`/`_filterShadowedFuncs`）、包内类名/ns 图（`_pkgLocalClasses`/`_pkgClassNs`）、文件 stem（`_stem`） |
 | `src/CompiledModuleZ.z42` | 带依赖编译的产物束（CI-4）：`Module`/`Exported`/诊断/`Namespace`/`Usings`/`UsedDepNs`/`ErrorCount`。irdump-pipeline-split 从 IrDump 抽出为独立数据文件（同包 FQN 不变，跨包消费透明） |
-| `src/IrOptInfo.z42` | **IR 优化基石**：逐 opcode 的写寄存器 `DstId`/`AddDef` / 读寄存器 `AddReads`+`AddTermReads`（经 z42.ir 统一操作数接口 `DefReg`/`ReadAt`/`ReadReg` 枚举，unify-ir-operand-access）/ **读操作数重写 `ReplaceReads`+`ReplaceTermReads`**（按 remap 改写读操作数，供 use-site copy-prop / CSE 复用）/ **CSE value-number `CseKey`+`DstReg`**（纯计算 op 的 `op|操作数ids` key + dst 提取）/ 可删性 `IsPure`（白名单，未知 opcode 保留）/ retarget `SetDst`（copy-prop）/ `TryConstFold`（const-fold 规则表，可扩展）。optimization-pipeline |
+| `src/IrOptInfo.z42` | **IR 优化基石**：逐 opcode 的写寄存器 `DstId`/`AddDef` / 读寄存器 `AddReads`+`AddTermReads`（经 z42.package 统一操作数接口 `DefReg`/`ReadAt`/`ReadReg` 枚举，unify-ir-operand-access）/ **读操作数重写 `ReplaceReads`+`ReplaceTermReads`**（按 remap 改写读操作数，供 use-site copy-prop / CSE 复用）/ **CSE value-number `CseKey`+`DstReg`**（纯计算 op 的 `op|操作数ids` key + dst 提取）/ 可删性 `IsPure`（白名单，未知 opcode 保留）/ retarget `SetDst`（copy-prop）/ `TryConstFold`（const-fold 规则表，可扩展）。optimization-pipeline |
 | `src/OptSet.z42` | **可独立开关的具名优化位集**（`Opt` static class；add-compiler-inlining）：`ConstFold=1/CopyProp=2/Dce=4/Inline=8/Cse=16/Licm=32/StackAlloc=64/LoopAllocReuse=128/ReadonlyLoad=256/PureCall=512/DeadBranch=1024/All=2047` + `Has`/`ByName`/`ProfileDefault(isRelease)`（debug=None/-O0、release=All）/`Resolve`（CLI>toml>profile）|
 | `src/ConstValue.z42` | **编译期常量值**（add-const-keyword）：`ConstValue{Kind, IntVal, StrVal}`，Kind 区分 `Int/Bool/Char/Float(bits)/Str/Null`——供 codegen 把 const 引用替换成对应字面量指令时选对指令 |
 | `src/ConstEval.z42` | **常量表达式求值器**（add-const-keyword）：AST `Expr` + 已定义 const 环境(`StrMap`) → `ConstValue`（非常量返回 null，调用方报诊断）。覆盖字面量 + 一元/二元 算术·比较·逻辑·位·串接 + 已定义 const 引用（镜像 `IrGenFacts._foldBinary` 语义） |
@@ -71,7 +71,7 @@
 `new TypeChecker(diags).Infer(cu, symbols)` → `SemanticModel`（先 `new SymbolCollector().Collect(cu)` 出 `SymbolTable`）。便捷封装见 `SemanticDump.DumpBody(src, key)` / `ErrorCount(src)`。
 
 ## 依赖关系
-→ z42c.core（Diagnostic/Span/DiagnosticCodes）, z42c.syntax（AST：Expr/Stmt/Decl + TypeExpr）, z42.ir（IR 模型 + zbc/zpkg 后端，codegen 消费）。stdlib 自动可用。
+→ z42c.core（Diagnostic/Span/DiagnosticCodes）, z42c.syntax（AST：Expr/Stmt/Decl + TypeExpr）, z42.package（IR 模型 + zbc/zpkg 后端，codegen 消费）。stdlib 自动可用。
 
 ## 增量进度
 1A 最小类型检查 ✅ / 1B 运算+控制流 ✅ / 1C 调用+receiver+继承 ✅ / 1D is·as·new·数组 ✅ / 1E 三目·?? ✅ / 2A 泛型类·方法·实例化 ✅ / **2B where 约束求解（可行子集：base-class/class/struct/型参引用+互斥；interface·enum·new()·func 延后）✅** / codegen（Bound→IR）+ IR 优化管线 ✅（见核心文件表 `ExprEmitter` / `IrGen` / `IrOptPipeline` 等）。
