@@ -28,7 +28,7 @@ string[] _pool() {
 // 类级实现 1 个接口 `IBar`。`bundle` 已写好 flags/载荷，整段追加在型参名之后。
 //
 // 布局（ReadTypeAt）：n u32 → [name u32, base u32, fieldCount u16, tpCount u8,
-//   (tpName u32 + bundle)×tpc, attrCount u16, Flags u8, Visibility u8,
+//   (tpName u32 + bundle)×tpc, attrCount u16, Flags u8, Visibility u8, class_flags2 u16,
 //   staticFieldCount u16, ifaceCount u16 + u32×n, <Flags-gated 块…>, 对象布局块, assoc 块]
 //
 // Flags=0（普通引用类）→ enum(bit5)/接口方法(bit4)/struct(bit2)/内联(bit7) 四个 gated 块都不出现，
@@ -50,6 +50,9 @@ byte[] _typeSection(ByteWriter bundle) {
     w.WriteU16(0);            // class attr count
     w.WriteU8(0);             // Flags（gated 块全关）
     w.WriteU8(0);             // Visibility
+    w.WriteU16(0);            // class_flags2（zbc 1.45，always-present u16，紧随 Visibility）
+                              // ⚠️ 漏它 → 读端多吃 2 字节 → `array index N out of bounds (len=N)`
+                              //（CI 实测就是这个症状，5 条用例全中）
     w.WriteU16(0);            // static field count
     w.WriteU16(1);            // 类级接口数
     w.WriteU32(4);            // → "IBar"
