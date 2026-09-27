@@ -29,7 +29,7 @@ paths:
 z42c 由 **5** 个子包组成（按依赖序），分处两地——改动前先读对应子包的 `README.md`：
 **`z42c.core` / `z42c.syntax` 在 `src/libraries/`**（它们同时被 REPL 等消费方用到），
 `z42c.semantics` / `z42c.pipeline` / `z42c.driver` 在 `src/compiler/`。
-IR 模型 + zbc/zpkg 格式 + 依赖索引已下沉 stdlib 库 **`z42.package`**（namespace `Z42.IR` / `Z42.Project`
+IR 模型 + zbc/zpkg 格式 + 依赖索引已下沉 stdlib 库 **`z42.package`**（namespace `Z42.IR` / `Z42.Package`
 不变；converge-z42c-ir-metadata-onto-stdlib，为 REPL 共享）——改 IR/格式/zpkg 后端去 `src/libraries/z42.package`。
 
 | 子包 | 职责 | 关键文件 |

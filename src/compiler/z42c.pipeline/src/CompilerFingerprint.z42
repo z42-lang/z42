@@ -20,10 +20,10 @@
 // 实测那会让**每次注释编辑**都全量失效：空跑 12.0s / 改一行注释 18.0s / 指纹变一次 **26.8s**
 // （`cached: 0/123`）⇒ 内循环 +50%，还连带 stdlib 全量。本方案只在**人记录了一条语义变更**时
 // 才变，零额外失效。代价：仍需人判断「这次要不要记」——与计数器时代相同，由 CI 守门兜底。
-namespace Z42.Project;
+namespace Z42.Package;
 
 using Std;
-// `ZpkgBuilder.SourceHashHex` 就在本命名空间（`Z42.Project`，见 z42.package/src/ZpkgBuilder.z42）——
+// `ZpkgBuilder.SourceHashHex` 就在本命名空间（`Z42.Package`，见 z42.package/src/ZpkgBuilder.z42）——
 // 不需要额外 using。⚠️ 别写 `using Z42.IR.BinaryFormat`：那是 zbc 二进制格式的命名空间，
 // 与 ZpkgBuilder 不同（#896 把包名 z42.ir 改成 z42.package，命名空间没跟着改，容易看混）。
 

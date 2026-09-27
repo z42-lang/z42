@@ -68,6 +68,109 @@ void _ensureDriverSelfContained(string root, string profile, string[] members) {
 
 // 覆盖复制（存在即删后拷）；src 不存在则跳过（冷启动首刷时 libraries dist 可能尚未产出前端库，
 // 由 _ensureBootstrapSelfDepLibs 建好后的重试刷再命中）。
+// 种子 driver 的运行期 libs = **它自己 dist 里那份 colocated 闭包**（搬到 run-libs），
+// 不是 flat 的快照。同时把成员 dist 清成「只有成员」——一举解决两件事：
+//
+// ① 运行期（代际锚）：`Z42_LIBS` 要给种子 driver **它编译时那一代**的库。此前从 flat 快照，
+//    而 flat 正是本轮要被 `_ensureBootstrapSelfDepLibs` 覆盖成当前源的目录 —— 上一轮跑到一半、
+//    或快照晚于预建，快照拿到的就是新代，种子 driver 随即
+//    `MissingSymbolException: Z42.Build.Project.ManifestLoader.LoadWorkspace`（B3 实测）。
+//    **flat 是会变的，不能当「代」的锚**。driver 的 dist 里躺的闭包（`z42c build` 对 exe 的
+//    colocate + `_ensureDriverSelfContained`）与 driver 同代是**构造保证**的 —— 换它当锚。
+//
+// ② 编译期（遮蔽）：z42c 的 workspace 解析面是 `libsDirs = 全成员 dist + 外部档`
+//    （WorkspaceBuild.z42），纯 basename 命中、**成员 dist 排在前**。成员 dist 同时是运行期
+//    载荷目录，于是上一代 colocate 的外部包副本会盖住 flat 里刚建好的当前源新版：
+//      z42c.driver/release/dist/z42.package.zpkg（种子代，声明 `Z42.Project`）
+//      遮蔽 flat 的 z42.package.zpkg（当前源，声明 `Z42.Package`）
+//      ⇒ z42c.semantics 报 `E0494: 命名空间 Z42.Package 不存在`，而 flat 里明明有。
+//    ⚠️ 两份还**同尺寸**（`Z42.Project` / `Z42.Package` 都 12 字符）——只核对文件大小会被骗
+//       过去；判别要看 zsym 的 STRS 段，且命名空间按**段**存（`\x03Z42\x07Package`），
+//       整串 `Z42.Package` 在二进制里 grep 不到。
+//    根因（解析分档按 basename 混档）该修在 z42c 侧，但那个修法自己也受种子纪律约束
+//    （跑 workspace 构建的是**种子** driver ⇒ 要跨一个 nightly 才生效），故编排侧先解。
+//
+// 搬空后由调用方 `_ensureDriverSelfContained` 把成员 + fresh 前端补回 driver bundle
+// （前端与 flat 同代 ⇒ 不构成遮蔽）。返回搬了几个；0 = 这个 driver 没带 bundle
+// （冷启动刚从 SDK staged）⇒ 回落 SDK libs（`_ensureSeed` 正是从那儿取的种子，同代）。
+int _relocateSeedRunLibs(string root, string profile, string[] members, string dst) {
+    _resetDir(dst);
+    int moved = 0;
+    int mi = 0;
+    while (mi < members.Length) {
+        string dist = _compilerMemberDist(root, members[mi], profile);
+        mi = mi + 1;
+        if (!Directory.Exists(dist)) { continue; }
+        string[] hits = Path.Glob(dist, "*.zpkg");
+        int hi = 0;
+        while (hi < hits.Length) {
+            string name = Path.GetFileNameWithoutExtension(hits[hi]);
+            hi = hi + 1;
+            if (_isCompilerMember(members, name)) { continue; }   // 成员产物归成员 dist，不碰
+            _moveZpkgPair(dist, dst, name);
+            moved = moved + 1;
+        }
+    }
+    return moved;
+}
+
+// <name>.zpkg + 同名 .zsym 从 srcDir 搬到 dstDir（先拷后删；dst 已存在则覆盖）。
+void _moveZpkgPair(string srcDir, string dstDir, string name) {
+    string[] exts = new string[2];
+    exts[0] = ".zpkg"; exts[1] = ".zsym";
+    int i = 0;
+    while (i < exts.Length) {
+        string src = Path.Join(srcDir, name + exts[i]);
+        string dst = Path.Join(dstDir, name + exts[i]);
+        i = i + 1;
+        if (!File.Exists(src)) { continue; }
+        if (File.Exists(dst)) { File.Delete(dst); }
+        File.Copy(src, dst);
+        File.Delete(src);
+    }
+}
+
+bool _isCompilerMember(string[] members, string name) {
+    int i = 0;
+    while (i < members.Length) { if (members[i] == name) { return true; } i = i + 1; }
+    return false;
+}
+
+// 用**种子那一代的 libs**（`_seedLibsSource`：启动时的 `Z42_LIBS` 优先、其次 SDK）补齐缺口。
+// bundle 是**主**来源（与 driver 同代是构造保证的），但它可能**不完整**：冷启动刚从 SDK
+// staged 的 driver 根本没 bundle；被清理过的树只剩零星几个（B3 实测：我自己先按「化石」删掉
+// 23 个，剩 2 个 ⇒ 种子 driver 连 `Std.IO.Environment` 都找不到）。所以判据不是「搬到了吗」
+// 而是「**齐了吗**」—— 缺的从 `_seedLibsSource` 补。**不是无条件的 SDK**：格式 bump 在飞时
+// SDK 还是上一代格式、会被 strict-pin 拒收（见 `_seedLibsSource` 头注）。
+int _topUpSeedRunLibs(string root, string dst, string[] members) {
+    string sdkLibs = _seedLibsSource(root);
+    if (sdkLibs.Length == 0) { return 0; }
+    // 把**来源目录**打进日志：这条链在 CI 上红过两次，而两次都因为「到底从哪儿补的」只能靠推断。
+    // 名字打出来，下次看一眼日志就能判是走了 `Z42_LIBS` 还是回落了 SDK。
+    _vNormal("  run-libs 缺口来源: " + sdkLibs);
+    string[] hits = Path.Glob(sdkLibs, "*.zpkg");
+    int filled = 0;
+    int i = 0;
+    while (i < hits.Length) {
+        string name = Path.GetFileNameWithoutExtension(hits[i]);
+        i = i + 1;
+        if (_isCompilerMember(members, name)) { continue; }
+        if (File.Exists(Path.Join(dst, name + ".zpkg"))) { continue; }   // bundle 已提供 = 更可信
+        _copyIfNewer(Path.Join(sdkLibs, name + ".zpkg"), Path.Join(dst, name + ".zpkg"));
+        _copyIfNewer(Path.Join(sdkLibs, name + ".zsym"), Path.Join(dst, name + ".zsym"));
+        filled = filled + 1;
+    }
+    return filled;
+}
+
+// 既无 bundle 也无 SDK 的末路回落：flat。改命名空间/删符号类变更在这种树上救不了，明说而不是
+// 静默走错代（静默的代价见 `_relocateSeedRunLibs` 头注列的两种撞法）。
+void _seedRunLibsFallbackFlat(string root, string profile, string dst, string stdlibFlat) {
+    _copyAll(stdlibFlat, dst, "*.zpkg");
+    _copyAll(stdlibFlat, dst, "*.zsym");
+    _vNormal("  ⚠ seed run-libs ← flat（既无 bundle 也无 SDK libs）——改命名空间/删符号类变更在这种树上救不了");
+}
+
 void _copyIfNewer(string src, string dst) {
     if (File.Exists(src) && src != dst) {
         if (File.Exists(dst)) { File.Delete(dst); }
@@ -100,13 +203,25 @@ int _buildCompilerViaZ42c(string root, string profile, string[] members, string 
     string seedRun = stdlibFlat;
     string compileLibs = "";
     if (splitLibs) {
-        _snapshotSeedRunLibs(root, profile);
+        // 代际锚 = driver 自己 dist 里的 colocated 闭包（搬进 run-libs），**不是** flat 的快照。
+        // 理由与 flat 为何当不了锚见 `_relocateSeedRunLibs` 头注。
         seedRun = _seedRunLibs(root, profile);
+        int movedLibs = _relocateSeedRunLibs(root, profile, members, seedRun);
+        int filledLibs = _topUpSeedRunLibs(root, seedRun, members);
+        if (movedLibs + filledLibs > 0) {
+            _vNormal("  seed run-libs ← driver bundle " + movedLibs.ToString()
+                     + " + SDK 补齐 " + filledLibs.ToString() + "（外部包搬出成员 dist）");
+        } else {
+            _seedRunLibsFallbackFlat(root, profile, seedRun, stdlibFlat);
+        }
         compileLibs = stdlibFlat;
     } else {
         _vNormal("  seed driver 不认 --compile-libs（早于该旗标）→ 运行期/编译期共用 flat（旧行为）");
     }
     _ensureBootstrapSelfDepLibs(root, vm, driver, stdlibFlat, seedRun);  // 冷启动破 z42c⇄z42.package 环（须在 workspace build 前）
+    // 预建刚把当前源的库写进 flat ⇒ 此刻把成员 + **fresh** 前端补回 driver bundle
+    // （与 flat 同代 ⇒ 不遮蔽；外部包已搬进 run-libs，不再回到成员 dist）。
+    if (splitLibs) { _ensureDriverSelfContained(root, profile, members); }
     string compilerDir = Path.Join(root, "src/compiler");
     int rc = _z42cWorkspaceBuild(vm, driver, compilerDir, seedRun, false, compileLibs);
     // 跨成员符号新增（如 z42c.syntax 新增类型/字段被 z42c.semantics 消费）冷启动收敛（破 z42c⇄z42c 内部环）：

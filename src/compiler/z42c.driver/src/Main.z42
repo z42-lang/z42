@@ -16,7 +16,7 @@ using Z42.Core;      // LanguageFeatures —— [syntax] 解出的语法特性�
 using Std.IO;
 using Z42.Syntax;
 using Z42.Semantics;
-using Z42.Project;
+using Z42.Package;
 using Z42.IR;
 using Z42.Build.Project;
 using Z42.Pipeline;

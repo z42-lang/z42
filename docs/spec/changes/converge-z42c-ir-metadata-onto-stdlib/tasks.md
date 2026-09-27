@@ -8,7 +8,7 @@
 
 ## 阶段 B：z42c 切 z42.package + 删旧包 + 迁 CacheStore（原子 f1cbcf9d）✅
 - [x] B1 z42c.{semantics,pipeline,driver} deps → z42.package
-- [x] B2 CacheStore 迁 z42c.pipeline（namespace Z42.Project 不变）
+- [x] B2 CacheStore 迁 z42c.pipeline（namespace Z42.Package 不变）
 - [x] B3 删 z42c.ir + z42c.project + compiler workspace 两 member（现 5 member）
 - [x] B4 验证：self-host **5/5** byte-identical（z42c）+ z42.package 稳定；test compiler **23 单元 336 tests** 全绿（含重定位 depindex/zpkg→z42.package、zbcreader→z42c.semantics、新 smoke）
 

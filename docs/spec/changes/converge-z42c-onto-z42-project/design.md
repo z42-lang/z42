@@ -5,7 +5,7 @@
 ```
 BEFORE                                    AFTER
 ─────────────────────────────            ─────────────────────────────────────
-z42c.project (Z42.Project)               z42c.zpkg (Z42.Project.Zpkg*)
+z42c.project (Z42.Package)               z42c.zpkg (Z42.Package.Zpkg*)
   ├ ProjectModel/ManifestLoader/           └ ZpkgWriter/Indexed/Reader/Builder
   │ SourceDiscovery/PathTemplate  ──删──┐    PackageTypes/CacheStore  （编译器后端，保留+改名）
   └ Zpkg*/PackageTypes/CacheStore        │
@@ -56,7 +56,7 @@ Error: type mismatch in comparison: I64(0) vs Null
   at Z42.Build.Project.SourceDiscovery.Discover     ← 解析到了 z42.project 的实现
   at Z42.Driver._build (line 97)
 ```
-z42c.driver 本应调**自己依赖的 `Z42.Project.SourceDiscovery`**，但 flat-libs **跨 zpkg 按文件名 first-wins、无视声明依赖**，绑到了新 member `Z42.Build.Project.SourceDiscovery`（两者 Discover 行为不同 → 崩）。更严重：自举**自建**阶段会把这种错绑**烤进 z42c.pipeline.zpkg**（`ManifestLoader.LoadWorkspace` 绑到 z42.project），产出**污染的编译器产物**。**坐实 workspace 注释（权威），推翻勘察 agent 的「Phase 1 安全」判断。**
+z42c.driver 本应调**自己依赖的 `Z42.Package.SourceDiscovery`**，但 flat-libs **跨 zpkg 按文件名 first-wins、无视声明依赖**，绑到了新 member `Z42.Build.Project.SourceDiscovery`（两者 Discover 行为不同 → 崩）。更严重：自举**自建**阶段会把这种错绑**烤进 z42c.pipeline.zpkg**（`ManifestLoader.LoadWorkspace` 绑到 z42.project），产出**污染的编译器产物**。**坐实 workspace 注释（权威），推翻勘察 agent 的「Phase 1 安全」判断。**
 
 **据此定分阶段——「先发 z42.project」的 2-nightly 路径作废**（那个 nightly 里两 zpkg 共存即炸 → 坏种子）。剩两条候选，且**都还卡在 ci-bootstrap 种子轴**（converge 的 ci-bootstrap 用**上一版 nightly 的种子 stdlib** 编当前 z42c 源；当前源用 z42.project → 种子必须已含 z42.project.zpkg → 上一版 nightly 必须已发布 z42.project；但上一版发布 z42.project 又会共存即炸）——形成真死结，唯一破法是**消除文件名碰撞**：
 

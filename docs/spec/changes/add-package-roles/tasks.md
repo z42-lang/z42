@@ -25,7 +25,7 @@
       为拼 `"zbc M.m, zpkg M.m"` 一句话（`ZbcVersion` + `ZpkgWriterZ` 两个编译期常量）。
 - [x] 0.2 查证 `Script.FormatVersion()` 的调用点 → **唯一**：
       [interactive_main.z42:76](../../../../src/toolchain/interactive/core/interactive_main.z42#L76) 的 `.version` 元指令。
-- [x] 0.3 `Script.z42`：删 `FormatVersion()` + `using Z42.Project` + `using Z42.IR.BinaryFormat`。
+- [x] 0.3 `Script.z42`：删 `FormatVersion()` + `using Z42.Package` + `using Z42.IR.BinaryFormat`。
 - [x] 0.4 `z42.scripting.z42.toml`：删 `"z42.package"` 依赖 + 头注记由来与终局。
 - [x] 0.5 z42i：新增 `_formatVersion()`（含终局注：该由 VM 自报）+ 两条 using + 清单加 `z42.package`。
 - [x] 0.6 GREEN：`build stdlib` 25/25 绿（scripting 断依赖后照常编过 = 假依赖坐实）；

@@ -1,7 +1,7 @@
 // packed `.zpkg` 读取器子集（port-z42c-import CI-1）。镜像 C# ZpkgReader 的消费侧所需面：
 // META（名/版本/entry/kind）/ NSPC / SIGS（签名条目 → IrFunction stub）/ TSIG（→ ExportedModuleZ）。
 // **不解码 FUNC 体**（DependencyIndex 只需签名——C# survey 实证）；indexed 模式/DBUG/REGT 不读。
-namespace Z42.Project;
+namespace Z42.Package;
 
 using Std;
 using Std.IO;

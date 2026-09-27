@@ -7,7 +7,7 @@ using Std;
 using Std.IO;
 using Z42.IR;
 using Z42.IR.BinaryFormat;
-using Z42.Project;
+using Z42.Package;
 
 public static class ZpkgPathSort {
     // 多目录合并 + prelude-first（"0_"+name）+ Ordinal 排序（按 basename）。

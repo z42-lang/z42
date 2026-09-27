@@ -27,9 +27,9 @@
 // 其余串值 hex(UTF-8) 编码免转义。
 // cache 可整目录删除（`z42b clean` 语义不变）；缺 meta/损坏 = 该文件按 fresh 处理。
 // 包级 `package.meta`：上次构建源清单（增删文件 → 全量，spec 场景）。
-namespace Z42.Project;
+namespace Z42.Package;
 
-using Z42.Project;
+using Z42.Package;
 
 using Std;
 using Std.IO;

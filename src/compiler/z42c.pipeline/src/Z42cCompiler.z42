@@ -11,7 +11,7 @@ using Std;
 using Std.IO;
 using Z42.Syntax;
 using Z42.Semantics;
-using Z42.Project;
+using Z42.Package;
 using Z42.Build;
 using Z42.Build.Project;
 

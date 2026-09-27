@@ -9,7 +9,7 @@
 
 z42 的「项目清单模型」现在**存在两份**：
 
-- `src/compiler/z42c.project`（namespace `Z42.Project`）——编译器自用。
+- `src/compiler/z42c.project`（namespace `Z42.Package`）——编译器自用。
 - `src/libraries/z42.project`（namespace `Z42.Build.Project`）——z42.build / z42b 发布管线依赖的共享库（按最终形态写好，**尚未接编译**）。
 
 两份的 `ManifestLoader.z42` / `SourceDiscovery.z42` / `PathTemplate.z42` **同文件名、同简单类名**。z42

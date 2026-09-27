@@ -1,15 +1,21 @@
 # z42.package
 
-> 📌 **2026-09-27 更名：`z42.package` → `z42.package`**（User 裁）。理由：它装的**不只是 IR 模型**，
-> 而是「整个 package 文件的读写」—— IR 内存模型是包文件的**内容模型**，zbc 是它的编码，zpkg 是容器，
-> 三者是一件事。命名空间**一个都没动**（仍 `Z42.IR` / `Z42.IR.BinaryFormat` / `Z42.Project`），
-> 所以调用点零改。
+> 📌 **2026-09-27 两次更名**（均 User 裁）：
+> 1. **包名** `z42.ir` → `z42.package`（#896）。理由：它装的**不只是 IR 模型**，而是「整个 package
+>    文件的读写」—— IR 内存模型是包文件的**内容模型**，zbc 是它的编码，zpkg 是容器，三者是一件事。
+>    包名不出现在任何 FQN 里，所以调用点零改；只需一份旧文件名的运行期兼容副本
+>    （落在只挂 `probing-paths` 的目录、**不进编译期 libs**——进去会让编译器看见两个包导出相同
+>    FQN ⇒ `E0606`）。下一 nightly 后删除，已挂阶段-2 欠账。
+> 2. **命名空间** `Z42.Project` → `Z42.Package`（change `rename-project-namespaces` B3a）。本库里装
+>    zpkg 容器读写的那个命名空间原先叫 `Z42.Project` —— 名字装错了内容（真正的工程清单模型在
+>    `z42.project` 包里，只能退到 `Z42.Build.Project`）。这次**抹掉了旧 FQN**，比包名改名难一个
+>    数量级：上一代二进制在运行期按旧 FQN 调用，文件副本救不了。代际约束见该 change 的
+>    design.md §3/§6/§7。
 >
-> 阶段 1 有一份旧文件名的运行期兼容副本（上一代种子的 `DEPS` 仍写 `z42.package`），落在只挂
-> `probing-paths` 的目录、**不进编译期 libs**（进去会让编译器看见两个包导出相同 FQN ⇒ `E0606`）。
-> 下一 nightly 后删除，已挂进阶段-2 欠账清单。
+> 工程清单那一半（`Z42.Build.Project` → `Z42.Project`）**延后**：它撞上 xtask 的跨代性
+> （编译与运行都挂在上一代 SDK 上），需要先加一版并存、跨一个 nightly。见 design.md §6。
 >
-> `docs/spec/archive/**` 里仍写 `z42.package` —— 那是**历史记录**，按约定不改。
+> `docs/spec/archive/**` 里仍是旧名 —— 那是**历史记录**，按约定不改。
 
 ## 职责
 编译栈**基础库**：IR 内存模型 + zbc 单模块字节码格式 + zpkg 包格式后端 + 类型导出/依赖索引。
@@ -28,7 +34,7 @@ z42c / z42b / 未来 REPL·分析工具经本库**共享**「emit IR → zbc/zpk
 | util | `StrMap` / `StrIndex` | `StrMap`：string→object 开放寻址 map（编译器全程用）；`StrIndex`：string→int 反查索引（无装箱、无删除），给插入序数组配 O(1) 查下标——`ZbcStringPool` / `IrGen` 字面量池用（perf-compiler-lookup-tables） |
 
 ## 入口点
-`Z42.IR` / `Z42.IR.BinaryFormat` / `Z42.Project`（zpkg 后端沿用旧 namespace，纯 MOVE 无并存）。
+`Z42.IR` / `Z42.IR.BinaryFormat` / `Z42.Package`（后者即 zpkg 后端，B3a 前叫 `Z42.Project`）。
 IR 由 z42c.semantics 的 IrGen 构建；本库只提供模型 + 序列化。
 
 ## 依赖

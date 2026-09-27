@@ -1,7 +1,7 @@
 namespace Z42.Workload;
 
 using Z42.Build;
-using Z42.Project;
+using Z42.Package;
 
 /// Android 平台 workload —— 接管 `configure → package` 尾相位。host 任意（跨平台）；
 /// runtime pack：android-arm64 / android-x64（per-ABI libz42_*.so）。

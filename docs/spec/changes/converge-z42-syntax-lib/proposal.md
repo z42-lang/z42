@@ -46,7 +46,7 @@ playground 加载的可移植 `z42c.*` 库**」。这是门面 PR 与 scripting 
   → **消费方所有 `using Z42.Core` / `using Z42.Syntax`、所有 FQ 引用、所有 toml 依赖名全部不动**，
     本 PR 是**纯物理搬迁 + 构建接线**，无源码符号改动。
 - **不搬** `z42c.semantics` / `z42c.pipeline`（留编译器，走后续门面 PR）。
-- **不动** `z42.package`（保 `Z42.IR` / `Z42.Project` 真 stdlib 身份）。
+- **不动** `z42.package`（保 `Z42.IR` / `Z42.Package` 真 stdlib 身份）。
 - **零新增 `Std` / `z42.*` API 面**——搬入者全 `z42c.*` 身份，用户面标准库**不增长**（满足「尽量减少标准库」）。
 - **零格式 bump**（zbc / zpkg writer 不动）。
 - scripting 本轮**仍留 toolchain**（其 semantics/pipeline 依赖未解，未到可搬 libraries 的条件）。

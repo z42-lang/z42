@@ -8,7 +8,7 @@ using Std.Test;
 using Std.Reflection;   // Activator（PR4d VM 执行 golden：外部 generator 产物真跑）
 using Z42.Pipeline;
 using Z42.Semantics;
-using Z42.Project;
+using Z42.Package;
 using Z42.IR;
 using Z42.IR.BinaryFormat;
 

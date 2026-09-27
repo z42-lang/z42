@@ -1,7 +1,7 @@
 namespace Z42.Workload;
 
 using Z42.Build;
-using Z42.Project;
+using Z42.Package;
 
 /// iOS 平台 workload —— 接管 `configure → package` 尾相位。host 限 macos；
 /// runtime pack：ios-arm64 / iossim-arm64（Z42VM.xcframework）。

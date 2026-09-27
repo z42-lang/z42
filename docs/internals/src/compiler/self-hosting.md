@@ -37,7 +37,7 @@ src/libraries/                         # stdlib workspace —— 也承载可移
 API 面，只是恰好与 stdlib 同处 build+ship。`z42c.semantics/pipeline/driver`（编译器后端）经**跨-workspace
 dist 发现**解析它们（与 `z42.package` / `z42.project` 同机制），冷启动由破环预建（见轴 ④）供给。
 
-**目录名 == `[project].name` == zpkg basename**（如 `z42c.core`），与 stdlib 约定一致：member 逻辑名（WS001 / default-members）、`${member_name}` 模板、产物名三者重合，消除歧义。命名空间镜像 C#：`Z42.Core` / `Z42.Syntax` / `Z42.IR` / `Z42.Project` / `Z42.Semantics` / `Z42.Pipeline` / `Z42.Driver`。
+**目录名 == `[project].name` == zpkg basename**（如 `z42c.core`），与 stdlib 约定一致：member 逻辑名（WS001 / default-members）、`${member_name}` 模板、产物名三者重合，消除歧义。命名空间镜像 C#：`Z42.Core` / `Z42.Syntax` / `Z42.IR` / `Z42.Package` / `Z42.Semantics` / `Z42.Pipeline` / `Z42.Driver`。
 
 **依赖图**（镜像 [`src/compiler/README.md`](../../../../src/compiler/README.md) 邻接表）：
 
@@ -211,10 +211,10 @@ z42c / stdlib / xtask (z42)  ──互为前置──►  ★ 自举环 ★
 
 **轴 ④ 的破环细节**（`_ensureBootstrapSelfDepLibs`，`scripts/build/xtask_compiler.z42`）：z42c 把
 IR 模型 + zbc/zpkg 后端下沉到 stdlib 单库 `z42.package`（收敛自旧 `z42c.ir` + `z42c.project`），于是
-z42c **运行期依赖 `z42.package`**——它建任何 zpkg 都要调 `Z42.Project.ZpkgBuilder.Sha256Hex` 等。冷启动
+z42c **运行期依赖 `z42.package`**——它建任何 zpkg 都要调 `Z42.Package.ZpkgBuilder.Sha256Hex` 等。冷启动
 （fresh checkout / CI 新 runner）flat dist 里没有 `z42.package`，而上一 nightly 种子只把等价代码作
 **`z42c.ir` + `z42c.project`** 两个包携带（包名不同）。若直接建 z42c，编译器只能拿种子的
-`z42c.ir/z42c.project` 作 `Z42.IR/Z42.Project` 的**命名空间兜底**来解析 → fresh z42c emit 的
+`z42c.ir/z42c.project` 作 `Z42.IR/Z42.Package` 的**命名空间兜底**来解析 → fresh z42c emit 的
 `ZpkgBuilder.Sha256Hex` 调用钉在种子包上，运行期加载真正的 `z42.package` 时**解析不到**
 （`undefined function ...Sha256Hex`，即 main CI 冷启动全红根因）。破环：`_buildCompilerViaZ42c`
 在 workspace build **前**先用当前 driver（冷启动=上一 nightly 种子，自带等价 `ZpkgBuilder`）把
@@ -258,6 +258,49 @@ z42c **运行期依赖 `z42.package`**——它建任何 zpkg 都要调 `Z42.Pro
 > 覆盖种子旧版，让 fresh z42c 永远对着**当前源**前端编译+运行。**与 z42.package 同款「不 warm-skip」**：源
 > 未变时增量缓存近零成本；源变了本就该重建。两代自举 CI 路径（`ci-bootstrap`）天然覆盖——它每代先
 > `build --workspace`（stdlib，现含 z42c.core/syntax）再建 `src/compiler`，前端先于后端进 flat。
+
+### 运行期 libs 与编译期 libs 是两件事（`--compile-libs` + run-libs 锚）
+
+自建那一步跑的是**上一代** driver：它**运行期**要加载**那一代**的 stdlib（按它编译时的 FQN 调用），
+而它**编译**的源码要解析**当前源**刚建出来的库。此前两者挤在 `Z42_LIBS` 一个变量里 —— 轴 ④ 的预建
+一覆盖 flat，种子 driver 自己就崩。**追加** API 时撞不到（旧 FQN 还在），**改名 / 删符号**必撞。
+
+分开的机制（change `add-deployment-model` #894/#900 + `rename-project-namespaces` #902 起）：
+
+| 面 | 谁读它 | 怎么给 |
+|---|---|---|
+| **运行期** | 被执行的那个 z42c 自己加载依赖 | `Z42_LIBS`（+ zpkg 旁的 colocated 副本优先）|
+| **编译期** | z42c 为**被编译的工程**解析依赖 | `--compile-libs <dirs>`（给了就取它，否则回落 `Z42_LIBS`）|
+
+于是自建这一步是 `Z42_LIBS=<种子代>` + `--compile-libs=<flat，当前源>`；driver 换代之后的步骤
+（`build stdlib` 步骤 4 等）两者都用 flat —— 那时 driver 与 flat 同代。
+
+🔴 **`--compile-libs` 自己也是种子纪律的对象**：早于该旗标的种子 driver 会**静默忽略**未知旗标，
+于是 `Z42_LIBS`（本想设成种子代）被当成编译期面。故编排侧先**探测**
+（`_driverSupportsCompileLibs` 跑 `build --help` 认关键字），不认就**逐字**退回旧行为。
+
+> ⚠️ **探测自己也得先跑得起来**：driver 是 z42 写的，加载不到它那一代的 stdlib 就直接崩，
+> 输出里自然没有旗标名 ⇒ 被误判成「不支持」而静默退化。而「它那一代」是什么取决于它是种子
+> 还是已换代的 gen1（gen1 裸跑即可；种子要 SDK libs）⇒ **两次尝试，取第一个真打出 `usage:` 的**。
+> 两次都没打出 ≠「不支持」，那是**探测失败**，要出声而不是默默退化
+> （`_helpRan` 就是这道判别力：否则「跑不起来」和「没这个旗标」不可区分）。
+
+🔴 **「种子代」这个锚不能取自 flat**。flat 正是要被预建覆盖成当前源的目录：快照晚于覆盖、或上一轮
+跑到一半，快照到的就是新代 ⇒ 种子 driver `MissingSymbolException`（实测）。锚取
+**driver 自己 dist 里那份 colocated 闭包**（`z42c build` 对 exe 的 colocate + `_ensureDriverSelfContained`
+产出，与 driver 同代是*构造保证*的），**搬**进 `artifacts/.scratch/seed-run-libs/<profile>/`。
+判据不是「搬到了吗」而是「**齐了吗**」——bundle 可能不全（冷启动 staged 的 driver 没 bundle），
+缺口从 **SDK libs**（`Z42_HOME/libs`，即种子的出处）补。补进来的只是 bundle 的**缺口**——
+那些包 driver 的闭包里没有、也就不会被它加载，填进去只为让目录完整，不构成代际混用。实现：`_relocateSeedRunLibs` /
+`_topUpSeedRunLibs`（`scripts/build/xtask_compiler.z42`）。
+
+**搬（而不是拷）还顺手解掉一个编译期缺陷**：z42c 的 workspace 解析面是
+`libsDirs = 全成员 dist + 外部档`，纯 basename 命中、**成员 dist 排在前**；而成员 dist 同时是运行期
+载荷目录。于是上一代 colocate 的外部包副本会**盖住** flat 里刚建好的新版（B3 实测：driver dist 的
+种子代 `z42.package.zpkg` 遮蔽 flat 新版 ⇒ `E0494 命名空间不存在`，而 flat 里明明有；两份还同尺寸，
+只核对大小会被骗过去）。搬空成员 dist 里的外部包即根除遮蔽。**正解**是让成员 dist 只对成员名有效
+（外部包一律走外部档）—— 那要改 z42c，而跑 workspace 构建的是种子 driver，得跨一个 nightly 才生效，
+故编排侧先解；详见 `docs/spec/changes/rename-project-namespaces/design.md` §7。
 
 ### 分阶段流程（每阶段守哪条不变量）
 

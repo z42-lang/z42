@@ -45,7 +45,7 @@ public sealed class DependencyIndex {
 
     // using-scoped 静态查找（path C：namespace-qualified 消歧，根治 common-pitfalls §1 短类名 first-wins 串味）。
     // 按本 CU 的**活跃命名空间集**（usings + 本 ns，prelude-first 序）逐个尝试全名键
-    // `ns.ShortCls.Method[$arity]`——同短类名跨 ns（如 Z42.Project.SourceDiscovery 与
+    // `ns.ShortCls.Method[$arity]`——同短类名跨 ns（如 Z42.Package.SourceDiscovery 与
     // Z42.Build.Project.SourceDiscovery）各占独立键，只命中调用方 using 到的那份。
     // 未命中（调用目标 ns 不在活跃集，或该短名只有一份）→ 返回 null，由调用方回落 GetStatic
     // 短键 first-wins（保持既有行为 → 自举字节不动）。
@@ -53,7 +53,7 @@ public sealed class DependencyIndex {
     // 或 ≥2 个不同实体命中（活跃集内仍歧义——本仓自 unify-assert-api 起已无此类语料，
     // 唯一那对 Std.Assert / Std.Test.Assert 已合并；分支保留以覆盖将来的同短名对）→ 返回 null，
     // 由调用方回落短键 first-wins（prelude-first，既有行为）。→ 既根治「跨 ns 同短名 first-wins 串到未
-    // using 的那份」（converge：只 Z42.Project 活跃、Z42.Build.Project 不活跃 → 唯一命中），又对既有活跃集内
+    // using 的那份」（converge：只 Z42.Package 活跃、Z42.Build.Project 不活跃 → 唯一命中），又对既有活跃集内
     // 歧义完全保持原判（字节不动）。
     public DepCallEntry? GetStaticScoped(string[] activeNs, int activeCount, string shortCls, string method) {
         if (activeNs == null) { return null; }

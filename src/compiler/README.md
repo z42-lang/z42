@@ -15,7 +15,7 @@
 |------|------|------|
 | `z42c.core` | Z42.Core（Span/Diagnostic/Features）| converge-z42-syntax-lib（route A 地基）——可移植前端 |
 | `z42c.syntax` | Z42.Syntax（Lexer+Parser+AST）| 同上；依赖 z42c.core |
-| `z42.package` | Z42.IR + Z42.Project（IR 模型 + zbc/zpkg 后端 + manifest）| converge-z42c-ir-metadata（收敛自旧 z42c.ir+z42c.project）|
+| `z42.package` | Z42.IR + Z42.Package（IR 模型 + zbc/zpkg 后端 + manifest）| converge-z42c-ir-metadata（收敛自旧 z42c.ir+z42c.project）|
 
 后端三包经**跨-workspace dist 发现**解析这些共享库（冷启动由 `_ensureBootstrapSelfDepLibs` 破环预建，
 见 [self-hosting.md](../../docs/internals/src/compiler/self-hosting.md) 轴 ④）。
