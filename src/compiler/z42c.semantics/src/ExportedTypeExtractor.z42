@@ -165,24 +165,20 @@ public static class ExportedTypeExtractor {
             }
             i = i + 1;
         }
-        ExportedInterfaceZ[] builtins = BuiltinTypeDefs._builtinInterfaces();
-        // 合并：本地接口替换同名内建（镜像 C# sem.Interfaces 单条目——本地定义 = 权威）；
-        // 非内建的本地接口追加。避免 z42.core 编译 ISubscription 等自定义 stdlib 接口时重复输出。
-        ExportedInterfaceZ[] allIfs = new ExportedInterfaceZ[11 + lic];
-        i = 0;
-        while (i < 11) { allIfs[i] = builtins[i]; i = i + 1; }
-        int allIfCount = 11;
-        i = 0;
-        while (i < lic) {
-            bool foundBuiltin = false;
-            int bi = 0;
-            while (bi < 11) {
-                if (allIfs[bi].Name == localIfs[i].Name) { allIfs[bi] = localIfs[i]; foundBuiltin = true; break; }
-                bi = bi + 1;
-            }
-            if (!foundBuiltin) { allIfs[allIfCount] = localIfs[i]; allIfCount = allIfCount + 1; }
-            i = i + 1;
-        }
+        // enforce-fqn-name-identity 阶段 1：**只导出本地真实声明的接口**。
+        //
+        // 🔴 此前这里把 `BuiltinTypeDefs._builtinInterfaces()` 的 11 个接口**无条件**塞进
+        // 每一个 `ExportedModuleZ`，而模块的 `Namespace` 就是该 CU 的 ns ⇒ 同一个 `IEquatable`
+        // 以 `Std.IEquatable`（真）+ `Std.Collections.IEquatable` / `Std.IO.IEquatable` / …
+        // （幻影）多份存在；导入侧裸名键无守卫 last-wins ⇒ 短名 → FQN 的归一**不是稳定函数**。
+        // 那正是「歧义就报错」落不了地的直接障碍（11 个协议名天生"多 ns 声明"）。
+        //
+        // 出身是**移植残留**：原注释自陈「镜像 C# `sem.Interfaces` 单条目」—— C# 那边是每次编译
+        // 一份**全局**列表，移植时按**每模块**复制了一份，没人注意到「模块是带 ns 的」。
+        // 10/11 个在 `z42.core/src/Protocols/` 有真声明（`ISubscription` 在 `Delegates/`），
+        // 本地声明本来就会经 `localIfs` 导出 ⇒ 内建那份是纯重复。
+        ExportedInterfaceZ[] allIfs = localIfs;
+        int allIfCount = lic;
         ExportedModuleZ emr = new ExportedModuleZ(ns,
             classes, cc,
             allIfs, allIfCount,

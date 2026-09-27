@@ -257,6 +257,31 @@ public sealed class IrClassDesc {
     // 非 struct 全空、gated 零字节（同 enum/iface 块模式）。
     public int StructSize;
     public int[] StructRefOffsets; public int[] StructRefKinds; public int StructRefCount;
+    // ── class_flags2（zbc 1.45，change `type-section-flags2-and-struct-fields`）────────────
+    //
+    // 既有 `Flags` 是 **u8 且 8 位已用满**（abstract/sealed/struct/record/iface/enum/inline-struct…）。
+    // 位用光的后果已经现形：zbc 1.33/1.34 的对象全字段块只能用一个**推导谓词**当闸门
+    // （「非 struct/接口/枚举/委托」，写端 `(cd.Flags & 116) == 0`），而那个谓词在**两侧各抄一份**
+    // —— 正是审计 R2「判据复制」的样本。`Flags2` 就是为「新块按位 gated、判据下沉为数据」开的位面。
+    //
+    // bit0 = HAS_STRUCT_FIELD_TABLE（下面那张表在场）。其余位留空。
+    public int Flags2;
+    // ── 值 struct 的**逐字段**布局表（zbc 1.45）────────────────────────────────────────
+    //
+    // 平行于 `Fields`（同序同长），每项 = 该直接字段在 blob 内的 (offset, size, kind)。
+    // 字段**名与类型名不在本表** —— `Fields[i].Name` / `.Type` 已经有了，不重复承载。
+    //
+    // 🔴 为什么要它：`StructFieldGetPrim/SetPrim` 的 byte_offset 今天由 codegen **烘焙成立即数**，
+    // 这是「泛型必须按实例化单态化」的**唯一实际动因**（`IrGen.InstNeedsOwnBody` 的另一条
+    // `DefHasStaticState` 实测在产品代码零命中）。承载了逐字段偏移，运行期才**有可能**自己解析
+    // ⇒ 是符号化访问（`symbolic-struct-field-access` 提案 P0）的前置条件。
+    //
+    // ⚠️ 本 change 只**承载**，无人消费 —— 与 `ObjFieldOffsets`（zbc 1.34「PR-1 休眠元数据」）
+    // 同一条纪律：support 先行、晚一个 nightly 再 use（`bootstrap-seed.md`）。
+    // ⚠️ 数据零新计算：`StructLayoutInfo` 早就算好了 `FieldOffsets/FieldSizes/FieldKinds`，
+    // 此前只是没写进 wire。
+    public int[] StructFieldOffsets; public int[] StructFieldSizes; public int[] StructFieldKinds;
+    public int StructFieldCount;
     // 合成内联 struct 布局块（zbc 1.32，add-struct-heap-inline P3b）：Flags bit7(0x80)=class 有内联 struct 字段时
     // 随 TYPE 尾部 emit（在 struct 块之后）。InlineSize=对象内联字节区总大小（供 ScriptObject alloc）；平行数组
     // InlineRefOffsets/InlineRefKinds 是**对象相对带种类引用位图**（GC 定位内联 struct 字段引用叶子 + 写屏障）。
@@ -288,6 +313,9 @@ public sealed class IrClassDesc {
         this.IfaceMethodStatic = new int[0];
         this.AssocNames = new string[0]; this.AssocTypes = new string[0]; this.AssocCount = 0;
         this.StructSize = 0; this.StructRefOffsets = new int[0]; this.StructRefKinds = new int[0]; this.StructRefCount = 0;
+        this.Flags2 = 0;
+        this.StructFieldOffsets = new int[0]; this.StructFieldSizes = new int[0];
+        this.StructFieldKinds = new int[0]; this.StructFieldCount = 0;
         this.InlineSize = 0; this.InlineRefOffsets = new int[0]; this.InlineRefKinds = new int[0]; this.InlineRefCount = 0;
         this.ObjectSize = 0;
         this.ObjFieldOffsets = new int[0]; this.ObjFieldSizes = new int[0]; this.ObjFieldKinds = new int[0]; this.ObjFieldCount = 0;

@@ -425,9 +425,12 @@ pub(super) fn field_set(
                 if let Some(slot) = slot_opt {
                     // unify-object-byte-layout (PR-2): encode into bytes / refs. No
                     // write barrier — stack slots aren't heap slots (arena root-scanned).
-                    obj.set_field_value(slot, &v);
+                    // fix-silent-prim-field-write: propagate a rejected primitive encode
+                    // (e.g. `Null` into an `int` field) instead of dropping it.
+                    obj.try_set_field_value(slot, &v)?;
                 }
-            })?;
+                anyhow::Ok(())
+            })??;
             Ok(())
         }
         Value::Object(rc) => {
@@ -440,7 +443,7 @@ pub(super) fn field_set(
                     let slot = slot as usize;
                     // unify-object-byte-layout (PR-2): `set_field_value` returns whether
                     // a reference slot was written — fire the barrier only for a heap ref.
-                    let wrote_ref = borrowed.set_field_value(slot, &v);
+                    let wrote_ref = borrowed.try_set_field_value(slot, &v)?;
                     drop(borrowed);
                     if wrote_ref && v.is_heap_ref() {
                         ctx.heap().write_barrier_field(&owner, slot, &v);
@@ -451,14 +454,14 @@ pub(super) fn field_set(
                 let slot_opt = borrowed.type_desc.field_index.get(field_name).copied();
                 if let Some(slot) = slot_opt {
                     field_ic_install(ic, recv_type, slot as u32);
-                    let wrote_ref = borrowed.set_field_value(slot, &v);
+                    let wrote_ref = borrowed.try_set_field_value(slot, &v)?;
                     drop(borrowed);
                     if wrote_ref && v.is_heap_ref() {
                         ctx.heap().write_barrier_field(&owner, slot, &v);
                     }
                 }
             } else if let Some(&slot) = borrowed.type_desc.field_index.get(field_name) {
-                let wrote_ref = borrowed.set_field_value(slot, &v);
+                let wrote_ref = borrowed.try_set_field_value(slot, &v)?;
                 drop(borrowed);
                 if wrote_ref && v.is_heap_ref() {
                     ctx.heap().write_barrier_field(&owner, slot, &v);

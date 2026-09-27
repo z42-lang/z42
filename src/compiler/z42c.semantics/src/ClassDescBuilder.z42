@@ -294,7 +294,17 @@ public sealed partial class ClassDescBuilder {
             string[] expanded = this._expandIfaces(ctd.InterfaceNames, ctd.InterfaceCount);
             string[] ifqs = new string[expanded.Length];
             int ifi = 0;
-            while (ifi < expanded.Length) { ifqs[ifi] = this._g._qClass(expanded[ifi]); ifi = ifi + 1; }
+            // 🔴 **点号守卫**（镜像 `:196` 基类那格）：`InterfaceNames` 自 interface-names-fqn 起
+            // 已是 FQN，无条件 `_qClass` 会**二次限定**成 `Demo.Std.IDisposable` 写进 TYPE 段。
+            // 守卫的存在证明就在基类那格 —— 两格本该同口径，接口这格此前漏了。
+            // ⚠️ 别指望 `TsigReconcile:561` 的 `_shortName` 兜住：它只掩盖编译路径，
+            // 运行期反射与 golden 字节照样暴露。
+            while (ifi < expanded.Length) {
+                string ifn = expanded[ifi];
+                if (!this._hasDot(ifn)) { ifn = this._g._qClass(ifn); }
+                ifqs[ifi] = ifn;
+                ifi = ifi + 1;
+            }
             cd2.Interfaces = ifqs;
             cd2.InterfaceCount = expanded.Length;
         }
@@ -320,6 +330,14 @@ public sealed partial class ClassDescBuilder {
                 cd2.StructRefOffsets = li.RefLeafOffsets;
                 cd2.StructRefKinds = li.RefLeafKinds;
                 cd2.StructRefCount = li.RefLeafCount;
+                // 逐字段布局表（zbc 1.45）：数据早就算好了（`StructLayoutInfo.Field*`），此前只是
+                // 没写进 wire。bit0 = HAS_STRUCT_FIELD_TABLE，让新块**按位 gated**而不是再抄一个
+                // 推导谓词（对象块那条闸门就是因为 Flags 位用光才只能抄谓词）。
+                cd2.StructFieldOffsets = li.FieldOffsets;
+                cd2.StructFieldSizes = li.FieldSizes;
+                cd2.StructFieldKinds = li.FieldKinds;
+                cd2.StructFieldCount = li.FieldCount;
+                if (li.FieldCount > 0) { cd2.Flags2 = cd2.Flags2 | 1; }
             }
         }
         // add-struct-heap-inline (P3b，zbc 1.32)：非-struct class 有内联 struct 字段（`class C { Point pt; }`）→
