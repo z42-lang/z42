@@ -28,7 +28,7 @@ int _srcIntConst(string file, string decl) {
 
 // 本源码树的 zpkg 格式 minor（z42.package 的写端常量 = SoT，与 Rust 读端 strict-pin 同步）。
 int _treeZpkgMinor(string root) {
-    return _srcIntConst(Path.Join(root, "src/libraries/z42.package/src/ZpkgWriter.z42"),
+    return _srcIntConst(Path.Join(root, "src/compiler/z42.package/src/ZpkgWriter.z42"),
         "public static int Minor = ");
 }
 

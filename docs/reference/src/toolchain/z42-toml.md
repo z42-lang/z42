@@ -459,7 +459,7 @@ my-app/
 > 跨包类型签名的**唯一来源**；对账器 + verb + `ReadTsig` 随 TSIG 一并移除。**每 zpkg ~半：
 > z42.core 193KB→92KB。**
 
-**机制**（`src/libraries/z42.package/src/TsigReconcile.z42`，driver verb `z42c reconcile-tsig <zpkg>...`；converge-z42c-ir-metadata：随 zpkg 后端下沉 z42.package）：
+**机制**（`src/compiler/z42.package/src/TsigReconcile.z42`，driver verb `z42c reconcile-tsig <zpkg>...`；converge-z42c-ir-metadata：随 zpkg 后端下沉 z42.package）：
 
 ```
 world = 全部待对账 zpkg（跨包 base 链：imported 祖先字段/方法从 dep 包 TYPE/SIGS 取）
@@ -779,7 +779,7 @@ strip    = true
 
 声明 test / bench / **example** 运行目标的位置、驱动方式、共享依赖、产物布局。设计原则：**约定优先
 （glob 批量发现）+ 显式覆盖（`[[target]]` 具名）+ dev-deps 隔离**。三类目标结构同构，共用模型
-（`RunTarget` / `TargetSection`，见 `src/libraries/z42.project/`）。
+（`RunTarget` / `TargetSection`，见 `src/compiler/z42.project/`）。
 
 ### 两层模型（批量 vs 逐个）
 
@@ -1287,7 +1287,7 @@ Preset **允许**：`[project] kind / license / authors / description / pack`、
 
 #### 示例
 
-可解析示例（`z42.project` 单测夹具）见 `src/libraries/z42.project/tests/`；形态如下：
+可解析示例（`z42.project` 单测夹具）见 `src/compiler/z42.project/tests/`；形态如下：
 - `presets/lib-defaults.toml` 提供 `kind=lib` + `[sources]` 默认
 - `presets/strict-lints.toml` 提供 `[build].mode = "interp"`
 - `libs/foo/` include lib-defaults
@@ -1848,4 +1848,4 @@ myapp/
 - **相位封闭**（八个，线性，不可增删改序）：所有自定义只落在 Hooks / Workload override 上，
   不开放注册新相位（保证构建确定性与缓存模型）。
 
-扩展点基类（`BuildHooks` / `WorkloadBase`）住 [`src/libraries/z42.build/`](../../../../src/libraries/z42.build)。
+扩展点基类（`BuildHooks` / `WorkloadBase`）住 [`src/compiler/z42.build/`](../../../../src/compiler/z42.build)。

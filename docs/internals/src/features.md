@@ -311,7 +311,8 @@ z42 脚本只读面全部由该表派生。设了一个本 build 不支持的旋
 
 ### `Std.*` 是用户面，`Z42.*` 是工具链自用
 
-两类库同住 `src/libraries/`，**命名空间是唯一区分**。包名一律 `z42.*`，用户面命名空间一律 `Std.*`
+两类库**已按物理位置分开**（用户 stdlib 在 `src/libraries/`、编译器域在 `src/compiler/`；
+relocate-compiler-domain-libs）。包名一律 `z42.*`，用户面命名空间一律 `Std.*`
 ——两者不是一一对应（`z42.core` 一个包就导出 `Std` / `Std.IO` / `Std.Collections` /
 `Std.Threading` / `Std.Time` / `Std.Reflection` / `Std.Runtime` / `Std.Net.Sockets` 八个）。
 

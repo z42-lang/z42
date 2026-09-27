@@ -655,6 +655,21 @@ int _e2eZ42bClosureChecks(string root, string vm) {
     string[] stdlib = Path.Glob(flat, "*.zpkg");
     int si = 0;
     while (si < stdlib.Length) { File.Copy(stdlib[si], Path.Join(libsDir, Path.GetFileName(stdlib[si]))); si = si + 1; }
+    // 🔴 还要把**编译器域**的包也放进这个私有框架目录（relocate-compiler-domain-libs，2026-09-27）：
+    // z42b 运行期需要 `Z42.Build` / `Z42.Project`（BuildMode / ManifestLoader），而它们已不在 stdlib
+    // 扁平 dist 里。发布态 z42b 靠 `probing-paths = "../z42c"` 找它们，但**这里是开发树的合成 fixture**
+    // （自造 tmp/libs 当 `Z42_LIBS`，`../z42c` 不存在）⇒ 必须显式放进来，否则
+    // `MissingSymbolException: static field Z42.Build.BuildMode.Export`（实测就是这条）。
+    //
+    // ⚠️ 本文件头注那条「Z42_LIBS 混装非框架包会让 ExeDeps 误判成框架」在这里**不咬**：本格的断言
+    // 是「path 依赖闭包（leaf/mid）随产物走」，而编译器域包不在那条闭包上。
+    string[] cmembers = _compilerMembers(root);
+    int ci = 0;
+    while (ci < cmembers.Length) {
+        string cz = Path.Join(_compilerMemberDist(root, cmembers[ci], "release"), cmembers[ci] + ".zpkg");
+        if (File.Exists(cz)) { File.Copy(cz, Path.Join(libsDir, cmembers[ci] + ".zpkg")); }
+        ci = ci + 1;
+    }
 
     string leafDir = Path.Join(tmp, "leaf");
     string midDir  = Path.Join(tmp, "mid");

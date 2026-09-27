@@ -45,8 +45,8 @@ docs/spec/changes/wire-embedded-testhost/design.md -> User
 src/libraries/README.md -> z42.core/src/Bool.z42
 src/libraries/README.md -> z42.io/src/Path.z42
 src/libraries/README.md -> z42.io/tests/16_path/
-src/libraries/z42.scripting/README.md -> ../repl/
-src/libraries/z42.scripting/README.md -> ../repl/
+src/compiler/z42.scripting/README.md -> ../repl/
+src/compiler/z42.scripting/README.md -> ../repl/
 src/libraries/z42.test/README.md -> ../../toolchain/test-runner/
 src/runtime/benches/README.md -> ../../../spec/changes/add-benchmark-framework/
 src/toolchain/README.md -> repl/

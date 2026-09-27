@@ -69,7 +69,7 @@ harness = true               # true → z42b 反射跑 [Test]；false → 跑 en
 
 三层 dep 合并（`[dependencies]` → `[tests.dependencies]` → `[[test]].dependencies`）已实现，
 文档明写 *"仅编译 test/bench/example 时合入，release zpkg 元数据不含"*
-（[TargetSection.z42](../../../../src/libraries/z42.project/src/TargetSection.z42)）。
+（[TargetSection.z42](../../../../src/compiler/z42.project/src/TargetSection.z42)）。
 
 ### 1.3 编译单元模型 —— **每个测试单元是一个独立的包**
 

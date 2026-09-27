@@ -41,7 +41,7 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 
 /// 类级 attr-ref 哨兵名。**必须与编译器侧 `IrStaticCtor.Sentinel` 逐字一致**
-/// （`src/libraries/z42.package/src/IrModule.z42`）——两处手写同一个字符串是漂移源，
+/// （`src/compiler/z42.package/src/IrModule.z42`）——两处手写同一个字符串是漂移源，
 /// 故各自只写一次、并在此标明对应关系。
 pub const CCTOR_SENTINEL: &str = "$Cctor";
 

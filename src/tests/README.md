@@ -11,7 +11,7 @@
 
 不放在这里：
 - 编译器单元测试（语义层）→ [src/compiler/z42c.semantics/tests/](../compiler/z42c.semantics/tests/)
-- 编译器单元测试（语法层）→ [src/libraries/z42c.syntax/tests/](../libraries/z42c.syntax/tests/)
+- 编译器单元测试（语法层）→ [src/compiler/z42c.syntax/tests/](../compiler/z42c.syntax/tests/)
 - **期望编译报错的用例** → 同上（`[Test]` + `SemanticDump`，见下方说明）
 - VM Rust 单元测试 → [src/runtime/src/](../runtime/src/) 同模块的 `*_tests.rs`
 - VM Rust 集成测试（zbc_compat / native interop / manifest schema）→ [src/runtime/tests/](../runtime/tests/)
@@ -109,7 +109,7 @@
 1. **库 API 行为** → `src/libraries/<lib>/tests/<name>[.z42]`
 2. **期望编译报错** → `src/compiler/z42c.semantics/tests/typecheck/<topic>_tests.z42`
    （`[Test]` 单测 + `SemanticDump.FirstErrorCode`，**不放本目录**；见上方说明）
-3. **仅 ZASM 匹配** → `src/libraries/z42c.syntax/tests/dump/`（parser dump 单测）
+3. **仅 ZASM 匹配** → `src/compiler/z42c.syntax/tests/dump/`（parser dump 单测）
 4. **跨多 zpkg** → `src/tests/cross-zpkg/<name>/`
 5. **其他 VM/编译器特性**：
    - 用 `Console.WriteLine` 测打印行为 / 需要 sidecar → `src/tests/<category>/<name>/source.z42` + sidecars（dir 模式）

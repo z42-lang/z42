@@ -164,10 +164,19 @@ string _z42bToml() { return "src/toolchain/builder/core/z42.builder.z42.toml"; }
 //   test stdlib   ：支持 `--toolchain` override（ovVm/ovDriver/ovLibs）
 //   test compiler ：按 profile 取（_driverZpkg(root, profile)）
 //   test targets  ：固定 release
-//   stage-toolchain：release + 纯 stdlib libs（见 _ensureZ42b）
+//   stage-toolchain：release + alllibs（stdlib + compiler 成员；见 _ensureZ42b 头注）
 // 前三者用的还是 `_assembleAllLibs`（stdlib + z42c 七兄弟的扁平目录，因为它们同时要编
 // 测试单元），而 stage-toolchain 只需 `_libsDir`。**能统一的只有「怎么编 + 怎么校验」，
 // 输入不能统一** —— 强行统一就会把 override / profile 语义弄丢。
+// 工具链程序（launcher / z42b / z42d / z42i / workload libs）的**编译期解析面**。
+//
+// 🔴 = alllibs（stdlib + 全部 compiler 成员），不是 `_libsDir`（纯 stdlib flat）：
+// relocate-compiler-domain-libs 之后它们依赖的 `Z42.Project` / `Z42.Build` / `Z42.Package` /
+// `Z42.Syntax` 住在**编译器域**（`artifacts/build/compiler/…`），纯 stdlib flat 里没有 ⇒
+// 用 `_libsDir` 会报 `[dependencies] z42.build 未找到 z42.build.zpkg；已查找：…/libraries/dist/release`。
+// 发布态它们靠 `probing-paths = "../z42c"` 解析（与 z42i 同形态），与本函数无关 —— 这里只管编译期。
+string _toolchainCompileLibs(string root) { return _assembleAllLibs(root, "release"); }
+
 int _buildZ42bWith(string root, string vm, string driverZpkg, string libs) {
     int rc = _exec(new Process(vm).Arg(driverZpkg).Arg("--mode").Arg(_z42cMode())
         .Arg("--").Arg("build").Arg(_z42bToml()).Arg("--release")
@@ -187,9 +196,14 @@ int _buildZ42bWith(string root, string vm, string driverZpkg, string libs) {
 // 格式一致（strict-pin）——「存在」≠「可用」，上一格式版本的 z42.builder.zpkg 会在
 // 运行期被 z42vm 直接拒。而它只是几个小文件的 z42c 增量编译，源未变时近 no-op。
 // （同 test-lib stage 里既有 z42b 构建的理由，那里称之为 format-skew guard。）
+// 🔴 libs 用 `_assembleAllLibs`（stdlib + 全部 compiler 成员）而不是 `_libsDir`（纯 stdlib flat）：
+// relocate-compiler-domain-libs 之后 z42b 依赖的 `Z42.Project` / `Z42.Build` 住在**编译器域**
+// （`src/compiler/` → `artifacts/build/compiler/…`），纯 stdlib flat 里已经没有它们 ⇒ 用 `_libsDir`
+// 会编不出来。alllibs 正是「stdlib + compiler 成员」的扁平并集，另三个 toolchain 程序本来就用它。
 int _ensureZ42b(string root) {
     int pc = _ensureToolchainDeps(root); if (pc != 0) { return pc; }
-    return _buildZ42bWith(root, _builtVm(root, "release"), _driverZpkg(root, "release"), _libsDir(root));
+    return _buildZ42bWith(root, _builtVm(root, "release"), _driverZpkg(root, "release"),
+                          _toolchainCompileLibs(root));
 }
 
 // ── build workload ───────────────────────────────────────────────────────────
@@ -202,7 +216,7 @@ int _buildWorkload() {
     int pc = _ensureToolchainDeps(root); if (pc != 0) { return pc; }
     string vm = _builtVm(root, "release");
     string z42cDir = _selfContainedDriverDir(root);
-    string libs = _libsDir(root);
+    string libs = _toolchainCompileLibs(root);
     foreach (var toml in _workloadTomls()) {
         _vNormal("  workload: " + toml);
         int c = _z42cBuildToml(vm, z42cDir, libs, toml);
@@ -258,7 +272,7 @@ int _buildToolchain() {
     int wc = _buildWorkload(); if (wc != 0) { return wc; }   // + z42c/stdlib/z42vm prereq
     string vm = _builtVm(root, "release");
     string z42cDir = _selfContainedDriverDir(root);
-    string libs = _libsDir(root);
+    string libs = _toolchainCompileLibs(root);
     string rid = _detectHostRid();
     // native apphost stub (shared by every apphost; z42b publish patches a copy).
     int sc = _exec(_cargoRelease()
@@ -306,7 +320,7 @@ int _sdkMergeApphosts(string root, string outDir, bool noBuild) {
         string z42bZpkg = _toolchainZpkg(root, _z42bToml());
         string stub = Path.Join(_cargoOutFor(root, rid, "release"),
             Platform.IsWindows() ? "apphost.exe" : "apphost");
-        int zc = _z42bPublish(vm, z42bZpkg, _libsDir(root), stub, z42cToml, rid,
+        int zc = _z42bPublish(vm, z42bZpkg, _toolchainCompileLibs(root), stub, z42cToml, rid,
             _desktopPublishDir(root, z42cToml));
         if (zc != 0) { ConsoleError.WriteLine("  ✗ z42c apphost publish failed"); return zc; }
         zc = _assertPayloadComplete(root, z42cToml);

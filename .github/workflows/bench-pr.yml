@@ -137,9 +137,13 @@ jobs:
           # rename-z42-ir-to-z42-package：本函数对 **base 与 PR 两棵树**都调用，而改名 PR 里
           # 只有 PR 侧叫 `z42.package`、base 侧仍叫 `z42.ir` ⇒ **写死任一个名字都会有一侧找不到**
           # （实测：只改新名，base 侧 `grep: No such file` ⇒ 本门 17s 就红）。两个名字都试。
-          # STAGE2-DEBT(bench-pr-libdir-probe): 旧名彻底退役后删掉 `z42.ir` 那一档
-          libdir() { # <tree-root> → 该树里 IR/package 库的目录（新名优先）
-            if [ -d "$1/src/libraries/z42.package" ]; then echo "$1/src/libraries/z42.package";
+          # STAGE2-DEBT(bench-pr-libdir-probe): 旧名/旧位置彻底退役后删掉后两档
+          # ⚠️ 本函数对 **base 与 PR 两棵树**都调用（同 `ver()` 的纪律）：relocate-compiler-domain-libs
+          # 把该库从 `src/libraries/` 挪到 `src/compiler/`，改名 PR 那次是名字不同、这次是**位置**不同
+          # ⇒ 同样必须「两个都试」，写死任一侧都会有一棵树找不到、本门 17s 就红。
+          libdir() { # <tree-root> → 该树里 IR/package 库的目录（新位置优先 → 旧位置 → 旧名）
+            if   [ -d "$1/src/compiler/z42.package" ];  then echo "$1/src/compiler/z42.package";
+            elif [ -d "$1/src/libraries/z42.package" ]; then echo "$1/src/libraries/z42.package";
             else echo "$1/src/libraries/z42.ir"; fi
           }
           ver() { # <tree-root> → "zbcMajor.zbcMinor/zpkgMajor.zpkgMinor"

@@ -35,6 +35,13 @@ output_dir = "../../../../artifacts/build/toolchain/launcher"
 
 [profile.release.runtime]
 mode = "interp"
+# 🔴 relocate-compiler-domain-libs（2026-09-27）：`Z42.Project` / `Z42.Package` / `Z42.Build` 等
+# 编译器域包已不在 shipped `libs/`，改住 `<sdk>/programs/z42c/`。本程序运行期靠这条搜索路径找它们
+# —— **不复制**（`deploy = "shared"` 的效果，与 z42b / z42i 同形态）。
+# ⚠️ **只能配一条**：`probing-paths` 按**平台分隔符**分隔（unix `:` / windows `;`），跨平台清单里
+# 写两条必在一个平台上错（#816 的教训，z42i 那边踩过一次）。开发树不需要第二条：搜索序末项是
+# `libs`，而开发树下它指向 alllibs（stdlib + 全部 compiler 成员）。
+probing-paths = "../z42c"
 
 # apphost-as-config: this binary publishes a native desktop apphost.
 #   apphost = true  → gate（无此则 `z42 publish` 不产 apphost）。

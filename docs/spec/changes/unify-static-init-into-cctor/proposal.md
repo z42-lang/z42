@@ -39,7 +39,7 @@ z42 现在有**两套**静态初始化机制，做同一件事：
    **同时修掉一个现存的静默正确性缺陷**（形状见 [[silent-feature-masks-other-bugs]]）。
 
 **而第二套机制没有语义必要性。** z42 顶层只允许 `class`/`struct`/`interface`/`enum`/`delegate`/
-`impl`/自由函数，**没有顶层变量**（[Parser.z42:400-417](../../../../src/libraries/z42c.syntax/src/Parser.z42)）；
+`impl`/自由函数，**没有顶层变量**（[Parser.z42:400-417](../../../../src/compiler/z42c.syntax/src/Parser.z42)）；
 `SemanticModel.AddStaticInit(cls, field, init)` 的**每一条都带宿主类名**
 （[DeclBinder.z42:191](../../../../src/compiler/z42c.semantics/src/DeclBinder.z42) / `:236`）。
 `__static_init__` 里一条"无主"条目都没有——它纯粹是按文件聚合的实现细节。
@@ -118,7 +118,7 @@ z42 现在有**两套**静态初始化机制，做同一件事：
 | `src/compiler/z42c.semantics/src/AccessEmitter.z42` | MODIFY | 静态 struct 字段装箱统一走 `_emitStaticStore`（删 `EmitStaticInit` 专用转发） |
 | `src/compiler/z42c.pipeline/src/CtorKnownFixup.z42` | MODIFY | 整包装配后的置位遍历中并入 `owner_init_free`（或新增同形 pass） |
 | `src/compiler/z42c.pipeline/src/PackageCompile.z42` | MODIFY | 装配点调用新置位逻辑 |
-| `src/libraries/z42.package/src/IrModule.z42` | MODIFY | IR 指令承载 `owner_init_free` 位 + zbc 往返 |
+| `src/compiler/z42.package/src/IrModule.z42` | MODIFY | IR 指令承载 `owner_init_free` 位 + zbc 往返 |
 
 ### runtime
 
