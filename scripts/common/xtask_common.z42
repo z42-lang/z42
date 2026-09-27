@@ -460,7 +460,7 @@ bool _driverSupportsCompileLibs(string vm, string driver) {
     // 所以**两次尝试，取第一个真打出 usage 的**。给一种就够的那种写法两边都会错一半。
     string first = _driverBuildHelp(vm, driver, "");
     if (_helpRan(first)) { return first.IndexOf("--compile-libs") >= 0; }
-    string sdkLibs = _seedSdkLibs(_root());
+    string sdkLibs = _seedLibsSource(_root());
     if (sdkLibs.Length > 0) {
         string second = _driverBuildHelp(vm, driver, sdkLibs);
         if (_helpRan(second)) { return second.IndexOf("--compile-libs") >= 0; }
@@ -484,10 +484,25 @@ string _driverBuildHelp(string vm, string driver, string libs) {
 // usage 真打出来了 ⇒ 这次探测的答案可信（旗标有无都算答案）。
 bool _helpRan(string text) { return text.IndexOf("usage: z42c build") >= 0; }
 
-// SDK 的 flat libs 目录，或 ""。`Z42_HOME` 未设时（直接跑 `./xtask`，没走 launcher / 没给
-// `--toolchain`）回落仓内 dev 装：`.z42/` 就是 `install-z42.sh` 在树里铺的 SDK，与
-// `--toolchain .z42` 指的是同一个。
-string _seedSdkLibs(string root) {
+// 种子 driver 的运行期 libs 该从哪儿取，按可信度排序：
+//
+// ① **本进程启动时的 `Z42_LIBS`** —— 谁启动 xtask，谁就知道这个种子该配哪一代库。CI 的
+//    `ci-bootstrap` 正是这么传的（`boot_libsw`：快路径 = 下载的种子 libs；**格式 bump 在飞时
+//    = 两代路径产出的当代 stdlib**）。
+// ② **SDK libs**（`Z42_HOME/libs`；`Z42_HOME` 未设时回落仓内 dev 装 `.z42/`，那就是
+//    `install-z42.sh` 在树里铺的、与 `--toolchain .z42` 同一个）。
+//
+// 🔴 ① **必须**排在 ② 前面：「SDK 就是种子那一代」这个假设**只在没有格式 bump 时成立**。
+//    zpkg/zbc 格式 bump 在飞时 SDK 还是**上一代格式**，拿它补 run-libs 会被 strict-pin 当场拒收：
+//      `zpkg minor 49 not supported (writer is at 0.50); regen via xtask build stdlib`
+//    （#905 第二轮 CI 实测 —— #903 把 zpkg 抬到 0.50 而 nightly 还是 0.49）。那种情况下 CI 走
+//    两代路径、种子已是当代格式，而它的 libs 只由 `Z42_LIBS` 说得清。
+//
+// ⚠️ 这里**故意不加**「minor 必须等于本树写端」的门：两代自举的 gen0 那一腿本就要用**旧** VM
+//    跑旧格式的种子，那道门会当场误报。判「配没配对」得比对**正在用的那个 VM**，不是源码树。
+string _seedLibsSource(string root) {
+    string env = Environment.GetEnvironmentVariable("Z42_LIBS", "");
+    if (env.Length > 0 && Directory.Exists(env)) { return env; }
     string tc = _toolchainDir(root);
     string libs = tc.Length > 0 ? _toolchainLibs(tc) : "";
     if (libs.Length > 0 && Directory.Exists(libs)) { return libs; }

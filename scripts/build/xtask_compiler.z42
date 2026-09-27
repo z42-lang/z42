@@ -136,14 +136,18 @@ bool _isCompilerMember(string[] members, string name) {
     return false;
 }
 
-// 用 SDK libs 补齐 run-libs 的缺口（返回补了几个）。
+// 用**种子那一代的 libs**（`_seedLibsSource`：启动时的 `Z42_LIBS` 优先、其次 SDK）补齐缺口。
 // bundle 是**主**来源（与 driver 同代是构造保证的），但它可能**不完整**：冷启动刚从 SDK
 // staged 的 driver 根本没 bundle；被清理过的树只剩零星几个（B3 实测：我自己先按「化石」删掉
 // 23 个，剩 2 个 ⇒ 种子 driver 连 `Std.IO.Environment` 都找不到）。所以判据不是「搬到了吗」
-// 而是「**齐了吗**」—— 缺的从 SDK libs 补（`_ensureSeed` staged 种子正是从那儿取的，同代）。
+// 而是「**齐了吗**」—— 缺的从 `_seedLibsSource` 补。**不是无条件的 SDK**：格式 bump 在飞时
+// SDK 还是上一代格式、会被 strict-pin 拒收（见 `_seedLibsSource` 头注）。
 int _topUpSeedRunLibs(string root, string dst, string[] members) {
-    string sdkLibs = _seedSdkLibs(root);
+    string sdkLibs = _seedLibsSource(root);
     if (sdkLibs.Length == 0) { return 0; }
+    // 把**来源目录**打进日志：这条链在 CI 上红过两次，而两次都因为「到底从哪儿补的」只能靠推断。
+    // 名字打出来，下次看一眼日志就能判是走了 `Z42_LIBS` 还是回落了 SDK。
+    _vNormal("  run-libs 缺口来源: " + sdkLibs);
     string[] hits = Path.Glob(sdkLibs, "*.zpkg");
     int filled = 0;
     int i = 0;
