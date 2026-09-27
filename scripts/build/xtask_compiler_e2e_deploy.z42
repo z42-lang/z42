@@ -502,7 +502,46 @@ int _e2eCompileLibsChecks(string root, string vm, string driverZpkg) {
         Console.WriteLine("  ✗ compile-libs: 报成功却没有产物");
         return 1;
     }
-    Console.WriteLine("  ✓ 编译期依赖面可与 driver 运行期加载面分开（--compile-libs）");
+    // ── ③ workspace 路径也要认这个旗标 ───────────────────────────────────────────────
+    //
+    // 🔴 `--compile-libs` 最初只接在**单包**路径上，而 `WorkspaceBuild.z42` 直接读 `Z42_LIBS`
+    // 拼 libsDirs ⇒ 旗标在 workspace 路径上被**静默绕过**。而 workspace 正是自举的主路径
+    // （`build --workspace` 重建全部编译器 / stdlib 成员）—— 绕过就等于对自举没用。
+    //
+    // 本格造一个**真 workspace**：成员 `wsm2` 依赖 `wsdep`，而 `wsdep` 只在 onlyDir 里。
+    // ⚠️ `wsdep` 的工程目录必须落在 **workspace 根之外** —— `members = ["*"]` 会把根下任何带
+    // `*.z42.toml` 的目录吞成成员，那样它就从成员 dist 解析得到、本格失去判别力（初稿踩过）。
+    string wsRoot = Path.Join(tmp, "ws");
+    string wsMem  = Path.Join(wsRoot, "wsm2");
+    Directory.Create(Path.Join(wsMem, "src"));
+    File.WriteAllText(Path.Join(wsRoot, "z42.workspace.toml"),
+        "[workspace]\nmembers = [\"*\"]\ndefault-members = [\"wsm2\"]\n\n"
+        + "[workspace.build]\noutput_dir = \"../wsout/${project_name}\"\n");
+    File.WriteAllText(Path.Join(Path.Join(wsMem, "src"), "b.z42"),
+        "namespace WsM2;\n\nusing ClDep;\n\npublic class Bx { public int G() { return new Thing().V(); } }\n");
+    File.WriteAllText(Path.Join(wsMem, "wsm2.z42.toml"),
+        "[project]\nname    = \"wsm2\"\nversion = \"0.1.0\"\nkind    = \"lib\"\n\n"
+        + "[sources]\ninclude = [\"src/*.z42\"]\n\n[dependencies]\n\"z42.core\" = \"0.1.0\"\n\"cldep\" = \"0.1.0\"\n");
+    // ③a 反向对照：workspace + 只 Z42_LIBS ⇒ 必须失败。
+    ProcessResult w1 = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg("--workspace").Arg("--release")
+        .WorkingDirectory(wsRoot)
+        .Env("Z42_LIBS", libsDir).Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
+    string wo1 = w1.Stdout + w1.Stderr;
+    if (w1.ExitCode == 0 || wo1.IndexOf("cldep") < 0) {
+        Console.WriteLine("  ✗ compile-libs: workspace 对照格没按预期失败（本该找不到 cldep）: " + wo1);
+        return 1;
+    }
+    // ③b 加旗标 ⇒ 必须成功。
+    ProcessResult w2 = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg("--workspace").Arg("--release")
+        .Arg("--compile-libs").Arg(libsDir + sep + onlyDir)
+        .WorkingDirectory(wsRoot)
+        .Env("Z42_LIBS", libsDir).Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
+    if (w2.ExitCode != 0) {
+        Console.WriteLine("  ✗ compile-libs: workspace 路径没认 --compile-libs（自举主路径上等于没用）: "
+            + w2.Stdout + w2.Stderr);
+        return 1;
+    }
+    Console.WriteLine("  ✓ 编译期依赖面可与 driver 运行期加载面分开（--compile-libs，单包 + workspace 两条路）");
     return 0;
 }
 
