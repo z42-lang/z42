@@ -54,7 +54,7 @@
 - [x] 7.3 两份 tasks.md 状态行从「待提交」转终态（含 PR 号 + 合并 sha）
 
 ## 登记（未修，另案）
-- 🔴 `ZpkgReader.Read`（`z42.ir`）版本失配时**静默 `return null`**，一条 warn 都不打 ⇒ 依赖包被
+- 🔴 `ZpkgReader.Read`（`z42.package`）版本失配时**静默 `return null`**，一条 warn 都不打 ⇒ 依赖包被
   整包跳过，用户看到的是满屏 `undefined: Span`。VM 侧同款失配有极好的报错。属
   [[audit-silent-gates-program]] 同族。
 - ⚠️ `ci-bootstrap` 的两代自举**缺「键收敛」一代**。纯格式 bump 不受影响；改派发键的 bump 会让

@@ -69,7 +69,7 @@ marshaling、单标量叶子塌缩、Value 密度压缩铺平道路。
 | `src/compiler/z42c.semantics/src/Bound.z42` | MODIFY | `BoundIsExpr` 结果 bool 类型产出改 |
 | `src/compiler/z42c.semantics/src/ExprEmitter.z42` | MODIFY | packed 数组元素判别（`at.Elem is Z42PrimType`）+ `_emitBox` 透传判别改按 Repr；`_emitBinary` 不动 |
 | `src/compiler/z42c.semantics/src/PrimModel.z42` | NEW | 单一「关键字↔Std.* 值类型」表（收敛七表；design 已批"新辅助"）——阶段 1 已落 |
-| `src/compiler/z42c.semantics/tests/primmodel/prim_model_tests.z42` | NEW | PrimModel 单测（独立单元，依赖 z42.ir 用 IrType）——阶段 1 已落 |
+| `src/compiler/z42c.semantics/tests/primmodel/prim_model_tests.z42` | NEW | PrimModel 单测（独立单元，依赖 z42.package 用 IrType）——阶段 1 已落 |
 | `src/compiler/z42c.semantics/tests/primmodel/z42c.semantics.test.primmodel.z42.toml` | NEW | 上述单元的构建配置 |
 | `src/compiler/z42c.semantics/tests/types/type_tests.z42` | MODIFY | `new Z42PrimType(...)` 机械替换/删除 |
 | `src/compiler/z42c.semantics/tests/bound/bound_tests.z42` | MODIFY | 同上 |

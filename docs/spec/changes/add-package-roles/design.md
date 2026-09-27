@@ -78,7 +78,7 @@ proposal 的三个待裁决点已裁，另补一条 proposal 列为 Out of Scope
 
 | 依赖 | 实际用量 | 判定 |
 |---|---|---|
-| `z42.ir` | **只**为 `Script.FormatVersion()` 拼一句版本串（`ZbcVersion` + `ZpkgWriterZ` 两个常量）| 🔴 假依赖 → **批 0 已断** |
+| `z42.package` | **只**为 `Script.FormatVersion()` 拼一句版本串（`ZbcVersion` + `ZpkgWriterZ` 两个常量）| 🔴 假依赖 → **批 0 已断** |
 | `z42c.syntax`（+ `z42c.core` 的 `Span`）| Lexer/Token —— Classifier / Completeness / Completer / Rewriter | ✅ 真依赖 |
 | `z42.build` | `IReplCompiler` 门面 | ⚠️ 门面住在编译器域包里，意义被落点抵消 |
 
@@ -106,7 +106,7 @@ libs + z42c 组件）。对标 .NET：`Microsoft.CodeAnalysis.CSharp.Scripting` 
 
 | 批 | 内容 | 状态 |
 |---|---|---|
-| **0** | 断 scripting 的假依赖（`z42.ir`）：`FormatVersion` 迁 z42i | ✅ 见 tasks |
+| **0** | 断 scripting 的假依赖（`z42.package`）：`FormatVersion` 迁 z42i | ✅ 见 tasks |
 | **1** | role 落地：`compiler-libs/` 解析域 + publisher 读 role + scripting 拆两包 + 门面搬家 | ⬜ |
 | **2** | `kind="analyzer"` + `[analyzers]` 支持 `path` + 隔离校验 + **handler ABI 握手 fail-fast** | ⬜ |
 | **3** | 大重命名：`std.*` 用户库 + `z42c.*` 编译器域（含 ir/project/build） | ⬜ |
@@ -119,7 +119,7 @@ libs + z42c 组件）。对标 .NET：`Microsoft.CodeAnalysis.CSharp.Scripting` 
 `ZPKG_VERSION_MAJOR/MINOR` 已在（`src/runtime/src/metadata/zbc_reader/versions.rs`），只是未经 builtin
 暴露给 z42。`Script.z42` 原注释也记着这个 follow-up（`repl-future-runtime-version`）。
 
-届时 `_formatVersion` 改调 `Std.Runtime`，**z42i 也不再需要 `z42.ir`**。需新 builtin ⇒ 走 vm 类型完整
+届时 `_formatVersion` 改调 `Std.Runtime`，**z42i 也不再需要 `z42.package`**。需新 builtin ⇒ 走 vm 类型完整
 变更流程，不搭批 0 的车。
 
 ## 参照系

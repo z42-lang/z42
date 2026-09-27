@@ -374,11 +374,11 @@ backing 类）→ `AttributeSynth` 不合成反射工厂。`HasDeprecated`/`Depr
 **② 持久化（零格式-bump，attr-ref 哨兵）**：`ClassDescBuilder._attrRefs(Decl)` 对弃用符号在返回的 attr-ref 数组
 末尾追加哨兵。生产覆盖所有经 `_attrRefs` 设 `.Attrs` 的产出点（类=IrGen cdesc.Attrs、字段=fdesc/sfdesc.Attrs、
 方法=irf.Attrs）。**既有 writer/reader 原样序列化 attr-ref 块**——零格式改动、零新 reader 逻辑。哨兵常量
-`IrDeprecation.Sentinel`（+`Has`/`Msg` 助手）放 **z42.ir**（叶子库），供生产（z42c.semantics）+ 消费（z42.ir
-TsigReconcile）共用（z42.ir 不能反依赖 z42c.semantics）。`$` 前缀不撞 D8 `*Attribute`。
+`IrDeprecation.Sentinel`（+`Has`/`Msg` 助手）放 **z42.package**（叶子库），供生产（z42c.semantics）+ 消费（z42.package
+TsigReconcile）共用（z42.package 不能反依赖 z42c.semantics）。`$` 前缀不撞 D8 `*Attribute`。
 
 **③ 跨包**：`TsigReconcile` 扫读到的 attr-ref 找哨兵（`IrDeprecation.Has/Msg`）→ `Exported{Method,Class,Field}Z`
-（+`IsDeprecated`/`DeprecationMsg`，z42.ir 新字段——**由 `_ensureBootstrapZ42Ir` 轴④ staging 保冷启动安全**）→
+（+`IsDeprecated`/`DeprecationMsg`，z42.package 新字段——**由 `_ensureBootstrapZ42Ir` 轴④ staging 保冷启动安全**）→
 `ImportedSymbolLoader`（仿 `IsSealed` 传播）→ `MethodSymbol`/`FieldSymbol`/`Z42ClassType`。本地由 SymbolCollector
 簇（MemberCollector/StubCollector）直接从 decl 的 `[Deprecated]` 设 symbol.IsDeprecated。
 
@@ -787,7 +787,7 @@ SIGS per-param default_kind 字节 → 写 0（vestigial，物理删除需 bump�
 
 - **零格式-bump**：不动 zbc/zpkg wire layout（骑既有 param attr-ref blob）→ 不触发 ci-bootstrap 两代转换 →
   绕开当前两代自举格式-bump 回归墙（PR #270 证实纯版本 bump 亦红）。
-- **无新跨成员符号跨包被引用**：ConstBlob helper 尽量落在被消费方同包（z42.ir / semantics-内部），
+- **无新跨成员符号跨包被引用**：ConstBlob helper 尽量落在被消费方同包（z42.package / semantics-内部），
   避免 post-F2 冷启动 stale-cache（复用 PR4d/4e 教训）。
 - **self-host byte-identical**：z42c/stdlib 源标量默认值改走 ConstBlob → 当前 z42c 确定性产出 → gen1==gen2；
   不使用 caller 宏 → 种子能编。
@@ -838,7 +838,7 @@ driver `--fix` flag → `cin.Fix` → `PackageCompile._runAnalyzers` 调 6-参 `
 **实测两点（偏离/补充设计）**：
 
 1. **z42c.semantics 新增 `z42.io` 直接依赖**（用 `File.ReadAllText/WriteAllText`）。z42.io **本已在 semantics
-   传递闭包**（semantics→z42.ir→z42.io，且 axis ④ 由 `_ensureBootstrapZ42Ir` 预建）→ 加**直接**依赖边不
+   传递闭包**（semantics→z42.package→z42.io，且 axis ④ 由 `_ensureBootstrapZ42Ir` 预建）→ 加**直接**依赖边不
    引入新 stdlib、不改自建产物（gated off）；`File` 是**预建 stdlib 既有符号**（种子 z42.io.zpkg 已含，
    非在建包新符号）→ 与 support 预种的 syntax→semantics 契约不同类，冷启动由 CI compile-toolchain 双门兜底。
 2. **splice 用 `String.Substring` 而非字节操作**：`Span.Start/End` 虽注为「byte offset」（C# 镜像语义），实际

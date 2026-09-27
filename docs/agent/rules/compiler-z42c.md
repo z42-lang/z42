@@ -29,19 +29,19 @@ paths:
 z42c 由 **5** 个子包组成（按依赖序），分处两地——改动前先读对应子包的 `README.md`：
 **`z42c.core` / `z42c.syntax` 在 `src/libraries/`**（它们同时被 REPL 等消费方用到），
 `z42c.semantics` / `z42c.pipeline` / `z42c.driver` 在 `src/compiler/`。
-IR 模型 + zbc/zpkg 格式 + 依赖索引已下沉 stdlib 库 **`z42.ir`**（namespace `Z42.IR` / `Z42.Project`
-不变；converge-z42c-ir-metadata-onto-stdlib，为 REPL 共享）——改 IR/格式/zpkg 后端去 `src/libraries/z42.ir`。
+IR 模型 + zbc/zpkg 格式 + 依赖索引已下沉 stdlib 库 **`z42.package`**（namespace `Z42.IR` / `Z42.Project`
+不变；converge-z42c-ir-metadata-onto-stdlib，为 REPL 共享）——改 IR/格式/zpkg 后端去 `src/libraries/z42.package`。
 
 | 子包 | 职责 | 关键文件 |
 |------|------|---------|
 | `z42c.core`（`src/libraries/`）| 基础设施：`Span` / `Diagnostic` / `DiagnosticBag` / `DiagnosticCodes` / `LanguageFeatures` | `Span.z42`、`Diagnostic*.z42`、`LanguageFeatures.z42` |
 | `z42c.syntax`（`src/libraries/`）| **语法层**：Lexer + Parser + AST | `TokenKind.z42`、`Lexer.z42`、`Parser.z42`、`Ast.z42`、`Stmt.z42`、`Decl.z42`、`TypeExpr.z42` |
-| `z42c.semantics` | 类型检查（符号收集 + TypeCheck）+ Codegen（Bound→IR，用 `z42.ir` 的模型） | `SymbolCollector.z42`、`TypeChecker.z42`、`Bound.z42`、`ExprEmitter.z42`、`IrGen.z42` |
+| `z42c.semantics` | 类型检查（符号收集 + TypeCheck）+ Codegen（Bound→IR，用 `z42.package` 的模型） | `SymbolCollector.z42`、`TypeChecker.z42`、`Bound.z42`、`ExprEmitter.z42`、`IrGen.z42` |
 | `z42c.pipeline` | 编译管线编排 + 依赖扫描 + workspace 构建 + `CacheStore`（增量缓存） | `PipelineSkeleton.z42`、`DepScan.z42`、`WorkspaceBuild.z42`、`CacheStore.z42` |
 | `z42c.driver` | CLI 入口（exe） | `Main.z42` |
 
 > IR/zpkg 后端（`IrModule`/`IrInstr`/`ZbcWriter`/`ZpkgWriter`/`ZpkgBuilder`/`TsigReconcile`/
-> `DependencyIndex` 等）现在 `src/libraries/z42.ir/`——见其 README。清单模型 `.z42.toml` 解析在
+> `DependencyIndex` 等）现在 `src/libraries/z42.package/`——见其 README。清单模型 `.z42.toml` 解析在
 > `src/libraries/z42.project`（converge-z42c-onto-z42-project）。
 
 ---

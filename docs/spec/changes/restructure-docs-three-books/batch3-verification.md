@@ -50,7 +50,7 @@
 | # | 写法 | 应当 | 实测 | 根因 |
 |---|---|---|---|---|
 | 1 | `void Inc(ref int x)` 调用写成 `Inc(v)`（漏写 `ref`） | 编译报错 | **编译通过，写入静默丢失** | 调用点修饰符不校验 |
-| 2 | `Inc(ref arr[0])` | `arr[0]` 被改 | **写入静默丢失**（打印 10 不是 11） | `z42.ir` 只有 `LoadLocalAddrInstr`，**没有 `LoadElemAddrInstr` / `LoadFieldAddrInstr`**；`ExprEmitter.z42:110-123` 对任何 `BoundRefArg` 一律「先发射 inner 再取该**临时寄存器**的地址」。运行时侧 `RefKind::Array` / `Field` 有定义但**无生产者** |
+| 2 | `Inc(ref arr[0])` | `arr[0]` 被改 | **写入静默丢失**（打印 10 不是 11） | `z42.package` 只有 `LoadLocalAddrInstr`，**没有 `LoadElemAddrInstr` / `LoadFieldAddrInstr`**；`ExprEmitter.z42:110-123` 对任何 `BoundRefArg` 一律「先发射 inner 再取该**临时寄存器**的地址」。运行时侧 `RefKind::Array` / `Field` 有定义但**无生产者** |
 | 3 | `Inc(ref h.f)` | `h.f` 被改 | **写入静默丢失**（打印 20 不是 21） | 同上 |
 | 4 | 单字段 `struct P { int x; }` 的 `var b = a; b.x = 99;` | `a` 不变（值语义） | **`a` 也变**（引用语义） | `StructLayout.IsBlobStruct` 要求「**多字段**且各字段非嵌套 struct」，单字段 struct 走不到 blob 值语义路径。两字段及以上（局部变量、数组元素）实测值语义正确 |
 
@@ -162,7 +162,7 @@ C1/C2/C3/C4a 分节标「已启用」。原生互操作 `E0903`–`E0916` 整组
 |---|---|
 | `#[derive(Z42Type)]` 示例可用，划给 reference | **是 `compile_error!` 占位**（`z42-macros/src/lib.rs:22-37`）—— 照搬即向用户发一份编译不过的例子 |
 | Rust↔ABI 映射表可用 | 大半不成立：`&T` / `&str` / `String` / `Vec<T>` / `&[T]` / `Box<T>` / `Result<T,E>` / 按值 `self` 全被 `signature.rs::parse_type` 拒绝 |
-| `pinned` 语法语义 → reference | **整条链不存在**：只有词法关键字 `TokenKind.Pinned`，无 AST / 解析 / 类型检查 / IR；`z42.ir` 里连 `PinPtr` 指令类都没有 |
+| `pinned` 语法语义 → reference | **整条链不存在**：只有词法关键字 `TokenKind.Pinned`，无 AST / 解析 / 类型检查 / IR；`z42.package` 里连 `PinPtr` 指令类都没有 |
 | `E0903` / `E0904` 现存 | **也是零发射点死码**（只有 `DiagnosticCodes.z42:127-128` 两行常量），与 `E0907/E0909/E0916` 同族 |
 | `[Layout]` / `[FieldOffset]` / `[UnmanagedCallback]` 成节 | 全仓零命中，从未实现 |
 | （未提及） | **`[Native(lib=,type=,entry=)]` 才是活的核心用户契约**（`StubEmitter.z42:79-84` 按有无 `type=` 分流 `CallNativeInstr` / `BuiltinInstr`）；且 `lib=` 在 builtin 那条路上**完全不参与解析** |

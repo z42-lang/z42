@@ -435,7 +435,7 @@ int _e2eDeployUseChecks(string root, string vm, string driverZpkg) {
 // ── 编译期依赖面与 driver 运行期加载面分离（`--compile-libs`，2026-09-27）──────────────
 //
 // **守的是什么**：`Z42_LIBS` 长期被两件事共用 —— ① VM 给 driver 自己加载运行期自依赖
-// （`z42.ir` / `z42.project`…）；② driver 编译当前工程时解析它的 `[dependencies]`。
+// （`z42.package` / `z42.project`…）；② driver 编译当前工程时解析它的 `[dependencies]`。
 // 平时一致所以没人察觉，**自举期这两件事要的是不同版本**：driver 是上一代二进制、运行期要它
 // 自己那代的库；而它编译的源码要解析当前源新建出来的库。
 //

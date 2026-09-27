@@ -34,7 +34,7 @@ REPL 的 Tab 补全（`repl-future-tab-completion`）当前 defer，前置写成
 - 编译期成员原料：`Z42ClassType.Fields`/`.Methods`（StrMap name→FieldSymbol/MethodSymbol）+ `OwnFieldNames[]`/`OwnMethodNames[]` + `OverloadsOf(name)`（`z42c.semantics/src/Z42Type.z42:55-134`）；`MethodSymbol` 带 `Visibility`/`IsStatic`/`Signature`/`ContainingTypeName`（`Symbol.z42`）——足够渲染补全项。
 - 符号表按名查询完整：`SymbolTable.GetClass/GetFunc/GetInterface/ResolveType`（`SymbolTable.z42:50-72`）。
 - 作用域链：`TypeEnv.Vars`/`LocalFns`（public StrMap）+ `LookupVar` 父链（`TypeEnv.z42:12-99`）。
-- `StrMap.Keys()`（`z42.ir/src/StrMap.z42:48`）——`Classes`/`Functions`/`Vars`/`Statics`/`Instances` 全 public StrMap，可无侵入枚举。**这是实现"scope/ns 枚举"最短路径。**
+- `StrMap.Keys()`（`z42.package/src/StrMap.z42:48`）——`Classes`/`Functions`/`Vars`/`Statics`/`Instances` 全 public StrMap，可无侵入枚举。**这是实现"scope/ns 枚举"最短路径。**
 - REPL 已缓存依赖世界：`ScriptState.CachedScan`（`DepScanResult`），含 `DependencyIndex`（跨包导出签名 `DepCallEntry.RetType/ParamCount`）+ `Exported[]`（全 TSIG 模块）。
 
 **缺口（本提案要补的主体）**

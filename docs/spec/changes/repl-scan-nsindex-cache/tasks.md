@@ -10,13 +10,13 @@
 >
 > ⚠️ 下方阶段清单为原始 B-only 计划，最终以 proposal.md 的 T1+B 设计为准。旧类型注释：perf
 > 子系统：`compiler`（z42c.pipeline `DepScan`）+ `toolchain`（—，A 否决后 Script 不改）
-> + 借道 `z42.ir`（`LazyReconWorld` 惰性开包）。**A 已否决**（见 proposal）——本 change 仅 B。
+> + 借道 `z42.package`（`LazyReconWorld` 惰性开包）。**A 已否决**（见 proposal）——本 change 仅 B。
 >
 > **GREEN**：① 自举 byte-identical（非惰性 `ScanDirs` 零改 → gen1==gen2 天然不受影响）；
 > ② REPL eval 正确性（表达式/Console/集合/声明/跨轮 var）改前后一致；③ 缓存命中 vs 未命中（open-all）
 > 产出的 nsMap/Exported 一致；④ libs 指纹变更 → 索引重建；⑤ `xtask test` 全绿。
 
-## 阶段 1: z42.ir / LazyReconWorld 惰性开包（additive，bootstrap 轴④安全）
+## 阶段 1: z42.package / LazyReconWorld 惰性开包（additive，bootstrap 轴④安全）
 - [ ] 1.1 加字段 `public string[] WorldPaths;`（null = eager 模式，现有构造器/FromEager 设 null）
 - [ ] 1.2 静态工厂 `LazyFromPairs(worldPaths, worldDirs, wc, pairNs, pairIdx, pairN)`：World[] 全 null、
       路由用传入 pair（不 open、不 ReadNamespaces）

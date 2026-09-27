@@ -83,7 +83,7 @@ z42 无 nullable string 惯用法 → 用并行 `bool HasPkgContext`（同 `RunT
 
 ## 5. `harness = false`：entry 自动探测
 
-[`ZpkgBuilder.AutoDetectEntry`](../../../../src/libraries/z42.ir/src/ZpkgBuilder.z42#L178) **已经存在**，
+[`ZpkgBuilder.AutoDetectEntry`](../../../../src/libraries/z42.package/src/ZpkgBuilder.z42#L178) **已经存在**，
 四级优先：FQ `.Main` → 裸 `Main` → FQ `.main` → 裸 `main`；同级多候选 → `"<ambiguous>"`。
 
 ⇒ `[[test]] harness = false` 的 `entry` **改为可选**。不写即自动探测；歧义时报诊断提示写 `entry`

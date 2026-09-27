@@ -61,7 +61,7 @@ graph LR
   的 bin/payload 配置，统一经 `z42 publish` 产出。这套配置是**用户面**机制——任何人发布自己的 app
   用的都是它。`z42c.driver` 的非 stdlib 项目依赖（`z42c.semantics` / `z42c.pipeline`）由
   `z42 publish` 自动解析、拷到同一落点 `programs/z42c/`，**因此不单独登记组件**，include 里只写
-  一次 `"z42c"`。可移植前端 `z42c.core` / `z42c.syntax` 与 `z42.ir` 已是共享库，随 stdlib 进 `libs/`。
+  一次 `"z42c"`。可移植前端 `z42c.core` / `z42c.syntax` 与 `z42.package` 已是共享库，随 stdlib 进 `libs/`。
 - **② 固定 staging handler 组件**不经 publish，由 `scripts/package/xtask_stage_components.z42` 里
   一个固定函数产出，但**同样逐个登记**，不留「隐形」组件：`z42vm` / `apphost-stub` 是 `cargo-bin`；
   `native` 是 `cargo-native`（`libz42.*` + 头文件，多文件但来源单一：同一个 cargo 工作区一次 build

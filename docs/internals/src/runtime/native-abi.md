@@ -211,7 +211,7 @@ PinSourceKind }` 住在 per-`VmContext` 的 `TransientArena` 里，随帧 LIFO �
 决策在本通路上的落点。
 
 **当前没有生产者**：`pinned` 是保留关键字，但 z42c 侧既没有语句解析也没有 `PinPtr` 的发射点，
-`z42.ir` 里连对应的指令类都没有。这两条 opcode 今天只由手写 IR 的测试驱动（§8.3）。
+`z42.package` 里连对应的指令类都没有。这两条 opcode 今天只由手写 IR 的测试驱动（§8.3）。
 
 ---
 

@@ -26,14 +26,14 @@ int _srcIntConst(string file, string decl) {
     return int.Parse(t.Substring(s, e - s));
 }
 
-// 本源码树的 zpkg 格式 minor（z42.ir 的写端常量 = SoT，与 Rust 读端 strict-pin 同步）。
+// 本源码树的 zpkg 格式 minor（z42.package 的写端常量 = SoT，与 Rust 读端 strict-pin 同步）。
 int _treeZpkgMinor(string root) {
-    return _srcIntConst(Path.Join(root, "src/libraries/z42.ir/src/ZpkgWriter.z42"),
+    return _srcIntConst(Path.Join(root, "src/libraries/z42.package/src/ZpkgWriter.z42"),
         "public static int Minor = ");
 }
 
 // 一个 .zpkg 文件头里的格式 minor；文件不在 / 太短 / 坏 magic → -1。
-// 头布局见 `z42.ir` 的 `ZpkgWriterZ._assemble`：'Z''P''K' 0 | major:u16le | minor:u16le | …
+// 头布局见 `z42.package` 的 `ZpkgWriterZ._assemble`：'Z''P''K' 0 | major:u16le | minor:u16le | …
 int _zpkgFileMinor(string file) {
     if (!File.Exists(file)) { return -1; }
     byte[] b = File.ReadAllBytes(file);
@@ -98,18 +98,30 @@ int _z42cWorkspaceBuild(string vm, string driver, string cwd, string libs, bool 
     if (noIncremental) { p = p.Arg("--no-incremental"); }
     return p
         .WorkingDirectory(cwd)
-        .Env("Z42_LIBS", libs)
+        .Env("Z42_LIBS", libs).Env("Z42_PROBING_PATHS", _legacyNameAliasProbe())
         .Stdout(_verbAtLeast(3) ? Stdio.Inherit() : Stdio.Null()).Stderr(Stdio.Inherit())
         .Run().ExitCode;
 }
 
+// rename-z42-ir-to-z42-package 阶段 1：上一代种子（z42c.driver / z42b / devtools / z42i）的
+// `DEPS` 里记的依赖名仍是 `z42.ir`，而本轮产物已叫 `z42.package`。
+//
+// 兼容副本放在**只挂 probing-paths 的目录**、**不进 `Z42_LIBS`** —— 后者是编译期解析面，副本进去
+// 会让编译器看见两个包导出相同 FQN（满屏 `E0606`，实测踩过）。`probing-paths` 是运行期专用，
+// 正好把「种子加载自己的依赖」与「编译当前源」分开。目录不存在时 VM 静默跳过。
+// STAGE2-DEBT(z42ir-probing-wiring): 下一 nightly 后删掉本函数与所有 Z42_PROBING_PATHS 传参
+string _legacyNameAliasProbe() {
+    return Path.Join(Path.Join(Path.Join(_root(), "artifacts"), ".scratch"),
+                     Path.Join("legacy-name-alias", "release"));
+}
+
 // 单包 `build <toml> --release --output-dir <out>`：把一个成员 zpkg 直接写到 <out>/<name>.zpkg
-// （非 workspace 布局）。冷启动破 z42c⇄z42.ir 环用（_ensureBootstrapSelfDepLibs）：种子 driver
-// 先把当前源码的 z42.ir 编进 build-libs，让 fresh z42c 对着真 z42.ir 编译+运行。
+// （非 workspace 布局）。冷启动破 z42c⇄z42.package 环用（_ensureBootstrapSelfDepLibs）：种子 driver
+// 先把当前源码的 z42.package 编进 build-libs，让 fresh z42c 对着真 z42.package 编译+运行。
 int _z42cBuildPackage(string vm, string driver, string tomlPath, string libs, string outputDir) {
     return new Process(vm).Arg(driver).Arg("--mode").Arg(_z42cMode()).Arg("--")
         .Arg("build").Arg(tomlPath).Arg("--release").Arg("--output-dir").Arg(outputDir)
-        .Env("Z42_LIBS", libs)
+        .Env("Z42_LIBS", libs).Env("Z42_PROBING_PATHS", _legacyNameAliasProbe())
         .Stdout(_verbAtLeast(3) ? Stdio.Inherit() : Stdio.Null()).Stderr(Stdio.Inherit())
         .Run().ExitCode;
 }

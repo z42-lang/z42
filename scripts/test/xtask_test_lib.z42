@@ -210,7 +210,7 @@ int _testLibCore(string kind, string[] reqLibsIn, bool noBuild, string filter, s
     //      （`nReq == 0` → 内层 `while (qi < nReq)` 空转，orphaned 恒为空）；
     //   ② `totalFiles` 是**全局**计数，全扫时必然 > 0，条件根本不成立。
     // 两条独立原因让它在唯一重要的那条路径上永不触发。而它本就是为
-    // 「z42.ir / z42c.core / z42c.syntax 静默数月」而加的——修补存在，却没装在漏过去的路上。
+    // 「z42.package / z42c.core / z42c.syntax 静默数月」而加的——修补存在，却没装在漏过去的路上。
     if (totalFailed > 0) {
         Console.WriteLine("  ❌ stdlib " + label + ": " + totalFailed.ToString()
             + " file(s) failed (of " + totalFiles.ToString() + " in " + libsTested.ToString() + " lib(s))");

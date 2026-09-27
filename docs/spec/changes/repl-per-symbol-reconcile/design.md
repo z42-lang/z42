@@ -22,7 +22,7 @@
 firstSig）+ **5 个长度前缀体**（func/TYPE/dbug/regt/tidx）。当前**顺序读全部模块**。**关键**：体是长度前缀
 → 可 `m.Pos += len` 跳过非目标模块，只对目标模块 `ZbcReader.ReadTypeAt`。→ **按命名空间 seek，零格式改动**。
 
-## 3. Phase 1：按命名空间读（z42.ir，零格式改动，低风险）
+## 3. Phase 1：按命名空间读（z42.package，零格式改动，低风险）
 
 ### 3.1 新读取入口
 ```
@@ -144,7 +144,7 @@ TYPE 体头部：typeCount:varint + 每类 (fqStrIdx:varint 走 STRS 池, bodyOf
 
 试过**中层** per-ns：`LazyReconWorld.EnsureFq` 从整包 `EnsureIdx` 改为按命名空间 `EnsureNs`（只读引用的 ns
 模块）。跑自举字节不动点 → 报 `z42c.syntax: no method Count/Get/Add on DiagnosticBag`（DiagnosticBag 丢
-方法）+ `no static method ToDouble on Convert`（z42.ir bootstrap）。
+方法）+ `no static method ToDouble on Convert`（z42.package bootstrap）。
 
 回退后本地不动点仍报错——**根因是 worktree 环境态**（① `artifacts/build` 被数十次 churn 坏 → `rm -rf` 清掉；
 ② `.z42` seed 是 07-29，比 B+T1(#91) 旧 → gen1≠gen2，换 08-01 匹配 nightly seed）。修复环境后：**additive

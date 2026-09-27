@@ -12,7 +12,7 @@
 - [ ] 阶段 5: 跨包 e2e 测试
 - [ ] 阶段 6: CI 两代自举 GREEN + 临时 fixture-regen 步 + 文档同步 + 归档
 
-## 阶段 1: 序列化载体（z42.ir）
+## 阶段 1: 序列化载体（z42.package）
 - [x] 1.1 `IrModule.z42`：`IrClassDesc` 加 `int Visibility`（默认 0）
 - [x] 1.2 `ZbcWriter.z42`：`w.WriteU8(cd.Visibility)` 紧随 `WriteU8(cd.Flags)`
 - [x] 1.3 `ZbcReader.z42`：`cd.Visibility = c.U8()` 紧随 `cd.Flags = c.U8()`
@@ -31,7 +31,7 @@
 - [x] 3.3 `zbc_reader_tests.rs`：版本 pin + `build_type_section_one_struct` push 可见性字节
 
 ## 阶段 4: 本地验证（macOS 上限）
-- [x] 4.1 z42.ir gen0 编译（seed 0.37 编 ② 源过）
+- [x] 4.1 z42.package gen0 编译（seed 0.37 编 ② 源过）
 - [x] 4.2 `cargo build`（z42vm）通过
 - [x] 4.3 `cargo test --lib`：919 pass；5 committed-fixture 测试 + 11 host 集成测试因 0.38 stdlib 本地不可产而失败（macOS 两代自举墙，转 CI）
 - [ ] 4.4 （CI）完整 GREEN

@@ -2,7 +2,7 @@
 
 > **页型**: 机制页 ｜ **状态**: ✅ 已实现（代码共享 + 运行期类型实参）
 > **代码**: `src/compiler/z42c.semantics/`（TypeChecker / IrGen / SymbolCollector）·
-> `src/libraries/z42.ir/`（zbc TYPE/SIGS 约束布局）· `src/runtime/src/corelib/reflection/generics.rs`
+> `src/libraries/z42.package/`（zbc TYPE/SIGS 约束布局）· `src/runtime/src/corelib/reflection/generics.rs`
 > **相关**: [泛型类型实参推断](generic-inference.md) · [架构总览](architecture.md) ·
 > [源代码编译流程](source-compile.md) ｜ **对齐**: 2026-09-17
 >

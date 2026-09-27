@@ -126,7 +126,7 @@ local / ref return，这套表示要连同 §2.2 一起重做。
 - **`callee 的 IR 看不见 `ref``**：`Param.IsRef` 只影响 **caller** 侧发不发地址加载指令，callee 寄存器类型不变。
   逃逸分析因此没有任何指令可以认出"写回汇点"，只能保守地把**被函数体重新定义过的参数槽一律标逃逸**——
   详见 [escape-analysis.md](escape-analysis.md)。
-- **只有 `LoadLocalAddrInstr` 真正落地**：`z42.ir` 里没有 `LoadElemAddrInstr` / `LoadFieldAddrInstr`，
+- **只有 `LoadLocalAddrInstr` 真正落地**：`z42.package` 里没有 `LoadElemAddrInstr` / `LoadFieldAddrInstr`，
   `ExprEmitter` 对任何 `BoundRefArg` 都先把 inner 发射成一个寄存器再取该寄存器的地址。于是 `ref arr[i]` /
   `ref obj.field` 编译通过但写回落在临时槽上——**写入静默丢失**（2026-09-17 实测）。`RefKind::Array` /
   `Field` 两个变体目前在 z42c 产物里没有生产者。

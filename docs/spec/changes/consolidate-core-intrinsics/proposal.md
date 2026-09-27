@@ -9,7 +9,7 @@
 （[organization.md](../../../internals/src/stdlib/organization.md)）：
 
 - **位转换** `__double_to_bits` / `__double_from_bits` / `__single_to_bits` / `__single_from_bits`：
-  在 `z42.io.binary`（BinaryWriter/Reader）**和** `z42.ir`（ZbcInstr/ZbcReaderInstr）双声明。
+  在 `z42.io.binary`（BinaryWriter/Reader）**和** `z42.package`（ZbcInstr/ZbcReaderInstr）双声明。
 - **时钟** `__time_now_ms`：`z42.time` / `z42.io` / `z42.net` 三声明；
   `__time_now_mono_ns`：`z42.time` **和** `z42.test` 双声明。
 
@@ -19,11 +19,11 @@
 
 - **core 新增两个最小原语门面**：`Std.BitConverter`（4 个位转换）+ `Std.Runtime.Clock`（wall/mono 时钟）。
 - **各库删除自带 extern，改调 core**：io.binary / ir（位转换）、time / io / net / test（时钟）。
-- **z42.ir 保留 `ZbcInstr.DoubleToBits` / `ZbcReaderInstr.BitsToDouble` 的公开签名**（改为委托 core 的薄
+- **z42.package 保留 `ZbcInstr.DoubleToBits` / `ZbcReaderInstr.BitsToDouble` 的公开签名**（改为委托 core 的薄
   wrapper，仅删 extern）——因为 **z42c 源（IrGenFacts）在用这两个方法**，改其 API 会踩 seed-API 两-nightly
   轴。保留签名 = z42c 源零改动 = 不触发该轴。
-- **bootstrap 脚本修正**：`_ensureBootstrapZ42Ir` 在单包重建 `z42.ir` **前**先把当前源 `z42.core` 建进 flat
-  libs——否则冷/首暖构建时 `z42.ir` 对着缺 `BitConverter` 的旧 flat core 编译 → `undefined function`（详见 design 决策 3）。
+- **bootstrap 脚本修正**：`_ensureBootstrapZ42Ir` 在单包重建 `z42.package` **前**先把当前源 `z42.core` 建进 flat
+  libs——否则冷/首暖构建时 `z42.package` 对着缺 `BitConverter` 的旧 flat core 编译 → `undefined function`（详见 design 决策 3）。
 
 ## Scope（允许改动的文件）
 
@@ -33,14 +33,14 @@
 | `src/libraries/z42.core/src/Clock.z42` | NEW | `Std.Runtime.Clock`：`WallMillis()` / `MonoNanos()` extern |
 | `src/libraries/z42.io.binary/src/BinaryWriter.z42` | MODIFY | 删 `_SingleToBits`/`_DoubleToBits` extern，改调 `Std.BitConverter` |
 | `src/libraries/z42.io.binary/src/BinaryReader.z42` | MODIFY | 删 `_SingleFromBits`/`_DoubleFromBits` extern，改调 core |
-| `src/libraries/z42.ir/src/BinaryFormat/ZbcInstr.z42` | MODIFY | `DoubleToBits` 保签名、删 extern、委托 core |
-| `src/libraries/z42.ir/src/BinaryFormat/ZbcReaderInstr.z42` | MODIFY | `BitsToDouble` 保签名、删 extern、委托 core |
+| `src/libraries/z42.package/src/BinaryFormat/ZbcInstr.z42` | MODIFY | `DoubleToBits` 保签名、删 extern、委托 core |
+| `src/libraries/z42.package/src/BinaryFormat/ZbcReaderInstr.z42` | MODIFY | `BitsToDouble` 保签名、删 extern、委托 core |
 | `src/libraries/z42.time/src/DateTime.z42` | MODIFY | 删 `NowMs` extern，改调 `Std.Runtime.Clock.WallMillis` |
 | `src/libraries/z42.time/src/Stopwatch.z42` | MODIFY | 删 `MonoNs` extern，改调 `Std.Runtime.Clock.MonoNanos` |
 | `src/libraries/z42.io/src/Environment.z42` | MODIFY | `GetCurrentTimeMs` 保签名、删 extern、委托 core |
 | `src/libraries/z42.net/src/Http/HttpClient.z42` | MODIFY | 删 `_timeNowMs` extern，改调 core |
 | `src/libraries/z42.test/src/Bencher.z42` | MODIFY | 删 `__time_now_mono_ns` extern，改调 core |
-| `scripts/build/xtask_compiler.z42` | MODIFY | `_ensureBootstrapZ42Ir`：z42.ir 前先建当前源 z42.core |
+| `scripts/build/xtask_compiler.z42` | MODIFY | `_ensureBootstrapZ42Ir`：z42.package 前先建当前源 z42.core |
 | `src/libraries/z42.core/src/README.md` | MODIFY | 功能索引 + 核心文件登记 BitConverter/Clock |
 | `src/libraries/README.md` | MODIFY | Extern 现状审计表：io.binary/ir/time 位转换·时钟已归 core |
 | `docs/design/stdlib/organization.md` | MODIFY | 「现状」表 extern 列刷新 |

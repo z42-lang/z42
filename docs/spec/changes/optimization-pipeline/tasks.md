@@ -26,7 +26,7 @@
 - [x] 3.4 xtask test compiler —— 自举不动点 5/5 gen1==gen2 + 20 units
 - [ ] 3.5 xtask test stdlib —— [Test] dogfood 全绿（运行中）
 - [ ] 3.6 xtask test vscode-syntax —— grammar 一致（应不受影响）
-- [ ] 3.7 文档同步：z42.ir/README 或 semantics/README 功能索引加 IrOpt；book 补机制节
+- [ ] 3.7 文档同步：z42.package/README 或 semantics/README 功能索引加 IrOpt；book 补机制节
 - [ ] 3.8 归档 + commit（.claude/ + docs/spec/ 纳入）
 
 ## 阶段 4: 后续 pass

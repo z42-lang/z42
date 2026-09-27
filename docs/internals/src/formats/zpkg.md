@@ -1,6 +1,6 @@
 # zpkg 包格式
 
-> **页型**: 参考页 ｜ **状态**: ✅ 已实现（v0.43）｜ **代码**: `src/libraries/z42.ir/src/`（`ZpkgWriter.z42` / `ZpkgWriterIndexed.z42` / `ZpkgReader.z42`）
+> **页型**: 参考页 ｜ **状态**: ✅ 已实现（v0.43）｜ **代码**: `src/libraries/z42.package/src/`（`ZpkgWriter.z42` / `ZpkgWriterIndexed.z42` / `ZpkgReader.z42`）
 > **相关**: [zbc 字节码格式](zbc.md) · [工程模型、依赖解析与工作区编译](../../../internals/src/compiler/project-model.md) ｜ **对齐**: 2026-07-19
 
 ## 概述
@@ -211,7 +211,7 @@ zbc version 0.7 → 0.8。pre-1.0 规则：旧 zbc 不可读，需要 `./xtask b
 
 ## 泛型接口 dispatch — Z42InterfaceType.TypeParams（2026-04-26 fix-generic-interface-dispatch）
 
-> 写出/读取实现：`z42.ir/src/ZpkgWriter.z42` 的 IMPL 段 · `ZpkgReader.z42` 按位置挂回 `Impls`。
+> 写出/读取实现：`z42.package/src/ZpkgWriter.z42` 的 IMPL 段 · `ZpkgReader.z42` 按位置挂回 `Impls`。
 
 ## Packed vs Indexed
 
@@ -232,7 +232,7 @@ release strip 时，调试信息剥离到旁挂 `.zsym`：flags = `Packed | SymO
 `.zsym`，build_id 匹配则按 index 把行表 merge 回模块 → 栈跟踪直接出 `file:line:col`（`.zsym`
 不在旁 → 栈出 `at <fn> +0x<offset>`）。② **离线符号化**——部署常不带 `.zsym`；归档 `.zsym` 后用
 `z42d symbolicate <trace> --syms <file|dir>...`（多路径递归，参考 addr2line/Breakpad）据 MDBG 的
-frameName → 行表 把 `+0x<offset>` 还原成 `file:line:col`。z42 侧读 `.zsym` 见 `z42.ir` 的 `SidecarReader`。
+frameName → 行表 把 `+0x<offset>` 还原成 `file:line:col`。z42 侧读 `.zsym` 见 `z42.package` 的 `SidecarReader`。
 
 ### 两种构建形态
 
@@ -309,7 +309,7 @@ zpkg 同样读不了。所以 **一个 z42vm 与它加载的每一个 `.zpkg` �
 | reader | 谁在用 | 什么时候读 |
 |---|---|---|
 | `src/runtime/src/metadata/zbc_reader`（Rust） | z42vm | **运行期**加载包 |
-| `src/libraries/z42.ir/src/ZpkgReader.z42`（z42） | z42c / z42b / REPL / 分析工具 | **编译期**跨包扫描（`DepScan.ScanDirs` 把 libsDirs 下所有 `z42.*.zpkg` 当数据盲读） |
+| `src/libraries/z42.package/src/ZpkgReader.z42`（z42） | z42c / z42b / REPL / 分析工具 | **编译期**跨包扫描（`DepScan.ScanDirs` 把 libsDirs 下所有 `z42.*.zpkg` 当数据盲读） |
 
 上一节那套「点名 + 给补救命令」此前**只在 Rust 那边落地**；z42 侧的 `ZpkgReader.Open` 对版本
 失配是一条光秃秃的 `return null`，一个字都不打。后果与上一节描述的一模一样，只是搬到了编译期：

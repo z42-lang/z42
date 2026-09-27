@@ -2,7 +2,7 @@
 
 > Status: **DRAFT**（2026-09-17；等 User 裁决分期与取舍后进 IMPL）
 > 分类：lang（语义 / 诊断）+ ir（新 opcode 发射）→ **走规范先行流程**
-> 子系统：compiler（`z42c.semantics` / `z42.ir`）· 少量 runtime 核实
+> 子系统：compiler（`z42c.semantics` / `z42.package`）· 少量 runtime 核实
 > 来源：三书重构批 3 的字段级核实副产品，见
 > [batch3-verification.md](../restructure-docs-three-books/batch3-verification.md) 附录 A
 
@@ -38,7 +38,7 @@
 
 缺口 2 的根因已定位得很清楚，而且**修法的地基已经在了**：
 
-- `z42.ir` **只有 `LoadLocalAddrInstr`**（opcode `0xA0`）
+- `z42.package` **只有 `LoadLocalAddrInstr`**（opcode `0xA0`）
 - **运行时侧三条全有、且实现完整**：`0xA0` / `0xA1 LoadElemAddr` / `0xA2 LoadFieldAddr`
   （`src/runtime/src/metadata/zbc_reader/opcodes.rs:80-82`），执行在 `src/runtime/src/interp/exec_address.rs`
 - `ExprEmitter.z42:110-123` 对任何 `BoundRefArg` 一律「先发射 inner，再取那个**临时寄存器**的地址」
@@ -124,7 +124,7 @@
 | 缺口 | 修法方向 | 性质 |
 |---|---|---|
 | 1 | 调用点修饰符校验（漏写 `ref` 报错） | 新诊断码；**会让现有代码变红**（含 stdlib，需先普查） |
-| 2 | `z42.ir` 补 `LoadElemAddrInstr` / `LoadFieldAddrInstr`（`0xA1`/`0xA2`）+ `ExprEmitter` 按 inner 形态分流 | **发射新 opcode ⇒ 按 `version-bumping.md` 要 zbc bump**；VM 侧已就绪，自举安全（解码支持 2026-08-24 已进） |
+| 2 | `z42.package` 补 `LoadElemAddrInstr` / `LoadFieldAddrInstr`（`0xA1`/`0xA2`）+ `ExprEmitter` 按 inner 形态分流 | **发射新 opcode ⇒ 按 `version-bumping.md` 要 zbc bump**；VM 侧已就绪，自举安全（解码支持 2026-08-24 已进） |
 | ~~3~~ | **移出** → `unify-value-types` Phase 4 | 见上方「归属核实」 |
 | 附带 | `default(值 struct)` 改发 `StructAlloc`（它本就是「分配零初始化 blob」）而非 `ConstNull` | 修点在 `ExprEmitter.z42:206-247` 的 `BoundDefault` 兜底分支前，约 5 行 |
 | 4 | struct 静态字段：装箱进堆 / 模块级 arena / **或先报清晰诊断** | arena 是 per-frame LIFO，与模块级生命周期有根本矛盾；可能短期只能先报诊断 |

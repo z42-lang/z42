@@ -10,7 +10,7 @@ include = ["**/*.z42"]
 [dependencies]
 "z42c.semantics" = "0.1.0"
 "z42c.core"      = "0.1.0"
-"z42.ir"        = "0.1.0"   # IrType（IrTag 投影断言）
+"z42.package"        = "0.1.0"   # IrType（IrTag 投影断言）
 
 [build]
 # Build output → artifacts mirror (mirror-build-output-per-component):

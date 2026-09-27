@@ -5,7 +5,7 @@
 ### Requirement: 编译期 IR 优化管线框架
 
 z42c 在 emit IrModule 后、写 zbc 前跑一个引擎无关的 IR 优化管线（`IrOptPipeline.Run`），逐函数应用
-可组合的 pass。pass 只用 z42.ir 现有 public 字段（compiler 源码内 type-switch），不新增 z42.ir API。
+可组合的 pass。pass 只用 z42.package 现有 public 字段（compiler 源码内 type-switch），不新增 z42.package API。
 
 #### Scenario: 管线遍历所有函数
 - **WHEN** IrGen.Generate 产出含 N 个函数（含类方法——均在 `IrModule.Functions`）的模块

@@ -38,7 +38,7 @@ Pratt 表达式解析(1) · 方法重载决议 type-based mangling(16)
 
 **跨 zpkg `impl` 块传播 — IMPL section + Phase 3 merge**（原文 439–517 行，79 行）
 
-- **仍活着**：`z42.ir/src/ZpkgWriter.z42:371` 写 IMPL 段、`ZpkgReader.z42:484` 读，两处注释均自述
+- **仍活着**：`z42.package/src/ZpkgWriter.z42:371` 写 IMPL 段、`ZpkgReader.z42:484` 读，两处注释均自述
   「镜像 C# `BuildImplSection`」「布局 1:1」——**说明这份 C# 文档目前仍是该 wire 布局的最好描述**。
 - **归属**：它是 **zpkg 格式**的一部分 ⇒ 批 2 的 `internals/src/formats/zpkg.md`，不是编译器页。
 - ⇒ **本批不删 `compiler-architecture.md`**，留到批 2：那时 IMPL 内容落进 `formats/zpkg.md`，
