@@ -742,3 +742,78 @@ void test_qualified_declaration_type_is_not_ambiguous() {
         "namespace B;\npublic class Widget { public int b; }",
         "namespace C;\nusing A;\nusing B;\nclass Holder { public A.Widget w; }"), "E0456"));
 }
+// ── interface-names-fqn：带 `namespace` 的用例（**真门**）────────────────────────
+//
+// 🔴 **为什么必须带 namespace**：本文件既有的接口用例（`test_partial_interfaces_union`）
+// 与 `conversion_tests.z42:97` 的手搭表，源码里都**没有 `namespace`** ⇒ `Fqn()` 退化成短名
+// ⇒ `InterfaceNames[i] == "IA"` 这类断言无论归一 pass 挂没挂上都成立 = **空门**。
+// 「harness 绿、真实路径红」的标准形态。下面几条才真的会红。
+//
+// 这些用例走 `collect()` = `SymbolCollector.Collect`，正是归一 pass 此前**漏挂**的那条
+// 平行 pass 序列（`Collect` / `CollectWithImports` / `CollectAll` 三份，只挂了第三份）。
+
+[Test]
+void test_iface_names_qualified_under_namespace() {
+    var t = collect("namespace Demo; interface IA { } class Foo : IA { }");
+    var foo = t.GetClass("Foo");
+    Assert.Equal(1, foo.InterfaceCount);
+    Assert.Equal("Demo.IA", foo.InterfaceNames[0]);
+}
+
+// `Implements` 在入口无条件把查询侧归一成 FQN ⇒ 调用方传短名还是 FQN 都必须对。
+// 归一 pass 漏挂在某条 pass 序列上时这条恒 false —— 那正是 class→iface 误报 E0402
+// **且** 约束满足性漏报的形态（误报与漏报同时发生）。
+[Test]
+void test_implements_accepts_both_spellings_under_namespace() {
+    var t = collect("namespace Demo; interface IA { } class Foo : IA { }");
+    Assert.Equal(true, t.Implements("Foo", "IA"));
+    Assert.Equal(true, t.Implements("Foo", "Demo.IA"));
+}
+
+// `BaseNames`（接口的父接口）与 `InterfaceNames` **必须一起翻**：`Implements` 的传递闭包 BFS
+// 同时用两者（前者作种子、后者沿父接口展开），只翻一张就会在 BFS 里 FQN 与短名混比、静默失配。
+[Test]
+void test_iface_base_chain_qualified_under_namespace() {
+    var t = collect("namespace Demo; interface IBase { } interface IDer : IBase { } class Foo : IDer { }");
+    var der = t.GetInterface("IDer");
+    Assert.Equal("Demo.IBase", der.BaseNames[0]);
+    Assert.Equal(true, t.Implements("Foo", "IBase"));
+    Assert.Equal(true, t.Implements("Foo", "Demo.IBase"));
+}
+
+// 归一是**幂等**的（`GetInterface` 双键：喂 FQN 进来仍得同一个 FQN）。
+// A3 的「归一 pass 写入穿透到共享数组、多轮 CollectAll 会归一同一批数组 N 次」目前
+// 只靠这条幂等性兜住、此前零断言 —— 这里把它变成断言。
+[Test]
+void test_iface_fqn_normalization_is_idempotent() {
+    var t = collect("namespace Demo; interface IA { } class Foo : IA { }");
+    var foo = t.GetClass("Foo");
+    Assert.Equal("Demo.IA", SymbolTable.IfaceFqnOf(t, foo.InterfaceNames[0]));
+    Assert.Equal("Demo.IA", SymbolTable.IfaceFqnOf(t, SymbolTable.IfaceFqnOf(t, "IA")));
+}
+
+// 查不到的名字（型参 / 未解析名）原样返回，不猜。
+[Test]
+void test_iface_fqn_of_unknown_is_passthrough() {
+    var t = collect("namespace Demo; interface IA { } class Foo : IA { }");
+    Assert.Equal("TNotAnInterface", SymbolTable.IfaceFqnOf(t, "TNotAnInterface"));
+}
+
+// enforce-fqn-name-identity 阶段 2：`IfaceNsAll` —— 接口的「短名 → 全部声明 ns」。
+// 🔴 此前接口**完全没有**这份数据（`ClassNsAll` 两个生产点都只覆盖类）⇒ 接口歧义判不出来。
+[Test]
+void test_iface_ns_all_records_every_declaring_ns() {
+    var t = pmergeTable(
+        "namespace A;\npublic interface IFoo { }",
+        "namespace B;\npublic interface IFoo { }");
+    // 短名表只留得下一份（last-wins），本表要的正是被它塌掉的那个信息。
+    Assert.Equal(2, t.IfaceNsOf("IFoo").Length);
+}
+
+// 单一声明 ns ⇒ 不歧义（下界，防判据把正常情形也判成歧义）。
+[Test]
+void test_iface_single_ns_is_not_ambiguous() {
+    var t = collect("namespace Demo; interface IA { } class Foo : IA { }");
+    Assert.Equal(1, t.IfaceNsOf("IA").Length);
+    Assert.Equal(false, t.IsBareIfaceNameAmbiguous("IA"));
+}

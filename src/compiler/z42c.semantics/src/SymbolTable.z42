@@ -46,6 +46,17 @@ public sealed partial class SymbolTable {
     // 之后没人回来改 —— 又一条「没有东西盯着的断言迟早变谎言」。
     // 但 `ClassNsAll` 仍**不可删**：它要答的是「同一**短名**有几个 ns」的 O(1) 反查，FQN 键表给不了。
     public StrMap ClassNsAll;
+    // enforce-fqn-name-identity 阶段 2：**接口**短名 → 全部声明 ns（对称 `ClassNsAll`）。
+    //
+    // 🔴 为什么接口需要而此前没有：`ClassNsAll` 的两个生产点都只覆盖类（`StubCollector` 的类分支
+    // `NoteClassNs`、`ImportedSymbolLoader` 的**类**循环）⇒ **接口的歧义此前完全判不出来**。
+    // 而「短名 → FQN」的归一要把「多解」变成响亮错误，就得先有这份数据，
+    // 否则只能靠 `Interfaces` 表的 first/last-wins 撞一个赢家出来。
+    //
+    // ⚠️ **暂不并进 `ClassNsAll`**（并表才合「判据只此一份」的既定纪律）：并表会让
+    // `IsBareNameAmbiguous` 立刻对 11 个 prelude 协议名全仓开火。两表合一是阶段 3 的事；
+    // 届时 `IsBareIfaceNameAmbiguous` 与 `IsBareNameAmbiguous` 要**一起塌成一个**，别各自漂移。
+    public StrMap IfaceNsAll;
     // report-crosspkg-duplicate-type：**FQN → 声明它的全部依赖包名**（值 StrBox，"|" 连接）。
     // 与 ClassNsAll 同构、但另一根轴：那张表答「同一个短名有几个 ns」（E0456），这张答
     // 「同一个 **FQN** 有几个来源包」（E0601）。两者不可合并 —— 同 FQN 跨包时 ns 完全相同，
@@ -105,6 +116,7 @@ public sealed partial class SymbolTable {
         this.EnumConsts = new StrMap();
         this.Delegates = new StrMap();
         this.ClassNsAll = new StrMap();
+        this.IfaceNsAll = new StrMap();   // enforce-fqn-name-identity 阶段 2
         this.ClassPkgAll = new StrMap();   // report-crosspkg-duplicate-type
         this.FuncOriginAll = new StrMap();   // report-crosspkg-duplicate-function
         this.DeclaredDeps = new StrMap();    // fix-crosspkg-ns-reachability
@@ -146,6 +158,7 @@ public sealed partial class SymbolTable {
         t.EnumConsts = this.EnumConsts;
         t.Delegates = this.Delegates;
         t.ClassNsAll = this.ClassNsAll;   // add-bare-name-ambiguity-diagnostic：共享（并行段内只读）
+        t.IfaceNsAll = this.IfaceNsAll;   // enforce-fqn-name-identity 阶段 2：共享（并行段内只读）
         t.ClassPkgAll = this.ClassPkgAll;   // report-crosspkg-duplicate-type：共享（并行段内只读）。⚠️ 漏了这行 = 门恒不响
         t.FuncOriginAll = this.FuncOriginAll;   // report-crosspkg-duplicate-function：同上，漏了这行门就恒不响
         t.DeclaredDeps = this.DeclaredDeps;     // fix-crosspkg-ns-reachability：同上三行，漏了 E0497 就恒不响
@@ -308,6 +321,20 @@ public sealed partial class SymbolTable {
     //   步 3：**响亮探测**找出残留的短名调用方（不是静默回落——那是假门），修完删回落支。
     //
     // 🔴 顺序不能反：先翻键再改调用点，中间态就是「静默错答案」；先加双键则中间态恒为超集。
+    // 接口名 → 它的 **FQN**（interface-names-fqn 的唯一归一出口）。查不到就原样返回 ——
+    // 型参名 / 未解析名 / 还没进表的东西都走这条，交给别处报错，这里不猜。
+    // 双键 `GetInterface` 让本函数**幂等**：喂 FQN 进来仍得同一个 FQN。
+    public static string IfaceFqnOf(SymbolTable table, string name) {
+        // 🔴 **必须容忍 null**：`InterfaceNames` 里实测存在 `i < InterfaceCount` 却为 null 的槽
+        // （导入侧 `nct.InterfaceNames = cl.Interfaces` 直接接管数组、长度与 count 不一定对齐）。
+        // 而 `GetInterface(null)` 会一路走到 `StrMap.Find` → `null.GetHashCode()` ⇒ **SIGSEGV**
+        // （不是可捕获的 NullReferenceException），栈顶停在 `String.GetHashCode`、离真因很远。
+        if (name == null) { return name; }
+        Z42InterfaceType it = table.GetInterface(name);
+        if (it == null) { return name; }
+        return it.Fqn();
+    }
+
     public bool HasClass(string name) {
         if (this.ClassesByFqn.ContainsKey(name)) { return true; }
         return this.Classes.ContainsKey(name);
@@ -332,6 +359,10 @@ public sealed partial class SymbolTable {
     // 注意不对称：**导入类型不受此影响**——生产端写进 zbc 的已是 `_expandIfaces` 后的传递闭包，
     // 导入类的接口名单比本地类还全。缺口只伤本地类，故 ② 是补齐而非改变导入侧语义。
     public bool Implements(string clsName, string ifaceName) {
+        // interface-names-fqn：`InterfaceNames` / `BaseNames` 已是 FQN ⇒ 比较的另一侧也要归一。
+        // 🔴 归一放在**这里**而不是让 ~20 个调用方各自传 FQN：判据只有一份，调用方传短名还是
+        // FQN 都对。调用方分散改的话，漏一处就是静默失配（误报 + 漏报同时发生）。
+        ifaceName = SymbolTable.IfaceFqnOf(this, ifaceName);
         string cur = clsName;
         // 待展开的接口队列（BFS）+ 去重；接口继承一般极浅，初始容量 8 足够。
         string[] queue = new string[8];
@@ -363,8 +394,13 @@ public sealed partial class SymbolTable {
     // 接口 → 接口的继承判定（`IDerived` 是否派生自 `IBase`；不含自身）。
     // 供约束校验里「接口本身作为类型实参」的场景用。
     public bool InterfaceDerivesFrom(string ifaceName, string target) {
-        int _is = this.Interfaces.Find(ifaceName); if (_is < 0) { return false; }
-        Z42InterfaceType it = this.Interfaces.ValAt(_is) as Z42InterfaceType;
+        // interface-names-fqn：🔴 **两个参数必须对称归一**。此前只归一 `target`、`ifaceName` 原样
+        // 拿去 `this.Interfaces.Find`（**绕过双键 `GetInterface`**）—— 两处不对称各自都能静默给
+        // 错答案：喂 FQN 进来时短名表 miss ⇒ 恒 false；`BaseNames` 已是 FQN 而 target 没归一 ⇒
+        // 闭包里恒不相等。要么删要么补对称，留着半归一是最坏的一种。
+        target = SymbolTable.IfaceFqnOf(this, target);
+        Z42InterfaceType it = this.GetInterface(ifaceName);
+        if (it == null) { return false; }
         string[] seeds = new string[8];
         int n = 0;
         int b = 0;

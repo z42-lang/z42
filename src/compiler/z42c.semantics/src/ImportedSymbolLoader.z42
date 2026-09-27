@@ -27,6 +27,9 @@ public sealed class ImportedSymbols {
     // add-bare-name-ambiguity-diagnostic：短名 → **全部**声明 ns（"|" 连接）。`ClassNamespaces` 是
     // 单值、且被 first-wins 守卫盖住，判不了歧义；本表在守卫**之外**累积，每个 active 模块都记一笔。
     public StrMap ClassNsAll;
+    // enforce-fqn-name-identity 阶段 2：接口短名 → **全部**声明 ns（对称 ClassNsAll，同样在
+    // first-wins/last-wins 之外累积）。见 SymbolTable.IfaceNsAll 抬头。
+    public StrMap IfaceNsAll;
     public StrMap Interfaces;       // 短名 → Z42InterfaceType（接口骨架；供 _passClassStubs 基表判别）
     // unify-type-identity-fqn：**FQN 视图**（对称 SymbolTable.ClassesByFqn）。`Classes` / `Interfaces`
     // 按短名键，同短名跨 ns 只活一份（first-wins）⇒ 无法承载 FQ 名的精确解析。发射端已改发 FQN，
@@ -61,6 +64,7 @@ public sealed class ImportedSymbols {
         this.FunctionsByFqn = new StrMap();
         this.ClassNamespaces = new StrMap();
         this.ClassNsAll = new StrMap();
+        this.IfaceNsAll = new StrMap();   // enforce-fqn-name-identity 阶段 2
         this.Interfaces = new StrMap();
         this.ClassesByFqn = new StrMap();          // unify-type-identity-fqn
         this.ClassPkgAll = new StrMap();           // report-crosspkg-duplicate-type
@@ -311,6 +315,10 @@ public static partial class ImportedSymbolLoader {
                         }
                         r.Interfaces.Put(iz.Name, nift);
                         r.InterfacesByFqn.Put(nift.Fqn(), nift);   // unify-type-identity-fqn
+                        // enforce-fqn-name-identity 阶段 2：累积「该接口短名在哪些 ns 里被声明过」。
+                        // ⚠️ `r.Interfaces.Put` 上面那行是**无守卫**的 last-wins ⇒ 短名表只留得下一份；
+                        // 本表要的恰恰是被它塌掉的那个信息，故与 `ClassNsAll` 同手法、记每一份。
+                        SymbolTable.NoteNsInto(r.IfaceNsAll, iz.Name, em.Namespace);
                         // fix-crosspkg-interface-impl：记 imported 接口声明 ns，使 QualifyClass 把
                         // `: IFace` / `as IFace` 正确 FQ 化为「声明包.IFace」（否则退化当前包 ns →
                         // 实现类与 cast 目标名各自错限定、跨包 is/as/接口派发失配）。

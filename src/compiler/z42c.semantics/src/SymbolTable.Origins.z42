@@ -296,6 +296,45 @@ public sealed partial class SymbolTable {
     // 幂等（同 ns 重复登记不累加）；全局 ns 用空串，读回时保留空串语义。
     public void NoteClassNs(string name, string ns) { SymbolTable.NoteNsInto(this.ClassNsAll, name, ns); }
 
+    // enforce-fqn-name-identity 阶段 2：接口版，与 `NoteClassNs` 同一累积逻辑、另一张表。
+    // 两个生产点：本地 `StubCollector._passInterfaces`、跨包 `ImportedSymbolLoader` 接口循环
+    // （后者**必须在 first-wins 守卫之外**——守卫之内只有赢家能进，那正是「同短名跨 ns」被塌掉
+    // 的地方，是 `ClassNsAll` 当初踩过、上面注释里写明的同一个坑）。
+    public void NoteIfaceNs(string name, string ns) { SymbolTable.NoteNsInto(this.IfaceNsAll, name, ns); }
+
+    // 接口短名声明过的全部 ns（无记录 → 空数组）。
+    public string[] IfaceNsOf(string name) {
+        int at = this.IfaceNsAll.Find(name);
+        if (at < 0) { return new string[0]; }
+        StrBox box = this.IfaceNsAll.ValAt(at) as StrBox;
+        if (box == null) { return new string[0]; }
+        return box.Value.Split("|");
+    }
+
+    // 接口裸名在**本 CU 可见集**内是否歧义。判据与 `IsBareNameAmbiguous` **逐条同构**
+    // （限定名已消歧 / 外围 ns 自己声明了则按语言规则不算歧义 / 否则数可见 ns 份数），
+    // 只是读另一张表。
+    // ⚠️ 阶段 3 两表合一时这两个方法要**一起塌成一个** —— 别让它们各自漂移，
+    // 「同一判据两份实现」在本仓已经反复出事（只修一份比都不修更糟）。
+    public bool IsBareIfaceNameAmbiguous(string name) {
+        if (name.IndexOf(".") >= 0) { return false; }   // 限定名 = 已消歧
+        int at = this.IfaceNsAll.Find(name);
+        if (at < 0) { return false; }
+        StrBox nsBox = this.IfaceNsAll.ValAt(at) as StrBox;
+        if (nsBox == null) { return false; }
+        if (nsBox.Count < 2) { return false; }
+        string[] nss = nsBox.Value.Split("|");
+        int visible = 0;
+        int i = 0;
+        while (i < nss.Length) {
+            string ns = nss[i];
+            if (ns == this.ScopeNs) { return false; }
+            if (ns == "" || this.IsScopeVisibleNs(ns)) { visible = visible + 1; }
+            i = i + 1;
+        }
+        return visible >= 2;
+    }
+
     // 同一份累积逻辑给两个生产点共用（本地 StubCollector 走 SymbolTable，跨包 ImportedSymbolLoader
     // 走 ImportedSymbols.ClassNsAll，最后由 SymbolCollector._mergeImports 并进来）——**别写两份**：
     // 两份累积逻辑各自演化正是「同短名信息被塌掉」这一类 bug 的温床。
