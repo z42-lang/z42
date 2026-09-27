@@ -12,7 +12,7 @@ namespace Z42Xtask;
 
 using Std;
 using Std.IO;
-using Z42.Build.Project;
+using Z42.Project;
 
 // targets stage 的 example 部分：编译全部工程的 example target，运行 `test = true` 的。
 // noBuild → 复用已准备好的 release 工具链。返回 0 通过 / 1 失败 / 2 准备失败。

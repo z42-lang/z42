@@ -8,7 +8,7 @@ using Std.Crypto;
 using Z42.Package;
 using Z42.IR.BinaryFormat;
 using Z42.Pipeline;
-using Z42.Build.Project;   // BuildLayout.Display —— 进度行里的路径相对当前目录呈现
+using Z42.Project;   // BuildLayout.Display —— 进度行里的路径相对当前目录呈现
 
 // ── indexed dist 投影（add-indexed-zpkg-min-patch）────────────────────────────
 // 散装 zbc = cache（cached 行）/ 内存（fresh 行）字节**原样落盘**；与 dist 现有字节相等

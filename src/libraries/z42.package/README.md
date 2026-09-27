@@ -8,11 +8,11 @@
 >    FQN ⇒ `E0606`）。下一 nightly 后删除，已挂阶段-2 欠账。
 > 2. **命名空间** `Z42.Project` → `Z42.Package`（change `rename-project-namespaces` B3a）。本库里装
 >    zpkg 容器读写的那个命名空间原先叫 `Z42.Project` —— 名字装错了内容（真正的工程清单模型在
->    `z42.project` 包里，只能退到 `Z42.Build.Project`）。这次**抹掉了旧 FQN**，比包名改名难一个
+>    `z42.project` 包里，只能退到 `Z42.Project`）。这次**抹掉了旧 FQN**，比包名改名难一个
 >    数量级：上一代二进制在运行期按旧 FQN 调用，文件副本救不了。代际约束见该 change 的
 >    design.md §3/§6/§7。
 >
-> 工程清单那一半（`Z42.Build.Project` → `Z42.Project`）**延后**：它撞上 xtask 的跨代性
+> 工程清单那一半（`Z42.Project` → `Z42.Project`）**延后**：它撞上 xtask 的跨代性
 > （编译与运行都挂在上一代 SDK 上），需要先加一版并存、跨一个 nightly。见 design.md §6。
 >
 > `docs/spec/archive/**` 里仍是旧名 —— 那是**历史记录**，按约定不改。

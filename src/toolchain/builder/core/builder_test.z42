@@ -16,7 +16,7 @@ using Std.Cli;
 using Std.Test;
 using Std.Json;
 using Z42.Build;
-using Z42.Build.Project;   // ProjectManifest / ManifestLoader（z42b-owns-test-targets：按目标建/跑）
+using Z42.Project;   // ProjectManifest / ManifestLoader（z42b-owns-test-targets：按目标建/跑）
 
 int _cmdTest(ParseResult r)  { return _runModule(r, "test"); }
 int _cmdBench(ParseResult r) { return _runModule(r, "bench"); }

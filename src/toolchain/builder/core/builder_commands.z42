@@ -14,7 +14,7 @@ using Std.IO;
 using Std.Cli;
 using Std.Toml;
 using Z42.Build;
-using Z42.Build.Project;
+using Z42.Project;
 
 // ── 工程清单定位 ───────────────────────────────────────────────────────────────
 
@@ -53,7 +53,7 @@ class ClosurePlan {
 
 // 按拓扑序（叶子在前）逐个建 path 依赖闭包成员，累积其 dist 目录。
 //
-// 与 driver 的那份**共用同一个解析器**（`Z42.Build.Project.PathDepPlan`）；不同的只是「怎么建
+// 与 driver 的那份**共用同一个解析器**（`Z42.Project.PathDepPlan`）；不同的只是「怎么建
 // 一个成员」—— driver 调它自己的 `_build`，这里调 `_orchestrate` + 落 dist（本编排路的等价动作）。
 // 这一层差异无法消掉：两条路的 per-member 构建语义本就不同（rid/workload/hooks vs 纯包编译）。
 //
