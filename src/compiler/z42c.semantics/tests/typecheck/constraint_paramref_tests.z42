@@ -1,0 +1,110 @@
+// `where U : T`（型参引用约束）的满足性判定 —— fix-paramref-constraint-iface。
+//
+// 为什么单独一个文件：`constraint_tests.z42` 已 782 行、逼近 `xtask test lines` 的 886 硬限，
+// 且那里的主题是「约束**被校验**了吗」；本文件的主题是「**上界是接口**时判据对不对」，
+// 是另一个关注点。
+//
+// ## 修的是什么
+//
+// `ConstraintChecker._satisfiesParamRef` 显式处理了「上界是 class」，接口那格则落到
+// `arg.IsAssignableTo(other)` —— 而 `Z42ClassType.IsAssignableTo`（`Z42Type.z42:332`）**里
+// 根本没有 `other is Z42InterfaceType` 这一格**：它只判同名 class / 内建 canonical 归一 /
+// 数值拓宽 ⇒ 类→接口恒 false ⇒ `Pair<IFoo, C>`（`class C : IFoo`）被判**不满足**，
+// 报 E0402 **拒掉合法代码**。
+//
+// 与 `OverloadResolver._assignable`（fix-overload-ref-conversion）踩的是同一个根因：
+// **`Z42Type.IsAssignableTo` 不带符号表**，漏掉的恰好是「需要类表」的那几条
+// —— 派生→基、类→接口、实例化泛型→基/接口。那边修了重载决议这一路，本刀修约束这一路。
+//
+// ## 断言口径
+//
+// 同 `constraint_tests.z42`：`FirstErrorCode` 返回首条诊断的码，`""` = 一条诊断都没有
+// （比 `ErrorCount == 0` 更严，warning 也看得见）。约束违反是 **E0402**。
+//
+// ⚠️ 本文件里每个「修好后变绿」的正例都配了一个**只差一个变量**的负例（把满足者换成不相关的
+// 类型），用来分辨「真的认了类表」与「把闸门整条放开了」——后者会让负例一起变绿。
+namespace Z42cSemanticsConstraintParamRefTests;
+
+using Std;
+using Std.Test;
+using Z42.Semantics;
+
+// 公共前缀：接口链 IBase ← IDerived、实现者 C、不相关类 D、类链 B ← S。
+// `Pair<T, U> where U : T` = 被测形态本身。
+string _prelude() {
+    return "interface IBase { }\n"
+        + "interface IDerived : IBase { }\n"
+        + "class C : IBase { }\n"
+        + "class D { }\n"
+        + "class B { }\n"
+        + "class S : B { }\n"
+        + "class Pair<T, U> where U : T { }\n";
+}
+
+// ── 上界是接口（本刀修的那格）──────────────────────────────────────────────
+
+[Test]
+void test_paramref_iface_bound_class_impl_satisfied_ok() {
+    // headline：`Pair<IBase, C>`，C 实现 IBase ⇒ 合法。
+    // 修前报 E0402（`Z42ClassType.IsAssignableTo` 没有接口那格 ⇒ 恒 false）。
+    string src = _prelude() + "class Use { void f() { Pair<IBase, C> p = null; } }\n";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_paramref_iface_bound_unrelated_class_rejected() {
+    // ⚠️ 负例对照：D **不**实现 IBase ⇒ 必须仍然报。只差 `C`→`D` 一个变量。
+    // 这条分辨「认了类表」与「把闸门放开了」——后者会让本条一起变绿。
+    string src = _prelude() + "class Use { void f() { Pair<IBase, D> p = null; } }\n";
+    Assert.Equal("E0402", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_paramref_iface_bound_derived_iface_satisfied_ok() {
+    // 接口自身作实参、沿父接口链满足：`Pair<IBase, IDerived>`。
+    // 修前也报 E0402 —— `Z42InterfaceType.IsAssignableTo` 只认 `SameInterface`（同一个接口），
+    // 不走父接口链；现在经 `_satisfiesInterface` → `InterfaceClosure.IsInterfaceSubtypeByName`。
+    string src = _prelude() + "class Use { void f() { Pair<IBase, IDerived> p = null; } }\n";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_paramref_iface_bound_reversed_iface_chain_rejected() {
+    // ⚠️ 负例对照：方向反过来 `Pair<IDerived, IBase>` —— IBase **不是** IDerived 的子类型 ⇒ 必须报。
+    // 这条盯的是「链走对了方向」，不是「两个接口沾亲就放行」。
+    string src = _prelude() + "class Use { void f() { Pair<IDerived, IBase> p = null; } }\n";
+    Assert.Equal("E0402", SemanticDump.FirstErrorCode(src));
+}
+
+// ── 上界是类（**未改动**的那格，回归门）────────────────────────────────────
+
+[Test]
+void test_paramref_class_bound_subclass_satisfied_ok() {
+    // `Pair<B, S>`，S : B ⇒ 合法。这格改动前就对（显式走 symbols.IsSubclassOf），
+    // 本刀一个字没动它；放在这里是回归门。
+    string src = _prelude() + "class Use { void f() { Pair<B, S> p = null; } }\n";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_paramref_class_bound_unrelated_rejected() {
+    string src = _prelude() + "class Use { void f() { Pair<B, D> p = null; } }\n";
+    Assert.Equal("E0402", SemanticDump.FirstErrorCode(src));
+}
+
+// ── 同型 / 型参转发（既有口径，回归门）────────────────────────────────────
+
+[Test]
+void test_paramref_same_type_satisfied_ok() {
+    // `arg.Name() == other.Name()` 那条早退，与接口/类分支无关。
+    string src = _prelude() + "class Use { void f() { Pair<C, C> p = null; } }\n";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_paramref_unresolved_type_param_forward_no_false_positive() {
+    // 泛型类内部把自己的型参转发进受约束泛型：此处 X / Y 尚不透明 ⇒ 放行免假红
+    // （约束由 Outer 的实例化点校验，与 `_satisfiesBase` / `_satisfiesInterface` 同一口径）。
+    string src = _prelude() + "class Outer<X, Y> { Pair<X, Y> p; }\n";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}

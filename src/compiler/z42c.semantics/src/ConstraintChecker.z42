@@ -647,11 +647,23 @@ public sealed class ConstraintChecker {
         return false;
     }
 
-    // where U : T —— U 的实参须可赋给 T 的实参（同名 / 子类 / 数值拓宽）。
+    // where U : T —— U 的实参须可赋给 T 的实参（同名 / 子类 / **类实现接口** / 数值拓宽）。
     private bool _satisfiesParamRef(SymbolTable symbols, Z42Type arg, Z42Type other) {
         // fix-iface-satisfaction-gaps #2：未解析型参 / error / unknown 放行（同 _satisfiesBase / _satisfiesInterface）。
         if ((arg is Z42GenericParamType) || (arg is Z42ErrorType) || (arg is Z42UnknownType)) { return true; }
         if (arg.Name() == other.Name()) { return true; }
+        // fix-paramref-constraint-iface：**上界是接口时必须查符号表**。
+        // `Z42ClassType.IsAssignableTo`（Z42Type.z42:332）里**根本没有 `other is Z42InterfaceType`
+        // 这一格**——它只判「同名 class」/「内建 canonical 归一」/「数值拓宽」⇒ 类→接口恒 false。
+        // 于是底下那行 `arg.IsAssignableTo(other)` 把 `Pair<IFoo, C>`（`class C : IFoo`）判成不满足，
+        // 报 E0402 **拒掉合法代码**。与 `OverloadResolver._assignable` 踩的是同一个根因：
+        // `Z42Type.IsAssignableTo` **不带符号表**，漏掉的恰好是「需要类表」的那几条。
+        //
+        // 复用本文件已有的 `_satisfiesInterface`（裸名匹配，design D1，与运行期
+        // `constraint_satisfied_by` 同一口径）——不另写一套判据。它对 arg 的每一格都**只放宽不收紧**：
+        // 类→接口 / 实例化泛型→接口 / 接口→父接口三格从恒 false 变成查表，其余格（基元 / 数组 /
+        // func）照旧 false，与改动前逐位相同。
+        if (other is Z42InterfaceType) { return this._satisfiesInterface(symbols, arg, other.Name()); }
         if (other is Z42ClassType) {
             if (arg is Z42ClassType) { return symbols.IsSubclassOf(arg.Name(), other.Name()); }
             if (arg is Z42InstantiatedType) { return symbols.IsSubclassOf((arg as Z42InstantiatedType).Def.Name(), other.Name()); }

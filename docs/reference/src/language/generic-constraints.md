@@ -35,11 +35,40 @@ void Sort<T>(T[] xs) where T : IComparable { }                // 方法级
 | 值类型 | `where T : struct` | T 是值类型 | ✅ |
 | 枚举 | `where T : enum` | T 是 `enum` 声明的类型（基元**不**满足） | ✅ |
 | 无参构造 | `where T : new()` | 基元满足；类须**非 abstract** 且可零实参构造 | ✅ |
-| 型参引用 | `where U : T` | U 的实参可赋给 T 的实参 | ✅ |
+| 型参引用 | `where U : T` | U 的实参可赋给 T 的实参：同名 / **子类** / **实现该接口**（含接口继承链）/ 数值拓宽 | ✅ ⚠️ 见下「型参引用的可赋范围」 |
 | 函数类型 | `where T : Func<int, R>` | T 是函数类型，且 arity 相同、**形参逆变 / 返回协变**地匹配 | ✅ **E0422**（签名不符）/ **E0423**（与其它约束并置）；⚠️ 仅编译期、仅本包声明的约束，见下 |
 
 `class` 与 `struct` 同时出现在一个型参上 → 报错（互斥）。函数类型约束与**其余任何**约束
 并置也报错（`E0423`）——见下「函数类型约束」。
+
+### 型参引用的可赋范围
+
+`where U : T` 判的是「U 的实参**可赋给** T 的实参」。可赋的四格：
+
+```z42
+interface IBase { }
+interface IDerived : IBase { }
+class C : IBase { }
+class B { }
+class S : B { }
+
+class Pair<T, U> where U : T { }
+
+Pair<C, C>              // ✅ 同名
+Pair<B, S>              // ✅ S 是 B 的子类
+Pair<IBase, C>          // ✅ C 实现 IBase
+Pair<IBase, IDerived>   // ✅ 接口继承链：IDerived 是 IBase 的子类型
+Pair<IDerived, IBase>   // ❌ 方向反了 —— IBase 不是 IDerived 的子类型
+```
+
+> ⚠️ **上界是「实例化泛型」的那格当前不满足**：`where U : T` 里 T 的实参写成
+> `Box<int>` 时，即便 U 的实参是 `Box<int>` 的子类也判不满足（只有**同名**那条早退能过）。
+> 这是已知缺口，不是设计：判对它需要连类型实参一起比（否则
+> `Pair<Box<int>, Box<string>>` 会被静默放行 —— 那比误报更坏）。
+>
+> 基元实参（`Pair<IBase, int>`）走的是与直接接口约束（`where T : IBase` + `Box<int>`）
+> **同一个出口**（`ConstraintChecker._satisfiesInterface`），两条路的判定一致 —— 本行没有
+> 自己特有的基元规则。
 
 > ⚠️ 上表的「唯一真相源是运行期」对**函数类型约束不成立**：运行期
 > `validate_type_arg_constraint` 只有七项，zbc 的约束 flag 位里也**没有** func 签名槽。
