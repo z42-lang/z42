@@ -110,12 +110,26 @@ AST → Bound 树 + `SemanticModel`。分两步：先由 `SymbolCollector` 遍�
 > **修法不是加诊断，是别扔** —— `ExportedClassZ.Interfaces` 的形态契约定为 **FQ**，
 > `_rebuildClass` 原样搬运。「猜」这个步骤连同它的错误答案一起从源头消失，E0402 自然响。
 > 消费侧无需配合：`IfaceFqnOf` 对已 FQ 的名字幂等（`GetInterface` 走 FQN 双键）。
-> 回归门：`src/tests/cross-zpkg/iface_shortname_collision_crosspkg/`（负例，断言 E0402）。
 >
-> ⚠️ **仍未收口的另一半**：接口的**父接口**链（`ExportedInterfaceZ.BaseNames`）走的是**对称
-> 相反**的一条路 —— 生产侧原样搬 FQ、**消费侧** `ImportedSymbolLoader._bareShortName` 才剥。
-> 那一刀不能简单地「不剥」：该函数同时兼着**截泛型实参**（`Std.IComparable<Std.String>`，
-> 且必须先截 `<` 再动 ns，顺序反了「最后一个点」会落进实参里），正确形态是「截 `<`、保留 ns」。
+> **这条路有两半，剥名点方向相反 —— 两半都要收，只收一半照样静默放行：**
+>
+> | | 搬运者 | 剥名点 | `Implements` 里走哪一段 |
+> |---|---|---|---|
+> | 类的直接接口 `ExportedClassZ.Interfaces` | `TsigReconcile._rebuildClass` | **生产侧** | BFS 种子（第一层比较） |
+> | 接口的父接口 `ExportedInterfaceZ.BaseNames` | `ImportedSymbolLoader`（接口循环） | **消费侧** | `_anyInterfaceDerivesFrom` 沿父链展开 |
+>
+> 姊妹缺陷压不到彼此：导入类的 `InterfaceNames` 是生产端展开的**传递闭包**且已是 FQ ⇒
+> 第一层**必然比不中**本地那个同短名接口，于是一路落到父链那半。所以
+> `interface IChild : IParent` + `class Impl : IChild` 这种两层继承，在只修了类轴之后
+> **仍然**零诊断放行，运行期才炸 `VCall: Demo.IfBase.Impl.Q not found`。
+>
+> 消费侧那一刀不能简单地「不剥」：`_bareShortName` 同时兼着**截泛型实参**
+> （`Std.IComparable<Std.String>`，且必须先截 `<` 再动 ns —— 顺序反了「最后一个点」会落进
+> 实参里，剥出 `String>`），正确形态是「**截 `<`、保留 ns**」，即现在的 `_fqTrimTypeArgs`。
+>
+> 回归门（两条各一个负例，都断言 E0402）：
+> `src/tests/cross-zpkg/iface_shortname_collision_crosspkg/`（类的直接接口）·
+> `src/tests/cross-zpkg/iface_base_shortname_collision_crosspkg/`（接口父链）。
 
 > **② 已修**（2026-09-10 `add-bare-name-ambiguity-diagnostic`）：非限定同短名（`using A; using B;`
 > 后裸写 `Foo`）不再静默选一，报 **E0456**（对标 C# CS0104）。判据：候选 ns 取自新表

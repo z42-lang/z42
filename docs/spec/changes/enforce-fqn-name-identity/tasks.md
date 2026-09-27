@@ -111,16 +111,26 @@
       （`cp artifacts/build/libraries/dist/release/z42.package.{zpkg,zsym}`
       → `artifacts/build/compiler/z42c.driver/release/dist/`），否则改动根本不在运行的编译器里，
       且完全静默（门全绿、字节只动你改的包）。cp 前后 md5 不同 = 该步不可省的阳性对照。
-- [ ] B2.5 🆕 **对称的另一半：接口父链** `ExportedInterfaceZ.BaseNames`。
-      这条路的剥名点在**消费侧**（`ImportedSymbolLoader:313` 的 `_bareShortName`），
-      与类轴（生产侧剥）方向相反 —— 两条不一起翻，`Implements` 的 BFS 里就是
-      「种子 FQ、沿父接口展开成短名」的混比。
-      🔴 **不能简单地「不剥」**：`_bareShortName` 同时兼着**截泛型实参**
-      （`Std.IComparable<Std.String>`，且必须先截 `<` 再动 ns —— 顺序反了「最后一个点」
-      会落进实参里、剥出 `String>`）⇒ 正确形态是「**截 `<`、保留 ns**」。
-      落刀前先按 B2.4 的手法找出它的**可观测收益**：导入类的 `InterfaceNames` 已是生产端
-      展开的**传递闭包** ⇒ `Implements` 多半第一层就命中、根本不走父链，那条路未必可观测。
-      **先复现再动手**，别凭「必须一起翻」这句话就改。
+- [x] B2.5 ✅ **对称的另一半：接口父链** `ExportedInterfaceZ.BaseNames`。
+      剥名点在**消费侧**（`ImportedSymbolLoader` 接口循环），与类轴（生产侧剥）方向相反。
+      `_bareShortName` → **`_fqTrimTypeArgs`**：只截泛型实参、**保留 ns**
+      （不能简单地「不剥」—— 它兼着截实参，且必须先截 `<` 再动 ns，顺序反了「最后一个点」
+      会落进实参里、剥出 `String>`）。
+
+      ⭐ **先复现再动手，而复现推翻了我自己的保守猜测**。原以为「导入类的 `InterfaceNames`
+      已是传递闭包 ⇒ `Implements` 多半第一层就命中、父链未必可观测」——**恰恰相反**：
+      正因为闭包里装的是 FQ、第一层**必然比不中**本地那个同短名接口，才必然落到
+      `_anyInterfaceDerivesFrom` 的父链那半。实测（在**已打 B2.3** 的编译器上）：
+
+      | | main build | 运行期 |
+      |---|---|---|
+      | 仅 B2.3 | `EXIT=0` **零诊断** | `VCall: Demo.IfBase.Impl.Q not found` |
+      | + B2.5  | `EXIT=1` `E0402: cannot assign Impl to IParent` | — |
+
+      ⇒ 两条路**互不覆盖**，各有各的门：新负例
+      `cross-zpkg/iface_base_shortname_collision_crosspkg`（两层继承 `Impl → IChild → IParent`）。
+      关键对照 `iface_base_chain_crosspkg`（父接口带实参 `ILeaf : IMid<int>`）仍 PASS
+      ⇒ 「截 `<`、保留 ns」没碰坏实参处理。
 
 ## 阶段 3（原字符串路的计划，D-B 选定后由 B2~B5 取代）—— I2 归一唯一出口响亮化
 

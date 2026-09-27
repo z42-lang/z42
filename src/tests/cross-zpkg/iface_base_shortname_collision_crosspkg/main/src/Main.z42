@@ -1,0 +1,23 @@
+// 消费方：本地声明一个与导入包的**父接口**同短名、成员完全不同的接口，然后试图把导入的
+// `Impl` 赋给**本地**那个 `IParent`。`Impl` 的继承链是 `Impl → Demo.IfBase.IChild →
+// Demo.IfBase.IParent`，与本地 `Demo.IfBaseApp.IParent` 毫无关系 ⇒ 必须 **E0402**。
+//
+// 🔴 这条**专门**压 BFS 的父链那一半，姊妹用例 `iface_shortname_collision_crosspkg` 压不到它：
+// 导入类的 `InterfaceNames` 是生产端展开的**传递闭包**、而且已经是 FQ ⇒ `Implements` 的第一层
+// 比较**必然比不中**本地那个同短名接口，于是一路落到
+// `SymbolTable._anyInterfaceDerivesFrom` —— 那里读的是 `Z42InterfaceType.BaseNames`，
+// 来源是另一条搬运路（`ImportedSymbolLoader`，剥名点在**消费侧**）。
+// 那条路上若把 ns 剥掉，`IChild.BaseNames` 就成了裸 `IParent`，被归一猜成本地那个 ⇒
+// 队列里出现 target 本身 ⇒ 静默 true。修前的实测形态：编译期零诊断，运行期
+// `VCall: function Demo.IfBase.Impl.Q not found`。
+namespace Demo.IfBaseApp;
+
+using Std.IO;
+using Demo.IfBase;
+
+public interface IParent { int Q(); }
+
+void Main() {
+    IParent p = new Impl();   // 必须 E0402：Impl 的父接口是 Demo.IfBase.IParent
+    Console.WriteLine(p.Q().ToString());
+}
