@@ -1,0 +1,173 @@
+// add-missing-return-check：非 void 函数有不 return 的路径 → E0403。
+//
+// `DiagnosticCodes.MissingReturn = "E0403"` 一直摆在 z42c 里、`error-codes.md` 也记着它，
+// 却**零发射点**；归档稿 `2026-04-17-compiler-analysis-passes` 里「1.3 发射 E0403」
+// 自始至终是**未打勾**的。后果：漏 return 的函数返回 `Null`，调用方在**毫不相干的
+// 地方**崩成 `VCall: expected object, got Null`（审计 R3「`Value::Null` 六义哨兵」的标准形态）。
+//
+// ⚠️ **本组重心在阴性用例**：漏 return 检查的危险不是漏报而是**误报** ——
+// 它的形式是 `!NeverCompletes(body)` ⇒ 谓词拿不准就把合法代码判红。每一种
+// 「看起来没 return 但其实永不落下来」的形态都得有一条阴性用例钉着。
+//
+// 🔴 **为何不复用 `FlowAnalyzer.AlwaysReturns`**：它的保守方向是反的（注释明写
+// 「拿不准就返 false = 会正常结束」，对定值分析是漏报方向、安全），且它对
+// `while (true)` 与 switch 都返 false。同一个谓词对不同消费方回答的是不同问题。
+namespace Z42cSemanticsMissingReturnTests;
+
+using Std;
+using Std.Test;
+using Z42.Semantics;
+
+// ⚠️ 测试源里用**本地声明的** `Ex1` 而不是 `Std.Exception`：`SemanticDump.FirstErrorCode`
+// 走的是**独立 Infer 路径、不链 stdlib**（同 `exhaust_tests.z42` 头注）。写 `Exception`
+// 会解成 `<unknown>` 并报一条**无关的**错——我第一版就是这样红了 4 条，
+// 而那 4 条红得与 E0403 没任何关系。实测：`--dump-bound` 对
+// `throw new Exception("x")` 报 `(1 error(s))`、对 `throw new Ex1()` 报 0 条。
+
+// ── 阳性：该报的必须报 ────────────────────────────
+
+[Test]
+void test_no_return_at_all_errors() {
+    string src = "namespace D; class C { static int M() { int y = 5; } }";
+    Assert.Equal("E0403", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_if_without_else_errors() {
+    string src = "namespace D; class C { static int M(int x) { if (x > 0) { return 1; } } }";
+    Assert.Equal("E0403", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_loop_with_non_constant_cond_errors() {
+    // 条件不是字面量 true ⇒ 循环可能一次不进 / 正常退出 ⇒ 会落下来。
+    string src = "namespace D; class C { static int M(bool c) { while (c) { return 1; } } }";
+    Assert.Equal("E0403", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_infinite_loop_with_break_errors() {
+    // `while (true)` 但体内有能逃出本循环的 break ⇒ 会落下来。
+    string src = "namespace D; class C { static int M(bool c) { while (true) { if (c) { break; } } } }";
+    Assert.Equal("E0403", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_switch_without_default_errors() {
+    // 没有 default ⇒ 全不匹配时直接落下来。
+    string src = "namespace D; class C { static int M(int x) { switch (x) { case 1: return 1; } } }";
+    Assert.Equal("E0403", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_switch_arm_that_falls_through_errors() {
+    string src = "namespace D; class C { static int M(int x) { switch (x) { case 1: return 1; default: break; } } }";
+    Assert.Equal("E0403", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_try_without_all_paths_errors() {
+    // catch 不 return ⇒ 异常路径会落下来。
+    string src = "namespace D; class Ex1 { } class C { static int M() { try { return 1; } catch (Ex1 e) { } } }";
+    Assert.Equal("E0403", SemanticDump.FirstErrorCode(src));
+}
+
+// ── 阴性：合法形态一条都不得报（本组的重心）────────────
+
+[Test]
+void test_void_never_requires_return() {
+    string src = "namespace D; class C { static void M() { int y = 5; } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_plain_return_ok() {
+    string src = "namespace D; class C { static int M() { return 1; } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_if_else_both_return_ok() {
+    string src = "namespace D; class C { static int M(int x) { if (x > 0) { return 1; } else { return 2; } } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_if_then_trailing_return_ok() {
+    string src = "namespace D; class C { static int M(int x) { if (x > 0) { return 1; } return 2; } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_throw_counts_as_never_completing() {
+    string src = "namespace D; class Ex1 { } class C { static int M() { throw new Ex1(); } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_while_true_without_break_ok() {
+    // 🔴 `AlwaysReturns` 对这一格返 false（注释里明写「留白」）——
+    // 直接复用它就会在这里误报。这条用例就是那个陷坑的钉子。
+    string src = "namespace D; class C { static int M() { while (true) { return 7; } } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_while_true_with_nested_loop_break_ok() {
+    // 嵌套循环里的 break 绑定到**内层** ⇒ 外层仍然永不落下来。
+    // 这条钉的是 `_canBreakOut` 不下沉到嵌套循环。
+    string src = "namespace D; class C { static int M(bool c) { while (true) { while (c) { break; } } } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_while_true_with_nested_switch_break_ok() {
+    // switch 里的 break 绑定到 switch，不逃出循环。
+    string src = "namespace D; class C { static int M(int x) { while (true) { switch (x) { default: break; } } } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_for_ever_ok() {
+    string src = "namespace D; class C { static int M() { for (;;) { return 8; } } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_do_while_true_ok() {
+    string src = "namespace D; class C { static int M() { do { return 3; } while (true); } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_switch_with_default_all_return_ok() {
+    string src = "namespace D; class C { static int M(int x) { switch (x) { case 1: return 1; default: return 0; } } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_try_catch_both_return_ok() {
+    string src = "namespace D; class Ex1 { } class C { static int M() { try { return 1; } catch (Ex1 e) { return 2; } } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_finally_that_throws_ok() {
+    // finally 自己不落下来 ⇒ 整条 try 不落下来。
+    string src = "namespace D; class Ex1 { } class C { static int M() { try { } finally { throw new Ex1(); } } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_array_return_type_ok() {
+    // 非 NamedType 的返回类型（数组）走另一条分支，不得误报。
+    string src = "namespace D; class C { static int[] M() { return new int[1]; } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_ctor_never_requires_return() {
+    // ctor 的 RetType 是占位 `NamedType("")` ⇒ 不要求 return。
+    string src = "namespace D; class C { public C() { int y = 5; } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
