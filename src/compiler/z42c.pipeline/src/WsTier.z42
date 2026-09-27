@@ -1,0 +1,47 @@
+// 依赖解析的**分档**（change `rename-project-namespaces` B6，2026-09-27）。
+//
+// workspace per-member 布局下 `libsDirs` 是拼出来的：前 `MemberDirs` 个是**成员 dist**，其后是
+// **外部档**（`--compile-libs`，否则 `Z42_LIBS`）。此前解析只是「按 basename 扫这一串目录、
+// 前面的赢」，两档混同 ⇒ 两个方向都会拿错版本：
+//
+// ① **成员 dist 答了外部包**：成员 dist 同时是**运行期载荷**目录 —— `z42c build` 对 exe 会把
+//    依赖闭包 colocate 进去。那些副本是**载荷**、不是解析源。上一代 colocate 的外部包副本因此
+//    盖住外部档里刚建好的当前源新版：
+//      z42c.driver/release/dist/z42.package.zpkg（种子代，声明 `Z42.Project`）
+//      遮蔽 flat 的 z42.package.zpkg（当前源，声明 `Z42.Package`）
+//      ⇒ z42c.semantics 报 `E0494: 命名空间 Z42.Package 不存在`，而 flat 里明明有。
+//    ⚠️ 两份还**同尺寸**（`Z42.Project`/`Z42.Package` 都 12 字符），只核对文件大小会被骗过去。
+//
+// ② **外部档答了成员包**：`build stdlib` 的外部档正是 flat（全成员 dist 的聚合）—— 里面有**每个
+//    成员**上一轮的副本。它盖住本轮 fresh 的成员 dist ⇒ 构建不封闭、依赖身份抖动。
+//    既有的 `_laterMemberNames` 是这条的**局部**补丁（只挡拓扑序在后的成员）；分档把它推广到全部。
+//
+// ⇒ 规则：**成员 dist 只回答成员包名，外部档只回答非成员包名。**
+//
+// `Hidden` 仍单独存在（不能被 Members 取代）：拓扑序在后的成员**整个**不可见 —— 它们的 dist 里
+// 可能躺着上一轮的旧产物，而本轮还没轮到它们产出。
+//
+// tier == null（非 workspace 路径：单包 / REPL / 单测）或 `MemberDirs == 0`（Milestone-1 的 flat
+// 布局，所有成员共用一个 `--output-dir`，分不出档）⇒ 只过 `Hidden`，**逐字**旧行为。
+namespace Z42.Pipeline;
+
+public class WsTier {
+    // 拓扑序在后的成员名：整个不可见（workspace-read-cache）。
+    public string[] Hidden; public int HiddenN;
+    // 本 workspace 的全部成员名 + `libsDirs` 里**前多少个**是成员 dist。
+    public string[] Members; public int MembersN; public int MemberDirs;
+
+    // 某个目录（第 di 个）里名为 name 的 zpkg，这次编译该不该看见。
+    public bool Admits(int di, string name) {
+        if (WsTier._nameIn(name, this.Hidden, this.HiddenN)) { return false; }
+        if (this.MemberDirs <= 0) { return true; }
+        bool isMember = WsTier._nameIn(name, this.Members, this.MembersN);
+        return di < this.MemberDirs ? isMember : !isMember;
+    }
+
+    private static bool _nameIn(string name, string[] list, int n) {
+        int i = 0;
+        while (i < n) { if (list[i] == name) { return true; } i = i + 1; }
+        return false;
+    }
+}

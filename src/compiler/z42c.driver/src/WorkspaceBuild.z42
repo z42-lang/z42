@@ -41,7 +41,12 @@ int _buildWorkspaceFlat(string wsToml, bool isRelease, string outputDir, int cli
         Console.WriteLine("  [" + (i + 1).ToString() + "/" + ordered.Length.ToString() + "] " + ordered[i]);
         // cache-dir-layout：flat 模式所有成员共用一个 --output-dir，cache 按成员名分子目录，避免同名相对源互相覆盖。
         string memberCache = Path.Join(Path.Join(outputDir, ".cache"), ManifestLoader.Load(ordered[i]).Project.Name);
-        int rc = _build(ordered[i], isRelease, outputDir, memberCache, flat, 1, noIncremental, cliAdd, cliRemove, false, _laterMemberNames(ordered, ordered.Length, i));   // workspace 暂不支持 --fix
+        // flat 布局下所有成员共用一个 `--output-dir` ⇒ **分不出「成员 dist 档」**，MemberDirs 留 0
+        // （只过 Hidden，逐字旧行为）。分档只在 per-member 布局下有意义。
+        WsTier tierF = new WsTier();
+        tierF.Hidden = _laterMemberNames(ordered, ordered.Length, i);
+        tierF.HiddenN = tierF.Hidden.Length;
+        int rc = _build(ordered[i], isRelease, outputDir, memberCache, flat, 1, noIncremental, cliAdd, cliRemove, false, tierF);   // workspace 暂不支持 --fix
         if (rc != 0) {
             ConsoleError.WriteLine("z42c build --workspace: member build failed: " + ordered[i]);
             return rc;
@@ -85,6 +90,8 @@ int _buildWorkspacePerMember(string wsToml, bool isRelease, int cliAdd, int cliR
     int e = 0;
     while (e < extra) { libsDirs[plan.Count + e] = ext[e]; e = e + 1; }
     int libsN = plan.Count + extra;
+    // 全成员名（分档要用；一次算好，别在循环里重复 ManifestLoader.Load）。
+    string[] memberNames = _allMemberNames(plan.Tomls, plan.Count);
     // 先建全部成员 dist（空目录）→ DepScan 多目录扫描可见（后续成员 dist 在建本成员时尚空）。
     i = 0;
     while (i < plan.Count) { Directory.Create(plan.DistDirs[i]); i = i + 1; }
@@ -92,7 +99,15 @@ int _buildWorkspacePerMember(string wsToml, bool isRelease, int cliAdd, int cliR
     i = 0;
     while (i < plan.Count) {
         Console.WriteLine("  [" + (i + 1).ToString() + "/" + plan.Count.ToString() + "] " + plan.Tomls[i] + " -> " + plan.DistDirs[i]);
-        int rc = _build(plan.Tomls[i], isRelease, plan.DistDirs[i], plan.CacheDirs[i], libsDirs, libsN, noIncremental, cliAdd, cliRemove, false, _laterMemberNames(plan.Tomls, plan.Count, i));   // workspace 暂不支持 --fix
+        // 分档：`libsDirs` 前 plan.Count 个是成员 dist（上面就是这么拼的），其后是外部档。
+        // 成员 dist 只答成员包、外部档只答非成员包 —— 理由与两个方向的实测撞法见 WsTier.z42。
+        WsTier tier = new WsTier();
+        tier.Hidden = _laterMemberNames(plan.Tomls, plan.Count, i);
+        tier.HiddenN = tier.Hidden.Length;
+        tier.Members = memberNames;
+        tier.MembersN = memberNames.Length;
+        tier.MemberDirs = plan.Count;
+        int rc = _build(plan.Tomls[i], isRelease, plan.DistDirs[i], plan.CacheDirs[i], libsDirs, libsN, noIncremental, cliAdd, cliRemove, false, tier);   // workspace 暂不支持 --fix
         if (rc != 0) {
             ConsoleError.WriteLine("z42c build --workspace: member build failed: " + plan.Tomls[i]);
             return rc;
@@ -101,6 +116,14 @@ int _buildWorkspacePerMember(string wsToml, bool isRelease, int cliAdd, int cliR
     }
     Console.WriteLine("workspace build OK (per-member layout)");
     return ExitCode.Ok;
+}
+
+// 本 workspace 的全部成员包名（分档用：成员 dist 只答这些名字）。
+string[] _allMemberNames(string[] tomls, int count) {
+    string[] r = new string[count];
+    int i = 0;
+    while (i < count) { r[i] = ManifestLoader.Load(tomls[i]).Project.Name; i = i + 1; }
+    return r;
 }
 
 // 拓扑序排在第 i 个之后的成员包名（workspace-read-cache）：编译第 i 个成员时对它们不可见，构建因此封闭——

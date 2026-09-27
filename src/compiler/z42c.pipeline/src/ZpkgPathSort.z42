@@ -12,15 +12,14 @@ using Z42.Package;
 public static class ZpkgPathSort {
     // 多目录合并 + prelude-first（"0_"+name）+ Ordinal 排序（按 basename）。
     // 不存在的目录跳过（per-member 布局下后续成员 dist 在建本成员时尚空）。
-    // hidden[0..hiddenN)：不可见的包名（workspace-read-cache：workspace 构建里拓扑序排在本成员**之后**的成员——
-    // 不论在它们的 dist 还是 Z42_LIBS 快照里的同名副本）。成员合法地只能依赖排在前面的成员；此前能看到后面
-    // 成员上一轮的旧产物，构建不封闭，依赖身份也随之抖动（每改一次，前面的成员白编一轮）。null/0 = 全可见。
-    internal static string[] _sortedZpkgsMulti(string[] dirs, int dirCount, string[] hidden, int hiddenN) {
+    // `tier`：解析**分档**（见 WsTier.z42）——成员 dist 只答成员包、外部档只答非成员包，外加
+    // 「拓扑序在后的成员整个不可见」。null = 无分档也无隐藏（单包 / REPL / 单测），全可见。
+    internal static string[] _sortedZpkgsMulti(string[] dirs, int dirCount, WsTier tier) {
         // 第一遍：统计总数。
         int total = 0;
         int di = 0;
         while (di < dirCount) {
-            if (Directory.Exists(dirs[di])) { total = total + Path.Glob(dirs[di], "*.zpkg").Length; }   // 上界（含 hidden）
+            if (Directory.Exists(dirs[di])) { total = total + Path.Glob(dirs[di], "*.zpkg").Length; }   // 上界（含被分档挡掉的）
             di = di + 1;
         }
         // 第二遍：合并到 flat 数组。
@@ -32,7 +31,7 @@ public static class ZpkgPathSort {
                 string[] hits = Path.Glob(dirs[di], "*.zpkg");
                 int hi = 0;
                 while (hi < hits.Length) {
-                    if (!ZpkgPathSort._isHidden(Path.GetFileNameWithoutExtension(hits[hi]), hidden, hiddenN)) {
+                    if (tier == null || tier.Admits(di, Path.GetFileNameWithoutExtension(hits[hi]))) {
                         paths[pc] = hits[hi]; pc = pc + 1;
                     }
                     hi = hi + 1;
@@ -52,11 +51,6 @@ public static class ZpkgPathSort {
         return ZpkgPathSort._dedupByBasename(ZpkgPathSort._sortZpkgKeys(paths));
     }
 
-    private static bool _isHidden(string name, string[] hidden, int hiddenN) {
-        int i = 0;
-        while (i < hiddenN) { if (hidden[i] == name) { return true; } i = i + 1; }
-        return false;
-    }
 
     // 排序后的 paths 中，每个 basename 仅保留首次出现（first-wins）。
     private static string[] _dedupByBasename(string[] paths) {
