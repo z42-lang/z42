@@ -1,0 +1,59 @@
+// 编译器语义指纹的**内容派生**来源（change `fingerprint-content-derived`，2026-09-27）。
+//
+// 指纹 = 下面这张 `Entries` 列表的**内容哈希**。每条语义变更**追加一行自己的 slug**，
+// 不再手工 +1。完整规则与历史见
+// `docs/internals/src/compiler/compiler-fingerprint.md` 与 `version-bumping.md`。
+//
+// ── 为什么换掉那个手工计数器（两条实测损害，都在 2026-09-27 当天发生）──────────────
+//
+// ① **撞号 / 让号**：同一天两次 —— #883 原取 36 被 #885 抢走让到 37；#892 原取 38 被 #891
+//    抢走让到 39。号是「先合先得」，后到的必须回头改自己的 PR。
+// ② 🔴 **正文被整行覆盖而丢失**：#897（指纹 40，E0403）的**整条理由**被 #898 的合并吃掉 ——
+//    两个 PR 都基于 39、都改**同一行**，后合的整行胜出，**git 没报冲突**。main 上一度是
+//    41 → 39，40 那一档凭空消失（`NeverCompletes` 在链里零出现）。那条正文已在本 change 补回文档。
+//
+// 列表方案把两者**结构性**消掉：**没有号可抢**；两个 PR 各追加一行，合并只会**两行都留下**
+// （能自动合并则自动，冲突时正解是「都留」而不是「谁让号」）。
+//
+// ── 为什么不去哈希编译器全部源码 ────────────────────────────────────────────────
+//
+// 实测那会让**每次注释编辑**都全量失效：空跑 12.0s / 改一行注释 18.0s / 指纹变一次 **26.8s**
+// （`cached: 0/123`）⇒ 内循环 +50%，还连带 stdlib 全量。本方案只在**人记录了一条语义变更**时
+// 才变，零额外失效。代价：仍需人判断「这次要不要记」——与计数器时代相同，由 CI 守门兜底。
+namespace Z42.Project;
+
+using Std;
+using Z42.IR.BinaryFormat;   // ZpkgBuilder.SourceHashHex
+
+public static class CompilerFingerprint {
+
+    // 🔴 **只许在末尾追加，不许改动/删除既有条目**：改了等于让一批本该命中的缓存作废
+    // （安全方向，但白付一次全量）；删了会让指纹回退、可能**误命中**更早的条目。
+    //
+    // `baseline-41` = 换方案前计数器到 41 时的编译器语义。1–41 的逐条理由在
+    // `docs/internals/src/compiler/compiler-fingerprint.md`，不在这里堆。
+    public static string[] Entries = new string[] {
+        "baseline-41",
+        "fingerprint-content-derived"
+    };
+
+    // 指纹值：`Entries` 逐条以 `\n` 连接后取内容哈希（`mmh3:` 前缀，同 SourceHash）。
+    // 只算一次并缓存 —— `Serialize` / `Parse` 每个 CU 都要它。
+    private static string _cached = "";
+
+    public static string Value() {
+        if (CompilerFingerprint._cached != "") { return CompilerFingerprint._cached; }
+        string joined = "";
+        int i = 0;
+        while (i < CompilerFingerprint.Entries.Length) {
+            if (i > 0) { joined = joined + "\n"; }
+            joined = joined + CompilerFingerprint.Entries[i];
+            i = i + 1;
+        }
+        CompilerFingerprint._cached = ZpkgBuilder.SourceHashHex(joined);
+        return CompilerFingerprint._cached;
+    }
+
+    // 条目数 —— CI 守门用它做**可打印**的身份片段（追加一条即变）。
+    public static int Count() { return CompilerFingerprint.Entries.Length; }
+}

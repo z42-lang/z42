@@ -102,7 +102,7 @@ SubcommandRouter _testRouter() {
         new ArgParser("xtask test incremental", "brute-force reconcile incremental vs full builds + timing"));
     ArgParser fingerprint = new ArgParser("xtask test fingerprint", "base 与本树编译器编同一份 base stdlib，输出变了则版本号必须累加");
     fingerprint.AddOption("base", "", "base 源码树根（其 stdlib 已由 base 编译器建好）", "");
-    t.Add("fingerprint", "compiler output changed ⇒ CompilerFingerprint / format minor must be bumped", fingerprint);
+    t.Add("fingerprint", "compiler output changed ⇒ append a slug to CompilerFingerprint.Entries (or bump format minor)", fingerprint);
     ArgParser changed = new ArgParser("xtask test changed", "only changed-area tests");
     changed.AddFlag("dry-run", "", "print the plan, don't run");
     changed.AddOptionalPositional("base", "git base ref (default: HEAD)");

@@ -22,9 +22,35 @@ using Std.Time;
 // 的种子代际校验也用它，故提到公共层。
 
 // 编译器身份三元组 "fp/zbc/zpkg"，从源码树读。
+// 指纹片段改读 `CompilerFingerprint.Entries` 的**条目数**（fingerprint-content-derived）：
+// 指纹本身是那张列表的内容哈希、不再是源码里的一个数，`_srcIntConst` 抓不到它。
+// 条目数是**可打印**且「追加一条即变」的代理；精确判定由 `_fingerprintSourceOf` 的全文比较做
+// —— 两者分工：数用来给人看，全文用来做决策（改了既有条目正文也能看见）。
+string _fingerprintSourceOf(string tree) {
+    string p = Path.Join(tree, "src/compiler/z42c.pipeline/src/CompilerFingerprint.z42");
+    if (!File.Exists(p)) { return ""; }
+    return File.ReadAllText(p);
+}
+
+int _fpEntryCount(string tree) {
+    string t = _fingerprintSourceOf(tree);
+    if (t.Length == 0) { return -1; }
+    // 数 `Entries` 初始化块里的字符串字面量行（每条一行，见该文件的「只许追加」纪律）。
+    int k = t.IndexOf("Entries = new string[]");
+    if (k < 0) { return -1; }
+    // z42 的 `String.IndexOf` **没有 (needle, startIndex) 重载** —— 先切尾再找。
+    string tail = t.Substring(k, t.Length - k);
+    int e = tail.IndexOf("};");
+    if (e < 0) { return -1; }
+    string body = tail.Substring(0, e);
+    int n = 0;
+    int i = 0;
+    while (i < body.Length) { if (body.CharAt(i) == '"') { n = n + 1; } i = i + 1; }
+    return n / 2;   // 每条 slug 两个引号
+}
+
 string _compilerIdentityOf(string tree) {
-    string fp = _srcIntConst(Path.Join(tree, "src/compiler/z42c.pipeline/src/CacheStore.z42"),
-        "public static int CompilerFingerprint = ").ToString();
+    string fp = _fpEntryCount(tree).ToString();
     string zbc = _srcIntConst(Path.Join(tree, "src/libraries/z42.ir/src/BinaryFormat/ZbcFormat.z42"),
         "public static int Minor = ").ToString();
     string zpkg = _srcIntConst(Path.Join(tree, "src/libraries/z42.ir/src/ZpkgWriter.z42"),
@@ -89,12 +115,16 @@ int _testFingerprint(ParseResult r) {
         return 0;
     }
     Console.WriteLine("  编译器输出变了：" + nChanged.ToString() + " 个包（" + changed + "）");
-    if (baseId != headId) {
-        Console.WriteLine("  ✓ 版本号已累加（" + baseId + " → " + headId + "），旧缓存会作废");
+    // 判定：格式/条目数变了（baseId 变），**或**指纹源文件全文变了（改了既有条目正文也算）。
+    // 全文比较是精确判据；baseId 只用于打印（见 `_compilerIdentityOf` 头注）。
+    bool fpSrcChanged = _fingerprintSourceOf(baseTree) != _fingerprintSourceOf(root);
+    if (baseId != headId || fpSrcChanged) {
+        Console.WriteLine("  ✓ 编译器身份已变（" + baseId + " → " + headId + "），旧缓存会作废");
         _procEnd("test fingerprint", sw);
         return 0;
     }
-    ConsoleError.WriteLine("  ✗ 编译器输出变了，但 CompilerFingerprint 与格式版本都没变 —— 增量缓存会把旧编译器的产物当成新的。");
-    ConsoleError.WriteLine("    请把 src/compiler/z42c.pipeline/src/CacheStore.z42 的 CompilerFingerprint +1（规则见 version-bumping.md「编译器语义指纹」）。");
+    ConsoleError.WriteLine("  ✗ 编译器输出变了，但编译器身份没变 —— 增量缓存会把旧编译器的产物当成新的。");
+    ConsoleError.WriteLine("    请在 src/compiler/z42c.pipeline/src/CompilerFingerprint.z42 的 `Entries` 末尾");
+    ConsoleError.WriteLine("    追加一行本次变更的 slug（规则见 version-bumping.md「编译器语义指纹」）。");
     return 1;
 }

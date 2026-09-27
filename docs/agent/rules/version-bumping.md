@@ -238,12 +238,27 @@ zbc/zpkg 格式 Minor`。这两者都**测不出"编译器语义变了但格式�
 
 | 情形 | 动作 |
 |------|------|
-| 改 codegen / 优化 pass / typecheck / lowering，**且不 bump zbc/zpkg 格式** | `CacheStore.CompilerFingerprint++`（**唯一**要动的地方）|
-| bump 了 zbc/zpkg 格式 Minor | **不必**动指纹——格式 Minor 变化已让所有旧 `.meta` 失效（动了也无害）|
-| 只修 reader/writer 非格式 bug（不改 wire、不改编出的字节） | 不动指纹 |
+| 改 codegen / 优化 pass / typecheck / lowering / **发出的诊断**，**且不 bump zbc/zpkg 格式** | 在 `CompilerFingerprint.Entries` **末尾追加一行本次变更的 slug** |
+| bump 了 zbc/zpkg 格式 Minor | **不必**追加——格式 Minor 变化已让所有旧 `.meta` 失效（追加了也无害）|
+| 只修 reader/writer 非格式 bug（不改 wire、不改编出的字节、不改诊断） | 不追加 |
 
-**坐标**：`src/compiler/z42c.pipeline/src/CacheStore.z42` 的 `CacheStore.CompilerFingerprint`
-（常量旁有注释）。它进 `.meta` 的 `z42c-fp` 行与 `package.meta` 头；`Parse` / `LoadSrcList`
+> 🔴 **2026-09-27 起不再有「+1」**（change `fingerprint-content-derived`）：指纹 =
+> `CompilerFingerprint.Entries` 这张列表的**内容哈希**。手工计数器有两条实测损害（都在换方案
+> 当天发生）：**撞号/让号两次**，以及 🔴 **#897 的整条理由被 #898 的同行合并吃掉、git 没报冲突**。
+> 列表方案把两者结构性消掉：没有号可抢；两个 PR 各追加一行，合并只会**两行都留下**。
+> 机制与 1–41 的全部历史见
+> [编译器语义指纹](../../internals/src/compiler/compiler-fingerprint.md)。
+
+> ⚠️ **第 1 行明确含「发出的诊断」**。此前只写「typecheck」，读的人容易把「发码没变」当成
+> 不必追加的理由 —— 而**诊断变了、字节没变**恰恰是最需要失效的一档：那类源文件哈希一字未变，
+> 不失效就会命中旧条目、把新诊断整个吞掉。本仓已为此栽过多次（#791 / #806 / #850 /
+> enforce-null-at-cast / #897 / #898）。
+>
+> ⚠️ 第 3 行的主语是 **reader/writer**，不是「字节没变」—— 别把括号里的条件当成独立判据去
+> 和第 1 行对撞（我自己误读过一次，并据此向 User 报了一条不存在的「规范冲突」）。
+
+**坐标**：`src/compiler/z42c.pipeline/src/CompilerFingerprint.z42` 的 `Entries`
+（**只许在末尾追加**，不许改动/删除既有条目）。`CacheStore.Fingerprint()` 只是它的取值口。它进 `.meta` 的 `z42c-fp` 行与 `package.meta` 头；`Parse` / `LoadSrcList`
 校验不符即令条目作废。**纯 z42c 内部格式，不涉 wire、不触发 zbc/zpkg 格式 bump、不需改 Rust 端。**
 
 ### CI 守门：输出变了就必须累加（guard-compiler-fingerprint，2026-09-15）
@@ -251,11 +266,15 @@ zbc/zpkg 格式 Minor`。这两者都**测不出"编译器语义变了但格式�
 「该不该 bump」不再靠自觉判断：bench-pr 工作流的 **Compiler fingerprint guard** 步骤用 base 编译器和
 PR 编译器各编一遍**同一份 base stdlib 源码**，逐包比 zpkg 字节（#654 起同源同编译器 ⇒ 逐字节一致）。
 
-| 输出字节 | `CompilerFingerprint` / 格式 Minor | 结果 |
+| 输出字节 | 编译器身份（`Entries` / 格式 Minor） | 结果 |
 |---------|-----------------------------------|------|
-| 不变 | — | ✅（纯重构、改注释） |
-| 变了 | 至少一个累加了 | ✅ |
-| 变了 | 都没变 | ❌ 报出哪些包变了 → 把 `CompilerFingerprint` +1 |
+| 不变 | — | ✅ |
+| 变了 | 至少一个变了 | ✅ |
+| 变了 | 都没变 | ❌ 报出哪些包变了 → 去 `Entries` 末尾追加一行 slug |
+
+> 🔴 **这道门对「诊断变了、发码不变」那一档是结构性地瞎的** —— 它比的是**产物字节**，而诊断
+> 不进产物。那一档只能靠人按上表第 1 行记一条；门禁不会替你发现。此前那句「不变 ⇒ ✅（纯重构、
+> 改注释）」的括注是错的：**只改诊断也落在这一格，却不是纯重构**。
 
 本地复现：`xtask test fingerprint --base <base 源码树根>`（base 树的 stdlib 须先由 base 编译器建好）。
 覆盖面 = stdlib 实际走到的编译器路径；stdlib 没用到的 codegen 分支测不到（只会漏判，不会误判）——
