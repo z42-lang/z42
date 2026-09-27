@@ -119,6 +119,40 @@ User 问「性能有没有损耗」。原 §B 只有 interp 的 +5%。补测 JIT
 - +20% 这一格**含**「arena vs 堆对象」的存储差（两个变量同时变），**真实的符号化代价更小**。
   要拿到纯隔离数只能等 P2 落地后实测 —— 那正是裁决 #3 的门槛该管的事。
 
+### ✅ 那条派生优化的可行性已查清（2026-09-28）：**可行**，条件与 P5-B 同款
+
+「给 struct 叶子做 P5-B 同款内联」的核心疑问是「arena 里的 blob 能不能拿到稳定的
+`bytes_ptr`」。查清了：
+
+| 事实 | 后果 |
+|---|---|
+| `StructArena.slots: Vec<StructSlot>`，每个 `StructSlot.bytes: Box<[u8]>` | Vec 扩容时 `StructSlot` **结构体**移动，但每个 `Box<[u8]>` 的**堆缓冲不移动** ⇒ 裸指针**跨 arena 分配仍然有效** |
+| 失效只来自 `truncate(base)`（`pop_frame`） | 只在**拥有该槽的帧**退出时发生；被内联的访问活在自己这一帧内 ⇒ 安全（callee 只截断自己 base 以上的槽） |
+| arena 是 per-`VmContext`：「owner 线程独占访问；GC 扫描器在 safepoint 读」 | GC 读的是 `refs` 不是 `bytes` ⇒ 无别名；owner 线程持裸指针健全 |
+
+⇒ **成立条件与 P5-B 逐条对应**：① base 寄存器**从不被重写**（`hoist.rs` 的 `written` 判据）；
+② blob 属于**当前帧**（`frame_id` —— hoist 时解析一次，正是 `with()` 每次都在做的校验）。
+
+**唯一的额外复杂度**：`struct_field_get_val` 有 **4 种以上 base 形态**
+（arena `StructRef` / 堆对象内联字段 / `StackObject` / `StructRefHeap` 数组元素）。
+内联快路只能覆盖一种 ⇒ 要像 P5-B 的 `offset < 0` 那样**一次判形态、不符即回落 helper**。
+
+形态（照 `hoist.rs:78+` 与 `translate/object.rs:120+`）：
+
+```
+入口块：jit_struct_blob_slot(frame, ctx, base_reg) -> (bytes_ptr, ok)
+        // 不抛；ok=false（非 arena blob / 帧不符 / 无布局）⇒ 该访问走 helper
+每次访问：ok ? 原生按宽读写 bytes_ptr + <烘焙偏移 或 P2 之后的 fields[i].offset>
+             : hr_struct_field_{get,set}_prim(…)
+```
+
+⚠️ **与符号化正交**：符号化把「立即数偏移」换成「序号 + 查表」，内联化把「helper 调用」
+整条去掉。两者叠加才是终局；**先做哪个都行**。
+
+🔴 **但这是一条带 unsafe 裸指针的 Cranelift 级改动，健全性有真实风险**
+（arena 生命周期 + 绕过 Mutex + 形态判定）。**它值得自己一轮**，不该在别的活的尾巴上赶。
+本节把地基（上面那张表 + 成立条件 + 形态）记下来，下一轮可以直接执行。
+
 ### ⇒ 由此派生一条比 D-2 本身更值钱的优化（独立一刀）
 
 **给 struct blob 叶子做 P5-B 同款内联**（对从不被重写的 blob 句柄，把 arena 槽的 `bytes_ptr`
