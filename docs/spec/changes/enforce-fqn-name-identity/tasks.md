@@ -55,31 +55,48 @@
 
 ## B2 —— 收口解析入口（歧义 / 无解响亮）
 
-### 🔴 动手前必须先做的归因（**已排除的别重查**）
+### ✅ 归因已完成（2026-09-27，带上下文探针）
 
-「无解」在全量 stdlib 构建里命中 **4 次 / 2 个名字**：`ICompiler`、`IReplCompiler`。
-把它翻成错误之前必须知道它们走哪条路。已排除：
+```
+2 × IFACEUNRESOLVED IReplCompiler  pkg=z42c.driver  ifaces=19 ifacesFqn=19 classes=887
+2 × IFACEUNRESOLVED ICompiler      pkg=z42c.driver  ifaces=19 ifacesFqn=19 classes=887
+```
 
-- ❌ **不是没导出**：`ICompiler` / `IReplCompiler` 在 `z42.build.zsym` 与 `.zpkg` 里都在（`strings` 实测）。
-- ❌ **不是缺依赖**：`z42c.pipeline` 的 manifest 有 `"z42.build"`，`Z42cCompiler.z42` 有 `using Z42.Build;`。
-- ❌ **不是单 CU 路径**：`Collect(cu)` 的调用点只有 `IrDump:414/430` 与 `SemanticDump:33`，
-  而 `ExtractExports` 的调用方只有测试 + `SemanticDump` —— **都不在包构建路径上**。
-- ⇒ 只可能来自 `CollectAll`。但 `_mergeImportedInterfaces`（:286）在
-  `_passQualifyIfaceNames`（:310）之前，理论上该查得到 —— **矛盾未解**。
+`classes=887` ⇒ **导入上下文完整**，不是单 CU 空表。真相：
 
-⇒ **下一步 = 带上下文的探针**（打印包名/ns + 是 5 个调用点里的哪一个），一个构建周期定论。
-5 个生产调用点：`SymbolTable:371`（`Implements` 查询侧）· `:407`（`InterfaceDerivesFrom`，死代码）·
-`StubCollector:182`（类 `InterfaceNames`）· `:208`（接口 `BaseNames`）· `InheritanceResolver:35`（impl 块 trait）。
+- `z42c.driver` **不依赖 `z42.build`**，它依赖 `z42c.pipeline`，而 `z42.build` 是
+  **传递依赖、未声明** ⇒ 导入进来的 `Z42cCompiler` 带着 `InterfaceNames = ["ICompiler"]`，
+  但 `ICompiler` 本身不在 `z42c.driver` 的接口表里（19 接口 vs 887 类）。
+- **这是完全合法的程序**：消费方看得见一个类，不必看得见它实现的每个接口。
 
-⚠️ **不要在未归因的基础上把「无解」翻成错误** —— 本轮已经因为「机制存在就当病因」返工两次。
+## 🔴 结论：「无解 → 报错」作为通则**是错的**，会把合法代码判红
+
+原 I2 的三分支里，「歧义 → 报错」成立（实测代价 0、带阳性对照）；
+**「无解 → 报错」不成立**，据此撤销 design §2 I2 的那半条。
+
+### 真正的病根：`TsigReconcile:561` 把命名空间**扔了**
+
+生产方元数据里本来就是 FQ（`Z42.Build.ICompiler`），导入路径 `_shortName` 剥成裸名，
+然后我们再去一张**根本不含它**的表里猜回来。
+⇒ **修法不是加错误，是别扔。** 这同时解决了悬而未决的 A3/F1 契约问题，方向 = **FQN**：
+
+- `ExportedClassZ.Interfaces` 的形态定为 **FQ**（两个生产者统一：`ClassExtractor` 本就给 FQ，
+  `TsigReconcile` 停止 `_shortName`）。
+- 导入类的接口引用**自带 FQ** ⇒ 不需要归一 ⇒ **「无解」这个状态从源头消失**，
+  而不是被翻成一条会误伤的错误。
+- 对 B3（`TypeRef`）是硬前提：导入类型的句柄必须能按 FQN 解析到，
+  而 FQ 名要活着穿过导入边界才可能。
+
+⚠️ 改 `TsigReconcile` = 改 `z42.ir`（#896 正在改名该包）⇒ 注意冲突。
 
 ### 任务
 
-- [ ] B2.0 归因（见上）
+- [x] B2.0 ✅ 归因完成（见上）——结论推翻了「无解 → 报错」
 - [ ] B2.1 `Resolve(scope, name) → id | AMBIGUOUS | NOTFOUND`，唯一入口
 - [ ] B2.2 歧义 → 新诊断码（**实测代价 = 0**，带阳性对照）。分配码必须逐个
       `git show <每个在飞 PR 分支>:DiagnosticCodes.z42`，扫 main 不够（已四次撞码）
-- [ ] B2.3 无解 → 按 B2.0 的结论决定（报错 / 或先收敛调用点）
+- [ ] B2.3 **不再把「无解」翻成错误**；改为 `TsigReconcile:561` 停止剥短名 ⇒ 让该状态消失。
+      同步收口 5 处过期契约注释（design §7）
 - [ ] B2.4 阳性对照：`$SCRATCH/ambig` 工程必须变红
 
 ## 阶段 3（原字符串路的计划，D-B 选定后由 B2~B5 取代）—— I2 归一唯一出口响亮化
