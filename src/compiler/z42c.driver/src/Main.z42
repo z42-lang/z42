@@ -77,7 +77,7 @@ void Main() {
         ImportedSymbols ezImported = null;
         if (ezEnv.Length > 0) {
             string[] ezDirs = new string[1]; ezDirs[0] = ezEnv;
-            DepScanResult ezScan = DepScan.ScanDirs(ezDirs, 1, "", new string[0], 0, null, 0);
+            DepScanResult ezScan = DepScan.ScanDirs(ezDirs, 1, "", new string[0], 0, null);
             string[] ezUsings = IrDump.ExtractUsings(ezText, file);
             ezImported = ImportedSymbolLoader.Load(
                 ezScan.Exported, ezScan.ExportedPkg, ezScan.ExportedCount, ezUsings, ezUsings.Length);
@@ -161,8 +161,9 @@ string[] _displaySrcs(string[] srcs) {
 // MVP：单工程/packed/无增量（镜像 C# PackageCompiler.BuildTarget 关键路径）。
 // cacheDirOverride：workspace 构建由 WsPlan 给出成员 cache 目录（成员 toml 通常无 [build]，按单工程解析会落进
 // 源码树）；"" = 按本工程 manifest 解析（BuildLayout）。
-// hiddenPkgs：workspace 构建里拓扑序排在本成员之后的成员名——编译扫描与依赖身份都看不见它们（null = 全可见）。
-int _build(string tomlPath, bool isRelease, string outputDirOverride, string cacheDirOverride, string[] libsDirsOverride, int libsDirsCount, bool noIncremental, int cliAdd, int cliRemove, bool fix, string[] hiddenPkgs) {
+// tier：解析**分档**（见 z42c.pipeline 的 WsTier.z42）——成员 dist 只答成员包、外部档只答
+// 非成员包，外加「拓扑序排在本成员之后的成员整个不可见」。null = 非 workspace 路径，全可见。
+int _build(string tomlPath, bool isRelease, string outputDirOverride, string cacheDirOverride, string[] libsDirsOverride, int libsDirsCount, bool noIncremental, int cliAdd, int cliRemove, bool fix, WsTier tier) {
     ProjectManifest pm = ManifestLoader.Load(tomlPath);
     // 旋钮名校验（compiler-checks-knob-names）：manifest 的 `[profile.*]` 有问题不值得等
     // 一趟全量编译，放在编译前 fail fast。旧形状（直接写键）致命；未知旋钮名只 warn。
@@ -424,8 +425,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
         feats.Set(sname, pm.SyntaxValues[sy]);
         sy = sy + 1;
     }
-    int hiddenN = hiddenPkgs != null ? hiddenPkgs.Length : 0;
-    string depsId = DepIdentity.Of(libsDirs, libsDirsN, pm.Project.Name, hiddenPkgs, hiddenN);
+    string depsId = DepIdentity.Of(libsDirs, libsDirsN, pm.Project.Name, tier);
     // wire-optimize-manifest：**优化集并进包级缓存身份**。它此前不在任何 cache key 里——那时无害
     // （`[optimize]` 整段被忽略，optSet 只由 CLI/profile 决定，而这两者不会在「源没变」时悄悄变）。
     // 接线之后就有害了：改一行 toml 不碰源码 ⇒ probe 全命中 ⇒ **旋钮全量构建生效、增量构建被忽略**
@@ -612,7 +612,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
     cin.Features = feats;   // add-l0-protocol-table：喂给解析器的语法特性门
     cin.OptSet = effOptSet;   // wire-optimize-manifest：上方已按 CLI > toml > profile 解出
     cin.LibsDirs = libsDirs; cin.LibsDirsN = libsDirsN;
-    cin.HiddenPkgs = hiddenPkgs; cin.HiddenN = hiddenN;
+    cin.Tier = tier;
     cin.DeclaredDeps = declaredDeps; cin.DepCount = pm.DepCount;
     // fix-crosspkg-ns-reachability：走到这里就是**真的读了一份 manifest**（`pm`）⇒ 执行依赖契约（E0497）。
     // REPL / 单测 / 裸 emit 不经本函数，保持默认 false——它们没有「声明」可依据。

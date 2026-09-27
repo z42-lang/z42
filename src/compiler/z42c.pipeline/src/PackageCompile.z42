@@ -65,7 +65,9 @@ public sealed class CompileInputs {
     public LanguageFeatures Features;
     // 依赖解析（磁盘目录——design D3；DeclaredDeps 是依赖名白名单，DepIndex 过滤用）
     public string[] LibsDirs; public int LibsDirsN;
-    public string[] HiddenPkgs; public int HiddenN;   // workspace-read-cache：不可见包名（拓扑序在后的成员）；null/0 = 全可见
+    // 解析分档 + 不可见包名（见 WsTier.z42）：成员 dist 只答成员包、外部档只答非成员包，
+    // 外加「拓扑序在后的成员整个不可见」。null = 非 workspace 路径（单包 / REPL / 单测），全可见。
+    public WsTier Tier;
     public string[] DeclaredDeps; public int DepCount;
     // fix-crosspkg-ns-reachability：是否对本次编译执行「用到的包必须声明」（E0497）。
     // 默认 false：**没有 manifest 可依据**的路径（REPL / 单测 / 裸 emit / dump）不该报——
@@ -159,7 +161,7 @@ public static class PackageCompile {
         if (inp.CachedScan != null) {
             scan = inp.CachedScan;                                    // 复用（scan-provider）
         } else if (inp.LibsDirsN > 0) {
-            scan = DepScan.ScanDirs(inp.LibsDirs, inp.LibsDirsN, inp.Name, inp.DeclaredDeps, inp.DepCount, inp.HiddenPkgs, inp.HiddenN);   // 排除 self-zpkg
+            scan = DepScan.ScanDirs(inp.LibsDirs, inp.LibsDirsN, inp.Name, inp.DeclaredDeps, inp.DepCount, inp.Tier);   // 排除 self-zpkg
         }
         if (scan != null) {
             depIndex = scan.Index;
