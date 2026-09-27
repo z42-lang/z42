@@ -231,6 +231,28 @@ pub(super) fn object_inline_struct_field_set(
             "FieldInfo.SetValue: inline field `{name}` is a value struct; expected a boxed struct, got {other:?}"
         ),
     };
+    // 🔴 fix-reflect-struct-field-type-check：上面那个 `match` 只问「**是不是**一个装箱
+    // struct」，不问「**是哪个** struct」。而 `SetValue(obj, 42)` 里的 `42` 作为 `object`
+    // 传参时会被**装箱成 `Std.Int32`** —— 它是个合法的 `BoxedStruct`，于是通过了那道门，
+    // 接着下面按字段区域宽度把它的字节拷进去 ⇒ 实测把 `Point pt` 的 `pt.x` **静默改成 42**、
+    // `pt.y` 不动，得到一个**半写坏的 struct**、零报错。
+    //
+    // 与 #892 是同一个形状：**「校验过了」要问清那个谓词回答的是哪个问题** ——
+    // 「它是装箱 struct 吗」与「它是一个 Point 吗」不是同一件事。
+    //
+    // ⚠️ 判据用**全限定名逐字相等**：`struct_field_fq` 返的就是字段类型的 FQ 名，
+    // 装箱 struct 的 `type_desc().name` 也是 FQ ⇒ 不做短名回退（短名回退会让
+    // `a.Point` 冒充 `b.Point`，那是把一个静默错值换成另一个）。
+    {
+        let got = src.type_desc().name.to_string();
+        if got != struct_type {
+            bail!(
+                "FieldInfo.SetValue: inline field `{name}` is `{struct_type}`, but the value is \
+                 a boxed `{got}` — a struct field only accepts a box of its own type \
+                 (writing the raw bytes would partially overwrite the struct)"
+            );
+        }
+    }
     // unify-object-byte-layout (PR-2): copy the boxed struct into the object's `bytes`
     // at the field's composed offset, in place (visible to every holder — C# reference
     // identity); interior reference leaves write into `refs` via the composed bitmap,
@@ -342,6 +364,24 @@ pub(super) fn boxed_struct_field_set(
             Value::BoxedStruct(s) => s,
             other => bail!("FieldInfo.SetValue: field `{name}` is a value struct; expected a boxed struct, got {other:?}"),
         };
+        // 🔴 fix-reflect-struct-field-type-check：与对象内联那条路**逐字同款**的洞 ——
+        // 上面只问「是不是装箱 struct」，而 `SetValue(box, 42)` 的 `42` 会被装箱成
+        // `Std.Int32`（一个合法的 `BoxedStruct`）⇒ 通过该门后按叶子宽度拷字节，
+        // 实测把 `Line.a` 从 `(11,22)` **静默改成 `(42,22)`**。
+        // 期望类型经同一个 `struct_field_fq` 取（`FieldLeaf` 只有 `is_struct`、不带类型名）。
+        let want = crate::corelib::struct_reflect::struct_field_fq(&resolve, &type_name, name)
+            .ok_or_else(|| anyhow::anyhow!(
+                "FieldInfo.SetValue: field `{name}` on `{type_name}` is a value struct but its \
+                 type could not be resolved"
+            ))?;
+        let got = src.type_desc().name.to_string();
+        if got != want {
+            bail!(
+                "FieldInfo.SetValue: field `{name}` is `{want}`, but the value is a boxed \
+                 `{got}` — a struct field only accepts a box of its own type (writing the raw \
+                 bytes would partially overwrite the struct)"
+            );
+        }
         write_struct_leaf(ctx, base_val, gc, &comp, &leaf, src)?;
         Ok(Value::Null)
     } else if leaf.is_ref {

@@ -1,0 +1,86 @@
+// fix-reflect-struct-field-type-check：反射往 **struct 类型的字段**写值时，必须校验
+// 「值是不是这个 struct 类型」，而不只是「值是不是一个装箱 struct」。
+//
+// 修前实测（release 与 debug 都一样）：
+//   class Holder { Point pt; }   pt=(11,22)
+//   field("pt").SetValue(h, 42)  ⇒ **静默通过**，pt 变成 (42,22) —— 半写坏的 struct、零报错
+//   struct Line { Point a; ... } 同形：a=(11,22) ⇒ (42,22)
+//
+// 根因：守卫写的是 `match value { Value::BoxedStruct(s) => s, other => bail!(..) }` ——
+// 它只问「**是不是**一个装箱 struct」。而 `SetValue(obj, 42)` 里的 `42` 作为 `object` 传参时
+// **会被装箱成 `Std.Int32`**，那是个合法的 `BoxedStruct` ⇒ 通过该门，接着按字段区域宽度把它的
+// 字节拷进去 ⇒ 落在 struct 的第一个叶子上。
+//
+// ⭐ 与 #892 逐字同构：**「校验过了」要问清那个谓词回答的是哪个问题** ——
+//   「它是装箱 struct 吗」与「它是一个 Point 吗」不是同一件事。
+//   （#892 那次是「这个键在表里吗」与「有一个真叫这个名字的函数吗」。）
+//
+// ⚠️ 本文件一半是**回归门**：写一个**真正的** Point 必须照旧成功。不钉这条，
+// 「把整条路堵死」也会让正例变绿。
+namespace Demo;
+using Std;
+using Std.IO;
+using Std.Reflection;
+
+struct Point { public int x; public int y; }
+struct Line  { public Point a; public Point b; }
+class  Holder { public int n; public Point pt; }
+
+FieldInfo field(Type t, string name) {
+    FieldInfo[] fs = t.GetFields();
+    int i = 0;
+    while (i < fs.Length) { if (fs[i].Name == name) { return fs[i]; } i = i + 1; }
+    return null;
+}
+
+void setAndReport(string what, FieldInfo f, object target, object v) {
+    try { f.SetValue(target, v); Console.WriteLine(what + ": no throw"); }
+    catch (Exception e) { Console.WriteLine(what + ": threw"); }
+}
+
+void Main() {
+    // ── ① 对象的内联 struct 字段 ────────────────────────────────────────
+    Holder h = new Holder();
+    h.pt.x = 11; h.pt.y = 22;
+    FieldInfo pt = field(typeof(Holder), "pt");
+
+    object i42 = 42;
+    setAndReport("obj struct field <- int", pt, h, i42);
+    Assert.Equal(11, h.pt.x);           // 🔴 修前这里是 42（半写）
+    Assert.Equal(22, h.pt.y);
+
+    object s = "hello";
+    setAndReport("obj struct field <- string", pt, h, s);
+    Assert.Equal(11, h.pt.x);
+
+    // 回归门：真 Point 照旧写得进
+    Point p = new Point(); p.x = 99; p.y = 88;
+    object bp = p;
+    pt.SetValue(h, bp);
+    Assert.Equal(99, h.pt.x);
+    Assert.Equal(88, h.pt.y);
+    Console.WriteLine("obj struct field <- Point: ok");
+
+    // ── ② 装箱 struct 的嵌套 struct 叶子（兄弟路径，逐字同款的洞）──────
+    Line L = new Line();
+    L.a.x = 11; L.a.y = 22;
+    object boxed = L;
+    FieldInfo fa = field(typeof(Line), "a");
+
+    setAndReport("nested struct leaf <- int", fa, boxed, i42);
+    Point got = (Point)fa.GetValue(boxed);
+    Assert.Equal(11, got.x);            // 🔴 修前这里是 42
+    Assert.Equal(22, got.y);
+
+    // 回归门：真 Point 照旧
+    fa.SetValue(boxed, bp);
+    Point got2 = (Point)fa.GetValue(boxed);
+    Assert.Equal(99, got2.x);
+    Assert.Equal(88, got2.y);
+    Console.WriteLine("nested struct leaf <- Point: ok");
+
+    // ── ③ 回归门：基元字段照旧（不受本刀影响）──────────────────────────
+    field(typeof(Holder), "n").SetValue(h, i42);
+    Assert.Equal(42, h.n);
+    Console.WriteLine("prim field still writable");
+}
