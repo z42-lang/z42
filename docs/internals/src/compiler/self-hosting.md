@@ -279,12 +279,19 @@ z42c **运行期依赖 `z42.package`**——它建任何 zpkg 都要调 `Z42.Pac
 于是 `Z42_LIBS`（本想设成种子代）被当成编译期面。故编排侧先**探测**
 （`_driverSupportsCompileLibs` 跑 `build --help` 认关键字），不认就**逐字**退回旧行为。
 
+> ⚠️ **探测自己也得先跑得起来**：driver 是 z42 写的，加载不到它那一代的 stdlib 就直接崩，
+> 输出里自然没有旗标名 ⇒ 被误判成「不支持」而静默退化。而「它那一代」是什么取决于它是种子
+> 还是已换代的 gen1（gen1 裸跑即可；种子要 SDK libs）⇒ **两次尝试，取第一个真打出 `usage:` 的**。
+> 两次都没打出 ≠「不支持」，那是**探测失败**，要出声而不是默默退化
+> （`_helpRan` 就是这道判别力：否则「跑不起来」和「没这个旗标」不可区分）。
+
 🔴 **「种子代」这个锚不能取自 flat**。flat 正是要被预建覆盖成当前源的目录：快照晚于覆盖、或上一轮
 跑到一半，快照到的就是新代 ⇒ 种子 driver `MissingSymbolException`（实测）。锚取
 **driver 自己 dist 里那份 colocated 闭包**（`z42c build` 对 exe 的 colocate + `_ensureDriverSelfContained`
 产出，与 driver 同代是*构造保证*的），**搬**进 `artifacts/.scratch/seed-run-libs/<profile>/`。
 判据不是「搬到了吗」而是「**齐了吗**」——bundle 可能不全（冷启动 staged 的 driver 没 bundle），
-缺口从 **SDK libs**（`Z42_HOME/libs`，即种子的出处）补。实现：`_relocateSeedRunLibs` /
+缺口从 **SDK libs**（`Z42_HOME/libs`，即种子的出处）补。补进来的只是 bundle 的**缺口**——
+那些包 driver 的闭包里没有、也就不会被它加载，填进去只为让目录完整，不构成代际混用。实现：`_relocateSeedRunLibs` /
 `_topUpSeedRunLibs`（`scripts/build/xtask_compiler.z42`）。
 
 **搬（而不是拷）还顺手解掉一个编译期缺陷**：z42c 的 workspace 解析面是

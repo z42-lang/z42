@@ -159,18 +159,6 @@ int _topUpSeedRunLibs(string root, string dst, string[] members) {
     return filled;
 }
 
-// SDK 的 flat libs 目录，或 ""。Z42_HOME 未设时（直接跑 `./xtask`，没走 launcher / 没给
-// `--toolchain`）回落仓内 dev 装：`.z42/` 就是 `install-z42.sh` 在树里铺的 SDK，与
-// `--toolchain .z42` 指的是同一个。
-string _seedSdkLibs(string root) {
-    string tc = _toolchainDir(root);
-    string libs = tc.Length > 0 ? _toolchainLibs(tc) : "";
-    if (libs.Length > 0 && Directory.Exists(libs)) { return libs; }
-    libs = _toolchainLibs(Path.Join(root, ".z42"));
-    if (Directory.Exists(libs)) { return libs; }
-    return "";
-}
-
 // 既无 bundle 也无 SDK 的末路回落：flat。改命名空间/删符号类变更在这种树上救不了，明说而不是
 // 静默走错代（静默的代价见 `_relocateSeedRunLibs` 头注列的两种撞法）。
 void _seedRunLibsFallbackFlat(string root, string profile, string dst, string stdlibFlat) {
