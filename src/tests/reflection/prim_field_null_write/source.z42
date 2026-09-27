@@ -1,0 +1,101 @@
+// fix-silent-prim-field-write：往**基元**字段写 `Null` 必须报错，而不是静默无效。
+//
+// 修前实测：`FieldInfo.SetValue(obj, null)` 打在 `int` 字段上 **静默什么都不做、还报成功**
+// （字段保持旧值）。根因是 `ScriptObject::set_field_value` 的基元分支写成
+// `let _ = encode_prim(..)` —— `encode_prim` 本来就会拒绝 Null，错误被丢了。
+// 全仓 7 个 `encode_prim` 调用点里 6 个用 `?` 传播，只有那一处吞掉 ⇒ 不对称本身就是判据。
+//
+// ⚠️ 同一处 swallow 还盖住了 `PropertyInfo.SetValue`：它走**真正的 setter 调用**，
+// 值经 setter 内部编译器**正确发射**的 `FieldSet` 落到同一处 ⇒ 这**不是**「只有编译器
+// 发错码才到得了」的路径，普通合法 z42 代码经反射就能走到。故不能只加 debug_assert。
+//
+// ⚠️ 本文件一半是**回归门**：引用字段（string / 对象 / 数组）写 `Null` 是**完全合法**的
+// （走 ref 槽分支，在 `encode_prim` 之前就 return），基元字段写正常值也必须照旧写得进。
+// 不钉这两条，「把整条路堵死」也会让正例变绿。
+//
+// ⚠️ 挂了 `opt_all` 侧车。**但本文件只覆盖 interp 那半** —— jit 侧有独立的字段写入 helper
+// （`jit/helpers/object_field.rs`），而实测 `Z42_JIT_PROFILE=1` 下本用例在 `--mode jit` 只编了
+// 9 个函数，属性 setter `Holder.set_P` **不在其中** ⇒ jit 档跑出来的 "threw" 其实是解释器给的。
+// 「`--mode jit` 跑通不算 JIT 验过」是本仓既有铁律，故 jit 那半由**直接打 helper** 的 Rust 单测
+// 覆盖：`src/runtime/src/jit/helpers/object_field_tests.rs`（含同款的两条对照）。
+namespace Demo;
+using Std;
+using Std.IO;
+using Std.Reflection;
+
+struct Point { public int x; public string tag; }
+
+class Holder {
+    public int N;
+    public string S;
+    public int[] A;
+    public Holder Next;
+    public int P { get; set; }
+}
+
+FieldInfo field(Type t, string name) {
+    FieldInfo[] fs = t.GetFields();
+    int i = 0;
+    while (i < fs.Length) { if (fs[i].Name == name) { return fs[i]; } i = i + 1; }
+    return null;
+}
+
+PropertyInfo prop(Type t, string name) {
+    PropertyInfo[] ps = t.GetProperties();
+    int i = 0;
+    while (i < ps.Length) { if (ps[i].Name == name) { return ps[i]; } i = i + 1; }
+    return null;
+}
+
+// 写 null 并报告结果（抛 / 静默）。
+void setNull(string what, FieldInfo f, object target) {
+    try {
+        f.SetValue(target, null);
+        Console.WriteLine(what + ": no throw");
+    } catch (Exception e) {
+        Console.WriteLine(what + ": threw");
+    }
+}
+
+void Main() {
+    Type th = typeof(Holder);
+    Holder h = new Holder();
+
+    // ── 正例：基元字段写 null 必须抛，且**不得改动字段** ──────────────────
+    h.N = 7;
+    setNull("int field", field(th, "N"), h);
+    Assert.Equal(7, h.N);                       // 抛了之后旧值不变
+
+    // 属性：值经 setter 内部的 FieldSet 到达同一处
+    h.P = 5;
+    try {
+        prop(th, "P").SetValue(h, null);
+        Console.WriteLine("int property: no throw");
+    } catch (Exception e) {
+        Console.WriteLine("int property: threw");
+    }
+    Assert.Equal(5, h.P);
+
+    // 兄弟路径（改动前就已经抛，钉住不回退）
+    Point p = new Point();
+    object boxed = p;
+    setNull("boxed struct int field", field(typeof(Point), "x"), boxed);
+
+    // ── 回归门 ①：引用字段写 null **合法** ───────────────────────────────
+    h.S = "keep";
+    h.A = new int[1];
+    h.Next = new Holder();
+    field(th, "S").SetValue(h, null);
+    field(th, "A").SetValue(h, null);
+    field(th, "Next").SetValue(h, null);
+    Assert.Equal(true, h.S == null);
+    Assert.Equal(true, h.A == null);
+    Assert.Equal(true, h.Next == null);
+    Console.WriteLine("ref fields accept null");
+
+    // ── 回归门 ②：基元字段写**正常值**照旧写得进 ─────────────────────────
+    field(th, "N").SetValue(h, 123);
+    Assert.Equal(123, h.N);
+    field(typeof(Point), "tag").SetValue(boxed, "hi");
+    Console.WriteLine("prim field still writable: " + h.N.ToString());
+}
