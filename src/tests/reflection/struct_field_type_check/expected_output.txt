@@ -1,0 +1,6 @@
+obj struct field <- int: threw
+obj struct field <- string: threw
+obj struct field <- Point: ok
+nested struct leaf <- int: threw
+nested struct leaf <- Point: ok
+prim field still writable
