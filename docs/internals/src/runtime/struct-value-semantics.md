@@ -56,8 +56,38 @@ b.x = 99;       // 只改 b
 | `StructFieldGetPrim dst, base, byte_off, kind` | 读叶子：基元走字节 codec、引用走 `refs` 侧表 |
 | `StructFieldSetPrim base, byte_off, kind, val` | 原地写叶子（3a lvalue），同上分流 |
 
-`kind` 是运行期 `TypeTag`（`TAG_I32`/`TAG_STR`/…），给字节宽 + 解码 / 或标识引用叶子。字段 byte
-offset / size 由编译期烘焙为**立即数**，运行时无需查表。
+`kind` 是运行期 `TypeTag`（`TAG_I32`/`TAG_STR`/…），给字节宽 + 解码 / 或标识引用叶子。
+
+**字段 `byte_off` 由编译期烘焙为立即数**，运行时不查表 —— 这一条仍然成立，也正是
+`symbolic-struct-field-access`（审计 D-2）要改的那一格。
+
+⚠️ **但两条指令的 `size` 已经不是这样了**（本页此前笼统写「offset / size … 运行时无需查表」，
+对 `size` 已不准确）：
+
+| 指令 | `size` 今天的地位 | 谁说了算 |
+|---|---|---|
+| `StructAlloc` | **纯兜底** | `resolve_layout` 先查 `TypeDesc.struct_layout()`；只有**拿不到布局时**才用 `size` 造一个 size-only 布局 |
+| `StructCopy` | **完全不用** | `StructArena::copy_into` 拷 `min(src.bytes.len(), dst.bytes.len())`，即两个 arena 槽**各自的 `layout`** |
+
+两个 blob 都是 arena 槽、各自带 `layout`，所以 `StructCopy` 从来不需要在指令里带类型名。
+⇒ D-2 提案里的 **P1（给 `StructCopy` 补 `TypeName` + 把 `StructAlloc.Size` 降级）事实上早已
+完成，且不需要格式 bump**；只有 P2（`byte_off` → 字段序号）才动编码。
+
+🔒 **`StructCopy` 的「两个 blob 同类型」是不变式，现在有门**
+（`check-struct-copy-shape-invariant`，2026-09-28）：`copy_into` 先过
+`check_copy_invariant`，比对 ① 两侧 `bytes`/`refs` 长度是否相等、② 编译器编码的 `size`
+是否等于运行期布局的大小。**debug `bail!` / release 放行**（照 `__box_prim` /
+`prim_value_mismatch` 的政策 —— 用户写不出能走到布局偏斜的 z42，只有编译器或加载器 bug 能）。
+
+> 为什么值得设这道门：`min` 保证内存安全，但同时保证**不变式被破坏时没人知道** ——
+> 结果是静默截断的半个 struct，腐坏在离现场很远处现形。而编译器编码的 `size` 本来是
+> 一个**免费的独立见证**（「编译器与运行期对这个 struct 的大小是否一致」），此前以 `_size`
+> 到达后被直接扔掉。那正是 `z42-generic-instantiation-layout` 那条线反复撞到的偏斜 ——
+> 在那里它以 `struct field write out of blob bounds` 崩出来，但**只是因为恰好有一次写跑出了尾端**。
+>
+> ⚠️ 验它必须用 **debug VM**：`cfg(debug_assertions)` 的门在 release VM 里不存在，
+> `xtask test`（release）对它一个字都没说。配方见
+> `docs/spec/changes/check-struct-copy-shape-invariant/proposal.md` §3。
 
 > ⚠️ **`StructCopy` 是「值语义的复制点」，它的成本被所有赋值/传参/返回摊到** —— 到
 > 2026-09-27 之前 `StructArena::copy_into` 为了绕借用检查（src 与 dst 是同一个 `Vec` 的两个

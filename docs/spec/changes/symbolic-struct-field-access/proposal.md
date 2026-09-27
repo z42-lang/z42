@@ -223,7 +223,25 @@ User 问「性能有没有损耗」。原 §B 只有 interp 的 +5%。补测 JIT
 
 ### 下一步（P1/P2 未做）
 
-- **P1**：`StructCopyInstr` 补 `TypeName`（② 收口）；`StructAllocInstr.Size` 降级为纯兜底。
+- ~~**P1**：`StructCopyInstr` 补 `TypeName`（② 收口）；`StructAllocInstr.Size` 降级为纯兜底。~~
+  🔴 **P1 已结案：两半都早就做完了，且都不需要格式 bump**（2026-09-28 动手前读代码核对时发现）。
+
+  | P1 原计划 | 事实 | 依据 |
+  |---|---|---|
+  | `StructAllocInstr.Size` 降级为纯兜底 | ✅ 早已如此 | `exec_struct.rs::resolve_layout` 先查 `TypeDesc.struct_layout()`，**只在拿不到时**才用编码的 `size` 造 size-only 布局 |
+  | `StructCopyInstr` 补 `TypeName` | ✅ **不需要** —— 它已经在用布局 | `StructArena::copy_into(.., _size)` —— 那个参数**下划线前缀、完全没用**；拷的是 `min(src.bytes.len(), dst.bytes.len())`，即两个 arena 槽**各自的 `layout`** |
+
+  根因：两个 blob 都是 arena 槽、**各自带 `layout: Arc<StructTypeLayout>`**，`StructCopy`
+  从来不必在指令里再带类型名。那两件事是 `struct-copy-no-alloc` 与 A-use 为**别的理由**顺带做掉的，
+  没人回来记一笔 —— 于是阶段表继续挂着一个不存在的、还标着「要 bump」的阶段。
+
+  ⚠️ **本提案内部曾自相矛盾**：本节把「才需要格式 bump」挂在 P2 上，阶段表却写 P1「同 P0 一次 bump」。
+  按事实解决（`StructAlloc` 编码**已含** `typeName(u32 池)`；`StructCopy` 编码是 `src(u16) + size(u32)`）。
+
+  ⇒ **实际做掉的是这块地上一处 R3-⑤ 形态的静默吞**：`copy_into` 的「两个 blob 同类型」是文档化的
+  不变式，而代码只用 `min` 兜 —— 破坏时**静默截断半个 struct**。编译器编码的 `size` 本是一个
+  **免费的独立见证**，此前被直接扔掉。现改为 debug 校验 / release 放行，见
+  `docs/spec/changes/check-struct-copy-shape-invariant/`。
 - **P2**：`struct_fget_prim` / `struct_fset_prim` 改带 **(owner 类型名, 字段序号)**；
   VM 侧用 P0 的 `field_offset(i)` 解析。**这一步才需要格式 bump**（指令编码变），
   且要按 `bootstrap-seed.md` 先 support、晚一个 nightly 再 use。
@@ -251,7 +269,7 @@ User 问「性能有没有损耗」。原 §B 只有 interp 的 +5%。补测 JIT
 | 阶段 | 内容 | 格式 |
 |---|---|---|
 | **P0** | TYPE 段 struct 块补**字段表**（名 / 偏移 / 宽 / kind）；VM 侧 `StructTypeLayout` 带名→偏移索引 | **bump zbc/zpkg minor** |
-| **P1** | `StructCopyInstr` 补 `TypeName`（② 收口）；`StructAllocInstr.Size` 降级为纯兜底并在文档中标明 | 同 P0 一次 bump |
+| ~~**P1**~~ | 🔴 **已结案、无剩余工作**：两半均早已完成（见 §「下一步」的更正表）。原标的「同 P0 一次 bump」是错的 —— `StructCopy` 无需带类型名 | **无** |
 | **P2** | `struct_fget_prim` / `struct_fset_prim` 改带 (owner 类型名, 字段路径)；VM 侧解析 + **struct 叶子 IC**；实测 interp 开销 | 同上 |
 | **P3** | B′：型参位置统一间接 ABI（`SretAbi.Of` 单入口 —— 正好是审计批 C 点名的那条重构） | 无（ABI 是两侧协议，但不改 wire 结构） |
 | **P4** | 拆掉 ① 驱动的单态化：`InstDiffersFromDef` 不再强制 own body；留 `DefHasStaticState` | 无 |
