@@ -155,3 +155,225 @@ fn sym_only_fixture_really_holds_sidecar_bytes() {
         p.display()
     );
 }
+
+// ─── The "唯一真相表" in version-bumping.md ───────────────────────────────────
+//
+// `docs/agent/rules/version-bumping.md` opens with a four-row table ("版本常量
+// 坐标（唯一真相表）") giving, for each of the two writers and the two readers,
+// the file, the constant names, and the **current value**. It is the first thing
+// anyone consults when bumping a format.
+//
+// It has rotted twice, and the document says so about itself:
+//
+//   > ⚠️ 这张表**自己也会腐坏**（2026-09-04 发现时停在 1/35 与 0/40，落后 3 个
+//   > minor，且路径在 reader 拆分后已失效）。
+//   > 二进制 fixture 那边已有防腐门（步骤 4 / 9），**这张表还没有**。
+//
+// It then rotted a third time: `type-section-flags2-and-struct-fields` moved all
+// four constants to zbc 1.45 / zpkg 0.50 and left the table at 1.44 / 0.49.
+//
+// That is a gate watching nothing at all: the table is prose, so no build, no
+// test and no strict-pin check ever reads it. Meanwhile it is load-bearing —
+// a stale row is what sends the next bumper to the wrong file or the wrong
+// starting number.
+//
+// This test closes it the same way the fixture gates above are closed: parse the
+// table's own rows and check each claim against **the file that row points at**.
+// Path wrong, constant renamed, or value stale ⇒ red.
+
+fn repo_root() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
+}
+
+/// `pub const <name>: u16 = <n>;` — the Rust reader side.
+fn rust_u16_const(src: &str, name: &str) -> u16 {
+    let needle = format!("pub const {name}: u16 = ");
+    let at = src
+        .find(&needle)
+        .unwrap_or_else(|| panic!("`{needle}` not found in versions.rs"));
+    let tail = &src[at + needle.len()..];
+    let digits: String = tail.chars().take_while(|c| c.is_ascii_digit()).collect();
+    digits
+        .parse()
+        .unwrap_or_else(|e| panic!("`{name}` value {digits:?} is not a u16: {e}"))
+}
+
+/// `public static int <field> = <n>;` inside `public static class <class> {` —
+/// the z42 writer side. Scoped to the class so an unrelated `Minor` elsewhere in
+/// the file cannot be picked up.
+fn z42_static_int(src: &str, class: &str, field: &str) -> u16 {
+    let head = format!("public static class {class} ");
+    let at = src
+        .find(&head)
+        .unwrap_or_else(|| panic!("`{head}{{` not found — was the class renamed?"));
+    let body = &src[at..];
+    let needle = format!("public static int {field} = ");
+    let fat = body
+        .find(&needle)
+        .unwrap_or_else(|| panic!("`{needle}` not found inside `{class}`"));
+    let tail = &body[fat + needle.len()..];
+    let digits: String = tail.chars().take_while(|c| c.is_ascii_digit()).collect();
+    digits
+        .parse()
+        .unwrap_or_else(|e| panic!("`{class}.{field}` value {digits:?} is not a u16: {e}"))
+}
+
+/// The first backticked span in a markdown table cell (the table puts the path
+/// and the constant names in code spans).
+fn backticked(cell: &str) -> Option<&str> {
+    let a = cell.find('`')? + 1;
+    let rest = &cell[a..];
+    let b = rest.find('`')?;
+    Some(&rest[..b])
+}
+
+/// A `| … | … | … | <major> / <minor> |` row of the coordinate table.
+struct ClaimRow {
+    line_no: usize,
+    path: String,
+    consts: String,
+    claimed: (u16, u16),
+}
+
+fn parse_claim_rows(md: &str) -> Vec<ClaimRow> {
+    let mut rows = Vec::new();
+    for (i, line) in md.lines().enumerate() {
+        let t = line.trim();
+        if !t.starts_with('|') {
+            continue;
+        }
+        // `| a | b | c | d |` → ["", a, b, c, d, ""]
+        let parts: Vec<&str> = t.split('|').collect();
+        if parts.len() != 6 {
+            continue;
+        }
+        // Last cell must read exactly "<n> / <n>" — that is what makes it a
+        // value-bearing row rather than the header or the `|---|` separator.
+        let (lhs, rhs) = match parts[4].split_once('/') {
+            Some(p) => p,
+            None => continue,
+        };
+        let (major, minor) = match (lhs.trim().parse::<u16>(), rhs.trim().parse::<u16>()) {
+            (Ok(a), Ok(b)) => (a, b),
+            _ => continue,
+        };
+        let path = match backticked(parts[2]) {
+            Some(p) => p.to_string(),
+            None => continue,
+        };
+        rows.push(ClaimRow {
+            line_no: i + 1,
+            path,
+            consts: parts[3].to_string(),
+            claimed: (major, minor),
+        });
+    }
+    rows
+}
+
+#[test]
+fn version_bumping_coordinate_table_matches_the_real_constants() {
+    let root = repo_root();
+    let md_rel = "docs/agent/rules/version-bumping.md";
+    let md_path = root.join(md_rel);
+    let md = std::fs::read_to_string(&md_path)
+        .unwrap_or_else(|e| panic!("read {}: {e}", md_path.display()));
+
+    let rows = parse_claim_rows(&md);
+    assert_eq!(
+        rows.len(),
+        4,
+        "{md_rel}: expected the 4-row 「版本常量坐标（唯一真相表）」 table, found {} \
+         value-bearing row(s).\n\
+         Rows are recognised by a last cell of the exact form `<major> / <minor>`. \
+         If you restructured the table, update this gate in the same commit — \
+         silently dropping a row is exactly the rot it exists to catch.",
+        rows.len()
+    );
+
+    // Which constant pair does each row claim to describe? Keyed on the constant
+    // names the row itself prints, so renaming a constant without touching the
+    // table is also caught.
+    let mut seen: Vec<&str> = Vec::new();
+    for row in &rows {
+        let file = root.join(&row.path);
+        assert!(
+            file.is_file(),
+            "{md_rel}:{}: the table points at `{}`, which does not exist.\n\
+             (The paths went stale once before, when the Rust reader was split \
+             out of `zbc_reader.rs` into `zbc_reader/versions.rs`.)",
+            row.line_no,
+            row.path
+        );
+        let src = std::fs::read_to_string(&file)
+            .unwrap_or_else(|e| panic!("read {}: {e}", file.display()));
+
+        let (kind, actual) = if row.consts.contains("ZbcVersion") {
+            ("zbc writer", (z42_static_int(&src, "ZbcVersion", "Major"), z42_static_int(&src, "ZbcVersion", "Minor")))
+        } else if row.consts.contains("ZpkgWriterZ") {
+            ("zpkg writer", (z42_static_int(&src, "ZpkgWriterZ", "Major"), z42_static_int(&src, "ZpkgWriterZ", "Minor")))
+        } else if row.consts.contains("ZBC_VERSION") {
+            ("zbc reader", (rust_u16_const(&src, "ZBC_VERSION_MAJOR"), rust_u16_const(&src, "ZBC_VERSION_MINOR")))
+        } else if row.consts.contains("ZPKG_VERSION") {
+            ("zpkg reader", (rust_u16_const(&src, "ZPKG_VERSION_MAJOR"), rust_u16_const(&src, "ZPKG_VERSION_MINOR")))
+        } else {
+            panic!(
+                "{md_rel}:{}: cannot tell which constants this row describes from {:?}. \
+                 Expected one of ZbcVersion / ZpkgWriterZ / ZBC_VERSION / ZPKG_VERSION.",
+                row.line_no, row.consts
+            );
+        };
+        assert!(
+            !seen.contains(&kind),
+            "{md_rel}:{}: two rows both describe the {kind} constants.",
+            row.line_no
+        );
+        seen.push(kind);
+
+        assert_eq!(
+            row.claimed, actual,
+            "{md_rel}:{}: the table says the {kind} is at {}.{}, but `{}` actually \
+             declares {}.{}.\n\
+             Fix the table row (step: the 「版本常量坐标」 table is part of every \
+             bump, same as the fixture regens in steps 4 / 9).",
+            row.line_no, row.claimed.0, row.claimed.1, row.path, actual.0, actual.1
+        );
+    }
+    assert_eq!(seen.len(), 4, "{md_rel}: rows do not cover all four coordinates: {seen:?}");
+}
+
+/// strict-pin means the z42 writer and the Rust reader must carry the *same*
+/// numbers; a skew makes every artifact unloadable. In practice that shows up
+/// instantly (nothing builds), so this is a fast, precise signal rather than a
+/// missing gate — it names the two numbers instead of surfacing as
+/// `zpkg minor N not supported` from somewhere deep in a build.
+#[test]
+fn writer_and_reader_pin_the_same_format_versions() {
+    let root = repo_root();
+    let zbc_w = std::fs::read_to_string(
+        root.join("src/libraries/z42.package/src/BinaryFormat/ZbcFormat.z42"),
+    )
+    .expect("read ZbcFormat.z42");
+    let zpkg_w =
+        std::fs::read_to_string(root.join("src/libraries/z42.package/src/ZpkgWriter.z42"))
+            .expect("read ZpkgWriter.z42");
+
+    assert_eq!(
+        (
+            z42_static_int(&zbc_w, "ZbcVersion", "Major"),
+            z42_static_int(&zbc_w, "ZbcVersion", "Minor")
+        ),
+        (ZBC_VERSION_MAJOR, ZBC_VERSION_MINOR),
+        "zbc writer (ZbcFormat.z42) and reader (versions.rs) disagree — under \
+         strict-pin every .zbc the writer emits would be rejected."
+    );
+    assert_eq!(
+        (
+            z42_static_int(&zpkg_w, "ZpkgWriterZ", "Major"),
+            z42_static_int(&zpkg_w, "ZpkgWriterZ", "Minor")
+        ),
+        (ZPKG_VERSION_MAJOR, ZPKG_VERSION_MINOR),
+        "zpkg writer (ZpkgWriter.z42) and reader (versions.rs) disagree — under \
+         strict-pin every .zpkg the writer emits would be rejected."
+    );
+}
