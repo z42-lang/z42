@@ -422,7 +422,21 @@ XpkgJobZ _spawnBuildPkgE(string vmBin, string driverZpkg, string stdlibDist, str
     j.ExpectWarn = expectWarn;
     bool capture = expectErr.Length > 0 || expectWarn.Length > 0;
     string outDir = _fixtureDist(pkgDir);
-    Directory.Create(outDir);
+    // 🔴 **重置**而不是只 Create：这个目录在**源码树内**（`<fixture>/<stage>/artifacts/debug/dist`，
+    // gitignore 的产物），而 `--output-dir` 不清目录、`File.Copy` 只覆盖不删 ⇒ 更早 era 留下的兄弟
+    // zpkg 会一直躺在那儿。而 VM 的惰性加载器**先搜 entry zpkg 同目录再搜 `Z42_LIBS`**
+    // （`_applySkewAbsent` / `_applySkewReplace` 的头注就是靠这条），于是那份陈旧副本**赢过**
+    // 本轮刷新的 `<stage>/libs/`。
+    //
+    // 实测代价（2026-09-27，#903 把 zpkg 抬到 0.50 之后）：`xtask test e2e` 的 cross-zpkg 格
+    // **52 个失败**，全是 `zpkg minor 49 not supported (writer is at 0.50)` —— 而 `libs/` 明明
+    // 已经是 0.50。清掉 224 个这类目录后立刻全绿。
+    //
+    // ⭐ 这是**只在本地会踩**的坑：CI 每次全新 checkout，永远碰不到 ⇒ 没有门会红。
+    //   fixture 的增量缓存按内容计 key，**格式 bump 不让它失效**。
+    // ⚠️ 重置落在构建**之前**，而两处 skew 助手（故意利用 colocate 顶替/删除）跑在构建
+    //   **之后**、运行波之前 —— 互不干扰。
+    _resetDir(outDir);
     string libs = File.CreateTempDir("z42-xpkg-libs-");
     _copyStdlibZpkgs(stdlibDist, libs);
     _copyZpkgs(Path.Join(pkgDir, "libs"), libs);
