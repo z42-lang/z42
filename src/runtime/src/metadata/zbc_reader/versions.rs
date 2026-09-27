@@ -8,17 +8,19 @@ use super::*;
 //   1. src/libraries/z42.package/src/BinaryFormat/ZbcWriter.z42 (ZbcFormat.Major / .Minor)
 //   2. these two constants
 //   3. docs/internals/src/formats/zbc.md "Minor changelog" table
-//   4. the committed byte baselines: `xtask build test` rewrites
-//      src/tests/zbc-format/*/source.zbc IN PLACE — commit the result
-//      (CI gate "Golden byte baselines are up to date" fails otherwise)
-// See docs/internals/src/formats/zbc.md + docs/agent/rules/version-bumping.md for
-// the full procedure.
+//   4. the committed byte baselines — BOTH src/tests/zbc-format/ AND
+//      src/tests/zpkg-format/; they regen by different commands
 //
-// 🔴 这份清单自己腐坏过一次（2026-09-27 修正，type-section-flags2-and-struct-fields）：
-// 第 1 条曾指 `src/compiler/z42.IR/BinaryFormat/ZbcWriter.cs` —— **C# 编译器 2026-06-26
-// 已整体删除**；第 4 条曾指 `src/tests/zbc-format/generate-fixtures.sh` —— **该脚本不存在**。
-// 于是「照 checklist 做」会漏掉基线重生这一步，而那一步恰好只有 CI 才报
-// （regen 跑在每个消费方之前 ⇒ 校验的永远是刚重写的字节、从不是已提交的那份）。
+// ⚠️ This list is a convenience pointer, NOT the procedure. The procedure lives in
+// docs/agent/rules/version-bumping.md and has 9+ steps — notably step 5
+// (`cargo test --lib`, unfiltered) and step 9 (regen the zpkg-format fixtures,
+// which `xtask build test` does NOT touch). **Do not grow this comment into a
+// second copy of that doc**; it already rotted once:
+//
+// 🔴 2026-09-27（type-section-flags2-and-struct-fields）：四条里有两条指向不存在的东西 ——
+// 第 1 条指 `src/compiler/z42.IR/BinaryFormat/ZbcWriter.cs`（**C# 编译器 2026-06-26 已整体
+// 删除**），第 4 条指 `src/tests/zbc-format/generate-fixtures.sh`（**该脚本不存在**）。
+// 这就是「摘录一份规范放进代码注释」的必然结局：正本更新了，副本不会跟。
 
 pub const ZBC_VERSION_MAJOR: u16 = 1;
 // 2026-05-30 add-test-timeout-attribute: TIDX v=3 carries per-test

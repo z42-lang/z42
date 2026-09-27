@@ -136,6 +136,57 @@ committed zbc-format byte baselines are stale — regen rewrote them.
 
 ⚠️ `src/tests/zpkg-format/` 零漂移（`git status` 里没有它）—— zpkg 头的 minor 不进这些 fixture。
 
+### 第三轮：Rust 侧的三处，全都是 `xtask test` **结构上**抓不到的
+
+`test-host` 四平台红。三个独立根因：
+
+| # | 症状 | 根因 | 为什么本地全绿 |
+|---|---|---|---|
+| ① | `prefix \`v0\` is unknown` ×19 + `could not compile z42 (lib test)` | `zbc_reader_tests.rs:119` 我改版本 pin 时**留下了旧字符串的尾巴**（`…1.45)"); SIGS/TYPE type-name strings change)");`）⇒ 引号边界全错位 | `#[cfg(test)]` 代码**只有 `cargo test --lib` 会编译**；`cargo build --release` 与整个 `xtask test` 都不碰 |
+| ② | `E0063: missing fields class_flags2 and struct_field_table` ×5 | 测试里 5 处 `ClassDesc` 完整字面量没跟上新字段 | 同上。**CI 因 ① 提前终止编译，根本没走到这里** |
+| ③ | 9 条 Rust 单测红：`zpkg minor 49 not supported (writer is at 0.50)` | `src/tests/zpkg-format/` 的 4 份入库 fixture 漂了 | `xtask build test` **不碰**这个目录；消费方是 Rust 单测 |
+
+🔴 **更正我上一轮写下的一句话**：上面原本写着「`src/tests/zpkg-format/` 零漂移（`git status`
+里没有它）」—— **那是错的**。`git status` 干净只证明 `xtask build test` 不重写它们，
+**不证明它们是当前版本**。判据用错了对象。
+
+**② 没有用 `#[derive(Default)]` 绕过**：「给 `ClassDesc` 加字段就逼每个构造点重新考虑一次」
+正是抓到这次问题的那道棘轮，加 `Default` + `..Default::default()` 等于把它拆掉。逐处补。
+
+**① 的那份手写 TYPE 记录在 z42c 侧还有一份镜像**（第一轮修的
+`constraint_bundle_tests.z42::_typeSection`）—— 审计 **R2「判据复制」**的教科书样本：
+同一份「TYPE 记录字节布局」的判据有两个副本，只改一边，CI 就分两轮报。两边已互相写下交叉引用。
+
+### 🔴 流程自查：规范正本没有缺口，是我跳了步骤
+
+差点把这条写成「文档没说」。核实之后正相反 —— `version-bumping.md` **本来就全写着**：
+步骤 9 专讲 `zpkg-format` 的 4 个基线怎么重生，第 50 行甚至明写
+「`cargo test --lib` 里跑，**`xtask test` 不包含**，2026-09-13 encode-ctorless-objnew 差点漏掉」。
+
+⇒ **这是执行失误，不是文档缺口**。我跳过了步骤 5（`cargo test --lib` 不带过滤）与步骤 9。
+`versions.rs` 的那份清单我只改成**指针**、不再摘录正本内容 —— 它已经因为「摘录副本不跟着正本更新」
+腐坏过一次，再抄一遍是重犯。
+
+### 顺带挖出一个一直绿着的假门禁（审计 R4 实例）
+
+重生 `sym-only-sidecar/source.zpkg` 时字节数 **535 → 258**，反常（其余都在增长）。查头部
+（flags 在字节 8..10）：
+
+| | flags | section 数 |
+|---|---|---|
+| 旧入库 | `0x0001` = 仅 `Packed` | **8** |
+| 新重生 | `0x0005` = `Packed｜SymOnly` | **4** |
+
+而它自己的 `sym-only-sidecar.z42.toml` 写着：「fixture 存的是 `--release` strip 产出的
+**`.zsym` 旁车字节**（META + STRS + MDBG + BLID），**不是主 zpkg**」。
+⇒ **入库那份一直是主 zpkg**：过去某次 regen 拷了 `dist/demo.sidecar.zpkg` 而不是 `.zsym`。
+「sym-only 旁车形态」于是**从来没有字节级覆盖**，而看守它的 `format_fixture_versions.rs`
+**只校验头部版本号、从不校验形态** —— 门盯身份不盯活性（审计 R4）。
+
+已补一条形态断言 `sym_only_fixture_really_holds_sidecar_bytes`（断言 `FlagSymOnly` 置位），
+并把这段来历写进该测试的文档注释。**阴性对照**：把旧那份放回去，它以
+`does not have FlagSymOnly set (flags = 0x0001)` 精确变红。
+
 ## 顺带发现：版本 bump 的 checklist 自己过期了
 
 `src/runtime/src/metadata/zbc_reader/versions.rs:7-12` 的四条同步清单里**两条指向不存在的东西**：

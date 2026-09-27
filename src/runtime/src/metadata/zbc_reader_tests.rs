@@ -114,9 +114,15 @@ fn build_zpkg_header(major: u16, minor: u16, flags: u16) -> Vec<u8> {
 #[test]
 fn zbc_version_constants_pinned() {
     // Sanity: writer's claimed version matches what the reader pins.
-    // If this fails, the constants drifted out of sync with C# ZbcWriter.
+    // If this fails, the constants drifted out of sync with the z42 writer
+    // (`src/libraries/z42.package/src/BinaryFormat/ZbcWriter.z42`) — the C#
+    // ZbcWriter this comment used to name was deleted 2026-06-26.
     assert_eq!(ZBC_VERSION_MAJOR, 1, "zbc major locked at 1 by freeze-zbc-v1");
-    assert_eq!(ZBC_VERSION_MINOR, 45, "zbc minor at 1.45 (type-section-flags2-and-struct-fields)"); SIGS/TYPE type-name strings change)");
+    assert_eq!(
+        ZBC_VERSION_MINOR, 45,
+        "zbc minor at 1.45 (type-section-flags2-and-struct-fields: TYPE class records gain an \
+         always-present class_flags2 u16, plus a flag-gated per-field layout table for value structs)"
+    );
 }
 
 #[test]
@@ -223,6 +229,13 @@ fn build_type_section_one_struct(size: u32, ref_leaves: &[(u32, u8)]) -> Vec<u8>
     b.extend_from_slice(&0u16.to_le_bytes());        // class attr count = 0
     b.push(crate::metadata::bytecode::CLASS_FLAG_STRUCT); // class_flags = struct
     b.push(0u8);                                     // class visibility = public (zbc 1.33, enforce-class-access)
+    // zbc 1.45 (type-section-flags2-and-struct-fields): always-present class_flags2 u16,
+    // immediately after visibility. 0 ⇒ the flag-gated per-field layout table is absent.
+    // ⚠️ 漏它 → 读端多吃 2 字节 → 后面每个块都错位（症状是 struct 块读出垃圾 size / 越界）。
+    // 🔴 这份手写 TYPE 记录在 **z42c 侧还有一份镜像**
+    // （`src/compiler/z42c.semantics/tests/zbcreader/constraint_bundle_tests.z42` 的 `_typeSection`）
+    // —— 审计 R2「判据复制」的实例：改 TYPE 布局必须两边一起改，只改一边 CI 会分两轮报。
+    b.extend_from_slice(&0u16.to_le_bytes());        // class_flags2 = 0
     b.extend_from_slice(&0u16.to_le_bytes());        // static field count = 0
     b.extend_from_slice(&0u16.to_le_bytes());        // interface count = 0
     // (no enum block: not CLASS_FLAG_ENUM; no iface-method block: not INTERFACE)
