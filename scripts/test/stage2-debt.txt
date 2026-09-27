@@ -13,3 +13,6 @@ scripts/build/xtask_bootstrap_check.z42#z42ir-bc-runlibs-move 2026-09-27 下一 
 scripts/build/xtask_stdlib.z42#z42ir-name-alias 2026-09-27 下一 nightly 后删掉本函数、别名目录与 probing 传参
 scripts/common/xtask_common.z42#z42ir-probing-wiring 2026-09-27 下一 nightly 后删掉本函数与所有 Z42_PROBING_PATHS 传参
 scripts/common/xtask_common.z42#z42ir-seed-stage-move 2026-09-27 下一 nightly 后删掉本函数与 `_ensureSeed` 里的调用
+compiler/z42c.driver/src/BuildPaths.z42#compile-libs-knob 2026-09-26 改名迁移做完后重估：只剩自举在用就把旗标撤掉（保留内部区分）
+compiler/z42c.pipeline/src/PathDepPlan.z42#pathdep-forwarder 2026-09-26 删掉本文件（届时种子 driver 调的已是 z42.project 那个落点）
+compiler/z42c.semantics/src/SymbolTable.z42#fqn-symbol-key 2026-09-26 删掉这四个函数里的「短名回落」那一支，只留 FQN 查找

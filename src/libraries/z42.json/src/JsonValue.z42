@@ -208,12 +208,6 @@ public class JsonValue {
     // （值类型永不可空，可空返回这条路对 `long` / `bool` 走不通，见 E0476）。
     // 三个文档库（TOML / JSON / YAML）形状一致，见 `Std.Toml.TomlValue.TryGet`。
 
-    // STAGE2-DEBT(tryget-callsites): 把 scripts/xtask_bench.z42 的 15 处
-    // `ContainsKey(k)` + `Get(k)` 迁到 `TryGet` / `TryGetValue<T>`（本轮已实现并验过，
-    // 因自举纪律回退）。⚠️ 债的**过渡形态在 `scripts/`**，而本门只扫 `src/` ⇒ 只能挂在
-    // 提供 API 的这一侧。理由：`ci-bootstrap` 步骤 [2/5] 用**种子 stdlib** 编当前 xtask，
-    // 早于任何预建 ⇒ xtask 源是全仓受自举约束最紧的（bootstrap-seed.md 轴 ③ 第 ② 条）。
-    // 等下一个 nightly 带上本 API 后迁移并清账。
     /// 取即检查：命中则写入 `value` 并返回 true；未命中返回 false 且**不动** `value`。
     /// 本值不是 object 时返回 false 而**不抛** —— 与 `ContainsKey` 一致。
     public bool TryGet(string key, ref JsonValue value) {

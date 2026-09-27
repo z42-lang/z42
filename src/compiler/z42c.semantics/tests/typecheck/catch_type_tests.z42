@@ -1,0 +1,75 @@
+// enforce-catch-type：`catch (T e)` 的 `T` 必须是 `Exception` 或其子类 → E0420。
+//
+// 此前完全不校验：`catch (NotAnException e)` **编译零诊断**，而运行期那个 catch
+// **静默永不匹配** ⇒ 异常穿出去变成 `uncaught exception`。用户写错 catch 类型
+// 拿到的是「不报错 + 错误处理静默失效」。
+//
+// ⚠️ **本组在测试源里自己声明 `class Exception`**，而不是用 `Std.Exception`：
+// `SemanticDump.FirstErrorCode` 走的是独立 Infer 路径、**不链 stdlib**（同 `exhaust_tests.z42`）。
+// 本地声明恰好能精确钉住两件事：基链上滯的判据、以及「解析不到
+// `Exception` 时一概不报」的**宽松闸门**（最后一条）。
+namespace Z42cSemanticsCatchTypeTests;
+
+using Std;
+using Std.Test;
+using Z42.Semantics;
+
+// ── 阳性 ─────────────────────────────────────
+
+[Test]
+void test_catch_non_exception_errors() {
+    string src = "namespace D; class Exception { } class NotEx { }"
+        + " class C { static void M() { try { } catch (NotEx e) { } } }";
+    Assert.Equal("E0420", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_catch_unrelated_chain_errors() {
+    // 有基类但链上到不了 Exception。
+    string src = "namespace D; class Exception { } class A { } class B : A { }"
+        + " class C { static void M() { try { } catch (B e) { } } }";
+    Assert.Equal("E0420", SemanticDump.FirstErrorCode(src));
+}
+
+// ── 阴性 ─────────────────────────────────────
+
+[Test]
+void test_catch_exception_itself_ok() {
+    string src = "namespace D; class Exception { }"
+        + " class C { static void M() { try { } catch (Exception e) { } } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_catch_direct_subclass_ok() {
+    string src = "namespace D; class Exception { } class MyEx : Exception { }"
+        + " class C { static void M() { try { } catch (MyEx e) { } } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_catch_deep_subclass_ok() {
+    // 三层链：钉住上滯不是只看一层。
+    string src = "namespace D; class Exception { } class Mid : Exception { } class Leaf : Mid { }"
+        + " class C { static void M() { try { } catch (Leaf e) { } } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_bare_catch_ok() {
+    // `catch { }` 无类型 ⇒ 根本不进本检查。
+    string src = "namespace D; class Exception { }"
+        + " class C { static void M() { try { } catch { } } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_no_exception_class_in_scope_is_lenient() {
+    // 🔴 **宽松闸门的钉子**：本次编译根本没有叫 `Exception` 的类
+    // （不链 stdlib 的路径就是这样，包括本文件以外的大量现有用例）⇒
+    // 拿不准，一概不报。没有这条闸门，`missing_return_tests` 里的
+    // `catch (Ex1 e)` 会全部被误报。
+    string src = "namespace D; class NotEx { }"
+        + " class C { static void M() { try { } catch (NotEx e) { } } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}

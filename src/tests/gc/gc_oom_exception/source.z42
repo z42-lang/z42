@@ -14,6 +14,18 @@ public class BigObj {
 }
 
 void Main() {
+    // 🔴 逃逸汇点必须在 try **之前**备好（fix-oom-fixture-needs-heap-alloc）。
+    // 此前这里写的是 `var obj = new BigObj(42);` —— `obj` 从不被使用、压根不逃逸 ⇒ 全优化
+    // （`--release` / `opt_all`）下**逃逸分析把它栈分配了**，一个字节都不碰 GC 堆 ⇒ strict OOM
+    // 根本不触发、`caught` 恒 false。实测 `--release` 判红、`--release --no-opt stack-alloc` 通过。
+    //
+    // 这**不是**优化的 bug：没人承诺「每个 `new` 都落 GC 堆」，不逃逸对象绕开 GC 正是栈分配的
+    // 目的。错的是本用例的**前提** —— 它要测的是「strict OOM 拒掉一次**堆**分配且可 catch」，
+    // 那就得让那次分配真的是堆分配。存进数组元素是逃逸汇点（`ArraySet` 的 value 位）。
+    //
+    // sink 在设限**之前**分配：它自己也是堆分配，设限之后建会先炸在 sink 上，测的就不是 BigObj 了。
+    BigObj[] sink = new BigObj[1];
+
     // Set a tiny heap limit and enable strict OOM.
     GC.SetMaxHeapBytes(1);
     GC.SetStrictOOM(true);
@@ -21,7 +33,7 @@ void Main() {
     // Object allocation should throw OutOfMemoryException.
     bool caught = false;
     try {
-        var obj = new BigObj(42);
+        sink[0] = new BigObj(42);
     } catch (OutOfMemoryException e) {
         caught = true;
     }

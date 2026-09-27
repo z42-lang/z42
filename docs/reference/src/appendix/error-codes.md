@@ -129,7 +129,7 @@ E0442 / E0457 / E0462 除外（见上一节）。**E0402 另有一处语法层�
 |---|---|---|---|
 | E0401 | 未定义符号：变量 / 函数 / 字段 / 方法找不到。**基元收者同样适用**（`int` / `string` / `double` / `bool` … → 各自的包装类）：`int x = 5; x.Bogus();` 报「no method \`Bogus\` on \`Int32\`」。⚠️ 2026-09-24 之前**只有基元这条路不报**——prim 收者查无成员时无条件松绑定（返回 `Unknown`、交运行期 DepIndex 解析），于是编译期零诊断、崩在运行期 `VCall: expected object, got I64(5)`，而那是**不可 catch 的内部错误**（不是 `Std.Exception` 子类）。同样写法在用户类上一直报本码、在数组上报 E0402。仍然松绑定的唯一情形：包装类是**成员表为空的 stub**（懒加载 / 冷启动未载真类，候选集不完整，判「不存在」会误报）。🆕 **2026-09-25 起也覆盖泛型型参收者**（`check-bare-type-param-member-access`）：`T f<T>(T a) { return a.Bogue; }` 报「no field or property \`Bogue\` on type parameter \`T\`, and no known type declares that name」。⚠️ 判据刻意收窄到「**全仓无此成员名**」，不是「不由 `where` 约束提供就报」——后者会误报 `var m = Max(a,b); m.value` 这类对引用类型完全正常的惯用写法（实测被既有 e2e 判红）。同一变更还让「方法级 `where` 挂在既非方法级也非类级的型参名上」报本码（此前因声明期早退而静默）。🆕 **2026-09-26 起也覆盖委托 / 函数类型收者**（`add-delegate-invoke-syntax`）：委托值上**只有 `Invoke` 一个成员**，`f.Bogus()` 报「no method \`Bogus\` on delegate type \`Func<Int32, Int32>\`」—— 此前零诊断、运行期崩 `VCall: expected object, got FuncRef(...)`（同样不可 catch）。⭐ 前两次收窄（prim 收者 / 型参收者）都漏了这一格，因为**委托不进 `Classes`**（在 `SymbolTable.Delegates`）⇒ 包装类查找恒落空 ⇒ 连诊断闸门都进不去。**不套用 prim 那条 stub 豁免**：委托的成员面是语言固定的，不存在候选集不完整的情形 | ✅ `MemberResolver.z42:123,173,375,409,594`、`MemberResolver.Prim.z42:80`（prim 收者）、`MemberResolver.TypeParam.z42`（型参收者）、`ConstraintChecker.z42`（未知型参）、`PatternBinder.z42:353` | 调用未声明的 `foo()`；`int x = 5; x.Bogus();`；`T f<T>(T a) { return a.Bogue; }` |
 | E0402 | 类型不匹配（含不支持的语句 / 模式、空集合字面量缺目标类型、**元组元数越界**等兜底场景） | ✅ `StmtBinder.z42:368,391`、`CollectionTyper.z42:35,51,132,141`、`PatternBinder.z42:32`、`ConstructTyper.z42:103`（元组字面量元数）、`z42c.syntax/src/TypeParser.z42`（元组**类型**元数——语法层） | `var a = [];`、`(int,int,int,int,int,int,int,int,int) t;` |
-| E0403 | 非 void 函数存在无 `return` 的路径 | ⚠️ 零发射点 | — |
+| E0403 | 非 void 函数存在无 `return` 的路径。漏 return 的函数以前**编得过**，运行期返回 `Null`，调用方在**毫不相干的地方**崩成 `VCall: expected object, got Null` | ✅ `FlowAnalyzer._checkMissingReturn`（谓词 `NeverCompletes`） | `int f(int x) { if (x > 0) { return 1; } }` |
 | E0404 | 访问控制违规：`private`/`protected` 成员跨界访问，或引用 `private`/`protected` 嵌套类型（对标 C# CS0122） | ✅ `AccessChecker.z42:66,192` | 类外读 `private` 字段 |
 | E0405 | 非法修饰符组合（如同时写两个访问修饰符） | ✅ `DeclParser.z42:101`（语法层） | `public private int x;` |
 | E0406 | 整数字面量超出显式宽度类型的范围 | ⚠️ 零发射点 | — |
@@ -141,7 +141,7 @@ E0442 / E0457 / E0462 除外（见上一节）。**E0402 另有一处语法层�
 | E0412 | 接口实现不匹配：签名 / `static` 与实例形态不一致 | ✅ `InheritanceResolver.z42:444,457,479,494,499` | 接口声明实例方法，实现方写成 `static` |
 | E0413 | 非法实现 | ⚠️ 零发射点 | — |
 | E0414 | event 字段的外部访问控制 | ⚠️ 零发射点 | — |
-| E0420 | `catch (T e)` 的 `T` 不是 `Exception` 的子类 | ⚠️ 零发射点 —— **catch 类型当前不校验**，`catch (NotAnException e)` 编译器不报错 | — |
+| E0420 | `catch (T e)` 的 `T` 不是 `Exception` 或其子类。此前不校验：写错类型**编译零诊断**、运行期那个 catch **静默永不匹配** ⇒ 异常穿出去变成 `uncaught exception` | ✅ `StmtBinder._chkCatchType` | `class NotEx { } … catch (NotEx e) { }`。⚠️ 本次编译解析不到 `Exception` 时不报（不链 stdlib 的编译路径拿不准）|
 | E0421 | 非法的 `default(T)` 目标类型 | ⚠️ 零发射点 | — |
 | E0424 | 非法强制转换 | ⚠️ 零发射点。非法 cast 实际走 E0402 / E0439，或运行期 `Std.InvalidCastException` | — |
 | E0443 | 类型注解引用了未定义的类型名（对标 C# CS0246） | ✅ `AccessChecker.z42:132`、`ConstraintChecker.z42:212`、`TypeOpTyper.z42:91` | `Nope x = null;` |
