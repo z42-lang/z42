@@ -111,7 +111,13 @@ int _pkgStageToolchainComponents(string root, string z42cDir, string cargoOut, s
     // per-RID stub AND the publish template (Z42_APPHOST_TEMPLATE) for z42/z42c/z42b.
     // NOT shipped in the SDK (Decision 9); delivered via the desktop workload.
     int c = _cargo(rel, "build", "src/toolchain/workload/desktop/platform/apphost/Cargo.toml", cargoTarget, ""); if (c != 0) { return c; }
-    string libs = _libsDir(root);
+    // 🔴 编译期解析面 = alllibs（stdlib + compiler 成员），不是 `_libsDir`（纯 stdlib flat）：
+    // relocate-compiler-domain-libs 之后 launcher / z42b / z42d / workload 依赖的
+    // `Z42.Project` / `Z42.Build` / `Z42.Package` 住编译器域，纯 stdlib flat 里没有 ⇒ 用 `_libsDir`
+    // 会报 `[dependencies] z42.project 未找到 z42.project.zpkg；已查找：…/libraries/dist/release`
+    // （#921 四轮 CI 的 package-host ×4 / test-consume 就死在这里：`[2c/5] z42 launcher`）。
+    // ⚠️ 本文件其余 `_libsDir` 是**把 libs 拷进包**（那是发布内容，必须只含 stdlib），别一起改。
+    string libs = _toolchainCompileLibs(root);
     // replace-csharp Phase C: components built with z42c (host z42vm + colocated
     // z42c.driver.zpkg), NOT `dotnet run`. Host z42vm compiles regardless of target
     // rid → RID-independent zpkgs. Built into Z42_LIBS first so later components
