@@ -129,6 +129,35 @@ Console.WriteLine($"{ok} {v}");  // true 42
 > 解构写的是裸 `(ok, v) = expr;`——前面**不加** `var`。
 > 元组的类型、赋值与限制见[元组](tuples.md)。
 
+### 所有路径必须 `return`
+
+非 `void` 函数的**每条路径**都必须以 `return` 或 `throw` 离开，否则报
+[`E0403`](../appendix/error-codes.md)：
+
+```z42
+int Bad(int x) {
+    if (x > 0) { return 1; }
+}                              // ✗ E0403：x <= 0 时没有 return
+```
+
+以下形态**都算数「不会落下来」**，合法：
+
+| 形态 | 例 |
+|---|---|
+| `if` / `else` 两支都退出 | `if (c) { return 1; } else { return 2; }` |
+| `throw` | `throw new Exception("x");` |
+| 条件恒真的循环且无 `break` | `while (true) { … }` / `for (;;) { … }` / `do { … } while (true);` |
+| `switch` 有 `default` 且每臂都退出、无 `break` | `switch (x) { case 1: return 1; default: return 0; }` |
+| `try` 与**每个** `catch` 都退出，或 `finally` 自己不落下来 | `try { return 1; } catch (E e) { return 2; }` |
+
+> ⚠️ **嵌套里的 `break` 绑定到最内层的循环或 `switch`**，不影响外层：
+> `while (true) { switch (x) { default: break; } }` 仍算永不落下来。
+>
+> 📜 **2026-09-27 之前这条检查不存在**：漏 `return` 的函数**编得过、零诊断**，
+> 运行期返回 `null`，然后在**调用方的某个毫不相干的位置**崩成
+> `VCall: expected object, got Null`。旧工具链编出的代码不受影响；用新工具链重建时
+> 这类潜伏缺陷会以 E0403 的形式一次性浮现。
+
 ## 重载决议
 
 同一个类里的同名方法允许**同 arity、参数类型不同**：

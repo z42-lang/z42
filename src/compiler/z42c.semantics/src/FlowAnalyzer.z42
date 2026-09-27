@@ -77,6 +77,153 @@ public sealed class FlowAnalyzer {
         FlowAnalyzer fa = new FlowAnalyzer(diags);
         FlowAnalyzer._seed(fa, md);
         fa._stmt(body);
+        FlowAnalyzer._checkMissingReturn(body, md, diags);
+    }
+
+    // ── 漏 return 检查（E0403 MissingReturn，change `add-missing-return-check`）────────────
+    //
+    // 🔴 **不能复用 `AlwaysReturns`** —— 它的保守方向对本检查是**反的**。
+    // 它的注释明写「拿不准就返 false（= 会正常结束）」：对定值分析 false 是**漏报**方向（安全）；
+    // 而漏 return 检查是 `!X(body)` ⇒ 拿不准就**误报**。它对 `while (true) { … return x; }`
+    // 与「每臂都 return 的 switch」都返 false（`while(true)` 那条注释里明写「留白」）。
+    // 同一个谓词对不同消费方回答的是不同问题 —— 与 #892 修的那条同族。
+    //
+    // 因此本谓词**没有「拿不准」档**：全部 16 种 `BoundStmt` 逐个分类，漏一种就是误报。
+    //
+    // ⚠️ `break` / `continue` 一律算 **false**：它们虽然也不「正常结束」，但把它们算成
+    // 必定退出会把 `while (true) { break; }` 判成永不落下来 —— 反而错得更远（这条陷坑已有案底）。
+    // 循环的判定另用 `_canBreakOut` 扫描。
+    public static bool NeverCompletes(BoundStmt s) {
+        if (s == null) { return false; }
+        if (s is BoundReturn) { return true; }
+        if (s is BoundThrow)  { return true; }
+        if (s is BoundBlock) {
+            BoundBlock b = s as BoundBlock;
+            int i = 0;
+            while (i < b.Count) {
+                if (FlowAnalyzer.NeverCompletes(b.Stmts[i])) { return true; }
+                i = i + 1;
+            }
+            return false;
+        }
+        if (s is BoundIf) {
+            BoundIf f = s as BoundIf;
+            if (!f.HasElse) { return false; }
+            return FlowAnalyzer.NeverCompletes(f.Then) && FlowAnalyzer.NeverCompletes(f.Else);
+        }
+        if (s is BoundTry) {
+            // try 与**每个** catch 都不落下来 ⇒ 整条不落下来；
+            // 或者 finally 自己就不落下来（`finally { throw … }`）⇒ 同样成立。
+            BoundTry t = s as BoundTry;
+            if (t.HasFinally && FlowAnalyzer.NeverCompletes(t.Finally)) { return true; }
+            if (!FlowAnalyzer.NeverCompletes(t.TryBody)) { return false; }
+            int i = 0;
+            while (i < t.CatchCount) {
+                if (!FlowAnalyzer.NeverCompletes(t.Catches[i].Body)) { return false; }
+                i = i + 1;
+            }
+            return true;
+        }
+        if (s is BoundWhile) {
+            BoundWhile w = s as BoundWhile;
+            return FlowAnalyzer._isLitTrue(w.Cond) && !FlowAnalyzer._canBreakOut(w.Body);
+        }
+        if (s is BoundDoWhile) {
+            BoundDoWhile d = s as BoundDoWhile;
+            return FlowAnalyzer._isLitTrue(d.Cond) && !FlowAnalyzer._canBreakOut(d.Body);
+        }
+        if (s is BoundFor) {
+            // 无条件（`for (;;)`）或条件恒真，且体内没有能逃出本循环的 break。
+            BoundFor f = s as BoundFor;
+            bool forever = !f.HasCond || FlowAnalyzer._isLitTrue(f.Cond);
+            return forever && !FlowAnalyzer._canBreakOut(f.Body);
+        }
+        if (s is BoundSwitch) {
+            // 有 default（否则全不匹配时直接落下来）+ 每个臂都不落下来 + 没有 break 逃出。
+            BoundSwitch sw = s as BoundSwitch;
+            if (!FlowAnalyzer._hasDefault(sw)) { return false; }
+            int i = 0;
+            while (i < sw.CaseCount) {
+                BoundSwitchCase c = sw.Cases[i];
+                // 带守卫的臂可能不被采纳 ⇒ 不能算作覆盖。
+                if (c.Guard != null) { return false; }
+                bool armOut = false;
+                int j = 0;
+                while (j < c.BodyCount) {
+                    if (FlowAnalyzer.NeverCompletes(c.Body[j])) { armOut = true; }
+                    if (FlowAnalyzer._canBreakOut(c.Body[j])) { return false; }
+                    j = j + 1;
+                }
+                if (!armOut) { return false; }
+                i = i + 1;
+            }
+            return true;
+        }
+        // BoundForeach（有限集合，会落下来）/ BoundBreak / BoundContinue / BoundExprStmt /
+        // BoundVarDeclStmt / BoundDeconstructDeclStmt / BoundLocalFunction —— 均会正常结束。
+        return false;
+    }
+
+    private static bool _isLitTrue(BoundExpr e) {
+        if (!(e is BoundLitBool)) { return false; }
+        return (e as BoundLitBool).Value;
+    }
+
+    // 内层的 `break` 能逃到**本**循环/switch 吗。
+    // ⚠️ **不下沉到嵌套的循环 / switch**：那里的 break 绑定到内层构造，与本层无关。
+    // 也不下沉到局部函数（独立作用域）。
+    private static bool _canBreakOut(BoundStmt s) {
+        if (s == null) { return false; }
+        if (s is BoundBreak) { return true; }
+        if (s is BoundWhile) { return false; }
+        if (s is BoundDoWhile) { return false; }
+        if (s is BoundFor) { return false; }
+        if (s is BoundForeach) { return false; }
+        if (s is BoundSwitch) { return false; }
+        if (s is BoundLocalFunction) { return false; }
+        if (s is BoundBlock) {
+            BoundBlock b = s as BoundBlock;
+            int i = 0;
+            while (i < b.Count) {
+                if (FlowAnalyzer._canBreakOut(b.Stmts[i])) { return true; }
+                i = i + 1;
+            }
+            return false;
+        }
+        if (s is BoundIf) {
+            BoundIf f = s as BoundIf;
+            if (FlowAnalyzer._canBreakOut(f.Then)) { return true; }
+            return f.HasElse && FlowAnalyzer._canBreakOut(f.Else);
+        }
+        if (s is BoundTry) {
+            BoundTry t = s as BoundTry;
+            if (FlowAnalyzer._canBreakOut(t.TryBody)) { return true; }
+            int i = 0;
+            while (i < t.CatchCount) {
+                if (FlowAnalyzer._canBreakOut(t.Catches[i].Body)) { return true; }
+                i = i + 1;
+            }
+            return t.HasFinally && FlowAnalyzer._canBreakOut(t.Finally);
+        }
+        return false;
+    }
+
+    // 非 void 方法的所有路径必须 return。报在**方法签名**处（体末尾无 span 可用）。
+    private static void _checkMissingReturn(BoundStmt body, MethodDecl md, DiagnosticBag diags) {
+        if (md == null || body == null) { return; }
+        if (md.IsCtor) { return; }                       // ctor 的 RetType 是占位 NamedType("")
+        if (!(md.RetType is NamedType)) {
+            // 数组 / 泛型 / 可空等非 NamedType 一律是真返回类型 ⇒ 要求 return。
+            if (FlowAnalyzer.NeverCompletes(body)) { return; }
+            diags.Error(DiagnosticCodes.MissingReturn,
+                "not all code paths return a value in `" + md.Name + "`", md.Span);
+            return;
+        }
+        string rn = (md.RetType as NamedType).Name;
+        if (rn == "void" || rn == "") { return; }
+        if (FlowAnalyzer.NeverCompletes(body)) { return; }
+        diags.Error(DiagnosticCodes.MissingReturn,
+            "not all code paths return a value in `" + md.Name + "`", md.Span);
     }
 
     private static void _seed(FlowAnalyzer fa, MethodDecl md) {
