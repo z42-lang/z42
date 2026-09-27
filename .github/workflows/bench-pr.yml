@@ -158,10 +158,40 @@ jobs:
             fi
             echo "$a.$b/$c.$d"
           }
+          # rename-project-namespaces B3a：**第二种代差** —— 命名空间。A/B 的 base 那一侧是
+          # 「base 的编译器源码 + **PR 的 libs**」（见下面 `Build base ... for A/B` 的头注：
+          # PR flat libs 就是 base 源码被类型检查时的 TSIG 面）。这个假设对普通改动成立，
+          # 但 PR **删掉或改掉** stdlib 的某个命名空间时必破：base 源码里的 `using Z42.Project;`
+          # 在 PR 的 libs 里已经不存在 ⇒ base 侧 `E0494 命名空间不存在`，整个 job 红
+          # （#905 实测，红在 `Build base (merge-base) toolchain for A/B`）。
+          #
+          # 判据取「**base 有而 PR 没有**」而不是「两边不相等」：纯新增命名空间不影响 base 侧
+          # 的类型检查，那种 PR 仍该正常测性能。
+          #
+          # ⚠️ 与 `ver()` 同一条纪律：本函数对 **base 与 PR 两棵树**都调用，不得写死任何
+          # 只有一侧成立的路径（`src/libraries` 两棵树都有）。
+          nsset() { # <tree-root> → 该树 stdlib 声明的命名空间集合（排序去重）
+            grep -rhoE '^namespace [A-Za-z0-9_.]+;' "$1/src/libraries" --include='*.z42' 2>/dev/null \
+              | sed 's/^namespace //; s/;$//' | sort -u
+          }
+          NSGONE=$(comm -23 <(nsset "$PWD/base-src") <(nsset "$PWD") | tr '\n' ' ' | sed 's/ *$//')
+
           PRV=$(ver "$PWD")
           BASEV=$(ver "$PWD/base-src")
           echo "format: pr=$PRV base=$BASEV"
-          if [ "$PRV" = "$BASEV" ]; then
+          echo "namespaces dropped base→pr: ${NSGONE:-<none>}"
+          if [ -n "$NSGONE" ]; then
+            echo "gap=1" >> "$GITHUB_OUTPUT"
+            msg="stdlib namespace(s) removed/renamed base→pr ($NSGONE): the base compiler source is type-checked against the PR libs, which no longer declare them (E0494), so the e2e/micro A/B is SKIPPED — this PR's performance was NOT measured."
+            echo "::warning title=bench A/B skipped (namespace gap)::$msg"
+            {
+              echo "## ⚠️ bench A/B skipped — namespace gap"
+              echo
+              echo "$msg"
+              echo
+              echo "Still run: verdict-logic self-check, Criterion (Rust) A/B."
+            } >> "$GITHUB_STEP_SUMMARY"
+          elif [ "$PRV" = "$BASEV" ]; then
             echo "gap=0" >> "$GITHUB_OUTPUT"
           else
             echo "gap=1" >> "$GITHUB_OUTPUT"
