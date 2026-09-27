@@ -28,14 +28,14 @@ use std::sync::{Arc, OnceLock};
 /// would just run an immediate-no-op collect with nothing reachable to
 /// reclaim. Matches typical `GC.Collect()` semantics in C# / Java where
 /// concurrent calls may coalesce.
-pub fn builtin_gc_collect(ctx: &VmContext, _args: &[Value]) -> Result<Value> {
+pub fn builtin_gc_collect(ctx: &VmContext, _args: &[Value]) -> Result<()> {
     // add-concurrent-gc P4b (2026-05-22): dispatch via
     // collect_cycles_with_context so the heap can choose STW or concurrent
     // path based on its current GcMode. STW mode (default) keeps the
     // pre-this-spec behavior exactly; ConcurrentMarkSweep runs the
     // multi-phase flow internally.
     ctx.heap().collect_cycles_with_context(ctx);
-    Ok(Value::Null)
+    Ok(())
 }
 
 /// `Std.GC.UsedBytes()` —— 返回当前 `HeapStats.used_bytes`（i64）。
@@ -256,10 +256,10 @@ pub fn builtin_gc_handle_kind(ctx: &VmContext, args: &[Value]) -> Result<Value> 
 }
 
 /// `Std.GCHandle.Free()` — releases the slot. Idempotent (also no-op on slot 0).
-pub fn builtin_gc_handle_free(ctx: &VmContext, args: &[Value]) -> Result<Value> {
+pub fn builtin_gc_handle_free(ctx: &VmContext, args: &[Value]) -> Result<()> {
     let slot = extract_gc_handle_slot(ctx, args.first().unwrap_or(&Value::Null));
     ctx.heap().handle_free(slot);
-    Ok(Value::Null)
+    Ok(())
 }
 
 /// `Std.GC.PauseHistogram()` — **add-gc-pause-histogram (2026-05-22)**.
@@ -357,23 +357,23 @@ pub fn builtin_gc_write_heap_snapshot(ctx: &VmContext, args: &[Value]) -> Result
 
 /// `Std.GC.SetMaxHeapBytes(bytes)` — **add-gc-oom-exception (2026-05-25)**.
 /// Sets the heap upper limit. `bytes <= 0` clears the limit (unbounded).
-pub fn builtin_gc_set_max_heap_bytes(ctx: &VmContext, args: &[Value]) -> Result<Value> {
+pub fn builtin_gc_set_max_heap_bytes(ctx: &VmContext, args: &[Value]) -> Result<()> {
     let bytes = match args.first() {
         Some(Value::I64(n)) if *n > 0 => Some(*n as u64),
         _ => None,
     };
     ctx.heap().set_max_heap_bytes(bytes);
-    Ok(Value::Null)
+    Ok(())
 }
 
 /// `Std.GC.SetStrictOOM(enabled)` — **add-gc-oom-exception (2026-05-25)**.
 /// Enables / disables strict OOM mode. When enabled, alloc over
 /// `max_heap_bytes` throws `Std.OutOfMemoryException` instead of
 /// returning `Value::Null` silently.
-pub fn builtin_gc_set_strict_oom(ctx: &VmContext, args: &[Value]) -> Result<Value> {
+pub fn builtin_gc_set_strict_oom(ctx: &VmContext, args: &[Value]) -> Result<()> {
     let enabled = matches!(args.first(), Some(Value::Bool(true)));
     ctx.heap().set_strict_oom(enabled);
-    Ok(Value::Null)
+    Ok(())
 }
 
 // ── Soft reference builtins (add-gc-softref, 2026-05-26) ─────────────────────

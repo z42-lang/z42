@@ -314,11 +314,11 @@ pub fn builtin_net_tcp_socket_write(ctx: &VmContext, args: &[Value]) -> Result<V
     }
 }
 
-pub fn builtin_net_tcp_socket_drop(ctx: &VmContext, args: &[Value]) -> Result<Value> {
+pub fn builtin_net_tcp_socket_drop(ctx: &VmContext, args: &[Value]) -> Result<()> {
     const NAME: &str = "__net_tcp_socket_drop";
     let slot_id = require_slot_id(args, 0, NAME)?;
     ctx.core.tcp_sockets.lock().remove(&slot_id);
-    Ok(Value::Null)
+    Ok(())
 }
 
 // add-httpclient-timeout (2026-05-27): apply read / write deadlines so
@@ -373,7 +373,7 @@ pub fn builtin_net_tcp_socket_set_write_timeout(ctx: &VmContext, args: &[Value])
     apply_timeout(ctx, slot_id, millis, "set_write_timeout")
 }
 
-pub fn builtin_net_tcp_listener_drop(ctx: &VmContext, args: &[Value]) -> Result<Value> {
+pub fn builtin_net_tcp_listener_drop(ctx: &VmContext, args: &[Value]) -> Result<()> {
     const NAME: &str = "__net_tcp_listener_drop";
     let slot_id = require_slot_id(args, 0, NAME)?;
     // fix-accept-not-interruptible：**先置标志、再摘表**。阻塞在 accept 里的线程持有
@@ -383,5 +383,5 @@ pub fn builtin_net_tcp_listener_drop(ctx: &VmContext, args: &[Value]) -> Result<
         slot.closed.store(true, std::sync::atomic::Ordering::Release);
     }
     ctx.core.tcp_listeners.lock().remove(&slot_id);
-    Ok(Value::Null)
+    Ok(())
 }

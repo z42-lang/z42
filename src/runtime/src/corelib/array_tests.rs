@@ -96,7 +96,7 @@ fn read(v: &Value) -> Vec<i64> {
     }
 }
 
-fn copy(ctx: &VmContext, src: &Value, si: i64, dst: &Value, di: i64, n: i64) -> Result<Value> {
+fn copy(ctx: &VmContext, src: &Value, si: i64, dst: &Value, di: i64, n: i64) -> Result<()> {
     builtin_array_copy(
         ctx,
         &[src.clone(), Value::I64(si), dst.clone(), Value::I64(di), Value::I64(n)],

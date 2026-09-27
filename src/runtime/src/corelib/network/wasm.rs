@@ -18,10 +18,10 @@ pub fn builtin_net_tcp_socket_read(ctx: &VmContext, _args: &[Value]) -> Result<V
 pub fn builtin_net_tcp_socket_write(ctx: &VmContext, _args: &[Value]) -> Result<Value> {
     Ok(unsupported(ctx))
 }
-pub fn builtin_net_tcp_socket_drop(_ctx: &VmContext, _args: &[Value]) -> Result<Value> {
+pub fn builtin_net_tcp_socket_drop(_ctx: &VmContext, _args: &[Value]) -> Result<()> {
     Ok(Value::Null)
 }
-pub fn builtin_net_tcp_listener_drop(_ctx: &VmContext, _args: &[Value]) -> Result<Value> {
+pub fn builtin_net_tcp_listener_drop(_ctx: &VmContext, _args: &[Value]) -> Result<()> {
     Ok(Value::Null)
 }
 
@@ -35,7 +35,7 @@ pub fn builtin_net_udp_send(ctx: &VmContext, _args: &[Value]) -> Result<Value> {
 pub fn builtin_net_udp_recv(ctx: &VmContext, _args: &[Value]) -> Result<Value> {
     Ok(unsupported(ctx))
 }
-pub fn builtin_net_udp_drop(_ctx: &VmContext, _args: &[Value]) -> Result<Value> {
+pub fn builtin_net_udp_drop(_ctx: &VmContext, _args: &[Value]) -> Result<()> {
     Ok(Value::Null)
 }
 pub fn builtin_net_udp_recv_into(ctx: &VmContext, _args: &[Value]) -> Result<Value> {

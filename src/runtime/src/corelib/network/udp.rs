@@ -138,11 +138,11 @@ pub fn builtin_net_udp_recv(ctx: &VmContext, args: &[Value]) -> Result<Value> {
 }
 
 /// `__net_udp_drop(slot) -> Null` — idempotent.
-pub fn builtin_net_udp_drop(ctx: &VmContext, args: &[Value]) -> Result<Value> {
+pub fn builtin_net_udp_drop(ctx: &VmContext, args: &[Value]) -> Result<()> {
     const NAME: &str = "__net_udp_drop";
     let slot_id = require_slot_id(args, 0, NAME)?;
     ctx.core.udp_sockets.lock().remove(&slot_id);
-    Ok(Value::Null)
+    Ok(())
 }
 
 // ── add-z42-net-udp-multicast (2026-05-27) ───────────────────────────

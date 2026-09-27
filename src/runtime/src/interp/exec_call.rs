@@ -287,10 +287,15 @@ pub(super) fn builtin(
         _ => crate::corelib::exec_builtin(ctx, name, &arg_vals),
     };
     match result {
-        Ok(v) => {
+        // split-null-sentinel-channels ④：`None` = 该 builtin **声明为 void**
+        // ⇒ 不往 `dst` 存任何东西。此前 void builtin 返回 `Ok(Value::Null)`、
+        // 这里无条件 `frame.set(dst, Null)` ⇒ 「无返回值」与「返回 null」在寄存器里
+        // 长得一模一样。`Option` 在类型上强制这一格被处理。
+        Ok(Some(v)) => {
             frame.set(dst, v);
             Ok(None)
         }
+        Ok(None) => Ok(None),
         Err(e) => {
             // A callback builtin (reflection `MethodInfo.Invoke`) that ran z42
             // code which threw stashes the ORIGINAL exception value here so it

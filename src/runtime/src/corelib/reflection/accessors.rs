@@ -20,7 +20,7 @@ pub fn builtin_property_get_value(ctx: &VmContext, args: &[Value]) -> Result<Val
 /// qualified name the VM stamped onto `__setterQualified`). `target` is the
 /// receiver (reg 0), `value` the assigned value. A read-only property (no
 /// setter) raises a catchable `Std.Exception`.
-pub fn builtin_property_set_value(ctx: &VmContext, args: &[Value]) -> Result<Value> {
+pub fn builtin_property_set_value(ctx: &VmContext, args: &[Value]) -> Result<()> {
     let pi = args.first().cloned().unwrap_or(Value::Null);
     let target = args.get(1).cloned().unwrap_or(Value::Null);
     let value = args.get(2).cloned().unwrap_or(Value::Null);
@@ -28,7 +28,8 @@ pub fn builtin_property_set_value(ctx: &VmContext, args: &[Value]) -> Result<Val
         Value::Str(s) => s.to_string(),
         _ => bail!("PropertyInfo.SetValue: property has no setter (read-only)"),
     };
-    invoke_qualified(ctx, &setter, &[target, value], &[])
+    // setter 是 void：结果不该被当值用（split-null-sentinel-channels ④）。
+    invoke_qualified(ctx, &setter, &[target, value], &[]).map(|_| ())
 }
 
 /// `__field_get_value(field: FieldInfo, target: object) -> object` — read an
@@ -174,7 +175,7 @@ pub(crate) fn boxed_struct_field_get(
 /// `__field_set_value(field: FieldInfo, target: object, value: object)` — write
 /// an instance field's slot directly (by `Name` → `field_index`). Powers
 /// reflective deserialization (binding JSON members onto plain public fields).
-pub fn builtin_field_set_value(ctx: &VmContext, args: &[Value]) -> Result<Value> {
+pub fn builtin_field_set_value(ctx: &VmContext, args: &[Value]) -> Result<()> {
     let fi = args.first().cloned().unwrap_or(Value::Null);
     let target = args.get(1).cloned().unwrap_or(Value::Null);
     let value = args.get(2).cloned().unwrap_or(Value::Null);
@@ -186,12 +187,12 @@ pub fn builtin_field_set_value(ctx: &VmContext, args: &[Value]) -> Result<Value>
         // add-boxed-struct-identity (P4b): write through to the shared box object. Because
         // a boxed struct now has reference identity (a shared `ScriptObject`), the mutation
         // is visible to every holder of the box — matching C# `FieldInfo.SetValue(box, v)`.
-        Value::BoxedStruct(gc) => boxed_struct_field_set(ctx, &target, gc, &name, &value),
+        Value::BoxedStruct(gc) => boxed_struct_field_set(ctx, &target, gc, &name, &value).map(|_| ()),
         Value::Object(rc) => {
             // add-object-inline-struct-reflection (P4b-B): an inline value-struct field
             // writes through to the object's shared `struct_bytes`/`struct_refs`, not a slot.
             if object_inline_struct_field_set(ctx, &target, rc, &name, &value)?.is_some() {
-                return Ok(Value::Null);
+                return Ok(());
             }
             match rc.type_desc().field_index.get(&name).copied() {
                 Some(i) => {
@@ -200,7 +201,7 @@ pub fn builtin_field_set_value(ctx: &VmContext, args: &[Value]) -> Result<Value>
                     // （装箱 struct / 对象内联 struct 叶子，见下方 `encode_prim(..)?`）一直是抛的，
                     // 这里只是把唯一的异类对齐。引用字段写 `null` 仍然合法（走 ref 槽，不到 encode）。
                     rc.borrow_mut().try_set_field_value(i, &value)?;
-                    Ok(Value::Null)
+                    Ok(())
                 }
                 None => bail!("FieldInfo.SetValue: field `{name}` not present on target instance"),
             }

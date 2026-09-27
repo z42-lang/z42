@@ -253,7 +253,7 @@ pub fn obj_to_string(ctx: &VmContext, module: &Module, val: &Value) -> Result<St
             }
         }
         // Fallback: builtin obj_to_str (unqualified type name)
-        return crate::corelib::exec_builtin(
+        return crate::corelib::exec_builtin_value(
                 ctx,
                 crate::metadata::well_known_names::BUILTIN_OBJ_TO_STR,
                 &[val.clone()])

@@ -45,13 +45,13 @@ pub fn builtin_system_cwd(_ctx: &VmContext, _: &[Value]) -> Result<Value> {
     Ok(Value::Str(cwd.into()))
 }
 
-pub fn builtin_system_set_cwd(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
+pub fn builtin_system_set_cwd(_ctx: &VmContext, args: &[Value]) -> Result<()> {
     let path = arg_str(args, 0, "__system_set_cwd")?;
     #[cfg(not(target_arch = "wasm32"))]
     std::env::set_current_dir(path)?;
     #[cfg(target_arch = "wasm32")]
     let _ = path;
-    Ok(Value::Null)
+    Ok(())
 }
 
 pub fn builtin_system_hostname(_ctx: &VmContext, _: &[Value]) -> Result<Value> {
