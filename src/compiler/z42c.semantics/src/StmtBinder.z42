@@ -332,6 +332,45 @@ public sealed class StmtBinder {
             return new BoundWhile(cond, body, w.Span);
     }
 
+    // catch 类型必须是 `Exception` 或其子类（E0420，change `enforce-catch-type`）。
+    //
+    // 此前完全不校验：`catch (NotAnException e)` **编译零诊断**，而运行期那个 catch
+    // **静默永不匹配** ⇒ 异常穿出去变成 `uncaught exception`。用户写错 catch 类型的
+    // 代价是「不报错 + 错误处理静默失效」。`error-codes.md` 早就如实标着
+    // 「⚠️ 零发射点 —— catch 类型当前不校验」。
+    //
+    // 🔴 **宽松闸门：本次编译解析不到 `Exception` 时一概不报**。
+    // 不链 stdlib 的路径真实存在且合法 —— `SemanticDump.FirstErrorCode` 走的独立 Infer
+    // 路径就是（见 `exhaust_tests.z42` / `missing_return_tests.z42` 头注），那里 `Exception`
+    // 根本不存在，所有 catch 类型都会被误报。**拿不准就不报**是这里正确的
+    // 保守方向（与 E0403 那条正好相反 —— 同一个「保守」对不同检查指向不同方向）。
+    private void _chkCatchType(Z42ClassType ct, TypeEnv env, Span sp) {
+        if (ct == null || env == null || env.Symbols == null) { return; }
+        SymbolTable symbols = env.Symbols;
+        if (!symbols.HasClass("Exception")) { return; }   // 宽松闸门（见上）
+        string cur = ct.Name();
+        int hops = 0;
+        while (cur != "" && hops < 64) {
+            if (cur == "Exception") { return; }
+            Z42ClassType c = symbols.GetClass(cur);
+            if (c == null) { return; }                    // 链上某环解析不到 ⇒ 拿不准，不报
+            if (c.HasBase && c.BaseName != "") {
+                // 去掉泛型尖括号（同 ResolveSealedTarget 的基链上滯）
+                string bare = c.BaseName;
+                int bi = 0;
+                while (bi < bare.Length) {
+                    if (bare.CharAt(bi) == '<') { bare = bare.Substring(0, bi); bi = bare.Length; }
+                    else { bi = bi + 1; }
+                }
+                cur = bare;
+            }
+            else { cur = ""; }
+            hops = hops + 1;
+        }
+        this._tc._diags.Error(DiagnosticCodes.InvalidCatchType,
+            "`" + ct.Name() + "` is not an exception type; `catch` requires `Exception` or a subclass", sp);
+    }
+
     private BoundStmt _bindTryCatch(TryCatchStmt ts, TypeEnv env, Z42Type ret) {
             BoundStmt tryBody = this._bindStmt(ts.TryBody, env, ret);
             BoundCatchClause[] catches = new BoundCatchClause[ts.CatchCount];
@@ -346,7 +385,9 @@ public sealed class StmtBinder {
                     this._tc._chkTypeRef(t, env, cc.ExType.Span);   // enforce-class-access：catch 异常类型引用
                     this._tc.ChkAmbiguousBareNameT(env.Symbols, cc.ExType, cc.ExType.Span);   // add-bare-name-ambiguity-diagnostic：E0456
                     exName = cc.ExType.Dump();           // 解析失败也保留源类型名（imported 异常类经 Unknown 吸收）
-                    if (t is Z42ClassType) { exName = t.Name(); exType = t; }
+                    if (t is Z42ClassType) { exName = t.Name(); exType = t;
+                        this._chkCatchType(t as Z42ClassType, env, cc.ExType.Span);
+                    }
                     // 泛型异常（catch (MulticastException<int>)）：存裸 Def 名 + arity，codegen 限定为
                     // QualifyClass(裸名)+"$"+arity（= Std.MulticastException$1，匹配运行期抛出类型）。
                     // 否则 Dump() 含 <int> → QualifyClass 误前缀当前 ns（Demo.MulticastException<int>）→ 不匹配。
