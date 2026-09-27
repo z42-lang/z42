@@ -349,7 +349,7 @@ mod imp {
         Ok(unsupported(ctx))
     }
     pub fn builtin_net_tls_socket_drop(_ctx: &VmContext, _args: &[Value]) -> Result<()> {
-        Ok(Value::Null)
+        Ok(())
     }
     pub fn builtin_net_tls_socket_set_read_timeout(ctx: &VmContext, _args: &[Value]) -> Result<Value> {
         Ok(unsupported(ctx))
