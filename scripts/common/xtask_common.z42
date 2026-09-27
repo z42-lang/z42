@@ -607,6 +607,16 @@ int _ensureSeed(string root) {
             + "  (a stale seed fails LATER, as a runtime crash on some uninitialized static)");
     }
 
+    // 🔴 供种的期望清单来自**当前** `_compilerMembers()`，而种子是**上一代** —— 成员集合一变，
+    // 这里立刻不匹配。relocate-compiler-domain-libs（2026-09-27）把六个包挪进编译器域，其中
+    // 五个本来就是 driver 的兄弟（种子 `programs/z42c/` 里有），但 **`z42.scripting` 那一代住
+    // `libs/`** ⇒ 冷启动当场
+    //   `error: seed missing z42.scripting.zpkg in <sdk>/programs/z42c`
+    // （CI 八个 job 全红在 `[3/5]`，各平台一致；本地 warm 树看不见，因为它不走供种）。
+    //
+    // ⇒ **按种子的实际布局兜底**：`programs/z42c/` 没有就去种子的 `libs/` 找。这是一代过渡形态。
+    // STAGE2-DEBT(relocate-seed-scripting-fallback): 含本改动的 nightly 成为种子后，删掉这个
+    //   `libs/` 兜底分支（届时种子的 programs/z42c/ 自带全部编译器成员）
     string[] members = _compilerMembers(root);
     int i = 0;
     while (i < members.Length) {
@@ -615,7 +625,12 @@ int _ensureSeed(string root) {
         Directory.Create(dst);
         _copyAll(driverHome, dst, m + ".zpkg");
         if (!File.Exists(Path.Join(dst, m + ".zpkg"))) {
-            ConsoleError.WriteLine("error: seed missing " + m + ".zpkg in " + driverHome);
+            // 上一代种子里它可能还在 stdlib 那侧（见上方头注）。
+            _copyAll(stdlibDir, dst, m + ".zpkg");
+        }
+        if (!File.Exists(Path.Join(dst, m + ".zpkg"))) {
+            ConsoleError.WriteLine("error: seed missing " + m + ".zpkg in " + driverHome
+                + "（也不在种子的 libs/：" + stdlibDir + "）");
             return 1;
         }
         i = i + 1;
