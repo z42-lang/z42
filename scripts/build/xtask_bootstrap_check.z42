@@ -191,10 +191,15 @@ int _bcRunWorkspace(string root, string label, string vm, string driver, string 
     // stdlib，而预建产出的是**当前源**的库；三合一时预建一覆盖，种子 driver 自己就崩
     // （改名/删符号这类变更必然踩到，也正是 design.md §5 点 2 点名的这个面）。
     // ⇒ 先把 runlibs 快照成种子代运行期面，再让预建/编译对着 runlibs 产出与解析。
-    string bcSeedRun = Path.Join(work, label + "-seedrun");
-    _resetDir(bcSeedRun);
-    _copyAll(runlibs, bcSeedRun, "*.zpkg");
-    _copyAll(runlibs, bcSeedRun, "*.zsym");
+    // 同 `_buildCompilerViaZ42c`：只有 driver 认 `--compile-libs` 时才分开两个面，
+    // 否则逐字退回「runlibs 当两者」（旧行为）—— 种子 driver 会静默忽略未知旗标。
+    string bcSeedRun = runlibs;
+    if (_driverSupportsCompileLibs(vm, driver)) {
+        bcSeedRun = Path.Join(work, label + "-seedrun");
+        _resetDir(bcSeedRun);
+        _copyAll(runlibs, bcSeedRun, "*.zpkg");
+        _copyAll(runlibs, bcSeedRun, "*.zsym");
+    }
     _ensureBootstrapSelfDepLibs(root, vm, driver, runlibs, bcSeedRun);
     string outRoot = Path.Join(work, label + "-out");
     _resetDir(outRoot);

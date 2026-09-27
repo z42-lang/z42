@@ -442,6 +442,22 @@ void _moveLegacyIrToAlias(string root, string libsDir, string profile) {
     if (File.Exists(sym)) { File.Delete(sym); }
 }
 
+// ── driver 认不认 `--compile-libs`（rename-project-namespaces B2 的安全降级）─────────────
+//
+// 🔴 **enabler 自己也受自举纪律约束**：`--compile-libs` 是**新增旗标**，而冷启动跑的是
+// **上一 nightly 的种子 driver** —— 它不认识这个旗标且**静默忽略**。若脚本无条件依赖它，
+// 就会拿到「旗标被丢掉、`Z42_LIBS`（= 种子代快照）当成编译期面」的错行为：CI 的
+// compile-toolchain 实测红在 `z42.package 未找到；已查找：…/seed-run-libs`。
+//
+// ⇒ 用 `build --help` 探一次：认 ⇒ 分开两个面；不认 ⇒ **逐字退回旧行为**（flat 当两者、
+//    不传旗标）。这样本改动今天就能安全落地，等旗标随 nightly 进种子后自动启用。
+bool _driverSupportsCompileLibs(string vm, string driver) {
+    ProcessResult r = new Process(vm).Arg(driver).Arg("--").Arg("build").Arg("--help")
+        .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
+    string all = r.Stdout + r.Stderr;
+    return all.IndexOf("--compile-libs") >= 0;
+}
+
 // ── 种子代的运行期 libs 快照（rename-project-namespaces B2，2026-09-27）────────────────────
 //
 // **为什么需要它**：自举时跑的是**上一代** z42c 二进制。它运行期要加载那一代的 stdlib

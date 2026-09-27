@@ -93,11 +93,22 @@ int _buildCompilerViaZ42c(string root, string profile, string[] members, string 
     // 用 `Z42_LIBS=快照` + `--compile-libs=flat`。driver 换代之后的步骤（`build stdlib` 步骤 4 等）
     // 仍照旧用 flat 当两者 —— 那时 driver 与 flat 同代。详见
     // `docs/spec/changes/rename-project-namespaces/design.md` §3 的代际表。
-    _snapshotSeedRunLibs(root, profile);
-    string seedRun = _seedRunLibs(root, profile);
+    // 🔴 **只有在 driver 认 `--compile-libs` 时才分开两个面**。种子 driver 若早于该旗标会
+    // **静默忽略**它 ⇒ `Z42_LIBS`（此处本想设成种子代快照）会被当成编译期面，冷树上那个快照
+    // 还是空的 ⇒ `z42.package 未找到`（CI compile-toolchain 实测红）。不认就逐字退回旧行为。
+    bool splitLibs = _driverSupportsCompileLibs(vm, driver);
+    string seedRun = stdlibFlat;
+    string compileLibs = "";
+    if (splitLibs) {
+        _snapshotSeedRunLibs(root, profile);
+        seedRun = _seedRunLibs(root, profile);
+        compileLibs = stdlibFlat;
+    } else {
+        _vNormal("  seed driver 不认 --compile-libs（早于该旗标）→ 运行期/编译期共用 flat（旧行为）");
+    }
     _ensureBootstrapSelfDepLibs(root, vm, driver, stdlibFlat, seedRun);  // 冷启动破 z42c⇄z42.package 环（须在 workspace build 前）
     string compilerDir = Path.Join(root, "src/compiler");
-    int rc = _z42cWorkspaceBuild(vm, driver, compilerDir, seedRun, false, stdlibFlat);
+    int rc = _z42cWorkspaceBuild(vm, driver, compilerDir, seedRun, false, compileLibs);
     // 跨成员符号新增（如 z42c.syntax 新增类型/字段被 z42c.semantics 消费）冷启动收敛（破 z42c⇄z42c 内部环）：
     // 上面 line 67 的自包含把当时 dist 里的**旧**兄弟包（如上一 nightly 种子的 z42c.syntax）打进 driver，
     // 而 driver 作编译器运行时解析 semantics 源里的 `Z42.Syntax.*` 用其**自身加载的旧兄弟包**（遮蔽 fresh
@@ -108,7 +119,7 @@ int _buildCompilerViaZ42c(string root, string profile, string[] members, string 
         _vNormal("  self-build 首遍失败 → 用本轮 fresh 成员 dist 重新自包含 driver + 重试（跨成员符号新增冷启动收敛）");
         _ensureDriverSelfContained(root, profile, members);
         // 重试仍用种子代 driver ⇒ 同样分开两个面。
-        rc = _z42cWorkspaceBuild(vm, driver, compilerDir, seedRun, false, stdlibFlat);
+        rc = _z42cWorkspaceBuild(vm, driver, compilerDir, seedRun, false, compileLibs);
     }
     if (rc != 0) { ConsoleError.WriteLine("  ✗ z42c --workspace self-build failed"); return 1; }
     _ensureDriverSelfContained(root, profile, members);   // 新 gen driver 自包含（幂等兜底）
