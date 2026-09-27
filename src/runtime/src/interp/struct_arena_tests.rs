@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 /// Pure-primitive layout of `size` bytes (no reference leaves).
 fn prim_layout(size: usize) -> Arc<StructTypeLayout> {
-    Arc::new(StructTypeLayout { size, ref_offsets: Box::new([]), ref_kinds: Box::new([]) })
+    Arc::new(StructTypeLayout { size, ref_offsets: Box::new([]), ref_kinds: Box::new([]), fields: Box::new([]) })
 }
 
 #[test]
@@ -63,6 +63,7 @@ fn ref_leaf_copy_is_independent_and_scanned() {
         size: 16,
         ref_offsets: Box::new([0]),
         ref_kinds: Box::new([STRUCT_REF_ARC_STRING]),
+        fields: Box::new([]),
     });
     let src = a.alloc(1, Arc::from("R"), layout.clone());
     let dst = a.alloc(1, Arc::from("R"), layout);
@@ -95,6 +96,7 @@ fn ref_leaf_bad_offset_errors() {
         size: 16,
         ref_offsets: Box::new([0]),
         ref_kinds: Box::new([STRUCT_REF_ARC_STRING]),
+        fields: Box::new([]),
     });
     let idx = a.alloc(1, Arc::from("R"), layout);
     assert!(a.set_ref(idx, 1, 8, Value::Null).is_err(), "unknown ref offset must error");

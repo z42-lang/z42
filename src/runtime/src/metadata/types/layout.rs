@@ -34,6 +34,36 @@ pub struct StructTypeLayout {
     pub size: usize,
     pub ref_offsets: Box<[u32]>,
     pub ref_kinds: Box<[u8]>,
+    /// **逐字段**布局，按字段声明位置索引（`fields[i]` = 第 i 个字段）。
+    ///
+    /// 来自 zbc 1.45 的 TYPE 段 struct 字段表（`ClassDesc.struct_field_table`，change
+    /// `type-section-flags2-and-struct-fields` / #903）。空 = 该类型没有携带字段表
+    /// （旧产物、或 `resolve_layout` 的 size-only 兜底）。
+    ///
+    /// 🔴 **它是给谁用的**（change `symbolic-struct-field-access` P0）：让 struct 字段访问
+    /// 可以带**字段序号**而不是编译期烘焙的**字节偏移**。关键性质是
+    /// **序号实例化不变、偏移随实例化变** —— `Pair<A,B>` 的 `First`/`Second` 永远是 0/1，
+    /// 而它们的偏移随 `A`/`B` 而变。于是解析 = `fields[i].offset`，
+    /// **O(1) 数组下标，无哈希、无字符串、不需要 IC**。
+    ///
+    /// ⚠️ 本字段目前是**休眠元数据：没有任何消费方**（形态同
+    /// `unify-object-byte-layout (PR-1)` 当年的做法）。接通它是 P2 的事。
+    /// 之所以先单独落地：P0 纯附加、零行为变化，可独立 GREEN；而 P2 要改指令编码、
+    /// 得在此之上做。
+    pub fields: Box<[StructFieldLayout]>,
+}
+
+/// `StructTypeLayout::fields` 的一项 —— 一个字段的偏移 / 宽 / 叶子种类。
+///
+/// 与 zbc 侧的 `bytecode::StructFieldEntry` 一一对应（那是 wire 形态，这是运行期形态）。
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct StructFieldLayout {
+    /// blob 内字节偏移。
+    pub offset: u32,
+    /// 字节宽。
+    pub size: u32,
+    /// `StructLeafKind`：0=Prim / 1=ArcString / 2=GcRef / 3=Struct / 4=GcRefArray / 5=GcRefClosure。
+    pub kind: u8,
 }
 
 impl StructTypeLayout {
@@ -48,6 +78,27 @@ impl StructTypeLayout {
     #[inline]
     pub fn ref_count(&self) -> usize {
         self.ref_offsets.len()
+    }
+
+    /// 第 `i` 个字段的字节偏移（`None` = 没有字段表，或 `i` 越界）。
+    ///
+    /// symbolic-struct-field-access P0：这是「符号化」那一步要的唯一原语 ——
+    /// 指令带序号，运行期在这里换成偏移。**序号实例化不变，偏移随实例化变。**
+    #[inline]
+    pub fn field_offset(&self, i: usize) -> Option<u32> {
+        self.fields.get(i).map(|f| f.offset)
+    }
+
+    /// 第 `i` 个字段的 (偏移, 宽, 叶子种类)。
+    #[inline]
+    pub fn field_at(&self, i: usize) -> Option<StructFieldLayout> {
+        self.fields.get(i).copied()
+    }
+
+    /// 字段数（0 = 没有携带字段表 —— **不是**「这个 struct 没有字段」）。
+    #[inline]
+    pub fn field_count(&self) -> usize {
+        self.fields.len()
     }
 }
 

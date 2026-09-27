@@ -294,6 +294,7 @@ fn struct_array_backing_roundtrip_and_gc_refs() {
         size: 12,
         ref_offsets: Box::new([8]),
         ref_kinds: Box::new([STRUCT_REF_ARC_STRING]),
+        fields: Box::new([]),
     });
     // unify-gc-heap PR-3: struct[] byte + ref storage now lives in leaked GC blocks
     // (heap-less test) — build via `struct_backed_leaked` + write element blobs through

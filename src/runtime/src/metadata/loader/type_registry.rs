@@ -120,6 +120,14 @@ pub fn build_type_registry(module: &mut Module) {
                     size:        l.size as usize,
                     ref_offsets: l.ref_offsets.clone(),
                     ref_kinds:   l.ref_kinds.clone(),
+                    // symbolic-struct-field-access P0：逐字段表来自 zbc 1.45 的 TYPE 段
+                    // （`class_flags2` bit0 门控，#903 落地）。没带表的类型 ⇒ 空。
+                    // **休眠元数据**：目前无消费方，接通是 P2。
+                    fields:      desc.struct_field_table.iter()
+                        .map(|e| crate::metadata::types::StructFieldLayout {
+                            offset: e.offset, size: e.size, kind: e.kind,
+                        })
+                        .collect(),
                 })
             }),
             // add-struct-heap-inline (P3b): the class's composed inline-struct layout
@@ -129,6 +137,11 @@ pub fn build_type_registry(module: &mut Module) {
                     size:        l.size as usize,
                     ref_offsets: l.ref_offsets.clone(),
                     ref_kinds:   l.ref_kinds.clone(),
+                    // ⚠️ **刻意留空**：`struct_field_table` 描述的是这个 struct **类型自身**的
+                    // 字段布局；`inline_layout` 是「该 class 把 struct 内联进对象之后」的
+                    // 合成布局，两者的偏移基准不同（对象起始 vs blob 起始）。拿前者填后者
+                    // 会得到一张**偏移全错**的表 —— 而它一旦被 P2 消费就是静默错值。
+                    fields:      Box::new([]),
                 })
             }),
             // unify-object-byte-layout (PR-1): carry the full object field layout
@@ -176,6 +189,14 @@ pub fn build_type_registry(module: &mut Module) {
             // add-struct-heap-inline (P3b): keep cold if it carries an inline layout
             // (an inline-field class always has own_fields too, but guard explicitly).
             && cold_inner.inline_layout.is_none()
+            // 🔴 symbolic-struct-field-access P0（2026-09-27）：**同一个条件里漏了这一张表**。
+            // 相邻两条（`inline_layout` / `composed_object_layout`）都显式守着，理由写在上一条
+            // 注释里 ——「值 struct 总有 own_fields，但还是显式守一下」/「别把正确性押在那个
+            // 巧合上」。`struct_layout` 此前没跟：冷区只剩它时会被整条裁掉，
+            // `TypeDesc::struct_layout()` 于是返 `None`。
+            // P0 之后代价更大：**字段表就住在 struct_layout 里**，冷区一丢，字段表跟着丢 ——
+            // 而那会在 P2 接通后表现为「符号化解析拿不到偏移」，离现场很远。
+            && cold_inner.struct_layout.is_none()
             // unify-object-byte-layout (PR-2): keep cold if it carries a composed
             // object layout — a derived class with 0 own fields still needs the
             // inherited layout (base region) for byte-storage field access.

@@ -853,3 +853,95 @@ fn allocated_type_ids_stay_below_import_base() {
         assert!(td.id.is_resolved());
     }
 }
+
+// ── symbolic-struct-field-access P0 ─────────────────────────────────────────
+//
+// zbc 1.45 的 TYPE 段 struct **字段表**（`ClassDesc.struct_field_table`，#903 落地）要流到
+// 运行期的 `StructTypeLayout::fields`，供后续「指令带**字段序号**而不是烘焙偏移」用。
+//
+// 🔴 **为什么非要测**：这张表目前是**休眠元数据**（P0 没有任何消费方，接通是 P2）。
+// 休眠字段最可能的结局就是「填错了也没人知道」—— 等 P2 接通时症状会是**静默错偏移**，
+// 而那时离现场已经很远。趁 P0 就把「从 zbc 到 layout 逐格一致」钉住。
+
+/// 造一个带 struct 字段表的单类模块。
+fn module_with_struct_field_table(
+    class: &str, size: u32, entries: &[(u32, u32, u8)],
+) -> crate::metadata::bytecode::Module {
+    use crate::metadata::bytecode::{StructFieldEntry, StructLayoutDesc, CLASS_FLAGS2_HAS_STRUCT_FIELD_TABLE};
+    let mut m = module_with_class_names("m", &[class]);
+    let c = &mut m.classes[0];
+    c.struct_layout = Some(StructLayoutDesc {
+        size,
+        ref_offsets: Box::new([]),
+        ref_kinds: Box::new([]),
+    });
+    c.class_flags2 = CLASS_FLAGS2_HAS_STRUCT_FIELD_TABLE;
+    c.struct_field_table = entries.iter()
+        .map(|&(offset, size, kind)| StructFieldEntry { offset, size, kind })
+        .collect();
+    m
+}
+
+#[test]
+fn struct_field_table_reaches_the_runtime_layout() {
+    // `struct P3 { int a; long b; double c; }` 形状的一张表。
+    let entries = [(0u32, 4u32, 0u8), (8, 8, 0), (16, 8, 0)];
+    let mut m = module_with_struct_field_table("Demo.P3", 24, &entries);
+    build_type_registry(&mut m);
+
+    let td = m.type_registry.get("Demo.P3").expect("类型进了注册表");
+    let layout = td.struct_layout().expect("struct_layout 在");
+
+    assert_eq!(layout.size, 24);
+    assert_eq!(layout.field_count(), 3, "字段数必须与 zbc 表一致");
+    for (i, &(off, sz, kind)) in entries.iter().enumerate() {
+        assert_eq!(layout.field_offset(i), Some(off), "字段 {i} 的偏移");
+        let f = layout.field_at(i).expect("字段 {i} 在");
+        assert_eq!((f.offset, f.size, f.kind), (off, sz, kind), "字段 {i} 逐格一致");
+    }
+    assert_eq!(layout.field_offset(3), None, "越界返回 None，不 panic");
+}
+
+/// 没带字段表的类型 ⇒ 空表（**不是** panic、也不是「0 个字段」的错觉）。
+///
+/// 旧产物（zbc < 1.45）与 `resolve_layout` 的 size-only 兜底都走这条。
+#[test]
+fn absent_struct_field_table_yields_an_empty_one() {
+    use crate::metadata::bytecode::StructLayoutDesc;
+    let mut m = module_with_class_names("m", &["Demo.Old"]);
+    m.classes[0].struct_layout = Some(StructLayoutDesc {
+        size: 8, ref_offsets: Box::new([]), ref_kinds: Box::new([]),
+    });
+    // class_flags2 = 0、struct_field_table 空 —— 即 1.45 之前的产物形态
+    build_type_registry(&mut m);
+
+    let layout = m.type_registry.get("Demo.Old").unwrap().struct_layout().unwrap();
+    assert_eq!(layout.field_count(), 0);
+    assert_eq!(layout.field_offset(0), None, "空表查任何序号都是 None");
+}
+
+/// 🔴 `inline_layout` 的字段表必须**留空** —— 两张表的偏移基准不同。
+///
+/// `struct_field_table` 描述的是该 struct **类型自身**的字段布局（基准 = blob 起始）；
+/// `inline_layout` 是「该 class 把 struct 内联进对象之后」的合成布局（基准 = 对象起始）。
+/// 拿前者去填后者会得到一张**偏移全错**的表，而它一旦被 P2 消费就是**静默错值**。
+/// 这条钉住那个「顺手复用」的诱惑。
+#[test]
+fn inline_layout_does_not_borrow_the_struct_field_table() {
+    use crate::metadata::bytecode::{StructFieldEntry, StructLayoutDesc, CLASS_FLAGS2_HAS_STRUCT_FIELD_TABLE};
+    let mut m = module_with_class_names("m", &["Demo.Holder"]);
+    let c = &mut m.classes[0];
+    c.inline_layout = Some(StructLayoutDesc {
+        size: 16, ref_offsets: Box::new([]), ref_kinds: Box::new([]),
+    });
+    c.class_flags2 = CLASS_FLAGS2_HAS_STRUCT_FIELD_TABLE;
+    c.struct_field_table = Box::new([StructFieldEntry { offset: 0, size: 4, kind: 0 }]);
+    build_type_registry(&mut m);
+
+    let td = m.type_registry.get("Demo.Holder").unwrap();
+    let inline = td.inline_layout().expect("inline_layout 在");
+    assert_eq!(
+        inline.field_count(), 0,
+        "inline_layout 不得借用 struct_field_table —— 两张表的偏移基准不同"
+    );
+}

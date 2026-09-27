@@ -148,6 +148,53 @@ User 问「性能有没有损耗」。原 §B 只有 interp 的 +5%。补测 JIT
 **纯附加元数据、零行为变化 ⇒ 零格式 bump、零指纹变更**
 （形态同 `unify-object-byte-layout (PR-1)` 的「dormant metadata, not consumed yet」）。
 
+## ✅ P0 已落地（2026-09-27）
+
+纯 VM 侧铺线，**零格式 bump、零指纹变更、零行为变化**：
+
+| 件 | 内容 |
+|---|---|
+| `StructTypeLayout::fields: Box<[StructFieldLayout]>` | 逐字段 `{offset, size, kind}`，**按字段声明位置索引** |
+| 访问器 | `field_offset(i)` / `field_at(i)` / `field_count()` |
+| 填充 | `loader/type_registry.rs` 从 `desc.struct_field_table`（zbc 1.45，#903）取 |
+| 兜底 | `exec_struct.rs::resolve_layout` 的 size-only 路径给空表 |
+
+⚠️ **`inline_layout` 刻意留空**，并有一条测试钉住：`struct_field_table` 描述的是该 struct
+**类型自身**的布局（基准 = blob 起始），而 `inline_layout` 是「该 class 把 struct 内联进对象之后」
+的合成布局（基准 = 对象起始）。拿前者填后者会得到**偏移全错**的表，而它一旦被 P2 消费就是
+**静默错值** —— 这是「顺手复用」最容易犯的错，所以用测试而不是注释来挡。
+
+### 🔴 P0 的验证测试当场挖出一个真缺陷
+
+这张表在 P0 是**休眠元数据**（无消费方）。我仍然给它写了「从 zbc 到 layout 逐格一致」的测试 ——
+结果**两条立刻红了**，根因是：
+
+`loader/type_registry.rs` 的**冷区裁剪条件漏守 `struct_layout`**。相邻两条
+（`inline_layout` / `composed_object_layout`）都显式守着，注释还分别写着
+「值 struct 总有 own_fields，**但还是显式守一下**」与「**别把正确性押在那个巧合上**」——
+第三张表却没跟。于是冷区只剩 struct 布局的类会被**整条裁掉**，`TypeDesc::struct_layout()` 返 `None`。
+
+今天大概不可达（值 struct 总有 `own_fields`），但**P0 之后代价变大**：字段表就住在
+`struct_layout` 里，冷区一丢、表跟着丢，而症状要等 **P2 接通后**才以「符号化解析拿不到偏移」
+的形式出现 —— 离现场很远。已补守卫。
+
+⇒ **教训：休眠元数据必须在落地时就验证它填对了**，否则它最可能的结局是「填错了也没人知道」。
+按「纯附加、零行为变化、不用测」处理，这个缺陷会一直潜伏到 P2。
+
+### GREEN
+
+`cargo test --lib` **1374/0**（新增 3 条）· 5 个 feature 组合全过
+（默认 / `interp-only` / `ios` / `android` / `wasm32`+`--features wasm`）·
+`test e2e` 746/87/3 · `test compiler` 24/24 + 不动点 3/3 · `test stdlib` 347 组。
+
+### 下一步（P1/P2 未做）
+
+- **P1**：`StructCopyInstr` 补 `TypeName`（② 收口）；`StructAllocInstr.Size` 降级为纯兜底。
+- **P2**：`struct_fget_prim` / `struct_fset_prim` 改带 **(owner 类型名, 字段序号)**；
+  VM 侧用 P0 的 `field_offset(i)` 解析。**这一步才需要格式 bump**（指令编码变），
+  且要按 `bootstrap-seed.md` 先 support、晚一个 nightly 再 use。
+  ⭐ P2 落地后**必须实测纯隔离的符号化开销**（当前只有含存储差的上界），对照裁决 #3 的门槛。
+
 ## ③ 的出路（B 已被 User 排除）
 
 | 出路 | 做法 | 代价 | 状态 |

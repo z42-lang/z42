@@ -68,6 +68,7 @@ fn layout(size: usize, ref_offsets: &[u32]) -> StructTypeLayout {
         size,
         ref_offsets: ref_offsets.to_vec().into_boxed_slice(),
         ref_kinds: vec![STRUCT_REF_ARC_STRING; ref_offsets.len()].into_boxed_slice(),
+        fields: Box::new([]),
     }
 }
 

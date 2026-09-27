@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 /// Pure-primitive layout of `size` bytes (no reference leaves).
 fn prim_layout(size: usize) -> Arc<StructTypeLayout> {
-    Arc::new(StructTypeLayout { size, ref_offsets: Box::new([]), ref_kinds: Box::new([]) })
+    Arc::new(StructTypeLayout { size, ref_offsets: Box::new([]), ref_kinds: Box::new([]), fields: Box::new([]) })
 }
 
 fn enc(bytes: &mut [u8], off: usize, tag: u8, v: Value) {
@@ -171,6 +171,7 @@ fn struct_array_element_leaf_access_via_handle() {
         size: 12,
         ref_offsets: Box::new([8]),
         ref_kinds: Box::new([STRUCT_REF_ARC_STRING]),
+        fields: Box::new([]),
     });
     // unify-gc-heap PR-3: struct[] byte + ref storage lives in leaked GC blocks (heap-less test).
     let arr_gc = GcRef::new(ArrayObj::struct_backed_leaked("Demo.P", 2, layout));
