@@ -867,7 +867,7 @@ fn allocated_type_ids_stay_below_import_base() {
 fn module_with_struct_field_table(
     class: &str, size: u32, entries: &[(u32, u32, u8)],
 ) -> crate::metadata::bytecode::Module {
-    use crate::metadata::bytecode::{StructFieldEntry, StructLayoutDesc, CLASS_FLAGS2_HAS_STRUCT_FIELD_TABLE};
+    use crate::metadata::bytecode::{FieldDesc, StructFieldEntry, StructLayoutDesc, CLASS_FLAGS2_HAS_STRUCT_FIELD_TABLE};
     let mut m = module_with_class_names("m", &[class]);
     let c = &mut m.classes[0];
     c.struct_layout = Some(StructLayoutDesc {
@@ -878,6 +878,19 @@ fn module_with_struct_field_table(
     c.class_flags2 = CLASS_FLAGS2_HAS_STRUCT_FIELD_TABLE;
     c.struct_field_table = entries.iter()
         .map(|&(offset, size, kind)| StructFieldEntry { offset, size, kind })
+        .collect();
+    // symbolic-struct-field-access P2 (T1)：zbc 1.45 的约定是这张表**同序平行于 `fields`**。
+    // 这个 helper 原本只填表、不填 `fields` —— 一个**真实 zbc 里不可能出现**的形状，
+    // 于是 #915 的测试当初验的是一张「没有平行字段列表」的表。P2 把那条约定变成了正确性
+    // 前提（偏移取自表、下一跳类型名取自 `fields[i].type_tag`），载入期已加断言，
+    // 所以这里必须造出**同长**的 `fields`，夹具才对得上真实形态。
+    c.fields = entries.iter().enumerate()
+        .map(|(i, _)| FieldDesc {
+            name: format!("f{i}"),
+            type_tag: "int".to_string(),
+            attributes: Box::new([]),
+            visibility: 0,
+        })
         .collect();
     m
 }
@@ -944,4 +957,31 @@ fn inline_layout_does_not_borrow_the_struct_field_table() {
         inline.field_count(), 0,
         "inline_layout 不得借用 struct_field_table —— 两张表的偏移基准不同"
     );
+}
+
+/// symbolic-struct-field-access P2 (T1) 的**正面对照**。
+///
+/// 载入期那条断言的全部价值在于「不平行时会响」。而真实语料里它**永远不该响**
+/// （写端两张表同源），所以「全仓零命中」既是期望结果、也正因此**不能**证明门还活着 ——
+/// 只有这个故意造出不平行的用例能。
+///
+/// ⚠️ 门是 `debug_assert!`（政策同 `__box_prim` / `prim_value_mismatch`：只有编译器或
+/// 写端能违反 ⇒ 不是用户的错 ⇒ debug 响、release 放行），所以对照也只在 debug 存在。
+#[cfg(debug_assertions)]
+#[test]
+#[should_panic(expected = "index-parallel to `fields`")]
+fn struct_field_table_that_is_not_parallel_to_fields_is_rejected() {
+    use crate::metadata::bytecode::{StructFieldEntry, StructLayoutDesc, CLASS_FLAGS2_HAS_STRUCT_FIELD_TABLE};
+    // 表有 3 条，`fields` 只有 1 个 ⇒ 第 2/3 跳会沿着不存在的字段找类型名。
+    let mut m = module_with_struct_field_table("Demo.Skew", 24, &[(0, 4, 0), (8, 8, 0), (16, 8, 0)]);
+    let c = &mut m.classes[0];
+    c.fields = vec![crate::metadata::bytecode::FieldDesc {
+        name: "only".to_string(), type_tag: "int".to_string(),
+        attributes: Box::new([]), visibility: 0,
+    }].into();
+    // 形状自身仍然自洽，只有「两张表同长」这一条不变式被破坏。
+    let _ = StructFieldEntry { offset: 0, size: 4, kind: 0 };
+    let _ = StructLayoutDesc { size: 24, ref_offsets: Box::new([]), ref_kinds: Box::new([]) };
+    let _ = CLASS_FLAGS2_HAS_STRUCT_FIELD_TABLE;
+    build_type_registry(&mut m);
 }

@@ -48,6 +48,20 @@ pub(crate) fn struct_alloc_val(
 /// A-use delivers it via the loaded `TypeDesc`; a type without a delivered layout
 /// (or before the TYPE-section block reaches the runtime) falls back to a
 /// `size`-only pure-primitive layout — byte-for-byte the pre-A-use behavior.
+///
+/// ⚠️ **这条兜底在 symbolic-struct-field-access P2 之后承重方式变了。**
+/// 烘焙偏移的年代，字段访问**不依赖**类型元数据；符号化之后 `resolve_field_path`
+/// **必须**拿到布局才能算出偏移。所以「走了这条兜底的 blob」在 P2 之下
+/// **无法被 `StructFieldGetPrim`/`SetPrim` 访问**。
+///
+/// 实测（2026-09-28，debug VM × 289 条 e2e 语料）：只有 **1** 条用例走到这里，
+/// 类型是 `Std.GCHandle`，原因是 `why=TYPE-NOT-LOADED`。而 `GCHandle` 的
+/// **每个成员都是 `[Native]`**（`Alloc`/`Target`/`IsAllocated`/`Kind`/`Free`），
+/// 它的 `_slot` **没有任何 z42 代码碰** ⇒ 那个 blob 全程由 natives 按字节偏移操作
+/// （Rust 侧的 `struct_field_{get,set}_val`，不经 IR 指令）⇒ 不受影响。
+///
+/// 若将来真有符号化访问落在这条兜底上：`resolve_field_path` 会给出
+/// 「type `X` is not loaded」的**精确报错**，而不是一个错偏移 —— 响而不是静默。
 pub(crate) fn resolve_layout(ctx: &VmContext, type_name: &str, size: u32) -> Arc<StructTypeLayout> {
     if let Some(td) = ctx.try_lookup_type(type_name) {
         if let Some(layout) = td.struct_layout() {
@@ -139,21 +153,183 @@ pub(crate) fn struct_copy_val(
     ctx.struct_arena.lock().copy_into(d_idx, d_fid, s_idx, s_fid, size as usize)
 }
 
-/// `StructFieldGetPrim dst, base, byte_off, kind` — read the leaf at `byte_off` of
-/// the `base` struct into `dst`. A primitive `kind` decodes bytes; a reference
-/// `kind` (`string`/object/array) reads the `Value` from the reference side-slice.
+/// symbolic-struct-field-access P2 (方案 A)：把 `(root_type, 字段序号路径)` 解析成
+/// 这条指令要访问的**字节偏移**。
 ///
-/// `base` may be a frame-scoped **arena** `StructRef` (local/param/temp struct) or,
-/// since add-struct-heap-inline (P3b, route α), a **heap `Value::Object`** whose
-/// inline struct field lives in `ScriptObject::struct_bytes`/`struct_refs` — the
-/// compiler bakes `byte_off` as the object-relative composite offset
-/// (`field_byte_off + leaf_off`).
+/// ## 为什么 `root_type` 是这里最重要的操作数
+///
+/// 偏移活在**两个互不相容的编号空间**里：
+///
+/// | 空间 | 基准 | 运行期 base kind |
+/// |---|---|---|
+/// | struct 布局相对 | blob 起始 | `StructRef` · `BoxedStruct` · `StructRefHeap` |
+/// | composed 对象布局相对 | 对象起始 | `Object` · `StackObject` |
+///
+/// zbc 1.46 之前指令携带一个**烘焙好的和**，而**里面一个字都没记是哪个空间** ——
+/// 正确性靠编译器（`_isInlineStructFieldRoot`）与运行时（按 `Value` 变体分派）
+/// 各自独立地同意。那是审计 R2「判据复制」的实例。
+///
+/// ⭐ **`root_type` 本身就是判别器**：名字解析出来是 class ⇒ 第一级走对象合成布局；
+/// 是 struct ⇒ 走 blob 布局。不需要额外的标志位。
+///
+/// ## 第 2 级起恒走 struct
+///
+/// 编译器在**非内联**的链节处会断链（`fix-generic-struct-chain-access`：泛型 struct 的
+/// 型参字段擦除成引用叶子，存储不在容器里），所以一条路径内部的每一节都**真内联**。
+/// 把 `TypeDesc.fields[i].type_tag`（**声明拼写**）解析成注册表键（**FQ**）。
+///
+/// 🔴 两者不是一回事，而这正是 P2 第一版栽的地方：字段表里 `Demo.Loc<P2,int>` 的第 0 个字段
+/// 其 `type_tag` 是 **`P2`**，而注册表键是 **`Demo.P2`** ⇒ 路径第 2 跳报「type `P2` is not loaded」。
+/// （同一族教训：**不能走类型拼写** —— 那串同时是声明记法与查找键，两边规则不同。）
+///
+/// 规则镜像编译器的 `ExprEmitter._qualifyInstName` / `ClassDescBuilder` 那条
+/// **「只限定基名、实参原样」**：`Pair<int,long>` 在 `Demo.*` 下 ⇒ `Demo.Pair<int,long>`，
+/// 泛型实参**不**跟着限定（编译器写描述符名时就是这么定的，两侧必须同一约定）。
+fn qualify_field_type(ctx: &VmContext, tag: &str, owner_fq: &str) -> Option<std::sync::Arc<str>> {
+    // 已经能直接查到（本来就是 FQ、或是基元）⇒ 原样。
+    if ctx.try_lookup_type(tag).is_some() {
+        return Some(tag.into());
+    }
+    // ⚠️ 声明拼写里的**空白**：`Loc<P2, long>`（逗号后有空格）对应的注册表键是
+    // `Demo.Loc<P2,long>`（无空格）。类型名里不存在有意义的空格，所以去掉全部空格是安全的
+    // ——这是第三处「同一个类型、两种拼写」，前两处是「短名 vs FQ」与「实参限定与否」。
+    let tag: std::borrow::Cow<str> = if tag.contains(' ') {
+        std::borrow::Cow::Owned(tag.replace(' ', ""))
+    } else {
+        std::borrow::Cow::Borrowed(tag)
+    };
+    let tag: &str = &tag;
+    if ctx.try_lookup_type(tag).is_some() {
+        return Some(tag.into());
+    }
+    // owner 的命名空间 = 其**基名**（去掉泛型实参）里最后一个 `.` 之前的部分。
+    let base_end = owner_fq.find('<').unwrap_or(owner_fq.len());
+    let ns = owner_fq[..base_end].rfind('.')?;
+    let ns = &owner_fq[..ns];
+    // 只限定基名：`Pair<int,long>` → `Demo.Pair<int,long>`。
+    let tag_base_end = tag.find('<').unwrap_or(tag.len());
+    let candidate = format!("{ns}.{}{}", &tag[..tag_base_end], &tag[tag_base_end..]);
+    ctx.try_lookup_type(&candidate).map(|_| candidate.as_str().into())
+}
+
+pub(crate) fn resolve_field_path(ctx: &VmContext, root_type: &str, path: &[u16]) -> Result<u32> {
+    debug_assert!(!path.is_empty(), "decoder rejects depth 0");
+    let mut off: u32 = 0;
+    let mut cur: std::sync::Arc<str> = root_type.into();
+    for (level, &idx) in path.iter().enumerate() {
+        let td = ctx.try_lookup_type(&cur).ok_or_else(|| {
+            anyhow::anyhow!(
+                "struct field path: type `{cur}` (level {level} of `{root_type}`) is not loaded"
+            )
+        })?;
+        let i = idx as usize;
+        // 第 1 级且 root 是 class ⇒ 对象合成布局；其余一律 blob 布局。
+        let step = if level == 0 && !td.is_struct() {
+            let col = td.composed_object_layout().ok_or_else(|| {
+                anyhow::anyhow!("struct field path: class `{cur}` has no composed object layout")
+            })?;
+            col.field_offsets.get(i).copied().ok_or_else(|| {
+                anyhow::anyhow!(
+                    "struct field path: field index {i} out of range for class `{cur}` \
+                     ({} field(s))",
+                    col.field_offsets.len()
+                )
+            })?
+        } else {
+            let sl = td.struct_layout().ok_or_else(|| {
+                anyhow::anyhow!("struct field path: type `{cur}` has no struct layout")
+            })?;
+            sl.field_offset(i).ok_or_else(|| {
+                anyhow::anyhow!(
+                    "struct field path: field index {i} out of range for struct `{cur}` \
+                     ({} field(s))",
+                    sl.field_count()
+                )
+            })?
+        };
+        off += step;
+        // 下一跳的类型名走 `TypeDesc.fields[i].type_tag` —— 它与上面那张偏移表
+        // **同序平行**（zbc 1.45 的约定，载入期有 `debug_assert` 守着，见 T1）。
+        if level + 1 < path.len() {
+            let next = td.fields.get(i).ok_or_else(|| {
+                anyhow::anyhow!(
+                    "struct field path: `{cur}` has no field #{i} to continue the path through \
+                     — the offset table and `fields` are out of step"
+                )
+            })?;
+            let tag = next.type_tag.clone();
+            cur = qualify_field_type(ctx, &tag, &cur).ok_or_else(|| {
+                anyhow::anyhow!(
+                    "struct field path: field #{i} of `{cur}` is declared `{tag}`, which resolves \
+                     to no loaded type (tried it as-is and qualified with `{cur}`'s namespace)"
+                )
+            })?;
+        }
+    }
+    Ok(off)
+}
+
+/// A 白送的那条对账：`root_type` 声明的编号空间必须与运行期 `base` 的实际形态一致。
+///
+/// 这在 zbc 1.46 之前**无从做起** —— 指令里没有类型名，运行时只能按 `Value` 变体
+/// 自己猜该用哪套布局。错配的后果不是崩，是**按错的基准算偏移**（静默错值）。
+pub(crate) fn check_base_space(ctx: &VmContext, root_type: &str, base_val: &Value, who: &str) -> Result<()> {
+    let root_is_struct = match ctx.try_lookup_type(root_type) {
+        Some(td) => td.is_struct(),
+        // 类型还没加载：路径解析那一步会给出更准确的诊断，这里不抢着报。
+        None => return Ok(()),
+    };
+    let base_is_struct_space = match base_val {
+        Value::StructRef { .. } | Value::StructRefHeap { .. } => Some(true),
+        Value::Object(_) | Value::StackObject { .. } => Some(false),
+        // `BoxedStruct` 走的是 struct 空间，但它由 `Value::Object` 承载（装箱的 struct
+        // 是个 struct 类型的 `ScriptObject`）——由 root_type 说了算，不在这里判。
+        _ => None,
+    };
+    if let Some(base_is_struct) = base_is_struct_space {
+        // 装箱 struct：base 是 Object 但 root 是 struct —— 合法，跳过。
+        let boxed_struct = root_is_struct && !base_is_struct && matches!(base_val, Value::Object(_));
+        if !boxed_struct && root_is_struct != base_is_struct {
+            anyhow::bail!(
+                "{who}: the instruction says the path is rooted at `{root_type}` (a {}), but the \
+                 base register holds {base_val:?} — the two disagree about which offset \
+                 numbering space applies (blob-relative vs composed-object-relative), so the \
+                 resolved offset would be measured from the wrong origin.",
+                if root_is_struct { "value struct" } else { "class" },
+            );
+        }
+    }
+    Ok(())
+}
+
+/// 对账 + 解析的**唯一**入口，interp 与 JIT helper 共用。
+///
+/// 顺序刻意是「先对账、后解析」：错的编号空间下算出来的偏移是个**看起来合法的数**，
+/// 先解析再对账等于把最有信息量的那个诊断让给一个更晚、更远的失败。
+#[inline]
+pub(crate) fn resolve_for_access(
+    ctx: &VmContext, root_type: &str, path: &[u16], base_val: &Value, who: &str,
+) -> Result<u32> {
+    check_base_space(ctx, root_type, base_val, who)?;
+    resolve_field_path(ctx, root_type, path)
+}
+
+/// `StructFieldGetPrim dst, base, (root_type, path), kind` — read the named leaf of
+/// `base` into `dst`. A primitive `kind` decodes bytes; a reference `kind`
+/// (`string`/object/array) reads the `Value` from the reference side-slice.
+///
+/// `base` may be a frame-scoped **arena** `StructRef` (local/param/temp struct), a
+/// heap `Value::Object` whose inline struct field lives in
+/// `ScriptObject::struct_bytes`/`struct_refs` (add-struct-heap-inline P3b, route α),
+/// a `StackObject`, a `BoxedStruct`, or a `StructRefHeap` array element.
 pub(super) fn struct_field_get_prim(
-    ctx: &VmContext, frame: &mut Frame, dst: u32, base: u32, byte_off: u32, kind: u8,
+    ctx: &VmContext, frame: &mut Frame,
+    insn: &crate::metadata::bytecode::StructFieldGetInsn,
 ) -> Result<()> {
-    let base_val = frame.get(base)?.clone();
-    let val = struct_field_get_val(ctx, &base_val, byte_off, kind)?;
-    frame.set(dst, val);
+    let base_val = frame.get(insn.base)?.clone();
+    let byte_off = resolve_for_access(ctx, &insn.root_type, &insn.path, &base_val, "StructFieldGetPrim")?;
+    let val = struct_field_get_val(ctx, &base_val, byte_off, insn.kind)?;
+    frame.set(insn.dst, val);
     Ok(())
 }
 
@@ -271,11 +447,13 @@ pub(crate) fn struct_field_get_val(
 /// write barrier — the heap object is not re-scanned as a root, so a concurrent /
 /// generational collector must observe the store (routed through `write_barrier_field`).
 pub(super) fn struct_field_set_prim(
-    ctx: &VmContext, frame: &mut Frame, base: u32, byte_off: u32, kind: u8, val: u32,
+    ctx: &VmContext, frame: &mut Frame,
+    insn: &crate::metadata::bytecode::StructFieldSetInsn,
 ) -> Result<()> {
-    let base_val = frame.get(base)?.clone();
-    let v = frame.get(val)?.clone();
-    struct_field_set_val(ctx, &base_val, byte_off, kind, &v)
+    let base_val = frame.get(insn.base)?.clone();
+    let byte_off = resolve_for_access(ctx, &insn.root_type, &insn.path, &base_val, "StructFieldSetPrim")?;
+    let v = frame.get(insn.val)?.clone();
+    struct_field_set_val(ctx, &base_val, byte_off, insn.kind, &v)
 }
 
 /// Frame-agnostic core of `StructFieldSetPrim` — write `v` into the `base_val`

@@ -376,7 +376,7 @@ pub fn translate_function(
                         => cx.tr_array(instr)?,
                     Instruction::ObjNew(..) | Instruction::Typeof(..) | Instruction::FieldGet(..) | Instruction::FieldSet(..) | Instruction::VCall(..) | Instruction::IsInstance(..) | Instruction::AsCast(..) | Instruction::StaticGet(..) | Instruction::StaticSet(..)
                         => cx.tr_object(instr)?,
-                    Instruction::StructAlloc { .. } | Instruction::StructCopy { .. } | Instruction::StructFieldGetPrim { .. } | Instruction::StructFieldSetPrim { .. } | Instruction::DefaultOf { .. }
+                    Instruction::StructAlloc { .. } | Instruction::StructCopy { .. } | Instruction::StructFieldGetPrim(..) | Instruction::StructFieldSetPrim(..) | Instruction::DefaultOf { .. }
                         => cx.tr_structs(instr)?,
                                     Instruction::CallNative(insn) => {
                     let CallNativeInsn { module, type_name, symbol, .. } = &**insn;

@@ -315,10 +315,10 @@ public sealed class RecordSynthEmitter {
     private TypedReg _emitFieldToStr(TypedReg baseRef, string fname, Z42Type ftype, bool isStruct, string ownerName) {
         TypedReg fv;
         if (isStruct) {
-            int off = this._gen.Layouts.FieldByteOffset(ownerName, fname);
+            int[] fpath = AccessEmitter._pathAppend(new int[0], this._gen.Layouts.FieldIndexOf(ownerName, fname));
             int tag = Tag.FromName(this._gen.Layouts.FieldTypeName(ownerName, fname));
             fv = this._ctx.Alloc(this._ctx.ToIrType(ftype));
-            this._ctx.Emit(new StructFieldGetPrimInstr(fv, baseRef, off, tag));
+            this._ctx.Emit(new StructFieldGetPrimInstr(fv, baseRef, this._ctx.QualifyClass(ownerName), fpath, tag));
         } else {
             fv = this._ctx.Alloc(this._ctx.ToIrType(ftype));
             this._ctx.Emit(new FieldGetInstr(fv, baseRef, fname));

@@ -8,6 +8,17 @@ using Z42.IR;
 using Std;
 
 public static class ZbcInstr {
+
+    // symbolic-struct-field-access P2：字段序号路径 `depth:u8 + idx:u16 × depth`。
+    // **depth 0 不是合法编码** —— 一条字段访问至少走一级（扁平 `a.x` 就是 depth 1）；
+    // 空路径在读端会静默解析到偏移 0（blob 头部），正是本 change 要消掉的那类错偏移，
+    // 所以读端（Rust `read_field_path`）也显式拒 0，两端一致。
+    private static void _writeFieldPath(ByteWriter w, int[] path) {
+        w.WriteU8(path.Length);
+        int k = 0;
+        while (k < path.Length) { w.WriteU16(path[k]); k = k + 1; }
+    }
+
     public static int NoReg = 0xFFFF;
 
     // f64 → IEEE754 bits。consolidate-core-intrinsics (A1)：extern 唯一声明在 Std.BitConverter；
@@ -116,18 +127,24 @@ public static class ZbcInstr {
             w.WriteU16(i.Src.Id); w.WriteU32(i.Size);
             return;
         }
+        // symbolic-struct-field-access P2（zbc 1.46）：烘焙偏移 → (root 类型名, 字段序号路径)。
+        // `root_type` 兼任编号空间判别器；`depth` 的上界是 struct 嵌套深度（实测最大 4）。
         if (ins is StructFieldGetPrimInstr) {
             StructFieldGetPrimInstr i = ins as StructFieldGetPrimInstr;
-            // op + tag(dst) + dst | base(u16) | byte_off(u32) | kind(u8)
+            // op + tag(dst) + dst | base(u16) | root_type(u32 池) | depth(u8) | idx(u16)×depth | kind(u8)
             w.WriteU8(Op.StructFieldGetPrim); w.WriteU8(Tag.FromIrType(i.Dst.Type)); w.WriteU16(i.Dst.Id);
-            w.WriteU16(i.Base.Id); w.WriteU32(i.ByteOff); w.WriteU8(i.Kind);
+            w.WriteU16(i.Base.Id); w.WriteU32(pool.Idx(i.RootType));
+            ZbcInstr._writeFieldPath(w, i.Path);
+            w.WriteU8(i.Kind);
             return;
         }
         if (ins is StructFieldSetPrimInstr) {
             StructFieldSetPrimInstr i = ins as StructFieldSetPrimInstr;
-            // op + tag(val) + NoReg(无 dst) | base(u16) | byte_off(u32) | kind(u8) | val(u16)
+            // op + tag(val) + NoReg(无 dst) | base(u16) | root_type(u32 池) | depth(u8) | idx(u16)×depth | kind(u8) | val(u16)
             w.WriteU8(Op.StructFieldSetPrim); w.WriteU8(Tag.FromIrType(i.Val.Type)); w.WriteU16(ZbcInstr.NoReg);
-            w.WriteU16(i.Base.Id); w.WriteU32(i.ByteOff); w.WriteU8(i.Kind); w.WriteU16(i.Val.Id);
+            w.WriteU16(i.Base.Id); w.WriteU32(pool.Idx(i.RootType));
+            ZbcInstr._writeFieldPath(w, i.Path);
+            w.WriteU8(i.Kind); w.WriteU16(i.Val.Id);
             return;
         }
         if (ins is ObjNewInstr) {

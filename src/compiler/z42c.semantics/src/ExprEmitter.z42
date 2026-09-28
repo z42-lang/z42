@@ -596,7 +596,7 @@ public sealed partial class ExprEmitter {
     }
 
     // complete-struct：模式嵌套 struct 字段读复用 AccessEmitter 的 struct 值副本产出（_access private，故转发）。
-    internal TypedReg _copyStructOut(TypedReg srcBase, int srcOff, string structName) { return this._access._copyStructOut(srcBase, srcOff, structName); }
+    internal TypedReg _copyStructOut(TypedReg srcBase, string srcRoot, int[] srcPath, string structName) { return this._access._copyStructOut(srcBase, srcRoot, srcPath, structName); }
 
     // zbc tag → IrType（供 _copyRegion 临时寄存器类型；ref 类 Str/Object/Array → Ref）。
     internal int _tagToIrType(int tag) {

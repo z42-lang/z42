@@ -83,8 +83,8 @@ impl Instruction {
             // add-struct-value-semantics Phase A: blob value type instructions.
             Instruction::StructAlloc(insn)              => Some(insn.dst),
             Instruction::StructCopy { dst, .. }         => Some(*dst),
-            Instruction::StructFieldGetPrim { dst, .. } => Some(*dst),
-            Instruction::StructFieldSetPrim { .. }      => None,
+            Instruction::StructFieldGetPrim(insn)       => Some(insn.dst),
+            Instruction::StructFieldSetPrim(_)          => None,
         }
     }
 }
@@ -399,20 +399,13 @@ pub enum Instruction {
         #[serde(with = "typed_reg_serde")] src: Reg,
         size: u32,
     },
-    /// Read the primitive leaf at `byte_off` of struct blob `base` into `dst`.
-    StructFieldGetPrim {
-        #[serde(with = "typed_reg_serde")] dst: Reg,
-        #[serde(with = "typed_reg_serde")] base: Reg,
-        byte_off: u32,
-        kind: u8,
-    },
-    /// Write primitive `val` into struct blob `base` at `byte_off` (in-place lvalue).
-    StructFieldSetPrim {
-        #[serde(with = "typed_reg_serde")] base: Reg,
-        byte_off: u32,
-        kind: u8,
-        #[serde(with = "typed_reg_serde")] val: Reg,
-    },
+    /// Read the primitive leaf named by `(root_type, path)` out of `base` into `dst`
+    /// (symbolic-struct-field-access P2). Boxed: the payload carries a `String` +
+    /// a `Box<[u16]>`, and `Instruction` is held to ≤32 B by a ratchet test.
+    StructFieldGetPrim(Box<StructFieldGetInsn>),
+    /// Write primitive `val` into the leaf named by `(root_type, path)` of `base`
+    /// (in-place lvalue). Mirror of [`Instruction::StructFieldGetPrim`].
+    StructFieldSetPrim(Box<StructFieldSetInsn>),
 }
 
 /// Block terminator.

@@ -116,6 +116,29 @@ pub fn build_type_registry(module: &mut Module) {
             // add-struct-value-semantics: carry the value-struct byte+ref layout
             // (from the zbc TYPE-section struct block). `map` → shared `Arc`.
             struct_layout:          desc.struct_layout.as_ref().map(|l| {
+                // symbolic-struct-field-access P2 (T1)：`struct_field_table` 的**唯一**
+                // 使用约定是「**同序平行于 `fields`**」（zbc 1.45 写端注释）——P2 的索引路径
+                // 靠它把「第 i 个字段的偏移」和「第 i 个字段的**类型名**」对上：偏移来自这张表，
+                // 而下一跳的类型名只能来自 `TypeDesc.fields[i].type_tag`。
+                //
+                // 在 P0 里这条约定是**一句注释**；接通 P2 之后它是**正确性前提** —— 不平行就是
+                // 沿着错的类型继续解析路径，产出一个看起来合法的错偏移（静默错值）。
+                // 所以把注释变成一道会响的门。政策同 `__box_prim` / `prim_value_mismatch`：
+                // 不是用户的错（只有编译器/写端能违反）⇒ **debug 响、release 放行**。
+                //
+                // ⚠️ 只在表在场时校验：`class_flags2` bit0 没置位 ⇒ 表为空，那是合法的「没带表」。
+                debug_assert!(
+                    desc.struct_field_table.is_empty()
+                        || desc.struct_field_table.len() == desc.fields.len(),
+                    "type `{}`: struct_field_table has {} entry(ies) but the type has {} \
+                     instance field(s) — the zbc 1.45 contract is that the table is \
+                     index-parallel to `fields`, and symbolic field access (P2) resolves a \
+                     path's next hop through `fields[i].type_tag` while taking the offset \
+                     from this table. A length mismatch means the two lists are not the same \
+                     ordering, so a path would follow the wrong type and produce a \
+                     plausible-looking wrong offset.",
+                    class_name, desc.struct_field_table.len(), desc.fields.len(),
+                );
                 std::sync::Arc::new(crate::metadata::types::StructTypeLayout {
                     size:        l.size as usize,
                     ref_offsets: l.ref_offsets.clone(),

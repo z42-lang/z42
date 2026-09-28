@@ -166,18 +166,26 @@ pub(super) fn decode_instr(op: u8, typ: u8, dst: u32, c: &mut Cursor, pool: &[St
             let size = c.read_u32()?;
             Instruction::StructCopy { dst, src, size }
         }
+        // symbolic-struct-field-access P2 (zbc 1.46)：烘焙偏移 → `(root_type, 字段序号路径)`。
+        // `root_type` 兼任编号空间判别器（class ⇒ 对象合成布局 / struct ⇒ blob 布局）。
         OP_STRUCT_FIELD_GET_PRIM => {
-            let base     = c.read_u16()? as u32;
-            let byte_off = c.read_u32()?;
-            let kind     = c.read_u8()?;
-            Instruction::StructFieldGetPrim { dst, base, byte_off, kind }
+            let base      = c.read_u16()? as u32;
+            let root_type = pool_str_owned(pool, c.read_u32()?)?;
+            let path      = read_field_path(c)?;
+            let kind      = c.read_u8()?;
+            Instruction::StructFieldGetPrim(Box::new(
+                crate::metadata::bytecode::StructFieldGetInsn { dst, base, root_type, path, kind },
+            ))
         }
         OP_STRUCT_FIELD_SET_PRIM => {
-            let base     = c.read_u16()? as u32;
-            let byte_off = c.read_u32()?;
-            let kind     = c.read_u8()?;
-            let val      = c.read_u16()? as u32;
-            Instruction::StructFieldSetPrim { base, byte_off, kind, val }
+            let base      = c.read_u16()? as u32;
+            let root_type = pool_str_owned(pool, c.read_u32()?)?;
+            let path      = read_field_path(c)?;
+            let kind      = c.read_u8()?;
+            let val       = c.read_u16()? as u32;
+            Instruction::StructFieldSetPrim(Box::new(
+                crate::metadata::bytecode::StructFieldSetInsn { base, root_type, path, kind, val },
+            ))
         }
         OP_OBJ_NEW => {
             let class_name = id_map.resolve_type(c.read_u32()?)?;
@@ -302,6 +310,28 @@ pub(super) fn decode_instr(op: u8, typ: u8, dst: u32, c: &mut Cursor, pool: &[St
 pub(super) fn read_ab(c: &mut Cursor) -> Result<(u32, u32)> {
     Ok((c.read_u16()? as u32, c.read_u16()? as u32))
 }
+
+/// symbolic-struct-field-access P2：`depth:u8 + idx:u16 × depth`。
+///
+/// `depth == 0` 不是合法编码 —— 一条字段访问至少要走一级（扁平 `a.x` 就是 depth 1）。
+/// 拒掉它而不是产出一个「解析出偏移 0」的空路径：空路径会**静默读到 blob 的头部**，
+/// 正是本 change 要消掉的那类「看起来合法的错偏移」。
+fn read_field_path(c: &mut Cursor) -> Result<Box<[u16]>> {
+    let depth = c.read_u8()? as usize;
+    if depth == 0 {
+        anyhow::bail!(
+            "struct field access with an empty index path — the writer must emit at least \
+             one field index (a flat `a.x` is depth 1). An empty path would silently \
+             resolve to offset 0, i.e. the head of the blob."
+        );
+    }
+    let mut path = Vec::with_capacity(depth);
+    for _ in 0..depth {
+        path.push(c.read_u16()?);
+    }
+    Ok(path.into_boxed_slice())
+}
+
 
 pub(super) fn read_args(c: &mut Cursor) -> Result<Box<[u32]>> {
     let count = c.read_u8()? as usize;

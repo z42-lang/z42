@@ -379,7 +379,7 @@ public sealed class OperatorEmitter {
         TypedReg result = this._ctx.Alloc(IrType.Bool);
         string failL = this._ctx.Fresh("seq_ne");
         string endL = this._ctx.Fresh("seq_end");
-        this._emitLeafEqChecks(a, c, 0, structName, failL);
+        this._emitLeafEqChecks(a, c, structName, new int[0], structName, failL);
         // 全部叶子相等（fall-through）
         this._ctx.Emit(new ConstBoolInstr(result, wantEqual));
         this._ctx.EndBlock(new BrTerm(endL));
@@ -393,20 +393,22 @@ public sealed class OperatorEmitter {
 
     // 递归枚举 structName 的展平叶子（镜像 _copyRegion）：嵌套 struct 字段递归累积 offset；基元/引用
     // 叶子读 a/c 两侧值（现有 StructFieldGetPrim）+ 现有 Eq + BrCond 短路到 failL（真→下一叶子块）。
-    private void _emitLeafEqChecks(TypedReg a, TypedReg c, int off, string structName, string failL) {
+    // symbolic-struct-field-access P2：`off` 累加 → `path` 累积。两个操作数是**同一类型**
+    // 的两个 blob（struct 值相等的前提），所以共用一个 rootType 与一条路径。
+    private void _emitLeafEqChecks(TypedReg a, TypedReg c, string rootType, int[] path, string structName, string failL) {
         StructLayoutInfo li = this._ctx.Gen.Layouts.LayoutOf(structName);
         int i = 0;
         while (i < li.FieldCount) {
-            int fo = li.FieldOffsets[i];
+            int[] lp = AccessEmitter._pathAppend(path, i);
             if (li.FieldKinds[i] == StructLeafKind.Struct) {
-                this._emitLeafEqChecks(a, c, off + fo, li.FieldTypeNames[i], failL);
+                this._emitLeafEqChecks(a, c, rootType, lp, li.FieldTypeNames[i], failL);
             } else {
                 int tag = Tag.FromName(li.FieldTypeNames[i]);
                 int irt = this._ee._tagToIrType(tag);
                 TypedReg la = this._ctx.Alloc(irt);
                 TypedReg lc = this._ctx.Alloc(irt);
-                this._ctx.Emit(new StructFieldGetPrimInstr(la, a, off + fo, tag));
-                this._ctx.Emit(new StructFieldGetPrimInstr(lc, c, off + fo, tag));
+                this._ctx.Emit(new StructFieldGetPrimInstr(la, a, this._ctx.QualifyClass(rootType), lp, tag));
+                this._ctx.Emit(new StructFieldGetPrimInstr(lc, c, this._ctx.QualifyClass(rootType), lp, tag));
                 TypedReg cmp = this._ctx.Alloc(IrType.Bool);
                 this._ctx.Emit(new EqInstr(cmp, la, lc));
                 string contL = this._ctx.Fresh("seq_cont");

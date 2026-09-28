@@ -24,6 +24,18 @@ public sealed class DecodedBlockZ {
 }
 
 public static class ZbcReaderInstr {
+
+    // symbolic-struct-field-access P2：读 `depth:u8 + idx:u16 × depth`。
+    // 与写端 `ZbcInstr._writeFieldPath` 成对；Rust 读端另有一份（`read_field_path`），
+    // 三处都拒 depth 0 —— 空路径会静默解析到偏移 0（blob 头部）。
+    private static int[] _readFieldPath(ZbcCursor c) {
+        int depth = c.U8();
+        int[] path = new int[depth];
+        int k = 0;
+        while (k < depth) { path[k] = c.U16(); k = k + 1; }
+        return path;
+    }
+
     // IEEE754 bits → f64（DoubleToBits 的逆）。consolidate-core-intrinsics (A1)：extern 唯一声明在
     // Std.BitConverter；保留公开签名（z42c IrGenFacts 在用，改 API 会踩 seed-API 轴），body 委托 core。
     public static double BitsToDouble(long bits) { return BitConverter.DoubleFromBits(bits); }
@@ -165,18 +177,21 @@ public static class ZbcReaderInstr {
             int size = c.U32();
             return new StructCopyInstr(d, src, size);
         }
+        // symbolic-struct-field-access P2（zbc 1.46）：(root 类型名, 字段序号路径)。
         if (op == Op.StructFieldGetPrim) {
             TypedReg base_ = ZbcReaderInstr._ru(c.U16());
-            int off = c.U32();
+            string rootType = ZbcReaderInstr._p(pool, c.U32());
+            int[] path = ZbcReaderInstr._readFieldPath(c);
             int kind = c.U8();
-            return new StructFieldGetPrimInstr(d, base_, off, kind);
+            return new StructFieldGetPrimInstr(d, base_, rootType, path, kind);
         }
         if (op == Op.StructFieldSetPrim) {
             TypedReg base_ = ZbcReaderInstr._ru(c.U16());
-            int off = c.U32();
+            string rootType = ZbcReaderInstr._p(pool, c.U32());
+            int[] path = ZbcReaderInstr._readFieldPath(c);
             int kind = c.U8();
             TypedReg val = ZbcReaderInstr._r(c.U16(), tag);   // tag 来自 Val.Type（writer 布局）
-            return new StructFieldSetPrimInstr(base_, off, kind, val);
+            return new StructFieldSetPrimInstr(base_, rootType, path, kind, val);
         }
         if (op == Op.StaticGet) { return new StaticGetInstr(d, ZbcReaderInstr._p(pool, c.U32())); }
         if (op == Op.StaticSet) {

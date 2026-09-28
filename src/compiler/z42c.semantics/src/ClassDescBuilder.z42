@@ -589,6 +589,20 @@ public sealed partial class ClassDescBuilder {
         cd.StructRefOffsets = li.RefLeafOffsets;
         cd.StructRefKinds = li.RefLeafKinds;
         cd.StructRefCount = li.RefLeafCount;
+        // symbolic-struct-field-access P2：**实例化也要带逐字段表**（zbc 1.45 的块，
+        // `class_flags2` bit0 gated）。P0（#915）只给上面那条**声明**路径加了这四行，
+        // 这条实例化路径漏了 —— 在 P0 里表是**休眠元数据**、漏了没人看得见；
+        // 接通 P2 之后立刻现形为「field index 0 out of range for struct
+        // `Demo.Pair<int,long>` (0 field(s))」，8 个泛型 e2e 用例全红。
+        //
+        // ⚠️ 同一个位置已经有过同形态的前科（见上方注释：实例化描述符名用短名会静默 miss，
+        // 而「零引用叶子的实例化恰好照常工作」掩盖了它）。**这条路径每加一样东西，
+        // 都要回来问一遍声明路径加了什么。**
+        cd.StructFieldOffsets = li.FieldOffsets;
+        cd.StructFieldSizes = li.FieldSizes;
+        cd.StructFieldKinds = li.FieldKinds;
+        cd.StructFieldCount = li.FieldCount;
+        if (li.FieldCount > 0) { cd.Flags2 = cd.Flags2 | 1; }
         return cd;
     }
 

@@ -1,7 +1,9 @@
 ---
 paths:
-  - "src/compiler/z42c.ir/src/BinaryFormat/**"
-  - "src/compiler/z42c.project/src/**"
+  # ⚠️ 2026-09-28 更正：前两条曾指 `z42c.ir` / `z42c.project`，两个目录**都已不存在** ——
+  # 后端先下沉到 stdlib 的 `z42.package`，该库又搬进 `src/compiler/`。规则的「何时适用」
+  # 判据坏掉是静默的（没人会因为 paths 不匹配而收到提示），所以连同本次 bump 一起修。
+  - "src/compiler/z42.package/src/**"
   - "src/runtime/src/metadata/**"
   - "docs/internals/src/formats/zbc.md"
   - "docs/internals/src/formats/zpkg.md"
@@ -26,10 +28,10 @@ paths:
 
 | 端 | 文件 | 常量 | 当前值 |
 |----|------|------|--------|
-| zbc writer（z42c） | `src/compiler/z42.package/src/BinaryFormat/ZbcFormat.z42` | `ZbcVersion.Major` / `.Minor` | 1 / 45 |
-| zbc reader（Rust） | `src/runtime/src/metadata/zbc_reader/versions.rs` | `ZBC_VERSION_MAJOR` / `_MINOR` | 1 / 45 |
-| zpkg writer（z42c） | `src/compiler/z42.package/src/ZpkgWriter.z42` | `ZpkgWriterZ.Major` / `.Minor` | 0 / 50 |
-| zpkg reader（Rust） | `src/runtime/src/metadata/zbc_reader/versions.rs` | `ZPKG_VERSION_MAJOR` / `_MINOR` | 0 / 50 |
+| zbc writer（z42c） | `src/compiler/z42.package/src/BinaryFormat/ZbcFormat.z42` | `ZbcVersion.Major` / `.Minor` | 1 / 46 |
+| zbc reader（Rust） | `src/runtime/src/metadata/zbc_reader/versions.rs` | `ZBC_VERSION_MAJOR` / `_MINOR` | 1 / 46 |
+| zpkg writer（z42c） | `src/compiler/z42.package/src/ZpkgWriter.z42` | `ZpkgWriterZ.Major` / `.Minor` | 0 / 51 |
+| zpkg reader（Rust） | `src/runtime/src/metadata/zbc_reader/versions.rs` | `ZPKG_VERSION_MAJOR` / `_MINOR` | 0 / 51 |
 
 > 🔒 **本表有防腐门了**（2026-09-28）：`cargo test --test format_fixture_versions` 的
 > `version_bumping_coordinate_table_matches_the_real_constants` **解析本表自己的四行**，
@@ -70,7 +72,20 @@ paths:
    > **之前**就地覆写，于是 `zbc_compat` 校验的永远是刚重生的字节、**从不是 committed 的那份** ——
    > 陈旧基线因此可以一直绿着，同时把每个人的工作树弄脏。实际后果：这 6 个 fixture 停在 zbc **1.37**
    > 一路熬过了 1.38 的 bump（#414 漏了本步），2026-09-04 才被发现。形态同 `cargo fmt --check`。
-5. **z42c golden hex 单测** — `src/compiler/z42c.semantics/tests/zbc/zbc_tests.z42` 的 `test_zbc_empty_byte_identical` 内嵌 `empty/source.zbc` 的 hex 串（zbc 1.21 起 226B；header 的 `minor` 字段 + STRS 段体会随 bump 变化）。从 regen 后的 fixture 重截：
+5. **z42c golden hex 单测 —— `zbc_tests.z42` 里有 *三* 个逐字节断言，不是一个**
+   （⚠️ 本步骤此前只点名第一个，2026-09-28 因此多烧了一轮 CI；三个都要改）：
+
+   | 测试 | 内嵌什么 |
+   |---|---|
+   | `test_zbc_empty_byte_identical` | `empty/source.zbc` 全量 hex（zbc 1.21 起 231B）|
+   | `test_zbc_f5_with_dbug_byte_identical` | `int F(){return 5;}` 的全量 hex（含 DBUG 行表）|
+   | `test_zbc_selfcheck_program_header` | 自检程序 header 前 10 字节 `5a4243 0001 <minor> 0200` |
+
+   ⭐ **改之前先逐字节 diff，把「为什么只有这些字节变」写进注释** —— 那句推理才是 golden 的价值
+   所在（例：1.46 那次三个用例都**一条 struct 指令都不发** ⇒ 只有 header 的 minor 那一个字节变）。
+   只改数字、不记理由，下一个人无法判断 diff 是否合理。
+
+   第一个从 regen 后的 fixture 重截：
    ```bash
    xxd -p src/tests/zbc-format/empty/source.zbc | tr -d '\n'
    ```
@@ -97,7 +112,10 @@ xtask test compiler    # z42c golden hex 单测
 
 6. **`ZpkgWriter.z42`**（`src/compiler/z42.package/src/`）— `ZpkgWriterZ.Minor++`，注释更新内嵌 zbc 版本。
 7. **`zbc_reader/versions.rs`** — `ZPKG_VERSION_MINOR` 同步；上方 zpkg changelog 注释块追加一行（指明耦合的 inner zbc minor）。
-8. **`docs/internals/src/formats/zpkg.md`** — Minor changelog 加一行（触发 spec = 同次 zbc bump 的 spec）。
+8. **`docs/internals/src/formats/zpkg.md`** — 更新页首「状态: ✅ 已实现（vX.YY）」与 `## 版本` 段的
+   **当前配对**（`当前 0.NN ↔ 1.MM`，两处）。
+   ⚠️ **本页没有 Minor changelog 表**（本步骤此前这么写，是对着一张不存在的表 —— 2026-09-28 更正）。
+   zpkg 的逐 minor 历史写在写端常量旁：`ZpkgWriter.z42` 的 `ZpkgWriterZ.Minor` 注释（步骤 6 已覆盖）。
 9. **regen zpkg-format fixture** — 覆写 `src/tests/zpkg-format/*/source.zpkg`（4 个 committed 基线：`packed-minimal` / `packed-multi-module` / `indexed-minimal` / `sym-only-sidecar`）。
    每个 fixture 目录自带 **committed 构建配方 `<fixture>.z42.toml`**（refresh-format-fixtures，2026-09-04）：
    `[project].pack` 决定 packed/indexed，是否带 `--release` 决定 strip/sidecar。
@@ -162,6 +180,32 @@ overlay 成种子，**种子与 cargo VM 就同为新格式** → warm 建/测/r
    cp -R /tmp/tc/artifacts/build/libraries  artifacts/build/
    cp    /tmp/tc/artifacts/xtask/xtask.zpkg artifacts/xtask/xtask.zpkg
    ```
+
+   🔴 **`xtask.zpkg` 很可能比 libraries 旧一代 —— 拷完必须重建它**（2026-09-28 实测踩到）。
+   artifact 里的 `xtask.zpkg` 是流水线**早期**用**种子 stdlib** 建的，而同一个 artifact 里的
+   `libraries/` 是**末期**的新格式产物 ⇒ 两者差一代。症状是一个**离现场很远**的缺符号：
+
+   ```
+   Error: uncaught exception: Std.MissingSymbolException:
+     undefined function `Z42.Project.ManifestLoader.LoadWorkspace$1$string`
+     at Z42Xtask._wsBuildRoot(string)        ← ⭐ 判据：栈顶在 `Z42Xtask.*`
+     at Z42Xtask._ensureSeed(string)            ⇒ 是 xtask 二进制自己缺符号，
+     at Z42Xtask._buildCompiler()               **不是**被测代码的问题
+   ```
+
+   修法（用刚 overlay 进来的新 z42c 直接编 xtask 源）：
+
+   ```bash
+   rm -f artifacts/xtask/xtask.zpkg artifacts/xtask/xtask.zsym    # 不删则 publish 不重编
+   Z42_LIBS="$PWD/artifacts/build/libraries/dist/release" \
+     artifacts/build/runtime/release/z42vm \
+     artifacts/build/compiler/z42c.driver/release/dist/z42c.driver.zpkg \
+     -- build scripts/xtask.z42.toml --release
+   ```
+
+   ⚠️ **不要**手工把某个 `.zpkg` 拷进 `Z42_LIBS` 去「修」依赖 —— 会弄坏依赖解析，报
+   「A skipped package is invisible to dependency resolution」+ 一片**假的**
+   `undefined: <Type>` / `undefined function`，离真因更远。
 3. **强制 xtask 用你的新格式 cargo VM**（launcher 默认回落 `.z42/bin/z42vm` 旧种子 → 会报
    `minor <新> not supported (writer is at <旧>)`）：
    ```bash

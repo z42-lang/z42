@@ -19,6 +19,32 @@ fn dec(bytes: &[u8], off: usize, tag: u8) -> Value {
     decode_prim(bytes, off, w, tag).unwrap()
 }
 
+// ── symbolic-struct-field-access P2 之后的转换说明 ─────────────────────────────
+//
+// 本文件的测试考的是**各 base kind 的字节访问机制**（arena `StructRef` / 堆对象内联字段 /
+// `StackObject` / `BoxedStruct` / `StructRefHeap` 数组元素）与叶子 codec —— **不是**路径解析。
+// 它们用的是裸 `VmContext::new()`（**没有类型注册表**）+ 本地构造的 `TypeDesc`，从不按名字注册，
+// 所以符号化入口（`struct_field_{get,set}_prim`）在这里必然以「type not loaded」失败。
+//
+// ⇒ 改为直接驱动 `*_val` 内核（它仍收字节偏移），**测的东西一个字没变**。
+// 路径解析另有专门的测试（见本文件末尾 `resolve_field_path` 那组），那里会真注册类型。
+fn set_leaf(ctx: &VmContext, frame: &mut Frame, base: u32, off: u32, kind: u8, val: u32) {
+    let b = frame.get(base).unwrap().clone();
+    let v = frame.get(val).unwrap().clone();
+    super::struct_field_set_val(ctx, &b, off, kind, &v).unwrap();
+}
+
+fn get_leaf(ctx: &VmContext, frame: &mut Frame, dst: u32, base: u32, off: u32, kind: u8) {
+    let b = frame.get(base).unwrap().clone();
+    let v = super::struct_field_get_val(ctx, &b, off, kind).unwrap();
+    frame.set(dst, v);
+}
+
+fn get_leaf_err(ctx: &VmContext, frame: &mut Frame, base: u32, off: u32, kind: u8) -> String {
+    let b = frame.get(base).unwrap().clone();
+    super::struct_field_get_val(ctx, &b, off, kind).unwrap_err().to_string()
+}
+
 #[test]
 fn codec_roundtrip_integers() {
     for &(tag, n) in &[
@@ -134,14 +160,14 @@ fn heap_object_inline_struct_field_roundtrips() {
     frame.set(3, Value::Str("hi".into())); // reg3 = string for the ref leaf `tag`
 
     // pt.x = 42 (off 0), pt.y = 7 (off 4), tag = "hi" (ref leaf off 8)
-    struct_field_set_prim(&ctx, &mut frame, 0, 0, ty::TAG_I32, 1).unwrap();
-    struct_field_set_prim(&ctx, &mut frame, 0, 4, ty::TAG_I32, 2).unwrap();
-    struct_field_set_prim(&ctx, &mut frame, 0, 8, ty::TAG_STR, 3).unwrap();
+    set_leaf(&ctx, &mut frame, 0, 0, ty::TAG_I32, 1);
+    set_leaf(&ctx, &mut frame, 0, 4, ty::TAG_I32, 2);
+    set_leaf(&ctx, &mut frame, 0, 8, ty::TAG_STR, 3);
 
     // Read them back into reg4/5/6.
-    struct_field_get_prim(&ctx, &mut frame, 4, 0, 0, ty::TAG_I32).unwrap();
-    struct_field_get_prim(&ctx, &mut frame, 5, 0, 4, ty::TAG_I32).unwrap();
-    struct_field_get_prim(&ctx, &mut frame, 6, 0, 8, ty::TAG_STR).unwrap();
+    get_leaf(&ctx, &mut frame, 4, 0, 0, ty::TAG_I32);
+    get_leaf(&ctx, &mut frame, 5, 0, 4, ty::TAG_I32);
+    get_leaf(&ctx, &mut frame, 6, 0, 8, ty::TAG_STR);
 
     assert!(matches!(frame.get(4).unwrap(), Value::I64(42)), "pt.x must be 42");
     assert!(matches!(frame.get(5).unwrap(), Value::I64(7)),  "pt.y must be 7");
@@ -152,8 +178,8 @@ fn heap_object_inline_struct_field_roundtrips() {
 
     // Overwriting pt.x must not disturb pt.y or the ref leaf (independent byte slots).
     frame.set(7, Value::I64(99));
-    struct_field_set_prim(&ctx, &mut frame, 0, 0, ty::TAG_I32, 7).unwrap();
-    struct_field_get_prim(&ctx, &mut frame, 5, 0, 4, ty::TAG_I32).unwrap();
+    set_leaf(&ctx, &mut frame, 0, 0, ty::TAG_I32, 7);
+    get_leaf(&ctx, &mut frame, 5, 0, 4, ty::TAG_I32);
     assert!(matches!(frame.get(5).unwrap(), Value::I64(7)), "pt.y must stay 7 after pt.x rewrite");
 }
 
@@ -197,14 +223,14 @@ fn struct_array_element_leaf_access_via_handle() {
     frame.set(4, Value::I64(22));
 
     // arr[0].x = 11, arr[0].tag = "zero"; arr[1].x = 22
-    struct_field_set_prim(&ctx, &mut frame, 0, 0, ty::TAG_I32, 2).unwrap();
-    struct_field_set_prim(&ctx, &mut frame, 0, 8, ty::TAG_STR, 3).unwrap();
-    struct_field_set_prim(&ctx, &mut frame, 1, 0, ty::TAG_I32, 4).unwrap();
+    set_leaf(&ctx, &mut frame, 0, 0, ty::TAG_I32, 2);
+    set_leaf(&ctx, &mut frame, 0, 8, ty::TAG_STR, 3);
+    set_leaf(&ctx, &mut frame, 1, 0, ty::TAG_I32, 4);
 
     // Read back: arr[0].x == 11, arr[0].tag == "zero", arr[1].x == 22 (independent elements).
-    struct_field_get_prim(&ctx, &mut frame, 5, 0, 0, ty::TAG_I32).unwrap();
-    struct_field_get_prim(&ctx, &mut frame, 6, 0, 8, ty::TAG_STR).unwrap();
-    struct_field_get_prim(&ctx, &mut frame, 7, 1, 0, ty::TAG_I32).unwrap();
+    get_leaf(&ctx, &mut frame, 5, 0, 0, ty::TAG_I32);
+    get_leaf(&ctx, &mut frame, 6, 0, 8, ty::TAG_STR);
+    get_leaf(&ctx, &mut frame, 7, 1, 0, ty::TAG_I32);
 
     assert!(matches!(frame.get(5).unwrap(), Value::I64(11)), "arr[0].x must be 11");
     match frame.get(6).unwrap() {
@@ -295,13 +321,13 @@ fn stack_object_inline_struct_field_roundtrips() {
 
     // Writes: two prim leaves + the ref leaf (the ref arm is the risky half — a
     // stack object takes **no** write barrier, unlike the heap arm).
-    struct_field_set_prim(&ctx, &mut frame, 0, 0, ty::TAG_I32, 1).unwrap();
-    struct_field_set_prim(&ctx, &mut frame, 0, 4, ty::TAG_I32, 2).unwrap();
-    struct_field_set_prim(&ctx, &mut frame, 0, 8, ty::TAG_STR, 3).unwrap();
+    set_leaf(&ctx, &mut frame, 0, 0, ty::TAG_I32, 1);
+    set_leaf(&ctx, &mut frame, 0, 4, ty::TAG_I32, 2);
+    set_leaf(&ctx, &mut frame, 0, 8, ty::TAG_STR, 3);
 
-    struct_field_get_prim(&ctx, &mut frame, 4, 0, 0, ty::TAG_I32).unwrap();
-    struct_field_get_prim(&ctx, &mut frame, 5, 0, 4, ty::TAG_I32).unwrap();
-    struct_field_get_prim(&ctx, &mut frame, 6, 0, 8, ty::TAG_STR).unwrap();
+    get_leaf(&ctx, &mut frame, 4, 0, 0, ty::TAG_I32);
+    get_leaf(&ctx, &mut frame, 5, 0, 4, ty::TAG_I32);
+    get_leaf(&ctx, &mut frame, 6, 0, 8, ty::TAG_STR);
 
     assert!(matches!(frame.get(4).unwrap(), Value::I64(42)), "pt.x must be 42 on a stack object");
     assert!(matches!(frame.get(5).unwrap(), Value::I64(7)),  "pt.y must be 7 on a stack object");
@@ -312,12 +338,96 @@ fn stack_object_inline_struct_field_roundtrips() {
 
     // Independent byte slots: rewriting x disturbs neither y nor the ref leaf.
     frame.set(7, Value::I64(99));
-    struct_field_set_prim(&ctx, &mut frame, 0, 0, ty::TAG_I32, 7).unwrap();
-    struct_field_get_prim(&ctx, &mut frame, 5, 0, 4, ty::TAG_I32).unwrap();
-    struct_field_get_prim(&ctx, &mut frame, 6, 0, 8, ty::TAG_STR).unwrap();
+    set_leaf(&ctx, &mut frame, 0, 0, ty::TAG_I32, 7);
+    get_leaf(&ctx, &mut frame, 5, 0, 4, ty::TAG_I32);
+    get_leaf(&ctx, &mut frame, 6, 0, 8, ty::TAG_STR);
     assert!(matches!(frame.get(5).unwrap(), Value::I64(7)), "pt.y must stay 7 after pt.x rewrite");
     match frame.get(6).unwrap() {
         Value::Str(s) => assert_eq!(&**s, "hi", "ref leaf must survive a prim-leaf rewrite"),
         o => panic!("expected the string ref leaf, got {o:?}"),
+    }
+}
+
+// ── symbolic-struct-field-access P2 (T12)：纯隔离的符号化开销 ────────────────
+//
+// 提案承诺过：P2 落地后必须实测**纯隔离**的开销 —— 先前只有一个「含 arena↔堆存储差」
+// 的上界。隔离的含义是只量 `resolve_field_path` 本身，不量它周围那次 helper 调用、
+// 不量字节 codec、不量寄存器读写 —— 那些**符号化前后完全一样**。
+//
+// ⚠️ 这个数**不等于**「P2 的代价」，两条限定必须一起引用：
+//   ① struct 字段访问在 JIT 里**恒是 helper 调用**（烘焙偏移只是个 iconst 实参）
+//      ⇒ P2 的**边际**代价 = 那次本来就要付的调用里多出的这一段。
+//   ② 本测量给不出**动态**权重。静态发射占比是深度 1 = 85.1%（全 e2e 语料 800 次），
+//      但一个深度 3 的热循环能压倒 2% 的站点占比。那个数要真实负载 A/B（两个工具链）。
+//
+// `#[ignore]`：这是**一次性的「符号化值不值」**测量，不是持续护栏，不该进常规 CI。
+//   跑法：cargo test --release --lib symbolization_cost -- --ignored --nocapture
+#[test]
+#[ignore]
+fn symbolization_cost_by_path_depth() {
+    use crate::metadata::name_index::NameIndex;
+    use crate::metadata::tokens::TypeId;
+    use crate::metadata::types::{FieldSlot, StructFieldLayout, StructTypeLayout, TypeDesc, TypeDescCold};
+    use std::sync::Arc;
+    use std::time::Instant;
+
+    fn struct_desc(name: &str, n: usize, nest: Option<&str>) -> Arc<TypeDesc> {
+        Arc::new(TypeDesc {
+            name: name.into(),
+            class_flags: crate::metadata::bytecode::CLASS_FLAG_STRUCT,
+            fields: (0..n).map(|i| FieldSlot {
+                name: format!("f{i}").into(),
+                type_tag: if i == 0 { nest.unwrap_or("long").into() } else { "long".into() },
+                visibility: 0,
+            }).collect(),
+            field_index: NameIndex::new(),
+            vtable: Vec::new(),
+            vtable_index: NameIndex::new(),
+            base_name: None,
+            visibility: 0,
+            cold: Some(Box::new(TypeDescCold {
+                struct_layout: Some(Arc::new(StructTypeLayout {
+                    size: n * 8,
+                    ref_offsets: Box::new([]),
+                    ref_kinds: Box::new([]),
+                    fields: (0..n).map(|i| StructFieldLayout {
+                        offset: (i * 8) as u32, size: 8, kind: 0,
+                    }).collect(),
+                })),
+                ..Default::default()
+            })),
+            id: TypeId::UNRESOLVED,
+        })
+    }
+
+    const ITERS: u32 = 200_000;
+    println!("\n路径解析的纯隔离开销（{ITERS} 次/档，release 跑才有意义）");
+    println!("{:<12} {:>12} {:>14}", "深度", "总耗时", "每次");
+
+    for depth in 1..=4usize {
+        let vm = VmContext::new();
+        vm.install_lazy_loader(None, 0);
+        if let Some(l) = vm.core.lazy_loader.write().as_mut() {
+            for i in 0..depth {
+                let nest = if i + 1 < depth { Some(format!("Bench.L{}", i + 1)) } else { None };
+                l.insert_type(format!("Bench.L{i}"), struct_desc(&format!("Bench.L{i}"), 4, nest.as_deref()));
+            }
+        }
+        let path: Vec<u16> = vec![0u16; depth];
+        // 预热（首次会触发 lazy 查找的慢路）。
+        for _ in 0..1000 { let _ = super::resolve_field_path(&vm, "Bench.L0", &path); }
+
+        let t0 = Instant::now();
+        let mut acc = 0u64;
+        for _ in 0..ITERS {
+            acc += super::resolve_field_path(
+                std::hint::black_box(&vm),
+                std::hint::black_box("Bench.L0"),
+                std::hint::black_box(&path),
+            ).unwrap() as u64;
+        }
+        let el = t0.elapsed();
+        std::hint::black_box(acc);
+        println!("{:<12} {:>12?} {:>13.1}ns", depth, el, el.as_nanos() as f64 / ITERS as f64);
     }
 }

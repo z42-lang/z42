@@ -5,7 +5,15 @@ namespace Z42.IR.BinaryFormat;
 // 文件版本（须与 C# ZbcWriter.VersionMajor/Minor 一致；strict-pin。bump 同步规则见 version-bumping.md 第 5 步）。
 public static class ZbcVersion {
     public static int Major = 1;
-    public static int Minor = 45;   // 2026-09-27 type-section-flags2-and-struct-fields：TYPE 记录
+    public static int Minor = 46;   // 2026-09-28 symbolic-struct-field-access P2：struct 叶子访问符号化
+    // `StructFieldGetPrim` / `StructFieldSetPrim` 的 `byte_off:u32` → `root_type:u32(池) +
+    // depth:u8 + idx:u16 × depth`（**字段序号路径**）。
+    // ⭐ `root_type` 不只是「所属类型」，它**兼任编号空间判别器**：偏移此前活在两个互不相容的
+    //   编号空间里（struct blob 相对 / composed 对象相对），而指令里**一个字都没记是哪个** ——
+    //   正确性靠编译器与运行时各自独立地同意（审计 R2「判据复制」在 struct 路径上的实例）。
+    //   名字解析成 class ⇒ 索引对象合成布局；解析成 struct ⇒ 索引 blob 布局。
+    // ⭐ 用**序号**而非字段名：序号实例化不变、偏移才变 ⇒ 运行期 O(1) 下标，无哈希、不需要 IC。
+    // ⚠️ depth 0 非法（扁平 `a.x` 就是 depth 1）；空路径会静默解析到偏移 0，三处读写端都拒。
     // ① 紧随 Visibility 新增 **always-present `class_flags2:u16`** —— 既有 `Flags` 是 u8 且 8 位用满，
     //    位用光的后果已现形：1.33/1.34 的对象全字段块只能用**推导谓词**当闸门（`(Flags & 116) == 0`），
     //    而那个谓词在写端与 Rust 读端**各抄一份**（审计 R2「判据复制」的样本）。Flags2 为「新块按位

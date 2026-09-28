@@ -277,14 +277,15 @@ public sealed class PatternEmitter {
     private TypedReg _emitPatFieldRead(TypedReg subj, Z42Type container, string fieldName, Z42Type fieldType) {
         if (this._ee._isBlobStruct(container)) {
             string sname = this._ee._blobStructName(container);
-            int off = this._ctx.Gen.Layouts.FieldByteOffset(sname, fieldName);
+            // symbolic-struct-field-access P2：subj 是 container 自身的 blob ⇒ 根 = sname、depth 1。
+            int[] fpath = AccessEmitter._pathAppend(new int[0], this._ctx.Gen.Layouts.FieldIndexOf(sname, fieldName));
             if (this._ctx.Gen.Layouts.FieldIsStruct(sname, fieldName)) {
                 string fs = this._ctx.Gen.Layouts.FieldTypeName(sname, fieldName);
-                return this._ee._copyStructOut(subj, off, fs);   // 嵌套 struct 字段：复制出值副本子 blob
+                return this._ee._copyStructOut(subj, this._ctx.QualifyClass(sname), fpath, fs);   // 嵌套 struct 字段：复制出值副本子 blob
             }
             int tag = Tag.FromName(this._ctx.Gen.Layouts.FieldTypeName(sname, fieldName));
             TypedReg dst = this._ctx.Alloc(this._ctx.ToIrType(fieldType));
-            this._ctx.Emit(new StructFieldGetPrimInstr(dst, subj, off, tag));
+            this._ctx.Emit(new StructFieldGetPrimInstr(dst, subj, this._ctx.QualifyClass(sname), fpath, tag));
             return dst;
         }
         TypedReg fReg = this._ctx.Alloc(this._ctx.ToIrType(fieldType));

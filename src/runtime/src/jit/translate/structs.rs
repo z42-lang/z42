@@ -21,18 +21,25 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                     let inst = self.builder.ins().call(self.hr_struct_copy, &[self.frame_val, self.ctx_val, d, s, sz]);
                     let ret = self.builder.inst_results(inst)[0]; self.check(ret);
                 }
-                Instruction::StructFieldGetPrim { dst, base, byte_off, kind } => {
-                    let d = self.ri(*dst); let b = self.ri(*base);
-                    let off = self.builder.ins().iconst(types::I32, *byte_off as i64);
-                    let k   = self.builder.ins().iconst(types::I8,  *kind as i64);
-                    let inst = self.builder.ins().call(self.hr_struct_field_get_prim, &[self.frame_val, self.ctx_val, d, b, off, k]);
+                // symbolic-struct-field-access P2：把 (root 类型名, 字段序号路径) 传进 helper，
+                // 由它解析偏移 —— 与 interp 走**同一个** `resolve_field_path`，不在两侧各抄一份
+                // （struct 路径上「判据复制」正是本 change 要消掉的东西）。
+                // ⚠️ 字段访问在 JIT 里**本来就恒是 helper 调用**（烘焙偏移也只是个 iconst 实参），
+                // 所以符号化的边际代价是已付调用里的一次查表，不是新增一次调用。
+                Instruction::StructFieldGetPrim(i) => {
+                    let d = self.ri(i.dst); let b = self.ri(i.base);
+                    let (rp, rl) = self.str_val(&i.root_type);
+                    let (pp, pl) = self.path_val(&i.path);
+                    let k   = self.builder.ins().iconst(types::I8, i.kind as i64);
+                    let inst = self.builder.ins().call(self.hr_struct_field_get_prim, &[self.frame_val, self.ctx_val, d, b, rp, rl, pp, pl, k]);
                     let ret = self.builder.inst_results(inst)[0]; self.check(ret);
                 }
-                Instruction::StructFieldSetPrim { base, byte_off, kind, val } => {
-                    let b = self.ri(*base); let v = self.ri(*val);
-                    let off = self.builder.ins().iconst(types::I32, *byte_off as i64);
-                    let k   = self.builder.ins().iconst(types::I8,  *kind as i64);
-                    let inst = self.builder.ins().call(self.hr_struct_field_set_prim, &[self.frame_val, self.ctx_val, b, off, k, v]);
+                Instruction::StructFieldSetPrim(i) => {
+                    let b = self.ri(i.base); let v = self.ri(i.val);
+                    let (rp, rl) = self.str_val(&i.root_type);
+                    let (pp, pl) = self.path_val(&i.path);
+                    let k   = self.builder.ins().iconst(types::I8, i.kind as i64);
+                    let inst = self.builder.ins().call(self.hr_struct_field_set_prim, &[self.frame_val, self.ctx_val, b, rp, rl, pp, pl, k, v]);
                     let ret = self.builder.inst_results(inst)[0]; self.check(ret);
                 }
                 // 2026-05-07 D-8b-3 Phase 2 + switch-multicast-funcpredicate-to-generic-exception:

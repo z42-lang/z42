@@ -328,6 +328,38 @@ public sealed class StructLayout {
         return "";
     }
 
+    // ── symbolic-struct-field-access P2：序号访问器 ────────────────────────────
+    //
+    // P2 之后 codegen 烘焙的是**字段序号**而不是字节偏移。序号必须索引到**运行期会索引的同一张表**：
+    //   · struct 根 ⇒ `LayoutOf(structName)` ——它就是写进 zbc `struct_field_table` 的那个数组
+    //     （`ClassDescBuilder` 直接 `cd2.StructFieldOffsets = li.FieldOffsets`）；
+    //   · class 根 ⇒ `ObjectLayoutOf(className)` ——写进 zbc 对象全字段布局块的那个数组，
+    //     运行期是 `composed_object_layout().field_offsets`。
+    // 两侧同源 ⇒ 序号按构造一致。
+    //
+    // ⚠️ 返回 -1 = 查不到。与 `FieldByteOffset` 不同的是：**序号不参与求和**，所以 -1
+    // 不会被加成一个看起来合法的正数（那正是烘焙偏移年代的隐患）。调用方直接判。
+    public int FieldIndexOf(string structName, string fieldName) {
+        StructLayoutInfo li = this.LayoutOf(structName);
+        int i = 0;
+        while (i < li.FieldCount) { if (li.FieldNames[i] == fieldName) { return i; } i = i + 1; }
+        return -1;
+    }
+
+    // 内联 struct 字段在**对象全字段布局**里的序号（class 根路径的第一级）。
+    // 判据与 `InlineFieldByteOffset` 一致：先确认它确实是内联 struct 字段，再取对象布局里的序号。
+    public int ObjectFieldIndexOf(string className, string fieldName) {
+        StructLayoutInfo inl = this.InlineLayoutOf(className);
+        bool found = false;
+        int i = 0;
+        while (i < inl.FieldCount) { if (inl.FieldNames[i] == fieldName) { found = true; break; } i = i + 1; }
+        if (!found) { return -1; }
+        StructLayoutInfo obj = this.ObjectLayoutOf(className);
+        int j = 0;
+        while (j < obj.FieldCount) { if (obj.FieldNames[j] == fieldName) { return j; } j = j + 1; }
+        return -1;
+    }
+
     // struct 直接字段的 byte offset（未找到 -1）。供 codegen 烘焙 StructFieldGet/SetPrim 立即数。
     public int FieldByteOffset(string structName, string fieldName) {
         StructLayoutInfo li = this.LayoutOf(structName);

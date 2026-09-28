@@ -206,8 +206,8 @@ pub(super) fn compute_promotable_regs(func: &Function, enable: bool) -> Vec<bool
                 I::ArraySet { arr, idx, val } => { disq.push(*arr); disq.push(*idx); disq.push(*val); }
                 I::ArrayLen { dst, arr } => { disq.push(*dst); disq.push(*arr); }
                 I::UnpinPtr { pinned } => disq.push(*pinned),
-                I::StructFieldGetPrim { dst, base, .. } => { disq.push(*dst); disq.push(*base); }
-                I::StructFieldSetPrim { base, val, .. } => { disq.push(*base); disq.push(*val); }
+                I::StructFieldGetPrim(i) => { disq.push(i.dst); disq.push(i.base); }
+                I::StructFieldSetPrim(i) => { disq.push(i.base); disq.push(i.val); }
                 I::CallIndirect { dst, callee, args } => {
                     disq.push(*dst); disq.push(*callee); disq.extend(args.iter().copied());
                 }
