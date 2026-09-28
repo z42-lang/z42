@@ -719,3 +719,37 @@ fn generic_field_zero_short_type_args_does_not_panic() {
     assert_eq!(got.len(), 1);
     assert_eq!(got[0].0, 0);
 }
+
+// ── ctor identity (fix-nested-ctor-key) ─────────────────────────────────────
+// One spelling of "what is this class's constructor called", shared by the type-registry
+// loader (which keeps ctors out of `own_methods`), reflection's `GetConstructors()` /
+// `Activator`, and the `where T : new()` probe. Each of those used to derive it locally as
+// `rsplit('.')`, which leaves a nested type's `+` declaring-type prefix attached.
+
+#[test]
+fn ctor_member_name_strips_namespace_nesting_and_generic_args() {
+    assert_eq!(TypeDesc::ctor_member_name("Point"), "Point");
+    assert_eq!(TypeDesc::ctor_member_name("Demo.Point"), "Point");
+    assert_eq!(TypeDesc::ctor_member_name("Demo.Outer+Inner"), "Inner");
+    assert_eq!(TypeDesc::ctor_member_name("Demo.Outer+Mid+Deep"), "Deep");
+    assert_eq!(TypeDesc::ctor_member_name("Demo.Box<Demo.P2>"), "Box");
+}
+
+#[test]
+fn is_ctor_member_accepts_bare_and_overload_mangled_keys() {
+    // The 1st ctor registers bare; the 2nd..Nth carry a `$N$types` mangle suffix — the
+    // exact-equality test this replaced let those through as ordinary methods.
+    assert!(TypeDesc::is_ctor_member("Demo.Point", "Point"));
+    assert!(TypeDesc::is_ctor_member("Demo.Point", "Point$2$i32$i32"));
+    assert!(TypeDesc::is_ctor_member("Demo.Outer+Inner", "Inner$1$i32"));
+}
+
+#[test]
+fn is_ctor_member_rejects_ordinary_methods() {
+    assert!(!TypeDesc::is_ctor_member("Demo.Point", "Sum"));
+    assert!(!TypeDesc::is_ctor_member("Demo.Point", "Sum$1$i32"));
+    // A method whose name merely starts with the class name is not a ctor.
+    assert!(!TypeDesc::is_ctor_member("Demo.Point", "PointToString"));
+    // Nor is the enclosing type's name, for a nested type.
+    assert!(!TypeDesc::is_ctor_member("Demo.Outer+Inner", "Outer"));
+}

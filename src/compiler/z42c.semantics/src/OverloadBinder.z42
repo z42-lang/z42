@@ -622,7 +622,9 @@ public sealed partial class OverloadBinder {
     }
 
     internal string _ctorKey(Z42ClassType ct, int argCount) {
-        string name = ct.Name();
+        // fix-nested-ctor-key：ctor 的注册名是**源码拼写**（嵌套类型 `Outer+Inner` 的 ctor 注册在
+        // `Inner`），故查找与回落都用 `CtorMemberName()`，理由见 `Z42ClassType.CtorMemberName`。
+        string name = ct.CtorMemberName();
         string ak = name + "$" + argCount.ToString();
         // fix-ctor-init-silent-bugs：静态 ctor 恒全签名 mangle ⇒ 无参静态 ctor 正好注册在 `Name$0`，
         // 只看键在不在会把它当成实例 ctor 选中。

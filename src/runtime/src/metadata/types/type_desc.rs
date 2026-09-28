@@ -362,6 +362,33 @@ impl TypeDesc {
         self.cold.get_or_insert_with(|| Box::new(TypeDescCold::default()))
     }
 
+    /// A class's **constructor member name**: its simple name in source spelling, which is
+    /// what constructors are named (`Demo.Outer+Inner` → `Inner`). Strips the namespace
+    /// (`.`), the declaring type of a nested type (`+`) and a constructed generic's type
+    /// args (`Demo.Box<P2>` → `Box`, since the ctor key carries none).
+    ///
+    /// fix-nested-ctor-key: the ONE spelling of "what is this class's ctor called", after
+    /// four sites each derived it themselves as `rsplit('.')` — which leaves a nested type's
+    /// declaring-type prefix attached, so every key built from it missed. Symptoms:
+    /// `GetConstructors()` on a nested type returned 0 (`ConstructorInfo.Invoke` /
+    /// `Activator.CreateInstance` could not run its ctor), its ctors instead surfaced from
+    /// `GetMethods()`, and `where T : new()` answered "yes" for the wrong reason.
+    #[inline]
+    pub fn ctor_member_name(class_name: &str) -> &str {
+        let base = class_name.split('<').next().unwrap_or(class_name);
+        base.rsplit(['.', '+']).next().unwrap_or(base)
+    }
+
+    /// True iff `member` names a **constructor** of `class_name`. `member` is the part of a
+    /// function key after `"<ClassFQN>."`, so it may carry the `$N$types` overload-mangle
+    /// suffix that the 2nd..Nth ctor gets — which is why this is a prefix test and not the
+    /// exact equality the loader used to do (that let every ctor overload through as a
+    /// method).
+    #[inline]
+    pub fn is_ctor_member(class_name: &str, member: &str) -> bool {
+        member.split('$').next() == Some(Self::ctor_member_name(class_name))
+    }
+
     /// review.md E5.5 (2026-05-27): derive the simple method name (vtable
     /// slot key) from a qualified function name in `own_methods`. Strips
     /// the owning class's `"<ClassName>."` prefix, then the arity suffix

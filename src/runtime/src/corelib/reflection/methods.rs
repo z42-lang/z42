@@ -17,7 +17,8 @@ pub fn builtin_type_methods(ctx: &VmContext, args: &[Value]) -> Result<Value> {
             out.push(build_method_info(ctx, simple, qualified, true)?);
         }
     }
-    // Declared non-virtual methods (qualified names only).
+    // Declared non-virtual methods (qualified names only). Constructors are not among
+    // them — `build_type_registry` keeps them out of `own_methods` (fix-nested-ctor-key).
     for qualified in td.own_methods() {
         let q = qualified.to_string();
         if seen.insert(q.clone()) {
@@ -72,36 +73,44 @@ pub fn builtin_type_methods(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     Ok(ctx.heap().alloc_array(out))
 }
 
+/// True iff `qualified` — a `<ClassFQN>.<member>[$…]` function key — names a
+/// **constructor** of `class_fq`: the segment after the class prefix, up to the first
+/// `$`, equals the class's simple name (ctors are ordinary functions named like the
+/// class, source spelling, with a `$N$types` overload-mangle suffix on the 2nd..Nth).
+///
+/// fix-nested-ctor-key: the member test itself lives in `TypeDesc::is_ctor_member` — the
+/// loader needs the same answer (it must keep ctors out of `own_methods`), and the two
+/// used to disagree. This wrapper only peels the `<ClassFQN>.` prefix off a `func_index`
+/// key. `GetConstructors()` on a nested type returned **0** before that convergence, so
+/// `ConstructorInfo.Invoke` / `Activator.CreateInstance` could not run its constructor.
+pub(super) fn is_ctor_key(class_fq: &str, qualified: &str) -> bool {
+    qualified
+        .strip_prefix(class_fq)
+        .and_then(|rest| rest.strip_prefix('.'))
+        .is_some_and(|member| crate::metadata::types::TypeDesc::is_ctor_member(class_fq, member))
+}
+
 /// `__type_constructors(typeObj) -> ConstructorInfo[]` (add-reflective-invoke).
-/// Constructors are ordinary functions named like the class (`<ClassFQN>.<SimpleName>`,
-/// with a `$N$types` overload-mangle suffix), living in the module's `func_index`
-/// (NOT in the type's `own_methods`/vtable — a single non-overloaded constructor is
-/// absent there). Scan `func_index` for keys whose segment after `<ClassFQN>.` and
-/// before the first `$` equals the class simple name; dedup by function index (a
-/// constructor may be registered under bare + mangled dispatch keys), sorted for a
-/// deterministic order.
+/// Constructors live in the module's `func_index` (NOT in the type's `own_methods`/vtable
+/// — a single non-overloaded constructor is absent there). Scan it with `is_ctor_key`;
+/// dedup by function index (a constructor may be registered under bare + mangled
+/// dispatch keys), sorted for a deterministic order.
 pub fn builtin_type_constructors(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let td = match type_handle(args) {
         Some(t) => t,
         None => return Ok(ctx.heap().alloc_array(Vec::new())),
     };
-    let class_simple = td.name.rsplit('.').next().unwrap_or(td.name.as_str());
     let module_arc = match ctx.core.module.as_ref() {
         Some(m) => m.clone(),
         None => return Ok(ctx.heap().alloc_array(Vec::new())),
     };
     let module = module_arc.as_ref();
-    let prefix = format!("{}.", td.name);
     // Collect (key, func-index) for constructor-named entries, sorted by key for a
     // stable order (common-pitfalls §1: never rely on HashMap iteration order).
     let mut ctor_keys: Vec<(&String, usize)> = module
         .func_index
         .iter()
-        .filter(|(k, _)| {
-            k.strip_prefix(&prefix)
-                .and_then(|rest| rest.split('$').next())
-                == Some(class_simple)
-        })
+        .filter(|(k, _)| is_ctor_key(&td.name, k))
         .map(|(k, &idx)| (k, idx))
         .collect();
     ctor_keys.sort_by(|a, b| a.0.cmp(b.0));

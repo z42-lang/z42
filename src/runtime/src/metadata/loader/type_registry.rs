@@ -54,9 +54,19 @@ pub fn build_type_registry(module: &mut Module) {
         for func in &module.functions {
             if !func.name.starts_with(&prefix) { continue; }
             let method = &func.name[prefix.len()..];
-            // Skip constructors (same name as class simple name) and __static_init__
-            let simple_name = class_name.split('.').next_back().unwrap_or(class_name.as_str());
-            if method == simple_name || method.starts_with("__") { continue; }
+            // Skip constructors and __static_init__.
+            //
+            // fix-nested-ctor-key: the ctor test is `TypeDesc::is_ctor_member`, shared with
+            // reflection's `GetConstructors()`. It used to be spelled out here as
+            // `method == class_name.split('.').next_back()`, which missed two shapes and
+            // let them through as if they were ordinary methods:
+            //   · the 2nd..Nth **overload** of a ctor, which carries a `$N$types` mangle
+            //     suffix (`TwoCtors$1$str` != `TwoCtors`) — reflection then handed it out
+            //     from `GetMethods()`, `Invoke`-able on an *existing* object, re-running
+            //     the constructor body over its fields;
+            //   · **every** ctor of a nested type, whose FQN separates the declaring type
+            //     with `+` (`Outer+Inner` is not the simple name `Inner`).
+            if TypeDesc::is_ctor_member(class_name, method) || method.starts_with("__") { continue; }
             own_methods.push(func.name.clone().into_boxed_str());
             own_static.push(func.is_static);
         }
