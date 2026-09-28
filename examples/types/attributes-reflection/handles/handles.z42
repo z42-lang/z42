@@ -1,0 +1,56 @@
+using Std.IO;
+using Std.Reflection;
+
+namespace Shop;
+
+class Product {
+    public string Name;
+    public int Price;
+}
+
+enum Grade { A, B, C }
+
+struct Size { public int W; public int H; }
+
+interface IBoxed { int Volume(); }
+
+void Main() {
+    // ANCHOR: handle
+    Type t = typeof(Product);                 // 编译期已知的类型
+    Console.WriteLine(t.Name);                // 简单名
+    Console.WriteLine(t.FullName);            // 带命名空间的限定名
+
+    Product p = new Product();
+    Type rt = p.GetType();                    // 运行期实例的类型
+    Console.WriteLine(rt.FullName);
+    Console.WriteLine(t == rt);               // 同一个类型身份
+    // ANCHOR_END: handle
+
+    // ANCHOR: names
+    Console.WriteLine(typeof(int).Name + " / " + typeof(int).FullName);
+    Console.WriteLine(typeof(string).Name + " / " + typeof(string).FullName);
+    Console.WriteLine(typeof(int[]).Name + " / " + typeof(int[]).FullName);
+
+    int n = 5;
+    Console.WriteLine(typeof(int) == n.GetType());
+    // ANCHOR_END: names
+
+    // ANCHOR: shape
+    Console.WriteLine("Product : class=" + typeof(Product).IsClass.ToString()
+        + " 值类型=" + typeof(Product).IsValueType.ToString());
+    Console.WriteLine("Size    : 值类型=" + typeof(Size).IsValueType.ToString());
+    Console.WriteLine("Grade   : enum=" + typeof(Grade).IsEnum.ToString());
+    Console.WriteLine("IBoxed  : 接口=" + typeof(IBoxed).IsInterface.ToString());
+    Console.WriteLine("int[]   : 数组=" + typeof(int[]).IsArray.ToString()
+        + " 元素=" + typeof(int[]).GetElementType().Name);
+    Console.WriteLine("Product 的基类=" + typeof(Product).BaseType.Name);
+    // ANCHOR_END: shape
+
+    // ANCHOR: byname
+    Type found = Type.GetType("Shop.Product");
+    Console.WriteLine(found == null ? "没找到" : found.FullName);
+
+    Type missing = Type.GetType("Shop.Nothing");
+    Console.WriteLine(missing == null ? "没找到" : missing.FullName);
+    // ANCHOR_END: byname
+}

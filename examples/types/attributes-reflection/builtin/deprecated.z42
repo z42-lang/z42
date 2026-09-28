@@ -1,0 +1,13 @@
+using Std.IO;
+
+class Api {
+    [Deprecated("请改用 SendV2")]
+    public static void Send(string msg) { Console.WriteLine("v1: " + msg); }
+
+    public static void SendV2(string msg) { Console.WriteLine("v2: " + msg); }
+}
+
+void Main() {
+    Api.Send("hello");          // 这一行会收到弃用告警
+    Api.SendV2("hello");        // 这一行不会
+}

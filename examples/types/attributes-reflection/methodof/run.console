@@ -2,4 +2,15 @@
 $ z42 run methodof.z42
 Handle / Handle
 true
+Solo
 # ANCHOR_END: use
+# ANCHOR: invoke
+形参类型 Int32
+GET /users
+# ANCHOR_END: invoke
+# ANCHOR: free
+$ z42 run free.z42
+z42c build: 1 error(s) in free.z42
+  free.z42(7,29): E0462: methodof requires `Type.Member` — write `methodof(Add.SomeMethod)`, not `methodof(Add)`
+[exit: 1]
+# ANCHOR_END: free

@@ -1,0 +1,64 @@
+using Std.IO;
+using Std.Reflection;
+
+// ANCHOR: decl
+class Account {
+    public string Owner;
+    public int Balance;
+    private int _pin;
+    public static int Count;
+
+    public string Bank { get; set; }
+    public int Doubled { get { return this.Balance * 2; } }
+
+    public Account() { this.Owner = "?"; this.Bank = "Z"; }
+    public Account(string owner, int balance) {
+        this.Owner = owner;
+        this.Balance = balance;
+        this.Bank = "Z";
+    }
+
+    public void Deposit(int amount) { this.Balance = this.Balance + amount; }
+    public string Describe(string prefix) { return prefix + this.Owner; }
+}
+// ANCHOR_END: decl
+
+void Main() {
+    Type t = typeof(Account);
+
+    // ANCHOR: fields
+    foreach (FieldInfo f in t.GetFields()) {
+        Console.WriteLine(f.Name + " : " + f.FieldType.Name
+            + (f.IsStatic ? " [静态]" : "")
+            + (f.IsPublic ? "" : " [私有]"));
+    }
+    // ANCHOR_END: fields
+
+    // ANCHOR: methods
+    foreach (MethodInfo m in t.GetMethods()) {
+        Console.WriteLine(m.Name + " -> " + m.ReturnType.Name
+            + " 参数 " + m.GetParameters().Length.ToString() + " 个");
+    }
+    // ANCHOR_END: methods
+
+    // ANCHOR: props
+    foreach (PropertyInfo pr in t.GetProperties()) {
+        Console.WriteLine(pr.Name + " : " + pr.PropertyType.Name
+            + " 可读=" + pr.CanRead.ToString() + " 可写=" + pr.CanWrite.ToString());
+    }
+    // ANCHOR_END: props
+
+    // ANCHOR: ctors
+    foreach (ConstructorInfo ci in t.GetConstructors()) {
+        Console.Write(ci.Name + "(");
+        ParameterInfo[] ps = ci.GetParameters();
+        int i = 0;
+        while (i < ps.Length) {
+            if (i > 0) { Console.Write(", "); }
+            Console.Write(ps[i].ParameterType.Name + " " + ps[i].Name);
+            i = i + 1;
+        }
+        Console.WriteLine(")");
+    }
+    // ANCHOR_END: ctors
+}

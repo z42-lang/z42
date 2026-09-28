@@ -300,30 +300,8 @@ lambda 里可以直接用外层的局部变量，这样的 lambda 叫**闭包**�
 > `Subscribe` 的重载。完整 API 见
 > [委托与事件](https://z42-lang.github.io/z42/reference/language/delegates-events.html)。
 
-## `methodof`：精确指代一个方法
-
-`typeof(T)` 指代一个类型，`methodof` 指代一个**方法**，求值得到一个 `MethodInfo`。
-括号里写参数类型列表，重载也能指得一清二楚：
-
-```z42
-// examples/types/lambdas/methodof/methodof.z42
-{{#include ../../../../examples/types/lambdas/methodof/methodof.z42:decl}}
-```
-
-```z42
-// examples/types/lambdas/methodof/methodof.z42
-{{#include ../../../../examples/types/lambdas/methodof/methodof.z42:use}}
-```
-
-```console
-{{#include ../../../../examples/types/lambdas/methodof/run.console:use}}
-```
-
-它的价值是**把运行期的静默失效变成编译期报错**：写字符串 `"Handle"` 的话，方法改名、
-签名变了都只能等到运行期才发现；`methodof` 会在引用点当场报错。没有重载时参数列表可以省
-（`methodof(Api.Solo)`），但**一旦有重载就必须写**，否则报错——它绝不替你猜一个。
-
-必须写成 `类型.成员` 的形式：自由函数指不了。
+> 想在代码里**精确指代一个方法**（而不是把它包成委托值）时，还有 `methodof` ——
+> 它求值得到一个 `MethodInfo`，属于反射的范畴，见[特性与反射入门](attributes-reflection.md)。
 
 ## 🔴 当前实现的边界
 
@@ -405,7 +383,6 @@ z42 的一个函数值最多绑**一个**目标，`f += g` 这种组合写法不
   不用查空），`Action<T>` 至多一个（默认 null、必须查空，挂第二个会抛）。
 - 多播还给了退订票（配 `using` 更省事）、`continueOnException` 的异常聚合、
   `OnceRef` / `WeakRef` 订阅策略。
-- `methodof(Type.Member(参数类型))` 精确指代一个方法，把运行期的静默失效变成编译期报错。
 - 🔴 记住五个边界：`List` 取出的函数值要先赋给局部变量才能调、**类的静态方法**不能直接取引用
   （包一层 lambda）、`==` 比不了函数值（用 `DelegateOps.ReferenceEquals`）、调 `null` 委托
   直接终止程序、没有 `+=` 组合多播。
