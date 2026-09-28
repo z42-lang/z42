@@ -60,6 +60,11 @@
 
 ## What：引入 `role`
 
+> 🔴 **本节是提案原貌，两处已被后续裁决推翻**（现状以 [tasks.md](tasks.md) 为准）：① `role` 字段
+> 本身批 2.5 **取消**（物理位置是更强的声明）；② 表里的落点 `compiler-libs/` 已随
+> `relocate-compiler-domain-libs`（2026-09-28 归档）**整体删除**，编译器域今天扁平落在
+> `programs/z42c/`。
+
 给 `[project]` 增加 `role`（名字待定），与既有的 `kind`（lib/exe）正交：
 
 | role | 含义 | 能被谁引用 | 链入产物 | 落在哪 |

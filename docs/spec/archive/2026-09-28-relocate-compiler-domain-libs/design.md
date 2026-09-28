@@ -1,6 +1,14 @@
 # Design: 编译器域库挪回 `src/compiler/`
 
-> **状态：DRAFT，待 User 裁决**（一处真问题 + 两处取舍，见 §6）。
+> **状态：🟢 已完成（2026-09-28）**。两个 PR 落地：**PR ①**＝挪六个包 + 两个解析面接线（含跑测器
+> 认两个 workspace、Rust builtin 扫描根扩容、种子供种兜底、xtask `probing-paths` 自带搜索路径）；
+> **PR ②**＝删 `compiler-libs` 机制 + `${compiler_libs}` 编译期路径宏 + `_e2eUserDomainRefChecks`
+> 三段门 + 编译器语义指纹 bump。§7 两条验收信号均已兑现。
+> 🔜 **唯一未做项**：§5.3.1 的 `${Z42_HOME}` 占位符 —— 需先给 VM `expand_probing_paths` 加占位符展开
+> （support），按 [bootstrap-seed.md](../../../agent/rules/bootstrap-seed.md) 晚一个 nightly 再 emit。
+> 今天 SDK 内程序用相对路径 + `deploy="shared"`、用户项目用 copy，都不受影响。
+>
+> 前史状态：DRAFT，待 User 裁决（一处真问题 + 两处取舍，见 §6）。
 > 前史：`add-package-roles` 批 2.5 曾裁「`role` 不需要，**移包也不需要**」（2026-09-25）。
 > User 2026-09-27 改裁「**真挪回 `compiler`**」，并指出 z42b / z42i **可以用 path 依赖**拿到它们
 > —— 那正是 2.5 当时没算进去的通路（`add-path-dependencies` 已落，`PathDepPlan` #860 让

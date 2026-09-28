@@ -59,6 +59,12 @@
 
 ## 批 1 —— `kind="analyzer"` + `compiler-libs/` 解析域
 
+> 🔴 **本批的落点已被 `relocate-compiler-domain-libs`（2026-09-28 归档）整体替换**：`compiler-libs/`
+> 目录、它的打包组件与三档探测**全部删除** —— 实测该目录在**发布态 nightly SDK 里恒不存在**
+> （只有开发树靠第③档命中），即本批声称打通的「用户能写 generator」在发布态一直是空的。
+> 今天的落点是扁平的 `programs/z42c/`，解析由 `BuildPaths._compilerDomainDirs()` + 用户清单里的
+> `${compiler_libs}` 路径宏承担。下面的勾选项保留为**当时的记录**，不再描述现状。
+
 **目标**：proposal §Why 那个端到端复现从 `E0443 / 依赖未找到` 变成编过。
 
 - [x] 1.1 `kind = "analyzer"` 第三种取值。`kind` 的既有判定全是 `== "exe"`，故 analyzer
@@ -251,6 +257,13 @@ kind=lib 的工程会在**代建阶段**因解析不到契约包而失败，那�
 | （隐含）普通工程不能引用编译器域包 | 不在 `libs/` ⇒ 物理上找不到 |
 
 ### 为什么移包也不需要
+
+> 🔴🔴 **这一半已被 User 2026-09-27 改裁推翻**（`role` 不需要那一半仍然成立）：六个包
+> （`z42c.core` / `z42c.syntax` / `z42.package` / `z42.project` / `z42.build` / `z42.scripting`）
+> 已全部挪去 `src/compiler/`，见 `docs/spec/archive/2026-09-28-relocate-compiler-domain-libs/`。
+> 当时漏算的通路是 **path 依赖**（`PathDepPlan` #860 已让 `z42b build` 也真解析它），以及
+> 用户工程可用 `${compiler_libs}` 宏**显式引用**、引用到的 zpkg 按 `deploy=copy` 拷进输出目录
+> —— 所以下面那句「挪走就断了普通应用嵌入 eval 的路」不再成立。下表保留为当时的判断记录。
 
 查清各包性质后，`libs/` 里那几个「编译器相关」的包分成**性质完全不同的两类**：
 
