@@ -32,6 +32,8 @@ pub fn build_type_registry(module: &mut Module) {
             None    => continue,
         };
 
+        check_struct_field_table_coverage(class_name, desc);
+
         // ── Own fields (this class's own declarations) ────────────────────
         // fix-cross-pkg-subclass-fields (2026-05-14): preserved separately
         // so the lazy-loader fixup pass can rebuild merged `fields` once
@@ -253,6 +255,74 @@ pub fn build_type_registry(module: &mut Module) {
     }
 
     module.type_registry = registry;
+}
+
+/// 字段表**覆盖门**：blob struct 只要有实例字段，就必须带着逐字段布局表。
+///
+/// 🔴 它要堵的是一个**验证缺口**，不是一个新想到的不变式。P0（#915）在编译器侧
+/// 有两条发描述符的路径 —— **声明**（`ClassDescBuilder:325`）与**实例化**
+/// （`:585`）—— 而 P0 只给声明那条填了表。当时表是休眠元数据（无消费方），
+/// 漏了**没有任何东西会响**；P2 接通消费方后立刻以
+/// 「field index 0 out of range for struct `Demo.Pair<int,long>` (0 field(s))」
+/// 的形式炸出来，8 个泛型 e2e 全红，烧了三轮 CI。
+///
+/// ⭐⭐⭐ 更要命的是**我当时的反向对照粒度不够**：T1 验的是「每条程序都加载了
+/// **某个**带表的 struct」，而不是「**每个需要的**类型都有表」。前者在只漏了
+/// 实例化路径时照样全绿 —— 声明路径的表还在。这道门问的才是后者。
+///
+/// 判据成立的前提（都已核实）：
+/// - **格式严格钉死**：`FormatVersionMismatch` 的文档写明「the only one it reads」
+///   ⇒ 载进来的一定是当前 zbc，不存在「1.45 之前的产物合法地没带表」这一档。
+/// - **写端两条路径都以 `li.FieldCount > 0` 置 bit0** ⇒ 有字段就该有表。
+///
+/// 政策同 `__box_prim`(#837) / `prim_value_mismatch`(#908)：**只有编译器/写端能
+/// 违反，不是用户的错** ⇒ debug 响、release 放行。
+///
+/// ⚠️ 覆盖面的准确说法：e2e golden **默认**跑构建树的 debug VM
+/// （`xtask_test_vm.z42:52` 的 `_activeVm(root, "debug")`），这道门在那条路上有覆盖；
+/// 但选了 `--toolchain` 时跑的是工具链里的 **release** VM ⇒ **那条路上它不响**。
+/// 别把「默认路径有覆盖」说成「语料全覆盖」。
+#[inline]
+fn check_struct_field_table_coverage(
+    class_name: &str,
+    desc: &crate::metadata::bytecode::ClassDesc,
+) {
+    use crate::metadata::bytecode::CLASS_FLAG_STRUCT;
+    // 判据取**并集**（旗子 or 交付了 struct 块），不是二选一：漏掉任一侧都会把门做成
+    // 恒不响的摆设 —— 声明路径按 `c.Kind == "struct"` 置旗、实例化路径硬写 `Flags = 4`，
+    // 但 struct 块本身还额外受 `Layouts.IsStructType(layoutKey)` 门控。
+    let is_value_struct =
+        desc.class_flags & CLASS_FLAG_STRUCT != 0 || desc.struct_layout.is_some();
+    if !is_value_struct || desc.fields.is_empty() {
+        return;
+    }
+    // 先报缺布局：它是更根本的一档（表就住在布局里），且缺布局时「表为空」只是它的后果。
+    debug_assert!(
+        desc.struct_layout.is_some(),
+        "value struct `{class_name}` declares {} instance field(s) but ships no struct byte \
+         layout block. The per-field table lives inside that block, so field access into this \
+         type can only fail with `type has no struct layout`. The writer emits the block only \
+         when `Layouts.IsStructType(<short name>)` holds — a miss here is usually the layout \
+         key being looked up under the wrong spelling (FQ vs short name).",
+        desc.fields.len(),
+    );
+    debug_assert!(
+        !desc.struct_field_table.is_empty(),
+        "value struct `{class_name}` declares {} instance field(s) but ships an empty \
+         per-field layout table (zbc `class_flags2` bit0 not set). Symbolic field access \
+         resolves `(root_type, field index)` through that table, so every access into this \
+         type will fail with `field index N out of range ... (0 field(s))`. The writer sets \
+         the bit whenever `StructLayoutInfo.FieldCount > 0` — an empty table here means one \
+         of `ClassDescBuilder`'s two emit paths (declaration / instantiation) did not fill it. \
+         (struct block size = {:?}, class_flags = {:#x}, class_flags2 = {:#x} — a size of 0 \
+         alongside declared fields means the layout was never computed at all, i.e. \
+         `Layouts.IsStructType` missed this type, and the block you see is the empty one the \
+         writer emits unconditionally for `class_flags` bit2.)",
+        desc.fields.len(),
+        desc.struct_layout.as_ref().map(|l| l.size),
+        desc.class_flags,
+        desc.class_flags2,
+    );
 }
 
 // ── fix-cross-pkg-subclass-fields (2026-05-14) ─────────────────────────────
