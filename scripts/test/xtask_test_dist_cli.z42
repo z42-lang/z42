@@ -17,6 +17,22 @@ ProcessResult _distZ42(string launcher, string cwd, string[] args) {
     return p.Run();
 }
 
+// 同 `_distZ42`，但额外把**用户目录类**变量指向 `home`，并清掉 `Z42_CACHE_DIR`
+// —— 用来验「缓存落在用户级目录，而不是 SDK 安装目录」这条，且不碰真实 $HOME。
+ProcessResult _distZ42AtHome(string launcher, string cwd, string[] args, string home) {
+    Process p = new Process(launcher).WorkingDirectory(cwd)
+        .EnvRemove("Z42_HOME").EnvRemove("Z42_PORTABLE_VM").EnvRemove("Z42_PORTABLE_LIBS")
+        .EnvRemove("Z42_LIBS").EnvRemove("Z42_CONFIG").EnvRemove("Z42_MODE")
+        .EnvRemove("Z42_CACHE_DIR")
+        .Env("HOME", home).Env("USERPROFILE", home)
+        .Env("LOCALAPPDATA", Path.Join(home, "AppData/Local"))
+        .EnvRemove("XDG_CACHE_HOME")
+        .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe());
+    int i = 0;
+    while (i < args.Length) { p = p.Arg(args[i]); i = i + 1; }
+    return p.Run();
+}
+
 string[] _a1(string a) { string[] r = new string[1]; r[0] = a; return r; }
 string[] _a2(string a, string b) { string[] r = new string[2]; r[0] = a; r[1] = b; return r; }
 
@@ -164,6 +180,27 @@ int[] _singleFileSmoke(string launcher, string root, int[] acc) {
     ProcessResult miss = _distZ42(launcher, dir, _a2("run", "nope.z42"));
     acc = _distCheck(acc, miss.ExitCode == 2 && miss.Stderr.Contains("file not found"),
         "z42 run nope.z42（不存在）→ 退出码 2", miss);
+
+    // 🔴 **缓存不许落进 SDK 安装目录**（2026-09-28，User 在发布的 SDK 里发现 `cache/run/`）。
+    //
+    // 干净房间实测过：刚打出的包里没有 `cache/`，跑一次 `z42 run` 就有了 —— 安装位常是
+    // 只读/需提权的，而且多用户共享时会互相串。缺省改成用户级缓存目录后，这一格守住它。
+    //
+    // 判据写**两段**（少任何一段都不够）：① SDK 根下不得出现 `cache/`；② 用户级目录下**真的**
+    // 有 `cache/run/<sha>/` —— 否则「SDK 干净」也可能是因为缓存整个坏掉了没写成。
+    string sdkRoot = Path.GetDirectoryName(launcher);
+    string fakeHome = Path.Join(root, "fakehome");
+    Directory.Create(fakeHome);
+    ProcessResult hr = _distZ42AtHome(launcher, dir, _a2("run", "hello.z42"), fakeHome);
+    acc = _distCheck(acc, hr.ExitCode == 0 && hr.Stdout.Trim() == "Hello, World!",
+        "z42 run（指定 HOME、无 Z42_CACHE_DIR）仍能跑", hr);
+    acc = _distCheck(acc, !Directory.Exists(Path.Join(sdkRoot, "cache")),
+        "单文件运行不在 SDK 安装目录里建 cache/", hr);
+    string userCache = Platform.IsWindows()
+        ? Path.Join(Path.Join(Path.Join(fakeHome, "AppData/Local"), "z42"), "cache")
+        : Path.Join(Path.Join(fakeHome, ".cache"), "z42");
+    acc = _distCheck(acc, Directory.Exists(Path.Join(userCache, "run")),
+        "单文件运行的缓存落在用户级目录（" + userCache + "/run）", hr);
 
     return acc;
 }
