@@ -206,7 +206,9 @@ int _testFingerprint(ParseResult r) {
             continue;
         }
         if (_filesEqual(a, b)) { nSame = nSame + 1; continue; }
-        changed = changed + (nChanged > 0 ? ", " : "") + m;
+        // 带上两侧尺寸：差 11 字节和差 3KB 是完全不同的故事，而事后回看只有 CI 日志。
+        changed = changed + (nChanged > 0 ? ", " : "") + m
+            + "(base " + File.GetSize(a).ToString() + "B / head " + File.GetSize(b).ToString() + "B)";
         nChanged = nChanged + 1;
     }
     if (nMissing > 0) {
@@ -227,6 +229,16 @@ int _testFingerprint(ParseResult r) {
         return 0;
     }
     Console.WriteLine("  编译器输出变了：" + nChanged.ToString() + " 个包（" + changed + "）");
+    // 🔴 **先确认这是不是你的改动**（2026-09-28）：本门红过一轮「与被测 PR 无关」的案例 ——
+    // 源码没变也报「1 个包（z42.json）」。源码相同那一类现在由本文件开头的守卫直接跳过，
+    // 但**两侧 driver 不是同一个二进制**这一类还在：base 侧 driver 由 bench-pr.yml 现建
+    // （PR 的 z42c 编 base 源码），本树侧是自举链的产物，二者可能处在不同的自举代，而
+    // stdlib-build-not-generationally-convergent 是既有性质（自建每代恰一两个包字节不同）。
+    // ⇒ 判据在 CI 日志里：bench-pr 的「driver sha」两行。两个 sha 相同却输出不同 ⇒ 非确定性；
+    //   不同 ⇒ 代际差异，别急着 bump（bump 只会让全网缓存作废一次，下个 PR 照样红）。
+    Console.WriteLine("  ⓘ 本树 driver：" + _driverZpkg(root, "release"));
+    Console.WriteLine("    两侧 driver 是否同一二进制，看 bench-pr 日志里的 `driver sha` 两行；"
+        + "不同 ⇒ 先怀疑自举代差异，不是你的改动。");
     // 判定：格式/条目数变了（baseId 变），**或**指纹源文件全文变了（改了既有条目正文也算）。
     // 全文比较是精确判据；baseId 只用于打印（见 `_compilerIdentityOf` 头注）。
     bool fpSrcChanged = _fingerprintSourceOf(baseTree) != _fingerprintSourceOf(root);
