@@ -187,8 +187,15 @@ void _cmdRun(string[] rest) {
         app = built;
     }
 
-    // <app>.runtimeconfig.toml：z42c 按 [profile.*] 烤出的运行时设置侧车，经 Z42_APP_CONFIG 交给 z42vm。
-    string rcPath = _runtimeConfigPath(app);
+    // <app>.runtimeconfig.toml（z42c 按 [profile.*] 烤出的运行时设置侧车）**不经 env 传递**：
+    // z42vm 自己按约定从 app 文件推导它旁边的那份（app-config-follows-the-app，config/source.rs
+    // 的 `sidecar_for`），apphost / wasm / iOS / Android 早就走这条路。
+    //
+    // 🔴 曾经在这里 `.Env("Z42_APP_CONFIG", rcPath)`：env **会被子孙进程继承**，于是这个
+    // z42 程序 spawn 出的每个子 app 都带着**父 app** 的侧车路径；而它是相对路径，子进程换个
+    // cwd 就指向不存在的文件 ⇒ 子 app 自己的运行时设置被整份丢掉。实测让 GREEN 的
+    // `probing-paths` e2e 格假红（2026-09-29）。侧车是 **app 的属性**，不是调用方的选项，
+    // 更不该跨进程流传。
     string vm = _sdkVm();
     if (!File.Exists(vm)) {
         ConsoleError.WriteLine("z42: runtime not found at " + vm + " — reinstall z42");
@@ -204,10 +211,9 @@ void _cmdRun(string[] rest) {
         .Stdout(Stdio.Inherit())
         .Stderr(Stdio.Inherit())
         .Env("Z42_LIBS", _sdkLibs());
-    // 两个独立的配置文件层：Z42_CONFIG = 用户配置（--config 或用户自己 export 的）；
-    // Z42_APP_CONFIG = 应用侧车。z42vm 逐 key 叠加、用户层赢。
+    // Z42_CONFIG = 用户配置（--config 或用户自己 export 的）—— 这一层**是**机器范围的意图，
+    // 被子进程继承是对的；app 侧车那一层由 z42vm 自己从 app 推导（见上方头注）。
     if (cfgOpt != null && cfgOpt.Length > 0) { proc = proc.Env("Z42_CONFIG", cfgOpt); }
-    if (File.Exists(rcPath)) { proc = proc.Env("Z42_APP_CONFIG", rcPath); }
     if (appArgs.Length > 0) {
         proc = proc.Arg("--");
         int j = 0;
@@ -387,13 +393,6 @@ string _buildAndResolveRun(string manifest, string binName) {
 void _listExes(ProjectManifest pm) {
     int i = 0;
     while (i < pm.ExeCount) { ConsoleError.WriteLine("    - " + pm.Exes[i].Name); i = i + 1; }
-}
-
-// `<dir>/<name>.runtimeconfig.toml`（与 app 同目录的侧车）。
-string _runtimeConfigPath(string app) {
-    string dir = Path.GetDirectoryName(app);
-    string fname = Path.GetFileNameWithoutExtension(app) + ".runtimeconfig.toml";
-    return dir.Length > 0 ? Path.Join(dir, fname) : fname;
 }
 
 // ── small array/flag utils ───────────────────────────────────────────────────

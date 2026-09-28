@@ -46,8 +46,8 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
     KnobSpec {
         name: "Z42_APP_CONFIG",
         value: ValueKind::Path,
-        description: "path to the application's `<app>.runtimeconfig.toml` sidecar; its `[runtime]` table forms the lowest config layer (user `Z42_CONFIG` wins per key)",
-        default_hint: "unset; no app-config layer (launcher sets it when a sidecar exists)",
+        description: "optional explicit path to an application's `<app>.runtimeconfig.toml` sidecar; its `[runtime]` table forms the lowest config layer (user `Z42_CONFIG` wins per key). Describes ONE app — do not export it globally, child processes inherit it",
+        default_hint: "unset; the VM derives the sidecar from the app file itself (a dangling explicit path warns, then falls back to that)",
         consumed_by: "config/source.rs + toolchain launcher",
         ..META
     },

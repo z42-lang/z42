@@ -118,14 +118,28 @@ mode = "interp"
 | 桌面自包含 apphost（进程内 `z42_host_run_app`）| ✅ |
 | wasm / iOS / Android | ✅ |
 
-**约定只有一处实现。** 调用方**可以**传显式路径（`Z42_APP_CONFIG` 仍优先），但不必自己
-去发现——对照 dotnet：host 永远读 `<app>.runtimeconfig.json`，那是 **app 的属性**，不是
-调用方的选项。据此 apphost **不**做发现（它算出路径只为交回给能自己算的东西，是纯重复；
-它的本分是"找 z42vm + 把 app 交给它"）；launcher 仍转发，因为它为顶层 `version` pin 本来
-就把该文件读进来了，路径在手，转发已知值不是重复发现。
+**约定只有一处实现，且没有谁再去"转发"它。** 调用方**可以**传显式路径
+（`Z42_APP_CONFIG` 仍优先），但不必自己去发现——对照 dotnet：host 永远读
+`<app>.runtimeconfig.json`，那是 **app 的属性**，不是调用方的选项。据此 apphost **不**做
+发现（它算出路径只为交回给能自己算的东西，是纯重复；它的本分是"找 z42vm + 把 app 交给它"）。
+
+> 🔴 **launcher 也不再转发**（`fix-app-config-layer-suppression`，2026-09-29）。此前它
+> `.Env("Z42_APP_CONFIG", rcPath)`，理由记作"路径在手，转发已知值不是重复发现"。**那条理由
+> 漏算了一件事：env 会被子孙进程继承。** 于是这个 app spawn 出的每个**子** app 都收到
+> **父** app 的侧车路径——而它是相对路径，子进程换个 cwd 就指向不存在的文件。配上下面那条
+> 「显式就锁死」的旧判据，子 app 自己声明的运行时设置被**整份静默丢掉**。实测后果：
+> 子 app 的 `[runtime] probing-paths` 全失效 ⇒ 找不到自己的依赖（GREEN 的 `probing-paths`
+> e2e 格假红）。**侧车是 app 的属性，不该跨进程流传**——转发一个 per-app 的值本身就是错的层。
+> （`Z42_CONFIG`（用户层）相反：它表达的是「这台机器上」的意图，被继承是对的，故保留。）
 
 找不到侧车是**常态**（多数工程没有 `[profile.*]` 旋钮 ⇒ build 不产侧车），安静跳过、
 不 warn；而 `Z42_APP_CONFIG` 被**显式**指向一个不存在的路径仍会 warn。
+
+**但 warn 之后必须回落到 app 自己的侧车**，判据是「显式那份**解析出了内容**」而不是
+「变量设了没有」（`config::load_app_config_tables`，`z42vm` 的 `main()` 与
+`z42-host::install_app_config` 共用这**一份**实现——它们曾是两份、两种语义）。
+显式路径指了个**坏**文件（非法 TOML / `.json`）仍是硬错误：回落只对"没内容"成立，
+否则回落自己就成了新的静默降级，跟它要修的毛病同形。
 
 > 这条链分两步修好：`sidecar-reaches-published-apps`（2026-09-05）让 publish 拷侧车、
 > apphost 传路径；`app-config-follows-the-app`（同日）发现**根子更深**——app-config 层
