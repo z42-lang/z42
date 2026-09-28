@@ -675,7 +675,52 @@ int _e2eProbingArrayChecks(string root, string vm, string driverZpkg) {
         Console.WriteLine("  ✗ probing 数组: 数组里的两条路径没都生效: " + ro);
         return 1;
     }
-    Console.WriteLine("  ✓ probing-paths 数组：侧车保持数组形态、两条共享目录都解析得到");
+    // ③ **数组与 `${Z42_HOME}` 占位符混用**（2026-09-28）。
+    //
+    // 两者各自都有覆盖（数组=本格①②；占位符=probing-paths 第 ④ 格），但**组合没有**，
+    // 而组合恰恰是它们要一起解决的那个场景：跨平台清单（所以要数组）里的某一条要指回 SDK
+    // （所以要占位符）。两条通路在实现上也确实交叉 —— 数组在**配置层**被按平台分隔符拼成
+    // 一条字符串再切开，占位符展开发生在切开**之后**；这个顺序对了才两者兼容，而顺序是
+    // 实现细节，没有测试就随时可能被改反。
+    string sdkA = Path.Join(Path.Join(tmp, "sdkroot"), "shared_a");
+    Directory.Create(sdkA);
+    File.Copy(Path.Join(Path.Join(tmp, "sh_pparr_a"), "pparr_a.zpkg"), Path.Join(sdkA, "pparr_a.zpkg"));
+    File.WriteAllText(appToml,
+        "[project]\nname    = \"pparr_app\"\nversion = \"0.1.0\"\nkind    = \"exe\"\n"
+        + "entry   = \"PparrApp.Main\"\npack    = true\n\n[sources]\ninclude = [\"app.z42\"]\n\n"
+        + "[dependencies]\n\"z42.core\" = \"0.1.0\"\n\"z42.io\" = \"0.1.0\"\n"
+        + "\"pparr_a\" = { path = \"../sh_pparr_a/pparr_a.zpkg\", deploy = \"shared\" }\n"
+        + "\"pparr_b\" = { path = \"../sh_pparr_b/pparr_b.zpkg\", deploy = \"shared\" }\n\n"
+        + "[profile.release.runtime]\n"
+        + "probing-paths = [\"${Z42_HOME}/shared_a\", \"../../sh_pparr_b\"]\n");
+    ProcessResult b2 = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(appToml).Arg("--release")
+        .Env("Z42_LIBS", libsDir).Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
+    if (b2.ExitCode != 0) { Console.WriteLine("  ✗ probing 数组+占位符: 构建失败: " + b2.Stderr); return 1; }
+    string side2 = "";
+    try { side2 = File.ReadAllText(side); } catch (Exception e) { side2 = ""; }
+    if (side2.IndexOf("${Z42_HOME}") < 0 || side2.IndexOf("probing-paths = [") < 0) {
+        Console.WriteLine("  ✗ probing 数组+占位符: 侧车没同时保住数组形态与占位符:\n" + side2);
+        return 1;
+    }
+    string appZ = Path.Join(Path.Join(appDir, "dist"), "pparr_app.zpkg");
+    // 负对照先行：不设 `Z42_HOME` ⇒ 第一条解析不到 ⇒ 必须失败。少了这一格，下面的「通了」
+    // 可能只是因为别的档（entry 目录 / 另一条相对路径）恰好也能找到 pparr_a。
+    ProcessResult rno = new Process(vm).Arg(appZ).Env("Z42_LIBS", libsDir).Env("Z42_HOME", "")
+        .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
+    if (rno.ExitCode == 0) {
+        Console.WriteLine("  ✗ probing 数组+占位符: 不设 Z42_HOME 竟也跑通 —— 本格失去判别力");
+        return 1;
+    }
+    ProcessResult r2 = new Process(vm).Arg(appZ).Env("Z42_LIBS", libsDir)
+        .Env("Z42_HOME", Path.Join(tmp, "sdkroot")).Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
+    string ro2 = r2.Stdout + r2.Stderr;
+    if (r2.ExitCode != 0 || ro2.IndexOf("pparr_a+pparr_b") < 0) {
+        Console.WriteLine("  ✗ probing 数组+占位符: 混用时两条没都生效: " + ro2);
+        return 1;
+    }
+
+    Console.WriteLine("  ✓ probing-paths 数组：侧车保持数组形态、两条共享目录都解析得到，"
+        + "且可与 `${Z42_HOME}` 占位符混用");
     return 0;
 }
 
