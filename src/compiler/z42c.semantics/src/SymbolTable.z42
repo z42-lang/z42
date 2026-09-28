@@ -1,6 +1,19 @@
 // 符号表（port-z42c-semantics 1A-3，Pass 0 产物）。类名→Z42ClassType / 顶层函数名→MethodSymbol。
 // 含 TypeExpr（语法）→ Z42Type（语义）的桥 ResolveType。1A：NamedType（prim/void/class）；
 // Array/Nullable/泛型实参 → Unknown（延后 1D/2A）。
+//
+// 🔴 **使用契约（enforce-fqn-name-identity B5 起是硬约束）**：往表里登记完类型之后，
+// **必须**依次调 `InternAllTypes()` → `BindTypeRefs()`，名义关系判定才成立。
+//
+//   `IsSubclassOf` / `Implements` 只认**名义身份句柄**（`Z42ClassType.Base` / `.Interfaces`、
+//   `Z42InterfaceType.Bases`），B5 已删掉「句柄为 0 就退回比名字」那条回落 —— 因为实测它在
+//   stdlib 全量与真·跨包编译两个面上**一次都没触发**，而留着它就等于留着「按名字猜」的路，
+//   那正是本程序开篇追的那类静默错值。
+//
+// ⇒ 漏调这两步的后果是**静默的**：所有名义关系判 false（「谁也不是谁的子类」），不报错。
+//   生产路径上 `SymbolCollector` 的三个入口（`Collect` / `CollectAll` / `CollectWithImports`）
+//   都紧跟着调；**手搭符号表的测试必须自己补**（`conversion_tests` 曾因此红过一次）。
+//   `WithAliases` 产出的 per-file 视图共享同一份 `Intern`，不必重复调。
 namespace Z42.Semantics;
 using Z42.IR;   // StrMap 统一到 z42c.ir（compiler-review §4.1）
 
@@ -376,23 +389,38 @@ public sealed partial class SymbolTable {
     //
     // ⚠️ 判定只此一份：`Implements` 的 BFS 种子与 `_anyInterfaceDerivesFrom` 的父链展开
     // 共用它。两处各写一遍正是本仓反复失手的形状（「同一判据两份实现时，只修一份比都不修更糟」）。
-    // 标量版：名义身份相等判定的**唯一实现**。两边都有句柄 ⇒ 比句柄；任一为 0 ⇒ 退回名字。
-    // B3（接口）与 B4（类基类）共用它 —— 同一判据两份实现正是本仓反复失手的形状
-    // （`InterfaceKeyOf` 那次「只修一份反而从误报升级成运行期崩」）。
-    private static bool _sameRef(int a, string an, int b, string bn) {
-        if (a != 0 && b != 0) { return a == b; }
-        return an == bn;
+    // 标量版：名义身份相等判定的**唯一实现**。B3（接口）与 B4（类基类）共用它 ——
+    // 同一判据两份实现正是本仓反复失手的形状（`InterfaceKeyOf` 那次「只修一份反而从误报
+    // 升级成运行期崩」）。
+    //
+    // ── B5：**名字回落已删** ────────────────────────────────────────────────
+    //
+    // B3/B4 期间这里是「两边都有句柄 ⇒ 比句柄；任一为 0 ⇒ 退回比名字」。回落是过渡设施，
+    // 用来保证那两批**行为不变**；它的正当性一直没被测过。B5 先量后删：
+    //
+    // | 面 | 阳性对照 `refHit` | 回落触发 `fbTotal` |
+    // |---|---|---|
+    // | stdlib 全量（19 包） | 42~66 | **0** |
+    // | 真·跨包编译（导入类 → 本地同短名接口） | 2 | **0** |
+    //
+    // ⇒ **一次都没触发**，是死代码。机理也说得通：能在源码里写出 `IThing t = ...` 就意味着
+    // 该接口解析得到、在表里 ⇒ `targetRef != 0`；而「目标在表里、被查那一格却没绑上」是
+    // **矛盾**状态，由 `FirstUnboundIfaceRef()` 那道门专门抓。两种 0 都不该出现在判定里。
+    //
+    // 🔴 **删掉回落后，0 的语义变成「判不了 ⇒ false」而不是「猜一下」**。这不是收紧：
+    // 上面两组数字说明现实中走不到；真走到了，说明绑定漏了 —— 那时给 false 比按名字猜
+    // 更好，因为猜出来的 true 是**静默错值**（本程序开篇追的就是这个）。
+    // ⚠️ B5 起**不再收名字参数** —— 留着它就是留着「可以按名字比」这条路，而那正是要关掉的。
+    private static bool _sameRef(int a, int b) {
+        if (a == 0 || b == 0) { return false; }
+        return a == b;
     }
 
-    // 数组版：`refs[i]` / `names[i]` 对 target 的判定（带双重边界）。转发到 `_sameRef`。
-    private static bool _sameIface(int[] refs, string[] names, int i, int targetRef, string targetName) {
-        int h = 0;
-        if (refs != null && i < refs.Length) { h = refs[i]; }
-        if (names == null || i >= names.Length) {
-            // 没有名字可回落：只有两边都有句柄时才谈得上判定
-            return h != 0 && targetRef != 0 && h == targetRef;
-        }
-        return SymbolTable._sameRef(h, names[i], targetRef, targetName);
+    // 数组版：`refs[i]` 对 target 的判定（带双重边界）。转发到 `_sameRef`。
+    // B5：名字数组不再参与判定，故不再是参数。
+    private static bool _sameIface(int[] refs, int i, int targetRef) {
+        if (refs == null || i >= refs.Length) { return false; }
+        return SymbolTable._sameRef(refs[i], targetRef);
     }
 
     public bool Implements(string clsName, string ifaceName) {
@@ -416,7 +444,7 @@ public sealed partial class SymbolTable {
             Z42ClassType ct = this.Classes.ValAt(_cs) as Z42ClassType;
             int i = 0;
             while (i < ct.InterfaceCount) {
-                if (SymbolTable._sameIface(ct.Interfaces, ct.InterfaceNames, i, targetRef, ifaceName)) { return true; }
+                if (SymbolTable._sameIface(ct.Interfaces, i, targetRef)) { return true; }
                 if (qt == queue.Length) {
                     string[] bigger = new string[queue.Length * 2];
                     int z = 0; while (z < qt) { bigger[z] = queue[z]; z = z + 1; }
@@ -473,12 +501,10 @@ public sealed partial class SymbolTable {
             int s = 0;
             while (s < qh - 1) { if (queue[s] == name) { dup = true; break; } s = s + 1; }
             if (dup) { continue; }
-            // B3：队列项自身与 target 的比较也走句柄优先（队列装的是名字，故现查一次句柄；
-            // 0 不参与判定，退回名字 —— 与 `_sameIface` 同一规则，这里手写是因为没有平行数组）。
-            int nameRef = this._refOfIface(name);
-            if (targetRef != 0 && nameRef != 0) {
-                if (nameRef == targetRef) { return true; }
-            } else if (name == target) { return true; }
+            // B3/B5：队列项自身与 target 的比较走**同一个** `_sameRef`（队列装的是名字，
+            // 故现查一次句柄）。B5 起不再有名字回落 —— 此前这里手写了一份「0 就比名字」的
+            // 逻辑，那是同一判据的第二份实现，正是本仓反复失手的形状；现在收敛掉了。
+            if (SymbolTable._sameRef(this._refOfIface(name), targetRef)) { return true; }
             // 🔴 此前是 `this.Interfaces.Find(name)` —— **绕过了 `GetInterface` 访问器**。
             // 访问器已在 fqn-symbol-key 步 1 改成双键（FQN 优先、短名回落），而这条 BFS 直接摸
             // 底层短名表 ⇒ 名字一旦变成 FQN，整条闭包就静默变浅：`Implements` 假否 ⇒
@@ -557,7 +583,7 @@ public sealed partial class SymbolTable {
             Z42ClassType ct = this.GetClass(cur);
             if (ct == null) { more = false; }
             else if (!ct.HasBase) { more = false; }
-            else if (SymbolTable._sameRef(ct.Base, ct.BaseName, targetRef, baseName)) { return true; }
+            else if (SymbolTable._sameRef(ct.Base, targetRef)) { return true; }
             else { cur = ct.BaseName; }
         }
         return false;
