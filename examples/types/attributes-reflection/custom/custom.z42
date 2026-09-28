@@ -1,0 +1,70 @@
+using Std;
+using Std.IO;
+using Std.Reflection;
+
+// ANCHOR: decl
+// 类名必须以 Attribute 结尾；应用时剥掉后缀写 [Route]
+class RouteAttribute : Attribute {
+    public string Path;
+    public string Method;
+
+    // 全部状态走构造器：可以用默认值和命名实参
+    public RouteAttribute(string path, string method = "GET") {
+        this.Path = path;
+        this.Method = method;
+    }
+}
+
+class DocAttribute : Attribute {
+    public string Text;
+    public DocAttribute(string text) { this.Text = text; }
+}
+// ANCHOR_END: decl
+
+// ANCHOR: apply
+[Route("/users", method: "POST")]
+[Doc("用户接口")]
+class UsersController {
+    [Doc("接口版本")] public int Version;
+    [Doc("展示名")] public string Title { get; set; }
+
+    [Doc("列出用户")]
+    public void List([Doc("页号")] int page) { }
+}
+// ANCHOR_END: apply
+
+void Main() {
+    Type t = typeof(UsersController);
+
+    // ANCHOR: readback
+    // 按类型单查：注意用**真实类名**（带后缀），不存在就返回 null
+    object hit = t.GetAttribute(typeof(RouteAttribute));
+    RouteAttribute route = (RouteAttribute) hit;
+    Console.WriteLine(route.Method + " " + route.Path);
+
+    // 取全部：按应用顺序
+    foreach (Attribute a in t.GetCustomAttributes()) {
+        Console.WriteLine("贴着 " + a.GetType().Name);
+    }
+    // ANCHOR_END: readback
+
+    // ANCHOR: carriers
+    foreach (FieldInfo f in t.GetFields()) {
+        object d = f.GetAttribute(typeof(DocAttribute));
+        if (d != null) { Console.WriteLine("字段 " + f.Name + "：" + ((DocAttribute) d).Text); }
+    }
+    foreach (PropertyInfo p in t.GetProperties()) {
+        object d = p.GetAttribute(typeof(DocAttribute));
+        if (d != null) { Console.WriteLine("属性 " + p.Name + "：" + ((DocAttribute) d).Text); }
+    }
+    foreach (MethodInfo m in t.GetMethods()) {
+        object d = m.GetAttribute(typeof(DocAttribute));
+        if (d == null) { continue; }
+        Console.WriteLine("方法 " + m.Name + "：" + ((DocAttribute) d).Text);
+        foreach (ParameterInfo pi in m.GetParameters()) {
+            object pd = pi.GetAttribute(typeof(DocAttribute));
+            if (pd != null) { Console.WriteLine("  形参 " + pi.Name + "：" + ((DocAttribute) pd).Text); }
+        }
+    }
+    // ANCHOR_END: carriers
+}

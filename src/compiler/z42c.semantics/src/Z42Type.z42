@@ -341,12 +341,25 @@ public sealed class Z42ClassType : Z42Type {
         while (k < n) { r[k] = tmp[k]; k = k + 1; }
         return r;
     }
+    // fix-nested-ctor-key：构造器**按源码拼写注册**（`MemberCollector._fillClass` 用 `md.Name`），
+    // 而嵌套类型的内部名是复合的（`Outer+Inner`，见 AccessChecker.z42:189「内部键为 Outer+Inner」）
+    // ⇒ ctor 的查找名必须是 `+` 之后那一段，不是整个 `Name()`。
+    //
+    // 不一致的代价（本函数与 `_ctorKey` 两处都中过）：`OverloadsOf("Outer+Inner")` 一个候选都找不到
+    // ⇒ `_ctorKey` 回落裸复合名 `Outer+Inner` ⇒ **无参那格**在 CallEmitter 的
+    // 「ctor 真实存在才 Call」判据下**静默不发 Call**（构造体从不执行、字段留零值、零诊断）、
+    // **带参那格**发出 `Outer+Inner.Outer+Inner` ⇒ 运行期 `MissingSymbolException`。
+    public string CtorMemberName() {
+        int plus = this._name.LastIndexOf("+");
+        if (plus < 0) { return this._name; }
+        return this._name.Substring(plus + 1);
+    }
     // fix-ctor-init-silent-bugs：本类的**实例**构造器候选（`new C(..)` / `: this(..)` / `: base(..)` /
     // `where T : new()` 的唯一枚举口）。静态 ctor 与实例 ctor 同名（`OverloadsOf(Name())` 会一并返回），
     // 却不是可 `new` 的构造器——此前各调用点直接用 `OverloadsOf` 把它算进去：`new C()` 选中静态 ctor 的
     // 注册键 `C$0`（实例 ctor 永不执行）、E0426 把它当「接受 0 实参」而漏报。
     public MethodSymbol[] InstanceCtors() {
-        MethodSymbol[] all = this.OverloadsOf(this._name);
+        MethodSymbol[] all = this.OverloadsOf(this.CtorMemberName());
         int n = 0;
         int i = 0;
         while (i < all.Length) { if (!all[i].IsStatic) { n = n + 1; } i = i + 1; }

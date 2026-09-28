@@ -382,7 +382,12 @@ pub fn builtin_activator_create(ctx: &VmContext, args: &[Value]) -> Result<Value
     // the class, same scheme as methods: Demo.Counter.Counter), with "$0" when the
     // ctor is overload-mangled. A class with no explicit ctor has neither → the
     // default-field alloc IS construction.
-    let simple = class_name.rsplit('.').next().unwrap_or(class_name.as_str());
+    // fix-nested-ctor-key: `TypeDesc::ctor_member_name` is the single spelling of "what is
+    // this class's ctor called". The local `rsplit('.')` it replaces left a nested type's
+    // `+` declaring-type prefix attached, so neither candidate key existed and
+    // `Activator.CreateInstance(typeof(Outer.Inner))` silently fell through to the
+    // default-field allocation — object handed back with its constructor never run.
+    let simple = crate::metadata::types::TypeDesc::ctor_member_name(class_name.as_str());
     let cand_bare = format!("{class_name}.{simple}");
     let cand_zero = format!("{class_name}.{simple}$0");
     // fix-activator-arity: **the bare candidate is not necessarily parameterless.**

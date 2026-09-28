@@ -50,6 +50,38 @@ int[] _distCheck(int[] acc, bool ok, string what, ProcessResult r) {
     return acc;
 }
 
+// app 侧车**不经 env 传递**（fix-app-config-layer-suppression, 2026-09-29）。两条一起断言，
+// 少任何一条这门都守不住它该守的东西：
+//
+//   ① `Z42_APP_CONFIG` 不在 app 进程的环境里 —— launcher 曾经在这里 `.Env(...)`，而 env
+//      **会被子孙进程继承**：一个 z42 程序 spawn 出的每个子 app 都带着**父 app** 的侧车路径，
+//      且它是相对路径，子进程换 cwd 就指向不存在的文件 ⇒ 子 app 自己的运行时设置被整份丢掉。
+//      （实测让 GREEN 的 `probing-paths` e2e 格假红。）
+//   ② `[profile.*.runtime]` 仍然到达了 app —— 只断言 ① 会让「把整条链掐断」也通过，
+//      那正是删掉传递时最容易犯的错。侧车由 z42vm 自己从 app 文件推导（`sidecar_for`）。
+int[] _launcherAppConfigNotViaEnv(int[] acc, string launcher, string root) {
+    string proj = Path.Join(root, "appcfg");
+    Directory.Create(Path.Join(proj, "src"));
+    File.WriteAllText(Path.Join(proj, "src/Main.z42"),
+        "namespace AppCfg;\n\nusing Std;\nusing Std.IO;\nusing Std.Runtime;\n\n"
+        + "void Main() {\n"
+        + "    Console.WriteLine(\"MODE_SRC=\" + RuntimeConfig.Source(\"mode\"));\n"
+        + "    Console.WriteLine(\"APPCFG_ENV=[\" + Environment.GetEnvironmentVariable(\"Z42_APP_CONFIG\", \"\") + \"]\");\n"
+        + "}\n");
+    // 两个 profile 都声明：`z42 run` 用哪一个不是本门要钉的事。
+    File.WriteAllText(Path.Join(proj, "z42.toml"),
+        "[project]\nname    = \"appcfg\"\nversion = \"0.1.0\"\nkind    = \"exe\"\n"
+        + "entry   = \"AppCfg.Main\"\n\n[sources]\ninclude = [\"src/*.z42\"]\n\n"
+        + "[profile.debug.runtime]\nmode = \"interp\"\n\n[profile.release.runtime]\nmode = \"interp\"\n");
+
+    ProcessResult r = _distZ42(launcher, proj, _a1("run"));
+    acc = _distCheck(acc, r.ExitCode == 0 && r.Stdout.Contains("APPCFG_ENV=[]"),
+        "z42 run：app 进程的环境里没有 Z42_APP_CONFIG（侧车不跨进程流传）", r);
+    acc = _distCheck(acc, r.ExitCode == 0 && r.Stdout.Contains("MODE_SRC=app-config"),
+        "z42 run：[profile.*.runtime] 仍到达 app（z42vm 自己推导侧车）", r);
+    return acc;
+}
+
 // 返回 [pass, fail]。
 int[] _launcherCliSmoke(string launcher, string work) {
     int[] acc = new int[2];
@@ -108,6 +140,8 @@ int[] _launcherCliSmoke(string launcher, string work) {
     ProcessResult noneB = _distZ42(launcher, root, _a1("build"));
     acc = _distCheck(acc, noneB.ExitCode == 2 && noneB.Stderr.Contains("could not find z42.toml"),
         "不在工程里 z42 build → 退出码 2（不再打印 usage 后返回 0）", noneB);
+
+    acc = _launcherAppConfigNotViaEnv(acc, launcher, root);
 
     ProcessResult h = _distZ42(launcher, root, _a2("help", "run"));
     acc = _distCheck(acc, h.ExitCode == 0 && h.Stdout.Contains("usage: z42 run"),

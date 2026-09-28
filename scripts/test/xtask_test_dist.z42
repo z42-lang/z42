@@ -104,6 +104,13 @@ int _testDistRun(string modeArg) {
     overallFail = overallFail + smoke[1];
 
     if (smokeOnly != "launcher") {
+        // ── 编译期扩展冒烟（发布态 analyzer/generator 整条链）─────────────────────
+        //    见 xtask_test_dist_analyzer.z42 头注：开发树那格证明不了发布态，而这条链
+        //    正因为没有发布态的门，断了几个月没人知道。
+        int[] az = _analyzerDistSmoke(distDir, work);
+        overallPass = overallPass + az[0];
+        overallFail = overallFail + az[1];
+
         // ── desktop-publish smoke (build app → z42 publish → run produced exe) ──────
         int[] ah = _apphostSmoke(distDir, work, apphostTmpl);
         overallPass = overallPass + ah[0];

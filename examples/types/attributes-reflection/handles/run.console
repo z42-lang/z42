@@ -1,0 +1,25 @@
+# ANCHOR: handle
+$ z42 run handles.z42
+Product
+Shop.Product
+Shop.Product
+true
+# ANCHOR_END: handle
+# ANCHOR: names
+Int32 / Std.Int32
+String / Std.String
+Int32[] / Std.Int32[]
+true
+# ANCHOR_END: names
+# ANCHOR: shape
+Product : class=true 值类型=false
+Size    : 值类型=true
+Grade   : enum=true
+IBoxed  : 接口=true
+int[]   : 数组=true 元素=Int32
+Product 的基类=Object
+# ANCHOR_END: shape
+# ANCHOR: byname
+Shop.Product
+没找到
+# ANCHOR_END: byname

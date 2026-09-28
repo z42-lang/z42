@@ -78,8 +78,7 @@ public static class ClassExtractor {
         int chops = 0;
         while (walk != null && chops < 32) {
             chain[chainLen] = walk; chainLen = chainLen + 1;
-            if (!walk.HasBase || walk.BaseName == "") { walk = null; }
-            else { walk = symbols.GetClass(walk.BaseName); }
+            walk = symbols.BaseOf(walk);   // A5：唯一出口（「没基类」「名字空」「基类不可见」都归一成 null）
             chops = chops + 1;
         }
         int ci = chainLen - 1;          // 反向：topmost 祖先先

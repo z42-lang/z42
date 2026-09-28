@@ -4,6 +4,8 @@
 // Assert / Type 均 z42.core（prelude）。
 namespace Test;
 
+using Std.Reflection;   // fix-nested-ctor-key：嵌套 ctor 的反射断言要 Activator / FieldInfo
+
 class Outer {
     public int X;
 
@@ -19,6 +21,25 @@ class Outer {
 }
 
 class Plain { public int n; }
+
+// fix-nested-ctor-key：**带构造器**的嵌套类型。此前整个套件里没有一个嵌套类型声明过构造器，
+// 于是这条路四个多月没人走过：ctor 按源码拼写注册（`Inner`），而查找键按类的内部名拼
+// （`Outer+Inner`）⇒ 无参那格「找不到 ctor」被 CallEmitter 的存在性判据静默跳过（构造体从不
+// 执行、字段留零值、零诊断），带参那格运行期 `MissingSymbolException`。
+class Host {
+    public class Ctored {
+        public int V;
+        public string S;
+        public Ctored() { this.V = 7; this.S = "zero"; }
+        public Ctored(int v) { this.V = v; this.S = "one"; }
+    }
+    public class Deeper {
+        public class Innermost {
+            public int W;
+            public Innermost(int w) { this.W = w * 2; }
+        }
+    }
+}
 
 // followup：嵌套类型的 base / 接口为兄弟或祖先嵌套类型（裸名 `Base` 或限定 `Inh.Base`）。
 class Inh {
@@ -44,6 +65,35 @@ void main() {
     Outer.Inner.Deep d = new Outer.Inner.Deep();
     d.Z = 7;
     Assert.Equal(7, d.Z);
+
+    // ── 嵌套类型的构造器真的执行（fix-nested-ctor-key）──
+    Host.Ctored c0 = new Host.Ctored();
+    Assert.Equal(7, c0.V);
+    Assert.Equal("zero", c0.S);
+    Host.Ctored c1 = new Host.Ctored(42);          // 重载 ctor（曾抛 MissingSymbolException）
+    Assert.Equal(42, c1.V);
+    Assert.Equal("one", c1.S);
+    Host.Deeper.Innermost deep2 = new Host.Deeper.Innermost(5);   // 多层 + 带参
+    Assert.Equal(10, deep2.W);
+
+    // 反射侧：ctor 归 GetConstructors、不在 GetMethods 里，且 Activator 会跑无参 ctor。
+    Assert.Equal(2, typeof(Host.Ctored).GetConstructors().Length);
+    MethodInfo[] cms = typeof(Host.Ctored).GetMethods();
+    int ctorish = 0;
+    int ci = 0;
+    while (ci < cms.Length) {
+        if (cms[ci].Name == "Ctored") { ctorish = ctorish + 1; }
+        ci = ci + 1;
+    }
+    Assert.Equal(0, ctorish);
+    object made = Activator.CreateInstance(typeof(Host.Ctored));
+    Assert.Equal("Ctored", made.GetType().Name);
+    FieldInfo[] mfs = typeof(Host.Ctored).GetFields();
+    int fi = 0;
+    while (fi < mfs.Length) {
+        if (mfs[fi].Name == "V") { Assert.Equal(7, mfs[fi].GetValue(made)); }
+        fi = fi + 1;
+    }
 
     // ── 嵌套 struct ──
     Outer.Point p = new Outer.Point();

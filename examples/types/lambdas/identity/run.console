@@ -1,0 +1,25 @@
+# ANCHOR: eq
+$ z42 run eq.z42
+f == f -> true
+f == g -> true
+f == h -> false
+f == null -> false
+# ANCHOR_END: eq
+# ANCHOR: nullcall
+$ z42 run nullcall.z42
+抓到了：NullReferenceException
+程序继续往下跑
+# ANCHOR_END: nullcall
+# ANCHOR: combine
+$ z42 run combine.z42
+z42c build: 1 error(s) in combine.z42
+  combine.z42(6,5): E0402: operator `+` does not combine function values; one function value binds at most one target — use `MulticastAction<T>` / `MulticastFunc<..>` and `Subscribe` for multiple handlers
+[exit: 1]
+# ANCHOR_END: combine
+# ANCHOR: deldefault
+$ z42 run deldefault.z42
+z42c build: 2 error(s) in deldefault.z42
+  deldefault.z42(7,5): E1005: too few arguments to `l`: expects 2; got 1 argument(s)
+  deldefault.z42(3,31): E0402: delegate parameter `level` cannot have a default value — a delegate type records only parameter types, so the default could never be applied at a call site
+[exit: 1]
+# ANCHOR_END: deldefault

@@ -476,7 +476,7 @@ public sealed partial class MemberResolver {
                 if (cur.Name() != "Object" && symbols.HasClass("Object")) { cur = symbols.GetClass("Object"); }
                 else { more = false; }
             } else {
-                Z42ClassType b = symbols.GetClass(cur.BaseName);
+                Z42ClassType b = symbols.BaseOf(cur);   // A5：走句柄，零字符串哈希
                 if (b == null) { more = false; } else { cur = b; }
             }
         }
@@ -871,8 +871,8 @@ public sealed partial class MemberResolver {
             while (ct != null) {
                 if (ct.OverloadsOf("Expect").Length > 0) { return true; }
                 if (!ct.HasBase || ct.BaseName == "") { return false; }
-                if (!env.Symbols.HasClass(ct.BaseName)) { return false; }
-                ct = env.Symbols.GetClass(ct.BaseName);
+                ct = env.Symbols.BaseOf(ct);   // A5：走句柄（BaseOf 自带不可见→null）
+                if (ct == null) { return false; }
             }
             return false;
         }

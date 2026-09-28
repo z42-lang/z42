@@ -344,7 +344,7 @@ public sealed class EmitContext {
             }
             if (!ct.HasBase) { return ""; }
             if (this.Symbols == null) { return ""; }
-            ct = this.Symbols.GetClass(ct.BaseName);
+            ct = this.Symbols.BaseOf(ct);   // A5：走句柄
             hops = hops + 1;
         }
         return "";

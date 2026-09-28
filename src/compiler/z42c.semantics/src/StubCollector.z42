@@ -26,6 +26,20 @@ public sealed class StubCollector {
                 // 签名用 `ResolveTypeP` 带上 delegate 自己的型参 ⇒ `T`/`R` 解析成 Z42GenericParamType
                 // 而非 Unknown；键仍是**裸名**（z42 泛型类型擦除，`ResolveTypeP` 查 Delegates 也用裸名，
                 // 实参在类型位被丢弃 → 与运行期擦除一致）。
+                // fix-delegate-param-default：`delegate void Log(string m, int level = 3);`
+                // 此前**静默接受**这个默认值再整个丢掉 —— 委托类型的签名只记类型，调用点走
+                // CallIndirect（没有「可选参数」这一层），于是 `l("hi")` 报 E1005「too few
+                // arguments」，而读者眼里声明处明明写着默认值。默认值不可能生效，就该在
+                // **写它的地方**说，而不是在调用点报一个看起来矛盾的错。
+                int dp = 0;
+                while (dp < dd.ParamCount) {
+                    if (dd.Params[dp].Default != null) {
+                        this._sc.Diags.Error(DiagnosticCodes.TypeMismatch,
+                            "delegate parameter `" + dd.Params[dp].Name + "` cannot have a default value — a delegate type records only parameter types, so the default could never be applied at a call site",
+                            dd.Params[dp].Span);
+                    }
+                    dp = dp + 1;
+                }
                 if (!table.Delegates.ContainsKey(dd.Name)) {
                     Z42Type[] ps = new Z42Type[dd.ParamCount];
                     int p = 0;

@@ -276,6 +276,126 @@ B4PROBE B.BaseName=A | C<:B(short)=T | C<:Demo.A(fqn)=F | B<:Demo.A(fqn)=F
 拿限定名查基类」全靠拼写碰巧一致。B4 用句柄绕过了它，但**名字那一侧仍是短名** ——
 B5 删字符串回落时必须正视这条，或单独给 `BaseName` 补一趟归一。
 
+## B5 第一刀 —— 删名字回落（🔨 已实现）
+
+design 说 B5「恒等、低风险」。**没照做，先量后删** —— B4 刚证明这类估计不可靠。
+
+### 测量（探针带阳性对照 `refHit`，对照失败就中止）
+
+| 面 | `refHit`（走句柄的次数） | `fbTotal`（走名字回落的次数） |
+|---|---|---|
+| stdlib 全量 19 包 | 42~66 | **0** |
+| 真·跨包编译（导入类 → 本地同短名接口） | 2 | **0** |
+
+⇒ 回落**一次都没触发**。机理也说得通：能在源码里写出 `IThing t = ...` 就意味着该接口
+解析得到、在表里 ⇒ `targetRef != 0`；而「目标在表里、被查那一格却没绑上」是**矛盾**状态，
+由 `FirstUnboundIfaceRef()` 那道门专门抓。两种 0 都不该出现在判定里。
+
+- [x] B5.1 `_sameRef(a, b)` 删名字回落；**连参数一起删**（留着 `an`/`bn` 就是留着那条路）
+- [x] B5.2 `_sameIface` 跟着收窄
+- [x] B5.3 `_anyInterfaceDerivesFrom` 里**手写的第二份**同款逻辑收敛进 `_sameRef`
+      —— 那是 B3 时留下的「同一判据两份实现」，本仓反复失手的形状
+
+### 🔴 它把一个**隐含契约**变成了硬约束（一条单测红了，红得准）
+
+`ConversionTests.test_class_ref_conversions` **手搭符号表**（`syms.Classes.Put(...)`）、
+从不调 `InternAllTypes()`/`BindTypeRefs()` ⇒ 句柄全是 0 ⇒ 删回落后判不出继承关系。
+
+核实过**不是**真缺陷：生产路径的 3 个 `new SymbolTable()` 构造点**全部**紧跟 Intern+Bind
+（第 4 个是 `WithAliases` 视图，共享同一份 intern）⇒「没 intern 的符号表」只存在于测试里。
+另外 3 个手搭符号表的测试文件（layout/codegen/bound）既不设继承关系也不走名义判定 ⇒ 不受影响、
+**也不是空门**。
+
+⇒ 处置：测试补调两步 + **把契约写进 `SymbolTable` 类抬头**。漏调的后果是**静默的**
+（所有名义关系判 false，不报错），不写明下一个手搭的人照样踩。
+
+## A 轴 —— 查找也句柄化（User 2026-09-29 裁定走这条，**不是**把键翻成 FQN 字符串）
+
+### 测绘推翻了原计划
+
+原计划（design 的「A：键面 FQN 化」）是把 `SymbolTable` 的键换成 FQN 字符串、删掉四个
+访问器的短名回落。**实测否掉了它**：
+
+| 指标 | 值 |
+|---|---|
+| 四访问器的短名回落命中（一次真·跨包编译） | **165** |
+| 同一次的 FQN 命中 | 142 |
+| 回落命中的类型 | `Exception` `String` `Int32` `List` `Dictionary` `Console` … 全是 stdlib |
+| 全仓 `Name()` 调用点 | **386** |
+| 全仓 `Fqn()` 调用点 | 30 |
+
+⇒ **A 轴的回落是主力路径，不是死代码**（与 B 轴正相反 —— 那边实测 0 触发所以能删）。
+原因不是导入类没进 `ClassesByFqn`（`ImportedSymbolLoader:266` 登记了），而是**调用方传的
+就是短名**：`cur.BaseName` / `c.Name` / `ownerKey` / `clsName` …… 而 `Name()` 按设计返回短名，
+386 处依赖它。
+
+⇒ 「删回落」的前提是先让那 386 处拿到 FQN，那等于 design 标着「硬需 zbc/zpkg 格式 bump」的
+**B 轴身份 FQN 化** —— 不是收尾动作，是另一个大工程。
+
+### 🔴 而且把键翻成 FQN 字符串是**性能负向**的
+
+design 自己写着：`GetHashCode` 是 FNV-1a over UTF-8、**O(n) 每次重算无缓存**，profile 里
+自占 **1.93%**；FQN 化让**键长 +107%**。⇒ 翻成 FQN 字符串 = 把最热的哈希再拉长一倍。
+
+真正正向的是**句柄**：int 比较替掉字符串哈希。B1–B5 已经在名义关系轴上兑现了这一点
+（`Implements`/`IsSubclassOf` 现在零字符串哈希）。A 轴照同一条路走。
+
+### 目标形态
+
+**解析一次、之后传 id**：
+
+```
+源码名字 ──(一次)──> Resolve(scope, name) -> TypeRef ──(之后全程)──> int 比较 / 数组索引
+```
+
+- `ResolveTypeP` 已经是**事实上的作用域解析入口**（型参 → 别名 → prim → 内建 → enum →
+  delegate → `ScopeNs` 优先 → 表查），A 轴把它的结果 intern 成 id 并让消费点持有 id。
+- `Classes` / `ClassesByFqn` 最终退成**解析期**的索引（只在 `Resolve` 里用一次），
+  消费期不再碰它们 ⇒ 四个访问器的短名回落随之自然消失，而不是硬删。
+- `Name()` / `Fqn()` 保留为**显示/wire** 用途（诊断文本、TYPE 段），不再是判定依据。
+
+### 分批（每批可单独对账、顺序不能反）
+
+- [ ] A1 `TypeIntern` 扩出 **FQN → id** 的反查（今天只有 `id → Z42Type`；`Of()` 靠
+      `Z42Type.TypeId` 幂等）。**零消费方**，预期字节恒等
+- [ ] A2 `Resolve(name) -> TypeRef` 唯一入口，内部复用 `ResolveTypeP` 的作用域规则；
+      先**只加不用**，用探针量它与现有 `GetClass` 的答案是否逐一致（分歧即缺陷）
+- [ ] A3 热点消费点改持 id（先挑 `Implements`/`IsSubclassOf` 的 base 链走查 —— 那里今天
+      每跳一层都要 `GetClass(名字)` 一次字符串哈希）
+- [x] A4 ✅ `Z42ClassType.Base` 已是 id（B4）⇒ base 链走查**完全脱离名字**：
+      `IsSubclassOf` / `Implements` 的链上每一跳走 `Intern.At(ct.Base)`（数组索引、零哈希），
+      只有**入口**那一次按名字查。`Base` 为 0（跨包基类不可见）仍回落名字，留到 A5。
+      ⚠️ 顺带把 `Implements` 的 `Classes.Find`（**只查短名表**）换成 `GetClass`（双键）= 超集。
+      **判别力已验**（注入 `_bindClassBase` 不绑 ⇒ 断链）：20 条红，新门
+      `test_base_chain_is_fully_handle_linked` 精确命中，且 `test_derived_to_base_arg_is_clean` /
+      `test_closed_hierarchy_*` 也红 ⇒ **断链是真回归、不只是性能退化**。
+      ⭐ 新门守的是「那条路还在」—— 断链在功能上仍对（回落名字），既有断言一条都不会红。
+
+> 🔴🔴 **对账前必须把两侧代数拉平，否则结论是噪声**（同一个陷阱本 change 内踩了**三次**：
+> B4 一次、B5 一次、A4 一次，每次都表现为「`z42.json` 差 11 字节」）。
+> `build compiler` / `build stdlib` **每跑一遍推进一代**，而 base 树不动 ⇒ 相邻两次实验的基线
+> 在悄悄移动。**固定流程**：`rm -rf artifacts/build/compiler` → 铺同一份 SDK 种子 →
+> `build compiler` **一次** → `test fingerprint`。（不要再跑 `build stdlib`：门内部会用本树
+> driver 编 base 的 stdlib 源码，不需要本树的 stdlib 产物，多跑一次就多一代。）
+- [x] A5**a** ✅ base 链走查的 **16 处**消费点全部收敛到 `SymbolTable.BaseOf(ct)` 这一个出口
+      （句柄在场走 `Intern.At`＝数组索引；`Base == 0` 时才回落名字）。顺带塌掉三处**双重**哈希
+      （`HasClass(name)` + `GetClass(name)` 双查）。**字节恒等**（代际受控对账，19 包逐字节一致）
+      ⇒ **不 bump 指纹**。
+      > ⚠️⚠️ **第一刀只迁了 13 处，漏了 3 处** —— `ClassExtractor` / `DeclBinder` /
+      > `ForeachProtocol`，它们的持有变量不叫 `ct`（`walk` / `curCls`），**凭记忆扫目录扫不出来**，
+      > 是写 PR 描述时回头做全仓 grep 才抓到的。同 `rename-sweep-must-start-from-grep`：
+      > **清扫的第一步是 grep，不是回忆**。自检判据已写进 `BaseOf` 头注：
+      > `grep -E "(GetClass|HasClass)\([^)]*BaseName" src/compiler/` 只应剩两处 ——
+      > `Origins:527`（**门的判据**，刻意按名字查以发现「查得到却没绑」的矛盾）与 `BaseOf` 自身的回落。
+      > ⭐ `ForeachProtocol` 那处**不是**单纯的链上走一步，而是拿 `HasClass` 当**可见性探针**
+      > （基类不可见 ⇒ 保守当它有 `Dispose`）。塌成一次前验了等价性：`HasClass` 与 `_refOfClass`
+      > 走同一套双键（`ByFqn` → 短名）⇒ `Base != 0` ⟺ `HasClass` 真。**两者键覆盖若不同这一合就是
+      > 静默行为变更** —— A4 就撞到过 `Classes.Find` 只查短名表。
+      > ⚠️ 行数门顺带红了（`SymbolTable.z42` 891 > 886 硬限）⇒ 按 `SymbolTable.Origins.z42` 先例
+      > 拆出 `SymbolTable.Nominal.z42`（名义关系那一簇，652 + 263 行），**纯搬运**、方法体逐字未改。
+- [ ] A5**b** 建 `Resolve(scope, name) -> TypeRef` 单入口 + 删四访问器的短名回落 + 清死码
+- [ ] A6 性能对账：`GetHashCode` 在 profile 里的占比应下降（基线 1.93%）
+
 ## 阶段 3（原字符串路的计划，D-B 选定后由 B2~B5 取代）—— I2 归一唯一出口响亮化
 
 - [ ] 3.1 `IfaceFqnOf` 三分支化：唯一解 → FQN；多解 → 新诊断码；无解 → `E0401`。**删掉原样返回**

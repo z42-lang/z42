@@ -1,0 +1,51 @@
+using Std;
+using Std.IO;
+using Std.Reflection;
+
+class DocAttribute : Attribute {
+    public string Text;
+    public DocAttribute(string text) { this.Text = text; }
+}
+
+// ANCHOR: freefunc
+[Doc("顶层函数上的 attribute")]
+void Helper() { }
+
+class Holder {
+    [Doc("类里的静态方法")]
+    public static void Helper() { }
+}
+// ANCHOR_END: freefunc
+
+// ANCHOR: computed
+class Box {
+    [Doc("自动属性")] public int Auto { get; set; }
+    [Doc("计算属性")] public int Computed { get { return 1; } }
+}
+// ANCHOR_END: computed
+
+void Main() {
+    // ANCHOR: freefunc-run
+    // 顶层函数没有 MethodInfo 可拿 —— 反射的入口都要先有一个 Type
+    foreach (MethodInfo m in typeof(Holder).GetMethods()) {
+        object d = m.GetAttribute(typeof(DocAttribute));
+        if (d != null) { Console.WriteLine(m.Name + "：" + ((DocAttribute) d).Text); }
+    }
+    // ANCHOR_END: freefunc-run
+
+    // ANCHOR: computed-run
+    foreach (PropertyInfo p in typeof(Box).GetProperties()) {
+        object d = p.GetAttribute(typeof(DocAttribute));
+        Console.WriteLine(p.Name + "：" + (d == null ? "读不到 attribute" : ((DocAttribute) d).Text));
+    }
+    // ANCHOR_END: computed-run
+
+    // ANCHOR: byname
+    // 没有「按名字取一个成员」的方法，只能枚举后自己筛
+    MethodInfo found = null;
+    foreach (MethodInfo m in typeof(Holder).GetMethods()) {
+        if (m.Name == "Helper") { found = m; }
+    }
+    Console.WriteLine(found == null ? "没找到" : "自己筛出来了：" + found.Name);
+    // ANCHOR_END: byname
+}

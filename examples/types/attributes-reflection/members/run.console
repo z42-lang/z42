@@ -1,0 +1,26 @@
+# ANCHOR: fields
+$ z42 run members.z42
+Owner : String
+Balance : Int32
+_pin : Int32 [私有]
+Count : Int32 [静态]
+# ANCHOR_END: fields
+# ANCHOR: methods
+GetType -> Type 参数 0 个
+Equals -> Boolean 参数 1 个
+GetHashCode -> Int32 参数 0 个
+ToString -> String 参数 0 个
+get_Bank -> String 参数 0 个
+set_Bank -> void 参数 1 个
+get_Doubled -> Int32 参数 0 个
+Deposit -> void 参数 1 个
+Describe -> String 参数 1 个
+# ANCHOR_END: methods
+# ANCHOR: props
+Bank : String 可读=true 可写=true
+Doubled : Int32 可读=true 可写=false
+# ANCHOR_END: props
+# ANCHOR: ctors
+Account()
+Account(String owner, Int32 balance)
+# ANCHOR_END: ctors

@@ -147,8 +147,13 @@ public sealed class ForeachProtocol {
         while (ct != null) {
             if (ct.Methods != null && ct.Methods.ContainsKey(ProtocolNames.Dispose)) { return true; }
             if (!ct.HasBase || ct.BaseName == "") { return false; }
-            if (symbols == null || !symbols.HasClass(ct.BaseName)) { return true; }
-            ct = symbols.GetClass(ct.BaseName);
+            if (symbols == null) { return true; }
+            // A5：`HasClass(名字)` + `BaseOf` 的双查塌成一次 —— 上一行已排掉「没有基类」，
+            // 所以这里 `BaseOf` 返回 null 只剩一种来源：**基类不可见**（跨包）⇒ 保守当它有 Dispose。
+            // 等价性：`HasClass` 与 `_refOfClass` 走的是同一套双键（`ByFqn` → 短名）⇒ `Base != 0` ⟺ `HasClass` 真。
+            Z42ClassType nx = symbols.BaseOf(ct);
+            if (nx == null) { return true; }
+            ct = nx;
         }
         return false;
     }

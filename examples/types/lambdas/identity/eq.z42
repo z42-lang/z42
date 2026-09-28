@@ -1,0 +1,12 @@
+using Std.IO;
+
+void Main() {
+    Func<int, int> f = (int x) => x;
+    Func<int, int> g = f;                       // 同一个函数值
+    Func<int, int> h = (int x) => x;            // 另写一个，即使函数体一样
+
+    Console.WriteLine("f == f -> " + (f == f));
+    Console.WriteLine("f == g -> " + (f == g));
+    Console.WriteLine("f == h -> " + (f == h));
+    Console.WriteLine("f == null -> " + (f == null));
+}

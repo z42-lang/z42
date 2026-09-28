@@ -156,7 +156,22 @@ public sealed class AssignTyper {
             // `+=` 退化成 `=`，丢旧值；arr[0]+=5 得 5 非 15）。binop = 去掉末尾 '='。
             if (a.Op != "=") {
                 string binop = a.Op.Substring(0, a.Op.Length - 1);
-                value = new BoundBinary(binop, target, value, target.Type(), a.Span);
+                // fix-compound-assign-operand-check：走**与 `x op v` 同一条**绑定路径，而不是
+                // 直接 `new BoundBinary`。此前这一行绕过了操作数检查与运算符重载派发，于是
+                // `Money a, b`（有 `op_Add`）写 `a + b` 正确、写 `a += b` **零诊断 + 运行期崩
+                // 不可 catch 的 `type mismatch in arithmetic`**；`b += b`（bool）同理，而
+                // `bool c = b + b;` 是规规矩矩的 E0402。
+                BoundExpr combined = this._et.BindBinaryBound(binop, target, value, a.Span, env);
+                // 结果类型仍取 **target 的类型**：复合赋值隐含「算完转回目标类型」（同 C#），
+                // 而 `ResultType` 给的是拓宽后的算术类型 —— 直接采用会让 `byte b; b += 1;`
+                // 这类既有合法代码在下面的 `CheckImplicitConvert` 撞上窄化诊断。故只有当共用
+                // 路径**派发到了运算符方法**（返回 BoundCall）时按原样采用，否则重挂 target 类型
+                // ⇒ 今天能编过的代码发射逐字节不变，新增的只有诊断与 `op_X` 派发。
+                if (combined is BoundBinary) {
+                    value = new BoundBinary(binop, target, value, target.Type(), a.Span);
+                } else {
+                    value = combined;
+                }
             }
             value = this._finishValue(value, target.Type(), a.Value.Span, env);
             return new BoundAssign(target, value, target.Type(), a.Span);

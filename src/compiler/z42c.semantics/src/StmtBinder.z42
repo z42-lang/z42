@@ -307,7 +307,7 @@ public sealed class StmtBinder {
             if (cur.Methods.Find("get_" + name) >= 0) { return "property"; }
             if (!cur.HasBase) { more = false; }
             else {
-                Z42ClassType b = env.Symbols.GetClass(cur.BaseName);
+                Z42ClassType b = env.Symbols.BaseOf(cur);   // A5：走句柄
                 if (b == null) { more = false; } else { cur = b; }
             }
         }

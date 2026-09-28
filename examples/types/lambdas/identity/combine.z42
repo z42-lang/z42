@@ -1,0 +1,8 @@
+using Std.IO;
+
+void Main() {
+    Action<int> a = (int n) => Console.WriteLine("a" + n.ToString());
+    Action<int> b = (int n) => Console.WriteLine("b" + n.ToString());
+    a += b;                                     // 想把两个处理器串起来
+    a(1);
+}

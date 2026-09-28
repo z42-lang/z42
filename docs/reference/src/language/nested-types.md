@@ -60,7 +60,8 @@ typeof(Outer).GetMembers();       // 含嵌套类型（MemberTypes.NestedType）
 ## 支持范围
 
 **支持**：嵌套 class / struct / interface / enum，任意深度；限定名引用；实例化 / 字段 /
-实例方法 / `typeof` / 反射。嵌套类型的基类或接口可以是**另一个嵌套类型**
+实例方法 / **构造器（含重载，反射侧 `GetConstructors` / `Activator` 同样可用）** /
+`typeof` / 反射。嵌套类型的基类或接口可以是**另一个嵌套类型**
 （`class Inner : Outer.Other`，兄弟裸名与限定名均可）——继承字段、虚派发、上转型、
 `GetInterfaces` 全通。
 

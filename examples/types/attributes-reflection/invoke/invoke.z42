@@ -1,0 +1,95 @@
+using Std;
+using Std.IO;
+using Std.Reflection;
+
+class Account {
+    public string Owner;
+    public int Balance;
+    public string Bank { get; set; }
+
+    public Account() { this.Owner = "新开户"; this.Bank = "Z"; }
+    public Account(string owner, int balance) {
+        this.Owner = owner;
+        this.Balance = balance;
+        this.Bank = "Z";
+    }
+
+    public void Deposit(int amount) { this.Balance = this.Balance + amount; }
+    public string Describe(string prefix) { return prefix + this.Owner; }
+}
+
+FieldInfo fieldNamed(Type t, string name) {
+    foreach (FieldInfo f in t.GetFields()) {
+        if (f.Name == name) { return f; }
+    }
+    return null;
+}
+
+MethodInfo methodNamed(Type t, string name) {
+    foreach (MethodInfo m in t.GetMethods()) {
+        if (m.Name == name) { return m; }
+    }
+    return null;
+}
+
+void Main() {
+    Type t = typeof(Account);
+    Account a = new Account("小明", 100);
+
+    // ANCHOR: field
+    FieldInfo balance = fieldNamed(t, "Balance");
+    Console.WriteLine("读到 " + balance.GetValue(a).ToString());
+
+    balance.SetValue(a, 250);
+    Console.WriteLine("写完 " + a.Balance.ToString());
+    // ANCHOR_END: field
+
+    // ANCHOR: badwrite
+    try {
+        balance.SetValue(a, null);
+    } catch (Exception e) {
+        Console.WriteLine("写 null 被拒：" + e.Message);
+    }
+    Console.WriteLine("字段没被动过：" + a.Balance.ToString());
+    // ANCHOR_END: badwrite
+
+    // ANCHOR: prop
+    foreach (PropertyInfo pr in t.GetProperties()) {
+        if (pr.Name == "Bank") {
+            pr.SetValue(a, "工商");
+            Console.WriteLine("属性读回 " + pr.GetValue(a).ToString());
+        }
+    }
+    // ANCHOR_END: prop
+
+    // ANCHOR: call
+    MethodInfo describe = methodNamed(t, "Describe");
+    object[] args = new object[1];
+    args[0] = "户主：";
+    object r = describe.Invoke(a, args);
+    Console.WriteLine(r.ToString());
+
+    MethodInfo deposit = methodNamed(t, "Deposit");
+    object[] one = new object[1];
+    one[0] = 50;
+    object nothing = deposit.Invoke(a, one);        // void 方法返回 null
+    Console.WriteLine("void 返回 null：" + (nothing == null).ToString());
+    Console.WriteLine("余额 " + a.Balance.ToString());
+    // ANCHOR_END: call
+
+    // ANCHOR: create
+    object fresh = Activator.CreateInstance(t);     // 走无参构造器
+    Account b = (Account) fresh;
+    Console.WriteLine("Activator 造出：" + b.Owner);
+
+    foreach (ConstructorInfo ci in t.GetConstructors()) {
+        if (ci.GetParameters().Length == 2) {
+            object[] cargs = new object[2];
+            cargs[0] = "小红";
+            cargs[1] = 900;
+            Account c = (Account) ci.Invoke(cargs);
+            Console.WriteLine("带参构造：" + c.Owner + " / " + c.Balance.ToString());
+        }
+    }
+    // ANCHOR_END: create
+}

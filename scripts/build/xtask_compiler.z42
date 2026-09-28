@@ -392,7 +392,7 @@ int _testCompilerUnits(string root, string profile, string[] members) {
                 ProcessResult br = new Process(vm)
                     .Arg(driverZpkg).Arg("--mode").Arg(_z42cMode()).Arg("--")
                     .Arg("build").Arg(tomls[0]).Arg("--release")
-                    .Env("Z42_LIBS", flat).Env("Z42_PROBING_PATHS", _legacyNameAliasProbe())
+                    .Env("Z42_LIBS", flat)
                     .Stdout(Stdio.Inherit()).Stderr(Stdio.Inherit()).Run();
                 if (br.ExitCode != 0) {
                     Console.WriteLine("  ✗ compile failed: " + unit);
@@ -428,7 +428,7 @@ int _testCompilerUnits(string root, string profile, string[] members) {
                     int rc = new Process(vm)
                         .Arg("--mode").Arg(_z42cMode()).Arg(builderZpkg)
                         .Arg("--").Arg("test").Arg(zps[j])
-                        .Env("Z42_LIBS", flat).Env("Z42_PROBING_PATHS", _legacyNameAliasProbe())
+                        .Env("Z42_LIBS", flat)
                         .Stdout(Stdio.Inherit()).Stderr(Stdio.Inherit()).Run().ExitCode;
                     if (rc != 0) { totalFailed = totalFailed + 1; }
                     j = j + 1;

@@ -1,0 +1,9 @@
+# ANCHOR: use
+$ z42 run registry.z42
+可用命令：
+  greet —— 跟某人打招呼
+  shout —— 大声重复一遍
+你好，小明！
+HELLO!!!
+没有 nope 这个命令
+# ANCHOR_END: use

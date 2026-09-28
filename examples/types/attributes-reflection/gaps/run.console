@@ -1,0 +1,11 @@
+# ANCHOR: freefunc
+$ z42 run gaps.z42
+Helper：类里的静态方法
+# ANCHOR_END: freefunc
+# ANCHOR: computed
+Auto：自动属性
+Computed：读不到 attribute
+# ANCHOR_END: computed
+# ANCHOR: byname
+自己筛出来了：Helper
+# ANCHOR_END: byname

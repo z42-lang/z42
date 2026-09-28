@@ -149,6 +149,49 @@ bool _fpSkipEntry(string name) {
     return name == "artifacts" || name == ".cache" || name == "cache" || name == "dist";
 }
 
+// ── 可比性判据：两侧是不是**同一套编译器** ────────────────────────────────────
+//
+// 🔴 判据必须覆盖**整个编译器包集合**，不能只看 `z42c.driver.zpkg`。
+// 后者只有 ~110 KB、装的是 driver 那一层；真正会因改动而变的是并排的
+// `z42c.semantics.zpkg`（~1.2 MB）/ `z42c.syntax` / `z42c.pipeline` / `z42c.core`
+// 以及编译器域库（`z42.package` / `z42.project` / `z42.ir` …，relocate 之后同在
+// `src/compiler` 下）。只比 driver ⇒ 改 semantics 的 PR 两侧照样「相同」，
+// 门便据此宣布「判定有效」并判红 —— **声称验过的事其实没验**（#944 实测踩到）。
+//
+// `baseDir` = bench-pr.yml 平铺出来的 base 编译器产物目录（它把 base 的
+// `artifacts/build/compiler/*/release/dist/*.zpkg` 全 `cp` 进同一个目录）。
+// 逐个拿本树同名成员包去比；**任一缺失或不同即判「不可比」**（保守方向：
+// 宁可说判不了，也不要拿没验过的结论挡 PR）。
+bool _compilerSetsEqual(string baseDir, string root) {
+    if (!Directory.Exists(baseDir)) { return false; }
+    string[] members = _enumDirsSorted(Path.Join(root, "artifacts/build/compiler"));
+    int n = 0;
+    int i = 0;
+    while (i < members.Length) {
+        string m = members[i];
+        i = i + 1;
+        string head = _compilerMemberZpkg(root, m, "release");
+        if (!File.Exists(head)) { continue; }          // 没建出来的成员不参与判定
+        string bp = Path.Join(baseDir, m + ".zpkg");
+        if (!File.Exists(bp)) {
+            Console.WriteLine("    ⓘ base 侧缺成员包：" + m + ".zpkg ⇒ 按不可比处理");
+            return false;
+        }
+        if (!_filesEqual(bp, head)) {
+            Console.WriteLine("    ⓘ 成员包字节不同：" + m + ".zpkg ⇒ 两侧不是同一套编译器");
+            return false;
+        }
+        n = n + 1;
+    }
+    // 一个都没比到 = 没有判别力，同样不能宣称「验过了」。
+    if (n == 0) {
+        Console.WriteLine("    ⓘ 本树 artifacts/build/compiler 下没有可比的成员包 ⇒ 按不可比处理");
+        return false;
+    }
+    Console.WriteLine("    ⓘ 逐字节比过 " + n.ToString() + " 个编译器成员包");
+    return true;
+}
+
 int _testFingerprint(ParseResult r) {
     Stopwatch sw = _procStart("test fingerprint");
     string root = _root();
@@ -181,6 +224,24 @@ int _testFingerprint(ParseResult r) {
     }
     if (!sameCompiler) { Console.WriteLine("  src/compiler 与 base 不同 ⇒ 照常对比字节"); }
     else { Console.WriteLine("  src/compiler 相同但 src/libraries 不同 ⇒ 照常对比字节（stdlib 能改变编译器行为）"); }
+
+    // 🔴 **可比性先算、先打印**（2026-09-29）。此前它藏在「字节变了」之后 —— 于是
+    // 字节没变的那一路（本地对账的常态）**永远看不到这行**，我也就没法在本地观察它对不对：
+    // 一个只在判红那一刻才出声的判据，本身就没法被验证。门每一轮都该说清自己**这轮有没有
+    // 判别力**，而不是只在开火时才交代。
+    bool comparable = true;
+    if (baseDriver.Length > 0) {
+        if (!File.Exists(baseDriver)) {
+            Console.WriteLine("  ⚠ --base-driver 指向的文件不存在：" + baseDriver + "（按可比处理，照常判定）");
+        } else {
+            comparable = _compilerSetsEqual(Path.GetDirectoryName(baseDriver), root);
+            if (comparable) {
+                Console.WriteLine("  ✓ 两侧编译器是同一套包（每个成员包逐字节相同）⇒ 差异不可能来自自举代，判定有效");
+            } else {
+                Console.WriteLine("  ⚠ 两侧编译器**不是同一套包** ⇒ 本门在这种输入下没有判别力");
+            }
+        }
+    }
 
     // 本树编译器重编 base 的 stdlib 源码（拷进 scratch，产物按拷贝里的 workspace 模板落在 scratch 内）。
     string scratch = Path.Join(root, "artifacts/.scratch/fingerprint");
@@ -274,22 +335,17 @@ int _testFingerprint(ParseResult r) {
     // 各编一遍两侧的 `src/compiler`，再各编一遍同一份 stdlib），那要在门里重建 bench-pr.yml
     // 的 flat-libs 编排、4 轮构建，且只能在 CI 上验证 —— 单独评估，见 memory
     // `fingerprint-gate-false-red-generation-drift`。
-    if (baseDriver.Length > 0) {
-        if (!File.Exists(baseDriver)) {
-            Console.WriteLine("  ⚠ --base-driver 指向的文件不存在：" + baseDriver + "（按可比处理，照常判定）");
-        } else if (!_filesEqual(baseDriver, _driverZpkg(root, "release"))) {
-            Console.WriteLine("  ⚠ 两侧 driver **不是同一个二进制** ⇒ 本门在这种输入下没有判别力，判不了。");
-            Console.WriteLine("    base driver：" + baseDriver);
-            Console.WriteLine("    上面那 " + nChanged.ToString() + " 个包的差异**可能**来自自举代差异，也可能来自你的改动 ——");
-            Console.WriteLine("    本门分辨不了，因此**不判红**，也请不要据此 bump 指纹。");
-            Console.WriteLine("    要确认是不是自己的改动：让 base 树与本树处在同一代，再跑一次本门");
-            Console.WriteLine("    （base 树多跑/少跑一遍 `build stdlib` 就会改变结论 —— 这本身就是漂移的证据）。");
-            Console.WriteLine("::warning::test fingerprint: 两侧 driver 非同一二进制，本次未能判定编译器输出是否变化");
-            _procEnd("test fingerprint", sw);
-            return 0;
-        }
-        Console.WriteLine("  ✓ 两侧 driver 是同一个二进制 ⇒ 差异不可能来自自举代，判定有效");
-    } else {
+    if (!comparable) {
+        Console.WriteLine("    base 编译器包目录：" + Path.GetDirectoryName(baseDriver));
+        Console.WriteLine("    上面那 " + nChanged.ToString() + " 个包的差异**可能**来自自举代差异，也可能来自你的改动 ——");
+        Console.WriteLine("    本门分辨不了，因此**不判红**，也请不要据此 bump 指纹。");
+        Console.WriteLine("    要确认是不是自己的改动：让 base 树与本树处在同一代，再跑一次本门");
+        Console.WriteLine("    （base 树多跑/少跑一遍 `build stdlib` 就会改变结论 —— 这本身就是漂移的证据）。");
+        Console.WriteLine("::warning::test fingerprint: 两侧编译器非同一套包，本次未能判定编译器输出是否变化");
+        _procEnd("test fingerprint", sw);
+        return 0;
+    }
+    if (baseDriver.Length == 0) {
         Console.WriteLine("    两侧 driver 是否同一二进制，看 bench-pr 日志里的 `driver sha` 两行；"
             + "不同 ⇒ 先怀疑自举代差异，不是你的改动（传 `--base-driver` 可让本门自己判）。");
     }
