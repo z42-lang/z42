@@ -27,7 +27,7 @@ i >= 1：恒走 struct 分支（编译器已在非内联处断链 ⇒ 每节真�
 
 ## 清单
 
-- [ ] **T1 平行性检查（先做，它是 A 的前提）** —— `struct_field_table` 声称「同序平行于 Fields」，
+- [x] **T1 平行性检查（先做，它是 A 的前提）** ✅ 2026-09-28 —— `struct_field_table` 声称「同序平行于 Fields」，
       而路径的下一跳类型名取自 `TypeDesc.fields[idx].type_tag`。**注释的声明必须验**：
       载入期断言 `struct_layout().field_count() == fields.len()`（表在场时），不等即响。
 - [ ] **T2 格式常量 + 真相表 + changelog + 钉值单测**
@@ -60,3 +60,23 @@ i >= 1：恒走 struct 分支（编译器已在非内联处断链 ⇒ 每节真�
 - ⚠️ IR 优化器录入必须全（`IrOptInfo` 的 `DstId`/`AddReads`/`ReplaceReads`/`SetDst` + 逃逸汇点表）——
   历史上漏 `StructFieldSetPrim` 的 `Val` 读导致 DCE 误删喂值的 `const`。
 - ⚠️ 本机 `RUSTUP_TOOLCHAIN=1.98.1`；改 z42c 要 `build compiler` **且** `build sdk`。
+
+## T1 结果（2026-09-28）
+
+载入期加 `debug_assert!`（表在场时 `struct_field_table.len() == fields.len()`）。
+政策同 `__box_prim` / `prim_value_mismatch`：只有编译器/写端能违反 ⇒ **debug 响、release 放行**。
+
+| 验证 | 结果 |
+|---|---|
+| `cargo test --lib`（debug） | 34/34 loader 测试绿 |
+| **正面对照**（故意造不平行） | ✅ `should_panic` —— 门会响 |
+| e2e 语料（debug VM × 289 条） | **零响** |
+| **反向对照**（表在场即响） | **289 / 289** ⇒ 每条程序都走到了这条路 ⇒ 零响是实的 |
+
+⭐ **顺带挖出一个夹具真实性缺口**：#915 的 `module_with_struct_field_table` 造的是
+「有字段表、但 `fields` 为空」的模块 —— **真实 zbc 里不可能出现的形状**。
+也就是说 #915 那个「从 zbc 到 layout 逐格一致」的测试，当初验的是一张**没有平行字段列表**的表。
+在 P0 里无所谓（表休眠），接通 P2 后那正是正确性前提。已把夹具修成真实形态。
+
+⇒ 与 #915 当场挖出「冷区裁剪漏守 `struct_layout`」是同一教训的第二次应验：
+**休眠元数据的测试，连它的夹具形状都得是真实的。**
