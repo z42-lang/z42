@@ -42,96 +42,12 @@ void _assembleStdlibFlatView(string root, string profile) {
         _linkAll(srcDir, flatDir, "*.zsym");
         i = i + 1;
     }
-    _syncLegacyIrAlias(root, flatDir, profile);
-}
-
-// ── `z42.ir` 旧名兼容副本（rename-z42-ir-to-z42-package 阶段 1）─────────────────────────────
-//
-// 包更名为 `z42.package`（「它装的不只是 IR 模型，是整个 package 文件的读写」），而**上一代种子**
-// —— z42c.driver / z42b / devtools / z42i 的 zpkg —— 它们 `DEPS` 段里记的依赖名仍是 `z42.ir`。
-// 运行期依赖解析是 `resolve_dependency`：**纯文件名查找**，不校验包内记录的 `[project].name`
-// （`metadata/loader/namespace.rs`）⇒ 一份旧文件名的副本就够种子活下去。
-//
-// ⭐ **包名不出现在任何 FQN 里**（命名空间是源码独立声明的，本次一个都没动）⇒ 副本与新产物
-// 的符号逐字相同，种子对 `Z42.IR.*` / `Z42.Project.*` 的调用照旧。这也是它比「改命名空间」
-// 便宜一个数量级的原因。
-//
-// 🔴 **副本绝不能留在 flat（编译期 libs）里**：那样编译器会看见两个包导出完全相同的 FQN ⇒
-// 满屏 `E0606: declared in this package and also in package z42.ir`。**实测踩过一次。**
-// 所以它落在一个只挂 `probing-paths` 的目录 —— 那是**运行期专用**搜索面，编译期解析不看它。
-//
-// ⏳ STAGE2-DEBT(z42ir-name-alias): 下一 nightly 后删掉本函数、别名目录与 probing 传参
-void _syncLegacyIrAlias(string root, string flatDir, string profile) {
-    string dir = _legacyAliasDir(root, profile);
-    Directory.Create(dir);
-    // ① 旧构建/种子留在 flat 里的那份：**移**走而不是拷 —— 留在 flat 就是 E0606 的来源。
-    string stale = Path.Join(flatDir, "z42.ir.zpkg");
-    if (File.Exists(stale)) {
-        string dst = Path.Join(dir, "z42.ir.zpkg");
-        if (File.Exists(dst)) { File.Delete(dst); }
-        File.Copy(stale, dst);
-        File.Delete(stale);
-    }
-    string staleSym = Path.Join(flatDir, "z42.ir.zsym");
-    if (File.Exists(staleSym)) { File.Delete(staleSym); }
-    // ② 别名不存在（冷树）⇒ 用本轮新产物顶上：包名不在 FQN 里，符号逐字相同。
-    string alias = Path.Join(dir, "z42.ir.zpkg");
-    if (!File.Exists(alias)) {
-        string fresh = Path.Join(flatDir, "z42.package.zpkg");
-        if (File.Exists(fresh)) { File.Copy(fresh, alias); }
-    }
-}
-
-// 构建**开始前**把现有的 `z42.ir.zpkg` 迁进别名目录。来源按优先级：flat（warm 树上次的产物）
-// → 种子 SDK 的 libs（冷树）。两者都没有 ⇒ 什么都不做（真·全新树，别名由首次构建后补上）。
-void _seedLegacyIrAlias(string root, string profile) {
-    string dir = _legacyAliasDir(root, profile);
-    string alias = Path.Join(dir, "z42.ir.zpkg");
-    Directory.Create(dir);
-    if (!File.Exists(alias)) {
-        string[] cands = new string[2];
-        cands[0] = Path.Join(_libsFlatDist(root, profile), "z42.ir.zpkg");
-        cands[1] = Path.Join(Path.Join(Path.Join(root, "artifacts"), ".z42"), Path.Join("libs", "z42.ir.zpkg"));
-        int i = 0;
-        while (i < cands.Length) {
-            string c = cands[i];
-            i = i + 1;
-            if (!File.Exists(c)) { continue; }
-            File.Copy(c, alias);
-            i = cands.Length;
-        }
-    }
-    // 🔴 **必须从每一个编译期 libs 目录里清掉旧名**，不只是 flat：留一份就会让编译器看见
-    // 两个包导出相同 FQN ⇒ 满屏 `E0606`（实测踩过两次：第一次只搬了 flat，预建照样红）。
-    // 别名目录里那一份是**运行期**唯一需要的，它不在这些目录里。
-    string[] libDirs = new string[3];
-    libDirs[0] = _libsFlatDist(root, profile);
-    libDirs[1] = Path.Join(Path.Join(Path.Join(root, "artifacts"), ".scratch"), Path.Join("alllibs", profile));
-    libDirs[2] = Path.Join(Path.Join(Path.Join(root, "artifacts"), ".scratch"), Path.Join("stdlib-run", profile));
-    int d = 0;
-    while (d < libDirs.Length) {
-        string one = libDirs[d];
-        d = d + 1;
-        string z = Path.Join(one, "z42.ir.zpkg");
-        if (File.Exists(z)) { File.Delete(z); }
-        string y = Path.Join(one, "z42.ir.zsym");
-        if (File.Exists(y)) { File.Delete(y); }
-    }
-}
-
-string _legacyAliasDir(string root, string profile) {
-    return Path.Join(Path.Join(Path.Join(root, "artifacts"), ".scratch"),
-                     Path.Join("legacy-name-alias", profile));
 }
 
 // `build stdlib` 命令入口（同时被 build compiler / build sdk / 多个 test stage 直接调用）。
 int _buildStdlib() {
     string root = _root();
     string profile = "release";
-    // 🔴 别名必须在**第一次 driver 调用之前**就位：种子 driver 的 DEPS 仍写 `z42.ir`，
-    // 而 flat 里那份马上要被重命名后的产物取代。这里先把「现有的那份」迁进别名目录
-    // （warm 树 = 上次构建的产物；冷树 = 种子 SDK 的 libs）。少这一步就是鸡生蛋。
-    _seedLegacyIrAlias(root, profile);
     string flatDir = _libsFlatDist(root, profile);
     Stopwatch swAll = _procStart("build stdlib (z42c self-build + libs)");
 

@@ -107,21 +107,9 @@ int _z42cWorkspaceBuild(string vm, string driver, string cwd, string libs, bool 
     if (compileLibs.Length > 0) { p = p.Arg("--compile-libs").Arg(compileLibs); }
     return p
         .WorkingDirectory(cwd)
-        .Env("Z42_LIBS", libs).Env("Z42_PROBING_PATHS", _legacyNameAliasProbe())
+        .Env("Z42_LIBS", libs)
         .Stdout(_verbAtLeast(3) ? Stdio.Inherit() : Stdio.Null()).Stderr(Stdio.Inherit())
         .Run().ExitCode;
-}
-
-// rename-z42-ir-to-z42-package 阶段 1：上一代种子（z42c.driver / z42b / devtools / z42i）的
-// `DEPS` 里记的依赖名仍是 `z42.ir`，而本轮产物已叫 `z42.package`。
-//
-// 兼容副本放在**只挂 probing-paths 的目录**、**不进 `Z42_LIBS`** —— 后者是编译期解析面，副本进去
-// 会让编译器看见两个包导出相同 FQN（满屏 `E0606`，实测踩过）。`probing-paths` 是运行期专用，
-// 正好把「种子加载自己的依赖」与「编译当前源」分开。目录不存在时 VM 静默跳过。
-// STAGE2-DEBT(z42ir-probing-wiring): 下一 nightly 后删掉本函数与所有 Z42_PROBING_PATHS 传参
-string _legacyNameAliasProbe() {
-    return Path.Join(Path.Join(Path.Join(_root(), "artifacts"), ".scratch"),
-                     Path.Join("legacy-name-alias", "release"));
 }
 
 // 单包 `build <toml> --release --output-dir <out>`：把一个成员 zpkg 直接写到 <out>/<name>.zpkg
@@ -138,7 +126,7 @@ int _z42cBuildPackage(string vm, string driver, string tomlPath, string libs, st
         .Arg("build").Arg(tomlPath).Arg("--release").Arg("--output-dir").Arg(outputDir);
     if (compileLibs.Length > 0) { p = p.Arg("--compile-libs").Arg(compileLibs); }
     return p
-        .Env("Z42_LIBS", libs).Env("Z42_PROBING_PATHS", _legacyNameAliasProbe())
+        .Env("Z42_LIBS", libs)
         .Stdout(_verbAtLeast(3) ? Stdio.Inherit() : Stdio.Null()).Stderr(Stdio.Inherit())
         .Run().ExitCode;
 }
@@ -420,28 +408,6 @@ string _seedStdlibDir(string root) {
     return "";
 }
 
-// Ensure an in-tree z42c + stdlib seed exists so the self-build (and its gen2
-// byte-identical fixpoint) can run. No-op when the in-tree seed is already present
-// (WARM). When absent (COLD), stage the resolved seed (Z42_LIBS / Z42_HOME
-// (--toolchain) / apphost SDK) into the in-tree layout — mirroring what CI used to
-// hand-copy. Returns 0 on success (or already warm), 1 if no seed source.
-// 把编译期 libs 目录里的旧包名 `z42.ir.zpkg` **迁**进别名目录（运行期专用面）。
-// 幂等；两边都没有时什么都不做。
-// STAGE2-DEBT(z42ir-seed-stage-move): 下一 nightly 后删掉本函数与 `_ensureSeed` 里的调用
-void _moveLegacyIrToAlias(string root, string libsDir, string profile) {
-    string aliasDir = _legacyNameAliasProbe();
-    Directory.Create(aliasDir);
-    string src = Path.Join(libsDir, "z42.ir.zpkg");
-    if (File.Exists(src)) {
-        string dst = Path.Join(aliasDir, "z42.ir.zpkg");
-        if (File.Exists(dst)) { File.Delete(dst); }
-        File.Copy(src, dst);
-        File.Delete(src);
-    }
-    string sym = Path.Join(libsDir, "z42.ir.zsym");
-    if (File.Exists(sym)) { File.Delete(sym); }
-}
-
 // ── driver 认不认 `--compile-libs`（rename-project-namespaces B2 的安全降级）─────────────
 //
 // 🔴 **enabler 自己也受自举纪律约束**：`--compile-libs` 是**新增旗标**，而冷启动跑的是
@@ -546,6 +512,11 @@ string _seedRunLibs(string root, string profile) {
 // 或上一轮跑到一半，拿到的就是新代 ⇒ 种子 driver `MissingSymbolException`）。现在锚是
 // driver 自己 dist 里的 colocated 闭包，见 `_relocateSeedRunLibs`。
 
+// Ensure an in-tree z42c + stdlib seed exists so the self-build (and its gen2
+// byte-identical fixpoint) can run. No-op when the in-tree seed is already present
+// (WARM). When absent (COLD), stage the resolved seed (Z42_LIBS / Z42_HOME
+// (--toolchain) / apphost SDK) into the in-tree layout — mirroring what CI used to
+// hand-copy. Returns 0 on success (or already warm), 1 if no seed source.
 int _ensureSeed(string root) {
     string profile = "release";
     string flatDir = _libsFlatDist(root, profile);
@@ -607,16 +578,11 @@ int _ensureSeed(string root) {
             + "  (a stale seed fails LATER, as a runtime crash on some uninitialized static)");
     }
 
-    // 🔴 供种的期望清单来自**当前** `_compilerMembers()`，而种子是**上一代** —— 成员集合一变，
-    // 这里立刻不匹配。relocate-compiler-domain-libs（2026-09-27）把六个包挪进编译器域，其中
-    // 五个本来就是 driver 的兄弟（种子 `programs/z42c/` 里有），但 **`z42.scripting` 那一代住
-    // `libs/`** ⇒ 冷启动当场
-    //   `error: seed missing z42.scripting.zpkg in <sdk>/programs/z42c`
-    // （CI 八个 job 全红在 `[3/5]`，各平台一致；本地 warm 树看不见，因为它不走供种）。
-    //
-    // ⇒ **按种子的实际布局兜底**：`programs/z42c/` 没有就去种子的 `libs/` 找。这是一代过渡形态。
-    // STAGE2-DEBT(relocate-seed-scripting-fallback): 含本改动的 nightly 成为种子后，删掉这个
-    //   `libs/` 兜底分支（届时种子的 programs/z42c/ 自带全部编译器成员）
+    // 🔴 供种的期望清单来自**当前** `_compilerMembers()`，而种子是**上一代** —— **成员集合一变，
+    // 这里立刻不匹配**，且只在冷启动（走供种）暴露，本地 warm 树看不见。
+    // relocate-compiler-domain-libs（2026-09-27）就是这么让 CI 八个 job 全红在 `[3/5]` 的：
+    // `z42.scripting` 那一代还住种子的 `libs/`，当前源期望它在 `programs/z42c/`。
+    // ⇒ **挪动编译器成员集合前，先想「上一代种子里这个文件在哪」**（曾为此留过一代 `libs/` 兜底）。
     string[] members = _compilerMembers(root);
     int i = 0;
     while (i < members.Length) {
@@ -625,12 +591,7 @@ int _ensureSeed(string root) {
         Directory.Create(dst);
         _copyAll(driverHome, dst, m + ".zpkg");
         if (!File.Exists(Path.Join(dst, m + ".zpkg"))) {
-            // 上一代种子里它可能还在 stdlib 那侧（见上方头注）。
-            _copyAll(stdlibDir, dst, m + ".zpkg");
-        }
-        if (!File.Exists(Path.Join(dst, m + ".zpkg"))) {
-            ConsoleError.WriteLine("error: seed missing " + m + ".zpkg in " + driverHome
-                + "（也不在种子的 libs/：" + stdlibDir + "）");
+            ConsoleError.WriteLine("error: seed missing " + m + ".zpkg in " + driverHome);
             return 1;
         }
         i = i + 1;
@@ -645,17 +606,6 @@ int _ensureSeed(string root) {
     _copyAll(driverHome, driverDist, "z42c.*.zpkg");
     Directory.Create(flatDir);
     _copyAll(stdlibDir, flatDir, "z42.*.zpkg");
-    // 🔴 **供种之后立刻把旧包名迁出编译期 libs**（rename-z42-ir-to-z42-package 阶段 1）。
-    //
-    // 种子的 `libs/` 里有 `z42.ir.zpkg`（那一代的包名），而当前源产出 `z42.package.zpkg`。
-    // 两份留在同一个编译期 libs 目录里 ⇒ 编译器看见两个包导出**完全相同的 FQN**（命名空间这次
-    // 没动）⇒ 满屏 `E0606`。**冷启动路径就是这么红的**（本地 `test bootstrap` 与 CI 的
-    // compile-toolchain / test-host 同一个原因）；in-tree 那几个目录我先前清了，独独漏了这条
-    // **供种**通道 —— 而它恰恰是冷树上唯一的来源。
-    //
-    // 种子 driver 运行期仍需要旧名（它的 `DEPS` 写的是 `z42.ir`）⇒ 不是删掉，是**迁**进只挂
-    // `probing-paths` 的别名目录：运行期看得见、编译期看不见。
-    _moveLegacyIrToAlias(root, flatDir, profile);
     if (!File.Exists(inCore)) {
         ConsoleError.WriteLine("error: seed stdlib missing z42.core.zpkg in " + stdlibDir);
         return 1;

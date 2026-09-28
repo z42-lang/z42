@@ -168,13 +168,6 @@ int _bcRunWorkspace(string root, string label, string vm, string driver, string 
     _resetDir(runlibs);
     _copyAll(stdlibDir, runlibs, "*.zpkg");
     _copyAll(Path.GetDirectoryName(driver), runlibs, "*.zpkg");
-    // rename-z42-ir-to-z42-package 阶段 1：种子 `libs/` 里那份**旧包名** `z42.ir.zpkg` 必须迁出
-    // 这个目录 —— 它同时当 `Z42_LIBS` 和 `--output-dir`，而当前源会往里产出 `z42.package.zpkg`；
-    // 两份共存 ⇒ 编译器看见两个包导出完全相同的 FQN ⇒ 满屏 `E0606`（本门与 CI 的
-    // compile-toolchain / test-host 就是这么红的）。种子 driver 运行期仍要旧名，所以是**迁**
-    // 进只挂 probing-paths 的别名目录，而不是删。
-    // STAGE2-DEBT(z42ir-bc-runlibs-move): 下一 nightly 后删掉这一行
-    _moveLegacyIrToAlias(root, runlibs, "release");
     // Mirror the REAL `build compiler` path (xtask_compiler.z42 _buildCompilerViaZ42c): break the
     // axis-④ self-dependency ring by pre-building the CURRENT-source self-dep libs with this seed
     // before compiling the workspace. `_ensureBootstrapSelfDepLibs`'s flat-dir parameter doubles as
