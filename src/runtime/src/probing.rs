@@ -20,21 +20,142 @@ use std::path::PathBuf;
 ///     still found;
 ///   * results are sorted (Ordinal) per pattern — never rely on readdir order, or a
 ///     zpkg present in two dirs resolves nondeterministically;
-///   * entries that do not exist are skipped silently (an optional plugin dir is fine).
+///   * entries that do not exist are skipped silently (an optional plugin dir is fine);
+///   * `${Z42_HOME}` 展开成本机 SDK 根（见下方占位符一节）——**在相对/绝对判定之前**替换；
+///     未知或未闭合的 `${…}` 让**整条** pattern 作废（不做字面回落）。
 pub fn expand_probing_paths(entry_dir: &std::path::Path, patterns: &[PathBuf]) -> Vec<PathBuf> {
+    expand_probing_paths_with(entry_dir, patterns, &z42_home_roots())
+}
+
+/// [`expand_probing_paths`] 的纯形式：`${Z42_HOME}` 的候选根由调用方注入（测试用）。
+///
+/// 分出这一层是因为根来自**进程全局**（环境变量 + `current_exe()`）——测试若去改 env 就
+/// 彼此干扰（cargo 默认多线程跑）。同 `hostrun.rs::resolve_app_runtime_in` 的处理。
+///
+/// 🔴 **替换必须在「这是绝对路径吗」之前**：`${Z42_HOME}/programs/z42c` 以 `$` 开头，
+/// 对 `is_absolute()` 是**相对**路径，先判就会被拼到 entry 目录后面去，得到一个
+/// 永远不存在的 `<app>/${Z42_HOME}/programs/z42c`，然后静默跳过 —— 症状是「配了等于没配」。
+pub fn expand_probing_paths_with(
+    entry_dir: &std::path::Path,
+    patterns: &[PathBuf],
+    z42_home_roots: &[PathBuf],
+) -> Vec<PathBuf> {
     let mut out: Vec<PathBuf> = Vec::new();
     for pat in patterns {
-        let joined = if pat.is_absolute() { pat.clone() } else { normalize_lexically(&entry_dir.join(pat)) };
-        let has_glob = joined.components().any(|c| c.as_os_str().to_string_lossy().contains('*'));
-        let mut hits = if has_glob { glob_dirs(&joined) } else { vec![joined] };
-        hits.sort();
-        for h in hits {
-            if h.is_dir() && !out.contains(&h) {
-                out.push(h);
+        // 一个 pattern 可展开成 0..n 个具体 pattern（0 = 占位符解析不出来 ⇒ 整条跳过）。
+        // 逐个 glob 并**在每个内部排序**，而不是先汇总再排：那样会把候选根的优先级顺序洗掉。
+        for concrete in substitute_placeholders(pat, z42_home_roots) {
+            let joined =
+                if concrete.is_absolute() { concrete } else { normalize_lexically(&entry_dir.join(concrete)) };
+            let has_glob = joined.components().any(|c| c.as_os_str().to_string_lossy().contains('*'));
+            let mut hits = if has_glob { glob_dirs(&joined) } else { vec![joined] };
+            hits.sort();
+            for h in hits {
+                if h.is_dir() && !out.contains(&h) {
+                    out.push(h);
+                }
             }
         }
     }
     out
+}
+
+// ── `${…}` 占位符（relocate-compiler-domain-libs §5.3.1）─────────────────────────
+//
+// **编译输出里不许烤具体路径**：侧车 `probing-paths` 随产物分发，绝对路径换台机器/换安装位置
+// 就失效，而「相对 entry 目录」对「装在任意位置的用户应用要指回 SDK」无解。⇒ 侧车写
+// `${Z42_HOME}/programs/z42c`，由 VM 在解析时换成本机真实目录。
+//
+// 🔴 **这是 support 侧，今天还没有生产发射方**：z42c 尚未往侧车里写占位符（受 bootstrap-seed
+// 的分阶段纪律：VM 先认、晚一个 nightly 再 emit，否则上一版 VM 读到 `${Z42_HOME}/…` 会当字面
+// 目录、跳过 ⇒ 「probing 形同没配」）。
+// STAGE2-DEBT(probing-z42home-emit): 含本 support 的 nightly 成为种子后，让 z42c 侧车发射 `${Z42_HOME}/programs/z42c` 而不是具体路径，并加「输出里不得出现绝对路径」的门
+//
+// **大小写不是随手写的**，两层各有各的约定：
+//   · `${lower_snake}` = **清单模板变量**，编译期展开（`PathTemplate` 的 `${workspace_dir}`
+//     等、`ExeDeps` 的 `${compiler_libs}`）——作者写在清单里的东西；
+//   · `${UPPER}`       = **环境派生的根**，运行期展开（本处）——名字与它来源的环境变量一致。
+//
+// **未知/未闭合占位符 ⇒ 整条 pattern 跳过**，不做字面回落。这一条与编译期那套宏**刻意不同**
+// （`ExeDeps._expandDepPathMacros` 对未知宏**硬报错**）：编译期有诊断通道、错了要当场说清；
+// 而 VM 在这里没有不污染输出的通道（golden 判定把 stderr 并进 stdout，任何 WARN 都会波及全部
+// golden），且 probing 项的既有语义本就是「不存在就静默跳过」。字面回落最坏——它会拼出
+// `<app>/${FOO}/x` 这种谁也找不到的目录，症状离原因更远。
+
+/// pattern 里认得的占位符名。今天只有一个。
+const PLACEHOLDER_Z42_HOME: &str = "Z42_HOME";
+
+/// 把一个可能含 `${…}` 的 pattern 展开成 0..n 个具体 pattern。
+///
+/// 无 `${` → 原样一条（绝大多数项走这里，零开销）；`${Z42_HOME}` → 每个候选根一条，
+/// **保持候选根的顺序**；未知名或未闭合 → 空（整条跳过）。
+fn substitute_placeholders(pat: &std::path::Path, z42_home_roots: &[PathBuf]) -> Vec<PathBuf> {
+    let s = pat.to_string_lossy().to_string();
+    if !s.contains("${") {
+        return vec![pat.to_path_buf()];
+    }
+    // 先验一遍：只要出现任何一个不认识的（或未闭合的）占位符，整条作废。
+    let mut rest = s.as_str();
+    while let Some(at) = rest.find("${") {
+        let after = &rest[at + 2..];
+        match after.find('}') {
+            None => return Vec::new(), // 未闭合
+            Some(end) => {
+                if &after[..end] != PLACEHOLDER_Z42_HOME {
+                    return Vec::new(); // 未知名
+                }
+                rest = &after[end + 1..];
+            }
+        }
+    }
+    let token = format!("${{{PLACEHOLDER_Z42_HOME}}}");
+    z42_home_roots
+        .iter()
+        .map(|root| PathBuf::from(s.replace(&token, &root.to_string_lossy())))
+        .collect()
+}
+
+/// `${Z42_HOME}` 的候选根，**按优先级**（去重；空/取不到的档跳过）：
+///   ① `$Z42_HOME`         —— 显式指定的安装位置（launcher 转发时已设）
+///   ② `$Z42_PORTABLE_VM`  —— 反推 SDK 根（`<root>/bin/z42vm` ⇒ 上两级）；apphost 启动前会设它
+///   ③ `current_exe()`     —— 正在跑的这个 z42vm 自己的位置，同样上两级
+///
+/// ③ 是兜底而非多余：两个环境变量都没设时（直接 `z42vm app.zpkg`），VM 仍然知道自己住在哪。
+/// 展开结果**必须是真实存在的目录**才会进搜索序（`expand_probing_paths_with` 的既有过滤），
+/// 所以反推错了的档自然落空，不会变成一个假目录。
+fn z42_home_roots() -> Vec<PathBuf> {
+    let mut out: Vec<PathBuf> = Vec::new();
+    let mut push = |p: PathBuf| {
+        if !p.as_os_str().is_empty() && !out.contains(&p) {
+            out.push(p);
+        }
+    };
+    if let Some(h) = env_nonempty("Z42_HOME") {
+        push(PathBuf::from(h));
+    }
+    if let Some(vm) = env_nonempty("Z42_PORTABLE_VM") {
+        if let Some(root) = sdk_root_of_vm(std::path::Path::new(&vm)) {
+            push(root);
+        }
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(root) = sdk_root_of_vm(&exe) {
+            push(root);
+        }
+    }
+    out
+}
+
+fn env_nonempty(key: &str) -> Option<String> {
+    match std::env::var(key) {
+        Ok(v) if !v.is_empty() => Some(v),
+        _ => None,
+    }
+}
+
+/// `<root>/bin/z42vm` → `<root>`（安装态与便携包都是这个形状）。
+fn sdk_root_of_vm(vm: &std::path::Path) -> Option<PathBuf> {
+    vm.parent()?.parent().map(|p| p.to_path_buf())
 }
 
 /// Fold `.` and `..` **lexically** (no filesystem access, symlinks untouched).

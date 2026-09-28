@@ -1890,3 +1890,49 @@ fn array_is_still_invalid_for_non_pathlist_knobs() {
         "非 PathList 的数组仍是非法旋钮值"
     );
 }
+
+/// 文档里那几个**硬编码的旋钮计数**必须等于 `KNOWN_KNOBS` 的真实分档。
+///
+/// 为什么要有这道门：写它的当天，`runtime-settings.md` 说「全部 42 个」，而表里已经是
+/// **44** —— 有人加过两个旋钮、没回头改文档，而没有任何东西会红。计数是文档里最容易腐
+/// 烂的一类断言（加一行表项就失真），也最容易被读者当真（「42 个我都看过了」）。
+///
+/// 门的形状照 `format_fixture_versions.rs::version_bumping_coordinate_table_matches_the_real_constants`：
+/// 断言文档里**逐字**存在按真实计数渲染出来的那几句。改了措辞 ⇒ 这里同 commit 跟着改，
+/// 那正是「让人无法悄悄改掉」的点。
+#[test]
+fn runtime_settings_doc_knob_counts_match_the_table() {
+    let md_rel = "docs/reference/src/toolchain/runtime-settings.md";
+    let md_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..").join(md_rel);
+    let md = std::fs::read_to_string(&md_path)
+        .unwrap_or_else(|e| panic!("read {}: {e}", md_path.display()));
+
+    let total = KNOWN_KNOBS.len();
+    let public = KNOWN_KNOBS.iter().filter(|k| k.tier == Tier::Public).count();
+    let internal = KNOWN_KNOBS.iter().filter(|k| k.tier == Tier::Internal).count();
+    let meta = KNOWN_KNOBS.iter().filter(|k| k.is_meta()).count();
+
+    // 每条 = （这句话必须逐字出现在文档里, 它断言的是什么）。
+    let claims = [
+        (format!("runtime knobs ({public} of {total}; pass --all for unsupported + internal knobs)"),
+         "`--list-knobs` 默认输出的样例行"),
+        (format!("runtime knobs ({total} of {total})"), "`--list-knobs --all` 的样例行"),
+        (format!("档的 {public} 个**，`--all` 才列出全部 {total} 个"), "「默认只看得到 N 个」那句"),
+        (format!("`--all` {total} 行"), "`--show-config` 的行数"),
+        (format!("拿到的是**全部 {total} 个**"), "`RuntimeConfig.Names()` 的条数"),
+        (format!("那 {total} 个里有 {meta} 个是**元旋钮**"), "元旋钮条数"),
+        (format!("- **`internal`**（{internal} 个）"), "internal 档条数"),
+    ];
+    let missing: Vec<String> = claims
+        .iter()
+        .filter(|(needle, _)| !md.contains(needle.as_str()))
+        .map(|(needle, what)| format!("{what}：期待逐字出现 `{needle}`"))
+        .collect();
+    assert!(
+        missing.is_empty(),
+        "{md_rel} 里的旋钮计数与 KNOWN_KNOBS 对不上（真实：总 {total} / public {public} / \
+         internal {internal} / 元旋钮 {meta}）。\n  - {}\n\
+         加/删旋钮要同 commit 改文档；若只是改了那几句的措辞，同 commit 改本门的 claims。",
+        missing.join("\n  - ")
+    );
+}

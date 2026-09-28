@@ -3,7 +3,7 @@
 //! 守的是 design.md §probing-paths 的解析规则那张表——每条规则一个测试，而不是把它们
 //! 混在一个"大概能用"的用例里：这些规则彼此独立，混在一起测就分不清是哪条坏了。
 
-use crate::probing::expand_probing_paths;
+use crate::probing::{expand_probing_paths, expand_probing_paths_with};
 use std::path::PathBuf;
 
 /// 在临时目录里搭一棵树，返回根。
@@ -88,4 +88,95 @@ fn empty_patterns_yield_nothing() {
     let root = tree("empty", &["app"]);
     let got = expand_probing_paths(&root.join("app"), &[]);
     assert!(got.is_empty());
+}
+
+// ── `${Z42_HOME}` 占位符（relocate-compiler-domain-libs §5.3.1）─────────────────
+//
+// 用可注入的 `expand_probing_paths_with`：候选根来自环境变量与 `current_exe()`，
+// 测试里改 env 会彼此干扰（cargo 多线程），注入才测得准。
+
+#[test]
+fn z42_home_placeholder_expands_to_the_sdk_root() {
+    let root = tree("home", &["app", "sdk/programs/z42c"]);
+    let entry = root.join("app");
+    let got = expand_probing_paths_with(
+        &entry,
+        &[PathBuf::from("${Z42_HOME}/programs/z42c")],
+        &[root.join("sdk")],
+    );
+    assert_eq!(got, vec![root.join("sdk/programs/z42c")]);
+}
+
+#[test]
+fn z42_home_placeholder_is_substituted_before_the_absolute_check() {
+    // 要害：`${Z42_HOME}/…` 以 `$` 开头，对 `is_absolute()` 是**相对**路径。若先判再替换，
+    // 它会被拼成 `<app>/${Z42_HOME}/…` —— 一个永远不存在的目录，然后静默跳过（配了等于没配）。
+    // 这里 entry 目录下**故意**放一棵同名的假树：替换顺序错了就会命中它，测试立刻分得清。
+    let root = tree("order", &["app/${Z42_HOME}/programs/z42c", "sdk/programs/z42c"]);
+    let entry = root.join("app");
+    let got = expand_probing_paths_with(
+        &entry,
+        &[PathBuf::from("${Z42_HOME}/programs/z42c")],
+        &[root.join("sdk")],
+    );
+    assert_eq!(got, vec![root.join("sdk/programs/z42c")], "必须解析到 SDK 根，而不是 entry 目录下的同名树");
+}
+
+#[test]
+fn z42_home_candidate_roots_keep_their_priority_order() {
+    // 多个候选根都存在时，顺序 = 候选根的优先级（$Z42_HOME → $Z42_PORTABLE_VM 反推 → current_exe 反推）。
+    // 先汇总再排序会把这个顺序洗成字典序 —— 所以排序必须发生在**每个根的展开内部**。
+    let root = tree("prio", &["app", "b-sdk/programs/z42c", "a-sdk/programs/z42c"]);
+    let entry = root.join("app");
+    let got = expand_probing_paths_with(
+        &entry,
+        &[PathBuf::from("${Z42_HOME}/programs/z42c")],
+        &[root.join("b-sdk"), root.join("a-sdk")],
+    );
+    assert_eq!(got, vec![root.join("b-sdk/programs/z42c"), root.join("a-sdk/programs/z42c")]);
+}
+
+#[test]
+fn z42_home_placeholder_composes_with_globs() {
+    let root = tree("homeglob", &["app", "sdk/programs/z42c", "sdk/programs/z42i"]);
+    let entry = root.join("app");
+    let got =
+        expand_probing_paths_with(&entry, &[PathBuf::from("${Z42_HOME}/programs/*")], &[root.join("sdk")]);
+    assert_eq!(got, vec![root.join("sdk/programs/z42c"), root.join("sdk/programs/z42i")]);
+}
+
+#[test]
+fn unresolvable_z42_home_skips_the_entry_instead_of_faking_a_path() {
+    // 没有任何候选根（既没设环境变量、也反推不出来）⇒ 这一条 pattern 消失，
+    // 而不是变成一个含 `${…}` 的字面目录。
+    let root = tree("nohome", &["app", "sdk/programs/z42c"]);
+    let entry = root.join("app");
+    let got = expand_probing_paths_with(&entry, &[PathBuf::from("${Z42_HOME}/programs/z42c")], &[]);
+    assert!(got.is_empty(), "解析不出来就跳过，得到的是 {got:?}");
+}
+
+#[test]
+fn unknown_placeholder_voids_the_whole_entry() {
+    // 字面回落最坏：它会拼出 `<app>/${FOO}/x`，症状离原因更远。整条作废。
+    let root = tree("unknown", &["app", "app/x"]);
+    let entry = root.join("app");
+    let got = expand_probing_paths_with(&entry, &[PathBuf::from("${FOO}/x")], &[root.join("app")]);
+    assert!(got.is_empty());
+}
+
+#[test]
+fn unclosed_placeholder_voids_the_whole_entry() {
+    let root = tree("unclosed", &["app", "shared"]);
+    let entry = root.join("app");
+    let got = expand_probing_paths_with(&entry, &[PathBuf::from("${Z42_HOME/shared")], &[root.clone()]);
+    assert!(got.is_empty());
+}
+
+#[test]
+fn a_plain_entry_is_unaffected_by_the_placeholder_machinery() {
+    // 绝大多数项不含 `${`：它们必须与占位符引入前逐字一致（这条守的是「没引入回归」）。
+    let root = tree("plain", &["app", "shared"]);
+    let entry = root.join("app");
+    let got = expand_probing_paths_with(&entry, &[PathBuf::from("../shared")], &[root.join("nonexistent")]);
+    assert_eq!(got, vec![root.join("shared")]);
 }

@@ -243,6 +243,20 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         ..PUBLIC
     },
     KnobSpec {
+        name: "Z42_HOME",
+        value: ValueKind::Path,
+        // SDK 安装根，由 launcher / installer 设。VM 只在一处读它：把 probing-paths 里的
+        // `${Z42_HOME}` 换成本机目录（relocate-compiler-domain-libs §5.3.1）。
+        //
+        // 元旋钮（`..META` = CLI_ENV + Internal + 无 `toml_key`）：它说的不是「这个应用要怎么跑」
+        // 而是「这台机器上 SDK 装在哪」，从配置文件里设它是自指的。读取同 `Z42_APP_CONFIG`
+        // —— 消费点 inline `std::env::var`，这是元旋钮的既定形态。
+        description: "SDK install root; `${Z42_HOME}` in `probing-paths` expands to it",
+        default_hint: "unset; then derived from $Z42_PORTABLE_VM, else from the running z42vm's own location",
+        consumed_by: "probing.rs (`${Z42_HOME}` expansion) + toolchain launcher/installer",
+        ..META
+    },
+    KnobSpec {
         name: "Z42_JIT_DEBUG_PROMOTE",
         toml_key: "jit-debug-promote",
         value: ValueKind::Bool,
@@ -354,6 +368,17 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
     // 而那条旋钮解析出来只进日志、五个调用方全传空 —— retire-z42-path（2026-09-25）已把它
     // 连同整条死路径一并退役。`path` 现在是空着的名字；要不要改名是**用户可见的决定**，
     // 留给需要它的时候再说，别顺手做。
+    KnobSpec {
+        name: "Z42_PORTABLE_VM",
+        value: ValueKind::Path,
+        // 指向一个 z42vm（`<sdk-root>/bin/z42vm`）。launcher 与 apphost 用它选 VM；
+        // VM 自己只把它当作**反推 SDK 根**的第二档（上两级），给 `${Z42_HOME}` 用。
+        // 同上一条：元旋钮，不是应用设置。
+        description: "path to the z42vm to run (`<sdk-root>/bin/z42vm`); the VM itself only uses it to derive the SDK root for `${Z42_HOME}`",
+        default_hint: "unset; the launcher/apphost sets it when it picks a VM",
+        consumed_by: "probing.rs (SDK-root derivation) + toolchain launcher/apphost",
+        ..META
+    },
     KnobSpec {
         name: "Z42_PROBING_PATHS",
         toml_key: "probing-paths",
