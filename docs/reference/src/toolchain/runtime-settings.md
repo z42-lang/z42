@@ -92,22 +92,22 @@ z42c build: warning: [profile.release.runtime] 未知运行时旋钮 `gc-mdoe`�
 
 ### 默认只看得到 13 个
 
-`--list-knobs` 默认**只列 `public` 档的 13 个**，`--all` 才列出全部 42 个：
+`--list-knobs` 默认**只列 `public` 档的 13 个**，`--all` 才列出全部 46 个：
 
 ```console
 $ z42vm --list-knobs
-runtime knobs (13 of 42; pass --all for unsupported + internal knobs)
+runtime knobs (13 of 46; pass --all for unsupported + internal knobs)
 …
 $ z42vm --list-knobs --all
-runtime knobs (42 of 42)
+runtime knobs (46 of 46)
 ```
 
-`--show-config` 同样默认 13 行、`--all` 42 行。从 z42 代码里调
-`Std.Runtime.RuntimeConfig.Names()` 拿到的是**全部 42 个**——脚本侧不分档。
+`--show-config` 同样默认 13 行、`--all` 46 行。从 z42 代码里调
+`Std.Runtime.RuntimeConfig.Names()` 拿到的是**全部 46 个**——脚本侧不分档。
 
-那 42 个里有 3 个是**元旋钮**（`Z42_CONFIG` / `Z42_APP_CONFIG` / `Z42_STRICT_CONFIG`）：
-它们决定读哪个文件、诊断多严格，只收命令行与环境变量，写进配置文件会自指，所以没有
-kebab 形式的 key。
+那 46 个里有 5 个是**元旋钮**（`Z42_CONFIG` / `Z42_APP_CONFIG` / `Z42_STRICT_CONFIG` /
+`Z42_HOME` / `Z42_PORTABLE_VM`）：它们决定读哪个文件、诊断多严格、SDK 装在哪，只收命令行与
+环境变量，写进配置文件会自指（或者根本不是「这个应用的」设置），所以没有 kebab 形式的 key。
 
 `--show-config` 的输出每行是 `key = 值  [来源层]`，被压过的层缩进列在下面：
 
@@ -145,6 +145,30 @@ probing-paths = ["../shared", "../vendor"]   # 多条写数组（推荐，跨平
 | 顺序 | 按声明序；同一模式的展开结果按路径排序（不依赖目录读取的偶然顺序）|
 | 不存在的目录 | 静默跳过（可选的插件目录不该让启动失败）|
 | 同名 zpkg 出现在多个目录 | 取搜索序里第一个命中的，不做版本比较 |
+| `${Z42_HOME}` | 展开成本机 SDK 根（见下）；未知或未闭合的 `${…}` 让**整条**失效 |
+
+**`${Z42_HOME}` 占位符** —— 指回 SDK 而不烤死路径：
+
+```toml
+probing-paths = ["${Z42_HOME}/programs/z42c"]
+```
+
+侧车随产物分发，所以里面写绝对路径换台机器就失效，而相对路径对「装在任意位置的应用要指回
+SDK」无解。占位符由 VM 在**运行期**替换，候选根按此序（都不成立则这一条跳过）：
+
+| 序 | 来源 | 说明 |
+|---|---|---|
+| ① | `$Z42_HOME` | 显式指定的安装位置（launcher 转发时已设）|
+| ② | `$Z42_PORTABLE_VM` | 反推 SDK 根（`<root>/bin/z42vm` ⇒ 上两级）；apphost 启动前会设它 |
+| ③ | 正在跑的 z42vm 自己的位置 | 同样上两级 —— 两个环境变量都没设时仍然有效 |
+
+多个候选根都存在时按上表顺序各展开一次（都进搜索序，不是只取第一个）。展开结果必须是**真实
+存在的目录**才会进搜索序，所以反推错了的档自然落空。
+
+> ⚠️ **未知占位符是整条作废，不是字面保留**：`${FOO}/x` 不会变成一个名叫 `${FOO}` 的目录去找。
+> 这与清单里那套**编译期**模板变量（`${workspace_dir}` 等小写名）刻意不同 —— 编译期有诊断通道、
+> 拼错当场报错；运行期这里没有不污染程序输出的通道，于是选了「跳过」这个既有语义。
+> 大小写本身就是分界：`${lower_snake}` = 清单模板变量（编译期），`${UPPER}` = 环境派生的根（运行期）。
 
 **两种写法**：
 
@@ -233,10 +257,11 @@ probing-paths = ["../shared", "../vendor"]   # 多条写数组（推荐，跨平
   `gc-slice-ms`、`gc-soft-threshold`、`gc-throttle-ratio`、`jit-interp-tierup`、
   `jit-threshold`、`osr-threshold`、`safepoint-throttle`、`stackalloc`。
   它们能设、会生效，但默认值随版本调整，不承诺稳定。
-- **`internal`**（12 个）——机制内部件、保留位与三个元旋钮：`fusion-debug`、`no-fusion`、
+- **`internal`**（14 个）——机制内部件、保留位与五个元旋钮：`fusion-debug`、`no-fusion`、
   `no-typed-fusion`、`jit-debug-promote`、`gc-phases`、`repl-native`、
   `spawn-env-delay-ms`、`stress-iters`（只在 debug build 存在，且只收环境变量）、
-  `target`（保留，尚未实现），以及 `Z42_CONFIG` / `Z42_APP_CONFIG` / `Z42_STRICT_CONFIG`。
+  `target`（保留，尚未实现），以及 `Z42_CONFIG` / `Z42_APP_CONFIG` / `Z42_STRICT_CONFIG` /
+  `Z42_HOME` / `Z42_PORTABLE_VM`。
 
 一个旋钮的值要生效需四项全通过：允许的来源层 → build 类型（有的只在 debug build 存在）
 → 本二进制编进了它需要的 feature → 当前平台允许。任一不满足则值被丢弃并给一条诊断，

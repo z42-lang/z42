@@ -147,7 +147,7 @@ z42vm <file>
   │      → probe `<basename>.zsym` 同目录；存在且 build_id 匹配 →
   │        合并 sidecar DBUG 到 per-module funcs（详见下方 sidecar 章节）
   │
-  ├── 5.1d 依赖加载策略（search_dirs = [入口zpkg目录, stdlib libs]，见下「同址搜索」）
+  ├── 5.1d 依赖加载策略（search_dirs = [入口zpkg目录, probing-paths 展开结果, stdlib libs]，见下「同址搜索」）
   │      interp: 纯懒加载（build_declared_candidates 填充 LazyLoader）
   │      jit/aot: eager 预加载所有声明依赖（**transitive BFS**，见下）
   │              （同时也填 LazyLoader 以防 type/func 零碎 miss）
@@ -191,11 +191,19 @@ z42vm <file>
 ### 依赖同址搜索（support-colocated-zpkg-deps，2026-06-20）
 
 依赖 zpkg 按文件名在 `search_dirs` 列表里**按序**解析，而非单一 `libs_dir`。z42vm CLI
-组装 `search_dirs = [入口 zpkg 所在目录, stdlib libs 目录]`（去重、顺序固定 →
-解析确定性；入口目录优先）。**动机**：apphost 把 payload 与它的包依赖放在一起发布——
+组装 `search_dirs = [入口 zpkg 所在目录, probing-paths 展开结果, stdlib libs 目录]`
+（去重、顺序固定 → 解析确定性；入口目录优先）。**动机**：apphost 把 payload 与它的包依赖放在一起发布——
 `bin/z42c`(apphost) → `programs/z42c/z42c.driver.zpkg`，其兄弟 `z42c.core.zpkg` 等也在
 `programs/z42c/`，**不在 stdlib `libs/`**。同址搜索让 driver 既能找到同址的 `z42c.*`，
 又能从 `libs/` 找 `z42.*`，无需把两者拍平到一个目录。
+
+中间那一档由 `probing::expand_probing_paths` 展开（add-deployment-model 批 3 加入，此处**原本漏记**）：
+相对项按 entry 目录解析、`*`/`**` 展开成目录、不存在的静默跳过，另外认一个 `${Z42_HOME}` 占位符
+（relocate-compiler-domain-libs §5.3.1 —— 侧车随产物分发，不能烤具体路径；候选根 = `$Z42_HOME` →
+`$Z42_PORTABLE_VM` 反推 → 正在跑的 z42vm 自己的位置）。规则全表见
+[runtime-settings.md](../../../reference/src/toolchain/runtime-settings.md)。
+🔴 占位符今天**只有 support 侧**：z42c 尚未发射它（受 bootstrap-seed 分阶段纪律，挂在
+`probing.rs#probing-z42home-emit`）。
 
 落点：`LazyLoader.search_dirs: Vec<PathBuf>`（原 `libs_dir: Option`）；transitive unfold
 用 `ZpkgCandidate::build_in_dirs(dirs, file)`（首个含该文件的目录胜出）。eager BFS 与
