@@ -377,7 +377,23 @@ design 自己写着：`GetHashCode` 是 FNV-1a over UTF-8、**O(n) 每次重算�
 > 在悄悄移动。**固定流程**：`rm -rf artifacts/build/compiler` → 铺同一份 SDK 种子 →
 > `build compiler` **一次** → `test fingerprint`。（不要再跑 `build stdlib`：门内部会用本树
 > driver 编 base 的 stdlib 源码，不需要本树的 stdlib 产物，多跑一次就多一代。）
-- [ ] A5 剩余消费点迁移 + 删四访问器的短名回落 + 清死码
+- [x] A5**a** ✅ base 链走查的 **16 处**消费点全部收敛到 `SymbolTable.BaseOf(ct)` 这一个出口
+      （句柄在场走 `Intern.At`＝数组索引；`Base == 0` 时才回落名字）。顺带塌掉三处**双重**哈希
+      （`HasClass(name)` + `GetClass(name)` 双查）。**字节恒等**（代际受控对账，19 包逐字节一致）
+      ⇒ **不 bump 指纹**。
+      > ⚠️⚠️ **第一刀只迁了 13 处，漏了 3 处** —— `ClassExtractor` / `DeclBinder` /
+      > `ForeachProtocol`，它们的持有变量不叫 `ct`（`walk` / `curCls`），**凭记忆扫目录扫不出来**，
+      > 是写 PR 描述时回头做全仓 grep 才抓到的。同 `rename-sweep-must-start-from-grep`：
+      > **清扫的第一步是 grep，不是回忆**。自检判据已写进 `BaseOf` 头注：
+      > `grep -E "(GetClass|HasClass)\([^)]*BaseName" src/compiler/` 只应剩两处 ——
+      > `Origins:527`（**门的判据**，刻意按名字查以发现「查得到却没绑」的矛盾）与 `BaseOf` 自身的回落。
+      > ⭐ `ForeachProtocol` 那处**不是**单纯的链上走一步，而是拿 `HasClass` 当**可见性探针**
+      > （基类不可见 ⇒ 保守当它有 `Dispose`）。塌成一次前验了等价性：`HasClass` 与 `_refOfClass`
+      > 走同一套双键（`ByFqn` → 短名）⇒ `Base != 0` ⟺ `HasClass` 真。**两者键覆盖若不同这一合就是
+      > 静默行为变更** —— A4 就撞到过 `Classes.Find` 只查短名表。
+      > ⚠️ 行数门顺带红了（`SymbolTable.z42` 891 > 886 硬限）⇒ 按 `SymbolTable.Origins.z42` 先例
+      > 拆出 `SymbolTable.Nominal.z42`（名义关系那一簇，652 + 263 行），**纯搬运**、方法体逐字未改。
+- [ ] A5**b** 建 `Resolve(scope, name) -> TypeRef` 单入口 + 删四访问器的短名回落 + 清死码
 - [ ] A6 性能对账：`GetHashCode` 在 profile 里的占比应下降（基线 1.93%）
 
 ## 阶段 3（原字符串路的计划，D-B 选定后由 B2~B5 取代）—— I2 归一唯一出口响亮化

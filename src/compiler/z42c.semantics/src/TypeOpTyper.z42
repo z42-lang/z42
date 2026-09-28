@@ -186,7 +186,7 @@ public sealed class TypeOpTyper {
                     i = i + 1;
                 }
                 if (!cur.HasBase) { break; }
-                cur = env.Symbols.GetClass(cur.BaseName);
+                cur = env.Symbols.BaseOf(cur);   // A5：走句柄
                 hops = hops + 1;
             }
 
@@ -316,7 +316,7 @@ public sealed class TypeOpTyper {
                 i = i + 1;
             }
             if (!cur.HasBase) { break; }
-            cur = env.Symbols.GetClass(cur.BaseName);
+            cur = env.Symbols.BaseOf(cur);   // A5：走句柄
             hops = hops + 1;
         }
         if (n == 0) { return ""; }

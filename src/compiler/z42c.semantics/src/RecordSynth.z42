@@ -77,8 +77,9 @@ public sealed class RecordSynthEmitter {
         while (cur != null) {
             if (cc == chain.Length) { Z42ClassType[] nb = new Z42ClassType[chain.Length * 2]; int k = 0; while (k < cc) { nb[k] = chain[k]; k = k + 1; } chain = nb; }
             chain[cc] = cur; cc = cc + 1;
-            if (cur.HasBase && this._symbols.HasClass(cur.BaseName)) { cur = this._symbols.GetClass(cur.BaseName) as Z42ClassType; }
-            else { cur = null; }
+            // A5：`HasClass` + `GetClass` 是两次字符串哈希；`BaseOf` 一次数组索引，
+            // 且「没有基类 / 基类不可见」都归一成 null ⇒ 语义等价。
+            cur = this._symbols.BaseOf(cur);
         }
         string[] names = new string[8]; Z42Type[] types = new Z42Type[8]; int n = 0;
         int ci = cc - 1;
