@@ -24,8 +24,47 @@ using Std;
 using Std.IO;
 
 // Returns 0 if every cross-zpkg case passes, 1 on any failure (or setup error).
+// 硬链接写穿透门（2026-09-28）。本 stage 把 stdlib **硬链接**进每个 fixture 的临时
+// `Z42_LIBS`（`_copyStdlibZpkgs`，为省下一轮 ≈198MB 的纯拷贝），而 `File.Copy` 是
+// truncate 语义 ⇒ 写到别名上会把**真正的 flat dist 与成员 dist 一起改掉**。今天躲过它
+// 靠的是「fixture 包都叫 `demo.*`，不与 `z42.*` 撞名」这个巧合，没有任何东西约束它。
+//
+// ⇒ 每轮开跑前**真做一遍**：建一对硬链接、往其中一条 `_copyAll`，断言另一条没变。
+// （查「规则在不在」要查行为——静态扫一眼 `_copyAll` 里有没有那行 unlink 是查码。）
+// 注入验证：把 `_unlinkIfExists` 从 `_copyAll` 里去掉，本门当场红。
+int _assertCopyDoesNotWriteThroughHardLinks(string root) {
+    string tmp = Path.Join(Path.Join(Path.Join(root, "artifacts"), ".scratch"), "fs-writethrough");
+    _resetDir(tmp);
+    string srcDir = Path.Join(tmp, "src");
+    string aliasDir = Path.Join(tmp, "alias");
+    string otherDir = Path.Join(tmp, "other");
+    Directory.Create(srcDir); Directory.Create(aliasDir); Directory.Create(otherDir);
+
+    string keep = Path.Join(srcDir, "p.zpkg");
+    File.WriteAllText(keep, "ORIGINAL");
+    _linkAll(srcDir, aliasDir, "*.zpkg");          // alias/p.zpkg 与 src/p.zpkg 同 inode
+    File.WriteAllText(Path.Join(otherDir, "p.zpkg"), "OVERWRITE");
+    _copyAll(otherDir, aliasDir, "*.zpkg");        // 往别名上写
+
+    string after = File.ReadAllText(keep);
+    if (after != "ORIGINAL") {
+        Console.WriteLine("  ✗ 拷贝穿透了硬链接：src/p.zpkg 本应是 ORIGINAL，实际是 " + after);
+        Console.WriteLine("    `File.Copy` 保留 inode ⇒ 写别名会改掉源文件。");
+        Console.WriteLine("    修法：写入前先 File.Delete(dst) 断链（scripts/common/xtask_fs.z42）。");
+        return 1;
+    }
+    // 硬链接本身还在不在（别把优化一起删了）：copy 之后 alias 应是独立的新文件。
+    if (File.ReadAllText(Path.Join(aliasDir, "p.zpkg")) != "OVERWRITE") {
+        Console.WriteLine("  ✗ 断链之后 _copyAll 没把新内容写进去");
+        return 1;
+    }
+    Directory.Delete(tmp, true);
+    return 0;
+}
+
 int _testCrossZpkgImpl(string mode) {
     string root = _root();
+    if (_assertCopyDoesNotWriteThroughHardLinks(root) != 0) { return 1; }
 
     string testsDir = Path.Join(root, "src/tests/cross-zpkg");
     // --toolchain (compile-once P3): when an active toolchain is selected, locate

@@ -71,6 +71,18 @@ xtask 里只有两类路径是「自己发明的约定、没有 toml 归属」�
 **没有 namespace index**：VM 扫目录、读每个 zpkg 的 `NSPC` section 认领 namespace，嵌入解析器同理。
 索引会是一份需要同步的冗余状态。
 
+🔴 **hard-link 的代价：聚合目录里的每个文件与它的 per-lib 源是同一个 inode**（实测
+`links=2`）。而 `File.Copy` / `File.WriteAllBytes` 都是 **truncate 语义、保留 inode** ⇒
+往聚合目录里写一个同名文件，会把 per-lib 源**一起改掉**（实测：拷一份种子 zpkg 进聚合目录，
+per-lib 那份的内容当场变成种子字节）。可达路径就在供种里：`_ensureSeed` 把种子 stdlib
+拷进聚合目录，而且**只拷 `.zpkg` 不拷 `.zsym`** ⇒ 留下撕开的配对，症状是一条
+`build_id mismatch` WARN 污染全部 golden（relocate-compiler-domain-libs 第 6 轮吃过）。
+
+⇒ **不变式：往可能有别名的目录写之前先 `File.Delete(dst)` 断链**（unlink 只断这一条链）。
+`scripts/common/xtask_fs.z42` 的 `_copyAll` / `_linkAll` 都这么做，行为门在
+`xtask test e2e --dir cross-zpkg` 每轮开跑前真跑一遍。保留 hard-link 本身——它省的是
+cross-zpkg 一轮 ≈198MB 的纯拷贝；有害的是「写到别名上」，不是「有别名」。
+
 这样 `build/` 仍完整镜像 `src/`（每条路径都能映回一个 `src/` 位置），同时给 VM 与打包一个稳定的聚合点。
 
 ## 3. `.scratch/`：中间态的统一去处
@@ -80,7 +92,7 @@ xtask 里只有两类路径是「自己发明的约定、没有 toml 归属」�
 | 目录 | 谁用 | 是什么 |
 |---|---|---|
 | `.scratch/stdlib-run/<profile>` | `build stdlib` 阶段二 | stdlib 的稳定快照，供正在重编 stdlib 的 driver 当 `Z42_LIBS` |
-| `.scratch/alllibs/<profile>` | `test stdlib` / `test compiler` units / bench | stdlib + 编译器成员 hard-link 到一起的单一查找点（driver 的兄弟包与被测 stdlib 必须同处一目录）|
+| `.scratch/alllibs/<profile>` | `test stdlib` / `test compiler` units / bench | stdlib + 编译器成员**拷**到一起的单一查找点（driver 的兄弟包与被测 stdlib 必须同处一目录）。曾是 hard-link，relocate-compiler-domain-libs 改成拷贝——它上了关键路径后，别名撕开 zpkg/zsym 配对让 1128 个 golden 假红 |
 | `.scratch/selfhost-gen1` | `test compiler` | 不动点验证的 gen1 快照 |
 | `.scratch/e2e` / `.scratch/xpkg-driver` | e2e / cross-zpkg | 用例工作区 |
 | `.scratch/targets/<proj>` | `test targets` | manifest target fixture 输出 |
