@@ -412,6 +412,16 @@ jobs:
           ( cd base-src/src/compiler && \
             Z42_LIBS="$PRALL" "$PRVM" "$PRDRIVER" --mode jit -- build --workspace --release --no-incremental )
 
+          # 取证：两侧 driver 是不是**同一个二进制**（2026-09-28）。
+          # 下面的 fingerprint guard 比的是「两侧 driver 各编一遍同一份 stdlib 源码」的字节。
+          # 它红过一轮与被测 PR 无关的案例（源码没变也报「1 个包」）——而事后回看只有这份日志，
+          # 却查不到最要紧的那一条：两侧 driver 本身是否一致。
+          #   · sha 相同而输出不同 ⇒ 编译非确定性（那是真 bug，不是该 bump 指纹的事）；
+          #   · sha 不同         ⇒ 自举代差异（PRDRIVER 由种子链产出，BASEDRIVER 是 PRDRIVER 又编一代；
+          #                        stdlib-build-not-generationally-convergent 说每代恰一两个包不同）。
+          # 两行 echo，不改任何行为 —— 先有证据再谈改编排。
+          echo "driver sha (pr)   $(sha256sum "$PRDRIVER" | cut -c1-16)  $PRDRIVER"
+
           # base flat libs = base z42c siblings + stdlib (to RUN the base driver) +
           # base stdlib (built next, overwriting the seed stdlib for measurement).
           BASEALL="$ROOT/.ab-base-alllibs"; rm -rf "$BASEALL"; mkdir -p "$BASEALL"
@@ -426,6 +436,7 @@ jobs:
           # below then overwrites these for the actual measurement.
           for f in "$ROOT/artifacts/build/libraries/dist/release/"*.zpkg; do cp -f "$f" "$BASEALL/"; done
           BASEDRIVER="$BASEALL/z42c.driver.zpkg"
+          echo "driver sha (base) $(sha256sum "$BASEDRIVER" | cut -c1-16)  $BASEDRIVER"
           # ⚠ 这一步用 **PR 的 VM** 跑，不是 BASEVM。上面刚把 PR stdlib 塞进 BASEALL（理由见
           # 紧邻的注释：BASEDRIVER 是 PR z42c 编的，要 PR stdlib 才跑得起来）—— 而 PR stdlib
           # 可能用到本 PR 新增的 builtin，base VM 里还没有（perf-bulk-array-copy 实证：
