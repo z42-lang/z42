@@ -363,6 +363,12 @@ public sealed class StubCollector {
     }
 
     // ct 的接口集是否已含 name（碎片接口并集 dedup 用）。
+    //
+    // 🔴 **B3 刻意不改成句柄比较，这不是漏网**：本函数跑在 **Pass A**（class stub 收集），
+    // 那时 `_passQualifyIfaceNames` 还没归一名字、`BindTypeRefs` 更没跑 ⇒
+    // `ct.Interfaces[]` **全是 0（未绑定）**，换成句柄这里会恒判「不含」⇒ partial 碎片的
+    // 接口并集出现重复条目。**按名字比是这个相位唯一可用的判据。**
+    // ⇒ 与之对称：`ImportedSymbolLoader` 的 trait 去重（`_mergeImpl` 早于 `_mergeImports`）同理。
     private bool _ctHasIface(Z42ClassType ct, string name) {
         int i = 0;
         while (i < ct.InterfaceCount) { if (ct.InterfaceNames[i] == name) { return true; } i = i + 1; }

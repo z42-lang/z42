@@ -1,0 +1,94 @@
+// enforce-fqn-name-identity **B3** —— 名字 → 名义身份句柄（`TypeRef`）的绑定。
+//
+// 覆盖 `SymbolTable.BindTypeRefs`（跑在 `InternAllTypes()` 之后）把
+// `Z42ClassType.InterfaceNames[i]` / `Z42InterfaceType.BaseNames[i]` 解析成 `TypeIntern` 的 id，
+// 写进平行的 `Interfaces[i]` / `Bases[i]`。
+//
+// ⚠️ 用例**必须带 `namespace`**：不带的话 `Fqn()` 退化成短名，FQ 与短名分不开、断言恒绿
+// = 空门。阶段 0 的 0.5 项就是为这个立的（既有用例源码都没有 namespace）。
+//
+// ⚠️ **覆盖范围**：本文件的 `collect()` 走 `SymbolCollector.Collect`（三个挂载点之一）。
+// 另两处（`CollectAll` / `CollectWithImports`）要多 CU / 导入上下文才压得到，由 stdlib 自举
+// 与 cross-zpkg 端到端兜 —— 三处漏挂任一处，那条路上的句柄会全是 0 且**静默**
+// （见 `parallel-pass-sequences-miss-new-hook`）。
+//
+// 单独成文件而不是追加进 `collect_tests.z42`：后者已 854 行，逼近 886 行硬限。
+namespace Z42cSemanticsTypeRefBindTests;
+
+using Std;
+
+using Std.Test;
+using Z42.Syntax;
+using Z42.Semantics;
+
+SymbolTable collect(string src) {
+    var p = new Parser(src, "t.z42");
+    var cu = p.ParseCompilationUnit();
+    return new SymbolCollector().Collect(cu);
+}
+
+// 类实现的接口绑上了句柄，且句柄指回同一个接口对象。
+[Test]
+void test_class_iface_ref_bound() {
+    var t = collect("namespace Demo; interface IA { } class Foo : IA { }");
+    var foo = t.GetClass("Foo");
+    var ia = t.GetInterface("Demo.IA");
+    Assert.Equal(1, foo.InterfaceCount);
+    Assert.Equal(true, foo.Interfaces != null && foo.Interfaces.Length > 0);
+    Assert.Equal(true, foo.Interfaces[0] != 0);                // 绑上了（0 = 未绑定）
+    Assert.Equal(true, t.Intern.At(foo.Interfaces[0]) == ia);  // 句柄指回同一个对象
+    Assert.Equal(ia.TypeId, foo.Interfaces[0]);
+}
+
+// 接口的父接口链同样绑上句柄（`BaseNames` 那根轴 —— 与类那根是两条搬运路）。
+[Test]
+void test_iface_base_ref_bound() {
+    var t = collect("namespace Demo; interface IBase { } interface IDer : IBase { }");
+    var der = t.GetInterface("Demo.IDer");
+    var bas = t.GetInterface("Demo.IBase");
+    Assert.Equal(true, der.BaseCount > 0);
+    Assert.Equal(true, der.Bases != null && der.Bases.Length > 0);
+    Assert.Equal(bas.TypeId, der.Bases[0]);
+}
+
+// 🔴 门：在表里查得到、句柄却仍是 0 ⇒ 绑定 pass 漏跑。正常收集后必须为空。
+// 这道门只挑**矛盾**的那种；合法的「看不见所以绑不到」不算，否则会对正常工程狂叫。
+[Test]
+void test_no_unbound_iface_ref_after_collect() {
+    var t = collect("namespace Demo; interface IBase { } interface IDer : IBase { } class Foo : IDer { }");
+    Assert.Equal("", t.FirstUnboundIfaceRef());
+}
+
+// 🔴 **0（未绑定）不得参与相等判定** —— 句柄化独有的陷阱：
+// 目标与实现方两边都绑不到时 `0 == 0` 会撞成假阳性，而「绑不到」是**合法状态**
+// （消费方不必看得见它实现的每个接口）。用一个根本不存在的接口名做探针：
+// 它 `_refOfIface` 得 0，若 0 参与判定就会与任何未绑定槽相等。
+[Test]
+void test_zero_ref_never_matches() {
+    var t = collect("namespace Demo; interface IA { } class Foo : IA { }");
+    Assert.Equal(false, t.Implements("Foo", "INotDeclaredAnywhere"));
+    Assert.Equal(false, t.Implements("Foo", "Demo.INotDeclaredAnywhere"));
+    // 对照：真实现的那个仍判 true，短名与 FQN 两种拼写都要认
+    Assert.Equal(true, t.Implements("Foo", "IA"));
+    Assert.Equal(true, t.Implements("Foo", "Demo.IA"));
+}
+
+// 句柄化不改变传递闭包的答案（`Foo : IDer : IBase` ⇒ Foo 实现 IBase）。
+// 这条同时压住 `Implements` 的 BFS 种子与 `_anyInterfaceDerivesFrom` 的父链展开两段。
+[Test]
+void test_transitive_still_holds_with_refs() {
+    var t = collect("namespace Demo; interface IBase { } interface IDer : IBase { } class Foo : IDer { }");
+    Assert.Equal(true, t.Implements("Foo", "Demo.IBase"));
+    Assert.Equal(true, t.Implements("Foo", "IBase"));
+    Assert.Equal(false, t.Implements("Foo", "Demo.INope"));
+}
+
+// 绑定是幂等的：`BindTypeRefs` 在多轮收集里会被反复调，已绑定的槽不得被改写。
+[Test]
+void test_bind_is_idempotent() {
+    var t = collect("namespace Demo; interface IA { } class Foo : IA { }");
+    var foo = t.GetClass("Foo");
+    int before = foo.Interfaces[0];
+    t.BindTypeRefs();
+    Assert.Equal(before, foo.Interfaces[0]);
+}

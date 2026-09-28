@@ -11,7 +11,9 @@
       （此前只挂 `CollectAll`；三份平行 pass 序列漏一处 = 那条路上 `Implements` 恒假）
 - [x] 0.3 **A2**：`ClassDescBuilder` 接口限定补点号守卫（镜像同文件基类那格），避免 FQN 被二次限定成
       `Demo.Std.IDisposable`
-- [x] 0.4 **B3**：`SymbolTable.InterfaceDerivesFrom` 两个参数对称归一 + 改走 `GetInterface` 双键
+- [x] 0.4 **A3**：`SymbolTable.InterfaceDerivesFrom` 两个参数对称归一 + 改走 `GetInterface` 双键
+      （⚠️ 本项原标号「B3」，与 **D-B 分批的 B3**（`InterfaceNames`/`BaseNames` → `TypeRef[]`）
+      同名 —— 阶段 0 那三条真缺陷是 A 系列，已改标 A3 消歧。引用旧标号的地方按此对照。）
 - [x] 0.5 带 `namespace` 的真门用例 ×6（`collect_tests.z42`）——既有用例源码都没有 namespace ⇒
       `Fqn()` 退化成短名 ⇒ 断言恒绿 = 空门
 - [x] 0.6 字节对账：`base3` vs 带改动 **0 差异**；且 stdlib pass1≡pass2（让结论不依赖会挂死的第二遍）
@@ -131,6 +133,100 @@
       `cross-zpkg/iface_base_shortname_collision_crosspkg`（两层继承 `Impl → IChild → IParent`）。
       关键对照 `iface_base_chain_crosspkg`（父接口带实参 `ILeaf : IMid<int>`）仍 PASS
       ⇒ 「截 `<`、保留 ns」没碰坏实参处理。
+
+## B3 —— `InterfaceNames` / `BaseNames` → `TypeRef[]`（🔨 进行中）
+
+> 前置：B1（intern 表）✅#907 · B2.3/B2.5（FQ 名活着穿过导入边界）✅#916。
+> 后者是**硬前提**：绑定 pass 要按 FQN 精确解析，名字被剥过 ns 就绑不准。
+
+### 测绘（2026-09-28 实测，design 估的 ~246 偏大）
+
+`InterfaceNames` 72 处 + `BaseNames` 67 处 = **139**，减去两类**不在范围内**的：
+
+- `GenericConstraint.z42` 7 处 —— 那是 `ConstraintBundle.InterfaceNames`，**同名但另一个类**；
+- `z42.package/src/ExportedTypes.z42` 5 处 —— **wire 面，保持 `string[]`**（见下「边界」）。
+
+⇒ 真正要动 **~127 处**，集中在 `z42c.semantics`：`StubCollector` 26 · `Z42Type` 20 ·
+`ImportedSymbolLoader` 10 · `SymbolTable` 9 · `InheritanceResolver` 8 · `InterfaceClosure` 6 ·
+`SymbolCollector` 4 · `ClassDescBuilder` 4 · `ConstraintChecker` 3 + 测试。
+
+### 🔴 三条定死的设计决策
+
+1. **不能切片，必须一次翻两个字段**。`SymbolTable.Implements` 的 BFS 把
+   `ct.InterfaceNames[i]`（种子）与 `it.BaseNames[b]`（沿父链展开）压进**同一个 queue**
+   ⇒ 只翻一个，那个 queue 的元素类型就自相矛盾。
+   ⭐ 好消息：句柄化让这种「翻一半」变成**编译错误**，而不是字符串时代的静默失配
+   —— 那正是选 D-B 的理由（错误写法无法表达）。
+2. **登记期拿不到 id ⇒ 必须两趟**。`AddInterfaceName` 被调用时目标接口常常还没进表
+   （前向引用）。故：
+   - `InterfaceNames : string[]` / `BaseNames : string[]` **降级为收集期暂存**（B5 删）；
+   - 新增 `Interfaces : TypeRef[]` / `Bases : TypeRef[]` 为**权威**，由新 pass
+     `_passBindTypeRefs` 填充；
+   - **所有消费点改读句柄**。B3 之后「消费面」已无裸名，B5 再删暂存字段兑现「写不出来」。
+3. **相位：绑定 pass 必须在 `InternAllTypes()` 之后**。现有顺序是
+   `_passQualifyIfaceNames` → `_seedObjectStub` → `InternAllTypes()`
+   （后者**必须**在 `_seedObjectStub` 之后，它也登记类型）⇒ 新 pass 挂在 `InternAllTypes()`
+   之后，三个挂载点（`SymbolCollector` 的 `Collect` / `CollectWithImports` / `CollectAll`）
+   **一个都不能漏** —— 漏一处那条路上的句柄全是 0，见 [[parallel-pass-sequences-miss-new-hook]]。
+
+### 边界与不变量
+
+- **哨兵 `0` = None**，有效 id 从 1 起（design §4'.2 已更正）。`new int[n]` 默认全 0
+  ⇒ 新建的 `TypeRef[]` 天然全是 None，不必手工填。
+- **`BaseRefs` 不动**：它与 `BaseNames` 平行、共用 `BaseCount`，但存的是**声明形态**
+  （`IMid<int>` 的 TypeExpr），不是查找键。⚠️ 改 `BaseNames` 长度时 `BaseRefs` 必须同步，
+  错位是静默的。
+- **wire 一行不改**：`ExportedClassZ.Interfaces` / `ExportedInterfaceZ.BaseNames` 仍是
+  FQ 字符串；转换只发生在导入（`ImportedSymbolLoader`，字符串→句柄）与导出
+  （`ClassExtractor`/`ClassDescBuilder`，句柄→FQ 字符串）两个边界。⇒ **无格式 bump**。
+- **验收 = stdlib 字节对账恒等**（`test fingerprint`）。
+
+### 🔴 风险与恢复
+
+新 pass 跑在 `CollectAll` = **自举必经路径** ⇒ 它崩就编不出修好它的编译器。
+按「它会跑在一个我不能重建的编译器里」写：边界、null、空表全部先判，宁可保守返回也别崩。
+恢复 = `rm -rf artifacts/build/{compiler,libraries}` + 重铺 nightly SDK 冷种子
+（⚠️ 保留 `artifacts/.z42`）。
+
+### 任务
+
+- [x] B3.1 `Z42Type`：`Z42ClassType.Interfaces : int[]` / `Z42InterfaceType.Bases : int[]`
+      + `AddInterfaceName` / `AddBaseRef` 同步等长扩容 + 实例化接口视图**共享** def 的 `Bases`
+- [x] B3.2 `SymbolTable.BindTypeRefs()`（名字→句柄，走 `GetInterface` FQN 双键；查不到留 0
+      并**不报错** —— 合法情形见 B2.0 的归因）
+- [x] B3.3 三个挂载点接线（`Collect` / `CollectAll` / `CollectWithImports`，均在
+      `InternAllTypes()` **之后**）+ 门 `FirstUnboundIfaceRef()`（只抓**矛盾**的那种：
+      名字非空、`GetInterface` 查得到、句柄却仍是 0 ⇒ 只可能是绑定没跑到）
+- [x] B3.4 **相等判定**改走句柄：`SymbolTable._sameIface`（唯一出口）+ `Implements` BFS 种子
+      + `_anyInterfaceDerivesFrom` 父链展开。
+      🔴 **0（未绑定）不参与相等判定** —— 否则「目标绑不到」与「实现方那格绑不到」会
+      `0 == 0` 撞成假阳性，而「绑不到」是合法状态。两边都有句柄才比句柄，否则退回名字
+      ⇒ 行为逐字不变、**字节恒等**；B5 删这条回落时要单独裁「绑不到」的语义。
+- [x] B3.5 单测 `tests/collect/typeref_bind_tests.z42`（6 条，**带 `namespace`**；
+      单独成文件是因为 `collect_tests.z42` 已 854 行、逼近 886 硬限）
+
+### 🔴🔴 本批最值钱的产出：逼出了 B1 的一个**既有缺陷**（已在 main 上）
+
+`StrMap.ValAt(i)/KeyAt(i)` 按**槽位**索引，`Count()` 是**条目数** —— 索引空间不同。
+`#907` 的 **`_internAllIn`（扫描）与 `_firstUninterned`（门）都写成了 `while (i < tbl.Count())`**
+⇒ 只扫前 `_count` 个槽，条目散到靠后的槽就**漏 intern**、留下 `TypeId == 0`；
+而门用同一个错误上界 ⇒ **看不见自己漏的东西，永远不红**。
+
+⭐ 它是被 B3 一条无关断言逼出来的：`interface IDer : IBase` 的 `IDer` 恰好落在靠后的槽
+⇒ 句柄绑不上；同轮里类那根轴（`Foo` 在前面的槽）**正常通过**，一度误导我去查「两条路的
+相位差异」。⇒ **同一个 pass 对 A 生效、对 B 不生效时，先怀疑遍历本身。**
+
+已修四处（B1 的 2 + 本批新写的 3 之中的 3），并按「`while` 上界取 `Count()` + 循环变量直接进
+`ValAt/KeyAt`」精确扫过全仓 `.z42`：**误用仅此，其余都是 `ValAt(Find(k))` 的正确用法**。
+细节见 memory `strmap-count-vs-slot-scan`。
+
+### 本批**没做**的（如实记，别当已完成）
+
+句柄这一批只接管了**相等判定**。**查找**（`GetInterface(name)`）与**发射**
+（`ClassDescBuilder` 写 TYPE 段、`ClassExtractor` 导出）仍走名字 —— 那两者本来就需要名字
+（wire 面是字符串），把它们句柄化属于 B5「删字符串回落」的范围。
+`Implements` 的 BFS **queue 仍装名字**（下游要按名字 `GetInterface` 找定义）。
+⇒ 「裸名在符号表里写不出来」这条**尚未兑现**，B5 才兑现。
 
 ## 阶段 3（原字符串路的计划，D-B 选定后由 B2~B5 取代）—— I2 归一唯一出口响亮化
 

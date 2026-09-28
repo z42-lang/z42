@@ -67,6 +67,7 @@ public sealed class SymbolCollector {
         this._stub._passQualifyIfaceNames(t);   // interface-names-fqn：相位同 CollectAll（全部 stub 进表后、成员解析前）
         this._seedObjectStub(t);   // imported Type 已入表后；GetType 返回真实 Type 类（链式 getter 分派）
         t.InternAllTypes();        // enforce-fqn-name-identity B1：**必须在 Object stub 之后** —— 它也登记类型
+        t.BindTypeRefs();          // B3：名字 → 句柄。**必须紧跟 InternAllTypes**（id 那时才存在）
         this._stub._passDelegates(t, cu);
         this._member._passMembers(t, cu);
         this._runCtorInheritance(t, cu);   // add-implicit-base-ctor-call（单 CU 路径，同 CollectAll）
@@ -311,6 +312,7 @@ public sealed class SymbolCollector {
         this._stub._passQualifyIfaceNames(table);
         this._seedObjectStub(table);   // imported Type 已入表后；GetType 返回真实 Type 类（链式 getter 分派）
         table.InternAllTypes();   // enforce-fqn-name-identity B1：**必须在 Object stub 之后** —— 它也登记类型
+        table.BindTypeRefs();     // B3：名字 → 句柄。**必须紧跟 InternAllTypes**（id 那时才存在）
         c = 0;
         while (c < cuCount) { this._stub._passDelegates(table, cus[c]); c = c + 1; }
         c = 0;
@@ -374,6 +376,7 @@ public sealed class SymbolCollector {
         // `Collect` 是活路径（`IrDump` 的 ExtractExports / TSIG 抽取走它），不是只给测试用的。
         this._stub._passQualifyIfaceNames(table);
         table.InternAllTypes();   // enforce-fqn-name-identity B1：全部登记之后一次扫
+        table.BindTypeRefs();     // B3：名字 → 句柄。**必须紧跟 InternAllTypes**（id 那时才存在）
         this._stub._passDelegates(table, cu);
         this._member._passMembers(table, cu);
         this._runCtorInheritance(table, cu);   // add-implicit-base-ctor-call（单 CU 路径，同 CollectAll）

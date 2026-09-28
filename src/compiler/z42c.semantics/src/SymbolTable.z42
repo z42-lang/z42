@@ -364,13 +364,38 @@ public sealed partial class SymbolTable {
     //
     // 注意不对称：**导入类型不受此影响**——生产端写进 zbc 的已是 `_expandIfaces` 后的传递闭包，
     // 导入类的接口名单比本地类还全。缺口只伤本地类，故 ② 是补齐而非改变导入侧语义。
+    // ── enforce-fqn-name-identity B3：接口相等判定的**唯一出口** ──────────────────
+    //
+    // 🔴 **0（未绑定）永不参与相等判定**。否则「目标绑不到」与「实现方那一格绑不到」会
+    // `0 == 0` 撞成**假阳性** —— 而「绑不到」是**合法状态**，不是可以忽略的边角：消费方
+    // 不必看得见它实现的每个接口（实测 `z42c.driver` 看得见 `Z42cCompiler` 却看不见
+    // `Z42.Build.ICompiler`，传递依赖未声明）。这正是 B2.0 归因推翻「无解→报错」的那条。
+    //
+    // 判定：两边**都**有句柄 ⇒ 比句柄（精确、与拼写无关）；任一为 0 ⇒ 退回名字比较，
+    // 逐字保持 B3 之前的行为 ⇒ **字节恒等**。B5 删这条回落时要单独裁「绑不到」的语义。
+    //
+    // ⚠️ 判定只此一份：`Implements` 的 BFS 种子与 `_anyInterfaceDerivesFrom` 的父链展开
+    // 共用它。两处各写一遍正是本仓反复失手的形状（「同一判据两份实现时，只修一份比都不修更糟」）。
+    private static bool _sameIface(int[] refs, string[] names, int i, int targetRef, string targetName) {
+        if (targetRef != 0 && refs != null && i < refs.Length) {
+            int h = refs[i];
+            if (h != 0) { return h == targetRef; }
+        }
+        if (names == null || i >= names.Length) { return false; }
+        return names[i] == targetName;
+    }
+
     public bool Implements(string clsName, string ifaceName) {
         // interface-names-fqn：`InterfaceNames` / `BaseNames` 已是 FQN ⇒ 比较的另一侧也要归一。
         // 🔴 归一放在**这里**而不是让 ~20 个调用方各自传 FQN：判据只有一份，调用方传短名还是
         // FQN 都对。调用方分散改的话，漏一处就是静默失配（误报 + 漏报同时发生）。
         ifaceName = SymbolTable.IfaceFqnOf(this, ifaceName);
+        // enforce-fqn-name-identity **B3**：相等判定优先走**名义身份句柄**（见 `_sameIface`）。
+        int targetRef = this._refOfIface(ifaceName);
         string cur = clsName;
         // 待展开的接口队列（BFS）+ 去重；接口继承一般极浅，初始容量 8 足够。
+        // queue 仍装**名字**：下游 `_anyInterfaceDerivesFrom` 要按名字 `GetInterface` 找定义。
+        // 句柄这一批只接管**比较**，不接管查找 —— 查找侧的句柄化属于后续批次。
         string[] queue = new string[8];
         int qt = 0;
         int hops = 0;
@@ -381,7 +406,7 @@ public sealed partial class SymbolTable {
             Z42ClassType ct = this.Classes.ValAt(_cs) as Z42ClassType;
             int i = 0;
             while (i < ct.InterfaceCount) {
-                if (ct.InterfaceNames[i] == ifaceName) { return true; }
+                if (SymbolTable._sameIface(ct.Interfaces, ct.InterfaceNames, i, targetRef, ifaceName)) { return true; }
                 if (qt == queue.Length) {
                     string[] bigger = new string[queue.Length * 2];
                     int z = 0; while (z < qt) { bigger[z] = queue[z]; z = z + 1; }
@@ -425,6 +450,8 @@ public sealed partial class SymbolTable {
     // 从 `seeds`（类的直接接口名，可含重复）出发沿父接口链 BFS，命中 target 返回 true。
     // `queue` 原地扩展兼作 seen 检查的载体——接口数极少（个位数），线性去重比建 StrMap 便宜。
     private bool _anyInterfaceDerivesFrom(string[] queue, int count, string target) {
+        // B3：与 `Implements` 共用同一个句柄判定（`_sameIface`）。target 的句柄算一次。
+        int targetRef = this._refOfIface(target);
         int qh = 0;
         int qt = count;
         int guard = 0;
@@ -436,7 +463,12 @@ public sealed partial class SymbolTable {
             int s = 0;
             while (s < qh - 1) { if (queue[s] == name) { dup = true; break; } s = s + 1; }
             if (dup) { continue; }
-            if (name == target) { return true; }
+            // B3：队列项自身与 target 的比较也走句柄优先（队列装的是名字，故现查一次句柄；
+            // 0 不参与判定，退回名字 —— 与 `_sameIface` 同一规则，这里手写是因为没有平行数组）。
+            int nameRef = this._refOfIface(name);
+            if (targetRef != 0 && nameRef != 0) {
+                if (nameRef == targetRef) { return true; }
+            } else if (name == target) { return true; }
             // 🔴 此前是 `this.Interfaces.Find(name)` —— **绕过了 `GetInterface` 访问器**。
             // 访问器已在 fqn-symbol-key 步 1 改成双键（FQN 优先、短名回落），而这条 BFS 直接摸
             // 底层短名表 ⇒ 名字一旦变成 FQN，整条闭包就静默变浅：`Implements` 假否 ⇒

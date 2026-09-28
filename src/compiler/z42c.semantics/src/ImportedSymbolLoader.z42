@@ -528,6 +528,10 @@ public static partial class ImportedSymbolLoader {
             m = m + 1;
         }
         // trait 并入 target 接口集（去重：AddInterfaceName 不查重 → 此处先查）
+        //
+        // 🔴 **B3 刻意不改成句柄比较，这不是漏网**：`_mergeImpl` 跑在 `_mergeImports` 之前、
+        // 更在 `BindTypeRefs` 之前 ⇒ `ct.Interfaces[]` 全是 0（未绑定），换句柄会恒判「未见过」
+        // ⇒ 重复并入。**这个相位只有名字可用。**（对称的一处：`StubCollector._ctHasIface`。）
         bool seen = false;
         int ix = 0;
         while (ix < ct.InterfaceCount) { if (ct.InterfaceNames[ix] == traitShort) { seen = true; } ix = ix + 1; }

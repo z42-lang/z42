@@ -315,12 +315,21 @@ public sealed partial class SymbolTable {
         SymbolTable._internAllIn(this.Intern, this.InterfacesByFqn);
     }
 
+    // 🔴 **按槽位扫，不是按条目数扫**（2026-09-28 修，B1 的既有缺陷）。
+    // `StrMap.ValAt(i)` 取的是**槽位** `i`（哈希布局），而 `Count()` 是**条目数** ——
+    // 两者索引空间不同。原先写成 `while (i < tbl.Count())` ⇒ 只扫了前 `_count` 个槽，
+    // 条目一旦散布到靠后的槽就**漏 intern**，留下 `TypeId == 0`。
+    // ⚠️ 这个缺陷此前抓不到，因为**门 `_firstUninterned` 用了同一个错误模式**、同样漏扫
+    // ⇒ 门永远不红。是 B3 的绑定断言把它逼出来的（接口 `IDer` 落在靠后的槽，句柄绑不上）。
+    // ⭐ 正确用法见 `StrMap.z42:136` 抬头：`0..Capacity()-1` 扫 `UsedAt(i)`。
     private static void _internAllIn(TypeIntern intern, StrMap tbl) {
-        int n = tbl.Count();
+        int cap = tbl.Capacity();
         int i = 0;
-        while (i < n) {
-            Z42Type t = tbl.ValAt(i) as Z42Type;
-            if (t != null) { intern.Of(t); }
+        while (i < cap) {
+            if (tbl.UsedAt(i)) {
+                Z42Type t = tbl.ValAt(i) as Z42Type;
+                if (t != null) { intern.Of(t); }
+            }
             i = i + 1;
         }
     }
@@ -338,13 +347,166 @@ public sealed partial class SymbolTable {
         return SymbolTable._firstUninterned(this.InterfacesByFqn);
     }
 
+    // 🔴 同 `_internAllIn`：**按槽位扫**。这道门原先与被守的 pass 犯了同一个错
+    // （`Count()` 当上界），于是「漏 intern」与「门看不见漏 intern」互相掩盖 ——
+    // 门和被守的东西共用同一个错误假设时，门永远不会红。
     private static string _firstUninterned(StrMap tbl) {
-        int n = tbl.Count();
+        int cap = tbl.Capacity();
         int i = 0;
-        while (i < n) {
-            Z42Type t = tbl.ValAt(i) as Z42Type;
-            if (t != null && t.TypeId <= 0) { return tbl.KeyAt(i); }
+        while (i < cap) {
+            if (tbl.UsedAt(i)) {
+                Z42Type t = tbl.ValAt(i) as Z42Type;
+                if (t != null && t.TypeId <= 0) { return tbl.KeyAt(i); }
+            }
             i = i + 1;
+        }
+        return "";
+    }
+
+    // ── enforce-fqn-name-identity B3：名字 → 句柄的绑定 pass ──────────────────────
+    //
+    // 把 `Z42ClassType.InterfaceNames[i]` / `Z42InterfaceType.BaseNames[i]` 解析成
+    // `TypeIntern` 的 id，写进平行的 `Interfaces[i]` / `Bases[i]`。
+    //
+    // 🔴 **相位：必须在 `InternAllTypes()` 之后**（id 那时才存在），且在成员解析之前。
+    // 与 `_passQualifyIfaceNames`（名字归一成 FQ）是两件事、两个相位：归一在 intern 之前，
+    // 绑定在 intern 之后。别合并 —— 归一要求「全部 stub 进表」，绑定要求「全部 id 已分配」。
+    //
+    // 🔴 **绑不到就留 0，不报错**。这不是容错兜底，是**语义**：消费方不必看得见它实现的
+    // 每个接口（实测 `z42c.driver` 看得见 `Z42cCompiler` 却看不见 `Z42.Build.ICompiler`，
+    // 传递依赖未声明 —— 那是合法程序，B2.0 的归因结论就是据此推翻了「无解→报错」）。
+    //
+    // 🔴 **就地写，不换数组**。与 I3「归一不就地改写」相反，这里**必须**就地：
+    // `Z42InstantiatedInterfaceType` 共享 def 的 `Bases` 引用，换数组它就永远停在全 0。
+    // 之所以安全：`Interfaces`/`Bases` 是 B3 新加的、**只活在符号表里** —— 不进 wire、
+    // 不被 `ClassExtractor` 接管（那条路搬的是 `InterfaceNames`）⇒ 没有第二个所有者。
+    // ⚠️ 这个「安全」是有前提的，B5 删字符串字段时要重新审。
+    //
+    // 🔴 **鲁棒性**：本 pass 跑在 `CollectAll` = 自举必经路径上，它崩就编不出修好它的编译器。
+    // 故边界、null、空表全部先判，宁可少绑也不崩（同 [[self-poisoned-bootstrap-via-feature-gate]]）。
+    public void BindTypeRefs() {
+        this._bindClassIfaces(this.Classes);
+        this._bindClassIfaces(this.ClassesByFqn);
+        this._bindIfaceBases(this.Interfaces);
+        this._bindIfaceBases(this.InterfacesByFqn);
+    }
+
+    private void _bindClassIfaces(StrMap tbl) {
+        // 🔴 **按槽位扫**（`0..Capacity()-1` + `UsedAt`），不是 `Count()` —— 见 `_internAllIn` 抬头。
+        int cap = tbl.Capacity();
+        int i = 0;
+        while (i < cap) {
+            bool used = tbl.UsedAt(i);
+            Z42ClassType ct = used ? tbl.ValAt(i) as Z42ClassType : null;
+            i = i + 1;
+            if (ct == null) { continue; }
+            if (ct.InterfaceNames == null) { continue; }
+            // 双重边界：`InterfaceCount` 与数组长度不保证对齐（导入侧接管数组时两值各来各的）
+            int m = ct.InterfaceCount;
+            if (ct.InterfaceNames.Length < m) { m = ct.InterfaceNames.Length; }
+            if (ct.Interfaces == null || ct.Interfaces.Length < m) {
+                // 句柄数组短于要绑的条数 ⇒ 补一个足长的（保留已绑定的部分）
+                int[] grown = new int[m];
+                if (ct.Interfaces != null) {
+                    int k = ct.Interfaces.Length; if (k > m) { k = m; }
+                    int c = 0;
+                    while (c < k) { grown[c] = ct.Interfaces[c]; c = c + 1; }
+                }
+                ct.Interfaces = grown;
+            }
+            int j = 0;
+            while (j < m) {
+                if (ct.Interfaces[j] == 0) { ct.Interfaces[j] = this._refOfIface(ct.InterfaceNames[j]); }
+                j = j + 1;
+            }
+        }
+    }
+
+    private void _bindIfaceBases(StrMap tbl) {
+        // 🔴 **按槽位扫** —— 这里正是 B1 那个漏扫缺陷被逼出来的现场：
+        // `interface IDer : IBase` 的 `IDer` 落在靠后的槽，用 `Count()` 当上界就绑不上。
+        int cap = tbl.Capacity();
+        int i = 0;
+        while (i < cap) {
+            bool used = tbl.UsedAt(i);
+            Z42InterfaceType it = used ? tbl.ValAt(i) as Z42InterfaceType : null;
+            i = i + 1;
+            if (it == null) { continue; }
+            if (it.BaseNames == null) { continue; }
+            int m = it.BaseCount;
+            if (it.BaseNames.Length < m) { m = it.BaseNames.Length; }
+            if (it.Bases == null || it.Bases.Length < m) {
+                int[] grown = new int[m];
+                if (it.Bases != null) {
+                    int k = it.Bases.Length; if (k > m) { k = m; }
+                    int c = 0;
+                    while (c < k) { grown[c] = it.Bases[c]; c = c + 1; }
+                }
+                it.Bases = grown;
+            }
+            int j = 0;
+            while (j < m) {
+                if (it.Bases[j] == 0) { it.Bases[j] = this._refOfIface(it.BaseNames[j]); }
+                j = j + 1;
+            }
+        }
+    }
+
+    // 名字 → 句柄。走 `GetInterface` 的 FQN 双键（名字此时已由 `_passQualifyIfaceNames` 归一成
+    // FQ；归一不了的原样留着，双键的短名回落仍能接住本包声明）。查不到 → 0（合法，见抬头）。
+    private int _refOfIface(string name) {
+        if (name == null) { return 0; }
+        Z42InterfaceType it = this.GetInterface(name);
+        if (it == null) { return 0; }
+        return this.Intern.Of(it);   // 幂等：已登记的原样返回既有 id
+    }
+
+    // 门（B3）：**在表里查得到、却没绑上句柄**的第一处。返回 "类名::接口名"，全绿返回 ""。
+    //
+    // 🔴 存在的理由：绑定失败本身是**静默**的（留 0，而 0 是合法状态）。于是「`BindTypeRefs`
+    // 压根没跑」与「跑了但那几个接口确实不可见」在数据上长得一模一样 —— 正是本仓反复吃亏的
+    // 「探测到 0 与探测器没装上不可区分」。本门只挑**矛盾**的那种：名字非空、`GetInterface`
+    // 查得到、句柄却仍是 0 ⇒ 只可能是绑定没跑到（漏挂载点 / 相位早于 intern）。
+    // ⚠️ 查不到的（合法的"看不见"）**不算**，否则门会对正常工程狂叫。
+    public string FirstUnboundIfaceRef() {
+        string r = this._firstUnboundIn(this.Classes, true);
+        if (r != "") { return r; }
+        r = this._firstUnboundIn(this.ClassesByFqn, true);
+        if (r != "") { return r; }
+        r = this._firstUnboundIn(this.Interfaces, false);
+        if (r != "") { return r; }
+        return this._firstUnboundIn(this.InterfacesByFqn, false);
+    }
+
+    private string _firstUnboundIn(StrMap tbl, bool isClass) {
+        // 🔴 **按槽位扫** —— 门若与被守的 pass 用同一个错误上界，就会一起漏、永远不红。
+        int cap = tbl.Capacity();
+        int i = 0;
+        while (i < cap) {
+            if (!tbl.UsedAt(i)) { i = i + 1; continue; }
+            string key = tbl.KeyAt(i);
+            string[] names = null;
+            int[] refs = null;
+            int m = 0;
+            if (isClass) {
+                Z42ClassType ct = tbl.ValAt(i) as Z42ClassType;
+                if (ct != null) { names = ct.InterfaceNames; refs = ct.Interfaces; m = ct.InterfaceCount; }
+            } else {
+                Z42InterfaceType it = tbl.ValAt(i) as Z42InterfaceType;
+                if (it != null) { names = it.BaseNames; refs = it.Bases; m = it.BaseCount; }
+            }
+            i = i + 1;
+            if (names == null) { continue; }
+            if (names.Length < m) { m = names.Length; }
+            int j = 0;
+            while (j < m) {
+                string nm = names[j];
+                bool unbound = refs == null || j >= refs.Length || refs[j] == 0;
+                if (unbound && nm != null && nm != "") {
+                    if (this.GetInterface(nm) != null) { return key + "::" + nm; }
+                }
+                j = j + 1;
+            }
         }
         return "";
     }

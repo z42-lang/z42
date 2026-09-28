@@ -115,9 +115,15 @@ Z42ClassType.BaseName       : string    →  Base       : TypeRef
 - ⇒ 顺带兑现「句柄路性能是正向的」：今天 `__str_hash_code` 是 FNV-1a over UTF-8、
   **O(n) 每次重算无缓存**，`GetHashCode` profile 自占 1.93%；FQN 化还让键长 +107%。
   句柄把消费期的字符串哈希整个消掉。
-- **L1 约束**：没有 newtype，`TypeRef` 就是 `int`（配 `TypeRef.None = -1`）。
+- **L1 约束**：没有 newtype，`TypeRef` 就是 `int`。
   这保不住「任意 int 不能乱塞」，但保得住**核心那条：裸名字符串塞不进去**。
   不引 struct 包装 —— 本仓 struct 仍有已知拷贝缺陷，不值得为此冒险。
+- 🔴 **哨兵 = `0`（未登记 / None），有效 id 从 1 起**。本行原写「配 `TypeRef.None = -1`」，
+  **已按 B1 的落地实现更正**（#907 的 `TypeIntern.z42`，抬头注释给了理由：z42 字段默认 0，
+  用 -1 当哨兵就得在**每个** `Z42Type` 子类 ctor 里赋值，多生产点必漏）。
+  ⭐ **这条在 B3 语境下比 B1 时更要紧**：B3 把 `string[]` 换成 `TypeRef[]`（即 `int[]`），
+  而 `new int[n]` 的元素**默认就是 0** ⇒ 哨兵取 0，新建数组天然全是 None；
+  取 -1 则每建一个数组都要手动填满，**漏一次就静默指向越界 id**。
 
 ### 4'.3 边界：VM 与 wire **一行不改**
 

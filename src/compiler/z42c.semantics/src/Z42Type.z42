@@ -80,6 +80,19 @@ public sealed class Z42ClassType : Z42Type {
     public StrMap Methods;   // name → MethodSymbol
     public StrMap EventFields;   // add-event-keyword-multicast：event 字段名集（`+=`/`-=` desugar 判别）
     public string[] InterfaceNames; public int InterfaceCount;   // 实现的接口（port-z42c-interface）
+    // enforce-fqn-name-identity **B3**：实现的接口的**名义身份句柄**（`TypeRef` = `TypeIntern` 的 id）。
+    // 与 `InterfaceNames` **平行同长**、共用 `InterfaceCount`。`InterfaceNames` 自此降级为
+    // **收集期暂存** —— 登记时目标接口常常还没进表（前向引用）⇒ 拿不到 id，必须留到绑定 pass
+    // (`SymbolTable.BindTypeRefs`，跑在 `InternAllTypes()` 之后) 再解析。消费面一律读本数组。
+    // B5 删掉字符串那半，届时「往符号表塞裸名」才真的写不出来。
+    //
+    // 🔴 **0 = 未绑定（None）**，有效 id 从 1 起 —— 与 `TypeIntern` 同一约定，故这里
+    // **不需要手工初始化**：`new int[n]` 的元素默认就是 0。（哨兵若取 -1，每个新建数组都得
+    // 填满，漏一次就静默指向越界 id。）
+    // ⚠️ 留 0 是**合法状态**、不是错误：消费方不必看得见它实现的每个接口 —— 实测
+    // `z42c.driver` 看得见 `Z42cCompiler` 却看不见 `Z42.Build.ICompiler`（传递依赖未声明），
+    // 那是合法程序。绑定不到就留 0，交给消费点按「查不到」处理，别在这里报错。
+    public int[] Interfaces;
     // 本类**自有实例字段**（声明序 + AST 源拼写 + 可见性），供 TSIG 继承字段展开走 base 链按序读取
     // （Fields 是 hashed StrMap，迭代非确定；TSIG 需确定序 + 源拼写 → 单独有序元数据）。G18。
     public string[] OwnFieldNames; public string[] OwnFieldSpellings; public string[] OwnFieldVis; public int OwnFieldCount;
@@ -183,6 +196,7 @@ public sealed class Z42ClassType : Z42Type {
         this.Methods = new StrMap();
         this.EventFields = new StrMap();
         this.InterfaceNames = new string[0]; this.InterfaceCount = 0;
+        this.Interfaces = new int[0];   // B3：句柄数组，与 InterfaceNames 同长（0 = 未绑定）
         this.OwnFieldNames = new string[0]; this.OwnFieldSpellings = new string[0]; this.OwnFieldVis = new string[0]; this.OwnFieldCount = 0;
         this.OwnMethodNames = new string[0]; this.OwnMethodIsVirtual = new bool[0]; this.OwnMethodIsAbstract = new bool[0]; this.OwnMethodCount = 0;
         this.IsEnum = false;
@@ -266,16 +280,33 @@ public sealed class Z42ClassType : Z42Type {
         this.OwnMethodCount = this.OwnMethodCount + 1;
     }
     // 追加一个实现的接口名（port-z42c-impl-block：`impl Trait for Target` 把 Trait 并入 target 接口集）。
+    // ⚠️ B3：`InterfaceNames` 与 `Interfaces`（句柄）**必须等长扩容** —— 两者共用
+    // `InterfaceCount`，长度一旦分叉，`Interfaces[i]` 与 `InterfaceNames[i]` 就不再是同一个接口，
+    // 而这种错位是**静默**的（同 `BaseNames`/`BaseRefs` 那对的既有约定）。
+    // 句柄这里一律留 0（未绑定）：登记时目标接口可能还没进表，解析是 `BindTypeRefs` 的活。
     public void AddInterfaceName(string name) {
         if (this.InterfaceCount == this.InterfaceNames.Length) {
             int cap = this.InterfaceNames.Length * 2;
             if (cap == 0) { cap = 4; }
             string[] nn = new string[cap];
+            int[] nh = new int[cap];   // 默认全 0 = 未绑定
             int i = 0;
             while (i < this.InterfaceCount) { nn[i] = this.InterfaceNames[i]; i = i + 1; }
+            // 句柄侧按**自己的**实际长度拷贝：导入侧接管数组时 Interfaces 可能比 count 短
+            // （`nct.InterfaceNames = cl.Interfaces` 那条路，两个值各来各的），只按 count
+            // 拷会越界读。
+            if (this.Interfaces != null) {
+                int k = this.Interfaces.Length; if (k > this.InterfaceCount) { k = this.InterfaceCount; }
+                int j = 0;
+                while (j < k) { nh[j] = this.Interfaces[j]; j = j + 1; }
+            }
             this.InterfaceNames = nn;
+            this.Interfaces = nh;
         }
         this.InterfaceNames[this.InterfaceCount] = name;
+        if (this.Interfaces != null && this.InterfaceCount < this.Interfaces.Length) {
+            this.Interfaces[this.InterfaceCount] = 0;   // 新槽显式置 None（数组可能是接管来的）
+        }
         this.InterfaceCount = this.InterfaceCount + 1;
     }
     // add-type-based-overloads：本类中所有源名为 name 的方法符号（重载候选枚举；不走 base 链——调用方按需 base walk）。
@@ -380,6 +411,12 @@ public class Z42InterfaceType : Z42Type {
     // 受限写法：typed array + int count（类字段不能带泛型）。
     public string[] BaseNames;
     public int      BaseCount;
+    // enforce-fqn-name-identity **B3**：父接口的**名义身份句柄**（`TypeIntern` 的 id）。
+    // 与 `BaseNames` / `BaseRefs` 三者平行、共用 `BaseCount`、**等长扩容**。
+    // 分工：`Bases` = 身份（查找/比较用）· `BaseNames` = 收集期暂存的名字（B5 删）·
+    // `BaseRefs` = 声明形态（带实参，型参代换用，**不是**查找键，B3 不碰）。
+    // 🔴 0 = 未绑定（None），有效 id 从 1 起；`new int[n]` 默认即 0，无需手工填。
+    public int[]    Bases;
     // 父接口的**声明形态**（`interface ILeaf : IMid<int>` 的 `IMid<int>`），与 `BaseNames` 平行、
     // 同步扩容，条目可为 null（没有实参可保的场合，如跨包尚未解析出来）。
     //
@@ -403,7 +440,7 @@ public class Z42InterfaceType : Z42Type {
     // 此前接口**完全没有这个槽**，故跨 ns 同短名接口在持久化里无从区分。
     // 种子 ABI：不进 ctor 签名，ctor 内给默认值 + 注册端构造后赋值。
     public string Namespace;
-    public Z42InterfaceType(string name) { this._name = name; this.Methods = new StrMap(); this.IsPartial = false; this.PartialMainFile = ""; this.Visibility = "public"; this.IsImported = false; this.BaseNames = new string[0]; this.BaseCount = 0; this.BaseRefs = new TypeExpr[0]; this.TypeParamNames = new string[0]; this.TypeParamCount = 0; this.AssocTypeNames = new string[0]; this.AssocTypeCount = 0; this.Namespace = ""; }
+    public Z42InterfaceType(string name) { this._name = name; this.Methods = new StrMap(); this.IsPartial = false; this.PartialMainFile = ""; this.Visibility = "public"; this.IsImported = false; this.BaseNames = new string[0]; this.BaseCount = 0; this.Bases = new int[0]; this.BaseRefs = new TypeExpr[0]; this.TypeParamNames = new string[0]; this.TypeParamCount = 0; this.AssocTypeNames = new string[0]; this.AssocTypeCount = 0; this.Namespace = ""; }
     // 全限定名（ns 为空 → 裸名，与 Z42ClassType.Fqn() 同口径）。接口无 arity-mangle，故直接用裸名。
     public string Fqn() {
         if (this.Namespace == "") { return this._name; }
@@ -412,21 +449,34 @@ public class Z42InterfaceType : Z42Type {
 
     public void AddBase(string name) { this.AddBaseRef(name, null); }
 
-    // 裸名 + 声明形态一起累积（`ref` 可为 null）。两个数组**同一个 BaseCount**，永远等长扩容 ——
-    // 拆成两条增长路径就会出现「名字有、实参没有」的错位，而错位在这里是静默的（型参照旧不代换）。
+    // 裸名 + **句柄**(B3) + 声明形态一起累积（`ref` 可为 null）。**三个数组同一个 `BaseCount`、
+    // 永远等长扩容** —— 拆成各自的增长路径就会出现「名字有、实参没有」或「名字有、身份没有」
+    // 的错位，而错位在这里全是静默的（型参照旧不代换 / 身份查不着）。
+    // 句柄一律留 0（未绑定）：登记时父接口可能还没进表，解析是 `BindTypeRefs` 的活。
     public void AddBaseRef(string name, TypeExpr bref) {
         if (this.BaseCount == this.BaseNames.Length) {
             int cap = this.BaseNames.Length * 2;
             if (cap < 2) { cap = 2; }
             string[] bigger = new string[cap];
             TypeExpr[] biggerR = new TypeExpr[cap];
+            int[] biggerH = new int[cap];   // 默认全 0 = 未绑定
             int i = 0;
             while (i < this.BaseCount) { bigger[i] = this.BaseNames[i]; biggerR[i] = this.BaseRefs[i]; i = i + 1; }
+            // 句柄侧按自己的实际长度拷（导入侧可能接管来一个更短的数组）
+            if (this.Bases != null) {
+                int k = this.Bases.Length; if (k > this.BaseCount) { k = this.BaseCount; }
+                int j = 0;
+                while (j < k) { biggerH[j] = this.Bases[j]; j = j + 1; }
+            }
             this.BaseNames = bigger;
             this.BaseRefs = biggerR;
+            this.Bases = biggerH;
         }
         this.BaseNames[this.BaseCount] = name;
         this.BaseRefs[this.BaseCount] = bref;
+        if (this.Bases != null && this.BaseCount < this.Bases.Length) {
+            this.Bases[this.BaseCount] = 0;   // 新槽显式置 None（数组可能是接管来的）
+        }
         this.BaseCount = this.BaseCount + 1;
     }
     public void AddAssocType(string name) {
@@ -511,6 +561,10 @@ public sealed class Z42InstantiatedInterfaceType : Z42InterfaceType {
         this.Methods = def.Methods;
         this.BaseNames = def.BaseNames; this.BaseCount = def.BaseCount;
         this.BaseRefs = def.BaseRefs;   // 与 BaseNames 同一份引用（同上：只读消费，不复制）
+        // B3：句柄同样共享 def 那份引用 —— ⚠️ **必须**共享而不是拷贝：绑定 pass
+        // (`BindTypeRefs`) 只遍历符号表里的**定义**，实例化视图不在表里、拿不到二次填充。
+        // 拷贝的话这里会永远停在「全 0 未绑定」，而那是**静默**的（查不着 = 当作没实现）。
+        this.Bases = def.Bases;
         this.TypeParamNames = def.TypeParamNames; this.TypeParamCount = def.TypeParamCount;
         this.Visibility = def.Visibility; this.IsImported = def.IsImported;
     }
