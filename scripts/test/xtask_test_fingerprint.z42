@@ -71,6 +71,71 @@ string _compilerIdentityOf(string tree) {
     return fp + "/" + zbc + "/" + zpkg;
 }
 
+// ── 「源码没变就没得 bump」守卫（2026-09-28）──────────────────────────────────
+//
+// 🔴 **本门会对完全不碰编译器的 PR 假红**，实测四个独立数据点都指向同一个包：
+//   · #925（改了编译器）、#927（只改 Rust VM）、#928（只改构建脚本）——都是「1 个包（z42.json）」；
+//   · 本地拿**本树自己**当 base（差异为零）跑本门，同样报 z42.json。
+//
+// 机理是**代际混淆**，它由本门的编排构造出来，与被测 PR 无关：base 侧的 driver 是
+// 「PR 的 z42c 编 base 源码」（bench-pr.yml），本树侧的 driver 是「种子链编本树源码」——
+// 源码相同、**自举代不同**。而 `stdlib-build-not-generationally-convergent` 是本仓库
+// 已记录的既有性质：z42c 自建每跑一遍推进一代，**每代恰有一两个包的字节不同**，要几代才到
+// 不动点。于是「两个不同代的同源 driver」编出的 stdlib 本就会有一两个包不一样。
+//
+// ⇒ 源码逐字节相同时，「输出变了」在**定义上**就不可能是「编译器身份该变而没变」——
+// 没有任何 slug 可以追加。此前的处置是照提示 bump 一行（#925 就是这么绿的），那是
+// **治症状**：既没消除代际漂移，又平白让全网增量缓存作废一次。
+//
+// 比 `src/compiler`（编译器本体，含 z42.package 的格式写端）**与** `src/libraries`
+// （编译器自己也编译/运行在它之上，stdlib 变了确实可能改变输出）两棵树；两棵都逐字节
+// 相同才跳过。跳过时**大声说明**，不做静默 return 0——静默跳过正是本仓库反复吃过的假门形状。
+//
+// ⚠️ VM 改动不在此列，也**不该**在：本门两侧的 stdlib 都是在**同一个 PR VM** 上编出来的
+// （bench-pr.yml 那行注释写明了「这一步用 PR 的 VM 跑」），所以它对 VM 造成的输出变化本就
+// 没有分辨力，跳过不损失覆盖。
+bool _srcDirsEqual(string a, string b) {
+    bool aEx = Directory.Exists(a);
+    bool bEx = Directory.Exists(b);
+    if (aEx != bEx) { return false; }
+    if (!aEx) { return true; }
+    string[] ea = _sortedStrings(Directory.Enumerate(a));
+    string[] eb = _sortedStrings(Directory.Enumerate(b));
+    // 先按名字集合比，再逐项下钻：名字不同就不必读内容。
+    int na = 0;
+    int nb = 0;
+    int i = 0;
+    while (i < ea.Length) { if (!_fpSkipEntry(ea[i])) { na = na + 1; } i = i + 1; }
+    i = 0;
+    while (i < eb.Length) { if (!_fpSkipEntry(eb[i])) { nb = nb + 1; } i = i + 1; }
+    if (na != nb) { return false; }
+    i = 0;
+    int j = 0;
+    while (i < ea.Length) {
+        string name = ea[i];
+        i = i + 1;
+        if (_fpSkipEntry(name)) { continue; }
+        // 对齐 b 侧的下一个非跳过项
+        while (j < eb.Length && _fpSkipEntry(eb[j])) { j = j + 1; }
+        if (j >= eb.Length || eb[j] != name) { return false; }
+        j = j + 1;
+        string pa = Path.Join(a, name);
+        string pb = Path.Join(b, name);
+        if (Directory.Exists(pa) || Directory.Exists(pb)) {
+            if (!_srcDirsEqual(pa, pb)) { return false; }
+        } else {
+            if (!_filesEqual(pa, pb)) { return false; }
+        }
+    }
+    return true;
+}
+
+// 源码树里混着构建产物（`src/libraries/<lib>/artifacts/...` 实测就有）——它们**必然**不同，
+// 不是源码差异。跳过它们与缓存目录。
+bool _fpSkipEntry(string name) {
+    return name == "artifacts" || name == ".cache" || name == "cache" || name == "dist";
+}
+
 int _testFingerprint(ParseResult r) {
     Stopwatch sw = _procStart("test fingerprint");
     string root = _root();
@@ -86,6 +151,19 @@ int _testFingerprint(ParseResult r) {
         ConsoleError.WriteLine("  ✗ 读不到版本常量（CacheStore.z42 / ZbcFormat.z42 / ZpkgWriter.z42 改名了？同步本脚本）");
         return 1;
     }
+
+    // 源码没变 ⇒ 没得 bump（见上方守卫的头注：剩下的差异只可能是代际漂移）。
+    bool sameCompiler = _srcDirsEqual(Path.Join(baseTree, "src/compiler"), Path.Join(root, "src/compiler"));
+    bool sameStdlib = _srcDirsEqual(Path.Join(baseTree, "src/libraries"), Path.Join(root, "src/libraries"));
+    if (sameCompiler && sameStdlib) {
+        Console.WriteLine("  base 与本树的 src/compiler + src/libraries **逐字节相同** ⇒ 跳过字节对比。");
+        Console.WriteLine("  （本门只管「编译器变了却没累加身份」；源码没变时无 slug 可加，而两侧 driver");
+        Console.WriteLine("    的自举代不同本就会让一两个包字节不同 —— 那是代际漂移，不是身份问题。）");
+        _procEnd("test fingerprint", sw);
+        return 0;
+    }
+    if (!sameCompiler) { Console.WriteLine("  src/compiler 与 base 不同 ⇒ 照常对比字节"); }
+    else { Console.WriteLine("  src/compiler 相同但 src/libraries 不同 ⇒ 照常对比字节（stdlib 能改变编译器行为）"); }
 
     // 本树编译器重编 base 的 stdlib 源码（拷进 scratch，产物按拷贝里的 workspace 模板落在 scratch 内）。
     string scratch = Path.Join(root, "artifacts/.scratch/fingerprint");
