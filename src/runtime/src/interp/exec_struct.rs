@@ -176,6 +176,42 @@ pub(crate) fn struct_copy_val(
 ///
 /// 编译器在**非内联**的链节处会断链（`fix-generic-struct-chain-access`：泛型 struct 的
 /// 型参字段擦除成引用叶子，存储不在容器里），所以一条路径内部的每一节都**真内联**。
+/// 把 `TypeDesc.fields[i].type_tag`（**声明拼写**）解析成注册表键（**FQ**）。
+///
+/// 🔴 两者不是一回事，而这正是 P2 第一版栽的地方：字段表里 `Demo.Loc<P2,int>` 的第 0 个字段
+/// 其 `type_tag` 是 **`P2`**，而注册表键是 **`Demo.P2`** ⇒ 路径第 2 跳报「type `P2` is not loaded」。
+/// （同一族教训：**不能走类型拼写** —— 那串同时是声明记法与查找键，两边规则不同。）
+///
+/// 规则镜像编译器的 `ExprEmitter._qualifyInstName` / `ClassDescBuilder` 那条
+/// **「只限定基名、实参原样」**：`Pair<int,long>` 在 `Demo.*` 下 ⇒ `Demo.Pair<int,long>`，
+/// 泛型实参**不**跟着限定（编译器写描述符名时就是这么定的，两侧必须同一约定）。
+fn qualify_field_type(ctx: &VmContext, tag: &str, owner_fq: &str) -> Option<std::sync::Arc<str>> {
+    // 已经能直接查到（本来就是 FQ、或是基元）⇒ 原样。
+    if ctx.try_lookup_type(tag).is_some() {
+        return Some(tag.into());
+    }
+    // ⚠️ 声明拼写里的**空白**：`Loc<P2, long>`（逗号后有空格）对应的注册表键是
+    // `Demo.Loc<P2,long>`（无空格）。类型名里不存在有意义的空格，所以去掉全部空格是安全的
+    // ——这是第三处「同一个类型、两种拼写」，前两处是「短名 vs FQ」与「实参限定与否」。
+    let tag: std::borrow::Cow<str> = if tag.contains(' ') {
+        std::borrow::Cow::Owned(tag.replace(' ', ""))
+    } else {
+        std::borrow::Cow::Borrowed(tag)
+    };
+    let tag: &str = &tag;
+    if ctx.try_lookup_type(tag).is_some() {
+        return Some(tag.into());
+    }
+    // owner 的命名空间 = 其**基名**（去掉泛型实参）里最后一个 `.` 之前的部分。
+    let base_end = owner_fq.find('<').unwrap_or(owner_fq.len());
+    let ns = owner_fq[..base_end].rfind('.')?;
+    let ns = &owner_fq[..ns];
+    // 只限定基名：`Pair<int,long>` → `Demo.Pair<int,long>`。
+    let tag_base_end = tag.find('<').unwrap_or(tag.len());
+    let candidate = format!("{ns}.{}{}", &tag[..tag_base_end], &tag[tag_base_end..]);
+    ctx.try_lookup_type(&candidate).map(|_| candidate.as_str().into())
+}
+
 pub(crate) fn resolve_field_path(ctx: &VmContext, root_type: &str, path: &[u16]) -> Result<u32> {
     debug_assert!(!path.is_empty(), "decoder rejects depth 0");
     let mut off: u32 = 0;
@@ -221,7 +257,13 @@ pub(crate) fn resolve_field_path(ctx: &VmContext, root_type: &str, path: &[u16])
                      — the offset table and `fields` are out of step"
                 )
             })?;
-            cur = next.type_tag.as_ref().into();
+            let tag = next.type_tag.clone();
+            cur = qualify_field_type(ctx, &tag, &cur).ok_or_else(|| {
+                anyhow::anyhow!(
+                    "struct field path: field #{i} of `{cur}` is declared `{tag}`, which resolves \
+                     to no loaded type (tried it as-is and qualified with `{cur}`'s namespace)"
+                )
+            })?;
         }
     }
     Ok(off)

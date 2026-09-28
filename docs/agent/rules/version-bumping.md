@@ -167,6 +167,32 @@ overlay 成种子，**种子与 cargo VM 就同为新格式** → warm 建/测/r
    cp -R /tmp/tc/artifacts/build/libraries  artifacts/build/
    cp    /tmp/tc/artifacts/xtask/xtask.zpkg artifacts/xtask/xtask.zpkg
    ```
+
+   🔴 **`xtask.zpkg` 很可能比 libraries 旧一代 —— 拷完必须重建它**（2026-09-28 实测踩到）。
+   artifact 里的 `xtask.zpkg` 是流水线**早期**用**种子 stdlib** 建的，而同一个 artifact 里的
+   `libraries/` 是**末期**的新格式产物 ⇒ 两者差一代。症状是一个**离现场很远**的缺符号：
+
+   ```
+   Error: uncaught exception: Std.MissingSymbolException:
+     undefined function `Z42.Project.ManifestLoader.LoadWorkspace$1$string`
+     at Z42Xtask._wsBuildRoot(string)        ← ⭐ 判据：栈顶在 `Z42Xtask.*`
+     at Z42Xtask._ensureSeed(string)            ⇒ 是 xtask 二进制自己缺符号，
+     at Z42Xtask._buildCompiler()               **不是**被测代码的问题
+   ```
+
+   修法（用刚 overlay 进来的新 z42c 直接编 xtask 源）：
+
+   ```bash
+   rm -f artifacts/xtask/xtask.zpkg artifacts/xtask/xtask.zsym    # 不删则 publish 不重编
+   Z42_LIBS="$PWD/artifacts/build/libraries/dist/release" \
+     artifacts/build/runtime/release/z42vm \
+     artifacts/build/compiler/z42c.driver/release/dist/z42c.driver.zpkg \
+     -- build scripts/xtask.z42.toml --release
+   ```
+
+   ⚠️ **不要**手工把某个 `.zpkg` 拷进 `Z42_LIBS` 去「修」依赖 —— 会弄坏依赖解析，报
+   「A skipped package is invisible to dependency resolution」+ 一片**假的**
+   `undefined: <Type>` / `undefined function`，离真因更远。
 3. **强制 xtask 用你的新格式 cargo VM**（launcher 默认回落 `.z42/bin/z42vm` 旧种子 → 会报
    `minor <新> not supported (writer is at <旧>)`）：
    ```bash
