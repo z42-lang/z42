@@ -45,9 +45,9 @@ i >= 1：恒走 struct 分支（编译器已在非内联处断链 ⇒ 每节真�
 - [x] **T7 JIT**（`jit/translate/structs.rs` + `jit/helpers/struct_ops.rs`）
 - [x] **T8 编译器 10 个 emit 点**：`_structChainOffset` 从「累加 int」改成「累积序号序列」；
       `_copyRegion` / `_emitLeafEqChecks` 的递归同步；扁平 4 站点直接给 depth=1
-- [ ] **T9 fixture 重生**：6 个 zbc-format + 4 个 zpkg-format + golden hex 单测
+- [x] **T9 fixture 重生**：6 个 zbc-format + 4 个 zpkg-format + golden hex 单测
 - [x] **T10 文档**：`struct-value-semantics.md`（四条指令表 + 符号化节）· `zbc.md` · `zpkg.md`
-- [ ] **T11 GREEN**：`cargo test --lib`（不带过滤）· 5 个 feature 组合 ·
+- [x] **T11 GREEN**：`cargo test --lib`（不带过滤）· 5 个 feature 组合 ·
       `xtask test`（e2e/compiler/stdlib）· `cargo test --test format_fixture_versions` ·
       `xtask test bootstrap` 边界检查
 - [ ] **T12 纯隔离开销实测**，对照门槛（建议线：真实编译负载 <2% / 字段饱和 micro <6%，**User 未确认**）
@@ -80,3 +80,33 @@ i >= 1：恒走 struct 分支（编译器已在非内联处断链 ⇒ 每节真�
 
 ⇒ 与 #915 当场挖出「冷区裁剪漏守 `struct_layout`」是同一教训的第二次应验：
 **休眠元数据的测试，连它的夹具形状都得是真实的。**
+
+## T9 / T11 结果（2026-09-28）
+
+    xtask test e2e              748 / 0  （+89 +3）
+    xtask test compiler         ✅ 24/24 单测 · ✅ 自编 zbc 可执行 · ✅ **自举不动点 9/9 gen1==gen2**
+    xtask test stdlib           ✅ 323 file(s) in 19 lib(s)
+    cargo test --lib            1388 / 0（debug，不带过滤）
+    format_fixture_versions     5 / 5
+    5 个 feature 组合            默认 / interp-only / ios / android / wasm32+wasm 全过
+
+⭐ **自举不动点 9/9 是格式 bump 最硬的一道** —— 它证明新编码在「编译器编译编译器」
+这条最长的路径上也自洽。
+
+### 从「本地被锁死」到全绿走通的路径（已回填进 version-bumping.md）
+
+1. 推 PR ⇒ CI 的 `compile-toolchain` 建出新格式工具链
+2. `gh run download -n toolchain-macos-26`（⚠️ **artifact 挂在哪个 run 上要现查**，同一次 push 会触发多个 run）
+3. overlay `build/{compiler,libraries}` + `xtask.zpkg`
+4. ⚠️ **重建 xtask**（artifact 里那份比 libraries 旧一代 —— 判据＝栈顶在 `Z42Xtask.*`）
+5. warm 建 → 逐个修真 bug → 重生 6 个 zbc + 4 个 zpkg fixture + **三个**逐字节 golden
+
+### ⚠️ 三次「工具本身在骗我」（都已改做法）
+
+| 形态 | 后果 |
+|---|---|
+| macOS 没有 `timeout` | 命令根本没跑，却报 `exit 0` |
+| `\| grep` 把最终判定行过滤掉 | 只看到一堆 `Result:` 噪声，看不到 ❌/✅ |
+| zsh 不 word-split 未加引号的 `$a` | 参数整串传入，报「失败」其实是用法错（差点把 4 个 feature 组合误判为红）|
+
+⇒ 共同点：**失败信号与工具噪声长得一样**。改法：完整输出**写盘再读** + 参数用 `"$@"` 传。
