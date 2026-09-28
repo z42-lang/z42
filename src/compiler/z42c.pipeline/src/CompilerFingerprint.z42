@@ -38,7 +38,12 @@ public static class CompilerFingerprint {
         "baseline-41",
         "fingerprint-content-derived",
         "fix-paramref-constraint-iface",
-        "enforce-fqn-name-identity"
+        "enforce-fqn-name-identity",
+        // relocate-compiler-domain-libs：编译器域包挪去 `src/compiler/` 后，driver 的解析域组成变了
+        // —— `_compilerDomainDirs()`（落点改 `programs/z42c/`）+ `${compiler_libs}` 路径宏 +
+        // **编译器域目录排在框架之后**（排前面会让整套 stdlib 被判成 vendored 私有包）。
+        // 指纹门实测：`编译器输出变了：1 个包（z42.json）`。
+        "relocate-compiler-domain-libs"
     };
 
     // 指纹值：`Entries` 逐条以 `\n` 连接后取内容哈希（`mmh3:` 前缀，同 SourceHash）。

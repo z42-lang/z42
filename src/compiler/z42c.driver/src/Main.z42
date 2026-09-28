@@ -291,29 +291,63 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
     }
     // ── `[dependencies]` 的 zpkg 产物引用（add-deployment-model）──
     // `path` 指向 `.zpkg` 文件 ⇒ 不代建，把它**所在目录**并入解析域（helper 在 ExeDeps.z42）。
-    // 放在 path 闭包之后、compiler-libs 之前：vendored 产物优先级与 path 闭包同级，都排在
+    // 放在 path 闭包之后、编译器域解析域之前：vendored 产物优先级与 path 闭包同级，都排在
     // 框架（Z42_LIBS）之前——「我显式指定的那一份」应当压过「碰巧同名的框架包」。
     {
-        string[] zrefs = _zpkgRefDirs(pm, projectDir);
-        if (zrefs == null) { return ExitCode.BuildError; }
-        if (zrefs.Length > 0) {
-            string[] withZ = new string[libsDirsN + zrefs.Length];
-            int zi = 0;
-            while (zi < zrefs.Length) { withZ[zi] = zrefs[zi]; zi = zi + 1; }
+        string[] zrefs0 = _zpkgRefDirs(pm, projectDir);
+        if (zrefs0 == null) { return ExitCode.BuildError; }
+        // 🔴 **编译器域目录必须排在框架之后，不能排在前面**（relocate-compiler-domain-libs 实测）。
+        //
+        // `<sdk>/programs/z42c/` 是 driver 的**自包含闭包** —— 里面除了编译器域包，还躺着整套
+        // stdlib 的副本。把它放在 `Z42_LIBS` 之前，`z42.core` 等就会**先在那儿命中**，于是
+        // `_bundleExeDeps` 按「不是从 shipped libs/ 找到的 ⇒ 私有」把**整套 stdlib 拷进用户工程
+        // 的输出目录**（实测：引用一个 `${compiler_libs}` 包，dist 从 1 个 zpkg 变成十几个；
+        // 同工程不引用编译器域包时只有 1 个）。
+        //
+        // 手写的 vendored zpkg 引用仍排在框架**之前**（那是「我显式指定的这一份要压过碰巧同名的
+        // 框架包」的原意）；编译器域目录不需要这条优先级 —— 它里面的编译器域包按构造不存在于
+        // shipped `libs/`，放最后一样命中，而 stdlib 则继续从框架解析（⇒ 不复制）。
+        string[] dom = _compilerDomainDirs();
+        string[] zrefs = new string[zrefs0.Length];
+        string[] zdom = new string[zrefs0.Length];
+        int zn = 0;
+        int zdn = 0;
+        int zi = 0;
+        while (zi < zrefs0.Length) {
+            bool isDom = false;
+            int dj = 0;
+            while (dj < dom.Length) { if (dom[dj] == zrefs0[zi]) { isDom = true; } dj = dj + 1; }
+            if (isDom) { zdom[zdn] = zrefs0[zi]; zdn = zdn + 1; } else { zrefs[zn] = zrefs0[zi]; zn = zn + 1; }
+            zi = zi + 1;
+        }
+        if (zdn > 0) {
+            string[] withD = new string[libsDirsN + zdn];
             int wi2 = 0;
-            while (wi2 < libsDirsN) { withZ[zrefs.Length + wi2] = libsDirs[wi2]; wi2 = wi2 + 1; }
-            libsDirs = withZ; libsDirsN = libsDirsN + zrefs.Length;
+            while (wi2 < libsDirsN) { withD[wi2] = libsDirs[wi2]; wi2 = wi2 + 1; }
+            int dk = 0;
+            while (dk < zdn) { withD[libsDirsN + dk] = zdom[dk]; dk = dk + 1; }
+            libsDirs = withD; libsDirsN = libsDirsN + zdn;
+        }
+        if (zn > 0) {
+            // ⚠️ 用 `zn`（有效个数）而不是 `zrefs.Length`（分配长度）—— 拆分后数组是按上界分配的，
+            // 用 Length 会把尾部空槽也当成目录混进解析域。
+            string[] withZ = new string[libsDirsN + zn];
+            int zk = 0;
+            while (zk < zn) { withZ[zk] = zrefs[zk]; zk = zk + 1; }
+            int wi2 = 0;
+            while (wi2 < libsDirsN) { withZ[zn + wi2] = libsDirs[wi2]; wi2 = wi2 + 1; }
+            libsDirs = withZ; libsDirsN = libsDirsN + zn;
         }
     }
-    // ── 编译期扩展工程的解析域（add-package-roles 批 1）──
+    // ── 编译期扩展工程的解析域（add-package-roles 批 1；落点 relocate-compiler-domain-libs 改为 programs/z42c/）──
     // `kind = "analyzer"` ⇒ 本工程是编译期扩展（analyzer / generator 本体），其 `[dependencies]`
     // 要够得着编译器的契约包（`z42c.semantics` 的 Generator/ModuleGenerator/GenSink/GenTarget）。
-    // 那些 zpkg 不在 `libs/`，故此处把 compiler-libs 解析域并入本工程的 libsDirs。
+    // 那些 zpkg 不在 `libs/`（整个编译器域都不在），故此处把编译器域解析域并入本工程的 libsDirs。
     //
     // 只对 analyzer 工程生效 ⇒ 普通工程看不见编译器域包（解析域隔离），且 z42c 自建
     // （kind=exe）不进此块 ⇒ 自举 byte-identical。
     if (pm.Project.Kind == "analyzer") {
-        string[] cl = _compilerLibsDirs();
+        string[] cl = _compilerDomainDirs();
         if (cl.Length > 0) {
             string[] withCl = new string[libsDirsN + cl.Length];
             int wi = 0;

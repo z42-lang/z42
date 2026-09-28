@@ -61,7 +61,8 @@ int _e2eAnalyzerDomainChecks(string root, string vm, string driverZpkg, string e
     File.WriteAllText(Path.Join(bdir, "gen.z42"), _e2eAnalyzerSrc());
     string btoml = Path.Join(bdir, "e2e.gen.z42.toml");
 
-    // ① kind = "analyzer" → 解析域含 compiler-libs ⇒ 契约可解析 ⇒ 编过。
+    // ① kind = "analyzer" → 解析域含编译器域目录（`programs/z42c/`，见 `_compilerDomainDirs`）
+    //    ⇒ 契约可解析 ⇒ 编过。
     File.WriteAllText(atoml, _e2eAnalyzerToml("analyzer"));
     ProcessResult r1 = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(atoml).Arg("--release")
         .Env("Z42_LIBS", flat).Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
@@ -207,3 +208,138 @@ int _e2ePathAnalyzerChecks(string root, string vm, string driverZpkg, string e2e
     return 0;
 }
 
+
+// ── 用户工程**显式引用**编译器域库（relocate-compiler-domain-libs）───────────────────────────
+//
+// **守的是什么**：隔离不是禁止，是「不隐式可见」。用户要写 linter / 格式化器 / 代码生成，就在
+// `[dependencies]` 里用 `${compiler_libs}` 路径宏显式引用；引用到的 zpkg 要**被拷进他的输出目录**
+// （拷出去就能跑，不依赖 SDK 在不在）。
+//
+// **三格，缺一不可**：
+//   ① 不声明 + `using Z42.Syntax` → 必须编**不**过（隔离在）；
+//   ② 声明了 → 必须编过、`dist/` 里有 `z42c.syntax.zpkg`、且**整套 stdlib 没被拖进来**（能力在 + 不过度复制）；
+//   ③ 宏名拼错 → 必须当场报「未知宏」（而不是沿用「保留字面」变成一句「文件不存在」）。
+//
+// 🔴 **为什么不能直接用开发树的 flat 当「用户的 libs」**：flat 里**有意**躺着破环预建
+// （`_ensureBootstrapSelfDepLibs`）写进去的六个编译器域包 ⇒ ①格在开发树里天然不成立。
+// 故本门自己拼两个临时目录：`shipped/`（flat 减去编译器域 = 用户看到的 libs）+
+// `cdomain/`（编译器域包，镜像 `<sdk>/programs/z42c/`，经 `Z42_COMPILER_LIBS` 交给宏）。
+// **这正是我实施时第一次验错的地方**（用了 flat，结论反了）。
+string[] _e2eDomainPkgNames() {
+    return new string[]{ "z42c.core", "z42c.syntax", "z42c.semantics", "z42c.pipeline", "z42c.driver",
+                         "z42.package", "z42.project", "z42.build", "z42.scripting" };
+}
+
+bool _e2eIsDomainZpkg(string fname) {
+    string[] d = _e2eDomainPkgNames();
+    int i = 0;
+    while (i < d.Length) { if (fname == d[i] + ".zpkg" || fname == d[i] + ".zsym") { return true; } i = i + 1; }
+    return false;
+}
+
+string _e2eUserRefSrc() {
+    return "namespace E2eUserLinter;\n\nusing Std;\nusing Std.IO;\nusing Z42.Syntax;\n\n"
+         + "public static class Program {\n"
+         + "    public static void Main() {\n"
+         + "        Lexer lx = new Lexer(\"var x = 1;\", \"demo.z42\");\n"
+         + "        lx.Tokenize();\n"
+         + "        Console.WriteLine(\"tokens=\" + lx.Tokens().Length.ToString());\n"
+         + "    }\n}\n";
+}
+
+string _e2eUserRefToml(string depLine) {
+    return "[project]\nname    = \"e2euserlinter\"\nversion = \"0.1.0\"\nkind    = \"exe\"\n"
+         + "entry   = \"E2eUserLinter.Program.Main\"\n\n[sources]\ninclude = [\"*.z42\"]\n\n"
+         + "[dependencies]\n\"z42.core\" = \"0.1.0\"\n\"z42.io\"   = \"0.1.0\"\n" + depLine;
+}
+
+int _e2eUserDomainRefChecks(string root, string vm, string driverZpkg, string e2eDir) {
+    string flat = _libsFlatDist(root, "release");
+    string shipped = Path.Join(e2eDir, "userref_shipped");
+    string cdomain = Path.Join(e2eDir, "userref_cdomain");
+    _resetDir(shipped); _resetDir(cdomain);
+    // shipped/ = flat 减编译器域（用户看到的 libs）
+    foreach (var f in Directory.Enumerate(flat)) {
+        if (!f.EndsWith(".zpkg") && !f.EndsWith(".zsym")) { continue; }
+        if (_e2eIsDomainZpkg(f)) { continue; }
+        File.Copy(Path.Join(flat, f), Path.Join(shipped, f));
+    }
+    // cdomain/ = 编译器域包（镜像 <sdk>/programs/z42c/）
+    string[] dom = _e2eDomainPkgNames();
+    int di = 0;
+    int domN = 0;
+    while (di < dom.Length) {
+        string src = Path.Join(_compilerMemberDist(root, dom[di], "release"), dom[di] + ".zpkg");
+        if (File.Exists(src)) { File.Copy(src, Path.Join(cdomain, dom[di] + ".zpkg")); domN = domN + 1; }
+        di = di + 1;
+    }
+    if (domN == 0) {
+        Console.WriteLine("  ✗ 用户显式引用门：cdomain/ 一个编译器域 zpkg 都没拼到（门是空的）");
+        return 1;
+    }
+
+    // ① 不声明 ⇒ 看不见
+    string adir = Path.Join(e2eDir, "userref_nodecl");
+    Directory.Create(adir);
+    File.WriteAllText(Path.Join(adir, "main.z42"), _e2eUserRefSrc());
+    string atoml = Path.Join(adir, "e2euserlinter.z42.toml");
+    File.WriteAllText(atoml, _e2eUserRefToml(""));
+    ProcessResult r1 = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(atoml).Arg("--release")
+        .Env("Z42_LIBS", shipped).Env("Z42_COMPILER_LIBS", cdomain)
+        .Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
+    if (r1.ExitCode == 0) {
+        Console.WriteLine("  ✗ 普通工程没声明也解析到了 Z42.Syntax —— 隔离失效");
+        return 1;
+    }
+    if (r1.Stderr.IndexOf("Lexer") < 0) {
+        Console.WriteLine("  ✗ ①格编不过，但错误与 Z42.Syntax 的类型无关（门失去判别力）");
+        Console.WriteLine("    stderr: " + r1.Stderr);
+        return 1;
+    }
+
+    // ② 声明了 ⇒ 能编 + 产物里有它 + 没把 stdlib 拖进来
+    string bdir = Path.Join(e2eDir, "userref_decl");
+    Directory.Create(bdir);
+    File.WriteAllText(Path.Join(bdir, "main.z42"), _e2eUserRefSrc());
+    string btoml = Path.Join(bdir, "e2euserlinter.z42.toml");
+    File.WriteAllText(btoml, _e2eUserRefToml(
+        "\"z42c.syntax\" = { path = \"${compiler_libs}/z42c.syntax.zpkg\" }\n"));
+    ProcessResult r2 = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(btoml).Arg("--release")
+        .Env("Z42_LIBS", shipped).Env("Z42_COMPILER_LIBS", cdomain)
+        .Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
+    if (r2.ExitCode != 0) {
+        Console.WriteLine("  ✗ 用户工程显式引用 ${compiler_libs} 后仍编不过: rc=" + r2.ExitCode.ToString());
+        Console.WriteLine("    stderr: " + r2.Stderr);
+        return 1;
+    }
+    string bdist = Path.Join(bdir, "dist");
+    if (!File.Exists(Path.Join(bdist, "z42c.syntax.zpkg"))) {
+        Console.WriteLine("  ✗ 引用到的 z42c.syntax.zpkg **没被拷进输出目录** —— 拷出去就跑不起来");
+        return 1;
+    }
+    // 不过度复制：stdlib 仍从框架解析。`programs/z42c/` 是 driver 自包含闭包（含 stdlib 副本），
+    // 解析域若排在框架之前，这里会看到整套 stdlib 被拷进来（实施时实测踩过）。
+    if (File.Exists(Path.Join(bdist, "z42.core.zpkg"))) {
+        Console.WriteLine("  ✗ 整套 stdlib 被拷进用户输出目录（编译器域解析域压过了框架）");
+        return 1;
+    }
+
+    // ③ 宏名拼错 ⇒ 当场说清
+    string cdir = Path.Join(e2eDir, "userref_badmacro");
+    Directory.Create(cdir);
+    File.WriteAllText(Path.Join(cdir, "main.z42"), _e2eUserRefSrc());
+    string ctoml = Path.Join(cdir, "e2euserlinter.z42.toml");
+    File.WriteAllText(ctoml, _e2eUserRefToml(
+        "\"z42c.syntax\" = { path = \"${compiler_libz}/z42c.syntax.zpkg\" }\n"));
+    ProcessResult r3 = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(ctoml).Arg("--release")
+        .Env("Z42_LIBS", shipped).Env("Z42_COMPILER_LIBS", cdomain)
+        .Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
+    if (r3.ExitCode == 0 || r3.Stderr.IndexOf("未知宏") < 0) {
+        Console.WriteLine("  ✗ 宏名拼错没有当场报「未知宏」（保留字面会让症状离原因很远）: rc="
+            + r3.ExitCode.ToString());
+        Console.WriteLine("    stderr: " + r3.Stderr);
+        return 1;
+    }
+    Console.WriteLine("  ✓ 用户显式引用编译器域：不声明看不见 / 声明可用且拷进产物 / 宏名拼错当场报");
+    return 0;
+}
