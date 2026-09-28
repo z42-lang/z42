@@ -72,7 +72,20 @@ paths:
    > **之前**就地覆写，于是 `zbc_compat` 校验的永远是刚重生的字节、**从不是 committed 的那份** ——
    > 陈旧基线因此可以一直绿着，同时把每个人的工作树弄脏。实际后果：这 6 个 fixture 停在 zbc **1.37**
    > 一路熬过了 1.38 的 bump（#414 漏了本步），2026-09-04 才被发现。形态同 `cargo fmt --check`。
-5. **z42c golden hex 单测** — `src/compiler/z42c.semantics/tests/zbc/zbc_tests.z42` 的 `test_zbc_empty_byte_identical` 内嵌 `empty/source.zbc` 的 hex 串（zbc 1.21 起 226B；header 的 `minor` 字段 + STRS 段体会随 bump 变化）。从 regen 后的 fixture 重截：
+5. **z42c golden hex 单测 —— `zbc_tests.z42` 里有 *三* 个逐字节断言，不是一个**
+   （⚠️ 本步骤此前只点名第一个，2026-09-28 因此多烧了一轮 CI；三个都要改）：
+
+   | 测试 | 内嵌什么 |
+   |---|---|
+   | `test_zbc_empty_byte_identical` | `empty/source.zbc` 全量 hex（zbc 1.21 起 231B）|
+   | `test_zbc_f5_with_dbug_byte_identical` | `int F(){return 5;}` 的全量 hex（含 DBUG 行表）|
+   | `test_zbc_selfcheck_program_header` | 自检程序 header 前 10 字节 `5a4243 0001 <minor> 0200` |
+
+   ⭐ **改之前先逐字节 diff，把「为什么只有这些字节变」写进注释** —— 那句推理才是 golden 的价值
+   所在（例：1.46 那次三个用例都**一条 struct 指令都不发** ⇒ 只有 header 的 minor 那一个字节变）。
+   只改数字、不记理由，下一个人无法判断 diff 是否合理。
+
+   第一个从 regen 后的 fixture 重截：
    ```bash
    xxd -p src/tests/zbc-format/empty/source.zbc | tr -d '\n'
    ```
