@@ -277,7 +277,7 @@ public sealed class DeclBinder {
         if (ct == null) { return; }
         // 基类 + 接口 vs 类可见性
         if (ct.HasBase) {
-            Z42ClassType bt = symbols.GetClass(ct.BaseName);
+            Z42ClassType bt = symbols.BaseOf(ct);   // A5：走句柄
             if (bt != null) { AccessChecker.CheckExposure(ct.Visibility, bt, symbols, this._tc._diags, c.Span); }
         }
         int ii = 0;
@@ -545,8 +545,8 @@ public sealed class DeclBinder {
                     targetCls = curCls;
                     targetName = curCls.Name();
                 } else if (curCls.HasBase && curCls.BaseName != "" && curCls.BaseName != "Object") {
-                    targetCls = symbols.GetClass(curCls.BaseName);
-                    targetName = curCls.BaseName;
+                    targetCls = symbols.BaseOf(curCls);   // A5：查找走句柄
+                    targetName = curCls.BaseName;         // 名字只留给下面的 E0469 文案
                 }
                 int argc = md.HasCtorInit ? md.BaseArgCount : 0;
                 if (targetCls != null && argc == 0 && !(md.HasCtorInit && md.IsThisInit)) {

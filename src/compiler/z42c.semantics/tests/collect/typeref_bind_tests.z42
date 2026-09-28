@@ -140,3 +140,38 @@ void test_no_unbound_base_ref_after_collect() {
     var t = collect("namespace Demo; class A { } class B : A { } class C : B { }");
     Assert.Equal("", t.FirstUnboundIfaceRef());
 }
+
+// ── A4：base 链走查**脱离名字** ────────────────────────────────────────────
+//
+// 入口按名字查一次，之后每跳走 `ct.Base` 句柄（数组索引、零字符串哈希）。
+// 这条守的是**那条路还在**：整条链上每一层都必须绑上句柄，否则走查会退回按名字查
+// （功能上仍对、但性能收益没了，而那是**静默**的 —— 没有任何断言会红）。
+[Test]
+void test_base_chain_is_fully_handle_linked() {
+    var t = collect("namespace Demo; class A { } class B : A { } class C : B { } class D : C { }");
+    // 从 D 起沿 Base 句柄一路走到 A，全程不碰名字表
+    var cur = t.GetClass("D");
+    int hops = 0;
+    while (cur != null && cur.HasBase) {
+        Assert.Equal(true, cur.Base != 0);          // ← 断链就会红
+        cur = t.Intern.At(cur.Base) as Z42ClassType;
+        hops = hops + 1;
+    }
+    Assert.Equal(3, hops);                           // D→C→B→A
+    Assert.Equal(true, cur != null);
+    Assert.Equal("A", cur.Name());                   // 走到链顶
+    // 判定结果与走查一致
+    Assert.Equal(true, t.IsSubclassOf("D", "Demo.A"));
+    Assert.Equal(true, t.IsSubclassOf("D", "B"));
+    Assert.Equal(false, t.IsSubclassOf("A", "D"));
+}
+
+// 接口那半边同样沿 base 链收集（`Implements` 的种子来自各层的 `Interfaces`）。
+// 这条压的是「A4 换成句柄走查后，**继承来的**接口仍被收集到」。
+[Test]
+void test_implements_collects_inherited_ifaces_via_handles() {
+    var t = collect("namespace Demo; interface IA { } class A : IA { } class B : A { } class C : B { }");
+    Assert.Equal(true, t.Implements("C", "Demo.IA"));   // 隔两层继承拿到
+    Assert.Equal(true, t.Implements("B", "IA"));
+    Assert.Equal(false, t.Implements("C", "Demo.INope"));
+}

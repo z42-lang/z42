@@ -1,0 +1,269 @@
+// SymbolTable 的「名义关系判定」那一簇（A5，从 SymbolTable.z42 拆出）。
+//
+// 为什么单独成文件：`SymbolTable.z42` 顶到了 886 行硬限（`xtask test lines` 判红），
+// 而这一簇在职责上本来就自成一块 —— 它回答的全是同一个问题族：
+//
+//   「这两个**名义类型**是不是同一个 / 有没有继承关系？」
+//
+// `_sameRef`（相等判定唯一实现）· `_sameIface`（数组版）· `Implements`（类→接口，含传递闭包）·
+// `InterfaceDerivesFrom`（接口→接口）· `_anyInterfaceDerivesFrom`（父链 BFS）·
+// `IsSubclassOf`（类→类）· `BaseOf`（取下一层基类的唯一出口）全在这里。
+//
+// 🔴 这一簇的共同不变量（enforce-fqn-name-identity B3/B4/B5 建立）：
+//   **判定只认名义身份句柄**（`TypeIntern` 的 id），不按名字比。0 = 未绑定，永不参与相等判定。
+//   名字只在**入口**用一次（调用方给的是名字）与**回落**时用（跨包基类不可见，待 A5 收口）。
+//
+// ⚠️ 本次拆分是**纯代码搬运**：方法体逐字未改，只是换了文件。判据、消息措辞、调用关系全不动。
+// `partial` 而非静态辅助类的理由同 `SymbolTable.Origins.z42` 抬头（零调用点改动、零额外帧）。
+namespace Z42.Semantics;
+using Z42.IR;
+
+using Z42.Syntax;
+
+public sealed partial class SymbolTable {
+    // ── enforce-fqn-name-identity B3：接口相等判定的**唯一出口** ──────────────────
+    //
+    // 🔴 **0（未绑定）永不参与相等判定**。否则「目标绑不到」与「实现方那一格绑不到」会
+    // `0 == 0` 撞成**假阳性** —— 而「绑不到」是**合法状态**，不是可以忽略的边角：消费方
+    // 不必看得见它实现的每个接口（实测 `z42c.driver` 看得见 `Z42cCompiler` 却看不见
+    // `Z42.Build.ICompiler`，传递依赖未声明）。这正是 B2.0 归因推翻「无解→报错」的那条。
+    //
+    // 判定：两边**都**有句柄 ⇒ 比句柄（精确、与拼写无关）；任一为 0 ⇒ 退回名字比较，
+    // 逐字保持 B3 之前的行为 ⇒ **字节恒等**。B5 删这条回落时要单独裁「绑不到」的语义。
+    //
+    // ⚠️ 判定只此一份：`Implements` 的 BFS 种子与 `_anyInterfaceDerivesFrom` 的父链展开
+    // 共用它。两处各写一遍正是本仓反复失手的形状（「同一判据两份实现时，只修一份比都不修更糟」）。
+    // 标量版：名义身份相等判定的**唯一实现**。B3（接口）与 B4（类基类）共用它 ——
+    // 同一判据两份实现正是本仓反复失手的形状（`InterfaceKeyOf` 那次「只修一份反而从误报
+    // 升级成运行期崩」）。
+    //
+    // ── B5：**名字回落已删** ────────────────────────────────────────────────
+    //
+    // B3/B4 期间这里是「两边都有句柄 ⇒ 比句柄；任一为 0 ⇒ 退回比名字」。回落是过渡设施，
+    // 用来保证那两批**行为不变**；它的正当性一直没被测过。B5 先量后删：
+    //
+    // | 面 | 阳性对照 `refHit` | 回落触发 `fbTotal` |
+    // |---|---|---|
+    // | stdlib 全量（19 包） | 42~66 | **0** |
+    // | 真·跨包编译（导入类 → 本地同短名接口） | 2 | **0** |
+    //
+    // ⇒ **一次都没触发**，是死代码。机理也说得通：能在源码里写出 `IThing t = ...` 就意味着
+    // 该接口解析得到、在表里 ⇒ `targetRef != 0`；而「目标在表里、被查那一格却没绑上」是
+    // **矛盾**状态，由 `FirstUnboundIfaceRef()` 那道门专门抓。两种 0 都不该出现在判定里。
+    //
+    // 🔴 **删掉回落后，0 的语义变成「判不了 ⇒ false」而不是「猜一下」**。这不是收紧：
+    // 上面两组数字说明现实中走不到；真走到了，说明绑定漏了 —— 那时给 false 比按名字猜
+    // 更好，因为猜出来的 true 是**静默错值**（本程序开篇追的就是这个）。
+    // ⚠️ B5 起**不再收名字参数** —— 留着它就是留着「可以按名字比」这条路，而那正是要关掉的。
+    private static bool _sameRef(int a, int b) {
+        if (a == 0 || b == 0) { return false; }
+        return a == b;
+    }
+
+    // 数组版：`refs[i]` 对 target 的判定（带双重边界）。转发到 `_sameRef`。
+    // B5：名字数组不再参与判定，故不再是参数。
+    private static bool _sameIface(int[] refs, int i, int targetRef) {
+        if (refs == null || i >= refs.Length) { return false; }
+        return SymbolTable._sameRef(refs[i], targetRef);
+    }
+
+    public bool Implements(string clsName, string ifaceName) {
+        // interface-names-fqn：`InterfaceNames` / `BaseNames` 已是 FQN ⇒ 比较的另一侧也要归一。
+        // 🔴 归一放在**这里**而不是让 ~20 个调用方各自传 FQN：判据只有一份，调用方传短名还是
+        // FQN 都对。调用方分散改的话，漏一处就是静默失配（误报 + 漏报同时发生）。
+        ifaceName = SymbolTable.IfaceFqnOf(this, ifaceName);
+        // enforce-fqn-name-identity **B3**：相等判定优先走**名义身份句柄**（见 `_sameIface`）。
+        int targetRef = this._refOfIface(ifaceName);
+        // 待展开的接口队列（BFS）+ 去重；接口继承一般极浅，初始容量 8 足够。
+        // queue 仍装**名字**：下游 `_anyInterfaceDerivesFrom` 要按名字 `GetInterface` 找定义
+        // （那一段的句柄化在 A5）。
+        string[] queue = new string[8];
+        int qt = 0;
+        int hops = 0;
+        // A4：base 链走查**脱离名字** —— 入口按名字查一次，之后每跳走 `ct.Base` 句柄
+        // （数组索引，零哈希）。理由见 `IsSubclassOf` 里的同款注释。
+        Z42ClassType ct = this.GetClass(clsName);
+        while (ct != null && hops < 32) {
+            hops = hops + 1;
+            int i = 0;
+            while (i < ct.InterfaceCount) {
+                if (SymbolTable._sameIface(ct.Interfaces, i, targetRef)) { return true; }
+                if (qt == queue.Length) {
+                    string[] bigger = new string[queue.Length * 2];
+                    int z = 0; while (z < qt) { bigger[z] = queue[z]; z = z + 1; }
+                    queue = bigger;
+                }
+                queue[qt] = ct.InterfaceNames[i]; qt = qt + 1;
+                i = i + 1;
+            }
+            ct = this.BaseOf(ct);   // A5：收敛到唯一出口（句柄优先、未绑定才回落名字）
+        }
+        return this._anyInterfaceDerivesFrom(queue, qt, ifaceName);
+    }
+
+    // 接口 → 接口的继承判定（`IDerived` 是否派生自 `IBase`；不含自身）。
+    // 供约束校验里「接口本身作为类型实参」的场景用。
+    public bool InterfaceDerivesFrom(string ifaceName, string target) {
+        // interface-names-fqn：🔴 **两个参数必须对称归一**。此前只归一 `target`、`ifaceName` 原样
+        // 拿去 `this.Interfaces.Find`（**绕过双键 `GetInterface`**）—— 两处不对称各自都能静默给
+        // 错答案：喂 FQN 进来时短名表 miss ⇒ 恒 false；`BaseNames` 已是 FQN 而 target 没归一 ⇒
+        // 闭包里恒不相等。要么删要么补对称，留着半归一是最坏的一种。
+        target = SymbolTable.IfaceFqnOf(this, target);
+        Z42InterfaceType it = this.GetInterface(ifaceName);
+        if (it == null) { return false; }
+        string[] seeds = new string[8];
+        int n = 0;
+        int b = 0;
+        while (b < it.BaseCount) {
+            if (n == seeds.Length) {
+                string[] bigger = new string[seeds.Length * 2];
+                int z = 0; while (z < n) { bigger[z] = seeds[z]; z = z + 1; }
+                seeds = bigger;
+            }
+            seeds[n] = it.BaseNames[b]; n = n + 1;
+            b = b + 1;
+        }
+        return this._anyInterfaceDerivesFrom(seeds, n, target);
+    }
+
+    // 从 `seeds`（类的直接接口名，可含重复）出发沿父接口链 BFS，命中 target 返回 true。
+    // `queue` 原地扩展兼作 seen 检查的载体——接口数极少（个位数），线性去重比建 StrMap 便宜。
+    private bool _anyInterfaceDerivesFrom(string[] queue, int count, string target) {
+        // B3：与 `Implements` 共用同一个句柄判定（`_sameIface`）。target 的句柄算一次。
+        int targetRef = this._refOfIface(target);
+        int qh = 0;
+        int qt = count;
+        int guard = 0;
+        while (qh < qt && guard < 256) {
+            guard = guard + 1;
+            string name = queue[qh]; qh = qh + 1;
+            // 线性去重：本项此前是否已出现过（含 seeds 里的重复声明）。
+            bool dup = false;
+            int s = 0;
+            while (s < qh - 1) { if (queue[s] == name) { dup = true; break; } s = s + 1; }
+            if (dup) { continue; }
+            // B3/B5：队列项自身与 target 的比较走**同一个** `_sameRef`（队列装的是名字，
+            // 故现查一次句柄）。B5 起不再有名字回落 —— 此前这里手写了一份「0 就比名字」的
+            // 逻辑，那是同一判据的第二份实现，正是本仓反复失手的形状；现在收敛掉了。
+            if (SymbolTable._sameRef(this._refOfIface(name), targetRef)) { return true; }
+            // 🔴 此前是 `this.Interfaces.Find(name)` —— **绕过了 `GetInterface` 访问器**。
+            // 访问器已在 fqn-symbol-key 步 1 改成双键（FQN 优先、短名回落），而这条 BFS 直接摸
+            // 底层短名表 ⇒ 名字一旦变成 FQN，整条闭包就静默变浅：`Implements` 假否 ⇒
+            // class→iface 报 E0402（误报）**且** 约束满足性漏检（漏报）。改走访问器后，
+            // 键形态随访问器一起演进，不会再掉队。
+            Z42InterfaceType it = this.GetInterface(name); if (it == null) { continue; }
+            int b = 0;
+            while (b < it.BaseCount) {
+                if (qt == queue.Length) {
+                    string[] bigger = new string[queue.Length * 2];
+                    int z = 0; while (z < qt) { bigger[z] = queue[z]; z = z + 1; }
+                    queue = bigger;
+                }
+                queue[qt] = it.BaseNames[b]; qt = qt + 1;
+                b = b + 1;
+            }
+        }
+        return false;
+    }
+    // 双键过渡形态；这笔阶段-2 欠账登记在 `HasClass` 抬头（同一笔，不在此重复挂标记）。
+    public Z42ClassType  GetClass(string name) {
+        int f = this.ClassesByFqn.Find(name);
+        if (f >= 0) { return this.ClassesByFqn.ValAt(f) as Z42ClassType; }
+        return this.Classes.Get(name) as Z42ClassType;
+    }
+    public bool          HasConstraints(string name) { return this.ClassConstraints.ContainsKey(name); }
+    public ConstraintSet GetConstraints(string name) { return this.ClassConstraints.Get(name) as ConstraintSet; }
+    public bool          HasIfaceConstraints(string name) { return this.InterfaceConstraints.ContainsKey(name); }
+    public ConstraintSet GetIfaceConstraints(string name) { return this.InterfaceConstraints.Get(name) as ConstraintSet; }
+
+    // ClassConstraints 的**唯一**键推导（add-associated-types PR-1）。写入侧（ConstraintChecker.Resolve）、
+    // 查询侧（ConstraintChecker.Check）、导入侧（ImportedSymbolLoader seed）三处都必须经过这里。
+    //
+    // 规则与 `Classes` 完全一致（条件 arity-mangle：同短名多 arity 才带 `$N`）。实现方式是**探测
+    // `Classes` 里实际存的是哪一种键**——StubCollector（本地）/ ImportedSymbolLoader（导入）已二选一
+    // 地登记过，探测即复现其判定，无需把 multiArityMap 传进来，也就不会与它们漂移。
+    //
+    // 修前三套规则并存：`Classes` 条件 mangle、`ClassConstraints` 恒裸名、查询侧恒裸名（`inst.Def.Name()`）。
+    // 写入与查询恰好都用裸名，故本包能跑；但同短名多 arity 的泛型类（`Foo<T>` / `Foo<T,U>`）其约束在
+    // ClassConstraints 里**last-wins 互相覆盖** —— `Foo<Widget>` 可能被拿去校验 `Foo<T,U>` 的约束。
+    // 且导入侧一旦接进来，`Name$N` 与裸名直接对不上，跨包约束全部落空。
+    public string ConstraintKey(string bareName, int tpCount) {
+        if (tpCount > 0) {
+            string mangled = bareName + "$" + tpCount.ToString();
+            if (this.Classes.ContainsKey(mangled)) { return mangled; }
+        }
+        return bareName;
+    }
+
+    // sub 是否为 baseName 的子类（含自身）。走 base 链（迭代——self-type 字段不可递归调本类方法）。
+    // enforce-fqn-name-identity **B4**：沿 base 链的相等判定走**名义身份句柄**（`_sameRef`）。
+    //
+    // 🔴 0（未绑定）不参与判定 —— 同 B3：目标与某一层基类都绑不到时 `0 == 0` 会撞成假阳性，
+    // 而「绑不到」是合法状态（跨包基类可能不可见）。两边都有句柄才比句柄，否则退回名字。
+    //
+    // 🔴🔴 **本函数的答案会变，那是修复不是回归**（实测；别照抄 B3 那句「行为逐字不变」）：
+    // `BaseName` **从不经过归一 pass** —— `_passQualifyIfaceNames` 只归一接口那两根轴 ——
+    // 所以它存的是**源码里写的短名**。于是修前拿 FQN 去查会一路比不中：
+    //
+    //     namespace Demo; class A { } class B : A { }
+    //     IsSubclassOf("B", "A")       → true     （短名对短名，碰巧相等）
+    //     IsSubclassOf("B", "Demo.A")  → **false**（"A" != "Demo.A"，一直走到链尾）
+    //
+    // 同一个继承关系，换个拼写就答错 —— 与 B2 那两条「导入边界剥 ns」同族的静默错值。
+    // 句柄化后两种拼写解析到同一个 id ⇒ 都答 true。
+    // ⇒ **输出会变**（实测 stdlib 有包字节变化）⇒ 按 version-bumping 要累加指纹。
+    //
+    // ⚠️ **只有比较走句柄，查找仍走名字**（`GetClass(cur)`）：句柄没有「按 id 取下一层」的路径，
+    // 那要等 `Base` 成为唯一真相（B5）之后。
+    public bool IsSubclassOf(string sub, string baseName) {
+        if (sub == baseName) { return true; }
+        int targetRef = this._refOfClass(baseName);
+        // ── A4：base 链走查**脱离名字** ────────────────────────────────────────
+        //
+        // 此前每跳一层都 `GetClass(cur)` 一次 —— 那是一次 FNV-1a over UTF-8 的字符串哈希
+        // （`__str_hash_code` **O(n)、每次重算、无缓存**，profile 里 `GetHashCode` 自占 1.93%）。
+        // 而 `ct.Base` 自 B4 起**已经是句柄** ⇒ 下一层直接 `Intern.At(id)` 拿到，
+        // 那是一次数组索引，零哈希。
+        //
+        // 只有**入口**那一次还要按名字查（调用方给的是名字）；链上每一跳都走句柄。
+        // ⚠️ `Base` 为 0（未绑定）时仍需回落到名字 —— 那是合法状态（跨包基类不可见），
+        // 且 A 轴尚未收口（`Resolve` 入口还没建），此处保留直到 A5。
+        Z42ClassType ct = this.GetClass(sub);
+        int hops = 0;
+        while (ct != null && hops < 64) {
+            hops = hops + 1;
+            if (!ct.HasBase) { return false; }
+            if (SymbolTable._sameRef(ct.Base, targetRef)) { return true; }
+            ct = this.BaseOf(ct);   // A5：收敛到唯一出口
+        }
+        return false;
+    }
+
+    // ── A5：「取下一层基类」的**唯一出口** ──────────────────────────────────────
+    //
+    // 全仓有 16 处 `GetClass(x.BaseName)` 在做同一件事：沿 base 链往上走一层。每一处都是
+    // 一次 FNV-1a over UTF-8 的字符串哈希（`__str_hash_code` **O(n)、每次重算、无缓存**，
+    // profile 里 `GetHashCode` 自占 1.93%）—— 而 `ct.Base` 自 B4 起**已经是句柄**，
+    // 取下一层只需一次数组索引。
+    //
+    // 收敛成一个出口而不是在 16 处各改一遍：同一判据多份实现正是本仓反复失手的形状
+    // （`InterfaceKeyOf` 那次「只修一份反而从误报升级成运行期崩」）。往后 `Base` 的语义
+    // 再演进（A5 收口、B5 删字符串），只动这里。
+    //
+    // ⚠️ 清扫**必须从全仓 grep 起**，别凭记忆枚举目录：第一刀只迁了 13 处，
+    // `ClassExtractor` / `DeclBinder` / `ForeachProtocol` 三处是回头 grep 才抓到的
+    // （变量名不叫 `ct`，眼睛扫不出来）。判据 = `grep -E "(GetClass|HasClass)\([^)]*BaseName"`
+    // 只应剩两处：`Origins` 里那个**门的判据**（刻意按名字查，用来发现「查得到却没绑」的矛盾）
+    // 和本函数自己的回落。
+    //
+    // 返回 null = 没有基类，或基类不可见（跨包）。
+    // ⚠️ `Base == 0` 时回落到名字：那是**合法**状态（跨包基类不可见 / 尚未绑定），
+    // 不是错误。这条回落要等 `Resolve` 入口建成后才能收掉。
+    public Z42ClassType BaseOf(Z42ClassType ct) {
+        if (ct == null) { return null; }
+        if (!ct.HasBase) { return null; }
+        if (ct.Base != 0) { return this.Intern.At(ct.Base) as Z42ClassType; }   // 零哈希
+        if (ct.BaseName == null || ct.BaseName == "") { return null; }
+        return this.GetClass(ct.BaseName);
+    }
+}

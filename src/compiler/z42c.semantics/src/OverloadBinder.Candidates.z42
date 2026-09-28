@@ -27,7 +27,7 @@ public sealed partial class OverloadBinder {
                 if (cur.Name() != "Object" && symbols.HasClass("Object")) { cur = symbols.GetClass("Object"); }
                 else { more = false; }
             } else {
-                Z42ClassType b = symbols.GetClass(cur.BaseName);
+                Z42ClassType b = symbols.BaseOf(cur);   // A5：走句柄
                 if (b == null) { more = false; } else { cur = b; }
             }
         }
@@ -92,7 +92,7 @@ public sealed partial class OverloadBinder {
                 if (cur.Name() != "Object" && symbols.HasClass("Object")) { cur = symbols.GetClass("Object"); }
                 else { more = false; }
             } else {
-                Z42ClassType b = symbols.GetClass(cur.BaseName);
+                Z42ClassType b = symbols.BaseOf(cur);   // A5：走句柄
                 if (b == null) { more = false; } else { cur = b; }
             }
         }
