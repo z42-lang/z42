@@ -72,34 +72,62 @@ pub unsafe extern "C" fn jit_struct_copy(
     }
 }
 
-/// `StructFieldGetPrim dst, base, byte_off, kind` — read the leaf at `byte_off`
-/// (base = arena `StructRef` / heap `Object` inline field / `StructRefHeap` array
-/// element). Returns 0 on success, 1 (+ exception) on a bad base / layout.
+/// 把 (ptr, len) 还原成 `&str` / `&[u16]`。SAFETY：指向模块函数体里的解码结果
+/// （`str_val` / `path_val` 打的常量），生命周期覆盖这段 JIT 代码。
+#[inline]
+unsafe fn root_and_path<'a>(
+    root_ptr: *const u8, root_len: u64, path_ptr: *const u16, path_len: u64,
+) -> (&'a str, &'a [u16]) {
+    let root = std::str::from_utf8_unchecked(std::slice::from_raw_parts(root_ptr, root_len as usize));
+    let path = std::slice::from_raw_parts(path_ptr, path_len as usize);
+    (root, path)
+}
+
+/// `StructFieldGetPrim dst, base, (root_type, path), kind` — read the named leaf
+/// (base = arena `StructRef` / heap `Object` inline field / `StackObject` /
+/// `BoxedStruct` / `StructRefHeap` array element). Returns 0 on success,
+/// 1 (+ exception) on a bad base / layout / path.
+///
+/// symbolic-struct-field-access P2：解析走 `exec_struct::resolve_field_path` ——
+/// 与 interp **同一个**实现。struct 路径上「判据两侧各抄一份」正是本 change 要消掉的东西，
+/// 所以这里不重写一份解析。
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_struct_field_get_prim(
     frame: *mut JitFrame, ctx: *const JitModuleCtx,
-    dst: u32, base: u32, byte_off: u32, kind: u8,
+    dst: u32, base: u32,
+    root_ptr: *const u8, root_len: u64, path_ptr: *const u16, path_len: u64,
+    kind: u8,
 ) -> u8 {
+    let (root, path) = root_and_path(root_ptr, root_len, path_ptr, path_len);
     let base_val = (*frame).regs[base as usize].clone();
-    match exec_struct::struct_field_get_val(vm_ctx_ref(ctx), &base_val, byte_off, kind) {
+    let vm = vm_ctx_ref(ctx);
+    let r = exec_struct::resolve_for_access(vm, root, path, &base_val, "StructFieldGetPrim")
+        .and_then(|off| exec_struct::struct_field_get_val(vm, &base_val, off, kind));
+    match r {
         Ok(v)  => { (*frame).regs[dst as usize] = v; 0 }
-        Err(e) => { set_exception(vm_ctx_ref(ctx), Value::Str(format!("{e}").into())); 1 }
+        Err(e) => { set_exception(vm, Value::Str(format!("{e}").into())); 1 }
     }
 }
 
-/// `StructFieldSetPrim base, byte_off, kind, val` — write the leaf in place (heap
-/// bases route reference-leaf writes through a write barrier). Returns 0 on
-/// success, 1 (+ exception) on a bad base / layout.
+/// `StructFieldSetPrim base, (root_type, path), kind, val` — write the named leaf in
+/// place (heap bases route reference-leaf writes through a write barrier). Returns 0
+/// on success, 1 (+ exception) on a bad base / layout / path.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_struct_field_set_prim(
     frame: *mut JitFrame, ctx: *const JitModuleCtx,
-    base: u32, byte_off: u32, kind: u8, val: u32,
+    base: u32,
+    root_ptr: *const u8, root_len: u64, path_ptr: *const u16, path_len: u64,
+    kind: u8, val: u32,
 ) -> u8 {
+    let (root, path) = root_and_path(root_ptr, root_len, path_ptr, path_len);
     let base_val = (*frame).regs[base as usize].clone();
     let v        = (*frame).regs[val as usize].clone();
-    match exec_struct::struct_field_set_val(vm_ctx_ref(ctx), &base_val, byte_off, kind, &v) {
+    let vm = vm_ctx_ref(ctx);
+    let r = exec_struct::resolve_for_access(vm, root, path, &base_val, "StructFieldSetPrim")
+        .and_then(|off| exec_struct::struct_field_set_val(vm, &base_val, off, kind, &v));
+    match r {
         Ok(())  => 0,
-        Err(e)  => { set_exception(vm_ctx_ref(ctx), Value::Str(format!("{e}").into())); 1 }
+        Err(e)  => { set_exception(vm, Value::Str(format!("{e}").into())); 1 }
     }
 }
 

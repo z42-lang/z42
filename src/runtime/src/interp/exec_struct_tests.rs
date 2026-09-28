@@ -19,6 +19,32 @@ fn dec(bytes: &[u8], off: usize, tag: u8) -> Value {
     decode_prim(bytes, off, w, tag).unwrap()
 }
 
+// ── symbolic-struct-field-access P2 之后的转换说明 ─────────────────────────────
+//
+// 本文件的测试考的是**各 base kind 的字节访问机制**（arena `StructRef` / 堆对象内联字段 /
+// `StackObject` / `BoxedStruct` / `StructRefHeap` 数组元素）与叶子 codec —— **不是**路径解析。
+// 它们用的是裸 `VmContext::new()`（**没有类型注册表**）+ 本地构造的 `TypeDesc`，从不按名字注册，
+// 所以符号化入口（`struct_field_{get,set}_prim`）在这里必然以「type not loaded」失败。
+//
+// ⇒ 改为直接驱动 `*_val` 内核（它仍收字节偏移），**测的东西一个字没变**。
+// 路径解析另有专门的测试（见本文件末尾 `resolve_field_path` 那组），那里会真注册类型。
+fn set_leaf(ctx: &VmContext, frame: &mut Frame, base: u32, off: u32, kind: u8, val: u32) {
+    let b = frame.get(base).unwrap().clone();
+    let v = frame.get(val).unwrap().clone();
+    super::struct_field_set_val(ctx, &b, off, kind, &v).unwrap();
+}
+
+fn get_leaf(ctx: &VmContext, frame: &mut Frame, dst: u32, base: u32, off: u32, kind: u8) {
+    let b = frame.get(base).unwrap().clone();
+    let v = super::struct_field_get_val(ctx, &b, off, kind).unwrap();
+    frame.set(dst, v);
+}
+
+fn get_leaf_err(ctx: &VmContext, frame: &mut Frame, base: u32, off: u32, kind: u8) -> String {
+    let b = frame.get(base).unwrap().clone();
+    super::struct_field_get_val(ctx, &b, off, kind).unwrap_err().to_string()
+}
+
 #[test]
 fn codec_roundtrip_integers() {
     for &(tag, n) in &[
@@ -134,14 +160,14 @@ fn heap_object_inline_struct_field_roundtrips() {
     frame.set(3, Value::Str("hi".into())); // reg3 = string for the ref leaf `tag`
 
     // pt.x = 42 (off 0), pt.y = 7 (off 4), tag = "hi" (ref leaf off 8)
-    struct_field_set_prim(&ctx, &mut frame, 0, 0, ty::TAG_I32, 1).unwrap();
-    struct_field_set_prim(&ctx, &mut frame, 0, 4, ty::TAG_I32, 2).unwrap();
-    struct_field_set_prim(&ctx, &mut frame, 0, 8, ty::TAG_STR, 3).unwrap();
+    set_leaf(&ctx, &mut frame, 0, 0, ty::TAG_I32, 1);
+    set_leaf(&ctx, &mut frame, 0, 4, ty::TAG_I32, 2);
+    set_leaf(&ctx, &mut frame, 0, 8, ty::TAG_STR, 3);
 
     // Read them back into reg4/5/6.
-    struct_field_get_prim(&ctx, &mut frame, 4, 0, 0, ty::TAG_I32).unwrap();
-    struct_field_get_prim(&ctx, &mut frame, 5, 0, 4, ty::TAG_I32).unwrap();
-    struct_field_get_prim(&ctx, &mut frame, 6, 0, 8, ty::TAG_STR).unwrap();
+    get_leaf(&ctx, &mut frame, 4, 0, 0, ty::TAG_I32);
+    get_leaf(&ctx, &mut frame, 5, 0, 4, ty::TAG_I32);
+    get_leaf(&ctx, &mut frame, 6, 0, 8, ty::TAG_STR);
 
     assert!(matches!(frame.get(4).unwrap(), Value::I64(42)), "pt.x must be 42");
     assert!(matches!(frame.get(5).unwrap(), Value::I64(7)),  "pt.y must be 7");
@@ -152,8 +178,8 @@ fn heap_object_inline_struct_field_roundtrips() {
 
     // Overwriting pt.x must not disturb pt.y or the ref leaf (independent byte slots).
     frame.set(7, Value::I64(99));
-    struct_field_set_prim(&ctx, &mut frame, 0, 0, ty::TAG_I32, 7).unwrap();
-    struct_field_get_prim(&ctx, &mut frame, 5, 0, 4, ty::TAG_I32).unwrap();
+    set_leaf(&ctx, &mut frame, 0, 0, ty::TAG_I32, 7);
+    get_leaf(&ctx, &mut frame, 5, 0, 4, ty::TAG_I32);
     assert!(matches!(frame.get(5).unwrap(), Value::I64(7)), "pt.y must stay 7 after pt.x rewrite");
 }
 
@@ -197,14 +223,14 @@ fn struct_array_element_leaf_access_via_handle() {
     frame.set(4, Value::I64(22));
 
     // arr[0].x = 11, arr[0].tag = "zero"; arr[1].x = 22
-    struct_field_set_prim(&ctx, &mut frame, 0, 0, ty::TAG_I32, 2).unwrap();
-    struct_field_set_prim(&ctx, &mut frame, 0, 8, ty::TAG_STR, 3).unwrap();
-    struct_field_set_prim(&ctx, &mut frame, 1, 0, ty::TAG_I32, 4).unwrap();
+    set_leaf(&ctx, &mut frame, 0, 0, ty::TAG_I32, 2);
+    set_leaf(&ctx, &mut frame, 0, 8, ty::TAG_STR, 3);
+    set_leaf(&ctx, &mut frame, 1, 0, ty::TAG_I32, 4);
 
     // Read back: arr[0].x == 11, arr[0].tag == "zero", arr[1].x == 22 (independent elements).
-    struct_field_get_prim(&ctx, &mut frame, 5, 0, 0, ty::TAG_I32).unwrap();
-    struct_field_get_prim(&ctx, &mut frame, 6, 0, 8, ty::TAG_STR).unwrap();
-    struct_field_get_prim(&ctx, &mut frame, 7, 1, 0, ty::TAG_I32).unwrap();
+    get_leaf(&ctx, &mut frame, 5, 0, 0, ty::TAG_I32);
+    get_leaf(&ctx, &mut frame, 6, 0, 8, ty::TAG_STR);
+    get_leaf(&ctx, &mut frame, 7, 1, 0, ty::TAG_I32);
 
     assert!(matches!(frame.get(5).unwrap(), Value::I64(11)), "arr[0].x must be 11");
     match frame.get(6).unwrap() {
@@ -295,13 +321,13 @@ fn stack_object_inline_struct_field_roundtrips() {
 
     // Writes: two prim leaves + the ref leaf (the ref arm is the risky half — a
     // stack object takes **no** write barrier, unlike the heap arm).
-    struct_field_set_prim(&ctx, &mut frame, 0, 0, ty::TAG_I32, 1).unwrap();
-    struct_field_set_prim(&ctx, &mut frame, 0, 4, ty::TAG_I32, 2).unwrap();
-    struct_field_set_prim(&ctx, &mut frame, 0, 8, ty::TAG_STR, 3).unwrap();
+    set_leaf(&ctx, &mut frame, 0, 0, ty::TAG_I32, 1);
+    set_leaf(&ctx, &mut frame, 0, 4, ty::TAG_I32, 2);
+    set_leaf(&ctx, &mut frame, 0, 8, ty::TAG_STR, 3);
 
-    struct_field_get_prim(&ctx, &mut frame, 4, 0, 0, ty::TAG_I32).unwrap();
-    struct_field_get_prim(&ctx, &mut frame, 5, 0, 4, ty::TAG_I32).unwrap();
-    struct_field_get_prim(&ctx, &mut frame, 6, 0, 8, ty::TAG_STR).unwrap();
+    get_leaf(&ctx, &mut frame, 4, 0, 0, ty::TAG_I32);
+    get_leaf(&ctx, &mut frame, 5, 0, 4, ty::TAG_I32);
+    get_leaf(&ctx, &mut frame, 6, 0, 8, ty::TAG_STR);
 
     assert!(matches!(frame.get(4).unwrap(), Value::I64(42)), "pt.x must be 42 on a stack object");
     assert!(matches!(frame.get(5).unwrap(), Value::I64(7)),  "pt.y must be 7 on a stack object");
@@ -312,9 +338,9 @@ fn stack_object_inline_struct_field_roundtrips() {
 
     // Independent byte slots: rewriting x disturbs neither y nor the ref leaf.
     frame.set(7, Value::I64(99));
-    struct_field_set_prim(&ctx, &mut frame, 0, 0, ty::TAG_I32, 7).unwrap();
-    struct_field_get_prim(&ctx, &mut frame, 5, 0, 4, ty::TAG_I32).unwrap();
-    struct_field_get_prim(&ctx, &mut frame, 6, 0, 8, ty::TAG_STR).unwrap();
+    set_leaf(&ctx, &mut frame, 0, 0, ty::TAG_I32, 7);
+    get_leaf(&ctx, &mut frame, 5, 0, 4, ty::TAG_I32);
+    get_leaf(&ctx, &mut frame, 6, 0, 8, ty::TAG_STR);
     assert!(matches!(frame.get(5).unwrap(), Value::I64(7)), "pt.y must stay 7 after pt.x rewrite");
     match frame.get(6).unwrap() {
         Value::Str(s) => assert_eq!(&**s, "hi", "ref leaf must survive a prim-leaf rewrite"),

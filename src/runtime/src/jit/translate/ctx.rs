@@ -131,6 +131,18 @@ impl<'a, 'b> TxCtx<'a, 'b> {
         (sptr, slen)
     }
 
+    /// symbolic-struct-field-access P2：把字段序号路径 `&[u16]` 打成 (ptr, len) 常量。
+    /// SAFETY: 同 `str_val` —— 指向的是模块函数体里的解码结果，其生命周期覆盖 JIT 代码。
+    #[inline]
+    pub(super) fn path_val(&mut self, path: &[u16]) -> (Value, Value) {
+        let slice: &'static [u16] = unsafe {
+            std::slice::from_raw_parts(path.as_ptr(), path.len())
+        };
+        let pptr = self.builder.ins().iconst(self.ptr, slice.as_ptr() as i64);
+        let plen = self.builder.ins().iconst(types::I64, slice.len() as i64);
+        (pptr, plen)
+    }
+
     /// Pack a `&[u32]` of register indices into (ptr, len) constants (former
     /// `regs_val!`). SAFETY: as `str_val`.
     #[inline]

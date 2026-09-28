@@ -352,9 +352,10 @@ pub fn declare_imports(jit: &mut JITModule) -> Result<HelperIds> {
         struct_alloc:          decl!("jit_struct_alloc",          [ptr, ptr, i32t, ptr, i64t, i32t], []),
         // jit_struct_copy(frame, ctx, dst, src, size) -> u8
         struct_copy:           decl!("jit_struct_copy",           [ptr, ptr, i32t, i32t, i32t],      [i8t]),
-        // jit_struct_field_get_prim(frame, ctx, dst, base, byte_off, kind) -> u8
-        struct_field_get_prim: decl!("jit_struct_field_get_prim", [ptr, ptr, i32t, i32t, i32t, i8t], [i8t]),
-        // jit_struct_field_set_prim(frame, ctx, base, byte_off, kind, val) -> u8
-        struct_field_set_prim: decl!("jit_struct_field_set_prim", [ptr, ptr, i32t, i32t, i8t, i32t], [i8t]),
+        // symbolic-struct-field-access P2（zbc 1.46）：烘焙偏移 → (root 类型名, 字段序号路径)。
+        // jit_struct_field_get_prim(frame, ctx, dst, base, root_ptr, root_len, path_ptr, path_len, kind) -> u8
+        struct_field_get_prim: decl!("jit_struct_field_get_prim", [ptr, ptr, i32t, i32t, ptr, i64t, ptr, i64t, i8t], [i8t]),
+        // jit_struct_field_set_prim(frame, ctx, base, root_ptr, root_len, path_ptr, path_len, kind, val) -> u8
+        struct_field_set_prim: decl!("jit_struct_field_set_prim", [ptr, ptr, i32t, ptr, i64t, ptr, i64t, i8t, i32t], [i8t]),
     })
 }

@@ -335,10 +335,10 @@ pub fn exec_instr(
             exec_struct::struct_alloc(ctx, frame, insn.dst, &insn.type_name, insn.size)?,
         Instruction::StructCopy { dst, src, size } =>
             exec_struct::struct_copy(ctx, frame, *dst, *src, *size)?,
-        Instruction::StructFieldGetPrim { dst, base, byte_off, kind } =>
-            exec_struct::struct_field_get_prim(ctx, frame, *dst, *base, *byte_off, *kind)?,
-        Instruction::StructFieldSetPrim { base, byte_off, kind, val } =>
-            exec_struct::struct_field_set_prim(ctx, frame, *base, *byte_off, *kind, *val)?,
+        Instruction::StructFieldGetPrim(insn) =>
+            exec_struct::struct_field_get_prim(ctx, frame, insn)?,
+        Instruction::StructFieldSetPrim(insn) =>
+            exec_struct::struct_field_set_prim(ctx, frame, insn)?,
     }
     Ok(None)
 }

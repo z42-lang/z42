@@ -218,6 +218,43 @@ pub struct StructAllocInsn {
     pub size: u32,
 }
 
+/// Payload for [`Instruction::StructFieldGetPrim`] (symbolic-struct-field-access P2, 方案 A).
+///
+/// ⚠️ **`root_type` 不只是「所属类型」，它同时是编号空间的判别器。**
+/// 这条指令此前携带一个**烘焙好的字节偏移**，而那个偏移活在**两个互不相容的编号空间**里
+/// —— struct blob 相对（`StructRef`/`BoxedStruct`/`StructRefHeap`）或 composed 对象相对
+/// （`Object`/`StackObject`）—— 而**指令里一个字都没记是哪个**：正确性靠编译器
+/// （`_isInlineStructFieldRoot`）与运行时（按 `Value` 变体分派）各自独立地同意。
+/// 那是结构审计 R2「判据复制」在 struct 路径上的实例，也是 P2 真正要消掉的东西
+/// （符号化的**性能**是中性的 —— 字段访问在 JIT 里恒是 helper 调用，偏移只是个 `iconst` 实参）。
+///
+/// `root_type` 解析成 **class** ⇒ 第一级索引进 `composed_object_layout().field_offsets`；
+/// 解析成 **struct** ⇒ 进 `struct_layout().fields`。名字本身就回答了「是哪个空间」。
+///
+/// `path` 是**字段序号**路径（长度 >= 1）。用序号而非字段名，是因为**序号实例化不变、
+/// 偏移才变**（`Pair<A,B>` 的 First/Second 永远 0/1）⇒ 解析是 O(1) 下标，无哈希、无字符串、
+/// 不需要 IC。嵌套链（`line.a.x`）此前被编译器**求和展平**成一个立即数，现在保留为路径。
+/// 实测分布：深度 1 占 85.1%，最大深度 4（见提案）。
+#[derive(Debug, Serialize, Deserialize)]
+pub struct StructFieldGetInsn {
+    #[serde(with = "typed_reg_serde")] pub dst: Reg,
+    #[serde(with = "typed_reg_serde")] pub base: Reg,
+    pub root_type: String,
+    pub path: Box<[u16]>,
+    pub kind: u8,
+}
+
+/// Payload for [`Instruction::StructFieldSetPrim`] — 写侧镜像，语义见
+/// [`StructFieldGetInsn`]。
+#[derive(Debug, Serialize, Deserialize)]
+pub struct StructFieldSetInsn {
+    #[serde(with = "typed_reg_serde")] pub base: Reg,
+    pub root_type: String,
+    pub path: Box<[u16]>,
+    pub kind: u8,
+    #[serde(with = "typed_reg_serde")] pub val: Reg,
+}
+
 /// Payload for [`Instruction::LoadFieldAddr`].
 #[derive(Debug, Serialize, Deserialize)]
 pub struct LoadFieldAddrInsn {
