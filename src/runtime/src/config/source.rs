@@ -94,12 +94,50 @@ where
     load_layer(&get, "Z42_CONFIG")
 }
 
-/// 应用侧车层（`Z42_APP_CONFIG`）——由 build 生成、launcher 传入。
+/// 应用侧车层的**原始读取**（只看 `Z42_APP_CONFIG`，不做回落）。
+/// 装配 app-config 层请用 [`load_app_config_tables`]——回落判据在那里。
 pub fn load_app_config<F>(get: &F) -> Result<Option<toml::Table>, String>
 where
     F: Fn(&str) -> Option<String>,
 {
     load_layer(get, "Z42_APP_CONFIG")
+}
+
+/// **app-config 层的唯一装配口**：显式 `Z42_APP_CONFIG` 优先，解析不出内容则回落到
+/// `app_file` 旁边的侧车（[`sidecar_for`]）。同时取出 `[runtime]` 与 `[properties]`。
+///
+/// # 为什么判据是「解析出了内容」而不是「变量设了没有」
+///
+/// 侧车是 **app 的属性**，不是调用方的选项（见 [`sidecar_for`] 的头注）。而
+/// `Z42_APP_CONFIG` 会**跨进程继承**：一个 z42 程序 spawn 出的子 app 会连带收到父 app
+/// 的那份路径，而且它常是**相对路径**——子进程换个 cwd 就指向不存在的文件。
+///
+/// 此前 `z42vm` 的 `main()` 只看「变量非空」就锁死在显式分支，于是这种继承来的悬空值
+/// 会把 app 自己声明的运行时设置**整份静默丢掉**，只留一行读起来像「无害地跳过一层」的
+/// `not found` 提示。实测后果：`[runtime] probing-paths` 全失效 ⇒ 应用找不到自己的依赖
+/// （GREEN 的 `probing-paths` e2e 格假红，2026-09-29）。
+///
+/// 嵌入入口（`z42-host::install_app_config`）本来就是按「解析出了内容」判的 —— 同一件事
+/// 有过**两份实现、两种语义**，这里把它们收敛成一份。
+pub fn load_app_config_tables<F>(
+    get: &F,
+    app_file: Option<&Path>,
+) -> Result<(Option<toml::Table>, Option<toml::Table>), String>
+where
+    F: Fn(&str) -> Option<String>,
+{
+    if let Some(p) = get("Z42_APP_CONFIG").filter(|s| !s.trim().is_empty()) {
+        let tables = load_config_tables(Path::new(p.trim()), "Z42_APP_CONFIG")?;
+        if tables.0.is_some() || tables.1.is_some() {
+            return Ok(tables);
+        }
+        // 显式路径解析不出内容（文件缺失 / 既无 [runtime] 也无 [properties]）
+        // → 不锁死，回落到 app 自己的侧车。
+    }
+    match app_file.and_then(sidecar_for) {
+        Some(p) => load_config_tables(&p, "app sidecar"),
+        None => Ok((None, None)),
+    }
 }
 
 /// 读一个配置文件层，**问题一律降级为 warn**。

@@ -1352,6 +1352,78 @@ fn unset_config_vars_mean_no_file_layer() {
     assert_eq!(load_app_config(&get), Ok(None));
 }
 
+// ── app-config 层的回落（fix-app-config-layer-suppression, 2026-09-29）─────────
+//
+// 判据必须是「显式那份**解析出了内容**」，不是「变量设了没有」。`Z42_APP_CONFIG` 会跨进程
+// 继承（父 app 的侧车路径漏给子 app，且常是相对路径 ⇒ 子进程里指向不存在的文件），
+// 按「设了没有」判就会把子 app 自己声明的运行时设置整份静默丢掉。
+
+/// 造一个「app 文件 + 它旁边的侧车」。app 文件本身不必存在 —— `sidecar_for` 只看侧车。
+fn write_app_with_sidecar(name: &str, body: &str) -> (std::path::PathBuf, std::path::PathBuf) {
+    let app = std::env::temp_dir().join(format!("z42-app-{name}-{}.zpkg", std::process::id()));
+    let side = app.with_extension("runtimeconfig.toml");
+    std::fs::write(&side, body).unwrap();
+    (app, side)
+}
+
+#[test]
+fn a_dangling_app_config_falls_back_to_the_apps_own_sidecar() {
+    // 这条是 2026-09-29 的实测回归：xtask 经 launcher 跑时把自己的 `Z42_APP_CONFIG`
+    // （相对路径）漏给了每个子 app，子进程换 cwd 后它指向不存在的文件 ⇒ 子 app 的
+    // `[runtime] probing-paths` 全丢 ⇒ 应用找不到自己的依赖。
+    let (app, side) = write_app_with_sidecar("dangling", "[runtime]\nsafepoint-throttle = 64\n");
+    let get = fake_env(&[("Z42_APP_CONFIG", "does/not/exist.runtimeconfig.toml")]);
+    let (rt, _) = load_app_config_tables(&get, Some(app.as_path())).unwrap();
+    assert_eq!(
+        rt.as_ref().and_then(|t| t.get("safepoint-throttle")).and_then(|v| v.as_integer()),
+        Some(64),
+        "悬空的 Z42_APP_CONFIG 不得压掉 app 自己的侧车",
+    );
+    let _ = std::fs::remove_file(side);
+}
+
+#[test]
+fn an_explicit_app_config_still_wins_over_the_apps_own_sidecar() {
+    // 回落不能把「显式指定」这件事也一起削掉。
+    let (app, side) = write_app_with_sidecar("explicit-loses", "[runtime]\nsafepoint-throttle = 64\n");
+    let explicit = write_cfg("explicit-wins", "[runtime]\nsafepoint-throttle = 128\n");
+    let get = fake_env(&[("Z42_APP_CONFIG", explicit.to_str().unwrap())]);
+    let (rt, _) = load_app_config_tables(&get, Some(app.as_path())).unwrap();
+    assert_eq!(
+        rt.as_ref().and_then(|t| t.get("safepoint-throttle")).and_then(|v| v.as_integer()),
+        Some(128),
+    );
+    for p in [side, explicit] { let _ = std::fs::remove_file(p); }
+}
+
+#[test]
+fn an_unset_app_config_uses_the_apps_own_sidecar() {
+    // app-config-follows-the-app：没人指路时也得找到（apphost / wasm / iOS 全靠这条）。
+    let (app, side) = write_app_with_sidecar("unset", "[runtime]\nmode = \"interp\"\n[properties]\nx = 1\n");
+    let (rt, props) = load_app_config_tables(&fake_env(&[]), Some(app.as_path())).unwrap();
+    assert_eq!(rt.as_ref().and_then(|t| t.get("mode")).and_then(|v| v.as_str()), Some("interp"));
+    assert!(props.is_some(), "[properties] 也走同一层");
+    let _ = std::fs::remove_file(side);
+}
+
+#[test]
+fn no_var_and_no_sidecar_means_no_app_layer() {
+    let app = std::env::temp_dir().join("z42-app-absent.zpkg");
+    assert_eq!(load_app_config_tables(&fake_env(&[]), Some(app.as_path())), Ok((None, None)));
+    assert_eq!(load_app_config_tables(&fake_env(&[]), None), Ok((None, None)));
+}
+
+#[test]
+fn a_broken_explicit_app_config_is_an_error_not_a_quiet_fallback() {
+    // 回落只对「没内容」成立。显式指了一个**坏**文件是 typo，必须说出来 ——
+    // 否则回落就成了新的静默降级，跟它要修的毛病同形。
+    let (app, side) = write_app_with_sidecar("broken-fallback", "[runtime]\nsafepoint-throttle = 64\n");
+    let bad = write_cfg("broken-explicit", "[runtime\ngc-mode = ");
+    let get = fake_env(&[("Z42_APP_CONFIG", bad.to_str().unwrap())]);
+    assert!(load_app_config_tables(&get, Some(app.as_path())).is_err());
+    for p in [side, bad] { let _ = std::fs::remove_file(p); }
+}
+
 // ── add-gc-runtime-knobs (2026-09-05) ────────────────────────────────────────
 
 #[test]

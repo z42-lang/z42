@@ -21,18 +21,16 @@
 pub(crate) fn install_app_config(file: &str) {
     let getenv = |n: &str| std::env::var(n).ok();
     let user = z42::config::load_layer_lenient(&getenv, "Z42_CONFIG");
-    let app = match z42::config::load_layer_lenient(&getenv, "Z42_APP_CONFIG") {
-        Some(t) => Some(t),
-        // 显式未设 → 按约定找 app 旁边的侧车。
-        None => z42::config::sidecar_for(std::path::Path::new(file))
-            .and_then(|p| match z42::config::load_config_file(&p, "app sidecar") {
-                Ok(t) => t,
-                Err(e) => {
-                    // 库路径：绝不 exit（可能跑在宿主进程里）。
-                    eprintln!("z42: {e}\n     -> app sidecar ignored; other layers still apply.");
-                    None
-                }
-            }),
+    // 显式 `Z42_APP_CONFIG` 优先，解析不出内容则回落到 app 旁边的侧车。判据与理由见
+    // `config::load_app_config_tables` —— `z42vm` 的 `main()` 与这里共用**同一份**实现
+    // （曾是两份、两种语义，见那里的头注）。
+    let app = match z42::config::load_app_config_tables(&getenv, Some(std::path::Path::new(file))) {
+        Ok((rt, _)) => rt,
+        Err(e) => {
+            // 库路径：绝不 exit（可能跑在宿主进程里）。
+            eprintln!("z42: {e}\n     -> app sidecar ignored; other layers still apply.");
+            None
+        }
     };
     let inputs = z42::config::Inputs {
         user_config: user.as_ref(),

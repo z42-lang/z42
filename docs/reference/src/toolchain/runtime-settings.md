@@ -302,10 +302,14 @@ mode = "interp"
 - `[profile.<n>]` 下**直接写键**（不放进 `.runtime` / `.properties` 子表）是清单结构错误，
   build 直接失败。
 
-**运行时不需要任何人指路**：`Z42_APP_CONFIG` 未设时，VM 按「与 app 文件同目录、同 stem」
-自己推出侧车路径。`z42vm <app.zpkg>` 直跑、`z42 run`、publish 出的 apphost、自包含
-桌面 app、wasm / iOS / Android 都一样。找不到侧车是常态（多数工程没有 `[profile.*]`
-旋钮），安静跳过；但 `Z42_APP_CONFIG` **显式**指向一个不存在的路径仍会警告。
+**运行时不需要任何人指路**：VM 按「与 app 文件同目录、同 stem」自己推出侧车路径。
+`z42vm <app.zpkg>` 直跑、`z42 run`、publish 出的 apphost、自包含桌面 app、
+wasm / iOS / Android 都一样。找不到侧车是常态（多数工程没有 `[profile.*]` 旋钮），安静跳过。
+
+`Z42_APP_CONFIG` 只是**可选的显式覆盖**：它指向的文件解析出了内容就用它，指向一个不存在的
+路径会警告并**回落到 app 自己的侧车**（指向一个**坏**文件——非法 TOML / `.json`——仍是硬错误）。
+⚠️ 别把它 `export` 成全局变量：它描述的是**某一个** app，而环境变量会被子进程继承，
+那会让子 app 拿到别人的侧车。要表达「这台机器上都这样」请用 `Z42_CONFIG`（用户层）。
 
 侧车的另一半 `[properties]` 表装的是应用自己的配置，VM 原样搬运、不校验，运行时经
 [`Std.Runtime.AppProperties`](../stdlib/app-properties.md) 只读。
