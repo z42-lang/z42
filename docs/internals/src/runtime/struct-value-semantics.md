@@ -53,13 +53,13 @@ b.x = 99;       // 只改 b
 |------|------|
 | `StructAlloc dst, type_name, size` | 在 arena 分配零初始化 blob，`dst` = StructRef 句柄 |
 | `StructCopy dst, src, size` | 复制 blob：字节 memcpy + 逐引用叶子 `Value::clone`（值语义） |
-| `StructFieldGetPrim dst, base, byte_off, kind` | 读叶子：基元走字节 codec、引用走 `refs` 侧表 |
-| `StructFieldSetPrim base, byte_off, kind, val` | 原地写叶子（3a lvalue），同上分流 |
+| `StructFieldGetPrim dst, base, (root_type, path), kind` | 读叶子：基元走字节 codec、引用走 `refs` 侧表 |
+| `StructFieldSetPrim base, (root_type, path), kind, val` | 原地写叶子（3a lvalue），同上分流 |
 
 `kind` 是运行期 `TypeTag`（`TAG_I32`/`TAG_STR`/…），给字节宽 + 解码 / 或标识引用叶子。
 
-**字段 `byte_off` 由编译期烘焙为立即数**，运行时不查表 —— 这一条仍然成立，也正是
-`symbolic-struct-field-access`（审计 D-2）要改的那一格。
+~~**字段 `byte_off` 由编译期烘焙为立即数**~~ —— **zbc 1.46 起不再如此**
+（`symbolic-struct-field-access` 的 P2，方案 A）。见下一节。
 
 ⚠️ **但两条指令的 `size` 已经不是这样了**（本页此前笼统写「offset / size … 运行时无需查表」，
 对 `size` 已不准确）：
@@ -72,6 +72,68 @@ b.x = 99;       // 只改 b
 两个 blob 都是 arena 槽、各自带 `layout`，所以 `StructCopy` 从来不需要在指令里带类型名。
 ⇒ D-2 提案里的 **P1（给 `StructCopy` 补 `TypeName` + 把 `StructAlloc.Size` 降级）事实上早已
 完成，且不需要格式 bump**；只有 P2（`byte_off` → 字段序号）才动编码。
+
+### 符号化的叶子寻址（zbc 1.46，symbolic-struct-field-access P2）
+
+两条叶子指令携带的不再是**烘焙好的字节偏移**，而是 **`root_type`（池 idx）+ 字段序号路径**
+（`depth:u8 + idx:u16 × depth`，`depth >= 1`；扁平 `a.x` 就是 depth 1）。
+
+#### 🔴 动机不是性能
+
+实测：符号化**是中性的**。struct 字段访问在 JIT 里**恒是 helper 调用**
+（`jit/translate/structs.rs`），烘焙偏移只是传给 helper 的一个 `iconst` **实参**、不是内联位移
+⇒ 符号化的边际代价 = 那次**本来就要付的调用**里多一次查表。
+（真正的性能余量在 **helper vs 内联**，那是一条正交的优化，见提案。）
+
+#### ⭐ 真正的回报：消掉一处编号空间歧义
+
+偏移此前活在**两个互不相容的编号空间**里：
+
+| 空间 | 基准 | 运行期 base kind |
+|---|---|---|
+| struct 布局相对 | blob 起始 | `StructRef` · `BoxedStruct` · `StructRefHeap` |
+| composed 对象布局相对 | 对象起始 | `Object` · `StackObject` |
+
+而**指令里一个字都没记是哪个** —— 正确性靠编译器（`AccessEmitter._isInlineStructFieldRoot`）
+与运行时（按 `Value` 变体分派）**各自独立地同意**。那是结构审计 **R2「判据复制」** 在 struct
+路径上的实例。
+
+⭐ **`root_type` 本身就是判别器**：名字解析成 class ⇒ 第一级索引
+`composed_object_layout().field_offsets`；解析成 struct ⇒ 索引 zbc 1.45 那张 `struct_field_table`。
+**不需要额外标志位，也不需要新增 zbc 块** —— 路径下一跳的类型名由 `TypeDesc.fields[i].type_tag`
+平行承载（1.45 刻意「名/类型名不重复承载」正为此；那条平行性载入期有 `debug_assert` 守着）。
+
+⭐ **A 白送一条此前无从做起的对账**：`root_type` 解析出的 kind 必须与运行期 `base` 的
+`Value` 变体一致，不一致即报错。
+
+#### 为什么用序号而不是字段名
+
+**序号实例化不变、偏移才变**（`Pair<A,B>` 的 First/Second 永远 0/1）⇒ 运行期解析是
+**O(1) 下标**，无哈希、无字符串、**不需要 IC**。
+
+嵌套链（`line.a.x`）此前被编译器**求和展平**成一个立即数，现在保留为路径。
+实测分布（全 e2e 语料 800 次链式发射）：**深度 1 占 85.1%**、≥2 占 14.9%、**最大 4**。
+
+#### 解析只有一个实现
+
+`exec_struct::resolve_for_access`（**先对账、后解析**），**interp 与 JIT helper 共用**。
+顺序是刻意的：错的编号空间下算出的偏移是个**看起来合法的数**，先解析再对账等于把最有
+信息量的诊断让给一个更晚、更远的失败。
+
+#### ⚠️ 连带：字段访问从此依赖类型元数据
+
+`resolve_layout` 的 size-only 兜底（类型没带布局时）之下**无法解析路径**。
+实测 289 条 e2e 语料只有 **1** 条走到兜底（`Std.GCHandle`，`TYPE-NOT-LOADED`），
+而它**每个成员都是 `[Native]`**、`_slot` 无任何 z42 代码触碰 ⇒ 不受影响。
+若将来真发生，给的是「type `X` is not loaded」的**精确报错**而非错偏移。
+
+#### ⭐ `-1` 哨兵那一类被顺带消掉
+
+`FieldByteOffset` 查不到返回 `-1`，而站点会把多个偏移**求和** ⇒ `-1` 可能被加成正数、
+哨兵消失、烘出一个看起来合法的错偏移。符号化之后 **序号不参与求和**，
+`AccessEmitter._pathAppend` 在 `idx < 0` 时直接抛。
+编译器侧累加偏移的两个 walker（`_structChainOffset` / `_inlineFieldOffset`）**已整个删除** ——
+留着一个没人调用的偏移累加器，下一个人会以为两条路并存。
 
 🔒 **`StructCopy` 的「两个 blob 同类型」是不变式，现在有门**
 （`check-struct-copy-shape-invariant`，2026-09-28）：`copy_into` 先过

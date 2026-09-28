@@ -30,23 +30,23 @@ i >= 1：恒走 struct 分支（编译器已在非内联处断链 ⇒ 每节真�
 - [x] **T1 平行性检查（先做，它是 A 的前提）** ✅ 2026-09-28 —— `struct_field_table` 声称「同序平行于 Fields」，
       而路径的下一跳类型名取自 `TypeDesc.fields[idx].type_tag`。**注释的声明必须验**：
       载入期断言 `struct_layout().field_count() == fields.len()`（表在场时），不等即响。
-- [ ] **T2 格式常量 + 真相表 + changelog + 钉值单测**
+- [x] **T2 格式常量 + 真相表 + changelog + 钉值单测**
       `ZbcFormat.z42` 1.46 · `ZpkgWriter.z42` 0.51 · `zbc_reader/versions.rs` ×2 ·
       `version-bumping.md` 四行表（**#922 的门会盯**）· `zbc.md` / `zpkg.md` changelog ·
       `zbc_reader_tests.rs` 的 `zbc_version_constants_pinned` / `zpkg_version_constants_pinned`
-- [ ] **T3 IR 类**（`src/compiler/z42.package/src/IrInstrObject.z42`）
+- [x] **T3 IR 类**（`src/compiler/z42.package/src/IrInstrObject.z42`）
       `StructFieldGetPrimInstr` / `StructFieldSetPrimInstr`：`int ByteOff` → `string RootType` + `int[] Path`；
       `Dump()` / `Clone()` / `ReadAt` / `SetReadAt` 同步。⚠️ 还要过 `IrEscapeAnalysis.z42:156,161` 的模式匹配。
-- [ ] **T4 写端编码**（`BinaryFormat/ZbcInstr.z42`）
-- [ ] **T5 两端解码**（z42 `ZbcReaderInstr.z42` + Rust `metadata/zbc_reader/instr_decode.rs` +
+- [x] **T4 写端编码**（`BinaryFormat/ZbcInstr.z42`）
+- [x] **T5 两端解码**（z42 `ZbcReaderInstr.z42` + Rust `metadata/zbc_reader/instr_decode.rs` +
       `metadata/bytecode` 的 `Instruction` 变体）
-- [ ] **T6 interp**（`interp/exec_struct.rs`）：`resolve_field_path` + **kind 对账**
+- [x] **T6 interp**（`interp/exec_struct.rs`）：`resolve_field_path` + **kind 对账**
       （`root_type` 的 kind 必须与运行期 `Base` 的 `Value` 变体一致 —— A 白送的那条）
-- [ ] **T7 JIT**（`jit/translate/structs.rs` + `jit/helpers/struct_ops.rs`）
-- [ ] **T8 编译器 10 个 emit 点**：`_structChainOffset` 从「累加 int」改成「累积序号序列」；
+- [x] **T7 JIT**（`jit/translate/structs.rs` + `jit/helpers/struct_ops.rs`）
+- [x] **T8 编译器 10 个 emit 点**：`_structChainOffset` 从「累加 int」改成「累积序号序列」；
       `_copyRegion` / `_emitLeafEqChecks` 的递归同步；扁平 4 站点直接给 depth=1
 - [ ] **T9 fixture 重生**：6 个 zbc-format + 4 个 zpkg-format + golden hex 单测
-- [ ] **T10 文档**：`struct-value-semantics.md`（四条指令表 + 符号化节）· `zbc.md` · `zpkg.md`
+- [x] **T10 文档**：`struct-value-semantics.md`（四条指令表 + 符号化节）· `zbc.md` · `zpkg.md`
 - [ ] **T11 GREEN**：`cargo test --lib`（不带过滤）· 5 个 feature 组合 ·
       `xtask test`（e2e/compiler/stdlib）· `cargo test --test format_fixture_versions` ·
       `xtask test bootstrap` 边界检查
