@@ -1,7 +1,9 @@
 ---
 paths:
-  - "src/compiler/z42c.ir/src/BinaryFormat/**"
-  - "src/compiler/z42c.project/src/**"
+  # ⚠️ 2026-09-28 更正：前两条曾指 `z42c.ir` / `z42c.project`，两个目录**都已不存在** ——
+  # 后端先下沉到 stdlib 的 `z42.package`，该库又搬进 `src/compiler/`。规则的「何时适用」
+  # 判据坏掉是静默的（没人会因为 paths 不匹配而收到提示），所以连同本次 bump 一起修。
+  - "src/compiler/z42.package/src/**"
   - "src/runtime/src/metadata/**"
   - "docs/internals/src/formats/zbc.md"
   - "docs/internals/src/formats/zpkg.md"
@@ -97,7 +99,10 @@ xtask test compiler    # z42c golden hex 单测
 
 6. **`ZpkgWriter.z42`**（`src/compiler/z42.package/src/`）— `ZpkgWriterZ.Minor++`，注释更新内嵌 zbc 版本。
 7. **`zbc_reader/versions.rs`** — `ZPKG_VERSION_MINOR` 同步；上方 zpkg changelog 注释块追加一行（指明耦合的 inner zbc minor）。
-8. **`docs/internals/src/formats/zpkg.md`** — Minor changelog 加一行（触发 spec = 同次 zbc bump 的 spec）。
+8. **`docs/internals/src/formats/zpkg.md`** — 更新页首「状态: ✅ 已实现（vX.YY）」与 `## 版本` 段的
+   **当前配对**（`当前 0.NN ↔ 1.MM`，两处）。
+   ⚠️ **本页没有 Minor changelog 表**（本步骤此前这么写，是对着一张不存在的表 —— 2026-09-28 更正）。
+   zpkg 的逐 minor 历史写在写端常量旁：`ZpkgWriter.z42` 的 `ZpkgWriterZ.Minor` 注释（步骤 6 已覆盖）。
 9. **regen zpkg-format fixture** — 覆写 `src/tests/zpkg-format/*/source.zpkg`（4 个 committed 基线：`packed-minimal` / `packed-multi-module` / `indexed-minimal` / `sym-only-sidecar`）。
    每个 fixture 目录自带 **committed 构建配方 `<fixture>.z42.toml`**（refresh-format-fixtures，2026-09-04）：
    `[project].pack` 决定 packed/indexed，是否带 `--release` 决定 strip/sidecar。
