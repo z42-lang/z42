@@ -1,0 +1,15 @@
+using Std;
+using Std.IO;
+
+// 少了 Attribute 后缀
+class Route : Attribute {
+    public string Path;
+    public Route(string path) { this.Path = path; }
+}
+
+[Route("/x")]
+class Handler { }
+
+void Main() {
+    Console.WriteLine("不会跑到这里");
+}

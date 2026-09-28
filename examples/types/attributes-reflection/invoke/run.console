@@ -1,0 +1,21 @@
+# ANCHOR: field
+$ z42 run invoke.z42
+读到 100
+写完 250
+# ANCHOR_END: field
+# ANCHOR: badwrite
+写 null 被拒：struct field: expected an integer value, got Null
+字段没被动过：250
+# ANCHOR_END: badwrite
+# ANCHOR: prop
+属性读回 工商
+# ANCHOR_END: prop
+# ANCHOR: call
+户主：小明
+void 返回 null：true
+余额 300
+# ANCHOR_END: call
+# ANCHOR: create
+Activator 造出：新开户
+带参构造：小红 / 900
+# ANCHOR_END: create

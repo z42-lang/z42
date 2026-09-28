@@ -1,0 +1,9 @@
+using Std.IO;
+using Std.Reflection;
+
+string Add(int a, int b) { return (a + b).ToString(); }
+
+void Main() {
+    MethodInfo m = methodof(Add);        // 自由函数指不了
+    Console.WriteLine(m.Name);
+}

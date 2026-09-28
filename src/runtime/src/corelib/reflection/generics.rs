@@ -148,7 +148,11 @@ pub(super) fn validate_type_arg_constraint(
 /// True if the class `name` has a reachable no-arg constructor (or no explicit
 /// ctor at all → default field construction). Mirrors `builtin_activator_create`.
 pub(super) fn type_has_no_arg_ctor(ctx: &VmContext, name: &str) -> bool {
-    let simple = name.rsplit('.').next().unwrap_or(name);
+    // fix-nested-ctor-key: shared ctor-name spelling (this function's own `rsplit('.')`
+    // left a nested type's `+` prefix on, so every candidate key missed and the answer
+    // came out of the `!has_any_ctor` fallback — "yes" for the wrong reason, and "yes"
+    // even for a nested type whose only ctor takes arguments).
+    let simple = crate::metadata::types::TypeDesc::ctor_member_name(name);
     let cand_bare = format!("{name}.{simple}");
     let cand_zero = format!("{name}.{simple}$0");
     let Some(m) = ctx.module() else { return true };

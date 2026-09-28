@@ -1,0 +1,8 @@
+using Std.IO;
+
+delegate void Log(string msg, int level = 3);   // 默认值：委托类型接不住
+
+void Main() {
+    Log l = (string m, int lv) => Console.WriteLine(m + " lv=" + lv.ToString());
+    l("hi");
+}

@@ -5,6 +5,7 @@ using Std.Reflection;
 class Api {
     public static string Handle(string path) { return "GET " + path; }
     public static string Handle(int id)      { return "GET #" + id; }
+    public static string Solo()              { return "只有一个"; }
 }
 // ANCHOR_END: decl
 
@@ -17,5 +18,17 @@ void Main() {
 
     // 指向同一个方法的两个 methodof 相等
     Console.WriteLine(methodof(Api.Handle(int)) == methodof(Api.Handle(int)));
+
+    // 没有重载时参数列表可以省
+    Console.WriteLine(methodof(Api.Solo).Name);
     // ANCHOR_END: use
+
+    // ANCHOR: invoke
+    // 拿到的就是普通的 MethodInfo：形参能查、能 Invoke
+    Console.WriteLine("形参类型 " + byId.GetParameters()[0].ParameterType.Name);
+
+    object[] args = new object[1];
+    args[0] = "/users";
+    Console.WriteLine(byPath.Invoke(null, args).ToString());
+    // ANCHOR_END: invoke
 }

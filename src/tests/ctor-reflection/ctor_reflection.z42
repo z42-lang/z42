@@ -71,4 +71,27 @@ void Main() {
     try { bc.Invoke(new object[]{ 1 }); }
     catch (Std.Exception e) { caught = true; }
     Assert.True(caught);
+
+    // ── GetMethods() carries NO constructors (fix-nested-ctor-key) ─────────
+    // `Point` has two ctors, so the 2nd..Nth carry a `$N$types` overload-mangle
+    // suffix — against which the loader's old exact-equality ctor test did not
+    // match, handing them out as ordinary methods. They were `Invoke`-able on an
+    // *existing* instance, re-running the constructor body over its fields.
+    MethodInfo[] pms = t.GetMethods();
+    int ctorish = 0;
+    int mi = 0;
+    while (mi < pms.Length) {
+        if (pms[mi].Name == "Point") { ctorish = ctorish + 1; }
+        mi = mi + 1;
+    }
+    Assert.Equal(0, ctorish);
+    // Same for GetMembers(), which is the union view over the same method list.
+    Std.Reflection.MemberInfo[] mems = t.GetMembers();
+    int memCtorish = 0;
+    int mj = 0;
+    while (mj < mems.Length) {
+        if (mems[mj].Name == "Point") { memCtorish = memCtorish + 1; }
+        mj = mj + 1;
+    }
+    Assert.Equal(0, memCtorish);
 }

@@ -1,0 +1,7 @@
+# ANCHOR: run
+$ z42 run deprecated.z42
+v1: hello
+v2: hello
+z42c build: 1 warning(s) in deprecated.z42
+  deprecated.z42(11,5): deprecated: `Send` 已弃用（deprecated）：请改用 SendV2
+# ANCHOR_END: run
