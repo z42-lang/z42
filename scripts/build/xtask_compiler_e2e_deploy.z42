@@ -225,7 +225,55 @@ int _e2eProbingPathChecks(string root, string vm, string driverZpkg) {
         return 1;
     }
 
-    Console.WriteLine("  ✓ probing-paths：声明的目录真被搜到，且改旋钮值侧车跟着变");
+    // ④ `${Z42_HOME}` 占位符走通整条链：清单 → 侧车（**仍是占位符**）→ VM 展开 → 解析到依赖。
+    //
+    // 这一格补的是 #927 的覆盖缺口：那轮只有 Rust 单测直接喂 `expand_probing_paths_with`，
+    // **没有任何测试证明它在真实构建链上生效** —— 清单里的值会不会被谁改写、侧车会不会烤成
+    // 具体路径、VM 读侧车那条路认不认占位符，全没测到。
+    //
+    // 落点故意做成 SDK 形状（`<root>/programs/z42c/`）：那正是 relocate-compiler-domain-libs
+    // 给编译器域包定的位置，也是 `${Z42_HOME}` 存在的理由（装在任意位置的应用要指回 SDK，
+    // 而相对 entry 目录对这个场景无解、绝对路径换台机器就失效）。
+    string sdkRoot = Path.Join(tmp, "sdkroot");
+    string sdkProgs = Path.Join(Path.Join(sdkRoot, "programs"), "z42c");
+    Directory.Create(sdkProgs);
+    File.Copy(Path.Join(shared, "probefx.zpkg"), Path.Join(sdkProgs, "probefx.zpkg"));
+    File.Copy(Path.Join(shared, "probefx.zpkg"), Path.Join(libsDir, "probefx.zpkg"));   // 编译期要它
+    File.WriteAllText(appToml, _e2eProbeAppToml("${Z42_HOME}/programs/z42c"));
+    ProcessResult b3 = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(appToml).Arg("--release")
+        .Env("Z42_LIBS", libsDir).Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
+    if (b3.ExitCode != 0) { Console.WriteLine("  ✗ ${Z42_HOME}: 编译失败: " + b3.Stderr); return 1; }
+
+    // 验收（design §5.3.2）：**编译输出里不许出现具体路径** —— 侧车必须逐字保留占位符。
+    string side3 = File.Exists(side) ? File.ReadAllText(side) : "";
+    if (side3.IndexOf("${Z42_HOME}") < 0) {
+        Console.WriteLine("  ✗ ${Z42_HOME}: 侧车里没有占位符（被谁展开成具体路径了？）。侧车内容: " + side3);
+        return 1;
+    }
+    if (side3.IndexOf(sdkRoot) >= 0) {
+        Console.WriteLine("  ✗ ${Z42_HOME}: 侧车把具体路径烤进去了 —— 换台机器就失效。侧车内容: " + side3);
+        return 1;
+    }
+
+    File.Delete(Path.Join(libsDir, "probefx.zpkg"));   // 目标机的 libs 里没有它
+    // 先做负对照：**不设** `Z42_HOME` 必须跑不起来。否则下一格「设了就通」证明不了是占位符起的作用
+    // （VM 还会从 `$Z42_PORTABLE_VM` / 自己所在位置反推根，那两档在这里都落不到 sdkRoot 上）。
+    ProcessResult r3no = new Process(vm).Arg(appZpkg).Env("Z42_LIBS", libsDir).Env("Z42_HOME", "")
+        .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
+    if (r3no.ExitCode == 0) {
+        Console.WriteLine("  ✗ ${Z42_HOME}: 没设 Z42_HOME 竟也跑通了 —— 本格失去判别力（是别的档命中了）");
+        return 1;
+    }
+    ProcessResult r3 = new Process(vm).Arg(appZpkg).Env("Z42_LIBS", libsDir).Env("Z42_HOME", sdkRoot)
+        .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
+    if (r3.ExitCode != 0 || r3.Stdout.IndexOf("99") < 0) {
+        Console.WriteLine("  ✗ ${Z42_HOME}: 设了 Z42_HOME 仍解析不到（rc=" + r3.ExitCode.ToString()
+            + " stdout=" + r3.Stdout + " stderr=" + r3.Stderr + "）");
+        return 1;
+    }
+
+    Console.WriteLine("  ✓ probing-paths：声明的目录真被搜到，改旋钮值侧车跟着变，"
+        + "`${Z42_HOME}` 侧车保持占位符且运行期展开到 SDK 根");
     return 0;
 }
 
