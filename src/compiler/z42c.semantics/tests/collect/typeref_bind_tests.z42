@@ -92,3 +92,51 @@ void test_bind_is_idempotent() {
     t.BindTypeRefs();
     Assert.Equal(before, foo.Interfaces[0]);
 }
+
+// ── B4：类的基类那根轴（`BaseName` → `Base`）────────────────────────────────
+
+// 基类绑上了句柄，且句柄指回同一个类对象。
+[Test]
+void test_class_base_ref_bound() {
+    var t = collect("namespace Demo; class A { } class B : A { }");
+    var b = t.GetClass("B");
+    var a = t.GetClass("A");
+    Assert.Equal(true, b.HasBase);
+    Assert.Equal(true, b.Base != 0);
+    Assert.Equal(a.TypeId, b.Base);
+    Assert.Equal(true, t.Intern.At(b.Base) == a);
+}
+
+// 沿 base 链的判定：两层继承，短名与 FQN 两种拼写都要认。
+[Test]
+void test_is_subclass_of_with_refs() {
+    var t = collect("namespace Demo; class A { } class B : A { } class C : B { }");
+    Assert.Equal(true, t.IsSubclassOf("C", "B"));
+    Assert.Equal(true, t.IsSubclassOf("B", "A"));
+    Assert.Equal(false, t.IsSubclassOf("A", "C"));
+    // 🔴🔴 下面两条是 **B4 修好的一个静默错值**，不是「保持原状」的回归门。
+    // `BaseName` 从不经过归一 pass（那个 pass 只归一接口那两根轴）⇒ 它存的是**源码里写的短名**。
+    // B4 之前实测（探针跑在不带 B4 的编译器上）：
+    //   `B4PROBE B.BaseName=A | C<:B(short)=T | C<:Demo.A(fqn)=F | B<:Demo.A(fqn)=F`
+    // —— 同一个继承关系，换成 FQN 拼写就答 **false**，与 B2 那两条「导入边界剥 ns」同族。
+    // 句柄化后两种拼写解析到同一个 id ⇒ 都答 true。**撤掉 B4 这两条就会红。**
+    Assert.Equal(true, t.IsSubclassOf("C", "Demo.A"));
+    Assert.Equal(true, t.IsSubclassOf("B", "Demo.A"));
+}
+
+// 🔴 0（未绑定）不得参与判定 —— 同 B3 那条，换成基类轴再压一遍：
+// 一个根本不存在的类名 `_refOfClass` 得 0，若 0 参与判定就会与任何未绑定的 `Base` 相等。
+[Test]
+void test_base_zero_ref_never_matches() {
+    var t = collect("namespace Demo; class A { } class B : A { }");
+    Assert.Equal(false, t.IsSubclassOf("B", "ANotDeclaredAnywhere"));
+    Assert.Equal(false, t.IsSubclassOf("B", "Demo.ANotDeclaredAnywhere"));
+    Assert.Equal(true, t.IsSubclassOf("B", "A"));
+}
+
+// 门覆盖基类轴：正常收集后不得有「查得到却没绑」的基类。
+[Test]
+void test_no_unbound_base_ref_after_collect() {
+    var t = collect("namespace Demo; class A { } class B : A { } class C : B { }");
+    Assert.Equal("", t.FirstUnboundIfaceRef());
+}

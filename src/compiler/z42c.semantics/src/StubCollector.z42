@@ -306,7 +306,13 @@ public sealed class StubCollector {
                             if (prev.HasBase && prev.BaseName != baseName) {
                                 this._sc.Diags.Error(DiagnosticCodes.PartialBaseConflict,
                                     "partial type `" + c.Name + "` declares a base class in more than one fragment", c.Span);
-                            } else if (!prev.HasBase) { prev.HasBase = true; prev.BaseName = baseName; prev.BaseRef = baseRef; }
+                            } else if (!prev.HasBase) {
+                                prev.HasBase = true; prev.BaseName = baseName; prev.BaseRef = baseRef;
+                                // B4：名字换了，句柄必须跟着失效 —— 否则一旦本行跑在
+                                // `BindTypeRefs` 之后（今天不会，但相位是会变的），`Base` 会
+                                // 指着**旧**基类，而那是静默的。置 0 让绑定 pass 重新解析。
+                                prev.Base = 0;
+                            }
                         }
                         int ii = 0;
                         while (ii < ifc) { if (!this._ctHasIface(prev, ifaces[ii])) { prev.AddInterfaceName(ifaces[ii]); } ii = ii + 1; }

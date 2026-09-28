@@ -389,6 +389,34 @@ public sealed partial class SymbolTable {
         this._bindClassIfaces(this.ClassesByFqn);
         this._bindIfaceBases(this.Interfaces);
         this._bindIfaceBases(this.InterfacesByFqn);
+        // B4：类的基类那根轴（`BaseName` → `Base`）。与接口两根同一套约定。
+        this._bindClassBase(this.Classes);
+        this._bindClassBase(this.ClassesByFqn);
+    }
+
+    // B4：`Z42ClassType.BaseName` → `Base` 句柄。与 `_bindClassIfaces` 对称，差别只在
+    // 它是**标量**、且查的是**类**表（`GetClass` 的 FQN 双键）而不是接口表。
+    private void _bindClassBase(StrMap tbl) {
+        int cap = tbl.Capacity();   // 🔴 按槽位扫，见 `_internAllIn` 抬头
+        int i = 0;
+        while (i < cap) {
+            bool used = tbl.UsedAt(i);
+            Z42ClassType ct = used ? tbl.ValAt(i) as Z42ClassType : null;
+            i = i + 1;
+            if (ct == null) { continue; }
+            if (!ct.HasBase) { continue; }
+            if (ct.Base != 0) { continue; }            // 幂等：已绑定的不动
+            ct.Base = this._refOfClass(ct.BaseName);
+        }
+    }
+
+    // 名字 → 类句柄。查不到 → 0（合法：跨包基类可能不可见）。
+    private int _refOfClass(string name) {
+        if (name == null) { return 0; }
+        if (name == "") { return 0; }
+        Z42ClassType ct = this.GetClass(name);
+        if (ct == null) { return 0; }
+        return this.Intern.Of(ct);   // 幂等
     }
 
     private void _bindClassIfaces(StrMap tbl) {
@@ -475,7 +503,30 @@ public sealed partial class SymbolTable {
         if (r != "") { return r; }
         r = this._firstUnboundIn(this.Interfaces, false);
         if (r != "") { return r; }
-        return this._firstUnboundIn(this.InterfacesByFqn, false);
+        r = this._firstUnboundIn(this.InterfacesByFqn, false);
+        if (r != "") { return r; }
+        // B4：基类那根轴同样要守 —— 漏绑在这里同样是静默的（查不着 = 当作不是子类）。
+        r = this._firstUnboundBaseIn(this.Classes);
+        if (r != "") { return r; }
+        return this._firstUnboundBaseIn(this.ClassesByFqn);
+    }
+
+    // B4 的门：`HasBase` 且基类在表里查得到、`Base` 却仍是 0 ⇒ 绑定没跑到。
+    private string _firstUnboundBaseIn(StrMap tbl) {
+        int cap = tbl.Capacity();
+        int i = 0;
+        while (i < cap) {
+            if (!tbl.UsedAt(i)) { i = i + 1; continue; }
+            string key = tbl.KeyAt(i);
+            Z42ClassType ct = tbl.ValAt(i) as Z42ClassType;
+            i = i + 1;
+            if (ct == null) { continue; }
+            if (!ct.HasBase) { continue; }
+            if (ct.Base != 0) { continue; }
+            if (ct.BaseName == null || ct.BaseName == "") { continue; }
+            if (this.GetClass(ct.BaseName) != null) { return key + "::base " + ct.BaseName; }
+        }
+        return "";
     }
 
     private string _firstUnboundIn(StrMap tbl, bool isClass) {
