@@ -20,9 +20,14 @@ include = ["*.z42"]
 "z42.toml"        = "0.1.0"   # read [platform.desktop].publish_dir in `publish <toml>`
 "z42.project"     = "0.1.0"   # ManifestLocator / ManifestLoader / BuildLayout: `z42 run` / publish / export
 "z42.cli"         = "0.1.0"   # Std.Cli nested router + ArgParser (command parsing)
-"z42.workload.ios"     = "0.1.0"   # iOS export: Z42.Workload.Ios.IosExport.Generate (workload-owned)
-"z42.workload.android" = "0.1.0"   # Android export: Z42.Workload.Android.AndroidExport.Generate
-"z42.workload.wasm"    = "0.1.0"   # WASM export: Z42.Workload.Wasm.WasmExport.Generate
+# 🔴 三个 workload 包走 **path 依赖**（2026-09-28）：它们不在任何 `libs/` 里。
+# 原先靠「把 workload 的 dist_dir 指向 stdlib flat」让这里的名字依赖解析得到，代价是它们
+# 随整目录被打进 SDK 的 `libs/`（用户面的标准库表面，workload 不属于那里）。
+# path 依赖让 z42c 直接从源码树建它们；运行期 `ExeDeps` 判「不在 shipped libs ⇒ 私有 ⇒ 拷进
+# dist」，于是它们随 launcher 落在 `programs/launcher/`。同 xtask → `z42.project` 的先例。
+"z42.workload.ios"     = { path = "../../workload/ios/appbuilder", version = "0.1.0" }       # Z42.Workload.Ios.IosExport.Generate
+"z42.workload.android" = { path = "../../workload/android/appbuilder", version = "0.1.0" }   # Z42.Workload.Android.AndroidExport.Generate
+"z42.workload.wasm"    = { path = "../../workload/wasm/appbuilder", version = "0.1.0" }      # Z42.Workload.Wasm.WasmExport.Generate
 
 [build]
 # reorg-artifacts-layout (2026-06-04): emit launcher.zpkg into the shared

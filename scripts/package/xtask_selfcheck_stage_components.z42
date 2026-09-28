@@ -82,6 +82,18 @@ int _testPackagesStaging() {
         di = di + 1;
     }
 
+    // 🔴 **workload 包一个都不许出现在 shipped `libs/`**（2026-09-28）。
+    //
+    // 实测发布包里曾有 `z42.workload.{desktop,ios,android,wasm}.zpkg` 四个 —— 不是有人存心放的，
+    // 是它们的清单把 `dist_dir` 指向了 stdlib flat（为了让 launcher 的名字依赖解析得到），
+    // 而打包把 flat **整目录**拷进 `libs/`。`libs/` 是用户面的标准库表面，workload 不属于那里。
+    //
+    // 按**前缀**判而不是列四个名字：下一个 workload 加进来时这门自动管得住它
+    // （列名字的门只在有人想起来改它时才成立 —— 那正是「靠约定」）。
+    foreach (var f in Directory.Enumerate(Path.Join(stdlibDir, "libs"))) {
+        _stgAssert("no workload zpkg in shipped libs/ (" + f + ")", !f.StartsWith("z42.workload."));
+    }
+
     // editor-assets: 资产从仓库源码树拷到 editors/<target>/；生成器模板不得进包
     // （*.tpl.json 是 xtask 的输入，出现在用户扩展目录里只会造成困惑）。
     int ea = _pkgStageEditorAssets(root);
