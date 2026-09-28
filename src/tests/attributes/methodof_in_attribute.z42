@@ -3,8 +3,12 @@
 // 为什么这在别的平台做不到：C# / Java 的注解实参是**常量 blob**，格式里根本没有方法引用
 // 编码（ECMA-335 II.23.3 / JVM element_value），所以 roslyn#128 的 infoof/methodof 被 LDM
 // 正式否决。z42 的 attribute 不走 blob 走**工厂函数**：AttributeSynth 把实参 AST 原样塞进
-// 合成的 `__attr$…()` 里编译，实参本就是任意表达式 ⇒ methodof 只需是合法表达式，
-// 元数据侧零工作、零格式 bump。
+// 合成的 `__attr$…()` 里编译 ⇒ methodof 只需是合法**表达式**，元数据侧零工作、零格式 bump。
+//
+// ⚠️ 实参的**载体**是表达式，但可写的形式是一张白名单（常量 / enum 成员 / const 字段 /
+// typeof / methodof / 以上构成的数组，见 enforce-attribute-const-args 与 E0500）——
+// `methodof` 在名单里，所以本用例不受影响；名单挡的是方法调用、可变静态字段这类**依赖运行期
+// 状态**的写法（工厂在首次反射查询时才执行，那种实参读回什么取决于谁先查）。
 namespace Demo;
 
 using Std;

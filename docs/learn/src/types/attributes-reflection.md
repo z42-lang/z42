@@ -333,6 +333,25 @@ attribute 就是一个继承 `Std.Attribute` 的普通类，**类名必须以 `A
 > z42 只有一种——**类名带后缀、应用剥后缀**。另外 z42 暂时没有 `AttributeUsage`，
 > 也就是说 attribute 能贴在任何支持的位置上，不限制目标。
 
+### 实参必须是编译期常量
+
+attribute 是**数据**，所以实参只能写编译期就定死的东西：字面量、常量表达式、enum 成员、
+`const` 字段、`typeof(...)`、`methodof(...)`，以及由这些构成的数组
+（`new string[]{ "a", "b" }`）。写别的会报 `E0500`：
+
+```z42
+// examples/types/attributes-reflection/custom/constarg.z42
+{{#include ../../../../examples/types/attributes-reflection/custom/constarg.z42}}
+```
+
+```console
+{{#include ../../../../examples/types/attributes-reflection/custom/run.console:constarg}}
+```
+
+`K.FIXED` 是 `const`，所以 `Good` 那行没事；被拒的两行一个读可变静态字段、一个调方法。
+这条限制有个具体的理由：attribute 实例不是编译期就造好的，而是**第一次查询它的时候**才造、
+之后缓存——实参若依赖会变的状态，读回来的「元数据」就取决于谁先查。
+
 ## 合起来用：一张自己长出来的命令表
 
 attribute + 反射最典型的用法：让代码**按数据驱动**，而不是手写一张表。下面这个小程序里，
@@ -426,13 +445,10 @@ attribute + 反射最典型的用法：让代码**按数据驱动**，而不是�
 
 要在代码里精确指代一个方法，优先用上面的 `methodof`——它是编译期检查的。
 
-### 还有两处
+### 还有一处
 
 - **索引器不出现在 `GetProperties()` 里**：`this[int]` 降解成 `get_Item(int)`，
   只在 `GetMethods()` 里作为普通方法出现。
-- **attribute 的实参不限于常量**：写个静态字段、甚至一次方法调用都能编过，
-  而它是在**第一次查询这个 attribute 时**才求值的。所以只往里放真正的常量，
-  别放会变的东西——否则读到的值取决于谁先查。
 
 ## 小结
 
@@ -447,8 +463,8 @@ attribute + 反射最典型的用法：让代码**按数据驱动**，而不是�
 - `methodof(类型.成员(参数类型))` 在编译期就把方法钉住，比按字符串名筛安全；自由函数指不了。
 - **attribute** 是贴在声明上的数据：类名必须以 `Attribute` 结尾（`E0444`），应用时剥后缀，
   全部状态走构造器，查询用真实类名。能贴在类 / 方法 / 字段 / 自动属性 / 形参五处。
+  实参必须是编译期常量（含 `typeof` / `methodof` / 数组），否则报 `E0500`。
 - 🔴 记住三个边界：顶层函数的 attribute 反射拿不到（挪进类当 `static`）、计算属性带不了
-  attribute、没有按名取单个成员的 API。另有两条小的写在上一节末尾（索引器不在
-  `GetProperties()` 里、attribute 实参的求值时机）。
+  attribute、没有按名取单个成员的 API（索引器也不在 `GetProperties()` 里）。
 
 下一部分转向**标准库实战**，从文件与目录开始。
