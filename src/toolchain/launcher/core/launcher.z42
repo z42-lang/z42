@@ -236,10 +236,34 @@ bool _isSourceProject(string app) {
 // 清单里 include 的是源文件**绝对路径**（SourceDiscovery 对 rooted 字面路径直通），诊断呈现则由
 // z42c 按当前工作目录相对化 → 读者看到的就是自己敲的 `hello.z42`。
 
-// `<SDK 根>/cache`，可用 Z42_CACHE_DIR 覆盖。
+// 单文件运行的缓存根。`Z42_CACHE_DIR` 覆盖；缺省是**用户级缓存目录**。
+//
+// 🔴 **缺省曾是 `<SDK 根>/cache`，2026-09-28 改掉**：那等于让 `z42 run hello.z42` 往
+// **安装目录**里写东西。实测（干净房间）：刚打出的 SDK 包里没有 `cache/`，跑一次
+// `z42 run` 之后 `cache/run/<sha>/` 就出现在包根下 —— User 正是在发布的 SDK 里看到它的。
+// 三条具体代价：
+//   ① 安装位通常是**只读/需提权**的（Windows `Program Files`、unix `/usr/local`、容器镜像层）
+//      ⇒ 首次 `z42 run` 就可能失败，而失败原因离「我只是想跑个文件」很远；
+//   ② 多用户共享同一份安装时，缓存互相串、权限打架；
+//   ③ 分发目录被运行期状态污染 ⇒ 校验/卸载/diff 都不再干净（这条是 User 报的症状）。
+//
+// 落点按平台惯例（都不成立才退回 `<SDK 根>/cache`，那只发生在连 home 都取不到时）：
+//   Windows: `%LOCALAPPDATA%\z42\cache`
+//   其他:    `$XDG_CACHE_HOME/z42`，否则 `$HOME/.cache/z42`
+// ⚠️ 旧版本在 SDK 里留下的 `cache/` 目录不会被自动清理 —— 删掉即可，没有别的东西读它。
 string _cacheRoot() {
     string c = Environment.GetEnvironmentVariable("Z42_CACHE_DIR", "");
     if (c.Length > 0) { return c; }
+    if (Platform.IsWindows()) {
+        string la = Environment.GetEnvironmentVariable("LOCALAPPDATA", "");
+        if (la.Length > 0) { return Path.Join(Path.Join(la, "z42"), "cache"); }
+    } else {
+        string xdg = Environment.GetEnvironmentVariable("XDG_CACHE_HOME", "");
+        if (xdg.Length > 0) { return Path.Join(xdg, "z42"); }
+    }
+    string home = Environment.GetEnvironmentVariable("HOME", "");
+    if (home.Length == 0) { home = Environment.GetEnvironmentVariable("USERPROFILE", ""); }
+    if (home.Length > 0) { return Path.Join(Path.Join(home, ".cache"), "z42"); }
     return Path.Join(_home(), "cache");
 }
 

@@ -112,7 +112,6 @@ launcher 按这个顺序定位 SDK 根：`Z42_HOME` 环境变量 → apphost 注
 | `programs/<tool>/` | 各工具的 zpkg |
 | `libs/` | 标准库 zpkg |
 | `manifest.toml` | `[package]` 的 `version` / `rid` / `build-date` |
-| `cache/` | 单文件运行的合成工程缓存（`Z42_CACHE_DIR` 可覆盖） |
 | `runtimes/<ver>/workloads/<wl>/` | 已安装 workload 的工具部分 |
 | `runtimes/<rid>/<ver>/` | 已安装 workload 的运行时包 |
 
@@ -238,10 +237,21 @@ z42: unknown runtime knob `gc-mdoe` in --set; did you mean `gc-mode`?
 
 ### 单文件运行
 
-目标是单个 `.z42` 源文件时，在缓存目录（`Z42_CACHE_DIR`，缺省 `<SDK 根>/cache`）的
-`run/<源文件绝对路径的 SHA-256>/` 下合成一份最小清单（`kind = "exe"`，`include` = 源文件
+目标是单个 `.z42` 源文件时，在缓存目录的 `run/<源文件绝对路径的 SHA-256>/` 下合成一份最小清单（`kind = "exe"`，`include` = 源文件
 **绝对路径**），此后完全复用工程构建路径——增量缓存、入口自动检测、runtimeconfig 侧车
 一致。
+
+**缓存目录在哪**（`Z42_CACHE_DIR` 覆盖；缺省是**用户级**目录，**不在 SDK 安装目录里**）：
+
+| 平台 | 缺省 |
+|---|---|
+| Windows | `%LOCALAPPDATA%\z42\cache` |
+| 其他 | `$XDG_CACHE_HOME/z42`，未设则 `$HOME/.cache/z42` |
+
+> 📌 缺省曾是 `<SDK 根>/cache`（2026-09-28 改）。往安装目录写缓存有三个问题：安装位常是
+> 只读/需提权的（`Program Files` / `/usr/local` / 容器镜像层）；多用户共享同一份安装时缓存
+> 互相串；分发目录被运行期状态污染。**旧版本在 SDK 里留下的 `cache/` 可以直接删**，没有别的
+> 东西读它。
 
 三条边界：
 
