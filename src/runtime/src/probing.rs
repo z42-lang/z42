@@ -66,10 +66,14 @@ pub fn expand_probing_paths_with(
 // 就失效，而「相对 entry 目录」对「装在任意位置的用户应用要指回 SDK」无解。⇒ 侧车写
 // `${Z42_HOME}/programs/z42c`，由 VM 在解析时换成本机真实目录。
 //
-// 🔴 **这是 support 侧，今天还没有生产发射方**：z42c 尚未往侧车里写占位符（受 bootstrap-seed
-// 的分阶段纪律：VM 先认、晚一个 nightly 再 emit，否则上一版 VM 读到 `${Z42_HOME}/…` 会当字面
-// 目录、跳过 ⇒ 「probing 形同没配」）。
-// STAGE2-DEBT(probing-z42home-emit): 含本 support 的 nightly 成为种子后，让 z42c 侧车发射 `${Z42_HOME}/programs/z42c` 而不是具体路径，并加「输出里不得出现绝对路径」的门
+// **谁来写这个占位符：作者，不是 z42c。** 落这条 support 时我挂过一条阶段-2 欠账
+// （「等 nightly 成种子后让 z42c 发射占位符而不是具体路径」），**那条欠账的前提是错的、已撤**：
+// 实测 z42c **从不合成 probing-paths** —— 侧车里的值是清单 `[profile.<n>.runtime]` 里作者写
+// 什么就逐字写出（`ManifestLoader` 只把数组用 `\n` 连起来），全仓构建输出里今天一个绝对路径
+// 都没有。所以没有「具体路径」需要被替换，也就没有 use 侧要等 nightly：作者今天写
+// `${Z42_HOME}/programs/z42c`，这里就展开它。
+// 端到端覆盖在 `xtask_compiler_e2e_deploy.z42` 的 probing-paths 第 ④ 格（清单 → 侧车仍是占位符
+// → VM 展开到 SDK 根；不设 `Z42_HOME` 必须跑不起来，否则那格失去判别力）。
 //
 // **大小写不是随手写的**，两层各有各的约定：
 //   · `${lower_snake}` = **清单模板变量**，编译期展开（`PathTemplate` 的 `${workspace_dir}`
