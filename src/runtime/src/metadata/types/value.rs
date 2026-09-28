@@ -348,6 +348,25 @@ impl PartialEq for Value {
             // Array/Object equality is reference equality (same as C# reference semantics)
             (Value::Array(a),  Value::Array(b))  => GcRef::ptr_eq(a, b),
             (Value::Object(a), Value::Object(b)) => GcRef::ptr_eq(a, b),
+            // fix-delegate-equality-operator: function values are reference-ish too, and
+            // these two arms were simply MISSING — so `==` fell through to `_ => false`
+            // and `f == f` answered **false** (a silently wrong answer, not an error).
+            // Identity semantics are the ones `DelegateOps.ReferenceEquals` already
+            // defines: a FuncRef is its function name; a closure is its function plus its
+            // captured env. That builtin now defers here for these two variants, so the
+            // rule has one spelling (it keeps its own `StackClosure` arm, which needs the
+            // transient arena this impl has no access to — the handle-identity arm below
+            // covers the same-value case, and is only stricter for two distinct handles
+            // over one closure).
+            (Value::FuncRef(a), Value::FuncRef(b)) => a == b,
+            (Value::Closure(a), Value::Closure(b)) => {
+                if a.ptr_eq(b) {
+                    true
+                } else {
+                    let (da, db) = (super::closure_data_of(a), super::closure_data_of(b));
+                    da.fn_name == db.fn_name && GcRef::ptr_eq(&da.env, &db.env)
+                }
+            }
             // make-value-copy: `PinnedView` / `Ref` (and `StructRefHeap` / `StackClosure`)
             // are now transient-arena handles — compare by `{idx, frame_id}` handle
             // identity (same as `StackObject`). These are internal transient values; user

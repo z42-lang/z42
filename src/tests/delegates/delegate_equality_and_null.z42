@@ -1,0 +1,78 @@
+// fix-delegate-equality-operator + fix-null-delegate-invoke + fix-compound-assign-operand-check
+// 回归 golden：函数值上的三件事，改动前**全是坏的**，且坏法都属「静默或不可捕获」。
+//
+//   ① `f == f` 恒 **false** —— `Value::PartialEq` 里根本没有 FuncRef / Closure 的臂，
+//      直接落 `_ => false`。判据早就存在（`DelegateOps.ReferenceEquals` 的三变体语义），
+//      只是 `==` 没接上去 ⇒ **静默错答案**（最坏一档：既不报错也不崩）。
+//   ② 调一个为 null 的函数值 → `CallIndirect: expected FuncRef …, got Null`，
+//      **`catch` 接不住、程序当场终止**。而单播 `event` 字段默认就是 null，
+//      参考手册教的触发模板正是「快照 → 查空 → Invoke」，漏掉查空就踩这条。
+//   ③ `f += g` 编译期零诊断，运行期崩 `type mismatch in arithmetic`（也不可 catch）——
+//      复合赋值从不走二元运算的操作数检查。该项为**编译期**诊断，不在本 golden 里
+//      （见 `src/tests/operators/compound_assign_checks` 的负例）。
+namespace Demo;
+
+using Std.IO;
+using Std;          // DelegateOps（限定名在表达式位不可用）
+
+class Btn {
+    public Action<int> Clicked;          // 单播 event 字段：默认 null
+}
+
+class Counter {
+    public int N;
+    public void Bump(int by) { this.N = this.N + by; }
+}
+
+void Main() {
+    // ── ① 相等：FuncRef（无捕获） ────────────────────────────────────────────
+    Action<int> f = (int n) => { };
+    Action<int> g = f;
+    Console.WriteLine("f==f " + (f == f).ToString());
+    Console.WriteLine("f==g " + (f == g).ToString());
+    Console.WriteLine("f!=g " + (f != g).ToString());
+
+    // 两个**各自独立**的 lambda 不相等（它们是不同的函数）。
+    Action<int> h = (int n) => { };
+    Console.WriteLine("f==h " + (f == h).ToString());
+
+    // ── ① 相等：Closure（有捕获）──────────────────────────────────────────
+    Counter c = new Counter();
+    Action<int> cap = (int n) => { c.Bump(n); };
+    Action<int> cap2 = cap;
+    Console.WriteLine("cap==cap2 " + (cap == cap2).ToString());
+    Console.WriteLine("cap==f " + (cap == f).ToString());
+
+    // `==` 与 `DelegateOps.ReferenceEquals` 必须给同一个答案（同一条判据的两个入口）。
+    Console.WriteLine("agree " + ((cap == cap2) == DelegateOps.ReferenceEquals(cap, cap2)).ToString());
+
+    // ── ① null 一侧 ───────────────────────────────────────────────────────
+    Btn b = new Btn();
+    Console.WriteLine("null==null " + (b.Clicked == null).ToString());
+    Console.WriteLine("f==null " + (f == null).ToString());
+
+    // ── ② 调 null 委托 = 可 catch 的 NullReferenceException ─────────────────
+    try {
+        b.Clicked.Invoke(1);
+        Console.WriteLine("BUG: 没抛");
+    } catch (Exception e) {
+        Console.WriteLine("caught " + e.GetType().Name);
+    }
+
+    // 裸调用形式（不经 `.Invoke`）走同一条 CallIndirect，同样可 catch。
+    try {
+        Action<int> nul = b.Clicked;
+        nul(2);
+        Console.WriteLine("BUG: 没抛");
+    } catch (Exception e) {
+        Console.WriteLine("caught " + e.GetType().Name);
+    }
+
+    // 抛完程序照常继续 —— 这正是「不可捕获的终止」与「异常」的区别。
+    Console.WriteLine("alive");
+
+    // 阴性对照：非 null 的函数值照常调用，别被新分支拦住。
+    Action<int> ok = (int n) => { c.Bump(n); };
+    ok(5);
+    Console.WriteLine("N=" + c.N.ToString());
+}

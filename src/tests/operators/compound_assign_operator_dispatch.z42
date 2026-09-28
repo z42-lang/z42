@@ -1,0 +1,80 @@
+// fix-compound-assign-operand-check 回归 golden：复合赋值 `x op= v` 与 `x = x op v` **同一条**
+// 绑定路径。改动前 `AssignTyper` 直接 `new BoundBinary(...)`，绕过了操作数检查与运算符重载派发，
+// 于是同一件事的两种写法口径相反：
+//
+//   · `Money c = a + b;`  → 走 `op_Add`，正确
+//   · `a += b;`           → **零诊断**，运行期崩 `type mismatch in arithmetic`（**不可 catch**，
+//                           而且错误文本把整个 TypeDesc 打出来几千字符）
+//
+// 本 golden 守正面那半（合法代码算对）；漏报那半（`bool b; b += b;` / `f += g` 该报编译错）
+// 由诊断负例守。
+namespace Demo;
+
+using Std.IO;
+
+class Money {
+    public int Cents;
+    public Money(int c) { this.Cents = c; }
+    public static Money op_Add(Money a, Money b) { return new Money(a.Cents + b.Cents); }
+    public static Money op_Subtract(Money a, Money b) { return new Money(a.Cents - b.Cents); }
+}
+
+struct Vec2 {
+    public int X;
+    public int Y;
+    public static Vec2 op_Add(Vec2 a, Vec2 b) {
+        Vec2 r = new Vec2();
+        r.X = a.X + b.X;
+        r.Y = a.Y + b.Y;
+        return r;
+    }
+}
+
+void Main() {
+    // ── 用户运算符 + 复合赋值（改动前运行期崩）───────────────────────────────
+    Money a = new Money(100);
+    Money b = new Money(50);
+    a += b;
+    Console.WriteLine("a=" + a.Cents.ToString());
+    a -= b;
+    Console.WriteLine("a=" + a.Cents.ToString());
+
+    // struct 上同理（值语义：复合赋值写回的是新值）
+    Vec2 v = new Vec2();
+    v.X = 1; v.Y = 2;
+    Vec2 w = new Vec2();
+    w.X = 10; w.Y = 20;
+    v += w;
+    Console.WriteLine("v=" + v.X.ToString() + "," + v.Y.ToString());
+
+    // ── 阴性对照：原生算术的复合赋值必须逐字不变 ─────────────────────────────
+    int n = 5;
+    n += 3;   Console.WriteLine("n=" + n.ToString());
+    n -= 1;   Console.WriteLine("n=" + n.ToString());
+    n *= 2;   Console.WriteLine("n=" + n.ToString());
+    n /= 7;   Console.WriteLine("n=" + n.ToString());
+    n %= 2;   Console.WriteLine("n=" + n.ToString());
+    n &= 6;   Console.WriteLine("n=" + n.ToString());
+    n |= 1;   Console.WriteLine("n=" + n.ToString());
+    n ^= 3;   Console.WriteLine("n=" + n.ToString());
+    // ⚠️ `<<=` / `>>=` 不在词法里（写了报 E0201），故此处没有它们 —— 不是漏测。
+
+    double d = 1.5;
+    d += 0.5;
+    Console.WriteLine("d=" + d.ToString());
+
+    // 字符串拼接的 `+=`（走 `+` 的 string 特例，不是算术）
+    string s = "ab";
+    s += "cd";
+    Console.WriteLine("s=" + s);
+
+    // 数组元素 / 字段上的复合赋值（左值不是局部变量的两种形态）
+    int[] arr = new int[2];
+    arr[0] = 10;
+    arr[0] += 5;
+    Console.WriteLine("arr0=" + arr[0].ToString());
+
+    Money m = new Money(7);
+    m.Cents += 3;
+    Console.WriteLine("m=" + m.Cents.ToString());
+}

@@ -631,17 +631,31 @@ public sealed partial class ExprTyper {
     private BoundExpr _bindBinary(BinaryExpr bin, TypeEnv env) {
         BoundExpr left  = this._bindExpr(bin.Left, env);
         BoundExpr right = this._bindExpr(bin.Right, env);
+        return this.BindBinaryBound(bin.Op, left, right, bin.Span, env);
+    }
+
+    // fix-compound-assign-operand-check：二元运算「操作数已绑好之后」的全部规则——字符串拼接特例
+    // → 运算符重载派发（型参约束 / 类的 `op_X`）→ 查表 + 逐侧操作数检查 + enum 配对 + 值类型比 null。
+    //
+    // 抽出来是因为**复合赋值 `x op= v` 从来没走过这条路**：`AssignTyper` 直接 `new BoundBinary(...)`，
+    // 于是同一件事的两种写法口径相反 ——
+    //   · `Money c = a + b;`  → 走 `op_Add`，✅
+    //   · `a += b;`           → 零诊断，运行期崩 `type mismatch in arithmetic`（**不可 catch**）
+    //   · `bool c = b + b;`   → 编译期 E0402「requires numeric operand」
+    //   · `b += b;`           → 零诊断，同样运行期崩
+    // 即：凡 `x op y` 该报的错，`x op= y` 一律漏报；凡 `x op y` 该派发的用户运算符，`x op= y` 一律不派发。
+    internal BoundExpr BindBinaryBound(string op, BoundExpr left, BoundExpr right, Span sp, TypeEnv env) {
         Z42Type lt = left.Type();
         Z42Type rt = right.Type();
         if ((lt is Z42ErrorType) || (rt is Z42ErrorType)) {
-            return new BoundBinary(bin.Op, left, right, new Z42ErrorType(), bin.Span);
+            return new BoundBinary(op, left, right, new Z42ErrorType(), sp);
         }
         // 字符串拼接特例（任一侧 string）：先于查表，镜像 C# CheckBinary 前置。
         // unify-value-types Phase 1：经 PrimModel.Canon 归一（翻转后 string→Z42ClassType(String)，
         // Name()="String"）；翻转前 Canon("string")=="string" 逐字节同义。
-        if (bin.Op == "+") {
+        if (op == "+") {
             if (lt.CanonName() == "string" || rt.CanonName() == "string") {
-                return new BoundBinary(bin.Op, left, right, Z42ClassType.Builtin("string"), bin.Span);
+                return new BoundBinary(op, left, right, Z42ClassType.Builtin("string"), sp);
             }
         }
         // L3 运算符重载：左操作数为 class/struct（Z42ClassType）且有静态 op_X(2 参) →
@@ -652,7 +666,7 @@ public sealed partial class ExprTyper {
         // unify-value-types Phase 1：翻转后基元为 Z42ClassType(Int32…) 且其 INumber 带 op_Add 等——
         // 必须**排除 Scalar 值类型**，让 int+int 走下方原生算术表（BinaryTypeTable）而非派发 op_X 方法
         // 调用（否则算术全变方法调用，codegen 巨变）。用户 struct/class 的 op 重载不受影响（非 Scalar）。
-        string opMethod = TypeFactsTc._operatorMethodNameTc(bin.Op);
+        string opMethod = TypeFactsTc._operatorMethodNameTc(op);
         // fix-generic-operator-constraint-dispatch：**型参**左操作数（`T a` 且 `where T : INumber<T>`）
         // → 派发到约束接口声明的 `op_X`。此前这里只认 `Z42ClassType`，型参落到下方 BinaryTypeTable：
         // 类型检查报「operator `+` requires numeric operand, got `T`」，而 emitter 照发**裸 `add i32`**
@@ -670,35 +684,43 @@ public sealed partial class ExprTyper {
                 // ⚠️ 不能改读 `gopMs.Signature.Ret`：INumber 来自 z42.core，是**导入**接口，其签名经
                 // ImportedSymbolLoader 还原后返回类型已不是 Z42GenericParamType → 链式 `a + b + c`
                 // 的第二个 `+` 拿到非型参左类型就落不回本分支，退化成裸算术（实测 Money 链式炸在这）。
-                return new BoundCall("instance", true, left, lt.Name(), opMethod, gopArgs, 1, lt, bin.Span);
+                return new BoundCall("instance", true, left, lt.Name(), opMethod, gopArgs, 1, lt, sp);
             }
         }
         if (opMethod != "" && (lt is Z42ClassType) && !lt.IsScalarType()) {
             Z42ClassType lct = lt as Z42ClassType;
             BoundExpr[] opArgs = new BoundExpr[2];
             opArgs[0] = left; opArgs[1] = right;
-            MethodSymbol opMs = this._tc._overload._resolveOverload(env.Symbols, lct, opMethod, opArgs, 2, 0, bin.Span, null, env);   // 运算符重载无显式类型实参 → typeArgCount=0
+            MethodSymbol opMs = this._tc._overload._resolveOverload(env.Symbols, lct, opMethod, opArgs, 2, 0, sp, null, env);   // 运算符重载无显式类型实参 → typeArgCount=0
             if (opMs != null) {
                 // unify-blob-return-abi：目标名必须走 `CallKey()` 而不是裸 `RegKey` —— 被桥接的
                 // 运算符（返回 blob struct 的 `static override op_X`）其裸名槽已让给**无 sret 的桥接**，
                 // 而这条路是**具体类型**收者：它按具体返回类型传了 sret 槽，打在桥接上就是反向失配
                 // （`takes 2 …, the call passes 3`）。`CallKey()` 未桥接时逐字等于 `RegKey`，
                 // 其注释也把「凡以 RegKey 作调用目标名的站点都该改用它」定为纪律。
-                return BoundCall.Marked(new BoundCall("static", false, null, lct.Name(), opMs.CallKey(), opArgs, 2, opMs.Signature.Ret, bin.Span), opMs.Signature);
+                return BoundCall.Marked(new BoundCall("static", false, null, lct.Name(), opMs.CallKey(), opArgs, 2, opMs.Signature.Ret, sp), opMs.Signature);
             }
         }
-        BinaryRule rule = BinaryTypeTable.Lookup(bin.Op);
+        BinaryRule rule = BinaryTypeTable.Lookup(op);
         if (!rule.Known) {
-            return new BoundBinary(bin.Op, left, right, new Z42UnknownType(), bin.Span);
+            return new BoundBinary(op, left, right, new Z42UnknownType(), sp);
         }
-        this._tc._checkOperand(rule.Left,  rule.Requirement, lt, bin.Op, bin.Left.Span);
-        this._tc._checkOperand(rule.Right, rule.Requirement, rt, bin.Op, bin.Right.Span);
+        // fix-compound-assign-operand-check：函数值上的 `+` / `+=` 给一条**可操作**的诊断。
+        // 落回下面逐侧的 `_checkOperand` 只会说「requires numeric operand, got `Action<Int32>`」——
+        // 准确但没告诉人该怎么写，而这个写法（`f += g` 想串起两个处理器）有明确的正解。
+        if ((op == "+" || op == "-") && ((lt is Z42FuncType) || (rt is Z42FuncType))) {
+            this._tc._diags.Error(DiagnosticCodes.TypeMismatch,
+                "operator `" + op + "` does not combine function values; one function value binds at most one target — use `MulticastAction<T>` / `MulticastFunc<..>` and `Subscribe` for multiple handlers", sp);
+            return new BoundBinary(op, left, right, new Z42ErrorType(), sp);
+        }
+        this._tc._checkOperand(rule.Left,  rule.Requirement, lt, op, left.Span);
+        this._tc._checkOperand(rule.Right, rule.Requirement, rt, op, right.Span);
         // make-enum-distinct-type：跨操作数的 enum 配对检查。**此前完全没有这道检查**——`_checkOperand`
         // 是逐侧的，而 `==`/`!=` 的 rule 不带操作数约束，于是 `Color.Red == 0` 一路放行（enum-as-int
         // 时代它确实是 `long == int`、无害；enum 成为独立类型后它就是「拿枚举比整数」，必须报错）。
-        this._tc._checkEnumOperands(lt, rt, bin.Op, bin.Span);
-        this._tc._checkValueTypeNullCompare(left, right, bin.Op, bin.Span);   // enforce-value-type-non-null
-        return new BoundBinary(bin.Op, left, right, BinaryTypeTable.ResultType(rule.Out, lt, rt), bin.Span);
+        this._tc._checkEnumOperands(lt, rt, op, sp);
+        this._tc._checkValueTypeNullCompare(left, right, op, sp);   // enforce-value-type-non-null
+        return new BoundBinary(op, left, right, BinaryTypeTable.ResultType(rule.Out, lt, rt), sp);
     }
 
     // fix-generic-operator-constraint-dispatch：型参 `paramName` 的 where 约束里，哪个接口声明了

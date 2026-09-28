@@ -1,0 +1,13 @@
+f==f true
+f==g true
+f!=g false
+f==h false
+cap==cap2 true
+cap==f false
+agree true
+null==null true
+f==null false
+caught NullReferenceException
+caught NullReferenceException
+alive
+N=5

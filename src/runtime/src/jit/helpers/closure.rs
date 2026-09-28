@@ -163,6 +163,19 @@ pub unsafe extern "C" fn jit_call_indirect(
             }
             (sc.fn_name.clone(), Some(vm_ctx.heap().alloc_array(frame_ref.env_arena[idx].clone())))
         }
+        // fix-null-delegate-invoke: same as interp's `call_indirect` — a null callee is
+        // reachable from ordinary code (an unassigned single-cast `event` field), so it
+        // gets a catchable `Std.NullReferenceException` rather than a raw string. Both
+        // backends must do this: fixing only one leaves the bug alive under the other.
+        Value::Null => {
+            let module = &*(*ctx).module;
+            let exc = crate::exception::make_stdlib_exception(
+                vm_ctx, module, crate::semantics::NULL_REF_EXC,
+                crate::semantics::null_invoke_msg(),
+            ).unwrap_or_else(|e| Value::Str(format!("{e}").into()));
+            set_exception(vm_ctx, exc);
+            return 1;
+        }
         other => {
             set_exception(vm_ctx, Value::Str(format!(
                 "CallIndirect: expected FuncRef / Closure / StackClosure, got {:?}", other).into()));

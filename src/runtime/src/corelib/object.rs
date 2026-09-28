@@ -214,11 +214,12 @@ fn weak_handle_type_desc() -> Arc<TypeDesc> {
 /// - `StackClosure { env_idx, fn_name }` —— fn_name 相等且 env_idx 相等
 pub fn builtin_delegate_eq(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let result = match (args.first(), args.get(1)) {
-        (Some(Value::FuncRef(a)), Some(Value::FuncRef(b))) => a == b,
-        (Some(Value::Closure(a)), Some(Value::Closure(b))) => {
-            let (da, db) = (crate::metadata::types::closure_data_of(a), crate::metadata::types::closure_data_of(b));
-            da.fn_name == db.fn_name && crate::gc::GcRef::ptr_eq(&da.env, &db.env)
-        }
+        // fix-delegate-equality-operator: FuncRef / Closure identity now lives in
+        // `Value`'s `PartialEq` (the `==` operator reaches the same rule), so defer to it
+        // rather than keeping a second copy here. StackClosure stays below — it needs the
+        // transient arena, which `PartialEq` has no access to.
+        (Some(a @ Value::FuncRef(_)), Some(b @ Value::FuncRef(_))) => a == b,
+        (Some(a @ Value::Closure(_)), Some(b @ Value::Closure(_))) => a == b,
         // make-value-copy: resolve both StackClosure handles → StackClosureData via arena.
         (Some(&Value::StackClosure { idx: ia, frame_id: fa }),
          Some(&Value::StackClosure { idx: ib, frame_id: fb })) => {

@@ -303,9 +303,79 @@ lambda 里可以直接用外层的局部变量，这样的 lambda 叫**闭包**�
 > 想在代码里**精确指代一个方法**（而不是把它包成委托值）时，还有 `methodof` ——
 > 它求值得到一个 `MethodInfo`，属于反射的范畴，见[特性与反射入门](attributes-reflection.md)。
 
+## 函数值的身份、空值与组合
+
+两个函数值可以用 `==` 比——比的是**身份**：指向同一个函数（或同一个闭包）才相等，
+函数体一样但各写一遍的两个 lambda 不相等：
+
+```z42
+// examples/types/lambdas/identity/eq.z42
+{{#include ../../../../examples/types/lambdas/identity/eq.z42}}
+```
+
+```console
+{{#include ../../../../examples/types/lambdas/identity/run.console:eq}}
+```
+
+`DelegateOps.ReferenceEquals(a, b)` 给的是同一个答案，多用于库代码里按处理器退订。
+
+**调一个为 `null` 的函数值抛 `NullReferenceException`**，可以 `catch`：
+
+```z42
+// examples/types/lambdas/identity/nullcall.z42
+{{#include ../../../../examples/types/lambdas/identity/nullcall.z42}}
+```
+
+```console
+{{#include ../../../../examples/types/lambdas/identity/run.console:nullcall}}
+```
+
+单播 `event` 字段默认就是 `null`，所以上面那步查空仍然是**该写的**——依赖异常来发现
+「没人订阅」不是好写法。
+
+**一个函数值最多绑一个目标**，所以 `f += g` 这种「把两个处理器加起来」的写法不存在，
+编译期就会报错并告诉你该用什么：
+
+```z42
+// examples/types/lambdas/identity/combine.z42
+{{#include ../../../../examples/types/lambdas/identity/combine.z42}}
+```
+
+```console
+{{#include ../../../../examples/types/lambdas/identity/run.console:combine}}
+```
+
+**委托类型的形参不能写默认值**——委托只记参数类型，调用点走的是间接调用，默认值没有落脚处，
+所以它在**声明处**就报错：
+
+```z42
+// examples/types/lambdas/identity/deldefault.z42
+{{#include ../../../../examples/types/lambdas/identity/deldefault.z42}}
+```
+
+```console
+{{#include ../../../../examples/types/lambdas/identity/run.console:deldefault}}
+```
+
+### 实参个数由编译器校验
+
+函数类型的调用会校验实参个数：
+
+```z42
+// examples/types/lambdas/gaps/arity.z42
+{{#include ../../../../examples/types/lambdas/gaps/arity.z42}}
+```
+
+```console
+{{#include ../../../../examples/types/lambdas/gaps/run.console:arity}}
+```
+
+多传报 `E1006`，少传报 `E1005`。
+
 ## 🔴 当前实现的边界
 
-这些不是写法问题，是**当前实现的洞**，踩到时别怀疑自己。
+下面这条不是写法问题，是**当前实现的洞**，踩到时别怀疑自己（另一条——类的静态方法取不了
+引用——在前面「直接把具名函数当值传」里）。
 
 ### 从 `List` 里取出来的函数值不能就地调用
 
@@ -323,55 +393,6 @@ lambda 里可以直接用外层的局部变量，这样的 lambda 叫**闭包**�
 另外函数类型**不能**当数组元素类型（`((int) -> void)[]` 连声明都过不去），要么用委托类型
 `Action<int>[]`，要么用 `List<(int) -> void>`。
 
-### 不能用 `==` 比较两个函数值
-
-```z42
-// examples/types/lambdas/gaps/eq.z42
-{{#include ../../../../examples/types/lambdas/gaps/eq.z42}}
-```
-
-```console
-{{#include ../../../../examples/types/lambdas/gaps/run.console:eq}}
-```
-
-`f == f` 都是 `false`——`==` 没有接到委托上。要判「是不是同一个处理器」用
-`DelegateOps.ReferenceEquals`。这也是退订要用 `IDisposable` 票而不是靠比较的原因。
-
-### 实参个数写错
-
-函数类型的调用会校验实参个数：
-
-```z42
-// examples/types/lambdas/gaps/arity.z42
-{{#include ../../../../examples/types/lambdas/gaps/arity.z42}}
-```
-
-```console
-{{#include ../../../../examples/types/lambdas/gaps/run.console:arity}}
-```
-
-多传报 `E1006`，少传报 `E1005`。⚠️ 用 `delegate` 声明时给形参写默认值**不生效**
-（声明能过，调用时那个参数拿到的不是默认值），所以别指望靠默认值省略它。
-
-### 调用 `null` 委托会直接终止程序
-
-```z42
-// examples/types/lambdas/gaps/nulldelegate.z42
-{{#include ../../../../examples/types/lambdas/gaps/nulldelegate.z42}}
-```
-
-```console
-{{#include ../../../../examples/types/lambdas/gaps/run.console:nulldelegate}}
-```
-
-`try` / `catch` **接不住**它——它不是可捕获的异常，而是直接终止执行。单播 event 字段默认
-就是 `null`，所以触发前那一步查空是必须的。
-
-### 没有「把两个处理器加起来」
-
-z42 的一个函数值最多绑**一个**目标，`f += g` 这种组合写法不支持（写了能编过，运行到才炸）。
-要多个处理器就用上面的 `MulticastAction<T>`。
-
 ## 小结
 
 - lambda 用粗箭头 `=>`，装它的**函数类型**用细箭头 `->`：`(int) -> int sq = (int x) => x * x;`
@@ -383,8 +404,9 @@ z42 的一个函数值最多绑**一个**目标，`f += g` 这种组合写法不
   不用查空），`Action<T>` 至多一个（默认 null、必须查空，挂第二个会抛）。
 - 多播还给了退订票（配 `using` 更省事）、`continueOnException` 的异常聚合、
   `OnceRef` / `WeakRef` 订阅策略。
-- 🔴 记住五个边界：`List` 取出的函数值要先赋给局部变量才能调、**类的静态方法**不能直接取引用
-  （包一层 lambda）、`==` 比不了函数值（用 `DelegateOps.ReferenceEquals`）、调 `null` 委托
-  直接终止程序、没有 `+=` 组合多播。
+- 函数值用 `==` 比**身份**；调 `null` 的函数值抛 `NullReferenceException`；`f += g` 不存在
+  （编译期报错，多处理器用 `MulticastAction<T>`）；委托形参不能带默认值。
+- 🔴 记住两个边界：`List` 取出的函数值要先赋给局部变量才能调（数组不受影响）、
+  **类的静态方法**不能直接取引用（包一层 lambda）。
 
 下一章讲**异常处理**——`try` / `catch` / `finally` 与自定义异常。

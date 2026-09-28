@@ -379,6 +379,16 @@ pub(super) fn call_indirect(
             }
             (sc.fn_name.clone(), Some(env_val))
         }
+        // fix-null-delegate-invoke: a *null* callee is the one case here that ordinary
+        // user code reaches — a single-cast `event` field defaults to null, and the
+        // reference manual's own trigger pattern is "snapshot, check null, invoke". Hand
+        // back a catchable `Std.NullReferenceException` instead of a `bail!`, whose Rust
+        // Debug string no `catch` can intercept (the program died on the spot).
+        Value::Null => {
+            return Ok(Some(crate::exception::make_stdlib_exception(
+                ctx, module, crate::semantics::NULL_REF_EXC, crate::semantics::null_invoke_msg(),
+            )?));
+        }
         other => bail!("CallIndirect: expected FuncRef / Closure / StackClosure, got {:?}", other),
     };
     let user_vals = collect_args(&frame.regs, args)?;

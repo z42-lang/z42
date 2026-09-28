@@ -63,7 +63,15 @@ public static class CompilerFingerprint {
         // 精确判定走 `_fingerprintSourceOf` 全文比较，不受影响；坏的是**可读性**。
         // ⇒ 那类源文件**哈希一字未变而判定结果变** ⇒ 不 bump 就会命中旧缓存条目、让修复
         //   永不生效（与 #791 / #806 / #850 同一条理由）。
-        "fqn-typeref-base-chain"
+        "fqn-typeref-base-chain",
+        // fix-nested-ctor-key：嵌套类型的 ctor 键（`Outer+Inner` 的 ctor 注册在 `Inner`）——
+        // 发射变了（无参那格此前压根不发 Call、带参那格发的是错名），源码哈希一字未变。
+        "fix-nested-ctor-key",
+        // fix-compound-assign-operand-check：复合赋值改走与二元运算同一条绑定路径 ⇒ 既发新诊断
+        // （bool/函数值/对象上的 `op=`），又改发射（用户 `op_Add` 现在真的被派发）。
+        "fix-compound-assign-operand-check",
+        // fix-delegate-param-default：委托形参默认值改为声明处报错（纯新增诊断，不动发射）。
+        "fix-delegate-param-default"
     };
 
     // 指纹值：`Entries` 逐条以 `\n` 连接后取内容哈希（`mmh3:` 前缀，同 SourceHash）。
