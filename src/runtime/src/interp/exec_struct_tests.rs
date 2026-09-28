@@ -347,3 +347,87 @@ fn stack_object_inline_struct_field_roundtrips() {
         o => panic!("expected the string ref leaf, got {o:?}"),
     }
 }
+
+// ── symbolic-struct-field-access P2 (T12)：纯隔离的符号化开销 ────────────────
+//
+// 提案承诺过：P2 落地后必须实测**纯隔离**的开销 —— 先前只有一个「含 arena↔堆存储差」
+// 的上界。隔离的含义是只量 `resolve_field_path` 本身，不量它周围那次 helper 调用、
+// 不量字节 codec、不量寄存器读写 —— 那些**符号化前后完全一样**。
+//
+// ⚠️ 这个数**不等于**「P2 的代价」，两条限定必须一起引用：
+//   ① struct 字段访问在 JIT 里**恒是 helper 调用**（烘焙偏移只是个 iconst 实参）
+//      ⇒ P2 的**边际**代价 = 那次本来就要付的调用里多出的这一段。
+//   ② 本测量给不出**动态**权重。静态发射占比是深度 1 = 85.1%（全 e2e 语料 800 次），
+//      但一个深度 3 的热循环能压倒 2% 的站点占比。那个数要真实负载 A/B（两个工具链）。
+//
+// `#[ignore]`：这是**一次性的「符号化值不值」**测量，不是持续护栏，不该进常规 CI。
+//   跑法：cargo test --release --lib symbolization_cost -- --ignored --nocapture
+#[test]
+#[ignore]
+fn symbolization_cost_by_path_depth() {
+    use crate::metadata::name_index::NameIndex;
+    use crate::metadata::tokens::TypeId;
+    use crate::metadata::types::{FieldSlot, StructFieldLayout, StructTypeLayout, TypeDesc, TypeDescCold};
+    use std::sync::Arc;
+    use std::time::Instant;
+
+    fn struct_desc(name: &str, n: usize, nest: Option<&str>) -> Arc<TypeDesc> {
+        Arc::new(TypeDesc {
+            name: name.into(),
+            class_flags: crate::metadata::bytecode::CLASS_FLAG_STRUCT,
+            fields: (0..n).map(|i| FieldSlot {
+                name: format!("f{i}").into(),
+                type_tag: if i == 0 { nest.unwrap_or("long").into() } else { "long".into() },
+                visibility: 0,
+            }).collect(),
+            field_index: NameIndex::new(),
+            vtable: Vec::new(),
+            vtable_index: NameIndex::new(),
+            base_name: None,
+            visibility: 0,
+            cold: Some(Box::new(TypeDescCold {
+                struct_layout: Some(Arc::new(StructTypeLayout {
+                    size: n * 8,
+                    ref_offsets: Box::new([]),
+                    ref_kinds: Box::new([]),
+                    fields: (0..n).map(|i| StructFieldLayout {
+                        offset: (i * 8) as u32, size: 8, kind: 0,
+                    }).collect(),
+                })),
+                ..Default::default()
+            })),
+            id: TypeId::UNRESOLVED,
+        })
+    }
+
+    const ITERS: u32 = 200_000;
+    println!("\n路径解析的纯隔离开销（{ITERS} 次/档，release 跑才有意义）");
+    println!("{:<12} {:>12} {:>14}", "深度", "总耗时", "每次");
+
+    for depth in 1..=4usize {
+        let vm = VmContext::new();
+        vm.install_lazy_loader(None, 0);
+        if let Some(l) = vm.core.lazy_loader.write().as_mut() {
+            for i in 0..depth {
+                let nest = if i + 1 < depth { Some(format!("Bench.L{}", i + 1)) } else { None };
+                l.insert_type(format!("Bench.L{i}"), struct_desc(&format!("Bench.L{i}"), 4, nest.as_deref()));
+            }
+        }
+        let path: Vec<u16> = vec![0u16; depth];
+        // 预热（首次会触发 lazy 查找的慢路）。
+        for _ in 0..1000 { let _ = super::resolve_field_path(&vm, "Bench.L0", &path); }
+
+        let t0 = Instant::now();
+        let mut acc = 0u64;
+        for _ in 0..ITERS {
+            acc += super::resolve_field_path(
+                std::hint::black_box(&vm),
+                std::hint::black_box("Bench.L0"),
+                std::hint::black_box(&path),
+            ).unwrap() as u64;
+        }
+        let el = t0.elapsed();
+        std::hint::black_box(acc);
+        println!("{:<12} {:>12?} {:>13.1}ns", depth, el, el.as_nanos() as f64 / ITERS as f64);
+    }
+}

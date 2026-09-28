@@ -50,7 +50,7 @@ i >= 1：恒走 struct 分支（编译器已在非内联处断链 ⇒ 每节真�
 - [x] **T11 GREEN**：`cargo test --lib`（不带过滤）· 5 个 feature 组合 ·
       `xtask test`（e2e/compiler/stdlib）· `cargo test --test format_fixture_versions` ·
       `xtask test bootstrap` 边界检查
-- [ ] **T12 纯隔离开销实测**，对照门槛（建议线：真实编译负载 <2% / 字段饱和 micro <6%，**User 未确认**）
+- [x] **T12 纯隔离开销实测** ✅（结论见 proposal —— **推翻了我自己一条论据**），对照门槛（建议线：真实编译负载 <2% / 字段饱和 micro <6%，**User 未确认**）
 
 ## 风险与已知坑
 

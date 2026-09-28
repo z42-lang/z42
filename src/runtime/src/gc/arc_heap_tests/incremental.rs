@@ -1,3 +1,8 @@
+//! ⚠️ `debug_validate_invariants` 是 `#[cfg(debug_assertions)]` 的 —— 本文件对它的
+//! 每个调用点都必须同样门控，否则 **`cargo test --release --lib` 整个编不过**
+//! （2026-09-28 实测：6 处漏了门控，导致该模式在本仓长期不可用；发现于给 P2 做
+//! release 下的开销测量时）。debug 才是 `--lib` 的正确模式，但「跑不了」和
+//! 「编不过」是两回事 —— 后者会把一个无关的失败摆在任何想用 release 量性能的人面前。
 //! add-incremental-major-gc M2a: the SATB deletion barrier and the weak / soft read barrier.
 //!
 //! These drive a major cycle **by hand** — open, snapshot the roots, let a "mutator" act, drain,
@@ -325,6 +330,7 @@ fn an_incremental_cycle_spans_several_slices_and_collects_garbage() {
     assert!(!heap.major_cycle_active());
     assert!(chain.iter().all(|w| heap.upgrade_weak(w).is_some()), "the rooted chain survives");
     assert!(garbage.iter().all(|w| !raw_alive(w)), "everything unreachable is reclaimed");
+    #[cfg(debug_assertions)]
     heap.debug_validate_invariants();
 }
 
@@ -457,9 +463,11 @@ fn slots_freed_by_an_incremental_sweep_are_safe_to_reuse_before_the_next_minor()
     let reused: Vec<Value> = (0..300).map(|_| obj(&heap, "Reused")).collect();
     let pins: Vec<_> = reused.iter().map(|v| heap.pin_root(v.clone())).collect();
     let weaks: Vec<_> = reused.iter().map(|v| heap.make_weak(v).unwrap()).collect();
+    #[cfg(debug_assertions)]
     heap.debug_validate_invariants();
     heap.run_cycle_collection_minor();
     assert!(weaks.iter().all(raw_alive), "a pinned object in a reused slot must survive the minor");
+    #[cfg(debug_assertions)]
     heap.debug_validate_invariants();
     drop(pins);
 }
@@ -568,6 +576,7 @@ fn incremental_cycles_interleaved_with_writes_and_minors_keep_the_graph_intact()
         }
     }
     heap.finish_major_cycle_for_test();
+    #[cfg(debug_assertions)]
     heap.debug_validate_invariants();
     assert!(cycles >= 3 && minors >= 50, "the interleaving must actually happen ({cycles} cycles, {minors} minors)");
 
@@ -584,6 +593,7 @@ fn incremental_cycles_interleaved_with_writes_and_minors_keep_the_graph_intact()
     assert!(!seen.is_empty());
     // One more whole cycle over the surviving graph, validated again.
     assert!(heap.run_major_slice_for_test(WHOLE));
+    #[cfg(debug_assertions)]
     heap.debug_validate_invariants();
 }
 
@@ -622,6 +632,7 @@ fn a_minor_during_the_sweep_does_not_trace_through_a_doomed_card_entry() {
     let refill: Vec<_> = (0..256).map(|_| heap.pin_root(obj(&heap, "Refill"))).collect();
     heap.run_cycle_collection_minor();
     assert!(heap.finish_major_cycle_for_test());
+    #[cfg(debug_assertions)]
     heap.debug_validate_invariants();
     drop((keepers, refill));
 }
