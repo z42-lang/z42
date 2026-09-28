@@ -430,18 +430,17 @@ public sealed partial class SymbolTable {
         ifaceName = SymbolTable.IfaceFqnOf(this, ifaceName);
         // enforce-fqn-name-identity **B3**：相等判定优先走**名义身份句柄**（见 `_sameIface`）。
         int targetRef = this._refOfIface(ifaceName);
-        string cur = clsName;
         // 待展开的接口队列（BFS）+ 去重；接口继承一般极浅，初始容量 8 足够。
-        // queue 仍装**名字**：下游 `_anyInterfaceDerivesFrom` 要按名字 `GetInterface` 找定义。
-        // 句柄这一批只接管**比较**，不接管查找 —— 查找侧的句柄化属于后续批次。
+        // queue 仍装**名字**：下游 `_anyInterfaceDerivesFrom` 要按名字 `GetInterface` 找定义
+        // （那一段的句柄化在 A5）。
         string[] queue = new string[8];
         int qt = 0;
         int hops = 0;
-        while (hops < 32) {
-            // perf：`ContainsKey(k)` 紧跟 `Get(k)` = 两次 hash + 两次探测；Find/ValAt 只走一次
-            // （StrMap 头注释里就是这么写的既定用法）。
-            int _cs = this.Classes.Find(cur); if (_cs < 0) { break; }
-            Z42ClassType ct = this.Classes.ValAt(_cs) as Z42ClassType;
+        // A4：base 链走查**脱离名字** —— 入口按名字查一次，之后每跳走 `ct.Base` 句柄
+        // （数组索引，零哈希）。理由见 `IsSubclassOf` 里的同款注释。
+        Z42ClassType ct = this.GetClass(clsName);
+        while (ct != null && hops < 32) {
+            hops = hops + 1;
             int i = 0;
             while (i < ct.InterfaceCount) {
                 if (SymbolTable._sameIface(ct.Interfaces, i, targetRef)) { return true; }
@@ -453,9 +452,12 @@ public sealed partial class SymbolTable {
                 queue[qt] = ct.InterfaceNames[i]; qt = qt + 1;
                 i = i + 1;
             }
-            if (!ct.HasBase || ct.BaseName == "") { break; }
-            cur = ct.BaseName;
-            hops = hops + 1;
+            if (!ct.HasBase) { break; }
+            if (ct.Base != 0) { ct = this.Intern.At(ct.Base) as Z42ClassType; }
+            else {
+                if (ct.BaseName == "") { break; }
+                ct = this.GetClass(ct.BaseName);
+            }
         }
         return this._anyInterfaceDerivesFrom(queue, qt, ifaceName);
     }
@@ -577,14 +579,28 @@ public sealed partial class SymbolTable {
     public bool IsSubclassOf(string sub, string baseName) {
         if (sub == baseName) { return true; }
         int targetRef = this._refOfClass(baseName);
-        string cur = sub;
-        bool more = true;
-        while (more) {
-            Z42ClassType ct = this.GetClass(cur);
-            if (ct == null) { more = false; }
-            else if (!ct.HasBase) { more = false; }
-            else if (SymbolTable._sameRef(ct.Base, targetRef)) { return true; }
-            else { cur = ct.BaseName; }
+        // ── A4：base 链走查**脱离名字** ────────────────────────────────────────
+        //
+        // 此前每跳一层都 `GetClass(cur)` 一次 —— 那是一次 FNV-1a over UTF-8 的字符串哈希
+        // （`__str_hash_code` **O(n)、每次重算、无缓存**，profile 里 `GetHashCode` 自占 1.93%）。
+        // 而 `ct.Base` 自 B4 起**已经是句柄** ⇒ 下一层直接 `Intern.At(id)` 拿到，
+        // 那是一次数组索引，零哈希。
+        //
+        // 只有**入口**那一次还要按名字查（调用方给的是名字）；链上每一跳都走句柄。
+        // ⚠️ `Base` 为 0（未绑定）时仍需回落到名字 —— 那是合法状态（跨包基类不可见），
+        // 且 A 轴尚未收口（`Resolve` 入口还没建），此处保留直到 A5。
+        Z42ClassType ct = this.GetClass(sub);
+        int hops = 0;
+        while (ct != null && hops < 64) {
+            hops = hops + 1;
+            if (!ct.HasBase) { return false; }
+            if (SymbolTable._sameRef(ct.Base, targetRef)) { return true; }
+            if (ct.Base != 0) {
+                ct = this.Intern.At(ct.Base) as Z42ClassType;   // 零哈希：数组索引
+            } else {
+                if (ct.BaseName == "") { return false; }
+                ct = this.GetClass(ct.BaseName);                // 未绑定才回落到名字
+            }
         }
         return false;
     }
