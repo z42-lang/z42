@@ -43,7 +43,27 @@ public static class CompilerFingerprint {
         // —— `_compilerDomainDirs()`（落点改 `programs/z42c/`）+ `${compiler_libs}` 路径宏 +
         // **编译器域目录排在框架之后**（排前面会让整套 stdlib 被判成 vendored 私有包）。
         // 指纹门实测：`编译器输出变了：1 个包（z42.json）`。
-        "relocate-compiler-domain-libs"
+        "relocate-compiler-domain-libs",
+        // fqn-typeref-base-chain（enforce-fqn-name-identity B4）：`IsSubclassOf` 沿 base 链的
+        // 相等判定改走**名义身份句柄**。
+        //
+        // 🔴 **累加的理由是「行为实测变了」，不是「指纹门红了」** —— 这个区别要紧：门在两侧
+        // driver 不同代时会因漂移而红（见 memory `fingerprint-gate-false-red-generation-drift`），
+        // 照那种红 bump 是治症状、下个 PR 照样红。
+        //
+        // 本条的依据是**撤掉改动跑探针**拿到的直接观测：`BaseName` **从不经过归一 pass**
+        // （`_passQualifyIfaceNames` 只归一接口那两根轴）⇒ 它存的是源码里写的**短名**。
+        // 修前：`namespace Demo; class A {} class B : A {}` 下，拿**短名**查基类答 true，
+        // 拿**限定名**（Demo.A）查同一个继承关系却答 **false** —— 换个拼写就答错。
+        // 句柄化后两种拼写解析到同一个 id ⇒ 都答 true。
+        //
+        // ⚠️ **本块注释里不要出现双引号**：`_fpEntryCount` 是数 `Entries` 块里的引号对
+        // （`n / 2`），它**不跳过注释** ⇒ 注释里每写一对引号就虚增一条「条目」，
+        // CI 日志里打印的编译器身份数字会随之失真（实测：6 条被数成 10）。
+        // 精确判定走 `_fingerprintSourceOf` 全文比较，不受影响；坏的是**可读性**。
+        // ⇒ 那类源文件**哈希一字未变而判定结果变** ⇒ 不 bump 就会命中旧缓存条目、让修复
+        //   永不生效（与 #791 / #806 / #850 同一条理由）。
+        "fqn-typeref-base-chain"
     };
 
     // 指纹值：`Entries` 逐条以 `\n` 连接后取内容哈希（`mmh3:` 前缀，同 SourceHash）。

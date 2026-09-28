@@ -65,6 +65,14 @@ public sealed class Z42ClassType : Z42Type {
     public string Namespace;
     public bool   HasBase;
     public string BaseName;
+    // enforce-fqn-name-identity **B4**：基类的**名义身份句柄**（`TypeIntern` 的 id）。
+    // 与接口那根轴（`Interfaces`/`Bases`，B3）同一套约定：**0 = 未绑定（None）**，有效 id 从 1 起；
+    // `BaseName` 降级为收集期暂存（登记时基类常常还没进表 ⇒ 拿不到 id），由
+    // `SymbolTable.BindTypeRefs()` 在 `InternAllTypes()` 之后解析填入。
+    // ⚠️ 绑不到留 0 是**合法**的（跨包基类可能不可见），消费点按「查不到」处理，别在绑定期报错。
+    // ⚠️ 本字段只接管**相等判定**；沿 base 链**查找**仍走 `BaseName`（`GetClass(name)`）——
+    // 句柄没有「按 id 找类型对象再取它的基类名」以外的查找路径，那属于后续批次。
+    public int    Base;
     // 基类的**声明形态**（`class DInt : GBox<int>` 的 `GBox<int>`），与 `BaseName` 平行；
     // 没有实参可保的场合（`: Base` / 跨包尚未解析）为 null。
     //

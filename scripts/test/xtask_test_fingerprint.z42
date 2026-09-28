@@ -56,9 +56,22 @@ int _fpEntryCount(string tree) {
     int e = tail.IndexOf("};");
     if (e < 0) { return -1; }
     string body = tail.Substring(0, e);
+    // 数引号对。⚠️ **跳过 `//` 注释行** —— 否则条目注释里每写一对双引号（举个调用例子就会有）
+    // 就虚增一条「条目」，CI 日志里打印的编译器身份数字随之失真。实测踩过：6 条被数成 10。
+    // 精确判定走 `_fingerprintSourceOf` 全文比较，不受本函数影响；坏的只是**可读性** ——
+    // 但那个数字正是给人看的，失真就等于没有。
     int n = 0;
     int i = 0;
-    while (i < body.Length) { if (body.CharAt(i) == '"') { n = n + 1; } i = i + 1; }
+    bool inLineComment = false;
+    while (i < body.Length) {
+        char c = body.CharAt(i);
+        if (c == '\n') { inLineComment = false; }
+        else if (!inLineComment && c == '/' && i + 1 < body.Length && body.CharAt(i + 1) == '/') {
+            inLineComment = true;
+        }
+        else if (!inLineComment && c == '"') { n = n + 1; }
+        i = i + 1;
+    }
     return n / 2;   // 每条 slug 两个引号
 }
 

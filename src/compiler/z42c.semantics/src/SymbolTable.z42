@@ -376,13 +376,23 @@ public sealed partial class SymbolTable {
     //
     // ⚠️ 判定只此一份：`Implements` 的 BFS 种子与 `_anyInterfaceDerivesFrom` 的父链展开
     // 共用它。两处各写一遍正是本仓反复失手的形状（「同一判据两份实现时，只修一份比都不修更糟」）。
+    // 标量版：名义身份相等判定的**唯一实现**。两边都有句柄 ⇒ 比句柄；任一为 0 ⇒ 退回名字。
+    // B3（接口）与 B4（类基类）共用它 —— 同一判据两份实现正是本仓反复失手的形状
+    // （`InterfaceKeyOf` 那次「只修一份反而从误报升级成运行期崩」）。
+    private static bool _sameRef(int a, string an, int b, string bn) {
+        if (a != 0 && b != 0) { return a == b; }
+        return an == bn;
+    }
+
+    // 数组版：`refs[i]` / `names[i]` 对 target 的判定（带双重边界）。转发到 `_sameRef`。
     private static bool _sameIface(int[] refs, string[] names, int i, int targetRef, string targetName) {
-        if (targetRef != 0 && refs != null && i < refs.Length) {
-            int h = refs[i];
-            if (h != 0) { return h == targetRef; }
+        int h = 0;
+        if (refs != null && i < refs.Length) { h = refs[i]; }
+        if (names == null || i >= names.Length) {
+            // 没有名字可回落：只有两边都有句柄时才谈得上判定
+            return h != 0 && targetRef != 0 && h == targetRef;
         }
-        if (names == null || i >= names.Length) { return false; }
-        return names[i] == targetName;
+        return SymbolTable._sameRef(h, names[i], targetRef, targetName);
     }
 
     public bool Implements(string clsName, string ifaceName) {
@@ -519,15 +529,35 @@ public sealed partial class SymbolTable {
     }
 
     // sub 是否为 baseName 的子类（含自身）。走 base 链（迭代——self-type 字段不可递归调本类方法）。
+    // enforce-fqn-name-identity **B4**：沿 base 链的相等判定走**名义身份句柄**（`_sameRef`）。
+    //
+    // 🔴 0（未绑定）不参与判定 —— 同 B3：目标与某一层基类都绑不到时 `0 == 0` 会撞成假阳性，
+    // 而「绑不到」是合法状态（跨包基类可能不可见）。两边都有句柄才比句柄，否则退回名字。
+    //
+    // 🔴🔴 **本函数的答案会变，那是修复不是回归**（实测；别照抄 B3 那句「行为逐字不变」）：
+    // `BaseName` **从不经过归一 pass** —— `_passQualifyIfaceNames` 只归一接口那两根轴 ——
+    // 所以它存的是**源码里写的短名**。于是修前拿 FQN 去查会一路比不中：
+    //
+    //     namespace Demo; class A { } class B : A { }
+    //     IsSubclassOf("B", "A")       → true     （短名对短名，碰巧相等）
+    //     IsSubclassOf("B", "Demo.A")  → **false**（"A" != "Demo.A"，一直走到链尾）
+    //
+    // 同一个继承关系，换个拼写就答错 —— 与 B2 那两条「导入边界剥 ns」同族的静默错值。
+    // 句柄化后两种拼写解析到同一个 id ⇒ 都答 true。
+    // ⇒ **输出会变**（实测 stdlib 有包字节变化）⇒ 按 version-bumping 要累加指纹。
+    //
+    // ⚠️ **只有比较走句柄，查找仍走名字**（`GetClass(cur)`）：句柄没有「按 id 取下一层」的路径，
+    // 那要等 `Base` 成为唯一真相（B5）之后。
     public bool IsSubclassOf(string sub, string baseName) {
         if (sub == baseName) { return true; }
+        int targetRef = this._refOfClass(baseName);
         string cur = sub;
         bool more = true;
         while (more) {
             Z42ClassType ct = this.GetClass(cur);
             if (ct == null) { more = false; }
             else if (!ct.HasBase) { more = false; }
-            else if (ct.BaseName == baseName) { return true; }
+            else if (SymbolTable._sameRef(ct.Base, ct.BaseName, targetRef, baseName)) { return true; }
             else { cur = ct.BaseName; }
         }
         return false;

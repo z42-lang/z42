@@ -228,6 +228,54 @@
 `Implements` 的 BFS **queue 仍装名字**（下游要按名字 `GetInterface` 找定义）。
 ⇒ 「裸名在符号表里写不出来」这条**尚未兑现**，B5 才兑现。
 
+## B4 —— `BaseName` → `TypeRef`（类的基类那根轴）
+
+与 B3 同构、同一套约定（**0 = 未绑定**、绑不到不报错、只接管**相等判定**）。
+差别只在 `BaseName` 是**标量**、查的是**类**表（`GetClass` 双键）。
+
+- [x] B4.1 `Z42ClassType.Base : int`（int 字段默认 0 ⇒ **不必改 ctor**，正是哨兵取 0 的好处）
+- [x] B4.2 `_bindClassBase` 并入 `BindTypeRefs()`（挂载点不变，三处都已覆盖）
+- [x] B4.3 **判定收敛成一份** `SymbolTable._sameRef(a, an, b, bn)` ——
+      B3 的数组版 `_sameIface` 改为转发到它。🔴 同一判据两份实现正是本仓反复失手的形状
+      （`InterfaceKeyOf` 那次「只修一份反而从误报升级成运行期崩」）
+- [x] B4.4 `IsSubclassOf` 沿 base 链的比较走 `_sameRef`
+- [x] B4.5 门 `FirstUnboundIfaceRef()` 扩到基类轴（`_firstUnboundBaseIn`）
+- [x] B4.6 单测 +4（基类绑定 / 两层继承判定 / **0 不参与判定** / 门），与 B3 的 6 条同文件
+
+### ⚠️ 顺带堵的一个一致性风险
+
+`StubCollector` 的 partial 合并会改写 `prev.BaseName`。今天它跑在 `BindTypeRefs` **之前**
+所以无害，但**相位是会变的** —— 名字换了而句柄没跟着失效，`Base` 就会指着旧基类，且是静默的。
+⇒ 该处显式 `prev.Base = 0`，让绑定 pass 重新解析。
+
+### 🔴🔴 B4 **改变了行为**，而且那是修复 —— 别照抄 B3 那句「字节恒等」
+
+我一开始照 B3 的经验写了「行为逐字不变」，**那是错的断言**，被一次「撤掉改动跑探针」纠正：
+
+`BaseName` **从不经过归一 pass**（`_passQualifyIfaceNames` 只归一接口那两根轴）⇒
+它存的是**源码里写的短名**。探针跑在**不带 B4** 的编译器上：
+
+```
+B4PROBE B.BaseName=A | C<:B(short)=T | C<:Demo.A(fqn)=F | B<:Demo.A(fqn)=F
+```
+
+即 `IsSubclassOf("B", "Demo.A")` 修前返回 **false** —— 同一个继承关系，换成 FQN 拼写就答错，
+与 B2 那两条「导入边界剥 ns」**同族的静默错值**。句柄化后两种拼写解析到同一个 id ⇒ 都答 true。
+
+⇒ **输出会变** ⇒ 按 version-bumping 累加指纹条目 `fqn-typeref-base-chain`。
+⭐ **累加的理由是「行为实测变了」，不是「指纹门红了」** —— 后者在两侧 driver 不同代时会因
+漂移而红，照那种红 bump 是治症状（上一条 `relocate-compiler-domain-libs` 就是那么来的）。
+⇒ 单测里那两条 FQN 断言是**修复门**（撤掉 B4 就会红），不是保持原状的回归门。
+
+### 本批同样**没做**的
+
+只接管相等判定。沿 base 链的**查找**仍走 `BaseName`（`GetClass(name)`）——
+句柄没有「按 id 取下一层」的路径，那要等 `Base` 成为唯一真相（B5）。
+
+🔜 **顺带暴露的独立缺口**：`BaseName` 那根轴**从来没有归一 pass**，所以今天「基类写限定名 /
+拿限定名查基类」全靠拼写碰巧一致。B4 用句柄绕过了它，但**名字那一侧仍是短名** ——
+B5 删字符串回落时必须正视这条，或单独给 `BaseName` 补一趟归一。
+
 ## 阶段 3（原字符串路的计划，D-B 选定后由 B2~B5 取代）—— I2 归一唯一出口响亮化
 
 - [ ] 3.1 `IfaceFqnOf` 三分支化：唯一解 → FQN；多解 → 新诊断码；无解 → `E0401`。**删掉原样返回**
