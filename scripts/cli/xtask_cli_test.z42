@@ -104,6 +104,9 @@ SubcommandRouter _testRouter() {
         new ArgParser("xtask test incremental", "brute-force reconcile incremental vs full builds + timing"));
     ArgParser fingerprint = new ArgParser("xtask test fingerprint", "base 与本树编译器编同一份 base stdlib，输出变了则版本号必须累加");
     fingerprint.AddOption("base", "", "base 源码树根（其 stdlib 已由 base 编译器建好）", "");
+    // 给了就让门自己判「两侧 driver 是不是同一个二进制」—— 不是的话本门在这种输入下没有
+    // 判别力（自举代差异会伪装成输出差异），会如实说「判不了」而不判红。
+    fingerprint.AddOption("base-driver", "", "base 侧 driver 的 zpkg 路径（判定两侧是否同一二进制）", "");
     t.Add("fingerprint", "compiler output changed ⇒ append a slug to CompilerFingerprint.Entries (or bump format minor)", fingerprint);
     ArgParser changed = new ArgParser("xtask test changed", "only changed-area tests");
     changed.AddFlag("dry-run", "", "print the plan, don't run");

@@ -456,13 +456,22 @@ jobs:
       # 上一步已用 base 编译器建好 base stdlib；这里用 PR 编译器把同一份 base stdlib 源码再编一遍，
       # 逐包比字节（#654 起产物可复现）。输出变了而版本号没累加 ⇒ 红。格式有代差时整步跳过——
       # 格式 Minor 变了本身就让全部旧缓存作废，无需再查。判定逻辑在 xtask，本地同命令可复现。
+      # `--base-driver`：把 base 侧 driver 交给门自己判「两侧是不是同一个二进制」，
+      # 不必再让人去翻上面那两行 `driver sha`。这里**本来就不是**同一个（BASEDRIVER 是
+      # PRDRIVER 又编一代，见 base step 的注释）⇒ 门会如实说「判不了」而不判红。
+      # 此前它在这种输入下给的是一个**分辨不出真假**的红：#931 用单变量对照坐实过 ——
+      # 同一份改动，base 侧多跑一代 `build stdlib`，结论就从「19 个包逐字节一致」
+      # 翻成「1 个包（z42.json）」，与 CI 那条一字不差。
+      # ⚠ 止血不是根治：根治要让两侧 driver 同代（门自己用同一上游 driver 各编一遍两侧
+      # src/compiler），那要在门里重建本文件的 flat-libs 编排，单独评估。
       - name: Compiler fingerprint guard (output changed ⇒ version bumped)
         if: steps.fmtgap.outputs.gap != '1'
         shell: bash
         run: |
           vm="$PWD/artifacts/build/runtime/release/z42vm"
           Z42_PORTABLE_VM="$vm" Z42_LIBS="$PWD/artifacts/build/libraries/dist/release" \
-            "$vm" artifacts/xtask/xtask.zpkg -- test fingerprint --base "$PWD/base-src"
+            "$vm" artifacts/xtask/xtask.zpkg -- test fingerprint --base "$PWD/base-src" \
+              --base-driver "${{ steps.base.outputs.base_driver }}"
 
       - name: Same-runner A/B regression gate (>15% time fails)
         if: steps.fmtgap.outputs.gap != '1'

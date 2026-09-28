@@ -144,6 +144,10 @@ int _testFingerprint(ParseResult r) {
         ConsoleError.WriteLine("usage: xtask test fingerprint --base <base 源码树根（其 stdlib 已由 base 编译器建好）>");
         return 2;
     }
+    // enforce-fqn-name-identity 之外的独立修复（2026-09-28）：**两侧 driver 是不是同一个二进制**。
+    // 见下面 `_bothSidesComparable` 抬头 —— 不是同一个就没有可比性，本门此时只能如实说
+    // 「判不了」，不能继续给一个分辨不出真假的红。
+    string baseDriver = r.GetOption("base-driver");
     string baseId = _compilerIdentityOf(baseTree);
     string headId = _compilerIdentityOf(root);
     Console.WriteLine("  编译器身份（CompilerFingerprint/zbc/zpkg）：base " + baseId + " · 本树 " + headId);
@@ -237,8 +241,45 @@ int _testFingerprint(ParseResult r) {
     // ⇒ 判据在 CI 日志里：bench-pr 的「driver sha」两行。两个 sha 相同却输出不同 ⇒ 非确定性；
     //   不同 ⇒ 代际差异，别急着 bump（bump 只会让全网缓存作废一次，下个 PR 照样红）。
     Console.WriteLine("  ⓘ 本树 driver：" + _driverZpkg(root, "release"));
-    Console.WriteLine("    两侧 driver 是否同一二进制，看 bench-pr 日志里的 `driver sha` 两行；"
-        + "不同 ⇒ 先怀疑自举代差异，不是你的改动。");
+    // 🔴 **可比性前置判断**（2026-09-28）：`--base-driver` 给了就**自己比**，不再让人去翻日志。
+    //
+    // 本门的判据是「两个编译器编同一份源码，字节是否相同」—— 它**默认两侧 driver 只差在
+    // 被测源码上**。而 bench-pr.yml 的编排不满足这个前提：`BASEDRIVER` 是 `PRDRIVER`
+    // **又编一代**的产物（`PRDRIVER` 由种子链产出）⇒ 两侧恒差一代。叠加
+    // stdlib-build-not-generationally-convergent（自建每代恰一两个包字节不同），
+    // 门就会在「编译器真改了」的 PR 上也报出**分辨不了真假**的红。
+    //
+    // 实测坐实（#931，单变量对照）：同一棵树、同一份改动、同一条命令，唯一变量是 base 侧
+    // 多跑一代 `build stdlib` ⇒ 同代时「19 个包逐字节一致」，多一代就变成「1 个包（z42.json）」
+    // —— 与 CI 上那条一字不差。
+    //
+    // ⇒ 两侧 driver 不是同一个二进制时，本门**没有判别力**。此时继续判红等于用一个不可信的
+    // 结论挡住 PR，而人只能靠猜；照它的提示 bump 更糟（平白作废一次全网增量缓存，下个 PR
+    // 照样红 —— #925 实测过）。**如实说「判不了」，别装作在守。**
+    //
+    // ⚠️ 这是**止血不是根治**。根治要让两侧 driver 处在同一代（门自己用同一个上游 driver
+    // 各编一遍两侧的 `src/compiler`，再各编一遍同一份 stdlib），那要在门里重建 bench-pr.yml
+    // 的 flat-libs 编排、4 轮构建，且只能在 CI 上验证 —— 单独评估，见 memory
+    // `fingerprint-gate-false-red-generation-drift`。
+    if (baseDriver.Length > 0) {
+        if (!File.Exists(baseDriver)) {
+            Console.WriteLine("  ⚠ --base-driver 指向的文件不存在：" + baseDriver + "（按可比处理，照常判定）");
+        } else if (!_filesEqual(baseDriver, _driverZpkg(root, "release"))) {
+            Console.WriteLine("  ⚠ 两侧 driver **不是同一个二进制** ⇒ 本门在这种输入下没有判别力，判不了。");
+            Console.WriteLine("    base driver：" + baseDriver);
+            Console.WriteLine("    上面那 " + nChanged.ToString() + " 个包的差异**可能**来自自举代差异，也可能来自你的改动 ——");
+            Console.WriteLine("    本门分辨不了，因此**不判红**，也请不要据此 bump 指纹。");
+            Console.WriteLine("    要确认是不是自己的改动：让 base 树与本树处在同一代，再跑一次本门");
+            Console.WriteLine("    （base 树多跑/少跑一遍 `build stdlib` 就会改变结论 —— 这本身就是漂移的证据）。");
+            Console.WriteLine("::warning::test fingerprint: 两侧 driver 非同一二进制，本次未能判定编译器输出是否变化");
+            _procEnd("test fingerprint", sw);
+            return 0;
+        }
+        Console.WriteLine("  ✓ 两侧 driver 是同一个二进制 ⇒ 差异不可能来自自举代，判定有效");
+    } else {
+        Console.WriteLine("    两侧 driver 是否同一二进制，看 bench-pr 日志里的 `driver sha` 两行；"
+            + "不同 ⇒ 先怀疑自举代差异，不是你的改动（传 `--base-driver` 可让本门自己判）。");
+    }
     // 判定：格式/条目数变了（baseId 变），**或**指纹源文件全文变了（改了既有条目正文也算）。
     // 全文比较是精确判据；baseId 只用于打印（见 `_compilerIdentityOf` 头注）。
     bool fpSrcChanged = _fingerprintSourceOf(baseTree) != _fingerprintSourceOf(root);
