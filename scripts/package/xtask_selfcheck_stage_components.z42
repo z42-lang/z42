@@ -66,6 +66,35 @@ int _testPackagesStaging() {
     }
     _stgAssert("stdlib libs/ has zpkg", anyZpkg);
 
+    // 🔴 **staging 必须按成员清单，而不是「flat 里有什么拷什么」**（2026-09-28）。
+    //
+    // 上面那两组「不得出现在 libs/」的断言读的是**真实 flat 的当下状态** —— 而 flat 里有什么
+    // 取决于最后跑的是哪条命令（`build compiler` 的破环预建往里写，`build stdlib` 末步又清空）。
+    // 所以它们**能抓到、抓不住**：实测 `build compiler` 之后打包，SDK 的 `libs/` 里就多出
+    // `z42c.core` / `z42c.syntax` / `z42.package` / `z42.project` / `z42.build` 五个。
+    //
+    // 这一格改成**密闭**的：自己造一个「被污染的 libs」，看 staging 会不会把入侵者带进去。
+    // 与命令顺序无关 ⇒ 它守的是**构造**，不是当下这一刻的目录内容。
+    string fakeLibs = Path.Join(_pubStagingRoot(root), "fake-libs");
+    _resetDir(fakeLibs);
+    string[] mem = _stdlibList(root);
+    int mi = 0;
+    while (mi < mem.Length) {
+        string src = Path.Join(_libsDir(root), mem[mi] + ".zpkg");
+        if (File.Exists(src)) { File.Copy(src, Path.Join(fakeLibs, mem[mi] + ".zpkg")); }
+        mi = mi + 1;
+    }
+    File.WriteAllText(Path.Join(fakeLibs, "z42c.core.zpkg"), "INTRUDER");          // 编译器域
+    File.WriteAllText(Path.Join(fakeLibs, "z42.workload.ios.zpkg"), "INTRUDER");   // workload
+    File.WriteAllText(Path.Join(fakeLibs, "totally.random.zpkg"), "INTRUDER");     // 随便什么
+    string hermetic = Path.Join(_pubStagingRoot(root), "hermetic-stdlib");
+    _resetDir(hermetic);
+    _stgAssert("污染过的 libs 也能 stage 成功", _pkgCopyLibsOf(root, fakeLibs, hermetic) == 0);
+    foreach (var f in Directory.Enumerate(Path.Join(hermetic, "libs"))) {
+        _stgAssert("入侵者没被带进 staged libs/ (" + f + ")",
+            f != "z42c.core.zpkg" && f != "z42.workload.ios.zpkg" && f != "totally.random.zpkg");
+    }
+
     // 🔴 **编译器域一个都不许出现在 shipped `libs/`**（relocate-compiler-domain-libs 的验收信号）。
     //
     // 这条是从原 `compiler-libs` 自检里**救回来并泛化**的那一半：那块原本有两条成对断言，

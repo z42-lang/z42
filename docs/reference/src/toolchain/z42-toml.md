@@ -597,6 +597,31 @@ entry   = "MyApp.main"
 > 因此当不了 path 依赖，而报错文本（「期望恰 1 份 `*.z42.toml`，实得 0」）离真正的原因
 > 很远。同一个「工程清单在哪」的问题曾有三份判据、三份都比权威那份严。
 
+#### `${compiler_libs}`：引用编译器域的库
+
+普通工程（`kind = "lib"` / `"exe"`）的依赖解析只看 `libs/`，而编译器域的包
+（`z42c.core` / `z42c.syntax` / `z42.package` / `z42.project` / `z42.build` / `z42.scripting`
+以及 `z42c.semantics` 等）住在 `programs/z42c/`。要在普通工程里**显式引用**它们——比如写一个
+读 zpkg、跑 lexer/parser 的工具——用 `${compiler_libs}` 路径宏：
+
+```toml
+[dependencies]
+"z42c.syntax" = { path = "${compiler_libs}/z42c.syntax.zpkg" }
+```
+
+| 事项 | 行为 |
+|---|---|
+| 宏展开成什么 | 本机编译器域目录：`Z42_COMPILER_LIBS` → `Z42_HOME/programs/z42c` → 由 `Z42_PORTABLE_VM` 反推的 SDK 根 → 开发树，取第一个存在的 |
+| 不声明会怎样 | 看不见 —— `E0443: undefined type`（`using` 那行自己不报，卡在类型解析上） |
+| 引用到的包 | 按默认 `deploy` 规则**拷进你的输出目录**（它们不在 shipped `libs/` ⇒ 判为私有），拷走能跑 |
+| 宏名拼错 | **当场硬报错**并列出可用的宏，不做「未知变量保留字面」的回落（那会变成一句「目录不存在」，症状离原因很远） |
+
+> 这与清单里那套 `${workspace_dir}` / `${output_dir}` 模板变量是同一套 `${…}` 语法，但作用位置
+> 不同：模板变量用于 `[build]` 的路径字段，`${compiler_libs}` 用于 `[dependencies]` 的 `path`。
+>
+> 只想写 analyzer / generator 的话**不需要这个宏** —— 写 `kind = "analyzer"` 即可，解析域自动
+> 含 `programs/z42c/`，见 [compile-time-extensions.md](compile-time-extensions.md)。
+
 产物引用的三条语义：
 
 - 它**所在目录**并入解析域 —— 于是它自己的兄弟依赖也解析得到（把一组 zpkg 一起 vendored

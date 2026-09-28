@@ -9,9 +9,14 @@ z42 允许把**你自己的代码加载进编译器**，在编译期跑：
 **只在编译器进程里运行，不链入目标产物**。
 
 `kind = "analyzer"` 做两件事：让这个工程的 `[dependencies]` 够得着编译器的契约包（见
-[解析域](#解析域编译期扩展才看得见-compiler-libs)），并声明「我是编译期扩展」——`[analyzers]` 的
-path 条目据此校验，`[dependencies]` 据此拒收。只用 analyzer 契约（`z42c.syntax` 在普通 `libs/` 里）
-的工程写 `kind = "lib"` 也仍然编得过，但只能按名引用。
+[解析域](#解析域编译期扩展才看得见编译器域)），并声明「我是编译期扩展」——`[analyzers]` 的
+path 条目据此校验，`[dependencies]` 据此拒收。
+
+> 🔴 **契约包不在 `libs/` 里，所以 `kind = "lib"` 编不过。** `z42c.syntax` / `z42c.core` /
+> `z42c.semantics` 全都住在 `programs/z42c/`（relocate-compiler-domain-libs，2026-09-27）。
+> 本页 2026-09-27 之前写着「`z42c.syntax` 在普通 `libs/` 里，纯 analyzer 写 `kind = "lib"`
+> 也编得过」—— **那句今天是假的**（实测：`kind = "lib"` + `"z42c.syntax"` 依赖 ⇒
+> `E0401: undefined: SyntaxKind`）。
 
 > 本页所有代码片段都来自实跑通过的最小工程（2026-09-23；path 条目 2026-09-25）。
 
@@ -93,9 +98,9 @@ kind    = "analyzer"
 "z42c.syntax" = "0.1.0"
 ```
 
-> 这两个契约包就在普通 `libs/` 里，所以纯 analyzer 写 `kind = "lib"` 也编得过。但要被
-> `[analyzers]` 的 **path 条目**引用，就必须是 `kind = "analyzer"`——那个字段同时是「我是编译期
-> 扩展」的声明。
+> 这两个契约包住在 `programs/z42c/`、**不在 `libs/`**，所以必须写 `kind = "analyzer"`
+> 才解析得到（写 `kind = "lib"` 会得到 `E0401: undefined: SyntaxKind`）。这个字段同时也是
+> 「我是编译期扩展」的声明——`[analyzers]` 的 **path 条目**只接受它。
 
 类名**必须以 `Analyzer` 结尾**（E0445 强制）：
 
@@ -211,15 +216,21 @@ generator 跑在 bind **之后**，拿得到解析后的符号（`Z42ClassType` 
 多个 generator 之间用 `Consumes()` / `Produces()` 定序，引擎按拓扑分层逐层重新 bind；
 成环报 **E0449**。
 
-### 解析域：编译期扩展才看得见 `compiler-libs/`
+### 解析域：编译期扩展才看得见编译器域
 
-Generator 的契约包 `z42c.semantics.zpkg` **不在 SDK 的 `libs/` 里**——普通工程的依赖解析只看
-`libs/`，编译器域的包另落一个平级目录 `compiler-libs/`：
+契约包（`z42c.semantics` / `z42c.syntax` / `z42c.core`）**不在 SDK 的 `libs/` 里**——普通工程的
+依赖解析只看 `libs/`，而整个编译器域住在 **`programs/z42c/`**，与 z42c 自己的 zpkg 同址：
 
-| 工程 | 解析域 | 能引用 `z42c.semantics` 吗 |
+| 工程 | 解析域 | 能引用契约包吗 |
 |---|---|---|
-| `kind = "lib"` / `"exe"` | `libs/`（+ path 依赖闭包）| 否 —— `z42c.semantics 未找到` |
-| `kind = "analyzer"` | `libs/` **+ `compiler-libs/`** | 是 |
+| `kind = "lib"` / `"exe"` | `libs/`（+ path 依赖闭包）| 否 —— `E0401: undefined: <契约类型>` |
+| `kind = "analyzer"` | `libs/` **+ `programs/z42c/`** | 是 |
+
+> 📌 **曾经有过一个 `compiler-libs/` 目录**，本页此前就是按它写的。实测发现它**在发布态恒不
+> 存在**（只有开发树靠探测序的最后一档命中）—— 也就是说「用户能写 generator」在发布的 SDK 里
+> 一直是空的。`relocate-compiler-domain-libs`（2026-09-28）把整个机制删掉，落点改成已经真实
+> 存在的 `programs/z42c/`。如果你要在**普通**工程（非 analyzer）里显式引用编译器域的库，用
+> `${compiler_libs}` 路径宏，见 [z42-toml.md](z42-toml.md)。
 
 所以一个 generator 工程的清单长这样：
 
