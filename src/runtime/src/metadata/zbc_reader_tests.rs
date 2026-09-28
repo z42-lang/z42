@@ -126,16 +126,17 @@ fn zbc_version_constants_pinned() {
     // `ZbcFormat.z42` / `ZpkgWriter.z42` and compares against these constants.
     assert_eq!(ZBC_VERSION_MAJOR, 1, "zbc major locked at 1 by freeze-zbc-v1");
     assert_eq!(
-        ZBC_VERSION_MINOR, 45,
-        "zbc minor at 1.45 (type-section-flags2-and-struct-fields: TYPE class records gain an \
-         always-present class_flags2 u16, plus a flag-gated per-field layout table for value structs)"
+        ZBC_VERSION_MINOR, 46,
+        "zbc minor at 1.46 (symbolic-struct-field-access P2: StructFieldGet/SetPrim carry \
+         (root_type, field-index path) instead of a baked byte offset — the root type name also \
+         disambiguates which offset numbering space applies)"
     );
 }
 
 #[test]
 fn zpkg_version_constants_pinned() {
     assert_eq!(ZPKG_VERSION_MAJOR, 0, "zpkg major locked at 0 by freeze-zpkg-v0");
-    assert_eq!(ZPKG_VERSION_MINOR, 50, "zpkg minor at 0.50 (type-section-flags2-and-struct-fields: coupled zbc 1.45)");
+    assert_eq!(ZPKG_VERSION_MINOR, 51, "zpkg minor at 0.51 (symbolic-struct-field-access P2: coupled zbc 1.46)");
 }
 
 #[test]

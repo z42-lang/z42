@@ -290,34 +290,58 @@ public sealed class StructCopyInstr : IrInstr {
     public override IrInstr Clone() { return new StructCopyInstr(this.Dst, this.Src, this.Size); }
 }
 
+// symbolic-struct-field-access P2（zbc 1.46，方案 A）：烘焙字节偏移 → `(RootType, Path)`。
+//
+// ⚠️ **RootType 不只是「所属类型」，它同时是编号空间的判别器。**
+// 偏移活在两个互不相容的编号空间里 —— struct blob 相对（`FieldByteOffset`，嵌套累加）
+// 与 composed 对象相对（`InlineFieldByteOffset`）—— 而此前**指令里一个字都没记是哪个**：
+// 正确性靠编译器（`AccessEmitter._isInlineStructFieldRoot`）与运行时（按 `Value` 变体分派）
+// 各自独立地同意。那是结构审计 R2「判据复制」在 struct 路径上的实例，也是 P2 真正要消掉的东西
+// （符号化的**性能是中性的** —— 字段访问在 JIT 里恒是 helper 调用，偏移只是个 iconst 实参）。
+//
+// `Path` 是**字段序号**路径（长度 >= 1）。用序号而非字段名：**序号实例化不变、偏移才变**
+// （`Pair<A,B>` 的 First/Second 永远 0/1）⇒ 运行期解析是 O(1) 下标，无哈希、无字符串、不需要 IC。
+// 嵌套链（`line.a.x`）此前被求和展平成一个立即数，现在保留为路径；实测深度 1 占 85.1%、最大 4。
 public sealed class StructFieldGetPrimInstr : IrInstr {
     public TypedReg Dst;        // 目标寄存器（收基元值）
-    public TypedReg Base;       // struct blob 句柄
-    public int      ByteOff;    // 叶子在 blob 内字节偏移
-    public int      Kind;       // 基元叶子种类（StructLeafKind：字节宽/解码方式；Prim 各基元由 Base 类型静态已知）
-    public StructFieldGetPrimInstr(TypedReg dst, TypedReg base_, int byteOff, int kind) {
-        this.Dst = dst; this.Base = base_; this.ByteOff = byteOff; this.Kind = kind;
+    public TypedReg Base;       // struct blob 句柄 / 堆对象 / 数组元素句柄
+    public string   RootType;   // 路径根的类型名 —— 兼任编号空间判别器
+    public int[]    Path;       // 字段序号路径（长度 >= 1）
+    public int      Kind;       // 基元叶子种类（StructLeafKind：字节宽/解码方式）
+    public StructFieldGetPrimInstr(TypedReg dst, TypedReg base_, string rootType, int[] path, int kind) {
+        this.Dst = dst; this.Base = base_; this.RootType = rootType; this.Path = path; this.Kind = kind;
     }
-    public override string Dump() { return this.Dst.Dump() + " = struct_fget_prim " + this.Base.Dump() + " @" + this.ByteOff.ToString(); }
+    public override string Dump() { return this.Dst.Dump() + " = struct_fget_prim " + this.Base.Dump() + " " + this.RootType + IrInstrDumpPath.Of(this.Path); }
     public override TypedReg DefReg() { return this.Dst; }
     public override void SetDefReg(TypedReg r) { this.Dst = r; }
     public override int ReadCount() { return 1; }
     public override TypedReg ReadAt(int i) { if (i == 0) { return this.Base; } return null; }
     public override void SetReadAt(int i, TypedReg r) { if (i == 0) { this.Base = r; } }
-    public override IrInstr Clone() { return new StructFieldGetPrimInstr(this.Dst, this.Base, this.ByteOff, this.Kind); }
+    public override IrInstr Clone() { return new StructFieldGetPrimInstr(this.Dst, this.Base, this.RootType, this.Path, this.Kind); }
 }
 
 public sealed class StructFieldSetPrimInstr : IrInstr {
-    public TypedReg Base;       // struct blob 句柄
-    public int      ByteOff;
+    public TypedReg Base;
+    public string   RootType;
+    public int[]    Path;
     public int      Kind;
     public TypedReg Val;        // 源基元值寄存器
-    public StructFieldSetPrimInstr(TypedReg base_, int byteOff, int kind, TypedReg val) {
-        this.Base = base_; this.ByteOff = byteOff; this.Kind = kind; this.Val = val;
+    public StructFieldSetPrimInstr(TypedReg base_, string rootType, int[] path, int kind, TypedReg val) {
+        this.Base = base_; this.RootType = rootType; this.Path = path; this.Kind = kind; this.Val = val;
     }
-    public override string Dump() { return "struct_fset_prim " + this.Base.Dump() + " @" + this.ByteOff.ToString() + ", " + this.Val.Dump(); }
+    public override string Dump() { return "struct_fset_prim " + this.Base.Dump() + " " + this.RootType + IrInstrDumpPath.Of(this.Path) + ", " + this.Val.Dump(); }
     public override int ReadCount() { return 2; }
     public override TypedReg ReadAt(int i) { if (i == 0) { return this.Base; } if (i == 1) { return this.Val; } return null; }
     public override void SetReadAt(int i, TypedReg r) { if (i == 0) { this.Base = r; } else if (i == 1) { this.Val = r; } }
-    public override IrInstr Clone() { return new StructFieldSetPrimInstr(this.Base, this.ByteOff, this.Kind, this.Val); }
+    public override IrInstr Clone() { return new StructFieldSetPrimInstr(this.Base, this.RootType, this.Path, this.Kind, this.Val); }
+}
+
+// `Dump()` 用的路径渲染：`.0.2` 这样。IR 文本是 golden 的一部分，所以格式要稳定。
+public static class IrInstrDumpPath {
+    public static string Of(int[] path) {
+        string s = "";
+        int i = 0;
+        while (i < path.Length) { s = s + "." + path[i].ToString(); i = i + 1; }
+        return s;
+    }
 }

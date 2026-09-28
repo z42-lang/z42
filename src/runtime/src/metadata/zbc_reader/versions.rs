@@ -202,7 +202,7 @@ pub const ZBC_VERSION_MAJOR: u16 = 1;
 // Why a second flags word: `class_flags` is a u8 with all 8 bits taken. Running out
 // already cost something concrete — the 1.33/1.34 object block had to be gated by a
 // **derived predicate** mirrored on both sides instead of a flag bit.
-pub const ZBC_VERSION_MINOR: u16 = 45;
+pub const ZBC_VERSION_MINOR: u16 = 46;
 
 // ── zpkg wire format version (mirror of C# ZpkgWriter.VersionMajor/Minor) ────
 //
@@ -329,7 +329,7 @@ pub const ZPKG_VERSION_MAJOR: u16 = 0;
 // 2026-09-27 type-section-flags2-and-struct-fields: bumped to 0.50 — embeds zbc 1.45
 // (TYPE record: always-present class_flags2 + gated per-field struct layout table).
 // Outer layout unchanged.
-pub const ZPKG_VERSION_MINOR: u16 = 50;
+pub const ZPKG_VERSION_MINOR: u16 = 51;
 
 // ── Strict-pin header verification ────────────────────────────────────────────
 //
