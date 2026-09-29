@@ -197,7 +197,20 @@ public sealed class MemberCollector {
         // Arity-mangle：泛型类若已以 Name$N 键注册，优先取该 CT（镜像 C# TryGetClassFor）。
         string ctKey = c.Name;
         if (c.TypeParams.Count > 0) { string mk = c.Name + "$" + c.TypeParams.Count.ToString(); if (table.Classes.ContainsKey(mk)) { ctKey = mk; } }
-        Z42ClassType ct = table.Classes.Get(ctKey) as Z42ClassType;
+        // 🔴 **必须走 `GetClass` 访问器，不能直接摸 `Classes`**（A5b-2）。
+        // `Classes` 是**裸名键、同短名跨 ns 后来者覆盖**；而 `DeclBinder._bindClass` 取同一个类
+        // 走的是 `symbols.GetClass(...)`。两边口径一旦不同，成员就填进了**另一个**对象：
+        // 同短名跨 ns 时（`namespace A; class Foo` ＋ `namespace B; class Foo`）成员只落到裸名表的
+        // 赢家，输家那份 `Z42ClassType` **一个成员都没有**。
+        //
+        // 此前两边**一起错、错得一致**（`_bindClass` 也解析到赢家），所以看不出来；`GetClass`
+        // 一改成作用域感知，不一致立刻现形 —— `ct.Methods.Get(mkey)` 得 null ⇒
+        // `DeclBinder:183` 的 `ms.IsStatic` 抛 `FieldGet: ... got Null`（实测 `ns_same_short_name`）。
+        //
+        // 同一形状本文件家族已记过一次：`_anyInterfaceDerivesFrom` 那句「此前是
+        // `this.Interfaces.Find(name)` —— **绕过了 `GetInterface` 访问器**」。
+        // ⇒ 取类型对象只走访问器这一个出口，键形态与作用域规则才会随它一起演进。
+        Z42ClassType ct = table.GetClass(ctKey);
         string[] tp = c.TypeParams.Names;     // 类型形参（泛型类；非泛型 Count=0）
         int tpc = c.TypeParams.Count;
         // enforce-class-access：基类 / 接口列表类型引用（声明签名位置）。逐 base 解析后校验（含泛型基

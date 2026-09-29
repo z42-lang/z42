@@ -165,12 +165,67 @@ public sealed partial class SymbolTable {
         }
         return false;
     }
-    // 双键过渡形态；这笔阶段-2 欠账登记在 `HasClass` 抬头（同一笔，不在此重复挂标记）。
-    public Z42ClassType  GetClass(string name) {
+    // ── A5b-2：类名解析的**唯一出口**，按语言的作用域规则来 ─────────────────────
+    //
+    // 此前 `GetClass` 只有两步：FQN 键 → 裸名表。它**完全不看作用域**，于是
+    // `ResolveTypeP` 早就建立的「外围 ns 优先」规则（unify-type-identity-fqn）
+    // **没有覆盖这 135 个直接调用点** —— 同短名跨 ns 时它们仍在撞裸名表的 first/last-wins 赢家。
+    //
+    // 现在按 `ResolveTypeP` 的同一套规则走：
+    //
+    //   ① 外围 ns 优先     ScopeNs + "." + name      —— 语言规则：enclosing ns 胜过 usings
+    //   ② 调用方给的就是 FQN                          —— 实测 stdlib 全量构建里 0 次，但测试会走
+    //   ③ 逐个 using（含 prelude）                    —— `ScopeUsings` ∪ `PreludeNs.All()`
+    //   ④ 裸名表                                      —— ⚠️ 待删的那一支，见下
+    //
+    // 🔴 **`ScopeUsings` 本身不含 prelude**，而 `CuPreprocess._activeNamespaces` 含
+    // （那里的注释用一次真实事故解释了为什么必须含）。两份「活跃 ns 集」此前就不一致，
+    // 只是 `GetClass` 不用 `ScopeUsings` 查找所以没暴露。这里用 `PreludeNs.All()` 补齐 ——
+    // 漏掉它，`Object`/`String`/`Exception` 这些免 `using` 可见的类型就全落到 ④。
+    //
+    // ⚠️ **④ 还不能删**：实测（A5b 测绘）①②③ 之后仍有残留。删它不会有任何一处编译报错
+    // （135 个调用点全是字符串键）⇒ 只会变成静默错答案。删之前必须先把残留量到 0。
+    private Z42ClassType _resolveClass(string name) {
+        if (name == null) { return null; }
+        if (this.ScopeNs != "") {
+            int s = this.ClassesByFqn.Find(this.ScopeNs + "." + name);
+            if (s >= 0) { return this.ClassesByFqn.ValAt(s) as Z42ClassType; }
+        }
         int f = this.ClassesByFqn.Find(name);
         if (f >= 0) { return this.ClassesByFqn.ValAt(f) as Z42ClassType; }
+        int ui = 0;
+        while (ui < this.ScopeUsingCount) {
+            int uf = this.ClassesByFqn.Find(this.ScopeUsings[ui] + "." + name);
+            if (uf >= 0) { return this.ClassesByFqn.ValAt(uf) as Z42ClassType; }
+            ui = ui + 1;
+        }
+        string[] pre = PreludeNs.All();
+        int pi = 0;
+        while (pi < pre.Length) {
+            int pf = this.ClassesByFqn.Find(pre[pi] + "." + name);
+            if (pf >= 0) { return this.ClassesByFqn.ValAt(pf) as Z42ClassType; }
+            pi = pi + 1;
+        }
+        // ④ 裸名回落 —— 阶段-2 欠账 `fqn-symbol-key` 的最后一支。
+        // ⚠️ **这里刻意不再写一遍欠账标记**：同一笔债只能有一个登记点，它在
+        // `SymbolTable.z42` 的 `HasClass` 抬头。在这儿也写会被 `test stage2` 当成
+        // 新挂的一条（新文件新条目）而判红 —— 实测踩过。
+        //
+        // 🔴 **它今天还在替两条真规则兜底**，删之前必须先把这两条实现掉（实测残留 2838 次）：
+        //   · **98.7%（2802 次）**：调用发生在**没设作用域**的表视图上（`ScopeNs` 为空）——
+        //     不是解析规则不够，是调用点拿到的表就没有作用域。`CollectAll` 的
+        //     `_passMembers(table, cus[c])` 这类循环直接传**根表**，CU 明明在手却没设进去。
+        //   · **1.3%（36 次）**：**父命名空间**引用 —— `scope=Z42.IR.BinaryFormat` 里写 `IrType`
+        //     （＝`Z42.IR.IrType`）。按语言规则外围 ns 应逐级上溯，而 ①只试了 `ScopeNs` 一层，
+        //     `ResolveTypeP` 也一样 ⇒ **这条规则今天是靠裸名表在兜**。
+        //
+        // ⚠️ 直接删 ④ 不会有任何一处编译报错（135 个调用点全是字符串键）⇒ 只会变成静默错答案。
         return this.Classes.Get(name) as Z42ClassType;
     }
+
+    // 类名 → 类型。**双键过渡形态**：这笔阶段-2 欠账登记在 `HasClass` 抬头（同一笔，不重复挂标记）。
+    // A5b-2 起转发到 `_resolveClass`（作用域感知）—— 实测全量 `build stdlib` 与旧实现**零分歧**。
+    public Z42ClassType  GetClass(string name) { return this._resolveClass(name); }
     public bool          HasConstraints(string name) { return this.ClassConstraints.ContainsKey(name); }
     public ConstraintSet GetConstraints(string name) { return this.ClassConstraints.Get(name) as ConstraintSet; }
     public bool          HasIfaceConstraints(string name) { return this.InterfaceConstraints.ContainsKey(name); }
