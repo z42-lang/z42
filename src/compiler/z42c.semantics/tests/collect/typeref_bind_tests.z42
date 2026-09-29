@@ -19,6 +19,7 @@ using Std;
 
 using Std.Test;
 using Z42.Syntax;
+using Z42.IR;        // StrMap（`Methods` 的类型）
 using Z42.Semantics;
 
 SymbolTable collect(string src) {
@@ -196,6 +197,47 @@ void test_object_stub_carries_prelude_identity() {
     Assert.Equal("Std.Object", obj.Fqn());                 // ← 修前是裸 "Object"
     Assert.Equal(true, t.GetClass("Std.Object") == obj);   // ← 修前 FQN 视图里根本没有它
     Assert.Equal(true, obj.TypeId != 0);                   // 且已 intern（InternAllTypes 排在桩之后）
+}
+
+// ── A5b-2：同短名跨 ns 时，**两份都要有成员** ──────────────────────────────
+//
+// 🔴 这条守的是一个**「两边一起错、错得一致」所以谁也发现不了**的缺陷：
+// `MemberCollector._fillClass` 此前用 `table.Classes.Get(key)` 直接摸**裸名表**
+// （后来者覆盖、只活一份），而 `DeclBinder._bindClass` 用 `symbols.GetClass(...)`。
+// 两边口径相同时一起解析到赢家 ⇒ 输家那份 `Z42ClassType` **一个成员都没有**，
+// 而没有任何断言会红 —— 直到 `GetClass` 改成作用域感知，不一致才炸成
+// `FieldGet: ... got Null`（`ns_same_short_name` e2e 实测）。
+//
+// ⚠️ 既有的 `ns_same_short_name` 用例**发现不了「一起错」**，只在一侧变对时才红。
+// 所以这里补一条**正面**断言：两份各自都要查得到、且各自都要有自己的成员。
+SymbolTable collectTwoNs(string a, string b) {
+    var pa = new Parser(a, "a.z42"); var cua = pa.ParseCompilationUnit();
+    var pb = new Parser(b, "b.z42"); var cub = pb.ParseCompilationUnit();
+    CompilationUnit[] cus = new CompilationUnit[2]; cus[0] = cua; cus[1] = cub;
+    string[] files = new string[2]; files[0] = "a.z42"; files[1] = "b.z42";
+    return new SymbolCollector().CollectAll(cus, files, 2, null);
+}
+
+[Test]
+void test_same_short_name_across_ns_both_get_members() {
+    var t = collectTwoNs("namespace A; public class Foo { public int V; public int Ga() { return 1; } }",
+                         "namespace B; public class Foo { public int V; public int Gb() { return 2; } }");
+    var fa = t.GetClass("A.Foo");
+    var fb = t.GetClass("B.Foo");
+    Assert.Equal(true, fa != null);
+    Assert.Equal(true, fb != null);
+    Assert.Equal(false, fa == fb);                      // 两个**不同**的名义类型
+    Assert.Equal("A.Foo", fa.Fqn());
+    Assert.Equal("B.Foo", fb.Fqn());
+    // 🔴 核心：**各自都有自己的成员**。修前输家那份是空壳（方法表里什么都没有）。
+    Assert.Equal(true, fa.Methods.ContainsKey("Ga"));
+    Assert.Equal(true, fb.Methods.ContainsKey("Gb"));
+    // 且不会串味：A 的那份不该有 B 的方法
+    Assert.Equal(false, fa.Methods.ContainsKey("Gb"));
+    Assert.Equal(false, fb.Methods.ContainsKey("Ga"));
+    // 句柄也各自独立（B1/B3 的身份轴）
+    Assert.Equal(true, fa.TypeId != 0 && fb.TypeId != 0);
+    Assert.Equal(false, fa.TypeId == fb.TypeId);
 }
 
 // 接口那半边同样沿 base 链收集（`Implements` 的种子来自各层的 `Interfaces`）。
