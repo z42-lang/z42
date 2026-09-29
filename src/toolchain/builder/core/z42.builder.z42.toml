@@ -26,7 +26,8 @@ include = ["builder_cli.z42", "builder_test.z42", "builder_device.z42", "builder
 
 [dependencies]
 # z42b 同时是反射 test-runner，故刻意不依赖任何**编译器程序**（z42c.*）；publish 因此内联了
-# apphost patcher（builder_apphost.z42），而不是依赖 z42.workload.desktop。
+# apphost patcher（builder_apphost.z42）。那个内联曾是为了「不依赖 z42.workload.desktop」，
+# 而 2026-09-29 起它成了**唯一一份** —— 那个包只剩这一处副本，已删。
 #
 # 🔴 **但它不再是「stdlib-only」了**（relocate-compiler-domain-libs，2026-09-27）：`z42.build` /
 # `z42.project` 已随整个编译器域挪去 `src/compiler/`，不在 shipped `libs/` 里。它们仍按**名字**
