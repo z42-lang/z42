@@ -1,10 +1,10 @@
 # ANCHOR: missing
 $ z42 run errors.z42
 类型：Exception
-消息：No such file or directory (os error 2)
+消息：[..]
 # ANCHOR_END: missing
 # ANCHOR: parent
-父目录不存在：No such file or directory (os error 2)
+父目录不存在：[..]
 建好目录后：true
 # ANCHOR_END: parent
 # ANCHOR: tolerant
