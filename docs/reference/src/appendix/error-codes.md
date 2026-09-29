@@ -245,6 +245,7 @@ E0442 / E0457 / E0462 除外（见上一节）。**E0402 另有一处语法层�
 | E0459 | `methodof(T.M)` 的目标方法不存在，或没有重载匹配给出的参数类型列表。诊断会列出该名字下全部可用重载 | ✅ `TypeOpTyper.z42:149,173` | `methodof(Logger.Nope)` |
 | E0460 | `methodof` 无法唯一确定目标：给了参数类型列表却匹配到多个，或省略了参数列表而候选 ≥ 2。**绝不静默择一** | ✅ `TypeOpTyper.z42:181,191` | `methodof(Logger.Log)`，`Log` 有两个重载 |
 | E0461 | `methodof` 的目标是**指不了**的方法：用户定义的运算符与转换在源码里没有名字（`op_*` 是编译器内部拼写） | ✅ `TypeOpTyper.z42:104` | `methodof(Vec.op_Addition)` |
+| E0500 | store-meta attribute 的实参不是**编译期常量**。允许：字面量 / 常量表达式 / enum 成员 / `const` 字段 / `typeof(..)` / `methodof(..)`，以及由这些构成的数组。attribute 工厂在**首次反射查询**时才执行，依赖运行期状态会让读回的元数据取决于谁先查 | ✅ `DeclEnforcer.AttrArgs.z42:97` | `[Tag(K.Make())]`、`[Num(K.Mutable)]` |
 
 ### `[Forward]` 转发生成（⚠️ 常量名与实际发射不符，以本表为准）
 

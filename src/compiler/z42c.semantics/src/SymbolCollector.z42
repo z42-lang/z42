@@ -84,6 +84,7 @@ public sealed class SymbolCollector {
         // complete-test-attr-arg-checks：E0913（[ShouldThrow<E>] 的 E 须派生 Exception）——
         // 需符号表走基类链，故与上面的纯语法 pass 分开（design §1）。
         this._enforce._passTestAttrSemantic(t, cu);
+        this._enforce._passAttrArgConst(t, cu);   // enforce-attribute-const-args：attribute 实参须编译期常量（E0500）
         this._inherit._passImpls(t, cu);   // port-z42c-impl-block：deps 路径同样须并 impl 方法入 target.Methods，
                                   // 否则 _bindImpl 的 ms=null → "this" 不入 env → `this.field` 绑成 undefined → emit const.null
         this._inherit._passInheritFields(t, cu);
@@ -341,6 +342,10 @@ public sealed class SymbolCollector {
         // complete-test-attr-arg-checks：E0913（[ShouldThrow<E>] 的 E 须派生 Exception）——
         // 需符号表走基类链，故与上面的纯语法 pass 分开（design §1）。
         while (c < cuCount) { this._enforce._passTestAttrSemantic(table, cus[c]); c = c + 1; }
+        c = 0;
+        // enforce-attribute-const-args：attribute 实参须编译期常量（E0500）。与上面的 semantic pass 同
+        // 一档（要符号表查 enum 成员 / const 字段），故同样单独一轮跨 CU 循环。
+        while (c < cuCount) { this._enforce._passAttrArgConst(table, cus[c]); c = c + 1; }
         // impl-block merge (port-z42c-impl-block)：成员收集后，把 `impl Trait for Target`
         // 的方法并入 target.Methods + Trait 并入 target.InterfaceNames（target 可本地或
         // imported；_mergeImports 已 seed）。镜像 C# SymbolCollector.CollectImpls。
@@ -393,6 +398,7 @@ public sealed class SymbolCollector {
         // complete-test-attr-arg-checks：E0913（[ShouldThrow<E>] 的 E 须派生 Exception）——
         // 需符号表走基类链，故与上面的纯语法 pass 分开（design §1）。
         this._enforce._passTestAttrSemantic(table, cu);
+        this._enforce._passAttrArgConst(table, cu);   // enforce-attribute-const-args（单 CU 路径，同 CollectAll）
         this._inherit._passImpls(table, cu);   // port-z42c-impl-block
         this._inherit._passInheritFields(table, cu);
         this._inherit._passImplIfaceComplete(table, cu);   // fix-iface-self-completeness-gaps A2：impl 块接口成员齐备性（须在 _passImpls 后）
