@@ -1,0 +1,48 @@
+// **prelude 命名空间的唯一 SoT** —— 免 `using` 恒可见的那几个 ns。
+//
+// 为什么要有这个文件：同一个事实此前在**三处**各写一遍字面量（两处已在、一处正要加），
+// 而它们的用法各不相同 —— 一处做成员判定、一处往活跃集里追加、一处给合成类型定身份。
+// 三份拷贝各自漂移正是本仓反复失手的形状（`InterfaceKeyOf` 那次「只修一份反而从误报
+// 升级成运行期崩」）。
+//
+// 🔴 **判据只在 `All()` 里写一次**，`Contains` / `Root` 都由它派生。加/减 prelude ns 只动一处。
+//
+// ⚠️ 为什么是**方法**不是 `public static string` 字段：本仓实测 `static string` 跨包
+// **首次读到的是 null 不是 `""`**，会 `VCall: expected object, got Null` 且**不可捕获**
+// （栈顶离真因很远）。返回字面量的方法没有这个陷阱。
+//
+// ⚠️ 这里只管「哪些 ns 免 using 可见」。**哪个包提供 prelude** 是另一回事，
+// 判据在 `ImportedSymbolLoader._isPrelude`（`pkg == "z42.core"`）—— 那是包名轴，
+// 与 ns 轴不是同一个东西（`Std` 由 11 个包共同声明，见 module-init 归属判定那条）。
+// ⚠️ `z42.core`（标准库包）≠ `z42c.core`（编译器包），别混。
+namespace Z42.Semantics;
+
+public static class PreludeNs {
+
+    // 免 `using` 恒可见的命名空间。**唯一的字面量出处。**
+    // 镜像 `ImportedSymbolLoader._isPrelude("z42.core")` 所提供的那些 ns。
+    public static string[] All() {
+        string[] r = new string[2];
+        r[0] = "Std";
+        r[1] = "Std.Runtime";
+        return r;
+    }
+
+    // 这个 ns 是不是 prelude（⇒ 不写 `using` 也能引用它的类型）。
+    public static bool Contains(string ns) {
+        string[] a = PreludeNs.All();
+        int i = 0;
+        while (i < a.Length) {
+            if (a[i] == ns) { return true; }
+            i = i + 1;
+        }
+        return false;
+    }
+
+    // prelude 的**根** ns —— `Object` / `String` 这些核心类型声明所在处。
+    // 合成类型（如 `SymbolCollector._seedObjectStub` 造的 `Object` 骨架）要用它定身份：
+    // 不给命名空间的话 `Fqn()` 退化成裸名，那个合成类型就与真正的 `Std.Object`
+    // **成了两个不同的名义身份**（实测：同一次构建里 `fqn=Object` 4975 次、
+    // `fqn=Std.Object` 887 次，各自拿到不同的 intern id）。
+    public static string Root() { return PreludeNs.All()[0]; }
+}

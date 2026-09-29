@@ -27,6 +27,15 @@ SymbolTable collect(string src) {
     return new SymbolCollector().Collect(cu);
 }
 
+// ⚠️ `Collect` **不**播 `Object` 骨架 —— 只有 `CollectWithImports` / `CollectAll` 播
+// （`_seedObjectStub` 只挂在那两处）。要压 `Object` 的身份就得走这条。
+// `imported = null` 是合法输入：三个 `_merge*` 都对 null 早返回。
+SymbolTable collectWithObjectStub(string src) {
+    var p = new Parser(src, "t.z42");
+    var cu = p.ParseCompilationUnit();
+    return new SymbolCollector().CollectWithImports(cu, null);
+}
+
 // 类实现的接口绑上了句柄，且句柄指回同一个接口对象。
 [Test]
 void test_class_iface_ref_bound() {
@@ -164,6 +173,29 @@ void test_base_chain_is_fully_handle_linked() {
     Assert.Equal(true, t.IsSubclassOf("D", "Demo.A"));
     Assert.Equal(true, t.IsSubclassOf("D", "B"));
     Assert.Equal(false, t.IsSubclassOf("A", "D"));
+}
+
+// ── A5b-1：合成的 `Object` 骨架必须带**真身份** ────────────────────────────
+//
+// 🔴 这条守的是「同一个 `Object` 只有一个名义身份」。
+// `_seedObjectStub` 造的骨架代表的就是 `Std.Object`，但它此前**既没有 `Namespace`**
+// （`Z42ClassType` 的构造函数把它默认成 `""`、由注册方覆写，而那里从没写过）
+// **也不进 `ClassesByFqn`** ⇒ `Fqn()` 退化成裸 `Object`，与真·导入的 `Std.Object`
+// 成了两个不同的对象、两个不同的 intern id。
+//
+// 实测规模（全量 `build stdlib`，探针）：`fqn=Object` **4975** 次 · `fqn=Std.Object` **887** 次。
+// 在「句柄即身份」的模型下 `_sameRef` 会判这两个不是同一个类型。
+//
+// ⭐ 第三条断言顺带压住 `GetClass` 的 **FQN 分支** —— 实测全量构建里那条分支
+// **21,078 次一次都没命中过**（调用方从不喂 FQN 进来）。这里至少让它有一个真消费方。
+[Test]
+void test_object_stub_carries_prelude_identity() {
+    var t = collectWithObjectStub("namespace Demo; class A { }");
+    var obj = t.GetClass("Object");
+    Assert.Equal(true, obj != null);
+    Assert.Equal("Std.Object", obj.Fqn());                 // ← 修前是裸 "Object"
+    Assert.Equal(true, t.GetClass("Std.Object") == obj);   // ← 修前 FQN 视图里根本没有它
+    Assert.Equal(true, obj.TypeId != 0);                   // 且已 intern（InternAllTypes 排在桩之后）
 }
 
 // 接口那半边同样沿 base 链收集（`Implements` 的种子来自各层的 `Interfaces`）。
