@@ -25,7 +25,16 @@ using Std;
 // 纯 Assert，空 stdout。
 
 struct Pair { public int X; public int Y; }
-struct Single { public int X; }
+// ⚠️ 这个 struct 原名 `Single`，改名是**绕开一个真缺陷**，不是风格调整：
+// `PrimModel.Canon("Single")` 把它折叠成基元 `float`（`PrimModel.z42:54`；PascalCase
+// 基元拼写至今合法，`Single x = 1.5f;` 编得过），于是 `StructLayout.BuildFromSymbols`
+// 把它当标量、**根本不建布局**，而 writer 仍按 `class_flags` bit2 写出一个 size 0 的
+// 空 struct 块。后果是编译期零诊断、运行期 `FieldSet: expected object, got F64(0.0)`。
+// 全部 14 个基元拼写（Byte/SByte/Int16/Int32/Int64/UInt16/UInt32/UInt64/
+// Single/Double/Boolean/Char/String/Object）× class 与 struct 都中招。
+// 根治（声明与内建同名时报诊断）要单开一个 lang 类 change —— 难点是 z42.core 自己
+// 合法地声明着这 14 个名字，豁免判据得专门设计。
+struct Solo { public int X; }
 [Record] struct RecPoint(int X, int Y);
 enum Color { Red, Green }
 
@@ -45,7 +54,7 @@ void Main() {
     Assert.Equal(1, viaStruct(true));
     Assert.Equal(1, viaStruct('c'));
     Assert.Equal(1, viaStruct<Pair>(new Pair()));
-    Assert.Equal(1, viaStruct<Single>(new Single()));
+    Assert.Equal(1, viaStruct<Solo>(new Solo()));
     Assert.Equal(1, viaStruct<RecPoint>(new RecPoint(1, 2)));
     Assert.Equal(1, viaStruct<Color>(Color.Red));
 

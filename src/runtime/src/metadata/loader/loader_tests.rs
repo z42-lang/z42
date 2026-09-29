@@ -917,7 +917,11 @@ fn struct_field_table_reaches_the_runtime_layout() {
 
 /// 没带字段表的类型 ⇒ 空表（**不是** panic、也不是「0 个字段」的错觉）。
 ///
-/// 旧产物（zbc < 1.45）与 `resolve_layout` 的 size-only 兜底都走这条。
+/// ⚠️ 这条原本写着「旧产物（zbc < 1.45）与 size-only 兜底都走这条」——**前半句不可达**：
+/// 版本是严格钉死的（`versions.rs:357` 的 `minor != ZBC_VERSION_MINOR` 直接 `Err`，
+/// 文档也写着 "the only one it reads"），1.45 之前的产物根本进不了载入期。
+/// 活着的理由只剩 `resolve_layout` 的 size-only 兜底。
+/// （留着那半句会和隔壁覆盖门的判据前提直接打架——那正是「判据腐坏」的起点。）
 #[test]
 fn absent_struct_field_table_yields_an_empty_one() {
     use crate::metadata::bytecode::StructLayoutDesc;
@@ -984,4 +988,76 @@ fn struct_field_table_that_is_not_parallel_to_fields_is_rejected() {
     let _ = StructLayoutDesc { size: 24, ref_offsets: Box::new([]), ref_kinds: Box::new([]) };
     let _ = CLASS_FLAGS2_HAS_STRUCT_FIELD_TABLE;
     build_type_registry(&mut m);
+}
+
+// ── 字段表覆盖门（`check_struct_field_table_coverage`）的三个对照 ───────────────
+//
+// 🔴 这道门堵的是一个**验证缺口**：P0（#915）漏给「实例化」路径填表时，T1 的反向对照
+// 验的是「每条程序都加载了**某个**带表的 struct」——声明路径的表还在，于是全绿。
+// 覆盖门问的是「**每个需要的**类型都有表吗」，那才是当时该问的问题。
+//
+// ⚠️ 门是 `debug_assert!`（只有编译器/写端能违反 ⇒ 政策同 `__box_prim` / `prim_value_mismatch`），
+// 所以两条正面对照只在 debug 存在；阴性对照两个 profile 都要在。
+
+/// 正面对照①：blob struct 有字段、却带着一张空表 ⇒ 必须响。
+///
+/// 这正是 #915 的形态（实例化路径没填表），当时以
+/// 「field index 0 out of range for struct `Demo.Pair<int,long>` (0 field(s))」
+/// 的形式在**消费方**炸出来，离现场很远。
+#[cfg(debug_assertions)]
+#[test]
+#[should_panic(expected = "empty per-field layout table")]
+fn value_struct_with_fields_but_no_field_table_is_rejected() {
+    use crate::metadata::bytecode::{CLASS_FLAG_STRUCT, FieldDesc, StructLayoutDesc};
+    let mut m = module_with_class_names("m", &["Demo.NoTable"]);
+    let c = &mut m.classes[0];
+    c.class_flags = CLASS_FLAG_STRUCT;
+    c.struct_layout = Some(StructLayoutDesc {
+        size: 4, ref_offsets: Box::new([]), ref_kinds: Box::new([]),
+    });
+    c.fields = vec![FieldDesc {
+        name: "X".to_string(), type_tag: "int".to_string(),
+        attributes: Box::new([]), visibility: 0,
+    }].into();
+    // class_flags2 留 0、struct_field_table 留空 ⇒ 正是写端漏填的形态。
+    build_type_registry(&mut m);
+}
+
+/// 正面对照②：blob struct 有字段、却**整个 struct 块都没有** ⇒ 必须响，且先报这一条。
+///
+/// 它不是假想形态：`struct Single { int X; }` 今天就落在这里 —— `PrimModel.Canon`
+/// 把用户类型名 `Single` 折叠成基元 `float`，`Layouts.IsStructType` 于是 miss、
+/// 布局一个字都没算，而 writer 仍按 `class_flags` bit2 无条件写出一个 size 0 的空块。
+#[cfg(debug_assertions)]
+#[test]
+#[should_panic(expected = "ships no struct byte layout block")]
+fn value_struct_with_fields_but_no_struct_block_is_rejected() {
+    use crate::metadata::bytecode::{CLASS_FLAG_STRUCT, FieldDesc};
+    let mut m = module_with_class_names("m", &["Demo.NoBlock"]);
+    let c = &mut m.classes[0];
+    c.class_flags = CLASS_FLAG_STRUCT;
+    c.fields = vec![FieldDesc {
+        name: "X".to_string(), type_tag: "int".to_string(),
+        attributes: Box::new([]), visibility: 0,
+    }].into();
+    build_type_registry(&mut m);
+}
+
+/// 阴性对照：**零字段**的值 struct 带空表是合法的，门不得响。
+///
+/// 分辨「门在挡漏填」与「门在挡一切空表」—— 写端的闸门就是 `FieldCount > 0`，
+/// phantom / 零字段 wrapper 本来就没有表可带。
+#[test]
+fn empty_value_struct_without_a_field_table_is_accepted() {
+    use crate::metadata::bytecode::{CLASS_FLAG_STRUCT, StructLayoutDesc};
+    let mut m = module_with_class_names("m", &["Demo.Phantom"]);
+    let c = &mut m.classes[0];
+    c.class_flags = CLASS_FLAG_STRUCT;
+    c.struct_layout = Some(StructLayoutDesc {
+        size: 0, ref_offsets: Box::new([]), ref_kinds: Box::new([]),
+    });
+    build_type_registry(&mut m);
+
+    let td = m.type_registry.get("Demo.Phantom").expect("类型进了注册表");
+    assert_eq!(td.struct_layout().expect("struct_layout 在").field_count(), 0);
 }
