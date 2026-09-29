@@ -110,9 +110,27 @@ public sealed class SymbolCollector {
     // 关键：GetType 返回类型解析为 imported `Type` 类（若已在表中），否则 Unknown——
     // 否则 GetType 返回 Unknown → 链式 getter 退化为 FieldGet → 运行期 FieldGet on Null。
     // 必须在 imported 类（含 Type）合并入表后调用。stdlib 编 z42.core 时自声明 Object → 跳过。
+    //
+    // 🔴 **身份**（enforce-fqn-name-identity A5b）：这个骨架代表的就是 `Std.Object`，
+    // 所以它必须**带着那个命名空间**并进 FQN 视图。此前两样都没有 —— `Z42ClassType` 的
+    // 构造函数把 `Namespace` 默认成 `""`、由**注册方**负责覆写（导入侧就是
+    // `nct.Namespace = em.Namespace`），而本函数从没写过它。
+    //
+    // 后果是同一次构建里 `Object` 有**两个名义身份**（实测，全量 `build stdlib`）：
+    //
+    //   | 形态 | 次数 | 在 `ClassesByFqn` |
+    //   |---|---|---|
+    //   | `fqn=Object`（本骨架） | 4975 | **否** |
+    //   | `fqn=Std.Object`（真·导入的那个） | 887 | 是 |
+    //
+    // 在「FQN 即身份、句柄按对象 intern」的模型下，这两份拿到**不同的 intern id**
+    // ⇒ `_sameRef` 判它们不是同一个类型。B3/B4/B5 建立的整套句柄判定都踩在这上面。
+    // 它同时是 A5b「删短名回落」的**唯一**阻塞：那 4975 次查找的对象连 FQN 都没有，
+    // 任何按 FQN 的解析都够不着它。
     private void _seedObjectStub(SymbolTable table) {
         if (table.Classes.ContainsKey("Object")) { return; }   // 本地自声明 Object（z42.core）→ local-wins
-        Z42ClassType obj = new Z42ClassType("Object", false, "");
+        Z42ClassType obj = new Z42ClassType("Object", false, "");   // ⚠️ 第三个参数是 baseName，不是 ns
+        obj.Namespace = PreludeNs.Root();   // ⇒ Fqn() = "Std.Object"，与真正的那份同一身份
         Z42Type getTypeRet = new Z42UnknownType();
         if (table.Classes.ContainsKey("Type")) { getTypeRet = table.GetClass("Type"); }
         Z42Type objParam = Z42ClassType.Builtin("object");
@@ -127,6 +145,8 @@ public sealed class SymbolCollector {
         obj.Methods.Put("GetType", new MethodSymbol("GetType", "public",
             new Z42FuncType(noParams, 0, getTypeRet), false, "Object", false, null));
         table.Classes.Put("Object", obj);
+        // FQN 视图也要有它 —— 否则「身份是 FQN」这句话对它不成立（查不到 = 没有身份）。
+        table.ClassesByFqn.Put(obj.Fqn(), obj);
     }
 
     // imported 枚举 seed（imported `EnumType.Member` 常量解析；local 同名枚举 local-wins）。

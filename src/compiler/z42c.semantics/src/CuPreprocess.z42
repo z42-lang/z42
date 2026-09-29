@@ -175,7 +175,7 @@ public static class CuPreprocess {
         int u = 0;
         while (u < cm.UsedDepNsCount) {
             string ns = cm.UsedDepNs[u];
-            bool allowed = (ns == "Std" || ns == "Std.Runtime");
+            bool allowed = PreludeNs.Contains(ns);   // prelude ns 免 using —— SoT 见 PreludeNs.z42
             if (cu.HasNamespace && ns == cu.Namespace) { allowed = true; }
             int di = 0;
             while (di < cu.DeclCount) {
@@ -211,8 +211,10 @@ public static class CuPreprocess {
         while (i < cu.DeclCount) { if (cu.Decls[i] is UsingDecl) { uc = uc + 1; } i = i + 1; }
         int extra = 0;
         if (cu.HasNamespace) { extra = 1; }
-        // + 2 个 prelude 命名空间（Std / Std.Runtime）——镜像 DepScan.IsPrelude("z42.core") 的免-using 可见性。
-        string[] r = new string[uc + extra + 2];
+        // + prelude 命名空间——镜像 DepScan.IsPrelude("z42.core") 的免-using 可见性。
+        // 名单是 `PreludeNs.All()`（SoT；此前这里把 "Std"/"Std.Runtime" 又写了一遍）。
+        string[] pre = PreludeNs.All();
+        string[] r = new string[uc + extra + pre.Length];
         int k = 0;
         i = 0;
         while (i < cu.DeclCount) {
@@ -220,8 +222,8 @@ public static class CuPreprocess {
             i = i + 1;
         }
         if (cu.HasNamespace) { r[k] = cu.Namespace; k = k + 1; }
-        r[k] = "Std"; k = k + 1;
-        r[k] = "Std.Runtime";
+        int p = 0;
+        while (p < pre.Length) { r[k] = pre[p]; k = k + 1; p = p + 1; }
         return r;
     }
 }
