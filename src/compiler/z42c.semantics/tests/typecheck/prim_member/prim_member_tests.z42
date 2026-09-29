@@ -26,7 +26,7 @@ using Z42.Semantics;
 
 // 成员表完整的包装类模型：真实 Int32/String 有一批方法，这里给够即可。
 string _wrappers() {
-    return "struct Int32 { public string ToString() { return \"\"; } public int GetHashCode() { return 0; } } "
+    return "namespace Std; struct Int32 { public string ToString() { return \"\"; } public int GetHashCode() { return 0; } } "
          + "struct Double { public string ToString() { return \"\"; } } "
          + "struct Boolean { public string ToString() { return \"\"; } } "
          + "class String { public int Length { get; } public string ToUpper() { return \"\"; } } ";
@@ -69,7 +69,7 @@ void test_name_exists_but_no_applicable_overload_keeps_its_own_message() {
     // ⚠️ 必须用**同 arity 的多重载**来触发：单候选且实参个数不符会先被 E1006（实参过多）
     // 截走，根本走不到重载决议。真实形态正是 `Split(string)` / `Split(char[])` 配 `Split(',')`
     // —— 两个候选都是 arity-1，char 一个都不适用。
-    string src = "class String { public int Pick(string a) { return 0; } public int Pick(bool[] a) { return 1; } } "
+    string src = "namespace Std; class String { public int Pick(string a) { return 0; } public int Pick(bool[] a) { return 1; } } "
                + "class C { void M() { string s = \"h\"; s.Pick('c'); } }";
     Assert.Equal("E0401", SemanticDump.FirstErrorCode(src));
     Assert.Equal("no overload of `Pick` on `String` accepts these arguments", SemanticDump.FirstErrorMessage(src));
@@ -79,9 +79,9 @@ void test_name_exists_but_no_applicable_overload_keeps_its_own_message() {
 void test_stub_wrapper_still_loose_binds() {
     // 逃生口：包装类是**成员表为空的 stub**（懒加载 / 冷启动未载真类）时候选集不完整，
     // 判「不存在」会误报 ⇒ 仍按老路松绑定，零诊断。镜像 class 收者路径的 `_stub` 分支。
-    string src = "struct Int32 { } class C { void M() { int x = 5; x.Bogus(); } }";
+    string src = "namespace Std; struct Int32 { } class C { void M() { int x = 5; x.Bogus(); } }";
     Assert.Equal(0, SemanticDump.ErrorCount(src));
-    string src2 = "struct Int32 { } class C { int M() { int x = 5; return x.Bogus; } }";
+    string src2 = "namespace Std; struct Int32 { } class C { int M() { int x = 5; return x.Bogus; } }";
     Assert.Equal(0, SemanticDump.ErrorCount(src2));
 }
 

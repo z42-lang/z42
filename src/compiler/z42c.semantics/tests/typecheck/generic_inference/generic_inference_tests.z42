@@ -301,7 +301,7 @@ void test_class_level_position_still_checked_when_method_generic_present() {
 // 基元 wrapper 提供），从而在**不依赖导入符号**的单测 harness 里精确复现那条归一。
 
 string primWrappers() {
-    return "interface I { } struct Int32 : I { } struct String : I { } ";
+    return "namespace Std; interface I { } struct Int32 : I { } struct String : I { } ";
 }
 
 [Test]
@@ -331,7 +331,7 @@ void test_inferred_string_type_arg_satisfies_interface_constraint() {
 void test_inferred_prim_type_arg_still_reports_unimplemented_interface() {
     // 归一**不是**「一律放行」：归一后的包装类真的没实现该接口时照报。
     // （本条修改前后都是 1；它守的是「别把这条洞修成一道从不响的门」。）
-    string src = "interface I { } interface J { } struct Int32 : I { } "
+    string src = "namespace Std; interface I { } interface J { } struct Int32 : I { } "
         + "void f<T>(T x) where T: J { } class Use { void g() { f(1); } }";
     Assert.Equal(1, countCode(bodyDiags(src), "E0402"));
 }
