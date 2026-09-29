@@ -123,7 +123,8 @@ z42b 跑在宿主的 z42vm 上，它当然不可能「是」浏览器里或模�
   `platform-overrides/<plat>/` 合入、`z42 platform add` 与 `z42 eject` 都还不存在，
   仓库里只有 workload 类骨架的注释提到它们。今天 export 的输出目录就是普通目录，
   重新 export 会覆盖，平台专属改动没有受保护的去处（见 [export](export.md)）。
-- **workload 的尾阶段没接线**：`iOSWorkload` / `AndroidWorkload` / `WasmWorkload` /
-  `DesktopWorkload` 描述了 `Configure → Package` 该做什么，但方法体是注释，
-  且没被 `_selectWorkload` 选中。今天真跑的平台逻辑在 launcher 的 export 与 z42b 的 publish 里，
+- **workload 的尾阶段没接线**：`iOSWorkload` / `AndroidWorkload` / `WasmWorkload`
+  描述了 `Configure → Package` 该做什么，但方法体是注释，且没被 `_selectWorkload` 选中。
+  （`DesktopWorkload` 连类都没有了：desktop 的 appbuilder 于 2026-09-29 删除——它零活内容，
+  真接尾阶段时要重建一个 handler。）今天真跑的平台逻辑在 launcher 的 export 与 z42b 的 publish 里，
   不在管线上（见 [z42b](z42b.md#管线之外的两条实路)）。

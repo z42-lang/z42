@@ -16,14 +16,21 @@
 每个平台一个独立目录直接挂 `workload/` 下，平台内按关注点分子目录：
 
 ```
-workload/<plat>/          # ios / android / desktop / wasm
-├── appbuilder/   # z42 workload handler（: WorkloadBase）—— 发布管线的平台实现
+workload/<plat>/          # ios / android / wasm（desktop 见下）
+├── appbuilder/   # z42 workload handler（: WorkloadBase）+ export.z42 —— 发布管线的平台实现
 ├── template/     # 工程脚手架（export 渲染进用户工程，包住 runtime pack + app.zpkg）
 ├── tests/        # R1–R7 嵌入契约测试（dogfood）
 └── platform/     # 原生绑定 Tier3（Swift / Kotlin / TS + rust → 编成 runtime pack）
 ```
 
-> 四**平台** workload：`desktop`（仅 publish/export，复用宿主 runtime，**无 `platform/`**）/ `ios` / `android` / `wasm`（含 target runtime pack）。分发模型见 [runtime-workload-distribution.md](../../../docs/internals/src/toolchain/workload-distribution.md)。
+> 四**平台** workload：`ios` / `android` / `wasm`（含 target runtime pack）/ `desktop`。分发模型见 [runtime-workload-distribution.md](../../../docs/internals/src/toolchain/workload-distribution.md)。
+>
+> 🔴 **desktop 不套上面这个模板**：它复用宿主 runtime ⇒ 既没有 runtime pack，也**不需要 export**
+> （`export.z42` 才是那三个 appbuilder 里唯一的活代码，被 `launcher_export.z42` 调用）。
+> 它没有 `appbuilder/`、没有 `template/`（2026-09-29 删除：那里只剩一个方法体全是注释的
+> `DesktopWorkload` 桩 + apphost patcher 的第二份副本，而在跑的是 z42b 内联的那份）。
+> 它**有** `platform/apphost/` —— per-RID apphost stub 的 Rust 源，打进 `z42-workload-desktop` 包，
+> `z42 publish` 必需。（旧版本这里写「desktop **无 `platform/`**」，是错的。）
 >
 > 另有一个**非平台的能力 workload**（不套上面平台模板）：
 >

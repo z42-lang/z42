@@ -160,7 +160,8 @@ string _findCompilerZpkg() {
 
 // 按平台族选标准 workload（实现期接各 *.workload 库的 : WorkloadBase 子类）。
 WorkloadBase _selectWorkload(string family) {
-    // 实现期：ios→iOSWorkload / android→AndroidWorkload / desktop→DesktopWorkload / wasm→WasmWorkload
+    // 实现期：ios→iOSWorkload / android→AndroidWorkload / wasm→WasmWorkload。
+    // desktop 没有 handler（appbuilder 已删，2026-09-29）——真接 tail 四阶段时要重建一个。
     return new WorkloadBase();    // no-op 兜底
 }
 

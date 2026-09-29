@@ -117,7 +117,8 @@ int _pkgStageToolchainComponents(string root, string z42cDir, string cargoOut, s
     // resolve their workload/launcher deps (z42b must exist before it can publish).
     string hostVm = _builtVm(root, "release");
     string[] buildTomls = new string[]{
-        "src/toolchain/workload/desktop/appbuilder/z42.workload.desktop.z42.toml",
+        // desktop 没有 appbuilder（见 `_workloadTomls` 头注）——`z42-workload-desktop`
+        // **包**照旧存在，装的是 Rust 的 per-RID apphost stub，与这里的 z42 lib 无关。
         "src/toolchain/workload/ios/appbuilder/z42.workload.ios.z42.toml",
         "src/toolchain/workload/android/appbuilder/z42.workload.android.z42.toml",
         "src/toolchain/workload/wasm/appbuilder/z42.workload.wasm.z42.toml",

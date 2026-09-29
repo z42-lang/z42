@@ -18,12 +18,14 @@ using Std.Toml;
 // workload libs (kind=lib)：各自建进自己的 `artifacts/build/toolchain/workload/<n>/dist`。
 // **不再落进 stdlib flat**（2026-09-28）——那会让它们随整目录被打进 SDK 的 `libs/`。
 // launcher 编译期靠 path 依赖解析它们，运行期靠 ExeDeps 拷进 `programs/launcher/`。
+// 🔴 **只有三个** —— desktop 没有 appbuilder（drop-dead-desktop-appbuilder，2026-09-29）：
+// 桌面复用宿主 runtime，不需要 export；那个包里唯一的实质代码是 apphost patcher 的**第二份
+// 副本**，而在跑的是 z42b 内联的那份（`builder_apphost.z42`）⇒ 删掉，消掉一处静默漂移源。
 string[] _workloadTomls() {
-    string[] xs = new string[4];
-    xs[0] = "src/toolchain/workload/desktop/appbuilder/z42.workload.desktop.z42.toml";
-    xs[1] = "src/toolchain/workload/ios/appbuilder/z42.workload.ios.z42.toml";
-    xs[2] = "src/toolchain/workload/android/appbuilder/z42.workload.android.z42.toml";
-    xs[3] = "src/toolchain/workload/wasm/appbuilder/z42.workload.wasm.z42.toml";
+    string[] xs = new string[3];
+    xs[0] = "src/toolchain/workload/ios/appbuilder/z42.workload.ios.z42.toml";
+    xs[1] = "src/toolchain/workload/android/appbuilder/z42.workload.android.z42.toml";
+    xs[2] = "src/toolchain/workload/wasm/appbuilder/z42.workload.wasm.z42.toml";
     return xs;
 }
 // apphost components (kind=exe, apphost=true): published to their own publish_dir.
@@ -209,9 +211,9 @@ int _ensureZ42b(string root) {
 }
 
 // ── build workload ───────────────────────────────────────────────────────────
-// Compile the 4 workload libs → 各自的 dist（见 `_workloadTomls` 头注）。launcher 的
+// Compile the 3 workload libs → 各自的 dist（见 `_workloadTomls` 头注）。launcher 的
 // z42c build 不再依赖这一步的产物位置（它走 path 依赖，自己会建），这里保留是因为
-// `build workload` 本身是个面向人的命令、且给 z42.workload.desktop 一个编译检查。
+// `build workload` 本身是个面向人的命令。
 // Prereq: z42vm + z42c + stdlib present (build-if-missing; warm ≈ no-op).
 int _buildWorkload() {
     string root = _root();

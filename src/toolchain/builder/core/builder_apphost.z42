@@ -1,15 +1,16 @@
-// z42b apphost patcher (move-publish-to-z42b) — INLINED so z42b's dependency set
-// stays within stdlib. z42b doubles as the reflective test-runner, which the
-// `stdlib [Test]` build stage compiles with ONLY stdlib in Z42_LIBS — it cannot see
-// the `z42.workload.desktop` package that owns Apphost.Produce. Depending on that
-// workload made z42b fail to build there (E0401: undefined Apphost). Inlining the
-// patcher (≈ xtask's own `_produceApphost`, by the same precedent) keeps z42b on
-// core/io/cli/test/toml — all stdlib.
+// z42b apphost patcher (move-publish-to-z42b) — the **only** z42-side implementation.
+//
+// It started as an INLINED copy so z42b's dependency set stayed within stdlib: z42b
+// doubles as the reflective test-runner, which the `stdlib [Test]` build stage compiles
+// with ONLY stdlib in Z42_LIBS — it could not see the `z42.workload.desktop` package
+// that owned Apphost.Produce (depending on it made z42b fail there: E0401: undefined
+// Apphost). drop-dead-desktop-appbuilder (2026-09-29) deleted that package — its copy
+// had zero callers and only served as a drift source — so this is now the sole copy.
 //
 // ⚠ MAGIC must stay in sync with the Rust stub at
 //   src/toolchain/workload/desktop/platform/apphost/src/main.rs
-// and its sibling copies (z42.workload.desktop Apphost.PatchBytes, xtask
-// _produceApphost). The placeholder is a 32-byte MAGIC + 992-byte payload (1024).
+// (that Rust stub is very much alive: it IS the `z42-workload-desktop` package's payload).
+// The placeholder is a 32-byte MAGIC + 992-byte payload (1024).
 namespace Z42Builder;
 
 using Std;
