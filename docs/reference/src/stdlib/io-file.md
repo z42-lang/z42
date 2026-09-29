@@ -103,13 +103,14 @@ public static class File {
 
 | 成员 | 说明 |
 |---|---|
-| `ReadAllText(path)` | 整读为 `string`，**严格 UTF-8**：内容不是合法 UTF-8 时抛 `Std.Exception`，message `stream did not contain valid UTF-8`（不做 lossy 替换） |
-| `WriteAllText(path, content)` | 覆盖写；文件不存在则创建。UTF-8 编码 |
+| `ReadAllText(path)` | 整读为 `string`（`path` 是目录时抛 `Is a directory`），**严格 UTF-8**：内容不是合法 UTF-8 时抛 `Std.Exception`，message `stream did not contain valid UTF-8`（不做 lossy 替换） |
+| `WriteAllText(path, content)` | 覆盖写；文件不存在则创建。UTF-8 编码。⚠ **不会创建父目录**（父目录缺失时抛 `No such file or directory`）——先 `Directory.Create`。`path` 已是目录时抛 `Is a directory` |
 | `AppendAllText(path, content)` | 追加写；文件不存在则创建 |
 | `WriteAllTextAtomic` / `WriteAllBytesAtomic` | 崩溃安全写：外部观察到的要么是旧内容要么是新内容，不会是半截。代价是每次多一次 `fsync`，只对关键文件用 |
 | `ReadAllBytes` / `WriteAllBytes` | 字节版，不做任何编码校验 |
 | `Exists(path)` | ⚠ **目录也返回 `true`**（见下） |
-| `Copy(src, dst)` / `Move(src, dst)` | `dst` 已存在时**静默覆盖**，不抛错 |
+| `Delete(path)` | 删文件。⚠ **目标不存在时抛** `Std.Exception`（`No such file or directory`）——与 C# 的静默成功不同，「有就删」要自己先 `Exists` |
+| `Copy(src, dst)` / `Move(src, dst)` | `dst` 已存在时**静默覆盖**，不抛错；`src` 不存在时抛 |
 | `GetSize(path)` | 字节数。`path` 是目录时抛 `Std.Exception`，message 形如 `File.GetSize: '<path>' is a directory` |
 | `GetLastWriteTime(path)` | mtime，包装成 [`Std.Time.DateTime`](time.md)；比较用 `IsAfter` / `IsBefore` / `UnixMs()` |
 | `CreateTempDir(prefix)` | 在系统临时根下建唯一目录，返回全路径。basename 形如 `<prefix>.<16 位十六进制>.<pid>.<序号>` |
@@ -145,8 +146,8 @@ public static class Directory {
 |---|---|
 | `Exists(path)` | 只有「存在**且是目录**」才 `true`；路径是普通文件时 `false` |
 | `Create(path)` | 等价 `mkdir -p`：递归建中间目录，**目录已存在不报错**。但路径上已有同名**文件**时抛 `Std.Exception`（`File exists (os error 17)`） |
-| `Delete(path, recursive)` | `recursive=false` 只能删空目录，非空时抛 `Std.Exception`（`Directory not empty (os error 66)`）；`recursive=true` 相当于 `rm -rf` |
-| `Enumerate(path)` | **只列直接子项**，含文件和子目录，返回 **basename**（不是全路径） |
+| `Delete(path, recursive)` | 目录不存在时**抛**（`recursive=true` 也不容忍，不同于 `rm -rf`）。`recursive=false` 只能删空目录，非空时抛 `Std.Exception`（`Directory not empty (os error 66)`）；`recursive=true` 相当于 `rm -rf` |
+| `Enumerate(path)` | **只列直接子项**，含文件和子目录，返回 **basename**（不是全路径）。⚠ 目录不存在时**抛**——与 `Path.Glob`（返回空数组）不对称 |
 | `EnumerateRecursive(path)` | 深度全展开，返回**相对 `path` 的子路径**（`n1/n2/deep.txt`）。**中间目录本身也是一条**（`n1`、`n1/n2` 都会出现） |
 | `CreateTempDir(prefix)` | 与 `File.CreateTempDir` 同义 |
 | `Copy(src, dst, recursive)` | 递归拷贝。`dst` 不存在则创建；`recursive=false` 时跳过子目录只拷文件 |

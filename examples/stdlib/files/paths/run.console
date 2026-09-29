@@ -1,0 +1,25 @@
+# ANCHOR: join
+$ z42 run paths.z42
+data/raw
+data/raw
+data/raw/a.csv
+/etc/passwd
+data/.
+# ANCHOR_END: join
+# ANCHOR: normalize
+data/raw/a.csv
+data/clean
+data/raw
+.
+# ANCHOR_END: normalize
+# ANCHOR: split
+文件名  report.tar.gz
+扩展名  gz
+去扩展  report.tar
+所在目录 data/raw
+# ANCHOR_END: split
+# ANCHOR: dotfile
+[.bashrc] 扩展名=[]
+[notes.]  扩展名=[]
+绝对路径吗：true / false
+# ANCHOR_END: dotfile

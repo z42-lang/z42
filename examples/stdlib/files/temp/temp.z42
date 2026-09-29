@@ -1,0 +1,17 @@
+using Std.IO;
+
+void Main() {
+    // ANCHOR: temp
+    string dir = File.CreateTempDir("build");          // 系统临时根下的唯一目录
+    string f = File.CreateTempFile("upload", ".json"); // 唯一空文件
+
+    Console.WriteLine("临时目录是绝对路径：" + Path.IsRooted(dir).ToString());
+    Console.WriteLine("临时文件扩展名：" + Path.GetExtension(f));
+    Console.WriteLine("刚建出来是空的：" + (File.GetSize(f) == 0).ToString());
+
+    // z42 没有 RAII，也没有 finalizer —— 用完必须自己删
+    File.Delete(f);
+    Directory.Delete(dir, true);
+    Console.WriteLine("清理完毕：" + (!File.Exists(f) && !Directory.Exists(dir)).ToString());
+    // ANCHOR_END: temp
+}

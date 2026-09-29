@@ -1,0 +1,24 @@
+using Std.IO;
+
+void Main() {
+    // ANCHOR: bytes
+    byte[] data = new byte[4];
+    data[0] = 0xff; data[1] = 0xd8; data[2] = 0xff; data[3] = 0xe0;   // JPEG 的开头
+    File.WriteAllBytes("photo.bin", data);
+
+    byte[] back = File.ReadAllBytes("photo.bin");
+    Console.WriteLine("读回 " + back.Length.ToString() + " 字节，第一个是 " + back[0].ToString());
+    // ANCHOR_END: bytes
+
+    // ANCHOR: notutf8
+    // 这些字节不是合法 UTF-8，当文本读会抛
+    try {
+        File.ReadAllText("photo.bin");
+        Console.WriteLine("没抛？");
+    } catch (Exception e) {
+        Console.WriteLine("当文本读：" + e.Message);
+    }
+    // ANCHOR_END: notutf8
+
+    File.Delete("photo.bin");
+}

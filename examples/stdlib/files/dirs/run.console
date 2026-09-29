@@ -1,0 +1,17 @@
+# ANCHOR: list
+$ z42 run dirs.z42
+直接子项（只一层，给的是名字不是路径）：
+  index.html
+  posts
+递归（相对 site 的子路径，中间目录本身也算一条）：
+  index.html
+  posts
+  posts/2026
+  posts/2026/hello.md
+# ANCHOR_END: list
+# ANCHOR: exists
+Directory.Exists(site)=true  File.Exists(site)=true
+# ANCHOR_END: exists
+# ANCHOR: delete
+删完还在吗：false
+# ANCHOR_END: delete

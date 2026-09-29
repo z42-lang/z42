@@ -1,0 +1,13 @@
+# ANCHOR: write
+$ z42 run text.z42
+存在吗：true
+多少字节：20
+# ANCHOR_END: write
+# ANCHOR: read
+第一行
+第二行
+字符数：8
+# ANCHOR_END: read
+# ANCHOR: delete
+删完还在吗：false
+# ANCHOR_END: delete

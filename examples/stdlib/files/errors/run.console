@@ -1,0 +1,15 @@
+# ANCHOR: missing
+$ z42 run errors.z42
+类型：Exception
+消息：No such file or directory (os error 2)
+# ANCHOR_END: missing
+# ANCHOR: parent
+父目录不存在：No such file or directory (os error 2)
+建好目录后：true
+# ANCHOR_END: parent
+# ANCHOR: tolerant
+File.Delete 缺文件 → 抛
+Directory.Enumerate 缺目录 → 抛
+Path.Glob 缺目录 → 空数组（0 个）
+File.Exists 缺文件 → false
+# ANCHOR_END: tolerant

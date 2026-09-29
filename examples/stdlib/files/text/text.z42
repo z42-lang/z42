@@ -1,0 +1,22 @@
+using Std.IO;
+
+void Main() {
+    // ANCHOR: write
+    File.WriteAllText("note.txt", "第一行\n");
+    File.AppendAllText("note.txt", "第二行\n");
+
+    Console.WriteLine("存在吗：" + File.Exists("note.txt").ToString());
+    Console.WriteLine("多少字节：" + File.GetSize("note.txt").ToString());
+    // ANCHOR_END: write
+
+    // ANCHOR: read
+    string all = File.ReadAllText("note.txt");
+    Console.Write(all);                       // 内容自带换行，用 Write 不再多加一个
+    Console.WriteLine("字符数：" + all.Length.ToString());
+    // ANCHOR_END: read
+
+    // ANCHOR: delete
+    File.Delete("note.txt");
+    Console.WriteLine("删完还在吗：" + File.Exists("note.txt").ToString());
+    // ANCHOR_END: delete
+}

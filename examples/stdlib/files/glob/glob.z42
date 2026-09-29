@@ -1,0 +1,25 @@
+using Std.IO;
+
+void show(string label, string[] paths) {
+    Console.WriteLine(label + "（" + paths.Length.ToString() + " 个）");
+    foreach (string p in paths) { Console.WriteLine("  " + p); }
+}
+
+void Main() {
+    Directory.Create("logs/2026");
+    File.WriteAllText("logs/app.log", "a");
+    File.WriteAllText("logs/app.tmp", "t");
+    File.WriteAllText("logs/2026/jan.log", "j");
+
+    // ANCHOR: glob
+    show("Glob 只看直接子项", Path.Glob("logs", "*.log"));
+    show("GlobRecursive 递归全展开", Path.GlobRecursive("logs", "*.log"));
+    // ANCHOR_END: glob
+
+    // ANCHOR: nodir
+    // 目录不存在时 Glob 返回空数组，不抛
+    show("Glob 一个不存在的目录", Path.Glob("nosuchdir", "*"));
+    // ANCHOR_END: nodir
+
+    Directory.Delete("logs", true);
+}

@@ -1,0 +1,33 @@
+using Std.IO;
+
+void Main() {
+    // ANCHOR: join
+    Console.WriteLine(Path.Join("data", "raw"));            // data/raw
+    Console.WriteLine(Path.Join("data/", "raw"));            // 末尾已有分隔符，不重复
+    Console.WriteLine(Path.Join("data", "raw", "a.csv"));    // 多段一次拼
+    Console.WriteLine(Path.Join("data", "/etc/passwd"));     // ⚠ 后一段是绝对路径，前面被整个吃掉
+    Console.WriteLine(Path.Join("data", "."));               // ⚠ 不做规范化
+    // ANCHOR_END: join
+
+    // ANCHOR: normalize
+    Console.WriteLine(Path.Normalize("data/./raw//a.csv"));
+    Console.WriteLine(Path.Normalize("data/raw/../clean"));
+    Console.WriteLine(Path.Normalize("data/raw/"));
+    Console.WriteLine(Path.Normalize("a/.."));
+    // ANCHOR_END: normalize
+
+    // ANCHOR: split
+    string p = "data/raw/report.tar.gz";
+    Console.WriteLine("文件名  " + Path.GetFileName(p));
+    Console.WriteLine("扩展名  " + Path.GetExtension(p));
+    Console.WriteLine("去扩展  " + Path.GetFileNameWithoutExtension(p));
+    Console.WriteLine("所在目录 " + Path.GetDirectoryName(p));
+    // ANCHOR_END: split
+
+    // ANCHOR: dotfile
+    Console.WriteLine("[.bashrc] 扩展名=[" + Path.GetExtension(".bashrc") + "]");
+    Console.WriteLine("[notes.]  扩展名=[" + Path.GetExtension("notes.") + "]");
+    Console.WriteLine("绝对路径吗：" + Path.IsRooted("/etc").ToString()
+        + " / " + Path.IsRooted("etc").ToString());
+    // ANCHOR_END: dotfile
+}
