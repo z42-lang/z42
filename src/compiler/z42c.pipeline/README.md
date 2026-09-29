@@ -18,7 +18,6 @@
 | `src/DepReconcile.z42` | 惰性包加载 + 候选 reconcile 辅助簇（拆自 DepScan）：`_loadOpenedPackage`（按需 Rebuild+DepIndex 并入 scan）+ completer 候选类型追加（`_inCands`/`_typeInExported`/`_appendExportedClass`）|
 | `src/DepScanCache.z42` | **F2** 进程级 zpkg memo：按 path 缓存打开的 `ZpkgInfo` + 该包 `TsigReconcile.Rebuild` 结果，把 workspace 逐成员重复解同一 zpkg 的 O(N²) 降成 O(N)（DepScan -71%）。算法/排序/过滤不变 → 字节不动点天然成立；正确性依赖「进程内 path→内容稳定」不变式（头注） |
 | `src/WorkspaceBuild.z42` | workspace 成员发现 + 拓扑序 + per-member 布局（WsPlan）|
-| `src/PathDepPlan.z42` | 本地 path 依赖闭包（add-path-dependencies）：沿 `DepEntry.Path` 边 post-order DFS（环检测 + 规范化路径去重）→ 叶子在前的传递闭包（`PathDepClosure`）。driver `_build` 据此逐成员现建 + 累积 libsDirs + colocate 私有 zpkg。机制见 book `compiler/project-model.md` 路径依赖闭包 |
 | `src/IncrementalBuild.z42` | 文件级增量 probe（add-file-level-incremental）：`ProbeFiles` 种子（hash/条目·pin/包级源清单）+ `Close` **名字级**失效闭包（incr-name-level-invalidation：已变名字集 → token 命中即失效 → 只有「声明面提到别人的已变名字」才继续传播；无 N² 边矩阵）；`Z42_INCR_DEBUG` 打 `[name-changed]`/`[invalidated] … uses-changed-name X`/`[spread]`；单测见 `tests/incremental/` |
 
 ## 入口点
