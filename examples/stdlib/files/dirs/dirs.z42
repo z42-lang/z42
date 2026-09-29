@@ -1,0 +1,31 @@
+using Std;
+using Std.IO;
+
+void show(string label, string[] items) {
+    Array.Sort(items);                      // 枚举顺序由 OS 决定，要稳定就自己排
+    Console.WriteLine(label);
+    foreach (string s in items) { Console.WriteLine("  " + s); }
+}
+
+void Main() {
+    // ANCHOR: create
+    Directory.Create("site/posts/2026");     // 像 mkdir -p：中间目录一起建，已存在也不报错
+    File.WriteAllText("site/index.html", "<h1>hi</h1>");
+    File.WriteAllText("site/posts/2026/hello.md", "# hello");
+    // ANCHOR_END: create
+
+    // ANCHOR: list
+    show("直接子项（只一层，给的是名字不是路径）：", Directory.Enumerate("site"));
+    show("递归（相对 site 的子路径，中间目录本身也算一条）：", Directory.EnumerateRecursive("site"));
+    // ANCHOR_END: list
+
+    // ANCHOR: exists
+    Console.WriteLine("Directory.Exists(site)=" + Directory.Exists("site").ToString()
+        + "  File.Exists(site)=" + File.Exists("site").ToString());
+    // ANCHOR_END: exists
+
+    // ANCHOR: delete
+    Directory.Delete("site", true);           // true = 连内容一起删
+    Console.WriteLine("删完还在吗：" + Directory.Exists("site").ToString());
+    // ANCHOR_END: delete
+}

@@ -1,0 +1,11 @@
+# ANCHOR: glob
+$ z42 run glob.z42
+Glob 只看直接子项（1 个）
+  logs/app.log
+GlobRecursive 递归全展开（2 个）
+  logs/2026/jan.log
+  logs/app.log
+# ANCHOR_END: glob
+# ANCHOR: nodir
+Glob 一个不存在的目录（0 个）
+# ANCHOR_END: nodir

@@ -1,0 +1,5 @@
+# ANCHOR: run
+$ z42 run bytes.z42
+读回 4 字节，第一个是 255
+当文本读：stream did not contain valid UTF-8
+# ANCHOR_END: run

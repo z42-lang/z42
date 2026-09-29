@@ -1,0 +1,7 @@
+# ANCHOR: temp
+$ z42 run temp.z42
+临时目录是绝对路径：true
+临时文件扩展名：json
+刚建出来是空的：true
+清理完毕：true
+# ANCHOR_END: temp
