@@ -1,0 +1,24 @@
+# ANCHOR: parse
+$ z42 run dom.z42
+根是 object，有 4 个键
+name = z42
+port = 8080
+debug = true
+# ANCHOR_END: parse
+# ANCHOR: array
+tags 有 2 项，第一项是 fast
+# ANCHOR_END: array
+# ANCHOR: tryget
+name=z42 owner=（无主）
+# ANCHOR_END: tryget
+# ANCHOR: build
+{"id":7,"ok":true,"items":["a","b"]}
+{
+  "id": 7,
+  "ok": true,
+  "items": [
+    "a",
+    "b"
+  ]
+}
+# ANCHOR_END: build

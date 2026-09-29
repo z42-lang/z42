@@ -1,0 +1,40 @@
+using Std.IO;
+using Std.Json;
+
+void Main() {
+    string text = "{\"name\":\"z42\",\"port\":8080,\"debug\":true,\"tags\":[\"fast\",\"small\"]}";
+
+    // ANCHOR: parse
+    JsonValue root = JsonValue.Parse(text);
+    Console.WriteLine("根是 " + root.KindName() + "，有 " + root.Count().ToString() + " 个键");
+    Console.WriteLine("name = " + root.Get("name").AsString());
+    Console.WriteLine("port = " + root.Get("port").AsLong().ToString());
+    Console.WriteLine("debug = " + root.Get("debug").AsBool().ToString());
+    // ANCHOR_END: parse
+
+    // ANCHOR: array
+    JsonValue tags = root.Get("tags");
+    Console.WriteLine("tags 有 " + tags.Length().ToString() + " 项，第一项是 " + tags.At(0).AsString());
+    // ANCHOR_END: array
+
+    // ANCHOR: tryget
+    string name = "（默认名）";
+    root.TryGetValue<string>("name", ref name);       // 键在：覆盖
+    string owner = "（无主）";
+    root.TryGetValue<string>("owner", ref owner);     // 键不在：原样保留
+    Console.WriteLine("name=" + name + " owner=" + owner);
+    // ANCHOR_END: tryget
+
+    // ANCHOR: build
+    JsonValue out1 = JsonValue.OfObject();
+    out1.Set("id", JsonValue.OfLong(7));
+    out1.Set("ok", JsonValue.OfBool(true));
+    JsonValue list = JsonValue.OfArray();
+    list.Add(JsonValue.OfString("a"));
+    list.Add(JsonValue.OfString("b"));
+    out1.Set("items", list);
+
+    Console.WriteLine(JsonValue.Stringify(out1));
+    Console.WriteLine(JsonValue.StringifyPretty(out1));
+    // ANCHOR_END: build
+}

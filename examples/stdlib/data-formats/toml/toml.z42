@@ -1,0 +1,50 @@
+using Std.IO;
+using Std.Toml;
+
+void Main() {
+    // ANCHOR: src
+    string src = "name = \"my-app\"\nversion = \"0.1.0\"\n"
+               + "\n[server]\nhost = \"localhost\"\nport = 8080\n"
+               + "\n[[task]]\nname = \"build\"\n\n[[task]]\nname = \"test\"\n";
+    TomlValue cfg = TomlValue.Parse(src);
+    // ANCHOR_END: src
+
+    // ANCHOR: read
+    Console.WriteLine("name = " + cfg.Get("name").AsString());
+    Console.WriteLine("server.host = " + cfg.Get("server").Get("host").AsString());
+    Console.WriteLine("server.port = " + cfg.Get("server").Get("port").AsLong().ToString());
+
+    TomlValue tasks = cfg.Get("task");                       // [[task]] 是数组
+    Console.WriteLine("任务 " + tasks.Length().ToString() + " 个，第二个叫 " + tasks.At(1).Get("name").AsString());
+    // ANCHOR_END: read
+
+    // ANCHOR: tryget
+    string host = "0.0.0.0";
+    long port = 80;
+    TomlValue server = cfg.Get("server");
+    server.TryGetValue<string>("host", ref host);     // 有：覆盖
+    server.TryGetValue<long>("timeout", ref port);    // 无：保留默认
+    Console.WriteLine("host=" + host + " 未配置的项保持默认=" + port.ToString());
+    // ANCHOR_END: tryget
+
+    // ANCHOR: quirks
+    // ⚠️ 与 JSON 不同：AsDouble 不接受整数
+    try {
+        cfg.Get("server").Get("port").AsDouble();
+    } catch (Exception e) {
+        Console.WriteLine("AsDouble(整数) → " + e.Message);
+    }
+    // 空输入解析出的是空表，不是 null
+    Console.WriteLine("空输入 → " + TomlValue.Parse("").KindName()
+        + "，键数 " + TomlValue.Parse("").Count().ToString());
+    // ANCHOR_END: quirks
+
+    // ANCHOR: write
+    TomlValue out1 = TomlValue.OfTable();
+    out1.Set("name", TomlValue.OfString("generated"));
+    TomlValue sec = TomlValue.OfTable();
+    sec.Set("retries", TomlValue.OfLong(3));
+    out1.Set("limits", sec);
+    Console.Write(TomlValue.Stringify(out1));
+    // ANCHOR_END: write
+}

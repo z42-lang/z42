@@ -1,0 +1,19 @@
+# ANCHOR: read
+$ z42 run yaml.z42
+name = my-app
+port 的 kind = int，ratio 的 kind = float，nothing 的 kind = null
+released 的 kind = timestamp
+steps[1] = test
+server.host = localhost
+# ANCHOR_END: read
+# ANCHOR: norway
+no 的 kind = string，值 = no
+true 的 kind = bool
+# ANCHOR_END: norway
+# ANCHOR: multidoc
+多文档 2 份，第二份 kind = Deployment
+# ANCHOR_END: multidoc
+# ANCHOR: block
+echo one
+echo two
+# ANCHOR_END: block
