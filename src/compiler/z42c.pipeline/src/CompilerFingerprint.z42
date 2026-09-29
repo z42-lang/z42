@@ -71,7 +71,10 @@ public static class CompilerFingerprint {
         // （bool/函数值/对象上的 `op=`），又改发射（用户 `op_Add` 现在真的被派发）。
         "fix-compound-assign-operand-check",
         // fix-delegate-param-default：委托形参默认值改为声明处报错（纯新增诊断，不动发射）。
-        "fix-delegate-param-default"
+        "fix-delegate-param-default",
+        // enforce-attribute-const-args：attribute 实参白名单（E0500）。纯新增诊断、不动发射，
+        // 但「诊断变了而源码哈希未变」正是最需要失效缓存的那一档（规则第 1 行明确含「发出的诊断」）。
+        "enforce-attribute-const-args"
     };
 
     // 指纹值：`Entries` 逐条以 `\n` 连接后取内容哈希（`mmh3:` 前缀，同 SourceHash）。

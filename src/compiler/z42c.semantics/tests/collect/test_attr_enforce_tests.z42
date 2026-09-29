@@ -322,3 +322,126 @@ void test_a6_position_error_short_circuits_arg_checks() {
     Assert.Equal(true, teHas(d, "E0911"));
     Assert.Equal(false, teHas(d, "E0914"));
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// enforce-attribute-const-args —— store-meta attribute 的实参须编译期常量（E0500）
+//
+// 修前**零检查**：`[Tag(K.Make())]`（方法调用）与 `[Num(K.Mutable)]`（可变静态字段）都放行，
+// 而 attribute 工厂是**首次反射查询**时才跑的 ⇒ 读回的元数据取决于谁先查、以及那一刻的
+// 可变状态。白名单（User 裁决）＝常量 + enum 成员 + const 字段 + typeof + methodof + 数组。
+// ════════════════════════════════════════════════════════════════════════════
+
+// 被检查的 attribute 声明 + 一个提供 const / 可变静态 / 方法的宿主类。
+string acPrelude() {
+    return "class TagAttribute : Std.Attribute { public string V; public TagAttribute(string v) { this.V = v; } } "
+         + "class NumAttribute : Std.Attribute { public int N; public NumAttribute(int n) { this.N = n; } } "
+         + "class ArrAttribute : Std.Attribute { public int[] A; public ArrAttribute(int[] a) { this.A = a; } } "
+         + "class K { public const int MAX = 7; public static int Mutable = 1; public static string Make() { return \"m\"; } } "
+         + "enum Color { Red, Green } ";
+}
+
+// ── 放行：字面量 / 常量表达式 / enum 成员 / const 字段 / typeof / methodof / 数组 ──
+
+[Test]
+void test_e0500_literal_ok() {
+    Assert.Equal(false, teHas(teDiags(acPrelude() + "[Tag(\"x\")] class C { }"), "E0500"));
+}
+
+[Test]
+void test_e0500_const_expression_ok() {
+    Assert.Equal(false, teHas(teDiags(acPrelude() + "[Num(1 + 2 * 3)] class C { }"), "E0500"));
+    Assert.Equal(false, teHas(teDiags(acPrelude() + "[Num(-5)] class C { }"), "E0500"));
+    Assert.Equal(false, teHas(teDiags(acPrelude() + "[Tag(\"a\" + \"b\")] class C { }"), "E0500"));
+}
+
+[Test]
+void test_e0500_enum_member_ok() {
+    Assert.Equal(false, teHas(teDiags(acPrelude()
+        + "class KindAttribute : Std.Attribute { public Color C; public KindAttribute(Color c) { this.C = c; } } "
+        + "[Kind(Color.Green)] class C { }"), "E0500"));
+}
+
+[Test]
+void test_e0500_const_field_ok() {
+    // 限定名 `K.MAX`，以及**同类内**的裸名 `MAX`。
+    Assert.Equal(false, teHas(teDiags(acPrelude() + "[Num(K.MAX)] class C { }"), "E0500"));
+    Assert.Equal(false, teHas(teDiags(acPrelude() + "[Num(K.MAX + 1)] class C { }"), "E0500"));
+    Assert.Equal(false, teHas(teDiags(acPrelude()
+        + "class H { public const int LIMIT = 3; [Num(LIMIT)] public int f; }"), "E0500"));
+}
+
+[Test]
+void test_e0500_typeof_and_methodof_ok() {
+    Assert.Equal(false, teHas(teDiags(acPrelude()
+        + "class TyAttribute : Std.Attribute { public Std.Type T; public TyAttribute(Std.Type t) { this.T = t; } } "
+        + "[Ty(typeof(K))] class C { }"), "E0500"));
+    // methodof 在 attribute 实参位是本特性的招牌用例（src/tests/attributes/methodof_in_attribute.z42）。
+    Assert.Equal(false, teHas(teDiags(acPrelude()
+        + "class HAttribute : Std.Attribute { public Std.Reflection.MethodInfo M; public HAttribute(Std.Reflection.MethodInfo m) { this.M = m; } } "
+        + "[H(methodof(K.Make))] class C { }"), "E0500"));
+}
+
+[Test]
+void test_e0500_array_of_constants_ok() {
+    Assert.Equal(false, teHas(teDiags(acPrelude() + "[Arr(new int[]{1, 2, K.MAX})] class C { }"), "E0500"));
+}
+
+// ── 拒绝：方法调用 / 可变静态字段 / new 对象 / lambda ────────────────────────
+
+[Test]
+void test_e0500_method_call_rejected() {
+    Assert.Equal(true, teHas(teDiags(acPrelude() + "[Tag(K.Make())] class C { }"), "E0500"));
+}
+
+[Test]
+void test_e0500_mutable_static_field_rejected() {
+    // 与 `K.MAX` 语法**完全相同**（`A.B`）—— 判据必须问「那个字段是不是 const」，
+    // 只看形状的实现会把这一格放过去。
+    Assert.Equal(true, teHas(teDiags(acPrelude() + "[Num(K.Mutable)] class C { }"), "E0500"));
+}
+
+[Test]
+void test_e0500_object_creation_rejected() {
+    Assert.Equal(true, teHas(teDiags(acPrelude() + "[Tag(new K())] class C { }"), "E0500"));
+}
+
+[Test]
+void test_e0500_array_with_non_constant_element_rejected() {
+    Assert.Equal(true, teHas(teDiags(acPrelude() + "[Arr(new int[]{1, K.Mutable})] class C { }"), "E0500"));
+}
+
+// ── 载体覆盖：方法 / 字段 / 属性 / 形参上的 attribute 同样受检 ────────────────
+
+[Test]
+void test_e0500_all_carriers_checked() {
+    Assert.Equal(true, teHas(teDiags(acPrelude()
+        + "class C { [Tag(K.Make())] public void m() { } }"), "E0500"));
+    Assert.Equal(true, teHas(teDiags(acPrelude()
+        + "class C { [Tag(K.Make())] public int f; }"), "E0500"));
+    Assert.Equal(true, teHas(teDiags(acPrelude()
+        + "class C { [Tag(K.Make())] public int P { get; set; } }"), "E0500"));
+    Assert.Equal(true, teHas(teDiags(acPrelude()
+        + "class C { public void m([Tag(K.Make())] int x) { } }"), "E0500"));
+    // 顶层函数（反射拿不到它的 MethodInfo，但实参照样会被执行）。
+    Assert.Equal(true, teHas(teDiags(acPrelude() + "[Tag(K.Make())] void f() { }"), "E0500"));
+}
+
+// ── 命名实参走的是 AssignExpr 载体，值那一侧同样受检 ────────────────────────
+
+[Test]
+void test_e0500_named_argument_value_checked() {
+    Assert.Equal(true, teHas(teDiags(acPrelude()
+        + "class RouteAttribute : Std.Attribute { public string P; public string M; "
+        + "public RouteAttribute(string p, string m = \"GET\") { this.P = p; this.M = m; } } "
+        + "[Route(\"/u\", m: K.Make())] class C { }"), "E0500"));
+}
+
+// ── 阴性对照：directive / test 家族不归本门管 ───────────────────────────────
+
+[Test]
+void test_e0500_directive_attrs_exempt() {
+    // `[Native]` / `[Deprecated]` / `[Record]` / `[Test]` 各有自己的实参规则，不合成工厂。
+    var d = teDiags(acPrelude() + "class C { [Native(\"__x\")] public extern int m(); }");
+    Assert.Equal(false, teHas(d, "E0500"));
+    Assert.Equal(false, teHas(teDiags("[Test] void t() { }"), "E0500"));
+}

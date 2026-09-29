@@ -1,0 +1,21 @@
+using Std;
+using Std.IO;
+
+class TagAttribute : Attribute {
+    public string V;
+    public TagAttribute(string v) { this.V = v; }
+}
+
+class K {
+    public const string FIXED = "ok";       // 编译期常量：可以
+    public static string Changing = "?";    // 可变静态字段：不可以
+    public static string Make() { return "made"; }
+}
+
+[Tag(K.FIXED)] class Good { }
+[Tag(K.Changing)] class Bad1 { }
+[Tag(K.Make())] class Bad2 { }
+
+void Main() {
+    Console.WriteLine("不会跑到这里");
+}

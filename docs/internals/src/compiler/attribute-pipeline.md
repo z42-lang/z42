@@ -44,15 +44,24 @@ public Attribute __attr$cls$C$0() { return new RouteAttribute("/u", method: "POS
 工厂名记进 `Attr.FactoryFunc`。工厂 key 的前缀区分载体：
 `cls$<C>` / `mth$<C>$<M>` / `fld$<C>$<F>` / `fn$<F>`，参数级再加 `$prm$<j>`。
 
-**工厂的返回类型写成 `Attribute` 基类**——于是普通 typecheck 顺带把 attribute 契约全检了，
-而且错误锚点落在**应用处**，不需要单独写一个 validator pass：
+**工厂的返回类型写成 `Attribute` 基类**——于是普通 typecheck 顺带把 attribute 契约检了大半，
+而且错误锚点落在**应用处**：
 
 - 类不是 `Attribute` 派生 → `return` 上转型失败；
-- 实参不是常量 → 在无参工厂的作用域里变成未知标识符；
 - 构造器对不上 → 正常的重载解析报错。
 
-代价是诊断文本是通用的（`cannot return X` / `unknown identifier`）而不是专用的
-「X 不是 attribute」/「参数须为常量」。专用诊断是 Deferred（`attribute-future-dedicated-diagnostics`）。
+代价是这两条的诊断文本是通用的（`cannot return X` 等）而不是专用的「X 不是 attribute」。
+那半仍是 Deferred（`attribute-future-dedicated-diagnostics`）。
+
+🔴 **「实参不是常量」这条靠不住过，已改为专门的 pass**（`enforce-attribute-const-args`，
+2026-09-29）。原先的推断是「非常量实参会在无参工厂的作用域里变成未知标识符」——**只对局部变量
+成立**：静态字段读、方法调用、`new` 在工厂作用域里都解析得好好的，于是
+`[Tag(K.Make())]` / `[Num(K.Mutable)]` 一路放行（实测零诊断）。而工厂是**首次反射查询时**才
+执行的 ⇒ 那种实参读回什么取决于谁先查、以及那一刻的可变状态。
+现由 `DeclEnforcer._passAttrArgConst`（`DeclEnforcer.AttrArgs.z42`）在收集期按白名单强制，
+码 `E0500`；白名单与理由见[特性](https://z42-lang.github.io/z42/reference/language/attributes.html)。
+⚠️ 该 pass 的遍历面必须与 `AttributeSynth._process*` 一致（后者决定谁被合成工厂 = 谁的实参会被
+执行），加新载体时两处都要动。
 
 挂载点是 `HandlerRegistry.RunAst(cu)`（`:46`），它规定了顺序：**内建 Generator
 （`BenchmarkDesugar`）先跑，再跑 `AttributeSynth`**。
@@ -233,8 +242,9 @@ statics / exceptions / strings / reflection）。真正的修法是让 typecheck
 
 ## Deferred
 
-- `attribute-future-dedicated-diagnostics` —— 契约违例现在借工厂 typecheck 报通用错误，
-  需要专用 E09xx + stdlib-aware 的 negative 测试 harness。
+- `attribute-future-dedicated-diagnostics` —— **「实参须为常量」那半已交付**（`E0500`，
+  `enforce-attribute-const-args`，见上）。剩下的是「X 不是 attribute」「构造器对不上」——
+  它们仍借工厂 typecheck 报通用错误，需要专用码 + negative 测试 harness。
 - `attribute-future-attributeusage` —— target / 重复性限制。要做成声明上的一等子句（不是 C# 那种
   自循环元属性），默认 `AllowMultiple=true`、无隐式继承。
 - `attribute-future-generic-and-typed-lookup` —— 泛型 attribute 类 + `GetAttribute<T>()` 泛型糖。

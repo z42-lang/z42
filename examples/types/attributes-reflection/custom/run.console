@@ -17,3 +17,10 @@ z42c build: 2 error(s) in suffix.z42
   suffix.z42(5,1): E0444: attribute class `Route` must end with `Attribute` suffix (rename to `RouteAttribute`; apply it as `[Route]`)
 [exit: 1]
 # ANCHOR_END: suffix
+# ANCHOR: constarg
+$ z42 run constarg.z42
+z42c build: 2 error(s) in constarg.z42
+  constarg.z42(16,6): E0500: attribute argument must be a compile-time constant: a literal, a constant expression, an enum member, a `const` field, `typeof(..)`, `methodof(..)`, or an array of those — an attribute's arguments run on the first reflection query, so a runtime-dependent value makes the metadata depend on who asks first
+  constarg.z42(17,6): E0500: attribute argument must be a compile-time constant: a literal, a constant expression, an enum member, a `const` field, `typeof(..)`, `methodof(..)`, or an array of those — an attribute's arguments run on the first reflection query, so a runtime-dependent value makes the metadata depend on who asks first
+[exit: 1]
+# ANCHOR_END: constarg

@@ -1,0 +1,179 @@
+// DeclEnforcer 的「attribute 实参必须是编译期常量」这一半（enforce-attribute-const-args）。
+// partial 拆分只为守 code-organization 的行数硬限；逻辑与其余声明良构检查同族。
+//
+// ── 这道门在挡什么 ─────────────────────────────────────────────────────────────
+// 参考手册 `attributes.md` 两处把「实参限编译期常量」写成**刻意保留的 C# 约束**，而实现从未
+// 强制。实测（2026-09-29）全部放行：
+//
+//   [Tag(K.Make())]      方法调用
+//   [Num(K.Mutable)]     可变静态字段
+//   [Tag("a" + "b")]     串接（这个本身没问题，但走的是同一条零检查的路）
+//
+// 比「多放行了几种写法」更要紧的是**求值时机**：attribute 工厂是编译器合成的函数，
+// 由反射在**第一次查询该 attribute 时**才执行、然后缓存。于是 `[Num(K.Mutable)]` 读回的值
+// 取决于谁先查、以及那一刻 `K.Mutable` 是什么 —— 实测先把它改成 99 再查就读到 99。
+// attribute 是**数据**不是行为；能在编译期定死的东西不该留一条依赖运行期状态的缝。
+//
+// ── 白名单（User 裁决 2026-09-29：常量 + typeof + methodof + 数组）─────────────
+//   · 字面量：int / float / string / char / bool / null
+//   · 一元 `- + ! ~` 与二元算术/位/逻辑/比较/串接 —— 操作数递归满足即可（常量表达式）
+//   · enum 成员（`Color.Green`）
+//   · `const` 字段（`K.MAX`，以及同类内的裸名 `MAX`）
+//   · `typeof(T)` / `methodof(X.M(..))` —— 两者都在**编译期**解析完毕（methodof.md 的招牌
+//     用例正是 `[Route(methodof(Api.Get(string)))]`：把运行期的静默失效变成编译期报错）
+//   · 上述元素构成的数组：`new T[]{ … }` / `[a, b]` / `[v; n]`
+//
+// ⚠️ **遍历面必须与 `AttributeSynth._process*` 一致** —— 那个 pass 决定「谁被合成工厂」，
+// 也就是「谁的实参会被执行」。加新载体（今天是 类 / 方法 / 字段 / 属性 / 形参 / 顶层函数）
+// 时两处都要动，否则新载体上的实参会绕过本检查。判据本身（哪些 attr 算 store-meta）两处
+// 共用 `HandlerRegistry.KindOf`，不重新推导。
+namespace Z42.Semantics;
+
+using Z42.IR;
+using Z42.Syntax;
+using Z42.Core;
+
+public sealed partial class DeclEnforcer {
+
+    internal void _passAttrArgConst(SymbolTable t, CompilationUnit cu) {
+        int i = 0;
+        while (i < cu.DeclCount) {
+            this._acWalk(t, cu.Decls[i], "");
+            i = i + 1;
+        }
+    }
+
+    // 遍历面镜像 AttributeSynth：顶层（类 / 函数）→ 类成员（方法 / 字段 / 属性）→ 方法形参。
+    // `cls` = 当前所在类名（""＝顶层），用于解析裸名 const 引用。
+    private void _acWalk(SymbolTable t, Decl raw, string cls) {
+        if (raw is AttributedDecl) {
+            AttributedDecl ad = raw as AttributedDecl;
+            this._acCheckAttrs(t, ad.Attrs, ad.AttrCount, cls);
+        }
+        Decl d = this._sc._unwrap(raw);
+        if (d is ClassDecl) {
+            ClassDecl c = d as ClassDecl;
+            int j = 0;
+            while (j < c.MemberCount) {
+                this._acWalk(t, c.Members[j], c.Name);
+                j = j + 1;
+            }
+        } else if (d is ImplDecl) {
+            ImplDecl im = d as ImplDecl;
+            int j = 0;
+            while (j < im.MethodCount) { this._acWalk(t, im.Methods[j], cls); j = j + 1; }
+        }
+        if (d is MethodDecl) { this._acCheckParams(t, d as MethodDecl, cls); }
+    }
+
+    // 形参上的 attribute（`void M([Doc("页号")] int page)`）。
+    private void _acCheckParams(SymbolTable t, MethodDecl md, string cls) {
+        int j = 0;
+        while (j < md.ParamCount) {
+            Param p = md.Params[j];
+            if (p.AttrCount > 0) { this._acCheckAttrs(t, p.Attrs, p.AttrCount, cls); }
+            j = j + 1;
+        }
+    }
+
+    private void _acCheckAttrs(SymbolTable t, Attr[] attrs, int count, string cls) {
+        int a = 0;
+        while (a < count) {
+            Attr at = attrs[a];
+            // directive / handler 家族（`[Native]` / `[Suppress]` / `[Deprecated]` / `[Record]` /
+            // `[Test]` …）不合成工厂、各有自己的实参规则，不归本门管。
+            if (HandlerRegistry.KindOf(at.Name) == AttrKind.StoreMeta) {
+                int g = 0;
+                while (g < at.ArgCount) {
+                    // 命名实参 `method: "POST"` 的载体是 `AssignExpr("=", Ident, value)`
+                    // （restore-named-arguments 刻意复用该节点）⇒ 查它的**值**那一侧。
+                    Expr arg = at.Args[g];
+                    if (arg is AssignExpr) { arg = (arg as AssignExpr).Value; }
+                    if (!this._acIsConst(t, arg, cls)) {
+                        this._sc.Diags.Error("E0500",
+                            "attribute argument must be a compile-time constant: a literal, a constant expression, an enum member, a `const` field, `typeof(..)`, `methodof(..)`, or an array of those — an attribute's arguments run on the first reflection query, so a runtime-dependent value makes the metadata depend on who asks first",
+                            arg.Span);
+                    }
+                    g = g + 1;
+                }
+            }
+            a = a + 1;
+        }
+    }
+
+    // 白名单判定（见文件抬头）。默认 **false**：新表达式形态一律先被拒，要放行须显式加一条 ——
+    // 反过来（默认放行、逐条拒）就是本缺陷的成因。
+    private bool _acIsConst(SymbolTable t, Expr e, string cls) {
+        if (e is IntLitExpr)    { return true; }
+        if (e is FloatLitExpr)  { return true; }
+        if (e is StringLitExpr) { return true; }
+        if (e is CharLitExpr)   { return true; }
+        if (e is BoolLitExpr)   { return true; }
+        if (e is NullLitExpr)   { return true; }
+        // 编译期解析：typeof 的类型名、methodof 的重载决议都在绑定期做完。
+        if (e is TypeofExpr)    { return true; }
+        if (e is MethodOfExpr)  { return true; }
+        if (e is UnaryExpr) {
+            UnaryExpr u = e as UnaryExpr;
+            if (u.Op == "-" || u.Op == "+" || u.Op == "!" || u.Op == "~") {
+                return this._acIsConst(t, u.Operand, cls);
+            }
+            return false;   // `++` / `--` 有副作用，不是常量
+        }
+        if (e is BinaryExpr) {
+            BinaryExpr b = e as BinaryExpr;
+            return this._acIsConst(t, b.Left, cls) && this._acIsConst(t, b.Right, cls);
+        }
+        // 数组三形态：`new T[]{a,b}` / `[a,b]` / `[v; n]`。元素递归；spread（`..xs`）拒掉
+        // —— 被展开的那个值本身不是常量表达式（它是个数组变量）。
+        if (e is ArrayInitExpr) {
+            ArrayInitExpr ai = e as ArrayInitExpr;
+            int k = 0;
+            while (k < ai.ElemCount) {
+                if (!this._acIsConst(t, ai.Elems[k], cls)) { return false; }
+                k = k + 1;
+            }
+            return true;
+        }
+        if (e is ArrayLitExpr) {
+            ArrayLitExpr al = e as ArrayLitExpr;
+            int k = 0;
+            while (k < al.ElemCount) {
+                if (al.IsSpread[k]) { return false; }
+                if (!this._acIsConst(t, al.Elems[k], cls)) { return false; }
+                k = k + 1;
+            }
+            return true;
+        }
+        if (e is ArrayRepeatExpr) {
+            ArrayRepeatExpr ar = e as ArrayRepeatExpr;
+            return this._acIsConst(t, ar.Value, cls) && this._acIsConst(t, ar.Count, cls);
+        }
+        // `A.B`：enum 成员，或 A 类的 `const` 字段。可变静态字段落到这里被拒 —— 这正是
+        // 本门要挡的那一格（`[Num(K.Mutable)]`）。
+        if (e is MemberExpr) {
+            MemberExpr m = e as MemberExpr;
+            if (!(m.Target is IdentExpr)) { return false; }   // 更深的链不认
+            string owner = (m.Target as IdentExpr).Name;
+            if (t.EnumConsts.ContainsKey(owner + "." + m.Name)) { return true; }
+            return DeclEnforcer._acIsConstField(t, owner, m.Name);
+        }
+        // 裸名：同类内的 `const` 字段（`[Num(MAX)]` 写在声明 MAX 的那个类里）。
+        if (e is IdentExpr) {
+            if (cls == "") { return false; }
+            return DeclEnforcer._acIsConstField(t, cls, (e as IdentExpr).Name);
+        }
+        return false;
+    }
+
+    // `owner` 类上名为 `field` 的字段是否是 `const`（IsConst 由 MemberCollector._collectConstField
+    // 置位，同时存下 ConstVal）。类/字段查不到 → false。
+    private static bool _acIsConstField(SymbolTable t, string owner, string field) {
+        if (!t.Classes.ContainsKey(owner)) { return false; }
+        Z42ClassType ct = t.Classes.Get(owner) as Z42ClassType;
+        if (ct == null) { return false; }
+        object fo = ct.Fields.Get(field);
+        if (!(fo is FieldSymbol)) { return false; }
+        return (fo as FieldSymbol).IsConst;
+    }
+}

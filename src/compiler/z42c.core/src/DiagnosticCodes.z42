@@ -92,6 +92,17 @@ public static class DiagnosticCodes {
     public static string FileScopedNamespaceMisplaced = "E0457";  // 一个文件里写了**多个**文件级 `namespace X;`，或把 `namespace` 写在类型/函数声明**之后**。z42 的编译单元只有一个命名空间（`CompilationUnit.Namespace` 是单值），而 parser 的 namespace 分支在顶层声明循环里、每命中一次就整个覆盖 `ns` ⇒ 此前**静默 last-wins**：声明在 `namespace First;` 底下的类被登记进最后那个 ns，连限定名都随之解析错（实测 `A.Helper.Who()` 打印的是 B 的实现）。这不是「少报一条诊断」，是**解析到错误的类型**。对齐 C# CS8907/CS8955。恢复策略保留**第一个** ns。块形式 `namespace X { }` z42 本就不支持（parse 错）。
     public static string DuplicateTypeName = "E0458";  // 同一命名空间里重复声明同一个类型（同 ns、同名、同 arity，且并非全部 `partial`）。此前**静默 last-wins**：后声明的赢，前一个连同成员一起消失，单文件与跨 CU 两种形态都零诊断——跨 CU 形态在真实工程里更危险（两个文件各写一个 `class Config`，谁也不会注意到其中一个从来没生效过）。对齐 C# CS0101。🔴 判据是 **(ns, 名字, arity)** 三者都相同：裸名键在同短名跨 ns 时也会撞（那归 E0456 管），而 arity 预扫是 per-CU 的，跨 CU 的不同 arity 同名今天能编过、报成「重复定义」是错的（Deferred `arity-mangle-not-package-wide`）。
 
+    // enforce-attribute-const-args（2026-09-29）：store-meta attribute 的实参不是**编译期常量**。
+    // 允许的形式：字面量 / 由字面量与已定义 const 构成的常量表达式 / enum 成员 / `const` 字段 /
+    // `typeof(...)` / `methodof(...)`，以及由这些构成的数组（`new T[]{ … }`）。
+    //
+    // 为什么要这道门：参考手册 `attributes.md` 两处把「实参限编译期常量」写成**刻意保留的 C# 约束**，
+    // 而实现从未强制 —— 实测 `[Tag(K.Make())]`（方法调用）、`[Num(K.Mutable)]`（可变静态字段）一概放行。
+    // 更要紧的是 attribute 工厂**在首次反射查询时才执行** ⇒ 读回的「元数据」取决于谁先查、以及那一刻
+    // 可变状态是什么值（实测把静态字段先改成 99 再查就读到 99）。attribute 是数据不是行为，这条线
+    // 必须划在编译期。
+    public static string AttributeArgNotConstant = "E0500";
+
     // IrGen
     public static string UnsupportedSyntax   = "E0501";
 

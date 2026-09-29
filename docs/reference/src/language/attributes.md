@@ -45,7 +45,23 @@ void Demo() {
 
 规则：
 
-- attribute 的实参限**编译期常量**（字面量 / enum 成员 / `typeof`）。
+- attribute 的实参限**编译期常量**，违规报
+  [`E0500`](../appendix/error-codes.md)。允许的形式恰好这些：
+
+  | 形式 | 例 |
+  |---|---|
+  | 字面量 | `"/users"` / `42` / `-1` / `true` / `'x'` / `null` |
+  | 常量表达式（操作数递归满足即可）| `1 + 2 * 3` / `"a" + "b"` / `1 << 4` / `!false` |
+  | enum 成员 | `Color.Green` |
+  | `const` 字段（限定名，或同类内的裸名）| `K.MAX` / `MAX` / `K.MAX + 1` |
+  | `typeof(T)` | `typeof(UserService)` |
+  | [`methodof(X.M(..))`](methodof.md) | `methodof(Api.Get(string))` |
+  | 以上元素构成的数组 | `new string[]{ "a", "b" }` / `new Type[]{ typeof(int) }` |
+
+  拒掉的是**依赖运行期状态**的写法——方法调用（`K.Make()`）、可变静态字段（`K.Mutable`）、
+  `new` 出来的对象、lambda。理由不只是「元数据该是常量」：attribute 实例由编译器合成的工厂
+  产出，而那个工厂**在首次反射查询该 attribute 时才执行**，之后缓存 ⇒ 实参若依赖可变状态，
+  读回的「元数据」就取决于谁先查、以及那一刻的状态。
 - 应用位剥后缀：`[Route]` 被展开成 `RouteAttribute` 去解析。缺后缀的 `: Attribute` 类
   （`class Route : Attribute`）报
   `E0444: attribute class 'Route' must end with 'Attribute' suffix`。
@@ -100,7 +116,7 @@ foreach (PropertyInfo p in t.GetProperties()) { p.GetCustomAttributes(); }
 | 4 | 实例可变（正是 #3 必须每次复制的根因）| **实例在 ctor 内一次写定**，缓存因此安全 |
 | 5 | `AttributeUsage` 是自循环的元属性 + 反直觉默认值 | **暂不提供**；将来做成一等声明子句，不做元属性 |
 
-**刻意保留的 C# 约束**：实参限编译期常量（安全 + 「attribute 是数据不是行为」的心智模型）；
+**刻意保留的 C# 约束**：实参限编译期常量（安全 + 「attribute 是数据不是行为」的心智模型，见上；z42 在此之上多收了 `methodof`）；
 attribute 是被动的——它只是数据，不会主动改写被注解的声明。
 
 **暂未提供**：`AttributeUsage` 式的 target / 重复性限制（attribute 可以贴在任何支持的位置）；
