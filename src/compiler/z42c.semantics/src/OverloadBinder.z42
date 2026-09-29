@@ -217,6 +217,46 @@ public sealed partial class OverloadBinder {
             this._reportArity(ms, true, rawArgCount, ms.Signature.ParamCount + 1, "", sp);
             arityReported = true;
         }
+        // fix-static-form-receiver-slot：「接收者作首参」写法里，**args[0] 是接收者、形参从 args[1] 起**，
+        // 而本函数底下的每一步（BindArgsToSignature 的延迟位回填 / BoxArgs / CheckArgTypes / _adaptArgs
+        // 的默认值填充）都**按位置**把 args[i] 对到 ParamTypes[i] ⇒ 整条流水线错位一格。实测三格：
+        //
+        //   C.Check(c, 5)            // 完全正确的调用 → 被拒：cannot assign C to Int32（拿接收者对首参）
+        //   C.Check("bogus", 5)      // 接收者类型错   → 报了，但理由是错的
+        //   C.Check(c, "not-int")    // 末参类型错     → 报的还是接收者那格，**末参从不检查**
+        //
+        // 它一直没暴露，是因为现实中只在**零参**方法上用这个写法（`Int32.ToString(n)` / `C.Show(c)`）
+        // —— 那时没有形参可错位。带参一用就中，且「接收者恰好可赋给首参」时**放行** ⇒ 运行期拿错
+        // 接收者：方法体碰 `this` 就崩不可 catch 的 `VCall: expected object`，不碰就**静默错答案**。
+        //
+        // 修法不是逐步教每一步「偏一格」（那是给四处各加一份判据），而是**把接收者摘出来**、
+        // 让整条既有流水线看到**正常形状**、最后原样接回 ⇒ 每一步的位置映射自然正确。
+        if (recvFirst && rawArgCount == ms.Signature.ParamCount + 1 && args != null && args.Length >= 1) {
+            BoundExpr recv = args[0];
+            // 接收者自己的类型检查（静态形式唯一需要额外做的一格）。解析不到 containing 类型时
+            // 跳过——只做错位修正，不引入新的误报。
+            Z42ClassType rct = env.Symbols.GetClass(ms.ContainingTypeName);
+            if (rct != null && recv != null) {
+                this._tc.CheckImplicitConvert(recv, rct, env.Symbols, recv.Span, "receiver");
+            }
+            int restCount = rawArgCount - 1;
+            BoundExpr[] rest = new BoundExpr[restCount];
+            int ri = 0;
+            while (ri < restCount) { rest[ri] = args[ri + 1]; ri = ri + 1; }
+            Expr[] rawRest = null;
+            if (rawArgs != null) {
+                rawRest = new Expr[restCount];
+                ri = 0;
+                while (ri < restCount) { rawRest[ri] = (ri + 1 < rawArgs.Length) ? rawArgs[ri + 1] : null; ri = ri + 1; }
+            }
+            // staticForm 传 false：形参段已是普通形状，不能再触发 recvFirst 那套判定。
+            BoundExpr[] done = this._withDefaults(ms, rest, rawRest, restCount, env, sp, false);
+            BoundExpr[] merged = new BoundExpr[done.Length + 1];
+            merged[0] = recv;
+            ri = 0;
+            while (ri < done.Length) { merged[ri + 1] = done[ri]; ri = ri + 1; }
+            return merged;
+        }
         // complete-named-arguments：**命名实参必须在任何绑定步骤之前处理**。
         //
         // 🔴 为什么是「之前」：下面第一步 `BindArgsToSignature` 会把 `_bindCall` 延迟下来的

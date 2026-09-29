@@ -74,7 +74,11 @@ public static class CompilerFingerprint {
         "fix-delegate-param-default",
         // enforce-attribute-const-args：attribute 实参白名单（E0500）。纯新增诊断、不动发射，
         // 但「诊断变了而源码哈希未变」正是最需要失效缓存的那一档（规则第 1 行明确含「发出的诊断」）。
-        "enforce-attribute-const-args"
+        "enforce-attribute-const-args",
+        // fix-static-form-receiver-slot：「接收者作首参」的静态形式此前整条实参流水线错位一格
+        // （接收者占 args[0] 却仍按 ParamTypes[0] 检查/装箱/填默认值）⇒ 正确调用被拒、末参从不检查、
+        // 错接收者可能放行。改动既发新诊断（receiver 位 E0402）又改发射（带参形态此前编不过）。
+        "fix-static-form-receiver-slot"
     };
 
     // 指纹值：`Entries` 逐条以 `\n` 连接后取内容哈希（`mmh3:` 前缀，同 SourceHash）。
