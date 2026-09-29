@@ -161,6 +161,58 @@ void static_form_instance_call_extra_arg_reports_E1006() {
     Assert.Equal(1, arCount(d, "E1006"));
 }
 
+// ── fix-static-form-receiver-slot：**带形参**的静态形式（上面三条全是零参）────────
+//
+// 🔴 这组用例存在的理由：上面三条只用零参方法（`K.V(k)`），而零参时「接收者占了 args[0]」
+// **没有形参可错位** ⇒ 实现即使整条错位一格也恒绿。真实触发要带至少一个形参：
+// 修前 `K.M(k, 5)`（完全正确）被拒「cannot assign K to Int32」，而 `K.M("bogus", 5)`
+// 这种接收者类型错的反而可能放行 ⇒ 运行期拿错 this（碰 this 就崩不可 catch，不碰则静默错答案）。
+
+string arRecvCls() { return "class K { public int V; public bool M(int n) { return n > 0; } } "; }
+
+[Test]
+void static_form_with_params_accepts_correct_call() {
+    // 正确调用：接收者 + 1 实参。修前这里报 E0402（拿接收者去对第一个形参）。
+    Assert.Equal(0, arBody(arRecvCls() + "void Main() { K k = new K(); bool b = K.M(k, 5); }").Count());
+}
+
+[Test]
+void static_form_with_params_rejects_wrong_receiver_type() {
+    DiagnosticBag d = arBody(arRecvCls() + "void Main() { bool b = K.M(\"bogus\", 5); }");
+    Assert.Equal(1, arCount(d, "E0402"));
+    Assert.Equal(1, d.Count());
+}
+
+[Test]
+void static_form_with_params_checks_the_last_argument() {
+    // 修前**末参从不检查**（检查窗口被接收者挤掉一格）。
+    DiagnosticBag d = arBody(arRecvCls() + "void Main() { K k = new K(); bool b = K.M(k, \"not-an-int\"); }");
+    Assert.Equal(1, arCount(d, "E0402"));
+    Assert.Equal(1, d.Count());
+}
+
+[Test]
+void static_form_with_params_receiver_of_wrong_class_rejected() {
+    // 接收者是**另一个类**（不是无关基元）——同样该拒。
+    DiagnosticBag d = arBody(arRecvCls() + "class Other { public int W; } "
+        + "void Main() { Other o = new Other(); bool b = K.M(o, 5); }");
+    Assert.Equal(1, arCount(d, "E0402"));
+}
+
+[Test]
+void static_form_zero_param_still_clean() {
+    // 阴性对照：零参形态（`Int32.ToString(n)` 那一族）必须一字不变地继续工作。
+    Assert.Equal(0, arBody("class K { public int V() { return 1; } } void Main() { K k = new K(); int x = K.V(k); }").Count());
+}
+
+[Test]
+void instance_form_unaffected() {
+    // 阴性对照：普通实例调用不经这条路，正确/错误各一。
+    Assert.Equal(0, arBody(arRecvCls() + "void Main() { K k = new K(); bool b = k.M(5); }").Count());
+    DiagnosticBag d = arBody(arRecvCls() + "void Main() { K k = new K(); bool b = k.M(\"x\"); }");
+    Assert.Equal(1, arCount(d, "E0402"));
+}
+
 // ── 局部函数 ───────────────────────────────────────────────────────────────
 
 [Test]

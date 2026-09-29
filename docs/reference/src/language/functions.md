@@ -261,6 +261,40 @@ C.F(1);          // ✗ E1005: `C.F` is missing required argument `b` (no defaul
 C.F(1, 2, 3);    // ✗ E1006: too many arguments to `C.F`: expects 2
 ```
 
+### 实例方法的静态形式：接收者作第一个实参
+
+在类名上调一个**实例**方法时，接收者写成第一个实参——`Int32.ToString(n)` 就是这个形式：
+
+```z42
+class K {
+    public int V;
+    public bool Bigger(int n) { return this.V > n; }
+}
+
+K k = new K();
+bool a = k.Bigger(5);        // 普通实例调用
+bool b = K.Bigger(k, 5);     // 等价：静态形式，接收者作第一个实参
+
+int n = 42;
+string s = Int32.ToString(n);   // 基元包装类型上的同一个形式
+```
+
+规则：
+
+- **实参个数必须恰好是形参数 + 1**，否则 `E1005` / `E1006`，消息会点明「takes the receiver
+  as its first argument」。
+- **第一个实参必须能赋给该方法所属的类型**，否则 `E0402`，消息尾标 `(receiver)`：
+
+  ```z42
+  K.Bigger("bogus", 5);   // ✗ E0402: cannot assign string to K (receiver)
+  ```
+
+- 其余实参按**形参位**逐一检查，与普通调用同一条门。
+
+> 🔴 **有重载时这条路走不通**：`M` 在该类上有多个重载时，静态形式解析不到方法，报
+> `E0401: no static method 'M' on 'K'`。这是当前实现的边界——有重载就写普通的实例调用
+> `k.M(...)`。
+
 ## 局部函数
 
 方法体内可以声明只在该方法内可见的函数，支持直接递归，也**可以捕获外层局部变量**：
