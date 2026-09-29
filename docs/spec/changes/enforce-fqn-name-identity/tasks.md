@@ -414,7 +414,35 @@ design 自己写着：`GetHashCode` 是 FNV-1a over UTF-8、**O(n) 每次重算�
       实测（全量 `build stdlib`）：`fqn=Object` **4975** 次 · `fqn=Std.Object` **887** 次。
       它同时是 A5b「删短名回落」的**唯一**阻塞 —— 那 4975 次查到的对象连 FQN 都没有，
       任何按 FQN 的解析都够不着。**字节恒等**（A-B-A 验过）⇒ 不 bump 指纹。
-- [ ] A5**b-2** 建 `Resolve(scope, name) -> TypeRef` 单入口 + 删四访问器的短名回落 + 清死码
+- [x] A5**b-2a** ✅ `GetClass` 收敛到作用域感知的 `_resolveClass`（`ScopeNs` → FQN → `using` →
+      prelude → 裸名）；**同时**把 `MemberCollector._fillClass` 从直接摸 `Classes` 收敛到访问器 ——
+      否则同短名跨 ns 时成员填进赢家、绑定解析到输家，`ms` 为 null 直接崩。字节恒等。
+- [x] A5**b-2b-1** ✅ 补上 4 处**同包跨 ns 缺 `using`** 的既有违规（`TsigIndex` / `ZbcStringPool` /
+      `ZbcFormat` / `z42.core/Type.z42`）。字节恒等。
+
+### 🔴🔴 A 轴收口的**依赖顺序**（2026-09-30 定，顺序不能乱）
+
+User 2026-09-30 裁定走 **A：按规范办**（补 `using` + 让规则 2 在包内也真生效），而不是
+承认「同包跨 ns 免 using」。实施时发现**四步互为前置**，跳步就会立出瞎门：
+
+1. ✅ **补既有违规的 `using`**（本批）。实测全仓**只有 4 条**可判违规 —— 都是
+   **同包跨命名空间**（`z42.package` 一个包里住着 `Z42.IR` / `Z42.IR.BinaryFormat` /
+   `Z42.Package` 三个 ns），而 `E0436` 的判据 `cm.UsedDepNs` **只覆盖跨包依赖** ⇒ 全部漏掉。
+2. 🔜 **修 enum 身份**（`Z42ClassType.Enum()` 的 `SymbolTable:544` / `MemberResolver:67`
+   两个调用点不查 `EnumTypeNs` ⇒ 造出的 enum `Namespace` 为空）。
+   ⚠️ **不先做这步，门在 enum 轴上是瞎的** —— 空 ns 不参与可见性判定，而实测
+   `ZbcFormat.z42` 缺的那个 `using Z42.IR;` 正是为了一个 **enum**（`IrType`）。
+   典型的「门会绿，但它没在守」。
+3. 🔜 **补作用域**：`ResolveTypeP` 仍有大量调用跑在**没设作用域**的表视图上
+   （A5b-2a 实测 2802 次 / 本批探针 174 次引用方 ns 为空）⇒ 那些路径上可见性判不了。
+4. 🔜 **立门**（把规则 2 的判据从 `UsedDepNs` 扩到「所有用到的 ns」）→ 然后才能**删裸名回落**。
+
+> ⭐ 教训：**我一度把「父 ns 隐式可见」当成 z42 的语言规则**（C# 的直觉），据此以为
+> 「裸名表在替一条没实现的规则工作」。读 `namespaces.md` 规则 2/4 才发现**方向是反的**：
+> z42 刻意没有这条规则，是**裸名表让违反规范的写法静默通过**。
+> ⇒ 碰到「实现与预期不符」时，先查规范怎么写，别用别的语言的直觉补全。
+
+- [ ] A5**b-2c** 删四访问器的短名回落 + 清死码（**必须在上面 2/3/4 之后**）
 
 ### A5b 测绘（2026-09-29，探针跑全量 `build stdlib`，21,078 次 `GetClass`）
 

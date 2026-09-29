@@ -1,6 +1,7 @@
 // .zbc 格式常量 + 类型名→标签映射（port-z42c-zbc-writer ZW-1A-2）。镜像 C# Opcodes.cs。
 // 受限写法：static class + int 常量（替 enum，同 DiagnosticCodes 模式）。
 namespace Z42.IR.BinaryFormat;
+using Z42.IR;   // IrType —— 同包跨 ns 也必须显式 using（namespaces.md 规则 2）
 
 // 文件版本（须与 C# ZbcWriter.VersionMajor/Minor 一致；strict-pin。bump 同步规则见 version-bumping.md 第 5 步）。
 public static class ZbcVersion {

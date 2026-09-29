@@ -4,6 +4,7 @@
 // 25 包 world 下单次 DepScan 的 TSIG 重建 ≈ 0.9 s（Open 73 ms、SIGS 140 ms）。
 // 两张索引都只回答「在哪」，产出顺序与原线性扫描一致（byte-identical 由自举不动点 + 全 stdlib 字节对账守住）。
 namespace Z42.IR;
+using Z42.Package;   // ZpkgModuleSigs / ZpkgModuleTypes —— 同包跨 ns 也必须显式 using（namespaces.md 规则 2）
 
 // ① world 级：类 FQ 名 → (包, 模块, 类) 三元下标。重复 FQ（同名类出现在多个包）保留 (包, 模块, 类)
 // 字典序最小者——与 `_locate` 按 p → m → t 升序扫描的 first-wins 语义一致。模块只增不删，索引只增。
