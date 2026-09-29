@@ -305,7 +305,7 @@ string _normPath(string p) {
 //
 // 改名类迁移做完后重估这个旗标：若届时只剩自举在用，考虑把「编译期/运行期两个面」做成内部默认
 // 行为、连旗标一起撤掉 —— **要删的是旋钮，不是那个区分**。
-// STAGE2-DEBT(compile-libs-knob): 改名迁移做完后重估：只剩自举在用就把旗标撤掉（保留内部区分）
+// STAGE2-DEBT(compile-libs-knob): 改名迁移做完后重估：只剩自举在用就把旗标撤掉（保留内部区分）。2026-09-30 推到 11-10：前提确实未到 —— 等 add-package-roles 批 3 大重命名，那件事跨 nightly、要先出 DRAFT
 static class CompileLibsOpt {
     static string[] _dirs = new string[0];
     static int _n = 0;

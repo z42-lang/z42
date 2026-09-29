@@ -237,8 +237,8 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
         // 接住 ⇒ 用户拿到的是带 z42c 内部栈帧的 `uncaught exception`，而异常消息里那句话本身
         // 是好的。同 #807 修掉的 `Pipeline.Compile`：真因已知却被一层无关噪音盖住。
         // 落点已从 `z42c.pipeline` 搬到 `z42.project`（零编译器依赖，且 z42b 也要用它）。
-        // **全限定**：`Z42.Pipeline` 还留着一层同名转发（种子 ABI，下一 nightly 删），
-        // 不限定就是两个 `PathDepClosure` 打架。
+        // `Z42.Pipeline` 那层同名转发（曾为种子 ABI 保留）已于 2026-09-29 删除 ——
+        // 保留**全限定**写法：它现在只是明示落点，不再是消歧。
         Z42.Project.PathDepClosure closure;
         try {
             closure = Z42.Project.PathDepPlan.Resolve(tomlPath);
