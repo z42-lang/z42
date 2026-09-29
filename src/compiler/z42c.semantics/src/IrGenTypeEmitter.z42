@@ -171,8 +171,17 @@ public sealed class IrGenTypeEmitter {
 
     // add-record-value-semantics：`[Record]` 类型合成值语义（用户未显式声明才合成）。
     //   class（引用）：Equals（裸名，经 vtable 覆盖 Object 槽）/ GetHashCode / ToString；struct（值）：仅 ToString。
+    //
+    // ⚠️ `!g.HasTypeErrors` 这道守卫是必须的，理由与 `IrGenMemberEmitter:95` 那条**逐字相同**：
+    // IrGen 在 `ErrorCount > 0` 时**照常全量跑**，而合成是**从类型的字段布局派生出来的代码** ——
+    // 本 CU 已经有错时那份布局可能压根没被算出来，于是合成会崩在 `AccessEmitter._pathAppend`
+    // 的布局守卫上（`layout lookup failed (index -1)`），**把「一条诊断」变成「编译器崩」**。
+    // 实测形态：`[Record] struct Single(int X, int Y)` —— `Single` 撞内建基元拼写（E0499，
+    // add-builtin-name-clash-diagnostic）⇒ `StructLayout` 判它是标量、根本不建布局 ⇒
+    // 诊断已经记在 `DiagnosticBag` 里，却因为进程先崩而**一个字都没打印出来**。
     private void _emitRecordSynth(Decl rawDecl, ClassDecl c, Z42ClassType owner) {
         IrGen g = this._g;
+        if (g.HasTypeErrors) { return; }
         if (owner != null && HandlerRegistry.HasRecord(rawDecl)) {
             var rse = new RecordSynthEmitter(this._model.Symbols, g);
             string rq = g._q(g.SpecInstName != "" ? g.SpecInstName : g._classIrShortName(c));   // 特化通道下用实例化名

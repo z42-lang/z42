@@ -776,6 +776,15 @@ Bound 树 + `SemanticModel` → `IrModule`。逐个类方法与顶层函数交�
 > 绑定器本来就可能没绑这个体（**IrGen 在 `ErrorCount > 0` 时照常全量跑**），那时落空是预期的、
 > 诊断已经报过 —— 不加守卫会把「一堆诊断」变成「编译器崩」。
 
+> 🔴 **这是一族守卫，不是一处特例**：「IrGen 在 `ErrorCount > 0` 时照常全量跑」这一条，
+> 让**任何从类型的字段布局派生出来的合成**都必须守 `HasTypeErrors` ——
+> 已经有错时那份布局可能压根没被算出来。第三处是 `IrGenTypeEmitter._emitRecordSynth`
+> （`[Record]` 的 `Equals` / `GetHashCode` / `ToString` 合成）：实测
+> `[Record] struct Single(int X, int Y)` —— `Single` 撞内建基元拼写（**E0499**）⇒
+> `StructLayout` 判它是标量、根本不建布局 ⇒ 合成崩在 `AccessEmitter._pathAppend` 的布局守卫上
+> （`layout lookup failed (index -1)`），于是**诊断已经记在 `DiagnosticBag` 里、却因为进程先崩
+> 而一个字都没打印出来**。⇒ 新增「从布局派生的合成」时，先问这道闸。
+
 **改键的纪律**：动 `methKey` 的拼法必须同时看写读两端。本文件上方那条注释记着一次实测教训 ——
 「只改**发射名**，不能改 `methKey`：两者一起改会让 `model.HasBody` 落空 → 函数根本不发射」。
 

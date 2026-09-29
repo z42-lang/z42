@@ -1,0 +1,160 @@
+// add-builtin-name-clash-diagnostic（**E0499**）—— 类型名撞内建基元的 BCL 拼写。
+//
+// 缺陷形态（改动前，全部**零诊断**）：`PrimModel.Canon` 是个纯字符串函数、不看命名空间，
+// 把用户类型名 `Single` 折成关键字 `float` ⇒ `StructLayout.BuildFromSymbols` 判它是标量、
+// **根本不建布局** ⇒ `ClassDescBuilder` 的 `IsStructType` miss、尺寸与逐字段表一个都不填，
+// 而 `ZbcWriter` 仍按 struct 位**无条件**写出一个 size 0 的空块。三副面孔（实测）：
+//   · 普通 struct   ⇒ 运行期 `FieldSet: expected object, got F64(0.0)`
+//   · 泛型 struct   ⇒ 运行期 `struct field write out of blob bounds`
+//   · `[Record]` struct ⇒ **编译器自己崩**（uncaught @ `AccessEmitter._pathAppend`）
+//
+// ⚠️ 断言用**字面量** `"E0499"`（与发码侧同一纪律，见 `DiagnosticCodes.z42` 该条注释）。
+//
+// ⚠️ **覆盖范围**：本文件的 `clashDiags` 走 `SymbolCollector.Collect`、`clashDiags2` 走
+// `CollectAll` —— 三个挂载点里的两个。第三处（`CollectWithImports`）要导入上下文才压得到，
+// 由 stdlib 自举兜（z42.core 自己声明着全部 14 个名字，漏挂会让它整个编不过）。
+// 同 `typeref_bind_tests.z42` 头注那条：**三处漏挂任一处，那条路上会静默失效**。
+//
+// 单独成文件而不是追加进 `collect_tests.z42`：后者已 854 行，逼近 886 行硬限。
+namespace Z42cSemanticsBuiltinNameClashTests;
+
+using Std;
+
+using Std.Test;
+using Z42.Syntax;
+using Z42.Semantics;
+using Z42.Core;
+
+bool hasClash(DiagnosticBag d) {
+    int i = 0;
+    while (i < d.Count()) { if (d.Get(i).Code == "E0499") { return true; } i = i + 1; }
+    return false;
+}
+
+// 单 CU 路径（`SymbolCollector.Collect`）。
+DiagnosticBag clashDiags(string src) {
+    var p = new Parser(src, "t.z42");
+    var cu = p.ParseCompilationUnit();
+    var coll = new SymbolCollector();
+    coll.Collect(cu);
+    return coll.Diags;
+}
+
+// 多 CU 路径（`SymbolCollector.CollectAll`）—— 第二个挂载点。
+DiagnosticBag clashDiags2(string a, string b) {
+    var pa = new Parser(a, "a.z42"); var cua = pa.ParseCompilationUnit();
+    var pb = new Parser(b, "b.z42"); var cub = pb.ParseCompilationUnit();
+    CompilationUnit[] cus = new CompilationUnit[2]; cus[0] = cua; cus[1] = cub;
+    string[] files = new string[2]; files[0] = "a.z42"; files[1] = "b.z42";
+    var coll = new SymbolCollector();
+    coll.CollectAll(cus, files, 2, null);
+    return coll.Diags;
+}
+
+// ── 正例：该报的必须报 ──────────────────────────────────────────────────────
+
+[Test]
+void test_struct_named_after_builtin_is_reported() {
+    Assert.Equal(true, hasClash(clashDiags(
+        "namespace Demo;\nstruct Single { public int X; public int Y; }")));
+}
+
+[Test]
+void test_class_named_after_builtin_is_reported() {
+    Assert.Equal(true, hasClash(clashDiags(
+        "namespace Demo;\nclass String { public int X; }")));
+}
+
+// 🔴 `string` / `object` 这两格是判据选型的**唯一**分水岭：`PrimModel.IsScalarValue`
+// 是 `c >= 0 && c <= 11`，**够不到 `string`(12) / `object`(13)**，而它们实测一样会崩。
+// 判据必须是 `Code(Canon(n)) >= 0`。改成 `IsScalarValue` 这两条立刻变红。
+[Test]
+void test_object_and_string_are_covered_not_just_scalars() {
+    Assert.Equal(true, hasClash(clashDiags(
+        "namespace Demo;\nstruct Object { public int X; public int Y; }")));
+    Assert.Equal(true, hasClash(clashDiags(
+        "namespace Demo;\nclass String { public int X; }")));
+}
+
+[Test]
+void test_generic_struct_named_after_builtin_is_reported() {
+    Assert.Equal(true, hasClash(clashDiags(
+        "namespace Demo;\nstruct Single<T> { public int X; public int Y; }")));
+}
+
+// ⭐ 这条形态此前让**编译器自己崩**（uncaught exception，零诊断）。
+[Test]
+void test_record_struct_named_after_builtin_is_reported() {
+    Assert.Equal(true, hasClash(clashDiags(
+        "namespace Demo;\n[Record] struct Single(int X, int Y);")));
+}
+
+// 诊断挂在**声明位**：从不使用也要报。
+// 今天「声明了但不碰字段」恰好不崩，但把诊断挂在「碰了才报」上，规则就不可陈述、
+// 还依赖「有没有正好触发崩溃」。
+[Test]
+void test_declared_but_never_used_is_still_reported() {
+    Assert.Equal(true, hasClash(clashDiags(
+        "namespace Demo;\nstruct Int32 { public int X; public int Y; }")));
+}
+
+// 第二个挂载点（`CollectAll`）也必须报 —— 漏挂会**静默**放过整条多 CU 路径。
+[Test]
+void test_reported_on_the_multi_cu_path_too() {
+    Assert.Equal(true, hasClash(clashDiags2(
+        "namespace Demo;\nstruct Single { public int X; public int Y; }",
+        "namespace Demo;\nclass Other { public int Y; }")));
+}
+
+// ── 阴性对照：这些是范围的**唯一**表达，缺一条范围就没人守 ────────────────────
+
+[Test]
+void test_ordinary_name_is_not_reported() {
+    Assert.Equal(false, hasClash(clashDiags(
+        "namespace Demo;\nstruct Solo { public int X; public int Y; }")));
+}
+
+// enum / interface 实测不受折叠影响、行为正确 ⇒ 为它们加约束是凭空扩大语言限制。
+[Test]
+void test_enum_named_after_builtin_is_not_reported() {
+    Assert.Equal(false, hasClash(clashDiags(
+        "namespace Demo;\nenum Single { A, B }")));
+}
+
+[Test]
+void test_interface_named_after_builtin_is_not_reported() {
+    Assert.Equal(false, hasClash(clashDiags(
+        "namespace Demo;\ninterface Single { int F(); }")));
+}
+
+// 🔴 嵌套类型的豁免是**按构造成立**的：本 pass 跑在 NestedFlatten 之后，届时名字是
+// `Outer+Single`，`Canon` 折不动。**没有任何代码表达这件事** —— 这条测试就是它的唯一守卫。
+// flatten 的拼写一变，范围会静默扩大（误拒）或缩小（漏报），两种都不会有人发现。
+[Test]
+void test_nested_type_named_after_builtin_is_not_reported() {
+    Assert.Equal(false, hasClash(clashDiags(
+        "namespace Demo;\nclass Outer { public struct Single { public int X; public int Y; } }")));
+}
+
+// 豁免：`PreludeNs.Root()`（`Std`）—— `z42.core` 的 `Std.Single` **就是** `float` 的
+// 包装类型声明，那里的折叠是对的。
+[Test]
+void test_declaration_in_the_prelude_namespace_is_exempt() {
+    Assert.Equal(false, hasClash(clashDiags(
+        "namespace Std;\nstruct Single { public int X; public int Y; }")));
+}
+
+// `Std` 不是保留命名空间：往里声明**别的**名字完全合法，本码不得误伤。
+[Test]
+void test_new_type_in_the_prelude_namespace_is_fine() {
+    Assert.Equal(false, hasClash(clashDiags(
+        "namespace Std;\nstruct MyThing { public int X; public int Y; }")));
+}
+
+// 豁免只认 prelude 的**根** ns。`Std.Runtime` 也是 prelude，但那 14 个包装类型声明在 `Std`；
+// `Std.Runtime` 里叫 `Single` 的类型，符号表键仍是裸名 ⇒ 照样被折 ⇒ **应当报**。
+[Test]
+void test_prelude_subnamespace_is_not_exempt() {
+    Assert.Equal(true, hasClash(clashDiags(
+        "namespace Std.Runtime;\nstruct Single { public int X; public int Y; }")));
+}

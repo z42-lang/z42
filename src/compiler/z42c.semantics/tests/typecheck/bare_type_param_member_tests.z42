@@ -18,7 +18,7 @@ using Z42.Semantics;
 
 // 每个用例都自带 Object 与接口声明（见抬头）。
 string _prelude() {
-    return "namespace N; class Object { public string ToString() { return \"\"; } "
+    return "namespace Std; class Object { public string ToString() { return \"\"; } "
          + "public int GetHashCode() { return 0; } } "
          + "interface IHasName { string Name { get; } int GetName(); } ";
 }
