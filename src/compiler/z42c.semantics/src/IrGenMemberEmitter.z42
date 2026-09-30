@@ -134,8 +134,13 @@ public sealed class IrGenMemberEmitter {
     }
 
     // 属性：计算 getter（HasGetBody）→ 真实 get_X；extern getter → builtin 桩；auto-prop → field.get/set @__prop_X 桩。
-    public void EmitProperty(ClassDecl c, Z42ClassType owner, Decl rawMem, PropertyDecl pd) {
+    public void EmitProperty(ClassDecl c, Z42ClassType owner, string ownerKey, Decl rawMem, PropertyDecl pd) {
         IrGen g = this._g; SemanticModel model = this._model;
+        // fix-accessor-body-key：体查找键与 EmitMethod 同源——`ownerKey`（arity-mangle 时 `Name$N`，
+        // 与 DeclBinder 的 ctKey 一致），体从 SpecBodyModel（跨文件特化时体只在声明所属 CU）取。
+        // 此前拼 `c.Name + ".get_X"` 且只查本 CU model、查不到就静默跳过 ⇒ `class Box` 与 `class Box<T>`
+        // 同包时，`Box<T>` 的计算属性 / 索引器一个字节都不发，运行期才 `function Box$1<int>.get_X not found`。
+        SemanticModel bodyM = g.SpecBodyModel != null ? g.SpecBodyModel : model;
         bool pdExtern = IrGenFacts._hasWord(pd.Mods, "extern");
         bool pdStatic = IrGenFacts._hasWord(pd.Mods, "static");
         // add-accessor-visibility：访问器可见性进 IR（供反射 + 跨包访问控制）。此前 auto-prop / 计算体
@@ -145,15 +150,16 @@ public sealed class IrGenMemberEmitter {
         int pdGetVis = IrGenFacts._visCode(pd.GetMods, pdPropVis);
         int pdSetVis = IrGenFacts._visCode(pd.SetMods, pdPropVis);
         if (pd.HasGetBody) {
-            string pgKey = c.Name + ".get_" + pd.Name;
+            string pgKey = ownerKey + ".get_" + pd.Name;
             string pgIrName = this._irOwner(c) + ".get_" + pd.Name;
-            if (model.HasBody(pgKey)) {
+            this._requireBody(bodyM, pgKey, pgIrName);
+            if (bodyM.HasBody(pgKey)) {
                 TypeParamList emptyTpPg = new TypeParamList(new string[0], 0, pd.Span);
                 MethodDecl synthPg = new MethodDecl("", false, false, pd.Type, "get_" + pd.Name,
                                                      emptyTpPg, new WhereClause[0], 0,
                                                      new Param[0], 0, true, pd.GetBody, new Expr[0], 0, false, pd.Span);
                 var fePg = new FunctionEmitter(model.Symbols, g);
-                IrFunction pgIrf = fePg.EmitFunction(pgIrName, synthPg, model.GetBody(pgKey),
+                IrFunction pgIrf = fePg.EmitFunction(pgIrName, synthPg, bodyM.GetBody(pgKey),
                                                       !pdStatic, pdStatic, owner, c.TypeParams.Names, c.TypeParams.Count);
                 IrGenFacts._fillParamMeta(pgIrf, synthPg, !pdStatic);   // add-param-metadata（reconcile 补齐）
                 pgIrf.Visibility = pdGetVis;   // add-accessor-visibility（synthPg.Mods 为空，须显式覆盖）
@@ -196,9 +202,10 @@ public sealed class IrGenMemberEmitter {
         // 独立于 getter 分支：`{ get {} set {} }` 时 HasGetBody 走首分支、auto 链跳过，故 set_X 须在链外单发。
         // 隐式 value 参（属性类型）、void 返回。混合已由 parser E0474 挡下，此处只见「两半都带体」。
         if (pd.HasSetBody) {
-            string psKey = c.Name + ".set_" + pd.Name;
+            string psKey = ownerKey + ".set_" + pd.Name;
             string psIrName = this._irOwner(c) + ".set_" + pd.Name;
-            if (model.HasBody(psKey)) {
+            this._requireBody(bodyM, psKey, psIrName);
+            if (bodyM.HasBody(psKey)) {
                 TypeParamList emptyTpPs = new TypeParamList(new string[0], 0, pd.Span);
                 TypeExpr voidRetP = new NamedType("void", new TypeExpr[0], 0, pd.Span);
                 Param[] setPsP = new Param[1];
@@ -207,7 +214,7 @@ public sealed class IrGenMemberEmitter {
                                                      emptyTpPs, new WhereClause[0], 0,
                                                      setPsP, 1, true, pd.SetBody, new Expr[0], 0, false, pd.Span);
                 var fePs = new FunctionEmitter(model.Symbols, g);
-                IrFunction psIrf = fePs.EmitFunction(psIrName, synthPs, model.GetBody(psKey),
+                IrFunction psIrf = fePs.EmitFunction(psIrName, synthPs, bodyM.GetBody(psKey),
                                                       !pdStatic, pdStatic, owner, c.TypeParams.Names, c.TypeParams.Count);
                 IrGenFacts._fillParamMeta(psIrf, synthPs, !pdStatic);   // add-param-metadata（reconcile 补齐）
                 psIrf.Visibility = pdSetVis;   // add-accessor-visibility（synthPs.Mods 为空，须显式覆盖）
@@ -217,28 +224,31 @@ public sealed class IrGenMemberEmitter {
     }
 
     // 索引器 → get_Item / set_Item 编译函数（镜像 C# IndexerDecl lowering）。
-    public void EmitIndexer(ClassDecl c, Z42ClassType owner, IndexerDecl idx) {
+    public void EmitIndexer(ClassDecl c, Z42ClassType owner, string ownerKey, IndexerDecl idx) {
         IrGen g = this._g; SemanticModel model = this._model;
+        SemanticModel bodyM = g.SpecBodyModel != null ? g.SpecBodyModel : model;   // 同 EmitProperty
         TypeParamList emptyTpI = new TypeParamList(new string[0], 0, idx.Span);
         TypeExpr voidRet = new NamedType("void", new TypeExpr[0], 0, idx.Span);
         if (idx.HasGet) {
-            string getKey = c.Name + ".get_Item";
+            string getKey = ownerKey + ".get_Item";
             string getIrName = this._irOwner(c) + ".get_Item";
-            if (model.HasBody(getKey)) {
+            this._requireBody(bodyM, getKey, getIrName);
+            if (bodyM.HasBody(getKey)) {
                 MethodDecl synthGet = new MethodDecl("", false, false, idx.RetType, "get_Item",
                                                       emptyTpI, new WhereClause[0], 0,
                                                       idx.Params, idx.ParamCount, true, idx.GetBody, new Expr[0], 0, false, idx.Span);
                 var feGet = new FunctionEmitter(model.Symbols, g);
-                IrFunction getIrf = feGet.EmitFunction(getIrName, synthGet, model.GetBody(getKey),
+                IrFunction getIrf = feGet.EmitFunction(getIrName, synthGet, bodyM.GetBody(getKey),
                                                         true, false, owner, c.TypeParams.Names, c.TypeParams.Count);
                 IrGenFacts._fillParamMeta(getIrf, synthGet, true);   // add-param-metadata（reconcile 补齐）
                 this._out.AddFunc(getIrf);
             }
         }
         if (idx.HasSet) {
-            string setKey = c.Name + ".set_Item";
+            string setKey = ownerKey + ".set_Item";
             string setIrName = this._irOwner(c) + ".set_Item";
-            if (model.HasBody(setKey)) {
+            this._requireBody(bodyM, setKey, setIrName);
+            if (bodyM.HasBody(setKey)) {
                 Param[] setPs = new Param[idx.ParamCount + 1];
                 int spi = 0;
                 while (spi < idx.ParamCount) { setPs[spi] = idx.Params[spi]; spi = spi + 1; }
@@ -247,12 +257,21 @@ public sealed class IrGenMemberEmitter {
                                                       emptyTpI, new WhereClause[0], 0,
                                                       setPs, idx.ParamCount + 1, true, idx.SetBody, new Expr[0], 0, false, idx.Span);
                 var feSet = new FunctionEmitter(model.Symbols, g);
-                IrFunction setIrf = feSet.EmitFunction(setIrName, synthSet, model.GetBody(setKey),
+                IrFunction setIrf = feSet.EmitFunction(setIrName, synthSet, bodyM.GetBody(setKey),
                                                         true, false, owner, c.TypeParams.Names, c.TypeParams.Count);
                 IrGenFacts._fillParamMeta(setIrf, synthSet, true);   // add-param-metadata（reconcile 补齐）
                 this._out.AddFunc(setIrf);
             }
         }
+    }
+
+    // 访问器（属性 get/set、索引器 get/set）「AST 说有体、model 里查不到」= 键构造 bug，与 EmitMethod
+    // 那条 throw 同一不变式、同一 `!HasTypeErrors` 守卫（有类型错误时绑定器可能本就没绑，诊断已报过）。
+    private void _requireBody(SemanticModel bodyM, string key, string irName) {
+        if (bodyM.HasBody(key) || this._g.HasTypeErrors) { return; }
+        throw new Exception("z42c internal: no bound body for accessor `" + key + "` while emitting `"
+            + irName + "` (the AST says it has a body). Check `ownerKey` against DeclBinder's ctKey"
+            + " spelling (arity-mangle → `Name$N`). Silently skipping would drop the accessor.");
     }
 
     // add-iface-return-bridge：本方法要不要桥接 ⇒ 返回接口声明的返回类型名；否则 ""。

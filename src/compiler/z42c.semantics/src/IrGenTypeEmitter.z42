@@ -48,8 +48,8 @@ public sealed class IrGenTypeEmitter {
             Decl rawMem = c.Members[j];
             Decl mem = IrGenFacts._unwrap(rawMem);
             if (mem is MethodDecl) { this._members.EmitMethod(c, owner, ownerKey, rawMem, mem as MethodDecl); }
-            else if (mem is PropertyDecl) { this._members.EmitProperty(c, owner, rawMem, mem as PropertyDecl); }
-            else if (mem is IndexerDecl) { this._members.EmitIndexer(c, owner, mem as IndexerDecl); }
+            else if (mem is PropertyDecl) { this._members.EmitProperty(c, owner, ownerKey, rawMem, mem as PropertyDecl); }
+            else if (mem is IndexerDecl) { this._members.EmitIndexer(c, owner, ownerKey, mem as IndexerDecl); }
             j = j + 1;
         }
         this._emitStructEquals(c, owner);
@@ -113,8 +113,8 @@ public sealed class IrGenTypeEmitter {
             Decl rawMem = c.Members[j];
             Decl mem = IrGenFacts._unwrap(rawMem);
             if (mem is MethodDecl) { this._members.EmitMethod(c, owner, ownerKey, rawMem, mem as MethodDecl); }
-            else if (mem is PropertyDecl) { this._members.EmitProperty(c, owner, rawMem, mem as PropertyDecl); }
-            else if (mem is IndexerDecl) { this._members.EmitIndexer(c, owner, mem as IndexerDecl); }
+            else if (mem is PropertyDecl) { this._members.EmitProperty(c, owner, ownerKey, rawMem, mem as PropertyDecl); }
+            else if (mem is IndexerDecl) { this._members.EmitIndexer(c, owner, ownerKey, mem as IndexerDecl); }
             j = j + 1;
         }
         // **合成成员也要特化**：`Equals$1`（blob struct 合成）与 `[Record]` 的 ToString 都按

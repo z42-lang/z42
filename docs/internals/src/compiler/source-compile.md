@@ -801,6 +801,13 @@ Bound 树 + `SemanticModel` → `IrModule`。逐个类方法与顶层函数交�
 > （`layout lookup failed (index -1)`），于是**诊断已经记在 `DiagnosticBag` 里、却因为进程先崩
 > 而一个字都没打印出来**。⇒ 新增「从布局派生的合成」时，先问这道闸。
 
+> 🔴 **访问器那一半当时没跟上**（fix-accessor-body-key）：上面的 throw 只加在 `EmitMethod`。属性
+> get/set、索引器 get/set 四处读端仍拼 `c.Name + ".get_X"`、只查本 CU 的 `model`、查不到静默跳过 ——
+> 而写端（`DeclBinder`）用的是 `ctKey`，arity-mangle 时是 `Name$N`。同包里既有 `class Box` 又有
+> `class Box<T>` ⇒ `Box<T>` 的计算属性 / 索引器一个字节都不发，运行期才
+> `VCall: function Box$1<int>.get_X not found`。现在四处与方法同源：`ownerKey` 拼键、体从
+> `SpecBodyModel ?? model` 取、落空走同一个带 `!HasTypeErrors` 守卫的 throw（`_requireBody`）。
+
 **改键的纪律**：动 `methKey` 的拼法必须同时看写读两端。本文件上方那条注释记着一次实测教训 ——
 「只改**发射名**，不能改 `methKey`：两者一起改会让 `model.HasBody` 落空 → 函数根本不发射」。
 
