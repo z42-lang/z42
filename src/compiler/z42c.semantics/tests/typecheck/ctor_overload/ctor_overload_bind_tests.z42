@@ -1,0 +1,69 @@
+// fix-ctor-overload-speculative-bind：多重载构造器的实参**只绑一次诊断**。
+//
+// ConstructTyper 为选重载先不带目标类型地试绑一遍实参，选定后再按形参类型 `BindWithTarget`
+// 重绑一遍。试探段的诊断此前原样留着 ⇒ ① 实参里的错误报两遍；② target-typed `new()` 实参在
+// 试探段没有目标类型，报**假的** E0437（`new C(new())` 对 `C(P)` + `C(int,int)` 完全合法）。
+namespace Z42cSemanticsCtorOverloadBindTests;
+
+using Std;
+using Std.Test;
+using Z42.Semantics;
+using Z42.Syntax;
+using Z42.Core;
+
+DiagnosticBag coBody(string src) {
+    var p = new Parser(src, "t.z42");
+    var cu = p.ParseCompilationUnit();
+    var symbols = new SymbolCollector().Collect(cu);
+    var diags = new DiagnosticBag();
+    cu.MergeParseDiags(diags);
+    new TypeChecker(diags).Infer(cu, symbols);
+    return diags;
+}
+
+int coCount(DiagnosticBag d, string code) {
+    int n = 0;
+    int i = 0;
+    while (i < d.Count()) { if (d.Get(i).Code == code) { n = n + 1; } i = i + 1; }
+    return n;
+}
+
+string coTwoCtors() {
+    return "class P { public int X; public P() { this.X = 1; } }\n"
+         + "class C {\n"
+         + "    public int V;\n"
+         + "    public C(P p) { this.V = p.X; }\n"
+         + "    public C(int a, int b) { this.V = a + b; }\n"
+         + "}\n";
+}
+
+// 阳性（修前红）：实参里的错误只报一次。
+[Test]
+void test_arg_error_reported_once_with_overloaded_ctors() {
+    DiagnosticBag d = coBody(coTwoCtors() + "void Main() { var c = new C(undefinedThing); }\n");
+    Assert.Equal(1, coCount(d, "E0401"));
+}
+
+// 阳性（修前红）：target-typed `new()` 作重载 ctor 的实参，按 arity 唯一能选出 C(P) ⇒ 零诊断。
+[Test]
+void test_target_typed_new_arg_to_overloaded_ctor_ok() {
+    DiagnosticBag d = coBody(coTwoCtors() + "void Main() { var c = new C(new()); }\n");
+    Assert.Equal(0, d.ErrorCount());
+}
+
+// 对照：同 arity 两个重载时 target-typed `new()` 确实选不出来 —— 仍须报错（不能被试探段的截断吞掉）。
+[Test]
+void test_target_typed_new_same_arity_still_rejected() {
+    DiagnosticBag d = coBody(
+        "class P { public P() { } }\nclass Q { public Q() { } }\n"
+        + "class C { public C(P p) { } public C(Q q) { } }\n"
+        + "void Main() { var c = new C(new()); }\n");
+    Assert.True(d.ErrorCount() > 0);
+}
+
+// 对照：单 ctor（不走试探段）的实参错误照旧报一次。
+[Test]
+void test_single_ctor_arg_error_reported_once() {
+    DiagnosticBag d = coBody("class C { public C(int a) { } }\nvoid Main() { var c = new C(undefinedThing); }\n");
+    Assert.Equal(1, coCount(d, "E0401"));
+}

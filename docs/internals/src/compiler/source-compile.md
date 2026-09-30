@@ -560,6 +560,15 @@ ResolveMapped: 适用集里找唯一「支配所有其它」的候选
 修前的形态：`M.F("a")` 对 `F()` + `F(string a, int n = 2)` 报找不到方法；`new C("a")` 同形**编译通过、运行期选中无参构造器**；
 `Q("a")` 对 `Q(string a, int n = 2)` + `Q(params object[])` **静默选中 params**；命名实参在多重载时报 E0437 + `undefined`。
 
+#### 构造器重载：选重载时的试绑是**试探性**的
+
+`ConstructTyper` 在多个实例 ctor 之间选重载时，先**不带目标类型**地试绑一遍实参拿类型，选定后再按
+形参类型 `BindWithTarget` 重绑一遍——实参因此总是被绑两次。第一遍是试探：它产生的诊断在决议结束后
+整体 `TruncateTo` 丢弃（同 Parser 回溯），延迟位（target-typed `new` / lambda / 重载函数引用）不在试探段
+绑定，交给按实参映射（arity / 形参名）的 `ResolveMapped`（fix-ctor-overload-speculative-bind）。此前两件事
+都没做：`new C(undefinedThing)` 报两条 E0401；`new C(new())` 对 `C(P)` + `C(int,int)` 报假的 E0437。
+决议本身报的「歧义」诊断在截断**之后**发，不会被吞。
+
 #### prim 类型的静态字段读（`int.MaxValue`）
 
 裸类型名的静态字段读（`Type.FIELD`）绑定走 `MemberResolver._bindMember`（`z42c.semantics/src/MemberResolver.z42:17`）：`target` 是类名（非变量）且该类有同名 `static` 字段 → 产 `BoundStaticGet`，emit `StaticGetInstr @<FQN>.<field>`，运行期由 VM 启动的 `<ns>.__static_init__` pass 初始化（`src/runtime/src/interp/mod.rs` `init_static_fields`，机制同 `Std.Math.Pi`）。

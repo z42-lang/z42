@@ -300,14 +300,26 @@ public sealed class ConstructTyper {
         MethodSymbol[] cands = cls != null ? cls.InstanceCtors() : new MethodSymbol[0];
         bool hasNamed = cands.Length > 1 && this._tc._overload._hasNamedArg(rawArgs, argc, env);
         bool resolvedByType = false;
+        // fix-ctor-overload-speculative-bind：下面这段只为**选重载**而绑定实参（不带目标类型），是试探性的——
+        // 选定后最终那次 `BindWithTarget` 会按形参类型重绑一遍、重报一遍。此前试探段的诊断原样留着 ⇒
+        // 实参里的任何错误报两遍（`new C(undefinedThing)` → 两条 E0401），target-typed `new()` 实参在
+        // 无目标类型时报**假的** E0437（`new C(new())` 对 `C(P)` + `C(int,int)` 完全合法）。
+        // 修法同方法调用那一支：延迟位（target-typed new / lambda / 重载函数引用）不在试探段绑定；
+        // 试探段产生的诊断在决议结束后整体丢弃（同 Parser 回溯的 `TruncateTo`）。
+        int specMark = this._tc._diags.Count();
         if (cands.Length > 1 && argc > 0 && !hasNamed) {
             Z42Type[] argTs = new Z42Type[argc];
             int ai = 0;
             bool allBound = true;
             while (ai < argc) {
-                BoundExpr b = this._et._bindExpr(rawArgs[ai], env);
-                if (b == null || b.Type() == null) { allBound = false; }
-                else { argTs[ai] = b.Type(); }
+                Expr ra = rawArgs[ai];
+                if (ExprTyper.IsTargetTypedNew(ra) || ExprTyper.IsLambdaArg(ra) || ExprTyper.IsOverloadedFuncRefArg(ra, env)) {
+                    allBound = false;   // 延迟位：无类型，交给下面按实参映射（arity / 形参名）决议
+                } else {
+                    BoundExpr b = this._et._bindExpr(ra, env);
+                    if (b == null || b.Type() == null) { allBound = false; }
+                    else { argTs[ai] = b.Type(); }
+                }
                 ai = ai + 1;
             }
             if (allBound) {
@@ -321,8 +333,12 @@ public sealed class ConstructTyper {
         // 类型不适用），或用了命名实参 ⇒ 按「实参映射」决议。此前这里只剩 `_ctorKey` 的 arity 回落（找不到就取裸名
         // = primary）⇒ `new C("a")` 对 `C()` + `C(string a, int n = 2)` **编译通过、运行期选中无参构造器**；
         // 命名实参则在上面被当成普通表达式绑定，报 `undefined: a`。
+        OverloadResult mr = null;
         if (cands.Length > 1 && !resolvedByType) {
-            OverloadResult mr = OverloadResolver.ResolveMapped(cands, cands.Length, this._tc._overload._argShape(null, rawArgs, argc, env), env.Symbols);
+            mr = OverloadResolver.ResolveMapped(cands, cands.Length, this._tc._overload._argShape(null, rawArgs, argc, env), env.Symbols);
+        }
+        this._tc._diags.TruncateTo(specMark);   // 试探段结束：丢弃其间诊断（最终绑定会重报）
+        if (mr != null) {
             if (mr.IsResolved()) { ctorName = mr.Key; }
             else if (mr.IsAmbiguous()) {
                 this._tc._diags.Error(DiagnosticCodes.AmbiguousOverload,

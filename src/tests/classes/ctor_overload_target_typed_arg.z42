@@ -1,0 +1,22 @@
+// fix-ctor-overload-speculative-bind: `new C(new())` with ctors C(P) and C(int, int)
+// is legal — only C(P) takes one argument, so the inner `new()` is target-typed
+// to P. Before the fix the overload-selection pre-pass bound `new()` without a
+// target and reported a spurious E0437.
+
+class P {
+    public int X;
+    public P() { this.X = 41; }
+}
+
+class C {
+    public int V;
+    public C(P p) { this.V = p.X + 1; }
+    public C(int a, int b) { this.V = a + b; }
+}
+
+void Main() {
+    var c = new C(new());
+    Assert.Equal(42, c.V);
+    var d = new C(2, 3);
+    Assert.Equal(5, d.V);
+}
