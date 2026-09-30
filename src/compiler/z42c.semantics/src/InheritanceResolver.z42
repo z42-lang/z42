@@ -650,52 +650,7 @@ public sealed class InheritanceResolver {
     //   ② 接口自己的型参 `T` → 该实现子句给的实参（`class Foo<U> : IBasicCollection<U>` ⇒ T := U）。
     //      只有解析出 `Z42InstantiatedInterfaceType` 时才有实参可代；裸写（非泛型接口）无需代。
     private Z42Type _substForIface(Z42Type t, Z42ClassType ct, Z42InterfaceType it) {
-        if (t is Z42GenericParamType) {
-            if (t.Name() == "Self") { return ct; }
-            if (it is Z42InstantiatedInterfaceType) {
-                Z42InstantiatedInterfaceType iit = it as Z42InstantiatedInterfaceType;
-                int i = 0;
-                while (i < iit.TypeParamCount && i < iit.ArgCount) {
-                    if (iit.TypeParamNames[i] == t.Name()) { return iit.TypeArgs[i]; }
-                    i = i + 1;
-                }
-            }
-            return t;
-        }
-        if (t is Z42ArrayType) { return new Z42ArrayType(this._substForIface((t as Z42ArrayType).Elem, ct, it)); }
-        if (t is Z42InstantiatedType) {
-            Z42InstantiatedType it2 = t as Z42InstantiatedType;
-            Z42Type[] na = new Z42Type[it2.ArgCount];
-            int i = 0;
-            while (i < it2.ArgCount) { na[i] = this._substForIface(it2.TypeArgs[i], ct, it); i = i + 1; }
-            return new Z42InstantiatedType(it2.Def, na, it2.ArgCount);
-        }
-        // 成员类型本身是**泛型接口**（`IEnumerable<T>.GetEnumerator()` 返回 `IEnumerator<T>`）——
-        // 不下钻则 want 里的 `T` 原样留着，与实现方的 `IEnumerator<int>` 永不相等 ⇒ E0412 假红。
-        // 与下方 `Z42FuncType` 那支同源：每漏一种可承载型参的复合类型，就多一类假红。
-        if (t is Z42InstantiatedInterfaceType) {
-            Z42InstantiatedInterfaceType it3 = t as Z42InstantiatedInterfaceType;
-            Z42Type[] nb = new Z42Type[it3.ArgCount];
-            int k = 0;
-            while (k < it3.ArgCount) { nb[k] = this._substForIface(it3.TypeArgs[k], ct, it); k = k + 1; }
-            return new Z42InstantiatedInterfaceType(it3.Def, nb, it3.ArgCount);
-        }
-        // fix-iface-self-completeness-gaps A3：下钻 `Func<...>`——接口成员 `void Apply(Func<Self,int> f)` 里
-        // 的 Self（及接口型参）藏在函数类型的形参/返回位。不下钻则满足性校验拿到 want 里 Self 未换 →
-        // 与实现类 `void Apply(Func<C,int> f)` **假不匹配** → E0412 假红。补齐后期望签名正确、真匹配。
-        if (t is Z42FuncType) {
-            Z42FuncType ft = t as Z42FuncType;
-            Z42Type[] np = new Z42Type[ft.ParamCount];
-            int i = 0;
-            while (i < ft.ParamCount) { np[i] = this._substForIface(ft.ParamTypes[i], ct, it); i = i + 1; }
-            Z42FuncType r = new Z42FuncType(np, ft.ParamCount, this._substForIface(ft.Ret, ct, it));
-            r.ParamsFrom = ft.ParamsFrom;
-            r.ParamDefaults = ft.ParamDefaults;
-            r.ParamCallers = ft.ParamCallers;
-            r.ParamNames = ft.ParamNames;
-            return r;
-        }
-        return t;
+        return TypeSubst.Apply(t, new IfaceImplMap(ct, it));
     }
 
     private void _checkStaticClassMember(string clsName, Decl mem) {

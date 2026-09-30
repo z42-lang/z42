@@ -1,0 +1,59 @@
+// 类型代换的递归面（unify-type-subst）。此前 5 份手抄递归各自漏不同的复合类型：`_substGeneric`（类级型参）
+// 不下钻接口实例与函数类型、`_substIfaceArgs` 不下钻函数类型、`_substSelf` / `ByName` 不下钻接口实例。
+// 漏换 ⇒ 裸型参 `T` 漏给调用方 ⇒ 两个方向都错：该拒的放行（Conversion 对含型参一侧擦除放行），该过的误报。
+namespace Z42cSemanticsTypeSubstCoverageTests;
+using Std;
+using Std.Test;
+using Z42.Semantics;
+
+string _box() {
+    return "interface IGet<T> { T Get(); }"
+        + " class Box<T> : IGet<T> { T v; public Box(T x) { this.v = x; } public T Get() { return this.v; }"
+        + " public IGet<T> AsGet() { return this; }"
+        + " public Func<T, int> Measure() { return (T a) => 1; }"
+        + " public Func<int, T> Maker() { return (int a) => this.v; } }";
+}
+
+// ── 漏报：该拒的必须拒 ────────────────────────────────────────────────────────
+
+[Test]
+void test_iface_instance_member_rejects_wrong_target() {
+    // 修前：零诊断，运行期把 int 塞进 string 变量。
+    string src = _box() + " class U { void M() { var b = new Box<int>(3); string s = b.AsGet().Get(); } }";
+    Assert.True(SemanticDump.HasErrorCode(src, "E0402"));
+}
+
+[Test]
+void test_func_member_rejects_wrong_argument() {
+    string src = _box() + " class U { void M() { var b = new Box<int>(3); int r = b.Measure()(\"x\"); } }";
+    Assert.True(SemanticDump.HasErrorCode(src, "E0402"));
+}
+
+// ── 误报：该过的必须过 ────────────────────────────────────────────────────────
+
+[Test]
+void test_iface_instance_member_is_concrete() {
+    string src = _box() + " class U { int M() { var b = new Box<int>(3); return b.AsGet().Get() + 1; } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+[Test]
+void test_func_return_member_is_concrete() {
+    string src = _box() + " class U { int M() { var b = new Box<int>(3); return b.Maker()(1) + 1; } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+// 接口静态类型上的成员：接口型参藏在函数类型里（此前 `_substIfaceArgs` 不下钻 Func）。
+[Test]
+void test_iface_args_substituted_inside_func() {
+    string src = "interface IMk<T> { Func<int, T> Mk(); }"
+        + " class U { int M(IMk<int> m) { return m.Mk()(1) + 1; } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+[Test]
+void test_iface_args_inside_func_rejects_wrong_target() {
+    string src = "interface IMk<T> { Func<int, T> Mk(); }"
+        + " class U { void M(IMk<int> m) { string s = m.Mk()(1); } }";
+    Assert.True(SemanticDump.HasErrorCode(src, "E0402"));
+}

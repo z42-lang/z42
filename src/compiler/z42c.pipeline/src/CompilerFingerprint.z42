@@ -78,7 +78,11 @@ public static class CompilerFingerprint {
         // fix-static-form-receiver-slot：「接收者作首参」的静态形式此前整条实参流水线错位一格
         // （接收者占 args[0] 却仍按 ParamTypes[0] 检查/装箱/填默认值）⇒ 正确调用被拒、末参从不检查、
         // 错接收者可能放行。改动既发新诊断（receiver 位 E0402）又改发射（带参形态此前编不过）。
-        "fix-static-form-receiver-slot"
+        "fix-static-form-receiver-slot",
+        // unify-type-subst：类级 / 接口 / Self / 方法级型参代换统一为一份完整递归（TypeSubst）。此前
+        // `_substGeneric` 不下钻接口实例与函数类型 ⇒ 泛型类成员返回 `IGet<T>` / `Func<T,int>` 时 `T` 漏给调用方：
+        // 该拒的放行（`string s = b.AsGet().Get();` 零诊断）、该过的误报（`+ 1` got T）。既发新诊断又改推断类型。
+        "unify-type-subst"
     };
 
     // 指纹值：`Entries` 逐条以 `\n` 连接后取内容哈希（`mmh3:` 前缀，同 SourceHash）。
