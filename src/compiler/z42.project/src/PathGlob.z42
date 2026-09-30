@@ -1,0 +1,58 @@
+// 按路径段的 glob 匹配（fix-source-exclude-glob 起；fix-workspace-member-discovery 提成公共件）。
+// `**` = 零或多个整段；段内 `*`（任意串，含空）/ `?`（单字符），不跨 `/`。调用方：
+// SourceDiscovery（`[sources].exclude`）、z42c.pipeline WorkspaceBuild（`[workspace] members / exclude`）。
+namespace Z42.Project;
+
+using Std;
+
+public static class PathGlob {
+    // rel 与 pattern 都按 `/` 切段（调用方先把 `\` 归一）；整串匹配。
+    public static bool Match(string rel, string pattern) {
+        return PathGlob.MatchSegs(PathGlob.Split(rel), 0, PathGlob.Split(pattern), 0);
+    }
+
+    // 段里有没有通配字符（`*` / `?`）。
+    public static bool HasWildcard(string seg) { return seg.IndexOf("*") >= 0 || seg.IndexOf("?") >= 0; }
+
+    public static bool MatchSegs(string[] rel, int ri, string[] pat, int pi) {
+        if (pi == pat.Length) { return ri == rel.Length; }
+        if (pat[pi] == "**") {
+            // 零段，或吃掉一段后仍停在 `**`
+            if (PathGlob.MatchSegs(rel, ri, pat, pi + 1)) { return true; }
+            return ri < rel.Length && PathGlob.MatchSegs(rel, ri + 1, pat, pi);
+        }
+        if (ri == rel.Length) { return false; }
+        if (!PathGlob.MatchSeg(rel[ri], 0, pat[pi], 0)) { return false; }
+        return PathGlob.MatchSegs(rel, ri + 1, pat, pi + 1);
+    }
+
+    // 单段通配：`*` 任意串（含空）、`?` 单字符，其余字面。
+    public static bool MatchSeg(string s, int si, string p, int pi) {
+        if (pi == p.Length) { return si == s.Length; }
+        char pc = p.CharAt(pi);
+        if (pc == '*') {
+            int k = si;
+            while (k <= s.Length) {
+                if (PathGlob.MatchSeg(s, k, p, pi + 1)) { return true; }
+                k = k + 1;
+            }
+            return false;
+        }
+        if (si == s.Length) { return false; }
+        if (pc == '?' || pc == s.CharAt(si)) { return PathGlob.MatchSeg(s, si + 1, p, pi + 1); }
+        return false;
+    }
+
+    public static string[] Split(string path) {
+        string[] parts = path.Split("/");
+        string[] r = new string[parts.Length];
+        int n = 0;
+        int i = 0;
+        while (i < parts.Length) { if (parts[i].Length > 0) { r[n] = parts[i]; n = n + 1; } i = i + 1; }
+        string[] res = new string[n];
+        int j = 0;
+        while (j < n) { res[j] = r[j]; j = j + 1; }
+        return res;
+    }
+
+}

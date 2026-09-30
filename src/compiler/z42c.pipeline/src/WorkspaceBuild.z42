@@ -119,23 +119,68 @@ public static class WorkspaceBuild {
         return template.Contains("${member_name}") || template.Contains("${project_name}");
     }
 
-    // members=["*"]：wsDir 下每个「恰含一份 *.z42.toml」的子目录 = member。
-    // 子目录按 Ordinal 排序迭代（确定性，common-pitfalls §1）。
+    // 成员发现（fix-workspace-member-discovery）：按 `[workspace] members` 逐条展开（缺省 = `["*"]`），
+    // 再按 `exclude` 剔除，清单经 `ManifestLocator.FindIn` 定位（认 `z42.toml` 与 `<name>.z42.toml`）。
+    // 此前恒只扫 wsDir 下一层、只认 `*.z42.toml`，`members` / `exclude` 解析出来无人读取 ⇒
+    // 手册示范的 `members = ["libs/*", "apps/*"]` 建不出任何成员、`exclude` 形同虚设、`z42 new` 生成的
+    // 裸名 `z42.toml` 工程进不了 workspace。
+    //   · 展开：段内 `*` / `?` 通配（逐段匹配子目录）；显式路径（无通配）必须存在且恰有一份清单，否则抛；
+    //     通配展开出的目录没有清单就跳过（`members = ["*"]` 会扫到 artifacts/ 之类）。清单有歧义一律抛（WS005）。
+    //   · `exclude`：按成员相对 wsDir 的路径做段级 glob（`PathGlob`）。
+    //   · 去重 + Ordinal 排序（确定性，common-pitfalls §1）。
     public static WsMembers DiscoverMembers(string wsDir, WorkspaceManifest ws) {
-        string[] entries = WorkspaceBuild.SortStrings(Directory.Enumerate(wsDir));
+        string[] pats = ws.Members;
+        int patN = ws.MemberCount;
+        if (patN == 0) { pats = new string[1]; pats[0] = "*"; patN = 1; }
+        string[] rels = new string[8];
+        int relN = 0;
+        int pi = 0;
+        while (pi < patN) {
+            string pat = pats[pi].Replace("\\", "/");
+            pi = pi + 1;
+            if (pat.StartsWith("./")) { pat = pat.Substring(2, pat.Length - 2); }
+            string[] segs = PathGlob.Split(pat);
+            bool explicitPath = true;
+            int si = 0;
+            while (si < segs.Length) { if (PathGlob.HasWildcard(segs[si])) { explicitPath = false; } si = si + 1; }
+            string[] found = WorkspaceBuild._expandMemberPattern(wsDir, segs);
+            if (explicitPath && found.Length == 0) {
+                throw new Exception("workspace: member `" + pats[pi - 1] + "` does not exist under " + wsDir);
+            }
+            int fi = 0;
+            while (fi < found.Length) {
+                if (WorkspaceBuild.IndexOfName(rels, relN, found[fi]) < 0) {
+                    if (relN == rels.Length) {
+                        string[] bigger = new string[rels.Length * 2];
+                        int k = 0; while (k < relN) { bigger[k] = rels[k]; k = k + 1; }
+                        rels = bigger;
+                    }
+                    rels[relN] = found[fi]; relN = relN + 1;
+                }
+                fi = fi + 1;
+            }
+        }
+        string[] sorted = new string[relN];
+        int ri = 0; while (ri < relN) { sorted[ri] = rels[ri]; ri = ri + 1; }
+        sorted = WorkspaceBuild.SortStrings(sorted);
         // 第一遍：收集 member toml + name。
-        string[] tomls = new string[entries.Length];
-        string[] names = new string[entries.Length];
+        string[] tomls = new string[relN];
+        string[] names = new string[relN];
         int count = 0;
         int e = 0;
-        while (e < entries.Length) {
-            string dir = entries[e];
+        while (e < relN) {
+            string rel = sorted[e];
             e = e + 1;
-            if (!Directory.Exists(dir)) { continue; }
-            string[] manifests = Path.Glob(dir, "*.z42.toml");
-            if (manifests.Length != 1) { continue; }   // 0 = 非 member；>1 = WS005（暂跳过）
-            ProjectManifest pm = ManifestLoader.Load(manifests[0]);
-            tomls[count] = manifests[0];
+            if (WorkspaceBuild._excludedMember(rel, ws)) { continue; }
+            string dir = Path.Join(wsDir, rel);
+            ManifestLocation loc = ManifestLocator.FindIn(dir);
+            if (loc.Kind == ManifestLocateKind.Ambiguous) {
+                throw new Exception("workspace: member directory `" + rel + "` has more than one manifest (WS005): "
+                    + String.Join(", ", loc.Candidates));
+            }
+            if (loc.Kind != ManifestLocateKind.Project) { continue; }   // 无清单（通配扫到的普通目录）/ 嵌套 workspace
+            ProjectManifest pm = ManifestLoader.Load(loc.ManifestPath);
+            tomls[count] = loc.ManifestPath;
             names[count] = pm.Project.Name;
             count = count + 1;
         }
@@ -164,6 +209,70 @@ public static class WorkspaceBuild {
             i = i + 1;
         }
         return new WsMembers(tomls, names, depFlat, depOff, depLen, count);
+    }
+
+    // 一条 members 模式 → 命中的成员目录（相对 wsDir，`/` 分隔）。逐段扩张：字面段直接拼（存在才留），
+    // 通配段枚举子目录后逐个 `PathGlob.MatchSeg`。
+    private static string[] _expandMemberPattern(string wsDir, string[] segs) {
+        string[] frontier = new string[1]; frontier[0] = "";
+        int fn = 1;
+        int si = 0;
+        while (si < segs.Length) {
+            string seg = segs[si];
+            si = si + 1;
+            string[] next = new string[8];
+            int nn = 0;
+            int fi = 0;
+            while (fi < fn) {
+                string baseRel = frontier[fi];
+                fi = fi + 1;
+                string baseDir = baseRel.Length == 0 ? wsDir : Path.Join(wsDir, baseRel);
+                if (!PathGlob.HasWildcard(seg)) {
+                    string cand = baseRel.Length == 0 ? seg : baseRel + "/" + seg;
+                    if (Directory.Exists(Path.Join(wsDir, cand))) { next = WorkspaceBuild._push(next, nn, cand); nn = nn + 1; }
+                    continue;
+                }
+                if (!Directory.Exists(baseDir)) { continue; }
+                string[] entries = WorkspaceBuild.SortStrings(Directory.Enumerate(baseDir));
+                int ei = 0;
+                while (ei < entries.Length) {
+                    // `Directory.Enumerate` 返回**条目名**，不是路径——此前直接拿名字去 `Directory.Exists`，
+                    // 只在 cwd 恰好是 workspace 根时才对（从别处 `z42c build <path>/z42.workspace.toml` 即全落空）。
+                    string name = Path.GetFileName(entries[ei]);
+                    ei = ei + 1;
+                    string full = Path.Join(baseDir, name);
+                    if (!Directory.Exists(full)) { continue; }
+                    if (!PathGlob.MatchSeg(name, 0, seg, 0)) { continue; }
+                    string cand = baseRel.Length == 0 ? name : baseRel + "/" + name;
+                    next = WorkspaceBuild._push(next, nn, cand); nn = nn + 1;
+                }
+            }
+            frontier = next; fn = nn;
+        }
+        string[] r = new string[fn];
+        int k = 0; while (k < fn) { r[k] = frontier[k]; k = k + 1; }
+        return r;
+    }
+
+    private static bool _excludedMember(string rel, WorkspaceManifest ws) {
+        int i = 0;
+        while (i < ws.ExcludeCount) {
+            string pat = ws.Exclude[i].Replace("\\", "/");
+            if (pat.StartsWith("./")) { pat = pat.Substring(2, pat.Length - 2); }
+            if (PathGlob.Match(rel, pat)) { return true; }
+            i = i + 1;
+        }
+        return false;
+    }
+
+    private static string[] _push(string[] a, int n, string v) {
+        if (n == a.Length) {
+            string[] b = new string[a.Length * 2];
+            int k = 0; while (k < n) { b[k] = a[k]; k = k + 1; }
+            a = b;
+        }
+        a[n] = v;
+        return a;
     }
 
     // O(N²) 拓扑：每轮发射「全部依赖已发射」的成员（按 member 名 Ordinal 排序），

@@ -22,7 +22,8 @@
 |------|----|------|
 | `src/ManifestLoader.z42` | — | TOML → 模型 加载器：`Load`/`ParseText`（单项目）、`LoadWorkspace`/`ParseWorkspaceText`（workspace）；解析全段含 `[profile.*]`/`[[exe]]`/`[platform.*]`/`[optimize]`/`[analyzers]`/`[lints]`/`[native.*]`/`[tests]`·`[benches]`·`[examples]`/`[[test]]`·`[[bench]]`·`[[example]]` |
 | `src/NativeSpec.z42` | `[native.<name>]` | 本包携带的私有 native 库声明（逻辑名 `Name` + 可选预编译基目录 `Dir`；文件名平台派生 `<prefix><name><suffix>`）。消费方 z42b publish 沿闭包：有 `[build] hooks` 跑 `ProvideNative`、否则从 `Dir` 按 rid 复制预编译文件 → 平铺进 payload（add-native-dep-config / add-precompiled-native） |
-| `src/SourceDiscovery.z42` | — | `[sources].include` glob → 绝对路径列表（递归/单层，排除 dist/.cache，去重+Ordinal 排序）|
+| `src/SourceDiscovery.z42` | — | `[sources].include` glob → 绝对路径列表（递归/单层，排除 dist/.cache，去重+Ordinal 排序；`exclude` 走 `PathGlob`）|
+| `src/PathGlob.z42` | — | 按路径段的 glob 匹配（`**` 跨段、`*`/`?` 段内），`[sources].exclude` 与 `[workspace] members/exclude` 共用 |
 | `src/ManifestLocator.z42` | — | 清单定位：`FindUp`（从目录向上找 `z42.toml` → 唯一 `*.z42.toml` → `z42.workspace.toml`）/ `FindIn`（只看一层）/ `ErrorText`；launcher / z42b / z42c 共用 |
 | `src/BuildLayout.z42` | — | 产物目录级联：`Resolve(manifest, projectDir, isRelease)` → output / cache / generated / dist；z42c 写、launcher run 找、z42b clean 删共用。`Display(path)` 把这些目录呈现给终端（相对当前目录，带 `./`），进度行统一走它 |
 | `src/PathTemplate.z42` | — | 路径模板展开（`${project_name}`/`${profile}`/`${output_dir}` 等）+ `TemplateContext` |

@@ -1,0 +1,82 @@
+// xtask — workspace 成员发现认 `members` / `exclude` / 裸名清单（fix-workspace-member-discovery）。
+//
+// 此前成员发现恒只扫 workspace 根下一层、只认 `*.z42.toml`，`members` / `exclude` 解析了没人读：
+// 手册示范的 `members = ["libs/*", "apps/*"]` 一个成员都建不出、`exclude` 形同虚设、`z42 new` 生成的
+// 裸名 `z42.toml` 工程进不了 workspace；依赖成环时用户拿到的是带内部栈帧的 uncaught exception。
+namespace Z42Xtask;
+
+using Std;
+using Std.IO;
+
+string _e2eWsmLibToml(string name) {
+    return "[project]\nname    = \"" + name + "\"\nversion = \"0.1.0\"\nkind    = \"lib\"\n\n[sources]\ninclude = [\"*.z42\"]\n";
+}
+
+int _e2eWsMemberChecks(string root, string vm, string driverZpkg) {
+    string flat = _libsFlatDist(root, "release");
+    string ws = _e2eTmpRoot(root, "wsmembers");
+    if (Directory.Exists(ws)) { try { Directory.Delete(ws, true); } catch (Exception e) {} }
+    string good = Path.Join(ws, "good");
+    Directory.Create(Path.Join(good, "libs/core"));
+    Directory.Create(Path.Join(good, "libs/sandbox-x"));
+    Directory.Create(Path.Join(good, "apps/hello"));
+    File.WriteAllText(Path.Join(good, "z42.workspace.toml"),
+        "[workspace]\nmembers = [\"libs/*\", \"apps/*\"]\nexclude = [\"libs/sandbox-*\"]\n\n"
+        + "[workspace.build]\noutput_dir = \"artifacts/${project_name}/${profile}\"\n");
+    File.WriteAllText(Path.Join(good, "libs/core/wsmcore.z42.toml"), _e2eWsmLibToml("wsmcore"));
+    File.WriteAllText(Path.Join(good, "libs/core/c.z42"), "namespace WsmCore;\n\npublic static class C { public static int V() { return 3; } }\n");
+    // 被 exclude 的目录：源码故意编不过——若没被剔除，构建必红。
+    File.WriteAllText(Path.Join(good, "libs/sandbox-x/wsmsandbox.z42.toml"), _e2eWsmLibToml("wsmsandbox"));
+    File.WriteAllText(Path.Join(good, "libs/sandbox-x/s.z42"), "namespace WsmSandbox;\n\npublic static class S { public static int V() { return undefinedThing; } }\n");
+    // 裸名清单 `z42.toml`（z42 new 的形态）。
+    // kind=lib：debug 下 exe 成员装配 indexed 的 lib 成员是另一个待裁决的问题（见 change 说明），这里不牵扯。
+    File.WriteAllText(Path.Join(good, "apps/hello/z42.toml"),
+        "[project]\nname    = \"wsmhello\"\nversion = \"0.1.0\"\nkind    = \"lib\"\n\n"
+        + "[sources]\ninclude = [\"*.z42\"]\n\n[dependencies]\n\"wsmcore\" = \"0.1.0\"\n");
+    File.WriteAllText(Path.Join(good, "apps/hello/h.z42"), "namespace WsmHello;\n\nusing WsmCore;\n\npublic static class H { public static int V() { return C.V() + 1; } }\n");
+    ProcessResult b = new Process(vm).WorkingDirectory(good).Arg(driverZpkg).Arg("--").Arg("build").Arg("--workspace")
+        .Env("Z42_LIBS", flat).Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
+    string bo = b.Stdout + b.Stderr;
+    if (b.ExitCode != 0 || bo.IndexOf("2 members") < 0) {
+        Console.WriteLine("  ✗ wsmembers: members glob / exclude / 裸名清单没按声明发现（期望恰 2 个成员）: rc="
+            + b.ExitCode.ToString() + " " + bo);
+        return 1;
+    }
+    // 依赖序对（wsmhello 依赖 wsmcore 编得过）+ 被 exclude 的成员没有产物。
+    if (!File.Exists(Path.Join(good, "artifacts/wsmhello/debug/dist/wsmhello.zpkg"))
+        || !File.Exists(Path.Join(good, "artifacts/wsmcore/debug/dist/wsmcore.zpkg"))
+        || Directory.Exists(Path.Join(good, "artifacts/wsmsandbox"))) {
+        Console.WriteLine("  ✗ wsmembers: 成员产物不符（应有 wsmcore / wsmhello、不应有 wsmsandbox）: " + bo);
+        return 1;
+    }
+
+    // 显式成员不存在 ⇒ 干净的错误（不是栈帧）。
+    string missing = Path.Join(ws, "missing");
+    Directory.Create(missing);
+    File.WriteAllText(Path.Join(missing, "z42.workspace.toml"),
+        "[workspace]\nmembers = [\"nope\"]\n\n[workspace.build]\noutput_dir = \"artifacts/${project_name}/${profile}\"\n");
+    ProcessResult m = new Process(vm).WorkingDirectory(missing).Arg(driverZpkg).Arg("--").Arg("build").Arg("--workspace")
+        .Env("Z42_LIBS", flat).Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
+    string mo = m.Stdout + m.Stderr;
+    if (m.ExitCode == 0 || mo.IndexOf("`nope` does not exist") < 0 || mo.IndexOf("uncaught exception") >= 0) {
+        Console.WriteLine("  ✗ wsmembers: 显式成员不存在没有给出干净的错误: rc=" + m.ExitCode.ToString() + " " + mo);
+        return 1;
+    }
+
+    // 依赖成环 ⇒ 干净的错误（此前 uncaught exception + 栈帧）。
+    string cyc = Path.Join(ws, "cycle");
+    Directory.Create(Path.Join(cyc, "a")); Directory.Create(Path.Join(cyc, "b"));
+    File.WriteAllText(Path.Join(cyc, "z42.workspace.toml"),
+        "[workspace]\nmembers = [\"*\"]\n\n[workspace.build]\noutput_dir = \"artifacts/${project_name}/${profile}\"\n");
+    File.WriteAllText(Path.Join(cyc, "a/wsca.z42.toml"), _e2eWsmLibToml("wsca") + "\n[dependencies]\n\"wscb\" = \"0.1.0\"\n");
+    File.WriteAllText(Path.Join(cyc, "b/wscb.z42.toml"), _e2eWsmLibToml("wscb") + "\n[dependencies]\n\"wsca\" = \"0.1.0\"\n");
+    ProcessResult c = new Process(vm).WorkingDirectory(cyc).Arg(driverZpkg).Arg("--").Arg("build").Arg("--workspace")
+        .Env("Z42_LIBS", flat).Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
+    string co = c.Stdout + c.Stderr;
+    if (c.ExitCode == 0 || co.IndexOf("uncaught exception") >= 0) {
+        Console.WriteLine("  ✗ wsmembers: 依赖成环没有给出干净的错误: rc=" + c.ExitCode.ToString() + " " + co);
+        return 1;
+    }
+    Console.WriteLine("  ✓ workspace 成员发现：members glob + exclude + 裸名 z42.toml / 显式成员不存在与成环都干净报错");
+    return 0;
+}

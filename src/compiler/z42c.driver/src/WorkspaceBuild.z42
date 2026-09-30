@@ -34,7 +34,11 @@ int _buildWorkspaceFlat(string wsToml, bool isRelease, string outputDir, int cli
     Directory.Create(outputDir);
     string[] flat = new string[1];
     flat[0] = outputDir;
-    string[] ordered = WorkspaceBuild.Plan(wsToml);
+    // 成员发现 / 拓扑会抛（依赖成环、显式成员不存在、WS005 多份清单）——接住打印消息本身，
+    // 不让用户看到带 z42c 内部栈帧的 uncaught exception（fix-workspace-member-discovery）。
+    string[] ordered;
+    try { ordered = WorkspaceBuild.Plan(wsToml); }
+    catch (Exception pe) { ConsoleError.WriteLine("z42c build --workspace: " + pe.Message); return ExitCode.BuildError; }
     Console.WriteLine("workspace: " + wsToml + " (" + ordered.Length.ToString() + " members, topo order, flat)");
     int i = 0;
     while (i < ordered.Length) {
@@ -60,7 +64,9 @@ int _buildWorkspaceFlat(string wsToml, bool isRelease, string outputDir, int cli
 // Milestone 2：per-member 布局（drop-in 替代 C# stdlib build）。
 int _buildWorkspacePerMember(string wsToml, bool isRelease, int cliAdd, int cliRemove, bool noIncremental) {
     string profile = isRelease ? "release" : "debug";
-    WsPlan plan = WorkspaceBuild.PlanLayout(wsToml, profile);
+    WsPlan plan;
+    try { plan = WorkspaceBuild.PlanLayout(wsToml, profile); }   // 同 flat：抛出的消息直接呈现
+    catch (Exception pe) { ConsoleError.WriteLine("z42c build --workspace: " + pe.Message); return ExitCode.BuildError; }
     if (plan == null) {
         ConsoleError.WriteLine("z42c build --workspace: no --output-dir and no [workspace.build].output_dir in " + wsToml);
         return ExitCode.UsageError;

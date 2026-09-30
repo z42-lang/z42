@@ -201,7 +201,7 @@ public static class SourceDiscovery {
         if (rel.StartsWith(pd)) { rel = rel.Substring(pd.Length, rel.Length - pd.Length); }
         if (rel.StartsWith("/")) { rel = rel.Substring(1, rel.Length - 1); }
         if (rel.Contains("/dist/") || rel.Contains("/.cache/") || rel.StartsWith("dist/") || rel.StartsWith(".cache/")) { return true; }
-        string[] relSegs = SourceDiscovery._splitSegs(rel);
+        string[] relSegs = PathGlob.Split(rel);
         int ei = 0;
         while (ei < excludeCount) {
             if (SourceDiscovery._matchesExclude(relSegs, excludes[ei])) { return true; }
@@ -220,49 +220,8 @@ public static class SourceDiscovery {
         if (pat.StartsWith("/")) { pat = pat.Substring(1, pat.Length - 1); }
         if (pat.Length == 0) { return false; }
         if (!pat.StartsWith("**/") && pat != "**") { pat = "**/" + pat; }
-        string[] patSegs = SourceDiscovery._splitSegs(pat);
-        return SourceDiscovery._globSegs(relSegs, 0, patSegs, 0);
-    }
-
-    private static bool _globSegs(string[] rel, int ri, string[] pat, int pi) {
-        if (pi == pat.Length) { return ri == rel.Length; }
-        if (pat[pi] == "**") {
-            // 零段，或吃掉一段后仍停在 `**`
-            if (SourceDiscovery._globSegs(rel, ri, pat, pi + 1)) { return true; }
-            return ri < rel.Length && SourceDiscovery._globSegs(rel, ri + 1, pat, pi);
-        }
-        if (ri == rel.Length) { return false; }
-        if (!SourceDiscovery._segMatch(rel[ri], 0, pat[pi], 0)) { return false; }
-        return SourceDiscovery._globSegs(rel, ri + 1, pat, pi + 1);
-    }
-
-    // 单段通配：`*` 任意串（含空）、`?` 单字符，其余字面。
-    private static bool _segMatch(string s, int si, string p, int pi) {
-        if (pi == p.Length) { return si == s.Length; }
-        char pc = p.CharAt(pi);
-        if (pc == '*') {
-            int k = si;
-            while (k <= s.Length) {
-                if (SourceDiscovery._segMatch(s, k, p, pi + 1)) { return true; }
-                k = k + 1;
-            }
-            return false;
-        }
-        if (si == s.Length) { return false; }
-        if (pc == '?' || pc == s.CharAt(si)) { return SourceDiscovery._segMatch(s, si + 1, p, pi + 1); }
-        return false;
-    }
-
-    private static string[] _splitSegs(string path) {
-        string[] parts = path.Split("/");
-        string[] r = new string[parts.Length];
-        int n = 0;
-        int i = 0;
-        while (i < parts.Length) { if (parts[i].Length > 0) { r[n] = parts[i]; n = n + 1; } i = i + 1; }
-        string[] res = new string[n];
-        int j = 0;
-        while (j < n) { res[j] = r[j]; j = j + 1; }
-        return res;
+        string[] patSegs = PathGlob.Split(pat);
+        return PathGlob.MatchSegs(relSegs, 0, patSegs, 0);
     }
 
     private static bool _contains(string[] a, int n, string s) {
