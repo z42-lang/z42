@@ -73,6 +73,7 @@ public sealed class SymbolCollector {
         this._runCtorInheritance(t, cu);   // add-implicit-base-ctor-call（单 CU 路径，同 CollectAll）
         this._inherit._passFixupOverrides(t, cu);   // add-type-based-overloads D7：override 同 arity 重载 regKey 对齐（阶段 8 修复）
         this._inherit._passSealedEnforce(t, cu);    // impl-sealed-semantics-devirt：sealed 继承/override 强制
+        this._inherit._propagateBridgeMarks(t);     // add-iface-return-bridge ⑦（单 CU 路径，同 CollectAll）
         this._enforce._passAttributeSuffixEnforce(cu);   // attribute-handler-registry PR2：`: Attribute` 类名后缀强制（D8）
         this._enforce._passAnalyzerSuffixEnforce(cu);    // attribute-handler-registry PR3a：`: Analyzer` 类名后缀强制（D8）
         this._enforce._passBuiltinNameClash(cu);         // add-builtin-name-clash-diagnostic：类型名撞内建基元拼写（E0499）
@@ -349,6 +350,7 @@ public sealed class SymbolCollector {
         while (c < cuCount) { this._inherit._passFixupOverrides(table, cus[c]); c = c + 1; }
         c = 0;
         while (c < cuCount) { this._inherit._passSealedEnforce(table, cus[c]); c = c + 1; }   // impl-sealed-semantics-devirt
+        this._inherit._propagateBridgeMarks(table);   // add-iface-return-bridge ⑦：全部 CU 之后一次（perf-bridge-marks-once）
         c = 0;
         while (c < cuCount) { this._enforce._passAttributeSuffixEnforce(cus[c]); c = c + 1; }   // attribute-handler-registry PR2（D8 后缀）
         c = 0;
@@ -410,6 +412,7 @@ public sealed class SymbolCollector {
         this._runCtorInheritance(table, cu);   // add-implicit-base-ctor-call（单 CU 路径，同 CollectAll）
         this._inherit._passFixupOverrides(table, cu);   // add-type-based-overloads D7：override regKey 对齐（阶段 8 修复）
         this._inherit._passSealedEnforce(table, cu);    // impl-sealed-semantics-devirt：sealed 继承/override 强制
+        this._inherit._propagateBridgeMarks(table);     // add-iface-return-bridge ⑦（单 CU 路径，同 CollectAll）
         this._enforce._passAttributeSuffixEnforce(cu);   // attribute-handler-registry PR2：`: Attribute` 类名后缀强制（D8）
         this._enforce._passAnalyzerSuffixEnforce(cu);    // attribute-handler-registry PR3a：`: Analyzer` 类名后缀强制（D8）
         this._enforce._passBuiltinNameClash(cu);         // add-builtin-name-clash-diagnostic：类型名撞内建基元拼写（E0499）

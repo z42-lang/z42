@@ -364,10 +364,7 @@ public sealed class InheritanceResolver {
             }
             i = i + 1;
         }
-        // add-iface-return-bridge：⑦ 把「需桥接」标记**沿基链下推**到子类的 override。
-        // 必须在上面那个类循环**之后**——标记由 ⑥ 的满足性校验打在「声明接口的那个类」上，
-        // 而类的处理顺序不保证基类先到。
-        this._propagateBridgeMarks(table);
+        // add-iface-return-bridge：⑦ 「需桥接」标记沿基链下推 —— **不在这里做**，见 `_propagateBridgeMarks`。
     }
 
     // 「需桥接」标记下推：子类 `override` 是**另一个** MethodSymbol、从不经过接口满足性校验，
@@ -376,7 +373,13 @@ public sealed class InheritanceResolver {
     //
     // 标记必须落在**符号**上而不是只在发射期上溯：`MethodSymbol.CallKey()`（调用点目标名的唯一
     // 出口）读的就是这个字段 —— 只修发射期会让「`Derived` 类型收者的直接调用」拿到裸名、打在桥接上。
-    private void _propagateBridgeMarks(SymbolTable table) {
+    //
+    // ⚠️ 调用时机（perf-bridge-marks-once）：**所有 CU 的 `_passSealedEnforce` 之后调一次**，由收集入口负责。
+    // 必须在 ⑥ 之后——标记由 ⑥ 的满足性校验打在「声明接口的那个类」上，类的处理顺序不保证基类先到。
+    // 此前它挂在 `_passSealedEnforce(table, cu)` 末尾 ⇒ 包级收集每个 CU 都把**整张表**（含全部导入类）跑一遍
+    // 不动点 ⇒ O(CU × 类 × 方法)，实测占 z42c.semantics 全量编译约 5%。只跑一次结果相同：⑥ 无条件写、
+    // 本函数只写空位，两者都单调，最终不动点与中途穿插无关。
+    internal void _propagateBridgeMarks(SymbolTable table) {
         string[] keys = table.Classes.Keys();
         int pass = 0;
         bool changed = true;
