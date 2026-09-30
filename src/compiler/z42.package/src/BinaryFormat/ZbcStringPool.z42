@@ -4,6 +4,7 @@
 // **0-based**（与 C# StringPool 一致，区别于 IrModule.StringPool 的 1-based 占位方案）。
 // STRS 字节序 = Intern 调用序（非字母序）——确定性关键，各 BuildXxxSection 按固定序预扫 intern。
 namespace Z42.IR.BinaryFormat;
+using Z42.IR;   // StrIndex —— 同包跨 ns 也必须显式 using（namespaces.md 规则 2）
 
 public sealed class ZbcStringPool {
     private string[] _list;
