@@ -1,0 +1,38 @@
+// 语义层不对解析器的恢复占位报错（fix-parser-error-cascade）。
+//
+// 解析器报完错会留下占位：表达式位的坏 token → `IdentExpr("<error>")`，名字位的坏 token → 类型名 `"?"`。
+// 它们不是用户写的名字——此前语义层照样报 `undefined: <error>` / `undefined type: ?`，同一处错误报两遍。
+// SemanticDump 的错误数**含解析诊断**（cu.MergeParseDiags）⇒ 期望恰好 1 条（那条解析错误本身），且没有
+// 占位引出的 E0401 / E0443。
+namespace Z42cSemanticsParseRecoveryCascadeTests;
+using Std;
+using Std.Test;
+using Z42.Semantics;
+
+[Test]
+void test_error_placeholder_ident_not_reported() {
+    string src = "class P { void F() { int y = 1; y = y +* 3; } }";
+    Assert.Equal(1, SemanticDump.ErrorCount(src));
+    Assert.False(SemanticDump.HasErrorCode(src, "E0401"));
+}
+
+[Test]
+void test_error_placeholder_type_not_reported() {
+    string src = "class P { void F(int a,) { } }";
+    Assert.Equal(1, SemanticDump.ErrorCount(src));
+    Assert.False(SemanticDump.HasErrorCode(src, "E0443"));
+}
+
+// 换行处缺 `;` 不跳过下一行：`int y` 仍被声明，后面对 y 的使用不报 undefined（只剩那条「缺 ;」）。
+[Test]
+void test_missing_semi_at_line_end_keeps_next_statement() {
+    string src = "class P { void F() {\n int x = 1\n int y = 2;\n y = x; } }";
+    Assert.Equal(1, SemanticDump.ErrorCount(src));
+    Assert.False(SemanticDump.HasErrorCode(src, "E0401"));
+}
+
+// 真未定义的名字照报（抑制只认占位，不能吞掉真错误）。
+[Test]
+void test_real_undefined_still_reported() {
+    Assert.True(SemanticDump.HasErrorCode("class P { void F() { int y = zz; } }", "E0401"));
+}

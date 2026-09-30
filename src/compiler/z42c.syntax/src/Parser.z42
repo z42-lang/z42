@@ -41,6 +41,11 @@ public sealed class Parser {
     // 让 `tests/stmt_order.z42` 能拿一张写反的表跑同一批夹具（那道门的判别力全在这里）。
     internal int[] _steps;
 
+    // 语句级错误恢复（fix-parser-error-cascade）：当前语句开始时的错误数；-1 = 不在语句里（成员 / 声明层）。
+    // 本语句已报过错 ⇒ 之后的「缺 `)` / `;` / `}`」多半是同一处错误的余波（恢复路径吞了或没吞到终止符），
+    // 静默返回、不吞 token——报出来只会把第一条真错淹掉（`y = y +* 3;` 此前在 `*` 报完又在 `3` 报「缺 ;」）。
+    internal int _stmtErrBase;
+
     // attribute-handler-registry PR3c：`#suppress`/`#restore` 局部抑制收集。子解析器经 `this._p`
     // 引用共享同一累加器。_supRegions=已闭合区间；_supOpen*=开区间栈（LIFO 按 RuleId 配对）。收尾
     // `_finalizeSuppress` 把未闭合的延伸到 EOF 并挂到 CU。见 SuppressRegion / design PR3c 落地。
@@ -66,6 +71,7 @@ public sealed class Parser {
         this._supRegions = new SuppressRegion[0]; this._supCount = 0;
         this._supOpenIds = new string[0]; this._supOpenStarts = new int[0]; this._supOpenCount = 0;
         this._features = null;   // 可空 = 全开，见字段抬头
+        this._stmtErrBase = 0 - 1;
         this._steps = new int[StmtRules.StepCount()];
         int si = 0;
         while (si < StmtRules.StepCount()) { this._steps[si] = StmtRules.StepAt(si); si = si + 1; }
@@ -183,6 +189,50 @@ public sealed class Parser {
         if (this._lexMerged) { return; }
         this._lexMerged = true;
         this._diags.MergeFrom(this._lx.Diagnostics());
+        this._dropCascadeErrors();
+    }
+
+    // 收尾去级联（fix-parser-error-cascade），两条：
+    //   ① 同一位置只留第一条错误——一个坏 token 常被两层恢复各报一次（`int a = (1 + ;` 的下一行
+    //      同时收到「缺 )」「缺 ;」；`F(int a,)` 的 `)` 同时收到「缺类型名」「缺参数名」）；
+    //   ② 有未闭合字符串时丢掉「意外的输入结束」——那串把后文整个吞了，EOF 处缺什么都是它的余波。
+    // 警告 / 信息原样保留。只在首次读诊断时跑一次（与 lexer 诊断合并同一时机）。
+    private void _dropCascadeErrors() {
+        int n = this._diags.Count();
+        if (n < 2) { return; }
+        bool unterminated = false;
+        int i = 0;
+        while (i < n) {
+            Diagnostic d = this._diags.Get(i);
+            if (d.Code == DiagnosticCodes.UnterminatedString) { unterminated = true; }
+            i = i + 1;
+        }
+        Diagnostic[] keep = new Diagnostic[n];
+        int kn = 0;
+        int[] errStarts = new int[n];
+        int en = 0;
+        i = 0;
+        while (i < n) {
+            Diagnostic d = this._diags.Get(i);
+            bool drop = false;
+            if (d.Severity == DiagnosticSeverity.Error) {
+                if (unterminated && d.Code == DiagnosticCodes.UnexpectedEof) { drop = true; }
+                int j = 0;
+                while (!drop && j < en) { if (errStarts[j] == d.Span.Start) { drop = true; } j = j + 1; }
+                if (!drop) { errStarts[en] = d.Span.Start; en = en + 1; }
+            }
+            if (!drop) { keep[kn] = d; kn = kn + 1; }
+            i = i + 1;
+        }
+        if (kn == n) { return; }
+        this._diags.TruncateTo(0);
+        i = 0;
+        while (i < kn) { this._diags.Add(keep[i]); i = i + 1; }
+    }
+
+    // 本语句已报过错？（见 _stmtErrBase）
+    internal bool _inStmtPanic() {
+        return this._stmtErrBase >= 0 && this._diags.ErrorCount() > this._stmtErrBase;
     }
 
     // ── token 游标 ──────────────────────────────────────────────────────────
@@ -202,6 +252,7 @@ public sealed class Parser {
 
     internal void _expect(int kind, string what) {
         if (this._peek().Kind == kind) { this._advance(); return; }
+        if (this._inStmtPanic()) { return; }   // 同一语句的余波，见 _stmtErrBase
         // 当前 token 已是 EOF → 不是写错了，是没写完（缺闭合符 / 正文 / 分号）。标记可恢复不完整，
         // 供 REPL 完整性探针续读（add-repl-parser-completeness）。判据是「当前 == Eof」而非具体
         // 缺什么——void foo() 缺的是 ';'、class B 缺的是 '{'，统一在此归一。
@@ -220,11 +271,19 @@ public sealed class Parser {
     // 由 Completeness 按入口取舍（见 Completeness.z42）。
     public void _expectSemi() {
         if (this._peek().Kind == TokenKind.Semicolon) { this._advance(); return; }
+        if (this._inStmtPanic()) { return; }   // 同一语句的余波，见 _stmtErrBase
         if (this._peek().Kind == TokenKind.Eof) {
             if (!this._diags.HasErrors()) { this._diags.MarkIncompleteSemiAtEof(); }
             this._diags.Error(DiagnosticCodes.UnexpectedEof, "unexpected end of input, expected ';'", this._peek().Span);
         } else {
             this._diags.Error(DiagnosticCodes.ExpectedToken, "expected ';'", this._peek().Span);
+            // 同一行上还跟着东西（`foo bar baz;` / `int x = 1 2;`）⇒ 那是这条语句的残渣，跳到 `;` 一并吃掉，
+            // 否则残渣被当成下一条语句再报一轮（`undefined: baz`）。缺 `;` 的 token 在**新的一行**上 ⇒ 多半只是
+            // 行尾忘了分号，下一行是一条好语句，不能跳（跳了会把它吞掉）。
+            if (this._pos > 0 && this._peek().Kind != TokenKind.RBrace
+                && this._peek().Span.Line == this._toks[this._pos - 1].Span.Line) {
+                this._skipToSemicolon();
+            }
         }
     }
 
@@ -294,6 +353,14 @@ public sealed class Parser {
     }
 
     public Stmt ParseStatement() {
+        int savedBase = this._stmtErrBase;
+        this._stmtErrBase = this._diags.ErrorCount();
+        Stmt r = this._parseStatementInner();
+        this._stmtErrBase = savedBase;
+        return r;
+    }
+
+    private Stmt _parseStatementInner() {
         Token st = this._peek();
         int k = st.Kind;
         // `using` / `global using` / `namespace` 只能出现在文件顶部。语言本来就不接受它们
