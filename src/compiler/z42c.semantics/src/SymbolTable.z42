@@ -248,6 +248,19 @@ public sealed partial class SymbolTable {
         return ns == "" ? name : ns + "." + name;
     }
 
+    // fix-enum-type-identity（A5b-2b-2）：本地造 enum 类型的**唯一出口**——`Z42ClassType.Enum(name)` + 声明 ns。
+    // name 是 `EnumTypes` 的键（裸名，或嵌套 enum 的 `Outer+Inner`）。此前只有 `ResolveTypeP` 的裸名分支
+    // 查了 `EnumTypeNs`；嵌套 plusKey 分支与 `E.Member` 常量读（MemberResolver）各自 `Enum(name)` 了事 ⇒
+    // Namespace 为空、`Fqn()` 退化成裸名。类型相等按 `Name()` 比，所以类型检查照样过——洞是静默的：
+    // 按 FQN 的门（E0601 / E0497 / 规则 2 的 `using` 可见性）在这条轴上是瞎的。
+    // （导入侧 `ImportedSymbolLoader._resolveTypeName` 读的是 ImportedSymbols 自己的表，另有一份。）
+    public Z42ClassType EnumType(string name) {
+        Z42ClassType ect = Z42ClassType.Enum(name);   // make-enum-distinct-type：带 IsEnum 标志
+        int at = this.EnumTypeNs.Find(name);
+        if (at >= 0) { ect.Namespace = (this.EnumTypeNs.ValAt(at) as StrBox).Value; }
+        return ect;
+    }
+
 
 
 
@@ -427,13 +440,7 @@ public sealed partial class SymbolTable {
                 pps[0] = this.ResolveTypeP(nt.Args[0], paramNames, paramCount);
                 return new Z42FuncType(pps, 1, Z42ClassType.Builtin("bool"));
             }
-            if (this.EnumTypes.ContainsKey(n)) {
-                Z42ClassType ect = Z42ClassType.Enum(n);   // make-enum-distinct-type：带 IsEnum 标志
-                // unify-type-identity-fqn：enum 也进 FQ 身份体系（此前 Namespace 恒 "" ⇒ 与类那半边不一致）。
-                int _en = this.EnumTypeNs.Find(n);
-                if (_en >= 0) { ect.Namespace = (this.EnumTypeNs.ValAt(_en) as StrBox).Value; }
-                return ect;
-            }
+            if (this.EnumTypes.ContainsKey(n)) { return this.EnumType(n); }   // unify-type-identity-fqn：enum 也进 FQ 身份体系
             int _sl0 = this.Delegates.Find(n); if (_sl0 >= 0) { return this.Delegates.ValAt(_sl0) as Z42FuncType; }   // 用户 delegate → 函数类型
             // add-associated-types PR-3：泛型接口引用 `IFoo<int>` 解析成**实例化接口类型**，把类型
             // 实参带上。此前这里恒返回裸 `Z42InterfaceType`、`nt.Args` 整条丢弃 —— 那正是「接口约束
@@ -541,7 +548,7 @@ public sealed partial class SymbolTable {
                     return fdef;
                 }
                 string plusKey = n.Replace(".", "+");
-                if (this.EnumTypes.ContainsKey(plusKey)) { return Z42ClassType.Enum(plusKey); }   // make-enum-distinct-type：嵌套 enum 同款
+                if (this.EnumTypes.ContainsKey(plusKey)) { return this.EnumType(plusKey); }   // make-enum-distinct-type：嵌套 enum 同款
                 int _sl2 = this.Interfaces.Find(plusKey); if (_sl2 >= 0) { return this.Interfaces.ValAt(_sl2) as Z42InterfaceType; }
                 // fix-nested-delegate-decl（bug B1）：嵌套 delegate `Outer.Inner` → `Outer+Inner` 键。
                 // 与上面嵌套 enum / 接口的 plusKey 兜底同款（NestedFlatten 已按 `+` 名注册）。

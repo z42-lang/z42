@@ -82,7 +82,10 @@ public static class CompilerFingerprint {
         // unify-type-subst：类级 / 接口 / Self / 方法级型参代换统一为一份完整递归（TypeSubst）。此前
         // `_substGeneric` 不下钻接口实例与函数类型 ⇒ 泛型类成员返回 `IGet<T>` / `Func<T,int>` 时 `T` 漏给调用方：
         // 该拒的放行（`string s = b.AsGet().Get();` 零诊断）、该过的误报（`+ 1` got T）。既发新诊断又改推断类型。
-        "unify-type-subst"
+        "unify-type-subst",
+        // fix-enum-type-identity（A5b-2b-2）：嵌套 enum 类型位与 `E.Member` 常量读造出的 enum 类型此前 Namespace 为空，
+        // 按 FQN 的门在这条轴上是瞎的（跨包同 FQN 嵌套 enum 零诊断）。产物字节恒等（A-B 对账 19 包），但新发 E0601。
+        "fix-enum-type-identity"
     };
 
     // 指纹值：`Entries` 逐条以 `\n` 连接后取内容哈希（`mmh3:` 前缀，同 SourceHash）。

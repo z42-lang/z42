@@ -64,7 +64,7 @@ public sealed partial class MemberResolver {
                     // 另一个包的**值**。折之前先判来源。
                     this._tc.ChkEnumOrigins(env.Symbols, tid.Name, m.Span);
                     StrBox evalBox = env.Symbols.EnumConsts.Get(ekey) as StrBox;
-                    BoundLitInt eb = new BoundLitInt(evalBox.Value, Z42ClassType.Enum(tid.Name), m.Span);
+                    BoundLitInt eb = new BoundLitInt(evalBox.Value, env.Symbols.EnumType(tid.Name), m.Span);
                     eb.EnumTypeName = tid.Name;
                     return eb;
                 }
