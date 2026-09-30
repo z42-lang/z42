@@ -386,6 +386,20 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
     //（z42c 尚未解析 profile 段）；`[[exe]]` 多目标已由本函数下方多产物分支消费。
     // indexed 为开发态：与 release strip 冲突即拦。
     bool isPacked = pm.Project.HasPack ? pm.Project.Pack : isRelease;
+    // fix-flat-workspace-packed：flat workspace（`--workspace --output-dir`，全部成员共用一个 dist；
+    // 判据同 WsTier 的定义 `MemberDirs == 0`）一律 packed。indexed 的散装 zbc 按**工程内相对路径**落在
+    // dist 下 ⇒ 两个成员都有 `x.z42` 时后者覆盖前者（前一个包加载到别人的代码），`_cleanOrphanZbc`
+    // 还会把「不属于本包」的 zbc——也就是别的成员的——当孤儿删掉。显式 `pack = false` 在这里无解，报错。
+    bool sharedFlatDist = tier != null && tier.MemberDirs == 0 && outputDirOverride.Length > 0;
+    if (sharedFlatDist) {
+        if (pm.Project.HasPack && !pm.Project.Pack) {
+            ConsoleError.WriteLine("z42c build: " + tomlPath + ": pack=false (indexed) is incompatible with a flat workspace"
+                + " build (--workspace --output-dir): members share one dist and their loose .zbc files would collide;"
+                + " drop `pack = false`, or build without --output-dir (per-member layout)");
+            return ExitCode.UsageError;
+        }
+        isPacked = true;
+    }
     if (!isPacked && isRelease) {
         ConsoleError.WriteLine("z42c build: pack=false (indexed) is dev-mode only and incompatible with --release strip; build without --release or set pack=true");
         return ExitCode.UsageError;

@@ -360,6 +360,10 @@ dist_dir   = "/c"
 | `true`  | `false` | `dist/<name>.zpkg` (packed)                  | 发布态，DBUG 内嵌（便于现场 debug）|
 | `true`  | `true`  | `dist/<name>.zpkg` + `dist/<name>.zsym`      | 发布态，最小体积，离线可符号化 |
 
+> **flat workspace 一律 packed**：`z42c build --workspace --output-dir <dir>` 让全部成员共用一个 dist，
+> indexed 的散装 `<rel>.zbc` 会在成员之间按同名相对路径互相覆盖。所以这种构建下成员**总是** packed
+> （debug 也一样）；成员显式写了 `pack = false` 则报错。per-member 布局（不带 `--output-dir`）不受影响。
+
 > **z42c 实现现状（2026-07-08）**：`pack` 三层中 `[project].pack` + 内置默认已生效；
 > `[profile.*].pack` / `[[exe]].pack` 随 profiles 解析延后线（z42c 尚未解析 profile 段）。
 > z42c 的 strip ≡ `--release`（无独立 `--strip-symbols` flag）。

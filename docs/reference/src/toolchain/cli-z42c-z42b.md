@@ -49,7 +49,7 @@ cache -> ./artifacts/debug/.cache (1 files)
 |---|---|
 | `--release` | release profile（默认 debug） |
 | `--workspace` | 按拓扑序编译工作区全部成员 |
-| `--output-dir <dir>` | 所有产物写到 `<dir>` |
+| `--output-dir <dir>` | 所有产物写到 `<dir>`；与 `--workspace` 连用时全部成员共用它，成员一律 packed（见 [z42.toml · pack](z42-toml.md)） |
 | `--no-incremental` | 全量重建，忽略构建缓存 |
 | `--opt <name>` | 开启一项优化（可重复） |
 | `--no-opt <name>` | 关闭一项优化（可重复） |
