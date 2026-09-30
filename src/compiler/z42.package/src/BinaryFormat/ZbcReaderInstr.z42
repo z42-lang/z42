@@ -9,6 +9,7 @@ namespace Z42.IR.BinaryFormat;
 
 using Z42.IR;
 using Std;
+using Z42.Package;   // unify-package-codecs：ZpkgCursor
 
 // 单块解码结果（z42 无 tuple）。
 public sealed class DecodedBlockZ {
@@ -28,7 +29,7 @@ public static class ZbcReaderInstr {
     // symbolic-struct-field-access P2：读 `depth:u8 + idx:u16 × depth`。
     // 与写端 `ZbcInstr._writeFieldPath` 成对；Rust 读端另有一份（`read_field_path`），
     // 三处都拒 depth 0 —— 空路径会静默解析到偏移 0（blob 头部）。
-    private static int[] _readFieldPath(ZbcCursor c) {
+    private static int[] _readFieldPath(ZpkgCursor c) {
         int depth = c.U8();
         int[] path = new int[depth];
         int k = 0;
@@ -41,7 +42,7 @@ public static class ZbcReaderInstr {
     public static double BitsToDouble(long bits) { return BitConverter.DoubleFromBits(bits); }
 
     // 一个块的字节区间 → 指令 + 终结符。fnNames/clsNames = token 解析表（SIGS/TYPE 序）。
-    public static DecodedBlockZ DecodeBlock(ZbcCursor c, int end, string[] pool,
+    public static DecodedBlockZ DecodeBlock(ZpkgCursor c, int end, string[] pool,
                                             string[] fnNames, int fnCount,
                                             string[] clsNames, int clsCount) {
         DecodedBlockZ r = new DecodedBlockZ();
@@ -78,7 +79,7 @@ public static class ZbcReaderInstr {
     }
 
     // 单指令解码（op/tag/dst 已消费）。未知 opcode → null（调用方按坏 cache 处理）。
-    private static IrInstr _decode(int op, int tag, int dst, ZbcCursor c, string[] pool,
+    private static IrInstr _decode(int op, int tag, int dst, ZpkgCursor c, string[] pool,
                                    string[] fnNames, int fnCount, string[] clsNames, int clsCount) {
         TypedReg d = ZbcReaderInstr._r(dst, tag);
         if (op == Op.ConstStr)  { return new ConstStrInstr(d, c.U32()); }
@@ -294,7 +295,7 @@ public static class ZbcReaderInstr {
     // ── token / 池 / 文本助手 ────────────────────────────────────────────────
 
     // token → 函数名：bit31 = import（pool idx），否则本模块 SIGS 序 index。
-    // ⚠ bit31 用显式移位检测——ZbcCursor.U32 以 `a|(b<<16)` 组装，z42 int 移位下
+    // ⚠ bit31 用显式移位检测——ZpkgCursor.U32 以 `a|(b<<16)` 组装，z42 int 移位下
     // 0x80000000 不为负（e2e 实证：`token < 0` 恒假 → import 名解析成 "" → 池漂移）。
     private static bool _isImport(int token) { return ((token >> 31) & 1) == 1; }
 
@@ -319,7 +320,7 @@ public static class ZbcReaderInstr {
 
     // args：count u8 + id u16×。z42 无 out 参 → 长度经 _argN 旁路返回（单线程解码安全）。
     private static int _argN = 0;
-    private static TypedReg[] _args(ZbcCursor c) {
+    private static TypedReg[] _args(ZpkgCursor c) {
         int n = c.U8();
         TypedReg[] r = new TypedReg[n];
         int i = 0;
@@ -330,7 +331,7 @@ public static class ZbcReaderInstr {
 
     // add-generic-methods：方法类型实参串 —— count u16 + pool idx u32×。长度经 _mtaN 旁路（同 _argN 约定）。
     private static int _mtaN = 0;
-    private static string[] _mta(ZbcCursor c, string[] pool) {
+    private static string[] _mta(ZpkgCursor c, string[] pool) {
         int n = c.U16();
         string[] r = new string[n];
         int i = 0;
