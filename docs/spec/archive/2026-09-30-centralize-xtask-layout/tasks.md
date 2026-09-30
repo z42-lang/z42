@@ -1,6 +1,6 @@
 # Tasks: xtask 顶层产物目录集中定义 + `xtask layout` 查询口
 
-**状态：🟡 进行中 | 开始：2026-09-30**
+**状态：🟢 已完成 | 开始：2026-09-30 | 完成：2026-09-30（#962）**
 
 类型：`refactor`（路径不变，只收敛定义）→ 最小化模式。
 
@@ -18,7 +18,7 @@
 - [x] 阶段 3: `xtask layout [key]`（CLI 注册 + `_layoutCmd`）
 - [x] 阶段 4: 文档（xtask.md 命令表、artifacts-layout.md）
 - [x] 阶段 5: GREEN（`xtask test`，11m51s，全阶段通过）
-- [ ] 阶段 6: PR CI + 归档
+- [x] 阶段 6: PR CI（20 个检查全过）+ 归档
 
 ## 有意保留的字面量
 

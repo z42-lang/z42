@@ -69,5 +69,4 @@
 - [x] 实测：verify-features 约 5 min → 1m25s；test-host(linux-x64) 16.5 → 14m38s。
       整次 run 墙钟 20 min 为改 ci.yml 触发的**全量**（含打包，最长 package-host(windows) 15m54），
       不与编译器 PR 的 16.7 min 基线直接可比。
-- [ ] 分支保护移除 `verify-selfhost(linux-x64)`：#957 合入时仍在 required 列表里（2026-09-30 查），
-      不移除则此后每个 PR 都会停在等待一个不存在的 check —— 待 User 处理。
+- [x] 分支保护移除 `verify-selfhost(linux-x64)`（User 于 #957 合入后处理，2026-09-30 复核已不在 required 列表）。
