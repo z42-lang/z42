@@ -1,0 +1,71 @@
+// fix-lambda-local-capture: a variable DECLARED inside a lambda / local-function
+// body is local to that body, whatever form the declaration takes. Capture
+// analysis used to learn "this name is local" only from plain `var`
+// declarations, catch variables and `out var`; foreach loop variables and
+// pattern variables were missed, so reading them was treated as a capture of an
+// outer variable that does not exist, and the emitter filled the capture slot
+// with null:
+//     () => { foreach (int x in xs) { s = s + x; } }
+//     → "type mismatch in arithmetic: I64(0) vs Null"
+
+class Shape { }
+class Circle : Shape { public int R; public Circle(int r) { this.R = r; } }
+
+void Main() {
+    int[] xs = new int[] { 1, 2, 3 };
+
+    // foreach variable inside a lambda
+    Func<int> sum = () => {
+        int s = 0;
+        foreach (int x in xs) { s = s + x; }
+        return s;
+    };
+    Assert.Equal(6, sum());
+
+    // `is T name` pattern variable inside a lambda
+    object o = "hello";
+    Func<int> len = () => {
+        if (o is string str) { return str.Length; }
+        return -1;
+    };
+    Assert.Equal(5, len());
+
+    // switch-statement pattern variable inside a lambda
+    Shape sh = new Circle(4);
+    Func<int> radius = () => {
+        switch (sh) {
+            case Circle c: return c.R;
+            default: return 0;
+        }
+    };
+    Assert.Equal(4, radius());
+
+    // nested lambdas: the inner foreach variable must stay local to the inner body,
+    // while `xs` is still a genuine capture passed through the outer lambda
+    Func<int> outer = () => {
+        Func<int> inner = () => {
+            int t = 0;
+            foreach (int y in xs) { t = t + y * 10; }
+            return t;
+        };
+        return inner() + 1;
+    };
+    Assert.Equal(61, outer());
+
+    // local function body
+    int Twice() {
+        int acc = 0;
+        foreach (int z in xs) { acc = acc + z * 2; }
+        return acc;
+    }
+    Assert.Equal(12, Twice());
+
+    // a real capture next to a body-local of a different name keeps working
+    int k = 100;
+    Func<int> mixed = () => {
+        int m = 0;
+        foreach (int w in xs) { m = m + w + k; }
+        return m;
+    };
+    Assert.Equal(306, mixed());
+}

@@ -400,7 +400,6 @@ public sealed class StmtBinder {
                 if (cc.HasVar) {
                     cenv = env.PushScope();
                     cenv.Define(cc.VarName, exType);
-                    if (this._tc._lambdaActive) { this._tc._lambdaLocals.Put(cc.VarName, exType); }
                 }
                 BoundStmt body = this._bindStmt(cc.Body, cenv, ret);
                 catches[ci] = new BoundCatchClause(cc.HasType, exName, exArity, cc.HasVar, cc.VarName, body, cc.Span);
@@ -461,7 +460,6 @@ public sealed class StmtBinder {
             if (init == null && v.Init != null) { init = this._tc._expr._bindExpr(v.Init, env); }   // G8：无 init 则 init 留 null
             Z42Type vt = this._varType(env, v, init);
             env.Define(v.Name, vt);
-            if (this._tc._lambdaActive) { this._tc._lambdaLocals.Put(v.Name, vt); }
             init = this._tc.BoxIfNeeded(init, vt);   // add-primitive-value-boxing: 整数→object/接口 装箱
             init = this._tc.ConvertIfNeeded(init, vt, env.Symbols);   // tighten-implicit-conversions: 拓宽表示转换插 ConvertInstr；add-user-conversions: 用户 implicit
             BoundVarDeclStmt bvd = new BoundVarDeclStmt(v.Name, vt, init, v.Span);
@@ -498,6 +496,7 @@ public sealed class StmtBinder {
     private BoundStmt _bindLocalFunction(LocalFunctionStmt lf, TypeEnv env, Z42Type ret) {
             MethodDecl lmd = lf.Decl;
             TypeEnv lscope = env.PushScope();   // 体内可见同级/外层局部函数（递归/前向引用）+ 外层局部变量（L3 捕获）
+            lscope.FnLocals = null;   // 同 _bindLambda：形参不登记进外层的表
             int lpi = 0;
             while (lpi < lmd.ParamCount) { lscope.Define(lmd.Params[lpi].Name, env.ResolveType(lmd.Params[lpi].Type)); lpi = lpi + 1; }
             // 捕获分析（复用 lambda 机制）：体内引用外层非参变量 → BoundCapturedIdent + 记 _lambdaCaps。
@@ -505,6 +504,7 @@ public sealed class StmtBinder {
             BoundCapture[] savedCaps = this._tc._lambdaCaps; int savedCapCount = this._tc._lambdaCapCount;
             this._tc._lambdaActive = true;
             this._tc._lambdaLocals = new StrMap();
+            lscope.FnLocals = this._tc._lambdaLocals;
             lpi = 0;
             while (lpi < lmd.ParamCount) { this._tc._lambdaLocals.Put(lmd.Params[lpi].Name, lscope.LookupVar(lmd.Params[lpi].Name)); lpi = lpi + 1; }
             this._tc._lambdaCaps = new BoundCapture[2]; this._tc._lambdaCapCount = 0;
@@ -630,6 +630,7 @@ public sealed class StmtBinder {
         string[] pnames = new string[lam.ParamCount];
         Z42Type[] ptypes = new Z42Type[lam.ParamCount];
         TypeEnv lenv = env.PushScope();
+        lenv.FnLocals = null;   // 形参先不登记进**外层** lambda 的表（下面换成本 lambda 自己的表）
         int i = 0;
         while (i < lam.ParamCount) {
             pnames[i] = lam.Params[i].Name;
@@ -651,6 +652,7 @@ public sealed class StmtBinder {
         BoundCapture[] savedCaps = this._tc._lambdaCaps; int savedCapCount = this._tc._lambdaCapCount;
         this._tc._lambdaActive = true;
         this._tc._lambdaLocals = new StrMap();
+        lenv.FnLocals = this._tc._lambdaLocals;   // 体内一切声明经 TypeEnv.Define 自动登记
         i = 0;
         while (i < lam.ParamCount) { this._tc._lambdaLocals.Put(pnames[i], ptypes[i]); i = i + 1; }
         this._tc._lambdaCaps = new BoundCapture[2];
