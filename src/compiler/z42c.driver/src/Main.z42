@@ -478,6 +478,13 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
     // 实际生效的 cache 目录：workspace 成员由 WsPlan 给出，否则按本工程 manifest 解析。probe / indexed dist 读回 /
     // 写 cache 三处必须是同一个目录（此前 indexed dist 固定按 manifest 解析，workspace 一读 cache 就读错位置）。
     string effCacheDir = cacheDirOverride.Length > 0 ? cacheDirOverride : BuildLayout.Resolve(pm, projectDir, isRelease).CacheDir;
+    // fix-output-dir-aux-outputs：单工程 `--output-dir`（非 workspace）**不写 cache**。这条路径本就不 probe
+    // （见上），cache 写了也永远不读；而按 manifest 解析的 cache 目录落在**工程目录旁**（成员 toml 无 [build]
+    // ⇒ `<proj>/artifacts/<profile>/.cache`）—— xtask 自举预建 6 个自依赖库、测试夹具每跑一轮都在源码树里
+    // 留一份。不改写到 `<dir>/.cache`：自举预建的 `<dir>` 是 stdlib flat（= Z42_LIBS = 进 SDK 的 libs/），
+    // 往里放 cache 目录有被整目录拷进包的风险。indexed dist 的「cached 字节原样复制」只在增量开启时消费，
+    // 本路径不开，故不受影响。
+    bool writeCache = !(outputDirOverride.Length > 0 && cacheDirOverride.Length == 0);
     if ((outputDirOverride.Length == 0 || cacheDirOverride.Length > 0) && !incrOff) {
         string probeCache = effCacheDir;
         string lastZpkg = Path.Join(distDir, pm.Project.Name + ".zpkg");
@@ -714,6 +721,12 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
     // 故默认恒落盘；没用 generator 的包 GenCount==0，一个字节都不写。
     if (art.GenCount > 0) {
         string genDir = BuildLayout.Resolve(pm, projectDir, isRelease).GeneratedDir;
+        // fix-output-dir-aux-outputs：单工程 `--output-dir <dir>` 把 generated 一并收进 `<dir>/generated/<name>`
+        // （此前按 manifest 解析 ⇒ 落工程目录旁）。显式 `generated_dir = ""`（不落盘）照旧尊重。
+        // workspace 构建（tier != null）不在此列：per-member / flat 两种布局的 generated 归属另议。
+        if (genDir != "" && outputDirOverride.Length > 0 && tier == null) {
+            genDir = Path.Join(Path.Join(outputDirOverride, "generated"), pm.Project.Name);
+        }
         if (genDir != "") {
             // 🔴 落盘目录**必须在 `[sources] include` 扫描范围之外**：否则下一次构建会把生成的
             // partial 碎片当成**用户源码再编一遍** —— 同一个类出现两份带同名成员的碎片，直接踩
@@ -790,7 +803,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
         int mbc = _bundleExeDeps(pm, closureNames, closureN, distDir, libsDirs, libsDirsN);
         if (mbc != 0) { return mbc; }
         // 多 exe 同样落 cache（cache-dir-layout：此前此分支提前 return，从不写 cache）。
-        _writeBuildCache(pm, projectDir, isRelease, cacheDirOverride, srcs, texts, srcHashes, cms, mods, prep, metaIdents, metaSurfaces, depsId, feats, art.CuDiags);
+        if (writeCache) { _writeBuildCache(pm, projectDir, isRelease, cacheDirOverride, srcs, texts, srcHashes, cms, mods, prep, metaIdents, metaSurfaces, depsId, feats, art.CuDiags); }
         return ExitCode.Ok;
     }
     string outPath = Path.Join(distDir, pm.Project.Name + ".zpkg");
@@ -818,7 +831,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
         if (rc1 != 0) { return rc1; }
     }
     // cache 落盘（cache-dir-layout：不论是否增量都落盘，helper 见 BuildCache.z42）。
-    _writeBuildCache(pm, projectDir, isRelease, cacheDirOverride, srcs, texts, srcHashes, cms, mods, prep, metaIdents, metaSurfaces, depsId, feats, art.CuDiags);
+    if (writeCache) { _writeBuildCache(pm, projectDir, isRelease, cacheDirOverride, srcs, texts, srcHashes, cms, mods, prep, metaIdents, metaSurfaces, depsId, feats, art.CuDiags); }
     // 自包含 exe（.NET bin/ 式）：把非标准库依赖 zpkg 复制进 dist，使 exe 可从自身目录运行。
     if (isExe) {
         int bc = _bundleExeDeps(pm, closureNames, closureN, distDir, libsDirs, libsDirsN);
