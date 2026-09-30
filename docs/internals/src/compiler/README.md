@@ -9,13 +9,13 @@ z42c —— **用 z42 自己写的编译器**，把 `.z42` 源码编成 `.zpkg`�
 
 | 包 | 位置 | 职责 |
 |---|---|---|
-| `z42c.core` | `src/libraries/z42c.core/` | `Span` / `Diagnostic` / `DiagnosticCodes` |
-| `z42c.syntax` | `src/libraries/z42c.syntax/` | Lexer + Parser（Pratt 表达式）+ AST |
+| `z42c.core` | `src/compiler/z42c.core/` | `Span` / `Diagnostic` / `DiagnosticCodes` |
+| `z42c.syntax` | `src/compiler/z42c.syntax/` | Lexer + Parser（Pratt 表达式）+ AST |
 | `z42c.semantics` | `src/compiler/z42c.semantics/` | 符号收集 + 类型检查 + Codegen |
 | `z42c.pipeline` | `src/compiler/z42c.pipeline/` | 编译管线编排、依赖扫描、工作区构建、增量缓存 |
 | `z42c.driver` | `src/compiler/z42c.driver/` | CLI 入口（= `z42c` 可执行） |
 
-> IR 模型与 zbc/zpkg 后端已下沉 stdlib 库 `z42.package`；清单解析在 `z42.project`。
+> IR 模型与 zbc/zpkg 后端在 `z42.package`，清单解析在 `z42.project`——同在 `src/compiler/`（2026-09-27 前曾位于 `src/libraries/`）。
 > 格式本身见[产物格式](../formats/README.md)。
 
 ## 从哪读起

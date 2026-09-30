@@ -69,7 +69,7 @@ driver    ◄── pipeline, ir, core
 
 | 发现 | C# 写法 | z42 受限写法 | 依据 |
 |------|--------|-------------|------|
-| **无 `enum` 关键字** | `enum DiagnosticSeverity { ... }` | `static class` + `int` 常量 | stdlib `SplitOptions` / `SeekOrigin` / `FileMode` |
+| ~~**无 `enum` 关键字**~~（**已解除**：语言早已支持 `enum`，stdlib 在用；编译器存量的 `static class` + 可变 `public static int` 伪枚举——`TokenKind`、`OptSet`、`Conversion` 种类等——尚未迁移，迁移时 `MemberParser._isWordKeyword` 那类按数值区间判定的写法要一并消灭）| `enum DiagnosticSeverity { ... }` | 历史写法：`static class` + `int` 常量 | stdlib `SplitOptions` / `SeekOrigin` / `FileMode` |
 | **无交错数组 `int[][]`** | `var remaps = new int[n][];` | 循环内按需重算（如 zpkg remap 借 `Intern` 幂等性）或平铺单数组+偏移 | ZpkgWriterZ._buildMods |
 | **`new T[n]` 不能在实参位置** | `F(new string[1], ...)` | 先提升局部变量再传 | `z42.package/tests/zpkg.z42` |
 | **`fn` / `module` 是保留字** | 参数/变量名随意 | 改名（fname / irm） | 多处 |
@@ -86,7 +86,7 @@ driver    ◄── pipeline, ir, core
 
 z42c.driver 实现了自己的 `build --workspace`（`Main._buildWorkspace` + `z42c.pipeline/WorkspaceBuild.z42`），替换 C# 编译器的硬前置。两个里程碑：
 
-- **成员发现 + 拓扑序**（`WorkspaceBuild.Plan` / `DiscoverMembers` / `TopoOrder`）：`members=["*"]` 下 wsDir 每个「恰含一份 `*.z42.toml`」的子目录 = 成员；读各成员 `[project].name` + `[dependencies]`，仅保留指向 workspace 内成员的边；O(N²) 层式拓扑（就绪集按 name Ordinal 发射 = C# `TopologicalLayers` 层内 name-sort 同序）。受限子集：无交错数组 → flat 平行数组（`WsMembers.DepFlat/DepOff/DepLen`）；无 enum → 颜色用 bool/int。环 → 抛 `Exception`。
+- **成员发现 + 拓扑序**（`WorkspaceBuild.Plan` / `DiscoverMembers` / `TopoOrder`）：按 `[workspace] members` 展开（缺省 `["*"]`，段内 `*` / `?` 通配，显式路径必须存在）、`exclude` 段级 glob 剔除，每个成员目录经 `ManifestLocator.FindIn` 定位清单（认 `z42.toml` 与 `<name>.z42.toml`，fix-workspace-member-discovery；此前恒只扫一层、只认 `*.z42.toml`、`members`/`exclude` 无人读）；读各成员 `[project].name` + `[dependencies]`，仅保留指向 workspace 内成员的边；O(N²) 层式拓扑（就绪集按 name Ordinal 发射 = C# `TopologicalLayers` 层内 name-sort 同序）。受限子集：无交错数组 → flat 平行数组（`WsMembers.DepFlat/DepOff/DepLen`）；无 enum → 颜色用 bool/int。环 → 抛 `Exception`。
 - **Milestone 1（显式 `--output-dir <flat>`）**：全成员产物落该 flat dir（= 各成员 libsDir，deps-first 解析兄弟）。产物 zpkg 与 C# `build --workspace` byte-identical（字节与输出目录无关）。注意 flat dir 须含外部 stdlib 依赖（调用方 seed `Z42_LIBS` 内容）。
 - **Milestone 2（无 `--output-dir`，drop-in 替代 C# stdlib build）**：`WorkspaceBuild.PlanLayout` 按 `[workspace.build].output_dir` 模板（`PathTemplate.Expand`，`${project_name}`/`${profile}`/`${workspace_dir}`）展开 per-member 布局 → 各成员产物落各自 `<output_dir>/dist`（默认 `dist_dir=${output_dir}/dist`，镜像 C# `CentralizedBuildLayout.ResolveWorkspace`）。**兄弟解析扫全成员 dist 列表 + `Z42_LIBS`**（外部 stdlib，如 z42c.* → z42.core）——`DepScan.ScanDirs` 多目录合并后 prelude-first + Ordinal 排序（成员名唯一，无跨目录同名碰撞 → first-wins 确定）。镜像 C# `WorkspaceBuildOrchestrator` 的 `workspaceLibDirs`（成员 `EffectiveDistDir` 透传）。先建全部成员 dist（空目录）再拓扑序逐个 build，使后续成员 dist 在建本成员时已可被 `DepScan` 扫到（虽空）。
 - **byte-identical 范围**：`--emit-zbc`（代码段）逐字节一致 C#；整包 zpkg 对 stdlib 有 ~1-3% pre-existing 差异（DEPS provider env-artifact / TSIG / IMPL），gate 只验 `--emit-zbc` + 功能正确，不追整包 byte-identical。
