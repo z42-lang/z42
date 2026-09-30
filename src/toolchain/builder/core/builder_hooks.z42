@@ -22,8 +22,9 @@ using Std.Test;
 using Z42.Build;
 using Z42.Project;   // ManifestLoader：hooks 的合成清单
 
-// 编译并实例化项目 hooks。失败（目录缺失 / 编译错 / 类型不符）→ null，调用方跳过
-// 并已见诊断（L1「空值 + 调用方检查」idiom，对齐 _hostCompiler 的 NoCompiler 兜底风格）。
+// 编译并实例化项目 hooks。失败（目录缺失 / 编译错 / 类型不符 / 加载异常）→ 打诊断、返回 null（L1「空值 +
+// 调用方检查」idiom）。调用方一律把 null 判为**构建失败**（fail-build-on-hooks-error）：清单既然声明了 hooks，
+// 就不许静默降级成「无 hook」——此前那样构建照样退 0，publish 产物会悄悄缺少 hook 该产出的东西。
 //   hooksDir  hook 源目录（已解析为可用路径）
 //   interDir  hook 产物落点（<pkgName>.zpkg 写这里）
 //   pkgName   hook 包名（约定 <proj>.hooks）

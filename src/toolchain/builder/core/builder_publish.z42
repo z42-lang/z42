@@ -83,6 +83,7 @@ int _pubDesktop(ParseResult r, string rid) {
     //   ② Z42_APPHOST_TEMPLATE：launcher 解析已装 workload 传入（Decision 3.5）
     //   ③ 皆无 → 报错提示 workload install / hook 两条路。
     string stub = _pubHookApphostStub(toml, tomlPath, projName, rid);
+    if (stub == null) { return 1; }   // 声明了 hooks 却失败：诊断已打印，不回落 ②（fail-build-on-hooks-error）
     if (stub.Length == 0) {
         stub = Environment.GetEnvironmentVariable("Z42_APPHOST_TEMPLATE", "");
     }
@@ -206,6 +207,7 @@ int _pubDesktopSelfContained(ParseResult r, TomlValue toml, string tomlPath, str
     // the desktop workload (user), no manual env.
     if (host.Length == 0 || libsSrc.Length == 0 || (link == "dynamic" && dylibSrc.Length == 0)) {
         Output[] hookOuts = _pubRunHooks(toml, tomlPath, projName, rid);
+        if (hookOuts == null) { return 1; }   // 声明了 hooks 却失败：诊断已打印（fail-build-on-hooks-error）
         if (host.Length == 0)    { host    = _pubFindOutput(hookOuts, "embed-apphost-" + link); }
         if (libsSrc.Length == 0) { libsSrc = _pubFindOutput(hookOuts, "embed-libs"); }
         if (link == "dynamic" && dylibSrc.Length == 0) { dylibSrc = _pubFindOutput(hookOuts, "embed-dylib"); }
@@ -594,8 +596,8 @@ bool _pubHasNative(TomlValue toml) {
 }
 
 // Load a native-carrying dep's hooks, run ProvideNative (dep-scoped ctx), and flatten
-// each registered "native" output into distDir (beside the consumer zpkg). Best-effort:
-// hook load/run failure warns and returns 0 (does not abort the whole publish).
+// each registered "native" output into distDir (beside the consumer zpkg). Hook load/run failure
+// → diagnostic + 1 (fail-build-on-hooks-error: the app would otherwise ship without its native lib).
 int _pubRunDepProvideNative(string depTomlPath, TomlValue depToml, string depName, string distDir, string rid) {
     string depDir = Path.GetDirectoryName(depTomlPath);
     if (depDir.Length == 0) { depDir = "."; }
@@ -606,7 +608,7 @@ int _pubRunDepProvideNative(string depTomlPath, TomlValue depToml, string depNam
     BuildHooks h = _loadProjectHooks(hooksDir, interDir, depName + ".hooks");
     if (h == null) {
         ConsoleError.WriteLine("z42b publish: native dep '" + depName + "' hooks failed to load — native not colocated");
-        return 0;
+        return 1;
     }
     PipelineContext ctx = new PipelineContext();
     ctx.Target = new Target(rid, TargetFamily.Desktop, "release", BuildMode.Publish);
@@ -614,7 +616,7 @@ int _pubRunDepProvideNative(string depTomlPath, TomlValue depToml, string depNam
     try { h.ProvideNative(ctx); }
     catch (Exception e) {
         ConsoleError.WriteLine("z42b publish: native dep '" + depName + "' ProvideNative failed (" + e.Message + ")");
-        return 0;
+        return 1;
     }
     Output[] outs = ctx.Outputs();
     int i = 0;
@@ -776,7 +778,8 @@ string _pubFindFileRec(string dir, string fname) {
 // `[build] hooks = "<dir>"` 声明 → _loadProjectHooks（builder_hooks.z42：编译 + 动态
 // 注入 ProjectHooks）→ 构造受限 ctx → BeforeAssets(ctx) → 取 ctx.Outputs() 中
 // kind=="apphost-stub" 的登记路径。无 hooks 声明 / hook 未登记 / 文件不存在 → ""
-// （调用方落回 Z42_APPHOST_TEMPLATE）。
+// （调用方落回 Z42_APPHOST_TEMPLATE）；声明了 hooks 却加载失败或 BeforeAssets 抛异常 → null（调用方判
+// 构建失败，不回落——fail-build-on-hooks-error）。
 //
 // hook 中间产物落点：见 `_pubHooksInterDir`。
 string _pubHookApphostStub(TomlValue toml, string tomlPath, string projName, string rid) {
@@ -789,7 +792,7 @@ string _pubHookApphostStub(TomlValue toml, string tomlPath, string projName, str
     string interDir = _pubHooksInterDir(toml, tomlPath, projName);
 
     BuildHooks h = _loadProjectHooks(hooksDir, interDir, projName + ".hooks");
-    if (h == null) { return ""; }
+    if (h == null) { return null; }
 
     PipelineContext ctx = new PipelineContext();
     ctx.Target = new Target(rid, TargetFamily.Desktop, "release", BuildMode.Publish);
@@ -797,7 +800,7 @@ string _pubHookApphostStub(TomlValue toml, string tomlPath, string projName, str
     try { h.BeforeAssets(ctx); }
     catch (Exception e) {
         ConsoleError.WriteLine("z42b publish: project hook BeforeAssets failed (" + e.Message + ")");
-        return "";
+        return null;
     }
     Output[] outs = ctx.Outputs();
     int i = 0;
@@ -818,7 +821,7 @@ string _pubHooksInterDir(TomlValue toml, string tomlPath, string projName) {
 // Run the project's [build] hooks BeforeAssets and return ALL registered outputs
 // (embed-workload-publish). Same load+run as _pubHookApphostStub, but returns
 // the full output set so --self-contained can harvest its embed-* kinds. Empty
-// array if no [build] hooks / on failure.
+// array if no [build] hooks; null on hook load/run failure (caller fails the publish).
 Output[] _pubRunHooks(TomlValue toml, string tomlPath, string projName, string rid) {
     string hooksRel = _pubTomlStr(toml, "build", "hooks", "");
     if (hooksRel.Length == 0) { return new Output[0]; }
@@ -827,14 +830,14 @@ Output[] _pubRunHooks(TomlValue toml, string tomlPath, string projName, string r
     string hooksDir = Path.Join(projDir, hooksRel);
     string interDir = _pubHooksInterDir(toml, tomlPath, projName);
     BuildHooks h = _loadProjectHooks(hooksDir, interDir, projName + ".hooks");
-    if (h == null) { return new Output[0]; }
+    if (h == null) { return null; }
     PipelineContext ctx = new PipelineContext();
     ctx.Target = new Target(rid, TargetFamily.Desktop, "release", BuildMode.Publish);
     ctx.Dirs   = new Dirs(projDir, "", interDir, interDir);
     try { h.BeforeAssets(ctx); }
     catch (Exception e) {
         ConsoleError.WriteLine("z42b publish: project hook BeforeAssets failed (" + e.Message + ")");
-        return new Output[0];
+        return null;
     }
     return ctx.Outputs();
 }

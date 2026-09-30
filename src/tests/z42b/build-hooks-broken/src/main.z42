@@ -1,0 +1,3 @@
+using Std.IO;
+
+void Main() { Console.WriteLine("bh app"); }

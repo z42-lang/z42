@@ -65,8 +65,8 @@ int _orchestrate(ProjectManifest manifest, Target target, string sourceDir, stri
             Path.Join(sourceDir, hooksRel),
             Path.Join(dirs.Intermediate, "hooks"),
             manifest.Project.Name + ".hooks");
-        if (h != null) { p.Hooks = h; }
-        // null → 诊断已打印；hooks 编不过不阻塞主构建（保守降级为无 hook）
+        if (h == null) { return 1; }   // 诊断已打印；声明了 hooks 却失败 ⇒ 构建失败（fail-build-on-hooks-error）
+        p.Hooks = h;
     }
 
     PipelineContext ctx = new PipelineContext();
