@@ -1,0 +1,53 @@
+// 错误恢复去级联单测（fix-parser-error-cascade）：一处真错误只报一条，互相独立的错误仍各报一条。
+//
+// 此前没有「本语句已报过错」的状态：一个坏 token 被两层恢复各报一次、表达式报完错又在后面报「缺 ;」、
+// 未闭合字符串吞掉后文后 EOF 处再报两条——真错误被余波淹没。
+namespace Z42cSyntaxErrorRecoveryTests;
+
+using Std;
+using Std.Test;
+using Z42.Syntax;
+using Z42.Core;
+
+int parseErrors(string src) {
+    var p = new Parser(src, "t.z42");
+    p.ParseCompilationUnit();
+    return p.Diagnostics().ErrorCount();
+}
+
+// 恢复吞了 `;` ⇒ 下一行同时收到「缺 )」「缺 ;」（同一位置两条）。
+[Test]
+void test_bad_operand_reports_once() {
+    Assert.Equal(1, parseErrors("void Main() {\n    int a = (1 + ;\n    int b = 2;\n}\n"));
+}
+
+// 表达式里报完坏 token，不再在后面的操作数处补一条「缺 ;」。
+[Test]
+void test_no_missing_semi_after_expr_error() {
+    Assert.Equal(1, parseErrors("void Main() {\n    int y = 1;\n    y = y +* 3;\n}\n"));
+}
+
+// 同一行上的残渣跟着第一条错误一起吃掉。
+[Test]
+void test_same_line_garbage_skipped() {
+    Assert.Equal(1, parseErrors("void Main() {\n    foo bar baz;\n    int y = 2;\n}\n"));
+}
+
+// 名字位的坏 token：「缺类型名」与「缺参数名」落在同一个 `)` 上，只留第一条。
+[Test]
+void test_same_position_errors_deduped() {
+    Assert.Equal(1, parseErrors("class P { void F(int a,) { } }\n"));
+}
+
+// 未闭合字符串吞掉后文 ⇒ EOF 处的「意外结束」都是它的余波。
+[Test]
+void test_unterminated_string_hides_eof_cascade() {
+    Assert.Equal(1, parseErrors("void Main() {\n    var s = \"abc;\n    int y = 2;\n}\n"));
+}
+
+// 反向：不同语句里互相独立的错误**各报一条**（去级联不能变成「全文件只报一条」）。
+[Test]
+void test_independent_errors_all_reported() {
+    Assert.Equal(2, parseErrors("void Main() {\n    int x = 1\n    int y = 2\n    F(x);\n}\n"));
+    Assert.Equal(3, parseErrors("void Main() {\n    int a = (1 + ;\n    if (a > 1 { a = 2; }\n    G(1, 2;\n}\n"));
+}
