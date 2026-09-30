@@ -20,10 +20,7 @@ namespace Z42Xtask;
 using Std;
 using Std.IO;
 
-// artifacts/publish/ — the staging root all fixed-kind components publish into.
-string _pubStagingRoot(string root) {
-    return Path.Join(root, "artifacts/publish");
-}
+// `_pubStagingRoot`（artifacts/publish/，所有固定形态组件的暂存根）→ common/xtask_layout.z42。
 
 // artifacts/publish/<comp>/ — one component's staging directory. Reset on
 // every call: staging handlers are idempotent producers, not additive.

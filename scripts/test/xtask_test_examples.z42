@@ -30,7 +30,7 @@ int _testExamples(ExamplesOptions o) {
     Console.WriteLine("  ✓ references ok");
     if (o.BookOnly) { _procEnd("test examples", sw); return 0; }
 
-    string sdk = o.Sdk.Length > 0 ? o.Sdk : Path.Join(root, "artifacts/.z42");
+    string sdk = o.Sdk.Length > 0 ? o.Sdk : _devSdkDir(root);
     if (!Path.IsRooted(sdk)) { sdk = Path.Join(root, sdk); }
     string launcher = Path.Join(sdk, Platform.IsWindows() ? "z42.exe" : "z42");
     if (!File.Exists(launcher) || !File.Exists(Path.Join(sdk, "programs/launcher/launcher.zpkg"))) {

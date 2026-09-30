@@ -164,7 +164,7 @@ bool _fpSkipEntry(string name) {
 // 宁可说判不了，也不要拿没验过的结论挡 PR）。
 bool _compilerSetsEqual(string baseDir, string root) {
     if (!Directory.Exists(baseDir)) { return false; }
-    string[] members = _enumDirsSorted(Path.Join(root, "artifacts/build/compiler"));
+    string[] members = _enumDirsSorted(_compilerBuildRoot(root));
     int n = 0;
     int i = 0;
     while (i < members.Length) {
@@ -244,7 +244,7 @@ int _testFingerprint(ParseResult r) {
     }
 
     // 本树编译器重编 base 的 stdlib 源码（拷进 scratch，产物按拷贝里的 workspace 模板落在 scratch 内）。
-    string scratch = Path.Join(root, "artifacts/.scratch/fingerprint");
+    string scratch = _scratchDir(root, "fingerprint");
     _resetDir(scratch);
     string srcLibs = Path.Join(scratch, "src/libraries");
     Directory.Copy(Path.Join(baseTree, "src/libraries"), srcLibs, true);

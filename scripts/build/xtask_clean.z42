@@ -19,7 +19,7 @@ int _clean(ParseResult r) {
     string root = _root();
     string sub  = r.GetPositional(0);   // "" | tests | bench | all
     if (sub == "all") {
-        string bd = Path.Join(root, "artifacts/build");
+        string bd = _buildDir(root);
         if (Directory.Exists(bd)) { Directory.Delete(bd, true); }
         Console.WriteLine("✅ clean all: removed artifacts/build/");
         return 0;

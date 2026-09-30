@@ -11,7 +11,7 @@
 
 ## 1. 命令树
 
-顶层九个命令，`xtask -h` 打印的就是这棵树的根：
+顶层十个命令，`xtask -h` 打印的就是这棵树的根：
 
 | 命令 | 管什么 |
 |---|---|
@@ -23,6 +23,7 @@
 | `profile` | 对单个 `.z42` 脚本做 cpu / heap / threads / e2e 剖析 |
 | `feature-matrix` | 逐个 cargo feature 组合验证可编译 |
 | `clean` | 删构建产物（`tests` / `bench` / `all`，默认删生产 cache/dist）|
+| `layout` | 打印产物布局路径：无参列出全部 `key  path`，`layout <key>` 只打印一条（给 CI / 脚本查询，见[产物目录布局](artifacts-layout.md)）|
 | `run` | 把参数原样透传给 **PATH 上的 `z42` launcher**（找不到 launcher 即报错退出）|
 
 > `build regen` 这个命令名不存在——golden 基线重生现在是 `build test`。

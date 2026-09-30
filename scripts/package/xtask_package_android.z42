@@ -63,7 +63,7 @@ int _buildRuntimePackageAndroid(string root, string rid, string version, string 
         .Stdout(Stdio.Null()).Stderr(Stdio.Null());
     if (rel) { p2 = p2.Arg("--release"); }
     _execIn(p2, androidCrate);   // exits non-zero though .a is produced — ignore like the bash
-    string staticA = Path.Join(root, "artifacts/build/runtime/" + cargoTarget + "/" + profile + "/libz42_platform_android.a");
+    string staticA = Path.Join(_cargoTargetDir(root), cargoTarget + "/" + profile + "/libz42_platform_android.a");
     if (!File.Exists(staticA)) { staticA = Path.Join(androidCrate, "target/" + cargoTarget + "/" + profile + "/libz42_platform_android.a"); }
     if (!File.Exists(staticA)) { ConsoleError.WriteLine("error: libz42_platform_android.a not produced for " + cargoTarget); return 1; }
     File.Copy(staticA, Path.Join(nativeOut, "libz42_platform_android.a"));
@@ -79,7 +79,7 @@ int _buildRuntimePackageAndroid(string root, string rid, string version, string 
     _execIn(p3, androidCrate);
     string compSo = Path.Join(ndkOut2, abi + "/libz42_compression.so");
     if (File.Exists(compSo)) { File.Copy(compSo, Path.Join(nativeOut, "libz42_compression.so")); }
-    string compA = Path.Join(root, "artifacts/build/runtime/" + cargoTarget + "/" + profile + "/libz42_compression.a");
+    string compA = Path.Join(_cargoTargetDir(root), cargoTarget + "/" + profile + "/libz42_compression.a");
     if (!File.Exists(compA)) { compA = Path.Join(androidCrate, "target/" + cargoTarget + "/" + profile + "/libz42_compression.a"); }
     if (File.Exists(compA)) { File.Copy(compA, Path.Join(nativeOut, "libz42_compression.a")); }
     if (Directory.Exists(ndkOut2)) { Directory.Delete(ndkOut2, true); }

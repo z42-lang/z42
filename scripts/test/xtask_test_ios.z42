@@ -38,7 +38,7 @@ public class IosBackend : IPlatformBackend {
         }
         string here = Path.Join(root, "src/toolchain/workload/ios/platform");
         string manifest = Path.Join(here, "rust/Cargo.toml");
-        string targetDir = Path.Join(root, "artifacts/build/runtime");
+        string targetDir = _cargoTargetDir(root);
         string libName = "libz42_platform_ios.a";
 
         TomlValue toml = _vparse(root);

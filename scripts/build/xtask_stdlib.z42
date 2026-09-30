@@ -70,7 +70,7 @@ int _buildStdlib() {
     //    stdlib 正被重建 → driver 的运行期 Std.* 需一份不随构建 churn 的稳定副本。
     //    只拷 stdlib：driver 的 z42c 兄弟包已 bundle 在其自身 dist（自包含 exe，
     //    simplify-compiler-build），不再拼 {stdlib+z42c} 的 dogfood 目录。
-    string stdlibRun = Path.Join(root, "artifacts/.scratch/stdlib-run/" + profile);
+    string stdlibRun = _scratchDir(root, "stdlib-run/" + profile);
     _resetDir(stdlibRun);
     _copyAll(flatDir, stdlibRun, "*.zpkg");
     // z42c.driver 自包含（_buildCompilerViaZ42c 已保证兄弟包在其 dist）→ 直接跑。
@@ -155,7 +155,7 @@ string[] _compilerMembers(string root) {
 // 旧副本照样会把那个名字填上。所以除了过滤，assemble 完再对账一次（`_assertStdlibNotShadowed`）
 // —— 判据是「alllibs 里凡与 flat 同名者必须与 flat 同字节」，与靠拷贝顺序无关。
 string _assembleAllLibs(string root, string profile) {
-    string flat = Path.Join(root, "artifacts/.scratch/alllibs/" + profile);
+    string flat = _scratchDir(root, "alllibs/" + profile);
     Directory.Create(flat);
     _cleanGlob(flat, "*.zpkg");
     string stdlibSrc = _libsFlatDist(root, profile);
@@ -233,7 +233,7 @@ int _buildSdk(string outOpt, bool noBuild) {
     string root = _root();
     Stopwatch sw = _procStart("build sdk");
     string outDir = outOpt;
-    if (outOpt.Length == 0) { outDir = Path.Join(root, "artifacts/.z42"); }
+    if (outOpt.Length == 0) { outDir = _devSdkDir(root); }
     else if (!Path.IsRooted(outOpt)) { outDir = Path.Join(root, outOpt); }
 
     // 1. build current toolchain (z42c 7-pkg seed + stdlib; ensures z42vm).

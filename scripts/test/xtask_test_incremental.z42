@@ -35,7 +35,7 @@ int _testIncremental(ParseResult r) {
         if (bc != 0) { return bc; }
     }
     string libs = _libsDir(root);
-    string scratch = Path.Join(root, "artifacts/.scratch/incr-reconcile");
+    string scratch = _scratchDir(root, "incr-reconcile");
     if (Directory.Exists(scratch)) { Directory.Delete(scratch, true); }
 
     int rc = _reconcileProject(vm, driver, libs, _incrDemoDir(scratch), "demo");

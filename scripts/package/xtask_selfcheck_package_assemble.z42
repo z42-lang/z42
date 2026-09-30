@@ -55,7 +55,7 @@ int _testPackagesAssemble() {
     string stagingRoot = _pubStagingRoot(root);
     string aDir = Path.Join(stagingRoot, "assemble-test-a");
     string bDir = Path.Join(stagingRoot, "assemble-test-b");
-    string pkgDir = Path.Join(root, "artifacts/tmp/assemble-test-pkg");
+    string pkgDir = _tmpDir(root, "assemble-test-pkg");
     if (Directory.Exists(aDir)) { Directory.Delete(aDir, true); }
     if (Directory.Exists(bDir)) { Directory.Delete(bDir, true); }
     if (Directory.Exists(pkgDir)) { Directory.Delete(pkgDir, true); }
@@ -90,7 +90,7 @@ int _testPackagesAssemble() {
     string[] missingCompNames = new string[1];
     missingCompNames[0] = "assemble-test-missing";
     _PackagesConfig missingCfg = _asmFakeConfig("assemble-test-missing-pkg", missingInclude, missingCompNames);
-    string missingPkgDir = Path.Join(root, "artifacts/tmp/assemble-test-missing-pkg");
+    string missingPkgDir = _tmpDir(root, "assemble-test-missing-pkg");
     if (Directory.Exists(missingPkgDir)) { Directory.Delete(missingPkgDir, true); }
     Directory.Create(missingPkgDir);
     int missingC = _pkgAssembleFromStaging(missingCfg, root, "assemble-test-missing-pkg", missingPkgDir);

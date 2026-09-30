@@ -28,7 +28,7 @@ int _buildRuntimePackageIos(string root, string rid, string version, string prof
     Console.WriteLine("  [1/4] libz42.a (cargo " + cargoTarget + ", " + profile + ")");
     int c = _exec(_iosRustc(root, rel, cargoTarget, "staticlib", iosMin));
     if (c != 0) { ConsoleError.WriteLine("error: cargo rustc staticlib for " + cargoTarget + " failed"); return 1; }
-    string cargoOut = Path.Join(root, "artifacts/build/runtime/" + cargoTarget + "/" + profile);
+    string cargoOut = Path.Join(_cargoTargetDir(root), cargoTarget + "/" + profile);
     string lib = Path.Join(cargoOut, "libz42.a");
     if (!File.Exists(lib)) { ConsoleError.WriteLine("error: " + lib + " not produced"); return 1; }
     File.Copy(lib, Path.Join(pkgDir, "native/libz42.a"));

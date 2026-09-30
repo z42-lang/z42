@@ -1,6 +1,6 @@
 # 产物目录布局（`artifacts/`）
 
-> 对齐：2026-09-17（change `restructure-docs-three-books`）｜ 代码：`scripts/common/xtask_layout.z42`（路径 SoT）、`src/libraries/z42.workspace.toml` 与 `src/compiler/z42.workspace.toml` 的 `[workspace.build]`、`.cargo/config.toml`
+> 对齐：2026-09-30（change `centralize-xtask-layout`）｜ 代码：`scripts/common/xtask_layout.z42`（路径 SoT）、`src/libraries/z42.workspace.toml` 与 `src/compiler/z42.workspace.toml` 的 `[workspace.build]`、`.cargo/config.toml`
 >
 > 构建步骤本身见[构建编排](build.md)；打包见[打包引擎](packaging.md)。
 
@@ -53,10 +53,26 @@
 `target-dir = "artifacts/build/runtime"` 决定——**注意它不带 `<cargo-target>` 这一层**，profile
 直接挂在 `runtime/` 下。
 
-xtask 里只有两类路径是「自己发明的约定、没有 toml 归属」，它们**在 `xtask_layout.z42` 里各有一个
-单一定义**：扁平 stdlib dist（`_libsFlatDist`）与 cargo 输出目录（`_runtimeOut`）。
-一次性的临时目录（`.scratch/*`、`tools/*`、每个测试自己的 staging）**不集中**——它们没有 toml 归属、
-没有重复、也没有布局意义，各自留在唯一的使用点。
+xtask 自己发明、没有 toml 归属的路径，**全部在 `xtask_layout.z42` 里各有一个单一定义**：
+扁平 stdlib dist（`_libsFlatDist`）、cargo target 目录（`_cargoTargetDir` / `_runtimeOut`），以及 §1 的
+每个顶层桶（`_scratchDir(root, name)` / `_tmpDir` / `_toolsDir` / `_devSdkDir` / `_pubStagingRoot` /
+`_packagesDir` / `_releaseDir` / `_testReportsDir` / `_benchDir` / `_profileDir`）。使用点只写
+「桶 + 自己的子目录名」，不再写 `"artifacts/…"` 字面量——挪一个桶只改一处。
+
+> 2026-09-30 前，一次性目录（`.scratch/*`、`tools/*`、`tmp/*`）是**故意不集中**的，理由是「没有
+> 布局意义」。整理布局时这条理由不成立：要挪的恰恰是它们，散在 ~35 个使用点就得逐个去找。
+
+### 查询：`xtask layout`
+
+```bash
+xtask layout            # 列出全部 key  path
+xtask layout libs       # 只打印一条，给脚本用：libs=$(xtask layout libs)
+```
+
+**key 是对外契约，路径不是**：CI / 脚本按 key 取路径，布局整理时 key 不变、值跟着变。
+仍然写死在 xtask 之外的有：`.github/ci/xtask`（CI 垫片，要先有 z42vm 才能跑 xtask，鸡生蛋）、
+`scripts/hooks/hooks.z42`（z42b publish 时单独编译的 hooks 工程，调不到 xtask 的函数）、
+Rust 测试里的若干 cwd 相对路径。
 
 ### `build/libraries/dist/<profile>` 为什么必须存在
 

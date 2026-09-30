@@ -469,7 +469,7 @@ int _testSelfHostByteIdentical(string root, string vm, string[] members, string 
 
     // gen1 快照：把现有 canonical dist 的 7 个 <member>.zpkg 拷到独立目录（随后 gen2 会
     // 覆盖 canonical dist）。
-    string snapDir = Path.Join(root, "artifacts/.scratch/selfhost-gen1");
+    string snapDir = _scratchDir(root, "selfhost-gen1");
     _resetDir(snapDir);
     int i = 0;
     while (i < members.Length) {

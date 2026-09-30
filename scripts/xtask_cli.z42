@@ -188,6 +188,11 @@ SubcommandRouter _cliRoot() {
     profile.AddOption("mode", "", "interp|jit (measured mode; default jit)", "jit");
     root.Add("profile", "profile a .z42 script (cpu/heap/threads/e2e; no flag = all)", profile);
 
+    // centralize-xtask-layout: 产物布局的查询口（CI / 脚本按 key 取路径，不再各自写死）。
+    ArgParser layout = new ArgParser("xtask layout", "print artifact layout paths (no key = all)");
+    layout.AddOptionalPositional("key", "vm|libs|xtask|packages|stage|… (see `xtask layout`)");
+    root.Add("layout", "print artifact layout paths (no key = all)", layout);
+
     ArgParser clean = new ArgParser("xtask clean", "remove build artifacts");
     clean.AddOptionalPositional("target", "tests|bench|all (default: production cache/dist)");
     root.Add("clean", "remove build artifacts", clean);
@@ -215,6 +220,7 @@ int _dispatch(CommandResolution res) {
     if (top == "bench")          { return _dispatchBench(p, r); }
     if (top == "profile")        { return _profile(r); }
     if (top == "clean")          { return _clean(r); }
+    if (top == "layout")         { return _layoutCmd(r); }
     // `run` is intercepted in _runCli (raw passthrough) — not reached here.
     return 2;
 }

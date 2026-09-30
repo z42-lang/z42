@@ -23,7 +23,7 @@ void _stgAssert(string what, bool cond) {
 
 int _testPackagesStaging() {
     string root = _root();
-    string fakeCargoOut = Path.Join(root, "artifacts/tmp/stage-test-cargo");
+    string fakeCargoOut = _tmpDir(root, "stage-test-cargo");
     if (Directory.Exists(fakeCargoOut)) { Directory.Delete(fakeCargoOut, true); }
     Directory.Create(fakeCargoOut);
     File.WriteAllText(Path.Join(fakeCargoOut, "z42vm"), "fake-z42vm-binary");
@@ -35,7 +35,7 @@ int _testPackagesStaging() {
     // z42vm: bin/z42vm staged at the exact dest packages.toml declares, content
     // matches the source (a real copy, not a placeholder).
     string vmDir = _pkgStageZ42vm(root, fakeCargoOut);
-    _stgAssert("z42vm dir suffix", vmDir.EndsWith("artifacts/publish/z42vm"));
+    _stgAssert("z42vm dir suffix", vmDir == Path.Join(_pubStagingRoot(root), "z42vm"));
     string vmBin = Path.Join(vmDir, "bin/z42vm");
     _stgAssert("bin/z42vm exists", File.Exists(vmBin));
     _stgAssert("bin/z42vm content", File.ReadAllText(vmBin) == "fake-z42vm-binary");

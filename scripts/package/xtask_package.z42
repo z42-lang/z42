@@ -184,7 +184,7 @@ string _cargoTargetFor(string rid) {
 string _cargoOutFor(string root, string rid, string profile) {
     string t = _cargoTargetFor(rid);
     string sub = (t.Length == 0) ? profile : (t + "/" + profile);
-    return Path.Join(root, Path.Join("artifacts/build/runtime", sub));
+    return Path.Join(_cargoTargetDir(root), sub);
 }
 
 int _cargo(bool rel, string verb, string manifest, string target, string pkg) {

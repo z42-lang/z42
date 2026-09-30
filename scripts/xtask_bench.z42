@@ -60,7 +60,7 @@ int _bench(ParseResult r) {
     if (!_benchTierValid(tier)) { return 2; }
     string root = _root();
     string scenDir = Path.Join(root, "src/tests/perf/scenarios");
-    string resultsDir = Path.Join(root, "artifacts/bench");
+    string resultsDir = _benchDir(root);
     Directory.Create(resultsDir);
     // Bench needs z42vm + stdlib (scenarios `using Std.IO.Console`, resolved at
     // `libs`) + the self-contained z42c driver (scenarios compile via z42c, not
@@ -471,7 +471,7 @@ int _benchAb(ParseResult r) {
     if (!_benchTierValid(tier)) { return 2; }
     string root = _root();
     string scenDir = Path.Join(root, "src/tests/perf/scenarios");
-    string resultsDir = Path.Join(root, "artifacts/bench");
+    string resultsDir = _benchDir(root);
     Directory.Create(resultsDir);
     int dep = _ensureToolchainDeps(root); if (dep != 0) { return dep; }
     string prVm = _builtVm(root, "release");
@@ -688,9 +688,9 @@ int _abExpect(string label, AbVerdict v, string wantVerdict, bool wantRegr) {
 int _benchMicroDiff(ParseResult r) {
     string root = _root();
     string current = r.GetOption("current");
-    if (current.Length == 0) { current = "artifacts/bench/micro-pr.json"; }
+    if (current.Length == 0) { current = Path.Join(_benchDir(root), "micro-pr.json"); }
     string baseline = r.GetOption("baseline");
-    if (baseline.Length == 0) { baseline = "artifacts/bench/micro-base.json"; }
+    if (baseline.Length == 0) { baseline = Path.Join(_benchDir(root), "micro-base.json"); }
     double thr = 0.10;
     string tt = r.GetOption("threshold-time");
     if (tt.Length > 0) { thr = Double.Parse(tt); }
@@ -874,7 +874,7 @@ double _microN(JsonValue b) {
 int _benchDiff(ParseResult r) {
     string root = _root();
     string current = r.GetOption("current");
-    if (current.Length == 0) { current = "artifacts/bench/e2e.json"; }
+    if (current.Length == 0) { current = Path.Join(_benchDir(root), "e2e.json"); }
     string baseline = r.GetOption("baseline");
     double thrTime = 0.05;
     string tt = r.GetOption("threshold-time");
