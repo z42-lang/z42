@@ -1,0 +1,12 @@
+# ANCHOR: write
+$ z42 run serde.z42
+{"Name":"小明","Age":30,"email_addr":"ming@example.com","Home":{"City":"北京","Zip":100000},"Scores":[90,85]}
+# ANCHOR_END: write
+# ANCHOR: read
+小红 / 28 / hong@example.com
+城市 上海，第一项成绩 70
+# ANCHOR_END: read
+# ANCHOR: partial
+缺的键给零值：Age=0，对象成员为 null
+多余的键被忽略：Name=只有名字
+# ANCHOR_END: partial

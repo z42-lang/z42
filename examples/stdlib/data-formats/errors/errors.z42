@@ -1,0 +1,51 @@
+using Std;
+using Std.IO;
+using Std.Json;
+using Std.Toml;
+using Std.Yaml;
+
+void Main() {
+    // ANCHOR: types
+    // 三个包各有自己的异常类型，都带 1-based 行列
+    try {
+        JsonValue.Parse("{\"a\": }");
+    } catch (JsonException e) {
+        Console.WriteLine("JSON  第 " + e.Line.ToString() + " 行第 " + e.Column.ToString() + " 列：" + e.Message);
+    }
+    try {
+        TomlValue.Parse("a = 1\nb == 2\n");
+    } catch (TomlException e) {
+        Console.WriteLine("TOML  第 " + e.Line.ToString() + " 行第 " + e.Column.ToString() + " 列：" + e.Message);
+    }
+    try {
+        YamlValue.Parse("a: 1\n  bad-indent: 2\n");
+    } catch (YamlException e) {
+        // ⚠️ YamlException 没有 Line / Column——位置拼在消息末尾（"... at 行:列"）
+        Console.WriteLine("YAML  " + e.Message);
+    }
+    // ANCHOR_END: types
+
+    // ANCHOR: kind
+    // 取值器严格匹配 kind：拿错类型取会抛，不会悄悄转换
+    JsonValue v = JsonValue.Parse("{\"n\":42}");
+    try {
+        v.Get("n").AsString();
+    } catch (JsonException e) {
+        Console.WriteLine("类型不符：" + e.Message);
+    }
+    try {
+        v.Get("nope");
+    } catch (JsonException e) {
+        Console.WriteLine("缺键：" + e.Message);
+    }
+    // ANCHOR_END: kind
+
+    // ANCHOR: nodate
+    // TOML 不支持 datetime，错误消息会说出这件事
+    try {
+        TomlValue.Parse("released = 2026-05-27\n");
+    } catch (TomlException e) {
+        Console.WriteLine("TOML 日期：" + e.Message);
+    }
+    // ANCHOR_END: nodate
+}

@@ -175,3 +175,24 @@ void test_comments_between_docs_preserved() {
     Assert.Equal(1L, docs[0].Get("a").AsInt());
     Assert.Equal(2L, docs[1].Get("b").AsInt());
 }
+
+// ── fix-yaml-multidoc-hint：提示里的名字必须是用户能调的那个 ────────────────────
+//
+// 单文档 `Parse` 碰到第二个文档时抛的提示曾写作 `use ParseAllDocuments` —— 那是 **parser 的
+// 内部方法名**，公开 API 上没有它。照提示去写的人会得到
+// `no static method ParseAllDocuments on YamlValue`：一条把人指向不存在的东西的错误信息。
+
+[Test]
+void test_multi_doc_hint_names_the_public_api() {
+    bool caught = false;
+    try {
+        YamlValue.Parse("a: 1\n---\na: 2\n");
+    } catch (YamlException e) {
+        caught = true;
+        // 指向真实入口
+        Assert.True(e.Message.Contains("YamlValue.ParseAll"));
+        // 且不再泄漏内部名
+        Assert.Equal(false, e.Message.Contains("ParseAllDocuments"));
+    }
+    Assert.True(caught);
+}

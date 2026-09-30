@@ -1,0 +1,41 @@
+using Std.IO;
+using Std.Yaml;
+
+void Main() {
+    // ANCHOR: src
+    string src = "name: my-app\nport: 8080\nratio: 0.75\nnothing: ~\n"
+               + "released: 2026-05-27\n"
+               + "steps:\n  - build\n  - test\n"
+               + "server:\n  host: localhost\n";
+    YamlValue cfg = YamlValue.Parse(src);
+    // ANCHOR_END: src
+
+    // ANCHOR: read
+    Console.WriteLine("name = " + cfg.Get("name").AsString());
+    Console.WriteLine("port 的 kind = " + cfg.Get("port").KindName()
+        + "，ratio 的 kind = " + cfg.Get("ratio").KindName()
+        + "，nothing 的 kind = " + cfg.Get("nothing").KindName());
+    Console.WriteLine("released 的 kind = " + cfg.Get("released").KindName());   // YAML 有日期
+    Console.WriteLine("steps[1] = " + cfg.Get("steps").At(1).AsString());
+    Console.WriteLine("server.host = " + cfg.Get("server").Get("host").AsString());
+    // ANCHOR_END: read
+
+    // ANCHOR: norway
+    // YAML 1.2 判定：yes/no/on/off 一律是**字符串**，不会被当成布尔
+    YamlValue v = YamlValue.Parse("shipping: no\nenabled: true\n");
+    Console.WriteLine("no 的 kind = " + v.Get("shipping").KindName()
+        + "，值 = " + v.Get("shipping").AsString());
+    Console.WriteLine("true 的 kind = " + v.Get("enabled").KindName());
+    // ANCHOR_END: norway
+
+    // ANCHOR: multidoc
+    YamlValue[] docs = YamlValue.ParseAll("kind: Service\n---\nkind: Deployment\n");
+    Console.WriteLine("多文档 " + docs.Length.ToString() + " 份，第二份 kind = "
+        + docs[1].Get("kind").AsString());
+    // ANCHOR_END: multidoc
+
+    // ANCHOR: block
+    YamlValue b = YamlValue.Parse("script: |\n  echo one\n  echo two\n");
+    Console.Write(b.Get("script").AsString());
+    // ANCHOR_END: block
+}

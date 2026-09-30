@@ -142,3 +142,57 @@ void test_accept_valid_zero_forms() {
     Assert.EqualApprox(0.0, TomlValue.Parse("x = 0e0").Get("x").AsDouble(), 1e-9);
     Assert.Equal(42L, TomlValue.Parse("x = 42").Get("x").AsLong());
 }
+
+// ── fix-toml-datetime-hint：datetime 尚不支持，但报错要说得出这件事 ─────────────
+//
+// TOML 1.0 的 4 种 datetime 是本包唯一缺的大块。缺失本身不是本组用例的关注点——
+// 关注点是**诊断有没有把原因说出来**：
+//   `d = 1979-05-27` → `1979` 先被当整数吃掉，剩下 `-05-27` 成了「值后面还有东西」
+//   `t = 07:32:00`   → `07` 先撞上「前导零」
+// 两条裸消息都让人看不出真正原因是「不支持 datetime」（而手写 TOML 里写日期极常见）。
+
+bool peMsgHas(string src, string needle) {
+    try {
+        TomlValue.Parse(src);
+    } catch (TomlException e) {
+        return e.Message.Contains(needle);
+    }
+    return false;
+}
+
+[Test]
+void test_date_literal_mentions_datetime_unsupported() {
+    Assert.True(peMsgHas("d = 1979-05-27\n", "datetime"));
+}
+
+[Test]
+void test_time_literal_mentions_datetime_unsupported() {
+    // 这一格走的是「前导零」那条路，与日期那格不是同一个抛点。
+    Assert.True(peMsgHas("t = 07:32:00\n", "datetime"));
+}
+
+[Test]
+void test_offset_datetime_mentions_datetime_unsupported() {
+    Assert.True(peMsgHas("d = 1979-05-27T07:32:00Z\n", "datetime"));
+}
+
+[Test]
+void test_plain_trailing_garbage_keeps_original_message() {
+    // 阴性对照①：普通的「值后有东西」不该被改写成 datetime 提示。
+    Assert.True(peMsgHas("a = 1 bogus\n", "expected newline or EOF"));
+    Assert.Equal(false, peMsgHas("a = 1 bogus\n", "datetime"));
+}
+
+[Test]
+void test_leading_zero_without_colon_keeps_original_message() {
+    // 阴性对照②：真的前导零（后面不是 `:`）仍报前导零。
+    Assert.True(peMsgHas("x = 042\n", "leading zeros"));
+    Assert.Equal(false, peMsgHas("x = 042\n", "datetime"));
+}
+
+[Test]
+void test_negative_number_unaffected() {
+    // 阴性对照③：`-` 紧跟数字的合法形态（负数）不受判据误伤。
+    Assert.Equal(0L - 7L, TomlValue.Parse("n = -7\n").Get("n").AsLong());
+    Assert.EqualApprox(0.0 - 1.5, TomlValue.Parse("f = -1.5\n").Get("f").AsDouble(), 1e-9);
+}

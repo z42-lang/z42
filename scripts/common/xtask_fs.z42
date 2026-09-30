@@ -55,6 +55,15 @@ void _unlinkIfExists(string path) {
     if (File.Exists(path)) { try { File.Delete(path); } catch (Exception e) { /* best-effort */ } }
 }
 
+// 字节比较。两族共用（test 族的增量对账 / build 族的 `_assertStdlibNotShadowed`）⇒ 按头注
+// 的判据（不止一个文件用 + 是通用原语）收在这里。
+bool _bytesEqual(byte[] a, byte[] b) {
+    if (a.Length != b.Length) { return false; }
+    int i = 0;
+    while (i < a.Length) { if (a[i] != b[i]) { return false; } i = i + 1; }
+    return true;
+}
+
 // COPY（非 hard-link）srcDir 下匹配文件到 dstDir。私有目录 + 拷贝避免 _linkAll
 // 的 hard-link inode 别名污染（共享目录被 rebuild 会把 per-member 源弄坏）。
 void _copyAll(string srcDir, string dstDir, string pattern) {

@@ -510,12 +510,8 @@ string _onlyDistZpkg(string projDir) {
     return zs[0];
 }
 
-bool _bytesEqual(byte[] a, byte[] b) {
-    if (a.Length != b.Length) { return false; }
-    int i = 0;
-    while (i < a.Length) { if (a[i] != b[i]) { return false; } i = i + 1; }
-    return true;
-}
+// `_bytesEqual` 已移至 common/xtask_fs.z42 —— build 族的 `_assertStdlibNotShadowed` 也要用它，
+// 而族与族之间不互调（见 xtask_fs.z42 头注的分层约定）。
 
 // `_incrBuild` 的捕获版：stdout 落盘供判定（stderr 仍丢弃）。
 // 诊断捕获版：**stderr 落盘**。z42c 的诊断走 ConsoleError ⇒ 只捕 stdout 读不到任何错误文本

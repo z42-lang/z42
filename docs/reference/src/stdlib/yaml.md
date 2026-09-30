@@ -46,7 +46,7 @@ public static void   WriteTo(Std.IO.Stream dest, YamlValue root)
 
 - 空 / 全空白输入：`Parse` 返回 **Null 值**，`ParseAll` 返回**空数组**。
 - `Parse` 碰到第二个文档会抛
-  `unexpected trailing content after document (use ParseAllDocuments for multi-doc YAML)`；
+  `unexpected trailing content after document (use YamlValue.ParseAll for multi-doc YAML)`；
   文档尾的 `...` 标记允许出现。
 - Stream 入口是**独立的名字**（`ParseStream` / `ParseAllStream`），不是 `Parse` 的重载——
   别去找 `Parse(Stream)`，没有。[JSON](json.md) / [TOML](toml.md) 两个包同样命名。

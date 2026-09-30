@@ -1,0 +1,253 @@
+namespace Std.Toml;
+using Std;
+using Std.Text;
+
+// TomlParser 的「数字词法」这一半（partial 拆分只为守 code-organization 的行数硬限；
+// 逻辑逐行未改）。归在一起的理由：它们共同回答「一段字符怎么变成 TomlValue 的数字」——
+// 十进制扫描（`ParseNumber`）、TOML 1.0 的两条强制（前导零 `RejectLeadingZeros`、
+// 下划线必须夹在数字之间 `ValidateUnderscoreBetweenDigits`）、下划线剥离、基数判位
+// （`IsDigitChar`）、非十进制字面量（`ParseNonDecimalInt`）。
+//
+// 这里也是**日期/时间字面量的两个落点**（fix-toml-datetime-hint）：TOML 的 4 种 datetime
+// 尚不支持，而 `d = 1979-05-27` 会先被当成整数 `1979`、`t = 07:32:00` 会先撞上「前导零」
+// ⇒ 裸消息说不出真正原因。判据与三条阴性对照见 `tests/parse_errors.z42` 的 datetime 组。
+
+public sealed partial class TomlParser {
+    // ── Number parsing ───────────────────────────────────────────────────
+
+    /// Scan a numeric token and dispatch to int vs float by content.
+    /// Handles: optional `+`/`-`, decimal digits, `.`, `eE` exponent,
+    /// `nan` / `inf` literals.
+    private TomlValue ParseNumber() {
+        int start = this._pos;
+        bool isFloat = false;
+
+        // Special-case nan / inf with optional sign.
+        if (this.Peek() == '+' || this.Peek() == '-') {
+            // Peek ahead to detect inf/nan.
+            int p = this._pos + 1;
+            if (p + 2 < this._src.Length) {
+                string ahead = this._src.Substring(p, 3);
+                if (ahead == "inf" || ahead == "nan") {
+                    bool neg = (this.Peek() == '-');
+                    this.Advance(); // sign
+                    this.Advance(); this.Advance(); this.Advance(); // inf / nan
+                    if (ahead == "nan") {
+                        // Z42 has no NaN literal; produce 0.0 / 0.0 via __math?
+                        // Use a known sentinel: positive nan via parse.
+                        return TomlValue.OfDouble(double.Parse("nan"));
+                    }
+                    double d = double.Parse("inf");
+                    if (neg) { d = 0.0 - d; }
+                    return TomlValue.OfDouble(d);
+                }
+            }
+            this.Advance();
+        }
+        if (this._pos + 2 < this._src.Length) {
+            string ahead = this._src.Substring(this._pos, 3);
+            if (ahead == "inf") {
+                this.Advance(); this.Advance(); this.Advance();
+                return TomlValue.OfDouble(double.Parse("inf"));
+            }
+            if (ahead == "nan") {
+                this.Advance(); this.Advance(); this.Advance();
+                return TomlValue.OfDouble(double.Parse("nan"));
+            }
+        }
+
+        // TOML 1.0 non-decimal int prefixes (add-toml-numeric-bases-and-underscores,
+        // 2026-05-25). `0x` / `0o` / `0b` must appear with no leading sign and at
+        // the absolute start of the number token. We already consumed any sign
+        // above for the standard decimal / float path; non-decimal disallows it.
+        if (this._pos == start
+                && this._pos + 1 < this._src.Length
+                && this._chars[this._pos] == '0') {
+            char marker = this._chars[this._pos + 1];
+            if (marker == 'x' || marker == 'o' || marker == 'b') {
+                int radix = 10;
+                if (marker == 'x') { radix = 16; }
+                if (marker == 'o') { radix = 8;  }
+                if (marker == 'b') { radix = 2;  }
+                this.Advance(); this.Advance();   // consume `0x` / `0o` / `0b`
+                return this.ParseNonDecimalInt(radix);
+            }
+        }
+
+        while (!this.Eof()) {
+            char c = this.Peek();
+            int cc = (int)c;
+            if (cc >= 48 && cc <= 57) {       // 0-9
+                this.Advance();
+            } else if (c == '_') {
+                // TOML 1.0: underscore separator must be between two digits.
+                this.ValidateUnderscoreBetweenDigits();
+                this.Advance();
+            } else if (c == '.') {
+                isFloat = true;
+                this.Advance();
+            } else if (c == 'e' || c == 'E') {
+                isFloat = true;
+                this.Advance();
+                if (!this.Eof() && (this.Peek() == '+' || this.Peek() == '-')) {
+                    this.Advance();
+                }
+            } else {
+                break;
+            }
+        }
+        if (this._pos == start) {
+            throw this.Err("expected number");
+        }
+        string raw = this._src.Substring(start, this._pos - start);
+        string clean = this.StripUnderscores(raw);
+        // TOML 1.0: reject leading zeros on decimal integers (`042`); `0`, `0.5`,
+        // `0e0` stay valid. 0x/0o/0b handled above (early return).
+        this.RejectLeadingZeros(clean);
+        // Malformed shapes the scan let through (`1.2.3`, `1e5e5`) make
+        // double/long.Parse throw; re-raise as a TomlException with line/col
+        // instead of a bare exception.
+        try {
+            if (isFloat) {
+                return TomlValue.OfDouble(double.Parse(clean));
+            }
+            return TomlValue.OfLong(long.Parse(clean));
+        } catch (Exception e) {
+            throw this.Err("invalid number: '" + raw + "'");
+        }
+    }
+
+    /// Reject a decimal number whose integer part has a redundant leading zero
+    /// (TOML 1.0 §Integer / §Float). `s` is the underscore-stripped token,
+    /// possibly signed. `0`, `0.x`, `0ex` are allowed; `042` / `01.5` are not.
+    private void RejectLeadingZeros(string s) {
+        string mag = s;
+        if (mag.Length > 0) {
+            char c0 = mag.CharAt(0);
+            if (c0 == '+' || c0 == '-') { mag = mag.Substring(1); }
+        }
+        int ip = 0;
+        while (ip < mag.Length) {
+            char mc = mag.CharAt(ip);
+            if (mc == '.' || mc == 'e' || mc == 'E') { break; }
+            ip = ip + 1;
+        }
+        if (ip > 1 && mag.CharAt(0) == '0') {
+            // fix-toml-datetime-hint（第二格）：`07:32:00` 先撞「前导零」；`_pos` 停在 token 之后。
+            if (!this.Eof() && this.Peek() == ':') {
+                throw this.Err("TOML's 4 datetime types (offset/local date-time, local date, local time) are not supported yet; quote it as a string if you just need to carry the text");
+            }
+            throw this.Err("invalid number: leading zeros not allowed");
+        }
+    }
+
+    /// Validate the underscore at `_pos` has a digit before and after.
+    /// add-toml-numeric-bases-and-underscores (2026-05-25).
+    private void ValidateUnderscoreBetweenDigits() {
+        if (this._pos == 0) {
+            throw this.Err("underscore separator must follow a digit");
+        }
+        char prev = this._chars[this._pos - 1];
+        if (!this.IsDigitChar(prev, 16)) {
+            // For decimal/float position we still require any base-10/16 digit
+            // before — this check is permissive (works for hex/octal/binary too).
+            throw this.Err("underscore separator must follow a digit");
+        }
+        if (this._pos + 1 >= this._src.Length) {
+            throw this.Err("underscore separator must be followed by a digit");
+        }
+        char nx = this._chars[this._pos + 1];
+        if (!this.IsDigitChar(nx, 16)) {
+            throw this.Err("underscore separator must be followed by a digit");
+        }
+    }
+
+    /// Strip all `_` from a number literal. Validation already ran during scan.
+    private string StripUnderscores(string raw) {
+        // Fast path: no underscores → return as-is.
+        bool hasUnderscore = false;
+        int i = 0;
+        while (i < raw.Length) {
+            if (raw.CharAt(i) == '_') { hasUnderscore = true; break; }
+            i = i + 1;
+        }
+        if (!hasUnderscore) { return raw; }
+        char[] buf = new char[raw.Length];
+        int j = 0;
+        int k = 0;
+        while (j < raw.Length) {
+            char c = raw.CharAt(j);
+            if (c != '_') {
+                buf[k] = c;
+                k = k + 1;
+            }
+            j = j + 1;
+        }
+        // Slice buf[0..k] via a separate char[].
+        char[] tight = new char[k];
+        int m = 0;
+        while (m < k) { tight[m] = buf[m]; m = m + 1; }
+        return String.FromChars(tight);
+    }
+
+    /// True if `c` is a valid digit in base `radix` (radix ∈ {2, 8, 10, 16}).
+    private bool IsDigitChar(char c, int radix) {
+        int code = (int)c;
+        if (radix == 2)  { return code == 48 || code == 49; }
+        if (radix == 8)  { return code >= 48 && code <= 55; }
+        if (radix == 10) { return code >= 48 && code <= 57; }
+        // hex
+        if (code >= 48 && code <= 57) { return true; }
+        if (code >= 65 && code <= 70) { return true; }   // A-F
+        if (code >= 97 && code <= 102) { return true; }  // a-f
+        return false;
+    }
+
+    /// Parse digits of a hex/octal/binary literal starting at the current
+    /// position (after the `0x` / `0o` / `0b` prefix has been consumed).
+    /// Underscores allowed between digits. add-toml-numeric-bases-and-underscores.
+    private TomlValue ParseNonDecimalInt(int radix) {
+        int digitStart = this._pos;
+        bool prevWasUnderscore = true;   // disallow leading `_`
+        while (!this.Eof()) {
+            char c = this.Peek();
+            if (c == '_') {
+                if (prevWasUnderscore) {
+                    throw this.Err("underscore must follow a digit (no leading / double)");
+                }
+                prevWasUnderscore = true;
+                this.Advance();
+                continue;
+            }
+            if (this.IsDigitChar(c, radix)) {
+                prevWasUnderscore = false;
+                this.Advance();
+                continue;
+            }
+            break;
+        }
+        if (this._pos == digitStart) {
+            throw this.Err("expected digit after non-decimal prefix");
+        }
+        if (prevWasUnderscore) {
+            throw this.Err("underscore must precede a digit (no trailing)");
+        }
+        string raw   = this._src.Substring(digitStart, this._pos - digitStart);
+        string clean = this.StripUnderscores(raw);
+        // Manual base parse — long.Parse only handles decimal.
+        long n = 0;
+        int i = 0;
+        while (i < clean.Length) {
+            char c = clean.CharAt(i);
+            long d = 0;
+            int code = (int)c;
+            if (code >= 48 && code <= 57)      { d = (long)(code - 48);      }
+            else if (code >= 65 && code <= 70) { d = (long)(code - 65 + 10); }
+            else                                { d = (long)(code - 97 + 10); }
+            n = (n * (long)radix) + d;
+            i = i + 1;
+        }
+        return TomlValue.OfLong(n);
+    }
+
+}

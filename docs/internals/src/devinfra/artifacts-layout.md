@@ -92,7 +92,7 @@ cross-zpkg 一轮 ≈198MB 的纯拷贝；有害的是「写到别名上」，�
 | 目录 | 谁用 | 是什么 |
 |---|---|---|
 | `.scratch/stdlib-run/<profile>` | `build stdlib` 阶段二 | stdlib 的稳定快照，供正在重编 stdlib 的 driver 当 `Z42_LIBS` |
-| `.scratch/alllibs/<profile>` | `test stdlib` / `test compiler` units / bench | stdlib + 编译器成员**拷**到一起的单一查找点（driver 的兄弟包与被测 stdlib 必须同处一目录）。曾是 hard-link，relocate-compiler-domain-libs 改成拷贝——它上了关键路径后，别名撕开 zpkg/zsym 配对让 1128 个 golden 假红 |
+| `.scratch/alllibs/<profile>` | `test stdlib` / `test compiler` units / bench | stdlib + 编译器成员**拷**到一起的单一查找点（driver 的兄弟包与被测 stdlib 必须同处一目录）。曾是 hard-link，relocate-compiler-domain-libs 改成拷贝——它上了关键路径后，别名撕开 zpkg/zsym 配对让 1128 个 golden 假红。**不变式：其中的 stdlib 只来自 flat dist** —— 见下 |
 | `.scratch/selfhost-gen1` | `test compiler` | 不动点验证的 gen1 快照 |
 | `.scratch/e2e` / `.scratch/xpkg-driver` | e2e / cross-zpkg | 用例工作区 |
 | `.scratch/targets/<proj>` | `test targets` | manifest target fixture 输出 |
@@ -101,6 +101,23 @@ cross-zpkg 一轮 ≈198MB 的纯拷贝；有害的是「写到别名上」，�
 | `.scratch/exec-profile` | bench / profile | 执行画像探测 |
 
 判据很简单：**它会不会被别的步骤当作「产物」消费？** 会 → `build/`；只是这一步自己用完就扔 → `.scratch/`。
+
+### `alllibs` 的不变式：stdlib 只来自 flat dist
+
+`relocate-compiler-domain-libs` 之后，**每个编译器成员的 `release/dist/` 里都有一份 stdlib 副本**
+（用来让该包自己的依赖闭包自洽）。`alllibs` 要把「stdlib + 编译器成员」拼成一个目录，于是这些
+同名副本就成了陷阱：**谁后拷谁赢**。
+
+⇒ 不变式：`alllibs` 里的 stdlib **一律来自 flat dist**（`artifacts/build/libraries/dist/release`），
+编译器成员 dist 的同名 zpkg 一个都不得覆盖它。`_assembleAllLibs` 两条手段一起用：成员那一轮走
+「不覆盖已存在目标」的拷贝，assemble 完再逐字节对账一次（不匹配就抛，因为 `_copyAll` 是吞异常的
+best-effort，拷贝失败也会让旧副本顶上）。
+
+为什么必须是不变式而不是「注意拷贝顺序」：`ci-bootstrap` 的 **`[3/5] build compiler` 在
+`[4/5] build stdlib` 之前**，所以编译器域里留下的**必然是上一代** stdlib（冷启动时就是种子那代）。
+一旦被它顶掉，`test stdlib` / `test compiler` units / bench 全部在测上一代的 stdlib，而症状离现场
+极远 —— PR #955 实测：命令明明被显式喂了 `Z42_LIBS=artifacts/build/libraries/dist/release`，
+跑的却是旧 stdlib，只有「断言新改的 stdlib 消息文本」的那几条用例判红，本地同一条命令全绿。
 
 ## 4. 清理
 

@@ -135,18 +135,79 @@ string[] _compilerMembers(string root) {
 // （编译期解析面），所以这个既有的脚枪从「无人踩到」变成「每轮都踩」。
 //
 // 代价：多拷几 MB 到 scratch；换掉的是一个会让 CI 上千用例假红的别名陷阱。
+//
+// ── 第二个坑（fix-alllibs-stdlib-shadowed-by-compiler-domain，2026-09-30）────────
+// 🔴 **stdlib 只认 flat dist —— 编译器成员 dist 里的同名 zpkg 一律不得覆盖它。**
+//
+// relocate-compiler-domain-libs 之后，每个编译器成员的 `release/dist/` 里都躺着一份它当时
+// 消费的 **stdlib 副本**（`z42.toml.zpkg` / `z42.yaml.zpkg` / …，用来让该包的依赖闭包自洽）。
+// 原来这里对成员 dist 无过滤地 `_copyAll(..., "*.zpkg")`，于是**第 ② 步把第 ① 步刚放好的新
+// stdlib 覆盖回了编译器构建时那一代**。本地看不见（`build all` 顺序下两代通常同字节），
+// CI 的 `ci-bootstrap` 必然踩到：**`[3/5] build compiler` 在 `[4/5] build stdlib` 之前** ⇒
+// 编译器域留下的是**上一代**（冷启动时就是种子那代）stdlib。
+//
+// 症状离现场极远：`test stdlib --no-build` 明明被显式喂了
+// `Z42_LIBS=artifacts/build/libraries/dist/release`，跑的却是旧 stdlib ⇒ 凡「断言新改的
+// stdlib 消息文本」的用例一律 `expected true but got false`，而同一条命令在本地全绿。
+// PR #955 实测：flat 的 `z42.yaml.zpkg` 已含新提示，alllibs 里那份仍是旧的 `ParseAllDocuments`。
+//
+// 还有第二条通向同一后果的路：`_copyAll` 是 **best-effort 吞异常**的 ⇒ 第 ① 步某个文件拷失败，
+// 旧副本照样会把那个名字填上。所以除了过滤，assemble 完再对账一次（`_assertStdlibNotShadowed`）
+// —— 判据是「alllibs 里凡与 flat 同名者必须与 flat 同字节」，与靠拷贝顺序无关。
 string _assembleAllLibs(string root, string profile) {
     string flat = Path.Join(root, "artifacts/.scratch/alllibs/" + profile);
     Directory.Create(flat);
     _cleanGlob(flat, "*.zpkg");
-    _copyAll(_libsFlatDist(root, profile), flat, "*.zpkg");
+    string stdlibSrc = _libsFlatDist(root, profile);
+    _copyAll(stdlibSrc, flat, "*.zpkg");
     string[] members = _compilerMembers(root);
     int i = 0;
     while (i < members.Length) {
-        _copyAll(_compilerMemberDist(root, members[i], profile), flat, "*.zpkg");
+        // 先到先得：flat 已经放过的名字不再被成员 dist 顶掉。成员之间同名的（多个成员的
+        // 闭包里都有 `z42c.core.zpkg`）是同一次 `build compiler` 的产物、同字节，先后无差。
+        _copyAllKeepExisting(_compilerMemberDist(root, members[i], profile), flat, "*.zpkg");
         i = i + 1;
     }
+    _assertStdlibNotShadowed(stdlibSrc, flat);
     return flat;
+}
+
+// `_copyAll` 的「不覆盖已存在目标」变体（判据：只此一处用 ⇒ 按 xtask_fs.z42 头注的分层
+// 约定留在本文件，不进 common/）。
+void _copyAllKeepExisting(string srcDir, string dstDir, string pattern) {
+    if (!Directory.Exists(srcDir)) { return; }
+    string[] hits = Path.Glob(srcDir, pattern);
+    int i = 0;
+    while (i < hits.Length) {
+        string dstPath = Path.Join(dstDir, Path.GetFileName(hits[i]));
+        if (!File.Exists(dstPath)) {
+            try { File.Copy(hits[i], dstPath); } catch (Exception e) { /* best-effort，同 _copyAll */ }
+        }
+        i = i + 1;
+    }
+}
+
+// 对账：alllibs 里凡与 flat stdlib dist 同名的 zpkg，必须与 flat 那份**同字节**。
+// 不匹配 ⇒ 立刻炸。这道门是为「静默拿旧 stdlib」这一整类准备的（覆盖顺序、`_copyAll`
+// 吞掉的拷贝失败、将来新增的暂存步骤），不只为上面那一条已修的路。
+void _assertStdlibNotShadowed(string stdlibSrc, string flat) {
+    if (!Directory.Exists(stdlibSrc)) { return; }
+    string[] want = Path.Glob(stdlibSrc, "*.zpkg");
+    int i = 0;
+    while (i < want.Length) {
+        string name = Path.GetFileName(want[i]);
+        string got = Path.Join(flat, name);
+        if (File.Exists(got)) {
+            byte[] a = File.ReadAllBytes(want[i]);
+            byte[] b = File.ReadAllBytes(got);
+            if (!_bytesEqual(a, b)) {
+                throw new Exception("alllibs: " + name + " 被非 stdlib 来源遮蔽（"
+                    + got + " 与 " + want[i] + " 不同字节）——"
+                    + "stdlib 必须来自 flat dist，见 _assembleAllLibs 头注");
+            }
+        }
+        i = i + 1;
+    }
 }
 
 // `_cleanGlob` / `_linkAll` 已移至 common/xtask_fs.z42（scripts-batch3-layering）。

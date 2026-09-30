@@ -426,7 +426,12 @@ jobs:
           # base stdlib (built next, overwriting the seed stdlib for measurement).
           BASEALL="$ROOT/.ab-base-alllibs"; rm -rf "$BASEALL"; mkdir -p "$BASEALL"
           for f in "$ROOT/base-src/artifacts/build/compiler/"*/release/dist/*.zpkg; do cp -f "$f" "$BASEALL/"; done
-          # The compiler dist does NOT bundle stdlib, so BASEALL has no z42.io yet.
+          # ⚠️ 过期注释已订正（fix-alllibs-stdlib-shadowed，2026-09-30）：原文写的是
+          # 「The compiler dist does NOT bundle stdlib」—— relocate-compiler-domain-libs
+          # 之后**不再成立**，上面那圈拷贝已经把编译器构建时那一代 stdlib 副本带进了 BASEALL。
+          # ⇒ **下面那圈 flat dist 必须在后**（后拷者赢），它才是这里要的 stdlib。顺序承重，别调。
+          # 同一个陷阱在 `_assembleAllLibs` 里咬过一次（PR #955：alllibs 的 stdlib 被编译器域
+          # 旧副本覆盖 ⇒ CI 的 test stdlib 整轮在测上一代），那边已改成不覆盖 + 逐字节对账。
           # BASEDRIVER (compiled by the PR z42c against PR stdlib) needs a matching
           # stdlib to RUN — seed it with the PR stdlib (same z42c ⇒ same extern
           # mangling). Without this the base driver falls back to the VM entry-dir

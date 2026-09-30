@@ -87,16 +87,16 @@ public sealed class YamlParser {
 
     public YamlValue ParseDocument() {
         YamlValue root = this._ParseOneDocBody();
-        // Anything left over (other than trailing `...` + blanks) is either a
-        // second document or trailing junk — strict single-doc mode rejects
-        // both with a hint to use `ParseAllDocuments` for multi-doc input.
+        // Leftover (beyond a trailing `...` + blanks) = a second document or junk; strict
+        // single-doc mode rejects both, naming the **public** entry `YamlValue.ParseAll`
+        // (fix-yaml-multidoc-hint: it used to name this parser's internal `ParseAllDocuments`).
         this._SkipBlankLines();
         if (this._pos < this._src.Length && this._PeekLineIs("...")) {
             this._ConsumeRestOfLine();
             this._SkipBlankLines();
         }
         if (this._pos < this._src.Length) {
-            throw this._Err("unexpected trailing content after document (use ParseAllDocuments for multi-doc YAML)");
+            throw this._Err("unexpected trailing content after document (use YamlValue.ParseAll for multi-doc YAML)");
         }
         return root;
     }

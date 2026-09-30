@@ -46,7 +46,7 @@
 | # | 章节 | 路径 | 要点 | 状态 |
 |---|------|------|------|------|
 | 23 | 文件与目录 | `stdlib/files` | `File`（整读整写文本与字节、严格 UTF-8）/ `Directory`（`mkdir -p`、两种枚举、顺序不保证）/ `Path`（Join 不规范化、扩展名不含点）、`Glob`、没有 `IOException`、临时文件要自己删 | 🟢 |
-| 24 | 数据格式 | `stdlib/data-formats` | JSON serde、TOML、YAML | ✅ |
+| 24 | 数据格式 | `stdlib/data-formats` | 三个包同形（`Parse`/`As*`/`TryGetValue<T>`）、JSON 值树 + `JsonSerializer`（`[JsonProperty]`/`[JsonIgnore]`）、TOML 表与表数组（无 datetime）、YAML 标量推断（`no` 是字符串）/ 多文档 / 块标量、三者差异速查、异常位置信息不一致 | 🟢 |
 | 25 | 文本处理 | `stdlib/text` | `StringBuilder`、正则 | ✅ |
 | 26 | 命令行程序 | `stdlib/cli` | 读取参数、`Std.Cli` 参数解析、退出码、运行外部进程 | ✅ |
 | 27 | 线程与并发 | `stdlib/concurrency` | `Thread`、`Channel`、同步原语 | 🧪 |

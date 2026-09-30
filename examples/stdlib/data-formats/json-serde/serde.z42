@@ -1,0 +1,52 @@
+using Std.IO;
+using Std.Json;
+using Std.Collections;
+
+// ANCHOR: decl
+class Addr {
+    public string City;
+    public int Zip;
+}
+
+class User {
+    public string Name;
+    public int Age;
+    [JsonProperty("email_addr")] public string Email;   // 换一个 JSON 键名
+    [JsonIgnore] public string Password;                // 不参与序列化
+    public Addr Home;                                    // 嵌套对象
+    public List<int> Scores;                             // 数组
+}
+// ANCHOR_END: decl
+
+void Main() {
+    // ANCHOR: write
+    User u = new User();
+    u.Name = "小明";
+    u.Age = 30;
+    u.Email = "ming@example.com";
+    u.Password = "不该出现在输出里";
+    u.Home = new Addr();
+    u.Home.City = "北京";
+    u.Home.Zip = 100000;
+    u.Scores = new List<int>();
+    u.Scores.Add(90);
+    u.Scores.Add(85);
+
+    Console.WriteLine(JsonSerializer.Serialize(u));
+    // ANCHOR_END: write
+
+    // ANCHOR: read
+    string json = "{\"Name\":\"小红\",\"Age\":28,\"email_addr\":\"hong@example.com\","
+                + "\"Home\":{\"City\":\"上海\",\"Zip\":200000},\"Scores\":[70]}";
+    User back = JsonSerializer.Deserialize<User>(json);
+    Console.WriteLine(back.Name + " / " + back.Age.ToString() + " / " + back.Email);
+    Console.WriteLine("城市 " + back.Home.City + "，第一项成绩 " + back.Scores[0].ToString());
+    // ANCHOR_END: read
+
+    // ANCHOR: partial
+    User few = JsonSerializer.Deserialize<User>("{\"Name\":\"只有名字\",\"nosuch\":1}");
+    Console.WriteLine("缺的键给零值：Age=" + few.Age.ToString()
+        + "，对象成员为 " + (few.Home == null ? "null" : "非空"));
+    Console.WriteLine("多余的键被忽略：Name=" + few.Name);
+    // ANCHOR_END: partial
+}

@@ -1,0 +1,20 @@
+# ANCHOR: read
+$ z42 run toml.z42
+name = my-app
+server.host = localhost
+server.port = 8080
+任务 2 个，第二个叫 test
+# ANCHOR_END: read
+# ANCHOR: tryget
+host=localhost 未配置的项保持默认=80
+# ANCHOR_END: tryget
+# ANCHOR: quirks
+AsDouble(整数) → expected double, got long
+空输入 → table，键数 0
+# ANCHOR_END: quirks
+# ANCHOR: write
+name = "generated"
+
+[limits]
+retries = 3
+# ANCHOR_END: write

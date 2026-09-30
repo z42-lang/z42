@@ -1,0 +1,13 @@
+# ANCHOR: types
+$ z42 run errors.z42
+JSON  第 1 行第 7 列：invalid number (expected digit)
+TOML  第 2 行第 4 列：expected number
+YAML  unexpected indent at mapping level (expected 0, got 2) at 2:1
+# ANCHOR_END: types
+# ANCHOR: kind
+类型不符：expected string, got long
+缺键：key not found: nope
+# ANCHOR_END: kind
+# ANCHOR: nodate
+TOML 日期：expected newline or EOF after value — TOML's 4 datetime types (offset/local date-time, local date, local time) are not supported yet; quote it as a string if you just need to carry the text
+# ANCHOR_END: nodate
