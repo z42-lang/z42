@@ -42,6 +42,23 @@ Token 流 → AST（`CompilationUnit`）。表达式用 Pratt 优先级爬升解
 - **转义解码只有 `LexerEscapes.DecodeOne` 一张表**，普通串与插值串共用。插值洞的子 parser 诊断并入主诊断袋，
   位置取整个 `$"…"` token（子 parser 的 Span 是合成文件 `<interp>` 的洞内坐标）。
 
+**错误恢复：一处真错误只报一条**（fix-parser-error-cascade）。解析器遇错后继续往下解析（为了多报几处互不相关的错），
+但恢复路径本身会制造余波：恢复可能吞掉、也可能没吞到语句终止符，于是后面的每个 `_expect` 都会再报一次。四条规则：
+
+| 规则 | 实现 | 挡住的余波 |
+|---|---|---|
+| 语句级 panic | `ParseStatement` 记下进入时的错误数（`_stmtErrBase`，嵌套语句存取恢复；成员 / 声明层为 -1 = 不生效）。本语句已报过错 ⇒ `_expect` / `_expectSemi` 失败时**静默返回、不吞 token** | `y = y +* 3;` 报完 `*` 又在 `3` 报「缺 ;」 |
+| 同行残渣 | `_expectSemi` 报「缺 ;」时，若当前 token 与上一个 token **同一行**（且不是 `}`）⇒ 跳到 `;`；在新的一行 ⇒ 不跳 | `foo bar baz;` 的 `baz` 被当成下一条语句（`undefined: baz`）|
+| 同位置去重 | 收尾（`_dropCascadeErrors`，与 lexer 诊断合并同一时机）：同一 `Span.Start` 只留第一条错误 | `F(int a,)` 的 `)` 同时收到「缺类型名」「缺参数名」|
+| 未闭合字符串 | 有 E0101 时丢掉所有「意外的输入结束」（E0203）| 串吞掉后文后 EOF 处缺 `;` / `}` |
+
+⚠️ panic **不吞 token** 是刻意的：`int a = (1 + ;` 里表达式恢复已经吃掉了 `;`，此时再「跳到 `;`」会把下一条好语句
+整个吞掉。「同行才跳」也是同一顾虑：换行处缺 `;` 多半只是行尾忘了分号，下一行是一条好语句。
+
+**占位与语义层的约定**：解析器报错后留下的占位不是用户写的名字，语义层不得再对它报「未定义」——表达式位的坏
+token → `IdentExpr("<error>")`（`ExprTyper` 不报 E0401），名字位的坏 token → 类型名 `"?"`（`Parser._badName`；
+`AccessChecker` 不报 E0443）。新增占位时两端要一起改。
+
 ### 类型检查（TypeCheck）
 
 AST → Bound 树 + `SemanticModel`。分两步：先由 `SymbolCollector` 遍历整个编译单元建立符号表，再逐节点定型。先建表使同一单元内的前向引用与互相引用不受书写顺序约束。
