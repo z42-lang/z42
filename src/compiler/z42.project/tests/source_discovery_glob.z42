@@ -123,3 +123,52 @@ void test_relative_literal_path_still_resolves_against_project_dir() {
     Assert.Equal(1, hits.Length);
     Assert.True(hits[0].EndsWith("/tests/one.z42"));
 }
+
+// ── exclude 按路径段匹配（fix-source-exclude-glob）──────────────────────────────────
+// 此前 exclude 只认 `<prefix>/**`、`**/<字面后缀>`、精确路径三种形状：参考手册示范的
+// `src/**/*_test.z42`、`**/*.z42` 永不匹配；`**/a.z42` 用 EndsWith 判，会误中 `ba.z42`。
+
+string[] _discoverEx(string root, string exclude) {
+    string[] inc = new string[1];
+    inc[0] = "tests/**/*.z42";
+    string[] ex = new string[1];
+    ex[0] = exclude;
+    return SourceDiscovery.DiscoverWithExclude(root, inc, 1, ex, 1);
+}
+
+[Test]
+[Skip(platform: "wasm", reason: "wasm 沙箱没有真实文件系统，造不了临时源树")]
+void test_exclude_baseline_all_four() {
+    Assert.Equal(4, _discoverEx(_mkTree(), "nomatch.z42").Length);
+}
+
+// 目录段中间的 `**` + 段内 `*`（手册示范的形状）：修前恒不匹配。
+[Test]
+[Skip(platform: "wasm", reason: "wasm 沙箱没有真实文件系统，造不了临时源树")]
+void test_exclude_double_star_between_segments() {
+    string[] hits = _discoverEx(_mkTree(), "tests/**/source.z42");
+    Assert.Equal(2, hits.Length);   // 只剩 one.z42 + alpha/helper.z42
+}
+
+// `**/*.z42`：修前后缀被当字面量 `*.z42`，一个都不排除。
+[Test]
+[Skip(platform: "wasm", reason: "wasm 沙箱没有真实文件系统，造不了临时源树")]
+void test_exclude_star_suffix_matches_everything() {
+    Assert.Equal(0, _discoverEx(_mkTree(), "**/*.z42").Length);
+}
+
+// 段边界：`**/elper.z42` 不得排除 `helper.z42`（修前 EndsWith 误中）。
+[Test]
+[Skip(platform: "wasm", reason: "wasm 沙箱没有真实文件系统，造不了临时源树")]
+void test_exclude_respects_segment_boundary() {
+    Assert.Equal(4, _discoverEx(_mkTree(), "**/elper.z42").Length);
+    Assert.Equal(3, _discoverEx(_mkTree(), "**/helper.z42").Length);
+}
+
+// 不含 `**` 的模式仍按任意深度的后缀匹配（旧语义不变）+ 段内 `?`。
+[Test]
+[Skip(platform: "wasm", reason: "wasm 沙箱没有真实文件系统，造不了临时源树")]
+void test_exclude_plain_pattern_is_suffix_and_question_mark() {
+    Assert.Equal(3, _discoverEx(_mkTree(), "alpha/helper.z42").Length);
+    Assert.Equal(2, _discoverEx(_mkTree(), "*/sourc?.z42").Length);
+}
