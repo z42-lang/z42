@@ -187,7 +187,7 @@ include = ["src/**/*.z42"]
 |---|---|
 | `--release` | release profile（默认 debug） |
 | `--workspace` | 按拓扑序构建工作区全部成员 |
-| `--output-dir <dir>` | 所有产物写到 `<dir>` |
+| `--output-dir <dir>` | 产物（zpkg / zsym / 侧车）写到 `<dir>`，generator 生成的源码写到 `<dir>/generated/<name>`；单工程下**不写增量缓存**（该模式不读缓存）|
 | `--no-incremental` | 全量重建（忽略构建缓存） |
 | `--opt <name>` | 开启一项优化（可重复） |
 | `--no-opt <name>` | 关闭一项优化（可重复） |
