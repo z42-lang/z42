@@ -1,14 +1,14 @@
 name: xtask-bootstrap-artifact
 description: >
-  Bootstrap by CONSUMING the `toolchain-<host-os>` artifact produced by the
+  Bootstrap by CONSUMING the `toolchain-ubuntu-latest` artifact produced by the
   toolchain-bootstrap job (z42c dist + stdlib dist + xtask.zpkg), plus a host
   `cargo build` for z42vm + native cdylibs. After this, drive work via
-  `z42vm artifacts/xtask/xtask.zpkg -- <cmd>` exactly like the source/download
-  bootstraps. Replaces xtask-bootstrap-source on the package / platform-test jobs.
+  `z42vm artifacts/xtask/xtask.zpkg -- <cmd>` exactly like ci-bootstrap.
   The consuming job MUST `needs: toolchain-bootstrap` and `actions/checkout` first
   (checkout cannot live in here — this action's own file has to exist on disk to
   be resolvable).
-  Linux + macOS host runners (the toolchain artifact is per host OS).
+  Any host runner (Linux / macOS / Windows): the artifact is pure zpkg — host-neutral —
+  so every OS consumes the same linux-built copy; only z42vm is built per host.
 inputs:
   cache-key:
     description: >
@@ -56,8 +56,10 @@ runs:
 
     # z42c + stdlib + xtask.zpkg (.zpkg products) → restored at repo root
     # under artifacts/build/{libraries,z42c}/ and artifacts/xtask/.
+    # 所有宿主都取同一份 linux 产物（zpkg 与宿主无关；Windows 一直如此）。原先 macOS
+    # 取自己的 toolchain-macos-26 —— 那条腿已删（speed-up-ci-quick-wins）。
     - name: Download toolchain artifact
       uses: actions/download-artifact@v8
       with:
-        name: toolchain-${{ runner.os == 'macOS' && 'macos-26' || 'ubuntu-latest' }}
+        name: toolchain-ubuntu-latest
         path: .

@@ -1,6 +1,6 @@
 # CI 拓扑与 job 表
 
-> 对齐：2026-09-17（change `restructure-docs-three-books`）｜ 代码：`.github/workflows/ci.yml`、
+> 对齐：2026-09-30（change `speed-up-ci-quick-wins`）｜ 代码：`.github/workflows/ci.yml`、
 > `.github/actions/ci-bootstrap/`、`.github/actions/xtask-bootstrap-artifact/`、
 > `.github/workflows/{bench-pr,release,deploy-book,jit-fixpoint-check}.yml`
 >
@@ -12,22 +12,26 @@
 
 ```mermaid
 flowchart TD
-  C["detect-changes"] --> TB["compile-toolchain<br/>（linux-x64 / macos-arm64）"]
+  C["detect-changes"] --> TB["compile-toolchain<br/>（linux-x64）"]
   C --> TH["test-host ×4 OS"]
   TB --> TA["compile-test-assets<br/>（golden .zbc → current-sdk）"]
   TB --> PKG["package-host / package-{ios,android,wasm}"]
   TA --> CONS["test-consume"]
   TA --> JIT["test-vm-jit ×2 shard"]
   TB --> SL["test-stdlib-{jit,interp}"]
-  TB --> CHK["compiler-checks / verify-selfhost"]
+  TB --> CHK["compiler-checks"]
   TH --> PUB["publish-nightly<br/>（push to main）"]
   PKG --> PUB
 ```
 
 核心思想：**平台无关的东西编一次、下游消费**。`compile-toolchain` 把当前源编成一套
-`{z42c, stdlib, xtask}` zpkg 上传成 `toolchain-<os>` artifact；`compile-test-assets` 再消费它
-regen 一次 golden `.zbc`、连同 `.z42` 布局打成 `current-sdk-<os>`。下游测试 job 下载这些产物
+`{z42c, stdlib, xtask}` zpkg 上传成 `toolchain-ubuntu-latest` artifact；`compile-test-assets` 再消费它
+regen 一次 golden `.zbc`、连同 `.z42` 布局打成 `current-sdk-ubuntu-latest`。下游测试 job 下载这些产物
 `--no-build` 跑，不再自己自举、不再重复 regen。
+
+这两个 job **只有 linux 一条腿**：产物全是 zpkg，与宿主无关，macOS / Windows 的消费方
+取的是同一份（只有 z42vm 按宿主 cargo 现编）。2026-09-30 前两者都还有一条 macOS 腿——
+它产出等价的 artifact，却让所有 `needs:` 它们的 linux 下游陪着等整个 matrix。
 
 `compile-test-assets` **故意从 `compile-toolchain` 里拆出来**：golden regen 很慢，留在里面会卡住
 `package-*` → `publish-nightly` 这条关键路径，而打包根本不消费测试资产。
@@ -48,20 +52,21 @@ regen 一次 golden `.zbc`、连同 `.z42` 布局打成 `current-sdk-<os>`。下
 | flag | 命中路径（节选） |
 |---|---|
 | `platform` | `src/runtime/**`、`src/toolchain/{workload,launcher,devtools,interactive}/**`、`examples/**`、`docs/learn/**`、`scripts/{package/**,packages.toml,install/**}`、`scripts/test/xtask_test_{dist,platform,wasm,ios,android,desktop,embedded}*.z42`、`versions.toml` |
-| `compiler` | `src/compiler/**`、`src/libraries/z42c.core/**`、`src/libraries/z42c.syntax/**`、`src/toolchain/devtools/vscode/**` |
-| `vm` | `src/runtime/**` |
-| `stdlib` | `src/libraries/**` |
+| `examples` | `examples/**`、`docs/learn/**`（只门控 `package-host`——唯一用打包 SDK 重放示例的 job） |
+| `compiler` | `src/compiler/**`、`src/toolchain/devtools/vscode/**` |
+| `vm` | `src/runtime/**`、`.cargo/**` |
+| `stdlib` | `src/libraries/**`、`src/toolchain/builder/**`（z42b 是 [Test] 执行器）、`scripts/test/xtask_test_lib*.z42` |
 
 每个 filter 都额外包含 `.github/workflows/ci.yml` 自身 → **改 CI 保底全跑**。
 `schedule` / `workflow_dispatch` 下 paths-filter 没有 before-sha 可比、几乎恒 false，所以每条
 门控的 `if:` 都显式带 `|| github.event_name == 'schedule' || ... == 'workflow_dispatch'` 逃生口；
 少了它，每日全量 sweep 里这些 job 会一个都不跑。
 
-`compiler` filter 覆盖两处不是冗余：z42c 的 member 分散在 `src/compiler/`（后端三包）和
-`src/libraries/z42c.*`（词法/语法前端）。只写前者会漏掉整个前端——改 Lexer 加关键字时
-`compiler=false`，而专为这种改动存在的 `test vscode-syntax` 恰好被跳过。
+编译器域（z42c 前后端 + `z42.project` / `z42.build` / `z42.package`）已全部在 `src/compiler/` 下，
+`compiler` 一条通配即可。`examples` 单独成 flag 而不并进 `platform`：否则改一页 learn 会拉起
+`package-{ios,android,wasm}` + `test-desktop`，而它们一个示例都不跑。
 
-> 只有这四个 flag。e2e golden **没有**内容级门控——真要加，得在同一个提交里把消费方
+> 只有这五个 flag。e2e golden **没有**内容级门控——真要加，得在同一个提交里把消费方
 > （某个 job 的 `if:`）一起接上，否则就只是一个没人读的输出，反而让人以为门控存在。
 
 ## 3. job 表
@@ -73,16 +78,15 @@ job 的 **key**（`needs:` 用的）与 **display 名**（分支保护的 requir
 |---|---|---|---|
 | `detect-changes` | `changes` | 总跑 | — |
 | `test-host(<plat>)` | `build-and-test` | 总跑 | linux-x64 / linux-arm64 / macos-arm64 / windows-x64 |
-| `compile-toolchain(<plat>)` | `toolchain-bootstrap` | 总跑 | linux-x64 / macos-arm64 |
-| `compile-test-assets(<plat>)` | `assemble-current-sdk` | 总跑 | linux-x64 / macos-arm64 |
+| `compile-toolchain(linux-x64)` | `toolchain-bootstrap` | 总跑 | — |
+| `compile-test-assets(linux-x64)` | `assemble-current-sdk` | 总跑 | — |
 | `test-consume(linux-x64)` | `consume-current-sdk` | 总跑 | — |
 | `test-vm-jit(linux-x64) shard k` | `vm-jit-consistency` | `vm ‖ compiler` | 2 shard |
 | `test-stdlib-jit(linux-x64) shard k` | `stdlib-jit-consistency` | `vm ‖ stdlib ‖ compiler` | 2 shard |
 | `test-stdlib-interp(<plat>)` | `stdlib-interp-consistency` | `vm ‖ stdlib ‖ compiler` | 3 OS，不分片 |
-| `verify-selfhost(linux-x64)` | `verify-selfhost` | `compiler` | — |
 | `compiler-checks(linux-x64)` | `compiler-checks` | `compiler` | — |
 | `verify-features(linux-x64)` | `feature-matrix` | `vm` | — |
-| `package-host(<plat>)` | `host-package` | `platform ‖ 非 PR` | linux-x64 / macos-arm64 |
+| `package-host(<plat>)` | `host-package` | `platform ‖ examples ‖ 非 PR` | linux-x64 / linux-arm64 / macos-arm64 / windows-x64 |
 | `package-ios(macos-arm64)` | `package-ios` | `platform ‖ 非 PR` | — |
 | `package-android(linux-x64)` | `package-android` | `platform ‖ 非 PR` | — |
 | `package-wasm(linux-x64)` | `package-wasm` | `platform ‖ 非 PR` | — |
@@ -101,13 +105,22 @@ job 的 **key**（`needs:` 用的）与 **display 名**（分支保护的 requir
 - **`package-*` 在 PR 上只有 `platform` 改动才跑**：它们的产物只被 `publish-nightly` 消费，
   而打包机制只受 platform 类改动影响。非-platform PR 因此少 7 个 job，给满负荷跑腾并发余量。
   这些 job 不是 required check，被 `if:` skip 的 required check 在本仓也不阻塞合并。
-- **`publish-nightly` 的 `needs` 故意不含 `verify-selfhost` / 两条 jit 腿**：那些 job 在
+- **`publish-nightly` 的 `needs` 故意不含两条 jit 腿**：那些 job 在
   zbc/zpkg 格式 bump 那一轮会暂时红（要等一个兼容的 nightly），gate 上去就是死锁。
   「行为正确」由在 `needs` 里的 `test-host` + `package-*` 保证。
 
+- **没有专门的「种子自举边界」job**：「上一版 nightly 能编当前源」由每个跑 `ci-bootstrap` 的
+  job（`test-host` ×4 OS、`compile-toolchain`）顺带实测，且它们会真的**运行**刚建出的 gen1 z42c
+  （编 stdlib + golden）；in-tree 不动点 gen1==gen2 在 `compiler-checks`。原先的 `verify-selfhost`
+  = `ci-bootstrap` + `test compiler`，两半都与上述重复，2026-09-30 删除。
+- **`verify-features` 用 `cargo check`**：它只回答「各 feature 组合编不编得过」，fat-LTO 的
+  release 链接纯属浪费。
+
 `test-host` 各腿用 `--skip` 把 stage 卸给并行 job：linux-x64 跳 `stdlib,compiler,vscode`，
 其余 OS 再多跳 `cross-zpkg,bench`（这两者 host 无关，一条腿够了）。Windows 腿不跑
-`test all`，只跑 `build test` + `xtask test runtime`。
+`test all`，只跑 `build test` + `xtask test runtime`。三条非 Windows 腿在 `test all` 之后
+跑 **zbc-format 字节基线门**（`git diff --quiet -- src/tests/zbc-format`；regen 就地重写了基线，
+有 diff = 提交的基线过期）——一次覆盖三个架构，且挂在 required check 上。
 
 ### 3.0 PR 的绿是「过期快照」——与抢号预检
 
@@ -134,6 +147,24 @@ job 的 **key**（`needs:` 用的）与 **display 名**（分支保护的 requir
 > 「它真会红吗 / 它真挡得住人吗」的讨论同理）。`test-host(linux-x64)` 已经是 required、且无路径过滤必跑。
 > 同理，这个思路可以推广到**任何「两个 PR 各自合法、合起来才错」的维度**——加判据时想的应该是
 > 「挂到哪个已经在挡人的 job 上」，而不是「新开一个 job」。
+
+### 3.0.1 Rust 缓存 key
+
+Swatinem `rust-cache` 用 `shared-key` 跨 job 共享；**一个 key 命中后不回存**（post 步骤报
+"Cache up-to-date"）。所以两个构建集合不同的 job 共用一个 key，后写的那个多编的东西永远进不了
+缓存。规则：**构建集合不同 ⇒ key 不同**。
+
+| key | 用它的 job | 构建集合 |
+|---|---|---|
+| `test-host-v1` | `test-host` | release + debug + test profile |
+| `host-v2` | `compile-toolchain` | release（ci-bootstrap） |
+| `artifact-host-v1` | `xtask-bootstrap-artifact` 默认 | release workspace |
+| `package-host-v2` / `ios-v2` / `android-v2` / `wasm-v2` | 各打包 job | + cdylib / staticlib / 交叉编译 |
+| `feature-matrix-v2` | `verify-features` | 4 个 feature 组合的 check |
+
+⚠️ target 目录由根 `.cargo/config.toml` 统一重定向到 `artifacts/build/runtime`，**所有** job 的
+`workspaces` 都要写 `src/runtime -> ../../artifacts/build/runtime`——写裸 `src/runtime` 缓存的是
+一个空目录（`verify-features` 曾这样白缓存了很久）。
 
 ## 3.1 自举种子从哪来（以及它怎么死锁过一次）
 
