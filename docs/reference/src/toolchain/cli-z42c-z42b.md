@@ -49,7 +49,7 @@ cache -> ./artifacts/debug/.cache (1 files)
 |---|---|
 | `--release` | release profile（默认 debug） |
 | `--workspace` | 按拓扑序编译工作区全部成员 |
-| `--output-dir <dir>` | 所有产物写到 `<dir>`；与 `--workspace` 连用时全部成员共用它，成员一律 packed（见 [z42.toml · pack](z42-toml.md)） |
+| `--output-dir <dir>` | 产物（zpkg / zsym / 侧车）写到 `<dir>`。单工程：generator 生成的源码写到 `<dir>/generated/<name>`，**不写增量缓存**（该模式本就不读缓存，写了只会在工程目录旁留下残留）。与 `--workspace` 连用时全部成员共用它，成员一律 packed，缓存按成员落 `<dir>/.cache/<name>`（见 [z42.toml · pack](z42-toml.md)） |
 | `--no-incremental` | 全量重建，忽略构建缓存 |
 | `--opt <name>` | 开启一项优化（可重复） |
 | `--no-opt <name>` | 关闭一项优化（可重复） |

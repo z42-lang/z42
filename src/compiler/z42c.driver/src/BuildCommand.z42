@@ -98,7 +98,8 @@ void _buildUsage() {
     Console.WriteLine("options:");
     Console.WriteLine("  --release              release profile (default: debug)");
     Console.WriteLine("  --workspace            build every workspace member (topological order)");
-    Console.WriteLine("  --output-dir <dir>     put all outputs in <dir>");
+    Console.WriteLine("  --output-dir <dir>     write products to <dir> (generated sources: <dir>/generated/<name>;");
+    Console.WriteLine("                         single project: no incremental cache — this mode never reads it)");
     // 列进 usage 不只是为了给人看：自举脚本靠 `build --help` **探测本 driver 认不认这个旗标**
     // —— 旧种子 driver（早于本旗标）会静默忽略未知旗标，脚本若无条件依赖它就会拿到
     // 「旗标被丢掉、Z42_LIBS 当编译期面」的错行为。见 xtask 的 `_driverSupportsCompileLibs`。

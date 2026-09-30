@@ -4,6 +4,7 @@
 // 约定（User 要求）：**不论是否增量都落 cache**；没配置 cache_dir 时默认 `${output_dir}/.cache`。
 // 此前三条路径从不写 cache：--no-incremental / workspace 成员 / 多 [[exe]]（提前 return）。
 // 这里只验「写」与「落点」；workspace 读 cache 是后续 change（incremental-future-workspace-wiring）。
+// 例外（fix-output-dir-aux-outputs）：单工程 `--output-dir` 不写 cache（该路径从不读），见 ④。
 namespace Z42Xtask;
 
 using Std;
@@ -71,7 +72,26 @@ int _e2eCacheLayoutChecks(string vm, string driverZpkg, string e2eDir, string fl
         if (!_e2eCacheHas(Path.Join(ws, "out/release/.cache/" + members[m]), "workspace 成员 " + members[m])) { return 1; }
         m = m + 1;
     }
+    // ④ 单工程 `--output-dir <dir>`（fix-output-dir-aux-outputs）：产物进 <dir>，且工程目录旁**不留任何东西**。
+    //    这条路径从不读 cache ⇒ 不写；此前 cache 照写到 `<proj>/artifacts/<profile>/.cache`，xtask 自举预建
+    //    与测试夹具每轮都在源码树里留一份。
+    string od = Path.Join(root, "odproj");
+    string odOut = Path.Join(root, "odout");
+    Directory.Create(od);
+    File.WriteAllText(Path.Join(od, "lib.z42"), "namespace CacheOd;\n\npublic static class K { public static int One() { return 1; } }\n");
+    File.WriteAllText(Path.Join(od, "cache.od.z42.toml"), libToml.Replace("NAME", "cache.od"));
+    string[] a4 = new string[5];
+    a4[0] = "build"; a4[1] = "cache.od.z42.toml"; a4[2] = "--release"; a4[3] = "--output-dir"; a4[4] = odOut;
+    if (_e2eCacheBuild(vm, driverZpkg, od, a4, flat) != 0) { Console.WriteLine("  ✗ 单工程 --output-dir 夹具构建失败"); return 1; }
+    if (!File.Exists(Path.Join(odOut, "cache.od.zpkg"))) {
+        Console.WriteLine("  ✗ 单工程 --output-dir：产物没进 " + odOut); return 1;
+    }
+    if (Directory.Exists(Path.Join(od, "artifacts")) || Directory.Exists(Path.Join(od, "dist"))) {
+        Console.WriteLine("  ✗ 单工程 --output-dir：工程目录旁仍留下了 artifacts/ 或 dist/（cache / generated 没被接管）");
+        return 1;
+    }
     Console.WriteLine("  ✓ --no-incremental / 多 [[exe]] / workspace 成员均落 cache，默认 ${output_dir}/.cache");
+    Console.WriteLine("  ✓ 单工程 --output-dir：产物进 <dir>，工程目录旁零写入");
     return 0;
 }
 
