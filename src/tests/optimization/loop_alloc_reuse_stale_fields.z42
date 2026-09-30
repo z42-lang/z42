@@ -1,0 +1,59 @@
+// fix-release-opt-soundness: the loop-alloc-reuse pass hoists `new C(...)`
+// out of the loop and re-runs only the ctor each iteration. A field the ctor does
+// NOT write keeps last iteration's value, because the bare allocation (which
+// zero-initialises) happens once. Before the fix: 5 with the pass off, 15 with
+// it on (`Hits` carried 1,2,3,4,5). The pass must now skip such classes.
+// (opt_all sidecar: this only bites with Opt.LoopAllocReuse on.)
+
+class Counter {
+    public int X;
+    public int Hits;                     // not written by the ctor, no initializer
+    public Counter(int x) { this.X = x; }
+}
+
+class Base {
+    public int B;
+}
+
+class Derived : Base {
+    public int D;
+    public Derived(int d) { this.D = d; }   // writes every own field; base field B is not
+}
+
+class Full {
+    public int A;
+    public int Z;
+    public Full(int a) { this.A = a; this.Z = 0; }   // writes every field → still reusable
+}
+
+void Main() {
+    long sum = 0L;
+    int i = 0;
+    while (i < 5) {
+        Counter c = new Counter(i);
+        c.Hits = c.Hits + 1;             // each fresh object starts at 0 → always 1
+        sum = sum + (long)c.Hits;
+        i = i + 1;
+    }
+    Assert.Equal(5L, sum);
+
+    long bs = 0L;
+    int j = 0;
+    while (j < 5) {
+        Derived d = new Derived(j);
+        d.B = d.B + 1;                   // inherited field: must also start at 0
+        bs = bs + (long)d.B;
+        j = j + 1;
+    }
+    Assert.Equal(5L, bs);
+
+    long fs = 0L;
+    int k = 0;
+    while (k < 5) {
+        Full f = new Full(k);
+        f.Z = f.Z + 1;
+        fs = fs + (long)(f.A + f.Z);
+        k = k + 1;
+    }
+    Assert.Equal(15L, fs);               // (0+1)+(1+1)+(2+1)+(3+1)+(4+1)
+}

@@ -9,7 +9,8 @@
 //   C2 迭代内局部：alloc 的 dst（单赋值 temp）的**前向 copy 闭包**不含任何多赋值（defs>1）reg
 //      —— 否则对象引用被循环携带（`prev=p`），复用会让携带别名看到改写 → miscompile。
 //   C3 形状固定：ArrayNew.Size 循环不变（不在循环体内定义；LICM 已把不变 const 提到 pre-header）。
-//   C4 重初始化完整：对象 = ctor 单基本块（字段写无条件，每迭代覆写）；数组 = 常量下标「读前写全」（单块线性）。
+//   C4 重初始化完整：对象 = ctor 单基本块且无条件写全本类实例字段（基类仅隐式 Object）；
+//      数组 = 常量下标「读前写全」（单块线性）。
 //   C5 干净 pre-header 的自然循环（IrLoopUtil）。
 //
 // ── 变换（无格式 bump / 无新指令）──────────────────────────────────────────────────
@@ -124,7 +125,7 @@ public sealed class IrLoopAllocReuse {
     private static bool _objQualifies(IrModule m, IrFunction f, ObjNewInstr o, bool[] inLoop, int[] defs, int rc) {
         if (!o.StackAlloc) { return false; }                                   // C1
         if (!IrLoopAllocReuse._iterationLocal(f, o.Dst.Id, defs, rc)) { return false; }   // C2
-        if (!IrLoopAllocReuse._ctorSingleBlock(m, o.CtorName)) { return false; }          // C4-obj
+        if (!IrLoopAllocReuse._ctorReinitsAllFields(m, o.ClassName, o.CtorName)) { return false; }   // C4-obj
         return true;
     }
 
@@ -231,11 +232,44 @@ public sealed class IrLoopAllocReuse {
         return true;
     }
 
-    // ── C4-obj：ctor 单基本块（字段写无条件）─────────────────────────────────────────────
-    private static bool _ctorSingleBlock(IrModule m, string ctorName) {
+    // ── C4-obj：ctor 单基本块 **且** 无条件写到本类每一个实例字段 ─────────────────────────────
+    // 复用 = 裸分配只做一次、之后每迭代只重跑 ctor。ctor 没写到的字段不会被 ObjNew 再清零 ⇒ 读到
+    // 上一迭代留下的值（fix-release-opt-soundness：`Counter(int x){X=x;}` + 循环里
+    // `c.Hits = c.Hits + 1` —— 关本 pass 得 5、开得 15）。「单块」只保证 ctor 里的写是无条件的，
+    // 不保证写**全**。判据取保守侧：
+    //   · 类描述必须在本模块（拿不到字段表 → 不复用）；
+    //   · 基类只能是隐式 `Std.Object`（基类字段由基类 ctor 写，这里看不见 → 不复用）；
+    //   · ctor 单块内对 this（reg0）的 FieldSet 覆盖全部实例字段（字段初始化器也发在 ctor 里，同样计入）。
+    private static bool _ctorReinitsAllFields(IrModule m, string className, string ctorName) {
         IrFunction f = IrLoopAllocReuse._findFunc(m, ctorName);
         if (f == null) { return false; }        // 跨包 / 找不到 → 保守（StackAlloc=true 时通常找得到）
-        return f.BlockCount == 1;
+        if (f.BlockCount != 1) { return false; }
+        IrClassDesc cd = null;
+        int ci = 0;
+        while (ci < m.ClassCount) {
+            if (m.Classes[ci].Name == className) { cd = m.Classes[ci]; }
+            ci = ci + 1;
+        }
+        if (cd == null) { return false; }
+        if (cd.HasBase && cd.BaseName != "Std.Object") { return false; }
+        IrBlock b = f.Blocks[0];
+        int fi = 0;
+        while (fi < cd.FieldCount) {
+            string fname = cd.Fields[fi].Name;
+            bool written = false;
+            int ii = 0;
+            while (ii < b.InstrCount && !written) {
+                IrInstr ins = b.Instrs[ii];
+                if (ins is FieldSetInstr) {
+                    FieldSetInstr fs = ins as FieldSetInstr;
+                    if (fs.Obj.Id == 0 && fs.Field == fname) { written = true; }
+                }
+                ii = ii + 1;
+            }
+            if (!written) { return false; }
+            fi = fi + 1;
+        }
+        return true;
     }
 
     // ── 变换构造 ─────────────────────────────────────────────────────────────────────

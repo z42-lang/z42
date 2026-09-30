@@ -172,8 +172,11 @@ pre-header）；⑤ **不变量**：循环体内 IsPure + **单赋值 dst** 指�
   「ctor 不泄漏 this」，可复用 ⟹ 不逃逸，故 C1 必要且直接复用已有结果）；**C2 迭代内局部**——alloc 的 dst
   （单赋值 temp）的**前向 copy 闭包**不含任何**多赋值 reg（defs>1）**，否则对象引用被循环携带（`head=new Node(i,head)`
   / `prev=p`），复用会让携带别名看到改写 → miscompile；**C3 形状固定**——`ArrayNew.Size` 不在循环体内定义
-  （循环不变；LICM 已把不变 const 提到 pre-header）；**C4 重初始化完整**——对象 = ctor **单基本块**（字段写无条件、
-  每迭代覆写；未被写字段保持裸分配零初始化 = 与 fresh 一致），数组 = 常量下标**读前写全**（单块线性扫：ArraySet
+  （循环不变；LICM 已把不变 const 提到 pre-header）；**C4 重初始化完整**——对象 = ctor **单基本块且对 this 无条件写全
+  本类每一个实例字段**、基类只能是隐式 `Std.Object`（类描述不在本模块 → 不复用）。⚠️ 原判据只有「单块」，理由写的是
+  「未被写字段保持裸分配零初始化」——错：裸分配只在 pre-header 做**一次**，未被 ctor 写的字段会带着**上一迭代**的值
+  （`Counter(int x){X=x;}` + 循环里 `c.Hits = c.Hits + 1`：关 pass 得 5、开得 15；继承来的基类字段同理，
+  fix-release-opt-soundness），数组 = 常量下标**读前写全**（单块线性扫：ArraySet
   常量下标入已写集、ArrayGet 常量下标要求已写、动态下标/其它读 → 失败）；**C5** 干净 pre-header 的自然循环。
 - **变换（无格式 bump、无新指令）**：**对象** `%r = ObjNew(Cls, ctor, [args])` → pre-header 追加 `%r = ObjNew(Cls, ctor="", [])`
   （**空 ctor 名哨兵 = 裸分配**，走运行时 `obj_new` 的 `outcome=None` 路径：`func_index.get("")` 皆 None → 跳过
@@ -214,9 +217,15 @@ pre-header）；⑤ **不变量**：循环体内 IsPure + **单赋值 dst** 指�
 - **纯度定义为何这么窄**：CSE/LICM 假设「同参同结果」——读可变外部状态会破坏它，故排除非 readonly 字段/数组读；
   **分配排除**因 CSE 消重会改对象身份（`==`/GC）；**no-throw** 因 LICM 提到可能零迭代 pre-header，会抛的
   「纯」函数提前执行 = 异常时机漂移。
+- **「纯」不等于「可投机执行」**（fix-release-opt-soundness）：「无 `throw` 终结子」挡不住所有异常——readonly
+  字段读的接收者（形参）可能是 null ⇒ NPE；乐观初值还会把含死循环的函数判纯 ⇒ 投机调用挂死。CSE 不受影响
+  （同一处第二次调用，第一次抛/不返回就到不了），LICM 受影响（循环零迭代时原程序根本不调用）。故 LICM 另用
+  `PureTable.IsSpeculatable`：纯 ∧ **不含 `FieldGet`** ∧ **块图无环** ∧ 只调可投机函数（单调收缩不动点，初值 = 纯集）。
+  **递归未排除**——`fib` 外提是本 pass 的设计目标；无限递归在零迭代循环里被投机执行（栈溢出）的风险待裁决。
+  门：`src/tests/optimization/pure_call_no_speculation.z42`（`opt_all`）。
 - **CSE**（`IrOptInfo.CseKey` 的 `call|Func|argIds` 分支）：同 callee + 全 args 稳定的纯调用消重（纯 = 不依赖
   可变状态 → **无需失效表**，比 readonly 简单）。**LICM**（`IrLicm._isHoistablePureCall`）：全 args 循环不变的
-  纯调用提到 pre-header。
+  **可投机**（见上）的纯调用提到 pre-header。
 - **与 inline 的分工**：小函数被 `Inline` 抢先消化（展开成算术，常规 CSE/LICM 处理）；pure-call 的价值在
   **非内联函数**（大 / **递归**）。**正确性主门** `src/tests/optimization/pure_call_hoist/`（开/关一致）。
   **实测 interp ~200×**（递归 `fib(23)` 循环不变调用被外提：OFF 4.24s → ON 0.02s；bench `pure_call_bench.z42`）。

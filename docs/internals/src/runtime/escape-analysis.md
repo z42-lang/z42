@@ -102,6 +102,14 @@ def 就挡住了所有可能被写回的分配；从未被重定义的参数槽�
 值**是否逃逸」——参数槽事后被重新赋值，与入参值的去向无关；在摘要里一并标，会把 `while (n != null) { n =
 n.Next; }` 这类「循环里推进形参」的常见写法判成参数逃逸，白白让**所有调用方**的实参丢掉栈分配。
 
+**但被 copy 进参数槽的那个值，摘要里必须标逃逸**（Pass A″，fix-release-opt-soundness）。`void Stash(Box p,
+ref Box q) { q = p; }` 发射成 `copy q ← p`：写回 caller 的正是入参 p。摘要此前在 `markRefWriteback=false`
+时什么都不做 ⇒ 判 p 不逃逸 ⇒ caller 把 `new Box(7)` 栈分配后传进来 ⇒ 经写回落进 caller 的 lvalue、caller
+帧退出后悬垂（`FieldGet: expected object, got Null`）。只标 **copy 的源**：非 copy 的定义（新分配 / 调用结果 /
+字段读）产出的都不是入参值，与「入参是否逃逸」无关；copy 链由 Pass B 往回传。上面那条「推进形参」写法是
+`FieldGet` 定义，不受影响。门：`src/tests/optimization/escape_summary_ref_writeback.z42`（与
+`escape_ref_param_writeback/` 对称：那边 callee 分配，这边 caller 分配）。
+
 > **为什么这个 bug 能活到 release 用户手上**：`--emit-zbc`（golden 用例的编译路径）的默认优化集**减掉了**
 > `StackAlloc`（会改 golden 字节），于是 `src/tests/optimization/escape_*.z42` 整套在门禁里**一次也没开过
 > 逃逸分析**——本页此前写的「专项单测覆盖」从来没被写出来过。同一 change 加了 `opt_all` sidecar
