@@ -649,7 +649,9 @@ int _pubRunDepProvideNative(string depTomlPath, TomlValue depToml, string depNam
     string depDir = Path.GetDirectoryName(depTomlPath);
     if (depDir.Length == 0) { depDir = "."; }
     string hooksDir = Path.Join(depDir, _pubTomlStr(depToml, "build", "hooks", ""));
-    string interDir = Path.Join(Path.Join(depDir, "artifacts"), Path.Join(depName, "hooks"));
+    // 依赖的 hook 中间目录跟随**依赖自己的** [build].output_dir（此前硬编码 `<depDir>/artifacts/<dep>/hooks`，
+    // 无视配置 ⇒ z42.repl 这类配了 output_dir 的依赖照样往源码树写）。
+    string interDir = _pubHooksInterDir(depToml, depTomlPath, depName);
     BuildHooks h = _loadProjectHooks(hooksDir, interDir, depName + ".hooks");
     if (h == null) {
         ConsoleError.WriteLine("z42b publish: native dep '" + depName + "' hooks failed to load — native not colocated");
@@ -825,8 +827,7 @@ string _pubFindFileRec(string dir, string fname) {
 // kind=="apphost-stub" 的登记路径。无 hooks 声明 / hook 未登记 / 文件不存在 → ""
 // （调用方落回 Z42_APPHOST_TEMPLATE）。
 //
-// hook 中间产物落点：[build] output_dir（projDir 相对）之下的 hooks/；无 output_dir
-// 则 <projDir>/artifacts/<name>/hooks/（镜像 _computeDirs 默认布局）。
+// hook 中间产物落点：见 `_pubHooksInterDir`。
 string _pubHookApphostStub(TomlValue toml, string tomlPath, string projName, string rid) {
     string hooksRel = _pubTomlStr(toml, "build", "hooks", "");
     if (hooksRel.Length == 0) { return ""; }
@@ -834,11 +835,7 @@ string _pubHookApphostStub(TomlValue toml, string tomlPath, string projName, str
     if (projDir.Length == 0) { projDir = "."; }
     string hooksDir = Path.Join(projDir, hooksRel);
 
-    string outBase = _pubTomlStr(toml, "build", "output_dir", "");
-    string baseDir;
-    if (outBase.Length > 0) { baseDir = Path.Join(projDir, outBase); }
-    else { baseDir = Path.Join(Path.Join(projDir, "artifacts"), projName); }
-    string interDir = Path.Join(baseDir, "hooks");
+    string interDir = _pubHooksInterDir(toml, tomlPath, projName);
 
     BuildHooks h = _loadProjectHooks(hooksDir, interDir, projName + ".hooks");
     if (h == null) { return ""; }
@@ -861,6 +858,22 @@ string _pubHookApphostStub(TomlValue toml, string tomlPath, string projName, str
     return "";
 }
 
+// hook 中间产物目录（本工程与 native 依赖三处共用，fix-z42b-source-tree-outputs）：
+//   [build] output_dir（清单目录相对；展开 `${profile}` = release —— publish 恒为 release —— 与 `${project_name}`）
+//   之下的 hooks/；未配 output_dir → `<清单目录>/artifacts/<name>/hooks`（镜像 `_computeDirs` 默认布局）。
+// 此前三处各拼一遍：本工程两处把 output_dir **原样** Join（模板不展开），依赖那处干脆无视 output_dir。
+string _pubHooksInterDir(TomlValue toml, string tomlPath, string projName) {
+    string projDir = Path.GetDirectoryName(tomlPath);
+    if (projDir.Length == 0) { projDir = "."; }
+    string outBase = _pubTomlStr(toml, "build", "output_dir", "");
+    if (outBase.Length == 0) {
+        return Path.Join(Path.Join(Path.Join(projDir, "artifacts"), projName), "hooks");
+    }
+    string v = outBase.Replace("${profile}", "release").Replace("${project_name}", projName);
+    string baseDir = Path.IsRooted(v) ? v : Path.Join(projDir, v);
+    return Path.Join(baseDir, "hooks");
+}
+
 // Run the project's [build] hooks BeforeAssets and return ALL registered outputs
 // (embed-workload-publish). Same load+run as _pubHookApphostStub, but returns
 // the full output set so --self-contained can harvest its embed-* kinds. Empty
@@ -871,11 +884,7 @@ Output[] _pubRunHooks(TomlValue toml, string tomlPath, string projName, string r
     string projDir = Path.GetDirectoryName(tomlPath);
     if (projDir.Length == 0) { projDir = "."; }
     string hooksDir = Path.Join(projDir, hooksRel);
-    string outBase = _pubTomlStr(toml, "build", "output_dir", "");
-    string baseDir;
-    if (outBase.Length > 0) { baseDir = Path.Join(projDir, outBase); }
-    else { baseDir = Path.Join(Path.Join(projDir, "artifacts"), projName); }
-    string interDir = Path.Join(baseDir, "hooks");
+    string interDir = _pubHooksInterDir(toml, tomlPath, projName);
     BuildHooks h = _loadProjectHooks(hooksDir, interDir, projName + ".hooks");
     if (h == null) { return new Output[0]; }
     PipelineContext ctx = new PipelineContext();
