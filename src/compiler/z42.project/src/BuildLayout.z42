@@ -9,6 +9,16 @@
 //   dist_dir      = [build].dist_dir      ?? "${output_dir}/dist"
 // 例外：[build] 既没有 output_dir 也没有 dist_dir 时，dist_dir = "<工程目录>/dist"
 // （z42c 的历史默认，大量调用方按 `<dir>/dist` 读产物）。
+//
+// **workspace 成员**（unify-build-layout）：清单既没配 output_dir 也没配 dist_dir、且是某个 workspace 的
+// 成员（`WorkspaceLayout.FindWorkspaceFor`）⇒ 用成员布局：
+//   output_dir = 展开 `[workspace.build].output_dir`（未声明 → `artifacts/${project_name}/${profile}`；相对 workspace 根）
+//   cache_dir  = `[workspace.build].cache_dir` ?? `${output_dir}/.cache`（模板不含成员名时追加成员名子目录）
+//   generated  = 成员 [build].generated_dir（"" = 不落盘）?? `${output_dir}/generated`
+//   dist_dir   = `${output_dir}/dist`
+// 与 `z42c build --workspace` 的 `WorkspaceBuild.PlanLayout` 同一套规则（两边都经 WorkspaceLayout）。
+// 于是成员被单独构建、被当作 path 依赖代建、被 z42b / launcher / xtask 查询时，都落在 workspace
+// 构建的那个位置 —— 此前它们走单工程默认，产物进了**源码树**。
 namespace Z42.Project;
 
 using Std;
@@ -41,6 +51,13 @@ public sealed class BuildLayout {
             : Path.Join(Environment.GetCurrentDirectory(), projectDir));
         string name = pm.Project.Name;
         BuildConfig b = pm.Build;
+
+        if (!b.HasOutputDir && !b.HasDistDir) {
+            string wsToml = WorkspaceLayout.FindWorkspaceFor(abs);
+            if (wsToml.Length > 0) {
+                return BuildLayout._member(pm, ManifestLoader.LoadWorkspace(wsToml), wsToml, abs, profile);
+            }
+        }
 
         string outputRaw = b.HasOutputDir ? b.OutputDir : "${workspace_dir}/artifacts/${profile}";
         string output = BuildLayout._expand(outputRaw, abs, name, profile, "");
@@ -112,6 +129,22 @@ public sealed class BuildLayout {
     private static string _dotted(string rel) {
         if (rel == "." || rel.StartsWith("./") || rel.StartsWith("../") || rel == "..") { return rel; }
         return "./" + rel;
+    }
+
+    // workspace 成员布局（见文件头）。
+    private static BuildLayout _member(ProjectManifest pm, WorkspaceManifest ws, string wsToml,
+                                       string absProj, string profile) {
+        string wsDir = Path.GetDirectoryName(wsToml);
+        string name = pm.Project.Name;
+        string outAbs = Path.Normalize(WorkspaceLayout.MemberOutputDir(ws, wsDir, absProj, name, profile));
+        string cache = WorkspaceLayout.MemberCacheDir(ws, wsDir, absProj, name, profile, outAbs);
+        BuildConfig b = pm.Build;
+        string generated = "";
+        if (!(b.HasGeneratedDir && b.GeneratedDir == "")) {
+            string genRaw = b.HasGeneratedDir ? b.GeneratedDir : "${output_dir}/generated";
+            generated = BuildLayout._expand(genRaw, absProj, name, profile, outAbs);
+        }
+        return new BuildLayout(absProj, profile, outAbs, cache, generated, Path.Join(outAbs, "dist"), true);
     }
 
     private static string _expand(string template, string absProj, string name, string profile, string outputDir) {

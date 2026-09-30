@@ -1,0 +1,113 @@
+// workspace 成员布局 —— 「一个成员的产物落哪」的唯一答案（unify-build-layout）。
+//
+// 此前这套规则只活在 z42c.pipeline 的 `WorkspaceBuild.PlanLayout` 里，**只有 `z42c build --workspace`
+// 兑现**。同一个成员被单独构建（`z42c build <member>.z42.toml`）、被当作 path 依赖代建、被 z42b /
+// launcher / xtask 查询产物位置时，走的都是单工程默认布局 —— 成员清单没有 `[build]`（布局由
+// workspace 给），于是产物落进**源码树**，且与 workspace 构建的位置对不上。
+// z42-toml.md 早就承诺「成员继承 `[workspace.build]`」，实现上一直只兑现了一半。
+//
+// 现在：成员判定与成员布局都在这里，`BuildLayout.Resolve`（所有「这个工程的产物在哪」的问答）与
+// `WorkspaceBuild.PlanLayout`（workspace 构建）都经由它。
+namespace Z42.Project;
+
+using Std;
+using Std.IO;
+
+public static class WorkspaceLayout {
+
+    /// `memberDir`（清单所在目录）所属的 workspace 清单路径；不是任何 workspace 的成员 → ""。
+    ///
+    /// 只看**最近**的一个 `z42.workspace.toml`（向上逐级找）：最近的那个不收它，就不算成员 —— 不越过它
+    /// 去找更外层的（嵌套 workspace 不支持，`WorkspaceBuild.DiscoverMembers` 同样跳过嵌套）。
+    /// 成员判定：成员目录相对 workspace 根的路径命中 `members`（缺省 `["*"]`）之一、且不命中 `exclude`。
+    /// 与 `DiscoverMembers` 的展开结果一致（那边逐段展开目录，这边拿同一组模式匹配单个路径）。
+    public static string FindWorkspaceFor(string memberDir) {
+        string abs = WorkspaceLayout._absNorm(memberDir);
+        string dir = abs;
+        while (true) {
+            string cand = Path.Join(dir, "z42.workspace.toml");
+            if (File.Exists(cand)) {
+                if (dir == abs) { return ""; }   // 清单与 workspace 同目录：workspace 根本身不是成员
+                string rel = WorkspaceLayout._rel(dir, abs);
+                if (rel.Length == 0) { return ""; }
+                WorkspaceManifest ws = ManifestLoader.LoadWorkspace(cand);
+                return WorkspaceLayout.IsMember(ws, rel) ? cand : "";
+            }
+            string parent = Path.GetDirectoryName(dir);
+            if (parent.Length == 0 || parent == dir) { return ""; }
+            dir = parent;
+        }
+    }
+
+    /// 相对 workspace 根的成员目录 `rel`（`/` 分隔）是否被 `members` 收录且未被 `exclude` 排除。
+    public static bool IsMember(WorkspaceManifest ws, string rel) {
+        string[] pats = ws.Members;
+        int n = ws.MemberCount;
+        if (n == 0) { pats = new string[1]; pats[0] = "*"; n = 1; }
+        bool hit = false;
+        int i = 0;
+        while (i < n) {
+            if (PathGlob.Match(rel, WorkspaceLayout._pat(pats[i]))) { hit = true; }
+            i = i + 1;
+        }
+        if (!hit) { return false; }
+        int e = 0;
+        while (e < ws.ExcludeCount) {
+            if (PathGlob.Match(rel, WorkspaceLayout._pat(ws.Exclude[e]))) { return false; }
+            e = e + 1;
+        }
+        return true;
+    }
+
+    /// 生效的成员 output_dir 模板：`[workspace.build].output_dir`，未声明 → `artifacts/${project_name}/${profile}`
+    /// （z42-toml.md 一直写着这个默认；此前实现里没有它，`--workspace` 直接报错、成员也不继承 —— unify-build-layout 补上）。
+    public static string OutputTemplate(WorkspaceManifest ws) {
+        return ws.HasOutputDir ? ws.OutputDir : "artifacts/${project_name}/${profile}";
+    }
+
+    /// 成员的 output_dir：展开 `OutputTemplate(ws)`（`${workspace_dir}` / `${member_dir}` /
+    /// `${project_name}`(= 成员名) / `${profile}`），相对路径按 **workspace 根**解析。
+    public static string MemberOutputDir(WorkspaceManifest ws, string wsDir, string memberDir,
+                                         string name, string profile) {
+        TemplateContext ctx = new TemplateContext(wsDir, memberDir, name, profile, "");
+        string outExpanded = PathTemplate.Expand(WorkspaceLayout.OutputTemplate(ws), ctx);
+        return Path.IsRooted(outExpanded) ? outExpanded : Path.Join(wsDir, outExpanded);
+    }
+
+    /// 成员 cache 目录（cache-dir-layout）：`[workspace.build].cache_dir` ?? `${output_dir}/.cache`；
+    /// 展开后仍相对的按 output_dir 解析。两个模板都不含成员名时自动追加成员名子目录（防碰撞，
+    /// z42-toml.md「workspace member 继承规则」）。
+    public static string MemberCacheDir(WorkspaceManifest ws, string wsDir, string memberDir,
+                                        string name, string profile, string outAbs) {
+        string raw = ws.HasCacheDir ? ws.CacheDir : "${output_dir}/.cache";
+        TemplateContext ctx = new TemplateContext(wsDir, memberDir, name, profile, outAbs);
+        string exp = PathTemplate.Expand(raw, ctx);
+        string dir = (Path.IsRooted(exp) || exp.StartsWith(outAbs)) ? exp : Path.Join(outAbs, exp);
+        bool perMember = WorkspaceLayout.NamesMember(raw) || WorkspaceLayout.NamesMember(WorkspaceLayout.OutputTemplate(ws));
+        return perMember ? dir : Path.Join(dir, name);
+    }
+
+    public static bool NamesMember(string template) {
+        return template.Contains("${member_name}") || template.Contains("${project_name}");
+    }
+
+    private static string _pat(string p) {
+        string s = p.Replace("\\", "/");
+        if (s.StartsWith("./")) { s = s.Substring(2, s.Length - 2); }
+        return s;
+    }
+
+    private static string _absNorm(string p) {
+        string a = Path.IsRooted(p) ? p : Path.Join(Environment.GetCurrentDirectory(), p);
+        return Path.Normalize(a);
+    }
+
+    // `child` 相对 `baseDir` 的路径（`/` 分隔）；不在其下 → ""。两者都已规范化。
+    private static string _rel(string baseDir, string child) {
+        string b = baseDir.Replace("\\", "/");
+        string c = child.Replace("\\", "/");
+        if (!b.EndsWith("/")) { b = b + "/"; }
+        if (!c.StartsWith(b)) { return ""; }
+        return c.Substring(b.Length, c.Length - b.Length);
+    }
+}

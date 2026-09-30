@@ -66,11 +66,11 @@ public static class WorkspaceBuild {
     // Milestone 2 drop-in：拓扑序成员 + 每成员 dist 目录（无须 --output-dir）。
     // dist = resolve([workspace.build].output_dir 模板, ctx) + "/dist"，镜像 C#
     // CentralizedBuildLayout.ResolveWorkspace（dist_dir 默认 ${output_dir}/dist）。
-    // 调用方须先确认 ws.HasOutputDir（否则无模板可展开 → 返回 null）。
+    // 未声明 output_dir 时用默认模板 `artifacts/${project_name}/${profile}`（unify-build-layout）。
     // profile = "release" / "debug"（${profile} 替换）。
     public static WsPlan PlanLayout(string wsToml, string profile) {
         WorkspaceManifest ws = ManifestLoader.LoadWorkspace(wsToml);
-        if (!ws.HasOutputDir) { return null; }
+        // 未声明 [workspace.build].output_dir → 默认模板（WorkspaceLayout.OutputTemplate），不再返回 null。
         string wsDir = Path.GetDirectoryName(wsToml);
         if (wsDir == "") { wsDir = "."; }
 
@@ -86,11 +86,9 @@ public static class WorkspaceBuild {
             string name = m.Names[idx];
             string memberDir = Path.GetDirectoryName(toml);
             if (memberDir == "") { memberDir = "."; }
-            // 模板上下文：${workspace_dir}/${member_dir}/${project_name}(=member_name)/${profile}。
-            TemplateContext ctx = new TemplateContext(wsDir, memberDir, name, profile, "");
-            string outExpanded = PathTemplate.Expand(ws.OutputDir, ctx);
-            // output_dir 相对 workspace 根解析（镜像 C# ResolveWorkspace baseDir=workspaceRoot）。
-            string outAbs = Path.IsRooted(outExpanded) ? outExpanded : Path.Join(wsDir, outExpanded);
+            // 成员布局的唯一实现在 z42.project 的 WorkspaceLayout（unify-build-layout）——
+            // 单独构建成员 / path 依赖代建 / 产物查询（BuildLayout.Resolve）用的是同一套规则。
+            string outAbs = WorkspaceLayout.MemberOutputDir(ws, wsDir, memberDir, name, profile);
             tomls[i] = toml;
             dists[i] = Path.Join(outAbs, "dist");
             caches[i] = WorkspaceBuild.ResolveMemberCacheDir(ws, wsDir, memberDir, name, profile, outAbs);
@@ -99,24 +97,11 @@ public static class WorkspaceBuild {
         return new WsPlan(tomls, dists, caches, m.Count);
     }
 
-    // 成员 cache 目录（cache-dir-layout）。有配置用配置，没配置用默认值：
-    //   cache_dir = [workspace.build].cache_dir ?? "${output_dir}/.cache"
-    // 模板里的 ${output_dir} 展开为该成员的 output_dir；展开后仍相对的路径按 output_dir 解析
-    //（镜像 C# CentralizedBuildLayout：cache_dir 相对 output_dir）。
-    // 防碰撞（docs/reference/src/toolchain/z42-toml.md「workspace member 继承规则」）：cache_dir 与 output_dir 两个
-    // 模板都不含 ${member_name} / ${project_name} 时各成员会落进同一目录 → 自动追加成员名子目录。
+    // 成员 cache 目录（cache-dir-layout）—— 实现在 z42.project 的 WorkspaceLayout.MemberCacheDir
+    //（unify-build-layout：与 BuildLayout.Resolve 的成员布局共用）。保留本入口供既有调用方。
     public static string ResolveMemberCacheDir(WorkspaceManifest ws, string wsDir, string memberDir,
                                                string name, string profile, string outAbs) {
-        string raw = ws.HasCacheDir ? ws.CacheDir : "${output_dir}/.cache";
-        TemplateContext ctx = new TemplateContext(wsDir, memberDir, name, profile, outAbs);
-        string exp = PathTemplate.Expand(raw, ctx);
-        string dir = (Path.IsRooted(exp) || exp.StartsWith(outAbs)) ? exp : Path.Join(outAbs, exp);
-        bool perMember = WorkspaceBuild._namesMember(raw) || WorkspaceBuild._namesMember(ws.OutputDir);
-        return perMember ? dir : Path.Join(dir, name);
-    }
-
-    private static bool _namesMember(string template) {
-        return template.Contains("${member_name}") || template.Contains("${project_name}");
+        return WorkspaceLayout.MemberCacheDir(ws, wsDir, memberDir, name, profile, outAbs);
     }
 
     // 成员发现（fix-workspace-member-discovery）：按 `[workspace] members` 逐条展开（缺省 = `["*"]`），
