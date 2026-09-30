@@ -1,6 +1,6 @@
 # Tasks: 构建布局统一到一个识别 workspace 的解析（PR-A：z42.project + z42c）
 
-**状态：🟡 进行中 | 开始：2026-09-30**
+**状态：🟢 已完成 | 开始：2026-09-30 | 完成：2026-10-01（#977）**
 
 类型：`refactor` + 用户可见默认变更（User 2026-09-30 裁决「现在直接做」「path 依赖继承 B 所在 workspace」）→
 最小化模式，决策与风险记在本文件。「源码树零写入」系列第 ⑥⑦ 步，拆三个 PR：
@@ -43,4 +43,4 @@ preserved 早退此前只核对 dist 的 pack 位 ⇒ 可能把旧代写下的�
 - [x] e2e：xtask_compiler_e2e_cache.z42 ⑤（成员单独构建 / path 依赖代建均落成员布局、成员目录旁零写入）
 - [x] 文档：z42-toml.md（[build] 字段表、成员继承规则、成员判定、默认模板、示例注释；publish_dir 归属 [platform.desktop]）
 - [x] 完整 GREEN（8m48s，全阶段通过；gen1==gen2 9/9；`src/compiler/z42.{project,build}` 下不再生成 `dist/`）
-- [ ] PR CI
+- [x] PR CI：PR CI 18 pass / 11 skipping

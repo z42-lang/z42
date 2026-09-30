@@ -1,6 +1,6 @@
 # Tasks: `.scratch` 并入 `tmp/`，alllibs 挪进 `build/views/`，`xtask clean` 补全
 
-**状态：🟡 进行中 | 开始：2026-09-30**
+**状态：🟢 已完成 | 开始：2026-09-30 | 完成：2026-10-01（#969）**
 
 类型：`refactor` + `fix`（`clean tests|bench` 恒删 0 个）→ 最小化模式。整理 `artifacts/` 布局第 3 步
 （前两步：#958 CI 垫片、#962 路径集中定义）。
@@ -29,12 +29,11 @@
         （初版只认 `*.z42.toml`，实测漏掉了用 `z42.toml` 的测试夹具 —— 一次 GREEN 后 456 + 217 个目录只删了 29 个）
   - [x] 生产 clean 只枚举 `debug` / `release` 两个 profile（不再把 golden 的 `tests/` 当 profile）
 - [x] 阶段 3: 文档（artifacts-layout.md §1/§3/§4、build.md、self-hosting.md、xtask.md、scripts/README.md）
-- [ ] 阶段 4: 验证
+- [x] 阶段 4: 验证
   - [x] `clean tmp` / `clean tests` / `clean bench` / 未知 target 用假数据实测
   - [x] `clean all` 实测：源码树 456 个 artifacts/dist + 217 个 cross-zpkg libs → 0；无入库文件被删；~1s
   - [x] 完整 GREEN（`xtask test`，8m47s，全阶段通过；`build all` 后、`Z42_HOME=<本树 build sdk 产物>`）
-- [ ] 阶段 5: PR CI + 归档
-
+- [x] 阶段 5: PR CI + 归档：PR CI 10 pass / 15 skipping（路径过滤）
 ## 验证过程中的观察（不在本 change 修）
 
 - `compiler` stage 的 analyzer-cache 检查（#961 新增）依赖 `Z42_HOME`：分析器工程按名依赖 `z42c.syntax` /

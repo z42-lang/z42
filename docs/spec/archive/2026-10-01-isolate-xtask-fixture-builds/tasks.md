@@ -1,6 +1,6 @@
 # Tasks: 测试夹具拷进 artifacts/tmp 再编（cross-zpkg / multi-exe / manifest-targets / z42b）+ gc-modes 产物进 tmp
 
-**状态：🟡 进行中 | 开始：2026-09-30**
+**状态：🟢 已完成 | 开始：2026-09-30 | 完成：2026-10-01（#972）**
 
 类型：`refactor`（只改 xtask，不改 z42c / z42b，用户不可见）→ 最小化模式。叠在 `tidy-artifacts-tmp-and-clean`（#969）之上。
 
@@ -25,8 +25,7 @@
 - [x] 完整 GREEN（9m03s，全阶段通过）。跑完 **`src/tests` 下 0 个产物目录**（此前 ~650）；源码树剩 27 处，全在
       stdlib / 编译器成员目录，分属后续步骤：自举预建与 gc-modes 的 cache（z42c `--output-dir` 修复）、z42b dev 目标
       输出（z42b `--out-root`）、path 依赖 dist（path 依赖布局决策）、repl hooks（z42b hooks 落点修复）
-- [ ] PR CI + 归档
-
+- [x] PR CI + 归档：PR CI 10 pass / 15 skipping
 ## 为什么是「拷贝」而不是给 z42c 传 `--output-dir`
 
 `--output-dir` 在单工程下只改 dist，cache / generated 仍写工程目录旁（且只写不读）—— 那是 z42c 的 bug，
