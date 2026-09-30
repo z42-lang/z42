@@ -121,3 +121,35 @@ void _copyIfExists(string src, string dst) {
 void _makeExe(string path) {
     if (File.Exists(path)) { File.MakeExecutable(path); }
 }
+
+// ── 测试夹具「拷出去再编」（isolate-xtask-fixture-builds）────────────────────────
+//
+// 夹具工程（src/tests/{cross-zpkg,multi-exe}/**）没有 `[build]`，z42c 按单工程默认布局把 dist /
+// cache / generated 写在**工程目录旁边**；xtask 还在旁边建 `libs/` 中转目录。结果是每跑一轮
+// e2e，源码树里就多出几百个产物目录（实测 ~670）。
+//
+// 做法：每轮把整棵夹具源码树拷进 `artifacts/tmp/<name>/`（先整桶重置），之后的构建 / 运行全部在
+// 拷贝里进行。好处不只是源码树干净：
+//   · 每轮从零开始 —— 彻底消掉「上一轮留在源码树里的旧格式 zpkg 赢过本轮产物」这一整类假红
+//     （2026-09-27 实测 52 个 cross-zpkg 失败，见 `_spawnBuildPkgE` 的头注）；
+//   · 对任何 z42c（含种子）都有效，不依赖 z42c 的 `--output-dir` 是否接管 cache。
+// 拷贝时跳过 `artifacts/` / `dist/`（旧工作树里的残留），其余原样（夹具间的相对 path 依赖不变）。
+string _stageFixtureTree(string root, string srcRel, string name) {
+    string dst = _tmpDir(root, name);
+    _resetDir(dst);
+    _copySourceTree(Path.Join(root, srcRel), dst);
+    return dst;
+}
+
+void _copySourceTree(string src, string dst) {
+    Directory.Create(dst);
+    foreach (var name in _sortedStrings(Directory.Enumerate(src))) {
+        string s = Path.Join(src, name);
+        string d = Path.Join(dst, name);
+        if (Directory.Exists(s)) {
+            if (name != "artifacts" && name != "dist") { _copySourceTree(s, d); }
+        } else {
+            File.Copy(s, d);
+        }
+    }
+}
