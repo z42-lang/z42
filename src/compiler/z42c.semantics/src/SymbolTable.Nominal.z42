@@ -211,6 +211,12 @@ public sealed partial class SymbolTable {
         // `SymbolTable.z42` 的 `HasClass` 抬头。在这儿也写会被 `test stage2` 当成
         // 新挂的一条（新文件新条目）而判红 —— 实测踩过。
         //
+        // 📏 A5b-2b-3 重测（探针带调用栈 + 阳性对照，interp 编 z42.core / z42.package / z42c.semantics）：
+        //   修前 3114 次，全部来自 6 个调用点 —— 按短名查**自己的声明**（StructLayout / VarFieldInfer /
+        //   ClassExtractor / partial 合并）+ 基类句柄绑定 + 接口成员校验，都跑在无作用域的根表上。
+        //   修后 **17 次**，全是导入类的**跨 ns** 基类名（`Type : MemberInfo`、`*Stream : Stream`）：
+        //   导入元数据存的是短名、声明方的 `using` 不可得 ⇒ 要么导出端写 FQ 基类名，要么保留本支。
+        // 下面是 A5b-2a 时的记录（「父 ns 引用」那 36 次已由 A5b-2b-1 补 `using` 消掉）：
         // 🔴 **它今天还在替两条真规则兜底**，删之前必须先把这两条实现掉（实测残留 2838 次）：
         //   · **98.7%（2802 次）**：调用发生在**没设作用域**的表视图上（`ScopeNs` 为空）——
         //     不是解析规则不够，是调用点拿到的表就没有作用域。`CollectAll` 的
@@ -310,6 +316,9 @@ public sealed partial class SymbolTable {
     // （变量名不叫 `ct`，眼睛扫不出来）。判据 = `grep -E "(GetClass|HasClass)\([^)]*BaseName"`
     // 只应剩两处：`Origins` 里那个**门的判据**（刻意按名字查，用来发现「查得到却没绑」的矛盾）
     // 和本函数自己的回落。
+    // ⚠️ A5b-2b-3 又抓到 **15 处**：`table.Classes.Get/ContainsKey(x.BaseName)` 直接读短名表，上面的 grep
+    // 不匹配（InheritanceResolver 的虚方法溯源 / override 修正 / sealed 检查 / 桥接标记 + CtorInheritance）。
+    // 判据补一条：`grep -E "Classes\.(Get|ContainsKey|Find)\([^)]*BaseName"` 应为 0。
     //
     // 返回 null = 没有基类，或基类不可见（跨包）。
     // ⚠️ `Base == 0` 时回落到名字：那是**合法**状态（跨包基类不可见 / 尚未绑定），

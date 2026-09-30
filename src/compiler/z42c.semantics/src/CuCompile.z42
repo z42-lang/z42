@@ -24,7 +24,7 @@ public static class CuCompile {
                     if (!seen.ContainsKey(cd.Name)) {
                         bool isPart = false;
                         if (cd.Kind == "class" || cd.Kind == "struct") {
-                            Z42ClassType ct = symbols.GetClass(cd.Name) as Z42ClassType;
+                            Z42ClassType ct = symbols.WithScopeOf(cus[a]).GetClass(cd.Name) as Z42ClassType;   // A5b-2b-3：按声明方作用域
                             isPart = ct != null && ct.IsPartial;
                         } else if (cd.Kind == "interface") {
                             Z42InterfaceType it = symbols.Interfaces.Get(cd.Name) as Z42InterfaceType;

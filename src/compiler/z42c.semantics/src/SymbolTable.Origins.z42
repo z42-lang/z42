@@ -406,8 +406,23 @@ public sealed partial class SymbolTable {
             if (ct == null) { continue; }
             if (!ct.HasBase) { continue; }
             if (ct.Base != 0) { continue; }            // 幂等：已绑定的不动
+            // A5b-2b-3：走到这里的基本只剩**导入类**（本地类已由 `_passBindClassBases` 按 CU 作用域绑过）。
+            // 它们没有 CU 可给作用域，但有声明 ns ⇒ 先按「外围 ns 优先」试 `<ns>.<BaseName>`，不中再走名字解析。
+            if (ct.Namespace != "" && ct.BaseName != null && ct.BaseName != "") {
+                int own = this.ClassesByFqn.Find(ct.Namespace + "." + ct.BaseName);
+                if (own >= 0) { ct.Base = this.Intern.Of(this.ClassesByFqn.ValAt(own) as Z42ClassType); continue; }
+            }
             ct.Base = this._refOfClass(ct.BaseName);
         }
+    }
+
+    // A5b-2b-3：在**带作用域的 per-CU 视图**上绑一个本地类的基类句柄（`SymbolCollector._passBindClassBases`）。
+    // `_refOfClass` → `GetClass` 走的是本视图的 ScopeNs / ScopeUsings ⇒ 外围 ns 胜过裸名表赢家。已绑的不动。
+    public void BindBaseInScope(Z42ClassType ct) {
+        if (ct == null) { return; }
+        if (!ct.HasBase) { return; }
+        if (ct.Base != 0) { return; }
+        ct.Base = this._refOfClass(ct.BaseName);
     }
 
     // 名字 → 类句柄。查不到 → 0（合法：跨包基类可能不可见）。

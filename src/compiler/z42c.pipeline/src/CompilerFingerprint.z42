@@ -85,7 +85,10 @@ public static class CompilerFingerprint {
         "unify-type-subst",
         // fix-enum-type-identity（A5b-2b-2）：嵌套 enum 类型位与 `E.Member` 常量读造出的 enum 类型此前 Namespace 为空，
         // 按 FQN 的门在这条轴上是瞎的（跨包同 FQN 嵌套 enum 零诊断）。产物字节恒等（A-B 对账 19 包），但新发 E0601。
-        "fix-enum-type-identity"
+        "fix-enum-type-identity",
+        // fix-class-base-scope（A5b-2b-3）：基类句柄改按声明方作用域绑定、15 处基类链走查收敛到 BaseOf ——
+        // 同包两个 ns 各有同名基类时不再误报 E0402 / E0427（此前取决于文件顺序）。
+        "fix-class-base-scope"
     };
 
     // 指纹值：`Entries` 逐条以 `\n` 连接后取内容哈希（`mmh3:` 前缀，同 SourceHash）。

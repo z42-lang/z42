@@ -34,7 +34,8 @@ public static class VarFieldInfer {
                     Decl decl = cu.Decls[d];
                     if (decl is AttributedDecl) { decl = (decl as AttributedDecl).Inner; }
                     if (decl is ClassDecl) {
-                        if (VarFieldInfer._inferClass(decl as ClassDecl, symbols, ns)) { changed = true; }
+                        // A5b-2b-3：按本 CU 作用域查类（外围 ns 精确命中这份声明，不撞裸名表赢家）
+                        if (VarFieldInfer._inferClass(decl as ClassDecl, symbols.WithScopeOf(cu), ns)) { changed = true; }
                     }
                     d = d + 1;
                 }
