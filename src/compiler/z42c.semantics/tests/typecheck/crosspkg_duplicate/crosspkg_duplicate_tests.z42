@@ -336,7 +336,10 @@ void static_member_on_unique_type_is_not_duplicate() {
 // TYPE 段重建的。我第一版照搬 `dupImports` 写这两条用例，结果**用例红、而真实三包 e2e 是绿的**，
 // 差点回头去"修"一个并不存在的实现问题。故此处**手工构造** `ExportedEnumZ` 直连 loader；
 // 真实 TSIG 那条路由 e2e fixture `cross-zpkg/dup_enum_crosspkg` 守着。
-ImportedSymbols dupEnumImports(int pkgCount) {
+ImportedSymbols dupEnumImports(int pkgCount) { return dupEnumImports(pkgCount, "Color"); }
+
+// enumName 可以是嵌套名（`Outer+Color`：NestedFlatten 的 `+` 键，跨包 TYPE 段里就是这个形状）。
+ImportedSymbols dupEnumImports(int pkgCount, string enumName) {
     ExportedModuleZ[] ems = new ExportedModuleZ[pkgCount];
     string[] pkgs = new string[pkgCount];
     int k = 0;
@@ -346,7 +349,7 @@ ImportedSymbols dupEnumImports(int pkgCount) {
         if (k == 0) { mem[0] = new ExportedEnumMemberZ("Red", 0); mem[1] = new ExportedEnumMemberZ("Green", 1); }
         else        { mem[0] = new ExportedEnumMemberZ("Green", 0); mem[1] = new ExportedEnumMemberZ("Red", 1); }
         ExportedEnumZ[] ens = new ExportedEnumZ[1];
-        ens[0] = new ExportedEnumZ("Color", mem, 2);
+        ens[0] = new ExportedEnumZ(enumName, mem, 2);
         ems[k] = new ExportedModuleZ("Demo.Dup",
             new ExportedClassZ[0], 0,
             new ExportedInterfaceZ[0], 0,
@@ -375,6 +378,23 @@ void duplicated_enum_type_annotation_errors() {
     // 根因就是那张表没并：导入 enum 的 Namespace 恒空 ⇒ Fqn() 退化成裸名 ⇒ 与 ClassPkgAll 对不上。
     string[] d = dupDiags("namespace App;\nusing Demo.Dup;\nclass C { Color c; }", dupEnumImports(2));
     Assert.Equal(true, dupCount(d, "E0601") >= 1);
+}
+
+[Test]
+void duplicated_nested_enum_type_annotation_errors() {
+    // fix-enum-type-identity（A5b-2b-2）：**嵌套** enum 的类型注解位（`Outer.Color c;`）走
+    // `ResolveTypeP` 的 plusKey 分支，那里此前直接 `Z42ClassType.Enum(plusKey)`、**不查 `EnumTypeNs`**
+    // ⇒ Namespace 恒空、`Fqn()` 退化成裸 `Outer+Color`，与 `ClassPkgAll` 的 `Demo.Dup.Outer+Color`
+    // 对不上 ⇒ 同 FQN 跨包零诊断。与上面非嵌套那条是同一个洞的另一条路。
+    string[] d = dupDiags("namespace App;\nusing Demo.Dup;\nclass C { Outer.Color c; }", dupEnumImports(2, "Outer+Color"));
+    Assert.Equal(true, dupCount(d, "E0601") >= 1);
+}
+
+[Test]
+void nested_enum_from_one_package_is_not_duplicate() {
+    string[] d = dupDiags("namespace App;\nusing Demo.Dup;\nclass C { Outer.Color c; }", dupEnumImports(1, "Outer+Color"));
+    Assert.Equal(0, dupCount(d, "E0601"));
+    Assert.Equal(0, dupCount(d, "E0606"));
 }
 
 [Test]

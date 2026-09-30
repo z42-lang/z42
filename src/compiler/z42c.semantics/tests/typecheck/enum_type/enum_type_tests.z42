@@ -122,3 +122,36 @@ void test_enum_plus_enum_reports_E0402_per_operand() {
 void test_enum_plus_integer_reports_exactly_one_diagnostic() {
     Assert.Equal(1, bodyDiags(body("long n = (long)(Color.Red + 1);")).Count());
 }
+
+// ── fix-enum-type-identity（A5b-2b-2）：造 enum 类型的每条路都带声明 ns ──────────────
+//
+// enum 的类型相等至今按 `Name()`（短名）比，所以 Namespace 为空**类型检查照样过** —— 洞是静默的：
+// `Fqn()` 退化成裸名 ⇒ 按 FQN 的门（同 FQN 跨包 E0601 / 未声明依赖 E0497 / 规则 2 的 `using` 可见性）
+// 在这条轴上是瞎的，句柄化后同一个 enum 还会 intern 成两个 id。此前只有 `ResolveTypeP` 的裸名分支
+// 查了 `EnumTypeNs`；嵌套 plusKey 分支与 `E.Member` 常量读各自 `Z42ClassType.Enum(name)` 了事。
+
+SymbolTable collectNs(string src) {
+    var p = new Parser(src, "t.z42");
+    return new SymbolCollector().Collect(p.ParseCompilationUnit());
+}
+
+TypeExpr named(string n) { return new NamedType(n, new TypeExpr[0], 0, new Span(0, 0, 1, 1, "<t>")); }
+
+[Test]
+void test_enum_type_annotation_carries_namespace() {
+    var t = collectNs("namespace Demo; enum Color { Red } class Outer { public enum Inner { A } }");
+    Assert.Equal("Demo.Color", (t.ResolveType(named("Color")) as Z42ClassType).Fqn());
+    // 嵌套：源码写 `Outer.Inner`，表里是 NestedFlatten 的 `Outer+Inner` 键 ← 修前 Fqn() 是裸 "Outer+Inner"
+    Assert.Equal("Demo.Outer+Inner", (t.ResolveType(named("Outer.Inner")) as Z42ClassType).Fqn());
+}
+
+[Test]
+void test_enum_member_literal_type_carries_namespace() {
+    var t = collectNs("namespace Demo; enum Color { Red }");
+    var tc = new TypeChecker(new DiagnosticBag());
+    var e = new Parser("Color.Red", "e.z42").ParseExpression();
+    BoundExpr b = tc._expr._bindExpr(e, TypeEnv.Root(t));
+    Z42ClassType ct = b.Type() as Z42ClassType;
+    Assert.Equal(true, ct.IsEnum);
+    Assert.Equal("Demo.Color", ct.Fqn());   // ← 修前是裸 "Color"：与类型注解位的同一个 enum 不是一个身份
+}

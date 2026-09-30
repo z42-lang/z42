@@ -428,8 +428,15 @@ User 2026-09-30 裁定走 **A：按规范办**（补 `using` + 让规则 2 在�
 1. ✅ **补既有违规的 `using`**（本批）。实测全仓**只有 4 条**可判违规 —— 都是
    **同包跨命名空间**（`z42.package` 一个包里住着 `Z42.IR` / `Z42.IR.BinaryFormat` /
    `Z42.Package` 三个 ns），而 `E0436` 的判据 `cm.UsedDepNs` **只覆盖跨包依赖** ⇒ 全部漏掉。
-2. 🔜 **修 enum 身份**（`Z42ClassType.Enum()` 的 `SymbolTable:544` / `MemberResolver:67`
-   两个调用点不查 `EnumTypeNs` ⇒ 造出的 enum `Namespace` 为空）。
+2. ✅ **修 enum 身份**（A5b-2b-2）：`Z42ClassType.Enum()` 的 `SymbolTable:544`（嵌套 plusKey）/
+   `MemberResolver:67`（`E.Member` 常量读）两个调用点不查 `EnumTypeNs` ⇒ 造出的 enum `Namespace` 为空。
+   收敛到唯一出口 `SymbolTable.EnumType(name)`（裸名分支原有的内联查表也并进去）。
+   **可观察的红**：跨包同 FQN 的**嵌套** enum 在类型注解位（`Outer.Color c;`）零诊断 —— 与
+   harden-crosspkg-gates 修过的非嵌套那条是同一个洞的另一条路；修后报 E0601。
+   **字节恒等**（A-B：对照组只改一行注释、同协议冷建 → `test fingerprint`，两组 19 包 sha 逐一相同；
+   两组对 base 都报 z42.core 252087→251846B，那是 base 树代数不同的漂移）。因新发诊断 ⇒ 追加指纹条目。
+   ⚠️ 对账教训续：`test fingerprint` 在 src/compiler **逐字节相同**时直接跳过对比 ⇒ 对照组必须带一处
+   无语义改动（注释）才会真比字节。
    ⚠️ **不先做这步，门在 enum 轴上是瞎的** —— 空 ns 不参与可见性判定，而实测
    `ZbcFormat.z42` 缺的那个 `using Z42.IR;` 正是为了一个 **enum**（`IrType`）。
    典型的「门会绿，但它没在守」。
