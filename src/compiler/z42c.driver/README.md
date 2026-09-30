@@ -9,6 +9,7 @@ CLI 入口（命令路由）。唯一 **exe** 子包，对外别名 = 用户 `z4
 | `src/Main.z42` | `void Main()`：读 `Environment.GetCommandLineArgs()`，路由 `--dump-keywords` → `DumpTool.DumpKeywords`、`--dump-tokens`/`--dump-ast` → `DumpTool`、`--dump-bound` → `SemanticDump`、`--emit-zbc <src> <out>` → `IrDump.ZbcBytes` + `File.WriteAllBytes`、`build` → `_cmdBuild`（`namespace Z42.Driver`）|
 | `src/BuildCommand.z42` | `z42c build` 参数解析：未知选项报错、`-h`、`--quiet`；不给清单时 `ManifestLocator.FindUp` 定位（工作区 → `--workspace`）→ `_build` / `_buildWorkspace` |
 | `src/BuildLog.z42` | 进度行开关（`--quiet` 抑制 `cached:` / `wrote ->` / `cache ->`；诊断不受影响）|
+| `src/PathDepBuild.z42` | path 依赖闭包代建（`_buildPathDepClosure`，自 Main.z42 `_build` 搬出）：`PathDepPlan.Resolve` 叶子在前的闭包 → 逐个 `_build` + 累积 libsDirs，结果经 `PathClosureOut` 回给调用方 |
 | `src/IndexedDist.z42` | indexed dist 投影（add-indexed-zpkg-min-patch）：散装 zbc 原样落盘（字节相等不触碰→最小 patch）+ FILE 主文件 + 孤儿清理 |
 | `src/BuildPaths.z42` | pack 模式守卫（`_distModeMatches`：packed↔indexed 切换使 preserved 失效）+ handler 指纹 + 可复现 build_id；dist/cache 目录解析在 z42.project `BuildLayout` |
 | `src/ProfileKnobs.z42` | 构建期旋钮名校验（compiler-checks-knob-names）：`_validateProfileKnobs` 在 `_build` 早期扫全部 `[profile.<n>.runtime]`——未知名 → warning + 最近邻建议（全集问 `Std.Runtime.RuntimeConfig.Names()`，不留第二份清单）；`[profile.<n>]` 下直接写键 → 致命，库工程同样管 |
@@ -35,7 +36,7 @@ workspace/flat 模式不落 cache、不 probe（见 [project.md 增量编译节]
 ## 依赖关系
 → z42c.syntax, z42c.semantics, z42c.core, z42c.pipeline, z42.package, z42.project。stdlib（Std / Std.IO）自动可用。
 
-`_build` 遇本地 path 依赖（`DepEntry.Path` 非空）时，先经 `z42c.pipeline` 的 `PathDepPlan.Resolve` 建叶子在前的传递闭包 → 逐成员现建 + 累积 libsDirs，`_bundleExeDeps` 再把私有 path 依赖 zpkg colocate 进消费方 dist（真-stdlib 走 Z42_LIBS 不复制）。机制见 book `compiler/project-model.md` 路径依赖闭包。
+`_build` 遇本地 path 依赖（`DepEntry.Path` 非空）时，先经 `z42.project` 的 `PathDepPlan.Resolve`（`PathDepBuild.z42`） 建叶子在前的传递闭包 → 逐成员现建 + 累积 libsDirs，`_bundleExeDeps` 再把私有 path 依赖 zpkg colocate 进消费方 dist（真-stdlib 走 Z42_LIBS 不复制）。机制见 book `compiler/project-model.md` 路径依赖闭包。
 
 ## 运行（自举产物）
 z42c 跨包 dep 解析读 `Z42_LIBS`。**通常无需手动设置**：z42vm 会把它解析出的 libs 目录
