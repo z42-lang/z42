@@ -282,7 +282,6 @@ public static class ZbcWriter {
             }
             // TypeParams + per-tp constraint bundles（zbc L3-G1/G3a，镜像 C# BuildType tpCount+WriteConstraintBundle）
             int tpCount = cd.TypeParamCount;
-            if (tpCount > 255) { tpCount = 255; }
             w.WriteU8(tpCount);
             int tpi = 0;
             while (tpi < tpCount) {
@@ -516,7 +515,6 @@ public static class ZbcWriter {
             // 全链路已读 → 填真实值无格式 bump）。每 tp：nameIdx:u32 + 约束包（cflags=0 + ifaceCount=0；
             // where 约束反射式 Deferred）。约束包格式镜像类 writer（TYPE 段 tpCount+bundle）。
             int mtp = f.TypeParamCount;
-            if (mtp > 255) { mtp = 255; }
             w.WriteU8(mtp);
             int mtpi = 0;
             while (mtpi < mtp) {

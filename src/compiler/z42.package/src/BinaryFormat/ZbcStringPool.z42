@@ -4,6 +4,7 @@
 // **0-based**（与 C# StringPool 一致，区别于 IrModule.StringPool 的 1-based 占位方案）。
 // STRS 字节序 = Intern 调用序（非字母序）——确定性关键，各 BuildXxxSection 按固定序预扫 intern。
 namespace Z42.IR.BinaryFormat;
+using Std;
 using Z42.IR;   // StrIndex —— 同包跨 ns 也必须显式 using（namespaces.md 规则 2）
 
 public sealed class ZbcStringPool {
@@ -32,8 +33,14 @@ public sealed class ZbcStringPool {
         return idx;
     }
 
-    // 已 intern 串的 idx（未命中返回 -1——调用方保证先 intern）。
+    // 已 intern 串的 idx。未命中 = 预扫漏 intern 了这个串（写端 bug）→ 抛。此前返回 -1、由 WriteU32
+    // 写成 0xFFFFFFFF，读端才在别处炸（ZbcWriter 的 TypeParams 预扫注释记着一次实发）。
     public int Idx(string s) {
-        return this._index.Get(s);
+        int i = this._index.Get(s);
+        if (i < 0) {
+            throw new Exception("zbc writer: string `" + s + "` was not interned before use "
+                + "(the intern pre-scan and the section writer disagree)");
+        }
+        return i;
     }
 }

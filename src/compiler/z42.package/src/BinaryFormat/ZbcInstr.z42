@@ -425,8 +425,9 @@ public static class ZbcInstr {
             w.WriteU16(la.Slot.Id);
             return;
         }
-        // 未覆盖 opcode（call/field/obj/array/is·as/const-str·f64·char → ZW-1C/1D/1E）：
-        // 静默跳过会产出语义错流（e2e div-zero oracle 可截获）；e2e 源须避开未覆盖指令。
+        // 未覆盖的 IrInstr 子类：新增指令忘了接编码。此前静默跳过 ⇒ 产出少一条指令的语义错流
+        // （fix-zbc-writer-silent-truncation）；现在当场抛，指名是哪一类。
+        throw new Exception("zbc writer: no encoding for IR instruction `" + ins.Dump() + "`");
     }
 
     // 终结符 → 字节。labels/blockCount：本函数块 label 序（Br/BrCond 目标 → 块索引 u16）。
@@ -458,6 +459,7 @@ public static class ZbcInstr {
             w.WriteU8(Op.Throw); w.WriteU8(Tag.FromIrType(th.Reg.Type)); w.WriteU16(th.Reg.Id);
             return;
         }
+        throw new Exception("zbc writer: no encoding for terminator `" + t.Dump() + "`");
     }
 
     private static void _bin(ByteWriter w, int op, TypedReg dst, TypedReg a, TypedReg b) {
@@ -476,7 +478,8 @@ public static class ZbcInstr {
             if (labels[i] == label) { return i; }
             i = i + 1;
         }
-        return 0;
+        // 分支目标不在本函数块表里：此前返回 0 = 静默跳回 entry 块（死循环或错流）。
+        throw new Exception("zbc writer: branch target label `" + label + "` is not a block of this function");
     }
 
     // 指令引用串预扫 intern（镜像 C# InternInstrStrings；调用序 = STRS 字节序的一部分，须 1:1）。

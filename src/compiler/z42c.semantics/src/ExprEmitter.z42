@@ -138,6 +138,24 @@ public sealed partial class ExprEmitter {
             if (at != null && !this._isBuiltinValueElem(at.Elem) && !(at.Elem is Z42GenericParamType)) {
                 elemName = this._qualifyElemName(al.ElemName);
             }
+            // fix-zbc-writer-silent-truncation：`arr.new.lit` 的元素个数在 zbc 里是 u8。超过 255 个元素时
+            // 改下沉为 `array_new` + 逐元素 `array_set`（元素已按源序求值完毕，语义等价）。此前写端把个数
+            // 静默截成 `n & 0xFF`，产出不可解析的 zbc —— 查表常量一写长就中。
+            // blob 值 struct 元素的整元素写要走句柄拷贝（见 AccessEmitter 的 BoundIndex 分支），这条下沉
+            // 不覆盖它：仍发 arr.new.lit，由写端宽度检查响亮报错（>255 元素的 struct 字面量罕见）。
+            if (al.ElemCount > 255 && at != null && !this._isBlobStruct(at.Elem)) {
+                TypedReg size = this._ctx.Alloc(IrType.I32);
+                this._ctx.Emit(new ConstI32Instr(size, al.ElemCount.ToString()));
+                this._ctx.Emit(new ArrayNewInstr(dst, size, this._ctx.ToIrType(at.Elem), elemName));
+                int si = 0;
+                while (si < al.ElemCount) {
+                    TypedReg idx = this._ctx.Alloc(IrType.I32);
+                    this._ctx.Emit(new ConstI32Instr(idx, si.ToString()));
+                    this._ctx.Emit(new ArraySetInstr(dst, idx, elemRegs[si]));
+                    si = si + 1;
+                }
+                return dst;
+            }
             this._ctx.Emit(new ArrayNewLitInstr(dst, elemRegs, al.ElemCount, elemName));
             return dst;
         }

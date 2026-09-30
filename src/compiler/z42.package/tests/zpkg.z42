@@ -174,3 +174,42 @@ void test_deps_roundtrip_empty_when_no_deps() {
     Assert.NotNull(info);
     Assert.Equal(0, ZpkgReader.ReadDependencies(info).Length);
 }
+
+// ── indexed SIGS 预扫：写端读到的每个池串都必须先 intern（fix-zbc-writer-silent-truncation）──────
+//
+// indexed 包没有 MODS 体，SIGS 用到的串全靠 `ZpkgWriterIndexed._internSigStrings` 手抄一份
+// 「WriteSigEntries 会读哪些串」。它漏了两项：参数名缺省占位 `"?"`（合成函数无参数名）与
+// 方法级型参名。漏的后果此前是写成 0xFFFFFFFF、消费方读包时越界；`ZbcStringPool.Idx` 改为
+// 未命中即抛之后，是写包当场失败。夹具故意让两个串**只**出现在这两个位置：
+// 型参名不出现在参数/返回类型里，参数没有名字。
+[Test]
+void test_indexed_sigs_intern_placeholder_param_name_and_method_type_params() {
+    IrBlock[] blocks = new IrBlock[0];
+    string[] pts = new string[1]; pts[0] = "int";
+    int[] rts = new int[0];
+    IrLineEntry[] lt = new IrLineEntry[0];
+    IrLocalVarEntry[] lv = new IrLocalVarEntry[0];
+    IrFunction f = new IrFunction("Demo.Probe", 1, "void", true, blocks, 0, 0, "Interp", pts, 1, rts, 0, lt, 0, lv, 0);
+    string[] tps = new string[1]; tps[0] = "UOnlyHere";
+    f.TypeParams = tps; f.TypeParamCount = 1;   // ParamNames 保持默认空数组
+
+    IrFunction[] fns = new IrFunction[1]; fns[0] = f;
+    string[] exports = new string[1]; exports[0] = "Demo.Probe";
+    string[] pool = new string[1];
+    var irm = new IrModule("Demo", pool, 1, new IrClassDesc[0], 0, fns, 1);
+    var mods = new ZbcFileZ[1];
+    mods[0] = new ZbcFileZ("a.z42", "HASH", "Demo", exports, 1, irm);
+    ZpkgFileZ z = ZpkgBuilder.BuildPackedD("p", "0.1.0", false, false, "", mods, 1, new ZpkgDepZ[0], 0);
+    string[] hashes = new string[1]; hashes[0] = "ZH";
+    string[] rels = new string[1]; rels[0] = "src/a.zbc";
+
+    ZpkgInfo info = ZpkgReader.Open(ZpkgIndexedWriter.WriteIndexedMain(z, hashes, rels).ToBytes(), "p.zpkg");
+    Assert.NotNull(info);
+    ZpkgModuleSigs[] sigs = ZpkgReader.ReadModuleSigs(info);
+    Assert.Equal(1, sigs.Length);
+    Assert.Equal(1, sigs[0].FuncCount);
+    IrFunction got = sigs[0].Functions[0];
+    Assert.Equal("?", got.ParamNames[0]);
+    Assert.Equal(1, got.TypeParams.Length);
+    Assert.Equal("UOnlyHere", got.TypeParams[0]);
+}
