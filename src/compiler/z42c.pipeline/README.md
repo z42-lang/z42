@@ -6,7 +6,7 @@
 ## 核心文件
 | 文件 | 职责 |
 |------|------|
-| `src/Z42cCompiler.z42` | `z42.build` `ICompiler` 实现（wire-z42b）——对外编译入口。`req.Manifest` 非空 ⇒ 转 `BuildSession`（`HostTarget`）；为空 ⇒ 旧的平铺字段路径（尊重 `req.Kind`：exe 默认需 Main / lib 免 Main）|
+| `src/Z42cCompiler.z42` | `z42.build` `ICompiler` 实现（wire-z42b）——对外编译入口。BuildSession 的薄封装（`HostTarget`）；`req.Manifest` 必填（drop-legacy-compile-request 删掉了只看平铺字段的旧路径）|
 | `src/BuildSession.z42` | 清单驱动的**一次包编译**（add-build-session）：`BuildOptions`（清单 / 源根 / `BuildRole` / 解析域 / 产物路径）→ 旋钮决议 → 源发现 → `[analyzers]` 解析（path 条目代建为 `AnalyzerChild`）→ `PackageCompile.Compile` → 写 packed + `.zsym`。**从不打印**，消息经 `IBuildReporter`（`CollectingReporter` 收集型实现）。今天只服务 z42b（`HostTarget`），driver 迁移见 `unify-driver-on-build-session` |
 | `src/ManifestKnobs.z42` | `[optimize]` / `[syntax]` / `[lints]` / pack / strip 决议为 `KnobResult`（错误行收集、不打印）。语义与 driver `Main._build` 同段逐项一致——**改一份须同步另一份**，直到 driver 改用本文件 |
 | `src/Z42cReplCompiler.z42` | REPL 增量编译路径（累积声明 + 惰性符号世界）|

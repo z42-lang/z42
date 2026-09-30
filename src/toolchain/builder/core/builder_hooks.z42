@@ -10,10 +10,9 @@
 // 设计（_runWithProjectBuild 骨架）被本机制取代：hook 类直接注入进 z42b 自己的
 // Pipeline，无需为项目生成/编译/运行一个专属 driver。
 //
-// staging + 合成入口：Z42cCompiler 的目录编译面固定 kind=exe（auto-entry），hook 目录
-// 无 Main 会被判 "no Main() found"。z42b 把 hook 源拷到 staging 目录并附一个合成的
-// no-op `Main()` 再编——不动 ICompiler 面、不动 z42c（ModuleLoader.Load 不跑 Main，
-// 合成入口纯粹满足 exe 编译面）。staging 以包名命名（Z42cCompiler：包名 = 目录尾名）。
+// 编译面：合成一份 lib 清单（名 = <proj>.hooks、include = `**/*.z42`）随请求传入，直接编 hooks 目录
+// （drop-legacy-compile-request：此前旧的平铺字段编译面固定 kind=exe，hook 目录没有 Main 会被判
+// "no Main() found"，只好拷到 staging 目录再附一个合成的 no-op `Main()`——lib 清单下这些都不需要了）。
 namespace Z42Builder;
 
 using Std;
@@ -21,12 +20,13 @@ using Std.IO;
 using Std.Reflection;
 using Std.Test;
 using Z42.Build;
+using Z42.Project;   // ManifestLoader：hooks 的合成清单
 
 // 编译并实例化项目 hooks。失败（目录缺失 / 编译错 / 类型不符）→ null，调用方跳过
 // 并已见诊断（L1「空值 + 调用方检查」idiom，对齐 _hostCompiler 的 NoCompiler 兜底风格）。
 //   hooksDir  hook 源目录（已解析为可用路径）
-//   interDir  hook 中间产物落点（staging + zpkg 都写这里）
-//   pkgName   hook 包名（约定 <proj>.hooks；亦是 staging 目录尾名）
+//   interDir  hook 产物落点（<pkgName>.zpkg 写这里）
+//   pkgName   hook 包名（约定 <proj>.hooks）
 BuildHooks _loadProjectHooks(string hooksDir, string interDir, string pkgName) {
     if (!Directory.Exists(hooksDir)) {
         ConsoleError.WriteLine("z42b: [build] hooks dir not found: " + hooksDir);
@@ -34,21 +34,15 @@ BuildHooks _loadProjectHooks(string hooksDir, string interDir, string pkgName) {
     }
     ICompiler comp = _hostCompiler();
 
-    // staging：拷 hook 源 + 合成 no-op 入口（见文件头）。每次重建（hook 源极小，无增量价值）。
-    string staging = Path.Join(interDir, pkgName);
-    if (Directory.Exists(staging)) { Directory.Delete(staging, true); }
-    Directory.Copy(hooksDir, staging, true);
-    File.WriteAllText(Path.Join(staging, "_z42b_entry.z42"),
-        "// z42b 合成入口：满足目录编译面的 kind=exe auto-entry（ModuleLoader.Load 不执行它）。\n"
-        + "namespace Build;\n\nvoid Main() { }\n");
-
-    // deps：镜像 _initialInputs 的 Z42_LIBS 语义（hook 需要 z42.build / Std.IO 等）。
+    // deps：镜像 _initialInputs 的 Z42_LIBS 语义（hook 需要 z42.build / Std.IO 等；`z42.` 前缀的包免声明）。
     string libs = Environment.GetEnvironmentVariable("Z42_LIBS", "");
     string[] deps = (libs.Length > 0) ? Path.Glob(libs, "*.zpkg") : new string[0];
 
     string outZpkg = Path.Join(interDir, pkgName + ".zpkg");
-    // hooks 合成入口是 exe（含 no-op Main 满足 exe 编译面，见 _synthHooksEntry）。
-    CompileRequest req = new CompileRequest(staging, outZpkg, deps, "release", false, false, "exe", new string[0], 0);
+    CompileRequest req = new CompileRequest(hooksDir, outZpkg, deps, "release", false, false, "lib", new string[0], 0);
+    req.PackageName = pkgName;
+    req.Manifest = ManifestLoader.ParseText("[project]\nname = \"" + pkgName + "\"\nversion = \"0.0.0\"\nkind = \"lib\"\n\n"
+        + "[sources]\ninclude = [\"**/*.z42\"]\n");
     CompileResult res = comp.Compile(req);
     if (!res.Ok) {
         ConsoleError.WriteLine("z42b: hooks compile failed (" + hooksDir + "):");

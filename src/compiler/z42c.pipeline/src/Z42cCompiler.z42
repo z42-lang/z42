@@ -1,119 +1,25 @@
 // z42c 编译器的 ICompiler 实现（wire-z42b D2）。z42b 构建编排器经 z42.build 的 ICompiler 接口
-// **在进程内**调本类（不 fork z42c 子进程、不依赖 z42vm 在 PATH、诊断以结构返回），复用
-// PackageCompile 核心（extract-compile-pipeline-api）。依赖方向：z42c.pipeline → z42.build（仅接口）。
+// **在进程内**调本类（不 fork z42c 子进程、不依赖 z42vm 在 PATH、诊断以结构返回）。
 //
-// 依赖从磁盘解析（design D3）：req.Deps 各 zpkg 的父目录集 → LibsDirs；不做内存 blob。
-// MVP：app 编译恒 kind=exe、name=SourceDir 尾目录名、auto-detect Main（ICompiler.CompileRequest
-// 不携带 name/kind/entry——z42b 面向 app 场景，这些取合理默认；将来 req 扩字段再精化）。
+// drop-legacy-compile-request：本类只是 BuildSession 的薄封装（Role = HostTarget）——编译决策全部来自
+// `req.Manifest`（[optimize] / [syntax] / [lints] / [analyzers] / entry / version / 依赖核验），与 `z42c build`
+// 同一判据。`req.Manifest` 为 null 直接判失败：此前那条「只看平铺字段」的旧路径与 BuildSession 各自一份编译流程，
+// 已经分叉过（BuildSession 首版漏调 `HandlerRegistry.RunAst`）。依赖从磁盘解析：req.Deps 各 zpkg 的父目录集 → 解析域。
 namespace Z42.Pipeline;
 
 using Std;
 using Std.IO;
-using Z42.Syntax;
-using Z42.Semantics;
-using Z42.Package;
 using Z42.Build;
 using Z42.Project;
 
 public class Z42cCompiler : ICompiler {
 
     public CompileResult Compile(CompileRequest req) {
-        // add-build-session：带清单的请求走 BuildSession（Role = HostTarget）——与 `z42c build` 同一套清单决议。
-        if (req.Manifest != null) { return Z42cCompiler._viaSession(req); }
-        // 1. 源发现（MVP 默认 glob；z42b scaffold 的标准布局覆盖）。
-        // z42b-owns-test-targets：优先用 req.Includes（z42b 按 dev target 的 sources glob 传），
-        // 空则沿用全扫（现状）。此前硬编码全扫 ⇒ 按目标编译会把整个工程编进去。
-        string[] includes = req.Includes;
-        int includeN = req.IncludesCount;
-        if (includeN == 0) { includes = new string[1]; includes[0] = "**/*.z42"; includeN = 1; }
-        // fix-hooks-source-scan 阶段4.2：应用 req.Excludes（z42b/publish 从 manifest 组装的 exclude
-        // glob——含 `[build] hooks` 目录），让 in-process 编译路径的产物也排除 hooks 死类
-        // （ProjectHooks : BuildHooks → 跨包 vtable fixup 假警报）。req 由 Pipeline.Compile 组装
-        // （阶段2 的 z42c.driver 直编路径同款，见 Main._build）。
-        string[] srcs = SourceDiscovery.DiscoverWithExclude(req.SourceDir, includes, includeN, req.Excludes, req.ExcludesCount);
-        if (srcs.Length == 0) {
-            return new CompileResult("", "", false, "no .z42 sources under " + req.SourceDir);
+        if (req.Manifest == null) {
+            return new CompileResult("", "", false,
+                "z42c: CompileRequest.Manifest is required (the flat-field request form was removed; pass the project manifest)");
         }
-        // 2. 读源 + hash。
-        string[] texts = new string[srcs.Length];
-        string[] hashes = new string[srcs.Length];
-        int i = 0;
-        while (i < srcs.Length) {
-            texts[i] = File.ReadAllText(srcs[i]);
-            hashes[i] = ZpkgBuilder.SourceHashHex(texts[i]);
-            i = i + 1;
-        }
-        // 3. parse-all（全量；无增量——Z42cCompiler 不参与 driver 的 dev-loop 增量）。
-        CompilationUnit[] cus = IrDump.ParseAll(texts, srcs, srcs.Length);
-        // 4. 依赖：LibsDirs = req.Deps 各 zpkg 父目录（去重）；DeclaredDeps = 依赖名（去 .zpkg 后缀）。
-        string[] libsDirs = new string[req.Deps.Length];
-        int libsN = 0;
-        string[] declaredDeps = new string[req.Deps.Length];
-        int depN = 0;
-        int d = 0;
-        while (d < req.Deps.Length) {
-            string dir = Path.GetDirectoryName(req.Deps[d]);
-            if (dir == "") { dir = "."; }
-            bool seen = false;
-            int k = 0;
-            while (k < libsN) { if (libsDirs[k] == dir) { seen = true; } k = k + 1; }
-            if (!seen) { libsDirs[libsN] = dir; libsN = libsN + 1; }
-            string base = Path.GetFileName(req.Deps[d]);
-            if (base.EndsWith(".zpkg")) { base = base.Substring(0, base.Length - 5); }
-            declaredDeps[depN] = base; depN = depN + 1;
-            d = d + 1;
-        }
-        // 5. 构 CompileInputs（name=尾目录名、auto-entry）。kind 由 req 决定：exe（默认，auto-detect
-        //    Main）/ lib（无需 Main——支持 compile-then-test 直接编测试工程，add-z42b-compile-then-test）。
-        CompileInputs inp = new CompileInputs();
-        inp.Texts = texts; inp.Files = srcs; inp.SrcHashes = hashes; inp.SrcCount = srcs.Length;
-        inp.Cus = cus; inp.CachedMods = null; inp.CachedMetas = null;
-        // 包名优先取 manifest 的 `[project].name`（req.PackageName）；空则沿用源目录尾名（现状）。
-        // 此前只用目录名 ⇒ 产物 META 包名可能与 manifest 不符，依赖按名解析随之错位。
-        string name = req.PackageName;
-        if (name == "") { name = Path.GetFileName(req.SourceDir); }
-        if (name == "") { name = "app"; }
-        string kind = req.Kind;
-        if (kind == "") { kind = "exe"; }              // 未指定 → app 默认 exe（保持既有 MVP 行为）
-        inp.Name = name; inp.Version = "0.0.0"; inp.Kind = kind;
-        inp.HasEntry = false; inp.Entry = "";
-        // z42b-owns-test-targets：req.ParentPkg 非空 → 本次是该包的测试/bench 目标（z42b 从真
-        // manifest 解析目标后设）。⇒ 加载父包时按同包待遇（其 internal 可见）、且 [Test] 放行。
-        // 空 → 普通编译，行为与此前逐字节一致。
-        inp.ParentPkg = req.ParentPkg;
-        inp.IsRelease = req.Profile == "release";
-        inp.LibsDirs = libsDirs; inp.LibsDirsN = libsN;
-        inp.DeclaredDeps = declaredDeps; inp.DepCount = depN;
-        // 6. 编译（PackageCompile 核心）。
-        CompileArtifacts art = PackageCompile.Compile(inp);
-        if (art.ErrorCount > 0) {
-            return new CompileResult("", "", false, Z42cCompiler._diagText(art));
-        }
-        if (art.EntryStatus == "missing") {
-            return new CompileResult("", "", false, "kind=exe but no Main() found in " + req.SourceDir);
-        }
-        if (art.EntryStatus == "ambiguous") {
-            return new CompileResult("", "", false, "multiple Main candidates; set entry explicitly");
-        }
-        // 7. 写盘（packed + 可选 .zsym sidecar，受 req.StripSymbols 门控）。
-        // 可复现 build_id：同 z42c.driver `_stabilizeSourceIdentity`（SourceFile 相对源根、SourceHash 置空）。
-        int si = 0;
-        while (si < art.Z.ModuleCount) {
-            ZbcFileZ sm = art.Z.Modules[si];
-            sm.SourceFile = IncrementalBuild.Rel(req.SourceDir, sm.SourceFile);
-            sm.SourceHash = "";
-            si = si + 1;
-        }
-        ZpkgWriteResult wres = ZpkgWriterZ.WritePackedWithSidecar(art.Z, inp.IsRelease);
-        string outDir = Path.GetDirectoryName(req.OutputZpkg);
-        if (outDir.Length > 0) { Directory.Create(outDir); }
-        File.WriteAllBytes(req.OutputZpkg, wres.Main);
-        string zsym = "";
-        if (wres.HasSidecar && req.StripSymbols) {
-            zsym = Z42cCompiler._zsymPath(req.OutputZpkg);
-            File.WriteAllBytes(zsym, wres.Sidecar);
-        }
-        return new CompileResult(req.OutputZpkg, zsym, true, "");
+        return Z42cCompiler._viaSession(req);
     }
 
     // HostTarget：packed 单产物、不解析 path 闭包（z42b 自己编排闭包）、不增量。解析域 = req.Deps 各 zpkg 的父目录集。
@@ -141,30 +47,5 @@ public class Z42cCompiler : ICompiler {
         CompileResult res = new CompileResult(br.OutZpkg, br.OutZsym, br.Code == BuildExit.Ok, rep.ErrorsText());
         res.Warnings = rep.WarningsText();
         return res;
-    }
-
-    // 逐文件诊断聚合为单串（ICompiler 契约：Ok=false 时 Diagnostics 含错误文本）。
-    private static string _diagText(CompileArtifacts art) {
-        string s = "";
-        int i = 0;
-        while (i < art.CmCount) {
-            CompiledModuleZ cm = art.Cms[i];
-            int di = 0;
-            while (di < cm.DiagCount) {
-                if (s != "") { s = s + "\n"; }
-                s = s + cm.DiagMsgs[di];
-                di = di + 1;
-            }
-            i = i + 1;
-        }
-        return s;
-    }
-
-    // OutputZpkg 的 .zsym 旁挂路径（.zpkg → .zsym；无 .zpkg 后缀则追加）。
-    private static string _zsymPath(string outZpkg) {
-        if (outZpkg.EndsWith(".zpkg")) {
-            return outZpkg.Substring(0, outZpkg.Length - 5) + ".zsym";
-        }
-        return outZpkg + ".zsym";
     }
 }
