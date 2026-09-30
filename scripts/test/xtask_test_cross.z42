@@ -33,7 +33,7 @@ using Std.IO;
 // （查「规则在不在」要查行为——静态扫一眼 `_copyAll` 里有没有那行 unlink 是查码。）
 // 注入验证：把 `_unlinkIfExists` 从 `_copyAll` 里去掉，本门当场红。
 int _assertCopyDoesNotWriteThroughHardLinks(string root) {
-    string tmp = _scratchDir(root, "fs-writethrough");
+    string tmp = _tmpDir(root, "fs-writethrough");
     _resetDir(tmp);
     string srcDir = Path.Join(tmp, "src");
     string aliasDir = Path.Join(tmp, "alias");
@@ -186,9 +186,9 @@ string _assembleDriverHome(string root) {
     // bootstrap-check), so adding a z42c.* member doesn't silently drift this assembly.
     string[] members = _compilerMembers(root);
     // Fixed scratch path (not a /tmp TempDir): the returned home lives for the whole
-    // cross-zpkg run and had no deleter → every run leaked a /tmp dir. artifacts/.scratch
+    // cross-zpkg run and had no deleter → every run leaked a /tmp dir. artifacts/tmp
     // is gitignored + reused; delete+recreate makes it self-cleaning across runs.
-    string home = _scratchDir(root, "xpkg-driver");
+    string home = _tmpDir(root, "xpkg-driver");
     if (Directory.Exists(home)) { Directory.Delete(home, true); }
     Directory.Create(home);
     int i = 0;

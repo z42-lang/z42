@@ -1,6 +1,6 @@
 # 产物目录布局（`artifacts/`）
 
-> 对齐：2026-09-30（change `centralize-xtask-layout`）｜ 代码：`scripts/common/xtask_layout.z42`（路径 SoT）、`src/libraries/z42.workspace.toml` 与 `src/compiler/z42.workspace.toml` 的 `[workspace.build]`、`.cargo/config.toml`
+> 对齐：2026-09-30（change `tidy-artifacts-tmp-and-clean`）｜ 代码：`scripts/common/xtask_layout.z42`（路径 SoT）、`src/libraries/z42.workspace.toml` 与 `src/compiler/z42.workspace.toml` 的 `[workspace.build]`、`.cargo/config.toml`
 >
 > 构建步骤本身见[构建编排](build.md)；打包见[打包引擎](packaging.md)。
 
@@ -15,12 +15,11 @@
 | `packages/` | 组装好的发行包（`z42-<...>-<rid>-<profile>/` 及归档）| `xtask package *` |
 | `publish/<comp>/` | 打包的**暂存根**：每个组件按自己的 `dest` 形状产出到这里，包再从这里拷 | staging handler / `z42 publish` |
 | `xtask/` | xtask 自己的 zpkg / zsym / cache —— **不在 `build/` 里面** | `z42 publish scripts/xtask.z42.toml` |
-| `.scratch/` | 构建与测试的**中间态**，可重生、不进任何包 | 各 stage |
 | `bench/` | `e2e.json` / `ab.json` 等测量结果 | `xtask bench` |
 | `profile/<name>/` | 火焰图、dhat 报告、counter 摘要、`report.md` | `xtask profile` |
 | `tools/` | 构建**下载**的第三方工具（`node`、`android-sdk`、`playwright-browsers`）| `xtask deps install` 与按需自动安装 |
 | `test-reports/<platform>/` | `junit.xml`（平台三段测试）| `xtask test platform *` |
-| `tmp/` | 自检 harness 的一次性目录 | `xtask test packages` |
+| `tmp/<name>/` | 构建与测试各命令的**工作目录**，可重生、不进任何包，整桶可删（见 §3）| 各 stage |
 | `.z42` | `xtask build sdk` 默认组装出的 SDK 布局（`programs/` + `libs/` + `bin/`）| `xtask build sdk` |
 
 这个划分是常规的**中间态 / 输出 / vendored** 三分：`build/` = 「我们编出来的」，
@@ -59,7 +58,7 @@ xtask 自己发明、没有 toml 归属的路径，**全部在 `xtask_layout.z42
 `_packagesDir` / `_releaseDir` / `_testReportsDir` / `_benchDir` / `_profileDir`）。使用点只写
 「桶 + 自己的子目录名」，不再写 `"artifacts/…"` 字面量——挪一个桶只改一处。
 
-> 2026-09-30 前，一次性目录（`.scratch/*`、`tools/*`、`tmp/*`）是**故意不集中**的，理由是「没有
+> 2026-09-30 前，一次性目录（`.scratch/*`（现 `tmp/*`）、`tools/*`）是**故意不集中**的，理由是「没有
 > 布局意义」。整理布局时这条理由不成立：要挪的恰恰是它们，散在 ~35 个使用点就得逐个去找。
 
 ### 查询：`xtask layout`
@@ -101,22 +100,27 @@ cross-zpkg 一轮 ≈198MB 的纯拷贝；有害的是「写到别名上」，�
 
 这样 `build/` 仍完整镜像 `src/`（每条路径都能映回一个 `src/` 位置），同时给 VM 与打包一个稳定的聚合点。
 
-## 3. `.scratch/`：中间态的统一去处
+## 3. `tmp/`：各命令的工作目录，与 `build/views/`
 
-**`artifacts/build/` 只放编译 / publish 产物。** 构建与测试过程中的中间态一律落 `.scratch/`：
+判据：**它会不会被别的步骤当作「产物」消费？** 会 → `build/`；只是某个命令自己用 → `tmp/<name>/`。
 
 | 目录 | 谁用 | 是什么 |
 |---|---|---|
-| `.scratch/stdlib-run/<profile>` | `build stdlib` 阶段二 | stdlib 的稳定快照，供正在重编 stdlib 的 driver 当 `Z42_LIBS` |
-| `.scratch/alllibs/<profile>` | `test stdlib` / `test compiler` units / bench | stdlib + 编译器成员**拷**到一起的单一查找点（driver 的兄弟包与被测 stdlib 必须同处一目录）。曾是 hard-link，relocate-compiler-domain-libs 改成拷贝——它上了关键路径后，别名撕开 zpkg/zsym 配对让 1128 个 golden 假红。**不变式：其中的 stdlib 只来自 flat dist** —— 见下 |
-| `.scratch/selfhost-gen1` | `test compiler` | 不动点验证的 gen1 快照 |
-| `.scratch/e2e` / `.scratch/xpkg-driver` | e2e / cross-zpkg | 用例工作区 |
-| `.scratch/targets/<proj>` | `test targets` | manifest target fixture 输出 |
-| `.scratch/incr-reconcile` | `test incremental` | 增量 vs 全量对账的两份产物 |
-| `.scratch/fingerprint` | `test fingerprint` | base 与本树编译器各编一份 stdlib 的对比场地 |
-| `.scratch/exec-profile` | bench / profile | 执行画像探测 |
+| `build/views/<profile>/all` | 工具链编译 / `test stdlib` / `test compiler` units / bench / xtask publish hook | **alllibs**：stdlib + 编译器成员**拷**到一起的单一查找点（driver 的兄弟包与被测 stdlib 必须同处一目录）。每次使用前重新组装。曾是 hard-link，relocate-compiler-domain-libs 改成拷贝——它上了关键路径后，别名撕开 zpkg/zsym 配对让 1128 个 golden 假红。**不变式：其中的 stdlib 只来自 flat dist** —— 见下 |
+| `tmp/stdlib-run/<profile>` | `build stdlib` 阶段二 | stdlib 的稳定快照，供正在重编 stdlib 的 driver 当 `Z42_LIBS` |
+| `tmp/seed-run-libs/<profile>` | 种子 driver 调用 | 与种子 driver 同代的运行期 libs 快照 |
+| `tmp/selfhost-gen1` | `test compiler` | 不动点验证的 gen1 快照 |
+| `tmp/e2e` / `tmp/xpkg-driver` / `tmp/fs-writethrough` | e2e / cross-zpkg | 用例工作区 |
+| `tmp/targets/<proj>` | `test targets` | manifest target fixture 输出 |
+| `tmp/incr-reconcile` | `test incremental` | 增量 vs 全量对账的两份产物 |
+| `tmp/fingerprint` | `test fingerprint` | base 与本树编译器各编一份 stdlib 的对比场地 |
+| `tmp/exec-profile` | bench / profile | 执行画像探测 |
+| `tmp/{stage-test-cargo,assemble-test-*}` | `test packages` | 打包自检的一次性目录 |
 
-判据很简单：**它会不会被别的步骤当作「产物」消费？** 会 → `build/`；只是这一步自己用完就扔 → `.scratch/`。
+> 2026-09-30 前这里是 `.scratch/`（跨步骤复用）与 `tmp/`（自检一次性）两个桶，alllibs 也在 `.scratch/`。
+> 两个桶的生命周期没有实质差别（都可重生、都不进包、都没被 `clean` 覆盖），合成一个；alllibs 按上面的
+> 判据是被别的步骤消费的产物，挪进 `build/views/`。`scripts/hooks/hooks.z42` 另写了一份 alllibs 路径
+> （hooks 工程调不到 xtask 函数），改位置时要同步。
 
 ### `alllibs` 的不变式：stdlib 只来自 flat dist
 
@@ -137,7 +141,27 @@ best-effort，拷贝失败也会让旧副本顶上）。
 
 ## 4. 清理
 
-`xtask clean [tests|bench|all]`：无参删生产 cache/dist，`all` 全删。
-`.scratch/`、`tools/`、`tmp/` 任何时候 `rm -rf` 都安全（前者可重生，`tools/` 会被下次
+| 命令 | 删什么 |
+|---|---|
+| `xtask clean` | 生产 cache/dist：各 stdlib 成员的 `<lib>/<profile>/{cache,dist}` + 扁平 `libraries/dist/` |
+| `xtask clean tests` | golden `.zbc` 镜像（`build/tests`、`build/{libraries,compiler}/<m>/tests`）+ z42b 的 test 目标输出（`<工程目录>/artifacts/test-targets`）|
+| `xtask clean bench` | z42b 的 bench 目标输出（`<工程目录>/artifacts/bench-targets`）|
+| `xtask clean tmp` | `tmp/`（+ 旧名 `.scratch/`）|
+| `xtask clean all` | `build/` + `tmp/` + `.scratch/` + `publish/`（打包暂存）+ **源码树里**各 z42 工程旁的 `artifacts/`、`dist/`（+ cross-zpkg 用例的 `libs/`）|
+
+`clean all` **保留** `xtask/`（驱动自身，正在运行）、`tools/`（下载的第三方工具）、
+`packages/` `release/` `.z42/`（成品）与 `bench/` `profile/` `test-reports/`（报告）。
+
+> **源码树里为什么会有产物**（实测一次完整 GREEN 后约 450 个目录）：
+> - 单独编一个 workspace 成员（xtask 的 path 依赖 `z42.project` / `z42.build`、z42b dev 目标的父包）时
+>   不继承 `[workspace.build].output_dir`，走单工程默认布局写进 `<工程目录>/{artifacts,dist}`；
+> - `src/tests/**` 下的夹具工程（cross-zpkg / multi-exe / manifest-targets / z42b）按单工程默认布局原地构建，
+>   cross-zpkg 另把依赖 zpkg 拷进 `<pkg>/libs/`。
+>
+> 它们都被 `.gitignore` 忽略、仓库里没有任何入库文件在其下。`clean all` 只删「带清单（`<name>.z42.toml`
+> 或 `z42.toml`）的工程目录」旁边的 `artifacts/` `dist/`，`libs/` 只在 `src/tests/cross-zpkg/` 下删
+> （不做全树通配，免得碰到 wasm / node 工程的同名目录）。根治是让这些构建写进 `artifacts/`，属于后续 change。
+
+`tmp/`、`tools/` 任何时候 `rm -rf` 都安全（前者可重生，`tools/` 会被下次
 `deps install` / 按需安装补回）。
 `artifacts/` 整棵删掉之后是**冷启动**路径：需要网络下载 nightly 种子，见[xtask](xtask.md) §5。

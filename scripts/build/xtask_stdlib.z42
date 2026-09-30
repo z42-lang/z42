@@ -70,7 +70,7 @@ int _buildStdlib() {
     //    stdlib 正被重建 → driver 的运行期 Std.* 需一份不随构建 churn 的稳定副本。
     //    只拷 stdlib：driver 的 z42c 兄弟包已 bundle 在其自身 dist（自包含 exe，
     //    simplify-compiler-build），不再拼 {stdlib+z42c} 的 dogfood 目录。
-    string stdlibRun = _scratchDir(root, "stdlib-run/" + profile);
+    string stdlibRun = _tmpDir(root, "stdlib-run/" + profile);
     _resetDir(stdlibRun);
     _copyAll(flatDir, stdlibRun, "*.zpkg");
     // z42c.driver 自包含（_buildCompilerViaZ42c 已保证兄弟包在其 dist）→ 直接跑。
@@ -117,7 +117,7 @@ string[] _compilerMembers(string root) {
 }
 
 // 组装 alllibs flat 视图：stdlib dist + z42c 7 成员 dist 全部 hard-link 到
-// artifacts/.scratch/alllibs/<profile>，作为 z42c.driver 编译/运行的单一 Z42_LIBS 查找点
+// artifacts/build/views/<profile>/all（原 .scratch/alllibs），作为 z42c.driver 编译/运行的单一 Z42_LIBS 查找点
 // （VM 取一个目录、非 colon-list；z42c.driver 的兄弟包与被测 stdlib 须同处一目录）。返回该目录。
 // 三处消费共用：test stdlib（_testLibCore）/ test compiler units（_testCompilerUnits）/ bench。
 // 🔴 **复制而不是硬链接**（relocate-compiler-domain-libs 实测定位，2026-09-27）。
@@ -155,7 +155,7 @@ string[] _compilerMembers(string root) {
 // 旧副本照样会把那个名字填上。所以除了过滤，assemble 完再对账一次（`_assertStdlibNotShadowed`）
 // —— 判据是「alllibs 里凡与 flat 同名者必须与 flat 同字节」，与靠拷贝顺序无关。
 string _assembleAllLibs(string root, string profile) {
-    string flat = _scratchDir(root, "alllibs/" + profile);
+    string flat = _allLibsDir(root, profile);
     Directory.Create(flat);
     _cleanGlob(flat, "*.zpkg");
     string stdlibSrc = _libsFlatDist(root, profile);
