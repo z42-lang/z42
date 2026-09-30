@@ -92,6 +92,42 @@ int _e2eCacheLayoutChecks(string vm, string driverZpkg, string e2eDir, string fl
     }
     Console.WriteLine("  ✓ --no-incremental / 多 [[exe]] / workspace 成员均落 cache，默认 ${output_dir}/.cache");
     Console.WriteLine("  ✓ 单工程 --output-dir：产物进 <dir>，工程目录旁零写入");
+
+    // ⑤ workspace 成员继承 [workspace.build]（unify-build-layout）：成员被**单独构建**、被 workspace 外的工程
+    //    当作 **path 依赖代建**时，产物都落 workspace 的成员布局（与 `--workspace` 同一处），成员目录旁零写入。
+    //    此前两者都走单工程默认 ⇒ `<member>/dist` + `<member>/artifacts/<profile>/.cache`（进源码树）。
+    string ws2 = Path.Join(root, "ws2");
+    string mem = Path.Join(ws2, "lib.a");
+    Directory.Create(mem);
+    File.WriteAllText(Path.Join(mem, "lib.z42"), "namespace CacheWs2A;\n\npublic static class K { public static int One() { return 1; } }\n");
+    File.WriteAllText(Path.Join(mem, "cache.ws2.a.z42.toml"), libToml.Replace("NAME", "cache.ws2.a"));
+    File.WriteAllText(Path.Join(ws2, "z42.workspace.toml"),
+        "[workspace]\nmembers = [\"*\"]\n\n[workspace.build]\noutput_dir = \"out/${project_name}/${profile}\"\n");
+    string memDist = Path.Join(ws2, "out/cache.ws2.a/release/dist/cache.ws2.a.zpkg");
+    // (a) 单独构建成员
+    string[] a5 = new string[3];
+    a5[0] = "build"; a5[1] = "cache.ws2.a.z42.toml"; a5[2] = "--release";
+    if (_e2eCacheBuild(vm, driverZpkg, mem, a5, flat) != 0) { Console.WriteLine("  ✗ 成员单独构建失败"); return 1; }
+    if (!File.Exists(memDist)) { Console.WriteLine("  ✗ 成员单独构建：产物没落 workspace 成员布局（缺 " + memDist + "）"); return 1; }
+    if (!_e2eCacheHas(Path.Join(ws2, "out/cache.ws2.a/release/.cache"), "成员单独构建")) { return 1; }
+    if (Directory.Exists(Path.Join(mem, "dist")) || Directory.Exists(Path.Join(mem, "artifacts"))) {
+        Console.WriteLine("  ✗ 成员单独构建：成员目录旁仍有 dist/ 或 artifacts/"); return 1;
+    }
+    // (b) workspace 外的工程以 path 依赖引用该成员 → 代建落同一处
+    Directory.Delete(Path.Join(ws2, "out"), true);
+    string cons = Path.Join(root, "consumer");
+    Directory.Create(cons);
+    File.WriteAllText(Path.Join(cons, "c.z42"), "namespace CacheCons;\n\nusing CacheWs2A;\n\npublic static class C { public static int F() { return K.One(); } }\n");
+    File.WriteAllText(Path.Join(cons, "cache.cons.z42.toml"), libToml.Replace("NAME", "cache.cons")
+        + "\n[dependencies]\n\"cache.ws2.a\" = { path = \"../ws2/lib.a\" }\n");
+    string[] a6 = new string[3];
+    a6[0] = "build"; a6[1] = "cache.cons.z42.toml"; a6[2] = "--release";
+    if (_e2eCacheBuild(vm, driverZpkg, cons, a6, flat) != 0) { Console.WriteLine("  ✗ path 依赖消费方构建失败"); return 1; }
+    if (!File.Exists(memDist)) { Console.WriteLine("  ✗ path 依赖代建：成员产物没落 workspace 成员布局（缺 " + memDist + "）"); return 1; }
+    if (Directory.Exists(Path.Join(mem, "dist")) || Directory.Exists(Path.Join(mem, "artifacts"))) {
+        Console.WriteLine("  ✗ path 依赖代建：成员目录旁仍有 dist/ 或 artifacts/"); return 1;
+    }
+    Console.WriteLine("  ✓ workspace 成员单独构建 / 被 path 依赖代建：均落 [workspace.build] 成员布局，成员目录旁零写入");
     return 0;
 }
 

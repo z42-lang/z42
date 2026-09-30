@@ -8,12 +8,21 @@ using Z42.Package;
 using Z42.Project;
 using Z42.Pipeline;
 
-// dist 主文件的 pack 模式位（header flags bit0）是否与本次 pack 决议一致。
-// 读不出（缺文件/太短）按不一致处理 → 走重投影。
+// dist 主文件能否被 preserved 早退原样沿用：pack 模式位（header flags bit0）与本次决议一致，**且**
+// zpkg 格式版本（header major@4 / minor@6）等于本编译器写出的版本。读不出（缺文件/太短）按不一致处理 → 重建。
+//
+// 版本那一条（unify-build-layout）：workspace 成员被单独构建 / 被当作 path 依赖代建时与
+// `--workspace` 构建写**同一个** dist 与 cache（BuildLayout.Resolve 的成员布局）—— 于是不同代的 z42c
+// （SDK / 上一版 nightly 种子 vs 树内 gen1）可能先后往同一处写。cache 按「编译器语义指纹」作 key，
+// 格式 bump 未必伴随指纹变化 ⇒ 若只看 pack 位，新编译器会把旧代写下的**旧格式** zpkg 当「未变」留下，
+// 而当前 VM 按 strict-pin 拒载。核对版本即可把这种跨代残留当成「需要重建」。
 bool _distModeMatches(string zpkgPath, bool isPacked) {
     try {
         byte[] d = File.ReadAllBytes(zpkgPath);
         if (d.Length < 10) { return false; }
+        int major = (int)d[4] | (((int)d[5]) << 8);
+        int minor = (int)d[6] | (((int)d[7]) << 8);
+        if (major != ZpkgWriterZ.Major || minor != ZpkgWriterZ.Minor) { return false; }
         int flags = (int)d[8] | (((int)d[9]) << 8);
         bool filePacked = (flags & 1) != 0;
         return filePacked == isPacked;
