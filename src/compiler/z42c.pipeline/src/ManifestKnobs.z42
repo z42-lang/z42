@@ -1,11 +1,21 @@
 // 清单编译旋钮的决议（add-build-session）：`[optimize]` / `[syntax]` / `[lints]` / pack / strip。
 //
-// 语义逐项搬自 `z42c.driver` `Main._build`（同名各段的注释是来龙去脉的出处），差别只有一处：这里**不打印**，
-// 出错时把消息行收进 `KnobResult.Errors`，由调用方经自己的呈现通道输出。这是 BuildSession 能同时服务
-// z42c CLI（stderr、`z42c:` 前缀）与 z42b（`ctx.Warn`）的前提。
+// **唯一实现**：`z42c build`（driver `Main._build`）与 z42b（BuildSession）都调它（unify-driver-knobs 起；此前两份
+// 逐项相同的实现并存）。这里**不打印**：出错时把消息行收进 `KnobResult.Errors`，由调用方经自己的呈现通道输出
+// （driver 前缀 `z42c: `、z42b 经 `ctx.Warn`）。
 //
-// 第二步（`unify-driver-on-build-session`）driver 改用本文件并删除 `_build` 里的同段代码；在那之前两份并存，
-// 改其中一份时必须同步另一份（重复窗口 = 一个 nightly，bootstrap-seed「support 先行、晚一个 nightly 再 use」）。
+// 各段的来龙去脉：
+// - `[optimize]`（wire-optimize-manifest）：此前 driver 调的是 `Opt.Resolve(isRelease, 0, 0, …)`，两个 0 硬编码 ⇒
+//   `[optimize]` 段被**静默忽略**（`inline = false` 照样内联、零诊断；字节对账实测 true/false 产物逐字节相同，而 CLI
+//   `--no-opt inline` 字节不同 ⇒ 对账有判别力）。优先级 CLI > toml > profile 默认由 `Opt.Resolve` 保证。未知名报错，
+//   与 CLI `--opt 乱写` 同口径——同一个名字表，两条入口不该一个报错一个装没看见。
+// - `[syntax]`（add-l0-protocol-table 批 1）：manifest 只搬中性 name/value，解释权在这里。未知特性名必须报错：
+//   `IsEnabled` 对「未知」与「已知但关着」都返回 false，分不出拼写错误 ⇒ 用 `Has` 单独问（`LanguageFeatures` 那张表
+//   曾长期宣告 6 个不存在的特性而无人发现，就是「没有门盯着名字」的后果）。
+// - 决议必须**按工程**做（workspace 每个成员各有自己的 manifest）——在 CLI 层预先算好会把 per-member 配置压平
+//   （这正是 `int optSet` 被拆成 cliAdd / cliRemove 的原因）。
+// - pack：调用方可以有自己的角色规则（driver 的 flat workspace / 闭包子建）并先行拦截，再以 forcePacked=false 调本函数。
+
 namespace Z42.Pipeline;
 
 using Std;

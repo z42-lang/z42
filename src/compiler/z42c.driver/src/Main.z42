@@ -254,7 +254,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
         // 手写的 vendored zpkg 引用仍排在框架**之前**（那是「我显式指定的这一份要压过碰巧同名的
         // 框架包」的原意）；编译器域目录不需要这条优先级 —— 它里面的编译器域包按构造不存在于
         // shipped `libs/`，放最后一样命中，而 stdlib 则继续从框架解析（⇒ 不复制）。
-        string[] dom = _compilerDomainDirs();
+        string[] dom = CompilerDomain.Dirs();
         string[] zrefs = new string[zrefs0.Length];
         string[] zdom = new string[zrefs0.Length];
         int zn = 0;
@@ -294,7 +294,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
     // 只对 analyzer 工程生效 ⇒ 普通工程看不见编译器域包（解析域隔离），且 z42c 自建
     // （kind=exe）不进此块 ⇒ 自举 byte-identical。
     if (pm.Project.Kind == "analyzer") {
-        string[] cl = _compilerDomainDirs();
+        string[] cl = CompilerDomain.Dirs();
         if (cl.Length > 0) {
             string[] withCl = new string[libsDirsN + cl.Length];
             int wi = 0;
@@ -372,59 +372,19 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
     bool incrOff = noIncremental || !pm.Build.Incremental;
     // 依赖身份（add-dep-identity-to-cache-key）：编译要扫的依赖 zpkg 的 BLID/内容哈希。probe 比对、cache 写入共用
     // 同一个值——libsDirs 此处已是最终形态（含 path 依赖闭包的 dist）；DepScanCache memo 使编译期扫描零重读。
-    // wire-optimize-manifest：**`[optimize]` 的唯一接线点**（这里 `pm` 在手；workspace 的
-    // per-member 构建每个成员各走一遍本函数 ⇒ 每个成员用自己的 `[optimize]`）。
-    //
-    // 修前：`BuildCommand` 自己算出 optSet 再透下来，而它调的是 `Opt.Resolve(isRelease, 0, 0, …)`
-    // —— 两个 0 硬编码 ⇒ **`z42.toml` 的 `[optimize]` 段被静默忽略**（写 `inline = false` 照样
-    // 内联、零诊断）。字节对账实测：`inline=true` 与 `false` 编出的 zpkg **逐字节相同**；而同一
-    // 份源加 CLI `--no-opt inline` 字节不同（阳性对照 ⇒ 对账有判别力，toml 那条确实是死的）。
-    // 优先级由 `Opt.Resolve` 保证：**CLI > toml > profile 默认**（它一直这么写着，只是没人喂）。
-    //
-    // ⚠️ 必须解在 `depsId` **之前** —— 优化集要并进包级缓存身份，见下。
-    OptTomlResult optToml = Opt.FromToml(pm.OptimizeNames, pm.OptimizeValues, pm.OptimizeCount);
-    if (optToml.UnknownCount > 0) {
-        // 不静默忽略未知名（`Opt.ByName` 的注释就是这么要求的），与 CLI 侧 `--opt 乱写` 报错
-        // 同一口径 —— 同一个名字表，两条入口不该一个报错一个装没看见。
-        int uk = 0;
-        while (uk < optToml.UnknownCount) {
-            ConsoleError.WriteLine("z42c: " + tomlPath + ": [optimize] unknown optimization `"
-                + optToml.Unknown[uk] + "` (known: const-fold/copy-prop/dce/inline/cse/licm/"
-                + "stack-alloc/loop-alloc-reuse/readonly-load/pure-call/dead-branch/devirt/all/none)");
-            uk = uk + 1;
-        }
+    // `[optimize]` / `[syntax]` / `[lints]` 决议 —— 与 z42b（BuildSession）共用 `ManifestKnobs.Resolve`
+    // （unify-driver-knobs：此前两份逐项相同的实现并存，改一份须同步另一份）。每个 workspace 成员各走一遍本函数
+    // ⇒ 每个成员用自己的 manifest。优化集：CLI > toml > profile 默认；未知优化名 / 语法特性名报错、不静默忽略。
+    // pack 用上面 driver 自己的判断（有 flat workspace / 闭包子建两种角色，且已先行拦截）⇒ 这里 forcePacked=false，
+    // Resolve 的 pack 报错不会再触发。⚠️ 必须解在 `depsId` **之前** —— 优化集要并进包级缓存身份，见下。
+    KnobResult kn = ManifestKnobs.Resolve(pm, tomlPath, isRelease, cliAdd, cliRemove, false);
+    if (kn.ErrorCount > 0) {
+        int ke = 0;
+        while (ke < kn.ErrorCount) { ConsoleError.WriteLine("z42c: " + kn.Errors[ke]); ke = ke + 1; }
         return ExitCode.UsageError;
     }
-    int effOptSet = Opt.Resolve(isRelease, optToml.Bits, optToml.Mask, cliAdd, cliRemove);
-
-    // add-l0-protocol-table 批 1：`[syntax]` → `LanguageFeatures` → 解析器（**E0301 首次发射**）。
-    // 照 `[optimize]` 刚踩通的那条路：manifest 只搬中性 name/value，解释权在这里。
-    //
-    // ⚠️ **唯一一次 resolve 落在这一层** —— workspace 每个成员有自己的 manifest，在 CLI 层预先
-    // 算好会把 per-member 配置压平（`[optimize]` 那轮把 `int optSet` 拆成 cliAdd/cliRemove 就是
-    // 为了这个）。
-    // 🔴 **未知特性名报错、不静默忽略**：`IsEnabled` 对「未知」与「已知但关着」都返回 false，
-    // 靠它分不出拼写错误 ⇒ 用 `Has` 单独问一次。`LanguageFeatures` 抬头那条教训（那张表曾长期
-    // 宣告 6 个不存在的特性而无人发现）正是「没有门盯着名字」的后果。
-    LanguageFeatures feats = LanguageFeatures.Phase1Profile();
-    int sy = 0;
-    while (sy < pm.SyntaxCount) {
-        string sname = pm.SyntaxNames[sy];
-        if (!feats.Has(sname)) {
-            string known = "";
-            int kf = 0;
-            while (kf < feats.Count()) {
-                if (kf > 0) { known = known + "/"; }
-                known = known + feats.NameAt(kf);
-                kf = kf + 1;
-            }
-            ConsoleError.WriteLine("z42c: " + tomlPath + ": [syntax] unknown syntax feature `"
-                + sname + "` (known: " + known + ")");
-            return ExitCode.UsageError;
-        }
-        feats.Set(sname, pm.SyntaxValues[sy]);
-        sy = sy + 1;
-    }
+    int effOptSet = kn.OptSet;
+    LanguageFeatures feats = kn.Features;
     string depsId = DepIdentity.Of(libsDirs, libsDirsN, pm.Project.Name, tier);
     // wire-optimize-manifest：**优化集并进包级缓存身份**。它此前不在任何 cache key 里——那时无害
     // （`[optimize]` 整段被忽略，optSet 只由 CLI/profile 决定，而这两者不会在「源没变」时悄悄变）。
@@ -644,9 +604,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
     // attribute-handler-registry PR3b：[lints] 中性字段 → LintConfig 决策器（severity 覆盖 +
     // EnabledByDefault 门 + warnings-as-errors）。仅 analyzer 运行时消费；z42c 自建无 [lints] →
     // LintCount==0 && !WAE → 空配置（等价 null）→ 逐字节不动。
-    if (pm.LintCount > 0 || pm.LintWarningsAsErrors) {
-        cin.Lints = new LintConfig(pm.LintNames, pm.LintSeverities, pm.LintCount, pm.LintWarningsAsErrors);
-    }
+    cin.Lints = kn.Lints;   // null = 无 [lints]（等价空配置）
     CompileArtifacts art = PackageCompile.Compile(cin);
     CompiledModuleZ[] cms = art.Cms;
     // ⑨ 诊断呈现（逐文件，首个有错即报并返回——与抽取前逐字一致）
