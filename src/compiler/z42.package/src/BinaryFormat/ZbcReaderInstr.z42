@@ -70,6 +70,9 @@ public static class ZbcReaderInstr {
             }
             instrs[n] = ins; n = n + 1;
         }
+        // 块必须**恰好**读到块尾（fix-zbc-reader-strict）：终结子之后还剩字节、或越过块尾，都是字节流错位
+        // 的信号。此前不核 ⇒ 读到终结子就 break，后面的垃圾被无声跳过，坏条目被部分接受。
+        if (r.Ok && c.Pos != end) { r.Ok = false; }
         r.Instrs = instrs; r.InstrCount = n;
         return r;
     }
@@ -295,20 +298,23 @@ public static class ZbcReaderInstr {
     // 0x80000000 不为负（e2e 实证：`token < 0` 恒假 → import 名解析成 "" → 池漂移）。
     private static bool _isImport(int token) { return ((token >> 31) & 1) == 1; }
 
+    // fix-zbc-reader-strict：token / 池索引越界 = 字节流坏了（截断 / 错位 / 版本错配）。此前一律返回 ""，
+    // 坏 zbc 被**部分接受**：函数名、字段名悄悄变成空串，错误到很远的地方才以 `function  not found`
+    // 之类现形。现在当场抛，调用方（缓存读回 / 依赖加载）按「不可读」处理。
     private static string _method(int token, string[] pool, string[] names, int count) {
         if (ZbcReaderInstr._isImport(token)) { return ZbcReaderInstr._p(pool, token & 0x7FFFFFFF); }
         if (token >= 0 && token < count) { return names[token]; }
-        return "";
+        throw new Exception("zbc reader: method token " + token.ToString() + " out of range (" + count.ToString() + " local functions)");
     }
     private static string _type(int token, string[] pool, string[] names, int count) {
         if (ZbcReaderInstr._isImport(token)) { return ZbcReaderInstr._p(pool, token & 0x7FFFFFFF); }
         if (token >= 0 && token < count) { return names[token]; }
-        return "";
+        throw new Exception("zbc reader: type token " + token.ToString() + " out of range (" + count.ToString() + " local classes)");
     }
 
     private static string _p(string[] pool, int idx) {
         if (idx >= 0 && idx < pool.Length) { return pool[idx]; }
-        return "";
+        throw new Exception("zbc reader: string pool index " + idx.ToString() + " out of range (pool size " + pool.Length.ToString() + ")");
     }
 
     // args：count u8 + id u16×。z42 无 out 参 → 长度经 _argN 旁路返回（单线程解码安全）。
