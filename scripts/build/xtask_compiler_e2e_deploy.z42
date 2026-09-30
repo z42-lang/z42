@@ -25,6 +25,7 @@ namespace Z42Xtask;
 
 using Std;
 using Std.IO;
+using Z42.Project;   // BuildLayout / ManifestLoader（z42b 产物位置）
 
 string _e2eDeployLibSrc() {
     return "namespace DeployFx;\n\npublic class Helper { public int V() { return 7; } }\n";
@@ -786,7 +787,9 @@ int _e2eZ42bClosureChecks(string root, string vm) {
         return 1;
     }
     // ② 闭包成员随产物走 + 拷出去跑得起来。
-    string dist = Path.Join(Path.Join(Path.Join(Path.Join(appDir, "artifacts"), "ncapp"), "release"), "dist");
+    // z42b 产物位置 = `BuildLayout.Resolve`（与 z42c 同一份答案，unify-build-layout）；不再写死 z42b 的旧默认
+    // `artifacts/<name>/<profile>/dist`。
+    string dist = BuildLayout.Resolve(ManifestLoader.Load(appToml), appDir, true).DistDir;
     string runDir = Path.Join(tmp, "run");
     Directory.Create(runDir);
     foreach (var z in Path.Glob(dist, "*.zpkg")) { File.Copy(z, Path.Join(runDir, Path.GetFileName(z))); }

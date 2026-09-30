@@ -13,6 +13,7 @@ using Std;
 using Std.IO;
 using Std.Time;
 using Std.Toml;
+using Z42.Project;   // BuildLayout / ManifestLoader（工程产物布局的唯一答案）
 
 // ── component manifests ──────────────────────────────────────────────────────
 // workload libs (kind=lib)：各自建进自己的 `artifacts/build/toolchain/workload/<n>/dist`。
@@ -59,57 +60,27 @@ string _resolveFromToml(string absToml, string value) {
     if (Path.IsRooted(value)) { return value; }
     return Path.Join(Path.GetDirectoryName(absToml), value);
 }
-// `[build] output_dir` 的 **workspace 继承档**（`[workspace.build] output_dir`）。
+// 工程产物布局一律取 z42.project 的 `BuildLayout.Resolve`（profile = release）—— z42c 写产物、z42b / launcher
+// 找产物的同一份答案，含 workspace 成员继承与全部模板变量（unify-build-layout）。
 //
-// 清单模型允许 member 省略 `output_dir`、由所在 workspace 的 `[workspace.build]` 供给，值里可带
-// `${project_name}` / `${profile}` 模板，且**相对 workspace 根**解析（不是相对 member 清单）。
-// z42c.driver 就是这么写的；四个 toolchain 清单各自显式写了，所以本文件此前跳过了这一档 ——
-// 代价是 z42c 的输出位置由 xtask 自己猜，而不是从配置读：
-//   · dist 猜成 `<projDir>/dist`（真身在 `artifacts/build/compiler/z42c.driver/release/dist`）；
-//   · publish 猜成 `<projDir>/publish` —— **把发布产物漏进了源码树**，而 z42c.driver 清单的注释
-//     白纸黑字写着它该落 `${output_dir}/publish`。
-// ⇒ 补上这一档，`_toolchainZpkg` / `_desktopPublishDir` 一律从配置读，不再写死路径。
-// 返回 "" = 上溯没找到 workspace 清单，或它没声明 output_dir。
-string _wsOutputDir(string absToml, string profile) {
-    string dir = Path.GetDirectoryName(absToml);
-    while (dir.Length > 0) {
-        string wsToml = Path.Join(dir, "z42.workspace.toml");
-        if (File.Exists(wsToml)) {
-            string raw = _tomlField(wsToml, "workspace.build.output_dir", "");
-            if (raw.Length == 0) { return ""; }
-            string expanded = raw.Replace("${project_name}", _tomlField(absToml, "project.name", ""))
-                                 .Replace("${profile}", profile);
-            // workspace-root-relative（**不是** member 相对）。
-            if (Path.IsRooted(expanded)) { return expanded; }
-            return Path.Join(dir, expanded);
-        }
-        string parent = Path.GetDirectoryName(dir);
-        if (parent.Length == 0 || parent == dir) { return ""; }
-        dir = parent;
-    }
-    return "";
+// 此前这里手抄了一份级联（`_wsOutputDir` / `_outputDirOf` / `_toolchainDistDir`）：模板只展开 `${project_name}` /
+// `${profile}`、dist 的 `${output_dir}` 替换成**未解析**的原始字符串、未配 output_dir 时退回「清单自身目录」
+// —— 与 z42c 的默认（`<清单目录>/artifacts/<profile>` + `<清单目录>/dist`）并不一致，只是四个 toolchain 清单
+// 与 z42c.driver 恰好都配了 output_dir 才没露馅。
+BuildLayout _tomlLayout(string root, string tomlPath) {
+    string abs = _absToml(root, tomlPath);
+    return BuildLayout.Resolve(ManifestLoader.Load(abs), Path.GetDirectoryName(abs), true);
 }
 
-// [platform.desktop].publish_dir → absolute dir. Unset → ${output_dir}/publish
-// (mirrors z42b _pubDefaultPublishDir，含 workspace 继承档 —— 见 `_wsOutputDir`)。
+// [platform.desktop].publish_dir → absolute dir. Unset → ${output_dir}/publish（同 z42b `_pubDefaultPublishDir`）。
 string _desktopPublishDir(string root, string tomlPath) {
     string abs = _absToml(root, tomlPath);
     string pub = _tomlField(abs, "platform.desktop.publish_dir", "");
     if (pub.Length > 0) { return _resolveFromToml(abs, pub); }
-    return Path.Join(_outputDirOf(abs, "release"), "publish");
+    return _cleanPath(Path.Join(_tomlLayout(root, tomlPath).OutputDir, "publish"));
 }
 
-// `[build] output_dir` 的完整级联：本清单显式 → workspace 继承 → 清单自身目录。
-string _outputDirOf(string absToml, string profile) {
-    string outRaw = _tomlField(absToml, "build.output_dir", "");
-    if (outRaw.Length > 0) { return _resolveFromToml(absToml, outRaw); }
-    string ws = _wsOutputDir(absToml, profile);
-    if (ws.Length > 0) { return _cleanPath(ws); }
-    return Path.GetDirectoryName(absToml);
-}
-// built zpkg path = dist dir + [project].name + ".zpkg". dist cascade mirrors z42c
-// _resolveDistDir: dist_dir (with ${output_dir} template) → ${output_dir}/dist →
-// <projDir>/dist.
+// built zpkg path = dist dir + [project].name + ".zpkg".
 string _toolchainZpkg(string root, string tomlPath) {
     return _cleanPath(Path.Join(_toolchainDistDir(root, tomlPath),
         _tomlField(_absToml(root, tomlPath), "project.name", "") + ".zpkg"));
@@ -117,13 +88,7 @@ string _toolchainZpkg(string root, string tomlPath) {
 
 // dist 目录（`_toolchainZpkg` 与 payload 完整性门共用）。
 string _toolchainDistDir(string root, string tomlPath) {
-    string abs = _absToml(root, tomlPath);
-    string distRaw = _tomlField(abs, "build.dist_dir", "");
-    if (distRaw.Length > 0) {
-        string outRaw = _tomlField(abs, "build.output_dir", "");
-        return _cleanPath(_resolveFromToml(abs, distRaw.Replace("${output_dir}", outRaw)));
-    }
-    return _cleanPath(Path.Join(_outputDirOf(abs, "release"), "dist"));
+    return _cleanPath(_tomlLayout(root, tomlPath).DistDir);
 }
 
 // self-contained z42c.driver dist (driver + 6 siblings colocated; simplify-compiler-

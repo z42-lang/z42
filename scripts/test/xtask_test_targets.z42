@@ -200,7 +200,9 @@ int _smokeReuseParentMissing(string root, TargetTooling tt) {
     if (!File.Exists(toml)) { return 0; }
     Console.WriteLine("");
     Console.WriteLine("── reuse-parent (父包 dist 不在时 --reuse-parent 仍须先建父包) ──");
-    string parentOut = Path.Join(Path.GetDirectoryName(toml), "artifacts/dt.internal");
+    // 父包 dist 的位置取 z42.project 的 `BuildLayout`（z42b `_computeDirs` 用的同一份答案，unify-build-layout），
+    // 不再写死 z42b 的旧默认 `artifacts/<name>/<profile>`。xtask 调 z42b 不带 --release ⇒ debug。
+    string parentOut = BuildLayout.Resolve(ManifestLoader.Load(toml), Path.GetDirectoryName(toml), false).DistDir;
     if (Directory.Exists(parentOut)) { Directory.Delete(parentOut, true); }
     int rc = _exec(new Process(tt.Vm).Arg(tt.BuilderZpkg).Arg("--mode").Arg(_z42cMode())
         .Arg("--").Arg("test").Arg(toml).Arg("--name").Arg("dirunit").Arg("--reuse-parent")

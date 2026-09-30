@@ -338,72 +338,23 @@ bool _pubPlatform(TomlValue root, string platform, string key, bool dflt) {
     return dflt;
 }
 
-// Default publish root when neither --output nor [platform.desktop].publish_dir is
-// set: ${output_dir}/publish. output_dir resolves like _pubResolveZpkg — explicit
-// [build].output_dir first, then the enclosing workspace's [workspace.build]
-// template, else the project dir (so the bare default is <projDir>/publish, never
-// the project dir itself).
+// publish 相关的产物位置一律取 z42.project 的 `BuildLayout.Resolve`（profile = release —— publish 恒编 release），
+// 与 z42c 写产物、launcher 找产物同一份答案（unify-build-layout）。此前这里手抄了一份级联（`_pubWorkspaceOutputDir`
+// 等），默认值与 z42c 不一致：裸工程的默认发布目录是 `<projDir>/publish`，而文档与其它路径都是 `${output_dir}/publish`。
+BuildLayout _pubLayout(string tomlPath) {
+    string projDir = Path.GetDirectoryName(tomlPath);
+    if (projDir.Length == 0) { projDir = "."; }
+    return BuildLayout.Resolve(ManifestLoader.Load(tomlPath), projDir, true);
+}
+
+// 未给 --output、也没配 [platform.desktop].publish_dir 时的发布根：${output_dir}/publish。
 string _pubDefaultPublishDir(string tomlPath, TomlValue toml, string name) {
-    string projDir = Path.GetDirectoryName(tomlPath);
-    string outDir = _pubTomlStr(toml, "build", "output_dir", "");
-    if (outDir.Length > 0) {
-        string outAbs = (projDir.Length > 0) ? Path.Join(projDir, outDir) : outDir;
-        return Path.Join(outAbs, "publish");
-    }
-    string wsRoot = _pubFindWorkspaceRoot(tomlPath);
-    if (wsRoot.Length > 0) {
-        string wsOutDir = _pubWorkspaceOutputDir(wsRoot, name);
-        if (wsOutDir.Length > 0) { return Path.Join(Path.Join(wsRoot, wsOutDir), "publish"); }
-    }
-    return (projDir.Length > 0) ? Path.Join(projDir, "publish") : "publish";
+    return Path.Join(_pubLayout(tomlPath).OutputDir, "publish");
 }
 
-// Resolve the built zpkg via the same dist_dir logic as the launcher used.
-// Workspace members that omit their own [build] section (the common case —
-// see z42c.core/z42c.semantics/... tomls) inherit `[workspace.build] output_dir`
-// from the enclosing z42.workspace.toml instead of falling back to a
-// project-relative "dist/" (which does not match where `z42c build --workspace`
-// actually writes the zpkg — add-package-layout-config dependency bundling
-// exposed this: bundling failed to locate z42c.semantics's zpkg without it).
+// 已构建产物：<dist_dir>/<name>.zpkg（workspace 成员 → 成员布局，见 BuildLayout）。
 string _pubResolveZpkg(string tomlPath, TomlValue toml, string name) {
-    string projDir = Path.GetDirectoryName(tomlPath);
-    string outDir  = _pubTomlStr(toml, "build", "output_dir", "");
-    string distDir = _pubTomlStr(toml, "build", "dist_dir", "");
-    if (outDir.Length == 0 && distDir.Length == 0) {
-        string wsRoot = _pubFindWorkspaceRoot(tomlPath);
-        if (wsRoot.Length > 0) {
-            string wsOutDir = _pubWorkspaceOutputDir(wsRoot, name);
-            if (wsOutDir.Length > 0) {
-                return Path.Join(Path.Join(wsRoot, wsOutDir), "dist/" + name + ".zpkg");
-            }
-        }
-    }
-    string distRel;
-    if (distDir.Length > 0) { distRel = distDir.Replace("${output_dir}", outDir); }
-    else if (outDir.Length > 0) { distRel = Path.Join(outDir, "dist"); }
-    else { distRel = "dist"; }
-    string base = (projDir.Length > 0) ? Path.Join(projDir, distRel) : distRel;
-    return Path.Join(base, name + ".zpkg");
-}
-
-// `[workspace.build] output_dir` template resolved for `name` at profile
-// "release" (mirrors _pubEnsureBuilt's hardcoded `z42c build --release`).
-// "" if the workspace declares no such template.
-string _pubWorkspaceOutputDir(string wsRoot, string name) {
-    string wsToml = Path.Join(wsRoot, "z42.workspace.toml");
-    if (!File.Exists(wsToml)) { return ""; }
-    TomlValue toml = TomlValue.Parse(File.ReadAllText(wsToml));
-    TomlValue ws = null;
-    TomlValue wb = null;
-    TomlValue v = null;
-    if (!toml.TryGet("workspace", ref ws)) { return ""; }
-    if (!ws.TryGet("build", ref wb))       { return ""; }
-    if (!wb.TryGet("output_dir", ref v))   { return ""; }
-    if (!v.IsString()) { return ""; }
-    string tmpl = v.AsString();
-    tmpl = tmpl.Replace("${project_name}", name);
-    tmpl = tmpl.Replace("${profile}", "release");
-    return tmpl;
+    return Path.Join(_pubLayout(tomlPath).DistDir, name + ".zpkg");
 }
 
 // ── project-kind (workspace-sibling) dependency bundling (add-package-layout-config) ──
@@ -858,20 +809,10 @@ string _pubHookApphostStub(TomlValue toml, string tomlPath, string projName, str
     return "";
 }
 
-// hook 中间产物目录（本工程与 native 依赖三处共用，fix-z42b-source-tree-outputs）：
-//   [build] output_dir（清单目录相对；展开 `${profile}` = release —— publish 恒为 release —— 与 `${project_name}`）
-//   之下的 hooks/；未配 output_dir → `<清单目录>/artifacts/<name>/hooks`（镜像 `_computeDirs` 默认布局）。
-// 此前三处各拼一遍：本工程两处把 output_dir **原样** Join（模板不展开），依赖那处干脆无视 output_dir。
+// hook 中间产物目录（本工程与 native 依赖三处共用）：`<output_dir>/hooks`，output_dir 取 `BuildLayout.Resolve`
+// （release；含 workspace 成员继承、全部模板变量）。
 string _pubHooksInterDir(TomlValue toml, string tomlPath, string projName) {
-    string projDir = Path.GetDirectoryName(tomlPath);
-    if (projDir.Length == 0) { projDir = "."; }
-    string outBase = _pubTomlStr(toml, "build", "output_dir", "");
-    if (outBase.Length == 0) {
-        return Path.Join(Path.Join(Path.Join(projDir, "artifacts"), projName), "hooks");
-    }
-    string v = outBase.Replace("${profile}", "release").Replace("${project_name}", projName);
-    string baseDir = Path.IsRooted(v) ? v : Path.Join(projDir, v);
-    return Path.Join(baseDir, "hooks");
+    return Path.Join(_pubLayout(tomlPath).OutputDir, "hooks");
 }
 
 // Run the project's [build] hooks BeforeAssets and return ALL registered outputs
