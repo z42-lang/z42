@@ -25,13 +25,10 @@ include = ["devtools_cli.z42", "symbolicate.z42", "editor_install.z42"]
 "z42.package"   = "0.1.0"   # SidecarReader (.zsym) + IrLineEntry (add-offline-symbolication)
 
 [build]
-# Mirror builder/launcher: emit z42.devtools.zpkg into the shared artifacts tree
-# (artifacts/build/toolchain/devtools). From this toml's dir
-# (src/toolchain/devtools/core) up 4 levels to repo root.
-# cache-dir-layout：显式 output_dir，让 cache（${output_dir}/.cache）与 z42b 中间产物也落进 artifacts，
-# 不再按默认值落进源码树。
+# 产物落共享 artifacts 树：artifacts/build/toolchain/devtools/{dist,.cache,publish}
+# （From this toml's dir src/toolchain/devtools/core up 4 levels to repo root）。
+# 只配 output_dir，其余走级联默认 —— 同 builder / launcher（simplify-toolchain-output-dirs）。
 output_dir = "../../../../artifacts/build/toolchain/devtools"
-dist_dir = "../../../../artifacts/build/toolchain/devtools"
 
 [profile.release.runtime]
 mode = "interp"
@@ -43,12 +40,11 @@ mode = "interp"
 # `libs`，而开发树下它指向 alllibs（stdlib + 全部 compiler 成员）。
 probing-paths = "../z42c"
 
-# apphost-as-config: publishes the z42d desktop apphost into the shared artifacts
-# tree (unified toolchain/<comp>/publish layout, add-build-toolchain 2026-07-05).
+# apphost-as-config: publishes the z42d desktop apphost to the default
+# ${output_dir}/publish (unified toolchain/<comp>/publish layout).
 # bin/payload mirrors z42b's SDK package layout (add-package-layout-config).
 
 [platform.desktop]
 apphost     = true
-publish_dir = "../../../../artifacts/build/toolchain/devtools/publish"
 bin         = "bin/z42d"
 payload     = "programs/z42d/z42.devtools.zpkg"

@@ -45,13 +45,12 @@ include = ["builder_cli.z42", "builder_test.z42", "builder_device.z42", "builder
 "z42.project" = "0.1.0"   # ProjectManifest / ManifestLoader（build/new/export 动词读清单）
 
 [build]
-# Mirror launcher: emit z42.builder.zpkg into the shared artifacts tree
-# (artifacts/build/toolchain/builder), parallel to src/toolchain/builder.
-# From this toml's dir (src/toolchain/builder/core) up 4 levels to repo root.
-# cache-dir-layout：显式 output_dir，让 cache（${output_dir}/.cache）与 z42b 中间产物也落进 artifacts，
-# 不再按默认值落进源码树。
+# 产物落共享 artifacts 树：artifacts/build/toolchain/builder/{dist,.cache,publish}
+# （From this toml's dir src/toolchain/builder/core up 4 levels to repo root）。
+# 只配 output_dir —— dist / cache / publish 都走级联默认（${output_dir}/dist 等），与 launcher 同形。
+# simplify-toolchain-output-dirs（2026-09-30）：此前另配 `dist_dir = output_dir`（平铺），
+# 让 zpkg 与 .cache/ build/ publish/ 挤在同一层，stage-toolchain 还得专门跳子目录。
 output_dir = "../../../../artifacts/build/toolchain/builder"
-dist_dir = "../../../../artifacts/build/toolchain/builder"
 
 [profile.release.runtime]
 mode = "interp"
@@ -69,12 +68,10 @@ probing-paths = "../z42c"
 
 # apphost-as-config: this binary publishes a native desktop apphost.
 #   apphost = true  → gate（无此则 `z42 publish` 不产 apphost）。
-#   publish_dir 落共享 artifacts 树（toolchain/<组件>/publish 统一格式，
-#   add-build-toolchain 2026-07-05）。缺省即 ${output_dir}/publish。
+#   publish_dir 不配：缺省 ${output_dir}/publish（toolchain/<组件>/publish 统一格式）。
 #   bin/payload（add-package-layout-config）：镜像现状布局。
 
 [platform.desktop]
 apphost     = true
-publish_dir = "../../../../artifacts/build/toolchain/builder/publish"
 bin         = "bin/z42b"
 payload     = "programs/z42b/z42.builder.zpkg"

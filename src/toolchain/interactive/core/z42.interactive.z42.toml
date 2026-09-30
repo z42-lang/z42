@@ -28,11 +28,10 @@ include = ["interactive_main.z42"]
 "z42.package" = "0.1.0"   # ZbcVersion / ZpkgWriterZ 格式版本常量（`.version` 元指令）——add-package-roles 批 0 自 z42.scripting 迁入
 
 [build]
-# From this toml's dir (src/toolchain/interactive/core) up 4 levels to repo root.
-# cache-dir-layout：显式 output_dir，让 cache（${output_dir}/.cache）与 z42b 中间产物也落进 artifacts，
-# 不再按默认值落进源码树。
+# 产物落共享 artifacts 树：artifacts/build/toolchain/interactive/{dist,.cache,publish}
+# （From this toml's dir src/toolchain/interactive/core up 4 levels to repo root）。
+# 只配 output_dir，其余走级联默认 —— 同 builder / launcher（simplify-toolchain-output-dirs）。
 output_dir = "../../../../artifacts/build/toolchain/interactive"
-dist_dir = "../../../../artifacts/build/toolchain/interactive"
 
 [profile.release.runtime]
 # add-deployment-model 批 5 use：编译器组件的位置**声明在这里**，不再硬编码进代码。
@@ -48,12 +47,11 @@ dist_dir = "../../../../artifacts/build/toolchain/interactive"
 probing-paths = "../z42c"
 mode = "interp"
 
-# apphost-as-config: publishes the z42i desktop apphost into the shared artifacts
-# tree (unified toolchain/<comp>/publish layout, add-build-toolchain 2026-07-05).
+# apphost-as-config: publishes the z42i desktop apphost to the default
+# ${output_dir}/publish (unified toolchain/<comp>/publish layout).
 # bin/payload mirrors z42b's SDK package layout (add-package-layout-config).
 
 [platform.desktop]
 apphost     = true
-publish_dir = "../../../../artifacts/build/toolchain/interactive/publish"
 bin         = "bin/z42i"
 payload     = "programs/z42i/z42.interactive.zpkg"

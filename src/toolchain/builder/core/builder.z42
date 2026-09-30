@@ -135,7 +135,7 @@ string _findCompilerZpkg() {
     // 🔴 为什么这一档还留着硬编码：`probing-paths` 是**平台分隔符**分隔的（unix `:` /
     // windows `;`），跨平台清单里写多条必然在某个平台上错 —— 初稿配了两条，
     // `package-host(windows-x64)` 当场红在 `no compiler injected`。而单条覆盖不了两种布局：
-    // 开发树里 z42b 的 entry-dir 是 `artifacts/build/toolchain/builder/`，SDK 里是
+    // 开发树里 z42b 的 entry-dir 是 `artifacts/build/toolchain/builder/dist/`，SDK 里是
     // `programs/z42b/`，相对路径结构完全不同。
     //
     // 取舍：**SDK 布局（会变、要可配）走清单的 probing-paths；开发树路径（仓库内约定、不会变）

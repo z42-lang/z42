@@ -35,7 +35,7 @@ include = ["*.z42"]
 # inside src/. Relative from this toml's dir (src/toolchain/launcher/core)
 # up 4 levels to the repo root, then into artifacts/build/toolchain/launcher.
 # add-build-toolchain (2026-07-05): output_dir root — dist/cache/publish all
-# cascade from it (dist = ${output_dir}/dist; publish_dir set explicitly below).
+# cascade from it (${output_dir}/{dist,.cache,publish}).
 output_dir = "../../../../artifacts/build/toolchain/launcher"
 
 [profile.release.runtime]
@@ -57,4 +57,3 @@ probing-paths = "../z42c"
 apphost = true
 bin     = "z42"
 payload = "programs/launcher/launcher.zpkg"
-publish_dir = "../../../../artifacts/build/toolchain/launcher/publish"

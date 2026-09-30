@@ -353,7 +353,8 @@ int _stageToolchain(string dest) {
     string[] bFiles = Path.Glob(bSrc, "*");
     int bi = 0;
     while (bi < bFiles.Length) {
-        // dist_dir == output_dir：默认 cache（${output_dir}/.cache）也在这个目录里——只拷产物文件，不拷子目录。
+        // 只拷产物文件、不拷子目录：dist 里可能有按 rid 分的 native 子目录（hooks 产出），
+        // 那些不属于 z42b 运行所需（历史上 dist_dir == output_dir 时这里还混着 .cache/）。
         if (Directory.Exists(bFiles[bi])) { bi = bi + 1; continue; }
         _copyIfExists(bFiles[bi], Path.Join(bDst, Path.GetFileName(bFiles[bi])));
         bi = bi + 1;
