@@ -498,7 +498,7 @@ int _e2eDeployUseChecks(string root, string vm, string driverZpkg) {
 // 自举那几步生效（见 driver 的 `CompileLibsOpt` 头注）。
 int _e2eCompileLibsChecks(string root, string vm, string driverZpkg) {
     string flat = _libsFlatDist(root, "release");
-    string tmp  = Path.Join("/tmp", "z42c-e2e-clibs");
+    string tmp  = _e2eTmpRoot(root, "clibs");   // 按树分（fix-e2e-tmp-per-tree 漏的最后一处）
     if (Directory.Exists(tmp)) { try { Directory.Delete(tmp, true); } catch (Exception e) {} }
     string libsDir = Path.Join(tmp, "libs");
     string onlyDir = Path.Join(tmp, "only");
