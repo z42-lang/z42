@@ -525,7 +525,12 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
         // 于是「全命中但不能 preserved」（dist 被清 / pack 模式切换 / 多 exe）会落进 Main 的全量
         // parse 分支、cachedMods 全 null → **缓存整份作废、全部重编**（实测 xtask 3.7s vs 应有 2.25s；
         // 多 exe 工程更是永远全量）。
-        bool canPreserve = pm.ExeCount == 0 && File.Exists(lastZpkg) && _distModeMatches(lastZpkg, isPacked);
+        // fix-analyzer-diags-preserved：有 `[analyzers]` 的工程也不走 preserved。analyzer 诊断与
+        // `[lints]` 决策**不进任何缓存**（PackageCompile 每次构建重跑，快照刻意取在它之前），
+        // 早退 = analyzer 没跑 ⇒ 第二次构建警告消失、只改 `[lints]`（升 error / WAE）仍 exit 0。
+        // 代价只落在带 analyzer 的工程：全命中时多一次装配 + analyzer 遍历（cached CU 不重做 typecheck）。
+        bool canPreserve = pm.ExeCount == 0 && pm.AnalyzerCount == 0
+            && File.Exists(lastZpkg) && _distModeMatches(lastZpkg, isPacked);
         prep = IncrementalDriver.Prepare(srcs, dispSrcs, texts, srcHashes, srcs.Length, projectDir, probeCache, depsId, canPreserve, feats);
         BuildLog.ProgressErr("cached: " + (srcs.Length - prep.Plan.FreshCount).ToString() + "/" + srcs.Length.ToString() + " files");
         if (canPreserve && prep.Plan.AllCached) {

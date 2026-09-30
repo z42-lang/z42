@@ -280,6 +280,15 @@ p→m→t 升序 first-wins）与 `SigsClassIndex`（每 `ZpkgModuleSigs` 按"�
 这个缺陷不动产物一个字节，「对账全绿」与「警告一条看不见」可以同时成立。三格：冷构建
 （阳性对照，修前也对）/ 全命中 / 部分命中。
 
+**「每次都重发」那两层靠的是「一定会进 `PackageCompile`」——所以带 `[analyzers]` 的工程不走
+preserved 早退**（`fix-analyzer-diags-preserved`）。早退路径只能回放 meta 里有的东西，而 analyzer
+诊断与 `[lints]` 决策（severity 覆盖 / `warnings-as-errors`）**刻意不进 meta**。修前两个症状：
+什么都不改再构建一次，analyzer 警告消失；只改 `[lints]` 把规则升成 error，源码没动 ⇒ 全命中 ⇒
+构建仍 exit 0。`[lints]` 也**不**进 `depsId`：它不改任何 CU 的产物，扩键会换来一次无谓的全量重编
+（上面那条「呈现问题 ≠ 失效问题」）。这类工程全命中时的代价是多一次装配 + analyzer 遍历
+（cached CU 不重做 typecheck）。门禁在 `xtask test compiler` 的 `_e2eAnalyzerDiagCacheChecks`：
+冷构建报 / 全命中仍报 / 只改 `[lints]` 立即生效。
+
 ## 实现
 
 | 关注点 | 关键文件 |
