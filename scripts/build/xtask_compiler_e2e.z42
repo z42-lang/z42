@@ -165,7 +165,7 @@ int _e2eBuildChecks(string root, string vm, string driverZpkg, string e2eDir, st
     // ⭐ bar **故意不声明 baz** —— 它根本没引用过 baz 的符号，要求消费方声明一个自己不用的包，
     // 正是包管理器该替你做的事。
     string pdRoot = Path.Join(e2eDir, "pathdep");
-    // 🔴 **先删整棵 fixture 树**：`e2eDir` 在 `artifacts/.scratch/e2e` 下、跨轮次保留，
+    // 🔴 **先删整棵 fixture 树**：`e2eDir` 在 `artifacts/tmp/e2e` 下、跨轮次保留，
     // 而本检查的判据是「某个 zpkg 在不在 dist 里」—— 上一轮留下的产物会让它**假绿**。
     // 实测：修复退回后这条检查照样 ✓，清掉 `pathdep/` 才正确判红。
     // ⚠️ 凡是「判据 = 文件存在与否」的检查，都必须自己把地面清干净。
@@ -493,7 +493,7 @@ int _testCompilerE2e(string root, string vm, string flat) {
     Console.WriteLine("");
     Console.WriteLine("── z42c e2e: self-compiled .zbc runs on z42vm ──");
     string driverZpkg = _driverZpkg(root, "release");
-    string e2eDir = _scratchDir(root, "e2e");
+    string e2eDir = _tmpDir(root, "e2e");
     Directory.Create(e2eDir);
 
     string libsRel = _libsDir(root);

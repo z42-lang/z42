@@ -145,7 +145,7 @@ z42c 自身 7 包不用这些写法 → 旧 byte-identical 门（仅 z42c 自身
 
 **运行期 `Z42_LIBS` 是单个目录（非 colon-list），且必须含全部依赖 zpkg。** 跑 z42c 产物
 （driver / 测试）时，先把「z42c 7 包 + stdlib」**合并到一个 flat 目录**（`xtask test
-compiler` 自动组装 `artifacts/build/compiler/alllibs/<profile>/`），再 `Z42_LIBS=<该目录>`：
+compiler` 自动组装 `artifacts/build/views/<profile>/all/`），再 `Z42_LIBS=<该目录>`：
 
 ```
 Z42_PORTABLE_VM=<z42vm> Z42_LIBS=<flat 含 z42c.*+z42.*> z42vm z42c.driver.zpkg
@@ -288,7 +288,7 @@ z42c **运行期依赖 `z42.package`**——它建任何 zpkg 都要调 `Z42.Pac
 🔴 **「种子代」这个锚不能取自 flat**。flat 正是要被预建覆盖成当前源的目录：快照晚于覆盖、或上一轮
 跑到一半，快照到的就是新代 ⇒ 种子 driver `MissingSymbolException`（实测）。锚取
 **driver 自己 dist 里那份 colocated 闭包**（`z42c build` 对 exe 的 colocate + `_ensureDriverSelfContained`
-产出，与 driver 同代是*构造保证*的），**搬**进 `artifacts/.scratch/seed-run-libs/<profile>/`。
+产出，与 driver 同代是*构造保证*的），**搬**进 `artifacts/tmp/seed-run-libs/<profile>/`。
 判据不是「搬到了吗」而是「**齐了吗**」——bundle 可能不全（冷启动 staged 的 driver 没 bundle），
 缺口从 **SDK libs**（`Z42_HOME/libs`，即种子的出处）补。补进来的只是 bundle 的**缺口**——
 那些包 driver 的闭包里没有、也就不会被它加载，填进去只为让目录完整，不构成代际混用。实现：`_relocateSeedRunLibs` /

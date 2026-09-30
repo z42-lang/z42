@@ -7,26 +7,39 @@ using Std;
 using Std.IO;
 using Std.Cli;   // ParseResult
 
-// ── clean (add-tests-bench-manifest-config Phase 3.4) ───────────────────────
+// ── clean ─────────────────────────────────────────────────────────────────────
 //
-// Output-dir matrix (proposal §6.4):
-//   clean         delete each <lib>/<profile>/{cache,dist} + the aggregate
-//                 libraries/dist/ — production artifacts; KEEPS tests/ + bench/.
-//   clean tests   delete each <lib>/<profile>/tests/   (built by `test stdlib`)
-//   clean bench   delete each <lib>/<profile>/bench/   (built by `bench stdlib`)
-//   clean all     delete the whole artifacts/build/    (full reset)
+//   clean         生产 cache/dist：各 stdlib 成员的 <lib>/<profile>/{cache,dist} + 扁平 libraries/dist/
+//   clean tests   测试产物：golden .zbc 镜像（build/tests、build/{libraries,compiler}/<m>/tests）
+//                 + z42b 的 test 目标输出（<工程目录>/artifacts/test-targets）
+//   clean bench   z42b 的 bench 目标输出（<工程目录>/artifacts/bench-targets）
+//   clean tmp     artifacts/tmp/（+ 旧名 artifacts/.scratch/）
+//   clean all     build/ + tmp/ + .scratch/ + publish/（打包暂存）+ 源码树里各 z42 工程旁的 artifacts/、dist/
+//                 **保留**：xtask/（驱动自身，正在运行）、tools/（下载的第三方工具）、
+//                 packages/ release/ .z42/（成品）、bench/ profile/ test-reports/（报告）
+//
+// tidy-artifacts-tmp-and-clean（2026-09-30）修了两处：
+//   · `clean tests|bench` 此前删的是 `<lib>/<profile>/{tests,bench}` —— 当前布局里**不存在**这个目录
+//     （golden 镜像在 `<lib>/tests`，dev 目标由 z42b 写在工程目录下），于是恒删 0 个、恒报 ✅。
+//   · `clean all` 此前只删 build/，`.scratch` / `tmp` / `publish` 与源码树里的残留都不管。
+//
+// 源码树残留：单独编一个 workspace 成员（xtask 的 path 依赖、z42b 的 dev 目标父包）时不继承
+// `[workspace.build].output_dir`，会走单工程默认布局写进 `<工程目录>/{artifacts,dist}`。只删**带
+// `*.z42.toml` 的工程目录**旁边的这两个名字（不做全树通配，免得碰到 wasm / node 工程的同名目录）；
+// 它们被 .gitignore 忽略、仓库里没有任何入库文件在其下。
 int _clean(ParseResult r) {
     string root = _root();
-    string sub  = r.GetPositional(0);   // "" | tests | bench | all
-    if (sub == "all") {
-        string bd = _buildDir(root);
-        if (Directory.Exists(bd)) { Directory.Delete(bd, true); }
-        Console.WriteLine("✅ clean all: removed artifacts/build/");
+    string sub  = r.GetPositional(0);   // "" | tests | bench | tmp | all
+    if (sub == "all") { return _cleanAll(root); }
+    if (sub == "tmp") {
+        int t = _rmIfExists(Path.Join(_artifactsDir(root), "tmp")) + _rmIfExists(_legacyScratchDir(root));
+        Console.WriteLine("✅ clean tmp: removed " + t.ToString() + " dir(s)");
         return 0;
     }
-    if (sub != "" && sub != "tests" && sub != "bench") {
+    if (sub == "tests" || sub == "bench") { return _cleanDevOutputs(root, sub); }
+    if (sub != "") {
         ConsoleError.WriteLine("xtask clean: unknown target '" + sub
-            + "'  (empty=production cache/dist | tests | bench | all)");
+            + "'  (empty=production cache/dist | tests | bench | tmp | all)");
         return 2;
     }
     string libsRoot = _libsBuildRoot(root);   // workspace.toml output_dir 模板前缀
@@ -39,23 +52,89 @@ int _clean(ParseResult r) {
         string entryDir = Path.Join(libsRoot, entry);
         if (entry == "dist") {
             // The aggregate libraries/dist/<profile>/ — production only.
-            if (sub == "") { n = n + _rmIfExists(entryDir); }
+            n = n + _rmIfExists(entryDir);
             continue;
         }
-        foreach (var prof in _sortedStrings(Directory.Enumerate(entryDir))) {
-            string pd = Path.Join(entryDir, prof);
-            if (sub == "tests" || sub == "bench") {
-                n = n + _rmIfExists(Path.Join(pd, sub));
-            } else {
-                // cache / dist 位置按 workspace.toml 的 cache_dir / output_dir 模板解析，不写死目录名。
-                n = n + _rmIfExists(_memberCache(_libsWsToml(root), entry, prof));
-                n = n + _rmIfExists(_memberDist(_libsWsToml(root), entry, prof));
+        foreach (var prof in _cleanProfiles()) {
+            // cache / dist 位置按 workspace.toml 的 cache_dir / output_dir 模板解析，不写死目录名。
+            n = n + _rmIfExists(_memberCache(_libsWsToml(root), entry, prof));
+            n = n + _rmIfExists(_memberDist(_libsWsToml(root), entry, prof));
+        }
+    }
+    Console.WriteLine("✅ clean: removed " + n.ToString() + " dir(s) [production cache/dist]");
+    return 0;
+}
+
+// 成员目录下只有这两个是 profile；其余子目录（golden 的 `tests/` 等）不是，不能当 profile 枚举。
+string[] _cleanProfiles() { return new string[]{ "debug", "release" }; }
+
+// `clean tests` / `clean bench`。
+int _cleanDevOutputs(string root, string kind) {
+    int n = 0;
+    if (kind == "tests") {
+        n = n + _rmIfExists(Path.Join(_buildDir(root), "tests"));
+        foreach (var br in new string[]{ _libsBuildRoot(root), _compilerBuildRoot(root) }) {
+            if (!Directory.Exists(br)) { continue; }
+            foreach (var m in _sortedStrings(Directory.Enumerate(br))) {
+                n = n + _rmIfExists(Path.Join(Path.Join(br, m), "tests"));
             }
         }
     }
-    string label = (sub == "") ? "production cache/dist" : sub;
-    Console.WriteLine("✅ clean " + sub + ": removed " + n.ToString() + " dir(s) [" + label + "]");
+    // z42b 的 dev 目标输出根（builder_test.z42 `<sourceDir>/artifacts/<kind>-targets`，kind = test|bench）。
+    string targets = (kind == "tests" ? "test" : "bench") + "-targets";
+    foreach (var d in _srcZ42ProjectDirs(root)) {
+        n = n + _rmIfExists(Path.Join(Path.Join(d, "artifacts"), targets));
+    }
+    Console.WriteLine("✅ clean " + kind + ": removed " + n.ToString() + " dir(s)");
     return 0;
+}
+
+int _cleanAll(string root) {
+    int n = 0;
+    n = n + _rmIfExists(_buildDir(root));
+    n = n + _rmIfExists(Path.Join(_artifactsDir(root), "tmp"));
+    n = n + _rmIfExists(_legacyScratchDir(root));
+    n = n + _rmIfExists(_pubStagingRoot(root));
+    int strays = 0;
+    foreach (var d in _srcZ42ProjectDirs(root)) {
+        strays = strays + _rmIfExists(Path.Join(d, "artifacts")) + _rmIfExists(Path.Join(d, "dist"));
+        // cross-zpkg 用例：xtask 把依赖 zpkg 拷进 `<fixture>/<pkg>/libs/`（.gitignore 专门登记了
+        // `src/tests/cross-zpkg/*/*/libs/`）。只在这条路径下删 `libs`，别处同名目录不碰。
+        if (d.Replace("\\", "/").Contains("/src/tests/cross-zpkg/")) {
+            strays = strays + _rmIfExists(Path.Join(d, "libs"));
+        }
+    }
+    Console.WriteLine("✅ clean all: removed " + n.ToString() + " artifacts/ dir(s) (build, tmp, publish)"
+        + " + " + strays.ToString() + " source-tree output dir(s)");
+    Console.WriteLine("   kept: artifacts/{xtask,tools,packages,release,.z42,bench,profile,test-reports}");
+    return 0;
+}
+
+// src/ 下所有 z42 工程目录（含 `<name>.z42.toml` 或 `z42.toml` 清单的目录——测试夹具多用后者），
+// 跳过输出目录与 node_modules 里的。
+string[] _srcZ42ProjectDirs(string root) {
+    string src = Path.Join(root, "src");
+    string[] named = Path.GlobRecursive(src, "*.z42.toml");
+    string[] plain = Path.GlobRecursive(src, "z42.toml");
+    string[] tomls = new string[named.Length + plain.Length];
+    int c = 0;
+    foreach (var t in named) { tomls[c] = t; c = c + 1; }
+    foreach (var t in plain) { tomls[c] = t; c = c + 1; }
+    string[] dirs = new string[tomls.Length];
+    int n = 0;
+    foreach (var t in tomls) {
+        string u = t.Replace("\\", "/");
+        if (u.Contains("/artifacts/") || u.Contains("/dist/") || u.Contains("/node_modules/")) { continue; }
+        string d = Path.GetDirectoryName(t);
+        bool seen = false;
+        int k = 0;
+        while (k < n) { if (dirs[k] == d) { seen = true; } k = k + 1; }
+        if (!seen) { dirs[n] = d; n = n + 1; }
+    }
+    string[] outArr = new string[n];
+    int i = 0;
+    while (i < n) { outArr[i] = dirs[i]; i = i + 1; }
+    return outArr;
 }
 
 int _rmIfExists(string dir) {

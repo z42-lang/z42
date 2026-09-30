@@ -13,7 +13,7 @@
 //      members hard-linked into one Z42_LIBS dir), the cargo runtime output dir,
 //      the build roots xtask scans/stages. These live here as single definitions.
 //
-//   ③ the top-level `artifacts/` buckets (.scratch / tmp / tools / packages / publish /
+//   ③ the top-level `artifacts/` buckets (tmp / tools / packages / publish /
 //      test-reports / bench / profile / .z42 …). centralize-xtask-layout（2026-09-30）：这些
 //      此前散落在 ~35 个使用点、各写一遍字面量，理由是「一次性目录、没有布局含义」。但整理
 //      artifacts/ 布局时恰恰要逐个挪它们 —— 散着就得逐个找。现在每个桶**只在这里定义一次**，
@@ -184,21 +184,35 @@ string _xtaskZpkg(string root) { return _toolchainZpkg(root, "scripts/xtask.z42.
 
 // ── ③ top-level artifacts/ buckets (single definitions) ────────────────────────
 //
-// 每个桶只在这里定义。使用点写 `_scratchDir(root, "e2e")` 而不是
-// `Path.Join(root, "artifacts/.scratch/e2e")`。`_layoutEntries` 把它们列给 `xtask layout`。
+// 每个桶只在这里定义。使用点写 `_tmpDir(root, "e2e")` 而不是
+// `Path.Join(root, "artifacts/tmp/e2e")`。`_layoutKeys` / `_layoutPath` 把它们列给 `xtask layout`。
 
 // artifacts/ — the single output root.
 string _artifactsDir(string root) { return Path.Join(root, "artifacts"); }
 
-// artifacts/.scratch/<name> — per-command work dirs that must survive across steps of ONE
-// command run (seed run-libs, self-host gen1 snapshot, e2e fixtures, alllibs …).
-string _scratchDir(string root, string name) {
-    return Path.Join(Path.Join(_artifactsDir(root), ".scratch"), name);
-}
-
-// artifacts/tmp/<name> — throwaway dirs of self-checks (reset on each use).
+// artifacts/tmp/<name> — 各命令的工作目录，可整桶删（`xtask clean tmp`）。一个命令的多个步骤之间
+// 可以复用（seed run-libs、self-host gen1 快照、e2e 夹具……），自检 harness 则每次重置。
+//
+// tidy-artifacts-tmp-and-clean（2026-09-30）：此前分成 `.scratch/`（跨步骤复用）与 `tmp/`（自检一次性）
+// 两个桶，但两者的生命周期没有实质差别 —— 都可重生、都不进任何包、都没有被 clean 覆盖。合成一个。
 string _tmpDir(string root, string name) {
     return Path.Join(Path.Join(_artifactsDir(root), "tmp"), name);
+}
+
+// 旧的 artifacts/.scratch —— 只供 `xtask clean tmp|all` 清理旧工作树里的残留。不要往这里写。
+string _legacyScratchDir(string root) { return Path.Join(_artifactsDir(root), ".scratch"); }
+
+// artifacts/build/views/<profile> — 构建树上的**聚合视图**（从各成员 dist 拼出来、供解析用的目录）。
+// 每次使用前按需重建，与 build/ 同生命周期（`clean all` 一并删）。
+string _viewsDir(string root, string profile) {
+    return Path.Join(Path.Join(_buildDir(root), "views"), profile);
+}
+
+// alllibs = stdlib flat ∪ 全部编译器成员 dist 的扁平目录（工具链编译期解析面，见 `_assembleAllLibs`）。
+// 原在 artifacts/.scratch/alllibs/<profile>：它是关键输入而不是临时目录，故挪进 build/views。
+// ⚠️ scripts/hooks/hooks.z42 另写了一份（hooks 工程调不到本函数），改这里要同步。
+string _allLibsDir(string root, string profile) {
+    return Path.Join(_viewsDir(root, profile), "all");
 }
 
 // artifacts/tools — downloaded third-party tools (node / android-sdk / gradle / playwright).
@@ -231,7 +245,7 @@ string[] _layoutKeys() {
     return new string[]{
         "root", "artifacts", "build", "vm", "vm-debug", "libs", "xtask", "cargo-target",
         "compiler-build", "libraries-build", "sdk", "stage", "packages", "release",
-        "tools", "test-reports", "bench", "profile", "scratch", "tmp" };
+        "tools", "test-reports", "bench", "profile", "tmp", "alllibs" };
 }
 string _layoutPath(string root, string key) {
     if (key == "root")            { return root; }
@@ -252,8 +266,8 @@ string _layoutPath(string root, string key) {
     if (key == "test-reports")    { return _testReportsDir(root); }
     if (key == "bench")           { return _benchDir(root); }
     if (key == "profile")         { return _profileDir(root); }
-    if (key == "scratch")         { return Path.Join(_artifactsDir(root), ".scratch"); }
     if (key == "tmp")             { return Path.Join(_artifactsDir(root), "tmp"); }
+    if (key == "alllibs")         { return _allLibsDir(root, "release"); }
     return "";
 }
 
