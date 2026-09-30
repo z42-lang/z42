@@ -1,0 +1,362 @@
+// 包构建会话（add-build-session）：「读清单 → 决议全部旋钮 → 组 CompileInputs → PackageCompile → 写产物」
+// 这一层的唯一实现。今天它服务 z42b 的 `ICompiler` 路径（`Z42cCompiler`，Role = HostTarget）；第二步
+// `unify-driver-on-build-session` 让 z42c CLI 的 `Main._build` 也变成它的薄封装，届时补齐其余角色
+// （增量 / indexed dist / path 闭包 / 多 exe 目标）。设计见 docs/spec/changes/add-build-session/design.md。
+//
+// 两条纪律：
+//   · **不打印**：诊断、进度一律经 `IBuildReporter`。z42c 与 z42b 的呈现通道不同（stderr + `z42c build:` 前缀
+//     vs `ctx.Warn`），会话不替任何一方做决定。
+//   · **角色显式**：`BuildRole` 替换 `_build` 里靠 `libsDirsCount` / `tier` 形状推断调用方的隐式约定。
+namespace Z42.Pipeline;
+
+using Std;
+using Std.IO;
+using Z42.Core;
+using Z42.Syntax;
+using Z42.Semantics;
+using Z42.Package;
+using Z42.Project;
+
+// 调用方角色。本 change 只实现 HostTarget / AnalyzerChild；其余在第二步随 driver 迁移补齐。
+public static class BuildRole {
+    public static int Root          = 0;   // z42c build <toml>（顶层）
+    public static int WsFlat        = 1;   // workspace flat 成员（共用 --output-dir）
+    public static int WsMember      = 2;   // workspace per-member 成员
+    public static int ClosureChild  = 3;   // path 依赖闭包代建
+    public static int AnalyzerChild = 4;   // [analyzers] path 条目代建
+    public static int HostTarget    = 5;   // z42b ICompiler：packed 单产物、不解析 path 闭包、不增量
+}
+
+public static class BuildExit {
+    public static int Ok         = 0;
+    public static int BuildError = 1;   // 编译 / 构建失败（诊断已经 reporter 呈现）
+    public static int UsageError = 2;   // 清单用法错误（未知旋钮名 / pack 冲突）
+}
+
+// 呈现通道。isError=false 的 Diags 是警告；Fail 是不属于某个源文件的构建级错误行。
+public interface IBuildReporter {
+    void Progress(string line);
+    void Diags(bool isError, string origin, string[] msgs, int count);
+    void Fail(string line);
+}
+
+// 收集型 reporter：z42b 路径用它把错误 / 警告回填进 CompileResult。
+public sealed class CollectingReporter : IBuildReporter {
+    public string[] ErrorLines;   public int ErrorCount;
+    public string[] WarningLines; public int WarningCount;
+    public CollectingReporter() {
+        this.ErrorLines = new string[4]; this.ErrorCount = 0;
+        this.WarningLines = new string[4]; this.WarningCount = 0;
+    }
+    public void Progress(string line) { }
+    public void Diags(bool isError, string origin, string[] msgs, int count) {
+        int i = 0;
+        while (i < count) {
+            if (isError) { this._addErr(msgs[i]); } else { this._addWarn(msgs[i]); }
+            i = i + 1;
+        }
+    }
+    public void Fail(string line) { this._addErr(line); }
+    public string ErrorsText() { return CollectingReporter._join(this.ErrorLines, this.ErrorCount); }
+    public string WarningsText() { return CollectingReporter._join(this.WarningLines, this.WarningCount); }
+    private void _addErr(string s) {
+        if (this.ErrorCount == this.ErrorLines.Length) { this.ErrorLines = CollectingReporter._grow(this.ErrorLines, this.ErrorCount); }
+        this.ErrorLines[this.ErrorCount] = s; this.ErrorCount = this.ErrorCount + 1;
+    }
+    private void _addWarn(string s) {
+        if (this.WarningCount == this.WarningLines.Length) { this.WarningLines = CollectingReporter._grow(this.WarningLines, this.WarningCount); }
+        this.WarningLines[this.WarningCount] = s; this.WarningCount = this.WarningCount + 1;
+    }
+    private static string[] _grow(string[] a, int n) {
+        string[] b = new string[a.Length * 2];
+        int i = 0; while (i < n) { b[i] = a[i]; i = i + 1; }
+        return b;
+    }
+    private static string _join(string[] a, int n) {
+        string[] parts = new string[n * 2];
+        int k = 0;
+        int i = 0;
+        while (i < n) { if (i > 0) { parts[k] = "\n"; k = k + 1; } parts[k] = a[i]; k = k + 1; i = i + 1; }
+        return String.ConcatParts(parts, k);
+    }
+}
+
+public sealed class BuildOptions {
+    public ProjectManifest Manifest;
+    public string          Label;         // 错误行里的清单名（toml 路径 / 派生清单的包名）
+    public string          ProjectDir;    // 源根（[sources] glob 相对它）
+    public int             Role;
+    public bool            IsRelease;
+    public int             CliAdd;        // --opt / --no-opt 的位（z42b 恒 0）
+    public int             CliRemove;
+    public string[]        BaseLibs;      // 依赖解析域（调用方决议：z42b = req.Deps 的父目录集）
+    public int             BaseLibsN;
+    public string          OutputZpkg;    // "" = 按 BuildLayout 的 dist/<name>.zpkg
+    public string[]        Excludes;      // [sources] exclude（z42b 已并入 hooks 目录）；null = 用清单的
+    public int             ExcludesCount;
+    public string          ParentPkg;     // 测试 / bench 目标的父包（其 internal 可见）；"" = 普通编译
+    public IBuildReporter  Reporter;
+    public BuildOptions(ProjectManifest pm, string projectDir, int role, bool isRelease, IBuildReporter reporter) {
+        this.Manifest = pm; this.Label = pm.Project.Name; this.ProjectDir = projectDir; this.Role = role;
+        this.IsRelease = isRelease; this.CliAdd = 0; this.CliRemove = 0;
+        this.BaseLibs = new string[0]; this.BaseLibsN = 0; this.OutputZpkg = "";
+        this.Excludes = null; this.ExcludesCount = 0; this.ParentPkg = ""; this.Reporter = reporter;
+    }
+}
+
+public sealed class BuildResult {
+    public int    Code;
+    public string OutZpkg;
+    public string OutZsym;   // "" = 无 sidecar
+    public BuildResult(int code, string zpkg, string zsym) { this.Code = code; this.OutZpkg = zpkg; this.OutZsym = zsym; }
+}
+
+public sealed class BuildSession {
+    private BuildOptions _o;
+
+    public BuildSession(BuildOptions o) { this._o = o; }
+
+    public BuildResult Run() {
+        BuildOptions o = this._o;
+        ProjectManifest pm = o.Manifest;
+        IBuildReporter rep = o.Reporter;
+        // ① 旋钮决议。HostTarget / AnalyzerChild 的产物都要被别人加载 ⇒ packed。
+        KnobResult kn = ManifestKnobs.Resolve(pm, o.Label, o.IsRelease, o.CliAdd, o.CliRemove, true);
+        if (kn.ErrorCount > 0) {
+            int ke = 0;
+            while (ke < kn.ErrorCount) { rep.Fail(kn.Errors[ke]); ke = ke + 1; }
+            return BuildSession._fail(BuildExit.UsageError);
+        }
+        // ② 源发现（include 缺省 `**/*.z42`；exclude 由调用方给出时以调用方为准——z42b 已并入 hooks 目录）。
+        string[] incs = pm.Sources.Include;
+        int incN = pm.Sources.IncludeCount;
+        if (incN == 0) { incs = new string[1]; incs[0] = "**/*.z42"; incN = 1; }
+        string[] excs = o.Excludes != null ? o.Excludes : pm.Sources.Exclude;
+        int excN = o.Excludes != null ? o.ExcludesCount : pm.Sources.ExcludeCount;
+        string[] srcs = SourceDiscovery.DiscoverWithExclude(o.ProjectDir, incs, incN, excs, excN);
+        if (srcs.Length == 0) {
+            rep.Fail("no .z42 sources under " + o.ProjectDir);
+            return BuildSession._fail(BuildExit.BuildError);
+        }
+        string[] texts = new string[srcs.Length];
+        string[] hashes = new string[srcs.Length];
+        int i = 0;
+        while (i < srcs.Length) {
+            texts[i] = File.ReadAllText(srcs[i]);
+            hashes[i] = ZpkgBuilder.SourceHashHex(texts[i]);
+            i = i + 1;
+        }
+        // ③ 解析域：调用方给的基础域；analyzer 工程再并入编译器域（普通工程看不见编译器契约包）。
+        string[] libs = o.BaseLibs;
+        int libsN = o.BaseLibsN;
+        if (pm.Project.Kind == "analyzer") {
+            string[] cl = CompilerDomain.Dirs();
+            string[] withCl = new string[libsN + cl.Length];
+            int wi = 0; while (wi < libsN) { withCl[wi] = libs[wi]; wi = wi + 1; }
+            int ci = 0; while (ci < cl.Length) { withCl[libsN + ci] = cl[ci]; ci = ci + 1; }
+            libs = withCl; libsN = libsN + cl.Length;
+        }
+        // ④ [analyzers] → handler zpkg 路径（名字条目查解析域；path 条目以 AnalyzerChild 代建）。
+        string[] azPaths = null;
+        if (pm.AnalyzerCount > 0) {
+            azPaths = this._resolveHandlers(pm, libs, libsN);
+            if (azPaths == null) { return BuildSession._fail(BuildExit.BuildError); }
+        }
+        // ⑤ 声明的依赖必须在解析域里（此前 z42b 路径把解析域下所有 zpkg 都当成已声明，这条从不触发）。
+        string[] declared = new string[pm.DepCount];
+        int dd = 0;
+        while (dd < pm.DepCount) {
+            declared[dd] = pm.Deps[dd].Name;
+            if (!BuildSession._inLibs(libs, libsN, declared[dd] + ".zpkg")) {
+                rep.Fail("[dependencies] `" + declared[dd] + "` 未找到 " + declared[dd] + ".zpkg；已查找："
+                    + BuildSession._dirList(libs, libsN) + "。检查包名拼写，或先构建该依赖。");
+                return BuildSession._fail(BuildExit.BuildError);
+            }
+            dd = dd + 1;
+        }
+        // ⑥ 解析（带 [syntax] 特性门）→ 组 CompileInputs → 编译。
+        CompilationUnit[] cus = new CompilationUnit[srcs.Length];
+        int pi = 0;
+        while (pi < srcs.Length) {
+            Parser pp = new Parser(texts[pi], srcs[pi]);
+            pp._features = kn.Features;
+            cus[pi] = pp.ParseCompilationUnit();
+            pi = pi + 1;
+        }
+        CompileInputs inp = new CompileInputs();
+        inp.Texts = texts; inp.Files = srcs; inp.SrcHashes = hashes; inp.SrcCount = srcs.Length;
+        inp.Cus = cus; inp.CachedMods = null; inp.CachedMetas = null;
+        inp.Name = pm.Project.Name; inp.Version = pm.Project.Version; inp.Kind = pm.Project.Kind;
+        inp.HasEntry = pm.Project.HasEntry; inp.Entry = pm.Project.Entry;
+        inp.IsRelease = o.IsRelease;
+        inp.Features = kn.Features;
+        inp.OptSet = kn.OptSet;
+        inp.LibsDirs = libs; inp.LibsDirsN = libsN;
+        inp.DeclaredDeps = declared; inp.DepCount = pm.DepCount;
+        inp.EnforceDeclaredDeps = true;          // 真的读了一份清单 ⇒ 执行依赖契约（E0497），同 z42c build
+        inp.ParentPkg = o.ParentPkg;
+        if (azPaths != null) { inp.AnalyzerZpkgs = azPaths; inp.AnalyzerZpkgCount = pm.AnalyzerCount; }
+        inp.Lints = kn.Lints;
+        CompileArtifacts art = PackageCompile.Compile(inp);
+        // ⑦ 诊断：逐 CU（上界 art.CmCount——generator 产出的 CU 排在用户 CU 之后，标 <generated>）。
+        int ci2 = 0;
+        while (ci2 < art.CmCount) {
+            CompiledModuleZ cm = art.Cms[ci2];
+            string origin = ci2 < srcs.Length ? srcs[ci2] : "<generated>";
+            if (cm.DiagCount > 0) { rep.Diags(cm.ErrorCount > 0, origin, cm.DiagMsgs, cm.DiagCount); }
+            ci2 = ci2 + 1;
+        }
+        if (art.ErrorCount > 0) { return BuildSession._fail(BuildExit.BuildError); }
+        bool isExe = pm.Project.Kind == "exe";
+        if (isExe && art.EntryStatus == "ambiguous") {
+            rep.Fail("multiple Main candidates; set [project].entry explicitly");
+            return BuildSession._fail(BuildExit.BuildError);
+        }
+        if (isExe && art.EntryStatus == "missing") {
+            rep.Fail("kind=exe but no Main() found in " + o.ProjectDir);
+            return BuildSession._fail(BuildExit.BuildError);
+        }
+        // ⑧ 写产物：packed；strip 时主包剥 DBUG 且**必写** .zsym（此前 z42b 主包照剥、.zsym 却被丢）。
+        // 可复现 build_id：SourceFile 相对源根、SourceHash 置空（同 driver `_stabilizeSourceIdentity`）。
+        int si = 0;
+        while (si < art.Z.ModuleCount) {
+            ZbcFileZ sm = art.Z.Modules[si];
+            sm.SourceFile = IncrementalBuild.Rel(o.ProjectDir, sm.SourceFile);
+            sm.SourceHash = "";
+            si = si + 1;
+        }
+        string outZpkg = o.OutputZpkg;
+        if (outZpkg == "") {
+            outZpkg = Path.Join(BuildLayout.Resolve(pm, o.ProjectDir, o.IsRelease).DistDir, pm.Project.Name + ".zpkg");
+        }
+        ZpkgWriteResult wres = ZpkgWriterZ.WritePackedWithSidecar(art.Z, kn.Strip);
+        string outDir = Path.GetDirectoryName(outZpkg);
+        if (outDir.Length > 0) { Directory.Create(outDir); }
+        File.WriteAllBytes(outZpkg, wres.Main);
+        string zsym = "";
+        if (wres.HasSidecar) {
+            zsym = outZpkg.EndsWith(".zpkg") ? outZpkg.Substring(0, outZpkg.Length - 5) + ".zsym" : outZpkg + ".zsym";
+            File.WriteAllBytes(zsym, wres.Sidecar);
+        }
+        rep.Progress("wrote -> " + outZpkg);
+        return new BuildResult(BuildExit.Ok, outZpkg, zsym);
+    }
+
+    // [analyzers] 条目 → handler zpkg 路径（与 pm.Analyzers 同序）；失败经 reporter 报错并返回 null。
+    // path 条目：定位清单 → 校验 kind = analyzer 且名字一致 → AnalyzerChild 会话代建 → 取其产物。
+    // 代建产物**不并入**消费方解析域（handler 只加载进编译器进程，D9）。
+    private string[] _resolveHandlers(ProjectManifest pm, string[] libs, int libsN) {
+        IBuildReporter rep = this._o.Reporter;
+        string[] paths = new string[pm.AnalyzerCount];
+        int ai = 0;
+        while (ai < pm.AnalyzerCount) {
+            string aname = pm.Analyzers[ai].Name;
+            string apath = pm.Analyzers[ai].Path;
+            if (apath.Length == 0) {
+                string cand = BuildSession._findInLibs(libs, libsN, aname + ".zpkg");
+                if (cand == "") {
+                    rep.Fail("[analyzers] `" + aname + "` 未找到 " + aname + ".zpkg；已查找：" + BuildSession._dirList(libs, libsN) + "。");
+                    return null;
+                }
+                paths[ai] = cand;
+            } else {
+                string adir = Path.Join(this._o.ProjectDir, apath);
+                ManifestLocation aloc = ManifestLocator.FindIn(adir);
+                if (aloc.Kind != ManifestLocateKind.Project) {
+                    rep.Fail("[analyzers] `" + aname + "` 的 path 指向 " + adir + "，那里没有单个工程清单。");
+                    return null;
+                }
+                ProjectManifest apm = ManifestLoader.Load(aloc.ManifestPath);
+                if (apm.Project.Kind != "analyzer" || apm.Project.Name != aname) {
+                    rep.Fail("[analyzers] `" + aname + "` 指向的工程 " + aloc.ManifestPath + " 须是 kind = \"analyzer\" 且名为 `"
+                        + aname + "`（实际 kind = \"" + apm.Project.Kind + "\"、name = `" + apm.Project.Name + "`）。");
+                    return null;
+                }
+                if (apm.DepCount > 0 && BuildSession._hasPathDep(apm)) {
+                    rep.Fail("[analyzers] `" + aname + "` 自带 path 依赖；本构建路径暂不代建 analyzer 的依赖闭包，"
+                        + "请先用 `z42c build " + aloc.ManifestPath + "` 构建它。");
+                    return null;
+                }
+                // analyzer 工程的解析域 = 消费方基础域（stdlib）；编译器域在子会话里按 kind 并入。
+                BuildOptions co = new BuildOptions(apm, Path.GetDirectoryName(aloc.ManifestPath), BuildRole.AnalyzerChild,
+                                                   this._o.IsRelease, rep);
+                co.Label = aloc.ManifestPath;
+                co.BaseLibs = this._o.BaseLibs; co.BaseLibsN = this._o.BaseLibsN;
+                BuildResult cr = new BuildSession(co).Run();
+                if (cr.Code != BuildExit.Ok) {
+                    rep.Fail("[analyzers] `" + aname + "` 的工程构建失败（见上）。");
+                    return null;
+                }
+                paths[ai] = cr.OutZpkg;
+            }
+            ai = ai + 1;
+        }
+        return paths;
+    }
+
+    private static bool _hasPathDep(ProjectManifest pm) {
+        int i = 0;
+        while (i < pm.DepCount) { if (pm.Deps[i].Path.Length > 0) { return true; } i = i + 1; }
+        return false;
+    }
+
+    private static bool _inLibs(string[] libs, int n, string file) { return BuildSession._findInLibs(libs, n, file) != ""; }
+
+    private static string _findInLibs(string[] libs, int n, string file) {
+        int d = 0;
+        while (d < n) {
+            string cand = Path.Join(libs[d], file);
+            if (File.Exists(cand)) { return cand; }
+            d = d + 1;
+        }
+        return "";
+    }
+
+    private static string _dirList(string[] libs, int n) {
+        if (n == 0) { return "(无依赖目录)"; }
+        string s = "";
+        int d = 0;
+        while (d < n) { s = s + (d > 0 ? ", " : "") + libs[d]; d = d + 1; }
+        return s;
+    }
+
+    private static BuildResult _fail(int code) { return new BuildResult(code, "", ""); }
+}
+
+// 编译器域目录（编译器契约包 z42c.* 所在处）——只对 kind = "analyzer" 的工程可见。
+// 探测序与 driver `BuildPaths._compilerDomainDirs` 逐条一致（第二步 driver 改用本类并删掉那份）：
+//   ① `Z42_COMPILER_LIBS` ② `Z42_HOME/programs/z42c/` ③ `Z42_PORTABLE_VM` 反推 SDK 根
+//   ④ 开发树：自 `Z42_LIBS` 上溯到 `artifacts/build/` → `compiler/z42c.semantics/release/dist/`
+public static class CompilerDomain {
+    public static string[] Dirs() {
+        string[] found = new string[4];
+        int n = 0;
+        string env = Environment.GetEnvironmentVariable("Z42_COMPILER_LIBS", "");
+        if (env.Length > 0 && Directory.Exists(env)) { found[n] = env; n = n + 1; }
+        string home = Environment.GetEnvironmentVariable("Z42_HOME", "");
+        if (home.Length > 0) { n = CompilerDomain._add(found, n, Path.Join(home, Path.Join("programs", "z42c"))); }
+        string pv = Environment.GetEnvironmentVariable("Z42_PORTABLE_VM", "");
+        if (pv.Length > 0) {
+            string sdk = Path.GetDirectoryName(Path.GetDirectoryName(pv));
+            n = CompilerDomain._add(found, n, Path.Join(sdk, Path.Join("programs", "z42c")));
+        }
+        string libs = Environment.GetEnvironmentVariable("Z42_LIBS", "");
+        if (libs.Length > 0) {
+            string buildDir = Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(libs)));
+            if (buildDir.Length > 0) {
+                n = CompilerDomain._add(found, n, Path.Join(buildDir, Path.Join("compiler", Path.Join("z42c.semantics", Path.Join("release", "dist")))));
+            }
+        }
+        string[] r = new string[n];
+        int i = 0; while (i < n) { r[i] = found[i]; i = i + 1; }
+        return r;
+    }
+
+    private static int _add(string[] found, int n, string dir) {
+        if (!Directory.Exists(dir)) { return n; }
+        int i = 0;
+        while (i < n) { if (found[i] == dir) { return n; } i = i + 1; }
+        found[n] = dir;
+        return n + 1;
+    }
+}

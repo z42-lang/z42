@@ -113,6 +113,7 @@ int _testTargetsCore(string kind, string name, bool noBuild) {
         failed = failed + _smokeHarnessFalse(root, tt);
         failed = failed + _smokeBundleHost(root, tt);
         failed = failed + _smokeCompileFailClean(root, tt);
+        failed = failed + _smokeManifestSections(root, tt);
     }
     Console.WriteLine("");
     if (failed > 0) {
@@ -243,6 +244,33 @@ int _smokeCompileFailClean(string root, TargetTooling tt) {
         return 1;
     }
     Console.WriteLine("  ✅ compile-fail 收尾: 干净判红（rc=" + r.ExitCode.ToString() + "），无未捕获异常");
+    return 0;
+}
+
+// 清单段生效 smoke（add-build-session）：z42b 的编译按**整份清单**决策。**预期判红**：fixture 设
+// `[syntax] ternary = false`，测试目标里用了 `?:` ⇒ 必须报 E0301。此前 z42b 只传平铺字段、清单的
+// [syntax] / [optimize] / [lints] / [analyzers] 被静默忽略 ⇒ 这里会跑出绿色。
+// 断言两条：① 判红；② 红的理由是 E0301（不是别的原因早早退出——红了不等于红对了）。
+int _smokeManifestSections(string root, TargetTooling tt) {
+    string toml = Path.Join(root, "src/tests/z42b/manifest-sections/z42.toml");
+    if (!File.Exists(toml)) { return 0; }
+    Console.WriteLine("");
+    Console.WriteLine("── manifest sections (z42b 按整份清单编译：[syntax] 生效且被测试目标继承) ──");
+    ProcessResult r = new Process(tt.Vm).Arg(tt.BuilderZpkg).Arg("--mode").Arg(_z42cMode())
+        .Arg("--").Arg("test").Arg(toml)
+        .Env("Z42_LIBS", tt.Libs).WorkingDirectory(root)
+        .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
+    string all = r.Stdout + r.Stderr;
+    if (r.ExitCode == 0) {
+        Console.WriteLine("  ❌ manifest sections: `[syntax] ternary = false` 下 `?:` 竟然编过 —— 清单段被 z42b 忽略");
+        return 1;
+    }
+    if (all.IndexOf("E0301") < 0) {
+        Console.WriteLine("  ❌ manifest sections: 判红了，但不是 E0301 —— 红的理由对不上");
+        Console.WriteLine("    输出: " + all);
+        return 1;
+    }
+    Console.WriteLine("  ✅ manifest sections: [syntax] 经 z42b 生效并被测试目标继承（E0301，rc=" + r.ExitCode.ToString() + "）");
     return 0;
 }
 

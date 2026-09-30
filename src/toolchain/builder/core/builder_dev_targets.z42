@@ -147,7 +147,9 @@ void _dtSort(DevTarget[] a, int n) {
 ///   sources= 目标的 glob
 ///   deps   = [dependencies] ∪ [<kind>s.dependencies] ∪ [[target]].dependencies（三层，后者优先）
 ///   build  = 每目标独立的 output_dir / cache_dir（防两个目标的 source.zbc 互相覆盖）
-ProjectManifest _deriveTargetManifest(ProjectManifest m, DevTarget t, string kind, string outRoot) {
+// parentDep：父包有自己的源（⇒ 会被建出来）时才把它列为目标的第一依赖。纯测试工程（父包无源）不列——
+// 否则按清单解析依赖时会撞「未找到 <父包>.zpkg」（add-build-session 起 z42b 与 z42c 一样核验 [dependencies]）。
+ProjectManifest _deriveTargetManifest(ProjectManifest m, DevTarget t, string kind, string outRoot, bool parentDep) {
     string derivedName = m.Project.Name + "." + kind + "." + t.Name;
     string pkind = t.Harness ? "lib" : "exe";
     ProjectInfo pi = new ProjectInfo(derivedName, m.Project.Version, pkind,
@@ -159,8 +161,7 @@ ProjectManifest _deriveTargetManifest(ProjectManifest m, DevTarget t, string kin
     DepEntry[] merged = new DepEntry[m.DepCount + (sec == null ? 0 : sec.DepCount) + t.DepCount + 1];
     int mc = 0;
     // **父包自己**是测试目标的第一依赖 —— 测试要用它的公开面（以及经 ParentPkg 放行的 internal）。
-    merged[0] = new DepEntry(m.Project.Name, m.Project.Version, "");
-    mc = 1;
+    if (parentDep) { merged[0] = new DepEntry(m.Project.Name, m.Project.Version, ""); mc = 1; }
     mc = _dtAppendDeps(merged, mc, m.Deps, m.DepCount);
     if (sec != null) { mc = _dtAppendDeps(merged, mc, sec.Deps, sec.DepCount); }
     mc = _dtAppendDeps(merged, mc, t.Deps, t.DepCount);
@@ -169,11 +170,19 @@ ProjectManifest _deriveTargetManifest(ProjectManifest m, DevTarget t, string kin
     BuildConfig bc = new BuildConfig(true, tOut, true, Path.Join(tOut, "cache"),
                                      false, "", m.Build.Incremental, false, "");
 
-    return new ProjectManifest(pi, src, bc,
+    ProjectManifest dm = new ProjectManifest(pi, src, bc,
                                new Profile[0], 0, merged, mc,
                                new ExeTarget[0], 0, m.Platform,
                                null, null, null,
                                new RunTarget[0], 0, new RunTarget[0], 0, new RunTarget[0], 0);
+    // add-build-session：编译旋钮随父包走——测试目标与被测包同一套 [optimize] / [syntax] / [lints] / [analyzers]
+    // （此前派生清单丢了这四段 ⇒ 测试目标按默认值编，父包开的 syntax 特性在测试里用不了、analyzer 不跑）。
+    dm.OptimizeNames = m.OptimizeNames; dm.OptimizeValues = m.OptimizeValues; dm.OptimizeCount = m.OptimizeCount;
+    dm.SyntaxNames = m.SyntaxNames; dm.SyntaxValues = m.SyntaxValues; dm.SyntaxCount = m.SyntaxCount;
+    dm.LintNames = m.LintNames; dm.LintSeverities = m.LintSeverities; dm.LintCount = m.LintCount;
+    dm.LintWarningsAsErrors = m.LintWarningsAsErrors;
+    dm.Analyzers = m.Analyzers; dm.AnalyzerCount = m.AnalyzerCount;
+    return dm;
 }
 
 // 追加依赖，**后来者覆盖同名**（三层合并语义：目标级 > 段级 > 包级）。

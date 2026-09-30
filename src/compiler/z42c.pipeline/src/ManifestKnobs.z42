@@ -1,0 +1,96 @@
+// 清单编译旋钮的决议（add-build-session）：`[optimize]` / `[syntax]` / `[lints]` / pack / strip。
+//
+// 语义逐项搬自 `z42c.driver` `Main._build`（同名各段的注释是来龙去脉的出处），差别只有一处：这里**不打印**，
+// 出错时把消息行收进 `KnobResult.Errors`，由调用方经自己的呈现通道输出。这是 BuildSession 能同时服务
+// z42c CLI（stderr、`z42c:` 前缀）与 z42b（`ctx.Warn`）的前提。
+//
+// 第二步（`unify-driver-on-build-session`）driver 改用本文件并删除 `_build` 里的同段代码；在那之前两份并存，
+// 改其中一份时必须同步另一份（重复窗口 = 一个 nightly，bootstrap-seed「support 先行、晚一个 nightly 再 use」）。
+namespace Z42.Pipeline;
+
+using Std;
+using Z42.Core;
+using Z42.Semantics;
+using Z42.Project;
+
+public sealed class KnobResult {
+    public int              OptSet;
+    public LanguageFeatures Features;
+    public LintConfig       Lints;       // null = 清单没有 [lints]（等价空配置）
+    public bool             Packed;
+    public bool             Strip;
+    public string[]         Errors;      // 用法错误（未知旋钮名 / pack 冲突）；非空 ⇒ 不得继续编译
+    public int              ErrorCount;
+    public KnobResult() {
+        this.OptSet = 0; this.Features = null; this.Lints = null; this.Packed = true; this.Strip = false;
+        this.Errors = new string[0]; this.ErrorCount = 0;
+    }
+    public void AddError(string line) {
+        if (this.ErrorCount == this.Errors.Length) {
+            string[] b = new string[this.Errors.Length * 2 + 2];
+            int i = 0; while (i < this.ErrorCount) { b[i] = this.Errors[i]; i = i + 1; }
+            this.Errors = b;
+        }
+        this.Errors[this.ErrorCount] = line; this.ErrorCount = this.ErrorCount + 1;
+    }
+}
+
+public static class ManifestKnobs {
+    // label：出现在错误行里的清单名（通常是 toml 路径；派生清单传包名）。
+    // forcePacked：调用方只能消费 packed（z42b 恒 true）——此时 `pack = false` 视为用法错误。
+    public static KnobResult Resolve(ProjectManifest pm, string label, bool isRelease, int cliAdd, int cliRemove,
+                                     bool forcePacked) {
+        KnobResult r = new KnobResult();
+        // [optimize]：CLI > toml > profile 默认（`Opt.Resolve`）；未知名报错，与 CLI `--opt 乱写` 同口径。
+        OptTomlResult optToml = Opt.FromToml(pm.OptimizeNames, pm.OptimizeValues, pm.OptimizeCount);
+        int uk = 0;
+        while (uk < optToml.UnknownCount) {
+            r.AddError(label + ": [optimize] unknown optimization `" + optToml.Unknown[uk]
+                + "` (known: const-fold/copy-prop/dce/inline/cse/licm/"
+                + "stack-alloc/loop-alloc-reuse/readonly-load/pure-call/dead-branch/devirt/all/none)");
+            uk = uk + 1;
+        }
+        r.OptSet = Opt.Resolve(isRelease, optToml.Bits, optToml.Mask, cliAdd, cliRemove);
+        // [syntax] → LanguageFeatures；未知特性名报错（`Has` 分得出「未知」与「已知但关着」）。
+        LanguageFeatures feats = LanguageFeatures.Phase1Profile();
+        int sy = 0;
+        while (sy < pm.SyntaxCount) {
+            string sname = pm.SyntaxNames[sy];
+            if (!feats.Has(sname)) {
+                string known = "";
+                int kf = 0;
+                while (kf < feats.Count()) {
+                    if (kf > 0) { known = known + "/"; }
+                    known = known + feats.NameAt(kf);
+                    kf = kf + 1;
+                }
+                r.AddError(label + ": [syntax] unknown syntax feature `" + sname + "` (known: " + known + ")");
+            } else {
+                feats.Set(sname, pm.SyntaxValues[sy]);
+            }
+            sy = sy + 1;
+        }
+        r.Features = feats;
+        // [lints]：中性 name/severity 串对 → LintConfig（仅 analyzer 运行时消费）。
+        if (pm.LintCount > 0 || pm.LintWarningsAsErrors) {
+            r.Lints = new LintConfig(pm.LintNames, pm.LintSeverities, pm.LintCount, pm.LintWarningsAsErrors);
+        }
+        // pack：`[project].pack` 显式 > 内置默认（debug → indexed / release → packed）。
+        bool packed = pm.Project.HasPack ? pm.Project.Pack : isRelease;
+        if (forcePacked) {
+            if (pm.Project.HasPack && !pm.Project.Pack) {
+                r.AddError(label + ": pack=false (indexed) is not supported on this build path (it consumes packed zpkg only);"
+                    + " drop `pack = false`");
+            }
+            packed = true;
+        }
+        if (!packed && isRelease) {
+            r.AddError(label + ": pack=false (indexed) is dev-mode only and incompatible with --release strip;"
+                + " build without --release or set pack=true");
+        }
+        r.Packed = packed;
+        // strip ≡ release（z42c 无独立 strip 旋钮）：release 主包剥 DBUG、旁挂 .zsym。
+        r.Strip = isRelease;
+        return r;
+    }
+}

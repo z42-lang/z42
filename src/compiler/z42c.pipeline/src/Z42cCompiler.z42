@@ -18,6 +18,8 @@ using Z42.Project;
 public class Z42cCompiler : ICompiler {
 
     public CompileResult Compile(CompileRequest req) {
+        // add-build-session：带清单的请求走 BuildSession（Role = HostTarget）——与 `z42c build` 同一套清单决议。
+        if (req.Manifest != null) { return Z42cCompiler._viaSession(req); }
         // 1. 源发现（MVP 默认 glob；z42b scaffold 的标准布局覆盖）。
         // z42b-owns-test-targets：优先用 req.Includes（z42b 按 dev target 的 sources glob 传），
         // 空则沿用全扫（现状）。此前硬编码全扫 ⇒ 按目标编译会把整个工程编进去。
@@ -79,7 +81,6 @@ public class Z42cCompiler : ICompiler {
         // manifest 解析目标后设）。⇒ 加载父包时按同包待遇（其 internal 可见）、且 [Test] 放行。
         // 空 → 普通编译，行为与此前逐字节一致。
         inp.ParentPkg = req.ParentPkg;
-        inp.HasPkgContext = (req.ParentPkg != "");
         inp.IsRelease = req.Profile == "release";
         inp.LibsDirs = libsDirs; inp.LibsDirsN = libsN;
         inp.DeclaredDeps = declaredDeps; inp.DepCount = depN;
@@ -113,6 +114,33 @@ public class Z42cCompiler : ICompiler {
             File.WriteAllBytes(zsym, wres.Sidecar);
         }
         return new CompileResult(req.OutputZpkg, zsym, true, "");
+    }
+
+    // HostTarget：packed 单产物、不解析 path 闭包（z42b 自己编排闭包）、不增量。解析域 = req.Deps 各 zpkg 的父目录集。
+    private static CompileResult _viaSession(CompileRequest req) {
+        string[] libs = new string[req.Deps.Length];
+        int libsN = 0;
+        int d = 0;
+        while (d < req.Deps.Length) {
+            string dir = Path.GetDirectoryName(req.Deps[d]);
+            if (dir == "") { dir = "."; }
+            bool seen = false;
+            int k = 0;
+            while (k < libsN) { if (libs[k] == dir) { seen = true; } k = k + 1; }
+            if (!seen) { libs[libsN] = dir; libsN = libsN + 1; }
+            d = d + 1;
+        }
+        CollectingReporter rep = new CollectingReporter();
+        BuildOptions o = new BuildOptions(req.Manifest, req.SourceDir, BuildRole.HostTarget, req.Profile == "release", rep);
+        if (req.PackageName != "") { o.Label = req.PackageName; }
+        o.BaseLibs = libs; o.BaseLibsN = libsN;
+        o.OutputZpkg = req.OutputZpkg;
+        o.Excludes = req.Excludes; o.ExcludesCount = req.ExcludesCount;
+        o.ParentPkg = req.ParentPkg;
+        BuildResult br = new BuildSession(o).Run();
+        CompileResult res = new CompileResult(br.OutZpkg, br.OutZsym, br.Code == BuildExit.Ok, rep.ErrorsText());
+        res.Warnings = rep.WarningsText();
+        return res;
     }
 
     // 逐文件诊断聚合为单串（ICompiler 契约：Ok=false 时 Diagnostics 含错误文本）。

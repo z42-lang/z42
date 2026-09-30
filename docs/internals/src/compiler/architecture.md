@@ -48,7 +48,7 @@ graph LR
     S[source.z42] --> Lexer --> Parser/AST --> TypeCheck --> IrGen --> W[Zbc/ZpkgWriter → .zpkg]
 ```
 
-**B · 项目构建编排**（z42b 的构建阶段，详见[项目构建与发布编排](../../../internals/src/toolchain/z42b.md)）：即上文的构建流水线，其中 **Compile 阶段**经 `ICompiler` 接口调用流程 A 完成编译、产出 zpkg，随后继续裁剪与打包等阶段。
+**B · 项目构建编排**（z42b 的构建阶段，详见[项目构建与发布编排](../../../internals/src/toolchain/z42b.md)）：即上文的构建流水线，其中 **Compile 阶段**经 `ICompiler` 接口调用流程 A 完成编译、产出 zpkg，随后继续裁剪与打包等阶段。z42b 把整份清单随请求传入，编译器侧由 `z42c.pipeline` 的 `BuildSession` 按清单决议全部编译旋钮——与 `z42c build` 读同一组清单段（`z42c build` 自身迁到 `BuildSession` 是后续一步）。
 
 ## 迭代计划
 
