@@ -174,7 +174,7 @@ Actions UI 的 "Run workflow" 可以手动触发（输入的 version 必须与 `
 不签名、文件名不带版本号（`z42-sdk-nightly-<rid>.tar.gz`）。
 
 nightly 同时是**下一轮自举的种子**（`install-z42.sh` 默认拉它）。因此它的 `needs` 故意
-**不**挂在几条下载种子的 job（`test-vm-jit` / `test-stdlib-jit` / `verify-selfhost`）上——
+**不**挂在几条下载种子的 job（`test-vm-jit` / `test-stdlib-jit`）上——
 格式 bump 那一轮它们会暂时失败，挂上去就死锁且没有逃生口。见 [CI 拓扑](ci.md)。
 
 ```bash

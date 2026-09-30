@@ -268,13 +268,13 @@ base 默认 `HEAD`，也可以给 ref 或用 `Z42_TEST_CHANGED_BASE`；收集范
 
 | 改动 | 快速迭代 | commit 前额外必跑 | CI 替你验的 |
 |---|---|---|---|
-| **编译器 `src/compiler/`** | `test changed` | 触及 lexer / parser / codegen / 格式 writer，或源里用了新写法 → `test bootstrap` | `compiler-checks`、`verify-selfhost`、`test-host`、`test-vm-jit` |
+| **编译器 `src/compiler/`** | `test changed` | 触及 lexer / parser / codegen / 格式 writer，或源里用了新写法 → `test bootstrap` | `compiler-checks`、`test-host`（含种子自举边界）、`test-vm-jit` |
 | **stdlib（加 API / 改实现）** | `test stdlib <lib> -k <kw>` 或 `test changed` | — | `test-stdlib-interp` ×3 OS、`test-stdlib-jit` ×2 shard、`test-host` |
 | **stdlib（删 / 改 xtask 或 z42c 在用的 API）** | 同上 + 迁调用点 | ⚠️ 两步舞，见 §6 | 每腿 `ci-bootstrap`（用**种子** stdlib 编 xtask / z42c 源） |
 | **VM `src/runtime/`** | `xtask test runtime` + `test e2e` | — | `test-host`、`test-vm-jit`、`test-stdlib-*`、`verify-features` |
 | **只改用例 `src/tests/`** | `test e2e` | — | `test-host`（`test-vm-jit` / `stdlib-*` 不跑） |
 | **xtask 源 `scripts/`** | `z42 publish scripts/xtask.z42.toml` 重建后随便跑条命令冒烟 | changed 映射对 `scripts/**` = 全套 | 每腿 `ci-bootstrap` 的种子编 xtask 步 |
-| **新语法 / zbc·zpkg 格式** | 阶段一只落 support（仓库源码不用）→ `test bootstrap` | 格式 bump 另跑 `docs/agent/rules/version-bumping.md` 的清单；等 nightly 发布后才 use | `verify-selfhost` + 全腿 bootstrap |
+| **新语法 / zbc·zpkg 格式** | 阶段一只落 support（仓库源码不用）→ `test bootstrap` | 格式 bump 另跑 `docs/agent/rules/version-bumping.md` 的清单；等 nightly 发布后才 use | 全腿 `ci-bootstrap`（种子编当前源）+ `compiler-checks` |
 | **打包 `scripts/package/` / `packages.toml`** | `test packages` | `xtask package sdk` + `xtask test dist` | `package-host` + `package-{ios,android,wasm}` |
 | **codegen / 优化 / typecheck / IR writer（会改产物字节）** | `test compiler` | 同步 `CacheStore.CompilerFingerprint` +1；自查 `test fingerprint` | `bench-regression` 的 fingerprint guard |
 | **增量编译（IncrementalBuild / CacheStore / ZbcReader）** | `test compiler` | `test incremental`（逐文件 touch 对账，增量 == 全量逐字节） | `compiler-checks` |

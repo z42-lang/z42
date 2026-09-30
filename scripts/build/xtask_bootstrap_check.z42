@@ -5,8 +5,8 @@
 // nightly's z42c must be able to compile the CURRENT repo source. If it can't, the
 // source uses syntax / a zbc·zpkg format newer than the published nightly supports
 // — a boundary violation that would break the bootstrap (build-and-test seeds from
-// the previous nightly). The boundary CI gate is the `verify-selfhost` job; this is
-// the fast local equivalent.
+// the previous nightly). The boundary is exercised in CI by every job that runs the
+// ci-bootstrap action (test-host ×4 OS, compile-toolchain); this is the fast local equivalent.
 //
 // gh / tar / unzip are driven as EXTERNAL subprocesses (same as cargo) — the
 // orchestration logic lives here in xtask, not in a shell script.
@@ -33,10 +33,11 @@
 //                               axis ④). This is the false-red that was removed, not a gap.
 //   ❌ axis ④ runtime self-dep — still unverified here (this gate only compiles; it never
 //                               RUNS the freshly built z42c). Cold-start runtime breakage
-//                               (`undefined function …`) surfaces in CI `verify-selfhost`.
+//                               (`undefined function …`) surfaces in CI's ci-bootstrap jobs
+//                               (they RUN gen1 z42c to build stdlib + goldens) and compiler-checks.
 //
-// Note this is a LOCAL fast gate — no CI job invokes it; the CI boundary gate is
-// `verify-selfhost`, which drives the same `_ensureBootstrapSelfDepLibs` path via ci-bootstrap.
+// Note this is a LOCAL fast gate — no CI job invokes it; in CI the same
+// `_ensureBootstrapSelfDepLibs` path runs inside the ci-bootstrap action.
 namespace Z42Xtask;
 
 using Std;

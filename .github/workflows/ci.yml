@@ -59,6 +59,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       platform: ${{ steps.filter.outputs.platform }}
+      examples: ${{ steps.filter.outputs.examples }}
       compiler: ${{ steps.filter.outputs.compiler }}
       vm: ${{ steps.filter.outputs.vm }}
       stdlib: ${{ steps.filter.outputs.stdlib }}
@@ -71,10 +72,6 @@ jobs:
             platform:
               - 'src/runtime/**'
               - 'src/toolchain/workload/**'
-              - 'src/toolchain/workload/fixtures/**'
-              # 学习手册示例：package-host 用打包出的 SDK（含 Windows）重放会话脚本。
-              - 'examples/**'
-              - 'docs/learn/**'
               # 打包管道自身 + 消费包的 e2e（fix-package-gates-false-red, 2026-09-06）：
               # 此前 package-* 只由上面几项触发，只改 scripts/package/ 或 dist e2e 的 PR
               # **根本不跑 package job** —— 打包坏了 PR 照样绿，要等合并进 main 才炸。
@@ -102,23 +99,21 @@ jobs:
               - 'scripts/test/xtask_test_embedded.z42'
               - 'versions.toml'
               - '.github/workflows/ci.yml'
-            # change-detect rule (b): gates the bootstrap boundary check
-            # (verify-selfhost) + compiler-checks (self-host fixpoint + vscode).
-            # Only a z42c change can make the prev nightly's z42c unable to compile
-            # current source, or change the self-host fixpoint / vscode grammar.
-            #
-            # z42c 的 member 分布在两处，两处都必须匹配：
-            #   src/compiler/       → z42c.driver / z42c.pipeline / z42c.semantics
-            #   src/compiler/z42c.*  → z42c.core / z42c.syntax（词法+语法前端；relocate-compiler-domain-libs 挪回）
-            # 只写 src/compiler/** 会漏掉整个前端：改 Lexer 加关键字 → compiler=false
-            # → compiler-checks 被跳过 → 专为此存在的 `xtask test vscode-syntax`
-            # （"Lexer 加关键字未重新生成即红"）恰好在唯一需要它的场景下不跑，
-            # verify-selfhost 同理被跳过。
+            # 学习手册示例：只有 package-host 用打包出的 SDK（含 Windows）重放会话脚本
+            # （test-host 的 examples stage 无条件跑，不看这个 flag）。单独成 flag 而不是并进
+            # `platform`：否则改一页 learn 就会拉起 package-{ios,android,wasm} + test-desktop，
+            # 而它们一个示例都不跑（speed-up-ci-quick-wins）。
+            examples:
+              - 'examples/**'
+              - 'docs/learn/**'
+              - '.github/workflows/ci.yml'
+            # change-detect rule (b): gates compiler-checks (self-host fixpoint + vscode).
+            # Only a z42c change can change the self-host fixpoint / vscode grammar.
+            # 编译器域（z42c.* 前后端 + z42.project / z42.build / z42.package）已全部
+            # 在 src/compiler/ 下（relocate-compiler-domain-libs），一条通配即可。
             # ci.yml fallback = 保底全跑.
             compiler:
               - 'src/compiler/**'
-              - 'src/compiler/z42c.core/**'
-              - 'src/compiler/z42c.syntax/**'
               # vscode 语法门（compiler-checks 的 `test vscode-syntax`）比对的是
               # 「入库的生成产物 ↔ 模板 + Lexer 关键字表」。产物与模板都在这个目录下，
               # 却不在本 filter 里 ⇒ 只手改模板/产物的 PR，唯一守它的门静默 skip
@@ -130,11 +125,16 @@ jobs:
             # ci.yml fallback = 保底全跑.
             vm:
               - 'src/runtime/**'
+              # 根 .cargo/config.toml 决定 target-dir 与 wasm rustflags —— 改它等于改所有 cargo 构建。
+              - '.cargo/**'
               - '.github/workflows/ci.yml'
             # change-detect rule (d): gates stdlib [Test] consistency (interp+jit).
-            # Only a stdlib or runtime change can affect it.
+            # stdlib 源码之外，[Test] 的**执行器**也算：z42b（反射 test-runner）与 xtask 的
+            # test-lib 编排。此前不在这里 ⇒ 只改它们的 PR 一个 stdlib [Test] job 都不跑。
             stdlib:
               - 'src/libraries/**'
+              - 'src/toolchain/builder/**'
+              - 'scripts/test/xtask_test_lib*.z42'
               - '.github/workflows/ci.yml'
             # NOTE: 曾有一个 `tests:` filter（src/tests + scripts），但它的 output
             # 从未被任何 job 的 `if:` 引用 —— 注释描述的门控从来没实现过。留着只会让
@@ -171,11 +171,16 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
+      # 独立 key，**不与 compile-toolchain 共用 host-v2**（speed-up-ci-quick-wins）：
+      # compile-toolchain 只编 release、又最先结束，总是它先写入 host-v2；本 job 命中后
+      # post 步骤恒为 "Cache up-to-date"、从不回存 ⇒ 这里额外编的 debug / test profile
+      # 依赖（`test all` 的 debug z42vm + rust units）每轮冷编。实测 rust units 在
+      # linux-x64 1m56、macOS 2m51，而恰好没有 compile-toolchain 抢先写的 arm64 腿只要 1m12。
       - name: Cache Rust deps (Swatinem)
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: src/runtime -> ../../artifacts/build/runtime
-          shared-key: host-v2
+          shared-key: test-host-v1
 
       # ALL legs bootstrap from the prev nightly seed — download the prev published
       # nightly's z42c compiler seed, then build current z42c + stdlib + xtask from
@@ -317,6 +322,32 @@ jobs:
             artifacts/build/runtime/release/z42vm artifacts/xtask/xtask.zpkg -- test all --no-build --skip "$SKIP" 2>&1 | tee artifacts/ci-logs/test-all.log
           exit "${PIPESTATUS[0]}"
 
+      # refresh-format-fixtures: committed zbc-format byte baselines must be up to date.
+      # `test all` 的 build wave（_regenGolden）**就地**重写 src/tests/zbc-format/*/source.zbc，
+      # 所以这里 diff 非空 = 提交的字节过期了（某次格式变更漏了 version-bumping.md 第 4 步）。
+      # 为什么需要这道门：regen 总在消费方之前跑，`zbc_compat` 校验的永远是**刚重写**的字节、
+      # 从不是提交的那份 ⇒ 过期基线一直绿、却弄脏每个贡献者的工作树（曾在 1.37 停留到 1.38 bump 之后）。
+      # 与 `cargo fmt --check` 同形：regen，然后改了任何东西就红。
+      #
+      # speed-up-ci-quick-wins：此门原在 compile-test-assets 的两条腿（linux + 专为它保留的 macOS 腿）。
+      # 挪到这里：三个架构（x64 / arm64 / macOS）的 test-host 都跑、零额外构建，而且 test-host 是
+      # required check —— 原来那个 job 不是，红了也挡不住合并。
+      # 前提「regen 刚跑过」由 `set -e` 保证：上一步失败本步不会执行。
+      - name: Golden byte baselines are up to date (regen produced no diff)
+        if: matrix.os != 'windows-latest'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! git diff --quiet -- src/tests/zbc-format; then
+            echo "::error::committed zbc-format byte baselines are stale — regen rewrote them."
+            echo "Fix: run 'xtask build compiler && xtask build stdlib && xtask build test',"
+            echo "review the diff, then commit the regenerated fixtures"
+            echo "(see docs/agent/rules/version-bumping.md step 4)."
+            git --no-pager diff --stat -- src/tests/zbc-format
+            exit 1
+          fi
+          echo "OK: zbc-format baselines match the current writer"
+
       # diag-ci-test-log-upload (2026-05-30): the wave-failed stage prints
       # `stage outputs preserved at: /tmp/...` paths that disappear when
       # the runner is recycled. Capture them as an artifact so we can
@@ -345,7 +376,7 @@ jobs:
       # Windows doesn't run `test all` (goldens run on linux/macos), so it first needs
       # `build test` to populate artifacts/build/tests so zbc_compat sees ≥50 goldens.
       # non-Windows already regen'd them in `test all` above.
-      # schedule/dispatch 逃生口同 verify-selfhost：paths-filter 在这两个事件下恒 false，
+      # schedule/dispatch 逃生口同其余 changes 门控 job：paths-filter 在这两个事件下恒 false，
       # 否则 nightly 全量 sweep 上 windows 腿几乎什么都不做。
       - name: Build golden test assets (Windows — zbc_compat inputs)
         if: matrix.os == 'windows-latest' && (needs.changes.outputs.vm == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
@@ -428,7 +459,9 @@ jobs:
     # sit at the ~20 concurrent-job cap). None of package-* are required checks, and
     # a required check skipped via `if:` does not block merge here anyway.
     needs: [changes, toolchain-bootstrap]
-    if: ${{ needs.changes.outputs.platform == 'true' || github.event_name != 'pull_request' }}
+    # `examples`：学习手册示例只在这里用打包出的 SDK 重放（含 Windows 的唯一覆盖），
+    # 所以 learn / examples 改动只拉起本 job，不拉起其余 package-* / test-desktop。
+    if: ${{ needs.changes.outputs.platform == 'true' || needs.changes.outputs.examples == 'true' || github.event_name != 'pull_request' }}
     strategy:
       fail-fast: false
       matrix:
@@ -612,23 +645,23 @@ jobs:
           if-no-files-found: error
 
   # ── toolchain artifact (parallelization keystone + option-B seed handoff) ──
-  # Bootstrap the host compiler ONCE per host OS (z42c + stdlib + xtask
-  # via the prev nightly seed) and publish the .zpkg products as `toolchain-<os>`. The
-  # package / platform-test jobs consume it (xtask-bootstrap-artifact action) + cargo-
-  # build their own z42vm — and run in parallel instead of each re-bootstrapping.
-  # Fast: bootstrap only, no test.
+  # Bootstrap the compiler ONCE (z42c + stdlib + xtask via the prev nightly seed) and
+  # publish the .zpkg products as `toolchain-ubuntu-latest`. The package / platform-test
+  # jobs consume it (xtask-bootstrap-artifact action) + cargo-build their own z42vm —
+  # and run in parallel instead of each re-bootstrapping. Fast: bootstrap only, no test.
+  #
+  # **只有 linux 一条腿**（speed-up-ci-quick-wins）：产物全是 zpkg / zsym / runtimeconfig，
+  # 与宿主无关 —— Windows 消费方一直用的就是这份 linux 产物。原先的 macOS 腿产出一份
+  # 等价的 `toolchain-macos-26`，代价是：① 占一个稀缺的 macOS runner 5~6 min；
+  # ② 下游 `needs: toolchain-bootstrap` 等的是**整个 matrix**，只用 linux 产物的 job
+  # 也要陪 macOS 腿（实测每个下游白等 0.5~2.6 min）。「种子能在 macOS 上编当前源」这条
+  # 边界由 test-host(macos-arm64) 的 ci-bootstrap 覆盖（required），不靠这里。
   toolchain-bootstrap:
-    name: compile-toolchain(${{ matrix.platform }})
+    name: compile-toolchain(linux-x64)
     timeout-minutes: 30
     # Runs unconditionally (like the test jobs) — its artifact roots the package
     # jobs (which always run) + the platform-test jobs, so it must always be present.
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - { os: ubuntu-latest, platform: linux-x64 }
-          - { os: macos-26,      platform: macos-arm64 }
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
 
@@ -653,10 +686,11 @@ jobs:
           Z42_PORTABLE_VM="$vm" Z42_LIBS="$PWD/artifacts/build/libraries/dist/release" \
             "$vm" artifacts/xtask/xtask.zpkg -- build stage-toolchain "$RUNNER_TEMP/tc"
 
-      - name: Upload toolchain-${{ matrix.os }}
+      # 名字保留 `-ubuntu-latest` 后缀：xtask-bootstrap-artifact / bench 等消费方按这个名字取。
+      - name: Upload toolchain-ubuntu-latest
         uses: actions/upload-artifact@v7
         with:
-          name: toolchain-${{ matrix.os }}
+          name: toolchain-ubuntu-latest
           path: ${{ runner.temp }}/tc/
           retention-days: 3
           if-no-files-found: error
@@ -671,19 +705,18 @@ jobs:
   # (consuming the toolchain artifact via xtask-bootstrap-artifact + a host cargo
   # z42vm) it runs fully in PARALLEL, off the critical path, and packages start as
   # soon as the toolchain zpkgs are up. Nothing gating publish needs current-sdk.
-  # continue-on-error per step: additive validation — if regen/build sdk hits a
-  # CI-only path diff, the gating jobs are unaffected (only current-sdk is skipped).
+  # 不再逐步 continue-on-error（speed-up-ci-quick-wins）：regen 失败原本就会被紧跟的
+  # 基线门打红；build sdk / upload 失败则下游 test-vm-jit / test-consume 在下载处才红，
+  # 离真正出错的地方隔了一个 job。直接在这里失败更好定位。
   assemble-current-sdk:
-    name: compile-test-assets(${{ matrix.platform }})
+    name: compile-test-assets(linux-x64)
     timeout-minutes: 30
     needs: toolchain-bootstrap
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - { os: ubuntu-latest, platform: linux-x64 }
-          - { os: macos-26,      platform: macos-arm64 }
-    runs-on: ${{ matrix.os }}
+    # **只有 linux 一条腿**（speed-up-ci-quick-wins）：current-sdk 的两个消费方
+    # （consume-current-sdk / vm-jit-consistency）只下载 current-sdk-ubuntu-latest。
+    # 原 macOS 腿唯一剩下的作用是 zbc-format 字节基线门，该门已挪到 test-host 的三条
+    # 非 Windows 腿末尾（零额外构建，且 test-host 是 required check）。
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
 
@@ -697,58 +730,16 @@ jobs:
       # so downstream interp + jit consumers run the SAME prebuilt bytecode
       # (.zbc is execution-mode-agnostic) via `test e2e --no-build`.
       - name: Build golden .zbc test assets (compile shared assets once)
-        id: regen_assets
-        continue-on-error: true
         shell: bash
         run: |
           Z42_PORTABLE_VM="$PWD/artifacts/build/runtime/release/z42vm" \
           Z42_LIBS="$PWD/artifacts/build/libraries/dist/release" \
             artifacts/build/runtime/release/z42vm artifacts/xtask/xtask.zpkg -- build test
 
-      # refresh-format-fixtures: committed byte baselines must be up to date.
-      # `build test` above regenerates src/tests/zbc-format/*/source.zbc IN PLACE, so a
-      # non-empty diff here means the checked-in bytes were stale — i.e. some earlier
-      # format change skipped step 4 of docs/agent/rules/version-bumping.md.
-      #
-      # Why this gate is needed: the baselines' only prior safeguard was "a human
-      # notices `git diff`". Since regen runs before every consumer, `zbc_compat`
-      # validates the freshly-rewritten bytes and never the committed ones — so stale
-      # baselines stayed green while dirtying every contributor's working tree
-      # (they sat at zbc 1.37 right through the 1.38 bump). Same shape as
-      # `cargo fmt --check`: regen, then fail if it changed anything.
-      - name: Golden byte baselines are up to date (regen produced no diff)
+      - name: Assemble .z42 toolchain (build sdk --no-build) + bundle goldens
         shell: bash
         run: |
           set -euo pipefail
-          # 本门的**全部前提**是上一步刚就地重写过基线。上一步是 continue-on-error
-          # （本 job 定位为 additive validation），它失败时什么都没重写 → git diff 干净
-          # → 本门会打印「OK: baselines match」变绿，恰好在最该报警时最安静
-          # （fix-more-silent-gates, 2026-09-06；这正是 #424 要根治的基线腐坏形状）。
-          if [ "${{ steps.regen_assets.outcome }}" != "success" ]; then
-            echo "::error::regen 步骤未成功（outcome=${{ steps.regen_assets.outcome }}）——"
-            echo "本门比对的是「重生后的基线 vs 已提交的基线」，没重生就比对等于恒真通过。"
-            exit 1
-          fi
-          if ! git diff --quiet -- src/tests/zbc-format; then
-            echo "::error::committed zbc-format byte baselines are stale — regen rewrote them."
-            echo "Fix: run 'xtask build compiler && xtask build stdlib && xtask build test',"
-            echo "review the diff, then commit the regenerated fixtures"
-            echo "(see docs/agent/rules/version-bumping.md step 4)."
-            git --no-pager diff --stat -- src/tests/zbc-format
-            exit 1
-          fi
-          echo "OK: zbc-format baselines match the current writer"
-
-      # 以下组装 + 上传 linux 腿独占：current-sdk 的两个消费方
-      # （consume-current-sdk / vm-jit-consistency）都硬编码 current-sdk-ubuntu-latest，
-      # `current-sdk-macos-26` 上传后从无人下载。
-      # macOS 腿保留上面的 golden 重生 + 字节基线门 —— 那是真覆盖（zbc 是 arch-中立的，
-      # 在 macOS 上重生仍须与提交字节逐字一致 = 跨架构确定性），只跳过这两步无人消费的。
-      - name: Assemble .z42 toolchain (build sdk --no-build) + bundle goldens
-        if: matrix.os == 'ubuntu-latest'
-        continue-on-error: true
-        shell: bash
-        run: |
           Z42_PORTABLE_VM="$PWD/artifacts/build/runtime/release/z42vm" \
           Z42_LIBS="$PWD/artifacts/build/libraries/dist/release" \
             artifacts/build/runtime/release/z42vm artifacts/xtask/xtask.zpkg -- \
@@ -759,15 +750,13 @@ jobs:
             cp -r artifacts/build/tests "$RUNNER_TEMP/z42sdk/tests"
           fi
 
-      - name: Upload current-sdk-${{ matrix.os }}
-        if: matrix.os == 'ubuntu-latest'
-        continue-on-error: true
+      - name: Upload current-sdk-ubuntu-latest
         uses: actions/upload-artifact@v7
         with:
-          name: current-sdk-${{ matrix.os }}
+          name: current-sdk-ubuntu-latest
           path: ${{ runner.temp }}/z42sdk/
           retention-days: 3
-          if-no-files-found: warn
+          if-no-files-found: error
 
   # ── compile-once P3 (additive): consume current-sdk cross-job ───────────────
   # Proves the current-sdk `.z42` artifact, downloaded fresh in a SEPARATE job, is
@@ -837,19 +826,6 @@ jobs:
           TC="$PWD/.z42-dl"
           Z42_LIBS="$TC/libs" "$TC/bin/z42vm" "$RUNNER_TEMP/consume-out/xtask.zpkg" -- \
             --toolchain "$TC" test e2e --mode interp --no-rebuild
-      # jit: same prebuilt .zbc, --mode jit. PROBE (continue-on-error) while a
-      # jit-via-toolchain discrepancy is investigated: some cases (default_params,
-      # delegate_d1a, …) produce blank output under the toolchain release vm jit
-      # though interp passes the SAME .zbc — looks like a jit-miscompile sensitivity.
-      # vm-jit-consistency still gates jit independently, so coverage is intact.
-      - name: Run VM goldens JIT from shared asset (--no-rebuild, probe)
-        continue-on-error: true
-        shell: bash
-        run: |
-          set -euo pipefail
-          TC="$PWD/.z42-dl"
-          Z42_LIBS="$TC/libs" "$TC/bin/z42vm" "$RUNNER_TEMP/consume-out/xtask.zpkg" -- \
-            --toolchain "$TC" test e2e --mode jit --no-rebuild --shard 1/4 --jobs=4
 
   # ── VM cross-mode consistency (0.3.0 退出标准) ───────────────────────────
   # split-interp-jit: `xtask test all` in build-and-test runs the golden suites in
@@ -995,8 +971,8 @@ jobs:
       - uses: actions/checkout@v7
 
       # Consume the toolchain artifact (z42c+stdlib+xtask.zpkg — arch-independent
-      # bytecode) + cargo-build the native z42vm. macOS resolves toolchain-macos-26;
-      # linux (x64 AND arm64) resolves toolchain-ubuntu-latest (zpkg is arch-neutral).
+      # bytecode) + cargo-build the native z42vm. Every OS resolves the same
+      # toolchain-ubuntu-latest (zpkg is host-neutral).
       # rust toolchain + rust-cache 由该 action 自带（见其 cache-key input）。
       - uses: ./.github/actions/xtask-bootstrap-artifact
 
@@ -1019,77 +995,6 @@ jobs:
   # zpkg linking is bytecode-level,
   # and JIT execution correctness is already covered by vm-jit goldens (~222 cases).
 
-  # ── self-host bootstrap verification ──────────────
-  # Proves z42c can rebuild stdlib + z42c + xtask from CURRENT source using the
-  # DOWNLOADED nightly z42c seed (runtime pkg z42c/ + libs/). A PATH-shadow stub
-  # (below) hard-fails if anything tries to invoke dotnet, asserting the toolchain
-  # is fully self-hosted. Like the other download-bootstrap jobs, this transiently
-  # fails on an OLD nightly predating the z42c seed until publish-nightly
-  # republishes a seed-carrying nightly; then it self-heals. NOT in publish-nightly's
-  # needs (no deadlock). linux-x64 only.
-  verify-selfhost:
-    name: verify-selfhost(linux-x64)
-    timeout-minutes: 40
-    # change-detect rule (b): the bootstrap boundary check only matters when z42c
-    # changes (a stdlib/xtask-only change can't use syntax/format the published
-    # nightly lacks without a same-window compiler change). Skip otherwise. Safe
-    # to gate: no job has verify-selfhost in its `needs:` (deliberately excluded
-    # from publish-nightly for deadlock-avoidance).
-    #
-    # schedule / workflow_dispatch 必须无条件跑：paths-filter 在这两个事件下没有
-    # before-sha 可比，filter 基本恒 false —— 没有这个逃生口，每日 nightly 全量
-    # sweep 里 verify-selfhost 从不运行，而 nightly 的存在意义恰恰是覆盖 per-push
-    # filter 跳过的提交（见文件头 schedule 注释）。其余 changes-gated job
-    # (vm-jit / stdlib-jit / stdlib-interp / compiler-checks / feature-matrix)
-    # 早就都带这个逃生口，只有这里漏了。
-    needs: changes
-    if: ${{ needs.changes.outputs.compiler == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache Rust deps (Swatinem)
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: src/runtime -> ../../artifacts/build/runtime
-          shared-key: host-v2
-
-      # Hard no-dotnet guard: shadow `dotnet` with a failing stub and put it on PATH
-      # via $GITHUB_PATH so it covers EVERY later step. ubuntu-latest ships dotnet in
-      # the base image, so presence proves nothing — we prove it is never CALLED. The
-      # toolchain is fully z42-self-hosted; dotnet must never be reached.
-      - name: Install no-dotnet guard
-        shell: bash
-        run: |
-          mkdir -p /tmp/no-dotnet-bin
-          printf '#!/usr/bin/env bash\necho "::error::dotnet invoked — the toolchain is self-hosted; dotnet must not be reached" >&2\nexit 97\n' > /tmp/no-dotnet-bin/dotnet
-          chmod +x /tmp/no-dotnet-bin/dotnet
-          echo "/tmp/no-dotnet-bin" >> "$GITHUB_PATH"
-
-      # Bootstrap from the prev nightly seed (download nightly → cargo z42vm → seed
-      # z42c builds xtask → xtask builds z42c=gen1 + stdlib) — the SAME action every
-      # bootstrap job uses, now under the no-dotnet guard. This is the boundary check:
-      # if current z42c source uses syntax/format the published nightly lacks, the
-      # seed can't compile it and this fails (transient until publish-nightly republishes).
-      - uses: ./.github/actions/ci-bootstrap
-        with:
-          gh-token: ${{ secrets.GITHUB_TOKEN }}
-
-      # Self-host fixpoint: rebuild z42c gen1 → gen2 and assert gen1 == gen2
-      # byte-identical (BLID-tolerant) + z42c [Test] units. The closure proof lives in
-      # xtask (_testZ42cSelfHostByteIdentical via `test compiler`), not a duplicate
-      # shell script — selfhost-bootstrap.sh was exactly this logic reimplemented.
-      - name: Self-host fixpoint (xtask test compiler)
-        shell: bash
-        run: |
-          set -euo pipefail
-          vm="$PWD/artifacts/build/runtime/release/z42vm"
-          Z42_PORTABLE_VM="$vm" Z42_LIBS="$PWD/artifacts/build/libraries/dist/release" \
-            "$vm" artifacts/xtask/xtask.zpkg -- test compiler
-
   # ── compiler checks (host-independent, 1× linux) ──────────────────────────
   # z42c self-host fixpoint (gen1==gen2 byte-identical) + z42c [Test] units +
   # vscode-syntax keyword consistency. These are HOST-INDEPENDENT: z42c output
@@ -1097,10 +1002,10 @@ jobs:
   # redundant (~5 min/leg wasted). Offloaded here as a single linux job; test-host
   # skips them (`--skip compiler,vscode`). Gated on compiler changes (rule b) —
   # only z42c source can change the fixpoint or the keyword table.
-  # Distinct from verify-selfhost: that job tests the NIGHTLY-SEED bootstrap path
-  # (prev nightly compiles current source); this job tests the IN-TREE fixpoint
-  # (current z42c compiles itself, gen1==gen2). Both are compiler-gated; together
-  # they cover the two self-host dimensions.
+  # 自举的另一维——「上一版 nightly 种子能编当前源」——由每个跑 ci-bootstrap 的 job
+  # 顺带实测（test-host ×4 OS + compile-toolchain），不需要专门的 job。原先的
+  # verify-selfhost 就是「ci-bootstrap + 本 job 的 test compiler」，两半都与别处重复，
+  # 已删（speed-up-ci-quick-wins）。它独有的 no-dotnet 桩守的是 2026-06-26 已删的 C# 路径。
   compiler-checks:
     name: compiler-checks(linux-x64)
     timeout-minutes: 30
@@ -1131,8 +1036,13 @@ jobs:
             "$vm" artifacts/xtask/xtask.zpkg -- test vscode-syntax
 
   # 2026-05-07 add-runtime-feature-flags (P4.1): verify all 4 feature presets
-  # compile on host target. P4.2/P4.3/P4.4 will add real cross-compile jobs
-  # (wasm32-unknown-unknown / aarch64-apple-ios / aarch64-linux-android).
+  # compile on host target. The real cross-compiles (wasm32 / aarch64-apple-ios /
+  # aarch64-linux-android) live in package-{wasm,ios,android}.
+  #
+  # `cargo check` 而不是 `cargo build --release`（speed-up-ci-quick-wins）：这个 job 回答的是
+  # 「各 feature 组合能不能编过」—— 类型检查 + cfg 分支，全在 check 里。原先 4 次 release build
+  # 每次都走 z42 crate 的 fat-LTO 链接（`lto = true, codegen-units = 1`），约 5 min 里大头是
+  # codegen + 链接，而产物随即丢弃。保留 `--release`：让 cfg(debug_assertions) 分支与发布形态一致。
   feature-matrix:
     name: verify-features(linux-x64)
     timeout-minutes: 40
@@ -1145,29 +1055,27 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
-      # Cache the 4 feature-combo release builds' deps (review §3.6). Plain
-      # `cargo build` here uses the DEFAULT target (src/runtime/target), not the
-      # redirected artifacts/build/runtime the bootstrap jobs use — hence the bare
-      # `src/runtime` workspace + a distinct key (feature combos ≠ the host-v2 cache).
+      # 🔴 target 目录**不是** src/runtime/target：根 `.cargo/config.toml` 把 target-dir 重定向到
+      # artifacts/build/runtime，本 job 的 cargo 也落在那里。此前这里写的是裸 `src/runtime`
+      # （即缓存 src/runtime/target）并注释「用默认 target」—— 缓存的是一个空目录，
+      # 这个 key 从来没起过作用。独立 key：feature 组合的依赖图与 host 构建不同。
       - name: Cache Rust deps (Swatinem)
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: src/runtime
-          shared-key: feature-matrix-v1
+          workspaces: src/runtime -> ../../artifacts/build/runtime
+          shared-key: feature-matrix-v2
 
-      # migrate-scripts-to-z42: feature presets are plain cargo feature combos
-      # (was `just build-*-feature`) — inlined so this job needs no `just`.
-      - name: Build interp-only (no cranelift)
-        run: cargo build --locked --release --manifest-path src/runtime/Cargo.toml --no-default-features --features interp-only
+      - name: Check interp-only (no cranelift)
+        run: cargo check --locked --release --manifest-path src/runtime/Cargo.toml --no-default-features --features interp-only
 
-      - name: Build wasm preset (host target)
-        run: cargo build --locked --release --manifest-path src/runtime/Cargo.toml --no-default-features --features wasm
+      - name: Check wasm preset (host target)
+        run: cargo check --locked --release --manifest-path src/runtime/Cargo.toml --no-default-features --features wasm
 
-      - name: Build ios preset (host target)
-        run: cargo build --locked --release --manifest-path src/runtime/Cargo.toml --no-default-features --features ios
+      - name: Check ios preset (host target)
+        run: cargo check --locked --release --manifest-path src/runtime/Cargo.toml --no-default-features --features ios
 
-      - name: Build android preset (host target)
-        run: cargo build --locked --release --manifest-path src/runtime/Cargo.toml --no-default-features --features android
+      - name: Check android preset (host target)
+        run: cargo check --locked --release --manifest-path src/runtime/Cargo.toml --no-default-features --features android
 
       - name: Verify cranelift excluded under interp-only
         run: |
@@ -1176,9 +1084,6 @@ jobs:
             echo "ERROR: cranelift still present in interp-only build" >&2
             exit 1
           fi
-
-      # (versions.toml drift check moved to build-and-test via
-      # `z42 xtask.zpkg deps check` — migrate-scripts-to-z42.)
 
   # ── iOS packaging ──────────────────────────────────────────────────────
   # Packages ios-arm64 + iossim-arm64. Requires Xcode (pre-installed on
@@ -1686,7 +1591,7 @@ jobs:
             scripts/install/install.sh scripts/install/install.ps1
           # Defensive (fix-nightly-draft): the nightly MUST be a published (non-draft)
           # release — a DRAFT is invisible to other runs' GITHUB_TOKEN, so every
-          # download-bootstrap job (build-and-test, verify-selfhost,
+          # download-bootstrap job (build-and-test, compile-toolchain,
           # vm-jit/stdlib-jit) fails with "release not found", and since build-and-test
           # now seeds from the nightly, that DEADLOCKS the self-heal (no run can
           # republish a fixed nightly). Some create paths (tag recreation after
