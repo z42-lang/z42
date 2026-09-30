@@ -66,7 +66,11 @@ int _testCrossZpkgImpl(string mode) {
     string root = _root();
     if (_assertCopyDoesNotWriteThroughHardLinks(root) != 0) { return 1; }
 
-    string testsDir = Path.Join(root, "src/tests/cross-zpkg");
+    // isolate-xtask-fixture-builds：在 artifacts/tmp 里的**拷贝**上编 / 跑，源码树零写入
+    // （`_stageFixtureTree` 头注）。下面所有路径（`_fixtureDist` / `<pkg>/libs` / expected_*.txt）
+    // 都相对 testsDir，故只改这一处。
+    if (!Directory.Exists(Path.Join(root, "src/tests/cross-zpkg"))) { return 0; }
+    string testsDir = _stageFixtureTree(root, "src/tests/cross-zpkg", "xpkg-fixtures");
     // --toolchain (compile-once P3): when an active toolchain is selected, locate
     // z42c.driver + its siblings + stdlib + z42vm from that `.z42` set (the
     // downloaded current-sdk consumed cross-job) instead of the build-tree.
@@ -461,8 +465,9 @@ XpkgJobZ _spawnBuildPkgE(string vmBin, string driverZpkg, string stdlibDist, str
     j.ExpectWarn = expectWarn;
     bool capture = expectErr.Length > 0 || expectWarn.Length > 0;
     string outDir = _fixtureDist(pkgDir);
-    // 🔴 **重置**而不是只 Create：这个目录在**源码树内**（`<fixture>/<stage>/artifacts/debug/dist`，
-    // gitignore 的产物），而 `--output-dir` 不清目录、`File.Copy` 只覆盖不删 ⇒ 更早 era 留下的兄弟
+    // 🔴 **重置**而不是只 Create。（isolate-xtask-fixture-builds 起夹具整棵在 artifacts/tmp 的拷贝里编、
+    // 每轮重建，下面这种残留已无从产生；重置保留作防御。原注：）这个目录曾在**源码树内**
+    // （`<fixture>/<stage>/artifacts/debug/dist`，gitignore 的产物），而 `--output-dir` 不清目录、`File.Copy` 只覆盖不删 ⇒ 更早 era 留下的兄弟
     // zpkg 会一直躺在那儿。而 VM 的惰性加载器**先搜 entry zpkg 同目录再搜 `Z42_LIBS`**
     // （`_applySkewAbsent` / `_applySkewReplace` 的头注就是靠这条），于是那份陈旧副本**赢过**
     // 本轮刷新的 `<stage>/libs/`。
@@ -583,6 +588,7 @@ void _copyStdlibZpkgs(string distDir, string dstDir) {
 
 // <pkgDir>/artifacts/debug/dist — where a per-package z42c build lands its zpkg
 // (mirrors the former C# path; consumed by run/diff + downstream lib seeding).
+// pkgDir 是 artifacts/tmp 下的夹具**拷贝**（`_stageFixtureTree`），不是源码树。
 string _fixtureDist(string pkgDir) {
     return Path.Join(Path.Join(Path.Join(pkgDir, "artifacts"), "debug"), "dist");
 }

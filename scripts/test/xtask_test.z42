@@ -291,6 +291,9 @@ int _testGcModeWorkload(string label, string modeEnv, string nurseryEnv, string 
     Process p = new Process(vm)
         .Arg(driver).Arg("--")
         .Arg("build").Arg(toml).Arg("--release").Arg("--no-incremental")
+        // isolate-xtask-fixture-builds：产物进 artifacts/tmp，不落 `src/compiler/z42c.semantics/dist`
+        // （这次构建只为给 GC 施压，产物本身没人用）。
+        .Arg("--output-dir").Arg(_tmpDir(root, "gc-modes"))
         .Env("Z42_LIBS", flat)
         .Env("Z42_GC_TRACE", "1");
     if (modeEnv != "")    { p = p.Env("Z42_GC_MODE", modeEnv); }

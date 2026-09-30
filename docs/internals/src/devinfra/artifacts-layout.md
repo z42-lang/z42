@@ -111,6 +111,7 @@ cross-zpkg 一轮 ≈198MB 的纯拷贝；有害的是「写到别名上」，�
 | `tmp/seed-run-libs/<profile>` | 种子 driver 调用 | 与种子 driver 同代的运行期 libs 快照 |
 | `tmp/selfhost-gen1` | `test compiler` | 不动点验证的 gen1 快照 |
 | `tmp/e2e` / `tmp/xpkg-driver` / `tmp/fs-writethrough` | e2e / cross-zpkg | 用例工作区 |
+| `tmp/xpkg-fixtures` / `tmp/multi-exe-fixtures` | `test e2e` 的 cross-zpkg / multi-exe | `src/tests/{cross-zpkg,multi-exe}` 的**拷贝**，每轮重建；夹具在这里编 / 跑（`_stageFixtureTree`），源码树零写入 |
 | `tmp/targets/<proj>` | `test targets` | manifest target fixture 输出 |
 | `tmp/incr-reconcile` | `test incremental` | 增量 vs 全量对账的两份产物 |
 | `tmp/fingerprint` | `test fingerprint` | base 与本树编译器各编一份 stdlib 的对比场地 |
@@ -155,8 +156,8 @@ best-effort，拷贝失败也会让旧副本顶上）。
 > **源码树里为什么会有产物**（实测一次完整 GREEN 后约 450 个目录）：
 > - 单独编一个 workspace 成员（xtask 的 path 依赖 `z42.project` / `z42.build`、z42b dev 目标的父包）时
 >   不继承 `[workspace.build].output_dir`，走单工程默认布局写进 `<工程目录>/{artifacts,dist}`；
-> - `src/tests/**` 下的夹具工程（cross-zpkg / multi-exe / manifest-targets / z42b）按单工程默认布局原地构建，
->   cross-zpkg 另把依赖 zpkg 拷进 `<pkg>/libs/`。
+> - `src/tests/**` 下的 manifest-targets / z42b 夹具工程按单工程默认布局原地构建（cross-zpkg / multi-exe
+>   自 isolate-xtask-fixture-builds 起改在 `tmp/` 的拷贝上编，不再写源码树）。
 >
 > 它们都被 `.gitignore` 忽略、仓库里没有任何入库文件在其下。`clean all` 只删「带清单（`<name>.z42.toml`
 > 或 `z42.toml`）的工程目录」旁边的 `artifacts/` `dist/`，`libs/` 只在 `src/tests/cross-zpkg/` 下删
