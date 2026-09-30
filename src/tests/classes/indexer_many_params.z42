@@ -1,0 +1,20 @@
+// fix-parser-fixed-arrays: the parser kept indexer parameters in a fixed Param[4]
+// and multi-dimensional index arguments in a fixed Expr[8]; one more crashed the
+// compiler itself (`array index 4 out of bounds (len=4)` in MemberParser._parseIndexer).
+
+class G {
+    public int this[int a, int b, int c, int d, int e] { get { return a + b + c + d + e; } }
+}
+
+class H {
+    public int this[int a, int b, int c, int d, int e, int f, int g, int h, int i] {
+        get { return a + b + c + d + e + f + g + h + i; }
+    }
+}
+
+void Main() {
+    var g = new G();
+    Assert.Equal(15, g[1, 2, 3, 4, 5]);
+    var h = new H();
+    Assert.Equal(45, h[1, 2, 3, 4, 5, 6, 7, 8, 9]);   // 9 index arguments (> the old Expr[8])
+}
