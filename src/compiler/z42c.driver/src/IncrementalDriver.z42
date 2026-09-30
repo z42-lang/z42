@@ -139,7 +139,9 @@ public static class IncrementalDriver {
                     IrModule m = null;
                     try {
                         byte[] zbc = File.ReadAllBytes(CacheStore.ZbcPath(cacheDir, rel));
-                        m = ZbcReader.Read(zbc);
+                        // zbc↔meta 配对校验（fix-cache-atomic-writes）：对不上 = 这份 zbc 不是这条 meta 写的
+                        // （崩溃留下的新旧混搭）→ 按不可读处理，走下方同一条降级（该文件 fresh）。
+                        if (Murmur3.Hash128Hex(zbc) == plan.Metas[i].ZbcHash) { m = ZbcReader.Read(zbc); }
                     } catch (Exception e) { m = null; }
                     if (m != null && !IncrementalDriver._applyResidue(m, plan.Metas[i])) { m = null; }
                     if (m == null) {
@@ -196,7 +198,7 @@ public static class IncrementalDriver {
     public static void WriteMetas(string cacheDir, string projectDir, string[] srcs, string[] texts,
                                   string[] hashes, int n, CompiledModuleZ[] cms, ZbcFileZ[] mods,
                                   IncrFilePlan plan, NameListZ[] idents, NameSurfacesZ[] surfaces, string depsId,
-                                  LanguageFeatures feats, CuDiagSnapshot[] cuDiags) {
+                                  LanguageFeatures feats, CuDiagSnapshot[] cuDiags, string[] zbcHashes) {
         string[] rels = new string[n];
         int i = 0;
         while (i < n) {
@@ -204,6 +206,7 @@ public static class IncrementalDriver {
             if (plan == null || plan.Fresh[i]) {
                 CacheMeta m = new CacheMeta(rels[i]);
                 m.SourceHash = hashes[i];
+                m.ZbcHash = zbcHashes[i];
                 m.Namespace = mods[i].Namespace;
                 m.UsedDepNs = cms[i].UsedDepNs; m.UsedDepNsCount = cms[i].UsedDepNsCount;
                 // parse 时已捕获（D8 修正）；无捕获（异常路径）才兜底 lex 一次。
@@ -492,7 +495,8 @@ public sealed class IntBoxZ {
 
 // 单文件 fullMode .zbc 落盘到 cache（自 Main.z42 迁入，500 行硬限；镜像 C# BuildTarget
 // 的 cache 写出：`<cache>/<rel 去 .z42 换 .zbc>`）。仅单工程模式调用。
-void _writeCacheZbc(string cacheDir, string projectDir, string src, IrModule irm) {
+// 返回写入内容的 Murmur3-128 hex，供 meta 记 `zbchash`（zbc↔meta 配对校验，fix-cache-atomic-writes）。
+string _writeCacheZbc(string cacheDir, string projectDir, string src, IrModule irm) {
     // 走 IncrementalBuild.Rel（此前这里内联复制了一份同样的前缀剥离逻辑）——它负责分隔符归一
     // （Windows 的 `\` 不归一会让 StartsWith 失配 → rel 留成带盘符的绝对路径 → zbcPath 畸形 →
     // File.WriteAllBytes "cannot find the path specified"），也负责**工程目录之外的源文件**去掉根
@@ -502,5 +506,7 @@ void _writeCacheZbc(string cacheDir, string projectDir, string src, IrModule irm
     string zbcPath = Path.Join(cacheDir, rel + ".zbc");
     string parent = Path.GetDirectoryName(zbcPath);
     if (parent.Length > 0) { Directory.Create(parent); }
-    File.WriteAllBytes(zbcPath, ZbcWriter.Write(irm).ToBytes());
+    byte[] bytes = ZbcWriter.Write(irm).ToBytes();
+    File.WriteAllBytesAtomic(zbcPath, bytes);   // 原子：中途崩溃不留半截 zbc
+    return Murmur3.Hash128Hex(bytes);
 }
