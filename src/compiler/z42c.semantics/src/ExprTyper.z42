@@ -112,7 +112,11 @@ public sealed partial class ExprTyper {
                     MethodSymbol mfs = env.Symbols.GetFuncIn(mfns, id.Name);
                     return new BoundFuncRef(id.Name, mfns, !mfs.HasDecl, mfs.Signature, mfs.RegKey, id.Span);
                 }
-                this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol, "undefined: " + id.Name, id.Span);
+                // `<error>` = 解析器错误恢复的占位（ExprParser：表达式位的坏 token，已报 E0201）——不是用户写的名字，
+                // 再报一条 `undefined: <error>` 纯属级联（fix-parser-error-cascade）。
+                if (id.Name != "<error>") {
+                    this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol, "undefined: " + id.Name, id.Span);
+                }
                 return new BoundError("undefined " + id.Name, new Z42ErrorType(), id.Span);
             }
             // lambda 捕获钩子（port-z42c-closures）：域内未声明而外层命中 → 记捕获 + BoundCapturedIdent
