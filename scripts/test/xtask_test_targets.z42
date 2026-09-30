@@ -25,6 +25,11 @@ class TargetTooling {
     public string DriverZpkg { get; set; }
     public string Libs { get; set; }         // flat alllibs dir (stdlib + z42c siblings)
     public string BuilderZpkg { get; set; }  // z42b reflective runner
+    // isolate-xtask-fixture-builds：夹具在 artifacts/tmp 的**拷贝**上跑（z42b 把目标 / 父包产物写在
+    // 清单目录旁，直接跑源码树里的夹具就会在 src/tests 下留产物）。两棵树各拷一次，整个 run 共用
+    // —— 不能每个 smoke 各自重置：reuse-parent 等用例要看前面用例留下的父包产物。
+    public string FixturesRoot { get; set; }      // src/tests/manifest-targets 的拷贝
+    public string Z42bFixturesRoot { get; set; }  // src/tests/z42b 的拷贝
     public bool   Ok { get; set; }
 }
 
@@ -77,6 +82,10 @@ int _testTargetsCore(string kind, string name, bool noBuild) {
     }
     TargetTooling tt = _prepFixtureTooling(root, noBuild);
     if (!tt.Ok) { return 2; }
+    tt.FixturesRoot = _stageFixtureTree(root, "src/tests/manifest-targets", "manifest-target-fixtures");
+    tt.Z42bFixturesRoot = Directory.Exists(Path.Join(root, "src/tests/z42b"))
+        ? _stageFixtureTree(root, "src/tests/z42b", "z42b-fixtures") : "";
+    fixRoot = tt.FixturesRoot;
     string label  = (kind == "bench") ? "bench" : "test";
     string[] fixtures = _sortedStrings(Directory.Enumerate(fixRoot));
     int failed = 0;
@@ -131,7 +140,7 @@ int _testTargetsCore(string kind, string name, bool noBuild) {
 // Reuses the prepared tooling (built z42b + flat Z42_LIBS). Returns 0 pass /
 // 1 fail; skips cleanly (0) when the fixture is absent.
 int _smokeCompileThenTest(string root, TargetTooling tt) {
-    string toml = Path.Join(root, "src/tests/manifest-targets/compile-then-test/z42.toml");
+    string toml = Path.Join(tt.FixturesRoot, "compile-then-test/z42.toml");
     if (!File.Exists(toml)) { return 0; }
     Console.WriteLine("");
     Console.WriteLine("── compile-then-test (z42b test <z42.toml>) ──");
@@ -153,7 +162,7 @@ int _smokeCompileThenTest(string root, TargetTooling tt) {
 //   ② 目标**看得见父包的 internal**（类与成员两条判定路径都覆盖）。
 // 回归方向（普通消费包仍被拒）由 cross-zpkg/class_internal_access 守着。
 int _smokeDevTargetInternal(string root, TargetTooling tt) {
-    string toml = Path.Join(root, "src/tests/z42b/dev-target-internal/z42.toml");
+    string toml = Path.Join(tt.Z42bFixturesRoot, "dev-target-internal/z42.toml");
     if (!File.Exists(toml)) { return 0; }
     Console.WriteLine("");
     Console.WriteLine("── dev-target internal (z42b test <toml>：按目标编译 + 可见父包 internal) ──");
@@ -186,7 +195,7 @@ int _smokeDevTargetInternal(string root, TargetTooling tt) {
 // 的目录当成父包交给编译器（那样目标编译会解析不到父包 internal ⇒ 判红，或更糟地悄悄用上旧产物）。
 // 先整个删掉 fixture 的父包产物，再带 flag 只跑 dirunit（它要看父包 internal）。
 int _smokeReuseParentMissing(string root, TargetTooling tt) {
-    string toml = Path.Join(root, "src/tests/z42b/dev-target-internal/z42.toml");
+    string toml = Path.Join(tt.Z42bFixturesRoot, "dev-target-internal/z42.toml");
     if (!File.Exists(toml)) { return 0; }
     Console.WriteLine("");
     Console.WriteLine("── reuse-parent (父包 dist 不在时 --reuse-parent 仍须先建父包) ──");
@@ -221,7 +230,7 @@ int _smokeReuseParentMissing(string root, TargetTooling tt) {
 // exception / 栈帧；③ 输出里**有** `compile failed` —— 没有 ③ 的话，哪天它因为别的原因
 // 早早退出，②也会「通过」，门就悄悄失去意义（#802 第③格的教训：红了不等于红对了）。
 int _smokeCompileFailClean(string root, TargetTooling tt) {
-    string toml = Path.Join(root, "src/tests/z42b/empty-glob/z42.toml");
+    string toml = Path.Join(tt.Z42bFixturesRoot, "empty-glob/z42.toml");
     if (!File.Exists(toml)) { return 0; }
     Console.WriteLine("");
     Console.WriteLine("── compile-fail 收尾 (编译失败须干净退出，不得是未捕获异常) ──");
@@ -275,7 +284,7 @@ int _smokeManifestSections(string root, TargetTooling tt) {
 }
 
 int _smokeOrphanGuard(string root, TargetTooling tt) {
-    string toml = Path.Join(root, "src/tests/z42b/orphan-source/z42.toml");
+    string toml = Path.Join(tt.Z42bFixturesRoot, "orphan-source/z42.toml");
     if (!File.Exists(toml)) { return 0; }
     Console.WriteLine("");
     Console.WriteLine("── orphan-source guard (有源零单元必须判红) ──");
@@ -299,7 +308,7 @@ int _smokeOrphanGuard(string root, TargetTooling tt) {
 // stage 对无 bench 的库走的就是 `z42b bench <toml>`。fixture 的注释里故意写着 attribute 字面量，
 // 锁住「注释不算测试」这条判据。
 int _smokeNoTests(string root, TargetTooling tt) {
-    string toml = Path.Join(root, "src/tests/z42b/no-tests/z42.toml");
+    string toml = Path.Join(tt.Z42bFixturesRoot, "no-tests/z42.toml");
     if (!File.Exists(toml)) { return 0; }
     Console.WriteLine("");
     Console.WriteLine("── no-tests (没有测试的库不得判红) ──");
@@ -324,7 +333,7 @@ int _smokeNoTests(string root, TargetTooling tt) {
 // 正是 #580 查出那三处分歧的来源）。断言：dev-target fixture 恰好列出 dirunit + internals_tests，
 // 且**没有**任何编译/运行的痕迹。
 int _smokeListTargets(string root, TargetTooling tt) {
-    string toml = Path.Join(root, "src/tests/z42b/dev-target-internal/z42.toml");
+    string toml = Path.Join(tt.Z42bFixturesRoot, "dev-target-internal/z42.toml");
     if (!File.Exists(toml)) { return 0; }
     Console.WriteLine("");
     Console.WriteLine("── list targets (z42b test --list：只列不跑) ──");
@@ -356,7 +365,7 @@ int _smokeListTargets(string root, TargetTooling tt) {
 // 顺带覆盖「纯测试工程」形态：该 fixture 整个包只有 [[test]] 目标、**没有自己的源**，
 // 所以 z42b 必须跳过父包构建（无条件建会撞「no .z42 sources under <projdir>」）。
 int _smokeHarnessFalse(string root, TargetTooling tt) {
-    string toml = Path.Join(root, "src/tests/manifest-targets/basic/z42.toml");
+    string toml = Path.Join(tt.FixturesRoot, "basic/z42.toml");
     if (!File.Exists(toml)) { return 0; }
     Console.WriteLine("");
     Console.WriteLine("── harness=false (z42b 直接跑自驱 Main，退出码判定) ──");
@@ -378,7 +387,7 @@ int _smokeHarnessFalse(string root, TargetTooling tt) {
 // to z42b), which the default gate would otherwise not cover (`test embedded` is a
 // separate stage). Returns 0 pass / 1 fail; skips cleanly (0) if the fixture is absent.
 int _smokeBundleHost(string root, TargetTooling tt) {
-    string src = Path.Join(root, "src/tests/manifest-targets/bundle-host/pass_unit.z42");
+    string src = Path.Join(tt.FixturesRoot, "bundle-host/pass_unit.z42");
     if (!File.Exists(src)) { return 0; }
     Console.WriteLine("");
     Console.WriteLine("── bundle-host (z42b test <manifest.json> --rid host) ──");

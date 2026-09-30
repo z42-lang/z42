@@ -22,8 +22,9 @@ int _testMultiExeCore(string mode, bool noBuild) {
 // Returns 0 if every multi-exe case passes, 1 on any failure (or setup error).
 int _testMultiExeImpl(string mode) {
     string root = _root();
-    string testsDir = Path.Join(root, "src/tests/multi-exe");
-    if (!Directory.Exists(testsDir)) { return 0; }   // no cases → clean skip
+    if (!Directory.Exists(Path.Join(root, "src/tests/multi-exe"))) { return 0; }   // no cases → clean skip
+    // isolate-xtask-fixture-builds：在 artifacts/tmp 的拷贝上编 / 跑，源码树零写入（同 cross-zpkg）。
+    string testsDir = _stageFixtureTree(root, "src/tests/multi-exe", "multi-exe-fixtures");
 
     // Tool resolution (mirror cross-zpkg setup: --toolchain consume vs build-tree).
     // Same VM-role split as cross-zpkg (speed-up-cross-zpkg-compile-vm): compile the
