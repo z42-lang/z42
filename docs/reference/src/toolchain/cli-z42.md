@@ -276,6 +276,7 @@ z42: unknown runtime knob `gc-mdoe` in --set; did you mean `gc-mode`?
 | `--format <pretty\|json>` | 输出格式（默认 `pretty`） |
 | `--release` | release profile（默认 debug） |
 | `--reuse-parent` | 父包 dist 已存在则复用、不重建 |
+| `--out-root <dir>` | 产物根（默认 `<清单目录>/artifacts`）：目标输出落 `<dir>/test-targets/<目标>`；父包未显式配 `output_dir` 时落 `<dir>/<包名>/<profile>` |
 | `--rid <rid>` | `host`（默认，在本进程内跑）或 `device`（组装可部署件） |
 | `--out <dir>` | device：组装出的 `{app,libs,bundle}` 输出目录 |
 | `--stage-only` | device：只组装可部署件，不构建也不运行 |
@@ -309,7 +310,7 @@ $ z42 test
 ## `z42 bench [options] [<目标>]`
 
 同 `test`，运行 `[Benchmark]`。旗标是 `test` 的子集：`--list` / `--name` / `--filter` /
-`--format`（`json` 时额外带 `bench_stats`）/ `--release` / `--reuse-parent` / `--rid`。
+`--format`（`json` 时额外带 `bench_stats`）/ `--release` / `--reuse-parent` / `--out-root`（目标输出落 `<dir>/bench-targets/`）/ `--rid`。
 没有 device 那组旗标。
 
 ## `z42 clean [<manifest|dir>]`

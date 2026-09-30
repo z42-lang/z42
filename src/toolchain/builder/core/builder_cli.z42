@@ -95,6 +95,7 @@ SubcommandRouter _builderRoot() {
     // --reuse-parent：父包 dist 已在就不重建。编排方（xtask）每个库先不带它跑一个目标把父包建好，
     // 其余目标并行时带上 —— 进程内编译器无增量，不带的话 N 个目标就把父包全量重编 N 遍。
     test.AddFlag("reuse-parent", "", "父包 dist 已存在则直接复用、不重建（编排方已先建好父包时用）");
+    test.AddOption("out-root", "", "产物根（默认 <清单目录>/artifacts）：目标输出与父包构建都落其下", "");
     root.Add("test", "run [Test] in a compiled module, project, or test-bundle", test);
 
     ArgParser bench = new ArgParser("z42 bench", "build the project and run its [Benchmark] units");
@@ -104,6 +105,7 @@ SubcommandRouter _builderRoot() {
     bench.AddOption("name", "", "only build+run the [[bench]] target with this name (default: all)", "");
     bench.AddOption("filter", "", "only targets whose name contains this substring", "");
     bench.AddOption("rid", "", "compile-then-test: target RID (default: host)", "");
+    bench.AddOption("out-root", "", "产物根（默认 <清单目录>/artifacts）：目标输出与父包构建都落其下", "");
     bench.AddFlag("release", "", "compile-then-test: release profile (default: debug)");
     bench.AddFlag("list", "", "只列出 bench 目标名（一行一个），不编译不运行");
     bench.AddFlag("reuse-parent", "", "父包 dist 已存在则直接复用、不重建（编排方已先建好父包时用）");

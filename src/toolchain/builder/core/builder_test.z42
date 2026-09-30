@@ -81,6 +81,18 @@ int _runDevTargets(ParseResult r, string verb, string format) {
     if (tomlPath.Length == 0) { return 2; }
     ProjectManifest m = ManifestLoader.Load(tomlPath);
     string kind = (verb == "bench") ? "bench" : "test";
+    // --out-root（z42b-dev-target-out-root）：替换默认的 `<清单目录>/artifacts` 产物根。目标输出落
+    // `<out-root>/<kind>-targets/<目标>`；父包若没显式配 `output_dir`，就在内存里给它补一个
+    // `<out-root>/<包名>/${profile}` —— 与默认布局 `<src>/artifacts/<包名>/<profile>` 同形、只换根，
+    // `_computeDirs` / `_orchestrate` 无需改动。只作用于本进程加载的这份清单，不回写文件。
+    // 为什么需要：stdlib / 编译器成员的清单没有 [build]（布局由 workspace 给），不带它就会把目标产物
+    // 与父包写进**源码树**。编排方（xtask）传成员输出目录下的 tests/ | bench/。
+    // ⚠️ 不能直接用成员的 workspace output_dir 作父包输出：那样父包 dist 会覆盖 z42c 建的正式成员产物。
+    string outRootOpt = r.GetOption("out-root");
+    if (outRootOpt.Length > 0 && !m.Build.HasOutputDir) {
+        m.Build.HasOutputDir = true;
+        m.Build.OutputDir = Path.Join(Path.Join(outRootOpt, m.Project.Name), "${profile}");
+    }
     string nameFilter = r.GetOption("name");
     string substrFilter = r.GetOption("filter");   // 子串筛一批（零命中是正常结果，不报错）
 
@@ -208,7 +220,10 @@ int _runOneDevTarget(ParseResult r, ProjectManifest m, DevTarget t, string kind,
         return 2;
     }
     // 每目标独立的产物/缓存根 —— 防两个目标的 source.zbc 互相覆盖（xtask 旧路径同款隔离）。
-    string outRoot = Path.Join(Path.Join(sourceDir, "artifacts"), kind + "-targets");
+    // 产物根默认 `<清单目录>/artifacts`，`--out-root` 覆盖（见 `_runDevTargets`）。
+    string artBase = r.GetOption("out-root");
+    if (artBase.Length == 0) { artBase = Path.Join(sourceDir, "artifacts"); }
+    string outRoot = Path.Join(artBase, kind + "-targets");
     ProjectManifest derived = _deriveTargetManifest(m, t, kind, outRoot, _parentHasSources(m, sourceDir));
 
     // ① 先建**父包本体** —— 测试目标依赖它（`Api` 之类来自父包的公开面）。父包 dist 不在
