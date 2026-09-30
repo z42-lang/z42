@@ -5,7 +5,7 @@
 // 但**今天的 ZbcWriter 只写 bit3 + 接口名列表**。于是「writer 置了别的位」这条路径
 // 在往返测试里根本走不到——ZbcReader 曾因此长期漏读 bit2 的 base u32 而无人发现
 // （不炸纯属 writer 恰好不写它）。故这里绕开 writer，直接按格式权威
-// （Rust `type_reader.rs::read_constraint_bundle` / `ZpkgReader._skipConstraintBundle`）
+// （Rust `type_reader.rs::read_constraint_bundle` / z42.package `ConstraintCodec.Read`）
 // 拼出置位的字节，喂给 `ZbcReader.ReadTypeAt` 验证游标不错位。
 //
 // 判据设计：把**约束 bundle 之后**的字段（类级 Interfaces）也填上并断言。少吃/多吃任何

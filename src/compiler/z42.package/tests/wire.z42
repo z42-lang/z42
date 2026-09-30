@@ -1,0 +1,85 @@
+// 读侧线格式编解码单测（unify-package-codecs）：ZpkgWire.z42 是 .zbc / .zpkg / .zsym 三个读者共用的唯一实现。
+namespace Z42cPackageWireTests;
+
+using Std;
+using Std.Test;
+using Z42.Package;
+using Z42.IR;
+using Z42.IR.BinaryFormat;
+
+// 手搓一个最小 .zsym：头（ZPK\0 / 版本 / flags=SymOnly / 3 段）+ 目录 + STRS + MDBG(0 模块) + BLID(16B)。
+// segIdx = STRS 里唯一串引用的段索引（段字典只有 1 段 ⇒ 0 合法，其余越界）。
+byte[] _sidecar(int segIdx) {
+    var w = new ByteWriter();
+    w.WriteU8(90); w.WriteU8(80); w.WriteU8(75); w.WriteU8(0);   // "ZPK\0"
+    w.WriteU16(ZpkgWriterZ.Major); w.WriteU16(ZpkgWriterZ.Minor);
+    w.WriteU16(4);                                               // flags: SymOnly
+    w.WriteU16(3);                                               // secCount
+    w.WriteU32(0);                                               // 头部填充到 16
+    // 目录从 16 起，3 × 12B ⇒ 段体从 52 起：STRS 12B @52，MDBG 4B @64，BLID 16B @68。
+    w.WriteUtf8Bytes("STRS"); w.WriteU32(52); w.WriteU32(12);
+    w.WriteUtf8Bytes("MDBG"); w.WriteU32(64); w.WriteU32(4);
+    w.WriteUtf8Bytes("BLID"); w.WriteU32(68); w.WriteU32(16);
+    w.WriteU32(1); w.WriteVarint(1); w.WriteUtf8Bytes("a");      // 段字典：["a"]
+    w.WriteU32(1); w.WriteVarint(1); w.WriteVarint(segIdx);      // 1 串 = [segIdx]
+    w.WriteU32(0);                                               // MDBG：0 模块
+    int b = 0; while (b < 16) { w.WriteU8(b); b = b + 1; }       // BLID
+    return w.ToBytes();
+}
+
+[Test]
+void test_sidecar_reads_well_formed_strs() {
+    Assert.True(SidecarReader.Read(_sidecar(0)) != null);
+}
+
+// 此前 SidecarReader 自带的 STRS 解码遇越界返回**空池**继续读 ⇒ 帧名 / 文件名全成 ""，符号化「成功」却对不上。
+// 现与 ZpkgReader / ZbcReader 同口径：整个 sidecar 不可读。
+[Test]
+void test_sidecar_corrupt_strs_rejected() {
+    Assert.True(SidecarReader.Read(_sidecar(5)) == null);
+}
+
+[Test]
+void test_strs_codec_rejects_out_of_range_segment() {
+    var w = new ByteWriter();
+    w.WriteU32(1); w.WriteVarint(1); w.WriteUtf8Bytes("a");
+    w.WriteU32(1); w.WriteVarint(1); w.WriteVarint(1);
+    Assert.True(StrsCodec.Decode(w.ToBytes(), 0) == null);
+}
+
+// 约束包必须按**完整**布局消费：每个可选块（bit2 base / bit3 tpRef / bit6 funcSig / bit7 assoc）都要吃掉，
+// 否则后续字节整段错位。末尾放一个哨兵字节，断言读完后游标正好停在它上面。
+[Test]
+void test_constraint_codec_consumes_full_layout() {
+    string[] pool = new string[] { "I", "B", "T" };
+    var w = new ByteWriter();
+    w.WriteU8(0x01 | 0x04 | 0x08 | 0x10 | 0x40 | 0x80);
+    w.WriteU32(1);                                  // bit2 base = "B"
+    w.WriteU32(2);                                  // bit3 tpRef = "T"
+    w.WriteU8(1); w.WriteU32(0);                    // 接口 ["I"]
+    w.WriteU8(2); w.WriteU32(0); w.WriteU32(1); w.WriteU32(2);   // bit6 funcSig：2 参 + ret（读而不存）
+    w.WriteU8(1); w.WriteU32(0); w.WriteU32(1);     // bit7 assoc：I = B
+    w.WriteU8(0xAB);                                // 哨兵
+    byte[] bytes = w.ToBytes();
+    var c = new ZpkgCursor(bytes, 0);
+    IrConstraintDesc d = ConstraintCodec.Read(c, pool);
+    Assert.Equal(0xAB, c.U8());
+    Assert.True(d.RequiresClass);
+    Assert.True(d.RequiresCtor);
+    Assert.False(d.RequiresStruct);
+    Assert.Equal("B", d.BaseClass);
+    Assert.Equal("T", d.TypeParamConstraint);
+    Assert.Equal(1, d.InterfaceCount);
+    Assert.Equal("I", d.Interfaces[0]);
+    Assert.Equal(1, d.AssocBindingCount);
+    Assert.Equal("I", d.AssocBindingNames[0]);
+    Assert.Equal("B", d.AssocBindingTypeNames[0]);
+}
+
+// 池索引越界 = 线格式损坏 ⇒ 抛，不以 "" 继续。
+[Test]
+void test_wire_str_out_of_range_throws() {
+    string[] pool = new string[] { "a" };
+    Assert.Equal("a", WireStr.At(pool, 0));
+    Assert.ThrowsAny(() => { WireStr.At(pool, 3); });
+}

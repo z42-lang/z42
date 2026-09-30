@@ -10,76 +10,7 @@ namespace Z42.IR.BinaryFormat;
 using Z42.IR;
 using Std;
 using Std.Encoding;
-
-// 字节游标（镜像 z42c.project ZpkgCursor；z42c.ir 是叶子包，不能反向依赖）。
-public sealed class ZbcCursor {
-    public byte[] Data;
-    public int    Pos;
-    public ZbcCursor(byte[] data, int pos) { this.Data = data; this.Pos = pos; }
-    // ⚠️ 性能（perf/zpkg-cursor）：与 ZpkgCursor 同样**刻意不复用 U8/U16**——解释执行下一个
-    // VmFrame 的成本与函数体大小无关，原写法读一个 u32 要建 7 个帧。位运算逐位等价（U32 仍
-    // 按两个 16 位半字合成）。**别"重构"回转发。**
-    public int U8()  { int v = (int)this.Data[this.Pos]; this.Pos = this.Pos + 1; return v; }
-    public int U16() {
-        byte[] d = this.Data;
-        int p = this.Pos;
-        this.Pos = p + 2;
-        return ((int)d[p]) | (((int)d[p + 1]) << 8);
-    }
-    public int U32() {
-        byte[] d = this.Data;
-        int p = this.Pos;
-        this.Pos = p + 4;
-        int a = ((int)d[p])     | (((int)d[p + 1]) << 8);
-        int b = ((int)d[p + 2]) | (((int)d[p + 3]) << 8);
-        return a | (b << 16);
-    }
-    // 无符号 LEB128（STRS segment-dict）。最多 5 字节（32-bit）防越界死循环。
-    public int Varint() {
-        byte[] d = this.Data;
-        int p = this.Pos;
-        int result = 0;
-        int shift = 0;
-        int guard = 0;
-        while (guard < 5) {
-            int b = (int)d[p];
-            p = p + 1;
-            result = result | ((b & 0x7F) << shift);
-            if ((b & 0x80) == 0) { this.Pos = p; return result; }
-            shift = shift + 7;
-            guard = guard + 1;
-        }
-        this.Pos = p;
-        return result;
-    }
-    public long I64() {
-        byte[] d = this.Data;
-        int p = this.Pos;
-        this.Pos = p + 8;
-        int loA = ((int)d[p])     | (((int)d[p + 1]) << 8);
-        int loB = ((int)d[p + 2]) | (((int)d[p + 3]) << 8);
-        int hiA = ((int)d[p + 4]) | (((int)d[p + 5]) << 8);
-        int hiB = ((int)d[p + 6]) | (((int)d[p + 7]) << 8);
-        long lo = (long)(loA | (loB << 16));
-        long hi = (long)(hiA | (hiB << 16));
-        return (lo & 0xFFFFFFFFL) | (hi << 32);
-    }
-    public string Str(int len) {
-        byte[] b = new byte[len];
-        byte[] d = this.Data;
-        int p = this.Pos;
-        int i = 0;
-        while (i < len) { b[i] = d[p + i]; i = i + 1; }
-        this.Pos = p + len;
-        return Utf8.GetString(b);
-    }
-}
-
-// 段目录条目。
-public sealed class ZbcSectionZ {
-    public string Tag; public int Offset; public int Size;
-    public ZbcSectionZ(string tag, int offset, int size) { this.Tag = tag; this.Offset = offset; this.Size = size; }
-}
+using Z42.Package;   // unify-package-codecs：ZpkgCursor / ZpkgSection / SectionDir / StrsCodec / ConstraintCodec / SigsCodec
 
 // SIGS 条目（组装 IrFunction 用的中转）。
 public sealed class SigEntryZ {
@@ -123,14 +54,14 @@ public static class ZbcReader {
     public static IrModule Read(byte[] data) {
         if (data.Length < 16) { return null; }
         if ((int)data[0] != 90 || (int)data[1] != 66 || (int)data[2] != 67 || (int)data[3] != 0) { return null; }   // "ZBC\0"
-        ZbcCursor h = new ZbcCursor(data, 4);
+        ZpkgCursor h = new ZpkgCursor(data, 4);
         int major = h.U16();
         int minor = h.U16();
         int flags = h.U16();
         int secCount = h.U16();
         if (major != ZbcVersion.Major || minor != ZbcVersion.Minor) { return null; }
         if (secCount == 0) { return null; }   // z42 writer 恒写目录
-        ZbcSectionZ[] dir = ZbcReader._readDir(data, secCount);
+        ZpkgSection[] dir = SectionDir.Read(data, secCount);
 
         string nspc = ZbcReader._readNspc(data, dir);
         string[] pool = ZbcReader._readStrs(data, dir);
@@ -227,80 +158,28 @@ public static class ZbcReader {
 
     // ── 目录与基础段 ────────────────────────────────────────────────────────────
 
-    private static ZbcSectionZ[] _readDir(byte[] data, int secCount) {
-        ZbcSectionZ[] dir = new ZbcSectionZ[secCount];
-        ZbcCursor c = new ZbcCursor(data, 16);
-        int i = 0;
-        while (i < secCount) {
-            string tag = c.Str(4);
-            int off = c.U32();
-            int size = c.U32();
-            dir[i] = new ZbcSectionZ(tag, off, size);
-            i = i + 1;
-        }
-        return dir;
-    }
-
-    private static ZbcSectionZ _sec(ZbcSectionZ[] dir, string tag) {
-        int i = 0;
-        while (i < dir.Length) {
-            if (dir[i].Tag == tag) { return dir[i]; }
-            i = i + 1;
-        }
-        return null;
-    }
-
-    private static string _readNspc(byte[] data, ZbcSectionZ[] dir) {
-        ZbcSectionZ s = ZbcReader._sec(dir, "NSPC");
+    private static string _readNspc(byte[] data, ZpkgSection[] dir) {
+        ZpkgSection s = SectionDir.Find(dir, "NSPC");
         if (s == null || s.Size < 2) { return ""; }
-        ZbcCursor c = new ZbcCursor(data, s.Offset);
+        ZpkgCursor c = new ZpkgCursor(data, s.Offset);
         int len = c.U16();
         return c.Str(len);
     }
 
     // STRS segment-dict（zbc 1.21）：段字典 + 每串段索引序列 → join('.') 还原。
-    private static string[] _readStrs(byte[] data, ZbcSectionZ[] dir) {
-        ZbcSectionZ s = ZbcReader._sec(dir, "STRS");
+    private static string[] _readStrs(byte[] data, ZpkgSection[] dir) {
+        ZpkgSection s = SectionDir.Find(dir, "STRS");
         if (s == null || s.Size < 8) { return null; }
-        return ZbcReader.DecodeStrs(data, s.Offset);
+        return StrsCodec.Decode(data, s.Offset);
     }
 
-    // STRS segment-dict 解码（从 offset 起）。public：供单测直接对 BuildStrs 输出往返验证。
-    // 段索引越界 → null（strict，与 strict-pin 同风格）。
-    public static string[] DecodeStrs(byte[] data, int offset) {
-        ZbcCursor c = new ZbcCursor(data, offset);
-        int segCount = c.U32();
-        string[] segDict = new string[segCount];
-        int i = 0;
-        while (i < segCount) {
-            int segLen = c.Varint();
-            segDict[i] = c.Str(segLen);
-            i = i + 1;
-        }
-        int strCount = c.U32();
-        string[] r = new string[strCount];
-        i = 0;
-        while (i < strCount) {
-            int segN = c.Varint();
-            string name = "";
-            int j = 0;
-            while (j < segN) {
-                int segIdx = c.Varint();
-                if (segIdx < 0 || segIdx >= segCount) { return null; }
-                if (j > 0) { name = name + "."; }
-                name = name + segDict[segIdx];
-                j = j + 1;
-            }
-            r[i] = name;
-            i = i + 1;
-        }
-        return r;
-    }
+    // STRS segment-dict 解码 —— 实现在 StrsCodec（三个读者共用）；保留此名供跨成员单测调用。
+    public static string[] DecodeStrs(byte[] data, int offset) { return StrsCodec.Decode(data, offset); }
 
     // ── TYPE ────────────────────────────────────────────────────────────────────
 
-    private static IrClassDesc[] _readType(byte[] data, ZbcSectionZ[] dir, string[] pool) {
-        ZbcSectionZ s = ZbcReader._sec(dir, "TYPE");
+    private static IrClassDesc[] _readType(byte[] data, ZpkgSection[] dir, string[] pool) {
+        ZpkgSection s = SectionDir.Find(dir, "TYPE");
         if (s == null || s.Size < 4) { ZbcReader._lastN = 0; return new IrClassDesc[0]; }
         return ZbcReader.ReadTypeAt(data, s.Offset, pool);
     }
@@ -308,7 +187,7 @@ public static class ZbcReader {
     // TYPE 段体解析（给定偏移；reconcile-tsig-from-runtime-sections 公开——zpkg MODS 每模块
     // 记录内嵌的 TYPE 字节与 zbc TYPE 段同构，ZpkgReader.ReadModuleTypes 复用本入口）。
     public static IrClassDesc[] ReadTypeAt(byte[] data, int offset, string[] pool) {
-        ZbcCursor c = new ZbcCursor(data, offset);
+        ZpkgCursor c = new ZpkgCursor(data, offset);
         int n = c.U32();
         IrClassDesc[] classes = new IrClassDesc[n];
         int ci = 0;
@@ -337,7 +216,7 @@ public static class ZbcReader {
             int tpi = 0;
             while (tpi < tpc) {
                 cd.TypeParams[tpi] = ZbcReader._p(pool, c.U32());
-                cd.TypeParamConstraints[tpi] = ZbcReader._readConstraintBundle(c, pool);
+                cd.TypeParamConstraints[tpi] = ConstraintCodec.Read(c, pool);
                 tpi = tpi + 1;
             }
             int ac = c.U16();
@@ -495,58 +374,7 @@ public static class ZbcReader {
         return classes;
     }
 
-    // 型参约束 bundle（zbc WriteConstraintBundle 的**完整**布局；本读取器必须消费全部
-    // 已规约的 flag 位。add-associated-types PR-1 起 z42c writer 真写 bit0-5，仅 bit6 未产出）：
-    //
-    //   flags u8
-    //     → [bit0 requires_class]  [bit1 requires_struct]        （无载荷）
-    //     → [bit2 base      u32]   [bit3 tpRef u32]
-    //     → ifaceCount u8 + u32×ifaceCount
-    //     → [bit4 requires_new()]  [bit5 requires_enum]          （无载荷）
-    //     → [bit6 funcSig: pc u8 + u32×pc + ret u32]
-    //
-    // 布局权威有三处且早已一致：Rust `metadata/zbc_reader/type_reader.rs::read_constraint_bundle`
-    // 与 `ZpkgReader._skipConstraintBundle`。**只有本函数此前是「z42 writer 子集」**——只读
-    // bit3，不消费 bit2 的 base u32 与 bit6 的 funcSig。今天不炸纯属 z42c writer 恰好只写
-    // bit3；任何 writer 一旦置了 bit2，这里就少吃 4 字节 → `ifaceCount` 读歪 → 整个 TYPE 段
-    // 错位。complete-where-constraints PR-A 修正：按完整布局消费。
-    //
-    // add-associated-types PR-1：bit0/1/2/4/5 现已**读而存之**（`IrConstraintDesc` 补齐了承载位，
-    // ZbcWriter 也开始真写这些位）。只剩 bit6 funcSig 仍读而不存 —— 它没有承载位，属 Deferred
-    // `where-constraint-future-func-constraint`；本函数对它的职责仍只是**对齐字节流**，做那一步时从这里接。
-    private static IrConstraintDesc _readConstraintBundle(ZbcCursor c, string[] pool) {
-        IrConstraintDesc bundle = new IrConstraintDesc();
-        int cflags = c.U8();
-        bundle.RequiresClass  = (cflags & 0x01) != 0;   // bit0（无载荷）
-        bundle.RequiresStruct = (cflags & 0x02) != 0;   // bit1（无载荷）
-        if ((cflags & 0x04) != 0) { bundle.BaseClass = ZbcReader._p(pool, c.U32()); }             // bit2
-        if ((cflags & 0x08) != 0) { bundle.TypeParamConstraint = ZbcReader._p(pool, c.U32()); }   // bit3
-        int ifc = c.U8();
-        bundle.Interfaces = new string[ifc]; bundle.InterfaceCount = ifc;
-        int ifi = 0;
-        while (ifi < ifc) { bundle.Interfaces[ifi] = ZbcReader._p(pool, c.U32()); ifi = ifi + 1; }
-        bundle.RequiresCtor = (cflags & 0x10) != 0;     // bit4（无载荷）
-        bundle.RequiresEnum = (cflags & 0x20) != 0;     // bit5（无载荷）
-        if ((cflags & 0x40) != 0) {              // bit6 funcSig：读而不存（见上）
-            int pc = c.U8();
-            int pi = 0;
-            while (pi < pc) { c.U32(); pi = pi + 1; }
-            c.U32();                             // ret
-        }
-        if ((cflags & 0x80) != 0) {              // bit7 关联类型绑定（zbc 1.42，assoc-type-crosspkg）
-            int abc = c.U8();
-            bundle.AssocBindingNames = new string[abc]; bundle.AssocBindingTypeNames = new string[abc]; bundle.AssocBindingCount = abc;
-            int abi = 0;
-            while (abi < abc) {
-                bundle.AssocBindingNames[abi] = ZbcReader._p(pool, c.U32());
-                bundle.AssocBindingTypeNames[abi] = ZbcReader._p(pool, c.U32());
-                abi = abi + 1;
-            }
-        }
-        return bundle;
-    }
-
-    private static void _readFieldAttrs(ZbcCursor c, string[] pool, IrFieldDesc fd) {
+    private static void _readFieldAttrs(ZpkgCursor c, string[] pool, IrFieldDesc fd) {
         int n = c.U16();
         fd.Attrs = new IrAttrRef[n]; fd.AttrCount = n;
         int i = 0;
@@ -559,90 +387,27 @@ public static class ZbcReader {
 
     // ── SIGS ────────────────────────────────────────────────────────────────────
 
-    private static SigEntryZ[] _readSigs(byte[] data, ZbcSectionZ[] dir, string[] pool) {
-        ZbcSectionZ s = ZbcReader._sec(dir, "SIGS");
+    private static SigEntryZ[] _readSigs(byte[] data, ZpkgSection[] dir, string[] pool) {
+        ZpkgSection s = SectionDir.Find(dir, "SIGS");
         if (s == null || s.Size < 4) { return null; }
-        ZbcCursor c = new ZbcCursor(data, s.Offset);
+        ZpkgCursor c = new ZpkgCursor(data, s.Offset);
         int n = c.U32();
         SigEntryZ[] r = new SigEntryZ[n];
         int i = 0;
         while (i < n) {
-            SigEntryZ e = new SigEntryZ();
-            e.Name = ZbcReader._p(pool, c.U32());
-            e.ParamCount = c.U16();
-            c.U8();   // ret_tag（提示位；串为准）
-            e.RetType = ZbcReader._p(pool, c.U32());
-            int em = c.U8();
-            if (em == 1) { e.ExecMode = "Jit"; } else if (em == 2) { e.ExecMode = "Aot"; } else { e.ExecMode = "Interp"; }
-            e.IsStatic = c.U8() != 0;
-            e.Visibility = c.U8();   // add-member-visibility（zbc 1.23）：is_static 后、params 前
-            e.MethodFlags = c.U8();  // add-method-modifiers（zbc 1.24）：visibility 后、params 前
-            e.MinArg = c.U16();      // add-param-metadata（zbc 1.25）：method_flags 后
-            e.ParamsFrom = c.U8();
-            e.ParamTypes = new string[e.ParamCount]; e.ParamTypeCount = e.ParamCount;
-            e.ParamNames = new string[e.ParamCount];
-            e.ParamDefaultKinds = new int[e.ParamCount];
-            e.ParamDefaultVals = new long[e.ParamCount];
-            e.ParamDefaultStrs = new string[e.ParamCount];
-            int p = 0;
-            int noNames = 0;
-            while (p < e.ParamCount) {
-                e.ParamTypes[p] = ZbcReader._p(pool, c.U32());
-                int nameIdx = c.U32();
-                e.ParamNames[p] = ZbcReader._p(pool, nameIdx);   // name_str_idx
-                if (ZbcReader._isNoneU32(nameIdx) || e.ParamNames[p] == "?") { noNames = noNames + 1; }
-                int dk = c.U8();                                  // default_kind
-                e.ParamDefaultKinds[p] = dk;
-                long dv = 0; string ds = "";
-                if (dk == 2 || dk == 3) { dv = c.I64(); }
-                else if (dk == 4) { dv = (long)c.U8(); }
-                else if (dk == 5) { ds = ZbcReader._p(pool, c.U32()); }
-                e.ParamDefaultVals[p] = dv; e.ParamDefaultStrs[p] = ds;
-                p = p + 1;
-            }
+            SigEntryZ e = SigsCodec.ReadEntry(c, pool);
             // workspace-read-cache：编译期没有参数名的函数（struct 合成的 Equals、属性 setter 等 ParamNames 为空）writer 写
-            // 占位 "?"（或无效索引）。读回若原样留下，打包 writer 会把 "?" 当真名预扫入池 ⇒ 重打包 STRS/SIGS 与全量不同。
+            // 占位 "?"。读回若原样留下，打包 writer 会把 "?" 当真名预扫入池 ⇒ 重打包 STRS/SIGS 与全量不同。
             // 全部参数名都是占位 ⇒ 还原为空；部分有名则保持原样（`?` 不是合法标识符，编译期不会与真名混排）。
+            int noNames = 0;
+            int p = 0;
+            while (p < e.ParamCount) { if (e.ParamNames[p] == "?") { noNames = noNames + 1; } p = p + 1; }
             if (e.ParamCount > 0 && noNames == e.ParamCount) { e.ParamNames = new string[0]; }
-            int tpc = c.U8();   // 方法级泛型形参个数（add-reflective-invoke 起 writer 写真实值）。
-            e.TypeParamCount = tpc;   // add-array-paired-sort：捕获供泛型 arity 重载过滤（此前只读弃）。
-            e.TypeParams = new string[tpc];
-            int t = 0;
-            while (t < tpc) {
-                e.TypeParams[t] = ZbcReader._p(pool, c.U32());
-                int cflags = c.U8();
-                if ((cflags & 8) != 0) { c.U32(); }
-                int ifc = c.U8();
-                int ii = 0;
-                while (ii < ifc) { c.U32(); ii = ii + 1; }
-                t = t + 1;
-            }
-            int ac = c.U16();
-            e.Attrs = new IrAttrRef[ac]; e.AttrCount = ac;
-            int a = 0;
-            while (a < ac) {
-                string tn = ZbcReader._p(pool, c.U32());
-                e.Attrs[a] = new IrAttrRef(tn, ZbcReader._p(pool, c.U32()));
-                a = a + 1;
-            }
-            // 每参数 attr 块（writer 对每个 param 恒写 count，含 0）。
-            e.ParamAttrs = new IrAttrRefList[e.ParamCount]; e.ParamAttrsLen = e.ParamCount;
-            int pa = 0;
+            // writer：ParamAttrsLen=0 → 全零块 ⇒ 全空的每参 attr 块还原为 0 长，往返等价。
             bool anyPa = false;
-            while (pa < e.ParamCount) {
-                int pn = c.U16();
-                IrAttrRef[] items = new IrAttrRef[pn];
-                int pj = 0;
-                while (pj < pn) {
-                    string tn = ZbcReader._p(pool, c.U32());
-                    items[pj] = new IrAttrRef(tn, ZbcReader._p(pool, c.U32()));
-                    pj = pj + 1;
-                }
-                if (pn > 0) { anyPa = true; }
-                e.ParamAttrs[pa] = new IrAttrRefList(items, pn);
-                pa = pa + 1;
-            }
-            if (!anyPa) { e.ParamAttrs = new IrAttrRefList[0]; e.ParamAttrsLen = 0; }   // writer：ParamAttrsLen=0 → 全零块，往返等价
+            int pa = 0;
+            while (pa < e.ParamAttrsLen) { if (e.ParamAttrs[pa].Count > 0) { anyPa = true; } pa = pa + 1; }
+            if (!anyPa) { e.ParamAttrs = new IrAttrRefList[0]; e.ParamAttrsLen = 0; }
             r[i] = e;
             i = i + 1;
         }
@@ -652,12 +417,12 @@ public static class ZbcReader {
 
     // ── FUNC ────────────────────────────────────────────────────────────────────
 
-    private static IrFunction[] _readFunc(byte[] data, ZbcSectionZ[] dir, string[] pool,
+    private static IrFunction[] _readFunc(byte[] data, ZpkgSection[] dir, string[] pool,
                                           SigEntryZ[] sigs, int fnCount,
                                           string[] fnNames, string[] clsNames, int clsCount) {
-        ZbcSectionZ s = ZbcReader._sec(dir, "FUNC");
+        ZpkgSection s = SectionDir.Find(dir, "FUNC");
         if (s == null || s.Size < 4) { return null; }
-        ZbcCursor c = new ZbcCursor(data, s.Offset);
+        ZpkgCursor c = new ZpkgCursor(data, s.Offset);
         int n = c.U32();
         if (n != fnCount) { return null; }
         IrFunction[] fns = new IrFunction[n];
@@ -686,7 +451,7 @@ public static class ZbcReader {
                 int bStart = instrBase + blockOffs[bi];
                 int bEnd = instrBase + instrLen;
                 if (bi + 1 < blockCount) { bEnd = instrBase + blockOffs[bi + 1]; }
-                ZbcCursor bc = new ZbcCursor(data, bStart);
+                ZpkgCursor bc = new ZpkgCursor(data, bStart);
                 DecodedBlockZ db = ZbcReaderInstr.DecodeBlock(bc, bEnd, pool, fnNames, fnCount, clsNames, clsCount);
                 if (!db.Ok) { return null; }
                 string label = "entry";
@@ -695,19 +460,7 @@ public static class ZbcReader {
                 bi = bi + 1;
             }
             c.Pos = instrBase + instrLen;
-            SigEntryZ sig = sigs[fi];
-            IrFunction f = new IrFunction(sig.Name, sig.ParamCount, sig.RetType, sig.IsStatic,
-                                          blocks, blockCount, regCount,
-                                          sig.ExecMode, sig.ParamTypes, sig.ParamTypeCount,
-                                          new int[0], 0,
-                                          new IrLineEntry[0], 0, new IrLocalVarEntry[0], 0);
-            f.Attrs = sig.Attrs; f.AttrCount = sig.AttrCount;
-            f.ParamAttrs = sig.ParamAttrs; f.ParamAttrsLen = sig.ParamAttrsLen;
-            f.Visibility = sig.Visibility; f.MethodFlags = sig.MethodFlags;   // 1.23/1.24 round-trip
-            f.MinArg = sig.MinArg; f.ParamsFrom = sig.ParamsFrom;             // add-param-metadata round-trip
-            f.ParamNames = sig.ParamNames; f.ParamDefaultKinds = sig.ParamDefaultKinds;
-            f.ParamDefaultVals = sig.ParamDefaultVals; f.ParamDefaultStrs = sig.ParamDefaultStrs;
-            f.TypeParams = sig.TypeParams; f.TypeParamCount = sig.TypeParamCount;   // workspace-read-cache：方法级泛型形参 round-trip
+            IrFunction f = SigsCodec.ToFunction(sigs[fi], blocks, blockCount, regCount);
             if (excCount > 0) {
                 IrExcEntry[] et = new IrExcEntry[excCount];
                 xe = 0;
@@ -735,10 +488,10 @@ public static class ZbcReader {
 
     // ── REGT / DBUG / TIDX ──────────────────────────────────────────────────────
 
-    private static bool _applyRegt(byte[] data, ZbcSectionZ[] dir, IrFunction[] fns, int fnCount) {
-        ZbcSectionZ s = ZbcReader._sec(dir, "REGT");
+    private static bool _applyRegt(byte[] data, ZpkgSection[] dir, IrFunction[] fns, int fnCount) {
+        ZpkgSection s = SectionDir.Find(dir, "REGT");
         if (s == null || s.Size < 4) { return false; }   // z42 writer 恒发射 REGT
-        ZbcCursor c = new ZbcCursor(data, s.Offset);
+        ZpkgCursor c = new ZpkgCursor(data, s.Offset);
         int n = c.U32();
         if (n != fnCount) { return false; }
         int fi = 0;
@@ -753,10 +506,10 @@ public static class ZbcReader {
         return true;
     }
 
-    private static void _applyDbug(byte[] data, ZbcSectionZ[] dir, string[] pool, IrFunction[] fns, int fnCount) {
-        ZbcSectionZ s = ZbcReader._sec(dir, "DBUG");
+    private static void _applyDbug(byte[] data, ZpkgSection[] dir, string[] pool, IrFunction[] fns, int fnCount) {
+        ZpkgSection s = SectionDir.Find(dir, "DBUG");
         if (s == null || s.Size < 4) { return; }
-        ZbcCursor c = new ZbcCursor(data, s.Offset);
+        ZpkgCursor c = new ZpkgCursor(data, s.Offset);
         int n = c.U32();
         if (n != fnCount) { return; }
         int fi = 0;
@@ -789,10 +542,10 @@ public static class ZbcReader {
         }
     }
 
-    private static IrTestEntry[] _readTidx(byte[] data, ZbcSectionZ[] dir) {
-        ZbcSectionZ s = ZbcReader._sec(dir, "TIDX");
+    private static IrTestEntry[] _readTidx(byte[] data, ZpkgSection[] dir) {
+        ZpkgSection s = SectionDir.Find(dir, "TIDX");
         if (s == null || s.Size < 9) { ZbcReader._lastN = 0; return null; }
-        ZbcCursor c = new ZbcCursor(data, s.Offset);
+        ZpkgCursor c = new ZpkgCursor(data, s.Offset);
         string magic = c.Str(4);
         if (magic != "TIDX") { ZbcReader._lastN = 0; return null; }
         int ver = c.U8();
@@ -846,7 +599,7 @@ public static class ZbcReader {
         return "";
     }
 
-    // u32 0xFFFFFFFF 哨兵检测。⚠ 不能与 `0 - 1` 比较：ZbcCursor.U32 以 `a|(b<<16)`
+    // u32 0xFFFFFFFF 哨兵检测。⚠ 不能与 `0 - 1` 比较：ZpkgCursor.U32 以 `a|(b<<16)`
     // 组装，z42 int 移位语义下 0xFFFFFFFF 不为 -1（e2e 实证同 ZbcReaderInstr._isImport）。
     private static bool _isNoneU32(int v) {
         return (v & 0x7FFFFFFF) == 0x7FFFFFFF && ((v >> 31) & 1) == 1;

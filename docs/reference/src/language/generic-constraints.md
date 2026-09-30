@@ -213,7 +213,7 @@ IrConstraintDesc[]  ──ZbcWriter──▶  zbc TYPE 段 bundle
                                                   bit3 型参引用 / bit4 new() / bit5 enum
                                                   bit6 funcSig（尚未产出）
                                         载荷序：base → 型参引用 → iface_count + 名列表
-   │  ZbcReader._readConstraintBundle
+   │  ConstraintCodec.Read（z42.package ZpkgWire.z42：三个读者共用）
    ▼
 IrClassDesc.TypeParamConstraints ──TsigReconcile──▶ ExportedClassZ.TypeParamConstraints
    │  ImportedSymbolLoader._constraintSetOf
@@ -223,8 +223,8 @@ SymbolTable.ClassConstraints（导入侧 seed，local-wins）→ 与本包**同�
 
 三点值得记住：
 
-- **bit0–bit6 的 wire 布局早已规约**，三方 reader（Rust `type_reader.rs`、`ZbcReader`、
-  `ZpkgReader._skipConstraintBundle`）一直按完整布局消费。所以接通跨包**没有格式 bump**——
+- **bit0–bit6 的 wire 布局早已规约**，reader（Rust `type_reader.rs`，以及 z42 侧 `.zbc` / `.zpkg` /
+  `.zsym` 三个读者共用的 `ConstraintCodec.Read`）一直按完整布局消费。所以接通跨包**没有格式 bump**——
   只是写端从「仅置 bit3」改成置全位。
 - **键规则只有一处**：`SymbolTable.ConstraintKey(bareName, tpCount)`，规则与 `Classes` 相同
   （同短名多 arity 才带 `$N`）。写入 / 查询 / 导入三处都调它，否则 `Foo<T>` 与 `Foo<T,U>`

@@ -9,70 +9,6 @@ using Std.Encoding;
 using Z42.IR;
 using Z42.IR.BinaryFormat;   // reconcile: ZbcReader.ReadTypeAt（MODS 内嵌 TYPE 解析）
 
-// 读取游标（byte[] + pos；LE 助手）。
-public sealed class ZpkgCursor {
-    public byte[] Data;
-    public int    Pos;
-    public ZpkgCursor(byte[] data, int pos) { this.Data = data; this.Pos = pos; }
-    // ⚠️ 性能（perf/zpkg-cursor）：U16/U32/Varint/I64 **刻意不复用 U8/U16**，字节展开是有意的重复。
-    // 解释执行下建一个 VmFrame 的成本与被调函数体大小无关（一层纯转发 ≈ 0.5% 全负载），
-    // 原写法读一个 u32 = U32+2×U16+4×U8 = 7 个帧；`.zpkg` 全是 u32 池索引，量级极大。
-    // 位运算逐位等价于原转发版（U32 仍按两个 16 位半字合成）。**别"重构"回转发。**
-    public int U8()  { int v = (int)this.Data[this.Pos]; this.Pos = this.Pos + 1; return v; }
-    public int U16() {
-        byte[] d = this.Data;
-        int p = this.Pos;
-        this.Pos = p + 2;
-        return ((int)d[p]) | (((int)d[p + 1]) << 8);
-    }
-    public int U32() {
-        byte[] d = this.Data;
-        int p = this.Pos;
-        this.Pos = p + 4;
-        int a = ((int)d[p])     | (((int)d[p + 1]) << 8);
-        int b = ((int)d[p + 2]) | (((int)d[p + 3]) << 8);
-        return a | (b << 16);
-    }
-    // 无符号 LEB128（STRS segment-dict）。最多 5 字节防越界死循环。
-    public int Varint() {
-        byte[] d = this.Data;
-        int p = this.Pos;
-        int result = 0;
-        int shift = 0;
-        int guard = 0;
-        while (guard < 5) {
-            int b = (int)d[p];
-            p = p + 1;
-            result = result | ((b & 0x7F) << shift);
-            if ((b & 0x80) == 0) { this.Pos = p; return result; }
-            shift = shift + 7;
-            guard = guard + 1;
-        }
-        this.Pos = p;
-        return result;
-    }
-    public long I64() {
-        byte[] d = this.Data;
-        int p = this.Pos;
-        this.Pos = p + 8;
-        int loA = ((int)d[p])     | (((int)d[p + 1]) << 8);
-        int loB = ((int)d[p + 2]) | (((int)d[p + 3]) << 8);
-        int hiA = ((int)d[p + 4]) | (((int)d[p + 5]) << 8);
-        int hiB = ((int)d[p + 6]) | (((int)d[p + 7]) << 8);
-        long lo = (long)(loA | (loB << 16));
-        long hi = (long)(hiA | (hiB << 16));
-        return (lo & 0xFFFFFFFFL) | (hi << 32);
-    }
-}
-
-// 段目录条目。
-public sealed class ZpkgSection {
-    public string Tag;
-    public int    Offset;
-    public int    Size;
-    public ZpkgSection(string tag, int offset, int size) { this.Tag = tag; this.Offset = offset; this.Size = size; }
-}
-
 // META 元信息 + 解析后的池/目录（一次解析多次取段）。
 public sealed class ZpkgInfo {
     public string        Name;
@@ -90,16 +26,8 @@ public sealed class ZpkgInfo {
         this.Pool = pool; this.PoolCount = poolCount;
         this.Sections = sections; this.SectionCount = sectionCount; this.Data = data;
     }
-    public bool HasSection(string tag) {
-        int i = 0;
-        while (i < this.SectionCount) { if (this.Sections[i].Tag == tag) { return true; } i = i + 1; }
-        return false;
-    }
-    public ZpkgSection Section(string tag) {
-        int i = 0;
-        while (i < this.SectionCount) { if (this.Sections[i].Tag == tag) { return this.Sections[i]; } i = i + 1; }
-        return null;
-    }
+    public bool HasSection(string tag) { return SectionDir.Find(this.Sections, tag) != null; }
+    public ZpkgSection Section(string tag) { return SectionDir.Find(this.Sections, tag); }
 }
 
 public static class ZpkgReader {
@@ -174,67 +102,26 @@ public static class ZpkgReader {
         if ((flags & 4) != 0) { return null; }
         bool packed = (flags & 1) != 0;
         bool isExe = (flags & 2) != 0;
-        ZpkgSection[] secs = new ZpkgSection[secCount];
-        c.Pos = 16;
-        int i = 0;
-        while (i < secCount) {
-            string tag = ZpkgReader._tag(data, c.Pos);
-            c.Pos = c.Pos + 4;
-            int off = c.U32();
-            int size = c.U32();
-            secs[i] = new ZpkgSection(tag, off, size);
-            i = i + 1;
-        }
+        ZpkgSection[] secs = SectionDir.Read(data, secCount);
         // META：name/version/entry（u16 长 + UTF-8）
         string name = "";
         string version = "";
         string entry = "";
-        i = 0;
-        while (i < secCount) {
-            if (secs[i].Tag == "META") {
-                var m = new ZpkgCursor(data, secs[i].Offset);
-                name = ZpkgReader._str(m);
-                version = ZpkgReader._str(m);
-                entry = ZpkgReader._str(m);
-            }
-            i = i + 1;
+        ZpkgSection meta = SectionDir.Find(secs, "META");
+        if (meta != null) {
+            var m = new ZpkgCursor(data, meta.Offset);
+            name = ZpkgReader._str(m);
+            version = ZpkgReader._str(m);
+            entry = ZpkgReader._str(m);
         }
-        // STRS segment-dict（zpkg 0.25）：段字典 + 每串段索引序列 → join('.') 还原。
+        // STRS segment-dict（zpkg 0.25）→ 池；段索引越界 → 拒绝（strict）。
         string[] pool = new string[0];
-        int poolCount = 0;
-        i = 0;
-        while (i < secCount) {
-            if (secs[i].Tag == "STRS") {
-                var sc = new ZpkgCursor(data, secs[i].Offset);
-                int segCount = sc.U32();
-                string[] segDict = new string[segCount];
-                int sdi = 0;
-                while (sdi < segCount) {
-                    int segLen = sc.Varint();
-                    segDict[sdi] = ZpkgReader._utf8(data, sc.Pos, segLen);
-                    sc.Pos = sc.Pos + segLen;
-                    sdi = sdi + 1;
-                }
-                poolCount = sc.U32();
-                pool = new string[poolCount];
-                int j = 0;
-                while (j < poolCount) {
-                    int segN = sc.Varint();
-                    string poolStr = "";   // 注意：勿用 `name`——与外层 META 包名冲突（会污染 z.Name → 破坏 _isPrelude）
-                    int k = 0;
-                    while (k < segN) {
-                        int segIdx = sc.Varint();
-                        if (segIdx < 0 || segIdx >= segCount) { return null; }   // 越界 → 拒绝（strict）
-                        if (k > 0) { poolStr = poolStr + "."; }
-                        poolStr = poolStr + segDict[segIdx];
-                        k = k + 1;
-                    }
-                    pool[j] = poolStr;
-                    j = j + 1;
-                }
-            }
-            i = i + 1;
+        ZpkgSection strs = SectionDir.Find(secs, "STRS");
+        if (strs != null) {
+            pool = StrsCodec.Decode(data, strs.Offset);
+            if (pool == null) { return null; }
         }
+        int poolCount = pool.Length;
         return new ZpkgInfo(name, version, entry, isExe, packed, pool, poolCount, secs, secCount, data);
     }
 
@@ -295,78 +182,9 @@ public static class ZpkgReader {
         IrFunction[] all = new IrFunction[total];
         int i = 0;
         while (i < total) {
-            string fname = z.Pool[c.U32()];
-            int pc = c.U16();
-            int retTag = c.U8();
-            string ret = z.Pool[c.U32()];
-            int exec = c.U8();
-            int isStatic = c.U8();
-            // P1 元数据（reconcile-tsig-from-runtime-sections 起灌进 stub，此前仅游标对齐消费）。
-            int vis = c.U8();                  // visibility（zbc 1.23）
-            int mflags = c.U8();               // method_flags（zbc 1.24）
-            int minArg = c.U16();              // min_arg（zbc 1.25）
-            int paramsFrom = c.U8();           // params_from（zbc 1.25；255=无）
-            string[] ptypes = new string[pc];
-            string[] pnames = new string[pc];
-            int[] pdKinds = new int[pc];
-            long[] pdVals = new long[pc];
-            string[] pdStrs = new string[pc];
-            int j = 0;
-            while (j < pc) {
-                ptypes[j] = z.Pool[c.U32()];
-                pnames[j] = z.Pool[c.U32()];   // name_str_idx（zbc 1.25）
-                int dk = c.U8();               // default_kind
-                pdKinds[j] = dk; pdVals[j] = 0; pdStrs[j] = "";
-                if (dk == 2 || dk == 3) { long lo = (long)c.U32(); long hi = (long)c.U32(); pdVals[j] = lo | (hi << 32); }
-                else if (dk == 4) { pdVals[j] = (long)c.U8(); }
-                else if (dk == 5) { pdStrs[j] = z.Pool[c.U32()]; }
-                j = j + 1;
-            }
-            int tpc = c.U8();
-            string[] tpNames = new string[tpc];   // add-argument-type-check R1：tp 名此前读弃（见下）。
-            j = 0;
-            while (j < tpc) {
-                tpNames[j] = z.Pool[c.U32()];  // tp 名。**R1**：此前是裸 `c.U32()`（读出即丢）→ 跨包
-                                               // imported 签名里的 `T` 在 ImportedSymbolLoader._resolve
-                                               // 查不到型参表 → 降级成名为 "T" 的普通 Z42ClassType，
-                                               // 型参身份丢失 ⇒ Conversion 分支 B 的擦除放行不触发。
-                ZpkgReader._skipConstraintBundle(c);
-                j = j + 1;                     // add-reflective-invoke：曾漏增（tpc 恒 0 时无害）；
-                                               // 方法级泛型 tpc>0 后不增 → 无限读越界。
-            }
-            // 方法级 attr-ref 块（PR6：从跳过改为**灌进 stub.Attrs**，令 TsigReconcile.Rebuild 读回
-            // 跨包方法级哨兵——$Deprecated 之前因此静默失效，$Default 同理需要）。
-            int attrc = c.U16();
-            IrAttrRef[] mattrs = new IrAttrRef[attrc];
-            j = 0;
-            while (j < attrc) { string mtn = z.Pool[c.U32()]; string mff = z.Pool[c.U32()]; mattrs[j] = new IrAttrRef(mtn, mff); j = j + 1; }
-            // zbc 1.15：per-param attr 块（每参 u16 count + 对×count）→ 灌进 stub.ParamAttrs
-            // （PR6：跨包默认值 `$Default` / caller `$Caller:*` 哨兵传播，修跨包塌零 bug）。
-            IrAttrRefList[] pattrs = new IrAttrRefList[pc];
-            j = 0;
-            while (j < pc) {
-                int pac = c.U16();
-                IrAttrRef[] pai = new IrAttrRef[pac];
-                int x = 0;
-                while (x < pac) { string ptn = z.Pool[c.U32()]; string pff = z.Pool[c.U32()]; pai[x] = new IrAttrRef(ptn, pff); x = x + 1; }
-                pattrs[j] = new IrAttrRefList(pai, pac);
-                j = j + 1;
-            }
-            // 签名 stub：体为空（消费侧不需要）；MaxReg/块 0。P1 元数据全灌（reconcile 消费）。
-            IrFunction stub = new IrFunction(fname, pc, ret, isStatic == 1,
-                                    new IrBlock[0], 0, 0,
-                                    ZpkgReader._execName(exec), ptypes, pc,
-                                    new int[0], 0,
-                                    new IrLineEntry[0], 0, new IrLocalVarEntry[0], 0);
-            stub.Visibility = vis; stub.MethodFlags = mflags;
-            stub.TypeParamCount = tpc;   // add-array-paired-sort：跨包方法级泛型形参个数（tpc 早已读、此前只弃）→ 供泛型 arity 重载过滤
-            stub.TypeParams = tpNames;   // add-argument-type-check R1：连**名**一并带出 → ImportedSymbolLoader 还原 Z42GenericParamType
-            stub.MinArg = minArg; stub.ParamsFrom = paramsFrom;
-            stub.ParamNames = pnames; stub.ParamDefaultKinds = pdKinds;
-            stub.ParamDefaultVals = pdVals; stub.ParamDefaultStrs = pdStrs;
-            stub.Attrs = mattrs; stub.AttrCount = attrc;                 // PR6：方法级 attr（跨包哨兵）
-            stub.ParamAttrs = pattrs; stub.ParamAttrsLen = pc;           // PR6：参数级 attr（$Default/$Caller）
-            all[i] = stub;
+            // 签名 stub：体为空（消费侧不需要）；P1 元数据（vis/mflags/minArg/paramsFrom/参数名与默认值/
+            // 方法级泛型形参名/方法与参数 attr）全灌——TsigReconcile / ImportedSymbolLoader 消费。
+            all[i] = SigsCodec.ToFunction(SigsCodec.ReadEntry(c, z.Pool), new IrBlock[0], 0, 0);
             i = i + 1;
         }
         // MODS/FILE 头切分
@@ -646,51 +464,9 @@ public static class ZpkgReader {
         return paramsFromByte;
     }
 
-    private static void _skipConstraintBundle(ZpkgCursor c) {
-        // zbc WriteConstraintBundle 真布局：
-        // flags u8 → [bit2 base u32] → [bit3 tpRef u32] → ifaceCount u8 + u32× → [bit6 funcSig: pc u8 + u32×pc + ret u32]
-        //          → [bit7 assoc: assoc_count u8 + (name u32, type u32)×n]（zbc 1.42，assoc-type-crosspkg）
-        int flags = c.U8();
-        if ((flags & 0x04) != 0) { c.U32(); }
-        if ((flags & 0x08) != 0) { c.U32(); }
-        int n = c.U8();
-        int i = 0;
-        while (i < n) { c.U32(); i = i + 1; }
-        if ((flags & 0x40) != 0) {
-            int pc = c.U8();
-            int j = 0;
-            while (j < pc) { c.U32(); j = j + 1; }
-            c.U32();
-        }
-        if ((flags & 0x80) != 0) {              // bit7 关联类型绑定：assoc_count u8 + (name,type)×n
-            int abc = c.U8();
-            int k = 0;
-            while (k < abc) { c.U32(); c.U32(); k = k + 1; }
-        }
-    }
-
-    private static string _execName(int e) {
-        if (e == 1) { return "Jit"; }
-        if (e == 2) { return "Aot"; }
-        return "Interp";
-    }
-
-    private static string _tag(byte[] d, int off) {
-        return ZpkgReader._utf8(d, off, 4);
-    }
-
     private static string _str(ZpkgCursor c) {
         int len = c.U16();
-        string s = ZpkgReader._utf8(c.Data, c.Pos, len);
-        c.Pos = c.Pos + len;
-        return s;
-    }
-
-    private static string _utf8(byte[] d, int off, int len) {
-        byte[] b = new byte[len];
-        int i = 0;
-        while (i < len) { b[i] = d[off + i]; i = i + 1; }
-        return Utf8.GetString(b);
+        return c.Str(len);
     }
 }
 
