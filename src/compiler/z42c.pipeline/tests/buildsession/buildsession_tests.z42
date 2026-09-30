@@ -1,0 +1,116 @@
+// BuildSession 单测（add-build-session）：一次清单驱动的包编译。锁住 z42b 此前走不到的清单决策——
+// [syntax] / [optimize] / pack / entry / strip——以及「消息只经 reporter、BuildSession 自己不打印」。
+namespace Z42cPipelineBuildSessionTests;
+
+using Std;
+using Std.IO;
+using Z42.Pipeline;
+using Z42.Project;
+
+string _tmpRoot() {
+    string t = Environment.GetEnvironmentVariable("TMPDIR", "");
+    if (t == "") { t = Environment.GetEnvironmentVariable("TEMP", ""); }
+    if (t == "") { t = "/tmp"; }
+    return Path.Join(t, "z42c-buildsession-tests");
+}
+
+// 造工程夹具：<tmp>/<name>/{z42.toml, src/<file>}（清单缺省 include = `src/**/*.z42`）；返回工程目录。
+string _mkProj(string name, string toml, string file, string src) {
+    string dir = Path.Join(_tmpRoot(), name);
+    if (Directory.Exists(dir)) { Directory.Delete(dir, true); }
+    Directory.Create(dir);
+    File.WriteAllText(Path.Join(dir, "z42.toml"), toml);
+    Directory.Create(Path.Join(dir, "src"));
+    File.WriteAllText(Path.Join(dir, Path.Join("src", file)), src);
+    return dir;
+}
+
+BuildResult _run(string dir, bool release, CollectingReporter rep) {
+    ProjectManifest pm = ManifestLoader.Load(Path.Join(dir, "z42.toml"));
+    BuildOptions o = new BuildOptions(pm, dir, BuildRole.HostTarget, release, rep);
+    o.OutputZpkg = Path.Join(dir, "out/app.zpkg");
+    return new BuildSession(o).Run();
+}
+
+string _hdr(string name, string kind) {
+    return "[project]\nname = \"" + name + "\"\nversion = \"0.1.0\"\nkind = \"" + kind + "\"\n";
+}
+
+[Test]
+void test_plain_lib_builds() {
+    string dir = _mkProj("plain", _hdr("bs.plain", "lib"), "lib.z42", "int Helper() { return 1; }\n");
+    CollectingReporter rep = new CollectingReporter();
+    BuildResult r = _run(dir, false, rep);
+    Assert.Equal("", rep.ErrorsText());
+    Assert.Equal(BuildExit.Ok, r.Code);
+    Assert.Equal(true, File.Exists(r.OutZpkg));
+    Assert.Equal("", r.OutZsym);   // debug：不剥、无 sidecar
+}
+
+// [syntax] 关掉的特性必须报 E0301（此前 z42b 路径静默忽略 [syntax]）。
+[Test]
+void test_syntax_section_takes_effect() {
+    string toml = _hdr("bs.syntax", "lib") + "\n[syntax]\nternary = false\n";
+    string dir = _mkProj("syntax", toml, "lib.z42", "int Pick(bool b) { return b ? 1 : 2; }\n");
+    CollectingReporter rep = new CollectingReporter();
+    BuildResult r = _run(dir, false, rep);
+    Assert.Equal(BuildExit.BuildError, r.Code);
+    Assert.Equal(true, rep.ErrorsText().Contains("E0301"));
+}
+
+// [optimize] 未知名 = 用法错误，不开编（与 CLI `--opt 乱写` 同口径）。
+[Test]
+void test_unknown_optimize_name_is_usage_error() {
+    string toml = _hdr("bs.opt", "lib") + "\n[optimize]\nno-such-pass = true\n";
+    string dir = _mkProj("opt", toml, "lib.z42", "int Helper() { return 1; }\n");
+    CollectingReporter rep = new CollectingReporter();
+    BuildResult r = _run(dir, false, rep);
+    Assert.Equal(BuildExit.UsageError, r.Code);
+    Assert.Equal(true, rep.ErrorsText().Contains("unknown optimization `no-such-pass`"));
+}
+
+// 本路径只产 packed ⇒ 显式 `pack = false` 是用法错误（而非悄悄出一个 packed）。
+[Test]
+void test_pack_false_rejected_on_packed_only_path() {
+    string toml = "[project]\nname = \"bs.pack\"\nversion = \"0.1.0\"\nkind = \"lib\"\npack = false\n";
+    string dir = _mkProj("pack", toml, "lib.z42", "int Helper() { return 1; }\n");
+    CollectingReporter rep = new CollectingReporter();
+    BuildResult r = _run(dir, false, rep);
+    Assert.Equal(BuildExit.UsageError, r.Code);
+    Assert.Equal(true, rep.ErrorsText().Contains("pack=false"));
+}
+
+// 清单 entry 生效：没有 `Main` 但声明了 entry 的 exe 照常编过（旧路径恒找 Main ⇒ 判 missing）。
+[Test]
+void test_manifest_entry_honored() {
+    string toml = "[project]\nname = \"bs.entry\"\nversion = \"0.1.0\"\nkind = \"exe\"\nentry = \"App.Start\"\n";
+    string dir = _mkProj("entry", toml, "app.z42",
+        "namespace App;\nint Start() { return 0; }\n");
+    CollectingReporter rep = new CollectingReporter();
+    BuildResult r = _run(dir, false, rep);
+    Assert.Equal("", rep.ErrorsText());
+    Assert.Equal(BuildExit.Ok, r.Code);
+}
+
+// release ⇒ strip：主包剥 DBUG、旁挂 .zsym（此前 z42b 写死 strip=false）。
+[Test]
+void test_release_strips_with_sidecar() {
+    string dir = _mkProj("strip", _hdr("bs.strip", "lib"), "lib.z42", "int Helper() { return 1; }\n");
+    CollectingReporter rep = new CollectingReporter();
+    BuildResult r = _run(dir, true, rep);
+    Assert.Equal("", rep.ErrorsText());
+    Assert.Equal(BuildExit.Ok, r.Code);
+    Assert.Equal(true, r.OutZsym != "");
+    Assert.Equal(true, File.Exists(r.OutZsym));
+}
+
+// 声明了却找不到的依赖：失败且点名（与 `z42c build` 同一核验）。
+[Test]
+void test_missing_declared_dep_reported() {
+    string toml = _hdr("bs.dep", "lib") + "\n[dependencies]\n\"no.such.pkg\" = \"0.1.0\"\n";
+    string dir = _mkProj("dep", toml, "lib.z42", "int Helper() { return 1; }\n");
+    CollectingReporter rep = new CollectingReporter();
+    BuildResult r = _run(dir, false, rep);
+    Assert.Equal(true, r.Code != BuildExit.Ok);
+    Assert.Equal(true, rep.ErrorsText().Contains("no.such.pkg"));
+}

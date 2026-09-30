@@ -81,7 +81,7 @@ public class Pipeline {
             ctx.Dirs.Intermediate + "/app.zpkg",
             ctx.Inputs.Deps,
             ctx.Target.Profile,
-            false,                          // strip 由 profile 决定，实现期接 manifest
+            ctx.Target.Profile == "release",   // add-build-session：strip ≡ release（此前写死 false ⇒ release 主包被剥、.zsym 被丢）
             true,                           // 增量
             ctx.Project.Kind,               // 工程 kind（exe/lib）——lib 免 Main，供 compile-then-test
             effExc,                         // Excludes（阶段4.2：从 manifest 组装 hooks/exclude glob）
@@ -90,7 +90,14 @@ public class Pipeline {
         if (this.ParentPkg != null) { req.ParentPkg = this.ParentPkg; }
         req.Includes = pm.Sources.Include; req.IncludesCount = pm.Sources.IncludeCount;
         req.PackageName = pm.Project.Name;
+        req.Manifest = pm;   // add-build-session：实现方据此走 BuildSession（[optimize]/[syntax]/[lints]/[analyzers]/entry/version/E0497）
         CompileResult res = this.Compiler.Compile(req);
+        // 警告经 ctx.Warn 呈现（stderr；User 2026-09-30 裁决）。此前成功时警告被整体丢弃。
+        if (res.Warnings != null && res.Warnings.Length > 0) {
+            string[] wl = res.Warnings.Split("\n");
+            int wi = 0;
+            while (wi < wl.Length) { if (wl[wi].Length > 0) { ctx.Warn("warning: " + wl[wi]); } wi = wi + 1; }
+        }
         if (!res.Ok) {
             ctx.Warn("compile failed:");
             ctx.Warn(res.Diagnostics);

@@ -1,6 +1,6 @@
-# z42c.pipeline Z42cCompiler 端到端单测（wire-z42b D2）。
+# z42c.pipeline BuildSession 单测（add-build-session）：清单驱动的一次包编译。
 [project]
-name    = "z42c.pipeline.test.z42ccompiler"
+name    = "z42c.pipeline.test.buildsession"
 version = "0.1.0"
 kind    = "lib"
 
@@ -18,5 +18,5 @@ include = ["**/*.z42"]
 
 [build]
 # Build output → artifacts mirror (mirror-build-output-per-component):
-# src/compiler/z42c.pipeline/tests/z42ccompiler → artifacts/build/compiler/z42c.pipeline/tests/z42ccompiler
-output_dir = "../../../../../artifacts/build/compiler/z42c.pipeline/tests/z42ccompiler"
+# src/compiler/z42c.pipeline/tests/buildsession → artifacts/build/compiler/z42c.pipeline/tests/buildsession
+output_dir = "../../../../../artifacts/build/compiler/z42c.pipeline/tests/buildsession"

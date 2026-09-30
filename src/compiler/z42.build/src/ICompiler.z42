@@ -53,6 +53,12 @@ namespace Z42.Build;
     /// 依赖按 META 名解析，故这会让「按名找依赖」在 in-process 路径上错位。
     /// 空 → 沿用目录尾名（现状）。**body 字段、不进 ctor**（种子 ABI）。
     public string PackageName = "";
+
+    /// add-build-session：整份清单（含 `[optimize]` / `[syntax]` / `[lints]` / `[analyzers]` / entry / version /
+    /// `[dependencies]`）。设了 ⇒ 实现方走 BuildSession，按清单做全部编译决策（与 `z42c build` 同一判据）；
+    /// null ⇒ 退回上面的平铺字段（旧调用方）。传**对象**而非路径：z42b 测试目标的清单是在内存里派生的。
+    /// **body 字段、不进 ctor**（种子 ABI，同 ParentPkg）。
+    public Z42.Project.ProjectManifest Manifest = null;
 }
 
 /// 编译结果。Zsym 为 "" 表示无 split-debug sidecar；Ok=false 时 Diagnostics 含错误文本。
@@ -60,7 +66,12 @@ namespace Z42.Build;
     string Zpkg,
     string Zsym,
     bool   Ok,
-    string Diagnostics);
+    string Diagnostics)
+{
+    /// add-build-session：编译成功时的警告行（换行分隔；"" = 无）。此前成功时警告被整体丢弃。
+    /// **body 字段、不进 ctor**（种子 ABI）。
+    public string Warnings = "";
+}
 
 /// 编译器抽象。实现住编译器库（z42c）；z42.build 只持接口。
 /// `z42b` 与 `z42c.driver` 经本接口引用同一实现。

@@ -1,0 +1,22 @@
+# add-build-session 端到端 fixture：z42b 编译按**整份清单**决策（与 `z42c build` 同一判据）。
+# 由 `xtask test targets` 的 _smokeManifestSections 驱动，**预期判红**：
+#   `[syntax] ternary = false` ⇒ tests/t.z42 里的 `?:` 必须报 E0301。
+# 此前 z42b 的编译请求只带平铺字段、不带清单 ⇒ [syntax] 被静默忽略、本 fixture 反而全绿；
+# 且测试目标的派生清单丢了 [syntax] 段 ⇒ 即便父包生效，目标也按默认特性集编。
+# src/ 故意不用 `?:`：父包照常编过，红只能来自**测试目标**——同时锁住「派生清单继承父包旋钮」。
+[project]
+name    = "ms.sections"
+version = "0.1.0"
+kind    = "lib"
+
+[sources]
+include = ["src/**/*.z42"]
+
+[dependencies]
+"z42.core" = "0.1.0"
+
+[syntax]
+ternary = false
+
+[tests.dependencies]
+"z42.test" = "0.1.0"

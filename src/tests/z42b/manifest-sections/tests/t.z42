@@ -1,0 +1,11 @@
+namespace Ms.Sections.Tests;
+using Std;
+using Std.Test;
+using Ms.Sections;
+
+// `[syntax] ternary = false` 继承自父包 ⇒ 这里的 `?:` 必须报 E0301（见 z42.toml 注释）。
+[Test]
+void test_ternary_is_disabled() {
+    int v = Api.Pick(true) == 1 ? 10 : 20;
+    Assert.Equal(10, v);
+}

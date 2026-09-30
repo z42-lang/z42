@@ -7,6 +7,7 @@ using Std.IO;
 using Z42.Pipeline;
 using Z42.Build;
 using Z42.Package;   // ZpkgReader（读回 MODS 头的 SourceFile / SourceHash）
+using Z42.Project;   // add-build-session：CompileRequest.Manifest
 
 string _tmpRoot() {
     string t = Environment.GetEnvironmentVariable("TMPDIR", "");
@@ -109,4 +110,36 @@ void test_release_zpkg_reproducible_across_dirs_and_comments() {
     Assert.Equal(1, hs.Length);
     Assert.Equal("lib.z42", hs[0].SourceFile);
     Assert.Equal("", hs[0].SourceHash);
+}
+
+// ── 带清单的请求走 BuildSession（add-build-session）────────────────────────────
+// req.Manifest 非空 ⇒ 清单决策全部生效（这里用 [syntax] 验），诊断经 CompileResult.Diagnostics 回传；
+// release ⇒ 剥符号 + .zsym（此前 z42b 路径 strip 写死 false）。
+
+[Test]
+void test_manifest_request_honors_syntax_section() {
+    string dir = _mkProj("mf-syntax", "lib.z42", "int Pick(bool b) { return b ? 1 : 2; }\n");
+    CompileRequest req = new CompileRequest(dir, Path.Join(dir, "app.zpkg"), new string[0], "debug", false, false, "lib", new string[0], 0);
+    req.Manifest = ManifestLoader.ParseText("[project]\nname = \"mf.syntax\"\nversion = \"0.1.0\"\nkind = \"lib\"\n\n[sources]\ninclude = [\"*.z42\"]\n\n[syntax]\nternary = false\n");
+    CompileResult res = new Z42cCompiler().Compile(req);
+    Assert.Equal(false, res.Ok);
+    Assert.Equal(true, res.Diagnostics.Contains("E0301"));
+    // 对照：不带清单的旧路径不认 [syntax] ⇒ 照常编过（锁住两条路径的分流点）。
+    req.Manifest = null;
+    Assert.Equal(true, new Z42cCompiler().Compile(req).Ok);
+}
+
+[Test]
+void test_manifest_request_release_writes_sidecar() {
+    string dir = _mkProj("mf-release", "lib.z42", "int Helper() { return 1; }\n");
+    string outZpkg = Path.Join(dir, "app.zpkg");
+    CompileRequest req = new CompileRequest(dir, outZpkg, new string[0], "release", true, false, "lib", new string[0], 0);
+    req.Manifest = ManifestLoader.ParseText("[project]\nname = \"mf.release\"\nversion = \"0.1.0\"\nkind = \"lib\"\n\n[sources]\ninclude = [\"*.z42\"]\n");
+    CompileResult res = new Z42cCompiler().Compile(req);
+    Assert.Equal("", res.Diagnostics);
+    Assert.Equal(true, res.Ok);
+    Assert.Equal(outZpkg, res.Zpkg);
+    Assert.Equal(true, res.Zsym != "");
+    Assert.Equal(true, File.Exists(res.Zsym));
+    Assert.Equal("", res.Warnings);
 }

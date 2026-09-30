@@ -166,6 +166,24 @@ z42b 编译为 `z42.builder.zpkg`，用户通过 launcher 到达它的命令：
 `z42b publish` 的 `--rid` 不会默认到宿主（要默认得走 `z42 publish`），`z42b export`
 只认 `--rid` 与 `--release`、不接受 `--bundle-id` / `--app-id` / `--entry` 那组旗标。
 
+### z42b 编译时认清单的哪些段
+
+`z42 test` / `z42 bench`（以及 `z42b build`）编译工程时与 `z42c build` **按同一套规则读 `z42.toml`**：
+
+| 段 / 键 | 效果 |
+|---|---|
+| `[project] version` / `entry` | 写进产物（exe 按 `entry` 找入口，不再只认 `Main`） |
+| `[optimize]` | 与 `z42c build` 同口径；未知优化名是用法错误 |
+| `[syntax]` | 关掉的特性在源码里出现即报 **E0301** |
+| `[lints]` / `[analyzers]` | analyzer 照常加载运行、严重度按 `[lints]` 调整 |
+| `[dependencies]` | 声明了却找不到的依赖报错；用到未声明的包报 **E0497**（`z42.` 前缀的标准库包豁免） |
+| `--release` | 主包剥离调试信息、旁挂 `.zsym`（同 `z42c build --release`） |
+
+测试 / bench 目标**继承父包**的 `[optimize]` / `[syntax]` / `[lints]` / `[analyzers]`。
+
+与 `z42c build` 的差别：z42b 只产出 packed 单产物——显式写 `pack = false` 是用法错误；`[[exe]]` 多入口不认；
+没有增量缓存。编译**警告**以 `warning:` 前缀打到 stderr（此前成功时警告被丢弃）。
+
 ## `z42d install <target>`
 
 把**这个 SDK 自带的**编辑器集成装进你的编辑器。

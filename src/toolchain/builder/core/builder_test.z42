@@ -209,7 +209,7 @@ int _runOneDevTarget(ParseResult r, ProjectManifest m, DevTarget t, string kind,
     }
     // 每目标独立的产物/缓存根 —— 防两个目标的 source.zbc 互相覆盖（xtask 旧路径同款隔离）。
     string outRoot = Path.Join(Path.Join(sourceDir, "artifacts"), kind + "-targets");
-    ProjectManifest derived = _deriveTargetManifest(m, t, kind, outRoot);
+    ProjectManifest derived = _deriveTargetManifest(m, t, kind, outRoot, _parentHasSources(m, sourceDir));
 
     // ① 先建**父包本体** —— 测试目标依赖它（`Api` 之类来自父包的公开面）。父包 dist 不在
     //    Z42_LIBS 里，故作为 extraDepDir 供给。注意这也正是「不双编译」的体现：父包只建一次，
