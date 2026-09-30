@@ -43,7 +43,7 @@
 | （聚合拷出）| `build/libraries/dist/<profile>/` | 全部 stdlib `.zpkg` 的**扁平单目录视图** = `Z42_LIBS` 查找点 |
 | `src/compiler/<member>/` | `build/compiler/<member>/<profile>/{dist,cache}/` | 编译器后端各成员 |
 | （边界检查）| `build/compiler/bootstrap-check/` | `xtask test bootstrap` 的双轨隔离工作目录 |
-| `src/toolchain/<comp>/` | `build/toolchain/<comp>/` + `…/publish/` | launcher / builder 等的 dist 与 publish 落点 |
+| `src/toolchain/<comp>/` | `build/toolchain/<comp>/{dist,.cache,publish}/` | launcher / builder / devtools / interactive 等：清单只配 `output_dir`，三个子目录走级联默认 |
 | `src/tests/<rel>` | `build/tests/<rel>` | golden 编译出的 `.zbc` 镜像 |
 | （wasm 测试）| `build/wasm-test/` | wasm deployable（agent + bundle + libs）|
 
