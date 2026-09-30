@@ -99,8 +99,8 @@ xtask 是独立的 z42 应用——它不是通用 `z42` launcher 的一部分�
 | `test changed [base]` | 增量自测（按改动文件挑 stage） | 上述各命令（in-process 调度） | 仅跑受影响的 stage |
 
 > **构建输出约定（add-build-toolchain, 2026-07-05）**：
-> - `artifacts/build/` **只放编译/publish 产物**；构建/测试的中间态（`stdlib-run` 快照、`alllibs`
->   flat 视图、`e2e`/`selfhost-gen1`/`dogfood` 工作区）落 `artifacts/.scratch/`（gitignored、可重生）。
+> - `artifacts/build/` **只放编译/publish 产物**（含被别的步骤消费的聚合视图 `build/views/<profile>/all` = alllibs）；
+>   各命令自己的工作区（`stdlib-run` 快照、`e2e`/`selfhost-gen1` 等）落 `artifacts/tmp/<name>/`（gitignored、可重生）。
 > - **toolchain 组件的输出/publish 路径一律从各 `z42.toml` 读**（`[build].dist_dir`/`output_dir`、
 >   `[platform.desktop].publish_dir`，级联默认见 `docs/reference/src/toolchain/z42-toml.md`）——xtask 不硬编码，
 >   改路径只动 toml。定位 helper：`build/xtask_toolchain.z42` 的 `_desktopPublishDir` / `_toolchainZpkg`。
@@ -109,7 +109,7 @@ xtask 是独立的 z42 应用——它不是通用 `z42` launcher 的一部分�
 >   `[workspace.build].output_dir` 模板经 `common/xtask_layout.z42` 的 `_memberDist`
 >   （`ManifestLoader.LoadWorkspace` + `PathTemplate.Expand`，与 z42c `WorkspaceBuild.PlanLayout`
 >   同一份布局真相）展开——xtask 不再字面拼接。flat dist / runtime out / build root 等 xtask 约定
->   （无 toml 归属）也集中到该模块单点定义。一次性 `artifacts/.scratch/*` 等临时目录不进此模块。
+>   （无 toml 归属）也集中到该模块单点定义。顶层桶（`tmp/<name>` / `tools` / `packages` / …）同样在该模块单点定义（`_tmpDir` 等）。
 
 ## 各命令处理流程
 
@@ -262,7 +262,7 @@ scripts/
 │   ├── xtask_runtime.z42        build runtime（cargo z42vm）+ feature-matrix（逐 feature 组合编译）
 │   ├── xtask_toolchain.z42      build workload / build toolchain（apphost publish，路径从各 toml 读）
 │   ├── xtask_golden_assets.z42  **`build test` 的实现**（golden .zbc 编译；_buildTest / _regenGolden / _regenCore）
-│   ├── xtask_clean.z42          clean（按 target 删 artifacts/build/ 下的产物目录）
+│   ├── xtask_clean.z42          clean（production / tests / bench / tmp / all，见 artifacts-layout.md §4）
 │   └── xtask_bootstrap_check.z42 上一版 nightly z42c 能否编当前源（分阶段纪律边界检查）
 ├── test/               test 命令族（注意：`test compiler` / `packages` / `vscode-syntax` /
 │   │                   `bootstrap` 四个子命令的实现**不在**本目录，见 build/ install/ package/）

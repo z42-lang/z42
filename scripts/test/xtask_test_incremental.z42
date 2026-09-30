@@ -15,7 +15,7 @@
 //   ① demo —— 合成多特性工程（跨文件类引用/继承/接口/try·catch/switch/数组/闭包/静态），
 //      覆盖 label 残留（多块函数）与 import token 路径；
 //   ② xtask 自身 —— 40+ 文件真实工程（stdlib-only 依赖，单 Z42_LIBS 可解析）。
-// 运行于 artifacts/.scratch/incr-reconcile/（拷贝源，不动真实工程）。
+// 运行于 artifacts/tmp/incr-reconcile/（拷贝源，不动真实工程）。
 namespace Z42Xtask;
 
 using Std;
@@ -35,7 +35,7 @@ int _testIncremental(ParseResult r) {
         if (bc != 0) { return bc; }
     }
     string libs = _libsDir(root);
-    string scratch = _scratchDir(root, "incr-reconcile");
+    string scratch = _tmpDir(root, "incr-reconcile");
     if (Directory.Exists(scratch)) { Directory.Delete(scratch, true); }
 
     int rc = _reconcileProject(vm, driver, libs, _incrDemoDir(scratch), "demo");
