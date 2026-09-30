@@ -59,38 +59,32 @@ public sealed class IrPureFunctionTable {
         return new PureTable(pure, IrPureFunctionTable._computeSpeculatable(m, pure));
     }
 
-    // ── 可投机执行（fix-release-opt-soundness）─────────────────────────────────────
+    // ── 可投机执行（fix-release-opt-soundness；fix-licm-no-recursive-speculation）──────────────
     // 「纯」够 CSE 用：同一处两次调用，第一次抛/不返回则第二次根本到不了，消重不改语义。但 LICM
     // 把调用提到 pre-header 是**投机**——循环一次都不转时，原程序根本不调用它。所以额外要求：
-    //   · 不含 FieldGet：纯允许 readonly 字段读，而接收者（形参）可能是 null → 投机调用凭空抛 NPE
-    //     （实测：`while (i < 0) { s = s + GetV(n); }` 且 n == null，关 pass 输出 0、开 pass 抛异常）；
-    //   · 控制流无环：纯推断从「全纯」乐观出发，含 `while (k > 0) {}` 的函数也判纯 → 投机调用挂死；
+    //   · 不含 FieldGet：纯允许 readonly 字段读，而接收者（形参）可能是 null → 投机调用凭空抛 NPE；
+    //   · 控制流无环：含 `while (k > 0) {}` 的函数可能不终止 → 投机调用挂死；
+    //   · **不递归**（直接或互相）：不终止的递归同理，投机执行会在原本不执行的地方栈溢出；
     //   · 只调可投机的函数。
-    // 递归**不**排除（`fib` 外提是 add-pure-call-opt 的设计目标）——无限递归在零迭代循环里被投机执行
-    // 的风险另行裁决。单调收缩不动点，初值 = 纯集。
+    // 用**最小**不动点（从空集往上长）：一个函数入集当且仅当它的每个 callee 已在集中 ⇒ 递归环上的函数
+    // 永远等不到彼此入集，天然被排除。代价：`fib` 这类递归纯函数不再外提（User 2026-09-30 裁决：正确性
+    // 优先；add-pure-call-opt 的 ~200× bench 随之回退，CSE 消重不受影响）。
     private static StrMap _computeSpeculatable(IrModule m, StrMap pure) {
         StrMap spec = new StrMap();
-        int fi = 0;
-        while (fi < m.FuncCount) {
-            IrFunction f = m.Functions[fi];
-            if (pure.ContainsKey(f.Name) && !IrPureFunctionTable._hasFieldGet(f) && IrPureFunctionTable._isAcyclic(f)) {
-                spec.Put(f.Name, "1");
-            }
-            fi = fi + 1;
-        }
         bool changed = true;
         while (changed) {
             changed = false;
-            StrMap next = new StrMap();
-            fi = 0;
+            int fi = 0;
             while (fi < m.FuncCount) {
                 IrFunction f = m.Functions[fi];
-                if (spec.ContainsKey(f.Name)) {
-                    if (IrPureFunctionTable._callsOnly(f, spec)) { next.Put(f.Name, "1"); } else { changed = true; }
+                if (!spec.ContainsKey(f.Name) && pure.ContainsKey(f.Name)
+                    && !IrPureFunctionTable._hasFieldGet(f) && IrPureFunctionTable._isAcyclic(f)
+                    && IrPureFunctionTable._callsOnly(f, spec)) {
+                    spec.Put(f.Name, "1");
+                    changed = true;
                 }
                 fi = fi + 1;
             }
-            spec = next;
         }
         return spec;
     }

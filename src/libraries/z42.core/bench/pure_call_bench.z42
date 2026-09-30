@@ -7,6 +7,8 @@
 //   z42b bench <...-default.zpkg>       (release 全开 = 后)
 //
 // 实测（interp，fib(23)×400、macOS arm64）：OFF ≈ 4.24s → ON ≈ 0.02s（~200×，输出恒 =11462800）。
+// ⚠️ fix-licm-no-recursive-speculation（2026-09-30）起递归纯函数**不再投机外提**（不终止的递归会在零迭代
+// 循环里凭空栈溢出；User 裁决正确性优先）⇒ 本 bench 的外提收益不复存在，数字回到 OFF 水平是预期。
 namespace Z42PureCallBench;
 
 using Std;
