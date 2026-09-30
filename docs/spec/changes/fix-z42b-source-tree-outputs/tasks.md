@@ -35,4 +35,7 @@ stdlib / 编译器成员都经 `tests/` 约定发现目标、不走这条；需�
 - [x] ⑤ xtask `_devTargetOutRoot` + 两处调用 + `clean tests|bench`
 - [x] 文档：cli-z42.md（test / bench 旗标）、internals testing/framework.md
 - [x] 完整 GREEN（9m41s，全阶段通过）。stdlib / 编译器成员目录下不再生成 `test-targets` `bench-targets` 与父包目录，测试产物落 `artifacts/build/libraries/<m>/debug/tests`；repl hooks 中间目录不再进源码树
+- [x] **版本错位兜底**（#975 首轮 CI 实测）：bench A/B 的「Capture base micro baseline」用本树 xtask 驱动 **base 树**
+      现建的 z42b —— 旧版不认 `--out-root`，`z42b: unknown option '--out-root'` 直接失败。xtask 先用 `z42b test --help`
+      探测（`_z42bSupportsOutRoot`，同 `_driverSupportsCompileLibs` 手法；每个 z42b 路径进程内只探测一次），不认就不传
 - [ ] PR CI + 归档
