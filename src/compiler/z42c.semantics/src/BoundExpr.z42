@@ -7,7 +7,12 @@ using Z42.Core;
 
 public class BoundExpr {
     public Span Span;
-    public virtual Z42Type Type() { return new Z42UnknownType(); }
+    // 每个 Bound 表达式节点都必须覆写 Type()（fix-bound-type-default）。此前默认返回 Unknown，而 Unknown 在
+    // Conversion 里是「吸收」（防级联）⇒ 新增节点忘了覆写时，涉及它的**所有**类型错误被静默放行。
+    // 现有 38 个子类全部已覆写；这里改成抛，让下一个漏写的在第一次被定型时当场暴露。
+    public virtual Z42Type Type() {
+        throw new Exception("z42c internal: bound node `" + this.Dump() + "` does not override BoundExpr.Type()");
+    }
     public virtual string  Dump() { return "?bexpr"; }
 }
 
