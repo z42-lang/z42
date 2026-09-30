@@ -441,6 +441,22 @@ throw-on-switch-expr-no-match 之前的答案是「没人写」—— 循环走�
 > **含不穷尽 switch 表达式的函数不可内联、且非纯**。产品代码里这种站点 0 个，故 z42c / stdlib
 > 自身发码不变；用户热路径上应加 `_ =>` 兜底臂。
 
+#### lambda / 局部函数体内：「本函数局部」vs「捕获」
+
+绑定 lambda 体时，读一个名字要先判它是**体内声明的局部**还是**外层变量的捕获**（后者发
+`BoundCapturedIdent`、进 `_lambdaCaps`，发射端从闭包 env 取）。判据是「名字在不在本 lambda 的局部表
+`_lambdaLocals` 里」。
+
+这张表的**唯一写入口是 `TypeEnv.Define`**（fix-lambda-local-capture）：lambda / 局部函数的作用域带
+`TypeEnv.FnLocals`（指向本函数的 `_lambdaLocals`），`PushScope` 继承，`Define` 顺手登记。于是体内
+**任何**声明形式——`var`、foreach 变量、模式变量（`is T x` / `case C c` / 属性·位置模式）、catch 变量、
+`out var`、解构——都自动算本函数局部。形参在建作用域时先把 `FnLocals` 置空，免得登记进**外层** lambda 的表。
+
+> 此前是各声明点各自 `_lambdaLocals.Put`，只覆盖了 `var` / catch / `out var` 三处。foreach 与模式变量漏了
+> ⇒ 被当成捕获 ⇒ 外层根本没有这个变量 ⇒ 发射端往捕获槽塞 `ConstNull` ⇒
+> `() => { foreach (int x in xs) { s = s + x; } }` 运行期 `type mismatch in arithmetic: I64(0) vs Null`。
+> 新增声明形式只要走 `env.Define`，就不会再漏。
+
 #### 属性的「源名 ↔ 后备字段名」落差（binder ↔ emitter 对称）
 
 属性在符号表里以**源名** `X` 登记一个 `FieldSymbol`（`MemberCollector` 处理 `PropertyDecl` 时

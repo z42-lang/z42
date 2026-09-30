@@ -30,6 +30,11 @@ public sealed class TypeEnv {
     // `static readonly` 赋值（AssignTyper 据此放行）。后置赋值（不进构造签名）→ 零 call-site 涟漪，
     // 与 ClassTypeParamCount 同款做法；PushScope 继承（静态 ctor 内嵌套块仍算）。
     public bool        InStaticCtor;
+    // fix-lambda-local-capture：所在 lambda / 局部函数的「本函数局部」收集表（null = 不在 lambda 内）。
+    // PushScope 继承；Define 顺手登记 ⇒ lambda 体内**任何**形式的声明（var / foreach / 模式 / catch /
+    // out var / 解构…）都自动算本函数局部，不会被误判成捕获。此前靠各声明点各自 `_lambdaLocals.Put`，
+    // foreach 与模式变量漏了 ⇒ 被当成捕获、外层查无此变量 ⇒ 发射端塞 ConstNull（lambda 里读到 null）。
+    public StrMap      FnLocals;
 
     public TypeEnv(SymbolTable symbols, bool hasParent, TypeEnv parent, bool classFlag, string className,
                    string[] typeParamNames, int typeParamCount, bool inCtorThis) {
@@ -46,6 +51,7 @@ public sealed class TypeEnv {
         this.ClassTypeParamCount = typeParamCount;   // 默认全类级
         this.InCtorThis = inCtorThis;
         this.InStaticCtor = false;
+        this.FnLocals = null;
     }
 
     public static TypeEnv Root(SymbolTable symbols) {
@@ -56,6 +62,7 @@ public sealed class TypeEnv {
         TypeEnv e = new TypeEnv(this.Symbols, true, this, this.ClassFlag, this.ClassName, this.TypeParamNames, this.TypeParamCount, this.InCtorThis);
         e.ClassTypeParamCount = this.ClassTypeParamCount;   // 嵌套块继承方法级偏移
         e.InStaticCtor = this.InStaticCtor;                 // 静态 ctor 内的嵌套块仍算静态 ctor 上下文
+        e.FnLocals = this.FnLocals;                         // lambda 内的嵌套块仍登记进同一张表
         return e;
     }
 
@@ -113,7 +120,10 @@ public sealed class TypeEnv {
         return s.Substring(0, lp);
     }
 
-    public void Define(string name, Z42Type type) { this.Vars.Put(name, type); }
+    public void Define(string name, Z42Type type) {
+        this.Vars.Put(name, type);
+        if (this.FnLocals != null) { this.FnLocals.Put(name, type); }
+    }
 
     // add-const-keyword：局部 const 值登记 / 父链查找。IsConstName 供赋值检查（不可对 const 赋值）。
     public void DefineConst(string name, ConstValue cv) { this.Consts.Put(name, cv); }
