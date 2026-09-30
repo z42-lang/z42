@@ -316,8 +316,10 @@ public sealed class StmtParser {
                 }
             }
         }
-        // 泛型类型注解 var-decl：`Name<...> name =`（镜像 C# IsTypeAnnotatedVarDecl 的泛型 lookahead；
-        // 修 2B 期挂账 gap：`Box<int> b = ...` 被误判比较表达式）
+        // 泛型类型注解 var-decl：`Name<...> name =` / `Name<...> name;`（镜像 C# IsTypeAnnotatedVarDecl 的泛型
+        // lookahead；修 2B 期挂账 gap：`Box<int> b = ...` 被误判比较表达式）。无初值形态 `List<int> xs;`
+        // 此前漏判（fix-parser-silent-misparse）→ 落成 `(List < int) > xs` → 报一串误导性的 `undefined: xs`；
+        // nullable / 限定名两支早就接受 `;`，`a < b > c;` 也不是合法的表达式语句，不存在歧义。
         if (k == TokenKind.Identifier && this._p._peekAt(1).Kind == TokenKind.Lt) {
             int depth = 0;
             int o = 1;
@@ -332,7 +334,7 @@ public sealed class StmtParser {
                         if (this._p._peekAt(ni).Kind == TokenKind.LBracket && this._p._peekAt(ni + 1).Kind == TokenKind.RBracket) { ni = ni + 2; }
                         if (this._p._peekAt(ni).Kind == TokenKind.Question) { ni = ni + 1; }
                         return this._p._peekAt(ni).Kind == TokenKind.Identifier
-                            && this._p._peekAt(ni + 1).Kind == TokenKind.Eq;
+                            && (this._p._peekAt(ni + 1).Kind == TokenKind.Eq || this._p._peekAt(ni + 1).Kind == TokenKind.Semicolon);
                     }
                 }
                 else if (kk == TokenKind.GtGt) {                 // `>>`（嵌套泛型闭合）
@@ -342,7 +344,7 @@ public sealed class StmtParser {
                         if (this._p._peekAt(ni).Kind == TokenKind.LBracket && this._p._peekAt(ni + 1).Kind == TokenKind.RBracket) { ni = ni + 2; }
                         if (this._p._peekAt(ni).Kind == TokenKind.Question) { ni = ni + 1; }
                         return this._p._peekAt(ni).Kind == TokenKind.Identifier
-                            && this._p._peekAt(ni + 1).Kind == TokenKind.Eq;
+                            && (this._p._peekAt(ni + 1).Kind == TokenKind.Eq || this._p._peekAt(ni + 1).Kind == TokenKind.Semicolon);
                     }
                 }
                 else if (kk == TokenKind.Semicolon || kk == TokenKind.Eof || kk == TokenKind.LBrace) { return false; }

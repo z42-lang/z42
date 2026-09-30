@@ -12,34 +12,32 @@ public sealed partial class ExprParser {
         // raw 形如 $"body"：skip 2 ($") from front, skip 1 (") from back
         int bodyEnd = raw.Length - 1;   // 不含末尾 "
         int i = 2;                       // 跳 $"
-        InterpPart[] parts = new InterpPart[64];
+        // fix-parser-silent-misparse：片段数组按需扩容（此前定长 64，片段多了越界崩）。
+        InterpPart[] parts = new InterpPart[8];
         int pc = 0;
         string textBuf = "";
         while (i < bodyEnd) {
             char c = raw.CharAt(i);
             if (c == '\\' && i + 1 < bodyEnd) {
-                char e = raw.CharAt(i + 1);
-                if (e == 'n')  { textBuf = textBuf + "\n"; i = i + 2; continue; }
-                if (e == 't')  { textBuf = textBuf + "\t"; i = i + 2; continue; }
-                if (e == 'r')  { textBuf = textBuf + "\r"; i = i + 2; continue; }
-                if (e == '\\') { textBuf = textBuf + "\\"; i = i + 2; continue; }
-                if (e == '"')  { textBuf = textBuf + "\""; i = i + 2; continue; }
-                if (e == '0')  { textBuf = textBuf + "\0"; i = i + 2; continue; }
-                textBuf = textBuf + "\\"; i = i + 1;
+                // 与普通串共用唯一映射（LexerEscapes.DecodeOne）；此前手抄一份、缺 \' \a \b \f \v。
+                textBuf = textBuf + LexerEscapes.DecodeOne(raw.CharAt(i + 1)); i = i + 2;
             } else if (c == '{') {
                 if (i + 1 < bodyEnd && raw.CharAt(i + 1) == '{') {
                     textBuf = textBuf + "{"; i = i + 2;
                 } else {
                     // flush text
                     if (textBuf.Length > 0) {
-                        parts[pc] = new InterpText(textBuf, t.Span); pc = pc + 1; textBuf = "";
+                        parts = ExprParser._pushPart(parts, pc, new InterpText(textBuf, t.Span)); pc = pc + 1; textBuf = "";
                     }
                     i = i + 1;   // skip {
                     int holeStart = i;
                     int depth = 1;
                     while (i < bodyEnd && depth > 0) {
                         char hc = raw.CharAt(i);
-                        if (hc == '{') { depth = depth + 1; i = i + 1; }
+                        // 洞内嵌套字符串整段跳过（与 Lexer._skipNestedString 同口径）——否则
+                        // `{d["}"]}` 里串中的 `}` 会被当成洞的结尾。
+                        if (hc == '"') { i = ExprParser._skipQuoted(raw, i, bodyEnd); }
+                        else if (hc == '{') { depth = depth + 1; i = i + 1; }
                         else if (hc == '}') {
                             depth = depth - 1;
                             if (depth > 0) { i = i + 1; }
@@ -50,16 +48,26 @@ public sealed partial class ExprParser {
                     i = i + 1;   // skip }
                     var sub = new Parser(holeText, "<interp>");
                     Expr holeExpr = sub.ParseExpression();
+                    // 洞内的词法 / 语法错误此前留在子 parser 的诊断袋里、从未并入 ⇒ 静默丢失。
+                    // 位置取整个插值串的 `t.Span`（子 parser 的 Span 是合成文件 `<interp>` 的洞内坐标）。
+                    DiagnosticBag subDiags = sub.Diagnostics();
+                    int sdi = 0;
+                    while (sdi < subDiags.Count()) {
+                        Diagnostic sd = subDiags.Get(sdi);
+                        this._p._diags.Add(new Diagnostic(sd.Severity, sd.Code,
+                            "in interpolation hole `{" + holeText + "}`: " + sd.Message, t.Span));
+                        sdi = sdi + 1;
+                    }
                     // 洞里表达式之后还剩 token → 报错（E0492，详见 error-codes.md）。此前只取
                     // `ParseExpression()` 的结果、**从不问它读完没有** ⇒ `$"{d:F2}"` 的 `:F2` 没人看，
                     // 格式说明符静默失效。位置必须用 `t.Span`：子 parser 产的 Span 其 File 是合成的
-                    // `"<interp>"`、偏移是洞内坐标。⚠️ 洞内**解析失败**时诊断仍带假位置，独立缺口。
+                    // `"<interp>"`、偏移是洞内坐标。洞内解析失败的诊断见上方转发（同样取 `t.Span`）。
                     if (sub._peek().Kind != TokenKind.Eof) {
                         this._p._diags.Error(DiagnosticCodes.InterpHoleTrailing, "unexpected `" + sub._peek().Text
                             + "` after the expression in this interpolation hole — z42 has no format specifiers"
                             + " (`{x:F2}`); format the value yourself (e.g. `Math.Round(x, 2).ToString()`) first", t.Span);
                     }
-                    parts[pc] = new InterpHole(holeExpr, t.Span); pc = pc + 1;
+                    parts = ExprParser._pushPart(parts, pc, new InterpHole(holeExpr, t.Span)); pc = pc + 1;
                 }
             } else if (c == '}' && i + 1 < bodyEnd && raw.CharAt(i + 1) == '}') {
                 textBuf = textBuf + "}"; i = i + 2;
@@ -67,7 +75,29 @@ public sealed partial class ExprParser {
                 textBuf = textBuf + c.ToString(); i = i + 1;
             }
         }
-        if (textBuf.Length > 0) { parts[pc] = new InterpText(textBuf, t.Span); pc = pc + 1; }
+        if (textBuf.Length > 0) { parts = ExprParser._pushPart(parts, pc, new InterpText(textBuf, t.Span)); pc = pc + 1; }
         return new InterpolatedStringExpr(parts, pc, t.Span);
+    }
+
+    private static InterpPart[] _pushPart(InterpPart[] parts, int count, InterpPart p) {
+        if (count == parts.Length) {
+            InterpPart[] bigger = new InterpPart[parts.Length * 2];
+            int k = 0;
+            while (k < count) { bigger[k] = parts[k]; k = k + 1; }
+            parts = bigger;
+        }
+        parts[count] = p;
+        return parts;
+    }
+
+    // raw[i] 是洞内嵌套串的开引号；返回闭引号之后的下标（转义逐对跳过；未闭合则停在 end）。
+    private static int _skipQuoted(string raw, int i, int end) {
+        i = i + 1;
+        while (i < end && raw.CharAt(i) != '"') {
+            if (raw.CharAt(i) == '\\') { i = i + 1; }
+            i = i + 1;
+        }
+        if (i < end) { i = i + 1; }
+        return i;
     }
 }

@@ -15,13 +15,16 @@ public sealed class DeclParser {
         return b;
     }
 
+    // 限定名（namespace / using 等）：每段只收名字 token，同 TypeParser._parseType（fix-parser-silent-misparse；
+    // 此前 `namespace 123;` 零诊断）。
     internal string _parseQualifiedName() {
-        string s = this._p._peek().Text;
-        this._p._advance();
+        string s = "";
+        if (this._p._isNameToken(this._p._peek().Kind)) { s = this._p._peek().Text; this._p._advance(); }
+        else { return this._p._badName("a name"); }
         while (this._p._peek().Kind == TokenKind.Dot) {
             this._p._advance();
-            s = s + "." + this._p._peek().Text;
-            this._p._advance();
+            if (this._p._isNameToken(this._p._peek().Kind)) { s = s + "." + this._p._peek().Text; this._p._advance(); }
+            else { s = s + "." + this._p._badName("a name after `.`"); }
         }
         return s;
     }

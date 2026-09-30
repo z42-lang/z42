@@ -80,6 +80,14 @@ public sealed class Lexer {
     // 关键字表只读访问器（供 DumpTool.DumpKeywords / 单测；表本体 private，注册序）。
     public int    KeywordCount()       { return this._kwCount; }
     public string KeywordNameAt(int i) { return this._kwNames[i]; }
+    // kind 是否为某个**词形关键字**的 token kind——以本表为唯一真相（fix-parser-silent-misparse）。
+    // 此前 MemberParser 用写死的 `9..93` 区间判，漏掉后来追加的 partial/readonly/const/with/methodof。
+    // 只在名字位置的诊断恢复路径上调用，线性扫一遍关键字表即可。
+    public bool IsKeywordKind(int k) {
+        int i = 0;
+        while (i < this._kwCount) { if (this._kwKinds[i] == k) { return true; } i = i + 1; }
+        return false;
+    }
 
     // ── 公开入口 ────────────────────────────────────────────────────────────
     public void Tokenize() {

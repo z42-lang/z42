@@ -558,3 +558,33 @@ void test_tuple_type_arity_two_ok() {
 void test_func_type_many_params_unaffected() {
     Assert.Equal("", parseErrorCodes("class C { void M() { (int,int,int,int,int,int,int,int,int) -> int f; } }"));
 }
+
+// ── fix-parser-silent-misparse ─────────────────────────────────────────────────────
+// 名字位只收名字 token。此前 `_parseType` / `_parseQualifiedName` 取 `_peek().Text` 后无条件前进：
+// `public }` 把类的 `}` 当类型名吞掉（类边界丢失、后面的声明全被卷进这个类），`namespace 123;`
+// 零诊断。现在报 E0202，结构闭合符（`}` `)` `;` …）不消费。
+[Test]
+void test_type_name_does_not_swallow_class_brace() {
+    string codes = parseErrorCodes("class A { public } class B { int x; }");
+    Assert.True(codes.StartsWith("E0202"));
+    // 类边界保住了：B 仍是独立的顶层类，而不是 A 的成员
+    Assert.True(parseUnit("class A { public } class B { int x; }").Contains("(class B"));
+}
+
+[Test]
+void test_qualified_name_rejects_literal() {
+    Assert.Equal("E0202", parseErrorCodes("namespace 123;"));
+}
+
+// 关键字判定查词法器的关键字表：`with`（TokenKind 154，在旧的写死区间 9..93 之外）作参数名
+// ⇒ 恰好一条诊断，且方法体与后续成员不脱轨（此前参数列表提前闭合、方法体被撕成垃圾成员）。
+[Test]
+void test_late_keyword_as_param_name_single_diag() {
+    Assert.Equal("E0202", parseErrorCodes("class C { int F(int with) { return 1; } int G() { return 2; } }"));
+}
+
+// 插值洞里的语法错误此前留在子 parser 的诊断袋里、从未并入 ⇒ 零诊断。
+[Test]
+void test_interp_hole_parse_error_surfaces() {
+    Assert.True(parseErrorCodes("class C { string M() { return $\"a{1 + }b\"; } }") != "");
+}

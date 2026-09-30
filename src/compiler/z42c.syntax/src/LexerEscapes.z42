@@ -23,20 +23,7 @@ public static class LexerEscapes {
         while (i < inner.Length) {
             if (inner.CharAt(i) == '\\' && i + 1 < inner.Length) {
                 result = result + inner.Substring(runStart, i - runStart);   // flush 字面段
-                char e = inner.CharAt(i + 1);
-                if (e == 'n')       { result = result + "\n"; }
-                else if (e == 't')  { result = result + "\t"; }
-                else if (e == 'r')  { result = result + "\r"; }
-                else if (e == '\\') { result = result + "\\"; }
-                else if (e == '"')  { result = result + "\""; }
-                else if (e == '\'') { result = result + "'"; }
-                else if (e == '0')  { result = result + "\0"; }
-                // C 系控制转义：码点构造（不用 \a\b\f\v 字面量，避免自举鸡蛋，见 design D3）。
-                else if (e == 'a')  { result = result + LexerEscapes.CtrlChar(7); }    // BEL
-                else if (e == 'b')  { result = result + LexerEscapes.CtrlChar(8); }    // BS
-                else if (e == 'f')  { result = result + LexerEscapes.CtrlChar(12); }   // FF
-                else if (e == 'v')  { result = result + LexerEscapes.CtrlChar(11); }   // VT
-                else                { result = result + inner.Substring(i + 1, 1); }   // 未知转义：保留原字符（词法器已报 E0102，此分支对合法程序不可达）
+                result = result + LexerEscapes.DecodeOne(inner.CharAt(i + 1));
                 i = i + 2;
                 runStart = i;
             } else {
@@ -45,6 +32,25 @@ public static class LexerEscapes {
         }
         result = result + inner.Substring(runStart, inner.Length - runStart);   // flush 末段
         return result;
+    }
+
+    // 单个转义字符 `\e` 的解码值——普通串（Decode）与插值串（ExprParser._parseInterpolated）共用的
+    // **唯一**映射表（fix-parser-silent-misparse：插值串此前手抄一份、缺 \' \a \b \f \v，
+    // 而词法器按 IsKnown 判它们合法 ⇒ 解码成 `\` + 原字符，值是错的）。
+    public static string DecodeOne(char e) {
+        if (e == 'n')  { return "\n"; }
+        if (e == 't')  { return "\t"; }
+        if (e == 'r')  { return "\r"; }
+        if (e == '\\') { return "\\"; }
+        if (e == '"')  { return "\""; }
+        if (e == '\'') { return "'"; }
+        if (e == '0')  { return "\0"; }
+        // C 系控制转义：码点构造（不用 \a\b\f\v 字面量，避免自举鸡蛋，见 design D3）。
+        if (e == 'a')  { return LexerEscapes.CtrlChar(7); }    // BEL
+        if (e == 'b')  { return LexerEscapes.CtrlChar(8); }    // BS
+        if (e == 'f')  { return LexerEscapes.CtrlChar(12); }   // FF
+        if (e == 'v')  { return LexerEscapes.CtrlChar(11); }   // VT
+        return e.ToString();   // 未知转义：保留原字符（词法器已报 E0102，对合法程序不可达）
     }
 
     // 由码点构造单字符串（供 DecodeString 产出控制字符，绕过自举鸡蛋，见 D3）。

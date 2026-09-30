@@ -118,12 +118,15 @@ public sealed class TypeParser {
         // 类型位 `(`：函数类型 `(T1,...) -> R`、元组类型 `(T1, ..., Tn)`（add-tuple-types）、
         // 或括号分组 `(T)`。先解析括号内类型列表，再按尾随 `->` 有无分流（func vs tuple/分组）。
         if (this._p._peek().Kind == TokenKind.LParen) { return this._parseParenType(); }
-        string name = this._p._peek().Text;
-        this._p._advance();
+        // 名字位只收名字 token（fix-parser-silent-misparse）：此前 `_peek().Text` + 无条件 `_advance()`，
+        // `x as 5` / 类体里 `public }` 都零诊断——后者把类的 `}` 当类型名吞掉、类边界随之丢失。
+        string name = "";
+        if (this._p._isNameToken(this._p._peek().Kind)) { name = this._p._peek().Text; this._p._advance(); }
+        else { return new NamedType(this._p._badName("a type name"), new TypeExpr[0], 0, sp); }
         while (this._p._peek().Kind == TokenKind.Dot) {
             this._p._advance();
-            name = name + "." + this._p._peek().Text;
-            if (this._p._peek().Kind == TokenKind.Identifier) { this._p._advance(); }
+            if (this._p._isNameToken(this._p._peek().Kind)) { name = name + "." + this._p._peek().Text; this._p._advance(); }
+            else { name = name + "." + this._p._badName("a name after `.`"); }
         }
         TypeExpr[] args = new TypeExpr[4];
         int ac = 0;

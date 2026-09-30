@@ -32,6 +32,16 @@ Token 流 → AST（`CompilationUnit`）。表达式用 Pratt 优先级爬升解
 
 解析器按关注点拆成若干子解析器（表达式、声明、成员、语句、类型），各司其职。AST 节点不可变，为后续并行分析与安全遍历提供基础。观察：`--dump-ast`。
 
+**三处「唯一真相」**（fix-parser-silent-misparse；此前各有一份手抄副本，都漂移出了静默误解析）：
+
+- **名字位只收名字 token**：类型名 / 限定名的每一段必须是标识符、`_` 或词形关键字（`Parser._isNameToken`）。
+  否则报 E0202，且**不消费结构闭合符**（`}` `)` `]` `;` `,` EOF）——`public }` 此前把类的 `}` 当类型名吞掉，
+  类边界随之丢失；其余垃圾 token 照旧消费，保证解析前进。
+- **「是不是关键字」查词法器的关键字表**（`Lexer.IsKeywordKind`），不按 TokenKind 数值区间判——新关键字
+  追加在表尾（149+），区间判定会漏。
+- **转义解码只有 `LexerEscapes.DecodeOne` 一张表**，普通串与插值串共用。插值洞的子 parser 诊断并入主诊断袋，
+  位置取整个 `$"…"` token（子 parser 的 Span 是合成文件 `<interp>` 的洞内坐标）。
+
 ### 类型检查（TypeCheck）
 
 AST → Bound 树 + `SemanticModel`。分两步：先由 `SymbolCollector` 遍历整个编译单元建立符号表，再逐节点定型。先建表使同一单元内的前向引用与互相引用不受书写顺序约束。
