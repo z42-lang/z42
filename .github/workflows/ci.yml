@@ -89,6 +89,12 @@ jobs:
               - 'src/toolchain/launcher/**'
               - 'src/toolchain/devtools/**'
               - 'src/toolchain/interactive/**'
+              # z42b：`publish` 的 apphost / iOS / Android 导出**只在 package-* 里被执行**
+              # （desktop-publish smoke 等）。它此前只在 `stdlib`（[Test] 执行器）里 ⇒ 改 z42b
+              # publish 的 PR 一个 package job 都不跑 —— #978 把 Windows apphost 的嵌入路径
+              # 改坏（`../../C:/...`），PR 全绿，合入 main 才在 package-host(windows-x64) 炸
+              # （#981 修）。与上面 launcher/devtools/interactive 同形。
+              - 'src/toolchain/builder/**'
               - 'scripts/test/xtask_test_dist.z42'
               - 'scripts/test/xtask_test_dist_cli.z42'
               - 'scripts/test/xtask_test_platform.z42'
