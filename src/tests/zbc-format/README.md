@@ -46,7 +46,7 @@ git diff src/tests/zbc-format/               # review 哪些 fixture 受影响
 > 🔴 **2026-09-27 更正**：本节此前写的是 `z42 xtask.zpkg regen` —— **`xtask` 没有 `regen` 这个
 > 子命令**（实跑报 `xtask: unknown command 'regen'`）。真实命令是 `xtask build test`，与
 > [version-bumping.md](../../../docs/agent/rules/version-bumping.md) 步骤 4 和 CI 的
-> `compile-test-assets` job 用的是同一条。照旧文本做会找不到命令，进而以为「本地没法重生」。
+> `compile-test-assets` job 用的是同一条（`test-host` 的 `test all` 走的也是同一个 regen）。照旧文本做会找不到命令，进而以为「本地没法重生」。
 >
 > ⚠️ 本目录**不覆盖** `src/tests/zpkg-format/`：那 4 份 fixture `build test` **不碰**，
 > 得按 [zpkg-format/README.md](../zpkg-format/README.md) 从各自的 `<name>.z42.toml` 逐个重建

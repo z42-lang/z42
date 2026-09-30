@@ -65,8 +65,9 @@ paths:
 3. **`docs/internals/src/formats/zbc.md`** — "Minor changelog" 表加一行（minor / 日期 / 触发 spec / 引入内容）。
 4. **regen zbc-format fixture** — 跑 `xtask build test`（前置 `build compiler`+`build stdlib` 已用新格式重建），原地覆写 `src/tests/zbc-format/*/source.zbc`（6 个 committed 字节基线：`empty` / `strp-func-minimal` / `multi-method` / `with-tidx` / `cross-import-token` / `with-frcs`）；`git diff` 应显示格式 delta，**必须连同 bump 一起提交**。
 
-   > 🔒 **CI 有门（`refresh-format-fixtures`，2026-09-04 起）**：`compile-test-assets` job 在 `build test`
-   > 之后跑 `git diff --quiet -- src/tests/zbc-format`，**有差异即红**。
+   > 🔒 **CI 有门（`refresh-format-fixtures`，2026-09-04 起）**：`test-host` 的三条非 Windows 腿在
+   > `test all`（其 build wave 就地 regen）之后跑 `git diff --quiet -- src/tests/zbc-format`，**有差异即红**。
+   > （2026-09-30 起从 `compile-test-assets` 挪到这里：三个架构都覆盖，且 `test-host` 是 required check。）
    >
    > 为什么需要这道门：此前这些基线唯一的把关方式是「人工注意到 `git diff`」。而 regen 在所有消费者
    > **之前**就地覆写，于是 `zbc_compat` 校验的永远是刚重生的字节、**从不是 committed 的那份** ——
@@ -162,10 +163,10 @@ minor bump 后，本地 `cargo build` 出的 z42vm 是**新格式**（reader 钉
 ### 解法：下载 CI 建好的新格式工具链当本地种子
 
 CI 的 `compile-toolchain` job（两代自举已根治）从**当前 PR 源码**建出新格式的 z42c + 全 stdlib，并
-`upload-artifact` 为 `toolchain-<os>`（`toolchain-macos-26` / `toolchain-ubuntu-latest`）。把它下回本地
+`upload-artifact` 为 `toolchain-ubuntu-latest`（只有 linux 一份——zpkg 与宿主无关，所有 OS 都用它）。把它下回本地
 overlay 成种子，**种子与 cargo VM 就同为新格式** → warm 建/测/regen 全通，两代自举彻底不需要。
 
-> zpkg 是可移植字节码——linux 建的 z42c.driver.zpkg 也能在 macOS cargo VM 上跑；有同-OS artifact 优先用。
+> zpkg 是可移植字节码——linux 建的 z42c.driver.zpkg 也能在 macOS cargo VM 上跑（CI 的 macOS / Windows job 一直这么用）。
 
 **步骤**（承接上面「Bumping」各步已改完源码 + 版本常量）：
 
@@ -174,7 +175,7 @@ overlay 成种子，**种子与 cargo VM 就同为新格式** → warm 建/测/r
 2. **下载 + overlay**（保留你自己的 `runtime/z42vm`）：
    ```bash
    RUN=<compile-toolchain 所在 run-id>          # gh run list --branch <your-branch>
-   gh run download $RUN -n toolchain-macos-26 -D /tmp/tc
+   gh run download $RUN -n toolchain-ubuntu-latest -D /tmp/tc
    rm -rf artifacts/build/compiler artifacts/build/libraries
    cp -R /tmp/tc/artifacts/build/compiler   artifacts/build/
    cp -R /tmp/tc/artifacts/build/libraries  artifacts/build/
@@ -247,7 +248,7 @@ overlay 成种子，**种子与 cargo VM 就同为新格式** → warm 建/测/r
 > **✅ 格式-bump 死结已根治（2026-07-09，fix-bootstrap-format-bump-deadlock）**：ci-bootstrap
 > 加了**版本差 gate + 两代自举**——种子 minor ≠ 当前 writer minor 时,用 nightly SDK 自带的
 > **旧 VM**(bin/z42vm)跑 gen1/gen2 把种子推进到当前格式,再交 cargo 新 VM。所以 **zpkg/zbc
-> minor bump 后 build-and-test / host-package / verify-selfhost 等**从当前源码 bootstrap 的腿
+> minor bump 后 build-and-test / compile-toolchain 等**从当前源码 bootstrap 的腿
 > **不再全红**,publish-nightly 照常发出新种子,**无需手动传种子**。仅纯 download-bootstrap 的
 > `vm-jit` / `stdlib-jit`(用旧 nightly 的旧 VM)仍会 bump 当次一次性红,下一 run 下到
 > 新 nightly 自愈(它们不 feed publish-nightly,不阻塞)。下面描述的是这类**残留一次性红**。

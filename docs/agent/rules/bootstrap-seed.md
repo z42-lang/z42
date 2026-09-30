@@ -175,7 +175,8 @@ z42c *自己运行期就要用* 的 stdlib 库**（如 `converge-z42c-ir-metadat
 等价代码作**旧包名**（`z42c.ir`/`z42c.project`）携带 → fresh z42c 被编成钉在种子旧包上的调用，
 运行期加载真库时 `undefined function`（**这类漏网正因 `xtask test bootstrap` 只「编」不「跑」
 新建出来的 z42c**——它验语法/格式/非自依赖库的 API 越界，但从不执行产物，故运行期自依赖问题看不见；
-这条只能靠 CI 的 `verify-selfhost` 冷启动全栈重建暴露）。
+这条只能靠 CI 冷启动全栈重建暴露——每个跑 `ci-bootstrap` 的 job（`test-host` ×4 OS、`compile-toolchain`）
+都用刚建出的 gen1 z42c 编 stdlib 与 golden，即真的**运行**了它；`compiler-checks` 再在同一份冷启动产物上跑 gen1→gen2）。
 
 - **判据**：本次改动是否让 z42c 的**源**新 `using` 一个「z42c 运行期就要加载」的 stdlib 库，而该库
   **上一 nightly 种子里不以同名 zpkg 存在**？是 → 踩轴 ④。
