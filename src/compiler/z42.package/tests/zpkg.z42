@@ -213,3 +213,44 @@ void test_indexed_sigs_intern_placeholder_param_name_and_method_type_params() {
     Assert.Equal(1, got.TypeParams.Length);
     Assert.Equal("UOnlyHere", got.TypeParams[0]);
 }
+
+// ── 读端响亮失败（fix-zbc-reader-strict）─────────────────────────────────────────────
+// 此前读端对「越界 / 错位」一律静默回落：池索引越界返回 ""，块读到终结子就停、不核是否到了块尾。
+// 坏 zbc 因此被**部分接受**（名字悄悄变空串），错误在很远处才现形。
+
+// 块尾之后多出字节 ⇒ 坏块（此前 Ok=true、垃圾被跳过）。
+[Test]
+void test_decode_block_rejects_trailing_bytes() {
+    var w = new ByteWriter();
+    var pool = new ZbcStringPool();
+    var alloc = new TokenAllocator(new string[0], 0, new string[0], 0);
+    ZbcInstr.WriteInstr(w, new ConstI64Instr(new TypedReg(0, IrType.I64), "7"), pool, new int[0], alloc);
+    string[] labels = new string[1]; labels[0] = "entry";
+    ZbcInstr.WriteTerm(w, new RetTerm(false, null), labels, 1);
+    int good = w.Len();
+    byte[] ok = w.ToBytes();
+    Assert.True(ZbcReaderInstr.DecodeBlock(new ZbcCursor(ok, 0), good, new string[0], new string[0], 0, new string[0], 0).Ok);
+    w.WriteU8(1); w.WriteU8(2); w.WriteU8(3);
+    byte[] bad = w.ToBytes();
+    Assert.False(ZbcReaderInstr.DecodeBlock(new ZbcCursor(bad, 0), w.Len(), new string[0], new string[0], 0, new string[0], 0).Ok);
+}
+
+// 池索引越界 ⇒ 抛（此前字段名静默变成 ""）。
+[Test]
+void test_decode_pool_index_out_of_range_throws() {
+    var w = new ByteWriter();
+    var pool = new ZbcStringPool();
+    pool.Intern("Field");
+    var alloc = new TokenAllocator(new string[0], 0, new string[0], 0);
+    ZbcInstr.WriteInstr(w, new FieldGetInstr(new TypedReg(1, IrType.I64), new TypedReg(0, IrType.Ref), "Field"), pool, new int[0], alloc);
+    string[] labels = new string[1]; labels[0] = "entry";
+    ZbcInstr.WriteTerm(w, new RetTerm(false, null), labels, 1);
+    byte[] bytes = w.ToBytes();
+    bool threw = false;
+    try {
+        ZbcReaderInstr.DecodeBlock(new ZbcCursor(bytes, 0), w.Len(), new string[0], new string[0], 0, new string[0], 0);   // 空池
+    } catch (Exception e) {
+        threw = true;
+    }
+    Assert.True(threw);
+}
