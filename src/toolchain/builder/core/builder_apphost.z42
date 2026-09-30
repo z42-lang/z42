@@ -85,11 +85,16 @@ int _pubByteIndexOf(byte[] hay, byte[] needle) {
 }
 
 // `toPath` relative to dir `fromDir` (resolved via cwd; common prefix stripped).
-// Mirrors the workload Apphost._relPath so the embedded path is identical.
+//
+// 两端都先 `Path.Normalize`（`\` → `/`、折叠 `.`/`..`）：比较是逐段字符串比较、只按 `/` 切，
+// 而两端的来源不同 —— zpkg 路径来自 `BuildLayout.Resolve`（已规范化，Windows 上是 `C:/Users/...`），
+// 输出目录来自清单/命令行（Windows 上是 `C:\Users\...`）。混用时首段就对不上，嵌入的路径成了
+// `../../C:/Users/.../app.zpkg`，apphost 启动即 os error 123（unify-build-layout-consumers 合入后
+// main 上 package-host(windows-x64) 的 desktop-publish smoke 实测）。
 string _pubRelPath(string fromDir, string toPath) {
     string cwd = Environment.GetCurrentDirectory();
-    string fromAbs = (fromDir.Length == 0) ? cwd : (Path.IsRooted(fromDir) ? fromDir : Path.Join(cwd, fromDir));
-    string toAbs = Path.IsRooted(toPath) ? toPath : Path.Join(cwd, toPath);
+    string fromAbs = Path.Normalize((fromDir.Length == 0) ? cwd : (Path.IsRooted(fromDir) ? fromDir : Path.Join(cwd, fromDir)));
+    string toAbs = Path.Normalize(Path.IsRooted(toPath) ? toPath : Path.Join(cwd, toPath));
     string[] f = _pubSplitSlash(fromAbs);
     string[] t = _pubSplitSlash(toAbs);
     int common = 0;
