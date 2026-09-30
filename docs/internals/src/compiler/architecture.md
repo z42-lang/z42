@@ -18,7 +18,7 @@ graph LR
 
 ## z42c 的组成
 
-z42c 按依赖顺序分成七个逻辑包；`driver` 是唯一的可执行程序，也就是 `z42c` 命令。**物理布局**：后端三包（`semantics` / `pipeline` / `driver`）在 `src/compiler/z42c.*`，可移植前端（`core` / `syntax`）与 IR·后端库（`ir` 含 zbc/zpkg 后端、`project` 含 manifest 模型）已下沉 `src/libraries/`（分别为 `z42c.core` / `z42c.syntax` / `z42.package` / `z42.project`）。依赖单向无环，各包细节见后续各章。
+z42c 按依赖顺序分成七个逻辑包；`driver` 是唯一的可执行程序，也就是 `z42c` 命令。**物理布局**：全部在 `src/compiler/` 这一个 workspace 里——后端三包 `z42c.semantics` / `z42c.pipeline` / `z42c.driver`，可移植前端 `z42c.core` / `z42c.syntax`，IR·后端库 `z42.package`（含 zbc/zpkg 后端），清单模型 `z42.project`（2026-09-27 前后四者曾位于 `src/libraries/`）。依赖单向无环，各包细节见后续各章。
 
 ```mermaid
 graph TD
