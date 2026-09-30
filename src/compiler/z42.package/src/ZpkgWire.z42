@@ -1,0 +1,289 @@
+// .zbc / .zpkg / .zsym 共用的**读侧线格式编解码**（unify-package-codecs）。
+//
+// 三种容器的头部、段目录、STRS 串池、SIGS 条目、型参约束包是同一套线格式；此前 ZbcReader / ZpkgReader /
+// SidecarReader 各抄一份，已经各自漂移：约束包有「完整 / 只跳过 / 只认 bit3+接口」三种读法，STRS 越界时有
+// 「拒绝 / 拒绝 / 静默返回空池」三种反应。这里是它们唯一的实现——写端对应物是 ZbcWriter
+// （BuildStrs / WriteSigEntries / WriteConstraintBundle）。**改线格式时改这里一处 + 写端一处。**
+namespace Z42.Package;
+
+using Std;
+using Std.Encoding;
+using Z42.IR;
+using Z42.IR.BinaryFormat;   // SigEntryZ
+
+// 读取游标（byte[] + pos；LE 助手）。.zbc / .zpkg / .zsym 三种容器共用这一个（unify-package-codecs：
+// 此前 ZbcReader 另有一份逐字相同的 ZbcCursor——理由「z42c.ir 是叶子包不能反向依赖」随两包合并成 z42.package 已不成立）。
+public sealed class ZpkgCursor {
+    public byte[] Data;
+    public int    Pos;
+    public ZpkgCursor(byte[] data, int pos) { this.Data = data; this.Pos = pos; }
+    // ⚠️ 性能（perf/zpkg-cursor）：U16/U32/Varint/I64 **刻意不复用 U8/U16**，字节展开是有意的重复。
+    // 解释执行下建一个 VmFrame 的成本与被调函数体大小无关（一层纯转发 ≈ 0.5% 全负载），
+    // 原写法读一个 u32 = U32+2×U16+4×U8 = 7 个帧；`.zpkg` 全是 u32 池索引，量级极大。
+    // 位运算逐位等价于原转发版（U32 仍按两个 16 位半字合成）。**别"重构"回转发。**
+    public int U8()  { int v = (int)this.Data[this.Pos]; this.Pos = this.Pos + 1; return v; }
+    public int U16() {
+        byte[] d = this.Data;
+        int p = this.Pos;
+        this.Pos = p + 2;
+        return ((int)d[p]) | (((int)d[p + 1]) << 8);
+    }
+    public int U32() {
+        byte[] d = this.Data;
+        int p = this.Pos;
+        this.Pos = p + 4;
+        int a = ((int)d[p])     | (((int)d[p + 1]) << 8);
+        int b = ((int)d[p + 2]) | (((int)d[p + 3]) << 8);
+        return a | (b << 16);
+    }
+    // 无符号 LEB128（STRS segment-dict）。最多 5 字节防越界死循环。
+    public int Varint() {
+        byte[] d = this.Data;
+        int p = this.Pos;
+        int result = 0;
+        int shift = 0;
+        int guard = 0;
+        while (guard < 5) {
+            int b = (int)d[p];
+            p = p + 1;
+            result = result | ((b & 0x7F) << shift);
+            if ((b & 0x80) == 0) { this.Pos = p; return result; }
+            shift = shift + 7;
+            guard = guard + 1;
+        }
+        this.Pos = p;
+        return result;
+    }
+    public long I64() {
+        byte[] d = this.Data;
+        int p = this.Pos;
+        this.Pos = p + 8;
+        int loA = ((int)d[p])     | (((int)d[p + 1]) << 8);
+        int loB = ((int)d[p + 2]) | (((int)d[p + 3]) << 8);
+        int hiA = ((int)d[p + 4]) | (((int)d[p + 5]) << 8);
+        int hiB = ((int)d[p + 6]) | (((int)d[p + 7]) << 8);
+        long lo = (long)(loA | (loB << 16));
+        long hi = (long)(hiA | (hiB << 16));
+        return (lo & 0xFFFFFFFFL) | (hi << 32);
+    }
+    // len 字节 UTF-8 → string，游标前移。
+    public string Str(int len) {
+        byte[] b = new byte[len];
+        byte[] d = this.Data;
+        int p = this.Pos;
+        int i = 0;
+        while (i < len) { b[i] = d[p + i]; i = i + 1; }
+        this.Pos = p + len;
+        return Utf8.GetString(b);
+    }
+}
+
+// 段目录条目。
+public sealed class ZpkgSection {
+    public string Tag;
+    public int    Offset;
+    public int    Size;
+    public ZpkgSection(string tag, int offset, int size) { this.Tag = tag; this.Offset = offset; this.Size = size; }
+}
+
+
+// 段目录：头部之后（offset 16 起）secCount × { tag 4B ; offset u32 ; size u32 }。
+public static class SectionDir {
+    public static ZpkgSection[] Read(byte[] data, int secCount) {
+        ZpkgSection[] dir = new ZpkgSection[secCount];
+        ZpkgCursor c = new ZpkgCursor(data, 16);
+        int i = 0;
+        while (i < secCount) {
+            string tag = c.Str(4);
+            int off = c.U32();
+            int size = c.U32();
+            dir[i] = new ZpkgSection(tag, off, size);
+            i = i + 1;
+        }
+        return dir;
+    }
+
+    public static ZpkgSection Find(ZpkgSection[] dir, string tag) {
+        int i = 0;
+        while (i < dir.Length) {
+            if (dir[i].Tag == tag) { return dir[i]; }
+            i = i + 1;
+        }
+        return null;
+    }
+}
+
+// STRS segment-dict（zbc 1.21 / zpkg 0.25）：写端 = ZbcWriter.BuildStrs。
+//   u32 segCount ; segCount × { varint len ; utf8 }      段字典
+//   u32 strCount ; strCount × { varint segN ; segN × varint segIdx }   串 = join(段, ".")
+public static class StrsCodec {
+    // 段索引越界 → null（strict：调用方按「不可读」处理，绝不拿半截池继续）。
+    public static string[] Decode(byte[] data, int offset) {
+        ZpkgCursor c = new ZpkgCursor(data, offset);
+        int segCount = c.U32();
+        string[] segDict = new string[segCount];
+        int i = 0;
+        while (i < segCount) {
+            int segLen = c.Varint();
+            segDict[i] = c.Str(segLen);
+            i = i + 1;
+        }
+        int strCount = c.U32();
+        string[] r = new string[strCount];
+        i = 0;
+        while (i < strCount) {
+            int segN = c.Varint();
+            string s = "";
+            int j = 0;
+            while (j < segN) {
+                int segIdx = c.Varint();
+                if (segIdx < 0 || segIdx >= segCount) { return null; }
+                if (j > 0) { s = s + "."; }
+                s = s + segDict[segIdx];
+                j = j + 1;
+            }
+            r[i] = s;
+            i = i + 1;
+        }
+        return r;
+    }
+}
+
+// 型参约束包（写端 = ZbcWriter 的 TYPE / SIGS 约束包）：
+//   flags u8 → [bit2 base u32] → [bit3 tpRef u32] → ifaceCount u8 + u32× → [bit6 funcSig: pc u8 + u32×pc + ret u32]
+//            → [bit7 assoc: count u8 + (name u32, type u32)×n]；bit0/1/4/5 无载荷。
+// **必须按完整布局消费**——少吃一个可选块，后面整段错位。
+// 运行时侧的同一布局：Rust `metadata/zbc_reader/type_reader.rs::read_constraint_bundle`（两边须一致）。
+// 此前 ZbcReader 的 SIGS 读法只认 bit3 + 接口（writer 今天对方法级恒写空包才没炸）、ZpkgReader 只跳不读。
+public static class ConstraintCodec {
+    public static IrConstraintDesc Read(ZpkgCursor c, string[] pool) {
+        IrConstraintDesc bundle = new IrConstraintDesc();
+        int cflags = c.U8();
+        bundle.RequiresClass  = (cflags & 0x01) != 0;
+        bundle.RequiresStruct = (cflags & 0x02) != 0;
+        if ((cflags & 0x04) != 0) { bundle.BaseClass = WireStr.At(pool, c.U32()); }
+        if ((cflags & 0x08) != 0) { bundle.TypeParamConstraint = WireStr.At(pool, c.U32()); }
+        int ifc = c.U8();
+        bundle.Interfaces = new string[ifc]; bundle.InterfaceCount = ifc;
+        int ifi = 0;
+        while (ifi < ifc) { bundle.Interfaces[ifi] = WireStr.At(pool, c.U32()); ifi = ifi + 1; }
+        bundle.RequiresCtor = (cflags & 0x10) != 0;
+        bundle.RequiresEnum = (cflags & 0x20) != 0;
+        if ((cflags & 0x40) != 0) {
+            // bit6 funcSig：读而不存（IrConstraintDesc 无承载位；Deferred where-constraint-future-func-constraint）。
+            int pc = c.U8();
+            int pi = 0;
+            while (pi < pc) { c.U32(); pi = pi + 1; }
+            c.U32();
+        }
+        if ((cflags & 0x80) != 0) {
+            int abc = c.U8();
+            bundle.AssocBindingNames = new string[abc]; bundle.AssocBindingTypeNames = new string[abc]; bundle.AssocBindingCount = abc;
+            int abi = 0;
+            while (abi < abc) {
+                bundle.AssocBindingNames[abi] = WireStr.At(pool, c.U32());
+                bundle.AssocBindingTypeNames[abi] = WireStr.At(pool, c.U32());
+                abi = abi + 1;
+            }
+        }
+        return bundle;
+    }
+}
+
+// SIGS 条目（写端 = ZbcWriter.WriteSigEntries）：名/arity/retTag/ret/exec/static/vis/mflags/minArg/paramsFrom
+// → 每参 {type, name, default} → 方法级 tp {name, 约束包}× → 方法 attr 块 → 每参 attr 块。
+// 返回**原样**条目（参数名占位 "?"、全空的每参 attr 块都保留）；各读者的归一化留在调用方。
+public static class SigsCodec {
+    public static SigEntryZ ReadEntry(ZpkgCursor c, string[] pool) {
+        SigEntryZ e = new SigEntryZ();
+        e.Name = WireStr.At(pool, c.U32());
+        e.ParamCount = c.U16();
+        c.U8();   // ret_tag（提示位；串为准）
+        e.RetType = WireStr.At(pool, c.U32());
+        int em = c.U8();
+        if (em == 1) { e.ExecMode = "Jit"; } else if (em == 2) { e.ExecMode = "Aot"; } else { e.ExecMode = "Interp"; }
+        e.IsStatic = c.U8() != 0;
+        e.Visibility = c.U8();
+        e.MethodFlags = c.U8();
+        e.MinArg = c.U16();
+        e.ParamsFrom = c.U8();   // 255 = 无（in-memory 语义由调用方换算）
+        int pc = e.ParamCount;
+        e.ParamTypes = new string[pc]; e.ParamTypeCount = pc;
+        e.ParamNames = new string[pc];
+        e.ParamDefaultKinds = new int[pc];
+        e.ParamDefaultVals = new long[pc];
+        e.ParamDefaultStrs = new string[pc];
+        int p = 0;
+        while (p < pc) {
+            e.ParamTypes[p] = WireStr.At(pool, c.U32());
+            e.ParamNames[p] = WireStr.At(pool, c.U32());
+            int dk = c.U8();   // 0=无/1=null/2=i64/3=f64bits/4=bool/5=str
+            e.ParamDefaultKinds[p] = dk;
+            long dv = 0; string ds = "";
+            if (dk == 2 || dk == 3) { dv = c.I64(); }
+            else if (dk == 4) { dv = (long)c.U8(); }
+            else if (dk == 5) { ds = WireStr.At(pool, c.U32()); }
+            e.ParamDefaultVals[p] = dv; e.ParamDefaultStrs[p] = ds;
+            p = p + 1;
+        }
+        int tpc = c.U8();
+        e.TypeParamCount = tpc;
+        e.TypeParams = new string[tpc];
+        int t = 0;
+        while (t < tpc) {
+            e.TypeParams[t] = WireStr.At(pool, c.U32());
+            ConstraintCodec.Read(c, pool);   // 方法级约束今天不入 IR（writer 恒写空包），只对齐字节流
+            t = t + 1;
+        }
+        int ac = c.U16();
+        e.Attrs = new IrAttrRef[ac]; e.AttrCount = ac;
+        int a = 0;
+        while (a < ac) {
+            string tn = WireStr.At(pool, c.U32());
+            e.Attrs[a] = new IrAttrRef(tn, WireStr.At(pool, c.U32()));
+            a = a + 1;
+        }
+        e.ParamAttrs = new IrAttrRefList[pc]; e.ParamAttrsLen = pc;
+        int pa = 0;
+        while (pa < pc) {
+            int pn = c.U16();
+            IrAttrRef[] items = new IrAttrRef[pn];
+            int pj = 0;
+            while (pj < pn) {
+                string tn = WireStr.At(pool, c.U32());
+                items[pj] = new IrAttrRef(tn, WireStr.At(pool, c.U32()));
+                pj = pj + 1;
+            }
+            e.ParamAttrs[pa] = new IrAttrRefList(items, pn);
+            pa = pa + 1;
+        }
+        return e;
+    }
+
+    // 条目 → IrFunction（签名 stub 传空块）。字段映射只此一处。
+    public static IrFunction ToFunction(SigEntryZ e, IrBlock[] blocks, int blockCount, int regCount) {
+        IrFunction f = new IrFunction(e.Name, e.ParamCount, e.RetType, e.IsStatic,
+                                      blocks, blockCount, regCount,
+                                      e.ExecMode, e.ParamTypes, e.ParamTypeCount,
+                                      new int[0], 0,
+                                      new IrLineEntry[0], 0, new IrLocalVarEntry[0], 0);
+        f.Visibility = e.Visibility; f.MethodFlags = e.MethodFlags;
+        f.MinArg = e.MinArg; f.ParamsFrom = e.ParamsFrom;
+        f.ParamNames = e.ParamNames; f.ParamDefaultKinds = e.ParamDefaultKinds;
+        f.ParamDefaultVals = e.ParamDefaultVals; f.ParamDefaultStrs = e.ParamDefaultStrs;
+        f.TypeParams = e.TypeParams; f.TypeParamCount = e.TypeParamCount;
+        f.Attrs = e.Attrs; f.AttrCount = e.AttrCount;
+        f.ParamAttrs = e.ParamAttrs; f.ParamAttrsLen = e.ParamAttrsLen;
+        return f;
+    }
+}
+
+// 池索引 → 串。越界 = 线格式损坏（写端 `ZbcStringPool.Idx` 对未入池串当场抛，合法产物不会出现）⇒ 抛，
+// 不返回 "" 继续——静默空串会让下游把「名字丢了」误诊成 undefined 符号。
+public static class WireStr {
+    public static string At(string[] pool, int idx) {
+        if (idx >= 0 && idx < pool.Length) { return pool[idx]; }
+        throw new Exception("corrupt package: string-pool index " + idx.ToString() + " out of range (pool size "
+            + pool.Length.ToString() + ")");
+    }
+}
