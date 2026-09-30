@@ -1,0 +1,32 @@
+// fix-accessor-body-key: when a package declares both `Box` and `Box<T>`, the
+// generic one is registered as `Box$1` (arity-mangle). Method bodies were looked
+// up with that key, but computed-property and indexer accessors were looked up
+// as `Box.get_X`, missed, and were silently not emitted — compile OK, then at
+// run time: `VCall: function Box$1<int>.get_Twice not found`.
+
+class Box {
+    public int N;
+}
+
+class Box<T> {
+    private T _v;
+    private int _n;
+    public Box(T v) { this._v = v; this._n = 0; }
+    public T V { get { return this._v; } }
+    public int Twice { get { return this._n * 2; } set { this._n = value; } }
+    public T this[int i] { get { return this._v; } set { this._v = value; } }
+}
+
+void Main() {
+    var b = new Box<int>(3);
+    Assert.Equal(3, b.V);
+    b.Twice = 5;
+    Assert.Equal(10, b.Twice);
+    Assert.Equal(3, b[0]);
+    b[0] = 7;
+    Assert.Equal(7, b.V);
+
+    var plain = new Box();          // the non-generic sibling still works
+    plain.N = 4;
+    Assert.Equal(4, plain.N);
+}
