@@ -114,6 +114,7 @@ int _testTargetsCore(string kind, string name, bool noBuild) {
     // stdlib/compiler stages don't exercise.
     if (kind == "test" && name.Length == 0) {
         failed = failed + _smokeCompileThenTest(root, tt);
+        failed = failed + _smokeFallbackOutRoot(root, tt);
         failed = failed + _smokeDevTargetInternal(root, tt);
         failed = failed + _smokeReuseParentMissing(root, tt);
         failed = failed + _smokeOrphanGuard(root, tt);
@@ -154,6 +155,46 @@ int _smokeCompileThenTest(string root, TargetTooling tt) {
         return 1;
     }
     Console.WriteLine("  ✅ compile-then-test: `z42b test <toml>` passed");
+    return 0;
+}
+
+// 零目标回落也认 `--out-root`（fix-z42b-fallback-out-root）：compile-then-test 夹具没声明任何 [[test]]、源里自带
+// [Test] ⇒ 走 `_buildProject` 回落。此前那条路从磁盘重新加载清单，`_runDevTargets` 套在内存里的 out-root 覆盖到不了
+// ⇒ 产物照样写回 `<清单目录>/artifacts` + `<清单目录>/dist`（夹具若在源码树里，就是写进源码树）。
+// 断言三条：① 通过；② 清单目录旁**没有** artifacts/ 与 dist/；③ out-root 下**有**建出的 zpkg（证明产物去了那儿，
+// 而不是压根没写 —— 没有 ③ 的话 ② 在「什么都没建」时也成立）。
+int _smokeFallbackOutRoot(string root, TargetTooling tt) {
+    string toml = Path.Join(tt.FixturesRoot, "compile-then-test/z42.toml");
+    if (!File.Exists(toml)) { return 0; }
+    Console.WriteLine("");
+    Console.WriteLine("── fallback --out-root (零目标回落：产物落 --out-root，不落清单目录旁) ──");
+    string projDir = Path.GetDirectoryName(toml);
+    string[] beside = new string[] { Path.Join(projDir, "artifacts"), Path.Join(projDir, "dist") };
+    int bi = 0;
+    // 上一个 smoke（不带 --out-root）在拷贝旁留下的产物先清掉，否则 ② 判不出来。
+    while (bi < beside.Length) { if (Directory.Exists(beside[bi])) { Directory.Delete(beside[bi], true); } bi = bi + 1; }
+    string outRoot = _tmpDir(root, "z42b-fallback-out-root");
+    if (Directory.Exists(outRoot)) { Directory.Delete(outRoot, true); }
+    int rc = _exec(new Process(tt.Vm).Arg(tt.BuilderZpkg).Arg("--mode").Arg(_z42cMode())
+        .Arg("--").Arg("test").Arg(toml).Arg("--out-root").Arg(outRoot)
+        .Env("Z42_LIBS", tt.Libs).WorkingDirectory(root));
+    if (rc != 0) {
+        Console.WriteLine("  ❌ fallback --out-root: `z42b test <toml> --out-root` exited " + rc.ToString());
+        return 1;
+    }
+    bi = 0;
+    while (bi < beside.Length) {
+        if (Directory.Exists(beside[bi])) {
+            Console.WriteLine("  ❌ fallback --out-root: 清单目录旁仍然出现了 " + beside[bi] + " —— 回落路径无视了 --out-root");
+            return 1;
+        }
+        bi = bi + 1;
+    }
+    if (!Directory.Exists(outRoot) || Path.GlobRecursive(outRoot, "compile-then-test.zpkg").Length == 0) {
+        Console.WriteLine("  ❌ fallback --out-root: " + outRoot + " 下没有 compile-then-test.zpkg —— 产物去哪了？");
+        return 1;
+    }
+    Console.WriteLine("  ✅ fallback --out-root: 产物落在 --out-root 下，清单目录旁零写入");
     return 0;
 }
 
