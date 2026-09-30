@@ -63,7 +63,7 @@ vtable fixup 触发假警报）。这条策略经 workspace 两条构建路径�
 
 #### path 依赖的闭包构建（消费机制）
 
-path 依赖与名字依赖的关键差异：名字依赖假定其 zpkg **已在** `Z42_LIBS`（stdlib / 预建）；path 依赖是**私有**、随消费方走，编译时才**现建**。`z42c build <consumer>`（single build，非 `--workspace`）遇到 path 依赖时：
+path 依赖与名字依赖的关键差异：名字依赖假定其 zpkg **已在** `Z42_LIBS`（stdlib / 预建）；path 依赖是**私有**、随消费方走，编译时才**现建**。`z42c build <consumer>`（single build）与 **workspace per-member 成员**遇到 path 依赖时：
 
 1. **闭包发现（`PathDepPlan.Resolve`，`z42.project`）**：从消费方 manifest 沿 `DepEntry.Path` 非空的边做 **post-order DFS**——`visiting` 集（in-progress）检测回边报环，`visited` 集（按**规范化** toml 绝对路径）去重使钻石依赖只建一次，post-order 发射得到**叶子在前**的传递闭包（消费方自身不发射）。每条边经 `Glob(<consumerDir>/<path>, "*.z42.toml")` 恰配 1 份 manifest 解析（0/多份报错）。
 2. **逐成员构建 + libsDirs 累积（driver `_build`）**：按闭包序（叶子在前）逐个 `_build`，把已建成员的 dist 目录累积起来，作为**后续成员**与**最终消费方**的 `libsDirs`（并入继承的 `Z42_LIBS`）。因是 post-order，任一成员被建时其 path 依赖的 dist 都已在累积集里——单遍即可，无需二次扫描。
@@ -74,6 +74,17 @@ path 依赖与名字依赖的关键差异：名字依赖假定其 zpkg **已在*
    > 那条 Deferred 的理由站不住：**`bar` 根本没引用过 `baz` 的任何符号**（是 `foo` 内部在用），要求消费方声明一个自己不用的包，正是包管理器该替你做的事。
    >
    > ⭐ **它藏了一个月的原因**：`add-path-dependencies` 的 e2e（阶段 2.5）只造了 **1 层**（`lib foo + exe bar`），而深度为 1 时「直接依赖」恰好等于「闭包」——缺陷被完整遮住。同族于 `static_abstract_operator` 挑中单字段 `Money` 恰好绕开 sret 那条。现已把该 e2e 加深到 2 层。
+
+> 🔧 **fix-path-dep-closure-scope（2026-09-30）补的三处**：
+> - **workspace 成员也解析闭包**。此前只有 top-level（`libsDirsCount==0`）解析，而 workspace 调用总带着 libsDirs ⇒
+>   成员指向 workspace **外**的 path 依赖永不代建（报「未找到……path 依赖由 z42c 代建」，自相矛盾）。闭包里的
+>   成员跳过（`WsTier.IsMember`，由 workspace 循环建）；代建出的 dist **追加在 libsDirs 末尾**——前 `MemberDirs`
+>   个必须仍是成员 dist（`WsTier.Admits` 按下标分档），外部包归外部档。
+> - **基础解析域是已决议的 libsDirs**（`--compile-libs` > `Z42_LIBS`），不再重读 `Z42_LIBS`——此前代建与消费方都绕过了 `--compile-libs`。
+> - **闭包代建默认 packed**（调用约定 `tier == null && libsDirsCount > 0`；显式 `pack` 优先），`_bundleExeDeps`
+>   遇 indexed 依赖**响亮拒绝**。此前 debug 构建的 exe 只要有 path 依赖就运行期 `undefined function`：indexed
+>   主文件被拷进 dist，它的散装 zbc 没跟过去（也跟不过去——落在 dist 根下会与消费方自己的 zbc 撞名）。
+>   现有 path 闭包 e2e 全是 `--release`，所以一直没暴露。门：`xtask test compiler` 的 `_e2ePathDepScopeChecks`。
 
 #### 按名/产物引用的依赖也建闭包
 

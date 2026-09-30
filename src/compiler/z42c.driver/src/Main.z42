@@ -225,8 +225,13 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
     // ── path 依赖闭包（add-path-dependencies 阶段2 use）——实现见 PathDepBuild.z42 `_buildPathDepClosure`。
     string[] closureNames = new string[0];
     int closureN = 0;
-    if (libsDirsCount == 0) {
-        PathClosureOut pco = _buildPathDepClosure(tomlPath, isRelease, noIncremental, cliAdd, cliRemove, libsDirs, libsDirsN);
+    // fix-path-dep-closure-scope：workspace per-member 成员（tier.MembersN > 0）**也**解析闭包——此前只有
+    // top-level（libsDirsCount==0）解析，而 workspace 调用总是带 libsDirs 进来 ⇒ 成员指向 workspace **外**的
+    // path 依赖永远不代建。闭包**子建**（tier == null、count>0）仍跳过：那里的相对路径未必解得开。
+    bool wsMember = tier != null && tier.MembersN > 0;
+    if (libsDirsCount == 0 || wsMember) {
+        PathClosureOut pco = _buildPathDepClosure(tomlPath, isRelease, noIncremental, cliAdd, cliRemove, libsDirs, libsDirsN,
+                                                  wsMember ? tier : null);
         if (pco.Rc != 0) { return pco.Rc; }
         closureNames = pco.Names; closureN = pco.NamesN;
         libsDirs = pco.LibsDirs; libsDirsN = pco.LibsDirsN;
@@ -342,6 +347,11 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
         }
         isPacked = true;
     }
+    // fix-path-dep-closure-scope：path 依赖的**闭包代建**（调用约定：tier == null 且带 libsDirs）默认 packed。
+    // 它的产物是给消费方用的依赖，要被 exe 装配进 dist；indexed 主文件的散装 zbc 装配不过去（落在 dist
+    // 根下会与消费方自己的 zbc 撞名）⇒ 此前 debug 构建的 exe 只要有 path 依赖，运行期就
+    // `undefined function`。indexed 的最小 patch 好处只属于正在开发的那个包，依赖用不上。显式 `pack` 照旧优先。
+    if (tier == null && libsDirsCount > 0 && !pm.Project.HasPack) { isPacked = true; }
     if (!isPacked && isRelease) {
         ConsoleError.WriteLine("z42c build: pack=false (indexed) is dev-mode only and incompatible with --release strip; build without --release or set pack=true");
         return ExitCode.UsageError;

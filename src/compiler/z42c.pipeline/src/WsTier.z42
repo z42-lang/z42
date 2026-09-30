@@ -39,6 +39,9 @@ public class WsTier {
         return di < this.MemberDirs ? isMember : !isMember;
     }
 
+    // name 是不是本 workspace 的成员（driver 的 path 闭包据此跳过成员，fix-path-dep-closure-scope）。
+    public bool IsMember(string name) { return WsTier._nameIn(name, this.Members, this.MembersN); }
+
     private static bool _nameIn(string name, string[] list, int n) {
         int i = 0;
         while (i < n) { if (list[i] == name) { return true; } i = i + 1; }
