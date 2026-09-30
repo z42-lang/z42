@@ -1,0 +1,19 @@
+# fail-build-on-hooks-error 端到端 fixture：声明了 `[build] hooks`，但 hook 源编译不过。
+# 由 `xtask test targets` 的 _smokeBuildHooksBroken 驱动：`z42b build` 与 `z42b publish` 都必须失败（非 0 退出），
+# 且输出里有 hooks 的编译诊断。此前 hooks 失败只打诊断、降级为「无 hook」，构建照样退 0 ——
+# publish 产物会悄悄缺少 hook 本该产出的东西。
+[project]
+name    = "bhb.app"
+version = "0.1.0"
+kind    = "exe"
+entry   = "Main"
+
+[sources]
+include = ["src/**/*.z42"]
+
+[build]
+hooks = "hooks"
+
+# publish 走 apphost 路径，才会经过 hooks（_pubHookApphostStub）
+[platform.desktop]
+apphost = true

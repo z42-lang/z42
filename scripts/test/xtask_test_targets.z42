@@ -124,6 +124,7 @@ int _testTargetsCore(string kind, string name, bool noBuild) {
         failed = failed + _smokeCompileFailClean(root, tt);
         failed = failed + _smokeManifestSections(root, tt);
         failed = failed + _smokeBuildHooks(root, tt);
+        failed = failed + _smokeBuildHooksBroken(root, tt);
     }
     Console.WriteLine("");
     if (failed > 0) {
@@ -288,7 +289,7 @@ int _smokeManifestSections(string root, TargetTooling tt) {
 
 // build hooks smoke（drop-legacy-compile-request）：`[build] hooks` 目录经开发树的 ICompiler 编译 → 动态实例化 →
 // 挂进管线执行。断言两条：① `z42b build` 成功；② 输出里有 hook 打的标记行（证明 hook 真的被编译、加载、调用，
-// 而不是被静默跳过——`_loadProjectHooks` 失败时只打诊断、返回 null，管线照常往下走）。
+// 而不是被静默跳过）。失败方向由 _smokeBuildHooksBroken 守。
 int _smokeBuildHooks(string root, TargetTooling tt) {
     string toml = Path.Join(tt.Z42bFixturesRoot, "build-hooks/z42.toml");   // isolate-xtask-fixture-builds：跑拷贝，src/tests 零写入
     if (!File.Exists(toml)) { return 0; }
@@ -310,6 +311,45 @@ int _smokeBuildHooks(string root, TargetTooling tt) {
         return 1;
     }
     Console.WriteLine("  ✅ build hooks: hook 目录按 lib 清单编译、加载并执行");
+    return 0;
+}
+
+// broken hooks smoke（fail-build-on-hooks-error）：清单声明了 `[build] hooks`，hook 源却编译不过 ⇒ `z42b build`
+// 与 `z42b publish` 都必须**非 0 退出**，且输出里有 hooks 的编译诊断。此前两条路都降级为「无 hook」照样退 0：
+// build 少跑了 hook，publish 则悄悄改用 Z42_APPHOST_TEMPLATE —— 本 smoke 故意设上这个变量（值不是真 stub，回落后
+// 会在部署阶段才失败），并断言没有走到部署那一行，锁住「不许回落」。
+int _smokeBuildHooksBroken(string root, TargetTooling tt) {
+    string toml = Path.Join(tt.Z42bFixturesRoot, "build-hooks-broken/z42.toml");
+    if (!File.Exists(toml)) { return 0; }
+    Console.WriteLine("");
+    Console.WriteLine("── broken build hooks (hooks 编译失败 ⇒ build / publish 都判红) ──");
+    string[] verbs = new string[] { "build", "publish" };
+    int vi = 0;
+    while (vi < verbs.Length) {
+        Process p = new Process(tt.Vm).Arg(tt.BuilderZpkg).Arg("--mode").Arg(_z42cMode())
+            .Arg("--").Arg(verbs[vi]).Arg(toml);
+        if (verbs[vi] == "publish") { p = p.Arg("--rid").Arg(_detectHostRid()).Env("Z42_APPHOST_TEMPLATE", tt.Vm); }
+        ProcessResult r = p.Env("Z42_LIBS", tt.Libs).WorkingDirectory(root)
+            .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
+        string all = r.Stdout + r.Stderr;
+        if (r.ExitCode == 0) {
+            Console.WriteLine("  ❌ broken build hooks: `z42b " + verbs[vi] + "` 在 hooks 编译失败时仍退 0 —— 又降级成了「无 hook」");
+            Console.WriteLine("    输出: " + all);
+            return 1;
+        }
+        if (all.IndexOf("hooks compile failed") < 0) {
+            Console.WriteLine("  ❌ broken build hooks: `z42b " + verbs[vi] + "` 判红了，但不是因为 hooks 编译失败");
+            Console.WriteLine("    输出: " + all);
+            return 1;
+        }
+        if (all.IndexOf("z42 publish (") >= 0) {   // 判红了，但是先回落 Z42_APPHOST_TEMPLATE 部署、后来才失败
+            Console.WriteLine("  ❌ broken build hooks: `z42b publish` hooks 失败后仍回落到 Z42_APPHOST_TEMPLATE 继续部署");
+            Console.WriteLine("    输出: " + all);
+            return 1;
+        }
+        Console.WriteLine("  ✅ broken build hooks: `z42b " + verbs[vi] + "` 判红（rc=" + r.ExitCode.ToString() + "）");
+        vi = vi + 1;
+    }
     return 0;
 }
 

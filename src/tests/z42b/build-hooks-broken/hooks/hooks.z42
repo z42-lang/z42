@@ -1,0 +1,12 @@
+namespace Build;
+
+using Std.IO;
+using Z42.Build;
+
+// 故意编译不过：把 int 赋给 string。
+public class ProjectHooks : BuildHooks {
+    public override void BeforeAssets(IPipelineContext ctx) {
+        string s = 42;
+        Console.WriteLine("BUILD-HOOKS-BROKEN: must not run " + s);
+    }
+}
