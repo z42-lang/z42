@@ -11,8 +11,8 @@ using Std.Cli;   // ParseResult
 //
 //   clean         生产 cache/dist：各 stdlib 成员的 <lib>/<profile>/{cache,dist} + 扁平 libraries/dist/
 //   clean tests   测试产物：golden .zbc 镜像（build/tests、build/{libraries,compiler}/<m>/tests）
-//                 + z42b 的 test 目标输出（<工程目录>/artifacts/test-targets）
-//   clean bench   z42b 的 bench 目标输出（<工程目录>/artifacts/bench-targets）
+//                 + z42b 的 test 目标输出（`<m>/<profile>/tests`、tmp/dev-targets；旧位置 <工程目录>/artifacts/test-targets）
+//   clean bench   z42b 的 bench 目标输出（`<m>/<profile>/bench`、tmp/dev-targets；旧位置 <工程目录>/artifacts/bench-targets）
 //   clean tmp     artifacts/tmp/（+ 旧名 artifacts/.scratch/）
 //   clean all     build/ + tmp/ + .scratch/ + publish/（打包暂存）+ 源码树里各 z42 工程旁的 artifacts/、dist/
 //                 **保留**：xtask/（驱动自身，正在运行）、tools/（下载的第三方工具）、
@@ -80,7 +80,18 @@ int _cleanDevOutputs(string root, string kind) {
             }
         }
     }
-    // z42b 的 dev 目标输出根（builder_test.z42 `<sourceDir>/artifacts/<kind>-targets`，kind = test|bench）。
+    // z42b dev 目标经 `--out-root` 落在成员输出目录下（`_devTargetOutRoot`：`<m>/<profile>/{tests,bench}`）。
+    string devSub = (kind == "tests") ? "tests" : "bench";
+    foreach (var br in new string[]{ _libsBuildRoot(root), _compilerBuildRoot(root) }) {
+        if (!Directory.Exists(br)) { continue; }
+        foreach (var m in _sortedStrings(Directory.Enumerate(br))) {
+            foreach (var prof in _cleanProfiles()) {
+                n = n + _rmIfExists(Path.Join(Path.Join(Path.Join(br, m), prof), devSub));
+            }
+        }
+    }
+    n = n + _rmIfExists(_tmpDir(root, "dev-targets"));
+    // 旧位置（不带 `--out-root` 时 z42b 的默认：`<sourceDir>/artifacts/<kind>-targets`）。
     string targets = (kind == "tests" ? "test" : "bench") + "-targets";
     foreach (var d in _srcZ42ProjectDirs(root)) {
         n = n + _rmIfExists(Path.Join(Path.Join(d, "artifacts"), targets));

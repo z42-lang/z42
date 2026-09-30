@@ -385,6 +385,7 @@ int _runLibViaZ42b(string root, string projDir, string parentToml, string lib, s
         if (filter.Length > 0) { return 0; }
         ProcessResult rr = new Process(vm).Arg("--mode").Arg(mode).Arg(builderZpkg)
             .Arg("--").Arg(kind).Arg(parentToml)
+            .Arg("--out-root").Arg(_devTargetOutRoot(root, parentToml, kind))
             .Env("Z42_LIBS", libs).WorkingDirectory(root).Run();
         Console.Write(rr.Stdout);
         if (rr.Stderr.Length > 0) { Console.Write(rr.Stderr); }

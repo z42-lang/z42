@@ -182,6 +182,26 @@ string _buildTestOutDir(string root, string name) { return Path.Join(_buildDir(r
 // xtask's own product — resolved from scripts/xtask.z42.toml [build] (dist_dir/output_dir).
 string _xtaskZpkg(string root) { return _toolchainZpkg(root, "scripts/xtask.z42.toml"); }
 
+// z42b dev 目标（test / bench）的产物根 —— 传给 `z42b test|bench --out-root`（fix-z42b-source-tree-outputs）。
+// 不传时 z42b 写 `<清单目录>/artifacts/…`，而 stdlib / 编译器成员的清单没有 [build] ⇒ 落进源码树。
+//   stdlib / 编译器 workspace 成员 → 成员输出目录下的 tests/ | bench/（profile = debug：xtask 调 z42b 不带
+//     --release），即 z42-toml.md 描述的 `<output_dir>/tests|bench`；`clean tests|bench` 按同一位置删；
+//   其它工程 → artifacts/tmp/dev-targets/<name>/<tests|bench>。
+// ⚠️ 必须是成员输出目录下的**子目录**，不能是输出目录本身：z42b 会在 out-root 下建父包，放在
+//    `<output_dir>/dist` 就会覆盖 z42c 建的正式成员产物。
+string _devTargetOutRoot(string root, string toml, string kind) {
+    string sub = (kind == "bench") ? "bench" : "tests";
+    string name = ManifestLoader.Load(toml).Project.Name;
+    string tu = _cleanPath(toml.Replace("\\", "/"));
+    if (tu.StartsWith(_cleanPath(Path.Join(root, "src/libraries")) + "/")) {
+        return Path.Join(Path.GetDirectoryName(_memberDist(_libsWsToml(root), name, "debug")), sub);
+    }
+    if (tu.StartsWith(_cleanPath(Path.Join(root, "src/compiler")) + "/")) {
+        return Path.Join(Path.GetDirectoryName(_memberDist(_compilerWsToml(root), name, "debug")), sub);
+    }
+    return Path.Join(_tmpDir(root, "dev-targets/" + name), sub);
+}
+
 // ── ③ top-level artifacts/ buckets (single definitions) ────────────────────────
 //
 // 每个桶只在这里定义。使用点写 `_tmpDir(root, "e2e")` 而不是

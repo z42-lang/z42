@@ -227,6 +227,10 @@ golden 走隔离 VM + 比对 stdout，unit 走共享 VM + `Runner.RunModuleResul
   `z42b test <toml> --name <unit>`，**从此不必自带第二套发现规则**（两套规则各自漂移曾是真 bug 源）。
 - `--reuse-parent`：父包 dist 已在就不重建。进程内编译器无增量，不带这个旗标时 N 个目标会把父包
   全量重编 N 遍——编排方的做法是先不带它跑一个目标把父包建好，其余目标并行时都带上。
+- `--out-root <dir>`：替换默认的 `<清单目录>/artifacts` 产物根。stdlib / 编译器成员的清单没有 `[build]`
+  （布局由 workspace 给），不带它目标产物与父包就写进**源码树**。xtask 传成员输出目录下的
+  `tests/` | `bench/`（`_devTargetOutRoot`）——**不能**是输出目录本身：z42b 会在 out-root 下建父包，
+  放在 `<output_dir>/dist` 就会覆盖 z42c 建的正式成员产物。
 
 **执行模式不是 runner 的参数**：runner 与被加载的测试函数在同一个 VM、同一模式下跑，模式由承载
 z42b 的 `z42vm --mode <mode>` 决定。所以"stdlib 测试在 JIT 下跑"就是拿 `--mode jit` 的 z42vm 跑 z42b，
