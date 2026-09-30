@@ -325,6 +325,12 @@ Five instructions cover the whole surface of `T[]` (`Instruction::ArrayNew` / `A
 （`interp/exec_array.rs`）。`array_new` 另带 `stack_alloc`（逃逸分析，zbc 1.29）与
 `type_param_kind` / `type_param_index`（元素是型参时运行期解析出真实零值，zbc 1.37）。
 
+`array_new_lit` 的元素个数在 zbc 里与所有 `args` 一样是 **u8**（[zbc.md](zbc.md) 的 args 编码）。
+字面量超过 255 个元素时，IrGen 改发 `array_new`（size = 元素个数）+ 逐元素 `array_set`——元素已按
+源序求值完毕，语义等价（`ExprEmitter` 的 `BoundArrayLit` 分支，fix-zbc-writer-silent-truncation）。
+blob 值 struct 元素不走这条下沉（整元素写要经句柄拷贝），超长时由写端的宽度检查报错。
+写端（`ByteWriter`）对所有 u8 / u16 字段做宽度检查，**超宽即抛**，不再静默截断。
+
 ```
 # new int[] { 1, 2, 3 }
 %r0  = const.i32 1

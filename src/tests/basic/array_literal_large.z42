@@ -1,0 +1,117 @@
+// fix-zbc-writer-silent-truncation: an array literal with more than 255 elements.
+// The zbc `arr.new.lit` instruction stores its element count in a u8; the writer
+// used to truncate it silently (`n & 0xFF`), so a 300-element literal compiled
+// "fine" and then failed to load: `cannot parse binary zbc: string pool index
+// 2949164 out of range`. Such literals now lower to array_new + per-element
+// array_set. Lookup tables are the realistic shape of this.
+
+class Cell {
+    public int V;
+    public Cell(int v) { this.V = v; }
+}
+
+void Main() {
+    int[] a = new int[] {
+        0, 3, 6, 9, 12, 15, 18, 21, 24, 27, 30, 33, 36, 39, 42, 45, 48, 51, 54, 57,
+        60, 63, 66, 69, 72, 75, 78, 81, 84, 87, 90, 93, 96, 99, 102, 105, 108, 111, 114, 117,
+        120, 123, 126, 129, 132, 135, 138, 141, 144, 147, 150, 153, 156, 159, 162, 165, 168, 171, 174, 177,
+        180, 183, 186, 189, 192, 195, 198, 201, 204, 207, 210, 213, 216, 219, 222, 225, 228, 231, 234, 237,
+        240, 243, 246, 249, 252, 255, 258, 261, 264, 267, 270, 273, 276, 279, 282, 285, 288, 291, 294, 297,
+        300, 303, 306, 309, 312, 315, 318, 321, 324, 327, 330, 333, 336, 339, 342, 345, 348, 351, 354, 357,
+        360, 363, 366, 369, 372, 375, 378, 381, 384, 387, 390, 393, 396, 399, 402, 405, 408, 411, 414, 417,
+        420, 423, 426, 429, 432, 435, 438, 441, 444, 447, 450, 453, 456, 459, 462, 465, 468, 471, 474, 477,
+        480, 483, 486, 489, 492, 495, 498, 501, 504, 507, 510, 513, 516, 519, 522, 525, 528, 531, 534, 537,
+        540, 543, 546, 549, 552, 555, 558, 561, 564, 567, 570, 573, 576, 579, 582, 585, 588, 591, 594, 597,
+        600, 603, 606, 609, 612, 615, 618, 621, 624, 627, 630, 633, 636, 639, 642, 645, 648, 651, 654, 657,
+        660, 663, 666, 669, 672, 675, 678, 681, 684, 687, 690, 693, 696, 699, 702, 705, 708, 711, 714, 717,
+        720, 723, 726, 729, 732, 735, 738, 741, 744, 747, 750, 753, 756, 759, 762, 765, 768, 771, 774, 777,
+        780, 783, 786, 789, 792, 795, 798, 801, 804, 807, 810, 813, 816, 819, 822, 825, 828, 831, 834, 837,
+        840, 843, 846, 849, 852, 855, 858, 861, 864, 867, 870, 873, 876, 879, 882, 885, 888, 891, 894, 897
+    };
+    Assert.Equal(300, a.Length);
+    int i = 0;
+    while (i < a.Length) { Assert.Equal(i * 3, a[i]); i = i + 1; }
+
+    string[] s = new string[] {
+        "s0", "s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9", "s10", "s11", "s12", "s13", "s14",
+        "s15", "s16", "s17", "s18", "s19", "s20", "s21", "s22", "s23", "s24", "s25", "s26", "s27", "s28", "s29",
+        "s30", "s31", "s32", "s33", "s34", "s35", "s36", "s37", "s38", "s39", "s40", "s41", "s42", "s43", "s44",
+        "s45", "s46", "s47", "s48", "s49", "s50", "s51", "s52", "s53", "s54", "s55", "s56", "s57", "s58", "s59",
+        "s60", "s61", "s62", "s63", "s64", "s65", "s66", "s67", "s68", "s69", "s70", "s71", "s72", "s73", "s74",
+        "s75", "s76", "s77", "s78", "s79", "s80", "s81", "s82", "s83", "s84", "s85", "s86", "s87", "s88", "s89",
+        "s90", "s91", "s92", "s93", "s94", "s95", "s96", "s97", "s98", "s99", "s100", "s101", "s102", "s103", "s104",
+        "s105", "s106", "s107", "s108", "s109", "s110", "s111", "s112", "s113", "s114", "s115", "s116", "s117", "s118", "s119",
+        "s120", "s121", "s122", "s123", "s124", "s125", "s126", "s127", "s128", "s129", "s130", "s131", "s132", "s133", "s134",
+        "s135", "s136", "s137", "s138", "s139", "s140", "s141", "s142", "s143", "s144", "s145", "s146", "s147", "s148", "s149",
+        "s150", "s151", "s152", "s153", "s154", "s155", "s156", "s157", "s158", "s159", "s160", "s161", "s162", "s163", "s164",
+        "s165", "s166", "s167", "s168", "s169", "s170", "s171", "s172", "s173", "s174", "s175", "s176", "s177", "s178", "s179",
+        "s180", "s181", "s182", "s183", "s184", "s185", "s186", "s187", "s188", "s189", "s190", "s191", "s192", "s193", "s194",
+        "s195", "s196", "s197", "s198", "s199", "s200", "s201", "s202", "s203", "s204", "s205", "s206", "s207", "s208", "s209",
+        "s210", "s211", "s212", "s213", "s214", "s215", "s216", "s217", "s218", "s219", "s220", "s221", "s222", "s223", "s224",
+        "s225", "s226", "s227", "s228", "s229", "s230", "s231", "s232", "s233", "s234", "s235", "s236", "s237", "s238", "s239",
+        "s240", "s241", "s242", "s243", "s244", "s245", "s246", "s247", "s248", "s249", "s250", "s251", "s252", "s253", "s254",
+        "s255", "s256", "s257", "s258", "s259", "s260", "s261", "s262", "s263", "s264", "s265", "s266", "s267", "s268", "s269",
+        "s270", "s271", "s272", "s273", "s274", "s275", "s276", "s277", "s278", "s279", "s280", "s281", "s282", "s283", "s284",
+        "s285", "s286", "s287", "s288", "s289", "s290", "s291", "s292", "s293", "s294", "s295", "s296", "s297", "s298", "s299"
+    };
+    Assert.Equal(300, s.Length);
+    Assert.Equal("s0", s[0]);
+    Assert.Equal("s255", s[255]);
+    Assert.Equal("s256", s[256]);
+    Assert.Equal("s299", s[299]);
+
+    Cell[] c = new Cell[] {
+        new Cell(0), new Cell(1), new Cell(2), new Cell(3), new Cell(4), new Cell(5), new Cell(6), new Cell(7), new Cell(8), new Cell(9),
+        new Cell(10), new Cell(11), new Cell(12), new Cell(13), new Cell(14), new Cell(15), new Cell(16), new Cell(17), new Cell(18), new Cell(19),
+        new Cell(20), new Cell(21), new Cell(22), new Cell(23), new Cell(24), new Cell(25), new Cell(26), new Cell(27), new Cell(28), new Cell(29),
+        new Cell(30), new Cell(31), new Cell(32), new Cell(33), new Cell(34), new Cell(35), new Cell(36), new Cell(37), new Cell(38), new Cell(39),
+        new Cell(40), new Cell(41), new Cell(42), new Cell(43), new Cell(44), new Cell(45), new Cell(46), new Cell(47), new Cell(48), new Cell(49),
+        new Cell(50), new Cell(51), new Cell(52), new Cell(53), new Cell(54), new Cell(55), new Cell(56), new Cell(57), new Cell(58), new Cell(59),
+        new Cell(60), new Cell(61), new Cell(62), new Cell(63), new Cell(64), new Cell(65), new Cell(66), new Cell(67), new Cell(68), new Cell(69),
+        new Cell(70), new Cell(71), new Cell(72), new Cell(73), new Cell(74), new Cell(75), new Cell(76), new Cell(77), new Cell(78), new Cell(79),
+        new Cell(80), new Cell(81), new Cell(82), new Cell(83), new Cell(84), new Cell(85), new Cell(86), new Cell(87), new Cell(88), new Cell(89),
+        new Cell(90), new Cell(91), new Cell(92), new Cell(93), new Cell(94), new Cell(95), new Cell(96), new Cell(97), new Cell(98), new Cell(99),
+        new Cell(100), new Cell(101), new Cell(102), new Cell(103), new Cell(104), new Cell(105), new Cell(106), new Cell(107), new Cell(108), new Cell(109),
+        new Cell(110), new Cell(111), new Cell(112), new Cell(113), new Cell(114), new Cell(115), new Cell(116), new Cell(117), new Cell(118), new Cell(119),
+        new Cell(120), new Cell(121), new Cell(122), new Cell(123), new Cell(124), new Cell(125), new Cell(126), new Cell(127), new Cell(128), new Cell(129),
+        new Cell(130), new Cell(131), new Cell(132), new Cell(133), new Cell(134), new Cell(135), new Cell(136), new Cell(137), new Cell(138), new Cell(139),
+        new Cell(140), new Cell(141), new Cell(142), new Cell(143), new Cell(144), new Cell(145), new Cell(146), new Cell(147), new Cell(148), new Cell(149),
+        new Cell(150), new Cell(151), new Cell(152), new Cell(153), new Cell(154), new Cell(155), new Cell(156), new Cell(157), new Cell(158), new Cell(159),
+        new Cell(160), new Cell(161), new Cell(162), new Cell(163), new Cell(164), new Cell(165), new Cell(166), new Cell(167), new Cell(168), new Cell(169),
+        new Cell(170), new Cell(171), new Cell(172), new Cell(173), new Cell(174), new Cell(175), new Cell(176), new Cell(177), new Cell(178), new Cell(179),
+        new Cell(180), new Cell(181), new Cell(182), new Cell(183), new Cell(184), new Cell(185), new Cell(186), new Cell(187), new Cell(188), new Cell(189),
+        new Cell(190), new Cell(191), new Cell(192), new Cell(193), new Cell(194), new Cell(195), new Cell(196), new Cell(197), new Cell(198), new Cell(199),
+        new Cell(200), new Cell(201), new Cell(202), new Cell(203), new Cell(204), new Cell(205), new Cell(206), new Cell(207), new Cell(208), new Cell(209),
+        new Cell(210), new Cell(211), new Cell(212), new Cell(213), new Cell(214), new Cell(215), new Cell(216), new Cell(217), new Cell(218), new Cell(219),
+        new Cell(220), new Cell(221), new Cell(222), new Cell(223), new Cell(224), new Cell(225), new Cell(226), new Cell(227), new Cell(228), new Cell(229),
+        new Cell(230), new Cell(231), new Cell(232), new Cell(233), new Cell(234), new Cell(235), new Cell(236), new Cell(237), new Cell(238), new Cell(239),
+        new Cell(240), new Cell(241), new Cell(242), new Cell(243), new Cell(244), new Cell(245), new Cell(246), new Cell(247), new Cell(248), new Cell(249),
+        new Cell(250), new Cell(251), new Cell(252), new Cell(253), new Cell(254), new Cell(255), new Cell(256), new Cell(257), new Cell(258), new Cell(259),
+        new Cell(260), new Cell(261), new Cell(262), new Cell(263), new Cell(264), new Cell(265), new Cell(266), new Cell(267), new Cell(268), new Cell(269),
+        new Cell(270), new Cell(271), new Cell(272), new Cell(273), new Cell(274), new Cell(275), new Cell(276), new Cell(277), new Cell(278), new Cell(279),
+        new Cell(280), new Cell(281), new Cell(282), new Cell(283), new Cell(284), new Cell(285), new Cell(286), new Cell(287), new Cell(288), new Cell(289),
+        new Cell(290), new Cell(291), new Cell(292), new Cell(293), new Cell(294), new Cell(295), new Cell(296), new Cell(297), new Cell(298), new Cell(299)
+    };
+    Assert.Equal(300, c.Length);
+    int j = 0;
+    while (j < c.Length) { Assert.Equal(j, c[j].V); j = j + 1; }
+
+    // exactly at the boundary: 255 still uses the literal instruction
+    int[] b = new int[] {
+        0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
+        20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39,
+        40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59,
+        60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79,
+        80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99,
+        100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119,
+        120, 121, 122, 123, 124, 125, 126, 127, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139,
+        140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 156, 157, 158, 159,
+        160, 161, 162, 163, 164, 165, 166, 167, 168, 169, 170, 171, 172, 173, 174, 175, 176, 177, 178, 179,
+        180, 181, 182, 183, 184, 185, 186, 187, 188, 189, 190, 191, 192, 193, 194, 195, 196, 197, 198, 199,
+        200, 201, 202, 203, 204, 205, 206, 207, 208, 209, 210, 211, 212, 213, 214, 215, 216, 217, 218, 219,
+        220, 221, 222, 223, 224, 225, 226, 227, 228, 229, 230, 231, 232, 233, 234, 235, 236, 237, 238, 239,
+        240, 241, 242, 243, 244, 245, 246, 247, 248, 249, 250, 251, 252, 253, 254
+    };
+    Assert.Equal(255, b.Length);
+    Assert.Equal(254, b[254]);
+}

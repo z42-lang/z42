@@ -71,8 +71,9 @@ public static class ZpkgIndexedWriter {
     }
 
     // SIGS 串显式入池——**镜像 ZbcWriter.WriteSigEntries 的 Idx 读取面**（同序：名/RetType/
-    // 参数类型（缺省 "?"）/函数 attr 对/参数 attr 对）。WriteSigEntries 加新串字段时此处必须
-    // 同步（漂移会写出 idx=-1 → 读侧越界，往返单测即炸——tripwire）。
+    // 参数类型（缺省 "?"）/参数名（缺省 "?"）/方法级型参/函数 attr 对/参数 attr 对）。
+    // WriteSigEntries 加新串字段时此处必须同步——漂移现在由 `ZbcStringPool.Idx` 当场抛出
+    // （fix-zbc-writer-silent-truncation；此前写成 0xFFFFFFFF、读侧才越界）。
     private static void _internSigStrings(ZpkgFileZ zpkg, ZbcStringPool pool) {
         int mi = 0;
         while (mi < zpkg.ModuleCount) {
@@ -94,6 +95,12 @@ public static class ZpkgIndexedWriter {
                 // 否则 WriteSigEntries 的 name_str_idx / default str_idx 落 0xFFFFFFFF）。
                 int pn = 0;
                 while (pn < f.ParamNames.Length) { pool.Intern(f.ParamNames[pn]); pn = pn + 1; }
+                // 参数名缺省占位：WriteSigEntries 对 `p >= ParamNames.Length` 写 "?"（合成函数无参数名）。
+                // packed 路径在 InternPoolStrings 里显式 intern 了它，这里此前漏了。
+                if (f.ParamNames.Length < f.ParamCount) { pool.Intern("?"); }
+                // 方法级泛型型参名（add-reflective-invoke 起 SIGS 写真实值）——此前漏 intern。
+                int tpi = 0;
+                while (tpi < f.TypeParamCount) { pool.Intern(f.TypeParams[tpi]); tpi = tpi + 1; }
                 int pdk = 0;
                 while (pdk < f.ParamDefaultKinds.Length) { if (f.ParamDefaultKinds[pdk] == 5) { pool.Intern(f.ParamDefaultStrs[pdk]); } pdk = pdk + 1; }
                 int a = 0;
