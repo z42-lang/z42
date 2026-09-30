@@ -67,6 +67,7 @@ public sealed class SymbolCollector {
         this._stub._passQualifyIfaceNames(t);   // interface-names-fqn：相位同 CollectAll（全部 stub 进表后、成员解析前）
         this._seedObjectStub(t);   // imported Type 已入表后；GetType 返回真实 Type 类（链式 getter 分派）
         t.InternAllTypes();        // enforce-fqn-name-identity B1：**必须在 Object stub 之后** —— 它也登记类型
+        this._passBindClassBases(t, cu);   // A5b-2b-3：本地类的基类句柄按声明方作用域先绑（三处都挂）
         t.BindTypeRefs();          // B3：名字 → 句柄。**必须紧跟 InternAllTypes**（id 那时才存在）
         this._stub._passDelegates(t, cu);
         this._member._passMembers(t, cu);
@@ -335,6 +336,8 @@ public sealed class SymbolCollector {
         this._stub._passQualifyIfaceNames(table);
         this._seedObjectStub(table);   // imported Type 已入表后；GetType 返回真实 Type 类（链式 getter 分派）
         table.InternAllTypes();   // enforce-fqn-name-identity B1：**必须在 Object stub 之后** —— 它也登记类型
+        c = 0;
+        while (c < cuCount) { this._passBindClassBases(table, cus[c]); c = c + 1; }   // A5b-2b-3
         table.BindTypeRefs();     // B3：名字 → 句柄。**必须紧跟 InternAllTypes**（id 那时才存在）
         c = 0;
         while (c < cuCount) { this._stub._passDelegates(table, cus[c]); c = c + 1; }
@@ -406,6 +409,7 @@ public sealed class SymbolCollector {
         // `Collect` 是活路径（`IrDump` 的 ExtractExports / TSIG 抽取走它），不是只给测试用的。
         this._stub._passQualifyIfaceNames(table);
         table.InternAllTypes();   // enforce-fqn-name-identity B1：全部登记之后一次扫
+        this._passBindClassBases(table, cu);   // A5b-2b-3
         table.BindTypeRefs();     // B3：名字 → 句柄。**必须紧跟 InternAllTypes**（id 那时才存在）
         this._stub._passDelegates(table, cu);
         this._member._passMembers(table, cu);
@@ -441,6 +445,29 @@ public sealed class SymbolCollector {
         CompilationUnit[] one = new CompilationUnit[1];
         one[0] = cu;
         new CtorInheritance(this, table).Run(one, 1);
+    }
+
+    // A5b-2b-3：本地类的基类句柄按**声明方 CU 的作用域**绑定（外围 ns → using → prelude），跑在
+    // `InternAllTypes` 之后、`BindTypeRefs` 之前。`BaseName` 存的是源码短名、从不经归一 pass；此前只由
+    // `BindTypeRefs._bindClassBase` 在**根表**（无作用域）上 `GetClass(短名)` 绑 ⇒ 撞裸名表赢家：同包两个 ns
+    // 各有一个 `Base` 时 `A.D : Base` 可能绑到 `B.Base`（E0402 / 误报 E0427 sealed，且取决于文件顺序）。
+    // 类自身按声明键在作用域视图里查 ⇒ 外围 ns 那一步精确命中本 CU 的这份。`_bindClassBase` 幂等跳过已绑的，
+    // 之后只补导入类（它们没有 CU 可给作用域）。
+    internal void _passBindClassBases(SymbolTable table, CompilationUnit cu) {
+        SymbolTable sv = table.WithScopeOf(cu);
+        int i = 0;
+        while (i < cu.DeclCount) {
+            Decl d = this._unwrap(cu.Decls[i]);
+            if (d is ClassDecl) {
+                ClassDecl c = d as ClassDecl;
+                if (c.Kind == "class" || c.Kind == "struct") {
+                    string key = c.Name;
+                    if (c.TypeParams.Count > 0) { string mk = c.Name + "$" + c.TypeParams.Count.ToString(); if (sv.Classes.ContainsKey(mk)) { key = mk; } }
+                    sv.BindBaseInScope(sv.GetClass(key));
+                }
+            }
+            i = i + 1;
+        }
     }
 
     internal Decl _unwrap(Decl d) {

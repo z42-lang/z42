@@ -112,8 +112,8 @@ public sealed class InheritanceResolver {
                         // 组合手法照 `InterfaceClosure.BaseAt`（那边是接口侧的同一件事）。
                         Z42InstantiatedType curInst = null;
                         int depth = 0;
-                        while (cur != null && cur.HasBase && cur.BaseName != "" && table.Classes.ContainsKey(cur.BaseName) && depth < 32) {
-                            Z42ClassType baseCt = table.Classes.Get(cur.BaseName) as Z42ClassType;
+                        while (cur != null && table.BaseOf(cur) != null && depth < 32) {
+                            Z42ClassType baseCt = table.BaseOf(cur);
                             if (baseCt == null) { cur = null; }
                             else {
                                 Z42InstantiatedType baseInst = this._baseInstOf(table, cur, curInst);
@@ -244,9 +244,9 @@ public sealed class InheritanceResolver {
         string wantCanon = OverloadResolver.MangleKey(name, paramTypes, paramCount);
         Z42ClassType cur = ct;
         MethodSymbol lastMatch = null;
-        bool more = cur.HasBase && cur.BaseName != "" && table.Classes.ContainsKey(cur.BaseName);
+        bool more = table.BaseOf(cur) != null;
         while (more) {
-            Z42ClassType baseCt = table.Classes.Get(cur.BaseName) as Z42ClassType;
+            Z42ClassType baseCt = table.BaseOf(cur);
             if (baseCt == null) {
                 more = false;
             } else {
@@ -266,9 +266,9 @@ public sealed class InheritanceResolver {
                     // impl-sealed-semantics-devirt：中间层 `sealed`（简写）也是 override → 继续上溯找最初声明。
                     bool matchIsOverride = matchHere.HasDecl && matchHere.Decl != null && (this._sc._hasWord(matchHere.Decl.Mods, "override") || this._sc._hasWord(matchHere.Decl.Mods, "sealed"));
                     if (!matchIsOverride) { more = false; }
-                    else { cur = baseCt; more = cur.HasBase && cur.BaseName != "" && table.Classes.ContainsKey(cur.BaseName); }
+                    else { cur = baseCt; more = table.BaseOf(cur) != null; }
                 } else {
-                    cur = baseCt; more = cur.HasBase && cur.BaseName != "" && table.Classes.ContainsKey(cur.BaseName);
+                    cur = baseCt; more = table.BaseOf(cur) != null;
                 }
             }
         }
@@ -282,6 +282,7 @@ public sealed class InheritanceResolver {
     //   ③ override（含 sealed 简写）一个 sealed 基方法 → E0417
     // 在 _passFixupOverrides 之后运行（regKey/签名已定案），复用 _findVirtualOrigin 的按签名上溯匹配。
     internal void _passSealedEnforce(SymbolTable table, CompilationUnit cu) {
+        SymbolTable sv = table.WithScopeOf(cu);   // A5b-2b-3：本 CU 作用域（类自身的声明查找 + 接口成员校验里的 ResolveTypeP）
         int i = 0;
         while (i < cu.DeclCount) {
             Decl d = this._sc._unwrap(cu.Decls[i]);
@@ -290,7 +291,7 @@ public sealed class InheritanceResolver {
                 if (c.Kind == "class" || c.Kind == "struct") {
                     string ctKey = c.Name;
                     if (c.TypeParams.Count > 0) { string mk = c.Name + "$" + c.TypeParams.Count.ToString(); if (table.Classes.ContainsKey(mk)) { ctKey = mk; } }
-                    Z42ClassType ct = table.Classes.Get(ctKey) as Z42ClassType;
+                    Z42ClassType ct = sv.GetClass(ctKey);
                     if (ct != null) {
                         // ⑤ add-associated-types PR-3：实现了带关联类型的接口，就必须把每个关联类型
                         //    绑上。**放在这个 pass 里**是因为它要求「接口的 `type Item;` 已收集完」——
@@ -300,10 +301,10 @@ public sealed class InheritanceResolver {
                         this._checkAssocBindingsComplete(table, ct, c);
                         // ⑥ add-interface-satisfaction-check：实现接口就必须**补齐其成员**（名字在 +
                         //    签名匹配）。与 ⑤ 同一时机、同一理由（要求接口成员已收集完）。
-                        this._checkIfaceMembersComplete(table, ct, c);
+                        this._checkIfaceMembersComplete(sv, ct, c);
                         // ① 继承 sealed 类
-                        if (ct.HasBase && ct.BaseName != "" && table.Classes.ContainsKey(ct.BaseName)) {
-                            Z42ClassType baseCt = table.Classes.Get(ct.BaseName) as Z42ClassType;
+                        if (table.BaseOf(ct) != null) {
+                            Z42ClassType baseCt = table.BaseOf(ct);
                             if (baseCt != null && baseCt.IsSealed) {
                                 this._sc.Diags.Error(DiagnosticCodes.SealedInheritance,
                                     "cannot inherit from sealed class `" + ct.BaseName + "`", c.Span);
@@ -390,8 +391,8 @@ public sealed class InheritanceResolver {
             int i = 0;
             while (i < keys.Length) {
                 Z42ClassType ct = table.Classes.Get(keys[i]) as Z42ClassType;
-                if (ct != null && ct.HasBase && ct.BaseName != "" && table.Classes.ContainsKey(ct.BaseName)) {
-                    Z42ClassType b = table.Classes.Get(ct.BaseName) as Z42ClassType;
+                if (ct != null && table.BaseOf(ct) != null) {
+                    Z42ClassType b = table.BaseOf(ct);
                     if (b != null) {
                         string[] mk = ct.Methods.Keys();
                         int j = 0;
@@ -419,9 +420,9 @@ public sealed class InheritanceResolver {
     private MethodSymbol _nearestBaseMethod(SymbolTable table, Z42ClassType ct, string name, Z42Type[] paramTypes, int paramCount) {
         string wantCanon = OverloadResolver.MangleKey(name, paramTypes, paramCount);
         Z42ClassType cur = ct;
-        bool more = cur.HasBase && cur.BaseName != "" && table.Classes.ContainsKey(cur.BaseName);
+        bool more = table.BaseOf(cur) != null;
         while (more) {
-            Z42ClassType baseCt = table.Classes.Get(cur.BaseName) as Z42ClassType;
+            Z42ClassType baseCt = table.BaseOf(cur);
             if (baseCt == null) { more = false; }
             else {
                 string[] keys = baseCt.Methods.Keys();
@@ -434,7 +435,7 @@ public sealed class InheritanceResolver {
                     }
                     k = k + 1;
                 }
-                cur = baseCt; more = cur.HasBase && cur.BaseName != "" && table.Classes.ContainsKey(cur.BaseName);
+                cur = baseCt; more = table.BaseOf(cur) != null;
             }
         }
         return null;
@@ -628,8 +629,8 @@ public sealed class InheritanceResolver {
                 }
                 j = j + 1;
             }
-            if (cur.HasBase && cur.BaseName != "" && table.Classes.ContainsKey(cur.BaseName)) {
-                cur = table.Classes.Get(cur.BaseName) as Z42ClassType;
+            if (table.BaseOf(cur) != null) {
+                cur = table.BaseOf(cur);
             } else { cur = null; }
         }
         if (!nameSeen) {

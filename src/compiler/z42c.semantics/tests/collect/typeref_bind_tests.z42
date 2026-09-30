@@ -21,6 +21,7 @@ using Std.Test;
 using Z42.Syntax;
 using Z42.IR;        // StrMap（`Methods` 的类型）
 using Z42.Semantics;
+using Z42.Core;     // DiagnosticBag（A5b-2b-3 的 sealed 用例）
 
 SymbolTable collect(string src) {
     var p = new Parser(src, "t.z42");
@@ -248,4 +249,70 @@ void test_implements_collects_inherited_ifaces_via_handles() {
     Assert.Equal(true, t.Implements("C", "Demo.IA"));   // 隔两层继承拿到
     Assert.Equal(true, t.Implements("B", "IA"));
     Assert.Equal(false, t.Implements("C", "Demo.INope"));
+}
+
+// ── A5b-2b-3：基类名按**声明方的作用域**绑句柄，不是撞裸名表的赢家 ──────────────────────
+//
+// 🔴 `BaseName` 存的是源码里写的短名，此前由 `BindTypeRefs._bindClassBase` 在**根表**（无作用域）上
+// `GetClass(短名)` 绑句柄 ⇒ 外围 ns 那一步形同虚设，落到裸名表的赢家（本地 last-wins）。
+// 同包两个 ns 各有一个 `Base` 时，`A.D : Base` 可能绑到 `B.Base` —— 而 A4 之后基类链走查
+// **只认句柄** ⇒ `A.Base x = new D();` 报 E0402，且**报不报取决于文件顺序**（实测：b.z42 排在
+// a.z42 之后才红；改名让 b 排前就绿）。两种文件序都压一遍，锁住「与顺序无关」。
+
+SymbolTable collectAll2(string a, string b) {
+    CompilationUnit[] cus = new CompilationUnit[2];
+    cus[0] = new Parser(a, "a.z42").ParseCompilationUnit();
+    cus[1] = new Parser(b, "b.z42").ParseCompilationUnit();
+    string[] files = new string[2]; files[0] = "a.z42"; files[1] = "b.z42";
+    return new SymbolCollector().CollectAll(cus, files, 2, null);
+}
+
+string srcA() { return "namespace A; public class Base { } public class D : Base { }"; }
+string srcB() { return "namespace B; public class Base { }"; }
+
+[Test]
+void test_base_binds_in_declaring_namespace_either_file_order() {
+    var t1 = collectAll2(srcA(), srcB());   // B 后到 ⇒ 裸名表赢家是 B.Base ← 修前这一序绑错
+    Assert.Equal("A.Base", t1.BaseOf(t1.GetClass("A.D")).Fqn());
+    Assert.Equal(true, t1.IsSubclassOf("A.D", "A.Base"));
+    Assert.Equal(false, t1.IsSubclassOf("A.D", "B.Base"));
+    var t2 = collectAll2(srcB(), srcA());   // A 后到 ⇒ 赢家碰巧是对的那份
+    Assert.Equal("A.Base", t2.BaseOf(t2.GetClass("A.D")).Fqn());
+    Assert.Equal(true, t2.IsSubclassOf("A.D", "A.Base"));
+}
+
+// 端到端口径：修前这条报 `E0402 cannot assign D to Base`。
+[Test]
+void test_derived_assigns_to_own_namespace_base_despite_same_named_base_elsewhere() {
+    string[] srcs = new string[3];
+    srcs[0] = srcA();
+    srcs[1] = srcB();
+    srcs[2] = "namespace App; using A; void Main() { A.Base x = new D(); }";
+    string[] files = new string[3]; files[0] = "a.z42"; files[1] = "b.z42"; files[2] = "main.z42";
+    CompiledModuleZ[] cms = IrDump.BuildPackage(srcs, files, 3, null, null, false);
+    int n = 0;
+    int i = 0;
+    while (i < cms.Length) {
+        int j = 0;
+        while (j < cms[i].DiagCount) { if (cms[i].DiagMsgs[j].IndexOf("E0402") >= 0) { n = n + 1; } j = j + 1; }
+        i = i + 1;
+    }
+    Assert.Equal(0, n);
+}
+
+// sealed 检查同一个洞的另一条路：`_passSealedEnforce` 此前按 `table.Classes.ContainsKey(BaseName)` 直接读
+// **短名表**（绕过 `BaseOf`，A5a 的自检 grep 只匹配 `GetClass/HasClass` 抓不到）⇒ `B.Base` 是 sealed 时，
+// `A.D : A.Base` 被误报 E0427。收敛到 `BaseOf` 后走句柄。
+[Test]
+void test_sealed_same_named_base_elsewhere_is_not_inherited() {
+    CompilationUnit[] cus = new CompilationUnit[2];
+    cus[0] = new Parser(srcA(), "a.z42").ParseCompilationUnit();
+    cus[1] = new Parser("namespace B; public sealed class Base { }", "b.z42").ParseCompilationUnit();
+    string[] files = new string[2]; files[0] = "a.z42"; files[1] = "b.z42";
+    var coll = new SymbolCollector();
+    coll.CollectAll(cus, files, 2, null);
+    int n = 0;
+    int i = 0;
+    while (i < coll.Diags.Count()) { if (coll.Diags.Get(i).Code == "E0427") { n = n + 1; } i = i + 1; }
+    Assert.Equal(0, n);
 }

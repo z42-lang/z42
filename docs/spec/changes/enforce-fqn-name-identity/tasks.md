@@ -440,9 +440,42 @@ User 2026-09-30 裁定走 **A：按规范办**（补 `using` + 让规则 2 在�
    ⚠️ **不先做这步，门在 enum 轴上是瞎的** —— 空 ns 不参与可见性判定，而实测
    `ZbcFormat.z42` 缺的那个 `using Z42.IR;` 正是为了一个 **enum**（`IrType`）。
    典型的「门会绿，但它没在守」。
-3. 🔜 **补作用域**：`ResolveTypeP` 仍有大量调用跑在**没设作用域**的表视图上
-   （A5b-2a 实测 2802 次 / 本批探针 174 次引用方 ns 为空）⇒ 那些路径上可见性判不了。
-4. 🔜 **立门**（把规则 2 的判据从 `UsedDepNs` 扩到「所有用到的 ns」）→ 然后才能**删裸名回落**。
+3. ✅ **补作用域**（A5b-2b-3）：探针（带调用栈、阳性对照先验探针本身会响）量出裸名回落 **3114 次全来自
+   6 个调用点**，都跑在无作用域的根表上：按短名查**自己的声明**（`StructLayout` / `VarFieldInfer` /
+   `ClassExtractor` / partial 合并）、基类句柄绑定（`BindTypeRefs._bindClassBase`）、接口成员校验。
+   - 基类句柄改由新 pass `_passBindClassBases` 按 **CU 作用域**先绑（三个入口都挂，`InternAllTypes` 之后、
+     `BindTypeRefs` 之前）；导入类在 `_bindClassBase` 里先试声明 ns。
+   - **15 处**基类链走查直接读短名表 `table.Classes.Get/ContainsKey(x.BaseName)`、绕过 `BaseOf`（A5a 的自检
+     grep 只匹配 `GetClass/HasClass`，抓不到）⇒ 全部收敛到 `BaseOf`。
+   - **可观察的红**（两条都取决于文件顺序）：同包 `A.Base` / `B.Base` 并存时 `A.Base x = new A.D();` 误报
+     E0402；`B.Base` 为 sealed 时 `A.D : A.Base` 误报 E0427。
+   - **字节恒等**（A-B：同协议冷建 → `test fingerprint`，19 包 sha 与第 2 步实验组、只改注释的对照组逐一相同）；
+     诊断会变（上面两条误报消失）⇒ 追加指纹条目 `fix-class-base-scope`。
+   - 修后残留 **17 次**，全是导入类的跨 ns 基类名（`Type : MemberInfo`、`*Stream : Stream`）：导入元数据
+     存短名、声明方 `using` 不可得 ⇒ A5b-2c 删回落前需先让导出端写 FQ 基类名（或保留这一支）。
+   - ⚠️ 探针教训：第一版探针用 `static int _probeOn = -1` 缓存开关，**静态字段初始化器没跑** ⇒ 恒为 0 ⇒
+     被当成「关」，三个包 0 命中 —— 差点据此判「已无残留」。**阳性对照**（无 namespace 的小程序必响）救回。
+4. 🔜 **立门（DRAFT，待 User 确认后实施）**：把规则 2 的判据从 `UsedDepNs`（只含跨包依赖）扩到「本文件用到的所有 ns」。
+
+   ⚠️ **这是用户可见的语言规则变更**：参考手册 `namespaces.md`「`using` 是文件级的」一节**明文写着**
+   「同包内的跨命名空间引用不受此约束」。User 2026-09-30 裁定「按规范办」即推翻这句 ⇒ 同包跨 ns 不写
+   `using` 的既有用户代码会开始报 E0436。实施前需 User 确认以下草案：
+
+   - **码**：沿用 `E0436`（同一条规则、同一条修法提示），不新开码；手册里 E0436 的描述从「依赖命名空间」改成「命名空间」，
+     删掉「同包内不受此约束」那句。`global using` 仍是包级逃生舱。
+   - **判据**：源码引用解析出的名义类型，其声明 ns ∉ {本文件 ns, 本文件 using（含 global using 注入）, prelude}，
+     且不在全局 ns（`""`）⇒ E0436。嵌套类型取外层的 ns。
+   - **挂点**：挂在**源码引用点**（体内 `_chkTypeRef`、声明位 `SymbolCollector._chkTypeRefPkg`、基类 / 接口列表、
+     `new` / 静态成员 / enum 常量读、catch 类型、泛型实参），**不能**挂在解析器里 ——
+     A5b-2b-3 实测：在带作用域的视图上以「落到裸名回落且 ns 不可见」为判据，stdlib 全量构建报出 **6496 条**，
+     绝大多数来自遍历类表按名字查的 pass（例：`scope=Std.IO` 下把每个导入类名都查了一遍），不是源码引用。
+   - **跨包那一半**：现有 `TrackDepNamespace`（codegen 期）继续供 DEPS 段；E0436 的判定是否统一迁到上面的挂点、
+     让两半只有一份判据 —— 建议统一（同一判据两份实现是本 change 反复失手的形状），但会动 E0436 的触发时机，需实测
+     既有 golden 是否漂移。
+   - **既有违规**：A5b-2b-1 实测全仓 4 条（已补）；enum 身份（第 2 步）与作用域（第 3 步）修好后门能看见更多，
+     实施时先用门本身全仓量一遍（stdlib / compiler / examples / src/tests / 各 tests 单元），同 PR 补齐。
+   - **自举**：编译器源码须先满足新门；nightly 种子不带门 ⇒ 无鸡蛋问题。
+   - 追加指纹条目（新发诊断）。
 
 > ⭐ 教训：**我一度把「父 ns 隐式可见」当成 z42 的语言规则**（C# 的直觉），据此以为
 > 「裸名表在替一条没实现的规则工作」。读 `namespaces.md` 规则 2/4 才发现**方向是反的**：

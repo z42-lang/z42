@@ -103,7 +103,7 @@ public sealed class CtorInheritance {
             if (this._declByKey.ContainsKey(ct.BaseName)) {
                 this._process(this._declByKey.Get(ct.BaseName) as ClassDecl);
             }
-            bt = this._table.Classes.Get(ct.BaseName) as Z42ClassType;
+            bt = this._table.BaseOf(ct);   // A5b-2b-3：走唯一出口（句柄按声明方作用域绑定），不按短名撞赢家
         }
         MethodSymbol[] inh = CtorInheritance._inheritable(bt);
         if (inh.Length > 0) {

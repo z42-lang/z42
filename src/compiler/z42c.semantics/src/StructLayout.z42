@@ -146,7 +146,7 @@ public sealed class StructLayout {
         string[] keys = table.Classes.Keys();
         int i = 0;
         while (i < keys.Length) {
-            Z42ClassType ct = table.GetClass(keys[i]);
+            Z42ClassType ct = table.Classes.Get(keys[i]) as Z42ClassType;   // 遍历表本身：键即所指，不走名字解析（A5b-2b-3）
             if (ct != null) {
                 StructFieldsDef def = new StructFieldsDef();
                 int j = 0;
