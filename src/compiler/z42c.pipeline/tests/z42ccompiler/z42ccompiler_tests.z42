@@ -1,5 +1,5 @@
 // Z42cCompiler 端到端单测（wire-z42b D2）：经 ICompiler 契约把 SourceDir 编成 app.zpkg
-// （源发现 + 读盘 + PackageCompile 核心 + 写盘），验证 Ok/Zpkg/诊断 与 entry 决议。
+// （BuildSession：源发现 + 读盘 + PackageCompile 核心 + 写盘），验证 Ok/Zpkg/诊断 与 entry 决议。
 namespace Z42cPipelineZ42cCompilerTests;
 
 using Std;
@@ -24,11 +24,20 @@ string _mkProj(string name, string file, string src) {
     return dir;
 }
 
+// 带清单的请求（drop-legacy-compile-request：Z42cCompiler 只接受带 Manifest 的请求）。
+// 源在工程根下（include = `*.z42`），包名取目录尾名（与旧行为同形，便于复用既有断言）。
+CompileRequest _req(string dir, string outZpkg, string profile, string kind) {
+    CompileRequest req = new CompileRequest(dir, outZpkg, new string[0], profile, profile == "release", false, kind, new string[0], 0);
+    req.Manifest = ManifestLoader.ParseText("[project]\nname = \"" + Path.GetFileName(dir) + "\"\nversion = \"0.1.0\"\nkind = \""
+        + kind + "\"\n\n[sources]\ninclude = [\"*.z42\"]\n");
+    return req;
+}
+
 [Test]
 void test_compiles_hello_exe() {
     string dir = _mkProj("hello", "main.z42", "int Main() { return 0; }\n");
     string outZpkg = Path.Join(dir, "app.zpkg");
-    CompileRequest req = new CompileRequest(dir, outZpkg, new string[0], "debug", false, false, "exe", new string[0], 0);
+    CompileRequest req = _req(dir, outZpkg, "debug", "exe");
     CompileResult res = new Z42cCompiler().Compile(req);
     Assert.Equal("", res.Diagnostics);
     Assert.Equal(true, res.Ok);
@@ -41,7 +50,7 @@ void test_no_main_reports_missing_entry() {
     // kind=exe 无 Main() → missing entry → Ok=false（exe 专属校验）。
     string dir = _mkProj("nomain", "lib.z42", "int Helper() { return 1; }\n");
     string outZpkg = Path.Join(dir, "app.zpkg");
-    CompileRequest req = new CompileRequest(dir, outZpkg, new string[0], "debug", false, false, "exe", new string[0], 0);
+    CompileRequest req = _req(dir, outZpkg, "debug", "exe");
     CompileResult res = new Z42cCompiler().Compile(req);
     Assert.Equal(false, res.Ok);
     Assert.Equal("", res.Zpkg);
@@ -53,7 +62,7 @@ void test_compiles_lib_no_main() {
     // 测试模块是 lib 式、无 Main、只有 [Test]）。
     string dir = _mkProj("libnomain", "lib.z42", "int Helper() { return 1; }\n");
     string outZpkg = Path.Join(dir, "app.zpkg");
-    CompileRequest req = new CompileRequest(dir, outZpkg, new string[0], "debug", false, false, "lib", new string[0], 0);
+    CompileRequest req = _req(dir, outZpkg, "debug", "lib");
     CompileResult res = new Z42cCompiler().Compile(req);
     Assert.Equal("", res.Diagnostics);
     Assert.Equal(true, res.Ok);
@@ -64,7 +73,7 @@ void test_compiles_lib_no_main() {
 void test_empty_sourcedir_reports_no_sources() {
     string dir = Path.Join(_tmpRoot(), "empty");
     Directory.Create(dir);
-    CompileRequest req = new CompileRequest(dir, Path.Join(dir, "app.zpkg"), new string[0], "debug", false, false, "exe", new string[0], 0);
+    CompileRequest req = _req(dir, Path.Join(dir, "app.zpkg"), "debug", "exe");
     CompileResult res = new Z42cCompiler().Compile(req);
     Assert.Equal(false, res.Ok);
 }
@@ -77,7 +86,7 @@ byte[] _buildRelease(string dir, string src) {
     Directory.Create(dir);
     File.WriteAllText(Path.Join(dir, "lib.z42"), src);
     string outZpkg = Path.Join(dir, "app.zpkg");
-    CompileRequest req = new CompileRequest(dir, outZpkg, new string[0], "release", true, false, "lib", new string[0], 0);
+    CompileRequest req = _req(dir, outZpkg, "release", "lib");
     CompileResult res = new Z42cCompiler().Compile(req);
     Assert.Equal("", res.Diagnostics);
     Assert.Equal(true, res.Ok);
@@ -112,28 +121,37 @@ void test_release_zpkg_reproducible_across_dirs_and_comments() {
     Assert.Equal("", hs[0].SourceHash);
 }
 
-// ── 带清单的请求走 BuildSession（add-build-session）────────────────────────────
-// req.Manifest 非空 ⇒ 清单决策全部生效（这里用 [syntax] 验），诊断经 CompileResult.Diagnostics 回传；
+// ── 清单决策（add-build-session）────────────────────────────────────────────
+// 清单决策全部生效（这里用 [syntax] 验），诊断经 CompileResult.Diagnostics 回传；
 // release ⇒ 剥符号 + .zsym（此前 z42b 路径 strip 写死 false）。
 
 [Test]
 void test_manifest_request_honors_syntax_section() {
     string dir = _mkProj("mf-syntax", "lib.z42", "int Pick(bool b) { return b ? 1 : 2; }\n");
-    CompileRequest req = new CompileRequest(dir, Path.Join(dir, "app.zpkg"), new string[0], "debug", false, false, "lib", new string[0], 0);
+    CompileRequest req = _req(dir, Path.Join(dir, "app.zpkg"), "debug", "lib");
     req.Manifest = ManifestLoader.ParseText("[project]\nname = \"mf.syntax\"\nversion = \"0.1.0\"\nkind = \"lib\"\n\n[sources]\ninclude = [\"*.z42\"]\n\n[syntax]\nternary = false\n");
     CompileResult res = new Z42cCompiler().Compile(req);
     Assert.Equal(false, res.Ok);
     Assert.Equal(true, res.Diagnostics.Contains("E0301"));
-    // 对照：不带清单的旧路径不认 [syntax] ⇒ 照常编过（锁住两条路径的分流点）。
-    req.Manifest = null;
-    Assert.Equal(true, new Z42cCompiler().Compile(req).Ok);
+}
+
+// drop-legacy-compile-request：不带清单的请求直接判失败并说明原因（此前退回一条只看平铺字段、
+// 不认 [syntax] / [optimize] / … 的旧编译路径）。
+[Test]
+void test_request_without_manifest_rejected() {
+    string dir = _mkProj("no-manifest", "lib.z42", "int Helper() { return 1; }\n");
+    CompileRequest req = new CompileRequest(dir, Path.Join(dir, "app.zpkg"), new string[0], "debug", false, false, "lib", new string[0], 0);
+    CompileResult res = new Z42cCompiler().Compile(req);
+    Assert.Equal(false, res.Ok);
+    Assert.Equal(true, res.Diagnostics.Contains("Manifest is required"));
+    Assert.Equal(false, File.Exists(Path.Join(dir, "app.zpkg")));
 }
 
 [Test]
 void test_manifest_request_release_writes_sidecar() {
     string dir = _mkProj("mf-release", "lib.z42", "int Helper() { return 1; }\n");
     string outZpkg = Path.Join(dir, "app.zpkg");
-    CompileRequest req = new CompileRequest(dir, outZpkg, new string[0], "release", true, false, "lib", new string[0], 0);
+    CompileRequest req = _req(dir, outZpkg, "release", "lib");
     req.Manifest = ManifestLoader.ParseText("[project]\nname = \"mf.release\"\nversion = \"0.1.0\"\nkind = \"lib\"\n\n[sources]\ninclude = [\"*.z42\"]\n");
     CompileResult res = new Z42cCompiler().Compile(req);
     Assert.Equal("", res.Diagnostics);

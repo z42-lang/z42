@@ -1,0 +1,9 @@
+namespace Build;
+
+using Std.IO;
+using Z42.Build;
+
+// hook 目录没有 Main：按 lib 清单编译（此前旧编译面固定 exe，z42b 得拷到 staging 再合成一个 no-op Main）。
+public class ProjectHooks : BuildHooks {
+    public override void BeforeAssets(IPipelineContext ctx) { Console.WriteLine("BUILD-HOOKS-SMOKE: BeforeAssets ran"); }
+}
