@@ -86,22 +86,18 @@ public sealed class OperatorEmitter {
         if (op == "~") { TypedReg d = this._ctx.Alloc(this._ctx.ToIrType(u.Type())); this._ctx.Emit(new BitNotInstr(d, x)); return d; }
         if (op == "+") { return x; }
         // 前置 ++/--（"pre++"/"pre--"）：x = x ± 1，返回**新值**（区别于后置返回旧值）。
-        // BoundIdent（`++i`）写回 Locals 活寄存器；非-ident（`++arr[i]`/`++obj.f`）走通用 store。
+        // BoundIdent（`++i`）与非-ident（`++arr[i]`/`++obj.f`）都经通用 store 写回。
         if (op == "pre++" || op == "pre--") {
             if (u.Operand is BoundIdent) {
-                BoundIdent pbid = u.Operand as BoundIdent;
                 TypedReg one = this._ctx.Alloc(IrType.I64);
                 TypedReg nv  = this._ctx.Alloc(this._ctx.ToIrType(u.Type()));
                 this._ctx.Emit(new ConstI64Instr(one, "1"));
                 if (op == "pre++") { this._ctx.Emit(new AddInstr(nv, x, one)); }
                 else                { this._ctx.Emit(new SubInstr(nv, x, one)); }
-                // 实例字段（裸名）写回 field_set(reg0)；否则 Locals 活寄存器 copy。
-                if (this._ctx.Fields.ContainsKey(pbid.Name)) {
-                    this._ctx.Emit(new FieldSetInstr(new TypedReg(0, IrType.Ref), pbid.Name, nv));
-                    return nv;
-                }
-                this._ctx.Emit(new CopyInstr(x, nv));
-                return x;
+                // fix-bare-incdec-writeback：写回走通用 store，与读端 `_lookupIdent` 同一判定序
+                // （局部 → 实例属性 → 字段 → blob struct）。此前这里自带「Fields 优先」的写回：
+                // 局部遮蔽同名字段时读局部、写 this.x；裸属性 `P++` 按源名发 field_set 绕过 set_P。
+                return this._ee._emitStoreTo(u.Operand, nv);
             }
             if (u.Operand is BoundStaticGet) {   // ++Class.staticField → static_set 写回
                 BoundStaticGet st = u.Operand as BoundStaticGet;
@@ -130,24 +126,18 @@ public sealed class OperatorEmitter {
         // post-increment / post-decrement（镜像 C# EmitBoundPostfix）：
         // 1. savedOld = copy x（表达式返回旧值）
         // 2. newVal = x ± 1
-        // 3. x = copy newVal（写回原寄存器，x 即 Locals 寄存器本身）
-        // 注：BoundIdent（`i++`）时 x 是 Locals 活寄存器，写回合法；非-ident（`arr[i]++`/
-        //     `obj.f++`）走下方通用 store 分支（fix-post-inc-nonident）。
+        // 3. 经通用 store（`_emitStoreTo`）写回 newVal——ident / 非-ident 同一套 lowering
+        //    （fix-post-inc-nonident / fix-bare-incdec-writeback）。
         TypedReg ph = this._ctx.Alloc(this._ctx.ToIrType(u.Type()));
         this._ctx.Emit(new CopyInstr(ph, x));
         if (u.Operand is BoundIdent) {
-            BoundIdent bid = u.Operand as BoundIdent;
             TypedReg one = this._ctx.Alloc(IrType.I64);
             TypedReg nv  = this._ctx.Alloc(this._ctx.ToIrType(u.Type()));
             this._ctx.Emit(new ConstI64Instr(one, "1"));
             if (op == "++") { this._ctx.Emit(new AddInstr(nv, x, one)); }
             else             { this._ctx.Emit(new SubInstr(nv, x, one)); }
-            // 实例字段（裸名）写回 field_set(reg0)；否则 Locals 活寄存器 copy（返回旧值 ph）。
-            if (this._ctx.Fields.ContainsKey(bid.Name)) {
-                this._ctx.Emit(new FieldSetInstr(new TypedReg(0, IrType.Ref), bid.Name, nv));
-            } else {
-                this._ctx.Emit(new CopyInstr(x, nv));
-            }
+            // 写回走通用 store（返回旧值 ph），理由同上方前置分支（fix-bare-incdec-writeback）。
+            this._ee._emitStoreTo(u.Operand, nv);
         } else if (u.Operand is BoundStaticGet) {   // Class.staticField++ → static_set 写回（返回旧值 ph）
             BoundStaticGet st = u.Operand as BoundStaticGet;
             TypedReg one = this._ctx.Alloc(IrType.I64);
