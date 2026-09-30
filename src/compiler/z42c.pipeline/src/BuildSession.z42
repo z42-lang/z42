@@ -1,7 +1,7 @@
 // 包构建会话（add-build-session）：「读清单 → 决议全部旋钮 → 组 CompileInputs → PackageCompile → 写产物」
 // 这一层的唯一实现。今天它服务 z42b 的 `ICompiler` 路径（`Z42cCompiler`，Role = HostTarget）；第二步
 // `unify-driver-on-build-session` 让 z42c CLI 的 `Main._build` 也变成它的薄封装，届时补齐其余角色
-// （增量 / indexed dist / path 闭包 / 多 exe 目标）。设计见 docs/spec/changes/add-build-session/design.md。
+// （增量 / indexed dist / path 闭包 / 多 exe 目标）。设计见 docs/spec/archive/2026-09-30-add-build-session/design.md。
 //
 // 两条纪律：
 //   · **不打印**：诊断、进度一律经 `IBuildReporter`。z42c 与 z42b 的呈现通道不同（stderr + `z42c build:` 前缀
