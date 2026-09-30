@@ -1,9 +1,9 @@
-// 类型代换的静态工具组：类级泛型形参（`T` → 实参）与关联类型 `Self`（→ 实现类型）两套递归替换，
-// 外加按名找形参下标的 `_paramIndex`。
+// 类型代换的静态入口：类级泛型形参（`T` → 实参）/ 接口型参 / 关联类型 `Self`（→ 实现类型）。
+// 递归本体在 TypeSubst.z42（unify-type-subst：此前这里各抄一份递归，`_substGeneric` 漏了接口实例与函数类型）；
+// 这里只剩「叶子怎么换」的选择 + 各入口的使用纪律注释。
 //
 // 与 MemberResolver 主文件同一个类（partial 拆分只为守 code-organization 的 886 行硬限，
-// 同 MemberResolver.Prim / .Static）。整块从主文件搬来，**逻辑逐行未改**。
-// 这组全是 static、不碰 `_tc`，是主文件里最独立的一块，故选它外迁。
+// 同 MemberResolver.Prim / .Static）。这组全是 static、不碰 `_tc`。
 namespace Z42.Semantics;
 using Z42.IR;
 
@@ -12,26 +12,11 @@ using Z42.Core;
 
 public sealed partial class MemberResolver {
     // 把类型 t 里出现的**类泛型形参**（按 inst.Def.GenericParamNames 匹配名）替换为 inst 对应的 TypeArgs。
-    // 递归：裸 T→arg；T[]→subst(T)[]；嵌套 List<T>→List<subst(T)>。形参名不在 Def 形参表中
-    //（如方法级泛型形参 U）→ 松绑 Unknown（沿用旧 GS6 行为，避免误绑）。inst 无形参信息（种子旧 TSIG
-    // 未带 GenericParamNames / 非泛型）→ 保守返回 t 原样（不劣化既有解析）。
-    public static Z42Type _substGeneric(Z42Type t, Z42InstantiatedType inst) {   // P3a：ExprTyper 检索拆箱亦需
-        if (t is Z42GenericParamType) {
-            int idx = MemberResolver._paramIndex(inst.Def, t.Name());
-            if (idx >= 0 && idx < inst.ArgCount) { return inst.TypeArgs[idx]; }
-            return new Z42UnknownType();
-        }
-        if (t is Z42ArrayType) {
-            return new Z42ArrayType(MemberResolver._substGeneric((t as Z42ArrayType).Elem, inst));
-        }
-        if (t is Z42InstantiatedType) {
-            Z42InstantiatedType it2 = t as Z42InstantiatedType;
-            Z42Type[] na = new Z42Type[it2.ArgCount];
-            int i = 0;
-            while (i < it2.ArgCount) { na[i] = MemberResolver._substGeneric(it2.TypeArgs[i], inst); i = i + 1; }
-            return new Z42InstantiatedType(it2.Def, na, it2.ArgCount);
-        }
-        return t;
+    // 递归面见 TypeSubst（裸 T / 数组 / 类实例 / **接口实例** / **函数类型**——后两者是 unify-type-subst 补的：
+    // 此前 `Box<int>` 上返回 `IGet<T>` / `Func<T,int>` 的成员，`T` 原样漏给调用方）。
+    // 形参名不在 Def 形参表中（如方法级泛型形参 U，或 Def 无形参信息）→ 松绑 Unknown（沿用旧 GS6 行为，避免误绑）。
+    public static Z42Type _substGeneric(Z42Type t, Z42InstantiatedType inst) {
+        return TypeSubst.Apply(t, new ClassArgsMap(inst));
     }
 
     // add-generic-type-arg-inference 阶段 A：整条签名（形参位 + 返回位）按 receiver 的 TypeArgs
@@ -46,15 +31,7 @@ public sealed partial class MemberResolver {
     // fix-generic-ctor-args：`internal`（原 `private`）—— **构造器路径也要用它**。
     // `new Box<int>("x")` 与 `b.Set("x")` 是同一件事的两条路，此前只有方法那条代换后补查。
     internal static Z42FuncType _substGenericSig(Z42FuncType sig, Z42InstantiatedType recv) {
-        Z42Type[] np = new Z42Type[sig.ParamCount];
-        int i = 0;
-        while (i < sig.ParamCount) { np[i] = MemberResolver._substGeneric(sig.ParamTypes[i], recv); i = i + 1; }
-        Z42FuncType r = new Z42FuncType(np, sig.ParamCount, MemberResolver._substGeneric(sig.Ret, recv));
-        r.ParamsFrom = sig.ParamsFrom;
-        r.ParamDefaults = sig.ParamDefaults;
-        r.ParamCallers = sig.ParamCallers;
-        r.ParamNames = sig.ParamNames;
-        return r;
+        return TypeSubst.ApplySig(sig, new ClassArgsMap(recv));
     }
 
     // 接口版的类级型参代换：把 t 里的**接口型参**按实例化接口的实参替换。
@@ -68,32 +45,7 @@ public sealed partial class MemberResolver {
     // 隐式的 `Self`（`MemberCollector._withSelf` 把它当作接口的隐式类型参数并进去），而 `TypeArgs`
     // 只有用户写出的那几个 ⇒ 下标会错位。没命中的（含 `Self`）原样返回，交 `_substSelf` 处理。
     public static Z42Type _substIfaceArgs(Z42Type t, Z42InstantiatedInterfaceType inst) {
-        if (t is Z42GenericParamType) {
-            int i = 0;
-            while (i < inst.TypeParamCount && i < inst.ArgCount) {
-                if (inst.TypeParamNames[i] == t.Name()) { return inst.TypeArgs[i]; }
-                i = i + 1;
-            }
-            return t;
-        }
-        if (t is Z42ArrayType) {
-            return new Z42ArrayType(MemberResolver._substIfaceArgs((t as Z42ArrayType).Elem, inst));
-        }
-        if (t is Z42InstantiatedType) {
-            Z42InstantiatedType it2 = t as Z42InstantiatedType;
-            Z42Type[] na = new Z42Type[it2.ArgCount];
-            int i = 0;
-            while (i < it2.ArgCount) { na[i] = MemberResolver._substIfaceArgs(it2.TypeArgs[i], inst); i = i + 1; }
-            return new Z42InstantiatedType(it2.Def, na, it2.ArgCount);
-        }
-        if (t is Z42InstantiatedInterfaceType) {
-            Z42InstantiatedInterfaceType it3 = t as Z42InstantiatedInterfaceType;
-            Z42Type[] nb = new Z42Type[it3.ArgCount];
-            int i = 0;
-            while (i < it3.ArgCount) { nb[i] = MemberResolver._substIfaceArgs(it3.TypeArgs[i], inst); i = i + 1; }
-            return new Z42InstantiatedInterfaceType(it3.Def, nb, it3.ArgCount);
-        }
-        return t;
+        return TypeSubst.Apply(t, new IfaceArgsMap(inst));
     }
 
     // 整条签名（形参位 + 返回位）按接口实参代换。与 `_substGenericSig` 同构、同纪律：
@@ -103,15 +55,7 @@ public sealed partial class MemberResolver {
     // `ParamsFrom` / `ParamDefaults` / `ParamCallers` / `ParamNames` 原样搬运（漏搬会让 params
     // 变长形参退化成定长）。
     private static Z42FuncType _substIfaceSig(Z42FuncType sig, Z42InstantiatedInterfaceType recv) {
-        Z42Type[] np = new Z42Type[sig.ParamCount];
-        int i = 0;
-        while (i < sig.ParamCount) { np[i] = MemberResolver._substIfaceArgs(sig.ParamTypes[i], recv); i = i + 1; }
-        Z42FuncType r = new Z42FuncType(np, sig.ParamCount, MemberResolver._substIfaceArgs(sig.Ret, recv));
-        r.ParamsFrom = sig.ParamsFrom;
-        r.ParamDefaults = sig.ParamDefaults;
-        r.ParamCallers = sig.ParamCallers;
-        r.ParamNames = sig.ParamNames;
-        return r;
+        return TypeSubst.ApplySig(sig, new IfaceArgsMap(recv));
     }
 
     // self-return-type-substitution：把签名里的隐式型参 `Self` 换成 `selfT`。
@@ -125,36 +69,7 @@ public sealed partial class MemberResolver {
     // 上调用，那条路走实现方签名、本函数不参与（`Point p; p.Copy()` → `Point`，改动前后都对）。
     // 结构与 _substGeneric 一致（数组 / 泛型实参递归），只是判据从「Def 形参表命中」换成「名叫 Self」。
     public static Z42Type _substSelf(Z42Type t, Z42Type selfT) {
-        if (t is Z42GenericParamType) {
-            if (t.Name() == "Self") { return selfT; }
-            return t;
-        }
-        if (t is Z42ArrayType) {
-            return new Z42ArrayType(MemberResolver._substSelf((t as Z42ArrayType).Elem, selfT));
-        }
-        if (t is Z42InstantiatedType) {
-            Z42InstantiatedType it2 = t as Z42InstantiatedType;
-            Z42Type[] na = new Z42Type[it2.ArgCount];
-            int i = 0;
-            while (i < it2.ArgCount) { na[i] = MemberResolver._substSelf(it2.TypeArgs[i], selfT); i = i + 1; }
-            return new Z42InstantiatedType(it2.Def, na, it2.ArgCount);
-        }
-        // fix-iface-self-completeness-gaps A3：下钻 `Func<...>`——`Func<Self,int>` 作方法返回 / 属性 getter
-        // 返回时，Self 藏在函数类型的形参/返回位里，不换就原样漏给调用方。与 `_containsSelf` 的 Func 分支
-        // 对称（那条早就下钻了，此处补齐替换侧）。ParamsFrom/Defaults/Callers 原样搬（同 `_substSelfSig`）。
-        if (t is Z42FuncType) {
-            Z42FuncType ft = t as Z42FuncType;
-            Z42Type[] np = new Z42Type[ft.ParamCount];
-            int i = 0;
-            while (i < ft.ParamCount) { np[i] = MemberResolver._substSelf(ft.ParamTypes[i], selfT); i = i + 1; }
-            Z42FuncType r = new Z42FuncType(np, ft.ParamCount, MemberResolver._substSelf(ft.Ret, selfT));
-            r.ParamsFrom = ft.ParamsFrom;
-            r.ParamDefaults = ft.ParamDefaults;
-            r.ParamCallers = ft.ParamCallers;
-            r.ParamNames = ft.ParamNames;
-            return r;
-        }
-        return t;
+        return TypeSubst.Apply(t, new SelfMap(selfT));
     }
 
     // bind-self-param-and-constraint-members Part B：签名的**形参位**是否出现 `Self`（含数组元素 /
@@ -199,24 +114,6 @@ public sealed partial class MemberResolver {
     // ParamsFrom / ParamDefaults / ParamCallers / ParamNames 必须**原样搬运**：ctor 只设 ParamsFrom = -1，
     // 漏搬会让 params 变长形参在这条路上退化成定长（CheckArgTypes 的 params 尾位分支读的就是它）。
     private static Z42FuncType _substSelfSig(Z42FuncType sig, Z42Type selfT) {
-        Z42Type[] np = new Z42Type[sig.ParamCount];
-        int i = 0;
-        while (i < sig.ParamCount) { np[i] = MemberResolver._substSelf(sig.ParamTypes[i], selfT); i = i + 1; }
-        Z42FuncType r = new Z42FuncType(np, sig.ParamCount, MemberResolver._substSelf(sig.Ret, selfT));
-        r.ParamsFrom = sig.ParamsFrom;
-        r.ParamDefaults = sig.ParamDefaults;
-        r.ParamCallers = sig.ParamCallers;
-        r.ParamNames = sig.ParamNames;
-        return r;
-    }
-
-    // Def 的有序泛型形参名里查 name 的下标（与 Z42InstantiatedType.TypeArgs 按索引对齐）；无则 -1。
-    private static int _paramIndex(Z42ClassType def, string name) {
-        int i = 0;
-        while (i < def.GenericParamCount) {
-            if (def.GenericParamNames[i] == name) { return i; }
-            i = i + 1;
-        }
-        return -1;
+        return TypeSubst.ApplySig(sig, new SelfMap(selfT));
     }
 }

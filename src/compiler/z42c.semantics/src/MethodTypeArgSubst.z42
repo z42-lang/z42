@@ -132,39 +132,6 @@ public static class MethodTypeArgSubst {
     // 少换一次 = `Array.Sort<int>(xs, (a,b) => b - a)` 里的 `a`/`b` 拿到裸 `T` ⇒ 体内 `b - a` 报
     // `E0402 ... got T`。全仓 18 条 E0402 全是这一条缺失分支造出来的。
     public static Z42Type ByName(Z42Type t, string[] names, int nameCount, Z42Type[] targs) {
-        if (t == null) { return t; }
-        if (t is Z42GenericParamType) {
-            int i = 0;
-            while (i < nameCount) {
-                if (names[i] == t.Name() && i < targs.Length) { return targs[i]; }
-                i = i + 1;
-            }
-            return t;
-        }
-        if (t is Z42ArrayType) {
-            return new Z42ArrayType(MethodTypeArgSubst.ByName((t as Z42ArrayType).Elem, names, nameCount, targs));
-        }
-        if (t is Z42InstantiatedType) {
-            Z42InstantiatedType it = t as Z42InstantiatedType;
-            Z42Type[] na = new Z42Type[it.ArgCount];
-            int i = 0;
-            while (i < it.ArgCount) { na[i] = MethodTypeArgSubst.ByName(it.TypeArgs[i], names, nameCount, targs); i = i + 1; }
-            return new Z42InstantiatedType(it.Def, na, it.ArgCount);
-        }
-        if (t is Z42FuncType) {
-            Z42FuncType ft = t as Z42FuncType;
-            Z42Type[] fp = new Z42Type[ft.ParamCount];
-            int i = 0;
-            while (i < ft.ParamCount) { fp[i] = MethodTypeArgSubst.ByName(ft.ParamTypes[i], names, nameCount, targs); i = i + 1; }
-            var nf = new Z42FuncType(fp, ft.ParamCount, MethodTypeArgSubst.ByName(ft.Ret, names, nameCount, targs));
-            // 形参元信息随类型走（params 起点 / 默认值 / caller 属性）——丢了会让代换后的签名
-            // 在 params 打包与默认参数填充上与原签名行为不一致。
-            nf.ParamsFrom = ft.ParamsFrom;
-            nf.ParamDefaults = ft.ParamDefaults;
-            nf.ParamCallers = ft.ParamCallers;
-            nf.ParamNames = ft.ParamNames;
-            return nf;
-        }
-        return t;
+        return TypeSubst.Apply(t, new NameListMap(names, nameCount, targs));
     }
 }

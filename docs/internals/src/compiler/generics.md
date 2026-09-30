@@ -194,7 +194,7 @@ var r = Max<int>(3, 5);
 
 | 层 | 表示 | 代换方式 |
 |---|---|---|
-| 语义层 | `Z42Type`（`MemberResolver._substGeneric` 等）| **结构递归**：数组元素、实例化实参逐层进去 |
+| 语义层 | `Z42Type`（`TypeSubst.Apply` + 叶子规则 `ITypeParamMap`；`MemberResolver._substGeneric` / `_substIfaceArgs` / `_substSelf`、`MethodTypeArgSubst.ByName`、`InheritanceResolver._substForIface` 都是它的薄封装）| **结构递归只有一份**：数组元素、类实例实参、接口实例实参、函数类型的形参与返回逐层进去（unify-type-subst：此前 5 份手抄递归各漏不同的复合类型）|
 | 布局层 | 字段类型的**字符串名**（`StructLayout`）| 历史上**只做整名匹配** |
 
 于是「字段类型本身是一个实例化」这一格曾经分裂：

@@ -1,0 +1,147 @@
+// 类型代换的**唯一**递归（unify-type-subst）。
+//
+// 此前有 5 份手抄的递归：`MemberResolver._substGeneric`（类级型参）/ `_substIfaceArgs`（接口型参）/
+// `_substSelf`（`Self`）/ `MethodTypeArgSubst.ByName`（方法级型参）/ `InheritanceResolver._substForIface`。
+// 它们只在「叶子怎么换」上不同，递归面却各抄各的、已经漂移：`_substGeneric` 不下钻接口实例与函数类型，
+// 于是 `Box<int>.AsGet()`（返回 `IGet<T>`）的 `T` 换不掉——`b.AsGet().Get() + 1` 假红（got T），
+// `string s = b.AsGet().Get();` 反而零诊断编过、运行期把 int 塞进 string。`_substForIface` 的注释里早就
+// 写着「每漏一种可承载型参的复合类型，就多一类假红」，但只修了它自己那一份。
+//
+// 现在：递归面只有这里一份（型参 / 数组 / 类实例 / 接口实例 / 函数类型——函数类型连形参元信息一起搬）；
+// 各入口只提供 `ITypeParamMap`，说明**一个型参**换成什么。**新增可承载型参的复合类型时只改本文件。**
+namespace Z42.Semantics;
+using Z42.IR;
+
+using Z42.Syntax;
+using Z42.Core;
+
+// 叶子规则：型参 p 换成什么；返回 null = 原样保留。
+public interface ITypeParamMap {
+    Z42Type Map(Z42GenericParamType p);
+}
+
+public static class TypeSubst {
+    public static Z42Type Apply(Z42Type t, ITypeParamMap m) {
+        if (t == null) { return t; }
+        if (t is Z42GenericParamType) {
+            Z42Type r = m.Map(t as Z42GenericParamType);
+            if (r == null) { return t; }
+            return r;
+        }
+        if (t is Z42ArrayType) {
+            return new Z42ArrayType(TypeSubst.Apply((t as Z42ArrayType).Elem, m));
+        }
+        if (t is Z42InstantiatedType) {
+            Z42InstantiatedType it = t as Z42InstantiatedType;
+            Z42Type[] na = new Z42Type[it.ArgCount];
+            int i = 0;
+            while (i < it.ArgCount) { na[i] = TypeSubst.Apply(it.TypeArgs[i], m); i = i + 1; }
+            return new Z42InstantiatedType(it.Def, na, it.ArgCount);
+        }
+        // 成员类型本身是泛型接口（`IGet<T>` / `IEnumerator<T>`）——不下钻则里面的型参原样漏出去。
+        if (t is Z42InstantiatedInterfaceType) {
+            Z42InstantiatedInterfaceType ii = t as Z42InstantiatedInterfaceType;
+            Z42Type[] nb = new Z42Type[ii.ArgCount];
+            int k = 0;
+            while (k < ii.ArgCount) { nb[k] = TypeSubst.Apply(ii.TypeArgs[k], m); k = k + 1; }
+            return new Z42InstantiatedInterfaceType(ii.Def, nb, ii.ArgCount);
+        }
+        // `Func<T, int>` 等：型参藏在形参 / 返回位。
+        if (t is Z42FuncType) {
+            return TypeSubst.ApplySig(t as Z42FuncType, m);
+        }
+        return t;
+    }
+
+    // 整条签名（形参位 + 返回位）。`ParamsFrom` / `ParamDefaults` / `ParamCallers` / `ParamNames` 必须
+    // **原样搬运**：ctor 只设 ParamsFrom = -1，漏搬会让 params 变长形参退化成定长。
+    public static Z42FuncType ApplySig(Z42FuncType sig, ITypeParamMap m) {
+        Z42Type[] np = new Z42Type[sig.ParamCount];
+        int i = 0;
+        while (i < sig.ParamCount) { np[i] = TypeSubst.Apply(sig.ParamTypes[i], m); i = i + 1; }
+        Z42FuncType r = new Z42FuncType(np, sig.ParamCount, TypeSubst.Apply(sig.Ret, m));
+        r.ParamsFrom = sig.ParamsFrom;
+        r.ParamDefaults = sig.ParamDefaults;
+        r.ParamCallers = sig.ParamCallers;
+        r.ParamNames = sig.ParamNames;
+        return r;
+    }
+}
+
+// 类级型参 → 实例化类的实参（按 Def 形参表**下标**）。名字不在 Def 形参表中（如方法级型参 U）→ Unknown
+// （沿用旧 GS6 行为：松绑，避免误绑到同名的类形参上）。
+public sealed class ClassArgsMap : ITypeParamMap {
+    private Z42InstantiatedType _inst;
+    public ClassArgsMap(Z42InstantiatedType inst) { this._inst = inst; }
+    public Z42Type Map(Z42GenericParamType p) {
+        Z42ClassType def = this._inst.Def;
+        int i = 0;
+        while (i < def.GenericParamCount) {
+            if (def.GenericParamNames[i] == p.Name()) {
+                if (i < this._inst.ArgCount) { return this._inst.TypeArgs[i]; }
+                return new Z42UnknownType();
+            }
+            i = i + 1;
+        }
+        return new Z42UnknownType();
+    }
+}
+
+// 接口型参 → 实例化接口的实参（按**名**，`i < TypeParamCount && i < ArgCount` 双界限：接口的
+// `TypeParamNames` 混着隐式 `Self`，而 `TypeArgs` 只有用户写出的那几个 ⇒ 按下标会错位）。没命中（含 `Self`）→ 原样。
+public sealed class IfaceArgsMap : ITypeParamMap {
+    private Z42InstantiatedInterfaceType _inst;
+    public IfaceArgsMap(Z42InstantiatedInterfaceType inst) { this._inst = inst; }
+    public Z42Type Map(Z42GenericParamType p) {
+        int i = 0;
+        while (i < this._inst.TypeParamCount && i < this._inst.ArgCount) {
+            if (this._inst.TypeParamNames[i] == p.Name()) { return this._inst.TypeArgs[i]; }
+            i = i + 1;
+        }
+        return null;
+    }
+}
+
+// 隐式型参 `Self` → 给定类型；其余原样。
+public sealed class SelfMap : ITypeParamMap {
+    private Z42Type _self;
+    public SelfMap(Z42Type selfT) { this._self = selfT; }
+    public Z42Type Map(Z42GenericParamType p) {
+        if (p.Name() == "Self") { return this._self; }
+        return null;
+    }
+}
+
+// 按名字表代换（方法级型参）。名字不在表里 → 原样（多半是类级型参，留给类级那条路）。
+public sealed class NameListMap : ITypeParamMap {
+    private string[] _names; private int _n; private Z42Type[] _targs;
+    public NameListMap(string[] names, int nameCount, Z42Type[] targs) {
+        this._names = names; this._n = nameCount; this._targs = targs;
+    }
+    public Z42Type Map(Z42GenericParamType p) {
+        int i = 0;
+        while (i < this._n) {
+            if (this._names[i] == p.Name() && i < this._targs.Length) { return this._targs[i]; }
+            i = i + 1;
+        }
+        return null;
+    }
+}
+
+// 接口成员签名 → 实现方视角：`Self` → 实现类，接口型参 → 该实现子句给的实参（InheritanceResolver 用）。
+public sealed class IfaceImplMap : ITypeParamMap {
+    private Z42ClassType _ct; private Z42InterfaceType _it;
+    public IfaceImplMap(Z42ClassType ct, Z42InterfaceType it) { this._ct = ct; this._it = it; }
+    public Z42Type Map(Z42GenericParamType p) {
+        if (p.Name() == "Self") { return this._ct; }
+        if (this._it is Z42InstantiatedInterfaceType) {
+            Z42InstantiatedInterfaceType iit = this._it as Z42InstantiatedInterfaceType;
+            int i = 0;
+            while (i < iit.TypeParamCount && i < iit.ArgCount) {
+                if (iit.TypeParamNames[i] == p.Name()) { return iit.TypeArgs[i]; }
+                i = i + 1;
+            }
+        }
+        return null;
+    }
+}
