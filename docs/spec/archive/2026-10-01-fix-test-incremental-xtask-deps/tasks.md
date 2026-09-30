@@ -1,6 +1,6 @@
 # Tasks: `xtask test incremental` 的 xtask 轮编不过（拷贝工程缺编译器域 path 依赖）
 
-**状态：🟡 进行中 | 开始：2026-10-01**
+**状态：🟢 已完成 | 开始：2026-10-01 | 完成：2026-10-01（#984）**
 
 类型：`fix`（xtask 测试门自身）→ 最小化模式。
 
@@ -28,4 +28,4 @@ relocate-compiler-domain-libs（2026-09-27）把 `Z42.Project` / `Z42.Build` 挪
 - [x] `scripts/test/xtask_test_incremental.z42`：`_incrXtaskPathDeps`
 - [x] `xtask test incremental` 全绿（demo / demo-packed / xtask 87/87 三轮 / 各旋钮 / 泛型体 / 警告 / stdlib 读回；约 47 分钟，大头是 xtask 轮 87 文件 × 3 轮）
 - [x] 本地 GREEN（基底 b1fb49b2f，10m09s）
-- [ ] PR CI
+- [x] PR CI：9 pass（其余按 path filter skip；本门本身不在 CI）

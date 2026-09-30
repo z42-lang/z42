@@ -1,6 +1,6 @@
 # Tasks: 改 z42b 的 PR 也要跑 package-*
 
-**状态：🟡 进行中 | 开始：2026-10-01**
+**状态：🟢 已完成 | 开始：2026-10-01 | 完成：2026-10-01（#985）**
 
 类型：`ci`（门控补洞）→ 最小化模式。
 
@@ -22,4 +22,4 @@ z42b（`src/toolchain/builder/**`）只在 `stdlib` filter 里（它是 [Test] �
 - [x] `.github/workflows/ci.yml`：`platform` 加 builder
 - [x] `docs/internals/src/devinfra/ci.md`：flag 表同步 + 说明为什么 builder 两处都在
 - [x] 本地 GREEN（基底 1fb724594，9m35s）
-- [ ] PR CI（本 PR 改了 ci.yml ⇒ 全部 filter 命中、全跑）
+- [x] PR CI：26 pass（改了 ci.yml ⇒ 全跑，含 package-host ×4）

@@ -1,6 +1,6 @@
 # Tasks: `z42b test --out-root` 在零目标回落路径上被丢掉
 
-**状态：🟡 进行中 | 开始：2026-10-01**
+**状态：🟢 已完成 | 开始：2026-10-01 | 完成：2026-10-01（#987）**
 
 类型：`fix`（z42b，用户可见：`--out-root` 的产物落点）→ 最小化模式。「源码树零写入」系列的遗留项
 （#975 归档时记下的「零目标回落 `_buildProject` 不认 `--out-root`」）。
@@ -26,4 +26,4 @@
 - [x] `xtask_test_targets.z42`：`_smokeFallbackOutRoot`（修前判红「清单目录旁仍然出现了 …/artifacts」，修后绿）
 - [x] 文档：`framework.md`（顺带更正 #977 之后已过时的「父包写进源码树」）、`cli-z42.md`
 - [x] 本地 GREEN（基底 1fb724594，9m20s，src 下零产物）
-- [ ] PR CI
+- [x] PR CI：15 pass
