@@ -126,6 +126,16 @@ int _bundleExeDeps(ProjectManifest pm, string[] closureNames, int closureN, stri
                 }
                 string dst = Path.Join(distDir, zname);
                 if (cand != dst) {
+                    // indexed（开发态）依赖装配不过去：主文件只是目录，函数体在它旁边的散装 zbc 里，而散装 zbc
+                    // 落到本 dist 根下会与本包自己的 zbc 撞名。此前照拷主文件 ⇒ 运行期 `undefined function`。
+                    // 响亮拒绝（fix-path-dep-closure-scope；path 依赖的代建已默认 packed，走到这里的是其他来源）。
+                    ZpkgInfo depInfo = ZpkgReader.Open(File.ReadAllBytes(cand), cand);
+                    if (depInfo != null && !depInfo.Packed) {
+                        ConsoleError.WriteLine("z42c build: dependency `" + dep + "` (" + cand + ") is an indexed (dev-mode)"
+                            + " zpkg and cannot be bundled into an exe dist — its code lives in loose .zbc files beside it."
+                            + " Rebuild it packed (`--release`, or `pack = true` in its [project]).");
+                        return ExitCode.BuildError;
+                    }
                     if (File.Exists(dst)) { File.Delete(dst); }
                     File.Copy(cand, dst);
                     string sym = Path.Join(libsDirs[d], dep + ".zsym");

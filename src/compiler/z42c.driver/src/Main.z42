@@ -232,7 +232,12 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
     // 那里的相对路径未必解得开——实测会抛 `No such file or directory`（e2e `buildclos` 抢到）。
     string[] closureNames = new string[0];
     int closureN = 0;
-    if (libsDirsCount == 0) {
+    // fix-path-dep-closure-scope：workspace per-member 成员（tier.MembersN > 0）**也**解析闭包——此前只有
+    // top-level（libsDirsCount==0）解析，而 workspace 调用总是带 libsDirs 进来 ⇒ 成员指向 workspace **外**的
+    // path 依赖永远不代建，报「未找到 x.zpkg……path 依赖由 z42c 代建」（自相矛盾）。闭包里的成员自己跳过
+    // （workspace 循环按拓扑序建它们）。闭包**子建**（tier == null、count>0）仍跳过：那里的相对路径未必解得开。
+    bool wsMember = tier != null && tier.MembersN > 0;
+    if (libsDirsCount == 0 || wsMember) {
         // 🔴 `PathDepPlan.Resolve` 会**抛**（依赖成环 / 目录里不是恰一份 manifest）。此前无人
         // 接住 ⇒ 用户拿到的是带 z42c 内部栈帧的 `uncaught exception`，而异常消息里那句话本身
         // 是好的。同 #807 修掉的 `Pipeline.Compile`：真因已知却被一层无关噪音盖住。
@@ -248,7 +253,10 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
         }
         if (closure.Count > 0) {
             closureNames = new string[closure.Count];
-            string baseLib = Environment.GetEnvironmentVariable("Z42_LIBS", "");
+            // 基础解析域 = 上面已经决议好的 libsDirs（`--compile-libs` > `Z42_LIBS`；workspace 成员 = 成员 dist
+            // + 外部档）。此前这里重读 `Z42_LIBS` 当基础，**绕过了 `--compile-libs`**（fix-path-dep-closure-scope）。
+            string[] baseLibs = libsDirs;
+            int baseLibsN = libsDirsN;
             string[] accum = new string[closure.Count];
             int accN = 0;
             int ci = 0;
@@ -256,6 +264,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
                 string depToml = closure.Tomls[ci];
                 ci = ci + 1;
                 ProjectManifest depPm = ManifestLoader.Load(depToml);
+                if (wsMember && tier.IsMember(depPm.Project.Name)) { continue; }   // 成员由 workspace 循环建
                 // 双向校验之二（add-package-roles 批 2）：编译期扩展不得出现在 `[dependencies]`。
                 // 它只在编译器进程里活、永不链入产物；写进依赖等于让**运行期**代码引用一个不会到场的包。
                 // 名字条目查不出来（zpkg 不记 kind，不为一条校验动格式）——path 条目手上有 manifest，
@@ -269,23 +278,27 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
                 string depDir = Path.GetDirectoryName(depToml);
                 if (depDir.Length == 0) { depDir = "."; }
                 string depDist = BuildLayout.Resolve(depPm, depDir, isRelease).DistDir;
-                // 该成员的 libsDirs override = 已建闭包成员 dist（post-order → 其依赖已在内）+ Z42_LIBS。
-                string[] depOverride = new string[accN + 1];
+                // 该成员的 libsDirs override = 已建闭包成员 dist（post-order → 其依赖已在内）+ 基础解析域。
+                string[] depOverride = new string[accN + baseLibsN];
                 int oi = 0;
                 while (oi < accN) { depOverride[oi] = accum[oi]; oi = oi + 1; }
                 int depOverrideN = accN;
-                if (baseLib.Length > 0) { depOverride[depOverrideN] = baseLib; depOverrideN = depOverrideN + 1; }
+                int bi = 0;
+                while (bi < baseLibsN) { depOverride[depOverrideN] = baseLibs[bi]; depOverrideN = depOverrideN + 1; bi = bi + 1; }
                 int dbc = _build(depToml, isRelease, "", "", depOverride, depOverrideN, noIncremental, cliAdd, cliRemove, false, null);
                 if (dbc != 0) { return dbc; }
                 accum[accN] = depDist; accN = accN + 1;
                 closureNames[closureN] = depPm.Project.Name; closureN = closureN + 1;
             }
-            // 消费方 libsDirs = 闭包全 dist + Z42_LIBS。
-            string[] merged = new string[accN + 1];
+            // 消费方 libsDirs = 闭包 dist + 基础解析域。workspace 成员把闭包 dist **追加在末尾**：
+            // 前 `tier.MemberDirs` 个必须仍是成员 dist（WsTier.Admits 按下标分档），代建的外部包归外部档。
+            string[] merged = new string[accN + baseLibsN];
+            int mergedN = 0;
             int mi = 0;
-            while (mi < accN) { merged[mi] = accum[mi]; mi = mi + 1; }
-            int mergedN = accN;
-            if (baseLib.Length > 0) { merged[mergedN] = baseLib; mergedN = mergedN + 1; }
+            if (!wsMember) { while (mi < accN) { merged[mergedN] = accum[mi]; mergedN = mergedN + 1; mi = mi + 1; } }
+            int bj = 0;
+            while (bj < baseLibsN) { merged[mergedN] = baseLibs[bj]; mergedN = mergedN + 1; bj = bj + 1; }
+            if (wsMember) { while (mi < accN) { merged[mergedN] = accum[mi]; mergedN = mergedN + 1; mi = mi + 1; } }
             libsDirs = merged; libsDirsN = mergedN;
         }
     }
@@ -400,6 +413,11 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
         }
         isPacked = true;
     }
+    // fix-path-dep-closure-scope：path 依赖的**闭包代建**（调用约定：tier == null 且带 libsDirs）默认 packed。
+    // 它的产物是给消费方用的依赖，要被 exe 装配进 dist；indexed 主文件的散装 zbc 装配不过去（落在 dist
+    // 根下会与消费方自己的 zbc 撞名）⇒ 此前 debug 构建的 exe 只要有 path 依赖，运行期就
+    // `undefined function`。indexed 的最小 patch 好处只属于正在开发的那个包，依赖用不上。显式 `pack` 照旧优先。
+    if (tier == null && libsDirsCount > 0 && !pm.Project.HasPack) { isPacked = true; }
     if (!isPacked && isRelease) {
         ConsoleError.WriteLine("z42c build: pack=false (indexed) is dev-mode only and incompatible with --release strip; build without --release or set pack=true");
         return ExitCode.UsageError;
