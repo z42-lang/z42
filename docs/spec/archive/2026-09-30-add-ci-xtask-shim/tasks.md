@@ -1,6 +1,6 @@
 # Tasks: CI 的 xtask 调用收敛到一个垫片
 
-**状态：🟡 进行中（等 PR CI 实测）| 开始：2026-09-30**
+**状态：🟢 已完成 | 开始：2026-09-30 | 完成：2026-09-30（#958）**
 
 类型：`refactor`（CI 编排，不改构建/测试行为）→ 最小化模式。叠在 `speed-up-ci-quick-wins` 之上。
 
@@ -14,8 +14,8 @@ z42vm / flat stdlib / xtask.zpkg 三个位置因此在 CI 里被复制 50+ 次�
 - [x] 阶段 2: ci.yml 37 处调用改为 `xtask <cmd>`；删除随之无用的 vm / libs / runner 变量与 Windows 拷贝块
 - [x] 阶段 3: 文档（ci.md「步骤里怎么调 xtask」）
 - [x] 阶段 4: 本地验证（shellcheck / actionlint / `test ci-shell` / macOS 上用垫片实跑 `deps check`）
-- [ ] 阶段 5: PR CI 实测（重点：Windows 的 test-host / package-host —— 拷贝启动路径）
-- [ ] 阶段 6: 归档
+- [x] 阶段 5: PR CI 实测：26 个检查全过，含 Windows 的 test-host / package-host（拷贝启动路径）
+- [x] 阶段 6: 归档
 
 ## 不在本 change
 

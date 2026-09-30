@@ -1,6 +1,6 @@
 # Tasks: toolchain 清单只配 output_dir，dist / publish 走级联默认
 
-**状态：🟡 进行中 | 开始：2026-09-30**
+**状态：🟢 已完成 | 开始：2026-09-30 | 完成：2026-09-30（#960）**
 
 类型：`refactor`（产物位置统一，不改构建行为）→ 最小化模式。
 
@@ -33,7 +33,7 @@ toolchain 四个 apphost 组件的 `[build]` / `[platform.desktop]` 写法不统
 - [x] 阶段 3: 本地验证
   - [x] `xtask build toolchain`：四个组件均为 `toolchain/<组件>/{dist,.cache,publish}`，payload 完整性门通过
   - [x] 完整 GREEN（`xtask test`，12m04s，全阶段通过）
-- [ ] 阶段 4: PR CI + 归档
+- [x] 阶段 4: PR CI（20 个检查全过）+ 归档
 
 ## 迁移提示
 
