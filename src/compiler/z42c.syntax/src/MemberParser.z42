@@ -209,7 +209,7 @@ public sealed class MemberParser {
         }
         string name = this._p._peek().Text;
         if (this._p._peek().Kind == TokenKind.Identifier) { this._p._advance(); }
-        else if (MemberParser._isWordKeyword(this._p._peek().Kind)) {
+        else if (this._isWordKeyword(this._p._peek().Kind)) {
             // 同参数名位置的关键字恢复（见 _parseParamList）：报准 + 消费防脱轨。
             this._p._diags.Error(DiagnosticCodes.ExpectedToken,
                 "cannot use keyword '" + name + "' as a member name", this._p._peek().Span);
@@ -399,7 +399,7 @@ public sealed class MemberParser {
                 TypeExpr pt = this._p._typeP._parseType();
                 string pn = this._p._peek().Text;
                 if (this._p._peek().Kind == TokenKind.Identifier) { this._p._advance(); }
-                else if (MemberParser._isWordKeyword(this._p._peek().Kind)) {
+                else if (this._isWordKeyword(this._p._peek().Kind)) {
                     // fix-parse-diags-dropped：关键字占了参数名位置（如 `string module`——
                     // `module` 是保留关键字）→ 精准报错 + 消费该 token 保持解析同步。
                     // 不消费会从这里脱轨：参数列表提前闭合、方法体被撕成垃圾成员，
@@ -442,11 +442,12 @@ public sealed class MemberParser {
         return new ParamList(ps, pc, sp);
     }
 
-    // 词形关键字判定（名字位置的诊断恢复用）：TokenKind 9..93 是连续的关键字/保留字/
-    // 类型关键字区间（见 TokenKind.z42 布局），另加 true/false/params 三个词形 token。
+    // 词形关键字判定（名字位置的诊断恢复用）：查词法器的关键字表（唯一真相）。此前写死 TokenKind
+    // `9..93` 区间，漏掉后来追加在 149+ 的 partial/readonly/const/with/methodof ⇒ 参数名写成 `with`
+    // 等词时恰好走进下面注释警告过的脱轨级联（fix-parser-silent-misparse）。
     // 标点/字面量/EOF 不在内——它们出现在名字位置时不消费（沿用原恢复策略）。
-    static bool _isWordKeyword(int k) {
-        if (k >= 9 && k <= 93) { return true; }
+    bool _isWordKeyword(int k) {
+        if (this._p._lx.IsKeywordKind(k)) { return true; }
         if (k == TokenKind.True || k == TokenKind.False || k == TokenKind.Params) { return true; }
         return false;
     }

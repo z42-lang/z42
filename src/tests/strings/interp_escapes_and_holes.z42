@@ -1,0 +1,25 @@
+// fix-parser-silent-misparse: interpolated strings used their own hand-copied
+// escape table, which lacked \' \a \b \f \v (the lexer accepts them, so they
+// decoded to a backslash plus the letter); the hole scanner did not skip nested
+// string literals, so a `}` inside a string in a hole ended the hole early; and
+// the parts array was fixed at 64 entries.
+
+string Id(string s) { return s; }
+
+void Main() {
+    string a = $"x\'y";
+    Assert.Equal(3, a.Length);
+    Assert.Equal("x'y", a);
+
+    string b = $"p\bq\tr";
+    Assert.Equal(5, b.Length);
+
+    // `}` inside a string literal inside a hole must not close the hole
+    string c = $"[{Id("}")}]";
+    Assert.Equal("[}]", c);
+
+    // many parts: 40 holes + 41 text runs = 81 parts (> the old fixed 64)
+    int v = 1;
+    string d = $"{v}.{v}.{v}.{v}.{v}.{v}.{v}.{v}.{v}.{v}.{v}.{v}.{v}.{v}.{v}.{v}.{v}.{v}.{v}.{v}.{v}.{v}.{v}.{v}.{v}.{v}.{v}.{v}.{v}.{v}.{v}.{v}.{v}.{v}.{v}.{v}.{v}.{v}.{v}.{v}!";
+    Assert.Equal(80, d.Length);
+}

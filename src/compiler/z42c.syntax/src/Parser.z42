@@ -15,7 +15,7 @@ namespace Z42.Syntax;
 using Z42.Core;
 
 public sealed class Parser {
-    private Lexer _lx;
+    internal Lexer _lx;   // internal：MemberParser 的关键字判定要查词法器的关键字表
     private Token[] _toks;                 // = _lx.Tokens()，词法结束后固定不变（见 Lexer.Tokens 注释）
     private int   _tokN;                   // = _lx.TokenCount()，peek 的 Eof clamp 上界
     private int   _pos;
@@ -408,6 +408,25 @@ public sealed class Parser {
 
     // 解析局部函数语句（已确认 _isLocalFnStart）：type + name + 方法尾（params + body）→ LocalFunctionStmt。
 
+
+    // 名字位（类型名 / 限定名的每一段）的合法 token：标识符、`_`、或任一词形关键字（`var` / `void` /
+    // `string` … 都会以类型名身份走到这里）。标点 / 字面量 / EOF 不是名字（fix-parser-silent-misparse）。
+    internal bool _isNameToken(int k) {
+        return k == TokenKind.Identifier || k == TokenKind.Underscore || this._lx.IsKeywordKind(k);
+    }
+
+    // 名字位遇到非名字 token：报错；**结构闭合符不消费**（`}` 是类体边界、`)` `]` `;` `,` 是外层列表的
+    // 终止符，吃掉它们会让外层整段错位——`public }` 此前把类的 `}` 当类型名吞了），其余照旧消费以保证前进。
+    // 返回占位名 "?"（下游当未知类型处理，诊断已在此报过）。
+    internal string _badName(string what) {
+        Token bt = this._peek();
+        this._diags.Error(DiagnosticCodes.ExpectedToken, "expected " + what + ", found `" + bt.Text + "`", bt.Span);
+        int k = bt.Kind;
+        bool closer = k == TokenKind.RBrace || k == TokenKind.RParen || k == TokenKind.RBracket
+            || k == TokenKind.Semicolon || k == TokenKind.Comma || k == TokenKind.Eof;
+        if (!closer) { this._advance(); }
+        return "?";
+    }
 
     public bool _isTypeKeyword(int k) {
         if (k == TokenKind.String || k == TokenKind.Int || k == TokenKind.Long || k == TokenKind.Short) { return true; }

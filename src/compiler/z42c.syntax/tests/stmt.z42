@@ -243,3 +243,12 @@ void test_single_namespace_at_top_reports_nothing() {
     Assert.Equal(0, countCode(p.Diagnostics(), "E0457"));
     Assert.False(p.Diagnostics().HasErrors());
 }
+
+// fix-parser-silent-misparse：无初值的泛型类型局部声明。此前泛型前瞻只认 `name =`，
+// `List<int> xs;` 落成比较表达式 `(List < int) > xs`，语义层随后报一串误导性的 `undefined: xs`。
+[Test]
+void test_generic_decl_without_init() {
+    Assert.Equal("(decl List<int> xs _)", parseStmt("List<int> xs;"));
+    Assert.Equal("(decl Dict<string,List<int>> m _)", parseStmt("Dict<string, List<int>> m;"));
+    Assert.Equal("(decl List<int>[] a _)", parseStmt("List<int>[] a;"));
+}
