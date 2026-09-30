@@ -11,6 +11,7 @@ using Std.Test;
 using Z42.Pipeline;
 using Z42.Package;
 using Z42.Semantics;
+using Z42.IR;   // Murmur3（v8 zbchash）
 using Z42.IR.BinaryFormat;
 
 string _src() { return "namespace T;\nint Add(int a, int b) { return a + b; }\n"; }
@@ -42,9 +43,11 @@ void _writeEntry(string cacheDir, string rel, string text) {
     string zbcPath = CacheStore.ZbcPath(cacheDir, rel);
     string parent = Path.GetDirectoryName(zbcPath);
     if (parent.Length > 0) { Directory.Create(parent); }
-    File.WriteAllBytes(zbcPath, ZbcWriter.Write(cm.Module).ToBytes());
+    byte[] zbytes = ZbcWriter.Write(cm.Module).ToBytes();
+    File.WriteAllBytes(zbcPath, zbytes);
     CacheMeta m = new CacheMeta(rel);
     m.SourceHash = ZpkgBuilder.SourceHashHex(text);
+    m.ZbcHash = Murmur3.Hash128Hex(zbytes);   // v8：zbc↔meta 配对
     _fillNames(m, rel, "Add", "Mul");
     m.Namespace = "T";
     CacheStore.Save(cacheDir, m);
@@ -209,6 +212,7 @@ void test_close_no_edge_keeps_cached() {
 CacheMeta _meta() {
     CacheMeta m = new CacheMeta("sub/a.z42");
     m.SourceHash = ZpkgBuilder.SourceHashHex(_src());
+    m.ZbcHash = "0123456789abcdef0123456789abcdef";
     _fillNames(m, "sub/a.z42", "Add", "Rect");
     m.Namespace = "T";
     m.UsedDepNs = new string[2]; m.UsedDepNs[0] = "Std"; m.UsedDepNs[1] = "Std.IO";
@@ -270,6 +274,28 @@ void test_cache_meta_pin_and_corrupt() {
     // `nsurf` 行必须是 `<name> <hash>` 两段，缺一即坏条目（宁全量不误命中）。
     string badNsurf = good.Replace("nsurf Add ", "nsurfAdd");
     Assert.True(CacheStore.Parse(badNsurf, "a.z42") == null);
+}
+
+// fix-cache-atomic-writes（meta v8）：半截 meta 必须整条作废。此前 Parse 只看开头几行的版本 pin，后面
+// 各字段都可选 ⇒ 写到一半的 meta（token 列表不全）被当成有效 ⇒ 该失效的文件没失效。末行 `end <行数>` 哨兵兜住。
+[Test]
+void test_cache_meta_truncated_rejected() {
+    string good = CacheStore.Serialize(_meta());
+    Assert.True(CacheStore.Parse(good, "a.z42") != null);
+    int cut = good.IndexOf("token ");
+    Assert.True(cut > 0);
+    Assert.True(CacheStore.Parse(good.Substring(0, cut), "a.z42") == null);          // 截在中段
+    string noEnd = good.Substring(0, good.IndexOf("end "));
+    Assert.True(CacheStore.Parse(noEnd, "a.z42") == null);                            // 只缺哨兵
+    Assert.True(CacheStore.Parse(good.Replace("token Rect\n", ""), "a.z42") == null);  // 少一行 → 计数不符
+}
+
+// zbc↔meta 配对：没有 `zbchash` 行的条目（v7 及以前 / 写坏）一律作废，由读回处的哈希比对兜住新旧混搭。
+[Test]
+void test_cache_meta_requires_zbc_hash() {
+    CacheMeta m = _meta();
+    m.ZbcHash = "";
+    Assert.True(CacheStore.Parse(CacheStore.Serialize(m), "a.z42") == null);
 }
 
 [Test]

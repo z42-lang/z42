@@ -289,6 +289,20 @@ preserved 早退**（`fix-analyzer-diags-preserved`）。早退路径只能回�
 （cached CU 不重做 typecheck）。门禁在 `xtask test compiler` 的 `_e2eAnalyzerDiagCacheChecks`：
 冷构建报 / 全命中仍报 / 只改 `[lints]` 立即生效。
 
+### 缓存条目的完整性（meta v8）
+
+每个源文件的缓存是**一对**文件：`<rel>.zbc`（产物）+ `<rel>.meta`（「这份 zbc 对哪版源码有效」的证明）。
+三条保证它们不会以半截或错配的形态被读回（`fix-cache-atomic-writes`）：
+
+- **原子写**：zbc、meta、`package.meta` 都走 `File.Write*Atomic`（临时文件 + rename）——中途崩溃要么是旧的、
+  要么是新的，没有半截。此前是普通写，而 `Parse` 只核开头几行的版本 pin、后面字段全可选 ⇒ 半截 meta
+  （token 列表不全）会被当成有效，该失效的文件没失效。
+- **末行哨兵** `end <行数>`：即便绕过原子写（外部工具拷坏、磁盘满），截断的 meta 也整条作废。
+- **zbc↔meta 配对**：meta 记 `zbchash`（zbc 内容的 Murmur3-128）；读回 cached zbc 时比对，对不上就走既有的
+  `[degrade/unreadable-cache]` 降级（该文件 fresh，**不**引入已变名字）。写入顺序固定为「全部 zbc → 全部 meta」，
+  崩在中间只可能留下「新 zbc + 旧 meta」；若源码随后又改回旧内容，旧 meta 的 SourceHash 会重新对上——
+  没有这道配对就会命中一份由另一版源码编出来的 zbc。
+
 ## 实现
 
 | 关注点 | 关键文件 |
