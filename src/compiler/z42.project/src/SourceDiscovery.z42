@@ -194,34 +194,75 @@ public static class SourceDiscovery {
     }
 
     // 排除产物目录（dist/.cache 任意层级出现）+ 调用方传入的 exclude glob。
+    // 路径先归一成 `/`（fix-source-exclude-glob：此前按 `/dist/` 字面找，Windows 的 `\` 路径漏判）。
     private static bool _excluded(string projectDir, string p, string[] excludes, int excludeCount) {
-        string rel = p;
-        if (p.StartsWith(projectDir)) { rel = p.Substring(projectDir.Length, p.Length - projectDir.Length); }
-        if (rel.Contains("/dist/") || rel.Contains("/.cache/")
-            || rel.StartsWith("dist/") || rel.StartsWith(".cache/")
-            || rel.StartsWith("/dist/") || rel.StartsWith("/.cache/")) { return true; }
+        string rel = p.Replace("\\", "/");
+        string pd = projectDir.Replace("\\", "/");
+        if (rel.StartsWith(pd)) { rel = rel.Substring(pd.Length, rel.Length - pd.Length); }
+        if (rel.StartsWith("/")) { rel = rel.Substring(1, rel.Length - 1); }
+        if (rel.Contains("/dist/") || rel.Contains("/.cache/") || rel.StartsWith("dist/") || rel.StartsWith(".cache/")) { return true; }
+        string[] relSegs = SourceDiscovery._splitSegs(rel);
         int ei = 0;
         while (ei < excludeCount) {
-            if (SourceDiscovery._matchesExclude(rel, excludes[ei])) { return true; }
+            if (SourceDiscovery._matchesExclude(relSegs, excludes[ei])) { return true; }
             ei = ei + 1;
         }
         return false;
     }
 
-    // exclude glob 匹配（相对路径 rel vs pattern）。支持 `<prefix>/**`（prefix 下全部）、
-    // `**/<suffix>`（后缀，如 `**/*.z42`）、精确相对路径 / basename。leading `/` 归一化。
-    private static bool _matchesExclude(string rel, string pattern) {
-        string r = rel;
-        if (r.StartsWith("/")) { r = r.Substring(1, r.Length - 1); }
-        if (pattern.EndsWith("/**")) {
-            string prefix = pattern.Substring(0, pattern.Length - 3);
-            return r == prefix || r.StartsWith(prefix + "/");
+    // exclude glob：**按路径段**匹配（fix-source-exclude-glob）。`**` 匹配零个或多个整段，段内 `*` / `?`
+    // 是通配（不跨 `/`）。不含 `**` 的模式按「任意深度的路径后缀」匹配（沿用旧语义：`foo.z42` /
+    // `tests/_skip/*` 在哪一层出现都算）。此前只认 `<prefix>/**`、`**/<字面后缀>`、精确路径三种形状：
+    // 参考手册示范的 `src/**/*_test.z42`、`**/*.z42` 一律**永不匹配**，而 `**/a.z42` 用
+    // `EndsWith("a.z42")` 判，会误中 `ba.z42`。
+    private static bool _matchesExclude(string[] relSegs, string pattern) {
+        string pat = pattern.Replace("\\", "/");
+        if (pat.StartsWith("/")) { pat = pat.Substring(1, pat.Length - 1); }
+        if (pat.Length == 0) { return false; }
+        if (!pat.StartsWith("**/") && pat != "**") { pat = "**/" + pat; }
+        string[] patSegs = SourceDiscovery._splitSegs(pat);
+        return SourceDiscovery._globSegs(relSegs, 0, patSegs, 0);
+    }
+
+    private static bool _globSegs(string[] rel, int ri, string[] pat, int pi) {
+        if (pi == pat.Length) { return ri == rel.Length; }
+        if (pat[pi] == "**") {
+            // 零段，或吃掉一段后仍停在 `**`
+            if (SourceDiscovery._globSegs(rel, ri, pat, pi + 1)) { return true; }
+            return ri < rel.Length && SourceDiscovery._globSegs(rel, ri + 1, pat, pi);
         }
-        if (pattern.StartsWith("**/")) {
-            string suffix = pattern.Substring(3, pattern.Length - 3);
-            return r == suffix || r.EndsWith("/" + suffix) || r.EndsWith(suffix);
+        if (ri == rel.Length) { return false; }
+        if (!SourceDiscovery._segMatch(rel[ri], 0, pat[pi], 0)) { return false; }
+        return SourceDiscovery._globSegs(rel, ri + 1, pat, pi + 1);
+    }
+
+    // 单段通配：`*` 任意串（含空）、`?` 单字符，其余字面。
+    private static bool _segMatch(string s, int si, string p, int pi) {
+        if (pi == p.Length) { return si == s.Length; }
+        char pc = p.CharAt(pi);
+        if (pc == '*') {
+            int k = si;
+            while (k <= s.Length) {
+                if (SourceDiscovery._segMatch(s, k, p, pi + 1)) { return true; }
+                k = k + 1;
+            }
+            return false;
         }
-        return r == pattern || r.EndsWith("/" + pattern);
+        if (si == s.Length) { return false; }
+        if (pc == '?' || pc == s.CharAt(si)) { return SourceDiscovery._segMatch(s, si + 1, p, pi + 1); }
+        return false;
+    }
+
+    private static string[] _splitSegs(string path) {
+        string[] parts = path.Split("/");
+        string[] r = new string[parts.Length];
+        int n = 0;
+        int i = 0;
+        while (i < parts.Length) { if (parts[i].Length > 0) { r[n] = parts[i]; n = n + 1; } i = i + 1; }
+        string[] res = new string[n];
+        int j = 0;
+        while (j < n) { res[j] = r[j]; j = j + 1; }
+        return res;
     }
 
     private static bool _contains(string[] a, int n, string s) {
