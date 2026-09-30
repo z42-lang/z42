@@ -17,7 +17,7 @@ public class DesktopBackend : IPlatformBackend {
         // fixtures land in an artifacts scratch dir; stdlib is NOT copied — the
         // run points search_paths straight at _libsDir (desktop has a filesystem).
         string[] noStdlib = new string[0];
-        return new AssetLayout(Path.Join(root, "artifacts/build/desktop-test/fixtures"), noStdlib, false);
+        return new AssetLayout(Path.Join(_buildTestOutDir(root, "desktop-test"), "fixtures"), noStdlib, false);
     }
 
     // ① runtime staticlib → artifacts/build/runtime/release/libz42.a
@@ -38,13 +38,13 @@ public class DesktopBackend : IPlatformBackend {
 
     // ③ compile r1_r7.c against libz42.a, run it, parse output → JUnit.
     public int RunTests(string root) {
-        string libDir  = Path.Join(root, "artifacts/build/runtime/release");
+        string libDir  = _runtimeOut(root, "release");
         string libA    = Path.Join(libDir, "libz42.a");
         if (!File.Exists(libA)) {
             ConsoleError.WriteLine("error: libz42.a not found at " + libA + "; run `test platform desktop build` first");
             return 1;
         }
-        string outDir  = Path.Join(root, "artifacts/build/desktop-test");
+        string outDir  = _buildTestOutDir(root, "desktop-test");
         Directory.Create(outDir);
         string bin     = Path.Join(outDir, "r1_r7");
         string src     = Path.Join(root, "src/toolchain/workload/desktop/tests/r1_r7.c");

@@ -43,7 +43,7 @@ public class WasmBackend : IPlatformBackend {
     // falls back to PATH node/npm/npx from actions/setup-node.
     public int RunTests(string root) {
         string testsDir = Path.Join(root, "src/toolchain/workload/wasm/platform/tests");
-        string nodeBin  = Path.Join(root, "artifacts/tools/node/bin");
+        string nodeBin  = Path.Join(_toolsDir(root), "node/bin");
         bool localNode  = File.Exists(Path.Join(nodeBin, "node"));
         if (!localNode) {
             if (Process.Which("node") == null) {
@@ -58,7 +58,7 @@ public class WasmBackend : IPlatformBackend {
                 nodeBin = "";  // use PATH node/npm/npx
             }
         }
-        string browsers = Path.Join(root, "artifacts/tools/playwright-browsers");
+        string browsers = Path.Join(_toolsDir(root), "playwright-browsers");
         string npm = localNode ? Path.Join(nodeBin, "npm") : "npm";
         string npx = localNode ? Path.Join(nodeBin, "npx") : "npx";
         string nodeExe = localNode ? Path.Join(nodeBin, "node") : "node";

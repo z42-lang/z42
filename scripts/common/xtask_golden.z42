@@ -294,7 +294,7 @@ bool _isNonRunnableCat(string cat) {
 // `relUnderSrc` is the case dir relative to `src/` (e.g. `"tests/basic/hello"`
 // or `"libraries/z42.math/tests/math"`); returns the absolute mirror dir.
 string _goldenArtifactDir(string root, string relUnderSrc) {
-    return Path.Join(root, Path.Join("artifacts/build", relUnderSrc));
+    return Path.Join(_buildDir(root), relUnderSrc);
 }
 
 // Pre-existing known-deferred cases (cross-zpkg static-init bug).

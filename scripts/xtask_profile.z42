@@ -82,7 +82,7 @@ int _profile(ParseResult r) {
     if (ns.Length == 0) { ConsoleError.WriteLine("error: no namespace in " + script); return 2; }
     string baseName = _stemOf(srcAbs);
 
-    string outDir = Path.Join(root, Path.Join("artifacts/profile", baseName));
+    string outDir = Path.Join(_profileDir(root), baseName);
     Directory.Create(outDir);
     string zbc = Path.Join(outDir, baseName + ".zbc");
     Console.WriteLine("→ compiling " + script + " → " + zbc);

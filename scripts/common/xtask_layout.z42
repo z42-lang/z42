@@ -13,15 +13,18 @@
 //      members hard-linked into one Z42_LIBS dir), the cargo runtime output dir,
 //      the build roots xtask scans/stages. These live here as single definitions.
 //
-// One-off ephemeral dirs (artifacts/.scratch/*, artifacts/tools/*, per-test staging)
-// are NOT centralized here — they have no toml home, no duplication, and no layout
-// meaning; each stays inline at its single use site.
+//   ③ the top-level `artifacts/` buckets (.scratch / tmp / tools / packages / publish /
+//      test-reports / bench / profile / .z42 …). centralize-xtask-layout（2026-09-30）：这些
+//      此前散落在 ~35 个使用点、各写一遍字面量，理由是「一次性目录、没有布局含义」。但整理
+//      artifacts/ 布局时恰恰要逐个挪它们 —— 散着就得逐个找。现在每个桶**只在这里定义一次**，
+//      使用点只写桶名 + 自己的子目录名。`xtask layout` 把它们打印出来给 CI / 脚本查询。
 //
 // Same Z42Xtask namespace as the rest of xtask, so callers use bare names.
 namespace Z42Xtask;
 
 using Std;
 using Std.IO;
+using Std.Cli;   // ParseResult（`_layoutCmd`）
 // ⚠️ 这个命名空间**不能随手改名**：xtask 是**两头都挂在上一代 SDK 上**的消费者 —— CI 用下载的
 // nightly SDK libs **编译** xtask.zpkg，之后又用**本轮新建的 flat** 当 `Z42_LIBS` **运行**它。
 // 抹掉旧 FQN 的改名会让其中一头必炸（实测两种排法各炸一头）。
@@ -148,7 +151,7 @@ string _driverZpkg(string root, string profile) { return _compilerMemberZpkg(roo
 
 // artifacts/build — the root under which everything xtask BUILDS is written
 // (distinct from artifacts/xtask, xtask's own product).
-string _buildDir(string root) { return Path.Join(root, "artifacts/build"); }
+string _buildDir(string root) { return Path.Join(_artifactsDir(root), "build"); }
 
 // stdlib / compiler workspace build roots (staged / scanned / cleaned) — from the workspace.toml
 // output_dir template prefix, not hardcoded.
@@ -162,11 +165,114 @@ string _libsFlatDist(string root, string profile) {
     return Path.Join(_libsBuildRoot(root), "dist/" + profile);
 }
 
-// artifacts/build/runtime/<profile> — cargo output dir for z42vm / native libs
-// (governed by .cargo/config.toml target-dir, not a z42 workspace.toml).
+// artifacts/build/runtime — cargo's target-dir for EVERY crate (z42vm / native libs / apphost /
+// platform crates). Governed by .cargo/config.toml `target-dir`, not a z42 workspace.toml —
+// keep the two in sync. Host builds land in <profile>/, cross builds in <triple>/<profile>/.
+string _cargoTargetDir(string root) { return Path.Join(_buildDir(root), "runtime"); }
+
+// artifacts/build/runtime/<profile> — host cargo output dir for z42vm / native libs.
 string _runtimeOut(string root, string profile) {
-    return Path.Join(root, "artifacts/build/runtime/" + profile);
+    return Path.Join(_cargoTargetDir(root), profile);
 }
+
+// artifacts/build/<name> — xtask-owned test output trees under build/ (desktop-test /
+// embedded-test / wasm-test). Named here so a later move of test outputs is one edit.
+string _buildTestOutDir(string root, string name) { return Path.Join(_buildDir(root), name); }
 
 // xtask's own product — resolved from scripts/xtask.z42.toml [build] (dist_dir/output_dir).
 string _xtaskZpkg(string root) { return _toolchainZpkg(root, "scripts/xtask.z42.toml"); }
+
+// ── ③ top-level artifacts/ buckets (single definitions) ────────────────────────
+//
+// 每个桶只在这里定义。使用点写 `_scratchDir(root, "e2e")` 而不是
+// `Path.Join(root, "artifacts/.scratch/e2e")`。`_layoutEntries` 把它们列给 `xtask layout`。
+
+// artifacts/ — the single output root.
+string _artifactsDir(string root) { return Path.Join(root, "artifacts"); }
+
+// artifacts/.scratch/<name> — per-command work dirs that must survive across steps of ONE
+// command run (seed run-libs, self-host gen1 snapshot, e2e fixtures, alllibs …).
+string _scratchDir(string root, string name) {
+    return Path.Join(Path.Join(_artifactsDir(root), ".scratch"), name);
+}
+
+// artifacts/tmp/<name> — throwaway dirs of self-checks (reset on each use).
+string _tmpDir(string root, string name) {
+    return Path.Join(Path.Join(_artifactsDir(root), "tmp"), name);
+}
+
+// artifacts/tools — downloaded third-party tools (node / android-sdk / gradle / playwright).
+string _toolsDir(string root) { return Path.Join(_artifactsDir(root), "tools"); }
+
+// artifacts/.z42 — the local dev SDK assembled by `build sdk` (default `--sdk` of `test examples`).
+string _devSdkDir(string root) { return Path.Join(_artifactsDir(root), ".z42"); }
+
+// artifacts/publish — packaging staging root (one subdir per packages.toml component).
+string _pubStagingRoot(string root) { return Path.Join(_artifactsDir(root), "publish"); }
+
+// artifacts/packages — assembled package dirs (z42-<ver>-<rid>-<profile>…).
+string _packagesDir(string root) { return Path.Join(_artifactsDir(root), "packages"); }
+
+// artifacts/release — release archives + SHA256SUMS + release-index.json.
+string _releaseDir(string root) { return Path.Join(_artifactsDir(root), "release"); }
+
+// artifacts/test-reports — junit reports of platform tests (one subdir per platform).
+string _testReportsDir(string root) { return Path.Join(_artifactsDir(root), "test-reports"); }
+
+// artifacts/bench — benchmark result JSON.
+string _benchDir(string root) { return Path.Join(_artifactsDir(root), "bench"); }
+
+// artifacts/profile — `xtask profile` reports (one subdir per profiled script).
+string _profileDir(string root) { return Path.Join(_artifactsDir(root), "profile"); }
+
+// `xtask layout` 的条目表：key → 路径。key 是**对外契约**（CI / 脚本按 key 查询），
+// 路径可以随布局整理而变 —— 这正是查询而不是写死的意义。
+string[] _layoutKeys() {
+    return new string[]{
+        "root", "artifacts", "build", "vm", "vm-debug", "libs", "xtask", "cargo-target",
+        "compiler-build", "libraries-build", "sdk", "stage", "packages", "release",
+        "tools", "test-reports", "bench", "profile", "scratch", "tmp" };
+}
+string _layoutPath(string root, string key) {
+    if (key == "root")            { return root; }
+    if (key == "artifacts")       { return _artifactsDir(root); }
+    if (key == "build")           { return _buildDir(root); }
+    if (key == "vm")              { return _builtVm(root, "release"); }
+    if (key == "vm-debug")        { return _builtVm(root, "debug"); }
+    if (key == "libs")            { return _libsDir(root); }
+    if (key == "xtask")           { return _xtaskZpkg(root); }
+    if (key == "cargo-target")    { return _cargoTargetDir(root); }
+    if (key == "compiler-build")  { return _compilerBuildRoot(root); }
+    if (key == "libraries-build") { return _libsBuildRoot(root); }
+    if (key == "sdk")             { return _devSdkDir(root); }
+    if (key == "stage")           { return _pubStagingRoot(root); }
+    if (key == "packages")        { return _packagesDir(root); }
+    if (key == "release")         { return _releaseDir(root); }
+    if (key == "tools")           { return _toolsDir(root); }
+    if (key == "test-reports")    { return _testReportsDir(root); }
+    if (key == "bench")           { return _benchDir(root); }
+    if (key == "profile")         { return _profileDir(root); }
+    if (key == "scratch")         { return Path.Join(_artifactsDir(root), ".scratch"); }
+    if (key == "tmp")             { return Path.Join(_artifactsDir(root), "tmp"); }
+    return "";
+}
+
+// `xtask layout [key]`：无参 = 列出全部 `key  path`；带 key = 只打印该路径（给 CI / 脚本用，
+// 例：`libs=$(xtask layout libs)`）。未知 key → exit 2 并列出可用 key。
+int _layoutCmd(ParseResult r) {
+    string root = _root();
+    string key = r.GetPositional(0);
+    if (key.Length > 0) {
+        string p = _layoutPath(root, key);
+        if (p.Length == 0) {
+            ConsoleError.WriteLine("xtask layout: unknown key '" + key + "'. keys: " + String.Join(", ", _layoutKeys()));
+            return 2;
+        }
+        Console.WriteLine(p);
+        return 0;
+    }
+    foreach (var k in _layoutKeys()) {
+        Console.WriteLine(k.PadRight(16) + _layoutPath(root, k));
+    }
+    return 0;
+}

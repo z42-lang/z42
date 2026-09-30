@@ -42,7 +42,7 @@ int _depsInstallAndroidSdk(bool force, string tier) {
     string avdName = _vget(toml, "build.android.sdk.avd_name");
     string avdDevice = _vget(toml, "build.android.sdk.avd_device");
 
-    string toolsDir = Path.Join(root, "artifacts/tools");
+    string toolsDir = _toolsDir(root);
     string sdkDir = Path.Join(toolsDir, "android-sdk");
     string ndkDirLink = Path.Join(toolsDir, "android-ndk");
     string gradleDir = Path.Join(toolsDir, "gradle");

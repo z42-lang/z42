@@ -180,7 +180,7 @@ string _compileTarget(string root, string vm, string driverZpkg, string projDir,
                       string projName, string subdir, string tName, bool tHasEntry,
                       string tEntry, string[] tSources, int tSrcCount, DepBundle deps,
                       string kindStr, string label, string libs) {
-    string outDir = Path.Join(root, "artifacts/.scratch/targets/" + projName);
+    string outDir = _scratchDir(root, "targets/" + projName);
     if (Directory.Exists(outDir)) { try { Directory.Delete(outDir, true); } catch (Exception e) {} }
     Directory.Create(Path.Join(outDir, "dist"));
     string[] inc = _targetIncludes(projDir, subdir, tName, tSources, tSrcCount);

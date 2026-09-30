@@ -41,7 +41,7 @@ int _buildRuntimePackageWasm(string root, string rid, string version, string pro
     Console.WriteLine("  [1/4] libz42.a (cargo rustc " + cargoTarget + " --features wasm)");
     int c = _cargoWasmRustc(root, rel, cargoTarget);
     if (c != 0) { ConsoleError.WriteLine("error: cargo rustc staticlib for " + cargoTarget + " failed"); return 1; }
-    string staticA = Path.Join(root, "artifacts/build/runtime/" + cargoTarget + "/" + profile + "/libz42.a");
+    string staticA = Path.Join(_cargoTargetDir(root), cargoTarget + "/" + profile + "/libz42.a");
     if (!File.Exists(staticA)) { ConsoleError.WriteLine("error: libz42.a not produced at " + staticA); return 1; }
     File.Copy(staticA, Path.Join(nativeOut, "libz42.a"));
 

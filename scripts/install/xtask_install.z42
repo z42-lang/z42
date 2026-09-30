@@ -106,7 +106,7 @@ int _depsInstallNode(bool force) {
     string root = _root();
     TomlValue toml = TomlValue.Parse(File.ReadAllText(Path.Join(root, "versions.toml")));
     string nodeVersion = _vget(toml, "toolchain.node.version");   // SoT: versions.toml
-    string installDir = Path.Join(root, "artifacts/tools/node");
+    string installDir = Path.Join(_toolsDir(root), "node");
     string nodeBin = Path.Join(installDir, "bin/node");
 
     // Idempotence.
@@ -143,7 +143,7 @@ int _depsInstallNode(bool force) {
     if (dc != 0) { ConsoleError.WriteLine("error: node download failed"); return dc; }
 
     Console.WriteLine("extracting to " + installDir);
-    Directory.Create(Path.Join(root, "artifacts/tools"));
+    Directory.Create(_toolsDir(root));
     if (Directory.Exists(installDir)) { Directory.Delete(installDir, true); }
     int xc = _exec(new Process("tar").Arg("-xzf").Arg(tarball).Arg("-C").Arg(tmp));
     if (xc != 0) { return xc; }
@@ -395,7 +395,7 @@ int _setupWasm(string root, TomlValue toml, string mode, bool force) {
 // wasm 必备的 node presence 校验：hermetic artifacts/tools/node 优先；PATH node
 // 版本 ≥ toolchain.node.min_version 也接受。两者皆无 → ✗。
 int _checkWasmNode(string root, TomlValue toml) {
-    string hermetic = Path.Join(root, "artifacts/tools/node/bin/node");
+    string hermetic = Path.Join(_toolsDir(root), "node/bin/node");
     if (File.Exists(hermetic)) {
         Console.WriteLine("  ✓ node (hermetic) " + _cmdOut(hermetic, new string[]{ "--version" }));
         return 0;
