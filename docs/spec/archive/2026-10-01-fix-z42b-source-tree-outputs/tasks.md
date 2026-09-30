@@ -1,6 +1,6 @@
 # Tasks: z42b 的 dev 目标与 hook 中间产物不再写进源码树
 
-**状态：🟡 进行中 | 开始：2026-09-30**
+**状态：🟢 已完成 | 开始：2026-09-30 | 完成：2026-10-01（#975）**
 
 类型：`fix`（z42b）+ 新旗标 `--out-root`（加法，不改默认行为）→ 最小化模式。「源码树零写入」系列第 ④⑤ 步。
 
@@ -38,4 +38,4 @@ stdlib / 编译器成员都经 `tests/` 约定发现目标、不走这条；需�
 - [x] **版本错位兜底**（#975 首轮 CI 实测）：bench A/B 的「Capture base micro baseline」用本树 xtask 驱动 **base 树**
       现建的 z42b —— 旧版不认 `--out-root`，`z42b: unknown option '--out-root'` 直接失败。xtask 先用 `z42b test --help`
       探测（`_z42bSupportsOutRoot`，同 `_driverSupportsCompileLibs` 手法；每个 z42b 路径进程内只探测一次），不认就不传
-- [ ] PR CI + 归档
+- [x] PR CI + 归档：PR CI 15 pass / 13 skipping（首轮 bench-regression 红 → `_z42bSupportsOutRoot` 兜底后全绿）

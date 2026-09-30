@@ -1,6 +1,6 @@
 # Tasks: z42b / xtask 的产物布局改用 BuildLayout（unify-build-layout 的 PR-B + PR-C）
 
-**状态：🟡 进行中 | 开始：2026-09-30**
+**状态：🟢 已完成 | 开始：2026-09-30 | 完成：2026-10-01（#978）**
 
 类型：`refactor` + 用户可见默认变更（z42b 默认布局与 z42c 对齐；User 2026-09-30 裁决「现在直接做」）→ 最小化模式。
 叠在 unify-build-layout（PR-A）之上；另含 fix-z42b-source-tree-outputs（#975）的提交（改同一批 z42b 文件，#975 合入后变基去重）。
@@ -26,4 +26,4 @@
 - [x] reuse-parent smoke
 - [x] 完整 GREEN（8m40s，全阶段通过，gen1==gen2 9/9）；`build toolchain` 四组件仍为 `toolchain/<c>/{dist,publish}`；跑完后 `src/tests` 以外源码树零产物目录
 - [x] z42b 闭包 e2e 写死了 z42b 旧 dist 位置 `artifacts/<name>/release/dist` → 改由 `BuildLayout.Resolve` 计算
-- [ ] PR CI
+- [x] PR CI：合并时 PR CI 未跑完（1 pass / 6 pending）；合入后 main CI（run 36765350961）`package-host(windows-x64)` desktop-publish smoke 红 —— apphost 嵌入路径两端分隔符不一致（BuildLayout 规范化成 `/`、输出目录仍是 `\`），由 #981 修复；其余 job 全绿。本地基底 b1fb49b2f GREEN 全绿（9m35s，src 下零产物）

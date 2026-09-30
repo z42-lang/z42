@@ -1,6 +1,6 @@
 # Tasks: 单工程 `z42c build --output-dir` 不再往工程目录旁写 cache / generated
 
-**状态：🟡 进行中 | 开始：2026-09-30**
+**状态：🟢 已完成 | 开始：2026-09-30 | 完成：2026-10-01（#973）**
 
 类型：`fix`（z42c，用户可见：`--output-dir` 的辅助输出落点）→ 最小化模式。「源码树零写入」系列第 ③ 步。
 
@@ -33,8 +33,7 @@ stdlib flat（= `Z42_LIBS` = 打进 SDK 的 `libs/`），往里放 cache 目录�
 - [x] 文档：cli-z42c-z42b.md、cli-z42.md
 - [x] e2e：xtask_compiler_e2e_cache.z42 新增 ④（产物进 `<dir>`、工程目录旁零写入）
 - [x] 完整 GREEN（`build all` + 新 driver 自建 gen2 后跑 `xtask test`，9m48s，全阶段通过；e2e ④ 通过；stdlib / 编译器成员目录下自举预建留下的 `artifacts/release/.cache` 消失）
-- [ ] PR CI + 归档
-
+- [x] PR CI + 归档：PR CI 18 pass / 11 skipping
 ## 自举影响
 
 不碰 zbc / zpkg 格式、不引入新语法。种子 z42c 执行的路径（冷启动 `_ensureBootstrapSelfDepLibs`、
