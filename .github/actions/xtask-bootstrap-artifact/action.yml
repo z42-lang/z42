@@ -3,7 +3,7 @@ description: >
   Bootstrap by CONSUMING the `toolchain-ubuntu-latest` artifact produced by the
   toolchain-bootstrap job (z42c dist + stdlib dist + xtask.zpkg), plus a host
   `cargo build` for z42vm + native cdylibs. After this, drive work via
-  `z42vm artifacts/xtask/xtask.zpkg -- <cmd>` exactly like ci-bootstrap.
+  `xtask <cmd>` (the .github/ci/xtask shim, put on PATH here) exactly like ci-bootstrap.
   The consuming job MUST `needs: toolchain-bootstrap` and `actions/checkout` first
   (checkout cannot live in here — this action's own file has to exist on disk to
   be resolvable).
@@ -63,3 +63,8 @@ runs:
       with:
         name: toolchain-ubuntu-latest
         path: .
+
+    # 后续步骤用 `xtask <cmd>` 驱动（见 .github/ci/xtask 头注）。
+    - name: Put the xtask CI shim on PATH
+      shell: bash
+      run: echo "$GITHUB_WORKSPACE/.github/ci" >> "$GITHUB_PATH"

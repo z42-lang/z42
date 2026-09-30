@@ -198,14 +198,12 @@ jobs:
       # feature-matrix `bash scripts/check-versions-drift.sh` step). ubuntu only —
       # the check is OS-independent (versions.toml + zbc/zpkg/gradle/Package.swift
       # version constants). Reuses the from-source xtask bootstrapped above.
-      - name: Check versions.toml drift (z42 xtask.zpkg deps check)
+      - name: Check versions.toml drift (xtask deps check)
         if: matrix.os == 'ubuntu-latest'
         shell: bash
         run: |
           set -euo pipefail
-          Z42_PORTABLE_VM="$PWD/artifacts/build/runtime/release/z42vm" \
-          Z42_LIBS="$PWD/artifacts/build/libraries/dist/release" \
-            artifacts/build/runtime/release/z42vm artifacts/xtask/xtask.zpkg -- deps check
+          xtask deps check
 
       # add-tests-bench-manifest-config Phase 6.1 (2026-06-06): release guard.
       # xtask's dir-mode tests / benches produce synthetic
@@ -291,11 +289,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          Z42_PORTABLE_VM="$PWD/artifacts/build/runtime/release/z42vm" \
-          Z42_LIBS="$PWD/artifacts/build/libraries/dist/release" \
-            artifacts/build/runtime/release/z42vm artifacts/xtask/xtask.zpkg -- build sdk
+          xtask build sdk
 
-      - name: Test (z42 xtask.zpkg test all --no-build --skip ...)
+      - name: Test (xtask test all --no-build --skip ...)
         if: matrix.os != 'windows-latest'
         shell: bash
         run: |
@@ -317,9 +313,7 @@ jobs:
           if [ "${{ matrix.platform }}" != "linux-x64" ]; then
             SKIP="stdlib,cross-zpkg,bench,compiler,vscode"
           fi
-          Z42_PORTABLE_VM="$PWD/artifacts/build/runtime/release/z42vm" \
-          Z42_LIBS="$PWD/artifacts/build/libraries/dist/release" \
-            artifacts/build/runtime/release/z42vm artifacts/xtask/xtask.zpkg -- test all --no-build --skip "$SKIP" 2>&1 | tee artifacts/ci-logs/test-all.log
+          xtask test all --no-build --skip "$SKIP" 2>&1 | tee artifacts/ci-logs/test-all.log
           exit "${PIPESTATUS[0]}"
 
       # refresh-format-fixtures: committed zbc-format byte baselines must be up to date.
@@ -383,9 +377,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          vm="$PWD/artifacts/build/runtime/release/z42vm"; [ -f "$vm.exe" ] && vm="$vm.exe"
-          Z42_PORTABLE_VM="$vm" Z42_LIBS="$PWD/artifacts/build/libraries/dist/release" \
-            "$vm" artifacts/xtask/xtask.zpkg -- build test
+          xtask build test
 
       # --test-threads=1 + RUST_MIN_STACK are set inside _testRuntime. Serialized
       # because the --lib tests have a pre-existing cross-thread memory-corruption race
@@ -397,9 +389,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          vm="$PWD/artifacts/build/runtime/release/z42vm"; [ -f "$vm.exe" ] && vm="$vm.exe"
-          Z42_PORTABLE_VM="$vm" Z42_LIBS="$PWD/artifacts/build/libraries/dist/release" \
-            "$vm" artifacts/xtask/xtask.zpkg -- test runtime
+          xtask test runtime
 
       # ── 抢号预检（enforce-diagnostic-code-uniqueness）──────────────────────────
       # **PR 的绿是「过期快照」**：checkout 拿的是 merge ref —— head 与**那次 run 触发时**的 base
@@ -433,9 +423,7 @@ jobs:
             echo "::notice::与最新 main 有文本冲突 —— GitHub 本身已挡住合并，此处不重复报警"
             exit 0
           fi
-          vm="$PWD/artifacts/build/runtime/release/z42vm"
-          Z42_PORTABLE_VM="$vm" Z42_LIBS="$PWD/artifacts/build/libraries/dist/release" \
-            "$vm" artifacts/xtask/xtask.zpkg -- test diagcodes
+          xtask test diagcodes
 
   # ── parallelize-host-package: SDK packaging, parallel to host tests (all 4 OS) ──
   # The host package (`xtask package release`) used to run sequentially after
@@ -483,20 +471,12 @@ jobs:
         with:
           cache-key: package-host-v2
 
-      - name: Package host RID (z42 xtask.zpkg package)
+      - name: Package host RID (xtask package)
         shell: bash
         run: |
           set -euo pipefail
-          vm="$PWD/artifacts/build/runtime/release/z42vm"; [ -f "$vm.exe" ] && vm="$vm.exe"
           # Windows: `package` cargo-relinks z42vm and can't overwrite the *running*
-          # z42vm.exe → run xtask from a copy outside the cargo output dir. (No-op on
-          # Linux/macOS.)
-          runner="$vm"
-          if [ "${RUNNER_OS:-}" = "Windows" ]; then
-            mkdir -p "$PWD/.ci-runner"; cp "$vm" "$PWD/.ci-runner/"
-            cp "$PWD"/artifacts/build/runtime/release/*.dll "$PWD/.ci-runner/" 2>/dev/null || true
-            runner="$PWD/.ci-runner/$(basename "$vm")"
-          fi
+          # z42vm.exe —— `xtask` 垫片在 Windows 上总是从 cargo 输出目录之外的拷贝启动（见 .github/ci/xtask）。
           # --no-build: xtask-bootstrap-artifact already restored z42c + stdlib (the
           # toolchain artifact); skip rebuilding them (~10 min on Windows: the [1/5]
           # z42c self-build + the former 2nd self-build in the runtime pack). The
@@ -504,18 +484,14 @@ jobs:
           # still build. Verified locally byte-identical to a full build (mod build-date).
           # merge-package-release: the former combined `package release` split into
           # name-driven subcommands — host produces SDK + runtime + desktop workload.
-          Z42_PORTABLE_VM="$vm" Z42_LIBS="$PWD/artifacts/build/libraries/dist/release" \
-            "$runner" artifacts/xtask/xtask.zpkg -- package sdk --no-build
-          Z42_PORTABLE_VM="$vm" Z42_LIBS="$PWD/artifacts/build/libraries/dist/release" \
-            "$runner" artifacts/xtask/xtask.zpkg -- package runtime --no-build
-          Z42_PORTABLE_VM="$vm" Z42_LIBS="$PWD/artifacts/build/libraries/dist/release" \
-            "$runner" artifacts/xtask/xtask.zpkg -- package workload
+          xtask package sdk --no-build
+          xtask package runtime --no-build
+          xtask package workload
           # test workload = payload-only, platform-agnostic → build once on macos-arm64
           # (package-test-workload). Uploaded within artifacts/packages/; publish-nightly
           # re-archives it to z42-workload-nightly-test.tar.gz.
           if [ "${{ matrix.platform }}" = "macos-arm64" ]; then
-            Z42_PORTABLE_VM="$vm" Z42_LIBS="$PWD/artifacts/build/libraries/dist/release" \
-              "$runner" artifacts/xtask/xtask.zpkg -- package workload test
+            xtask package workload test
           fi
 
       - name: Dist test (launcher + desktop-publish + golden legs)
@@ -532,11 +508,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          vm="$PWD/artifacts/build/runtime/release/z42vm"; [ -f "$vm.exe" ] && vm="$vm.exe"
-          runner="$vm"
-          if [ "${RUNNER_OS:-}" = "Windows" ]; then runner="$PWD/.ci-runner/$(basename "$vm")"; fi
-          Z42_PORTABLE_VM="$vm" Z42_LIBS="$PWD/artifacts/build/libraries/dist/release" \
-            "$runner" artifacts/xtask/xtask.zpkg -- test dist
+          xtask test dist
 
       - name: Learn-book examples (packaged SDK)
         # 与 test-host 的 examples stage 同一套会话脚本，这里用打包出的 SDK 跑——最贴近用户安装形态，
@@ -544,12 +516,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          vm="$PWD/artifacts/build/runtime/release/z42vm"; [ -f "$vm.exe" ] && vm="$vm.exe"
-          runner="$vm"
-          if [ "${RUNNER_OS:-}" = "Windows" ]; then runner="$PWD/.ci-runner/$(basename "$vm")"; fi
           pkg_dir=$(ls -d "$PWD"/artifacts/packages/z42-*-release | head -1)
-          Z42_PORTABLE_VM="$vm" Z42_LIBS="$PWD/artifacts/build/libraries/dist/release" \
-            "$runner" artifacts/xtask/xtask.zpkg -- test examples --sdk "$pkg_dir"
+          xtask test examples --sdk "$pkg_dir"
 
       - name: Installer smoke (offline, packaged SDK)
         # 用户安装脚本（scripts/install/）对刚打出的 SDK 包跑一遍 `--archive` 离线安装：
@@ -682,9 +650,7 @@ jobs:
       - name: Stage toolchain (zpkg products only)
         shell: bash
         run: |
-          vm="$PWD/artifacts/build/runtime/release/z42vm"; [ -f "$vm.exe" ] && vm="$vm.exe"
-          Z42_PORTABLE_VM="$vm" Z42_LIBS="$PWD/artifacts/build/libraries/dist/release" \
-            "$vm" artifacts/xtask/xtask.zpkg -- build stage-toolchain "$RUNNER_TEMP/tc"
+          xtask build stage-toolchain "$RUNNER_TEMP/tc"
 
       # 名字保留 `-ubuntu-latest` 后缀：xtask-bootstrap-artifact / bench 等消费方按这个名字取。
       - name: Upload toolchain-ubuntu-latest
@@ -732,18 +698,13 @@ jobs:
       - name: Build golden .zbc test assets (compile shared assets once)
         shell: bash
         run: |
-          Z42_PORTABLE_VM="$PWD/artifacts/build/runtime/release/z42vm" \
-          Z42_LIBS="$PWD/artifacts/build/libraries/dist/release" \
-            artifacts/build/runtime/release/z42vm artifacts/xtask/xtask.zpkg -- build test
+          xtask build test
 
       - name: Assemble .z42 toolchain (build sdk --no-build) + bundle goldens
         shell: bash
         run: |
           set -euo pipefail
-          Z42_PORTABLE_VM="$PWD/artifacts/build/runtime/release/z42vm" \
-          Z42_LIBS="$PWD/artifacts/build/libraries/dist/release" \
-            artifacts/build/runtime/release/z42vm artifacts/xtask/xtask.zpkg -- \
-            build sdk --out "$RUNNER_TEMP/z42sdk" --no-build
+          xtask build sdk --out "$RUNNER_TEMP/z42sdk" --no-build
           # bundle the prebuilt golden .zbc into current-sdk so consumers run them
           # with --no-build (shared compiled asset across interp/jit).
           if [ -d artifacts/build/tests ]; then
@@ -896,9 +857,7 @@ jobs:
           # --no-rebuild: run the shared .zbc as-is (no golden regen, no toolchain
           # rebuild). cranelift JIT per-case compile still happens at RUN time
           # (that's what this gate measures), split across 2 shards.
-          vm="$PWD/artifacts/build/runtime/release/z42vm"
-          libs="$PWD/artifacts/build/libraries/dist/release"
-          Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" "$vm" artifacts/xtask/xtask.zpkg -- test e2e --mode jit --no-rebuild --shard ${{ matrix.shard }}/2 --jobs=4
+          xtask test e2e --mode jit --no-rebuild --shard ${{ matrix.shard }}/2 --jobs=4
 
   # ── stdlib [Test] JIT consistency (parallelize-and-jit-stdlib-tests) ──────
   # build-and-test runs the 272 stdlib [Test] files under interp (in-process
@@ -937,9 +896,7 @@ jobs:
           # xtask runs this shard's stdlib [Test] units under JIT (z42b via
           # z42vm --mode jit). --shard splits the libs balanced by unit count
           # across 2 machines; --jobs 4 parallelizes within the shard.
-          vm="$PWD/artifacts/build/runtime/release/z42vm"
-          libs="$PWD/artifacts/build/libraries/dist/release"
-          Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" "$vm" artifacts/xtask/xtask.zpkg -- test stdlib --mode jit --no-build --shard ${{ matrix.shard }}/2 --jobs 4
+          xtask test stdlib --mode jit --no-build --shard ${{ matrix.shard }}/2 --jobs 4
 
   # ── stdlib [Test] INTERP consistency — one job per OS ─────────────────────────
   # The build-and-test (test-host) legs skip stdlib [Test] (`--skip stdlib`); this
@@ -980,9 +937,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          vm="$PWD/artifacts/build/runtime/release/z42vm"; [ -f "$vm.exe" ] && vm="$vm.exe"
-          libs="$PWD/artifacts/build/libraries/dist/release"
-          Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" "$vm" artifacts/xtask/xtask.zpkg -- test stdlib --mode interp --no-build --jobs 4
+          xtask test stdlib --mode interp --no-build --jobs 4
 
   # ── cross-zpkg coverage ─────────────────────────────────────────────────────
   # cross-zpkg (zpkg linking + cross-package dispatch) is folded back into
@@ -1023,17 +978,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          vm="$PWD/artifacts/build/runtime/release/z42vm"
-          Z42_PORTABLE_VM="$vm" Z42_LIBS="$PWD/artifacts/build/libraries/dist/release" \
-            "$vm" artifacts/xtask/xtask.zpkg -- test compiler
+          xtask test compiler
 
       - name: VSCode grammar ↔ Lexer keyword sync (xtask test vscode-syntax)
         shell: bash
         run: |
           set -euo pipefail
-          vm="$PWD/artifacts/build/runtime/release/z42vm"
-          Z42_PORTABLE_VM="$vm" Z42_LIBS="$PWD/artifacts/build/libraries/dist/release" \
-            "$vm" artifacts/xtask/xtask.zpkg -- test vscode-syntax
+          xtask test vscode-syntax
 
   # 2026-05-07 add-runtime-feature-flags (P4.1): verify all 4 feature presets
   # compile on host target. The real cross-compiles (wasm32 / aarch64-apple-ios /
@@ -1104,15 +1055,12 @@ jobs:
           cache-key: ios-v2
           rust-targets: aarch64-apple-ios,aarch64-apple-ios-sim
 
-      - name: Package ios-arm64 + iossim-arm64 (z42 xtask.zpkg package)
+      - name: Package ios-arm64 + iossim-arm64 (xtask package)
         shell: bash
         run: |
           set -euo pipefail
-          vm="$PWD/artifacts/build/runtime/release/z42vm"
-          libs="$PWD/artifacts/build/libraries/dist/release"
           for rid in ios-arm64 iossim-arm64; do
-            Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" \
-              "$vm" artifacts/xtask/xtask.zpkg -- package runtime --rid "$rid"
+            xtask package runtime --rid "$rid"
           done
 
       - name: Verify iOS packages
@@ -1188,17 +1136,14 @@ jobs:
           cache-key: android-v2
           rust-targets: aarch64-linux-android,x86_64-linux-android
 
-      - name: Package android-arm64 + android-x64 (z42 xtask.zpkg package)
+      - name: Package android-arm64 + android-x64 (xtask package)
         shell: bash
         env:
           ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
         run: |
           set -euo pipefail
-          vm="$PWD/artifacts/build/runtime/release/z42vm"
-          libs="$PWD/artifacts/build/libraries/dist/release"
           for rid in android-arm64 android-x64; do
-            Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" \
-              "$vm" artifacts/xtask/xtask.zpkg -- package runtime --rid "$rid"
+            xtask package runtime --rid "$rid"
           done
 
       - name: Verify Android packages
@@ -1277,17 +1222,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          vm="$PWD/artifacts/build/runtime/release/z42vm"
-          Z42_PORTABLE_VM="$vm" Z42_LIBS="$PWD/artifacts/build/libraries/dist/release" \
-            "$vm" artifacts/xtask/xtask.zpkg -- test platform wasm build
+          xtask test platform wasm build
 
-      - name: Package browser-wasm (z42 xtask.zpkg package)
+      - name: Package browser-wasm (xtask package)
         shell: bash
         run: |
           set -euo pipefail
-          vm="$PWD/artifacts/build/runtime/release/z42vm"
-          Z42_PORTABLE_VM="$vm" Z42_LIBS="$PWD/artifacts/build/libraries/dist/release" \
-            "$vm" artifacts/xtask/xtask.zpkg -- package runtime --rid browser-wasm
+          xtask package runtime --rid browser-wasm
 
       - name: Verify wasm package + WebAssembly validation
         run: |
@@ -1334,9 +1275,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          vm="$PWD/artifacts/build/runtime/release/z42vm"
-          Z42_PORTABLE_VM="$vm" Z42_LIBS="$PWD/artifacts/build/libraries/dist/release" \
-            "$vm" artifacts/xtask/xtask.zpkg -- test platform wasm assets
+          xtask test platform wasm assets
           node src/toolchain/workload/wasm/platform/demo/node/run.js
 
       - name: Upload wasm package
@@ -1510,10 +1449,7 @@ jobs:
       - name: Assemble single desktop workload (nightly)
         shell: bash
         run: |
-          Z42_PORTABLE_VM="$PWD/artifacts/build/runtime/release/z42vm" \
-          Z42_LIBS="$PWD/artifacts/build/libraries/dist/release" \
-            artifacts/build/runtime/release/z42vm artifacts/xtask/xtask.zpkg -- \
-            package workload nightly artifacts/release
+          xtask package workload nightly artifacts/release
 
       - name: Generate SHA256SUMS
         shell: bash
@@ -1527,10 +1463,7 @@ jobs:
       - name: Generate release-index.json
         shell: bash
         run: |
-          Z42_PORTABLE_VM="$PWD/artifacts/build/runtime/release/z42vm" \
-          Z42_LIBS="$PWD/artifacts/build/libraries/dist/release" \
-            artifacts/build/runtime/release/z42vm artifacts/xtask/xtask.zpkg -- \
-            package index nightly artifacts/release nightly nightly nightly
+          xtask package index nightly artifacts/release nightly nightly nightly
 
       - name: Force-replace nightly release
         shell: bash
@@ -1682,9 +1615,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          vm="$PWD/artifacts/build/runtime/release/z42vm"
-          libs="$PWD/artifacts/build/libraries/dist/release"
-          Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" "$vm" artifacts/xtask/xtask.zpkg -- test platform wasm
+          xtask test platform wasm
       # z42b-device-run PR-4 (dogfood): z42b resolves the on-device test-agent from
       # the installed `test` workload in ITS OWN SDK home (Z42_PORTABLE_VM →
       # artifacts/build/runtime), not an in-tree --agent. Stage the agent there at
@@ -1697,9 +1628,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          vm="$PWD/artifacts/build/runtime/release/z42vm"
-          libs="$PWD/artifacts/build/libraries/dist/release"
-          Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" "$vm" artifacts/xtask/xtask.zpkg -- package workload test dev
+          xtask package workload test dev
           dest="$PWD/artifacts/build/runtime/runtimes/dev/workloads/test"
           mkdir -p "$dest"
           cp artifacts/packages/z42-workload-dev-test*/z42.testagent.zpkg "$dest/"
@@ -1711,9 +1640,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          vm="$PWD/artifacts/build/runtime/release/z42vm"
-          libs="$PWD/artifacts/build/libraries/dist/release"
-          Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" "$vm" artifacts/xtask/xtask.zpkg -- test embedded --rid browser-wasm --shard ${{ matrix.shard }}/3
+          xtask test embedded --rid browser-wasm --shard ${{ matrix.shard }}/3
       # z42b-device-run PR-1: the embedded RUN is z42b's wasm driver (spawns the
       # playwright embedded config in the tests dir). node is on PATH here
       # (actions/setup-node) → --node-bin empty. Report回收 = playwright exit code
@@ -1722,9 +1649,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          vm="$PWD/artifacts/build/runtime/release/z42vm"
-          libs="$PWD/artifacts/build/libraries/dist/release"
-          Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" "$vm" artifacts/xtask/xtask.zpkg -- test embedded --rid browser-wasm --run
+          xtask test embedded --rid browser-wasm --run
       # R1–R7 junit exists only on shard 1 (Playwright embedded reports via `list`,
       # not junit — its result is the step exit code above).
       - name: Publish wasm test report (GitHub Check)
@@ -1779,9 +1704,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          vm="$PWD/artifacts/build/runtime/release/z42vm"
-          libs="$PWD/artifacts/build/libraries/dist/release"
-          run() { Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" "$vm" artifacts/xtask/xtask.zpkg -- "$@"; }
+          run() { xtask "$@"; }
           # z42b-device-run PR-4 (dogfood): stage the test-agent into z42b's own SDK
           # home workload dir (<home>/runtimes/<ver>/workloads/test/, where
           # `z42 workload install test` puts it) so z42b resolves it from there — no
@@ -1877,14 +1800,12 @@ jobs:
           ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
         run: |
           set -euo pipefail
-          vm="$PWD/artifacts/build/runtime/release/z42vm"
-          libs="$PWD/artifacts/build/libraries/dist/release"
-          Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" "$vm" artifacts/xtask/xtask.zpkg -- test platform android build
-          Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" "$vm" artifacts/xtask/xtask.zpkg -- test platform android assets
+          xtask test platform android build
+          xtask test platform android assets
           # z42b-device-run PR-4 (dogfood): stage the test-agent into z42b's own SDK
           # home workload dir (<home>/runtimes/<ver>/workloads/test/) so z42b's --build
           # resolves it from there — no in-tree --agent, no launcher / download (design D4).
-          Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" "$vm" artifacts/xtask/xtask.zpkg -- package workload test dev
+          xtask package workload test dev
           dest="$PWD/artifacts/build/runtime/runtimes/dev/workloads/test"
           mkdir -p "$dest"
           cp artifacts/packages/z42-workload-dev-test*/z42.testagent.zpkg "$dest/"
@@ -1892,7 +1813,7 @@ jobs:
           # slice (x86_64 .so — matches the emulator ABI — + androidTest/assets/embedded)
           # so the single connectedAndroidTest below runs Z42EmbeddedInstrumentedTest's
           # 1/3 full-coverage slice too.
-          Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" "$vm" artifacts/xtask/xtask.zpkg -- test embedded --rid android-x64 --shard ${{ matrix.shard }}/3
+          xtask test embedded --rid android-x64 --shard ${{ matrix.shard }}/3
       # No AVD snapshot cache (ci-perf-tier2 #4 had one): every boot is cold. It was
       # dropped while chasing system_server restarts mid-test on API 37, which turned
       # out to be the surfaceflinger renderer abort fixed by `runs-on: ubuntu-26.04`
@@ -1962,9 +1883,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          vm="$PWD/artifacts/build/runtime/release/z42vm"
-          libs="$PWD/artifacts/build/libraries/dist/release"
-          Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" "$vm" artifacts/xtask/xtask.zpkg -- test platform desktop
+          xtask test platform desktop
       - name: Publish desktop test report (GitHub Check)
         uses: dorny/test-reporter@v3
         if: always()
