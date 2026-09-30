@@ -114,6 +114,27 @@ public sealed class IrEscapeAnalysis {
                 }
                 bi = bi + 1;
             }
+        } else {
+            // Pass A″（摘要模式，fix-release-opt-soundness）：摘要不把「参数槽被重定义」本身算逃逸
+            // （见上方 markRefWriteback 注释），但**被 copy 进参数槽的那个值**仍会经出口写回离开本帧——
+            // `void Stash(Box p, ref Box q) { q = p; }` 发射成 `copy q ← p`，写回的正是入参 p。此前本分支
+            // 什么都不做 ⇒ 摘要判 p 不逃逸 ⇒ caller 把 `new Box()` 栈分配后传进来 ⇒ 写回 caller 的 lvalue、
+            // caller 帧退出后悬垂（`FieldGet: expected object, got Null`）。只标 copy 的源：非 copy 的定义
+            // （新分配 / 调用结果 / 字段读）产出的不是入参值，与「入参是否逃逸」无关；copy 链由 Pass B 往回传。
+            bi = 0;
+            while (bi < f.BlockCount) {
+                IrBlock b = f.Blocks[bi];
+                int ii = 0;
+                while (ii < b.InstrCount) {
+                    if (b.Instrs[ii] is CopyInstr) {
+                        CopyInstr c = b.Instrs[ii] as CopyInstr;
+                        int d = c.Dst.Id; int s = c.Src.Id;
+                        if (d >= 0 && d < f.ParamCount && s != d && s >= 0 && s < n) { esc[s] = true; }
+                    }
+                    ii = ii + 1;
+                }
+                bi = bi + 1;
+            }
         }
         // Pass B：copy 传递闭包 —— dst 逃逸 ⇒ src 逃逸（链式，跑到不动点）。
         bool changed = true;

@@ -1,0 +1,100 @@
+// fix-release-opt-soundness: LICM hoists loop-invariant calls to *pure*
+// functions into the loop pre-header. The pre-header runs even when the loop
+// body runs zero times, so the hoisted call is speculative. "Pure" (enough for
+// CSE) did not make that safe:
+//   - a pure function may read a readonly field of a parameter → NPE when the
+//     argument is null (before the fix: opt-off prints 0, opt_all throws);
+//   - purity is inferred optimistically, so a function with a loop that never
+//     terminates is also "pure" → the speculative call hangs.
+// Speculation now additionally requires: no field reads, acyclic CFG, only
+// speculatable callees. Bodies are padded past the inliner's size limit so the
+// calls stay calls (inlining would hide the hoist).
+
+class Node {
+    public readonly int V;
+    public Node(int v) { this.V = v; }
+}
+
+int GetV(Node n) {
+    int a0 = n.V + 0;
+    int a1 = n.V + 1;
+    int a2 = n.V + 2;
+    int a3 = n.V + 3;
+    int a4 = n.V + 4;
+    int a5 = n.V + 5;
+    int a6 = n.V + 6;
+    int a7 = n.V + 7;
+    int a8 = n.V + 8;
+    int a9 = n.V + 9;
+    int a10 = n.V + 10;
+    int a11 = n.V + 11;
+    int a12 = n.V + 12;
+    int a13 = n.V + 13;
+    int a14 = n.V + 14;
+    int a15 = n.V + 15;
+    int a16 = n.V + 16;
+    int a17 = n.V + 17;
+    int a18 = n.V + 18;
+    int a19 = n.V + 19;
+    int a20 = n.V + 20;
+    int a21 = n.V + 21;
+    int a22 = n.V + 22;
+    int a23 = n.V + 23;
+    int a24 = n.V + 24;
+    int a25 = n.V + 25;
+    int a26 = n.V + 26;
+    int a27 = n.V + 27;
+    int a28 = n.V + 28;
+    int a29 = n.V + 29;
+    return a0 + a1 + a2 + a3 + a4 + a5 + a6 + a7 + a8 + a9 + a10 + a11 + a12 + a13 + a14 + a15 + a16 + a17 + a18 + a19 + a20 + a21 + a22 + a23 + a24 + a25 + a26 + a27 + a28 + a29;
+}
+
+int Spin(int k) {
+    int b0 = k + 0;
+    int b1 = k + 1;
+    int b2 = k + 2;
+    int b3 = k + 3;
+    int b4 = k + 4;
+    int b5 = k + 5;
+    int b6 = k + 6;
+    int b7 = k + 7;
+    int b8 = k + 8;
+    int b9 = k + 9;
+    int b10 = k + 10;
+    int b11 = k + 11;
+    int b12 = k + 12;
+    int b13 = k + 13;
+    int b14 = k + 14;
+    int b15 = k + 15;
+    int b16 = k + 16;
+    int b17 = k + 17;
+    int b18 = k + 18;
+    int b19 = k + 19;
+    int b20 = k + 20;
+    int b21 = k + 21;
+    int b22 = k + 22;
+    int b23 = k + 23;
+    int b24 = k + 24;
+    int b25 = k + 25;
+    int b26 = k + 26;
+    int b27 = k + 27;
+    int b28 = k + 28;
+    int b29 = k + 29;
+    while (k > 0) { k = k + 0; }   // never terminates for k > 0
+    return k + b0 + b1 + b2 + b3 + b4 + b5 + b6 + b7 + b8 + b9 + b10 + b11 + b12 + b13 + b14 + b15 + b16 + b17 + b18 + b19 + b20 + b21 + b22 + b23 + b24 + b25 + b26 + b27 + b28 + b29;
+}
+
+void Main() {
+    Node n = null;
+    int s = 0;
+    int i = 0;
+    int limit = 0;
+    while (i < limit) {                // zero iterations: neither call may run
+        s = s + GetV(n);
+        s = s + Spin(1);
+        i = i + 1;
+    }
+    Assert.Equal(0, s);
+    Assert.Equal(465, GetV(new Node(1)));
+    Assert.Equal(435, Spin(0));
+}

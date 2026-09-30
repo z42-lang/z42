@@ -1,0 +1,63 @@
+// fix-release-opt-soundness: a by-value argument that the callee copies
+// into a `ref` parameter leaves the caller's frame through the ref write-back.
+// The cross-procedure escape summary ignored that path, so `Stash`'s param `p`
+// was summarised as non-escaping, the caller stack-allocated `new Box(7)`, and
+// the handle written back into `slot` dangled once MakeHolder returned
+// (`FieldGet: expected object, got Null` under opt_all).
+// Sibling of escape_ref_param_writeback/ (there the callee allocates; here the
+// caller does).
+
+class Box {
+    public int V;
+    public Box(int v) { this.V = v; }
+}
+
+class Holder {
+    public Box F;
+}
+
+void Stash(Box p, ref Box q) { q = p; }
+
+// one more hop: the value reaches the ref slot through a local copy chain
+void StashVia(Box p, ref Box q) {
+    Box t = p;
+    q = t;
+}
+
+Holder MakeHolder() {
+    Holder h = new Holder();
+    Box o = new Box(7);
+    Box slot = null;
+    Stash(o, ref slot);
+    h.F = slot;
+    return h;
+}
+
+Holder MakeHolderVia() {
+    Holder h = new Holder();
+    Box o = new Box(9);
+    Box slot = null;
+    StashVia(o, ref slot);
+    h.F = slot;
+    return h;
+}
+
+// churn the frame arena so a dangling handle cannot read back a stale-but-correct value
+int Churn(int n) {
+    int[] t = new int[8];
+    Box a = new Box(n);
+    Box b = new Box(n + 1);
+    int i = 0;
+    while (i < t.Length) { t[i] = n + i; i = i + 1; }
+    return t[0] + a.V + b.V;
+}
+
+void Main() {
+    Holder h = MakeHolder();
+    Assert.Equal(4, Churn(1));
+    Assert.Equal(7, h.F.V);
+
+    Holder g = MakeHolderVia();
+    Assert.Equal(4, Churn(1));
+    Assert.Equal(9, g.F.V);
+}

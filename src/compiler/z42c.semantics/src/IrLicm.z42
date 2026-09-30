@@ -151,14 +151,15 @@ public sealed class IrLicm {
     }
 
     // add-pure-call-opt：纯函数调用是否可安全外提（不经 IsPure，独立判定）。
-    //   PureCall 开 + callee 在纯表（纯含 no-throw → 提到可能零迭代 pre-header 无异常时机漂移）+
-    //   全部实参循环外定义（循环不变）。dst 单赋值由外层 defsGlobal==1 守。
+    //   PureCall 开 + callee **可投机执行**（纯 ∧ 无 FieldGet ∧ 无环 ∧ 只调可投机函数——提到可能零迭代
+    //   的 pre-header 不凭空抛 NPE、不挂死，fix-release-opt-soundness）+ 全部实参循环外定义（循环不变）。
+    //   dst 单赋值由外层 defsGlobal==1 守。
     private static bool _isHoistablePureCall(IrInstr ins, int optSet, PureTable pureTable, bool[] defInLoop, int rc) {
         if (!Opt.Has(optSet, Opt.PureCall)) { return false; }
         if (!(ins is CallInstr)) { return false; }
         if (pureTable == null) { return false; }
         CallInstr c = ins as CallInstr;
-        if (!pureTable.IsPure(c.Func)) { return false; }
+        if (!pureTable.IsSpeculatable(c.Func)) { return false; }
         return IrLicm._operandsExternal(ins, defInLoop, rc);   // 通用覆盖 call args 全循环不变
     }
 
