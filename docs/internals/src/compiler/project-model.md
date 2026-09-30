@@ -81,10 +81,15 @@ path 依赖与名字依赖的关键差异：名字依赖假定其 zpkg **已在*
 >   成员跳过（`WsTier.IsMember`，由 workspace 循环建）；代建出的 dist **追加在 libsDirs 末尾**——前 `MemberDirs`
 >   个必须仍是成员 dist（`WsTier.Admits` 按下标分档），外部包归外部档。
 > - **基础解析域是已决议的 libsDirs**（`--compile-libs` > `Z42_LIBS`），不再重读 `Z42_LIBS`——此前代建与消费方都绕过了 `--compile-libs`。
-> - **闭包代建默认 packed**（调用约定 `tier == null && libsDirsCount > 0`；显式 `pack` 优先），`_bundleExeDeps`
->   遇 indexed 依赖**响亮拒绝**。此前 debug 构建的 exe 只要有 path 依赖就运行期 `undefined function`：indexed
->   主文件被拷进 dist，它的散装 zbc 没跟过去（也跟不过去——落在 dist 根下会与消费方自己的 zbc 撞名）。
+> - **闭包代建默认 packed**（调用约定 `tier == null && libsDirsCount > 0`；显式 `pack` 优先）。此前 debug 构建的 exe
+>   只要有 path 依赖就运行期 `undefined function`：indexed 主文件被拷进 dist，它的散装 zbc 没跟过去。
 >   现有 path 闭包 e2e 全是 `--release`，所以一直没暴露。门：`xtask test compiler` 的 `_e2ePathDepScopeChecks`。
+> - **其余来源的 indexed 依赖（workspace lib 成员等）连散装 zbc 一起装配**（fix-bundle-indexed-deps，User
+>   2026-09-30 裁决保留 indexed）：`ZpkgReader.ReadIndexedZbcRels` 列出依赖 FILE 目录里的散装 zbc，按原相对布局
+>   拷进 exe 的 dist（加载器按「主文件所在目录 + rel」找）。与**本包自己的**散装 zbc、或**本轮另一个依赖**拷入的
+>   同路径文件撞名 ⇒ 构建期报错（上一轮拷来的旧副本直接覆盖）。exe 的孤儿清理会先删掉这些副本、装配再拷回，
+>   fresh 构建的终态一致；preserved 路径只装配不清理。门：`_e2eBundleIndexedChecks`（workspace exe + lib 成员
+>   debug 能跑 / 同名 `x.z42` 撞车报错）。
 
 #### 按名/产物引用的依赖也建闭包
 
