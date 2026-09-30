@@ -1,0 +1,27 @@
+// unify-type-subst：泛型类成员的类型里，类级型参 `T` 藏在**接口实例**或**函数类型**里时也要换成实参。
+// 此前 `_substGeneric` 只下钻数组与类实例：`Box<int>.AsGet()`（返回 `IGet<T>`）拿到的是裸 `T`，
+// `b.AsGet().Get() + 1` 被误报「operator + requires numeric operand, got T」；`Maker()`（返回 `Func<int,T>`）同理。
+// 反方向（漏报）由 z42c.semantics 的 typecheck/type_subst_coverage_tests.z42 守着。
+
+interface IGet<T> { T Get(); }
+
+class Box<T> : IGet<T> {
+    T v;
+    public Box(T x) { this.v = x; }
+    public T Get() { return this.v; }
+    public IGet<T> AsGet() { return this; }
+    public Func<T, int> Measure() { return (T a) => 7; }
+    public Func<int, T> Maker() { return (int a) => this.v; }
+    public IGet<T>[] Both() { return new IGet<T>[] { this, this }; }
+}
+
+void Main() {
+    var b = new Box<int>(3);
+    Assert.Equal(4, b.AsGet().Get() + 1);          // 接口实例里的 T
+    Assert.Equal(4, b.Maker()(0) + 1);             // Func 返回位的 T
+    Assert.Equal(7, b.Measure()(5));               // Func 形参位的 T
+    Assert.Equal(6, b.Both()[1].Get() * 2);        // 数组 → 接口实例 → T
+
+    var s = new Box<string>("hi");
+    Assert.Equal(3, (s.AsGet().Get() + "!").Length);
+}
