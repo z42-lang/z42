@@ -39,6 +39,24 @@ regen 一次 golden `.zbc`、连同 `.z42` 布局打成 `current-sdk-ubuntu-late
 `test-host` 是例外——它每条腿自己从上一版 nightly 种子完整自举一遍（`ci-bootstrap` action），
 这既是 gate 也是「种子能编当前源」这条边界的实测。
 
+### 步骤里怎么调 xtask
+
+两个 bootstrap action（`ci-bootstrap` / `xtask-bootstrap-artifact`）结束时都把
+[`.github/ci/xtask`](../../../../.github/ci/xtask) 所在目录加进 `$GITHUB_PATH`，之后的步骤一律写
+
+```bash
+xtask test all --no-build --skip "$SKIP"
+```
+
+这个垫片封装了三个位置（release z42vm / flat stdlib / `xtask.zpkg`）与两处平台差异：
+Windows 的 `.exe` 后缀，以及 Windows **不能覆盖正在运行的 exe**——`package` 等命令会让 cargo
+重链 `z42vm.exe`，所以 Windows 上它每次都从 cargo 输出目录之外的一份拷贝启动。
+`Z42_PORTABLE_VM` / `Z42_LIBS` 只在调用方没设时给默认值。
+
+⇒ 构建产物布局变了，**CI 侧只改这一个文件**。例外：`test-consume` 故意用下载来的
+current-sdk 里的 z42vm 跑，不走垫片；`bench-pr.yml` / `release.yml` 尚未迁移（前者同一 job
+里要分别驱动 base 与 PR 两棵树）。
+
 ## 2. 触发与门控
 
 | 事件 | 行为 |

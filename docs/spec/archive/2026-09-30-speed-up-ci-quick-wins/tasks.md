@@ -1,6 +1,6 @@
 # Tasks: CI 第一批提速（快速改动）
 
-**状态：🟡 进行中（等 PR CI 实测）| 开始：2026-09-30**
+**状态：🟢 已完成 | 开始：2026-09-30 | 完成：2026-09-30（#957）**
 
 类型：`refactor`（CI 编排，不改构建/测试行为）→ 最小化模式。
 
@@ -12,8 +12,8 @@
 - [x] 阶段 1: ci.yml / composite action 改动
 - [x] 阶段 2: 文档同步
 - [x] 阶段 3: 本地可验的门（actionlint / `test ci-shell` / `test docs`）
-- [ ] 阶段 4: PR CI 实测 + 分支保护调整（移除 `verify-selfhost(linux-x64)` 这个 required check）
-- [ ] 阶段 5: 归档
+- [x] 阶段 4: PR CI 实测（#957 全绿）
+- [x] 阶段 5: 归档
 
 ---
 
@@ -64,6 +64,10 @@
 
 ## 阶段 4: PR CI 实测
 
-- [ ] 全绿（重点看：test-host 三腿的基线门、macOS 消费方用 linux toolchain 是否正常、verify-features check）
-- [ ] 与基线对比墙钟 / job 数
-- [ ] 分支保护移除 `verify-selfhost(linux-x64)`（**合并前必须**，否则 required check 永远 pending）
+- [x] 全绿：27 个检查全过（run 36675368809）。test-host 三条非 Windows 腿的基线门均执行并通过；
+      macOS 消费方（test-stdlib-interp / package-ios / package-host）用 linux toolchain 正常。
+- [x] 实测：verify-features 约 5 min → 1m25s；test-host(linux-x64) 16.5 → 14m38s。
+      整次 run 墙钟 20 min 为改 ci.yml 触发的**全量**（含打包，最长 package-host(windows) 15m54），
+      不与编译器 PR 的 16.7 min 基线直接可比。
+- [ ] 分支保护移除 `verify-selfhost(linux-x64)`：#957 合入时仍在 required 列表里（2026-09-30 查），
+      不移除则此后每个 PR 都会停在等待一个不存在的 check —— 待 User 处理。
