@@ -1,0 +1,74 @@
+// fix-bare-incdec-writeback: ++/-- on a BARE identifier must write back to the
+// same storage it read from. Reads resolve locals first, then instance
+// properties, then fields; the write-back used to test Fields first and emit a
+// raw field_set, so:
+//   - a local shadowing a field: `count++` read the local, wrote `this.count`
+//   - a bare auto-property `P++`: wrote a field literally named `P`, bypassing
+//     set_P / the `__prop_P` backing field
+//   - a bare computed property `Q++`: the setter never ran
+//   - a bare field inside a struct method `n++`: emitted an object field_set on
+//     the struct handle → runtime crash `FieldSet: expected object`
+
+class C {
+    public int count;
+    public int P { get; set; }
+    private int _backing;
+    public int Q { get { return this._backing; } set { this._backing = value * 10; } }
+
+    public void ShadowPost() {
+        int count = 5;
+        var old = count++;
+        Assert.Equal(5, old);
+        Assert.Equal(6, count);
+        Assert.Equal(0, this.count);   // the field must be untouched
+    }
+
+    public void ShadowPre() {
+        int count = 5;
+        var nv = --count;
+        Assert.Equal(4, nv);
+        Assert.Equal(4, count);
+        Assert.Equal(0, this.count);
+    }
+
+    public void BareField() {
+        count++;
+        ++count;
+        Assert.Equal(2, this.count);
+    }
+
+    public void BareAutoProp() {
+        var old = P++;
+        Assert.Equal(0, old);
+        var nv = ++P;
+        Assert.Equal(2, nv);
+        Assert.Equal(2, this.P);
+        P--;
+        Assert.Equal(1, this.P);
+    }
+
+    public void BareComputedProp() {
+        Q++;                           // get → 0, set(1) → _backing = 10
+        Assert.Equal(10, this.Q);
+        ++Q;                           // get → 10, set(11) → _backing = 110
+        Assert.Equal(110, this.Q);
+    }
+}
+
+struct S {
+    public int n;
+    public void Bump() { n++; ++n; }
+}
+
+void Main() {
+    var c = new C();
+    c.ShadowPost();
+    c.ShadowPre();
+    c.BareField();
+    c.BareAutoProp();
+    c.BareComputedProp();
+
+    var s = new S();
+    s.Bump();
+    Assert.Equal(2, s.n);
+}
