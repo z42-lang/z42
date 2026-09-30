@@ -526,6 +526,8 @@ int _testCompilerE2e(string root, string vm, string flat) {
     if (_e2ePathDepScopeChecks(root, vm, driverZpkg) != 0) { return 1; }
     // workspace 成员发现认 members / exclude / 裸名清单（fix-workspace-member-discovery）。
     if (_e2eWsMemberChecks(root, vm, driverZpkg) != 0) { return 1; }
+    // exe 装配 indexed 依赖连散装 zbc 一起拷（fix-bundle-indexed-deps）。
+    if (_e2eBundleIndexedChecks(root, vm, driverZpkg) != 0) { return 1; }
     // exe 私有依赖的复制判据（add-deployment-model 批 1）——工程落 /tmp，见该文件头注。
     if (_e2eDeployPredicateChecks(root, vm, driverZpkg) != 0) { return 1; }
     // probing-paths（add-deployment-model 批 3）：声明的运行期搜索目录 + 侧车跟随。

@@ -99,6 +99,10 @@ int _bundleExeDeps(ProjectManifest pm, string[] closureNames, int closureN, stri
         }
         names[nameN] = cn; deploys[nameN] = ""; nameN = nameN + 1;
     }
+    // 散装 zbc 撞名判据（fix-bundle-indexed-deps）：本包自己的散装 zbc（本 dist 里自己那几个 indexed 主文件的
+    // FILE 目录）+ 本轮已由别的依赖拷入的（rel → 依赖名）。上一轮拷来的旧副本不在两者之内 ⇒ 直接覆盖。
+    StrMap ownZbc = _ownLooseZbc(pm, distDir);
+    StrMap copiedZbc = new StrMap();
     int i = 0;
     while (i < nameN) {
         string dep = names[i];
@@ -126,15 +130,13 @@ int _bundleExeDeps(ProjectManifest pm, string[] closureNames, int closureN, stri
                 }
                 string dst = Path.Join(distDir, zname);
                 if (cand != dst) {
-                    // indexed（开发态）依赖装配不过去：主文件只是目录，函数体在它旁边的散装 zbc 里，而散装 zbc
-                    // 落到本 dist 根下会与本包自己的 zbc 撞名。此前照拷主文件 ⇒ 运行期 `undefined function`。
-                    // 响亮拒绝（fix-path-dep-closure-scope；path 依赖的代建已默认 packed，走到这里的是其他来源）。
+                    // indexed（开发态）依赖：主文件只是目录，函数体在它旁边的散装 zbc 里 ⇒ **连散装 zbc 一起拷**，
+                    // 保持相对布局（加载器按「主文件所在目录 + rel」找）。此前只拷主文件 ⇒ 运行期 `undefined function`
+                    // （fix-bundle-indexed-deps，User 2026-09-30 裁决：保留 indexed、装配时带上散装 zbc）。
                     ZpkgInfo depInfo = ZpkgReader.Open(File.ReadAllBytes(cand), cand);
                     if (depInfo != null && !depInfo.Packed) {
-                        ConsoleError.WriteLine("z42c build: dependency `" + dep + "` (" + cand + ") is an indexed (dev-mode)"
-                            + " zpkg and cannot be bundled into an exe dist — its code lives in loose .zbc files beside it."
-                            + " Rebuild it packed (`--release`, or `pack = true` in its [project]).");
-                        return ExitCode.BuildError;
+                        int lc = _bundleLooseZbc(dep, libsDirs[d], distDir, ZpkgReader.ReadIndexedZbcRels(depInfo), ownZbc, copiedZbc);
+                        if (lc != 0) { return lc; }
                     }
                     if (File.Exists(dst)) { File.Delete(dst); }
                     File.Copy(cand, dst);
@@ -384,4 +386,57 @@ string[] _zpkgRefDirs(ProjectManifest pm, string projectDir) {
     int k = 0;
     while (k < n) { r[k] = dirs[k]; k = k + 1; }
     return r;
+}
+
+// 本 dist 里本包（及 `[[exe]]` 各目标）的 indexed 主文件引用的散装 zbc 相对路径集合。
+StrMap _ownLooseZbc(ProjectManifest pm, string distDir) {
+    StrMap own = new StrMap();
+    string[] mains = new string[pm.ExeCount + 1];
+    mains[0] = pm.Project.Name;
+    int e = 0;
+    while (e < pm.ExeCount) { mains[e + 1] = pm.Exes[e].Name; e = e + 1; }
+    int k = 0;
+    while (k < mains.Length) {
+        string p = Path.Join(distDir, mains[k] + ".zpkg");
+        k = k + 1;
+        if (!File.Exists(p)) { continue; }
+        ZpkgInfo zi = ZpkgReader.Open(File.ReadAllBytes(p), p);
+        if (zi == null) { continue; }
+        string[] rels = ZpkgReader.ReadIndexedZbcRels(zi);
+        int r = 0;
+        while (r < rels.Length) { own.Put(rels[r], "1"); r = r + 1; }
+    }
+    return own;
+}
+
+// 把 indexed 依赖 `dep` 的散装 zbc 从 fromDir 拷到 distDir（保持相对路径）。与本包自己的 zbc、或本轮另一个
+// 依赖的 zbc 撞名 ⇒ 报错（同一路径只能有一份，加载器按路径找）。
+int _bundleLooseZbc(string dep, string fromDir, string distDir, string[] rels, StrMap ownZbc, StrMap copiedZbc) {
+    int r = 0;
+    while (r < rels.Length) {
+        string rel = rels[r];
+        r = r + 1;
+        string owner = "";
+        if (ownZbc.ContainsKey(rel)) { owner = "this package"; }
+        else if (copiedZbc.ContainsKey(rel)) { owner = "dependency `" + (copiedZbc.Get(rel) as string) + "`"; }
+        if (owner.Length > 0) {
+            ConsoleError.WriteLine("z42c build: cannot bundle indexed (dev-mode) dependency `" + dep + "`: its loose file `"
+                + rel + "` collides with the one from " + owner + " in " + distDir
+                + ". Rename one of the source files, or build `" + dep + "` packed (`pack = true` in its [project]).");
+            return ExitCode.BuildError;
+        }
+        string src = Path.Join(fromDir, rel);
+        string dst = Path.Join(distDir, rel);
+        if (!File.Exists(src)) {
+            ConsoleError.WriteLine("z42c build: indexed dependency `" + dep + "` is missing its loose file `" + src
+                + "` (its dist is incomplete — rebuild it)");
+            return ExitCode.BuildError;
+        }
+        string parent = Path.GetDirectoryName(dst);
+        if (parent.Length > 0) { Directory.Create(parent); }
+        if (File.Exists(dst)) { File.Delete(dst); }
+        File.Copy(src, dst);
+        copiedZbc.Put(rel, dep);
+    }
+    return 0;
 }
