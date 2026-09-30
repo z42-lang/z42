@@ -1,6 +1,6 @@
 # Tasks: Windows 上 `z42 publish` 产出的 apphost 嵌入路径错成 `../../C:/...`
 
-**状态：🟡 进行中 | 开始：2026-10-01**
+**状态：🟢 已完成 | 开始：2026-10-01 | 完成：2026-10-01（#981）**
 
 类型：`fix`（z42b，用户可见：Windows 桌面发布的 apphost 起不来）→ 最小化模式。
 
@@ -27,4 +27,4 @@ Error: cannot read `C:\...\ahsmoke\../../C:/Users/.../ahsmoke/app.zpkg`
 
 - [x] `src/toolchain/builder/core/builder_apphost.z42`：`_pubRelPath` 两端规范化
 - [x] 本地 GREEN（macOS，基底 b1fb49b2f，10m19s；本缺陷只在 Windows 显形）
-- [ ] PR CI：`package-host(windows-x64)` 的 desktop-publish smoke 转绿（本修复的实际判据）
+- [x] PR CI：PR 上 package-host 被 path filter skip（z42b 不在 `platform`，由 #985 补上）⇒ 以合入后 main CI 为判据：`package-host(windows-x64)` dist test 816 passed / 0 failed（修前 814 / 1），desktop-publish smoke 绿；其后 main CI（6b0737fef）全绿
