@@ -23,6 +23,7 @@ using Std.IO;
 using Std.Time;
 using Std.Cli;
 using Std.Crypto;
+using Z42.Project;
 
 int _testIncremental(ParseResult r) {
     Stopwatch sw = _procStart("test incremental");
@@ -765,8 +766,31 @@ string _incrXtaskCopy(string root, string scratch) {
         i = i + 1;
     }
     File.WriteAllText(Path.Join(d, "t.z42.toml"),
-        "[project]\nname = \"incrpkg\"\nversion = \"0.1.0\"\nkind = \"lib\"\n[sources]\ninclude = [\"**/*.z42\"]\n");
+        "[project]\nname = \"incrpkg\"\nversion = \"0.1.0\"\nkind = \"lib\"\n[sources]\ninclude = [\"**/*.z42\"]\n"
+        + _incrXtaskPathDeps(src));
     return d;
+}
+
+// 真品 `scripts/xtask.z42.toml` 的 path 依赖，改写成绝对路径的 `[dependencies]` 段（没有 → ""）。
+//
+// 为什么必须带：relocate-compiler-domain-libs（2026-09-27）把 `Z42.Project` / `Z42.Build` 挪出
+// `libs/`，xtask 改为 path 依赖它们 —— 而这份拷贝的替身清单此前只写了 `[project]` + `[sources]`，
+// 于是 xtask 轮当场 `E0494: 命名空间 Z42.Project 不存在`（`initial build failed`）。本门不在 GREEN
+// 也不在 CI 里，所以坏了没人发现。从真品清单读而不是在这里抄一份依赖列表：下次 xtask 加减依赖时
+// 本门自动跟上。名字依赖不用抄（按名走 `Z42_LIBS`，拷贝与真品同解）。
+string _incrXtaskPathDeps(string scriptsDir) {
+    ProjectManifest m = ManifestLoader.Load(Path.Join(scriptsDir, "xtask.z42.toml"));
+    string s = "";
+    int i = 0;
+    while (i < m.DepCount) {
+        DepEntry e = m.Deps[i];
+        if (e.Path.Length > 0) {
+            string abs = Path.Normalize(Path.Join(scriptsDir, e.Path)).Replace("\\", "/");
+            s = s + "\"" + e.Name + "\" = { path = \"" + abs + "\" }\n";
+        }
+        i = i + 1;
+    }
+    return s.Length > 0 ? "[dependencies]\n" + s : "";
 }
 
 // ── 警告必须活过缓存命中（warnings-survive-cache）──────────────────────────────
