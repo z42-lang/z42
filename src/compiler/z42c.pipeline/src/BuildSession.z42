@@ -180,7 +180,10 @@ public sealed class BuildSession {
         while (pi < srcs.Length) {
             Parser pp = new Parser(texts[pi], srcs[pi]);
             pp._features = kn.Features;
-            cus[pi] = pp.ParseCompilationUnit();
+            // AST 相位单一入口（内建 Generator + store-meta 合成 + BenchmarkDesugar）——与 driver `ParseAllTk`、
+            // `IrDump.ParseAll` 同款。漏掉它字段 / 参数 / 属性上的自定义 attribute 就进不了产物元数据
+            // （stdlib reflection / json 的 [JsonProperty] 单测实测判红）。
+            cus[pi] = HandlerRegistry.RunAst(pp.ParseCompilationUnit());
             pi = pi + 1;
         }
         CompileInputs inp = new CompileInputs();
