@@ -75,6 +75,14 @@ int _runModule(ParseResult r, string verb) {
     return _runDevTargets(r, verb, format);
 }
 
+// `--out-root <dir>`：清单没显式配 `output_dir` 时，在内存里给它补 `<dir>/<包名>/${profile}`（不回写文件）。
+// 显式配了的尊重清单。`outRoot` 为空 → 不动。按目标跑与零目标回落两条路共用（见 `_runDevTargets`）。
+void _applyOutRoot(ProjectManifest m, string outRoot) {
+    if (outRoot.Length == 0 || m.Build.HasOutputDir) { return; }
+    m.Build.HasOutputDir = true;
+    m.Build.OutputDir = Path.Join(Path.Join(outRoot, m.Project.Name), "${profile}");
+}
+
 // 解析 → 逐个建 + 跑。任一非零 → 整体非零（继续跑完其余，一次看全）。
 int _runDevTargets(ParseResult r, string verb, string format) {
     string tomlPath = _locateManifest(verb, r.GetPositional(0));
@@ -89,10 +97,7 @@ int _runDevTargets(ParseResult r, string verb, string format) {
     // 与父包写进**源码树**。编排方（xtask）传成员输出目录下的 tests/ | bench/。
     // ⚠️ 不能直接用成员的 workspace output_dir 作父包输出：那样父包 dist 会覆盖 z42c 建的正式成员产物。
     string outRootOpt = r.GetOption("out-root");
-    if (outRootOpt.Length > 0 && !m.Build.HasOutputDir) {
-        m.Build.HasOutputDir = true;
-        m.Build.OutputDir = Path.Join(Path.Join(outRootOpt, m.Project.Name), "${profile}");
-    }
+    _applyOutRoot(m, outRootOpt);
     string nameFilter = r.GetOption("name");
     string substrFilter = r.GetOption("filter");   // 子串筛一批（零命中是正常结果，不报错）
 
@@ -180,8 +185,10 @@ int _runDevTargets(ParseResult r, string verb, string format) {
                 + " 目标，且本包源里没有 [Test]/[Benchmark] —— 无事可做");
             return 0;
         }
-        // 未声明任何目标 → 回落到既有「编译项目自身再跑」的行为。
-        BuildOutcome b0 = _buildProject(r, "");
+        // 未声明任何目标 → 回落到既有「编译项目自身再跑」的行为。`--out-root` 照样生效：`_buildProject`
+        // 会从磁盘重新加载清单，上面那份内存覆盖到不了它 ⇒ 此前独立测试工程带 `--out-root` 仍把产物写回
+        // `<清单目录>/artifacts` + `<清单目录>/dist`（fix-z42b-fallback-out-root）。
+        BuildOutcome b0 = _buildProjectAt(r, "", outRootOpt);
         if (b0.Rc != 0) { return b0.Rc; }
         if (b0.Dist.Length == 0) {
             ConsoleError.WriteLine("z42b " + verb + ": build produced no runnable artifact");

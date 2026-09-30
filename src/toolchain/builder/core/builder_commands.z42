@@ -128,7 +128,10 @@ class BuildOutcome {
 // 编译一个工程 → BuildOutcome。build（mode=""）/ publish 产 dist/<name>.zpkg；export 只
 // orchestrate 到 GenerateProject、不产 dist。诊断在此打印。_runVerb 与 compile-then-test
 // 共用同一份 orchestrate + dist 组装（单一真相；无 target 按 _locateManifest 向上找）。
-BuildOutcome _buildProject(ParseResult r, string mode) {
+BuildOutcome _buildProject(ParseResult r, string mode) { return _buildProjectAt(r, mode, ""); }
+
+// `outRoot` 非空 → 清单加载后套 `_applyOutRoot`（`z42b test --out-root` 的零目标回落用）。
+BuildOutcome _buildProjectAt(ParseResult r, string mode, string outRoot) {
     BuildOutcome o = new BuildOutcome();
     o.Dist = "";
     string tomlPath = _locateManifest(mode.Length > 0 ? mode : "build", r.GetPositional(0));
@@ -137,6 +140,7 @@ BuildOutcome _buildProject(ParseResult r, string mode) {
         return o;
     }
     ProjectManifest m = ManifestLoader.Load(tomlPath);
+    _applyOutRoot(m, outRoot);
     string sourceDir = Path.GetDirectoryName(tomlPath);
     if (sourceDir.Length == 0) { sourceDir = "."; }
     Target t = _makeTarget(r, mode);
