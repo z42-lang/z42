@@ -61,6 +61,11 @@ public sealed partial class ExprParser {
                 idxs[ic] = this._parseExpr(0); ic = ic + 1;
                 while (this._p._peek().Kind == TokenKind.Comma) {
                     this._p._advance();
+                    if (ic == idxs.Length) {   // fix-parser-fixed-arrays：此前定长 8，第 9 个下标即编译器崩溃
+                        Expr[] bigger = new Expr[idxs.Length * 2];
+                        Array.Copy(idxs, bigger, ic);
+                        idxs = bigger;
+                    }
                     idxs[ic] = this._parseExpr(0); ic = ic + 1;
                 }
                 this._p._expect(TokenKind.RBracket, "]");

@@ -253,6 +253,11 @@ public sealed class MemberParser {
             TypeExpr pt = this._p._typeP._parseType();
             string pn = "";
             if (this._p._peek().Kind == TokenKind.Identifier) { pn = this._p._peek().Text; this._p._advance(); }
+            if (pc == params_.Length) {   // fix-parser-fixed-arrays：此前定长 4，第 5 个索引器参数即编译器崩溃
+                Param[] bigger = new Param[params_.Length * 2];
+                Array.Copy(params_, bigger, pc);
+                params_ = bigger;
+            }
             params_[pc] = new Param(pt, pn, sp);
             pc = pc + 1;
         }
