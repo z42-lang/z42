@@ -5,9 +5,11 @@
 //   - a pure function may read a readonly field of a parameter → NPE when the
 //     argument is null (before the fix: opt-off prints 0, opt_all throws);
 //   - purity is inferred optimistically, so a function with a loop that never
-//     terminates is also "pure" → the speculative call hangs.
-// Speculation now additionally requires: no field reads, acyclic CFG, only
-// speculatable callees. Bodies are padded past the inliner's size limit so the
+//     terminates is also "pure" → the speculative call hangs;
+//   - the same for non-terminating recursion → the speculative call overflows
+//     the stack (fix-licm-no-recursive-speculation).
+// Speculation now additionally requires: no field reads, acyclic CFG, no
+// recursion (least fixpoint), only speculatable callees. Bodies are padded past the inliner's size limit so the
 // calls stay calls (inlining would hide the hoist).
 
 class Node {
@@ -84,17 +86,26 @@ int Spin(int k) {
     return k + b0 + b1 + b2 + b3 + b4 + b5 + b6 + b7 + b8 + b9 + b10 + b11 + b12 + b13 + b14 + b15 + b16 + b17 + b18 + b19 + b20 + b21 + b22 + b23 + b24 + b25 + b26 + b27 + b28 + b29;
 }
 
+// never terminates for n < 0 (recursion only — no loop, so only the recursion rule catches it)
+int Rec(int n) {
+    if (n == 0) { return 0; }
+    return Rec(n - 1) + 0;
+}
+
 void Main() {
     Node n = null;
     int s = 0;
     int i = 0;
     int limit = 0;
+    int neg = -1;                    // arg must be defined outside the loop, or LICM would not hoist it
     while (i < limit) {                // zero iterations: neither call may run
         s = s + GetV(n);
         s = s + Spin(1);
+        s = s + Rec(neg);
         i = i + 1;
     }
     Assert.Equal(0, s);
     Assert.Equal(465, GetV(new Node(1)));
     Assert.Equal(435, Spin(0));
+    Assert.Equal(0, Rec(3));
 }

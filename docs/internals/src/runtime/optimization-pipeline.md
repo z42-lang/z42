@@ -220,15 +220,16 @@ pre-header）；⑤ **不变量**：循环体内 IsPure + **单赋值 dst** 指�
 - **「纯」不等于「可投机执行」**（fix-release-opt-soundness）：「无 `throw` 终结子」挡不住所有异常——readonly
   字段读的接收者（形参）可能是 null ⇒ NPE；乐观初值还会把含死循环的函数判纯 ⇒ 投机调用挂死。CSE 不受影响
   （同一处第二次调用，第一次抛/不返回就到不了），LICM 受影响（循环零迭代时原程序根本不调用）。故 LICM 另用
-  `PureTable.IsSpeculatable`：纯 ∧ **不含 `FieldGet`** ∧ **块图无环** ∧ 只调可投机函数（单调收缩不动点，初值 = 纯集）。
-  **递归未排除**——`fib` 外提是本 pass 的设计目标；无限递归在零迭代循环里被投机执行（栈溢出）的风险待裁决。
+  `PureTable.IsSpeculatable`：纯 ∧ **不含 `FieldGet`** ∧ **块图无环** ∧ **不递归** ∧ 只调可投机函数。用**最小**不动点
+  （从空集往上长：callee 全在集中才入集）⇒ 直接 / 互相递归的函数永远入不了集（fix-licm-no-recursive-speculation，
+  User 2026-09-30 裁决正确性优先）。代价：`fib` 这类递归纯函数不再外提，下面那条 ~200× 的实测随之作废；CSE 消重不受影响。
   门：`src/tests/optimization/pure_call_no_speculation.z42`（`opt_all`）。
 - **CSE**（`IrOptInfo.CseKey` 的 `call|Func|argIds` 分支）：同 callee + 全 args 稳定的纯调用消重（纯 = 不依赖
   可变状态 → **无需失效表**，比 readonly 简单）。**LICM**（`IrLicm._isHoistablePureCall`）：全 args 循环不变的
   **可投机**（见上）的纯调用提到 pre-header。
 - **与 inline 的分工**：小函数被 `Inline` 抢先消化（展开成算术，常规 CSE/LICM 处理）；pure-call 的价值在
   **非内联函数**（大 / **递归**）。**正确性主门** `src/tests/optimization/pure_call_hoist/`（开/关一致）。
-  **实测 interp ~200×**（递归 `fib(23)` 循环不变调用被外提：OFF 4.24s → ON 0.02s；bench `pure_call_bench.z42`）。
+  ~~**实测 interp ~200×**（递归 `fib(23)` 循环不变调用被外提）~~——递归已不再投机外提（见上），该收益不复存在。
 
 **pass 2h 常量条件死分支消除（`Opt.DeadBranch=1024`，change `add-const-keyword`；跑在 const-fold 后、licm/cse 前）**：
 喂料来自 [`const` 编译期常量](../../../reference/src/language/const.md)替换（`const bool` 引用 → `ConstBoolInstr`）与 const-fold
