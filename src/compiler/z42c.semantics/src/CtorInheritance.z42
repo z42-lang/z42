@@ -37,10 +37,15 @@ public sealed class CtorInheritance {
     private StrMap _declByKey;   // 类注册键 → 首个 ClassDecl（partial 取首碎片承载合成成员）
     private StrMap _hasInit;     // 类注册键 → "1"：任一碎片有实例初始化器
     private StrMap _done;        // 类注册键 → "1"：已处理（含处理中，防继承环重入）
+    // A5b-2d：类注册键 → 首碎片所在 CU。合成 / 继承构造器时要按**声明方**作用域解析类型名（基类实参、
+    // 形参类型）—— 此前用根表，`class IntBox : Box<int>`（Box 经 using 引入）只能靠短名表兜。
+    private StrMap _cuByKey;
+    private SymbolTable _cur;    // 当前在处理的类的声明方视图（`_process` 设）
 
     public CtorInheritance(SymbolCollector sc, SymbolTable table) {
         this._sc = sc; this._table = table;
         this._declByKey = new StrMap(); this._hasInit = new StrMap(); this._done = new StrMap();
+        this._cuByKey = new StrMap(); this._cur = table;
     }
 
     public void Run(CompilationUnit[] cus, int count) {
@@ -54,7 +59,7 @@ public sealed class CtorInheritance {
                     ClassDecl c = d as ClassDecl;
                     if (c.Kind == "class" || c.Kind == "struct") {
                         string key = this._key(c);
-                        if (!this._declByKey.ContainsKey(key)) { this._declByKey.Put(key, c); }
+                        if (!this._declByKey.ContainsKey(key)) { this._declByKey.Put(key, c); this._cuByKey.Put(key, cu); }
                         if (CtorInheritance._hasInstanceInitializer(this._sc, c)) { this._hasInit.Put(key, "1"); }
                     }
                 }
@@ -105,6 +110,9 @@ public sealed class CtorInheritance {
             }
             bt = this._table.BaseOf(ct);   // A5b-2b-3：走唯一出口（句柄按声明方作用域绑定），不按短名撞赢家
         }
+        // 基类递归处理完之后再设（递归会覆写它）。
+        CompilationUnit dcu = this._cuByKey.Get(key) as CompilationUnit;
+        this._cur = dcu == null ? this._table : this._table.WithScopeOf(dcu);
         MethodSymbol[] inh = CtorInheritance._inheritable(bt);
         if (inh.Length > 0) {
             Z42Type[] targs = this._baseTypeArgs(c, bt);
@@ -158,7 +166,7 @@ public sealed class CtorInheritance {
         if (bt == null || bt.GenericParamCount == 0) { return null; }
         int i = 0;
         while (i < c.BaseCount) {
-            Z42Type t = this._table.ResolveTypeP(c.Bases[i], c.TypeParams.Names, c.TypeParams.Count);
+            Z42Type t = this._cur.ResolveTypeP(c.Bases[i], c.TypeParams.Names, c.TypeParams.Count);
             if (t is Z42InstantiatedType) {
                 Z42InstantiatedType it = t as Z42InstantiatedType;
                 if (it.Def == bt || it.Def.Name() == bt.Name()) { return it.TypeArgs; }
@@ -228,7 +236,7 @@ public sealed class CtorInheritance {
 
     // 注册（与 MemberCollector 的实例方法同一规则：本类首个同名 = primary 裸键，其余全签名 mangle）+ 追加成员。
     private void _add(ClassDecl c, Z42ClassType ct, MethodDecl md, bool primary) {
-        MethodSymbol msym = this._sc._methodSymbol(this._table, md, c.Name, c.TypeParams.Names, c.TypeParams.Count);
+        MethodSymbol msym = this._sc._methodSymbol(this._cur, md, c.Name, c.TypeParams.Names, c.TypeParams.Count);
         string regName = md.Name;
         if (!primary) { regName = OverloadResolver.MangleKey(md.Name, msym.Signature.ParamTypes, msym.Signature.ParamCount); }
         SymbolCollector.RegisterMethod(ct, md, msym, regName);

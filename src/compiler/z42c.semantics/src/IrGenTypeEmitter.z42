@@ -39,7 +39,13 @@ public sealed class IrGenTypeEmitter {
             if (ptIsPartial && g.PartialMerged != null && g.PartialMerged.ContainsKey(c.Name)) {
                 descDecl = g.PartialMerged.Get(c.Name) as ClassDecl;   // 合并碎片：全字段有序 + 基表并集
             }
+            // A5b-2d：合并 ClassDecl 的成员来自多个碎片 ⇒ 按「主碎片作用域 + 全部碎片 using」解析（见 CuCompile._fragmentScope）。
+            SymbolTable savedSyms = g._symbols;
+            if (descDecl != c && g.PartialMerged.ContainsKey(CuCompile.PartialScopeKey(c.Name))) {
+                g._symbols = g.PartialMerged.Get(CuCompile.PartialScopeKey(c.Name)) as SymbolTable;
+            }
             IrClassDesc cdesc = g._classDescB._classDesc(descDecl, HandlerRegistry.HasRecord(rawDecl));   // add-record-attribute
+            g._symbols = savedSyms;
             cdesc.Attrs = g._classDescB._attrRefs(rawDecl); cdesc.AttrCount = cdesc.Attrs.Length;   // add-attribute-reflection
             this._out.AddClass(cdesc);
         }

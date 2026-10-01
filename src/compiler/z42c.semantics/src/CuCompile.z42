@@ -32,6 +32,7 @@ public static class CuCompile {
                         if (isPart) {
                             seen.Put(cd.Name, "1");
                             merged.Put(cd.Name, CuCompile._mergeFragments(cus, count, cd));
+                            merged.Put(CuCompile.PartialScopeKey(cd.Name), CuCompile._fragmentScope(cus, count, a, cd, symbols));
                         }
                     }
                 }
@@ -41,6 +42,27 @@ public static class CuCompile {
         }
         return merged;
     }
+    // A5b-2d：合并 ClassDecl 的解析作用域（同表另一个键，名字里不可能有 `:` ⇒ 不撞类名）。见 `_fragmentScope`。
+    public static string PartialScopeKey(string name) { return "scope:" + name; }
+
+    // 主碎片所在 CU 的作用域 + 全部碎片 using 的并集。此前合并 ClassDecl 按**主碎片**的 using 解析全部成员 ⇒
+    // 别的碎片里靠自己 `using` 引入的类型（`FlowAnalyzer.z42` 的 `StrMap` 字段，主碎片是没写 `using Z42.IR;`
+    // 的 `FlowAnalyzer.Reachability.z42`）只能落短名表回落；删回落后 TYPE 段会退成短名拼写。
+    private static SymbolTable _fragmentScope(CompilationUnit[] cus, int count, int headCu, ClassDecl head, SymbolTable symbols) {
+        SymbolTable v = symbols.WithScopeOf(cus[headCu]);
+        int a = 0;
+        while (a < count) {
+            int di = 0;
+            while (di < cus[a].DeclCount) {
+                Decl d = IrGenFacts._unwrap(cus[a].Decls[di]);
+                if (d is ClassDecl && (d as ClassDecl).Name == head.Name && (d as ClassDecl).Kind == head.Kind) { v.AddScopeUsingsOf(cus[a]); di = cus[a].DeclCount; }
+                di = di + 1;
+            }
+            a = a + 1;
+        }
+        return v;
+    }
+
     // 拼接同名 partial 碎片为一条 ClassDecl：成员（Ordinal(cus)+声明序）+ 基表并集（Dump dedup）；
     // 壳（kind/mods/name/tps/wheres/span）取 head（=首碎片=主碎片，与 PartialMainFile 一致）。
     private static ClassDecl _mergeFragments(CompilationUnit[] cus, int count, ClassDecl head) {

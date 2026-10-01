@@ -5,6 +5,21 @@ using Z42.Syntax;
 // 类型名解析（从 ExportedTypeExtractor 分出）：TypeExpr / Z42Type → TSIG 表面拼写。
 // 纯叶子工具，供 ClassExtractor / FuncImplExtractor / MemberCollector（TsigTypeName/SurfaceTypeName）调用。
 public static class TypeNameResolver {
+    // A5b-2d：回写成类型表达式时，有声明 ns 的类 / 接口写 **FQN** —— 它是已经解析好的类型，按调用点作用域
+    // 再按短名解析一遍可能查不到（本文件没 using 它的 ns）或查到别的同短名类型。基元（关键字拼写）、enum
+    // （EnumTypes 按短名键）、全局 ns 的类型仍写短名。
+    public static string SynthName(Z42Type t) {
+        if (t is Z42ClassType) {
+            Z42ClassType ct = t as Z42ClassType;
+            if (ct.PrimCode() < 0 && !ct.IsEnum && ct.Namespace != null && ct.Namespace != "") { return ct.Namespace + "." + ct.Name(); }
+        }
+        if (t is Z42InterfaceType) {
+            Z42InterfaceType it = t as Z42InterfaceType;
+            if (it.Namespace != null && it.Namespace != "") { return it.Namespace + "." + it.Name(); }
+        }
+        return t.Name();
+    }
+
 
     // 方法/函数**签名**类型名（ret + param）：规范化 prim 名（byte→u8 等）+ 保留数组/nullable 结构。
     // 镜像 C# FuncToMethod 用 `TypeToString(resolved)`——C# 自 G17c-2 后漂移：方法签名类型走规范名
