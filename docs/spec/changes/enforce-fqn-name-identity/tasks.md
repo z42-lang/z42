@@ -540,7 +540,21 @@ User 2026-09-30 裁定走 **A：按规范办**（补 `using` + 让规则 2 在�
      只有位置变（`noimport` 示例 (1,1) → (2,5)），参考手册 error-codes / namespaces 同步。
    - 欠账 `fqn-symbol-key` 销账（`stage2-debt.txt` 删条目、源码标记删除）。
    - 未做：`Classes` / `Interfaces` 两张短名表仍在（遍历、arity-mangle 探测、诊断里数同短名）；
-     `ResolveTypeP` 自带的几条名字解析分支未在本步审计。
+     `ResolveTypeP` 自带的几条名字解析分支未在本步审计（→ A5b-2d）。
+- [x] A5**b-2d** ✅ `ResolveTypeP`（类型注解位）删短名表回落（2026-10-01，`resolvetype-scope-only`）。
+   - 它的类 / 接口查找此前只有「外围链 → 短名表」两步，**没有 using / prelude 这两层** ⇒ 经 using / prelude 引入的
+     类型名全靠短名表 first-wins 兜。探针（全量 GREEN 当语料，`Z42_PROBE_FILE`）首轮 97 次：
+     · **答错**（DIFF）：「只有一个 using 可见」却绑到不可见的那份（`test_only_one_using_visible_is_not_ambiguous`）；
+     · 根表上解析：`CtorInheritance`（跨 CU 处理、拿根表）/ `_passInheritFields` ⇒ 改按声明方 CU 作用域；
+     · 合成类型写短名：集合字面量的 `List` / `Dictionary`、`_typeToTypeExpr` ⇒ 写 FQN（`TypeNameResolver.SynthName`）；
+     · **partial 合并 ClassDecl** 按主碎片作用域解析全部成员：`FlowAnalyzer.z42` 的 `StrMap` 字段，主碎片是没写
+       `using Z42.IR;` 的 `FlowAnalyzer.Reachability.z42` ⇒ 「主碎片作用域 + 全部碎片 using」（`CuCompile._fragmentScope`）；
+     · 限定接口名 `D.IF` 剥短名再撞 ⇒ 由新增的作用域解析（含 FQN 一步）承接。
+   - 删除：外围链之后的短名表回落（arity-mangle 键 / 裸名 / 接口）、G19b「限定名剥最后一段」整支；嵌套 `Outer+Inner`
+     键改走作用域解析。enum（`EnumTypes`）/ delegate（`Delegates`）两张短名表未动。
+   - 最后的依赖方是 7 个测试源码（z42.collections 的 6 个 golden + `struct_generic_container`）：用 `List` / `Dictionary`
+     不写 `using Std.Collections;`。单文件 `--emit-zbc` 路径不跑文件级 E0436，一直靠短名表静默通过 ⇒ 补 using。
+   - 用户可见：类型注解位没 using 的类型名在引用处报 E0436（同 A5b-2c 的表达式位）；单文件 `--emit-zbc` 此前静默放行，现在同样报。
 
 ### A5b 测绘（2026-09-29，探针跑全量 `build stdlib`，21,078 次 `GetClass`）
 

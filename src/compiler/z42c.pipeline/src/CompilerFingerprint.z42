@@ -113,7 +113,10 @@ public static class CompilerFingerprint {
         // generated-usings-no-lint：generator 碎片从宿主抄来的 using 不再报 W0607 / W0608 —— 诊断变少。
         "generated-usings-no-lint",
         // fix-class-identity-ns：同短名不同命名空间的两个类不再互相可赋（IsAssignableTo 同名判据加 ns）—— 新发 E0402。stdlib 19 包字节不变。
-        "fix-class-identity-ns"
+        "fix-class-identity-ns",
+        // resolvetype-scope-only（A5b-2d）：类型注解位的名字只走作用域解析（外围链 / FQN / using / prelude），短名表回落删除；
+        // 同短名跨 ns 时答案可能变，没 using 的类型名改在引用处报 E0436。
+        "resolvetype-scope-only"
     };
 
     // 指纹值：`Entries` 逐条以 `\n` 连接后取内容哈希（`mmh3:` 前缀，同 SourceHash）。
