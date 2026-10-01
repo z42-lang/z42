@@ -164,6 +164,19 @@ public sealed class EmitContext {
         return false;
     }
 
+    // 基类链上一跳：先走句柄（`BaseOf`）。此前按 `BaseName` 字符串 `GetClass` —— 那是在**调用方** CU 的作用域里
+    // 解析**声明方**写的短名，声明方的 `using` 在这里不可得（z42.net 里 `: Stream` 的类被别的 ns 调用时）⇒ 落裸名回落。
+    // 句柄没绑上（泛型基 `Bag<T>` 的 `_refOfClass` 不剥实参 ⇒ `Base == 0`）时保留原路径：剥尖括号按名字查。
+    private Z42ClassType _nextBase(Z42ClassType ct) {
+        Z42ClassType nx = this.Symbols.BaseOf(ct);
+        if (nx != null) { return nx; }
+        string bare = ct.BaseName;
+        int bi = 0;
+        while (bi < bare.Length) { if (bare.CharAt(bi) == '<') { bare = bare.Substring(0, bi); bi = bare.Length; } else { bi = bi + 1; } }
+        if (!this.Symbols.HasClass(bare)) { return null; }
+        return this.Symbols.GetClass(bare);
+    }
+
     // receiver 静态类型的该方法是否**虚**（virtual / abstract / 经 override 参与 vtable）。
     // 跨 zpkg 具体基类 override 的根因修复：imported 类走 ChainHasMethod 恒 false → 落 DepIndex
     // instance 直呼捷径（FQ Call `Ns.Base.M`），把基类实现**编译期钉死** → 子类 override 永不
@@ -194,11 +207,9 @@ public sealed class EmitContext {
                 i = i + 1;
             }
             if (!ct.HasBase || ct.BaseName == "") { return false; }
-            string bare = ct.BaseName;
-            int bi = 0;
-            while (bi < bare.Length) { if (bare.CharAt(bi) == '<') { bare = bare.Substring(0, bi); bi = bare.Length; } else { bi = bi + 1; } }
-            if (this.Symbols == null || !this.Symbols.HasClass(bare)) { return false; }
-            ct = this.Symbols.GetClass(bare);
+            if (this.Symbols == null) { return false; }
+            ct = this._nextBase(ct);
+            if (ct == null) { return false; }
             hops = hops + 1;
         }
         return false;
@@ -408,11 +419,9 @@ public sealed class EmitContext {
             }
             // 沿基链上溯（去泛型尖括号，同 ReceiverMethodIsVirtual）。
             if (!ct.HasBase || ct.BaseName == "") { return ""; }
-            string bare = ct.BaseName;
-            int bi = 0;
-            while (bi < bare.Length) { if (bare.CharAt(bi) == '<') { bare = bare.Substring(0, bi); bi = bare.Length; } else { bi = bi + 1; } }
-            if (this.Symbols == null || !this.Symbols.HasClass(bare)) { return ""; }
-            ct = this.Symbols.GetClass(bare);
+            if (this.Symbols == null) { return ""; }
+            ct = this._nextBase(ct);
+            if (ct == null) { return ""; }
             hops = hops + 1;
         }
         return "";

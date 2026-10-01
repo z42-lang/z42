@@ -506,7 +506,21 @@ User 2026-09-30 裁定走 **A：按规范办**（补 `using` + 让规则 2 在�
    - ⚠️ 顺带发现、**未修**：`Z42ClassType.IsAssignableTo` 按短名判同一（`this._name == other.Name()`）⇒
      `Base l = c;`（`c : Demo.Lib.Core.Base`、`Base` 是本地类）零诊断。属阶段 4「类身份按 FQN」的范围。
 
-- [ ] A5**b-2c** 删四访问器的短名回落 + 清死码（**必须在上面 2/3/4/5 之后**）
+6. ✅ **类表逐键回查不再走作用域解析**（2026-10-01，`fix-class-scan-lookup`）：第 5 步记下的 z42.io 3614 次，
+   探针加调用栈后定位到三处，都不是源码引用：
+   - `TypeChecker._suggestVia`（「经中间类型 B 可转换」的诊断提示）：**每个分类为 None 的 cast** 都把整张类表扫一遍，
+     对每个键 `GetClass(key)`、再拿 `B.Name()` 进 `Conversion._findConvOn` 回查两次 ⇒ 别的 ns 的导入类在调用点作用域下
+     查不到，全落裸名回落（z42.io 133 个类名 × 每个 cast）。改为 `Classes.Get(key)` 直接取值 + 新增对象版
+     `Conversion._classifyUserToCt` / `_classifyUserFromCt`（B 那一侧直接查对象）。
+   - `ExhaustCheck`（switch 穷举）同款遍历：`GetClass(cn)` → `Classes.Get(cn)`。
+   - `EmitContext.ReceiverMethodIsVirtual` / 静态直呼的基类链：按 `BaseName` 字符串在**调用方** CU 作用域里查**声明方**
+     写的短名（z42.net 里 `: Stream` 的类被别的 ns 调用）⇒ 改为先走句柄 `BaseOf`，句柄没绑上（泛型基）时保留原路径。
+   - **探针**：stdlib 19 包 + 编译器 9 包全量，裸名回落 **0 次**（本 PR 前、#1004 后：3 次，全是 `EmitContext` 那条）。
+   - **字节**：同协议对比，28 包里只有源码改了的 z42c.semantics 自身不同，其余逐字节一致。编译耗时无可测变化（z42.io 1.5s）。
+   - 诊断在同短名类并存时可能变 ⇒ 指纹条目 `fix-class-scan-lookup`。
+   ⇒ **A5b-2c 的前置已清**（以 stdlib + 编译器为样本；tests / examples 待删回落时由 GREEN 兜）。
+
+- [ ] A5**b-2c** 删四访问器的短名回落 + 清死码（**必须在上面 2/3/4/5/6 之后**）
 
 ### A5b 测绘（2026-09-29，探针跑全量 `build stdlib`，21,078 次 `GetClass`）
 

@@ -103,7 +103,10 @@ public static class CompilerFingerprint {
         "add-sdk-libs-visibility",
         // fix-imported-base-fqn：导入类的基类名改用元数据里的 FQ（ExportedClassZ.BaseFqn），class 到 class 的转换判定改按对象 ——
         // 本地类与跨 ns 导入基类同短名时，基类不再被绑成本地类（该报的 E0402 报出、合法向上转型不再误报）。
-        "fix-imported-base-fqn"
+        "fix-imported-base-fqn",
+        // fix-class-scan-lookup：遍历类表的两处诊断（转换中间类型提示、switch 穷举）按表键直接取值，EmitContext 基类链走句柄 ——
+        // 不再按调用点作用域把短名再解析一遍（同短名类并存时诊断答案可能变）。stdlib 19 包字节不变。
+        "fix-class-scan-lookup"
     };
 
     // 指纹值：`Entries` 逐条以 `\n` 连接后取内容哈希（`mmh3:` 前缀，同 SourceHash）。

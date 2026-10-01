@@ -217,7 +217,8 @@ public sealed partial class SymbolTable {
         //   ClassExtractor / partial 合并）+ 基类句柄绑定 + 接口成员校验，都跑在无作用域的根表上。
         //   修后 **17 次**，全是导入类的**跨 ns** 基类名（`Type : MemberInfo`、`*Stream : Stream`）——
         //   fix-imported-base-fqn 起导入类带 FQ 基类名（`ExportedClassZ.BaseFqn`），同口径探针 7 → 0。
-        //   ⚠️ 但 z42.io 下仍有 3614 次：按类表逐键回查的 pass（非源码引用），删本支前要先找出它。
+        //   z42.io 下另有 3614 次来自按类表逐键回查（`_suggestVia` / `ExhaustCheck`）+ `EmitContext` 按名字走基类链 ——
+        //   fix-class-scan-lookup 改为直接取值 / 走句柄后，stdlib 19 包 + 编译器 9 包全量探针 **0 次**。
         // 下面是 A5b-2a 时的记录（「父 ns 引用」那 36 次已由 A5b-2b-1 补 `using` 消掉）：
         // 🔴 **它今天还在替两条真规则兜底**，删之前必须先把这两条实现掉（实测残留 2838 次）：
         //   · **98.7%（2802 次）**：调用发生在**没设作用域**的表视图上（`ScopeNs` 为空）——
