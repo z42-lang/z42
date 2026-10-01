@@ -221,6 +221,30 @@ public sealed partial class SymbolTable {
         return t;
     }
 
+    // A5b-2d：把另一个 CU 的 `using` 并进本视图（去重）。partial 类型的合并 ClassDecl 用：成员来自多个文件，
+    // 代码生成期再解析成员类型名时没有「哪个文件」可言 ⇒ 用各碎片 using 的并集（各碎片同 ns）。
+    // 成员类型在收集期已按各自碎片的作用域解析过，这里只是 TYPE 段写 FQN 时的再解析。
+    public void AddScopeUsingsOf(CompilationUnit cu) {
+        int ui = 0;
+        while (ui < cu.DeclCount) {
+            if (cu.Decls[ui] is UsingDecl) {
+                string nm = (cu.Decls[ui] as UsingDecl).Name;
+                bool dup = false;
+                int k = 0;
+                while (k < this.ScopeUsingCount) { if (this.ScopeUsings[k] == nm) { dup = true; } k = k + 1; }
+                if (!dup) {
+                    if (this.ScopeUsingCount == this.ScopeUsings.Length) {
+                        string[] bigger = new string[this.ScopeUsings.Length * 2 + 1];
+                        int z = 0; while (z < this.ScopeUsingCount) { bigger[z] = this.ScopeUsings[z]; z = z + 1; }
+                        this.ScopeUsings = bigger;
+                    }
+                    this.ScopeUsings[this.ScopeUsingCount] = nm; this.ScopeUsingCount = this.ScopeUsingCount + 1;
+                }
+            }
+            ui = ui + 1;
+        }
+    }
+
     private void _setScope(CompilationUnit cu) {
         this.ScopeNs = cu.HasNamespace ? cu.Namespace : "";
         this.ScopeChain = NsScope.Chain(this.ScopeNs);
@@ -503,6 +527,19 @@ public sealed partial class SymbolTable {
                 }
                 _ich = _ich + 1;
             }
+            // A5b-2d：再走完整的作用域解析（FQN → using → prelude；与 `GetInterface` 同一出口）。此前这里只有
+            // 「外围链 → 短名表」两步 ⇒ 凡经 `using` / prelude 引入的接口名都靠短名表 first-wins 赢家兜着，
+            // 同短名跨 ns 时可能答错；限定写法 `D.IF` 也只能剥成短名再撞（下方 G19b）。
+            Z42InterfaceType sci = this._resolveIface(n);
+            if (sci != null) {
+                if (nt.ArgCount > 0) {
+                    Z42Type[] scargs = new Z42Type[nt.ArgCount];
+                    int sca = 0;
+                    while (sca < nt.ArgCount) { scargs[sca] = this.ResolveTypeP(nt.Args[sca], paramNames, paramCount); sca = sca + 1; }
+                    return new Z42InstantiatedInterfaceType(sci, scargs, nt.ArgCount);
+                }
+                return sci;
+            }
             int _sl1 = this.Interfaces.Find(n);
             if (_sl1 >= 0) {
                 Z42InterfaceType idef = this.Interfaces.ValAt(_sl1) as Z42InterfaceType;
@@ -544,6 +581,19 @@ public sealed partial class SymbolTable {
                     string sfq0 = _lvl + "." + n;
                     if (this.ClassesByFqn.ContainsKey(sfq0)) { return this.ClassesByFqn.Get(sfq0) as Z42ClassType; }
                 }
+            }
+            // A5b-2d：类同款 —— 完整作用域解析（与 `GetClass` 同一出口），短名表退到最后。泛型先试 arity-mangle 键。
+            Z42ClassType scc = null;
+            if (nt.ArgCount > 0) { scc = this._resolveClass(n + "$" + nt.ArgCount.ToString()); }
+            if (scc == null) { scc = this._resolveClass(n); }
+            if (scc != null) {
+                if (nt.ArgCount > 0) {
+                    Z42Type[] sctargs = new Z42Type[nt.ArgCount];
+                    int sct = 0;
+                    while (sct < nt.ArgCount) { sctargs[sct] = this.ResolveTypeP(nt.Args[sct], paramNames, paramCount); sct = sct + 1; }
+                    return new Z42InstantiatedType(scc, sctargs, nt.ArgCount);
+                }
+                return scc;
             }
             if (nt.ArgCount > 0) {
                 string mangled = n + "$" + nt.ArgCount.ToString();

@@ -98,6 +98,7 @@ public sealed class InheritanceResolver {
     // _classDesc 用 AST c.Members 发 TYPE 段字段，不读此表 → 合并不污染字段布局。
     internal void _passInheritFields(SymbolTable table, CompilationUnit cu) {
         table.CurrentAliases = SymbolTable.BuildAliases(cu);   // add-type-alias
+        table = table.WithScopeOf(cu);   // A5b-2d：基类实参（`class IntBox : Box<int>`）按本 CU 作用域解析，同 _passImpls
         int i = 0;
         while (i < cu.DeclCount) {
             Decl d = this._sc._unwrap(cu.Decls[i]);
