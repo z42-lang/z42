@@ -15,7 +15,8 @@
       `TypeChecker._isVisibleNs` / `_enforceFileScope` / `_activeNamespaces` / 包激活（`IrDump.ActivationNsOf`）
 - [x] 1.5 字节：`test fingerprint` 19 包逐字节一致；诊断与同名冲突时的解析答案会变 ⇒ 指纹条目
 - [x] 1.6 文档：参考手册 namespaces.md 规则 5 + E0436 口径；semantics README
-- [ ] 1.7 （晚一个 nightly）driver `--emit-zbc` 包激活改用 `ActivationNsOf`
+- [x] 1.7 （晚一个 nightly）driver `--emit-zbc` 包激活改用 `ActivationNsOf`（nightly main@77a6bfc 已含该符号）；
+      golden `src/tests/basic/enclosing_ns_activation`（`namespace Std.Collections.Probe;` 不写 using 用 `Stack<T>`，修前 E0443）
 
 ## PR-2 立门（using-csharp-strict-gate）
 - [x] 2.1 修复前红：`z42c.pipeline/tests/usinggate/`（同包跨 ns 的裸名 / 限定名 / 静态调用 / enum 常量 / 自由函数 /

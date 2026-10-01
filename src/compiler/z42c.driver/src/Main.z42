@@ -77,7 +77,12 @@ void Main() {
         if (ezEnv.Length > 0) {
             string[] ezDirs = new string[1]; ezDirs[0] = ezEnv;
             DepScanResult ezScan = DepScan.ScanDirs(ezDirs, 1, "", new string[0], 0, null);
-            string[] ezUsings = IrDump.ExtractUsings(ezText, file);
+            // using-csharp-rules 1.7：激活集 = using ∪ 本文件 ns 的外围链（与包编译 `PackageCompile` 同一出口
+            // `ActivationNsOf`）。此前只看 using ⇒ `namespace Std.Collections.X;` 里不写 using 用 `Stack<T>`
+            // 时 z42.collections 根本不加载。借 `ParseAll` 解析：driver 自己的 `new Parser` 只许两处（见 IncrementalDriver）。
+            string[] ezSrc1 = new string[1]; ezSrc1[0] = ezText;
+            string[] ezFile1 = new string[1]; ezFile1[0] = file;
+            string[] ezUsings = IrDump.ActivationNsOf(IrDump.ParseAll(ezSrc1, ezFile1, 1)[0]);
             ezImported = ImportedSymbolLoader.Load(
                 ezScan.Exported, ezScan.ExportedPkg, ezScan.ExportedCount, ezUsings, ezUsings.Length);
             ezIndex = ezScan.Index;
