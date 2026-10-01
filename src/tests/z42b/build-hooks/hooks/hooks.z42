@@ -5,5 +5,9 @@ using Z42.Build;
 
 // hook 目录没有 Main：按 lib 清单编译（此前旧编译面固定 exe，z42b 得拷到 staging 再合成一个 no-op Main）。
 public class ProjectHooks : BuildHooks {
-    public override void BeforeAssets(IPipelineContext ctx) { Console.WriteLine("BUILD-HOOKS-SMOKE: BeforeAssets ran"); }
+    // 打出收到的 Target.Mode：_smokeBuildHooksMode 据此断言 `publish` / `publish --self-contained` 各传对了值
+    // （项目 hook 靠它决定要不要准备 embed 产物，见 scripts/hooks/hooks.z42）。
+    public override void BeforeAssets(IPipelineContext ctx) {
+        Console.WriteLine("BUILD-HOOKS-SMOKE: BeforeAssets ran (mode=" + ctx.Target.Mode + ")");
+    }
 }

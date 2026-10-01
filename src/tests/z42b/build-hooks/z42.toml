@@ -13,3 +13,9 @@ include = ["src/**/*.z42"]
 
 [build]
 hooks = "hooks"
+
+# `_smokeBuildHooksMode` 要跑普通 `z42b publish`（断言 hook 收到 Mode = publish）：没有这一节，publish 在调 hook
+# 之前就以「not configured to publish a desktop apphost」退出。stub 由测试经 Z42_APPHOST_TEMPLATE 给一个假的，
+# 部署成败与该格无关。
+[platform.desktop]
+apphost = true

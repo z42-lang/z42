@@ -821,6 +821,8 @@ string _pubHooksInterDir(TomlValue toml, string tomlPath, string projName) {
 // (embed-workload-publish). Same load+run as _pubHookApphostStub, but returns
 // the full output set so --self-contained can harvest its embed-* kinds. Empty
 // array if no [build] hooks; null on hook load/run failure (caller fails the publish).
+// 只有 --self-contained 走这里 ⇒ `Target.Mode = PublishSelfContained`：hook 据此才去准备 embed 产物
+// （普通 publish 的 `_pubHookApphostStub` 传 `Publish`，hook 不必白编 libz42.a）。
 Output[] _pubRunHooks(TomlValue toml, string tomlPath, string projName, string rid) {
     string hooksRel = _pubTomlStr(toml, "build", "hooks", "");
     if (hooksRel.Length == 0) { return new Output[0]; }
@@ -831,7 +833,7 @@ Output[] _pubRunHooks(TomlValue toml, string tomlPath, string projName, string r
     BuildHooks h = _loadProjectHooks(hooksDir, interDir, projName + ".hooks");
     if (h == null) { return null; }
     PipelineContext ctx = new PipelineContext();
-    ctx.Target = new Target(rid, TargetFamily.Desktop, "release", BuildMode.Publish);
+    ctx.Target = new Target(rid, TargetFamily.Desktop, "release", BuildMode.PublishSelfContained);
     ctx.Dirs   = new Dirs(projDir, "", interDir, interDir);
     try { h.BeforeAssets(ctx); }
     catch (Exception e) {
