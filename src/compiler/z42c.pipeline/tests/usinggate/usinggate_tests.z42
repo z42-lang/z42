@@ -10,6 +10,7 @@ namespace Z42cPipelineUsingGateTests;
 using Std.IO;
 using Z42.Pipeline;
 using Z42.Semantics;
+using Z42.IR;
 
 // 多源同包 + 真实依赖世界（无 Z42_LIBS 时各用例早退）。
 CompileArtifacts ugCompile(string[] srcs) {
@@ -225,4 +226,41 @@ void test_generated_source_inherits_usings_without_warnings() {
     Assert.Equal(0, art.ErrorCount);
     Assert.Equal(0, ugCount(art, "W0607"));
     Assert.Equal(0, ugCount(art, "__gen$"));
+}
+
+// using-csharp-rules 2.9：cached 文件的 E0436 判据要有 `UsedNs`（同包跨 ns 那一半）——由 meta 回填。
+CompileArtifacts ugCompileCached(string[] srcs, IrModule[] cachedMods, CachedNsMeta[] cachedMetas) {
+    string libs = Environment.GetEnvironmentVariable("Z42_LIBS", "");
+    string[] dirs = libs.Split(":");
+    int n = srcs.Length;
+    string[] files = new string[n];
+    string[] hashes = new string[n];
+    int i = 0;
+    while (i < n) { files[i] = "f" + i.ToString() + ".z42"; hashes[i] = "H" + i.ToString(); i = i + 1; }
+    CompileInputs cin = new CompileInputs();
+    cin.Texts = srcs; cin.Files = files; cin.SrcHashes = hashes; cin.SrcCount = n;
+    cin.Cus = IrDump.ParseAll(srcs, files, n);
+    cin.CachedMods = cachedMods; cin.CachedMetas = cachedMetas;
+    cin.Name = "demo.ug"; cin.Version = "0.1.0"; cin.Kind = "lib";
+    cin.HasEntry = false; cin.Entry = "";
+    cin.IsRelease = false;
+    cin.LibsDirs = dirs; cin.LibsDirsN = dirs.Length;
+    cin.DeclaredDeps = new string[0]; cin.DepCount = 0;
+    return PackageCompile.Compile(cin);
+}
+
+[Test]
+void test_cached_file_still_reports_E0436_after_global_using_removed() {
+    // 第一次：f0 的 `global using A;` 让 f1 不写 using 也能用 `W`。第二次：f0 删掉 global using、f1 源码没变走 cached ——
+    // f1 的同包跨 ns 引用必须报 E0436。修前 cached 文件只回填 `UsedDepNs`（依赖包那一半），`A` 是本包 ns ⇒ 不报。
+    if (!ugHasLibs()) { return; }
+    string f1 = "namespace B;\nint F() { W w = new W(); return w.V; }\n";
+    CompileArtifacts a1 = ugCompile(ug2(ugLibA() + "global using A;\n", f1));
+    Assert.Equal(0, a1.ErrorCount);
+    IrModule[] cm = new IrModule[2]; cm[1] = a1.Cms[1].Module;
+    CachedNsMeta[] meta = new CachedNsMeta[2];
+    meta[1] = new CachedNsMeta(a1.Cms[1].UsedDepNs, a1.Cms[1].UsedDepNsCount);
+    meta[1].UsedNs = a1.Cms[1].UsedNs;
+    CompileArtifacts a2 = ugCompileCached(ug2(ugLibA(), f1), cm, meta);
+    Assert.Equal(1, ugCount(a2, "namespace `A` is used but not imported"));
 }

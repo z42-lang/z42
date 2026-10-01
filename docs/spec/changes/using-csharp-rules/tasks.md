@@ -15,7 +15,8 @@
       `TypeChecker._isVisibleNs` / `_enforceFileScope` / `_activeNamespaces` / 包激活（`IrDump.ActivationNsOf`）
 - [x] 1.5 字节：`test fingerprint` 19 包逐字节一致；诊断与同名冲突时的解析答案会变 ⇒ 指纹条目
 - [x] 1.6 文档：参考手册 namespaces.md 规则 5 + E0436 口径；semantics README
-- [ ] 1.7 （晚一个 nightly）driver `--emit-zbc` 包激活改用 `ActivationNsOf`
+- [x] 1.7 （晚一个 nightly）driver `--emit-zbc` 包激活改用 `ActivationNsOf`（nightly main@77a6bfc 已含该符号）；
+      golden `src/tests/basic/enclosing_ns_activation`（`namespace Std.Collections.Probe;` 不写 using 用 `Stack<T>`，修前 E0443）
 
 ## PR-2 立门（using-csharp-strict-gate）
 - [x] 2.1 修复前红：`z42c.pipeline/tests/usinggate/`（同包跨 ns 的裸名 / 限定名 / 静态调用 / enum 常量 / 自由函数 /
@@ -34,6 +35,10 @@
 - [x] 2.8 文档：参考手册 namespaces.md（E0436 口径、「用到」的定义、合成类型例外）；学习手册 organization 章 + OUTLINE；README
 - [ ] 2.9 （晚一个 nightly）`UsedNs` 持久化进 cache meta（driver 的 IncrementalDriver / CachedNsMeta）—— 此前 cached 文件
       只按 `UsedDepNs` 判：另一个文件删掉 `global using` 时，cached 文件的同包跨 ns 引用不会报 E0436
+  - [x] 2.9a pipeline 侧（support）：`CacheMeta.UsedNs` + `usedns` 行（MetaVersion 8→9）、`CachedNsMeta.UsedNs`、
+        `PackageCompile` 回填。用例 `usinggate` 的 cached 回填（关掉回填即红）+ `incremental` meta 往返
+  - [ ] 2.9b driver 侧（use，再晚一个 nightly）：`IncrementalDriver` 写 `m.UsedNs = cms[i].UsedNs`、`Main` 构造
+        `CachedNsMeta` 时带上 `UsedNs` —— driver 冷编时链的是种子的 pipeline，新字段要等它进 nightly
 - [ ] 2.10 （可选，C# 口径）E0436 只看 `UsedNs`：`UsedDepNs` 按接收者类型记实例调用，C# 不算「用到」；需 2.9 落地后再收
 
 ## PR-3 多余 using 告警（using-csharp-unused-warning）
