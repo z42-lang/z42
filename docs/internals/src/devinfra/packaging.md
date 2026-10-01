@@ -6,14 +6,15 @@
 > 清单怎么组织、组件怎么产出、组装完为什么还有一道逐字节的门。
 
 `xtask package` 把仓库产物组装成发行包。核心是数据清单 `scripts/packages.toml`：
-**产出与组装严格分层**——组件各自产出到暂存根 `artifacts/publish/<comp>/`，包再从暂存根按 include
-清单拷贝组装。**加减包内组件只改一行 include，打包代码不动。**
+**包装哪些组件由清单声明，怎么装由 kind 决定**——打包时按 include 顺序把每个组件**直接装进包目录**。
+**加减包内组件只改一行 include，打包代码不动。**
 
 ## 1. 约束与取舍
 
 - **数据驱动**：包的内容是清单（TOML），不是代码里硬编码的拷贝序列。
 - **无隐形组件**：一切进包的东西都在组件注册表逐个登记（名字 → 产出方式 → 落点）。
-- **产出 / 组装解耦**：include 解析器只知道「去暂存根拷贝」，不知道「怎么产出」。
+- **声明 / 实现分离**：清单只说「哪个包有哪些组件、各落在哪」；「怎么装」按 kind 分派在
+  `scripts/package/xtask_package_install.z42`，加组件不改分派代码。
 - **跨平台同构**：四个 RID 类别（desktop / ios / android / wasm）共享同一套清单机制。
 
 | 决策 | 选择 | 理由 |
@@ -23,21 +24,31 @@
 | per-package 落点覆盖 | 不支持（dest 固定在组件注册表）| 当前无组件在两个包里需要不同落点；真需要再加，不预先设计 |
 | runtime 包内容 | 仅 native + stdlib（不含 z42c / z42vm CLI）| runtime 包会跨 host 安装（如 android runtime 装在 macOS host），host 专属工具放进去无意义；自举种子由 SDK 包提供 |
 
-## 2. 产出 → 组装两段流水
+## 2. 构建 → 安装
 
 ```mermaid
 graph LR
-    subgraph 产出 staging
-        A[apphost 组件<br/>z42 publish] --> S[artifacts/publish/&lt;comp&gt;/]
-        B[cargo-bin / cargo-native<br/>固定 handler] --> S
-        C[stdlib-glob<br/>hard-link 全部 zpkg] --> S
+    subgraph 构建
+        R[cargo build<br/>z42vm / libz42 / compression] --> CO[cargoOut]
+        T[z42c 编工具链 zpkg<br/>launcher / z42b / z42d / z42i / workloads]
+        L[build stdlib] --> F[stdlib flat]
     end
-    S -->|按 package.include 拷贝<br/>{version}/{rid} 展开| P[artifacts/packages/&lt;artifact&gt;/]
+    CO -->|cargo-bin / cargo-native| P[artifacts/packages/&lt;artifact&gt;/]
+    F -->|stdlib-glob（按成员清单）| P
+    T -->|apphost：z42b publish --output 包目录| P
     P --> M[manifest 生成<br/>+ source-identity 门]
 ```
 
-第一段各组件独立产出到暂存根（producer 互不依赖，可并行）；第二段按包定义的 include 清单逐组件
-拷贝、展开 `{version}` / `{rid}` 占位符、生成 manifest，最后跑 source-identity 门（§5）。
+先构建（cargo、工具链 zpkg、stdlib），再按包定义的 include **逐组件直接装进包目录**
+（`_pkgInstallPackage` → 按 kind 分派），最后生成 manifest、跑 source-identity 门（§5）。
+
+> 🔴 **不再有暂存根**（drop-package-staging，2026-10-01）。原设计（add-package-layout-config Decision 6）是
+> 两段：组件先产出到 `artifacts/publish/<comp>/`，包再整目录拷过去。去掉的理由：
+> ① 固定形态组件本来就是从构建产物拷出来的，暂存只是多拷一遍；apphost 组件的 publish **不清空** `--output`，
+> 各落各的 `bin/<名>` + `programs/<名>/`，可以直接发布进包目录；② 只有桌面 sdk / runtime 用暂存——
+> ios / wasm / android 打包与 `build sdk` 一直直接往包目录写，两套做法并存；③ apphost 组件的工程路径
+> 在清单与打包代码里各写一份，现在只读清单的 `project`。runtime 包与 sdk 共享 native + stdlib，
+> 各自从同一份构建产物装，字节一致。
 
 ## 3. 清单的三层结构
 
@@ -61,9 +72,9 @@ graph LR
   的 bin/payload 配置，统一经 `z42 publish` 产出。这套配置是**用户面**机制——任何人发布自己的 app
   用的都是它。`z42c.driver` 的非 stdlib 项目依赖（`z42c.semantics` / `z42c.pipeline`）由
   `z42 publish` 自动解析、拷到同一落点 `programs/z42c/`，**因此不单独登记组件**，include 里只写
-  一次 `"z42c"`。可移植前端 `z42c.core` / `z42c.syntax` 与 `z42.package` 已是共享库，随 stdlib 进 `libs/`。
-- **② 固定 staging handler 组件**不经 publish，由 `scripts/package/xtask_stage_components.z42` 里
-  一个固定函数产出，但**同样逐个登记**，不留「隐形」组件：`z42vm` / `apphost-stub` 是 `cargo-bin`；
+  一次 `"z42c"`（编译器域的其它包同样随 publish 落进 `programs/z42c/`，不进 `libs/`）。
+- **② 固定形态组件**不经 publish，由 `scripts/package/xtask_package_install.z42` 按 kind 从构建产物
+  拷进包，但**同样逐个登记**，不留「隐形」组件：`z42vm` / `apphost-stub` 是 `cargo-bin`；
   `native` 是 `cargo-native`（`libz42.*` + 头文件，多文件但来源单一：同一个 cargo 工作区一次 build
   产出）；`stdlib` 是 `stdlib-glob`（加库会变，需要显式声明落点）。
 
@@ -79,8 +90,8 @@ graph LR
 平台无关、无 per-RID apphost、无 runtime pack。三个特点：
 
 - **不进 `packages.toml`**：由 `scripts/package/xtask_package_test.z42` 的 `_buildTestWorkload`
-  **内联**编 agent + 写 manifest，不走 `[package.*]` 的 include-组件-staging 模型——它没有可 stage
-  的组件，只有一份预建 zpkg。`package workload test [<version>]` 直接产出。
+  **内联**编 agent + 写 manifest，不走 `[package.*]` 的 include-组件模型——它没有可登记的组件，
+  只有一份预建 zpkg。`package workload test [<version>]` 直接产出。
 - **manifest 复用 `kind="workload-tooling"`** + `host=["*"]` + 无 runtime pack，单 zpkg 由
   `[contents.payload]` 段描述。安装侧 `runtimes=[]` ⇒ 天然跳过 bedding（与 desktop 同路径），
   故不需要新 kind 或新分支。
@@ -141,13 +152,12 @@ graph LR
 |---|---|---|
 | 顶层分发（按 RID）| `scripts/package/xtask_package.z42` | desktop / ios / android / wasm 四管道；`_pkgFinish` = manifest + identity 门 |
 | 清单解析 | `xtask_packages_config.z42` | `[package.*]` + `[component.*]` 读取、include 名解析 |
-| 固定 staging handler | `xtask_stage_components.z42` | z42vm / native / stdlib 三个产出函数 |
-| 组装 | `xtask_package_assemble.z42` | 按 include 拷贝、占位符展开 |
+| 组件安装 | `xtask_package_install.z42` | `_pkgInstallPackage`：按 include 逐组件、按 kind 分派直接装进包目录（cargo-bin / cargo-native / stdlib-glob / editor-assets 拷贝；apphost `z42b publish --output`）|
 | desktop 管道 | `xtask_package_desktop.z42` | SDK 分段组装 |
 | 移动 / 浏览器管道 | `xtask_package_{ios,android,wasm}.z42` | native 产物 + 平台 facade（SwiftPM / Gradle / npm）|
 | 能力 workload | `xtask_package_test.z42` | 见 §4 |
 | 发布归档 / 索引 | `xtask_release.z42` | `package archive`（包目录 → 归档，命名规则唯一出处）、`package finalize`（合并 desktop workload → `SHA256SUMS` → `release-index.json`，launcher 的供给契约）|
-| 自检 | `xtask_selfcheck_*.z42`，入口 `xtask test packages` | 解析 / staging / 组装 / 发布归档四层各一个 harness，一条命令顺序跑完 |
+| 自检 | `xtask_selfcheck_*.z42`，入口 `xtask test packages` | 解析 / 组件安装 / 发布归档三层各一个 harness，一条命令顺序跑完 |
 
 ## 7. 边界与限制
 

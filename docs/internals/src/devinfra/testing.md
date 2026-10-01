@@ -42,7 +42,7 @@ signal-crash helper 会挂死整套 `cargo test`，所以 CI 每条腿单列一�
 | `xtask test incremental` | 逐文件 touch，增量结果与全量**逐字节**相同 |
 | `xtask test targets` | manifest 的 `[[test]]` / `[[example]]` target fixture |
 | `xtask test examples` | 学习手册的会话脚本用真实 SDK 重放 |
-| `xtask test packages` | `packages.toml` 的解析 / staging / 组装自检 |
+| `xtask test packages` | `packages.toml` 的解析 / 组件安装 / 发布归档自检 |
 | `xtask test bootstrap [rid]` | 自举边界：上一 nightly 的 z42c 能不能编当前 z42c 源 |
 
 ## 2. 各层的单跑姿势

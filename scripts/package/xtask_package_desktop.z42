@@ -3,7 +3,7 @@
 //
 // Functions owned here:
 //   _packageDesktop                — full SDK package ([1/5]–[5/5] pipeline)
-//   _pkgStageToolchainComponents   — [2c/5]: build + `z42b publish` SDK components
+//   _pkgBuildToolchainComponents   — [2c/5]: build the toolchain zpkgs (publish happens at [install])
 //   _buildRuntimePackage           — runtime artifact (layout = runtimes/<ver>/: z42vm+libs)
 //   desktop manifest/example/helper functions
 namespace Z42Xtask;
@@ -47,42 +47,31 @@ int _packageDesktop(string root, string pkgDir, string rid, string version, stri
     }
     Console.WriteLine("      ✓ programs/z42c/ (z42c.* seed zpkgs)");
 
-    // [2/5] z42vm + libz42.* + z42-compression (cargo " + cargoTarget + ", " + profile + ")
-    // staged to artifacts/publish/{z42vm,native}/ (packages.toml Decision 6),
-    // not written into pkgDir directly — the final [assemble] step below merges
-    // every staged component into pkgDir in one place.
+    // [2/5] z42vm + libz42.* + z42-compression —— 只构建；[install] 从 cargoOut 装进包。
     Console.WriteLine("[2/5] z42vm + libz42 + z42-compression (cargo " + cargoTarget + ", " + profile + ")");
-    c = _pkgBuildAndStageRuntime(root, rid, profile); if (c != 0) { return c; }
+    c = _pkgBuildRuntime(rid, profile); if (c != 0) { return c; }
     string cargoOut = _cargoOutFor(root, rid, profile);
-    Console.WriteLine("      ✓ staged z42vm/ + native/ (libz42.* / z42.* / libz42_compression.*)");
 
-    // [2c/5] build + stage toolchain components (workloads / launcher / z42b /
-    // devtools / interactive) — apphost stub + 8 zpkg builds + 5 `z42b publish`
-    // into per-component staging dirs. Extracted to keep _packageDesktop ≤60 lines.
-    c = _pkgStageToolchainComponents(root, z42cDir, cargoOut, cargoTarget, rid, rel);
+    // [2c/5] build the toolchain zpkgs (workloads / launcher / z42b / devtools / interactive) + the apphost stub.
+    // Only builds; the 5 apphost components are published straight into pkgDir at [install].
+    c = _pkgBuildToolchainComponents(root, z42cDir, cargoOut, cargoTarget, rel);
     if (c != 0) { return c; }
 
-    // stdlib zpkg + zsym — staged to artifacts/publish/stdlib/libs/.
-    Console.WriteLine("      staging stdlib zpkg + zsym");
-    c = _pkgStageStdlib(root); if (c != 0) { return c; }
-    Console.WriteLine("      ✓ staged stdlib/");
-
-    // 编辑器集成资产 — staged to artifacts/publish/editor-assets/editors/.
-    Console.WriteLine("      staging editor assets");
-    int ea = _pkgStageEditorAssets(root);
-    Console.WriteLine("      ✓ staged editors/ (" + ea.ToString() + " files)");
-
-    // [assemble] merge every `sdk`-included component's staged subtree into
-    // pkgDir (packages.toml `[package.sdk].include`; design.md Decision 6). This
-    // is the only place pkgDir gets its bin/native/libs/programs content from —
-    // everything above stages, nothing above writes pkgDir directly except the
-    // [1/5] bootstrap seed (which the z42c component's staged output overwrites
-    // with identical bytes).
-    Console.WriteLine("[assemble] sdk package from staged components");
+    // [install] packages.toml `[package.sdk].include` 逐组件直接装进 pkgDir（drop-package-staging：不再经
+    // artifacts/publish/ 暂存）。[1/5] 写进 programs/z42c/ 的种子会被 z42c 组件的 publish 以相同字节覆盖。
+    Console.WriteLine("[install] sdk components (packages.toml [package.sdk].include)");
+    bool isWin = rid.StartsWith("windows-");
+    _PkgInstallCtx ictx = new _PkgInstallCtx();
+    ictx.CargoOut    = cargoOut;
+    ictx.HostVm      = _builtVm(root, "release");
+    ictx.Z42bZpkg    = _toolchainZpkg(root, _z42bToml());   // z42b publishes itself deploy-only (`--no-build`)
+    // 解析面在此刻取：[2c/5] 已把 workload ×4 / launcher / z42b / z42d / z42i 全建完，快照这时才完整。
+    ictx.Libs        = _toolchainCompileLibs(root);
+    ictx.ApphostStub = Path.Join(cargoOut, isWin ? "apphost.exe" : "apphost");
+    ictx.Rid         = rid;
     _PackagesConfig cfg = _pkgcfgLoad(root);
-    c = _pkgAssembleFromStaging(cfg, root, "sdk", pkgDir);
+    c = _pkgInstallPackage(cfg, root, "sdk", pkgDir, ictx);
     if (c != 0) { return c; }
-    Console.WriteLine("      ✓ pkgDir assembled from artifacts/publish/{z42vm,native,stdlib,z42c,launcher,z42b,devtools,interactive}");
 
     // [5/5] manifest.toml
     Console.WriteLine("[5/5] manifest.toml");
@@ -91,15 +80,13 @@ int _packageDesktop(string root, string pkgDir, string rid, string version, stri
     return 0;
 }
 
-// [2c/5] of _packageDesktop — build the apphost stub + 8 toolchain zpkgs, then
-// `z42b publish` each SDK component into its staging dir (artifacts/publish/<comp>/;
-// [assemble] later merges into pkgDir). Self-contained: computes libs / hostVm /
-// apphostStub / z42bZpkg locally (none used by _packageDesktop after this block).
-// move-desktop-packaging-to-publish + add-package-layout-config task ④: each
-// component's `[platform.desktop] bin`/`payload` (its own toml) drives placement;
-// z42c.driver's 6 siblings colocate into programs/z42c/ via publish dependency-bundling.
-int _pkgStageToolchainComponents(string root, string z42cDir, string cargoOut, string cargoTarget, string rid, bool rel) {
-    Console.WriteLine("[2c/5] z42 launcher (apphost + launcher.zpkg)");
+// [2c/5] of _packageDesktop — build the apphost stub + the toolchain zpkgs. Publishing the 5 apphost
+// components (launcher / z42c / z42b / z42d / z42i) into the package happens at [install]
+// (`_pkgInstallApphost`, project paths from packages.toml); each component's own
+// `[platform.desktop] bin`/`payload` drives placement, and z42c.driver's siblings colocate into
+// programs/z42c/ via publish dependency-bundling.
+int _pkgBuildToolchainComponents(string root, string z42cDir, string cargoOut, string cargoTarget, bool rel) {
+    Console.WriteLine("[2c/5] toolchain zpkgs + apphost stub");
     // apphost stub (z42-apphost crate) → cargoOut/apphost — desktop workload's
     // per-RID stub AND the publish template (Z42_APPHOST_TEMPLATE) for z42/z42c/z42b.
     // NOT shipped in the SDK (Decision 9); delivered via the desktop workload.
@@ -132,7 +119,7 @@ int _pkgStageToolchainComponents(string root, string z42cDir, string cargoOut, s
     while (bi < buildTomls.Length) {
         // 🔴 **每轮重新装配解析面**：本循环是「边建边被后面的项依赖」——workload ×4 先建，
         // 紧随的 launcher / z42b / z42d 依赖 `z42.workload.*`。而 alllibs 是**一次性快照**
-        // （`_assembleAllLibs` 把 flat + 编译器域成员 link 进一个 scratch 目录），装配时那 4 个
+        // （`_assembleAllLibs` 把 flat + 编译器域成员 link 进一个目录），装配时那 4 个
         // workload 还不存在 ⇒ 后面的项报
         // `[dependencies] z42.workload.ios 未找到…已查找：…/.scratch/alllibs/release`（#921 五轮 CI 实测）。
         // `_assembleAllLibs` 是幂等 relink（clean + link），每轮重装成本很低。
@@ -145,51 +132,14 @@ int _pkgStageToolchainComponents(string root, string z42cDir, string cargoOut, s
     // z42.interactive（z42i）：z42.repl 现为其**私有 path 依赖**（add-path-dependencies，
     // z42.interactive.z42.toml 声明 `"z42.repl" = { path = "../repl" }`）——`z42c build`
     // 自动建 z42.repl 闭包 + 经 _bundleExeDeps colocate z42.repl.zpkg 进 z42.interactive dist，
-    // 随后 _z42bPublish 的 _pubCopyDistDeps 带进 programs/z42i/ payload。故不再单独 _buildReplLib
-    // 塞 libs。z42.scripting 仍是 stdlib 成员（在 libs）。z42i 运行期仍 lazy-load z42c.pipeline（见下）。
+    // 随后 publish 的 _pubCopyDistDeps 带进 programs/z42i/ payload。libz42_repl 由 z42.repl 的 ProvideNative
+    // build hook 在 publish 时 colocate 进 programs/z42i/（add-native-dep-config）。
+    // z42i 运行期 lazy-load programs/z42c/z42c.pipeline.zpkg + 其传递闭包：ModuleLoader 把被加载 zpkg 自身所在
+    // 目录并入 search_dirs（fix-repl-sdk-compiler-closure），无需把编译器闭包复制进 z42i payload。
     c = _z42cBuildToml(hostVm, z42cDir, _toolchainCompileLibs(root),
                        "src/toolchain/interactive/core/z42.interactive.z42.toml");
     if (c != 0) { return c; }
-
-    bool isWin = rid.StartsWith("windows-");
-    string apphostStub = Path.Join(cargoOut, isWin ? "apphost.exe" : "apphost");
-    // z42b zpkg from its toml (SoT: no hardcoded path — _toolchainZpkg = [build]
-    // dist_dir cascade + project.name). z42b publishes itself deploy-only (`--no-build`).
-    string z42bZpkg = _toolchainZpkg(root, _z42bToml());
-    // 解析面在此刻取：上面的循环已把 workload ×4 / launcher / z42b / z42d / z42i 全建完，
-    // 快照这时才是完整的（见循环里那段「快照 vs 实时目录」的注释）。
-    string libs = _toolchainCompileLibs(root);
-    // `z42` = apphost stub patched to run programs/launcher/launcher.zpkg.
-    c = _z42bPublish(hostVm, z42bZpkg, libs, apphostStub, "src/toolchain/launcher/core/z42.launcher.z42.toml", rid, _pkgStageDir(root, "launcher"));
-    if (c != 0) { return c; }
-    Console.WriteLine("      ✓ staged launcher/ (z42 apphost + programs/launcher/launcher.zpkg)");
-    // bin/z42c = apphost trampoline → programs/z42c/z42c.driver.zpkg (+ 6 siblings colocated).
-    c = _z42bPublish(hostVm, z42bZpkg, libs, apphostStub, "src/compiler/z42c.driver/z42c.driver.z42.toml", rid, _pkgStageDir(root, "z42c"));
-    if (c != 0) { return c; }
-    Console.WriteLine("      ✓ staged z42c/ (bin/z42c apphost + programs/z42c/z42c.driver.zpkg + siblings)");
-    // bin/z42b = apphost trampoline → programs/z42b/z42.builder.zpkg.
-    c = _z42bPublish(hostVm, z42bZpkg, libs, apphostStub, _z42bToml(), rid, _pkgStageDir(root, "z42b"));
-    if (c != 0) { return c; }
-    Console.WriteLine("      ✓ staged z42b/ (bin/z42b apphost + programs/z42b/z42.builder.zpkg)");
-    // bin/z42d = apphost trampoline → programs/z42d/z42.devtools.zpkg (scaffold).
-    c = _z42bPublish(hostVm, z42bZpkg, libs, apphostStub, "src/toolchain/devtools/core/z42.devtools.z42.toml", rid, _pkgStageDir(root, "z42d"));
-    if (c != 0) { return c; }
-    Console.WriteLine("      ✓ staged z42d/ (bin/z42d apphost + programs/z42d/z42.devtools.zpkg, scaffold)");
-    // bin/z42i = apphost trampoline → programs/z42i/z42.interactive.zpkg。
-    // z42i 运行期经 ReplCompilerHost 反射注入编译器（lazy-load programs/z42c/z42c.pipeline.zpkg + 其
-    // 传递闭包 z42c.semantics/... ）。历史 KNOWN LIMITATION（fix-repl-sdk-layout / add-z42-repl 遗留）：
-    // semantics/pipeline 在 programs/z42c/、不在 libs/，而 ModuleLoader 只按「VM 启动 search_dirs（app dir
-    // + Z42_LIBS）」解析被加载模块的依赖闭包 → 找不到 semantics → z42i shipped 全量求值报 undefined。
-    // 已根治（fix-repl-sdk-compiler-closure）：ModuleLoader.load_module_from_path 现把被加载 zpkg 自身所在
-    // 目录并入 search_dirs（镜像 app::run「entry-zpkg dir first」），programs/z42c/ 里的 7 兄弟自然解析——
-    // 无需把编译器闭包复制进 z42i payload。故此处 publish 不变。
-    string z42iStage = _pkgStageDir(root, "z42i");
-    c = _z42bPublish(hostVm, z42bZpkg, libs, apphostStub, "src/toolchain/interactive/core/z42.interactive.z42.toml", rid, z42iStage);
-    if (c != 0) { return c; }
-    // libz42_repl is colocated into programs/z42i/ by z42.repl's ProvideNative build hook
-    // during the publish above (add-native-dep-config) — no packaging special-case needed.
-    // The [assemble] dir-copy carries the whole z42iStage (incl. the native) into pkgDir.
-    Console.WriteLine("      ✓ staged z42i/ (bin/z42i apphost + programs/z42i/{z42.interactive.zpkg, libz42_repl})");
+    Console.WriteLine("      ✓ toolchain zpkgs built");
     return 0;
 }
 
@@ -246,9 +196,8 @@ int _buildDesktopWorkload(string root, string rid, string version, string profil
 // this now matches the ios/android/wasm runtime packs, which never carried
 // z42c/z42vm either. The self-host bootstrap seed moved to the SDK package's
 // programs/z42c/ (see docs/internals/src/compiler/self-hosting.md). libs/ + native/
-// are copied verbatim from the SDK package that _packageDesktop just assembled
-// — single byte source → SDK and runtime pack stay byte-identical, and no
-// native libs are re-collected/re-globbed here.
+// are installed from the same build outputs the SDK package uses (stdlib flat +
+// cargoOut) ⇒ SDK and runtime pack stay byte-identical.
 int _buildRuntimePackage(string root, string rid, string version, string profile) {
     string pkgName = "z42-runtime-" + version + "-" + rid + (profile == "release" ? "" : "-" + profile);
     string pkgDir = Path.Join(_packagesDir(root), pkgName);
@@ -256,12 +205,12 @@ int _buildRuntimePackage(string root, string rid, string version, string profile
     if (Directory.Exists(pkgDir)) { Directory.Delete(pkgDir, true); }
     Directory.Create(pkgDir);
 
-    // libs/ + native/ (embed libs + include/ headers) merged from the same
-    // staging root _packageDesktop just populated (packages.toml
-    // `[package.runtime].include = ["native", "stdlib"]`) — no longer a
-    // copy-from-the-SDK special case (design.md Decision 6).
+    // libs/ + native/ (embed libs + include/ headers) per packages.toml
+    // `[package.runtime].include = ["native", "stdlib"]`, installed straight from the build outputs.
     _PackagesConfig cfg = _pkgcfgLoad(root);
-    int c = _pkgAssembleFromStaging(cfg, root, "runtime", pkgDir);
+    _PkgInstallCtx ictx = new _PkgInstallCtx();
+    ictx.CargoOut = _cargoOutFor(root, rid, profile);
+    int c = _pkgInstallPackage(cfg, root, "runtime", pkgDir, ictx);
     if (c != 0) { return c; }
 
     Console.WriteLine("  ✓ runtime package (native/ + libs): " + pkgDir);

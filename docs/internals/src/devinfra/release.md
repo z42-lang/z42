@@ -98,7 +98,7 @@ file .../native/libz42.dylib          # ② native 库架构（关键 invariant�
 #   android-arm64 → ELF 64-bit LSB shared object, ARM aarch64
 #   browser-wasm  → WebAssembly (wasm) binary module
 
-./xtask test packages                 # ③ packages.toml 的解析 / staging / 组装三层自检
+./xtask test packages                 # ③ packages.toml 的解析 / 组件安装 / 发布归档自检
 ```
 
 `xtask package` 末尾还自动跑一道 **source-identity 门**：逐字节比对包内每一份从仓库拷进去的

@@ -292,13 +292,12 @@ scripts/
 ├── package/            package 各 RID 类别 + 发行档组装 + packages.toml 三层自检
 │   ├── xtask_package{,_desktop,_ios,_android,_wasm}.z42   分类入口与各 RID 实现
 │   ├── xtask_packages_config.z42     scripts/packages.toml 读取器（package/component 注册表）
-│   ├── xtask_stage_components.z42    组件 staging（z42vm / native / stdlib → artifacts/publish/）
-│   ├── xtask_package_assemble.z42    组装引擎（把 staged 子树并进包目录，从不构建）
+│   ├── xtask_package_install.z42     组件安装：按 packages.toml include + kind 直接装进包目录（无暂存）
 │   ├── xtask_package_test.z42        **`package workload test`**：打 payload-only 的 test workload
 │   │                                 （与 _desktop/_ios/_android/_wasm 同族：`test` 是 workload 名）
 │   ├── xtask_test_packages.z42       `test packages` 聚合入口（opt-in，不在 GREEN gate 内）
-│   ├── xtask_selfcheck_{packages_config,stage_components,package_assemble}.z42
-│   │                                 上面三个模块各自的 throw-on-mismatch 自检层
+│   ├── xtask_selfcheck_{packages_config,package_install,release}.z42
+│   │                                 清单解析 / 组件安装 / 发布归档各自的 throw-on-mismatch 自检层
 │   └── xtask_release.z42             package workload(merge) / index 发行档组装
 ├── install/            deps install 各平台 / 编辑器资产
 │   ├── xtask_install{,_android}.z42  deps install / env + Android SDK·NDK·模拟器
@@ -376,7 +375,7 @@ xtask test                # 完整 gate（stage 组成见 internals/devinfra/tes
 
 iteration 期可用 `test changed`（按改动挑 stage）或单跑某 stage（`test e2e --dir/--file` /
 `test stdlib <lib>` / `--no-build`）缩窄加速，但 **commit 前必须完整 gate**。改打包系统时
-另跑 `test packages`（parse + staging + assembly 三层自检合一）；改增量编译
+另跑 `test packages`（parse + 组件安装 + 发布归档自检合一）；改增量编译
 （IncrementalBuild / CacheStore / ZbcReader / IncrementalDriver）时另跑
 `test incremental`（暴力对账器：语料逐文件 touch，断言增量产物 == 全量产物逐字节 + 计时）。
 
