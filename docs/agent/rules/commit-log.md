@@ -1,7 +1,6 @@
 # 提交信息规范
 
-> 触发条件：任何 `git commit`。此前散落在 [workflow.md](workflow.md) / 各工具入口文件
-> 的提交约定集中到此。
+> 触发条件：任何 `git commit`。
 
 ---
 
@@ -62,7 +61,6 @@ AI 生成的 PR，描述末尾附：
 
 > **署谁以工具链当次下发的 attribution 为准**——Claude Code 每次会话会给出当前模型的署名
 > 格式，本文件只约定**新提交**跟着它走，换模型时不回头改历史提交。
-> 沿革：`Claude Opus 4.8 (1M context)` → `Claude Opus 5`（2026-09-05）。
 
 ## 示例
 

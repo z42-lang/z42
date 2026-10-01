@@ -36,7 +36,7 @@ AI 与协作者干活的**行为约束与操作手册**，与具体 AI 工具无
   zbc / zpkg version bump 走 [version-bumping.md](rules/version-bumping.md) 的 checklist。
 - **文档同步**：任何改变外部可见行为、机制、规则或约定的迭代，归档前必须有对应文档落地，**无文档 = 未完成**。
   判据是 [doc-system.md 的三问](rules/doc-system.md)；复杂实现逻辑必须落 `docs/internals/` 对应机制页。
-- **代码风格**：z42c 用 z42 写、不退回 C#（[compiler-z42c.md](rules/compiler-z42c.md)）；
+- **代码风格**：z42c 用 z42 写（[compiler-z42c.md](rules/compiler-z42c.md)）；
   Rust VM 见 [runtime-rust.md](rules/runtime-rust.md)；目录 README 与行数限制见
   [code-organization.md](rules/code-organization.md)；加新依赖前先查 [dependencies.md](rules/dependencies.md)。
 

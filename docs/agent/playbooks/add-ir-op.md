@@ -13,20 +13,16 @@
 | 路线 | 成本 | 何时适用 |
 |---|---|---|
 | **复用 `BuiltinInstr` + 常量字符串参数** | ~3 文件，**零格式 bump** | 新语义能表达成「一次 builtin 调用 + 常量串区分」。`BuiltinId` 不进 wire（是进程内下标），表尾追加即可。先例：`__box_prim`（`TypeOpEmitter._emitBox`）、`__sym_available`（`_emitSymAvailable`） |
-| **attr-ref 哨兵 + 编译期消解** | ~5 文件，**零格式 bump** | 新特性能在编译期完全消解成既有构造。骑既有 SIGS/param attr-ref blob 通道（zbc 1.11/1.15 起就有），未标注符号不追加 → 老 golden 逐字节不变。先例：`$Deprecated` / `$Default` / `$Caller:*` |
+| **attr-ref 哨兵 + 编译期消解** | ~5 文件，**零格式 bump** | 新特性能在编译期完全消解成既有构造。骑既有 SIGS/param attr-ref blob 通道，未标注符号不追加 → 老 golden 逐字节不变。先例：`$Deprecated` / `$Default` / `$Caller:*` |
 
-项目历史上三次同类需求**全部**选了哨兵而非新 flag 位/opcode，注释反复强调「避开格式-bump
-两代自举回归」。**拿不准就先问，别默认加 opcode。**
+同类需求优先选哨兵而非新 flag 位/opcode，以避开格式-bump 两代自举回归。**拿不准就先问，别默认加 opcode。**
 
 ## 真要加 opcode：完整清单
 
-> 下面的路径是 2026-09 复核过的。旧版本本文件曾指向 `src/runtime/src/bytecode.rs` /
-> `interp.rs` —— 那些路径**早已被重构掉**，且完全没提 version bump，照着做会严重低估成本。
-
 ### 编译器侧（z42.package + z42c.semantics）
 
-1. `src/libraries/z42.package/src/IrInstr*.z42` — 新 `sealed class XxxInstr : IrInstr`
-2. `src/libraries/z42.package/src/BinaryFormat/ZbcFormat.z42`（`static class Op`）— 新 opcode 常量
+1. `src/compiler/z42.package/src/IrInstr*.z42` — 新 `sealed class XxxInstr : IrInstr`
+2. `src/compiler/z42.package/src/BinaryFormat/ZbcFormat.z42`（`static class Op`）— 新 opcode 常量
 3. `.../ZbcInstr.z42` — 编码分支（带字符串则同时补 `InternInstrStrings`）
 4. `.../ZbcReaderInstr.z42` — 解码分支 + 寄存器上界/重映射
 5. `src/compiler/z42c.semantics/src/Optimization/IrOptInfo.z42` — **4 处**：Dst / args 计数 / args 替换 / Dst 改写
@@ -57,7 +53,7 @@
 
 ### 文档
 
-20. IR 参考页（`docs/internals/src/formats/ir.md`）、`src/libraries/z42.package/README.md`、`src/runtime/src/interp/README.md`
+20. IR 参考页（`docs/internals/src/formats/ir.md`）、`src/compiler/z42.package/README.md`、`src/runtime/src/interp/README.md`
 
 ## 自举纪律
 

@@ -54,7 +54,7 @@ docs/spec/
 | 维度 | OpenSpec 原版 | z42 本地 | 偏离理由 |
 |------|-------------|--------|--------|
 | **目录名** | `openspec/` | `spec/` | 去掉方法论品牌暗示，名字更中性 |
-| **目录位置** | 仓库根 `openspec/` | `docs/spec/`（2026-05-10 起）| spec 与 design doc 同属"项目文档"范畴；放在 `docs/` 下减少顶层目录数，单一文档目录便于检索 |
+| **目录位置** | 仓库根 `openspec/` | `docs/spec/` | spec 与 design doc 同属"项目文档"范畴；放在 `docs/` 下减少顶层目录数，单一文档目录便于检索 |
 | **archive 位置** | `changes/archive/` 子目录 | `archive/` 与 `changes/` 并列 | archive 不是一个 change；并列使 "进行中 vs 历史" 语义清晰，扫描活跃变更不需排除子目录 |
 | **顶层 specs 库** | `openspec/specs/<capability>/spec.md` 作为系统当前行为的 SoT | 无顶层 `docs/spec/specs/`，长期规范为三本书的对应页 | z42 的语言/IR/VM 规范用人类可读的叙事文档组织（给语言使用者读），而非结构化 capability spec；变更归档时知识上浮到三本书 |
 
@@ -115,7 +115,7 @@ docs/spec/
 存于本机 `~/.claude/projects/<project>/memory/`，**不入库**；其他工具用其等价物）和当前阶段（roadmap +
 `docs/spec/changes/` 进行中变更），主动汇报状态和下一步，再处理用户输入。
 
-### 阶段 0 必做：扫描可归档变更（2026-06-19 新增）
+### 阶段 0 必做：扫描可归档变更
 
 **在处理用户指令前，Claude 必须先扫描 `docs/spec/changes/` 下的全部 change，识别并归档"实质已完成"的 change：**
 
@@ -187,8 +187,7 @@ docs/spec/changes/<change-name>/
 命名：动词开头，kebab-case，≤ 5 词。如 `add-for-loop`、`fix-type-check-crash`。
 
 **开分支（必做，小改例外）**：除"很小的改动"可直接在 main 上做外，创建容器同时按同名开一条分支
-（大改走 worktree 物理隔离），后续实施 / commit 都在该分支上。**不再有子系统锁 / 占用登记 / 排队**——
-多个 change 并行时各走各的分支，合并顺序先来后到。策略见 [`parallel-development.md`](parallel-development.md)。
+（大改走 worktree 物理隔离），后续实施 / commit 都在该分支上。多个 change 并行时各走各的分支，合并顺序先来后到。策略见 [`parallel-development.md`](parallel-development.md)。
 
 ---
 
@@ -235,7 +234,7 @@ docs/spec/changes/<change-name>/
 
 > 拿不准时按冲突处理（串行实施），代价远低于事后 merge 冲突排查。
 
-> **并行执行（src 代码）**：上表是 docs/markdown 的段级冲突细则；`src/` 代码不再上子系统锁——每个
+> **并行执行（src 代码）**：上表是 docs/markdown 的段级冲突细则；`src/` 代码：每个
 > change 一条分支物理隔离，PR 先来后到合并，文本冲突交给 git rebase、语义冲突交给合并前的强制
 > rebase + 完整 GREEN。见 [`parallel-development.md`](parallel-development.md)。
 
@@ -451,7 +450,7 @@ docs/spec/changes/<change-name>/
 5. 简短说明完成情况
 6. 遇到阻塞 → 记录到 tasks.md 备注区 + 告知 User
 
-**回溯勾销（2026-06-19 新增）**：当一个新任务（G-N / 子任务）的完成说明中包含"清零 / 修复 / 顺带清掉 / 覆盖"某个早期未勾 `[ ]` 条目时，**必须在同一步骤内**将该早期条目改为 `[x]`，并在其描述中补注 "（由 G-N/子任务 X 解决）"。不允许让"已被后续任务解决的 [ ] 条目"在 tasks.md 中继续存在，否则会造成"progress summary 全绿 but tasks 有 [ ]"的误导，导致 change 无法正确识别为可归档。
+**回溯勾销**：当一个新任务（G-N / 子任务）的完成说明中包含"清零 / 修复 / 顺带清掉 / 覆盖"某个早期未勾 `[ ]` 条目时，**必须在同一步骤内**将该早期条目改为 `[x]`，并在其描述中补注 "（由 G-N/子任务 X 解决）"。不允许让"已被后续任务解决的 [ ] 条目"在 tasks.md 中继续存在，否则会造成"progress summary 全绿 but tasks 有 [ ]"的误导，导致 change 无法正确识别为可归档。
 
 **z42 pipeline 顺序（不跳步）：** Lexer → Parser → AST → TypeChecker → Codegen → VM interp → 测试
 
@@ -491,7 +490,7 @@ xtask test          # 默认串联所有必跑 stage（完整 GREEN gate）
 
 > **stage 清单不在这里复列。** 唯一 SoT 是 `_gateStageNames()`（`scripts/test/xtask_test.z42`）
 > 与 test-gate 文档的 `gate-stages` 区，两者由门禁逐项对账、不一致即红。
-> 本节曾列 6 个 stage，而 gate 实跑 13 个（漏了 examples / docs / lines）——**复列必漂**，这就是证据。
+> **复列必漂**，故不复列。
 
 常用的单 stage（调试期缩窄用，**不替代**完整 `xtask test`）：
 
@@ -550,7 +549,7 @@ stage 名以 `xtask test` 实际输出为准，不在此复列）
 ## 阶段 9：归档（Archive）
 
 > **铁律：归档 = 本次变更的一部分，必须与代码同在一个分支 / 一个 PR 内提交，禁止「PR 合并后再单独
-> `docs: 归档（PR #XXX 已合并）` 直推 main」（2026-09-01 强化）。**
+> `docs: 归档（PR #XXX 已合并）` 直推 main」。**
 >
 > 归档动作（tasks.md 改 🟢 + `changes/` → `archive/` 的 mv + 触发矩阵的文档同步）**属于这次变更本身**，
 > 不是合并后的收尾杂活。步骤 1–4 必须在**开 PR 之前**就 commit 到该 change 的分支上（可与实现代码同一
@@ -615,7 +614,7 @@ stage 名以 `xtask test` 实际输出为准，不在此复列）
      ```
    - 删自己这条已合并 PR 的分支 / worktree 属**默认授权**；force-push / 删他人分支仍需单独确认。
 
-6. **提供续推口令（必做，2026-08-11 新增）**：**任何任务 / 需求合并或提交落地后，若还有后续任务（同一程序的
+6. **提供续推口令（必做）**：**任何任务 / 需求合并或提交落地后，若还有后续任务（同一程序的
    下一 PR、Deferred 项、阶梯下一阶段等），Claude 必须主动给出一个「续推口令」，让 User 可以清理上下文
    （`/clear`）以减少 token 消耗，之后凭口令在新会话无缝续推。** 具体动作：
 
@@ -745,9 +744,8 @@ tasks.md 顶部：
 - **Spec 未经 User 确认前写实现代码**
   - 规范驱动：所有非平凡变更必须先有 Spec（proposal + specs/<capability>/spec.md + design），User 批准后才开始代码
   - 参见本文件顶部 **🔴 Spec-First Self-Check** 小节 — lang/ir/vm 变更开工前逐项核对
-  - **反例**（曾在 2026-04-24 静态抽象接口成员变更中发生）：只建 `tasks.md` +
-    长期规范文档就开始实施，把聊天中的逐步确认当作 spec 审批；
-    归档时被发现违规。纠正：长期规范（三本书）与 `docs/spec/changes/<name>/`
+  - ❌ 只建 `tasks.md` + 长期规范文档就开始实施，把聊天中的逐步确认当作 spec 审批；
+    长期规范（三本书）与 `docs/spec/changes/<name>/`
     变更规范是**两份独立文档**，lang/ir/vm 变更两者都必须存在
 
 - **验证未全绿时 commit / push**

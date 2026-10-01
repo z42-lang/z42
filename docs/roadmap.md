@@ -34,7 +34,7 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 - **IR**：寄存器 SSA 形式
 - **执行模式注解**：作用于命名空间级
 - **`.zbc` magic**：`ZBC\0`
-- **pre-1.0 不承诺向后兼容**（与 [`philosophy.md` "不为旧版本提供兼容"](agent/rules/philosophy.md#不为旧版本提供兼容2026-04-26-强化) 对齐）
+- **pre-1.0 不承诺向后兼容**（与 [`philosophy.md` "不为旧版本提供兼容"](agent/rules/philosophy.md#不为旧版本提供兼容) 对齐）
 - **1.0+ 启用 SemVer + deprecation 周期**
 
 ---

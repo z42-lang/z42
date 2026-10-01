@@ -1,8 +1,5 @@
 ---
 paths:
-  # ⚠️ 2026-09-28 更正：前两条曾指 `z42c.ir` / `z42c.project`，两个目录**都已不存在** ——
-  # 后端先下沉到 stdlib 的 `z42.package`，该库又搬进 `src/compiler/`。规则的「何时适用」
-  # 判据坏掉是静默的（没人会因为 paths 不匹配而收到提示），所以连同本次 bump 一起修。
   - "src/compiler/z42.package/src/**"
   - "src/runtime/src/metadata/**"
   - "docs/internals/src/formats/zbc.md"
@@ -14,7 +11,7 @@ paths:
 # `.zbc` / `.zpkg` minor version bump checklist
 
 > z42 pre-1.0 **strict-pin** 政策：Rust reader 精确匹配 writer 的 major + minor，无兼容回退。
-> 兼容性原则（"不为旧版本提供兼容"）见 [philosophy.md](philosophy.md#不为旧版本提供兼容2026-04-26-强化)。
+> 兼容性原则（"不为旧版本提供兼容"）见 [philosophy.md](philosophy.md#不为旧版本提供兼容)。
 >
 > 这份文件只回答一个问题：bump version 时**具体要同步改哪些文件**才能让 strict-pin 不变量 + golden 门通过。
 > z42c（编译器）是 writer，z42vm（Rust）是 reader，两端版本常量必须同 commit 一起改。
@@ -23,9 +20,6 @@ paths:
 
 ## 版本常量坐标（唯一真相表）
 
-> **路径注**：IR/zbc/zpkg 后端已由 `converge-z42c-ir-metadata-onto-stdlib` 从 `src/compiler/z42c.ir`
-> / `z42c.project` 下沉到 stdlib 库 **`src/compiler/z42.package`**（namespace 不变）。下表已用收敛后真实路径。
-
 | 端 | 文件 | 常量 | 当前值 |
 |----|------|------|--------|
 | zbc writer（z42c） | `src/compiler/z42.package/src/BinaryFormat/ZbcFormat.z42` | `ZbcVersion.Major` / `.Minor` | 1 / 46 |
@@ -33,15 +27,13 @@ paths:
 | zpkg writer（z42c） | `src/compiler/z42.package/src/ZpkgWriter.z42` | `ZpkgWriterZ.Major` / `.Minor` | 0 / 51 |
 | zpkg reader（Rust） | `src/runtime/src/metadata/zbc_reader/versions.rs` | `ZPKG_VERSION_MAJOR` / `_MINOR` | 0 / 51 |
 
-> 🔒 **本表有防腐门了**（2026-09-28）：`cargo test --test format_fixture_versions` 的
+> 🔒 **本表有防腐门**：`cargo test --test format_fixture_versions` 的
 > `version_bumping_coordinate_table_matches_the_real_constants` **解析本表自己的四行**，
 > 拿每行的「值」去和**该行指着的那个文件**里的常量对账 —— 路径写错 / 常量改名 / 值过期，
 > 任一即红；行数不是 4 也红（防止悄悄删行）。同文件的
 > `writer_and_reader_pin_the_same_format_versions` 另外钉住 writer↔reader 不许偏斜。
 >
-> ⚠️ 为什么需要这道门：这张表**自己腐坏过三次**——2026-09-04 发现时停在 1/35 与 0/40
-> （落后 3 个 minor，**且路径在 reader 拆分后已失效**）；`type-section-flags2-and-struct-fields`
-> 把四个常量推到 1.45 / 0.50 又把表留在 1.44 / 0.49。根因是**它是散文**：没有任何构建、
+> ⚠️ 为什么需要这道门：这张表**是散文**：没有任何构建、
 > 测试或 strict-pin 校验会读它，而它偏偏是承重的——过期的行会把下一个 bump 的人送到
 > 错的文件或错的起始号上。形态同步骤 4 / 9 的两道 fixture 门。
 >
@@ -61,24 +53,23 @@ paths:
 1. **`ZbcFormat.z42`**（`src/compiler/z42.package/src/BinaryFormat/`）— `ZbcVersion.Minor++`，常量旁注释本次 bump 内容（参考已有行格式）。若 bump 改了指令/section 布局，`ZbcInstr.z42`（编码）+ `ZbcReaderInstr.z42`（解码）或 `ZbcWriter.z42` 的对应 `Build*` / `_assemble` 逻辑同步。
 2. **`zbc_reader/versions.rs`**（`src/runtime/src/metadata/`）— `ZBC_VERSION_MINOR` 同步到新值（**同时改钉值单测**
    `zbc_reader_tests.rs` 的 `zbc_version_constants_pinned` / `zpkg_version_constants_pinned`——它们只在
-   `cargo test --lib` 里跑，`xtask test` 不包含，2026-09-13 encode-ctorless-objnew 差点漏掉）；并在常量上方 changelog 注释块追加一行（日期 / spec / 字段变化）；reader 解码逻辑（`read_*_section`）同步新格式。
+   `cargo test --lib` 里跑，`xtask test` 不包含）；并在常量上方 changelog 注释块追加一行（日期 / spec / 字段变化）；reader 解码逻辑（`read_*_section`）同步新格式。
 3. **`docs/internals/src/formats/zbc.md`** — "Minor changelog" 表加一行（minor / 日期 / 触发 spec / 引入内容）。
 4. **regen zbc-format fixture** — 跑 `xtask build test`（前置 `build compiler`+`build stdlib` 已用新格式重建），原地覆写 `src/tests/zbc-format/*/source.zbc`（6 个 committed 字节基线：`empty` / `strp-func-minimal` / `multi-method` / `with-tidx` / `cross-import-token` / `with-frcs`）；`git diff` 应显示格式 delta，**必须连同 bump 一起提交**。
 
-   > 🔒 **CI 有门（`refresh-format-fixtures`，2026-09-04 起）**：`test-host` 的三条非 Windows 腿在
+   > 🔒 **CI 有门（`refresh-format-fixtures`）**：`test-host` 的三条非 Windows 腿在
    > `test all`（其 build wave 就地 regen）之后跑 `git diff --quiet -- src/tests/zbc-format`，**有差异即红**。
-   > （2026-09-30 起从 `compile-test-assets` 挪到这里：三个架构都覆盖，且 `test-host` 是 required check。）
+   > （该门在 `test-host`：三个架构都覆盖，且 `test-host` 是 required check。）
    >
-   > 为什么需要这道门：此前这些基线唯一的把关方式是「人工注意到 `git diff`」。而 regen 在所有消费者
+   > 为什么需要这道门：regen 在所有消费者
    > **之前**就地覆写，于是 `zbc_compat` 校验的永远是刚重生的字节、**从不是 committed 的那份** ——
-   > 陈旧基线因此可以一直绿着，同时把每个人的工作树弄脏。实际后果：这 6 个 fixture 停在 zbc **1.37**
-   > 一路熬过了 1.38 的 bump（#414 漏了本步），2026-09-04 才被发现。形态同 `cargo fmt --check`。
+   > 陈旧基线因此可以一直绿着，同时把每个人的工作树弄脏。形态同 `cargo fmt --check`。
 5. **z42c golden hex 单测 —— `zbc_tests.z42` 里有 *三* 个逐字节断言，不是一个**
-   （⚠️ 本步骤此前只点名第一个，2026-09-28 因此多烧了一轮 CI；三个都要改）：
+   （三个都要改）：
 
    | 测试 | 内嵌什么 |
    |---|---|
-   | `test_zbc_empty_byte_identical` | `empty/source.zbc` 全量 hex（zbc 1.21 起 231B）|
+   | `test_zbc_empty_byte_identical` | `empty/source.zbc` 全量 hex（231B）|
    | `test_zbc_f5_with_dbug_byte_identical` | `int F(){return 5;}` 的全量 hex（含 DBUG 行表）|
    | `test_zbc_selfcheck_program_header` | 自检程序 header 前 10 字节 `5a4243 0001 <minor> 0200` |
 
@@ -115,19 +106,15 @@ xtask test compiler    # z42c golden hex 单测
 7. **`zbc_reader/versions.rs`** — `ZPKG_VERSION_MINOR` 同步；上方 zpkg changelog 注释块追加一行（指明耦合的 inner zbc minor）。
 8. **`docs/internals/src/formats/zpkg.md`** — 更新页首「状态: ✅ 已实现（vX.YY）」与 `## 版本` 段的
    **当前配对**（`当前 0.NN ↔ 1.MM`，两处）。
-   ⚠️ **本页没有 Minor changelog 表**（本步骤此前这么写，是对着一张不存在的表 —— 2026-09-28 更正）。
+   ⚠️ **本页没有 Minor changelog 表**。
    zpkg 的逐 minor 历史写在写端常量旁：`ZpkgWriter.z42` 的 `ZpkgWriterZ.Minor` 注释（步骤 6 已覆盖）。
 9. **regen zpkg-format fixture** — 覆写 `src/tests/zpkg-format/*/source.zpkg`（4 个 committed 基线：`packed-minimal` / `packed-multi-module` / `indexed-minimal` / `sym-only-sidecar`）。
-   每个 fixture 目录自带 **committed 构建配方 `<fixture>.z42.toml`**（refresh-format-fixtures，2026-09-04）：
+   每个 fixture 目录自带 **committed 构建配方 `<fixture>.z42.toml`**：
    `[project].pack` 决定 packed/indexed，是否带 `--release` 决定 strip/sidecar。
    完整重生命令见 [`src/tests/zpkg-format/README.md`](../../../src/tests/zpkg-format/README.md)「维护流程」。
 
    > 🔒 **有防腐门**：`cargo test --test format_fixture_versions` 读 committed 字节、断言 header 版本
    > == 当前常量，**陈旧即红**（zbc 与 zpkg 两套一起覆盖）。
-   >
-   > 为什么需要：此前配方只存在于口头（README 挂着「暂需手工逐个重生」的 TODO），且这 4 个里
-   > **有 2 个没有任何测试读**。于是 1.37→1.38 那次 bump 漏掉本目录 —— `packed-multi-module` 停在
-   > zpkg 42、`sym-only-sidecar` 停在 **35**（落后 8 个 minor），CI 全程绿。
 
 提交前自检扩展：
 
@@ -139,18 +126,16 @@ cargo test lazy_loader          # Rust reader 读 committed zpkg 字节基线
 
 ## Bumping `.zpkg` minor version（independent）
 
-仅改 zpkg outer（不动 zbc）时（如新增 zpkg-only section / 已定义 section 字段语义）：只触步骤 6–9（zpkg writer / Rust 常量 / zpkg.md changelog / zpkg fixture regen），跳过 zbc 步骤 1–5。
+仅改 zpkg outer（不动 zbc）时（如新增 zpkg-only section / 已定义 section 字段语义）：只触步骤 6–9（zpkg writer / Rust 常量 / zpkg.md 当前配对 / zpkg fixture regen），跳过 zbc 步骤 1–5。
 
-注意：实际工作中 zpkg-only 改动非常罕见（历史上所有 minor bump 都耦合 zbc），但若发生，本节给出独立路径。
+注意：实际工作中 zpkg-only 改动非常罕见（现有 minor bump 都耦合 zbc），但若发生，本节给出独立路径。
 
 ---
 
-## 本地全量验证 / fixture 重生的配方（格式 bump 专用，2026-09-02 验证）
+## 本地全量验证 / fixture 重生的配方（格式 bump 专用）
 
-> **这条解决一个长期的假前提**：过去认为「引入新格式后本地无法全量验证、fixture 无法本地重生 →
-> 只能靠 CI」（因为本地两代自举在 macOS 撞环境墙）。**其实有干净解法**——让 CI 先把新格式工具链建出来、
-> 下载回本地当种子。`fix-generic-array-value-zero-init`（zbc 1.37/zpkg 0.42）用它在 macOS 本地跑通了
-> 完整 GREEN + fixture 重生，无需两代自举。
+> 引入新格式后，本地两代自举在 macOS 撞环境墙；解法是让 CI 先把新格式工具链建出来、
+> 下载回本地当种子，即可在本地跑通完整 GREEN + fixture 重生，无需两代自举。
 
 ### 为什么本地直接建不动
 
@@ -182,7 +167,7 @@ overlay 成种子，**种子与 cargo VM 就同为新格式** → warm 建/测/r
    cp    /tmp/tc/artifacts/xtask/xtask.zpkg artifacts/xtask/xtask.zpkg
    ```
 
-   🔴 **`xtask.zpkg` 很可能比 libraries 旧一代 —— 拷完必须重建它**（2026-09-28 实测踩到）。
+   🔴 **`xtask.zpkg` 很可能比 libraries 旧一代 —— 拷完必须重建它**。
    artifact 里的 `xtask.zpkg` 是流水线**早期**用**种子 stdlib** 建的，而同一个 artifact 里的
    `libraries/` 是**末期**的新格式产物 ⇒ 两者差一代。症状是一个**离现场很远**的缺符号：
 
@@ -225,37 +210,30 @@ overlay 成种子，**种子与 cargo VM 就同为新格式** → warm 建/测/r
    Z42C=$(find /tmp/tc -name z42c.driver.zpkg | head -1)
    LIBS=$PWD/artifacts/build/libraries/dist/release
    # 临时工程：name 用 demo.minimal / demo.multi / demo.indexed，kind=lib
-   #   （旧注写「匹配 expected.json」—— 那批 expected.json 已随 #424 删除，改按 fixture 目录名对应）
+   #   （按 fixture 目录名对应）
    #   packed → --release；indexed → 无 --release（另产散装 source.zbc）
    Z42_LIBS="$LIBS" "$VM" "$Z42C" -- build <temp>/demo.minimal.z42.toml --release
    cp <temp>/dist/demo.minimal.zpkg src/tests/zpkg-format/packed-minimal/source.zpkg
    # indexed 另拷 dist/source.zbc → indexed-minimal/source.zbc（散装 + FILE 段 hash 自动同步）
    ```
-   `sym-only-sidecar` 无 Rust 字节读测试 → 保持旧格式不动（沿 f9928607/58d04cb7 处置）。
+   `sym-only-sidecar` 无 Rust 字节读测试 → 保持旧格式不动。
 5. **重生的 fixture + 收尾 commit** 一起 push；PR 转全绿后合并。
-
-### 与旧记录的关系
-
-- 取代 `escape-stack-format-bump-ci-learnings` §3 的「加临时 CI 步骤重生 fixture」绕法——直接下载
-  `compile-toolchain` 已上传的工具链更省事，无需改 workflow。
-- `bootstrap-seed.md` 的「macOS 本地两代自举环境墙」依然存在，但**本配方绕开了它**（不再需要本地两代
-  自举，改用 CI 建好的种子）。
 
 ---
 
 ## bump 与 xtask↔nightly bootstrap 循环
 
-> **✅ 格式-bump 死结已根治（2026-07-09，fix-bootstrap-format-bump-deadlock）**：ci-bootstrap
+> **格式-bump 的 bootstrap 死结由 ci-bootstrap 处理**：ci-bootstrap
 > 加了**版本差 gate + 两代自举**——种子 minor ≠ 当前 writer minor 时,用 nightly SDK 自带的
 > **旧 VM**(bin/z42vm)跑 gen1/gen2 把种子推进到当前格式,再交 cargo 新 VM。所以 **zpkg/zbc
 > minor bump 后 build-and-test / compile-toolchain 等**从当前源码 bootstrap 的腿
-> **不再全红**,publish-nightly 照常发出新种子,**无需手动传种子**。仅纯 download-bootstrap 的
+> 保持绿,publish-nightly 照常发出新种子,**无需手动传种子**。仅纯 download-bootstrap 的
 > `vm-jit` / `stdlib-jit`(用旧 nightly 的旧 VM)仍会 bump 当次一次性红,下一 run 下到
 > 新 nightly 自愈(它们不 feed publish-nightly,不阻塞)。下面描述的是这类**残留一次性红**。
 >
-> **`bench-regression` 不在此列（2026-09-14 skip-ab-across-format-gap）**：它在 bump PR 上的红
+> **`bench-regression` 不在此列**：它在 bump PR 上的红
 > 根本不是「旧 nightly」问题，而是 A/B 的 base 侧结构上不可测（base stdlib 被 PR 的 z42.package 写成
-> PR 格式、base VM 读不了）。现在检测到格式代差即**跳过 A/B 并打 warning**，不再亮红。
+> PR 格式、base VM 读不了）。检测到格式代差即**跳过 A/B 并打 warning**，不亮红。
 > 原理见 book `dev/benchmarking.md`「跨格式代际的 PR 不做 A/B」。
 
 CI 的 `xtask-bootstrap` composite **下载上一次 nightly**（`install-z42` → `.z42/`）来编译 + 运行 xtask（vm-jit 等 job）。所以 zbc/zpkg minor bump 后会短暂出现循环：
@@ -279,14 +257,14 @@ gh workflow run CI --ref main          # 或 Actions 页面 "Run workflow"
 
 ---
 
-## 编译器语义指纹（非格式失效次元，2026-08-11 add-compiler-fingerprint-cache）
+## 编译器语义指纹（非格式失效次元）
 
 > 触发条件：改了 **z42c 的 codegen / 优化 pass / typecheck / lowering 行为**，但 **zbc/zpkg
 > 格式 Minor 没有 bump**（即同一份源码、同样的 wire 格式，编出的 `.zbc` 字节却会变）。
 
 ### 为什么需要它（与 zbc/zpkg 版本正交）
 
-增量编译 cache 的失效判据（`.meta` / `package.meta`）此前只 pin `源内容 SHA-256 +
+增量编译 cache 的失效判据（`.meta` / `package.meta`）只 pin `源内容 SHA-256 +
 zbc/zpkg 格式 Minor`。这两者都**测不出"编译器语义变了但格式没变"**：多数 codegen / 优化
 改动不动 wire 格式 → 格式 Minor 不 bump → `ProbeFiles` 命中旧 cache → **静默复用旧 `.zbc`
 产物、不重编**，产物与当前编译器语义不一致。`CompilerFingerprint` 就是补的这个失效次元。
@@ -299,29 +277,27 @@ zbc/zpkg 格式 Minor`。这两者都**测不出"编译器语义变了但格式�
 | bump 了 zbc/zpkg 格式 Minor | **不必**追加——格式 Minor 变化已让所有旧 `.meta` 失效（追加了也无害）|
 | 只修 reader/writer 非格式 bug（不改 wire、不改编出的字节、不改诊断） | 不追加 |
 
-> 🔴 **2026-09-27 起不再有「+1」**（change `fingerprint-content-derived`）：指纹 =
-> `CompilerFingerprint.Entries` 这张列表的**内容哈希**。手工计数器有两条实测损害（都在换方案
-> 当天发生）：**撞号/让号两次**，以及 🔴 **#897 的整条理由被 #898 的同行合并吃掉、git 没报冲突**。
-> 列表方案把两者结构性消掉：没有号可抢；两个 PR 各追加一行，合并只会**两行都留下**。
-> 机制与 1–41 的全部历史见
+> 🔴 指纹 =
+> `CompilerFingerprint.Entries` 这张列表的**内容哈希**，没有手工计数器：
+> 没有号可抢；两个 PR 各追加一行，合并只会**两行都留下**。
+> 机制与各条目理由见
 > [编译器语义指纹](../../internals/src/compiler/compiler-fingerprint.md)。
 
-> ⚠️ **第 1 行明确含「发出的诊断」**。此前只写「typecheck」，读的人容易把「发码没变」当成
-> 不必追加的理由 —— 而**诊断变了、字节没变**恰恰是最需要失效的一档：那类源文件哈希一字未变，
-> 不失效就会命中旧条目、把新诊断整个吞掉。本仓已为此栽过多次（#791 / #806 / #850 /
-> enforce-null-at-cast / #897 / #898）。
+> ⚠️ **第 1 行明确含「发出的诊断」**。「发码没变」不是不必追加的理由 ——
+> **诊断变了、字节没变**恰恰是最需要失效的一档：那类源文件哈希一字未变，
+> 不失效就会命中旧条目、把新诊断整个吞掉。
 >
 > ⚠️ 第 3 行的主语是 **reader/writer**，不是「字节没变」—— 别把括号里的条件当成独立判据去
-> 和第 1 行对撞（我自己误读过一次，并据此向 User 报了一条不存在的「规范冲突」）。
+> 和第 1 行对撞。
 
 **坐标**：`src/compiler/z42c.pipeline/src/CompilerFingerprint.z42` 的 `Entries`
 （**只许在末尾追加**，不许改动/删除既有条目）。`CacheStore.Fingerprint()` 只是它的取值口。它进 `.meta` 的 `z42c-fp` 行与 `package.meta` 头；`Parse` / `LoadSrcList`
 校验不符即令条目作废。**纯 z42c 内部格式，不涉 wire、不触发 zbc/zpkg 格式 bump、不需改 Rust 端。**
 
-### CI 守门：输出变了就必须累加（guard-compiler-fingerprint，2026-09-15）
+### CI 守门：输出变了就必须累加
 
-「该不该 bump」不再靠自觉判断：bench-pr 工作流的 **Compiler fingerprint guard** 步骤用 base 编译器和
-PR 编译器各编一遍**同一份 base stdlib 源码**，逐包比 zpkg 字节（#654 起同源同编译器 ⇒ 逐字节一致）。
+「该不该 bump」由 CI 守门判断：bench-pr 工作流的 **Compiler fingerprint guard** 步骤用 base 编译器和
+PR 编译器各编一遍**同一份 base stdlib 源码**，逐包比 zpkg 字节（同源同编译器 ⇒ 逐字节一致）。
 
 | 输出字节 | 编译器身份（`Entries` / 格式 Minor） | 结果 |
 |---------|-----------------------------------|------|
@@ -330,12 +306,10 @@ PR 编译器各编一遍**同一份 base stdlib 源码**，逐包比 zpkg 字节
 | 变了 | 都没变 | ❌ 报出哪些包变了 → 去 `Entries` 末尾追加一行 slug |
 
 > 🔴 **这道门对「诊断变了、发码不变」那一档是结构性地瞎的** —— 它比的是**产物字节**，而诊断
-> 不进产物。那一档只能靠人按上表第 1 行记一条；门禁不会替你发现。此前那句「不变 ⇒ ✅（纯重构、
-> 改注释）」的括注是错的：**只改诊断也落在这一格，却不是纯重构**。
+> 不进产物。那一档只能靠人按上表第 1 行记一条；门禁不会替你发现。「不变」一格并不等于纯重构：
+> **只改诊断也落在这一格**。
 
 本地复现：`xtask test fingerprint --base <base 源码树根>`（base 树的 stdlib 须先由 base 编译器建好）。
 覆盖面 = stdlib 实际走到的编译器路径；stdlib 没用到的 codegen 分支测不到（只会漏判，不会误判）——
 这类改动仍按上表手动 bump。
 
-> 已否决：让 VM 暴露「入口 zpkg 依赖闭包的 build_id」自动作指纹（需新 builtin + 跨 nightly 两阶段，
-> 且编译器身份本就该由编译器自己的版本号表达；User 2026-09-15 裁决走「版本号 + CI 守门」）。

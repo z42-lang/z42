@@ -19,19 +19,16 @@ xtask / build 基础设施驱动；stdlib 又被两者依赖。任何「从源�
 | **warm 种子** | 本地已建过 / CI 有缓存 / 上游 nightly 已下载 | `artifacts/build/z42c/.../z42c.driver.zpkg` 存在 → z42c 自建 z42c |
 | **cold 种子** | fresh checkout / CI 全新 runner，**没有任何 in-tree z42c 产物** | 下载 nightly（`install-z42.sh` / CI `setup-z42-sdk` → 都是 `./.z42`）→ `_ensureSeed` 把 `programs/z42c` + `libs` 供种到 in-tree |
 
-> **cold 种子的统一解析（2026-07-04；env 于 2026-07-05 simplify-compiler-build 折叠）**：
-> `build compiler` / `build stdlib` 冷启动不再报错，由 `_ensureSeed`
+> **cold 种子的统一解析**：
+> `build compiler` / `build stdlib` 冷启动由 `_ensureSeed`
 > （`scripts/common/xtask_common.z42`，SDK 定位在 `_seedSdkDir`）按 **`Z42_HOME`
 > （`--toolchain` 设它，或 launcher/install 设）→ 运行 xtask 的 apphost SDK
 > （`Z42_PORTABLE_VM` 反推）→ `./.z42`** 找到 SDK，把 `programs/z42c` + `libs` 拷进 in-tree
 > 再自建。**CI 与本地同一条 resolver、同一个位置**：CI（`.github/actions/setup-z42-sdk`）把 nightly 装进
-> 仓库根 `./.z42`——与本地 `install-z42.sh` 相同，不设 `Z42_HOME`，xtask 也跑在这份 SDK 上（add-sdk-libs D7，
-> 2026-10-01）；本地 `install-z42.sh` 后 `xtask build compiler` 开箱即用。warm 树（in-tree 已有种子）**不被覆盖**——gen2 字节不动点靠"第二次从 in-tree
+> 仓库根 `./.z42`——与本地 `install-z42.sh` 相同，不设 `Z42_HOME`，xtask 也跑在这份 SDK 上；本地 `install-z42.sh` 后 `xtask build compiler` 开箱即用。warm 树（in-tree 已有种子）**不被覆盖**——gen2 字节不动点靠"第二次从 in-tree
 > gen1 再种"收敛，故 in-tree 必须最高优先。managed 布局的 `Z42_HOME`（`runtimes/`，无
 > `programs/`）不符 SDK-toolchain 布局 → 跳过（不误当种子源）；`Z42_LIBS` 显式覆盖仅在其
-> 确实含 `z42.core.zpkg` 时生效。（`Z42C_DIR` / `Z42_TOOLCHAIN` 已于 simplify-compiler-build
-> 折叠进 `Z42_HOME`，不再存在。）
-
+> 确实含 `z42.core.zpkg` 时生效。
 ---
 
 ## 核心约定（必须遵守）
@@ -52,72 +49,59 @@ xtask / build 基础设施驱动；stdlib 又被两者依赖。任何「从源�
 
 ## 删种子前自检清单
 
-改任何 `_buildCompiler*` / `_buildStdlib*` / `bootstrap-*.sh` / CI 的 setup-dotnet / download-nightly 步骤前：
+改任何 `_buildCompiler*` / `_buildStdlib*` / `bootstrap-*.sh` / CI 的 download-nightly 步骤前：
 
 1. **列出此路径当前的种子来源**（warm？cold？两者？）
 2. **若要删 cold 兜底**：先确认每个 cold 入口（上面清单）已切到「下载 nightly 种子」或「committed 种子」——
    **种子供给的 PR 必须先合并 / 同一 commit 落地，再删兜底**。
 3. **本地不可验的部分（CI / packaging）**：本地只能验 warm 路径；cold 路径只能靠 CI。
-   因此删 cold 兜底的 commit **push 后必须盯 CI**，红了立即回滚或补种子（见案例）。
-4. **格式漂移风险（格式维度已由两代自举根治，2026-07-09 fix-bootstrap-format-bump-deadlock）**：
+   因此删 cold 兜底的 commit **push 后必须盯 CI**，红了立即回滚或补种子。
+4. **格式漂移风险（格式维度由两代自举根治）**：
    下载的 nightly 种子其 zbc / zpkg 格式与当前 z42vm 的 strict-pin 不同时，`ci-bootstrap` 的**版本差
    gate**（读种子 `programs/z42c/z42c.driver.zpkg` header minor vs 源码 `ZpkgWriterZ.Minor`）检测到
    不等就走**两代自举**：用 SDK 自带的**旧 VM**（`bin/z42vm`，与旧种子同版本、能读旧种子）跑
    Gen1（旧种子 z42c 编当前源→旧壳/新逻辑）+ Gen2（旧 VM 跑 gen1 z42c→新格式产物），再交新 VM
    接管。runtime stdlib（entry-dir 旧）与 compile stdlib（`Z42_LIBS` 新）分离解开死锁（design D7）。
-   → **格式 bump 的 build-and-test / toolchain-bootstrap / package 路径 CI 自动过、免手动传种子**
-   （实测 0.25→0.30 连续 5+ 次真实 bump 全绿）。机制见
+   → **格式 bump 的 build-and-test / toolchain-bootstrap / package 路径 CI 自动过、免手动传种子**。机制见
    [`docs/spec/archive/…-fix-bootstrap-format-bump-deadlock`](../../spec/archive)。
    > **残留**：纯 download-bootstrap 的 job（vm-jit / bench 等，不 feed publish-nightly）在 bump 当次
    > 仍短暂红一跑，等新 nightly 发布自愈——不阻塞发布链。删 cold 兜底照旧**不要踩在 format bump
    > 同一周期**（该残留窗口期）。
    >
-   > **回归 + 二次根治（2026-08-21 → 2026-09-02）**：#247/#252 引入的 z42c `DepScanCache`（F2 进程级
-   > memo，按**绝对 path 缓存 `ZpkgReader.Open`、无 mtime**）破坏了两代自举——gen0→gen1(stdlib) /
-   > gen1→gen2(compiler) **就地覆写同一 `artifacts/build/{libraries,compiler}`**，gen1 起步时 artifacts
-   > 仍是 gen0 旧 minor 产物，建首成员时 DepScan 预开 `Get(path)` 读旧份 → strict-pin skip → **缓存 null**，
-   > 覆写新 minor 后后续成员复用缓存 null → 跨包类型 undefined(E0401/E0443)。故 2026-08-21 (#240) 后**任何
-   > 格式 bump CI 全红**（纯版本 bump 亦然，探针 PR #381 复现）。**即时解阻**：`ci-bootstrap` §1.5 **每代
-   > 构建前清空其就地 artifacts**（恢复 DepScanCache「建成员前 dist 空」不变式）。
-   >
-   > **根因已修（2026-09-13，guard-depscan-cache-staleness）**：`DepScanCache.Get` 现在按
-   > **path + (size, mtime_ms)** 作答，命中但文件被覆写过即重读重解、并作废该条目的
-   > Tsig/Mods/Types。于是「进程内覆写 zpkg 后重扫」不再返回陈旧 null，两代自举不再依赖外部清理。
-   > 回归测试 `src/compiler/z42c.pipeline/tests/depscancache/` 按真实形状复现（旧 minor 头 → 缓存
-   > null → 就地覆写成当前 minor → 必须重解）；关掉守卫即判红（阴性对照做过）。
+   > **`DepScanCache` 与两代自举**：gen0→gen1(stdlib) / gen1→gen2(compiler) **就地覆写同一
+   > `artifacts/build/{libraries,compiler}`**；`DepScanCache.Get` 按 **path + (size, mtime_ms)** 作答，
+   > 命中但文件被覆写过即重读重解、并作废该条目的 Tsig/Mods/Types，于是「进程内覆写 zpkg 后重扫」不会
+   > 返回陈旧 null，两代自举不依赖外部清理。回归测试 `src/compiler/z42c.pipeline/tests/depscancache/`
+   > 按真实形状复现（旧 minor 头 → 缓存 null → 就地覆写成当前 minor → 必须重解）。
    > ⚠️ 残余窗口：mtime 只有毫秒粒度，「同毫秒内覆写成同样大小的另一份内容」测不出来
    > （make/ninja/rustc 同款取舍）；两代自举之间隔着整轮构建，不在这个窗口里。
    >
-   > **`ci-bootstrap` §1.5 的清理暂时保留**，因为这条路径**本地不可验**（冷启动 + 格式 bump 才走到），
-   > 现在删掉等于拿一次真实 bump 当验证。**触发条件**：下一次格式 bump 的 PR 里顺手删掉它并观察 CI ——
-   > 那时它正好被真实行使一次，红了也立刻知道是谁的锅。
+   > **`ci-bootstrap` §1.5 每代构建前清空其就地 artifacts**：因这条路径**本地不可验**（冷启动 + 格式 bump
+   > 才走到），暂时保留。**ToDo**：下一次格式 bump 的 PR 里顺手删掉它并观察 CI —— 那时它正好被真实行使一次，
+   > 红了也立刻知道是谁的锅。
 
 ---
 
-## 现场案例（2026-06-24 fix f8a16812）
+## 现场案例
 
-`d4471a85` 把 `_buildCompiler` 从「dotnet 现编 z42c」改成「C#-free 自种子（缺种子即 `return 1`）」，
-**但只改了函数、没动调用它的 `_buildStdlibCore` 冷启动分支**——该分支仍把它当「C# z42c 兜底」调用。
-结果：CI fresh checkout 没有 z42c 种子 → `error: no z42c seed` → **所有冷建 stdlib 的 job 全红**
-（build-and-test ×4 OS + package-{android,ios,wasm} + 3 个 download-bootstrap gate）。
+把 `_buildCompiler` 改成「缺种子即 `return 1`」的自种子，**但没动调用它的 `_buildStdlibCore` 冷启动分支**——
+该分支仍把它当兜底调用。结果：CI fresh checkout 没有 z42c 种子 → `error: no z42c seed` →
+**所有冷建 stdlib 的 job 全红**（build-and-test ×4 OS + package-{android,ios,wasm} + download-bootstrap gate）。
 
 根因正是违反核心约定：**cold 兜底被删，但 CI seed-provisioning（下载 nightly）还没落地**——两者是耦合原子步，
-被拆开了。修复：恢复 `_csharpBuildCompilerZ42Seed`（cold 用 C# 现编 z42c），warm 路径保持 C#-free 不变。
-彻底删 C# cold 兜底，要等 CI 全面切到下载 nightly 种子那一刻**同时**做。
+被拆开了。
 
 ---
 
-## 分阶段引入新语法 / zbc·zpkg 格式（自举跨版本 —— 彻底删 C# 种子的关键，2026-06-25）
+## 分阶段引入新语法 / zbc·zpkg 格式（自举跨版本）
 
-> 这条是「鸡蛋问题」在**语言 / 格式演进**维度的解。没有它，跨版本自举只能靠 C#
-> （永远从源码现编、永远当前能力）；有了它，**上一个已发布 nightly 的 z42c 永远能编当前 main 源码**，
-> C# 种子可彻底移除——build-and-test 改「下载上一版 nightly → 自举当前源码」即可，无死锁。
+> 这条是「鸡蛋问题」在**语言 / 格式演进**维度的解：**上一个已发布 nightly 的 z42c 永远能编当前 main 源码**，
+> build-and-test 即「下载上一版 nightly → 自举当前源码」，无死锁。
 
 ### 鸡蛋问题（语言 / 格式维度）
 
 自举编译器加新语法 / bump zbc·zpkg 格式时：当前源码若**立即使用**新语法 / 新格式，则**只有已经懂新
-语法·格式的编译器**才能编它——而那个编译器还没发布（要靠这次构建产出）。死锁。C# 一直当种子，正因它
-每次从源码重编、永远具备当前能力，绕开了这个环。
+语法·格式的编译器**才能编它——而那个编译器还没发布（要靠这次构建产出）。死锁。
 
 ### 核心约定：support 与 use 必须分两个 release（必须遵守）
 
@@ -129,7 +113,7 @@ xtask / build 基础设施驱动；stdlib 又被两者依赖。任何「从源�
 2. **阶段 2 —— 落「使用」**：新 nightly 发布后，**才**在 z42c / stdlib / xtask / 用例里**使用**新语法、
    或让构建**产出**新格式。→ 刚发布的 z42c（阶段 1 能力）能编。
 
-### 边界的第二根轴：stdlib API 面（2026-07-02 补）
+### 边界的第二根轴：stdlib API 面
 
 种子约束不止语法/格式——CI 冷启动（`.github/actions/ci-bootstrap` step 2/3）用**种子 z42c +
 种子 stdlib** 编当前 xtask 源与 z42c 源，因此这两个源码域**引用的 stdlib API 也被上一 nightly
@@ -140,7 +124,7 @@ xtask / build 基础设施驱动；stdlib 又被两者依赖。任何「从源�
 - **删/改 xtask / z42c 在用的 API**：两阶段跨两个 nightly——阶段 1 加新 API、**旧 API 暂留**
   （种子例外，非兼容层）、调用点不动 → nightly 发布 → 阶段 2 切全部调用点 + **同一提交删旧 API**。
 - stdlib 源自身不受此轴约束（它由自建的当前 z42c 编译）。
-- **xtask 用到的编译器域 API（`Z42.Project` / `Z42.Build`）同属此轴**（2026-10-01 tidy-xtask-config 起）：
+- **xtask 用到的编译器域 API（`Z42.Project` / `Z42.Build`）同属此轴**：
   `scripts/xtask.z42.toml` 把它们声明为 SDK 库（`deploy = "sdk"`，add-sdk-libs），编译与运行都用**编出 xtask 的那份
   SDK**（本地与 CI 都是仓库根 `.z42/` = 上一 nightly）的 `programs/z42c/`，不从源码代建。⇒ 给这两个包**加** API 随时可做，xtask
   **用**它要晚一个 nightly；**删/改** xtask 在用的 API 走上面的两阶段。另一个后果：改布局规则
@@ -148,55 +132,50 @@ xtask / build 基础设施驱动；stdlib 又被两者依赖。任何「从源�
   xtask 侧的跟进放到下一个 PR。
 
 > 🔴 **阶段 2 最容易被忘掉——因为忘了不会红。** 阶段 1 的过渡形态（字面量 / 旧 API 并存）能一直跑下去，
-> 没有任何东西提醒你回来收尾，于是过渡形态**沉淀成常态**：诊断码那边就这么积到了 42 个码 / 100 个
-> 发射点常年用字面量发码，`DiagnosticCodes` 登记表被绕开，直接长出三次一码两义（E0474 / E0477 /
-> E0481）。2026-09-23 清账后，`xtask test diagcodes` 的**规则 ⑥**给每条过渡项挂了到期日（挂账超
+> 没有任何东西提醒你回来收尾，于是过渡形态**沉淀成常态**（例：诊断码用字面量发码绕开 `DiagnosticCodes`
+> 登记表，长出一码两义）。`xtask test diagcodes` 的**规则 ⑥**给每条过渡项挂了到期日（挂账超
 > 3 天即红），把「阶段 2 该做了」变成一个会自己响的信号，而不是靠谁记得
 > （见 [test-gate.md](../../internals/src/devinfra/test-gate.md)）。
 > **新开一个分阶段引入时，先想好阶段 2 由什么来提醒你**——没有提醒就等于没打算做。
 >
-> ✅ **2026-09-26：这条不再靠自觉了。** 在过渡形态所在文件写一行
+> ✅ 在过渡形态所在文件写一行
 > `// STAGE2-DEBT(<tag>): <阶段 2 要做的那件事>`，`xtask test stage2 --update` 记进
 > `scripts/test/stage2-debt.txt`；门做双向棘轮（源里多一条/清单多一条都红）+ 挂账超 7 天即红。
-> ⚠️ **它只看得见带标记的债** —— 这个边界写在门的头注里。立门当天全仓一扫就抓到 4 条**现在时的
-> 假断言**（支持侧注释还写着「今天没有生产调用方 / z42c 尚不读」，而消费早已落地），
-> 以及一条**已超期 12 天**的真欠账（`store-sync-values-in-heap` 阶段 2）。
+> ⚠️ **它只看得见带标记的债** —— 这个边界写在门的头注里。
 >
-> 🔴 **阶段 2 的收尾不止于代码：过渡形态也写在散文里，而散文不会跟着切回。** 2026-09-23 那次清账
-> 切回了 100 个发射点，但登记表注释里 **30 条**「XX 层用字面量 `E04xx` 发码」原样留着，一夜之间
-> 全成了假话——连它们给出的理由（避 core→semantics 冷启动 stale-cache）都早已被修掉。没人发现，
-> 因为没有门盯着散文。次日补的**规则 ⑦**干脆禁止在登记表里断言发射形态：形态的唯一 SoT 是那份
-> 由实扫重生成的清单。**收尾时问一句：我刚消灭的那个过渡形态，还被写在哪里当成现状？**
+> 🔴 **阶段 2 的收尾不止于代码：过渡形态也写在散文里，而散文不会跟着切回。** 登记表注释里若写着
+> 「XX 层用字面量 `E04xx` 发码」，代码切回后它们一夜之间全成假话，而没有门盯着散文。
+> **规则 ⑦**因此禁止在登记表里断言发射形态：形态的唯一 SoT 是那份由实扫重生成的清单。
+> **收尾时问一句：我刚消灭的那个过渡形态，还被写在哪里当成现状？**
 
 可操作的完整提交剧本（判定 grep / 两个 commit / 等 nightly 的检查命令）见
 [`docs/internals/src/devinfra/testing.md`](../../internals/src/devinfra/testing.md)
 「stdlib 破坏性 API 变更」。
 
-### 边界的第三根轴：z42c 运行期自依赖一个 stdlib 库（2026-07-22 补）
+### 边界的第三根轴：z42c 运行期自依赖一个 stdlib 库
 
 比 API 面更隐蔽：**当 z42c 把自身建构期依赖的代码（IR 模型 / zpkg 后端 / 等）下沉进一个
-z42c *自己运行期就要用* 的 stdlib 库**（如 `converge-z42c-ir-metadata` 把 `z42c.ir`+`z42c.project`
+z42c *自己运行期就要用* 的 stdlib 库**（如把 `z42c.ir`+`z42c.project`
 收敛成 stdlib 单库 `z42.package`），就出现**自依赖环**：z42c 建任何 zpkg 都要调 `z42.package` 的
 `ZpkgBuilder`，而 `z42.package` 本身由 z42c 构建。冷启动 flat dist 里还没有它，且上一 nightly 种子只把
 等价代码作**旧包名**（`z42c.ir`/`z42c.project`）携带 → fresh z42c 被编成钉在种子旧包上的调用，
 运行期加载真库时 `undefined function`（**这类漏网正因 `xtask test bootstrap` 只「编」不「跑」
 新建出来的 z42c**——它验语法/格式/非自依赖库的 API 越界，但从不执行产物，故运行期自依赖问题看不见；
-这条只能靠 CI 冷启动全栈重建暴露——每个跑 `ci-bootstrap` 的 job（`test-host` ×4 OS、`compile-toolchain`）
+这条只能靠 CI 冷启动全栈重建暴露——每个跑 `ci-bootstrap` 的 job
 都用刚建出的 gen1 z42c 编 stdlib 与 golden，即真的**运行**了它；`compiler-checks` 再在同一份冷启动产物上跑 gen1→gen2）。
 
 - **判据**：本次改动是否让 z42c 的**源**新 `using` 一个「z42c 运行期就要加载」的 stdlib 库，而该库
   **上一 nightly 种子里不以同名 zpkg 存在**？是 → 踩轴 ④。
-- **破环**（已实现，非纪律）：`_ensureBootstrapSelfDepLibs`（`scripts/build/xtask_compiler.z42`，
-  旧名 `_ensureBootstrapZ42Ir`）在建 z42c **前**用当前 driver 把当前源的
+- **破环**（已实现，非纪律）：`_ensureBootstrapSelfDepLibs`（`scripts/build/xtask_compiler.z42`）在建 z42c **前**用当前 driver 把当前源的
   `z42.core` → `z42.project` → `z42.build` → `z42.package` → `z42c.core` → `z42c.syntax`
-  逐个单独编进 build-libs。**不 warm-skip**（`07596b57`，2026-07-30 改）。机制全文见
+  逐个单独编进 build-libs。**不 warm-skip**。机制全文见
   [`docs/internals/src/compiler/self-hosting.md` 轴 ④](../../internals/src/compiler/self-hosting.md)。
 
-> ⭐ **轴 ③ 对这 6 个自依赖库不成立（2026-09-06 add-associated-types 澄清）**：破环预建总是用
+> ⭐ **轴 ③ 对这 6 个自依赖库不成立**：破环预建总是用
 > **当前源**重建它们，故「z42c 源用这 6 个库的**新 API**」**无需等一个 nightly**，加 API 与用 API
-> 可以同一个 commit。这已是日常操作——先例 `ExportedClassZ.IsSealed`(08-07) / `Visibility`(08-13) /
-> `IsDeprecated`(08-23) / `ExportedMethodZ.TypeParamCount`(`a71278b5`, 09-03) /
-> `StrMap.Find`(`04719bbb`, 09-05)，全部同 commit 加+用、CI 绿。
+> 可以同一个 commit。这已是日常操作——先例 `ExportedClassZ.IsSealed` / `Visibility` /
+> `IsDeprecated` / `ExportedMethodZ.TypeParamCount` /
+> `StrMap.Find`，全部同 commit 加+用、CI 绿。
 >
 > **轴 ③ 的「晚一个 nightly」纪律仍然适用于**：① **其余 stdlib 库**（`z42.collections` /
 > `z42.threading` / …，预建不覆盖）；② **xtask 源**（`ci-bootstrap` step [2] 用种子 stdlib 编 xtask，
@@ -204,13 +183,13 @@ z42c *自己运行期就要用* 的 stdlib 库**（如 `converge-z42c-ir-metadat
 >
 > **残余真约束**：给这 6 个库的既有导出类型加字段，新字段**不得进 ctor 签名**，须 ctor 内给默认值 +
 > 消费方构造后赋值（种子 ABI）。违反 = 旧种子构造调用元数对不上。
-> 🔴🔴 **那条豁免只对「增量」成立 —— 改名 / 删除不在内**（2026-09-26 实测补）。
+> 🔴🔴 **那条豁免只对「增量」成立 —— 改名 / 删除不在内**。
 >
 > 破环预建用**当前源**重建那 6 个库，所以「加一个新 API 并同 commit 用它」没问题：新的加上了、
 > **旧的还在**，上一版 driver 二进制运行期照旧解析得到。但**重命名或删除**会抹掉旧 FQN，
 > 而那个 driver 正是拿来跑这轮 bootstrap 的 ⇒ 它在中途就死。
 >
-> 实测（`add-deployment-model` 想把 `Z42.Build.Project` ↔ `Z42.Package` 互换）：改完源码
+> 实测（想把 `Z42.Build.Project` ↔ `Z42.Package` 互换）：改完源码
 > `xtask build stdlib` 当场红在
 >
 > ```
@@ -230,7 +209,7 @@ z42c *自己运行期就要用* 的 stdlib 库**（如 `converge-z42c-ir-metadat
 - **教训**：**新增/收敛「z42c 自依赖的 stdlib 库」的 change，冷启动路径本地必验**（下载上一 nightly
   作种子跑一遍 cold `build compiler` + `build stdlib`），别只验 warm 就推 main。
 
-### 边界的第四根轴：**改名**（别名形态要按轴选，2026-09-27 rename-project-namespaces B3b 补）
+### 边界的第四根轴：**改名**（别名形态要按轴选）
 
 改名不是增量（见上一节 🔴🔴），所以它一定要一个「让两代并存」的兼容物。**但兼容物有三种形态，
 选错就是白干一轮**，判据只有一条：
@@ -246,7 +225,7 @@ z42c *自己运行期就要用* 的 stdlib 库**（如 `converge-z42c-ir-metadat
 
 | 改的是 | 别名形态 | 先例 |
 |---|---|---|
-| **包名（文件名）**，命名空间没动 | 同内容**两个文件名** | `z42.ir` → `z42.package`（阶段 1 的别名机制已随 2026-09-29 的欠账清理删除）|
+| **包名（文件名）**，命名空间没动 | 同内容**两个文件名** | `z42.ir` → `z42.package`|
 | **命名空间**，文件名没动 | 只能**旁置**一份到消费者的 entry 目录（塞进同一个包 = 同短名类串味，见下面 ❌ 第二条）| 本节 |
 
 ⇒ 命名空间改名时，这两条已实测否证，别再试：
@@ -257,8 +236,7 @@ z42c *自己运行期就要用* 的 stdlib 库**（如 `converge-z42c-ir-metadat
   <Class>`，短名键混同），**且种子 z42c 一样如此** ⇒ 阶段 1 的源码根本编不出来，修当前 z42c 也没用。
 
 ✅ **可行形态 = 编译期 overlay + 运行期旁置**（配方与四段实测判据见
-[`docs/spec/archive/2026-09-27-rename-project-namespaces/design.md`](../../spec/archive/2026-09-27-rename-project-namespaces/design.md) §6.2
-——⚠️ CI 里那两段是**一代过渡形态**，阶段 2 当天就撤了，别去 `ci-bootstrap` 里找现成代码）：
+[`docs/spec/archive/2026-09-27-rename-project-namespaces/design.md`](../../spec/archive/2026-09-27-rename-project-namespaces/design.md) §6.2）：
 用种子 z42c 先把**当前源**那个库编出来、覆盖进一份种子 libs 的副本供编译期用；再把这份新名产物
 **`cp` 到消费者 zpkg 旁边**（搜索序 `[entry-dir, Z42_LIBS, probing]`，entry-dir 最优先）供运行期用。
 两件齐了，改名就能**一步落**，不必拆成跨 nightly 的三步。
@@ -267,7 +245,7 @@ z42c *自己运行期就要用* 的 stdlib 库**（如 `converge-z42c-ir-metadat
 那是空门（实测踩过：`xtask test stage2` 不读清单 ⇒ 对照无效，换 `build stage-toolchain` 才红）。
 
 **铁律**：当前 main 的源码，**任何时刻都不得使用比「上一个已发布 nightly 的 z42c」更新的语法 / 格式**。
-违反 = 跨版本自举断链 = 被迫退回 C# 种子。
+违反 = 跨版本自举断链。
 
 ### z42c 自举能力版本号 + 种子校验
 
@@ -288,7 +266,7 @@ z42c 源码，确认上一个 nightly 仍能编当前源 → 没有「用了比�
   按上面「support 先行、use 晚一 release」拆分，或回退过早的使用。
 
 **何时跑**：改动 z42c（parser/lexer/codegen/zbc·zpkg writer）、加新语法、bump 格式后；CI 的
-`bootstrap-no-csharp` job 是其全量版（下载 nightly → 重建全栈），本脚本是开发期快速本地版。
+冷启动全栈重建（`ci-bootstrap`：下载 nightly → 重建全栈）是其全量版，本脚本是开发期快速本地版。
 
 ### 为什么这与「不为旧版本提供兼容」不冲突
 
@@ -302,7 +280,7 @@ z42c 源码，确认上一个 nightly 仍能编当前源 → 没有「用了比�
 
 - **[philosophy.md](philosophy.md) 不为旧版本提供兼容**：种子的「format 漂移」是该规则的例外——nightly 种子是
   *跨进程的二进制接口*，删兜底要尊重发布周期，不能假设旧种子永远可读。**分阶段引入纪律（见上）正是让这个
-  「发布周期」可控、从而 C# 种子可彻底删除的前提。**
+  「发布周期」可控的前提。**
 - **[workflow.md](workflow.md) 阶段 8 GREEN**：cold 路径本地不可验 → 该路径的「全绿」判定**以 CI 为准**，
   不是本地 warm 跑通就算数。
 - **设计原理**（为什么自举需要种子、warm/cold 两态如何切换）落在 [`docs/internals/src/compiler/self-hosting.md`](../../internals/src/compiler/self-hosting.md)，

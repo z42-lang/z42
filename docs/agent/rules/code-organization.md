@@ -49,16 +49,6 @@ src/compiler/z42c.semantics/src/  ← 第 4 层 ✗ 不自动加 README
 | Rust `.rs` 文件 | 500 行 | 886 行 |
 | z42 `.z42` 文件 | 500 行 | 886 行 |
 
-> **2026-09-05 调整**（软 300→500、硬 500→886）。依据：`src/` 下 1180 个非测试源文件的实际分布
-> 是 中位数 122 / p90 377 / p95 467 / p99 743。旧软限 300 卡住 16.4%（194 个）却**在 lint 里
-> 零实现**，是一条没人执行也没人知道失效了的死规则；旧硬限 500 虽然有门，但被咬的多是
-> `YamlParser`(1692) / `BigInt`(1498) / `HttpClient`(1411) 这类**天然内聚的单一职责**，硬拆
-> 反而是为拆而拆。新的 886 只留 6 个真·超大文件在棘轮里。
->
-> 参照：ESLint `max-lines` 默认 300 / `max-lines-per-function` 默认 50；Checkstyle `FileLength`
-> 默认 2000。业界共识是**函数长度比文件长度更承重**——本仓的函数限（40/60）目前仍是纯文档、
-> 无实现，那是比放宽文件限更值得补的一环。
-
 > 测试文件（`*_tests.rs`、`tests/<name>/` 下的 `.z42`）不计入限制，但单个测试文件超过 1000 行时也应按功能拆分。
 
 ### 函数 / 方法行数
@@ -69,6 +59,8 @@ src/compiler/z42c.semantics/src/  ← 第 4 层 ✗ 不自动加 README
 | 硬限制（必须提取子函数） | 60 行 |
 
 > 计算方式：函数体内的非空、非注释行数。
+>
+> 已知缺口：函数限（40/60）目前仍是纯文档、无 lint 实现。
 
 ### 类型（struct / class / impl block）行数
 
@@ -86,7 +78,7 @@ src/compiler/z42c.semantics/src/  ← 第 4 层 ✗ 不自动加 README
 
 ### 执行方式
 
-- **机械门禁（add-line-count-lint，2026-09-03）**：`xtask test lines` 是 GREEN gate 的一个 stage——扫 `src/` 下非测试
+- **机械门禁**：`xtask test lines` 是 GREEN gate 的一个 stage——扫 `src/` 下非测试
   `.z42` / `.rs` 文件，**新的越界文件（>886 行）或比 `scripts/test/line-limit-baseline.txt` 基线更长的已知越界文件 → 红**；软限（>500 行）只出一条 advisory 提示、不进棘轮、永不变红；
   基线内未增长的只 warn。基线是**棘轮**：拆分后降到上限以下 → `xtask test lines --update` 剔除；禁止用 `--update` 把新越界 /
   增长写进基线（那等于关掉门禁）。

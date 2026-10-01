@@ -14,7 +14,7 @@ paths:
 > `int` 常量替代，见 `TokenKind` / `DiagnosticCodes`）、泛型字段倾向用 typed array。
 > 写编译器代码时沿用这套既有写法，不要引入新依赖。
 >
-> **⚠️ 局部变量非块作用域 shadow（2026-07-09 踩坑）**：z42 的局部变量**不做块级 shadow**
+> **⚠️ 局部变量非块作用域 shadow**：z42 的局部变量**不做块级 shadow**
 > ——在内层 `while`/`if` 块里 `string name = ""` 会**复用/覆盖**外层同名 `name`，不是新建
 > 影子变量。案例：`ZpkgReader.Open` 内层 STRS 解码循环用了 `name` 逐串拼接，污染了外层
 > META 包名 `name`（→ `z.Name` 变成池里最后一个串）→ `_isPrelude(z.Name)` 恒 false → prelude
@@ -26,23 +26,20 @@ paths:
 
 ## 子包结构
 
-z42c 由 **5** 个子包组成（按依赖序），分处两地——改动前先读对应子包的 `README.md`：
-**`z42c.core` / `z42c.syntax` 在 `src/libraries/`**（它们同时被 REPL 等消费方用到），
-`z42c.semantics` / `z42c.pipeline` / `z42c.driver` 在 `src/compiler/`。
-IR 模型 + zbc/zpkg 格式 + 依赖索引已下沉 stdlib 库 **`z42.package`**（namespace `Z42.IR` / `Z42.Package`
-不变；converge-z42c-ir-metadata-onto-stdlib，为 REPL 共享）——改 IR/格式/zpkg 后端去 `src/libraries/z42.package`。
+z42c 由 **5** 个子包组成（按依赖序），均在 `src/compiler/`——改动前先读对应子包的 `README.md`。
+IR 模型 + zbc/zpkg 格式 + 依赖索引在 stdlib 库 **`z42.package`**（namespace `Z42.IR` / `Z42.Package`；为 REPL 共享）——改 IR/格式/zpkg 后端去 `src/compiler/z42.package`。
 
 | 子包 | 职责 | 关键文件 |
 |------|------|---------|
-| `z42c.core`（`src/libraries/`）| 基础设施：`Span` / `Diagnostic` / `DiagnosticBag` / `DiagnosticCodes` / `LanguageFeatures` | `Span.z42`、`Diagnostic*.z42`、`LanguageFeatures.z42` |
-| `z42c.syntax`（`src/libraries/`）| **语法层**：Lexer + Parser + AST | `TokenKind.z42`、`Lexer.z42`、`Parser.z42`、`Ast.z42`、`Stmt.z42`、`Decl.z42`、`TypeExpr.z42` |
+| `z42c.core`| 基础设施：`Span` / `Diagnostic` / `DiagnosticBag` / `DiagnosticCodes` / `LanguageFeatures` | `Span.z42`、`Diagnostic*.z42`、`LanguageFeatures.z42` |
+| `z42c.syntax`| **语法层**：Lexer + Parser + AST | `TokenKind.z42`、`Lexer.z42`、`Parser.z42`、`Ast.z42`、`Stmt.z42`、`Decl.z42`、`TypeExpr.z42` |
 | `z42c.semantics` | 类型检查（符号收集 + TypeCheck）+ Codegen（Bound→IR，用 `z42.package` 的模型） | `SymbolCollector.z42`、`TypeChecker.z42`、`Bound.z42`、`ExprEmitter.z42`、`IrGen.z42` |
-| `z42c.pipeline` | 编译管线编排 + 依赖扫描 + workspace 构建 + `CacheStore`（增量缓存） | `PipelineSkeleton.z42`、`DepScan.z42`、`WorkspaceBuild.z42`、`CacheStore.z42` |
+| `z42c.pipeline` | 编译管线编排 + 依赖扫描 + workspace 构建 + `CacheStore`（增量缓存） | `BuildSession.z42`、`DepScan.z42`、`WorkspaceBuild.z42`、`CacheStore.z42` |
 | `z42c.driver` | CLI 入口（exe） | `Main.z42` |
 
 > IR/zpkg 后端（`IrModule`/`IrInstr`/`ZbcWriter`/`ZpkgWriter`/`ZpkgBuilder`/`TsigReconcile`/
-> `DependencyIndex` 等）现在 `src/libraries/z42.package/`——见其 README。清单模型 `.z42.toml` 解析在
-> `src/libraries/z42.project`（converge-z42c-onto-z42-project）。
+> `DependencyIndex` 等）位于 `src/compiler/z42.package/`——见其 README。清单模型 `.z42.toml` 解析在
+> `src/compiler/z42.project`。
 
 ---
 
@@ -51,12 +48,12 @@ IR 模型 + zbc/zpkg 格式 + 依赖索引已下沉 stdlib 库 **`z42.package`**
 **位置**：`z42c.syntax/src/Lexer.z42`。**风格**：手写扫描器（逐字符 + 前瞻），无外部组合子库（为自举保留最简实现）。
 
 - 主循环 `_lexOne()` 按首字符分派到 `_lexIdent` / `_lexNumber` / `_lexString` / `_lexRawString` / `_lexInterpolated` / `_lexChar` / `_lexSymbol`；trivia（空白 / `//` / `/* */`）单独跳过。
-- 关键字识别：`_initKeywords()` 注册到并行数组 `_kwNames` / `_kwKinds`（注册序供 DumpTool / vscode-syntax 生成），`_kwLookup()` 走首字符分桶链 `_kwHead` / `_kwNext`（perf-compiler-lookup-tables）；标识符 lex 后查表，命中即关键字。
+- 关键字识别：`_initKeywords()` 注册到并行数组 `_kwNames` / `_kwKinds`（注册序供 DumpTool / vscode-syntax 生成），`_kwLookup()` 走首字符分桶链 `_kwHead` / `_kwNext`；标识符 lex 后查表，命中即关键字。
 - 符号：`_lexSymbol()` 做**最长匹配**（`==` 胜 `=`，`>>>` 胜 `>>` 胜 `>`）。
 
 ### Token 类型
 
-**位置**：`z42c.syntax/src/TokenKind.z42`——`static class` + `int` 常量（无 enum）。值仅需互异；顺序沿用历史便于对照。`Token`（`Token.z42`）= `Kind` + `Text` + `Span`。
+**位置**：`z42c.syntax/src/TokenKind.z42`——`static class` + `int` 常量（无 enum）。值仅需互异；顺序沿用既有排列。`Token`（`Token.z42`）= `Kind` + `Text` + `Span`。
 
 ### 新增词法元素 → 改哪里
 
@@ -89,7 +86,7 @@ class 继承层次（**非** record；每个节点带 `Span Span` 用于错误�
 
 ### 运算符优先级（Pratt binding power）
 
-二元运算符优先级在 `Parser.z42` 的 `_infixBp()`（数值越大越紧；左结合，右操作数用 `bp + 1` 递归）：
+运算符优先级在 `ParseTable.z42` 的 `ParseTable.LeftBp()`（数值越大越紧；左结合，右操作数用 `bp + 1` 递归）：
 
 ```
 30  ||            40  &&
@@ -98,7 +95,7 @@ class 继承层次（**非** record；每个节点带 `Span Span` 用于错误�
 70  + -           80  * / %
 ```
 
-赋值 / 三目 `?:` / `??` / 后缀（`.` `?.` `()` `[]` `++` `--`）/ `is` `as` 不在 `_infixBp` 表里，由 `_parseExpr` 的前缀 / 后缀分支与赋值解析单独处理。**改优先级**：编辑 `_infixBp()` 对应分支。
+赋值（10）/ 三目 `?:`（20）/ `is` `as`（60）/ `switch` `with`（85）同在 `LeftBp()` 表里，led 角色见 `ParseTable.Led()`；后缀（`.` `()` `[]` `++` `--`）为无守卫的最紧一档，见 `PostfixKind`。**改优先级**：编辑 `LeftBp()` 对应分支（`ParseTable.z42` 头注释列出跨文件依赖的数值）。
 
 ### 新增语法 → 改哪里
 
@@ -125,4 +122,4 @@ z42c 自身用 z42 写、由**上一个已发布 nightly 的 z42c** 编译。因
 
 ## 资源加载顺序
 
-加载 zpkg / module / 注册 builtin 的循环（`read_dir` / 容器迭代 + first-wins 写入）必须先按稳定键排序，禁止依赖文件系统 / hash 的"碰巧顺序"。该约束跨语言适用，统一沉淀在 [common-pitfalls.md §1](common-pitfalls.md#1-资源加载顺序必须显式排序2026-05-17-强化)。
+加载 zpkg / module / 注册 builtin 的循环（`read_dir` / 容器迭代 + first-wins 写入）必须先按稳定键排序，禁止依赖文件系统 / hash 的"碰巧顺序"。该约束跨语言适用，统一沉淀在 [common-pitfalls.md §1](common-pitfalls.md#1-资源加载顺序必须显式排序)。
