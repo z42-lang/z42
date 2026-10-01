@@ -139,15 +139,15 @@ string _z42bToml() { return "src/toolchain/builder/core/z42.builder.z42.toml"; }
 // = 纯 stdlib flat（drop-alllibs，2026-10-01）。它们用到的 `Z42.Project` / `Z42.Build` / `Z42.Package` /
 // `Z42.Scripting` / `Z42.Syntax` 是 **SDK 库**：清单里按名声明 + `deploy = "shared"`，编译期由 driver 从编译器目录
 // 解析（CompilerDomain 开发树档），不复制进程序的发布包；发布态运行期靠各自的 `probing-paths = "../z42c"`，
-// 开发树里运行 z42b 时由 xtask 挂 `_withCompilerProbing`。
+// 开发树里运行 z42b 时由 xtask 经 `_z42bProc` 起进程。
 // 此前这里是 alllibs（stdlib + 全部编译器成员拷成一个目录）：编译器包在 Z42_LIBS 里 ⇒ 被当成「框架」不复制——
 // 发布包里有没有它们取决于构建环境，而不是清单；现在由清单的 `deploy = "shared"` 显式决定。
 string _toolchainCompileLibs(string root) { return _libsDir(root); }
 
 int _buildZ42bWith(string root, string vm, string driverZpkg, string libs) {
-    int rc = _exec(new Process(vm).Arg(driverZpkg).Arg("--mode").Arg(_z42cMode())
+    int rc = _exec(_z42Proc(vm, libs).Arg(driverZpkg).Arg("--mode").Arg(_z42cMode())
         .Arg("--").Arg("build").Arg(_z42bToml()).Arg("--release")
-        .Env("Z42_LIBS", libs).WorkingDirectory(root));
+        .WorkingDirectory(root));
     if (rc != 0) { ConsoleError.WriteLine("  ✗ z42b (z42.builder.zpkg) build failed"); return rc; }
     string zpkg = _toolchainZpkg(root, _z42bToml());
     if (!File.Exists(zpkg)) {

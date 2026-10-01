@@ -79,9 +79,9 @@ int _e2eDeployPredicateChecks(string root, string vm, string driverZpkg) {
     File.WriteAllText(Path.Join(fxDir, "deployfx.z42.toml"),
         "[project]\nname    = \"deployfx\"\nversion = \"0.1.0\"\nkind    = \"lib\"\n\n"
         + "[sources]\ninclude = [\"*.z42\"]\n");
-    ProcessResult lb = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build")
+    ProcessResult lb = _z42Proc(vm, libsDir).Arg(driverZpkg).Arg("--").Arg("build")
         .Arg(Path.Join(fxDir, "deployfx.z42.toml")).Arg("--release")
-        .Env("Z42_LIBS", libsDir).Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
+        .Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
     if (lb.ExitCode != 0) {
         Console.WriteLine("  ✗ deploy 判据: 框架库 fixture 编译失败: " + lb.Stderr);
         return 1;
@@ -95,8 +95,8 @@ int _e2eDeployPredicateChecks(string root, string vm, string driverZpkg) {
         "[project]\nname    = \"deployapp\"\nversion = \"0.1.0\"\nkind    = \"exe\"\n"
         + "entry   = \"DeployApp.Main\"\n\n[sources]\ninclude = [\"*.z42\"]\n\n"
         + "[dependencies]\n\"deployfx\" = \"0.1.0\"\n");
-    ProcessResult ab = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(appToml).Arg("--release")
-        .Env("Z42_LIBS", libsDir).Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
+    ProcessResult ab = _z42Proc(vm, libsDir).Arg(driverZpkg).Arg("--").Arg("build").Arg(appToml).Arg("--release")
+        .Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
     if (ab.ExitCode != 0) {
         Console.WriteLine("  ✗ deploy 判据: exe fixture 编译失败: " + ab.Stderr);
         return 1;
@@ -111,8 +111,8 @@ int _e2eDeployPredicateChecks(string root, string vm, string driverZpkg) {
     }
 
     // ④ **对照**：产物必须真能跑 —— 否则「没复制」可能只是因为整个构建没做事。
-    ProcessResult rr = new Process(vm).Arg(Path.Join(Path.Join(appDir, "dist"), "deployapp.zpkg"))
-        .Env("Z42_LIBS", libsDir).Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
+    ProcessResult rr = _z42Proc(vm, libsDir).Arg(Path.Join(Path.Join(appDir, "dist"), "deployapp.zpkg"))
+        .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
     if (rr.ExitCode != 0 || rr.Stdout.IndexOf("7") < 0) {
         Console.WriteLine("  ✗ deploy 判据: 没复制，但产物也跑不起来（rc=" + rr.ExitCode.ToString()
             + " stdout=" + rr.Stdout + "）—— 框架解析断了");
@@ -170,9 +170,9 @@ int _e2eProbingPathChecks(string root, string vm, string driverZpkg) {
     File.WriteAllText(Path.Join(fxDir, "fx.z42"), _e2eProbeLibSrc());
     File.WriteAllText(Path.Join(fxDir, "probefx.z42.toml"),
         "[project]\nname    = \"probefx\"\nversion = \"0.1.0\"\nkind    = \"lib\"\n\n[sources]\ninclude = [\"*.z42\"]\n");
-    ProcessResult lb = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build")
+    ProcessResult lb = _z42Proc(vm, libsDir).Arg(driverZpkg).Arg("--").Arg("build")
         .Arg(Path.Join(fxDir, "probefx.z42.toml")).Arg("--release")
-        .Env("Z42_LIBS", libsDir).Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
+        .Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
     if (lb.ExitCode != 0) { Console.WriteLine("  ✗ probing-paths: 依赖 fixture 编译失败: " + lb.Stderr); return 1; }
     string fxZpkg = Path.Join(Path.Join(fxDir, "dist"), "probefx.zpkg");
     File.Copy(fxZpkg, Path.Join(libsDir, "probefx.zpkg"));
@@ -184,12 +184,12 @@ int _e2eProbingPathChecks(string root, string vm, string driverZpkg) {
 
     // ① 不配 probing-paths，且运行时 libs 里没有它 → 必须跑不起来。
     File.WriteAllText(appToml, _e2eProbeAppToml(""));
-    ProcessResult b0 = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(appToml).Arg("--release")
-        .Env("Z42_LIBS", libsDir).Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
+    ProcessResult b0 = _z42Proc(vm, libsDir).Arg(driverZpkg).Arg("--").Arg("build").Arg(appToml).Arg("--release")
+        .Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
     if (b0.ExitCode != 0) { Console.WriteLine("  ✗ probing-paths: exe fixture 编译失败: " + b0.Stderr); return 1; }
     // 目标机：libs 里没有该依赖，只有 shared/。
     File.Delete(Path.Join(libsDir, "probefx.zpkg"));
-    ProcessResult r0 = new Process(vm).Arg(appZpkg).Env("Z42_LIBS", libsDir)
+    ProcessResult r0 = _z42Proc(vm, libsDir).Arg(appZpkg)
         .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
     if (r0.ExitCode == 0) {
         Console.WriteLine("  ✗ probing-paths: 没配 probing-paths 竟也跑通了 —— 下一格就失去判别力");
@@ -199,11 +199,11 @@ int _e2eProbingPathChecks(string root, string vm, string driverZpkg) {
     // ② 配上 → 跑得起来（相对 entry zpkg 所在目录）。
     File.WriteAllText(appToml, _e2eProbeAppToml("../../shared"));
     File.Copy(Path.Join(shared, "probefx.zpkg"), Path.Join(libsDir, "probefx.zpkg"));   // 编译期要它
-    ProcessResult b1 = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(appToml).Arg("--release")
-        .Env("Z42_LIBS", libsDir).Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
+    ProcessResult b1 = _z42Proc(vm, libsDir).Arg(driverZpkg).Arg("--").Arg("build").Arg(appToml).Arg("--release")
+        .Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
     if (b1.ExitCode != 0) { Console.WriteLine("  ✗ probing-paths: 配上后编译失败: " + b1.Stderr); return 1; }
     File.Delete(Path.Join(libsDir, "probefx.zpkg"));
-    ProcessResult r1 = new Process(vm).Arg(appZpkg).Env("Z42_LIBS", libsDir)
+    ProcessResult r1 = _z42Proc(vm, libsDir).Arg(appZpkg)
         .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
     if (r1.ExitCode != 0 || r1.Stdout.IndexOf("99") < 0) {
         Console.WriteLine("  ✗ probing-paths: 配了却没生效（rc=" + r1.ExitCode.ToString()
@@ -214,8 +214,8 @@ int _e2eProbingPathChecks(string root, string vm, string driverZpkg) {
     // ③ 只改旋钮值、源码不动 → 侧车必须跟着变（preserved 早退不得把它落下）。
     File.Copy(Path.Join(shared, "probefx.zpkg"), Path.Join(libsDir, "probefx.zpkg"));
     File.WriteAllText(appToml, _e2eProbeAppToml("../../CHANGED"));
-    ProcessResult b2 = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(appToml).Arg("--release")
-        .Env("Z42_LIBS", libsDir).Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
+    ProcessResult b2 = _z42Proc(vm, libsDir).Arg(driverZpkg).Arg("--").Arg("build").Arg(appToml).Arg("--release")
+        .Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
     if (b2.ExitCode != 0) { Console.WriteLine("  ✗ probing-paths: 改旋钮后重建失败: " + b2.Stderr); return 1; }
     string side = Path.Join(Path.Join(appDir, "dist"), "probeapp.runtimeconfig.toml");
     string body = File.Exists(side) ? File.ReadAllText(side) : "";
@@ -240,8 +240,8 @@ int _e2eProbingPathChecks(string root, string vm, string driverZpkg) {
     File.Copy(Path.Join(shared, "probefx.zpkg"), Path.Join(sdkProgs, "probefx.zpkg"));
     File.Copy(Path.Join(shared, "probefx.zpkg"), Path.Join(libsDir, "probefx.zpkg"));   // 编译期要它
     File.WriteAllText(appToml, _e2eProbeAppToml("${Z42_HOME}/programs/z42c"));
-    ProcessResult b3 = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(appToml).Arg("--release")
-        .Env("Z42_LIBS", libsDir).Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
+    ProcessResult b3 = _z42Proc(vm, libsDir).Arg(driverZpkg).Arg("--").Arg("build").Arg(appToml).Arg("--release")
+        .Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
     if (b3.ExitCode != 0) { Console.WriteLine("  ✗ ${Z42_HOME}: 编译失败: " + b3.Stderr); return 1; }
 
     // 验收（design §5.3.2）：**编译输出里不许出现具体路径** —— 侧车必须逐字保留占位符。
@@ -258,13 +258,13 @@ int _e2eProbingPathChecks(string root, string vm, string driverZpkg) {
     File.Delete(Path.Join(libsDir, "probefx.zpkg"));   // 目标机的 libs 里没有它
     // 先做负对照：**不设** `Z42_HOME` 必须跑不起来。否则下一格「设了就通」证明不了是占位符起的作用
     // （VM 还会从 `$Z42_PORTABLE_VM` / 自己所在位置反推根，那两档在这里都落不到 sdkRoot 上）。
-    ProcessResult r3no = new Process(vm).Arg(appZpkg).Env("Z42_LIBS", libsDir).Env("Z42_HOME", "")
+    ProcessResult r3no = _z42Proc(vm, libsDir).Arg(appZpkg).Env("Z42_HOME", "")
         .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
     if (r3no.ExitCode == 0) {
         Console.WriteLine("  ✗ ${Z42_HOME}: 没设 Z42_HOME 竟也跑通了 —— 本格失去判别力（是别的档命中了）");
         return 1;
     }
-    ProcessResult r3 = new Process(vm).Arg(appZpkg).Env("Z42_LIBS", libsDir).Env("Z42_HOME", sdkRoot)
+    ProcessResult r3 = _z42Proc(vm, libsDir).Arg(appZpkg).Env("Z42_HOME", sdkRoot)
         .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
     if (r3.ExitCode != 0 || r3.Stdout.IndexOf("99") < 0) {
         Console.WriteLine("  ✗ ${Z42_HOME}: 设了 Z42_HOME 仍解析不到（rc=" + r3.ExitCode.ToString()
@@ -322,9 +322,9 @@ int _e2eZpkgRefChecks(string root, string vm, string driverZpkg) {
     File.WriteAllText(Path.Join(Path.Join(libSrc, "src"), "lib.z42"), _e2eZrefLibSrc());
     File.WriteAllText(Path.Join(libSrc, "zrefvendor.z42.toml"),
         "[project]\nname    = \"zrefvendor\"\nversion = \"0.1.0\"\nkind    = \"lib\"\n\n[sources]\ninclude = [\"src/*.z42\"]\n");
-    ProcessResult lb = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build")
+    ProcessResult lb = _z42Proc(vm, libsDir).Arg(driverZpkg).Arg("--").Arg("build")
         .Arg(Path.Join(libSrc, "zrefvendor.z42.toml")).Arg("--release")
-        .Env("Z42_LIBS", libsDir).Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
+        .Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
     if (lb.ExitCode != 0) { Console.WriteLine("  ✗ zpkg 产物引用: 被引用库编译失败: " + lb.Stderr); return 1; }
     File.Copy(Path.Join(Path.Join(libSrc, "dist"), "zrefvendor.zpkg"), Path.Join(vendor, "zrefvendor.zpkg"));
 
@@ -334,8 +334,8 @@ int _e2eZpkgRefChecks(string root, string vm, string driverZpkg) {
 
     // ① 正常引用：编过 + 复制进 dist + 跑得起来。
     File.WriteAllText(appToml, _e2eZrefAppToml("zrefvendor", "../vendor/zrefvendor.zpkg"));
-    ProcessResult b1 = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(appToml).Arg("--release")
-        .Env("Z42_LIBS", libsDir).Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
+    ProcessResult b1 = _z42Proc(vm, libsDir).Arg(driverZpkg).Arg("--").Arg("build").Arg(appToml).Arg("--release")
+        .Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
     if (b1.ExitCode != 0) {
         Console.WriteLine("  ✗ zpkg 产物引用: 指向已构建的 zpkg 竟编不过: " + b1.Stderr);
         return 1;
@@ -344,7 +344,7 @@ int _e2eZpkgRefChecks(string root, string vm, string driverZpkg) {
         Console.WriteLine("  ✗ zpkg 产物引用: 被引用的产物没有随 exe 进 dist —— 拷出去就跑不起来");
         return 1;
     }
-    ProcessResult r1 = new Process(vm).Arg(appZpkg).Env("Z42_LIBS", libsDir)
+    ProcessResult r1 = _z42Proc(vm, libsDir).Arg(appZpkg)
         .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
     if (r1.ExitCode != 0 || r1.Stdout.IndexOf("vendored") < 0) {
         Console.WriteLine("  ✗ zpkg 产物引用: 产物跑不起来（rc=" + r1.ExitCode.ToString()
@@ -354,8 +354,8 @@ int _e2eZpkgRefChecks(string root, string vm, string driverZpkg) {
 
     // ② 文件不存在。
     File.WriteAllText(appToml, _e2eZrefAppToml("zrefvendor", "../vendor/nosuch.zpkg"));
-    ProcessResult b2 = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(appToml).Arg("--release")
-        .Env("Z42_LIBS", libsDir).Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
+    ProcessResult b2 = _z42Proc(vm, libsDir).Arg(driverZpkg).Arg("--").Arg("build").Arg(appToml).Arg("--release")
+        .Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
     if (b2.ExitCode == 0 || b2.Stderr.IndexOf("不存在") < 0) {
         Console.WriteLine("  ✗ zpkg 产物引用: 指向不存在的文件没被明确拒绝: " + b2.Stderr);
         return 1;
@@ -363,8 +363,8 @@ int _e2eZpkgRefChecks(string root, string vm, string driverZpkg) {
 
     // ③ 包名与 key 不一致 —— 指错文件最容易犯。
     File.WriteAllText(appToml, _e2eZrefAppToml("othername", "../vendor/zrefvendor.zpkg"));
-    ProcessResult b3 = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(appToml).Arg("--release")
-        .Env("Z42_LIBS", libsDir).Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
+    ProcessResult b3 = _z42Proc(vm, libsDir).Arg(driverZpkg).Arg("--").Arg("build").Arg(appToml).Arg("--release")
+        .Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
     if (b3.ExitCode == 0 || b3.Stderr.IndexOf("须一致") < 0) {
         Console.WriteLine("  ✗ zpkg 产物引用: 包名对不上却收下了: " + b3.Stderr);
         return 1;
@@ -372,8 +372,8 @@ int _e2eZpkgRefChecks(string root, string vm, string driverZpkg) {
 
     // ④ 指向没有 manifest 的目录 → 干净退出，不得是未捕获异常。
     File.WriteAllText(appToml, _e2eZrefAppToml("zrefvendor", "../vendor"));
-    ProcessResult b4 = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(appToml).Arg("--release")
-        .Env("Z42_LIBS", libsDir).Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
+    ProcessResult b4 = _z42Proc(vm, libsDir).Arg(driverZpkg).Arg("--").Arg("build").Arg(appToml).Arg("--release")
+        .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
     string all4 = b4.Stdout + b4.Stderr;
     if (b4.ExitCode == 0) {
         Console.WriteLine("  ✗ zpkg 产物引用: 目录里没有 manifest 竟然成功了");
@@ -433,8 +433,8 @@ int _e2eDeployUseChecks(string root, string vm, string driverZpkg) {
     // ① 未声明 → 不复制（对照）。
     if (Directory.Exists(distDir)) { try { Directory.Delete(distDir, true); } catch (Exception e) {} }
     File.WriteAllText(appToml, _e2eDeployUseToml("\"0.1.0\""));
-    ProcessResult b1 = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(appToml).Arg("--release")
-        .Env("Z42_LIBS", libsDir).Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
+    ProcessResult b1 = _z42Proc(vm, libsDir).Arg(driverZpkg).Arg("--").Arg("build").Arg(appToml).Arg("--release")
+        .Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
     if (b1.ExitCode != 0) { Console.WriteLine("  ✗ deploy use: 基线构建失败: " + b1.Stderr); return 1; }
     if (File.Exists(copied)) {
         Console.WriteLine("  ✗ deploy use: 未声明时框架包竟被复制 —— 默认判据坏了，下面几格失去对照");
@@ -444,8 +444,8 @@ int _e2eDeployUseChecks(string root, string vm, string driverZpkg) {
     // ② copy → 强制复制框架包。
     if (Directory.Exists(distDir)) { try { Directory.Delete(distDir, true); } catch (Exception e) {} }
     File.WriteAllText(appToml, _e2eDeployUseToml("{ version = \"0.1.0\", deploy = \"copy\" }"));
-    ProcessResult b2 = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(appToml).Arg("--release")
-        .Env("Z42_LIBS", libsDir).Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
+    ProcessResult b2 = _z42Proc(vm, libsDir).Arg(driverZpkg).Arg("--").Arg("build").Arg(appToml).Arg("--release")
+        .Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
     if (b2.ExitCode != 0) { Console.WriteLine("  ✗ deploy use: deploy=copy 构建失败: " + b2.Stderr); return 1; }
     if (!File.Exists(copied)) {
         Console.WriteLine("  ✗ deploy use: `deploy = \"copy\"` 没能压过「在 libs/ 里就不复制」");
@@ -458,8 +458,8 @@ int _e2eDeployUseChecks(string root, string vm, string driverZpkg) {
     File.Copy(Path.Join(libsDir, "z42.io.zpkg"), Path.Join(vend, "z42.io.zpkg"));
     if (Directory.Exists(distDir)) { try { Directory.Delete(distDir, true); } catch (Exception e) {} }
     File.WriteAllText(appToml, _e2eDeployUseToml("{ path = \"../vendor/z42.io.zpkg\", deploy = \"shared\" }"));
-    ProcessResult b3 = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(appToml).Arg("--release")
-        .Env("Z42_LIBS", libsDir).Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
+    ProcessResult b3 = _z42Proc(vm, libsDir).Arg(driverZpkg).Arg("--").Arg("build").Arg(appToml).Arg("--release")
+        .Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
     if (b3.ExitCode != 0) { Console.WriteLine("  ✗ deploy use: deploy=shared 构建失败: " + b3.Stderr); return 1; }
     if (File.Exists(copied)) {
         Console.WriteLine("  ✗ deploy use: `deploy = \"shared\"` 没能阻止复制 —— 声明了共享却仍自包含");
@@ -468,8 +468,8 @@ int _e2eDeployUseChecks(string root, string vm, string driverZpkg) {
 
     // ④ 非法取值。
     File.WriteAllText(appToml, _e2eDeployUseToml("{ version = \"0.1.0\", deploy = \"Copy\" }"));
-    ProcessResult b4 = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(appToml).Arg("--release")
-        .Env("Z42_LIBS", libsDir).Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
+    ProcessResult b4 = _z42Proc(vm, libsDir).Arg(driverZpkg).Arg("--").Arg("build").Arg(appToml).Arg("--release")
+        .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
     string all4 = b4.Stdout + b4.Stderr;
     if (b4.ExitCode == 0 || all4.IndexOf("不是合法取值") < 0) {
         Console.WriteLine("  ✗ deploy use: 非法取值没被拒绝（会被当成未声明静默走默认判据）: " + all4);
@@ -515,9 +515,9 @@ int _e2eCompileLibsChecks(string root, string vm, string driverZpkg) {
     File.WriteAllText(Path.Join(depDir, "cldep.z42.toml"),
         "[project]\nname    = \"cldep\"\nversion = \"0.1.0\"\nkind    = \"lib\"\n\n"
         + "[sources]\ninclude = [\"x.z42\"]\n\n[dependencies]\n\"z42.core\" = \"0.1.0\"\n");
-    ProcessResult db = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build")
+    ProcessResult db = _z42Proc(vm, libsDir).Arg(driverZpkg).Arg("--").Arg("build")
         .Arg(Path.Join(depDir, "cldep.z42.toml")).Arg("--release")
-        .Env("Z42_LIBS", libsDir).Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
+        .Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
     if (db.ExitCode != 0) { Console.WriteLine("  ✗ compile-libs: 预建 cldep 失败: " + db.Stderr); return 1; }
     File.Copy(Path.Join(Path.Join(depDir, "dist"), "cldep.zpkg"), Path.Join(onlyDir, "cldep.zpkg"));
 
@@ -529,8 +529,8 @@ int _e2eCompileLibsChecks(string root, string vm, string driverZpkg) {
         + "[sources]\ninclude = [\"a.z42\"]\n\n[dependencies]\n\"z42.core\" = \"0.1.0\"\n\"cldep\" = \"0.1.0\"\n");
 
     // ① 反向对照：只有 Z42_LIBS（不含 cldep）⇒ 必须失败，且理由必须是「找不到那个依赖」。
-    ProcessResult r1 = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(appToml).Arg("--release")
-        .Env("Z42_LIBS", libsDir).Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
+    ProcessResult r1 = _z42Proc(vm, libsDir).Arg(driverZpkg).Arg("--").Arg("build").Arg(appToml).Arg("--release")
+        .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
     string o1 = r1.Stdout + r1.Stderr;
     if (r1.ExitCode == 0 || o1.IndexOf("cldep") < 0) {
         Console.WriteLine("  ✗ compile-libs: 对照格没有按预期失败（本该找不到 cldep）: " + o1);
@@ -538,9 +538,8 @@ int _e2eCompileLibsChecks(string root, string vm, string driverZpkg) {
     }
     // ② 加 --compile-libs ⇒ 必须成功。Z42_LIBS 原样不动（driver 自己的加载面不受影响）。
     string sep = Platform.IsWindows() ? ";" : ":";
-    ProcessResult r2 = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(appToml).Arg("--release")
+    ProcessResult r2 = _z42Proc(vm, libsDir).Arg(driverZpkg).Arg("--").Arg("build").Arg(appToml).Arg("--release")
         .Arg("--compile-libs").Arg(libsDir + sep + onlyDir)
-        .Env("Z42_LIBS", libsDir)
         .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
     if (r2.ExitCode != 0) {
         Console.WriteLine("  ✗ compile-libs: Z42_COMPILE_LIBS 没能让编译期看见那个依赖: " + r2.Stdout + r2.Stderr);
@@ -571,19 +570,19 @@ int _e2eCompileLibsChecks(string root, string vm, string driverZpkg) {
         "[project]\nname    = \"wsm2\"\nversion = \"0.1.0\"\nkind    = \"lib\"\n\n"
         + "[sources]\ninclude = [\"src/*.z42\"]\n\n[dependencies]\n\"z42.core\" = \"0.1.0\"\n\"cldep\" = \"0.1.0\"\n");
     // ③a 反向对照：workspace + 只 Z42_LIBS ⇒ 必须失败。
-    ProcessResult w1 = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg("--workspace").Arg("--release")
+    ProcessResult w1 = _z42Proc(vm, libsDir).Arg(driverZpkg).Arg("--").Arg("build").Arg("--workspace").Arg("--release")
         .WorkingDirectory(wsRoot)
-        .Env("Z42_LIBS", libsDir).Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
+        .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
     string wo1 = w1.Stdout + w1.Stderr;
     if (w1.ExitCode == 0 || wo1.IndexOf("cldep") < 0) {
         Console.WriteLine("  ✗ compile-libs: workspace 对照格没按预期失败（本该找不到 cldep）: " + wo1);
         return 1;
     }
     // ③b 加旗标 ⇒ 必须成功。
-    ProcessResult w2 = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg("--workspace").Arg("--release")
+    ProcessResult w2 = _z42Proc(vm, libsDir).Arg(driverZpkg).Arg("--").Arg("build").Arg("--workspace").Arg("--release")
         .Arg("--compile-libs").Arg(libsDir + sep + onlyDir)
         .WorkingDirectory(wsRoot)
-        .Env("Z42_LIBS", libsDir).Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
+        .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
     if (w2.ExitCode != 0) {
         Console.WriteLine("  ✗ compile-libs: workspace 路径没认 --compile-libs（自举主路径上等于没用）: "
             + w2.Stdout + w2.Stderr);
@@ -631,9 +630,9 @@ int _e2eProbingArrayChecks(string root, string vm, string driverZpkg) {
         File.WriteAllText(Path.Join(bd, names[li] + ".z42.toml"),
             "[project]\nname    = \"" + names[li] + "\"\nversion = \"0.1.0\"\nkind    = \"lib\"\n\n"
             + "[sources]\ninclude = [\"x.z42\"]\n\n[dependencies]\n\"z42.core\" = \"0.1.0\"\n");
-        ProcessResult lb = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build")
+        ProcessResult lb = _z42Proc(vm, libsDir).Arg(driverZpkg).Arg("--").Arg("build")
             .Arg(Path.Join(bd, names[li] + ".z42.toml")).Arg("--release")
-            .Env("Z42_LIBS", libsDir).Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
+            .Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
         if (lb.ExitCode != 0) { Console.WriteLine("  ✗ probing 数组: 预建 " + names[li] + " 失败: " + lb.Stderr); return 1; }
         string shDir = Path.Join(tmp, "sh_" + names[li]);
         Directory.Create(shDir);
@@ -655,8 +654,8 @@ int _e2eProbingArrayChecks(string root, string vm, string driverZpkg) {
         + "\"pparr_a\" = { path = \"../sh_pparr_a/pparr_a.zpkg\", deploy = \"shared\" }\n"
         + "\"pparr_b\" = { path = \"../sh_pparr_b/pparr_b.zpkg\", deploy = \"shared\" }\n\n"
         + "[profile.release.runtime]\nprobing-paths = [\"../../sh_pparr_a\", \"../../sh_pparr_b\"]\n");
-    ProcessResult b = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(appToml).Arg("--release")
-        .Env("Z42_LIBS", libsDir).Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
+    ProcessResult b = _z42Proc(vm, libsDir).Arg(driverZpkg).Arg("--").Arg("build").Arg(appToml).Arg("--release")
+        .Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
     if (b.ExitCode != 0) { Console.WriteLine("  ✗ probing 数组: 应用构建失败: " + b.Stderr); return 1; }
 
     // ① 侧车里必须是 TOML 数组 —— 若被拼成一条字符串，就又把平台假设烤进产物了。
@@ -668,8 +667,8 @@ int _e2eProbingArrayChecks(string root, string vm, string driverZpkg) {
         return 1;
     }
     // ② 两个共享目录都要解析得到。
-    ProcessResult r = new Process(vm).Arg(Path.Join(Path.Join(appDir, "dist"), "pparr_app.zpkg"))
-        .Env("Z42_LIBS", libsDir).Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
+    ProcessResult r = _z42Proc(vm, libsDir).Arg(Path.Join(Path.Join(appDir, "dist"), "pparr_app.zpkg"))
+        .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
     string ro = r.Stdout + r.Stderr;
     if (r.ExitCode != 0 || ro.IndexOf("pparr_a+pparr_b") < 0) {
         Console.WriteLine("  ✗ probing 数组: 数组里的两条路径没都生效: " + ro);
@@ -693,8 +692,8 @@ int _e2eProbingArrayChecks(string root, string vm, string driverZpkg) {
         + "\"pparr_b\" = { path = \"../sh_pparr_b/pparr_b.zpkg\", deploy = \"shared\" }\n\n"
         + "[profile.release.runtime]\n"
         + "probing-paths = [\"${Z42_HOME}/shared_a\", \"../../sh_pparr_b\"]\n");
-    ProcessResult b2 = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(appToml).Arg("--release")
-        .Env("Z42_LIBS", libsDir).Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
+    ProcessResult b2 = _z42Proc(vm, libsDir).Arg(driverZpkg).Arg("--").Arg("build").Arg(appToml).Arg("--release")
+        .Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
     if (b2.ExitCode != 0) { Console.WriteLine("  ✗ probing 数组+占位符: 构建失败: " + b2.Stderr); return 1; }
     string side2 = "";
     try { side2 = File.ReadAllText(side); } catch (Exception e) { side2 = ""; }
@@ -705,13 +704,13 @@ int _e2eProbingArrayChecks(string root, string vm, string driverZpkg) {
     string appZ = Path.Join(Path.Join(appDir, "dist"), "pparr_app.zpkg");
     // 负对照先行：不设 `Z42_HOME` ⇒ 第一条解析不到 ⇒ 必须失败。少了这一格，下面的「通了」
     // 可能只是因为别的档（entry 目录 / 另一条相对路径）恰好也能找到 pparr_a。
-    ProcessResult rno = new Process(vm).Arg(appZ).Env("Z42_LIBS", libsDir).Env("Z42_HOME", "")
+    ProcessResult rno = _z42Proc(vm, libsDir).Arg(appZ).Env("Z42_HOME", "")
         .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
     if (rno.ExitCode == 0) {
         Console.WriteLine("  ✗ probing 数组+占位符: 不设 Z42_HOME 竟也跑通 —— 本格失去判别力");
         return 1;
     }
-    ProcessResult r2 = new Process(vm).Arg(appZ).Env("Z42_LIBS", libsDir)
+    ProcessResult r2 = _z42Proc(vm, libsDir).Arg(appZ)
         .Env("Z42_HOME", Path.Join(tmp, "sdkroot")).Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
     string ro2 = r2.Stdout + r2.Stderr;
     if (r2.ExitCode != 0 || ro2.IndexOf("pparr_a+pparr_b") < 0) {
@@ -777,8 +776,8 @@ int _e2eZ42bClosureChecks(string root, string vm) {
     File.WriteAllText(Path.Join(appDir,  "ncapp.z42.toml"), _e2eZ42bExeToml());
 
     string appToml = Path.Join(appDir, "ncapp.z42.toml");
-    ProcessResult b = _withCompilerProbing(new Process(vm), _root()).Arg(z42b).Arg("--").Arg("build").Arg(appToml).Arg("--release")
-        .Env("Z42_LIBS", libsDir).Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
+    ProcessResult b = _z42bProc(vm, libsDir).Arg(z42b).Arg("--").Arg("build").Arg(appToml).Arg("--release")
+        .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
     string all = b.Stdout + b.Stderr;
     // ① 编得过（改前：E0494 命名空间不存在）。
     if (b.ExitCode != 0) {
@@ -796,8 +795,8 @@ int _e2eZ42bClosureChecks(string root, string vm) {
         Console.WriteLine("  ✗ z42b 闭包: 间接依赖 ncleaf 没随产物走 —— 拷出去会死在 mid 的方法里");
         return 1;
     }
-    ProcessResult rr = new Process(vm).Arg(Path.Join(runDir, "ncapp.zpkg"))
-        .Env("Z42_LIBS", libsDir).Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
+    ProcessResult rr = _z42Proc(vm, libsDir).Arg(Path.Join(runDir, "ncapp.zpkg"))
+        .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
     string ro = rr.Stdout + rr.Stderr;
     if (rr.ExitCode != 0 || ro.IndexOf("leaf") < 0) {
         Console.WriteLine("  ✗ z42b 闭包: 拷出去跑不起来: " + ro);
@@ -854,8 +853,8 @@ int _e2eDeployDeclChecks(string root, string vm, string driverZpkg) {
 
     // ① 对照：lib + 合法取值 → 照样编过（否则下面三格的红说明不了任何事）。
     File.WriteAllText(toml, _e2eDeclToml("lib", "{ version = \"0.1.0\", deploy = \"shared\" }", ""));
-    ProcessResult b1 = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(toml).Arg("--release")
-        .Env("Z42_LIBS", libsDir).Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
+    ProcessResult b1 = _z42Proc(vm, libsDir).Arg(driverZpkg).Arg("--").Arg("build").Arg(toml).Arg("--release")
+        .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
     if (b1.ExitCode != 0) {
         Console.WriteLine("  ✗ deploy 声明: lib + 合法 deploy 竟构建失败（对照格坏了）: " + b1.Stdout + b1.Stderr);
         return 1;
@@ -863,8 +862,8 @@ int _e2eDeployDeclChecks(string root, string vm, string driverZpkg) {
 
     // ② lib 里的非法取值 —— 改前这格静默通过。
     File.WriteAllText(toml, _e2eDeclToml("lib", "{ version = \"0.1.0\", deploy = \"Copy\" }", ""));
-    ProcessResult b2 = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(toml).Arg("--release")
-        .Env("Z42_LIBS", libsDir).Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
+    ProcessResult b2 = _z42Proc(vm, libsDir).Arg(driverZpkg).Arg("--").Arg("build").Arg(toml).Arg("--release")
+        .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
     string a2 = b2.Stdout + b2.Stderr;
     if (b2.ExitCode == 0 || a2.IndexOf("不是合法取值") < 0) {
         Console.WriteLine("  ✗ deploy 声明: **lib** 工程里的非法取值没被拒绝 —— 校验只对 exe 生效: " + a2);
@@ -873,8 +872,8 @@ int _e2eDeployDeclChecks(string root, string vm, string driverZpkg) {
 
     // ③ analyzer 工程的依赖写 deploy（取值合法，但在编译期扩展上没有意义）。
     File.WriteAllText(toml, _e2eDeclToml("analyzer", "{ version = \"0.1.0\", deploy = \"copy\" }", ""));
-    ProcessResult b3 = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(toml).Arg("--release")
-        .Env("Z42_LIBS", libsDir).Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
+    ProcessResult b3 = _z42Proc(vm, libsDir).Arg(driverZpkg).Arg("--").Arg("build").Arg(toml).Arg("--release")
+        .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
     string a3 = b3.Stdout + b3.Stderr;
     if (b3.ExitCode == 0 || a3.IndexOf("kind = \"analyzer\"") < 0) {
         Console.WriteLine("  ✗ deploy 声明: analyzer 工程的依赖写 deploy 没被拒绝: " + a3);
@@ -884,8 +883,8 @@ int _e2eDeployDeclChecks(string root, string vm, string driverZpkg) {
     // ④ `[analyzers]` 条目写 deploy。
     File.WriteAllText(toml, _e2eDeclToml("lib", "\"0.1.0\"",
         "\n[analyzers]\n\"some.handler\" = { version = \"0.1.0\", deploy = \"copy\" }\n"));
-    ProcessResult b4 = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(toml).Arg("--release")
-        .Env("Z42_LIBS", libsDir).Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
+    ProcessResult b4 = _z42Proc(vm, libsDir).Arg(driverZpkg).Arg("--").Arg("build").Arg(toml).Arg("--release")
+        .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
     string a4 = b4.Stdout + b4.Stderr;
     if (b4.ExitCode == 0 || a4.IndexOf("[analyzers]") < 0) {
         Console.WriteLine("  ✗ deploy 声明: [analyzers] 条目写 deploy 没被拒绝: " + a4);
@@ -937,18 +936,18 @@ int _e2eNamedClosureChecks(string root, string vm, string driverZpkg) {
     // leaf → 建好后临时放进 libs（mid 编译期要解析它）。
     File.WriteAllText(Path.Join(Path.Join(leafDir, "src"), "Leaf.z42"), _e2eClosureLeafSrc());
     File.WriteAllText(Path.Join(leafDir, "ncleaf.z42.toml"), _e2eClosureLibToml("ncleaf", ""));
-    ProcessResult lb = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build")
+    ProcessResult lb = _z42Proc(vm, libsDir).Arg(driverZpkg).Arg("--").Arg("build")
         .Arg(Path.Join(leafDir, "ncleaf.z42.toml")).Arg("--release")
-        .Env("Z42_LIBS", libsDir).Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
+        .Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
     if (lb.ExitCode != 0) { Console.WriteLine("  ✗ 传递闭包: leaf 编译失败: " + lb.Stderr); return 1; }
     File.Copy(Path.Join(Path.Join(leafDir, "dist"), "ncleaf.zpkg"), Path.Join(libsDir, "ncleaf.zpkg"));
 
     // mid（依赖 leaf）。
     File.WriteAllText(Path.Join(Path.Join(midDir, "src"), "Mid.z42"), _e2eClosureMidSrc());
     File.WriteAllText(Path.Join(midDir, "ncmid.z42.toml"), _e2eClosureLibToml("ncmid", "ncleaf"));
-    ProcessResult mb = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build")
+    ProcessResult mb = _z42Proc(vm, libsDir).Arg(driverZpkg).Arg("--").Arg("build")
         .Arg(Path.Join(midDir, "ncmid.z42.toml")).Arg("--release")
-        .Env("Z42_LIBS", libsDir).Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
+        .Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
     if (mb.ExitCode != 0) { Console.WriteLine("  ✗ 传递闭包: mid 编译失败: " + mb.Stderr); return 1; }
 
     // 两个都挪进 vendor（离开 libs/）⇒ 它们是「非框架依赖」，该随产物走。
@@ -963,8 +962,8 @@ int _e2eNamedClosureChecks(string root, string vm, string driverZpkg) {
         "[project]\nname    = \"ncapp\"\nversion = \"0.1.0\"\nkind    = \"exe\"\n"
         + "entry   = \"NcApp.Main\"\n\n[sources]\ninclude = [\"*.z42\"]\n\n"
         + "[dependencies]\n\"ncmid\" = { path = \"../vendor/ncmid.zpkg\" }\n");
-    ProcessResult ab = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(appToml).Arg("--release")
-        .Env("Z42_LIBS", libsDir).Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
+    ProcessResult ab = _z42Proc(vm, libsDir).Arg(driverZpkg).Arg("--").Arg("build").Arg(appToml).Arg("--release")
+        .Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
     if (ab.ExitCode != 0) { Console.WriteLine("  ✗ 传递闭包: app 编译失败: " + ab.Stderr); return 1; }
 
     string distDir = Path.Join(appDir, "dist");
@@ -977,7 +976,7 @@ int _e2eNamedClosureChecks(string root, string vm, string driverZpkg) {
         return 1;
     }
     // 对照：产物真能跑（leaf 在 libs/ 里已被删，只能从 dist 解析到）。
-    ProcessResult rr = new Process(vm).Arg(Path.Join(distDir, "ncapp.zpkg")).Env("Z42_LIBS", libsDir)
+    ProcessResult rr = _z42Proc(vm, libsDir).Arg(Path.Join(distDir, "ncapp.zpkg"))
         .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
     if (rr.ExitCode != 0 || rr.Stdout.IndexOf("leaf") < 0) {
         Console.WriteLine("  ✗ 传递闭包: 文件都在却跑不起来（rc=" + rr.ExitCode.ToString()

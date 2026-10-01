@@ -10,8 +10,8 @@ namespace Z42Xtask;
 using Std.IO;
 
 int _e2eCacheBuild(string vm, string driverZpkg, string cwd, string[] args, string flat) {
-    return new Process(vm).Arg(driverZpkg).Arg("--").Args(args).WorkingDirectory(cwd)
-        .Env("Z42_LIBS", flat).Stdout(Stdio.Null()).Stderr(Stdio.Inherit()).Run().ExitCode;
+    return _z42Proc(vm, flat).Arg(driverZpkg).Arg("--").Args(args).WorkingDirectory(cwd)
+        .Stdout(Stdio.Null()).Stderr(Stdio.Inherit()).Run().ExitCode;
 }
 
 bool _e2eCacheHas(string cacheDir, string what) {
@@ -154,8 +154,8 @@ int _e2eDepIdentityChecks(string vm, string driverZpkg, string e2eDir, string fl
     if (_e2eCacheBuild(vm, driverZpkg, bar, a, flat) != 0) { Console.WriteLine("  ✗ 夹具首次构建失败"); return 1; }
     // ① foo 只改注释 → 输出不变 → bar 必须仍能成功（且不因依赖身份误判）
     File.WriteAllText(Path.Join(foo, "foo.z42"), "// 只改注释\n" + fooSrc);
-    ProcessResult r1 = new Process(vm).Arg(driverZpkg).Arg("--").Args(a).WorkingDirectory(bar)
-        .Env("Z42_LIBS", flat).Run();
+    ProcessResult r1 = _z42Proc(vm, flat).Arg(driverZpkg).Arg("--").Args(a).WorkingDirectory(bar)
+        .Run();
     if (r1.ExitCode != 0 || !r1.Stdout.Contains("no changes")) {
         Console.WriteLine("  ✗ 依赖只改注释，消费方却没有命中缓存（exit " + r1.ExitCode.ToString() + "）");
         return 1;
@@ -163,8 +163,8 @@ int _e2eDepIdentityChecks(string vm, string driverZpkg, string e2eDir, string fl
     // ② foo 改名（破坏性 API 变更）→ bar 必须重编 → 编译期报 E0401（非零退出），而不是 preserved 旧产物。
     //   不用「加参数」做夹具：z42c 目前不诊断实参个数不足（另案），加参数不会编译报错。
     File.WriteAllText(Path.Join(foo, "foo.z42"), fooSrc.Replace("Answer()", "Renamed()"));
-    ProcessResult r2 = new Process(vm).Arg(driverZpkg).Arg("--").Args(a).WorkingDirectory(bar)
-        .Env("Z42_LIBS", flat).Run();
+    ProcessResult r2 = _z42Proc(vm, flat).Arg(driverZpkg).Arg("--").Args(a).WorkingDirectory(bar)
+        .Run();
     if (r2.ExitCode == 0) {
         Console.WriteLine("  ✗ 依赖删掉了被调用的方法，消费方仍构建成功（命中了旧缓存）：" + r2.Stdout);
         return 1;
@@ -178,9 +178,9 @@ int _e2eCount(string hay, string needle) {
 }
 
 ProcessResult _e2eWsBuild(string vm, string driverZpkg, string ws, string flat, bool noIncr) {
-    Process p = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg("--workspace").Arg("--release");
+    Process p = _z42Proc(vm, flat).Arg(driverZpkg).Arg("--").Arg("build").Arg("--workspace").Arg("--release");
     if (noIncr) { p = p.Arg("--no-incremental"); }
-    return p.WorkingDirectory(ws).Env("Z42_LIBS", flat).Run();
+    return p.WorkingDirectory(ws).Run();
 }
 
 // workspace 读 cache（workspace-read-cache）：此前 workspace 成员恒全量。成员 b 依赖 a。
@@ -248,11 +248,11 @@ int _e2eUsedNsCacheChecks(string vm, string driverZpkg, string e2eDir, string fl
     File.WriteAllText(Path.Join(root, "f1.z42"), "namespace UnB;\n\npublic static class U {\n    public static int F() { W w = new W(); return w.V; }\n}\n");
     string[] a = new string[2];
     a[0] = "build"; a[1] = "unc.z42.toml";
-    ProcessResult r0 = new Process(vm).Arg(driverZpkg).Arg("--").Args(a).WorkingDirectory(root).Env("Z42_LIBS", flat).Run();
+    ProcessResult r0 = _z42Proc(vm, flat).Arg(driverZpkg).Arg("--").Args(a).WorkingDirectory(root).Run();
     if (r0.ExitCode != 0) { Console.WriteLine("  ✗ 夹具首次构建失败：" + r0.Stderr); return 1; }
     if (r0.Stderr.Contains("W0607") || r0.Stdout.Contains("W0607")) { Console.WriteLine("  ✗ 首次构建就报了 W0607：" + r0.Stderr + r0.Stdout); return 1; }
     File.WriteAllText(Path.Join(root, "f0.z42"), "// 只改注释\n" + f0);
-    ProcessResult r1 = new Process(vm).Arg(driverZpkg).Arg("--").Args(a).WorkingDirectory(root).Env("Z42_LIBS", flat).Run();
+    ProcessResult r1 = _z42Proc(vm, flat).Arg(driverZpkg).Arg("--").Args(a).WorkingDirectory(root).Run();
     if (r1.ExitCode != 0) { Console.WriteLine("  ✗ 只改注释的二次构建失败：" + r1.Stderr); return 1; }
     if (!r1.Stdout.Contains("cached: 1/2") && !r1.Stderr.Contains("cached: 1/2")) {
         Console.WriteLine("  ✗ 夹具没走到 cached 路径（期望 cached: 1/2）：" + r1.Stdout + r1.Stderr); return 1;

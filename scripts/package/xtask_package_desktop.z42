@@ -284,10 +284,9 @@ string _quotedExisting(string dir, string a, string b) {
 // resolve colocated); `libs` = Z42_LIBS (stdlib + prior workload zpkgs). The toml
 // itself carries its dist_dir, so emit location is unchanged from the C# path.
 int _z42cBuildToml(string vm, string z42cDir, string libs, string toml) {
-    return _exec(new Process(vm)
+    return _exec(_z42Proc(vm, libs)
         .Arg(Path.Join(z42cDir, "z42c.driver.zpkg")).Arg("--mode").Arg(_z42cMode())
-        .Arg("--").Arg("build").Arg(toml).Arg("--release")
-        .Env("Z42_LIBS", libs));
+        .Arg("--").Arg("build").Arg(toml).Arg("--release"));
 }
 
 // Publish `toml`'s desktop apphost into `outputDir` via an already-built
@@ -303,10 +302,9 @@ int _z42cBuildToml(string vm, string z42cDir, string libs, string toml) {
 // 隐式成立；那条隐式规则就是 stale payload 的病根，故这里改成显式声明。
 int _z42bPublish(string vm, string z42bZpkg, string libs, string apphostStub, string toml, string rid, string outputDir) {
     // z42b 运行期要加载编译器包（`z42.build` / `z42.project` + 注入的 `z42c.pipeline`）⇒ 挂编译器 probing（drop-alllibs）。
-    return _exec(_withCompilerProbing(new Process(vm), _root())
+    return _exec(_z42bProc(vm, libs)
         .Arg(z42bZpkg).Arg("--mode").Arg(_z42cMode())
         .Arg("--").Arg("publish").Arg(toml).Arg("--rid").Arg(rid).Arg("--output").Arg(outputDir)
         .Arg("--no-build")
-        .Env("Z42_LIBS", libs)
         .Env("Z42_APPHOST_TEMPLATE", apphostStub));
 }

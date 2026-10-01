@@ -201,10 +201,9 @@ int _bcRunWorkspace(string root, string label, string vm, string driver, string 
     while (i < members.Length) {
         string m = members[i];
         string outDir = Path.Join(outRoot, m);
-        int rc = new Process(vm).Arg(driver).Arg("--mode").Arg("interp").Arg("--")
+        int rc = _z42Proc(vm, runlibs).Arg(driver).Arg("--mode").Arg("interp").Arg("--")
             .Arg("build").Arg(Path.Join(root, "src/compiler/" + m + "/" + m + ".z42.toml"))
             .Arg("--release").Arg("--output-dir").Arg(outDir)
-            .Env("Z42_LIBS", runlibs)
             .Stdout(Stdio.Null()).Stderr(Stdio.Inherit()).Run().ExitCode;
         string produced = Path.Join(outDir, m + ".zpkg");
         if (rc == 0 && File.Exists(produced) && File.GetSize(produced) > 0L) {

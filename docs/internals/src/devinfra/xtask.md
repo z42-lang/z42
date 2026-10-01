@@ -164,5 +164,7 @@ presence 之所以默认不致败：CI 的通用 job 在没有平台 SDK 的 run
 - **冷启动依赖网络**：fresh checkout 无种子时必须能下载 nightly（CI 的全新 runner 同理）。
 - **格式漂移窗口**：zbc/zpkg 格式 bump 之后，旧 nightly 种子读不了新产物，要等新 nightly 发布。
 - **z42vm 前置**：xtask 启动即校验 z42vm 可用（`_ensureDriverVm`）；多数命令以子进程驱动 z42vm / z42c。
+  这些子进程一律经 `_z42Proc(exe, libs)` 建（z42b 用 `_z42bProc(vm, libs)`，另挂编译器包 probing）——`Z42_LIBS` /
+  `Z42_PROBING_PATHS` 不在调用点手写，GREEN 的 `proc-env` 门守着（见[测试门禁](test-gate.md)）。
 - `src/toolchain/builder/`（z42b）目前承担单-bundle 测试执行（见[测试流水线两层模型](test-pipeline.md)），
   **不**承担 build 编排；构建编排仍全在 xtask。

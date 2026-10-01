@@ -24,11 +24,11 @@ int _e2eOracle(string vm, string driverZpkg, string e2eDir, string emitLibs, str
     string src = Path.Join(e2eDir, name + ".z42");
     File.WriteAllText(src, source);
     string zbc = Path.Join(e2eDir, name + ".zbc");
-    int rc = new Process(vm).Arg(driverZpkg).Arg("--").Arg("--emit-zbc").Arg(src).Arg(zbc)
-        .Env("Z42_LIBS", emitLibs).Stdout(Stdio.Null()).Stderr(Stdio.Inherit()).Run().ExitCode;
+    int rc = _z42Proc(vm, emitLibs).Arg(driverZpkg).Arg("--").Arg("--emit-zbc").Arg(src).Arg(zbc)
+        .Stdout(Stdio.Null()).Stderr(Stdio.Inherit()).Run().ExitCode;
     if (rc != 0) { Console.WriteLine("  ✗ " + name + " emit failed (" + rc.ToString() + ")"); return 1; }
-    rc = new Process(vm).Arg(zbc).Arg("Main")
-        .Env("Z42_LIBS", runLibs).Stdout(Stdio.Null()).Stderr(Stdio.Null()).Run().ExitCode;
+    rc = _z42Proc(vm, runLibs).Arg(zbc).Arg("Main")
+        .Stdout(Stdio.Null()).Stderr(Stdio.Null()).Run().ExitCode;
     if (expectTrap) {
         if (rc == 0) { Console.WriteLine("  ✗ " + name + ".zbc exited 0 — oracle invalid (VM should trap)"); return 1; }
         Console.WriteLine("  ✓ " + name + ".zbc: trapped as expected (oracle valid)");
@@ -52,12 +52,11 @@ int _e2eBuildChecks(string root, string vm, string driverZpkg, string e2eDir, st
     File.WriteAllText(bsrc, "namespace Check.App;\n\nint Twice(int a) { return a + a; }\n\nclass Counter {\n    int v;\n    public int Bump(int d) { v = v + d; return v; }\n}\n\nvoid Main() {\n    var c = new Counter();\n    c.Bump(20);\n    c.Bump(1);\n    int x = Twice(c.Bump(0));\n    int ok = 0;\n    if (x == 42) { ok = 1; }\n    int dummy = 100 / ok;\n}\n");
     string btoml = Path.Join(bdir, "check.app.z42.toml");
     File.WriteAllText(btoml, "[project]\nname    = \"check.app\"\nversion = \"0.1.0\"\nkind    = \"exe\"\npack    = true\n\n[sources]\ninclude = [\"*.z42\"]\n");
-    rc = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(btoml)
-        .Env("Z42_LIBS", flat).Stdout(Stdio.Null()).Stderr(Stdio.Inherit()).Run().ExitCode;
+    rc = _z42Proc(vm, flat).Arg(driverZpkg).Arg("--").Arg("build").Arg(btoml)
+        .Stdout(Stdio.Null()).Stderr(Stdio.Inherit()).Run().ExitCode;
     if (rc != 0) { Console.WriteLine("  ✗ z42c build failed"); return 1; }
     string appZpkg = Path.Join(bdir, "dist/check.app.zpkg");
-    rc = new Process(vm).Arg(appZpkg)
-        .Env("Z42_LIBS", _libsDir(root))
+    rc = _z42Proc(vm, _libsDir(root)).Arg(appZpkg)
         .Stdout(Stdio.Null()).Stderr(Stdio.Null()).Run().ExitCode;
     if (rc != 0) { Console.WriteLine("  ✗ z42c-built zpkg failed to run (exit " + rc.ToString() + ")"); return 1; }
     Console.WriteLine("  ✓ build e2e: z42c-built check.app.zpkg runs directly on z42vm (entry baked)");
@@ -131,8 +130,8 @@ int _e2eBuildChecks(string root, string vm, string driverZpkg, string e2eDir, st
     int pi = 0;
     while (pi < 6) {
         string pdir = Path.GetDirectoryName(cmpTomls[pi]);
-        rc = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(cmpTomls[pi])
-            .Env("Z42_LIBS", flat).Stdout(Stdio.Null()).Stderr(Stdio.Inherit()).Run().ExitCode;
+        rc = _z42Proc(vm, flat).Arg(driverZpkg).Arg("--").Arg("build").Arg(cmpTomls[pi])
+            .Stdout(Stdio.Null()).Stderr(Stdio.Inherit()).Run().ExitCode;
         if (rc != 0) { Console.WriteLine("  ✗ z42c build failed: " + cmpTomls[pi]); return 1; }
         string[] zOut = Path.Glob(Path.Join(pdir, "dist"), "*.zpkg");
         if (zOut.Length != 1) { Console.WriteLine("  ✗ expected 1 zpkg in " + pdir + "/dist"); return 1; }
@@ -140,16 +139,13 @@ int _e2eBuildChecks(string root, string vm, string driverZpkg, string e2eDir, st
     }
     Console.WriteLine("  ✓ z42c build: 6/6 projects built (multi-file packages; functional)");
     // hello-stdlib 直跑（跨包 Call 链可执行性）
-    rc = new Process(vm).Arg(Path.Join(cdir, "dist/clos.app.zpkg"))
-        .Env("Z42_LIBS", _libsDir(root))
+    rc = _z42Proc(vm, _libsDir(root)).Arg(Path.Join(cdir, "dist/clos.app.zpkg"))
         .Stdout(Stdio.Null()).Stderr(Stdio.Null()).Run().ExitCode;
     if (rc != 0) { Console.WriteLine("  ✗ clos.app.zpkg failed to run (exit " + rc.ToString() + ")"); return 1; }
-    rc = new Process(vm).Arg(Path.Join(tdir, "dist/text.app.zpkg"))
-        .Env("Z42_LIBS", _libsDir(root))
+    rc = _z42Proc(vm, _libsDir(root)).Arg(Path.Join(tdir, "dist/text.app.zpkg"))
         .Stdout(Stdio.Null()).Stderr(Stdio.Null()).Run().ExitCode;
     if (rc != 0) { Console.WriteLine("  ✗ text.app.zpkg failed to run (exit " + rc.ToString() + ")"); return 1; }
-    rc = new Process(vm).Arg(Path.Join(hdir, "dist/hello.app.zpkg"))
-        .Env("Z42_LIBS", _libsDir(root))
+    rc = _z42Proc(vm, _libsDir(root)).Arg(Path.Join(hdir, "dist/hello.app.zpkg"))
         .Stdout(Stdio.Null()).Stderr(Stdio.Null()).Run().ExitCode;
     if (rc != 0) { Console.WriteLine("  ✗ hello.app.zpkg failed to run (exit " + rc.ToString() + ")"); return 1; }
     Console.WriteLine("  ✓ import e2e: z42c-built hello.app.zpkg (using Std; Console.WriteLine) runs on z42vm");
@@ -198,8 +194,8 @@ int _e2eBuildChecks(string root, string vm, string driverZpkg, string e2eDir, st
     // --release：私有 path 依赖走「colocate + 运行期惰性加载」，惰性加载器只认 **packed** 依赖
     // zpkg（indexed = 开发态多文件布局，非惰性候选）；release 使 foo 闭包产 packed → 可被惰性加载。
     // 这也是真实部署态（z42.interactive→z42.repl 亦 --release）。
-    rc = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(barToml).Arg("--release")
-        .Env("Z42_LIBS", flat).Stdout(Stdio.Null()).Stderr(Stdio.Inherit()).Run().ExitCode;
+    rc = _z42Proc(vm, flat).Arg(driverZpkg).Arg("--").Arg("build").Arg(barToml).Arg("--release")
+        .Stdout(Stdio.Null()).Stderr(Stdio.Inherit()).Run().ExitCode;
     if (rc != 0) { Console.WriteLine("  ✗ path 依赖 build 失败（foo 闭包未建 / bar 未解析到 foo）"); return 1; }
     // ③ **闭包全体** colocate 进 bar dist（_bundleExeDeps 真-stdlib 判据放行 path 依赖）。
     string barFoo = Path.Join(barDir, "dist/pathdep.foo.zpkg");
@@ -208,8 +204,7 @@ int _e2eBuildChecks(string root, string vm, string driverZpkg, string e2eDir, st
     string barBaz = Path.Join(barDir, "dist/pathdep.baz.zpkg");
     if (!File.Exists(barBaz)) { Console.WriteLine("  ✗ path 依赖：**传递**依赖 baz.zpkg 未 colocate 进 bar/dist（深度 >1 不可用）"); return 1; }
     // ④ bar.zpkg 直跑（entry-zpkg 目录解析兄弟 foo.zpkg）。
-    rc = new Process(vm).Arg(Path.Join(barDir, "dist/pathdep.bar.zpkg"))
-        .Env("Z42_LIBS", _libsDir(root))
+    rc = _z42Proc(vm, _libsDir(root)).Arg(Path.Join(barDir, "dist/pathdep.bar.zpkg"))
         .Stdout(Stdio.Null()).Stderr(Stdio.Null()).Run().ExitCode;
     if (rc != 0) { Console.WriteLine("  ✗ path 依赖：bar.zpkg 直跑失败（exit " + rc.ToString() + "）"); return 1; }
     Console.WriteLine("  ✓ path 依赖 e2e（2 层）: bar → foo → baz 闭包自动建 + 全体 colocate + bar.zpkg 直跑");
@@ -357,8 +352,8 @@ int _e2eKnobChecks(string vm, string driverZpkg, string e2eDir, string flat) {
     // ① typo。**不传 --release**：校验扫全部 profile，`[profile.release.runtime]` 的 typo
     //    在只跑 debug 构建时也必须报——那正是它最容易活到发布的路径。
     File.WriteAllText(ktoml, head + "[profile.release.runtime]\ngc-mdoe = \"stw\"\n");
-    ProcessResult r1 = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(ktoml)
-        .Env("Z42_LIBS", flat).Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
+    ProcessResult r1 = _z42Proc(vm, flat).Arg(driverZpkg).Arg("--").Arg("build").Arg(ktoml)
+        .Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
     if (r1.ExitCode != 0) {
         Console.WriteLine("  ✗ 未知旋钮名把 build 判红了（应只 warning）: rc=" + r1.ExitCode.ToString());
         return 1;
@@ -375,8 +370,8 @@ int _e2eKnobChecks(string vm, string driverZpkg, string e2eDir, string flat) {
 
     // ② 名字正确 → 零噪音。
     File.WriteAllText(ktoml, head + "[profile.release.runtime]\nmode = \"interp\"\ngc-mode = \"stw\"\n");
-    ProcessResult r2 = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(ktoml)
-        .Env("Z42_LIBS", flat).Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
+    ProcessResult r2 = _z42Proc(vm, flat).Arg(driverZpkg).Arg("--").Arg("build").Arg(ktoml)
+        .Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
     if (r2.ExitCode != 0 || r2.Stderr.IndexOf("未知运行时旋钮") >= 0) {
         Console.WriteLine("  ✗ 合法旋钮名被误报（rc=" + r2.ExitCode.ToString() + "）: " + r2.Stderr.Trim());
         return 1;
@@ -385,8 +380,8 @@ int _e2eKnobChecks(string vm, string driverZpkg, string e2eDir, string flat) {
 
     // ③ 旧形状，库工程。
     File.WriteAllText(ktoml, head + "[profile.release]\nmode = \"interp\"\n");
-    ProcessResult r3 = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(ktoml)
-        .Env("Z42_LIBS", flat).Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
+    ProcessResult r3 = _z42Proc(vm, flat).Arg(driverZpkg).Arg("--").Arg("build").Arg(ktoml)
+        .Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
     if (r3.ExitCode == 0 || r3.Stderr.IndexOf("不接受直接写键") < 0) {
         Console.WriteLine("  ✗ 库工程的旧形状 [profile.X] 直接写键没有被拒（rc=" + r3.ExitCode.ToString() + "）");
         return 1;
@@ -412,8 +407,8 @@ int _e2eEmitDiagChecks(string vm, string driverZpkg, string e2eDir, string flat)
     string badOut = Path.Join(e2eDir, "emitdiag_bad.zbc");
     File.WriteAllText(badSrc, "namespace EmitDiag.Bad;\n\nvoid Main() { NoSuchTypeAtAll x = null; }\n");
     if (File.Exists(badOut)) { File.Delete(badOut); }
-    int rc = new Process(vm).Arg(driverZpkg).Arg("--").Arg("--emit-zbc").Arg(badSrc).Arg(badOut)
-        .Env("Z42_LIBS", flat).Stdout(Stdio.Null()).Stderr(Stdio.Null()).Run().ExitCode;
+    int rc = _z42Proc(vm, flat).Arg(driverZpkg).Arg("--").Arg("--emit-zbc").Arg(badSrc).Arg(badOut)
+        .Stdout(Stdio.Null()).Stderr(Stdio.Null()).Run().ExitCode;
     if (rc == 0) {
         Console.WriteLine("  ✗ 有错的源 --emit-zbc 仍 exit 0 —— 诊断又被吞了");
         return 1;
@@ -428,8 +423,8 @@ int _e2eEmitDiagChecks(string vm, string driverZpkg, string e2eDir, string flat)
     string okOut = Path.Join(e2eDir, "emitdiag_ok.zbc");
     File.WriteAllText(okSrc, "namespace EmitDiag.Ok;\n\nvoid Main() { int x = 1; }\n");
     if (File.Exists(okOut)) { File.Delete(okOut); }
-    rc = new Process(vm).Arg(driverZpkg).Arg("--").Arg("--emit-zbc").Arg(okSrc).Arg(okOut)
-        .Env("Z42_LIBS", flat).Stdout(Stdio.Null()).Stderr(Stdio.Inherit()).Run().ExitCode;
+    rc = _z42Proc(vm, flat).Arg(driverZpkg).Arg("--").Arg("--emit-zbc").Arg(okSrc).Arg(okOut)
+        .Stdout(Stdio.Null()).Stderr(Stdio.Inherit()).Run().ExitCode;
     if (rc != 0) {
         Console.WriteLine("  ✗ 干净的源 --emit-zbc 退出 " + rc.ToString() + " —— 门焊死了");
         return 1;
@@ -450,9 +445,9 @@ int _e2eReproBuild(string vm, string driverZpkg, string dir, string src, string 
     File.WriteAllText(Path.Join(dir, "lib.z42"), src);
     File.WriteAllText(Path.Join(dir, "repro.lib.z42.toml"),
         "[project]\nname    = \"repro.lib\"\nversion = \"0.1.0\"\nkind    = \"lib\"\npack    = true\n\n[sources]\ninclude = [\"*.z42\"]\n");
-    return new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(Path.Join(dir, "repro.lib.z42.toml"))
+    return _z42Proc(vm, flat).Arg(driverZpkg).Arg("--").Arg("build").Arg(Path.Join(dir, "repro.lib.z42.toml"))
         .Arg("--release").Arg("--no-incremental")
-        .Env("Z42_LIBS", flat).Stdout(Stdio.Null()).Stderr(Stdio.Inherit()).Run().ExitCode;
+        .Stdout(Stdio.Null()).Stderr(Stdio.Inherit()).Run().ExitCode;
 }
 
 int _e2eReproChecks(string vm, string driverZpkg, string e2eDir, string flat) {

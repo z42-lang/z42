@@ -117,9 +117,9 @@ string _vscodeDumpKeywords(string root) {
     }
     string stdlibFlat = _libsFlatDist(root, profile);
     try {
-        ProcessResult pr = new Process(vm).Arg(driver).Arg("--mode").Arg(_z42cMode()).Arg("--")
+        ProcessResult pr = _z42Proc(vm, stdlibFlat).Arg(driver).Arg("--mode").Arg(_z42cMode()).Arg("--")
             .Arg("--dump-keywords")
-            .Env("Z42_LIBS", stdlibFlat).Stderr(Stdio.Inherit()).Run();
+            .Stderr(Stdio.Inherit()).Run();
         if (pr.ExitCode != 0) {
             ConsoleError.WriteLine("error: z42c --dump-keywords failed (exit " + pr.ExitCode.ToString() + ")");
             return "";

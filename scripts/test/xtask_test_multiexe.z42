@@ -91,10 +91,9 @@ string _runOneMultiExe(string compileVm, string runVm, string driverZpkg, string
     int zi = 0;
     while (zi < zpkgs.Length) {
         try {
-            ProcessResult vr = new Process(runVm)
+            ProcessResult vr = _z42Proc(runVm, testLibs)
                 .Arg(zpkgs[zi])
                 .Arg("--mode").Arg(mode)
-                .Env("Z42_LIBS", testLibs)
                 .Run();
             actual = actual + vr.Stdout + vr.Stderr;
         } catch (Exception e) {

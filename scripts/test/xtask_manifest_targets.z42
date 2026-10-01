@@ -161,7 +161,7 @@ int _runExitTarget(string root, string projDir, string projPrefix, string subdir
     // The exe zpkg bakes [project].entry (== tEntry) → run it directly, no CLI
     // entry arg (matches the proven multi-exe run path; z42vm dispatches the baked
     // entry). exit-code is the verdict (design D3: non-zero = fail, no golden).
-    ProcessResult rr = new Process(vm).Arg(zpkg).Env("Z42_LIBS", libs).Run();
+    ProcessResult rr = _z42Proc(vm, libs).Arg(zpkg).Run();
     Console.Write(rr.Stdout);
     if (rr.Stderr.Length > 0) { Console.Write(rr.Stderr); }
     if (rr.ExitCode != 0) { Console.WriteLine("✗ " + tName + " (exit " + rr.ExitCode.ToString() + ")"); return 1; }
@@ -188,8 +188,8 @@ string _compileTarget(string root, string vm, string driverZpkg, string projDir,
     string synth = Path.Join(projDir, ".xtask-" + projName + ".z42.toml");
     bool wantEntry = (kindStr == "exe") && tHasEntry;
     File.WriteAllText(synth, _renderTargetManifest(projName, kindStr, tEntry, wantEntry, inc, inc.Length, outDir, deps));
-    ProcessResult br = new Process(vm).Arg(driverZpkg).Arg("--mode").Arg(_z42cMode())
-        .Arg("--").Arg("build").Arg(synth).Env("Z42_LIBS", libs).Run();
+    ProcessResult br = _z42Proc(vm, libs).Arg(driverZpkg).Arg("--mode").Arg(_z42cMode())
+        .Arg("--").Arg("build").Arg(synth).Run();
     try { File.Delete(synth); } catch (Exception e) {}
     if (br.ExitCode != 0) {
         ConsoleError.WriteLine("✗ COMPILE ERROR: " + label);
@@ -380,12 +380,12 @@ int _runLibViaZ42b(string root, string projDir, string parentToml, string lib, s
         // 零单元：交给 z42b 自己裁定（红/绿），不在 xtask 侧复制一份判据。
         // filter 非空时零命中是过滤器的事，不是发现规则的 bug —— 直接跳过。
         if (filter.Length > 0) { return 0; }
-        Process zp = _withCompilerProbing(new Process(vm), _root()).Arg("--mode").Arg(mode).Arg(builderZpkg)
+        Process zp = _z42bProc(vm, libs).Arg("--mode").Arg(mode).Arg(builderZpkg)
             .Arg("--").Arg(kind).Arg(parentToml);
         if (_z42bSupportsOutRoot(vm, builderZpkg, libs)) {
             zp = zp.Arg("--out-root").Arg(_devTargetOutRoot(root, parentToml, kind));
         }
-        ProcessResult rr = zp.Env("Z42_LIBS", libs).WorkingDirectory(root).Run();
+        ProcessResult rr = zp.WorkingDirectory(root).Run();
         Console.Write(rr.Stdout);
         if (rr.Stderr.Length > 0) { Console.Write(rr.Stderr); }
         return (rr.ExitCode != 0) ? 1 : 0;

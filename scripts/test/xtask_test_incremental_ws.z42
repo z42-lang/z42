@@ -10,10 +10,10 @@ namespace Z42Xtask;
 using Std.IO;
 
 int _wsReadbackBuild(string vm, string driver, string libs, string cwd, bool noIncr) {
-    Process p = new Process(vm).Arg(driver).Arg("--mode").Arg(_z42cMode()).Arg("--")
+    Process p = _z42Proc(vm, libs).Arg(driver).Arg("--mode").Arg(_z42cMode()).Arg("--")
         .Arg("build").Arg("--workspace").Arg("--release");
     if (noIncr) { p = p.Arg("--no-incremental"); }
-    return p.WorkingDirectory(cwd).Env("Z42_LIBS", libs).Stdout(Stdio.Null()).Stderr(Stdio.Inherit()).Run().ExitCode;
+    return p.WorkingDirectory(cwd).Stdout(Stdio.Null()).Stderr(Stdio.Inherit()).Run().ExitCode;
 }
 
 int _reconcileStdlibReadback(string root, string vm, string driver, string libs, string scratch) {

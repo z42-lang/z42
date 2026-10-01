@@ -389,7 +389,7 @@ int _testCompiler(bool noBuild) {
 //
 // 解析面（drop-alllibs，2026-10-01）：Z42_LIBS = 纯 stdlib flat。
 //   · 编译期：单元按名声明的编译器包（z42c.syntax 等）由 driver 从编译器目录解析（CompilerDomain 开发树档）；
-//   · 运行期：z42b 及它为每个 [Test] 方法 fork 的子 VM 经 `_withCompilerProbing` 拿到各编译器成员 dist。
+//   · 运行期：z42b 及它为每个 [Test] 方法 fork 的子 VM 经 `_z42bProc` 拿到各编译器成员 dist。
 // 此前是把 stdlib + 编译器成员拷进一个 alllibs 目录当唯一 Z42_LIBS（VM 的 Z42_LIBS 只能是一个目录），
 // 代价是编译器 dist 里的 stdlib 副本会遮蔽新 stdlib（#955）。
 //
@@ -422,10 +422,9 @@ int _testCompilerUnits(string root, string profile, string[] members) {
                 Console.WriteLine("── z42c test: " + members[i] + " / " + unit + " ──");
                 // compile (release/packed) with z42c；stdlib 从 flat、单元声明的编译器包从编译器目录解析；
                 // 输出落单元 toml 的 [build] output_dir 镜像。
-                ProcessResult br = new Process(vm)
+                ProcessResult br = _z42Proc(vm, flat)
                     .Arg(driverZpkg).Arg("--mode").Arg(_z42cMode()).Arg("--")
                     .Arg("build").Arg(tomls[0]).Arg("--release")
-                    .Env("Z42_LIBS", flat)
                     .Stdout(Stdio.Inherit()).Stderr(Stdio.Inherit()).Run();
                 if (br.ExitCode != 0) {
                     Console.WriteLine("  ✗ compile failed: " + unit);
@@ -458,10 +457,9 @@ int _testCompilerUnits(string root, string profile, string[] members) {
                 // zpkgs had no TIDX → runner exit 3, no discovery.)
                 int j = 0;
                 while (j < zps.Length) {
-                    int rc = _withCompilerProbing(new Process(vm), root)
+                    int rc = _z42bProc(vm, flat)
                         .Arg("--mode").Arg(_z42cMode()).Arg(builderZpkg)
                         .Arg("--").Arg("test").Arg(zps[j])
-                        .Env("Z42_LIBS", flat)
                         .Stdout(Stdio.Inherit()).Stderr(Stdio.Inherit()).Run().ExitCode;
                     if (rc != 0) { totalFailed = totalFailed + 1; }
                     j = j + 1;

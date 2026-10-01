@@ -51,8 +51,8 @@ string _e2eLintAppSrc() {
 }
 
 ProcessResult _e2eLintBuild(string vm, string driverZpkg, string flat, string toml) {
-    return new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(toml).Arg("--release")
-        .Env("Z42_LIBS", flat).Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
+    return _z42Proc(vm, flat).Arg(driverZpkg).Arg("--").Arg("build").Arg(toml).Arg("--release")
+        .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
 }
 
 int _e2eAnalyzerDiagCacheChecks(string root, string vm, string driverZpkg, string e2eDir) {

@@ -72,8 +72,8 @@ int _e2eAnalyzerDomainChecks(string root, string vm, string driverZpkg, string e
     //   ③ kind = "lib"，**不声明** → 不可见 ⇒ 必须编不过，且报错点名 z42c.semantics 并给出声明写法。
     //      ③ 编过 = 未声明的 SDK 库也漏给了普通工程（隔离失效）；红了但不点名 = 门失去判别力。
     File.WriteAllText(atoml, _e2eAnalyzerTomlDecl("e2e.gen", "analyzer", false));
-    ProcessResult r1 = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(atoml).Arg("--release")
-        .Env("Z42_LIBS", flat).Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
+    ProcessResult r1 = _z42Proc(vm, flat).Arg(driverZpkg).Arg("--").Arg("build").Arg(atoml).Arg("--release")
+        .Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
     if (r1.ExitCode != 0) {
         Console.WriteLine("  ✗ ① kind=analyzer（未声明）解析不到 z42c.semantics（SDK 库应对 analyzer 自动可见）: rc="
             + r1.ExitCode.ToString());
@@ -82,8 +82,8 @@ int _e2eAnalyzerDomainChecks(string root, string vm, string driverZpkg, string e
     }
 
     File.WriteAllText(btoml, _e2eAnalyzerTomlDecl("e2e.gen", "lib", true));
-    ProcessResult r2 = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(btoml).Arg("--release")
-        .Env("Z42_LIBS", flat).Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
+    ProcessResult r2 = _z42Proc(vm, flat).Arg(driverZpkg).Arg("--").Arg("build").Arg(btoml).Arg("--release")
+        .Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
     if (r2.ExitCode != 0) {
         Console.WriteLine("  ✗ ② kind=lib 按名声明了 z42c.semantics 却解析不到: rc=" + r2.ExitCode.ToString());
         Console.WriteLine("    stderr: " + r2.Stderr);
@@ -95,8 +95,8 @@ int _e2eAnalyzerDomainChecks(string root, string vm, string driverZpkg, string e
     File.WriteAllText(Path.Join(cdir, "gen.z42"), _e2eAnalyzerSrc());
     string ctoml = Path.Join(cdir, "e2e.gen.z42.toml");
     File.WriteAllText(ctoml, _e2eAnalyzerTomlDecl("e2e.gen", "lib", false));
-    ProcessResult r3 = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(ctoml).Arg("--release")
-        .Env("Z42_LIBS", flat).Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
+    ProcessResult r3 = _z42Proc(vm, flat).Arg(driverZpkg).Arg("--").Arg("build").Arg(ctoml).Arg("--release")
+        .Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
     if (r3.ExitCode == 0) {
         Console.WriteLine("  ✗ ③ kind=lib 未声明却解析到了 z42c.semantics —— SDK 库的声明隔离失效");
         return 1;
@@ -164,8 +164,8 @@ int _e2ePathAnalyzerChecks(string root, string vm, string driverZpkg, string e2e
     File.WriteAllText(atoml, _e2ePathAppToml("analyzers"));
 
     // ① 代建 + 产码 + 跑起来。
-    ProcessResult b1 = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(atoml).Arg("--release")
-        .Env("Z42_LIBS", flat).Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
+    ProcessResult b1 = _z42Proc(vm, flat).Arg(driverZpkg).Arg("--").Arg("build").Arg(atoml).Arg("--release")
+        .Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
     if (b1.ExitCode != 0) {
         Console.WriteLine("  ✗ [analyzers] path 条目构建失败（用户写不出自己的 generator）: rc="
             + b1.ExitCode.ToString());
@@ -182,8 +182,8 @@ int _e2ePathAnalyzerChecks(string root, string vm, string driverZpkg, string e2e
 
     // ② 只改 generator 源码 → 消费方必须重编出新值（handler 指纹覆盖 path 条目）。
     File.WriteAllText(Path.Join(gdir, "gen.z42"), _e2ePathGenSrc("7"));
-    ProcessResult b2 = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(atoml).Arg("--release")
-        .Env("Z42_LIBS", flat).Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
+    ProcessResult b2 = _z42Proc(vm, flat).Arg(driverZpkg).Arg("--").Arg("build").Arg(atoml).Arg("--release")
+        .Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
     if (b2.ExitCode != 0) {
         Console.WriteLine("  ✗ 改 generator 后重建失败: " + b2.Stderr);
         return 1;
@@ -197,8 +197,8 @@ int _e2ePathAnalyzerChecks(string root, string vm, string driverZpkg, string e2e
 
     // ③ 被引工程不是 analyzer → 必须拒绝（否则是「加载成功、零 handler、静默空转」）。
     File.WriteAllText(gtoml, _e2eAnalyzerTomlNamed("e2e.pathgen", "lib"));
-    ProcessResult b3 = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(atoml).Arg("--release")
-        .Env("Z42_LIBS", flat).Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
+    ProcessResult b3 = _z42Proc(vm, flat).Arg(driverZpkg).Arg("--").Arg("build").Arg(atoml).Arg("--release")
+        .Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
     // 断言**那一句**诊断，不是「凡含 analyzer 字样即可」：kind 校验若被删，kind=lib 的工程
     // 会在代建阶段因解析不到契约包而失败，那条失败经由本门的 "[analyzers] ... 构建失败" 转述
     // 也含 "analyzer" 字样 —— 宽断言会把「校验没了」判成绿。
@@ -215,8 +215,8 @@ int _e2ePathAnalyzerChecks(string root, string vm, string driverZpkg, string e2e
     File.WriteAllText(Path.Join(ddir, "app.z42"), _e2ePathAnalyzerAppSrc());
     string dtoml = Path.Join(ddir, "e2e.pathapp.z42.toml");
     File.WriteAllText(dtoml, _e2ePathAppToml("dependencies"));
-    ProcessResult b4 = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(dtoml).Arg("--release")
-        .Env("Z42_LIBS", flat).Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
+    ProcessResult b4 = _z42Proc(vm, flat).Arg(driverZpkg).Arg("--").Arg("build").Arg(dtoml).Arg("--release")
+        .Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
     if (b4.ExitCode == 0 || b4.Stderr.IndexOf("不能作运行期依赖") < 0) {
         Console.WriteLine("  ✗ 编译期扩展被当作运行期依赖收下了: rc=" + b4.ExitCode.ToString()
             + " stderr=" + b4.Stderr);
@@ -305,8 +305,8 @@ int _e2eUserDomainRefChecks(string root, string vm, string driverZpkg, string e2
     File.WriteAllText(Path.Join(adir, "main.z42"), _e2eUserRefSrc());
     string atoml = Path.Join(adir, "e2euserlinter.z42.toml");
     File.WriteAllText(atoml, _e2eUserRefToml(""));
-    ProcessResult r1 = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(atoml).Arg("--release")
-        .Env("Z42_LIBS", shipped).Env("Z42_COMPILER_LIBS", cdomain)
+    ProcessResult r1 = _z42Proc(vm, shipped).Arg(driverZpkg).Arg("--").Arg("build").Arg(atoml).Arg("--release")
+        .Env("Z42_COMPILER_LIBS", cdomain)
         .Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
     if (r1.ExitCode == 0) {
         Console.WriteLine("  ✗ 普通工程没声明也解析到了 Z42.Syntax —— 隔离失效");
@@ -324,8 +324,8 @@ int _e2eUserDomainRefChecks(string root, string vm, string driverZpkg, string e2
     File.WriteAllText(Path.Join(bdir, "main.z42"), _e2eUserRefSrc());
     string btoml = Path.Join(bdir, "e2euserlinter.z42.toml");
     File.WriteAllText(btoml, _e2eUserRefToml("\"z42c.syntax\" = \"*\"\n"));
-    ProcessResult r2 = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(btoml).Arg("--release")
-        .Env("Z42_LIBS", shipped).Env("Z42_COMPILER_LIBS", cdomain)
+    ProcessResult r2 = _z42Proc(vm, shipped).Arg(driverZpkg).Arg("--").Arg("build").Arg(btoml).Arg("--release")
+        .Env("Z42_COMPILER_LIBS", cdomain)
         .Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
     if (r2.ExitCode != 0) {
         Console.WriteLine("  ✗ 用户工程按名声明 z42c.syntax 后仍编不过: rc=" + r2.ExitCode.ToString());
@@ -351,8 +351,8 @@ int _e2eUserDomainRefChecks(string root, string vm, string driverZpkg, string e2
     string ctoml = Path.Join(cdir, "e2euserlinter.z42.toml");
     File.WriteAllText(ctoml, _e2eUserRefToml(
         "\"z42c.syntax\" = { path = \"${compiler_libs}/z42c.syntax.zpkg\" }\n"));
-    ProcessResult r3 = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(ctoml).Arg("--release")
-        .Env("Z42_LIBS", shipped).Env("Z42_COMPILER_LIBS", cdomain)
+    ProcessResult r3 = _z42Proc(vm, shipped).Arg(driverZpkg).Arg("--").Arg("build").Arg(ctoml).Arg("--release")
+        .Env("Z42_COMPILER_LIBS", cdomain)
         .Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
     if (r3.ExitCode == 0 || r3.Stderr.IndexOf("已删除") < 0 || r3.Stderr.IndexOf("\"z42c.syntax\" = \"*\"") < 0) {
         Console.WriteLine("  ✗ 旧写法 ${compiler_libs} 没有当场报「已删除」并给出按名写法: rc="
@@ -383,8 +383,8 @@ int _e2eSdkLibExeCopy(string root, string vm, string driverZpkg, string e2eDir) 
     File.WriteAllText(Path.Join(d, "sdkexe.z42.toml"),
         "[project]\nname    = \"sdkexe\"\nversion = \"0.1.0\"\nkind    = \"exe\"\nentry   = \"Main\"\n\n"
         + "[sources]\ninclude = [\"*.z42\"]\n\n[dependencies]\n\"z42c.pipeline\" = \"0.1.0\"\n");
-    ProcessResult b = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(Path.Join(d, "sdkexe.z42.toml")).Arg("--release")
-        .Env("Z42_LIBS", flat).Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
+    ProcessResult b = _z42Proc(vm, flat).Arg(driverZpkg).Arg("--").Arg("build").Arg(Path.Join(d, "sdkexe.z42.toml")).Arg("--release")
+        .Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
     if (b.ExitCode != 0) {
         Console.WriteLine("  ✗ exe 按名声明 z42c.pipeline 却编不过: rc=" + b.ExitCode.ToString());
         Console.WriteLine("    stderr: " + b.Stderr);
@@ -399,7 +399,7 @@ int _e2eSdkLibExeCopy(string root, string vm, string driverZpkg, string e2eDir) 
         Console.WriteLine("  ✗ 编译器目录里的 stdlib 副本被当私有依赖拷进了 exe 产物: " + _e2eLs(dist));
         return 1;
     }
-    ProcessResult r = new Process(vm).Arg(Path.Join(dist, "sdkexe.zpkg")).Env("Z42_LIBS", flat)
+    ProcessResult r = _z42Proc(vm, flat).Arg(Path.Join(dist, "sdkexe.zpkg"))
         .EnvRemove("Z42_HOME").EnvRemove("Z42_COMPILER_LIBS").Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
     if (r.ExitCode != 0 || r.Stdout.Trim() != "sdkexe ok") {
         Console.WriteLine("  ✗ 复制了 SDK 库的 exe 在纯 stdlib 环境跑不起来: rc=" + r.ExitCode.ToString() + " " + r.Stdout + r.Stderr);
@@ -433,8 +433,8 @@ int _e2eSdkLibDeploySdk(string root, string vm, string driverZpkg, string e2eDir
     File.WriteAllText(Path.Join(d, "sdkdeploy.z42.toml"),
         "[project]\nname    = \"sdkdeploy\"\nversion = \"0.1.0\"\nkind    = \"exe\"\nentry   = \"Main\"\n\n"
         + "[sources]\ninclude = [\"*.z42\"]\n\n[dependencies]\n\"z42c.pipeline\" = { version = \"0.1.0\", deploy = \"sdk\" }\n");
-    ProcessResult b = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(Path.Join(d, "sdkdeploy.z42.toml")).Arg("--release")
-        .Env("Z42_LIBS", flat).Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
+    ProcessResult b = _z42Proc(vm, flat).Arg(driverZpkg).Arg("--").Arg("build").Arg(Path.Join(d, "sdkdeploy.z42.toml")).Arg("--release")
+        .Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
     if (b.ExitCode != 0) {
         Console.WriteLine("  ✗ deploy = \"sdk\" 的 exe 编不过: rc=" + b.ExitCode.ToString());
         Console.WriteLine("    stderr: " + b.Stderr);
@@ -458,7 +458,7 @@ int _e2eSdkLibDeploySdk(string root, string vm, string driverZpkg, string e2eDir
     string cdom = Path.GetDirectoryName(driverZpkg);
     File.Copy(Path.Join(cdom, "z42c.pipeline.zpkg"), Path.Join(prog, "z42c.pipeline.zpkg"));
     File.Copy(Path.Join(cdom, "z42c.semantics.zpkg"), Path.Join(prog, "z42c.semantics.zpkg"));
-    ProcessResult r = new Process(vm).Arg(Path.Join(dist, "sdkdeploy.zpkg")).Env("Z42_LIBS", flat).Env("Z42_HOME", sdk)
+    ProcessResult r = _z42Proc(vm, flat).Arg(Path.Join(dist, "sdkdeploy.zpkg")).Env("Z42_HOME", sdk)
         .EnvRemove("Z42_COMPILER_LIBS").Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
     if (r.ExitCode != 0 || r.Stdout.Trim() != "sdkdeploy ok") {
         Console.WriteLine("  ✗ deploy = \"sdk\" 的 exe 在「SDK」上跑不起来: rc=" + r.ExitCode.ToString() + " " + r.Stdout + r.Stderr);
@@ -471,8 +471,8 @@ int _e2eSdkLibDeploySdk(string root, string vm, string driverZpkg, string e2eDir
     File.WriteAllText(Path.Join(e, "bad.z42.toml"),
         "[project]\nname    = \"sdkdeploybad\"\nversion = \"0.1.0\"\nkind    = \"exe\"\nentry   = \"Main\"\n\n"
         + "[sources]\ninclude = [\"*.z42\"]\n\n[dependencies]\n\"z42.io\" = { version = \"0.1.0\", deploy = \"sdk\" }\n");
-    ProcessResult bad = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(Path.Join(e, "bad.z42.toml")).Arg("--release")
-        .Env("Z42_LIBS", flat).Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
+    ProcessResult bad = _z42Proc(vm, flat).Arg(driverZpkg).Arg("--").Arg("build").Arg(Path.Join(e, "bad.z42.toml")).Arg("--release")
+        .Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
     if (bad.ExitCode == 0 || bad.Stderr.IndexOf("只适用于") < 0) {
         Console.WriteLine("  ✗ 对 stdlib 写 deploy = \"sdk\" 没有报错（或报错不对）: rc=" + bad.ExitCode.ToString() + " " + bad.Stderr);
         return 1;
