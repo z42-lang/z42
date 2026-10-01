@@ -50,6 +50,7 @@ public sealed class ImportedSymbols {
     public StrMap EnumTypeNamesByFqn;   // FQN → "enum"
     public StrMap EnumTypeNames;    // 枚举类型短名 → "enum"（镜像 SymbolTable.EnumTypes；imported 枚举常量解析用）
     public StrMap EnumConsts;       // "EnumFqn.Member" → StrBox(long 值)（镜像 SymbolTable.EnumConsts，键同为 FQN）
+    public StrMap DelegatesByFqn;   // FQN → Z42FuncType（导入的用户 delegate；SymbolCollector 并进 SymbolTable.Delegates）
     // add-associated-types PR-1：导入类的 where 约束（键与 Classes 同一 clKey，即条件 arity-mangle，
     // 与 SymbolTable.ConstraintKey 口径一致）→ ConstraintSet。修前此表不存在，跨包约束全程无载体。
     public StrMap Constraints;
@@ -77,6 +78,7 @@ public sealed class ImportedSymbols {
         this.EnumTypeNamesByFqn = new StrMap();    // unify-type-identity-fqn
         this.EnumTypeNames = new StrMap();
         this.EnumConsts = new StrMap();
+        this.DelegatesByFqn = new StrMap();
     }
 }
 
@@ -386,6 +388,24 @@ public static partial class ImportedSymbolLoader {
                         ImportedSymbolLoader._fillClass(r, ct, cl);
                     }
                     c = c + 1;
+                }
+                // 用户 delegate → 函数类型（与本包 `StubCollector._passDelegates` 同形：形参 / 返回按 delegate 的型参解析）。
+                // 骨架齐了才解析：签名可能引用同包后面模块的类。同 FQN 跨包 first-wins（同 enum / 类）。
+                int dg = 0;
+                while (dg < em.DelegateCount) {
+                    ExportedDelegateZ dz = em.Delegates[dg];
+                    string dfqn = em.Namespace == "" ? dz.Name : em.Namespace + "." + dz.Name;
+                    if (!r.DelegatesByFqn.ContainsKey(dfqn)) {
+                        Z42Type[] dps = new Z42Type[dz.ParamCount];
+                        int dp = 0;
+                        while (dp < dz.ParamCount) {
+                            dps[dp] = ImportedSymbolLoader._resolve(r, dz.Params[dp].TypeName, dz.TypeParams, dz.TpCount);
+                            dp = dp + 1;
+                        }
+                        Z42Type dret = ImportedSymbolLoader._resolve(r, dz.ReturnType, dz.TypeParams, dz.TpCount);
+                        r.DelegatesByFqn.Put(dfqn, new Z42FuncType(dps, dz.ParamCount, dret));
+                    }
+                    dg = dg + 1;
                 }
                 // 自由函数
                 int f = 0;

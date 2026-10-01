@@ -71,6 +71,7 @@ public sealed class SymbolCollector {
         this._passBindClassBases(t, cu);   // A5b-2b-3：本地类的基类句柄按声明方作用域先绑（三处都挂）
         t.BindTypeRefs();          // B3：名字 → 句柄。**必须紧跟 InternAllTypes**（id 那时才存在）
         this._stub._passDelegates(t, cu);
+        this._mergeImportedDelegates(t, imported);   // 本包 delegate 之后并：同 FQN 本包胜出；成员签名（下一步）能用到导入的
         this._member._passMembers(t, cu);
         this._runCtorInheritance(t, cu);   // add-implicit-base-ctor-call（单 CU 路径，同 CollectAll）
         this._inherit._passFixupOverrides(t, cu);   // add-type-based-overloads D7：override 同 arity 重载 regKey 对齐（阶段 8 修复）
@@ -182,6 +183,25 @@ public sealed class SymbolCollector {
         i = 0;
         while (i < ecs.Length) {
             if (!table.EnumConsts.ContainsKey(ecs[i])) { table.EnumConsts.Put(ecs[i], imported.EnumConsts.Get(ecs[i])); }
+            i = i + 1;
+        }
+    }
+
+    // 导入的用户 delegate（`ImportedSymbols.DelegatesByFqn`，FQN 键）并进 `Delegates` / `DelegateNs`，与本包 delegate 同表、
+    // 同一套作用域解析（`DelegateKey`）。此前导入侧从不读 delegate ⇒ 依赖包的 delegate 在源码里写不出来（E0443）。
+    // 本包已有同 FQN 的那份胜出（同 enum 的 local-wins）；键序排序消除 StrMap.Keys() 的非确定序。
+    private void _mergeImportedDelegates(SymbolTable table, ImportedSymbols imported) {
+        if (imported == null) { return; }
+        string[] dks = imported.DelegatesByFqn.Keys();
+        SymbolCollector._sortStrs(dks);
+        int i = 0;
+        while (i < dks.Length) {
+            if (!table.Delegates.ContainsKey(dks[i])) {
+                table.Delegates.Put(dks[i], imported.DelegatesByFqn.Get(dks[i]));
+                int dot = dks[i].LastIndexOf(".");
+                table.DelegateNs.Put(dks[i], new StrBox(dot > 0 ? dks[i].Substring(0, dot) : ""));
+                table.NoteDelegateKey(dks[i]);
+            }
             i = i + 1;
         }
     }
@@ -338,6 +358,7 @@ public sealed class SymbolCollector {
         table.BindTypeRefs();     // B3：名字 → 句柄。**必须紧跟 InternAllTypes**（id 那时才存在）
         c = 0;
         while (c < cuCount) { this._stub._passDelegates(table, cus[c]); c = c + 1; }
+        this._mergeImportedDelegates(table, imported);   // 本包 delegate 之后并（同 FQN 本包胜出），成员收集之前
         c = 0;
         while (c < cuCount) { this._member._passMembers(table, cus[c]); c = c + 1; }
         this._enforce._passResolvePartialMethods();   // add-partial-types：partial method 实现↔声明配对校验（decl-only 已在 _fillClass 擦除）

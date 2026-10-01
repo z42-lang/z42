@@ -1,0 +1,9 @@
+namespace Demo.DgApp2;
+
+using Std.IO;
+
+// 没写 `using Demo.DgLib;` ⇒ 依赖包不激活，它的 delegate 名不可见（报 E0443；与引用该包的类同样是「未定义」）。
+void Main() {
+    IntOp a = (int x) => x + 10;
+    Console.WriteLine(a(1).ToString());
+}

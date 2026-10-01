@@ -327,7 +327,7 @@ public static class TsigReconcile {
                                                   LazyReconWorld world,
                                                   ExportedFuncZ[] pkgFuncs, int pkgFuncCount) {
         string ns = mt.Namespace;
-        // classes / interfaces / enums 拆分（bit6 delegate 跳过——oracle 消费面无）
+        // classes / interfaces / enums / delegates 拆分
         ExportedClassZ[] classes = new ExportedClassZ[8]; int cc = 0;
         // 接口重建（fix-crosspkg-interface-impl，zbc 1.28）：TYPE 接口条目携方法签名块 →
         // 恢复 ExportedInterfaceZ（名+方法）。此前跳过（em.Interfaces 恒空）致跨包
@@ -337,10 +337,27 @@ public static class TsigReconcile {
         // 使跨包 `using` 能 resolve 用户 enum 类型（add-repl-decls-multiline：REPL 声明累积；亦修
         // 一般跨包 enum 导入——此前恒被排除、只留内建 GCHandleType）。无格式 bump（数据已在 zbc）。
         ExportedEnumZ[] enums = new ExportedEnumZ[4]; int ec = 0;
+        ExportedDelegateZ[] dels = new ExportedDelegateZ[2]; int dc = 0;
         int i = 0;
         while (i < mt.ClassCount) {
             IrClassDesc cd = mt.Classes[i];
-            if ((cd.Flags & 64) != 0) { i = i + 1; continue; }   // delegate：TSIG 消费面无
+            // delegate（bit6）：签名在合成的 `<FQ>.Invoke` 桩上（槽 0 是 this）。此前整条跳过（「消费面无」）⇒
+            // 依赖包导出的 delegate 在消费方源码里写不出来（`IntOp f = …` 报 E0443）。无格式变化：数据本就在 zbc。
+            if ((cd.Flags & 64) != 0) {
+                IrFunction inv = TsigReconcile._findFunc(ms, cd.Name + ".Invoke");
+                if (inv != null) {
+                    ExportedParamZ[] dps = TsigReconcile._params(inv, true);
+                    string dbare = TsigReconcile._bare(cd.Name, ns);
+                    int plus = dbare.LastIndexOf("+");
+                    string[] dtp = cd.TypeParams != null ? cd.TypeParams : new string[0];
+                    if (dc == dels.Length) { ExportedDelegateZ[] b = new ExportedDelegateZ[dels.Length * 2]; int k = 0; while (k < dc) { b[k] = dels[k]; k = k + 1; } dels = b; }
+                    dels[dc] = new ExportedDelegateZ(dbare, inv.RetType, dps, dps.Length, dtp, cd.TypeParamCount,
+                                                     plus > 0, plus > 0 ? dbare.Substring(0, plus) : "");
+                    dc = dc + 1;
+                }
+                i = i + 1;
+                continue;
+            }
             if (cd.Name == "Std.Object" || cd.Name == "Object") { i = i + 1; continue; }   // TSIG 不导出隐式根 Object
             if ((cd.Flags & 32) != 0) {                          // enum：TYPE 成员块 → ExportedEnumZ
                 ExportedEnumMemberZ[] mems = new ExportedEnumMemberZ[cd.EnumMemberCount];
@@ -369,7 +386,15 @@ public static class TsigReconcile {
                                    ifaces, ific,
                                    enums, ec,
                                    pkgFuncs, pkgFuncCount,
-                                   new ExportedDelegateZ[0], 0);
+                                   dels, dc);
+    }
+
+    // 本模块 SIGS 里名为 name 的函数；没有返回 null（只给 delegate 的 Invoke 桩用，量极少，线性找即可）。
+    private static IrFunction _findFunc(ZpkgModuleSigs ms, string name) {
+        if (ms == null) { return null; }
+        int i = 0;
+        while (i < ms.FuncCount) { if (ms.Functions[i].Name == name) { return ms.Functions[i]; } i = i + 1; }
+        return null;
     }
 
     // 接口重建（fix-crosspkg-interface-impl）：TYPE 接口条目的方法签名块（zbc 1.28）→

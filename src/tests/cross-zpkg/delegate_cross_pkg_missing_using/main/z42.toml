@@ -1,0 +1,9 @@
+[project]
+name    = "demo.dgapp2"
+version = "0.1.0"
+kind    = "exe"
+entry   = "Demo.DgApp2.Main"
+pack    = true
+
+[dependencies]
+"demo.dgtarget2" = "0.1.0"
