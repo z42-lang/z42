@@ -195,7 +195,18 @@ int _cargo(bool rel, string verb, string manifest, string target, string pkg) {
     return _exec(p);
 }
 
-// cargo rustc --crate-type=X (best-effort: rlib already exists; ignore failure like the .sh).
+// libz42 的 C 嵌入产物：staticlib + cdylib，**一次** `cargo rustc` 同时产出（cargo-one-rustc，2026-10-01）。
+//
+// 此前是两次调用（先 staticlib 再 cdylib）。代价有两层：① 每次都是 z42 crate 的一遍完整编译 + fat LTO
+// （release 是 lto = true / codegen-units = 1），Windows CI 上 package-host 的 `[2/5]` 因此要 ~6 min，
+// 正卡在整轮 CI 的关键路径上；② `--crate-type` 进 cargo 的指纹，两次调用参数不同 ⇒ **互相使对方失效**，
+// 什么都没改再打一次包也照样两遍全编（本地 `package sdk` 里那段「apphost ready 之后还在 cargo rustc」就是它）。
+// 合成一次后：一遍前端 + 每种产物各自链接；指纹稳定，未改动时直接命中。
+// ⚠️ 同一 host release 目标上的其它调用点（scripts/hooks/hooks.z42 的 embed、xtask test desktop）用**同一个
+// 列表**，否则它们与打包交替时还是互相作废。iOS / wasm / android 是别的 target，各管各的。
+string _embedCrateTypes() { return "staticlib,cdylib"; }
+
+// cargo rustc --crate-type=X[,Y] (best-effort: rlib already exists; ignore failure like the .sh).
 void _cargoRustc(bool rel, string target, string crateType) {
     Process p = new Process("cargo").Arg("rustc");
     if (rel) { p = p.Arg("--release"); }

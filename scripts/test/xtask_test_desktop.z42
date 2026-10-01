@@ -29,9 +29,10 @@ public class DesktopBackend : IPlatformBackend {
             ConsoleError.WriteLine("error: cc not found (C compiler required for desktop embedding test)");
             return 1;
         }
-        Console.WriteLine("  cargo rustc --release --lib --crate-type=staticlib (libz42.a)");
+        // 与打包同一个 crate-type 列表（_embedCrateTypes）：参数不同会让两边交替时互相作废 cargo 指纹。
+        Console.WriteLine("  cargo rustc --release --lib --crate-type=" + _embedCrateTypes() + " (libz42.a)");
         return _exec(new Process("cargo").Arg("rustc").Arg("--release").Arg("--lib")
-            .Arg("--crate-type=staticlib")
+            .Arg("--crate-type=" + _embedCrateTypes())
             .Arg("--manifest-path").Arg(Path.Join(root, "src/runtime/Cargo.toml")));
     }
 
@@ -49,11 +50,14 @@ public class DesktopBackend : IPlatformBackend {
         string src     = Path.Join(root, "src/toolchain/workload/desktop/tests/r1_r7.c");
         string include = Path.Join(root, "src/runtime/include");
 
-        // cc r1_r7.c -I include -o bin -L libDir -lz42 <platform native libs>
-        Console.WriteLine("  cc r1_r7.c -lz42");
+        // cc r1_r7.c -I include -o bin <libDir>/libz42.a <platform native libs>
+        // 🔴 显式给 `.a` 路径，不用 `-L libDir -lz42`：同目录里有 libz42.{so,dylib}（打包 / 本测试的 build 步都会
+        // 产出 cdylib，见 _embedCrateTypes）时，Linux 与 macOS 的链接器都**优先挑动态库** ⇒ 这里测的就不再是静态
+        // 嵌入；Linux 上还会因运行期找不到 libz42.so 直接 exit 127。
+        Console.WriteLine("  cc r1_r7.c libz42.a");
         Process cc = new Process("cc").Arg("-O2").Arg("-I").Arg(include)
             .Arg("-o").Arg(bin).Arg(src)
-            .Arg("-L").Arg(libDir).Arg("-lz42");
+            .Arg(libA);
         foreach (var l in this._nativeLibs()) { cc = cc.Arg(l); }
         int c = _exec(cc);
         if (c != 0) { ConsoleError.WriteLine("error: cc link failed"); return 1; }
