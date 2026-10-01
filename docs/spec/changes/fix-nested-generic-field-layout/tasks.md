@@ -41,7 +41,7 @@ Error: uncaught exception: struct field write out of blob bounds (off=16, w=8, l
 
 ## Scope（允许改动的文件）
 
-- `src/compiler/z42c.semantics/src/StructLayout.z42`
+- `src/compiler/z42c.semantics/src/Types/StructLayout.z42`
 - `src/tests/types/generic_struct_inst_field.z42`（新 e2e）
 - `docs/internals/src/compiler/generics.md`
 

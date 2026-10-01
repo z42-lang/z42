@@ -55,8 +55,8 @@ p with { Y = 99 }
 | `src/compiler/z42c.syntax/src/Lexer.z42` | MODIFY | `_initKeywords()` 末尾 `this._kw("with", TokenKind.With);` |
 | `src/compiler/z42c.syntax/src/Ast.z42` | MODIFY | 新增 `WithExpr { Expr Target; string[] FieldNames; Expr[] FieldValues; int FieldCount }` |
 | `src/compiler/z42c.syntax/src/ExprParser.z42` | MODIFY | `_parseExpr` 后缀分支（仿 `switch` bp 85，:57-87）：`k==With && minBp<=85` → 解析 `{...}` 字段体 → `WithExpr` |
-| `src/compiler/z42c.semantics/src/ConstructTyper.z42` | MODIFY | 新增 `_bindWith(WithExpr, env)`：校验 record + 覆盖字段名 → 按声明序造 ctor 实参（覆盖/读原）→ 脱糖 `BoundSeqExpr`（临时绑 orig + `ObjNewExpr`） |
-| `src/compiler/z42c.semantics/src/ExprTyper.z42` | MODIFY | `_bindExpr` dispatch 加 `if (e is WithExpr) return _construct._bindWith(...)`（:325-333 表） |
+| `src/compiler/z42c.semantics/src/Binding/ConstructTyper.z42` | MODIFY | 新增 `_bindWith(WithExpr, env)`：校验 record + 覆盖字段名 → 按声明序造 ctor 实参（覆盖/读原）→ 脱糖 `BoundSeqExpr`（临时绑 orig + `ObjNewExpr`） |
+| `src/compiler/z42c.semantics/src/Binding/ExprTyper.z42` | MODIFY | `_bindExpr` dispatch 加 `if (e is WithExpr) return _construct._bindWith(...)`（:325-333 表） |
 | `scripts/install/xtask_install_vscode.z42` | MODIFY | `_kwOperatorExpr()` 加 `"with"`（新关键字须归类，否则 vscode-syntax gate 报 ghost） |
 | `src/toolchain/devtools/vscode/syntaxes/z42.tmLanguage.json` | MODIFY | 重生成（`xtask deps install vscode`）——含 `with` 的 operator 关键字正则 |
 | `src/tests/pattern-matching/with_expr.z42` | NEW | e2e：单/多字段覆盖/简写/表达式值/链式/嵌套 record/原对象不变；interp+jit 双验 |

@@ -13,7 +13,7 @@
 
 参数默认值当前有**两条互不相干的路径**：
 
-- **同包**（[OverloadBinder._adaptArgs](../../../../../src/compiler/z42c.semantics/src/OverloadBinder.z42)）：调用点**重新绑定真正的
+- **同包**（[OverloadBinder._adaptArgs](../../../../../src/compiler/z42c.semantics/src/Binding/OverloadBinder.z42)）：调用点**重新绑定真正的
   `Param.Default` AST 表达式** → 任何表达式都行（struct/enum/拼接），但 `kind` 在此**完全没用到**。
 - **跨包**（导入的 `Z42FuncType` **不携带任何默认值信息**）：省略实参 → `BoundDefault(T,-1)` →
   emit **`default(T)` 零值**，**而非作者声明的默认值** ⇒ **静默正确性 bug**（`f(int x=5)` 跨包调 `f()` → x=0）。

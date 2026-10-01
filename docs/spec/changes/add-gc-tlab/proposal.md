@@ -47,7 +47,7 @@ jobs=1→35.8s，jobs=8→53.9s，jobs=24→69s。任何线程数都不快。
 | `src/runtime/src/gc/tlab_tests.rs` | NEW | borrow/retire 等价、并发分配、跨线程引用、chunk 回收、strict_oom 退化单测 |
 | `src/runtime/src/gc/region_tests.rs` | MODIFY | borrow/retire/回收 单测（跟 region.rs 同步） |
 | `src/runtime/src/gc/var_region_tests.rs` | MODIFY | var borrow/retire 单测 |
-| `src/compiler/z42c.semantics/src/ParallelFor.z42` | MODIFY | `ParallelConfig` 默认 jobs 1 → `CpuCount`（TLAB 落地并测正后） |
+| `src/compiler/z42c.semantics/src/Compilation/ParallelFor.z42` | MODIFY | `ParallelConfig` 默认 jobs 1 → `CpuCount`（TLAB 落地并测正后） |
 | `docs/book/src/runtime/gc.md`（或对应机制页） | MODIFY | TLAB / chunk 独占机制（borrow/retire/回收 + safepoint + mermaid）+ Deferred（slot 级复用） |
 | `docs/roadmap.md` | MODIFY | Deferred Backlog Index 加「TLAB slot 级复用」索引行 |
 | `src/runtime/src/gc/README.md` | MODIFY | 功能索引 + 核心文件（新增 tlab.rs） |

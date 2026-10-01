@@ -26,11 +26,11 @@ helper),**两个后端 + 移动端(纯 interp)通吃**,且解锁下游优化。�
 
 | 文件 | 变更类型 | 说明 |
 |------|---------|------|
-| `src/compiler/z42c.semantics/src/OptSet.z42` | NEW | 具名优化常量(位标志)+ `Resolve(profile, toml, cli)` + `Has(set, opt)` |
-| `src/compiler/z42c.semantics/src/IrOptPipeline.z42` | MODIFY | `Run(irm, optSet)`;逐 pass 按 `Has(optSet, X)` 门控 |
-| `src/compiler/z42c.semantics/src/IrInline.z42` | NEW | 内联 pass:资格判定 + 调用点展开 + 寄存器/块重命名 |
-| `src/compiler/z42c.semantics/src/IrGen.z42` | MODIFY | `Generate(cu, model, optSet)` 透传 |
-| `src/compiler/z42c.semantics/src/IrDump.z42` | MODIFY | 3 处 `Generate` 透传(dump 默认 None) |
+| `src/compiler/z42c.semantics/src/Optimization/OptSet.z42` | NEW | 具名优化常量(位标志)+ `Resolve(profile, toml, cli)` + `Has(set, opt)` |
+| `src/compiler/z42c.semantics/src/Optimization/IrOptPipeline.z42` | MODIFY | `Run(irm, optSet)`;逐 pass 按 `Has(optSet, X)` 门控 |
+| `src/compiler/z42c.semantics/src/Optimization/IrInline.z42` | NEW | 内联 pass:资格判定 + 调用点展开 + 寄存器/块重命名 |
+| `src/compiler/z42c.semantics/src/Emission/IrGen.z42` | MODIFY | `Generate(cu, model, optSet)` 透传 |
+| `src/compiler/z42c.semantics/src/Compilation/IrDump.z42` | MODIFY | 3 处 `Generate` 透传(dump 默认 None) |
 | `src/compiler/z42c.pipeline/src/PackageCompile.z42` | MODIFY | 携 optSet,透传到 IrGen |
 | `src/compiler/z42c.pipeline/src/Z42cCompiler.z42` | MODIFY | 从 req 解析 optSet(profile 默认 + 覆盖) |
 | `src/libraries/z42.project/src/ManifestLoader.z42` | MODIFY | 解析 toml `[optimize]` 逐项 bool（manifest 模型已 converge 到 stdlib z42.project，非旧 `z42c.project`）|

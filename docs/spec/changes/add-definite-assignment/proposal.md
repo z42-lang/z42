@@ -75,8 +75,8 @@ Console.WriteLine(x);     // 编译通过；运行期读到 Null
 
 | 文件 | 变更 |
 |---|---|
-| `src/compiler/z42c.semantics/src/FlowAnalyzer.z42` | NEW —— DA + 正常结束分析 |
-| `src/compiler/z42c.semantics/src/DeclBinder.z42` | 方法体绑定后调用该 pass |
+| `src/compiler/z42c.semantics/src/Validation/FlowAnalyzer.z42` | NEW —— DA + 正常结束分析 |
+| `src/compiler/z42c.semantics/src/Binding/DeclBinder.z42` | 方法体绑定后调用该 pass |
 | `src/compiler/z42c.semantics/tests/typecheck/definite_assignment_tests.z42` | NEW |
 | `docs/reference/src/appendix/error-codes.md` | E0407 从「零发射点」改为实装 |
 | `docs/reference/src/language/*` | 局部变量必须先赋值 |

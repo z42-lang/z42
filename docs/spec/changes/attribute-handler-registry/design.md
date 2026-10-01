@@ -229,7 +229,7 @@ try { risky(); } catch (Error e) { }
 命名回调 delegate（`SyntaxNodeAction`）**在消费方无法按名解析**（实测 E0443）。故改用**无 delegate 的
 visitor 模型**：analyzer 声明 `ObservedKinds()` + 实现 `OnSyntaxNode(kind, node, sink)`，driver 遍历 AST、
 对命中节点**纯虚接口调用**该方法。全走接口派发（跨包已验证）+ 纯虚调用，driver 侧零 delegate/零闭包，
-analyzer 侧也无需 lambda。**契约在 `z42c.syntax/src/Analysis.z42`，driver 在 `z42c.semantics/src/AnalyzerDriver.z42`。**
+analyzer 侧也无需 lambda。**契约在 `z42c.syntax/src/Analysis.z42`，driver 在 `z42c.semantics/src/Analyzers/AnalyzerDriver.z42`。**
 
 ```z42
 public interface Analyzer {

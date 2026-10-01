@@ -1,7 +1,7 @@
 # 标准库的实现分层与 native 预算
 
 > 对齐：2026-09-17 ｜ 代码：`src/libraries/`（z42 源）、`src/runtime/src/corelib/`（builtin 实现）、
-> `src/compiler/z42c.semantics/src/StubEmitter.z42`（`[Native]` 分流）
+> `src/compiler/z42c.semantics/src/Emission/StubEmitter.z42`（`[Native]` 分流）
 >
 > 包怎么划分、新包怎么开 → [包划分与依赖层级](organization.md)。
 > builtin 表结构 / `BuiltinId` 不变式 / typed native 通路 → [native ABI](../runtime/native-abi.md)。

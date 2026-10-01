@@ -143,7 +143,7 @@ using syntax bitwise = true;
 
 **🔴 落地形态与下面这几段画的不同**：z42 **无 delegate**（且命名 delegate 跨 zpkg 会丢 FQ 名），
 所以 `nud:` / `led:` / `handler:` **函数指针在 z42c 里写不出来**。实际形态照
-`z42c.semantics/src/BinaryTypeTable.z42` 的在仓先例：**int tag + if 链 + 一处集中派发**
+`z42c.semantics/src/Types/BinaryTypeTable.z42` 的在仓先例：**int tag + if 链 + 一处集中派发**
 （`LedKind` / `PostfixKind` / `StmtStep` 是 tag，`ParseTable.LeftBp/Led/Postfix/Feature`
 是查询函数，`_parseExpr` 主循环按 tag 派发）。另外为避开热路径上的每轮分配，表是
 「常量 + 查询函数」而**不是**返回 `ParseRule` 对象。下面的概念形态仍然成立，读时把

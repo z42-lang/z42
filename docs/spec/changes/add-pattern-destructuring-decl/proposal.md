@@ -60,11 +60,11 @@ AST/Bound 语句节点 + bind/emit 接线**。
 | `src/compiler/z42c.syntax/src/Stmt.z42` | MODIFY | 新增 `DeconstructDeclStmt { Pattern Pat; Expr Init }` 节点 |
 | `src/compiler/z42c.syntax/src/Parser.z42` | MODIFY | `ParseStatement`（:216）新增解构声明判别分派 |
 | `src/compiler/z42c.syntax/src/StmtParser.z42` | MODIFY | 新增 `_isDeconstructDeclStart()`（lookahead `Ident ( ... ) =`）+ `_parseDeconstructDecl()`（复用 `_p._patP._parsePrimaryPattern` 得 PositionalPattern + 消费 `= init ;`） |
-| `src/compiler/z42c.semantics/src/BoundStmt.z42` | MODIFY | 新增 `BoundDeconstructDeclStmt { BoundPattern Pat; BoundExpr Init }` |
-| `src/compiler/z42c.semantics/src/PatternBinder.z42` | MODIFY | 新增 irrefutability 校验 helper（遍历子模式仅 wildcard/binding/nested-positional） |
-| `src/compiler/z42c.semantics/src/StmtBinder.z42` | MODIFY | `_bindStmt` 分派 + `_bindDeconstructDecl`（`_bindExpr(init)` → `_pattern.Bind(pat, init.Type(), env)`，绑进**当前 env**） |
-| `src/compiler/z42c.semantics/src/PatternEmitter.z42` | MODIFY | 新增 `EmitIrrefutable`（无 IsInstance / 无失败分支，逐字段 field_get 直读 + 绑定，递归嵌套） |
-| `src/compiler/z42c.semantics/src/StmtEmitter.z42` | MODIFY | `_emitStmt` 分派 + emit（`Emit(init)` → `_pat.EmitIrrefutable(subj, pat, contL)` → 续 contL） |
+| `src/compiler/z42c.semantics/src/BoundTree/BoundStmt.z42` | MODIFY | 新增 `BoundDeconstructDeclStmt { BoundPattern Pat; BoundExpr Init }` |
+| `src/compiler/z42c.semantics/src/Binding/PatternBinder.z42` | MODIFY | 新增 irrefutability 校验 helper（遍历子模式仅 wildcard/binding/nested-positional） |
+| `src/compiler/z42c.semantics/src/Binding/StmtBinder.z42` | MODIFY | `_bindStmt` 分派 + `_bindDeconstructDecl`（`_bindExpr(init)` → `_pattern.Bind(pat, init.Type(), env)`，绑进**当前 env**） |
+| `src/compiler/z42c.semantics/src/Emission/PatternEmitter.z42` | MODIFY | 新增 `EmitIrrefutable`（无 IsInstance / 无失败分支，逐字段 field_get 直读 + 绑定，递归嵌套） |
+| `src/compiler/z42c.semantics/src/Emission/StmtEmitter.z42` | MODIFY | `_emitStmt` 分派 + emit（`Emit(init)` → `_pat.EmitIrrefutable(subj, pat, contL)` → 续 contL） |
 | `src/tests/pattern-matching/pattern_destructure.z42` | NEW | e2e：单层/嵌套/带常量拒绝（负例诊断）；interp+jit 双验 |
 | `docs/reference/src/language/pattern-matching.md` | MODIFY | 补解构声明语法 + irrefutable 约束 |
 | `examples/patterns.z42` | MODIFY | 补解构声明示例（可选） |

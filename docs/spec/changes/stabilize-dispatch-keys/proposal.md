@@ -36,10 +36,10 @@ VM 按**字符串名精确查找**。`regName` 规则**兄弟集相关**（唯�
 
 | 文件路径 | 变更类型 | 说明 |
 |---------|---------|------|
-| `src/compiler/z42c.semantics/src/SymbolCollector.z42` | MODIFY | `regName` 恒 MangleKey；删兄弟集预扫描 |
-| `src/compiler/z42c.semantics/src/ExportedTypeExtractor.z42` | MODIFY | 实例方法键优先 `md.RegKey` |
-| `src/compiler/z42c.semantics/src/IrGen.z42` | MODIFY | impl 方法键优先 `imd.RegKey` |
-| `src/compiler/z42c.semantics/src/TestIndexBuilder.z42` | MODIFY | 测试方法键优先 `md.RegKey` |
+| `src/compiler/z42c.semantics/src/Symbols/SymbolCollector.z42` | MODIFY | `regName` 恒 MangleKey；删兄弟集预扫描 |
+| `src/compiler/z42c.semantics/src/Exports/ExportedTypeExtractor.z42` | MODIFY | 实例方法键优先 `md.RegKey` |
+| `src/compiler/z42c.semantics/src/Emission/IrGen.z42` | MODIFY | impl 方法键优先 `imd.RegKey` |
+| `src/compiler/z42c.semantics/src/Lowering/TestIndexBuilder.z42` | MODIFY | 测试方法键优先 `md.RegKey` |
 | `src/compiler/z42c.ir/src/DependencyIndex.z42` | MODIFY | 实例查找注册完整键 |
 | `src/compiler/z42c.ir/src/BinaryFormat/ZbcFormat.z42` | MODIFY | `ZbcVersion.Minor` 26→27 |
 | `src/compiler/z42c.project/src/ZpkgWriter.z42` | MODIFY | `ZpkgWriterZ.Minor` 31→32 |

@@ -122,7 +122,7 @@ zbc 读进后走 `merge_modules`（[merge.rs](../../../src/runtime/src/metadata/
 
 ## Implementation Notes
 
-- **`IrGen._classDesc(ClassDecl)` 改造是核心**（[IrGen.z42:713](../../../src/compiler/z42c.semantics/src/IrGen.z42#L713)）：
+- **`IrGen._classDesc(ClassDecl)` 改造是核心**（[IrGen.z42:713](../../../src/compiler/z42c.semantics/src/Emission/IrGen.z42#L713)）：
   当前逐 `ClassDecl` 读 AST 本地成员生成 `IrClassDesc`。partial 下须改为：成员序取自合并后的
   `Z42ClassType`（SymbolCollector 已按稳定序合并），且仅主碎片 CU 产出该 record。
 - **`SymbolCollector` 合并点**在 `CollectWithImports` 的 CU 循环（stub 全跑完再跑 members，

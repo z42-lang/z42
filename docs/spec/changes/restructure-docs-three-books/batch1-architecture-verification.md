@@ -28,7 +28,7 @@ Pratt 表达式解析(1) · 方法重载决议 type-based mangling(16)
 |---|---|
 | `BoundVisitor` 统一遍历框架 | 全 `src/` **0 命中** |
 | pseudo-class 策略与迁移 | 11 处命中**全在测试夹具**（`rsa_vectors.z42` / `generic_list/source.z42` 等），不是编译器机制 |
-| 泛型接口 dispatch —— `Z42InterfaceType.TypeParams` | 当前 `Z42InterfaceType`（`z42c.semantics/src/Z42Type.z42:330`）**无 `TypeParams` 字段**，只有 `Methods` / `IsPartial` / `Visibility` / `BaseNames` |
+| 泛型接口 dispatch —— `Z42InterfaceType.TypeParams` | 当前 `Z42InterfaceType`（`z42c.semantics/src/Types/Z42Type.z42:330`）**无 `TypeParams` 字段**，只有 `Methods` / `IsPartial` / `Visibility` / `BaseNames` |
 | Parameter Modifiers 的 `ModifierMangling` | z42 里修饰符是 `Param.IsRef`（**布尔**，非 `ParamModifier` 枚举）；`IsRef` 只出现在 `ForwardGenerator.z42:384`，**不参与 mangling** |
 
 > 参数修饰符一节剩余的活事实（「调用方传地址、VM 处理间接、callee 寄存器类型不变」）

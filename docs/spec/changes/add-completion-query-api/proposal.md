@@ -31,7 +31,7 @@ REPL 的 Tab 补全（`repl-future-tab-completion`）当前 defer，前置写成
 ## 现状地基（调研实据，file:line）
 
 **已就绪（可直接复用）**
-- 编译期成员原料：`Z42ClassType.Fields`/`.Methods`（StrMap name→FieldSymbol/MethodSymbol）+ `OwnFieldNames[]`/`OwnMethodNames[]` + `OverloadsOf(name)`（`z42c.semantics/src/Z42Type.z42:55-134`）；`MethodSymbol` 带 `Visibility`/`IsStatic`/`Signature`/`ContainingTypeName`（`Symbol.z42`）——足够渲染补全项。
+- 编译期成员原料：`Z42ClassType.Fields`/`.Methods`（StrMap name→FieldSymbol/MethodSymbol）+ `OwnFieldNames[]`/`OwnMethodNames[]` + `OverloadsOf(name)`（`z42c.semantics/src/Types/Z42Type.z42:55-134`）；`MethodSymbol` 带 `Visibility`/`IsStatic`/`Signature`/`ContainingTypeName`（`Symbol.z42`）——足够渲染补全项。
 - 符号表按名查询完整：`SymbolTable.GetClass/GetFunc/GetInterface/ResolveType`（`SymbolTable.z42:50-72`）。
 - 作用域链：`TypeEnv.Vars`/`LocalFns`（public StrMap）+ `LookupVar` 父链（`TypeEnv.z42:12-99`）。
 - `StrMap.Keys()`（`z42.package/src/StrMap.z42:48`）——`Classes`/`Functions`/`Vars`/`Statics`/`Instances` 全 public StrMap，可无侵入枚举。**这是实现"scope/ns 枚举"最短路径。**
@@ -85,7 +85,7 @@ public class CompletionItem { string Name; string Kind; string Detail; string Ty
 | 文件 | 变更 | 说明 |
 |------|------|------|
 | `src/compiler/z42c.semantics/src/CompletionQuery.z42` | NEW | 三查询面，封装 StrMap 枚举 + visibility 过滤 |
-| `src/compiler/z42c.semantics/src/SemanticModel.z42` | MODIFY | 暴露 SymbolTable/scope 供 CompletionQuery（可能加 helper） |
+| `src/compiler/z42c.semantics/src/BoundTree/SemanticModel.z42` | MODIFY | 暴露 SymbolTable/scope 供 CompletionQuery（可能加 helper） |
 | `src/compiler/z42c.pipeline/src/PackageCompile.z42` | MODIFY | `CompileArtifacts` 透出 SemanticModel/CompletionContext（D3） |
 | `src/toolchain/scripting/src/*` | MODIFY | REPL completer：组 context + 调 query + 前缀过滤 |
 | `src/runtime/src/corelib/repl.rs` | MODIFY | rustyline 补全钩子（D5，先 spike） |

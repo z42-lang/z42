@@ -37,21 +37,21 @@
 
 | 文件路径 | 变更类型 | 说明 |
 |---------|---------|------|
-| `src/compiler/z42c.semantics/src/PatternEmitter.z42` | MODIFY | ①`_emitPatFieldRead`(:233-245) struct 分支加 `Layouts.FieldIsStruct` 判 → 嵌套 struct 字段走 `StructAlloc`+copyRegion 产子 blob 句柄递归；②`needTest` 决策(:64,70) 区分值 subject vs boxed subject，boxed 时打开 IsInstance + 插 AsCast 拆箱 |
-| `src/compiler/z42c.semantics/src/PatternBinder.z42` | MODIFY | ①移除/放宽 `_guardNestedStructField`(:227-233)；②放宽 `_guardStructSubject`(:213-221) 接受 boxed subject（仍拒不相容类型）|
-| `src/compiler/z42c.semantics/src/AccessEmitter.z42` | MODIFY | `_copyRegion`(:365，现 private) 提为 internal（或加 `_copyStructRegion` 包装），供 PatternEmitter 经 ExprEmitter 复用嵌套 struct 值副本逻辑；避免复制逻辑分叉 |
-| `src/compiler/z42c.semantics/src/ExprEmitter.z42` | MODIFY(若需) | 若 `_copyRegion` 经 ExprEmitter 转发，加转发方法（`_access` 现 private） |
+| `src/compiler/z42c.semantics/src/Emission/PatternEmitter.z42` | MODIFY | ①`_emitPatFieldRead`(:233-245) struct 分支加 `Layouts.FieldIsStruct` 判 → 嵌套 struct 字段走 `StructAlloc`+copyRegion 产子 blob 句柄递归；②`needTest` 决策(:64,70) 区分值 subject vs boxed subject，boxed 时打开 IsInstance + 插 AsCast 拆箱 |
+| `src/compiler/z42c.semantics/src/Binding/PatternBinder.z42` | MODIFY | ①移除/放宽 `_guardNestedStructField`(:227-233)；②放宽 `_guardStructSubject`(:213-221) 接受 boxed subject（仍拒不相容类型）|
+| `src/compiler/z42c.semantics/src/Emission/AccessEmitter.z42` | MODIFY | `_copyRegion`(:365，现 private) 提为 internal（或加 `_copyStructRegion` 包装），供 PatternEmitter 经 ExprEmitter 复用嵌套 struct 值副本逻辑；避免复制逻辑分叉 |
+| `src/compiler/z42c.semantics/src/Emission/ExprEmitter.z42` | MODIFY(若需) | 若 `_copyRegion` 经 ExprEmitter 转发，加转发方法（`_access` 现 private） |
 | `src/tests/pattern-matching/pattern_tests.z42` | MODIFY | :59-65（嵌套 `Line(a,b)=l`）、:67-73（boxed `o is Point(x,y)`）从「期望 E0402」改为「期望成功匹配 + 字段值正确」；jit 双验 |
 | `src/tests/pattern-matching/pattern_struct_complete.z42` | NEW(若需) | 补充 e2e：多层嵌套 struct（`Triangle(Line(Point(x,_),_),_)`）、boxed struct 在 switch/is/解构声明三位点；jit 双验 |
 | `docs/reference/src/language/pattern-matching.md` | MODIFY | 两个 defer 从 Deferred 移除；记录嵌套 struct 值副本（StructAlloc+copyRegion）+ boxed 拆箱（AsCast→StructRef）机制 |
 
 **只读引用**（理解上下文必须读，不修改）：
-- `src/compiler/z42c.semantics/src/AccessEmitter.z42` — `_emitBlobFieldGet`(:219-235) 嵌套 struct 读模型
+- `src/compiler/z42c.semantics/src/Emission/AccessEmitter.z42` — `_emitBlobFieldGet`(:219-235) 嵌套 struct 读模型
 - `src/libraries/z42.package/src/…/StructLayout.z42` — `FieldIsStruct`(:238)/`StructSize`(:58)/`IsBlobStruct`(:197)/`FieldByteOffset`
 - `src/runtime/src/interp/exec_object.rs` — IsInstance(:388)/AsCast·unbox(:407-421)（boxed 支持）
 - `src/runtime/src/interp/exec_struct.rs` — StructFieldGetPrim boxed base(:189-204)/`unbox_struct`(:67)
 - `src/runtime/src/corelib/convert.rs` — `__box_struct`(:54)
-- `src/compiler/z42c.semantics/src/PatternEmitter.z42` — `BoundTypePattern` 三段式(:42-58)、`_emitFieldSeq`(:210-227)
+- `src/compiler/z42c.semantics/src/Emission/PatternEmitter.z42` — `BoundTypePattern` 三段式(:42-58)、`_emitFieldSeq`(:210-227)
 
 ## Out of Scope
 

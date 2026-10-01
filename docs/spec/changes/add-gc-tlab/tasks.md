@@ -46,7 +46,7 @@
 
 ## 阶段 4: 翻并行默认 + 实测
 - [ ] 4.1 jobs-scaling 实测：workspace build 墙钟扫 jobs∈{1,2,4,8,24}，确认 CpuCount 快于 1（转正）
-- [ ] 4.2 `src/compiler/z42c.semantics/src/ParallelFor.z42`：`ParallelConfig` 默认 `_jobs` 1 → `CpuCount()`
+- [ ] 4.2 `src/compiler/z42c.semantics/src/Compilation/ParallelFor.z42`：`ParallelConfig` 默认 `_jobs` 1 → `CpuCount()`
 - [ ] 4.3 byte-identical 自举（默认并行下 gen1==gen2，确定性）
 - [ ] 4.4 完整 `xtask test` 全绿
 

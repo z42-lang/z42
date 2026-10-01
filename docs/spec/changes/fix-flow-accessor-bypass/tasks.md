@@ -36,7 +36,7 @@ accessor 没有 `MethodDecl`，但它这两样都是确定的。合成壳这条�
 
 ## Scope（允许改动的文件）
 
-- `src/compiler/z42c.semantics/src/DeclBinder.z42`
+- `src/compiler/z42c.semantics/src/Binding/DeclBinder.z42`
 - `src/compiler/z42c.semantics/tests/typecheck/definite_assignment_tests.z42`
 
 ## Tasks

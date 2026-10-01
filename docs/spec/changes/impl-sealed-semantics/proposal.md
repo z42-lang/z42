@@ -30,11 +30,11 @@
 | 文件路径 | 变更类型 | 说明 |
 |---------|---------|------|
 | `src/compiler/z42c.core/src/DiagnosticCodes.z42` | MODIFY | E0427/E0428/E0429 |
-| `src/compiler/z42c.semantics/src/Symbol.z42` | MODIFY | `MethodSymbol.IsSealed`（镜像 `FieldSymbol.IsReadonly`） |
-| `src/compiler/z42c.semantics/src/Z42Type.z42` | MODIFY | `Z42ClassType.IsSealed` |
-| `src/compiler/z42c.semantics/src/IrGenFacts.z42` | MODIFY | `_methodFlags`：sealed 连带置 virtual 位 + bit2 |
-| `src/compiler/z42c.semantics/src/SymbolCollector.z42` | MODIFY | 本地类/方法标 IsSealed；2 处 override 识别点认 sealed（简写参与槽对齐）；`_passSealedEnforce` + `_nearestBaseMethod` + 接入 3 条 collect 路径 |
-| `src/compiler/z42c.semantics/src/ImportedSymbolLoader.z42` | MODIFY | 从 `ExportedClassZ.IsSealed` / `ExportedMethodZ.IsSealed` 还原 IsSealed（跨包强制） |
+| `src/compiler/z42c.semantics/src/Symbols/Symbol.z42` | MODIFY | `MethodSymbol.IsSealed`（镜像 `FieldSymbol.IsReadonly`） |
+| `src/compiler/z42c.semantics/src/Types/Z42Type.z42` | MODIFY | `Z42ClassType.IsSealed` |
+| `src/compiler/z42c.semantics/src/Emission/IrGenFacts.z42` | MODIFY | `_methodFlags`：sealed 连带置 virtual 位 + bit2 |
+| `src/compiler/z42c.semantics/src/Symbols/SymbolCollector.z42` | MODIFY | 本地类/方法标 IsSealed；2 处 override 识别点认 sealed（简写参与槽对齐）；`_passSealedEnforce` + `_nearestBaseMethod` + 接入 3 条 collect 路径 |
+| `src/compiler/z42c.semantics/src/Symbols/ImportedSymbolLoader.z42` | MODIFY | 从 `ExportedClassZ.IsSealed` / `ExportedMethodZ.IsSealed` 还原 IsSealed（跨包强制） |
 | `src/libraries/z42.package/src/ExportedTypes.z42` | MODIFY | `ExportedClassZ.IsSealed` / `ExportedMethodZ.IsSealed`（post-construction 字段，构造函数元数不变 = 旧种子 ABI） |
 | `src/libraries/z42.package/src/TsigReconcile.z42` | MODIFY | 从 `(cd.Flags & 2)` / `(f.MethodFlags & 4)` 提取 sealed 入 TSIG 模型 |
 | `src/libraries/z42.package/src/BinaryFormat/ZbcFormat.z42` | MODIFY | `ZbcVersion.Minor` 29→30 + 注释 |

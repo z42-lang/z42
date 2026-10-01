@@ -253,7 +253,7 @@ E0442 / E0457 / E0462 除外（见上一节）。**E0402 另有一处语法层�
 `DiagnosticCodes.z42` 里 `ForwardTargetNotFound = E0464` / `ForwardNotRenderable = E0465` /
 `ForwardAmbiguous = E0466` 这组**常量名与实际发射不一致**（`ForwardSkipped` 已于 2026-09-22 改值归位到 I0466）。
 实际发出来的是下面四个，含义取自
-[`ForwardGenerator.z42`](../../../../src/compiler/z42c.semantics/src/ForwardGenerator.z42)
+[`ForwardGenerator.z42`](../../../../src/compiler/z42c.semantics/src/Generators/ForwardGenerator.z42)
 的诊断文本：
 
 | 码 | 实际含义（按发射点消息） | 状态 |
@@ -333,7 +333,7 @@ E0442 / E0457 / E0462 除外（见上一节）。**E0402 另有一处语法层�
 ### E0911–E0917 测试框架
 
 发射点全在
-[`DeclEnforcer.z42`](../../../../src/compiler/z42c.semantics/src/DeclEnforcer.z42)
+[`DeclEnforcer.z42`](../../../../src/compiler/z42c.semantics/src/Validation/DeclEnforcer.z42)
 的 `_passTestAttrEnforce`（纯语法检查，不依赖符号表）与相邻的 `_passTestAttrSemantic`。
 
 强制五条规则：**零接收者**（顶层自由函数或 `static` 方法）、**返回 `void`**、**无参数**、
@@ -355,7 +355,7 @@ E0442 / E0457 / E0462 除外（见上一节）。**E0402 另有一处语法层�
 
 ## E10xx — 调用实参绑定
 
-发射点在 [`OverloadBinder.z42`](../../../../src/compiler/z42c.semantics/src/OverloadBinder.z42)。
+发射点在 [`OverloadBinder.z42`](../../../../src/compiler/z42c.semantics/src/Binding/OverloadBinder.z42)。
 
 | 码 | 含义 | 状态 | 触发示例 |
 |---|---|---|---|
@@ -372,7 +372,7 @@ E0442 / E0457 / E0462 除外（见上一节）。**E0402 另有一处语法层�
 
 ## E11xx — `available!()` 宏
 
-发射点在 [`ExprTyper.z42`](../../../../src/compiler/z42c.semantics/src/ExprTyper.z42)。
+发射点在 [`ExprTyper.z42`](../../../../src/compiler/z42c.semantics/src/Binding/ExprTyper.z42)。
 
 | 码 | 含义 | 状态 | 触发示例 |
 |---|---|---|---|

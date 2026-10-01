@@ -44,7 +44,7 @@ List `{a,b,c}` 要脱糖成 `tmp=new List<T>(); tmp.Add(a); tmp.Add(b); tmp.Add(
 因此脱糖采用**合成 AST**：在 ExprTyper 里构造 `ObjNewExpr` / `CallExpr(MemberExpr(...))` /
 `WhileStmt` 等 AST 节点，再经**既有绑定器**（`_bindExpr` / `StmtBinder.BindStmt`）绑定——
 所有类型解析、重载、方法派发元数据由既有路径自然填好。此手法在
-[`BenchmarkDesugar.z42`](../../../src/compiler/z42c.semantics/src/BenchmarkDesugar.z42) 已有先例。
+[`BenchmarkDesugar.z42`](../../../src/compiler/z42c.semantics/src/Lowering/BenchmarkDesugar.z42) 已有先例。
 
 合成的临时局部用 `$c0` / `$c1` … 命名（`$` 非法源标识符 → 与用户变量零冲突；作为字符串键在
 Locals/env 映射中正常工作）。绑定合成 `VarDeclStmt` 时绑定器自身 `env.Define` 临时名，后续引用
@@ -92,10 +92,10 @@ Locals/env 映射中正常工作）。绑定合成 `VarDeclStmt` 时绑定器自
 | `z42c.syntax/src/Ast.z42` | +5 AST 节点（ArrayLitExpr / ArrayRepeatExpr / ListLitExpr / DictLitExpr / EmptyBraceLitExpr） |
 | `z42c.syntax/src/ExprParser.z42` | 前缀 `[` → `_parseArrayLit`；表达式位 `{` → `_parseBraceLit` |
 | `z42c.semantics/src/Bound.z42` | +`BoundSeqExpr` |
-| `z42c.semantics/src/ExprTyper.z42` | `_bindCollLit` + 6 子绑定器 + `_typeToTypeExpr` + `_freshColl` |
-| `z42c.semantics/src/StmtBinder.z42` | `_bindVarDecl` 集合字面量目标类型 hook；`public BindStmt` 包装 |
-| `z42c.semantics/src/ExprEmitter.z42` | `BoundSeqExpr` 发射 + `FunctionEmitter` 反向引用 |
-| `z42c.semantics/src/FunctionEmitter.z42` | `public EmitStmt` + 传 `this` 给 ExprEmitter |
+| `z42c.semantics/src/Binding/ExprTyper.z42` | `_bindCollLit` + 6 子绑定器 + `_typeToTypeExpr` + `_freshColl` |
+| `z42c.semantics/src/Binding/StmtBinder.z42` | `_bindVarDecl` 集合字面量目标类型 hook；`public BindStmt` 包装 |
+| `z42c.semantics/src/Emission/ExprEmitter.z42` | `BoundSeqExpr` 发射 + `FunctionEmitter` 反向引用 |
+| `z42c.semantics/src/Emission/FunctionEmitter.z42` | `public EmitStmt` + 传 `this` 给 ExprEmitter |
 
 ## 已知边界（本轮 Out of Scope）
 

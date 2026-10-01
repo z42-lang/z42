@@ -55,7 +55,7 @@ zbc 1.33/1.34 的**对象全字段块**拿不到 flag 位，只能由一个**推
 - `src/libraries/z42.package/src/IrModule.z42`（`Flags2` + `StructField*`）
 - `src/libraries/z42.package/src/BinaryFormat/{ZbcWriter,ZbcReader,ZbcFormat}.z42`
 - `src/libraries/z42.package/src/ZpkgWriter.z42`（minor）
-- `src/compiler/z42c.semantics/src/ClassDescBuilder.z42`（填表 + 置位）
+- `src/compiler/z42c.semantics/src/Emission/ClassDescBuilder.z42`（填表 + 置位）
 - `src/runtime/src/metadata/bytecode/class.rs`、`zbc_reader/{type_reader,versions}.rs`、`zbc_reader_tests.rs`
 - `docs/internals/src/formats/{zbc,zpkg}.md`
 

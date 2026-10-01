@@ -36,8 +36,8 @@ roadmap 0.5.x 招牌 `JsonSerializer.Deserialize<T>(json)` 是**泛型方法**�
 | `src/compiler/z42c.syntax/src/Ast.z42` | MODIFY | `CallExpr` 加类型实参字段（`TypeExpr[] TypeArgs` + count）|
 | `src/compiler/z42c.syntax/src/ExprParser.z42` | MODIFY | 调用点 `<...>` 类型实参解析 + `<` 歧义消解 |
 | `src/compiler/z42c.semantics/src/Bound.z42` | MODIFY | `BoundCall` 加解析后方法 type_args（名数组）|
-| `src/compiler/z42c.semantics/src/TypeChecker.z42` | MODIFY | 绑定方法 type_args → 泛型方法 decl；arity/约束校验；方法级 `Z42GenericParamType` 解析 |
-| `src/compiler/z42c.semantics/src/ExprEmitter.z42` | MODIFY | call 发方法 type_args；方法级 `typeof(T)`/`new T()`/`default(T)` 发新指令 |
+| `src/compiler/z42c.semantics/src/Binding/TypeChecker.z42` | MODIFY | 绑定方法 type_args → 泛型方法 decl；arity/约束校验；方法级 `Z42GenericParamType` 解析 |
+| `src/compiler/z42c.semantics/src/Emission/ExprEmitter.z42` | MODIFY | call 发方法 type_args；方法级 `typeof(T)`/`new T()`/`default(T)` 发新指令 |
 
 ### IR + 二进制格式（`z42.package` stdlib）
 

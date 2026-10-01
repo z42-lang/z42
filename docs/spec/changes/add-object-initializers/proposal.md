@@ -46,7 +46,7 @@ List/Dict 字面量）天然区分。对象初始化器内条目：
 |------|------|
 | `z42c.syntax/src/Ast.z42` | +`ObjInitExpr`（Type + ctor Args + 字段名/值数组） |
 | `z42c.syntax/src/ExprParser.z42` | `new` 块重构：array-init 加 `ty is ArrayType` 卫；解析可选 `(args)` 后 `{` → 对象初始化器 |
-| `z42c.semantics/src/ExprTyper.z42` | `_bindObjInit`：合成 `new` + 逐字段 `MemberExpr` 赋值 → `BoundSeqExpr`；`_bindExpr` 分派 |
+| `z42c.semantics/src/Binding/ExprTyper.z42` | `_bindObjInit`：合成 `new` + 逐字段 `MemberExpr` 赋值 → `BoundSeqExpr`；`_bindExpr` 分派 |
 | `docs/design/language/` | 对象初始化器语法节（object-initializers.md 或并入 language-overview） |
 | `examples/object_initializers.z42` | NEW 示例 |
 | `src/tests/basic/object_initializers.z42` | NEW golden（Assert 自校验） |

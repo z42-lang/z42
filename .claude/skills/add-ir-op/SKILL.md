@@ -35,8 +35,8 @@ argument-hint: <instruction-name>
 2. `src/libraries/z42.package/src/BinaryFormat/ZbcFormat.z42`（`static class Op`）— 新 opcode 常量
 3. `.../ZbcInstr.z42` — 编码分支（带字符串则同时补 `InternInstrStrings`）
 4. `.../ZbcReaderInstr.z42` — 解码分支 + 寄存器上界/重映射
-5. `src/compiler/z42c.semantics/src/IrOptInfo.z42` — **4 处**：Dst / args 计数 / args 替换 / Dst 改写
-6. `src/compiler/z42c.semantics/src/IrEscapeAnalysis.z42` — args 逃逸标记
+5. `src/compiler/z42c.semantics/src/Optimization/IrOptInfo.z42` — **4 处**：Dst / args 计数 / args 替换 / Dst 改写
+6. `src/compiler/z42c.semantics/src/Optimization/IrEscapeAnalysis.z42` — args 逃逸标记
 7. 发射点（各 `*Emitter.z42`）
 
 ### 运行时侧（Rust）

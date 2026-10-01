@@ -1,6 +1,6 @@
 # 泛型类型实参推断
 
-> **页型**: 机制页 ｜ **状态**: ✅ 已实现 ｜ **代码**: `src/compiler/z42c.semantics/src/TypeArgInference.z42`
+> **页型**: 机制页 ｜ **状态**: ✅ 已实现 ｜ **代码**: `src/compiler/z42c.semantics/src/Types/TypeArgInference.z42`
 > （`Infer` / `InferPreBinding` / `_unify` / `_resolvedForm`）· `MethodTypeArgSubst.z42` · `MethodTypeParamUse.z42`
 > **相关**: [源代码编译流程](source-compile.md) · [架构总览](architecture.md) ｜ **对齐**: 2026-09-17
 >

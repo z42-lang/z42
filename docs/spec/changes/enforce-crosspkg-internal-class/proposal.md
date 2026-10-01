@@ -56,8 +56,8 @@ importer 还原后即激活 ① 已埋好的 internal deny 分支。
 
 | 文件路径 | 变更 | 说明 |
 |---------|------|------|
-| `src/compiler/z42c.semantics/src/ClassDescBuilder.z42` | MODIFY | `cd2.Visibility = IrGenFacts.classVisCode(c.Mods, isNested)`（① 已提供 classVisCode） |
-| `src/compiler/z42c.semantics/src/ImportedSymbolLoader.z42` | MODIFY | `nct.Visibility = cl.Visibility`（跨包还原，激活 ① internal deny） |
+| `src/compiler/z42c.semantics/src/Emission/ClassDescBuilder.z42` | MODIFY | `cd2.Visibility = IrGenFacts.classVisCode(c.Mods, isNested)`（① 已提供 classVisCode） |
+| `src/compiler/z42c.semantics/src/Symbols/ImportedSymbolLoader.z42` | MODIFY | `nct.Visibility = cl.Visibility`（跨包还原，激活 ① internal deny） |
 
 ### runtime（读而不用）
 

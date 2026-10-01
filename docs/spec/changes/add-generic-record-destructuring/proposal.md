@@ -29,19 +29,19 @@
 
 | 文件路径 | 变更类型 | 说明 |
 |---------|---------|------|
-| `src/compiler/z42c.semantics/src/PatternBinder.z42` | MODIFY | ①位置 guard(:178) 加 `Z42InstantiatedType` 分支：取 `inst.Def` 判 `IsRecord`/arity，保留 `inst` 供替换；②位置字段类型(:202) `fty = MemberResolver._substGeneric(_fieldType(inst.Def, fname), inst)`；③属性 guard(:256) + 字段类型(:258) 同款；④`CheckIrrefutable`(:43,53) 对 `Z42InstantiatedType.Name()`（`"Box<int>"`）的名比对确认拼写一致 |
-| `src/compiler/z42c.semantics/src/BoundPattern.z42` | MODIFY(若需) | `BoundPositionalPattern.Type`/`BoundPropertyPattern.Type` 存 resolved（instantiated）类型；emit 侧已能解开，多半无需改，实施期坐实 |
+| `src/compiler/z42c.semantics/src/Binding/PatternBinder.z42` | MODIFY | ①位置 guard(:178) 加 `Z42InstantiatedType` 分支：取 `inst.Def` 判 `IsRecord`/arity，保留 `inst` 供替换；②位置字段类型(:202) `fty = MemberResolver._substGeneric(_fieldType(inst.Def, fname), inst)`；③属性 guard(:256) + 字段类型(:258) 同款；④`CheckIrrefutable`(:43,53) 对 `Z42InstantiatedType.Name()`（`"Box<int>"`）的名比对确认拼写一致 |
+| `src/compiler/z42c.semantics/src/BoundTree/BoundPattern.z42` | MODIFY(若需) | `BoundPositionalPattern.Type`/`BoundPropertyPattern.Type` 存 resolved（instantiated）类型；emit 侧已能解开，多半无需改，实施期坐实 |
 | `src/tests/pattern-matching/pattern_generic.z42` | NEW | e2e 自检（Assert）：`Box<int>(x)`/`Pair<A,B>(a,b)` switch-stmt/expr + is + 解构声明；嵌套泛型字段 `Pair<int, Box<int>>`；jit 双验 |
 | `src/compiler/z42c.semantics/tests/analyzer/analyzer_tests.z42` | MODIFY(若需) | 若加负例（泛型 struct record 仍 defer 报错）用 `SemanticDump.FirstErrorCode` 单测 |
 | `docs/reference/src/language/pattern-matching.md` | MODIFY | 泛型 record 解构从 Deferred 上移正文，记录擦除式语义 + `_substGeneric` 替换机制 |
 | `src/compiler/z42c.semantics/README.md` | MODIFY(若需) | 功能索引更新 |
 
 **只读引用**（理解上下文必须读，不修改）：
-- `src/compiler/z42c.semantics/src/MemberResolver.z42` — `_substGeneric`(:259-276) 替换设施 + GS6 字段访问替换范例(:176-187)
-- `src/compiler/z42c.semantics/src/SymbolTable.z42` — `ResolveTypeP`(:140-158) 泛型实例解析、arity-mangle `Name$N`
-- `src/compiler/z42c.semantics/src/Z42Type.z42` — `Z42InstantiatedType`(:281-303)、`Z42GenericParamType`(:269)
-- `src/compiler/z42c.semantics/src/TypeOpTyper.z42` / `TypeOpEmitter.z42` — is-expr 泛型擦除参照(:70/:19)
-- `src/compiler/z42c.semantics/src/PatternEmitter.z42` — 字段读 emit（擦除、多半无需改）
+- `src/compiler/z42c.semantics/src/Binding/MemberResolver.z42` — `_substGeneric`(:259-276) 替换设施 + GS6 字段访问替换范例(:176-187)
+- `src/compiler/z42c.semantics/src/Symbols/SymbolTable.z42` — `ResolveTypeP`(:140-158) 泛型实例解析、arity-mangle `Name$N`
+- `src/compiler/z42c.semantics/src/Types/Z42Type.z42` — `Z42InstantiatedType`(:281-303)、`Z42GenericParamType`(:269)
+- `src/compiler/z42c.semantics/src/Binding/TypeOpTyper.z42` / `TypeOpEmitter.z42` — is-expr 泛型擦除参照(:70/:19)
+- `src/compiler/z42c.semantics/src/Emission/PatternEmitter.z42` — 字段读 emit（擦除、多半无需改）
 
 ## Out of Scope
 

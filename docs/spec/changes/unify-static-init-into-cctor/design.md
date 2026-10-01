@@ -23,7 +23,7 @@
 
 ### 2.1 绑定期（DeclBinder）
 
-现状二分支（[DeclBinder.z42:180-192](../../../../src/compiler/z42c.semantics/src/DeclBinder.z42) / `:232-236`）：
+现状二分支（[DeclBinder.z42:180-192](../../../../src/compiler/z42c.semantics/src/Binding/DeclBinder.z42) / `:232-236`）：
 
 ```
 静态字段/静态 auto 属性有初始化器

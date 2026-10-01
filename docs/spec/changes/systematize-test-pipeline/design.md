@@ -154,7 +154,7 @@ bool _dirHasTestMethods(string dir) {
 ZbcWriter 10、IrGen 9、IrModule 5、IncrementalDriver 4、…）+ **一个专属 zbc section（TIDX，v1→v2）**
 + 运行时 decoder。rustc 没有"测试 section"这种东西。
 
-**终态已记录**（[HandlerRegistry.z42:15](../../../../src/compiler/z42c.semantics/src/HandlerRegistry.z42#L15)）：
+**终态已记录**（[HandlerRegistry.z42:15](../../../../src/compiler/z42c.semantics/src/Lowering/HandlerRegistry.z42#L15)）：
 *"TestIndexBuilder 的终态是 store-meta + 反射发现、TIDX 退休"*。
 
 ### P6（🟡）规则归属 + analyzer 纯 opt-in
