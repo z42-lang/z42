@@ -1,6 +1,5 @@
 namespace Std.Compression;
 
-using Std;
 using Std.IO;
 
 // add-z42-compression (2026-05-22): RFC 1952 gzip container backed by

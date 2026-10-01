@@ -8,8 +8,6 @@
 // 而「全仓零命中」既可能是代码干净、也可能是 pass 没接通——只有这些阴性用例能分辨。
 namespace Z42cSemanticsDefiniteAssignmentTests;
 
-using Std;
-using Std.Test;
 using Z42.Semantics;
 
 // ── 基础 ──────────────────────────────────────────────────────────

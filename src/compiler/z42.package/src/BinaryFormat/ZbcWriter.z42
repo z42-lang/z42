@@ -5,8 +5,6 @@
 //   ConstStr strRemap；可选 DBUG/TIDX/FRCS；f64/char 字面量（BitConverter）。
 namespace Z42.IR.BinaryFormat;
 
-using Z42.IR;
-using Std;
 
 public static class ZbcWriter {
     // 顶层：IrModule → 完整 .zbc 字节缓冲。

@@ -15,7 +15,6 @@
 // sidecar-reaches-published-apps（2026-09-05）。
 namespace Z42Builder;
 
-using Std;
 using Std.IO;
 
 // 把 `zpkgSrc` 搬到 `dstZpkg`，并带上同 stem 的运行配置侧车（有则拷、无则跳过）。

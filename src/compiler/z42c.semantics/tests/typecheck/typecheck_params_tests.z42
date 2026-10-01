@@ -3,8 +3,6 @@
 // 本文件只测 TypeChecker 新增的 _withParamsExpansion / _resolveParamsOverload。
 namespace Z42cSemanticsTypeCheckParamsTests;
 
-using Std;
-using Std.Test;
 using Z42.Semantics;
 
 [Test]

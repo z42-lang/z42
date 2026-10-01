@@ -1,6 +1,5 @@
 namespace Std.Compression;
 
-using Std;
 
 // add-z42-compression-lz4 (2026-05-27): LZ4 frame format (the standard
 // `.lz4` file format wrapping raw LZ4 block compression — magic +

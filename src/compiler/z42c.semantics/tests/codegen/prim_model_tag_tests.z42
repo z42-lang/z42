@@ -8,8 +8,6 @@
 // [repo] 阶段（第二代自建）守，两者互补。
 namespace Z42cSemanticsPrimModelTagTests;
 
-using Std;
-using Std.Test;
 using Z42.IR;
 using Z42.Semantics;
 

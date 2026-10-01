@@ -3,7 +3,6 @@ namespace Z42.Semantics;
 using Z42.Syntax;
 using Z42.Core;
 using Z42.IR;
-using Z42.IR.BinaryFormat;
 
 // 单 CU / partial 编译内核（从 IrDump 分出，irdump-pipeline-split）：per-file typecheck+codegen（_compileCu）
 // + partial 碎片合并（_buildMergedPartial/_mergeFragments）。全私有内核，仅 IrDump 门面同包内调用。
@@ -108,6 +107,7 @@ public static class CuCompile {
         // complete-generic-instantiation S1：类型错误下不做特化（见 IrGen.HasTypeErrors）。
         gen.HasTypeErrors = diags.ErrorCount() > 0;
         IrModule irm = gen.Generate(cu, model, optSet);
+        UsingLint.Check(cu, tc.UsedNs.ToArray(), gen.UsedDepNs, gen.UsedDepNsCount, diags);   // using-csharp-rules PR-3：W0607 / W0608
         string[] usings = new string[8];
         int uc = 0;
         int i = 0;

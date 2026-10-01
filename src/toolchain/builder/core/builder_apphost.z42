@@ -13,7 +13,6 @@
 // The placeholder is a 32-byte MAGIC + 992-byte payload (1024).
 namespace Z42Builder;
 
-using Std;
 using Std.IO;
 
 // Produce a native apphost exe at `outPath` from stub `tmpl`, embedding `app`'s path

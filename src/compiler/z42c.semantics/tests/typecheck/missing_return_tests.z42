@@ -14,8 +14,6 @@
 // `while (true)` 与 switch 都返 false。同一个谓词对不同消费方回答的是不同问题。
 namespace Z42cSemanticsMissingReturnTests;
 
-using Std;
-using Std.Test;
 using Z42.Semantics;
 
 // ⚠️ 测试源里用**本地声明的** `Ex1` 而不是 `Std.Exception`：`SemanticDump.FirstErrorCode`

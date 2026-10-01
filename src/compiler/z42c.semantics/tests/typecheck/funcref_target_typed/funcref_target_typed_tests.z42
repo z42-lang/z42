@@ -7,11 +7,7 @@
 // 每个阳性做退回对照：撤掉 BindWithTarget 的 IdentExpr 分支后，S1/S3 必回落 E0425。
 namespace Z42cFuncrefTargetTypedTests;
 
-using Std;
-using Std.Test;
 using Z42.Semantics;
-using Z42.Syntax;
-using Z42.Core;
 using Z42.IR;
 
 CompiledModuleZ[] frBuild(string src) {

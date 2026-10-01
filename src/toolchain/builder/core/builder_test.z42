@@ -10,7 +10,6 @@
 // functions execute under the same VM and mode.
 namespace Z42Builder;
 
-using Std;
 using Std.IO;
 using Std.Cli;
 using Std.Test;

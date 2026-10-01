@@ -1,6 +1,5 @@
 namespace Std.Archive;
 
-using Std;
 using Std.IO;
 using Std.Compression;
 

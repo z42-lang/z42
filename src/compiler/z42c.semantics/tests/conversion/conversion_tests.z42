@@ -1,8 +1,6 @@
 // 统一转换分类器单测（add-conversion-classifier PR1）：种类标签 + 宽松门布尔投影。
 namespace Z42cSemanticsConversionTests;
 
-using Std;
-using Std.Test;
 using Z42.Semantics;
 
 // 便捷：分类 prim 对（无需 symbols 上下文）。

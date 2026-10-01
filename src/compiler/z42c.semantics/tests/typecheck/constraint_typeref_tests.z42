@@ -12,8 +12,6 @@
 // 对照**（禁用对应检查后重建）里精确变红，正例保持绿——见归档 verify 记录。
 namespace Z42cSemanticsConstraintTypeRefTests;
 
-using Std;
-using Std.Test;
 using Z42.Semantics;
 
 // 公共前缀：非泛型接口 IFoo、满足者 C、违反者 D、受约束泛型 Box<T>、**无约束**泛型 Wrap<T>

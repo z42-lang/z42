@@ -4,7 +4,6 @@
 // z42 委托相容即精确相等，故合法目标唯一 = 签名与委托精确相等的那个重载。发射用选中重载的 RegKey
 // （primary=裸键、非-primary=mangle 键），LoadFn 与 free-call 走同一 func_index。
 namespace Z42.Semantics;
-using Z42.IR;
 
 using Z42.Syntax;
 using Z42.Core;

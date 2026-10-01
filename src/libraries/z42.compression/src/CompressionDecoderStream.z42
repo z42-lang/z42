@@ -1,6 +1,5 @@
 namespace Std.Compression;
 
-using Std;
 using Std.IO;
 
 // refactor-compression-stream-on-iostream (2026-05-24): pull-mode

@@ -1,6 +1,5 @@
 namespace Std.Archive;
 
-using Std;
 using Std.IO;
 
 // add-z42-compression (2026-05-22): ustar archive (POSIX 1003.1-1988).

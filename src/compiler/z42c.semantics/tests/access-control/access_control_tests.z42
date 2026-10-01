@@ -3,8 +3,6 @@
 // （区别于 SymbolCollector.Diags，那类不计入 ErrorCount）。
 namespace Z42cSemanticsAccessControlTests;
 
-using Std;
-using Std.Test;
 using Z42.Semantics;
 
 // ── private ──

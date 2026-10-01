@@ -16,7 +16,6 @@
 // an already-booted device. Porting the emulator lifecycle is a separate change.
 namespace Z42Builder;
 
-using Std;
 using Std.IO;
 using Std.Cli;
 

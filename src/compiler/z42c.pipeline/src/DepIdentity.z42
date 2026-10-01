@@ -10,7 +10,6 @@
 // 粒度是包级：任一依赖变 ⇒ 本包全量。按命名空间细分是后续优化，不影响正确性。
 namespace Z42.Pipeline;
 
-using Std;
 using Std.IO;
 using Std.Encoding;
 using Z42.IR;

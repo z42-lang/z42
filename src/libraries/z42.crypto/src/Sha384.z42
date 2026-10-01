@@ -1,6 +1,5 @@
 namespace Std.Crypto;
 
-using Std;
 using Std.Encoding;
 
 // add-sha512-to-crypto (2026-05-27): SHA-384 hash (FIPS 180-4 §6.5).

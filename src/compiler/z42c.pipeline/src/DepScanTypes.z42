@@ -2,10 +2,7 @@
 // 从 DepScan.z42 拆出（refactor-depscan-concern-split）：纯数据，无逻辑。
 namespace Z42.Pipeline;
 
-using Std;
-using Std.IO;
 using Z42.IR;
-using Z42.IR.BinaryFormat;
 using Z42.Package;
 
 // 一次扫描的产物束。

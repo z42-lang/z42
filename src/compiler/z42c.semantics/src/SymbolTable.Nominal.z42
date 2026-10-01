@@ -18,7 +18,6 @@
 namespace Z42.Semantics;
 using Z42.IR;
 
-using Z42.Syntax;
 
 public sealed partial class SymbolTable {
     // ── enforce-fqn-name-identity B3：接口相等判定的**唯一出口** ──────────────────

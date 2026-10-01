@@ -2,8 +2,6 @@
 // 不下钻接口实例与函数类型、`_substIfaceArgs` 不下钻函数类型、`_substSelf` / `ByName` 不下钻接口实例。
 // 漏换 ⇒ 裸型参 `T` 漏给调用方 ⇒ 两个方向都错：该拒的放行（Conversion 对含型参一侧擦除放行），该过的误报。
 namespace Z42cSemanticsTypeSubstCoverageTests;
-using Std;
-using Std.Test;
 using Z42.Semantics;
 
 string _box() {

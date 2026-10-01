@@ -10,8 +10,6 @@
 // change `record-ref-in-signature` 补（需 minor bump）。
 namespace Z42cSemanticsRefModifierTests;
 
-using Std;
-using Std.Test;
 using Z42.Semantics;
 
 // ── 对称：不应报错 ────────────────────────────────────────────────

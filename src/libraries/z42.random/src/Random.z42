@@ -1,5 +1,4 @@
 namespace Std.Random;
-using Std;
 using Std.Time;
 
 // add-z42-random (2026-05-15)：通用伪随机数（PCG-XSH-RR 64→32 输出）。

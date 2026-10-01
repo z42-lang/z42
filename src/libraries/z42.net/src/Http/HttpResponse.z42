@@ -1,7 +1,6 @@
 namespace Std.Net.Http;
 using Std.Encoding;
 
-using Std;
 using Std.IO;
 
 // add-z42-net-http K3 (2026-05-25): incoming HTTP response container.

@@ -1,7 +1,5 @@
 namespace Std.Crypto;
 
-using Std;
-using Std.Encoding;
 using Std.Numerics;
 
 // add-ed25519 (2026-05-28): Ed25519 digital signature (RFC 8032 §5.1).

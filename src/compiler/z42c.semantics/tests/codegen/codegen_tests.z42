@@ -1,8 +1,6 @@
 // z42c.semantics codegen 单测（port-z42c-codegen CG-1A）：源 → typecheck → IrGen → .zasm-like IR 文本断言。
 namespace Z42cSemanticsCodegenTests;
 
-using Std;
-using Std.Test;
 using Z42.Semantics;
 using Z42.IR;        // StrMap / StrBox
 

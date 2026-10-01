@@ -3,8 +3,6 @@
 // 非匹配声明原样透传。
 namespace Z42cSemanticsBenchDesugarTests;
 
-using Std;
-using Std.Test;
 using Z42.Syntax;
 using Z42.Semantics;
 

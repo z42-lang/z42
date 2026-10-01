@@ -3,7 +3,6 @@
 // `Lexer.DecodeString` 保留为到 `Decode` 的转发，既有调用方与单测不受影响。
 namespace Z42.Syntax;
 
-using Z42.Core;
 
 public static class LexerEscapes {
     // 把字符串字面量的 raw lexeme（含两端引号）解码为实际值：剥引号 + 转义还原。

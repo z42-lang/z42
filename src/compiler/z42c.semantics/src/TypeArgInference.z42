@@ -16,9 +16,7 @@
 // native 快路径门（`method_type_args.is_empty()`）。全仓普查显示隐式泛型调用 112 处**全部**是
 // `Array.Copy<T>`，而它的 T 不被运行期消费 ⇒ 回灌是纯回归。详见 change 的 design D4。
 namespace Z42.Semantics;
-using Z42.IR;
 
-using Z42.Core;
 using Z42.Syntax;
 
 // 推断结果：Ok=false 时 Args 无意义（调用方必须原样按今天行为继续）。

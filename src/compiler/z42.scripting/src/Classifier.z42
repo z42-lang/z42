@@ -7,8 +7,6 @@
 // 保守——漏判（如泛型返回 `List<int> f()`）退回表达式路径（自然报错），不误判纯表达式为声明。
 namespace Std.Scripting;
 
-using Std;
-using Std.Collections;
 using Z42.Syntax;
 
 // 分类结果。IsVarDecl / IsDecl 互斥；都为 false = 表达式/语句。

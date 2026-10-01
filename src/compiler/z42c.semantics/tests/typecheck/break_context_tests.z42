@@ -5,8 +5,6 @@
 // switch subject 用 int（开放域）以避开穷尽性 W0700 干扰首条诊断。
 namespace Z42cSemanticsBreakContextTests;
 
-using Std;
-using Std.Test;
 using Z42.Semantics;
 
 // ── switch 臂内 break：合法（跳出 switch），不需要外层循环 ──────────

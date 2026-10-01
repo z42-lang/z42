@@ -1,7 +1,5 @@
 namespace Std.Crypto;
 
-using Std;
-using Std.Encoding;
 
 // add-chacha20 (2026-05-27): ChaCha20 stream cipher (RFC 8439).
 //

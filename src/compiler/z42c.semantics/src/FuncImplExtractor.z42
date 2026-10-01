@@ -2,7 +2,6 @@ namespace Z42.Semantics;
 
 using Z42.Syntax;
 using Z42.IR;
-using Z42.IR.BinaryFormat;
 
 // 自由函数 + trait impl 的导出提取（从 ExportedTypeExtractor 分出）。hub 经 _extractCore 调度。
 public static class FuncImplExtractor {

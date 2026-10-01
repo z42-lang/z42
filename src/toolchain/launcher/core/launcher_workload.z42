@@ -26,7 +26,6 @@
 // so `swift build` / `z42 export ios` resolves the separately-installed runtime.
 namespace Z42Launcher;
 
-using Std;
 using Std.IO;
 using Std.Cli;
 using Std.Json;

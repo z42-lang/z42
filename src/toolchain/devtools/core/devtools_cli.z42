@@ -6,7 +6,6 @@
 // workspace / xtask / CI，惰性占位，不影响任何现有构建（同 PARKED 的 builder）。
 namespace Z42Devtools;
 
-using Std;
 using Std.IO;
 using Std.Cli;
 

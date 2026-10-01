@@ -10,9 +10,7 @@
 // minor 的头，再 Get 一次 —— 守卫在，才会重读重解拿到非 null。
 namespace Z42cPipelineDepScanCacheTests;
 
-using Std;
 using Std.IO;
-using Std.Test;
 using Z42.Pipeline;
 using Z42.Package;   // ZpkgWriterZ / ZpkgReader / ZpkgInfo / ExportedModuleZ（converge：类型都在此 ns）
 using Z42.IR;

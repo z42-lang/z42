@@ -1,6 +1,5 @@
 namespace Std.Time;
 
-using Std;
 
 // add-timezone-basics (2026-05-27): fixed-offset timezone representation +
 // short-code lookup table. **No DST**, **no IANA tzdata** — just

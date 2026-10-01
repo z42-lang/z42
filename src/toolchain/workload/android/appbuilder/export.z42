@@ -6,7 +6,6 @@
 // platform SDK at ~/.z42/runtimes/android-arm64/<ver>/.
 namespace Z42.Workload.Android;
 
-using Std;
 using Std.IO;
 
 // Public cross-package entry — `z42 export android` (launcher_export.z42) delegates here.

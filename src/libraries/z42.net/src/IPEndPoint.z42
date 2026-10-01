@@ -1,6 +1,5 @@
 namespace Std.Net.Sockets;
 
-using Std;
 
 // add-ipendpoint-wrapper (2026-06-02): minimal BCL-aligned wrapper of
 // `(IPAddress, port)` as a single value. Surfaces the canonical

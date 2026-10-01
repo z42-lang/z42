@@ -11,8 +11,6 @@
 //      （同 #827 的教训形状：查直接表会让继承来的那档静默落空）
 namespace Z42cSemanticsUsingDisposableTests;
 
-using Std;
-using Std.Test;
 using Z42.Semantics;
 
 // ── ① 形状不够（这正是与 foreach 的分界）──────────────────────────────────

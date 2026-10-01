@@ -1,6 +1,5 @@
 namespace Std.Yaml;
 
-using Std;
 using Std.IO;
 using Std.Time;
 

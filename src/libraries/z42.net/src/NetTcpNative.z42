@@ -1,6 +1,5 @@
 namespace Std.Net.Sockets;
 
-using Std;
 
 // add-z42-net K1 (2026-05-24): low-level extern wrappers for the
 // `__net_tcp_*` VM builtins. Returns the raw kind-tagged Array tuples

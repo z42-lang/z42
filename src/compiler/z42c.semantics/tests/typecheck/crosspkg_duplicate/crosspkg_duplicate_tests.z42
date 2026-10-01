@@ -11,11 +11,7 @@
 // 它不依赖磁盘上的 .zpkg，故可复用于任何「跨包期望报错」的用例。
 namespace Z42cSemanticsCrossPkgDuplicateTests;
 
-using Std;
-using Std.Test;
 using Z42.Semantics;
-using Z42.Syntax;
-using Z42.Core;
 using Z42.IR;
 
 // ⚠️ 辅助函数一律带 `dup` 前缀：同一测试单元（`typecheck` 工程 `include = ["**/*.z42"]`）里所有

@@ -1,6 +1,5 @@
 namespace Std.Net.Sockets;
 
-using Std;
 
 // add-net-ipaddress (2026-05-27): strong-typed IP address with parsing,
 // family detection, and byte access. v0 supports:

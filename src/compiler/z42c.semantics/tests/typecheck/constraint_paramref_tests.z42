@@ -25,8 +25,6 @@
 // 类型），用来分辨「真的认了类表」与「把闸门整条放开了」——后者会让负例一起变绿。
 namespace Z42cSemanticsConstraintParamRefTests;
 
-using Std;
-using Std.Test;
 using Z42.Semantics;
 
 // 公共前缀：接口链 IBase ← IDerived、实现者 C、不相关类 D、类链 B ← S。

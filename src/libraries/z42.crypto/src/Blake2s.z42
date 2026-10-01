@@ -1,6 +1,5 @@
 namespace Std.Crypto;
 
-using Std;
 using Std.Encoding;
 
 // add-blake2s (2026-05-28): BLAKE2s hash (RFC 7693 §B).

@@ -19,7 +19,6 @@
 namespace Z42.Semantics;
 
 using Z42.IR;
-using Z42.Core;
 
 public sealed class IfaceBridgeSynth {
     private SymbolTable _symbols;

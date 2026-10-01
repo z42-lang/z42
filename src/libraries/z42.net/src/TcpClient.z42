@@ -1,6 +1,5 @@
 namespace Std.Net.Sockets;
 
-using Std;
 
 // add-z42-net K1 (2026-05-24): sync blocking TCP client.
 //

@@ -28,7 +28,6 @@
 // line-limit 棘轮基线上（967 行），越界文件不得增长，故这两个函数整体搬出。
 namespace Z42Builder;
 
-using Std;
 using Std.IO;
 using Std.Toml;
 

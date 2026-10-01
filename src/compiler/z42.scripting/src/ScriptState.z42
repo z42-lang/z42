@@ -2,7 +2,6 @@
 // 每轮成功 eval 后推进；失败不推进（EvalResult.State = 原状态，会话不破坏）。
 namespace Std.Scripting;
 
-using Std;
 using Std.Collections;
 using Std.Threading;  // Thread（add-repl-prewarm：后台预热 worker 句柄）
 

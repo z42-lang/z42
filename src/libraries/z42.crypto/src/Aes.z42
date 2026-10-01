@@ -1,7 +1,5 @@
 namespace Std.Crypto;
 
-using Std;
-using Std.Encoding;
 
 // add-aes (2026-05-27): AES (FIPS 197) — Rijndael 128-bit block, 128 /
 // 192 / 256-bit keys. Pure-script implementation (no FFI), matching the

@@ -1,6 +1,5 @@
 namespace Std.Compression;
 
-using Std;
 
 // add-z42-compression-brotli (2026-05-27): Brotli (RFC 7932) — the
 // HTTP `Content-Encoding: br` algorithm; typically 15-25% better ratio

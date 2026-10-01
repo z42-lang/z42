@@ -7,7 +7,6 @@
 // `Type.GetType` + `Activator.CreateInstance` + `MethodInfo.Invoke` to run them.
 namespace Std.Test;
 
-using Std;
 
 // One TIDX entry of a loaded test module, in z42-facing form (VM-written slots).
 public class TestEntry {

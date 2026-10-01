@@ -1,6 +1,5 @@
 namespace Std.Net.WebSockets;
 
-using Std;
 using Std.IO;
 
 // add-z42-net-websocket K4 (2026-05-25): RFC 6455 §5 frame codec.

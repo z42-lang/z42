@@ -5,7 +5,6 @@
 // 三者组合 = 「编译一轮会话 → 加载 → 求值 / 内省」的运行期骨架。
 namespace Std.Scripting;
 
-using Std;
 
 public static class Engine {
     [Native("__load_bytecode_in_memory")]

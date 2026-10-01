@@ -5,7 +5,6 @@
 // 编译器经 _hostCompiler 运行时动态注入（见 builder.z42）；test/bench 处理见 builder_test.z42。
 namespace Z42Builder;
 
-using Std;
 using Std.IO;
 using Std.Cli;
 using Z42.Project;   // ManifestLoader / BuildLayout（clean）

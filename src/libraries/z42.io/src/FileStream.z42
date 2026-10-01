@@ -1,6 +1,5 @@
 namespace Std.IO;
 
-using Std;
 
 // add-z42-io-filestream (2026-05-24): OS-file-backed Stream subclass.
 //

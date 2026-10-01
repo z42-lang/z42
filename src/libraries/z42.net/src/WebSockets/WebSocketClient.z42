@@ -1,6 +1,5 @@
 namespace Std.Net.WebSockets;
 
-using Std;
 using Std.IO;
 using Std.Crypto;
 using Std.Encoding;

@@ -12,7 +12,6 @@ namespace Z42.Semantics;
 
 using Z42.Syntax;
 using Z42.IR;
-using Z42.Package;
 
 public sealed partial class ClassDescBuilder {
     // 本包泛型类型的**原始**声明（带 attribute 包装）。两张表：本 CU 的 `GenericDecls` 与包级的

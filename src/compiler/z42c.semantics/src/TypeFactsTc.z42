@@ -2,8 +2,6 @@
 // 「ConversionChecker」片——无状态叶子助手集中到 static class，供各子绑定器 + Facade 共用。
 namespace Z42.Semantics;
 
-using Z42.Syntax;
-using Z42.IR.BinaryFormat;
 
 public static class TypeFactsTc {
 

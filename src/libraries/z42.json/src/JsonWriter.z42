@@ -1,5 +1,4 @@
 namespace Std.Json;
-using Std;
 using Std.Text;
 
 // add-z42-json (2026-05-14)：JSON 序列化（compact 或 pretty）。

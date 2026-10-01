@@ -1,5 +1,4 @@
 namespace Std.Toml;
-using Std;
 using Std.Text;
 
 // add-z42-toml (2026-05-14)：值树 → TOML 文本。

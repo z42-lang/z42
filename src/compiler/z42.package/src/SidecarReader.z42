@@ -8,9 +8,6 @@
 // 复用 ZpkgReader 的 public ZpkgCursor（LE + varint）；IrLineEntry 来自 Z42.IR。
 namespace Z42.Package;
 
-using Std;
-using Std.IO;
-using Std.Encoding;
 using Z42.IR;
 
 // 单函数符号：frame-name key（`ns.Name(t0,t1)`）+ 行表。

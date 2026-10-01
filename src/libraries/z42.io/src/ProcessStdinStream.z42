@@ -1,6 +1,5 @@
 namespace Std.IO;
 
-using Std;
 
 // add-process-stream-stdio (2026-05-24): write-only Std.IO.Stream
 // wrapper over a live ProcessHandle's stdin pipe.

@@ -1,6 +1,5 @@
 namespace Std.Encoding;
 
-using Std;
 
 // RFC 4648 §7 "Base32 hex" variant — same bit packing as standard Base32
 // (5-byte input → 8-char output, padding to multiple of 8 with `=`) but

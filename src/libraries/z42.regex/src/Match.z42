@@ -1,5 +1,4 @@
 namespace Std.Regex;
-using Std;
 
 // add-z42-regex (2026-05-16)：单次 match 的结果。
 //

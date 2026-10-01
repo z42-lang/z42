@@ -6,7 +6,6 @@
 // （P2 期另有对账器 Compare 与 TSIG oracle 逐字段验证 29 包 0-DIFF，P3 删 TSIG 后随之移除。）
 namespace Z42.Package;
 
-using Std;
 using Std.IO;   // repl-scan-nsindex-cache：LazyReconWorld.EnsureIdx 惰性 open（File.ReadAllBytes）
 using Z42.IR;
 

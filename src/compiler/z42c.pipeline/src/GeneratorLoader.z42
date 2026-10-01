@@ -29,8 +29,6 @@
 // dep 解析、破 self-host 字节不动点，须单独 change 谨慎处理——见 design.md「§Generator 外部加载」，本 PR 不带。）
 namespace Z42.Pipeline;
 
-using Std;             // Type
-using Std.Runtime;     // AssemblyLoadContext
 using Std.Reflection;  // Assembly / Activator
 using Z42.Semantics;   // Generator / ModuleGenerator（上一 nightly 已有 → 跨成员引用安全）
 

@@ -1,6 +1,5 @@
 namespace Std.Yaml;
 
-using Std;
 using Std.Text;
 
 // add-z42-yaml (2026-05-24): YAML 1.2 subset parser.

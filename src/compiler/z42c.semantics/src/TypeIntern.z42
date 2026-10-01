@@ -18,7 +18,6 @@
 //     若把 `_count` 做成 SymbolTable 的 int 字段，各视图会各拷一份计数、分配出**冲突的 id**。
 //     故装进本类，视图间共享同一个实例（并行段内只读，与其余共享字段同纪律）。
 namespace Z42.Semantics;
-using Z42.IR;
 
 public sealed class TypeIntern {
     private Z42Type[] _byId;

@@ -1,6 +1,5 @@
 namespace Std.IO;
 
-using Std;
 
 // add-buffered-stream (2026-05-24): Std.IO.Stream wrapper that
 // batches small Reads / Writes into larger underlying operations.

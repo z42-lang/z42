@@ -1,6 +1,5 @@
 namespace Std.Net.Http;
 
-using Std;
 using Std.IO;
 
 // add-z42-net-http-server (2026-05-25): server-side HTTP/1.1 request parser.

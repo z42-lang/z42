@@ -9,8 +9,6 @@
 // 修法是把含型参的形参位交给代换后的补查（`ConstructTyper._chkCtorSubstArgs`），
 // 于是误报消失、漏报那侧反而**开始响**。
 namespace Z42cSemanticsCtorParamScopeTests;
-using Std;
-using Std.Test;
 using Z42.Semantics;
 
 // ── 误报侧：这些**必须零诊断**（修前 ctor 那条报 E0402）────────────────────

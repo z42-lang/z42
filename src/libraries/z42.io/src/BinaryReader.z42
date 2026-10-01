@@ -1,6 +1,4 @@
 namespace Std.IO.Binary;
-using Std;
-using Std.IO;
 using Std.Encoding;
 
 // add-z42-io-binary (2026-05-15)：低层级二进制流读取。

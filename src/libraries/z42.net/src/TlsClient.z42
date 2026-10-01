@@ -1,6 +1,5 @@
 namespace Std.Net.Sockets;
 
-using Std;
 using Std.IO;
 
 // add-z42-net-tls (2026-06-03): low-level extern wrappers for the

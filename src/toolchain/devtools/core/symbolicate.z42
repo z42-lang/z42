@@ -12,7 +12,6 @@
 // unpack → walk the func's line table to the last entry whose (block,instr) ≤ site.
 namespace Z42Devtools;
 
-using Std;
 using Std.IO;
 using Z42.IR;
 using Z42.Package;

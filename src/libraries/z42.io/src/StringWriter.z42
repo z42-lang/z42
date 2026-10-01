@@ -1,6 +1,5 @@
 namespace Std.IO;
 
-using Std;
 using Std.Text;
 
 // add-z42-io-string-reader-writer (2026-05-24): char-oriented writer

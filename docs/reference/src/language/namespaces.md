@@ -83,6 +83,18 @@ E0436: namespace `Std.Collections` is used but not imported in this file; add `u
 > `StringBuilder`。删掉兄弟文件的 `using` 会让不相关的文件神秘编译失败。现改为强制文件级，
 > 与 C# / Rust / Python / Go / TS 一致。
 
+### 多余的 `using` 会告警
+
+与 C# 一样，多余的 `using` 报 warning（不阻断编译）：
+
+```
+W0607: unnecessary `using Std.Text;` — nothing in this file uses it
+W0607: unnecessary `using Std;` — `Std` is part of the prelude and always visible
+W0608: duplicate `using A;` — it is already imported above in this file
+```
+
+本文件已有编译错误时不报这两条（解析不全，「用到」的集合不可信）。
+
 ### `global using`（逃生舱）
 
 ```z42
@@ -160,6 +172,8 @@ z42c build: kind=exe but no Main() found
 | 码 | 何时出现 | 状态 |
 |---|---|---|
 | `E0436` | 本文件用到某命名空间（依赖包或同包）却没 `using` 它 | 生效 |
+| `W0607` | 不必要的 `using`：没用到，或指向 prelude / 本文件 namespace 及其外围 | 生效 |
+| `W0608` | 重复的 `using`：同文件写了两次，或已有同名 `global using` | 生效 |
 | `E0401` | 用到未激活包里的符号，或写了没有 `using` 的全限定名 | 生效 |
 | `E0601` | 同一个**全限定名**被两个以上的**依赖包**声明——限定名也分不开它们，谁都选不中 | 生效 |
 | `E0606` | 本包声明的类型**遮蔽**了某个导入包的同全限定名类型——被遮的那份无论怎么写都指不到 | 生效 |

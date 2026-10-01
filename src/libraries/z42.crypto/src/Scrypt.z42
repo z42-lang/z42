@@ -1,6 +1,5 @@
 namespace Std.Crypto;
 
-using Std;
 
 // add-scrypt (2026-05-27): scrypt password-hash KDF (RFC 7914 / Colin
 // Percival 2009). Memory-hard alternative to PBKDF2 — designed so a

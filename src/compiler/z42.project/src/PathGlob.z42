@@ -3,7 +3,6 @@
 // SourceDiscovery（`[sources].exclude`）、z42c.pipeline WorkspaceBuild（`[workspace] members / exclude`）。
 namespace Z42.Project;
 
-using Std;
 
 public static class PathGlob {
     // rel 与 pattern 都按 `/` 切段（调用方先把 `\` 归一）；整串匹配。

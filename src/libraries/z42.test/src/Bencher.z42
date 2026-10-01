@@ -1,7 +1,5 @@
 namespace Std.Test;
 
-using Std;
-using Std.Runtime;
 using Std.IO;
 
 // `Std.Test.Bencher` — measure elapsed nanoseconds of a code segment (R2 完整版).

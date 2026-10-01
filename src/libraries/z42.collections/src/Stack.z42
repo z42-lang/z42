@@ -1,6 +1,5 @@
 namespace Std.Collections;
 
-using Std;
 
 // Generic LIFO stack (L3-G4d — stdlib generic export).
 // Backing T[] with amortised O(1) Push/Pop and exponential growth.

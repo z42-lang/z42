@@ -1,7 +1,6 @@
 namespace Std.Net.WebSockets;
 using Std.Encoding;
 
-using Std;
 
 // add-z42-net-websocket K4 (2026-05-25): incoming WebSocket message carrier.
 //

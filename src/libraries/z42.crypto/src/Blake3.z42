@@ -1,6 +1,5 @@
 namespace Std.Crypto;
 
-using Std;
 using Std.Encoding;
 
 // add-blake3 (2026-05-28): BLAKE3 hash function.

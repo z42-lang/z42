@@ -1,6 +1,5 @@
 namespace Std.Threading;
 
-using Std;
 
 // 2026-05-20 add-threading-stdlib: OS-thread spawn / join facade.
 //

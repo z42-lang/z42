@@ -1,5 +1,4 @@
 namespace Std.Uri;
-using Std;
 using Std.Text;
 // percent-encode/decode 辅助（从 Uri.z42 拆出，review §1.8/§6）。
 

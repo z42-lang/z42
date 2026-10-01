@@ -1,6 +1,5 @@
 namespace Std.Diagnostics;
 
-using Std;
 
 // add-log-structured-fields (2026-05-27): chainable key=value attachment
 // for `Log.Info/Warn/Error/...`. Renders as logfmt — `[LEVEL ts] msg

@@ -228,7 +228,7 @@ E0442 / E0457 / E0462 除外（见上一节）。**E0402 另有一处语法层�
 
 | 码 | 含义 | 状态 | 触发示例 |
 |---|---|---|---|
-| E0436 | 用了某依赖命名空间却没在本文件 `using`（file-scoped usings） | ✅ `CuPreprocess.z42:186` | — |
+| E0436 | 用了某命名空间（依赖包或**同包**）却没在本文件 `using`（file-scoped usings；外围命名空间、prelude、全局 ns 除外） | ✅ `CuPreprocess.z42` | `namespace B; void F() { A.W w = null; }`（同包 `namespace A` 声明了 `W`） |
 | E0441 | 不一致可访问性：高可见性的成员 / 类型签名暴露了更低可见性的类型（对标 C# CS0050 族） | ✅ `AccessChecker.z42:227` | `public void f(InternalOnly x)` |
 | E0456 | 非限定短名同时匹配**多个可见命名空间**里的类型（对标 C# CS0104）。当前命名空间里的那一份优先，限定写法永不歧义。此前是**静默择一**，选中哪份取决于加载顺序 | ✅ `SymbolCollector.z42:449`、`TypeChecker.z42:158,163` | `using A; using B;` 后裸写 `Box b = null;`，A/B 各有一个 `Box` |
 | E0458 | 同一命名空间里重复声明同一个类型（同 ns、同名、同 arity，且并非全部 `partial`；对标 C# CS0101）。判据是 **(ns, 名字, arity)** 三者都相同。此前是**静默 last-wins**，前一个连同成员一起消失 | ✅ `StubCollector.z42:231` | 两个文件各写一个 `namespace X; class Config` |
@@ -391,6 +391,8 @@ E0442 / E0457 / E0462 除外（见上一节）。**E0402 另有一处语法层�
 |---|---|---|---|
 | W0603 | 包声明了保留命名空间（依赖扫描层软网） | ⚠️ 零发射点 | — |
 | W0604 | 捕获的值快照被赋值 | ⚠️ 零发射点 —— 规避写法（`bool[1]` 单元格）在 stdlib 里有沿用，但编译器当前**不报**这条 | — |
+| W0607 | 不必要的 `using`（对标 C# CS8019 / IDE0005）：本文件没有任何地方用到它；或它指向本来就可见的 prelude（`Std` / `Std.Runtime`）/ 本文件 namespace 及其外围。判「用到」与 E0436 同一份集合。本文件已有编译错误时不报（解析不全，会误报） | ✅ `UsingLint.z42` | `namespace B; using A; int F() { return 1; }` |
+| W0608 | 重复的 `using`（对标 C# CS0105）：同一文件里写了两次；或包里已有同名 `global using` | ✅ `UsingLint.z42` | `using A; using A;` |
 | W0700 | `switch` 不穷尽：对 `bool` / `enum` / 封闭类型做 `switch` 时漏了分支，且没有 `default` | ✅ `ExhaustCheck.z42:127,154,200` | `switch (b) { case true: ... }`，`b` 是 `bool` |
 | W0701 | 解构声明的绑定名遮蔽了当前类的字段 / 属性：`(A, B) = (a, b);`（花括号体里）声明的是两个**新局部**，随即离开作用域，一个成员都没动。局部遮蔽字段本身合法，单看语法挑不出毛病——只能靠「遮蔽了同名成员」这个信号拦。仅在有 `this` 的上下文里查。表达式位置的同一写法由 **E0482** 直接报错 | ✅ `StmtBinder.z42`（发 `DiagnosticCodes.DeconstructShadowsMember`） | `class C { int A; void M(int a) { (A, _) = (a, 0); } }` |
 

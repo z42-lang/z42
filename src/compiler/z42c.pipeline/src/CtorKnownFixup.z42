@@ -38,7 +38,6 @@
 // 一起被重扫、重写。
 namespace Z42.Pipeline;
 
-using Std;
 using Z42.IR;
 
 public static class CtorKnownFixup {

@@ -17,7 +17,6 @@
 // so CI's report consumer is unchanged.
 namespace Z42Builder;
 
-using Std;
 using Std.IO;
 using Std.Cli;
 using Std.Toml;

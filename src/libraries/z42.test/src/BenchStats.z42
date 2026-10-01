@@ -1,6 +1,5 @@
 namespace Std.Test;
 
-using Std;
 
 // `Std.Test.BenchStats` — structured form of a benchmark's summary line
 // (rebuild-bench-structured-output). The runner's json mode parses this out of a

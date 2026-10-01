@@ -15,7 +15,6 @@
 // "no Main() found"，只好拷到 staging 目录再附一个合成的 no-op `Main()`——lib 清单下这些都不需要了）。
 namespace Z42Builder;
 
-using Std;
 using Std.IO;
 using Std.Reflection;
 using Std.Test;

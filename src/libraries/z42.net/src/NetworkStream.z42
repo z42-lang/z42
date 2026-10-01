@@ -1,6 +1,5 @@
 namespace Std.Net.Sockets;
 
-using Std;
 using Std.IO;
 
 // add-z42-net K1 (2026-05-24): byte-oriented Stream over a TCP socket.

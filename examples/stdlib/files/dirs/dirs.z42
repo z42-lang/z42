@@ -1,4 +1,3 @@
-using Std;
 using Std.IO;
 
 void show(string label, string[] items) {

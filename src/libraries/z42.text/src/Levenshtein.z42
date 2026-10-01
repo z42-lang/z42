@@ -1,6 +1,5 @@
 namespace Std.Text;
 
-using Std;
 
 // add-text-levenshtein (2026-05-27): Levenshtein edit distance + ratio.
 //

@@ -1,5 +1,4 @@
 namespace Std.Time;
-using Std.Runtime;
 
 // Stopwatch — 单调时钟，匹配 C# System.Diagnostics.Stopwatch 行为。
 // 内部使用 __time_now_mono_ns（单调高精度时钟）。

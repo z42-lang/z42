@@ -1,6 +1,5 @@
 namespace Std.Net.Http;
 
-using Std;
 
 // add-z42-net-http-cookies (2026-05-26): HTTP cookie value record.
 //

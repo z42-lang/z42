@@ -1,6 +1,5 @@
 namespace Std.IO;
 
-using Std;
 
 // add-z42-io-stream (2026-05-24): unified flow-style I/O base class.
 //

@@ -1,6 +1,5 @@
 namespace Std.IO;
 
-using Std;
 using Std.Encoding;
 
 // add-encoding-and-stream-text (2026-05-24): char-oriented writer

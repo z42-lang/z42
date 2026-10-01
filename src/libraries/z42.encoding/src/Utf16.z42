@@ -1,6 +1,5 @@
 namespace Std.Encoding;
 
-using Std;
 
 // add-encoding-utf16 (2026-05-27): UTF-16 encode / decode (RFC 2781).
 //

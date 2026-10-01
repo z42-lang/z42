@@ -1,5 +1,4 @@
 namespace Std.Uri;
-using Std;
 using Std.Text;
 
 // add-z42-uri (2026-05-15)：RFC 3986 子集 URI/URL parser + percent-encode/decode。

@@ -87,6 +87,9 @@ public sealed class AttributedDecl : Decl {
 public sealed class UsingDecl : Decl {
     public string Name;
     public bool   IsGlobal;   // add-global-using：`global using X;` → 包级生效（注入每个 CU）
+    // using-csharp-rules PR-3（多余 using 告警）：
+    public bool   Injected;          // 编译器把 `global using` 注入进本 CU 的副本 —— 不是用户写的，不参与告警
+    public bool   CoveredByGlobal;   // 本文件自己写的 `using X;`，而包里已有 `global using X;`（注入时因已存在而跳过）
     public UsingDecl(string name, Span span) { this.Span = span; this.Name = name; this.IsGlobal = false; }
     public override string Dump() {
         if (this.IsGlobal) { return "(global-using " + this.Name + ")"; }

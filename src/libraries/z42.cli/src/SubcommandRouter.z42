@@ -1,6 +1,5 @@
 namespace Std.Cli;
 
-using Std;
 
 // add-cli-subcommand (2026-05-27): git/cargo-style subcommand router.
 //

@@ -17,7 +17,6 @@
 //                        `bench_stats` parsed from the benchmark's captured stdout).
 namespace Std.Test;
 
-using Std;
 using Std.IO;
 
 // Internal invoke outcome (z42 has no out-params). Carries thrown state + the

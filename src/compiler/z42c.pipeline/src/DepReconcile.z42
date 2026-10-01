@@ -2,10 +2,8 @@
 // _loadOpenedPackage（按需 Rebuild+DepIndex 并入 scan）+ completer 候选类型追加辅助。
 namespace Z42.Pipeline;
 
-using Std;
 using Std.IO;
 using Z42.IR;
-using Z42.IR.BinaryFormat;
 using Z42.Package;
 
 public static class DepReconcile {

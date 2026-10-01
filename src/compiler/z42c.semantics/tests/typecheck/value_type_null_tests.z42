@@ -7,8 +7,6 @@
 // ⇒ 与既有检查**不重叠**，同一位置不会双报。
 namespace Z42cSemanticsValueTypeNullTests;
 
-using Std;
-using Std.Test;
 using Z42.Semantics;
 
 // ── 应报 E0483 ────────────────────────────────────────────────────

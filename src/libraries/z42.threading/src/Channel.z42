@@ -1,6 +1,5 @@
 namespace Std.Threading;
 
-using Std;
 
 // 2026-05-20 add-sync-primitives: multi-producer / multi-consumer FIFO channel.
 //

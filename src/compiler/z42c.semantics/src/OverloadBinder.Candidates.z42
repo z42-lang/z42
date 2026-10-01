@@ -7,8 +7,6 @@
 namespace Z42.Semantics;
 using Z42.IR;
 
-using Z42.Syntax;
-using Z42.Core;
 
 public sealed partial class OverloadBinder {
     internal string _overloadKey(SymbolTable symbols, Z42ClassType ct, string name, int argCount) {

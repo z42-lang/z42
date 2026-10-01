@@ -2,8 +2,6 @@
 // jobs=1 等价、jobs>n 收敛、n=0 边界。IParallelBody 接口派发 + Std.Threading 线程。
 namespace Z42cSemanticsParallelForTests;
 
-using Std;
-using Std.Test;
 using Z42.Semantics;
 
 // 测试体：out[i] = i*i + 1（非平凡，验证每槽独立写、无串扰）。

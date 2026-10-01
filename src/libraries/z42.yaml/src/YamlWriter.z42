@@ -1,7 +1,6 @@
 namespace Std.Yaml;
 using Std.Time;
 
-using Std;
 using Std.Text;
 
 // add-z42-yaml (2026-05-24): YAML block-style stringifier.

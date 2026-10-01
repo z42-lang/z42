@@ -6,7 +6,6 @@
 // （编译每轮源 → 内存加载 → 反射调用；跨轮 var carry-forward）。
 namespace Z42Interactive;
 
-using Std;
 using Std.IO;
 using Std.Collections;
 using Std.Scripting;

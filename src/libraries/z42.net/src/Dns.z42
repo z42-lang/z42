@@ -1,6 +1,5 @@
 namespace Std.Net.Sockets;
 
-using Std;
 
 // add-z42-net-dns (2026-05-27): synchronous DNS lookup.
 //
