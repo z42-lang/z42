@@ -6,18 +6,6 @@ artifacts/
 # ${workspace_dir}/artifacts/${profile}, so bare projects put it under <projectDir>/artifacts/.
 .cache/
 
-# .NET / C#
-*.user
-*.suo
-.vs/
-*.nupkg
-*.snupkg
-*.lock.json
-!packages.lock.json
-# Build intermediates — always redirected to artifacts/ via Directory.Build.props
-obj/
-bin/
-
 # Rust
 # Cargo.lock IS committed for binary-producing crates (z42vm / launcher / test-runner /
 # host embed + platform shims) so CI builds are reproducible. Without it `cargo build`
@@ -42,41 +30,29 @@ bin/
 Thumbs.db
 
 # z42 build outputs
-*.z42c
 *.zbc
-*.zlib
-*.zmod
-
-# 例外：zpkg-format / zbc-format fixture 目录是 checked-in 字节基线（非构建产物），
-# 其 source.zbc/source.zpkg 必须入库供 Rust reader 兼容测试（add-indexed-zpkg-min-patch
-# 的 indexed-minimal/source.zbc 是散装 zbc 装载测试夹具）。
-!src/tests/zpkg-format/**/source.zbc
-!src/tests/zbc-format/**/source.zbc
 *.zasm
 *.z42ir.json
 dist/
-.cache/
 
-# zbc-format wire-format fixtures: source.zbc are checked-in byte goldens
-# (regen via src/tests/zbc-format/generate-fixtures.sh after a writer minor bump).
-# Negate the *.zbc rule for this directory only.
+# 例外：zpkg-format / zbc-format fixture 目录是 checked-in 字节基线（非构建产物），
+# 其 source.zbc 必须入库供 Rust reader 兼容测试（add-indexed-zpkg-min-patch 的
+# indexed-minimal/source.zbc 是散装 zbc 装载测试夹具；writer minor bump 后经
+# src/tests/zbc-format/generate-fixtures.sh 重生）。
+!src/tests/zpkg-format/**/source.zbc
 !src/tests/zbc-format/**/source.zbc
 
 # Cross-zpkg e2e test build artifacts (per-package libs/ populated by test driver).
 src/tests/cross-zpkg/*/*/libs/
 
-# BenchmarkDotNet output (auto-created in CWD when running `dotnet run` from any dir)
-BenchmarkDotNet.Artifacts/
-
 # Claude scheduler local state
 .claude/scheduled_tasks.lock
 
-# dotnet test runner output
-TestResults/
+# scripts/install-z42.{sh,bat} 下载的 z42 启动器（[toolchain.z42] 钉的版本）。
 .z42/
 
-# Generated dev-CLI apphost at the repo root (scripts/build-xtask.sh).
-# Native, platform-specific — regenerate, don't commit.
+# Generated dev-CLI apphost at the repo root（`z42 publish scripts/xtask.z42.toml`，
+# [platform.desktop].publish_dir = ".."）。Native, platform-specific — regenerate, don't commit.
 /xtask
 
 # Two-generation bootstrap scratch dirs created at the repo root by

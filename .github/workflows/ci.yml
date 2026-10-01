@@ -104,7 +104,7 @@ jobs:
               - 'scripts/test/xtask_test_android.z42'
               - 'scripts/test/xtask_test_desktop.z42'
               - 'scripts/test/xtask_test_embedded.z42'
-              - 'versions.toml'
+              - 'scripts/versions.toml'
               - '.github/workflows/ci.yml'
             # 学习手册示例：只有 package-host 用打包出的 SDK（含 Windows）重放会话脚本
             # （test-host 的 examples stage 无条件跑，不看这个 flag）。单独成 flag 而不是并进
@@ -836,8 +836,10 @@ jobs:
           TC="$PWD/.z42-dl"
           chmod +x "$TC/bin/z42vm"
           ls "$TC/programs/z42c/" "$TC/libs/" >/dev/null
-          # compile a real project (xtask) with the downloaded toolchain's z42c
-          Z42_LIBS="$TC/libs" "$TC/bin/z42vm" "$TC/programs/z42c/z42c.driver.zpkg" --mode interp -- \
+          # compile a real project (xtask) with the downloaded toolchain's z42c。xtask 以 `${compiler_libs}` 引用
+          # SDK 里的 z42.project / z42.build（tidy-xtask-config）—— 直接调 driver 时由 Z42_COMPILER_LIBS 指给它
+          # （经 launcher 时由 Z42_HOME / Z42_PORTABLE_VM 推出同一个 programs/z42c）。
+          Z42_COMPILER_LIBS="$TC/programs/z42c" Z42_LIBS="$TC/libs" "$TC/bin/z42vm" "$TC/programs/z42c/z42c.driver.zpkg" --mode interp -- \
             build scripts/xtask.z42.toml --release --output-dir "$RUNNER_TEMP/consume-out"
           test -f "$RUNNER_TEMP/consume-out/xtask.zpkg" \
             || { echo "::error::current-sdk compile failed — no xtask.zpkg"; exit 1; }

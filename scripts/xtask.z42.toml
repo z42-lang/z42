@@ -14,49 +14,41 @@ include = ["**/*.z42"]
 # z42c 从那儿解析每个 `using Std.*`（Cli/IO/Toml/Json/Regex；z42.core 是 prelude）——
 # 对这个 dev 工具来说显式列表是冗余的。（库/SDK 工程仍然显式声明依赖。）
 #
-# 🔴 **但编译器域的两个包必须显式 path 依赖**（relocate-compiler-domain-libs，2026-09-27）：
-# `Z42.Project`（读清单：ManifestLoader / WorkspaceManifest / PathTemplate）与 `Z42.Build`
-# 已随编译器域挪去 `src/compiler/`，**不在任何 `libs/` 里**。靠 `Z42_LIBS` 解析它们会在两处断：
-#   · `test-consume`：用**下载的 current-sdk** 编本清单 ⇒ `E0494: 命名空间 Z42.Project 不存在`
-#     （#921 实测）；SDK 只暴露 `libs/`，编译器域在 `programs/z42c/`。
-#   · `ci-bootstrap` 步骤 [2]：**下一个 nightly 之后**种子的 libs 里也不会再有它们 ⇒ 同样断。
-# path 依赖让 z42c 直接从**源码树**建它们（仓库内消费者天然可用），顺带把「xtask 编译期挂在
-# 上一代 libs 上」这条耦合彻底去掉 —— B3b 那轮 overlay/旁置的根因就是它。
+# 编译器域的两个包（`Z42.Project`：读清单 / 布局解析；`Z42.Build`：构建编排）**引用编出 xtask 的那套
+# 工具链里的 zpkg**，不从源码树代建（tidy-xtask-config，用户裁定）。它们不在 shipped `libs/`，而在
+# 编译器目录 —— SDK 的 `programs/z42c/`；`${compiler_libs}` 宏由 z42c 按序解析：
+#   Z42_COMPILER_LIBS → Z42_HOME/programs/z42c → 由 Z42_PORTABLE_VM 反推的 <sdk>/programs/z42c
+#   → 开发树 artifacts/build/compiler/z42c.driver/release/dist（与 programs/z42c 同形）。
+# 构建时 z42c 按部署规则（不在 shipped libs/ ⇒ 复制）把它们**复制到 xtask.zpkg 旁边**，运行期就从那里加载。
+#
+# ⚠️ 代价 = 自举纪律：CI 上编 xtask 的是**上一版 nightly** 的工具链（ci-bootstrap [2/5]），所以 xtask 用到的
+# `Z42.Project` / `Z42.Build` 新 API 必须先随一次合入进 nightly、下一个 PR 再用（docs/agent/rules/bootstrap-seed.md）。
 [dependencies]
-"z42.project" = { path = "../src/compiler/z42.project" }
-"z42.build"   = { path = "../src/compiler/z42.build" }
+"z42.project" = { path = "${compiler_libs}/z42.project.zpkg" }
+"z42.build"   = { path = "${compiler_libs}/z42.build.zpkg" }
 
 [build]
 # xtask is the build DRIVER, so its output lives at artifacts/xtask — NOT under
 # artifacts/build/ (which is where the things xtask builds go). output_dir is
-# projectDir-relative; dist_dir / cache_dir are output_dir-relative (resolved
-# against output_dir by CentralizedBuildLayout), so they use the ${output_dir}
-# template — writing "../artifacts/xtask" here would double to
-# artifacts/artifacts/xtask. dist_dir = ${output_dir} keeps the flat
+# projectDir-relative; dist_dir is output_dir-relative (BuildLayout), hence the
+# ${output_dir} template. dist_dir = ${output_dir} keeps the flat
 # "artifacts/xtask/xtask.zpkg" layout instead of "${output_dir}/dist/...".
+# cache_dir 不写 = 默认 ${output_dir}/.cache。
 output_dir = "../artifacts/xtask"
 # build hook（wire-z42b build-hook 终章）：`z42 publish` 时 z42b 动态注入
 # scripts/hooks/ 的 ProjectHooks —— BeforeAssets 现场 cargo 编 apphost stub 并登记，
 # 免装 desktop workload（去掉下载依赖）。目录为 projDir（scripts/）相对。
 hooks      = "hooks"
 dist_dir   = "${output_dir}"
-cache_dir  = "${output_dir}/.cache"
 
 [profile.release.runtime]
 mode = "interp"
-# 🔴 xtask 运行期要解析 `Z42.Project` / `Z42.Build`（读清单、跑构建编排），而
-# relocate-compiler-domain-libs（2026-09-27）把整个编译器域挪去了 `src/compiler/` ⇒ 它们不在
-# stdlib flat（`Z42_LIBS`）里了。`build stdlib` 的最后一步 `_assembleStdlibFlatView` 会**清空 flat
-# 再只链 default-members**，所以指望「破环预建顺手把它们写进 flat」是**靠命令顺序的巧合**：
-# 本地先 `build stdlib` 再 `build compiler` 看着是好的，CI 上 `build stdlib` 之后直接跑 xtask
-# 就当场 `MissingSymbolException: Z42.Project.ManifestLoader.LoadWorkspace`（#921 二轮实测，
-# `Build SDK for the examples stage` / `Stage toolchain` 七个 job 同因）。
-#
-# ⇒ 让 xtask 自己带搜索路径，不依赖 flat 里有什么。相对 entry 目录（`artifacts/xtask/`）解析，
-# 用 **glob** 一次覆盖全部编译器成员的 dist（probing 是逐段展开的，中间的 `*` 支持）。
-# ⚠️ **只能配一条**：`probing-paths` 按平台分隔符分隔，写两条必在一个平台上错（#816 的教训）。
-# xtask 不发布 ⇒ 这条只影响仓库内开发/CI，与 SDK 布局无关。
-probing-paths = "../build/compiler/*/release/dist"
+# 运行期的 `Z42.Project` / `Z42.Build` 就在 xtask.zpkg 旁边（见上面 [dependencies]：构建时复制进
+# artifacts/xtask/；VM 先查入口 zpkg 所在目录）。此前这里有一条
+# `probing-paths = "../build/compiler/*/release/dist"`（#921 加）；有了旁边的副本之后，
+# 那条搜索路径已无人使用（tidy-xtask-config 实测：
+# 移走 artifacts/build/compiler 后用到 Z42.Project 的命令照常运行；test-consume 在 consume-out 里编的
+# xtask 也从来只靠这两份副本）。
 
 # apphost-as-config (2026-06-17): `z42 publish scripts/xtask.z42.toml` (--rid
 # defaults to host) reads [platform.desktop] and emits a native `./xtask` apphost that runs the

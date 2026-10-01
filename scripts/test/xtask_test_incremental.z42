@@ -771,7 +771,7 @@ string _incrXtaskCopy(string root, string scratch) {
     return d;
 }
 
-// 真品 `scripts/xtask.z42.toml` 的 path 依赖，改写成绝对路径的 `[dependencies]` 段（没有 → ""）。
+// 真品 `scripts/xtask.z42.toml` 的 path 依赖，改写成拷贝里可用的 `[dependencies]` 段（没有 → ""）。
 //
 // 为什么必须带：relocate-compiler-domain-libs（2026-09-27）把 `Z42.Project` / `Z42.Build` 挪出
 // `libs/`，xtask 改为 path 依赖它们 —— 而这份拷贝的替身清单此前只写了 `[project]` + `[sources]`，
@@ -785,8 +785,11 @@ string _incrXtaskPathDeps(string scriptsDir) {
     while (i < m.DepCount) {
         DepEntry e = m.Deps[i];
         if (e.Path.Length > 0) {
-            string abs = Path.Normalize(Path.Join(scriptsDir, e.Path)).Replace("\\", "/");
-            s = s + "\"" + e.Name + "\" = { path = \"" + abs + "\" }\n";
+            // `${compiler_libs}/…` 这类宏路径（tidy-xtask-config：xtask 改为引用工具链里的 zpkg）原样照抄 ——
+            // 由 z42c 按同一套查找序解析；只有相对路径才需要改写成绝对路径。
+            string p = e.Path.StartsWith("${") ? e.Path
+                : Path.Normalize(Path.Join(scriptsDir, e.Path)).Replace("\\", "/");
+            s = s + "\"" + e.Name + "\" = { path = \"" + p + "\" }\n";
         }
         i = i + 1;
     }

@@ -2,7 +2,7 @@
 
 > 对齐：2026-09-17（change `restructure-docs-three-books`）｜ 代码：`scripts/package/`、
 > `scripts/packages.toml`、`scripts/cli/xtask_cli_package.z42`、`.github/workflows/release.yml`、
-> `.github/workflows/ci.yml`（`publish-nightly`）、`versions.toml`
+> `.github/workflows/ci.yml`（`publish-nightly`）、`scripts/versions.toml`
 >
 > 打包**引擎**（清单三层结构、staging→组装两段流水、source-identity 门的实现）见[打包引擎](packaging.md)；
 > 这页是操作面：产哪些包、怎么在本地产、怎么验、怎么发出去。
@@ -125,11 +125,11 @@ file .../native/libz42.dylib          # ② native 库架构（关键 invariant�
 
 ## 5. 发 tag release
 
-版本号的单一来源是 `versions.toml` 的 `[project].version`；`src/runtime/Cargo.toml`
+版本号的单一来源是 `scripts/versions.toml` 的 `[project].version`；`src/runtime/Cargo.toml`
 `[workspace.package].version` 是它的镜像，`xtask deps check` 守这条漂移。
 
 ```bash
-$EDITOR versions.toml                      # ① 改 [project].version
+$EDITOR scripts/versions.toml              # ① 改 [project].version
 ./xtask deps check                         # ② 应当 fail（两处不一致）
 $EDITOR src/runtime/Cargo.toml             # ③ 同步 [workspace.package].version
 ./xtask deps check                         # ④ 应当通过

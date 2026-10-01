@@ -1,7 +1,7 @@
 # 开发环境与工具链自举
 
 > 对齐：2026-09-17（change `restructure-docs-three-books`）｜ 代码：`scripts/install-z42.sh`、
-> `scripts/install/install.sh`、`scripts/install/xtask_install.z42`、`versions.toml`、
+> `scripts/install/install.sh`、`scripts/install/xtask_install.z42`、`scripts/versions.toml`、
 > `src/runtime/Cargo.toml`、`src/compiler/z42c.driver/src/Main.z42`、`.gitattributes`
 >
 > 只想**写 z42 程序**不用读这页——装 SDK 见学习手册的[安装 z42](../../../learn/src/getting-started/install.md)。
@@ -25,7 +25,7 @@ git clone https://github.com/z42-lang/z42 && cd z42
 关于这四步：
 
 - **①** `install-z42.sh` 只是给用户安装器 `scripts/install/install.sh` 套上仓库默认值：版本取
-  `versions.toml` 的 `[toolchain.z42].launcher`，目标是 gitignore 掉的 `./.z42/`，不动 PATH。
+  `scripts/versions.toml` 的 `[toolchain.z42].launcher`，目标是 gitignore 掉的 `./.z42/`，不动 PATH。
   重跑即更新；它是整条链上**唯一**的非 z42 环节。没有网络 / 没有 `gh` 就起不了步——工具链没有
   任何非 z42 的逃生编译器。
 - **②** `z42 publish` 产出的 `./xtask` 是原生 apphost，自己能定位 `./.z42` 运行时，**不需要

@@ -140,6 +140,12 @@ xtask / build 基础设施驱动；stdlib 又被两者依赖。任何「从源�
 - **删/改 xtask / z42c 在用的 API**：两阶段跨两个 nightly——阶段 1 加新 API、**旧 API 暂留**
   （种子例外，非兼容层）、调用点不动 → nightly 发布 → 阶段 2 切全部调用点 + **同一提交删旧 API**。
 - stdlib 源自身不受此轴约束（它由自建的当前 z42c 编译）。
+- **xtask 用到的编译器域 API（`Z42.Project` / `Z42.Build`）同属此轴**（2026-10-01 tidy-xtask-config 起）：
+  `scripts/xtask.z42.toml` 以 `${compiler_libs}/z42.{project,build}.zpkg` 引用**编出 xtask 的那套工具链**里的
+  zpkg（CI 上 = 上一 nightly 的 `programs/z42c/`），不从源码代建。⇒ 给这两个包**加** API 随时可做，xtask
+  **用**它要晚一个 nightly；**删/改** xtask 在用的 API 走上面的两阶段。另一个后果：改布局规则
+  （`BuildLayout` / `WorkspaceLayout`）的那次合入里，CI 上的 xtask 仍按上一 nightly 的规则算路径 ——
+  xtask 侧的跟进放到下一个 PR。
 
 > 🔴 **阶段 2 最容易被忘掉——因为忘了不会红。** 阶段 1 的过渡形态（字面量 / 旧 API 并存）能一直跑下去，
 > 没有任何东西提醒你回来收尾，于是过渡形态**沉淀成常态**：诊断码那边就这么积到了 42 个码 / 100 个

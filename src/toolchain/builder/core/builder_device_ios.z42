@@ -77,9 +77,13 @@ int _buildIosXcframework(string buildRoot, string here, string rid) {
     if (wantDev) { targets[n] = "aarch64-apple-ios"; n = n + 1; }
     if (wantSim) { targets[n] = "aarch64-apple-ios-sim"; n = n + 1; }
     string iosMin = "16.0";
-    string versionsPath = Path.Join(buildRoot, "versions.toml");
+    // versions.toml 在 scripts/ 下（tidy-xtask-config 从仓库根挪来）。读不到就**说出来**再回落 ——
+    // 此前静默回落，挪了位置也不会有任何人发现 min_ios 没跟上。
+    string versionsPath = Path.Join(buildRoot, "scripts/versions.toml");
     if (File.Exists(versionsPath)) {
         iosMin = _pubPlatform(TomlValue.Parse(File.ReadAllText(versionsPath)), "ios", "min_ios", iosMin);
+    } else {
+        ConsoleError.WriteLine("z42b: warning: " + versionsPath + " not found — IPHONEOS_DEPLOYMENT_TARGET falls back to " + iosMin);
     }
     int i = 0;
     while (i < n) {

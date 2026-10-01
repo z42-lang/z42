@@ -52,9 +52,9 @@ jobs:
             /^\[project\]/ {inblock=1; next}
             /^\[/ {inblock=0}
             inblock && /^version/ {split($0, a, "\""); print a[2]; exit}
-          ' versions.toml)
+          ' scripts/versions.toml)
           if [ "$tag" != "$repo_version" ]; then
-            echo "drift: tag=$tag versions.toml=$repo_version" >&2
+            echo "drift: tag=$tag scripts/versions.toml=$repo_version" >&2
             exit 1
           fi
           echo "version=$tag" >> "$GITHUB_OUTPUT"
