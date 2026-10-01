@@ -430,6 +430,12 @@ public static class ZbcInstr {
 
     // 终结符 → 字节。labels/blockCount：本函数块 label 序（Br/BrCond 目标 → 块索引 u16）。
     public static void WriteTerm(ByteWriter w, IrTerminator t, string[] labels, int blockCount) {
+        ZbcInstr.WriteTermIndexed(w, t, labels, blockCount, null);
+    }
+
+    // 同上；labelIdx 非 null 时按它查块索引（label → 首个同名块的下标）。逐条线性找目标块是每函数 O(块数²)，
+    // 大函数（长 switch / 状态机）上明显 —— ZbcWriter 对块多的函数先建好索引再传进来。
+    public static void WriteTermIndexed(ByteWriter w, IrTerminator t, string[] labels, int blockCount, StrIndex labelIdx) {
         if (t is RetTerm) {
             RetTerm r = t as RetTerm;
             if (r.HasReg) {
@@ -442,14 +448,14 @@ public static class ZbcInstr {
         if (t is BrTerm) {
             BrTerm b = t as BrTerm;
             w.WriteU8(Op.Br); w.WriteU8(Tag.Unknown); w.WriteU16(ZbcInstr.NoReg);
-            w.WriteU16(ZbcInstr._idx(b.Label, labels, blockCount));
+            w.WriteU16(ZbcInstr._idx(b.Label, labels, blockCount, labelIdx));
             return;
         }
         if (t is BrCondTerm) {
             BrCondTerm b = t as BrCondTerm;
             w.WriteU8(Op.BrCond); w.WriteU8(Tag.FromIrType(b.Cond.Type)); w.WriteU16(b.Cond.Id);
-            w.WriteU16(ZbcInstr._idx(b.TrueLabel, labels, blockCount));
-            w.WriteU16(ZbcInstr._idx(b.FalseLabel, labels, blockCount));
+            w.WriteU16(ZbcInstr._idx(b.TrueLabel, labels, blockCount, labelIdx));
+            w.WriteU16(ZbcInstr._idx(b.FalseLabel, labels, blockCount, labelIdx));
             return;
         }
         if (t is ThrowTerm) {
@@ -470,7 +476,12 @@ public static class ZbcInstr {
         w.WriteU16(src.Id);
     }
 
-    private static int _idx(string label, string[] labels, int blockCount) {
+    private static int _idx(string label, string[] labels, int blockCount, StrIndex labelIdx) {
+        if (labelIdx != null) {
+            int hit = labelIdx.Get(label);
+            if (hit >= 0) { return hit; }
+            throw new Exception("zbc writer: branch target label `" + label + "` is not a block of this function");
+        }
         int i = 0;
         while (i < blockCount) {
             if (labels[i] == label) { return i; }
