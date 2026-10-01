@@ -111,7 +111,9 @@ public static class CompilerFingerprint {
         // 没 using 的类型引用改在引用处报 E0436（此前静默解析、事后报在文件头）。stdlib 19 包字节不变。
         "drop-bare-name-fallback",
         // generated-usings-no-lint：generator 碎片从宿主抄来的 using 不再报 W0607 / W0608 —— 诊断变少。
-        "generated-usings-no-lint"
+        "generated-usings-no-lint",
+        // fix-class-identity-ns：同短名不同命名空间的两个类不再互相可赋（IsAssignableTo 同名判据加 ns）—— 新发 E0402。stdlib 19 包字节不变。
+        "fix-class-identity-ns"
     };
 
     // 指纹值：`Entries` 逐条以 `\n` 连接后取内容哈希（`mmh3:` 前缀，同 SourceHash）。

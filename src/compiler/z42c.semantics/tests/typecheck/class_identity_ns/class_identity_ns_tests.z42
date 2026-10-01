@@ -1,0 +1,57 @@
+// 类身份按命名空间判（enforce-fqn-name-identity 阶段 4 的一刀）：两个**不同命名空间**里的同短名类是两个类型。
+//
+// 此前 `Z42ClassType.IsAssignableTo` 的第一条判据是 `this._name == other.Name()`（**只比短名**）⇒
+// `namespace B` 里本地的 `Base` 与 `A.Base` 互相「可赋」，零诊断；运行期在第一次成员访问时才炸
+// （对象实际是 `A.Base`，按 `B.Base` 的布局 / vtable 访问）。#1004 修 class→class 判定（`IsSubclassOfType`）时
+// 发现它挡在更前面：`Conversion.Classify` 先问 `IsAssignableTo`，同短名直接判 Identity，根本走不到子类判定。
+//
+// 全部用多 CU：同一个包、两个 ns 各声明一个 `Base`（单文件只有一个 ns，造不出这个形状）。
+namespace Z42cSemanticsClassIdentityNsTests;
+
+using Z42.Semantics;
+
+string[] cidDiags(string[] srcs) {
+    string[] files = new string[srcs.Length];
+    int f = 0;
+    while (f < srcs.Length) { files[f] = "f" + f.ToString() + ".z42"; f = f + 1; }
+    CompiledModuleZ[] cms = IrDump.BuildPackage(srcs, files, srcs.Length, null, null, false);
+    int n = 0;
+    int i = 0;
+    while (i < cms.Length) { n = n + cms[i].DiagCount; i = i + 1; }
+    string[] r = new string[n];
+    int k = 0;
+    i = 0;
+    while (i < cms.Length) {
+        int j = 0;
+        while (j < cms[i].DiagCount) { r[k] = cms[i].DiagMsgs[j]; k = k + 1; j = j + 1; }
+        i = i + 1;
+    }
+    return r;
+}
+
+int cidCount(string[] msgs, string code) {
+    int n = 0;
+    int i = 0;
+    while (i < msgs.Length) { if (msgs[i].Contains(code)) { n = n + 1; } i = i + 1; }
+    return n;
+}
+
+string cidLibA() { return "namespace A;\npublic class Base { public int P() { return 1; } }\n"; }
+
+[Test]
+void test_same_short_name_in_other_namespace_is_not_assignable() {
+    string[] s = new string[2];
+    s[0] = cidLibA();
+    s[1] = "namespace B;\nusing A;\npublic class Base { public int Q() { return 2; } }\n"
+         + "int F() { A.Base c = new A.Base(); Base l = c; return l.Q(); }\n";
+    Assert.Equal(1, cidCount(cidDiags(s), "E0402"));
+}
+
+[Test]
+void test_same_class_through_both_spellings_is_assignable() {
+    // 阴性对照：同一个类、一处写短名一处写全名 ⇒ 仍是同一个类型。
+    string[] s = new string[2];
+    s[0] = cidLibA();
+    s[1] = "namespace B;\nusing A;\nint F() { A.Base c = new A.Base(); Base d = c; return d.P(); }\n";
+    Assert.Equal(0, cidCount(cidDiags(s), "E0402"));
+}
