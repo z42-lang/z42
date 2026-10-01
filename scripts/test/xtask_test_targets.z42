@@ -125,6 +125,7 @@ int _testTargetsCore(string kind, string name, bool noBuild) {
         failed = failed + _smokeManifestSections(root, tt);
         failed = failed + _smokeBuildHooks(root, tt);
         failed = failed + _smokeBuildHooksBroken(root, tt);
+        failed = failed + _smokeBuildHooksMode(root, tt);
     }
     Console.WriteLine("");
     if (failed > 0) {
@@ -390,6 +391,39 @@ int _smokeBuildHooksBroken(string root, TargetTooling tt) {
         Console.WriteLine("  ✅ broken build hooks: `z42b " + verbs[vi] + "` 判红（rc=" + r.ExitCode.ToString() + "）");
         vi = vi + 1;
     }
+    return 0;
+}
+
+// hook 收到的 Target.Mode（hooks-embed-on-demand）：普通 `z42b publish` 传 `publish`，`--self-contained` 传
+// `publish-self-contained`。项目 hook 靠这个值决定要不要准备 embed 产物（scripts/hooks/hooks.z42：embed apphost
+// 要把整个 VM 编成 libz42.a，普通 publish 一个字节都用不到）。两条路各断言一次，传反、传同值都会红。
+// 只看 hook 打出的那一行，不看退出码：fixture 不登记 stub / embed 产物，普通 publish 回落到假模板、
+// self-contained 报「embed apphost not available」，都与本格无关。Z42_EMBED_* 显式置空，免得外部环境让
+// self-contained 跳过 hook。
+int _smokeBuildHooksMode(string root, TargetTooling tt) {
+    string toml = Path.Join(tt.Z42bFixturesRoot, "build-hooks/z42.toml");
+    if (!File.Exists(toml)) { return 0; }
+    Console.WriteLine("");
+    Console.WriteLine("── build hooks mode (publish / publish --self-contained 传给 hook 的 Target.Mode) ──");
+    string[] flags = new string[] { "", "--self-contained" };
+    string[] want  = new string[] { "(mode=publish)", "(mode=publish-self-contained)" };
+    int i = 0;
+    while (i < flags.Length) {
+        Process p = new Process(tt.Vm).Arg(tt.BuilderZpkg).Arg("--mode").Arg(_z42cMode())
+            .Arg("--").Arg("publish").Arg(toml).Arg("--rid").Arg(_detectHostRid());
+        if (flags[i].Length > 0) { p = p.Arg(flags[i]); }
+        ProcessResult r = p.Env("Z42_LIBS", tt.Libs).Env("Z42_APPHOST_TEMPLATE", tt.Vm)
+            .Env("Z42_EMBED_APPHOST", "").Env("Z42_EMBED_LIBS", "").Env("Z42_EMBED_DYLIB", "")
+            .WorkingDirectory(root).Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
+        string all = r.Stdout + r.Stderr;
+        if (all.IndexOf("BUILD-HOOKS-SMOKE: BeforeAssets ran " + want[i]) < 0) {
+            Console.WriteLine("  ❌ build hooks mode: `z42b publish " + flags[i] + "` 传给 hook 的不是 " + want[i]);
+            Console.WriteLine("    输出: " + all);
+            return 1;
+        }
+        i = i + 1;
+    }
+    Console.WriteLine("  ✅ build hooks mode: publish → publish；--self-contained → publish-self-contained");
     return 0;
 }
 

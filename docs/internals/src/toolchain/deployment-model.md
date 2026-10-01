@@ -40,7 +40,9 @@
 
 embed apphost（以及 `dynamic` 时的 `libz42.<dyn>`）由 desktop workload 提供；
 开发流也可经工程 `[build] hooks` 现场产出（注册 `embed-apphost-<link>` / `embed-libs` /
-`embed-dylib` 三类 Output），或用 `Z42_EMBED_*` 环境变量直接指定。
+`embed-dylib` 三类 Output；z42b 此时传 `Target.Mode = "publish-self-contained"`，hook 据此只在需要时才编），
+或用 `Z42_EMBED_*` 环境变量直接指定。`embed-libs` 必须是**只有 stdlib** 的目录（本仓 = stdlib flat）——
+它整个随包进 `libs/`。
 
 ### B — 运行时链接
 

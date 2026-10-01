@@ -13,9 +13,13 @@ public static class TargetFamily {
 }
 
 /// 构建模式：export 跑到 GenerateProject 停；publish 跑到 Package。
+/// `PublishSelfContained` = `z42 publish --self-contained`（把 VM 嵌进可执行文件）：管线语义同 publish，
+/// 单独一个值是为了让项目 hook 知道**这次要不要准备 embed 产物**（embed apphost / libz42 很贵，
+/// 普通 publish 用不到）。只与 Export 比较的地方不受影响。
 public static class BuildMode {
     public static string Export  = "export";
     public static string Publish = "publish";
+    public static string PublishSelfContained = "publish-self-contained";
 }
 
 /// 八相位名（封闭、线性，z42.build 独占；workload / 项目不得新增或改序）。

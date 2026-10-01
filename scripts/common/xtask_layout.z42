@@ -212,7 +212,6 @@ string _viewsDir(string root, string profile) {
 
 // alllibs = stdlib flat ∪ 全部编译器成员 dist 的扁平目录（工具链编译期解析面，见 `_assembleAllLibs`）。
 // 原在 artifacts/.scratch/alllibs/<profile>：它是关键输入而不是临时目录，故挪进 build/views。
-// ⚠️ scripts/hooks/hooks.z42 另写了一份（hooks 工程调不到本函数），改这里要同步。
 string _allLibsDir(string root, string profile) {
     return Path.Join(_viewsDir(root, profile), "all");
 }
