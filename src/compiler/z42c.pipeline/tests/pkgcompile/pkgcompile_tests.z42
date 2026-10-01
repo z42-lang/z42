@@ -9,6 +9,21 @@ using Z42.Semantics;
 using Z42.Package;
 using Z42.IR.BinaryFormat;
 
+// 依赖目录 = `Z42_LIBS`（stdlib flat）+ 编译器目录（`CompilerDomain.Dirs()`，开发树里是 driver 的自包含 dist）。
+// drop-alllibs 之前 `Z42_LIBS` 是 alllibs（stdlib + 全部编译器包），analyzer / generator fixture 要的 `Z42.Syntax` /
+// `Z42.Build` 等本就在里面；现在开发树的 `Z42_LIBS` 只有 stdlib，编译器包从编译器目录拿 —— 与 driver 编 analyzer
+// 时的解析域同形（SdkLibs：编译器目录追加在 libs 之后，其中的 stdlib 副本按先到先得被 libs 压住）。
+string[] _depDirs(string libs) {
+    string[] a = libs.Split(":");
+    string[] dom = CompilerDomain.Dirs();
+    string[] r = new string[a.Length + dom.Length];
+    int i = 0;
+    while (i < a.Length) { r[i] = a[i]; i = i + 1; }
+    int j = 0;
+    while (j < dom.Length) { r[a.Length + j] = dom[j]; j = j + 1; }
+    return r;
+}
+
 // PR4d VM 执行 golden 用：把编好的 consumer zpkg 并入 live VM（可 Type.GetType + Activator + 虚调用）。
 // native 是 VM builtin（种子恒在），返回值忽略——只要加载副作用。同 GeneratorLoader/AnalyzerLoader Path-B。
 static class _VmLoad {
@@ -65,7 +80,7 @@ CompileInputs _inputs2Libs(string srcA, string srcB, string[] dirs) {
 void test_global_using_covers_sibling_file() {
     string libs = Environment.GetEnvironmentVariable("Z42_LIBS", "");
     if (libs == "") { return; }   // 无 libs 环境 → 跳过（同本文件其它 fixture 用例）
-    string[] dirs = libs.Split(":");
+    string[] dirs = _depDirs(libs);
     // prelude 写 global using；Main **自己一条 using 都没有**。
     CompileArtifacts art = PackageCompile.Compile(_inputs2Libs(
         "namespace Gu;\nglobal using Std.IO;\n",
@@ -80,7 +95,7 @@ void test_global_using_covers_sibling_file() {
 void test_enclosing_namespace_of_dependency_needs_no_using() {
     string libs = Environment.GetEnvironmentVariable("Z42_LIBS", "");
     if (libs == "") { return; }
-    string[] dirs = libs.Split(":");
+    string[] dirs = _depDirs(libs);
     CompileArtifacts art = PackageCompile.Compile(_inputs2Libs(
         "namespace Std.IO.Ext;\npublic static class Marker { }\n",
         "namespace Std.IO.Ext;\nvoid Go() { Console.WriteLine(\"x\"); }\n", dirs));
@@ -94,7 +109,7 @@ void test_enclosing_namespace_of_dependency_needs_no_using() {
 void test_missing_global_using_reports_e0436() {
     string libs = Environment.GetEnvironmentVariable("Z42_LIBS", "");
     if (libs == "") { return; }
-    string[] dirs = libs.Split(":");
+    string[] dirs = _depDirs(libs);
     CompileArtifacts art = PackageCompile.Compile(_inputs2Libs(
         "namespace Gu;\nusing Std.IO;\n",
         "namespace Gu;\nvoid Go() { Console.WriteLine(\"x\"); }\n", dirs));
@@ -159,7 +174,7 @@ void test_bad_source_returns_diagnostics_no_assembly() {
 void test_cached_scan_reused() {
     string libs = Environment.GetEnvironmentVariable("Z42_LIBS", "");
     if (libs == "") { return; }   // 无 libs 环境（不该发生于 test harness）→ 跳过
-    string[] dirs = libs.Split(":");
+    string[] dirs = _depDirs(libs);
     CompileArtifacts a1 = PackageCompile.Compile(_inputsLibs("R1", "F1", dirs, "repl_r1"));
     Assert.Equal(0, a1.ErrorCount);
     Assert.Equal(true, a1.Scan != null);          // scan 建好且回显
@@ -178,7 +193,7 @@ void test_cached_scan_reused() {
 void test_extend_with_package_adds_namespace() {
     string libs = Environment.GetEnvironmentVariable("Z42_LIBS", "");
     if (libs == "") { return; }
-    string[] dirs = libs.Split(":");
+    string[] dirs = _depDirs(libs);
     CompileArtifacts a1 = PackageCompile.Compile(_inputsLibs("ExtNs", "F", dirs, "repl_ext"));
     Assert.Equal(0, a1.ErrorCount);
     int before = a1.Scan.NsCount;
@@ -253,7 +268,7 @@ bool _cmsHasCode(CompileArtifacts art, string code) {
 void test_external_analyzer_loaded_and_reports() {
     string libs = Environment.GetEnvironmentVariable("Z42_LIBS", "");
     if (libs == "") { return; }   // 无 libs 环境（不该发生于 test harness）→ 跳过
-    string[] dirs = libs.Split(":");
+    string[] dirs = _depDirs(libs);
     // 1. 现编 fixture analyzer → 临时 zpkg（非提交二进制）
     CompileArtifacts aArt = PackageCompile.Compile(_fixtureAnalyzerInputs(dirs));
     Assert.Equal(0, aArt.ErrorCount);
@@ -301,7 +316,7 @@ CompileInputs _consumerWithAnalyzer(string azPath, LintConfig cfg) {
 void test_lints_none_suppresses_end_to_end() {
     string libs = Environment.GetEnvironmentVariable("Z42_LIBS", "");
     if (libs == "") { return; }
-    string azPath = _writeFixtureZpkg(libs.Split(":"));
+    string azPath = _writeFixtureZpkg(_depDirs(libs));
     // [lints] Z9002 = "none" → 抑制，consumer Cms 不含 Z9002
     string[] keys = new string[1]; keys[0] = "Z9002";
     string[] sevs = new string[1]; sevs[0] = "none";
@@ -315,7 +330,7 @@ void test_lints_none_suppresses_end_to_end() {
 void test_lints_warnings_as_errors_fails_compile() {
     string libs = Environment.GetEnvironmentVariable("Z42_LIBS", "");
     if (libs == "") { return; }
-    string azPath = _writeFixtureZpkg(libs.Split(":"));
+    string azPath = _writeFixtureZpkg(_depDirs(libs));
     // warnings-as-errors → Z9002（默认 Warning）升 Error → consumer ErrorCount>0（拦编译）
     LintConfig cfg = new LintConfig(new string[0], new string[0], 0, true);
     CompileArtifacts cArt = PackageCompile.Compile(_consumerWithAnalyzer(azPath, cfg));
@@ -358,7 +373,7 @@ CompileInputs _consumerAttrSuppress(string azPath) {
 void test_suppress_pragma_end_to_end() {
     string libs = Environment.GetEnvironmentVariable("Z42_LIBS", "");
     if (libs == "") { return; }
-    string azPath = _writeFixtureZpkg(libs.Split(":"));
+    string azPath = _writeFixtureZpkg(_depDirs(libs));
     // `#suppress`/`#restore` 圈住空 catch → 抑制，consumer Cms 不含 Z9002；编译干净
     CompileArtifacts cArt = PackageCompile.Compile(_consumerPragmaSuppress(azPath));
     Assert.Equal(0, cArt.ErrorCount);
@@ -369,7 +384,7 @@ void test_suppress_pragma_end_to_end() {
 void test_suppress_attr_end_to_end() {
     string libs = Environment.GetEnvironmentVariable("Z42_LIBS", "");
     if (libs == "") { return; }
-    string azPath = _writeFixtureZpkg(libs.Split(":"));
+    string azPath = _writeFixtureZpkg(_depDirs(libs));
     // `[Suppress("Z9002")]` = directive（纯编译期）→ 全量编译不因缺 SuppressAttribute 类而报错
     // （ErrorCount=0），且抑制生效（Cms 不含 Z9002）。这条同时验 directive 分类与抑制两件事。
     CompileArtifacts cArt = PackageCompile.Compile(_consumerAttrSuppress(azPath));
@@ -461,7 +476,7 @@ CompileInputs _fixConsumerInputs(string azPath, string cpath, bool fix) {
 void test_external_analyzer_fix_rewrites_consumer_in_place() {
     string libs = Environment.GetEnvironmentVariable("Z42_LIBS", "");
     if (libs == "") { return; }
-    string azPath = _writeFixtureFixZpkg(libs.Split(":"));
+    string azPath = _writeFixtureFixZpkg(_depDirs(libs));
     string cpath = Path.Join(_tmpRoot(), "fix_consumer_on.z42");
     CompileArtifacts cArt = PackageCompile.Compile(_fixConsumerInputs(azPath, cpath, true));
     Assert.Equal(0, cArt.ErrorCount);                  // Warning 不阻断编译
@@ -476,7 +491,7 @@ void test_external_analyzer_fix_rewrites_consumer_in_place() {
 void test_external_analyzer_fix_off_leaves_consumer() {
     string libs = Environment.GetEnvironmentVariable("Z42_LIBS", "");
     if (libs == "") { return; }
-    string azPath = _writeFixtureFixZpkg(libs.Split(":"));
+    string azPath = _writeFixtureFixZpkg(_depDirs(libs));
     string cpath = Path.Join(_tmpRoot(), "fix_consumer_off.z42");
     // Fix=false（默认 build）→ 诊断照报、源文件原样不动（默认构建绝不改用户源）
     CompileArtifacts cArt = PackageCompile.Compile(_fixConsumerInputs(azPath, cpath, false));
@@ -623,7 +638,7 @@ void test_handwritten_tostring_via_load_control() {
 void test_external_applied_generator_vm_execution_golden() {
     string libs = Environment.GetEnvironmentVariable("Z42_LIBS", "");
     if (libs == "") { return; }   // 无 libs 环境（不该发生于 test harness）→ 跳过
-    string[] dirs = libs.Split(":");
+    string[] dirs = _depDirs(libs);
     string gzPath = _writeFixtureGeneratorZpkg(dirs);
     // consumer：`[Stringify] class Widget {}`（无 ToString）。AnalyzerZpkgs 指向 fixture → 外部加载
     // StringifyGenerator → Augment override ToString。ordering fixup 剥 `[Stringify]` 触发 attr。
@@ -643,7 +658,7 @@ void test_external_applied_generator_vm_execution_golden() {
 void test_external_module_generator_vm_execution_golden() {
     string libs = Environment.GetEnvironmentVariable("Z42_LIBS", "");
     if (libs == "") { return; }
-    string[] dirs = libs.Split(":");
+    string[] dirs = _depDirs(libs);
     string gzPath = _writeFixtureGeneratorZpkg(dirs);
     // consumer：自定义 EntityAttribute（供 `[Entity]` store-meta 合成）+ 2 个 `[Entity]` 类 + 1 非实体。
     // module generator（外部加载）TypesWith<EntityAttribute> 按名匹配 → n=2 → 生成 EntityRegistry。
@@ -686,7 +701,7 @@ void test_no_generator_zpkgs_no_change() {
 void test_generator_broken_output_errors_land_in_union_cms() {
     string libs = Environment.GetEnvironmentVariable("Z42_LIBS", "");
     if (libs == "") { return; }   // 无 libs 环境 → 跳过（同本文件其它 fixture 用例）
-    string[] dirs = libs.Split(":");
+    string[] dirs = _depDirs(libs);
     string gzPath = _writeFixtureGeneratorZpkg(dirs);
     CompileInputs cin = _inputs("namespace GenBad;\n[Broken] class Widget { }\n", "lib");
     cin.Name = "demo.genbad";
@@ -720,7 +735,7 @@ void test_generator_broken_output_errors_land_in_union_cms() {
 void test_augment_fragment_inherits_host_usings() {
     string libs = Environment.GetEnvironmentVariable("Z42_LIBS", "");
     if (libs == "") { return; }   // 无 libs 环境 → 跳过（同本文件其它 fixture 用例）
-    string[] dirs = libs.Split(":");
+    string[] dirs = _depDirs(libs);
     string gzPath = _writeFixtureGeneratorZpkg(dirs);
     // 宿主写了 `using Std.Text;`；生成体用 StringBuilder（住在 Std.Text）。
     // 碎片不继承 using → E0436；继承了 → 干净编过。
@@ -743,7 +758,7 @@ void test_augment_fragment_inherits_host_usings() {
 void test_unknown_namespace_using_reports() {
     string libs = Environment.GetEnvironmentVariable("Z42_LIBS", "");
     if (libs == "") { return; }   // 无 libs 环境 → 跳过（同本文件其它 fixture 用例）
-    string[] dirs = libs.Split(":");
+    string[] dirs = _depDirs(libs);
     CompileInputs cin = _inputs("namespace NsBogus;\nusing Std;\nusing Z42.Totally.Bogus;\nclass W { }\n", "lib");
     cin.Name = "demo.nsbogus";
     cin.LibsDirs = dirs; cin.LibsDirsN = dirs.Length;
@@ -765,7 +780,7 @@ void test_unknown_namespace_using_reports() {
 void test_known_namespace_using_is_clean() {
     string libs = Environment.GetEnvironmentVariable("Z42_LIBS", "");
     if (libs == "") { return; }
-    string[] dirs = libs.Split(":");
+    string[] dirs = _depDirs(libs);
     CompileInputs cin = _inputs("namespace NsBogus;\nusing Std;\nclass W { }\n", "lib");
     cin.Name = "demo.nsbogus";
     cin.LibsDirs = dirs; cin.LibsDirsN = dirs.Length;
@@ -813,7 +828,7 @@ string _writePlainZpkg(string[] dirs) {
 void test_handler_zpkg_without_handlers_errors() {
     string libs = Environment.GetEnvironmentVariable("Z42_LIBS", "");
     if (libs == "") { return; }
-    string azPath = _writePlainZpkg(libs.Split(":"));
+    string azPath = _writePlainZpkg(_depDirs(libs));
     CompileInputs cin = _inputs("namespace NoHandlerConsumer;\nint M() { return 1; }\n", "lib");
     string[] az = new string[1]; az[0] = azPath;
     cin.AnalyzerZpkgs = az; cin.AnalyzerZpkgCount = 1;
