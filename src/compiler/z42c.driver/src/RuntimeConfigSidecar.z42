@@ -43,7 +43,9 @@ int _writeRuntimeConfigSidecar(ProjectManifest pm, string distDir, string name, 
     string[] knobs = _profileKnobsOf(pm, profName);
     TomlValue props = _mergedProperties(pm, profName);
     bool hasProps = props.Keys().Length > 0;
-    if (knobs.Length == 0 && !hasProps) {
+    // add-sdk-libs：有 `deploy = "sdk"` 的依赖 ⇒ 运行期要从所在 SDK 解析它 ⇒ probing-paths 补一条指回 SDK 的占位符。
+    bool sdkDeploy = _hasSdkDeploy(pm);
+    if (knobs.Length == 0 && !hasProps && !sdkDeploy) {
         return ExitCode.Ok;
     }
     string path = Path.Join(distDir, name + ".runtimeconfig.toml");
@@ -59,7 +61,7 @@ int _writeRuntimeConfigSidecar(ProjectManifest pm, string distDir, string name, 
     }
 
     TomlValue root = TomlValue.OfTable();
-    if (knobs.Length > 0) {
+    if (knobs.Length > 0 || sdkDeploy) {
         TomlValue rt = TomlValue.OfTable();
         int i = 0;
         while (i < knobs.Length) {
@@ -83,6 +85,7 @@ int _writeRuntimeConfigSidecar(ProjectManifest pm, string distDir, string name, 
             }
             i = i + 1;
         }
+        if (sdkDeploy) { _appendSdkProbing(rt); }
         root.Set("runtime", rt);
     }
     if (hasProps) { root.Set("properties", props); }
@@ -93,6 +96,35 @@ int _writeRuntimeConfigSidecar(ProjectManifest pm, string distDir, string name, 
     File.WriteAllText(path, body);
     BuildLog.Progress("wrote -> " + BuildLayout.Display(path));
     return ExitCode.Ok;
+}
+
+// `deploy = "sdk"` 的运行期落点：`${Z42_HOME}/programs/z42c` —— 只写**占位符**、不写具体路径（侧车随产物分发，
+// 具体路径换台机器就失效；占位符由 VM 运行期按 `Z42_HOME` → `Z42_PORTABLE_VM` 反推 → VM 自身位置 替换）。
+// 这是 z42c **唯一**会合成的 probing 条目，其余一律是清单里作者写的逐字拷贝。与已有条目合并成数组、去重；
+// 已有的若是字符串（单条或平台分隔符串），整串作为数组的一项保留。
+static class SdkProbing {
+    public static string Entry = "${Z42_HOME}/programs/z42c";
+}
+
+void _appendSdkProbing(TomlValue rt) {
+    TomlValue arr = TomlValue.OfArray();
+    TomlValue cur = null;
+    if (rt.TryGet("probing-paths", ref cur)) {
+        if (cur.IsArray()) {
+            int i = 0;
+            while (i < cur.Count()) {
+                TomlValue it = cur.At(i);
+                if (it.IsString() && it.AsString() == SdkProbing.Entry) { return; }
+                arr.Add(it);
+                i = i + 1;
+            }
+        } else if (cur.IsString()) {
+            if (cur.AsString() == SdkProbing.Entry) { return; }
+            arr.Add(cur);
+        }
+    }
+    arr.Add(TomlValue.OfString(SdkProbing.Entry));
+    rt.Set("probing-paths", arr);
 }
 
 // 指定 profile 声明的运行时旋钮（扁平 "key=value"）；无该 profile → 空。

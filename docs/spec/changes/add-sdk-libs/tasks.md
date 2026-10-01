@@ -15,7 +15,7 @@
 
 ### 1.2 部署（D3 / D5）
 - [x] `_bundleExeDeps`：既有的 DEPS 传递闭包走查（#849）已覆盖；声明的 SDK 库解析自编译器目录 ⇒ 判私有、复制（e2e 实测）
-- [ ] `deploy = "sdk"`：校验（只对 SDK 库合法）、不复制、侧车 `probing-paths` 追加 `${Z42_HOME}/programs/z42c`
+- [x] `deploy = "sdk"`：校验（只对 SDK 库合法——须解析自编译器目录）、不复制、侧车 `probing-paths` 追加 `${Z42_HOME}/programs/z42c`
 
 ### 1.3 VM 提示（D6）
 - [x] `probing.rs` 记录展开失败的 `${Z42_HOME}` 条目 + 依赖解析失败报错附提示 + Rust 单测（#998）
@@ -26,7 +26,7 @@
 - [x] CompilerFingerprint 追加 `add-sdk-libs-visibility`
 
 ### 1.5 测试（D10）
-- [x] `xtask_compiler_e2e_*` 开发树：可见性三格 + exe 复制闭包（`deploy = "sdk"` 各格随其 PR）
+- [x] `xtask_compiler_e2e_*` 开发树：可见性三格 + exe 复制闭包 + `deploy = "sdk"` 四格（不复制 / 侧车占位符 / 在「SDK」上可运行 / stdlib 误用报错）
 - [ ] `xtask test dist` 发布态：hooks（今天红）、仅 runtime 运行复制闭包后的 exe、`deploy = "sdk"` 两种环境
 
 ### 1.6 文档
@@ -45,6 +45,12 @@
 - [ ] 本地 GREEN（用 apphost 跑）；PR CI
 
 ## 阶段 3：use（阶段 1 进 nightly 之后，PR-3）
+- [ ] **前置：开发树 stdlib flat 里的编译器包副本**（2026-10-01 实施阶段 1 时发现）：`build compiler` 的破环预建把
+      z42.build / z42.project / z42.package / z42c.core / z42c.syntax 写进 `artifacts/build/libraries/dist/release`（= 开发树
+      `Z42_LIBS`），`build stdlib` 末步又清掉。这段窗口里编 xtask：这些包被判「框架」⇒ 不复制 ⇒ flat 清掉后 xtask 运行期
+      `MissingSymbolException: Z42.Project…`（#994 起的潜在问题；CI 不受影响——种子编 xtask 时 Z42_LIBS 是种子 libs）。
+      阶段 3 改 `deploy = "sdk"` 后同一窗口里的校验也会误判「不是 SDK 库」。⇒ 破环预建改落独立目录（不进 Z42_LIBS），
+      或解析时把 flat 里的编译器包也视为 SDK 库。先定方案再动 xtask。
 - [ ] `scripts/xtask.z42.toml`：`"z42.project" = { version = "*", deploy = "sdk" }`（`z42.build` 同）
 - [ ] 文档与示例去掉 `${compiler_libs}`
 - [ ] 本地 GREEN；PR CI；合入后 main / nightly 实测
