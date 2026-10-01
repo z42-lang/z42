@@ -6,6 +6,7 @@ namespace Z42.Semantics;
 
 using Z42.IR;
 using Z42.Core;   // Span（导入接口的父接口形态包成 ResolvedTypeExpr 时要）
+using Z42.Syntax;
 
 // string 值盒（StrMap 存 object，prim 不能 `as string` 下行 → 包一层）。
 public sealed class StrBox {

@@ -1,9 +1,9 @@
 namespace Demo.App;
 
 using Std.IO;
+using Demo.Geometry;   // 同一个包里的另一个 namespace，也要 using
 
 void Main() {
-    // 同一个包里的另一个 namespace，不需要 using 就能用
     Point p = new Point(3, 4);
     Console.WriteLine("(" + p.X + ", " + p.Y + ")");
 

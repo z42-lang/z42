@@ -2,7 +2,8 @@
 # probe（a.z42，Alpha）：Alpha 与 Beta（b.z42）各有一个 `f`（签名不同）；经 `using Beta` 调 Beta 的 `g`、
 #   取 `g` 的方法组、再调全局 ns 文件 g.z42 的 `gl`。修前：`f(41)` 因文件序绑到 Beta.f 报 E0402；
 #   换个文件名能编过，但 `g(1)` 发 `call @Alpha.g` → 运行期 undefined function。
-# probe_nousing（c.z42，Gamma）：**不写 using** 调 Beta 的 `g`（全包唯一 → 解析到它，与类型裸名同规则）。
+# probe_nousing（c.z42，Gamma）：原测「不写 using 调 Beta 的 `g`（全包唯一 → 解析到它）」；using-csharp-rules
+#   推翻了这条（同包跨 ns 也须 using，缺了报 E0436 —— 负例在 z42c.pipeline 的 usinggate 单测），现补上 `using Beta;`。
 [project]
 name    = "free.func.ns.demo"
 version = "0.1.0"

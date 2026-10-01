@@ -1,5 +1,7 @@
 namespace ProbeA;
 using Std.IO;
+using A;   // using-csharp-rules：限定名也得 using（规则 4）；两边都 using 后裸名 Foo 歧义，限定名照样消歧
+using B;
 void Main() {
     object x = new A.Foo(1);
     Console.WriteLine(x.GetType().FullName);

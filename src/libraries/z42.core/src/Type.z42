@@ -1,4 +1,5 @@
 namespace Std;
+using Std.Reflection;
 
 // Runtime type descriptor returned by `Object.GetType()`.
 //

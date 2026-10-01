@@ -14,6 +14,7 @@ using Std;
 using Std.IO;
 using Std.Encoding;
 using Z42.IR;
+using Z42.Package;
 
 public static class DepIdentity {
     // 32 hex；没有任何依赖 zpkg 时也返回确定值（空集的哈希）。
