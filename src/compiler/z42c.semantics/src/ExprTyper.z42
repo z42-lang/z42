@@ -404,9 +404,9 @@ public sealed partial class ExprTyper {
             TypeExpr[] args = new TypeExpr[it.ArgCount];
             int i = 0;
             while (i < it.ArgCount) { args[i] = this._typeToTypeExpr(it.TypeArgs[i], s); i = i + 1; }
-            return NamedType.Synth(it.Def.Name(), args, it.ArgCount, s);
+            return NamedType.Synth(TypeNameResolver.SynthName(it.Def), args, it.ArgCount, s);
         }
-        return NamedType.Synth(t.Name(), new TypeExpr[0], 0, s);
+        return NamedType.Synth(TypeNameResolver.SynthName(t), new TypeExpr[0], 0, s);
     }
 
     // 集合字面量绑定入口（外部 StmtBinder + hub _bindExpr 共用）→ 委回 CollectionTyper。

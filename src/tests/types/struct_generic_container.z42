@@ -9,6 +9,7 @@
 // 装箱/拆箱（P3a 的本意）仍被覆盖，但「boxed 默认相等语义」这一条不再由本用例守。
 // 契约上这是对的：Dictionary 声明就要求键实现 IEquatable，依赖违反契约的用法不该被当作被保障行为。
 namespace Demo;
+using Std.Collections;
 
 struct P : IEquatable {
     public int x;
