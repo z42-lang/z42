@@ -1,0 +1,10 @@
+namespace Demo.DgLib;
+
+// 依赖包导出的用户 delegate：消费方源码里要能当类型写（局部 / 形参 / 字段），lambda 与方法组都能转进去。
+public delegate int IntOp(int x);
+public delegate string Fmt(string s, int n);
+
+public static class Ops {
+    public static int Apply(IntOp f, int v) { return f(v); }
+    public static IntOp Twice() { return (int x) => x * 2; }
+}

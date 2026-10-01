@@ -128,7 +128,9 @@ public static class CompilerFingerprint {
         "fix-sdklibs-transitive",
         // fqn-enum-delegate-tables：enum / delegate 表按 FQN 键、按作用域解析 —— 同包两个 ns 的同名 enum / delegate 不再撞成一份；
         // 跨 ns 引用不写 using 报 E0436；enum 类型名后的未知成员新报 E0401。
-        "fqn-enum-delegate-tables"
+        "fqn-enum-delegate-tables",
+        // crosspkg-delegate-import：依赖包导出的用户 delegate 能在消费方源码里当类型写（此前报 E0443）—— 诊断变化。
+        "crosspkg-delegate-import"
     };
 
     // 指纹值：`Entries` 逐条以 `\n` 连接后取内容哈希（`mmh3:` 前缀，同 SourceHash）。

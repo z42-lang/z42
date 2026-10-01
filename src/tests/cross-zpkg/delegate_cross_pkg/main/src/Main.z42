@@ -1,0 +1,22 @@
+namespace Demo.DgApp;
+
+using Std.IO;
+using Demo.DgLib;
+
+int Inc(int x) { return x + 1; }
+
+class Holder {
+    public Fmt F;
+    public Holder(Fmt f) { this.F = f; }
+}
+
+void Main() {
+    IntOp a = (int x) => x + 10;               // 局部 + lambda
+    Console.WriteLine(a(1).ToString());
+    IntOp b = Inc;                              // 方法组
+    Console.WriteLine(Ops.Apply(b, 5).ToString());
+    Console.WriteLine(Ops.Twice()(21).ToString());   // 依赖包返回的 delegate 值
+    var h = new Holder((string s, int n) => s + n.ToString());   // 字段（`h.F(...)` 直接调字段同包也还不支持，另案）
+    Fmt g = h.F;
+    Console.WriteLine(g("n=", 3));
+}
