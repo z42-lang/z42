@@ -10,7 +10,6 @@ using Z42.Package;
 using Z42.Project;
 using Z42.IR;          // ZpkgReader / ZpkgInfo（产物引用的包名校验）
 using Z42.Pipeline;    // CompilerDomain（编译器域解析域，与 BuildSession 共用）
-using Z42.Core;        // DiagnosticCodes（W0609）
 
 // **非框架**依赖的已构建 zpkg（+ .zsym）复制进 exe 的 dist。运行时 z42vm 的依赖搜索序
 // = [entry-zpkg 目录, Z42_LIBS]，故 exe 从自身 dist 即可解析私有依赖，框架包仍走 Z42_LIBS。
@@ -331,78 +330,27 @@ bool _isZpkgRef(string path) {
 // 🔴 **包名必须与 key 一致**：指错文件是最容易犯的错（拷贝粘贴改了目录忘了改名），而 zpkg
 // 头里就有 `[project].name`，校验是零成本的。不校验的话，错误会推迟到「符号找不到」——
 // 位置在别处、原因说不清，正是本 change 一路在消灭的那种诊断。
-// `[dependencies]` 的 `path` 里的路径宏展开。返回 "" = 已打印诊断、调用方应中止。
+// `[dependencies]` 的 `path` **不支持宏**。返回 false = 已打印诊断、调用方应中止。
 //
-// 今天只认一个宏 `${compiler_libs}`（编译器域包的所在目录）。
+// 曾有过唯一一个宏 `${compiler_libs}`（编译器域包所在目录，relocate-compiler-domain-libs 引入），
+// add-sdk-libs 用「SDK 库按名声明」取代它：`"z42c.syntax" = "*"`（exe 在 SDK 上运行、不复制时加
+// `deploy = "sdk"`）—— 位置由工具链按 `CompilerDomain.Dirs()` 找，清单里不再写路径。宏随之删除（W0609 退役）。
 //
-// 🔴 **未知宏一律硬报错**，刻意**不**沿用 `PathTemplate` 那条「未知变量 → 保留字面」：
-// 保留字面会让失败变成一句「该文件不存在: …/${compiler_libz}/x.zpkg」或更糟 —— 拼错一个宏名，
-// 症状离原因很远。依赖路径是「写错就该当场说」的地方。
-string _expandDepPathMacros(string tomlPath, string depName, string p) {
-    int at = p.IndexOf("${");
-    if (at < 0) { return p; }
-    string s = "";
-    int i = 0;
-    int n = p.Length;
-    while (i < n) {
-        if (i + 1 < n && p.CharAt(i) == '$' && p.CharAt(i + 1) == '{') {
-            int close = -1;
-            int j = i + 2;
-            while (j < n) { if (p.CharAt(j) == '}') { close = j; j = n; } else { j = j + 1; } }
-            if (close < 0) {
-                ConsoleError.WriteLine("z42c build: [dependencies] `" + depName + "` 的 path 里有未闭合的 `${`：" + p);
-                return "";
-            }
-            string name = p.Substring(i + 2, close - (i + 2));
-            if (name == "compiler_libs") {
-                string[] cl = CompilerDomain.Dirs();
-                if (cl.Length == 0) {
-                    ConsoleError.WriteLine("z42c build: [dependencies] `" + depName
-                        + "` 用了 `${compiler_libs}`，但找不到编译器域目录。"
-                        + "（按序查找：Z42_COMPILER_LIBS / Z42_HOME/programs/z42c / "
-                        + "由 Z42_PORTABLE_VM 反推的 <sdk>/programs/z42c / 开发树产物。"
-                        + "装了 SDK 就设 Z42_HOME，或用 Z42_COMPILER_LIBS 显式指定。）");
-                    return "";
-                }
-                _warnCompilerLibsMacro(tomlPath, depName);
-                s = s + cl[0];
-            } else {
-                ConsoleError.WriteLine("z42c build: [dependencies] `" + depName + "` 的 path 里有未知宏 `${"
-                    + name + "}`。可用的宏：`${compiler_libs}`（编译器域包所在目录）。");
-                return "";
-            }
-            i = close + 1;
-            continue;
-        }
-        s = s + p.Substring(i, 1);
-        i = i + 1;
+// 🔴 **仍然显式拦截 `${`**，而不是让它落到「文件不存在」：旧清单里的 `${compiler_libs}/x.zpkg` 会被当成
+// 字面相对路径，报一句离原因很远的「该文件不存在: …/${compiler_libs}/x.zpkg」。这里当场说清该怎么改。
+bool _rejectDepPathMacro(string depName, string p) {
+    if (p.IndexOf("${") < 0) { return true; }
+    if (p.IndexOf("${compiler_libs}") >= 0) {
+        ConsoleError.WriteLine("z42c build: [dependencies] `" + depName + "` 用了 `${compiler_libs}` 路径宏，该宏已删除。"
+            + "SDK 库按名声明即可：`\"" + depName + "\" = \"*\"`（exe 要在 SDK 上运行、不复制时再加 `deploy = \"sdk\"`）。");
+    } else {
+        ConsoleError.WriteLine("z42c build: [dependencies] `" + depName + "` 的 path 里有宏 `" + p
+            + "` —— 依赖路径不支持宏，请写相对清单目录的路径或绝对路径。");
     }
-    return s;
+    return false;
 }
 
-// W0609：`${compiler_libs}` 进入过渡期（add-sdk-libs）。照常展开、照常构建，只提示等价的按名写法。
-// 格式与源码诊断同形（`file(line,col): CODE: message`），位置取清单里这个依赖 key 所在行（找不到落 1 行）。
-void _warnCompilerLibsMacro(string tomlPath, string depName) {
-    ConsoleError.WriteLine(tomlPath + "(" + _tomlKeyLine(tomlPath, depName).ToString() + ",1): "
-        + DiagnosticCodes.CompilerLibsMacroDeprecated + ": [dependencies] `"
-        + depName + "` 用了 `${compiler_libs}` 路径宏 —— 过渡写法，将在后续版本删除。SDK 库按名声明即可："
-        + "`\"" + depName + "\" = \"*\"`（exe 要在 SDK 上运行、不复制时再加 `deploy = \"sdk\"`）。");
-}
-
-// 清单里 `key =` / `"key" =` 首次出现的行号（1 起）；读不到或找不到 → 1。只用来给诊断定位，不参与语义。
-int _tomlKeyLine(string tomlPath, string key) {
-    if (!File.Exists(tomlPath)) { return 1; }
-    string[] lines = File.ReadAllText(tomlPath).Split("\n");
-    int i = 0;
-    while (i < lines.Length) {
-        string t = lines[i].Trim();
-        if (t.StartsWith("\"" + key + "\"") || t.StartsWith(key + " ") || t.StartsWith(key + "=")) { return i + 1; }
-        i = i + 1;
-    }
-    return 1;
-}
-
-string[] _zpkgRefDirs(ProjectManifest pm, string projectDir, string tomlPath) {
+string[] _zpkgRefDirs(ProjectManifest pm, string projectDir) {
     string[] dirs = new string[pm.DepCount];
     int n = 0;
     int i = 0;
@@ -410,16 +358,9 @@ string[] _zpkgRefDirs(ProjectManifest pm, string projectDir, string tomlPath) {
         string dep = pm.Deps[i].Name;
         string p = pm.Deps[i].Path;
         i = i + 1;
-        if (p.Length == 0 || !_isZpkgRef(p)) { continue; }
-        // `${compiler_libs}` 路径宏（relocate-compiler-domain-libs）：用户工程要**显式引用**编译器域
-        // 的包（写 linter / 格式化器 / 代码生成），而那些 zpkg 住在 `<sdk>/programs/z42c/` —— 一个
-        // 用户无法在清单里写死的、每台机器不同的绝对路径。宏把「在哪」交给工具链解析。
-        //   [dependencies]
-        //   "z42c.syntax" = { path = "${compiler_libs}/z42c.syntax.zpkg" }
-        // 解析序见 `CompilerDomain.Dirs()`（`Z42_COMPILER_LIBS` → `Z42_HOME/programs/z42c` → …）。
-        string expanded = _expandDepPathMacros(tomlPath, dep, p);
-        if (expanded.Length == 0) { return null; }   // 诊断已打印
-        p = expanded;
+        if (p.Length == 0) { continue; }
+        if (!_rejectDepPathMacro(dep, p)) { return null; }   // 诊断已打印（任何 path 依赖都查，不只 .zpkg）
+        if (!_isZpkgRef(p)) { continue; }
         string full = Path.IsRooted(p) ? p : Path.Join(projectDir, p);
         if (!File.Exists(full)) {
             ConsoleError.WriteLine("z42c build: [dependencies] `" + dep + "` 的 path 指向 " + full

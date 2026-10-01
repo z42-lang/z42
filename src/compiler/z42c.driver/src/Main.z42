@@ -240,14 +240,14 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
     // 放在 path 闭包之后、编译器域解析域之前：vendored 产物优先级与 path 闭包同级，都排在
     // 框架（Z42_LIBS）之前——「我显式指定的那一份」应当压过「碰巧同名的框架包」。
     {
-        string[] zrefs0 = _zpkgRefDirs(pm, projectDir, tomlPath);
+        string[] zrefs0 = _zpkgRefDirs(pm, projectDir);
         if (zrefs0 == null) { return ExitCode.BuildError; }
         // 🔴 **编译器域目录必须排在框架之后，不能排在前面**（relocate-compiler-domain-libs 实测）。
         //
         // `<sdk>/programs/z42c/` 是 driver 的**自包含闭包** —— 里面除了编译器域包，还躺着整套
         // stdlib 的副本。把它放在 `Z42_LIBS` 之前，`z42.core` 等就会**先在那儿命中**，于是
         // `_bundleExeDeps` 按「不是从 shipped libs/ 找到的 ⇒ 私有」把**整套 stdlib 拷进用户工程
-        // 的输出目录**（实测：引用一个 `${compiler_libs}` 包，dist 从 1 个 zpkg 变成十几个；
+        // 的输出目录**（实测：引用一个编译器域包，dist 从 1 个 zpkg 变成十几个；
         // 同工程不引用编译器域包时只有 1 个）。
         //
         // 手写的 vendored zpkg 引用仍排在框架**之前**（那是「我显式指定的这一份要压过碰巧同名的

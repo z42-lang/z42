@@ -126,15 +126,15 @@ analyzer 与 hooks 的产物不携带 SDK 库；运行时使用宿主进程（z4
 - **WHEN** 运行
 - **THEN** 报错照旧，不附 SDK 提示
 
-### Requirement: `${compiler_libs}` 宏进入过渡期
+### Requirement: `${compiler_libs}` 宏删除，旧写法当场报错
 
-`${compiler_libs}` 仍按原语义解析，但每次使用发 warning，建议改为按名声明。
+原计划过渡一个 release（W0609 warning）；User 2026-10-01 裁定提前删除。`[dependencies]` 的 `path` 不再支持任何宏。
 
-#### Scenario: 宏仍可用并提示迁移
+#### Scenario: 旧写法报错并给出按名写法
 
 - **GIVEN** `"z42.project" = { path = "${compiler_libs}/z42.project.zpkg" }`
 - **WHEN** 构建
-- **THEN** 构建成功，并输出一条 warning，指出等价写法 `"z42.project" = "*"`
+- **THEN** 构建失败，错误指明宏已删除，并给出等价写法 `"z42.project" = "*"`（不落成「文件不存在」）
 
 ## MODIFIED Requirements
 

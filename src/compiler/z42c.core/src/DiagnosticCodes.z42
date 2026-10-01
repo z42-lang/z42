@@ -124,11 +124,6 @@ public static class DiagnosticCodes {
     //   W0608 重复的 `using`：同一文件里写了两次，或包里已有同名 `global using`。
     public static string UnnecessaryUsing = "W0607";
     public static string DuplicateUsing   = "W0608";
-    // add-sdk-libs：`[dependencies]` 的 path 里用了 `${compiler_libs}` 路径宏 —— 过渡写法，将在后续版本删除。
-    // 它把编译器目录**整个**并入解析域（里面所有 SDK 库都可见），而 SDK 库现在按名声明即可：
-    // `"z42.project" = "*"`（exe 要在 SDK 上运行、不复制时再加 `deploy = "sdk"`）。照常构建，只提示迁移。
-    // 发射点在清单层（`z42c.driver/src/ExeDeps.z42`，那里还没有 DiagnosticBag）。宏删除时本码退役。
-    public static string CompilerLibsMacroDeprecated = "W0609";
     // report-crosspkg-duplicate-type：**本包声明的类型遮蔽了某个导入包的同 FQN 类型**。
     //
     // 🔴 这条曾按 C# CS0436 做成 warning（理由：「本地恒赢是既定规则、不是猜」），**改成了 error**：
@@ -249,4 +244,5 @@ public static class DiagnosticCodes {
     public static string RetiredForwardSkipped      = "I0467";  // 原 ForwardSkipped：登记此号而发射点一直发 I0466，2026-09-22 改值归位后空出
     public static string RetiredUnknownNativeName   = "E0901";  // 原 UnknownNativeName（C# bootstrap 编译器删除时一并消失，未移植到 z42c）
     public static string RetiredNativeArityMismatch = "E0902";  // 原 NativeArityMismatch（同上）
+    public static string RetiredCompilerLibsMacroDeprecated = "W0609";  // 原 CompilerLibsMacroDeprecated：`${compiler_libs}` 路径宏的过渡期 warning（add-sdk-libs，2026-10-01 引入）。宏随即删除（用户 2026-10-01 裁定提前删），本码零发射点、编号不复用
 }

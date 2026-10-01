@@ -77,11 +77,11 @@ pub fn expand_probing_paths_with(
 //
 // **大小写不是随手写的**，两层各有各的约定：
 //   · `${lower_snake}` = **清单模板变量**，编译期展开（`PathTemplate` 的 `${workspace_dir}`
-//     等、`ExeDeps` 的 `${compiler_libs}`）——作者写在清单里的东西；
+//     等）——作者写在清单里的东西；
 //   · `${UPPER}`       = **环境派生的根**，运行期展开（本处）——名字与它来源的环境变量一致。
 //
 // **未知/未闭合占位符 ⇒ 整条 pattern 跳过**，不做字面回落。这一条与编译期那套宏**刻意不同**
-// （`ExeDeps._expandDepPathMacros` 对未知宏**硬报错**）：编译期有诊断通道、错了要当场说清；
+// （`ExeDeps._rejectDepPathMacro` 对依赖 path 里的宏**硬报错**）：编译期有诊断通道、错了要当场说清；
 // 而 VM 在这里没有不污染输出的通道（golden 判定把 stderr 并进 stdout，任何 WARN 都会波及全部
 // golden），且 probing 项的既有语义本就是「不存在就静默跳过」。字面回落最坏——它会拼出
 // `<app>/${FOO}/x` 这种谁也找不到的目录，症状离原因更远。
