@@ -199,7 +199,12 @@ int _runUnitsViaZ42b(string root, string projToml, string[] names, int nUnits, s
                 Console.Write(rr.Stdout);
                 if (rr.Stderr.Length > 0) { Console.Write(rr.Stderr); }
             }
-            if (rr.ExitCode != 0) { failed = failed + 1; }
+            if (rr.ExitCode != 0) {
+                failed = failed + 1;
+                // 汇总行只给个数（「N file(s) failed」），失败单元的 PASS 行又可能全绿（退出码来自编译期 / 收尾）——
+                // 不点名的话只能整段日志人工排查。
+                Console.WriteLine("  ✗ " + names[i + b] + " (exit " + rr.ExitCode.ToString() + ")");
+            }
             b = b + 1;
         }
         i = i + bsz;
