@@ -3,12 +3,12 @@ $ z42 run custom.z42
 POST /users
 贴着 RouteAttribute
 贴着 DocAttribute
-# ANCHOR_END: readback
-# ANCHOR: carriers
 字段 Version：接口版本
 属性 Title：展示名
 方法 List：列出用户
   形参 page：页号
+# ANCHOR_END: readback
+# ANCHOR: carriers
 # ANCHOR_END: carriers
 # ANCHOR: suffix
 $ z42 run suffix.z42
@@ -20,7 +20,7 @@ z42c build: 2 error(s) in suffix.z42
 # ANCHOR: constarg
 $ z42 run constarg.z42
 z42c build: 2 error(s) in constarg.z42
+  constarg.z42(15,6): E0500: attribute argument must be a compile-time constant: a literal, a constant expression, an enum member, a `const` field, `typeof(..)`, `methodof(..)`, or an array of those — an attribute's arguments run on the first reflection query, so a runtime-dependent value makes the metadata depend on who asks first
   constarg.z42(16,6): E0500: attribute argument must be a compile-time constant: a literal, a constant expression, an enum member, a `const` field, `typeof(..)`, `methodof(..)`, or an array of those — an attribute's arguments run on the first reflection query, so a runtime-dependent value makes the metadata depend on who asks first
-  constarg.z42(17,6): E0500: attribute argument must be a compile-time constant: a literal, a constant expression, an enum member, a `const` field, `typeof(..)`, `methodof(..)`, or an array of those — an attribute's arguments run on the first reflection query, so a runtime-dependent value makes the metadata depend on who asks first
 [exit: 1]
 # ANCHOR_END: constarg
