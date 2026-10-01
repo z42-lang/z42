@@ -43,15 +43,15 @@ SubcommandRouter _packageRouter() {
     pkg.Add("index", "generate release-index.json (launcher supply contract)", idx);
 
     // unify-release-archive：发布归档的命名规则只在 xtask 里写一次（release.yml / nightly / 本地发布共用）。
-    ArgParser arc = new ArgParser("xtask package archive", "archive the release packages under artifacts/packages → artifacts/release");
+    ArgParser arc = new ArgParser("xtask package archive", "archive the release packages under artifacts/packages → artifacts/packages/archives");
     arc.AddOption("label", "", "version label in archive names (default: versions.toml version; CI nightly: nightly)", "");
     arc.AddOption("from", "", "package dirs (default: artifacts/packages)", "");
-    arc.AddOption("out", "", "output dir (default: artifacts/release)", "");
+    arc.AddOption("out", "", "output dir (default: artifacts/packages/archives)", "");
     pkg.Add("archive", "archive release packages (tar.gz; windows → zip)", arc);
 
     ArgParser fin = new ArgParser("xtask package finalize", "merge desktop workloads + SHA256SUMS + release-index.json");
     fin.AddOptionalPositional("label", "<LABEL> (e.g. 0.3.0 or nightly)");
-    fin.AddOption("dir", "", "archive dir (default: artifacts/release)", "");
+    fin.AddOption("dir", "", "archive dir (default: artifacts/packages/archives)", "");
     fin.AddOption("channel", "", "channel (default: stable)", "");
     fin.AddOption("tag", "", "tag (default: v<LABEL>)", "");
     fin.AddOption("version", "", "version (default: <LABEL>)", "");

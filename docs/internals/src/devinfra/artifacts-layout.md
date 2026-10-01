@@ -12,7 +12,7 @@
 | 桶 | 装什么 | 谁写 |
 |---|---|---|
 | `build/` | 编译产物与 per-component 输出，子目录**镜像 `src/`** | `xtask build *`、cargo |
-| `packages/` | 组装好的发行包（`z42-<...>-<rid>-<profile>/` 及归档）| `xtask package *` |
+| `packages/` | 组装好的发行包（`z42-<...>-<rid>-<profile>/`）+ `archives/`（发布归档、`SHA256SUMS`、`release-index.json`；2026-10-02 前是顶层 `release/`）| `xtask package *` |
 | `xtask/` | xtask 自己的 zpkg / zsym / cache —— **不在 `build/` 里面** | `z42 publish scripts/xtask.z42.toml` |
 | `bench/` | `e2e.json` / `ab.json` 等测量结果 | `xtask bench` |
 | `profile/<name>/` | 火焰图、dhat 报告、counter 摘要、`report.md` | `xtask profile` |
@@ -54,7 +54,7 @@
 xtask 自己发明、没有 toml 归属的路径，**全部在 `xtask_layout.z42` 里各有一个单一定义**：
 扁平 stdlib dist（`_libsFlatDist`）、cargo target 目录（`_cargoTargetDir` / `_runtimeOut`），以及 §1 的
 每个顶层桶（`_scratchDir(root, name)` / `_tmpDir` / `_toolsDir` / `_devSdkDir` /
-`_packagesDir` / `_releaseDir` / `_testReportsDir` / `_benchDir` / `_profileDir`）。使用点只写
+`_packagesDir` / `_archivesDir` / `_testReportsDir` / `_benchDir` / `_profileDir`）。使用点只写
 「桶 + 自己的子目录名」，不再写 `"artifacts/…"` 字面量——挪一个桶只改一处。
 
 > 2026-09-30 前，一次性目录（`.scratch/*`（现 `tmp/*`）、`tools/*`）是**故意不集中**的，理由是「没有
@@ -163,10 +163,10 @@ z42c 写产物同样是就地写 ⇒ 穿透到 `libraries/z42.core/release/dist/
 | `xtask clean tests` | golden `.zbc` 镜像（`build/tests`、`build/{libraries,compiler}/<m>/tests`）+ z42b 的 test 目标输出（`<工程目录>/artifacts/test-targets`）|
 | `xtask clean bench` | z42b 的 bench 目标输出（`<工程目录>/artifacts/bench-targets`）|
 | `xtask clean tmp` | `tmp/`（+ 旧名 `.scratch/` 与已删的打包暂存 `publish/`）|
-| `xtask clean all` | `build/` + `tmp/` + 旧名 `.scratch/` / `publish/` + **源码树里**各 z42 工程旁的 `artifacts/`、`dist/`（+ cross-zpkg 用例的 `libs/`）|
+| `xtask clean all` | `build/` + `tmp/` + 旧名 `.scratch/` / `publish/` / `release/`（已挪进 `packages/archives/`）+ **源码树里**各 z42 工程旁的 `artifacts/`、`dist/`（+ cross-zpkg 用例的 `libs/`）|
 
 `clean all` **保留** `xtask/`（驱动自身，正在运行）、`tools/`（下载的第三方工具）、
-`packages/` `release/` `.z42/`（成品）与 `bench/` `profile/` `test-reports/`（报告）。
+`packages/`（含 `packages/archives/` 发布归档）`.z42/`（成品）与 `bench/` `profile/` `test-reports/`（报告）。
 
 > **源码树里为什么会有产物**（实测一次完整 GREEN 后约 450 个目录）：
 > - 单独编一个 workspace 成员（xtask 的 path 依赖 `z42.project` / `z42.build`、z42b dev 目标的父包）时

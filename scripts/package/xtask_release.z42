@@ -293,7 +293,7 @@ int _releaseArchive(string label, string from, string outDir) {
     if (ver.Length == 0) { ConsoleError.WriteLine("package archive: versions.toml 没有 [project].version"); return 1; }
     if (label.Length == 0) { label = ver; }
     string src = from.Length > 0 ? (Path.IsRooted(from) ? from : Path.Join(root, from)) : _packagesDir(root);
-    string dst = outDir.Length > 0 ? (Path.IsRooted(outDir) ? outDir : Path.Join(root, outDir)) : _releaseDir(root);
+    string dst = outDir.Length > 0 ? (Path.IsRooted(outDir) ? outDir : Path.Join(root, outDir)) : _archivesDir(root);
     if (!Directory.Exists(src)) { ConsoleError.WriteLine("package archive: 没有包目录 " + src + "（先跑 xtask package sdk|runtime|workload）"); return 1; }
     Directory.Create(dst);
     string[] names = _sortedStrings(Directory.Enumerate(src));
@@ -342,7 +342,7 @@ int _releaseFinalize(string label, string dist, string channel, string tag, stri
         return 2;
     }
     string root = _root();
-    if (dist.Length == 0) { dist = _releaseDir(root); }
+    if (dist.Length == 0) { dist = _archivesDir(root); }
     string distDir = Path.IsRooted(dist) ? dist : Path.Join(root, dist);
     int rc = _releaseAssembleDesktop(label, distDir);
     if (rc != 0) { return rc; }

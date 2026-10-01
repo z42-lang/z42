@@ -88,7 +88,7 @@ xtask 是独立的 z42 应用——它不是通用 `z42` launcher 的一部分�
 | `package runtime [--rid R]` | runtime 包（native+stdlib，平台随 rid） | `cargo` + z42c | host: `z42-runtime-<ver>-<rid>`；平台: `z42-<ver>-<rid>-release` |
 | `package workload [--rid R] \| <label> [dist]` | `--rid`/无参：建 per-RID desktop workload；`<label>`：合并 4 个 per-RID → 单 archive | `cargo` | workload 包 / 合并 archive |
 | `package index <label> [dist] …` | 生成 release-index.json（launcher 供给契约） | SHA256SUMS | `release-index.json` |
-| `package archive [--label L]` | 出发布归档（CI 各 package job / 本地发布） | `artifacts/packages/` 下的 release 包 | `artifacts/release/z42-{sdk,runtime,workload}-<L>-….{tar.gz,zip}` |
+| `package archive [--label L]` | 出发布归档（CI 各 package job / 本地发布） | `artifacts/packages/` 下的 release 包 | `artifacts/packages/archives/z42-{sdk,runtime,workload}-<L>-….{tar.gz,zip}` |
 | `package finalize <label> [--dir D] …` | 发布汇总：合并 desktop workload → SHA256SUMS → index | 9 个 RID 的归档 | `SHA256SUMS` + `release-index.json` + 合并后的 desktop workload |
 | `bench [--diff]` | 性能基准 / 回归对比 | z42c + hyperfine | 各场景编译/执行耗时；`--diff` 比对两组结果 |
 | `profile <script> [--cpu\|--heap\|--threads\|--e2e\|--all]` | 深挖某个 `.z42` 脚本的性能 | z42c +（可选）samply/dhat/hyperfine | `artifacts/profile/<name>/`：CPU 火焰图 / dhat 堆报告 / peak-RSS / counter 摘要 + `report.md` |

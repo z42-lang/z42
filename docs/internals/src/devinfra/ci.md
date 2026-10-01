@@ -280,7 +280,7 @@ bootstrap job。实测（run 35287940676）照样全红。
 **当时是怎么解开的**（回退链上线前的人工流程，也是错误信息里指的那条）：
 
 1. `gh run list --workflow CI --branch main --status success --limit 5` 找最近一次全绿的 run
-2. `gh run download <run> -p 'release-*' -D artifacts/release` 取它的归档（各 package job 已用
+2. `gh run download <run> -p 'release-*' -D artifacts/packages/archives` 取它的归档（各 package job 已用
    `xtask package archive --label nightly` 在自己的 runner 上出好）
 3. `xtask package finalize nightly --channel nightly --tag nightly --version nightly`
    （合并 desktop workload → `SHA256SUMS` → `release-index.json`，与 `publish-nightly` 同一条命令）
