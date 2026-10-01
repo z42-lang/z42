@@ -139,6 +139,17 @@ pub fn run(file: &str, entry: Option<&str>, opts: RunOpts) -> Result<()> {
     // 交给 z42 侧只读查询（`Std.Runtime.ModuleSearch.Dirs`）。存的是**解析结果**——相对项已按
     // entry zpkg 解析、通配符已展开 —— 免得调用方各自重做一遍规则然后慢慢漂移。
     crate::probing::set_search_dirs(search_dirs.clone());
+    // add-sdk-libs D6：记下展开后不存在的 `${Z42_HOME}` 条目，供依赖解析失败时提示「是否没装 SDK」。
+    {
+        let entry_dir = match std::path::Path::new(file).parent() {
+            Some(d) if !d.as_os_str().is_empty() => d.to_path_buf(),
+            _ => PathBuf::from("."),
+        };
+        crate::probing::set_unresolved_sdk_patterns(crate::probing::unresolved_z42_home_patterns(
+            &entry_dir,
+            &crate::config::runtime_config().probing_paths,
+        ));
+    }
 
     let mut modules: Vec<crate::metadata::Module> = Vec::new();
     // Track canonical paths of loaded artifact files to prevent duplicate loading.

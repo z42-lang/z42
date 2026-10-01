@@ -3,7 +3,9 @@
 //! 守的是 design.md §probing-paths 的解析规则那张表——每条规则一个测试，而不是把它们
 //! 混在一个"大概能用"的用例里：这些规则彼此独立，混在一起测就分不清是哪条坏了。
 
-use crate::probing::{expand_probing_paths, expand_probing_paths_with};
+use crate::probing::{
+    expand_probing_paths, expand_probing_paths_with, format_sdk_missing_hint, unresolved_z42_home_patterns_with,
+};
 use std::path::PathBuf;
 
 /// 在临时目录里搭一棵树，返回根。
@@ -179,4 +181,50 @@ fn a_plain_entry_is_unaffected_by_the_placeholder_machinery() {
     let entry = root.join("app");
     let got = expand_probing_paths_with(&entry, &[PathBuf::from("../shared")], &[root.join("nonexistent")]);
     assert_eq!(got, vec![root.join("shared")]);
+}
+
+// ── `${Z42_HOME}` 解析不到时的提示（add-sdk-libs D6）────────────────────────────
+
+#[test]
+fn unresolved_z42_home_entry_is_recorded_verbatim() {
+    // 候选根存在、但根下没有 programs/z42c（只装了 runtime 的机器）⇒ 记下原样模式串。
+    let root = tree("hint-runtime-only", &["app", "rt/libs"]);
+    let entry = root.join("app");
+    let pats = [PathBuf::from("${Z42_HOME}/programs/z42c")];
+    let got = unresolved_z42_home_patterns_with(&entry, &pats, &[root.join("rt")]);
+    assert_eq!(got, vec!["${Z42_HOME}/programs/z42c".to_string()]);
+}
+
+#[test]
+fn unresolved_z42_home_entry_is_recorded_when_no_root_at_all() {
+    let root = tree("hint-noroot", &["app"]);
+    let entry = root.join("app");
+    let got = unresolved_z42_home_patterns_with(&entry, &[PathBuf::from("${Z42_HOME}/programs/z42c")], &[]);
+    assert_eq!(got.len(), 1);
+}
+
+#[test]
+fn resolved_z42_home_entry_is_not_recorded() {
+    let root = tree("hint-sdk", &["app", "sdk/programs/z42c"]);
+    let entry = root.join("app");
+    let got =
+        unresolved_z42_home_patterns_with(&entry, &[PathBuf::from("${Z42_HOME}/programs/z42c")], &[root.join("sdk")]);
+    assert!(got.is_empty(), "解析得到就不该提示，得到 {got:?}");
+}
+
+#[test]
+fn plain_missing_entries_never_trigger_the_sdk_hint() {
+    // 普通的可选插件目录不存在是正常的 —— 只有指回 SDK 的 `${Z42_HOME}` 条目才值得提示。
+    let root = tree("hint-plain", &["app"]);
+    let entry = root.join("app");
+    let got = unresolved_z42_home_patterns_with(&entry, &[PathBuf::from("../plugins")], &[root.clone()]);
+    assert!(got.is_empty());
+}
+
+#[test]
+fn hint_text_names_the_entry_and_suggests_installing_the_sdk() {
+    let h = format_sdk_missing_hint(&["${Z42_HOME}/programs/z42c".to_string()]).expect("应有提示");
+    assert!(h.contains("${Z42_HOME}/programs/z42c"), "{h}");
+    assert!(h.contains("是否没有安装 z42 SDK"), "{h}");
+    assert!(format_sdk_missing_hint(&[]).is_none());
 }

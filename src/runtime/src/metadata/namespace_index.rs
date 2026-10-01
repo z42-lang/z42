@@ -66,7 +66,13 @@ impl ZpkgCandidate {
                 return Self::build(dir, file_name);
             }
         }
-        anyhow::bail!("zpkg `{file_name}` not found in any search dir ({} candidates)", dirs.len())
+        anyhow::bail!(
+            "{}",
+            crate::probing::with_sdk_missing_hint(format!(
+                "zpkg `{file_name}` not found in any search dir ({} candidates)",
+                dirs.len()
+            ))
+        )
     }
 }
 
