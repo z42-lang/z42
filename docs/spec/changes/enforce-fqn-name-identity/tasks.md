@@ -503,8 +503,10 @@ User 2026-09-30 裁定走 **A：按规范办**（补 `using` + 让规则 2 在�
    - 🔴 **A5b-2c 仍未就绪**：同一探针在 z42.io 下仍有 **3614 次**、z42.threading **296 次** —— 133 个导入类名 × 每 CU 一遍，
      `scope=Std.IO` 下按短名查 `_WsUrl` / `Zstd` 这类**别的 ns 的类**。是某个按类表逐键回查的 pass，不是源码引用；
      删回落前要先找出它（探针加调用栈）。
-   - ⚠️ 顺带发现、**未修**：`Z42ClassType.IsAssignableTo` 按短名判同一（`this._name == other.Name()`）⇒
-     `Base l = c;`（`c : Demo.Lib.Core.Base`、`Base` 是本地类）零诊断。属阶段 4「类身份按 FQN」的范围。
+   - ⚠️ 顺带发现：`Z42ClassType.IsAssignableTo` 按短名判同一（`this._name == other.Name()`）⇒
+     `Base l = c;`（`c : Demo.Lib.Core.Base`、`Base` 是本地类）零诊断。✅ 已修（`fix-class-identity-ns`）：同短名还要
+     同 ns；一侧 ns 为空（合成 / 临时类型对象）时退回只比短名。用例 `tests/typecheck/class_identity_ns`（修前红）；
+     stdlib 19 包字节不变。
 
 6. ✅ **类表逐键回查不再走作用域解析**（2026-10-01，`fix-class-scan-lookup`）：第 5 步记下的 z42.io 3614 次，
    探针加调用栈后定位到三处，都不是源码引用：
