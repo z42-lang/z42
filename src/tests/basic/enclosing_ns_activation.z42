@@ -1,0 +1,15 @@
+// 单文件 `--emit-zbc` 的依赖包激活也按 C# 规则算**外围命名空间**（using-csharp-rules 1.7）。
+//
+// 本文件写在 `Std.Collections.Probe` 里、不写 `using Std.Collections;`：按规则 5，外围 ns `Std.Collections`
+// 隐式可见，`Stack<T>` 应当直接可用。包编译路径（`PackageCompile`）早已用 `IrDump.ActivationNsOf`
+// （using ∪ 外围链）决定激活哪些依赖包；而 `--emit-zbc` 这条路此前只按 `using` 激活 ⇒ z42.collections
+// 根本没加载，`Stack` 查不到。
+namespace Std.Collections.Probe;
+
+void Main() {
+    Stack<int> s = new Stack<int>();
+    s.Push(3);
+    s.Push(4);
+    Assert.Equal(4, s.Pop());
+    Assert.Equal(3, s.Pop());
+}
