@@ -668,15 +668,21 @@ entry   = "MyApp.main"
 [dependencies]
 "bigdata" = { version = "1.0", deploy = "shared" }   # 不复制，运行期从 probing-paths 解析
 "z42.io"  = { version = "0.1.0", deploy = "copy" }   # 强制复制进 exe 的 dist（即使它是框架包）
+"z42.project" = { version = "*", deploy = "sdk" }     # SDK 库：不复制，运行期从所在 SDK 解析
 ```
 
 | 值 | 行为 |
 |---|---|
 | `copy` | 构建期复制进 exe 的 `dist/`，私有、不共享 |
 | `shared` | **不复制**，运行期从 [`probing-paths`](runtime-settings.md#probing-paths--依赖的额外搜索目录) 或 `libs/` 解析 |
+| `sdk` | **SDK 库专用**：不复制；z42c 在侧车 `probing-paths` 自动补一条 `${Z42_HOME}/programs/z42c`，运行期从**所在 SDK** 解析。用在非 SDK 库上报错 |
 | 省略 | 由默认规则决定：**从 shipped `libs/` 找到的不复制**（框架），从别处找到的复制（私有）|
 
-只接受这两个值，写错（`Copy` / typo）**报错** —— 否则会被当成未声明静默走默认规则。校验在编译**之前**
+> ⚠️ `deploy = "sdk"` 让程序**依赖目标机器装了 SDK**，且运行期用的是**那台机器 SDK 里的版本**，不是编译时那份——
+> SDK 库不是稳定 API，版本不同就可能出问题。它适合「和特定 SDK 一起发布、在该 SDK 上运行」的工具；普通应用用默认
+> （复制）最稳。只装了 runtime 的机器上运行会失败，报错附「是否没有安装 z42 SDK？」。
+
+只接受这三个值，写错（`Copy` / typo）**报错** —— 否则会被当成未声明静默走默认规则。校验在编译**之前**
 跑，对**所有 `kind`** 生效（此前只在 exe 构建时跑，于是 lib 里的 typo 静默无效）。
 
 `deploy` 在两个地方**没有意义、写了报错**：

@@ -115,6 +115,20 @@ int _bundleExeDeps(ProjectManifest pm, string[] closureNames, int closureN, stri
         // （相对 entry、通配符、去重）在 z42 侧重做一遍 ⇒ 两份规则各自漂移，正是本 change
         // 一路在消灭的东西。等有共享途径再补，见 tasks 批 4 的「明确不做」。
         if (dpl == "shared") { continue; }
+        // add-sdk-libs：`deploy = "sdk"` —— 不复制；运行期经侧车自动补的 `${Z42_HOME}/programs/z42c` 从**所在 SDK**
+        // 解析（`_writeRuntimeConfigSidecar`）。只对 SDK 库合法：它必须是从编译器目录解析到的（stdlib 在 libs/、
+        // 私有包在 dist 里，运行期都不会出现在 SDK 的编译器目录）。不复制 ⇒ 它的传递闭包也不经这里走到。
+        if (dpl == "sdk") {
+            string sdkWhere = _firstDirHaving(libsDirs, libsDirsN, dep + ".zpkg");
+            if (sdkWhere.Length == 0 || !_isCompilerDomainDir(sdkWhere)) {
+                ConsoleError.WriteLine("z42c build: [dependencies] `" + dep + "` 写了 deploy = \"sdk\"，但它不是 SDK 库"
+                    + (sdkWhere.Length > 0 ? "（解析自 " + sdkWhere + "）" : "") + " —— deploy = \"sdk\" 只适用于编译器目录"
+                    + "（SDK 的 programs/z42c/）里的包，运行期从所在 SDK 解析。stdlib 不需要它（运行期本就从 libs/ 解析），"
+                    + "私有包请用默认（复制）或 \"shared\"。");
+                return ExitCode.BuildError;
+            }
+            continue;
+        }
         string zname = dep + ".zpkg";
         bool copied = false;
         int d = 0;
@@ -256,12 +270,37 @@ int _validateDeployDecls(ProjectManifest pm) {
 // 取值只认两个。写错了（`Copy` / `static` / typo）若当成未声明静默走默认判据，就又是一个
 // 「配了以为生效」。`section` 用来把错误指回用户写它的那张表。
 int _chkDeployValue(string section, string name, string value) {
-    if (value == "copy" || value == "shared") { return ExitCode.Ok; }
+    if (value == "copy" || value == "shared" || value == "sdk") { return ExitCode.Ok; }
     ConsoleError.WriteLine("z42c build: " + section + " `" + name + "` 的 deploy = \"" + value
-        + "\" 不是合法取值。只接受 \"copy\"（复制进 exe 的 dist，私有）"
-        + "或 \"shared\"（不复制，运行期从 probing-paths 解析）；省略 = 由默认规则决定"
+        + "\" 不是合法取值。只接受 \"copy\"（复制进 exe 的 dist，私有）、"
+        + "\"shared\"（不复制，运行期从 probing-paths 解析）"
+        + "或 \"sdk\"（SDK 库专用：不复制，运行期从所在 SDK 解析）；省略 = 由默认规则决定"
         + "（在 shipped libs/ 里的不复制，其余复制）。");
     return ExitCode.BuildError;
+}
+
+// libsDirs 里第一个含 `file` 的目录；没有 ⇒ ""。
+string _firstDirHaving(string[] libsDirs, int n, string file) {
+    int i = 0;
+    while (i < n) {
+        if (File.Exists(Path.Join(libsDirs[i], file))) { return libsDirs[i]; }
+        i = i + 1;
+    }
+    return "";
+}
+
+bool _isCompilerDomainDir(string dir) {
+    string[] dom = CompilerDomain.Dirs();
+    int i = 0;
+    while (i < dom.Length) { if (dom[i] == dir) { return true; } i = i + 1; }
+    return false;
+}
+
+// 清单里有没有 `deploy = "sdk"` 的依赖（侧车据此补 `${Z42_HOME}/programs/z42c`）。
+bool _hasSdkDeploy(ProjectManifest pm) {
+    int i = 0;
+    while (i < pm.DepCount) { if (pm.Deps[i].Deploy == "sdk") { return true; } i = i + 1; }
+    return false;
 }
 
 // ── `[dependencies]` 的 zpkg 产物引用（add-deployment-model）──────────────────────────────

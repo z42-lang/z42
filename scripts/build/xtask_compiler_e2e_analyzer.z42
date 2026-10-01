@@ -416,3 +416,66 @@ string _e2eLs(string dir) {
     while (i < xs.Length) { s = s + (i > 0 ? ", " : "") + xs[i]; i = i + 1; }
     return s;
 }
+
+// ── `deploy = "sdk"`：不复制，运行期经 `${Z42_HOME}` 从所在 SDK 解析（add-sdk-libs）──────────────────
+//
+// 四格：① 构建成功；② 产物里**没有** SDK 库副本、侧车 probing-paths 带 `${Z42_HOME}/programs/z42c`；
+// ③ 以一个只含 `programs/z42c/{z42c.pipeline,z42c.semantics}` 的目录当 Z42_HOME ⇒ 跑得起来（从「SDK」解析到了）；
+// ④ 对 stdlib 写 `deploy = "sdk"` ⇒ 报错（只适用于 SDK 库）。
+// 选 z42c.pipeline 的理由同 `_e2eSdkLibExeCopy`：开发树 stdlib flat 里预建着 z42.build 等，它们在这里是「框架」。
+int _e2eSdkLibDeploySdk(string root, string vm, string driverZpkg, string e2eDir) {
+    string flat = _libsFlatDist(root, "release");
+    string d = Path.Join(e2eDir, "sdkdeploy");
+    Directory.Create(d);
+    File.WriteAllText(Path.Join(d, "main.z42"),
+        "using Std.IO;\nusing Z42.Pipeline;\n\nvoid Main() { WsTier t = new WsTier(); Console.WriteLine(t != null ? \"sdkdeploy ok\" : \"sdkdeploy null\"); }\n");
+    File.WriteAllText(Path.Join(d, "sdkdeploy.z42.toml"),
+        "[project]\nname    = \"sdkdeploy\"\nversion = \"0.1.0\"\nkind    = \"exe\"\nentry   = \"Main\"\n\n"
+        + "[sources]\ninclude = [\"*.z42\"]\n\n[dependencies]\n\"z42c.pipeline\" = { version = \"0.1.0\", deploy = \"sdk\" }\n");
+    ProcessResult b = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(Path.Join(d, "sdkdeploy.z42.toml")).Arg("--release")
+        .Env("Z42_LIBS", flat).Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
+    if (b.ExitCode != 0) {
+        Console.WriteLine("  ✗ deploy = \"sdk\" 的 exe 编不过: rc=" + b.ExitCode.ToString());
+        Console.WriteLine("    stderr: " + b.Stderr);
+        return 1;
+    }
+    string dist = Path.Join(d, "dist");
+    if (File.Exists(Path.Join(dist, "z42c.pipeline.zpkg")) || File.Exists(Path.Join(dist, "z42c.semantics.zpkg"))) {
+        Console.WriteLine("  ✗ deploy = \"sdk\" 的 SDK 库仍被拷进了产物: " + _e2eLs(dist));
+        return 1;
+    }
+    string sidecar = Path.Join(dist, "sdkdeploy.runtimeconfig.toml");
+    if (!File.Exists(sidecar) || File.ReadAllText(sidecar).IndexOf("${Z42_HOME}/programs/z42c") < 0) {
+        Console.WriteLine("  ✗ 侧车没有补 ${Z42_HOME}/programs/z42c: " + (File.Exists(sidecar) ? File.ReadAllText(sidecar) : "(无侧车)"));
+        return 1;
+    }
+    // ③ 造一个最小「SDK」：只有 programs/z42c 里那两个包（取自编译器目录）。
+    string sdk = Path.Join(e2eDir, "sdkdeploy_fakesdk");
+    string prog = Path.Join(sdk, "programs/z42c");
+    if (Directory.Exists(sdk)) { Directory.Delete(sdk, true); }
+    Directory.Create(prog);
+    string cdom = Path.GetDirectoryName(driverZpkg);
+    File.Copy(Path.Join(cdom, "z42c.pipeline.zpkg"), Path.Join(prog, "z42c.pipeline.zpkg"));
+    File.Copy(Path.Join(cdom, "z42c.semantics.zpkg"), Path.Join(prog, "z42c.semantics.zpkg"));
+    ProcessResult r = new Process(vm).Arg(Path.Join(dist, "sdkdeploy.zpkg")).Env("Z42_LIBS", flat).Env("Z42_HOME", sdk)
+        .EnvRemove("Z42_COMPILER_LIBS").Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
+    if (r.ExitCode != 0 || r.Stdout.Trim() != "sdkdeploy ok") {
+        Console.WriteLine("  ✗ deploy = \"sdk\" 的 exe 在「SDK」上跑不起来: rc=" + r.ExitCode.ToString() + " " + r.Stdout + r.Stderr);
+        return 1;
+    }
+    // ④ stdlib 写 deploy = "sdk" ⇒ 报错。
+    string e = Path.Join(e2eDir, "sdkdeploy_bad");
+    Directory.Create(e);
+    File.WriteAllText(Path.Join(e, "main.z42"), "using Std.IO;\n\nvoid Main() { Console.WriteLine(\"x\"); }\n");
+    File.WriteAllText(Path.Join(e, "bad.z42.toml"),
+        "[project]\nname    = \"sdkdeploybad\"\nversion = \"0.1.0\"\nkind    = \"exe\"\nentry   = \"Main\"\n\n"
+        + "[sources]\ninclude = [\"*.z42\"]\n\n[dependencies]\n\"z42.io\" = { version = \"0.1.0\", deploy = \"sdk\" }\n");
+    ProcessResult bad = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(Path.Join(e, "bad.z42.toml")).Arg("--release")
+        .Env("Z42_LIBS", flat).Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
+    if (bad.ExitCode == 0 || bad.Stderr.IndexOf("只适用于") < 0) {
+        Console.WriteLine("  ✗ 对 stdlib 写 deploy = \"sdk\" 没有报错（或报错不对）: rc=" + bad.ExitCode.ToString() + " " + bad.Stderr);
+        return 1;
+    }
+    Console.WriteLine("  ✓ deploy = \"sdk\"：不复制、侧车补 ${Z42_HOME}/programs/z42c、在 SDK 上可运行；stdlib 误用报错");
+    return 0;
+}
