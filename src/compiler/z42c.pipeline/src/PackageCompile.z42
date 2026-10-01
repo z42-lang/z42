@@ -22,9 +22,14 @@ public sealed class CachedNsMeta {
     // warnings-survive-cache：同理由的第二格——cached CU 的 per-CU typecheck 诊断也是本轮跳过的
     // 产物，必须从 meta 回填，否则**警告只在冷构建那一次可见**。
     public string[] Diags;     public int DiagCount;
+    // using-csharp-rules 2.9：第三格 —— 本文件用到的**全部** ns（含同包跨 ns；`UsedDepNs` 只有依赖包那一半）。
+    // E0436（`_enforceFileScope`）判据是两者之并；此前 cached 文件只剩 `UsedDepNs` ⇒ 另一个文件删掉
+    // `global using` 时，cached 文件的同包跨 ns 引用不报 E0436。driver 侧写入 / 读出晚一个 nightly 接（bootstrap-seed）。
+    public string[] UsedNs;
     public CachedNsMeta(string[] usedDepNs, int count) {
         this.UsedDepNs = usedDepNs; this.UsedDepNsCount = count;
         this.Diags = new string[0]; this.DiagCount = 0;
+        this.UsedNs = new string[0];
     }
 }
 
@@ -292,6 +297,7 @@ public static class PackageCompile {
                 if (cachedMods[ci] != null && inp.CachedMetas[ci] != null) {
                     cms[ci].UsedDepNs = inp.CachedMetas[ci].UsedDepNs;
                     cms[ci].UsedDepNsCount = inp.CachedMetas[ci].UsedDepNsCount;
+                    if (inp.CachedMetas[ci].UsedNs != null) { cms[ci].UsedNs = inp.CachedMetas[ci].UsedNs; }   // using-csharp-rules 2.9
                     cms[ci].DiagMsgs = inp.CachedMetas[ci].Diags;
                     cms[ci].DiagCount = inp.CachedMetas[ci].DiagCount;
                     // ErrorCount 不回填：ErrorCount>0 的编译**根本不写 cache** ⇒ 存下来的

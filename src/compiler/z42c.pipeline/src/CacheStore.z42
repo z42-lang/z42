@@ -56,6 +56,8 @@ public sealed class CacheMeta {
     // zbc 先写、meta 后写，中间崩溃会留下「新 zbc + 旧 meta」；源码若随后又改回旧内容，旧 meta 的
     // SourceHash 重新对上 ⇒ 命中一份由**另一版源码**编出的 zbc。
     public string   ZbcHash;
+    // using-csharp-rules 2.9：本文件用到的全部 ns（`CompiledModuleZ.UsedNs`；E0436 判据的另一半，见 `CachedNsMeta.UsedNs`）。
+    public string[] UsedNs;    public int UsedNsCount;
     public CacheMeta(string rel) {
         this.Rel = rel;
         this.SourceHash = "";
@@ -68,6 +70,7 @@ public sealed class CacheMeta {
         this.FnLabels = new string[0];  this.FnLabelsCount = 0;
         this.Diags = new string[0];     this.DiagCount = 0;
         this.ZbcHash = "";
+        this.UsedNs = new string[0];    this.UsedNsCount = 0;
     }
 }
 
@@ -86,7 +89,9 @@ public static class CacheStore {
     // v3（2026-08-11 add-compiler-fingerprint-cache）：+z42c-fp 行（编译器语义指纹进 key）。v2 条目失效。
     // v2（2026-07-08）：+token 行——D8 计时实测 42 文件语料增量比全量慢 17%，根因 =
     // 闭包边输入对全部文件独立重 lex；token 入 meta 后 cached 文件零 lex。v1 条目失效。
-    public static int MetaVersion = 8;
+    // v9（2026-10-01 using-csharp-rules 2.9）：+`usedns <ns>` 行——本文件用到的全部 ns（含同包跨 ns），cached 命中时
+    //     回填给 E0436 判据。此前只存 `useddep`（依赖包那一半）。v8 条目失效。
+    public static int MetaVersion = 9;
 
     // 编译器语义指纹 —— **已改为内容派生**（change `fingerprint-content-derived`）：
     // 值 = `CompilerFingerprint.Entries` 列表的内容哈希，来源见 `CompilerFingerprint.z42`。
@@ -108,7 +113,7 @@ public static class CacheStore {
     // 序列化（行式；集合按传入序写出——调用方保证确定性来源）。
     // 逐行进 parts 再一次 ConcatParts：`s = s + …` 在大模块（token/pool 上千行）上是平方级拷贝。
     public static string Serialize(CacheMeta m) {
-        int total = 8 + m.NsCount + m.SurfIdentCount + m.UsedDepNsCount + m.TokenCount + m.PoolCount + m.FnLabelsCount + m.DiagCount;
+        int total = 8 + m.NsCount + m.SurfIdentCount + m.UsedDepNsCount + m.UsedNsCount + m.TokenCount + m.PoolCount + m.FnLabelsCount + m.DiagCount;
         string[] parts = new string[total];
         int k = 0;
         parts[k] = "z42c-meta " + CacheStore.MetaVersion.ToString() + "\n"; k = k + 1;
@@ -124,6 +129,8 @@ public static class CacheStore {
         while (i < m.SurfIdentCount) { parts[k] = "sident " + m.SurfIdents[i] + "\n"; k = k + 1; i = i + 1; }
         i = 0;
         while (i < m.UsedDepNsCount) { parts[k] = "useddep " + m.UsedDepNs[i] + "\n"; k = k + 1; i = i + 1; }
+        i = 0;
+        while (i < m.UsedNsCount) { parts[k] = "usedns " + m.UsedNs[i] + "\n"; k = k + 1; i = i + 1; }
         i = 0;
         while (i < m.TokenCount) { parts[k] = "token " + m.Tokens[i] + "\n"; k = k + 1; i = i + 1; }
         i = 0;
@@ -182,6 +189,10 @@ public static class CacheStore {
             else if (key == "useddep") {
                 m.UsedDepNs = CacheStore._append(m.UsedDepNs, m.UsedDepNsCount, val);
                 m.UsedDepNsCount = m.UsedDepNsCount + 1;
+            }
+            else if (key == "usedns") {
+                m.UsedNs = CacheStore._append(m.UsedNs, m.UsedNsCount, val);
+                m.UsedNsCount = m.UsedNsCount + 1;
             }
             else if (key == "token") {
                 m.Tokens = CacheStore._append(m.Tokens, m.TokenCount, val);

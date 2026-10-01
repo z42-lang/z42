@@ -215,6 +215,8 @@ CacheMeta _meta() {
     m.Namespace = "T";
     m.UsedDepNs = new string[2]; m.UsedDepNs[0] = "Std"; m.UsedDepNs[1] = "Std.IO";
     m.UsedDepNsCount = 2;
+    m.UsedNs = new string[2]; m.UsedNs[0] = "Std.IO"; m.UsedNs[1] = "T.Shapes";   // v9：usedns 行
+    m.UsedNsCount = 2;
     m.Tokens = new string[2]; m.Tokens[0] = "Add"; m.Tokens[1] = "Rect";
     m.TokenCount = 2;
     m.Pool = new string[2]; m.Pool[0] = "hello world"; m.Pool[1] = "多字节→串";
@@ -241,6 +243,8 @@ void test_cache_meta_roundtrip() {
     Assert.Equal("T", m.Namespace);
     Assert.Equal(2, m.UsedDepNsCount);
     Assert.Equal("Std.IO", m.UsedDepNs[1]);
+    Assert.Equal(2, m.UsedNsCount);
+    Assert.Equal("T.Shapes", m.UsedNs[1]);
     Assert.Equal(2, m.TokenCount);
     Assert.Equal("Rect", m.Tokens[1]);            // v2：token 集入 meta（D8 修正）
     Assert.Equal(2, m.PoolCount);
