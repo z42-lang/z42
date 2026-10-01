@@ -393,10 +393,10 @@ worker 只做 `DepScan.ScanDirsLazy`——命名空间路由 nsMap + 惰性 worl
   **O(引用闭包)** 而非 O(标准库总量)——库变多首轮不会变慢。每包解析确定性，懒填与 eager 全量产出
   逐字节相同。
 - **ns 索引落盘**（`z42c.pipeline/src/NsIndexCache.z42`）：`ScanDirsLazy` 把「每 zpkg → 命名空间列表 +
-  每 ns 声明的类型短名」缓存到**第一个 libs 目录**下的 `.z42-nsindex`，key 是 libs 指纹
+  每 ns 声明的类型短名」缓存到**用户缓存目录**的 `nsindex/<目录集 key>`（`Z42_CACHE_DIR` 覆盖；规则同 launcher 单文件运行缓存，不写进 SDK 的 `libs/`），失效靠 libs 指纹
   `basename:size:mtime`。命中则直接从缓存建路由，**不再 open-all** 全部包，只按需 `Open` 引用闭包。
   这是 Windows 的对症解——消除二十多次被 Defender 逐个扫的文件打开。文件头是 `NSIDX2`
-  （每 ns 字段形如 `ns=T1,T2`），指纹变了自动重建，libs 不可写就静默回退 open-all。
+  （每 ns 字段形如 `ns=T1,T2`），指纹变了自动重建，缓存目录不可写就静默回退 open-all。
 
   量级：一份完整 SDK 的索引是**十来 KB 的文本**。命中与否的差别可直接观察——把索引删掉再跑一次
   `z42 repl -c "1+1"`，这一跑要 open-all 并重建索引，**比命中缓存的后续跑慢约三倍**；重建后即恢复。

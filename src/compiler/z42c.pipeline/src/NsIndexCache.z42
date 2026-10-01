@@ -26,10 +26,63 @@ public static class NsIndexCache {
         return s;
     }
 
-    // 索引文件：第一个 libsDir 下 `.z42-nsindex`（只读 libs → 写失败静默容忍，退化为每次重建）。
+    // 索引文件：用户缓存目录下 `nsindex/<目录集 key>`（写失败静默容忍，退化为每次重建）。
+    //
+    // 🔴 曾经写在**第一个 libsDir 下的 `.z42-nsindex`**，2026-10-01 改掉——那就是已安装 SDK 的
+    // `libs/`：只读安装位（Program Files、/usr/local、容器镜像层）上写不进去 ⇒ 缓存永远不命中；
+    // 写得进去时则把运行期状态混进分发目录（打出的 SDK 跑一遍 `test dist` 就多出这个文件，
+    // 与 nightly 归档 diff 不再干净）。与 launcher `_cacheRoot` 当初改掉 `<SDK>/cache` 同一理由，
+    // 落点规则也与之一致：`Z42_CACHE_DIR` 覆盖；Windows `%LOCALAPPDATA%\z42\cache`；
+    // 其他 `$XDG_CACHE_HOME/z42`，否则 `$HOME/.cache/z42`。取不到任何根 ⇒ 不缓存。
+    // key 取自完整目录集（不同 SDK / 开发树各占一份，互不挤占）；指纹仍负责失效。
+    // 旧版本留在 libs/ 里的 `.z42-nsindex` 不再有人读，删掉即可。
     internal static string _nsIndexPath(string[] dirs, int dirCount) {
         if (dirCount == 0) { return ""; }
-        return Path.Join(dirs[0], ".z42-nsindex");
+        string root = NsIndexCache._cacheRoot();
+        if (root.Length == 0) { return ""; }
+        string joined = "";
+        int i = 0;
+        while (i < dirCount) {
+            string d = dirs[i];
+            string abs = Path.IsRooted(d) ? d : Path.Join(Environment.GetCurrentDirectory(), d);
+            joined = joined + Path.Normalize(abs) + "\n";
+            i = i + 1;
+        }
+        string dir = Path.Join(root, "nsindex");
+        try { Directory.Create(dir); } catch (Exception ex) { return ""; }
+        return Path.Join(dir, NsIndexCache._keyOf(joined));
+    }
+
+    // 用户级缓存根（规则同 launcher `_cacheRoot`，见上）；取不到返回 ""。
+    internal static string _cacheRoot() {
+        string c = Environment.GetEnvironmentVariable("Z42_CACHE_DIR", "");
+        if (c.Length > 0) { return c; }
+        if (Platform.IsWindows()) {
+            string la = Environment.GetEnvironmentVariable("LOCALAPPDATA", "");
+            if (la.Length > 0) { return Path.Join(Path.Join(la, "z42"), "cache"); }
+        } else {
+            string xdg = Environment.GetEnvironmentVariable("XDG_CACHE_HOME", "");
+            if (xdg.Length > 0) { return Path.Join(xdg, "z42"); }
+        }
+        string home = Environment.GetEnvironmentVariable("HOME", "");
+        if (home.Length == 0) { home = Environment.GetEnvironmentVariable("USERPROFILE", ""); }
+        if (home.Length > 0) { return Path.Join(Path.Join(home, ".cache"), "z42"); }
+        return "";
+    }
+
+    // 目录集 → 文件名：两路多项式哈希（模素数，long 不溢出）拼成 hex。碰撞只会让两个目录集共用
+    // 一个文件、互相失效重建（指纹不符），不影响正确性。
+    internal static string _keyOf(string s) {
+        long a = 7;
+        long b = 11;
+        int i = 0;
+        while (i < s.Length) {
+            long ch = (long)(int)s.CharAt(i);
+            a = (a * 131 + ch) % 2147483647L;
+            b = (b * 137 + ch) % 1000000007L;
+            i = i + 1;
+        }
+        return a.ToString() + "-" + b.ToString();
     }
 
     // 读索引：header==NSIDX1 且指纹匹配且条目数==expectCount → 返回条目数组；否则 null（未命中/失效/损坏）。
