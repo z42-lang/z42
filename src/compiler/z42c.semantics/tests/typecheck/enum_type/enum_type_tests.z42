@@ -130,7 +130,8 @@ void test_enum_plus_integer_reports_exactly_one_diagnostic() {
 
 SymbolTable collectNs(string src) {
     var p = new Parser(src, "t.z42");
-    return new SymbolCollector().Collect(p.ParseCompilationUnit());
+    CompilationUnit cu = p.ParseCompilationUnit();
+    return new SymbolCollector().Collect(cu).WithScopeOf(cu);   // enum 表按 FQN 键 ⇒ 按名字查要本文件的作用域视图
 }
 
 TypeExpr named(string n) { return new NamedType(n, new TypeExpr[0], 0, new Span(0, 0, 1, 1, "<t>")); }

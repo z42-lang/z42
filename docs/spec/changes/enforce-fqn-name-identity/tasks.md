@@ -551,7 +551,7 @@ User 2026-09-30 裁定走 **A：按规范办**（补 `using` + 让规则 2 在�
        `using Z42.IR;` 的 `FlowAnalyzer.Reachability.z42` ⇒ 「主碎片作用域 + 全部碎片 using」（`CuCompile._fragmentScope`）；
      · 限定接口名 `D.IF` 剥短名再撞 ⇒ 由新增的作用域解析（含 FQN 一步）承接。
    - 删除：外围链之后的短名表回落（arity-mangle 键 / 裸名 / 接口）、G19b「限定名剥最后一段」整支；嵌套 `Outer+Inner`
-     键改走作用域解析。enum（`EnumTypes`）/ delegate（`Delegates`）两张短名表未动。
+     键改走作用域解析。enum（`EnumTypes`）/ delegate（`Delegates`）两张短名表未动（后由 A5b-2e 收口）。
    - 最后的依赖方是 7 个测试源码（z42.collections 的 6 个 golden + `struct_generic_container`）：用 `List` / `Dictionary`
      不写 `using Std.Collections;`。单文件 `--emit-zbc` 路径不跑文件级 E0436，一直靠短名表静默通过 ⇒ 补 using。
    - 用户可见：类型注解位没 using 的类型名在引用处报 E0436（同 A5b-2c 的表达式位）；单文件 `--emit-zbc` 此前静默放行，现在同样报。
@@ -560,6 +560,21 @@ User 2026-09-30 裁定走 **A：按规范办**（补 `using` + 让规则 2 在�
      （传错实参不报）。语料里没有「delegate 签名用 using 进来的类型」这种写法，探针只在负例上响了 1 次（`W scope=`）。
      ⇒ 改按本 CU 作用域解析 + 补声明位类型引用检查；用例 `test_delegate_signature_resolves_types_through_using`
      （撤掉修复即零诊断，实测）。
+- [x] A5**b-2e** ✅ enum / delegate 表 FQN 化（2026-10-01，`fqn-enum-delegate-tables`）：`EnumTypes` / `EnumTypeNs` / `EnumConsts` /
+   `Delegates` / `DelegateNs` 的键改成 FQN（`SymbolTable.DeclKey`），按名字查走 `EnumKey` / `DelegateKey`（与
+   `_resolveClass` 同一套作用域规则，无裸名回落）；导入侧 `ImportedSymbols.EnumConsts` 同改 FQN 键，FQN 视图与常量按 FQN
+   去重（此前它们在短名 first-wins 守卫里，同短名不同 ns 的第二个导入 enum 连 FQN 都进不来）。
+   - 修前红（`tests/typecheck/enum_delegate_ns`，5 条）：同包两个 ns 各一个 `Color` ⇒ B 里读 `Color.Red`（A 的成员）零诊断、
+     `A.Color` 赋给 B 的 `Color` 零诊断；同名 delegate 先注册者赢（B 的 lambda 按 A 的签名判错）；跨 ns 引用 enum /
+     delegate 不写 using 零诊断。
+   - 顺带：enum 类型名后的未知成员（`Color.Nope`）此前绑成 Unknown 上的实例成员、零诊断 ⇒ 报 E0401。
+   - 按类型取键的消费点（`ConstraintChecker` / `CallEmitter` / `ExhaustCheck`）用 `DeclKey(ct.Namespace, ct.Name())`；
+     `GetType()` 折叠直接用绑定时记下的 enum FQN（此前 `QualifyClass(短名)`，跨 ns 的本地 enum 会限定成当前 ns）。
+     `TypeNameResolver.SynthName` 对 enum 也写 FQN。`DeclEnforcer._passAttrArgConst` 改按 CU 作用域（此前根表）。
+- [ ] `ExportedClassZ.BaseFqn` 并回 `BaseName`（#1004 的过渡字段）—— **暂缓**（2026-10-01 评估）：字段只在加载期内存里
+      （`TsigReconcile` 从 TYPE 段算出，不进 zpkg），并回只省一个字段；代价是跨两个 nightly 分两步（上一 nightly 的
+      semantics 读 `cl.BaseFqn`，直接删字段种子运行期即崩），且 `ImportedSymbolLoader` 的 `cl.BaseName != "Object"`
+      按短名判 —— `BaseName` 改 FQ 会让种子把 `Std.Object` 当显式基类。
 
 ### A5b 测绘（2026-09-29，探针跑全量 `build stdlib`，21,078 次 `GetClass`）
 
@@ -579,7 +594,12 @@ User 2026-09-30 裁定走 **A：按规范办**（补 `using` + 让规则 2 在�
 🔴 **差分 0 条、歧义 0 条** ⇒ `Resolve` 不改变任何答案，A5b-2 应当也是字节恒等。
 ⭐ 655 个走到短名回落的名字里**带点的是 0 个** ⇒ 回落唯一在干的事是**解析非限定名**，
 不是给限定名兜底 ⇒ **不能先删再看谁红**（135 个调用点全是字符串键，删了一处都不会编译报错）。
-- [ ] A6 性能对账：`GetHashCode` 在 profile 里的占比应下降（基线 1.93%）
+- [x] A6 性能对账：`GetHashCode` 在 profile 里的占比应下降（基线 1.93%）—— 2026-10-01 实测**没降**，A 轴的 id 化没有落地
+      （名字解析仍按字符串查表），但开销可控：编 z42c.semantics（`--release --no-incremental`，interp 采样 1000Hz）
+      `GetHashCode` self 2.48%，名字解析整体（`ResolveTypeP` 含子调用）4.4%。A5b-2e 首版让 enum / delegate 查找逐层拼键，
+      占到 2.2%，补短名否决（`EnumShortNames` / `DelegateShortNames`）后 1.3%、与改动前每次一查持平；墙钟 13.6s → 13.3s（JIT）。
+      同一份采样里更大的热点不在名字解析：写增量缓存 ~14%（`--no-incremental` 也写）、源码内容哈希（Murmur3 + UTF-8）~5%、
+      `ZbcWriter._splitDots` ~2.4% —— 归性能优化另立变更。
 
 ## 阶段 3（原字符串路的计划，D-B 选定后由 B2~B5 取代）—— I2 归一唯一出口响亮化
 

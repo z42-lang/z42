@@ -35,7 +35,8 @@ using Z42.Core;
 
 public sealed partial class DeclEnforcer {
 
-    internal void _passAttrArgConst(SymbolTable t, CompilationUnit cu) {
+    internal void _passAttrArgConst(SymbolTable table, CompilationUnit cu) {
+        SymbolTable t = table.WithScopeOf(cu);   // enum 名按本 CU 作用域解析（`EnumKey`）
         int i = 0;
         while (i < cu.DeclCount) {
             this._acWalk(t, cu.Decls[i], "");
@@ -155,7 +156,8 @@ public sealed partial class DeclEnforcer {
             MemberExpr m = e as MemberExpr;
             if (!(m.Target is IdentExpr)) { return false; }   // 更深的链不认
             string owner = (m.Target as IdentExpr).Name;
-            if (t.EnumConsts.ContainsKey(owner + "." + m.Name)) { return true; }
+            string oek = t.EnumKey(owner);
+            if (oek != null && t.EnumConsts.ContainsKey(oek + "." + m.Name)) { return true; }
             return DeclEnforcer._acIsConstField(t, owner, m.Name);
         }
         // 裸名：同类内的 `const` 字段（`[Num(MAX)]` 写在声明 MAX 的那个类里）。

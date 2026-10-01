@@ -128,22 +128,24 @@ public sealed class ExhaustChecker {
             return;
         }
         // ── enum ──────────────────────────────────────────────
-        if (env.Symbols.EnumTypes.ContainsKey(tn)) {
+        string ek = (subjType is Z42ClassType) ? SymbolTable.DeclKey((subjType as Z42ClassType).Namespace, tn) : tn;   // enum 表键（FQN）
+        if (env.Symbols.EnumTypes.ContainsKey(ek)) {
             string[] keys = env.Symbols.EnumConsts.Keys();
-            string prefix = tn + ".";
+            string prefix = ek + ".";
             int missing = 0;
             string missNames = "";
             int i = 0;
             while (i < keys.Length) {
                 string key = keys[i];
-                if (this._startsWith(key, prefix)) {
+                // 余下部分不含 `.`：ns `A.Color` 里的 enum `X`（键 `A.Color.X.M`）不是 enum `A.Color` 的成员
+                if (this._startsWith(key, prefix) && key.Substring(prefix.Length, key.Length - prefix.Length).IndexOf(".") < 0) {
                     StrBox vb = env.Symbols.EnumConsts.Get(key) as StrBox;
                     if (vb != null) {
                         string vk = "i:" + vb.Value;
                         if (!covered.ContainsKey(vk)) {
                             missing = missing + 1;
                             if (missNames != "") { missNames = missNames + ", "; }
-                            missNames = missNames + key;
+                            missNames = missNames + tn + "." + key.Substring(prefix.Length, key.Length - prefix.Length);   // 消息写短名
                         }
                     }
                 }

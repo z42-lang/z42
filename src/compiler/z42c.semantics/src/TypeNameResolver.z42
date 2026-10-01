@@ -6,12 +6,12 @@ using Z42.Syntax;
 // 纯叶子工具，供 ClassExtractor / FuncImplExtractor / MemberCollector（TsigTypeName/SurfaceTypeName）调用。
 public static class TypeNameResolver {
     // A5b-2d：回写成类型表达式时，有声明 ns 的类 / 接口写 **FQN** —— 它是已经解析好的类型，按调用点作用域
-    // 再按短名解析一遍可能查不到（本文件没 using 它的 ns）或查到别的同短名类型。基元（关键字拼写）、enum
-    // （EnumTypes 按短名键）、全局 ns 的类型仍写短名。
+    // 再按短名解析一遍可能查不到（本文件没 using 它的 ns）或查到别的同短名类型。enum 同理（`EnumTypes` 也按 FQN 键）。
+    // 基元（关键字拼写）、全局 ns 的类型仍写短名。
     public static string SynthName(Z42Type t) {
         if (t is Z42ClassType) {
             Z42ClassType ct = t as Z42ClassType;
-            if (ct.PrimCode() < 0 && !ct.IsEnum && ct.Namespace != null && ct.Namespace != "") { return ct.Namespace + "." + ct.Name(); }
+            if (ct.PrimCode() < 0 && ct.Namespace != null && ct.Namespace != "") { return ct.Namespace + "." + ct.Name(); }
         }
         if (t is Z42InterfaceType) {
             Z42InterfaceType it = t as Z42InterfaceType;

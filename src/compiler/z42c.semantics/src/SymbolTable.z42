@@ -42,13 +42,15 @@ public sealed partial class SymbolTable {
     // 而 Check 的查询侧只认类（`Z42InstantiatedType.Def` 是 Z42ClassType），被接口条目遮蔽会静默错检。
     // 接口从不 arity-mangle（ImportedSymbolLoader/StubCollector 都按裸名登记），故此表键恒为裸名。
     public StrMap InterfaceConstraints;
-    public StrMap EnumTypes;        // name → "enum" 标记（枚举类型名注册）
-    // unify-type-identity-fqn：接口的 FQN 视图（对称 ClassesByFqn）+ enum 的声明 ns（name → ns）。
+    // enum / delegate 这几张表（含 `DelegateNs`）的键是 **FQN**（`SymbolTable.DeclKey`：全局 ns 为裸名，嵌套的是
+    // `ns.Outer+Inner`）；按名字查走 `EnumKey` / `DelegateKey`（作用域解析，同 `_resolveClass`）。
+    public StrMap EnumTypes;        // FQN → "enum" 标记（枚举类型名注册）
+    // unify-type-identity-fqn：接口的 FQN 视图（对称 ClassesByFqn）+ enum 的声明 ns（FQN → ns）。
     // 两者此前都不存在 ⇒ 接口/enum 的类型身份只有短名，与类那半边不一致。
     public StrMap InterfacesByFqn;
     public StrMap EnumTypeNs;
-    public StrMap EnumConsts;       // "EnumName.MemberName" → 整数值字符串
-    public StrMap Delegates;        // name → Z42FuncType（用户 delegate，非泛型；委托类型即函数类型）
+    public StrMap EnumConsts;       // "EnumFqn.MemberName" → 整数值字符串
+    public StrMap Delegates;        // FQN → Z42FuncType（用户 delegate，非泛型；委托类型即函数类型）
     // add-bare-name-ambiguity-diagnostic：**短名 → 声明过它的全部命名空间**（值 StrBox，"|" 连接）。
     // 为什么必须单独存：`Classes` 是裸名单赢家（同短名跨 ns 只活一份）、
     // `ImportedSymbols.ClassNamespaces` 是裸名 → **单个** ns —— 两个生产点都把
@@ -150,6 +152,8 @@ public sealed partial class SymbolTable {
         this.ScopeChain = new string[0];
         this.UseRecorder = null;
         this.DelegateNs = new StrMap();
+        this.EnumShortNames = new StrMap();
+        this.DelegateShortNames = new StrMap();
     }
 
     // unify-type-identity-fqn：**引用方所在的命名空间**（per-CU 视图私有，与 CurrentAliases 同性质）。
@@ -165,7 +169,12 @@ public sealed partial class SymbolTable {
     // using-csharp-rules PR-2：本文件「用到的命名空间」记录器。只由 `TypeChecker.Infer` 挂在**本文件的视图**上
     // （视图链上继承），`Infer` 结束即停用 —— 遍历类表、按名字查的 pass 与代码生成期的解析都不记。
     public NsUseRecorder UseRecorder;
-    // 用户 delegate 名 → 声明 ns（StrBox）。`Delegates` 只存 `Z42FuncType`、没有 ns，记录用法时要它。
+    // enum / delegate 的**短名**集合（短名 → "1"）：`EnumKey` / `DelegateKey` 的快速否决 —— `ResolveTypeP` 对每个类型名都先问
+    // 一遍 enum / delegate，绝大多数名字两者都不是；不先否决就要逐层拼「外围 / using / prelude + 名字」再查表（实测编
+    // z42c.semantics 时这两处占 2.2%）。登记走 `NoteEnumKey` / `NoteDelegateKey`。
+    public StrMap EnumShortNames;
+    public StrMap DelegateShortNames;
+    // 用户 delegate 的 FQN → 声明 ns（StrBox）。`Delegates` 只存 `Z42FuncType`、没有 ns，记录用法时要它。
     public StrMap DelegateNs;
 
     // parallelize-package-compile：per-file 别名视图（线程安全根治）。共享其余 7 个数据字段的
@@ -202,6 +211,8 @@ public sealed partial class SymbolTable {
         t.ScopeChain = this.ScopeChain;
         t.UseRecorder = this.UseRecorder;
         t.DelegateNs = this.DelegateNs;
+        t.EnumShortNames = this.EnumShortNames;
+        t.DelegateShortNames = this.DelegateShortNames;
         return t;
     }
 
@@ -277,33 +288,27 @@ public sealed partial class SymbolTable {
 
 
 
-    // harden-crosspkg-gates：enum 短名 → FQN（`EnumTypeNs` 无记录则退回裸名）。
-    // enum 常量读（`Color.Green`）绑成 `BoundLitInt`，**不经任何类型引用检查** ——
-    // 想判它的来源包冲突，只能在那条分支上按名字自己算 FQN。
-    public string EnumFqn(string name) {
-        int at = this.EnumTypeNs.Find(name);
-        if (at < 0) { return name; }
-        string ns = (this.EnumTypeNs.ValAt(at) as StrBox).Value;
-        return ns == "" ? name : ns + "." + name;
-    }
-
-    // fix-enum-type-identity（A5b-2b-2）：本地造 enum 类型的**唯一出口**——`Z42ClassType.Enum(name)` + 声明 ns。
-    // name 是 `EnumTypes` 的键（裸名，或嵌套 enum 的 `Outer+Inner`）。此前只有 `ResolveTypeP` 的裸名分支
+    // fix-enum-type-identity（A5b-2b-2）：本地造 enum 类型的**唯一出口**——`Z42ClassType.Enum(短名)` + 声明 ns。
+    // key 是 `EnumTypes` 的键（FQN，见 `EnumKey`），不是源码里写的名字。此前只有 `ResolveTypeP` 的裸名分支
     // 查了 `EnumTypeNs`；嵌套 plusKey 分支与 `E.Member` 常量读（MemberResolver）各自 `Enum(name)` 了事 ⇒
     // Namespace 为空、`Fqn()` 退化成裸名。类型相等按 `Name()` 比，所以类型检查照样过——洞是静默的：
     // 按 FQN 的门（E0601 / E0497 / 规则 2 的 `using` 可见性）在这条轴上是瞎的。
     // （导入侧 `ImportedSymbolLoader._resolveTypeName` 读的是 ImportedSymbols 自己的表，另有一份。）
-    public Z42ClassType EnumType(string name) {
-        Z42ClassType ect = Z42ClassType.Enum(name);   // make-enum-distinct-type：带 IsEnum 标志
-        int at = this.EnumTypeNs.Find(name);
-        if (at >= 0) { ect.Namespace = (this.EnumTypeNs.ValAt(at) as StrBox).Value; }
+    public Z42ClassType EnumType(string key) {
+        int at = this.EnumTypeNs.Find(key);
+        if (at < 0) { return Z42ClassType.Enum(key); }   // make-enum-distinct-type：带 IsEnum 标志
+        string ns = (this.EnumTypeNs.ValAt(at) as StrBox).Value;
+        Z42ClassType ect = Z42ClassType.Enum(ns == "" ? key : key.Substring(ns.Length + 1, key.Length - ns.Length - 1));
+        ect.Namespace = ns;
         return ect;
     }
 
-
-
-
-
+    // enum / delegate 表的键：声明 ns + "." + 名字（全局 ns 为裸名）。与 `Z42ClassType.Fqn()` 同形，
+    // 所以手里有类型时 `DeclKey(ct.Namespace, ct.Name())` 就是它的键。
+    public static string DeclKey(string ns, string name) {
+        if (ns == null || ns == "") { return name; }
+        return ns + "." + name;
+    }
 
     // fix-arity-mangle-package-wide：把 cu 里 class/struct 的 arity 累积进包级 MultiArityNames。
     // 调用方须在**任何** `_passClassStubs` 之前把全部 CU 都喂一遍（多 CU 路径），
@@ -447,9 +452,9 @@ public sealed partial class SymbolTable {
         if (r is Z42ClassType) { this.NoteUse((r as Z42ClassType).Namespace); return; }
         if (r is Z42InterfaceType) { this.NoteUse((r as Z42InterfaceType).Namespace); return; }
         if (r is Z42FuncType) {
-            string dk = nt.Name;
-            if (this.DelegateNs.Find(dk) < 0) { dk = dk.Replace(".", "+"); }   // 嵌套 delegate 的 `+` 键
-            int at = this.DelegateNs.Find(dk);
+            string dk = this.DelegateKey(nt.Name);
+            if (dk == null) { dk = this.DelegateKey(nt.Name.Replace(".", "+")); }   // 嵌套 delegate 的 `+` 键
+            int at = dk == null ? -1 : this.DelegateNs.Find(dk);
             if (at >= 0) { this.NoteUse((this.DelegateNs.ValAt(at) as StrBox).Value); }
         }
     }
@@ -504,8 +509,8 @@ public sealed partial class SymbolTable {
                 pps[0] = this.ResolveTypeP(nt.Args[0], paramNames, paramCount);
                 return new Z42FuncType(pps, 1, Z42ClassType.Builtin("bool"));
             }
-            if (this.EnumTypes.ContainsKey(n)) { return this.EnumType(n); }   // unify-type-identity-fqn：enum 也进 FQ 身份体系
-            int _sl0 = this.Delegates.Find(n); if (_sl0 >= 0) { return this.Delegates.ValAt(_sl0) as Z42FuncType; }   // 用户 delegate → 函数类型
+            string _ek0 = this.EnumKey(n); if (_ek0 != null) { return this.EnumType(_ek0); }   // unify-type-identity-fqn：enum 也进 FQ 身份体系
+            string _dk0 = this.DelegateKey(n); if (_dk0 != null) { return this.Delegates.Get(_dk0) as Z42FuncType; }   // 用户 delegate → 函数类型
             // add-associated-types PR-3：泛型接口引用 `IFoo<int>` 解析成**实例化接口类型**，把类型
             // 实参带上。此前这里恒返回裸 `Z42InterfaceType`、`nt.Args` 整条丢弃 —— 那正是「接口约束
             // 只比裸名」（Deferred where-constraint-future-type-arg-matching）在类型模型层面的根。
@@ -616,11 +621,11 @@ public sealed partial class SymbolTable {
                     return fdef;
                 }
                 string plusKey = n.Replace(".", "+");
-                if (this.EnumTypes.ContainsKey(plusKey)) { return this.EnumType(plusKey); }   // make-enum-distinct-type：嵌套 enum 同款
+                string _ekp = this.EnumKey(plusKey); if (_ekp != null) { return this.EnumType(_ekp); }   // make-enum-distinct-type：嵌套 enum 同款
                 Z42InterfaceType pift = this._resolveIface(plusKey); if (pift != null) { return pift; }   // A5b-2d：嵌套键也走作用域解析
                 // fix-nested-delegate-decl（bug B1）：嵌套 delegate `Outer.Inner` → `Outer+Inner` 键。
                 // 与上面嵌套 enum / 接口的 plusKey 兜底同款（NestedFlatten 已按 `+` 名注册）。
-                int _sld = this.Delegates.Find(plusKey); if (_sld >= 0) { return this.Delegates.ValAt(_sld) as Z42FuncType; }
+                string _dkp = this.DelegateKey(plusKey); if (_dkp != null) { return this.Delegates.Get(_dkp) as Z42FuncType; }
                 if (nt.ArgCount > 0) {
                     string pm = plusKey + "$" + nt.ArgCount.ToString();
                     Z42ClassType pgdef = this._resolveClass(pm);   // A5b-2d：同上
