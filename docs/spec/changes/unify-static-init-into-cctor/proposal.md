@@ -15,7 +15,7 @@ z42 现在有**两套**静态初始化机制，做同一件事：
 两套并存的代价是真金白银：
 
 1. **编译器有一个二分支**：同一个静态字段初始化器，按"宿主类有没有写 `static C()`"分别送进
-   per-CU `__static_init__` 或 cctor 体首（[DeclBinder.z42:180-192](../../../../src/compiler/z42c.semantics/src/DeclBinder.z42)）。
+   per-CU `__static_init__` 或 cctor 体首（[DeclBinder.z42:180-192](../../../../src/compiler/z42c.semantics/src/Binding/DeclBinder.z42)）。
    这个分支自己就产过 bug——注释里记着"cctor 写了 42、随后 `__static_init__` 又覆写回 1"。
 2. **运行期有一整条平行管道**：`pending_static_inits` 队列 + `InitState::Claimed` 认领状态机 +
    `running_static_inits` 计数 + `init_batch_inflight` 在飞计数，与 cctor 自己的
@@ -41,7 +41,7 @@ z42 现在有**两套**静态初始化机制，做同一件事：
 **而第二套机制没有语义必要性。** z42 顶层只允许 `class`/`struct`/`interface`/`enum`/`delegate`/
 `impl`/自由函数，**没有顶层变量**（[Parser.z42:400-417](../../../../src/compiler/z42c.syntax/src/Parser.z42)）；
 `SemanticModel.AddStaticInit(cls, field, init)` 的**每一条都带宿主类名**
-（[DeclBinder.z42:191](../../../../src/compiler/z42c.semantics/src/DeclBinder.z42) / `:236`）。
+（[DeclBinder.z42:191](../../../../src/compiler/z42c.semantics/src/Binding/DeclBinder.z42) / `:236`）。
 `__static_init__` 里一条"无主"条目都没有——它纯粹是按文件聚合的实现细节。
 
 ## What Changes
@@ -109,13 +109,13 @@ z42 现在有**两套**静态初始化机制，做同一件事：
 
 | 文件 | 变更 | 说明 |
 |---|---|---|
-| `src/compiler/z42c.semantics/src/DeclBinder.z42` | MODIFY | 删二分支：字段/静态 auto 属性初始化器一律注入宿主类型初始化器 |
-| `src/compiler/z42c.semantics/src/SemanticModel.z42` | MODIFY | `SiCls/SiField/SiInit` 改按宿主类分组供合成消费 |
-| `src/compiler/z42c.semantics/src/FunctionEmitter.z42` | MODIFY | 删 `EmitStaticInit`；无显式 cctor 但有初始化器的类改走合成类型初始化器 |
-| `src/compiler/z42c.semantics/src/IrGen.z42` | MODIFY | 删 "static_init 首位" 特判与 `SourceStem` 依赖 |
-| `src/compiler/z42c.semantics/src/IrDump.z42` | MODIFY | 删 SA-3 `SourceStem` 设置 |
-| `src/compiler/z42c.semantics/src/ClassDescBuilder.z42` | MODIFY | `$Cctor` 哨兵挂载条件扩为「有显式 cctor **或** 有静态初始化器」 |
-| `src/compiler/z42c.semantics/src/AccessEmitter.z42` | MODIFY | 静态 struct 字段装箱统一走 `_emitStaticStore`（删 `EmitStaticInit` 专用转发） |
+| `src/compiler/z42c.semantics/src/Binding/DeclBinder.z42` | MODIFY | 删二分支：字段/静态 auto 属性初始化器一律注入宿主类型初始化器 |
+| `src/compiler/z42c.semantics/src/BoundTree/SemanticModel.z42` | MODIFY | `SiCls/SiField/SiInit` 改按宿主类分组供合成消费 |
+| `src/compiler/z42c.semantics/src/Emission/FunctionEmitter.z42` | MODIFY | 删 `EmitStaticInit`；无显式 cctor 但有初始化器的类改走合成类型初始化器 |
+| `src/compiler/z42c.semantics/src/Emission/IrGen.z42` | MODIFY | 删 "static_init 首位" 特判与 `SourceStem` 依赖 |
+| `src/compiler/z42c.semantics/src/Compilation/IrDump.z42` | MODIFY | 删 SA-3 `SourceStem` 设置 |
+| `src/compiler/z42c.semantics/src/Emission/ClassDescBuilder.z42` | MODIFY | `$Cctor` 哨兵挂载条件扩为「有显式 cctor **或** 有静态初始化器」 |
+| `src/compiler/z42c.semantics/src/Emission/AccessEmitter.z42` | MODIFY | 静态 struct 字段装箱统一走 `_emitStaticStore`（删 `EmitStaticInit` 专用转发） |
 | `src/compiler/z42c.pipeline/src/CtorKnownFixup.z42` | MODIFY | 整包装配后的置位遍历中并入 `owner_init_free`（或新增同形 pass） |
 | `src/compiler/z42c.pipeline/src/PackageCompile.z42` | MODIFY | 装配点调用新置位逻辑 |
 | `src/compiler/z42.package/src/IrModule.z42` | MODIFY | IR 指令承载 `owner_init_free` 位 + zbc 往返 |

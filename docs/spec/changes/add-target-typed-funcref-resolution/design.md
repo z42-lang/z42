@@ -29,12 +29,12 @@ matches = [ c ∈ cands | c.Signature.IsAssignableTo(target) ]   // 逐位 param
 ```
 
 > `IsAssignableTo` 在两个 `Z42FuncType` 间已是**逐位 `_partEq(ParamTypes)` + `_partEq(Ret)`
-> 精确相等**（[Z42Type.z42:509-524](../../../../src/compiler/z42c.semantics/src/Z42Type.z42)），
+> 精确相等**（[Z42Type.z42:509-524](../../../../src/compiler/z42c.semantics/src/Types/Z42Type.z42)），
 > 无变型 ⇒ `IsAssignableTo` 对称 ⇒ 直接当「精确匹配」原语用，无需另写 `_sigMatches`。
 
 ## 接线点（D2）
 
-### 咽喉：`ExprTyper.BindWithTarget`（[:837](../../../../src/compiler/z42c.semantics/src/ExprTyper.z42)）
+### 咽喉：`ExprTyper.BindWithTarget`（[:837](../../../../src/compiler/z42c.semantics/src/Binding/ExprTyper.z42)）
 
 ```z42
 // 新增分支（置于 lambda 分支旁）：
@@ -49,13 +49,13 @@ return this._bindExpr(e, env);
 `_bindFuncRefTargeted` = 上节算法；返回 `null` 表示「这个 ident 不是自由函数名」，交回
 `_bindExpr` 走普通路径（局部委托变量读、静态成员等）。
 
-### 变量声明 `T f = Parse;`（[StmtBinder.z42:300-317](../../../../src/compiler/z42c.semantics/src/StmtBinder.z42)）
+### 变量声明 `T f = Parse;`（[StmtBinder.z42:300-317](../../../../src/compiler/z42c.semantics/src/Binding/StmtBinder.z42)）
 
 现状：`IdentExpr` RHS 不匹配 lambda/coll/new 任一谓词 → 落 `_bindExpr(v.Init)`（无目标）。
 加：`declared is Z42FuncType` 且 `v.Init is IdentExpr` → `BindWithTarget(v.Init, declared, env)`
 （与既有 lambda 分支 `declared is Z42FuncType → _bindLambda` 并列）。
 
-### return `return Parse;`（[StmtBinder.z42:288](../../../../src/compiler/z42c.semantics/src/StmtBinder.z42)）
+### return `return Parse;`（[StmtBinder.z42:288](../../../../src/compiler/z42c.semantics/src/Binding/StmtBinder.z42)）
 
 现状 return 已以函数返回类型为 target 走 target-typed `new`。补：返回类型 `is Z42FuncType`
 且被返回表达式 `is IdentExpr` → 经 `BindWithTarget`。
@@ -63,22 +63,22 @@ return this._bindExpr(e, env);
 ### 赋值 / 字段初始化：**已在通道内**
 
 `AssignTyper.z42:153` `BindWithTarget(a.Value, target.Type(), env)`；
-`BindInitValue`（[:180](../../../../src/compiler/z42c.semantics/src/AssignTyper.z42)）同。分支加进
+`BindInitValue`（[:180](../../../../src/compiler/z42c.semantics/src/Binding/AssignTyper.z42)）同。分支加进
 `BindWithTarget` 即自动生效，**这两处零改动**。
 
 ### 调用实参 `xs.ForEach(Parse)`（D4）
 
-`BindArgsToSignature`（[OverloadBinder.z42:36](../../../../src/compiler/z42c.semantics/src/OverloadBinder.z42)）
+`BindArgsToSignature`（[OverloadBinder.z42:36](../../../../src/compiler/z42c.semantics/src/Binding/OverloadBinder.z42)）
 对延迟位（`args[i]==null`）调 `BindWithTarget(rawArgs[i], pt, env)`——只要实参被**延迟**，
 即自动走 target-typed funcref。故只需让**重载 funcref 实参**进入延迟位：
 
-- 延迟点 [MemberResolver.z42:476-477](../../../../src/compiler/z42c.semantics/src/MemberResolver.z42)：
+- 延迟点 [MemberResolver.z42:476-477](../../../../src/compiler/z42c.semantics/src/Binding/MemberResolver.z42)：
   `IsTargetTypedNew || IsLambdaArg || IsNamedArg` → 加 `|| IsOverloadedFuncRefArg(arg, env)`。
 - 新谓词 `IsOverloadedFuncRefArg(e, env)`：
   `e is IdentExpr && env.LookupVar(name)==null && ResolveFuncNs(name)!=null && GetFuncCandidates(ns,name).Length>1`。
   **只延迟重载的**（单份 funcref 实参保持急切绑定 → 字节中性）。`IsNamedArg` 已吃 env，故
   env-aware 谓词有先例。
-- arg-shape 构建 [OverloadBinder.z42:467](../../../../src/compiler/z42c.semantics/src/OverloadBinder.z42)
+- arg-shape 构建 [OverloadBinder.z42:467](../../../../src/compiler/z42c.semantics/src/Binding/OverloadBinder.z42)
   `_typeOfArgExpr` 同样加该谓词 → 返回 `null`（延迟位无类型），避免急切绑 → 误报 E0425。
 
 **已知限制（同 lambda 实参）**：外层调用若在**委托形参**上重载，延迟位无类型无法参与外层
@@ -86,13 +86,13 @@ return this._bindExpr(e, env);
 
 ## 表示层 & 发射（D3）
 
-### `BoundFuncRef`（[BoundExpr.z42:100](../../../../src/compiler/z42c.semantics/src/BoundExpr.z42)）
+### `BoundFuncRef`（[BoundExpr.z42:100](../../../../src/compiler/z42c.semantics/src/BoundTree/BoundExpr.z42)）
 
 增 `public string RegKey;`，构造器加参。既有 5 处（若有）构造点补传 `mfs.RegKey`。
-`_bindIdent` 无目标单份路径（[:113](../../../../src/compiler/z42c.semantics/src/ExprTyper.z42)）
+`_bindIdent` 无目标单份路径（[:113](../../../../src/compiler/z42c.semantics/src/Binding/ExprTyper.z42)）
 也改传 `mfs.RegKey`（primary ⇒ ==FuncName，字节中性）。
 
-### 发射（[ExprEmitter.z42:194-201](../../../../src/compiler/z42c.semantics/src/ExprEmitter.z42)）
+### 发射（[ExprEmitter.z42:194-201](../../../../src/compiler/z42c.semantics/src/Emission/ExprEmitter.z42)）
 
 ```z42
 this._ctx.Emit(new LoadFnInstr(frdst, SymbolTable.QualOf(fr.FuncNs, fr.RegKey)));  // 原为 fr.FuncName

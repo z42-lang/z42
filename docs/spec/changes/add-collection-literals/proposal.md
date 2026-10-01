@@ -135,8 +135,8 @@ var bad2 = {};                    // 错误：空 {} 无法判定 List / Dict，
 | `src/compiler/z42c.syntax/src/Ast.z42` | MODIFY | 新增 `ArrayLitExpr`（`[]` 元素 + spread 标记）、`ArrayRepeatExpr`（value+count）、`ListLitExpr`（`{}` 裸元素）、`DictLitExpr`（`{}` k/v 对） |
 | `src/compiler/z42c.syntax/src/ExprParser.z42` | MODIFY | 前缀 `[` → 数组/重复/spread；表达式位置 `{` → List/Dict（内容消歧 D1） |
 | `src/compiler/z42c.syntax/src/StmtParser.z42` | MODIFY | 语句位置 `{` 仍解析为块（确认消歧不误伤） |
-| `src/compiler/z42c.semantics/src/ExprTyper.z42` | MODIFY | target-typed 定型 + 元素公共类型推断（D3/D4）+ 空字面量校验 |
-| `src/compiler/z42c.semantics/src/ExprEmitter.z42` | MODIFY | desugar：→ `ArrayInitExpr` / `new List`+Add / `new Dictionary`+赋值 / 重复填充 / spread 拼接 |
+| `src/compiler/z42c.semantics/src/Binding/ExprTyper.z42` | MODIFY | target-typed 定型 + 元素公共类型推断（D3/D4）+ 空字面量校验 |
+| `src/compiler/z42c.semantics/src/Emission/ExprEmitter.z42` | MODIFY | desugar：→ `ArrayInitExpr` / `new List`+Add / `new Dictionary`+赋值 / 重复填充 / spread 拼接 |
 | `docs/reference/src/language/arrays.md` | MODIFY | 集合字面量 + 重复 + spread 语法节 |
 | `docs/reference/src/language/README.md` | MODIFY | 声明与初始化简化概览 |
 | `examples/collection_literals.z42` | NEW | 示例（数组/List/重复/spread/字典/空） |

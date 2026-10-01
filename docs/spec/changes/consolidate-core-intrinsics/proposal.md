@@ -48,7 +48,7 @@
 | `docs/spec/changes/consolidate-core-intrinsics/*` | NEW | 本提案 + design + spec + tasks |
 
 **只读引用**：
-- `src/compiler/z42c.semantics/src/IrGenFacts.z42` — 确认 z42c 源只用 `ZbcInstr.DoubleToBits`/`BitsToDouble`（保签名故不改）
+- `src/compiler/z42c.semantics/src/Emission/IrGenFacts.z42` — 确认 z42c 源只用 `ZbcInstr.DoubleToBits`/`BitsToDouble`（保签名故不改）
 - `../../../agent/rules/bootstrap-seed.md` — 轴 ②/④ 判据
 
 ## Out of Scope

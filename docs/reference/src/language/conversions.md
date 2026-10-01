@@ -1,6 +1,6 @@
 # 类型转换分类器（Conversion classifier）
 
-> 对齐：2026-08-12（tighten-implicit-conversions，PR2）｜ 代码：`src/compiler/z42c.semantics/src/Conversion.z42` + `TypeChecker.z42`
+> 对齐：2026-08-12（tighten-implicit-conversions，PR2）｜ 代码：`src/compiler/z42c.semantics/src/Types/Conversion.z42` + `TypeChecker.z42`
 
 z42 的类型转换体系借鉴 C#（隐式 / 显式），但**比 C# 更严、更可预测**：隐式只允许**绝对无损**
 的转换，任何可能丢信息或丢精度的转换都要求显式 `(T)` cast。本页描述承载这套规则的**分类器**

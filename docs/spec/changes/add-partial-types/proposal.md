@@ -45,10 +45,10 @@
 | `src/compiler/z42c.syntax/src/Lexer.z42` | MODIFY | `_initKeywords()` 注册 `partial` |
 | `src/compiler/z42c.syntax/src/Parser.z42` | MODIFY | 类型声明 + 方法声明接受 `partial` 修饰符 |
 | `src/compiler/z42c.syntax/src/Decl.z42` | MODIFY | `ClassDecl.IsPartial`、`MethodDecl.IsPartial`/`HasBody` 位 |
-| `src/compiler/z42c.semantics/src/SymbolCollector.z42` | MODIFY | 碎片合并（stub 指同一 `Z42ClassType` + 成员按稳定序并入）；基类/主构造器单碎片校验；接口并集；重复成员冲突检测；partial method 声明↔实现匹配 |
-| `src/compiler/z42c.semantics/src/Z42Type.z42` | MODIFY | partial 归属标记 / 有序备份按合并序追加（如需） |
-| `src/compiler/z42c.semantics/src/IrGen.z42` | MODIFY | `_classDesc` 成员取自合并 `Z42ClassType`；仅主碎片发 `TYPE` record；partial method 擦除 |
-| `src/compiler/z42c.semantics/src/ExportedTypeExtractor.z42` | MODIFY | 导出合并后的完整类型一次（跨包消费方零改动） |
+| `src/compiler/z42c.semantics/src/Symbols/SymbolCollector.z42` | MODIFY | 碎片合并（stub 指同一 `Z42ClassType` + 成员按稳定序并入）；基类/主构造器单碎片校验；接口并集；重复成员冲突检测；partial method 声明↔实现匹配 |
+| `src/compiler/z42c.semantics/src/Types/Z42Type.z42` | MODIFY | partial 归属标记 / 有序备份按合并序追加（如需） |
+| `src/compiler/z42c.semantics/src/Emission/IrGen.z42` | MODIFY | `_classDesc` 成员取自合并 `Z42ClassType`；仅主碎片发 `TYPE` record；partial method 擦除 |
+| `src/compiler/z42c.semantics/src/Exports/ExportedTypeExtractor.z42` | MODIFY | 导出合并后的完整类型一次（跨包消费方零改动） |
 | `src/compiler/z42c.pipeline/src/IncrementalBuild.z42` | MODIFY | partial 碎片组显式互连边（联动失效） |
 | `src/compiler/z42c.syntax/tests/parser/partial/` | NEW | partial 声明解析单测（正常 + 缺 `partial` 报错） |
 | `src/compiler/z42c.semantics/tests/collect/partial_merge/` | NEW | 碎片合并 / 冲突检测 / 顺序确定性单测 |

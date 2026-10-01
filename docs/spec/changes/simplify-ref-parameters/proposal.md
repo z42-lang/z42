@@ -132,11 +132,11 @@ if (Int32.TryParse(s, ref var n)) { return n; }   // 与 out var n 只差一个�
 | `src/libraries/z42c.syntax/src/ExprParser.z42` | MODIFY | `:239` 调用点只认 `ref`；`ref var v` / `ref _` |
 | `src/libraries/z42c.syntax/src/Ast.z42` | MODIFY | `RefArgExpr` 增 `IsDiscard` |
 | `src/compiler/z42c.semantics/src/DiagnosticCodes.z42` | MODIFY | 新错误码（见 design.md §错误码） |
-| `src/compiler/z42c.semantics/src/ExprTyper.z42` | MODIFY | `:300` `BoundRefArg` 带真实类型；值类型限制 |
-| `src/compiler/z42c.semantics/src/CallEmitter.z42` | MODIFY | 调用点修饰符匹配 + 实参/形参类型精确匹配 |
-| `src/compiler/z42c.semantics/src/ExprEmitter.z42` | MODIFY | `ref _` 隐藏槽；`ref var` 零值初始化 |
-| `src/compiler/z42c.semantics/src/ForwardGenerator.z42` | MODIFY | `:384` 对 `out`/`in` 生成错关键字 —— 随三态消失自然修正 |
-| `src/compiler/z42c.semantics/src/CtorInheritance.z42` | MODIFY | `:185` `IsRef` 透传不变，注释更正 |
+| `src/compiler/z42c.semantics/src/Binding/ExprTyper.z42` | MODIFY | `:300` `BoundRefArg` 带真实类型；值类型限制 |
+| `src/compiler/z42c.semantics/src/Emission/CallEmitter.z42` | MODIFY | 调用点修饰符匹配 + 实参/形参类型精确匹配 |
+| `src/compiler/z42c.semantics/src/Emission/ExprEmitter.z42` | MODIFY | `ref _` 隐藏槽；`ref var` 零值初始化 |
+| `src/compiler/z42c.semantics/src/Generators/ForwardGenerator.z42` | MODIFY | `:384` 对 `out`/`in` 生成错关键字 —— 随三态消失自然修正 |
+| `src/compiler/z42c.semantics/src/Symbols/CtorInheritance.z42` | MODIFY | `:185` `IsRef` 透传不变，注释更正 |
 | `src/tests/refs/**` | MODIFY | `in_param` / `out_var` 改写；新增阴性用例（见 spec） |
 | `src/compiler/z42c.semantics/tests/**` | MODIFY | codegen / layout 测试里的 `out` 写法 |
 | `scripts/test/xtask_*.z42` | MODIFY | 12 处 `out` 写法改写 |

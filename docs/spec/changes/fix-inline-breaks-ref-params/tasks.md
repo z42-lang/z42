@@ -80,7 +80,7 @@ Error: type mismatch in arithmetic: Ref { idx: 0, frame_id: 1 } vs I64(1)
 
 ## Scope（允许改动的文件）
 
-- `src/compiler/z42c.semantics/src/IrInline.z42`
+- `src/compiler/z42c.semantics/src/Optimization/IrInline.z42`
 - `src/compiler/z42c.pipeline/src/CacheStore.z42`（指纹 37 → 38）
 - `src/tests/**/*.opt_all` + `src/tests/**/opt_all`（252 个新 sidecar）
 - `docs/internals/src/runtime/escape-analysis.md`、`docs/internals/src/devinfra/testing.md`

@@ -62,7 +62,7 @@
 | delegate 调用 | `CallIndirect`（`0x56`）|
 
 delegate 类型自身在 IR 里由 `StubEmitter._emitDelegateInvoke`
-（`src/compiler/z42c.semantics/src/StubEmitter.z42`）合成一个 `Invoke` 桩函数，
+（`src/compiler/z42c.semantics/src/Emission/StubEmitter.z42`）合成一个 `Invoke` 桩函数，
 由 `IrGenAuxEmitter` 挂进模块；跨 zpkg 导出走通用类型元数据通道。
 
 ### 2.1a `.Invoke(args)` 为什么不派发到那个桩（add-delegate-invoke-syntax）
@@ -157,7 +157,7 @@ emit `MkClos(thunk, [recv])`；thunk 体内对 `env[0]` 做 vcall。合成点在
 - **解析 + 访问器合成**：`src/libraries/z42c.syntax/src/MemberParser.z42`
   （`_synthEventAccessor` 多播 / `_synthSinglecastAccessor` 单播 / `_isMulticastEventType` 判别）。
   多播 event 字段无初始化器时在这里补 `new MulticastXxx<...>()`。
-- **`+=` / `-=` 改写**：`src/compiler/z42c.semantics/src/AssignTyper.z42` 的 `+=`/`-=` 分支，
+- **`+=` / `-=` 改写**：`src/compiler/z42c.semantics/src/Binding/AssignTyper.z42` 的 `+=`/`-=` 分支，
   在接收者类型上查 `add_X` / `remove_X`（class / instantiated / interface 三种接收者类型都查），
   查到就整体绑成一次 `BoundCall`。**这是脱糖的唯一判据——不看"这个字段是不是 event"，
   而看"有没有同名访问器"。**

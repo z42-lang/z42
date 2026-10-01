@@ -47,7 +47,7 @@ pub const CCTOR_SENTINEL: &str = "$Cctor";
 
 /// 包级初始化伪类型的**短名**（add-module-init-hook）。FQ 名 = `<ns>.$Module`。
 /// **必须与编译器侧 `ModuleInitScan.PseudoTypeName` 逐字一致**
-/// （`src/compiler/z42c.semantics/src/ModuleInitScan.z42`）——同 `CCTOR_SENTINEL`，
+/// （`src/compiler/z42c.semantics/src/Lowering/ModuleInitScan.z42`）——同 `CCTOR_SENTINEL`，
 /// 两处手写同一个字符串是漂移源，故各自只写一次并互相标明。
 pub const MODULE_PSEUDO_TYPE: &str = "$Module";
 

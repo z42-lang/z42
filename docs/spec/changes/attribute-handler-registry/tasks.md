@@ -70,7 +70,7 @@ BuildPackageCus(texts, files, count, cus, ...):
 
 ### 实施
 
-- [ ] 1. 契约 `z42c.semantics/src/Generation.z42`（NEW，**注意在 semantics 非 syntax**——方案 B 的 `GenTarget`
+- [ ] 1. 契约 `z42c.semantics/src/Generators/Generation.z42`（NEW，**注意在 semantics 非 syntax**——方案 B 的 `GenTarget`
       须暴露解析后 `Z42ClassType`，syntax 层引用不到语义符号；与 design.md 原稿含 `TypeSymbol`/`SymbolKind`
       一致、更贴 Roslyn）：`interface Generator { void Generate(GenTarget t, GenSink sink); }` + `interface GenSink
       { void AddSource(string hint, string src); void Replace(DeclId id, string src); void Augment(DeclId id,
@@ -416,7 +416,7 @@ store-meta blob 走现有反射机制）。z42c/stdlib 只加 support 不 use �
 > **PR6b（阶段 C + D.4 + E.2 + F.4，2026-08-25）**：caller 宏 support+注入+误用诊断 E0450，**F2-安全**（parser 译成 `IdentExpr("$macro:*")` 哨兵、不新增 syntax→semantics 跨包类型），零 Rust 格式改。同/跨包 golden + 4 语义单测本地全过。
 
 ### 阶段 A：ConstBlob 编码 + 常量折叠扩展 ✅
-- [x] A.1 `ConstBlob` 编解码 helper（`z42c.semantics/src/ConstBlob.z42`，自描述递归：null/bool/int/float/char/string/enum/struct/array，长度前缀 `_seg`）
+- [x] A.1 `ConstBlob` 编解码 helper（`z42c.semantics/src/Emission/ConstBlob.z42`，自描述递归：null/bool/int/float/char/string/enum/struct/array，长度前缀 `_seg`）
 - [x] A.2 折叠**复用 `ConstEval`**（非扩 `_foldDefault`——后者已退休删除）：标量/一元二元/字符串拼接/enum 成员经 `syms.EnumConsts` / struct·array 结构递归 → 产 ConstBlob 串
 - [x] A.3 非常量默认值 → `ConstBlob.Encode` 返 null（不追加 `$Default`）；核实 stdlib/编译器同包默认值均可折叠（零破坏，GREEN 证）
 

@@ -18,7 +18,7 @@ E0402: type argument `C` for `U` does not satisfy constraint `T` on `Pair`
 
 `ConstraintChecker._satisfiesParamRef` 显式处理了「上界是 class」（走 `symbols.IsSubclassOf`），
 **接口那格没有**，落到兜底的 `arg.IsAssignableTo(other)`。而
-[`Z42ClassType.IsAssignableTo`](../../../../src/compiler/z42c.semantics/src/Z42Type.z42) 里
+[`Z42ClassType.IsAssignableTo`](../../../../src/compiler/z42c.semantics/src/Types/Z42Type.z42) 里
 **根本没有 `other is Z42InterfaceType` 这一格** —— 它只判三件事：
 
 1. 同名 class；
@@ -104,7 +104,7 @@ if (other is Z42InterfaceType) { return this._satisfiesInterface(symbols, arg, o
 
 ## Scope（允许改动的文件）
 
-- `src/compiler/z42c.semantics/src/ConstraintChecker.z42`
+- `src/compiler/z42c.semantics/src/Types/ConstraintChecker.z42`
 - `src/compiler/z42c.semantics/tests/typecheck/constraint_paramref_tests.z42`（新）
 - `src/tests/generics/paramref_constraint_iface.z42` + `.opt_all`（新，运行期覆盖）
 - `src/compiler/z42c.pipeline/src/CompilerFingerprint.z42`（追加 slug）

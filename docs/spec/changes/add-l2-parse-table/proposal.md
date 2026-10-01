@@ -124,6 +124,6 @@
   bp 分级表、handler 三角色、一致性守门）已写好，本 change 是它的实施 —— 但页首现状表已过时（Why #4）。
 - 批 1（#841）：`ProtocolNames` + `ForeachProtocol.Resolve` + `[syntax]` 接线。
   **形状乙的先例**：名字是数据、链是一处集中的代码。
-- `src/compiler/z42c.semantics/src/BinaryTypeTable.z42`：**本批表形态的直接先例** ——
+- `src/compiler/z42c.semantics/src/Types/BinaryTypeTable.z42`：**本批表形态的直接先例** ——
   z42 无 delegate / 无泛型字段 ⇒ int tag 替代 `Func`、if-else `Lookup` 替代 Dictionary、
   rule class 替代 record；「加一个运算符 = 加一行 if」。

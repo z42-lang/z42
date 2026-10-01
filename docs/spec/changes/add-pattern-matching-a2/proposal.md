@@ -55,9 +55,9 @@ A2 在**同一引擎**上补齐 Rust 模式匹配的四个常用组合子，让 
 | `src/compiler/z42c.syntax/src/Lexer.z42` | MODIFY | `@` → `At`（单字符）；`..=` → `DotDotEq`（三字符，须在 `..` 前判） |
 | `src/compiler/z42c.syntax/src/Pattern.z42` | MODIFY | +`OrPattern` / `AtPattern` / `RangePattern` / `RelationalPattern` |
 | `src/compiler/z42c.syntax/src/PatternParser.z42` | MODIFY | `_parsePattern` 拆 or-链 + `_parsePrimaryPattern`；`@` / 关系起始 / `..=` 尾随；常量在 bp>44 解析 |
-| `src/compiler/z42c.semantics/src/BoundPattern.z42` | MODIFY | +`BoundOrPattern` / `BoundAtPattern` / `BoundRangePattern` / `BoundRelationalPattern` |
-| `src/compiler/z42c.semantics/src/PatternBinder.z42` | MODIFY | 4 节点绑定 + or 无绑定校验 + 可比较基元校验 |
-| `src/compiler/z42c.semantics/src/PatternEmitter.z42` | MODIFY | 4 节点 lowering（`Ge`/`Le`/`Gt`/`Lt` + 短路 `BrCond`） |
+| `src/compiler/z42c.semantics/src/BoundTree/BoundPattern.z42` | MODIFY | +`BoundOrPattern` / `BoundAtPattern` / `BoundRangePattern` / `BoundRelationalPattern` |
+| `src/compiler/z42c.semantics/src/Binding/PatternBinder.z42` | MODIFY | 4 节点绑定 + or 无绑定校验 + 可比较基元校验 |
+| `src/compiler/z42c.semantics/src/Emission/PatternEmitter.z42` | MODIFY | 4 节点 lowering（`Ge`/`Le`/`Gt`/`Lt` + 短路 `BrCond`） |
 | `src/tests/pattern-matching/pattern_a2.z42` | NEW | e2e 自检：四形态 × switch-stmt/switch-expr/is 各验；jit 双验 |
 | `docs/reference/src/language/pattern-matching.md` | MODIFY | 补 A2 四形态语法 + lowering 机制页 |
 | `examples/patterns.z42` | MODIFY | 补 A2 示例 |

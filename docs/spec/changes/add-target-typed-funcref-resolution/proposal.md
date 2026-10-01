@@ -17,7 +17,7 @@ Func<string, int> f = Parse;              // 今天：E0425「cannot take a refe
                                           // 期望：按目标委托 Func<string,int> 精确选中 int Parse(string)
 ```
 
-现状根因（[ExprTyper.z42:100-114](../../../../src/compiler/z42c.semantics/src/ExprTyper.z42)）：
+现状根因（[ExprTyper.z42:100-114](../../../../src/compiler/z42c.semantics/src/Binding/ExprTyper.z42)）：
 裸标识符当值走 `_bindIdent`，该路径**无 target 参数**——拿不到赋值左侧的委托签名，
 故多重载时只能保守报错。注释已明确标注这是 v1 的已知遗留：
 
@@ -49,7 +49,7 @@ Func<string, int> f = Parse;              // 今天：E0425「cannot take a refe
 | 调用实参 | `xs.ForEach(Parse)` | 延迟位 → `BindArgsToSignature` → `BindWithTarget`（需扩延迟谓词） |
 
 **消解语义 = 精确全签名匹配**：z42 委托相容 `Z42FuncType.IsAssignableTo`
-（[Z42Type.z42:509](../../../../src/compiler/z42c.semantics/src/Z42Type.z42)）是**逐位精确相等、无协变/逆变**。
+（[Z42Type.z42:509](../../../../src/compiler/z42c.semantics/src/Types/Z42Type.z42)）是**逐位精确相等、无协变/逆变**。
 故合法目标只有签名（形参 + 返回）与委托**精确相等**的那个重载。⇒ 消解 = 用委托签名
 精确过滤候选。**不用** `OverloadResolver.Resolve`（它按「可隐式转 + 最具体」，会选中随后又被
 精确相容检查拒绝的候选，制造迷惑）。
@@ -58,7 +58,7 @@ Func<string, int> f = Parse;              // 今天：E0425「cannot take a refe
 
 | 项 | 理由 / 去向 |
 |---|---|
-| **实例/静态方法组 `obj.M` / `T.M` 取引用的 target-typed 消解** | 走**不同派发路径**：合成 thunk 内 `VCall(裸名, arity)` 虚派发（[CallEmitter.z42:490](../../../../src/compiler/z42c.semantics/src/CallEmitter.z42)），要定向到非-primary 同-arity 重载大概率触及 **VM vtable 派发**；且现状是**静默选 primary**（无 E0425），并入还要决定无目标时是否改报错。**另开 change 跟踪**（2026-09-22 User 裁决拆分） |
+| **实例/静态方法组 `obj.M` / `T.M` 取引用的 target-typed 消解** | 走**不同派发路径**：合成 thunk 内 `VCall(裸名, arity)` 虚派发（[CallEmitter.z42:490](../../../../src/compiler/z42c.semantics/src/Emission/CallEmitter.z42)），要定向到非-primary 同-arity 重载大概率触及 **VM vtable 派发**；且现状是**静默选 primary**（无 E0425），并入还要决定无目标时是否改报错。**另开 change 跟踪**（2026-09-22 User 裁决拆分） |
 | **变型（协变/逆变）委托转换** | z42 委托无变型（delegates-events.md §10），精确匹配即全部合法目标 |
 | **无目标位的重载取引用**（`var f = Parse;` / 表达式语句） | 无委托签名可依据 → 保持 E0425（消息更新为提示「标注目标委托类型」） |
 

@@ -204,9 +204,9 @@ string s = ds["nope"];       // → null（引用类型的 default）
 E0402: type argument `Plain` for `TKey` does not satisfy constraint `IEquatable` on `Dictionary`
 ```
 
-（发射点 `src/compiler/z42c.semantics/src/ConstraintChecker.z42:577`。）
+（发射点 `src/compiler/z42c.semantics/src/Types/ConstraintChecker.z42:577`。）
 自定义键类型必须写 `Equals(自己的类型 other)` 而不是 `Equals(object other)`，否则报 **E0412**
-（发射点 `src/compiler/z42c.semantics/src/InheritanceResolver.z42:501`）：
+（发射点 `src/compiler/z42c.semantics/src/Symbols/InheritanceResolver.z42:501`）：
 
 ```z42
 class Box : IEquatable {

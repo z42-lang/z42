@@ -81,7 +81,7 @@ return e != null && e.QualifiedName == fq;
 
 ## Scope（允许改动的文件）
 
-- `src/compiler/z42c.semantics/src/EmitContext.z42`
+- `src/compiler/z42c.semantics/src/Emission/EmitContext.z42`
 - `src/compiler/z42c.pipeline/src/CacheStore.z42`（指纹 37 → 39）
 - `src/tests/types/value_type_object_methods.opt_all`（新，#891 刻意留下的那一个）
 - `docs/internals/src/runtime/optimization-pipeline.md`、`docs/reference/src/language/sealed.md`

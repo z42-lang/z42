@@ -1,6 +1,6 @@
 # attribute 管线（store-meta 一支）
 
-> 对齐：2026-09-17 ｜ 代码：`z42c.semantics/src/AttributeSynth.z42`、`HandlerRegistry.z42`、
+> 对齐：2026-09-17 ｜ 代码：`z42c.semantics/src/Lowering/AttributeSynth.z42`、`HandlerRegistry.z42`、
 > `MacroRegistry.z42`、`AnalyzerDriver.z42`
 
 用户面的写法（后缀约定、五个反射载体、`#suppress`、caller 宏）见 reference 的

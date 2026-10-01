@@ -48,21 +48,21 @@ record 位置解构，泛型解构 defer）；**struct record 的位置解构**�
 |---------|------|------|
 | `src/compiler/z42c.syntax/src/Pattern.z42` | NEW | `Pattern` AST 层级：Wildcard / Constant / Type / Positional / Property / Binding（+ 嵌套子模式数组） |
 | `src/compiler/z42c.syntax/src/PatternParser.z42` | NEW | `_parsePattern`：字面量/`_`/名字路径决策（`(`→位置、`{`→属性、后跟 ident→类型绑定、点分名→常量、单名→裸绑定） |
-| `src/compiler/z42c.semantics/src/BoundPattern.z42` | NEW | `BoundPattern` 层级：绑定后的模式树（携 resolved 类型、字段索引、绑定名/寄存器占位） |
-| `src/compiler/z42c.semantics/src/PatternBinder.z42` | NEW | 模式 binder：类型解析、裸名歧义消解（类型名 vs 绑定）、位置模式要求 `IsRecord` + arity 校验、字段递归、绑定注册进 `TypeEnv` |
-| `src/compiler/z42c.semantics/src/PatternEmitter.z42` | NEW | 模式 lowering：递归下降 emit「test（`IsInstance`/`Eq`/字段读比较）+ bind（字段→寄存器/局部）」，短路 `BrCond`；**ConstantPattern 路径 byte-identical 现状** |
+| `src/compiler/z42c.semantics/src/BoundTree/BoundPattern.z42` | NEW | `BoundPattern` 层级：绑定后的模式树（携 resolved 类型、字段索引、绑定名/寄存器占位） |
+| `src/compiler/z42c.semantics/src/Binding/PatternBinder.z42` | NEW | 模式 binder：类型解析、裸名歧义消解（类型名 vs 绑定）、位置模式要求 `IsRecord` + arity 校验、字段递归、绑定注册进 `TypeEnv` |
+| `src/compiler/z42c.semantics/src/Emission/PatternEmitter.z42` | NEW | 模式 lowering：递归下降 emit「test（`IsInstance`/`Eq`/字段读比较）+ bind（字段→寄存器/局部）」，短路 `BrCond`；**ConstantPattern 路径 byte-identical 现状** |
 | `src/compiler/z42c.syntax/src/Stmt.z42` | MODIFY | `SwitchCase`：`pattern` `Expr`→`Pattern`；加 `Expr guard`（可空） |
 | `src/compiler/z42c.syntax/src/Ast.z42` | MODIFY | `SwitchArm`：同上；`IsExpr`：由 `(type,bind)` 扩为持 `Pattern` |
 | `src/compiler/z42c.syntax/src/StmtParser.z42` | MODIFY | `_parseSwitch`：`case` 后走 `_parsePattern` + 可选 `if` 守卫（`:141`附近） |
 | `src/compiler/z42c.syntax/src/ExprParser.z42` | MODIFY | switch-expr arm 走 `_parsePattern` + 守卫；`is` 走 `_parsePattern` |
-| `src/compiler/z42c.semantics/src/BoundStmt.z42` | MODIFY | `BoundSwitchCase`：`pattern` `BoundExpr`→`BoundPattern`；加 `BoundExpr Guard` |
-| `src/compiler/z42c.semantics/src/BoundExprOp.z42` | MODIFY | `BoundSwitchArm`：同上；`BoundIsExpr`：改持 `BoundPattern` |
-| `src/compiler/z42c.semantics/src/StmtBinder.z42` | MODIFY | `_bindSwitchStmt`（`:66`）：经 `PatternBinder` bind 模式 + 守卫，绑定入 arm scope |
-| `src/compiler/z42c.semantics/src/ExprTyper.z42` | MODIFY | `_bindSwitchExpr`（`:190`）：同上 |
-| `src/compiler/z42c.semantics/src/TypeOpTyper.z42` | MODIFY | `_bindIsExpr`（`:70`）：扩为 bind 完整模式，绑定入 true 分支 scope |
-| `src/compiler/z42c.semantics/src/StmtEmitter.z42` | MODIFY | `_emitSwitch`（`:211`）：改用 `PatternEmitter` + 守卫分支 |
-| `src/compiler/z42c.semantics/src/OperatorEmitter.z42` | MODIFY | `_emitSwitchExpr`（`:141`）：同上 |
-| `src/compiler/z42c.semantics/src/TypeOpEmitter.z42` | MODIFY | `_emitIs`：扩为完整模式 lowering（复用 `PatternEmitter`） |
+| `src/compiler/z42c.semantics/src/BoundTree/BoundStmt.z42` | MODIFY | `BoundSwitchCase`：`pattern` `BoundExpr`→`BoundPattern`；加 `BoundExpr Guard` |
+| `src/compiler/z42c.semantics/src/BoundTree/BoundExprOp.z42` | MODIFY | `BoundSwitchArm`：同上；`BoundIsExpr`：改持 `BoundPattern` |
+| `src/compiler/z42c.semantics/src/Binding/StmtBinder.z42` | MODIFY | `_bindSwitchStmt`（`:66`）：经 `PatternBinder` bind 模式 + 守卫，绑定入 arm scope |
+| `src/compiler/z42c.semantics/src/Binding/ExprTyper.z42` | MODIFY | `_bindSwitchExpr`（`:190`）：同上 |
+| `src/compiler/z42c.semantics/src/Binding/TypeOpTyper.z42` | MODIFY | `_bindIsExpr`（`:70`）：扩为 bind 完整模式，绑定入 true 分支 scope |
+| `src/compiler/z42c.semantics/src/Emission/StmtEmitter.z42` | MODIFY | `_emitSwitch`（`:211`）：改用 `PatternEmitter` + 守卫分支 |
+| `src/compiler/z42c.semantics/src/Emission/OperatorEmitter.z42` | MODIFY | `_emitSwitchExpr`（`:141`）：同上 |
+| `src/compiler/z42c.semantics/src/Emission/TypeOpEmitter.z42` | MODIFY | `_emitIs`：扩为完整模式 lowering（复用 `PatternEmitter`） |
 | `src/tests/pattern-matching/pattern_core.z42` | NEW | e2e 自检（`Assert`，空 stdout 范式）：通配/常量/类型/位置/属性/嵌套/守卫/绑定作用域，switch-stmt + switch-expr + `is` 三位点 |
 | `docs/reference/src/language/pattern-matching.md` | NEW | 机制页：文法、裸名歧义规则、record 位置解构原理、lowering 数据流（含 mermaid/伪代码） |
 | `src/compiler/z42c.syntax/README.md` | MODIFY | 功能索引 + `Pattern.z42`/`PatternParser.z42` |

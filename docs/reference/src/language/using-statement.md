@@ -1,6 +1,6 @@
 # `using` 语句
 
-> **页型**: 参考页 ｜ **代码**: `z42c.syntax/src/StmtParser.z42`（解析）· `z42c.semantics/src/StmtBinder.z42`（降糖与判定）｜ **对齐**: 2026-09-26
+> **页型**: 参考页 ｜ **代码**: `z42c.syntax/src/StmtParser.z42`（解析）· `z42c.semantics/src/Binding/StmtBinder.z42`（降糖与判定）｜ **对齐**: 2026-09-26
 
 `using` 语句把「用完一定释放」写成一行。它与 `using` **指令**（命名空间导入、类型别名）
 是同一个关键字的两种用法，靠 `using` 后随的 token 区分 —— 见下方[与 `using` 指令的区分](#与-using-指令的区分)。

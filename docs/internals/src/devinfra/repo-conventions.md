@@ -8,7 +8,7 @@
 
 用户看到的是"`int` 和 `Int32` 是同一个类型"。实现上归一在一张表里：
 
-**`src/compiler/z42c.semantics/src/PrimModel.z42`**（change `unify-value-types` Phase 1）——
+**`src/compiler/z42c.semantics/src/Types/PrimModel.z42`**（change `unify-value-types` Phase 1）——
 单一「关键字 ↔ `Std.*` 值类型」模型表。它接受**任意拼写**：
 
 ```

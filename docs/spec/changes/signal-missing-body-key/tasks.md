@@ -38,7 +38,7 @@ if (md.HasBody) {
 
 ## Scope（允许改动的文件）
 
-- `src/compiler/z42c.semantics/src/IrGenMemberEmitter.z42`
+- `src/compiler/z42c.semantics/src/Emission/IrGenMemberEmitter.z42`
 - `docs/internals/src/compiler/source-compile.md`（记下键的协议 + 这道守卫）
 
 ## Tasks

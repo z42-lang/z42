@@ -61,7 +61,7 @@ rows[1].Length;   // 3
 - **`new T[n][]` 不解析**（C# 里「按运行期长度分配外层行数组」那种写法）。要按运行期长度建外层，
   用重复填充 `int[][] rows = [null; n];` 再逐行赋值。
 - **多维数组 `T[,]` 不支持**——没有这种类型语法；多维下标 `a[i, j]` 报 **E0402**
-  （发射点 `src/compiler/z42c.semantics/src/ExprTyper.z42:151`，诊断直接提示改用 jagged `a[i][j]`）。
+  （发射点 `src/compiler/z42c.semantics/src/Binding/ExprTyper.z42:151`，诊断直接提示改用 jagged `a[i][j]`）。
 
 ## 语义
 

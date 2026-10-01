@@ -514,7 +514,7 @@ struct Bad  : INum2 { public int MakeZero() { return 0; } }                   //
 struct Priv : INum2 { static override int MakeZero() { return 0; } }          // ❌ E0412：默认 private，必须写 public
 ```
 
-发射点：`src/compiler/z42c.semantics/src/InheritanceResolver.z42:441`（static）/ `:456`（可见性）
+发射点：`src/compiler/z42c.semantics/src/Symbols/InheritanceResolver.z42:441`（static）/ `:456`（可见性）
 / `:478`（返回类型）。
 
 **跨包同口径**。接口方法的 static 位随 **zbc 1.41** 的接口方法块 `is_static:u8` 过 wire，

@@ -69,9 +69,9 @@
 | `src/libraries/z42.package/src/IrModule.z42` | `IrParamDefault` 增 `ByRefSentinel = "$ByRef"` + `IsByRef(attrs, count)` 查询 |
 | `src/libraries/z42.package/src/ExportedTypes.z42` | `ExportedParamZ.IsRef`（内存 DTO 字段，不入 wire） |
 | `src/libraries/z42.package/src/TsigReconcile.z42` | 读 `$ByRef` → `p.IsRef` |
-| `src/compiler/z42c.semantics/src/ClassDescBuilder.z42` | `_paramAttrRefs` 对 ref 形参追加哨兵 |
-| `src/compiler/z42c.semantics/src/ImportedSymbolLoader.z42` | `ExportedParamZ.IsRef` → `Z42FuncType.ParamIsRef`（各签名构造点） |
-| `src/compiler/z42c.semantics/src/RefArgCheck.z42` | 注释更新（跨包缺口已补） |
+| `src/compiler/z42c.semantics/src/Emission/ClassDescBuilder.z42` | `_paramAttrRefs` 对 ref 形参追加哨兵 |
+| `src/compiler/z42c.semantics/src/Symbols/ImportedSymbolLoader.z42` | `ExportedParamZ.IsRef` → `Z42FuncType.ParamIsRef`（各签名构造点） |
+| `src/compiler/z42c.semantics/src/Binding/RefArgCheck.z42` | 注释更新（跨包缺口已补） |
 | `src/libraries/z42c.core/src/DiagnosticCodes.z42` | E0465 注释：`ref` 判定不了这条前提已解除 |
 | `src/tests/cross-zpkg/**` | 新增跨包 `ref` 用例（正面 + 漏写阴性） |
 | `docs/reference/src/language/parameter-modifiers.md` | 删掉 ⚠️「跨包暂不强制」一节 |

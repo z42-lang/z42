@@ -38,10 +38,10 @@ C#（`System.Tuple` 引用版**已弃**→ `System.ValueTuple` struct 值版）�
 | `src/libraries/z42c.syntax/src/ExprParser.z42` | MODIFY | 括号分组(:296-301) 解析首 expr 后若遇 `Comma` → 收集为 `TupleExpr`；与 lambda(`_isLambdaStart` 尾随 `=>`)/cast/分组前瞻共存（≥2 元素才当元组，`(x)` 仍分组）|
 | `src/libraries/z42c.syntax/src/Pattern.z42` | MODIFY | 新 `TuplePattern{ Elems: Pattern[] }` 节点 |
 | `src/libraries/z42c.syntax/src/PatternParser.z42` | MODIFY | `_parsePrimaryPattern`(:45) 加 `k == LParen` 分支解析元组模式（裸 `(` 不与 type-led 位置模式冲突；单元素 `(x)` 照 C# 视为分组/非法）|
-| `src/compiler/z42c.semantics/src/Z42Type.z42` | MODIFY | 新 `Z42TupleType`（或复用 `Z42InstantiatedType` + 合成 `ValueTuple` def）；`Name()` 产 `(int, int)` |
-| `src/compiler/z42c.semantics/src/BoundPattern.z42` | MODIFY | 新 `BoundTuplePattern{ Elems, ElemTypes }` |
-| `src/compiler/z42c.semantics/src/PatternBinder.z42` | MODIFY | 新 `_bindTuple`：按元数逐位取元素类型递归绑定子模式；`_bindPattern` 派发加 `is TuplePattern` 分支 |
-| `src/compiler/z42c.semantics/src/PatternEmitter.z42` | MODIFY | `BoundTuplePattern` emit：逐位 `StructFieldGetPrim` 字节偏移 + 递归子模式（形态类似 `BoundPositionalPattern` struct 字段 emit）|
+| `src/compiler/z42c.semantics/src/Types/Z42Type.z42` | MODIFY | 新 `Z42TupleType`（或复用 `Z42InstantiatedType` + 合成 `ValueTuple` def）；`Name()` 产 `(int, int)` |
+| `src/compiler/z42c.semantics/src/BoundTree/BoundPattern.z42` | MODIFY | 新 `BoundTuplePattern{ Elems, ElemTypes }` |
+| `src/compiler/z42c.semantics/src/Binding/PatternBinder.z42` | MODIFY | 新 `_bindTuple`：按元数逐位取元素类型递归绑定子模式；`_bindPattern` 派发加 `is TuplePattern` 分支 |
+| `src/compiler/z42c.semantics/src/Emission/PatternEmitter.z42` | MODIFY | `BoundTuplePattern` emit：逐位 `StructFieldGetPrim` 字节偏移 + 递归子模式（形态类似 `BoundPositionalPattern` struct 字段 emit）|
 | `src/compiler/z42c.semantics/src/*Typer/*Emitter` | MODIFY | `TupleExpr` 类型检查 + emit（脱糖 `StructAlloc`+`StructFieldSetPrim`）；元组类型解析/单态化 struct 布局接线 |
 | `src/libraries/z42.core/src/ValueTuple.z42` | NEW(可能) | 合成 `[Record] struct ValueTuple<T1,…>`（若采「元组=命名合成 struct」路线）；或纯编译器内部合成、无 stdlib 源 |
 | `src/tests/tuples/tuple_basic.z42` | NEW | e2e：元组字面量/返回/解构声明/switch/is 模式；嵌套元组 `((x,y),z)`；含引用元素 `(string,int)`；jit 双验 |
@@ -52,7 +52,7 @@ C#（`System.Tuple` 引用版**已弃**→ `System.ValueTuple` struct 值版）�
 - `src/libraries/z42.package/src/BinaryFormat/ZpkgWriter.z42`(:340)/`ExportedTypes.z42` — 类型引用=字符串池证据
 - `src/libraries/z42.package/src/BinaryFormat/ZbcFormat.z42` — struct blob opcode `StructAlloc 0xC0`/`StructFieldGetPrim 0xC2`；Tag(:69-118)
 - `src/libraries/z42c.syntax/src/ExprParser.z42` — lambda/cast/分组四方前瞻(:262-301)、`_isLambdaStart`(:12)
-- `src/compiler/z42c.semantics/src/PatternEmitter.z42` — struct 字段 emit 快路（#316）
+- `src/compiler/z42c.semantics/src/Emission/PatternEmitter.z42` — struct 字段 emit 快路（#316）
 - `docs/internals/src/formats/zbc.md`(:103,208) — spec 预留的原生 tuple 编码（**路线 B，本变更不采用**）
 
 ## Out of Scope

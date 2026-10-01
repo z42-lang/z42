@@ -75,7 +75,7 @@ typeof(Outer).GetMembers();       // 含嵌套类型（MemberTypes.NestedType）
 
 - 跨包用**限定名**引用嵌套类型（`geo.Shape.Corner`）；当前解析包内的 `Outer.Inner`。
 - 嵌套类型自身标 `partial` —— 报 **E0435**（发射点
-  `src/compiler/z42c.semantics/src/DeclEnforcer.z42:160`，`_checkNestedPartial`）。
+  `src/compiler/z42c.semantics/src/Validation/DeclEnforcer.z42:160`，`_checkNestedPartial`）。
 
 ## 相关
 
