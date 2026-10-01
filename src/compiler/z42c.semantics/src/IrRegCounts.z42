@@ -9,6 +9,12 @@
 //   - 数组下标 = 寄存器 id；默认长度 `f.MaxReg + 2`（+2 留 MaxReg 本身与越界守卫位，沿用各 pass 既有写法）；
 //     `DefsCap` 允许调用方指定长度（IrLoopAllocReuse 用同一 rc 与其它并行数组对齐）。
 //   - `Defs`：每条指令的定义寄存器 +1（终结子不定义）。`defs[r]==1` 即单赋值。
+//     🔴 **被取地址的寄存器（`load_local_addr %r`，即 `ref r` 实参）再 +1**：地址交出去之后，被调函数可以经它
+//     改写 r —— 那是一次函数内看不见的写。只算读的话，`string s = ""; F(ref s);` 里的 s 就成了「单赋值」，
+//     use-site 复制传播会把 s 的使用点（连取地址那个操作数）改写成常量寄存器，LICM 再把常量外提出循环 ⇒
+//     被调函数写进的值漏到后续每一轮（fix-ref-addr-opt；实测 ManifestLoader 的依赖解析因此串值）。
+//     放在计数这一层，所有依赖「单赋值」判据的 pass（copy-prop / const-fold / CSE / dead-branch /
+//     逃逸分析 / 循环内分配复用）一并变保守，不必各自记得这条规则。
 //   - `Reads`：每条指令的读操作数 +1，每块终结子的读 +1。**不含**参数 live-out 种子——需要时调用方
 //     自行 `_seedParams`（temp-DCE 的保护逻辑属 pass 策略，不属计数）。
 //   - 每次调用都从当前 IR 重算（pass 之间 IR 会变；design D2「各 pass 独立开启也正确」）。
@@ -30,7 +36,15 @@ public sealed class IrRegCounts {
         while (bi < f.BlockCount) {
             IrBlock blk = f.Blocks[bi];
             int ii = 0;
-            while (ii < blk.InstrCount) { IrOptInfo.AddDef(defs, blk.Instrs[ii]); ii = ii + 1; }
+            while (ii < blk.InstrCount) {
+                IrInstr ins = blk.Instrs[ii];
+                IrOptInfo.AddDef(defs, ins);
+                if (ins is LoadLocalAddrInstr) {
+                    int slot = (ins as LoadLocalAddrInstr).Slot.Id;
+                    if (slot >= 0 && slot < cap) { defs[slot] = defs[slot] + 1; }   // 取地址 = 可能被写（见头注）
+                }
+                ii = ii + 1;
+            }
             bi = bi + 1;
         }
         return defs;
