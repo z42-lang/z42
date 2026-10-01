@@ -1,0 +1,39 @@
+// using-csharp-rules PR-2：一个源文件「用到的命名空间」集合（首现序去重）。
+//
+// 由 `TypeChecker.Infer` 为每个文件新建一份、挂在该文件的符号表视图上（`SymbolTable.UseRecorder`），
+// 解析器（`ResolveTypeP` 外壳）与表达式位的绑定点（静态成员 / enum 常量 / 静态调用 / 自由函数 / 函数引用）
+// 往里记被引用实体的**声明 ns**。`Infer` 结束停用（`Active = false`）。
+// 消费方：`CuPreprocess._enforceFileScope`（E0436：用了却没 using）。
+// 线程安全：每个文件一个 TypeChecker、一份记录器，并行段内互不共享。
+namespace Z42.Semantics;
+
+public sealed class NsUseRecorder {
+    public string[] Items;
+    public int      Count;
+    public bool     Active;
+    public int      Suspend;   // >0 时不记（别名目标等）
+
+    public NsUseRecorder() {
+        this.Items = new string[8]; this.Count = 0; this.Active = true; this.Suspend = 0;
+    }
+
+    public void Note(string ns) {
+        if (!this.Active || this.Suspend > 0) { return; }
+        if (ns == null || ns == "") { return; }   // 全局 ns 恒可见，不记
+        int i = 0;
+        while (i < this.Count) { if (this.Items[i] == ns) { return; } i = i + 1; }
+        if (this.Count == this.Items.Length) {
+            string[] b = new string[this.Items.Length * 2];
+            int k = 0; while (k < this.Count) { b[k] = this.Items[k]; k = k + 1; }
+            this.Items = b;
+        }
+        this.Items[this.Count] = ns;
+        this.Count = this.Count + 1;
+    }
+
+    public string[] ToArray() {
+        string[] r = new string[this.Count];
+        int i = 0; while (i < this.Count) { r[i] = this.Items[i]; i = i + 1; }
+        return r;
+    }
+}

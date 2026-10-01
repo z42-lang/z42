@@ -94,7 +94,9 @@ public static class CompilerFingerprint {
         "using-csharp-enclosing-ns",
         // using-add-missing：z42.core 的 Type / AssemblyLoadContext 补了 using Std.Reflection —— 模块元数据的 using 列表变了，
         // 依赖 z42.core 的包解析导入签名时答案随之变（bench-pr 指纹门实测 z42.json +11B）。编译器本身字节未变。
-        "using-add-missing"
+        "using-add-missing",
+        // using-csharp-strict-gate：同包跨 ns 与纯类型注解也计入 E0436（每文件记录用到的 ns）—— 新发诊断。
+        "using-csharp-strict-gate"
     };
 
     // 指纹值：`Entries` 逐条以 `\n` 连接后取内容哈希（`mmh3:` 前缀，同 SourceHash）。

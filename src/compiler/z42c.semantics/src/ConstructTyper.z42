@@ -127,7 +127,7 @@ public sealed class ConstructTyper {
             targs[ti] = this._tc._expr._typeToTypeExpr(be.Type(), te.Span);
             ti = ti + 1;
         }
-        NamedType tn = new NamedType("ValueTuple" + n.ToString(), targs, n, te.Span);
+        NamedType tn = NamedType.Synth("ValueTuple" + n.ToString(), targs, n, te.Span);
         ObjNewExpr on = new ObjNewExpr(tn, te.Elems, n, te.Span);
         return this._bindNew(on, env, null);
     }

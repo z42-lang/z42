@@ -148,6 +148,8 @@ public sealed partial class SymbolTable {
         this.ScopeUsings = new string[0];
         this.ScopeUsingCount = 0;
         this.ScopeChain = new string[0];
+        this.UseRecorder = null;
+        this.DelegateNs = new StrMap();
     }
 
     // unify-type-identity-fqn：**引用方所在的命名空间**（per-CU 视图私有，与 CurrentAliases 同性质）。
@@ -160,6 +162,11 @@ public sealed partial class SymbolTable {
     // using-csharp-rules：`ScopeNs` 的外围链（由内到外，`NsScope.Chain`）。`_setScope` 时算一次、视图链上继承 ——
     // 解析器热路径上每次现算会多出一次分配。根表恒为空数组。
     public string[] ScopeChain;
+    // using-csharp-rules PR-2：本文件「用到的命名空间」记录器。只由 `TypeChecker.Infer` 挂在**本文件的视图**上
+    // （视图链上继承），`Infer` 结束即停用 —— 遍历类表、按名字查的 pass 与代码生成期的解析都不记。
+    public NsUseRecorder UseRecorder;
+    // 用户 delegate 名 → 声明 ns（StrBox）。`Delegates` 只存 `Z42FuncType`、没有 ns，记录用法时要它。
+    public StrMap DelegateNs;
 
     // parallelize-package-compile：per-file 别名视图（线程安全根治）。共享其余 7 个数据字段的
     // 引用（并行段内只读），仅换 CurrentAliases。每个文件的 typecheck/codegen 持自己的视图 →
@@ -193,6 +200,8 @@ public sealed partial class SymbolTable {
         t.ScopeNs = this.ScopeNs;   // unify-type-identity-fqn：视图链上继承（调用方随后按 cu 覆写）
         t.ScopeUsings = this.ScopeUsings; t.ScopeUsingCount = this.ScopeUsingCount;
         t.ScopeChain = this.ScopeChain;
+        t.UseRecorder = this.UseRecorder;
+        t.DelegateNs = this.DelegateNs;
         return t;
     }
 
@@ -401,8 +410,41 @@ public sealed partial class SymbolTable {
         return this.ResolveTypeP(te, new string[0], 0);
     }
 
+    // using-csharp-rules PR-2：记一次「本文件用到了 ns」（视图挂了记录器才记）。
+    public void NoteUse(string ns) {
+        if (this.UseRecorder != null) { this.UseRecorder.Note(ns); }
+    }
+
     // 带活跃类型形参（泛型类/方法 scope）：名字命中 paramNames → Z42GenericParamType。
+    // using-csharp-rules PR-2：外壳 —— 解析交给 `_resolveTypePCore`，再按结果记「用到的 ns」。核心里递归解析
+    // 泛型实参 / 数组元素 / 可空内层时走回本外壳，所以嵌套的类型引用也都记到。
     public Z42Type ResolveTypeP(TypeExpr te, string[] paramNames, int paramCount) {
+        Z42Type r = this._resolveTypePCore(te, paramNames, paramCount);
+        if (this.UseRecorder != null && te is NamedType) { this._noteTypeUse(te as NamedType, r); }
+        return r;
+    }
+
+    // 只看**用户写的**具名类型：合成的跳过；别名跳过（C#：`using Id = 全限定名;` 的目标不需要另写 using，
+    // 解析目标时 `_resolveTypePCore` 已暂停记录）。
+    private void _noteTypeUse(NamedType nt, Z42Type r) {
+        if (nt.Synthetic) { return; }
+        if (this.CurrentAliases != null && nt.ArgCount == 0 && this.CurrentAliases.Find(nt.Name) >= 0) { return; }
+        if (r is Z42InstantiatedType) {
+            Z42ClassType d = (r as Z42InstantiatedType).Def;
+            if (d != null) { this.NoteUse(d.Namespace); }
+            return;
+        }
+        if (r is Z42ClassType) { this.NoteUse((r as Z42ClassType).Namespace); return; }
+        if (r is Z42InterfaceType) { this.NoteUse((r as Z42InterfaceType).Namespace); return; }
+        if (r is Z42FuncType) {
+            string dk = nt.Name;
+            if (this.DelegateNs.Find(dk) < 0) { dk = dk.Replace(".", "+"); }   // 嵌套 delegate 的 `+` 键
+            int at = this.DelegateNs.Find(dk);
+            if (at >= 0) { this.NoteUse((this.DelegateNs.ValAt(at) as StrBox).Value); }
+        }
+    }
+
+    private Z42Type _resolveTypePCore(TypeExpr te, string[] paramNames, int paramCount) {
         if (te is ResolvedTypeExpr) { return (te as ResolvedTypeExpr).Resolved; }   // add-implicit-base-ctor-call：合成声明已解析的形参类型
         if (te is NamedType) {
             NamedType nt = te as NamedType;
@@ -418,7 +460,13 @@ public sealed partial class SymbolTable {
                 int _as = this.CurrentAliases.Find(n);
                 if (_as >= 0) {
                     TypeExpr target = this.CurrentAliases.ValAt(_as) as TypeExpr;
-                    if (target != null) { return this.ResolveTypeP(target, paramNames, paramCount); }
+                    if (target != null) {
+                        // using-csharp-rules PR-2：别名目标是全限定写法，不计入「用到的 ns」（C# 同款）。
+                        if (this.UseRecorder != null) { this.UseRecorder.Suspend = this.UseRecorder.Suspend + 1; }
+                        Z42Type ar = this.ResolveTypeP(target, paramNames, paramCount);
+                        if (this.UseRecorder != null) { this.UseRecorder.Suspend = this.UseRecorder.Suspend - 1; }
+                        return ar;
+                    }
                 }
             }
             if (n == "void") { return new Z42VoidType(); }

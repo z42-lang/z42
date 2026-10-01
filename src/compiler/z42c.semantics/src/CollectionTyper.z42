@@ -74,7 +74,7 @@ public sealed class CollectionTyper {
             BoundExpr b0 = this._et._bindExpr(ll.Elems[0], env);
             TypeExpr[] a = new TypeExpr[1];
             a[0] = this._et._typeToTypeExpr(b0.Type(), sp);
-            listTe = new NamedType("List", a, 1, sp);
+            listTe = NamedType.Synth("List", a, 1, sp);
         }
         string tmp = this._et._freshColl();
         Z42Type voidT = new Z42VoidType();
@@ -105,7 +105,7 @@ public sealed class CollectionTyper {
             TypeExpr[] a = new TypeExpr[2];
             a[0] = this._et._typeToTypeExpr(bk.Type(), sp);
             a[1] = this._et._typeToTypeExpr(bv.Type(), sp);
-            dictTe = new NamedType("Dictionary", a, 2, sp);
+            dictTe = NamedType.Synth("Dictionary", a, 2, sp);
         }
         string tmp = this._et._freshColl();
         Z42Type voidT = new Z42VoidType();

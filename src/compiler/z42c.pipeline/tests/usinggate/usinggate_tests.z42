@@ -1,0 +1,151 @@
+// using-csharp-rules PR-2「立门」：除外围链 / prelude / 全局 ns 外，**一切**用到的命名空间都必须 `using`——
+// 包括**同包内**的跨命名空间引用（User 2026-10-01 裁定「using 按 C# 规则、严格」）。违规报 E0436。
+//
+// 此前 E0436 只看代码生成期记下的**跨包依赖** ns（`UsedDepNs`）：同包跨 ns 从不检查；跨包那一半也只在
+// 发生调用 / 虚调用时才记 —— 纯类型注解（字段类型、局部变量类型）用到依赖包的类型不算。
+//
+// 走完整管线（`PackageCompile`）：E0436 在 `EnforceFileScopeAll` 里判，`IrDump.BuildPackage` 那条路不判。
+namespace Z42cPipelineUsingGateTests;
+
+using Std;
+using Std.IO;
+using Std.Test;
+using Z42.Pipeline;
+using Z42.Semantics;
+
+// 多源同包 + 真实依赖世界（无 Z42_LIBS 时各用例早退）。
+CompileArtifacts ugCompile(string[] srcs) {
+    string libs = Environment.GetEnvironmentVariable("Z42_LIBS", "");
+    string[] dirs = libs.Split(":");
+    int n = srcs.Length;
+    string[] files = new string[n];
+    string[] hashes = new string[n];
+    int i = 0;
+    while (i < n) { files[i] = "f" + i.ToString() + ".z42"; hashes[i] = "H" + i.ToString(); i = i + 1; }
+    CompileInputs cin = new CompileInputs();
+    cin.Texts = srcs; cin.Files = files; cin.SrcHashes = hashes; cin.SrcCount = n;
+    cin.Cus = IrDump.ParseAll(srcs, files, n);
+    cin.CachedMods = null; cin.CachedMetas = null;
+    cin.Name = "demo.ug"; cin.Version = "0.1.0"; cin.Kind = "lib";
+    cin.HasEntry = false; cin.Entry = "";
+    cin.IsRelease = false;
+    cin.LibsDirs = dirs; cin.LibsDirsN = dirs.Length;
+    cin.DeclaredDeps = new string[0]; cin.DepCount = 0;
+    return PackageCompile.Compile(cin);
+}
+
+bool ugHasLibs() { return Environment.GetEnvironmentVariable("Z42_LIBS", "") != ""; }
+
+int ugCount(CompileArtifacts art, string needle) {
+    int n = 0;
+    int ci = 0;
+    while (ci < art.Cms.Length) {
+        int di = 0;
+        while (di < art.Cms[ci].DiagCount) { if (art.Cms[ci].DiagMsgs[di].Contains(needle)) { n = n + 1; } di = di + 1; }
+        ci = ci + 1;
+    }
+    return n;
+}
+
+string[] ug2(string a, string b) { string[] s = new string[2]; s[0] = a; s[1] = b; return s; }
+
+string ugLibA() {
+    return "namespace A;\n"
+        + "public class W { public int V; }\n"
+        + "public static class Helper { public static int Who() { return 1; } }\n"
+        + "public enum Color { Red, Blue }\n"
+        + "public int g() { return 2; }\n"
+        + "public interface IShape { int Area(); }\n"
+        + "public delegate int Op(int x);\n";
+}
+
+// ── 同包跨 ns：每种引用形态都必须要 using ──────────────────────────────────────────
+
+[Test]
+void test_same_package_bare_type_without_using_reports_E0436() {
+    if (!ugHasLibs()) { return; }
+    Assert.True(ugCount(ugCompile(ug2(ugLibA(), "namespace B;\nvoid F() { W w = new W(); }\n")), "namespace `A` is used but not imported") >= 1);
+}
+
+[Test]
+void test_same_package_qualified_type_without_using_reports_E0436() {
+    // 规则 4「没有全限定名逃生口」：写成 `A.W` 也得 using。
+    if (!ugHasLibs()) { return; }
+    Assert.True(ugCount(ugCompile(ug2(ugLibA(), "namespace B;\nvoid F() { A.W w = null; }\n")), "E0436") >= 1);
+}
+
+[Test]
+void test_same_package_with_using_is_clean() {
+    if (!ugHasLibs()) { return; }
+    Assert.Equal(0, ugCount(ugCompile(ug2(ugLibA(),
+        "namespace B;\nusing A;\nvoid F() { W w = new W(); int a = Helper.Who(); Color c = Color.Red; int b = g(); }\n")), "E0436"));
+}
+
+[Test]
+void test_enclosing_namespace_needs_no_using() {
+    if (!ugHasLibs()) { return; }
+    Assert.Equal(0, ugCount(ugCompile(ug2(ugLibA(), "namespace A.Sub;\nvoid F() { W w = new W(); int a = Helper.Who(); }\n")), "E0436"));
+}
+
+[Test]
+void test_static_call_without_using_reports_E0436() {
+    if (!ugHasLibs()) { return; }
+    Assert.True(ugCount(ugCompile(ug2(ugLibA(), "namespace B;\nint F() { return Helper.Who(); }\n")), "E0436") >= 1);
+}
+
+[Test]
+void test_enum_constant_without_using_reports_E0436() {
+    if (!ugHasLibs()) { return; }
+    Assert.True(ugCount(ugCompile(ug2(ugLibA(), "namespace B;\nint F() { return (int)Color.Blue; }\n")), "E0436") >= 1);
+}
+
+[Test]
+void test_free_function_without_using_reports_E0436() {
+    if (!ugHasLibs()) { return; }
+    Assert.True(ugCount(ugCompile(ug2(ugLibA(), "namespace B;\nint F() { return g(); }\n")), "E0436") >= 1);
+}
+
+[Test]
+void test_declaration_site_types_without_using_report_E0436() {
+    // 字段类型 / 接口成员形参 / 基类列表 / delegate 形参 —— 只出现在声明里、没有任何表达式用到。
+    if (!ugHasLibs()) { return; }
+    Assert.True(ugCount(ugCompile(ug2(ugLibA(), "namespace B;\npublic class H { public W Held; }\n")), "E0436") >= 1);
+    Assert.True(ugCount(ugCompile(ug2(ugLibA(), "namespace B;\npublic interface IUse { void Take(W w); }\n")), "E0436") >= 1);
+    Assert.True(ugCount(ugCompile(ug2(ugLibA(), "namespace B;\npublic class Sq : IShape { public int Area() { return 4; } }\n")), "E0436") >= 1);
+    Assert.True(ugCount(ugCompile(ug2(ugLibA(), "namespace B;\npublic delegate void Sink(W w);\n")), "E0436") >= 1);
+}
+
+[Test]
+void test_delegate_type_without_using_reports_E0436() {
+    if (!ugHasLibs()) { return; }
+    Assert.True(ugCount(ugCompile(ug2(ugLibA(), "namespace B;\nvoid F(Op op) { }\n")), "E0436") >= 1);
+}
+
+// ── 不该报的：编译器合成的类型不是用户写的 ─────────────────────────────────────────
+
+[Test]
+void test_collection_literal_needs_no_collections_using() {
+    // `[1, 2]` 合成 `List<int>`；用户没写 `List`，就不该要求 `using Std.Collections;`。
+    if (!ugHasLibs()) { return; }
+    CompileArtifacts art = ugCompile(ug2("namespace P;\npublic class M { }\n", "namespace B;\nint F() { var xs = [1, 2]; return xs.Count; }\n"));
+    Assert.Equal(0, ugCount(art, "E0436"));
+}
+
+[Test]
+void test_tuple_needs_no_using() {
+    if (!ugHasLibs()) { return; }
+    CompileArtifacts art = ugCompile(ug2("namespace P;\npublic class M { }\n", "namespace B;\nint F() { var t = (1, 2); return t.Item1; }\n"));
+    Assert.Equal(0, ugCount(art, "E0436"));
+}
+
+// ── 跨包那一半：纯类型注解也要算 ────────────────────────────────────────────────
+
+[Test]
+void test_dependency_type_in_field_only_reports_E0436() {
+    // 另一个文件的 `using Std.Text;` 把 z42.text 激活了；本文件只在**字段类型**里用 `StringBuilder`、没有调用。
+    // 此前 `UsedDepNs` 只在发生调用时记 ⇒ 漏报。
+    if (!ugHasLibs()) { return; }
+    CompileArtifacts art = ugCompile(ug2("namespace P;\nusing Std.Text;\npublic class M { public StringBuilder S; }\n",
+        "namespace B;\npublic class H { public StringBuilder Held; }\n"));
+    Assert.True(ugCount(art, "namespace `Std.Text` is used but not imported") >= 1);
+}

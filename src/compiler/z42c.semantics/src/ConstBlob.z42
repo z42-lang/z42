@@ -159,7 +159,7 @@ public sealed class ConstBlobReader {
             Expr[] args = new Expr[arity];
             int i = 0;
             while (i < arity) { args[i] = this.Read(); i = i + 1; }
-            NamedType nt = new NamedType(tn, new TypeExpr[0], 0, this._sp);
+            NamedType nt = NamedType.Synth(tn, new TypeExpr[0], 0, this._sp);
             return new ObjNewExpr(nt, args, arity, this._sp);
         }
         return null;
