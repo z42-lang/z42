@@ -500,10 +500,16 @@ public static partial class ImportedSymbolLoader {
     private static void _mergeImpl(ImportedSymbols r, ExportedImplZ im) {
         string targetShort = ImportedSymbolLoader._shortName(im.TargetFq);
         if (targetShort == "") { return; }
-        if (!r.Classes.ContainsKey(targetShort)) { return; }      // target 不在 import 集 → 跳过
-        Z42ClassType ct = r.Classes.Get(targetShort) as Z42ClassType;
+        // A5b-2c：target / trait 都按 IMPL 段里的 **FQ** 走 —— 剥成短名后，trait 进了 `InterfaceNames` 也只能靠
+        // 已删的裸名回落归一（根表上 `IGreet` 查不到 `Demo.Target.IGreet`），`Implements` 便与它失配。
+        Z42ClassType ct = r.ClassesByFqn.Get(im.TargetFq) as Z42ClassType;
+        if (ct == null) {
+            if (!r.Classes.ContainsKey(targetShort)) { return; }      // target 不在 import 集 → 跳过
+            ct = r.Classes.Get(targetShort) as Z42ClassType;
+        }
         string traitShort = ImportedSymbolLoader._shortName(im.TraitFq);
         if (traitShort == "") { return; }
+        string traitName = ImportedSymbolLoader._fqTrimTypeArgs(im.TraitFq);
         // 注：不校验 r.Interfaces.ContainsKey(traitShort)——z42c 不 import 接口进表（会破坏
         // stdlib byte-identical），且 impl 块由生产端（greeter 编译期）已校验 trait 合法性。
         // 方法并入 target.Methods（first-wins）+ 实例方法入 OwnMethod 有序元数据
@@ -537,8 +543,8 @@ public static partial class ImportedSymbolLoader {
         // ⇒ 重复并入。**这个相位只有名字可用。**（对称的一处：`StubCollector._ctHasIface`。）
         bool seen = false;
         int ix = 0;
-        while (ix < ct.InterfaceCount) { if (ct.InterfaceNames[ix] == traitShort) { seen = true; } ix = ix + 1; }
-        if (!seen) { ct.AddInterfaceName(traitShort); }
+        while (ix < ct.InterfaceCount) { string inm = ct.InterfaceNames[ix]; if (inm == traitName || inm == traitShort) { seen = true; } ix = ix + 1; }
+        if (!seen) { ct.AddInterfaceName(traitName); }
     }
 
     // FQ "Demo.Target.Robot" → 短名 "Robot"（无点 → 原串）。镜像 C# SplitFqName 取 ShortName。

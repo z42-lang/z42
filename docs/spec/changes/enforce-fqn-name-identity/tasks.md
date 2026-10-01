@@ -520,7 +520,25 @@ User 2026-09-30 裁定走 **A：按规范办**（补 `using` + 让规则 2 在�
    - 诊断在同短名类并存时可能变 ⇒ 指纹条目 `fix-class-scan-lookup`。
    ⇒ **A5b-2c 的前置已清**（以 stdlib + 编译器为样本；tests / examples 待删回落时由 GREEN 兜）。
 
-- [ ] A5**b-2c** 删四访问器的短名回落 + 清死码（**必须在上面 2/3/4/5/6 之后**）
+- [x] A5**b-2c** ✅ 删四访问器的短名回落（2026-10-01，`drop-bare-name-fallback`）。
+   - ⚠️ 「四个访问器」里**只有 `GetClass` 走过作用域**：`HasClass` / `HasInterface` / `GetInterface` 一直是
+     「FQN 不中就查短名表」，没有外围链 / using / prelude 这一层 —— 删回落前先把它们收敛到作用域解析
+     （新增 `_resolveIface`，与 `_resolveClass` 同构）。探针：改口径后与旧答案**零分歧**。
+   - 接口侧残留 31 次（stdlib + 编译器）：根表上归一**本地**类的接口短名（`_passQualifyIfaceNames`）+
+     `ClassExtractor._extractInterface` 按短名查自己的声明 ⇒ 新增按 CU 作用域的 `_passQualifyIfaceNamesInScope`
+     （三个入口都挂，根表那一趟保留给导入类）+ 抽取改用 `scoped` 视图。
+   - 🔴 **stdlib + 编译器探针清零 ≠ 能删**：删后全量 GREEN 又红了 3 个 cross-zpkg —— `impl Trait for Type`
+     （`_passImpls` / `_passImplIfaceComplete` 在根表上按短名查 target）与 `[Forward]` generator
+     （`GeneratorDriver` 在根表上查外层类）。stdlib 里没有这两种写法，探针样本盖不到。⇒ 都改成本 CU 作用域视图。
+     再用**全量 GREEN 当探针样本**（`Z42_PROBE_FILE` 写文件，不污染 stderr）跑一遍，抓到最后 8 次：导入侧
+     `_mergeImpl` 把 IMPL 段的 FQ trait 名剥成短名再并进 `InterfaceNames` ⇒ 改为原样用 FQ。之后全量 0 次。
+   - **用户可见**：没 `using` 的类型引用（`Console.WriteLine` 不写 `using Std.IO;`）此前被裸名回落静默解析、
+     再由文件级检查补报 E0436 @ (1,1)；回落删掉后名字在引用点就解析不到 ⇒ 改在**引用处**报 **同码同文**的 E0436
+     （`SymbolTable.MissingUsingNs` 认出它在哪个 ns；消息正文收成 `CuPreprocess.MissingUsingMsg` 一份）。
+     只有位置变（`noimport` 示例 (1,1) → (2,5)），参考手册 error-codes / namespaces 同步。
+   - 欠账 `fqn-symbol-key` 销账（`stage2-debt.txt` 删条目、源码标记删除）。
+   - 未做：`Classes` / `Interfaces` 两张短名表仍在（遍历、arity-mangle 探测、诊断里数同短名）；
+     `ResolveTypeP` 自带的几条名字解析分支未在本步审计。
 
 ### A5b 测绘（2026-09-29，探针跑全量 `build stdlib`，21,078 次 `GetClass`）
 

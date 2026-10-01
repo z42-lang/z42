@@ -356,18 +356,11 @@ public sealed partial class SymbolTable {
         return n.Substring(dot + 1, n.Length - dot - 1);
     }
 
-    // ── 类型查找的四个访问器：**双键过渡形态**（fqn-symbol-key 步 1）────────────────────
-    // STAGE2-DEBT(fqn-symbol-key): 删掉这四个函数里的「短名回落」那一支，只留 FQN 查找。2026-09-30 推到 10-20：步 2 已由 #944 落地、前提刚到，但步 3 要先做「响亮探测」找出残留短名调用方（四个访问器共 190 处调用）⇒ 是一次独立迭代，归 fqn-as-symbol-key 程序
-    //
-    // 目标形态是「符号表的键就是 FQN」。直接翻键会让 167 个调用点同时失准，且**全是字符串键、
-    // 一处都不会编译报错**（会静默截断 base 链 / 漏检约束 / 让布局键与查询键分叉 ⇒ 运行期
-    // blob 越界）。故走绞杀者：
-    //   步 1（本次）：访问器认**两种**键 —— FQN 优先、短名回落。是今天行为的**超集**，
-    //                 验收靠与 main 做 stdlib **字节对账**（必须逐字节相同）。
-    //   步 2：名字数组（`BaseName`/`InterfaceNames`/`BaseNames`）与声明键翻 FQN ⇒ 自然走 FQN 路。
-    //   步 3：**响亮探测**找出残留的短名调用方（不是静默回落——那是假门），修完删回落支。
-    //
-    // 🔴 顺序不能反：先翻键再改调用点，中间态就是「静默错答案」；先加双键则中间态恒为超集。
+    // ── 类型查找的四个访问器（`GetClass` / `HasClass` / `GetInterface` / `HasInterface`）──────────────
+    // fqn-symbol-key 绞杀者三步走完：步 1 双键（FQN 优先、短名回落）→ 步 2 名字数组与声明键翻 FQN →
+    // 步 3 探针清掉残留短名调用方、删回落支（A5b-2c）。现在四个都走作用域感知的解析
+    // （外围 ns 链 → FQN → using → prelude），**不再查短名表**。`Classes` / `Interfaces` 这两张短名表
+    // 仍在（遍历、arity-mangle 探测、诊断里的「同短名几份」等直接读它们的用途），只是不再参与按名解析。
     // 接口名 → 它的 **FQN**（interface-names-fqn 的唯一归一出口）。查不到就原样返回 ——
     // 型参名 / 未解析名 / 还没进表的东西都走这条，交给别处报错，这里不猜。
     // 双键 `GetInterface` 让本函数**幂等**：喂 FQN 进来仍得同一个 FQN。
@@ -382,19 +375,12 @@ public sealed partial class SymbolTable {
         return it.Fqn();
     }
 
-    public bool HasClass(string name) {
-        if (this.ClassesByFqn.ContainsKey(name)) { return true; }
-        return this.Classes.ContainsKey(name);
-    }
-    public bool HasInterface(string name) {
-        if (this.InterfacesByFqn.ContainsKey(name)) { return true; }
-        return this.Interfaces.ContainsKey(name);
-    }
-    public Z42InterfaceType GetInterface(string name) {
-        int f = this.InterfacesByFqn.Find(name);
-        if (f >= 0) { return this.InterfacesByFqn.ValAt(f) as Z42InterfaceType; }
-        return this.Interfaces.Get(name) as Z42InterfaceType;
-    }
+    // A5b-2c：三个访问器与 `GetClass` 同口径 —— 都走作用域感知的解析（外围链 → FQN → using → prelude）。
+    // 此前它们是「FQN 不中就查裸名表」，**没有作用域这一层**，裸名表在替它们兜「外围 ns 的短名」。
+    // 改口径前探针实测（stdlib + 编译器全量）：三者在带作用域的视图上与旧答案**零分歧**。
+    public bool HasClass(string name) { return this._resolveClass(name) != null; }
+    public bool HasInterface(string name) { return this._resolveIface(name) != null; }
+    public Z42InterfaceType GetInterface(string name) { return this._resolveIface(name); }
 
     // class（含 base 链）是否实现接口（可赋性 class→iface）。
     //

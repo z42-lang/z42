@@ -7,5 +7,4 @@
 # 推期限 = **手改本文件的日期**（`--update` 不会替你判断前提到没到）；
 # 而**理由写进源码那条 `STAGE2-DEBT` 标记**——本文件的注释会被 `--update` 重写掉。
 src/compiler/z42c.driver/src/BuildPaths.z42#compile-libs-knob 2026-11-10 改名迁移做完后重估：只剩自举在用就把旗标撤掉（保留内部区分）。2026-09-30 推到 11-10：前提确实未到 —— 等 add-package-roles 批 3 大重命名，那件事跨 nightly、要先出 DRAFT
-src/compiler/z42c.semantics/src/SymbolTable.z42#fqn-symbol-key 2026-10-20 删掉这四个函数里的「短名回落」那一支，只留 FQN 查找。2026-09-30 推到 10-20：步 2 已由 #944 落地、前提刚到，但步 3 要先做「响亮探测」找出残留短名调用方（四个访问器共 190 处调用）⇒ 是一次独立迭代，归 fqn-as-symbol-key 程序
 .github/workflows/bench-pr.yml#bench-pr-libdir-probe 2026-10-27 旧名/旧位置彻底退役后删掉后两档。2026-09-30 推到 10-27：后两档是给 **base 树**兜底的，base 若早于 #921（09-27 把该库挪进 src/compiler/）就仍在 src/libraries/ ⇒ 现在删会让「从 09-27 前的 main 分出来的 PR」本门红。等 relocate 满一个月

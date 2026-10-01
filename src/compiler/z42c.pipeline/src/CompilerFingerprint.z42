@@ -106,7 +106,10 @@ public static class CompilerFingerprint {
         "fix-imported-base-fqn",
         // fix-class-scan-lookup：遍历类表的两处诊断（转换中间类型提示、switch 穷举）按表键直接取值，EmitContext 基类链走句柄 ——
         // 不再按调用点作用域把短名再解析一遍（同短名类并存时诊断答案可能变）。stdlib 19 包字节不变。
-        "fix-class-scan-lookup"
+        "fix-class-scan-lookup",
+        // drop-bare-name-fallback（A5b-2c）：四个类型访问器删掉短名回落、统一走作用域解析；本地接口名按 CU 作用域归一；
+        // 没 using 的类型引用改在引用处报 E0436（此前静默解析、事后报在文件头）。stdlib 19 包字节不变。
+        "drop-bare-name-fallback"
     };
 
     // 指纹值：`Entries` 逐条以 `\n` 连接后取内容哈希（`mmh3:` 前缀，同 SourceHash）。

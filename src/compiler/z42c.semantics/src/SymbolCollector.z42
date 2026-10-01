@@ -64,6 +64,7 @@ public sealed class SymbolCollector {
         t.NoteArities(cu);   // fix-arity-mangle-package-wide：mangle 判据必须与符号表同尺度（见 SymbolTable.NoteArities）
         this._stub._passClassStubs(t, cu, "");   // 单-CU 路径（dump/test）：无 partial 主碎片跟踪
         this._mergeImports(t, imported);
+        this._stub._passQualifyIfaceNamesInScope(t, cu);   // A5b-2c：本地声明先按 CU 作用域归一
         this._stub._passQualifyIfaceNames(t);   // interface-names-fqn：相位同 CollectAll（全部 stub 进表后、成员解析前）
         this._seedObjectStub(t);   // imported Type 已入表后；GetType 返回真实 Type 类（链式 getter 分派）
         t.InternAllTypes();        // enforce-fqn-name-identity B1：**必须在 Object stub 之后** —— 它也登记类型
@@ -333,6 +334,8 @@ public sealed class SymbolCollector {
         // interface-names-fqn：全部 stub（本地 + 导入）都进表之后，把类的 `InterfaceNames`
         // 与接口的 `BaseNames` 一起归一成 FQN。必须在这里 —— Pass A 逐 CU 跑时后面 CU 的
         // 接口还没进表、算不出 FQN；也必须在 `_passMembers` 之前 —— 成员解析会用到名义关系。
+        int qc = 0;
+        while (qc < cuCount) { this._stub._passQualifyIfaceNamesInScope(table, cus[qc]); qc = qc + 1; }   // A5b-2c：本地声明先按 CU 作用域归一
         this._stub._passQualifyIfaceNames(table);
         this._seedObjectStub(table);   // imported Type 已入表后；GetType 返回真实 Type 类（链式 getter 分派）
         table.InternAllTypes();   // enforce-fqn-name-identity B1：**必须在 Object stub 之后** —— 它也登记类型
@@ -407,6 +410,7 @@ public sealed class SymbolCollector {
         // 漏挂一处 ⇒ 那条路上 `InterfaceNames` 仍是短名，而 `Implements` 已无条件把查询侧归一成
         // FQN ⇒ **恒不相等**：class→iface 误报 E0402 **且** 约束满足性漏报。
         // `Collect` 是活路径（`IrDump` 的 ExtractExports / TSIG 抽取走它），不是只给测试用的。
+        this._stub._passQualifyIfaceNamesInScope(table, cu);   // A5b-2c：本地声明先按 CU 作用域归一
         this._stub._passQualifyIfaceNames(table);
         table.InternAllTypes();   // enforce-fqn-name-identity B1：全部登记之后一次扫
         this._passBindClassBases(table, cu);   // A5b-2b-3
