@@ -41,13 +41,18 @@ public sealed class StubCollector {
                     dp = dp + 1;
                 }
                 if (!table.Delegates.ContainsKey(dd.Name)) {
+                    // A5b-2d：签名按**本 CU 作用域**解析（此前用根表，经 using 引入的类型全靠短名表回落；回落删掉后
+                    // 会静默变成 Unknown）+ 补声明位类型引用检查（E0443 / 引用处 E0436），与字段 / 方法签名同口径。
+                    SymbolTable sv = table.WithScopeOf(cu);
                     Z42Type[] ps = new Z42Type[dd.ParamCount];
                     int p = 0;
                     while (p < dd.ParamCount) {
-                        ps[p] = table.ResolveTypeP(dd.Params[p].Type, dd.TypeParams.Names, dd.TypeParams.Count);
+                        ps[p] = sv.ResolveTypeP(dd.Params[p].Type, dd.TypeParams.Names, dd.TypeParams.Count);
+                        this._sc._chkTypeRef(ps[p], "", sv, dd.Params[p].Type.Span);
                         p = p + 1;
                     }
-                    Z42Type dret = table.ResolveTypeP(dd.RetType, dd.TypeParams.Names, dd.TypeParams.Count);
+                    Z42Type dret = sv.ResolveTypeP(dd.RetType, dd.TypeParams.Names, dd.TypeParams.Count);
+                    this._sc._chkTypeRef(dret, "", sv, dd.RetType.Span);
                     table.Delegates.Put(dd.Name, new Z42FuncType(ps, dd.ParamCount, dret));
                     table.DelegateNs.Put(dd.Name, new StrBox(cu.HasNamespace ? cu.Namespace : ""));   // using-csharp-rules PR-2
                 }

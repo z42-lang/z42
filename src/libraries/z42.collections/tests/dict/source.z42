@@ -1,3 +1,4 @@
+using Std.Collections;
 void main() {
     // Basic put/get via indexing
     var scores = new Dictionary<string, int>();
