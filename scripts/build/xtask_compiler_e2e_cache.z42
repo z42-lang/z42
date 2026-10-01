@@ -232,3 +232,34 @@ int _e2eWorkspaceIncrChecks(string vm, string driverZpkg, string e2eDir, string 
     Console.WriteLine("  ✓ 无改动全命中；依赖只改注释下游命中；--no-incremental 不读；依赖删方法下游重编报错");
     return 0;
 }
+
+// using-csharp-rules 2.9b + 3.6：cached 文件的 `UsedNs` 随 meta 回来。f0 声明 `global using UnA;`，只有 f1 用到 UnA。
+// 只改 f0 的注释 ⇒ f1 命中缓存；包级「global using 全包没用到」必须看到 f1 的用法，**不能**报 W0607。
+// 修前 driver 不写 / 不读 meta 里的 `usedns` ⇒ cached 的 f1 用法集合为空 ⇒ 误报。
+int _e2eUsedNsCacheChecks(string vm, string driverZpkg, string e2eDir, string flat) {
+    Console.WriteLine("");
+    Console.WriteLine("── cached 文件的 UsedNs 随 meta 回来（using-csharp-rules 2.9b）──");
+    string root = Path.Join(e2eDir, "usednscache");
+    Directory.Create(root);
+    File.WriteAllText(Path.Join(root, "unc.z42.toml"),
+        "[project]\nname    = \"unc\"\nversion = \"0.1.0\"\nkind    = \"lib\"\n\n[sources]\ninclude = [\"*.z42\"]\n");
+    string f0 = "namespace UnA;\n\npublic class W { public int V; }\n\nglobal using UnA;\n";
+    File.WriteAllText(Path.Join(root, "f0.z42"), f0);
+    File.WriteAllText(Path.Join(root, "f1.z42"), "namespace UnB;\n\npublic static class U {\n    public static int F() { W w = new W(); return w.V; }\n}\n");
+    string[] a = new string[2];
+    a[0] = "build"; a[1] = "unc.z42.toml";
+    ProcessResult r0 = new Process(vm).Arg(driverZpkg).Arg("--").Args(a).WorkingDirectory(root).Env("Z42_LIBS", flat).Run();
+    if (r0.ExitCode != 0) { Console.WriteLine("  ✗ 夹具首次构建失败：" + r0.Stderr); return 1; }
+    if (r0.Stderr.Contains("W0607") || r0.Stdout.Contains("W0607")) { Console.WriteLine("  ✗ 首次构建就报了 W0607：" + r0.Stderr + r0.Stdout); return 1; }
+    File.WriteAllText(Path.Join(root, "f0.z42"), "// 只改注释\n" + f0);
+    ProcessResult r1 = new Process(vm).Arg(driverZpkg).Arg("--").Args(a).WorkingDirectory(root).Env("Z42_LIBS", flat).Run();
+    if (r1.ExitCode != 0) { Console.WriteLine("  ✗ 只改注释的二次构建失败：" + r1.Stderr); return 1; }
+    if (!r1.Stdout.Contains("cached: 1/2") && !r1.Stderr.Contains("cached: 1/2")) {
+        Console.WriteLine("  ✗ 夹具没走到 cached 路径（期望 cached: 1/2）：" + r1.Stdout + r1.Stderr); return 1;
+    }
+    if (r1.Stderr.Contains("W0607") || r1.Stdout.Contains("W0607")) {
+        Console.WriteLine("  ✗ f1 命中缓存后，global using 被误报成全包没用到：" + r1.Stderr + r1.Stdout); return 1;
+    }
+    Console.WriteLine("  ✓ f1 命中缓存时其 UsedNs 从 meta 回填，global using 不误报");
+    return 0;
+}

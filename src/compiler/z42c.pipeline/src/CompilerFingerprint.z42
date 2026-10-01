@@ -117,6 +117,9 @@ public static class CompilerFingerprint {
         // resolvetype-scope-only（A5b-2d）：类型注解位的名字只走作用域解析（外围链 / FQN / using / prelude），短名表回落删除；
         // 同短名跨 ns 时答案可能变，没 using 的类型名改在引用处报 E0436。
         "resolvetype-scope-only",
+        // global-using-package-lint：global using 全包没有文件用到报 W0607；写在自己 ns 文件里的 global using 不再误报 W0607 —— 诊断变化。
+        // 同时作废 nightly 写下的 meta（它们没有 usedns 行，cached 文件的用法集合会缺一半）。
+        "global-using-package-lint",
         // fix-ref-addr-opt：被 `ref` 取过地址的局部不再被当作单赋值（IrRegCounts.Defs 对 load_local_addr 的槽 +1）——
         // 复制传播 / 常量折叠等不再改写它，含 `ref` 局部的函数代码会变。
         "fix-ref-addr-opt"

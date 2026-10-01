@@ -274,3 +274,21 @@ void test_delegate_signature_resolves_types_through_using() {
         "namespace B;\nusing A;\npublic delegate int Op2(W w);\nint F(Op2 o) { return o(1); }\nint G(Op2 o) { return o(new W()); }\n"));
     Assert.Equal(1, art.ErrorCount);
 }
+
+[Test]
+void test_global_using_unused_package_wide_warns_W0607() {
+    // using-csharp-rules 3.6：`global using A;` 全包没有文件用到 A ⇒ W0607（报在声明处）。
+    if (!ugHasLibs()) { return; }
+    CompileArtifacts art = ugCompile(ug2(ugLibA(), "namespace B;\nglobal using A;\nint F() { return 1; }\n"));
+    Assert.Equal(1, ugCount(art, "global using A;` — no file in the package uses it"));
+}
+
+[Test]
+void test_global_using_used_by_another_file_does_not_warn() {
+    // 声明在 f0、用在 f1：全包有人用 ⇒ 不报。也守 3.6 之前的误报：`namespace A;` 的文件里写 `global using A;`
+    // 曾被当成「本文件 ns，本来就可见」报 W0607 —— global using 是给全包别的文件用的。
+    if (!ugHasLibs()) { return; }
+    CompileArtifacts art = ugCompile(ug2(ugLibA() + "global using A;\n", "namespace B;\nint F() { return Helper.Who(); }\n"));
+    Assert.Equal(0, art.ErrorCount);
+    Assert.Equal(0, ugCount(art, "W0607"));
+}

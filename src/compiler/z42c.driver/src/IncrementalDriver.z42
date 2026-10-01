@@ -208,6 +208,8 @@ public static class IncrementalDriver {
                 m.ZbcHash = zbcHashes[i];
                 m.Namespace = mods[i].Namespace;
                 m.UsedDepNs = cms[i].UsedDepNs; m.UsedDepNsCount = cms[i].UsedDepNsCount;
+                // using-csharp-rules 2.9b：本文件用到的全部 ns 也入 meta（E0436 / global using 告警的判据另一半；见 CachedNsMeta.UsedNs）。
+                if (cms[i].UsedNs != null) { m.UsedNs = cms[i].UsedNs; m.UsedNsCount = cms[i].UsedNs.Length; }
                 // parse 时已捕获（D8 修正）；无捕获（异常路径）才兜底 lex 一次。
                 NameListZ tk = (idents != null && idents[i] != null)
                     ? idents[i] : IncrementalDriver._tokensOf(texts[i], srcs[i]);

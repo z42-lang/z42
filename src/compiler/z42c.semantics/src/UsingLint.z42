@@ -39,13 +39,59 @@ public static class UsingLint {
             } else if (PreludeNs.Contains(u.Name)) {
                 diags.Warning(DiagnosticCodes.UnnecessaryUsing, "unnecessary `using " + u.Name + ";` — `" + u.Name
                     + "` is part of the prelude and always visible", u.Span);
-            } else if (NsScope.IsEnclosing(fileNs, u.Name)) {
+            } else if (!u.IsGlobal && NsScope.IsEnclosing(fileNs, u.Name)) {
+                // ↑ `global using` 不适用：它对**声明它的文件**本来就可见没关系，它是给全包别的文件用的
+                //   （`namespace A;` 的文件里写 `global using A;` 是常见写法）。全包没人用到另由 CheckGlobalUsings 判。
                 diags.Warning(DiagnosticCodes.UnnecessaryUsing, "unnecessary `using " + u.Name + ";` — `" + u.Name
                     + "` is this file's namespace or encloses it, so it is visible without `using`", u.Span);
             } else if (!u.IsGlobal && !UsingLint._has(used, used.Length, u.Name) && !UsingLint._has(dep, depCount, u.Name)) {
                 diags.Warning(DiagnosticCodes.UnnecessaryUsing, "unnecessary `using " + u.Name + ";` — nothing in this file uses it", u.Span);
             }
         }
+    }
+
+    // using-csharp-rules 3.6：`global using X;` **全包**没有任何文件用到 X ⇒ W0607（报在声明它的那一行）。
+    // 判据：每个文件的 `UsedNs` ∪ `UsedDepNs`（与 E0436 同一份集合）。cached 文件的这两项由 meta 回填（2.9）——
+    // 少了 `UsedNs` 就会把只被 cached 文件用到的 global using 误报成没用。
+    // 不判：包里有错误（同 `Check`：用法集合不可信）；编译器注入的副本（`Injected`）；prelude（`Check` 已在声明处报过）。
+    public static void CheckGlobalUsings(CompilationUnit[] cus, CompiledModuleZ[] cms, int n) {
+        int e = 0;
+        while (e < n) { if (cms[e] != null && cms[e].ErrorCount > 0) { return; } e = e + 1; }
+        int i = 0;
+        while (i < n) {
+            if (cus[i] != null && cms[i] != null) {
+                int di = 0;
+                while (di < cus[i].DeclCount) {
+                    Decl d = cus[i].Decls[di];
+                    di = di + 1;
+                    if (!(d is UsingDecl)) { continue; }
+                    UsingDecl u = d as UsingDecl;
+                    if (!u.IsGlobal || u.Injected || PreludeNs.Contains(u.Name)) { continue; }
+                    if (UsingLint._usedAnywhere(cms, n, u.Name)) { continue; }
+                    string file = u.Span != null && u.Span.File != "" ? u.Span.File : (cus[i].Span != null ? cus[i].Span.File : "");
+                    string msg = file + "(" + u.Span.Line.ToString() + "," + u.Span.Column.ToString() + "): " + DiagnosticCodes.UnnecessaryUsing
+                        + ": unnecessary `global using " + u.Name + ";` — no file in the package uses it";
+                    int oldn = cms[i].DiagCount;
+                    string[] nw = new string[oldn + 1];
+                    int q = 0; while (q < oldn) { nw[q] = cms[i].DiagMsgs[q]; q = q + 1; }
+                    nw[oldn] = msg;
+                    cms[i].DiagMsgs = nw; cms[i].DiagCount = oldn + 1;
+                }
+            }
+            i = i + 1;
+        }
+    }
+
+    private static bool _usedAnywhere(CompiledModuleZ[] cms, int n, string ns) {
+        int i = 0;
+        while (i < n) {
+            if (cms[i] != null) {
+                if (cms[i].UsedNs != null && UsingLint._has(cms[i].UsedNs, cms[i].UsedNs.Length, ns)) { return true; }
+                if (cms[i].UsedDepNs != null && UsingLint._has(cms[i].UsedDepNs, cms[i].UsedDepNsCount, ns)) { return true; }
+            }
+            i = i + 1;
+        }
+        return false;
     }
 
     private static bool _has(string[] a, int n, string s) {
