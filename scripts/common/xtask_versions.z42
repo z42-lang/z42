@@ -41,9 +41,13 @@ string[] _vgetList(TomlValue toml, string dotted) {
     return xs;
 }
 
-// Parse the repo-root versions.toml into a TomlValue.
+// versions.toml 的位置（scripts/ 下 —— 读它的几乎全是 xtask；tidy-xtask-config 从仓库根挪来）。
+// 全部读取方都经这里，别再各自 Path.Join(root, …)。
+string _versionsPath(string root) { return Path.Join(root, "scripts/versions.toml"); }
+
+// Parse versions.toml into a TomlValue.
 TomlValue _vparse(string root) {
-    return TomlValue.Parse(File.ReadAllText(Path.Join(root, "versions.toml")));
+    return TomlValue.Parse(File.ReadAllText(_versionsPath(root)));
 }
 
 // Dotted-path scalar, parsing versions.toml fresh (convenience for one-off reads).
@@ -54,7 +58,7 @@ string _vRead(string root, string dotted) {
 
 // Like _vRead but returns `fallback` on any error (missing file / missing key).
 string _vReadOr(string root, string dotted, string fallback) {
-    if (!File.Exists(Path.Join(root, "versions.toml"))) { return fallback; }
+    if (!File.Exists(_versionsPath(root))) { return fallback; }
     try { return _vget(_vparse(root), dotted); }
     catch (Exception e) { return fallback; }
 }

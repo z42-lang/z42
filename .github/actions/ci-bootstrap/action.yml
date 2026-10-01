@@ -313,7 +313,10 @@ runs:
         # tolerate the crash and gate on the actual product existing. A real failure
         # (crash before writing xtask.zpkg) still trips the guard.
         # boot_driverw/boot_libsw:快路径=下载种子;两代路径=gen2 z42c + 新 stdlib(见 1.5)。
-        Z42_LIBS="$boot_libsw" "$runvm" "$boot_driverw" --mode interp -- \
+        # Z42_COMPILER_LIBS（tidy-xtask-config）：xtask 以 `${compiler_libs}` 引用编出它的工具链里的
+        # z42.project / z42.build。那个目录就是 boot driver 所在目录 —— 快路径 = .ci-seed（SDK programs/z42c
+        # 的拷贝）；两代路径 = gen2 的 z42c.driver dist（自包含闭包）。
+        Z42_COMPILER_LIBS="$(winpath "$(dirname "$boot_driver")")" Z42_LIBS="$boot_libsw" "$runvm" "$boot_driverw" --mode interp -- \
           build scripts/xtask.z42.toml --release --no-incremental \
           || echo "  seed z42c exited non-zero (nightly Windows cache write?) — verifying xtask.zpkg below"
         [ -f "$ROOT/artifacts/xtask/xtask.zpkg" ] || { echo "::error::xtask.zpkg not produced"; exit 1; }

@@ -1,7 +1,7 @@
 @echo off
 REM install-z42.bat — repository bootstrap (Windows).
 REM
-REM Installs the z42 toolchain version pinned in versions.toml ([toolchain.z42].launcher)
+REM Installs the z42 toolchain version pinned in scripts/versions.toml ([toolchain.z42].launcher)
 REM into <repo>\.z42 without touching PATH. Re-run to update.
 REM
 REM   scripts\install-z42.bat                  pinned version -> <repo>\.z42
@@ -14,7 +14,7 @@ setlocal
 set "REPO=%~dp0.."
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$ver = 'nightly'; $in = $false;" ^
-  "foreach ($l in Get-Content (Join-Path '%REPO%' 'versions.toml')) {" ^
+  "foreach ($l in Get-Content (Join-Path '%REPO%' 'scripts\versions.toml')) {" ^
   "  if ($l -match '^\[toolchain\.z42\]') { $in = $true; continue }" ^
   "  if ($l -match '^\[') { $in = $false }" ^
   "  if ($in -and $l -match '^launcher\s*=\s*\"([^\"]+)\"') { $ver = $Matches[1]; break }" ^

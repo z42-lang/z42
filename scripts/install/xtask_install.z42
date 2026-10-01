@@ -40,7 +40,7 @@ int _depsInstall(ParseResult r) {
         ConsoleError.WriteLine("deps install --os: unknown platform '" + platform + "' (android|ios|wasm)"); return 2;
     }
     string root = _root();
-    TomlValue toml = TomlValue.Parse(File.ReadAllText(Path.Join(root, "versions.toml")));
+    TomlValue toml = TomlValue.Parse(File.ReadAllText(_versionsPath(root)));
 
     Console.WriteLine("── toolchain (cross-platform) ──");
     _checkRust(toml);
@@ -87,7 +87,7 @@ int _depsEnv(ParseResult r) {
         return 2;
     }
     string root = _root();
-    TomlValue toml = TomlValue.Parse(File.ReadAllText(Path.Join(root, "versions.toml")));
+    TomlValue toml = TomlValue.Parse(File.ReadAllText(_versionsPath(root)));
     string home = _resolveNdkHome(root, toml);
     if (home.Length == 0) {
         ConsoleError.WriteLine("# android: NDK not found; run xtask deps install --os android");
@@ -104,7 +104,7 @@ int _depsEnv(ParseResult r) {
 // Idempotent; force redownloads. POSIX-only (.tar.gz); Windows → MSI.
 int _depsInstallNode(bool force) {
     string root = _root();
-    TomlValue toml = TomlValue.Parse(File.ReadAllText(Path.Join(root, "versions.toml")));
+    TomlValue toml = TomlValue.Parse(File.ReadAllText(_versionsPath(root)));
     string nodeVersion = _vget(toml, "toolchain.node.version");   // SoT: versions.toml
     string installDir = Path.Join(_toolsDir(root), "node");
     string nodeBin = Path.Join(installDir, "bin/node");

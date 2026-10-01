@@ -1,10 +1,11 @@
-# versions.toml — z42 build env 要求 + 运行时平台承诺 单一真相源
+# scripts/versions.toml — z42 build env 要求 + 运行时平台承诺 单一真相源
 #
-# 唯一 SoT。**不**生成 rust-toolchain.toml / global.json 之类的"投影"文件
-# （那只是把版本号写两遍），改由 scripts/_lib/versions.sh 提供 verify 函数，
-# build/test 脚本在入口处显式校验（versions_check_rust / _check_dotnet /
-# _check_node）。代价：rustup / dotnet 不再 cd-into auto-install 该 channel；
-# 收益：单一文件就是答案。
+# 在 scripts/ 下：读它的几乎全是 xtask（`scripts/common/xtask_versions.z42` 的 `_versionsPath`
+# 是唯一入口）；另有 release.yml 的 tag 校验、install-z42.{sh,bat}、z42b 的 iOS xcframework 构建。
+#
+# 唯一 SoT。**不**生成 rust-toolchain.toml 之类的"投影"文件（那只是把版本号写两遍），
+# 改由 xtask 在入口处显式校验（`xtask deps check` / `xtask deps install`）。代价：rustup 不再
+# cd-into auto-install 该 channel；收益：单一文件就是答案。
 #
 # 四类块：
 #   [project]     — z42 自身版本号（release tag SoT；workspace.package.version 镜像）
@@ -16,14 +17,13 @@
 # 标准做法、不算重复声明）：
 #   gradle/wrapper/gradle-wrapper.properties  ← gradle pin 由 wrapper 自管
 #
-# scripts/_lib/versions.sh 是 bash 端读取入口；setup-tools.sh（待写）用它
-# 下载 NDK / 拿 [platform.*] 对账 Package.swift / build.gradle.kts（drift
-# detection）。
+# `xtask deps install` 用它下载 NDK 等；`xtask deps check` 拿 [platform.*] 对账
+# Package.swift / build.gradle.kts（drift detection）。
 #
 # 字段约定：
 #   version 用字符串（"30.0.16248370" / "22"）；
 #   tier 用字符串 "tier1" / "tier2" / "tier3"（rust platform-support 约定）；
-#   url 模板里的 {os} = darwin / linux / windows（setup-tools.sh 替换）。
+#   url 模板里的 {os} = darwin / linux / windows（`xtask deps install` 替换）。
 
 schema_version = 1
 
@@ -32,8 +32,8 @@ schema_version = 1
 # ══════════════════════════════════════════════════════════════════════════
 #
 # Bumping 流程：
-#   1. 改本字段 → 跑 z42 xtask.zpkg deps check
-#   2. drift 报错 → 同步更新仓库根 Cargo.toml [workspace.package].version
+#   1. 改本字段 → 跑 `xtask deps check`
+#   2. drift 报错 → 同步更新 src/runtime/Cargo.toml [workspace.package].version
 #   3. commit → git tag v<version> → push --tags
 #   4. .github/workflows/release.yml 自动触发跨平台 SDK package publish
 
@@ -73,7 +73,7 @@ install_root = "artifacts/tools/android-sdk"
 [build.android.ndk]
 # 实际安装走 sdkmanager（`--install ndk;<version>`），sdkmanager 对照 Google
 # repository manifest 自校验下载——无需仓库层 sha256。下面 url/sha256 仅供未来
-# 直接下载的 setup-tools.sh 使用（当前 install 路径不读）。
+# 直接下载路径使用（当前 install 路径不读）。路径类值（install_root 等）一律相对**仓库根**。
 version = "30.0.16248370"
 release = "r30"                         # Google release 别名（URL 用它）
 url     = "https://dl.google.com/android/repository/android-ndk-r30-{os}.zip"

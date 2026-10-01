@@ -48,7 +48,7 @@ xtask 是独立的 z42 应用——它不是通用 `z42` launcher 的一部分�
 > managed 布局的 `Z42_HOME`（`runtimes/`，无 `programs/`）不符 SDK-toolchain 布局 →
 > 跳过（不误当种子源）；`Z42_LIBS` 显式覆盖仅在其确实含 `z42.core.zpkg` 时生效。
 
-> 所有版本号的唯一真相源是仓库根 `versions.toml`（xtask 经 `Std.Toml` 原生解析，
+> 所有版本号的唯一真相源是 `scripts/versions.toml`（读它的几乎全是 xtask，故放这里；入口 `_versionsPath`）（xtask 经 `Std.Toml` 原生解析，
 > 见共享模块 `common/xtask_versions.z42`）。
 
 ## 全局选项
