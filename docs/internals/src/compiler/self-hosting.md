@@ -219,8 +219,9 @@ z42c **运行期依赖 `z42.package`**——它建任何 zpkg 都要调 `Z42.Pac
 （`undefined function ...Sha256Hex`，即 main CI 冷启动全红根因）。破环：`_buildCompilerViaZ42c`
 在 workspace build **前**先用当前 driver（冷启动=上一 nightly 种子，自带等价 `ZpkgBuilder`）把
 当前源码的 `z42.package` **单独编进 build-libs**（`build <toml> --output-dir <flat>`），fresh z42c 就
-对着**真 `z42.package`** 编译+运行，一致。随后的 `build stdlib` 全量 workspace 构建用 fresh z42c 把
-`z42.package` 覆盖为规范产物。与轴 ② 的两代自举同构，但触发条件是**包结构收敛**而非格式 bump。
+对着**真 `z42.package`** 编译+运行，一致。workspace 自建一完成，`_purgeBootstrapPrebuildsFromFlat` 就把
+这些预建的编译器域包从 flat 清走（规范产物在各自成员 dist 里）。flat 是开发树的 `Z42_LIBS`，它们留着会被
+当成「框架包」，也会让 `deploy = "sdk"` 的校验误判（add-sdk-libs 阶段 3 前置）。与轴 ② 的两代自举同构，但触发条件是**包结构收敛**而非格式 bump。
 
 > **不 warm-skip**（`07596b57`，2026-07-30 改；此前是「已在 flat dist 就跳过」）。早先那个幂等假设
 > 等价于「z42c 不消费 `z42.package` 的**新** API」——当 z42c 源用到当前源 `z42.package` 新增的类型/方法，而

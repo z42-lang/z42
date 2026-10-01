@@ -97,7 +97,7 @@ graph TD
 
 | 环 | 现象 | 破法 |
 |---|---|---|
-| z42c ⇄ `z42.package` | z42c 运行期依赖 stdlib 库 `z42.package`，而 `z42.package` 由 z42c 构建；冷树上 fresh z42c 只能拿种子自带的旧 IR 包解析 `Z42.Package.*`，运行期加载真 `z42.package` 时符号解析不到 | `_ensureBootstrapSelfDepLibs` 在 workspace build 之前先用种子 driver 把当前源的 `z42.package` 编进 build-libs |
+| z42c ⇄ `z42.package` | z42c 运行期依赖 stdlib 库 `z42.package`，而 `z42.package` 由 z42c 构建；冷树上 fresh z42c 只能拿种子自带的旧 IR 包解析 `Z42.Package.*`，运行期加载真 `z42.package` 时符号解析不到 | `_ensureBootstrapSelfDepLibs` 在 workspace build 之前先用种子 driver 把当前源的 `z42.package` 编进 build-libs（flat）；自建完成后 `_purgeBootstrapPrebuildsFromFlat` 把非 stdlib 的预建包清走，flat 回到「只有 stdlib」 |
 | z42c ⇄ z42c（跨成员符号新增）| driver 打包的是**当时** dist 里的旧兄弟包，它遮蔽 fresh dist ⇒ 消费方成员首遍报 `no field` / `undefined type` | 首遍已按拓扑序把被依赖成员建 fresh ⇒ 用 fresh 兄弟重新自包含 driver 再跑一遍即收敛；真编译错重试照样失败 |
 
 ## 4. 不动点验证（`test compiler` 的核心）

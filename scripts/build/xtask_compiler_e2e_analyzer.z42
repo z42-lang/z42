@@ -239,8 +239,9 @@ int _e2ePathAnalyzerChecks(string root, string vm, string driverZpkg, string e2e
 //   ② 声明了 → 必须编过、`dist/` 里有 `z42c.syntax.zpkg`、且**整套 stdlib 没被拖进来**（能力在 + 不过度复制）；
 //   ③ 宏名拼错 → 必须当场报「未知宏」（而不是沿用「保留字面」变成一句「文件不存在」）。
 //
-// 🔴 **为什么不能直接用开发树的 flat 当「用户的 libs」**：flat 里**有意**躺着破环预建
-// （`_ensureBootstrapSelfDepLibs`）写进去的六个编译器域包 ⇒ ①格在开发树里天然不成立。
+// 🔴 **为什么不能直接用开发树的 flat 当「用户的 libs」**：flat 里曾**有意**躺着破环预建
+// （`_ensureBootstrapSelfDepLibs`）写进去的编译器域包 ⇒ ①格在开发树里天然不成立。2026-10-01 起
+// `build compiler` 自建完即清走它们，但本门仍不依赖「最后跑的是哪条命令」。
 // 故本门自己拼两个临时目录：`shipped/`（flat 减去编译器域 = 用户看到的 libs）+
 // `cdomain/`（编译器域包，镜像 `<sdk>/programs/z42c/`，经 `Z42_COMPILER_LIBS` 交给宏）。
 // **这正是我实施时第一次验错的地方**（用了 flat，结论反了）。
@@ -369,10 +370,10 @@ int _e2eUserDomainRefChecks(string root, string vm, string driverZpkg, string e2
 // 本格只声明 `z42c.pipeline`，而它依赖 `z42c.semantics` ⇒ 两个都要在 dist 里。反向：编译器目录里那套
 // stdlib 副本**不能**被当私有依赖拷进来（stdlib 运行期从 libs/ 解析）。最后用 Z42_LIBS 真跑一遍。
 //
-// ⚠️ 为什么选 z42c.pipeline 而不是 z42.build：开发树的 stdlib flat（`Z42_LIBS`）里**本来就有**几个编译器包
-// （`_ensureBootstrapSelfDepLibs` 把 z42c 运行期自依赖的 z42.build / z42.project / z42.package / z42c.core /
-// z42c.syntax 预建进去）——在开发树里它们是「框架」，按规则不复制。z42c.pipeline / z42c.semantics 不在其中，
-// 才代表发布态 SDK 里「不在 libs/ 的 SDK 库」。发布态的全量形态由 `xtask test dist` 覆盖。
+// ⚠️ 为什么选 z42c.pipeline 而不是 z42.build：`_ensureBootstrapSelfDepLibs` 会把 z42.build / z42.project /
+// z42.package / z42c.core / z42c.syntax 预建进开发树的 stdlib flat（`Z42_LIBS`），在那段时间里它们是「框架」，
+// 按规则不复制（2026-10-01 起 `build compiler` 自建完即清走，但本格不赌命令顺序）。z42c.pipeline /
+// z42c.semantics 从不进 flat，才稳定地代表发布态 SDK 里「不在 libs/ 的 SDK 库」。发布态全量形态由 `xtask test dist` 覆盖。
 int _e2eSdkLibExeCopy(string root, string vm, string driverZpkg, string e2eDir) {
     string flat = _libsFlatDist(root, "release");   // 纯 stdlib：模拟「只有 runtime」
     string d = Path.Join(e2eDir, "sdklibexe");

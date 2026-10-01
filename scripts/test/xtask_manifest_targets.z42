@@ -17,11 +17,9 @@
 // example 是唯一还留在本文件里执行的一类 —— 它不是测试（判据是「编得过 + 可选跑得通」），
 // 走 `_runExitTarget` / `_compileTarget`。
 //
-// NOTE (xtask deps): xtask.z42.toml declares NO [dependencies] block on purpose
-// (DepScan.z42: declaredCount==0 → index ALL of Z42_LIBS), so `using
-// Z42.Project` resolves z42.project.zpkg from the flat alllibs dir with no
-// manifest change. Adding a partial [dependencies] block would flip z42c to
-// "declared-only" indexing and break Std.Cli / Std.Io / Z42.Build resolution.
+// NOTE (xtask deps): `using Z42.Project` resolves because xtask.z42.toml declares
+// z42.project / z42.build as SDK libs (`deploy = "sdk"`); stdlib (`z42.*` in
+// Z42_LIBS) stays visible without being listed.
 namespace Z42Xtask;
 
 using Std.IO;

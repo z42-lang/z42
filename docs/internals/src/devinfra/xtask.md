@@ -39,11 +39,12 @@
 
 代价是**自举依赖**：编 xtask 需要 z42c 和 stdlib，而它们又由 xtask 编排构建（见 §5）。
 
-依赖面：`Std.*` 不列，按名从 `Z42_LIBS` 解析；编译器域的 `Z42.Project` / `Z42.Build` 以
-`${compiler_libs}/z42.{project,build}.zpkg` 引用**编出 xtask 的那套工具链**里的 zpkg（SDK 的
-`programs/z42c/`；开发树对应 `artifacts/build/compiler/z42c.driver/release/dist/`），构建时复制到
-`artifacts/xtask/` 里 xtask.zpkg 旁边，运行期从那里加载。CI 上编 xtask 的是上一 nightly 的工具链，所以
-xtask 用这两个包的新 API 要晚一个 nightly（[bootstrap-seed.md](../../../agent/rules/bootstrap-seed.md)「stdlib API 面」）。
+依赖面：`Std.*` 不列，按名从 `Z42_LIBS` 解析；编译器域的 `Z42.Project` / `Z42.Build` 声明为 SDK 库
+（`{ version = "*", deploy = "sdk" }`，见 [z42-toml.md](../../../reference/src/toolchain/z42-toml.md)）。xtask 本来就
+强依赖 SDK：本地 `./xtask` 与 CI 垫片都用仓库根 `.z42/` 编它、跑它。所以**不复制**：编译期从这份 SDK 的
+`programs/z42c/` 解析；运行期侧车自动带 `${Z42_HOME}/programs/z42c`，VM 从自己的位置（`.z42/bin/z42vm`）推出
+`.z42`，取的是同一份。编 xtask 的是上一 nightly，所以 xtask 用这两个包的新 API 要晚一个 nightly
+（[bootstrap-seed.md](../../../agent/rules/bootstrap-seed.md)「stdlib API 面」）。
 
 ### 改了 `scripts/*.z42` 之后
 

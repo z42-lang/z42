@@ -14,18 +14,16 @@ include = ["**/*.z42"]
 # z42c 从那儿解析每个 `using Std.*`（Cli/IO/Toml/Json/Regex；z42.core 是 prelude）——
 # 对这个 dev 工具来说显式列表是冗余的。（库/SDK 工程仍然显式声明依赖。）
 #
-# 编译器域的两个包（`Z42.Project`：读清单 / 布局解析；`Z42.Build`：构建编排）**引用编出 xtask 的那套
-# 工具链里的 zpkg**，不从源码树代建（tidy-xtask-config，用户裁定）。它们不在 shipped `libs/`，而在
-# 编译器目录 —— SDK 的 `programs/z42c/`；`${compiler_libs}` 宏由 z42c 按序解析：
-#   Z42_COMPILER_LIBS → Z42_HOME/programs/z42c → 由 Z42_PORTABLE_VM 反推的 <sdk>/programs/z42c
-#   → 开发树 artifacts/build/compiler/z42c.driver/release/dist（与 programs/z42c 同形）。
-# 构建时 z42c 按部署规则（不在 shipped libs/ ⇒ 复制）把它们**复制到 xtask.zpkg 旁边**，运行期就从那里加载。
+# 编译器域的两个包（`Z42.Project`：读清单 / 布局解析；`Z42.Build`：构建编排）是 **SDK 库**：按名声明、
+# `deploy = "sdk"`（add-sdk-libs 阶段 3）。xtask 本就强依赖 SDK —— 本地 `./xtask` 与 CI 垫片都用仓库根 `.z42/`
+# 这份 SDK 编它、跑它 ⇒ 编译期从这份 SDK 的编译器目录（`programs/z42c/`）解析，**不复制**进 artifacts/xtask/；
+# 运行期侧车自动带 `${Z42_HOME}/programs/z42c`，VM 由自己的位置（`.z42/bin/z42vm` ⇒ `.z42`）展开，取的是同一份。
 #
-# ⚠️ 代价 = 自举纪律：CI 上编 xtask 的是**上一版 nightly** 的工具链（ci-bootstrap [2/5]），所以 xtask 用到的
-# `Z42.Project` / `Z42.Build` 新 API 必须先随一次合入进 nightly、下一个 PR 再用（docs/agent/rules/bootstrap-seed.md）。
+# ⚠️ 代价 = 自举纪律：编 xtask 的是**上一版 nightly**，所以 xtask 用到的 `Z42.Project` / `Z42.Build` 新 API
+# 必须先随一次合入进 nightly、下一个 PR 再用（docs/agent/rules/bootstrap-seed.md）。
 [dependencies]
-"z42.project" = { path = "${compiler_libs}/z42.project.zpkg" }
-"z42.build"   = { path = "${compiler_libs}/z42.build.zpkg" }
+"z42.project" = { version = "*", deploy = "sdk" }
+"z42.build"   = { version = "*", deploy = "sdk" }
 
 [build]
 # xtask is the build DRIVER, so its output lives at artifacts/xtask — NOT under
@@ -43,12 +41,8 @@ dist_dir   = "${output_dir}"
 
 [profile.release.runtime]
 mode = "interp"
-# 运行期的 `Z42.Project` / `Z42.Build` 就在 xtask.zpkg 旁边（见上面 [dependencies]：构建时复制进
-# artifacts/xtask/；VM 先查入口 zpkg 所在目录）。此前这里有一条
-# `probing-paths = "../build/compiler/*/release/dist"`（#921 加）；有了旁边的副本之后，
-# 那条搜索路径已无人使用（tidy-xtask-config 实测：
-# 移走 artifacts/build/compiler 后用到 Z42.Project 的命令照常运行；test-consume 在 consume-out 里编的
-# xtask 也从来只靠这两份副本）。
+# 运行期的 `Z42.Project` / `Z42.Build` 来自所在 SDK（`deploy = "sdk"` ⇒ z42c 在侧车自动追加
+# `probing-paths = "${Z42_HOME}/programs/z42c"`，见上面 [dependencies]）。这里不必手写。
 
 # apphost-as-config (2026-06-17): `z42 publish scripts/xtask.z42.toml` (--rid
 # defaults to host) reads [platform.desktop] and emits a native `./xtask` apphost that runs the
