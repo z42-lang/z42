@@ -562,6 +562,14 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
                 // warnings-survive-cache：cached CU 的诊断也随 meta 回来（否则警告只在冷构建可见）。
                 cachedMetas[mi].Diags = prep.Plan.Metas[mi].Diags;
                 cachedMetas[mi].DiagCount = prep.Plan.Metas[mi].DiagCount;
+                // using-csharp-rules 2.9b：cached CU 的 `UsedNs` 也随 meta 回来（包级「global using 全包没用到」要看到它）。
+                // meta 读回的数组按 2 倍扩容带空槽，消费方按 `.Length` 遍历 ⇒ 截成精确长度。
+                // ⚠️ 别叫 `pm`：本函数外层已有 `ProjectManifest pm`，z42c 目前不报内层同名局部（C# CS0136）且会覆盖外层槽位。
+                CacheMeta cmeta = prep.Plan.Metas[mi];
+                string[] uns = new string[cmeta.UsedNsCount];
+                int ui = 0;
+                while (ui < cmeta.UsedNsCount) { uns[ui] = cmeta.UsedNs[ui]; ui = ui + 1; }
+                cachedMetas[mi].UsedNs = uns;
             }
             mi = mi + 1;
         }

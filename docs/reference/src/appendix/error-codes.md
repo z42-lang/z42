@@ -391,7 +391,7 @@ E0442 / E0457 / E0462 除外（见上一节）。**E0402 另有一处语法层�
 |---|---|---|---|
 | W0603 | 包声明了保留命名空间（依赖扫描层软网） | ⚠️ 零发射点 | — |
 | W0604 | 捕获的值快照被赋值 | ⚠️ 零发射点 —— 规避写法（`bool[1]` 单元格）在 stdlib 里有沿用，但编译器当前**不报**这条 | — |
-| W0607 | 不必要的 `using`（对标 C# CS8019 / IDE0005）：本文件没有任何地方用到它；或它指向本来就可见的 prelude（`Std` / `Std.Runtime`）/ 本文件 namespace 及其外围。判「用到」与 E0436 同一份集合。本文件已有编译错误时不报（解析不全，会误报）；generator 生成的源文件不报（它的 using 是编译器从宿主文件抄来的） | ✅ `UsingLint.z42` | `namespace B; using A; int F() { return 1; }` |
+| W0607 | 不必要的 `using`（对标 C# CS8019 / IDE0005）：本文件没有任何地方用到它；或它指向本来就可见的 prelude（`Std` / `Std.Runtime`）/ 本文件 namespace 及其外围。判「用到」与 E0436 同一份集合。本文件已有编译错误时不报（解析不全，会误报）；generator 生成的源文件不报（它的 using 是编译器从宿主文件抄来的）；`global using` 按**全包**判：没有任何文件用到才报（报在声明处），写在自己命名空间的文件里不算多余 | ✅ `UsingLint.z42` | `namespace B; using A; int F() { return 1; }` |
 | W0608 | 重复的 `using`（对标 C# CS0105）：同一文件里写了两次；或包里已有同名 `global using` | ✅ `UsingLint.z42` | `using A; using A;` |
 | W0609 | ❌ 已退役（2026-10-01）：原「`[dependencies]` 的 `path` 用了 `${compiler_libs}` 路径宏」过渡期 warning。宏随即删除，旧写法改为当场报错并给出按名写法；编号不复用（占号常量 `RetiredCompilerLibsMacroDeprecated`） | ❌ | — |
 | W0700 | `switch` 不穷尽：对 `bool` / `enum` / 封闭类型做 `switch` 时漏了分支，且没有 `default` | ✅ `ExhaustCheck.z42:127,154,200` | `switch (b) { case true: ... }`，`b` 是 `bool` |

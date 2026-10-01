@@ -37,8 +37,11 @@
       只按 `UsedDepNs` 判：另一个文件删掉 `global using` 时，cached 文件的同包跨 ns 引用不会报 E0436
   - [x] 2.9a pipeline 侧（support）：`CacheMeta.UsedNs` + `usedns` 行（MetaVersion 8→9）、`CachedNsMeta.UsedNs`、
         `PackageCompile` 回填。用例 `usinggate` 的 cached 回填（关掉回填即红）+ `incremental` meta 往返
-  - [ ] 2.9b driver 侧（use，再晚一个 nightly）：`IncrementalDriver` 写 `m.UsedNs = cms[i].UsedNs`、`Main` 构造
-        `CachedNsMeta` 时带上 `UsedNs` —— driver 冷编时链的是种子的 pipeline，新字段要等它进 nightly
+  - [x] 2.9b driver 侧（use；nightly main@d90720b 已含 2.9a）：`IncrementalDriver` 写 `m.UsedNs`、`Main` 构造
+        `CachedNsMeta` 时带上（meta 读回的数组带空槽，按 `UsedNsCount` 截成精确长度）。
+        ⚠️ 原先写的场景（「另一个文件删掉 global using 时 cached 文件不报 E0436」）经 driver **打不中**：global using
+        变了增量规划整包重编（实测 `cached: 0/2`）。2.9b 真正的消费方是 3.6（全包判 global using 要看 cached 文件的用法）。
+        e2e `_e2eUsedNsCacheChecks`：只改 f0 注释让 f1 命中缓存，global using 不误报（撤掉 driver 两处即红，实测）
 - [ ] 2.10 （可选，C# 口径）E0436 只看 `UsedNs`：`UsedDepNs` 按接收者类型记实例调用，C# 不算「用到」；需 2.9 落地后再收
 
 ## PR-3 多余 using 告警（using-csharp-unused-warning）
@@ -50,5 +53,7 @@
 - [x] 3.4 清理仓库多余 using（构建循环 + 自动删除脚本）。删掉的只有两类：「文件里没用到」与 prelude；没有「外围 ns」
       那一类 ⇒ 不依赖 PR-1 进种子（上一版 z42c 照样能编）
 - [x] 3.5 文档：参考手册 namespaces.md「多余的 using 会告警」+ 诊断表；error-codes.md
-- [ ] 3.6 `global using` 声明本身全包都没用到 ⇒ W0607：需全包每文件的 `UsedNs`，cached 文件拿不到（同 2.9）
+- [x] 3.6 `global using` 声明本身全包都没用到 ⇒ W0607（`UsingLint.CheckGlobalUsings`，挂在 `EnforceFileScopeAll` 末尾：
+      缓存回填之后、全包文件齐了才判；包里有错误时不判）。顺带修 PR-3 的误报：`namespace A;` 的文件里写 `global using A;`
+      曾按「本文件 ns」报 W0607 —— 外围判据对 global using 不适用。用例 `usinggate` 两条
 - [x] 3.7 （晚一个 nightly）W0607 / W0608 发射点切回 `DiagnosticCodes.UnnecessaryUsing` / `DuplicateUsing`
