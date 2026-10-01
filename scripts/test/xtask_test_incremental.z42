@@ -778,7 +778,7 @@ string _incrXtaskCopy(string root, string scratch) {
 // 没人发现。从真品清单读而不是在这里抄一份依赖列表：下次 xtask 加减依赖时本门自动跟上。
 //   · 按名依赖（今天的 SDK 库 `z42.project` / `z42.build`，add-sdk-libs 阶段 3）：照抄名字 + 版本 —— SDK 库
 //     **声明了才可见**。`deploy` 不抄：替身是 `kind = "lib"`，不打包，部署无意义。
-//   · path 依赖：`${…}` 宏路径原样照抄（z42c 按同一套查找序解析），相对路径改写成绝对路径。
+//   · path 依赖：相对路径改写成绝对路径（依赖 path 不支持宏）。
 string _incrXtaskDeps(string scriptsDir) {
     ProjectManifest m = ManifestLoader.Load(Path.Join(scriptsDir, "xtask.z42.toml"));
     string s = "";
@@ -786,8 +786,7 @@ string _incrXtaskDeps(string scriptsDir) {
     while (i < m.DepCount) {
         DepEntry e = m.Deps[i];
         if (e.Path.Length > 0) {
-            string p = e.Path.StartsWith("${") ? e.Path
-                : Path.Normalize(Path.Join(scriptsDir, e.Path)).Replace("\\", "/");
+            string p = Path.Normalize(Path.Join(scriptsDir, e.Path)).Replace("\\", "/");
             s = s + "\"" + e.Name + "\" = { path = \"" + p + "\" }\n";
         } else {
             string v = e.Version.Length > 0 ? e.Version : "*";

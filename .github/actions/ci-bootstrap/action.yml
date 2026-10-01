@@ -181,7 +181,7 @@ runs:
         # ── 2. 用 SDK 自己的 z42c 编当前 xtask（同本地 `.z42/bin/z42c build scripts/xtask.z42.toml`）──────────
         # xtask 编完**跑在同一个 SDK 上**（下面 [3/5][4/5] 与之后各步的 `xtask` 垫片）⇒ 编译与运行同一个工具链，版本严格一致
         # —— 格式 bump 那一轮也一样（xtask 是种子格式、跑在种子 VM 上），不必再改用 gen2 编 xtask。
-        # 清掉 z42 相关环境变量：apphost 自己从所在 SDK 推出 VM / libs / 编译器目录（`${compiler_libs}`）。
+        # 清掉 z42 相关环境变量：apphost 自己从所在 SDK 推出 VM / libs / 编译器目录（SDK 库从那里解析）。
         # --no-incremental + `|| echo` + 产物守卫：老 nightly z42c 在 Windows 写增量缓存会在**写完 zpkg 之后**崩（os error 3），
         # 缓存只是优化，跳过它；真失败（没产出 zpkg）由守卫判红。
         echo "── [2/5] SDK z42c builds current xtask.zpkg ──"

@@ -154,7 +154,6 @@ path 依赖与名字依赖的关键差异：名字依赖假定其 zpkg **已在*
 |---|---|---|
 | `lib` / `exe` | 按名声明的（不写 path）+ 它们在 SDK 库内的传递闭包（沿 zpkg DEPS 段） | `SdkLibs.Plan` 算放行集；编译器目录追加到 `libsDirs` 末尾，**不放行的包名并入扫描 tier 的 `Hidden`**（`WsTier` 既有字段） |
 | `analyzer` | 全部 | 放行集 = 编译器目录里所有「基础解析域中没有」的包 |
-| 任意 kind，`${compiler_libs}` 宏（过渡） | 编译器目录整个可见 | `ExeDeps.z42` 的 `_expandDepPathMacros`：被引用 zpkg 所在目录并入解析域 |
 
 几个不显然的点：
 

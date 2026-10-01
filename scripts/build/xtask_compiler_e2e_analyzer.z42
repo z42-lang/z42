@@ -231,19 +231,20 @@ int _e2ePathAnalyzerChecks(string root, string vm, string driverZpkg, string e2e
 // ── 用户工程**显式引用**编译器域库（relocate-compiler-domain-libs）───────────────────────────
 //
 // **守的是什么**：隔离不是禁止，是「不隐式可见」。用户要写 linter / 格式化器 / 代码生成，就在
-// `[dependencies]` 里用 `${compiler_libs}` 路径宏显式引用；引用到的 zpkg 要**被拷进他的输出目录**
-// （拷出去就能跑，不依赖 SDK 在不在）。
+// `[dependencies]` 里**按名声明** SDK 库（`"z42c.syntax" = "*"`，add-sdk-libs）；引用到的 zpkg 要**被拷进他的
+// 输出目录**（拷出去就能跑，不依赖 SDK 在不在）。
 //
 // **三格，缺一不可**：
 //   ① 不声明 + `using Z42.Syntax` → 必须编**不**过（隔离在）；
-//   ② 声明了 → 必须编过、`dist/` 里有 `z42c.syntax.zpkg`、且**整套 stdlib 没被拖进来**（能力在 + 不过度复制）；
-//   ③ 宏名拼错 → 必须当场报「未知宏」（而不是沿用「保留字面」变成一句「文件不存在」）。
+//   ② 按名声明了 → 必须编过、`dist/` 里有 `z42c.syntax.zpkg`、且**整套 stdlib 没被拖进来**（能力在 + 不过度复制）；
+//   ③ 旧写法 `${compiler_libs}` 路径宏（已删除）→ 必须当场报错并给出按名写法（而不是落成一句离原因很远的
+//      「文件不存在: …/${compiler_libs}/…」）。
 //
 // 🔴 **为什么不能直接用开发树的 flat 当「用户的 libs」**：flat 里曾**有意**躺着破环预建
 // （`_ensureBootstrapSelfDepLibs`）写进去的编译器域包 ⇒ ①格在开发树里天然不成立。2026-10-01 起
 // `build compiler` 自建完即清走它们，但本门仍不依赖「最后跑的是哪条命令」。
 // 故本门自己拼两个临时目录：`shipped/`（flat 减去编译器域 = 用户看到的 libs）+
-// `cdomain/`（编译器域包，镜像 `<sdk>/programs/z42c/`，经 `Z42_COMPILER_LIBS` 交给宏）。
+// `cdomain/`（编译器域包，镜像 `<sdk>/programs/z42c/`，经 `Z42_COMPILER_LIBS` 交给 z42c 的编译器目录查找）。
 // **这正是我实施时第一次验错的地方**（用了 flat，结论反了）。
 string[] _e2eDomainPkgNames() {
     return new string[]{ "z42c.core", "z42c.syntax", "z42c.semantics", "z42c.pipeline", "z42c.driver",
@@ -317,18 +318,17 @@ int _e2eUserDomainRefChecks(string root, string vm, string driverZpkg, string e2
         return 1;
     }
 
-    // ② 声明了 ⇒ 能编 + 产物里有它 + 没把 stdlib 拖进来
+    // ② 按名声明 ⇒ 能编 + 产物里有它 + 没把 stdlib 拖进来
     string bdir = Path.Join(e2eDir, "userref_decl");
     Directory.Create(bdir);
     File.WriteAllText(Path.Join(bdir, "main.z42"), _e2eUserRefSrc());
     string btoml = Path.Join(bdir, "e2euserlinter.z42.toml");
-    File.WriteAllText(btoml, _e2eUserRefToml(
-        "\"z42c.syntax\" = { path = \"${compiler_libs}/z42c.syntax.zpkg\" }\n"));
+    File.WriteAllText(btoml, _e2eUserRefToml("\"z42c.syntax\" = \"*\"\n"));
     ProcessResult r2 = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(btoml).Arg("--release")
         .Env("Z42_LIBS", shipped).Env("Z42_COMPILER_LIBS", cdomain)
         .Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
     if (r2.ExitCode != 0) {
-        Console.WriteLine("  ✗ 用户工程显式引用 ${compiler_libs} 后仍编不过: rc=" + r2.ExitCode.ToString());
+        Console.WriteLine("  ✗ 用户工程按名声明 z42c.syntax 后仍编不过: rc=" + r2.ExitCode.ToString());
         Console.WriteLine("    stderr: " + r2.Stderr);
         return 1;
     }
@@ -343,31 +343,24 @@ int _e2eUserDomainRefChecks(string root, string vm, string driverZpkg, string e2
         Console.WriteLine("  ✗ 整套 stdlib 被拷进用户输出目录（编译器域解析域压过了框架）");
         return 1;
     }
-    // 宏进入过渡期（add-sdk-libs）：照常构建，但必须报 W0609、给出按名写法、定位到清单里那一行。
-    if (r2.Stderr.IndexOf("W0609") < 0 || r2.Stderr.IndexOf("\"z42c.syntax\" = \"*\"") < 0
-            || r2.Stderr.IndexOf("e2euserlinter.z42.toml(") < 0) {
-        Console.WriteLine("  ✗ 用了 ${compiler_libs} 却没报 W0609（或没给出 `\"z42c.syntax\" = \"*\"` / 没定位到清单）");
-        Console.WriteLine("    stderr: " + r2.Stderr);
-        return 1;
-    }
 
-    // ③ 宏名拼错 ⇒ 当场说清
-    string cdir = Path.Join(e2eDir, "userref_badmacro");
+    // ③ 旧写法 `${compiler_libs}`（宏已删除）⇒ 当场说清怎么改
+    string cdir = Path.Join(e2eDir, "userref_oldmacro");
     Directory.Create(cdir);
     File.WriteAllText(Path.Join(cdir, "main.z42"), _e2eUserRefSrc());
     string ctoml = Path.Join(cdir, "e2euserlinter.z42.toml");
     File.WriteAllText(ctoml, _e2eUserRefToml(
-        "\"z42c.syntax\" = { path = \"${compiler_libz}/z42c.syntax.zpkg\" }\n"));
+        "\"z42c.syntax\" = { path = \"${compiler_libs}/z42c.syntax.zpkg\" }\n"));
     ProcessResult r3 = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(ctoml).Arg("--release")
         .Env("Z42_LIBS", shipped).Env("Z42_COMPILER_LIBS", cdomain)
         .Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
-    if (r3.ExitCode == 0 || r3.Stderr.IndexOf("未知宏") < 0) {
-        Console.WriteLine("  ✗ 宏名拼错没有当场报「未知宏」（保留字面会让症状离原因很远）: rc="
+    if (r3.ExitCode == 0 || r3.Stderr.IndexOf("已删除") < 0 || r3.Stderr.IndexOf("\"z42c.syntax\" = \"*\"") < 0) {
+        Console.WriteLine("  ✗ 旧写法 ${compiler_libs} 没有当场报「已删除」并给出按名写法: rc="
             + r3.ExitCode.ToString());
         Console.WriteLine("    stderr: " + r3.Stderr);
         return 1;
     }
-    Console.WriteLine("  ✓ 用户显式引用编译器域：不声明看不见 / 声明可用且拷进产物、报 W0609 迁移提示 / 宏名拼错当场报");
+    Console.WriteLine("  ✓ 用户显式引用编译器域：不声明看不见 / 按名声明可用且拷进产物 / 旧宏写法当场报错并给出按名写法");
     return 0;
 }
 

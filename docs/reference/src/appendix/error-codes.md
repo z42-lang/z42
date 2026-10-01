@@ -393,7 +393,7 @@ E0442 / E0457 / E0462 除外（见上一节）。**E0402 另有一处语法层�
 | W0604 | 捕获的值快照被赋值 | ⚠️ 零发射点 —— 规避写法（`bool[1]` 单元格）在 stdlib 里有沿用，但编译器当前**不报**这条 | — |
 | W0607 | 不必要的 `using`（对标 C# CS8019 / IDE0005）：本文件没有任何地方用到它；或它指向本来就可见的 prelude（`Std` / `Std.Runtime`）/ 本文件 namespace 及其外围。判「用到」与 E0436 同一份集合。本文件已有编译错误时不报（解析不全，会误报）；generator 生成的源文件不报（它的 using 是编译器从宿主文件抄来的） | ✅ `UsingLint.z42` | `namespace B; using A; int F() { return 1; }` |
 | W0608 | 重复的 `using`（对标 C# CS0105）：同一文件里写了两次；或包里已有同名 `global using` | ✅ `UsingLint.z42` | `using A; using A;` |
-| W0609 | `[dependencies]` 的 `path` 里用了 `${compiler_libs}` 路径宏：过渡写法，将在后续版本删除。照常构建，提示等价的按名写法 `"<包>" = "*"`（exe 要在 SDK 上运行、不复制时再加 `deploy = "sdk"`），位置是清单里该依赖所在行 | ✅ `ExeDeps.z42`（`_warnCompilerLibsMacro`） | `"z42c.syntax" = { path = "${compiler_libs}/z42c.syntax.zpkg" }` |
+| W0609 | ❌ 已退役（2026-10-01）：原「`[dependencies]` 的 `path` 用了 `${compiler_libs}` 路径宏」过渡期 warning。宏随即删除，旧写法改为当场报错并给出按名写法；编号不复用（占号常量 `RetiredCompilerLibsMacroDeprecated`） | ❌ | — |
 | W0700 | `switch` 不穷尽：对 `bool` / `enum` / 封闭类型做 `switch` 时漏了分支，且没有 `default` | ✅ `ExhaustCheck.z42:127,154,200` | `switch (b) { case true: ... }`，`b` 是 `bool` |
 | W0701 | 解构声明的绑定名遮蔽了当前类的字段 / 属性：`(A, B) = (a, b);`（花括号体里）声明的是两个**新局部**，随即离开作用域，一个成员都没动。局部遮蔽字段本身合法，单看语法挑不出毛病——只能靠「遮蔽了同名成员」这个信号拦。仅在有 `this` 的上下文里查。表达式位置的同一写法由 **E0482** 直接报错 | ✅ `StmtBinder.z42`（发 `DiagnosticCodes.DeconstructShadowsMember`） | `class C { int A; void M(int a) { (A, _) = (a, 0); } }` |
 
@@ -458,6 +458,7 @@ E0442 / E0457 / E0462 除外（见上一节）。**E0402 另有一处语法层�
 | `Z####` | 原运行期错误编号，2026-05-11 整体退役。VM 运行期错误现在通过类型化 z42 异常表达（`Std.InvalidMarshalException` 等）；catch by class 后读 `Message` / `StackTrace` 字段 |
 | `E0901` / `E0902` | 见 E09xx 节 |
 | `WS004` | 归并入 WS010 |
+| `W0609` | 2026-10-01 退役：`${compiler_libs}` 路径宏的过渡期 warning，宏随即删除。编号不复用（占号常量 `RetiredCompilerLibsMacroDeprecated`） |
 | `I0467` | 2026-09-22 退役：常量 `ForwardSkipped` 原登记此号、发射点却一直发 I0466，改值归位后空出。编号不复用（占号常量 `RetiredForwardSkipped`；`E` 前缀的 0467 是另一个码，仍可分配） |
 
 ---

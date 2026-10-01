@@ -57,5 +57,8 @@
 - [x] 文档与示例去掉 `${compiler_libs}`（xtask.md / bootstrap-seed.md / organization.md；`z42-toml.md` 与 `project-model.md` 里标明「过渡写法」的那两处留到阶段 4 删宏时一起删；e2e 里测宏本身的格同理）
 - [ ] 本地 GREEN；PR CI；合入后 main / nightly 实测
 
-## 阶段 4：删宏（再一个 release 之后）
-- [ ] 删 `_expandDepPathMacros` 的 `compiler_libs` 分支与 warning 码；文档
+## 阶段 4：删宏（原计划再一个 release 之后；User 2026-10-01 裁定提前做）
+- [x] `_expandDepPathMacros` 删除，改为 `_rejectDepPathMacro`：依赖 path 里的宏一律硬报错，`${compiler_libs}` 专门给出按名写法
+- [x] W0609 退役（占号常量 `RetiredCompilerLibsMacroDeprecated`，编号不复用）；`error-codes.md` 两处
+- [x] e2e「用户显式引用编译器域」：②格改按名声明，③格改为「旧宏写法当场报错 + 按名写法」
+- [x] 文档：`z42-toml.md`、`project-model.md`、`error-codes.md`；残留注释（probing.rs / z42.workspace.toml / ci-bootstrap / Main / incremental）

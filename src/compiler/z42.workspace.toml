@@ -8,7 +8,7 @@
 #
 # 🔴 **物理位置就是「这是编译器域」的声明**：`src/libraries/` 只放用户 stdlib（`Std.*`），
 # 普通工程的解析域只有 shipped `libs/` ⇒ 结构上看不到本 workspace 的包；要用得在
-# `[dependencies]` 里**显式引用**（`${compiler_libs}` 路径宏，见该 change 的 design §5.3）。
+# `[dependencies]` 里**按名声明**（SDK 库，`"z42c.syntax" = "*"`，见 add-sdk-libs）。
 # 这六个包原在 `src/libraries/`（converge-z42-syntax-lib / converge-z42c-ir-metadata-onto-stdlib
 # 等几次下沉的落点），本次挪回。**包名与命名空间一个都没动** ⇒ zpkg 文件名不变 ⇒ 不涉及种子纪律。
 # 产物：artifacts/build/compiler/<pkg>/<profile>/{dist,cache}/，按 build profile 分级。

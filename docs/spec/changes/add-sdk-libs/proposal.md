@@ -51,7 +51,7 @@
   仍用构建树工具，同本地）。
 - 之后 xtask 改 `deploy = "sdk"`，不再复制。
 
-**过渡**：`${compiler_libs}` 宏本变更起发 warning，一个 release 后删除。
+**过渡**：`${compiler_libs}` 宏本变更起发 warning，一个 release 后删除。（User 2026-10-01 裁定提前删：W0609 随即退役，旧写法当场报错并给出按名写法。）
 
 ## Scope
 

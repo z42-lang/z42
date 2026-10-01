@@ -637,9 +637,8 @@ entry   = "MyApp.main"
 > ⚠️ SDK 库**不是稳定 API**：编译器内部随版本调整，不承诺兼容。拷进产物后运行期不受 SDK 升级影响，
 > 但用新 SDK 重编时可能要跟着改代码。
 
-**`${compiler_libs}` 路径宏（过渡写法）**：`{ path = "${compiler_libs}/z42c.syntax.zpkg" }` 仍可用，
-效果是把编译器目录整个并入解析域（其中所有 SDK 库都可见）。每次使用报
-[W0609](../appendix/error-codes.md#w0xxx--警告)，给出等价的按名写法；该宏将在后续版本移除。宏名拼错会**当场硬报错**并列出可用的宏。
+**`${compiler_libs}` 路径宏已删除**（2026-10-01）：旧写法 `{ path = "${compiler_libs}/z42c.syntax.zpkg" }` 会**当场报错**，
+并给出等价的按名写法 `"z42c.syntax" = "*"`。依赖的 `path` 不支持任何宏。
 
 产物引用的三条语义：
 
