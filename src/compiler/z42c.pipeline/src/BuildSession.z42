@@ -144,15 +144,14 @@ public sealed class BuildSession {
             hashes[i] = ZpkgBuilder.SourceHashHex(texts[i]);
             i = i + 1;
         }
-        // ③ 解析域：调用方给的基础域；analyzer 工程再并入编译器域（普通工程看不见编译器契约包）。
+        // ③ 解析域：调用方给的基础域 + SDK 库（add-sdk-libs，规则同 driver，见 SdkLibs.z42）：exe / lib 按名声明的
+        //    SDK 库（+ 闭包）可见，analyzer 全部可见；不放行的进扫描 tier 的 Hidden。
         string[] libs = o.BaseLibs;
         int libsN = o.BaseLibsN;
-        if (pm.Project.Kind == "analyzer") {
-            string[] cl = CompilerDomain.Dirs();
-            string[] withCl = new string[libsN + cl.Length];
-            int wi = 0; while (wi < libsN) { withCl[wi] = libs[wi]; wi = wi + 1; }
-            int ci = 0; while (ci < cl.Length) { withCl[libsN + ci] = cl[ci]; ci = ci + 1; }
-            libs = withCl; libsN = libsN + cl.Length;
+        SdkLibPlan sdkPlan = SdkLibs.Plan(pm, libs, libsN, pm.Project.Kind == "analyzer");
+        if (sdkPlan.DirsN > 0) {
+            libs = SdkLibs.AppendDirs(libs, libsN, sdkPlan);
+            libsN = libsN + sdkPlan.DirsN;
         }
         // ④ [analyzers] → handler zpkg 路径（名字条目查解析域；path 条目以 AnalyzerChild 代建）。
         string[] azPaths = null;
@@ -193,7 +192,9 @@ public sealed class BuildSession {
         inp.Features = kn.Features;
         inp.OptSet = kn.OptSet;
         inp.LibsDirs = libs; inp.LibsDirsN = libsN;
-        inp.DeclaredDeps = declared; inp.DepCount = pm.DepCount;
+        inp.Tier = SdkLibs.MergeTier(null, sdkPlan);
+        string[] declaredAll = SdkLibs.ExtendDeclared(declared, pm.DepCount, sdkPlan);
+        inp.DeclaredDeps = declaredAll; inp.DepCount = declaredAll.Length;
         inp.EnforceDeclaredDeps = true;          // 真的读了一份清单 ⇒ 执行依赖契约（E0497），同 z42c build
         inp.ParentPkg = o.ParentPkg;
         if (azPaths != null) { inp.AnalyzerZpkgs = azPaths; inp.AnalyzerZpkgCount = pm.AnalyzerCount; }

@@ -18,19 +18,23 @@
 被拒的备选（初稿）：`Z42_SDK_LIBS` 环境变量 + SDK 清单 `sdk-libs` 字段 + VM 新增一档。用户裁定：SDK 库与 SDK 版本强绑定，
 可随意指定的位置容易出问题，不引入；SDK 内相对位置 / `${Z42_HOME}` 已够用。
 
-## D2：可见性 = 只让允许的 SDK 库进解析域
+## D2：可见性 = 扫描 tier 的 `Hidden` 挡掉不放行的 SDK 库
 
 现有解析器以**目录**为单位（`libsDirs`）。直接并入 `programs/z42c/` 有两个问题：①里面有整套 stdlib 副本；②目录里所有 SDK 库
 都可见（exe / lib 要求「声明了才可见」）。今天的 `${compiler_libs}` 宏也有 ②（`_zpkgRefDirs` 并入的是被引用文件所在目录）。
 
-做法：构建时在本工程 cache 目录下拼 `sdk-view/`，只放允许看见的 SDK 库（硬链接，失败回落复制），作为 `libsDirs` 最后一项：
+做法（实施时定，取代初稿的「拼 `sdk-view/` 目录」）：`ZpkgPathSort._sortedZpkgsMulti` 本就按 `WsTier.Admits(di, name)` 逐包过滤，
+`WsTier.Hidden` = 整个不可见的包名 —— 正是需要的能力，**不新增字段**。`z42c.pipeline/src/SdkLibs.z42`（driver 与 BuildSession 共用）：
 
-- exe / lib：声明的 SDK 库 + 它们在 SDK 库内的传递闭包（编译期要看得见闭包里的类型，否则跨包签名解析不全）；
-- analyzer / hooks：SDK 库目录里全部「`libs/` 中不存在的包名」。
+- `Plan`：放行集 —— exe / lib = 按名声明（不写 path）的 SDK 库 + 沿 zpkg DEPS 的传递闭包；analyzer = 编译器目录里基础解析域中
+  没有的全部包。放行集非空才把编译器目录追加到 `libsDirs` 末尾。
+- `MergeTier`：复制一份 tier，`Hidden` 并上不放行的 SDK 库名；只用于扫描与 `DepIdentity`，调用方手里的 `tier`（workspace 语义）不动。
+  放行集为空 ⇒ 原样返回 ⇒ z42c 自建 byte-identical。
+- stdlib 副本：名字在基础解析域里已有 ⇒ 不进放行集；且排在 `libs/` 之后、按 basename 先到先得本就选不中。
+- `ExtendDeclared`：放行集并进声明白名单（DepIndex 只索引「`z42.` 前缀 + 声明依赖」、E0497 按它放行）。
+- `HiddenProviderOf`：E0494 时直接到编译器目录找提供该命名空间的、当前不可见的 SDK 库并点名（只在报错路径执行）。
 
-stdlib 过滤在拼视图时一次完成：包名在 `libs/` 里存在 ⇒ 不进视图。视图是派生物，按「允许集 + 源 zpkg 指纹」决定是否重拼，不进 dist。
-
-⚠️ 实施第一步先确认：解析器是否本就支持按**文件**加入解析域——若支持，用文件列表代替视图目录。
+hooks 不经 `Plan`：z42b 编 hooks 时把编译器目录的 zpkg 直接放进 `CompileRequest.Deps`（`builder_hooks.z42`，#999），已在基础解析域里。
 
 ## D3：exe 复制 = SDK 库传递闭包
 

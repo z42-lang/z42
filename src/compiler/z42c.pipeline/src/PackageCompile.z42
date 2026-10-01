@@ -402,8 +402,13 @@ public static class PackageCompile {
                             UsingDecl uz = ucu.Decls[ud] as UsingDecl;
                             if (!PackageCompile._usingAcceptable(uz.Name, knownNs, knownN)) {
                                 DiagnosticBag ubag = new DiagnosticBag();
+                                // add-sdk-libs：它若在某个**未声明**的 SDK 库里，直接点名该怎么声明（SDK 库按名声明才可见）。
+                                string sdkPkg = SdkLibs.HiddenProviderOf(uz.Name, inp.LibsDirs, inp.LibsDirsN, inp.Tier);
+                                string fix = sdkPkg.Length > 0
+                                    ? "；它由 SDK 库 `" + sdkPkg + "` 提供 —— SDK 库须在 [dependencies] 按名声明才可见：\"" + sdkPkg + "\" = \"*\""
+                                    : "；检查拼写，或补上提供它的 [dependencies]";
                                 ubag.Error(DiagnosticCodes.UnknownNamespace, "命名空间 `" + uz.Name + "` 不存在（依赖的包里没有它，本包也没有声明它）"
-                                    + "；检查拼写，或补上提供它的 [dependencies]", uz.Span);
+                                    + fix, uz.Span);
                                 PackageCompile._mergeDiags(cms[ci2], ubag);
                             }
                         }

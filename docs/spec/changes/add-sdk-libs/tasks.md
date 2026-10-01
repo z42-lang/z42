@@ -7,26 +7,26 @@
 ## 阶段 1：support（PR-1；仓内消费者不动）
 
 ### 1.1 可见性（D2 / D4）
-- [ ] 先确认解析器能否按文件加入解析域；否则实现 `sdk-view/`（cache 目录下，硬链接，按允许集 + 源指纹重拼）
-- [ ] exe / lib：声明的 SDK 库 + 闭包进视图；未声明 ⇒ E0494 + hint
-- [ ] analyzer：整个编译器目录 → 全量视图（过滤 stdlib 名）
-- [ ] hooks：`CompileRequest.HostExtension`（构造后赋值）；z42b `_loadProjectHooks` 置位；BuildSession 同 analyzer 处理
-- [ ] driver 与 BuildSession 两条路径同一套逻辑
+- [x] 解析器按目录扫、但 `WsTier.Admits` 已能按包名过滤 ⇒ 用扫描 tier 的 `Hidden`，不拼视图目录（design D2 已改）
+- [x] exe / lib：声明的 SDK 库 + 闭包放行；未声明 ⇒ E0494 点名 SDK 库 + 声明写法
+- [x] analyzer：编译器目录里基础解析域中没有的全部包放行
+- [x] hooks：改为 z42b 把编译器目录 zpkg 直接放进 `CompileRequest.Deps`（不新增跨包字段；#999）
+- [x] driver 与 BuildSession 两条路径同一套逻辑（`SdkLibs.z42`）
 
 ### 1.2 部署（D3 / D5）
-- [ ] `_bundleExeDeps`：沿 zpkg 依赖表走 SDK 库传递闭包（含经 lib 间接引入）
+- [x] `_bundleExeDeps`：既有的 DEPS 传递闭包走查（#849）已覆盖；声明的 SDK 库解析自编译器目录 ⇒ 判私有、复制（e2e 实测）
 - [ ] `deploy = "sdk"`：校验（只对 SDK 库合法）、不复制、侧车 `probing-paths` 追加 `${Z42_HOME}/programs/z42c`
 
 ### 1.3 VM 提示（D6）
-- [ ] `probing.rs` 记录展开失败的 `${Z42_HOME}` 条目 + 依赖解析失败报错附提示 + Rust 单测
+- [x] `probing.rs` 记录展开失败的 `${Z42_HOME}` 条目 + 依赖解析失败报错附提示 + Rust 单测（#998）
 
 ### 1.4 过渡与诊断（D8 / D9）
 - [ ] `${compiler_libs}` 发 warning（新码），给出等价按名写法
 - [ ] 新码登记 + `error-codes.md`
-- [ ] CompilerFingerprint +1
+- [x] CompilerFingerprint 追加 `add-sdk-libs-visibility`
 
 ### 1.5 测试（D10）
-- [ ] `xtask_compiler_e2e_*` 开发树各格
+- [x] `xtask_compiler_e2e_*` 开发树：可见性三格 + exe 复制闭包（`deploy = "sdk"` 各格随其 PR）
 - [ ] `xtask test dist` 发布态：hooks（今天红）、仅 runtime 运行复制闭包后的 exe、`deploy = "sdk"` 两种环境
 
 ### 1.6 文档

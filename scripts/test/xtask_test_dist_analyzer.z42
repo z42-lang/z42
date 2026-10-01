@@ -11,11 +11,12 @@
 // 这个缺口潜伏到 `relocate-compiler-domain-libs`（2026-09-27）才被翻出来 —— 潜伏得了，正因为**没有
 // 发布态的门**。本文件就是那道门。
 //
-// 三格，按用户的实际动作排：
-//   ① 写 analyzer 工程（`kind = "analyzer"` + 依赖契约包）⇒ **用包里的 z42c** 编得过；
+// 按用户的实际动作排（add-sdk-libs 的可见性规则：analyzer 免声明可见；exe / lib 按名声明才可见）：
+//   ① 写 analyzer 工程（`kind = "analyzer"`，**不声明**契约包）⇒ **用包里的 z42c** 编得过；
 //   ② 普通工程 `[analyzers]` 挂上它 ⇒ 编得过，且 generator 生成的代码**真能跑**（输出 42）；
-//   ③ 同一份源码改成 `kind = "lib"` ⇒ **必须编不过**。少了这格，①「编过了」可能只是因为契约包
-//      对所有工程都可见（那样解析域隔离就没了，而 `libs/` 里曾经确实漏过编译器域包）。
+//   ③ 同一份源码改成 `kind = "lib"`、不声明 ⇒ **必须编不过**，且报错点名契约包并给出声明写法。少了这格，
+//      ①「编过了」可能只是因为契约包对所有工程都可见（那样隔离就没了，而 `libs/` 里曾经确实漏过编译器域包）；
+//   ④ `kind = "lib"` 按名声明 `"z42c.semantics" = "0.1.0"` ⇒ 编得过（SDK 库对普通工程按需开启）。
 namespace Z42Xtask;
 
 using Std.IO;
@@ -31,10 +32,10 @@ string _distAnalyzerGenSrc() {
          + "}\n";
 }
 
-string _distAnalyzerToml(string kind) {
+string _distAnalyzerToml(string kind, bool declare) {
     return "[project]\nname    = \"dist.gen\"\nversion = \"0.1.0\"\nkind    = \"" + kind + "\"\n\n"
-         + "[sources]\ninclude = [\"*.z42\"]\n\n"
-         + "[dependencies]\n\"z42c.semantics\" = \"0.1.0\"\n";
+         + "[sources]\ninclude = [\"*.z42\"]\n"
+         + (declare ? "\n[dependencies]\n\"z42c.semantics\" = \"0.1.0\"\n" : "");
 }
 
 // 包里的 z42c（Windows 带 .exe）。`Z42_HOME` 指向包根 —— 那正是用户装完 SDK 后的形态。
@@ -64,13 +65,14 @@ int[] _analyzerDistSmoke(string distDir, string work) {
     string gen = Path.Join(work, "anlz/gen");
     string app = Path.Join(work, "anlz/app");
     string lib = Path.Join(work, "anlz/aslib");
-    Directory.Create(gen); Directory.Create(app); Directory.Create(lib);
+    string libd = Path.Join(work, "anlz/aslibdecl");
+    Directory.Create(gen); Directory.Create(app); Directory.Create(lib); Directory.Create(libd);
 
-    // ① analyzer 工程：用包里的 z42c 编得过（契约包从 `<pkg>/programs/z42c/` 解析）。
+    // ① analyzer 工程（不声明契约包）：用包里的 z42c 编得过（SDK 库从 `<pkg>/programs/z42c/` 自动可见）。
     File.WriteAllText(Path.Join(gen, "gen.z42"), _distAnalyzerGenSrc());
-    File.WriteAllText(Path.Join(gen, "dist.gen.z42.toml"), _distAnalyzerToml("analyzer"));
+    File.WriteAllText(Path.Join(gen, "dist.gen.z42.toml"), _distAnalyzerToml("analyzer", false));
     ProcessResult g = _distZ42c(distDir, gen, "dist.gen.z42.toml");
-    acc = _distCheck(acc, g.ExitCode == 0, "kind=analyzer 工程用包里的 z42c 编得过", g);
+    acc = _distCheck(acc, g.ExitCode == 0, "kind=analyzer 工程（未声明契约包）用包里的 z42c 编得过", g);
 
     // ② 消费方挂 `[analyzers]` ⇒ 编得过，且 generator 产的代码真能跑。
     File.WriteAllText(Path.Join(app, "main.z42"),
@@ -90,16 +92,19 @@ int[] _analyzerDistSmoke(string distDir, string work) {
     acc = _distCheck(acc, r.ExitCode == 0 && r.Stdout.Trim() == "42",
         "generator 生成的代码在发布态真能跑（42）", r);
 
-    // ③ 判别力：同一份源码写 kind=lib ⇒ 必须编不过，且错因指向契约包。
-    //    编过了说明契约包对**普通**工程也可见 —— 那样 ① 的「编过」什么都证明不了
-    //    （`libs/` 里曾经确实漏过编译器域包，2026-09-28 才修）。
+    // ③ 判别力：同一份源码写 kind=lib、不声明 ⇒ 必须编不过，且报错点名契约包、给出声明写法。
+    //    编过了说明 SDK 库对**未声明的**普通工程也可见 —— 那样 ① 的「编过」什么都证明不了。
     File.WriteAllText(Path.Join(lib, "gen.z42"), _distAnalyzerGenSrc());
-    File.WriteAllText(Path.Join(lib, "dist.gen.z42.toml"), _distAnalyzerToml("lib"));
+    File.WriteAllText(Path.Join(lib, "dist.gen.z42.toml"), _distAnalyzerToml("lib", false));
     ProcessResult l = _distZ42c(distDir, lib, "dist.gen.z42.toml");
-    bool refused = l.ExitCode != 0
-        && (l.Stderr.IndexOf("Z42.Semantics") >= 0 || l.Stderr.IndexOf("z42c.semantics") >= 0
-            || l.Stderr.IndexOf("ModuleGenerator") >= 0 || l.Stderr.IndexOf("GenContext") >= 0);
-    acc = _distCheck(acc, refused, "同源码 kind=lib 编不过，且错因指向契约包（解析域隔离仍在）", l);
+    bool refused = l.ExitCode != 0 && l.Stderr.IndexOf("z42c.semantics") >= 0 && l.Stderr.IndexOf("按名声明") >= 0;
+    acc = _distCheck(acc, refused, "kind=lib 未声明 ⇒ 编不过，且提示按名声明 z42c.semantics", l);
+
+    // ④ 按需开启：kind=lib 按名声明契约包 ⇒ 编得过。
+    File.WriteAllText(Path.Join(libd, "gen.z42"), _distAnalyzerGenSrc());
+    File.WriteAllText(Path.Join(libd, "dist.gen.z42.toml"), _distAnalyzerToml("lib", true));
+    ProcessResult ld = _distZ42c(distDir, libd, "dist.gen.z42.toml");
+    acc = _distCheck(acc, ld.ExitCode == 0, "kind=lib 按名声明 z42c.semantics ⇒ 编得过", ld);
 
     Console.WriteLine("");
     return acc;
