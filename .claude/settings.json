@@ -3,11 +3,8 @@
     "allow": [
       "Skill(update-config)",
       "Skill(update-config:*)",
-      "Skill(next-phase)",
-      "Skill(next-phase:*)",
       "WebSearch",
       "Bash(cargo *)",
-      "Bash(just *)",
       "Bash(brew *)",
       "Bash(gh *)",
       "Bash(jq *)",

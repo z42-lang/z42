@@ -91,7 +91,7 @@ z42/
 ├── docs/                  # learn/ + reference/ + internals/ books, book/ site root,
 │                          # roadmap.md, agent/ rules, spec/ change records
 ├── examples/              # Companion projects for the learn book, run by `xtask test examples`
-└── .claude/               # Claude Code entry (workflow rules)
+└── .claude/               # Claude Code entry: thin pointer to docs/agent/ + shared permissions
 ```
 
 ---

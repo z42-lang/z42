@@ -45,8 +45,10 @@ dist/
 # Cross-zpkg e2e test build artifacts (per-package libs/ populated by test driver).
 src/tests/cross-zpkg/*/*/libs/
 
-# Claude scheduler local state
+# Claude Code local state (per-machine; memory lives in ~/.claude, never in the repo)
 .claude/scheduled_tasks.lock
+.claude/settings.local.json
+.claude/projects/
 
 # scripts/install-z42.{sh,bat} 下载的 z42 启动器（[toolchain.z42] 钉的版本）。
 .z42/

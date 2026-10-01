@@ -10,7 +10,7 @@ AI 与协作者干活的**行为约束**。这里不写任何系统知识——�
 | 文件 | 管什么 |
 |------|--------|
 | [workflow.md](workflow.md) | 协作流程主线：阶段 0–9、变更分类、Scope、GREEN 门禁、归档 |
-| [philosophy.md](philosophy.md) | 做选择时的判准：最终方案优先 / 根因修复 / 不做兼容 / 设计完整性 / 延后管理 |
+| [philosophy.md](philosophy.md) | 做选择时的判准：最终方案优先 / 根因修复 / 不做兼容 / 设计完整性 / 规范冲突检测 / 事实校正 / 延后管理 |
 
 ## 推进一次变更时
 
@@ -36,6 +36,7 @@ AI 与协作者干活的**行为约束**。这里不写任何系统知识——�
 | [common-pitfalls.md](common-pitfalls.md) | 跨语言共同陷阱：加载顺序非确定性、id 作用域 |
 | [compiler-z42c.md](compiler-z42c.md) | z42c（编译器，用 z42 写）：子包结构、Lexer / Parser / AST 约定 |
 | [runtime-rust.md](runtime-rust.md) | Rust VM 代码约定 |
+| [dependencies.md](dependencies.md) | 加新依赖前先查：已采用 / 推荐的 Rust 库 + 子系统参考实现 |
 
 ## 碰自举链 / 改格式时
 
@@ -46,5 +47,6 @@ AI 与协作者干活的**行为约束**。这里不写任何系统知识——�
 
 ---
 
-> 顶层入口是 [`.claude/CLAUDE.md`](../../../.claude/CLAUDE.md)（每次对话自动加载），
-> 它只做指路，实质规范都在本目录。
+> 总入口是 [`docs/agent/README.md`](../README.md)；各 AI 工具的入口文件（如 Claude Code 的
+> [`.claude/CLAUDE.md`](../../../.claude/CLAUDE.md)）只做引用，实质规范都在 `docs/agent/`。
+> 按任务查「改哪些文件」的操作清单见 [../playbooks/](../playbooks/README.md)。

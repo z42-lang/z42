@@ -111,8 +111,9 @@ docs/spec/
 
 ## 阶段 0：意图识别
 
-**每次新对话首条消息触发：** Claude 自动读取 `.claude/projects/<project>/memory/MEMORY.md`
-和当前阶段（roadmap + `docs/spec/changes/` 进行中变更），主动汇报状态和下一步，再处理用户输入。
+**每次新对话首条消息触发：** 读取你所用工具的跨会话记忆（下文统称 memory：Claude Code 的 auto-memory，
+存于本机 `~/.claude/projects/<project>/memory/`，**不入库**；其他工具用其等价物）和当前阶段（roadmap +
+`docs/spec/changes/` 进行中变更），主动汇报状态和下一步，再处理用户输入。
 
 ### 阶段 0 必做：扫描可归档变更（2026-06-19 新增）
 
@@ -593,7 +594,7 @@ stage 名以 `xtask test` 实际输出为准，不在此复列）
    git add <本变更 Scope 内的路径>      # 不是 `git add -A`——一个 commit = 一个逻辑单元
    git commit -m "type(scope): 描述"
    ```
-   - `.claude/`（workflow、memory、规则变更）和 `docs/spec/`（proposal、design、spec、tasks、archive；已被 `docs/` 覆盖）**必须纳入提交**，不得遗漏。
+   - `docs/spec/`（proposal、design、spec、tasks、archive）和规则变更（`docs/agent/`、`.claude/` 入口文件）**必须纳入提交**，不得遗漏；memory 不入库，不属提交内容。
    - 每个逻辑单元单独提交，不积压。
 
 5. **落地到 main（PR 优先，小改例外）**——策略见 [`parallel-development.md`](parallel-development.md)：
@@ -646,8 +647,8 @@ User 说"继续"时，Claude 自动执行：
 
 1. 扫描 `docs/spec/changes/`（排除 `archive/`）
 2. 读取进行中变更的 `tasks.md`，找到第一个未勾选任务
-3. 读取 `CLAUDE.md` → 当前阶段约束
-4. 读取 `memory/` → 跨会话决策
+3. 读取 [docs/agent/README.md](../README.md) → 规范入口与当前阶段约束
+4. 读取 memory → 跨会话决策
 5. 汇报：
 
 ```

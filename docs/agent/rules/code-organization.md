@@ -13,7 +13,7 @@ paths:
 适用范围：`src/` 下最多 **3 层**目录（含 `src/` 本身算第 0 层，则子目录最深到第 3 层）。
 
 ```
-src/                          ← 第 1 层，不需要（已有根 CLAUDE.md）
+src/                          ← 第 1 层，不需要（已有根 README.md）
 src/compiler/                 ← 第 2 层 ✓ 需要 README
 src/compiler/z42c.semantics/  ← 第 3 层 ✓ 需要 README
 src/compiler/z42c.semantics/src/  ← 第 4 层 ✗ 不自动加 README

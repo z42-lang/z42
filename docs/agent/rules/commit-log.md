@@ -1,6 +1,6 @@
 # 提交信息规范
 
-> 触发条件：任何 `git commit`。此前散落在 [workflow.md](workflow.md) / [CLAUDE.md](../../../.claude/CLAUDE.md)
+> 触发条件：任何 `git commit`。此前散落在 [workflow.md](workflow.md) / 各工具入口文件
 > 的提交约定集中到此。
 
 ---
