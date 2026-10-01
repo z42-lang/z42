@@ -15,12 +15,21 @@ inputs:
   gh-token:
     description: "GitHub token for `gh release download` of the nightly seed"
     required: true
+  xtask-only:
+    description: >
+      "true" = stop after [2/5] (seed z42c → current xtask.zpkg); skip build compiler / stdlib.
+      xtask then runs on the SEED stdlib (Z42_LIBS exported via GITHUB_ENV — the `xtask` shim
+      honours a caller-set Z42_LIBS). For jobs that only run xtask's pure source/doc checks
+      (docs-check). Default "false".
+    required: false
+    default: "false"
 runs:
   using: composite
   steps:
     - shell: bash
       env:
         GH_TOKEN: ${{ inputs.gh-token }}
+        XTASK_ONLY: ${{ inputs.xtask-only }}
       run: |
         set -euo pipefail
         cd "$(git rev-parse --show-toplevel)"
@@ -308,6 +317,15 @@ runs:
           build scripts/xtask.z42.toml --release --no-incremental \
           || echo "  seed z42c exited non-zero (nightly Windows cache write?) — verifying xtask.zpkg below"
         [ -f "$ROOT/artifacts/xtask/xtask.zpkg" ] || { echo "::error::xtask.zpkg not produced"; exit 1; }
+
+        # xtask-only（ci-docs-fast-path）：只要 xtask 跑纯源码 / 文档检查的 job 到此为止 —— 省掉 [3/5][4/5]
+        # 的 build compiler + build stdlib。xtask 的运行期 stdlib 用种子那份（它就是拿种子 stdlib 编的）。
+        if [ "${XTASK_ONLY:-false}" = "true" ]; then
+          # 不清 $work：快路径下 boot_libs 就是 $work/sdkpkg/libs（种子 stdlib），后续 xtask 要用它。
+          echo "Z42_LIBS=$boot_libsw" >> "$GITHUB_ENV"
+          echo "✅ CI bootstrap (xtask-only) OK ($RID) — xtask.zpkg built by the seed; runs on the seed stdlib"
+          exit 0
+        fi
 
         # ── 3. xtask builds CURRENT z42c (cold: _ensureSeed stages from Z42_HOME) ────
         # `-v detailed`: CI logs keep the full seed candidate-walk + per-file output
