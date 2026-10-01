@@ -1,0 +1,119 @@
+// using-csharp-rules PR-1：**外围命名空间**按 C# 规则隐式可见，且优先于 `using`。
+//
+// C#：写在 `namespace A.X` 里的代码，名字查找由内向外走 `A.X` → `A` → 全局 ns，每一层先看该层声明的成员；
+// 文件级 `using` 在最外层才参与。于是 ① `A` 里的类型不写 `using A;` 也可见；② 外围 ns 的那一份**胜过**
+// `using` 进来的同名者，不算歧义。此前 z42 只认本文件 ns **一层**（`ScopeNs` 精确相等），外围的 `A` 既不可见
+// 也不参与优先级 —— `using` 进来的同名者反而胜出。
+//
+// 判别手法：两份同名成员返回类型不同（int / string），选错就在 var-decl 报 E0402；
+// 歧义用例数 E0456。全部用多 CU（单文件只有一个 ns，造不出这个形状，见 bare_name_ambiguity 抬头）。
+namespace Z42cSemanticsEnclosingNsTests;
+
+using Std;
+using Std.Test;
+using Z42.Semantics;
+using Z42.Syntax;
+using Z42.Core;
+using Z42.IR;
+
+string[] enclDiags(string[] srcs, ImportedSymbols imp) {
+    string[] files = new string[srcs.Length];
+    int f = 0;
+    while (f < srcs.Length) { files[f] = "f" + f.ToString() + ".z42"; f = f + 1; }
+    CompiledModuleZ[] cms = IrDump.BuildPackage(srcs, files, srcs.Length, null, imp, false);
+    string[] all = new string[16];
+    int n = 0;
+    int i = 0;
+    while (i < cms.Length) {
+        int j = 0;
+        while (j < cms[i].DiagCount) {
+            if (n == all.Length) {
+                string[] bigger = new string[all.Length * 2];
+                int z = 0; while (z < n) { bigger[z] = all[z]; z = z + 1; }
+                all = bigger;
+            }
+            all[n] = cms[i].DiagMsgs[j]; n = n + 1;
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+    string[] r = new string[n];
+    i = 0; while (i < n) { r[i] = all[i]; i = i + 1; }
+    return r;
+}
+
+int enclCount(string[] msgs, string code) {
+    int n = 0;
+    int i = 0;
+    while (i < msgs.Length) { if (msgs[i].Contains(code)) { n = n + 1; } i = i + 1; }
+    return n;
+}
+
+string[] enclSrcs(string a, string b, string main) {
+    string[] s = new string[3]; s[0] = a; s[1] = b; s[2] = main;
+    return s;
+}
+
+string enclHelperA() { return "namespace A; public static class Helper { public static int Who() { return 1; } }"; }
+string enclHelperC() { return "namespace C; public static class Helper { public static string Who() { return \"c\"; } }"; }
+
+[Test]
+void test_enclosing_namespace_type_wins_over_using() {
+    // 修前：外围 `A` 不参与 ⇒ 选 `using C` 的那份 ⇒ `int x = <string>` 报 E0402。
+    string[] d = enclDiags(enclSrcs(enclHelperA(), enclHelperC(),
+        "namespace A.X; using C; void Main() { int x = Helper.Who(); }"), null);
+    Assert.Equal(0, enclCount(d, "E0402"));
+    Assert.Equal(0, enclCount(d, "E0456"));
+}
+
+[Test]
+void test_enclosing_namespace_type_visible_without_using() {
+    string[] d = enclDiags(enclSrcs(enclHelperA(), enclHelperC(),
+        "namespace A.X; void Main() { int x = Helper.Who(); }"), null);
+    Assert.Equal(0, d.Length);
+}
+
+[Test]
+void test_enclosing_namespace_breaks_ambiguity_between_usings() {
+    // `B` / `C` 都 using 了、都有 Helper ⇒ 修前 E0456；外围 `A` 也有一份 ⇒ 按 C# 就是它，不歧义。
+    string[] srcs = new string[4];
+    srcs[0] = enclHelperA();
+    srcs[1] = "namespace B; public static class Helper { public static int Who() { return 2; } }";
+    srcs[2] = enclHelperC();
+    srcs[3] = "namespace A.X; using B; using C; void Main() { int x = Helper.Who(); }";
+    Assert.Equal(0, enclCount(enclDiags(srcs, null), "E0456"));
+}
+
+[Test]
+void test_segment_prefix_is_not_enclosing() {
+    // 外围按**段**算：`AB.X` 的外围是 `AB`，不是 `A` —— 串前缀误判会让 A.Helper 冒充外围胜出。
+    string[] d = enclDiags(enclSrcs(enclHelperA(), enclHelperC(),
+        "namespace AB.X; using C; void Main() { string s = Helper.Who(); }"), null);
+    Assert.Equal(0, enclCount(d, "E0402"));
+}
+
+[Test]
+void test_enclosing_namespace_free_function_wins_over_using() {
+    string[] d = enclDiags(enclSrcs(
+        "namespace A; public int g() { return 1; }",
+        "namespace C; public string g() { return \"c\"; }",
+        "namespace A.X; using C; void Main() { int y = g(); }"), null);
+    Assert.Equal(0, enclCount(d, "E0402"));
+    Assert.Equal(0, enclCount(d, "E0456"));
+}
+
+// 跨包那一半（E0436 + 包激活）要真实依赖世界，在 z42c.pipeline 的 pkgcompile 单元里：
+// `test_enclosing_namespace_of_dependency_needs_no_using`。
+
+// 全局 ns 是每个文件最外层的外围：无 namespace 文件里本地声明的 `Helper` 胜过 `using C` 的同名者。
+// 第一版 `NsScope.IsEnclosing` 对 "" 返回 false，这里报 E0456（golden `stdlib_generic_shadow` 同形状，本地
+// `class Stack` vs `using Std.Collections`）。
+[Test]
+void test_global_namespace_declaration_wins_over_using() {
+    string[] srcs = new string[2];
+    srcs[0] = enclHelperC();
+    srcs[1] = "using C; public static class Helper { public static int Who() { return 9; } } void Main() { int x = Helper.Who(); }";
+    string[] d = enclDiags(srcs, null);
+    Assert.Equal(0, enclCount(d, "E0456"));
+    Assert.Equal(0, enclCount(d, "E0402"));
+}

@@ -88,7 +88,10 @@ public static class CompilerFingerprint {
         "fix-enum-type-identity",
         // fix-class-base-scope（A5b-2b-3）：基类句柄改按声明方作用域绑定、15 处基类链走查收敛到 BaseOf ——
         // 同包两个 ns 各有同名基类时不再误报 E0402 / E0427（此前取决于文件顺序）。
-        "fix-class-base-scope"
+        "fix-class-base-scope",
+        // using-csharp-enclosing-ns：外围命名空间按 C# 规则隐式可见且优先于 using —— 同名冲突时解析答案变、
+        // E0456 / E0436 放宽。stdlib 19 包字节不变。
+        "using-csharp-enclosing-ns"
     };
 
     // 指纹值：`Entries` 逐条以 `\n` 连接后取内容哈希（`mmh3:` 前缀，同 SourceHash）。

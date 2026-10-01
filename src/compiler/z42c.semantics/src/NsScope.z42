@@ -1,0 +1,45 @@
+// **外围命名空间规则的唯一 SoT**（using-csharp-rules PR-1，User 2026-10-01 裁定「using 按 C# 规则」）。
+//
+// C#：写在 `namespace A.B.C` 里的代码，名字查找由内向外走 `A.B.C` → `A.B` → `A`（→ 全局 ns），每一层
+// 先看该层声明的成员；文件级 `using` 在最外层才参与。于是：
+//   ① 外围 ns 的类型/函数**不写 `using` 也可见**；
+//   ② 外围 ns 的那一份**胜过** `using` 进来的同名者（近者优先），不算歧义；
+//   ③ 多层外围都有同名者 ⇒ **最内层**胜出。
+// 此前 z42 只认本文件 ns **一层**（`ScopeNs == ns` 精确相等），各处各写一遍 —— 解析器 ①、
+// E0456 歧义判据、自由函数候选、E0436 文件级 using 强制、包激活、static call 消歧各有一份。
+// 🔴 「是否外围」的判据**只在这里写**；外围按**段**算：`A.BC` 不是 `A.B` 的外围。
+namespace Z42.Semantics;
+
+public static class NsScope {
+
+    // `A.B.C` 的外围链，**由内到外**：[A.B.C, A.B, A]。**不含**全局 ns（""）—— 全局那层由调用方按各自的表
+    // 收尾（类：FQN 表里全局类的键就是裸名；函数：`_funcCandidates` 链后补查 ""）。
+    public static string[] Chain(string ns) {
+        if (ns == null || ns == "") { return new string[0]; }
+        int n = 1;
+        int i = 0;
+        while (i < ns.Length) { if (ns.Substring(i, 1) == ".") { n = n + 1; } i = i + 1; }
+        string[] r = new string[n];
+        string cur = ns;
+        int k = 0;
+        while (k < n) {
+            r[k] = cur;
+            int dot = cur.LastIndexOf(".");
+            if (dot > 0) { cur = cur.Substring(0, dot); }
+            k = k + 1;
+        }
+        return r;
+    }
+
+    // `ns` 是不是 `fileNs` 自身或它的外围（按段）。
+    // 🔴 **全局 ns（""）是每个文件最外层的外围**（C#：文件级 using 挂在全局 ns 那一层，该层先看全局 ns 的成员、
+    // 再看 using）⇒ `IsEnclosing(任意, "")` 为 true。第一版漏了这条：无 namespace 文件里本地 `class Stack`
+    // 与 `using Std.Collections` 的 `Stack<T>` 被判成歧义（此前「== ScopeNs」恰好让 "" == "" 胜出）。
+    public static bool IsEnclosing(string fileNs, string ns) {
+        if (ns == null) { return false; }
+        if (ns == "") { return true; }
+        if (fileNs == null || fileNs == "") { return false; }
+        if (fileNs == ns) { return true; }
+        return fileNs.StartsWith(ns + ".");
+    }
+}
