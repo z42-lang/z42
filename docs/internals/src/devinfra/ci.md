@@ -139,7 +139,6 @@ job 的 **key**（`needs:` 用的）与 **display 名**（分支保护的 requir
 | `test-stdlib-jit(linux-x64) shard k` | `stdlib-jit-consistency` | `vm ‖ stdlib ‖ compiler` | 2 shard |
 | `test-stdlib-interp(<plat>)` | `stdlib-interp-consistency` | `vm ‖ stdlib ‖ compiler` | 3 OS，不分片 |
 | `compiler-checks(linux-x64)` | `compiler-checks` | `compiler` | — |
-| `verify-features(linux-x64)` | `feature-matrix` | `vm` | — |
 | `package-host(<plat>)` | `host-package` | `platform ‖ examples ‖ 非 PR` | linux-x64 / linux-arm64 / macos-arm64 / windows-x64 |
 | `package-ios(macos-arm64)` | `package-ios` | `platform ‖ 非 PR` | — |
 | `package-android(linux-x64)` | `package-android` | `platform ‖ 非 PR` | — |
@@ -173,8 +172,10 @@ required check 视同通过。新增 job 时记得加进它的 `needs`。
   job（`test-host` ×4 OS、`compile-toolchain`）顺带实测，且它们会真的**运行**刚建出的 gen1 z42c
   （编 stdlib + golden）；in-tree 不动点 gen1==gen2 在 `compiler-checks`。原先的 `verify-selfhost`
   = `ci-bootstrap` + `test compiler`，两半都与上述重复，2026-09-30 删除。
-- **`verify-features` 用 `cargo check`**：它只回答「各 feature 组合编不编得过」，fat-LTO 的
-  release 链接纯属浪费。
+- **没有专门的 feature 组合 job**：曾有 `verify-features`（host 上 `cargo check` interp-only / wasm / ios /
+  android 四个组合），而后三者 `package-*` 本就在真实目标平台上完整构建；它独有的「interp-only 不含
+  cranelift」断言挪进了 `package-wasm`，2026-10-02 删除（drop-feature-matrix）。`.cargo/**` 随之并入
+  `platform` 过滤器。
 
 `test-host` 各腿用 `--skip` 把 stage 卸给并行 job：linux-x64 跳 `stdlib,compiler,vscode`，
 其余 OS 再多跳 `cross-zpkg,bench`（这两者 host 无关，一条腿够了）。Windows 腿不跑
@@ -220,7 +221,6 @@ Swatinem `rust-cache` 用 `shared-key` 跨 job 共享；**一个 key 命中后�
 | `host-v2` | `compile-toolchain` | release（ci-bootstrap） |
 | `artifact-host-v1` | `xtask-bootstrap-artifact` 默认 | release workspace |
 | `package-host-v2` / `ios-v2` / `android-v2` / `wasm-v2` | 各打包 job | + cdylib / staticlib / 交叉编译 |
-| `feature-matrix-v2` | `verify-features` | 4 个 feature 组合的 check |
 
 ⚠️ target 目录由根 `.cargo/config.toml` 统一重定向到 `artifacts/build/runtime`，**所有** job 的
 `workspaces` 都要写 `src/runtime -> ../../artifacts/build/runtime`——写裸 `src/runtime` 缓存的是

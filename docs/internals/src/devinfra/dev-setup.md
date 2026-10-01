@@ -86,7 +86,6 @@ git clone https://github.com/z42-lang/z42 && cd z42
 ```bash
 cargo build --manifest-path src/runtime/Cargo.toml --release
 cargo build --manifest-path src/runtime/Cargo.toml --no-default-features --features interp-only
-./xtask feature-matrix        # 逐个编 interp-only / wasm / ios / android，验组合都编得过
 ```
 
 > 没有名为 `interp` 或 `host` 的 feature；解释器是无条件编进去的。

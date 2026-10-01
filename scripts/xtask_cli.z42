@@ -167,8 +167,6 @@ SubcommandRouter _cliRoot() {
 
     root.AddRouter("package", "assemble release packages (sdk / runtime / workload / index)", _packageRouter());
 
-    root.Add("feature-matrix", "verify each cargo feature combo compiles",
-        new ArgParser("xtask feature-matrix", "verify each cargo feature combo compiles"));
 
     root.AddRouter("test", "run tests", _testRouter());
     root.AddRouter("deps", "toolchain deps", _depsRouter());
@@ -213,7 +211,6 @@ int _dispatch(CommandResolution res) {
     string top = p[0];
     if (top == "build")          { return _dispatchBuild(p, r); }
     if (top == "package")        { return _dispatchPackage(p, r); }
-    if (top == "feature-matrix") { return _featureMatrix(); }
     if (top == "test")           { return _dispatchTest(p, r); }
     if (top == "deps")           { return _dispatchDeps(p, r); }
     if (top == "bench")          { return _dispatchBench(p, r); }

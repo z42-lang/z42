@@ -30,7 +30,9 @@ cargo build --manifest-path src/runtime/Cargo.toml --no-default-features --featu
 cargo build --manifest-path src/runtime/Cargo.toml --no-default-features --features android
 ```
 
-`./xtask build feature-matrix` 一次性跑完 4 个 preset 验证。CI `feature-matrix` job 锁定。
+CI 由 `package-wasm` / `package-ios` / `package-android` 在各自真实目标平台上完整构建对应 preset 来锁定；
+`package-wasm` 另断言 interp-only 的依赖图里没有 cranelift。（曾有专门的 `feature-matrix` job 与同名 xtask 命令，
+只在 host 上 `cargo check` 这四个组合，与上面三个 job 重复，2026-10-02 删除。）
 
 ## CLI 行为差异
 
@@ -55,7 +57,7 @@ cargo build --manifest-path src/runtime/Cargo.toml --no-default-features --featu
 
 ## 互斥不强制
 
-Cargo features 设计上是 additive。`compile_error!` 互斥检查与 cargo 哲学冲突。开发者选错组合（例如 `wasm + jit`） → 由 CI feature-matrix job 暴露，而不是源码强制。
+Cargo features 设计上是 additive。`compile_error!` 互斥检查与 cargo 哲学冲突。开发者选错组合（例如 `wasm + jit`） → 由 CI 的 package-* job 暴露，而不是源码强制。
 
 ## 后续阶段
 
