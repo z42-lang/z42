@@ -91,7 +91,10 @@ public static class CompilerFingerprint {
         "fix-class-base-scope",
         // using-csharp-enclosing-ns：外围命名空间按 C# 规则隐式可见且优先于 using —— 同名冲突时解析答案变、
         // E0456 / E0436 放宽。stdlib 19 包字节不变。
-        "using-csharp-enclosing-ns"
+        "using-csharp-enclosing-ns",
+        // using-add-missing：z42.core 的 Type / AssemblyLoadContext 补了 using Std.Reflection —— 模块元数据的 using 列表变了，
+        // 依赖 z42.core 的包解析导入签名时答案随之变（bench-pr 指纹门实测 z42.json +11B）。编译器本身字节未变。
+        "using-add-missing"
     };
 
     // 指纹值：`Entries` 逐条以 `\n` 连接后取内容哈希（`mmh3:` 前缀，同 SourceHash）。
