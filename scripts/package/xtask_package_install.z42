@@ -165,7 +165,6 @@ int _pkgBuildRuntime(string rid, string profile) {
     string cargoTarget = _cargoTargetFor(rid);
     int c = _cargo(rel, "build", "src/runtime/Cargo.toml", cargoTarget, "");
     if (c != 0) { return c; }
-    _cargoRustc(rel, cargoTarget, "staticlib");
-    _cargoRustc(rel, cargoTarget, "cdylib");
+    _cargoRustc(rel, cargoTarget, _embedCrateTypes());
     return _cargo(rel, "build", "src/runtime/Cargo.toml", cargoTarget, "z42-compression");
 }

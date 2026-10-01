@@ -60,10 +60,12 @@ public class ProjectHooks : BuildHooks {
     void _embedArtifacts(IPipelineContext ctx, string repo) {
         string libA = Path.Join(repo, "artifacts/build/runtime/release/libz42.a");
         if (!ctx.Exists(libA)) {
-            ctx.Log("xtask hooks: cargo rustc --crate-type=staticlib (libz42.a)…");
+            // crate-type 列表与 xtask 打包的 `_embedCrateTypes()` 保持一致（staticlib,cdylib）：参数不同会让
+            // 两边交替时互相作废 cargo 指纹、每次全编。hooks 是独立工程，调不到 xtask 的函数，故此处照抄。
+            ctx.Log("xtask hooks: cargo rustc --crate-type=staticlib,cdylib (libz42.a)…");
             ExecResult rc = ctx.Exec("cargo", new string[]{ "rustc", "--release",
                 "--manifest-path", Path.Join(repo, "src/runtime/Cargo.toml"),
-                "--lib", "--crate-type=staticlib" });
+                "--lib", "--crate-type=staticlib,cdylib" });
             if (rc.ExitCode != 0 || !ctx.Exists(libA)) {
                 ctx.Warn("xtask hooks: libz42.a build failed; --self-contained needs Z42_EMBED_*");
                 return;

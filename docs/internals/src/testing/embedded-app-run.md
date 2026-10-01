@@ -70,7 +70,10 @@ test-agent 与一份 app-run 代码全平台共享；而且这条嵌入路径同
 ## 3. 静态 / 动态链接
 
 嵌入 VM = 把 z42 runtime 链进原生壳。产物走**独立的 `cargo rustc --crate-type=`**
-（尊重 `[lib]` rlib-only 的现状，避免主 build 出现三套 metadata 冲突）：
+（尊重 `[lib]` rlib-only 的现状，避免主 build 出现三套 metadata 冲突）。桌面 host 上两种产物由**一次**
+`cargo rustc --crate-type=staticlib,cdylib` 同时产出（xtask `_embedCrateTypes()`；打包、`test desktop`、
+embed hook 共用同一列表）——分两次调用每次都是整 crate 的 fat-LTO 全编，且 `--crate-type` 进 cargo 指纹，
+两次参数不同会互相作废，未改动也照样重编：
 
 - **static**：`--crate-type=staticlib` → `libz42.a`。链接时**显式给 `.a` 路径**——
   macOS 上 `-lz42` 会优先挑 `.dylib`。

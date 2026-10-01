@@ -29,9 +29,10 @@ public class DesktopBackend : IPlatformBackend {
             ConsoleError.WriteLine("error: cc not found (C compiler required for desktop embedding test)");
             return 1;
         }
-        Console.WriteLine("  cargo rustc --release --lib --crate-type=staticlib (libz42.a)");
+        // 与打包同一个 crate-type 列表（_embedCrateTypes）：参数不同会让两边交替时互相作废 cargo 指纹。
+        Console.WriteLine("  cargo rustc --release --lib --crate-type=" + _embedCrateTypes() + " (libz42.a)");
         return _exec(new Process("cargo").Arg("rustc").Arg("--release").Arg("--lib")
-            .Arg("--crate-type=staticlib")
+            .Arg("--crate-type=" + _embedCrateTypes())
             .Arg("--manifest-path").Arg(Path.Join(root, "src/runtime/Cargo.toml")));
     }
 
