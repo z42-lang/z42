@@ -206,3 +206,23 @@ void test_file_with_errors_skips_using_warnings() {
     Assert.True(art.ErrorCount > 0);
     Assert.Equal(0, ugCount(art, "W0607"));
 }
+
+[Test]
+void test_generated_source_inherits_usings_without_warnings() {
+    // generator 碎片（`__gen$…`）照抄宿主文件的 using 才能看见宿主看得见的类型 —— 那是编译器替它写的，不是用户写的。
+    // 碎片里用不到的那几条若照常检查，用户会对着一个看不见的文件收到 W0607（实测 forward_tiers_cross_pkg 报了 4 条）。
+    if (!ugHasLibs()) { return; }
+    string src = "namespace App;\nusing Std.IO;\n"
+        + "public interface IG { string Hi(); }\n"
+        + "public class G : IG { public string Hi() { return \"hi\"; } }\n"
+        + "public class Svc {\n"
+        + "    [Forward(typeof(IG))] private G _g;\n"
+        + "    public Svc() { this._g = new G(); }\n"
+        + "    public void Show() { Console.WriteLine(\"x\"); }\n"
+        + "}\n";
+    string[] one = new string[1]; one[0] = src;
+    CompileArtifacts art = ugCompile(one);
+    Assert.Equal(0, art.ErrorCount);
+    Assert.Equal(0, ugCount(art, "W0607"));
+    Assert.Equal(0, ugCount(art, "__gen$"));
+}
