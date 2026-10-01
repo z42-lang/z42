@@ -11,6 +11,7 @@
 // native 句柄（ContextId）存于 VM 的 NativeData；本类无数据字段。
 // 设计见 docs/spec/archive/2026-07-30-add-load-context-model/design.md。
 namespace Std.Runtime;
+using Std.Reflection;
 
 public sealed class AssemblyLoadContext {
     // 永驻 root 上下文（core / stdlib / 主程序所在）。IsCollectible == false。

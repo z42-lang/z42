@@ -1,6 +1,7 @@
 namespace Gamma;
 using Std.IO;
+using Beta;   // using-csharp-rules：同包跨 ns 也必须 using（此前「不写 using、全包唯一就解析到它」已推翻）
 
 void Main() {
-    Console.WriteLine(g(7).ToString());    // 107：没写 using Beta，全包唯一的 g 仍指到 Beta.g
+    Console.WriteLine(g(7).ToString());    // 107：using Beta 的 g
 }

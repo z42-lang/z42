@@ -30,6 +30,7 @@
 namespace Z42.Semantics;
 
 using Z42.Syntax;   // Decl / ClassDecl / Attr
+using Z42.Core;
 
 // generator 吐生成源码的接收口。driver（GeneratorDriver.GenSinkImpl）实现它，收集三种 splice 操作，
 // 编译期落地（AddSource=新 CU / Augment=脱糖 partial 碎片 / Replace=AST 层按 DeclId 替换）。

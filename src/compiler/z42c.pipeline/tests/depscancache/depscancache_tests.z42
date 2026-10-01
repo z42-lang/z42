@@ -15,6 +15,7 @@ using Std.IO;
 using Std.Test;
 using Z42.Pipeline;
 using Z42.Package;   // ZpkgWriterZ / ZpkgReader / ZpkgInfo / ExportedModuleZ（converge：类型都在此 ns）
+using Z42.IR;
 
 // 最小 zpkg 头：`ZPK\0` + u16 major + u16 minor + u16 flags + u16 secCount(=0)，补齐到 16 字节。
 // secCount=0 ⇒ ZpkgReader.Open 的段循环空转，得到一个 name/version 皆空但**非 null** 的 ZpkgInfo。
