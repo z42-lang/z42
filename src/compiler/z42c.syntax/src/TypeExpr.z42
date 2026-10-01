@@ -18,8 +18,17 @@ public sealed class NamedType : TypeExpr {
     public string     Name;
     public TypeExpr[] Args;
     public int        ArgCount;
+    // using-csharp-rules PR-2：**编译器合成**的类型引用（集合字面量的 `List<T>`、元组的 `ValueTupleN`、由已解析类型
+    // 反推的元素类型……）。不是用户写的 ⇒ 不计入「本文件用到的命名空间」（否则 `[1, 2]` 会要求 `using Std.Collections;`）。
+    public bool       Synthetic;
     public NamedType(string name, TypeExpr[] args, int argCount, Span span) { this.Span = span;
         this.Name = name; this.Args = args; this.ArgCount = argCount;
+    }
+    // 编译器合成的类型引用（见 `Synthetic`）。
+    public static NamedType Synth(string name, TypeExpr[] args, int argCount, Span span) {
+        NamedType t = new NamedType(name, args, argCount, span);
+        t.Synthetic = true;
+        return t;
     }
     public override string Dump() {
         string s = this.Name;

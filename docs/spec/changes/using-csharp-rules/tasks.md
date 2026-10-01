@@ -17,8 +17,24 @@
 - [x] 1.6 文档：参考手册 namespaces.md 规则 5 + E0436 口径；semantics README
 - [ ] 1.7 （晚一个 nightly）driver `--emit-zbc` 包激活改用 `ActivationNsOf`
 
-## PR-2 立门
-- [ ] 待 PR-1 合入后展开
+## PR-2 立门（using-csharp-strict-gate）
+- [x] 2.1 修复前红：`z42c.pipeline/tests/usinggate/`（同包跨 ns 的裸名 / 限定名 / 静态调用 / enum 常量 / 自由函数 /
+      声明位四种 / delegate；依赖包类型只在字段类型里出现）+ 对照（有 using / 外围 / 集合字面量 / 元组）
+- [x] 2.2 `NsUseRecorder` + `SymbolTable.UseRecorder`（只挂在 `Infer` 的本文件视图上，结束停用）；`ResolveTypeP` 拆外壳 /
+      `_resolveTypePCore`，外壳按结果记 ns（别名目标暂停记录）；`DelegateNs`
+- [x] 2.3 表达式位：静态成员读 / 静态调用 / ns 限定静态调用 / enum 常量 / 自由函数调用 / 函数引用（两处）
+- [x] 2.4 声明位：`DeclTypeUses` 在 `Infer` 末尾补录
+- [x] 2.5 合成类型 `NamedType.Synth`：集合字面量、元组、`_typeToTypeExpr`、Bencher、`typeof` 的 Type、methodof 的
+      MethodInfo、AttributeSynth 的返回类型、ConstBlob
+- [x] 2.6 `_enforceFileScope` 判据 = `UsedNs` ∪ `UsedDepNs`（cached 文件只有后者）
+- [x] 2.7 仓库违规**拆成先行 PR（PR-2a）**——bench-pr 用 PR 的 driver 编 base 的编译器源码，门与补 using 同 PR 会把 base 编红
+      （构建循环 + 自动补 using 脚本找出）：stdlib 3（z42.core ×2、z42.net 测试）、编译器 9（z42.build、z42c.semantics ×7、
+      z42c.pipeline）、测试 2、multi-exe fixture 2（`free_func_cross_ns` 原测「不写 using 也能调」的旧规则，改补 using）、
+      学习手册示例 1（organization/ns）
+- [x] 2.8 文档：参考手册 namespaces.md（E0436 口径、「用到」的定义、合成类型例外）；学习手册 organization 章 + OUTLINE；README
+- [ ] 2.9 （晚一个 nightly）`UsedNs` 持久化进 cache meta（driver 的 IncrementalDriver / CachedNsMeta）—— 此前 cached 文件
+      只按 `UsedDepNs` 判：另一个文件删掉 `global using` 时，cached 文件的同包跨 ns 引用不会报 E0436
+- [ ] 2.10 （可选，C# 口径）E0436 只看 `UsedNs`：`UsedDepNs` 按接收者类型记实例调用，C# 不算「用到」；需 2.9 落地后再收
 
 ## PR-3 多余 using 告警
 - [ ] 待 PR-2 合入后展开

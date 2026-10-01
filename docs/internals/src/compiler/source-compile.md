@@ -340,6 +340,38 @@ resolve = candidates[0]；|candidates| ≥ 2 ⇒ E0456（调用点另报）
 ```
 
 ③ 与类型一致：不写 `using` 也能指到**唯一**的那份；多份且都不可见同样报 E0456。
+（using-csharp-rules 起：① 换成**外围链**由内到外逐层、全局 ns 收尾；③ 仍然解析到那一份，但它的 ns 不可见 ⇒
+文件级门报 E0436，见下一节。保留解析是为了让报错点名「缺 `using X`」，而不是笼统的 undefined。）
+
+#### 命名空间可见性与文件级 `using` 门（using-csharp-rules）
+
+User 2026-10-01 裁定 `using` 按 C# 规则。两个机制：
+
+**① 外围链（`NsScope`）**。文件 `namespace A.B` 的外围链 = `[A.B, A]`（由内到外，按段），全局 ns 是最外层。
+所有「是否可见 / 谁胜出」的判断都走它：解析器第一步（`_resolveClass` / `ResolveTypeP` 的接口与类两段，链缓存在
+视图的 `ScopeChain`）、E0456 歧义判据、自由函数候选、E0436、`_activeNamespaces`（static call 消歧）、包激活
+（`IrDump.ActivationNsOf` = using ∪ 外围链 —— 不并进去的话依赖包压根不加载，报的是 E0401）。
+
+**② 每文件「用到的 ns」**（`NsUseRecorder`）。`TypeChecker.Infer` 为每个文件新建一份记录器，挂在本文件的
+符号表视图上（`SymbolTable.UseRecorder`，视图链继承），`Infer` 结束即停用。三类记录点：
+
+| 位置 | 记录方式 |
+|---|---|
+| 类型位（局部 / cast / `new` / 泛型实参 / 数组元素……） | `ResolveTypeP` 外壳按解析结果记声明 ns；核心递归走回外壳，嵌套引用一并记到 |
+| 表达式位 | 显式 `NoteUse`：静态成员读、静态调用、ns 限定静态调用、enum 常量、自由函数调用、函数引用 |
+| 声明位 | `DeclTypeUses` 在 `Infer` 末尾把本文件全部声明的 TypeExpr 在挂了记录器的视图上再解析一遍 |
+
+为什么记录器**不能**常挂在视图上、门也**不能**挂在解析器里：很多 pass 在带作用域的视图上遍历整张类表、按名字
+查（实测在解析器里判「落到裸名回落且 ns 不可见」，stdlib 全量构建报 6496 条，几乎全是这类内部查找）。
+
+**不计入**：编译器合成的类型（`NamedType.Synth`：集合字面量的 `List<T>`、元组、`_typeToTypeExpr`、Bencher、
+`typeof` / methodof 的结果类型、AttributeSynth 的返回类型、ConstBlob）；`using Id = …;` 别名的目标（解析时
+`UseRecorder.Suspend`）。新加合成 TypeExpr 的地方**必须**用 `NamedType.Synth`，否则用户会被要求 `using` 一个他没写过的 ns。
+
+**判定**：`CuPreprocess._enforceFileScope`（经 `IrDump.EnforceFileScopeAll`，在 cached 元数据回填之后）对
+`UsedNs ∪ UsedDepNs` 逐个判：prelude / 外围链（含全局 ns）/ 本文件 using（含注入的 global using）之外 ⇒ E0436。
+`UsedDepNs` 是代码生成期的依赖 ns（DEPS 段也用它，字节不变）；cached 文件跳过类型检查，眼下只有它
+（`UsedNs` 持久化进 cache meta 要改 driver，晚一个 nightly）。
 
 **发射**：解析出的 ns 随 `BoundCall.FreeNs` / `BoundFuncRef.FuncNs` 带到发射端，`CallEmitter` / `ExprEmitter`
 直接发 `QualOf(ns, name)`（导入的顺带 `TrackDepNamespace`）——发射端**不再按名字猜**，`QualifyFreeFunc` /

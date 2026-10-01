@@ -85,7 +85,7 @@ public sealed class TypeOpTyper {
             this._tc._chkTypeRef(toTarget, env, tox.Type.Span);   // enforce-class-access：typeof 目标类型引用
             this._tc.ChkAmbiguousBareNameT(env.Symbols, tox.Type, tox.Type.Span);   // add-bare-name-ambiguity-diagnostic：E0456
             // 结果类型 = Std.Type（反射 Type 类；Name/GetFields/FullName 等成员据此解析）。
-            Z42Type toType = env.ResolveType(new NamedType("Type", new TypeExpr[0], 0, tox.Span));
+            Z42Type toType = env.ResolveType(NamedType.Synth("Type", new TypeExpr[0], 0, tox.Span));
             // AST 原始名（typeof-delegate）：delegate 目标解析成结构化 Z42FuncType 丢 FQ 名，
             // 发射时用它 QualifyClass 回 FQ delegate 名。
             string targetName = (tox.Type is NamedType) ? (tox.Type as NamedType).Name : "";
@@ -127,7 +127,7 @@ public sealed class TypeOpTyper {
     internal BoundExpr _bindMethodOfExpr(MethodOfExpr mx, TypeEnv env) {
             // 结果类型用 **FQ 名**解析：`Std.Reflection.MethodInfo` 无需 using、也无需声明依赖
             // （标准库既定设计，实测通过）。短名 `MethodInfo` 会强迫用户写 using，与 typeof 不对称。
-            Z42Type resultT = env.ResolveType(new NamedType("Std.Reflection.MethodInfo", new TypeExpr[0], 0, mx.Span));
+            Z42Type resultT = env.ResolveType(NamedType.Synth("Std.Reflection.MethodInfo", new TypeExpr[0], 0, mx.Span));
             // 语法层已就 `methodof(Logger)`（缺 `.Member`）报过 E0462 —— 不再追加一条
             // 「没有名为 `` 的方法」的噪声。一个错误一条诊断。
             if (mx.Member == "") { return new BoundError("methodof malformed", new Z42ErrorType(), mx.Span); }

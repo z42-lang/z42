@@ -38,7 +38,7 @@
 | 18 | 泛型 | `types/generics` | 泛型类型、泛型方法、`where` 约束、`Self`、关联类型、型参上的运算符 | 🟢 |
 | 19 | Lambda、闭包与委托 | `types/lambdas` | lambda 与函数类型 `(T) -> R`、捕获语义（值快照）、`Action`/`Func`/`Predicate`、方法组转换、`event` 的单播/多播（**类型决定 cardinality**）、多播退订票 / `continueOnException` / `OnceRef` | 🟢 |
 | 20 | 异常处理 | `types/exceptions` | `throw` / `try` / `catch` / `finally`、匹配规则与顺序、`catch {}` 比 typed 更宽、标准子类、自定义异常（继承 + `: base` + 加字段）、`InnerException` 包装、`StackTrace`、🔴 数组越界只有 `catch {}` 接得住 / 无裸 `throw;` / 无 `when` 过滤器 | 🟢 |
-| 21 | 组织代码 | `types/organization` | `namespace`（文件级、决定限定名、同包跨 ns 免 using）、`using` 管跨包且**文件级**（E0436、无全限定名逃生口）、`global using`（**本章示例是首份端到端覆盖**）、类型别名（互通、不导出）、访问控制（顶层 internal / 成员 private，构造器同理）、`partial` | 🟢 |
+| 21 | 组织代码 | `types/organization` | `namespace`（文件级、决定限定名、外围 ns 免 using）、`using` 同包跨 ns 也要、且**文件级**（E0436、无全限定名逃生口）、`global using`（**本章示例是首份端到端覆盖**）、类型别名（互通、不导出）、访问控制（顶层 internal / 成员 private，构造器同理）、`partial` | 🟢 |
 | 22 | 特性与反射入门 | `types/attributes-reflection` | `typeof` / `GetType` 与名字口径、成员查询（字段/方法/属性/构造器）、反射读写与调用（`Invoke` / `Activator`）、`methodof`、内置 `[Deprecated]`、自定义 attribute 五处载体（E0444）、attribute 驱动的命令表 | 🟢 |
 
 ## 第四部分 · 标准库实战（stdlib）

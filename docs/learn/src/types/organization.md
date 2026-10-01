@@ -24,8 +24,9 @@
 
 两件事值得注意：
 
-- **同一个包里的不同 namespace 互相可见，不需要 `using`**——上面 `Demo.App` 里直接用了
-  `Demo.Geometry` 的 `Point`。`using` 管的是**跨包**，不是跨 namespace。
+- **用到别的 namespace 就要 `using`，同一个包里也一样**——上面 `Demo.App` 要用 `Demo.Geometry`
+  的 `Point`，得写 `using Demo.Geometry;`。只有**外围** namespace 例外（与 C# 相同）：写在
+  `Demo.App` 里的代码，不写 `using` 就能用 `Demo` 里的东西。
 - **限定名就是调用栈里看到的名字**（`Demo.App.Boom`），也是清单里 `entry` 要写的名字。
 
 不写 `namespace` 的文件归属默认命名空间 `main`。

@@ -35,7 +35,7 @@ public sealed partial class MemberResolver {
                 // report-crosspkg-duplicate-*：**静态成员读**也是一次类型引用，同样要判同 FQN 跨包
                 // （E0601）/ 本包遮蔽（E0606）。此前只有「静态**调用**」那条被覆盖 ⇒ 实测
                 // `Cfg.N` 与 `Demo.Ns.Cfg.N` 都零诊断，而它们读到的是**哪个包**的那份 N 完全是撞出来的。
-                this._tc._chkTypeRefPkg(env.Symbols, sct, m.Span);
+                this._tc._chkStaticOwner(env.Symbols, sct, m.Span);
                 BoundExpr sm = this.BindStaticMember(sct, clsName, m.Name, m.Span, env);
                 // P5-b/P3：所有者是闭合泛型 ⇒ 记下解析后的实例化类型，发射端据此拼**按实例化**
                 // 的静态字段键（`Demo.GBox<int>.Count`）。解析不出实例化 → 保持 null ⇒ 回落擦除键。
@@ -721,7 +721,7 @@ public sealed partial class MemberResolver {
                 // `_chkTypeRef` 上，而**静态调用根本不走它** —— `Util.go()` 里的 `Util` 只经
                 // `GetClass` 取类、不作类型引用检查。实测两个包各声明 `Demo.FnNs.Util` 时
                 // `Util.go()` 零诊断、字母序靠前的包赢。
-                this._tc._chkTypeRefPkg(env.Symbols, ct, sp);
+                this._tc._chkStaticOwner(env.Symbols, ct, sp);
                 MethodSymbol ms = this._tc._overload._resolveOverload(env.Symbols, ct, mem.Name, args, argCount, call.TypeArgCount, sp, rawArgs, env);   // 限定名静态调用（Array.Sort<int>）→ 传显式类型实参个数启用 arity 过滤
                 if (ms != null) {
                     ms = MethodTypeArgSubst.ForExplicitTypeArgs(ms, call, env);   // 显式 `<T>` → 先代换签名再绑实参
@@ -790,7 +790,7 @@ public sealed partial class MemberResolver {
                     // report-crosspkg-duplicate-*：**ns 限定**的静态调用（`A.B.Util.go()`）走的是
                     // 这条独立分支，不经上面裸类名那条 ⇒ 此前零诊断（实测）。同 FQN 跨包时限定名
                     // 也分不开两份（FQN 逐字相同），故与裸名一视同仁。
-                    this._tc._chkTypeRefPkg(env.Symbols, qct, sp);
+                    this._tc._chkStaticOwner(env.Symbols, qct, sp);
                     MethodSymbol qms = this._tc._overload._resolveOverload(env.Symbols, qct, mem.Name, args, argCount, call.TypeArgCount, sp, rawArgs, env);
                     if (qms != null) {
                         qms = MethodTypeArgSubst.ForExplicitTypeArgs(qms, call, env);   // 显式 `<T>` → 先代换签名再绑实参

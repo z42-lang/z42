@@ -85,7 +85,8 @@ public static class CuCompile {
         cu.MergeParseDiags(diags);   // fix-parse-diags-dropped：parse 错误计入编译错误
         // parallelize-package-compile：约束已由 BuildPackageCus 循环前 hoist 到 symbols.ClassConstraints
         //（并行段只读）；Infer 内建 per-file 别名视图。故 resolveConstraints=false。
-        var model = new TypeChecker(diags).Infer(cu, symbols, false);
+        var tc = new TypeChecker(diags);
+        var model = tc.Infer(cu, symbols, false);
         var gen = new IrGen();
         gen.Layouts = layouts;   // perf-layouts-once：包级共享布局表（null → Generate 内自算）
         // complete-generic-instantiation S1：包级泛型体登记表（null → Generate 内按本 CU 自扫，
@@ -126,6 +127,7 @@ public static class CuCompile {
         string ns = "";
         if (cu.HasNamespace) { ns = cu.Namespace; }
         var cm2 = new CompiledModuleZ(irm, ns, usings, uc, gen.UsedDepNs, gen.UsedDepNsCount, diags.ErrorCount());
+        cm2.UsedNs = tc.UsedNs.ToArray();   // using-csharp-rules PR-2
         string[] dm = new string[diags.Count()];
         int di = 0;
         while (di < diags.Count()) {

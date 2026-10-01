@@ -93,8 +93,8 @@ public static class BenchmarkDesugar {
         string implName = name + "$impl";
 
         // Bencher b = new Bencher();
-        TypeExpr bencherTy = new NamedType("Bencher", new TypeExpr[0], 0, s);
-        Expr newB = new ObjNewExpr(new NamedType("Bencher", new TypeExpr[0], 0, s), new Expr[0], 0, s);
+        TypeExpr bencherTy = NamedType.Synth("Bencher", new TypeExpr[0], 0, s);
+        Expr newB = new ObjNewExpr(NamedType.Synth("Bencher", new TypeExpr[0], 0, s), new Expr[0], 0, s);
         Stmt declB = new VarDeclStmt(bencherTy, "b", newB, s);
 
         // f$impl(b);

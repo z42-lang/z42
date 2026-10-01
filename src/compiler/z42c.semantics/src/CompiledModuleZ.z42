@@ -13,10 +13,14 @@ public sealed class CompiledModuleZ {
     public string   Namespace;  // cu 真实 ns（""=无——C# ZbcFile.Namespace 语义；≠ IrModule.Name 的 "main" 缺省）
     public string[] Usings;     public int UsingCount;
     public string[] UsedDepNs;  public int UsedDepNsCount;
+    // using-csharp-rules PR-2：源码里用到的全部命名空间（类型检查期记录，含同包）。E0436 的判据；DEPS 仍只用 UsedDepNs。
+    // cached 文件为空数组（类型检查跳过；持久化进 cache meta 需 driver 配合，晚一个 nightly）。
+    public string[] UsedNs;
     public int      ErrorCount;
     public CompiledModuleZ(IrModule irm, string ns, string[] usings, int usingCount,
                            string[] usedDepNs, int usedDepNsCount, int errorCount) {
         this.Module = irm; this.Namespace = ns; this.Usings = usings; this.UsingCount = usingCount;
         this.UsedDepNs = usedDepNs; this.UsedDepNsCount = usedDepNsCount; this.ErrorCount = errorCount;
+        this.UsedNs = new string[0];
     }
 }

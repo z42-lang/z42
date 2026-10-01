@@ -24,6 +24,7 @@ public sealed class TypeChecker {
     public StrMap _noInitLocals;
     public BoundCapture[] _lambdaCaps; public int _lambdaCapCount;
     public ConstraintChecker _constraints;  // 泛型 where 约束解析 + call-site 校验（2B）
+    public NsUseRecorder UsedNs;            // using-csharp-rules PR-2：本文件用到的命名空间（Infer 期间记录；见 NsUseRecorder）
     public string _currentNs;               // 当前 CU 命名空间（namespace-qualified free call 用；PR6b module_path!() 注入源）
     // fix-ns-qualified-static-call（欠债表 bug B7）：本 CU 的 `using` 命名空间集（含 global using）。
     // `Std.IO.Console.WriteLine(...)` 这类**ns 限定静态调用**要判「点串前缀是不是一个命名空间」，
@@ -64,6 +65,13 @@ public sealed class TypeChecker {
     //
     // 判据与消息在 `SymbolTable`（CrossPkgDuplicateMsg / ShadowedImportMsg），此处不重写；
     // 「哪些类型算数」的口径与声明位共用 `SymbolCollector.PkgCheckFqn`。
+    // using-csharp-rules PR-2：表达式位**写出**的类名（静态成员读 `C.x` / 静态调用 `C.M()` / ns 限定静态调用）也是
+    // 一次类型引用 —— 判跨包同名（同 `_chkTypeRefPkg`）+ 记「本文件用到的 ns」（限定写法也算，规则 4）。
+    public void _chkStaticOwner(SymbolTable symbols, Z42ClassType ct, Span sp) {
+        this._chkTypeRefPkg(symbols, ct, sp);
+        symbols.NoteUse(ct.Namespace);
+    }
+
     public void _chkTypeRefPkg(SymbolTable symbols, Z42Type t, Span sp) {
         string fqn = SymbolCollector.PkgCheckFqn(t);
         if (fqn == "") { return; }
@@ -152,6 +160,7 @@ public sealed class TypeChecker {
     // 于是 `Color.Green` 静默读到另一个包的那个值。这是本族里唯一「静默错**值**」而非
     // 「静默错**目标**」的形态，实测：两包 `{Red,Green}` / `{Green,Red}` ⇒ 1 vs 0。
     public void ChkEnumOrigins(SymbolTable symbols, string enumName, Span sp) {
+        symbols.NoteUse(symbols.EnumType(enumName).Namespace);   // using-csharp-rules PR-2：enum 常量读（本函数唯一调用点即该绑定点）
         string fqn = symbols.EnumFqn(enumName);
         string dmsg = symbols.CrossPkgDuplicateMsg(fqn);
         if (dmsg != "") { this._diags.Error(DiagnosticCodes.NamespaceCollision, dmsg, sp); return; }
@@ -160,6 +169,7 @@ public sealed class TypeChecker {
     }
 
     public void ChkFreeFuncOrigins(SymbolTable symbols, string name, Span sp) {
+        symbols.NoteUse(symbols.ResolveFuncNs(name));   // using-csharp-rules PR-2：自由函数调用（本函数唯一调用点即该绑定点）
         string dmsg = symbols.DuplicateFuncPkgMsg(name);
         if (dmsg != "") { this._diags.Error(DiagnosticCodes.NamespaceCollision, dmsg, sp); return; }
         string smsg = symbols.ShadowedImportFuncMsg(name);
@@ -467,6 +477,9 @@ public sealed class TypeChecker {
     //     dump / 测试走 2-arg 版（true），行为不变。
     public SemanticModel Infer(CompilationUnit cu, SymbolTable symbols, bool resolveConstraints) {
         SymbolTable view = symbols.WithCu(cu);   // 本 CU 文件级别名（per-file 隔离）
+        // using-csharp-rules PR-2：本文件的「用到的 ns」记录器挂在本文件视图上（视图链继承），Infer 结束停用。
+        this.UsedNs = new NsUseRecorder();
+        view.UseRecorder = this.UsedNs;
         var model = new SemanticModel(view);
         this._curCu = cu;   // add-deprecated-directive：use-site 弃用告警的 #suppress 源
         // 建本 CU 的 #suppress 区间集（cu.SuppressRegions 是 PR3c 既有字段）。语义内构造 → F2 安全。
@@ -497,6 +510,8 @@ public sealed class TypeChecker {
             }
             i = i + 1;
         }
+        DeclTypeUses.Walk(cu, view);   // using-csharp-rules PR-2：声明位（成员签名 / 基类列表 / 接口 / delegate / 约束）的类型引用
+        this.UsedNs.Active = false;
         return model;
     }
 

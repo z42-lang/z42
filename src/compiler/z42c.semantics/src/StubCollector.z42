@@ -49,6 +49,7 @@ public sealed class StubCollector {
                     }
                     Z42Type dret = table.ResolveTypeP(dd.RetType, dd.TypeParams.Names, dd.TypeParams.Count);
                     table.Delegates.Put(dd.Name, new Z42FuncType(ps, dd.ParamCount, dret));
+                    table.DelegateNs.Put(dd.Name, new StrBox(cu.HasNamespace ? cu.Namespace : ""));   // using-csharp-rules PR-2
                 }
             }
             i = i + 1;

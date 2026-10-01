@@ -135,7 +135,7 @@ public sealed class AttributeSynth {
         Stmt[] stmts = new Stmt[1];
         stmts[0] = new ReturnStmt(true, ctorCall, s);
         Stmt body = new BlockStmt(stmts, 1, s);
-        TypeExpr retType = new NamedType("Attribute", new TypeExpr[0], 0, s);
+        TypeExpr retType = NamedType.Synth("Attribute", new TypeExpr[0], 0, s);
         TypeParamList tp = new TypeParamList(new string[0], 0, s);
         return new MethodDecl("public", true, false, retType, fname, tp,
                               new WhereClause[0], 0, new Param[0], 0, true, body,

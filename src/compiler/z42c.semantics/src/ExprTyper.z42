@@ -99,6 +99,7 @@ public sealed partial class ExprTyper {
                 // 方法组转换：自由函数名作值（`IntFn0 a = Helper`）→ func 引用（LoadFn）。
                 string mfns = env.Symbols.ResolveFuncNs(id.Name);   // resolve-free-functions-by-namespace
                 if (mfns != null) {
+                    env.Symbols.NoteUse(mfns);   // using-csharp-rules PR-2：函数引用（方法组）
                     // add-target-typed-funcref-resolution：此路径**无目标委托类型**（`var f = Overloaded;` /
                     // 表达式语句 / 非委托目标）。多重载在此无从消解 → E0425；有目标位（赋值/声明/return/字段初始化/实参）
                     // 走 `BindWithTarget` 的 `_bindFuncRefTargeted` 按委托签名精确选中。恰一份时直接取用。
@@ -401,9 +402,9 @@ public sealed partial class ExprTyper {
             TypeExpr[] args = new TypeExpr[it.ArgCount];
             int i = 0;
             while (i < it.ArgCount) { args[i] = this._typeToTypeExpr(it.TypeArgs[i], s); i = i + 1; }
-            return new NamedType(it.Def.Name(), args, it.ArgCount, s);
+            return NamedType.Synth(it.Def.Name(), args, it.ArgCount, s);
         }
-        return new NamedType(t.Name(), new TypeExpr[0], 0, s);
+        return NamedType.Synth(t.Name(), new TypeExpr[0], 0, s);
     }
 
     // 集合字面量绑定入口（外部 StmtBinder + hub _bindExpr 共用）→ 委回 CollectionTyper。

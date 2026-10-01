@@ -171,10 +171,23 @@ public static class CuPreprocess {
     // add-file-scoped-usings：强制 file-scoped usings——本文件用到的跨包依赖 ns（cm.UsedDepNs）
     // 必须被本文件的 using（含 global using 注入）∪ {Std, Std.Runtime} ∪ 本 ns 的外围链覆盖，否则 E0436。
     // 只读 cm.UsedDepNs（已算好，DEPS 用同一份）+ 追加诊断，不改任何 emit 字节 → 自举字节不动。
+    // using-csharp-rules PR-2：判据集 = `UsedNs`（类型检查期记录的全部引用，含同包跨 ns、纯类型注解）∪ `UsedDepNs`
+    // （代码生成期的依赖 ns —— cached 文件只有这一份，从 cache meta 回填）。去重后逐个判。
     internal static void _enforceFileScope(CompilationUnit cu, string file, CompiledModuleZ cm) {
+        string[] all = new string[cm.UsedNs.Length + cm.UsedDepNsCount];
+        int an = 0;
+        int a = 0;
+        while (a < cm.UsedNs.Length) { all[an] = cm.UsedNs[a]; an = an + 1; a = a + 1; }
+        a = 0;
+        while (a < cm.UsedDepNsCount) {
+            bool dup = false;
+            int q0 = 0; while (q0 < an) { if (all[q0] == cm.UsedDepNs[a]) { dup = true; } q0 = q0 + 1; }
+            if (!dup) { all[an] = cm.UsedDepNs[a]; an = an + 1; }
+            a = a + 1;
+        }
         int u = 0;
-        while (u < cm.UsedDepNsCount) {
-            string ns = cm.UsedDepNs[u];
+        while (u < an) {
+            string ns = all[u];
             bool allowed = PreludeNs.Contains(ns);   // prelude ns 免 using —— SoT 见 PreludeNs.z42
             if (cu.HasNamespace && NsScope.IsEnclosing(cu.Namespace, ns)) { allowed = true; }   // using-csharp-rules：外围链
             int di = 0;
