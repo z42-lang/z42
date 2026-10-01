@@ -88,14 +88,62 @@ on:
       # docs 里的 .md 就烧一个完整门禁 job）。负向模式在后 ⇒ 覆盖前面的匹配：
       # 只动 .md 的 PR 一个文件都不命中 → 整个 workflow 不触发；.md 与代码同改照旧跑。
       - '!**/*.md'
+  # ci-bench-cache-warm：main 上预热 bench 的 Rust 依赖缓存（见下面的 bench-cache-warm job）。
+  # 只在会改变缓存内容的路径上触发（Cargo.lock 就在 src/runtime/ 下）；每周一次兜住 rustc stable 升级
+  # （缓存 key 含 rustc 版本，升级后 main 上没有 runtime 改动就不会有人重建）。
+  push:
+    branches: [main]
+    paths:
+      - 'src/runtime/**'
+      - '.cargo/**'
+      - '.github/workflows/bench-pr.yml'
+      - '!**/*.md'
+  schedule:
+    - cron: '0 3 * * 1'
+  workflow_dispatch:
 
 concurrency:
-  group: bench-pr-${{ github.event.pull_request.number }}
+  # PR：每个 PR 一组（新提交取消旧的）。push / schedule / dispatch：共用一组，新的预热取消旧的。
+  group: bench-pr-${{ github.event.pull_request.number || 'warm' }}
   cancel-in-progress: true
 
 jobs:
+  # ── 缓存预热（ci-bench-cache-warm）──────────────────────────────────────────
+  # GitHub 的缓存作用域：PR 分支上存的缓存**只有这个 PR 自己**能读；main 上存的才对所有 PR 可见。
+  # 此前只有 PR 在存 ⇒ 每个新 PR 都冷编一轮（同一个 key、每个 PR 各存一份 172MB，还挤占仓库 10GB 配额，
+  # 把 main 上有用的缓存挤出去）。现在：main 上编一遍、存一份；PR 只读（bench-regression 的 save-if）。
+  # 编的东西与 bench-regression 实际会编的一致：z42vm + z42-compression（ci-bootstrap [0/5] 与 base
+  # 工具链那两条）+ gc_cycle_bench 的 bench profile（criterion A/B）。Rust 配置逐字照抄，key 才对得上。
+  bench-cache-warm:
+    name: bench-cache-warm(linux-x64)
+    if: github.event_name != 'pull_request'
+    timeout-minutes: 45
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust deps (Swatinem)
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            src/runtime -> ../../artifacts/build/runtime
+            base-src/src/runtime -> ../../artifacts/build/runtime
+          shared-key: bench-ab-v1
+
+      - name: Build what bench-regression builds
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo build --locked --release --manifest-path src/runtime/Cargo.toml
+          cargo build --locked --release --manifest-path src/runtime/crates/z42-compression/Cargo.toml
+          cargo bench --locked --manifest-path src/runtime/Cargo.toml --bench gc_cycle_bench --no-run
+
   bench-regression:
     name: bench-regression(linux-x64)
+    if: github.event_name == 'pull_request'
     timeout-minutes: 60
     runs-on: ubuntu-latest
 
@@ -232,6 +280,8 @@ jobs:
             src/runtime -> ../../artifacts/build/runtime
             base-src/src/runtime -> ../../artifacts/build/runtime
           shared-key: bench-ab-v1
+          # ci-bench-cache-warm：只读。缓存由 main 上的 bench-cache-warm 维护（PR 存的缓存别的 PR 读不到）。
+          save-if: false
 
       # Seed from the prev nightly + build current source warm (xtask bench
       # rebuilds stdlib via the warm self-build). Same path as CI build-and-test.
