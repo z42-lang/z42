@@ -68,11 +68,18 @@ PR 的 xtask，而 xtask 的 `_root()` 取 cwd 的仓库根 = base-src（base �
 
 | 事件 | 行为 |
 |---|---|
-| `pull_request` / `push` to main | `paths-ignore` 只有 `.claude/**`——**纯文档改动照样跑 CI**（`xtask test docs` 的死链门必须跑到） |
+| `pull_request` / `push` to main | `paths-ignore` 只有 `.claude/**`——**纯文档改动照样跑 CI**，但 PR 上走快速通道（见下） |
 | `schedule`（每日 16:00 UTC） | 无条件全跑，外加只在这里跑的 Tier-2 平台测试 |
 | `workflow_dispatch` | 无条件全跑；格式 bump 后手动重发 nightly 的逃生口 |
 
-`detect-changes` 用 `dorny/paths-filter` 输出四个 flag，下游 job `needs: changes` + `if:` 门控：
+**纯文档快速通道**：PR 的改动**全部**是 `docs/**` 或 `*.md`（`docs/learn/**`、`examples/**` 除外——学习手册的
+示例会被重放）时，`detect-changes` 输出 `docs_only=true`，只跑 `docs-check`：ci-bootstrap 的 `xtask-only`
+模式（种子 z42c 只编出 xtask，省掉 build compiler / stdlib）+ `xtask test docs`（相对链接 + gate stage 清单
+↔ `test-gate.md`）+ `xtask test diagcodes`（诊断码 ↔ `error-codes.md`）。读文档的门禁就这几道。
+`test-host` ×4 与 toolchain 链（`compile-toolchain` → `compile-test-assets` / `test-consume`）随之 skip。
+push / schedule / dispatch 不走快速通道。
+
+`detect-changes` 用 `dorny/paths-filter` 输出 flag，下游 job `needs: changes` + `if:` 门控：
 
 | flag | 命中路径（节选） |
 |---|---|
@@ -106,10 +113,11 @@ job 的 **key**（`needs:` 用的）与 **display 名**（分支保护的 requir
 | display 名 | job key | 门控 | 矩阵 |
 |---|---|---|---|
 | `detect-changes` | `changes` | 总跑 | — |
-| `test-host(<plat>)` | `build-and-test` | 总跑 | linux-x64 / linux-arm64 / macos-arm64 / windows-x64 |
-| `compile-toolchain(linux-x64)` | `toolchain-bootstrap` | 总跑 | — |
-| `compile-test-assets(linux-x64)` | `assemble-current-sdk` | 总跑 | — |
-| `test-consume(linux-x64)` | `consume-current-sdk` | 总跑 | — |
+| `docs-check(linux-x64)` | `docs-check` | **仅**纯文档 PR | — |
+| `test-host(<plat>)` | `build-and-test` | 非纯文档 PR | linux-x64 / linux-arm64 / macos-arm64 / windows-x64 |
+| `compile-toolchain(linux-x64)` | `toolchain-bootstrap` | 非纯文档 PR | — |
+| `compile-test-assets(linux-x64)` | `assemble-current-sdk` | 随 `compile-toolchain` | — |
+| `test-consume(linux-x64)` | `consume-current-sdk` | 随 `compile-test-assets` | — |
 | `test-vm-jit(linux-x64) shard k` | `vm-jit-consistency` | `vm ‖ compiler` | 2 shard |
 | `test-stdlib-jit(linux-x64) shard k` | `stdlib-jit-consistency` | `vm ‖ stdlib ‖ compiler` | 2 shard |
 | `test-stdlib-interp(<plat>)` | `stdlib-interp-consistency` | `vm ‖ stdlib ‖ compiler` | 3 OS，不分片 |
@@ -124,6 +132,12 @@ job 的 **key**（`needs:` 用的）与 **display 名**（分支保护的 requir
 | `test-ios-sim(macos-arm64) shard k` | `test-ios` | **仅** schedule ‖ dispatch | 3 shard |
 | `test-android-emu(linux-x64) shard k` | `test-android` | **仅** schedule ‖ dispatch | 3 shard |
 | `publish-nightly` | `publish-nightly` | push to main ‖ dispatch | — |
+| `ci-ok` | `ci-ok` | 总跑（`if: always()`） | — |
+
+**`ci-ok` 是本 workflow 的单一结论**：`needs` 全部其它 job，任一 failure / cancelled 即红，success / skipped
+即绿。分支保护只要求它一个就够——逐个列 job 的写法在新增 / 改名 job 时会漏（`verify-selfhost` 删掉后保护里
+还挂着它，PR 一直等不到这个 check）。`if: always()` 是关键：没有它，上游一红它就被 skip，而被 skip 的
+required check 视同通过。新增 job 时记得加进它的 `needs`。
 
 几条不显然的编排理由：
 

@@ -63,6 +63,7 @@ jobs:
       compiler: ${{ steps.filter.outputs.compiler }}
       vm: ${{ steps.filter.outputs.vm }}
       stdlib: ${{ steps.filter.outputs.stdlib }}
+      docs_only: ${{ steps.docsonly.outputs.docs_only }}
     steps:
       - uses: actions/checkout@v7
       - uses: dorny/paths-filter@v4
@@ -147,6 +148,66 @@ jobs:
             # 人以为 e2e golden 有内容级门控。2026-09-04 删除；真要门控 e2e 时重新加，
             # 并在同一提交里接上消费方。
 
+      # 纯文档快速通道（ci-docs-fast-path）：PR 的改动**全部**是文档 ⇒ 只跑 docs-check，
+      # test-host ×4 与 toolchain 链（compile-toolchain → assemble/consume current-sdk）一律 skip。
+      # 用 PR 文件列表逐个判，不用 paths-filter：「每一个都是文档」是全称判断，而 filter 的
+      # 默认语义是「任一命中」。例外：docs/learn/** 与 examples/** **不算**文档 —— 学习手册的
+      # 示例会被 test-host 的 examples stage 与 package-host 重放。只在 PR 上判；push / schedule /
+      # dispatch 恒为空（= 不走快速通道）。
+      - name: Docs-only PR?
+        id: docsonly
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          files=$(gh api --paginate "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" -q '.[].filename')
+          # 非文档 = 既不在 docs/ 下、也不是 .md；学习手册与示例 = 算作非文档的例外。两者都为空才是纯文档。
+          nondoc=$(printf '%s\n' "$files" | grep -v '^$' | grep -Ev '^docs/' | grep -Ev '\.md$' || true)
+          learn=$(printf '%s\n' "$files" | grep -E '^(docs/learn/|examples/)' || true)
+          docs_only=false
+          if [ -n "$files" ] && [ -z "$nondoc" ] && [ -z "$learn" ]; then docs_only=true; fi
+          echo "docs_only=$docs_only"
+          echo "docs_only=$docs_only" >> "$GITHUB_OUTPUT"
+
+  # ── 纯文档 PR 的全部门禁（ci-docs-fast-path）─────────────────────────────────
+  # 读文档的门禁只有这几道，全是纯源码 / 文档扫描、不需要 SDK：相对链接 + gate-stage 清单对账
+  # （`test docs`）、诊断码文档对账（`test diagcodes`）。xtask 用种子 z42c 编出来就够
+  # （ci-bootstrap 的 xtask-only：省掉 build compiler / stdlib）。
+  docs-check:
+    name: docs-check(linux-x64)
+    timeout-minutes: 20
+    needs: changes
+    if: needs.changes.outputs.docs_only == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      # 借 compile-toolchain 的 host-v2 缓存（ci-bootstrap 的 [0/5] cargo 与它同一组 unit），只读不回存。
+      - name: Cache Rust deps (Swatinem)
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src/runtime -> ../../artifacts/build/runtime
+          shared-key: host-v2
+          save-if: false
+
+      - name: Bootstrap xtask (seed z42c → current xtask only)
+        uses: ./.github/actions/ci-bootstrap
+        with:
+          gh-token: ${{ secrets.GITHUB_TOKEN }}
+          xtask-only: "true"
+
+      - name: Docs gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          xtask test docs
+          xtask test diagcodes
+
   build-and-test:
     name: test-host(${{ matrix.platform }})
     # 60→75 (2026-07-21): `xtask test all` (full rebuild + all gates) sits at the
@@ -159,6 +220,8 @@ jobs:
     # (rule c). The job itself still runs on every non-docs push (changes always
     # succeeds); only the Rust-unit step is conditionally skipped.
     needs: changes
+    # 纯文档 PR 走 docs-check（见 changes 的 Docs-only 步骤）。被 `if:` skip 的 required check 视同通过。
+    if: needs.changes.outputs.docs_only != 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -641,6 +704,9 @@ jobs:
     timeout-minutes: 30
     # Runs unconditionally (like the test jobs) — its artifact roots the package
     # jobs (which always run) + the platform-test jobs, so it must always be present.
+    # 例外：纯文档 PR（ci-docs-fast-path）——它下游的 assemble / consume current-sdk 随之 skip。
+    needs: changes
+    if: needs.changes.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -1847,3 +1913,49 @@ jobs:
           name: junit-desktop
           path: artifacts/test-reports/desktop/junit.xml
           if-no-files-found: warn
+
+  # ── 单一结论 job（ci-ok）──────────────────────────────────────────────────────
+  # 汇总本 workflow 的**所有** job：任何一个 failure / cancelled ⇒ 红；success / skipped ⇒ 绿。
+  # 用途：分支保护只需要求这一个 check。此前保护里逐个列 test-host ×4 + verify-features +
+  # compiler-checks —— 新增 / 改名 job 时容易漏（verify-selfhost 删掉后保护里还挂着它，曾让
+  # PR 永远等不到这个 check）。`if: always()`：上游失败时本 job 也要跑出「红」，而不是被 skip
+  # （被 skip 的 required check 视同通过 —— 那正是要避免的）。
+  # 新增 job 时把它加进下面的 needs（漏加只是少汇总一个，不会误红）。
+  ci-ok:
+    name: ci-ok
+    if: always()
+    needs:
+      - changes
+      - docs-check
+      - build-and-test
+      - host-package
+      - toolchain-bootstrap
+      - assemble-current-sdk
+      - consume-current-sdk
+      - vm-jit-consistency
+      - stdlib-jit-consistency
+      - stdlib-interp-consistency
+      - compiler-checks
+      - feature-matrix
+      - package-ios
+      - package-android
+      - package-wasm
+      - publish-nightly
+      - test-wasm
+      - test-ios
+      - test-android
+      - test-desktop
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Every job succeeded or was skipped
+        shell: bash
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          set -euo pipefail
+          results="${RESULTS:?}"
+          echo "$results" | jq -r 'to_entries[] | "  \(.key): \(.value.result)"'
+          bad=$(echo "$results" | jq -r '[to_entries[] | select(.value.result != "success" and .value.result != "skipped") | "\(.key)=\(.value.result)"] | join(", ")')
+          if [ -n "$bad" ]; then echo "::error::not green: $bad"; exit 1; fi
+          echo "✓ all jobs green or skipped"

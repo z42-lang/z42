@@ -1,6 +1,7 @@
 // xtask — 文档机械门禁（`xtask test docs`）。不需要 SDK，秒级。
 //
-// 批 0 只做一件事：**相对链接死链清零**。
+// 批 0 只做一件事：**相对链接死链清零**。之后加了 ②：GREEN gate stage 清单 ↔ test-gate.md 对账
+// （ci-docs-fast-path：纯文档 PR 只跑本门 + diagcodes，读文档的检查必须都在这里）。
 //
 // 为什么这条要先落：三书重构要把约 200 篇文档在目录之间搬来搬去，每一次搬运都会让指向它的相对
 // 链接失效。而 `ci.yml` 此前对 `docs/**` 是 paths-ignore（纯文档改动完全不跑 CI），死链可以一路
@@ -55,6 +56,10 @@ int _testDocs(string root, bool update) {
         ConsoleError.WriteLine("     链接目标按所在文件的目录解析；跨书链接请用相对路径或完整 URL。");
         return 1;
     }
+    // ② GREEN gate 的 stage 清单 ↔ test-gate.md（ci-docs-fast-path）。`xtask test` 开头也查这一条；放进本门，
+    // 纯文档 PR 走的 docs-check 才不会漏掉它 —— 只改 test-gate.md 的 PR 正是最可能把它改坏的那种。
+    Console.WriteLine("② gate stage 清单与 test-gate.md 一致");
+    if (_checkGateStageDoc() != 0) { return 1; }
     Console.WriteLine("✔ test docs");
     return 0;
 }
