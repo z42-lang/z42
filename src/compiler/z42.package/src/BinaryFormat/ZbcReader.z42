@@ -306,11 +306,11 @@ public static class ZbcReader {
             // 值 struct 的逐字段布局表（zbc 1.45）：Flags2 bit0 gated，紧随上面的引用位图块。
             // 同样**必须对称消费**，否则游标错位。
             if ((cd.Flags2 & 1) != 0) {
-                int sfc = c.U16();
-                cd.StructFieldOffsets = new int[sfc]; cd.StructFieldSizes = new int[sfc];
-                cd.StructFieldKinds = new int[sfc]; cd.StructFieldCount = sfc;
+                int slc = c.U16();   // struct 布局字段数（与上面的静态字段数 `sfc` 不是同一个量，不能同名）
+                cd.StructFieldOffsets = new int[slc]; cd.StructFieldSizes = new int[slc];
+                cd.StructFieldKinds = new int[slc]; cd.StructFieldCount = slc;
                 int sfx = 0;
-                while (sfx < sfc) {
+                while (sfx < slc) {
                     cd.StructFieldOffsets[sfx] = c.U32();
                     cd.StructFieldSizes[sfx] = c.U32();
                     cd.StructFieldKinds[sfx] = c.U8();
