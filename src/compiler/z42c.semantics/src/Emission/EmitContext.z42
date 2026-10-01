@@ -42,6 +42,7 @@ public sealed class EmitContext {
     public int[]       BreakFinFloor; public int[] ContFinFloor;
     public int[]       RegTags;   public int RegTagCount;   // reg id → IrType 标签（REGT，byte-identical）
     public IrLineEntry[] Lines;  public int LineCount;  public int LastLine;   // DBUG 行表（同行去重，镜像 C# TrackLine）
+    private string _tlPath; private string _tlBase;   // TrackLine 的文件名缓存：同一函数的语句几乎都来自同一文件
     public string Ns;   // 根命名空间（""=无；名字限定 BP-0，镜像 C# QualifyName）
     public DependencyIndex Deps;       // 跨包调用索引（CI-4；null=无依赖）
     public StrMap ImportedClassNs;     // imported 短类名 → ns（StrBox；IC-1：VCall 依赖追踪 + ObjNew FQ；**含本包跨-ns 自有类**，G17b）
@@ -56,6 +57,7 @@ public sealed class EmitContext {
     public StrMap LocalFnNames;     // impl-local-fn-l2：局部函数 local 名 → lifted 名（free call emit 改写）
 
     public EmitContext(SymbolTable symbols, IrGen gen) {
+        this._tlPath = null; this._tlBase = "";
         this.Symbols = symbols; this.Gen = gen;
         this.Locals = new StrMap(); this.Fields = new StrMap(); this.ReadonlyFields = new StrMap();
         this.InstProps = new StrMap(); this.InstPropHasSet = new StrMap();
@@ -491,7 +493,12 @@ public sealed class EmitContext {
     public void TrackLine(Span sp) {
         if (sp.Line <= 0 || sp.Line == this.LastLine) { return; }
         this.LastLine = sp.Line;
-        string file = EmitContext.BaseName(sp.File);
+        // 每条语句都从完整路径倒扫截文件名，编 z42c.semantics 时占 ~1% —— 路径没变就复用上一次的结果。
+        string file = this._tlBase;
+        if (this._tlPath == null || sp.File != this._tlPath) {
+            file = EmitContext.BaseName(sp.File);
+            this._tlPath = sp.File; this._tlBase = file;
+        }
         bool hasFile = file != "";
         if (this.LineCount == this.Lines.Length) {
             IrLineEntry[] bigger = new IrLineEntry[this.Lines.Length * 2];

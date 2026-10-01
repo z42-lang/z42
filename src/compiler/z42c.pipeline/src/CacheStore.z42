@@ -252,13 +252,13 @@ public static class CacheStore {
 
     public static string HexEnc(string s) {
         byte[] b = Utf8.GetBytes(s);
-        string ds = "0123456789abcdef";
+        char[] ds = "0123456789abcdef".ToCharArray();   // 按下标取，不再每字节两次 CharAt（builtin 分发）
         char[] cs = new char[b.Length * 2];
         int i = 0;
         while (i < b.Length) {
             int v = (int)b[i];
-            cs[i * 2] = ds.CharAt((v >> 4) & 0xF);
-            cs[i * 2 + 1] = ds.CharAt(v & 0xF);
+            cs[i * 2] = ds[(v >> 4) & 0xF];
+            cs[i * 2 + 1] = ds[v & 0xF];
             i = i + 1;
         }
         return String.FromChars(cs);
