@@ -29,21 +29,21 @@ public static class UsingLint {
             UsingDecl u = d as UsingDecl;
             if (u.Injected) { continue; }
             if (UsingLint._has(seen, sn, u.Name)) {
-                diags.Warning("W0608", "duplicate `using " + u.Name + ";` — it is already imported above in this file", u.Span);
+                diags.Warning(DiagnosticCodes.DuplicateUsing, "duplicate `using " + u.Name + ";` — it is already imported above in this file", u.Span);
                 continue;
             }
             seen[sn] = u.Name; sn = sn + 1;
             if (u.CoveredByGlobal) {
-                diags.Warning("W0608", "`using " + u.Name + ";` is redundant — `global using " + u.Name
+                diags.Warning(DiagnosticCodes.DuplicateUsing, "`using " + u.Name + ";` is redundant — `global using " + u.Name
                     + ";` already imports it into every file of the package", u.Span);
             } else if (PreludeNs.Contains(u.Name)) {
-                diags.Warning("W0607", "unnecessary `using " + u.Name + ";` — `" + u.Name
+                diags.Warning(DiagnosticCodes.UnnecessaryUsing, "unnecessary `using " + u.Name + ";` — `" + u.Name
                     + "` is part of the prelude and always visible", u.Span);
             } else if (NsScope.IsEnclosing(fileNs, u.Name)) {
-                diags.Warning("W0607", "unnecessary `using " + u.Name + ";` — `" + u.Name
+                diags.Warning(DiagnosticCodes.UnnecessaryUsing, "unnecessary `using " + u.Name + ";` — `" + u.Name
                     + "` is this file's namespace or encloses it, so it is visible without `using`", u.Span);
             } else if (!u.IsGlobal && !UsingLint._has(used, used.Length, u.Name) && !UsingLint._has(dep, depCount, u.Name)) {
-                diags.Warning("W0607", "unnecessary `using " + u.Name + ";` — nothing in this file uses it", u.Span);
+                diags.Warning(DiagnosticCodes.UnnecessaryUsing, "unnecessary `using " + u.Name + ";` — nothing in this file uses it", u.Span);
             }
         }
     }

@@ -337,7 +337,7 @@ bool _isZpkgRef(string path) {
 // 🔴 **未知宏一律硬报错**，刻意**不**沿用 `PathTemplate` 那条「未知变量 → 保留字面」：
 // 保留字面会让失败变成一句「该文件不存在: …/${compiler_libz}/x.zpkg」或更糟 —— 拼错一个宏名，
 // 症状离原因很远。依赖路径是「写错就该当场说」的地方。
-string _expandDepPathMacros(string depName, string p) {
+string _expandDepPathMacros(string tomlPath, string depName, string p) {
     int at = p.IndexOf("${");
     if (at < 0) { return p; }
     string s = "";
@@ -363,6 +363,7 @@ string _expandDepPathMacros(string depName, string p) {
                         + "装了 SDK 就设 Z42_HOME，或用 Z42_COMPILER_LIBS 显式指定。）");
                     return "";
                 }
+                _warnCompilerLibsMacro(tomlPath, depName);
                 s = s + cl[0];
             } else {
                 ConsoleError.WriteLine("z42c build: [dependencies] `" + depName + "` 的 path 里有未知宏 `${"
@@ -378,7 +379,31 @@ string _expandDepPathMacros(string depName, string p) {
     return s;
 }
 
-string[] _zpkgRefDirs(ProjectManifest pm, string projectDir) {
+// W0609：`${compiler_libs}` 进入过渡期（add-sdk-libs）。照常展开、照常构建，只提示等价的按名写法。
+// 格式与源码诊断同形（`file(line,col): CODE: message`），位置取清单里这个依赖 key 所在行（找不到落 1 行）。
+// ⚠️ 码用字面量：常量 `CompilerLibsMacroDeprecated` 与本发射点同 PR 新增，上一版 z42c 的 z42c.core 里还没有它
+// （bootstrap-seed.md 分阶段引入纪律）；随 nightly 进种子后切回常量（diag-literal-emitters.txt 记着这笔账）。
+void _warnCompilerLibsMacro(string tomlPath, string depName) {
+    string code = "W0609";
+    ConsoleError.WriteLine(tomlPath + "(" + _tomlKeyLine(tomlPath, depName).ToString() + ",1): " + code + ": [dependencies] `"
+        + depName + "` 用了 `${compiler_libs}` 路径宏 —— 过渡写法，将在后续版本删除。SDK 库按名声明即可："
+        + "`\"" + depName + "\" = \"*\"`（exe 要在 SDK 上运行、不复制时再加 `deploy = \"sdk\"`）。");
+}
+
+// 清单里 `key =` / `"key" =` 首次出现的行号（1 起）；读不到或找不到 → 1。只用来给诊断定位，不参与语义。
+int _tomlKeyLine(string tomlPath, string key) {
+    if (!File.Exists(tomlPath)) { return 1; }
+    string[] lines = File.ReadAllText(tomlPath).Split("\n");
+    int i = 0;
+    while (i < lines.Length) {
+        string t = lines[i].Trim();
+        if (t.StartsWith("\"" + key + "\"") || t.StartsWith(key + " ") || t.StartsWith(key + "=")) { return i + 1; }
+        i = i + 1;
+    }
+    return 1;
+}
+
+string[] _zpkgRefDirs(ProjectManifest pm, string projectDir, string tomlPath) {
     string[] dirs = new string[pm.DepCount];
     int n = 0;
     int i = 0;
@@ -393,7 +418,7 @@ string[] _zpkgRefDirs(ProjectManifest pm, string projectDir) {
         //   [dependencies]
         //   "z42c.syntax" = { path = "${compiler_libs}/z42c.syntax.zpkg" }
         // 解析序见 `CompilerDomain.Dirs()`（`Z42_COMPILER_LIBS` → `Z42_HOME/programs/z42c` → …）。
-        string expanded = _expandDepPathMacros(dep, p);
+        string expanded = _expandDepPathMacros(tomlPath, dep, p);
         if (expanded.Length == 0) { return null; }   // 诊断已打印
         p = expanded;
         string full = Path.IsRooted(p) ? p : Path.Join(projectDir, p);
