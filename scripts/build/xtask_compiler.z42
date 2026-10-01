@@ -239,7 +239,41 @@ int _buildCompilerViaZ42c(string root, string profile, string[] members, string 
     }
     if (rc != 0) { ConsoleError.WriteLine("  ✗ z42c --workspace self-build failed"); return 1; }
     _ensureDriverSelfContained(root, profile, members);   // 新 gen driver 自包含（幂等兜底）
+    _purgeBootstrapPrebuildsFromFlat(root, stdlibFlat);
     return 0;
+}
+
+// 破环预建（`_ensureBootstrapSelfDepLibs`）往 flat 里写的编译器域包，只服务上面那次 workspace 自建（编译期解析面
+// = flat）。自建完成即清走，让 flat 回到规范形态 = **只有 stdlib 成员**（与 `build stdlib` 末步
+// `_assembleStdlibFlatView` 产出的一致）。
+//
+// 为什么不能留着（add-sdk-libs 阶段 3 前置，2026-10-01）：flat = 开发树的 `Z42_LIBS`。此前它们一直躺到下一次
+// `build stdlib`，这段窗口里用开发树工具链编的工程会在 `Z42_LIBS` 里看到 `z42.project` 等 SDK 库 ⇒ 被判「框架包」
+// （不复制，运行期 `MissingSymbolException`），`deploy = "sdk"` 的校验也会误判「不是 SDK 库」；打包、alllibs
+// 之类按 flat 取东西的地方也一直得防着它（`_pkgCopyLibs` / `_assembleAllLibs` 头注）。
+// 当前源的这几个包在各自的成员 dist 里都有（workspace 自建刚产出），清掉 flat 里的副本不丢任何东西。
+// `z42.core` 是 stdlib 成员，留着（当前源产物，`build stdlib` 会再按规范重装）。
+void _purgeBootstrapPrebuildsFromFlat(string root, string stdlibFlat) {
+    string[] libs = _stdlibList(root);
+    if (libs.Length == 0) { return; }   // 读不到成员清单就不动：宁可留脏，不可误删 stdlib
+    string[] hits = Path.Glob(stdlibFlat, "*");
+    int purged = 0;
+    int i = 0;
+    while (i < hits.Length) {
+        string f = hits[i];
+        i = i + 1;
+        if (!(f.EndsWith(".zpkg") || f.EndsWith(".zsym"))) { continue; }
+        string name = Path.GetFileNameWithoutExtension(f);
+        bool isLib = false;
+        int j = 0;
+        while (j < libs.Length) {
+            if (libs[j] == name) { isLib = true; break; }
+            j = j + 1;
+        }
+        if (isLib) { continue; }
+        try { File.Delete(f); purged = purged + 1; } catch (Exception e) { /* best-effort，同 _cleanGlob */ }
+    }
+    if (purged > 0) { _vNormal("  flat 清走破环预建的非 stdlib 包 " + purged.ToString() + " 个（回到规范形态）"); }
 }
 
 // 冷启动破环：z42c 运行期依赖 z42.package（stdlib 库——IR 模型 + zbc/zpkg 后端，含

@@ -28,8 +28,9 @@
 
 **本页其余规则（层级、interop 归属、R1–R4）只约束 `Std.*` 用户 stdlib。**
 
-🔴 用户要写 linter / 格式化器 / 代码生成 ⇒ **显式引用**编译器域包（`${compiler_libs}` 路径宏），
-引用到的 zpkg 会被拷进该工程的输出目录。隔离**不是禁止**，是「不隐式可见」。
+🔴 用户要写 linter / 格式化器 / 代码生成 ⇒ 在 `[dependencies]` 里**按名声明**要用的编译器域包（SDK 库，
+如 `"z42c.syntax" = "*"`），exe 会把用到的 SDK 库连同依赖拷进输出目录；analyzer 免声明、自动可见。
+隔离**不是禁止**，是「不隐式可见」。规则见 [z42-toml.md](../../../reference/src/toolchain/z42-toml.md)。
 
 ## 2. 层级：只要求 DAG，不钉固定层
 

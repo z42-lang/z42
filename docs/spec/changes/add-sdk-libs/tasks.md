@@ -47,14 +47,14 @@
 - [ ] 本地 GREEN（用 apphost 跑）；PR CI
 
 ## 阶段 3：use（阶段 1 进 nightly 之后，PR-3）
-- [ ] **前置：开发树 stdlib flat 里的编译器包副本**（2026-10-01 实施阶段 1 时发现）：`build compiler` 的破环预建把
-      z42.build / z42.project / z42.package / z42c.core / z42c.syntax 写进 `artifacts/build/libraries/dist/release`（= 开发树
-      `Z42_LIBS`），`build stdlib` 末步又清掉。这段窗口里编 xtask：这些包被判「框架」⇒ 不复制 ⇒ flat 清掉后 xtask 运行期
-      `MissingSymbolException: Z42.Project…`（#994 起的潜在问题；CI 不受影响——种子编 xtask 时 Z42_LIBS 是种子 libs）。
-      阶段 3 改 `deploy = "sdk"` 后同一窗口里的校验也会误判「不是 SDK 库」。⇒ 破环预建改落独立目录（不进 Z42_LIBS），
-      或解析时把 flat 里的编译器包也视为 SDK 库。先定方案再动 xtask。
-- [ ] `scripts/xtask.z42.toml`：`"z42.project" = { version = "*", deploy = "sdk" }`（`z42.build` 同）
-- [ ] 文档与示例去掉 `${compiler_libs}`
+- [x] **前置：开发树 stdlib flat 里的编译器包副本**（2026-10-01 实施阶段 1 时发现）：`build compiler` 的破环预建把
+      z42.build / z42.project / z42.package / z42c.core / z42c.syntax 写进 flat（= 开发树 `Z42_LIBS`），一直躺到下一次
+      `build stdlib`。⇒ 定案：`_buildCompilerViaZ42c` 自建完成即 `_purgeBootstrapPrebuildsFromFlat`（清走非 stdlib 成员），
+      窗口缩到 `build compiler` 进程内部。另一方案（解析时把 flat 里的编译器包视为 SDK 库）在开发树之外毫无意义，舍弃。
+      注：阶段 2 之后 xtask 由 `.z42` 的 z42c 编（`Z42_LIBS` = SDK libs），本就不经过这段窗口；清理是为了开发树里
+      其他用构建树工具链编的工程。
+- [x] `scripts/xtask.z42.toml`：`"z42.project" = { version = "*", deploy = "sdk" }`（`z42.build` 同）；`xtask test incremental` 的替身清单照抄按名依赖
+- [x] 文档与示例去掉 `${compiler_libs}`（xtask.md / bootstrap-seed.md / organization.md；`z42-toml.md` 与 `project-model.md` 里标明「过渡写法」的那两处留到阶段 4 删宏时一起删；e2e 里测宏本身的格同理）
 - [ ] 本地 GREEN；PR CI；合入后 main / nightly 实测
 
 ## 阶段 4：删宏（再一个 release 之后）
