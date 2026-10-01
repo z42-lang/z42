@@ -40,15 +40,12 @@ if [ "$ready" -ne 1 ]; then
     exit 1
 fi
 
-vm="$GITHUB_WORKSPACE/artifacts/build/runtime/release/z42vm"
-libs="$GITHUB_WORKSPACE/artifacts/build/libraries/dist/release"
-
 adb logcat -c || true
 adb logcat > "$GITHUB_WORKSPACE/android-embed-logcat.txt" 2>&1 &
 logcat_pid=$!
 
-Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" "$vm" "$GITHUB_WORKSPACE/artifacts/xtask/xtask.zpkg" \
-    -- test embedded --rid android-x64 --run
+# xtask 经 CI shim 跑在 `.z42` SDK 上（与本地 `./xtask` 一致，add-sdk-libs D7）。
+"$GITHUB_WORKSPACE/.github/ci/xtask" test embedded --rid android-x64 --run
 rc=$?
 
 # Gradle's connectedAndroidTest reports BUILD SUCCESSFUL even when the test APK never

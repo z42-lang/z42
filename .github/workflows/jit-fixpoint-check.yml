@@ -17,6 +17,7 @@ on:
 
 permissions:
   contents: read
+  actions: read     # ci-bootstrap → setup-z42-sdk 回退（gh run download）
 
 jobs:
   jit-fixpoint:

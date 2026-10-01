@@ -8,7 +8,6 @@
 // 洞被盖住了。所以这格必须用**打包出的 SDK**、并清掉全部 z42 相关环境变量（真实用户的样子）。
 namespace Z42Xtask;
 
-using Std;
 using Std.IO;
 
 int[] _hooksDistSmoke(string distDir, string work) {

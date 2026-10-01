@@ -576,13 +576,13 @@ jobs:
         run: |
           set -euo pipefail
           ROOT="$PWD"
-          # Run the PR xtask (Z42_LIBS = PR libs for xtask's OWN deps) against the base
+          # Run the PR xtask (on the `.z42` SDK, like every xtask step) against the base
           # tree (cwd=base-src → _root()=base-src, so bench sources / output dirs are
           # base's). The measured toolchain is passed EXPLICITLY via --vm/--driver/--libs
           # = the exact base toolchain the e2e A/B already used (.ab-base-alllibs), so
           # base benchmarks compile+run against a proven-consistent base stdlib — no
           # in-tree rebuild, no reliance on base-src's assembled-libs layout.
-          # `xtask` 垫片按**自己所在位置**定位 PR 树的 z42vm / libs / xtask.zpkg，不看 cwd ⇒ cd 进 base-src 照样是 PR 的 xtask。
+          # `xtask` 垫片按**自己所在位置**定位 `.z42` 与 PR 树的 xtask.zpkg，不看 cwd ⇒ cd 进 base-src 照样是 PR 的 xtask。
           ( cd base-src && \
             xtask bench stdlib --json "$ROOT/artifacts/bench/micro-base.json" --no-build --mode interp \
               --vm     "${{ steps.base.outputs.base_vm }}" \
