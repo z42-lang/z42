@@ -30,7 +30,7 @@ z42 使用 **`<name>.z42.toml`** 作为工程配置文件，格式为 TOML。
 [project]
 name    = "hello"      # 包名，全小写（见下「包名命名规则」）
 version = "0.1.0"      # SemVer
-kind    = "exe"        # exe | lib
+kind    = "exe"        # exe | lib | analyzer
 entry   = "Hello.Main" # 可选；省略时由 PackageCompiler 自动发现 Main
 ```
 
@@ -40,7 +40,7 @@ entry   = "Hello.Main" # 可选；省略时由 PackageCompiler 自动发现 Main
 |------|------|------|------|
 | `name` | string | ✅ | 全小写；作为输出文件基名和依赖引用键。命名规则见下节 |
 | `version` | string | ✅ | SemVer，如 `"0.1.0"` |
-| `kind` | `"exe"` \| `"lib"` | 单目标必填；多目标用 `[[exe]]` 时省略 | 可执行程序 or 类库 |
+| `kind` | `"exe"` \| `"lib"` \| `"analyzer"` | 单目标必填；多目标用 `[[exe]]` 时省略 | 可执行程序 / 类库 / 编译期扩展（analyzer、generator 都用这个 kind） |
 | `entry` | string | ❌ 可选 | 完全限定入口函数。**省略时**`PackageCompiler` 自动从编译后的 module 查找 `Main`（优先 `<Namespace>.Main` 再 `<Namespace>.main` 再裸 `Main` / `main`）；找不到则**编译期报错**（2026-05-14 起）|
 
 ### 包名命名规则
@@ -110,12 +110,15 @@ dist/my-sdk.zpkg  namespaces = ["Company.Sdk", "Company.Sdk.Internal", "Company.
 - VM 的 lazy loader：通过 `namespaces.iter().any(|n| n == requested_ns)` 判断 zpkg 是否提供某命名空间
 - 同一命名空间不允许被两个不同 zpkg 同时提供（`AmbiguousNamespaceError`）
 
-**`kind` 决定默认产物：**
+**各 `kind` 的产物：**
 
-| kind | 默认 emit | 说明 |
-|------|-----------|------|
-| `exe` | `zbc` | 单文件可执行字节码 |
-| `lib` | `zbin` | 打包库（含所有模块）|
+| kind | 产物 | 说明 |
+|------|------|------|
+| `exe` | `dist/<name>.zpkg`（带入口） | 可执行程序；用到的依赖随产物部署 |
+| `lib` | `dist/<name>.zpkg` | 类库，由最终 exe 决定怎么部署 |
+| `analyzer` | `dist/<name>.zpkg` | 编译期扩展（analyzer / generator）：只加载进编译器进程、编译期运行，永不链入运行期产物；被其它工程通过 [`[analyzers]`](#analyzers--加载进编译器编译期运行不链入产物) 引用，见 [compile-time-extensions.md](compile-time-extensions.md) |
+
+packed / indexed 两种布局由 `pack` 决定，见 [L3 — 构建产物配置](#l3--构建产物配置)。
 
 **多可执行目标（`[[exe]]`）：**
 

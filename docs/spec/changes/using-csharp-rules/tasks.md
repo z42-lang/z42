@@ -33,7 +33,7 @@
       z42c.pipeline）、测试 2、multi-exe fixture 2（`free_func_cross_ns` 原测「不写 using 也能调」的旧规则，改补 using）、
       学习手册示例 1（organization/ns）
 - [x] 2.8 文档：参考手册 namespaces.md（E0436 口径、「用到」的定义、合成类型例外）；学习手册 organization 章 + OUTLINE；README
-- [ ] 2.9 （晚一个 nightly）`UsedNs` 持久化进 cache meta（driver 的 IncrementalDriver / CachedNsMeta）—— 此前 cached 文件
+- [x] 2.9 （晚一个 nightly）`UsedNs` 持久化进 cache meta（driver 的 IncrementalDriver / CachedNsMeta）—— 此前 cached 文件
       只按 `UsedDepNs` 判：另一个文件删掉 `global using` 时，cached 文件的同包跨 ns 引用不会报 E0436
   - [x] 2.9a pipeline 侧（support）：`CacheMeta.UsedNs` + `usedns` 行（MetaVersion 8→9）、`CachedNsMeta.UsedNs`、
         `PackageCompile` 回填。用例 `usinggate` 的 cached 回填（关掉回填即红）+ `incremental` meta 往返

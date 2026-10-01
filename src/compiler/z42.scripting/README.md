@@ -3,7 +3,7 @@
 ## 职责
 REPL / 脚本场景的**跨平台编译+执行内核**（scripting-charter Form B）：把一段 z42 源即时编译成
 内存 zpkg、加载进 live VM、反射调用求值 + 补全 / 完整性判定。是 `z42.interactive`(z42i) 的引擎，
-playground / 用户代码也可 import。**终端行编辑（tty，tier1）已拆到 [z42.repl](../repl/)**
+playground / 用户代码也可 import。**终端行编辑（tty，tier1）已拆到 [z42.repl](../../toolchain/interactive/repl/)**
 （`split-z42-repl`），本库只保留跨平台 eval-core。
 
 **编译期 stdlib-only（sink-repl-compile-facade）**：编译不再静态依赖编译器后端（`z42c.semantics`/
@@ -61,7 +61,7 @@ CI 全量 GREEN 以 stdlib 构建（`xtask build stdlib`）+ toolchain 构建（
 - 引入/演进：change `add-z42-repl`（`docs/spec/changes/`；D2 依赖层级 / D7 命名 / D8 状态模型）；
   完整性判定改 parser 权威见 change `add-repl-parser-completeness`；终端交互层拆出见 change `split-z42-repl`；
   求值期运行异常捕获（REPL 不再因 `throw`/除零/类型不符而退出）见 change `fix-repl-eval-exception`
-- 终端行编辑 / 键位（tier1）：[z42.repl](../repl/)
+- 终端行编辑 / 键位（tier1）：[z42.repl](../../toolchain/interactive/repl/)
 
 ## 核心文件
 | 文件 | 职责 |

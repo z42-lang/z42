@@ -25,16 +25,17 @@ public interface IParallelBody {
 
 // 并行度全局配置（set-once：driver 启动解析 --jobs 后设置；编译期只读，非并行段可变态）。
 //
-// ⚠️ **默认串行**（parallelize-package-compile 实测：当前共享-STW-堆 GC 下，文件级并行分配
-// 密集，被每-alloc 全局锁（region bump + inner）串行化 + STW 频率随线程数放大 → 净负
-// （24 核比串行慢 2×）。根因见 docs/spec/changes/parallelize-package-compile/design.md「实测与
-// GC 瓶颈」。故并行**opt-in**、休眠，待 GC 线程模型改进（per-thread 分配 / TLAB）能 scale 再翻默认。
+// ⚠️ **默认串行**。最初（parallelize-package-compile，归档于
+// docs/spec/archive/2026-08-29-parallelize-package-compile/design.md）实测并行净负：每次分配都抢
+// 全局锁。TLAB（#342，2026-08-30）已消掉分配锁；2026-10-02 在 main 上编 z42c.semantics（24 核）
+// 重测：--jobs 2/4/8 比串行快约 16% / 19% / 13%，16 线程以上反而慢 30%+ —— 全进程共用一块年轻代，
+// 线程越多越快写满，每次回收都要停下全部线程。默认值是否改成小并行度另行评估。
 //   · 未设 / --jobs 1 → 串行（默认；ParallelFor 内联、不起线程）。
-//   · --jobs N (N>1)  → N 线程（实验用，当前更慢）。
+//   · --jobs N (N>1)  → N 线程（少量线程有收益，见上）。
 //   · --jobs 0        → auto = CpuCount（实验用）。
 // Jobs(n) 上限收敛到 n（不起超过项数的线程）。
 public static class ParallelConfig {
-    private static int _jobs = 1;   // 默认串行（见上：并行当前净负，opt-in 待 GC 改进）
+    private static int _jobs = 1;   // 默认串行（见上）
     private static bool _auto = false;   // --jobs 0 → auto=CpuCount
     public static void SetJobs(int j) {
         if (j == 0) { ParallelConfig._auto = true; ParallelConfig._jobs = 0; }
