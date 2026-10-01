@@ -1,7 +1,6 @@
 // add-z42-regex (2026-05-16)：?, *, +, {n}, {n,m} quantifier。
 namespace Z42RegexQuantifiersTests;
 
-using Std.Test;
 using Std.Regex;
 
 [Test]

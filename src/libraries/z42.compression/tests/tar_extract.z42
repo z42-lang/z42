@@ -5,8 +5,6 @@
 // in test body where it matters).
 namespace Z42TarExtractTests;
 
-using Std;
-using Std.Test;
 using Std.IO;
 using Std.Archive;
 using Std.Encoding;

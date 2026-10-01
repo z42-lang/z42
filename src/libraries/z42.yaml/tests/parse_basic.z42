@@ -1,7 +1,6 @@
 // add-z42-yaml (2026-05-24): scalar literals + single-level block mapping.
 namespace Z42YamlParseBasicTests;
 
-using Std.Test;
 using Std.Yaml;
 
 [Test]

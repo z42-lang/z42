@@ -2,9 +2,7 @@
 // ISO 8601 timestamps + TTY-aware level colour.
 namespace Z42DiagnosticsLogFormatTests;
 
-using Std;
 using Std.IO;
-using Std.Test;
 using Std.Time;
 using Std.Diagnostics;
 

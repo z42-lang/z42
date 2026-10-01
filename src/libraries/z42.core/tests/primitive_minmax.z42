@@ -3,9 +3,6 @@
 // to a literal at the use site (primitive structs have no static-field storage).
 namespace Z42CorePrimitiveMinMaxTests;
 
-using Std;
-using Std.Test;
-
 [Test]
 void test_int32() {
     Assert.Equal(2147483647, int.MaxValue);

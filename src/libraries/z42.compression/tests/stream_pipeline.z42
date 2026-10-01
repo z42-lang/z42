@@ -3,8 +3,6 @@
 // WrapRead(Stream)` factory shape composes with `Std.IO.MemoryStream`.
 namespace Z42CompressionStreamPipelineTests;
 
-using Std;
-using Std.Test;
 using Std.IO;
 using Std.Compression;
 

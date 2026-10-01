@@ -1,7 +1,6 @@
 // add-std-io-polish (2026-05-12)：Environment.SetEnvironmentVariable 测试。
 namespace Z42IoEnvSetTests;
 
-using Std.Test;
 using Std.IO;
 
 [Test]

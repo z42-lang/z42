@@ -1,8 +1,6 @@
 // add-z42-net-http K3 (2026-05-25): basic GET against in-process server.
 namespace Z42NetHttpGetBasicTests;
 
-using Std;
-using Std.Test;
 using Std.Threading;
 using Std.Net.Sockets;
 using Std.Net.Http;

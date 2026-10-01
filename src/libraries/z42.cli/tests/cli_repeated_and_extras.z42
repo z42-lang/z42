@@ -2,8 +2,6 @@
 // AddRepeatedOption + GetRepeatedOption + AllowExtras + Extras().
 namespace Z42CliRepeatedAndExtrasTests;
 
-using Std;
-using Std.Test;
 using Std.Cli;
 
 // ── Repeated option: basic ─────────────────────────────────────────────

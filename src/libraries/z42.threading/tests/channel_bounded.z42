@@ -2,8 +2,6 @@
 // + bounded-channel back-pressure semantics.
 namespace Z42ThreadingChannelBoundedTests;
 
-using Std;
-using Std.Test;
 using Std.Threading;
 
 [Test]

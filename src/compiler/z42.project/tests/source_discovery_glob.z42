@@ -5,9 +5,7 @@
 // 「这个包没有测试」，与「真的没有测试」不可区分。
 namespace Z42ProjectSourceDiscoveryTests;
 
-using Std;
 using Std.IO;
-using Std.Test;
 using Z42.Project;
 
 // 造一棵固定的临时源树，返回根目录：

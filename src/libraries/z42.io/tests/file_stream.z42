@@ -5,8 +5,6 @@
 // deletes it at the end. No shared state; tests are safe in parallel.
 namespace Z42IoFileStreamTests;
 
-using Std;
-using Std.Test;
 using Std.IO;
 
 // ── helpers ─────────────────────────────────────────────────────────────

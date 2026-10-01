@@ -2,8 +2,6 @@
 // chaining StreamWriter / StreamReader with byte Streams.
 namespace Z42IoStreamTextPipelineTests;
 
-using Std;
-using Std.Test;
 using Std.IO;
 
 // ── StreamWriter → MemoryStream → StreamReader round-trip ───────────────

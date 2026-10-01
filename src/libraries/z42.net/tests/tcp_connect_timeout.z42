@@ -1,8 +1,6 @@
 // add-net-socket-options-extended (2026-05-30): TcpClient.SetConnectTimeout.
 namespace Z42NetTcpConnectTimeoutTests;
 
-using Std;
-using Std.Test;
 using Std.Threading;
 using Std.Net.Sockets;
 

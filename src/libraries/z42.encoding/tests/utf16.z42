@@ -1,8 +1,6 @@
 // add-encoding-utf16 (2026-05-27): UTF-16 LE/BE encode + decode.
 namespace Z42EncodingUtf16Tests;
 
-using Std;
-using Std.Test;
 using Std.Encoding;
 
 [Test]

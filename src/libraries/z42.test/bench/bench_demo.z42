@@ -9,7 +9,6 @@
 
 namespace Z42TestBenchDemo;
 
-using Std;
 using Std.Test;
 
 // ── [Benchmark] runner-dispatched form ────────────────────────────────

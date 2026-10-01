@@ -5,9 +5,7 @@
 // the single-arity virtual core (Read() / Write(string)).
 namespace Z42IoTextReaderWriterTests;
 
-using Std;
 using Std.IO;
-using Std.Test;
 
 // ── Minimal concrete subclass of TextReader backed by a string ──────────
 //

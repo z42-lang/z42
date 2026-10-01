@@ -1,7 +1,6 @@
 // add-z42-io-binary (2026-05-15)：UTF-8 string + raw bytes round-trip。
 namespace Z42IoBinaryStringsTests;
 
-using Std.Test;
 using Std.IO.Binary;
 
 [Test]

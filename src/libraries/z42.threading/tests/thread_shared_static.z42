@@ -4,8 +4,6 @@
 // it serialises cross-thread writes safely.
 namespace Z42ThreadingSharedStaticTests;
 
-using Std;
-using Std.Test;
 using Std.Threading;
 
 public static class Shared {

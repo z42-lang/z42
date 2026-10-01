@@ -2,8 +2,6 @@
 // Exercises the auto-discovery + z42b reflection path within a fixture.
 namespace MtAuto;
 
-using Std.Test;
-
 [Test]
 void auto_conv_runs() {
     Assert.Equal(6, 1 + 2 + 3);

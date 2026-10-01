@@ -1,8 +1,6 @@
 // z42c.syntax Parser（Pratt 表达式）单测：用 Dump() 的 s-expression 断言结构 + 优先级。
 namespace Z42cSyntaxParserTests;
 
-using Std;
-using Std.Test;
 using Z42.Syntax;
 
 // 辅助：解析表达式并返回其 s-expression dump。

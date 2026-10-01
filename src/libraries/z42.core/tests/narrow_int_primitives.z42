@@ -4,9 +4,6 @@
 // post-make-corelib-errors-catchable, 2026-05-15).
 namespace Z42CoreNarrowIntTests;
 
-using Std;
-using Std.Test;
-
 // ── i8 ───────────────────────────────────────────────────────────────────────
 
 [Test]

@@ -2,8 +2,6 @@
 // MD5 auth — challenge-response 401 retry roundtrip.
 namespace Z42NetHttpDigestMd5Tests;
 
-using Std;
-using Std.Test;
 using Std.Threading;
 using Std.Encoding;
 using Std.Crypto;

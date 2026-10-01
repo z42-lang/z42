@@ -3,8 +3,6 @@
 // 与 Std.Reflection.PropertyInfo 的属性 attribute API（GetCustomAttributes / GetAttribute）。
 namespace Z42CoreReflApiDownsinkTests;
 
-using Std;
-using Std.Test;
 using Std.Reflection;
 
 // D8 后缀；extend 无限定 `Attribute`（via using Std）——限定 `Std.Attribute` 会触发 typechecker

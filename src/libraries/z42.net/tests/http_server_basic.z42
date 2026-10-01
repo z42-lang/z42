@@ -1,8 +1,6 @@
 // add-z42-net-http-server (2026-05-25): HttpClient ↔ HttpServer in-process round trip.
 namespace Z42NetHttpServerBasicTests;
 
-using Std;
-using Std.Test;
 using Std.Threading;
 using Std.Net.Http;
 

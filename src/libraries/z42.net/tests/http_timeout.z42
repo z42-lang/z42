@@ -2,9 +2,6 @@
 // read/write timeout pipeline.
 namespace Z42NetHttpTimeoutTests;
 
-using Std;
-using Std.Test;
-using Std.IO;
 using Std.Net.Sockets;
 using Std.Net.Http;
 using Std.Time;

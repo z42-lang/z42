@@ -1,8 +1,6 @@
 // add-net-ipaddress (2026-05-27): IPAddress v0 (IPv4 + IPv6).
 namespace Z42NetIPAddressTests;
 
-using Std;
-using Std.Test;
 using Std.Net.Sockets;
 
 // ── IPv4 parse + round-trip ───────────────────────────────────────────

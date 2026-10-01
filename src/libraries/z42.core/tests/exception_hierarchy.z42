@@ -5,9 +5,6 @@
 // via catch-by-type; this asserts the *subtype* dispatch + inner-exception plumbing.
 namespace Z42CoreExceptionHierarchyTests;
 
-using Std;
-using Std.Test;
-
 [Test]
 void test_catch_derived_by_base_clause() {
     // ArgumentNullException : ArgumentException : Exception.

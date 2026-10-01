@@ -2,8 +2,6 @@
 // client round-trip bytes both directions.
 namespace Z42NetTcpLoopbackTests;
 
-using Std;
-using Std.Test;
 using Std.Threading;
 using Std.Net.Sockets;
 

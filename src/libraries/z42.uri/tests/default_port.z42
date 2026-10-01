@@ -1,8 +1,6 @@
 // add-uri-default-port (2026-05-26): Uri.EffectivePort + DefaultPortFor.
 namespace Z42UriDefaultPortTests;
 
-using Std;
-using Std.Test;
 using Std.Uri;
 
 // ── EffectivePort: explicit port wins ──────────────────────────────────

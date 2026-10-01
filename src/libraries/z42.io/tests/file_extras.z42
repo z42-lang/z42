@@ -2,7 +2,6 @@
 // 隔离写盘到 File.CreateTempDir 建的临时目录（跨平台可写；不硬编码 /tmp）。
 namespace Z42IoFileExtrasTests;
 
-using Std.Test;
 using Std.IO;
 
 // ── File.Copy ─────────────────────────────────────────────────────────────

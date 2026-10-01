@@ -3,8 +3,6 @@
 // canonical Rust impl.
 namespace Z42CryptoBlake3VectorsTests;
 
-using Std;
-using Std.Test;
 using Std.Crypto;
 using Std.Encoding;
 

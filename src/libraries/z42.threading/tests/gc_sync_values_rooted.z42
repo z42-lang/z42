@@ -13,8 +13,6 @@
 //   ② 必须**真的分配**到让回收有东西可收、让空出来的槽位被复用（`churn`）。
 namespace Z42ThreadingGcSyncValuesRootedTests;
 
-using Std;
-using Std.Test;
 using Std.Threading;
 
 public class Box {

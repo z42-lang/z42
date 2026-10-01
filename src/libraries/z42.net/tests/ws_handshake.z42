@@ -1,8 +1,6 @@
 // add-z42-net-websocket K4 (2026-05-25): handshake — upgrade GET + 101 response.
 namespace Z42NetWsHandshakeTests;
 
-using Std;
-using Std.Test;
 using Std.Threading;
 using Std.Crypto;
 using Std.Encoding;

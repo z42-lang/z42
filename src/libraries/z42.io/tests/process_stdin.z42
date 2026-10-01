@@ -1,7 +1,6 @@
 // add-std-process: stdin one-shot bytes + streaming via Spawn.
 namespace Z42IoProcessStdinTests;
 
-using Std.Test;
 using Std.IO;
 
 [Test]

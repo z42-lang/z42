@@ -1,8 +1,6 @@
 // add-poly1305 (2026-05-27): RFC 8439 §2.5.2 + §A.3 Poly1305 test vectors.
 namespace Z42CryptoPoly1305VectorsTests;
 
-using Std;
-using Std.Test;
 using Std.Crypto;
 using Std.Encoding;
 

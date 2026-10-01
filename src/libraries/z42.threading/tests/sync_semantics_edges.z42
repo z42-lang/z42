@@ -8,8 +8,6 @@
 // 跨线程观测一律走静态字段（closure §4.1：lambda 捕获的是值快照）。
 namespace Z42ThreadingSyncSemanticsEdgesTests;
 
-using Std;
-using Std.Test;
 using Std.Threading;
 
 public class Item {

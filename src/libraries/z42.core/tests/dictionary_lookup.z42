@@ -4,8 +4,6 @@
 // which the ref-borrow out→tuple migration will rework.)
 namespace Z42CoreDictLookupTests;
 
-using Std;
-using Std.Test;
 using Std.Collections;
 
 [Test]

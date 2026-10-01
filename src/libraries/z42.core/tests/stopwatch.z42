@@ -2,7 +2,6 @@
 // busy-wait 代替 sleep（z42.time v0 无 Sleep API）。
 namespace Z42StopwatchTests;
 
-using Std.Test;
 using Std.Time;
 
 [Test]

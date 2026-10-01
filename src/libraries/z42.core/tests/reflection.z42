@@ -3,8 +3,6 @@
 // the Std.Reflection.{FieldInfo,MethodInfo,ParameterInfo} member objects.
 namespace Z42CoreReflectionTests;
 
-using Std;
-using Std.Test;
 using Std.Reflection;
 
 class Base {

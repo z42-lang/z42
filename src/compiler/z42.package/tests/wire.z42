@@ -1,8 +1,6 @@
 // 读侧线格式编解码单测（unify-package-codecs）：ZpkgWire.z42 是 .zbc / .zpkg / .zsym 三个读者共用的唯一实现。
 namespace Z42cPackageWireTests;
 
-using Std;
-using Std.Test;
 using Z42.Package;
 using Z42.IR;
 using Z42.IR.BinaryFormat;

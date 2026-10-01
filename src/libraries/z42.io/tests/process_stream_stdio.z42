@@ -2,8 +2,6 @@
 // ProcessOutputStream behaviour — Stream API over live child pipes.
 namespace Z42IoProcessStreamStdioTests;
 
-using Std;
-using Std.Test;
 using Std.IO;
 
 // ── helpers ─────────────────────────────────────────────────────────────

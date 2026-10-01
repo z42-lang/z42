@@ -5,9 +5,6 @@
 // mirrors the stdlib corpus (the form ModuleLoader TIDX indexes).
 namespace CompileThenTest;
 
-using Std;
-using Std.Test;
-
 [Test]
 void it_compiles_and_runs() {
     Assert.Equal(2, 1 + 1);

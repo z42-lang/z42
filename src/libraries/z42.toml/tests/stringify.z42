@@ -1,7 +1,6 @@
 // add-z42-toml (2026-05-14)：stringify + 简单 round-trip。
 namespace Z42TomlStringifyTests;
 
-using Std.Test;
 using Std.Toml;
 
 [Test]

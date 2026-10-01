@@ -4,7 +4,6 @@
 // overload taking `Std.Time.TimeSpan` is added.
 namespace Z42IoProcessTimeoutTests;
 
-using Std.Test;
 using Std.IO;
 
 [Test]

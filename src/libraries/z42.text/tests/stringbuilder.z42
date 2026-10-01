@@ -2,7 +2,6 @@
 // AppendLine / GetLength / ToString 工作流。
 namespace Z42TextTests;
 
-using Std.Test;
 using Std.Text;
 
 [Test]

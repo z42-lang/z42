@@ -8,8 +8,6 @@
 // the store is skipped when the body throws before returning.
 namespace Z42ThreadingLockReleaseOnThrowTests;
 
-using Std;
-using Std.Test;
 using Std.Threading;
 
 public static class ThrowState {

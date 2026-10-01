@@ -2,8 +2,6 @@
 // 用 Assert.Equal 覆盖（bool 走 Equal(true/false, ...)，不依赖 True/False 是否存在）。
 namespace Z42cCoreDiagTests;
 
-using Std;
-using Std.Test;
 using Z42.Core;
 
 [Test]

@@ -3,7 +3,6 @@
 // allocated; `GroupCount()` and `m.Group(n)` indices unaffected.
 namespace Z42RegexNonCapturingTests;
 
-using Std.Test;
 using Std.Regex;
 
 // ── Basic non-capturing ────────────────────────────────────────────────

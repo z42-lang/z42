@@ -1,7 +1,6 @@
 // add-std-process: Spawn + handle ops tests.
 namespace Z42IoProcessSpawnTests;
 
-using Std.Test;
 using Std.IO;
 
 [Test]

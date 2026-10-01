@@ -6,8 +6,6 @@
 //   ③ 命中但**类型不符照抛**（把它吞成 false 会让配置里的类型笔误静默退回默认值）
 namespace Z42TomlTryGetTests;
 
-using Std;
-using Std.Test;
 using Std.Toml;
 
 [Test]

@@ -11,7 +11,6 @@
 // 循环里凭空栈溢出；User 裁决正确性优先）⇒ 本 bench 的外提收益不复存在，数字回到 OFF 水平是预期。
 namespace Z42PureCallBench;
 
-using Std;
 using Std.Test;
 
 int rp_fib(int n) { if (n < 2) { return n; } return rp_fib(n - 1) + rp_fib(n - 2); }

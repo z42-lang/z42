@@ -1,9 +1,7 @@
 // BuildLayout：产物目录的级联解析（z42c 写、launcher run 找、z42b clean 删共用）。
 namespace Z42ProjectBuildLayoutTests;
 
-using Std;
 using Std.IO;
-using Std.Test;
 using Z42.Project;
 
 ProjectManifest _pm(string buildSection) {

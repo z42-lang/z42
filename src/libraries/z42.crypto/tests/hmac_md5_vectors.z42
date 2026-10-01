@@ -3,8 +3,6 @@
 // Source: RFC 2202 §2 — the canonical HMAC-MD5 / HMAC-SHA-1 test suite.
 namespace Z42CryptoHmacMd5VectorsTests;
 
-using Std;
-using Std.Test;
 using Std.Encoding;
 using Std.Crypto;
 

@@ -3,7 +3,6 @@
 // 验证 IO API 不抛异常 + 数值类 API 返回合理值。
 namespace Z42IoTests;
 
-using Std.Test;
 using Std.IO;
 
 [Test]

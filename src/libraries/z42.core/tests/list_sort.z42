@@ -5,8 +5,6 @@
 // the perf is a separate benchmark (core_bench bench_list_sort).
 namespace Z42CoreListSortTests;
 
-using Std;
-using Std.Test;
 using Std.Collections;
 
 // Sort key is `Key` only; `Seq` records insertion order so a *stable* sort must

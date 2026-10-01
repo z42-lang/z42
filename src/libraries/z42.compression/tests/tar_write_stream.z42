@@ -1,8 +1,6 @@
 // add-tar-write-stream (2026-05-27): Tar.WriteStream(entries, dest).
 namespace Z42CompressionTarWriteStreamTests;
 
-using Std;
-using Std.Test;
 using Std.IO;
 using Std.Compression;
 using Std.Archive;

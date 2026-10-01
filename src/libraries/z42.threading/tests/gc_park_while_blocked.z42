@@ -8,8 +8,6 @@
 // 循环量级足以跨过 nursery。跑不挂 = 通过；挂住 = gate 超时（这正是我们要的信号）。
 namespace Z42ThreadingGcParkWhileBlockedTests;
 
-using Std;
-using Std.Test;
 using Std.Threading;
 
 // 制造足够的堆压力以触发 GC（返回值防止被优化掉）。

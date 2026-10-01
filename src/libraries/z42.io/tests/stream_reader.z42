@@ -1,8 +1,6 @@
 // add-encoding-and-stream-text (2026-05-24): StreamReader behaviour.
 namespace Z42IoStreamReaderTests;
 
-using Std;
-using Std.Test;
 using Std.IO;
 using Std.Encoding;
 

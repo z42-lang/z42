@@ -1,7 +1,6 @@
 // add-std-process: Stdio mode tests (Null / Pipe / ToFile).
 namespace Z42IoProcessStdioTests;
 
-using Std.Test;
 using Std.IO;
 
 [Test]

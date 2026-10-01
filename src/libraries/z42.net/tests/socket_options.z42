@@ -1,8 +1,6 @@
 // add-z42-net-socket-options (2026-05-27): TCP_NODELAY / IP_TTL.
 namespace Z42NetSocketOptionsTests;
 
-using Std;
-using Std.Test;
 using Std.Net.Sockets;
 
 [Test]

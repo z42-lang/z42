@@ -2,8 +2,6 @@
 // inspection + conversion round-trip.
 namespace Z42NumericsBigIntBasicTests;
 
-using Std;
-using Std.Test;
 using Std.Numerics;
 
 [Test]

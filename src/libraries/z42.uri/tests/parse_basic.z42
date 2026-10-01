@@ -1,7 +1,6 @@
 // add-z42-uri (2026-05-15)：URI parse 基础 cases。
 namespace Z42UriBasicTests;
 
-using Std.Test;
 using Std.Uri;
 
 [Test]

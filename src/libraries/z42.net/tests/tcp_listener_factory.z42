@@ -2,8 +2,6 @@
 // static convenience that combines `new + Bind`.
 namespace Z42NetTcpListenerFactoryTests;
 
-using Std;
-using Std.Test;
 using Std.Net.Sockets;
 
 [Test]

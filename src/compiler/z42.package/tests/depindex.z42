@@ -1,8 +1,6 @@
 // DependencyIndex 单测（port-z42c-import CI-2）：键形态/first-wins/арity/歧义剔除。
 namespace Z42cIrDepIndexTests;
 
-using Std;
-using Std.Test;
 using Z42.IR;
 
 IrFunction _fn(string name, int pc, bool isStatic) {

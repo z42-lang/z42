@@ -1,8 +1,6 @@
 // add-cli-subcommand (2026-05-27): SubcommandRouter coverage.
 namespace Z42CliSubcommandTests;
 
-using Std;
-using Std.Test;
 using Std.Cli;
 
 static SubcommandRouter _git() {

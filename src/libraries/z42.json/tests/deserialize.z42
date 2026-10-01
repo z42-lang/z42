@@ -2,8 +2,6 @@
 // 嵌套 / 数组 / 缺键默认 / 多余键忽略 / [JsonProperty] 属性重命名）。
 namespace Z42JsonDeserializeTests;
 
-using Std;
-using Std.Test;
 using Std.Json;
 using Std.Collections;
 
