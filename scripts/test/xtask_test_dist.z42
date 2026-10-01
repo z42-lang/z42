@@ -374,9 +374,23 @@ int[] _launcherSmoke(string distDir, string work) {
         string rcfg = Path.Join(work, "repl-cfg.toml");
         File.WriteAllText(rcfg, "[runtime]\ngc-mode = \"stw\"\n");
         try {
+            string replCache = Path.Join(work, "repl-cache");
+            string staleIdx = Path.Join(distDir, "libs/.z42-nsindex");   // 旧版 z42i 留下的，先清掉再断言
+            if (File.Exists(staleIdx)) { File.Delete(staleIdx); }
             ProcessResult rp = new Process(launcher).Arg("repl").Arg("--config").Arg(rcfg).Arg("-c").Arg("1 + 2")
-                .EnvRemove("Z42_HOME").EnvRemove("Z42_PORTABLE_VM")
+                .EnvRemove("Z42_HOME").EnvRemove("Z42_PORTABLE_VM").Env("Z42_CACHE_DIR", replCache)
                 .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
+            // REPL 的 ns 索引缓存落用户缓存目录，不写进 SDK 的 libs/（只读安装位 / 分发目录不被污染）。
+            if (File.Exists(staleIdx)) {
+                Console.WriteLine("  FAIL: z42 repl wrote .z42-nsindex into the SDK's libs/");
+                fail = fail + 1;
+            } else if (!Directory.Exists(Path.Join(replCache, "nsindex"))) {
+                Console.WriteLine("  FAIL: z42 repl did not write its ns index under Z42_CACHE_DIR/nsindex");
+                fail = fail + 1;
+            } else {
+                Console.WriteLine("  ✓ z42 repl ns index → Z42_CACHE_DIR/nsindex (SDK libs/ untouched)");
+                pass = pass + 1;
+            }
             string got = rp.Stdout.Trim();
             // mode/gc effect isn't observable in stdout; assert eval works with the
             // flag present (proves --config didn't leak to z42i as a bad arg).
