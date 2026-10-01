@@ -231,3 +231,156 @@ JsonValue _jWorkload(string label, string sums, string name, JsonValue host, Jso
 JsonValue _strArr1(string a) { JsonValue r = JsonValue.OfArray(); r.Add(JsonValue.OfString(a)); return r; }
 JsonValue _strArr2(string a, string b) { JsonValue r = JsonValue.OfArray(); r.Add(JsonValue.OfString(a)); r.Add(JsonValue.OfString(b)); return r; }
 JsonValue _strArr4(string a, string b, string c, string d) { JsonValue r = JsonValue.OfArray(); r.Add(JsonValue.OfString(a)); r.Add(JsonValue.OfString(b)); r.Add(JsonValue.OfString(c)); r.Add(JsonValue.OfString(d)); return r; }
+
+// ── `xtask package archive` / `xtask package finalize`（unify-release-archive）──────────
+//
+// 发布归档此前在两处各写了一遍 bash：release.yml 的 package job（按 RID 分支 + `_tar` / `_wl_of` /
+// `_is_primary`）与 ci.yml 的 publish-nightly（把各 job 上传的**原始包目录**集中在 Linux 上打包，
+// 还要从目录名反推 RID）。两份命名规则相同、实现不同，而且后者有一个真缺陷：upload-artifact 不保留
+// 可执行位，集中打包出的 tar.gz 里 `z42vm` 等都不可执行。现在命名规则只在这里写一次：
+//   · `archive` 在**产出包的那台机器**上跑（可执行位原样进 tar；Windows 包出真 zip），本地发布同一条命令；
+//   · `finalize` 在汇总 job 上跑：合并桌面 workload → SHA256SUMS → release-index.json。
+//
+// 包目录（release profile）→ 归档基名（`<L>` = label：版本号或 `nightly`）：
+//   z42-<v>-<rid>-release            桌面 RID → z42-sdk-<L>-<rid>；平台 RID 只由主 RID 出 → z42-workload-<L>-<wl>
+//   z42-runtime-<v>-<rid>            → z42-runtime-<L>-<rid>
+//   z42-workload-<v>-desktop-<rid>   → z42-workload-<L>-desktop-<rid>（finalize 合并成一份）
+//   z42-workload-<v>-test            → z42-workload-<L>-test
+// windows-x64 的 sdk / runtime / desktop workload 出 `.zip`，其余 `.tar.gz`（与 `_sdkName` / `_rtName` 一致）。
+
+string[] _relRids() {
+    return new string[] { "linux-x64", "linux-arm64", "macos-arm64", "windows-x64",
+                          "ios-arm64", "iossim-arm64", "android-arm64", "android-x64", "browser-wasm" };
+}
+
+bool _relIsDesktop(string rid) {
+    return rid.StartsWith("linux-") || rid.StartsWith("macos-") || rid.StartsWith("windows-");
+}
+
+// 平台 workload 的 tooling 包各 ABI / slice 内容相同 ⇒ 每个平台只由一个主 RID 出归档（否则汇总时同名相撞）。
+string _relPrimaryWorkload(string rid) {
+    if (rid == "ios-arm64")     { return "ios"; }
+    if (rid == "android-arm64") { return "android"; }
+    if (rid == "browser-wasm")  { return "wasm"; }
+    return "";
+}
+
+// 包目录名 → 归档基名（不含扩展名）；不是要发布的包 → ""。
+string _relArchiveBase(string dirName, string ver, string label) {
+    if (dirName == "z42-workload-" + ver + "-test") { return "z42-workload-" + label + "-test"; }
+    string[] rids = _relRids();
+    int i = 0;
+    while (i < rids.Length) {
+        string rid = rids[i];
+        if (dirName == "z42-" + ver + "-" + rid + "-release") {
+            if (_relIsDesktop(rid)) { return "z42-sdk-" + label + "-" + rid; }
+            string wl = _relPrimaryWorkload(rid);
+            return wl.Length > 0 ? "z42-workload-" + label + "-" + wl : "";
+        }
+        if (dirName == "z42-runtime-" + ver + "-" + rid)           { return "z42-runtime-" + label + "-" + rid; }
+        if (dirName == "z42-workload-" + ver + "-desktop-" + rid)  { return "z42-workload-" + label + "-desktop-" + rid; }
+        i = i + 1;
+    }
+    return "";
+}
+
+string _relArchiveExt(string baseName) { return baseName.EndsWith("-windows-x64") ? ".zip" : ".tar.gz"; }
+
+// `xtask package archive [--label L] [--from DIR] [--out DIR]`
+int _releaseArchive(string label, string from, string outDir) {
+    Stopwatch sw = _procStart("package archive");
+    string root = _root();
+    string ver = _versionsGet(root);
+    if (ver.Length == 0) { ConsoleError.WriteLine("package archive: versions.toml 没有 [project].version"); return 1; }
+    if (label.Length == 0) { label = ver; }
+    string src = from.Length > 0 ? (Path.IsRooted(from) ? from : Path.Join(root, from)) : _packagesDir(root);
+    string dst = outDir.Length > 0 ? (Path.IsRooted(outDir) ? outDir : Path.Join(root, outDir)) : _releaseDir(root);
+    if (!Directory.Exists(src)) { ConsoleError.WriteLine("package archive: 没有包目录 " + src + "（先跑 xtask package sdk|runtime|workload）"); return 1; }
+    Directory.Create(dst);
+    string[] names = _sortedStrings(Directory.Enumerate(src));
+    int n = 0;
+    int i = 0;
+    while (i < names.Length) {
+        string dir = Path.Join(src, names[i]);
+        string baseName = Directory.Exists(dir) ? _relArchiveBase(names[i], ver, label) : "";
+        if (baseName.Length > 0) {
+            string ar = Path.Join(dst, baseName + _relArchiveExt(baseName));
+            if (File.Exists(ar)) { File.Delete(ar); }
+            int rc = ar.EndsWith(".zip") ? _relZipDir(dir, ar)
+                : _exec(new Process("tar").Arg("-C").Arg(dir).Arg("-czf").Arg(ar).Arg("."));
+            if (rc != 0) { ConsoleError.WriteLine("package archive: 打包失败 " + ar); return 1; }
+            Console.WriteLine("✓ " + names[i] + " → " + Path.GetFileName(ar));
+            n = n + 1;
+        }
+        i = i + 1;
+    }
+    if (n == 0) {
+        ConsoleError.WriteLine("package archive: " + src + " 下没有版本 " + ver + " 的 release 包");
+        return 1;
+    }
+    _procEnd("package archive", sw);
+    return 0;
+}
+
+// 目录内容（不含目录本身）→ zip。Windows 上用 .NET 的 ZipFile（条目分隔符是 `/`；Windows PowerShell 5.1 的
+// Compress-Archive 会写出 `\`，Linux 上 unzip 要告警并以非零退出）；其它主机用 `zip`。
+int _relZipDir(string dir, string zipPath) {
+    if (Platform.IsWindows()) {
+        string ps = "Add-Type -AssemblyName System.IO.Compression.FileSystem; "
+            + "[System.IO.Compression.ZipFile]::CreateFromDirectory('" + dir.Replace("'", "''") + "', '"
+            + zipPath.Replace("'", "''") + "')";
+        return _exec(new Process("powershell").Arg("-NoProfile").Arg("-Command").Arg(ps));
+    }
+    return _execIn(new Process("zip").Arg("-qr").Arg(zipPath).Arg("."), dir);   // `_exec` 会把 cwd 强制成仓库根
+}
+
+// `xtask package finalize <label> [--dir DIR] [--channel C] [--tag T] [--version V]`
+// 汇总 job 的全部 z42 侧步骤：合并桌面 workload → SHA256SUMS → release-index.json。要求全部 RID 的归档齐全
+// （index 的校验会逐个点名缺的）。channel / tag / version 缺省同 `package index`（stable / v<label> / <label>）。
+int _releaseFinalize(string label, string dist, string channel, string tag, string version) {
+    if (label.Length == 0) {
+        ConsoleError.WriteLine("usage: xtask package finalize <LABEL> [--dir DIR] [--channel C] [--tag T] [--version V]");
+        return 2;
+    }
+    string root = _root();
+    if (dist.Length == 0) { dist = _releaseDir(root); }
+    string distDir = Path.IsRooted(dist) ? dist : Path.Join(root, dist);
+    int rc = _releaseAssembleDesktop(label, distDir);
+    if (rc != 0) { return rc; }
+    rc = _releaseWriteSums(distDir);
+    if (rc != 0) { return rc; }
+    return _releaseGenIndex(label, distDir, channel, tag, version);
+}
+
+// <dist>/SHA256SUMS：`<sha>  <name>`，按文件名排序（与 `shasum -a 256 … | sort -k2` 同形）。
+// 摘要走系统工具：Std.Crypto.Sha256 是纯脚本实现，解释模式下对几百 MB 的归档太慢。
+int _releaseWriteSums(string distDir) {
+    string[] tgz = Path.Glob(distDir, "z42-*.tar.gz");
+    string[] zips = Path.Glob(distDir, "z42-*.zip");
+    string[] names = new string[tgz.Length + zips.Length];
+    int i = 0;
+    while (i < tgz.Length) { names[i] = Path.GetFileName(tgz[i]); i = i + 1; }
+    int j = 0;
+    while (j < zips.Length) { names[tgz.Length + j] = Path.GetFileName(zips[j]); j = j + 1; }
+    names = _sortedStrings(names);
+    if (names.Length == 0) { ConsoleError.WriteLine("SHA256SUMS: " + distDir + " 下没有归档"); return 1; }
+    string outp = "";
+    i = 0;
+    while (i < names.Length) {
+        string sha = _relSha256(Path.Join(distDir, names[i]));
+        if (sha.Length != 64) { ConsoleError.WriteLine("SHA256SUMS: 算不出 " + names[i] + " 的 sha256"); return 1; }
+        outp = outp + sha + "  " + names[i] + "\n";
+        i = i + 1;
+    }
+    File.WriteAllText(Path.Join(distDir, "SHA256SUMS"), outp);
+    Console.WriteLine("✓ SHA256SUMS (" + names.Length.ToString() + " archives)");
+    return 0;
+}
+
+// 文件的 sha256（小写 hex）；失败 → ""。macOS 只有 `shasum`，Linux 两者通常都有、`sha256sum` 必有。
+string _relSha256(string path) {
+    string outp = Platform.IsMacOS() ? _cmdOut("shasum", new string[] { "-a", "256", path })
+                                     : _cmdOut("sha256sum", new string[] { path });
+    int sp = outp.IndexOf(" ");
+    return sp > 0 ? outp.Substring(0, sp) : "";
+}

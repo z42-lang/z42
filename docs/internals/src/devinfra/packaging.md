@@ -146,12 +146,12 @@ graph LR
 | desktop 管道 | `xtask_package_desktop.z42` | SDK 分段组装 |
 | 移动 / 浏览器管道 | `xtask_package_{ios,android,wasm}.z42` | native 产物 + 平台 facade（SwiftPM / Gradle / npm）|
 | 能力 workload | `xtask_package_test.z42` | 见 §4 |
-| 发行索引 | `xtask_release.z42` | `package index` 生成 `release-index.json`（launcher 的供给契约）|
-| 自检 | `xtask_selfcheck_*.z42`，入口 `xtask test packages` | 解析 / staging / 组装三层各一个 harness，一条命令顺序跑完 |
+| 发布归档 / 索引 | `xtask_release.z42` | `package archive`（包目录 → 归档，命名规则唯一出处）、`package finalize`（合并 desktop workload → `SHA256SUMS` → `release-index.json`，launcher 的供给契约）|
+| 自检 | `xtask_selfcheck_*.z42`，入口 `xtask test packages` | 解析 / staging / 组装 / 发布归档四层各一个 harness，一条命令顺序跑完 |
 
 ## 7. 边界与限制
 
 - 组件落点全局唯一，无 per-package dest override（真需要时再引入）。
-- `workload-desktop` 单机只产 host RID，四 RID 的合并发生在 CI（`package workload <label>`）。
+- `workload-desktop` 单机只产 host RID，四 RID 的合并发生在 CI（`package finalize <label>` 的第一步）。
 - 发行包正确性的端到端验证依赖 `xtask test dist`，它需要先打 host-RID 包**加 desktop workload**——
   apphost 那条腿的 stub 模板来自 workload 包的 `apphost-<rid>`，SDK 包按设计不带它。

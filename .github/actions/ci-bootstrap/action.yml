@@ -126,8 +126,12 @@ runs:
         # 它加载不了 gen1 产出的新格式 stdlib —— 实测必挂（run 35290607109）。
         # 成功 CI 运行的 artifact 顶多落后一两个 commit，格式天然对得上，**根本不进两代路径**。
         #
-        # 另两个好处：artifact 里是**已解包**的 SDK 目录（免 tar/zip 与 EXT 分支）；
-        # 不依赖 release 是否被正确发布。保留期 90 天。
+        # 另一个好处：不依赖 release 是否被正确发布。保留期 90 天。
+        #
+        # artifact 形态（unify-release-archive）：host-package 现在上传的是**归档**
+        # `release-host-<rid>`（内含 `z42-sdk-nightly-<rid>.<ext>`，与 nightly release 里的同名文件
+        # 逐字节同源）⇒ 回退与首选路径走同一个 `unpack_and_check`。在此之前的运行上传的是**已解包**的
+        # SDK 目录 `z42-host-package-<os>`；最近 5 次里可能还是旧形态，故仍认（过渡期过后可删这一支）。
         #
         # 权限：需要 token 的 `actions: read`。仓库默认 workflow 权限是 read（含 actions），
         # 且用本 action 的 job 都没有自定义 permissions 块。**若将来给这些 job 加
@@ -138,6 +142,17 @@ runs:
           for run_id in $(gh run list --workflow CI --branch main --status success \
                             --limit 5 --json databaseId --jq '.[].databaseId' 2>/dev/null || true); do
             echo "   trying CI run $run_id …"
+            rm -rf "$work/art"; mkdir -p "$work/art"
+            if gh run download "$run_id" -p "release-host-${RID}" -D "$work/art" 2>"$work/dlerr"; then
+              ar="$(find "$work/art" -maxdepth 2 -type f -name "z42-sdk-nightly-${RID}.${EXT}" | head -1)"
+              if [ -n "$ar" ] && unpack_and_check "$ar"; then
+                dl_ok=1; seed_src="ci-run-$run_id"
+                break
+              fi
+              echo "     release-host-${RID} has no usable z42-sdk-nightly-${RID}.${EXT}"
+              continue
+            fi
+            # 旧形态（unify-release-archive 之前的运行）：已解包的 SDK 目录。
             rm -rf "$work/art"; mkdir -p "$work/art"
             if ! gh run download "$run_id" -p 'z42-host-package-*' -D "$work/art" 2>"$work/dlerr"; then
               echo "     download failed ($(head -1 "$work/dlerr" 2>/dev/null))"
@@ -163,7 +178,7 @@ runs:
         if [ "$dl_ok" != 1 ]; then
           echo "::error::no usable z42c seed: nightly failed after 10 attempts AND no successful CI run's host package worked."
           echo "::error::check 'gh release view nightly' — a stuck *draft* nightly (publish-nightly cancelled mid delete-recreate) looks present but carries no SDK packages."
-          echo "::error::manual recovery: repackage the newest successful CI run's z42-host-package-* artifacts and republish the nightly release (see internals/devinfra/ci.md §3.1)."
+          echo "::error::manual recovery: download the newest successful CI run's release-* artifacts, run 'xtask package finalize nightly' and republish the nightly release (see internals/devinfra/ci.md §3.1)."
           cat "$work/dlerr" 2>/dev/null || true
           exit 1
         fi

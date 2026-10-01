@@ -500,6 +500,12 @@ jobs:
             xtask package workload test
           fi
 
+      # unify-release-archive：在本 runner 上出归档（可执行位原样进 tar；Windows 出 zip）。PR 上也做（几秒）——
+      # 下面的 Installer smoke 装的就是它，于是 4 个桌面平台每个 PR 都真装一遍真归档；只有上传限非 PR。
+      - name: Archive packages (nightly label)
+        shell: bash
+        run: xtask package archive --label nightly
+
       - name: Dist test (launcher + desktop-publish + golden legs)
         # Runs on all RIDs incl. Windows (P5 cleanup fixed the dist-test preflight +
         # launcher-smoke `.exe`-suffix gaps: bin/z42c[.exe] / z42[.exe] / z42vm[.exe]).
@@ -532,17 +538,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          pkg_dir=$(ls -d artifacts/packages/z42-*-release | head -1)
+          # 装的是上面 `xtask package archive` 出的**发布归档**本身（与 nightly / release 上传的同一个文件）。
+          rid="${{ matrix.platform }}"
           home="$RUNNER_TEMP/z42-install-home"
           rm -rf "$home"; mkdir -p "$home/runtimes/keep"
           if [ "${RUNNER_OS:-}" = "Windows" ]; then
-            archive="$RUNNER_TEMP/z42-sdk.zip"
-            pwsh -NoProfile -Command "Compress-Archive -Path '$pkg_dir/*' -DestinationPath '$archive' -Force"
+            archive="$PWD/artifacts/release/z42-sdk-nightly-${rid}.zip"
             pwsh -NoProfile -File scripts/install/install.ps1 -Archive "$archive" -Dest "$home" -NoModifyPath
             z42="$home/z42.exe"
           else
-            archive="$RUNNER_TEMP/z42-sdk.tar.gz"
-            tar -C "$pkg_dir" -czf "$archive" .
+            archive="$PWD/artifacts/release/z42-sdk-nightly-${rid}.tar.gz"
             sh scripts/install/install.sh --archive "$archive" --dest "$home" --no-modify-path
             z42="$home/z42"
           fi
@@ -610,11 +615,12 @@ jobs:
           echo "--- manifest.toml ---"
           cat "$pkg_dir/manifest.toml"
 
-      - name: Upload host package
+      - name: Upload host archives
+        if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@v7
         with:
-          name: z42-host-package-${{ matrix.os }}
-          path: artifacts/packages/
+          name: release-host-${{ matrix.platform }}
+          path: artifacts/release/
           retention-days: 14
           if-no-files-found: error
 
@@ -1101,11 +1107,18 @@ jobs:
             echo "✓ $rid lipo: $lipo_out"
           done
 
-      - name: Upload iOS packages
+      # unify-release-archive：在本 runner 上出归档（可执行位原样进 tar；Windows 出 zip）。PR 上也做（几秒）——
+      # 下面的 Installer smoke 装的就是它，于是 4 个桌面平台每个 PR 都真装一遍真归档；只有上传限非 PR。
+      - name: Archive packages (nightly label)
+        shell: bash
+        run: xtask package archive --label nightly
+
+      - name: Upload iOS archives
+        if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@v7
         with:
-          name: z42-ios-packages
-          path: artifacts/packages/
+          name: release-ios
+          path: artifacts/release/
           retention-days: 14
           if-no-files-found: error
 
@@ -1190,11 +1203,18 @@ jobs:
             esac
           done
 
-      - name: Upload Android packages
+      # unify-release-archive：在本 runner 上出归档（可执行位原样进 tar；Windows 出 zip）。PR 上也做（几秒）——
+      # 下面的 Installer smoke 装的就是它，于是 4 个桌面平台每个 PR 都真装一遍真归档；只有上传限非 PR。
+      - name: Archive packages (nightly label)
+        shell: bash
+        run: xtask package archive --label nightly
+
+      - name: Upload Android archives
+        if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@v7
         with:
-          name: z42-android-packages
-          path: artifacts/packages/
+          name: release-android
+          path: artifacts/release/
           retention-days: 14
           if-no-files-found: error
 
@@ -1284,11 +1304,18 @@ jobs:
           xtask test platform wasm assets
           node src/toolchain/workload/wasm/platform/demo/node/run.js
 
-      - name: Upload wasm package
+      # unify-release-archive：在本 runner 上出归档（可执行位原样进 tar；Windows 出 zip）。PR 上也做（几秒）——
+      # 下面的 Installer smoke 装的就是它，于是 4 个桌面平台每个 PR 都真装一遍真归档；只有上传限非 PR。
+      - name: Archive packages (nightly label)
+        shell: bash
+        run: xtask package archive --label nightly
+
+      - name: Upload wasm archives
+        if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@v7
         with:
-          name: z42-wasm-package
-          path: artifacts/packages/
+          name: release-wasm
+          path: artifacts/release/
           retention-days: 14
           if-no-files-found: error
 
@@ -1349,127 +1376,23 @@ jobs:
       - name: Provision z42vm + xtask (consume toolchain artifact)
         uses: ./.github/actions/xtask-bootstrap-artifact
 
-      - name: Download all package artifacts
+      # unify-release-archive：各 package job 已在**自己的 runner** 上用 `xtask package archive --label nightly`
+      # 出好归档（可执行位原样进 tar、Windows 出真 zip）。此前这里下载**原始包目录**再集中打包 ——
+      # upload-artifact 不保留可执行位，nightly tar 里的 z42vm 等都不可执行；还要从目录名反推 RID。
+      - name: Download all release archives
         uses: actions/download-artifact@v8
         with:
-          path: dist-raw
-          pattern: 'z42-*-package*'
+          path: artifacts/release
+          pattern: 'release-*'
           merge-multiple: true
 
-      - name: Show downloaded layout (debug)
-        run: |
-          echo "--- dist-raw top level ---"
-          ls -la dist-raw/ || true
-          echo "--- z42-* dirs under dist-raw/ ---"
-          find dist-raw -maxdepth 1 -type d | sort || true
-
-      - name: Layout + archive each RID package
+      # 合并 4 份逐 RID 桌面 workload → SHA256SUMS → release-index.json（与 release.yml 同一条命令）。
+      - name: Finalize release assets (nightly)
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p artifacts/packages artifacts/release
-          out="$(pwd)/artifacts/release"
-
-          # Find SDK package dirs (z42-*-release) at top level.
-          mapfile -t sdk_dirs < <(find dist-raw -maxdepth 1 -type d -name 'z42-*-release' | sort -u)
-          [ "${#sdk_dirs[@]}" -gt 0 ] \
-              || { echo "error: no z42-*-release dirs under dist-raw/"; find dist-raw -maxdepth 3 -type d; exit 1; }
-          echo "→ Found ${#sdk_dirs[@]} SDK package dirs"
-
-          for src in "${sdk_dirs[@]}"; do
-              name=$(basename "$src")          # z42-<v>-<rid>-release
-              stripped=${name#z42-}            # <v>-<rid>-release
-              stripped=${stripped%-release}    # <v>-<rid>
-              # rid = last segment matching a known suffix (handles linux-x64,
-              # iossim-arm64, browser-wasm). iOS device (ios-arm64) and simulator
-              # (iossim-arm64) now use distinct prefixes, so suffix matching is
-              # unambiguous regardless of list order.
-              rid=""
-              for candidate in linux-x64 linux-arm64 macos-arm64 windows-x64 \
-                               iossim-arm64 ios-arm64 \
-                               android-arm64 android-x64 browser-wasm; do
-                  if [[ "$stripped" == *-"$candidate" ]]; then rid="$candidate"; break; fi
-              done
-              [ -n "$rid" ] || { echo "error: cannot infer RID from $name"; exit 1; }
-
-              # Rename to neutral version label so the download URL stays stable.
-              new_name="z42-nightly-${rid}-release"
-              dst="artifacts/packages/$new_name"
-              rm -rf "$dst"; cp -R "$src" "$dst"
-
-              if [ "$rid" = "windows-x64" ]; then
-                  # Archive contents directly (no top-level subdirectory).
-                  # Use `zip` (not `tar -a`): GNU tar's zip output is incompatible
-                  # with Windows Expand-Archive / Explorer on some tar versions.
-                  (cd "$dst" && zip -r "${out}/z42-sdk-nightly-${rid}.zip" .)
-                  echo "✓ sdk ${rid} → z42-sdk-nightly-${rid}.zip"
-                  psrc=$(find dist-raw -maxdepth 1 -type d -name "z42-runtime-*-${rid}" | head -1)
-                  [ -d "$psrc" ] || { echo "error: missing runtime package for ${rid}"; exit 1; }
-                  (cd "$psrc" && zip -r "${out}/z42-runtime-nightly-${rid}.zip" .)
-                  echo "✓ runtime ${rid} → z42-runtime-nightly-${rid}.zip"
-                  dwsrc=$(find dist-raw -maxdepth 1 -type d -name "z42-workload-*-desktop-${rid}" | head -1)
-                  [ -d "$dwsrc" ] || { echo "error: missing desktop workload for ${rid}"; exit 1; }
-                  (cd "$dwsrc" && zip -r "${out}/z42-workload-nightly-desktop-${rid}.zip" .)
-                  echo "✓ desktop workload ${rid} → z42-workload-nightly-desktop-${rid}.zip"
-              elif [[ "$rid" == linux-* || "$rid" == macos-* ]]; then
-                  tar -C "$dst" -czf "${out}/z42-sdk-nightly-${rid}.tar.gz" .
-                  echo "✓ sdk ${rid} → z42-sdk-nightly-${rid}.tar.gz"
-                  psrc=$(find dist-raw -maxdepth 1 -type d -name "z42-runtime-*-${rid}" | head -1)
-                  [ -d "$psrc" ] || { echo "error: missing runtime package for ${rid}"; exit 1; }
-                  tar -C "$psrc" -czf "${out}/z42-runtime-nightly-${rid}.tar.gz" .
-                  echo "✓ runtime ${rid} → z42-runtime-nightly-${rid}.tar.gz"
-                  dwsrc=$(find dist-raw -maxdepth 1 -type d -name "z42-workload-*-desktop-${rid}" | head -1)
-                  [ -d "$dwsrc" ] || { echo "error: missing desktop workload for ${rid}"; exit 1; }
-                  tar -C "$dwsrc" -czf "${out}/z42-workload-nightly-desktop-${rid}.tar.gz" .
-                  echo "✓ desktop workload ${rid} → z42-workload-nightly-desktop-${rid}.tar.gz"
-              else
-                  # Platform RID (runtime/workload split): runtime pack (per RID) +
-                  # workload tooling (primary RID only — identical across ABIs/slices).
-                  psrc=$(find dist-raw -maxdepth 1 -type d -name "z42-runtime-*-${rid}" | head -1)
-                  [ -d "$psrc" ] || { echo "error: missing runtime pack for ${rid}"; exit 1; }
-                  tar -C "$psrc" -czf "${out}/z42-runtime-nightly-${rid}.tar.gz" .
-                  echo "✓ runtime ${rid} → z42-runtime-nightly-${rid}.tar.gz"
-                  case "$rid" in
-                    ios-arm64)     wl=ios ;;
-                    android-arm64) wl=android ;;
-                    browser-wasm)  wl=wasm ;;
-                    *)             wl="" ;;
-                  esac
-                  if [ -n "$wl" ]; then
-                      tar -C "$dst" -czf "${out}/z42-workload-nightly-${wl}.tar.gz" .
-                      echo "✓ workload ${wl} → z42-workload-nightly-${wl}.tar.gz"
-                  fi
-              fi
-          done
-
-          # test workload (payload-only, platform-agnostic) — a SINGLE archive built
-          # once on macos-arm64 (package-test-workload), not per-RID → re-archive here
-          # to the neutral nightly label. No merge (D6b): the built dir is the artifact.
-          twsrc=$(find dist-raw -maxdepth 1 -type d -name "z42-workload-*-test" | head -1)
-          [ -d "$twsrc" ] || { echo "error: missing test workload package (expected z42-workload-*-test in dist-raw)"; exit 1; }
-          tar -C "$twsrc" -czf "${out}/z42-workload-nightly-test.tar.gz" .
-          echo "✓ test workload → z42-workload-nightly-test.tar.gz"
-
-      # Merge the 4 per-RID desktop-workload pieces into ONE RID-agnostic
-      # z42-workload-nightly-desktop.tar.gz (every RID's apphost-<rid>) → cross-output.
-      - name: Assemble single desktop workload (nightly)
-        shell: bash
-        run: |
-          xtask package workload nightly artifacts/release
-
-      - name: Generate SHA256SUMS
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd artifacts/release
-          shasum -a 256 z42-*.tar.gz z42-*.zip 2>/dev/null | sort -k2 > SHA256SUMS
-          echo "--- SHA256SUMS ---"
-          cat SHA256SUMS
-
-      - name: Generate release-index.json
-        shell: bash
-        run: |
-          xtask package index nightly artifacts/release nightly nightly nightly
+          ls -la artifacts/release/
+          xtask package finalize nightly --channel nightly --tag nightly --version nightly
 
       - name: Force-replace nightly release
         shell: bash

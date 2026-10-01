@@ -53,9 +53,10 @@ Windows 的 `.exe` 后缀，以及 Windows **不能覆盖正在运行的 exe**�
 重链 `z42vm.exe`，所以 Windows 上它每次都从 cargo 输出目录之外的一份拷贝启动。
 `Z42_PORTABLE_VM` / `Z42_LIBS` 只在调用方没设时给默认值。
 
-⇒ 构建产物布局变了，**CI 侧只改这一个文件**。例外：`test-consume` 故意用下载来的
-current-sdk 里的 z42vm 跑，不走垫片；`bench-pr.yml` / `release.yml` 尚未迁移（前者同一 job
-里要分别驱动 base 与 PR 两棵树）。
+⇒ 构建产物布局变了，**CI 侧只改这一个文件**。`ci.yml` / `release.yml` / `bench-pr.yml` 全部走它。
+例外：`test-consume` 故意用下载来的 current-sdk 里的 z42vm 跑，不走垫片。`bench-pr.yml` 里
+`cd base-src && xtask …` 也成立：垫片按**自己所在位置**定位 PR 树的三样东西、不看 cwd，于是跑的仍是
+PR 的 xtask，而 xtask 的 `_root()` 取 cwd 的仓库根 = base-src（base 工具链另经 `--base-vm` 等显式传入）。
 
 ## 2. 触发与门控
 
@@ -197,7 +198,7 @@ Swatinem `rust-cache` 用 `shared-key` 跨 job 共享；**一个 key 命中后�
 ```
 nightly release 的 z42-sdk-nightly-<rid>          （首选，10 次重试）
   ↓ 下载不到，或包里没有 programs/z42c/
-最近 5 次成功 CI 运行的 z42-host-package-* artifact （回退，逐个试）
+最近 5 次成功 CI 运行的 release-host-<rid> artifact（回退，逐个试；内含 z42-sdk-nightly-<rid> 归档）
   ↓ 全都过期 / 没有本 RID
 报错退出（错误信息带人工恢复指引）
 ```
@@ -241,9 +242,10 @@ bootstrap job。实测（run 35287940676）照样全红。
 **当时是怎么解开的**（回退链上线前的人工流程，也是错误信息里指的那条）：
 
 1. `gh run list --workflow CI --branch main --status success --limit 5` 找最近一次全绿的 run
-2. `gh run download <run> -p 'z42-*'` 取它的 `z42-host-package-*` / `z42-*-packages` 产物
-3. 按 `publish-nightly` 的原样流程重新打包（打平 → 逐 RID 归档 →
-   `xtask package workload nightly` → `SHA256SUMS` → `xtask package index nightly`）
+2. `gh run download <run> -p 'release-*' -D artifacts/release` 取它的归档（各 package job 已用
+   `xtask package archive --label nightly` 在自己的 runner 上出好）
+3. `xtask package finalize nightly --channel nightly --tag nightly --version nightly`
+   （合并 desktop workload → `SHA256SUMS` → `release-index.json`，与 `publish-nightly` 同一条命令）
 4. `gh release delete nightly --cleanup-tag` → `gh release create nightly --prerelease`
    → `gh release edit nightly --draft=false` 并校验非 draft
 

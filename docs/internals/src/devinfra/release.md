@@ -43,9 +43,16 @@
 ./xtask package sdk --profile debug                   # debug profile
 ./xtask package runtime --rid ios-arm64               # 平台 RID 的 runtime 包
 ./xtask package workload --rid linux-x64              # 单 RID 的 desktop workload
-./xtask package workload <LABEL> [dist]               # 合并四个 per-RID workload 成一个归档
-./xtask package index <LABEL> [dist] [channel] [tag] [version]   # 从 SHA256SUMS 生成 release-index.json
+./xtask package archive [--label L]                  # artifacts/packages 下的 release 包 → artifacts/release 归档
+./xtask package finalize <LABEL> [--dir D] [--channel C] [--tag T] [--version V]
+                                                      # 合并四个 per-RID desktop workload → SHA256SUMS → release-index.json
+./xtask package workload <LABEL> [dist]               # （finalize 的第一步，单独可用）合并 desktop workload
+./xtask package index <LABEL> [dist] [channel] [tag] [version]   # （finalize 的最后一步）从 SHA256SUMS 生成 release-index.json
 ```
+
+**本地出发布归档**：打完本机的包后 `./xtask package archive`，`artifacts/release/` 下就是与 CI 同名、
+同格式的归档（label 缺省取 `versions.toml` 的版本）。命名规则（下表）只在 `xtask_release.z42` 里写一次，
+release.yml、nightly 与本地共用。`finalize` 要求 9 个 RID 的归档齐全（单机凑不齐，它是汇总 job 的步骤）。
 
 `--no-build` 让它消费已有的 z42c + stdlib 产物（CI warm 路径用）。
 `--variant <suffix>` 给包名加后缀。产物落 `artifacts/packages/z42-<version>-<rid>-<profile>/`。
@@ -138,8 +145,8 @@ git tag vY && git push origin vY           # ⑤ 触发 .github/workflows/releas
 | job | 做什么 |
 |---|---|
 | `verify-version(linux-x64)` | 校验 `tag` 去掉 `v` 后等于 `versions.toml [project].version`，不等就 fail-fast |
-| `package-<rid>`（9 个 RID matrix） | 每 RID 一台 runner，先从上一 nightly 种子自举，再打包：desktop RID 跑 `package sdk` + `package runtime` + `package workload`（外加在一台 host 上 `package workload test`），平台 RID 跑 `package runtime --rid <rid>`；最后内联 tar / shasum 归档 |
-| `publish-release(linux-x64)` | 汇总归档、生成 `SHA256SUMS`、`gh release create v<version>` 上传 |
+| `package-<rid>`（9 个 RID matrix） | 每 RID 一台 runner，先从上一 nightly 种子自举，再打包：desktop RID 跑 `package sdk` + `package runtime` + `package workload`（外加在一台 host 上 `package workload test`），平台 RID 跑 `package runtime --rid <rid>`；最后 `xtask package archive --label <version>` 在本 runner 上出归档（保留可执行位；Windows 出 zip） |
+| `publish-release(linux-x64)` | 汇总归档，`xtask package finalize <version> --dir dist`（合并 desktop workload → `SHA256SUMS` → `release-index.json`），`gh release create v<version>` 上传 |
 
 **artifact 命名**（`<v>` 在 nightly 里是字面量 `nightly`）：
 
