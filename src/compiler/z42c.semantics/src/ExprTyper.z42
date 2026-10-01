@@ -409,7 +409,6 @@ public sealed partial class ExprTyper {
         return NamedType.Synth(TypeNameResolver.SynthName(t), new TypeExpr[0], 0, s);
     }
 
-
     // 集合字面量绑定入口（外部 StmtBinder + hub _bindExpr 共用）→ 委回 CollectionTyper。
     public BoundExpr _bindCollLit(Expr e, TypeExpr target, TypeEnv env) {
         return this._coll._bindCollLit(e, target, env);
