@@ -555,6 +555,11 @@ User 2026-09-30 裁定走 **A：按规范办**（补 `using` + 让规则 2 在�
    - 最后的依赖方是 7 个测试源码（z42.collections 的 6 个 golden + `struct_generic_container`）：用 `List` / `Dictionary`
      不写 `using Std.Collections;`。单文件 `--emit-zbc` 路径不跑文件级 E0436，一直靠短名表静默通过 ⇒ 补 using。
    - 用户可见：类型注解位没 using 的类型名在引用处报 E0436（同 A5b-2c 的表达式位）；单文件 `--emit-zbc` 此前静默放行，现在同样报。
+   - 🔴 删后单元红了一条（`usinggate` 声明位：delegate 形参不写 using **零诊断**）⇒ 追出 `StubCollector._passDelegates`
+     在**根表**上解析 delegate 签名：不只负例，`using A;` 写全了的 `delegate int Op2(W w)` 形参也会静默变 Unknown
+     （传错实参不报）。语料里没有「delegate 签名用 using 进来的类型」这种写法，探针只在负例上响了 1 次（`W scope=`）。
+     ⇒ 改按本 CU 作用域解析 + 补声明位类型引用检查；用例 `test_delegate_signature_resolves_types_through_using`
+     （撤掉修复即零诊断，实测）。
 
 ### A5b 测绘（2026-09-29，探针跑全量 `build stdlib`，21,078 次 `GetClass`）
 

@@ -264,3 +264,13 @@ void test_cached_file_still_reports_E0436_after_global_using_removed() {
     CompileArtifacts a2 = ugCompileCached(ug2(ugLibA(), f1), cm, meta);
     Assert.Equal(1, ugCount(a2, "namespace `A` is used but not imported"));
 }
+
+[Test]
+void test_delegate_signature_resolves_types_through_using() {
+    // A5b-2d：delegate 签名此前在根表上解析，经 `using` 引入的类型全靠短名表回落；回落删掉后会静默变成 Unknown
+    // ⇒ 传错实参不再报错。这里 `using A;` 写全了，`Op2` 的形参必须解析成 `W`，传 `1` 必须报类型不匹配。
+    if (!ugHasLibs()) { return; }
+    CompileArtifacts art = ugCompile(ug2(ugLibA(),
+        "namespace B;\nusing A;\npublic delegate int Op2(W w);\nint F(Op2 o) { return o(1); }\nint G(Op2 o) { return o(new W()); }\n"));
+    Assert.Equal(1, art.ErrorCount);
+}
