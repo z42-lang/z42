@@ -13,7 +13,6 @@
 |---|---|---|
 | `build/` | 编译产物与 per-component 输出，子目录**镜像 `src/`** | `xtask build *`、cargo |
 | `packages/` | 组装好的发行包（`z42-<...>-<rid>-<profile>/` 及归档）| `xtask package *` |
-| `publish/<comp>/` | 打包的**暂存根**：每个组件按自己的 `dest` 形状产出到这里，包再从这里拷 | staging handler / `z42 publish` |
 | `xtask/` | xtask 自己的 zpkg / zsym / cache —— **不在 `build/` 里面** | `z42 publish scripts/xtask.z42.toml` |
 | `bench/` | `e2e.json` / `ab.json` 等测量结果 | `xtask bench` |
 | `profile/<name>/` | 火焰图、dhat 报告、counter 摘要、`report.md` | `xtask profile` |
@@ -54,7 +53,7 @@
 
 xtask 自己发明、没有 toml 归属的路径，**全部在 `xtask_layout.z42` 里各有一个单一定义**：
 扁平 stdlib dist（`_libsFlatDist`）、cargo target 目录（`_cargoTargetDir` / `_runtimeOut`），以及 §1 的
-每个顶层桶（`_scratchDir(root, name)` / `_tmpDir` / `_toolsDir` / `_devSdkDir` / `_pubStagingRoot` /
+每个顶层桶（`_scratchDir(root, name)` / `_tmpDir` / `_toolsDir` / `_devSdkDir` /
 `_packagesDir` / `_releaseDir` / `_testReportsDir` / `_benchDir` / `_profileDir`）。使用点只写
 「桶 + 自己的子目录名」，不再写 `"artifacts/…"` 字面量——挪一个桶只改一处。
 
@@ -116,7 +115,7 @@ cross-zpkg 一轮 ≈198MB 的纯拷贝；有害的是「写到别名上」，�
 | `tmp/incr-reconcile` | `test incremental` | 增量 vs 全量对账的两份产物 |
 | `tmp/fingerprint` | `test fingerprint` | base 与本树编译器各编一份 stdlib 的对比场地 |
 | `tmp/exec-profile` | bench / profile | 执行画像探测 |
-| `tmp/{stage-test-cargo,assemble-test-*}` | `test packages` | 打包自检的一次性目录 |
+| `tmp/install-test-*` | `test packages` | 打包自检的一次性目录 |
 
 > 2026-09-30 前这里是 `.scratch/`（跨步骤复用）与 `tmp/`（自检一次性）两个桶，alllibs 也在 `.scratch/`。
 > 两个桶的生命周期没有实质差别（都可重生、都不进包、都没被 `clean` 覆盖），合成一个；alllibs 按上面的
@@ -147,8 +146,8 @@ best-effort，拷贝失败也会让旧副本顶上）。
 | `xtask clean` | 生产 cache/dist：各 stdlib 成员的 `<lib>/<profile>/{cache,dist}` + 扁平 `libraries/dist/` |
 | `xtask clean tests` | golden `.zbc` 镜像（`build/tests`、`build/{libraries,compiler}/<m>/tests`）+ z42b 的 test 目标输出（`<工程目录>/artifacts/test-targets`）|
 | `xtask clean bench` | z42b 的 bench 目标输出（`<工程目录>/artifacts/bench-targets`）|
-| `xtask clean tmp` | `tmp/`（+ 旧名 `.scratch/`）|
-| `xtask clean all` | `build/` + `tmp/` + `.scratch/` + `publish/`（打包暂存）+ **源码树里**各 z42 工程旁的 `artifacts/`、`dist/`（+ cross-zpkg 用例的 `libs/`）|
+| `xtask clean tmp` | `tmp/`（+ 旧名 `.scratch/` 与已删的打包暂存 `publish/`）|
+| `xtask clean all` | `build/` + `tmp/` + 旧名 `.scratch/` / `publish/` + **源码树里**各 z42 工程旁的 `artifacts/`、`dist/`（+ cross-zpkg 用例的 `libs/`）|
 
 `clean all` **保留** `xtask/`（驱动自身，正在运行）、`tools/`（下载的第三方工具）、
 `packages/` `release/` `.z42/`（成品）与 `bench/` `profile/` `test-reports/`（报告）。

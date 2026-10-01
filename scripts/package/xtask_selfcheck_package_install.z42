@@ -1,28 +1,47 @@
-// xtask — staging handler self-check (add-package-layout-config, 阶段 3.3).
+// xtask — package installer self-check (drop-package-staging；前身是 add-package-layout-config 阶段 3.3 的
+// staging handler 自检 + 4.1b 的 assembly 自检，暂存去掉后合成这一份).
 //
 // Same rationale as xtask_selfcheck_packages_config.z42: xtask is an exe, so the
 // [Test]-attribute reflection runner can't see it — this is a plain
 // throw-on-mismatch self-check, not [Test]-discovered.
 //
-// 运行方式：`xtask test packages`（经 _testPackages 聚合三层自检）。**它是 opt-in 的，
+// 运行方式：`xtask test packages`（经 _testPackages 聚合）。**它是 opt-in 的，
 // 不在 `xtask test` 的 GREEN gate stage 里**——改打包系统时手动跑（见 scripts/README.md）。
-// （原注释写的是 "wired into `test`"，容易被读成「gate 会自动跑」，实际不会。）
 //
-// Exercises _pkgStageZ42vm/_pkgStageNative/_pkgStageStdlib against a
-// throwaway fake cargoOut (these handlers only copy — they never invoke
-// cargo themselves, so no real build is needed to test them) plus the
-// repo's real, already-built stdlib dist for the stdlib handler.
+// 用一个手搭的 _PackagesConfig（真 kind、假 cargoOut）走 `_pkgInstallPackage`，装进临时包目录：
+// installers only copy — they never invoke cargo themselves, so no real build is needed —
+// plus the repo's real, already-built stdlib dist for the stdlib component.
 namespace Z42Xtask;
 
 using Std.IO;
 
 void _stgAssert(string what, bool cond) {
-    if (!cond) { throw new Exception("packages-staging: " + what + ": failed"); }
+    if (!cond) { throw new Exception("packages-install: " + what + ": failed"); }
 }
 
-int _testPackagesStaging() {
+_PkgComponent _instComp(string name, string kind, string project) {
+    _PkgComponent comp = new _PkgComponent();
+    comp.name = name;
+    comp.kind = kind;
+    comp.project = project;
+    comp.dest = "";
+    return comp;
+}
+
+_PackagesConfig _instConfig(string pkgName, string[] include, _PkgComponent[] comps) {
+    _PkgPackage pkg = new _PkgPackage();
+    pkg.name = pkgName;
+    pkg.include = include;
+    _PackagesConfig cfg = new _PackagesConfig();
+    cfg.packages = new _PkgPackage[1];
+    cfg.packages[0] = pkg;
+    cfg.components = comps;
+    return cfg;
+}
+
+int _testPackagesInstall() {
     string root = _root();
-    string fakeCargoOut = _tmpDir(root, "stage-test-cargo");
+    string fakeCargoOut = _tmpDir(root, "install-test-cargo");
     if (Directory.Exists(fakeCargoOut)) { Directory.Delete(fakeCargoOut, true); }
     Directory.Create(fakeCargoOut);
     File.WriteAllText(Path.Join(fakeCargoOut, "z42vm"), "fake-z42vm-binary");
@@ -31,41 +50,44 @@ int _testPackagesStaging() {
     File.WriteAllText(Path.Join(fakeCargoOut, "libz42_platform_ios.a"), "must-be-excluded");
     File.WriteAllText(Path.Join(fakeCargoOut, "libz42_repl.dylib"), "fake-repl-cdylib");
 
-    // z42vm: bin/z42vm staged at the exact dest packages.toml declares, content
-    // matches the source (a real copy, not a placeholder).
-    string vmDir = _pkgStageZ42vm(root, fakeCargoOut);
-    _stgAssert("z42vm dir suffix", vmDir == Path.Join(_pubStagingRoot(root), "z42vm"));
-    string vmBin = Path.Join(vmDir, "bin/z42vm");
+    // 一个假包：四种固定 kind 各一个组件（真 kind，假 cargoOut），按 include 顺序装进临时包目录。
+    string pkgDir = _tmpDir(root, "install-test-pkg");
+    _resetDir(pkgDir);
+    _PkgComponent[] comps = new _PkgComponent[]{
+        _instComp("z42vm", "cargo-bin", ""), _instComp("native", "cargo-native", ""),
+        _instComp("stdlib", "stdlib-glob", ""), _instComp("editor-assets", "editor-assets", "") };
+    _PackagesConfig cfg = _instConfig("install-test-pkg",
+        new string[]{ "z42vm", "native", "stdlib", "editor-assets" }, comps);
+    _PkgInstallCtx ctx = new _PkgInstallCtx();
+    ctx.CargoOut = fakeCargoOut;
+    _stgAssert("install ok", _pkgInstallPackage(cfg, root, "install-test-pkg", pkgDir, ctx) == 0);
+
+    // z42vm: bin/z42vm at the exact dest packages.toml declares, content matches the source (a real copy).
+    string vmBin = Path.Join(pkgDir, "bin/z42vm");
     _stgAssert("bin/z42vm exists", File.Exists(vmBin));
     _stgAssert("bin/z42vm content", File.ReadAllText(vmBin) == "fake-z42vm-binary");
-    // add-native-dep-config: the repl cdylib is NOT staged into bin/ (kept out of the
+    // add-native-dep-config: the repl cdylib is NOT put into bin/ (kept out of the
     // shared dir the ext scanner walks). It is colocated into programs/z42i/ by z42.repl's
-    // ProvideNative build hook during `z42b publish` — not by a packaging stage step — so
-    // there is no _pkgStageReplCdylib to unit-test here (covered by the publish e2e).
-    _stgAssert("bin/libz42_repl absent", !File.Exists(Path.Join(vmDir, "bin/libz42_repl.dylib")));
+    // ProvideNative build hook during `z42b publish` — covered by the publish e2e.
+    _stgAssert("bin/libz42_repl absent", !File.Exists(Path.Join(pkgDir, "bin/libz42_repl.dylib")));
 
-    // native: native/libz42.a + native/libz42_compression.a staged, mobile
-    // facade excluded (_copyNativeLibs' existing filter), headers copied from
-    // the real src/runtime/include/.
-    string nativeDir = _pkgStageNative(root, fakeCargoOut);
-    _stgAssert("native/libz42.a exists", File.Exists(Path.Join(nativeDir, "native/libz42.a")));
-    _stgAssert("native/libz42_compression.a exists", File.Exists(Path.Join(nativeDir, "native/libz42_compression.a")));
-    _stgAssert("mobile facade excluded", !File.Exists(Path.Join(nativeDir, "native/libz42_platform_ios.a")));
-    _stgAssert("native/include/z42_abi.h exists", File.Exists(Path.Join(nativeDir, "native/include/z42_abi.h")));
-    _stgAssert("native/include/z42_host.h exists", File.Exists(Path.Join(nativeDir, "native/include/z42_host.h")));
+    // native: native/libz42.a + native/libz42_compression.a, mobile facade excluded
+    // (_copyNativeLibs' filter), headers copied from the real src/runtime/include/.
+    _stgAssert("native/libz42.a exists", File.Exists(Path.Join(pkgDir, "native/libz42.a")));
+    _stgAssert("native/libz42_compression.a exists", File.Exists(Path.Join(pkgDir, "native/libz42_compression.a")));
+    _stgAssert("mobile facade excluded", !File.Exists(Path.Join(pkgDir, "native/libz42_platform_ios.a")));
+    _stgAssert("native/libz42_repl absent", !File.Exists(Path.Join(pkgDir, "native/libz42_repl.dylib")));
+    _stgAssert("native/include/z42_abi.h exists", File.Exists(Path.Join(pkgDir, "native/include/z42_abi.h")));
+    _stgAssert("native/include/z42_host.h exists", File.Exists(Path.Join(pkgDir, "native/include/z42_host.h")));
 
-    // stdlib: reuses the repo's real built dist — at least one zpkg lands at
-    // the declared libs/ dest.
-    int c = _pkgStageStdlib(root);
-    _stgAssert("stdlib stage ok", c == 0);
-    string stdlibDir = Path.Join(_pubStagingRoot(root), "stdlib");
+    // stdlib: reuses the repo's real built dist — at least one zpkg lands at the declared libs/ dest.
     bool anyZpkg = false;
-    foreach (var f in Directory.Enumerate(Path.Join(stdlibDir, "libs"))) {
+    foreach (var f in Directory.Enumerate(Path.Join(pkgDir, "libs"))) {
         if (f.EndsWith(".zpkg")) { anyZpkg = true; }
     }
     _stgAssert("stdlib libs/ has zpkg", anyZpkg);
 
-    // 🔴 **staging 必须按成员清单，而不是「flat 里有什么拷什么」**（2026-09-28）。
+    // 🔴 **装 libs 必须按成员清单，而不是「flat 里有什么拷什么」**（2026-09-28）。
     //
     // 上面那两组「不得出现在 libs/」的断言读的是**真实 flat 的当下状态** —— 而 flat 里有什么
     // 曾取决于最后跑的是哪条命令（`build compiler` 的破环预建往里写，`build stdlib` 末步又清空；2026-10-01 起
@@ -73,9 +95,9 @@ int _testPackagesStaging() {
     // 所以它们**能抓到、抓不住**：实测 `build compiler` 之后打包，SDK 的 `libs/` 里就多出
     // `z42c.core` / `z42c.syntax` / `z42.package` / `z42.project` / `z42.build` 五个。
     //
-    // 这一格改成**密闭**的：自己造一个「被污染的 libs」，看 staging 会不会把入侵者带进去。
+    // 这一格改成**密闭**的：自己造一个「被污染的 libs」，看安装会不会把入侵者带进去。
     // 与命令顺序无关 ⇒ 它守的是**构造**，不是当下这一刻的目录内容。
-    string fakeLibs = Path.Join(_pubStagingRoot(root), "fake-libs");
+    string fakeLibs = _tmpDir(root, "install-test-fake-libs");
     _resetDir(fakeLibs);
     string[] mem = _stdlibList(root);
     int mi = 0;
@@ -87,11 +109,11 @@ int _testPackagesStaging() {
     File.WriteAllText(Path.Join(fakeLibs, "z42c.core.zpkg"), "INTRUDER");          // 编译器域
     File.WriteAllText(Path.Join(fakeLibs, "z42.workload.ios.zpkg"), "INTRUDER");   // workload
     File.WriteAllText(Path.Join(fakeLibs, "totally.random.zpkg"), "INTRUDER");     // 随便什么
-    string hermetic = Path.Join(_pubStagingRoot(root), "hermetic-stdlib");
+    string hermetic = _tmpDir(root, "install-test-hermetic");
     _resetDir(hermetic);
-    _stgAssert("污染过的 libs 也能 stage 成功", _pkgCopyLibsOf(root, fakeLibs, hermetic) == 0);
+    _stgAssert("污染过的 libs 也能装成功", _pkgCopyLibsOf(root, fakeLibs, hermetic) == 0);
     foreach (var f in Directory.Enumerate(Path.Join(hermetic, "libs"))) {
-        _stgAssert("入侵者没被带进 staged libs/ (" + f + ")",
+        _stgAssert("入侵者没被带进 libs/ (" + f + ")",
             f != "z42c.core.zpkg" && f != "z42.workload.ios.zpkg" && f != "totally.random.zpkg");
     }
 
@@ -107,7 +129,7 @@ int _testPackagesStaging() {
     int di = 0;
     while (di < domain.Length) {
         _stgAssert(domain[di] + " NOT in shipped libs/",
-            !File.Exists(Path.Join(stdlibDir, Path.Join("libs", domain[di] + ".zpkg"))));
+            !File.Exists(Path.Join(pkgDir, Path.Join("libs", domain[di] + ".zpkg"))));
         di = di + 1;
     }
 
@@ -119,15 +141,13 @@ int _testPackagesStaging() {
     //
     // 按**前缀**判而不是列四个名字：下一个 workload 加进来时这门自动管得住它
     // （列名字的门只在有人想起来改它时才成立 —— 那正是「靠约定」）。
-    foreach (var f in Directory.Enumerate(Path.Join(stdlibDir, "libs"))) {
+    foreach (var f in Directory.Enumerate(Path.Join(pkgDir, "libs"))) {
         _stgAssert("no workload zpkg in shipped libs/ (" + f + ")", !f.StartsWith("z42.workload."));
     }
 
     // editor-assets: 资产从仓库源码树拷到 editors/<target>/；生成器模板不得进包
     // （*.tpl.json 是 xtask 的输入，出现在用户扩展目录里只会造成困惑）。
-    int ea = _pkgStageEditorAssets(root);
-    _stgAssert("editor assets staged", ea > 0);
-    string edDir = Path.Join(_pubStagingRoot(root), "editor-assets/editors/vscode");
+    string edDir = Path.Join(pkgDir, "editors/vscode");
     _stgAssert("editors/vscode/package.json exists", File.Exists(Path.Join(edDir, "package.json")));
     _stgAssert("editors/vscode/language-configuration.json exists",
         File.Exists(Path.Join(edDir, "language-configuration.json")));
@@ -136,14 +156,19 @@ int _testPackagesStaging() {
     _stgAssert("generator template NOT packaged",
         !File.Exists(Path.Join(edDir, "syntaxes/z42.tmLanguage.tpl.json")));
 
-    // _pkgStageDir resets rather than accumulates: a stale file from a prior
-    // run must not survive a second stage call for the same component.
-    File.WriteAllText(Path.Join(vmDir, "stale-marker.txt"), "should not survive");
-    _pkgStageZ42vm(root, fakeCargoOut);
-    _stgAssert("stage dir reset (no stale marker)", !File.Exists(Path.Join(vmDir, "stale-marker.txt")));
+    // 失败要响亮（不留半个包当成功）：① kind 装不了（apphost-stub 归 desktop workload）；② apphost 组件缺 z42b 上下文。
+    string badDir = _tmpDir(root, "install-test-bad");
+    _resetDir(badDir);
+    _PackagesConfig stubCfg = _instConfig("install-test-stub", new string[]{ "apphost-stub" },
+        new _PkgComponent[]{ _instComp("apphost-stub", "cargo-bin", "") });
+    _stgAssert("apphost-stub 不能装进普通包", _pkgInstallPackage(stubCfg, root, "install-test-stub", badDir, ctx) != 0);
+    _PackagesConfig appCfg = _instConfig("install-test-app", new string[]{ "z42b" },
+        new _PkgComponent[]{ _instComp("z42b", "apphost", "src/toolchain/builder/core/z42.builder.z42.toml") });
+    _stgAssert("apphost 组件缺 z42b 上下文必须报错", _pkgInstallPackage(appCfg, root, "install-test-app", badDir, ctx) != 0);
 
     Directory.Delete(fakeCargoOut, true);
-    Directory.Delete(_pubStagingRoot(root), true);
-    Console.WriteLine("packages-staging: PASS (z42vm/native/stdlib/repl-cdylib staging handlers)");
+    Directory.Delete(pkgDir, true);
+    Directory.Delete(badDir, true);
+    Console.WriteLine("packages-install: PASS (z42vm/native/stdlib/editor-assets installers + hermetic libs + failure paths)");
     return 0;
 }

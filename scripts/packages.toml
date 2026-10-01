@@ -1,9 +1,9 @@
-# packages.toml — 发行包内容清单（add-package-layout-config，DRAFT）
+# packages.toml — 发行包内容清单（add-package-layout-config）
 #
-# 产出（publish）与组装（packages.toml）严格分层：组件各自产出到暂存根
-# artifacts/publish/<comp>/，各包（sdk / runtime / workload-desktop）再从暂存根
-# 拷贝组装自己的目录树。include 解析器只知道"去暂存根拷贝"，不知道"怎么产出"
-# （apphost project 路径、Z42_APPHOST_TEMPLATE 等产出细节全部封在 publish 一步）。
+# 「哪个包装哪些组件」只在这里声明。打包时按 `include` 顺序把每个组件**直接装进包目录**
+# （scripts/package/xtask_package_install.z42，按 kind 分派）：固定形态组件从构建产物拷到 `dest`，
+# apphost 组件 `z42b publish <project> --output <包目录>`。drop-package-staging（2026-10-01）删掉了
+# 原先的暂存根 artifacts/publish/<comp>/——它只是让每个组件多拷一遍，且只有桌面 sdk / runtime 在用。
 #
 # 组件分两类，纯按"谁控制它的构建"区分：
 #   ① z42 组件（launcher / z42c / z42b / z42d / z42i）：自带
@@ -14,8 +14,8 @@
 #      本地包，非 stdlib），`z42 publish` 会自动解析拷到同一落点
 #      （programs/z42c/），因此**不单独登记组件**，include 里只写一次 "z42c"。
 #
-#   ② 固定 staging handler 组件：不经 `z42 publish`，由 xtask 各自一个固定
-#      handler 产出到暂存根，但同样逐个登记（名字→kind→落点），不留"隐形"
+#   ② 固定形态组件：不经 `z42 publish`，由 xtask 按 kind 从构建产物拷进包，
+#      但同样逐个登记（名字→kind→落点），不留"隐形"
 #      组件——cargo bin 类（z42vm / apphost-stub）产出单个二进制；native 是
 #      cargo-native（libz42.* 静态/动态库 + headers，多文件但来源单一：同一个
 #      cargo 工作区一次 build 产出，登记成本不比单文件高）；stdlib 是 zpkg

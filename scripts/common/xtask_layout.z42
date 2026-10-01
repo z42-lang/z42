@@ -223,8 +223,9 @@ string _toolsDir(string root) { return Path.Join(_artifactsDir(root), "tools"); 
 // artifacts/.z42 — the local dev SDK assembled by `build sdk` (default `--sdk` of `test examples`).
 string _devSdkDir(string root) { return Path.Join(_artifactsDir(root), ".z42"); }
 
-// artifacts/publish — packaging staging root (one subdir per packages.toml component).
-string _pubStagingRoot(string root) { return Path.Join(_artifactsDir(root), "publish"); }
+// 旧的 artifacts/publish（打包暂存根）—— drop-package-staging（2026-10-01）起组件直接装进包目录，不再写这里。
+// 只供 `xtask clean tmp|all` 清理旧工作树里的残留。不要往这里写。
+string _legacyPubStagingDir(string root) { return Path.Join(_artifactsDir(root), "publish"); }
 
 // artifacts/packages — assembled package dirs (z42-<ver>-<rid>-<profile>…).
 string _packagesDir(string root) { return Path.Join(_artifactsDir(root), "packages"); }
@@ -246,7 +247,7 @@ string _profileDir(string root) { return Path.Join(_artifactsDir(root), "profile
 string[] _layoutKeys() {
     return new string[]{
         "root", "artifacts", "build", "vm", "vm-debug", "libs", "xtask", "cargo-target",
-        "compiler-build", "libraries-build", "sdk", "stage", "packages", "release",
+        "compiler-build", "libraries-build", "sdk", "packages", "release",
         "tools", "test-reports", "bench", "profile", "tmp", "alllibs" };
 }
 string _layoutPath(string root, string key) {
@@ -261,7 +262,6 @@ string _layoutPath(string root, string key) {
     if (key == "compiler-build")  { return _compilerBuildRoot(root); }
     if (key == "libraries-build") { return _libsBuildRoot(root); }
     if (key == "sdk")             { return _devSdkDir(root); }
-    if (key == "stage")           { return _pubStagingRoot(root); }
     if (key == "packages")        { return _packagesDir(root); }
     if (key == "release")         { return _releaseDir(root); }
     if (key == "tools")           { return _toolsDir(root); }

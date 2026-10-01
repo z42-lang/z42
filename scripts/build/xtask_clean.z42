@@ -12,8 +12,8 @@ using Std.Cli;   // ParseResult
 //   clean tests   测试产物：golden .zbc 镜像（build/tests、build/{libraries,compiler}/<m>/tests）
 //                 + z42b 的 test 目标输出（`<m>/<profile>/tests`、tmp/dev-targets；旧位置 <工程目录>/artifacts/test-targets）
 //   clean bench   z42b 的 bench 目标输出（`<m>/<profile>/bench`、tmp/dev-targets；旧位置 <工程目录>/artifacts/bench-targets）
-//   clean tmp     artifacts/tmp/（+ 旧名 artifacts/.scratch/）
-//   clean all     build/ + tmp/ + .scratch/ + publish/（打包暂存）+ 源码树里各 z42 工程旁的 artifacts/、dist/
+//   clean tmp     artifacts/tmp/（+ 旧名 artifacts/.scratch/ 与已删的打包暂存 artifacts/publish/）
+//   clean all     build/ + tmp/ + 旧名 .scratch/ 与 publish/（已删的打包暂存）+ 源码树里各 z42 工程旁的 artifacts/、dist/
 //                 **保留**：xtask/（驱动自身，正在运行）、tools/（下载的第三方工具）、
 //                 packages/ release/ .z42/（成品）、bench/ profile/ test-reports/（报告）
 //
@@ -31,7 +31,8 @@ int _clean(ParseResult r) {
     string sub  = r.GetPositional(0);   // "" | tests | bench | tmp | all
     if (sub == "all") { return _cleanAll(root); }
     if (sub == "tmp") {
-        int t = _rmIfExists(Path.Join(_artifactsDir(root), "tmp")) + _rmIfExists(_legacyScratchDir(root));
+        int t = _rmIfExists(Path.Join(_artifactsDir(root), "tmp")) + _rmIfExists(_legacyScratchDir(root))
+              + _rmIfExists(_legacyPubStagingDir(root));
         Console.WriteLine("✅ clean tmp: removed " + t.ToString() + " dir(s)");
         return 0;
     }
@@ -104,7 +105,7 @@ int _cleanAll(string root) {
     n = n + _rmIfExists(_buildDir(root));
     n = n + _rmIfExists(Path.Join(_artifactsDir(root), "tmp"));
     n = n + _rmIfExists(_legacyScratchDir(root));
-    n = n + _rmIfExists(_pubStagingRoot(root));
+    n = n + _rmIfExists(_legacyPubStagingDir(root));
     int strays = 0;
     foreach (var d in _srcZ42ProjectDirs(root)) {
         strays = strays + _rmIfExists(Path.Join(d, "artifacts")) + _rmIfExists(Path.Join(d, "dist"));
@@ -114,7 +115,7 @@ int _cleanAll(string root) {
             strays = strays + _rmIfExists(Path.Join(d, "libs"));
         }
     }
-    Console.WriteLine("✅ clean all: removed " + n.ToString() + " artifacts/ dir(s) (build, tmp, publish)"
+    Console.WriteLine("✅ clean all: removed " + n.ToString() + " artifacts/ dir(s) (build, tmp)"
         + " + " + strays.ToString() + " source-tree output dir(s)");
     Console.WriteLine("   kept: artifacts/{xtask,tools,packages,release,.z42,bench,profile,test-reports}");
     return 0;

@@ -274,7 +274,7 @@ void _copyNativeLibs(string cargoOut, string pkgDir) {
 // / `z42.project` / `z42.build` 五个 —— 而 relocate-compiler-domain-libs 的验收信号正是
 // 「编译器域一个都不许出现在 shipped `libs/`」。
 //
-// 门（`_selfcheckStageComponents` 那条断言）读的是**同一份可变状态**，所以它只在「恰好撞上脏
+// 门（`_testPackagesInstall` 那条断言，原 staging 自检）读的是**同一份可变状态**，所以它只在「恰好撞上脏
 // flat」时才红 —— 能抓到，但抓不住（同 relocate 第 2 轮那条教训：本地绿是命令顺序的巧合）。
 // ⇒ 改成按 `default-members` 逐个拷：**flat 里多出什么都进不来**，与命令顺序无关。
 int _pkgCopyLibs(string libsDir, string pkgDir) {

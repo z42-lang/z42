@@ -1,0 +1,171 @@
+// xtask — 把 packages.toml 的组件**直接装进包目录**（drop-package-staging，2026-10-01）。
+//
+// 一个包（sdk / runtime）= 按 `[package.<name>].include` 的顺序，把每个组件装到它在包里的落点：
+//   · cargo-bin（z42vm）/ cargo-native / stdlib-glob / editor-assets —— 从构建产物拷到 `dest`；
+//   · apphost（launcher / z42c / z42b / z42d / z42i）—— `z42b publish --output <包目录>`，组件自带的
+//     `[platform.desktop] bin/payload` 决定落点（`bin/<名>` + `programs/<名>/`），工程路径取 packages.toml 的 `project`。
+//
+// 🔴 此前是两段：先各自产出到暂存根 `artifacts/publish/<comp>/`，再整目录拷进包（add-package-layout-config
+// Decision 6）。去掉暂存的理由（User 2026-10-01）：
+//   ① 固定形态组件本就是从构建产物拷出来的，暂存只是多拷一遍；apphost 组件 publish 不清空 `--output`、各落各的
+//      子目录，可以直接发布进包目录；
+//   ② 只有桌面 sdk / runtime 用暂存 —— ios / wasm / android 与 `build sdk` 一直直接往包目录写，两套做法并存；
+//   ③ apphost 组件的工程路径在 packages.toml 与打包代码里各写一份，现在只读 packages.toml。
+// packages.toml 仍是「哪个包装哪些组件」的唯一声明；本文件只按 kind 分派「怎么装」。
+//
+// apphost-stub（desktop workload 的 per-RID stub）不经这里：它只进 workload-desktop 包，由
+// `_buildDesktopWorkload` 自己装（落点按 RID 变）。
+namespace Z42Xtask;
+
+using Std.IO;
+
+// 装组件需要的构建上下文。runtime 包只用到 CargoOut；apphost 组件要求后五项齐全（缺则报错，不静默跳过）。
+class _PkgInstallCtx {
+    public string CargoOut;      // 宿主/目标 RID 的 cargo 输出目录（z42vm、libz42.*）
+    public string HostVm;        // 跑 z42b 的宿主 z42vm
+    public string Z42bZpkg;      // 已编好的 z42.builder.zpkg
+    public string Libs;          // z42b 自身的解析面（_toolchainCompileLibs）
+    public string ApphostStub;   // 未 patch 的 apphost 模板（Z42_APPHOST_TEMPLATE）
+    public string Rid;
+    public _PkgInstallCtx() {
+        this.CargoOut = ""; this.HostVm = ""; this.Z42bZpkg = ""; this.Libs = ""; this.ApphostStub = ""; this.Rid = "";
+    }
+}
+
+// 按 `[package.<packageName>].include` 顺序把每个组件装进 pkgDir。任一组件失败 ⇒ 立即返回非 0（不留半个包当成功）。
+int _pkgInstallPackage(_PackagesConfig cfg, string root, string packageName, string pkgDir, _PkgInstallCtx ctx) {
+    _PkgComponent[] comps = _pkgcfgResolveInclude(cfg, packageName);
+    int i = 0;
+    while (i < comps.Length) {
+        int c = _pkgInstallComponent(root, comps[i], pkgDir, ctx);
+        if (c != 0) {
+            ConsoleError.WriteLine("error: [package." + packageName + "] component '" + comps[i].name
+                + "' (kind=" + comps[i].kind + ") failed to install into " + pkgDir);
+            return c;
+        }
+        Console.WriteLine("      ✓ " + comps[i].name);
+        i = i + 1;
+    }
+    return 0;
+}
+
+int _pkgInstallComponent(string root, _PkgComponent comp, string pkgDir, _PkgInstallCtx ctx) {
+    if (comp.kind == "cargo-bin" && comp.name == "z42vm") { return _pkgInstallZ42vm(ctx.CargoOut, pkgDir); }
+    if (comp.kind == "cargo-native")  { return _pkgInstallNative(root, ctx.CargoOut, pkgDir); }
+    if (comp.kind == "stdlib-glob")   { return _pkgCopyLibs(_libsDir(root), pkgDir); }
+    if (comp.kind == "editor-assets") { return _pkgInstallEditorAssets(root, pkgDir) > 0 ? 0 : 1; }
+    if (comp.kind == "apphost")       { return _pkgInstallApphost(comp, pkgDir, ctx); }
+    ConsoleError.WriteLine("error: packages.toml component '" + comp.name + "' kind '" + comp.kind
+        + "' cannot be installed into a package here (apphost-stub belongs to the desktop workload)");
+    return 1;
+}
+
+// [component.z42vm] kind=cargo-bin, dest="bin/z42vm".
+int _pkgInstallZ42vm(string cargoOut, string pkgDir) {
+    if (cargoOut.Length == 0) { ConsoleError.WriteLine("error: z42vm: no cargo output dir"); return 1; }
+    string bin = Path.Join(pkgDir, "bin");
+    Directory.Create(bin);
+    _copyIfExists(Path.Join(cargoOut, "z42vm"), Path.Join(bin, "z42vm"));
+    _copyIfExists(Path.Join(cargoOut, "z42vm.exe"), Path.Join(bin, "z42vm.exe"));
+    if (!File.Exists(Path.Join(bin, "z42vm")) && !File.Exists(Path.Join(bin, "z42vm.exe"))) {
+        ConsoleError.WriteLine("error: z42vm not built in " + cargoOut);
+        return 1;
+    }
+    _makeExe(Path.Join(bin, "z42vm"));
+    // NB: the host-only REPL editor cdylib (libz42_repl) is NOT put into bin/ — it
+    // ships in programs/z42i/ beside the interactive apphost payload, colocated there by
+    // z42.repl's ProvideNative build hook during `z42b publish` (add-native-dep-config).
+    // Keeping it out of the shared bin/ stops the eager ext scanner (native::ext) from
+    // warning `ignoring unknown lib repl` on every VM run.
+    return 0;
+}
+
+// [component.native] kind=cargo-native, dest="native/" — libz42.* / libz42_compression.* + the C ABI headers.
+int _pkgInstallNative(string root, string cargoOut, string pkgDir) {
+    if (cargoOut.Length == 0) { ConsoleError.WriteLine("error: native: no cargo output dir"); return 1; }
+    _copyNativeLibs(cargoOut, pkgDir);
+    _copyAbiHeaders(root, Path.Join(pkgDir, "native/include"));
+    return 0;
+}
+
+// [component.<apphost>] kind=apphost — `z42b publish <project> --output <pkgDir>`（部署已编好的字节，--no-build）。
+// publish 不清空 --output，各组件落在自己的 bin/<名> + programs/<名>/，互不覆盖。
+int _pkgInstallApphost(_PkgComponent comp, string pkgDir, _PkgInstallCtx ctx) {
+    if (comp.project.Length == 0) {
+        ConsoleError.WriteLine("error: apphost component '" + comp.name + "' has no `project` in packages.toml");
+        return 1;
+    }
+    if (ctx.HostVm.Length == 0 || ctx.Z42bZpkg.Length == 0 || ctx.ApphostStub.Length == 0 || ctx.Rid.Length == 0) {
+        ConsoleError.WriteLine("error: apphost component '" + comp.name + "' needs z42b + apphost stub (not built for this package)");
+        return 1;
+    }
+    return _z42bPublish(ctx.HostVm, ctx.Z42bZpkg, ctx.Libs, ctx.ApphostStub, comp.project, ctx.Rid, pkgDir);
+}
+
+// Copy the two C ABI headers (z42_abi.h + z42_host.h) from the runtime source
+// tree into a package's include dir. Single source-path SoT for every packaging
+// backend that ships the embed headers (review §2.5). Creates destIncludeDir
+// itself — 谁写谁建，见 _pkgSetupDir 注释（fix-package-gates-false-red）。
+void _copyAbiHeaders(string root, string destIncludeDir) {
+    Directory.Create(destIncludeDir);
+    File.Copy(Path.Join(root, "src/runtime/include/z42_abi.h"), Path.Join(destIncludeDir, "z42_abi.h"));
+    File.Copy(Path.Join(root, "src/runtime/include/z42_host.h"), Path.Join(destIncludeDir, "z42_host.h"));
+}
+
+// Runtime package (z42-runtime-<ver>-<rid>) scaffold: compute the pkg dir, print
+// the banner, reset it, and create native/ (the ios/wasm/android builders File.Copy
+// their VM libs straight into it). libs/ + native/include/ are created by their own
+// writers（谁写谁建，见 _pkgSetupDir 注释）. Returns pkgDir. Single SoT for the
+// runtime-pack name format + base layout (shared by ios/android/wasm runtime
+// builders; review §2.5). Debug profile appends "-<profile>" to the name.
+string _runtimePkgScaffold(string root, string rid, string version, string profile) {
+    bool rel = (profile == "release");
+    string pkgName = "z42-runtime-" + version + "-" + rid + (rel ? "" : "-" + profile);
+    string pkgDir = Path.Join(_packagesDir(root), pkgName);
+    Console.WriteLine("Runtime package: " + pkgName);
+    if (Directory.Exists(pkgDir)) { Directory.Delete(pkgDir, true); }
+    Directory.Create(Path.Join(pkgDir, "native"));
+    return pkgDir;
+}
+
+// [component.editor-assets] kind=editor-assets, dest="editors/" — editors/<target>/ from the in-repo asset dirs.
+// 这些是 `z42d install <target>` 的**输入**：装了 SDK 就能装编辑器集成，不需要仓库
+// （unify-editor-install）。**模板不进包**——`*.tpl.json` 是 xtask 生成器的输入，
+// 用户扩展目录里出现它只会造成困惑。返回拷贝的文件数。
+int _pkgInstallEditorAssets(string root, string pkgDir) {
+    string dest = Path.Join(pkgDir, "editors/vscode");
+    Directory.Create(dest);
+    string src = Path.Join(root, "src/toolchain/devtools/vscode");
+    int n = 0;
+    foreach (var name in Directory.Enumerate(src)) {
+        if (name.EndsWith(".tpl.json")) { continue; }
+        string from = Path.Join(src, name);
+        string to = Path.Join(dest, name);
+        if (Directory.Exists(from)) {
+            Directory.Create(to);
+            foreach (var inner in Directory.Enumerate(from)) {
+                if (inner.EndsWith(".tpl.json")) { continue; }
+                File.Copy(Path.Join(from, inner), Path.Join(to, inner));
+                n = n + 1;
+            }
+        } else {
+            File.Copy(from, to);
+            n = n + 1;
+        }
+    }
+    return n;
+}
+
+// Builds src/runtime once for (rid, profile): z42vm + libz42 (static + cdylib) + z42-compression. The package
+// installers above copy from the resulting cargoOut. NB: the REPL editor cdylib (libz42_repl) is NOT built here —
+// z42.repl's build hook (ProvideNative) compiles crates/z42-repl during `z42b publish` of z42.interactive and
+// colocates it into the z42i payload (add-native-dep-config).
+int _pkgBuildRuntime(string rid, string profile) {
+    bool rel = (profile == "release");
+    string cargoTarget = _cargoTargetFor(rid);
+    int c = _cargo(rel, "build", "src/runtime/Cargo.toml", cargoTarget, "");
+    if (c != 0) { return c; }
+    _cargoRustc(rel, cargoTarget, "staticlib");
+    _cargoRustc(rel, cargoTarget, "cdylib");
+    return _cargo(rel, "build", "src/runtime/Cargo.toml", cargoTarget, "z42-compression");
+}
