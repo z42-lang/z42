@@ -5,8 +5,6 @@
 // SemanticDump 的错误数**含解析诊断**（cu.MergeParseDiags）⇒ 期望恰好 1 条（那条解析错误本身），且没有
 // 占位引出的 E0401 / E0443。
 namespace Z42cSemanticsParseRecoveryCascadeTests;
-using Std;
-using Std.Test;
 using Z42.Semantics;
 
 [Test]

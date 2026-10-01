@@ -7,8 +7,6 @@
 //   · 有多个适用候选且不可比 → E0425（并且**不再**重复补一条 E0401）
 namespace Z42cSemanticsOverloadHierarchyTests;
 
-using Std;
-using Std.Test;
 using Z42.Semantics;
 
 // ── 子类实参匹配基类形参：不再报错 ────────────────────────────────

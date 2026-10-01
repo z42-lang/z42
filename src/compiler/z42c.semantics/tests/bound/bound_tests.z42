@@ -1,8 +1,6 @@
 // z42c.semantics Bound tree + TypeEnv 单测（1A-4a）。
 namespace Z42cSemanticsBoundTests;
 
-using Std;
-using Std.Test;
 using Z42.Semantics;
 using Z42.Core;
 

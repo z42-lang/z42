@@ -8,7 +8,6 @@
 // 私有 helper 全 static（无实例态；接口方法为实例方法，经 ClassName._x 调 static helper——同 Z42cCompiler）。
 namespace Z42.Pipeline;
 
-using Std;
 using Std.Collections;
 using Z42.Syntax;           // CompilationUnit
 using Z42.Semantics;        // IrDump.ParseAll

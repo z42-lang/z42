@@ -26,10 +26,8 @@
 namespace Z42.Pipeline;
 using Z42.IR;
 
-using Std;
 using Std.IO;
 using Z42.Package;
-using Z42.Semantics;
 
 // 名字表（token 集 / 定义名集；z42 无嵌套数组字段 → 专用小类）。
 public sealed class NameListZ {

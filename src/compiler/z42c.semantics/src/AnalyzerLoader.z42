@@ -19,8 +19,6 @@
 // 硬编码，这里靠 Path-A 发现）。设计 SoT：docs/spec/changes/attribute-handler-registry/design.md D9。
 namespace Z42.Semantics;
 
-using Std;             // Type
-using Std.Runtime;     // AssemblyLoadContext
 using Std.Reflection;  // Assembly / Activator
 using Z42.Syntax;      // Analyzer
 

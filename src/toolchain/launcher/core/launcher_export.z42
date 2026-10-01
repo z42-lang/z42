@@ -10,7 +10,6 @@
 // logic as `z42 publish`. Platform SDKs live at ~/.z42/runtimes/<rid>/<ver>/.
 namespace Z42Launcher;
 
-using Std;
 using Std.IO;
 using Std.Toml;
 using Std.Cli;

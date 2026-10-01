@@ -35,7 +35,6 @@
 // 自举那条路径不在这个窗口里：两代之间隔着整轮构建。
 namespace Z42.Pipeline;
 
-using Std;
 using Std.IO;
 using Z42.IR;
 using Z42.Package;   // ExportedModuleZ（converge：z42.package + z42.project 合库，类型在此 ns）

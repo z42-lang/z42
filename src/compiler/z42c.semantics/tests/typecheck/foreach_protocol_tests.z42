@@ -9,8 +9,6 @@
 //      src/tests/basic/foreach_ienumerable.z42 的 ⑥ 钉住（同一对象、两种静态类型同结果）。
 namespace Z42cSemanticsForeachProtocolTests;
 
-using Std;
-using Std.Test;
 using Z42.Semantics;
 
 // ── ① 不可迭代 → E0488 ────────────────────────────────────────────

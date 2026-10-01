@@ -1,8 +1,6 @@
 namespace Std.Net.Http;
 using Std.Encoding;
 
-using Std;
-using Std.IO;
 using Std.Net.Sockets;
 
 // add-z42-net-http-server (2026-05-25): per-request context handed to the

@@ -6,8 +6,6 @@
 // 分派 + DiagSink→DiagnosticBag 映射全链，无需外部 zpkg 加载（那是后续增量）。
 namespace Z42cSemanticsAnalyzerTests;
 
-using Std;
-using Std.Test;
 using Std.IO;         // PR7-wire：File/Environment/Directory/Path —— --fix 就地重写单测
 using Z42.Syntax;
 using Z42.Semantics;

@@ -21,7 +21,6 @@
 // 构建的那个位置 —— 此前它们走单工程默认，产物进了**源码树**。
 namespace Z42.Project;
 
-using Std;
 using Std.IO;
 
 public sealed class BuildLayout {

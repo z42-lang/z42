@@ -1,6 +1,5 @@
 namespace Std.Net.Http;
 
-using Std;
 
 // add-z42-net-http K3 (2026-05-25): minimal URL parser for HTTP requests.
 //

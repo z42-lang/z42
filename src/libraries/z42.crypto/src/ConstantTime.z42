@@ -1,6 +1,5 @@
 namespace Std.Crypto;
 
-using Std;
 
 // add-constant-time-equals (review §2.3): a PUBLIC constant-time byte-array
 // comparison. Without it, callers verifying a MAC / auth token / password hash

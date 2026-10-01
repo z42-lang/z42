@@ -6,7 +6,6 @@
 // （BuildStrs / WriteSigEntries / WriteConstraintBundle）。**改线格式时改这里一处 + 写端一处。**
 namespace Z42.Package;
 
-using Std;
 using Std.Encoding;
 using Z42.IR;
 using Z42.IR.BinaryFormat;   // SigEntryZ

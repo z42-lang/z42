@@ -1,13 +1,10 @@
 // 构建 cache 落盘（cache-dir-layout；自 Main.z42 拆出，单产物与多 exe 两条路径共用）。
 namespace Z42.Driver;
 
-using Std;
 using Std.IO;
-using Z42.Syntax;
 using Z42.Core;      // LanguageFeatures
 using Z42.Semantics;
 using Z42.Package;
-using Z42.IR;
 using Z42.Project;
 using Z42.Pipeline;
 

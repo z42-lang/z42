@@ -15,7 +15,6 @@
 // 消费方：IrDump.BuildPackageCus 的 per-file codegen、driver 的源读取+SHA / 组装 I/O。
 namespace Z42.Semantics;
 
-using Std;
 using Std.Threading;
 
 // 并行体：处理第 i 项（写自己的输出槽）。实现类把捕获的上下文（输入数组 / 输出数组 /

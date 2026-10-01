@@ -13,10 +13,7 @@
 // 不是新方向。设计 SoT：docs/spec/changes/z42b-owns-test-targets/design.md。
 namespace Z42Builder;
 
-using Std;
 using Std.IO;
-using Std.Cli;
-using Z42.Build;
 using Z42.Project;
 
 /// 一个待编译 + 运行的 dev target。`Sources` 是 **glob 原文**（不在这里展开——

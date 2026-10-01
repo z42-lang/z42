@@ -6,8 +6,6 @@
 // 枚举器上查不到，`Std.IEnumerable<T>` 因此一直没人能实现。
 namespace Z42cSemanticsInterfaceClosureTests;
 
-using Std;
-using Std.Test;
 using Z42.Semantics;
 
 // ── 方法：一层 / 多层 / 菱形 ──────────────────────────────────────

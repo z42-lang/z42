@@ -8,7 +8,6 @@
 // 依赖从磁盘 LibsDirs 解析（design D3；DeclaredDeps 取名字串数组，故本核心不依赖 manifest 模型）。
 namespace Z42.Pipeline;
 
-using Std;
 using Std.IO;      // File（加载失败时读 handler zpkg 头做成因分流）
 using Z42.Core;       // DiagnosticBag / Diagnostic / DiagnosticSeverity（analyzer 诊断合入）
 using Z42.Syntax;

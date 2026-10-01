@@ -1,6 +1,5 @@
 namespace Std.Threading;
 
-using Std;
 using Std.Diagnostics;
 
 // add-z42-threading-timer (2026-05-30): periodic + one-shot background

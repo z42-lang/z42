@@ -7,8 +7,6 @@
 //       全覆盖不报 / 守卫不计覆盖 / 开放域（int）不检查。
 namespace Z42cSemanticsExhaustTests;
 
-using Std;
-using Std.Test;
 using Z42.Semantics;
 
 // ── enum switch-expr 缺成员 → W0700 ──────────────────────────

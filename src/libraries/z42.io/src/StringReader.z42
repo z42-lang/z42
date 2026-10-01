@@ -1,6 +1,5 @@
 namespace Std.IO;
 
-using Std;
 
 // add-z42-io-string-reader-writer (2026-05-24): char-oriented reader
 // over an in-memory string. Mirrors .NET `System.IO.StringReader` and

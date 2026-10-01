@@ -11,7 +11,6 @@
 // → `invoke([])`（零参）。运行期模块加载由 `zpkgResolver` 服务；编译期 fs 读由 VFS 服务。
 namespace Std.Scripting;
 
-using Std;
 using Std.IO;
 
 void evalFromVfs() {

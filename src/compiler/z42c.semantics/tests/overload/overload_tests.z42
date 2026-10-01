@@ -3,8 +3,6 @@
 // 直接构造 MethodSymbol + Z42FuncType（平行 type_tests 风格），无需真编译。
 namespace Z42cSemanticsOverloadTests;
 
-using Std;
-using Std.Test;
 using Z42.Semantics;
 
 // helper：造一个名 "f" 的候选方法，给定形参类型 + 注册键（用于断言选中项）。

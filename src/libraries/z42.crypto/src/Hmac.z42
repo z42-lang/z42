@@ -1,6 +1,5 @@
 namespace Std.Crypto;
 
-using Std;
 using Std.Encoding;
 
 // add-hmac-sha256 (2026-05-24): HMAC-SHA256 (RFC 2104).

@@ -8,8 +8,6 @@
 // 用 `Span`（或 CallExpr 的 sp），断言立刻变红——**已跑过退回对照实测确认**。
 namespace Z42cSemanticsMemberNameSpanTests;
 
-using Std;
-using Std.Test;
 using Z42.Semantics;
 
 [Test]

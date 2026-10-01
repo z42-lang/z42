@@ -1,8 +1,6 @@
 namespace Z42.Semantics;
 
-using Z42.Syntax;
 using Z42.IR;
-using Z42.IR.BinaryFormat;
 using Z42.Core;   // ProtocolNames —— 协议成员名的唯一 SoT（本表与 z42.core/src/Protocols/*.z42 逐字锁步）
 
 // 编译器级固定 prelude 内建面（从 ExportedTypeExtractor 分出）：11 接口 + GCHandleType 枚举

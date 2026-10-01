@@ -15,7 +15,6 @@
 // existed, re-signing a stale payload). `--no-build` keeps the bytes caller-controlled.
 namespace Z42Builder;
 
-using Std;
 using Std.IO;
 using Std.Toml;
 using Std.Cli;

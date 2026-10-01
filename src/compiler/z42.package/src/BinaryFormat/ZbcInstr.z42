@@ -4,8 +4,6 @@
 // 其余 opcode（比较/位/一元/调用/字段/对象/数组/is·as）随 ZW-1B..1D 增量补。
 namespace Z42.IR.BinaryFormat;
 
-using Z42.IR;
-using Std;
 
 public static class ZbcInstr {
 

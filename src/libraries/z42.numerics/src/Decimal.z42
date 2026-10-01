@@ -1,6 +1,5 @@
 namespace Std.Numerics;
 
-using Std;
 
 // add-numerics-decimal (2026-05-27): arbitrary-precision base-10 fixed-point
 // decimal value type. Backed by `BigInt` mantissa + `int` scale so the

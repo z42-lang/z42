@@ -1,5 +1,4 @@
 namespace Std.Cli;
-using Std;
 using Std.Text;
 using Std.IO;
 

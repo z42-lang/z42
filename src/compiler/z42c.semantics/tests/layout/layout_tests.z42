@@ -3,8 +3,6 @@
 // 嵌套引用叶子偏移平移 / 递归自含值字段环检测（ABI 见 design.md 子决策 #2）。
 namespace Z42cSemanticsLayoutTests;
 using Z42.IR;
-using Std;
-using Std.Test;
 using Z42.Semantics;
 
 // 构造一个只含 struct 类型定义的 defs map。

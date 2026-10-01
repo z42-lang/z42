@@ -3,9 +3,7 @@
 // **不解码 FUNC 体**（DependencyIndex 只需签名——C# survey 实证）；indexed 模式/DBUG/REGT 不读。
 namespace Z42.Package;
 
-using Std;
 using Std.IO;
-using Std.Encoding;
 using Z42.IR;
 using Z42.IR.BinaryFormat;   // reconcile: ZbcReader.ReadTypeAt（MODS 内嵌 TYPE 解析）
 

@@ -1,6 +1,5 @@
 namespace Std.Cli;
 
-using Std;
 
 // add-cli-nested-subcommands (2026-06-10): outcome of
 // `SubcommandRouter.Resolve` over a (possibly nested) command tree.

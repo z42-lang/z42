@@ -1,7 +1,5 @@
 namespace Std.Crypto;
 
-using Std;
-using Std.Runtime;
 
 // add-csprng-to-crypto (2026-05-26): OS-backed cryptographically secure
 // random number generator. The raw entropy tap `__crypto_random_bytes` was

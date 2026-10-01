@@ -10,10 +10,8 @@
 // ⚠️ 与 `MemberResolver._substGeneric`（**类级**型参、按**下标**、依 receiver 的 TypeArgs）是两条路，
 // 别混：本文件全部按**名字**匹配方法级型参名，名字不在表里就原样返回。
 namespace Z42.Semantics;
-using Z42.IR;
 
 using Z42.Syntax;
-using Z42.Core;
 
 public static class MethodTypeArgSubst {
     // fix-explicit-type-arg-not-substituted：**显式**写出类型实参时，先把签名代换掉再去绑实参。

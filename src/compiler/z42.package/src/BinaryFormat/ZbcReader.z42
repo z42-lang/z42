@@ -7,9 +7,6 @@
 // 以「缺则追加」并入模块池（顺序修正同样归 meta 回填）。
 namespace Z42.IR.BinaryFormat;
 
-using Z42.IR;
-using Std;
-using Std.Encoding;
 using Z42.Package;   // unify-package-codecs：ZpkgCursor / ZpkgSection / SectionDir / StrsCodec / ConstraintCodec / SigsCodec
 
 // SIGS 条目（组装 IrFunction 用的中转）。

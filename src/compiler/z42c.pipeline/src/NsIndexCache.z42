@@ -3,10 +3,8 @@
 // 读/写索引、从索引建 scan（_scanFromIndex）、类型→ns 提取与回填。
 namespace Z42.Pipeline;
 
-using Std;
 using Std.IO;
 using Z42.IR;
-using Z42.IR.BinaryFormat;
 using Z42.Package;
 
 public static class NsIndexCache {

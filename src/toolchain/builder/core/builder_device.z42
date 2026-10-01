@@ -18,10 +18,8 @@
 //   --run          deploy + run on the device + collect report
 namespace Z42Builder;
 
-using Std;
 using Std.IO;
 using Std.Cli;
-using Std.Test;
 using Std.Collections;
 
 // Entry from _runModule when target=.json and rid is a device RID. Reads the

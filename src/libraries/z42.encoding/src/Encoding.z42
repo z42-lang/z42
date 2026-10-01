@@ -1,6 +1,5 @@
 namespace Std.Encoding;
 
-using Std;
 
 // add-encoding-and-stream-text (2026-05-24): concrete Encoding class
 // wrapping the existing Utf8 static codec.

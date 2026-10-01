@@ -13,9 +13,7 @@
 // 命令层在 builder_commands.z42 / builder_new.z42；CLI 路由在 builder_cli.z42。
 namespace Z42Builder;
 
-using Std;
 using Std.IO;
-using Std.Runtime;   // ModuleSearch（VM 已解析的 zpkg 搜索序）
 using Std.Test;
 using Std.Reflection;
 using Z42.Build;

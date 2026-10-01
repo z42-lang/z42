@@ -10,8 +10,6 @@
 // `Exception` 时一概不报」的**宽松闸门**（最后一条）。
 namespace Z42cSemanticsCatchTypeTests;
 
-using Std;
-using Std.Test;
 using Z42.Semantics;
 
 // ── 阳性 ─────────────────────────────────────

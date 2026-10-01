@@ -1,7 +1,5 @@
 namespace Std.Crypto;
 
-using Std;
-using Std.Encoding;
 
 // add-chacha20-poly1305 (2026-05-27): ChaCha20-Poly1305 AEAD (RFC 8439 §2.8).
 //

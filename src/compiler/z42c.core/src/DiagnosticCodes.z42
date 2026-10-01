@@ -119,6 +119,11 @@ public static class DiagnosticCodes {
     public static string ReservedNamespace            = "W0603";
     public static string CapturedValueSnapshotAssign  = "W0604";
     public static string ReservedNamespaceDeclaration = "E0605";
+    // using-csharp-rules PR-3（对标 C# CS8019 / IDE0005 与 CS0105）：
+    //   W0607 不必要的 `using`：本文件没有任何地方用到它；或它指向本来就可见的 prelude / 本文件 ns 及其外围；
+    //   W0608 重复的 `using`：同一文件里写了两次，或包里已有同名 `global using`。
+    public static string UnnecessaryUsing = "W0607";
+    public static string DuplicateUsing   = "W0608";
     // report-crosspkg-duplicate-type：**本包声明的类型遮蔽了某个导入包的同 FQN 类型**。
     //
     // 🔴 这条曾按 C# CS0436 做成 warning（理由：「本地恒赢是既定规则、不是猜」），**改成了 error**：

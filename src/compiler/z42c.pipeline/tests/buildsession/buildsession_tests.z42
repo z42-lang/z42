@@ -2,7 +2,6 @@
 // [syntax] / [optimize] / pack / entry / strip——以及「消息只经 reporter、BuildSession 自己不打印」。
 namespace Z42cPipelineBuildSessionTests;
 
-using Std;
 using Std.IO;
 using Z42.Pipeline;
 using Z42.Project;

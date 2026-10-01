@@ -5,7 +5,6 @@
 namespace Z42.Semantics;
 
 using Z42.Core;
-using Z42.Syntax;
 
 public static class RefArgCheck {
 

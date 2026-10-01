@@ -17,7 +17,6 @@
 //   上溯（基类在前）。字段访问：class=FieldGet by name / struct=StructFieldGetPrim by offset。
 namespace Z42.Semantics;
 
-using Z42.Syntax;
 using Z42.IR;
 using Z42.IR.BinaryFormat;
 

@@ -20,8 +20,6 @@
 // 时前面几条变绿、它们不变，把逃生口删掉时它们变红。两侧各钉一边。
 namespace Z42cSemanticsPrimMemberTests;
 
-using Std;
-using Std.Test;
 using Z42.Semantics;
 
 // 成员表完整的包装类模型：真实 Int32/String 有一批方法，这里给够即可。

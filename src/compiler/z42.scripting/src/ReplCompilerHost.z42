@@ -7,9 +7,7 @@
 // 本文件零改动。组件缺失（runtime-only SDK）→ `NoReplCompiler` 兜底（编译恒失败、补全恒空）。
 namespace Std.Scripting;
 
-using Std;
 using Std.IO;
-using Std.Runtime;   // ModuleSearch（VM 已解析的 zpkg 搜索序）          // Environment / Path / File / ConsoleError
 using Std.Reflection;  // Type / Activator
 using Std.Test;        // ModuleLoader（__load_module：按路径把组件 zpkg + 依赖闭包加载进 live VM）
 using Z42.Build;       // IReplCompiler / NoReplCompiler

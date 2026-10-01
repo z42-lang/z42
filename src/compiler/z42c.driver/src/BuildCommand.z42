@@ -4,14 +4,9 @@
 // 找到工程 → 构建它；找到工作区 → 等价 `--workspace`；歧义 / 找不到 → 报错退出 2。
 namespace Z42.Driver;
 
-using Std;
 using Std.IO;
-using Z42.Syntax;
 using Z42.Semantics;
-using Z42.Package;
-using Z42.IR;
 using Z42.Project;
-using Z42.Pipeline;
 
 int _cmdBuild(string[] argv) {
     bool isRelease = false;

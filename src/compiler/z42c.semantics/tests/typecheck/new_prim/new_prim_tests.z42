@@ -13,8 +13,6 @@
 // 不查符号表就能解析（与 `prim_member` 要查 `HasClass("Int32")` 的路径不同）。
 namespace Z42cSemanticsNewPrimTests;
 
-using Std;
-using Std.Test;
 using Z42.Semantics;
 
 [Test]

@@ -1,6 +1,5 @@
 namespace Std.Encoding;
 
-using Std;
 
 // Base32 编解码（RFC 4648 §6 标准变体）。
 //   字母表 = A-Z 2-7  (32 chars; 严格大写)

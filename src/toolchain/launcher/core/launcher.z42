@@ -11,10 +11,8 @@
 
 namespace Z42Launcher;
 
-using Std;
 using Std.IO;
 using Std.Toml;
-using Std.Cli;
 using Std.Crypto;          // Sha256 —— 单文件运行的缓存目录按源路径取哈希
 using Z42.Project;   // ManifestLocator / ManifestLoader / BuildLayout —— `z42 run <工程>`
 

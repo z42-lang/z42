@@ -3,7 +3,6 @@
 // 测试不单设模板：任何工程的 `tests/*.z42` 都会被 `z42 test` 自动发现。
 namespace Z42Builder;
 
-using Std;
 using Std.IO;
 using Std.Cli;
 

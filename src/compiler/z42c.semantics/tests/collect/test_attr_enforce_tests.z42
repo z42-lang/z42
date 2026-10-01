@@ -5,8 +5,6 @@
 // 补回的是自举迁移中丢失的 TestAttributeValidator（E0911/E0912/E0915 三码此前定义齐全、零引用）。
 namespace Z42cSemanticsTestAttrEnforceTests;
 
-using Std;
-using Std.Test;
 using Z42.Syntax;
 using Z42.Semantics;
 using Z42.Core;

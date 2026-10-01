@@ -2,7 +2,6 @@
 // PackageCompiler.AutoDetectEntry + Sha256Hex。cache .zbc 落盘延后（增量编译物质基础，MVP 不需）。
 namespace Z42.Package;
 
-using Std;
 using Std.Crypto;
 using Std.Encoding;
 using Z42.IR;

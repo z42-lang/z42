@@ -5,7 +5,6 @@
 // LE 拆字节用位运算。ASCII 字符串字节直写（标识符皆 ASCII；非 ASCII UTF-8 延后 ZW-1E）。
 namespace Z42.IR.BinaryFormat;
 
-using Std;
 
 public sealed class ByteWriter {
     private byte[] _buf;

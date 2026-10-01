@@ -1,5 +1,4 @@
 namespace Std.Json;
-using Std;
 using Std.Text;
 
 // add-z42-json (2026-05-14)：RFC 8259 JSON parser (recursive descent).

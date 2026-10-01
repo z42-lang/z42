@@ -1,6 +1,5 @@
 namespace Std.Net.Sockets;
 
-using Std;
 
 // add-z42-net-udp K2 (2026-05-25): low-level extern wrappers for the
 // `__net_udp_*` VM builtins. Returns the raw kind-tagged Array tuples

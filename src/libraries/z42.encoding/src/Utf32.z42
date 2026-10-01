@@ -1,6 +1,5 @@
 namespace Std.Encoding;
 
-using Std;
 
 // add-encoding-utf32 (2026-05-27): UTF-32 encode / decode (ISO/IEC 10646).
 //

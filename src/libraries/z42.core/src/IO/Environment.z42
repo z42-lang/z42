@@ -1,5 +1,4 @@
 namespace Std.IO;
-using Std.Runtime;
 
 public static class Environment {
     [Native("__env_get")]

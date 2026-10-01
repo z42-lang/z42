@@ -7,8 +7,6 @@
 // 这些用例就是防止那条静默路径回归。
 namespace Z42cSemanticsRefLvalueTests;
 
-using Std;
-using Std.Test;
 using Z42.Semantics;
 
 // ── 合法形态：不应报错 ────────────────────────────────────────────

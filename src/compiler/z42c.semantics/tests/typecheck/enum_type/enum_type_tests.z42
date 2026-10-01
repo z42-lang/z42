@@ -14,8 +14,6 @@
 // `enum.z42` 还写着旧模型断言时 e2e 就 126/126 全过。负例面在那里是看不见的。
 namespace Z42cSemanticsEnumTypeTests;
 
-using Std;
-using Std.Test;
 using Z42.Semantics;
 using Z42.Syntax;
 using Z42.Core;

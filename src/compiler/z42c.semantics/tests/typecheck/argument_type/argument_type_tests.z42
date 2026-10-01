@@ -12,8 +12,6 @@
 //  semanticdump-errorcount-skips-collector-diags——本文件不涉及那条路径。）
 namespace Z42cSemanticsArgumentTypeTests;
 
-using Std;
-using Std.Test;
 using Z42.Semantics;
 using Z42.Syntax;
 using Z42.Core;

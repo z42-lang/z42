@@ -17,7 +17,6 @@
 // result arrays grow manually.
 namespace Std.Test;
 
-using Std;
 using Std.IO;
 
 // One bundle case. `Entry == null` marks a unit case; a non-null `Entry` (the

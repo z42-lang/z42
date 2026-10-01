@@ -1,6 +1,5 @@
 namespace Std.Threading;
 
-using Std;
 
 // 2026-05-20 add-sync-primitives-rwlock: multi-reader / single-writer lock.
 //

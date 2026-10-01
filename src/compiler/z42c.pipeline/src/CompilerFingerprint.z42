@@ -22,7 +22,6 @@
 // 才变，零额外失效。代价：仍需人判断「这次要不要记」——与计数器时代相同，由 CI 守门兜底。
 namespace Z42.Package;
 
-using Std;
 // `ZpkgBuilder.SourceHashHex` 就在本命名空间（`Z42.Package`，见 z42.package/src/ZpkgBuilder.z42）——
 // 不需要额外 using。⚠️ 别写 `using Z42.IR.BinaryFormat`：那是 zbc 二进制格式的命名空间，
 // 与 ZpkgBuilder 不同（#896 把包名 z42.ir 改成 z42.package，命名空间没跟着改，容易看混）。
@@ -96,7 +95,9 @@ public static class CompilerFingerprint {
         // 依赖 z42.core 的包解析导入签名时答案随之变（bench-pr 指纹门实测 z42.json +11B）。编译器本身字节未变。
         "using-add-missing",
         // using-csharp-strict-gate：同包跨 ns 与纯类型注解也计入 E0436（每文件记录用到的 ns）—— 新发诊断。
-        "using-csharp-strict-gate"
+        "using-csharp-strict-gate",
+        // using-csharp-unused-warning：多余 / 重复的 using 报 W0607 / W0608 —— 新发诊断。
+        "using-csharp-unused-warning"
     };
 
     // 指纹值：`Entries` 逐条以 `\n` 连接后取内容哈希（`mmh3:` 前缀，同 SourceHash）。

@@ -1,6 +1,5 @@
 namespace Std;
 
-using Std.Runtime;
 
 // add-guid-lazy-version (2026-09-03): C# System.Guid parity — a 128-bit
 // globally-unique identifier. `NewGuid()` produces an RFC 4122 version-4

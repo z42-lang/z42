@@ -12,8 +12,6 @@
 // 一个字节都会让后续字段读歪 → 用例变红。只断言 bundle 自身是抓不到错位的。
 namespace Z42cIrConstraintBundleTests;
 
-using Std;
-using Std.Test;
 using Z42.IR;
 using Z42.IR.BinaryFormat;
 

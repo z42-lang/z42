@@ -1,6 +1,5 @@
 namespace Std.Crypto;
 
-using Std;
 using Std.Encoding;
 
 // add-sha3 (2026-05-27): SHA-3 (FIPS 202) hash family — Keccak-f[1600].

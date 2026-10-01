@@ -1,7 +1,5 @@
 namespace Std.Crypto;
 
-using Std;
-using Std.Encoding;
 using Std.Numerics;
 
 // add-ecdsa-secp256k1 (2026-05-28): ECDSA over the secp256k1 curve per

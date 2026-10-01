@@ -2,7 +2,6 @@
 // dist / cache / generated 目录的解析在 z42.project 的 BuildLayout（launcher / z42b 共用）。
 namespace Z42.Driver;
 
-using Std;
 using Std.IO;
 using Z42.Package;
 using Z42.Project;

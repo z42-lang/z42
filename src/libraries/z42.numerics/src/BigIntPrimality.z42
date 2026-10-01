@@ -3,7 +3,6 @@
 // 仅把 `this` 改为显式 `this` 参数、跨类调用改为 `BigIntXxx._helper(...)`。
 namespace Std.Numerics;
 
-using Std;
 using Std.Random;
 
 internal static class BigIntPrimality {

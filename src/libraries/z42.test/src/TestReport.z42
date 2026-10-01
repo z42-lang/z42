@@ -1,6 +1,5 @@
 namespace Std.Test;
 
-using Std;
 
 // Per-entry outcome of a reflective test/bench run (rebuild-bench-structured-output).
 // The z42-native successor to the retired Rust `TestResult`, trimmed to what an

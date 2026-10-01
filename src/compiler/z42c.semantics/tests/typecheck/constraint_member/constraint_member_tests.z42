@@ -10,8 +10,6 @@
 // SymbolCollector 那条，与本文件无关。
 namespace Z42cSemanticsConstraintMemberTests;
 
-using Std;
-using Std.Test;
 using Z42.Semantics;
 using Z42.Syntax;
 using Z42.Core;

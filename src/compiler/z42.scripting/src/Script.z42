@@ -15,7 +15,6 @@
 // 改写成 `Vars{N}.v`。依赖已合并的 infer-var-field-types（跨轮 carry 的 var 字段类型正确）。
 namespace Std.Scripting;
 
-using Std;
 using Std.IO;
 using Std.Collections;
 using Std.Threading;   // Thread（add-repl-prewarm：Join 后台预热 worker）

@@ -1,0 +1,56 @@
+// using-csharp-rules PR-3：多余的 `using` 报 warning（User 2026-10-01 裁定，三种都报）。
+//
+//   W0607 不必要（C# CS8019 / IDE0005）：
+//     · 指向 prelude（`Std` / `Std.Runtime`）或本文件 ns 及其外围 —— 本来就可见；
+//     · 本文件没有任何地方用到它（判据与 E0436 同一份集合：`UsedNs` ∪ `UsedDepNs`）。
+//   W0608 重复（C# CS0105）：同一文件写了两次；或包里已有同名 `global using`（注入时打的 `CoveredByGlobal`）。
+//
+// 不判：编译器注入的 global using 副本（`Injected`）；`global using` 声明本身「全包都没用到」—— 那要全包每个文件的
+// 用法集合，而 cached 文件跳过类型检查拿不到（见 tasks）；别名 `using Id = T;`（另一个类）。
+// 本文件已有编译错误时整个跳过：解析不全，用法集合不可信，会把用得着的 using 报成多余。
+// 发射点用字面量（bootstrap-seed：新常量与引用它的发射点不能同 PR，见 diag-literal-emitters.txt）。
+namespace Z42.Semantics;
+
+using Z42.Syntax;
+using Z42.Core;
+
+public static class UsingLint {
+
+    public static void Check(CompilationUnit cu, string[] used, string[] dep, int depCount, DiagnosticBag diags) {
+        if (diags.ErrorCount() > 0) { return; }
+        string fileNs = cu.HasNamespace ? cu.Namespace : "";
+        string[] seen = new string[cu.DeclCount];
+        int sn = 0;
+        int i = 0;
+        while (i < cu.DeclCount) {
+            Decl d = cu.Decls[i];
+            i = i + 1;
+            if (!(d is UsingDecl)) { continue; }
+            UsingDecl u = d as UsingDecl;
+            if (u.Injected) { continue; }
+            if (UsingLint._has(seen, sn, u.Name)) {
+                diags.Warning("W0608", "duplicate `using " + u.Name + ";` — it is already imported above in this file", u.Span);
+                continue;
+            }
+            seen[sn] = u.Name; sn = sn + 1;
+            if (u.CoveredByGlobal) {
+                diags.Warning("W0608", "`using " + u.Name + ";` is redundant — `global using " + u.Name
+                    + ";` already imports it into every file of the package", u.Span);
+            } else if (PreludeNs.Contains(u.Name)) {
+                diags.Warning("W0607", "unnecessary `using " + u.Name + ";` — `" + u.Name
+                    + "` is part of the prelude and always visible", u.Span);
+            } else if (NsScope.IsEnclosing(fileNs, u.Name)) {
+                diags.Warning("W0607", "unnecessary `using " + u.Name + ";` — `" + u.Name
+                    + "` is this file's namespace or encloses it, so it is visible without `using`", u.Span);
+            } else if (!u.IsGlobal && !UsingLint._has(used, used.Length, u.Name) && !UsingLint._has(dep, depCount, u.Name)) {
+                diags.Warning("W0607", "unnecessary `using " + u.Name + ";` — nothing in this file uses it", u.Span);
+            }
+        }
+    }
+
+    private static bool _has(string[] a, int n, string s) {
+        int i = 0;
+        while (i < n) { if (a[i] == s) { return true; } i = i + 1; }
+        return false;
+    }
+}

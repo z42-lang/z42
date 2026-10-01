@@ -18,7 +18,6 @@
 namespace Z42.Semantics;
 using Z42.IR;
 
-using Z42.Syntax;
 
 public sealed partial class SymbolTable {
     // E0456 的**消息**也只此一份（判据在 IsBareNameAmbiguous）。不歧义返回 ""。

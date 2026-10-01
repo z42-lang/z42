@@ -5,9 +5,7 @@
 // SDK 本体的安装与更新由安装脚本负责（scripts/install/），launcher 不做自更新。
 namespace Z42Launcher;
 
-using Std;
 using Std.IO;
-using Std.Cli;
 using Std.Json;
 using Std.Net.Http;
 using Std.Compression;

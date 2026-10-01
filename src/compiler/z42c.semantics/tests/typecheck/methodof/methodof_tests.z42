@@ -8,8 +8,6 @@
 // 这些用例不是补充，是主体。
 namespace Z42cSemanticsMethodOfTests;
 
-using Std;
-using Std.Test;
 using Z42.Semantics;
 
 // 两个重载 + 一个独苗，供各用例复用。

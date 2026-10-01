@@ -10,10 +10,7 @@
 // 现在：递归面只有这里一份（型参 / 数组 / 类实例 / 接口实例 / 函数类型——函数类型连形参元信息一起搬）；
 // 各入口只提供 `ITypeParamMap`，说明**一个型参**换成什么。**新增可承载型参的复合类型时只改本文件。**
 namespace Z42.Semantics;
-using Z42.IR;
 
-using Z42.Syntax;
-using Z42.Core;
 
 // 叶子规则：型参 p 换成什么；返回 null = 原样保留。
 public interface ITypeParamMap {

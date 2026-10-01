@@ -21,7 +21,6 @@
 // S5 外层已声明同名成员 → 不生成（③ 档天然满足：partial 声明本身就是「用户点名要这个」）
 namespace Z42.Semantics;
 
-using Std;
 using Z42.Syntax;
 using Z42.IR;
 using Z42.Core;

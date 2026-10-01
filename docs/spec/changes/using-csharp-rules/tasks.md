@@ -36,5 +36,14 @@
       只按 `UsedDepNs` 判：另一个文件删掉 `global using` 时，cached 文件的同包跨 ns 引用不会报 E0436
 - [ ] 2.10 （可选，C# 口径）E0436 只看 `UsedNs`：`UsedDepNs` 按接收者类型记实例调用，C# 不算「用到」；需 2.9 落地后再收
 
-## PR-3 多余 using 告警
-- [ ] 待 PR-2 合入后展开
+## PR-3 多余 using 告警（using-csharp-unused-warning）
+- [x] 3.1 用例（`usinggate` 单元）：没用到 / 只在声明位用到（不报）/ prelude / 外围 / 同文件重复 / 已有 global using /
+      有编译错误时不报
+- [x] 3.2 `UsingLint`（`CuCompile` 代码生成之后，判据 = `UsedNs` ∪ `UsedDepNs`，与 E0436 同一份）；W0607 / W0608
+      进登记表，发射点先用字面量（diag-literal-emitters.txt）
+- [x] 3.3 `UsingDecl.Injected`（global using 注入副本不报）/ `CoveredByGlobal`（注入时因已存在而跳过 ⇒ W0608）
+- [x] 3.4 清理仓库多余 using（构建循环 + 自动删除脚本）。删掉的只有两类：「文件里没用到」与 prelude；没有「外围 ns」
+      那一类 ⇒ 不依赖 PR-1 进种子（上一版 z42c 照样能编）
+- [x] 3.5 文档：参考手册 namespaces.md「多余的 using 会告警」+ 诊断表；error-codes.md
+- [ ] 3.6 `global using` 声明本身全包都没用到 ⇒ W0607：需全包每文件的 `UsedNs`，cached 文件拿不到（同 2.9）
+- [ ] 3.7 （晚一个 nightly）W0607 / W0608 发射点切回 `DiagnosticCodes.UnnecessaryUsing` / `DuplicateUsing`

@@ -4,7 +4,6 @@
 // （与 ExprEmitter 同一 ctx）；递归 .Emit()、struct 谓词与 struct 相等发射经父反向引用 _ee 委回。
 namespace Z42.Semantics;
 
-using Z42.Syntax;
 using Z42.IR;
 using Z42.IR.BinaryFormat;
 

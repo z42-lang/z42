@@ -1,6 +1,5 @@
 namespace Std.IO;
 
-using Std;
 using Std.Text;
 
 // add-console-ansi-color (2026-06-01): ANSI SGR (Select Graphic

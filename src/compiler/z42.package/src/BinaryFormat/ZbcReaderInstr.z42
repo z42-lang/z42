@@ -7,8 +7,6 @@
 //   纯操作数（只编 id）→ 直取 REGT[id]。Retype 走 writer _regtInstr 同序 → REGT 复现。
 namespace Z42.IR.BinaryFormat;
 
-using Z42.IR;
-using Std;
 using Z42.Package;   // unify-package-codecs：ZpkgCursor
 
 // 单块解码结果（z42 无 tuple）。

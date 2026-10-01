@@ -5,8 +5,6 @@
 // E0402 = TypeMismatch（irrefutable 违反 / struct 解构 defer 共用）。
 namespace Z42cSemanticsPatternTests;
 
-using Std;
-using Std.Test;
 using Z42.Semantics;
 
 // ── 属性形态解构声明：合法（裸绑定子模式）→ 无诊断 ──────────

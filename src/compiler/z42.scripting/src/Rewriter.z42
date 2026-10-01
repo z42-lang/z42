@@ -6,10 +6,8 @@
 // token 若匹配会话变量名、且前一 token 非 `.`（排除成员访问 obj.x），就在其前插入 `Vars{N}.`。
 namespace Std.Scripting;
 
-using Std;
 using Std.Collections;
 using Z42.Syntax;
-using Z42.Core;
 
 public static class Rewriter {
 

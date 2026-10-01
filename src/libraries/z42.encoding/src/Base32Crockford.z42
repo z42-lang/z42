@@ -1,6 +1,5 @@
 namespace Std.Encoding;
 
-using Std;
 
 // Crockford Base32 编解码 (https://www.crockford.com/base32.html)。
 //   字母表 = 0123456789ABCDEFGHJKMNPQRSTVWXYZ  (32 chars; 去 I L O U)

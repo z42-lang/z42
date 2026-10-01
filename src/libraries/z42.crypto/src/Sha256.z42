@@ -1,6 +1,5 @@
 namespace Std.Crypto;
 
-using Std;
 using Std.Encoding;
 
 // add-z42-crypto (2026-05-17): SHA-256 hash (FIPS 180-4).

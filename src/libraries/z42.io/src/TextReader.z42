@@ -1,6 +1,5 @@
 namespace Std.IO;
 
-using Std;
 
 // add-textreader-base (2026-05-28): unified char-oriented reader base.
 //

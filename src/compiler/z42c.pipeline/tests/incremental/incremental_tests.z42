@@ -5,9 +5,7 @@
 // 闸门的端到端硬验收在 `xtask test incremental`（逐文件注释 touch → dist 逐字节对账全量）。
 namespace Z42cPipelineIncrementalTests;
 
-using Std;
 using Std.IO;
-using Std.Test;
 using Z42.Pipeline;
 using Z42.Package;
 using Z42.Semantics;

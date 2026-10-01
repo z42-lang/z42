@@ -1,6 +1,4 @@
 namespace Std.Uri;
-using Std;
-using Std.Text;
 // RFC 3986 子集 URI 解析器（从 Uri.z42 拆出，review §1.8/§6：单文件多类型 + 超 500 行）。
 
 // ── Parser ──────────────────────────────────────────────────────────────

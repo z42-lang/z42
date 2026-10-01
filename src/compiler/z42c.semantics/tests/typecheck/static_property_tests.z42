@@ -3,8 +3,6 @@
 // 本文件锁住只有编译期能观察到的部分：E0452 的赋值边界、静态上下文、裸名解析、TSIG 导出。
 namespace Z42cSemanticsStaticPropertyTests;
 
-using Std;
-using Std.Test;
 using Z42.Semantics;
 
 // ── 静态 get-only auto 属性：本类静态 ctor 内写，合法（裸名 / 限定名）────────

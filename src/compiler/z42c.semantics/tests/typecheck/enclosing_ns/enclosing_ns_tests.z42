@@ -9,12 +9,7 @@
 // 歧义用例数 E0456。全部用多 CU（单文件只有一个 ns，造不出这个形状，见 bare_name_ambiguity 抬头）。
 namespace Z42cSemanticsEnclosingNsTests;
 
-using Std;
-using Std.Test;
 using Z42.Semantics;
-using Z42.Syntax;
-using Z42.Core;
-using Z42.IR;
 
 string[] enclDiags(string[] srcs, ImportedSymbols imp) {
     string[] files = new string[srcs.Length];

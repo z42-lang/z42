@@ -1,5 +1,4 @@
 namespace Std.Regex;
-using Std;
 
 // add-z42-regex (2026-05-16)：编译后的 regex + 匹配/搜索/替换 API。
 //

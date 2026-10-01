@@ -25,9 +25,7 @@
 // 跑（库工程写错了没人说），一并挪到这里，且在编译前 fail fast。
 namespace Z42.Driver;
 
-using Std;
 using Std.IO;
-using Std.Runtime;
 using Std.Text;
 using Z42.Project;
 

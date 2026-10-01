@@ -1,6 +1,5 @@
 namespace Std.Collections;
 
-using Std;
 
 // Generic FIFO queue (L3-G4d — stdlib generic export).
 // Ring-buffer over T[] with amortised O(1) Enqueue/Dequeue.

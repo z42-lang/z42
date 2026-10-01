@@ -10,8 +10,6 @@
 // ③ 是这组里最隐蔽的一条：写法完全合法、编译只在**用到继承成员时**才报一句看似无关的
 // 「no method」，根本不指向基表。它也是「只看症状 ① 就以为修好了」会漏掉的那格。
 namespace Z42cSemanticsQualifiedBaseNameTests;
-using Std;
-using Std.Test;
 using Z42.Semantics;
 
 // ── 正例：限定名应当与短名等效 ─────────────────────────────────────────────

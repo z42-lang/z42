@@ -6,8 +6,6 @@
 //   · 形参位的 `T` 接受任何实参而**漏报**：`IBox<int>` 上 `b.Set("x")` 零诊断（放过错误代码）
 // 形参位走 `CheckSubstitutedArgs` 补查——代换后的签名是诊断专用、不回灌（不变式 I1）。
 namespace Z42cSemanticsIfaceTypeArgsTests;
-using Std;
-using Std.Test;
 using Z42.Semantics;
 
 [Test]

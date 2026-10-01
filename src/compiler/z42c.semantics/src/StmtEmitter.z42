@@ -5,7 +5,6 @@
 // 本簇经 _fe 单向委回（zero 簇间边，同 ExprEmitter/ExprTyper 分解模型）。
 namespace Z42.Semantics;
 
-using Z42.Syntax;
 using Z42.IR;
 
 public sealed class StmtEmitter {

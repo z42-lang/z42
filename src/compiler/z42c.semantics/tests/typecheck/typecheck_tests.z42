@@ -1,8 +1,6 @@
 // z42c.semantics TypeChecker 单测（1A-4b）：源 → bound s-expr（含类型注解）+ 错误用例诊断计数。
 namespace Z42cSemanticsTypeCheckTests;
 
-using Std;
-using Std.Test;
 using Z42.Semantics;
 
 [Test]

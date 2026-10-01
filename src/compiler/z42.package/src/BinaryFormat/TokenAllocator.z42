@@ -4,7 +4,6 @@
 // VCall.Method / FieldGet·Set.Field 不 token 化（保持 STRS pool idx，v1.0 约定）。
 namespace Z42.IR.BinaryFormat;
 
-using Z42.IR;
 
 public sealed class TokenAllocator {
     public string[] FuncNames;  public int FuncCount;

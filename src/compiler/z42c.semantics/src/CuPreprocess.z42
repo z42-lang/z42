@@ -3,7 +3,6 @@ namespace Z42.Semantics;
 using Z42.Syntax;
 using Z42.Core;
 using Z42.IR;
-using Z42.IR.BinaryFormat;
 
 // CU 预处理 + 命名空间遮蔽/作用域解析辅助（从 IrDump 分出，irdump-pipeline-split）：global using 注入、
 // file-scoped using 强制、活跃 ns 集、local-wins 遮蔽剔除、包内类名/ns 图、文件 stem。叶子（不调兄弟簇）。
@@ -151,7 +150,11 @@ public static class CuPreprocess {
                 bool has = false;
                 int di = 0;
                 while (di < cu.DeclCount) {
-                    if (cu.Decls[di] is UsingDecl && (cu.Decls[di] as UsingDecl).Name == globals[g]) { has = true; }
+                    if (cu.Decls[di] is UsingDecl && (cu.Decls[di] as UsingDecl).Name == globals[g]) {
+                        has = true;
+                        UsingDecl own = cu.Decls[di] as UsingDecl;
+                        if (!own.IsGlobal && !own.Injected) { own.CoveredByGlobal = true; }   // using-csharp-rules PR-3：W0608
+                    }
                     di = di + 1;
                 }
                 if (!has) {
@@ -160,7 +163,9 @@ public static class CuPreprocess {
                         int m = 0; while (m < cu.DeclCount) { nb[m] = cu.Decls[m]; m = m + 1; }
                         cu.Decls = nb;
                     }
-                    cu.Decls[cu.DeclCount] = new UsingDecl(globals[g], cu.Span);
+                    UsingDecl inj = new UsingDecl(globals[g], cu.Span);
+                    inj.Injected = true;   // using-csharp-rules PR-3：注入副本不参与多余 using 告警
+                    cu.Decls[cu.DeclCount] = inj;
                     cu.DeclCount = cu.DeclCount + 1;
                 }
                 g = g + 1;

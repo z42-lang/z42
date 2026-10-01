@@ -23,7 +23,6 @@
 // 自己拼不可行——一个正确的写出器比三行判断可靠）。
 namespace Z42.Driver;
 
-using Std;
 using Std.IO;
 using Std.Toml;
 using Z42.Project;

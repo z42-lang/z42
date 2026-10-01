@@ -1,8 +1,6 @@
 namespace Z42.Semantics;
 
 using Z42.Syntax;
-using Z42.IR;
-using Z42.IR.BinaryFormat;
 
 // 类型名解析（从 ExportedTypeExtractor 分出）：TypeExpr / Z42Type → TSIG 表面拼写。
 // 纯叶子工具，供 ClassExtractor / FuncImplExtractor / MemberCollector（TsigTypeName/SurfaceTypeName）调用。

@@ -1,6 +1,5 @@
 namespace Std.Collections;
 
-using Std;
 
 // add-priority-queue (2026-05-27): generic min-heap priority queue.
 //

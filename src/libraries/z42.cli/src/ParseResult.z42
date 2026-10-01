@@ -1,5 +1,4 @@
 namespace Std.Cli;
-using Std;
 
 // Internal wrapper for repeated-option storage. z42 doesn't have native
 // `string[][]` so a per-option `_RepeatedList` holds the appended values.

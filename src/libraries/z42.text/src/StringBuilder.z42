@@ -1,6 +1,5 @@
 namespace Std.Text;
 
-using Std;
 
 // Mutable string builder — Script-First 实现，基于 z42.core 原语
 // (`string[]` + manual grow + `String.FromChars`).

@@ -6,8 +6,6 @@
 //   ② 裸名与 `this.` 前缀同义（运行期行为由 e2e src/tests/classes/auto_property_access.z42 钉住）。
 namespace Z42cSemanticsPropertyAccessTests;
 
-using Std;
-using Std.Test;
 using Z42.Semantics;
 
 // ── get-only auto-property：ctor 内经 this 写，合法 ────────────────

@@ -49,7 +49,6 @@
 // `Main._handlerFingerprint` 揉进每个文件的源 hash，不需要在这里体现。
 namespace Z42.Driver;
 
-using Std;
 using Z42.Core;     // Span（token / 声明的 byte offset [Start, End)）
 using Z42.Syntax;
 using Z42.IR;       // StrMap（名字 → 桶下标 / 指纹）

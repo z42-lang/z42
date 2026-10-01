@@ -7,7 +7,6 @@
 //   - 简写：`z42 <app.zpkg|.zbc|.z42> [-- args]` ≡ `z42 run <app>`（`.z42` = 单文件源码）
 namespace Z42Launcher;
 
-using Std;
 using Std.IO;
 using Std.Cli;
 

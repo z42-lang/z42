@@ -11,8 +11,6 @@
 // 与本文件走的单文件路径。挂在包路径独有的地方会让单文件编译静默放行非法标注。
 namespace Z42cSemanticsModuleInitTests;
 
-using Std;
-using Std.Test;
 using Z42.Semantics;
 using Z42.Syntax;
 using Z42.Core;

@@ -9,11 +9,7 @@
 // 每个阳性都做过退回对照（撤掉 BoundCall.FreeNs / 按 FQN 登记后必须变红）。
 namespace Z42cSemanticsFreeFuncNsTests;
 
-using Std;
-using Std.Test;
 using Z42.Semantics;
-using Z42.Syntax;
-using Z42.Core;
 using Z42.IR;
 
 CompiledModuleZ[] ffBuild(string[] srcs, string[] files) {
@@ -140,7 +136,9 @@ void enclosing_ns_wins_over_using() {
         ffTwo("namespace Alpha;\nusing Beta;\nint g(int x) { return x; }\nint Main() { return g(1); }",
               "namespace Beta;\nstring g() { return \"b\"; }"),
         ffTwo("a.z42", "b.z42"));
-    Assert.Equal(0, ffDiags(cms));
+    // 外围的 `g` 胜出 ⇒ `using Beta` 在本文件确实没用到 ⇒ 恰一条 W0607（using-csharp-rules PR-3），无其它诊断。
+    Assert.Equal(1, ffDiags(cms));
+    Assert.Equal(1, ffCode(cms, "W0607"));
     Assert.Equal(true, ffDump(cms, "Alpha.Main").Contains("call @Alpha.g("));
 }
 

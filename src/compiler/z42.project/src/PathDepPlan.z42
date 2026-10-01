@@ -20,7 +20,6 @@
 // z42c 受限子集：无闭包捕获 → 显式 `PathDepState` 状态对象穿透递归；固定数组 + 计数。
 namespace Z42.Project;
 
-using Std;
 using Std.IO;
 
 // 拓扑序（叶子在前）的 path 依赖闭包。Tomls[i] = 成员 manifest 路径（不含消费方自身）。

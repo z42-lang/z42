@@ -1,6 +1,5 @@
 namespace Std.Encoding;
 
-using Std;
 
 // RFC 4648 §5: URL- and Filename-safe Base64.
 //   字母表 = A-Z a-z 0-9 - _      (`+/` → `-_`)

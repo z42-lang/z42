@@ -25,8 +25,6 @@
 // `.Invoke`/`f.Bogus()`/arity 三条路当年都是零诊断，所以 `Assert.Equal("E****", ...)` 必红。
 namespace Z42cSemanticsDelegateInvokeTests;
 
-using Std;
-using Std.Test;
 using Z42.Semantics;
 
 // ── `.Invoke` 现在是合法的调用形式（不再零诊断 + 运行期崩）──

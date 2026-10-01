@@ -7,9 +7,7 @@
 // 走完整管线（`PackageCompile`）：E0436 在 `EnforceFileScopeAll` 里判，`IrDump.BuildPackage` 那条路不判。
 namespace Z42cPipelineUsingGateTests;
 
-using Std;
 using Std.IO;
-using Std.Test;
 using Z42.Pipeline;
 using Z42.Semantics;
 
@@ -148,4 +146,63 @@ void test_dependency_type_in_field_only_reports_E0436() {
     CompileArtifacts art = ugCompile(ug2("namespace P;\nusing Std.Text;\npublic class M { public StringBuilder S; }\n",
         "namespace B;\npublic class H { public StringBuilder Held; }\n"));
     Assert.True(ugCount(art, "namespace `Std.Text` is used but not imported") >= 1);
+}
+
+// ── PR-3：多余的 using 报 warning（W0607 不必要 / W0608 重复）─────────────────────────
+
+[Test]
+void test_unused_using_warns_W0607() {
+    if (!ugHasLibs()) { return; }
+    CompileArtifacts art = ugCompile(ug2(ugLibA(), "namespace B;\nusing A;\nint F() { return 1; }\n"));
+    Assert.Equal(1, ugCount(art, "W0607"));
+    Assert.True(ugCount(art, "nothing in this file uses it") >= 1);
+    Assert.Equal(0, art.ErrorCount);   // 只是 warning，不阻断
+}
+
+[Test]
+void test_used_using_does_not_warn() {
+    if (!ugHasLibs()) { return; }
+    CompileArtifacts art = ugCompile(ug2(ugLibA(), "namespace B;\nusing A;\nint F() { return Helper.Who(); }\n"));
+    Assert.Equal(0, ugCount(art, "W0607"));
+    Assert.Equal(0, ugCount(art, "W0608"));
+}
+
+[Test]
+void test_using_only_in_declaration_counts_as_used() {
+    // 只在字段类型里用到 —— 声明位补录（DeclTypeUses）漏了的话，这里会被误报成多余。
+    if (!ugHasLibs()) { return; }
+    CompileArtifacts art = ugCompile(ug2(ugLibA(), "namespace B;\nusing A;\npublic class H { public W Held; }\n"));
+    Assert.Equal(0, ugCount(art, "W0607"));
+}
+
+[Test]
+void test_prelude_and_enclosing_using_warn_W0607() {
+    if (!ugHasLibs()) { return; }
+    Assert.Equal(1, ugCount(ugCompile(ug2(ugLibA(), "namespace B;\nusing Std;\nint F() { return 1; }\n")), "always visible"));
+    Assert.Equal(1, ugCount(ugCompile(ug2(ugLibA(), "namespace A.Sub;\nusing A;\nint F() { return Helper.Who(); }\n")), "encloses it"));
+}
+
+[Test]
+void test_duplicate_using_warns_W0608() {
+    if (!ugHasLibs()) { return; }
+    CompileArtifacts art = ugCompile(ug2(ugLibA(), "namespace B;\nusing A;\nusing A;\nint F() { return Helper.Who(); }\n"));
+    Assert.Equal(1, ugCount(art, "W0608"));
+    Assert.Equal(0, ugCount(art, "W0607"));
+}
+
+[Test]
+void test_using_covered_by_global_using_warns_W0608() {
+    if (!ugHasLibs()) { return; }
+    CompileArtifacts art = ugCompile(ug2(ugLibA() + "global using A;\n",
+        "namespace B;\nusing A;\nint F() { return Helper.Who(); }\n"));
+    Assert.Equal(1, ugCount(art, "global using A;` already imports it"));
+}
+
+[Test]
+void test_file_with_errors_skips_using_warnings() {
+    // 解析不全时用法集合不可信：这里 `Helper.Who()` 的返回值赋给 string 报 E0402，不能再把 using A 报成多余。
+    if (!ugHasLibs()) { return; }
+    CompileArtifacts art = ugCompile(ug2(ugLibA(), "namespace B;\nusing A;\nusing Std.Text;\nvoid F() { string s = Helper.Who(); }\n"));
+    Assert.True(art.ErrorCount > 0);
+    Assert.Equal(0, ugCount(art, "W0607"));
 }

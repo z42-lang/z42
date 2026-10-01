@@ -1,6 +1,5 @@
 namespace Std.Crypto;
 
-using Std;
 using Std.Encoding;
 
 // add-hkdf (2026-05-27): HKDF (RFC 5869) — Extract-then-Expand HMAC-based

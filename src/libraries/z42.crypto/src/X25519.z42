@@ -1,7 +1,5 @@
 namespace Std.Crypto;
 
-using Std;
-using Std.Encoding;
 
 // add-x25519 (2026-05-28): X25519 elliptic-curve Diffie-Hellman (RFC 7748).
 //

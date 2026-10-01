@@ -3,8 +3,6 @@
 // 仅把 `this` 改为显式 `this` 参数、跨类调用改为 `BigIntXxx._helper(...)`。
 namespace Std.Numerics;
 
-using Std;
-using Std.Random;
 
 internal static class BigIntBpsw {
     /// True iff this BigInt passes the BPSW primality test. No known

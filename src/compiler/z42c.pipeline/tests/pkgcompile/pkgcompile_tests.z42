@@ -2,14 +2,11 @@
 // 「源+依赖 → 组装好的 ZpkgFileZ + 结构化诊断」，不落盘、诊断结构返回、entry 决议。
 namespace Z42cPipelinePkgCompileTests;
 
-using Std;
 using Std.IO;
-using Std.Test;
 using Std.Reflection;   // Activator（PR4d VM 执行 golden：外部 generator 产物真跑）
 using Z42.Pipeline;
 using Z42.Semantics;
 using Z42.Package;
-using Z42.IR;
 using Z42.IR.BinaryFormat;
 
 // PR4d VM 执行 golden 用：把编好的 consumer zpkg 并入 live VM（可 Type.GetType + Activator + 虚调用）。

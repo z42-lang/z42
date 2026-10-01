@@ -3,11 +3,9 @@
 // 共享 TypeChecker（与 ExprTyper 同一 _tc）；递归子表达式绑定 _bindExpr、合成局部名 _freshColl、
 // Z42Type→TypeExpr 反解 _typeToTypeExpr 均经父反向引用 _et 委回 ExprTyper。
 namespace Z42.Semantics;
-using Z42.IR;
 
 using Z42.Syntax;
 using Z42.Core;
-using Z42.IR.BinaryFormat;
 
 public sealed class CollectionTyper {
     private TypeChecker _tc;

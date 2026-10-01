@@ -1,6 +1,5 @@
 namespace Std.Net.Http;
 
-using Std;
 using Std.Encoding;
 
 // add-z42-net-http K3 (2026-05-25): outgoing HTTP request container.
