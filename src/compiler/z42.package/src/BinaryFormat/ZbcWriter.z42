@@ -193,15 +193,31 @@ public static class ZbcWriter {
     public static ByteWriter BuildStrs(ZbcStringPool pool) {
         var w = new ByteWriter();
         int n = pool.Count();
-        // pass 1：建段字典（first-seen 去重；遍历序 = 池序 × 串内左→右）
+        // pass 1：建段字典（first-seen 去重；遍历序 = 池序 × 串内左→右）。顺手记下每串的段索引，
+        // 写 strTable 时直接用 —— 此前第二遍重新切一次、再逐段查一次字典（编包时这两步占 ~2.5%）。
         var segDict = new ZbcStringPool();
+        int[] segOff = new int[n + 1];          // 第 i 串的段索引 = segIds[segOff[i] .. segOff[i+1])
+        int[] segIds = new int[n * 2 + 8];
+        int segN = 0;
         int i = 0;
         while (i < n) {
             string[] segs = ZbcWriter._splitDots(pool.At(i));
+            segOff[i] = segN;
             int j = 0;
-            while (j < segs.Length) { segDict.Intern(segs[j]); j = j + 1; }
+            while (j < segs.Length) {
+                if (segN == segIds.Length) {
+                    int[] bigger = new int[segIds.Length * 2];
+                    int k = 0;
+                    while (k < segN) { bigger[k] = segIds[k]; k = k + 1; }
+                    segIds = bigger;
+                }
+                segIds[segN] = segDict.Intern(segs[j]);
+                segN = segN + 1;
+                j = j + 1;
+            }
             i = i + 1;
         }
+        segOff[n] = segN;
         // 段字典
         int segCount = segDict.Count();
         w.WriteU32(segCount);
@@ -216,10 +232,9 @@ public static class ZbcWriter {
         w.WriteU32(n);
         i = 0;
         while (i < n) {
-            string[] segs = ZbcWriter._splitDots(pool.At(i));
-            w.WriteVarint(segs.Length);
-            int j = 0;
-            while (j < segs.Length) { w.WriteVarint(segDict.Idx(segs[j])); j = j + 1; }
+            w.WriteVarint(segOff[i + 1] - segOff[i]);
+            int j = segOff[i];
+            while (j < segOff[i + 1]) { w.WriteVarint(segIds[j]); j = j + 1; }
             i = i + 1;
         }
         return w;
@@ -228,6 +243,7 @@ public static class ZbcWriter {
     // 按 ASCII `.`（scalar 46）切分为段（空段保留；无点串→单段；空串→单空段）。
     // 切/拼在 `.` 上严格互逆 → reader join(".") 双向无损（不依赖「串是 FQ 名」）。
     public static string[] _splitDots(string str) {
+        if (str.IndexOf(".") < 0) { string[] one = new string[1]; one[0] = str; return one; }   // 无点串（池里多数）：不物化字符数组
         char[] cs = str.ToCharArray(); int len = cs.Length;   // 两趟逐字符 CharAt（每次一次 builtin 分发）→ 一次 bulk 物化
         int dots = 0;
         int i = 0;
@@ -644,6 +660,13 @@ public static class ZbcWriter {
             string[] labels = new string[f.BlockCount];
             int li = 0;
             while (li < f.BlockCount) { labels[li] = f.Blocks[li].Label; li = li + 1; }
+            // 块多时建 label → 下标索引（首个同名块胜，与线性查找同答案）；块少时线性找更便宜。
+            StrIndex labelIdx = null;
+            if (f.BlockCount > 16) {
+                labelIdx = new StrIndex();
+                li = 0;
+                while (li < f.BlockCount) { if (labelIdx.Get(labels[li]) < 0) { labelIdx.Put(labels[li], li); } li = li + 1; }
+            }
             // 指令字节 + 块偏移。
             var instrs = new ByteWriter();
             int[] blockOffsets = new int[f.BlockCount];
@@ -653,7 +676,7 @@ public static class ZbcWriter {
                 IrBlock blk = f.Blocks[b];
                 int ii = 0;
                 while (ii < blk.InstrCount) { ZbcInstr.WriteInstr(instrs, blk.Instrs[ii], pool, strRemap, alloc); ii = ii + 1; }
-                if (blk.HasTerm) { ZbcInstr.WriteTerm(instrs, blk.Term, labels, f.BlockCount); }
+                if (blk.HasTerm) { ZbcInstr.WriteTermIndexed(instrs, blk.Term, labels, f.BlockCount, labelIdx); }
                 b = b + 1;
             }
             int regCount = f.MaxReg;
