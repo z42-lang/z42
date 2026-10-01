@@ -235,7 +235,67 @@ public sealed partial class SymbolTable {
             if (it != null) { ns = it.Namespace; }
         }
         if (ns == null) { return ""; }
+        if (ns == "") { ns = SymbolTable._declNsOf(this.EnumTypeNs, n); }
+        if (ns == "") { ns = SymbolTable._declNsOf(this.DelegateNs, n); }
         return ns;
+    }
+
+    // FQN 键的表（值 = 声明 ns 的 StrBox）里，短名为 n 的那一项的声明 ns；没有则 ""。只供诊断指路。
+    // 同短名多份时取字典序最小的 ns（`Keys()` 不保证顺序，诊断文本要确定）。
+    private static string _declNsOf(StrMap nsByFqn, string n) {
+        string[] ks = nsByFqn.Keys();
+        string best = "";
+        int i = 0;
+        while (i < ks.Length) {
+            StrBox b = nsByFqn.Get(ks[i]) as StrBox;
+            if (b != null && b.Value != "" && ks[i] == b.Value + "." + n) {
+                if (best == "" || b.Value.CompareTo(best) < 0) { best = b.Value; }
+            }
+            i = i + 1;
+        }
+        return best;
+    }
+
+    // enum / delegate 名 → 表键（FQN），查不到返回 null。与 `_resolveClass` 同一套作用域规则
+    // （外围链 → FQN → using → prelude，无裸名回落）。此前这两张表按**短名**做键、按短名直接查 ⇒ 同包两个 ns
+    // 各声明一个 `Color`（或 `Op`）时只剩一份：enum 的声明 ns 后写者赢、常量按 `Color.Member` 混在一起，
+    // delegate 先写者赢；跨 ns 引用不写 `using` 也解析得到。
+    public string EnumKey(string name) { return this._scopedKey(this.EnumTypes, this.EnumShortNames, name); }
+    public string DelegateKey(string name) { return this._scopedKey(this.Delegates, this.DelegateShortNames, name); }
+
+    // 登记一个 enum / delegate 表键（FQN）的短名，供上面两个查找快速否决。表本身的 Put 仍由调用方做。
+    public void NoteEnumKey(string key) { this.EnumShortNames.Put(SymbolTable._lastSeg(key), "1"); }
+    public void NoteDelegateKey(string key) { this.DelegateShortNames.Put(SymbolTable._lastSeg(key), "1"); }
+
+    private static string _lastSeg(string s) {
+        int dot = s.LastIndexOf(".");
+        return dot < 0 ? s : s.Substring(dot + 1, s.Length - dot - 1);
+    }
+
+    private string _scopedKey(StrMap m, StrMap shorts, string name) {
+        if (name == null || name == "") { return null; }
+        if (!shorts.ContainsKey(SymbolTable._lastSeg(name))) { return null; }   // 没有任何 enum / delegate 叫这个短名
+        int ci = 0;
+        while (ci < this.ScopeChain.Length) {
+            string ck = this.ScopeChain[ci] + "." + name;
+            if (m.ContainsKey(ck)) { return ck; }
+            ci = ci + 1;
+        }
+        if (m.ContainsKey(name)) { return name; }
+        int ui = 0;
+        while (ui < this.ScopeUsingCount) {
+            string uk = this.ScopeUsings[ui] + "." + name;
+            if (m.ContainsKey(uk)) { return uk; }
+            ui = ui + 1;
+        }
+        string[] pre = PreludeNs.All();
+        int pi = 0;
+        while (pi < pre.Length) {
+            string pk = pre[pi] + "." + name;
+            if (m.ContainsKey(pk)) { return pk; }
+            pi = pi + 1;
+        }
+        return null;
     }
 
     // 接口名 → 接口。与 `_resolveClass` 逐步同构（A5b-2c 之前接口这一侧只有「FQN → 裸名表」两步）。

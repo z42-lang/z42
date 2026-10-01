@@ -124,7 +124,7 @@ public sealed class CallEmitter {
                 string enumFqn = "";
                 if (c.Receiver is BoundLitInt) {
                     BoundLitInt bli = c.Receiver as BoundLitInt;
-                    if (bli.EnumTypeName != "") { enumFqn = this._ctx.QualifyClass(bli.EnumTypeName); }
+                    if (bli.EnumTypeName != "") { enumFqn = bli.EnumTypeName; }   // 绑定时已是 FQN（MemberResolver）
                 }
                 if (enumFqn != "" || this._isStructOrEnumStatic(c.Receiver.Type())) {
                     return this._emitValueTypeGetType(c, enumFqn);
@@ -447,7 +447,7 @@ public sealed class CallEmitter {
         if (t is Z42ClassType) {
             Z42ClassType ct = t as Z42ClassType;
             if (ct.IsStruct && !ct.IsScalarType()) { return true; }
-            if (this._ctx.Symbols != null && this._ctx.Symbols.EnumTypes.ContainsKey(ct.Name())) { return true; }
+            if (this._ctx.Symbols != null && this._ctx.Symbols.EnumTypes.ContainsKey(SymbolTable.DeclKey(ct.Namespace, ct.Name()))) { return true; }
             return false;
         }
         if (t is Z42InstantiatedType) {

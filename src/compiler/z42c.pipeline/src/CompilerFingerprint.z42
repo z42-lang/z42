@@ -125,7 +125,10 @@ public static class CompilerFingerprint {
         "fix-ref-addr-opt",
         // fix-sdklibs-transitive：SDK 库的传递闭包真正生效（DEPS 段是文件名，此前拿去和包名比、永远对不上）——
         // 只声明 z42c.semantics 的工程现在能看见它依赖的 z42.package 等；解析域是语义分析的输入。
-        "fix-sdklibs-transitive"
+        "fix-sdklibs-transitive",
+        // fqn-enum-delegate-tables：enum / delegate 表按 FQN 键、按作用域解析 —— 同包两个 ns 的同名 enum / delegate 不再撞成一份；
+        // 跨 ns 引用不写 using 报 E0436；enum 类型名后的未知成员新报 E0401。
+        "fqn-enum-delegate-tables"
     };
 
     // 指纹值：`Entries` 逐条以 `\n` 连接后取内容哈希（`mmh3:` 前缀，同 SourceHash）。

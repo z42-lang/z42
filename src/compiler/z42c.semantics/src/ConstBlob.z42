@@ -67,7 +67,9 @@ public static class ConstBlob {
     private static string _encodeEnum(MemberExpr m, SymbolTable syms) {
         if (!(m.Target is IdentExpr)) { return null; }
         string enumName = (m.Target as IdentExpr).Name;
-        string key = enumName + "." + m.Name;
+        string ek = syms.EnumKey(enumName);
+        if (ek == null) { return null; }
+        string key = ek + "." + m.Name;
         if (!syms.EnumConsts.ContainsKey(key)) { return null; }
         StrBox sb = syms.EnumConsts.Get(key) as StrBox;
         if (sb == null) { return null; }

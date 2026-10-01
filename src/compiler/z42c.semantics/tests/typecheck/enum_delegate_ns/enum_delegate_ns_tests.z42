@@ -1,0 +1,113 @@
+// enum / delegate 身份按命名空间判（enforce-fqn-name-identity：短名表收口）。
+//
+// 此前 `SymbolTable.EnumTypes` / `EnumTypeNs` / `EnumConsts` / `Delegates` 都按**短名**做键 ⇒ 同一个包里
+// 两个命名空间各声明一个 `Color`（或 `Op`）时只剩一份：enum 的声明 ns 后写者赢、常量表按 `Color.Member`
+// 混在一起，delegate 先写者赢。全部用多 CU（单文件只有一个 ns，造不出这个形状）。
+namespace Z42cSemanticsEnumDelegateNsTests;
+
+using Z42.Semantics;
+
+string[] ednDiags(string[] srcs) {
+    string[] files = new string[srcs.Length];
+    int f = 0;
+    while (f < srcs.Length) { files[f] = "f" + f.ToString() + ".z42"; f = f + 1; }
+    CompiledModuleZ[] cms = IrDump.BuildPackage(srcs, files, srcs.Length, null, null, false);
+    int n = 0;
+    int i = 0;
+    while (i < cms.Length) { n = n + cms[i].DiagCount; i = i + 1; }
+    string[] r = new string[n];
+    int k = 0;
+    i = 0;
+    while (i < cms.Length) {
+        int j = 0;
+        while (j < cms[i].DiagCount) { r[k] = cms[i].DiagMsgs[j]; k = k + 1; j = j + 1; }
+        i = i + 1;
+    }
+    return r;
+}
+
+int ednErrors(string[] msgs) {
+    int n = 0;
+    int i = 0;
+    while (i < msgs.Length) { if (msgs[i].Contains("E0") || msgs[i].Contains("E1")) { n = n + 1; } i = i + 1; }
+    return n;
+}
+
+int ednCount(string[] msgs, string code) {
+    int n = 0;
+    int i = 0;
+    while (i < msgs.Length) { if (msgs[i].Contains(code)) { n = n + 1; } i = i + 1; }
+    return n;
+}
+
+string ednEnumA() { return "namespace A;\npublic enum Color { Red, Green }\n"; }
+string ednEnumB() { return "namespace B;\npublic enum Color { Blue }\n"; }
+
+[Test]
+void test_enum_member_of_same_short_name_in_other_namespace_is_undefined() {
+    // B 里的 `Color` 是 `B.Color`，它没有 `Red`。
+    string[] s = new string[3];
+    s[0] = ednEnumA();
+    s[1] = ednEnumB();
+    s[2] = "namespace B;\nint F() { Color c = Color.Red; return 0; }\n";
+    Assert.True(ednErrors(ednDiags(s)) > 0);
+}
+
+[Test]
+void test_enum_of_same_short_name_in_other_namespace_is_not_assignable() {
+    string[] s = new string[3];
+    s[0] = ednEnumA();
+    s[1] = ednEnumB();
+    s[2] = "namespace B;\nusing A;\nint F() { A.Color a = A.Color.Red; Color b = a; return 0; }\n";
+    Assert.Equal(1, ednCount(ednDiags(s), "E0402"));
+}
+
+[Test]
+void test_enum_resolves_by_enclosing_namespace_regardless_of_order() {
+    // 阴性对照：两种文件顺序下，各自 ns 里的 `Color` 都解析到自己那份。
+    string[] s = new string[3];
+    s[0] = ednEnumB();
+    s[1] = ednEnumA();
+    s[2] = "namespace A;\nint F() { Color c = Color.Green; return 0; }\n";
+    Assert.Equal(0, ednErrors(ednDiags(s)));
+    string[] t = new string[3];
+    t[0] = ednEnumA();
+    t[1] = ednEnumB();
+    t[2] = "namespace B;\nint G() { Color c = Color.Blue; return 0; }\n";
+    Assert.Equal(0, ednErrors(ednDiags(t)));
+}
+
+[Test]
+void test_delegate_of_same_short_name_in_other_namespace_uses_own_signature() {
+    // A.Op 先注册；B 里的 `Op` 是 `B.Op`（string → string），不是 A 的 int → int。
+    string[] s = new string[3];
+    s[0] = "namespace A;\npublic delegate int Op(int x);\n";
+    s[1] = "namespace B;\npublic delegate string Op(string s);\n";
+    s[2] = "namespace B;\nstring F() { Op f = (string s) => s + \"!\"; return f(\"a\"); }\n";
+    Assert.Equal(0, ednErrors(ednDiags(s)));
+}
+
+[Test]
+void test_delegate_in_other_namespace_needs_using() {
+    // C 里没有 `using A;` ⇒ `Op` 不可见（引用处 E0436）。
+    string[] s = new string[2];
+    s[0] = "namespace A;\npublic delegate int Op(int x);\n";
+    s[1] = "namespace C;\nint F() { Op f = (int x) => x; return f(1); }\n";
+    Assert.Equal(1, ednCount(ednDiags(s), "E0436"));
+}
+
+[Test]
+void test_enum_in_other_namespace_needs_using() {
+    string[] s = new string[2];
+    s[0] = ednEnumA();
+    s[1] = "namespace C;\nint F() { Color c = Color.Red; return 0; }\n";
+    Assert.True(ednCount(ednDiags(s), "E0436") >= 1);
+}
+
+[Test]
+void test_undefined_enum_member_reports_E0401() {
+    // 单 ns 的基线：此前 `Color.Nope` 绑成 Unknown 上的实例成员，零诊断。
+    string[] s = new string[1];
+    s[0] = "namespace A;\npublic enum Color { Red }\nint F() { Color c = Color.Nope; return 0; }\n";
+    Assert.Equal(1, ednCount(ednDiags(s), "E0401"));
+}

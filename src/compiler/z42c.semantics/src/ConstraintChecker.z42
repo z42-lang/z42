@@ -570,7 +570,8 @@ public sealed class ConstraintChecker {
     // （本地 + 导入两侧都 seed）。未解析型参 / error / unknown 按满足处理，同 _satisfiesInterface。
     private bool _isEnumArg(SymbolTable symbols, Z42Type arg) {
         if ((arg is Z42GenericParamType) || (arg is Z42ErrorType) || (arg is Z42UnknownType)) { return true; }
-        return symbols.EnumTypes.ContainsKey(arg.Name());
+        if (arg is Z42ClassType) { Z42ClassType act = arg as Z42ClassType; return symbols.EnumTypes.ContainsKey(SymbolTable.DeclKey(act.Namespace, act.Name())); }
+        return false;
     }
 
     // where T : new() —— 照抄运行期 `generics.rs`：
@@ -693,10 +694,11 @@ public sealed class ConstraintChecker {
     private bool _isValueTypeArg(SymbolTable symbols, Z42Type arg) {
         if (arg.IsScalarType()) { return true; }               // 六个基元 wrapper
         string n = "";
-        if (arg is Z42ClassType) { n = (arg as Z42ClassType).Name(); }
-        else if (arg is Z42InstantiatedType) { n = (arg as Z42InstantiatedType).Def.Name(); }
+        string k = "";   // enum 表键（FQN）
+        if (arg is Z42ClassType) { Z42ClassType act = arg as Z42ClassType; n = act.Name(); k = SymbolTable.DeclKey(act.Namespace, n); }
+        else if (arg is Z42InstantiatedType) { n = (arg as Z42InstantiatedType).Def.Name(); k = SymbolTable.DeclKey((arg as Z42InstantiatedType).Def.Namespace, n); }
         else { return false; }
-        if (symbols.EnumTypes.ContainsKey(n)) { return true; } // enum 是值类型（IsEnum 位见上）
+        if (symbols.EnumTypes.ContainsKey(k)) { return true; } // enum 是值类型（IsEnum 位见上）
         Z42ClassType def = symbols.GetClass(n);
         if (def == null) { return false; }                     // 查不到：按引用类型处理（同运行期的保守回落）
         return def.IsStruct;

@@ -136,6 +136,32 @@ enum 不声明任何方法，所以 `Object` 协议的候选走查在 enum 盒�
 false**。解法是让 enum 盒的候选类名换成**底层类型** `Std.Int64`：`Std.Int64.Equals(long)`
 正是想要的值比较，与装箱 `long` 走同一个方法。（`ToString` 不受影响——前面的 enum 臂先拦下。）
 
+## 命名空间与名字查找
+
+enum 的身份是**全限定名**，与类相同：`namespace A` 里的 `Color` 与 `namespace B` 里的 `Color`
+是两个类型，同一个包里也一样。写短名时按[命名空间规则](namespaces.md)找：先找本文件 `namespace`
+及其外围，再找 `using` 进来的命名空间与 prelude；不在这些地方的 enum 写短名找不到，报 `E0436`（指明该补的 `using`）。
+
+```z42
+// a.z42
+namespace A;
+public enum Color { Red, Green }
+
+// b.z42
+namespace B;
+public enum Color { Blue }
+int F() {
+    Color c = Color.Blue;     // ✓ B.Color
+    Color d = Color.Red;      // ❌ E0401: enum `Color` has no member `Red`（B.Color 没有 Red）
+    return 0;
+}
+```
+
+enum 类型名后面只能跟它自己的成员，写错成员名报 `E0401`。
+
+> 2026-10-01 前，编译器内部的 enum 表按短名做键：同包两个命名空间各有一个 `Color` 时只剩一份，
+> 成员值混在一起，写错成员名也不报错。
+
 ## 跨包 enum
 
 导入的 enum 在消费方与本地 enum **完全同形**：同样带 `IsEnum` 标志、同样的转换/比较规则、
@@ -143,7 +169,7 @@ false**。解法是让 enum 盒的候选类名换成**底层类型** `Std.Int64`
 
 | 路径 | 谁走 |
 |---|---|
-| 源码里**写出的**类型引用（`Color c = …`） | `SymbolTable.EnumTypes` → `Z42ClassType.Enum` |
+| 源码里**写出的**类型引用（`Color c = …`） | `SymbolTable.EnumKey`（按作用域找到 FQN 键）→ `SymbolTable.EnumType` → `Z42ClassType.Enum` |
 | **导入成员签名里**的类型（如 `Type.Visibility` 的返回类型） | `ImportedSymbolLoader._resolve` 的 `EnumTypeNames` 分支 |
 
 只接第一条会漏掉第二条——签名里的 enum 落到末尾的 prim fallback、丢掉标志，于是
