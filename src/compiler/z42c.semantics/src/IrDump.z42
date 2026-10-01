@@ -403,6 +403,21 @@ public static class IrDump {
         return r;
     }
     // 公开：文本入口（仅 --emit-zbc 无-CU 独立路径 Main.z42 用）。有 CU 时改用 UsingsOf 免 reparse（F1）。
+    // using-csharp-rules：**包激活**用的 ns 集 = 本文件 using ∪ 本 ns 的外围链。
+    // 依赖包按「有没有模块 ns 被引用方看得见」激活（`ImportedSymbolLoader._pkgProvidesUsing`）；外围 ns 按 C#
+    // 隐式可见，不并进来的话 `namespace Std.IO.Ext` 里用 `Console` 时 z42.io 压根不加载（E0401）。
+    // ⚠️ 与 `UsingsOf` 分开：那份结果写进 `CompiledModuleZ`（模块元数据），不能掺外围链。
+    public static string[] ActivationNsOf(CompilationUnit cu) {
+        string[] us = IrDump.UsingsOf(cu);
+        string[] chain = NsScope.Chain(cu.HasNamespace ? cu.Namespace : "");
+        string[] r = new string[us.Length + chain.Length];
+        int k = 0;
+        int i = 0;
+        while (i < us.Length) { r[k] = us[i]; k = k + 1; i = i + 1; }
+        i = 0;
+        while (i < chain.Length) { r[k] = chain[i]; k = k + 1; i = i + 1; }
+        return r;
+    }
     public static string[] ExtractUsings(string src, string file) {
         return UsingsOf(new Parser(src, file).ParseCompilationUnit());
     }

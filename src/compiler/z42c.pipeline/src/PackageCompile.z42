@@ -166,7 +166,7 @@ public static class PackageCompile {
             int auc = 0;
             int ui = 0;
             while (ui < inp.SrcCount) {
-                string[] us = IrDump.UsingsOf(inp.Cus[ui]);   // F1：已 parse 的 CU 在手，免每文件全 reparse
+                string[] us = IrDump.ActivationNsOf(inp.Cus[ui]);   // F1：已 parse 的 CU 在手；using-csharp-rules：含外围链
                 int j = 0;
                 while (j < us.Length) {
                     bool seen = false;

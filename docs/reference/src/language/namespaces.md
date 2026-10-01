@@ -1,6 +1,6 @@
 # 命名空间与 `using`
 
-> 对齐：2026-09-27 ｜ 实测基准：`./artifacts/.z42/z42 run`
+> 对齐：2026-10-01 ｜ 实测基准：`./artifacts/.z42/z42 run`
 
 ## 语法
 
@@ -52,6 +52,10 @@ using Std.Collections;
    同样以 `Std.` 打头的 stdlib 命名空间。
 3. `using X;` 激活所有声明了命名空间 `X` 的包。
 4. **没有全限定名逃生口**：`Std.IO.Console.WriteLine("hi")` 不写 `using` 也不行，报 `E0401: undefined: Std`。
+5. **外围命名空间隐式可见**（与 C# 相同）：写在 `namespace A.B` 里的代码，不写 `using` 就能用 `A.B` 与 `A`
+   里的类型和函数。名字查找由内向外：`A.B` → `A` → `using` 进来的命名空间（含 prelude）。外围命名空间里的
+   那一份**胜过** `using` 进来的同名者，不算歧义；多层外围都有时**最内层**胜出。外围按段算：`AB` 不是
+   `A` 的外围。
 
 ```z42
 new Object()                      // ✓ Object 在 Std（prelude）
@@ -62,7 +66,7 @@ Console.WriteLine(...)            // ✗ Console 在 Std.IO —— 必须 using
 ### `using` 是**文件级**的
 
 每个源文件**实际用到的跨包依赖命名空间**必须被**本文件**的 `using` 覆盖
-（再并上 prelude 的 `{Std, Std.Runtime}` 与本文件自己的 `namespace`），否则报：
+（再并上 prelude 的 `{Std, Std.Runtime}` 与本文件 `namespace` 及其外围命名空间），否则报：
 
 ```
 E0436: namespace `Std.Collections` is used but not imported in this file; add `using Std.Collections;`

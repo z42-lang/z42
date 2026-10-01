@@ -147,6 +147,7 @@ public sealed partial class SymbolTable {
         this.ScopeNs = "";
         this.ScopeUsings = new string[0];
         this.ScopeUsingCount = 0;
+        this.ScopeChain = new string[0];
     }
 
     // unify-type-identity-fqn：**引用方所在的命名空间**（per-CU 视图私有，与 CurrentAliases 同性质）。
@@ -156,6 +157,9 @@ public sealed partial class SymbolTable {
     // 本 CU 的 `using` ns 集（同为 per-CU 视图私有）。供 IsBareNameAmbiguous 算「可见集」。
     public string[] ScopeUsings;
     public int      ScopeUsingCount;
+    // using-csharp-rules：`ScopeNs` 的外围链（由内到外，`NsScope.Chain`）。`_setScope` 时算一次、视图链上继承 ——
+    // 解析器热路径上每次现算会多出一次分配。根表恒为空数组。
+    public string[] ScopeChain;
 
     // parallelize-package-compile：per-file 别名视图（线程安全根治）。共享其余 7 个数据字段的
     // 引用（并行段内只读），仅换 CurrentAliases。每个文件的 typecheck/codegen 持自己的视图 →
@@ -188,6 +192,7 @@ public sealed partial class SymbolTable {
         t.CurrentAliases = aliases;
         t.ScopeNs = this.ScopeNs;   // unify-type-identity-fqn：视图链上继承（调用方随后按 cu 覆写）
         t.ScopeUsings = this.ScopeUsings; t.ScopeUsingCount = this.ScopeUsingCount;
+        t.ScopeChain = this.ScopeChain;
         return t;
     }
 
@@ -209,6 +214,7 @@ public sealed partial class SymbolTable {
 
     private void _setScope(CompilationUnit cu) {
         this.ScopeNs = cu.HasNamespace ? cu.Namespace : "";
+        this.ScopeChain = NsScope.Chain(this.ScopeNs);
         string[] us = new string[8];
         int un = 0;
         int ui = 0;
@@ -448,8 +454,9 @@ public sealed partial class SymbolTable {
             // ⚠️ `Z42InstantiatedInterfaceType` 是 `Z42InterfaceType` 的**子类**且 `Name()` 仍返回
             // 裸名 ⇒ 既有全部 `is/as Z42InterfaceType` 路径与元数据拼写**逐字节不变**（见该类注释）。
             // unify-type-identity-fqn：接口同款「外围 ns 优先」（理由见下方 Classes 分支的长注释）。
-            if (this.ScopeNs != "") {
-                string ifq = this.ScopeNs + "." + n;
+            int _ich = 0;
+            while (_ich < this.ScopeChain.Length) {   // using-csharp-rules：外围链由内到外
+                string ifq = this.ScopeChain[_ich] + "." + n;
                 if (this.InterfacesByFqn.ContainsKey(ifq)) {
                     Z42InterfaceType sift = this.InterfacesByFqn.Get(ifq) as Z42InterfaceType;
                     if (nt.ArgCount > 0) {
@@ -460,6 +467,7 @@ public sealed partial class SymbolTable {
                     }
                     return sift;
                 }
+                _ich = _ich + 1;
             }
             int _sl1 = this.Interfaces.Find(n);
             if (_sl1 >= 0) {
@@ -483,10 +491,13 @@ public sealed partial class SymbolTable {
             // 引用（ClassesByFqn），裸名至今仍撞赢家 —— 以前没人把解析结果持久化，所以只表现为运行期
             // 降级；一旦把它写进元数据就变成「自信的错答案」（实测：HolderA.w 被写成 Beta.Widget）。
             // 只在外围 ns **确实声明了该名字**时改道 —— 那种情形按语言规则本就无歧义，不会误伤。
-            if (this.ScopeNs != "") {
+            int _cch = 0;
+            while (_cch < this.ScopeChain.Length) {   // using-csharp-rules：外围链由内到外，最内层胜出
+                string _lvl = this.ScopeChain[_cch];
+                _cch = _cch + 1;
                 if (nt.ArgCount > 0) {
-                    string sfqm = this.ScopeNs + "." + n + "$" + nt.ArgCount.ToString();
-                    string sfqb = this.ScopeNs + "." + n;
+                    string sfqm = _lvl + "." + n + "$" + nt.ArgCount.ToString();
+                    string sfqb = _lvl + "." + n;
                     string sfq = this.ClassesByFqn.ContainsKey(sfqm) ? sfqm : sfqb;
                     if (this.ClassesByFqn.ContainsKey(sfq)) {
                         Z42ClassType sdef = this.ClassesByFqn.Get(sfq) as Z42ClassType;
@@ -496,7 +507,7 @@ public sealed partial class SymbolTable {
                         return new Z42InstantiatedType(sdef, stargs, nt.ArgCount);
                     }
                 } else {
-                    string sfq0 = this.ScopeNs + "." + n;
+                    string sfq0 = _lvl + "." + n;
                     if (this.ClassesByFqn.ContainsKey(sfq0)) { return this.ClassesByFqn.Get(sfq0) as Z42ClassType; }
                 }
             }

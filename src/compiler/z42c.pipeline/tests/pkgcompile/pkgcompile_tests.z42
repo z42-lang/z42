@@ -76,6 +76,20 @@ void test_global_using_covers_sibling_file() {
     Assert.Equal(0, art.ErrorCount);
 }
 
+// using-csharp-rules PR-1：**外围命名空间**按 C# 规则隐式可见 —— `namespace Std.IO.Ext` 里的代码用 `Std.IO`
+// 的 `Console` 不需要 `using Std.IO;`。两个环节都得认外围链：① 包激活（`PackageCompile` 聚合各文件 using
+// 决定激活哪些依赖包 —— 外围链不并进去，z42.io 压根不加载，报 E0401）；② 文件级 using 强制（E0436）。
+[Test]
+void test_enclosing_namespace_of_dependency_needs_no_using() {
+    string libs = Environment.GetEnvironmentVariable("Z42_LIBS", "");
+    if (libs == "") { return; }
+    string[] dirs = libs.Split(":");
+    CompileArtifacts art = PackageCompile.Compile(_inputs2Libs(
+        "namespace Std.IO.Ext;\npublic static class Marker { }\n",
+        "namespace Std.IO.Ext;\nvoid Go() { Console.WriteLine(\"x\"); }\n", dirs));
+    Assert.Equal(0, art.ErrorCount);
+}
+
 // 同一组源，**只把 `global` 去掉** —— 于是那行 using 只管 prelude 自己，Main 缺 using → E0436。
 // 这是上一条的判别性对照：没有它，上一条在「E0436 整条不发火」的实现下也会绿
 // （fix-incremental-file-scope-diagnostics 修的正是「cached 文件永远不报 E0436」）。

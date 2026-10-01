@@ -86,11 +86,19 @@ public sealed partial class SymbolTable {
         int at = this.FuncNsAll.Find(name);
         if (at < 0) { return new string[0]; }
         string[] nss = (this.FuncNsAll.ValAt(at) as StrBox).Value.Split("|");
-        int i = 0;
-        while (i < nss.Length) {
-            if (nss[i] == this.ScopeNs) { string[] own = new string[1]; own[0] = nss[i]; return own; }
-            i = i + 1;
+        // using-csharp-rules：外围链由内到外逐层找，**最内层**有声明就是它（C# 近者优先）。
+        int ci = 0;
+        while (ci < this.ScopeChain.Length) {
+            int i0 = 0;
+            while (i0 < nss.Length) {
+                if (nss[i0] == this.ScopeChain[ci]) { string[] own = new string[1]; own[0] = nss[i0]; return own; }
+                i0 = i0 + 1;
+            }
+            ci = ci + 1;
         }
+        int g = 0;   // 全局 ns 是最外层外围（见 NsScope.IsEnclosing）：链上都没有、全局有 ⇒ 就是它
+        while (g < nss.Length) { if (nss[g] == "") { string[] gl = new string[1]; gl[0] = ""; return gl; } g = g + 1; }
+        int i = 0;
         string[] vis = new string[nss.Length];
         int vn = 0;
         i = 0;

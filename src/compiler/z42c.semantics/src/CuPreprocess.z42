@@ -169,14 +169,14 @@ public static class CuPreprocess {
         }
     }
     // add-file-scoped-usings：强制 file-scoped usings——本文件用到的跨包依赖 ns（cm.UsedDepNs）
-    // 必须被本文件的 using（含 global using 注入）∪ {Std, Std.Runtime, 本 ns} 覆盖，否则 E0436。
+    // 必须被本文件的 using（含 global using 注入）∪ {Std, Std.Runtime} ∪ 本 ns 的外围链覆盖，否则 E0436。
     // 只读 cm.UsedDepNs（已算好，DEPS 用同一份）+ 追加诊断，不改任何 emit 字节 → 自举字节不动。
     internal static void _enforceFileScope(CompilationUnit cu, string file, CompiledModuleZ cm) {
         int u = 0;
         while (u < cm.UsedDepNsCount) {
             string ns = cm.UsedDepNs[u];
             bool allowed = PreludeNs.Contains(ns);   // prelude ns 免 using —— SoT 见 PreludeNs.z42
-            if (cu.HasNamespace && ns == cu.Namespace) { allowed = true; }
+            if (cu.HasNamespace && NsScope.IsEnclosing(cu.Namespace, ns)) { allowed = true; }   // using-csharp-rules：外围链
             int di = 0;
             while (di < cu.DeclCount) {
                 if (cu.Decls[di] is UsingDecl && (cu.Decls[di] as UsingDecl).Name == ns) { allowed = true; }
@@ -209,8 +209,9 @@ public static class CuPreprocess {
         int uc = 0;
         int i = 0;
         while (i < cu.DeclCount) { if (cu.Decls[i] is UsingDecl) { uc = uc + 1; } i = i + 1; }
-        int extra = 0;
-        if (cu.HasNamespace) { extra = 1; }
+        // using-csharp-rules：本 ns 换成它的**外围链**（`A.B` → A.B, A），由内到外。
+        string[] chain = NsScope.Chain(cu.HasNamespace ? cu.Namespace : "");
+        int extra = chain.Length;
         // + prelude 命名空间——镜像 DepScan.IsPrelude("z42.core") 的免-using 可见性。
         // 名单是 `PreludeNs.All()`（SoT；此前这里把 "Std"/"Std.Runtime" 又写了一遍）。
         string[] pre = PreludeNs.All();
@@ -221,7 +222,8 @@ public static class CuPreprocess {
             if (cu.Decls[i] is UsingDecl) { r[k] = (cu.Decls[i] as UsingDecl).Name; k = k + 1; }
             i = i + 1;
         }
-        if (cu.HasNamespace) { r[k] = cu.Namespace; k = k + 1; }
+        int ch = 0;
+        while (ch < chain.Length) { r[k] = chain[ch]; k = k + 1; ch = ch + 1; }
         int p = 0;
         while (p < pre.Length) { r[k] = pre[p]; k = k + 1; p = p + 1; }
         return r;

@@ -173,7 +173,7 @@ public sealed partial class SymbolTable {
     //
     // 现在按 `ResolveTypeP` 的同一套规则走：
     //
-    //   ① 外围 ns 优先     ScopeNs + "." + name      —— 语言规则：enclosing ns 胜过 usings
+    //   ① 外围 ns 优先     ScopeChain[i] + "." + name —— 语言规则：enclosing ns 胜过 usings（C#：由内到外逐层）
     //   ② 调用方给的就是 FQN                          —— 实测 stdlib 全量构建里 0 次，但测试会走
     //   ③ 逐个 using（含 prelude）                    —— `ScopeUsings` ∪ `PreludeNs.All()`
     //   ④ 裸名表                                      —— ⚠️ 待删的那一支，见下
@@ -187,9 +187,11 @@ public sealed partial class SymbolTable {
     // （135 个调用点全是字符串键）⇒ 只会变成静默错答案。删之前必须先把残留量到 0。
     private Z42ClassType _resolveClass(string name) {
         if (name == null) { return null; }
-        if (this.ScopeNs != "") {
-            int s = this.ClassesByFqn.Find(this.ScopeNs + "." + name);
+        int ci = 0;
+        while (ci < this.ScopeChain.Length) {   // using-csharp-rules：外围链由内到外，最内层胜出
+            int s = this.ClassesByFqn.Find(this.ScopeChain[ci] + "." + name);
             if (s >= 0) { return this.ClassesByFqn.ValAt(s) as Z42ClassType; }
+            ci = ci + 1;
         }
         int f = this.ClassesByFqn.Find(name);
         if (f >= 0) { return this.ClassesByFqn.ValAt(f) as Z42ClassType; }

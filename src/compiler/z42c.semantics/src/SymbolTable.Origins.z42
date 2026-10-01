@@ -274,7 +274,7 @@ public sealed partial class SymbolTable {
         int i = 0;
         while (i < nss.Length) {
             string ns = nss[i];
-            if (ns == this.ScopeNs) { return false; }
+            if (NsScope.IsEnclosing(this.ScopeNs, ns)) { return false; }   // using-csharp-rules：外围 ns（任一层）胜出、不算歧义
             if (ns == "" || this.IsScopeVisibleNs(ns)) { visible = visible + 1; }
             i = i + 1;
         }
@@ -283,7 +283,7 @@ public sealed partial class SymbolTable {
 
     public bool IsScopeVisibleNs(string p) {
         if (p == "") { return false; }
-        if (p == this.ScopeNs) { return true; }
+        if (NsScope.IsEnclosing(this.ScopeNs, p)) { return true; }   // using-csharp-rules：外围链隐式可见
         int i = 0;
         while (i < this.ScopeUsingCount) {
             if (this.ScopeUsings[i] == p) { return true; }
@@ -603,7 +603,7 @@ public sealed partial class SymbolTable {
         int i = 0;
         while (i < nss.Length) {
             string ns = nss[i];
-            if (ns == this.ScopeNs) { return false; }
+            if (NsScope.IsEnclosing(this.ScopeNs, ns)) { return false; }   // using-csharp-rules：外围 ns（任一层）胜出、不算歧义
             if (ns == "" || this.IsScopeVisibleNs(ns)) { visible = visible + 1; }
             i = i + 1;
         }

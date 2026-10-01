@@ -117,7 +117,7 @@ public sealed class TypeChecker {
     // 只做「是不是 ns」的判别，不做歧义消解——限定名命中后仍按短名查类（与写裸名同语义）。
     public bool _isVisibleNs(string p) {
         if (p == "") { return false; }
-        if (p == this._currentNs) { return true; }
+        if (NsScope.IsEnclosing(this._currentNs, p)) { return true; }   // using-csharp-rules：外围链隐式可见
         int i = 0;
         while (i < this._currentUsingCount) { if (this._currentUsings[i] == p) { return true; } i = i + 1; }
         return false;
