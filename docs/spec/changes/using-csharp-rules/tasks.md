@@ -46,4 +46,4 @@
       那一类 ⇒ 不依赖 PR-1 进种子（上一版 z42c 照样能编）
 - [x] 3.5 文档：参考手册 namespaces.md「多余的 using 会告警」+ 诊断表；error-codes.md
 - [ ] 3.6 `global using` 声明本身全包都没用到 ⇒ W0607：需全包每文件的 `UsedNs`，cached 文件拿不到（同 2.9）
-- [ ] 3.7 （晚一个 nightly）W0607 / W0608 发射点切回 `DiagnosticCodes.UnnecessaryUsing` / `DuplicateUsing`
+- [x] 3.7 （晚一个 nightly）W0607 / W0608 发射点切回 `DiagnosticCodes.UnnecessaryUsing` / `DuplicateUsing`

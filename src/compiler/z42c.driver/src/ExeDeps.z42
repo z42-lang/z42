@@ -10,6 +10,7 @@ using Z42.Package;
 using Z42.Project;
 using Z42.IR;          // ZpkgReader / ZpkgInfo（产物引用的包名校验）
 using Z42.Pipeline;    // CompilerDomain（编译器域解析域，与 BuildSession 共用）
+using Z42.Core;        // DiagnosticCodes（W0609）
 
 // **非框架**依赖的已构建 zpkg（+ .zsym）复制进 exe 的 dist。运行时 z42vm 的依赖搜索序
 // = [entry-zpkg 目录, Z42_LIBS]，故 exe 从自身 dist 即可解析私有依赖，框架包仍走 Z42_LIBS。
@@ -381,11 +382,9 @@ string _expandDepPathMacros(string tomlPath, string depName, string p) {
 
 // W0609：`${compiler_libs}` 进入过渡期（add-sdk-libs）。照常展开、照常构建，只提示等价的按名写法。
 // 格式与源码诊断同形（`file(line,col): CODE: message`），位置取清单里这个依赖 key 所在行（找不到落 1 行）。
-// ⚠️ 码用字面量：常量 `CompilerLibsMacroDeprecated` 与本发射点同 PR 新增，上一版 z42c 的 z42c.core 里还没有它
-// （bootstrap-seed.md 分阶段引入纪律）；随 nightly 进种子后切回常量（diag-literal-emitters.txt 记着这笔账）。
 void _warnCompilerLibsMacro(string tomlPath, string depName) {
-    string code = "W0609";
-    ConsoleError.WriteLine(tomlPath + "(" + _tomlKeyLine(tomlPath, depName).ToString() + ",1): " + code + ": [dependencies] `"
+    ConsoleError.WriteLine(tomlPath + "(" + _tomlKeyLine(tomlPath, depName).ToString() + ",1): "
+        + DiagnosticCodes.CompilerLibsMacroDeprecated + ": [dependencies] `"
         + depName + "` 用了 `${compiler_libs}` 路径宏 —— 过渡写法，将在后续版本删除。SDK 库按名声明即可："
         + "`\"" + depName + "\" = \"*\"`（exe 要在 SDK 上运行、不复制时再加 `deploy = \"sdk\"`）。");
 }
