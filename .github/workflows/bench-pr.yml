@@ -278,12 +278,10 @@ jobs:
         shell: bash
         run: |
           set -uo pipefail
-          vm="$PWD/artifacts/build/runtime/release/z42vm"
           T="src/tests/perf/testdata"
           fail=0
           xt() {
-            Z42_PORTABLE_VM="$vm" Z42_LIBS="$PWD/artifacts/build/libraries/dist/release" \
-              "$vm" artifacts/xtask/xtask.zpkg -- "$@" >/dev/null 2>&1
+            xtask "$@" >/dev/null 2>&1
             echo $?
           }
           expect() { # <label> <want> <got>
@@ -473,9 +471,7 @@ jobs:
         if: steps.fmtgap.outputs.gap != '1'
         shell: bash
         run: |
-          vm="$PWD/artifacts/build/runtime/release/z42vm"
-          Z42_PORTABLE_VM="$vm" Z42_LIBS="$PWD/artifacts/build/libraries/dist/release" \
-            "$vm" artifacts/xtask/xtask.zpkg -- test fingerprint --base "$PWD/base-src" \
+          xtask test fingerprint --base "$PWD/base-src" \
               --base-driver "${{ steps.base.outputs.base_driver }}"
 
       - name: Same-runner A/B regression gate (>15% time fails)
@@ -505,10 +501,7 @@ jobs:
           # `// gc-pause: report` 的场景（13_gc_large_heap）另跑 3 次取 max 停顿中位数；
           # 判红 ⟺ pr 超上限 **且** 比 base 差 25% 以上。M2（增量 major）落地前 main 上就有 ~97 ms，
           # 只看绝对上限会让每个 PR 都红；M2 后 base/pr 都在上限内，规则退化为纯绝对上限，届时收紧到 10。
-          vm="$PWD/artifacts/build/runtime/release/z42vm"
-          Z42_PORTABLE_VM="$vm" Z42_LIBS="$PWD/artifacts/build/libraries/dist/release" \
-            "$vm" artifacts/xtask/xtask.zpkg -- \
-            bench --ab --tier gate --mode "$MODE" --threshold-time 0.15 \
+          xtask bench --ab --tier gate --mode "$MODE" --threshold-time 0.15 \
               --pause-cap-ms 16 --threshold-pause 0.25 \
               --base-vm     "${{ steps.base.outputs.base_vm }}" \
               --base-libs   "${{ steps.base.outputs.base_libs }}" \
@@ -525,10 +518,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          vm="$PWD/artifacts/build/runtime/release/z42vm"
-          Z42_PORTABLE_VM="$vm" Z42_LIBS="$PWD/artifacts/build/libraries/dist/release" \
-            "$vm" artifacts/xtask/xtask.zpkg -- \
-            bench stdlib --json "$PWD/artifacts/bench/micro-pr.json" --no-build --mode interp
+          xtask bench stdlib --json "$PWD/artifacts/bench/micro-pr.json" --no-build --mode interp
 
       - name: Capture base micro baseline (base tree, same runner)
         if: steps.fmtgap.outputs.gap != '1'
@@ -536,17 +526,15 @@ jobs:
         run: |
           set -euo pipefail
           ROOT="$PWD"
-          PRVM="$ROOT/artifacts/build/runtime/release/z42vm"
           # Run the PR xtask (Z42_LIBS = PR libs for xtask's OWN deps) against the base
           # tree (cwd=base-src → _root()=base-src, so bench sources / output dirs are
           # base's). The measured toolchain is passed EXPLICITLY via --vm/--driver/--libs
           # = the exact base toolchain the e2e A/B already used (.ab-base-alllibs), so
           # base benchmarks compile+run against a proven-consistent base stdlib — no
           # in-tree rebuild, no reliance on base-src's assembled-libs layout.
+          # `xtask` 垫片按**自己所在位置**定位 PR 树的 z42vm / libs / xtask.zpkg，不看 cwd ⇒ cd 进 base-src 照样是 PR 的 xtask。
           ( cd base-src && \
-            Z42_PORTABLE_VM="$PRVM" Z42_LIBS="$ROOT/artifacts/build/libraries/dist/release" \
-            "$PRVM" "$ROOT/artifacts/xtask/xtask.zpkg" -- \
-            bench stdlib --json "$ROOT/artifacts/bench/micro-base.json" --no-build --mode interp \
+            xtask bench stdlib --json "$ROOT/artifacts/bench/micro-base.json" --no-build --mode interp \
               --vm     "${{ steps.base.outputs.base_vm }}" \
               --driver "${{ steps.base.outputs.base_driver }}" \
               --libs   "${{ steps.base.outputs.base_libs }}" )
@@ -573,20 +561,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          vm="$PWD/artifacts/build/runtime/release/z42vm"
           A="$PWD/artifacts/bench"
           ROOT="$PWD"
-          xt() {
-            Z42_PORTABLE_VM="$vm" Z42_LIBS="$ROOT/artifacts/build/libraries/dist/release" \
-              "$vm" "$ROOT/artifacts/xtask/xtask.zpkg" -- "$@"
-          }
+          xt() { xtask "$@"; }
           # 一轮 base 侧捕获：跑 PR 的 xtask，但 cwd=base-src 且**显式**传 base 工具链
           # （与上面「Capture base micro baseline」逐字同构 —— 改一处必须改两处）。
           capture_base() { # <out.json>
             ( cd base-src && \
-              Z42_PORTABLE_VM="$vm" Z42_LIBS="$ROOT/artifacts/build/libraries/dist/release" \
-              "$vm" "$ROOT/artifacts/xtask/xtask.zpkg" -- \
-              bench stdlib --json "$1" --no-build --mode interp \
+              xtask bench stdlib --json "$1" --no-build --mode interp \
                 --vm     "${{ steps.base.outputs.base_vm }}" \
                 --driver "${{ steps.base.outputs.base_driver }}" \
                 --libs   "${{ steps.base.outputs.base_libs }}" )

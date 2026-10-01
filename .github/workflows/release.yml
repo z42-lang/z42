@@ -132,107 +132,34 @@ jobs:
       - name: Build wasm platform
         if: matrix.rid == 'browser-wasm'
         shell: bash
-        run: |
-          set -euo pipefail
-          vm="$PWD/artifacts/build/runtime/release/z42vm"
-          Z42_PORTABLE_VM="$vm" Z42_LIBS="$PWD/artifacts/build/libraries/dist/release" \
-            "$vm" artifacts/xtask/xtask.zpkg -- test platform wasm build
+        run: xtask test platform wasm build
 
-      - name: Package ${{ matrix.rid }} (z42 xtask.zpkg package)
+      # `xtask` 是 ci-bootstrap 加进 PATH 的垫片（.github/ci/xtask）：z42vm / stdlib / xtask.zpkg 的位置与
+      # Windows「从拷贝启动、免得 cargo 重链时覆盖正在运行的 z42vm.exe」都在它里面。
+      - name: Package ${{ matrix.rid }}
         shell: bash
         env:
           ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
         run: |
           set -euo pipefail
-          vm="$PWD/artifacts/build/runtime/release/z42vm"; [ -f "$vm.exe" ] && vm="$vm.exe"
           rid="${{ matrix.rid }}"
-          libs="$PWD/artifacts/build/libraries/dist/release"
-          # Windows: `package` cargo-relinks z42vm and can't overwrite the *running*
-          # z42vm.exe → run xtask from a copy outside the cargo output dir (mirrors
-          # ci.yml host-package). No-op on Linux/macOS.
-          runner="$vm"
-          if [ "${RUNNER_OS:-}" = "Windows" ]; then
-            mkdir -p "$PWD/.ci-runner"; cp "$vm" "$PWD/.ci-runner/"
-            cp "$PWD"/artifacts/build/runtime/release/*.dll "$PWD/.ci-runner/" 2>/dev/null || true
-            runner="$PWD/.ci-runner/$(basename "$vm")"
-          fi
-          # merge-package-release: the former combined `package release --rid` split
-          # into name-driven subcommands. Desktop host RID → SDK + runtime + desktop
-          # workload (--no-build consumes the bootstrap-built z42c+stdlib); platform
-          # RID (ios/android/wasm) → runtime pack + tooling facade.
+          # Desktop host RID → SDK + runtime + desktop workload（--no-build：用 bootstrap 已建好的 z42c + stdlib）；
+          # platform RID（ios/android/wasm）→ runtime pack + tooling facade。
           if [[ "$rid" == linux-* || "$rid" == macos-* || "$rid" == windows-* ]]; then
-            Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" "$runner" artifacts/xtask/xtask.zpkg -- package sdk --no-build
-            Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" "$runner" artifacts/xtask/xtask.zpkg -- package runtime --no-build
-            Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" "$runner" artifacts/xtask/xtask.zpkg -- package workload
-            # test workload = payload-only, platform-agnostic → build once on the
-            # primary desktop host (package-test-workload). Version read from versions.toml.
-            if [[ "$rid" == "macos-arm64" ]]; then
-              Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" "$runner" artifacts/xtask/xtask.zpkg -- package workload test
-            fi
+            xtask package sdk --no-build
+            xtask package runtime --no-build
+            xtask package workload
+            # test workload = payload-only、与平台无关 → 只在主桌面 host 出一份。
+            if [[ "$rid" == "macos-arm64" ]]; then xtask package workload test; fi
           else
-            Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" "$runner" artifacts/xtask/xtask.zpkg -- package runtime --rid "$rid"
+            xtask package runtime --rid "$rid"
           fi
 
+      # 归档命名（sdk / runtime / 桌面 workload / 平台 workload 只由主 RID 出 / test workload）与 windows 出 zip
+      # 都在 `xtask package archive` 里（与 ci.yml nightly、本地发布同一份）。
       - name: Archive
         shell: bash
-        run: |
-          set -euo pipefail
-          rid="${{ matrix.rid }}"; version="${{ needs.verify.outputs.version }}"
-          mkdir -p artifacts/release
-
-          _tar() {
-            local src="$1" dst="$2"
-            if [[ "$rid" == windows-* ]]; then
-              # NOTE: `shell: bash` on windows-* is Git Bash → GNU tar, which CANNOT
-              # write ZIP (`--auto-compress` only knows .gz/.xz/.zst/… so `tar -a -cf
-              # x.zip` silently produces a *tar* named .zip → downstream `unzip` fails
-              # with "End-of-central-directory signature not found", and users get a
-              # broken SDK/runtime .zip). Use PowerShell Compress-Archive for a real ZIP.
-              powershell -NoProfile -Command "Compress-Archive -Path 'artifacts/packages/$src/*' -DestinationPath 'artifacts/release/${dst}.zip' -Force"
-            else
-              tar -C "artifacts/packages/$src" -czf "artifacts/release/${dst}.tar.gz" .
-            fi
-          }
-          # rid → workload name (ios/android/wasm); "" for desktop.
-          _wl_of() {
-            case "$1" in
-              ios-*|iossim-*) echo ios ;;
-              android-*)      echo android ;;
-              browser-wasm)   echo wasm ;;
-              *)              echo "" ;;
-            esac
-          }
-          # The single RID per platform that ships the (identical across ABIs/slices)
-          # workload tooling archive — avoids same-name artifact collisions at merge.
-          _is_primary() { case "$1" in ios-arm64|android-arm64|browser-wasm) return 0 ;; *) return 1 ;; esac; }
-
-          if [[ "$rid" == linux-* || "$rid" == macos-* || "$rid" == windows-* ]]; then
-            # Desktop: SDK + runtime + desktop workload (apphost stub, per-host RID;
-            # Decision 9 full gating — apphost no longer baked into the SDK).
-            _tar "z42-${version}-${rid}-release" "z42-sdk-${version}-${rid}"
-            echo "✓ sdk: z42-sdk-${version}-${rid}"
-            _tar "z42-runtime-${version}-${rid}" "z42-runtime-${version}-${rid}"
-            echo "✓ runtime: z42-runtime-${version}-${rid}"
-            _tar "z42-workload-${version}-desktop-${rid}" "z42-workload-${version}-desktop-${rid}"
-            echo "✓ desktop workload: z42-workload-${version}-desktop-${rid}"
-            # test workload (payload-only) built only on macos-arm64 → archive once.
-            if [[ "$rid" == "macos-arm64" ]]; then
-              _tar "z42-workload-${version}-test" "z42-workload-${version}-test"
-              echo "✓ test workload: z42-workload-${version}-test"
-            fi
-          else
-            # Platform RID (ios/android/wasm) — runtime/workload split (B2-3/B2-4):
-            #   runtime pack (per RID): z42-runtime-<v>-<rid>/  → z42-runtime-<v>-<rid>
-            #   workload tooling (primary RID only, identical across ABIs/slices):
-            #     z42-<v>-<rid>-release/ → z42-workload-<v>-<wl>
-            _tar "z42-runtime-${version}-${rid}" "z42-runtime-${version}-${rid}"
-            echo "✓ runtime: z42-runtime-${version}-${rid}"
-            if _is_primary "$rid"; then
-              wl="$(_wl_of "$rid")"
-              _tar "z42-${version}-${rid}-release" "z42-workload-${version}-${wl}"
-              echo "✓ workload: z42-workload-${version}-${wl}"
-            fi
-          fi
+        run: xtask package archive --label "${{ needs.verify.outputs.version }}"
 
       - name: Upload archive
         uses: actions/upload-artifact@v7
@@ -277,34 +204,11 @@ jobs:
       - name: List archives
         run: ls -la dist/
 
-      # Merge the 4 per-RID desktop-workload pieces (each carries its apphost-<rid>)
-      # into ONE RID-agnostic z42-workload-<v>-desktop.tar.gz so any host can
-      # `publish --rid <target>` (cross-platform apphost output). Removes the
-      # per-RID intermediates so only the merged archive ships in the release.
-      - name: Assemble single desktop workload
+      # 合并 4 份逐 RID 桌面 workload → SHA256SUMS → release-index.json（channel stable / tag v<v>）。
+      # 与 ci.yml publish-nightly 同一条命令。
+      - name: Finalize release assets
         shell: bash
-        run: |
-          Z42_PORTABLE_VM="$PWD/artifacts/build/runtime/release/z42vm" \
-          Z42_LIBS="$PWD/artifacts/build/libraries/dist/release" \
-            artifacts/build/runtime/release/z42vm artifacts/xtask/xtask.zpkg -- \
-            package workload "${{ needs.verify.outputs.version }}" dist
-
-      - name: Generate SHA256SUMS
-        shell: bash
-        run: |
-          set -euo pipefail
-          ( cd dist && shasum -a 256 z42-*.tar.gz z42-*.zip 2>/dev/null | sort -k2 ) > dist/SHA256SUMS
-          echo "--- SHA256SUMS ---"
-          cat dist/SHA256SUMS
-
-      - name: Generate release-index.json
-        shell: bash
-        run: |
-          v="${{ needs.verify.outputs.version }}"
-          Z42_PORTABLE_VM="$PWD/artifacts/build/runtime/release/z42vm" \
-          Z42_LIBS="$PWD/artifacts/build/libraries/dist/release" \
-            artifacts/build/runtime/release/z42vm artifacts/xtask/xtask.zpkg -- \
-            package index "$v" dist stable "v$v" "$v"
+        run: xtask package finalize "${{ needs.verify.outputs.version }}" --dir dist
 
       - name: Create GitHub Release
         shell: bash

@@ -9,6 +9,7 @@
 //   1. _testPackagesConfig    — parse packages.toml + include resolution
 //   2. _testPackagesStaging   — z42vm/native/stdlib staging handlers
 //   3. _testPackagesAssemble  — merge staged components + copy order + error path
+//   4. _testPackagesRelease   — package archive / finalize（命名映射 + 端到端；见 xtask_selfcheck_release.z42）
 namespace Z42Xtask;
 
 using Std;
@@ -18,5 +19,6 @@ int _testPackages() {
     int c = _testPackagesConfig();   if (c != 0) { return c; }
     c = _testPackagesStaging();      if (c != 0) { return c; }
     c = _testPackagesAssemble();     if (c != 0) { return c; }
+    c = _testPackagesRelease();      if (c != 0) { return c; }
     return 0;
 }
