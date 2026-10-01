@@ -1,8 +1,6 @@
 // add-regex-named-groups (2026-05-26): `(?<name>…)` syntax + Match.GroupByName.
 namespace Z42RegexNamedGroupsTests;
 
-using Std;
-using Std.Test;
 using Std.Regex;
 
 // ── Basic named group ──────────────────────────────────────────────────

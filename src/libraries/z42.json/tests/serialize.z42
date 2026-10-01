@@ -1,8 +1,6 @@
 // add-json-serde (2026-08-22)：对象 → JSON 序列化（含字段/属性、嵌套、数组、[JsonProperty]/[JsonIgnore]）。
 namespace Z42JsonSerializeTests;
 
-using Std;
-using Std.Test;
 using Std.Json;
 using Std.Collections;
 

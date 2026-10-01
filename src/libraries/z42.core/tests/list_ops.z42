@@ -4,8 +4,6 @@
 // List(int capacity) are covered by list_sort.z42; this file fills the rest.
 namespace Z42CoreListOpsTests;
 
-using Std;
-using Std.Test;
 using Std.Collections;
 
 [Test]

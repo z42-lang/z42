@@ -1,9 +1,6 @@
 // add-string-split-options (2026-05-27): String.Split(sep, options) coverage.
 namespace Z42CoreStringSplitOptionsTests;
 
-using Std;
-using Std.Test;
-
 [Test]
 void test_split_none_equals_single_arg() {
     string[] a = "a,b,c".Split(",", SplitOptions.None);

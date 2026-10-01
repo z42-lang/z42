@@ -4,8 +4,6 @@
 // Std.Test.Assert」——两份 Assert 已合并成一份，该区分不复存在。
 namespace Z42CoreTests;
 
-using Std.Test;
-
 [Test]
 void test_string_equality() {
     Assert.Equal("hello", "hel" + "lo");

@@ -3,9 +3,6 @@
 // returns 4 elements with sensible values after a few collects.
 namespace Z42CoreTests.Gc;
 
-using Std;
-using Std.Test;
-
 [Test]
 void test_pause_histogram_returns_8_elements() {
     GC.ForceCollect();

@@ -2,8 +2,6 @@
 // for the ChaCha20-Poly1305 AEAD construction.
 namespace Z42CryptoChaCha20Poly1305VectorsTests;
 
-using Std;
-using Std.Test;
 using Std.Crypto;
 using Std.Encoding;
 

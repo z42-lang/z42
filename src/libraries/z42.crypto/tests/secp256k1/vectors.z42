@@ -10,7 +10,6 @@
 // discoverable by z42-test-runner.
 namespace Z42CryptoEcdsaSecp256k1VectorsTests;
 
-using Std;
 using Std.Encoding;
 
 public static class SecpVectors {

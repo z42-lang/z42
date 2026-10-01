@@ -15,9 +15,7 @@
 //   3. **spawner 在 spawn 之后、join 之前立刻猛分配** —— 把回收逼进 worker 还没起来的那一段。
 namespace Z42ThreadingGcSpawnEnvRootTests;
 
-using Std;
 using Std.IO;
-using Std.Test;
 using Std.Threading;
 
 class _Tally {

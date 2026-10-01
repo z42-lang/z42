@@ -1,8 +1,6 @@
 // add-ed25519 (2026-05-28): RFC 8032 §7.1 test vectors for Ed25519.
 namespace Z42CryptoEd25519VectorsTests;
 
-using Std;
-using Std.Test;
 using Std.Crypto;
 using Std.Encoding;
 

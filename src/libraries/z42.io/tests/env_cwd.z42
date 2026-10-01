@@ -1,8 +1,6 @@
 // extend-z42-io-script-helpers (2026-05-16)：GetCurrentDirectory / SetCurrentDirectory。
 namespace Z42IoEnvCwdTests;
 
-using Std;
-using Std.Test;
 using Std.IO;
 
 [Test]

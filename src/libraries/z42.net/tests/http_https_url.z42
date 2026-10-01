@@ -7,8 +7,6 @@
 // default port 443) and the SendStreaming-over-https guard.
 namespace Z42NetHttpsUrlTests;
 
-using Std;
-using Std.Test;
 using Std.Net.Http;
 
 [Test]

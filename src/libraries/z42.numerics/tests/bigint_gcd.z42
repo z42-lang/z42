@@ -1,8 +1,6 @@
 // add-bigint-gcd (2026-05-25): Euclidean GCD + LCM on BigInt.
 namespace Z42NumericsBigIntGcdTests;
 
-using Std;
-using Std.Test;
 using Std.Numerics;
 
 // ── Gcd: basic ──────────────────────────────────────────────────────────

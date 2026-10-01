@@ -2,8 +2,6 @@
 // — periodic + one-shot background callback over Thread + Sleep.
 namespace Z42ThreadingTimerTests;
 
-using Std;
-using Std.Test;
 using Std.Threading;
 using Std.Time;
 

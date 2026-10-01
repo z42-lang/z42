@@ -4,8 +4,6 @@
 // JsonWriter.QuoteString to flush ordinary-char runs as bulk substrings.
 namespace Z42JsonObjectIndexTests;
 
-using Std;
-using Std.Test;
 using Std.Json;
 
 [Test]

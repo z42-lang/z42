@@ -1,7 +1,6 @@
 // add-z42-toml (2026-05-14)：基本 key/value + section 测试。
 namespace Z42TomlBasicTests;
 
-using Std.Test;
 using Std.Toml;
 
 [Test]

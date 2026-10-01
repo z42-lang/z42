@@ -2,8 +2,6 @@
 // (`&name`) and alias references (`*name`). Per-document scope.
 namespace Z42YamlParseAnchorsAliasesTests;
 
-using Std;
-using Std.Test;
 using Std.Yaml;
 
 // ── Inline scalar anchor + alias ────────────────────────────────────────

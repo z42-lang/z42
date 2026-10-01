@@ -1,8 +1,6 @@
 // add-yaml-merge-keys (2026-06-01): YAML 1.1 `<<: *anchor` merge-key extension.
 namespace Z42YamlParseMergeKeysTests;
 
-using Std;
-using Std.Test;
 using Std.Yaml;
 
 [Test]

@@ -1,8 +1,6 @@
 // add-sha512-to-crypto (2026-05-27): NIST FIPS 180-2 vectors for SHA-384.
 namespace Z42CryptoSha384VectorsTests;
 
-using Std;
-using Std.Test;
 using Std.Crypto;
 
 [Test]

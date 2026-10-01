@@ -1,7 +1,6 @@
 // add-z42-time (2026-05-14)：DateTime 单元测试。
 namespace Z42DateTimeTests;
 
-using Std.Test;
 using Std.Time;
 
 [Test]

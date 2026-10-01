@@ -2,8 +2,6 @@
 // Tests for env-var fallback options and mutually-exclusive option groups.
 namespace Z42CliEnvFallbackMutexTests;
 
-using Std;
-using Std.Test;
 using Std.IO;
 using Std.Cli;
 

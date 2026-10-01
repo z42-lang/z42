@@ -1,9 +1,7 @@
 // add-console-ansi-color (2026-06-01): Std.IO.Ansi colour helpers.
 namespace Z42IoAnsiColorTests;
 
-using Std;
 using Std.IO;
-using Std.Test;
 
 // Build the ESC ([0x1B]) string once per test (z42 string literals
 // don't have a hex escape, so we go via String.FromChars).

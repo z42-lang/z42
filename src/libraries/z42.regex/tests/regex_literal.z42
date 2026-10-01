@@ -1,7 +1,6 @@
 // add-z42-regex (2026-05-16)：字面字符 + ^$ anchor + escape。
 namespace Z42RegexLiteralTests;
 
-using Std.Test;
 using Std.Regex;
 
 [Test]

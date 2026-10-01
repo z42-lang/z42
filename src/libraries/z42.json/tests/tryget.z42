@@ -3,8 +3,6 @@
 // ③ 命中但类型不符照抛）。三个文档库形状必须一致，不一致本身就是缺陷。
 namespace Z42JsonTryGetTests;
 
-using Std;
-using Std.Test;
 using Std.Json;
 
 [Test]

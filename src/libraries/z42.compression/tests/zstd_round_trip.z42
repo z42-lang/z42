@@ -2,7 +2,6 @@
 // `libz42_compression` cdylib.
 namespace Z42CompressionZstdTests;
 
-using Std.Test;
 using Std.Compression;
 
 [Test]

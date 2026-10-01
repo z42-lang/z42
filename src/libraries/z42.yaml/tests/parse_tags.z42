@@ -2,8 +2,6 @@
 // `!!float`, `!!bool`, `!!null`) for explicit scalar type coercion.
 namespace Z42YamlParseTagsTests;
 
-using Std;
-using Std.Test;
 using Std.Yaml;
 
 // ── !!str: force scalar to stay as string ───────────────────────────────

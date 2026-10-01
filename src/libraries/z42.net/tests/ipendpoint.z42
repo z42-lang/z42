@@ -1,8 +1,6 @@
 // add-ipendpoint-wrapper (2026-06-02): IPEndPoint = (IPAddress, port).
 namespace Z42NetIPEndPointTests;
 
-using Std;
-using Std.Test;
 using Std.Net.Sockets;
 
 [Test]

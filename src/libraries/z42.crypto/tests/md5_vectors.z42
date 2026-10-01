@@ -5,8 +5,6 @@
 //   - NIST CAVP `MD5LongMsg` — million-'a' stream
 namespace Z42CryptoMd5VectorsTests;
 
-using Std;
-using Std.Test;
 using Std.Encoding;
 using Std.Crypto;
 

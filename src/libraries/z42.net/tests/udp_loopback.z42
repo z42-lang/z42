@@ -1,8 +1,6 @@
 // add-z42-net-udp K2 (2026-05-25): in-process UDP send/receive on loopback.
 namespace Z42NetUdpLoopbackTests;
 
-using Std;
-using Std.Test;
 using Std.Net.Sockets;
 
 [Test]

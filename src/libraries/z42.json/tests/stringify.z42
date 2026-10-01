@@ -1,7 +1,6 @@
 // add-z42-json (2026-05-14)：compact / pretty stringify + round-trip.
 namespace Z42JsonStringifyTests;
 
-using Std.Test;
 using Std.Json;
 
 [Test]

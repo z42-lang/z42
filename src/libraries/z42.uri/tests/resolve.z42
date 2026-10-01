@@ -1,8 +1,6 @@
 // add-uri-resolve (2026-05-27): RFC 3986 §5.3 reference resolution.
 namespace Z42UriResolveTests;
 
-using Std;
-using Std.Test;
 using Std.Uri;
 
 [Test]

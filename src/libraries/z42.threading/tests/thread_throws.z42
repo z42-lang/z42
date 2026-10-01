@@ -3,8 +3,6 @@
 // the worker exception's formatted text (Decision 5 in design.md).
 namespace Z42ThreadingThrowsTests;
 
-using Std;
-using Std.Test;
 using Std.Threading;
 
 [Test]

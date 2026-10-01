@@ -3,8 +3,6 @@
 // VmCore.threads → join → JOIN_OK discriminator → quiet return).
 namespace Z42ThreadingBasicTests;
 
-using Std;
-using Std.Test;
 using Std.Threading;
 
 [Test]

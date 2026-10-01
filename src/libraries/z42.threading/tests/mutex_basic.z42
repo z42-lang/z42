@@ -8,8 +8,6 @@
 // counters) goes through static fields instead.
 namespace Z42ThreadingMutexBasicTests;
 
-using Std;
-using Std.Test;
 using Std.Threading;
 
 public static class MutexState {

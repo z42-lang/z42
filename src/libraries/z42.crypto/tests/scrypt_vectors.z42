@@ -1,8 +1,6 @@
 // add-scrypt (2026-05-27): RFC 7914 §11 test vector #1 + edge cases.
 namespace Z42CryptoScryptVectorsTests;
 
-using Std;
-using Std.Test;
 using Std.Crypto;
 using Std.Encoding;
 

@@ -1,7 +1,6 @@
 // add-z42-regex (2026-05-16)：[abc] / [a-z] / [^...] / \d \w \s。
 namespace Z42RegexCharclassTests;
 
-using Std.Test;
 using Std.Regex;
 
 [Test]

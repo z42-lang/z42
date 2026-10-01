@@ -3,9 +3,7 @@
 // 等边界正是注释里点名过的历史坑区。
 namespace Z42CorePathBasicsTests;
 
-using Std;
 using Std.IO;
-using Std.Test;
 
 // ── Separator 常量 ────────────────────────────────────────────────────────
 

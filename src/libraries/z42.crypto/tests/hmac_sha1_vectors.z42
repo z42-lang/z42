@@ -1,8 +1,6 @@
 // add-sha1-to-crypto (2026-05-25): RFC 2202 §3 HMAC-SHA-1 test vectors.
 namespace Z42CryptoHmacSha1VectorsTests;
 
-using Std;
-using Std.Test;
 using Std.Crypto;
 using Std.Encoding;
 

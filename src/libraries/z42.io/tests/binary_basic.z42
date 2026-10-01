@@ -1,7 +1,6 @@
 // add-z42-io-binary (2026-05-15)：int16/32/64 LE+BE round-trip + cursor 行为。
 namespace Z42IoBinaryBasicTests;
 
-using Std.Test;
 using Std.IO.Binary;
 
 [Test]

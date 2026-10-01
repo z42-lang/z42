@@ -1,7 +1,4 @@
 namespace Dt.Internal.Tests;
-using Std;
-using Std.Test;
-using Dt.Internal;
 
 // ① internal **类**对测试目标可见
 [Test]

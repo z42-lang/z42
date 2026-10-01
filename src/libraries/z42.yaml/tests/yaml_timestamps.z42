@@ -1,8 +1,6 @@
 // add-yaml-timestamps (2026-05-27): YamlValue kind 7 (Timestamp).
 namespace Z42YamlTimestampsTests;
 
-using Std;
-using Std.Test;
 using Std.Time;
 using Std.Yaml;
 

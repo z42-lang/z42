@@ -2,8 +2,6 @@
 // integer literals.
 namespace Z42YamlParseNumericBasesTests;
 
-using Std;
-using Std.Test;
 using Std.Yaml;
 
 // ── Hex literals ────────────────────────────────────────────────────────

@@ -2,8 +2,6 @@
 // List<T> lives in z42.core; exercised here via the z42.collections test lib.
 namespace Z42CollectionsListApiTests;
 
-using Std;
-using Std.Test;
 using Std.Collections;
 
 [Test]

@@ -1,7 +1,6 @@
 // extend-z42-io-glob-temp (2026-05-16)：File.CreateTempDir / CreateTempFile。
 namespace Z42IoFileTempTests;
 
-using Std.Test;
 using Std.IO;
 
 [Test]

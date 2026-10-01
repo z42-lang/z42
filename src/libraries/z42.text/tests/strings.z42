@@ -2,7 +2,6 @@
 // — review.md S3 / S5 Phase 1.
 namespace Z42TextStringsTests;
 
-using Std.Test;
 using Std.Text;
 
 // ── PadLeft ──────────────────────────────────────────────────────────────────

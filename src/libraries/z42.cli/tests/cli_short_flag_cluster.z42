@@ -2,8 +2,6 @@
 // for boolean flags only. Clustering with an option-short rejected.
 namespace Z42CliShortFlagClusterTests;
 
-using Std;
-using Std.Test;
 using Std.Cli;
 
 // ── Basic clusters ─────────────────────────────────────────────────────

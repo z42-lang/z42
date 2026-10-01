@@ -4,9 +4,6 @@
 // (the codebase convention — see math_basics.z42), no exact-equality on doubles.
 namespace Z42MathExtraTests;
 
-using Std.Test;
-using Std;
-
 // ── Inverse trig (native) ───────────────────────────────────────────────
 [Test]
 void test_asin() {

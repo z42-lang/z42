@@ -1,7 +1,6 @@
 // add-z42-crypto (2026-05-17): NIST FIPS 180-2 SHA-256 test vectors.
 namespace Z42CryptoSha256VectorsTests;
 
-using Std.Test;
 using Std.Crypto;
 
 [Test]

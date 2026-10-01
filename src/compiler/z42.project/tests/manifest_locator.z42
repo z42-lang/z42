@@ -1,9 +1,7 @@
 // ManifestLocator：命令不带工程路径时「向上找清单」的规则。
 namespace Z42ProjectManifestLocatorTests;
 
-using Std;
 using Std.IO;
-using Std.Test;
 using Z42.Project;
 
 string _mkdir(string root, string rel) {

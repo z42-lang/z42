@@ -2,8 +2,6 @@
 // Dispose + connection failures + post-stop semantics.
 namespace Z42NetTcpDisposalTests;
 
-using Std;
-using Std.Test;
 using Std.Net.Sockets;
 
 [Test]

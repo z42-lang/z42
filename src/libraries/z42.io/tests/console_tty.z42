@@ -4,7 +4,6 @@
 // 但具体值依赖 runner 实现，我们只验证：调用不抛 + 返回 bool + 多次一致。
 namespace Z42IoConsoleTtyTests;
 
-using Std.Test;
 using Std.IO;
 
 [Test]

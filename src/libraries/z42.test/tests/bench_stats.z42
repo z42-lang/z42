@@ -4,7 +4,6 @@
 
 namespace Z42TestBenchStats;
 
-using Std;
 using Std.Test;
 
 // ── BenchStats.parse ────────────────────────────────────────────────────────

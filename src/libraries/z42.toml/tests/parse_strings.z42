@@ -1,7 +1,6 @@
 // add-z42-toml (2026-05-14)：basic / literal 字符串 + 转义。
 namespace Z42TomlStringsTests;
 
-using Std.Test;
 using Std.Toml;
 
 [Test]

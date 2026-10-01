@@ -2,8 +2,6 @@
 // strong Miller-Rabin base 2 + strong Lucas (Selfridge parameters).
 namespace Z42NumericsBigIntBpswTests;
 
-using Std;
-using Std.Test;
 using Std.Numerics;
 
 [Test]

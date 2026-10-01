@@ -1,10 +1,6 @@
 // add-platform-os-stdlib: Std.OperatingSystem tests.
 namespace Z42IoOperatingSystemTests;
 
-using Std;
-using Std.Test;
-using Std.IO;
-
 [Test]
 void test_pid_positive() {
     int pid = OperatingSystem.CurrentPid();

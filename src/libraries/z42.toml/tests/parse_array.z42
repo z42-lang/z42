@@ -1,7 +1,6 @@
 // add-z42-toml (2026-05-14)：数组 + 内联表 + array-of-tables。
 namespace Z42TomlArrayTests;
 
-using Std.Test;
 using Std.Toml;
 
 [Test]

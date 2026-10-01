@@ -1,7 +1,6 @@
 // add-platform-os-stdlib: Environment Unset + EnumerateAll tests.
 namespace Z42IoEnvironmentExtraTests;
 
-using Std.Test;
 using Std.IO;
 
 [Test]

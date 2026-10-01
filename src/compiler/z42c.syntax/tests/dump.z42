@@ -1,8 +1,6 @@
 // z42c.syntax DumpTool 单测（incr 6e-1）：源码 → token 流 / AST dump（纯函数）。
 namespace Z42cSyntaxDumpTests;
 
-using Std;
-using Std.Test;
 using Z42.Syntax;
 
 [Test]

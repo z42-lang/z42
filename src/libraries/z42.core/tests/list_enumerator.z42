@@ -2,8 +2,6 @@
 // enumerator 是 [Record] struct 值类型（零堆分配），MoveNext 原地推进 _pos、Current 读 _list[_pos-1]。
 namespace Z42CoreListEnumeratorTests;
 
-using Std;
-using Std.Test;
 using Std.Collections;
 
 [Test]

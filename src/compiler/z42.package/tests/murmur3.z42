@@ -7,8 +7,6 @@
 //   3. `_rotl` 的逻辑右移语义 —— z42 无 `>>>`，靠 `& 0xFFFFFFFF` 保持非负来让 `>>` 等价。
 namespace Z42IrMurmur3Tests;
 
-using Std;
-using Std.Test;
 using Std.Encoding;
 using Z42.IR;
 using Z42.Package;   // ZpkgBuilder.SourceHashHex

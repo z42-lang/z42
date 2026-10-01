@@ -1,7 +1,6 @@
 // add-z42-uri (2026-05-15)：percent-encode / decode tests，含 UTF-8。
 namespace Z42UriEncodingTests;
 
-using Std.Test;
 using Std.Uri;
 
 [Test]

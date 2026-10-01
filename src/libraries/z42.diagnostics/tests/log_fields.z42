@@ -1,7 +1,6 @@
 // add-log-structured-fields (2026-05-27): LogFields + Log.*(msg, fields).
 namespace Z42DiagnosticsLogFieldsTests;
 
-using Std.Test;
 using Std.Diagnostics;
 
 [Test]

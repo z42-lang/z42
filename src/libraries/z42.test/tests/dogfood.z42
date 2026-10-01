@@ -6,7 +6,6 @@
 // - Assert.Skip 抛 SkipSignal → 用 [ShouldThrow<SkipSignal>] 验证（同）
 namespace Z42TestDogfood;
 
-using Std;       // Assert / TestFailure / SkipSignal（均在 Std 命名空间，打包在 z42.test）
 using Std.Test;  // TestIO + Bencher
 using Std.IO;    // Console.WriteLine / Error.WriteLine (TestIO capture targets)
                  // 先前漏 import，C# 宽松解析侥幸编过，z42c 严格下静默误编成 VCall-null（见 tasks.md

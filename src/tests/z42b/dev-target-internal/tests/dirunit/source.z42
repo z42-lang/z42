@@ -3,8 +3,6 @@
 // 必须有目录单元的原因（真实先例：z42.crypto/tests/secp256k1）。
 namespace DtInternalDirUnitTests;
 
-using Std;
-using Std.Test;
 using Dt.Internal;
 
 [Test]

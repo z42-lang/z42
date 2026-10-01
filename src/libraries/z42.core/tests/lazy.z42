@@ -1,9 +1,6 @@
 // add-guid-lazy-version (2026-09-03): Std.Lazy<T> 单元测试。
 namespace Z42LazyTests;
 
-using Std.Test;
-using Std;
-
 // Mutable probe so the "factory runs exactly once" test can count invocations
 // via a captured object reference.
 class LazyProbe {
