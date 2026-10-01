@@ -1,0 +1,9 @@
+[project]
+name    = "demo.clsbaseapp"
+version = "0.1.0"
+kind    = "exe"
+entry   = "Demo.ClsBaseApp.Main"
+pack    = true
+
+[dependencies]
+"demo.clsbase" = "0.1.0"

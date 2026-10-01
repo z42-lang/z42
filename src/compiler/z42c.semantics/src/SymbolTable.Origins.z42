@@ -407,6 +407,7 @@ public sealed partial class SymbolTable {
             if (ct.Base != 0) { continue; }            // 幂等：已绑定的不动
             // A5b-2b-3：走到这里的基本只剩**导入类**（本地类已由 `_passBindClassBases` 按 CU 作用域绑过）。
             // 它们没有 CU 可给作用域，但有声明 ns ⇒ 先按「外围 ns 优先」试 `<ns>.<BaseName>`，不中再走名字解析。
+            // fix-imported-base-fqn 起导入类的 `BaseName` 已是 FQ ⇒ 前者不中、后者走 FQN 那一步直接命中。
             if (ct.Namespace != "" && ct.BaseName != null && ct.BaseName != "") {
                 int own = this.ClassesByFqn.Find(ct.Namespace + "." + ct.BaseName);
                 if (own >= 0) { ct.Base = this.Intern.Of(this.ClassesByFqn.ValAt(own) as Z42ClassType); continue; }

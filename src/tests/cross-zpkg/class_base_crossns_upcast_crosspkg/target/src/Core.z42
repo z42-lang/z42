@@ -1,0 +1,6 @@
+// 生产方：基类住在 `Demo.ClsBase.Core`，子类住在**另一个** ns `Demo.ClsBase.Impl`、经 `using` 引用它。
+namespace Demo.ClsBase.Core;
+
+public class Base {
+    public int P() { return 1; }
+}

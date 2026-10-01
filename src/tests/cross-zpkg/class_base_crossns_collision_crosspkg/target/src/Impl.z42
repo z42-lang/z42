@@ -1,0 +1,9 @@
+// 子类与基类**跨命名空间**：TYPE 段存的是 FQ 基类名 `Demo.ClsBase.Core.Base`，但声明方的
+// `using Demo.ClsBase.Core;` 不随元数据走 —— 消费侧若只拿到短名 `Base`，就只能去裸名表里猜。
+namespace Demo.ClsBase.Impl;
+
+using Demo.ClsBase.Core;
+
+public class Derived : Base {
+    public int D() { return 2; }
+}

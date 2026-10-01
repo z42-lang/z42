@@ -48,7 +48,8 @@ public sealed class AccessChecker {
         if (cur == "") { return false; }     // 自由函数上下文：无「派生」身份
         bool more = true;
         while (more) {
-            if (cur == declClass) { return true; }
+            // 导入类的 `BaseName` 是 FQ（TsigReconcile 原样搬运）⇒ 按短名比（declClass 是短名）。
+            if (cur == declClass || SymbolTable.ShortNameOf(cur) == declClass) { return true; }
             Z42ClassType ct = symbols.GetClass(cur);
             if (ct == null) { more = false; }
             else if (ct.HasBase) { cur = ct.BaseName; }
@@ -174,7 +175,7 @@ public sealed class AccessChecker {
         if (target == "" || cur == "") { return false; }
         bool more = true;
         while (more) {
-            if (cur == target) { return true; }
+            if (cur == target || SymbolTable.ShortNameOf(cur) == target) { return true; }   // 导入基类名是 FQ，同上
             Z42ClassType ct = symbols.GetClass(cur);
             if (ct == null) { more = false; }
             else if (ct.HasBase) { cur = ct.BaseName; }

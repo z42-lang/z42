@@ -205,7 +205,9 @@ public static partial class ImportedSymbolLoader {
                     if (bareFree || !r.ClassesByFqn.ContainsKey(fqnKey)) {
                         string baseName = "";
                         bool hasBase = cl.HasBase && cl.BaseName != "Object";
-                        if (hasBase) { baseName = cl.BaseName; }
+                        // enforce-fqn-name-identity：有 FQ 就用 FQ —— 基类句柄绑定（`_bindClassBase`）按 FQN 直接命中，
+                        // 不再落到裸名表猜（`Type : MemberInfo` 这类跨 ns 基类，声明方的 `using` 不随元数据走）。
+                        if (hasBase) { baseName = cl.BaseFqn != null && cl.BaseFqn != "" ? cl.BaseFqn : cl.BaseName; }
                         Z42ClassType nct = new Z42ClassType(cl.Name, hasBase, baseName);
                         // enforce-access-control：来自依赖 zpkg（跨包）→ internal 成员不可访问。
                         // z42b-owns-test-targets：**例外** —— 本次编译是 <parentPkg> 的测试/bench 目标时，
