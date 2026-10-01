@@ -12,6 +12,12 @@ SymbolTable collect(string src) {
     var cu = p.ParseCompilationUnit();
     return new SymbolCollector().Collect(cu);
 }
+// A5b-2c：短名只在作用域内可解析（不再有裸名回落）⇒ 要按短名断言的用例用本 CU 的作用域视图。
+SymbolTable collectScoped(string src) {
+    var p = new Parser(src, "t.z42");
+    var cu = p.ParseCompilationUnit();
+    return new SymbolCollector().Collect(cu).WithScopeOf(cu);
+}
 
 [Test]
 void test_collect_class_members() {
@@ -624,8 +630,8 @@ void test_single_declaration_reports_nothing() {
 void test_cross_cu_different_arity_get_distinct_keys() {
     var t = pmergeTable("namespace R;\nclass Foo { int a; }",
                         "namespace R;\nclass Foo<T> { int b; }");
-    Assert.Equal(true, t.HasClass("Foo"));     // 非泛型 → 裸名键
-    Assert.Equal(true, t.HasClass("Foo$1"));   // 泛型 → arity-mangle 键
+    Assert.Equal(true, t.Classes.ContainsKey("Foo"));     // 非泛型 → 裸名键（断言的是短名表的键结构）
+    Assert.Equal(true, t.Classes.ContainsKey("Foo$1"));   // 泛型 → arity-mangle 键
 }
 
 [Test]
@@ -636,8 +642,8 @@ void test_cross_cu_different_arity_generic_first_get_distinct_keys() {
     // 我第一版只写了上面那一种顺序，退回对照**没变红**，才发现门是弱的。
     var t = pmergeTable("namespace R;\nclass Foo<T> { int b; }",
                         "namespace R;\nclass Foo { int a; }");
-    Assert.Equal(true, t.HasClass("Foo"));
-    Assert.Equal(true, t.HasClass("Foo$1"));
+    Assert.Equal(true, t.Classes.ContainsKey("Foo"));
+    Assert.Equal(true, t.Classes.ContainsKey("Foo$1"));
 }
 
 [Test]
@@ -645,7 +651,7 @@ void test_cross_cu_generic_first_keeps_generic_members() {
     // 同上顺序，钉「泛型那个没被覆盖掉」——修前它连成员一起消失。
     var t = pmergeTable("namespace R;\nclass Foo<T> { int genericField; }",
                         "namespace R;\nclass Foo { int plainField; }");
-    var gen = t.GetClass("Foo$1");
+    var gen = t.GetClass("R.Foo$1");
     Assert.Equal(true, gen != null);
     Assert.Equal(true, gen.Fields.ContainsKey("genericField"));
 }
@@ -655,8 +661,8 @@ void test_cross_cu_different_arity_both_keep_members() {
     // 真正的损害是「一个类型连同成员一起消失」——这条直接钉成员还在。
     var t = pmergeTable("namespace R;\nclass Foo { int plainField; }",
                         "namespace R;\nclass Foo<T> { int genericField; }");
-    var plain = t.GetClass("Foo");
-    var gen = t.GetClass("Foo$1");
+    var plain = t.GetClass("R.Foo");
+    var gen = t.GetClass("R.Foo$1");
     Assert.Equal(true, plain.Fields.ContainsKey("plainField"));
     Assert.Equal(true, gen.Fields.ContainsKey("genericField"));
 }
@@ -665,8 +671,8 @@ void test_cross_cu_different_arity_both_keep_members() {
 void test_same_cu_different_arity_unchanged() {
     // 同一 CU 的既有行为不变（回归守卫：修前这条就是绿的，修后也必须绿）。
     var t = collect("class Foo { int a; } class Foo<T> { int b; }");
-    Assert.Equal(true, t.HasClass("Foo"));
-    Assert.Equal(true, t.HasClass("Foo$1"));
+    Assert.Equal(true, t.Classes.ContainsKey("Foo"));
+    Assert.Equal(true, t.Classes.ContainsKey("Foo$1"));
 }
 
 [Test]
@@ -675,8 +681,8 @@ void test_single_arity_across_cus_stays_unmangled() {
     // 那是确定性的字节漂移与跨包 ABI 断裂。
     var t = pmergeTable("namespace R;\nclass Solo<T> { int a; }",
                         "namespace R;\nclass Other { int b; }");
-    Assert.Equal(true, t.HasClass("Solo"));
-    Assert.Equal(false, t.HasClass("Solo$1"));
+    Assert.Equal(true, t.Classes.ContainsKey("Solo"));
+    Assert.Equal(false, t.Classes.ContainsKey("Solo$1"));
 }
 
 // ── E0456 声明位（type-identity-followups）────────────────────────────────────────
@@ -752,7 +758,7 @@ void test_qualified_declaration_type_is_not_ambiguous() {
 [Test]
 void test_iface_names_qualified_under_namespace() {
     var t = collect("namespace Demo; interface IA { } class Foo : IA { }");
-    var foo = t.GetClass("Foo");
+    var foo = t.GetClass("Demo.Foo");
     Assert.Equal(1, foo.InterfaceCount);
     Assert.Equal("Demo.IA", foo.InterfaceNames[0]);
 }
@@ -762,7 +768,7 @@ void test_iface_names_qualified_under_namespace() {
 // **且** 约束满足性漏报的形态（误报与漏报同时发生）。
 [Test]
 void test_implements_accepts_both_spellings_under_namespace() {
-    var t = collect("namespace Demo; interface IA { } class Foo : IA { }");
+    var t = collectScoped("namespace Demo; interface IA { } class Foo : IA { }");
     Assert.Equal(true, t.Implements("Foo", "IA"));
     Assert.Equal(true, t.Implements("Foo", "Demo.IA"));
 }
@@ -771,7 +777,7 @@ void test_implements_accepts_both_spellings_under_namespace() {
 // 同时用两者（前者作种子、后者沿父接口展开），只翻一张就会在 BFS 里 FQN 与短名混比、静默失配。
 [Test]
 void test_iface_base_chain_qualified_under_namespace() {
-    var t = collect("namespace Demo; interface IBase { } interface IDer : IBase { } class Foo : IDer { }");
+    var t = collectScoped("namespace Demo; interface IBase { } interface IDer : IBase { } class Foo : IDer { }");
     var der = t.GetInterface("IDer");
     Assert.Equal("Demo.IBase", der.BaseNames[0]);
     Assert.Equal(true, t.Implements("Foo", "IBase"));
@@ -783,8 +789,8 @@ void test_iface_base_chain_qualified_under_namespace() {
 // 只靠这条幂等性兜住、此前零断言 —— 这里把它变成断言。
 [Test]
 void test_iface_fqn_normalization_is_idempotent() {
-    var t = collect("namespace Demo; interface IA { } class Foo : IA { }");
-    var foo = t.GetClass("Foo");
+    var t = collectScoped("namespace Demo; interface IA { } class Foo : IA { }");   // 下面要把短名 "IA" 归一 ⇒ 作用域视图
+    var foo = t.GetClass("Demo.Foo");
     Assert.Equal("Demo.IA", SymbolTable.IfaceFqnOf(t, foo.InterfaceNames[0]));
     Assert.Equal("Demo.IA", SymbolTable.IfaceFqnOf(t, SymbolTable.IfaceFqnOf(t, "IA")));
 }
@@ -829,7 +835,7 @@ void test_all_registered_types_are_interned() {
 [Test]
 void test_intern_ids_start_at_one_and_roundtrip() {
     var t = collect("namespace Demo; interface IA { } class Foo : IA { }");
-    var foo = t.GetClass("Foo");
+    var foo = t.GetClass("Demo.Foo");
     Assert.Equal(true, foo.TypeId > 0);
     Assert.Equal(true, t.Intern.At(foo.TypeId) == foo);   // id → 对象往返
     // ⚠️ 不能写 `Assert.Equal(null, ...)` —— 实测崩 `VCall: expected object, got Null`
@@ -842,7 +848,7 @@ void test_intern_ids_start_at_one_and_roundtrip() {
 [Test]
 void test_intern_is_idempotent() {
     var t = collect("namespace Demo; interface IA { } class Foo : IA { }");
-    var foo = t.GetClass("Foo");
+    var foo = t.GetClass("Demo.Foo");
     int before = foo.TypeId;
     int n = t.Intern.Count();
     t.InternAllTypes();
