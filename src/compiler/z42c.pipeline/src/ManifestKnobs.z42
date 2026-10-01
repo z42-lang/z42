@@ -1,10 +1,13 @@
-// 清单编译旋钮的决议（add-build-session）：`[optimize]` / `[syntax]` / `[lints]` / pack / strip。
+// 清单编译旋钮的决议（add-build-session）：`[project] kind` 校验 + `[optimize]` / `[syntax]` / `[lints]` / pack / strip。
 //
 // **唯一实现**：`z42c build`（driver `Main._build`）与 z42b（BuildSession）都调它（unify-driver-knobs 起；此前两份
 // 逐项相同的实现并存）。这里**不打印**：出错时把消息行收进 `KnobResult.Errors`，由调用方经自己的呈现通道输出
 // （driver 前缀 `z42c: `、z42b 经 `ctx.Warn`）。
 //
 // 各段的来龙去脉：
+// - `[project] kind`：ManifestLoader 只搬字符串（缺省 `"lib"`），此前没有任何地方校验 ⇒ `kind = "exx"` 被静默当成
+//   lib 编完（exe 判定、analyzer 的 SDK 可见性都按字面比较，写错的值哪个分支都不进）。放在这里是因为 driver 与
+//   z42b 都过这一个入口。
 // - `[optimize]`（wire-optimize-manifest）：此前 driver 调的是 `Opt.Resolve(isRelease, 0, 0, …)`，两个 0 硬编码 ⇒
 //   `[optimize]` 段被**静默忽略**（`inline = false` 照样内联、零诊断；字节对账实测 true/false 产物逐字节相同，而 CLI
 //   `--no-opt inline` 字节不同 ⇒ 对账有判别力）。优先级 CLI > toml > profile 默认由 `Opt.Resolve` 保证。未知名报错，
@@ -28,7 +31,7 @@ public sealed class KnobResult {
     public LintConfig       Lints;       // null = 清单没有 [lints]（等价空配置）
     public bool             Packed;
     public bool             Strip;
-    public string[]         Errors;      // 用法错误（未知旋钮名 / pack 冲突）；非空 ⇒ 不得继续编译
+    public string[]         Errors;      // 用法错误（未知 kind / 旋钮名 / pack 冲突）；非空 ⇒ 不得继续编译
     public int              ErrorCount;
     public KnobResult() {
         this.OptSet = 0; this.Features = null; this.Lints = null; this.Packed = true; this.Strip = false;
@@ -50,6 +53,10 @@ public static class ManifestKnobs {
     public static KnobResult Resolve(ProjectManifest pm, string label, bool isRelease, int cliAdd, int cliRemove,
                                      bool forcePacked) {
         KnobResult r = new KnobResult();
+        string kind = pm.Project.Kind;
+        if (kind != "exe" && kind != "lib" && kind != "analyzer") {
+            r.AddError(label + ": [project] unknown kind \"" + kind + "\" (known: exe/lib/analyzer)");
+        }
         // [optimize]：CLI > toml > profile 默认（`Opt.Resolve`）；未知名报错，与 CLI `--opt 乱写` 同口径。
         OptTomlResult optToml = Opt.FromToml(pm.OptimizeNames, pm.OptimizeValues, pm.OptimizeCount);
         int uk = 0;

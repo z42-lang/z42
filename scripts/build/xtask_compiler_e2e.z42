@@ -334,11 +334,12 @@ int _e2eOracleChecks(string vm, string driverZpkg, string e2eDir, string flat, s
     return 0;
 }
 
-// `[profile.*.runtime]` 旋钮名的构建期校验（compiler-checks-knob-names）。三件事：
+// `[profile.*.runtime]` 旋钮名的构建期校验（compiler-checks-knob-names）+ `kind` 校验。四件事：
 //   ① 未知旋钮名 → **warning 且 build 仍成功**（旧工具链为新 VM 构建时要能过），带最近邻建议；
 //   ② 名字对了就一声不吭（防"每次构建都刷一行"的误报回归）；
 //   ③ 旧形状 `[profile.X]` 直接写键 → **致命**，且**库工程也管**——这条检查从前埋在侧车
-//      写出里、只在 isExe 时跑，库工程写错没人说。
+//      写出里、只在 isExe 时跑，库工程写错没人说；
+//   ④ `[project] kind` 不是 exe / lib / analyzer → **致命**（判据在 ManifestKnobs.Resolve）。
 // 全部用 kind=lib：不产侧车也照样校验，正是要证明校验不再挂在侧车路径上。
 int _e2eKnobChecks(string vm, string driverZpkg, string e2eDir, string flat) {
     string kdir = Path.Join(e2eDir, "knobcheck");
@@ -387,6 +388,16 @@ int _e2eKnobChecks(string vm, string driverZpkg, string e2eDir, string flat) {
         return 1;
     }
     Console.WriteLine("  ✓ 库工程的旧形状 [profile.X] 直接写键 → 致命");
+
+    // ④ `[project] kind` 写错 → 致命（此前静默当成 lib 编完）。
+    File.WriteAllText(ktoml, head.Replace("kind    = \"lib\"", "kind    = \"exx\""));
+    ProcessResult r4 = _z42Proc(vm, flat).Arg(driverZpkg).Arg("--").Arg("build").Arg(ktoml)
+        .Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
+    if (r4.ExitCode == 0 || r4.Stderr.IndexOf("unknown kind \"exx\"") < 0) {
+        Console.WriteLine("  ✗ kind = \"exx\" 没有被拒（rc=" + r4.ExitCode.ToString() + "）: " + r4.Stderr.Trim());
+        return 1;
+    }
+    Console.WriteLine("  ✓ [project] kind 写错 → 致命");
     return 0;
 }
 
