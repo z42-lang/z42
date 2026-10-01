@@ -54,6 +54,15 @@ void _unlinkIfExists(string path) {
     if (File.Exists(path)) { try { File.Delete(path); } catch (Exception e) { /* best-effort */ } }
 }
 
+// 把 path 换成内容相同的**独立 inode**（硬链接别名从此不再共享写入）。之后就地写它不会穿透到别的
+// 链接名上——z42c 写产物是就地写，往 hard-link 视图（stdlib flat）里写之前要先过这一步。
+void _breakHardLink(string path) {
+    if (!File.Exists(path)) { return; }
+    // 原子写 = 临时文件 + rename 覆盖目录项：新 inode 换上，别名仍指向旧 inode；中途失败原文件不动。
+    try { File.WriteAllBytesAtomic(path, File.ReadAllBytes(path)); }
+    catch (Exception e) { /* best-effort：失败即保持原状 */ }
+}
+
 // 字节比较。两族共用（test 族的增量对账 / build 族的 `_assertStdlibNotShadowed`）⇒ 按头注
 // 的判据（不止一个文件用 + 是通用原语）收在这里。
 bool _bytesEqual(byte[] a, byte[] b) {
