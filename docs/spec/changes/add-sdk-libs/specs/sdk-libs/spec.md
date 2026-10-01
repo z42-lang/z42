@@ -1,32 +1,21 @@
 # Spec: SDK 库的解析与部署
 
-术语：**SDK 库** = 不在 shipped `libs/`、而在 SDK 声明的 SDK 库目录里的 zpkg（今天即编译器域：`z42.project`、
+术语：**SDK 库** = 不在 shipped `libs/`、而在 SDK 的编译器目录（`programs/z42c/`）里的 zpkg（今天即编译器域：`z42.project`、
 `z42.build`、`z42.package`、`z42.scripting`、`z42c.*`）。**stdlib** = shipped `libs/` 里的 zpkg。
 
 ## ADDED Requirements
 
-### Requirement: SDK 库目录由 SDK 声明，工具链自动定位
+### Requirement: SDK 库目录沿用现有编译器目录定位
 
-SDK 根目录 `manifest.toml` 的 `[contents]` 段可声明 `sdk-libs = ["<相对 SDK 根的目录>", …]`。未声明时默认
-`["programs/z42c"]`（兼容旧 SDK）。工具链（z42c / z42b / VM）只经此定位 SDK 库，**任何用户清单都不需要写 SDK 内部路径**。
-
-定位序（编译期与运行期一致，存在者都收、去重、保持顺序）：
-
-1. `Z42_SDK_LIBS`（平台路径分隔符分隔的目录列表）—— 开发树 / CI / 非常规布局；
-2. SDK 根的 `sdk-libs`：SDK 根依次取 `Z42_HOME`、由 `Z42_PORTABLE_VM` 反推、当前进程可执行文件所在 SDK；
-3. 开发树：自 `Z42_LIBS` 上溯到 `artifacts/build/` → `compiler/z42c.driver/release/dist`（与 `programs/z42c` 同形）。
+编译期 SDK 库目录由现有 `CompilerDomain` 按序探测（存在者都收）：`Z42_COMPILER_LIBS` → `Z42_HOME/programs/z42c` →
+由 `Z42_PORTABLE_VM` 反推的 `<sdk>/programs/z42c` → 开发树 `artifacts/build/compiler/z42c.driver/release/dist`。
+**用户清单里不出现任何 SDK 内部路径**，也不新增定位用的环境变量。
 
 #### Scenario: 已安装 SDK，无任何环境变量
 
-- **GIVEN** 一个解包的 SDK，其 `manifest.toml` 未写 `sdk-libs`
-- **WHEN** 用它的 `bin/z42c` 编译一个声明了 `"z42.project" = "*"` 的工程，且未设 `Z42_SDK_LIBS` / `Z42_HOME` / `Z42_PORTABLE_VM`
+- **GIVEN** 一个解包的 SDK
+- **WHEN** 用它的 `bin/z42c` 编译一个声明了 `"z42.project" = "*"` 的工程，且未设任何 z42 相关环境变量
 - **THEN** `z42.project` 从 `<sdk>/programs/z42c/` 解析成功
-
-#### Scenario: Z42_SDK_LIBS 优先
-
-- **GIVEN** `Z42_SDK_LIBS` 指向目录 D，SDK 根也可推出
-- **WHEN** 解析一个 SDK 库
-- **THEN** 先在 D 中查找
 
 ### Requirement: SDK 库目录里的 stdlib 副本对解析不可见
 
@@ -99,32 +88,43 @@ analyzer 与 hooks 的产物不携带 SDK 库；运行时使用宿主进程（z4
 - **WHEN** z42b 加载 hooks 并 `as BuildHooks`
 - **THEN** 转换成功（同一类型），hooks 中间产物目录里没有 `z42.build.zpkg`
 
-### Requirement: `deploy = "sdk"` —— 运行期从所在 SDK 解析
+### Requirement: `deploy = "sdk"` —— 不复制，运行期经 `${Z42_HOME}` 从 SDK 解析
 
 依赖可声明 `deploy = "sdk"`（仅对 SDK 库合法；对 stdlib 或私有包 ⇒ 报错）。效果：
 
-- 构建期不复制；
-- z42c 在 runtimeconfig 侧车 `[runtime]` 写 `sdk-libs = true`；
-- VM 读到 `sdk-libs = true` 时，把 SDK 库目录（定位序同上）追加到依赖搜索序 `libs/` 之后；
-- 运行期解析不到 ⇒ 报错，信息含「本程序声明了 deploy = "sdk" 的依赖，需在 z42 SDK 上运行（或设 Z42_SDK_LIBS）」。
+- 构建期不复制该依赖（及仅因它而进入闭包的 SDK 库）；
+- z42c 在 runtimeconfig 侧车 `[runtime] probing-paths` 末尾**自动补一条** `${Z42_HOME}/programs/z42c`（与清单
+  `[profile.*.runtime]` 里作者写的条目合并、去重；只写占位符，不写具体路径）；
+- 运行期解析沿用 VM 现有的 `${Z42_HOME}` 占位符展开（`Z42_HOME` → `Z42_PORTABLE_VM` 反推 → VM 自身位置）。VM 解析逻辑不变。
 
 #### Scenario: SDK 内运行
 
 - **GIVEN** exe 声明 `"z42.project" = { version = "*", deploy = "sdk" }`
-- **WHEN** 构建并用已安装 SDK 的 `bin/z42vm` 运行
-- **THEN** 产物目录无 `z42.project.zpkg`；运行成功，`Z42.Project` 从 `<sdk>/programs/z42c/` 加载
-
-#### Scenario: 仅 runtime 环境
-
-- **GIVEN** 同上的产物，在只有 runtime 包的环境运行
-- **WHEN** 程序首次用到 `Z42.Project`
-- **THEN** 以上述信息报错，而非裸 `MissingSymbolException`
+- **WHEN** 构建，并用已安装 SDK 的 `bin/z42vm` 运行
+- **THEN** 产物目录无 `z42.project.zpkg`；侧车 `probing-paths` 含 `${Z42_HOME}/programs/z42c`；运行成功
 
 #### Scenario: 用在非 SDK 库上
 
 - **GIVEN** `"z42.core" = { version = "*", deploy = "sdk" }`
 - **WHEN** 构建
 - **THEN** 报错：`deploy = "sdk"` 只适用于 SDK 库
+
+### Requirement: `${Z42_HOME}` 路径解析不到时提示是否未安装 SDK
+
+运行期某依赖解析失败，且搜索配置里存在展开后**不存在**的 `${Z42_HOME}/…` probing 条目（含 `deploy = "sdk"` 自动补的那条）时，
+报错文本须附：未解析的条目、「是否没有安装 z42 SDK？（安装 SDK，或设置 Z42_HOME 指向 SDK 根目录）」。
+
+#### Scenario: 仅 runtime 环境运行 deploy = "sdk" 的程序
+
+- **GIVEN** 上一条的产物，在只有 runtime 包（无 `programs/z42c`）的环境运行
+- **WHEN** 程序首次用到 `Z42.Project`
+- **THEN** 报错含 `${Z42_HOME}/programs/z42c` 与「是否没有安装 z42 SDK」，而非只有裸 `MissingSymbolException`
+
+#### Scenario: 无 `${Z42_HOME}` 条目时不提示
+
+- **GIVEN** 一个侧车里没有 `${Z42_HOME}` 条目的程序缺依赖
+- **WHEN** 运行
+- **THEN** 报错照旧，不附 SDK 提示
 
 ### Requirement: `${compiler_libs}` 宏进入过渡期
 
@@ -140,5 +140,5 @@ analyzer 与 hooks 的产物不携带 SDK 库；运行时使用宿主进程（z4
 
 ### Requirement: 编译器域解析域不再按 kind 硬开
 
-此前：仅 `kind = "analyzer"` 把整个编译器目录并入解析域，位置硬编码为 `programs/z42c`（开发树 `z42c.semantics` 的 dist）。
-现在：由上面的「SDK 库」规则取代——位置来自 SDK 清单；analyzer / hooks 自动可见，exe / lib 按名声明。
+此前：仅 `kind = "analyzer"` 把整个编译器目录（含 stdlib 副本）并入解析域；hooks 够不着；exe / lib 只能用路径宏。
+现在：由上面的「SDK 库」规则取代——analyzer / hooks 自动可见，exe / lib 按名声明；stdlib 副本不可见。
