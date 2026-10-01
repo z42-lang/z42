@@ -4,8 +4,6 @@
 // trip `_magDivModGeneral`'s simple top-2/top-1 estimator.
 namespace Z42NumericsBigIntModLargeDivisorTests;
 
-using Std;
-using Std.Test;
 using Std.Numerics;
 
 [Test]

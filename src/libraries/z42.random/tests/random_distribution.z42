@@ -2,7 +2,6 @@
 // 只验证 bucket 计数没明显偏斜。PCG 通过 PractRand 32TB，本地 smoke 够用。
 namespace Z42RandomDistTests;
 
-using Std.Test;
 using Std.Random;
 
 [Test]

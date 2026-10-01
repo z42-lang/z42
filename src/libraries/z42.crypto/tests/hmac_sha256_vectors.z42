@@ -1,8 +1,6 @@
 // add-hmac-sha256 (2026-05-24): RFC 4231 HMAC-SHA-256 test vectors.
 namespace Z42CryptoHmacSha256VectorsTests;
 
-using Std;
-using Std.Test;
 using Std.Crypto;
 using Std.Encoding;
 

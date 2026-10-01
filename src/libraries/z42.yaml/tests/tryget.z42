@@ -5,8 +5,6 @@
 // 但 `TryGetValue<T>` 按 **z42 类型**选：`<long>` 与 `<double>`，三个库调用点写法相同。
 namespace Z42YamlTryGetTests;
 
-using Std;
-using Std.Test;
 using Std.Yaml;
 
 [Test]

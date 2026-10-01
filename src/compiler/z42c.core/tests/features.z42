@@ -1,8 +1,6 @@
 // z42c.core LanguageFeatures 单测（与 diag_tests.z42 同测试单元）。
 namespace Z42cCoreFeaturesTests;
 
-using Std;
-using Std.Test;
 using Z42.Core;
 
 [Test]

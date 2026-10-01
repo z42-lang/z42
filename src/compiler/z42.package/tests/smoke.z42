@@ -4,9 +4,6 @@
 // 注：不用 `object as string`（在 boxed 基元上恒 null 是 pre-existing 语言限制，与本收敛无关）。
 namespace Z42IrSmokeTests;
 
-using Std;
-using Std.Test;
-using Std.Encoding;
 using Z42.IR;
 using Z42.IR.BinaryFormat;
 

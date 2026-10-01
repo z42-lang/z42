@@ -1,7 +1,6 @@
 // add-z42-cli (2026-05-16)：flag + option + positional 基础 parse 行为。
 namespace Z42CliBasicTests;
 
-using Std.Test;
 using Std.Cli;
 
 [Test]

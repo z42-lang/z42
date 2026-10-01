@@ -2,8 +2,6 @@
 // + SetWriteTimeout — mirrors TcpClient timeout semantics.
 namespace Z42NetUdpTimeoutTests;
 
-using Std;
-using Std.Test;
 using Std.Net.Sockets;
 
 [Test]

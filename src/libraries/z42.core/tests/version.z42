@@ -1,9 +1,6 @@
 // add-guid-lazy-version (2026-09-03): Std.Version 单元测试。
 namespace Z42VersionTests;
 
-using Std.Test;
-using Std;
-
 [Test]
 void test_two_component() {
     var v = new Version(1, 2);

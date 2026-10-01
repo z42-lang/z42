@@ -1,7 +1,6 @@
 // add-std-process: failure / error path tests.
 namespace Z42IoProcessFailureTests;
 
-using Std.Test;
 using Std.IO;
 
 [Test]

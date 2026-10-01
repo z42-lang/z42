@@ -1,7 +1,6 @@
 // add-z42-yaml (2026-05-24): stringify round-trip + scalar quoting heuristic.
 namespace Z42YamlStringifyTests;
 
-using Std.Test;
 using Std.Yaml;
 
 [Test]

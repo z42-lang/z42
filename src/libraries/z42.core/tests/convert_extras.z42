@@ -2,9 +2,6 @@
 // ToByte / ToInt16 / ToSingle / ToBoolean / ToChar (string → scalar).
 namespace Z42CoreConvertExtrasTests;
 
-using Std;
-using Std.Test;
-
 [Test]
 void test_to_byte_int16() {
     byte b = Convert.ToByte("255");

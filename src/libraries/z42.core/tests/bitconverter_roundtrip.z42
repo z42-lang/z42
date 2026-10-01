@@ -2,9 +2,6 @@
 // 测试（仅经 Double/Single 哈希间接触及）。验证已知位模式 + 往返恒等。
 namespace Z42CoreBitConverterTests;
 
-using Std;
-using Std.Test;
-
 // ── Double ↔ 64-bit 位模式 ────────────────────────────────────────────────
 
 [Test]

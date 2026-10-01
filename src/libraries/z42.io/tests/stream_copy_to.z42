@@ -1,8 +1,6 @@
 // add-stream-copy-to (2026-05-24): Stream.CopyTo(Stream) helper.
 namespace Z42IoStreamCopyToTests;
 
-using Std;
-using Std.Test;
 using Std.IO;
 
 byte[] _bytes_of(int[] xs) {

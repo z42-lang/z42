@@ -2,8 +2,6 @@
 // word-boundary assertions. "word char" = ASCII `[A-Za-z0-9_]`.
 namespace Z42RegexWordBoundaryTests;
 
-using Std;
-using Std.Test;
 using Std.Regex;
 
 // ── \b — positive assertion ───────────────────────────────────────────

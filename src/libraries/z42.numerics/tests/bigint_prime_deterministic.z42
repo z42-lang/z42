@@ -2,8 +2,6 @@
 // deterministic Miller-Rabin via OEIS A014233 witness sets.
 namespace Z42NumericsBigIntPrimeDeterministicTests;
 
-using Std;
-using Std.Test;
 using Std.Numerics;
 
 [Test]

@@ -2,8 +2,6 @@
 // behaviour — write chars / strings / lines, ToString, Clear, Close.
 namespace Z42IoStringWriterTests;
 
-using Std;
-using Std.Test;
 using Std.IO;
 
 // ── Empty / initial state ───────────────────────────────────────────────

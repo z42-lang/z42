@@ -6,9 +6,6 @@
 // z42) was broken.
 namespace Z42CoreCharCompareTests;
 
-using Std;
-using Std.Test;
-
 [Test]
 void test_char_lt_char() {
     char a = '0';

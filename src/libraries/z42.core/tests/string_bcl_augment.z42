@@ -9,9 +9,6 @@
 // 表现为「返回了另一个重载的结果」而非崩溃，故每组重载都断言到能区分彼此的值上。
 namespace Z42CoreStringBclAugmentTests;
 
-using Std;
-using Std.Test;
-
 // ── IndexOf(char) / LastIndexOf ──────────────────────────────────────────────
 
 [Test]

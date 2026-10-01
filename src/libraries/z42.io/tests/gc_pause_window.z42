@@ -4,9 +4,6 @@
 // and `Std.GC.PauseWindowCapacity()` is positive.
 namespace Z42IoGcPauseWindowTests;
 
-using Std;
-using Std.Test;
-
 [Test]
 void test_pause_window_capacity_positive() {
     long cap = GC.PauseWindowCapacity();

@@ -1,8 +1,6 @@
 // add-encoding-base32 (2026-05-25) — RFC 4648 §6 standard variant.
 namespace Z42EncodingTests.Base32Tests;
 
-using Std;
-using Std.Test;
 using Std.Encoding;
 
 byte[] ascii(string s) {

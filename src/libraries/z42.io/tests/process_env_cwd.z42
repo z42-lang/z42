@@ -1,7 +1,6 @@
 // add-std-process: env + working-directory tests.
 namespace Z42IoProcessEnvCwdTests;
 
-using Std.Test;
 using Std.IO;
 
 [Test]

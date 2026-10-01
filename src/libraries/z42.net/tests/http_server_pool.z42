@@ -2,10 +2,7 @@
 // of HttpServer.ServeThreaded.
 namespace Z42NetHttpServerPoolTests;
 
-using Std;
-using Std.Test;
 using Std.Threading;
-using Std.Net.Sockets;
 using Std.Net.Http;
 
 [Test]

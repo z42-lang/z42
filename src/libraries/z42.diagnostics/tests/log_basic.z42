@@ -1,7 +1,6 @@
 // add-z42-diagnostics (2026-05-15)：5 个 level method 都存在 + IsEnabled 行为。
 namespace Z42DiagnosticsBasicTests;
 
-using Std.Test;
 using Std.Diagnostics;
 
 [Test]

@@ -1,7 +1,6 @@
 // add-z42-random (2026-05-15)：seeded PRNG 基础 API + 确定性测试。
 namespace Z42RandomBasicTests;
 
-using Std.Test;
 using Std.Random;
 
 [Test]

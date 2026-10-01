@@ -2,7 +2,6 @@
 // `libz42_compression` cdylib (or statically-linked rlib on wasm).
 namespace Z42CompressionGzipTests;
 
-using Std.Test;
 using Std.Compression;
 
 [Test]

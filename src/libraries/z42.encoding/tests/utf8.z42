@@ -1,7 +1,6 @@
 // Spec add-z42-encoding — UTF-8 unit tests.
 namespace Z42EncodingTests.Utf8Tests;
 
-using Std.Test;
 using Std.Encoding;
 
 [Test]

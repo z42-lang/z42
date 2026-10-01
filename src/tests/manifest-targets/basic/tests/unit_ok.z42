@@ -1,8 +1,6 @@
 // Explicit [[test]] harness=true target — z42b reflects these [Test] functions.
 namespace MtUnit;
 
-using Std.Test;
-
 [Test]
 void unit_ok_add() {
     Assert.Equal(4, 2 + 2);

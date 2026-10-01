@@ -1,8 +1,6 @@
 // add-encoding-utf32 (2026-05-27): UTF-32 LE/BE encode + decode.
 namespace Z42EncodingUtf32Tests;
 
-using Std;
-using Std.Test;
 using Std.Encoding;
 
 [Test]

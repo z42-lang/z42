@@ -2,8 +2,6 @@
 // case-insensitive matching for the whole pattern.
 namespace Z42RegexInlineFlagsTests;
 
-using Std;
-using Std.Test;
 using Std.Regex;
 
 // ── Literal matching ───────────────────────────────────────────────────

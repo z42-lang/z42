@@ -1,7 +1,6 @@
 // add-z42-toml (2026-05-14)：错误输入 → TomlException。
 namespace Z42TomlErrorsTests;
 
-using Std.Test;
 using Std.Toml;
 
 [Test]

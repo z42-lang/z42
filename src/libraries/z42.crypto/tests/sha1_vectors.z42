@@ -1,10 +1,7 @@
 // add-sha1-to-crypto (2026-05-25): FIPS 180-2 §B SHA-1 test vectors.
 namespace Z42CryptoSha1VectorsTests;
 
-using Std;
-using Std.Test;
 using Std.Crypto;
-using Std.Encoding;
 
 [Test]
 void test_empty_string() {

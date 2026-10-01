@@ -2,9 +2,7 @@
 // —— C# System.Array.AsReadOnly / ObjectModel.ReadOnlyCollection parity.
 namespace Z42CoreReadOnlyCollectionTests;
 
-using Std;
 using Std.Collections;
-using Std.Test;
 
 [Test]
 void test_asreadonly_count_and_index() {

@@ -11,8 +11,6 @@
 //      「`)` 后是 `=` 还是标识符」互斥；理论上两序都对，这条门把「理论上」变成「实测过」
 namespace Z42cSyntaxStmtOrderTests;
 
-using Std;
-using Std.Test;
 using Z42.Syntax;
 using Z42.Core;
 

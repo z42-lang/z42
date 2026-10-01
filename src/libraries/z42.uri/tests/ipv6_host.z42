@@ -4,8 +4,6 @@
 // bridging to Std.Net.IPAddress.Parse.
 namespace Z42UriIPv6HostTests;
 
-using Std;
-using Std.Test;
 using Std.Uri;
 
 [Test]

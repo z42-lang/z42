@@ -1,7 +1,6 @@
 // add-z42-cli (2026-05-16)：-h/--help 行为 + HelpText 自动生成。
 namespace Z42CliHelpTests;
 
-using Std.Test;
 using Std.Cli;
 
 [Test]

@@ -1,7 +1,6 @@
 // add-z42-diagnostics (2026-05-15)：SetMinLevel 过滤行为。
 namespace Z42DiagnosticsFilterTests;
 
-using Std.Test;
 using Std.Diagnostics;
 
 [Test]

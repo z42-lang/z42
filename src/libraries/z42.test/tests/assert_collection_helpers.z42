@@ -3,9 +3,6 @@
 
 namespace Z42TestAssertCollectionHelpers;
 
-using Std;
-using Std.Test;
-
 // ── Contains(object, object[]) — int element ──────────────────────────
 
 [Test]

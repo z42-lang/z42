@@ -1,7 +1,6 @@
 // add-z42-time (2026-05-14)：TimeSpan 单元测试。
 namespace Z42TimeSpanTests;
 
-using Std.Test;
 using Std.Time;
 
 // ── 工厂构造 ──────────────────────────────────────────────────────────────────

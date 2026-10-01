@@ -12,7 +12,6 @@
 //   （field_get 是 Mutex 锁堆读；LICM 把 3 读/迭代 外提 + CSE 消重 → ~0 读/迭代。输出恒 =4725000000）
 namespace Z42ReadonlyBench;
 
-using Std;
 using Std.Test;
 
 class RoScaler {

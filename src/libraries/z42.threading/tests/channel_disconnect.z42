@@ -1,8 +1,6 @@
 // add-sync-primitives (2026-05-20): Channel<T> close + disconnect semantics.
 namespace Z42ThreadingChannelDisconnectTests;
 
-using Std;
-using Std.Test;
 using Std.Threading;
 
 [Test]

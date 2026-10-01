@@ -1,8 +1,6 @@
 // add-x25519 (2026-05-28): RFC 7748 §5.2 / §6.1 test vectors for X25519.
 namespace Z42CryptoX25519VectorsTests;
 
-using Std;
-using Std.Test;
 using Std.Crypto;
 using Std.Encoding;
 

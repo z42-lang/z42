@@ -2,8 +2,6 @@
 // resulting positions before hitting the native syscall.
 namespace Z42IoFileStreamSeekBoundsTests;
 
-using Std;
-using Std.Test;
 using Std.IO;
 
 [Test]

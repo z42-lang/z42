@@ -15,9 +15,6 @@
 
 namespace Z42TestFailureLocationDemo;
 
-using Std;
-using Std.Test;
-
 [Test]
 void test_runtime_populates_stack_trace_on_assert_failure() {
     // Note on the catch type: we catch `Exception`, not `TestFailure`, on

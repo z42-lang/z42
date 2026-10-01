@@ -8,8 +8,6 @@
 // dependent), so every assertion here is order-independent (sums / membership).
 namespace Z42CoreDictOpsTests;
 
-using Std;
-using Std.Test;
 using Std.Collections;
 
 [Test]

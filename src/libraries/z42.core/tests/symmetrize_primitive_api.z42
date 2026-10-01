@@ -7,9 +7,6 @@
 // 这类退化悄悄绿着（见 memory: 静默失败的特性会掩盖别的 bug）。
 namespace Z42CoreSymmetrizePrimitiveApiTests;
 
-using Std;
-using Std.Test;
-
 // ── 窄整型 TryParse：此前只有 Int32/Int64/Double 有 ──────────────────────────
 
 [Test]

@@ -2,9 +2,6 @@
 // EOF, Seek-throws, close behavior.
 namespace Z42NetTcpStreamIoTests;
 
-using Std;
-using Std.IO;
-using Std.Test;
 using Std.Threading;
 using Std.Net.Sockets;
 

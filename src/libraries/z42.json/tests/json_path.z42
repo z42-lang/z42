@@ -1,8 +1,6 @@
 // add-json-selectpath (2026-05-27): JsonPath.Select coverage.
 namespace Z42JsonPathTests;
 
-using Std;
-using Std.Test;
 using Std.Json;
 
 static JsonValue _sample() {

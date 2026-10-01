@@ -5,7 +5,6 @@
 
 namespace Z42JsonBench;
 
-using Std;
 using Std.Test;
 using Std.Text;
 using Std.Json;

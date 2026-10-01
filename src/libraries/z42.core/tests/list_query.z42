@@ -4,8 +4,6 @@
 // LastIndexOf / BinarySearch / GetRange.
 namespace Z42CoreListQueryTests;
 
-using Std;
-using Std.Test;
 using Std.Collections;
 
 List<int> nums() {

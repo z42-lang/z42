@@ -3,9 +3,6 @@
 // ASCII rules only (locale-sensitive classification deferred to L3 CultureInfo).
 namespace Z42CoreCharClassifyTests;
 
-using Std;
-using Std.Test;
-
 [Test]
 void test_is_letter_or_digit() {
     Assert.True('a'.IsLetterOrDigit());

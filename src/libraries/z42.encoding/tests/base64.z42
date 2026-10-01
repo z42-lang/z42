@@ -1,7 +1,6 @@
 // Spec add-z42-encoding — Base64 unit tests. RFC 4648 §10 test vectors.
 namespace Z42EncodingTests.Base64Tests;
 
-using Std.Test;
 using Std.Encoding;
 
 // Helper: build byte[] from an ASCII string. Not using Utf8.GetBytes to keep

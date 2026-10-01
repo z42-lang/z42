@@ -1,8 +1,6 @@
 // add-z42-net-http-cookies (2026-05-26): Set-Cookie parsing edge cases.
 namespace Z42NetHttpCookieParseTests;
 
-using Std;
-using Std.Test;
 using Std.Net.Http;
 
 [Test]

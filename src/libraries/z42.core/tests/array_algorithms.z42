@@ -2,9 +2,6 @@
 // Sort / IndexOf / Copy / Fill / Reverse (generic static, C# System.Array parity).
 namespace Z42CoreArrayAlgorithmsTests;
 
-using Std;
-using Std.Test;
-
 [Test]
 void test_indexof() {
     int[] xs = new int[]{ 3, 1, 4, 1, 5 };

@@ -14,9 +14,7 @@
 // tier-2 之外；同目录 `build_layout.z42` 里与 cwd 无关的 8 条继续在全部目标上跑。
 namespace Z42ProjectBuildLayoutDisplayCwdTests;
 
-using Std;
 using Std.IO;
-using Std.Test;
 using Z42.Project;
 
 // 当前目录之下 → `./` 相对形式。

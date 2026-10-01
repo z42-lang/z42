@@ -6,9 +6,6 @@
 // corresponding Capabilities()/ExecModes() array — rather than specific values.
 namespace Z42CorePlatformCapabilitiesTests;
 
-using Std;
-using Std.Test;
-
 [Test]
 void test_exec_modes_always_has_interp() {
     // interp is the universal fallback backend — present in every build.

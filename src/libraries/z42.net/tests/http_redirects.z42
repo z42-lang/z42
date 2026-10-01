@@ -1,10 +1,7 @@
 // add-z42-net-http-redirects (2026-05-26): HttpClient auto-follows 3xx.
 namespace Z42NetHttpRedirectsTests;
 
-using Std;
-using Std.Test;
 using Std.Threading;
-using Std.Net.Sockets;
 using Std.Net.Http;
 using Std.Encoding;
 

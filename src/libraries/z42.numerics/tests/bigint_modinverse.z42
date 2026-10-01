@@ -2,8 +2,6 @@
 // iterative extended Euclidean algorithm.
 namespace Z42NumericsBigIntModInverseTests;
 
-using Std;
-using Std.Test;
 using Std.Numerics;
 
 // ── Basics ──────────────────────────────────────────────────────────────

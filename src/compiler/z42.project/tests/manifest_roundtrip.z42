@@ -2,8 +2,6 @@
 // .z42.toml → **组合式** ProjectManifest / WorkspaceManifest 模型 round-trip。
 namespace Z42ProjectRoundtripTests;
 
-using Std;
-using Std.Test;
 using Z42.Project;
 
 [Test]

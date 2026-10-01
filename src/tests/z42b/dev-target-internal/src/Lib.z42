@@ -1,5 +1,4 @@
 namespace Dt.Internal;
-using Std;
 
 // internal 类：跨包不可引用（见 cross-zpkg/class_internal_access），但其**自己的测试目标**可见。
 internal class Hidden {

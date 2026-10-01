@@ -1,8 +1,6 @@
 // add-zip-extractall (2026-05-27): Zip.ExtractAllTo coverage.
 namespace Z42CompressionZipExtractTests;
 
-using Std;
-using Std.Test;
 using Std.IO;
 using Std.Archive;
 using Std.Encoding;

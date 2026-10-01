@@ -2,8 +2,6 @@
 // 只验 z42.project 解析层——ProjectManifest.Natives 名/数/稳定序 + 可选 dir；文件名派生与产出/复制在消费方。
 namespace Z42ProjectNativeTests;
 
-using Std;
-using Std.Test;
 using Z42.Project;
 
 [Test]

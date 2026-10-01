@@ -15,9 +15,6 @@
 
 namespace Z42TestAssertNumericHelpers;
 
-using Std;
-using Std.Test;
-
 // ── Greater(long, long) ──────────────────────────────────────────────
 
 [Test]
