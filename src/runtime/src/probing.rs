@@ -301,6 +301,67 @@ fn glob_segment_matches(pat: &str, name: &str) -> bool {
 // 那套规则（重做就会漂移）。
 static SEARCH_DIRS: std::sync::OnceLock<Vec<PathBuf>> = std::sync::OnceLock::new();
 
+// ── `${Z42_HOME}` 解析不到时的提示（add-sdk-libs D6）──────────────────────────────
+//
+// `${Z42_HOME}/…` 条目展开后一个目录都不存在 ⇒ 按既有规则**静默跳过**（可选插件目录不该让启动
+// 失败）。但这类条目几乎都是「指回 SDK」的（`deploy = "sdk"` 由 z42c 自动补的就是
+// `${Z42_HOME}/programs/z42c`），跳过之后用户看到的只是一句泛泛的「找不到符号 / 找不到 zpkg」，
+// 原因（这台机器没装 SDK，或只装了 runtime）离症状很远。
+//
+// 所以启动时把这类条目**原样**记下来，依赖解析失败的报错点（`make_missing_symbol_exception`、
+// `NamespaceCandidate::build_in_dirs`）有记录就附一句提示；没有记录 ⇒ 报错照旧。
+
+/// `patterns` 里含 `${Z42_HOME}`、且用 `z42_home_roots` 展开后**一个存在的目录都没有**的条目（原样字符串）。
+pub fn unresolved_z42_home_patterns_with(
+    entry_dir: &std::path::Path,
+    patterns: &[PathBuf],
+    z42_home_roots: &[PathBuf],
+) -> Vec<String> {
+    let token = format!("${{{PLACEHOLDER_Z42_HOME}}}");
+    patterns
+        .iter()
+        .filter(|p| p.to_string_lossy().contains(&token))
+        .filter(|p| expand_probing_paths_with(entry_dir, std::slice::from_ref(*p), z42_home_roots).is_empty())
+        .map(|p| p.to_string_lossy().to_string())
+        .collect()
+}
+
+/// [`unresolved_z42_home_patterns_with`] 用进程的真实候选根。
+pub fn unresolved_z42_home_patterns(entry_dir: &std::path::Path, patterns: &[PathBuf]) -> Vec<String> {
+    unresolved_z42_home_patterns_with(entry_dir, patterns, &z42_home_roots())
+}
+
+/// 提示文本；`unresolved` 为空 ⇒ `None`（不附提示）。
+pub fn format_sdk_missing_hint(unresolved: &[String]) -> Option<String> {
+    if unresolved.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "probing 路径 {} 无法解析 —— 是否没有安装 z42 SDK？（安装 SDK，或设置 Z42_HOME 指向 SDK 根目录）",
+        unresolved.join(", ")
+    ))
+}
+
+static UNRESOLVED_SDK_PATTERNS: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
+
+/// boot 期由 `app.rs` 写入（与 [`set_search_dirs`] 同一处）。重复调用忽略。
+pub fn set_unresolved_sdk_patterns(patterns: Vec<String>) {
+    let _ = UNRESOLVED_SDK_PATTERNS.set(patterns);
+}
+
+/// 依赖解析失败时附在报错后的提示；本进程没有解析不到的 `${Z42_HOME}` 条目 ⇒ `None`。
+pub fn sdk_missing_hint() -> Option<String> {
+    format_sdk_missing_hint(UNRESOLVED_SDK_PATTERNS.get().map(|v| v.as_slice()).unwrap_or(&[]))
+}
+
+/// 把提示（若有）接在 `msg` 后面。
+pub fn with_sdk_missing_hint(msg: String) -> String {
+    match sdk_missing_hint() {
+        Some(h) => format!("{msg}\n  {h}"),
+        None => msg,
+    }
+}
+
 /// boot 期由 `app.rs` 写入解析结果。重复调用忽略（OnceLock 语义）。
 pub fn set_search_dirs(dirs: Vec<PathBuf>) {
     let _ = SEARCH_DIRS.set(dirs);
