@@ -110,6 +110,11 @@ int _testDistRun(string modeArg) {
         overallPass = overallPass + az[0];
         overallFail = overallFail + az[1];
 
+        // ── 发布态 build hooks（add-sdk-libs；见 xtask_test_dist_hooks.z42 头注）────────
+        int[] hk = _hooksDistSmoke(distDir, work);
+        overallPass = overallPass + hk[0];
+        overallFail = overallFail + hk[1];
+
         // ── desktop-publish smoke (build app → z42 publish → run produced exe) ──────
         int[] ah = _apphostSmoke(distDir, work, apphostTmpl);
         overallPass = overallPass + ah[0];

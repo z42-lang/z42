@@ -34,9 +34,22 @@ BuildHooks _loadProjectHooks(string hooksDir, string interDir, string pkgName) {
     }
     ICompiler comp = _hostCompiler();
 
-    // deps：镜像 _initialInputs 的 Z42_LIBS 语义（hook 需要 z42.build / Std.IO 等；`z42.` 前缀的包免声明）。
+    // deps：Z42_LIBS（stdlib）+ **本进程加载编译器的那个目录**里的 zpkg（add-sdk-libs：analyzer / hooks 自动
+    // 看见 SDK 库）。hook 要继承 `Z42.Build.BuildHooks`，而 `z42.build` 不在 shipped libs/、在编译器目录 ——
+    // 此前只给 Z42_LIBS，**装好的 SDK 里 hooks 一律编不过**（`E0494: 命名空间 Z42.Build 不存在`）；开发树里能用
+    // 只因 Z42_LIBS 碰巧是混装了编译器包的 alllibs（`build toolchain` 期间不是，同样落空）。
+    // 用 `_findCompilerZpkg()` 的目录而不是另找一处：hook 编译看到的 `z42.build` 就是本进程已加载、
+    // 运行期 `as BuildHooks` 要对上的那一份（类型同一性）。编译器目录排在 libs 之后：它里面的 stdlib 副本
+    // 按 basename 先到先得被 libs 的那份压住，只有编译器域的包真正从这里解析。
     string libs = Environment.GetEnvironmentVariable("Z42_LIBS", "");
-    string[] deps = (libs.Length > 0) ? Path.Glob(libs, "*.zpkg") : new string[0];
+    string[] libDeps = (libs.Length > 0) ? Path.Glob(libs, "*.zpkg") : new string[0];
+    string compilerZpkg = _findCompilerZpkg();
+    string[] sdkDeps = compilerZpkg.Length > 0 ? Path.Glob(Path.GetDirectoryName(compilerZpkg), "*.zpkg") : new string[0];
+    string[] deps = new string[libDeps.Length + sdkDeps.Length];
+    int di = 0;
+    while (di < libDeps.Length) { deps[di] = libDeps[di]; di = di + 1; }
+    int si = 0;
+    while (si < sdkDeps.Length) { deps[libDeps.Length + si] = sdkDeps[si]; si = si + 1; }
 
     string outZpkg = Path.Join(interDir, pkgName + ".zpkg");
     CompileRequest req = new CompileRequest(hooksDir, outZpkg, deps, "release", false, false, "lib", new string[0], 0);
