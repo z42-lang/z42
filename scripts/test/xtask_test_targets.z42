@@ -22,7 +22,8 @@ using Z42.Project;
 class TargetTooling {
     public string Vm { get; set; }
     public string DriverZpkg { get; set; }
-    public string Libs { get; set; }         // flat alllibs dir (stdlib + z42c siblings)
+    public string Libs { get; set; }         // stdlib flat（Z42_LIBS）
+    public string Probing { get; set; }      // 编译器成员 dist（Z42_PROBING_PATHS，只给 z42b 进程；见 _compilerProbingPaths）
     public string BuilderZpkg { get; set; }  // z42b reflective runner
     // isolate-xtask-fixture-builds：夹具在 artifacts/tmp 的**拷贝**上跑（z42b 把目标 / 父包产物写在
     // 清单目录旁，直接跑源码树里的夹具就会在 src/tests 下留产物）。两棵树各拷一次，整个 run 共用
@@ -56,7 +57,8 @@ TargetTooling _prepFixtureTooling(string root, bool noBuild) {
     }
     t.Vm = _builtVm(root, "release");
     t.DriverZpkg = _driverZpkg(root, "release");
-    t.Libs = _assembleAllLibs(root, "release");
+    t.Libs = _libsDir(root);
+    t.Probing = _compilerProbingPaths(root);
     t.BuilderZpkg = _toolchainZpkg(root, _z42bToml());
     Console.WriteLine("→ Building z42b (z42.builder.zpkg; reflective test runner)...");
     if (_buildZ42bWith(root, t.Vm, t.DriverZpkg, t.Libs) != 0) { return t; }
@@ -147,7 +149,7 @@ int _smokeCompileThenTest(string root, TargetTooling tt) {
     if (!File.Exists(toml)) { return 0; }
     Console.WriteLine("");
     Console.WriteLine("── compile-then-test (z42b test <z42.toml>) ──");
-    int rc = _exec(new Process(tt.Vm).Arg(tt.BuilderZpkg).Arg("--mode").Arg(_z42cMode())
+    int rc = _exec(new Process(tt.Vm).Arg(tt.BuilderZpkg).Env("Z42_PROBING_PATHS", tt.Probing).Arg("--mode").Arg(_z42cMode())
         .Arg("--").Arg("test").Arg(toml)
         .Env("Z42_LIBS", tt.Libs).WorkingDirectory(root));
     if (rc != 0) {
@@ -175,7 +177,7 @@ int _smokeFallbackOutRoot(string root, TargetTooling tt) {
     while (bi < beside.Length) { if (Directory.Exists(beside[bi])) { Directory.Delete(beside[bi], true); } bi = bi + 1; }
     string outRoot = _tmpDir(root, "z42b-fallback-out-root");
     if (Directory.Exists(outRoot)) { Directory.Delete(outRoot, true); }
-    int rc = _exec(new Process(tt.Vm).Arg(tt.BuilderZpkg).Arg("--mode").Arg(_z42cMode())
+    int rc = _exec(new Process(tt.Vm).Arg(tt.BuilderZpkg).Env("Z42_PROBING_PATHS", tt.Probing).Arg("--mode").Arg(_z42cMode())
         .Arg("--").Arg("test").Arg(toml).Arg("--out-root").Arg(outRoot)
         .Env("Z42_LIBS", tt.Libs).WorkingDirectory(root));
     if (rc != 0) {
@@ -222,7 +224,7 @@ int _smokeDevTargetInternal(string root, TargetTooling tt) {
         File.WriteAllText(Path.Join(distDir, "dt.internal.zpkg"), "STALE-COLOCATED-PARENT-COPY");
         ti = ti + 1;
     }
-    int rc = _exec(new Process(tt.Vm).Arg(tt.BuilderZpkg).Arg("--mode").Arg(_z42cMode())
+    int rc = _exec(new Process(tt.Vm).Arg(tt.BuilderZpkg).Env("Z42_PROBING_PATHS", tt.Probing).Arg("--mode").Arg(_z42cMode())
         .Arg("--").Arg("test").Arg(toml)
         .Env("Z42_LIBS", tt.Libs).WorkingDirectory(root));
     if (rc != 0) {
@@ -246,7 +248,7 @@ int _smokeReuseParentMissing(string root, TargetTooling tt) {
     // 不再写死 z42b 的旧默认 `artifacts/<name>/<profile>`。xtask 调 z42b 不带 --release ⇒ debug。
     string parentOut = BuildLayout.Resolve(ManifestLoader.Load(toml), Path.GetDirectoryName(toml), false).DistDir;
     if (Directory.Exists(parentOut)) { Directory.Delete(parentOut, true); }
-    int rc = _exec(new Process(tt.Vm).Arg(tt.BuilderZpkg).Arg("--mode").Arg(_z42cMode())
+    int rc = _exec(new Process(tt.Vm).Arg(tt.BuilderZpkg).Env("Z42_PROBING_PATHS", tt.Probing).Arg("--mode").Arg(_z42cMode())
         .Arg("--").Arg("test").Arg(toml).Arg("--name").Arg("dirunit").Arg("--reuse-parent")
         .Env("Z42_LIBS", tt.Libs).WorkingDirectory(root));
     if (rc != 0) {
@@ -279,7 +281,7 @@ int _smokeCompileFailClean(string root, TargetTooling tt) {
     if (!File.Exists(toml)) { return 0; }
     Console.WriteLine("");
     Console.WriteLine("── compile-fail 收尾 (编译失败须干净退出，不得是未捕获异常) ──");
-    ProcessResult r = new Process(tt.Vm).Arg(tt.BuilderZpkg).Arg("--mode").Arg(_z42cMode())
+    ProcessResult r = new Process(tt.Vm).Arg(tt.BuilderZpkg).Env("Z42_PROBING_PATHS", tt.Probing).Arg("--mode").Arg(_z42cMode())
         .Arg("--").Arg("test").Arg(toml)
         .Env("Z42_LIBS", tt.Libs).WorkingDirectory(root)
         .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
@@ -310,7 +312,7 @@ int _smokeManifestSections(string root, TargetTooling tt) {
     if (!File.Exists(toml)) { return 0; }
     Console.WriteLine("");
     Console.WriteLine("── manifest sections (z42b 按整份清单编译：[syntax] 生效且被测试目标继承) ──");
-    ProcessResult r = new Process(tt.Vm).Arg(tt.BuilderZpkg).Arg("--mode").Arg(_z42cMode())
+    ProcessResult r = new Process(tt.Vm).Arg(tt.BuilderZpkg).Env("Z42_PROBING_PATHS", tt.Probing).Arg("--mode").Arg(_z42cMode())
         .Arg("--").Arg("test").Arg(toml)
         .Env("Z42_LIBS", tt.Libs).WorkingDirectory(root)
         .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
@@ -336,7 +338,7 @@ int _smokeBuildHooks(string root, TargetTooling tt) {
     if (!File.Exists(toml)) { return 0; }
     Console.WriteLine("");
     Console.WriteLine("── build hooks (z42b build：[build] hooks 经开发树编译器编译并执行) ──");
-    ProcessResult r = new Process(tt.Vm).Arg(tt.BuilderZpkg).Arg("--mode").Arg(_z42cMode())
+    ProcessResult r = new Process(tt.Vm).Arg(tt.BuilderZpkg).Env("Z42_PROBING_PATHS", tt.Probing).Arg("--mode").Arg(_z42cMode())
         .Arg("--").Arg("build").Arg(toml)
         .Env("Z42_LIBS", tt.Libs).WorkingDirectory(root)
         .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
@@ -367,7 +369,7 @@ int _smokeBuildHooksBroken(string root, TargetTooling tt) {
     string[] verbs = new string[] { "build", "publish" };
     int vi = 0;
     while (vi < verbs.Length) {
-        Process p = new Process(tt.Vm).Arg(tt.BuilderZpkg).Arg("--mode").Arg(_z42cMode())
+        Process p = new Process(tt.Vm).Arg(tt.BuilderZpkg).Env("Z42_PROBING_PATHS", tt.Probing).Arg("--mode").Arg(_z42cMode())
             .Arg("--").Arg(verbs[vi]).Arg(toml);
         if (verbs[vi] == "publish") { p = p.Arg("--rid").Arg(_detectHostRid()).Env("Z42_APPHOST_TEMPLATE", tt.Vm); }
         ProcessResult r = p.Env("Z42_LIBS", tt.Libs).WorkingDirectory(root)
@@ -409,7 +411,7 @@ int _smokeBuildHooksMode(string root, TargetTooling tt) {
     string[] want  = new string[] { "(mode=publish)", "(mode=publish-self-contained)" };
     int i = 0;
     while (i < flags.Length) {
-        Process p = new Process(tt.Vm).Arg(tt.BuilderZpkg).Arg("--mode").Arg(_z42cMode())
+        Process p = new Process(tt.Vm).Arg(tt.BuilderZpkg).Env("Z42_PROBING_PATHS", tt.Probing).Arg("--mode").Arg(_z42cMode())
             .Arg("--").Arg("publish").Arg(toml).Arg("--rid").Arg(_detectHostRid());
         if (flags[i].Length > 0) { p = p.Arg(flags[i]); }
         ProcessResult r = p.Env("Z42_LIBS", tt.Libs).Env("Z42_APPHOST_TEMPLATE", tt.Vm)
@@ -432,7 +434,7 @@ int _smokeOrphanGuard(string root, TargetTooling tt) {
     if (!File.Exists(toml)) { return 0; }
     Console.WriteLine("");
     Console.WriteLine("── orphan-source guard (有源零单元必须判红) ──");
-    int rc = _exec(new Process(tt.Vm).Arg(tt.BuilderZpkg).Arg("--mode").Arg(_z42cMode())
+    int rc = _exec(new Process(tt.Vm).Arg(tt.BuilderZpkg).Env("Z42_PROBING_PATHS", tt.Probing).Arg("--mode").Arg(_z42cMode())
         .Arg("--").Arg("test").Arg(toml)
         .Env("Z42_LIBS", tt.Libs).WorkingDirectory(root));
     if (rc == 0) {
@@ -459,7 +461,7 @@ int _smokeNoTests(string root, TargetTooling tt) {
     string[] verbs = new string[] { "test", "bench" };
     int vi = 0;
     while (vi < verbs.Length) {
-        int rc = _exec(new Process(tt.Vm).Arg(tt.BuilderZpkg).Arg("--mode").Arg(_z42cMode())
+        int rc = _exec(new Process(tt.Vm).Arg(tt.BuilderZpkg).Env("Z42_PROBING_PATHS", tt.Probing).Arg("--mode").Arg(_z42cMode())
             .Arg("--").Arg(verbs[vi]).Arg(toml)
             .Env("Z42_LIBS", tt.Libs).WorkingDirectory(root));
         if (rc != 0) {
@@ -481,7 +483,7 @@ int _smokeListTargets(string root, TargetTooling tt) {
     if (!File.Exists(toml)) { return 0; }
     Console.WriteLine("");
     Console.WriteLine("── list targets (z42b test --list：只列不跑) ──");
-    ProcessResult rr = new Process(tt.Vm).Arg(tt.BuilderZpkg).Arg("--mode").Arg(_z42cMode())
+    ProcessResult rr = new Process(tt.Vm).Arg(tt.BuilderZpkg).Env("Z42_PROBING_PATHS", tt.Probing).Arg("--mode").Arg(_z42cMode())
         .Arg("--").Arg("test").Arg(toml).Arg("--list")
         .Env("Z42_LIBS", tt.Libs).WorkingDirectory(root).Run();
     if (rr.ExitCode != 0) {
@@ -513,7 +515,7 @@ int _smokeHarnessFalse(string root, TargetTooling tt) {
     if (!File.Exists(toml)) { return 0; }
     Console.WriteLine("");
     Console.WriteLine("── harness=false (z42b 直接跑自驱 Main，退出码判定) ──");
-    int rc = _exec(new Process(tt.Vm).Arg(tt.BuilderZpkg).Arg("--mode").Arg(_z42cMode())
+    int rc = _exec(new Process(tt.Vm).Arg(tt.BuilderZpkg).Env("Z42_PROBING_PATHS", tt.Probing).Arg("--mode").Arg(_z42cMode())
         .Arg("--").Arg("test").Arg(toml).Arg("--name").Arg("exit_ok")
         .Env("Z42_LIBS", tt.Libs).WorkingDirectory(root));
     if (rc != 0) {
@@ -544,7 +546,7 @@ int _smokeBundleHost(string root, TargetTooling tt) {
     if (ec != 0) { Console.WriteLine("  ❌ bundle-host: compile fixture failed"); return 1; }
     string manifest = Path.Join(outDir, "manifest.json");
     File.WriteAllText(manifest, "{\"cases\":[{\"name\":\"bundle_host_smoke\",\"zbc\":\"pass_unit.zbc\"}]}\n");
-    int rc = _exec(new Process(tt.Vm).Arg(tt.BuilderZpkg).Arg("--mode").Arg(_z42cMode())
+    int rc = _exec(new Process(tt.Vm).Arg(tt.BuilderZpkg).Env("Z42_PROBING_PATHS", tt.Probing).Arg("--mode").Arg(_z42cMode())
         .Arg("--").Arg("test").Arg(manifest).Arg("--rid").Arg("host").Arg("--format").Arg("json")
         .Env("Z42_LIBS", tt.Libs).WorkingDirectory(root));
     if (rc != 0) {

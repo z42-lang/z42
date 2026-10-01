@@ -81,8 +81,10 @@ int _z42bDevice(string root, string manifestPath, string rid, string destDir, st
         ConsoleError.WriteLine("error: z42b (z42.builder.zpkg) not built; run build toolchain");
         return 1;
     }
-    string flat = _assembleAllLibs(root, "release");
-    Process p = new Process(vm).Arg("--mode").Arg("interp").Arg(builderZpkg)
+    // Z42_LIBS = 纯 stdlib flat：z42b 会把这个目录**整个**拷到设备上（builder_test 的设备暂存），设备上只该有 stdlib
+    // （此前给的是 alllibs，编译器包也被一起推上设备）。z42b 自己要的编译器包经 probing 拿（drop-alllibs）。
+    string flat = _libsDir(root);
+    Process p = _withCompilerProbing(new Process(vm), _root()).Arg("--mode").Arg("interp").Arg(builderZpkg)
         .Arg("--").Arg("test").Arg(manifestPath).Arg("--rid").Arg(rid)
         .Arg("--out").Arg(destDir);
     for (int i = 0; i < extra.Length; i = i + 1) { p = p.Arg(extra[i]); }
@@ -307,7 +309,7 @@ int _testEmbedded(ParseResult r) {
     }
     string libs = _libsDir(root);
     Console.WriteLine("→ embedded run (z42b): test " + runArg + " --rid host --format " + format);
-    ProcessResult res = new Process(vm).Arg("--mode").Arg("interp").Arg(builderZpkg)
+    ProcessResult res = _withCompilerProbing(new Process(vm), _root()).Arg("--mode").Arg("interp").Arg(builderZpkg)
         .Arg("--").Arg("test").Arg(runArg).Arg("--rid").Arg("host").Arg("--format").Arg(format)
         .Env("Z42_LIBS", libs).Run();
     Console.Write(res.Stdout);

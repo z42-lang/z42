@@ -132,18 +132,17 @@ string _z42bToml() { return "src/toolchain/builder/core/z42.builder.z42.toml"; }
 //   test stdlib   ：支持 `--toolchain` override（ovVm/ovDriver/ovLibs）
 //   test compiler ：按 profile 取（_driverZpkg(root, profile)）
 //   test targets  ：固定 release
-//   stage-toolchain：release + alllibs（stdlib + compiler 成员；见 _ensureZ42b 头注）
-// 前三者用的还是 `_assembleAllLibs`（stdlib + z42c 七兄弟的扁平目录，因为它们同时要编
-// 测试单元），而 stage-toolchain 只需 `_libsDir`。**能统一的只有「怎么编 + 怎么校验」，
-// 输入不能统一** —— 强行统一就会把 override / profile 语义弄丢。
+//   stage-toolchain：release + `_toolchainCompileLibs`
+// **能统一的只有「怎么编 + 怎么校验」，输入不能统一** —— 强行统一就会把 override / profile 语义弄丢。
 // 工具链程序（launcher / z42b / z42d / z42i / workload libs）的**编译期解析面**。
 //
-// 🔴 = alllibs（stdlib + 全部 compiler 成员），不是 `_libsDir`（纯 stdlib flat）：
-// relocate-compiler-domain-libs 之后它们依赖的 `Z42.Project` / `Z42.Build` / `Z42.Package` /
-// `Z42.Syntax` 住在**编译器域**（`artifacts/build/compiler/…`），纯 stdlib flat 里没有 ⇒
-// 用 `_libsDir` 会报 `[dependencies] z42.build 未找到 z42.build.zpkg；已查找：…/libraries/dist/release`。
-// 发布态它们靠 `probing-paths = "../z42c"` 解析（与 z42i 同形态），与本函数无关 —— 这里只管编译期。
-string _toolchainCompileLibs(string root) { return _assembleAllLibs(root, "release"); }
+// = 纯 stdlib flat（drop-alllibs，2026-10-01）。它们用到的 `Z42.Project` / `Z42.Build` / `Z42.Package` /
+// `Z42.Scripting` / `Z42.Syntax` 是 **SDK 库**：清单里按名声明 + `deploy = "shared"`，编译期由 driver 从编译器目录
+// 解析（CompilerDomain 开发树档），不复制进程序的发布包；发布态运行期靠各自的 `probing-paths = "../z42c"`，
+// 开发树里运行 z42b 时由 xtask 挂 `_withCompilerProbing`。
+// 此前这里是 alllibs（stdlib + 全部编译器成员拷成一个目录）：编译器包在 Z42_LIBS 里 ⇒ 被当成「框架」不复制——
+// 发布包里有没有它们取决于构建环境，而不是清单；现在由清单的 `deploy = "shared"` 显式决定。
+string _toolchainCompileLibs(string root) { return _libsDir(root); }
 
 int _buildZ42bWith(string root, string vm, string driverZpkg, string libs) {
     int rc = _exec(new Process(vm).Arg(driverZpkg).Arg("--mode").Arg(_z42cMode())
@@ -164,10 +163,7 @@ int _buildZ42bWith(string root, string vm, string driverZpkg, string libs) {
 // 格式一致（strict-pin）——「存在」≠「可用」，上一格式版本的 z42.builder.zpkg 会在
 // 运行期被 z42vm 直接拒。而它只是几个小文件的 z42c 增量编译，源未变时近 no-op。
 // （同 test-lib stage 里既有 z42b 构建的理由，那里称之为 format-skew guard。）
-// 🔴 libs 用 `_assembleAllLibs`（stdlib + 全部 compiler 成员）而不是 `_libsDir`（纯 stdlib flat）：
-// relocate-compiler-domain-libs 之后 z42b 依赖的 `Z42.Project` / `Z42.Build` 住在**编译器域**
-// （`src/compiler/` → `artifacts/build/compiler/…`），纯 stdlib flat 里已经没有它们 ⇒ 用 `_libsDir`
-// 会编不出来。alllibs 正是「stdlib + compiler 成员」的扁平并集，另三个 toolchain 程序本来就用它。
+// libs = `_toolchainCompileLibs`（纯 stdlib flat；z42b 的编译器包按名声明、从编译器目录解析，见那里的头注）。
 int _ensureZ42b(string root) {
     int pc = _ensureToolchainDeps(root); if (pc != 0) { return pc; }
     return _buildZ42bWith(root, _builtVm(root, "release"), _driverZpkg(root, "release"),

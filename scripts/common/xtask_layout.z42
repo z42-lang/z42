@@ -204,17 +204,8 @@ string _tmpDir(string root, string name) {
 // 旧的 artifacts/.scratch —— 只供 `xtask clean tmp|all` 清理旧工作树里的残留。不要往这里写。
 string _legacyScratchDir(string root) { return Path.Join(_artifactsDir(root), ".scratch"); }
 
-// artifacts/build/views/<profile> — 构建树上的**聚合视图**（从各成员 dist 拼出来、供解析用的目录）。
-// 每次使用前按需重建，与 build/ 同生命周期（`clean all` 一并删）。
-string _viewsDir(string root, string profile) {
-    return Path.Join(Path.Join(_buildDir(root), "views"), profile);
-}
-
-// alllibs = stdlib flat ∪ 全部编译器成员 dist 的扁平目录（工具链编译期解析面，见 `_assembleAllLibs`）。
-// 原在 artifacts/.scratch/alllibs/<profile>：它是关键输入而不是临时目录，故挪进 build/views。
-string _allLibsDir(string root, string profile) {
-    return Path.Join(_viewsDir(root, profile), "all");
-}
+// （artifacts/build/views/<profile>/all —— alllibs，2026-10-01 删除：`Z42_LIBS` 只是 stdlib flat，
+//  编译器包运行期走 `_compilerProbingPaths`、编译期由 driver 从编译器目录解析。旧树里的残留由 `clean all` 随 build/ 删。）
 
 // artifacts/tools — downloaded third-party tools (node / android-sdk / gradle / playwright).
 string _toolsDir(string root) { return Path.Join(_artifactsDir(root), "tools"); }
@@ -247,7 +238,7 @@ string[] _layoutKeys() {
     return new string[]{
         "root", "artifacts", "build", "vm", "vm-debug", "libs", "xtask", "cargo-target",
         "compiler-build", "libraries-build", "sdk", "packages", "release",
-        "tools", "test-reports", "bench", "profile", "tmp", "alllibs" };
+        "tools", "test-reports", "bench", "profile", "tmp" };
 }
 string _layoutPath(string root, string key) {
     if (key == "root")            { return root; }
@@ -268,7 +259,6 @@ string _layoutPath(string root, string key) {
     if (key == "bench")           { return _benchDir(root); }
     if (key == "profile")         { return _profileDir(root); }
     if (key == "tmp")             { return Path.Join(_artifactsDir(root), "tmp"); }
-    if (key == "alllibs")         { return _allLibsDir(root, "release"); }
     return "";
 }
 

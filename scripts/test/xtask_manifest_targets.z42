@@ -380,7 +380,7 @@ int _runLibViaZ42b(string root, string projDir, string parentToml, string lib, s
         // 零单元：交给 z42b 自己裁定（红/绿），不在 xtask 侧复制一份判据。
         // filter 非空时零命中是过滤器的事，不是发现规则的 bug —— 直接跳过。
         if (filter.Length > 0) { return 0; }
-        Process zp = new Process(vm).Arg("--mode").Arg(mode).Arg(builderZpkg)
+        Process zp = _withCompilerProbing(new Process(vm), _root()).Arg("--mode").Arg(mode).Arg(builderZpkg)
             .Arg("--").Arg(kind).Arg(parentToml);
         if (_z42bSupportsOutRoot(vm, builderZpkg, libs)) {
             zp = zp.Arg("--out-root").Arg(_devTargetOutRoot(root, parentToml, kind));

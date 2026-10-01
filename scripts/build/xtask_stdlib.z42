@@ -116,98 +116,50 @@ string[] _compilerMembers(string root) {
     return _vgetListFromFile(root, "src/compiler/z42.workspace.toml", "workspace.default-members");
 }
 
-// 组装 alllibs flat 视图：stdlib dist + z42c 7 成员 dist 全部 hard-link 到
-// artifacts/build/views/<profile>/all（原 .scratch/alllibs），作为 z42c.driver 编译/运行的单一 Z42_LIBS 查找点
-// （VM 取一个目录、非 colon-list；z42c.driver 的兄弟包与被测 stdlib 须同处一目录）。返回该目录。
-// 三处消费共用：test stdlib（_testLibCore）/ test compiler units（_testCompilerUnits）/ bench。
-// 🔴 **复制而不是硬链接**（relocate-compiler-domain-libs 实测定位，2026-09-27）。
+// ── 编译器包的运行期 probing（drop-alllibs，2026-10-01）──────────────────────────────────────────
 //
-// `_linkAll` 用 `File.Link`（失败才退回 `File.Copy`）。在 unix 上它让本快照与 **flat** 和
-// **成员 dist** 共享同一 inode —— 本地实测 `z42.core.zpkg` 一度有 **3 个硬链接**。于是任何一处
-// 的**就地改写**都会波及其余名字；而 zpkg 与 zsym 是被不同机制替换的（一个可能被 `preserved`、
-// 另一个被重写）⇒ 配对被撕开 ⇒ VM 加载时打
-// `WARN … z42.core.zsym build_id mismatch`。**那条 WARN 走 stderr，而 golden 判定是
-// `r.Stdout + r.Stderr`（`xtask_test_vm.z42` 注释原话 merge stderr into stdout）⇒ 一条 WARN
-// 让上千个 golden 全红。**
+// 运行期要**加载**编译器包的进程——z42b（自身依赖 `z42.build` / `z42.project`，并注入 `z42c.pipeline`）以及它为
+// 编译器单元测试 fork 的子 VM——拿这里给的 `Z42_PROBING_PATHS`：各编译器成员的 dist，平台分隔。
+// 编译期不需要它：driver 按名从编译器目录解析 SDK 库（`CompilerDomain` 开发树档）。
 //
-// 判别证据：#921 的 CI 上 `test-host(windows-x64)` **通过**、linux/macos 全红 —— Windows 上
-// `File.Link` 通常失败、退回复制，天然没有别名。本快照被本 change 放上了工具链/打包的关键路径
-// （编译期解析面），所以这个既有的脚枪从「无人踩到」变成「每轮都踩」。
+// 此前的做法是 alllibs（`artifacts/build/views/<profile>/all`）：把 stdlib flat 与全部编译器成员 dist **拷**进一个目录当
+// `Z42_LIBS`，因为 VM 的 `Z42_LIBS` 只能是一个目录。它带来两类问题：① 编译器成员 dist 里的 stdlib 副本会把新 stdlib
+// 遮蔽成旧的（#955，只能靠拷贝顺序 + 事后逐字节对账兜住）；② 工具链程序在它下面编译时，编译器包被当成「框架」⇒
+// 是否复制进发布包取决于构建环境而不是清单。现在 `Z42_LIBS` 只是 stdlib flat，编译器包走 probing。
 //
-// 代价：多拷几 MB 到 scratch；换掉的是一个会让 CI 上千用例假红的别名陷阱。
-//
-// ── 第二个坑（fix-alllibs-stdlib-shadowed-by-compiler-domain，2026-09-30）────────
-// 🔴 **stdlib 只认 flat dist —— 编译器成员 dist 里的同名 zpkg 一律不得覆盖它。**
-//
-// relocate-compiler-domain-libs 之后，每个编译器成员的 `release/dist/` 里都躺着一份它当时
-// 消费的 **stdlib 副本**（`z42.toml.zpkg` / `z42.yaml.zpkg` / …，用来让该包的依赖闭包自洽）。
-// 原来这里对成员 dist 无过滤地 `_copyAll(..., "*.zpkg")`，于是**第 ② 步把第 ① 步刚放好的新
-// stdlib 覆盖回了编译器构建时那一代**。本地看不见（`build all` 顺序下两代通常同字节），
-// CI 的 `ci-bootstrap` 必然踩到：**`[3/5] build compiler` 在 `[4/5] build stdlib` 之前** ⇒
-// 编译器域留下的是**上一代**（冷启动时就是种子那代）stdlib。
-//
-// 症状离现场极远：`test stdlib --no-build` 明明被显式喂了
-// `Z42_LIBS=artifacts/build/libraries/dist/release`，跑的却是旧 stdlib ⇒ 凡「断言新改的
-// stdlib 消息文本」的用例一律 `expected true but got false`，而同一条命令在本地全绿。
-// PR #955 实测：flat 的 `z42.yaml.zpkg` 已含新提示，alllibs 里那份仍是旧的 `ParseAllDocuments`。
-//
-// 还有第二条通向同一后果的路：`_copyAll` 是 **best-effort 吞异常**的 ⇒ 第 ① 步某个文件拷失败，
-// 旧副本照样会把那个名字填上。所以除了过滤，assemble 完再对账一次（`_assertStdlibNotShadowed`）
-// —— 判据是「alllibs 里凡与 flat 同名者必须与 flat 同字节」，与靠拷贝顺序无关。
-string _assembleAllLibs(string root, string profile) {
-    string flat = _allLibsDir(root, profile);
-    Directory.Create(flat);
-    _cleanGlob(flat, "*.zpkg");
-    string stdlibSrc = _libsFlatDist(root, profile);
-    _copyAll(stdlibSrc, flat, "*.zpkg");
+// 🔴 **不含 `z42c.driver`**：它的 dist 是自包含闭包，带整套 stdlib 副本；probing 排在 `Z42_LIBS` **之前**，放进来就是
+// #955 原样复发。其余成员的 dist 只有自己（下方逐目录断言，违反即抛——不靠约定）。
+// ⚠️ 只给**这些进程**设，不往 xtask 自身环境里放：`Z42_PROBING_PATHS` 会**覆盖**程序侧车的 `probing-paths`，全局一设，
+// 测 probing / `deploy = "sdk"` 的那些用例就被干扰了。
+string _compilerProbingPaths(string root) {
     string[] members = _compilerMembers(root);
+    string[] libs = _stdlibList(root);
+    string sep = Platform.IsWindows() ? ";" : ":";
+    string acc = "";
     int i = 0;
     while (i < members.Length) {
-        // 先到先得：flat 已经放过的名字不再被成员 dist 顶掉。成员之间同名的（多个成员的
-        // 闭包里都有 `z42c.core.zpkg`）是同一次 `build compiler` 的产物、同字节，先后无差。
-        _copyAllKeepExisting(_compilerMemberDist(root, members[i], profile), flat, "*.zpkg");
+        string m = members[i];
         i = i + 1;
-    }
-    _assertStdlibNotShadowed(stdlibSrc, flat);
-    return flat;
-}
-
-// `_copyAll` 的「不覆盖已存在目标」变体（判据：只此一处用 ⇒ 按 xtask_fs.z42 头注的分层
-// 约定留在本文件，不进 common/）。
-void _copyAllKeepExisting(string srcDir, string dstDir, string pattern) {
-    if (!Directory.Exists(srcDir)) { return; }
-    string[] hits = Path.Glob(srcDir, pattern);
-    int i = 0;
-    while (i < hits.Length) {
-        string dstPath = Path.Join(dstDir, Path.GetFileName(hits[i]));
-        if (!File.Exists(dstPath)) {
-            try { File.Copy(hits[i], dstPath); } catch (Exception e) { /* best-effort，同 _copyAll */ }
-        }
-        i = i + 1;
-    }
-}
-
-// 对账：alllibs 里凡与 flat stdlib dist 同名的 zpkg，必须与 flat 那份**同字节**。
-// 不匹配 ⇒ 立刻炸。这道门是为「静默拿旧 stdlib」这一整类准备的（覆盖顺序、`_copyAll`
-// 吞掉的拷贝失败、将来新增的暂存步骤），不只为上面那一条已修的路。
-void _assertStdlibNotShadowed(string stdlibSrc, string flat) {
-    if (!Directory.Exists(stdlibSrc)) { return; }
-    string[] want = Path.Glob(stdlibSrc, "*.zpkg");
-    int i = 0;
-    while (i < want.Length) {
-        string name = Path.GetFileName(want[i]);
-        string got = Path.Join(flat, name);
-        if (File.Exists(got)) {
-            byte[] a = File.ReadAllBytes(want[i]);
-            byte[] b = File.ReadAllBytes(got);
-            if (!_bytesEqual(a, b)) {
-                throw new Exception("alllibs: " + name + " 被非 stdlib 来源遮蔽（"
-                    + got + " 与 " + want[i] + " 不同字节）——"
-                    + "stdlib 必须来自 flat dist，见 _assembleAllLibs 头注");
+        if (m == "z42c.driver") { continue; }
+        string dir = _compilerMemberDist(root, m, "release");
+        if (!Directory.Exists(dir)) { continue; }
+        int j = 0;
+        while (j < libs.Length) {
+            if (File.Exists(Path.Join(dir, libs[j] + ".zpkg"))) {
+                throw new Exception("compiler probing: " + dir + " 里有 stdlib 包 " + libs[j]
+                    + ".zpkg —— probing 排在 Z42_LIBS 之前，它会遮蔽 stdlib flat 里的新版本（#955）。"
+                    + "编译器成员（driver 以外）的 dist 只应有它自己。");
             }
+            j = j + 1;
         }
-        i = i + 1;
+        acc = acc.Length == 0 ? dir : acc + sep + dir;
     }
+    return acc;
+}
+
+// 给一个要加载编译器包的进程（z42b 及其子进程）挂上 `_compilerProbingPaths`。
+Process _withCompilerProbing(Process p, string root) {
+    return p.Env("Z42_PROBING_PATHS", _compilerProbingPaths(root));
 }
 
 // `_cleanGlob` / `_linkAll` 已移至 common/xtask_fs.z42（scripts-batch3-layering）。

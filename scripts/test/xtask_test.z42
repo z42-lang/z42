@@ -283,7 +283,7 @@ int _testGcModeWorkload(string label, string modeEnv, string nurseryEnv, string 
     string root = _root();
     string vm = _builtVm(root, "release");
     string driver = _driverZpkg(root, "release");
-    string flat = _assembleAllLibs(root, "release");
+    string flat = _libsDir(root);   // 纯 stdlib flat；z42c.semantics 按名声明的编译器包由 driver 从编译器目录解析
     string toml = root + "/src/compiler/z42c.semantics/z42c.semantics.z42.toml";
     Console.WriteLine("  ▶ z42c.semantics --release --no-incremental (" + label + ")");
     Process p = new Process(vm)

@@ -69,10 +69,10 @@ int _bench(ParseResult r) {
     int dep = _ensureToolchainDeps(root); if (dep != 0) { return dep; }
     string vm = _builtVm(root, "release");
     string libs = _libsDir(root);
-    // alllibs flat (stdlib + z42c 7 siblings) is the single Z42_LIBS dir for the
-    // compile — z42c.driver needs its own siblings resolvable at runtime.
+    // 纯 stdlib flat 作编译与运行的 Z42_LIBS：bench 场景只用 stdlib；z42c.driver 的 dist 自包含（兄弟包
+    // colocate 在它旁边），运行期不需要从 Z42_LIBS 找它们（此前这里用 alllibs 是多余的）。
     string driverZpkg = _driverZpkg(root, "release");
-    string flat = _assembleAllLibs(root, "release");
+    string flat = _libsDir(root);
     string work = Directory.CreateTempDir("xtask-bench");
 
     // add-exec-profile-matrix: probe the measured VM's real capabilities once,
@@ -474,7 +474,7 @@ int _benchAb(ParseResult r) {
     Directory.Create(resultsDir);
     int dep = _ensureToolchainDeps(root); if (dep != 0) { return dep; }
     string prVm = _builtVm(root, "release");
-    string prFlat = _assembleAllLibs(root, "release");
+    string prFlat = _libsDir(root);   // 纯 stdlib：场景只用 stdlib，driver 自包含
     string prDriver = _driverZpkg(root, "release");
     // Probe the PR (measured) VM once — mode sweep + cap gating mirror `_bench`.
     string probeZbc = _epEnsureProbe(root, prVm, prDriver, prFlat);

@@ -85,7 +85,8 @@ graph TD
 `build compiler` 就是单独执行阶段一 + 成员 zpkg 完整性校验。
 
 > **`artifacts/build/` 只放编译 / publish 产物**。构建与测试的**中间态**——`stdlib-run` 快照、
-> `selfhost-gen1` 等工作区——一律落 `artifacts/tmp/`（gitignored、可重生）；`alllibs` 扁平视图被别的步骤消费，落 `artifacts/build/views/<profile>/all`。
+> `selfhost-gen1` 等工作区——一律落 `artifacts/tmp/`（gitignored、可重生）。（`alllibs` 扁平视图 `build/views/<profile>/all`
+> 已于 2026-10-01 删除：开发树的 `Z42_LIBS` 只是 stdlib flat，编译器包运行期经 `Z42_PROBING_PATHS`，见 [产物布局](artifacts-layout.md)。）
 
 ### driver 的自包含化与两处破环
 

@@ -17,7 +17,7 @@ string _ensureTestAgent(string root) {
     if (File.Exists(zpkg)) { return zpkg; }
     string vm = _builtVm(root, "release");
     string driver = _driverZpkg(root, "release");
-    string flat = _assembleAllLibs(root, "release");
+    string flat = _libsDir(root);   // 纯 stdlib flat：被编的东西只用 stdlib，driver 自包含（不需要 alllibs）
     Console.WriteLine("  build test-agent → z42.testagent.zpkg");
     int c = _exec(new Process(vm).Arg(driver).Arg("--mode").Arg(_z42cMode()).Arg("--")
         .Arg("build").Arg(toml).Arg("--release").Env("Z42_LIBS", flat));
@@ -98,7 +98,7 @@ string _buildGoldenCase(string root, string caseDir) {
     string zbc = Path.Join(outDir, name + ".golden.zbc");
     string vm = _builtVm(root, "release");
     string driver = _driverZpkg(root, "release");
-    string flat = _assembleAllLibs(root, "release");
+    string flat = _libsDir(root);   // 纯 stdlib flat：被编的东西只用 stdlib，driver 自包含（不需要 alllibs）
     int c = _exec(new Process(vm).Arg(driver).Arg("--mode").Arg(_z42cMode()).Arg("--")
         .Arg("--emit-zbc").Arg(wrappedSrc).Arg(zbc).Env("Z42_LIBS", flat));
     if (c != 0) { return ""; }
@@ -120,7 +120,7 @@ string _bundleSafeName(string name) {
 string _emitUnitZbc(string root, string unitSrc, string safe, string bundleDir) {
     string vm = _builtVm(root, "release");
     string driver = _driverZpkg(root, "release");
-    string flat = _assembleAllLibs(root, "release");
+    string flat = _libsDir(root);   // 纯 stdlib flat：被编的东西只用 stdlib，driver 自包含（不需要 alllibs）
     string zbc = Path.Join(bundleDir, safe + ".zbc");
     int c = _exec(new Process(vm).Arg(driver).Arg("--mode").Arg(_z42cMode()).Arg("--")
         .Arg("--emit-zbc").Arg(unitSrc).Arg(zbc).Env("Z42_LIBS", flat));
@@ -143,7 +143,7 @@ string _emitDirUnit(string root, string lib, string name, string dirPath, string
     File.WriteAllText(toml, _renderSyntheticManifest(projName, "**/*.z42", outDir, name, _newBundle()));
     string vm = _builtVm(root, "release");
     string driver = _driverZpkg(root, "release");
-    string flat = _assembleAllLibs(root, "release");
+    string flat = _libsDir(root);   // 纯 stdlib flat：被编的东西只用 stdlib，driver 自包含（不需要 alllibs）
     int c = _exec(new Process(vm).Arg(driver).Arg("--mode").Arg(_z42cMode()).Arg("--")
         .Arg("build").Arg(toml).Arg("--release").Env("Z42_LIBS", flat));
     File.Delete(toml);   // clean up the synthetic manifest regardless of outcome

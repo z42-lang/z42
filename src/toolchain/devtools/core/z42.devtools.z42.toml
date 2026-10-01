@@ -22,7 +22,7 @@ include = ["devtools_cli.z42", "symbolicate.z42", "editor_install.z42"]
 "z42.core" = "0.1.0"   # String / core
 "z42.io"   = "0.1.0"   # Console / Environment / File / Directory
 "z42.cli"  = "0.1.0"   # Std.Cli nested router + ArgParser
-"z42.package"   = "0.1.0"   # SidecarReader (.zsym) + IrLineEntry (add-offline-symbolication)
+"z42.package"   = { version = "0.1.0", deploy = "shared" }   # SidecarReader (.zsym) + IrLineEntry (add-offline-symbolication)（SDK 库：不复制）
 
 [build]
 # 产物落共享 artifacts 树：artifacts/build/toolchain/devtools/{dist,.cache,publish}
@@ -36,8 +36,7 @@ mode = "interp"
 # 编译器域包已不在 shipped `libs/`，改住 `<sdk>/programs/z42c/`。本程序运行期靠这条搜索路径找它们
 # —— **不复制**（`deploy = "shared"` 的效果，与 z42b / z42i 同形态）。
 # ⚠️ **只能配一条**：`probing-paths` 按**平台分隔符**分隔（unix `:` / windows `;`），跨平台清单里
-# 写两条必在一个平台上错（#816 的教训，z42i 那边踩过一次）。开发树不需要第二条：搜索序末项是
-# `libs`，而开发树下它指向 alllibs（stdlib + 全部 compiler 成员）。
+# 写两条必在一个平台上错（#816 的教训，z42i 那边踩过一次）。
 probing-paths = "../z42c"
 
 # apphost-as-config: publishes the z42d desktop apphost to the default

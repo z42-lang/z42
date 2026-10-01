@@ -122,7 +122,10 @@ public static class CompilerFingerprint {
         "global-using-package-lint",
         // fix-ref-addr-opt：被 `ref` 取过地址的局部不再被当作单赋值（IrRegCounts.Defs 对 load_local_addr 的槽 +1）——
         // 复制传播 / 常量折叠等不再改写它，含 `ref` 局部的函数代码会变。
-        "fix-ref-addr-opt"
+        "fix-ref-addr-opt",
+        // fix-sdklibs-transitive：SDK 库的传递闭包真正生效（DEPS 段是文件名，此前拿去和包名比、永远对不上）——
+        // 只声明 z42c.semantics 的工程现在能看见它依赖的 z42.package 等；解析域是语义分析的输入。
+        "fix-sdklibs-transitive"
     };
 
     // 指纹值：`Entries` 逐条以 `\n` 连接后取内容哈希（`mmh3:` 前缀，同 SourceHash）。

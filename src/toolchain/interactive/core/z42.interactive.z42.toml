@@ -22,10 +22,18 @@ include = ["interactive_main.z42"]
 [dependencies]
 "z42.core" = "0.1.0"   # String / core
 "z42.io"   = "0.1.0"   # Console / Environment
-"z42.scripting" = "0.1.0"   # Script.Eval / Completeness / Completer（REPL eval-core）
+"z42.scripting" = { version = "0.1.0", deploy = "shared" }   # Script.Eval / Completeness / Completer（REPL eval-core）
 "z42.repl" = { path = "../repl" }   # Std.Repl.Repl 行编辑 + ReplEditing 键位（tty 交互）。私有组件 = path 依赖（add-path-dependencies）：z42c 建闭包 + colocate z42.repl.zpkg 进 z42i payload，不入 <sdk>/libs
 "z42.threading" = "0.1.0"   # Thread（add-repl-prewarm：启动即 spawn 预热 worker）
-"z42.package" = "0.1.0"   # ZbcVersion / ZpkgWriterZ 格式版本常量（`.version` 元指令）——add-package-roles 批 0 自 z42.scripting 迁入
+"z42.package" = { version = "0.1.0", deploy = "shared" }   # ZbcVersion / ZpkgWriterZ 格式版本常量（`.version` 元指令）——add-package-roles 批 0 自 z42.scripting 迁入
+# 编译器域（SDK 库）一律 `deploy = "shared"`：不复制，运行期经下面的 `probing-paths = "../z42c"` 解析（drop-alllibs）。
+# 下面四个本工程不直接用，是 `z42.repl`（私有 path 依赖，会被复制进 payload）DEPS 段里的 SDK 库——复制 z42.repl 时
+# 其传递依赖按默认规则走，而默认规则会复制 SDK 库（用户 exe 要自包含）；在这里声明 shared 才挡得住（间接依赖无处写
+# deploy）。z42.repl 的 SDK 依赖变了，`xtask package sdk` 产物与 nightly 的文件清单对比会把漏网的报出来。
+"z42c.syntax" = { version = "0.1.0", deploy = "shared" }
+"z42c.core"   = { version = "0.1.0", deploy = "shared" }
+"z42.build"   = { version = "0.1.0", deploy = "shared" }
+"z42.project" = { version = "0.1.0", deploy = "shared" }
 
 [build]
 # 产物落共享 artifacts 树：artifacts/build/toolchain/interactive/{dist,.cache,publish}
@@ -42,8 +50,8 @@ output_dir = "../../../../artifacts/build/toolchain/interactive"
 # `package-host(windows-x64)` 当场红在 `no compiler injected` —— 整串被当成一条不存在的路径。
 # **这条限制是 #816 自己记下的，我却先踩了一遍。**
 #
-# 开发树不需要第二条：`ModuleSearch.Dirs()` 的末项本来就是 `libs`，而开发树下它指向
-# alllibs（stdlib + 全部 compiler member，见 `_assembleAllLibs`）—— 编译器组件在那儿。
+# 开发树不需要第二条：xtask 运行 z42b 时经 `Z42_PROBING_PATHS` 给出各编译器成员的 dist（`_withCompilerProbing`，
+# drop-alllibs 2026-10-01；此前靠 Z42_LIBS 指向 stdlib + 编译器包拷成的 alllibs）。
 probing-paths = "../z42c"
 mode = "interp"
 

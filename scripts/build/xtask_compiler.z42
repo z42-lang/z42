@@ -250,7 +250,7 @@ int _buildCompilerViaZ42c(string root, string profile, string[] members, string 
 // 为什么不能留着（add-sdk-libs 阶段 3 前置，2026-10-01）：flat = 开发树的 `Z42_LIBS`。此前它们一直躺到下一次
 // `build stdlib`，这段窗口里用开发树工具链编的工程会在 `Z42_LIBS` 里看到 `z42.project` 等 SDK 库 ⇒ 被判「框架包」
 // （不复制，运行期 `MissingSymbolException`），`deploy = "sdk"` 的校验也会误判「不是 SDK 库」；打包、alllibs
-// 之类按 flat 取东西的地方也一直得防着它（`_pkgCopyLibs` / `_assembleAllLibs` 头注）。
+// 之类按 flat 取东西的地方也一直得防着它（`_pkgCopyLibs` 头注）。
 // 当前源的这几个包在各自的成员 dist 里都有（workspace 自建刚产出），清掉 flat 里的副本不丢任何东西。
 // `z42.core` 是 stdlib 成员，留着（当前源产物，`build stdlib` 会再按规范重装）。
 void _purgeBootstrapPrebuildsFromFlat(string root, string stdlibFlat) {
@@ -387,22 +387,21 @@ int _testCompiler(bool noBuild) {
 
 // Build + run each z42c [Test] unit through z42b.
 //
-// RUNTIME 关键：z42vm 的 Z42_LIBS 是 *单个* 目录（非 colon-list），且必须含全部
-// 依赖 zpkg。故先组装一个「z42c 7 包 + stdlib」合并 flat 目录，编译期与运行期
-// 都指向它（dogfood：跨包方法调用与静态字段在运行时完全可用，只要 lib 全在一个
-// flat 目录里——这正是当初误用 colon-list Z42_LIBS 导致 "VCall not found" 的根因）。
+// 解析面（drop-alllibs，2026-10-01）：Z42_LIBS = 纯 stdlib flat。
+//   · 编译期：单元按名声明的编译器包（z42c.syntax 等）由 driver 从编译器目录解析（CompilerDomain 开发树档）；
+//   · 运行期：z42b 及它为每个 [Test] 方法 fork 的子 VM 经 `_withCompilerProbing` 拿到各编译器成员 dist。
+// 此前是把 stdlib + 编译器成员拷进一个 alllibs 目录当唯一 Z42_LIBS（VM 的 Z42_LIBS 只能是一个目录），
+// 代价是编译器 dist 里的 stdlib 副本会遮蔽新 stdlib（#955）。
 //
 // 测试单元布局：src/compiler/<member>/tests/<unit>/{<name>.z42.toml + *.z42}。
 // kind=lib（runner 按 [Test] 方法 fork z42vm，不需 Main）；z42.test 自动可用。
 int _testCompilerUnits(string root, string profile, string[] members) {
-    // stdlib（z42.test / z42.core prelude / ...）+ z42c 7 包 → 单一 Z42_LIBS flat 目录
-    string flat = _assembleAllLibs(root, profile);
+    string flat = _libsDir(root);   // 纯 stdlib；编译器包见上方头注
 
     string vm     = _builtVm(root, "release");
     string driverZpkg = _driverZpkg(root, profile);
     // retire-test-runner: z42c [Test] units run through z42b (z42.builder.zpkg)
-    // via z42vm, replacing the deleted Rust z42-test-runner. Build it here (deps
-    // resolve from `flat`); incremental/cached when already current.
+    // via z42vm, replacing the deleted Rust z42-test-runner. Build it here; incremental/cached when already current.
     string builderZpkg = _toolchainZpkg(root, _z42bToml());
     int bc = _buildZ42bWith(root, vm, driverZpkg, flat);
     if (bc != 0) { return bc; }
@@ -421,8 +420,8 @@ int _testCompilerUnits(string root, string profile, string[] members) {
                 totalUnits = totalUnits + 1;
                 Console.WriteLine("");
                 Console.WriteLine("── z42c test: " + members[i] + " / " + unit + " ──");
-                // compile (release/packed) with z42c；Z42_LIBS=flat 含 stdlib+z42c.* 兄弟，
-                // z42c.driver 依赖与单元 deps 同从 flat 解析；输出落单元 toml 的 [build] output_dir 镜像。
+                // compile (release/packed) with z42c；stdlib 从 flat、单元声明的编译器包从编译器目录解析；
+                // 输出落单元 toml 的 [build] output_dir 镜像。
                 ProcessResult br = new Process(vm)
                     .Arg(driverZpkg).Arg("--mode").Arg(_z42cMode()).Arg("--")
                     .Arg("build").Arg(tomls[0]).Arg("--release")
@@ -459,7 +458,7 @@ int _testCompilerUnits(string root, string profile, string[] members) {
                 // zpkgs had no TIDX → runner exit 3, no discovery.)
                 int j = 0;
                 while (j < zps.Length) {
-                    int rc = new Process(vm)
+                    int rc = _withCompilerProbing(new Process(vm), root)
                         .Arg("--mode").Arg(_z42cMode()).Arg(builderZpkg)
                         .Arg("--").Arg("test").Arg(zps[j])
                         .Env("Z42_LIBS", flat)

@@ -18,7 +18,7 @@
 // (inferno flamegraph) + a perfetto sample-trace. The design lives in
 // docs/spec/changes/{plan-script-profiling,add-sampling-profiler}/. Same Z42Xtask
 // namespace; reuses _root/_exec/_have/_builtVm/_libsDir/_driverZpkg/
-// _assembleAllLibs/_ensureToolchainDeps/_extractNamespace from xtask_common /
+// _ensureToolchainDeps/_extractNamespace from xtask_common /
 // xtask_toolchain / xtask_bench.
 namespace Z42Xtask;
 
@@ -74,7 +74,7 @@ int _profile(ParseResult r) {
     string vm = _builtVm(root, "release");
     string libs = _libsDir(root);
     string driverZpkg = _driverZpkg(root, "release");
-    string flat = _assembleAllLibs(root, "release");
+    string flat = _libsDir(root);   // 纯 stdlib flat：被编的东西只用 stdlib，driver 自包含（不需要 alllibs）
 
     string srcText = File.ReadAllText(srcAbs);
     string ns = _extractNamespace(srcText);

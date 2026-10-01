@@ -83,11 +83,16 @@ public static class SdkLibs {
                 int pi = SdkLibs._indexOf(names, n, allowed[w]);
                 CachedZpkg ce = DepScanCache.Get(paths[pi]);
                 if (ce.Z != null) {
+                    // 🔴 DEPS 段存的是**文件名**（`z42.package.zpkg`），names 里是包名 —— 比较前先去掉后缀。
+                    // 此前直接拿文件名比，永远对不上 ⇒ 传递闭包从未生效（只声明 z42c.semantics 的工程看不见它依赖的
+                    // z42.package）。alllibs 在时编译器包本就全在 Z42_LIBS 里，看不出来；drop-alllibs 后编译器单元测试
+                    // （`using Z42.IR` 却只声明 z42c.semantics）当场 E0494。同一约定见 ExeDeps 的传递复制。
                     string[] deps = ZpkgReader.ReadDependencies(ce.Z);
                     int k = 0;
                     while (k < deps.Length) {
-                        if (SdkLibs._has(names, n, deps[k]) && !SdkLibs._has(allowed, an, deps[k])) {
-                            allowed[an] = deps[k]; an = an + 1;
+                        string dn = deps[k].EndsWith(".zpkg") ? deps[k].Substring(0, deps[k].Length - 5) : deps[k];
+                        if (SdkLibs._has(names, n, dn) && !SdkLibs._has(allowed, an, dn)) {
+                            allowed[an] = dn; an = an + 1;
                         }
                         k = k + 1;
                     }

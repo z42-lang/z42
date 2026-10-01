@@ -140,10 +140,9 @@ string _findCompilerZpkg() {
     // 留这一档硬编码**。等 `probing-paths` 支持 TOML 数组（跨平台无歧义，需清单模型改动 ⇒ 又一轮
     // support）之后，这一档也搬进清单，届时代码里就一条路径都没有了。
     //
-    // ⚠️ 只靠 `ModuleSearch.Dirs()` 末项的 `libs` 兜底**不够**：开发树里两个场景的 Z42_LIBS
-    // 不同——`test targets` 指 alllibs（含编译器包，命中），而 `build toolchain` 期间 z42b 编
-    // z42i 的 hooks 时不含（落空）。后者在 macOS 只降级为无 hook，在 Windows 的 package-host
-    // 里是硬失败：**同一个洞，两个平台不同后果**。
+    // ⚠️ 开发树里由 xtask 运行的 z42b 会经 `Z42_PROBING_PATHS` 拿到各编译器成员的 dist（上面①命中
+    // z42c.pipeline 自己的 dist，drop-alllibs）；这一档兜底的是没设 probing 的开发树调用。此前靠 Z42_LIBS 碰巧是
+    // 混装编译器包的 alllibs 才命中——`build toolchain` 期间不是，macOS 降级为无 hook、Windows package-host 硬失败。
     string p3 = "artifacts/build/compiler/z42c.driver/release/dist/z42c.pipeline.zpkg";
     if (File.Exists(p3)) { return p3; }
     // 找不到 = **这个部署形态不带编译能力**，不是"路径没配对"。

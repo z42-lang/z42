@@ -101,7 +101,7 @@ xtask 是独立的 z42 应用——它不是通用 `z42` launcher 的一部分�
 | `test changed [base]` | 增量自测（按改动文件挑 stage） | 上述各命令（in-process 调度） | 仅跑受影响的 stage |
 
 > **构建输出约定（add-build-toolchain, 2026-07-05）**：
-> - `artifacts/build/` **只放编译/publish 产物**（含被别的步骤消费的聚合视图 `build/views/<profile>/all` = alllibs）；
+> - `artifacts/build/` **只放编译/publish 产物**（2026-10-01 起不再有聚合视图 `build/views/`：alllibs 已删，见 artifacts-layout.md）；
 >   各命令自己的工作区（`stdlib-run` 快照、`e2e`/`selfhost-gen1` 等）落 `artifacts/tmp/<name>/`（gitignored、可重生）。
 > - **toolchain 组件的输出/publish 路径一律从各 `z42.toml` 读**（`[build].dist_dir`/`output_dir`、
 >   `[platform.desktop].publish_dir`，级联默认见 `docs/reference/src/toolchain/z42-toml.md`）——xtask 不硬编码，

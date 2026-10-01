@@ -18,7 +18,7 @@ include = ["*.z42"]
 "z42.compression" = "0.1.0"   # Gzip + Tar — unpack .tar.gz
 "z42.crypto"      = "0.1.0"   # Sha256 — verify against SHA256SUMS
 "z42.toml"        = "0.1.0"   # read [platform.desktop].publish_dir in `publish <toml>`
-"z42.project"     = "0.1.0"   # ManifestLocator / ManifestLoader / BuildLayout: `z42 run` / publish / export
+"z42.project"     = { version = "0.1.0", deploy = "shared" }   # ManifestLocator / ManifestLoader / BuildLayout: `z42 run` / publish / export（SDK 库：不复制，运行期经 probing-paths "../z42c"）
 "z42.cli"         = "0.1.0"   # Std.Cli nested router + ArgParser (command parsing)
 # 🔴 三个 workload 包走 **path 依赖**（2026-09-28）：它们不在任何 `libs/` 里。
 # 原先靠「把 workload 的 dist_dir 指向 stdlib flat」让这里的名字依赖解析得到，代价是它们
@@ -44,8 +44,7 @@ mode = "interp"
 # 编译器域包已不在 shipped `libs/`，改住 `<sdk>/programs/z42c/`。本程序运行期靠这条搜索路径找它们
 # —— **不复制**（`deploy = "shared"` 的效果，与 z42b / z42i 同形态）。
 # ⚠️ **只能配一条**：`probing-paths` 按**平台分隔符**分隔（unix `:` / windows `;`），跨平台清单里
-# 写两条必在一个平台上错（#816 的教训，z42i 那边踩过一次）。开发树不需要第二条：搜索序末项是
-# `libs`，而开发树下它指向 alllibs（stdlib + 全部 compiler 成员）。
+# 写两条必在一个平台上错（#816 的教训，z42i 那边踩过一次）。
 probing-paths = "../z42c"
 
 # apphost-as-config: this binary publishes a native desktop apphost.
