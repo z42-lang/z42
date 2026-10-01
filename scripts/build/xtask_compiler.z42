@@ -297,6 +297,22 @@ void _purgeBootstrapPrebuildsFromFlat(string root, string stdlibFlat) {
 void _ensureBootstrapSelfDepLibs(string root, string vm, string driver, string stdlibFlat,
                                  string runLibs) {
     _vNormal("  bootstrap: (re)building current-source z42.core + z42.project + z42.build + z42.package + z42c.core + z42c.syntax into build-libs（破 z42c⇄stdlib 轴④环）");
+    // 🔴 先断链再写（fix-flat-hardlink-clobber，2026-10-02）。flat 是 `_assembleStdlibFlatView` 从
+    // per-member dist **硬链接**出来的，而 z42c 写产物用的是就地写（`File.WriteAllBytes`）⇒ 下面往
+    // flat 写 z42.core 会**穿透到** `libraries/z42.core/release/dist/z42.core.zpkg`。随后 step-4 的
+    // stdlib workspace 构建增量命中（「no changes; preserved」）就把这份**破环预建版**当成规范产物留下：
+    // 它是对着种子 run-libs 编的，DEPS 里多出 11 个依赖 z42.core 的包（`z42.io.zpkg[Std]` …，成环）。
+    // 实测：冷树 `build all` 之后每次 `build stdlib`，z42.core 都在 251846 B ⇄ 252087 B 之间翻转——这正是
+    // fingerprint 门禁注释里记的「stdlib 每代恰一两个包字节不同」的一个来源。
+    // 断链（内容原样复制成独立 inode，预建失败时 flat 照旧可用）后再写，per-member dist 不受影响；
+    // step-6 重新链回规范产物。`_linkAll` 早有同款断链。
+    string[] prebuilt = new string[]{ "z42.core", "z42.project", "z42.build", "z42.package", "z42c.core", "z42c.syntax" };
+    int pb = 0;
+    while (pb < prebuilt.Length) {
+        _breakHardLink(Path.Join(stdlibFlat, prebuilt[pb] + ".zpkg"));
+        _breakHardLink(Path.Join(stdlibFlat, prebuilt[pb] + ".zsym"));
+        pb = pb + 1;
+    }
     // consolidate-core-intrinsics (A1): 当前源 z42.package 现调 Std.BitConverter（当前源 z42.core 新增门面）。
     // 冷/首暖构建时 flat 里躺的是种子/上一次的旧 z42.core（缺 BitConverter），若直接单包编 z42.package 会
     // `undefined function`。故先用同款「先预建覆盖种子」模式把**当前源 z42.core** 建进 flat，再建 z42.package。

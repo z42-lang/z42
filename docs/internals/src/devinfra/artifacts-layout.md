@@ -97,6 +97,14 @@ per-lib 那份的内容当场变成种子字节）。可达路径就在供种里
 `xtask test e2e --dir cross-zpkg` 每轮开跑前真跑一遍。保留 hard-link 本身——它省的是
 cross-zpkg 一轮 ≈198MB 的纯拷贝；有害的是「写到别名上」，不是「有别名」。
 
+**写入方不只是 xtask 的拷贝函数，还有 z42c 自己。**`build stdlib` 开头的破环预建
+（`_ensureBootstrapSelfDepLibs`）让种子 driver 把当前源的 z42.core 等直接 `--output-dir` 进聚合目录，
+z42c 写产物同样是就地写 ⇒ 穿透到 `libraries/z42.core/release/dist/`；随后 stdlib workspace 构建增量命中
+「no changes; preserved」，这份对着种子 run-libs 编的预建版就被当成了规范产物（DEPS 多出 11 个依赖 z42.core
+的包，成环）。症状是冷树之后每次 `build stdlib`，z42.core 在两个字节版本之间翻转——fingerprint 门禁记的
+「stdlib 每代恰一两个包字节不同」的一个来源。现在预建前先 `_breakHardLink`（原子写回同内容 ⇒ 换成独立 inode，
+预建失败时聚合目录照旧可用）。
+
 这样 `build/` 仍完整镜像 `src/`（每条路径都能映回一个 `src/` 位置），同时给 VM 与打包一个稳定的聚合点。
 
 ## 3. `tmp/`：各命令的工作目录
