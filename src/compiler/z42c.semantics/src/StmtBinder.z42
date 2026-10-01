@@ -350,7 +350,7 @@ public sealed class StmtBinder {
         string cur = ct.Name();
         int hops = 0;
         while (cur != "" && hops < 64) {
-            if (cur == "Exception") { return; }
+            if (SymbolTable.ShortNameOf(cur) == "Exception") { return; }   // 导入基类名是 FQ（`Std.Exception`）
             Z42ClassType c = symbols.GetClass(cur);
             if (c == null) { return; }                    // 链上某环解析不到 ⇒ 拿不准，不报
             if (c.HasBase && c.BaseName != "") {

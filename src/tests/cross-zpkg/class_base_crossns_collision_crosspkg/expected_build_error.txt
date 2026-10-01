@@ -1,0 +1,1 @@
+E0402: cannot assign Derived to Base

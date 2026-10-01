@@ -1,0 +1,23 @@
+// 消费方：本地声明一个与导入**基类**同短名、成员完全不同的类，然后试图把导入的 `Derived`
+// 赋给**本地**那个 `Base`。`Derived` 的基类是 `Demo.ClsBase.Core.Base`，与本地
+// `Demo.ClsBaseApp.Base` 毫无关系 ⇒ 必须 **E0402**。
+//
+// 🔴 修前（enforce-fqn-name-identity，导入元数据把基类名剥成短名）：导入类的基类句柄按
+// 「声明 ns + 短名」= `Demo.ClsBase.Impl.Base` 查不中，回落到裸名表 —— 赢家是本地这个 `Base`
+// ⇒ `Derived` 被绑成本地 `Base` 的子类 ⇒ 下面这行编译期零诊断。修后元数据带 FQ 基类名
+// （`ExportedClassZ.BaseFqn`），句柄按 FQN 直接命中真基类。
+// 类的直接接口 / 父接口两条路的同形用例：`iface_shortname_collision_crosspkg` /
+// `iface_base_shortname_collision_crosspkg`。
+namespace Demo.ClsBaseApp;
+
+using Std.IO;
+using Demo.ClsBase.Impl;
+
+public class Base {
+    public int Q() { return 3; }
+}
+
+void Main() {
+    Base b = new Derived();   // 必须 E0402：Derived 的基类是 Demo.ClsBase.Core.Base
+    Console.WriteLine(b.Q().ToString());
+}

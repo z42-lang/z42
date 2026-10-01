@@ -124,6 +124,13 @@ public sealed class ExportedClassZ {
     // `ArrayGet: expected array, got Null @ ImportedSymbolLoader.Load`（实测，`xtask test bootstrap`
     // 判 BOUNDARY VIOLATION）。「不进 ctor 签名」只是种子 ABI 的**一半**，另一半是**追加在末尾**。
     public bool     IsRecord;
+    // enforce-fqn-name-identity：**FQ** 基类名（TYPE 段原样，如 `Std.Reflection.MemberInfo`）；"" = 无显式基类 / 生产者没给。
+    // `BaseName` 是剥过的短名，消费侧只能拿它去裸名表里猜 —— 跨 ns 基类（`Type : MemberInfo`）在声明 ns 下
+    // 查不到、声明方的 `using` 又不随元数据走，是 `_resolveClass` 裸名回落的最后一批调用方。
+    // 为什么另开字段而不是直接把 `BaseName` 改成 FQ：上一 nightly 的 z42c 运行时加载**当前源码**的 z42.package，
+    // 而它的 semantics 仍按短名比（`_chkCatchType` 的 `cur == "Exception"`）⇒ 直接改会让种子误报 E0420（实测）。
+    // 种子 ABI：追加在末尾、不进 ctor 签名（见 `IsRecord` 抬头）。
+    public string   BaseFqn;
     public ExportedClassZ(string name, bool hasBase, string baseName,
                           ExportedFieldZ[] fields, int fieldCount,
                           ExportedMethodZ[] methods, int methodCount,
@@ -135,6 +142,7 @@ public sealed class ExportedClassZ {
         this.TypeParams = typeParams; this.TpCount = tpCount;
         this.IsSealed = false;
         this.IsRecord = false;   // complete-generic-instantiation：TsigReconcile 从 (cd.Flags & 8) 构造后赋值
+        this.BaseFqn = "";   // enforce-fqn-name-identity：TsigReconcile 构造后赋值
         this.Visibility = "public";   // enforce-class-access：默认 public（reconcile 后赋值；未赋值即 public，绝不误拒）
         this.IsDeprecated = false; this.DeprecationMsg = "";
         this.TypeParamConstraints = null; this.TpConstraintCount = 0;   // add-associated-types PR-1（reconcile 后赋值）

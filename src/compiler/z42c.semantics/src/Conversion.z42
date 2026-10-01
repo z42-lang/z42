@@ -180,8 +180,9 @@ public static class Conversion {
         }
         // E: class → class（上转 subclass；否则可能是下转）
         if ((from is Z42ClassType) && (to is Z42ClassType)) {
-            if (symbols.IsSubclassOf(from.Name(), to.Name())) { return new ConvResult(ConvKind.ImplicitRef); }
-            if (symbols.IsSubclassOf(to.Name(), from.Name())) { return new ConvResult(ConvKind.ExplicitRef); }
+            // 两侧已是对象 ⇒ 走对象版（名字版会按本作用域把短名再解析一遍，撞上本地同短名类，见 `IsSubclassOfType`）
+            if (symbols.IsSubclassOfType(from as Z42ClassType, to as Z42ClassType)) { return new ConvResult(ConvKind.ImplicitRef); }
+            if (symbols.IsSubclassOfType(to as Z42ClassType, from as Z42ClassType)) { return new ConvResult(ConvKind.ExplicitRef); }
             return new ConvResult(ConvKind.None);
         }
         // F: class → interface
@@ -207,7 +208,7 @@ public static class Conversion {
         }
         // H: instantiated → base class
         if ((from is Z42InstantiatedType) && (to is Z42ClassType)) {
-            if (symbols.IsSubclassOf((from as Z42InstantiatedType).Def.Name(), to.Name())) { return new ConvResult(ConvKind.ImplicitRef); }
+            if (symbols.IsSubclassOfType((from as Z42InstantiatedType).Def, to as Z42ClassType)) { return new ConvResult(ConvKind.ImplicitRef); }
             return new ConvResult(ConvKind.None);
         }
         // H2（欠债表 bug B）: instantiated → instantiated（子类实例化 → 基类实例化）。
@@ -220,8 +221,8 @@ public static class Conversion {
             Z42InstantiatedType fInst = from as Z42InstantiatedType;
             Z42InstantiatedType tInst = to as Z42InstantiatedType;
             if (Conversion._sameTypeArgs(fInst, tInst)) {
-                if (symbols.IsSubclassOf(fInst.Def.Name(), tInst.Def.Name())) { return new ConvResult(ConvKind.ImplicitRef); }
-                if (symbols.IsSubclassOf(tInst.Def.Name(), fInst.Def.Name())) { return new ConvResult(ConvKind.ExplicitRef); }
+                if (symbols.IsSubclassOfType(fInst.Def, tInst.Def)) { return new ConvResult(ConvKind.ImplicitRef); }
+                if (symbols.IsSubclassOfType(tInst.Def, fInst.Def)) { return new ConvResult(ConvKind.ExplicitRef); }
             }
             return new ConvResult(ConvKind.None);
         }

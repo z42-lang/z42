@@ -215,8 +215,9 @@ public sealed partial class SymbolTable {
         // 📏 A5b-2b-3 重测（探针带调用栈 + 阳性对照，interp 编 z42.core / z42.package / z42c.semantics）：
         //   修前 3114 次，全部来自 6 个调用点 —— 按短名查**自己的声明**（StructLayout / VarFieldInfer /
         //   ClassExtractor / partial 合并）+ 基类句柄绑定 + 接口成员校验，都跑在无作用域的根表上。
-        //   修后 **17 次**，全是导入类的**跨 ns** 基类名（`Type : MemberInfo`、`*Stream : Stream`）：
-        //   导入元数据存的是短名、声明方的 `using` 不可得 ⇒ 要么导出端写 FQ 基类名，要么保留本支。
+        //   修后 **17 次**，全是导入类的**跨 ns** 基类名（`Type : MemberInfo`、`*Stream : Stream`）——
+        //   fix-imported-base-fqn 起导入类带 FQ 基类名（`ExportedClassZ.BaseFqn`），同口径探针 7 → 0。
+        //   ⚠️ 但 z42.io 下仍有 3614 次：按类表逐键回查的 pass（非源码引用），删本支前要先找出它。
         // 下面是 A5b-2a 时的记录（「父 ns 引用」那 36 次已由 A5b-2b-1 补 `using` 消掉）：
         // 🔴 **它今天还在替两条真规则兜底**，删之前必须先把这两条实现掉（实测残留 2838 次）：
         //   · **98.7%（2802 次）**：调用发生在**没设作用域**的表视图上（`ScopeNs` 为空）——
@@ -297,6 +298,32 @@ public sealed partial class SymbolTable {
             if (!ct.HasBase) { return false; }
             if (SymbolTable._sameRef(ct.Base, targetRef)) { return true; }
             ct = this.BaseOf(ct);   // A5：收敛到唯一出口
+        }
+        return false;
+    }
+
+    // 对象版：两侧**已经解析成名义类型**时用它（`Conversion` 的 class→class 判定）。
+    //
+    // 🔴 名字版在这里是错的：调用方手里明明是对象，却传 `to.Name()`（**短名**）回去，`_refOfClass` 再按
+    // **调用点作用域**把短名解析一遍 —— 本地有同短名类时就解析成本地那个。实测（enforce-fqn-name-identity，
+    // 导入元数据带上 FQ 基类名之后）：本地 `Demo.App.Base` 与导入 `Demo.Lib.Core.Base` 并存时，
+    // `Demo.Lib.Core.Base b = new Derived();` 误报 E0402（目标被解析成本地 `Base`）。
+    // 修前这条恰好不报，是**两个错抵消**：导入 `Derived` 的基类句柄也被裸名表绑成了本地 `Base`。
+    // 同理 `sub == baseName` 的短名捷径会把两个同短名的不同类判成「是自身」。
+    public bool IsSubclassOfType(Z42ClassType sub, Z42ClassType target) {
+        if (sub == null || target == null) { return false; }
+        if (sub == target) { return true; }
+        // 只读已有句柄、不 `Intern.Of`：目标没登记过 ⇒ 不可能是谁的已绑基类（`Base` 只指向已登记对象），
+        // 而临时造的类型对象（`Z42ClassType.Enum(name)` 每次一份）不该被这里塞进 intern 表。
+        int targetRef = target.TypeId;
+        Z42ClassType ct = sub;
+        int hops = 0;
+        while (ct != null && hops < 64) {
+            hops = hops + 1;
+            if (!ct.HasBase) { return false; }
+            if (SymbolTable._sameRef(ct.Base, targetRef)) { return true; }
+            ct = this.BaseOf(ct);
+            if (ct == target) { return true; }   // `Base` 未绑（0）时 `BaseOf` 按名字回落取到的同一对象
         }
         return false;
     }

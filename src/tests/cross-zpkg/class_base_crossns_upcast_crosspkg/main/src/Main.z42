@@ -1,0 +1,21 @@
+// 消费方（正例，`class_base_crossns_collision_crosspkg` 的姊妹）：本地同样声明一个同短名的 `Base`，
+// 但这次把导入的 `Derived` 向上转成它**真正的**基类 `Demo.ClsBase.Core.Base` —— 合法，必须编过、能跑。
+//
+// 🔴 修前：导入类的基类句柄回落到裸名表、绑成本地这个 `Base` ⇒ 这行合法的向上转型被误报 E0402
+// （`Derived` 被当成本地 `Base` 的子类，与 `Demo.ClsBase.Core.Base` 无关）。
+namespace Demo.ClsBaseApp;
+
+using Std.IO;
+using Demo.ClsBase.Core;   // 全限定名也要 `using`（namespaces.md 规则 4）；短名 `Base` 仍由外围 ns 的本地类胜出
+using Demo.ClsBase.Impl;
+
+public class Base {
+    public int Q() { return 3; }
+}
+
+void Main() {
+    Demo.ClsBase.Core.Base b = new Derived();
+    Console.WriteLine(b.P().ToString());
+    Base local = new Base();
+    Console.WriteLine(local.Q().ToString());
+}

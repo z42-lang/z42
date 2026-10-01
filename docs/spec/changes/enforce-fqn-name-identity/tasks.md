@@ -484,7 +484,29 @@ User 2026-09-30 裁定走 **A：按规范办**（补 `using` + 让规则 2 在�
 > z42 刻意没有这条规则，是**裸名表让违反规范的写法静默通过**。
 > ⇒ 碰到「实现与预期不符」时，先查规范怎么写，别用别的语言的直觉补全。
 
-- [ ] A5**b-2c** 删四访问器的短名回落 + 清死码（**必须在上面 2/3/4 之后**）
+5. ✅ **导入基类名 FQ 化**（2026-10-01，`fix-imported-base-fqn`）：第 3 步残留的 17 次全是导入类的跨 ns 基类名。
+   根因不在导出端 —— **TYPE 段本来就存 FQ**（`ClassDescBuilder` 经 `_qClass` 写），是加载端 `TsigReconcile`
+   把它 `_shortName` 剥掉了 ⇒ **不动任何字节格式**。
+   - 新增 `ExportedClassZ.BaseFqn`（追加在末尾、不进 ctor），`ImportedSymbolLoader` 有 FQ 就用 FQ。
+     ⚠️ **不能直接把 `BaseName` 改成 FQ**（第一版就这么干的，实测红）：上一 nightly 的 z42c 运行时加载的是**当前源码**
+     的 z42.package，而它自己的 semantics 仍按短名比 —— `_chkCatchType` 的 `cur == "Exception"` 碰上 `Std.Exception`
+     ⇒ 自举第一步误报 `E0420: ThreadException is not an exception type`。⇒ 另开字段，种子读不到它、行为不变。
+     （后续可在一个 nightly 之后把 `BaseName` 本身改 FQ、删掉 `BaseFqn`。）
+   - 新编译器里按短名比较基类链的两处跟着改：`AccessChecker` 两个基类链走查、`StmtBinder._chkCatchType`（比较前取短名）。
+   - **连带修 `Conversion` 的 class→class 判定**：此前拿 `to.Name()`（短名）回 `IsSubclassOf`，按调用点作用域再解析一遍
+     ⇒ 本地有同短名类时目标解析成本地那个。修前这条是**两个错抵消**（导入类基类也被裸名表绑成本地类）；只修基类绑定不修它，
+     `Demo.Lib.Core.Base b = new Derived();` 立刻误报 E0402。新增对象版 `SymbolTable.IsSubclassOfType`。
+   - **可观察的红**：`src/tests/cross-zpkg/class_base_crossns_collision_crosspkg`（本地 `Base` 与导入 `Derived : Core.Base`
+     并存时 `Base b = new Derived();` 修前零诊断、修后 E0402）；正例 `class_base_crossns_upcast_crosspkg` 守 Conversion 那一半。
+   - **探针 A-B**（同一份探针、只差 `BaseFqn` 用不用）：z42.core / z42.package / z42c.semantics 的裸名回落 **7 → 0**
+     （`Stream` ×5、`MemberInfo` ×2）；z42.threading 302 → 296，少掉的正是这 6 条。
+   - 🔴 **A5b-2c 仍未就绪**：同一探针在 z42.io 下仍有 **3614 次**、z42.threading **296 次** —— 133 个导入类名 × 每 CU 一遍，
+     `scope=Std.IO` 下按短名查 `_WsUrl` / `Zstd` 这类**别的 ns 的类**。是某个按类表逐键回查的 pass，不是源码引用；
+     删回落前要先找出它（探针加调用栈）。
+   - ⚠️ 顺带发现、**未修**：`Z42ClassType.IsAssignableTo` 按短名判同一（`this._name == other.Name()`）⇒
+     `Base l = c;`（`c : Demo.Lib.Core.Base`、`Base` 是本地类）零诊断。属阶段 4「类身份按 FQN」的范围。
+
+- [ ] A5**b-2c** 删四访问器的短名回落 + 清死码（**必须在上面 2/3/4/5 之后**）
 
 ### A5b 测绘（2026-09-29，探针跑全量 `build stdlib`，21,078 次 `GetClass`）
 

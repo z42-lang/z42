@@ -571,6 +571,8 @@ public static class TsigReconcile {
             while (ifi < ifn) { ifb[ifi] = cd.Interfaces[ifi]; ifi = ifi + 1; }
             ecz.Interfaces = ifb; ecz.InterfaceCount = ifn;
         }
+        // enforce-fqn-name-identity：FQ 基类名原样搬运（与上面的 Interfaces 同款；`BaseName` 仍是短名，见 `BaseFqn` 抬头）。
+        if (!isStruct && cd.HasBase && cd.BaseName != "" && cd.BaseName != "Std.Object") { ecz.BaseFqn = cd.BaseName; }
         ecz.IsSealed = (cd.Flags & 2) != 0;   // impl-sealed-semantics-devirt：CLASS_FLAG_SEALED（TYPE Flags bit1）
         ecz.IsRecord = (cd.Flags & 8) != 0;   // complete-generic-instantiation：CLASS_FLAG_RECORD（TYPE Flags bit3）
         ecz.IsDeprecated = IrDeprecation.Has(cd.Attrs, cd.AttrCount); ecz.DeprecationMsg = IrDeprecation.Msg(cd.Attrs, cd.AttrCount);   // add-deprecated-directive（attr-ref 哨兵）
