@@ -664,6 +664,19 @@ jobs:
         run: |
           xtask build stage-toolchain "$RUNNER_TEMP/tc"
 
+      # ci-prebuilt-vm：只跑 xtask、不再调 cargo 的 linux-x64 消费方（xtask-bootstrap-artifact 的
+      # `prebuilt-vm`）直接用这份 z42vm —— 与它们自己 `cargo build --release` 出来的是同一条命令的产物。
+      # cdylib（libz42_compression.so 等）一起带上：VM 在**自己旁边**解析 `[Native(lib = …)]`。
+      - name: Upload z42vm-linux-x64
+        uses: actions/upload-artifact@v7
+        with:
+          name: z42vm-linux-x64
+          path: |
+            artifacts/build/runtime/release/z42vm
+            artifacts/build/runtime/release/*.so
+          retention-days: 3
+          if-no-files-found: error
+
       # 名字保留 `-ubuntu-latest` 后缀：xtask-bootstrap-artifact / bench 等消费方按这个名字取。
       - name: Upload toolchain-ubuntu-latest
         uses: actions/upload-artifact@v7
@@ -900,6 +913,8 @@ jobs:
       # stdlib + xtask.zpkg) instead of re-bootstrapping per shard.
       # rust toolchain + rust-cache 由该 action 自带（见其 cache-key input）。
       - uses: ./.github/actions/xtask-bootstrap-artifact
+        with:
+          prebuilt-vm: "true"   # 后续只跑 xtask、不调 cargo（ci-prebuilt-vm；非 linux-x64 腿照常自建）
 
       - name: stdlib [Test] — JIT mode (shard ${{ matrix.shard }}/2)
         shell: bash
@@ -944,6 +959,8 @@ jobs:
       # toolchain-ubuntu-latest (zpkg is host-neutral).
       # rust toolchain + rust-cache 由该 action 自带（见其 cache-key input）。
       - uses: ./.github/actions/xtask-bootstrap-artifact
+        with:
+          prebuilt-vm: "true"   # 后续只跑 xtask、不调 cargo（ci-prebuilt-vm；非 linux-x64 腿照常自建）
 
       - name: stdlib [Test] — INTERP mode (full)
         shell: bash
@@ -1375,6 +1392,8 @@ jobs:
 
       - name: Provision z42vm + xtask (consume toolchain artifact)
         uses: ./.github/actions/xtask-bootstrap-artifact
+        with:
+          prebuilt-vm: "true"   # 后续只跑 xtask、不调 cargo（ci-prebuilt-vm；非 linux-x64 腿照常自建）
 
       # unify-release-archive：各 package job 已在**自己的 runner** 上用 `xtask package archive --label nightly`
       # 出好归档（可执行位原样进 tar、Windows 出真 zip）。此前这里下载**原始包目录**再集中打包 ——

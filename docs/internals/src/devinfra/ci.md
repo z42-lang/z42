@@ -30,7 +30,13 @@ regen 一次 golden `.zbc`、连同 `.z42` 布局打成 `current-sdk-ubuntu-late
 `--no-build` 跑，不再自己自举、不再重复 regen。
 
 这两个 job **只有 linux 一条腿**：产物全是 zpkg，与宿主无关，macOS / Windows 的消费方
-取的是同一份（只有 z42vm 按宿主 cargo 现编）。2026-09-30 前两者都还有一条 macOS 腿——
+取的是同一份（只有 z42vm 按宿主 cargo 现编）。
+
+`compile-toolchain` 另传一份 `z42vm-linux-x64`（z42vm + 同目录的 cdylib）。linux-x64 上**之后不再调 cargo**
+的消费方（`test stdlib --no-build` 两类 job、`publish-nightly`）用 `xtask-bootstrap-artifact` 的
+`prebuilt-vm: "true"` 直接拿它，省掉 Rust 准备与 `cargo build`：rust-cache 只缓存**依赖**，即使 key 精确命中，
+z42 crate 本身仍要 fat-LTO 重链一遍，实测约 95 s / job。**会调 cargo 的 job 不能开**——target 目录里没有
+cargo 指纹，它会把整个 crate 冷编一遍（`compiler-checks` 的 `test compiler`、`test-vm-jit` 的 debug VM 都属此类）。2026-09-30 前两者都还有一条 macOS 腿——
 它产出等价的 artifact，却让所有 `needs:` 它们的 linux 下游陪着等整个 matrix。
 
 `compile-test-assets` **故意从 `compile-toolchain` 里拆出来**：golden regen 很慢，留在里面会卡住
