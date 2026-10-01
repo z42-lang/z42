@@ -8,7 +8,6 @@
 // One of three layers dispatched by `test packages` (see xtask_test_packages.z42).
 namespace Z42Xtask;
 
-using Std;
 using Std.IO;
 
 void _pkgAssertEq(string what, string expected, string got) {

@@ -22,7 +22,6 @@
 // xtask_toolchain / xtask_bench.
 namespace Z42Xtask;
 
-using Std;
 using Std.IO;
 using Std.Cli;
 

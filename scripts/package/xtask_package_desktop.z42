@@ -8,7 +8,6 @@
 //   desktop manifest/example/helper functions
 namespace Z42Xtask;
 
-using Std;
 using Std.IO;
 using Std.Time;
 

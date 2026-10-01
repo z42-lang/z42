@@ -24,7 +24,6 @@
 //     组装」共用层（与 `_stageToolchain` 同处），不是本文件。**已知余项，见 README。**
 namespace Z42Xtask;
 
-using Std;
 using Std.IO;
 
 // reset 一个私有目录（删后建）。

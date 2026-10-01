@@ -8,9 +8,7 @@
 // 同 Z42Xtask 命名空间，跨文件裸名互调。
 namespace Z42Xtask;
 
-using Std;
 using Std.IO;
-using Std.Cli;
 
 // Build the shared z42 test-agent → app.zpkg (idempotent: skip if present).
 string _ensureTestAgent(string root) {

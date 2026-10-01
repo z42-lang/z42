@@ -5,7 +5,6 @@
 // 拷（保持相对布局）；与本包 / 别的依赖的散装 zbc 撞名 ⇒ 构建期报错。
 namespace Z42Xtask;
 
-using Std;
 using Std.IO;
 
 string _e2eBiWsToml() {

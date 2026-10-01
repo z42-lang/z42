@@ -53,7 +53,6 @@
 // 必然会跑。想额外跑 shellcheck 的人手动跑，别把 GREEN 架在一个可能缺席的二进制上。
 namespace Z42Xtask;
 
-using Std;
 using Std.IO;
 
 // 扫描根：`.github/` 整个（composite action 清单 + workflow）。见头注「覆盖边界」。

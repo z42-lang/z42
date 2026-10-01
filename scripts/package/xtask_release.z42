@@ -8,7 +8,6 @@
 // (same as cargo elsewhere); the orchestration logic lives here in z42.
 namespace Z42Xtask;
 
-using Std;
 using Std.IO;
 using Std.Json;
 using Std.Time;

@@ -19,7 +19,6 @@
 // 而解析域隔离已经没了（普通工程也能引用编译器语义层）。②正是为这个而写。
 namespace Z42Xtask;
 
-using Std;
 using Std.IO;
 
 // analyzer 工程的最小源码：实现 ModuleGenerator 三个成员。只要契约解析得到，它就编得过。

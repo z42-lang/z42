@@ -17,9 +17,7 @@
 // 加一个新 AST 节点类：本门变红，直到每个登记 walker 处理它（或显式加白名单）。
 namespace Z42Xtask;
 
-using Std;
 using Std.IO;
-using Std.Cli;
 using Std.Time;
 
 // 一个登记 walker：要求它对所标记的节点族做到穷举，Allow 是故意不处理的类（叶子等）。

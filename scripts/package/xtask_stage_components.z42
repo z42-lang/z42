@@ -17,7 +17,6 @@
 // scope for this task.
 namespace Z42Xtask;
 
-using Std;
 using Std.IO;
 
 // `_pubStagingRoot`（artifacts/publish/，所有固定形态组件的暂存根）→ common/xtask_layout.z42。

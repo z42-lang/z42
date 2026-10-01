@@ -5,7 +5,6 @@
 // 跨文件裸名互调；xtask_cli.z42 的 _cliRoot / _dispatch 是唯一的挂载点。
 namespace Z42Xtask;
 
-using Std;
 using Std.Cli;
 
 SubcommandRouter _buildRouter() {

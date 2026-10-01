@@ -9,7 +9,6 @@
 // NEVER hardcoded here — change a path in the toml and xtask follows automatically.
 namespace Z42Xtask;
 
-using Std;
 using Std.IO;
 using Std.Time;
 using Std.Toml;

@@ -5,7 +5,6 @@
 // these by bare name across files.
 namespace Z42Xtask;
 
-using Std;
 using Std.IO;
 using Std.Time;   // Stopwatch — diagnostic-level elapsed timing
 

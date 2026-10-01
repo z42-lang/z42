@@ -29,9 +29,7 @@
 // env config is now resolved by _testE2e in xtask_test.z42).
 namespace Z42Xtask;
 
-using Std;
 using Std.IO;
-using Std.Text;
 
 // Returns 0 if every case in every mode passes, 1 on any failure (or setup error).
 // shardK/shardN (both > 0) split the golden set across parallel CI machines: a

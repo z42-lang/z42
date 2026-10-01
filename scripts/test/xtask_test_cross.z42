@@ -20,7 +20,6 @@
 // xtask_test.z42), replacing the former Z42_VM_MODE env hop.
 namespace Z42Xtask;
 
-using Std;
 using Std.IO;
 
 // Returns 0 if every cross-zpkg case passes, 1 on any failure (or setup error).

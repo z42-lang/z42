@@ -9,7 +9,6 @@
 // edit only, never a change to this file.
 namespace Z42Xtask;
 
-using Std;
 using Std.IO;
 using Std.Toml;
 

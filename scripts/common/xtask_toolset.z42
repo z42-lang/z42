@@ -24,7 +24,6 @@
 // Same Z42Xtask namespace as the rest of xtask, so callers use bare names.
 namespace Z42Xtask;
 
-using Std;
 using Std.IO;
 
 // 解析结果。Ok=false 时 _resolveToolset 已经打印过具体原因，调用方直接 return 1 即可。

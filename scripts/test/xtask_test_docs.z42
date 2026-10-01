@@ -22,7 +22,6 @@
 //   - 代码块内的内容 —— 那是示例文本，不是链接（见 _stripFences）
 namespace Z42Xtask;
 
-using Std;
 using Std.IO;
 
 // `xtask test docs [--update]` 入口。返回退出码。

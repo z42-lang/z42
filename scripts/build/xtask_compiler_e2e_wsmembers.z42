@@ -5,7 +5,6 @@
 // 裸名 `z42.toml` 工程进不了 workspace；依赖成环时用户拿到的是带内部栈帧的 uncaught exception。
 namespace Z42Xtask;
 
-using Std;
 using Std.IO;
 
 string _e2eWsmLibToml(string name) {

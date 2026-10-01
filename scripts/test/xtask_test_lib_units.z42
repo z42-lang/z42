@@ -8,7 +8,6 @@
 // 发现规则、合成清单、单元编译全部在 z42b 那一侧，xtask 只管并行与聚合。
 namespace Z42Xtask;
 
-using Std;
 using Std.IO;
 
 /// Parent toml's two dep sections, kept separate so the synthetic-manifest

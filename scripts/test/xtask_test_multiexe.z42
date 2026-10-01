@@ -9,7 +9,6 @@
 // namespace, cross-file (see scripts/test/xtask_test_cross.z42).
 namespace Z42Xtask;
 
-using Std;
 using Std.IO;
 
 // 构建前置与 cross-zpkg 共用 _ensureFixtureToolchain（test/xtask_test.z42）——

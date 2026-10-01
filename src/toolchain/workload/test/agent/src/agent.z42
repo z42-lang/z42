@@ -21,7 +21,6 @@
 //                platform, differing only in how the report is retrieved.
 namespace Z42.TestHost.Agent;
 
-using Std;
 using Std.IO;
 using Std.Test;
 using Std.Json;

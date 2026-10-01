@@ -13,7 +13,6 @@
 // `[lints] warnings-as-errors = true` ⇒ 构建必须失败且错因是 Z9002。
 namespace Z42Xtask;
 
-using Std;
 using Std.IO;
 
 // analyzer：报告空 catch（Z9002，默认 warning）。与 pkgcompile 单测的夹具同形，类名独立。

@@ -11,7 +11,6 @@
 //   · finalize 合并出一份含 4 个 apphost 的桌面 workload、删掉逐 RID 中间件，SHA256SUMS 与 index 齐全。
 namespace Z42Xtask;
 
-using Std;
 using Std.IO;
 
 void _relAssert(string what, bool cond) {

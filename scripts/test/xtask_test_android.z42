@@ -16,6 +16,7 @@
 namespace Z42Xtask;
 
 using Std.IO;
+using Std.Toml;
 
 public class AndroidBackend : IPlatformBackend {
     public string Name() { return "android"; }

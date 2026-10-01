@@ -16,7 +16,6 @@
 // the dev path. Same Z42Xtask namespace.
 namespace Z42Xtask;
 
-using Std;
 using Std.IO;
 using Std.Encoding;
 using Std.Toml;
