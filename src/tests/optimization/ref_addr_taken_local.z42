@@ -1,0 +1,47 @@
+// fix-ref-addr-opt：被 `ref` 取过地址的局部变量，优化器不得把它当「单赋值」。
+//
+// 此前 `load_local_addr %s` 只算对 s 的**读**：s 看起来只被 `string s = ""` 赋值一次 ⇒ use-site 复制传播把 s 的
+// 所有使用点（连 `ref s` 取的地址）都改写成那个常量寄存器，LICM 再把常量外提到循环外 ⇒ 被调函数第一次写进去之后，
+// 后面每一轮读到的都是被改脏的「常量」。症状：循环里每轮重新初始化的变量，带着上一轮经 ref 写入的值。
+// 实测后果：ManifestLoader 解析 [dependencies] 时，写在 path 依赖后面的依赖继承了前一项的 `path`。
+
+bool TryFill(int i, ref string v) {
+    if (i == 0) { v = "first"; return true; }
+    return false;   // 不写 v：调用方的初始化值必须原样保留
+}
+
+bool TryNum(int i, ref int v) {
+    if (i % 2 == 0) { v = 100 + i; return true; }
+    return false;
+}
+
+void Main() {
+    // ① 字符串：每轮 `string s = ""` 必须真的执行
+    string seen = "";
+    int i = 0;
+    while (i < 3) {
+        string s = "";
+        TryFill(i, ref s);
+        seen = seen + "[" + s + "]";
+        i = i + 1;
+    }
+    Assert.Equal("[first][][]", seen);
+
+    // ② 整数：同形，常量是 int
+    int sum = 0;
+    int k = 0;
+    while (k < 4) {
+        int n = 0;
+        TryNum(k, ref n);
+        sum = sum + n;
+        k = k + 1;
+    }
+    Assert.Equal(100 + 102, sum);
+
+    // ③ 取过地址的变量作为复制源：t 的值在复制那一刻定格，之后经 ref 改 s 不得影响 t
+    string a = "orig";
+    string t = a;
+    TryFill(0, ref a);
+    Assert.Equal("orig", t);
+    Assert.Equal("first", a);
+}
