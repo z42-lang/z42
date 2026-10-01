@@ -18,6 +18,9 @@ public sealed class InheritanceResolver {
     // 在本 pass **之后**校验（fix-iface-self-completeness-gaps A2）。两条路互不重叠、各查各的。
     internal void _passImpls(SymbolTable table, CompilationUnit cu) {
         table.CurrentAliases = SymbolTable.BuildAliases(cu);   // add-type-alias
+        // A5b-2c：按名解析（target / trait / 方法签名里的类型）要**本 CU 的作用域** —— 根表上
+        // `impl IGreet for Robot`（`using Demo.Target;`）的 `Robot` 只能靠已删的裸名回落查到（同 MemberCollector）。
+        table = table.WithScopeOf(cu);
         int i = 0;
         while (i < cu.DeclCount) {
             Decl d = cu.Decls[i];
@@ -67,6 +70,7 @@ public sealed class InheritanceResolver {
     // `TraitType is NamedType`），类型实参匹配是跨包/泛型接口约束的独立议题，不在本 change。
     internal void _passImplIfaceComplete(SymbolTable table, CompilationUnit cu) {
         table.CurrentAliases = SymbolTable.BuildAliases(cu);   // add-type-alias（与 _passImpls 同）
+        table = table.WithScopeOf(cu);   // A5b-2c：同 _passImpls
         int i = 0;
         while (i < cu.DeclCount) {
             Decl d = cu.Decls[i];

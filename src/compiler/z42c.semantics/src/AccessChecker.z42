@@ -129,7 +129,9 @@ public sealed class AccessChecker {
             Z42UnknownType u = resolved as Z42UnknownType;
             // "?" = 解析器名字位的错误恢复占位（Parser._badName，已报过 E0202）——同属级联抑制（fix-parser-error-cascade）。
             if (u.UnresolvedName != "" && u.UnresolvedName != "?") {
-                diags.Error(DiagnosticCodes.UndefinedType, "undefined type: " + u.UnresolvedName, sp);
+                string mns = symbols == null ? "" : symbols.MissingUsingNs(u.UnresolvedName);
+                if (mns != "") { diags.Error(DiagnosticCodes.MissingUsing, CuPreprocess.MissingUsingMsg(mns), sp); }   // A5b-2c：类型在、只是没 using
+                else { diags.Error(DiagnosticCodes.UndefinedType, "undefined type: " + u.UnresolvedName, sp); }
             }
             return;
         }

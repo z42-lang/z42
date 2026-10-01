@@ -160,7 +160,7 @@ public static class ExportedTypeExtractor {
                         int k2 = 0; while (k2 < lic) { b2[k2] = localIfs[k2]; k2 = k2 + 1; }
                         localIfs = b2;
                     }
-                    localIfs[lic] = ClassExtractor._extractInterface(c2, symbols);
+                    localIfs[lic] = ClassExtractor._extractInterface(c2, scoped);   // A5b-2c：按短名查自己的声明 ⇒ 要声明方作用域
                     lic = lic + 1;
                 }
             }

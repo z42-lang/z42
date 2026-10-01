@@ -207,29 +207,62 @@ public sealed partial class SymbolTable {
             if (pf >= 0) { return this.ClassesByFqn.ValAt(pf) as Z42ClassType; }
             pi = pi + 1;
         }
-        // ④ 裸名回落 —— 阶段-2 欠账 `fqn-symbol-key` 的最后一支。
-        // ⚠️ **这里刻意不再写一遍欠账标记**：同一笔债只能有一个登记点，它在
-        // `SymbolTable.z42` 的 `HasClass` 抬头。在这儿也写会被 `test stage2` 当成
-        // 新挂的一条（新文件新条目）而判红 —— 实测踩过。
-        //
-        // 📏 A5b-2b-3 重测（探针带调用栈 + 阳性对照，interp 编 z42.core / z42.package / z42c.semantics）：
-        //   修前 3114 次，全部来自 6 个调用点 —— 按短名查**自己的声明**（StructLayout / VarFieldInfer /
-        //   ClassExtractor / partial 合并）+ 基类句柄绑定 + 接口成员校验，都跑在无作用域的根表上。
-        //   修后 **17 次**，全是导入类的**跨 ns** 基类名（`Type : MemberInfo`、`*Stream : Stream`）——
-        //   fix-imported-base-fqn 起导入类带 FQ 基类名（`ExportedClassZ.BaseFqn`），同口径探针 7 → 0。
-        //   z42.io 下另有 3614 次来自按类表逐键回查（`_suggestVia` / `ExhaustCheck`）+ `EmitContext` 按名字走基类链 ——
-        //   fix-class-scan-lookup 改为直接取值 / 走句柄后，stdlib 19 包 + 编译器 9 包全量探针 **0 次**。
-        // 下面是 A5b-2a 时的记录（「父 ns 引用」那 36 次已由 A5b-2b-1 补 `using` 消掉）：
-        // 🔴 **它今天还在替两条真规则兜底**，删之前必须先把这两条实现掉（实测残留 2838 次）：
-        //   · **98.7%（2802 次）**：调用发生在**没设作用域**的表视图上（`ScopeNs` 为空）——
-        //     不是解析规则不够，是调用点拿到的表就没有作用域。`CollectAll` 的
-        //     `_passMembers(table, cus[c])` 这类循环直接传**根表**，CU 明明在手却没设进去。
-        //   · **1.3%（36 次）**：**父命名空间**引用 —— `scope=Z42.IR.BinaryFormat` 里写 `IrType`
-        //     （＝`Z42.IR.IrType`）。按语言规则外围 ns 应逐级上溯，而 ①只试了 `ScopeNs` 一层，
-        //     `ResolveTypeP` 也一样 ⇒ **这条规则今天是靠裸名表在兜**。
-        //
-        // ⚠️ 直接删 ④ 不会有任何一处编译报错（135 个调用点全是字符串键）⇒ 只会变成静默错答案。
-        return this.Classes.Get(name) as Z42ClassType;
+        // ④ 裸名回落 —— **A5b-2c 已删**（阶段-2 欠账 `fqn-symbol-key` 了结）。上面四步都不中 = 本作用域看不见它。
+        // 删前用探针（stdlib 19 包 + 编译器 9 包全量，四个访问器各自计数）把调用方清到 **0**，历程：
+        //   A5b-2a 实测 2838 次（98.7% 来自没设作用域的根表视图 + 1.3% 父 ns 引用）→ A5b-2b-3 补作用域后 17 次
+        //   （导入类跨 ns 基类名）→ fix-imported-base-fqn 0 次；z42.io 另有 3614 次来自按类表逐键回查 +
+        //   EmitContext 按名字走基类链 → fix-class-scan-lookup 0 次；接口侧 31 次（根表上归一本地接口名 /
+        //   按短名查自己的接口声明）→ 本步改按 CU 作用域 → 0 次。
+        // ⚠️ 删了不会有任何编译报错（调用点全是字符串键），漏网的调用方只会拿到 null —— 要靠探针，不能靠「删了看谁红」。
+        return null;
+    }
+
+    // 名字解析失败时：短名表里有同名类 / 接口（类型确实在、所在包也激活了，只是本文件没 `using` 它的 ns）⇒
+    // 返回它的声明 ns，否则 ""。调用点据此报 E0436（与文件级那条同码同文，见 `CuPreprocess.MissingUsingMsg`）。
+    // A5b-2c 之前这类引用被裸名回落**静默解析**、事后由文件级检查补报 E0436 @ (1,1)；回落删掉后改在引用点报。
+    // 只做诊断、不参与解析（短名表赢家是 first-wins，同短名多份时只点名其中一个，足够指路）。
+    public string MissingUsingNs(string name) {
+        if (name == null || name == "") { return ""; }
+        string n = name;
+        int lt = n.IndexOf("<");
+        if (lt >= 0) { n = n.Substring(0, lt); }
+        if (n.IndexOf(".") >= 0) { return ""; }
+        string ns = "";
+        Z42ClassType c = this.Classes.Get(n) as Z42ClassType;
+        if (c != null) { ns = c.Namespace; }
+        else {
+            Z42InterfaceType it = this.Interfaces.Get(n) as Z42InterfaceType;
+            if (it != null) { ns = it.Namespace; }
+        }
+        if (ns == null) { return ""; }
+        return ns;
+    }
+
+    // 接口名 → 接口。与 `_resolveClass` 逐步同构（A5b-2c 之前接口这一侧只有「FQN → 裸名表」两步）。
+    private Z42InterfaceType _resolveIface(string name) {
+        if (name == null) { return null; }
+        int ci = 0;
+        while (ci < this.ScopeChain.Length) {
+            int s = this.InterfacesByFqn.Find(this.ScopeChain[ci] + "." + name);
+            if (s >= 0) { return this.InterfacesByFqn.ValAt(s) as Z42InterfaceType; }
+            ci = ci + 1;
+        }
+        int f = this.InterfacesByFqn.Find(name);
+        if (f >= 0) { return this.InterfacesByFqn.ValAt(f) as Z42InterfaceType; }
+        int ui = 0;
+        while (ui < this.ScopeUsingCount) {
+            int uf = this.InterfacesByFqn.Find(this.ScopeUsings[ui] + "." + name);
+            if (uf >= 0) { return this.InterfacesByFqn.ValAt(uf) as Z42InterfaceType; }
+            ui = ui + 1;
+        }
+        string[] pre = PreludeNs.All();
+        int pi = 0;
+        while (pi < pre.Length) {
+            int pf = this.InterfacesByFqn.Find(pre[pi] + "." + name);
+            if (pf >= 0) { return this.InterfacesByFqn.ValAt(pf) as Z42InterfaceType; }
+            pi = pi + 1;
+        }
+        return null;   // 无裸名回落（同 `_resolveClass` ④）
     }
 
     // 类名 → 类型。**双键过渡形态**：这笔阶段-2 欠账登记在 `HasClass` 抬头（同一笔，不重复挂标记）。

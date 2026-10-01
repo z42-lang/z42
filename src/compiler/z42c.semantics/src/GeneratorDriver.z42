@@ -187,8 +187,11 @@ public static class GeneratorDriver {
             int gi = GeneratorDriver._findTrigger(triggers, genCount, at.Name);
             if (gi >= 0) {
                 string key = "cls$" + c.Name;
-                GenTarget target = new GenTarget(new DeclId(key), c.Name, c, symbols.GetClass(c.Name), at);
-                target.Symbols = symbols;
+                // A5b-2c：按短名查**本 CU** 声明的类 + 交给 generator 做名字解析 ⇒ 要本 CU 的作用域视图
+                // （根表上只能靠已删的裸名回落查到）。
+                SymbolTable sv = symbols.WithScopeOf(cu);
+                GenTarget target = new GenTarget(new DeclId(key), c.Name, c, sv.GetClass(c.Name), at);
+                target.Symbols = sv;
                 GenSinkImpl sink = new GenSinkImpl();
                 gens[gi].Generate(target, sink);
                 return GeneratorDriver._buildEdit(di, ai, at, c, key, sink, diags, cu.HasNamespace, cu.Namespace,
@@ -236,10 +239,11 @@ public static class GeneratorDriver {
                         int gi = GeneratorDriver._findTrigger(triggers, genCount, at.Name);
                         if (gi >= 0) {
                             string key = "fld$" + c.Name + "$" + fd.Name;
+                            SymbolTable sv = symbols.WithScopeOf(cu);   // A5b-2c：同 _tryProcessDecl
                             GenTarget target = new GenTarget(new DeclId(key), c.Name, fd,
-                                                             symbols.GetClass(c.Name), at);
+                                                             sv.GetClass(c.Name), at);
                             target.Owner = c;   // 外层类的 AST（generator 要看无 body 的 partial 声明）
-                            target.Symbols = symbols;
+                            target.Symbols = sv;
                             GenSinkImpl sink = new GenSinkImpl();
                             gens[gi].Generate(target, sink);
                             if (ed == null) {

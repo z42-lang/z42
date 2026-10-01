@@ -168,6 +168,49 @@ public sealed class StubCollector {
         this._qualifyIfaceBases(table, table.InterfacesByFqn);
     }
 
+    // A5b-2c：**本地**声明先按**声明方 CU 的作用域**归一（三个入口都挂，紧挨根表那一趟之前）。
+    // 根表那一趟没有作用域：同包、外围 ns 里的接口（`class CompileCuTask : IParallelBody`，两者都在
+    // `Z42.Semantics`）在根表上 FQN 查不中，只能落 `GetInterface` 的裸名回落 —— 探针实测 stdlib + 编译器
+    // 全量 31 次，全来自这里与 `ClassExtractor._extractInterface`。根表那一趟保留：导入类（已是 FQ，幂等）
+    // 与本 pass 没覆盖到的（查不到的原样留着）走它。
+    internal void _passQualifyIfaceNamesInScope(SymbolTable table, CompilationUnit cu) {
+        SymbolTable sv = table.WithScopeOf(cu);
+        int i = 0;
+        while (i < cu.DeclCount) {
+            Decl d = cu.Decls[i];
+            if (d is AttributedDecl) { d = (d as AttributedDecl).Inner; }
+            if (d is ClassDecl) {
+                ClassDecl c = d as ClassDecl;
+                if (c.Kind == "interface") {
+                    Z42InterfaceType it = sv.GetInterface(c.Name);
+                    if (it != null && it.BaseNames != null) {
+                        int n = it.BaseCount; if (it.BaseNames.Length < n) { n = it.BaseNames.Length; }
+                        it.BaseNames = StubCollector._qualifiedCopy(sv, it.BaseNames, n);
+                    }
+                } else {
+                    string key = c.Name;
+                    if (c.TypeParams.Count > 0) { string mk = c.Name + "$" + c.TypeParams.Count.ToString(); if (sv.Classes.ContainsKey(mk)) { key = mk; } }
+                    Z42ClassType ct = sv.GetClass(key);
+                    if (ct != null && ct.InterfaceNames != null) {
+                        int n2 = ct.InterfaceCount; if (ct.InterfaceNames.Length < n2) { n2 = ct.InterfaceNames.Length; }
+                        ct.InterfaceNames = StubCollector._qualifiedCopy(sv, ct.InterfaceNames, n2);
+                    }
+                }
+            }
+            i = i + 1;
+        }
+    }
+
+    // 产出新数组（**绝不就地改写**，理由见 `_qualifyClassIfaces` 体内注释）：前 n 项经 `IfaceFqnOf` 归一，其余原样。
+    private static string[] _qualifiedCopy(SymbolTable view, string[] names, int n) {
+        string[] nn = new string[names.Length];
+        int c = 0;
+        while (c < names.Length) { nn[c] = names[c]; c = c + 1; }
+        int i = 0;
+        while (i < n) { nn[i] = SymbolTable.IfaceFqnOf(view, nn[i]); i = i + 1; }
+        return nn;
+    }
+
     private void _qualifyClassIfaces(SymbolTable table, StrMap tbl) {
         string[] keys = tbl.Keys();
         int k = 0;
@@ -189,14 +232,7 @@ public sealed class StubCollector {
                 // 无一是 IEquatable，[0] 的"内容"是约 1.6KB 堆字节）。
                 // 改为产出新数组、只换本类型自己的字段引用。长度与 InterfaceCount 都**原样保留**
                 // （`InterfaceCount > Length` 那条既有不一致留给单独一刀，这里不夹带）。
-                if (ct.InterfaceNames != null) {
-                    string[] nn = new string[ct.InterfaceNames.Length];
-                    int c = 0;
-                    while (c < ct.InterfaceNames.Length) { nn[c] = ct.InterfaceNames[c]; c = c + 1; }
-                    int i = 0;
-                    while (i < n) { nn[i] = SymbolTable.IfaceFqnOf(table, nn[i]); i = i + 1; }
-                    ct.InterfaceNames = nn;
-                }
+                if (ct.InterfaceNames != null) { ct.InterfaceNames = StubCollector._qualifiedCopy(table, ct.InterfaceNames, n); }
             }
             k = k + 1;
         }
@@ -215,14 +251,7 @@ public sealed class StubCollector {
                 // ⚠️ 这里**尤其**不能动长度或 `BaseCount`：`BaseNames` 与 `BaseRefs` 共用同一个
                 // `BaseCount`、永远等长扩容（见 `Z42Type.AddBaseRef` 抬头），改一边就错位，
                 // 而错位是静默的（型参照旧不代换）。
-                if (it.BaseNames != null) {
-                    string[] nb = new string[it.BaseNames.Length];
-                    int c = 0;
-                    while (c < it.BaseNames.Length) { nb[c] = it.BaseNames[c]; c = c + 1; }
-                    int i = 0;
-                    while (i < n) { nb[i] = SymbolTable.IfaceFqnOf(table, nb[i]); i = i + 1; }
-                    it.BaseNames = nb;
-                }
+                if (it.BaseNames != null) { it.BaseNames = StubCollector._qualifiedCopy(table, it.BaseNames, n); }
             }
             k = k + 1;
         }

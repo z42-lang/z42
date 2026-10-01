@@ -1,6 +1,6 @@
 # ANCHOR: missing
 $ z42 run noimport.z42
 z42c build: 1 error(s) in noimport.z42
-  noimport.z42(1,1): E0436: namespace `Std.IO` is used but not imported in this file; add `using Std.IO;`
+  noimport.z42(2,5): E0436: namespace `Std.IO` is used but not imported in this file; add `using Std.IO;`
 [exit: 1]
 # ANCHOR_END: missing

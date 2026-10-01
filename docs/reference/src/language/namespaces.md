@@ -72,6 +72,9 @@ Console.WriteLine(...)            // ✗ Console 在 Std.IO —— 必须 using
 E0436: namespace `Std.Collections` is used but not imported in this file; add `using Std.Collections;`
 ```
 
+源码里写出的类型名（如 `Console`、`List<int>`）报在**引用处**；按 C# 规则，这样的名字在本文件根本解析不到，
+编译器只是认出它在哪个命名空间、替你指路。
+
 「用到」按 C# 的口径算：源码里**写出**的类型名（局部变量 / 字段 / 形参 / 返回 / 基类与接口列表 / 约束 /
 `new` / 转换 / `is` / `as` / `typeof` / 泛型实参 / delegate 类型）、静态成员与静态调用的类名、enum 常量、自由函数调用与
 函数引用。限定写法 `A.W` 同样算用到 `A`（规则 4）。编译器**合成**的类型不算：`[1, 2]` 生成 `List<int>`、`(1, 2)` 生成
