@@ -48,4 +48,8 @@
       副本与工具链里的 zpkg 逐字节相同
 - [x] 文档：位置性引用（各页头「对齐代码」、`$EDITOR` 命令、ci.md filter 表、scripts/README）
 - [x] 本地 GREEN（基底 d54f7ba46，9m09s，src 下零产物）+ `xtask deps check` + install-z42.sh / release.yml 的 awk 读取实测；`test incremental` 的 xtask 拷贝清单手工模拟编过
+- [x] 顺带修正过时文档：`project-model.md`「解析域」一节仍按已删的 `compiler-libs/` 目录与 `_compilerLibsDirs()`
+      三档探测描述（代码早已是 `CompilerDomain.Dirs()` 四档、落 `programs/z42c/`）——重写，并补上 `${compiler_libs}`
+      显式引用这条用法；`xtask_compiler_e2e_analyzer.z42` 一处注释同。（目录已删、**宏仍是现行机制**——用户曾问「宏不是删了吗」，
+      混淆点正在这里）
 - [ ] PR CI
