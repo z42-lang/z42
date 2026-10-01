@@ -38,8 +38,8 @@
 
 | 文件 | 类型 | 说明 |
 |------|------|------|
-| `src/compiler/z42c.semantics/src/ClassDescBuilder.z42` | MODIFY | 合成 `__prop_X` 背后字段时把属性 attrs 填入其 `.Attrs`（既有 field_attributes 格式） |
-| `src/compiler/z42c.semantics/src/AttributeSynth.z42` | MODIFY | `_processMembers` 补 `PropertyDecl` 分支——为属性 store-meta attr 合成工厂 + 记 FactoryFunc |
+| `src/compiler/z42c.semantics/src/Emission/ClassDescBuilder.z42` | MODIFY | 合成 `__prop_X` 背后字段时把属性 attrs 填入其 `.Attrs`（既有 field_attributes 格式） |
+| `src/compiler/z42c.semantics/src/Lowering/AttributeSynth.z42` | MODIFY | `_processMembers` 补 `PropertyDecl` 分支——为属性 store-meta attr 合成工厂 + 记 FactoryFunc |
 
 ### stdlib z42.core
 
@@ -90,7 +90,7 @@
 - `src/runtime/src/corelib/reflection.rs`（field attr / activator / ctor invoke 现有实现）
 - `src/libraries/z42.core/src/Reflection/FieldInfo.z42`（attr API 镜像模板）
 - `src/libraries/z42.core/src/Type.z42`、`src/libraries/z42.json/src/JsonValue.z42`
-- `src/compiler/z42c.semantics/src/AttributeSynth.z42`（store-meta 工厂合成——本 change 补 PropertyDecl 分支）
+- `src/compiler/z42c.semantics/src/Lowering/AttributeSynth.z42`（store-meta 工厂合成——本 change 补 PropertyDecl 分支）
 
 ## Out of Scope
 

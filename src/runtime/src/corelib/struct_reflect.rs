@@ -4,7 +4,7 @@
 //! offset + type tag. The runtime only carries a value struct's `StructTypeLayout`
 //! (`size` + an *unnamed* reference-leaf bitmap), not a field-name → offset map. This
 //! module recovers that map by **replicating the compiler's `StructLayout._compute`**
-//! (`src/compiler/z42c.semantics/src/StructLayout.z42:279`) over the type's ordered
+//! (`src/compiler/z42c.semantics/src/Types/StructLayout.z42:279`) over the type's ordered
 //! `TypeDesc.fields` (each `FieldSlot{name, type_tag}` — `type_tag` is the exact declared
 //! type string the codegen fed to `Tag.FromName`).
 //!
@@ -202,7 +202,7 @@ fn compute_inner(resolve: &TypeResolver, type_name: &str, depth: u32) -> Result<
 
 /// add-object-inline-struct-reflection (P4b-B): replicate the compiler's **class**
 /// inline layout (`StructLayout._computeInlineLayout`,
-/// `src/compiler/z42c.semantics/src/StructLayout.z42:203`) for a non-struct class.
+/// `src/compiler/z42c.semantics/src/Types/StructLayout.z42:203`) for a non-struct class.
 ///
 /// Unlike a value struct (`compute`), a heap class only byte-packs its **value-struct**
 /// fields into the object's `struct_bytes`/`struct_refs`; every non-struct field keeps a

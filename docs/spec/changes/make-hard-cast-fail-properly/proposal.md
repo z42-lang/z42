@@ -75,9 +75,9 @@ if (!(x is T)) { throw <适当的异常>; }
 | 文件 | 变更 |
 |---|---|
 | `src/libraries/z42.core/src/Exceptions/InvalidCastException.z42` | NEW |
-| `src/compiler/z42c.semantics/src/BoundExprOp.z42` | `BoundCast.IsHardCast` |
-| `src/compiler/z42c.semantics/src/TypeOpTyper.z42` | `_bindAsExpr` 置假；cast 绑定点置真 |
-| `src/compiler/z42c.semantics/src/TypeOpEmitter.z42` | `_emitCast` 对硬转换降解「先查后转」 |
+| `src/compiler/z42c.semantics/src/BoundTree/BoundExprOp.z42` | `BoundCast.IsHardCast` |
+| `src/compiler/z42c.semantics/src/Binding/TypeOpTyper.z42` | `_bindAsExpr` 置假；cast 绑定点置真 |
+| `src/compiler/z42c.semantics/src/Emission/TypeOpEmitter.z42` | `_emitCast` 对硬转换降解「先查后转」 |
 | `src/runtime/src/semantics.rs` | 两条 `bail!` → 真异常 |
 | `src/runtime/src/jit/**` | 若 JIT 另有 cast 快路则同步 |
 | `src/tests/types/**` | 三种形态各一个正/阴用例（interp + jit） |

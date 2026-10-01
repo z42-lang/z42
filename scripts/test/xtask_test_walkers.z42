@@ -54,14 +54,14 @@ WalkerEntryZ[] _walkerRegistry() {
         "IntLitExpr", "FloatLitExpr", "StringLitExpr", "CharLitExpr",
         "BoolLitExpr", "NullLitExpr", "IdentExpr", "EmptyBraceLitExpr" };
     r[0] = new WalkerEntryZ("MethodTypeParamUse.Consumes",
-        "src/compiler/z42c.semantics/src/MethodTypeParamUse.z42", true, true, true, true, mtpuAllow, 8);
+        "src/compiler/z42c.semantics/src/Types/MethodTypeParamUse.z42", true, true, true, true, mtpuAllow, 8);
     string[] none = new string[]{};
     r[1] = new WalkerEntryZ("ExprTyper._bindExpr",
-        "src/compiler/z42c.semantics/src/ExprTyper.z42", true, false, false, false, none, 0);
+        "src/compiler/z42c.semantics/src/Binding/ExprTyper.z42", true, false, false, false, none, 0);
     r[2] = new WalkerEntryZ("StmtBinder._bindStmt",
-        "src/compiler/z42c.semantics/src/StmtBinder.z42", false, true, false, false, none, 0);
+        "src/compiler/z42c.semantics/src/Binding/StmtBinder.z42", false, true, false, false, none, 0);
     r[3] = new WalkerEntryZ("PatternBinder.Bind",
-        "src/compiler/z42c.semantics/src/PatternBinder.z42", false, false, true, false, none, 0);
+        "src/compiler/z42c.semantics/src/Binding/PatternBinder.z42", false, false, true, false, none, 0);
     return r;
 }
 

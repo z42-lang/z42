@@ -45,7 +45,7 @@ pre-1.0 正是修地基的窗口。终态 = **file-scope 默认 + `global using`
 | `z42c.core/src/DiagnosticCodes.z42` | +`MissingUsing = E0436` |
 | `z42c.syntax/src/Decl.z42` | `UsingDecl` 加 `IsGlobal` |
 | `z42c.syntax/src/Parser.z42` | `global`(ctx)+`using` → IsGlobal using |
-| `z42c.semantics/src/IrDump.z42` | `_injectGlobalUsings`（注入）+ `_enforceFileScope`（E0436） |
+| `z42c.semantics/src/Compilation/IrDump.z42` | `_injectGlobalUsings`（注入）+ `_enforceFileScope`（E0436） |
 | `scripts/test/xtask_test.z42`、`xtask_test_lib.z42` | 补 `using Std.Cli;` |
 | `src/toolchain/builder/core/builder_hooks.z42` | 补 `using Std.Test;` |
 | `src/toolchain/builder/core/builder_publish.z42`、`launcher/core/launcher_export.z42` | 补 `using Std.Cli;` |

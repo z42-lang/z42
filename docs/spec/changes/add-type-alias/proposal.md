@@ -29,9 +29,9 @@ using Row    = Dictionary<string, int>;   // 泛型目标
 |------|------|
 | `z42c.syntax/src/Decl.z42` | +`UsingAliasDecl` |
 | `z42c.syntax/src/Parser.z42` | `using Id =` → UsingAliasDecl |
-| `z42c.semantics/src/SymbolTable.z42` | `CurrentAliases` + `BuildAliases` + ResolveTypeP 替换 |
-| `z42c.semantics/src/SymbolCollector.z42` | `_passMembers/_passImpls/_passInheritFields` 设别名 |
-| `z42c.semantics/src/TypeChecker.z42` | `Infer` 设别名 |
+| `z42c.semantics/src/Symbols/SymbolTable.z42` | `CurrentAliases` + `BuildAliases` + ResolveTypeP 替换 |
+| `z42c.semantics/src/Symbols/SymbolCollector.z42` | `_passMembers/_passImpls/_passInheritFields` 设别名 |
+| `z42c.semantics/src/Binding/TypeChecker.z42` | `Infer` 设别名 |
 | `docs/reference/src/language/namespaces.md` | 类型别名节 |
 | `examples/type_alias.z42`、`src/tests/basic/type_alias.z42` | 示例 + golden |
 

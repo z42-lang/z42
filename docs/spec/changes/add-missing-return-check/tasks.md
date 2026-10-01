@@ -77,7 +77,7 @@ ctor 的 `RetType` 是占位 `NamedType("")`、void 是 `NamedType("void")` ⇒ 
 
 ## Scope
 
-- `src/compiler/z42c.semantics/src/FlowAnalyzer.z42`
+- `src/compiler/z42c.semantics/src/Validation/FlowAnalyzer.z42`
 - `src/compiler/z42c.semantics/tests/typecheck/missing_return_tests.z42`（新，22 条）
 - `src/compiler/z42c.pipeline/src/CacheStore.z42`（指纹 39 → 40）
 - `docs/reference/src/appendix/error-codes.md`（E0403 状态：⚠️ 零发射 → ✅）

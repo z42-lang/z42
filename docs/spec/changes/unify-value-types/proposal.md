@@ -53,22 +53,22 @@ marshaling、单标量叶子塌缩、Value 密度压缩铺平道路。
 
 | 文件路径 | 变更类型 | 说明 |
 |---------|---------|------|
-| `src/compiler/z42c.semantics/src/Z42Type.z42` | MODIFY | 删 `Z42PrimType` 类；`Canon` 升级为"关键字→Std.* canonical/FQ"；`_canWiden` 数值拓宽迁到统一值类型可赋性 |
-| `src/compiler/z42c.semantics/src/SymbolTable.z42` | MODIFY | `ResolveTypeP` 基元分支改产 `Std.*` Z42ClassType；`_isPrim`/`_canonPrim` 收敛进统一表 |
-| `src/compiler/z42c.semantics/src/EmitContext.z42` | MODIFY | `ToIrType` 对 Scalar 值类型返回 `PrimTag`；`_primWrapper` 收敛 |
-| `src/compiler/z42c.semantics/src/TypeChecker.z42` | MODIFY | `BoxIfNeeded` 的 `is Z42PrimType` 改 Repr 判定；`_intPrimFQ` 收敛（bool/char/double 特例保留） |
-| `src/compiler/z42c.semantics/src/StructLayout.z42` | MODIFY | 加 `Repr(Scalar/Blob)` 形式化；把基元 wrapper 纳入值类型模型；供 R2 判定入口 |
-| `src/compiler/z42c.semantics/src/ImportedSymbolLoader.z42` | MODIFY | 消除 `Z42PrimType` 降级 sentinel（根因修：解析到正确值类型） |
-| `src/compiler/z42c.semantics/src/ExprTyper.z42` | MODIFY | 字面量 typing 产出改产 Std.* 值类型（int/long/char/string/bool/内插/拼接） |
-| `src/compiler/z42c.semantics/src/TypeFactsTc.z42` | MODIFY | float/double 字面量产出改；`_primWrapper`/`_isPrimKeyword`/`_isNumericPrim` 收敛；prim↔prim 窄化判定改 |
-| `src/compiler/z42c.semantics/src/MemberResolver.z42` | MODIFY | `.Length`/`.Count`→int、枚举常量→long 产出改；`_primWrapper` 派发路径随收敛 |
-| `src/compiler/z42c.semantics/src/SymbolCollector.z42` | MODIFY | Object 基类方法签名合成产出改（object/ToString→string/Equals→bool/GetHashCode→int） |
-| `src/compiler/z42c.semantics/src/BinaryTypeTable.z42` | MODIFY | 算术结果类型产出改（double/float/long/int/bool） |
-| `src/compiler/z42c.semantics/src/ConstraintChecker.z42` | MODIFY | `_isStructArg` 从 `is Z42PrimType` 改"IsStruct 值类型" |
-| `src/compiler/z42c.semantics/src/FunctionEmitter.z42` | MODIFY | 形参 `PrimTag` 判别从 `is Z42PrimType` 改 Repr |
+| `src/compiler/z42c.semantics/src/Types/Z42Type.z42` | MODIFY | 删 `Z42PrimType` 类；`Canon` 升级为"关键字→Std.* canonical/FQ"；`_canWiden` 数值拓宽迁到统一值类型可赋性 |
+| `src/compiler/z42c.semantics/src/Symbols/SymbolTable.z42` | MODIFY | `ResolveTypeP` 基元分支改产 `Std.*` Z42ClassType；`_isPrim`/`_canonPrim` 收敛进统一表 |
+| `src/compiler/z42c.semantics/src/Emission/EmitContext.z42` | MODIFY | `ToIrType` 对 Scalar 值类型返回 `PrimTag`；`_primWrapper` 收敛 |
+| `src/compiler/z42c.semantics/src/Binding/TypeChecker.z42` | MODIFY | `BoxIfNeeded` 的 `is Z42PrimType` 改 Repr 判定；`_intPrimFQ` 收敛（bool/char/double 特例保留） |
+| `src/compiler/z42c.semantics/src/Types/StructLayout.z42` | MODIFY | 加 `Repr(Scalar/Blob)` 形式化；把基元 wrapper 纳入值类型模型；供 R2 判定入口 |
+| `src/compiler/z42c.semantics/src/Symbols/ImportedSymbolLoader.z42` | MODIFY | 消除 `Z42PrimType` 降级 sentinel（根因修：解析到正确值类型） |
+| `src/compiler/z42c.semantics/src/Binding/ExprTyper.z42` | MODIFY | 字面量 typing 产出改产 Std.* 值类型（int/long/char/string/bool/内插/拼接） |
+| `src/compiler/z42c.semantics/src/Types/TypeFactsTc.z42` | MODIFY | float/double 字面量产出改；`_primWrapper`/`_isPrimKeyword`/`_isNumericPrim` 收敛；prim↔prim 窄化判定改 |
+| `src/compiler/z42c.semantics/src/Binding/MemberResolver.z42` | MODIFY | `.Length`/`.Count`→int、枚举常量→long 产出改；`_primWrapper` 派发路径随收敛 |
+| `src/compiler/z42c.semantics/src/Symbols/SymbolCollector.z42` | MODIFY | Object 基类方法签名合成产出改（object/ToString→string/Equals→bool/GetHashCode→int） |
+| `src/compiler/z42c.semantics/src/Types/BinaryTypeTable.z42` | MODIFY | 算术结果类型产出改（double/float/long/int/bool） |
+| `src/compiler/z42c.semantics/src/Types/ConstraintChecker.z42` | MODIFY | `_isStructArg` 从 `is Z42PrimType` 改"IsStruct 值类型" |
+| `src/compiler/z42c.semantics/src/Emission/FunctionEmitter.z42` | MODIFY | 形参 `PrimTag` 判别从 `is Z42PrimType` 改 Repr |
 | `src/compiler/z42c.semantics/src/Bound.z42` | MODIFY | `BoundIsExpr` 结果 bool 类型产出改 |
-| `src/compiler/z42c.semantics/src/ExprEmitter.z42` | MODIFY | packed 数组元素判别（`at.Elem is Z42PrimType`）+ `_emitBox` 透传判别改按 Repr；`_emitBinary` 不动 |
-| `src/compiler/z42c.semantics/src/PrimModel.z42` | NEW | 单一「关键字↔Std.* 值类型」表（收敛七表；design 已批"新辅助"）——阶段 1 已落 |
+| `src/compiler/z42c.semantics/src/Emission/ExprEmitter.z42` | MODIFY | packed 数组元素判别（`at.Elem is Z42PrimType`）+ `_emitBox` 透传判别改按 Repr；`_emitBinary` 不动 |
+| `src/compiler/z42c.semantics/src/Types/PrimModel.z42` | NEW | 单一「关键字↔Std.* 值类型」表（收敛七表；design 已批"新辅助"）——阶段 1 已落 |
 | `src/compiler/z42c.semantics/tests/primmodel/prim_model_tests.z42` | NEW | PrimModel 单测（独立单元，依赖 z42.package 用 IrType）——阶段 1 已落 |
 | `src/compiler/z42c.semantics/tests/primmodel/z42c.semantics.test.primmodel.z42.toml` | NEW | 上述单元的构建配置 |
 | `src/compiler/z42c.semantics/tests/types/type_tests.z42` | MODIFY | `new Z42PrimType(...)` 机械替换/删除 |
@@ -82,7 +82,7 @@ marshaling、单标量叶子塌缩、Value 密度压缩铺平道路。
 **只读引用**（理解上下文，不改）：
 
 - `src/libraries/z42.core/src/Primitives/*.z42` — 基元 phantom struct 定义（Int32/Int64/Boolean/Char/Double/Single）
-- `src/compiler/z42c.semantics/src/OverloadResolver.z42` — 重载键靠 `Canon` 归一，保持 Canon 语义即透明不改
+- `src/compiler/z42c.semantics/src/Binding/OverloadResolver.z42` — 重载键靠 `Canon` 归一，保持 Canon 语义即透明不改
 - `src/runtime/src/interp/exec_vcall.rs` — 确认 runtime 已默认把裸 I64 路由 Std.Int32（Phase 1 不改 runtime）
 - `docs/internals/src/runtime/object-abi.md` — Value 密度压缩是独立 Deferred，不在本程序范围
 - `docs/spec/archive/2026-08-09-add-struct-value-semantics/design-radical.md` — 原始架构 DRAFT（行号已过时，本 proposal 以当前 main 为准更新）

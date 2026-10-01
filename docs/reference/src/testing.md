@@ -1,7 +1,7 @@
 # 测试
 
 > 对齐：2026-09-17（change `restructure-docs-three-books`）｜ 代码：`src/libraries/z42.test/src/`、
-> `src/libraries/z42.core/src/Assert.z42`、`src/compiler/z42c.semantics/src/DeclEnforcer.z42`、
+> `src/libraries/z42.core/src/Assert.z42`、`src/compiler/z42c.semantics/src/Validation/DeclEnforcer.z42`、
 > `src/toolchain/builder/core/builder_test.z42`
 >
 > 测试文件放在哪、`[tests]` / `[[test]]` / `[benches]` 怎么配、`harness = false` 是什么，

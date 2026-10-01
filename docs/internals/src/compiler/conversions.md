@@ -1,6 +1,6 @@
 # 类型转换的实现
 
-> **页型**: 机制页 ｜ **状态**: ✅ 已实现 ｜ **代码**: `src/compiler/z42c.semantics/src/Conversion.z42`
+> **页型**: 机制页 ｜ **状态**: ✅ 已实现 ｜ **代码**: `src/compiler/z42c.semantics/src/Types/Conversion.z42`
 > （`Classify` / `_classifyUser` / `_findConvOn`）· `TypeChecker.ConvertIfNeeded` · `TypeOpTyper._bindCastExpr`
 > **相关**: [源代码编译流程](source-compile.md) · [架构总览](architecture.md) ｜ **对齐**: 2026-09-17
 >

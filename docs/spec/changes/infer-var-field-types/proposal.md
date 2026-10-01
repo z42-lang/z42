@@ -39,9 +39,9 @@ Unknown/「var」占位存进 `FieldSymbol.FieldType`，**从不从初始化器�
 
 | 文件 | 变更 | 说明 |
 |------|------|------|
-| `src/compiler/z42c.semantics/src/VarFieldInfer.z42` | NEW | fixup pass：绑定 static var 字段初始化器 → 推断 → 回写 fs.FieldType（fixpoint）|
-| `src/compiler/z42c.semantics/src/IrDump.z42` | MODIFY | BuildPackageCus 插入 `VarFieldInfer.Run`（SymbolCollect 后、Export 前）|
-| `src/compiler/z42c.semantics/src/ClassDescBuilder.z42` | MODIFY | TYPE 段字段类型：var 字段用推断后 fs.FieldType（非 var 不动）|
+| `src/compiler/z42c.semantics/src/Binding/VarFieldInfer.z42` | NEW | fixup pass：绑定 static var 字段初始化器 → 推断 → 回写 fs.FieldType（fixpoint）|
+| `src/compiler/z42c.semantics/src/Compilation/IrDump.z42` | MODIFY | BuildPackageCus 插入 `VarFieldInfer.Run`（SymbolCollect 后、Export 前）|
+| `src/compiler/z42c.semantics/src/Emission/ClassDescBuilder.z42` | MODIFY | TYPE 段字段类型：var 字段用推断后 fs.FieldType（非 var 不动）|
 | `src/tests/cross-zpkg/var_field_cross_pkg/` | NEW | e2e fixture：跨包 var 字段算术(105) + 字符串拼接(z42!) |
 | `docs/spec/changes/infer-var-field-types/{proposal,tasks}.md` | NEW | 本 change 文档 |
 | `docs/spec/changes/ACTIVE.md` | MODIFY | 登记 compiler 占用（独立分支） |

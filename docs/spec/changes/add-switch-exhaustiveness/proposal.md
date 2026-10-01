@@ -68,10 +68,10 @@ _checkExhaustive(subjType, cases[], symbols, span):
 
 | 文件 | 变更 | 说明 |
 |------|------|------|
-| `src/compiler/z42c.semantics/src/ExhaustCheck.z42` | NEW | `ExhaustChecker`：封闭域识别 + 覆盖集比对（StrMap）+ 兜底判定 + or 递归 |
-| `src/compiler/z42c.semantics/src/TypeChecker.z42` | MODIFY | 加 `_exhaust` 字段 + ctor 实例化 |
-| `src/compiler/z42c.semantics/src/StmtBinder.z42` | MODIFY | `_bindSwitchStmt` 尾部调 `_exhaust.CheckStmt(bsw, env)` |
-| `src/compiler/z42c.semantics/src/ExprTyper.z42` | MODIFY | `_bindSwitchExpr` 尾部调 `_exhaust.CheckExpr(bse, env)` |
+| `src/compiler/z42c.semantics/src/Binding/ExhaustCheck.z42` | NEW | `ExhaustChecker`：封闭域识别 + 覆盖集比对（StrMap）+ 兜底判定 + or 递归 |
+| `src/compiler/z42c.semantics/src/Binding/TypeChecker.z42` | MODIFY | 加 `_exhaust` 字段 + ctor 实例化 |
+| `src/compiler/z42c.semantics/src/Binding/StmtBinder.z42` | MODIFY | `_bindSwitchStmt` 尾部调 `_exhaust.CheckStmt(bsw, env)` |
+| `src/compiler/z42c.semantics/src/Binding/ExprTyper.z42` | MODIFY | `_bindSwitchExpr` 尾部调 `_exhaust.CheckExpr(bse, env)` |
 | `src/compiler/z42c.semantics/tests/exhaust/` | NEW | semantics 单测（10 例：enum/bool × stmt/expr × 缺/全/default/or/守卫/开放域） |
 | `docs/reference/src/language/pattern-matching.md` | MODIFY | 新增「穷尽性诊断」节（域范围 + 兜底规则 + sealed 为何 out-of-scope） |
 

@@ -70,19 +70,19 @@
 
 | 文件路径 | 变更类型 | 说明 |
 |---------|---------|------|
-| `src/compiler/z42c.semantics/src/Z42Type.z42` | MODIFY | `Z42ClassType` 加 `bool IsAbstract`（构造器默认 false）|
-| `src/compiler/z42c.semantics/src/StubCollector.z42` | MODIFY | `ct.IsAbstract = _sc._hasWord(c.Mods, "abstract")`（镜像 :194 IsSealed）|
-| `src/compiler/z42c.semantics/src/ExhaustCheck.z42` | MODIFY | `_collect` 加类型模式覆盖；`_report` 加封闭层次穷尽分支 + `_isTypeCovered` 助手 |
+| `src/compiler/z42c.semantics/src/Types/Z42Type.z42` | MODIFY | `Z42ClassType` 加 `bool IsAbstract`（构造器默认 false）|
+| `src/compiler/z42c.semantics/src/Symbols/StubCollector.z42` | MODIFY | `ct.IsAbstract = _sc._hasWord(c.Mods, "abstract")`（镜像 :194 IsSealed）|
+| `src/compiler/z42c.semantics/src/Binding/ExhaustCheck.z42` | MODIFY | `_collect` 加类型模式覆盖；`_report` 加封闭层次穷尽分支 + `_isTypeCovered` 助手 |
 | `src/compiler/z42c.semantics/tests/analyzer/analyzer_tests.z42` | MODIFY | `SemanticDump.FirstErrorCode`/warning 单测：封闭层次穷尽（无 W0700）/漏子类（W0700）；public 基类不报（不用 Std、switch 不写 break 避噪声）|
 | `src/tests/pattern-matching/pattern_exhaust_sealed.z42` | NEW | e2e：internal 封闭层次 switch 穷尽（无 warning）/漏子类；jit 双验 |
 | `docs/reference/src/language/pattern-matching.md` | MODIFY | 穷尽性从 bool/enum 扩到「非 public 封闭类层次」；记录 internal=封闭 的机制、健全性论证、public 轴 defer |
 
 **只读引用**（理解上下文必须读，不修改）：
-- `src/compiler/z42c.semantics/src/ExhaustCheck.z42` — 全文（bool/enum 现算法、`_isUncond`/`_collect`/`_report`）
-- `src/compiler/z42c.semantics/src/SymbolTable.z42` — `IsSubclassOf`(:73)、`Classes`(:10)、`GetClass`(:66)
-- `src/compiler/z42c.semantics/src/BoundPattern.z42` — `BoundTypePattern.BoundType`(:30)/`BoundPositionalPattern.Type`(:52)/`BoundPropertyPattern`(:70)
-- `src/compiler/z42c.semantics/src/Z42Type.z42` — `IsSealed`(:61)/`Visibility`(:70)/`IsImported`(:65) 采集范式
-- `src/compiler/z42c.semantics/src/StubCollector.z42` — `IsSealed` 回填(:194)
+- `src/compiler/z42c.semantics/src/Binding/ExhaustCheck.z42` — 全文（bool/enum 现算法、`_isUncond`/`_collect`/`_report`）
+- `src/compiler/z42c.semantics/src/Symbols/SymbolTable.z42` — `IsSubclassOf`(:73)、`Classes`(:10)、`GetClass`(:66)
+- `src/compiler/z42c.semantics/src/BoundTree/BoundPattern.z42` — `BoundTypePattern.BoundType`(:30)/`BoundPositionalPattern.Type`(:52)/`BoundPropertyPattern`(:70)
+- `src/compiler/z42c.semantics/src/Types/Z42Type.z42` — `IsSealed`(:61)/`Visibility`(:70)/`IsImported`(:65) 采集范式
+- `src/compiler/z42c.semantics/src/Symbols/StubCollector.z42` — `IsSealed` 回填(:194)
 
 ## Out of Scope
 

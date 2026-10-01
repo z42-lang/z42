@@ -97,11 +97,11 @@ f(new());                          // 传参：目标 = 形参类型
 |---------|------|------|
 | `src/compiler/z42c.syntax/src/Ast.z42` | MODIFY | `ObjNewExpr.Type` / `ObjInitExpr.Type` 允许 null + `Dump` 空守卫 |
 | `src/compiler/z42c.syntax/src/ExprParser.z42` | MODIFY | `new(` 前瞻 → target-typed `ObjNewExpr(null,..)` / `ObjInitExpr(null,..)` |
-| `src/compiler/z42c.semantics/src/ExprTyper.z42` | MODIFY | `_bindNew`/`_bindObjInit` 加 `expected`；`BindWithTarget`/`IsTargetTypedNew`；`_bindAssign` RHS 目标类型；ctor args 延迟 |
-| `src/compiler/z42c.semantics/src/StmtBinder.z42` | MODIFY | `_bindVarDecl` / `_bindReturn` 接目标类型 |
-| `src/compiler/z42c.semantics/src/DeclBinder.z42` | MODIFY | 静态字段 init 接字段类型（实例字段经 assign desugar 自动覆盖）|
-| `src/compiler/z42c.semantics/src/MemberResolver.z42` | MODIFY | 调用管线实参延迟 + 各形态回填 |
-| `src/compiler/z42c.semantics/src/OverloadBinder.z42` | MODIFY | `_resolveOverload` 容忍 null 位；`_withDefaults` 回填；`_adaptArgs` 按形参类型绑 |
+| `src/compiler/z42c.semantics/src/Binding/ExprTyper.z42` | MODIFY | `_bindNew`/`_bindObjInit` 加 `expected`；`BindWithTarget`/`IsTargetTypedNew`；`_bindAssign` RHS 目标类型；ctor args 延迟 |
+| `src/compiler/z42c.semantics/src/Binding/StmtBinder.z42` | MODIFY | `_bindVarDecl` / `_bindReturn` 接目标类型 |
+| `src/compiler/z42c.semantics/src/Binding/DeclBinder.z42` | MODIFY | 静态字段 init 接字段类型（实例字段经 assign desugar 自动覆盖）|
+| `src/compiler/z42c.semantics/src/Binding/MemberResolver.z42` | MODIFY | 调用管线实参延迟 + 各形态回填 |
+| `src/compiler/z42c.semantics/src/Binding/OverloadBinder.z42` | MODIFY | `_resolveOverload` 容忍 null 位；`_withDefaults` 回填；`_adaptArgs` 按形参类型绑 |
 | `src/compiler/z42c.core/src/DiagnosticCodes.z42` | MODIFY | 新增 `TargetTypedNewNeedsType` 诊断码 |
 | `src/compiler/z42c.semantics/tests/codegen/codegen_tests.z42` | MODIFY | target-typed new 与显式 new 逐字节等价 |
 | `src/compiler/z42c.semantics/tests/typecheck/typecheck_tests.z42` | MODIFY | 无目标 / 重载歧义 报错用例 |

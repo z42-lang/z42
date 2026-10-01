@@ -23,8 +23,8 @@
 | `src/libraries/z42.core/src/Reflection/Activator.z42` | MODIFY | 加 `CreateInstance<T>()` 泛型方法 + 更新头注 |
 | `src/libraries/z42.core/tests/reflection.z42` | MODIFY | `CreateInstance<T>` 往返 [Test]（用户类 / ctor 副作用 / 泛型方法内转发） |
 | `src/compiler/z42c.semantics/src/Bound.z42` | MODIFY | `BoundCall.MethodTypeArgFwd`（与 MethodTypeArgs 平行的转发下标数组） |
-| `src/compiler/z42c.semantics/src/MemberResolver.z42` | MODIFY | `_applyMethodTypeArgs` 填 fwd：类型实参是方法级形参 → 记 `MethodParamIndexOf` |
-| `src/compiler/z42c.semantics/src/CallEmitter.z42` | MODIFY | `_methodTypeArgNames` 据 fwd 发 `$mta:<idx>` 标记 |
+| `src/compiler/z42c.semantics/src/Binding/MemberResolver.z42` | MODIFY | `_applyMethodTypeArgs` 填 fwd：类型实参是方法级形参 → 记 `MethodParamIndexOf` |
+| `src/compiler/z42c.semantics/src/Emission/CallEmitter.z42` | MODIFY | `_methodTypeArgNames` 据 fwd 发 `$mta:<idx>` 标记 |
 | `src/runtime/src/interp/mod.rs` | MODIFY | `resolve_forwarded_mta` helper（按调用方 frame 解析 `$mta:N`） |
 | `src/runtime/src/interp/exec_call.rs` | MODIFY | 静态调用入口解析转发标记 |
 | `src/runtime/src/interp/exec_vcall.rs` | MODIFY | 实例/null-recv vcall 入口解析转发标记 |
@@ -36,8 +36,8 @@
 
 **只读引用**：
 - `src/runtime/src/corelib/reflection.rs`（`builtin_activator_create` / `make_type_from_name` — 理解 native + 短名兜底）
-- `src/compiler/z42c.semantics/src/TypeEnv.z42`（`MethodParamIndexOf` — 方法级形参下标映射）
-- `src/compiler/z42c.semantics/src/TypeOpTyper.z42`（`typeof(T)` → MethodTypeArgInsn，理解方法级形参物化）
+- `src/compiler/z42c.semantics/src/Types/TypeEnv.z42`（`MethodParamIndexOf` — 方法级形参下标映射）
+- `src/compiler/z42c.semantics/src/Binding/TypeOpTyper.z42`（`typeof(T)` → MethodTypeArgInsn，理解方法级形参物化）
 
 ## Out of Scope
 - 带参 `CreateInstance<T>(args...)` / `CreateInstance(Type, object[])`（参数化构造）→ Deferred（用 `ConstructorInfo.Invoke` 已可，#249）。

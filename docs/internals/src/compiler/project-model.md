@@ -348,7 +348,7 @@ preserved 早退**（`fix-analyzer-diags-preserved`）。早退路径只能回�
 | 包级缓存身份 | `z42c.driver/src/Main.z42`（拼 `depsId`）、`z42c.pipeline/src/DepIdentity.z42`、`IncrementalDriver.z42`、`CacheStore.z42` |
 | 依赖扫描 | `z42c.pipeline/src/DepScan.z42`；跨成员 memo：`DepScanCache.z42`（F2） |
 | 依赖索引 | `z42c.ir/src/DependencyIndex.z42` |
-| 跨包符号加载（TSIG） | `z42c.semantics/src/ImportedSymbolLoader.z42`；调和：`z42c.project/src/TsigReconcile.z42` |
+| 跨包符号加载（TSIG） | `z42c.semantics/src/Symbols/ImportedSymbolLoader.z42`；调和：`z42c.project/src/TsigReconcile.z42` |
 | 工作区规划 | `z42c.pipeline/src/WorkspaceBuild.z42`；增量：`IncrementalBuild.z42` |
 | 产物组装 | `z42c.project/src/ZpkgBuilder.z42`、`ZpkgWriter.z42` |
 | 编译期扩展解析域 / `[analyzers]` 解析 | 编译器目录 `z42c.pipeline/src/BuildSession.z42`（`CompilerDomain.Dirs`）；SDK 库可见性 `z42c.pipeline/src/SdkLibs.z42`；`z42c.driver/src/BuildPaths.z42`（`_resolveHandlerZpkgs` / `_handlerFingerprint`）；`${compiler_libs}` 宏 `ExeDeps.z42`；接线在 `Main.z42` |

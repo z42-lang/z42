@@ -816,7 +816,7 @@ VM interp:  ObjNew 时创建实例化 TypeDesc（填充 type_args）
 
 ### 设计：shadow-only mangling
 
-[`Z42ClassType`](../../../../src/compiler/z42c.semantics/src/Z42Type.z42) 增 `IrName` 派生属性 + `HasArityMangle` 标志：
+[`Z42ClassType`](../../../../src/compiler/z42c.semantics/src/Types/Z42Type.z42) 增 `IrName` 派生属性 + `HasArityMangle` 标志：
 
 | 场景 | Registry key | `IrName` | `HasArityMangle` |
 |------|-------------|---------|-----------------|

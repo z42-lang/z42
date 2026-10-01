@@ -44,8 +44,8 @@
 
 ## Scope（允许改动的文件）
 
-- `src/compiler/z42c.semantics/src/TypeFactsTc.z42`（转发 + 删 `_capFirst`）
-- `src/compiler/z42c.semantics/src/EmitContext.z42`（转发 + 改正注释）
+- `src/compiler/z42c.semantics/src/Types/TypeFactsTc.z42`（转发 + 删 `_capFirst`）
+- `src/compiler/z42c.semantics/src/Emission/EmitContext.z42`（转发 + 改正注释）
 - `src/compiler/z42c.pipeline/src/CacheStore.z42`（指纹 35 → **37**，让号见下）
 
 ## Tasks

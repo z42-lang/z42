@@ -91,7 +91,7 @@
 | [`src/runtime/crates/z42-abi`](../../../../src/runtime/crates/z42-abi) | Tier 1 的 Rust 镜像（结构体 + 冻结 tag 常量 + `extern "C"` 声明） |
 | [`src/runtime/crates/z42-rs`](../../../../src/runtime/crates/z42-rs) | 面向用户的门面 crate（`Z42Type` trait + helper） |
 | [`src/runtime/crates/z42-macros`](../../../../src/runtime/crates/z42-macros) | proc macro：`methods_attr` / `module_macro` / `shim` / `signature` |
-| `src/compiler/z42c.semantics/src/StubEmitter.z42` | 编译器侧：`[Native]` → `CallNativeInstr` / `BuiltinInstr` 的分流 |
+| `src/compiler/z42c.semantics/src/Emission/StubEmitter.z42` | 编译器侧：`[Native]` → `CallNativeInstr` / `BuiltinInstr` 的分流 |
 
 整条通路由 cargo feature **`native-interop`** 门控（`= ["dep:libffi", "dep:libloading"]`，在默认
 feature 集里）。wasm 构建关掉它后，`VmContext` 上的 `register_native_type` / `resolve_native_type`

@@ -61,7 +61,7 @@ if (!symbols.HasClass("Exception")) { return; }
 
 ## Scope
 
-- `src/compiler/z42c.semantics/src/StmtBinder.z42`
+- `src/compiler/z42c.semantics/src/Binding/StmtBinder.z42`
 - `src/compiler/z42c.semantics/tests/typecheck/catch_type_tests.z42`（新，7 条）
 - `src/compiler/z42c.pipeline/src/CacheStore.z42`（指纹 39 → 41）
 - `docs/reference/src/appendix/error-codes.md`（E0420 状态：⚠️ 零发射 → ✅）

@@ -560,7 +560,7 @@ getter 是真实函数体。
 
 #### prim 接收者实例方法的 type-based 重载决议
 
-基元接收者（`string` / `int` / `char` …）的实例方法调用，绑定走 `MemberResolver._bindInstanceMemberCall` 的 **prim-wrapper 分支**（`z42c.semantics/src/MemberResolver.z42:129`）：把关键字名映射到 stdlib 包装类（`"string"→"String"`，`TypeFactsTc._primWrapper`），在包装类上解析方法、取真实返回类型，产出 `BoundCall(OwnerClass=PrimModel.Keyword(...), MethodName=派发键)`。
+基元接收者（`string` / `int` / `char` …）的实例方法调用，绑定走 `MemberResolver._bindInstanceMemberCall` 的 **prim-wrapper 分支**（`z42c.semantics/src/Binding/MemberResolver.z42:129`）：把关键字名映射到 stdlib 包装类（`"string"→"String"`，`TypeFactsTc._primWrapper`），在包装类上解析方法、取真实返回类型，产出 `BoundCall(OwnerClass=PrimModel.Keyword(...), MethodName=派发键)`。
 
 **缺陷（`add-prim-instance-type-overload` 前）**：该分支只用 `_overloadKey`（`name$arity`）+ `_findMethod` 查方法键——**不做类型决议**。当包装类有**同 arity 不同类型**的重载（如 `String.Split(string)` / `Split(char[])`）时，`MemberCollector` 已把它们 mangle 成 `Split$1$string` / `Split$1$char[]`（`OverloadResolver.MangleKey`），`_overloadKey` 试 `Split$1` 查不到 → 回退裸 `Split`：
 
@@ -620,7 +620,7 @@ ResolveMapped: 适用集里找唯一「支配所有其它」的候选
 
 #### prim 类型的静态字段读（`int.MaxValue`）
 
-裸类型名的静态字段读（`Type.FIELD`）绑定走 `MemberResolver._bindMember`（`z42c.semantics/src/MemberResolver.z42:17`）：`target` 是类名（非变量）且该类有同名 `static` 字段 → 产 `BoundStaticGet`，emit `StaticGetInstr @<FQN>.<field>`，运行期由 VM 启动的 `<ns>.__static_init__` pass 初始化（`src/runtime/src/interp/mod.rs` `init_static_fields`，机制同 `Std.Math.Pi`）。
+裸类型名的静态字段读（`Type.FIELD`）绑定走 `MemberResolver._bindMember`（`z42c.semantics/src/Binding/MemberResolver.z42:17`）：`target` 是类名（非变量）且该类有同名 `static` 字段 → 产 `BoundStaticGet`，emit `StaticGetInstr @<FQN>.<field>`，运行期由 VM 启动的 `<ns>.__static_init__` pass 初始化（`src/runtime/src/interp/mod.rs` `init_static_fields`，机制同 `Std.Math.Pi`）。
 
 **缺陷（`add-scalar-static-fields` 前）**：标量基元（`int` / `double` / …）在符号表里**只以包装名 keying**（`Int32` / `Double`，`SymbolTable.Classes`），关键字别名 `int` 的 `HasClass("int")` 为 false → 该分支跳过 → `int.MaxValue` 落到实例 `FieldGet`（受者为裸类型名求值出的 Null）→ 运行期 `FieldGet: not an object or known value type, got Null`。
 
@@ -632,7 +632,7 @@ ResolveMapped: 适用集里找唯一「支配所有其它」的候选
 经 `TypeChecker.CheckImplicitConvert`，因此**没有实参专用的诊断码**：无转换报 `E0402`，
 存在显式转换但缺 cast 报 `E0439`（并自动继承「常量在范围内例外」，`TakeByte(48)` 与 `byte b = 48;` 同待遇）。
 
-**汇聚点**：`OverloadBinder.BindArgsToSignature`（`z42c.semantics/src/OverloadBinder.z42`）。
+**汇聚点**：`OverloadBinder.BindArgsToSignature`（`z42c.semantics/src/Binding/OverloadBinder.z42`）。
 全仓 20+ 处调用它，覆盖 free / local-fn / static / instance / interface / instantiated /
 prim-wrapper / indirect 全部调用形态；每处都在构造 `BoundCall` **之前**、默认值填充与 params 打包
 **之前**——即实参仍是「原始位置形状」的时刻。
@@ -829,7 +829,7 @@ primary = **声明序第一个**同名成员（跨 partial 碎片按碎片加载
 
 #### 数组类型（`Z42ArrayType`）的检查
 
-`T[]` 在语义层是 `Z42ArrayType { Elem }`（`src/compiler/z42c.semantics/src/Z42Type.z42:562`，
+`T[]` 在语义层是 `Z42ArrayType { Elem }`（`src/compiler/z42c.semantics/src/Types/Z42Type.z42:562`，
 **不变，无协变**）。TypeChecker 侧三条：`new T[n]` 校验 `n` 为 `int`；`arr[i]` 校验 `arr` 是数组
 类型、`i` 是 `int`，结果类型取元素类型；`.Length` 仅允许在数组类型上访问、返回 `int`。
 多维下标 `a[i, j]` 报 E0402（`ExprTyper.z42:151`，提示改用 `a[i][j]`）。
@@ -961,8 +961,8 @@ z42 无独立的 finally 执行机制——`StmtEmitter._emitTry`（语句 & 控
 |------|---------|
 | 词法 | `z42c.syntax/src/Lexer.z42`、`Token.z42`、`TokenKind.z42` |
 | 语法 | `z42c.syntax/src/Parser.z42` + `ExprParser` / `DeclParser` / `MemberParser` / `StmtParser` / `TypeParser`；AST：`Ast.z42` / `Decl.z42` / `Stmt.z42` / `TypeExpr.z42` |
-| 类型检查 | `z42c.semantics/src/TypeChecker.z42`、`SymbolCollector.z42`、`SymbolTable.z42`、`OverloadResolver.z42`、`ConstraintChecker.z42`；产物：`Bound.z42`、`SemanticModel.z42` |
-| IR 生成 | `z42c.semantics/src/IrGen.z42`、`FunctionEmitter.z42`（函数级 hub：函数入口/静态 init/lambda 与局部函数 lift/签名装配 + 共享状态 EmitContext·ExprEmitter·finally 栈，语句发射委派 `StmtEmitter`）、`StmtEmitter.z42`（语句 & 控制流簇：`_emitStmt` 调度 + if/for/while/do-while/switch/foreach + try/catch/finally，经 hub 反向引用单向委回）、`ExprEmitter.z42`（表达式发射入口/dispatch，按职责分解为 `CallEmitter`（call/new/method-group）、`TypeOpEmitter`（is/typeof/cast/box/convert）、`OperatorEmitter`（binary/unary/条件/switch-expr/struct 相等）、`AccessEmitter`（assign/member/index/ident + struct 值语义机制）四个协作发射簇）、`EmitContext.z42`；IR 模型：`z42c.ir/src/IrModule.z42`、`IrInstr.z42`、`IrType.z42` |
+| 类型检查 | `z42c.semantics/src/Binding/TypeChecker.z42`、`SymbolCollector.z42`、`SymbolTable.z42`、`OverloadResolver.z42`、`ConstraintChecker.z42`；产物：`Bound.z42`、`SemanticModel.z42` |
+| IR 生成 | `z42c.semantics/src/Emission/IrGen.z42`、`FunctionEmitter.z42`（函数级 hub：函数入口/静态 init/lambda 与局部函数 lift/签名装配 + 共享状态 EmitContext·ExprEmitter·finally 栈，语句发射委派 `StmtEmitter`）、`StmtEmitter.z42`（语句 & 控制流簇：`_emitStmt` 调度 + if/for/while/do-while/switch/foreach + try/catch/finally，经 hub 反向引用单向委回）、`ExprEmitter.z42`（表达式发射入口/dispatch，按职责分解为 `CallEmitter`（call/new/method-group）、`TypeOpEmitter`（is/typeof/cast/box/convert）、`OperatorEmitter`（binary/unary/条件/switch-expr/struct 相等）、`AccessEmitter`（assign/member/index/ident + struct 值语义机制）四个协作发射簇）、`EmitContext.z42`；IR 模型：`z42c.ir/src/IrModule.z42`、`IrInstr.z42`、`IrType.z42` |
 | 写出 | `z42c.ir/src/BinaryFormat/ZbcWriter.z42`、`ZbcFormat.z42`、`ZbcInstr.z42` |
 
 ## 边界与限制

@@ -1,6 +1,6 @@
 # 访问权限强制（Access control）
 
-> 对齐：2026-08-12（enforce-access-control）｜ 代码：`src/compiler/z42c.semantics/src/AccessChecker.z42` + `MemberResolver.z42` / `ExprTyper.z42`（绑定簇：`AssignTyper` / `ConstructTyper` / `TypeOpTyper`）
+> 对齐：2026-08-12（enforce-access-control）｜ 代码：`src/compiler/z42c.semantics/src/Binding/AccessChecker.z42` + `MemberResolver.z42` / `ExprTyper.z42`（绑定簇：`AssignTyper` / `ConstructTyper` / `TypeOpTyper`）
 
 z42 的访问修饰符（`public` / `private` / `protected` / `internal`）遵循 **C# 语义**，并在编译期
 **强制**：违规成员访问 emit `E0404 AccessViolation`。此前修饰符只被解析、存进符号表与 zpkg 元数据，

@@ -86,8 +86,8 @@ include = ["tests/exit_ok.z42"]
 | `src/toolchain/builder/core/builder_test.z42` | MODIFY | 目标解析（`[[test]]` + `[tests]` glob）+ `--name` + 遍历建/跑 |
 | `src/toolchain/builder/core/builder_build.z42`（或 `_buildProject` 所在文件） | MODIFY | 加「按给定源集 + 依赖集 + 输出路径建目标」的路径；packed 强制 |
 | `src/compiler/z42c.pipeline/src/PackageCompile.z42` | MODIFY | `CompileInputs` 加「父包名」（internal 放行用） |
-| `src/compiler/z42c.semantics/src/ImportedSymbolLoader.z42` | MODIFY | 被加载包 == 父包 → 不设 `IsImported` |
-| `src/compiler/z42c.semantics/src/DeclEnforcer.z42` | MODIFY | 非测试目标里出现 `[Test]`/`[Benchmark]` → 新码 |
+| `src/compiler/z42c.semantics/src/Symbols/ImportedSymbolLoader.z42` | MODIFY | 被加载包 == 父包 → 不设 `IsImported` |
+| `src/compiler/z42c.semantics/src/Validation/DeclEnforcer.z42` | MODIFY | 非测试目标里出现 `[Test]`/`[Benchmark]` → 新码 |
 | `src/libraries/z42c.core/src/DiagnosticCodes.z42` | MODIFY | 新码 E0457 |
 | `src/libraries/z42.project/src/RunTarget.z42` | MODIFY | `entry` 变可选（`harness=false` 不再必填） |
 | `scripts/test/xtask_test_lib_units.z42` | MODIFY | 合成 manifest 退休 → 转发 z42b |

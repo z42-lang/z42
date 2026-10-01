@@ -38,7 +38,7 @@ Dictionary<string,int> ed     = {};                     // 空 Dict（目标类�
 - 元素形如 `expr : expr`（冒号对）→ **Dictionary**；
 - 裸 `expr`（无冒号）→ **List**；
 - 空 `{}` → 由目标类型定；无目标类型、或目标不是 `List<..>` / `Dictionary<..>` → 报 **E0402**
-  （发射点 `src/compiler/z42c.semantics/src/CollectionTyper.z42:132` / `:141`）；
+  （发射点 `src/compiler/z42c.semantics/src/Binding/CollectionTyper.z42:132` / `:141`）；
 - `字段 = 值`（`new Type { X = 1 }`）→ [对象初始化器](object-initializers.md)，不是本页的形态。
 
 同一 `{}` 内混用冒号对与裸元素 → 报错。

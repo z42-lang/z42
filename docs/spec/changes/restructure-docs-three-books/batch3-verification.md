@@ -59,7 +59,7 @@
 根因：`src/libraries/z42c.syntax/src/MemberParser.z42:340` ——
 `if (Kind == Ref || Kind == Out || Kind == In) { _advance(); isRef = true; }`，
 三个修饰符在 AST 上塌成同一个 `Param.IsRef` 布尔（`Decl.z42:12`）。
-硬证：`src/compiler/z42c.semantics/src/IrEscapeAnalysis.z42:99` 注释原文
+硬证：`src/compiler/z42c.semantics/src/Optimization/IrEscapeAnalysis.z42:99` 注释原文
 「callee 的 IR 完全看不见 `ref` 修饰（`Param.IsRef` 只影响 caller 侧发 `load_local_addr`）」。
 
 | # | 规则 | 实测 |

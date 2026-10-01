@@ -14,13 +14,13 @@ docs/roadmap.md -> design/toolchain/packaging.md#packaging-future-mobile-mobile-
 docs/roadmap.md -> design/toolchain/packaging.md#packaging-future-selector-packagestoml-自动发现全-selector
 docs/roadmap.md -> design/toolchain/packaging.md#packaging-future-artifact-naming-xtask-真正读-packagestoml-的-artifact-字段驱动包命名
 docs/roadmap.md -> design/toolchain/packaging.md#packaging-future-byte-identical-verification-端到端字节一致验证补跑
-docs/spec/changes/add-collection-literals/design.md -> ../../../src/compiler/z42c.semantics/src/BenchmarkDesugar.z42
+docs/spec/changes/add-collection-literals/design.md -> ../../../src/compiler/z42c.semantics/src/Lowering/BenchmarkDesugar.z42
 docs/spec/changes/add-partial-types/design.md -> ../../../src/runtime/src/metadata/loader.rs
 docs/spec/changes/add-partial-types/design.md -> ../../../src/runtime/src/metadata/merge.rs
-docs/spec/changes/add-partial-types/design.md -> ../../../src/compiler/z42c.semantics/src/IrGen.z42#L713
+docs/spec/changes/add-partial-types/design.md -> ../../../src/compiler/z42c.semantics/src/Emission/IrGen.z42#L713
 docs/spec/changes/add-partial-types/design.md -> ../../../src/compiler/z42c.syntax/src/TokenKind.z42
 docs/spec/changes/add-partial-types/design.md -> ../../../src/compiler/z42c.syntax/src/DeclParser.z42
-docs/spec/changes/attribute-handler-registry/specs/param-default-representation/spec.md -> ../../../../../src/compiler/z42c.semantics/src/OverloadBinder.z42
+docs/spec/changes/attribute-handler-registry/specs/param-default-representation/spec.md -> ../../../../../src/compiler/z42c.semantics/src/Binding/OverloadBinder.z42
 docs/spec/changes/converge-z42c-onto-z42-project/proposal.md -> ../../../src/libraries/z42.workspace.toml
 docs/spec/changes/investigate-concurrent-gc-stale-mark-race/design.md -> ../../../src/runtime/src/gc/arc_heap.rs#L498
 docs/spec/changes/investigate-concurrent-gc-stale-mark-race/design.md -> ../../../src/runtime/src/gc/arc_heap.rs#L1091
