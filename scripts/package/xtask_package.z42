@@ -4,9 +4,7 @@
 // Desktop builds two artifacts: SDK (z42c+z42vm+libs) + runtime pkg.
 namespace Z42Xtask;
 
-using Std;
 using Std.IO;
-using Std.Cli;
 using Std.Time;
 
 // ── shared setup / finish (merge-package-release) ───────────────────────────

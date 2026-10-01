@@ -3,7 +3,6 @@
 // 每条断言失败都打印命令、退出码与输出，便于直接定位。
 namespace Z42Xtask;
 
-using Std;
 using Std.IO;
 
 // 在 `cwd` 下运行打包出的 z42。清掉 xtask / CI 注入的 Z42_* 变量，确保走的是包内自带的运行时与标准库。

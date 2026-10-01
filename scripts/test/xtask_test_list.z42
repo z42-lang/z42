@@ -10,7 +10,6 @@
 // cargo, bench) are NOT case-granular; see docs/workflow/testing/verify-by-change.md.
 namespace Z42Xtask;
 
-using Std;
 using Std.IO;
 using Std.Cli;
 

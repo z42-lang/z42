@@ -18,7 +18,6 @@
 // here. The file-classification / git-output helpers below are module-private.
 namespace Z42Xtask;
 
-using Std;
 using Std.IO;
 using Std.Time;
 using Std.Cli;

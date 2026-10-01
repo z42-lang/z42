@@ -6,7 +6,6 @@
 // _exec/_root/_buildRuntime/_utcNow in xtask.z42 / xtask_package.z42.
 namespace Z42Xtask;
 
-using Std;
 using Std.IO;
 using Std.Json;
 using Std.Cli;

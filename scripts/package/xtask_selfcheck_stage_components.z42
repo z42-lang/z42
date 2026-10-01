@@ -14,7 +14,6 @@
 // repo's real, already-built stdlib dist for the stdlib handler.
 namespace Z42Xtask;
 
-using Std;
 using Std.IO;
 
 void _stgAssert(string what, bool cond) {

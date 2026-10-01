@@ -19,7 +19,6 @@
 //     fails loudly instead of silently assembling a partial package
 namespace Z42Xtask;
 
-using Std;
 using Std.IO;
 
 void _asmAssert(string what, bool cond) {

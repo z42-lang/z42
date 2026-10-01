@@ -23,7 +23,6 @@
 // _hasReleasePkg.
 namespace Z42Xtask;
 
-using Std;
 using Std.IO;
 
 // `test dist [interp|jit]` body — run in-process. Returns 0 on pass, 1 on any

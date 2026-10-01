@@ -23,7 +23,6 @@
 // 共同守着，本门只守「repo 外不按名字前缀猜」那一格。
 namespace Z42Xtask;
 
-using Std;
 using Std.IO;
 using Z42.Project;   // BuildLayout / ManifestLoader（z42b 产物位置）
 

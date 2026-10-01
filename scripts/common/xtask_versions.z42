@@ -7,7 +7,6 @@
 //   - root-based (_vRead/_vReadOr): convenience that parses versions.toml fresh.
 namespace Z42Xtask;
 
-using Std;
 using Std.IO;
 using Std.Toml;
 

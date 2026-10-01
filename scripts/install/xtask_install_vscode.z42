@@ -18,7 +18,6 @@
 // install 不留 --check flag——deps 收敛后一个动词一个语义）。
 namespace Z42Xtask;
 
-using Std;
 using Std.IO;
 using Std.Time;
 

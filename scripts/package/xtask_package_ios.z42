@@ -13,7 +13,6 @@
 // [platform.ios] (SoT). Same Z42Xtask namespace; reuses _exec/_root/_ridToCargo/...
 namespace Z42Xtask;
 
-using Std;
 using Std.IO;
 using Std.Time;
 

@@ -7,9 +7,7 @@
 // 同 Z42Xtask 命名空间，跨文件裸名互调。
 namespace Z42Xtask;
 
-using Std;
 using Std.IO;
-using Std.Cli;
 // One enumerated corpus case (structural descriptor, rid-independent). Shared SoT
 // for both the embedded bundle builder (_buildTestBundle) and the `test list`
 // catalog (_testList) — one enumeration, two consumers, no drift.

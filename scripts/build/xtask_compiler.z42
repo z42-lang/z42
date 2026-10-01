@@ -15,8 +15,8 @@
 // 对账留待 0.3.3 起子系统有真实产物时上；本期只做 build + 产物存在性 smoke。
 namespace Z42Xtask;
 
-using Std;
 using Std.IO;
+using Std.Time;
 
 // z42c 自建走自种子路径（z42c builds z42c）。
 // 种子 = 现有 canonical z42c dist（self-seed；clean/CI 由下载 nightly 提供）。

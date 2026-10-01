@@ -20,7 +20,6 @@
 // + one line in _dispatch.
 namespace Z42Xtask;
 
-using Std;
 using Std.IO;
 using Std.Cli;
 

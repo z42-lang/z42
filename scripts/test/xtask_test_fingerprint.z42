@@ -13,7 +13,6 @@
 // 覆盖面 = stdlib 实际走到的编译器路径；stdlib 没用到的 codegen 分支测不到（假阴性，不会假阳性）。
 namespace Z42Xtask;
 
-using Std;
 using Std.IO;
 using Std.Cli;
 using Std.Time;

@@ -7,9 +7,7 @@
 // 拆分后降到上限以下的文件在下次 `--update` 时自动从基线消失（只降不升）。
 namespace Z42Xtask;
 
-using Std;
 using Std.IO;
-using Std.Cli;
 using Std.Time;
 
 // 文件行数上限（code-organization.md）。

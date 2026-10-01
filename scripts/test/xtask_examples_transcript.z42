@@ -9,8 +9,6 @@
 // 运行 / 沙箱见 xtask_examples_run.z42，书引用校验见 xtask_examples_book.z42。
 namespace Z42Xtask;
 
-using Std;
-using Std.IO;
 
 class TranscriptStep {
     public string   Command  { get; set; }   // `$ ` 之后的原文

@@ -30,7 +30,6 @@
 // 就拦截的裸直通，属于入口层而非某个命令族。
 namespace Z42Xtask;
 
-using Std;
 using Std.IO;
 
 void Main() {

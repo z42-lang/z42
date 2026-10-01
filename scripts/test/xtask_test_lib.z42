@@ -9,9 +9,7 @@
 // (tests/<name>/source.z42) synthesise a mini-manifest + `z42c build`.
 namespace Z42Xtask;
 
-using Std;
 using Std.IO;
-using Std.Toml;
 using Std.Time;
 using Std.Cli;
 

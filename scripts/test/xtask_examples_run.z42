@@ -6,7 +6,6 @@
 // 可执行的命令：`z42 …`（SDK 里的 launcher），内建 `cd <dir>` / `cat <file>` / `ls [dir]`。
 namespace Z42Xtask;
 
-using Std;
 using Std.IO;
 
 class ExampleRunResult {

@@ -11,7 +11,6 @@
 //   B9 examples 下每个章节目录都对应一页     B10 SUMMARY 与页面文件一一对应
 namespace Z42Xtask;
 
-using Std;
 using Std.IO;
 
 // 返回违规条数（每条已打印）。

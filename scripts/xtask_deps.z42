@@ -14,11 +14,11 @@
 // _scalarStr。Entry: `xtask deps check [--os <p>]`.
 namespace Z42Xtask;
 
-using Std;
 using Std.IO;
 using Std.Toml;
 using Std.Regex;
 using Std.Cli;
+using Std.Time;
 
 int _depsCheckRun(string os) {
     if (os.Length > 0 && os != "android" && os != "ios" && os != "wasm") {

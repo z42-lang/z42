@@ -9,7 +9,6 @@
 // z42c self byte-identity is covered by the fixpoint in xtask_compiler.z42).
 namespace Z42Xtask;
 
-using Std;
 using Std.IO;
 
 // e2e（port-z42c-zbc-writer ZW-1B）：z42c 自举编译器产 .zbc → z42vm 真实执行。

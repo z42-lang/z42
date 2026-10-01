@@ -16,7 +16,6 @@
 // _isNonRegenCat. Tally + return 1 on any failure.
 namespace Z42Xtask;
 
-using Std;
 using Std.IO;
 
 // `xtask build test` — compile the golden test assets (src/tests + library tests →

@@ -7,7 +7,6 @@
 // 例外（fix-output-dir-aux-outputs）：单工程 `--output-dir` 不写 cache（该路径从不读），见 ④。
 namespace Z42Xtask;
 
-using Std;
 using Std.IO;
 
 int _e2eCacheBuild(string vm, string driverZpkg, string cwd, string[] args, string flat) {

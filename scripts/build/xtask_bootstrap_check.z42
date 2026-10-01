@@ -40,7 +40,6 @@
 // `_ensureBootstrapSelfDepLibs` path runs inside the ci-bootstrap action.
 namespace Z42Xtask;
 
-using Std;
 using Std.IO;
 using Std.Time;
 

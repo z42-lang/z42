@@ -24,7 +24,6 @@
 // "declared-only" indexing and break Std.Cli / Std.Io / Z42.Build resolution.
 namespace Z42Xtask;
 
-using Std;
 using Std.IO;
 using Z42.Project;
 

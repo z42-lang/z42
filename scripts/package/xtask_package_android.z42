@@ -24,7 +24,6 @@
 // xtask_common.z42 / xtask_package.z42 / xtask_package_desktop.z42. versions.toml = SoT.
 namespace Z42Xtask;
 
-using Std;
 using Std.IO;
 using Std.Time;
 

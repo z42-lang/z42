@@ -9,7 +9,6 @@
 // 各自打印自己的数。修前第一个成员打印的是第二个成员的代码（或加载失败）。
 namespace Z42Xtask;
 
-using Std;
 using Std.IO;
 
 string _e2eWsFlatMemberToml(string name) {

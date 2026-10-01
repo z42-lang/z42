@@ -12,7 +12,6 @@
 // REQUIRES the wasm-bindgen output (pkg-web/ + pkg-nodejs/) pre-built (CI: wasm-pack).
 namespace Z42Xtask;
 
-using Std;
 using Std.IO;
 using Std.Time;
 

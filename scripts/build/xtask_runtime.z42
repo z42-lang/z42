@@ -3,7 +3,6 @@
 // handler，不是 CLI 入口的一部分，xtask.z42 只该留 Main 与 run 直通。
 namespace Z42Xtask;
 
-using Std;
 using Std.IO;
 using Std.Time;   // Stopwatch — _procStart/_procEnd 进程计时标记
 

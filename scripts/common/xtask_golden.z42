@@ -5,7 +5,6 @@
 // Same Z42Xtask namespace.
 namespace Z42Xtask;
 
-using Std;
 using Std.IO;
 
 // Enumerate immediate subdirectories of `dir`, returning sorted basenames.

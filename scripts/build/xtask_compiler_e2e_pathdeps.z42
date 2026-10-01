@@ -8,7 +8,6 @@
 // 两格都取「能编 + 能跑」的行为判据。工程落 repo 外（`_e2eTmpRoot`，按树分）。
 namespace Z42Xtask;
 
-using Std;
 using Std.IO;
 
 int _e2ePathDepScopeChecks(string root, string vm, string driverZpkg) {

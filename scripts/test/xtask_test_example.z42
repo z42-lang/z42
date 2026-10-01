@@ -10,7 +10,6 @@
 // xtask_manifest_targets.z42）与 fixture 工具准备（_prepFixtureTooling）。
 namespace Z42Xtask;
 
-using Std;
 using Std.IO;
 using Z42.Project;
 

@@ -55,7 +55,6 @@
 // 的种子」这个事实（同 diagcodes ⑥ 的取舍）。挂账天数是个能在纯文本扫描里算出来的近似。
 namespace Z42Xtask;
 
-using Std;
 using Std.IO;
 
 string _s2BaselinePath() { return "scripts/test/stage2-debt.txt"; }

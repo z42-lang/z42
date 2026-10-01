@@ -20,7 +20,6 @@
 // Same Z42Xtask namespace; calls _root/_exec/_have... defined here + in xtask.z42.
 namespace Z42Xtask;
 
-using Std;
 using Std.IO;
 using Std.Toml;
 using Std.Cli;

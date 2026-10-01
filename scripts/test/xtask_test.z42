@@ -3,9 +3,7 @@
 // _regenCore/_at defined in xtask.z42 (cross-file, same namespace).
 namespace Z42Xtask;
 
-using Std;
 using Std.IO;
-using Std.Toml;
 using Std.Time;
 using Std.Cli;
 

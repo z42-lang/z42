@@ -90,9 +90,7 @@
 // 纪律的**常设配套**、不是过渡形态——它盯的是「过渡期的字面量有没有被评审看见」。
 namespace Z42Xtask;
 
-using Std;
 using Std.IO;
-using Std.Cli;
 using Std.Time;
 
 string _dcBaselinePath() { return "scripts/test/diag-literal-emitters.txt"; }

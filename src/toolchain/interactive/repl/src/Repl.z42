@@ -2,7 +2,6 @@
 // 脚本引擎内部原语（内存加载 / 反射调用）= Std.Scripting.Engine。均由 z42vm builtin 承载。
 namespace Std.Repl;
 
-using Std;
 using Z42.Syntax;   // Lexer —— 关键字表的唯一 SoT（语法着色用）
 
 // 交互式行编辑器（rustyline，见 z42vm corelib/repl.rs）。EOF/Ctrl-D → null。
