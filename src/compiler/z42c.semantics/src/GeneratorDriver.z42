@@ -371,6 +371,14 @@ public static class GeneratorDriver {
     private static CompilationUnit _parseGen(string src, string file, DiagnosticBag diags) {
         var p = new Parser(src, file);
         CompilationUnit raw = p.ParseCompilationUnit();
+        // 碎片的 using 是编译器替它从宿主抄来的（见 `_usingsOf`），不是用户写的 ⇒ 标 `Injected`，
+        // 不参与多余 using 告警（W0607 / W0608）。否则碎片里用不到的那几条会让用户对着一个看不见的
+        // `__gen$…` 文件收到 warning（实测 forward_tiers_cross_pkg 一次报 4 条）。
+        int ui = 0;
+        while (ui < raw.DeclCount) {
+            if (raw.Decls[ui] is UsingDecl) { (raw.Decls[ui] as UsingDecl).Injected = true; }
+            ui = ui + 1;
+        }
         return HandlerRegistry.RunAst(raw);
     }
 
