@@ -540,17 +540,8 @@ public sealed partial class SymbolTable {
                 }
                 return sci;
             }
-            int _sl1 = this.Interfaces.Find(n);
-            if (_sl1 >= 0) {
-                Z42InterfaceType idef = this.Interfaces.ValAt(_sl1) as Z42InterfaceType;
-                if (nt.ArgCount > 0) {
-                    Z42Type[] itargs = new Z42Type[nt.ArgCount];
-                    int ia = 0;
-                    while (ia < nt.ArgCount) { itargs[ia] = this.ResolveTypeP(nt.Args[ia], paramNames, paramCount); ia = ia + 1; }
-                    return new Z42InstantiatedInterfaceType(idef, itargs, nt.ArgCount);
-                }
-                return idef;
-            }
+            // A5b-2d：接口的短名表回落已删 —— 上面的作用域解析不中 = 本作用域看不见它。
+
             // arity-mangle：泛型实例化 `C<T...>` 对 arity-overloaded 同名类（arity-0 base
             // shadow 着 arity-N 泛型，泛型版注册键 `Name$N`，如 MulticastException$1）须取 `Name$N`，
             // 否则误取 arity-0 base → new/throw 出非泛型 base，catch `C<int>` 失配。镜像
@@ -595,26 +586,8 @@ public sealed partial class SymbolTable {
                 }
                 return scc;
             }
-            if (nt.ArgCount > 0) {
-                string mangled = n + "$" + nt.ArgCount.ToString();
-                if (this.Classes.ContainsKey(mangled)) {
-                    Z42ClassType gdef = this.Classes.Get(mangled) as Z42ClassType;
-                    Z42Type[] gtargs = new Z42Type[nt.ArgCount];
-                    int ga = 0;
-                    while (ga < nt.ArgCount) { gtargs[ga] = this.ResolveTypeP(nt.Args[ga], paramNames, paramCount); ga = ga + 1; }
-                    return new Z42InstantiatedType(gdef, gtargs, nt.ArgCount);
-                }
-            }
-            if (this.Classes.ContainsKey(n)) {
-                Z42ClassType def = this.Classes.Get(n) as Z42ClassType;
-                if (nt.ArgCount > 0) {       // 泛型实例化 Box<int>（2A-2；非 overloaded 泛型）
-                    Z42Type[] targs = new Z42Type[nt.ArgCount];
-                    int a = 0;
-                    while (a < nt.ArgCount) { targs[a] = this.ResolveTypeP(nt.Args[a], paramNames, paramCount); a = a + 1; }
-                    return new Z42InstantiatedType(def, targs, nt.ArgCount);
-                }
-                return def;
-            }
+            // A5b-2d：类的短名表回落（arity-mangle 键 / 裸名）已删 —— 同上。
+
             // add-nested-types：嵌套类型 `Outer.Inner`（点串）→ `+` 键（展平已按 `Outer+Inner` 短键注册）。
             // 只命中真注册的嵌套键；namespace-qualified（`Std.Console`→`Std+Console` 未注册）自然跳过、
             // 落到下方限定名回退。任意深度（`A.B.C`→`A+B+C`）。
@@ -644,22 +617,22 @@ public sealed partial class SymbolTable {
                 }
                 string plusKey = n.Replace(".", "+");
                 if (this.EnumTypes.ContainsKey(plusKey)) { return this.EnumType(plusKey); }   // make-enum-distinct-type：嵌套 enum 同款
-                int _sl2 = this.Interfaces.Find(plusKey); if (_sl2 >= 0) { return this.Interfaces.ValAt(_sl2) as Z42InterfaceType; }
+                Z42InterfaceType pift = this._resolveIface(plusKey); if (pift != null) { return pift; }   // A5b-2d：嵌套键也走作用域解析
                 // fix-nested-delegate-decl（bug B1）：嵌套 delegate `Outer.Inner` → `Outer+Inner` 键。
                 // 与上面嵌套 enum / 接口的 plusKey 兜底同款（NestedFlatten 已按 `+` 名注册）。
                 int _sld = this.Delegates.Find(plusKey); if (_sld >= 0) { return this.Delegates.ValAt(_sld) as Z42FuncType; }
                 if (nt.ArgCount > 0) {
                     string pm = plusKey + "$" + nt.ArgCount.ToString();
-                    if (this.Classes.ContainsKey(pm)) {
-                        Z42ClassType pgdef = this.Classes.Get(pm) as Z42ClassType;
+                    Z42ClassType pgdef = this._resolveClass(pm);   // A5b-2d：同上
+                    if (pgdef != null) {
                         Z42Type[] pta = new Z42Type[nt.ArgCount];
                         int pa = 0;
                         while (pa < nt.ArgCount) { pta[pa] = this.ResolveTypeP(nt.Args[pa], paramNames, paramCount); pa = pa + 1; }
                         return new Z42InstantiatedType(pgdef, pta, nt.ArgCount);
                     }
                 }
-                if (this.Classes.ContainsKey(plusKey)) {
-                    Z42ClassType pdef = this.Classes.Get(plusKey) as Z42ClassType;
+                Z42ClassType pdef = this._resolveClass(plusKey);   // A5b-2d：同上
+                if (pdef != null) {
                     if (nt.ArgCount > 0) {
                         Z42Type[] pta2 = new Z42Type[nt.ArgCount];
                         int pa2 = 0;
@@ -669,40 +642,8 @@ public sealed partial class SymbolTable {
                     return pdef;
                 }
             }
-            // 限定名回退（G19b）：源码写 "Std.Attribute" 时 NamedType.Name 保含点串；
-            // 类注册用裸名（SymbolCollector line 139），点串查不到 → 取最后段重查。
-            // 镜像 C# MemberType→类型系统能按最后段找到类；SIGS 仍输出 "unknown"（TypeName 不处理 MemberType）。
-            // z42.core String has no LastIndexOf; find last '.' manually.
-            int lastDot = -1;
-            int di = 0;
-            while (di < n.Length) {
-                if (n.CharAt(di) == '.') { lastDot = di; }
-                di = di + 1;
-            }
-            if (lastDot >= 0) {
-                string bare = n.Substring(lastDot + 1);
-                int _sl3 = this.Interfaces.Find(bare); if (_sl3 >= 0) { return this.Interfaces.ValAt(_sl3) as Z42InterfaceType; }
-                if (nt.ArgCount > 0) {   // arity-mangle（同上，限定名路径）
-                    string bmangled = bare + "$" + nt.ArgCount.ToString();
-                    if (this.Classes.ContainsKey(bmangled)) {
-                        Z42ClassType bgdef = this.Classes.Get(bmangled) as Z42ClassType;
-                        Z42Type[] bgtargs = new Z42Type[nt.ArgCount];
-                        int bga = 0;
-                        while (bga < nt.ArgCount) { bgtargs[bga] = this.ResolveTypeP(nt.Args[bga], paramNames, paramCount); bga = bga + 1; }
-                        return new Z42InstantiatedType(bgdef, bgtargs, nt.ArgCount);
-                    }
-                }
-                if (this.Classes.ContainsKey(bare)) {
-                    Z42ClassType bdef = this.Classes.Get(bare) as Z42ClassType;
-                    if (nt.ArgCount > 0) {
-                        Z42Type[] btargs = new Z42Type[nt.ArgCount];
-                        int ba = 0;
-                        while (ba < nt.ArgCount) { btargs[ba] = this.ResolveTypeP(nt.Args[ba], paramNames, paramCount); ba = ba + 1; }
-                        return new Z42InstantiatedType(bdef, btargs, nt.ArgCount);
-                    }
-                    return bdef;
-                }
-            }
+            // 限定名回退（G19b：`X.Y` 剥成最后一段 `Y` 再查短名表）—— A5b-2d 已删：限定名由上方 FQN 精确查找承接；
+            // 剥短名再撞短名表会把写错前缀的 `Foo.Bar` 绑到任意一个 `Bar`。
             // 具名 NamedType 全解析路径未命中 → 真未定义类型（imported 类已经 SymbolCollector
             // 进 table.Classes 命中上方；泛型形参/别名/void/prim 亦已前置返回）。携名 → E0443。
             Z42UnknownType un = new Z42UnknownType();
