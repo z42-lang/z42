@@ -10,7 +10,7 @@ pack    = true
 [sources]
 include = ["**/*.z42"]
 
-# `Std.*` 不列：xtask 总是带着完整的 `Z42_LIBS`（SDK 的 libs/ 或 build-tree 的 alllibs）运行，
+# `Std.*` 不列：xtask 总是带着完整的 `Z42_LIBS`（`.z42` SDK 的 libs/）运行，
 # z42c 从那儿解析每个 `using Std.*`（Cli/IO/Toml/Json/Regex；z42.core 是 prelude）——
 # 对这个 dev 工具来说显式列表是冗余的。（库/SDK 工程仍然显式声明依赖。）
 #

@@ -99,13 +99,12 @@ cross-zpkg 一轮 ≈198MB 的纯拷贝；有害的是「写到别名上」，�
 
 这样 `build/` 仍完整镜像 `src/`（每条路径都能映回一个 `src/` 位置），同时给 VM 与打包一个稳定的聚合点。
 
-## 3. `tmp/`：各命令的工作目录，与 `build/views/`
+## 3. `tmp/`：各命令的工作目录
 
 判据：**它会不会被别的步骤当作「产物」消费？** 会 → `build/`；只是某个命令自己用 → `tmp/<name>/`。
 
 | 目录 | 谁用 | 是什么 |
 |---|---|---|
-| `build/views/<profile>/all` | 工具链编译 / `test stdlib` / `test compiler` units / bench / xtask publish hook | **alllibs**：stdlib + 编译器成员**拷**到一起的单一查找点（driver 的兄弟包与被测 stdlib 必须同处一目录）。每次使用前重新组装。曾是 hard-link，relocate-compiler-domain-libs 改成拷贝——它上了关键路径后，别名撕开 zpkg/zsym 配对让 1128 个 golden 假红。**不变式：其中的 stdlib 只来自 flat dist** —— 见下 |
 | `tmp/stdlib-run/<profile>` | `build stdlib` 阶段二 | stdlib 的稳定快照，供正在重编 stdlib 的 driver 当 `Z42_LIBS` |
 | `tmp/seed-run-libs/<profile>` | 种子 driver 调用 | 与种子 driver 同代的运行期 libs 快照 |
 | `tmp/selfhost-gen1` | `test compiler` | 不动点验证的 gen1 快照 |
@@ -117,27 +116,36 @@ cross-zpkg 一轮 ≈198MB 的纯拷贝；有害的是「写到别名上」，�
 | `tmp/exec-profile` | bench / profile | 执行画像探测 |
 | `tmp/install-test-*` | `test packages` | 打包自检的一次性目录 |
 
-> 2026-09-30 前这里是 `.scratch/`（跨步骤复用）与 `tmp/`（自检一次性）两个桶，alllibs 也在 `.scratch/`。
-> 两个桶的生命周期没有实质差别（都可重生、都不进包、都没被 `clean` 覆盖），合成一个；alllibs 按上面的
-> 判据是被别的步骤消费的产物，挪进 `build/views/`。`scripts/hooks/hooks.z42` 另写了一份 alllibs 路径
-> （hooks 工程调不到 xtask 函数），改位置时要同步。
+> 2026-09-30 前这里是 `.scratch/`（跨步骤复用）与 `tmp/`（自检一次性）两个桶，生命周期没有实质差别
+> （都可重生、都不进包、都没被 `clean` 覆盖），合成一个。
 
-### `alllibs` 的不变式：stdlib 只来自 flat dist
+### 开发树里编译器包从哪来：没有 alllibs
 
-`relocate-compiler-domain-libs` 之后，**每个编译器成员的 `release/dist/` 里都有一份 stdlib 副本**
-（用来让该包自己的依赖闭包自洽）。`alllibs` 要把「stdlib + 编译器成员」拼成一个目录，于是这些
-同名副本就成了陷阱：**谁后拷谁赢**。
+开发树的 `Z42_LIBS` 只是 **stdlib flat**（`build/libraries/dist/release`）。编译器域的包（`z42c.*` / `z42.project` /
+`z42.build` / `z42.package` / `z42.scripting`）分两种场合：
 
-⇒ 不变式：`alllibs` 里的 stdlib **一律来自 flat dist**（`artifacts/build/libraries/dist/release`），
-编译器成员 dist 的同名 zpkg 一个都不得覆盖它。`_assembleAllLibs` 两条手段一起用：成员那一轮走
-「不覆盖已存在目标」的拷贝，assemble 完再逐字节对账一次（不匹配就抛，因为 `_copyAll` 是吞异常的
-best-effort，拷贝失败也会让旧副本顶上）。
+| 场合 | 从哪解析 |
+|---|---|
+| **编译期**（driver 编工具链程序 / 编译器单元测试 / 带 SDK 库的工程）| 按名声明的 SDK 库，driver 从编译器目录解析（`CompilerDomain` 开发树档）|
+| **运行期**（z42b 自身依赖 `z42.build` / `z42.project` + 注入 `z42c.pipeline`；它为编译器单元测试 fork 的子 VM）| xtask 给 z42b 进程挂 `Z42_PROBING_PATHS` = 各编译器成员的 dist（`_withCompilerProbing`）|
 
-为什么必须是不变式而不是「注意拷贝顺序」：`ci-bootstrap` 的 **`[3/5] build compiler` 在
-`[4/5] build stdlib` 之前**，所以编译器域里留下的**必然是上一代** stdlib（冷启动时就是种子那代）。
-一旦被它顶掉，`test stdlib` / `test compiler` units / bench 全部在测上一代的 stdlib，而症状离现场
-极远 —— PR #955 实测：命令明明被显式喂了 `Z42_LIBS=artifacts/build/libraries/dist/release`，
-跑的却是旧 stdlib，只有「断言新改的 stdlib 消息文本」的那几条用例判红，本地同一条命令全绿。
+两条不变式，都由代码守着而不是靠约定：
+
+- **probing 里不能有 stdlib**。probing 排在 `Z42_LIBS` **之前**，有 stdlib 就会把 flat 里的新版本遮蔽成旧的。
+  所以不含 `z42c.driver` 的 dist（它是自包含闭包，带整套 stdlib 副本），其余成员 dist 逐目录断言只有它自己
+  （`_compilerProbingPaths`，违反即抛）。
+- **只给 z42b 进程挂，不放进 xtask 自身环境**。`Z42_PROBING_PATHS` 会**覆盖**程序侧车的 `probing-paths`，全局一设，
+  测 probing / `deploy = "sdk"` 的那些用例就被干扰了。
+
+工具链程序（launcher / z42b / z42d / z42i）用到的编译器包在各自清单里写 `deploy = "shared"`：不复制进发布包，运行期经
+`probing-paths = "../z42c"`。
+
+> **历史：alllibs（`build/views/<profile>/all`，2026-10-01 删除）**。此前因为 VM 的 `Z42_LIBS` 只能是一个目录，xtask
+> 把 stdlib flat 与全部编译器成员 dist **拷**进一个目录当唯一的 `Z42_LIBS`。代价有两个：
+> ① 编译器 dist 里的 stdlib 副本会把新 stdlib 遮蔽成旧的。PR #955 实测：命令显式喂了 flat，跑的却是旧 stdlib；
+> 只能靠「先 flat 后成员、不覆盖」的拷贝顺序加事后逐字节对账兜住。② 工具链程序在它下面编译时，编译器包被当成
+> 「框架」不复制——发布包里有没有它们取决于构建环境，而不是清单。只编译、且被编的东西只用 stdlib 的地方
+> （profile / bench / GC 压力 / embedded golden）其实一直不需要它。
 
 ## 4. 清理
 

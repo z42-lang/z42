@@ -140,12 +140,13 @@ z42c 自身 7 包不用这些写法 → 旧 byte-identical 门（仅 z42c 自身
 > **已部分超越（simplify-compiler-build, 2026-07-05）**：`z42c build` 编 exe 时现自动把非
 > stdlib 依赖复制进输出 dist（.NET 式自包含），故 `z42c.driver` dist 已**自带** 6 个
 > `z42c.*` 兄弟包——跑它时 `Z42_LIBS` 只需 stdlib，z42vm 从 driver 自身目录解析兄弟包。
-> 下面「合并 z42c+stdlib 到 alllibs」的手工步骤只对**非自包含**旧产物需要；当前机制见
+> 下面「合并 z42c+stdlib 到一个 flat 目录」的手工步骤只对**非自包含**旧产物需要；当前机制见
 > [`docs/internals/src/devinfra/build.md`](../../../internals/src/devinfra/build.md)。
 
-**运行期 `Z42_LIBS` 是单个目录（非 colon-list），且必须含全部依赖 zpkg。** 跑 z42c 产物
-（driver / 测试）时，先把「z42c 7 包 + stdlib」**合并到一个 flat 目录**（`xtask test
-compiler` 自动组装 `artifacts/build/views/<profile>/all/`），再 `Z42_LIBS=<该目录>`：
+**运行期 `Z42_LIBS` 是单个目录（非 colon-list），且必须含全部依赖 zpkg。** 跑**非自包含**的 z42c 产物时，
+先把「z42c 7 包 + stdlib」**合并到一个 flat 目录**，再 `Z42_LIBS=<该目录>`。（xtask 自己已不这么做：
+`Z42_LIBS` = stdlib flat，要加载编译器包的 z42b / 单元测试经 `Z42_PROBING_PATHS` 拿各编译器成员的 dist，
+见 [产物布局](../devinfra/artifacts-layout.md)。）
 
 ```
 Z42_PORTABLE_VM=<z42vm> Z42_LIBS=<flat 含 z42c.*+z42.*> z42vm z42c.driver.zpkg

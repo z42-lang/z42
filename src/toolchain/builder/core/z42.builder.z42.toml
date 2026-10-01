@@ -30,10 +30,10 @@ include = ["builder_cli.z42", "builder_test.z42", "builder_device.z42", "builder
 # 而 2026-09-29 起它成了**唯一一份** —— 那个包只剩这一处副本，已删。
 #
 # 🔴 **但它不再是「stdlib-only」了**（relocate-compiler-domain-libs，2026-09-27）：`z42.build` /
-# `z42.project` 已随整个编译器域挪去 `src/compiler/`，不在 shipped `libs/` 里。它们仍按**名字**
-# 依赖（下方未显式列出，经 `Z42_LIBS` 解析）—— 构建 z42b 的四个调用点一律传 alllibs
-# （stdlib + compiler 成员的扁平并集，见 `_buildZ42bWith` / `_ensureZ42b` 头注）。
-# 发布态则靠 `probing-paths = "../z42c"` 找它们（与 z42i 同形态），**不复制**。
+# `z42.project` 已随整个编译器域挪去 `src/compiler/`，不在 shipped `libs/` 里——它们是 **SDK 库**，按名声明、
+# `deploy = "shared"`：编译期由 driver 从编译器目录解析，**不复制**进 z42b 的发布包；发布态运行期靠
+# `probing-paths = "../z42c"`（与 z42i 同形态）。此前不写 deploy、靠构建时 Z42_LIBS 是 alllibs 把它们当「框架」
+# 才不复制——是否复制取决于构建环境，drop-alllibs（2026-10-01）起改由这里显式声明。
 # ⇒ 这段注释原话是「z42.build/z42.project 均为 stdlib → 不破 stdlib-only」，挪动后已不成立。
 "z42.core"    = "0.1.0"   # String / core / Platform / Std.Reflection (Activator/Type)
 "z42.io"      = "0.1.0"   # Console / File / Directory / Path / Process / Environment
@@ -41,8 +41,8 @@ include = ["builder_cli.z42", "builder_test.z42", "builder_device.z42", "builder
 "z42.test"    = "0.1.0"   # Std.Test.Runner + ModuleLoader + BundleRunner（反射 runner + bundle 执行）
 "z42.json"    = "0.1.0"   # JsonValue.Parse — read a test-bundle manifest in `z42b test --rid host`
 "z42.toml"    = "0.1.0"   # TomlValue.Parse — read [platform.desktop] in `z42b publish`
-"z42.build"   = "0.1.0"   # ICompiler 接口 + Pipeline 八相位（编排；接口经动态注入绑定实现）
-"z42.project" = "0.1.0"   # ProjectManifest / ManifestLoader（build/new/export 动词读清单）
+"z42.build"   = { version = "0.1.0", deploy = "shared" }   # ICompiler 接口 + Pipeline 八相位（编排；接口经动态注入绑定实现）
+"z42.project" = { version = "0.1.0", deploy = "shared" }   # ProjectManifest / ManifestLoader（build/new/export 动词读清单）
 
 [build]
 # 产物落共享 artifacts 树：artifacts/build/toolchain/builder/{dist,.cache,publish}
@@ -62,8 +62,8 @@ mode = "interp"
 # `package-host(windows-x64)` 当场红在 `no compiler injected` —— 整串被当成一条不存在的路径。
 # **这条限制是 #816 自己记下的，我却先踩了一遍。**
 #
-# 开发树不需要第二条：`ModuleSearch.Dirs()` 的末项本来就是 `libs`，而开发树下它指向
-# alllibs（stdlib + 全部 compiler member，见 `_assembleAllLibs`）—— 编译器组件在那儿。
+# 开发树不需要第二条：xtask 运行 z42b 时经 `Z42_PROBING_PATHS` 给出各编译器成员的 dist（`_withCompilerProbing`，
+# drop-alllibs 2026-10-01；此前靠 Z42_LIBS 指向 stdlib + 编译器包拷成的 alllibs）。
 probing-paths = "../z42c"
 
 # apphost-as-config: this binary publishes a native desktop apphost.

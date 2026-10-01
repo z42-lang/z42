@@ -47,9 +47,9 @@ string _e2eAnalyzerTomlDecl(string name, string kind, bool declare) {
          + (declare ? "\n[dependencies]\n\"z42c.semantics\" = \"0.1.0\"\n" : "");
 }
 
-// 🔴 **Z42_LIBS 必须是纯 stdlib dist，不能用 e2e 其余检查那个 `flat`**。
-// `flat`（`_assembleAllLibs`）把 stdlib **与全部 compiler member**（含 z42c.semantics）硬链进
-// 同一个 alllibs/ 目录给测试用 —— 在那个环境里编译器包对**所有**工程可见，②格恒绿、门等于没有。
+// 🔴 **Z42_LIBS 必须是纯 stdlib dist**（历史：e2e 的 `flat` 曾是 alllibs——stdlib **与全部 compiler member**
+// 拷进同一目录——在那个环境里编译器包对**所有**工程可见，②格恒绿、门等于没有；drop-alllibs 后 `flat` 也是纯 stdlib，
+// 这里仍显式取 `_libsFlatDist`，不依赖调用方传什么）。
 // 这里改用 `_libsFlatDist`（真·stdlib 扁平 dist），analyzer 工程靠 `CompilerDomain.Dirs()` 拿到契约包
 // （本检查显式传 `Z42_COMPILER_LIBS`；未传时的开发树档 = 自 Z42_LIBS 上溯到 artifacts/build/ 再拼
 // `compiler/z42c.driver/release/dist`）。

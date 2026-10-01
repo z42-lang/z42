@@ -91,12 +91,8 @@ int _pkgBuildToolchainComponents(string root, string z42cDir, string cargoOut, s
     // per-RID stub AND the publish template (Z42_APPHOST_TEMPLATE) for z42/z42c/z42b.
     // NOT shipped in the SDK (Decision 9); delivered via the desktop workload.
     int c = _cargo(rel, "build", "src/toolchain/workload/desktop/platform/apphost/Cargo.toml", cargoTarget, ""); if (c != 0) { return c; }
-    // 🔴 下面每次编译都取 `_toolchainCompileLibs(root)`（= alllibs：stdlib + compiler 成员），
-    // 不是 `_libsDir`（纯 stdlib flat）：relocate-compiler-domain-libs 之后 launcher / z42b /
-    // z42d / workload 依赖的 `Z42.Project` / `Z42.Build` / `Z42.Package` 住编译器域，纯 stdlib flat
-    // 里没有 ⇒ 用 `_libsDir` 会报 `[dependencies] z42.project 未找到…已查找：…/libraries/dist/release`
-    // （#921 四轮 CI 的 package-host ×4 / test-consume 死在 `[2c/5] z42 launcher`）。
-    // ⚠️ 本文件其余 `_libsDir` 是**把 libs 拷进包**（那是发布内容，必须只含 stdlib），别一起改。
+    // 编译解析面 = `_toolchainCompileLibs(root)`（纯 stdlib flat；工具链程序用到的编译器域包是按名声明、
+    // `deploy = "shared"` 的 SDK 库，由 driver 从编译器目录解析，见该函数头注）。
     // replace-csharp Phase C: components built with z42c (host z42vm + colocated
     // z42c.driver.zpkg), NOT `dotnet run`. Host z42vm compiles regardless of target
     // rid → RID-independent zpkgs. Built into Z42_LIBS first so later components
@@ -117,14 +113,9 @@ int _pkgBuildToolchainComponents(string root, string z42cDir, string cargoOut, s
     };
     int bi = 0;
     while (bi < buildTomls.Length) {
-        // 🔴 **每轮重新装配解析面**：本循环是「边建边被后面的项依赖」——workload ×4 先建，
-        // 紧随的 launcher / z42b / z42d 依赖 `z42.workload.*`。而 alllibs 是**一次性快照**
-        // （`_assembleAllLibs` 把 flat + 编译器域成员 link 进一个目录），装配时那 4 个
-        // workload 还不存在 ⇒ 后面的项报
-        // `[dependencies] z42.workload.ios 未找到…已查找：…/.scratch/alllibs/release`（#921 五轮 CI 实测）。
-        // `_assembleAllLibs` 是幂等 relink（clean + link），每轮重装成本很低。
-        // ⚠️ 这是「快照 vs 实时目录」的经典错：原来传 `_libsDir`（**实时**的 flat，workload 产物就落那儿）
-        // 时天然没这个问题；换成快照后必须自己负责刷新。
+        // 本循环「边建边被后面的项依赖」（workload ×4 先建，launcher / z42b / z42d 依赖 `z42.workload.*`）——
+        // 解析面是**实时**的 stdlib flat（workload 产物就落那儿），每轮都看得到前面刚建的。（alllibs 时代它是一次性
+        // 快照、必须每轮重装，#921 五轮 CI 踩过；drop-alllibs 后天然没这个问题。）
         c = _z42cBuildToml(hostVm, z42cDir, _toolchainCompileLibs(root), buildTomls[bi]);
         if (c != 0) { return c; }
         bi = bi + 1;
@@ -311,7 +302,8 @@ int _z42cBuildToml(string vm, string z42cDir, string libs, string toml) {
 // 「publish 只负责部署已编好的字节」正是本函数一贯的契约，此前靠「zpkg 存在就不编」
 // 隐式成立；那条隐式规则就是 stale payload 的病根，故这里改成显式声明。
 int _z42bPublish(string vm, string z42bZpkg, string libs, string apphostStub, string toml, string rid, string outputDir) {
-    return _exec(new Process(vm)
+    // z42b 运行期要加载编译器包（`z42.build` / `z42.project` + 注入的 `z42c.pipeline`）⇒ 挂编译器 probing（drop-alllibs）。
+    return _exec(_withCompilerProbing(new Process(vm), _root())
         .Arg(z42bZpkg).Arg("--mode").Arg(_z42cMode())
         .Arg("--").Arg("publish").Arg(toml).Arg("--rid").Arg(rid).Arg("--output").Arg(outputDir)
         .Arg("--no-build")

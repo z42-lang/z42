@@ -1,6 +1,6 @@
 // xtask — stdlib [Test] harness (split from xtask_test.z42, 2026-06-30, for the
 // 500-line code-org limit). Same Z42Xtask namespace; calls _root/_exec/_builtVm/
-// _builtBin/_buildStdlib/_buildRuntime/_assembleAllLibs/_compilerMembers/
+// _builtBin/_buildStdlib/_buildRuntime/_libsDir/_compilerMembers/
 // _cleanGlob/_linkAll/_sortedStrings/_parseShard etc. cross-file (same namespace).
 //
 // `test stdlib|bench [lib]`: discover each src/libraries/<lib>/tests|bench/*,
@@ -154,7 +154,7 @@ int _testLibCore(string kind, string[] reqLibsIn, bool noBuild, string filter, s
     // extend-ab-bench-micro-criterion Part B: ovVm/ovDriver/ovLibs (empty = derive
     // from in-tree). When all set, use that PROVIDED toolchain (a pre-built base
     // toolchain — vm + z42c.driver.zpkg + flat libs dir) instead of `_builtVm` /
-    // `_driverZpkg` / `_assembleAllLibs`, and skip the in-tree rebuild. The micro
+    // `_driverZpkg` / `_libsDir`, and skip the in-tree rebuild. The micro
     // A/B base capture points these at the same `.ab-base-alllibs` the e2e A/B uses,
     // so base benchmarks compile+run against a proven-consistent base stdlib.
     string label  = (kind == "bench") ? "bench" : "test";
@@ -186,17 +186,13 @@ int _testLibCore(string kind, string[] reqLibsIn, bool noBuild, string filter, s
     // (<lib>/<profile>/tests/{dist,cache}/) instead of a throwaway temp dir, so
     // they're inspectable, incrementally cached, and visible to the CI
     // release-guard. _compileTestUnit derives the path from root + lib.
-    // compile toolchain: z42vm + z42c.driver.zpkg + a single flat
-    // Z42_LIBS dir. z42c.driver runs as a packed zpkg whose OWN siblings
-    // (z42c.project / z42c.semantics / …) must be resolvable at runtime, AND
-    // the stdlib the test units depend on must live in the SAME dir (the VM
-    // takes one dir, not a colon-list). Mirror _testCompilerUnits' alllibs
-    // flat: link the stdlib dist + the 7 z42c members into one dir. Computed
-    // once; handed to z42b（转发路径）so every unit compiles via z42c,
-    // not `dotnet z42c.dll`.
+    // compile toolchain: z42vm + z42c.driver.zpkg + Z42_LIBS = 纯 stdlib flat（drop-alllibs）。driver 的 dist
+    // 自包含；编译器域的测试库（_allTestableLibs）按名声明的编译器包由 driver 从编译器目录解析；z42b 运行期
+    // 加载编译器包经 `_withCompilerProbing`（z42b 启动点统一挂）。override（--vm/--driver/--libs，bench A/B 的
+    // base 侧）照旧用调用方给的目录。
     string vm = useOverride ? ovVm : _builtVm(root, "release");
     string driverZpkg = useOverride ? ovDriver : _driverZpkg(root, "release");
-    string libs = useOverride ? ovLibs : _assembleAllLibs(root, "release");
+    string libs = useOverride ? ovLibs : _libsDir(root);
     // retire-test-runner: the reflective runner is z42b (z42.builder.zpkg), run
     // via z42vm — replaces the deleted Rust z42-test-runner. z42b loads each
     // compiled test/bench artifact (Std.Test.ModuleLoader) and runs its

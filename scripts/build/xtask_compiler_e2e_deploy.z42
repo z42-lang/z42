@@ -777,7 +777,7 @@ int _e2eZ42bClosureChecks(string root, string vm) {
     File.WriteAllText(Path.Join(appDir,  "ncapp.z42.toml"), _e2eZ42bExeToml());
 
     string appToml = Path.Join(appDir, "ncapp.z42.toml");
-    ProcessResult b = new Process(vm).Arg(z42b).Arg("--").Arg("build").Arg(appToml).Arg("--release")
+    ProcessResult b = _withCompilerProbing(new Process(vm), _root()).Arg(z42b).Arg("--").Arg("build").Arg(appToml).Arg("--release")
         .Env("Z42_LIBS", libsDir).Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
     string all = b.Stdout + b.Stderr;
     // ① 编得过（改前：E0494 命名空间不存在）。

@@ -114,7 +114,7 @@ string[] _listUnitsViaZ42b(string root, string projToml, string kind, string fil
                            string mode, string vm, string builderZpkg, string libs,
                            ref bool ok) {
     string verb = (kind == "bench") ? "bench" : "test";
-    Process p = new Process(vm).Arg("--mode").Arg(mode).Arg(builderZpkg)
+    Process p = _withCompilerProbing(new Process(vm), _root()).Arg("--mode").Arg(mode).Arg(builderZpkg)
         .Arg("--").Arg(verb).Arg(projToml).Arg("--list");
     if (filter.Length > 0) { p = p.Arg("--filter").Arg(filter); }
     ProcessResult r = p.Env("Z42_LIBS", libs).WorkingDirectory(root).Run();
@@ -170,7 +170,7 @@ int _runUnitsViaZ42b(string root, string projToml, string[] names, int nUnits, s
         ProcessHandle[] rh = new ProcessHandle[bsz];
         int b = 0;
         while (b < bsz) {
-            Process pr = new Process(vm).Arg("--mode").Arg(mode).Arg(builderZpkg)
+            Process pr = _withCompilerProbing(new Process(vm), _root()).Arg("--mode").Arg(mode).Arg(builderZpkg)
                 .Arg("--").Arg(verb).Arg(projToml).Arg("--name").Arg(names[i + b]);
             if (outRoot.Length > 0) { pr = pr.Arg("--out-root").Arg(outRoot); }
             if (i > 0) { pr = pr.Arg("--reuse-parent"); }
@@ -227,7 +227,7 @@ bool _z42bSupportsOutRoot(string vm, string builderZpkg, string libs) {
     if (Z42bCaps.ProbedFor == builderZpkg) { return Z42bCaps.OutRoot; }
     bool ok = false;
     try {
-        ProcessResult r = new Process(vm).Arg(builderZpkg).Arg("--").Arg("test").Arg("--help")
+        ProcessResult r = _withCompilerProbing(new Process(vm), _root()).Arg(builderZpkg).Arg("--").Arg("test").Arg("--help")
             .Env("Z42_LIBS", libs).Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
         ok = (r.Stdout + r.Stderr).IndexOf("--out-root") >= 0;
     } catch (Exception e) { ok = false; }
