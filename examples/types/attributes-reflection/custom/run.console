@@ -3,12 +3,12 @@ $ z42 run custom.z42
 POST /users
 贴着 RouteAttribute
 贴着 DocAttribute
+# ANCHOR_END: readback
+# ANCHOR: carriers
 字段 Version：接口版本
 属性 Title：展示名
 方法 List：列出用户
   形参 page：页号
-# ANCHOR_END: readback
-# ANCHOR: carriers
 # ANCHOR_END: carriers
 # ANCHOR: suffix
 $ z42 run suffix.z42
