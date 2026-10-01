@@ -178,7 +178,7 @@ public sealed class ExhaustChecker {
         int i = 0;
         while (i < names.Length) {
             string cn = names[i];
-            Z42ClassType ct = env.Symbols.GetClass(cn);
+            Z42ClassType ct = env.Symbols.Classes.Get(cn) as Z42ClassType;   // 遍历的就是本表的键 ⇒ 直接取值，不走作用域解析
             if (ct != null && !ct.IsImported) {
                 bool isStrictSub = (cn != tn) && env.Symbols.IsSubclassOf(cn, tn);
                 if (isStrictSub) { subCount = subCount + 1; }

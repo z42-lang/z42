@@ -331,10 +331,12 @@ public sealed class TypeChecker {
         TypeChecker._sortOrdinal(names);
         int i = 0;
         while (i < names.Length) {
-            Z42ClassType b = syms.GetClass(names[i]);
+            // 键就是本表的键 ⇒ 直接取值，不走 `GetClass`（作用域解析：别的 ns 的导入类在这里查不到 → 落裸名回落；
+            // 每次 cast 分类为 None 都会扫一遍整表，z42.io 实测 3614 次回落全出自这里）。
+            Z42ClassType b = syms.Classes.Get(names[i]) as Z42ClassType;
             if (b != null && b.Name() != from.Name() && b.Name() != to.Name()) {
-                if (Conversion._classifyUser(from, b, syms).Kind != ConvKind.None
-                    && Conversion._classifyUser(b, to, syms).Kind != ConvKind.None) {
+                if (Conversion._classifyUserToCt(from, b, syms).Kind != ConvKind.None
+                    && Conversion._classifyUserFromCt(b, to, syms).Kind != ConvKind.None) {
                     return b.Name();
                 }
             }

@@ -90,9 +90,29 @@ public static class Conversion {
         return Conversion._findConvOn(to.Name(), from, to, symbols);
     }
 
+    // 中间类型 B **已是对象**时用（`TypeChecker._suggestVia` 从类表里逐个取出）：B 那一侧直接查对象，
+    // 不拿 `B.Name()`（短名）回 `GetClass` —— 那会按调用点作用域再解析一遍：查不到就落进裸名回落
+    // （z42.io 实测 3614 次，A5b-2c 的头号阻塞），本地有同短名类时还会查错类。
+    public static ConvResult _classifyUserToCt(Z42Type from, Z42ClassType to, SymbolTable symbols) {
+        if (from == null || to == null || symbols == null) { return new ConvResult(ConvKind.None); }
+        ConvResult r = Conversion._findConvOn(from.Name(), from, to, symbols);
+        if (r.Kind != ConvKind.None) { return r; }
+        return Conversion._findConvIn(to, from, to);
+    }
+    public static ConvResult _classifyUserFromCt(Z42ClassType from, Z42Type to, SymbolTable symbols) {
+        if (from == null || to == null || symbols == null) { return new ConvResult(ConvKind.None); }
+        ConvResult r = Conversion._findConvIn(from, from, to);
+        if (r.Kind != ConvKind.None) { return r; }
+        return Conversion._findConvOn(to.Name(), from, to, symbols);
+    }
+
     private static ConvResult _findConvOn(string clsName, Z42Type from, Z42Type to, SymbolTable symbols) {
         if (!symbols.HasClass(clsName)) { return new ConvResult(ConvKind.None); }
-        Z42ClassType ct = symbols.GetClass(clsName);
+        return Conversion._findConvIn(symbols.GetClass(clsName), from, to);
+    }
+
+    private static ConvResult _findConvIn(Z42ClassType ct, Z42Type from, Z42Type to) {
+        if (ct == null) { return new ConvResult(ConvKind.None); }
         string fromC = from.CanonName();
         string toC = to.CanonName();
         int cap = ct.Methods.Capacity();   // perf-compiler-lookup-tables：槽位直扫（同 Keys() 序），免分配
