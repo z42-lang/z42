@@ -127,7 +127,7 @@ cross-zpkg 一轮 ≈198MB 的纯拷贝；有害的是「写到别名上」，�
 | 场合 | 从哪解析 |
 |---|---|
 | **编译期**（driver 编工具链程序 / 编译器单元测试 / 带 SDK 库的工程）| 按名声明的 SDK 库，driver 从编译器目录解析（`CompilerDomain` 开发树档）|
-| **运行期**（z42b 自身依赖 `z42.build` / `z42.project` + 注入 `z42c.pipeline`；它为编译器单元测试 fork 的子 VM）| xtask 给 z42b 进程挂 `Z42_PROBING_PATHS` = 各编译器成员的 dist（`_withCompilerProbing`）|
+| **运行期**（z42b 自身依赖 `z42.build` / `z42.project` + 注入 `z42c.pipeline`；它为编译器单元测试 fork 的子 VM）| xtask 给 z42b 进程挂 `Z42_PROBING_PATHS` = 各编译器成员的 dist（`_z42bProc`）|
 
 两条不变式，都由代码守着而不是靠约定：
 

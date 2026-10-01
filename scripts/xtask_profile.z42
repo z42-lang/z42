@@ -85,8 +85,8 @@ int _profile(ParseResult r) {
     Directory.Create(outDir);
     string zbc = Path.Join(outDir, baseName + ".zbc");
     Console.WriteLine("→ compiling " + script + " → " + zbc);
-    int cc = _exec(new Process(vm).Arg(driverZpkg).Arg("--mode").Arg(_z42cMode()).Arg("--")
-        .Arg("--emit-zbc").Arg(srcAbs).Arg(zbc).Env("Z42_LIBS", flat));
+    int cc = _exec(_z42Proc(vm, flat).Arg(driverZpkg).Arg("--mode").Arg(_z42cMode()).Arg("--")
+        .Arg("--emit-zbc").Arg(srcAbs).Arg(zbc));
     if (cc != 0) { ConsoleError.WriteLine("error: compile failed"); return cc; }
 
     ProfileCtx ctx = new ProfileCtx();
@@ -133,10 +133,9 @@ string _profileCpu(ProfileCtx c) {
     } else {
         string prof = Path.Join(c.outDir, "cpu-profile.json.gz");
         // `samply record --save-only -o <out> -- <vm> <zbc> <entry> --mode <m>`
-        int rc = _exec(new Process("samply").Arg("record").Arg("--save-only")
+        int rc = _exec(_z42Proc("samply", c.libs).Arg("record").Arg("--save-only")
             .Arg("-o").Arg(prof).Arg("--")
-            .Arg(c.vm).Arg(c.zbc).Arg(c.entry).Arg("--mode").Arg(c.mode)
-            .Env("Z42_LIBS", c.libs));
+            .Arg(c.vm).Arg(c.zbc).Arg(c.entry).Arg("--mode").Arg(c.mode));
         if (rc != 0) {
             Console.WriteLine("  ✗ samply record failed (rc=" + rc.ToString() + ")");
             report = report + "_samply record failed (rc=" + rc.ToString() + ")._\n\n";
@@ -156,8 +155,7 @@ string _profileCpuZ42(ProfileCtx c) {
     string folded = Path.Join(c.outDir, "z42-samples.folded");
     string trace = Path.Join(c.outDir, "z42-trace.json");
     // Sample at 4000 Hz so even short scripts collect enough samples; trace on.
-    ProcessResult pr = new Process(c.vm).Arg(c.zbc).Arg(c.entry).Arg("--mode").Arg(c.mode)
-        .Env("Z42_LIBS", c.libs)
+    ProcessResult pr = _z42Proc(c.vm, c.libs).Arg(c.zbc).Arg(c.entry).Arg("--mode").Arg(c.mode)
         .Env("Z42_SAMPLE_HZ", "4000")
         .Env("Z42_SAMPLE_OUT", folded)
         .Env("Z42_TRACE_OUT", trace)
@@ -213,10 +211,10 @@ string _profileHeap(ProfileCtx c) {
     }
     string dhatVm = Path.Join(tdir, Path.Join("release", "z42vm"));
     // dhat writes dhat-heap.json to cwd → run in outDir so it lands there.
-    ProcessResult pr = new Process(dhatVm).Arg(c.zbc).Arg(c.entry).Arg("--mode").Arg(c.mode)
+    ProcessResult pr = _z42Proc(dhatVm, c.libs).Arg(c.zbc).Arg(c.entry).Arg("--mode").Arg(c.mode)
         .Arg("--stats=json")
         .WorkingDirectory(c.outDir)
-        .Env("Z42_LIBS", c.libs).Run();
+        .Run();
     string heapJson = Path.Join(c.outDir, "dhat-heap.json");
     string stats = _counterSummary(pr.Stderr);
     if (File.Exists(heapJson)) {
@@ -242,9 +240,9 @@ string _profileHeap(ProfileCtx c) {
 string _profileThreads(ProfileCtx c) {
     Console.WriteLine("── threads / concurrency ──");
     // 1) Default VM: park histogram + all counters (contention fields = 0 here).
-    ProcessResult pr = new Process(c.vm).Arg(c.zbc).Arg(c.entry).Arg("--mode").Arg(c.mode)
+    ProcessResult pr = _z42Proc(c.vm, c.libs).Arg(c.zbc).Arg(c.entry).Arg("--mode").Arg(c.mode)
         .Arg("--stats=json")
-        .Env("Z42_LIBS", c.libs).Run();
+        .Run();
     string stats = _counterSummary(pr.Stderr);
     Console.WriteLine("  counters (park always-on): " + stats);
 
@@ -258,9 +256,9 @@ string _profileThreads(ProfileCtx c) {
     string contention = "(build failed rc=" + bc.ToString() + ")";
     if (bc == 0) {
         string cvm = Path.Join(tdir, Path.Join("release", "z42vm"));
-        ProcessResult cpr = new Process(cvm).Arg(c.zbc).Arg(c.entry).Arg("--mode").Arg(c.mode)
+        ProcessResult cpr = _z42Proc(cvm, c.libs).Arg(c.zbc).Arg(c.entry).Arg("--mode").Arg(c.mode)
             .Arg("--stats=json")
-            .Env("Z42_LIBS", c.libs).Run();
+            .Run();
         contention = _counterSummary(cpr.Stderr);
         Console.WriteLine("  counters (contention on): " + contention);
     } else {
@@ -286,9 +284,9 @@ string _profileE2e(ProfileCtx c) {
     string wall = "n/a";
     if (_have("hyperfine")) {
         string hj = Path.Join(c.outDir, "e2e-hyperfine.json");
-        int hc = _exec(new Process("hyperfine").Arg("--warmup").Arg("3").Arg("--runs").Arg("10")
+        int hc = _exec(_z42Proc("hyperfine", c.libs).Arg("--warmup").Arg("3").Arg("--runs").Arg("10")
             .Arg("--export-json").Arg(hj).Arg("--shell=none").Arg("--command-name").Arg(c.name)
-            .Arg(cmd).Env("Z42_LIBS", c.libs));
+            .Arg(cmd));
         if (hc == 0 && File.Exists(hj)) { wall = _hyperfineMeanMs(File.ReadAllText(hj)) + " ms"; }
     } else {
         Console.WriteLine("  ⊘ hyperfine not found — install: `brew install hyperfine` (or cargo install hyperfine)");
@@ -298,9 +296,9 @@ string _profileE2e(ProfileCtx c) {
     string rss = _peakRss(c);
     Console.WriteLine("  peak RSS: " + rss);
 
-    ProcessResult pr = new Process(c.vm).Arg(c.zbc).Arg(c.entry).Arg("--mode").Arg(c.mode)
+    ProcessResult pr = _z42Proc(c.vm, c.libs).Arg(c.zbc).Arg(c.entry).Arg("--mode").Arg(c.mode)
         .Arg("--stats=json")
-        .Env("Z42_LIBS", c.libs).Run();
+        .Run();
     string stats = _counterSummary(pr.Stderr);
     Console.WriteLine("  counters: " + stats);
     return "## e2e\n\n- wall-clock (mean): " + wall + "\n- peak RSS: " + rss
@@ -311,9 +309,8 @@ string _profileE2e(ProfileCtx c) {
 // writes its report to stderr; scan for the max-RSS line and normalize to MB.
 string _peakRss(ProfileCtx c) {
     bool mac = Platform.IsMacOS();
-    Process p = new Process("/usr/bin/time").Arg(mac ? "-l" : "-v")
-        .Arg(c.vm).Arg(c.zbc).Arg(c.entry).Arg("--mode").Arg(c.mode)
-        .Env("Z42_LIBS", c.libs);
+    Process p = _z42Proc("/usr/bin/time", c.libs).Arg(mac ? "-l" : "-v")
+        .Arg(c.vm).Arg(c.zbc).Arg(c.entry).Arg("--mode").Arg(c.mode);
     ProcessResult r = p.Run();
     string[] lines = r.Stderr.Split("\n");
     int i = 0;

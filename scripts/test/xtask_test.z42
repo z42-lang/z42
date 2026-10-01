@@ -286,13 +286,12 @@ int _testGcModeWorkload(string label, string modeEnv, string nurseryEnv, string 
     string flat = _libsDir(root);   // 纯 stdlib flat；z42c.semantics 按名声明的编译器包由 driver 从编译器目录解析
     string toml = root + "/src/compiler/z42c.semantics/z42c.semantics.z42.toml";
     Console.WriteLine("  ▶ z42c.semantics --release --no-incremental (" + label + ")");
-    Process p = new Process(vm)
+    Process p = _z42Proc(vm, flat)
         .Arg(driver).Arg("--")
         .Arg("build").Arg(toml).Arg("--release").Arg("--no-incremental")
         // isolate-xtask-fixture-builds：产物进 artifacts/tmp，不落 `src/compiler/z42c.semantics/dist`
         // （这次构建只为给 GC 施压，产物本身没人用）。
         .Arg("--output-dir").Arg(_tmpDir(root, "gc-modes"))
-        .Env("Z42_LIBS", flat)
         .Env("Z42_GC_TRACE", "1");
     if (modeEnv != "")    { p = p.Env("Z42_GC_MODE", modeEnv); }
     if (nurseryEnv != "") { p = p.Env("Z42_GC_NURSERY_BYTES", nurseryEnv); }
@@ -472,7 +471,8 @@ string[] _gateStageNames() {
         "walkers",
         "diagcodes",
         "stage2",
-        "ci-shell"
+        "ci-shell",
+        "proc-env"
     };
 }
 
@@ -726,6 +726,13 @@ int _testAll(bool noBuild, string skip) {
         swStage = _stageStart("ci-shell");
         c = _testCiShell(); if (c != 0) { return c; }
         _stageEnd(slog, "ci-shell", swStage);
+    }
+    // stage 12: xtask 子进程的 Z42_LIBS / Z42_PROBING_PATHS 只经 _z42Proc / _z42bProc 设置。漏设不在漏处报错
+    // （继承 xtask 自身的旧 SDK libs / z42b 加载编译器包才炸），集中到工厂才不会漏。纯文本扫描。Skippable: "proc-env"。
+    if (!_skipHas(skip, "proc-env")) {
+        swStage = _stageStart("proc-env");
+        c = _testProcEnv(); if (c != 0) { return c; }
+        _stageEnd(slog, "proc-env", swStage);
     }
     Console.WriteLine("\n✅ GREEN — all stages passed");
     _stageSummary(slog, sw.Elapsed().TotalMilliseconds());

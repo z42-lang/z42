@@ -171,10 +171,9 @@ int[] _runDistGoldens(string[] modes, string root, string z42c, string z42vm, st
             live[b] = false;
             if (wantInterp || !c.interpOnly) {
                 try {
-                    Process cp = new Process(z42c).Arg("--emit-zbc").Arg(c.source).Arg(zbcs[i + b]);
+                    Process cp = _z42Proc(z42c, libsDir).Arg("--emit-zbc").Arg(c.source).Arg(zbcs[i + b]);
                     if (c.optAll) { cp = cp.Arg("--opt-all"); }   // opt_all sidecar，见 _compileCaseSpawn
                     hs[b] = cp
-                        .Env("Z42_LIBS", libsDir)
                         .Stdout(Stdio.Null()).Stderr(Stdio.Null())
                         .Spawn();
                     live[b] = true;
@@ -227,8 +226,7 @@ int[] _runDistGoldens(string[] modes, string root, string z42c, string z42vm, st
                 if (compiled[ci]) {
                     // entry passed explicitly — z42vm requires it.
                     try {
-                        hs[b] = new Process(z42vm).Arg(zbcs[ci]).Arg(c.entryName).Arg("--mode").Arg(mode)
-                            .Env("Z42_LIBS", libsDir)
+                        hs[b] = _z42Proc(z42vm, libsDir).Arg(zbcs[ci]).Arg(c.entryName).Arg("--mode").Arg(mode)
                             .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe())
                             .Spawn();
                         live[b] = true;
@@ -488,8 +486,8 @@ int[] _apphostSmoke(string distDir, string work, string tmpl) {
 
     try {
         // 1. build app.zpkg with the packaged z42c (deps from package libs).
-        int bc = new Process(z42c).Arg("build").Arg(Path.Join(ad, "app.z42.toml")).Arg("--release")
-            .Env("Z42_LIBS", libs).Stdout(Stdio.Null()).Stderr(Stdio.Null()).Run().ExitCode;
+        int bc = _z42Proc(z42c, libs).Arg("build").Arg(Path.Join(ad, "app.z42.toml")).Arg("--release")
+            .Stdout(Stdio.Null()).Stderr(Stdio.Null()).Run().ExitCode;
         if (bc != 0 || !File.Exists(appZpkg)) {
             Console.WriteLine("  FAIL: build app.zpkg (rc=" + bc.ToString() + ")");
             Console.WriteLine("");

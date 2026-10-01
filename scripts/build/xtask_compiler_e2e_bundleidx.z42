@@ -27,13 +27,13 @@ int _e2eBundleIndexedChecks(string root, string vm, string driverZpkg) {
         "[project]\nname    = \"biapp\"\nversion = \"0.1.0\"\nkind    = \"exe\"\nentry   = \"Main\"\n\n"
         + "[sources]\ninclude = [\"*.z42\"]\n\n[dependencies]\n\"bilib\" = \"0.1.0\"\n");
     File.WriteAllText(Path.Join(ws, "app/main.z42"), "using Std.IO;\nusing BiLib;\n\nvoid Main() { Console.WriteLine(L.V()); }\n");
-    ProcessResult b = new Process(vm).WorkingDirectory(ws).Arg(driverZpkg).Arg("--").Arg("build").Arg("--workspace")
-        .Env("Z42_LIBS", flat).Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
+    ProcessResult b = _z42Proc(vm, flat).WorkingDirectory(ws).Arg(driverZpkg).Arg("--").Arg("build").Arg("--workspace")
+        .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
     if (b.ExitCode != 0) {
         Console.WriteLine("  ✗ bundleidx ①：exe + lib 成员 debug 构建失败: " + b.Stdout + b.Stderr);
         return 1;
     }
-    ProcessResult r = new Process(vm).Arg(Path.Join(ws, "artifacts/biapp/debug/dist/biapp.zpkg")).Env("Z42_LIBS", flat)
+    ProcessResult r = _z42Proc(vm, flat).Arg(Path.Join(ws, "artifacts/biapp/debug/dist/biapp.zpkg"))
         .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
     if (r.ExitCode != 0 || r.Stdout.Trim() != "11") {
         Console.WriteLine("  ✗ bundleidx ①：exe 跑不出 11（indexed 依赖的散装 zbc 没跟过去？）: rc="
@@ -52,8 +52,8 @@ int _e2eBundleIndexedChecks(string root, string vm, string driverZpkg) {
         "[project]\nname    = \"bcapp\"\nversion = \"0.1.0\"\nkind    = \"exe\"\nentry   = \"Main\"\n\n"
         + "[sources]\ninclude = [\"*.z42\"]\n\n[dependencies]\n\"bclib\" = \"0.1.0\"\n");
     File.WriteAllText(Path.Join(ws2, "app/x.z42"), "using Std.IO;\nusing BcLib;\n\nvoid Main() { Console.WriteLine(L.V()); }\n");
-    ProcessResult b2 = new Process(vm).WorkingDirectory(ws2).Arg(driverZpkg).Arg("--").Arg("build").Arg("--workspace")
-        .Env("Z42_LIBS", flat).Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
+    ProcessResult b2 = _z42Proc(vm, flat).WorkingDirectory(ws2).Arg(driverZpkg).Arg("--").Arg("build").Arg("--workspace")
+        .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
     string o2 = b2.Stdout + b2.Stderr;
     if (b2.ExitCode == 0 || o2.IndexOf("collides") < 0) {
         Console.WriteLine("  ✗ bundleidx ②：同名散装 zbc 撞名没有在构建期报出: rc=" + b2.ExitCode.ToString() + " " + o2);

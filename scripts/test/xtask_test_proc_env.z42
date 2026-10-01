@@ -1,0 +1,64 @@
+// xtask 子进程环境的单一入口门（xtask-proc-factory，2026-10-01）。
+//
+// ## 守的是什么
+//
+// xtask 起的「跑 z42 代码」的子进程，stdlib 世界（`Z42_LIBS`）与编译器包 probing（`Z42_PROBING_PATHS`）
+// 只能经 `_z42Proc` / `_z42bProc`（scripts/build/xtask_stdlib.z42）设置。调用点直接写
+// `.Env("Z42_LIBS", …)` / `.Env("Z42_PROBING_PATHS", …)` ⇒ 红。
+//
+// 为什么：两种漏法都**不在漏的地方报错**——
+//   · 漏 `Z42_LIBS`：子进程继承 xtask 自身的（`.z42/libs`，上一版 SDK），静默跑在旧 stdlib 上；
+//   · 漏 probing：只在 z42b 真去加载编译器包时才 `MissingSymbolException`。drop-alllibs（#1019）那轮，
+//     rebase 带进来一个新 smoke，照邻居手抄却少抄了 probing，就是这么红的。
+// 集中到工厂之后，新调用点照邻居抄到的是 `_z42bProc(vm, libs)`，没有可漏的那一行。
+//
+// ## 不判的
+//
+//   · `.EnvRemove("Z42_LIBS")` —— dist 测试刻意清掉它，模拟用户机器；
+//   · `Environment.SetEnvironmentVariable(...)` —— 改的是 xtask 自身环境，不是某个子进程；
+//   · 注释行。
+namespace Z42Xtask;
+
+using Std.IO;
+
+// 允许直接设这两个变量的唯一文件（工厂所在）。
+string _peFactoryFile() { return "scripts/build/xtask_stdlib.z42"; }
+
+int _testProcEnv() {
+    string root = _root();
+    Console.WriteLine("① 子进程的 Z42_LIBS / Z42_PROBING_PATHS 只经 _z42Proc / _z42bProc 设置");
+    string dir = Path.Join(root, "scripts");
+    string[] rel = Directory.EnumerateRecursive(dir);
+    int files = 0;
+    int bad = 0;
+    int f = 0;
+    while (f < rel.Length) {
+        string relp = "scripts/" + rel[f].Replace("\\", "/");
+        f = f + 1;
+        if (!relp.EndsWith(".z42") || relp == _peFactoryFile()) { continue; }
+        files = files + 1;
+        string[] lines = File.ReadAllText(Path.Join(root, relp)).Split("\n");
+        int i = 0;
+        while (i < lines.Length) {
+            string t = lines[i].Trim();
+            i = i + 1;
+            if (t.StartsWith("//")) { continue; }
+            if (t.Contains(".Env(\"Z42_LIBS\"") || t.Contains(".Env(\"Z42_PROBING_PATHS\"")) {
+                ConsoleError.WriteLine("  ✗ " + relp + ":" + i.ToString() + ": " + t);
+                bad = bad + 1;
+            }
+        }
+    }
+    // 空门守卫：扫描面没了（目录搬家 / 枚举出错）就别报绿。
+    if (files < 50) {
+        ConsoleError.WriteLine("  ✗ 只扫到 " + files.ToString() + " 个 .z42 —— 扫描面不对（scripts/ 搬了？）");
+        return 1;
+    }
+    if (bad > 0) {
+        ConsoleError.WriteLine("  " + bad.ToString() + " 处直接设置；改用 _z42Proc(exe, libs)（z42b 用 _z42bProc(vm, libs)），见 "
+            + _peFactoryFile());
+        return 1;
+    }
+    Console.WriteLine("  ✓ " + files.ToString() + " 个文件，无直接设置");
+    return 0;
+}

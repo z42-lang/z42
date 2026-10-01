@@ -332,10 +332,9 @@ void _crossRunWave(string[] act, int nAct, string[] label, string testsDir,
                     _applySkewReplace(dir, testLibs, _fixtureDist(mainDir));
                     tmpLibs[b] = testLibs;
                     try {
-                        hs[b] = new Process(runVm)
+                        hs[b] = _z42Proc(runVm, testLibs)
                             .Arg(mainZpkg)
                             .Arg("--mode").Arg(mode)
-                            .Env("Z42_LIBS", testLibs)
                             .Spawn();
                         live[b] = true;
                     } catch (Exception e) {
@@ -485,12 +484,11 @@ XpkgJobZ _spawnBuildPkgE(string vmBin, string driverZpkg, string stdlibDist, str
     _copyZpkgs(Path.Join(pkgDir, "libs"), libs);
     j.Libs = libs;
     try {
-        j.H = new Process(vmBin)
+        j.H = _z42Proc(vmBin, libs)
             .Arg(driverZpkg).Arg("--mode").Arg(_z42cMode())
             .Arg("--").Arg("build").Arg(toml)
             .Arg("--output-dir").Arg(outDir).Arg("--release")
             .WorkingDirectory(pkgDir)
-            .Env("Z42_LIBS", libs)
             .Stdout(capture ? Stdio.Pipe() : Stdio.Null())
             .Stderr(capture ? Stdio.Pipe() : Stdio.Null())
             .Spawn();

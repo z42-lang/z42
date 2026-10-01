@@ -188,7 +188,7 @@ int _testLibCore(string kind, string[] reqLibsIn, bool noBuild, string filter, s
     // release-guard. _compileTestUnit derives the path from root + lib.
     // compile toolchain: z42vm + z42c.driver.zpkg + Z42_LIBS = 纯 stdlib flat（drop-alllibs）。driver 的 dist
     // 自包含；编译器域的测试库（_allTestableLibs）按名声明的编译器包由 driver 从编译器目录解析；z42b 运行期
-    // 加载编译器包经 `_withCompilerProbing`（z42b 启动点统一挂）。override（--vm/--driver/--libs，bench A/B 的
+    // 加载编译器包经 `_z42bProc`（z42b 启动点统一挂）。override（--vm/--driver/--libs，bench A/B 的
     // base 侧）照旧用调用方给的目录。
     string vm = useOverride ? ovVm : _builtVm(root, "release");
     string driverZpkg = useOverride ? ovDriver : _driverZpkg(root, "release");

@@ -36,16 +36,16 @@ int _e2eWsFlatChecks(string root, string vm, string driverZpkg) {
     while (si < stdlib.Length) { File.Copy(stdlib[si], Path.Join(outDir, Path.GetFileName(stdlib[si]))); si = si + 1; }
 
     // debug（不带 --release）：修前走 indexed，正是会撞的那条路。
-    ProcessResult b = new Process(vm).WorkingDirectory(ws).Arg(driverZpkg).Arg("--").Arg("build")
+    ProcessResult b = _z42Proc(vm, flat).WorkingDirectory(ws).Arg(driverZpkg).Arg("--").Arg("build")
         .Arg("--workspace").Arg("--output-dir").Arg(outDir)
-        .Env("Z42_LIBS", flat).Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
+        .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
     if (b.ExitCode != 0) {
         Console.WriteLine("  ✗ wsflat: flat workspace debug 构建失败: rc=" + b.ExitCode.ToString() + " stderr=" + b.Stderr);
         return 1;
     }
-    ProcessResult ra = new Process(vm).Arg(Path.Join(outDir, "wsfa.zpkg")).Env("Z42_LIBS", outDir)
+    ProcessResult ra = _z42Proc(vm, outDir).Arg(Path.Join(outDir, "wsfa.zpkg"))
         .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
-    ProcessResult rb = new Process(vm).Arg(Path.Join(outDir, "wsfb.zpkg")).Env("Z42_LIBS", outDir)
+    ProcessResult rb = _z42Proc(vm, outDir).Arg(Path.Join(outDir, "wsfb.zpkg"))
         .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
     if (ra.ExitCode != 0 || ra.Stdout.Trim() != "111" || rb.ExitCode != 0 || rb.Stdout.Trim() != "222") {
         Console.WriteLine("  ✗ wsflat: 两个成员的同名源 x.z42 在共用 dist 里互相覆盖：wsfa → rc="

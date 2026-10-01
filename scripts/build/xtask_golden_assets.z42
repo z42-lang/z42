@@ -286,7 +286,7 @@ bool _isNonRegenCat(string cat) {
 // Spawn (don't wait) the z42c compile of one golden case; caller batches the
 // Wait() across `jobs` concurrent handles. Output .zbc paths are unique per case.
 ProcessHandle _compileCaseSpawn(string vmBin, string driverZpkg, string stdlibDist, string source, string output, bool optAll) {
-    Process p = new Process(vmBin)
+    Process p = _z42Proc(vmBin, stdlibDist)
         .Arg(driverZpkg).Arg("--mode").Arg(_z42cMode())
         .Arg("--").Arg("--emit-zbc").Arg(source).Arg(output);
     // opt_all sidecar：这条用例要按**真实 release 全优化**编。默认 emit-zbc 优化集关掉了
@@ -295,7 +295,6 @@ ProcessHandle _compileCaseSpawn(string vmBin, string driverZpkg, string stdlibDi
     // 就是这么漏出去的。用例加个 `opt_all` 空文件即可让它真的跑在优化后的代码上。
     if (optAll) { p = p.Arg("--opt-all"); }
     return p
-        .Env("Z42_LIBS", stdlibDist)
         .Stdout(Stdio.Null())
         .Stderr(Stdio.Null())
         .Spawn();

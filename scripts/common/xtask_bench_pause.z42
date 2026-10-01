@@ -66,8 +66,8 @@ PauseMedian _benchPauseRun(string vm, string zbc, string entry, string m, string
     double[] p99s = new double[runs];
     int k = 0;
     while (k < runs) {
-        ProcessResult r = new Process(vm).Arg(zbc).Arg(entry).Arg("--mode").Arg(m)
-            .Env("Z42_LIBS", libs).Run();
+        ProcessResult r = _z42Proc(vm, libs).Arg(zbc).Arg(entry).Arg("--mode").Arg(m)
+            .Run();
         long mx = r.ExitCode == 0 ? _benchPauseField(r.Stdout, "max_us") : -1L;
         long p9 = r.ExitCode == 0 ? _benchPauseField(r.Stdout, "p99_us") : -1L;
         if (mx < 0L || p9 < 0L) {

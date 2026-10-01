@@ -62,7 +62,7 @@ mode = "interp"
 # `package-host(windows-x64)` 当场红在 `no compiler injected` —— 整串被当成一条不存在的路径。
 # **这条限制是 #816 自己记下的，我却先踩了一遍。**
 #
-# 开发树不需要第二条：xtask 运行 z42b 时经 `Z42_PROBING_PATHS` 给出各编译器成员的 dist（`_withCompilerProbing`，
+# 开发树不需要第二条：xtask 运行 z42b 时经 `Z42_PROBING_PATHS` 给出各编译器成员的 dist（`_z42bProc`，
 # drop-alllibs 2026-10-01；此前靠 Z42_LIBS 指向 stdlib + 编译器包拷成的 alllibs）。
 probing-paths = "../z42c"
 

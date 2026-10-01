@@ -518,13 +518,13 @@ string _onlyDistZpkg(string projDir) {
 // （`[syntax]` 门第一版就是这样：构建确实失败了，但「实际输出」是空的 —— 幸好判据同时要求
 // 「红的理由对不对」，否则只判退出码就会变成一道读不到东西却自称通过的门）。
 int _incrBuildErrTo(string vm, string driver, string libs, string toml, string errPath) {
-    return new Process(vm).Arg(driver).Arg("--mode").Arg(_z42cMode()).Arg("--").Arg("build").Arg(toml)
-        .Env("Z42_LIBS", libs).Stdout(Stdio.Null()).Stderr(Stdio.ToFile(errPath)).Run().ExitCode;
+    return _z42Proc(vm, libs).Arg(driver).Arg("--mode").Arg(_z42cMode()).Arg("--").Arg("build").Arg(toml)
+        .Stdout(Stdio.Null()).Stderr(Stdio.ToFile(errPath)).Run().ExitCode;
 }
 
 int _incrBuildTo(string vm, string driver, string libs, string toml, string outPath) {
-    return new Process(vm).Arg(driver).Arg("--mode").Arg(_z42cMode()).Arg("--").Arg("build").Arg(toml)
-        .Env("Z42_LIBS", libs).Stdout(Stdio.ToFile(outPath)).Stderr(Stdio.Null()).Run().ExitCode;
+    return _z42Proc(vm, libs).Arg(driver).Arg("--mode").Arg(_z42cMode()).Arg("--").Arg("build").Arg(toml)
+        .Stdout(Stdio.ToFile(outPath)).Stderr(Stdio.Null()).Run().ExitCode;
 }
 
 // 逐文件 touch 对账一个工程。projDir 内须有 t.z42.toml（dist 落 projDir/dist）。
@@ -625,9 +625,9 @@ int _reconcileDistWiped(string vm, string driver, string libs, string projDir, s
 }
 
 int _incrBuild(string vm, string driver, string libs, string toml, bool noIncremental) {
-    Process p = new Process(vm).Arg(driver).Arg("--mode").Arg(_z42cMode()).Arg("--").Arg("build").Arg(toml);
+    Process p = _z42Proc(vm, libs).Arg(driver).Arg("--mode").Arg(_z42cMode()).Arg("--").Arg("build").Arg(toml);
     if (noIncremental) { p = p.Arg("--no-incremental"); }
-    return p.Env("Z42_LIBS", libs).Stdout(Stdio.Null()).Stderr(Stdio.Null()).Run().ExitCode;
+    return p.Stdout(Stdio.Null()).Stderr(Stdio.Null()).Run().ExitCode;
 }
 
 // ── dist 快照（rel 排序列表 + blake3-128 指纹并行数组；z42 无交错 byte[][]）────────

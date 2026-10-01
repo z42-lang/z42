@@ -117,8 +117,8 @@ int _bench(ParseResult r) {
         }
         // Compile once — the .zbc is mode-agnostic; only the measured run differs.
         string zbc = Path.Join(work, name + ".zbc");
-        int cc = _exec(new Process(vm).Arg(driverZpkg).Arg("--mode").Arg(_z42cMode()).Arg("--")
-            .Arg("--emit-zbc").Arg(src).Arg(zbc).Env("Z42_LIBS", flat));
+        int cc = _exec(_z42Proc(vm, flat).Arg(driverZpkg).Arg("--mode").Arg(_z42cMode()).Arg("--")
+            .Arg("--emit-zbc").Arg(src).Arg(zbc));
         if (cc != 0) { return cc; }
         for (int mi = 0; mi < modes.Length; mi = mi + 1) {
             string m = modes[mi];
@@ -132,11 +132,11 @@ int _bench(ParseResult r) {
             string outJson = Path.Join(work, name + "-" + m + "-bench.json");
             Console.WriteLine("→ Benchmarking " + name + " [" + m
                 + "] (warmup=" + warmup + ", runs=" + runs + ")...");
-            int hc = _exec(new Process("hyperfine")
+            int hc = _exec(_z42Proc("hyperfine", libs)
                 .Arg("--warmup").Arg(warmup).Arg("--runs").Arg(runs)
                 .Arg("--export-json").Arg(outJson).Arg("--shell=none")
                 .Arg("--command-name").Arg(name + "-" + m)
-                .Arg(vm + " " + zbc + " " + ns + ".Main --mode " + m).Env("Z42_LIBS", libs));
+                .Arg(vm + " " + zbc + " " + ns + ".Main --mode " + m));
             if (hc != 0) { return hc; }
             if (nb > 0) { benchmarks = benchmarks + ",\n"; }
             benchmarks = benchmarks + _benchObj(outJson, name, runs, tiers, vmc);
@@ -307,8 +307,8 @@ class AbOutcome {
 
 // Compile `src` to a .zbc with the given toolchain (vm+driver, Z42_LIBS=libs).
 int _abEmitZbc(string vm, string driver, string libs, string src, string zbc) {
-    return _exec(new Process(vm).Arg(driver).Arg("--mode").Arg(_z42cMode()).Arg("--")
-        .Arg("--emit-zbc").Arg(src).Arg(zbc).Env("Z42_LIBS", libs));
+    return _exec(_z42Proc(vm, libs).Arg(driver).Arg("--mode").Arg(_z42cMode()).Arg("--")
+        .Arg("--emit-zbc").Arg(src).Arg(zbc));
 }
 
 // One measurement round of one scenario×mode: hyperfine BOTH commands in a single

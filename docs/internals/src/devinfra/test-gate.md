@@ -30,7 +30,8 @@ graph LR
     S7 --> S8[diagcodes<br/>诊断码唯一性]
     S8 --> S9[stage2<br/>阶段-2 欠账挂账 + 到期]
     S9 --> S10[ci-shell<br/>CI 内嵌 shell 先用后赋]
-    S10 --> G((GREEN))
+    S10 --> S11[proc-env<br/>子进程 env 单一入口]
+    S11 --> G((GREEN))
 ```
 
 **机器可读清单**（`_checkGateStageDoc` 解析此区；条目文本 = `_stageStart` 打的 banner 名，
@@ -55,6 +56,7 @@ graph LR
 - `diagcodes`
 - `stage2`
 - `ci-shell`
+- `proc-env`
 <!-- gate-stages:end -->
 
 先备工具链与基线（build wave），再依序跑其余验证 stage；任一步失败立即终止。
@@ -110,6 +112,7 @@ fixture、debug VM 跑 `main.zpkg`——跨包 dispatch 的 debug 断言覆盖�
 | `diagcodes` | 诊断码**一码一义**：每个发得出去的码在登记表里登记恰好一次，见下 | 纯文本扫描 < 1 s |
 | `stage2` | 阶段-1 过渡形态必须挂账且不超期（双向棘轮 + 到期），见 `scripts/test/xtask_test_stage2.z42` 头注 | 纯文本扫描 < 1 s |
 | `ci-shell` | `.github/**` 的多行 `run:` 块里**没有先用后赋**的变量（立门时 7 个 yml / 76 块），见下 | 纯文本扫描 < 1 s |
+| `proc-env` | xtask 子进程的 `Z42_LIBS` / `Z42_PROBING_PATHS` **只经** `_z42Proc` / `_z42bProc` 设置，调用点不得直接 `.Env(...)`，见下 | 纯文本扫描 < 1 s |
 
 **`stdlib [Benchmark]` 为什么必须在 gate 里**：bench 语料此前唯一的看门人是 `bench-pr.yml`，
 而那个 job **不在分支保护的 required 列表里**。一次把 `Failure.z42` 搬出 `z42.test` 的改动让
@@ -131,6 +134,14 @@ fixture、debug VM 跑 `main.zpkg`——跨包 dispatch 的 debug 断言覆盖�
 覆盖边界（不扫单行 `run:`）与空门守卫写在该文件头注里；⭐ 立门时本想「只扫 actions，因为 workflow
 按块判会大量误报」，**数一遍发现只报 1 处、且那处是扫描器不认 `mapfile`** —— 补上之后 workflows
 零误报、覆盖面白送。「会误报所以不扫」这种话，先跑一遍数出来再说。
+
+**`proc-env`（`scripts/test/xtask_test_proc_env.z42`）守的是「xtask 子进程环境的单一入口」**：
+xtask 起的每个跑 z42 代码的子进程都经 `_z42Proc(exe, libs)` 建（z42b 及其 fork 的子 VM 用 `_z42bProc(vm, libs)`，
+另挂编译器成员 dist 的 probing），工厂在 `scripts/build/xtask_stdlib.z42`。两种漏设都**不在漏的地方报错**：漏
+`Z42_LIBS` 时子进程继承 xtask 自身的 `.z42/libs`（上一版 SDK），静默跑在旧 stdlib 上；漏 probing 只在 z42b 真去
+加载编译器包时才 `MissingSymbolException`——drop-alllibs（#1019）那轮，rebase 带进一个照邻居手抄、少抄了 probing
+的新 smoke，就是这么红的。此前这两个变量在调用点手写了 159 + 25 处。`.EnvRemove("Z42_LIBS")`（dist 测试刻意模拟
+用户机器）不判。
 
 **`lines` 是两档**（`_lineLimitHard()` / `_lineLimitSoft()`，`scripts/test/xtask_test_lines.z42`）：
 

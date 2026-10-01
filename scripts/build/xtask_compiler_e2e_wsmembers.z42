@@ -33,8 +33,8 @@ int _e2eWsMemberChecks(string root, string vm, string driverZpkg) {
         "[project]\nname    = \"wsmhello\"\nversion = \"0.1.0\"\nkind    = \"lib\"\n\n"
         + "[sources]\ninclude = [\"*.z42\"]\n\n[dependencies]\n\"wsmcore\" = \"0.1.0\"\n");
     File.WriteAllText(Path.Join(good, "apps/hello/h.z42"), "namespace WsmHello;\n\nusing WsmCore;\n\npublic static class H { public static int V() { return C.V() + 1; } }\n");
-    ProcessResult b = new Process(vm).WorkingDirectory(good).Arg(driverZpkg).Arg("--").Arg("build").Arg("--workspace")
-        .Env("Z42_LIBS", flat).Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
+    ProcessResult b = _z42Proc(vm, flat).WorkingDirectory(good).Arg(driverZpkg).Arg("--").Arg("build").Arg("--workspace")
+        .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
     string bo = b.Stdout + b.Stderr;
     if (b.ExitCode != 0 || bo.IndexOf("2 members") < 0) {
         Console.WriteLine("  ✗ wsmembers: members glob / exclude / 裸名清单没按声明发现（期望恰 2 个成员）: rc="
@@ -54,8 +54,8 @@ int _e2eWsMemberChecks(string root, string vm, string driverZpkg) {
     Directory.Create(missing);
     File.WriteAllText(Path.Join(missing, "z42.workspace.toml"),
         "[workspace]\nmembers = [\"nope\"]\n\n[workspace.build]\noutput_dir = \"artifacts/${project_name}/${profile}\"\n");
-    ProcessResult m = new Process(vm).WorkingDirectory(missing).Arg(driverZpkg).Arg("--").Arg("build").Arg("--workspace")
-        .Env("Z42_LIBS", flat).Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
+    ProcessResult m = _z42Proc(vm, flat).WorkingDirectory(missing).Arg(driverZpkg).Arg("--").Arg("build").Arg("--workspace")
+        .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
     string mo = m.Stdout + m.Stderr;
     if (m.ExitCode == 0 || mo.IndexOf("`nope` does not exist") < 0 || mo.IndexOf("uncaught exception") >= 0) {
         Console.WriteLine("  ✗ wsmembers: 显式成员不存在没有给出干净的错误: rc=" + m.ExitCode.ToString() + " " + mo);
@@ -69,8 +69,8 @@ int _e2eWsMemberChecks(string root, string vm, string driverZpkg) {
         "[workspace]\nmembers = [\"*\"]\n\n[workspace.build]\noutput_dir = \"artifacts/${project_name}/${profile}\"\n");
     File.WriteAllText(Path.Join(cyc, "a/wsca.z42.toml"), _e2eWsmLibToml("wsca") + "\n[dependencies]\n\"wscb\" = \"0.1.0\"\n");
     File.WriteAllText(Path.Join(cyc, "b/wscb.z42.toml"), _e2eWsmLibToml("wscb") + "\n[dependencies]\n\"wsca\" = \"0.1.0\"\n");
-    ProcessResult c = new Process(vm).WorkingDirectory(cyc).Arg(driverZpkg).Arg("--").Arg("build").Arg("--workspace")
-        .Env("Z42_LIBS", flat).Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
+    ProcessResult c = _z42Proc(vm, flat).WorkingDirectory(cyc).Arg(driverZpkg).Arg("--").Arg("build").Arg("--workspace")
+        .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
     string co = c.Stdout + c.Stderr;
     if (c.ExitCode == 0 || co.IndexOf("uncaught exception") >= 0) {
         Console.WriteLine("  ✗ wsmembers: 依赖成环没有给出干净的错误: rc=" + c.ExitCode.ToString() + " " + co);

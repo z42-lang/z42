@@ -29,14 +29,14 @@ int _e2ePathDepScopeChecks(string root, string vm, string driverZpkg) {
         "[project]\nname    = \"pdapp\"\nversion = \"0.1.0\"\nkind    = \"exe\"\nentry   = \"Main\"\n\n"
         + "[sources]\ninclude = [\"*.z42\"]\n\n[dependencies]\n\"pdext\" = { path = \"../../ext\" }\n");
     File.WriteAllText(Path.Join(app, "main.z42"), "using Std.IO;\nusing PdExt;\n\nvoid Main() { Console.WriteLine(E.V()); }\n");
-    ProcessResult wa = new Process(vm).WorkingDirectory(ws).Arg(driverZpkg).Arg("--").Arg("build").Arg("--workspace")
-        .Env("Z42_LIBS", flat).Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
+    ProcessResult wa = _z42Proc(vm, flat).WorkingDirectory(ws).Arg(driverZpkg).Arg("--").Arg("build").Arg("--workspace")
+        .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
     if (wa.ExitCode != 0) {
         Console.WriteLine("  ✗ pathdeps A：workspace 成员的外部 path 依赖没被代建: " + wa.Stdout + wa.Stderr);
         return 1;
     }
     string appZpkg = Path.Join(Path.Join(ws, "artifacts/pdapp/debug/dist"), "pdapp.zpkg");
-    ProcessResult ra = new Process(vm).Arg(appZpkg).Env("Z42_LIBS", flat).Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
+    ProcessResult ra = _z42Proc(vm, flat).Arg(appZpkg).Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
     if (ra.ExitCode != 0 || ra.Stdout.Trim() != "7") {
         Console.WriteLine("  ✗ pathdeps A：产物跑不出 7: rc=" + ra.ExitCode.ToString() + " " + ra.Stdout + ra.Stderr);
         return 1;
@@ -56,8 +56,8 @@ int _e2ePathDepScopeChecks(string root, string vm, string driverZpkg) {
     File.WriteAllText(Path.Join(baseDir, "pdbase.z42.toml"),
         "[project]\nname    = \"pdbase\"\nversion = \"0.1.0\"\nkind    = \"lib\"\n\n[sources]\ninclude = [\"*.z42\"]\n");
     File.WriteAllText(Path.Join(baseDir, "b.z42"), "namespace PdBase;\n\npublic static class B { public static int V() { return 5; } }\n");
-    ProcessResult bb = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(Path.Join(baseDir, "pdbase.z42.toml")).Arg("--release")
-        .Env("Z42_LIBS", libsDir).Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
+    ProcessResult bb = _z42Proc(vm, libsDir).Arg(driverZpkg).Arg("--").Arg("build").Arg(Path.Join(baseDir, "pdbase.z42.toml")).Arg("--release")
+        .Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
     if (bb.ExitCode != 0) { Console.WriteLine("  ✗ pathdeps B：预建 pdbase 失败: " + bb.Stderr); return 1; }
     File.Copy(Path.Join(Path.Join(baseDir, "dist"), "pdbase.zpkg"), Path.Join(onlyDir, "pdbase.zpkg"));
     File.WriteAllText(Path.Join(midDir, "pdmid.z42.toml"),
@@ -69,9 +69,9 @@ int _e2ePathDepScopeChecks(string root, string vm, string driverZpkg) {
         + "[dependencies]\n\"pdmid\" = { path = \"../mid\" }\n");
     File.WriteAllText(Path.Join(topDir, "t.z42"), "namespace PdTop;\n\nusing PdMid;\n\npublic static class T { public static int V() { return M.V(); } }\n");
     string sep = Platform.IsWindows() ? ";" : ":";
-    ProcessResult tb = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(Path.Join(topDir, "pdtop.z42.toml")).Arg("--release")
+    ProcessResult tb = _z42Proc(vm, libsDir).Arg(driverZpkg).Arg("--").Arg("build").Arg(Path.Join(topDir, "pdtop.z42.toml")).Arg("--release")
         .Arg("--compile-libs").Arg(libsDir + sep + onlyDir)
-        .Env("Z42_LIBS", libsDir).Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
+        .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
     if (tb.ExitCode != 0) {
         Console.WriteLine("  ✗ pathdeps B：path 依赖的代建没看见 --compile-libs 里的 pdbase: " + tb.Stdout + tb.Stderr);
         return 1;
