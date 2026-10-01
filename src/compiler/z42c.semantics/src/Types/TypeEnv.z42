@@ -6,6 +6,7 @@ namespace Z42.Semantics;
 using Z42.IR;   // StrMap 统一到 z42c.ir（compiler-review §4.1）
 
 using Z42.Syntax;
+using Z42.Core;   // Span（forbid-local-shadowing：声明处）
 
 public sealed class TypeEnv {
     public bool        HasParent;
@@ -35,6 +36,12 @@ public sealed class TypeEnv {
     // out var / 解构…）都自动算本函数局部，不会被误判成捕获。此前靠各声明点各自 `_lambdaLocals.Put`，
     // foreach 与模式变量漏了 ⇒ 被当成捕获、外层查无此变量 ⇒ 发射端塞 ConstNull（lambda 里读到 null）。
     public StrMap      FnLocals;
+    // forbid-local-shadowing：本层**用户声明**的局部 / 形参 → 声明处 Span（字段、`this`、编译器合成名不进）。
+    // 重名检查只看这张表 ⇒ 局部遮蔽字段（字段也在方法那层的 Vars 里）照旧合法。
+    public StrMap      DeclSpans;
+    // 函数边界（方法 / 访问器 / lambda / 局部函数的形参层）：重名检查沿父链走到这里为止 ——
+    // 再往外是别的函数（lambda 外层）或类成员，C# 8 起允许遮蔽。
+    public bool        IsFnBoundary;
 
     public TypeEnv(SymbolTable symbols, bool hasParent, TypeEnv parent, bool classFlag, string className,
                    string[] typeParamNames, int typeParamCount, bool inCtorThis) {
@@ -52,6 +59,8 @@ public sealed class TypeEnv {
         this.InCtorThis = inCtorThis;
         this.InStaticCtor = false;
         this.FnLocals = null;
+        this.DeclSpans = new StrMap();
+        this.IsFnBoundary = false;
     }
 
     public static TypeEnv Root(SymbolTable symbols) {
@@ -118,6 +127,28 @@ public sealed class TypeEnv {
         while (i < s.Length) { if (s.CharAt(i) == '+') { lp = i; } i = i + 1; }
         if (lp < 0) { return ""; }
         return s.Substring(0, lp);
+    }
+
+    // 把本层标成函数边界（见 IsFnBoundary）。在定义形参之前调用。
+    public void MarkFnBoundary() { this.IsFnBoundary = true; }
+
+    // 形参：与 Define 相同，另记声明处（供函数体内的局部与它比对重名）。
+    public void DefineParam(string name, Z42Type type, Span sp) {
+        this.Define(name, type);
+        this.DeclSpans.Put(name, sp);
+    }
+
+    // 用户声明的局部与谁重名：返回已声明 name 的那一层（就是本层 ⇒ 同一作用域重复；更外层 ⇒ 遮蔽外层），
+    // 没有返回 null。沿父链只走到函数边界（含边界那层的形参）。
+    public TypeEnv LocalConflictEnv(string name) {
+        TypeEnv e = this;
+        bool more = true;
+        while (more) {
+            if (e.DeclSpans.ContainsKey(name)) { return e; }
+            if (e.IsFnBoundary || !e.HasParent) { more = false; }
+            else { e = e.Parent; }
+        }
+        return null;
     }
 
     public void Define(string name, Z42Type type) {

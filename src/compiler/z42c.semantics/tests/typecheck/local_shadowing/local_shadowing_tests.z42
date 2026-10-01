@@ -1,0 +1,122 @@
+// 局部变量重名（forbid-local-shadowing，对齐 C# CS0128 / CS0136）。
+//
+// 此前完全不查：同一作用域写两次 `int x` 静默接受；内层块重新声明外层的局部 / 形参名**也不报**，
+// 而且发射端按名字分配寄存器槽 ⇒ 内层那份**覆盖**外层的值（`string pm` 被内层 `int pm` 覆盖，块后读到 42；
+// 形参 `a` 被内层 `string a` 覆盖）—— 编得过、跑出错值。
+//   E0467：同一作用域重复声明
+//   E0491：内层声明与外层（同一函数体内）的局部变量或形参重名
+// 并列作用域各自声明同名、lambda / 局部函数遮蔽外层名字（C# 8 起允许）、局部遮蔽字段 —— 都合法。
+namespace Z42cSemanticsLocalShadowingTests;
+
+using Z42.Semantics;
+
+string[] lsDiags(string src) {
+    string[] srcs = new string[1]; srcs[0] = src;
+    string[] files = new string[1]; files[0] = "f0.z42";
+    CompiledModuleZ[] cms = IrDump.BuildPackage(srcs, files, 1, null, null, false);
+    string[] r = new string[cms[0].DiagCount];
+    int j = 0;
+    while (j < cms[0].DiagCount) { r[j] = cms[0].DiagMsgs[j]; j = j + 1; }
+    return r;
+}
+
+int lsCount(string src, string code) {
+    string[] msgs = lsDiags(src);
+    int n = 0;
+    int i = 0;
+    while (i < msgs.Length) { if (msgs[i].Contains(code)) { n = n + 1; } i = i + 1; }
+    return n;
+}
+
+int lsErrors(string src) {
+    string[] msgs = lsDiags(src);
+    int n = 0;
+    int i = 0;
+    while (i < msgs.Length) { if (msgs[i].Contains("E0") || msgs[i].Contains("E1")) { n = n + 1; } i = i + 1; }
+    return n;
+}
+
+string lsWrap(string body) { return "namespace P;\nvoid F(int a) {\n" + body + "\n}\n"; }
+
+// ── 报错 ──────────────────────────────────────────────
+
+[Test]
+void test_same_scope_duplicate_local_reports_E0467() {
+    Assert.Equal(1, lsCount(lsWrap("int x = 1; int x = 2;"), "E0467"));
+}
+
+[Test]
+void test_inner_block_redeclares_outer_local_reports_E0491() {
+    Assert.Equal(1, lsCount(lsWrap("string pm = \"o\"; int i = 0; while (i < 1) { int pm = 42; i = i + 1; }"), "E0491"));
+}
+
+[Test]
+void test_inner_block_redeclares_parameter_reports_E0491() {
+    Assert.Equal(1, lsCount(lsWrap("if (a > 0) { string a = \"s\"; }"), "E0491"));
+}
+
+[Test]
+void test_foreach_variable_shadows_outer_local_reports_E0491() {
+    Assert.Equal(1, lsCount(lsWrap("int v = 0; int[] xs = new int[]{ 1 }; foreach (var v in xs) { }"), "E0491"));
+}
+
+[Test]
+void test_for_variable_shadows_parameter_reports_E0491() {
+    Assert.Equal(1, lsCount(lsWrap("for (int a = 0; a < 3; a = a + 1) { }"), "E0491"));
+}
+
+[Test]
+void test_catch_variable_shadows_outer_local_reports_E0491() {
+    Assert.Equal(1, lsCount(lsWrap("Exception e = null; try { } catch (Exception e) { }"), "E0491"));
+}
+
+[Test]
+void test_pattern_variable_shadows_outer_local_reports_E0491() {
+    Assert.Equal(1, lsCount(lsWrap("object o = a; string s = \"\"; if (true) { if (o is string s) { } }"), "E0491"));
+}
+
+[Test]
+void test_lambda_body_local_shadows_lambda_parameter_reports_E0491() {
+    // lambda 自己的形参与体内局部同名：仍在同一个函数体内（C# 同样 CS0136）
+    Assert.Equal(1, lsCount(lsWrap("Func<int, int> f = (int q) => { int q = 1; return q; };"), "E0491"));
+}
+
+[Test]
+void test_error_message_points_at_first_declaration() {
+    string[] msgs = lsDiags(lsWrap("int x = 1;\nint x = 2;"));
+    Assert.Equal(1, msgs.Length);
+    Assert.True(msgs[0].Contains("`x`"));
+    Assert.True(msgs[0].Contains("first declared at 3:"));   // 第一处在文件第 3 行（第 2 行是 `void F(int a) {`）
+}
+
+// ── 合法 ──────────────────────────────────────────────
+
+[Test]
+void test_sibling_scopes_may_reuse_name() {
+    Assert.Equal(0, lsErrors(lsWrap("if (a > 0) { int k = 1; } if (a > 1) { string k = \"t\"; }")));
+}
+
+[Test]
+void test_sibling_for_loops_may_reuse_name() {
+    Assert.Equal(0, lsErrors(lsWrap("for (int i = 0; i < 2; i = i + 1) { } for (int i = 0; i < 2; i = i + 1) { }")));
+}
+
+[Test]
+void test_switch_sections_may_reuse_pattern_name() {
+    Assert.Equal(0, lsErrors(lsWrap("object o = a; switch (o) { case string s: break; case int s: break; }")));
+}
+
+[Test]
+void test_lambda_parameter_may_shadow_outer_local() {
+    Assert.Equal(0, lsErrors(lsWrap("int v = 5; Func<int, int> f = (int v) => v * 2;")));
+}
+
+[Test]
+void test_local_function_may_shadow_outer_local() {
+    Assert.Equal(0, lsErrors(lsWrap("int v = 5; int G(int v) { int a = v; return a; } int r = G(1);")));
+}
+
+[Test]
+void test_local_may_shadow_field() {
+    Assert.Equal(0, lsErrors("namespace P;\nclass C {\n    int n;\n    int M() { int n = 3; return n; }\n}\n"));
+}

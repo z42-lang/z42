@@ -179,6 +179,29 @@ public sealed class TypeChecker {
         if (amsg != "") { this._diags.Error(DiagnosticCodes.AmbiguousBareTypeName, amsg, sp); }
     }
 
+    // forbid-local-shadowing：登记一个**用户声明**的局部（var / foreach / catch / 模式变量 / `ref var`），先查重名：
+    // 同一作用域已有 ⇒ E0467；外层（同一函数体内，含形参）已有 ⇒ E0491。合成名（含 `$`）与丢弃符 `_` 不查不记。
+    // 报错后照常 Define（不叠级联）。
+    public void DefineLocal(TypeEnv env, string name, Z42Type type, Span sp) {
+        if (name != "" && name != "_" && name.IndexOf("$") < 0) {
+            TypeEnv hit = env.LocalConflictEnv(name);
+            if (hit != null) {
+                Span first = hit.DeclSpans.Get(name) as Span;
+                string at = first == null ? "" : " (first declared at " + first.Line.ToString() + ":" + first.Column.ToString() + ")";
+                if (hit == env) {
+                    this._diags.Error("E0467",
+                        "a local variable named `" + name + "` is already declared in this scope" + at, sp);
+                } else {
+                    this._diags.Error("E0491",
+                        "`" + name + "` is already declared in an enclosing scope as a local variable or parameter" + at
+                        + "; a nested declaration cannot reuse the name — rename one of them", sp);
+                }
+            }
+            env.DeclSpans.Put(name, sp);
+        }
+        env.Define(name, type);
+    }
+
     public void ChkAmbiguousBareName(SymbolTable symbols, string name, Span sp) {
         string msg = symbols.AmbiguousBareNameMsg(name);
         if (msg != "") { this._diags.Error(DiagnosticCodes.AmbiguousBareTypeName, msg, sp); }

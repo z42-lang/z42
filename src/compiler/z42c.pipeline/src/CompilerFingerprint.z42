@@ -130,7 +130,9 @@ public static class CompilerFingerprint {
         // 跨 ns 引用不写 using 报 E0436；enum 类型名后的未知成员新报 E0401。
         "fqn-enum-delegate-tables",
         // crosspkg-delegate-import：依赖包导出的用户 delegate 能在消费方源码里当类型写（此前报 E0443）—— 诊断变化。
-        "crosspkg-delegate-import"
+        "crosspkg-delegate-import",
+        // forbid-local-shadowing：同一作用域重复声明局部（E0467）、内层与外层局部 / 形参重名（E0491）新报错 —— 诊断变化。
+        "forbid-local-shadowing"
     };
 
     // 指纹值：`Entries` 逐条以 `\n` 连接后取内容哈希（`mmh3:` 前缀，同 SourceHash）。

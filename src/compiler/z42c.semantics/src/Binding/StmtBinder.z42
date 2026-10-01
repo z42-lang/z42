@@ -127,7 +127,7 @@ public sealed class StmtBinder {
                 }
             } else { feElem = feScope.ResolveType(fe.Type); }
             TypeEnv elemScope = feScope.PushScope();
-            elemScope.Define(fe.Name, feElem);
+            this._tc.DefineLocal(elemScope, fe.Name, feElem, fe.Span);
             this._tc._loopDepth = this._tc._loopDepth + 1;
             BoundStmt febody = this._bindStmt(fe.Body, elemScope, ret);
             this._tc._loopDepth = this._tc._loopDepth - 1;
@@ -398,7 +398,7 @@ public sealed class StmtBinder {
                 TypeEnv cenv = env;
                 if (cc.HasVar) {
                     cenv = env.PushScope();
-                    cenv.Define(cc.VarName, exType);
+                    this._tc.DefineLocal(cenv, cc.VarName, exType, cc.Span);
                 }
                 BoundStmt body = this._bindStmt(cc.Body, cenv, ret);
                 catches[ci] = new BoundCatchClause(cc.HasType, exName, exArity, cc.HasVar, cc.VarName, body, cc.Span);
@@ -458,7 +458,7 @@ public sealed class StmtBinder {
             }
             if (init == null && v.Init != null) { init = this._tc._expr._bindExpr(v.Init, env); }   // G8：无 init 则 init 留 null
             Z42Type vt = this._varType(env, v, init);
-            env.Define(v.Name, vt);
+            this._tc.DefineLocal(env, v.Name, vt, v.Span);
             init = this._tc.BoxIfNeeded(init, vt);   // add-primitive-value-boxing: 整数→object/接口 装箱
             init = this._tc.ConvertIfNeeded(init, vt, env.Symbols);   // tighten-implicit-conversions: 拓宽表示转换插 ConvertInstr；add-user-conversions: 用户 implicit
             BoundVarDeclStmt bvd = new BoundVarDeclStmt(v.Name, vt, init, v.Span);
@@ -496,8 +496,9 @@ public sealed class StmtBinder {
             MethodDecl lmd = lf.Decl;
             TypeEnv lscope = env.PushScope();   // 体内可见同级/外层局部函数（递归/前向引用）+ 外层局部变量（L3 捕获）
             lscope.FnLocals = null;   // 同 _bindLambda：形参不登记进外层的表
+            lscope.MarkFnBoundary();   // forbid-local-shadowing：局部函数是独立函数体，形参 / 体内局部可遮蔽外层名字（C# 8）
             int lpi = 0;
-            while (lpi < lmd.ParamCount) { lscope.Define(lmd.Params[lpi].Name, env.ResolveType(lmd.Params[lpi].Type)); lpi = lpi + 1; }
+            while (lpi < lmd.ParamCount) { lscope.DefineParam(lmd.Params[lpi].Name, env.ResolveType(lmd.Params[lpi].Type), lmd.Params[lpi].Span); lpi = lpi + 1; }
             // 捕获分析（复用 lambda 机制）：体内引用外层非参变量 → BoundCapturedIdent + 记 _lambdaCaps。
             bool savedActive = this._tc._lambdaActive; StrMap savedLocals = this._tc._lambdaLocals;
             BoundCapture[] savedCaps = this._tc._lambdaCaps; int savedCapCount = this._tc._lambdaCapCount;
@@ -630,6 +631,7 @@ public sealed class StmtBinder {
         Z42Type[] ptypes = new Z42Type[lam.ParamCount];
         TypeEnv lenv = env.PushScope();
         lenv.FnLocals = null;   // 形参先不登记进**外层** lambda 的表（下面换成本 lambda 自己的表）
+        lenv.MarkFnBoundary();   // forbid-local-shadowing：lambda 形参 / 体内局部可遮蔽外层名字（C# 8）
         int i = 0;
         while (i < lam.ParamCount) {
             pnames[i] = lam.Params[i].Name;
@@ -637,7 +639,7 @@ public sealed class StmtBinder {
             if (lam.Params[i].HasType) { pt = env.ResolveType(lam.Params[i].Type); }
             else if (i < expected.ParamCount) { pt = expected.ParamTypes[i]; }
             ptypes[i] = pt;
-            lenv.Define(pnames[i], pt);
+            lenv.DefineParam(pnames[i], pt, lam.Params[i].Span);
             i = i + 1;
         }
         // 嵌套 lambda：保存外层 frame（绑完恢复），并把内层对「外层非局部变量」的捕获

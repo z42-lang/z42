@@ -87,7 +87,8 @@ public sealed class PatternBinder {
         }
         // 统一绑定集注册进真实 env（类型来自首个 alt）
         int j = 0;
-        while (j < refCount) { env.Define(refNames[j], refTypes[j]); j = j + 1; }
+        // 各 alt 已在子作用域里查过重名（子作用域的父链含 env）；这里只登记、不再查，免得同一冲突报两次。
+        while (j < refCount) { env.Define(refNames[j], refTypes[j]); env.DeclSpans.Put(refNames[j], op.Span); j = j + 1; }
         return new BoundOrPattern(alts, op.Count, refNames, refTypes, refCount, op.Span);
     }
 
@@ -128,7 +129,7 @@ public sealed class PatternBinder {
         string tn = "";
         Z42Type bt = this._narrowedType(sub, subjType, env);
         if (bt.Name() != subjType.Name()) { tn = bt.Name(); }
-        env.Define(ap.Name, bt);
+        this._tc.DefineLocal(env, ap.Name, bt, ap.Span);
         BoundAtPattern bap = new BoundAtPattern(ap.Name, bt, sub, ap.Span);
         if (tn.Length > 0) { bap.TypeName = tn; bap.Narrowed = true; }
         return bap;
@@ -180,7 +181,7 @@ public sealed class PatternBinder {
         if (np.Bind != "") {
             this._tc._chkTypeRef(resolved, env, np.Span);
             this._tc.ChkAmbiguousBareNameT(env.Symbols, np.Type, np.Span);   // add-bare-name-ambiguity-diagnostic：E0456
-            env.Define(np.Bind, resolved);
+            this._tc.DefineLocal(env, np.Bind, resolved, np.Span);
             return new BoundTypePattern(tn, np.Bind, resolved, np.Span);
         }
         // 无绑定：命中类型名 → 类型模式（不绑定）
@@ -195,7 +196,7 @@ public sealed class PatternBinder {
             BoundExpr bv = this._tc._expr._bindExpr(ce, env);
             return new BoundConstantPattern(bv, np.Span);
         }
-        env.Define(tn, subjType);
+        this._tc.DefineLocal(env, tn, subjType, np.Span);
         return new BoundBindingPattern(tn, subjType, np.Span);
     }
 
