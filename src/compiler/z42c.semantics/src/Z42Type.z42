@@ -394,7 +394,13 @@ public sealed class Z42ClassType : Z42Type {
     public override bool IsAssignableTo(Z42Type other) {
         if (other is Z42ErrorType) { return true; }
         // 同名（1A-1 不查继承链；subclass→base 赋值在 1C，需类表走 base 链）
-        if ((other is Z42ClassType) && this._name == other.Name()) { return true; }
+        // enforce-fqn-name-identity：同短名还要**同命名空间** —— `A.Base` 与 `B.Base` 是两个类型。此前只比短名 ⇒
+        // 两者互相「可赋」、零诊断，运行期第一次成员访问才炸。一侧 ns 为空（合成 / 临时造的类型对象没登记 ns）时
+        // 退回只比短名：宁可少判，不在拿不准的地方立新误报。
+        if ((other is Z42ClassType) && this._name == other.Name()) {
+            string ons = (other as Z42ClassType).Namespace;
+            if (this.Namespace == null || this.Namespace == "" || ons == null || ons == "" || this.Namespace == ons) { return true; }
+        }
         // unify-value-types Phase 1：桥接混用态——本类是翻转后内建 Z42ClassType（String/Int32/Double…），
         // 目标是同一 canonical 内建（Z42PrimType 或 ClassType，imported/字面量仍是 Prim）→ 可赋。
         // 覆盖 return-type / var-decl 等**直接调 IsAssignableTo**（不走 Conversion._sameBuiltin）的检查点。
