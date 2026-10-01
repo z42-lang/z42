@@ -90,7 +90,7 @@ public sealed partial class DeclEnforcer {
                     Expr arg = at.Args[g];
                     if (arg is AssignExpr) { arg = (arg as AssignExpr).Value; }
                     if (!this._acIsConst(t, arg, cls)) {
-                        this._sc.Diags.Error("E0500",
+                        this._sc.Diags.Error(DiagnosticCodes.AttributeArgNotConstant,
                             "attribute argument must be a compile-time constant: a literal, a constant expression, an enum member, a `const` field, `typeof(..)`, `methodof(..)`, or an array of those — an attribute's arguments run on the first reflection query, so a runtime-dependent value makes the metadata depend on who asks first",
                             arg.Span);
                     }

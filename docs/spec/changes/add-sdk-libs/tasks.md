@@ -21,8 +21,8 @@
 - [x] `probing.rs` 记录展开失败的 `${Z42_HOME}` 条目 + 依赖解析失败报错附提示 + Rust 单测（#998）
 
 ### 1.4 过渡与诊断（D8 / D9）
-- [ ] `${compiler_libs}` 发 warning（新码），给出等价按名写法
-- [ ] 新码登记 + `error-codes.md`
+- [x] `${compiler_libs}` 发 warning（W0609），给出等价按名写法、定位到清单行；e2e「用户显式引用」②格断言
+- [x] 新码登记 + `error-codes.md`（发射点按纪律先用字面量，记进 `diag-literal-emitters.txt`，下个 nightly 后切常量）
 - [x] CompilerFingerprint 追加 `add-sdk-libs-visibility`
 
 ### 1.5 测试（D10）

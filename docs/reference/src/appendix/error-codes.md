@@ -393,6 +393,7 @@ E0442 / E0457 / E0462 除外（见上一节）。**E0402 另有一处语法层�
 | W0604 | 捕获的值快照被赋值 | ⚠️ 零发射点 —— 规避写法（`bool[1]` 单元格）在 stdlib 里有沿用，但编译器当前**不报**这条 | — |
 | W0607 | 不必要的 `using`（对标 C# CS8019 / IDE0005）：本文件没有任何地方用到它；或它指向本来就可见的 prelude（`Std` / `Std.Runtime`）/ 本文件 namespace 及其外围。判「用到」与 E0436 同一份集合。本文件已有编译错误时不报（解析不全，会误报） | ✅ `UsingLint.z42` | `namespace B; using A; int F() { return 1; }` |
 | W0608 | 重复的 `using`（对标 C# CS0105）：同一文件里写了两次；或包里已有同名 `global using` | ✅ `UsingLint.z42` | `using A; using A;` |
+| W0609 | `[dependencies]` 的 `path` 里用了 `${compiler_libs}` 路径宏：过渡写法，将在后续版本删除。照常构建，提示等价的按名写法 `"<包>" = "*"`（exe 要在 SDK 上运行、不复制时再加 `deploy = "sdk"`），位置是清单里该依赖所在行 | ✅ `ExeDeps.z42`（`_warnCompilerLibsMacro`） | `"z42c.syntax" = { path = "${compiler_libs}/z42c.syntax.zpkg" }` |
 | W0700 | `switch` 不穷尽：对 `bool` / `enum` / 封闭类型做 `switch` 时漏了分支，且没有 `default` | ✅ `ExhaustCheck.z42:127,154,200` | `switch (b) { case true: ... }`，`b` 是 `bool` |
 | W0701 | 解构声明的绑定名遮蔽了当前类的字段 / 属性：`(A, B) = (a, b);`（花括号体里）声明的是两个**新局部**，随即离开作用域，一个成员都没动。局部遮蔽字段本身合法，单看语法挑不出毛病——只能靠「遮蔽了同名成员」这个信号拦。仅在有 `this` 的上下文里查。表达式位置的同一写法由 **E0482** 直接报错 | ✅ `StmtBinder.z42`（发 `DiagnosticCodes.DeconstructShadowsMember`） | `class C { int A; void M(int a) { (A, _) = (a, 0); } }` |
 

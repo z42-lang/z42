@@ -343,6 +343,13 @@ int _e2eUserDomainRefChecks(string root, string vm, string driverZpkg, string e2
         Console.WriteLine("  ✗ 整套 stdlib 被拷进用户输出目录（编译器域解析域压过了框架）");
         return 1;
     }
+    // 宏进入过渡期（add-sdk-libs）：照常构建，但必须报 W0609、给出按名写法、定位到清单里那一行。
+    if (r2.Stderr.IndexOf("W0609") < 0 || r2.Stderr.IndexOf("\"z42c.syntax\" = \"*\"") < 0
+            || r2.Stderr.IndexOf("e2euserlinter.z42.toml(") < 0) {
+        Console.WriteLine("  ✗ 用了 ${compiler_libs} 却没报 W0609（或没给出 `\"z42c.syntax\" = \"*\"` / 没定位到清单）");
+        Console.WriteLine("    stderr: " + r2.Stderr);
+        return 1;
+    }
 
     // ③ 宏名拼错 ⇒ 当场说清
     string cdir = Path.Join(e2eDir, "userref_badmacro");
@@ -360,7 +367,7 @@ int _e2eUserDomainRefChecks(string root, string vm, string driverZpkg, string e2
         Console.WriteLine("    stderr: " + r3.Stderr);
         return 1;
     }
-    Console.WriteLine("  ✓ 用户显式引用编译器域：不声明看不见 / 声明可用且拷进产物 / 宏名拼错当场报");
+    Console.WriteLine("  ✓ 用户显式引用编译器域：不声明看不见 / 声明可用且拷进产物、报 W0609 迁移提示 / 宏名拼错当场报");
     return 0;
 }
 
