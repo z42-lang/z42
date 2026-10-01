@@ -46,8 +46,9 @@ string _e2eAnalyzerTomlNamed(string name, string kind) {
 // 🔴 **Z42_LIBS 必须是纯 stdlib dist，不能用 e2e 其余检查那个 `flat`**。
 // `flat`（`_assembleAllLibs`）把 stdlib **与全部 compiler member**（含 z42c.semantics）硬链进
 // 同一个 alllibs/ 目录给测试用 —— 在那个环境里编译器包对**所有**工程可见，②格恒绿、门等于没有。
-// 这里改用 `_libsFlatDist`（真·stdlib 扁平 dist），analyzer 工程靠 `_compilerLibsDirs()` 的
-// 开发树探测（自 Z42_LIBS 上溯到 artifacts/build/ 再拼 compiler member dist）拿到契约包。
+// 这里改用 `_libsFlatDist`（真·stdlib 扁平 dist），analyzer 工程靠 `CompilerDomain.Dirs()` 拿到契约包
+// （本检查显式传 `Z42_COMPILER_LIBS`；未传时的开发树档 = 自 Z42_LIBS 上溯到 artifacts/build/ 再拼
+// `compiler/z42c.driver/release/dist`）。
 int _e2eAnalyzerDomainChecks(string root, string vm, string driverZpkg, string e2eDir) {
     string flat = _libsFlatDist(root, "release");
     string adir = Path.Join(e2eDir, "analyzerdomain");
