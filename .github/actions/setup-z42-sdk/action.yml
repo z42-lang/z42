@@ -1,0 +1,149 @@
+name: setup-z42-sdk
+description: >
+  Install the previous nightly z42 SDK (host RID) into $GITHUB_WORKSPACE/.z42 — the same place and layout
+  `scripts/install-z42.sh` gives a developer locally. CI then compiles AND runs xtask on this SDK, exactly
+  like the local `./xtask` apphost does (add-sdk-libs D7: CI 与本地一致), and it doubles as the z42c seed
+  (xtask's `_seedSdkDir` finds `./.z42` on its own).
+  Fallback when the nightly is unusable: the newest successful main CI run's `release-host-<rid>` archive
+  (and, for runs before unify-release-archive, the legacy unpacked `z42-host-package-*` dirs).
+  Writes `.z42/seed-id.txt`: the identity of this seed (nightly → the commit it was built from; fallback →
+  that run's head sha). Jobs that reuse an xtask.zpkg built elsewhere compare it to decide whether to rebuild.
+inputs:
+  rid:
+    description: "runtime ID (macos-arm64 / linux-x64 / linux-arm64 / windows-x64); empty = auto-detect host"
+    required: false
+    default: ""
+  gh-token:
+    description: "GitHub token for `gh release download` / `gh run download` (needs actions: read for the fallback)"
+    required: true
+outputs:
+  rid:
+    description: "resolved runtime ID"
+    value: ${{ steps.sdk.outputs.rid }}
+  seed-id:
+    description: "identity of the installed seed (same value as .z42/seed-id.txt)"
+    value: ${{ steps.sdk.outputs.seed-id }}
+  seed-src:
+    description: "where the seed came from: nightly | ci-run-<id>"
+    value: ${{ steps.sdk.outputs.seed-src }}
+runs:
+  using: composite
+  steps:
+    - id: sdk
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.gh-token }}
+      run: |
+        set -euo pipefail
+        cd "$(git rev-parse --show-toplevel)"
+        RID="${{ inputs.rid }}"
+        if [ -z "$RID" ]; then
+          case "$(uname -s)-$(uname -m)" in
+            Darwin-arm64)        RID=macos-arm64 ;;
+            Linux-x86_64)        RID=linux-x64 ;;
+            Linux-aarch64)       RID=linux-arm64 ;;
+            Linux-arm64)         RID=linux-arm64 ;;
+            MINGW*|MSYS*|CYGWIN*) RID=windows-x64 ;;
+            *) echo "::error::unsupported host for setup-z42-sdk; pass rid"; exit 2 ;;
+          esac
+        fi
+        # nightly archive: Windows ships .zip (unzip), Unix ships .tar.gz (tar).
+        case "$RID" in windows-*) EXT=zip ;; *) EXT=tar.gz ;; esac
+        DEST="$PWD/.z42"
+        work="$(mktemp -d)"
+
+        # 解包到 .z42 + 确认包里真有 z42c 种子。回退路径要原样再做一遍，故成函数。
+        unpack_and_check() {
+          rm -rf "$DEST"; mkdir -p "$DEST"
+          if [ "$EXT" = zip ]; then unzip -q "$1" -d "$DEST"; else tar -C "$DEST" -xzf "$1"; fi
+          ls "$DEST/programs/z42c/"*.zpkg >/dev/null 2>&1
+        }
+
+        # Retry the download: publish-nightly republishes the `nightly` release with a
+        # `gh release delete` → `gh release create` (a brief window where the release does
+        # NOT exist → "release not found"). Concurrent runs (run N's publish-nightly vs
+        # run N+1's download) can hit that window. Retry to ride it out.
+        echo "── setup-z42-sdk: nightly SDK ($RID) → $DEST ──"
+        dl_ok=0
+        for attempt in 1 2 3 4 5 6 7 8 9 10; do
+          if gh release download nightly -p "z42-sdk-nightly-${RID}.${EXT}" -O "$work/sdk.${EXT}" 2>"$work/dlerr"; then
+            dl_ok=1; break
+          fi
+          echo "   download attempt $attempt failed ($(head -1 "$work/dlerr")) — likely a publish-nightly delete→recreate window; retry in 15s…"
+          rm -f "$work/sdk.${EXT}"
+          sleep 15
+        done
+        seed_src="nightly"
+        seed_id=""
+        if [ "$dl_ok" = 1 ] && ! unpack_and_check "$work/sdk.${EXT}"; then
+          echo "   nightly SDK has no programs/z42c/ seed — treating as unusable"
+          dl_ok=0
+        fi
+        if [ "$dl_ok" = 1 ]; then
+          seed_id="$(gh release view nightly --json targetCommitish -q .targetCommitish 2>/dev/null || true)"
+        fi
+
+        # ── 回退：nightly 不可用时，用最近一次成功 CI 运行的 host-package 归档 ──
+        #
+        # 为什么必须有这条：nightly 是**唯一**种子来源时，它一旦损坏（如 publish-nightly
+        # 的 delete→create 被整 workflow 取消打断，留下 stuck-draft），所有 bootstrap job
+        # 全挂 → package/publish-nightly 被 skip → **发不出新 nightly 自救**。2026-09-17 实际发生过一次，
+        # 全仓卡了约 5 小时，最后靠人工从 CI artifact 重打包重发 nightly 才解开。这条就是把那次人工操作自动化。
+        #
+        # 为什么是 CI artifact 而不是最近的正式 release：**格式版本**。正式 release 可能落后很多个 zpkg
+        # 格式 bump，会触发两代自举而那条路在旧 VM 上必挂（run 35290607109）。成功 CI 运行的 artifact
+        # 顶多落后一两个 commit，格式天然对得上。保留期 90 天。
+        #
+        # 权限：需要 token 的 `actions: read`。仓库默认 workflow 权限是 read（含 actions），
+        # 且用本 action 的 job 都没有自定义 permissions 块。**若将来给这些 job 加
+        # `permissions:`，必须显式带上 `actions: read`**，否则这条回退会静默失效。
+        if [ "$dl_ok" != 1 ]; then
+          echo "   nightly unusable — falling back to the newest successful CI run's host package"
+          for run_id in $(gh run list --workflow CI --branch main --status success \
+                            --limit 5 --json databaseId --jq '.[].databaseId' 2>/dev/null || true); do
+            echo "   trying CI run $run_id …"
+            rm -rf "$work/art"; mkdir -p "$work/art"
+            if gh run download "$run_id" -p "release-host-${RID}" -D "$work/art" 2>"$work/dlerr"; then
+              ar="$(find "$work/art" -maxdepth 2 -type f -name "z42-sdk-nightly-${RID}.${EXT}" | head -1)"
+              if [ -n "$ar" ] && unpack_and_check "$ar"; then
+                dl_ok=1; seed_src="ci-run-$run_id"
+                seed_id="$(gh run view "$run_id" --json headSha -q .headSha 2>/dev/null || true)"
+                break
+              fi
+              echo "     release-host-${RID} has no usable z42-sdk-nightly-${RID}.${EXT}"
+              continue
+            fi
+            # 旧形态（unify-release-archive 之前的运行）：已解包的 SDK 目录。过渡期过后可删这一支。
+            rm -rf "$work/art"; mkdir -p "$work/art"
+            if ! gh run download "$run_id" -p 'z42-host-package-*' -D "$work/art" 2>"$work/dlerr"; then
+              echo "     download failed ($(head -1 "$work/dlerr" 2>/dev/null))"
+              continue
+            fi
+            pkg="$(find "$work/art" -maxdepth 2 -type d -name "z42-*-${RID}-release" | head -1)"
+            if [ -z "$pkg" ] || ! ls "$pkg/programs/z42c/"*.zpkg >/dev/null 2>&1; then
+              echo "     no usable z42-*-${RID}-release dir in this run's artifacts"
+              continue
+            fi
+            rm -rf "$DEST"; cp -R "$pkg" "$DEST"
+            dl_ok=1; seed_src="ci-run-$run_id"
+            seed_id="$(gh run view "$run_id" --json headSha -q .headSha 2>/dev/null || true)"
+            break
+          done
+        fi
+
+        if [ "$dl_ok" != 1 ]; then
+          echo "::error::no usable z42 SDK seed: nightly failed after 10 attempts AND no successful CI run's host package worked."
+          echo "::error::check 'gh release view nightly' — a stuck *draft* nightly (publish-nightly cancelled mid delete-recreate) looks present but carries no SDK packages."
+          echo "::error::manual recovery: download the newest successful CI run's release-* artifacts, run 'xtask package finalize nightly' and republish the nightly release (see internals/devinfra/ci.md §3.1)."
+          cat "$work/dlerr" 2>/dev/null || true
+          exit 1
+        fi
+        # upload-artifact（旧形态回退）不保留可执行位；归档本身保留，补一次无妨。
+        case "$RID" in windows-*) ;; *) chmod +x "$DEST/z42" "$DEST"/bin/* 2>/dev/null || true ;; esac
+        [ -n "$seed_id" ] || seed_id="$seed_src-unknown"
+        printf '%s\n' "$seed_id" > "$DEST/seed-id.txt"
+        rm -rf "$work"
+        echo "   seed source: $seed_src  seed-id: $seed_id"
+        echo "rid=$RID" >> "$GITHUB_OUTPUT"
+        echo "seed-id=$seed_id" >> "$GITHUB_OUTPUT"
+        echo "seed-src=$seed_src" >> "$GITHUB_OUTPUT"

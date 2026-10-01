@@ -22,6 +22,7 @@ on:
 
 permissions:
   contents: write   # gh release create
+  actions: read     # ci-bootstrap → setup-z42-sdk 回退（gh run download）
 
 jobs:
   # ── 1. Verify tag matches versions.toml [project].version ──────────────
@@ -134,8 +135,8 @@ jobs:
         shell: bash
         run: xtask test platform wasm build
 
-      # `xtask` 是 ci-bootstrap 加进 PATH 的垫片（.github/ci/xtask）：z42vm / stdlib / xtask.zpkg 的位置与
-      # Windows「从拷贝启动、免得 cargo 重链时覆盖正在运行的 z42vm.exe」都在它里面。
+      # `xtask` 是 ci-bootstrap 加进 PATH 的垫片（.github/ci/xtask）：与本地 `./xtask` 一样，用 `.z42` SDK 的
+      # z42vm + libs 跑 xtask.zpkg（cargo 重链构建树 z42vm.exe 时碰不到它）。
       - name: Package ${{ matrix.rid }}
         shell: bash
         env:

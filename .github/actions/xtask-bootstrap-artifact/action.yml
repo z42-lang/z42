@@ -2,7 +2,8 @@ name: xtask-bootstrap-artifact
 description: >
   Bootstrap by CONSUMING the `toolchain-ubuntu-latest` artifact produced by the
   toolchain-bootstrap job (z42c dist + stdlib dist + xtask.zpkg), plus a host
-  `cargo build` for z42vm + native cdylibs. After this, drive work via
+  `cargo build` for z42vm + native cdylibs (the build-tree VM the tests exercise), plus the
+  previous nightly SDK in `.z42` that xtask itself runs on (same as local `./xtask`). After this, drive work via
   `xtask <cmd>` (the .github/ci/xtask shim, put on PATH here) exactly like ci-bootstrap.
   The consuming job MUST `needs: toolchain-bootstrap` and `actions/checkout` first
   (checkout cannot live in here — this action's own file has to exist on disk to
@@ -10,6 +11,10 @@ description: >
   Any host runner (Linux / macOS / Windows): the artifact is pure zpkg — host-neutral —
   so every OS consumes the same linux-built copy; only z42vm is built per host.
 inputs:
+  gh-token:
+    description: "GitHub token for setup-z42-sdk (nightly download / CI-artifact fallback)"
+    required: false
+    default: ${{ github.token }}
   cache-key:
     description: >
       Swatinem rust-cache `shared-key`. Default `artifact-host-v1` = the shared
@@ -90,6 +95,29 @@ runs:
       with:
         name: toolchain-ubuntu-latest
         path: .
+
+    # xtask 跑在 `.z42` SDK 上（与本地 `./xtask` 一致，add-sdk-libs D7）——每个 job 都装一份，同 ci-bootstrap。
+    - name: Install z42 SDK (.z42)
+      id: sdk
+      uses: ./.github/actions/setup-z42-sdk
+      with:
+        gh-token: ${{ inputs.gh-token }}
+
+    # artifact 里的 xtask.zpkg 是 compile-toolchain 用**它那时**装的 SDK 编的（同目录 seed-id.txt 记身份）。
+    # 两 job 之间 nightly 被重发（并发运行的 publish-nightly）⇒ 这里装到的 SDK 换了一版 —— 跨格式 bump
+    # 时旧 xtask.zpkg 在新 VM 上加载不了。对不上就用本机 SDK 的 z42c 原地重编（~1 min），编与跑始终同一工具链。
+    - name: Rebuild xtask if the SDK seed changed
+      shell: bash
+      run: |
+        set -euo pipefail
+        have="$(cat artifacts/xtask/seed-id.txt 2>/dev/null || echo none)"
+        want="$(cat .z42/seed-id.txt)"
+        if [ "$have" = "$want" ]; then echo "xtask.zpkg built by seed $want — reuse"; exit 0; fi
+        echo "xtask.zpkg seed '$have' ≠ installed SDK '$want' — rebuilding xtask on the installed SDK"
+        z42c=.z42/bin/z42c; [ -f "$z42c.exe" ] && z42c="$z42c.exe"
+        env -u Z42_LIBS -u Z42_HOME -u Z42_PORTABLE_VM -u Z42_COMPILER_LIBS \
+          "$z42c" build scripts/xtask.z42.toml --release --no-incremental
+        cp -f .z42/seed-id.txt artifacts/xtask/seed-id.txt
 
     # 后续步骤用 `xtask <cmd>` 驱动（见 .github/ci/xtask 头注）。
     - name: Put the xtask CI shim on PATH

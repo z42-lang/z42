@@ -69,7 +69,7 @@ xtask layout libs       # 只打印一条，给脚本用：libs=$(xtask layout l
 ```
 
 **key 是对外契约，路径不是**：CI / 脚本按 key 取路径，布局整理时 key 不变、值跟着变。
-仍然写死在 xtask 之外的有：`.github/ci/xtask`（CI 垫片，要先有 z42vm 才能跑 xtask，鸡生蛋）、
+仍然写死在 xtask 之外的有：`.github/ci/xtask`（CI 垫片，跑在 `.z42` SDK 上、要先能启动 xtask，鸡生蛋）、
 `scripts/hooks/hooks.z42`（z42b publish 时单独编译的 hooks 工程，调不到 xtask 的函数）、
 Rust 测试里的若干 cwd 相对路径。
 

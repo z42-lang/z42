@@ -36,12 +36,14 @@
 - [ ] 本地 GREEN；PR CI
 
 ## 阶段 2：CI 与本地一致（PR-2；可与阶段 1 并行）
-- [ ] `setup-z42-sdk` action（从 ci-bootstrap 搬出下载 + 回退链，装到 `.z42`，输出 `seed-id`）
-- [ ] ci-bootstrap：种子 = `.z42`；[2/5] 用 `.z42` 编 xtask；xtask 跑在 `.z42/bin/z42vm` 上；核对两代路径（D7 ⚠️）
-- [ ] compile-toolchain：artifact 带 `.seed-id`
-- [ ] xtask-bootstrap-artifact：`setup-z42-sdk` + seed-id 比对（不一致则重编 xtask）
-- [ ] CI 垫片对齐本地 apphost；删 Windows 拷贝启动；`Z42_PORTABLE_VM` 取舍以本地对照为准
-- [ ] 文档：`ci.md`、`xtask.md`、`bootstrap-seed.md`
+- [x] `setup-z42-sdk` action（从 ci-bootstrap 搬出下载 + 回退链，装到 `.z42`，输出 `seed-id`）
+- [x] ci-bootstrap：种子 = `.z42`；[2/5] 用 `.z42` 编 xtask；xtask 跑在 `.z42/bin/z42vm` 上；核对两代路径（D7 ⚠️）
+- [x] compile-toolchain：artifact 带 `artifacts/xtask/seed-id.txt`（stage-toolchain 本就整目录拷 `artifacts/xtask/`，无需改 xtask）
+- [x] xtask-bootstrap-artifact：`setup-z42-sdk` + seed-id 比对（不一致则重编 xtask）
+- [x] CI 垫片对齐本地 apphost；删 Windows 拷贝启动；`Z42_PORTABLE_VM` **不设**（本地 apphost 不设；本地以此方式冷树 `build all` + GREEN 实测通过）
+- [x] 自定义 `permissions:` 的 job 补 `actions: read`（setup-z42-sdk 回退要用；以前这些 job 不取种子）
+- [x] `docs-check` 去掉 Rust 准备（xtask 不再跑在构建树 VM 上；干净 worktree 无 `artifacts/build` 实测 docs / diagcodes 通过）
+- [x] 文档：`ci.md`、`xtask.md`、`bootstrap-seed.md`
 - [ ] 本地 GREEN（用 apphost 跑）；PR CI
 
 ## 阶段 3：use（阶段 1 进 nightly 之后，PR-3）

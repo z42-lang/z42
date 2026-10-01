@@ -184,17 +184,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      # 借 compile-toolchain 的 host-v2 缓存（ci-bootstrap 的 [0/5] cargo 与它同一组 unit），只读不回存。
-      - name: Cache Rust deps (Swatinem)
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: src/runtime -> ../../artifacts/build/runtime
-          shared-key: host-v2
-          save-if: false
-
+      # 不需要 Rust：xtask 跑在 `.z42` SDK 的 z42vm 上，docs / diagcodes 两道门不碰构建树（add-sdk-libs D7）。
       - name: Bootstrap xtask (seed z42c → current xtask only)
         uses: ./.github/actions/ci-bootstrap
         with:
@@ -544,8 +534,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # Windows: `package` cargo-relinks z42vm and can't overwrite the *running*
-          # z42vm.exe —— `xtask` 垫片在 Windows 上总是从 cargo 输出目录之外的拷贝启动（见 .github/ci/xtask）。
+          # Windows: `package` cargo-relinks the build-tree z42vm.exe —— 不冲突：`xtask` 垫片跑的是 `.z42` SDK 的 VM（见 .github/ci/xtask）。
           # --no-build: xtask-bootstrap-artifact already restored z42c + stdlib (the
           # toolchain artifact); skip rebuilding them (~10 min on Windows: the [1/5]
           # z42c self-build + the former 2nd self-build in the runtime pack). The
@@ -1454,6 +1443,7 @@ jobs:
       group: publish-nightly-${{ github.ref }}
       cancel-in-progress: false
     permissions:
+      actions: read     # setup-z42-sdk 回退（gh run download）
       contents: write   # gh release create / delete
     steps:
       - uses: actions/checkout@v7
@@ -1587,6 +1577,7 @@ jobs:
         shard: [1, 2, 3]
     runs-on: ubuntu-latest
     permissions:
+      actions: read     # setup-z42-sdk 回退（gh run download）
       contents: read
       checks: write
     env:
@@ -1708,6 +1699,7 @@ jobs:
         shard: [1, 2, 3]
     runs-on: macos-26
     permissions:
+      actions: read     # setup-z42-sdk 回退（gh run download）
       contents: read
       checks: write
     steps:
@@ -1782,6 +1774,7 @@ jobs:
     # restarts system_server mid-install/mid-test (Broken pipe / ENOENT).
     runs-on: ubuntu-26.04
     permissions:
+      actions: read     # setup-z42-sdk 回退（gh run download）
       contents: read
       checks: write
     steps:
@@ -1888,6 +1881,7 @@ jobs:
     if: ${{ needs.changes.outputs.platform == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     permissions:
+      actions: read     # setup-z42-sdk 回退（gh run download）
       contents: read
       checks: write
     steps:

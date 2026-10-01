@@ -5,8 +5,9 @@ description: >
   nightly SDK's z42c compiler (programs/z42c/, host tooling — the runtime package
   no longer carries a z42c seed, 2026-07-01): prev-nightly z42c seed → builds
   current xtask → xtask builds current z42c (warm self-build) + stdlib (flat dist
-  + index). z42vm (cargo-built Rust) is the only engine. Needs gh (auth'd via
-  gh-token) + cargo + rust.
+  + index). xtask is compiled by AND runs on the SDK in `.z42` (setup-z42-sdk), exactly like the
+  local `./xtask` apphost; the cargo-built z42vm is the build-tree VM under test. Needs gh (auth'd
+  via gh-token) + cargo + rust (not for xtask-only).
 inputs:
   rid:
     description: "runtime ID (macos-arm64 / linux-x64 / linux-arm64 / windows-x64); empty = auto-detect host"
@@ -17,19 +18,27 @@ inputs:
     required: true
   xtask-only:
     description: >
-      "true" = stop after [2/5] (seed z42c → current xtask.zpkg); skip build compiler / stdlib.
-      xtask then runs on the SEED stdlib (Z42_LIBS exported via GITHUB_ENV — the `xtask` shim
-      honours a caller-set Z42_LIBS). For jobs that only run xtask's pure source/doc checks
-      (docs-check). Default "false".
+      "true" = stop after [2/5] (SDK z42c → current xtask.zpkg); skip cargo and build compiler /
+      stdlib. xtask runs on the SDK either way, so no build tree is needed. For jobs that only run
+      xtask's pure source/doc checks (docs-check). Default "false".
     required: false
     default: "false"
 runs:
   using: composite
   steps:
+    # 种子 = 上一版 nightly SDK，装到 .z42（与本地 install-z42.sh 同一位置、同一形态）。CI 之后编 xtask、跑 xtask
+    # 都用它 —— 与本地 `./xtask` apphost 完全一致（add-sdk-libs D7）。下载重试与回退链都在那个 action 里。
+    - name: Install the nightly z42 SDK into .z42
+      id: sdk
+      uses: ./.github/actions/setup-z42-sdk
+      with:
+        rid: ${{ inputs.rid }}
+        gh-token: ${{ inputs.gh-token }}
+
     - shell: bash
       env:
-        GH_TOKEN: ${{ inputs.gh-token }}
         XTASK_ONLY: ${{ inputs.xtask-only }}
+        SEED_SRC: ${{ steps.sdk.outputs.seed-src }}
       run: |
         set -euo pipefail
         cd "$(git rev-parse --show-toplevel)"
@@ -58,8 +67,6 @@ runs:
             *)         printf '%s' "$1" ;;
           esac
         }
-        # nightly archive: Windows ships .zip (unzip), Unix ships .tar.gz (tar).
-        case "$RID" in windows-*) EXT=zip ;; *) EXT=tar.gz ;; esac
         ROOT="$PWD"
 
         # ── 0. z42vm (Rust; cargo) ───────────────────────────────────────────────────
@@ -81,120 +88,20 @@ runs:
         #
         # 代价：这一步多编 z42-compression + z42-repl 两个 cdylib（实测 +7s / +0s），
         # 但它们本来也会在 [3/5] 被编——只是挪到这里，且不再触发 lib 二次编译。
-        echo "── [0/5] cargo build z42vm + cdylibs (release; unit set 对齐 _buildRuntime) ──"
-        cargo build --locked --release --manifest-path src/runtime/Cargo.toml
-        vm="$ROOT/artifacts/build/runtime/release/z42vm"; [ -f "$vm.exe" ] && vm="$vm.exe"
-
-        # ── 1. download prev nightly SDK → seed (z42c-written compiler + stdlib) ────
-        # The seed lives in the SDK nightly's programs/z42c/ (host tooling), NOT the
-        # runtime nightly — the runtime package is a pure embeddable pack (native +
-        # stdlib only, no z42c/z42vm, 2026-07-01) since it may be installed on a
-        # DIFFERENT host than it targets (e.g. android runtime on a Windows/macOS
-        # host), where a single-host-platform z42c binary would be meaningless.
-        echo "── [1/5] download nightly SDK seed ($RID) ──"
-        work="$(mktemp -d)"
-        # Retry the download: publish-nightly republishes the `nightly` release with a
-        # `gh release delete` → `gh release create` (a brief window where the release does
-        # NOT exist → "release not found"). Concurrent runs (run N's publish-nightly vs
-        # run N+1's build-and-test download) can hit that window. Retry to ride it out.
-        dl_ok=0
-        for attempt in 1 2 3 4 5 6 7 8 9 10; do
-          if gh release download nightly -p "z42-sdk-nightly-${RID}.${EXT}" -O "$work/sdk.${EXT}" 2>"$work/dlerr"; then
-            dl_ok=1; break
-          fi
-          echo "   download attempt $attempt failed ($(head -1 "$work/dlerr")) — likely a publish-nightly delete→recreate window; retry in 15s…"
-          rm -f "$work/sdk.${EXT}"
-          sleep 15
-        done
-
-        # 解包 + 确认包里真有 z42c 种子。两件事都放进这个函数，因为回退路径要原样再做一遍。
-        unpack_and_check() {
-          rm -rf "$work/sdkpkg"; mkdir -p "$work/sdkpkg"
-          if [ "$EXT" = zip ]; then unzip -q "$1" -d "$work/sdkpkg"; else tar -C "$work/sdkpkg" -xzf "$1"; fi
-          ls "$work/sdkpkg/programs/z42c/"*.zpkg >/dev/null 2>&1
-        }
-
-        seed_src="nightly"
-        if [ "$dl_ok" = 1 ] && ! unpack_and_check "$work/sdk.${EXT}"; then
-          echo "   nightly SDK has no programs/z42c/ seed — treating as unusable"
-          dl_ok=0
+        # xtask-only：xtask 跑在 SDK 的 VM 上、只做纯源码 / 文档检查 ⇒ 不需要构建树 VM，整步跳过。
+        if [ "${XTASK_ONLY:-false}" != "true" ]; then
+          echo "── [0/5] cargo build z42vm + cdylibs (release; unit set 对齐 _buildRuntime) ──"
+          cargo build --locked --release --manifest-path src/runtime/Cargo.toml
         fi
 
-        # ── 回退：nightly 不可用时，用最近一次成功 CI 运行的 host-package artifact ──
-        #
-        # 为什么必须有这条：nightly 是**唯一**种子来源时，它一旦损坏（如 publish-nightly
-        # 的 delete→create 被整 workflow 取消打断，留下 stuck-draft），所有 bootstrap job
-        # 全挂 → package/publish-nightly 被 skip → **发不出新 nightly 自救**。
-        # 而 `gh workflow run CI` 那个逃生口也在同一个环里（publish-nightly 的 needs 全是
-        # bootstrap job），救不回来。2026-09-17 实际发生过一次，全仓卡了约 5 小时，
-        # 最后靠人工从 CI artifact 重打包重发 nightly 才解开。这条就是把那次人工操作自动化。
-        #
-        # 为什么是 CI artifact 而不是最近的正式 release：**格式版本**。
-        # 正式 release 可能落后很多个 zpkg 格式 bump（2026-09-17 那次：v0.5.0 是 minor 43，
-        # 当时源码是 48，差 5 个），会触发 [1.5] 两代自举；而两代自举全程用种子自带的旧 VM，
-        # 它加载不了 gen1 产出的新格式 stdlib —— 实测必挂（run 35290607109）。
-        # 成功 CI 运行的 artifact 顶多落后一两个 commit，格式天然对得上，**根本不进两代路径**。
-        #
-        # 另一个好处：不依赖 release 是否被正确发布。保留期 90 天。
-        #
-        # artifact 形态（unify-release-archive）：host-package 现在上传的是**归档**
-        # `release-host-<rid>`（内含 `z42-sdk-nightly-<rid>.<ext>`，与 nightly release 里的同名文件
-        # 逐字节同源）⇒ 回退与首选路径走同一个 `unpack_and_check`。在此之前的运行上传的是**已解包**的
-        # SDK 目录 `z42-host-package-<os>`；最近 5 次里可能还是旧形态，故仍认（过渡期过后可删这一支）。
-        #
-        # 权限：需要 token 的 `actions: read`。仓库默认 workflow 权限是 read（含 actions），
-        # 且用本 action 的 job 都没有自定义 permissions 块。**若将来给这些 job 加
-        # `permissions:`，必须显式带上 `actions: read`**，否则这条回退会静默失效。
-        if [ "$dl_ok" != 1 ]; then
-          echo "   nightly unusable — falling back to the newest successful CI run's host package"
-          # 逐个试最近几次成功运行：最新的那次 artifact 也可能已过期（90 天）或当时没跑 host-package。
-          for run_id in $(gh run list --workflow CI --branch main --status success \
-                            --limit 5 --json databaseId --jq '.[].databaseId' 2>/dev/null || true); do
-            echo "   trying CI run $run_id …"
-            rm -rf "$work/art"; mkdir -p "$work/art"
-            if gh run download "$run_id" -p "release-host-${RID}" -D "$work/art" 2>"$work/dlerr"; then
-              ar="$(find "$work/art" -maxdepth 2 -type f -name "z42-sdk-nightly-${RID}.${EXT}" | head -1)"
-              if [ -n "$ar" ] && unpack_and_check "$ar"; then
-                dl_ok=1; seed_src="ci-run-$run_id"
-                break
-              fi
-              echo "     release-host-${RID} has no usable z42-sdk-nightly-${RID}.${EXT}"
-              continue
-            fi
-            # 旧形态（unify-release-archive 之前的运行）：已解包的 SDK 目录。
-            rm -rf "$work/art"; mkdir -p "$work/art"
-            if ! gh run download "$run_id" -p 'z42-host-package-*' -D "$work/art" 2>"$work/dlerr"; then
-              echo "     download failed ($(head -1 "$work/dlerr" 2>/dev/null))"
-              continue
-            fi
-            # 按 RID 后缀挑目录，不硬编码 runner 标签（ubuntu-latest / macos-26 这些会变，
-            # 而 z42-<ver>-<rid>-release 这个命名由 packaging 决定、稳定）。
-            pkg="$(find "$work/art" -maxdepth 2 -type d -name "z42-*-${RID}-release" | head -1)"
-            if [ -z "$pkg" ]; then
-              echo "     no z42-*-${RID}-release dir in this run's artifacts"
-              continue
-            fi
-            if ! ls "$pkg/programs/z42c/"*.zpkg >/dev/null 2>&1; then
-              echo "     $pkg has no programs/z42c/ seed"
-              continue
-            fi
-            rm -rf "$work/sdkpkg"; cp -R "$pkg" "$work/sdkpkg"
-            dl_ok=1; seed_src="ci-run-$run_id"
-            break
-          done
-        fi
-
-        if [ "$dl_ok" != 1 ]; then
-          echo "::error::no usable z42c seed: nightly failed after 10 attempts AND no successful CI run's host package worked."
-          echo "::error::check 'gh release view nightly' — a stuck *draft* nightly (publish-nightly cancelled mid delete-recreate) looks present but carries no SDK packages."
-          echo "::error::manual recovery: download the newest successful CI run's release-* artifacts, run 'xtask package finalize nightly' and republish the nightly release (see internals/devinfra/ci.md §3.1)."
-          cat "$work/dlerr" 2>/dev/null || true
-          exit 1
-        fi
-        echo "   seed source: $seed_src"
+        # ── 1. 种子 = setup-z42-sdk 装好的 .z42（nightly，或回退到最近成功 CI 运行的归档）────────
+        # The seed lives in the SDK's programs/z42c/ (host tooling), NOT the runtime package — the runtime
+        # package is a pure embeddable pack (native + stdlib only, no z42c/z42vm, 2026-07-01).
+        SDK="$ROOT/.z42"
+        echo "── [1/5] seed SDK = $SDK (${SEED_SRC:-unknown}) ──"
         seed="$ROOT/.ci-seed"; rm -rf "$seed"; mkdir -p "$seed"
-        cp -f "$work/sdkpkg/programs/z42c/"*.zpkg "$seed/"
-        cp -f "$work/sdkpkg/libs/"*.zpkg "$seed/"
+        cp -f "$SDK/programs/z42c/"*.zpkg "$seed/"
+        cp -f "$SDK/libs/"*.zpkg "$seed/"
         echo "   seed: $(ls "$seed"/*.zpkg | wc -l | tr -d ' ') zpkg @ $seed"
 
         # Native-form (Windows D:\… on windows-x64; unchanged on Unix) copies of every
@@ -202,8 +109,6 @@ runs:
         # form — git-bash launches the .exe fine; only what z42vm itself reads is converted.
         # (Defined here — before the 1.5 two-gen gate — because the gate references them.)
         seedw="$(winpath "$seed")"
-        sdkpkgw="$(winpath "$work/sdkpkg")"        # SDK dir → Z42_HOME (seed source)
-        sdklibsw="$(winpath "$work/sdkpkg/libs")"  # nightly stdlib → Z42_LIBS (xtask runtime)
         driverw="$(winpath "$seed/z42c.driver.zpkg")"
 
         # ── 1.5 版本差 gate:两代自举根治格式-bump 死结 ────────────────────────────────
@@ -215,11 +120,9 @@ runs:
         seed_minor=$(od -An -tu2 -j6 -N2 "$seed/z42c.driver.zpkg" | tr -d ' ')
         cur_minor=$(grep -oE 'Minor = [0-9]+' "$ROOT/src/compiler/z42.package/src/ZpkgWriter.z42" | head -1 | grep -oE '[0-9]+')
         echo "   zpkg minor: seed=$seed_minor  current=$cur_minor"
-        boot_driver="$seed/z42c.driver.zpkg"   # 默认(快路径):用下载的种子 z42c
-        boot_libs="$work/sdkpkg/libs"          # 默认:种子 stdlib
         if [ -n "$seed_minor" ] && [ -n "$cur_minor" ] && [ "$seed_minor" != "$cur_minor" ]; then
           echo "── [1.5] 格式 bump 检测(seed $seed_minor ≠ current $cur_minor)→ 两代自举 ──"
-          OLDVM="$work/sdkpkg/bin/z42vm"; case "$RID" in windows-*) OLDVM="$OLDVM.exe";; esac
+          OLDVM="$SDK/bin/z42vm"; case "$RID" in windows-*) OLDVM="$OLDVM.exe";; esac
           [ -f "$OLDVM" ] || { echo "::error::nightly SDK 缺 bin/z42vm — 两代自举需旧 VM(重发带 bin/z42vm 的 nightly)"; exit 1; }
           chmod +x "$OLDVM" 2>/dev/null || true
           # Gen0 stdlib: 旧VM + 旧种子 z42c → 编**当前** stdlib → 产出携带**当前 z42.package API**
@@ -231,7 +134,7 @@ runs:
           ( cd "$ROOT/src/libraries" && Z42_LIBS="$seedw" "$OLDVM" "$driverw" --mode interp -- build --workspace --release --no-incremental )
           for f in "$ROOT/artifacts/build/libraries/"*/release/dist/*.zpkg; do cp -f "$f" "$G0LIBS/"; done
           # 种子里 gen0 未产出的库(若有)用种子版兜底,保证种子 driver 运行期依赖齐全。
-          for f in "$work/sdkpkg/libs/"*.zpkg; do [ -f "$G0LIBS/$(basename "$f")" ] || cp -f "$f" "$G0LIBS/"; done
+          for f in "$SDK/libs/"*.zpkg; do [ -f "$G0LIBS/$(basename "$f")" ] || cp -f "$f" "$G0LIBS/"; done
           g0libsw="$(winpath "$G0LIBS")"
           # Gen1 z42c: 旧VM + 旧种子 z42c,**对着 gen0 的新 z42.package 编**(含新 API)→ gen1(旧壳/新逻辑)。
           ( cd "$ROOT/src/compiler" && Z42_LIBS="$g0libsw" "$OLDVM" "$driverw" --mode interp -- build --workspace --release --no-incremental )
@@ -266,82 +169,48 @@ runs:
           # 进入 OLDVM 后才成立;改动这段前先确认 OLDVM 仍具备该行为。
           # 同 gen1 stdlib:清就地 artifacts/build/compiler(gen1 已写 minor 41,gen2 重写 42),避免
           # DepScanCache 缓存 gen1 旧份的 strict-pin skip → gen2 兄弟(z42c.*)解析缺席。gen1 driver
-          # 已在 G1RUN,gen2 用它作 driver,故清 artifacts/build/compiler 安全(gen2 重建 + boot_driver 取新)。
+          # 已在 G1RUN,gen2 用它作 driver,故清 artifacts/build/compiler 安全(gen2 重建)。
           rm -rf "$ROOT/artifacts/build/compiler"
           ( cd "$ROOT/src/compiler" && Z42_LIBS="$flatw" "$OLDVM" "$(winpath "$G1RUN/z42c.driver.zpkg")" --mode interp -- build --workspace --release --no-incremental )
           g2_minor=$(od -An -tu2 -j6 -N2 "$ROOT/artifacts/build/compiler/z42c.driver/release/dist/z42c.driver.zpkg" | tr -d ' ')
           [ "$g2_minor" = "$cur_minor" ] || { echo "::error::两代自举 gen2 z42c minor=$g2_minor ≠ current=$cur_minor"; exit 1; }
           echo "   ✓ 两代自举完成:gen2 z42c + stdlib 均 minor=$cur_minor(当前格式);新 VM 接管"
-          # 后续 [2]-[4] 改用 gen2 z42c + 新 stdlib(新 VM 可加载);artifacts 已 warm(当前格式)。
-          boot_driver="$ROOT/artifacts/build/compiler/z42c.driver/release/dist/z42c.driver.zpkg"
-          boot_libs="$FLAT"
+          # 构建树已 warm(当前格式):[3/5][4/5] 里 xtask(仍跑在 SDK 旧 VM 上)派生构建树的新 VM 做 warm 自建。
         fi
-        boot_driverw="$(winpath "$boot_driver")"
-        boot_libsw="$(winpath "$boot_libs")"
 
-        # No hand-copy into the build tree anymore: xtask's `_ensureSeed` stages the
-        # in-tree z42c + stdlib seed from the SDK (Z42_HOME) below (steps 3/4) — the
-        # SAME resolver `./xtask build compiler` uses locally, so CI and local share one
-        # logic. Z42_LIBS points at the SDK's nightly stdlib so xtask.zpkg (built by the
-        # seed z42c against THAT stdlib) can LOAD to run; pointing it at the empty in-tree
-        # output dir fails with `undefined function Std.IO.…` before _ensureSeed even runs.
-
-        # Windows can't overwrite a RUNNING .exe. Steps [3]/[4] run xtask, which calls
-        # _buildRuntime → `cargo build` targeting the canonical z42vm.exe (cargo's
-        # target-dir IS artifacts/build/runtime). If xtask is launched FROM that same file,
-        # cargo's relink fails with "Access is denied (os error 5)". So launch xtask from a
-        # COPY placed outside the cargo target dir — the canonical can then be rebuilt
-        # freely, and later steps (test all / package) still use the fresh canonical. No-op-
-        # safe on Unix (overwriting a running binary is fine there, but the copy is harmless).
-        runvm="$ROOT/.ci-runvm/z42vm"; case "$vm" in *.exe) runvm="$runvm.exe";; esac
-        mkdir -p "$ROOT/.ci-runvm"; cp -f "$vm" "$runvm"
-        runvmw="$(winpath "$runvm")"
-
-
-        # ── 2. seed z42c → build CURRENT xtask.zpkg ──────────────────────────────────
-        # --no-incremental: the seed is the DOWNLOADED nightly z42c, which carries
-        # port-incremental-build-cache's cache write but not its Windows path fix — its
-        # _writeCacheZbc crashes on Windows (os error 3) AFTER writing the .zpkg. The
-        # cache is a pure optimization; skip it for the seed's one-shot xtask build.
-        # (Current-source z42c already makes the cache write non-fatal; this covers the
-        # still-broken published seed until a fixed nightly self-heals.)
-        echo "── [2/5] seed z42c builds current xtask.zpkg ──"
-        # `|| true` + the xtask.zpkg guard below: the seed writes the COMPLETE
-        # xtask.zpkg FIRST, then (on the broken nightly) crashes writing the cache on
-        # Windows (os error 3) — a non-zero exit AFTER the real output. --no-incremental
-        # SHOULD skip the cache, but the published nightly's z42c ignores it; so we also
-        # tolerate the crash and gate on the actual product existing. A real failure
-        # (crash before writing xtask.zpkg) still trips the guard.
-        # boot_driverw/boot_libsw:快路径=下载种子;两代路径=gen2 z42c + 新 stdlib(见 1.5)。
-        # Z42_COMPILER_LIBS（tidy-xtask-config）：xtask 以 `${compiler_libs}` 引用编出它的工具链里的
-        # z42.project / z42.build。那个目录就是 boot driver 所在目录 —— 快路径 = .ci-seed（SDK programs/z42c
-        # 的拷贝）；两代路径 = gen2 的 z42c.driver dist（自包含闭包）。
-        Z42_COMPILER_LIBS="$(winpath "$(dirname "$boot_driver")")" Z42_LIBS="$boot_libsw" "$runvm" "$boot_driverw" --mode interp -- \
-          build scripts/xtask.z42.toml --release --no-incremental \
+        # ── 2. 用 SDK 自己的 z42c 编当前 xtask（同本地 `.z42/bin/z42c build scripts/xtask.z42.toml`）──────────
+        # xtask 编完**跑在同一个 SDK 上**（下面 [3/5][4/5] 与之后各步的 `xtask` 垫片）⇒ 编译与运行同一个工具链，版本严格一致
+        # —— 格式 bump 那一轮也一样（xtask 是种子格式、跑在种子 VM 上），不必再改用 gen2 编 xtask。
+        # 清掉 z42 相关环境变量：apphost 自己从所在 SDK 推出 VM / libs / 编译器目录（`${compiler_libs}`）。
+        # --no-incremental + `|| echo` + 产物守卫：老 nightly z42c 在 Windows 写增量缓存会在**写完 zpkg 之后**崩（os error 3），
+        # 缓存只是优化，跳过它；真失败（没产出 zpkg）由守卫判红。
+        echo "── [2/5] SDK z42c builds current xtask.zpkg ──"
+        z42c="$SDK/bin/z42c"; [ -f "$z42c.exe" ] && z42c="$z42c.exe"
+        env -u Z42_LIBS -u Z42_HOME -u Z42_PORTABLE_VM -u Z42_COMPILER_LIBS \
+          "$z42c" build scripts/xtask.z42.toml --release --no-incremental \
           || echo "  seed z42c exited non-zero (nightly Windows cache write?) — verifying xtask.zpkg below"
         [ -f "$ROOT/artifacts/xtask/xtask.zpkg" ] || { echo "::error::xtask.zpkg not produced"; exit 1; }
+        # 种子身份随 xtask 走（toolchain artifact 带着它）：下游 job 装的 SDK 若不是同一份，就用自己的 SDK 重编 xtask。
+        cp -f "$SDK/seed-id.txt" "$ROOT/artifacts/xtask/seed-id.txt"
 
-        # xtask-only（ci-docs-fast-path）：只要 xtask 跑纯源码 / 文档检查的 job 到此为止 —— 省掉 [3/5][4/5]
-        # 的 build compiler + build stdlib。xtask 的运行期 stdlib 用种子那份（它就是拿种子 stdlib 编的）。
+        # xtask-only（ci-docs-fast-path）：只要 xtask 跑纯源码 / 文档检查的 job 到此为止 —— 省掉 build compiler / stdlib。
         if [ "${XTASK_ONLY:-false}" = "true" ]; then
-          # 不清 $work：快路径下 boot_libs 就是 $work/sdkpkg/libs（种子 stdlib），后续 xtask 要用它。
-          echo "Z42_LIBS=$boot_libsw" >> "$GITHUB_ENV"
-          echo "✅ CI bootstrap (xtask-only) OK ($RID) — xtask.zpkg built by the seed; runs on the seed stdlib"
+          echo "✅ CI bootstrap (xtask-only) OK ($RID) — xtask.zpkg built by and running on the SDK"
           exit 0
         fi
 
-        # ── 3. xtask builds CURRENT z42c (cold: _ensureSeed stages from Z42_HOME) ────
-        # `-v detailed`: CI logs keep the full seed candidate-walk + per-file output
-        # (default is now minimal — ▶/✔ markers only; detailed is what debugs bootstrap).
-        # Z42_LIBS=boot_libsw:两代路径下 artifacts 已 warm(当前格式 z42c+stdlib),此处新 VM
-        # warm 自建;Z42_HOME(冷启动 _ensureSeed 用)在 warm 时不触发,但两代路径它是旧种子,故
-        # 用 boot_libsw(新 stdlib)确保新 VM 能 LOAD 运行 xtask。快路径 boot_libsw==sdklibsw。
-        echo "── [3/5] xtask build compiler (seed staged from SDK via Z42_HOME) ──"
-        Z42_HOME="$sdkpkgw" Z42_LIBS="$boot_libsw" Z42_PORTABLE_VM="$runvmw" "$runvm" artifacts/xtask/xtask.zpkg -- -v detailed build compiler
+        # ── 3/4. xtask（跑在 SDK 上，同本地 `./xtask`）构建当前 z42c + stdlib ──────────────────────────────
+        # 冷树：xtask 的 `_ensureSeed` 经 `_seedSdkDir` 自己找到 `./.z42`（Z42_HOME → Z42_PORTABLE_VM 反推 → ./.z42）
+        # 并把种子 stage 进构建树 —— 不再需要 Z42_HOME。两代路径下构建树已 warm（当前格式），xtask 直接 warm 自建。
+        # `-v detailed`：CI 日志保留完整的种子查找过程与逐文件输出（排查自举用）。
+        # Windows 上「xtask 从构建树 z42vm.exe 的拷贝启动，免得 cargo 重链时覆盖正在运行的 exe」那层绕行随之删掉：
+        # xtask 现在跑在 SDK 的 VM 上，cargo 从不重链它。
+        xt() { env -u Z42_HOME -u Z42_PORTABLE_VM -u Z42_COMPILER_LIBS "$GITHUB_WORKSPACE/.github/ci/xtask" "$@"; }
+        echo "── [3/5] xtask build compiler ──"
+        xt -v detailed build compiler
 
-        # ── 4. xtask builds CURRENT stdlib (flat dist + index.json) ──────────────────
         echo "── [4/5] xtask build stdlib ──"
-        Z42_HOME="$sdkpkgw" Z42_LIBS="$boot_libsw" Z42_PORTABLE_VM="$runvmw" "$runvm" artifacts/xtask/xtask.zpkg -- -v detailed build stdlib
+        xt -v detailed build stdlib
 
         # ── 5. sanity: toolchain present ─────────────────────────────────────────────
         echo "── [5/5] verify toolchain ──"
@@ -349,11 +218,10 @@ runs:
           || { echo "::error::current z42c.driver.zpkg missing after build compiler"; exit 1; }
         [ -f "$ROOT/artifacts/build/libraries/dist/release/z42.core.zpkg" ] \
           || { echo "::error::stdlib flat dist missing"; exit 1; }
-        rm -rf "$work"
         echo "✅ CI bootstrap OK ($RID) — z42c + stdlib + xtask in standard locations"
 
-    # 后续步骤用 `xtask <cmd>` 驱动（.github/ci/xtask 封装了 z42vm / flat stdlib / xtask.zpkg
-    # 三个位置与 Windows 的 exe 拷贝，见该文件头注）。GITHUB_WORKSPACE 在 Windows 上即原生
+    # 后续步骤用 `xtask <cmd>` 驱动（.github/ci/xtask = 本地 `./xtask` apphost 的等价物：`.z42` 的
+    # z42vm + libs 跑 xtask.zpkg，见该文件头注）。GITHUB_WORKSPACE 在 Windows 上即原生
     # `D:\a\…` 形态，直接写进 GITHUB_PATH 最稳。
     - name: Put the xtask CI shim on PATH
       shell: bash

@@ -54,12 +54,29 @@ cargo 指纹，它会把整个 crate 冷编一遍（`compiler-checks` 的 `test 
 xtask test all --no-build --skip "$SKIP"
 ```
 
-这个垫片封装了三个位置（release z42vm / flat stdlib / `xtask.zpkg`）与两处平台差异：
-Windows 的 `.exe` 后缀，以及 Windows **不能覆盖正在运行的 exe**——`package` 等命令会让 cargo
-重链 `z42vm.exe`，所以 Windows 上它每次都从 cargo 输出目录之外的一份拷贝启动。
-`Z42_PORTABLE_VM` / `Z42_LIBS` 只在调用方没设时给默认值。
+**xtask 跑在 `.z42` SDK 上，与本地 `./xtask` 完全一致**（add-sdk-libs D7）。两个 bootstrap action 都先经
+[`setup-z42-sdk`](../../../../.github/actions/setup-z42-sdk/action.yml) 把上一版 nightly 装进仓库根 `.z42/`——
+与本地 `scripts/install-z42.sh` 同位置同形态；xtask.zpkg 也是用这份 SDK 的 z42c 编的。垫片于是只做本地
+apphost 做的事：`.z42/bin/z42vm`（Windows 带 `.exe`）+ `Z42_LIBS=.z42/libs`（调用方设了则尊重）跑
+`artifacts/xtask/xtask.zpkg`，**不设** `Z42_PORTABLE_VM` / `Z42_HOME`。
 
-⇒ 构建产物布局变了，**CI 侧只改这一个文件**。`ci.yml` / `release.yml` / `bench-pr.yml` 全部走它。
+这带来两点：
+
+- **编 xtask 与跑 xtask 是同一个工具链**。之前 CI 用种子编 xtask，却在 cargo 现编的构建树 z42vm 和构建树
+  stdlib 上跑它，本地和 CI 不一样。xtask 引用的 SDK 库（`z42.project` / `z42.build`）因此能直接用 SDK 里的，
+  不必复制进产物。
+- **Windows 不再需要「从拷贝启动」**。以前垫片跑的是构建树的 `z42vm.exe`，`package` 等命令让 cargo 重链它时会
+  撞上「不能覆盖正在运行的 exe」。现在 xtask 跑在 SDK 的 VM 上，cargo 碰不到它。
+
+构建树的 z42vm（cargo 现编 / `prebuilt-vm`）仍然要有：那是**被测对象**，xtask 构建、测试当前源码时由它自己去
+定位，与本地相同。
+
+`xtask-bootstrap-artifact` 消费的 xtask.zpkg 来自 `compile-toolchain`，是用**那个 job** 装到的 SDK 编的，
+同目录的 `seed-id.txt` 记着那份 SDK 的身份。如果两个 job 之间 nightly 被重发了（并发运行的 `publish-nightly`
+会这样），本 job 装到的就是新的一版，而跨格式 bump 时旧 xtask.zpkg 在新 VM 上加载不了。所以 action 会比对
+`artifacts/xtask/seed-id.txt` 与 `.z42/seed-id.txt`，不一致就用本机 SDK 的 z42c 原地重编 xtask（约 1 分钟）。
+
+⇒ xtask 的启动方式变了，**CI 侧只改这一个文件**。`ci.yml` / `release.yml` / `bench-pr.yml` 全部走它。
 例外：`test-consume` 故意用下载来的 current-sdk 里的 z42vm 跑，不走垫片。`bench-pr.yml` 里
 `cd base-src && xtask …` 也成立：垫片按**自己所在位置**定位 PR 树的三样东西、不看 cwd，于是跑的仍是
 PR 的 xtask，而 xtask 的 `_root()` 取 cwd 的仓库根 = base-src（base 工具链另经 `--base-vm` 等显式传入）。
@@ -211,9 +228,10 @@ Swatinem `rust-cache` 用 `shared-key` 跨 job 共享；**一个 key 命中后�
 
 ## 3.1 自举种子从哪来（以及它怎么死锁过一次）
 
-**每条** bootstrap 路径（`build-and-test` / `host-package` / `package-*` /
-`toolchain-bootstrap`，都经 `.github/actions/ci-bootstrap`）都要先拿一个 **z42c 种子**，
-用它编当前源码。种子的取用顺序：
+**每个**跑 xtask 的 job（`ci-bootstrap` 与 `xtask-bootstrap-artifact` 两条路径都一样）都要先经
+[`setup-z42-sdk`](../../../../.github/actions/setup-z42-sdk/action.yml) 拿一份上一版 SDK，装进 `.z42/`。
+它既是 xtask 运行所在的 SDK，也是 **z42c 种子**：用它编当前源码，xtask 的 `_seedSdkDir` 会自己找到 `./.z42`。
+取用顺序如下：
 
 ```
 nightly release 的 z42-sdk-nightly-<rid>          （首选，10 次重试）
@@ -235,12 +253,12 @@ nightly 再 use。成功 CI 运行的产物顶多落后一两个 commit，牢牢
 > `z42.core.zpkg … zpkg minor 48 not supported (writer is at 0.43)`。
 > 成功 CI 运行的 artifact 格式天然对得上，**根本不进两代路径**。
 >
-> 附带两个好处：artifact 里是**已解包**的 SDK 目录（免 tar/zip 与 EXT 分支）；
-> 也不依赖 release 是否被正确发布。保留期 90 天，所以逐个试最近 5 次。
+> 附带一个好处：不依赖 release 是否被正确发布（artifact 里就是 package job 出好的同一份归档）。保留期 90 天，所以逐个试最近 5 次。
 
-> ⚠️ **权限**：这条回退要 token 的 `actions: read`。仓库默认 workflow 权限是 read
-> （含 actions），且用 `ci-bootstrap` 的 job 目前都没有自定义 `permissions:` 块。
-> **将来若给这些 job 加 `permissions:`，必须显式带上 `actions: read`**，否则回退静默失效。
+> ⚠️ **权限**：这条回退要 token 的 `actions: read`。仓库默认 workflow 权限是 read（含 actions），
+> 但自定义了 `permissions:` 块的 job（`publish-nightly`、`test-*` 平台测试、`release.yml`、
+> `jit-fixpoint-check.yml`）**必须显式带上 `actions: read`**，否则回退会静默失效。现有的这些 job 都已带上，
+> 新加 `permissions:` 时别漏。
 
 > ⚠️ 按 RID **后缀**挑目录（`z42-*-<rid>-release`），不要硬编码 runner 标签
 > （`ubuntu-latest` / `macos-26` 这些会变，包名由 packaging 决定、稳定）。

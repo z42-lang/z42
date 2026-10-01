@@ -17,16 +17,16 @@ xtask / build 基础设施驱动；stdlib 又被两者依赖。任何「从源�
 | 来源 | 何时用 | 例子 |
 |------|--------|------|
 | **warm 种子** | 本地已建过 / CI 有缓存 / 上游 nightly 已下载 | `artifacts/build/z42c/.../z42c.driver.zpkg` 存在 → z42c 自建 z42c |
-| **cold 种子** | fresh checkout / CI 全新 runner，**没有任何 in-tree z42c 产物** | 下载 nightly（`install-z42.sh` → `./.z42` / CI `ci-bootstrap` → SDK）→ `_ensureSeed` 把 `programs/z42c` + `libs` 供种到 in-tree |
+| **cold 种子** | fresh checkout / CI 全新 runner，**没有任何 in-tree z42c 产物** | 下载 nightly（`install-z42.sh` / CI `setup-z42-sdk` → 都是 `./.z42`）→ `_ensureSeed` 把 `programs/z42c` + `libs` 供种到 in-tree |
 
 > **cold 种子的统一解析（2026-07-04；env 于 2026-07-05 simplify-compiler-build 折叠）**：
 > `build compiler` / `build stdlib` 冷启动不再报错，由 `_ensureSeed`
 > （`scripts/common/xtask_common.z42`，SDK 定位在 `_seedSdkDir`）按 **`Z42_HOME`
 > （`--toolchain` 设它，或 launcher/install 设）→ 运行 xtask 的 apphost SDK
 > （`Z42_PORTABLE_VM` 反推）→ `./.z42`** 找到 SDK，把 `programs/z42c` + `libs` 拷进 in-tree
-> 再自建。**CI 与本地同一条 resolver**：CI（`.github/actions/ci-bootstrap`）只设
-> `Z42_HOME=<下载的 SDK>`，不再手动拷种子；本地 `install-z42.sh` 后 `xtask build compiler`
-> 开箱即用。warm 树（in-tree 已有种子）**不被覆盖**——gen2 字节不动点靠"第二次从 in-tree
+> 再自建。**CI 与本地同一条 resolver、同一个位置**：CI（`.github/actions/setup-z42-sdk`）把 nightly 装进
+> 仓库根 `./.z42`——与本地 `install-z42.sh` 相同，不设 `Z42_HOME`，xtask 也跑在这份 SDK 上（add-sdk-libs D7，
+> 2026-10-01）；本地 `install-z42.sh` 后 `xtask build compiler` 开箱即用。warm 树（in-tree 已有种子）**不被覆盖**——gen2 字节不动点靠"第二次从 in-tree
 > gen1 再种"收敛，故 in-tree 必须最高优先。managed 布局的 `Z42_HOME`（`runtimes/`，无
 > `programs/`）不符 SDK-toolchain 布局 → 跳过（不误当种子源）；`Z42_LIBS` 显式覆盖仅在其
 > 确实含 `z42.core.zpkg` 时生效。（`Z42C_DIR` / `Z42_TOOLCHAIN` 已于 simplify-compiler-build
