@@ -138,30 +138,42 @@ path 依赖与名字依赖的关键差异：名字依赖假定其 zpkg **已在*
 
 `[analyzers]` 声明的 handler zpkg（analyzer / generator 本体）**加载进编译器进程、编译期运行、永不链入目标产物**。这条与 `[dependencies]` 正交的通道，在 add-package-roles 批 1/批 2 补齐了两件事：契约够得着、扩展工程能被路径引用。
 
-#### 解析域：`kind = "analyzer"` 自动看得见编译器域；其它工程用 `${compiler_libs}` 显式引用
+#### 解析域：SDK 库（编译器域包）的可见性
 
-编译器域的包（`z42c.semantics` 等 Generator 契约所在，以及 `z42.project` / `z42.build` …）**不在 SDK 的 `libs/`**——
-普通工程的依赖解析只看 `libs/`。它们在**编译器目录**里：SDK 的 `programs/z42c/`（z42c.driver 的自包含闭包）。
-曾经有过一个独立的 `compiler-libs/` 目录，它在发布态恒不存在，2026-09-27（relocate-compiler-domain-libs）删除，
-落点改为 `programs/z42c/`。
+编译器域的包（`z42c.semantics` 等 Generator 契约所在，以及 `z42.project` / `z42.build` …，统称 **SDK 库**）**不在 SDK 的
+`libs/`**，而在**编译器目录**：SDK 的 `programs/z42c/`（z42c.driver 的自包含闭包）。曾经有过一个独立的 `compiler-libs/`
+目录，它在发布态恒不存在，2026-09-27（relocate-compiler-domain-libs）删除，落点改为 `programs/z42c/`。
 
-编译器目录由 `CompilerDomain.Dirs()`（`z42c.pipeline/src/BuildSession.z42`，driver 与 BuildSession 共用）按序探测，
-存在者都收：① `Z42_COMPILER_LIBS`；② `Z42_HOME/programs/z42c/`；③ 由 `Z42_PORTABLE_VM` 反推 SDK 根 →
-`programs/z42c/`；④ 开发树——自 `Z42_LIBS` 上溯到 `artifacts/build/` → `compiler/z42c.driver/release/dist/`（与
-`programs/z42c/` 同形；2026-10-01 前指 `z42c.semantics` 的 dist，那里只有它自己）。
+编译器目录由 `CompilerDomain.Dirs()`（`z42c.pipeline/src/BuildSession.z42`）按序探测，存在者都收：① `Z42_COMPILER_LIBS`；
+② `Z42_HOME/programs/z42c/`；③ 由 `Z42_PORTABLE_VM` 反推 SDK 根 → `programs/z42c/`；④ 开发树——自 `Z42_LIBS` 上溯到
+`artifacts/build/` → `compiler/z42c.driver/release/dist/`（与 `programs/z42c/` 同形）。
 
-两种用法：
+**可见性规则**（add-sdk-libs，2026-10-01；实现在 `z42c.pipeline/src/SdkLibs.z42`，driver 与 BuildSession 共用）：
 
-| 工程 | 怎么够到编译器域 | 结果 |
+| 工程 | SDK 库可见 | 机制 |
 |---|---|---|
-| `lib` / `exe`（不写宏） | 只有 `libs/` + path 闭包 dist | 引用 `z42c.semantics` → 未找到（解析域隔离） |
-| `analyzer` | driver 在 `pm.Project.Kind == "analyzer"` 时把整个编译器目录并入 `libsDirs`（`Main.z42`，紧接 path 依赖闭包之后） | 按名引用得到 |
-| 任意 kind，**显式** | `[dependencies]` 写 `{ path = "${compiler_libs}/<包>.zpkg" }`（`ExeDeps.z42` 的 `_expandDepPathMacros`，取探测序第一个目录） | 引用得到；exe 构建时按部署规则复制到产物旁（例：`scripts/xtask.z42.toml`） |
+| `lib` / `exe` | 按名声明的（不写 path）+ 它们在 SDK 库内的传递闭包（沿 zpkg DEPS 段） | `SdkLibs.Plan` 算放行集；编译器目录追加到 `libsDirs` 末尾，**不放行的包名并入扫描 tier 的 `Hidden`**（`WsTier` 既有字段） |
+| `analyzer` | 全部 | 放行集 = 编译器目录里所有「基础解析域中没有」的包 |
+| 任意 kind，`${compiler_libs}` 宏（过渡） | 编译器目录整个可见 | `ExeDeps.z42` 的 `_expandDepPathMacros`：被引用 zpkg 所在目录并入解析域 |
 
-编译器目录排在框架 `libs/` **之后**：`programs/z42c/` 里也躺着整套 stdlib 的副本，排在前面会让 `_bundleExeDeps`
-把整套 stdlib 当私有依赖拷进用户产物。
+几个不显然的点：
 
-> **为什么 z42c 自建不受影响**：z42c 自己是 `kind = "exe"`，不进这个分支 ⇒ 自举 byte-identical。
+- **用 `Hidden`、不拼视图目录**：解析器以目录为单位扫 `*.zpkg`；按名过滤恰好是 `WsTier.Admits` 已有的能力。扫描用的 tier 是
+  **另一个变量**（`SdkLibs.MergeTier` 复制一份），调用方手里的 `tier` 不动——它的 `!= null` 判断驱动 workspace 语义
+  （成员判定 / 闭包代建 / packed / generated 落点），扫描过滤不该牵动那些。`DepIdentity` 吃的也是扫描 tier ⇒ 放行集变化
+  自然失效缓存。
+- **stdlib 副本**：`programs/z42c/` 里也有整套 stdlib；它们不进放行集（名字在基础解析域里已有），且编译器目录排在
+  `libs/` 之后、按 basename 先到先得本就选不中 ⇒ `_bundleExeDeps` 不会把 stdlib 当私有依赖拷走。
+- **放行的包也算「已声明」**：`SdkLibs.ExtendDeclared` 把它们并进 `DeclaredDeps` 白名单——DepIndex 只索引
+  「stdlib（`z42.` 前缀）+ 声明依赖」，E0497 也按它放行；传递闭包里的包、analyzer 免声明的包都是合法可达的。
+- **exe 复制**：声明的 SDK 库从编译器目录解析到（不是 shipped `libs/`）⇒ 按既有规则判为私有、复制；传递闭包由
+  `_bundleExeDeps` 既有的 DEPS 走查覆盖（#849）。
+- **E0494 提示**：`using` 指向的命名空间若由某个**当前不可见**的 SDK 库提供，报错点名该库并给出 `"<包>" = "*"`。
+  `SdkLibs.HiddenProviderOf` 只在报错路径调用；它直接到编译器目录里找（工程一个 SDK 库都没声明时，编译器目录根本
+  不在解析域里——那正是最常见的「忘了声明」）。
+
+> **为什么 z42c 自建不受影响**：z42c 各成员不按名声明 SDK 库（它们就是 SDK 库本身，靠 workspace 成员 dist 解析）⇒
+> 放行集为空 ⇒ 不追加目录、tier 原样 ⇒ 自举 byte-identical（`test compiler` 的 gen1==gen2 守着）。
 
 #### path 条目：z42c 代建那一个工程
 
@@ -340,7 +352,7 @@ preserved 早退**（`fix-analyzer-diags-preserved`）。早退路径只能回�
 | 跨包符号加载（TSIG） | `z42c.semantics/src/ImportedSymbolLoader.z42`；调和：`z42c.project/src/TsigReconcile.z42` |
 | 工作区规划 | `z42c.pipeline/src/WorkspaceBuild.z42`；增量：`IncrementalBuild.z42` |
 | 产物组装 | `z42c.project/src/ZpkgBuilder.z42`、`ZpkgWriter.z42` |
-| 编译期扩展解析域 / `[analyzers]` 解析 | 编译器目录 `z42c.pipeline/src/BuildSession.z42`（`CompilerDomain.Dirs`）；`z42c.driver/src/BuildPaths.z42`（`_resolveHandlerZpkgs` / `_handlerFingerprint`）；`${compiler_libs}` 宏 `ExeDeps.z42`；接线在 `Main.z42` |
+| 编译期扩展解析域 / `[analyzers]` 解析 | 编译器目录 `z42c.pipeline/src/BuildSession.z42`（`CompilerDomain.Dirs`）；SDK 库可见性 `z42c.pipeline/src/SdkLibs.z42`；`z42c.driver/src/BuildPaths.z42`（`_resolveHandlerZpkgs` / `_handlerFingerprint`）；`${compiler_libs}` 宏 `ExeDeps.z42`；接线在 `Main.z42` |
 | handler 加载与执行 | `z42c.pipeline/src/AnalyzerLoader.z42`、`GeneratorLoader.z42`、`PackageCompile.z42` |
 
 ## 边界与限制

@@ -97,7 +97,10 @@ public static class CompilerFingerprint {
         // using-csharp-strict-gate：同包跨 ns 与纯类型注解也计入 E0436（每文件记录用到的 ns）—— 新发诊断。
         "using-csharp-strict-gate",
         // using-csharp-unused-warning：多余 / 重复的 using 报 W0607 / W0608 —— 新发诊断。
-        "using-csharp-unused-warning"
+        "using-csharp-unused-warning",
+        // add-sdk-libs：SDK 库（编译器域包）的可见性——exe / lib 按名声明可见（+ 传递闭包）、analyzer 全部可见，
+        // 不放行的进扫描 tier 的 Hidden；E0494 指名未声明的 SDK 库。解析域是语义分析的输入。z42c 自建字节不变。
+        "add-sdk-libs-visibility"
     };
 
     // 指纹值：`Entries` 逐条以 `\n` 连接后取内容哈希（`mmh3:` 前缀，同 SourceHash）。

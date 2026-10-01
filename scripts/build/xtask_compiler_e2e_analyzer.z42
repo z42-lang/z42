@@ -37,9 +37,14 @@ string _e2eAnalyzerToml(string kind) { return _e2eAnalyzerTomlNamed("e2e.gen", k
 
 // 编译期扩展工程的最小清单：kind + 对契约包的依赖。
 string _e2eAnalyzerTomlNamed(string name, string kind) {
+    return _e2eAnalyzerTomlDecl(name, kind, true);
+}
+
+// `declare` = 是否在 [dependencies] 按名声明 SDK 库 z42c.semantics（add-sdk-libs：exe / lib 须声明，analyzer 免声明）。
+string _e2eAnalyzerTomlDecl(string name, string kind, bool declare) {
     return "[project]\nname    = \"" + name + "\"\nversion = \"0.1.0\"\nkind    = \"" + kind + "\"\n\n"
-         + "[sources]\ninclude = [\"*.z42\"]\n\n"
-         + "[dependencies]\n\"z42c.semantics\" = \"0.1.0\"\n";
+         + "[sources]\ninclude = [\"*.z42\"]\n"
+         + (declare ? "\n[dependencies]\n\"z42c.semantics\" = \"0.1.0\"\n" : "");
 }
 
 // 🔴 **Z42_LIBS 必须是纯 stdlib dist，不能用 e2e 其余检查那个 `flat`**。
@@ -61,33 +66,47 @@ int _e2eAnalyzerDomainChecks(string root, string vm, string driverZpkg, string e
     File.WriteAllText(Path.Join(bdir, "gen.z42"), _e2eAnalyzerSrc());
     string btoml = Path.Join(bdir, "e2e.gen.z42.toml");
 
-    // ① kind = "analyzer" → 解析域含编译器域目录（`programs/z42c/`，见 `_compilerDomainDirs`）
-    //    ⇒ 契约可解析 ⇒ 编过。
-    File.WriteAllText(atoml, _e2eAnalyzerToml("analyzer"));
+    // add-sdk-libs 的可见性规则（三格；每格独立目录，免得增量缓存混进「解析得到吗」）：
+    //   ① kind = "analyzer"，**不声明** → SDK 库自动可见 ⇒ 编过；
+    //   ② kind = "lib"，按名声明 `"z42c.semantics" = "0.1.0"` → 可见 ⇒ 编过；
+    //   ③ kind = "lib"，**不声明** → 不可见 ⇒ 必须编不过，且报错点名 z42c.semantics 并给出声明写法。
+    //      ③ 编过 = 未声明的 SDK 库也漏给了普通工程（隔离失效）；红了但不点名 = 门失去判别力。
+    File.WriteAllText(atoml, _e2eAnalyzerTomlDecl("e2e.gen", "analyzer", false));
     ProcessResult r1 = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(atoml).Arg("--release")
         .Env("Z42_LIBS", flat).Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
     if (r1.ExitCode != 0) {
-        Console.WriteLine("  ✗ kind=analyzer 的工程解析不到 z42c.semantics（插件作者写不出插件）: rc="
+        Console.WriteLine("  ✗ ① kind=analyzer（未声明）解析不到 z42c.semantics（SDK 库应对 analyzer 自动可见）: rc="
             + r1.ExitCode.ToString());
         Console.WriteLine("    stderr: " + r1.Stderr);
         return 1;
     }
 
-    // ② 同一份源码，kind = "lib" → 解析域只有 libs/ ⇒ 必须编不过。
-    //    编过了说明编译器域包对普通工程也可见 —— 解析域隔离失效，本门的意义随之归零。
-    File.WriteAllText(btoml, _e2eAnalyzerToml("lib"));
+    File.WriteAllText(btoml, _e2eAnalyzerTomlDecl("e2e.gen", "lib", true));
     ProcessResult r2 = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(btoml).Arg("--release")
         .Env("Z42_LIBS", flat).Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
-    if (r2.ExitCode == 0) {
-        Console.WriteLine("  ✗ kind=lib 的普通工程竟也解析到了 z42c.semantics —— 解析域隔离失效");
-        return 1;
-    }
-    if (r2.Stderr.IndexOf("z42c.semantics") < 0) {
-        Console.WriteLine("  ✗ kind=lib 编不过，但错误与 z42c.semantics 无关（门失去判别力）");
+    if (r2.ExitCode != 0) {
+        Console.WriteLine("  ✗ ② kind=lib 按名声明了 z42c.semantics 却解析不到: rc=" + r2.ExitCode.ToString());
         Console.WriteLine("    stderr: " + r2.Stderr);
         return 1;
     }
-    Console.WriteLine("  ✓ 编译期扩展解析域：kind=analyzer 可引用 z42c.semantics，kind=lib 不可");
+
+    string cdir = Path.Join(e2eDir, "analyzerdomain_undeclared");
+    Directory.Create(cdir);
+    File.WriteAllText(Path.Join(cdir, "gen.z42"), _e2eAnalyzerSrc());
+    string ctoml = Path.Join(cdir, "e2e.gen.z42.toml");
+    File.WriteAllText(ctoml, _e2eAnalyzerTomlDecl("e2e.gen", "lib", false));
+    ProcessResult r3 = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(ctoml).Arg("--release")
+        .Env("Z42_LIBS", flat).Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
+    if (r3.ExitCode == 0) {
+        Console.WriteLine("  ✗ ③ kind=lib 未声明却解析到了 z42c.semantics —— SDK 库的声明隔离失效");
+        return 1;
+    }
+    if (r3.Stderr.IndexOf("z42c.semantics") < 0 || r3.Stderr.IndexOf("按名声明") < 0) {
+        Console.WriteLine("  ✗ ③ kind=lib 未声明时编不过，但报错没有点名 z42c.semantics / 没给声明写法（门失去判别力）");
+        Console.WriteLine("    stderr: " + r3.Stderr);
+        return 1;
+    }
+    Console.WriteLine("  ✓ SDK 库可见性：analyzer 免声明可见；lib 声明后可见；lib 未声明不可见且提示怎么声明");
     return 0;
 }
 
@@ -342,4 +361,58 @@ int _e2eUserDomainRefChecks(string root, string vm, string driverZpkg, string e2
     }
     Console.WriteLine("  ✓ 用户显式引用编译器域：不声明看不见 / 声明可用且拷进产物 / 宏名拼错当场报");
     return 0;
+}
+
+// ── exe 引用 SDK 库：默认复制 + 传递闭包（add-sdk-libs）──────────────────────────────────────
+//
+// 用户的 exe 只有 runtime（runtime 包里没有 SDK 库）⇒ 用到的 SDK 库必须复制进产物，**连同它在 SDK 库内的依赖**：
+// 本格只声明 `z42c.pipeline`，而它依赖 `z42c.semantics` ⇒ 两个都要在 dist 里。反向：编译器目录里那套
+// stdlib 副本**不能**被当私有依赖拷进来（stdlib 运行期从 libs/ 解析）。最后用 Z42_LIBS 真跑一遍。
+//
+// ⚠️ 为什么选 z42c.pipeline 而不是 z42.build：开发树的 stdlib flat（`Z42_LIBS`）里**本来就有**几个编译器包
+// （`_ensureBootstrapSelfDepLibs` 把 z42c 运行期自依赖的 z42.build / z42.project / z42.package / z42c.core /
+// z42c.syntax 预建进去）——在开发树里它们是「框架」，按规则不复制。z42c.pipeline / z42c.semantics 不在其中，
+// 才代表发布态 SDK 里「不在 libs/ 的 SDK 库」。发布态的全量形态由 `xtask test dist` 覆盖。
+int _e2eSdkLibExeCopy(string root, string vm, string driverZpkg, string e2eDir) {
+    string flat = _libsFlatDist(root, "release");   // 纯 stdlib：模拟「只有 runtime」
+    string d = Path.Join(e2eDir, "sdklibexe");
+    Directory.Create(d);
+    File.WriteAllText(Path.Join(d, "main.z42"),
+        "using Std.IO;\nusing Z42.Pipeline;\n\nvoid Main() { WsTier t = new WsTier(); Console.WriteLine(t != null ? \"sdkexe ok\" : \"sdkexe null\"); }\n");
+    File.WriteAllText(Path.Join(d, "sdkexe.z42.toml"),
+        "[project]\nname    = \"sdkexe\"\nversion = \"0.1.0\"\nkind    = \"exe\"\nentry   = \"Main\"\n\n"
+        + "[sources]\ninclude = [\"*.z42\"]\n\n[dependencies]\n\"z42c.pipeline\" = \"0.1.0\"\n");
+    ProcessResult b = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(Path.Join(d, "sdkexe.z42.toml")).Arg("--release")
+        .Env("Z42_LIBS", flat).Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
+    if (b.ExitCode != 0) {
+        Console.WriteLine("  ✗ exe 按名声明 z42c.pipeline 却编不过: rc=" + b.ExitCode.ToString());
+        Console.WriteLine("    stderr: " + b.Stderr);
+        return 1;
+    }
+    string dist = Path.Join(d, "dist");
+    if (!File.Exists(Path.Join(dist, "z42c.pipeline.zpkg")) || !File.Exists(Path.Join(dist, "z42c.semantics.zpkg"))) {
+        Console.WriteLine("  ✗ exe 产物缺 SDK 库（应有 z42c.pipeline + 其依赖 z42c.semantics）: " + _e2eLs(dist));
+        return 1;
+    }
+    if (File.Exists(Path.Join(dist, "z42.core.zpkg"))) {
+        Console.WriteLine("  ✗ 编译器目录里的 stdlib 副本被当私有依赖拷进了 exe 产物: " + _e2eLs(dist));
+        return 1;
+    }
+    ProcessResult r = new Process(vm).Arg(Path.Join(dist, "sdkexe.zpkg")).Env("Z42_LIBS", flat)
+        .EnvRemove("Z42_HOME").EnvRemove("Z42_COMPILER_LIBS").Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
+    if (r.ExitCode != 0 || r.Stdout.Trim() != "sdkexe ok") {
+        Console.WriteLine("  ✗ 复制了 SDK 库的 exe 在纯 stdlib 环境跑不起来: rc=" + r.ExitCode.ToString() + " " + r.Stdout + r.Stderr);
+        return 1;
+    }
+    Console.WriteLine("  ✓ exe 引用 SDK 库：z42c.pipeline + 传递依赖 z42c.semantics 复制进产物、stdlib 副本未混入，可运行");
+    return 0;
+}
+
+string _e2eLs(string dir) {
+    if (!Directory.Exists(dir)) { return "(无 " + dir + ")"; }
+    string[] xs = Directory.Enumerate(dir);
+    string s = "";
+    int i = 0;
+    while (i < xs.Length) { s = s + (i > 0 ? ", " : "") + xs[i]; i = i + 1; }
+    return s;
 }

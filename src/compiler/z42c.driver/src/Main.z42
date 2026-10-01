@@ -285,24 +285,17 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
             libsDirs = withZ; libsDirsN = libsDirsN + zn;
         }
     }
-    // ── 编译期扩展工程的解析域（add-package-roles 批 1；落点 relocate-compiler-domain-libs 改为 programs/z42c/）──
-    // `kind = "analyzer"` ⇒ 本工程是编译期扩展（analyzer / generator 本体），其 `[dependencies]`
-    // 要够得着编译器的契约包（`z42c.semantics` 的 Generator/ModuleGenerator/GenSink/GenTarget）。
-    // 那些 zpkg 不在 `libs/`（整个编译器域都不在），故此处把编译器域解析域并入本工程的 libsDirs。
-    //
-    // 只对 analyzer 工程生效 ⇒ 普通工程看不见编译器域包（解析域隔离），且 z42c 自建
-    // （kind=exe）不进此块 ⇒ 自举 byte-identical。
-    if (pm.Project.Kind == "analyzer") {
-        string[] cl = CompilerDomain.Dirs();
-        if (cl.Length > 0) {
-            string[] withCl = new string[libsDirsN + cl.Length];
-            int wi = 0;
-            while (wi < libsDirsN) { withCl[wi] = libsDirs[wi]; wi = wi + 1; }
-            int ci2 = 0;
-            while (ci2 < cl.Length) { withCl[libsDirsN + ci2] = cl[ci2]; ci2 = ci2 + 1; }
-            libsDirs = withCl; libsDirsN = libsDirsN + cl.Length;
-        }
+    // ── SDK 库的可见性（add-sdk-libs；规则与实现见 z42c.pipeline 的 SdkLibs.z42）────────────────────
+    // exe / lib：按名声明的 SDK 库（+ 传递闭包）可见；analyzer：编译器目录里的 SDK 库全部可见（编译期扩展的
+    // 契约包在那里）。不放行的并入扫描 tier 的 Hidden。放行集为空（绝大多数工程，含 z42c 自建）⇒ 不追加目录、
+    // tier 原样 ⇒ 自举 byte-identical。此前这里只有「kind = analyzer ⇒ 并入整个编译器目录」一条。
+    SdkLibPlan sdkPlan = SdkLibs.Plan(pm, libsDirs, libsDirsN, pm.Project.Kind == "analyzer");
+    if (sdkPlan.DirsN > 0) {
+        libsDirs = SdkLibs.AppendDirs(libsDirs, libsDirsN, sdkPlan);
+        libsDirsN = libsDirsN + sdkPlan.DirsN;
     }
+    // 只用于扫描与缓存身份；`tier` 本身的 workspace 语义（成员 / 闭包代建 / packed / generated）不受影响。
+    WsTier scanTier = SdkLibs.MergeTier(tier, sdkPlan);
     // ── `[analyzers]` handler zpkg 解析（add-package-roles 批 2）────────────────────────────
     // 必须在指纹之前：path 条目由 z42c **代建**，不先建就没有 zpkg 可指纹，「改了 analyzer 源码但
     // 消费方源没变」就不会失效缓存 —— 那正是 PR4e 指纹要堵的洞，只是换 path 条目后会重新漏。
@@ -384,7 +377,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
     }
     int effOptSet = kn.OptSet;
     LanguageFeatures feats = kn.Features;
-    string depsId = DepIdentity.Of(libsDirs, libsDirsN, pm.Project.Name, tier);
+    string depsId = DepIdentity.Of(libsDirs, libsDirsN, pm.Project.Name, scanTier);
     // wire-optimize-manifest：**优化集并进包级缓存身份**。它此前不在任何 cache key 里——那时无害
     // （`[optimize]` 整段被忽略，optSet 只由 CLI/profile 决定，而这两者不会在「源没变」时悄悄变）。
     // 接线之后就有害了：改一行 toml 不碰源码 ⇒ probe 全命中 ⇒ **旋钮全量构建生效、增量构建被忽略**
@@ -583,8 +576,10 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
     cin.Features = feats;   // add-l0-protocol-table：喂给解析器的语法特性门
     cin.OptSet = effOptSet;   // wire-optimize-manifest：上方已按 CLI > toml > profile 解出
     cin.LibsDirs = libsDirs; cin.LibsDirsN = libsDirsN;
-    cin.Tier = tier;
-    cin.DeclaredDeps = declaredDeps; cin.DepCount = pm.DepCount;
+    cin.Tier = scanTier;
+    // add-sdk-libs：放行的 SDK 库（传递闭包 / analyzer 免声明）也算已声明 —— DepIndex 要索引它们、E0497 要放行。
+    string[] declaredAll = SdkLibs.ExtendDeclared(declaredDeps, pm.DepCount, sdkPlan);
+    cin.DeclaredDeps = declaredAll; cin.DepCount = declaredAll.Length;
     // fix-crosspkg-ns-reachability：走到这里就是**真的读了一份 manifest**（`pm`）⇒ 执行依赖契约（E0497）。
     // REPL / 单测 / 裸 emit 不经本函数，保持默认 false——它们没有「声明」可依据。
     // 单文件同样走这里，但 launcher 已把 SDK libs 写进它的合成清单，故自然放行。

@@ -1,0 +1,226 @@
+// SDK 库的可见性（add-sdk-libs）—— driver（`z42c build`）与 BuildSession（z42b）共用的同一份规则。
+//
+// **SDK 库** = 不在 shipped `libs/`、而在编译器目录（SDK 的 `programs/z42c/`，开发树的 `z42c.driver` dist；
+// 定位见 `CompilerDomain.Dirs()`）里的包：`z42.project` / `z42.build` / `z42c.*` …
+//
+// 规则（spec「可见性」）：
+//   · exe / lib：**按名声明**才可见（`"z42.project" = "*"`，不写路径）——声明的 SDK 库 + 它们在 SDK 库内的传递闭包；
+//   · analyzer（以及 z42b 编的 build hooks，见 builder_hooks.z42）：SDK 库**全部**可见，免声明；
+//   · 编译器目录里那套 stdlib 副本：不进放行集（名字在基础解析域里已有）——它们排在 libs/ 之后，
+//     按 basename 先到先得也本就选不中。
+//
+// 实现：不放行的 SDK 包名并进扫描用 `WsTier` 的 **`Hidden`**（既有字段、既有语义：整个不可见），编译器目录
+// 追加到 `libsDirs` 末尾。放行集为空（绝大多数工程，含 z42c 自建）⇒ 什么都不追加、tier 原样 ⇒
+// 解析域与缓存身份逐字节不变。
+namespace Z42.Pipeline;
+
+using Std;
+using Std.IO;
+using Z42.Package;
+using Z42.Project;
+
+public sealed class SdkLibPlan {
+    // 要追加到 libsDirs 末尾的编译器目录（不含已在基础解析域里的）。
+    public string[] Dirs; public int DirsN;
+    // 放行的 SDK 库名（声明的 + 传递闭包；analyzer = 全部）。
+    public string[] Allowed; public int AllowedN;
+    // 编译器目录里**不**放行的 SDK 库名（并入扫描 tier 的 Hidden）。
+    public string[] Hidden; public int HiddenN;
+    public SdkLibPlan() {
+        this.Dirs = new string[0]; this.DirsN = 0;
+        this.Allowed = new string[0]; this.AllowedN = 0;
+        this.Hidden = new string[0]; this.HiddenN = 0;
+    }
+}
+
+public static class SdkLibs {
+    // `hostExtension` = analyzer / hooks（全部放行）。基础解析域 = 调用方已拼好的 libsDirs（私有 dist + 框架 libs）。
+    public static SdkLibPlan Plan(ProjectManifest pm, string[] baseDirs, int baseN, bool hostExtension) {
+        SdkLibPlan plan = new SdkLibPlan();
+        string[] dom = CompilerDomain.Dirs();
+        // 编译器目录里、基础域里没有的包名 = SDK 库候选（同名取第一个目录）。
+        string[] dirs = new string[dom.Length];
+        int dirsN = 0;
+        string[] names = new string[64];
+        string[] paths = new string[64];
+        int n = 0;
+        int di = 0;
+        while (di < dom.Length) {
+            if (!SdkLibs._has(baseDirs, baseN, dom[di])) {
+                dirs[dirsN] = dom[di]; dirsN = dirsN + 1;
+                string[] hits = Path.Glob(dom[di], "*.zpkg");
+                int hi = 0;
+                while (hi < hits.Length) {
+                    string nm = Path.GetFileNameWithoutExtension(hits[hi]);
+                    if (!SdkLibs._has(names, n, nm) && !SdkLibs._inDirs(baseDirs, baseN, nm + ".zpkg")) {
+                        if (n == names.Length) { names = SdkLibs._grow(names); paths = SdkLibs._grow(paths); }
+                        names[n] = nm; paths[n] = hits[hi]; n = n + 1;
+                    }
+                    hi = hi + 1;
+                }
+            }
+            di = di + 1;
+        }
+        if (n == 0) { return plan; }
+
+        string[] allowed = new string[n];
+        int an = 0;
+        if (hostExtension) {
+            int ai = 0;
+            while (ai < n) { allowed[an] = names[ai]; an = an + 1; ai = ai + 1; }
+        } else {
+            // 种子 = 按名声明（不带 path）的 SDK 库；再沿 zpkg 的 DEPS 段走到不动点。
+            int q = 0;
+            while (q < pm.DepCount) {
+                DepEntry d = pm.Deps[q];
+                if (d.Path.Length == 0 && SdkLibs._has(names, n, d.Name) && !SdkLibs._has(allowed, an, d.Name)) {
+                    allowed[an] = d.Name; an = an + 1;
+                }
+                q = q + 1;
+            }
+            int w = 0;
+            while (w < an) {
+                int pi = SdkLibs._indexOf(names, n, allowed[w]);
+                CachedZpkg ce = DepScanCache.Get(paths[pi]);
+                if (ce.Z != null) {
+                    string[] deps = ZpkgReader.ReadDependencies(ce.Z);
+                    int k = 0;
+                    while (k < deps.Length) {
+                        if (SdkLibs._has(names, n, deps[k]) && !SdkLibs._has(allowed, an, deps[k])) {
+                            allowed[an] = deps[k]; an = an + 1;
+                        }
+                        k = k + 1;
+                    }
+                }
+                w = w + 1;
+            }
+            if (an == 0) { return plan; }
+        }
+
+        string[] hidden = new string[n];
+        int hn = 0;
+        int ni = 0;
+        while (ni < n) {
+            if (!SdkLibs._has(allowed, an, names[ni])) { hidden[hn] = names[ni]; hn = hn + 1; }
+            ni = ni + 1;
+        }
+        plan.Dirs = dirs; plan.DirsN = dirsN;
+        plan.Allowed = allowed; plan.AllowedN = an;
+        plan.Hidden = hidden; plan.HiddenN = hn;
+        return plan;
+    }
+
+    // 扫描用 tier：计划为空 ⇒ 原样返回 `tier`（含 null —— 非 workspace 路径的既有语义）；否则复制一份，
+    // Hidden 并上不放行的 SDK 库名。**不改调用方手里的 `tier`**：它的 workspace 语义（成员判定、闭包代建、
+    // packed / generated 落点）由 `tier != null` 等判断驱动，扫描过滤不该牵动那些。
+    public static WsTier MergeTier(WsTier tier, SdkLibPlan plan) {
+        if (plan.HiddenN == 0 && plan.DirsN == 0) { return tier; }
+        WsTier t = new WsTier();
+        int baseHidden = tier != null ? tier.HiddenN : 0;
+        string[] h = new string[baseHidden + plan.HiddenN];
+        int i = 0;
+        while (i < baseHidden) { h[i] = tier.Hidden[i]; i = i + 1; }
+        int j = 0;
+        while (j < plan.HiddenN) { h[baseHidden + j] = plan.Hidden[j]; j = j + 1; }
+        t.Hidden = h; t.HiddenN = baseHidden + plan.HiddenN;
+        if (tier != null) {
+            t.Members = tier.Members; t.MembersN = tier.MembersN; t.MemberDirs = tier.MemberDirs;
+        } else {
+            t.Members = new string[0]; t.MembersN = 0; t.MemberDirs = 0;
+        }
+        return t;
+    }
+
+    // `dirs[0..n) + plan.Dirs` 拼成新的解析域。
+    public static string[] AppendDirs(string[] dirs, int n, SdkLibPlan plan) {
+        string[] r = new string[n + plan.DirsN];
+        int i = 0;
+        while (i < n) { r[i] = dirs[i]; i = i + 1; }
+        int j = 0;
+        while (j < plan.DirsN) { r[n + j] = plan.Dirs[j]; j = j + 1; }
+        return r;
+    }
+
+    // 声明白名单（DepIndex 索引 + E0497 依赖契约）补上放行的 SDK 库 —— 传递闭包里的包、analyzer 免声明的包
+    // 都是合法可达的，不能因为没写进清单就被当成「未声明的第三方包」。
+    public static string[] ExtendDeclared(string[] declared, int n, SdkLibPlan plan) {
+        string[] r = new string[n + plan.AllowedN];
+        int i = 0;
+        while (i < n) { r[i] = declared[i]; i = i + 1; }
+        int m = n;
+        int j = 0;
+        while (j < plan.AllowedN) {
+            if (!SdkLibs._has(r, m, plan.Allowed[j])) { r[m] = plan.Allowed[j]; m = m + 1; }
+            j = j + 1;
+        }
+        if (m == r.Length) { return r; }
+        string[] tight = new string[m];
+        int k = 0;
+        while (k < m) { tight[k] = r[k]; k = k + 1; }
+        return tight;
+    }
+
+    // E0494 的提示：`ns`（或其子命名空间）由哪个**当前不可见**的 SDK 库提供？没有 ⇒ ""。
+    // 只在报错路径调用（不影响正常编译的开销）。直接到编译器目录里找，而不是只看解析域：工程一个 SDK 库都没声明时
+    // 编译器目录压根不在解析域里（放行集为空 ⇒ 不追加），而那正是最常见的「忘了声明」。
+    // 「不可见」= 不在框架 / 私有 dist 里（那些不是 SDK 库），且所在目录不在解析域、或名字在 tier 的 Hidden 里。
+    // 限定编译器目录：workspace 的 Hidden 也含「拓扑序在后的成员」，它们不是 SDK 库，给「按名声明」的提示会误导。
+    public static string HiddenProviderOf(string ns, string[] libsDirs, int libsN, WsTier tier) {
+        string[] dom = CompilerDomain.Dirs();
+        int di = 0;
+        while (di < dom.Length) {
+            bool inScope = SdkLibs._has(libsDirs, libsN, dom[di]);
+            string[] hits = Path.Glob(dom[di], "*.zpkg");
+            int hi = 0;
+            while (hi < hits.Length) {
+                string nm = Path.GetFileNameWithoutExtension(hits[hi]);
+                bool hidden = !inScope || (tier != null && SdkLibs._has(tier.Hidden, tier.HiddenN, nm));
+                if (hidden && !SdkLibs._inNonDomain(libsDirs, libsN, dom, nm + ".zpkg")) {
+                    CachedZpkg ce = DepScanCache.Get(hits[hi]);
+                    if (ce.Z != null) {
+                        string[] nss = ZpkgReader.ReadNamespaces(ce.Z);
+                        int k = 0;
+                        while (k < nss.Length) {
+                            if (nss[k] == ns || nss[k].StartsWith(ns + ".")) { return nm; }
+                            k = k + 1;
+                        }
+                    }
+                }
+                hi = hi + 1;
+            }
+            di = di + 1;
+        }
+        return "";
+    }
+
+    // 解析域里、编译器目录**以外**的目录（框架 libs / 私有 dist）有没有这个文件。
+    private static bool _inNonDomain(string[] libsDirs, int n, string[] dom, string file) {
+        int i = 0;
+        while (i < n) {
+            if (!SdkLibs._has(dom, dom.Length, libsDirs[i]) && File.Exists(Path.Join(libsDirs[i], file))) { return true; }
+            i = i + 1;
+        }
+        return false;
+    }
+
+    private static bool _has(string[] arr, int n, string v) { return SdkLibs._indexOf(arr, n, v) >= 0; }
+
+    private static int _indexOf(string[] arr, int n, string v) {
+        int i = 0;
+        while (i < n) { if (arr[i] == v) { return i; } i = i + 1; }
+        return 0 - 1;
+    }
+
+    private static bool _inDirs(string[] dirs, int n, string file) {
+        int i = 0;
+        while (i < n) { if (File.Exists(Path.Join(dirs[i], file))) { return true; } i = i + 1; }
+        return false;
+    }
+
+    private static string[] _grow(string[] a) {
+        string[] b = new string[a.Length * 2];
+        int i = 0;
+        while (i < a.Length) { b[i] = a[i]; i = i + 1; }
+        return b;
+    }
+}
