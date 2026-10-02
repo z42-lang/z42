@@ -394,4 +394,4 @@ thread-local `TlabCell { armed: u32, tlab }`（`UnsafeCell`，owner 独占 + all
 ## 关联
 
 - [gc-tuning-and-safepoint.md](gc-tuning.md)：safepoint 协议 + 自动回收三态（retire-on-park 挂其上）。
-- `docs/spec/changes/add-gc-tlab/`：proposal / spec / design D1–D8 / tasks。
+- `docs/spec/archive/2026-08-30-add-gc-tlab/`：proposal / spec / design D1–D8 / tasks。

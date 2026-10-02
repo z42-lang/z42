@@ -1,4 +1,4 @@
-// 非泛型 string→object 哈希表（z42c.ir 自持副本；模式同 semantics/StrMap——ir 是叶子不能依赖 semantics）。
+// 非泛型 string→object 哈希表（编译器各成员共用的唯一一份；semantics 原有副本已并入这里）。
 // port-z42c-import CI-2：DependencyIndex 键表用。+TryAdd（first-wins 语义，common-pitfalls §1 的消费端）。
 // ⚠ 无 Remove（开放寻址线性探测删除需墓碑）——需要"剔除"时重建新表。
 namespace Z42.IR;

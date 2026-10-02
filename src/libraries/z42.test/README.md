@@ -1,6 +1,6 @@
 # z42.test
 
-z42 标准测试库 —— 给 stdlib 自身和用户脚本提供 attribute 注解（[Test] / [Skip] / [ShouldThrow<E>] 等）+ TestIO + Bencher + Runner，配合 [z42-test-runner](../../toolchain/test-runner/) 运行。
+z42 标准测试库 —— 给 stdlib 自身和用户脚本提供 attribute 注解（[Test] / [Skip] / [ShouldThrow<E>] 等）+ TestIO + Bencher + Runner，配合 [z42b](../../toolchain/builder/)（`z42b test`）运行。
 
 ## 现状（v0.5, 2026-05-05）
 
