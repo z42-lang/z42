@@ -233,7 +233,7 @@ E0442 / E0457 / E0462 除外（见上一节）。**E0402 另有一处语法层�
 |---|---|---|---|
 | E0436 | 用了某命名空间（依赖包或**同包**）却没在本文件 `using`（file-scoped usings；外围命名空间、prelude、全局 ns 除外）。类型名写在源码里时报在**引用处**（类型存在、所在包已激活，只是本文件看不见）；其余报在文件头 `(1,1)` | ✅ `CuPreprocess.z42` / `ExprTyper.z42` / `AccessChecker.z42` | `namespace B; void F() { A.W w = null; }`（同包 `namespace A` 声明了 `W`） |
 | E0441 | 不一致可访问性：高可见性的成员 / 类型签名暴露了更低可见性的类型（对标 C# CS0050 族） | ✅ `AccessChecker.z42:227` | `public void f(InternalOnly x)` |
-| E0456 | 非限定短名同时匹配**多个可见命名空间**里的类型（对标 C# CS0104）。当前命名空间里的那一份优先，限定写法永不歧义。此前是**静默择一**，选中哪份取决于加载顺序 | ✅ `SymbolCollector.z42:449`、`TypeChecker.z42:158,163` | `using A; using B;` 后裸写 `Box b = null;`，A/B 各有一个 `Box` |
+| E0456 | 非限定短名同时匹配**多个可见命名空间**里的类型（对标 C# CS0104）。当前命名空间里的那一份优先，限定写法永不歧义。嵌套位置同样判：泛型实参（`Box<Widget>`）、数组元素（`Widget[]`）、可空内层（`Widget?`）、函数类型的参数与返回。此前是**静默择一**，选中哪份取决于加载顺序 | ✅ `SymbolCollector._chkTypeRefT`、`TypeChecker.ChkAmbiguousBareNameT`（判据 `SymbolTable.FirstAmbiguousBareName`） | `using A; using B;` 后裸写 `Box b = null;`，A/B 各有一个 `Box` |
 | E0458 | 同一命名空间里重复声明同一个类型（同 ns、同名、同 arity，且并非全部 `partial`；对标 C# CS0101）。判据是 **(ns, 名字, arity)** 三者都相同。此前是**静默 last-wins**，前一个连同成员一起消失 | ✅ `StubCollector.z42:231` | 两个文件各写一个 `namespace X; class Config` |
 
 ### 编译期宏 / `methodof` / 属性与生成器

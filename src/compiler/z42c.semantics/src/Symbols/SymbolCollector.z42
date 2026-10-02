@@ -595,9 +595,9 @@ public sealed class SymbolCollector {
     internal void _chkTypeRefT(Z42Type t, TypeExpr te, string cls, SymbolTable table, Span sp) {
         AccessChecker.CheckTypeRef(t, cls, table, this.Diags, sp);
         this._chkTypeRefPkg(t, table, sp);   // report-crosspkg-duplicate-type：E0601 / E0606（声明位）
-        if (te == null) { return; }
-        if (!(te is NamedType)) { return; }
-        string msg = table.AmbiguousBareNameMsg((te as NamedType).Name);
+        string name = table.FirstAmbiguousBareName(te);   // 含嵌套位置（`List<Widget>` / `Widget[]`）；限定名跳过
+        if (name == "") { return; }
+        string msg = table.AmbiguousBareNameMsg(name);
         if (msg != "") { this.Diags.Error(DiagnosticCodes.AmbiguousBareTypeName, msg, sp); }
     }
 

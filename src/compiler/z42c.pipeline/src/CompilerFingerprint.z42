@@ -136,7 +136,9 @@ public static class CompilerFingerprint {
         // deterministic-zpkg-deps：DEPS 只记符号实际来自的包，`using` 不再贡献依赖 —— 几乎所有 zpkg 的 DEPS 段字节变化。
         "deterministic-zpkg-deps",
         // reject-using-after-decl：`using` 写在类型/函数声明之后新报 E0210 —— 诊断变化。
-        "reject-using-after-decl"
+        "reject-using-after-decl",
+        // report-nested-ambiguous-names：泛型实参 / 数组元素 / 可空内层里的歧义裸名新报 E0456 —— 诊断变化。
+        "report-nested-ambiguous-names"
     };
 
     // 指纹值：`Entries` 逐条以 `\n` 连接后取内容哈希（`mmh3:` 前缀，同 SourceHash）。
