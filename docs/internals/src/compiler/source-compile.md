@@ -370,7 +370,7 @@ User 2026-10-01 裁定 `using` 按 C# 规则。两个机制：
 
 **判定**：`CuPreprocess._enforceFileScope`（经 `IrDump.EnforceFileScopeAll`，在 cached 元数据回填之后）对
 `UsedNs ∪ UsedDepNs` 逐个判：prelude / 外围链（含全局 ns）/ 本文件 using（含注入的 global using）之外 ⇒ E0436。
-`UsedDepNs` 是代码生成期的依赖 ns（DEPS 段也用它，字节不变）；cached 文件跳过类型检查，眼下只有它
+`UsedDepNs` 是依赖引用（代码生成命中 ∪ 源码写出的导入符号；条目可带归属包 `ns#pkg`，判 E0436 时只看 ns 部分），DEPS 段由它算出；cached 文件跳过类型检查，眼下只有它
 （`UsedNs` 持久化进 cache meta 要改 driver，晚一个 nightly）。
 
 **发射**：解析出的 ns 随 `BoundCall.FreeNs` / `BoundFuncRef.FuncNs` 带到发射端，`CallEmitter` / `ExprEmitter`

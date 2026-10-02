@@ -193,6 +193,51 @@ public sealed partial class SymbolTable {
              + "` and `" + SymbolTable.QualOf(c[1], name) + "`";
     }
 
+    // deterministic-zpkg-deps：导入类型（类 / 接口 / enum）FQN → 声明它的**那一个**依赖包名。
+    // 本包声明、父包（测试目标按同包待遇）、无记录、多包同 FQN（E0601 的地盘）一律返回 ""（= 归属不明）。
+    public string ImportedPkgOf(string fqn) {
+        StrBox box = this._pkgBoxOf(fqn);
+        if (box == null || box.Count != 1) { return ""; }
+        string pkg = box.Value;
+        if (pkg == this.SelfPkg) { return ""; }
+        return pkg;
+    }
+
+    // deterministic-zpkg-deps：FQN 指向**本次编译声明**的类型（类或接口，`IsImported == false`）吗。
+    // 来源表里查不到归属时用它区分「本包自己的」（不是依赖，跳过）与「真不知道来自哪」（按 ns 保守回落）。
+    public bool IsLocalTypeFqn(string fqn) {
+        int at = this.ClassesByFqn.Find(fqn);
+        if (at >= 0) {
+            Z42ClassType ct = this.ClassesByFqn.ValAt(at) as Z42ClassType;
+            if (ct != null && !ct.IsImported) { return true; }
+        }
+        at = this.InterfacesByFqn.Find(fqn);
+        if (at >= 0) {
+            Z42InterfaceType it = this.InterfacesByFqn.ValAt(at) as Z42InterfaceType;
+            if (it != null && !it.IsImported) { return true; }
+        }
+        return false;
+    }
+
+    // deterministic-zpkg-deps：导入自由函数 → 声明它的那一个依赖包名（同 ImportedPkgOf 的口径）。
+    // name 可带重载 mangle（`f$2`），按 `$` 前的裸名查 FuncOriginAll。
+    public string ImportedFuncPkgOf(string name, string ns) {
+        int dollar = name.IndexOf("$");
+        string bare = dollar < 0 ? name : name.Substring(0, dollar);
+        string[] os = this.FuncOriginsOf(bare);
+        string hit = "";
+        int i = 0;
+        while (i < os.Length) {
+            string p = SymbolTable._origPkg(os[i]);
+            if (SymbolTable._origNs(os[i]) == ns && p != "" && p != this.SelfPkg) {
+                if (hit != "" && hit != p) { return ""; }
+                hit = p;
+            }
+            i = i + 1;
+        }
+        return hit;
+    }
+
     // FQN → 声明过它的依赖包名列表（无记录返回空数组）。
     // 打包串取 box（perf-packed-count）：热路径只要「有几项」⇒ 读 `StrBox.Count`，不 Split（冷路径出诊断
     // 消息时仍走 ClassPkgsOf / ClassNsOf）。⚠️ 改用 `IndexOf("|")` 判单项没用：它要扫完整串，实测 Split 实测 Split 3.34%→0.07% 时 IndexOf 反升到 5.39%。

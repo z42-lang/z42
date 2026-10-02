@@ -191,9 +191,10 @@ public static class CuPreprocess {
         while (a < cm.UsedNs.Length) { all[an] = cm.UsedNs[a]; an = an + 1; a = a + 1; }
         a = 0;
         while (a < cm.UsedDepNsCount) {
+            string dns = DepRef.NsOf(cm.UsedDepNs[a]);   // deterministic-zpkg-deps：条目可能带 `#pkg`
             bool dup = false;
-            int q0 = 0; while (q0 < an) { if (all[q0] == cm.UsedDepNs[a]) { dup = true; } q0 = q0 + 1; }
-            if (!dup) { all[an] = cm.UsedDepNs[a]; an = an + 1; }
+            int q0 = 0; while (q0 < an) { if (all[q0] == dns) { dup = true; } q0 = q0 + 1; }
+            if (!dup) { all[an] = dns; an = an + 1; }
             a = a + 1;
         }
         int u = 0;

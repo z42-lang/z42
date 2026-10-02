@@ -200,7 +200,7 @@ path 依赖与名字依赖的关键差异：名字依赖假定其 zpkg **已在*
 编译一个包前，`DepScan` 扫描扁平的 `Z42_LIBS` 目录（运行期所有可见 zpkg 汇聚于此），一次产出三样东西：
 
 - **DependencyIndex** — 调用签名键表（静态键 `Cls.Method[$arity]`、实例键 `Method$arity`），供代码生成把跨包调用解析成全限定名；
-- **nsMap** — 命名空间到 zpkg 文件名的映射，写入产物的 DEPS 段；
+- **nsMap** — 命名空间到 zpkg 文件名的映射。DEPS 段对查不到归属包的引用用它保守回落（规则见 [zpkg DEPS](../formats/zpkg.md#deps--依赖表)）；
 - **TSIG 池** — 各依赖包导出的类型签名（`ExportedModuleZ`）。
 
 类型检查阶段由 `ImportedSymbolLoader` 消费 TSIG 池：先按导出签名还原出短名类型骨架，再填入方法、字段与自由函数。为避免把不相关的包全部拉进符号表，激活范围限定为 **prelude 包 ∪ 被当前编译单元 `using` 到的包**。

@@ -44,7 +44,7 @@ public static class UsingLint {
                 //   （`namespace A;` 的文件里写 `global using A;` 是常见写法）。全包没人用到另由 CheckGlobalUsings 判。
                 diags.Warning(DiagnosticCodes.UnnecessaryUsing, "unnecessary `using " + u.Name + ";` — `" + u.Name
                     + "` is this file's namespace or encloses it, so it is visible without `using`", u.Span);
-            } else if (!u.IsGlobal && !UsingLint._has(used, used.Length, u.Name) && !UsingLint._has(dep, depCount, u.Name)) {
+            } else if (!u.IsGlobal && !UsingLint._has(used, used.Length, u.Name) && !UsingLint._hasDep(dep, depCount, u.Name)) {
                 diags.Warning(DiagnosticCodes.UnnecessaryUsing, "unnecessary `using " + u.Name + ";` — nothing in this file uses it", u.Span);
             }
         }
@@ -87,10 +87,17 @@ public static class UsingLint {
         while (i < n) {
             if (cms[i] != null) {
                 if (cms[i].UsedNs != null && UsingLint._has(cms[i].UsedNs, cms[i].UsedNs.Length, ns)) { return true; }
-                if (cms[i].UsedDepNs != null && UsingLint._has(cms[i].UsedDepNs, cms[i].UsedDepNsCount, ns)) { return true; }
+                if (cms[i].UsedDepNs != null && UsingLint._hasDep(cms[i].UsedDepNs, cms[i].UsedDepNsCount, ns)) { return true; }
             }
             i = i + 1;
         }
+        return false;
+    }
+
+    // `UsedDepNs` 的条目可能带归属包（`ns#pkg`，deterministic-zpkg-deps / DepRef）—— 只比 ns 部分。
+    private static bool _hasDep(string[] a, int n, string s) {
+        int i = 0;
+        while (i < n) { if (DepRef.NsOf(a[i]) == s) { return true; } i = i + 1; }
         return false;
     }
 

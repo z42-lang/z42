@@ -16,6 +16,7 @@ public sealed partial class ExprTyper {
         string ns = env.Symbols.ResolveFuncNs(id.Name);
         if (ns == null) { return null; }                              // 非自由函数名 → 普通绑定
         env.Symbols.NoteUse(ns);   // using-csharp-rules PR-2：函数引用（有目标委托类型）
+        env.Symbols.NoteDepUse(ns, env.Symbols.ImportedFuncPkgOf(id.Name, ns));   // deterministic-zpkg-deps
         MethodSymbol[] cands = env.Symbols.GetFuncCandidates(ns, id.Name);
         if (cands.Length <= 1) {
             // 无重载：现状即走此（经 _bindIdent），此处 target 在场同样直接取用（相容由后续 CheckImplicitConvert 校验）。

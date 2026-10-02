@@ -1,0 +1,68 @@
+// DEPS 段只记符号**实际**来自的包（deterministic-zpkg-deps）。
+//
+// 此前「每个 `using` / 用到的 ns ⇒ 本次扫描里该 ns 的全部提供包」：`Std` 有十来个包在提供，写了 `using Std;`
+// 的包会把当时看得见的那几个（z42.regex、z42.uri……）全记成依赖，而看得见哪些随构建方式变 ⇒ 产物不确定。
+// 这里用真实 stdlib 当依赖世界（无 Z42_LIBS 时各用例早退）：`Std` 的提供包全部可见，正是旧规则最「贪」的环境。
+namespace Z42cPipelineZpkgDepsTests;
+
+using Std.IO;
+using Z42.Pipeline;
+using Z42.Package;
+using Z42.Semantics;
+
+ZpkgFileZ zdCompile(string src) {
+    string libs = Environment.GetEnvironmentVariable("Z42_LIBS", "");
+    string[] dirs = libs.Split(":");
+    string[] texts = new string[1]; texts[0] = src;
+    string[] files = new string[1]; files[0] = "a.z42";
+    string[] hashes = new string[1]; hashes[0] = "DEADBEEF";
+    CompileInputs cin = new CompileInputs();
+    cin.Texts = texts; cin.Files = files; cin.SrcHashes = hashes; cin.SrcCount = 1;
+    cin.Cus = IrDump.ParseAll(texts, files, 1);
+    cin.CachedMods = null; cin.CachedMetas = null;
+    cin.Name = "demo.zd"; cin.Version = "0.1.0"; cin.Kind = "lib";
+    cin.HasEntry = false; cin.Entry = "";
+    cin.IsRelease = false;
+    cin.LibsDirs = dirs; cin.LibsDirsN = dirs.Length;
+    cin.DeclaredDeps = new string[0]; cin.DepCount = 0;
+    CompileArtifacts art = PackageCompile.Compile(cin);
+    Assert.Equal(0, art.ErrorCount);
+    return art.Z;
+}
+
+bool zdHasLibs() { return Environment.GetEnvironmentVariable("Z42_LIBS", "") != ""; }
+
+bool zdHas(ZpkgFileZ z, string file) {
+    int i = 0;
+    while (i < z.DepCount) { if (z.Deps[i].File == file) { return true; } i = i + 1; }
+    return false;
+}
+
+// `using Std;` + 只用 z42.core 的 `Math` ⇒ DEPS 只有 z42.core，其它 `Std` 提供包一个不带。
+[Test]
+void test_using_std_records_only_the_package_actually_used() {
+    if (!zdHasLibs()) { return; }
+    ZpkgFileZ z = zdCompile("namespace Demo;\nusing Std;\npublic static class A {\n    public static int F() { return Math.MaxInt(1, 2); }\n}\n");
+    Assert.Equal(true, zdHas(z, "z42.core.zpkg"));
+    Assert.Equal(false, zdHas(z, "z42.regex.zpkg"));
+    Assert.Equal(false, zdHas(z, "z42.uri.zpkg"));
+    Assert.Equal(false, zdHas(z, "z42.json.zpkg"));
+    Assert.Equal(1, z.DepCount);
+}
+
+// 只写 `using`、一个符号都没用 ⇒ 不是依赖。
+[Test]
+void test_unused_using_is_not_a_dependency() {
+    if (!zdHasLibs()) { return; }
+    ZpkgFileZ z = zdCompile("namespace Demo;\nusing Std.Text;\npublic static class A {\n    public static int F() { return 1; }\n}\n");
+    Assert.Equal(false, zdHas(z, "z42.text.zpkg"));
+}
+
+// 真用到另一个包的类型 ⇒ 记它（归属来自来源表，不是按 ns 猜）。
+[Test]
+void test_type_from_other_package_is_recorded() {
+    if (!zdHasLibs()) { return; }
+    ZpkgFileZ z = zdCompile("namespace Demo;\nusing Std.Regex;\npublic static class A {\n    public static bool F(string s) { Regex r = Regex.Compile(\"a+\"); return r.IsMatch(s); }\n}\n");
+    Assert.Equal(true, zdHas(z, "z42.regex.zpkg"));
+    Assert.Equal(false, zdHas(z, "z42.uri.zpkg"));
+}

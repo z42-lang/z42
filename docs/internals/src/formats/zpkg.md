@@ -1,7 +1,7 @@
 # zpkg 包格式
 
 > **页型**: 参考页 ｜ **状态**: ✅ 已实现（v0.51）｜ **代码**: `src/compiler/z42.package/src/`（`ZpkgWriter.z42` / `ZpkgWriterIndexed.z42` / `ZpkgReader.z42`）
-> **相关**: [zbc 字节码格式](zbc.md) · [工程模型、依赖解析与工作区编译](../../../internals/src/compiler/project-model.md) ｜ **对齐**: 2026-07-19
+> **相关**: [zbc 字节码格式](zbc.md) · [工程模型、依赖解析与工作区编译](../../../internals/src/compiler/project-model.md) ｜ **对齐**: 2026-10-02
 
 ## 概述
 
@@ -54,7 +54,17 @@ packed 与 indexed 只在"模块体段"不同（`MODS` ↔ `FILE`），其余段
 
 ### DEPS — 依赖表
 
-`u32 dep_count`，每条 `{ file pool idx; u16 ns_count; u32 × ns_count }`——依赖 zpkg 文件名 + 它提供的命名空间，供 VM lazy 路由。
+`u32 dep_count`，每条 `{ file pool idx; u16 ns_count; u32 × ns_count }`——依赖 zpkg 文件名 + 本包在它里面用到的命名空间，供 VM lazy 路由。
+
+**记哪些包**（`z42c.pipeline/src/ZpkgDeps.z42`）：本包**实际引用到的符号**来自哪个包，就记哪个包；再并上 `[dependencies]` 声明的包，测试 / bench 目标另加父包。`using` 本身不贡献依赖。
+
+- 引用来源有两路，汇进每个模块的 `UsedDepNs`：代码生成命中的依赖（DepIndex 调用捷径、导入类、导入自由函数 / 方法组），以及类型检查期源码里写出的导入类型、枚举、自由函数。
+- 归属包取自符号表的来源表：类 / 接口 / enum 查 `ClassPkgAll`（FQN → 包），自由函数查 `FuncOriginAll`，DepIndex 条目取 `QualifiedName` 去掉末段得到类 FQN。条目编码为 `ns#pkg`（`Semantics.DepRef`）。编进字符串而不加字段，是因为 `UsedDepNs` 随增量 meta 由 driver 原样搬运。
+- 查不到归属（来源表里没有、或多包同 FQN）的条目保守回落：记该 ns 在本次扫描里的**全部**提供包。本包自己声明的类型直接跳过。`Z42C_TRACE_DEPS=1` 打印走了回落的条目；stdlib 全量构建为 0 条。
+
+只有回落那一支依赖「本次构建能看到哪些包」，所以 DEPS 与构建方式（workspace 拓扑分档 / 单包 / flat 目录里已有什么）无关。
+
+**为什么不能只记 `[dependencies]`**：标准库（`z42.*`）免声明可用，未声明照样能引用。运行期加载器只在 DEPS 传递闭包里找候选包，记少了就是 `undefined function`；记多了只是多一个候选。
 
 ### SIGS — 全局签名表
 

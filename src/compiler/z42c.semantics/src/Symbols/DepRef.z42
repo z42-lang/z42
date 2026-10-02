@@ -1,0 +1,28 @@
+// 依赖引用条目的编码（deterministic-zpkg-deps）：`UsedDepNs` 的每一项是 `ns` 或 `ns#pkg`。
+//
+// zpkg 的 DEPS 段由这些条目算出：带 `#pkg` 的只记那一个包（符号**实际**来自哪个包）；不带的是归属不明，
+// 保守地记下该 ns 在本次扫描里的**全部**提供包。后者会随「本次构建能看到哪些包」变化，前者不会 ——
+// 所以记录点要尽量给出归属包，回落只是兜底。
+//
+// 为什么编码进字符串而不是加字段：`UsedDepNs` 随增量缓存 meta 落盘，由 driver 原样搬运
+// （IncrementalDriver / Main 构造 CachedNsMeta）。加字段 ⇒ driver 要引用新的 pipeline 符号，
+// 按自举纪律得晚一个 nightly；编进现有串，driver 零改动。ns 与包名都不含 `#`。
+namespace Z42.Semantics;
+
+public static class DepRef {
+    public static string Encode(string ns, string pkg) {
+        if (pkg == null || pkg == "") { return ns; }
+        return ns + "#" + pkg;
+    }
+
+    public static string NsOf(string entry) {
+        int h = entry.IndexOf("#");
+        return h < 0 ? entry : entry.Substring(0, h);
+    }
+
+    // "" = 归属不明。
+    public static string PkgOf(string entry) {
+        int h = entry.IndexOf("#");
+        return h < 0 ? "" : entry.Substring(h + 1, entry.Length - h - 1);
+    }
+}
