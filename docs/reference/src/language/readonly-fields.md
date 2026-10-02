@@ -66,7 +66,3 @@ class D {
 - **非 `this` 接收者的 LICM 外提**（形参 / 局部变量的 readonly 字段读）：需非空 / 支配分析证明无
   NPE 时机漂移，留待非空类型系统。
 - `readonly struct` / `readonly` 参数：各自独立特性。
-
-## 关联文档
-
-- 引入：change `add-readonly-fields-opt`（`docs/spec/archive/`）

@@ -145,7 +145,7 @@ z42.compiler.ir ─────────┐    │
 2. **Stage 2**：用 v1 重新编译同一份源 → `v2`
 3. **Stage 3**：`v1 ≡ v2` 字节相同 → 自举固定点
 
-复用 [`.zbc` strict-pin](../../../spec/archive/2026-05-14-freeze-zbc-v1) byte-golden 基础设施。
+复用 `.zbc` strict-pin byte-golden 基础设施。
 
 ### P6. iOS / WASM interp-only 限制如何在 API 表达
 

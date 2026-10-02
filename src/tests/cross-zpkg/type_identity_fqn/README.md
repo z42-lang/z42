@@ -12,4 +12,3 @@ FQ 身份与「基元**不**被 FQ 化」。
 把编译器退回 `526acb72`（本 change 之前）重建后跑本用例：**FAIL**；含本 change：**PASS**。
 中间还抓到过一个更隐蔽的形态——只把发射端改成 FQN、尚未修「裸名解析不看引用方 ns」时，
 `HolderA.w` 会被写成 **`Demo.FqnBeta.Widget`**（自信的错答案，比修前的降级更坏）。
-详见 `docs/spec/changes/.../evidence/ambiguity-gate.md` 的三态对照表。

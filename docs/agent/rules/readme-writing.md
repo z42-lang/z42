@@ -121,7 +121,7 @@ AI 实现的落点**；更深的设计与机制在 `docs/internals/`，README �
 
 ## 关联文档
 - 设计 / 机制（深入层）：[internals 对应机制页](../../internals/src/...)
-- 引入 / 演进：change `<name>`（`docs/spec/changes/` 或已归档）—— 需求 ↔ 迭代可追溯
+- 引入 / 演进：PR `#N`（`git log` 提交标题的 `(#N)`）—— 需求 ↔ 迭代可追溯
 
 ## 核心文件
 | 文件 | 职责 |
@@ -199,8 +199,8 @@ AI 实现的落点**；更深的设计与机制在 `docs/internals/`，README �
 - ❌ 禁止"跑相关测试即可" / "确保测试通过"这类不可执行的表述。
 
 ### ⑤ 关联文档
-- 两类链接：**深入层**（internals 对应机制页，看设计与机制）+ **引入迭代**（change 名，
-  需求 ↔ 实现可追溯）。change 归档后名字保留即可（git 与 archive 可查）。
+- 两类链接：**深入层**（internals 对应机制页，看设计与机制）+ **引入迭代**（PR 号，
+  需求 ↔ 实现可追溯）。PR 合并后号码保留即可（`gh pr view` 可查方案与决策）。
 - ❌ 不把 internals 内容摘抄进来——只链接。
 
 ### ⑥ 核心文件
@@ -215,10 +215,10 @@ AI 实现的落点**；更深的设计与机制在 `docs/internals/`，README �
 1. **定位**：读所改目录 README 的「功能索引」——本次 change 新增 / 触碰了哪个能力、入口在哪。
 2. **验证**：复制「如何测试验证」段的命令亲手跑，对照预期结果。
 3. **深究**（需要时）：点「关联文档」进 internals 对应机制页，核对设计与决策；
-   或进 change 目录看 proposal / spec 的场景是否逐条兑现。
+   或看该 PR 描述里的 Spec 场景是否逐条兑现。
 
 反向要求：AI 每次迭代必须让上述路径走得通——README 三段（功能索引 / 如何测试验证 /
-关联文档）与本次改动对齐，是归档 doc-check 的一部分。
+关联文档）与本次改动对齐，是合并前 doc-check 的一部分。
 
 ## 十、目录 README 维护触发（何时改哪段）
 
@@ -232,7 +232,7 @@ AI 实现的落点**；更深的设计与机制在 `docs/internals/`，README �
 | 测试方式 / 测试命令变化 | 如何测试验证 |
 | 对外行为变更（新语法 / API / CLI / 格式） | 功能索引（+ 按三问上浮到 reference / internals） |
 | 构建 / 用法命令变化 | 基础用法 |
-| change 归档引入新能力 | 关联文档段登记 change 名 |
+| PR 引入新能力 | 关联文档段登记 PR 号 |
 | 目录职责范围变化 | 职责 |
 
 **不需要更新**：纯内部实现调整（函数提取、变量重命名）且不触及上表任一行。
@@ -255,5 +255,5 @@ AI 实现的落点**；更深的设计与机制在 `docs/internals/`，README �
 
 - 文档体系顶层地图与"这该写哪份文档"：[doc-system.md](doc-system.md)
 - 哪些目录必须有 README、阅读顺序规则：[`code-organization.md`](code-organization.md)
-- 文档同步判据（三问）与归档 doc-check：[doc-system.md](doc-system.md)；归档流程：[`workflow.md` 阶段 9](workflow.md)
+- 文档同步判据（三问）与合并前 doc-check：[doc-system.md](doc-system.md)；合并流程：[`workflow.md` 阶段 6](workflow.md)
 - 书页写作（reference / internals）：[book-writing.md](book-writing.md)

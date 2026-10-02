@@ -6,7 +6,7 @@
 > 值语义（P4a）+ 装箱引用身份 + struct 字段反射（P4b）**（2026-08-12，均格式中立）+ **基元装箱统一到
 > `BoxedStruct`（unify Phase 2 R3，2026-08-13，格式中立）+ **泛型（实例化）值 struct 值相等边界修复
 > （fix-generic-struct-erasure-boxing，2026-09-01，格式中立）**落地。本页讲**多字段 struct 的真值语义**如何在编译器 + 运行时
-> 实现。程序全景（选项 B / B-radical 统一值类型 / 分阶段）见 `docs/spec/changes/add-struct-value-semantics/`。
+> 实现。
 
 ## 目标
 
@@ -190,8 +190,7 @@ b.x = 99;       // 只改 b
 > 在那里它以 `struct field write out of blob bounds` 崩出来，但**只是因为恰好有一次写跑出了尾端**。
 >
 > ⚠️ 验它必须用 **debug VM**：`cfg(debug_assertions)` 的门在 release VM 里不存在，
-> `xtask test`（release）对它一个字都没说。配方见
-> `docs/spec/changes/check-struct-copy-shape-invariant/proposal.md` §3。
+> `xtask test`（release）对它一个字都没说。
 
 > ⚠️ **`StructCopy` 是「值语义的复制点」，它的成本被所有赋值/传参/返回摊到** —— 到
 > 2026-09-27 之前 `StructArena::copy_into` 为了绕借用检查（src 与 dst 是同一个 `Vec` 的两个

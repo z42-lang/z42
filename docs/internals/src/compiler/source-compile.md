@@ -717,7 +717,7 @@ primary = **声明序第一个**同名成员（跨 partial 碎片按碎片加载
 | **VM vtable 槽**（`type_desc.rs derive_simple_method_name`） | 返回**完整键、不再剥 `$` 后缀**——否则同名多个虚重载塌进一槽（H4：`o.F(int)` 与 `o.F(int,int)` 撞）。`merge_with_base` 的 override 匹配 + JIT `vtable_index` 同用此键 |
 | **碰撞守卫**（`MemberCollector` `sigSeen`） | 老键下 `G(string)`/`G(string?)` 靠共享 `RegKey` 被 `DeclBinder` 判重报 E0408；新键下 primary=裸、非-primary=全键，`RegKey` 不再相同 → `DeclBinder` 漏判 → 故在此按**全签名 MangleKey**（含 nullable/alias 归一）自查：同全签名 ≥2 报 E0408。协议豁免名 + 转换运算符跳过（各有专属冲突检测） |
 
-**格式**：一次性迁移 bump zbc 1.37→1.38 / zpkg 0.42→0.43，`ci-bootstrap` 版本差 gate 走两代自举吸收（gen1==gen2 字节不动点）。此后加/删重载永久 additive、不再 bump。设计全文（含泛型 H2/H3/H5 降为前向守卫、D4a 决议优先级）见变更归档 `docs/spec/archive/…-stabilize-instance-dispatch-keys`。
+**格式**：一次性迁移 bump zbc 1.37→1.38 / zpkg 0.42→0.43，`ci-bootstrap` 版本差 gate 走两代自举吸收（gen1==gen2 字节不动点）。此后加/删重载永久 additive、不再 bump。
 
 #### 注册键的单一 owner（写侧唯一入口 + 读侧不变量）
 

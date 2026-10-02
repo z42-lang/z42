@@ -2,7 +2,6 @@
 
 > 🟢 H4 落地（2026-05-12）。
 >
-> Spec：[`docs/spec/archive/2026-05-12-add-platform-android/`](../../../../docs/spec/archive/2026-05-12-add-platform-android/)
 > 跨平台契约：[`../README.md`](../README.md)
 > 实现原理：[`docs/internals/src/runtime/embedding.md`](../../../../docs/internals/src/runtime/embedding.md)
 > 构建工作流：[`docs/internals/src/devinfra/build-platforms.md`](../../../../docs/internals/src/devinfra/build-platforms.md)
@@ -47,7 +46,7 @@ BUILD SUCCESSFUL
 ✅ Z42VMInstrumentedTest passed
 ```
 
-7 个测试覆盖 [`platform-test-contract`](../../../../docs/spec/archive/2026-05-12-define-platform-test-contract/) R1–R7（smoke / 错误码 / resolver / lifecycle / 多行 stdout），与 iOS XCTest / wasm playwright 对齐。
+7 个测试覆盖 platform-test-contract R1–R7（smoke / 错误码 / resolver / lifecycle / 多行 stdout），与 iOS XCTest / wasm playwright 对齐。
 
 ## API 速记
 

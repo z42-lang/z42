@@ -23,7 +23,6 @@ z42 项目文档总入口。
 | 位置 | 职责 | 不写什么 |
 |---|---|---|
 | [`agent/rules/`](agent/rules/) | 怎么干活的**行为约束** | **任何系统知识**——那是三本书的事 |
-| [`spec/`](spec/) | 变更工作区（`changes/` 进行中 + `archive/` 已归档） | 长期知识（归档时上浮到三书） |
 | [`roadmap.md`](roadmap.md) | 项目计划与 Deferred 索引 | 知识 |
 | [`features.md`](internals/src/features.md) | 语言特性 catalog（决策 + phase 归属） | |
 | 各 `src/**/README.md` | 这个目录有什么、怎么改 | 设计原理（链 internals） |

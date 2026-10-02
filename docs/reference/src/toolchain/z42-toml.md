@@ -422,8 +422,7 @@ add-dep-identity-to-cache-key）。任何 pin 不符/损坏
 「源没变 + 格式没 bump 但编译器 codegen/优化/typecheck 变了」的误命中漏洞（bump 纪律见
 [version-bumping.md](../../../agent/rules/version-bumping.md#编译器语义指纹非格式失效次元)）。cache 可整目录删除。
 indexed 模式（stripped zbc = `<dist>/<rel>.zbc`）自举重写未实现，见
-self-hosting.md Deferred；散装自包含
-zbc 的最小 patch 分发方向见 `docs/spec/changes/add-indexed-zpkg-min-patch/`（DRAFT）。
+self-hosting.md Deferred。
 
 **调试**：`Z42_INCR_DEBUG=1` 打印失效种子原因（no-entry / hash-diff / src-list）与传播链
 （`A invalidated-by B`）。
@@ -946,7 +945,7 @@ test = true                       # 破例纳入 xtask test 执行（默认 exam
 `xtask test targets <name>` / `xtask bench targets <name>` 只跑一个
 （裸 `test`/`bench` 是全量 gate / e2e 默认动作，故 test/bench 走 `targets <name>` 子动作）。名不存在
 → 报错列出可用目标名，非零退出（不静默）。**注**：自定义段 `include` glob 运行期暂只扫约定目录
-（`tests/`·`bench/`·`examples/`），见归档 spec「Known Limitations」。
+（`tests/`·`bench/`·`examples/`）。
 
 ### 三层依赖合并
 
@@ -965,7 +964,7 @@ final_deps = [dependencies]
 
 ### 编译产物布局
 
-测试 / bench 产物在每个 package 的 `output_dir` 下并列两个独立子树，与 L3 [build] 的 `output_dir` / `cache_dir` / `dist_dir` 三字段模型对齐（见 [restructure-build-output-dirs](../../../spec/archive/2026-06-06-restructure-build-output-dirs)）：
+测试 / bench 产物在每个 package 的 `output_dir` 下并列两个独立子树，与 L3 [build] 的 `output_dir` / `cache_dir` / `dist_dir` 三字段模型对齐：
 
 ```
 artifacts/build/libraries/<lib>/<profile>/
@@ -1039,8 +1038,6 @@ artifacts/build/libraries/<lib>/<profile>/
 | 验证 | dir-mode 隐含 golden 比对 | harness=false 一律**退出码**；golden 归 `xtask_test_vm` 独立 harness |
 | example | 「future iteration」无配置 | **一等目标**：默认只编不跑，`test=true` 才跑 |
 | 段名 | `[bench]`（与 `[[bench]]` 撞 key，非法 TOML）| 复数 `[benches]`/`[examples]`（避撞）|
-
-详见归档 spec `docs/spec/archive/*-add-tests-bench-manifest-config/`。
 
 ---
 

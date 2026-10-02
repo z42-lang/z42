@@ -34,11 +34,6 @@
 `PrimModel.Canon` 的实现细节（先按 `(长度, 首字符)` 分桶再比较，而不是 24 次顺序 `==`）是
 热路径优化：绝大多数入参是用户类名，分桶后一次字符串比较都不做，最坏 3 次。
 
-历史背景：primitive struct 改 BCL PascalCase 见
-`docs/spec/archive/2026-05-24-rename-primitives-to-pascal-case/`（完整 12 条映射在那份
-proposal 的「映射」节）；stdlib 违规命名的清理见
-`docs/spec/archive/2026-05-24-fix-stdlib-naming-violations/`。
-
 ## 2. stdlib 包命名族
 
 本仓的库包分两族（`src/libraries/` 下各一个目录，各带一份 `<pkg>.z42.toml`）：

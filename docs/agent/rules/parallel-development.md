@@ -37,24 +37,19 @@ worktree 把并行流物理隔离，git 负责文本冲突，GREEN gate 负责�
 
 > 拿不准算不算"很小" → 按走 PR 处理。开 PR 的成本远低于直推 main 后发现要回滚。
 
-**分支命名**：沿用 change 名（`docs/spec/changes/<change-name>/` 的 kebab-case 名），如
+**分支命名**：kebab-case、动词开头、≤ 5 词（见 [workflow.md「PR 即在制品账本」](workflow.md)），如
 `add-for-loop`、`fix-type-check-crash`。**所有改动一律在专属 worktree 里开分支（§0 铁律），不在主树原地
 开分支、不共用他人分支**——即便是"很小的改动"直推 main，也从自己的独立 worktree 走完整 GREEN 后再推。
 
 ### §1.1 PR body 约定（必须遵守）
 
-`gh pr create` 的 body 至少含以下三段，末尾附页脚：
+PR 描述就是这次变更的方案与记录，**按变更模式分模板**——完整模式（lang / ir / vm）与最小模式（fix / refactor）的小节
+见 [workflow.md 阶段 2](workflow.md)（模板的唯一 SoT，不在此复制）。无论哪种模式，都必须含：
 
-```markdown
-## What / Why
-[一句话：本 PR 做什么、为什么]
-
-## 验证
-base: <本轮 GREEN 基于的 main sha>          # §3.1 强制：没有它，审阅者无从判断绿灯还算不算数
-[GREEN 状态：`xtask test` 全绿，或列关键 stage 结果 / 对账证据（如自举字节不动点 gen1==gen2）]
-
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
-```
+- **What / Why**：一句话，本 PR 做什么、为什么
+- **验证**：首行 `base: <本轮 GREEN 基于的 main sha>`（§3.1 强制：没有它，审阅者无从判断绿灯还算不算数），
+  随后是 GREEN 状态——`xtask test` 全绿，或关键 stage 结果 / 对账证据（如自举字节不动点 gen1==gen2）
+- 末尾页脚：`🤖 Generated with [Claude Code](https://claude.com/claude-code)`
 
 - **标题**沿用 commit summary 格式 `type(scope): 描述`（见 [commit-log.md](commit-log.md)），与首个 / 主 commit 一致。
 - **页脚必附**（与 commit 的 `Co-Authored-By` 对称）：格式见 [commit-log.md「页脚」](commit-log.md)。
@@ -83,7 +78,7 @@ GREEN（`xtask test` 全 stage gate），全绿才能合。**
 2. **这是语义耦合的唯一兜底**（见 §4）——只有 rebase 到已合并的 PR 之上再跑 GREEN，
    两个同子系统 change 的语义冲突才会以**测试失败**的形式暴露在合并前。
 
-**跳过 rebase-后-GREEN 直接合 = 违规**，等同于 workflow 阶段 8「未全绿即 commit」。
+**跳过 rebase-后-GREEN 直接合 = 违规**，等同于 workflow 阶段 5「未全绿即 commit」。
 
 > **这条规则有一个（很薄的）自动兜底**：`test-host(linux-x64)`（required check）末尾会把
 > **最新** main 并进来、重跑一次 `xtask test diagcodes`，所以**抢同一个诊断码号**这一种冲突
@@ -187,10 +182,10 @@ git push origin --delete <branch>           # 远程分支
 ```
 
 - 删自己这条已合并 PR 的分支 / worktree 属**默认授权**，无需再问 User（不同于 force-push / 删他人分支，
-  那些仍需单独确认，见 [workflow.md 阶段 6.5 边界声明](workflow.md)）。
+  那些仍需单独确认，见 [workflow.md 阶段 3 批量授权边界](workflow.md)）。
 - worktree 若有未提交改动，`git worktree remove` 会拒绝——先确认没漏东西再删。
-- **合并后只做「清理」，不做「补内容」**——归档与文档同步都是 PR **内**的事。
-  完整论证见 [workflow.md 阶段 9 铁律](workflow.md)。
+- **合并后只做「清理」，不做「补内容」**——文档同步与方案定稿都是 PR **内**的事。
+  完整论证见 [workflow.md 阶段 6 铁律](workflow.md)。
 
 ---
 
@@ -211,10 +206,9 @@ git push origin --delete <branch>           # 远程分支
 
 ## 与其他规则的关系
 
-- **workflow.md 阶段 2 / 9**：阶段 2 开分支；阶段 9 归档后走 PR 合并 + §5 清理
+- **workflow.md 阶段 2 / 6**：阶段 2 开工（worktree + 分支 + draft PR）；阶段 6 走 PR 合并 + §5 清理
   （小改直推 main 的例外见 §1）。
-- **workflow.md 阶段 3 冲突表**：docs/markdown 的段级冲突判定仍留在阶段 3；src 代码的
-  文本冲突交给 git rebase、语义冲突交给 §4。
+- **并行冲突**：代码与 markdown 一视同仁——文本冲突交给 git rebase、语义冲突交给 §4，不预先串行。
 - **philosophy.md 根因修复**：某两个 change 反复语义打架 → 说明该子系统耦合过重，按根因修复评估拆分。
 - **bootstrap-seed.md**：自举链（格式 / 种子 / stdlib API 两-nightly 纪律）的约束是
   跨 nightly 的发布周期约束，与分支并行是正交的两回事。

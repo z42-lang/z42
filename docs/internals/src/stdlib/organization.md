@@ -211,7 +211,7 @@ stdlib 上的特化。
 
 ## 7. 新增包的 RFC 模板
 
-任何 stdlib 新包提案必须在 `docs/spec/changes/<add-pkg>/proposal.md` 里回答：
+任何 stdlib 新包提案必须在 PR 描述里回答：
 
 ```markdown
 ## R1 决策树

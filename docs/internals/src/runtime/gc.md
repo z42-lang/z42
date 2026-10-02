@@ -431,8 +431,7 @@ auto-collect）→ GC 从不在单条指令/builtin 的 Rust 执行中途运行 
 **权衡（已由 User 裁决接受）**：纳入 GC 换掉 Arc/Box 的**确定性释放** → 浮动垃圾↑、内存峰值↑；
 收益是**架构统一 + 为移动/压缩/去重 GC 铺路**，非短期性能。实测 string-heavy 吞吐反而 **1.76× 更快**
 （消除原子 refcount：Clone=8B 拷贝、Drop=no-op），峰值 RSS +13%（默认不 auto-collect 累积）。
-四个 PR（分配器原语 → closure → array backing → string）+ PR-5 收敛的完整原理见变更容器
-[`docs/spec/changes/unify-gc-heap/design.md`](../../../spec/archive/2026-08-17-unify-gc-heap/design.md)。
+四个 PR（分配器原语 → closure → array backing → string）+ PR-5 收敛。
 
 ### Write barrier contract (add-write-barriers, 2026-05-21)
 

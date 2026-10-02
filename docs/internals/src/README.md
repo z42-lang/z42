@@ -45,5 +45,5 @@ z42 的工具链是三个独立进程，互相之间只通过**文件格式**通
 ## 行文约定
 
 - 页型与页头见 [book-writing.md](https://github.com/z42-lang/z42/blob/main/docs/agent/rules/book-writing.md)。
-- **只写当前状态**，不写演进史（那归 git blame 与 `docs/spec/archive/`）。
+- **只写当前状态**，不写演进史（那归 git blame 与 PR 历史）。
 - 尚未实施的设计页在页头标 **状态: 设计已定 / 未实施**。

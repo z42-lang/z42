@@ -852,7 +852,7 @@ root 后面，直接 pin owner 的测试是空转的。**
 
 ## `PROMOTION_THRESHOLD` 怎么变成旋钮的：构造期读取，不是热路径读取
 
-`docs/spec/archive/…/runtime_review §M3` 曾把「晋升阈值 2」列为候选 knob，
+「晋升阈值 2」曾被列为候选 knob，
 **2026-09-05 一度裁定刻意不做**，两条理由都成立：
 
 1. **热路径成本**：它被 `gc/arc_heap/generational.rs::maybe_mark_cross_gen_card`
@@ -898,4 +898,4 @@ root 后面，直接 pin owner 的测试是空转的。**
 
 - [interp-jit-semantics.md](interp-jit-semantics.md)：safepoint check 在 interp / JIT 的插桩点。
 - [heap-diagnostics.md](heap-diagnostics.md)：回收后的堆保留诊断。
-- `docs/spec/archive/2026-05-20-add-gc-safepoint/design.md`：safepoint 协议原始设计（Decision 5 = JIT 插桩）。
+

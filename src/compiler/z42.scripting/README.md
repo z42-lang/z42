@@ -58,7 +58,7 @@ CI 全量 GREEN 以 stdlib 构建（`xtask build stdlib`）+ toolchain 构建（
 ## 关联文档
 - 设计/机制：[`docs/internals/src/toolchain/repl.md`](../../../docs/internals/src/toolchain/repl.md)；
   输入完整性判定机制（parser 权威 / 探针解耦 / 裸 parse）见 [`docs/internals/src/toolchain/repl.md`](../../../docs/internals/src/toolchain/repl.md)
-- 引入/演进：change `add-z42-repl`（`docs/spec/changes/`；D2 依赖层级 / D7 命名 / D8 状态模型）；
+- 引入/演进：`git log -- src/compiler/z42.scripting`；
   完整性判定改 parser 权威见 change `add-repl-parser-completeness`；终端交互层拆出见 change `split-z42-repl`；
   求值期运行异常捕获（REPL 不再因 `throw`/除零/类型不符而退出）见 change `fix-repl-eval-exception`
 - 终端行编辑 / 键位（tier1）：[z42.repl](../../toolchain/interactive/repl/)

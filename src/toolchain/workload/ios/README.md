@@ -2,7 +2,6 @@
 
 > 🟢 H4 落地（2026-05-12）。
 >
-> Spec：[`docs/spec/archive/2026-05-12-add-platform-ios/`](../../../../docs/spec/archive/2026-05-12-add-platform-ios/)
 > 跨平台契约：[`../README.md`](../README.md)
 > 实现原理：[`docs/internals/src/runtime/embedding.md`](../../../../docs/internals/src/runtime/embedding.md)
 > 构建工作流：[`docs/internals/src/devinfra/build-platforms.md`](../../../../docs/internals/src/devinfra/build-platforms.md)
@@ -34,7 +33,7 @@ dotnet build src/compiler/z42.slnx
 ./xtask test platform ios
 ```
 
-测试覆盖 `add-ios-tests` spec 落地的 R1–R7 facade 契约（smoke / 错误码映射 / resolver / lifecycle / 多行 stdout），见 [`docs/spec/archive/2026-05-12-add-ios-tests/`](../../../../docs/spec/archive/2026-05-12-add-ios-tests/)。
+测试覆盖 R1–R7 facade 契约（smoke / 错误码映射 / resolver / lifecycle / 多行 stdout）。
 
 ## API 速记
 

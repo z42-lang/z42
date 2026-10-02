@@ -2,7 +2,6 @@
 
 > 状态：🟢 H4 落地（2026-05-12）。
 >
-> Spec：[`docs/spec/archive/2026-05-12-add-platform-wasm/`](../../../../docs/spec/archive/2026-05-12-add-platform-wasm/)
 > 跨平台契约：[`../README.md`](../README.md)
 > 实现原理：[`docs/internals/src/runtime/embedding.md`](../../../../docs/internals/src/runtime/embedding.md) §6.2 / §11
 
@@ -62,7 +61,7 @@ Running 7 tests using 1 worker
   7 passed (4.0s)
 ```
 
-playwright 在 headless chromium 中跑 7 个 platform-test-contract scenario（详见 [`add-wasm-tests`](../../../../docs/spec/archive/2026-05-12-add-wasm-tests/)）。浏览器装到 `artifacts/tools/playwright-browsers/`（~280MB，gitignored），不污染系统。
+playwright 在 headless chromium 中跑 7 个 platform-test-contract scenario。浏览器装到 `artifacts/tools/playwright-browsers/`（~280MB，gitignored），不污染系统。
 
 ## API 概览
 

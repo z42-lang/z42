@@ -279,8 +279,7 @@ ObjectHeader {
 > inline UTF-8}` 单次分配）——**refcount 删除，GC 管生死**（mark/sweep）。分配走 **ambient 堆**
 > （`gc/ambient.rs`，每帧 `HeapGuard` 设 thread-local，`Str::new`/`.into()` 保持不变）；无堆上下文
 > （无 VM 的单测）回退 leaked 块。**这是最后一类离开「GC 外」的变长 payload，统一堆模型闭合。**
-> 实现原理（变长块 `VarRegion` / A' 分配器 / D3 块头替 Arc / D11 ambient 堆）详见变更容器
-> [`docs/spec/changes/unify-gc-heap/design.md`](../../../spec/archive/2026-08-17-unify-gc-heap/design.md) 与本节下方；
+> 实现原理（变长块 `VarRegion` / A' 分配器 / D3 块头替 Arc / D11 ambient 堆）详见本节下方；
 > `gc.md` / `gc-handle.md` 的统一堆机制页归 **PR-5 收敛**统一落地（tasks 5.3）。
 
 - `Value::Str(VarGcRef)` = **GC 字符串对象**：8B 细指针指变长块，与 Object/Array 同一堆的
