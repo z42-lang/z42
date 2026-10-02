@@ -220,8 +220,13 @@ string _legacyPubStagingDir(string root) { return Path.Join(_artifactsDir(root),
 // artifacts/packages — assembled package dirs (z42-<ver>-<rid>-<profile>…).
 string _packagesDir(string root) { return Path.Join(_artifactsDir(root), "packages"); }
 
-// artifacts/release — release archives + SHA256SUMS + release-index.json.
-string _releaseDir(string root) { return Path.Join(_artifactsDir(root), "release"); }
+// artifacts/packages/archives — release archives + SHA256SUMS + release-index.json（`package archive` /
+// `package finalize` 的输出）。曾是顶层 `artifacts/release/`；它只装 package 系列命令的产物，2026-10-02 起
+// 收进 `packages/`（simplify-layout）。子目录而不与包目录平级：`package archive` 遍历 `packages/` 下的
+// 包目录去打包，归档放同层会被当成待打包项（`_relArchiveBase` 只认包目录名，`archives` 天然被跳过）。
+string _archivesDir(string root) { return Path.Join(_packagesDir(root), "archives"); }
+// 旧位置：只供 `clean all` 清走残留，不再有人写。
+string _legacyReleaseDir(string root) { return Path.Join(_artifactsDir(root), "release"); }
 
 // artifacts/test-reports — junit reports of platform tests (one subdir per platform).
 string _testReportsDir(string root) { return Path.Join(_artifactsDir(root), "test-reports"); }
@@ -234,26 +239,25 @@ string _profileDir(string root) { return Path.Join(_artifactsDir(root), "profile
 
 // `xtask layout` 的条目表：key → 路径。key 是**对外契约**（CI / 脚本按 key 查询），
 // 路径可以随布局整理而变 —— 这正是查询而不是写死的意义。
+// 只列「有人要查、或看一眼就该知道在哪」的入口（simplify-layout，2026-10-02）：删掉了
+// `vm-debug`（`vm` 旁边换个 profile 目录，列出来只是重复）、`cargo-target`（就是 `build/runtime`）、
+// `libraries-build`（`build/libraries`，无消费方）。仓内实际按 key 查询的只有 `libs` / `compiler-build`。
 string[] _layoutKeys() {
     return new string[]{
-        "root", "artifacts", "build", "vm", "vm-debug", "libs", "xtask", "cargo-target",
-        "compiler-build", "libraries-build", "sdk", "packages", "release",
-        "tools", "test-reports", "bench", "profile", "tmp" };
+        "root", "artifacts", "build", "vm", "libs", "xtask", "compiler-build",
+        "sdk", "packages", "archives", "tools", "test-reports", "bench", "profile", "tmp" };
 }
 string _layoutPath(string root, string key) {
     if (key == "root")            { return root; }
     if (key == "artifacts")       { return _artifactsDir(root); }
     if (key == "build")           { return _buildDir(root); }
     if (key == "vm")              { return _builtVm(root, "release"); }
-    if (key == "vm-debug")        { return _builtVm(root, "debug"); }
     if (key == "libs")            { return _libsDir(root); }
     if (key == "xtask")           { return _xtaskZpkg(root); }
-    if (key == "cargo-target")    { return _cargoTargetDir(root); }
     if (key == "compiler-build")  { return _compilerBuildRoot(root); }
-    if (key == "libraries-build") { return _libsBuildRoot(root); }
     if (key == "sdk")             { return _devSdkDir(root); }
     if (key == "packages")        { return _packagesDir(root); }
-    if (key == "release")         { return _releaseDir(root); }
+    if (key == "archives")        { return _archivesDir(root); }
     if (key == "tools")           { return _toolsDir(root); }
     if (key == "test-reports")    { return _testReportsDir(root); }
     if (key == "bench")           { return _benchDir(root); }
@@ -277,7 +281,7 @@ int _layoutCmd(ParseResult r) {
         return 0;
     }
     foreach (var k in _layoutKeys()) {
-        Console.WriteLine(k.PadRight(16) + _layoutPath(root, k));
+        Console.WriteLine(k.PadRight(15) + _layoutPath(root, k));
     }
     return 0;
 }

@@ -595,11 +595,11 @@ jobs:
           home="$RUNNER_TEMP/z42-install-home"
           rm -rf "$home"; mkdir -p "$home/runtimes/keep"
           if [ "${RUNNER_OS:-}" = "Windows" ]; then
-            archive="$PWD/artifacts/release/z42-sdk-nightly-${rid}.zip"
+            archive="$PWD/artifacts/packages/archives/z42-sdk-nightly-${rid}.zip"
             pwsh -NoProfile -File scripts/install/install.ps1 -Archive "$archive" -Dest "$home" -NoModifyPath
             z42="$home/z42.exe"
           else
-            archive="$PWD/artifacts/release/z42-sdk-nightly-${rid}.tar.gz"
+            archive="$PWD/artifacts/packages/archives/z42-sdk-nightly-${rid}.tar.gz"
             sh scripts/install/install.sh --archive "$archive" --dest "$home" --no-modify-path
             z42="$home/z42"
           fi
@@ -672,7 +672,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: release-host-${{ matrix.platform }}
-          path: artifacts/release/
+          path: artifacts/packages/archives/
           retention-days: 14
           if-no-files-found: error
 
@@ -1193,7 +1193,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: release-ios
-          path: artifacts/release/
+          path: artifacts/packages/archives/
           retention-days: 14
           if-no-files-found: error
 
@@ -1289,7 +1289,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: release-android
-          path: artifacts/release/
+          path: artifacts/packages/archives/
           retention-days: 14
           if-no-files-found: error
 
@@ -1390,7 +1390,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: release-wasm
-          path: artifacts/release/
+          path: artifacts/packages/archives/
           retention-days: 14
           if-no-files-found: error
 
@@ -1460,7 +1460,7 @@ jobs:
       - name: Download all release archives
         uses: actions/download-artifact@v8
         with:
-          path: artifacts/release
+          path: artifacts/packages/archives
           pattern: 'release-*'
           merge-multiple: true
 
@@ -1469,7 +1469,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ls -la artifacts/release/
+          ls -la artifacts/packages/archives/
           xtask package finalize nightly --channel nightly --tag nightly --version nightly
 
       - name: Force-replace nightly release
@@ -1527,7 +1527,7 @@ jobs:
           gh release create nightly --prerelease --target "$GITHUB_SHA" \
             --title "Nightly (main @ ${short_sha} · ${today})" \
             --notes "$notes" \
-            artifacts/release/SHA256SUMS artifacts/release/release-index.json artifacts/release/z42-* \
+            artifacts/packages/archives/SHA256SUMS artifacts/packages/archives/release-index.json artifacts/packages/archives/z42-* \
             scripts/install/install.sh scripts/install/install.ps1
           # Defensive (fix-nightly-draft): the nightly MUST be a published (non-draft)
           # release — a DRAFT is invisible to other runs' GITHUB_TOKEN, so every
