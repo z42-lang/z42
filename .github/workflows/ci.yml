@@ -380,7 +380,7 @@ jobs:
           exit "${PIPESTATUS[0]}"
 
       # refresh-format-fixtures: committed zbc-format byte baselines must be up to date.
-      # `test all` 的 build wave（_regenGolden）**就地**重写 src/tests/zbc-format/*/source.zbc，
+      # `test all` 的 build wave（_regenGolden）**就地**重写 src/compiler/z42.package/tests/fixtures/zbc-format/*/source.zbc，
       # 所以这里 diff 非空 = 提交的字节过期了（某次格式变更漏了 version-bumping.md 第 4 步）。
       # 为什么需要这道门：regen 总在消费方之前跑，`zbc_compat` 校验的永远是**刚重写**的字节、
       # 从不是提交的那份 ⇒ 过期基线一直绿、却弄脏每个贡献者的工作树（曾在 1.37 停留到 1.38 bump 之后）。
@@ -395,12 +395,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if ! git diff --quiet -- src/tests/zbc-format; then
+          if ! git diff --quiet -- src/compiler/z42.package/tests/fixtures/zbc-format; then
             echo "::error::committed zbc-format byte baselines are stale — regen rewrote them."
             echo "Fix: run 'xtask build compiler && xtask build stdlib && xtask build test',"
             echo "review the diff, then commit the regenerated fixtures"
             echo "(see docs/agent/rules/version-bumping.md step 4)."
-            git --no-pager diff --stat -- src/tests/zbc-format
+            git --no-pager diff --stat -- src/compiler/z42.package/tests/fixtures/zbc-format
             exit 1
           fi
           echo "OK: zbc-format baselines match the current writer"

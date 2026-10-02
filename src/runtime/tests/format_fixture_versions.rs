@@ -1,6 +1,6 @@
 //! Anti-rot gate for the committed wire-format byte baselines.
 //!
-//! `src/tests/zbc-format/` and `src/tests/zpkg-format/` hold check-in'd `.zbc` /
+//! `src/compiler/z42.package/tests/fixtures/zbc-format/` and `src/compiler/z42.package/tests/fixtures/zpkg-format/` hold check-in'd `.zbc` /
 //! `.zpkg` bytes whose purpose is to make wire-format drift visible. Under the
 //! pre-1.0 **strict-pin** policy (reader matches writer's major+minor exactly,
 //! no compat fallback) a baseline emitted by an older writer is simply dead
@@ -24,7 +24,7 @@
 //! header version equals the current constant, so "someone bumped the format and
 //! forgot step 4/9 of `docs/agent/rules/version-bumping.md`" is a red test rather
 //! than a silent diff. Regenerate with the per-fixture recipes documented in
-//! `src/tests/zpkg-format/README.md`.
+//! `src/compiler/z42.package/tests/fixtures/zpkg-format/README.md`.
 
 use std::path::{Path, PathBuf};
 
@@ -33,7 +33,7 @@ use z42::metadata::zbc_reader::{
 };
 
 fn tests_root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../tests")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../compiler/z42.package/tests/fixtures")
 }
 
 /// Header prelude shared by both containers: 4-byte magic, then `major`,
@@ -53,7 +53,7 @@ fn read_header(path: &Path) -> (String, u16, u16, u16) {
     (magic, major, minor, flags)
 }
 
-/// Every `<dir>/<name>` directly under `src/tests/<category>` that contains
+/// Every `<dir>/<name>` directly under `<fixtures root>/<category>` that contains
 /// `file_name`, sorted for a deterministic failure order.
 fn fixtures(category: &str, file_name: &str) -> Vec<PathBuf> {
     let root = tests_root().join(category);
@@ -117,7 +117,7 @@ fn committed_zpkg_baselines_match_the_current_writer() {
         ZPKG_VERSION_MAJOR,
         ZPKG_VERSION_MINOR,
         "Fix: rebuild each fixture from its committed `<name>.z42.toml` \
-         (see src/tests/zpkg-format/README.md) and commit the result \
+         (see src/compiler/z42.package/tests/fixtures/zpkg-format/README.md) and commit the result \
          (docs/agent/rules/version-bumping.md step 9).",
     );
 }
@@ -151,7 +151,7 @@ fn sym_only_fixture_really_holds_sidecar_bytes() {
          package, not the .zsym sidecar this fixture is supposed to freeze.\n\
          Fix: rebuild it from sym-only-sidecar.z42.toml with --release and commit \
          `dist/demo.sidecar.zsym` (NOT dist/demo.sidecar.zpkg) as source.zpkg \
-         (see src/tests/zpkg-format/README.md).",
+         (see src/compiler/z42.package/tests/fixtures/zpkg-format/README.md).",
         p.display()
     );
 }

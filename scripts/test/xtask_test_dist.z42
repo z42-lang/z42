@@ -16,7 +16,7 @@
 // the optional `interp|jit` positional from argv (index 2; default "interp jit").
 //
 // Shared golden-walk / entry-derivation / string helpers (_enumDirsSorted,
-// _sortStrings, _append, _isNonRunnableCat, _deriveEntry, _extractNamespace,
+// _sortStrings, _append, _deriveEntry, _extractNamespace,
 // _isWordEnd, _isIdentChar, _hasMain, _indexOfFrom, _firstLine, _splitWords,
 // _stripTrailingNewlines) live ONCE in xtask_golden.z42 (same namespace) and are
 // not redefined here. _latestReleasePkg lives in xtask_test.z42 next to
@@ -726,7 +726,6 @@ _DistCase[] _enumerateDistCases(string root) {
         i = i + 1;
         if (e.seg == "lib-file") { continue; }   // stdlib [Test] file units — z42b's, not golden
         if (!e.hasSource) { continue; }
-        if (!e.isLib && _isNonRunnableCat(e.cat)) { continue; }
         // Skip [Test]/[Benchmark]-based lib test dirs — owned by `xtask test stdlib`
         // (z42b), not golden-runnable (no Main; may be multi-file like secp256k1's
         // source.z42 + vectors.z42).

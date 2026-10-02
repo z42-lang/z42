@@ -78,12 +78,13 @@ string[] _append(string[] arr, int count, string v) {
 //
 //   consumer             excluded cats        extra filters
 //   build test  (assets) _isNonRegenCat       —
-//   test e2e    (vm)     _isNonRunnableCat    _isExcludedDirName · mirror .zbc exists · interp_only
-//   test dist            _isNonRunnableCat    _isTestRunnerSource · interp_only
-//   test embedded/list   _isNonRunnableCat    _isExcludedDirName
+//   test e2e    (vm)     —                    _isExcludedDirName · mirror .zbc exists · interp_only
+//   test dist            —                    _isTestRunnerSource · interp_only
+//   test embedded/list   —                    _isExcludedDirName
 //
-// (`_isNonRegenCat` keeps zbc-format / zpkg-format — those ARE regenerated as
-// byte baselines — while the three runners drop them: no stdout to diff.)
+// Every src/tests category is a runnable language golden (test-layout.md). The
+// wire-format byte baselines live in z42.package's tests/fixtures/ and are only
+// regenerated, never run — `build test` appends them itself (_formatZbcFixtureCases).
 //
 // Segments, emitted in this order (the pre-existing regen / e2e / dist order):
 //   "tests-dir"   src/tests/<cat>/<name>/source.z42
@@ -255,19 +256,6 @@ _GoldenEntry[] _walkGoldenCorpus(string root) {
     return tight;
 }
 
-// ── golden-walk exclusions (added by test-vm fold) ───────────────────────────
-
-// Categories whose golden is NOT "run z42vm and diff stdout": zbc-format /
-// zpkg-format are byte-format goldens (no stdout). Harness-driven fixture trees
-// (multi-package, multi-exe, manifest targets) live under their owning
-// component's `tests/fixtures/`, outside this walk (test-layout.md).
-// Deliberately NOT the same set as regen's _isNonRegenCat, which KEEPS the two
-// format categories (they are the byte baselines it exists to refresh).
-
-bool _isNonRunnableCat(string cat) {
-    return cat == "zbc-format" || cat == "zpkg-format";
-}
-
 // ── golden-zbc artifact mirror (mirror-build-output-per-component, 2026-06-16) ─
 //
 // Run-golden compiled `.zbc` is build output, not source — it lives under
@@ -279,9 +267,10 @@ bool _isNonRunnableCat(string cat) {
 // i.e. strip the leading `src/` and re-root under `artifacts/build/`. regen
 // writes here; the `test e2e` golden runner + Rust `zbc_compat` read here.
 //
-// ONE exception (handled by the caller, not this helper): the byte-baseline
-// goldens under `src/tests/zbc-format/` are checked in and regen overwrites them
-// in place so `git diff` flags real format drift — regen special-cases that cat.
+// Not routed through here: the wire-format byte baselines under
+// `src/compiler/z42.package/tests/fixtures/zbc-format/` are checked in and regen
+// overwrites them in place so `git diff` flags real format drift
+// (_formatZbcFixtureCases).
 //
 // `relUnderSrc` is the case dir relative to `src/` (e.g. `"tests/basic/hello"`
 // or `"libraries/z42.math/tests/math"`); returns the absolute mirror dir.

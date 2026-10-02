@@ -154,9 +154,9 @@ build test ──► _buildTest
   ① _ensureToolchainDeps: 缺则自建 z42c/stdlib/z42vm（build-if-missing）
   ② _regenGolden:
        枚举 golden 三种布局 (src/tests/<cat>/<name>/source.z42 · stdlib tests · flat *.z42)
-       └ 排除 errors/parse/cross-zpkg (预期失败) + [Test]/[Benchmark] 目录
-       并行批量 (8/批) z42vm 跑 z42c.driver --emit-zbc → .zbc
-       └ zbc-format 类就地覆盖 (git diff = 格式漂移)；其余 → artifacts 镜像
+       └ 排除 errors/parse (预期失败) + [Test]/[Benchmark] 目录
+       并行批量 (8/批) z42vm 跑 z42c.driver --emit-zbc → .zbc → artifacts 镜像
+       └ 全量时追加 z42.package/tests/fixtures/zbc-format：就地覆盖 (git diff = 格式漂移)
 ```
 
 > `regen` 命令已并入 `build test`（redesign-xtask-test）。`_regenCore`（rebuild

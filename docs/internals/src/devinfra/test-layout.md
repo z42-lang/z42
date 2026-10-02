@@ -96,11 +96,9 @@
 - `user-conversions`
 <!-- test-lang-categories:end -->
 
-**待搬迁**（按 §1 不属于这里；**只删不加**，搬完一项删一行）：
+**待搬迁**（按 §1 不属于这里、还没搬走的类别；**只删不加**，搬完一项删一行。当前为空）：
 
 <!-- test-pending-moves:begin -->
-- `zbc-format` → `src/compiler/z42.package/tests/fixtures/zbc-format/`（字节基线；`src/runtime/tests/zbc_compat.rs` 按路径引用）
-- `zpkg-format` → `src/compiler/z42.package/tests/fixtures/zpkg-format/`（同上）
 <!-- test-pending-moves:end -->
 
 ### 3. 用例形态
@@ -124,6 +122,8 @@ Rust 侧的 `*_tests.rs` 与 `tests/*.rs` 按 cargo 惯例，不在此列。
 | 一工程产多个 exe | `src/compiler/z42c.pipeline/tests/fixtures/multi-exe/` | `xtask test e2e --dir multi-exe` |
 | `[[test]]` / `[[example]]` / `[[bench]]` target | `src/toolchain/builder/tests/fixtures/manifest-targets/` | `xtask test targets` |
 | z42b 自身的清单 / hook / 发现规则 | `src/toolchain/builder/tests/fixtures/z42b/` | `xtask test targets` |
+| `.zbc` 字节基线 | `src/compiler/z42.package/tests/fixtures/zbc-format/` | `xtask build test` 就地重生；`xtask test runtime`（`zbc_compat`、`format_fixture_versions`）读取 |
+| `.zpkg` 字节基线 | `src/compiler/z42.package/tests/fixtures/zpkg-format/` | 按该目录 README 的配方重生；`xtask test runtime` 读取 |
 
 写法规则：
 
@@ -275,10 +275,9 @@ xtask test app <wasm|ios|android|all> [--filter <pat>] [--shard k/n] [--keep-dev
 
 按顺序推进，每一步一个 PR；完成后删掉本页对应的 ⏳ 标记：
 
-1. **源码搬迁**：按 §2「待搬迁」逐项搬，同步改 xtask 路径、CI path filter、`test changed` 映射与文档链接。
-2. **输出路径统一**：引入单一的组件测试输出根，替换 `_devTargetOutRoot`、`_goldenArtifactDir`、
+1. **输出路径统一**：引入单一的组件测试输出根，替换 `_devTargetOutRoot`、`_goldenArtifactDir`、
    `_stageFixtureTree`、`_testOutDir` 各自的拼法；取消 `artifacts/tmp/`；布局门加 `artifacts/build/` 镜像检查。
-3. **能力声明取代排除表**：运行期报告规划中的能力；golden runner 与 app 语料读取 `// requires-caps:`；
+2. **能力声明取代排除表**：运行期报告规划中的能力；golden runner 与 app 语料读取 `// requires-caps:`；
    把 `_targetExcludes` 逐条翻译成声明后删除。
-4. **`xtask test app`**：一条命令的 app 流水线、宿主工程暂存、z42b 管理设备生命周期，CI 改调同一条命令。
-5. **工具链测试套件**：`xtask test toolchain` 与对应的 gate stage。
+3. **`xtask test app`**：一条命令的 app 流水线、宿主工程暂存、z42b 管理设备生命周期，CI 改调同一条命令。
+4. **工具链测试套件**：`xtask test toolchain` 与对应的 gate stage。

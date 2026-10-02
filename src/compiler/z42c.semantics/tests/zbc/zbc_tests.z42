@@ -1,5 +1,5 @@
 // z42c byte-identical .zbc writer 单测（port-z42c-zbc-writer ZW-1A..1D）。
-// golden = src/tests/zbc-format/empty/source.zbc（C# z42c 对 `void Main(){}` 产出，zbc 1.15，247 字节）的小写 hex。
+// golden = src/compiler/z42.package/tests/fixtures/zbc-format/empty/source.zbc（C# z42c 对 `void Main(){}` 产出，zbc 1.15，247 字节）的小写 hex。
 // 验证 z42c 自举 ZbcWriter 逐字节复刻 C# ZbcWriter（header/directory/全 8 section/intern 序/ret 终结符）。
 // 指令级编码 = spec-derived hex（DBUG 阻塞使 C# 全文件 golden 限于 empty；端到端正确性由 xtask e2e 验证）。
 namespace Z42cSemanticsZbcTests;

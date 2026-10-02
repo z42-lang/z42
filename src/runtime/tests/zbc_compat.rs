@@ -59,7 +59,7 @@ fn collect_source_zbc(dir: &std::path::Path, out: &mut Vec<(String, PathBuf)>) {
 
 /// Iterate every test case that ships with a `source.zbc`. Two populations
 /// (mirror-build-output-per-component, 2026-06-16):
-///   1. Committed byte-baseline goldens under `src/tests/zbc-format/` — checked
+///   1. Committed byte-baseline goldens under `src/compiler/z42.package/tests/fixtures/zbc-format/` — checked
 ///      into git, regen overwrites them in place; still read from src.
 ///   2. Run-goldens — regen-generated, now mirrored per component under
 ///      `artifacts/build/tests/` (from `src/tests/`) and
@@ -72,7 +72,7 @@ fn each_golden_zbc() -> Vec<(String, PathBuf)> {
     let mut out = Vec::new();
 
     // (1) Committed byte-baseline goldens (stay in src).
-    if let Ok(entries) = fs::read_dir(root.join("src/tests/zbc-format")) {
+    if let Ok(entries) = fs::read_dir(root.join("src/compiler/z42.package/tests/fixtures/zbc-format")) {
         for entry in entries.flatten() {
             let path = entry.path();
             if !path.is_dir() { continue; }
