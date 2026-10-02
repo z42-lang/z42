@@ -13,7 +13,8 @@
 # --rid android-x64 --run` spawns `./gradlew :z42vm:connectedAndroidTest` (ONE emulator
 # run = R1–R7 + embedded corpus); gradle writes the junit the reporter step reads.
 # reactivecircus still supplies the emulator (design D2 asymmetry); z42b only triggers
-# gradle. The step's working-directory is the android platform dir, but every path here
+# gradle — in the staged host copy under artifacts/build (xtask passes it as --project).
+# The step's working-directory is the android platform dir, but every path here
 # is absolute and xtask's `_root()` uses `git rev-parse`, so cwd does not matter.
 #
 # diagnose-mobile-wasm-embed (#159): the embedded corpus can crash the app process
@@ -52,7 +53,7 @@ rc=$?
 # installed (seen: `Requested internal only, but not enough space`), so a zero exit
 # code alone proves nothing. No JUnit XML ⇒ no test ran ⇒ fail here, with the cause
 # still visible above, instead of only at the reporter step.
-results="$GITHUB_WORKSPACE/src/toolchain/workload/android/platform/z42vm/build/outputs/androidTest-results/connected"
+results="$GITHUB_WORKSPACE/artifacts/build/toolchain/workload/android/tests/host/z42vm/build/outputs/androidTest-results/connected"
 if [ "$rc" -eq 0 ] && [ -z "$(find "$results" -name '*.xml' 2>/dev/null | head -1)" ]; then
     echo "error: connectedAndroidTest produced no JUnit XML under $results — no instrumented test ran" >&2
     rc=1

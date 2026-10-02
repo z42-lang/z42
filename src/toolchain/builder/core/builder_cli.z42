@@ -85,6 +85,7 @@ SubcommandRouter _builderRoot() {
     // orchestrator (xtask) knows the repo layout and passes it; z42b owns the build
     // invocation logic. Required for --build/--run on a device RID.
     test.AddOption("build-root", "", "device RID --build/--run: repo root for locating the native platform crate", "");
+    test.AddOption("project", "", "device RID --build/--run: the host project dir to build/run in (default: the platform dir under --build-root)", "");
     test.AddOption("node-bin", "", "device RID --run: hermetic node bin dir (provisioned by xtask) to prepend to PATH", "");
     test.AddFlag("release", "", "compile-then-test: release profile (default: debug)");
     // --list：只列目标名（一行一个），不编不跑。给**编排方**用 —— xtask 靠它拿到单元清单后

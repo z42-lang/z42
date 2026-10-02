@@ -118,24 +118,24 @@ SubcommandRouter _testRouter() {
     return t;
 }
 
-// `test platform <wasm|ios|android|all> [build|assets|run]` — three-phase
+// `test platform <wasm|ios|android|all> [stage|build|assets|run]` — three-phase
 // (build project / build test assets / run tests). Empty step = full pipeline.
 SubcommandRouter _platformRouter() {
     SubcommandRouter pr = new SubcommandRouter("xtask test platform", "platform 3-phase tests");
     ArgParser desktop = new ArgParser("xtask test platform desktop", "desktop C-ABI pipeline");
-    desktop.AddOptionalPositional("step", "build|assets|run (default: all)");
+    desktop.AddOptionalPositional("step", "stage|build|assets|run (default: all; stage = sync the host project copy only)");
     pr.Add("desktop", "desktop 3-phase pipeline (Tier-1 C ABI R1–R7)", desktop);
     ArgParser wasm = new ArgParser("xtask test platform wasm", "wasm pipeline");
-    wasm.AddOptionalPositional("step", "build|assets|run (default: all)");
+    wasm.AddOptionalPositional("step", "stage|build|assets|run (default: all; stage = sync the host project copy only)");
     pr.Add("wasm", "wasm 3-phase pipeline", wasm);
     ArgParser ios = new ArgParser("xtask test platform ios", "iOS pipeline");
-    ios.AddOptionalPositional("step", "build|assets|run (default: all)");
+    ios.AddOptionalPositional("step", "stage|build|assets|run (default: all; stage = sync the host project copy only)");
     pr.Add("ios", "iOS 3-phase pipeline", ios);
     ArgParser android = new ArgParser("xtask test platform android", "Android pipeline");
-    android.AddOptionalPositional("step", "build|assets|run (default: all)");
+    android.AddOptionalPositional("step", "stage|build|assets|run (default: all; stage = sync the host project copy only)");
     pr.Add("android", "Android 3-phase pipeline", android);
     ArgParser all = new ArgParser("xtask test platform all", "all platforms");
-    all.AddOptionalPositional("step", "build|assets|run (default: all)");
+    all.AddOptionalPositional("step", "stage|build|assets|run (default: all; stage = sync the host project copy only)");
     pr.Add("all", "all platforms", all);
     return pr;
 }

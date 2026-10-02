@@ -1,6 +1,6 @@
 # 产物目录布局（`artifacts/`）
 
-> 对齐：2026-10-04（change `move-cargo-config`）｜ 代码：`scripts/common/xtask_layout.z42`（路径 SoT）、`src/libraries/z42.workspace.toml` 与 `src/compiler/z42.workspace.toml` 的 `[workspace.build]`、`src/{runtime,toolchain}/.cargo/config.toml`
+> 对齐：2026-10-05（change `stage-device-host-projects`）｜ 代码：`scripts/common/xtask_layout.z42`（路径 SoT）、`src/libraries/z42.workspace.toml` 与 `src/compiler/z42.workspace.toml` 的 `[workspace.build]`、`.cargo/config.toml`
 >
 > 构建步骤本身见[构建编排](build.md)；打包见[打包引擎](packaging.md)。
 
@@ -124,7 +124,8 @@ z42c 写产物同样是就地写 ⇒ 穿透到 `libraries/z42.core/release/dist/
 | `build/toolchain/builder/tests/fixtures/{manifest-targets,z42b}` | `test targets` | z42b 夹具的暂存拷贝；目标产物在同一 `tests/` 下的 `targets/` `dev-targets/` |
 | `build/toolchain/workload/test/tests` | `test embedded` / `test targets` | golden → `[Test]` 归一的 bundle、语料 bundle、bundle-host smoke |
 | `build/toolchain/workload/desktop/tests` | `test platform desktop` | C ABI R1–R7 的夹具 zbc 与链接出的 `r1_r7` |
-| `build/toolchain/workload/wasm/tests` | `test embedded --rid browser-wasm` | wasm deployable（agent + bundle + libs + harness）；`--run` 由 z42b 经 `Z42_WASM_DEPLOY` 交给 Playwright |
+| `build/toolchain/workload/{wasm,ios,android}/tests/host` | `test platform <p>` / `test embedded --rid …` | 平台宿主工程（Playwright 页面 / SwiftPM 包 / Gradle 工程）的**暂存副本**：git 跟踪的文件增量同步过来，R1–R7 夹具、stdlib、嵌入 bundle、pkg-web / xcframework / .so 都放这里，平台构建与运行也在这里（`_stageDeviceHost`）。可直接用 Xcode / Android Studio 打开调试 |
+| `build/toolchain/workload/wasm/tests/deploy` | `test embedded --rid browser-wasm` | wasm 嵌入 deployable（agent + bundle + libs + harness）；`--run` 由 z42b 经 `Z42_WASM_DEPLOY` 交给 Playwright |
 | `build/runtime/tests/gc-modes` | gate 的 `gc modes` | 各 GC 模式下重编 `z42c.semantics` 的输出 |
 | `build/bench/probe` | `bench` / `profile` | 执行画像的能力探针 |
 | `build/compiler/{driver-home,selfhost-gen1,stdlib-run,seed-run-libs}` | 编译器构建与自举 | 不属于某个成员的 workspace 级中间物（§2）|

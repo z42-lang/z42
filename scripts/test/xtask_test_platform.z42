@@ -8,7 +8,7 @@
 // part most prone to drift. Backends only declare WHERE assets land (AssetLayout).
 //
 // Backends live in xtask_test_{wasm,ios,android,desktop}.z42; CLI wiring in
-// xtask_cli.z42 (`test platform <p> [build|assets|run]`). The legacy
+// xtask_cli.z42 (`test platform <p> [stage|build|assets|run]`). The legacy
 // platforms/*/build.sh are removed (logic ported into the backends); only
 // android/test.sh remains, bridged by AndroidBackend.RunTests for emulator
 // orchestration (full z42 port = roadmap port-android-emulator-run-to-z42).
@@ -43,7 +43,7 @@ public class AssetLayout {
 
 // ── Dispatch (called from xtask_cli.z42 _dispatchTest) ─────────────────────
 
-// name ∈ wasm|ios|android ; step ∈ ""(=all)|build|assets|run.
+// name ∈ wasm|ios|android ; step ∈ ""(=all)|stage|build|assets|run.
 int _platformDispatch(string name, string step, string root) {
     Stopwatch sw = _procStart("test platform");
     int __rc;
@@ -61,11 +61,15 @@ int _platformDispatch(string name, string step, string root) {
 }
 
 int _platformStep(IPlatformBackend b, string step, string root) {
+    // 设备平台的宿主工程先同步到 build/ 下的副本（xtask_test_device_host.z42）：后面每一步的
+    // 读写都落在副本里，源码树零写入。desktop 的 C 壳没有宿主工程（直接编进 tests/ 输出）。
+    if (b.Name() != "desktop" && _stageDeviceHost(root, b.Name()).Length == 0) { return 1; }
+    if (step == "stage") { return 0; }   // 只同步宿主工程副本（上面已做）——CI 预装 node 依赖前用
     if (step == "" || step == "all") { return _platformAll(b, root); }
     if (step == "build")  { return _platformBuild(b, root); }
     if (step == "assets") { return _platformAssets(b, root); }
     if (step == "run")    { return _platformRun(b, root); }
-    ConsoleError.WriteLine("error: unknown step '" + step + "' (build|assets|run)");
+    ConsoleError.WriteLine("error: unknown step '" + step + "' (stage|build|assets|run)");
     return 2;
 }
 

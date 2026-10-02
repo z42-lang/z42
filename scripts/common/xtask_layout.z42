@@ -334,7 +334,7 @@ string _layoutBuildDesc(string d) {
     if (d == "runtime")   { return "cargo target-dir"; }
     if (d == "libraries") { return "stdlib 各成员 <lib>/<profile>/"; }
     if (d == "compiler")  { return "编译器各成员 + workspace 级自举中间物"; }
-    if (d == "toolchain") { return "工具链各组件；平台测试的 bundle 与工作目录"; }
+    if (d == "toolchain") { return "工具链各组件；设备测试的宿主副本（host/）、bundle 与工作目录"; }
     if (d == "tests")     { return "src/tests golden 的 .zbc"; }
     if (d == "bench")     { return "性能场景的探针输出"; }
     return "";
