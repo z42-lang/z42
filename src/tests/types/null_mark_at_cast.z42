@@ -45,5 +45,5 @@ void Main() {
 }
 
 // ⚠️ 「该报」那一半是**编译期**诊断，不能写在这个能跑的文件里（写了就编不过）。
-// 它由 `src/tests/cross-zpkg/field_null_mark_crosspkg_unchecked/` 那类
+// 它由 `src/compiler/z42c.pipeline/tests/fixtures/cross-zpkg/field_null_mark_crosspkg_unchecked/` 那类
 // `expected_build_error.txt` 负例，以及 z42c 的语义单测覆盖。

@@ -77,10 +77,9 @@ on:
       - 'src/runtime/**'
       - 'src/libraries/**'
       - 'src/compiler/**'
-      # move-bench-into-tests (2026-09-05): 顶层 bench/ 已并入 src/tests/perf/
-      # （场景 / 探针 / 判红 fixture / schema / repl 脚本）。这里只列 perf 子树 ——
-      # src/tests/ 其余是正确性 golden，动它们不影响性能测量。
-      - 'src/tests/perf/**'
+      # src/bench/：整程序性能场景 / 能力探针 / 判红 fixture / 结果 schema。
+      # src/tests/ 是正确性 golden，动它们不影响性能测量，所以不列。
+      - 'src/bench/**'
       - 'scripts/**/*.z42'
       - 'scripts/xtask.z42.toml'
       - '.github/workflows/bench-pr.yml'
@@ -328,7 +327,7 @@ jobs:
         shell: bash
         run: |
           set -uo pipefail
-          T="src/tests/perf/testdata"
+          T="src/bench/testdata"
           fail=0
           xt() {
             xtask "$@" >/dev/null 2>&1

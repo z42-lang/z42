@@ -405,7 +405,7 @@ public sealed class MemberCollector {
                     //     partial v1 的既有限制（重载须同碎片，见 partial-types.md「边界与限制」+
                     //     src/tests/partial-types/partial_protocol_overload.z42），不由本变更引入。
                     // unify-regkey-phase2：读侧回落删除后，**本行是这类方法唯一的键来源**——删了它
-                    // MethodKeyOf 会抛。跨-CU 场景由 src/tests/cross-zpkg/partial_crosscu_export 守住。
+                    // MethodKeyOf 会抛。跨-CU 场景由 src/compiler/z42c.pipeline/tests/fixtures/cross-zpkg/partial_crosscu_export 守住。
                     md.RegKey = regName;
                 } else {
                     // add-partial-types / fix-partial-protocol-overload-e0433：partial 跨/同碎片重复成员检测。

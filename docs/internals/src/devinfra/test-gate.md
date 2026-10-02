@@ -338,7 +338,7 @@ verbosity ≥ 4 才输出，而 CI 跑的是默认 verbosity——于是 `xtask 
 | `src/libraries/<lib>/bench/` | `bench stdlib <lib>` |
 | `src/runtime/src/`、`Cargo.toml/lock`、`build.rs` | `test runtime` + `test e2e` |
 | `src/runtime/tests/` | `test runtime` |
-| `src/tests/cross-zpkg/` | `test e2e --dir cross-zpkg` |
+| `src/compiler/z42c.pipeline/tests/fixtures/cross-zpkg/` | `test e2e --dir cross-zpkg` |
 | 其余 `src/tests/` | `test e2e` |
 | `src/compiler/` | `test compiler` + `test e2e` |
 | `src/toolchain/` | `test stdlib`（工具链影响 `[Test]` 的执行方式，全库扫）|

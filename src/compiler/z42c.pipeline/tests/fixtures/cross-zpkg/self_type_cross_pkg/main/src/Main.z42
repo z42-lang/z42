@@ -15,7 +15,7 @@ using DemoSExt;
 //
 // 它放在 **main**（与调用点同包）是历史原因：当时**跨包**泛型自由函数根本调不了（导入侧型参退化成
 // 普通类 → `E0402`）。该缺陷已由 `fix-imported-generic-func-fidelity`（2026-09-08）修掉，跨包形态
-// 的回归归 `src/tests/cross-zpkg/free_func_cross_pkg/` 专管，本 fixture 保持同包写法不动。
+// 的回归归 `src/compiler/z42c.pipeline/tests/fixtures/cross-zpkg/free_func_cross_pkg/` 专管，本 fixture 保持同包写法不动。
 // 本行的编译期断言与那条正交：`IEq` 仍是**跨包导入**的接口，Part A 的约束查找要从导入元数据里
 // 还原出 `Same(Self)` 才能编过。
 bool eqVia<T>(T a, T b) where T : IEq { return a.Same(b); }

@@ -28,9 +28,10 @@
 |---|---|---|
 | 组件的测试放在组件内还是集中放 | **放组件内** `<component>/tests/` | 集中目录会混进不同 owner 的用例：改一个组件时既不知道该跑哪些，也不知道该看哪些 |
 | 语言 / VM 特性测试放哪 | **保留 `src/tests/`，只放语言 / VM 特性** | 它们同时测编译器与 VM，没有单一 owner；对标 dotnet/runtime 的 `src/tests/` |
-| 整程序性能场景放哪 | **`src/bench/`**（⏳ 现在在 `src/tests/perf/`） | 不是测试（不判对错，只计时），也不属于 runtime（测的是编译器 + VM + stdlib 全链路）。微基准仍跟着代码走（各库 `bench/`、`src/runtime/benches/`），与 Rust / Go 的惯例一致；整程序套件做成与 `src/tests` 并列的独立目录，与 Swift / Node 顶层 `benchmark/` 同理 |
+| 整程序性能场景放哪 | **`src/bench/`** | 不是测试（不判对错，只计时），也不属于 runtime（测的是编译器 + VM + stdlib 全链路）。微基准仍跟着代码走（各库 `bench/`、`src/runtime/benches/`），与 Rust / Go 的惯例一致；整程序套件做成与 `src/tests` 并列的独立目录，与 Swift / Node 顶层 `benchmark/` 同理 |
 | 平台过滤用什么表达 | **能力名**（`// requires-caps:` / `[Skip(feature:)]`）；只有能力表达不了的 OS 差异才用 `[Skip(platform:)]` | 按名字维护的排除表（`_targetExcludes`）说不清每条为什么在那里，而且只增不减 |
 | golden 的能力声明用 marker 文件还是源码头注释 | **头注释 `// requires-caps: a, b`** | 与 bench 场景已有的写法、解析函数共用；flat 模式用例不必为此多建一个 sidecar |
+| harness 驱动的工程树放在 `tests/` 的哪里 | **保留子目录 `tests/fixtures/<suite>/`** | 直接放 `tests/<suite>/` 会被 z42b 的单元发现与孤儿源守卫当成「没人认领的源」判红；保留名同 Go 的 `testdata/`，规则一条、不需要名单 |
 | 测试输出放哪 | **所属组件的输出目录 + `/tests/`**（⏳） | 各组件输出目录本就镜像 `src/`，测试输出跟着镜像，不需要另一套路径规则 |
 
 ## 机制
@@ -46,7 +47,7 @@
 | 编译器某成员（含**期望编译报错**：写成 `[Test]` + `SemanticDump`） | `src/compiler/<member>/tests/` | `xtask test compiler` |
 | 工具链某组件（launcher / builder / interactive / workload …） | `src/toolchain/<comp>/tests/` | ⏳ `xtask test toolchain [<comp>]` |
 | VM 内部（Rust） | 同模块 `*_tests.rs`；集成测试在 `src/runtime/tests/` | `xtask test runtime` |
-| 整程序性能场景 | ⏳ `src/bench/scenarios/` | `xtask bench` |
+| 整程序性能场景 | `src/bench/scenarios/` | `xtask bench` |
 
 拿不准时的三个常见误判：
 
@@ -98,16 +99,8 @@
 **待搬迁**（按 §1 不属于这里；**只删不加**，搬完一项删一行）：
 
 <!-- test-pending-moves:begin -->
-- `app-properties` → `src/libraries/z42.core/tests/`（测 `Std.Runtime.AppProperties` 的 API）
-- `runtime-config` → `src/libraries/z42.core/tests/`（测 `Std.Runtime.RuntimeConfig` 的 API）
-- `cross-zpkg` → `src/compiler/z42c.pipeline/tests/cross-zpkg/`（多包编译与链接）
-- `multi-exe` → `src/compiler/z42c.pipeline/tests/multi-exe/`（一工程产多个 exe）
-- `manifest-targets` → `src/toolchain/builder/tests/manifest-targets/`（`[[test]]` / `[[example]]` target，由 z42b 驱动）
-- `z42b` → `src/toolchain/builder/tests/`（z42b 自身的 fixture 工程）
-- `zbc-format` → `src/compiler/z42.package/tests/formats/zbc/`（字节基线；`src/runtime/tests/zbc_compat.rs` 按路径引用）
-- `zpkg-format` → `src/compiler/z42.package/tests/formats/zpkg/`（同上）
-- `perf` → `src/bench/`（性能场景、能力探针、结果 schema、判红自检 fixture）
-- `symbol-resolution` → `src/tests/classes/`（单用例类别，并入现有类别）
+- `zbc-format` → `src/compiler/z42.package/tests/fixtures/zbc-format/`（字节基线；`src/runtime/tests/zbc_compat.rs` 按路径引用）
+- `zpkg-format` → `src/compiler/z42.package/tests/fixtures/zpkg-format/`（同上）
 <!-- test-pending-moves:end -->
 
 ### 3. 用例形态
@@ -118,9 +111,19 @@
 |---|---|---|---|
 | **unit** | 带 `[Test]` 的 `.z42`（文件或目录） | `Assert.*` 抛异常即失败 | `z42b test` |
 | **golden** | flat：`<name>.z42`；dir：`<name>/source.z42` + sidecar | 程序跑完；有 `expected_output.txt` 时 stdout 必须相等 | VM 直接跑 |
-| **fixture** | 含 `z42.toml` 的工程目录 + `expected_output.txt` 或 `expected_build_error.txt` | 先构建再比对；期望报错时 stderr 必须包含给定子串 | xtask 按所属组件的 harness |
+| **fixture** | `tests/fixtures/<suite>/<case>/`：含 `z42.toml` 的工程目录 + `expected_output.txt` 或 `expected_build_error.txt` | 先构建再比对；期望报错时 stderr 必须包含给定子串 | xtask 按所属组件的 harness |
 
 Rust 侧的 `*_tests.rs` 与 `tests/*.rs` 按 cargo 惯例，不在此列。
+
+**`tests/fixtures/` 是保留目录名**：z42b 的约定单元发现与孤儿源守卫都跳过它（用户工程同样适用，见
+[z42.toml 参考](../../../reference/src/toolchain/z42-toml.md)），里面的内容只由 harness 读取。现有的 suite：
+
+| suite | 位置 | harness |
+|---|---|---|
+| 多包编译与链接 | `src/compiler/z42c.pipeline/tests/fixtures/cross-zpkg/` | `xtask test e2e --dir cross-zpkg` |
+| 一工程产多个 exe | `src/compiler/z42c.pipeline/tests/fixtures/multi-exe/` | `xtask test e2e --dir multi-exe` |
+| `[[test]]` / `[[example]]` / `[[bench]]` target | `src/toolchain/builder/tests/fixtures/manifest-targets/` | `xtask test targets` |
+| z42b 自身的清单 / hook / 发现规则 | `src/toolchain/builder/tests/fixtures/z42b/` | `xtask test targets` |
 
 写法规则：
 

@@ -124,7 +124,7 @@ IR pass 而必须挂在装配上。
 **覆盖面**：构造器（fix-ctor-arity-skew）、实例方法——`VCall` 与 sealed 去虚化后的直接 `Call`
 （fix-call-arity-skew）、静态虚成员。**常规静态方法天然免疫**：它们的键恒为全签名 mangle
 （`OverloadResolver.MangleKey`），签名一变键就变、解析失败，由「缺符号」那条路报——
-`src/tests/cross-zpkg/call_arity_static_skew` 守住这个事实。
+`src/compiler/z42c.pipeline/tests/fixtures/cross-zpkg/call_arity_static_skew` 守住这个事实。
 
 #### 判据：精确相等，下界不读 `min_arg`、上界读 sret 位
 
@@ -227,7 +227,7 @@ params 变长 ⇒ phys ≥ want；否则 phys == want
 **为什么四个月没响**：全仓没有任何 golden 跨包调用过「返回 struct 的方法」——
 `struct_cross_pkg` 只测跨包**构造**与**字段读**，而 `z42.core` 里**一个多字段 struct 都没有**
 （`GCHandle`/`Guid` 各 1 字段 + 12 个零字段基元 wrapper）⇒ 这条路在 stdlib 上走不到。
-守门的 fixture 现在有了：`src/tests/cross-zpkg/single_field_struct_cross_pkg/`。
+守门的 fixture 现在有了：`src/compiler/z42c.pipeline/tests/fixtures/cross-zpkg/single_field_struct_cross_pkg/`。
 
 ⚠️ **调查工具的陷阱**：`z42c --dump-ir` / `--dump-bound` **不加载 stdlib/依赖**（带 `Z42_LIBS`
 也一样）⇒ 用它们看「跨包调用点发了什么」会得到假象（我据此错判成 loose VCall）。
@@ -316,7 +316,7 @@ if (available!(NewApi.Feature)) {
 
 ## 测试脚手架
 
-skew 场景靠 `src/tests/cross-zpkg/` 的两个可选标记文件，都在 run 波之前生效，且**必须同时
+skew 场景靠 `src/compiler/z42c.pipeline/tests/fixtures/cross-zpkg/` 的两个可选标记文件，都在 run 波之前生效，且**必须同时
 改两处**——临时 `Z42_LIBS` 与 `main/<dist>`（packed exe build 会把依赖 zpkg colocate 进
 main dist，而惰性加载器**先搜 entry zpkg 同目录**，只改 libs 那份等于没改）。
 

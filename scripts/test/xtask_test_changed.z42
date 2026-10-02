@@ -256,21 +256,19 @@ _MapResult _mapFile(string f) {
     if (f.StartsWith("src/runtime/tests/")) {
         return _mapCmds(new string[]{ "xtask test runtime" });
     }
-    if (f.StartsWith("src/tests/cross-zpkg/")) { return _mapCmds(new string[]{ "xtask test e2e --dir cross-zpkg" }); }
-    // perf subtree (move-bench-into-tests, 2026-09-05). Two things it is NOT:
-    //   - not the e2e golden suite: these are timing scenarios, excluded from
-    //     golden discovery, so `test e2e` below would be pure cost here;
-    //   - not _mapSkip either, which is what the old top-level `bench/` prefix
-    //     got. **This is a deliberate tightening.** Skipping meant a scenario
-    //     broken by an edit (won't compile, or its Main moved) stayed invisible
-    //     until bench-pr.yml ran it — on a VM-touching PR that job is ~1030s.
-    //     `bench --quick` (first 2 scenarios, runs=3, warmup=1) answers "does a
-    //     scenario still compile and run" in under a minute, locally.
-    // Whole subtree, not just scenarios/: probe/ and the schema feed the same
-    // pipeline, and per the exclusion-not-allowlist rule (simplify-bench-gate) a
-    // missed file type would silently skip the check, while over-matching only
+    // harness 驱动的夹具（`<component>/tests/fixtures/<suite>/`，见 test-layout.md）只喂自己的 harness，
+    // 必须排在下面 src/compiler/ 与 src/toolchain/ 的整组件映射之前。
+    if (f.StartsWith("src/compiler/z42c.pipeline/tests/fixtures/cross-zpkg/")) { return _mapCmds(new string[]{ "xtask test e2e --dir cross-zpkg" }); }
+    if (f.StartsWith("src/compiler/z42c.pipeline/tests/fixtures/multi-exe/"))  { return _mapCmds(new string[]{ "xtask test e2e --dir multi-exe" }); }
+    if (f.StartsWith("src/toolchain/builder/tests/fixtures/"))                 { return _mapCmds(new string[]{ "xtask test targets" }); }
+    // src/bench/ — whole-program timing scenarios, probe, schema, verdict fixtures.
+    // Not `test e2e` (they're not goldens) and not _mapSkip: a scenario broken by an
+    // edit (won't compile, Main moved) would otherwise stay invisible until bench-pr.yml
+    // ran it (~1030s on a VM-touching PR). `bench --quick` (first 2 scenarios, runs=3,
+    // warmup=1) answers "does it still compile and run" in under a minute. Whole
+    // subtree: probe/ and the schema feed the same pipeline, and over-matching only
     // costs one quick run.
-    if (f.StartsWith("src/tests/perf/"))       { return _mapCmds(new string[]{ "xtask bench --quick" }); }
+    if (f.StartsWith("src/bench/"))            { return _mapCmds(new string[]{ "xtask bench --quick" }); }
     if (f.StartsWith("src/tests/"))            { return _mapCmds(new string[]{ "xtask test e2e", "xtask test layout" }); }
 
     // z42c self-host compiler (src/compiler).

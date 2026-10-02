@@ -43,7 +43,7 @@ dist/
 !src/tests/zbc-format/**/source.zbc
 
 # Cross-zpkg e2e test build artifacts (per-package libs/ populated by test driver).
-src/tests/cross-zpkg/*/*/libs/
+src/compiler/z42c.pipeline/tests/fixtures/cross-zpkg/*/*/libs/
 
 # Claude Code local state (per-machine; memory lives in ~/.claude, never in the repo)
 .claude/scheduled_tasks.lock

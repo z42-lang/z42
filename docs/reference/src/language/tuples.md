@@ -39,7 +39,7 @@ z42 **不引入原生元组 opcode / 类型 tag**。元组在编译器前端**�
 > 元组写法都撞**（`var t = (1,2)` / `(int,int) t = (1,2)` / 跨包元组形参与返回一律）。
 > 编译器脱糖引用的其余类型（`Attribute` / `Dictionary` / `List` / `Type` / `IDisposable` /
 > `InvalidOperationException` / `Bencher`）早已 public，只漏了这一组。
-> 门在 `src/tests/cross-zpkg/tuple_cross_pkg/`——它走 `z42c build`（诊断可见、非零退出即失败）；
+> 门在 `src/compiler/z42c.pipeline/tests/fixtures/cross-zpkg/tuple_cross_pkg/`——它走 `z42c build`（诊断可见、非零退出即失败）；
 > `src/tests/tuples/tuple_basic.z42` 走 `--emit-zbc`（吞诊断），修前是**假绿**。
 
 它们定义在 `src/libraries/z42.core/src/ValueTuple.z42`（隐式 prelude，任何程序自动可见）。这样元组

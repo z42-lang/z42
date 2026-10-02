@@ -878,6 +878,9 @@ strip    = true
 5. `_` 前缀的 `.z42` 文件是 dir-mode 内的辅助；不是目标入口
 6. **发现循环必须先按稳定键 sort** 再注册（[common-pitfalls §1](../../../agent/rules/common-pitfalls.md)——
    first-wins 禁止依赖 FS 枚举序）
+7. `tests/fixtures/`（`bench/`、`examples/` 下同名目录同理）是**保留目录**：约定发现不从里面认领目标，
+   「目录里有 `.z42` 源却一个目标都没解析出来」的检查也跳过它。放由外部脚本驱动、先构建再比对的
+   夹具工程（自带 `z42.toml` 的多包工程、字节基线等）
 
 ### `[tests]` / `[benches]` / `[examples]` 段
 

@@ -520,7 +520,7 @@ struct Priv : INum2 { static override int MakeZero() { return 0; } }          //
 **跨包同口径**。接口方法的 static 位随 **zbc 1.41** 的接口方法块 `is_static:u8` 过 wire，
 导入侧还原真值，因此**导入接口**与本包接口接受完全相同的四项校验。在此之前 static 位从 wire
 丢失（恒 false），校验对导入接口整个跳过 ⇒ 跨包把 `static abstract` 成员实现成实例方法是**静默
-放行**的。回归门：`src/tests/cross-zpkg/iface_static_impl_mismatch/`（负例 fixture，期望 build
+放行**的。回归门：`src/compiler/z42c.pipeline/tests/fixtures/cross-zpkg/iface_static_impl_mismatch/`（负例 fixture，期望 build
 error 含 `is \`static\` in the interface and an instance method here`）。
 
 > ✅ 齐备性也校验（自 `fix-iface-satisfaction-gaps` / `fix-iface-self-completeness-gaps`）：声明了接口

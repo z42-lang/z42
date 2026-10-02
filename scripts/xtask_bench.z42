@@ -1,6 +1,6 @@
 // xtask — e2e benchmarks (migrate-scripts-to-z42). Native port of
 // the former scripts/bench-run.sh + scripts/_merge-bench-results.py. Compiles
-// src/tests/perf/scenarios/*.z42, runs hyperfine on z42vm per scenario, then merges the
+// src/bench/scenarios/*.z42, runs hyperfine on z42vm per scenario, then merges the
 // hyperfine JSONs into artifacts/bench/e2e.json — parse with native Std.Json,
 // output string-built (replacing python3). Same Z42Xtask namespace; calls
 // _exec/_root/_buildRuntime/_utcNow in xtask.z42 / xtask_package.z42.
@@ -58,7 +58,7 @@ int _bench(ParseResult r) {
     string tier = r.GetOption("tier");
     if (!_benchTierValid(tier)) { return 2; }
     string root = _root();
-    string scenDir = Path.Join(root, "src/tests/perf/scenarios");
+    string scenDir = Path.Join(root, "src/bench/scenarios");
     string resultsDir = _benchDir(root);
     Directory.Create(resultsDir);
     // Bench needs z42vm + stdlib (scenarios `using Std.IO.Console`, resolved at
@@ -469,7 +469,7 @@ int _benchAb(ParseResult r) {
     string tier = r.GetOption("tier");
     if (!_benchTierValid(tier)) { return 2; }
     string root = _root();
-    string scenDir = Path.Join(root, "src/tests/perf/scenarios");
+    string scenDir = Path.Join(root, "src/bench/scenarios");
     string resultsDir = _benchDir(root);
     Directory.Create(resultsDir);
     int dep = _ensureToolchainDeps(root); if (dep != 0) { return dep; }
@@ -673,7 +673,7 @@ int _abExpect(string label, AbVerdict v, string wantVerdict, bool wantRegr) {
 // no base counterpart to compare against. Exit: 0 = no regression, 1 = regression(s),
 // 2 = bad args / missing file.
 //
-// COVERED BY FIXTURES: src/tests/perf/testdata/micro-base.json + micro-*.json
+// COVERED BY FIXTURES: src/bench/testdata/micro-base.json + micro-*.json
 // (single round) and micro-rs-*-r{1,2,3}.json (resampled), run by bench-pr.yml's
 // verdict self-check at BOTH thr 0.15 (the one the gate uses) and 0.25 — pure
 // JSON, seconds, before the ~20 min of measurement. Single round, seven cases:
@@ -863,7 +863,7 @@ double _microN(JsonValue b) {
 
 // `bench --diff [--current P] [--baseline P] [--threshold-time T] [--threshold-memory M] [--quiet]`
 // Native port of the former scripts/bench-diff.sh. Compares current bench results
-// against a baseline (both conform to src/tests/perf/baseline-schema.json): per-benchmark
+// against a baseline (both conform to src/bench/baseline-schema.json): per-benchmark
 // delta = (cur - base) / base. Interval-aware gate — a regression requires BOTH
 // delta > --threshold-time (default 0.05) / --threshold-memory (default 0.10) AND
 // the current confidence interval separated from the baseline's (cur.ci_lower >

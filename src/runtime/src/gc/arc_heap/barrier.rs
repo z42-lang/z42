@@ -38,6 +38,14 @@ impl crate::gc::arc_heap::ArcMagrGC {
             // closure stored into an old owner would skip the card while the block itself was
             // still young. Read the same age the mark phase reads.
             Value::Closure(c) => c.gen_age(),
+            // fix-gen-barrier-strings: strings / func-refs are var blocks with a real age too
+            // (#533 made `gen_age_of` report it and the minor sweep reclaim young var blocks).
+            // This barrier still let them fall through to `_ => return`, so a **young string
+            // stored into an old object / array** never dirtied a card: the next minor did not
+            // re-scan the old owner, the string went unmarked and was swept while still
+            // referenced (use-after-free → garbage strings / failed map lookups). Seen as
+            // intermittent failures of the nursery-1M compiler build under `--jobs 4`.
+            Value::Str(s) | Value::FuncRef(s) => s.gen_age(),
             // make-value-copy: a `Ref` handle never escapes into a heap slot (is_heap_ref
             // = false), so a write barrier here is unreachable for it; its target's age is
             // handled via the transient-arena root scan.

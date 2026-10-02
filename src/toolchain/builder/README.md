@@ -26,6 +26,16 @@ src/toolchain/builder/core/*.z42  →  z42b.zpkg  →  apphost z42b
 > 只是本管线尾部 `Assets` / `Package` 两个相位的一部分；构建编排是其超集，故 packager
 > 占位并入本目录，不再单列。
 
+## 如何测试验证
+
+```bash
+xtask test targets      # tests/fixtures/{manifest-targets,z42b}/ 夹具：[[test]] / [[example]] / [[bench]] target、清单段、build hook、孤儿源守卫
+xtask test stdlib       # z42b 作为 [Test] 运行器跑全部 stdlib 单元
+```
+
+`tests/fixtures/` 放 harness 驱动的夹具工程，不是 `[Test]` 单元；约定见
+[测试用例组织规范](../../../docs/internals/src/devinfra/test-layout.md)。
+
 ## 核心文件（`core/`）
 
 **LIVE（已入 build，`include` 于 `z42.builder.z42.toml`）：**

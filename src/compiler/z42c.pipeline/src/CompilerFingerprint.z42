@@ -140,7 +140,9 @@ public static class CompilerFingerprint {
         // report-nested-ambiguous-names：泛型实参 / 数组元素 / 可空内层里的歧义裸名新报 E0456 —— 诊断变化。
         "report-nested-ambiguous-names",
         // instance-call-by-receiver：导入类非虚实例方法按接收者类型定位直接 Call（不再按方法名在全部可见包里猜）—— 输出变化。
-        "instance-call-by-receiver"
+        "instance-call-by-receiver",
+        // call-delegate-members：委托类型的字段 / 属性可直接调用（`x.F(args)`，此前报 E0401）—— 诊断与输出变化。
+        "call-delegate-members"
     };
 
     // 指纹值：`Entries` 逐条以 `\n` 连接后取内容哈希（`mmh3:` 前缀，同 SourceHash）。

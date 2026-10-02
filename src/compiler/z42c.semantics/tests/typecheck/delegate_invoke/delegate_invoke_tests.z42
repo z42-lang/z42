@@ -100,3 +100,43 @@ void test_type_param_receiver_arity_is_not_checked() {
     string src = "class C { void M<T>(T f) { f(1, 2, 3); } }";
     Assert.Equal(0, SemanticDump.ErrorCount(src));
 }
+
+// ── call-delegate-members：委托类型的字段 / 属性可以直接调用（`x.F(args)` / `C.S(args)`，对齐 C#）──
+// 改动前这些写法报 `E0401: no method F`。
+
+[Test]
+void test_call_instance_delegate_field() {
+    string src = "class H { public (int) -> int F; } class C { int M(H h) { return h.F(1); } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+[Test]
+void test_call_static_delegate_field() {
+    string src = "class H { public static (int) -> int S; } class C { int M() { return H.S(1); } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+[Test]
+void test_delegate_field_call_checks_arity() {
+    string src = "class H { public (int) -> int F; } class C { int M(H h) { return h.F(1, 2); } }";
+    Assert.Equal("E1006", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_delegate_field_call_result_type_is_checked() {
+    string src = "class H { public (int) -> int F; } class C { string M(H h) { return h.F(1); } }";
+    Assert.Equal("E0402", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_non_delegate_field_is_still_not_callable() {
+    string src = "class H { public int N; } class C { int M(H h) { return h.N(1); } }";
+    Assert.Equal("E0401", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_static_delegate_field_not_callable_through_instance() {
+    // 静态性要对得上：经实例调静态字段不放行（仍是 E0401）。
+    string src = "class H { public static (int) -> int S; } class C { int M(H h) { return h.S(1); } }";
+    Assert.Equal("E0401", SemanticDump.FirstErrorCode(src));
+}

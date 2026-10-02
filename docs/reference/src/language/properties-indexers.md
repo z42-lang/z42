@@ -280,4 +280,4 @@ int v = b[0];                         // → b.get_Item(0)，虚派发到实现�
   `src/tests/classes/property_initializers.z42`、`src/tests/types/computed_property.z42`、
   `src/tests/types/expression_bodied_members.z42`、`src/tests/classes/indexer_basic.z42`、
   `src/tests/classes/indexer_multidim.z42`、`src/tests/interfaces/interface_indexer.z42`、
-  `src/tests/cross-zpkg/static_property_cross_pkg`
+  `src/compiler/z42c.pipeline/tests/fixtures/cross-zpkg/static_property_cross_pkg`

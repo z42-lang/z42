@@ -109,6 +109,32 @@ fn barrier_marks_card_on_old_to_young_field_write() {
     assert!(dirty_after, "cross-gen old→young write marks owner's chunk dirty");
 }
 
+/// fix-gen-barrier-strings：strings are var blocks with a real age, and the minor sweep reclaims
+/// young ones (#533). The barrier used to drop `Value::Str` into its `_ => return` arm, so a young
+/// string stored into an old object never dirtied a card → the next minor missed it → swept while
+/// still referenced (garbage strings under `--jobs 4` + nursery 1M).
+#[test]
+fn barrier_marks_card_on_old_to_young_string_write() {
+    let heap = ArcMagrGC::new();
+    heap.set_mode(GcMode::GenerationalMarkSweep);
+
+    let owner = alloc_obj(&heap, "OwnerOld");
+    promote_to_old(&owner);
+    let s = heap.alloc_str("young");
+    assert!(s.gen_age() < PROMOTION_THRESHOLD, "fresh string is young");
+    let young_str = Value::Str(s);
+    let owner_chunk = match &owner {
+        Value::Object(gc) => unsafe { gc.entry_ptr().as_ref() }.location.0,
+        _ => unreachable!(),
+    };
+    assert!(!heap.region_object_for_test().lock().is_card_dirty(owner_chunk));
+
+    heap.write_barrier_field(&owner, 0, &young_str);
+
+    assert!(heap.region_object_for_test().lock().is_card_dirty(owner_chunk),
+        "old→young string write must mark the owner's chunk dirty");
+}
+
 #[test]
 fn barrier_no_card_on_young_to_young_write() {
     let heap = ArcMagrGC::new();

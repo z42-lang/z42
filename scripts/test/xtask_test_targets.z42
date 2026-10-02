@@ -1,7 +1,7 @@
 // xtask — `test targets` / `bench targets` impl（_testTargetsCore）：manifest-target
 // fixture runner (add-tests-bench-manifest-config P4).
 // Same Z42Xtask namespace. Runs the end-to-end fixtures under
-// src/tests/manifest-targets/<name>/ — each a real project whose z42.toml
+// src/toolchain/builder/tests/fixtures/manifest-targets/<name>/ — each a real project whose z42.toml
 // declares `[[test]]`/`[[bench]]`/`[[example]]` targets — through the SAME
 // path the stdlib per-lib flow uses: **转发 z42b**（D2 起两条路合一）。This is
 // where harness=false (exit-code) targets, explicit-target overlay, 3-layer
@@ -27,13 +27,13 @@ class TargetTooling {
     // isolate-xtask-fixture-builds：夹具在 artifacts/tmp 的**拷贝**上跑（z42b 把目标 / 父包产物写在
     // 清单目录旁，直接跑源码树里的夹具就会在 src/tests 下留产物）。两棵树各拷一次，整个 run 共用
     // —— 不能每个 smoke 各自重置：reuse-parent 等用例要看前面用例留下的父包产物。
-    public string FixturesRoot { get; set; }      // src/tests/manifest-targets 的拷贝
-    public string Z42bFixturesRoot { get; set; }  // src/tests/z42b 的拷贝
+    public string FixturesRoot { get; set; }      // src/toolchain/builder/tests/fixtures/manifest-targets 的拷贝
+    public string Z42bFixturesRoot { get; set; }  // src/toolchain/builder/tests/fixtures/z42b 的拷贝
     public bool   Ok { get; set; }
 }
 
 // Root dir holding the e2e manifest-target fixtures.
-string _fixturesRoot(string root) { return Path.Join(root, "src/tests/manifest-targets"); }
+string _fixturesRoot(string root) { return Path.Join(root, "src/toolchain/builder/tests/fixtures/manifest-targets"); }
 
 // True when the release build-tree stdlib exists (z42.core.zpkg present). The
 // noBuild gate stages need it (same assumption as the stdlib stage); when absent
@@ -81,9 +81,9 @@ int _testTargetsCore(string kind, string name, bool noBuild) {
     }
     TargetTooling tt = _prepFixtureTooling(root, noBuild);
     if (!tt.Ok) { return 2; }
-    tt.FixturesRoot = _stageFixtureTree(root, "src/tests/manifest-targets", "manifest-target-fixtures");
-    tt.Z42bFixturesRoot = Directory.Exists(Path.Join(root, "src/tests/z42b"))
-        ? _stageFixtureTree(root, "src/tests/z42b", "z42b-fixtures") : "";
+    tt.FixturesRoot = _stageFixtureTree(root, "src/toolchain/builder/tests/fixtures/manifest-targets", "manifest-target-fixtures");
+    tt.Z42bFixturesRoot = Directory.Exists(Path.Join(root, "src/toolchain/builder/tests/fixtures/z42b"))
+        ? _stageFixtureTree(root, "src/toolchain/builder/tests/fixtures/z42b", "z42b-fixtures") : "";
     fixRoot = tt.FixturesRoot;
     string label  = (kind == "bench") ? "bench" : "test";
     string[] fixtures = _sortedStrings(Directory.Enumerate(fixRoot));

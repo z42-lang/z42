@@ -22,7 +22,7 @@ SubcommandRouter _testRouter() {
     stdlib.AddOption("libs", "", "override: prebuilt flat libs dir (stdlib + z42c siblings)", "");
     stdlib.AddOptionalPositional("lib", "single lib (default: all)");
     t.Add("stdlib", "stdlib [Test] (all or one)", stdlib);
-    ArgParser targets = new ArgParser("xtask test targets", "manifest [[test]] target fixtures (harness true/false; src/tests/manifest-targets)");
+    ArgParser targets = new ArgParser("xtask test targets", "manifest [[test]] target fixtures (harness true/false; src/toolchain/builder/tests/fixtures/manifest-targets)");
     targets.AddFlag("no-build", "", "skip tooling rebuild");
     targets.AddOptionalPositional("name", "single target name (default: all)");
     t.Add("targets", "manifest [[test]] target fixtures (all or one by name)", targets);

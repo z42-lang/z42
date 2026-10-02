@@ -70,7 +70,7 @@ signal-crash helper 会挂死整套 `cargo test`，所以 CI 每条腿单列一�
 ./artifacts/build/runtime/release/z42vm src/tests/<category>/<name>/source.zbc --mode jit
 ```
 
-**cross-zpkg**（`src/tests/cross-zpkg/<name>/`）是 golden 的一个类别，验多 zpkg 协作：
+**cross-zpkg**（`src/compiler/z42c.pipeline/tests/fixtures/cross-zpkg/<name>/`）是 golden 的一个类别，验多 zpkg 协作：
 驱动按 `target/` → `ext/`（依赖 target）→ `main/`（依赖两者）编译，全部 zpkg 放进 `libs/`，
 再用 VM 跑 main 入口。覆盖跨包类型解析、`impl Trait for Type` 传播、跨包泛型实例化与
 interface dispatch、`using` 的跨包 namespace 解析、同名 namespace 冲突。
@@ -170,9 +170,9 @@ cp -R <warm>/.z42 $BASE/.z42 && cp <warm>/xtask $BASE/xtask      # 种子 + apph
 | 目录 | 形态 | 谁运行 |
 |---|---|---|
 | `src/tests/<category>/<name>/` | `source.z42` + `expected_output.txt` | `xtask test e2e` |
-| `src/tests/cross-zpkg/<name>/` | target / ext / main 三个 toml 工程 | `xtask test e2e --dir cross-zpkg` |
+| `src/compiler/z42c.pipeline/tests/fixtures/cross-zpkg/<name>/` | target / ext / main 三个 toml 工程 | `xtask test e2e --dir cross-zpkg` |
 | `src/tests/{zbc,zpkg}-format/<name>/` | 入库的 `.zbc` / `.zpkg` 字节基线 | `xtask test runtime`（`git diff` 即格式漂移探针） |
-| `src/tests/perf/` | 计时场景 | `xtask bench` |
+| `src/bench/` | 计时场景 | `xtask bench` |
 | `src/compiler/z42c.<member>/tests/` | 按阶段分（lexer / parser / decl / stmt / dump…） | `xtask test compiler` |
 | `src/libraries/<lib>/tests/` | 顶层 `*.z42` 是 `[Test]`；`<name>/source.z42` 是 golden | `test stdlib` / `test e2e` |
 | `src/runtime/src/<mod>_tests.rs` | Rust 单元 | `xtask test runtime` |
@@ -180,7 +180,7 @@ cp -R <warm>/.z42 $BASE/.z42 && cp <warm>/xtask $BASE/xtask      # 种子 + apph
 
 **加新用例往哪放**（先到先得）：库 API 行为 → 该库的 `tests/`；编译器 pipeline 单元 →
 `src/compiler/z42c.<member>/tests/`；VM 内部（GC / interp / decoder）→ `*_tests.rs`，
-跨语言契约 → `src/runtime/tests/`；跨多 zpkg → `src/tests/cross-zpkg/`；其余语言 / VM 特性 e2e
+跨语言契约 → `src/runtime/tests/`；跨多 zpkg → `src/compiler/z42c.pipeline/tests/fixtures/cross-zpkg/`；其余语言 / VM 特性 e2e
 → `src/tests/<category>/`（拿不准先归 `basic/`）。
 
 判据是**这条断言在描述谁的契约**：测 `String.Trim` / `Enum.Parse` / `List<T>` 的行为就写在

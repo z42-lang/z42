@@ -41,8 +41,48 @@ namespace Z42.Semantics;
 
 using Z42.Syntax;
 using Z42.Core;
+using Z42.IR;
 
 public sealed partial class MemberResolver {
+    // ── 委托类型的字段 / 属性上的调用（call-delegate-members，对齐 C#）──────────────────────
+    // `x.F(args)` / `C.S(args)`：类上**没有方法** F，但 F 是委托类型的字段或属性（实例或静态）⇒ 先读出成员值，
+    // 再按委托值调用 —— 与 `d(args)` 同一个 `BoundIndirectCall`，发射端 / VM 零改动。此前报
+    // `E0401: no method F`，只能先 `var h = x.F; h(args);`。
+    // **方法优先**：两个调用点都只在方法查找失败（且不是重载歧义）之后才来这里。
+    // 返回 null = 不是委托成员，交回原诊断路径。
+    internal BoundExpr TryBindDelegateMemberCall(MemberExpr mem, Z42ClassType ct, bool wantStatic, BoundExpr[] args,
+                                                 int argCount, Expr[] rawArgs, TypeEnv env, Span sp) {
+        if (this._tc._overload.LastAmbiguous) { return null; }
+        if (!this._hasValueMember(env.Symbols, ct, mem.Name, wantStatic)) { return null; }
+        // 读成员走普通的成员读取绑定：字段 / 属性 getter / 静态成员、访问检查、泛型代换都在那里。
+        BoundExpr callee = this._tc._expr._bindExpr(mem, env);
+        Z42FuncType ft = callee.Type() as Z42FuncType;
+        if (ft == null) { return null; }
+        BoundExpr[] bound = this.BindIndirectArgs(args, rawArgs, argCount, ft, "`" + mem.Name + "`", env, sp);
+        return new BoundIndirectCall(callee, bound, argCount, ft.Ret, sp);
+    }
+
+    // 类（含基类链）上有没有静态性匹配的字段或属性 F，且类型可能是委托（委托类型本身，或泛型形参 —— 代换后再判）。
+    private bool _hasValueMember(SymbolTable symbols, Z42ClassType ct, string name, bool wantStatic) {
+        FieldSymbol f = this._findField(symbols, ct, name);
+        if (f != null) {
+            return f.IsStatic == wantStatic && (f.FieldType is Z42FuncType || f.FieldType is Z42GenericParamType);
+        }
+        Z42ClassType cur = ct;
+        int hops = 0;
+        while (cur != null && hops < 32) {
+            int at = cur.Methods.Find("get_" + name);
+            if (at >= 0) {
+                MethodSymbol g = cur.Methods.ValAt(at) as MethodSymbol;
+                if (g == null || g.IsStatic != wantStatic) { return false; }
+                return g.Signature.Ret is Z42FuncType || g.Signature.Ret is Z42GenericParamType;
+            }
+            cur = cur.HasBase ? symbols.BaseOf(cur) : null;
+            hops = hops + 1;
+        }
+        return false;
+    }
+
     // 三个 `BoundIndirectCall` 产出点共用：绑实参（类型检查，E0402）+ 校验个数（E1005/E1006）。
     // 抽出来是为了让另两个产出点**一行换一行**、不动主文件的行数（它离硬上限只剩几行）。
     // ⚠️ 型参收者那条产出点（`where T : Func<..>`）**不走这里** —— 返回 Unknown、擦除后形参表
