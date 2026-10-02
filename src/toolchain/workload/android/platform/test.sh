@@ -19,7 +19,8 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
-ROOT="$(cd "$HERE/../../../../.." && pwd)"
+# xtask 在 build/ 下的宿主副本里跑本脚本，并经 Z42_ROOT 传入仓库根；直接在源码位置跑时按自身位置推。
+ROOT="${Z42_ROOT:-$(cd "$HERE/../../../../.." && pwd)}"
 TOOLS_DIR="$ROOT/artifacts/tools"
 
 # ── Env setup. ───────────────────────────────────────────────────────────

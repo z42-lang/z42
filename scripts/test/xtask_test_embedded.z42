@@ -38,7 +38,7 @@ string _buildWasmTesthost(string root, string filter, int shardK, int shardN) {
     // pkg + static harness on top (browser-fetched, not via VFS). xtask keeps corpus
     // build (1); the test-agent is resolved by z42b from the installed `test`
     // workload (dogfood, PR-4) — not handed over by xtask.
-    string outDir = _testOut(root, "src/toolchain/workload/wasm", "");
+    string outDir = _wasmDeployDir(root);
     int ac = _z42bBuildDeployable(root, manifest, "browser-wasm", outDir);
     if (ac != 0) { ConsoleError.WriteLine("error: z42b build/stage wasm deployable failed"); return ""; }
 
@@ -54,7 +54,7 @@ string _buildWasmTesthost(string root, string filter, int shardK, int shardN) {
 // bundle/manifest.json. node is provisioned on PATH (CI setup-node / local); z42b
 // spawns npx playwright. z42b-device-run PR-1.
 int _runWasmTesthost(string root) {
-    string outDir   = _testOut(root, "src/toolchain/workload/wasm", "");
+    string outDir   = _wasmDeployDir(root);
     string manifest = Path.Join(outDir, "bundle/manifest.json");
     if (!File.Exists(manifest)) {
         ConsoleError.WriteLine("error: wasm deployable not built — run `test embedded --rid browser-wasm` first (missing " + manifest + ")");
@@ -62,8 +62,10 @@ int _runWasmTesthost(string root) {
     }
     // --run only spawns playwright (deploy already done); --out tells z42b where the deployable is
     // (exported to the playwright config as Z42_WASM_DEPLOY).
+    string host = _stageDeviceHost(root, "wasm");
+    if (host.Length == 0) { return 1; }
     return _z42bDevice(root, manifest, "browser-wasm", outDir,
-        new string[] { "--run", "--build-root", root });
+        new string[] { "--run", "--build-root", root, "--project", host });
 }
 
 // Invoke `z42b test <manifest> --rid <device> --out <dir>` + extra flags, with flat
@@ -108,9 +110,16 @@ int _z42bDevice(string root, string manifestPath, string rid, string destDir, st
 // XCTest Resources). --build-root lets z42b's driver locate the native platform
 // crate (src/toolchain/workload/<plat>/…).
 int _z42bBuildDeployable(string root, string manifestPath, string rid, string destDir) {
+    // 宿主工程副本（xtask_test_device_host.z42）：z42b 的 native 产物与平台构建都落在这里。
+    string host = _stageDeviceHost(root, _ridCategory(rid));
+    if (host.Length == 0) { return 1; }
     return _z42bDevice(root, manifestPath, rid, destDir,
-        new string[] { "--build", "--build-root", root });
+        new string[] { "--build", "--build-root", root, "--project", host });
 }
+
+// wasm deployable（agent + bundle + libs + harness）：与宿主副本 `host/` 并列的 `deploy/`。
+// 不能是 tests/ 本身 —— z42b 组装时会先整个删掉目标目录，宿主副本就在 tests/ 下面。
+string _wasmDeployDir(string root) { return _testOut(root, "src/toolchain/workload/wasm", "deploy"); }
 
 // ── mobile embedded test-host (add-wasm-testhost G6: ios / android) ───────────
 //
@@ -139,7 +148,7 @@ string _buildIosTesthost(string root, string filter, string rid, int shardK, int
     string manifest = _buildTestBundle(root, filter, rid, shardK, shardN);
     if (manifest.Length == 0) { return ""; }
 
-    string here = Path.Join(root, "src/toolchain/workload/ios/platform");
+    string here = _deviceHost(root, "ios");
     string resDir = Path.Join(here, "Tests/Z42VMTests/Resources/embedded");
     int ac = _z42bBuildDeployable(root, manifest, rid, resDir);
     if (ac != 0) { ConsoleError.WriteLine("error: z42b build ios deployable failed"); return ""; }
@@ -157,7 +166,8 @@ string _buildIosTesthost(string root, string filter, string rid, int shardK, int
 // `test platform ios assets`. z42b resolves the sim UDID + writes junit.xml.
 // z42b-device-run PR-2.
 int _runIosTesthost(string root, string rid) {
-    string here = Path.Join(root, "src/toolchain/workload/ios/platform");
+    string here = _stageDeviceHost(root, "ios");
+    if (here.Length == 0) { return 1; }
     string manifest = Path.Join(here, "Tests/Z42VMTests/Resources/embedded/bundle/manifest.json");
     if (!File.Exists(manifest)) {
         ConsoleError.WriteLine("error: ios test-host not built — run `test embedded --rid " + rid + "` first (missing " + manifest + ")");
@@ -165,7 +175,7 @@ int _runIosTesthost(string root, string rid) {
     }
     // --run only spawns xcodebuild (build/deploy already done); out unused.
     return _z42bDevice(root, manifest, rid, "",
-        new string[] { "--run", "--build-root", root });
+        new string[] { "--run", "--build-root", root, "--project", here });
 }
 
 // Android: assemble the embedded corpus into the androidTest assets + build
@@ -185,7 +195,7 @@ string _buildAndroidTesthost(string root, string filter, string rid, int shardK,
     string manifest = _buildTestBundle(root, filter, rid, shardK, shardN);
     if (manifest.Length == 0) { return ""; }
 
-    string here = Path.Join(root, "src/toolchain/workload/android/platform");
+    string here = _deviceHost(root, "android");
     string assetsDir = Path.Join(here, "z42vm/src/androidTest/assets/embedded");
     int ac = _z42bBuildDeployable(root, manifest, rid, assetsDir);
     if (ac != 0) { ConsoleError.WriteLine("error: z42b build android deployable failed"); return ""; }
@@ -205,7 +215,8 @@ string _buildAndroidTesthost(string root, string filter, string rid, int shardK,
 // asymmetry). Gradle writes its own junit — the CI report consumer reads that path.
 // z42b-device-run PR-3.
 int _runAndroidTesthost(string root, string rid) {
-    string here = Path.Join(root, "src/toolchain/workload/android/platform");
+    string here = _stageDeviceHost(root, "android");
+    if (here.Length == 0) { return 1; }
     string manifest = Path.Join(here, "z42vm/src/androidTest/assets/embedded/bundle/manifest.json");
     if (!File.Exists(manifest)) {
         ConsoleError.WriteLine("error: android test-host not built — run `test embedded --rid " + rid + "` first (missing " + manifest + ")");
@@ -213,7 +224,7 @@ int _runAndroidTesthost(string root, string rid) {
     }
     // --run only spawns gradlew (build/deploy already done); out unused.
     return _z42bDevice(root, manifest, rid, "",
-        new string[] { "--run", "--build-root", root });
+        new string[] { "--run", "--build-root", root, "--project", here });
 }
 
 // `xtask test embedded [target.zbc | golden-case-dir] [--platform desktop|wasm]

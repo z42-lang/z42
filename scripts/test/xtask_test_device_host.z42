@@ -1,0 +1,116 @@
+// 设备测试的宿主工程暂存（stage-device-host-projects，test-layout.md §6）。
+//
+// ## 为什么
+//
+// wasm / iOS / Android 的测试宿主是普通的平台工程（Playwright 页面、SwiftPM 包、Gradle 工程），
+// 跑一轮要往工程里放 stdlib、R1–R7 夹具、嵌入语料 bundle、编出来的 .so / xcframework / pkg-web，
+// 平台构建系统还会在工程目录里写自己的产物（gradle 的 build/、.gradle/，npm 的 node_modules/…）。
+// 直接在 `src/toolchain/workload/<p>/platform` 里跑 ⇒ 源码树里堆满生成物（靠 .gitignore 挡着）。
+//
+// 做法：每轮把平台工程里**被 git 跟踪的文件**增量同步到 `<p> 的 tests/ 输出>/host`，所有写入都落在
+// 这份副本里；构建、运行也在副本里做。源码树零写入。
+//
+// ## 同步规则
+//
+//   · 只同步 git 跟踪的文件 —— 源码树里旧工作流留下的生成物不会被带过去；
+//   · 目标不存在或内容不同才拷（文件都很小，比内容比 mtime 准）；`100755` 的补可执行位；
+//   · 用相对路径转发到 src/ 其它地方的头文件，同步的是**被转发的那一份**（_dhContentSource）：
+//     iOS 的 `Sources/Z42VMC/include/*.h`、Android 的 `z42vm/src/main/cpp/include/*.h` 在源码里是
+//     `#include "../../…/runtime/include/x.h"` 转发头，拷进副本后相对路径就断了，所以副本里放
+//     `src/runtime/include/` 下的真实头文件 —— 与打包时 `_copyAbiHeaders` 让包自包含是同一个做法。
+//     按内容识别（不按平台写死路径）；按内容比较，不变就不重拷，Xcode / CMake 增量不受影响；
+//   · 上一轮同步过、这一轮源码里已删的文件，从副本里删掉（清单记在 `.staged-files`）；
+//   · 副本里其余的东西（gradle / Xcode / npm 的产物与缓存）**不动** —— 增量同步的意义就是让
+//     这些缓存继续生效，且路径固定，可以直接用 Android Studio / Xcode 打开副本调试。
+//
+// Rust crate（平台目录下的 `rust/`、wasm 的 crate 本体）**不在副本里编**：它们的 Cargo.toml 用相对路径
+// 依赖 `src/runtime`，拷走就断。native 构建仍从源码位置跑（中间产物本就在 artifacts/build/runtime），
+// 只把最终产物（pkg-web / .so / xcframework）的输出目录指到副本里。
+namespace Z42Xtask;
+
+using Std.IO;
+
+// <p> 的宿主工程副本：artifacts/build/toolchain/workload/<p>/tests/host。
+string _deviceHost(string root, string platform) {
+    return _testOut(root, "src/toolchain/workload/" + platform, "host");
+}
+
+// 宿主工程的源码位置（只读；Rust crate 从这里编）。
+string _deviceHostSrc(string root, string platform) {
+    return Path.Join(root, "src/toolchain/workload/" + platform + "/platform");
+}
+
+// 增量同步 → 副本路径；失败返回 ""。每个会往宿主工程里写或从里面跑的入口开头都调一次（幂等，便宜）。
+string _stageDeviceHost(string root, string platform) {
+    string srcRel = "src/toolchain/workload/" + platform + "/platform";
+    string src = Path.Join(root, srcRel);
+    string host = _deviceHost(root, platform);
+    ProcessResult ls = new Process("git").Arg("ls-files").Arg("-s").Arg("--").Arg(srcRel)
+        .WorkingDirectory(root).Run();
+    if (ls.ExitCode != 0 || ls.Stdout.Trim().Length == 0) {
+        ConsoleError.WriteLine("error: git ls-files " + srcRel + " failed or empty —— 暂存宿主工程需要 git 工作树");
+        return "";
+    }
+    Directory.Create(host);
+    string listPath = Path.Join(host, ".staged-files");
+    string[] prev = File.Exists(listPath) ? File.ReadAllText(listPath).Split("\n") : new string[0];
+
+    string[] lines = ls.Stdout.Split("\n");
+    string[] now = new string[lines.Length];
+    int n = 0;
+    int copied = 0;
+    foreach (var raw in lines) {
+        // `<mode> <sha> <stage>\t<path>`
+        int tab = raw.IndexOf("\t");
+        if (tab < 0) { continue; }
+        string mode = raw.Substring(0, 6);
+        string rel = raw.Substring(tab + 1).Substring(srcRel.Length + 1);
+        now[n] = rel;
+        n = n + 1;
+        string s = _dhContentSource(root, platform, rel, Path.Join(src, rel));
+        string d = Path.Join(host, rel);
+        if (!File.Exists(s)) { continue; }   // 工作树里删了但还没提交
+        if (!File.Exists(d) || !_dhSameBytes(s, d)) {
+            Directory.Create(Path.GetDirectoryName(d));
+            File.Copy(s, d);
+            copied = copied + 1;
+        }
+        if (mode == "100755") { File.MakeExecutable(d); }
+    }
+    int removed = 0;
+    foreach (var p in prev) {
+        string rel = p.Trim();
+        if (rel.Length == 0) { continue; }
+        bool still = false;
+        int i = 0;
+        while (i < n) { if (now[i] == rel) { still = true; } i = i + 1; }
+        if (!still && File.Exists(Path.Join(host, rel))) { File.Delete(Path.Join(host, rel)); removed = removed + 1; }
+    }
+    string listing = "";
+    int k = 0;
+    while (k < n) { listing = listing + now[k] + "\n"; k = k + 1; }
+    File.WriteAllText(listPath, listing);
+    Console.WriteLine("  host project → " + host + " (" + n.ToString() + " tracked files; "
+        + copied.ToString() + " updated, " + removed.ToString() + " removed)");
+    return host;
+}
+
+bool _dhSameBytes(string a, string b) {
+    if (File.GetSize(a) != File.GetSize(b)) { return false; }
+    byte[] x = File.ReadAllBytes(a);
+    byte[] y = File.ReadAllBytes(b);
+    int i = 0;
+    while (i < x.Length) { if (x[i] != y[i]) { return false; } i = i + 1; }
+    return true;
+}
+
+// 副本里 `rel` 这个文件的内容取自哪里：默认是源码里的同名文件；转发到 runtime/include/ 的头文件
+// （正文是一行 `#include "<相对路径>/runtime/include/<name>"`）取被转发的真实文件。
+string _dhContentSource(string root, string platform, string rel, string srcPath) {
+    if (!rel.EndsWith(".h") || !File.Exists(srcPath)) { return srcPath; }
+    string text = File.ReadAllText(srcPath);
+    int k = text.IndexOf("#include \"../");
+    if (k < 0 || !text.Contains("/runtime/include/")) { return srcPath; }
+    string real = Path.Join(Path.Join(root, "src/runtime/include"), Path.GetFileName(rel));
+    return File.Exists(real) ? real : srcPath;
+}

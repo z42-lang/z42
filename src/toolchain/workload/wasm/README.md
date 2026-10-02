@@ -101,6 +101,10 @@ vm.dispose();
 
 ## 目录结构
 
+标 `←` 的生成物不写进本目录：`test platform wasm` / `test embedded --rid browser-wasm` 先把本目录里
+git 跟踪的文件同步到 `artifacts/build/toolchain/workload/wasm/tests/host/`，生成物都落在那份副本的同名位置
+（wasm crate 本身仍在这里编，`--out-dir` 指向副本）。
+
 ```
 wasm/
 ├── Cargo.toml               wasm crate (cdylib + wasm-bindgen)
