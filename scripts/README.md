@@ -102,7 +102,7 @@ xtask 是独立的 z42 应用——它不是通用 `z42` launcher 的一部分�
 
 > **构建输出约定（add-build-toolchain, 2026-07-05）**：
 > - `artifacts/build/` **只放编译/publish 产物**（2026-10-01 起不再有聚合视图 `build/views/`：alllibs 已删，见 artifacts-layout.md）；
->   各命令自己的工作区（`stdlib-run` 快照、`e2e`/`selfhost-gen1` 等）落 `artifacts/tmp/<name>/`（gitignored、可重生）。
+>   各命令自己的工作区跟着 owner 落 `artifacts/build/` 的镜像：测试类落 `<组件>/tests/`，编译器自举快照（`stdlib-run`、`selfhost-gen1` 等）落 `build/compiler/<name>`；xtask 自检落 `artifacts/xtask/tests/`（规则见 test-layout.md §5）。
 > - **toolchain 组件的输出/publish 路径一律从各 `z42.toml` 读**（`[build].dist_dir`/`output_dir`、
 >   `[platform.desktop].publish_dir`，级联默认见 `docs/reference/src/toolchain/z42-toml.md`）——xtask 不硬编码，
 >   改路径只动 toml。定位 helper：`build/xtask_toolchain.z42` 的 `_desktopPublishDir` / `_toolchainZpkg`。
@@ -111,7 +111,7 @@ xtask 是独立的 z42 应用——它不是通用 `z42` launcher 的一部分�
 >   `[workspace.build].output_dir` 模板经 `common/xtask_layout.z42` 的 `_memberDist`
 >   （`ManifestLoader.LoadWorkspace` + `PathTemplate.Expand`，与 z42c `WorkspaceBuild.PlanLayout`
 >   同一份布局真相）展开——xtask 不再字面拼接。flat dist / runtime out / build root 等 xtask 约定
->   （无 toml 归属）也集中到该模块单点定义。顶层桶（`tmp/<name>` / `tools` / `packages` / …）同样在该模块单点定义（`_tmpDir` 等）。
+>   （无 toml 归属）也集中到该模块单点定义。顶层桶（`tools` / `packages` / …）与测试输出路径（`_testOut` / `_buildMirror` 等）同样在该模块单点定义。
 
 ## 各命令处理流程
 

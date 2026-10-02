@@ -24,7 +24,7 @@ class TargetTooling {
     public string DriverZpkg { get; set; }
     public string Libs { get; set; }         // stdlib flat（Z42_LIBS）
     public string BuilderZpkg { get; set; }  // z42b reflective runner
-    // isolate-xtask-fixture-builds：夹具在 artifacts/tmp 的**拷贝**上跑（z42b 把目标 / 父包产物写在
+    // isolate-xtask-fixture-builds：夹具在 build/ 镜像的**拷贝**上跑（z42b 把目标 / 父包产物写在
     // 清单目录旁，直接跑源码树里的夹具就会在 src/tests 下留产物）。两棵树各拷一次，整个 run 共用
     // —— 不能每个 smoke 各自重置：reuse-parent 等用例要看前面用例留下的父包产物。
     public string FixturesRoot { get; set; }      // src/toolchain/builder/tests/fixtures/manifest-targets 的拷贝
@@ -81,9 +81,9 @@ int _testTargetsCore(string kind, string name, bool noBuild) {
     }
     TargetTooling tt = _prepFixtureTooling(root, noBuild);
     if (!tt.Ok) { return 2; }
-    tt.FixturesRoot = _stageFixtureTree(root, "src/toolchain/builder/tests/fixtures/manifest-targets", "manifest-target-fixtures");
+    tt.FixturesRoot = _stageFixtureTree(root, "src/toolchain/builder/tests/fixtures/manifest-targets");
     tt.Z42bFixturesRoot = Directory.Exists(Path.Join(root, "src/toolchain/builder/tests/fixtures/z42b"))
-        ? _stageFixtureTree(root, "src/toolchain/builder/tests/fixtures/z42b", "z42b-fixtures") : "";
+        ? _stageFixtureTree(root, "src/toolchain/builder/tests/fixtures/z42b") : "";
     fixRoot = tt.FixturesRoot;
     string label  = (kind == "bench") ? "bench" : "test";
     string[] fixtures = _sortedStrings(Directory.Enumerate(fixRoot));
@@ -173,7 +173,7 @@ int _smokeFallbackOutRoot(string root, TargetTooling tt) {
     int bi = 0;
     // 上一个 smoke（不带 --out-root）在拷贝旁留下的产物先清掉，否则 ② 判不出来。
     while (bi < beside.Length) { if (Directory.Exists(beside[bi])) { Directory.Delete(beside[bi], true); } bi = bi + 1; }
-    string outRoot = _tmpDir(root, "z42b-fallback-out-root");
+    string outRoot = _testOut(root, "src/toolchain/builder", "z42b-fallback-out-root");
     if (Directory.Exists(outRoot)) { Directory.Delete(outRoot, true); }
     int rc = _exec(_z42bProc(tt.Vm, tt.Libs).Arg(tt.BuilderZpkg).Arg("--mode").Arg(_z42cMode())
         .Arg("--").Arg("test").Arg(toml).Arg("--out-root").Arg(outRoot)
@@ -535,7 +535,7 @@ int _smokeBundleHost(string root, TargetTooling tt) {
     if (!File.Exists(src)) { return 0; }
     Console.WriteLine("");
     Console.WriteLine("── bundle-host (z42b test <manifest.json> --rid host) ──");
-    string outDir = Path.Join(_testOutDir(root, "embedded-test"), "smoke-bundle-host");
+    string outDir = Path.Join(_testOut(root, "src/toolchain/workload/test", ""), "smoke-bundle-host");
     Directory.Create(outDir);
     string zbc = Path.Join(outDir, "pass_unit.zbc");
     int ec = _exec(_z42Proc(tt.Vm, tt.Libs).Arg(tt.DriverZpkg).Arg("--mode").Arg(_z42cMode())

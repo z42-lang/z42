@@ -180,20 +180,25 @@ Rust 侧的 `*_tests.rs` 与 `tests/*.rs` 按 cargo 惯例，不在此列。
 > 「跑不了」先分清是**能力缺口**还是**用例自身不可移植**（例如硬编码 `/tmp/...`）。后者改用例
 > （`File.CreateTempDir`），不加能力声明。
 
-### 5. 测试输出（⏳）
+### 5. 测试输出
 
-**测试输出 = 所属组件的输出目录 + `/tests/`（bench 为 `/bench/`），组件内再按用例相对 `tests/` 的路径镜像。**
-各组件的输出目录本就镜像 `src/`（见[产物目录布局 §2](artifacts-layout.md)），所以测试输出跟着镜像：
+**`artifacts/build/` 逐路径镜像 `src/`；组件 `src/<rel>` 的测试输出落 `artifacts/build/<rel>/tests/`**，
+与它的 `<profile>/` 构建产物并列。golden `.zbc`、夹具的暂存拷贝、harness 的工作目录、平台测试的
+bundle 与宿主都是测试输出，各自落在 owner 的 `tests/` 下：
 
-| 组件 | 测试输出 |
+| 测试输出 | 位置 |
 |---|---|
-| 有清单的组件（库、编译器成员、工具链组件） | 清单 `output_dir` 下的 `tests/`，例如 `artifacts/build/toolchain/interactive/tests/` |
-| 无清单的目录（`src/tests`、`src/bench`） | `artifacts/build/<相对 src 的路径>/` |
-| fixture 暂存（多包、清单类工程） | 所属组件 tests 输出下的同名子目录 |
-| 平台测试（app 宿主、bundle） | `artifacts/build/toolchain/workload/<platform>/tests/` |
+| golden `.zbc` | `build/tests/<rel>`、`build/libraries/<lib>/tests/<rel>` |
+| 夹具暂存拷贝（在拷贝上编 / 跑，源码树零写入） | 与源码同路径：`build/<组件>/tests/fixtures/<suite>/` |
+| harness 工作目录 | `build/<组件>/tests/<name>`，如 `build/compiler/z42c.pipeline/tests/incremental` |
+| 平台测试（bundle、宿主、R1–R7） | `build/toolchain/workload/<platform>/tests/`；共享的 agent 与语料 bundle 在 `workload/test/tests/` |
+| z42b 的 `[Test]` / `[Benchmark]` 目标（库与编译器成员） | 成员输出目录下的 `debug/tests`、`debug/bench` |
 
-例外：给 CI 消费的报告不进 `build/`，仍在 `artifacts/test-reports/<platform>/` 与 `artifacts/bench/`。
-所有输出都有 owner 之后，`artifacts/tmp/` 不再作为默认落点，整个桶取消。
+没有共享的 scratch 目录：不属于测试、也不属于某个成员的中间物（编译器自举快照等）落所属 workspace 的
+`build/<area>/<name>`；xtask 自检的工作目录在 xtask 自己的输出目录 `artifacts/xtask/tests/`。
+给 CI 消费的报告不进 `build/`：`artifacts/test-reports/<platform>/` 与 `artifacts/bench/`。完整清单见
+[产物目录布局 §3](artifacts-layout.md)；路径只在 `scripts/common/xtask_layout.z42` 里定义
+（`_buildMirror` / `_testOut` / `_testOutRootOf`）。
 
 ### 6. 在 app 里跑（⏳）
 
@@ -251,10 +256,10 @@ xtask test app <wasm|ios|android|all> [--filter <pat>] [--shard k/n] [--keep-dev
 | ① | `src/tests/` 的顶层目录 = §2「语言类别」∪「待搬迁」，两张清单不重叠 | 新类别：是语言特性就登记，否则放进所属组件；搬走的：从「待搬迁」删掉 |
 | ② | §4「已生效」能力 = `platform.rs` 里 `builtin_platform_caps` 实际 `push` 的能力 | 运行期加了能力就登记，删了就移除 |
 | ③ | `src/**/*.z42` 里的 `// requires-caps:` 与 `[Skip(feature: "…")]` 只用「已生效」的名字 | 改成已生效的名字；需要新能力就先让运行期报告它 |
+| ④ | `artifacts/build/` 的每个一级目录在 `src/` 下都有同名目录（`build/` 不存在时跳过） | 输出改到 owner 的镜像里（`_testOut` 等）；旧布局残留用 `xtask clean all` 清掉 |
 
 ③ 豁免两类故意写未知能力名的 fixture（`_tlCapFixtures()`）：`src/runtime/tests/data/`（TIDX 解码）与
-`z42.test` 的 `skip_platform_demo.z42`（deny-by-default 演示）。⏳ 落地输出镜像后，再加一条：
-`artifacts/build/` 下的目录必须能对应到 `src/` 下的路径。
+`z42.test` 的 `skip_platform_demo.z42`（deny-by-default 演示）。④ 只查一级：编译器 workspace 级中间物与库的扁平 dist 合法地与成员目录并列。
 
 | 组件 | 位置 |
 |---|---|
@@ -275,9 +280,7 @@ xtask test app <wasm|ios|android|all> [--filter <pat>] [--shard k/n] [--keep-dev
 
 按顺序推进，每一步一个 PR；完成后删掉本页对应的 ⏳ 标记：
 
-1. **输出路径统一**：引入单一的组件测试输出根，替换 `_devTargetOutRoot`、`_goldenArtifactDir`、
-   `_stageFixtureTree`、`_testOutDir` 各自的拼法；取消 `artifacts/tmp/`；布局门加 `artifacts/build/` 镜像检查。
-2. **能力声明取代排除表**：运行期报告规划中的能力；golden runner 与 app 语料读取 `// requires-caps:`；
+1. **能力声明取代排除表**：运行期报告规划中的能力；golden runner 与 app 语料读取 `// requires-caps:`；
    把 `_targetExcludes` 逐条翻译成声明后删除。
-3. **`xtask test app`**：一条命令的 app 流水线、宿主工程暂存、z42b 管理设备生命周期，CI 改调同一条命令。
-4. **工具链测试套件**：`xtask test toolchain` 与对应的 gate stage。
+2. **`xtask test app`**：一条命令的 app 流水线、宿主工程暂存、z42b 管理设备生命周期，CI 改调同一条命令。
+3. **工具链测试套件**：`xtask test toolchain` 与对应的 gate stage。

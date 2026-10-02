@@ -243,7 +243,7 @@ int _testFingerprint(ParseResult r) {
     }
 
     // 本树编译器重编 base 的 stdlib 源码（拷进 scratch，产物按拷贝里的 workspace 模板落在 scratch 内）。
-    string scratch = _tmpDir(root, "fingerprint");
+    string scratch = _testOut(root, "src/compiler/z42c.pipeline", "fingerprint");
     _resetDir(scratch);
     string srcLibs = Path.Join(scratch, "src/libraries");
     Directory.Copy(Path.Join(baseTree, "src/libraries"), srcLibs, true);

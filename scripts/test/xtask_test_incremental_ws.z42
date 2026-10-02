@@ -4,7 +4,7 @@
 // struct 指令的寄存器类型，只在 stdlib 上才暴露（下游 E0402 / 字节不一致）。这里用整个 stdlib 做一轮：
 //   release 全量建一遍 → 清空全部成员 dist（cache 保留）→ 再建：每个成员都全命中但无法 preserved，只能由
 //   cache 读回的 IR 重新打包 → 25 个包必须与全量逐字节一致。
-// 运行于 artifacts/tmp/incr-reconcile/stdlib（拷贝源，不动真实产物）。
+// 运行于 z42c.pipeline 的 tests/ 输出下的 incremental/stdlib（拷贝源，不动真实产物）。
 namespace Z42Xtask;
 
 using Std.IO;
