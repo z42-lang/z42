@@ -417,7 +417,7 @@ pin：源 hash、ns、usedDepNs、模块池原序（hex）、每函数块 label 
 add-dep-identity-to-cache-key）。任何 pin 不符/损坏
 → 条目作废按 fresh 处理（宁 fresh 不误命中）。`z42c-fp`（`CacheStore.CompilerFingerprint`）堵住
 「源没变 + 格式没 bump 但编译器 codegen/优化/typecheck 变了」的误命中漏洞（bump 纪律见
-[version-bumping.md](../../../agent/rules/version-bumping.md#编译器语义指纹非格式失效次元2026-08-11-add-compiler-fingerprint-cache)）。cache 可整目录删除。
+[version-bumping.md](../../../agent/rules/version-bumping.md#编译器语义指纹非格式失效次元)）。cache 可整目录删除。
 indexed 模式（stripped zbc = `<dist>/<rel>.zbc`）自举重写未实现，见
 self-hosting.md Deferred；散装自包含
 zbc 的最小 patch 分发方向见 `docs/spec/changes/add-indexed-zpkg-min-patch/`（DRAFT）。
@@ -808,7 +808,7 @@ strip    = true
 
 - ❌ 运行时延迟 import / 函数体内 import（Python 风格） —— z42 不提供此后门
 - ❌ "源码引用"打洞（Haskell `{-# SOURCE #-}` 风格） —— z42 不引入此机制
-- ❌ 新旧 zpkg 共存 + 灰度迁移以"绕开"循环 —— pre-1.0 不留兼容（见 [philosophy.md "不为旧版本提供兼容"](../../../agent/rules/philosophy.md#不为旧版本提供兼容2026-04-26-强化)）
+- ❌ 新旧 zpkg 共存 + 灰度迁移以"绕开"循环 —— pre-1.0 不留兼容（见 [philosophy.md "不为旧版本提供兼容"](../../../agent/rules/philosophy.md#不为旧版本提供兼容)）
 
 **编译器报错要求**（待实现时遵守）：
 

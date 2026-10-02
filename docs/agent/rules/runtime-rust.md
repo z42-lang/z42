@@ -39,8 +39,8 @@ fn test_something() { ... }
 ## 指令集扩展
 
 每次新增 `Instruction` variant，必须同时更新：
-1. `bytecode.rs` — 枚举定义
-2. `interp.rs` — `exec_instr` match 分支（不允许有 `_` 通配兜底）
+1. `metadata/bytecode/instruction.rs` — 枚举定义
+2. `interp/exec_*.rs`（`exec_instr` 分派）— match 分支（不允许有 `_` 通配兜底）
 3. `docs/internals/src/formats/ir.md` — 指令文档
 
 ## Value 类型
@@ -48,40 +48,40 @@ fn test_something() { ... }
 - `Value` 枚举是运行时动态类型，所有算术操作前必须匹配类型一致性
 - 类型不匹配时 `bail!` 而不是静默转换
 
-### 原生层不得在根集之外持有 `Value`（2026-09-14）
+### 原生层不得在根集之外持有 `Value`
 
 **GC 只看得见帧寄存器、static 字段、几个 arena 和 pinned roots。** 把 `Value` 放进任何其它 Rust 侧容器
 （`Vec` / `HashMap` / mpsc 队列 / `parking_lot` 锁 / 线程闭包里的局部变量……），它就**没有根**——
-只要那一刻没有别的 z42 引用，下一次回收就会收掉它，之后读到 `Null` 或别的对象。已出过两次：
+只要那一刻没有别的 z42 引用，下一次回收就会收掉它，之后读到 `Null` 或别的对象。典型场景：
 
-- #617：`Thread.Start` 捕获的环境从 spawn 到进入 worker 帧之间只在 Rust 局部变量里；
-- store-sync-values-in-heap：`Mutex` / `RwLock` / `Channel` 的值存在 Rust 侧容器里。
+- `Thread.Start` 捕获的环境从 spawn 到进入 worker 帧之间只在 Rust 局部变量里；
+- `Mutex` / `RwLock` / `Channel` 的值存在 Rust 侧容器里。
 
 **首选：让值成为 z42 对象的字段**，原生层只提供机制（参照 `corelib/monitor.rs`）——追踪、写屏障、
 随拥有者回收全都免费。**确实只能暂存**（跨线程移交这类短窗口）时，用 `pin_root` + RAII 守卫 unpin
-（参照 `threading.rs` 的 `SpawnedEnvRoot`），并想清楚「谁拥有它、何时释放」，否则就是泄漏。
+（参照 `corelib/threading.rs` 的 `SpawnedEnvRoot`），并想清楚「谁拥有它、何时释放」，否则就是泄漏。
 机制与反例见 [sync-primitives.md](../../internals/src/runtime/sync-primitives.md)。
 
-### 阻塞的 native 调用必须 park（2026-09-14）
+### 阻塞的 native 调用必须 park
 
 **线程卡在系统调用里就到不了字节码 safepoint；GC 要等「全世界停下」⇒ 一条没 park 的阻塞调用拖死整个进程的 GC。**
 判据是「可能长时间不返回」，不是「通常很快」：网络读写 / connect / TLS 握手 / DNS（getaddrinfo 可以卡满解析超时）/
 子进程管道读写（管道满就阻塞）/ `join` / 条件变量等待。三条，缺一不可：
 
 1. **包 `NativeParkGuard`**，只包阻塞的那几行。
-2. **park 区间内不许分配**：parked 线程造的对象不是任何根，并发回收会收掉它（#641；debug 构建由
+2. **park 区间内不许分配**：parked 线程造的对象不是任何根，并发回收会收掉它（debug 构建由
    `debug_assert_not_native_parked` 当场炸）。错误先收成 Rust `String`，出 park 再造结果元组。
 3. **不许攥着共享锁阻塞**：别的线程排在这把锁上时是**不 park** 的 —— 只 park 阻塞者本身，GC 照样等排队者。
-   做法：锁下只取出/克隆句柄（`Arc`），放锁，再 park 着做 I/O（参照 `corelib/process.rs` 的 `ProcessSlot`、`network/tcp.rs` 的取出-放回）。
+   做法：锁下只取出/克隆句柄（`Arc`），放锁，再 park 着做 I/O（参照 `corelib/process.rs` 的 `ProcessSlot`、`corelib/network/tcp.rs` 的取出-放回）。
 
 新增会阻塞的 builtin 时，照「阻塞线程 `parked_count == 1` → 解除阻塞 → 回到 0」写单测（参照 `process_tests.rs` 末尾、
 `monitor_tests.rs`），并做一次阴性对照。
 
-这条不只防死锁，还是**注册协议的前提**（fix-context-joins-mid-pause，2026-09-15）：新 `VmContext` 在 `Marking` 期
+这条不只防死锁，还是**注册协议的前提**：新 `VmContext` 在 `Marking` 期
 不注册、等停顿结束，醒来后可能赢得 collector 角色并等所有已注册线程 park —— 若有线程卡在没 park 的调用里就永久死锁
 （loom 模型 B′，`tests/gc_registration_race_loom.rs`）。测试里主线程 `join` 一个会触发 GC 的 worker 时同理。
 
-### 堆引用写入必须走带 SATB 屏障的原语（2026-09-16，add-incremental-major-gc M2a）
+### 堆引用写入必须走带 SATB 屏障的原语
 
 **任何把引用写进堆对象 / 数组的代码，一律走 `ScriptObject::set_field_value` / `set_ref_slot`、
 `ArrayObj::set_boxed` / `write_struct_elem` / `set_struct_ref` / `copy_elems_from`。** 这些原语在覆盖前把旧值交给 SATB 删除屏障
@@ -94,18 +94,17 @@ fn test_something() { ... }
 - 新增一种「在堆里存引用」的布局（新的 backing / 内联引用形态）时，读旧值 + `record_overwrite` 必须随写入原语一起加，
   并照 `gc/arc_heap_tests/incremental.rs` 的形状补一对「开屏障存活 / 关屏障被扫」的测试。
 - **任何不经强引用把已有堆值交给 mutator 的路径**（弱 / 软引用读取、堆遍历）一律过 `ArcMagrGC::admit_resurrected`：
-  标记期染色（快照时只剩弱引用的对象会被交还给寄存器），**增量 major 清扫期拒绝未标记的**（M2b：它是待清扫的死对象，
+  标记期染色（快照时只剩弱引用的对象会被交还给寄存器），**增量 major 清扫期拒绝未标记的**（它是待清扫的死对象，
   子对象可能已被回收）。新增这类出口时照 `a_doomed_object_is_not_handed_out_while_the_sweep_has_not_reached_it` 补测试。
 - GC 自己在增量周期里**追踪**已有对象（如 minor 的脏卡播种）时同理：清扫期跳过未标记条目（`doomed_unless_marked`）。
 
 机制见 [gc-incremental-major.md](../../internals/src/runtime/gc-incremental-major.md)。
 
-### wasm 上不能取时钟（2026-09-14，第三次回归）
+### wasm 上不能取时钟
 
 **`wasm32-unknown-unknown` 没有 `std::time`：`Instant::now()` / `SystemTime::now()` 直接 panic
 「time not implemented on this platform」，整个 VM trap。** 编译照过、native 测试全绿，只有
-nightly `test-wasm-browser` 能照出来。已出过三次：#164（time builtins）、#165（GC `now_us`）、
-fix-wasm-std-time（`Sampler::disabled()` 构造时取了 t0 → 每次 `loadZbc` 都 trap，nightly 红了三周）。
+nightly `test-wasm-browser` 能照出来。典型场景：time builtins、GC `now_us`、`Sampler::disabled()` 构造时取 t0（→ 每次 `loadZbc` 都 trap）。
 
 - **关着的探针不取时钟**：计时起点放进 `Option<Instant>`，开关打开才 `Some(Instant::now())`
   （参照 `gc/phase_timer.rs`、`gc/sampler.rs`）。
@@ -126,4 +125,4 @@ fix-wasm-std-time（`Sampler::disabled()` 构造时取了 t0 → 每次 `loadZbc
 
 ## 资源加载顺序
 
-`std::fs::read_dir` / `HashMap` 迭代 + `or_insert` first-wins 等不确定性来源的处理规则见 [common-pitfalls.md §1](common-pitfalls.md#1-资源加载顺序必须显式排序2026-05-17-强化)。该规则跨语言适用（C# / Rust / bash 都涉及），统一在 common-pitfalls.md 沉淀。
+`std::fs::read_dir` / `HashMap` 迭代 + `or_insert` first-wins 等不确定性来源的处理规则见 [common-pitfalls.md §1](common-pitfalls.md#1-资源加载顺序必须显式排序)。该规则跨语言适用（Rust / z42 / bash 都涉及），统一在 common-pitfalls.md 沉淀。
