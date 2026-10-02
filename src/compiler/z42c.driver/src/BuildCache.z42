@@ -21,15 +21,12 @@ void _writeBuildCache(ProjectManifest pm, string projectDir, bool isRelease, str
     try {
         string cacheDir = cacheDirOverride.Length > 0 ? cacheDirOverride : BuildLayout.Resolve(pm, projectDir, isRelease).CacheDir;
         // zbc 必须**先于** meta 写：meta 是「这份 zbc 有效」的证明，反过来写中途崩溃会留下新 meta 配旧 zbc。
+        // parallel-parse-and-cache：逐文件 zbc 互不依赖，各写自己的文件与 zbcHashes 槽 ⇒ 可并行（jobs=1 时内联）。
+        // 实测（编译器 workspace、jobs=1）这一步占总耗时 8.8%。任一文件失败照旧整体放弃本次 cache（不写 meta）。
         string[] zbcHashes = new string[srcs.Length];
-        int i = 0;
-        while (i < srcs.Length) {
-            zbcHashes[i] = "";
-            if (prep == null || prep.Plan.Fresh[i]) {
-                zbcHashes[i] = _writeCacheZbc(cacheDir, projectDir, srcs[i], mods[i].Module);
-            }
-            i = i + 1;
-        }
+        CacheZbcTask zt = new CacheZbcTask(cacheDir, projectDir, srcs, mods, prep, zbcHashes);
+        ParallelFor.Run(srcs.Length, ParallelConfig.Jobs(srcs.Length), zt);
+        if (zt.Error != "") { throw new Exception(zt.Error); }
         // meta（hash/ns/usedDepNs + D5a 残留 pool/labels）+ 包级源清单。
         IncrementalDriver.WriteMetas(cacheDir, projectDir, srcs, texts, srcHashes, srcs.Length,
                                      cms, mods, prep != null ? prep.Plan : null, metaIdents, metaSurfaces, depsId, feats,
@@ -39,5 +36,25 @@ void _writeBuildCache(ProjectManifest pm, string projectDir, bool isRelease, str
         BuildLog.ProgressErr("cache -> " + BuildLayout.Display(cacheDir) + " (" + srcs.Length.ToString() + " files)");
     } catch (Exception e) {
         ConsoleError.WriteLine("cache write skipped (non-fatal): " + e.Message);
+    }
+}
+
+// 第 i 个源文件的 cache zbc（_writeBuildCache 的并行体）。只写第 i 个槽；失败记下首条消息，由调用方整体放弃。
+sealed class CacheZbcTask : IParallelBody {
+    private string _cacheDir; private string _projectDir; private string[] _srcs; private ZbcFileZ[] _mods;
+    private IncrPrep _prep; private string[] _hashes;
+    public string Error;
+    public CacheZbcTask(string cacheDir, string projectDir, string[] srcs, ZbcFileZ[] mods, IncrPrep prep, string[] hashes) {
+        this._cacheDir = cacheDir; this._projectDir = projectDir; this._srcs = srcs; this._mods = mods;
+        this._prep = prep; this._hashes = hashes; this.Error = "";
+    }
+    public void Run(int i) {
+        this._hashes[i] = "";
+        if (this._prep != null && !this._prep.Plan.Fresh[i]) { return; }
+        try {
+            this._hashes[i] = _writeCacheZbc(this._cacheDir, this._projectDir, this._srcs[i], this._mods[i].Module);
+        } catch (Exception e) {
+            if (this.Error == "") { this.Error = e.Message; }
+        }
     }
 }

@@ -89,6 +89,8 @@ impl VmContext {
         // don't clear; only these explicit loads do.
         self.subclass_memo.lock().clear();
         self.isa_cache.clear();
+        self.type_lookup_cache.lock().clear();
+        self.fn_lookup_cache.lock().clear();
         let mut state = self.core.lazy_loader.write();
         let loader = state.as_mut().ok_or_else(|| {
             anyhow::anyhow!("LoadModule: no lazy loader installed (cannot register loaded module)")
@@ -115,6 +117,8 @@ impl VmContext {
     ) -> anyhow::Result<()> {
         self.subclass_memo.lock().clear();   // optimize-subclass-check: REPL redefinition safety
         self.isa_cache.clear();
+        self.type_lookup_cache.lock().clear();
+        self.fn_lookup_cache.lock().clear();
         let mut state = self.core.lazy_loader.write();
         let loader = state.as_mut().ok_or_else(|| {
             anyhow::anyhow!("LoadBytecodeInMemory: no lazy loader installed (cannot register loaded module)")
@@ -127,6 +131,13 @@ impl VmContext {
     }
 
     pub fn try_lookup_function(&self, func_name: &str) -> Option<Arc<Function>> {
+        // parallel-parse-and-cache：线程本地前置缓存，命中不碰共享锁（见 `fn_lookup_cache`）。
+        if let Some(f) = self.fn_lookup_cache.lock().get(func_name).cloned() {
+            if !self.static_init_drain_is_noop(&[]) {
+                self.run_pending_static_inits();
+            }
+            return Some(f);
+        }
         // fix-lazy-lookup-contention：稳态命中走读锁 —— 没有加载任何 zpkg，所以
         // `newly_loaded` 恒空；类型加载队列的排空判定仍照旧。
         //
@@ -148,6 +159,7 @@ impl VmContext {
         };
         // `resolved` 已经是最终答案（`Some` = 命中，`None` = 负缓存里的确定性「否」）。
         if let Some(resolved) = fast {
+            if let Some(f) = &resolved { self.fn_lookup_cache.lock().insert(func_name.into(), Arc::clone(f)); }
             if !self.static_init_drain_is_noop(&[]) {
                 self.run_pending_static_inits();
             }
@@ -194,6 +206,13 @@ impl VmContext {
     /// Look up a class TypeDesc by FQ name; triggers lazy load if needed.
     /// Same `ModuleLoaded` emit semantics as `try_lookup_function`.
     pub fn try_lookup_type(&self, class_name: &str) -> Option<Arc<TypeDesc>> {
+        // parallel-parse-and-cache：线程本地前置缓存，命中不碰共享锁（见 `type_lookup_cache`）。
+        if let Some(td) = self.type_lookup_cache.lock().get(class_name).cloned() {
+            if !self.static_init_drain_is_noop(&[]) {
+                self.run_pending_static_inits();
+            }
+            return Some(td);
+        }
         // fix-lazy-lookup-contention：同 try_lookup_function —— registry 命中且基类链完整
         // 时是纯读，走读锁。
         // fix-negative-cache-under-read-lock：同 try_lookup_function —— 已知解析不出来的类名
@@ -213,6 +232,10 @@ impl VmContext {
         };
         // 同上：`resolved` 即最终答案。
         if let Some(resolved) = fast {
+            // 只缓存基类链已合并的完整描述符（`probe_type` 只交出完整的，这里再守一道）。
+            if let Some(td) = &resolved {
+                if !td.base_unmerged() { self.type_lookup_cache.lock().insert(class_name.into(), Arc::clone(td)); }
+            }
             if !self.static_init_drain_is_noop(&[]) {
                 self.run_pending_static_inits();
             }
