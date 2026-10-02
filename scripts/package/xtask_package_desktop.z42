@@ -284,6 +284,7 @@ string _quotedExisting(string dir, string a, string b) {
 // resolve colocated); `libs` = Z42_LIBS (stdlib + prior workload zpkgs). The toml
 // itself carries its dist_dir, so emit location is unchanged from the C# path.
 int _z42cBuildToml(string vm, string z42cDir, string libs, string toml) {
+    if (toml == _z42bToml()) { _syncBuilderPins(_root()); }   // z42b 的构建期常量（见 _syncBuilderPins）
     return _exec(_z42Proc(vm, libs)
         .Arg(Path.Join(z42cDir, "z42c.driver.zpkg")).Arg("--mode").Arg(_z42cMode())
         .Arg("--").Arg("build").Arg(toml).Arg("--release"));

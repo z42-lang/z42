@@ -145,6 +145,7 @@ string _z42bToml() { return "src/toolchain/builder/core/z42.builder.z42.toml"; }
 string _toolchainCompileLibs(string root) { return _libsDir(root); }
 
 int _buildZ42bWith(string root, string vm, string driverZpkg, string libs) {
+    _syncBuilderPins(root);
     int rc = _exec(_z42Proc(vm, libs).Arg(driverZpkg).Arg("--mode").Arg(_z42cMode())
         .Arg("--").Arg("build").Arg(_z42bToml()).Arg("--release")
         .WorkingDirectory(root));

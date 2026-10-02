@@ -19,7 +19,6 @@ namespace Z42Builder;
 
 using Std.IO;
 using Std.Cli;
-using Std.Toml;
 
 // iossim-arm64 / ios-arm64 driver. `here` = the SwiftPM platform crate root.
 int _runIos(ParseResult r, string manifestPath, string outDir,
@@ -63,7 +62,7 @@ int _runIos(ParseResult r, string manifestPath, string outDir,
 // (aarch64-apple-darwin) is ALWAYS built so `swift test` can run on the host; the
 // rid adds its deploy slice — ios-arm64 → device, iossim-arm64 → simulator, "" →
 // both. IPHONEOS_DEPLOYMENT_TARGET pins the C deps (zlib-ng) to the rlibs' min ver
-// = versions.toml platform.ios.min_ios (ported from xtask _buildIosXcframework).
+// = platform.ios.min_ios（builder_pins.z42，xtask 自 versions.toml 生成）.
 int _buildIosXcframework(string buildRoot, string here, string rid) {
     string manifest = Path.Join(here, "rust/Cargo.toml");
     string targetDir = Path.Join(buildRoot, "artifacts/build/runtime");
@@ -75,15 +74,7 @@ int _buildIosXcframework(string buildRoot, string here, string rid) {
     targets[n] = "aarch64-apple-darwin"; n = n + 1;              // host (swift test)
     if (wantDev) { targets[n] = "aarch64-apple-ios"; n = n + 1; }
     if (wantSim) { targets[n] = "aarch64-apple-ios-sim"; n = n + 1; }
-    string iosMin = "16.0";
-    // versions.toml 在 scripts/ 下（tidy-xtask-config 从仓库根挪来）。读不到就**说出来**再回落 ——
-    // 此前静默回落，挪了位置也不会有任何人发现 min_ios 没跟上。
-    string versionsPath = Path.Join(buildRoot, "scripts/versions.toml");
-    if (File.Exists(versionsPath)) {
-        iosMin = _pubPlatform(TomlValue.Parse(File.ReadAllText(versionsPath)), "ios", "min_ios", iosMin);
-    } else {
-        ConsoleError.WriteLine("z42b: warning: " + versionsPath + " not found — IPHONEOS_DEPLOYMENT_TARGET falls back to " + iosMin);
-    }
+    string iosMin = _pinIosMin();   // xtask 从 versions.toml 生成（builder_pins.z42），z42b 不读该文件
     int i = 0;
     while (i < n) {
         Console.WriteLine("z42b: cargo build --release --target " + targets[i]);

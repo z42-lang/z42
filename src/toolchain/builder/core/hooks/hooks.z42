@@ -1,0 +1,46 @@
+// z42b 项目 build hook：编译前把 versions.toml 里 z42b 运行期要用的常量渲染成 builder_pins.z42。
+//
+// 为什么：z42b 随 SDK 发布，运行环境没有 scripts/versions.toml，所以不能运行期读它；改成构建期
+// 烘进代码。放 hook 而不是 xtask，是为了「不用 xtask 也能编 z42b」——`z42 build <本 toml>`（经已装的 z42b）
+// 走 BeforeCompile 先生成再编译；Compile 相位在 BeforeCompile 之后才扫源码（Pipeline.Run），生成文件能被收进来。
+//
+// 无条件重生成 ⇒ 常量结构上不会与 versions.toml 漂移，无需 drift 检查；内容不变不写盘（免触发增量重编）。
+// 生成物 gitignore。新增常量 = 在 _render 里加一行。
+//
+// 注意：z42c driver 直接编 z42b（xtask 的自举路径）**不执行 hook**（hooks 只由 z42b 编排读），
+// 所以 xtask 的 _syncBuilderPins 渲染同样内容——两处文本必须一致，改一处记得改另一处。
+namespace Build;
+
+using Std.IO;
+using Std.Toml;
+using Z42.Build;
+
+public class ProjectHooks : BuildHooks {
+
+    public override void BeforeCompile(IPipelineContext ctx) {
+        // 仓根：本 toml 在 src/toolchain/builder/core/ → 上溯 4 层（同 z42.repl hooks）。
+        string repo = Path.Join(Path.Join(Path.Join(Path.Join(ctx.Dirs.Source, ".."), ".."), ".."), "..");
+        string versions = Path.Join(repo, "scripts/versions.toml");
+        string pins = Path.Join(ctx.Dirs.Source, "builder_pins.z42");
+        if (!ctx.Exists(versions)) {
+            // 脱离仓库的源码副本：没有 SoT 可读。已有生成物就沿用，否则编译必然缺符号——早报清楚。
+            if (ctx.Exists(pins)) { ctx.Warn("z42b hooks: " + versions + " not found — keeping existing builder_pins.z42"); return; }
+            throw new Exception("z42b hooks: " + versions + " not found and builder_pins.z42 missing — cannot generate build-time pins");
+        }
+        TomlValue toml = TomlValue.Parse(ctx.ReadText(versions));
+        string text = ProjectHooks._render(toml.Get("platform").Get("ios").Get("min_ios").AsString());
+        if (ctx.Exists(pins) && ctx.ReadText(pins) == text) { return; }
+        // 不用 ctx.WriteText：PipelineContext 的受限 fs 只许写 Intermediate/Dist（_guardWrite），而这里的**本意**
+        // 就是往源码目录生成一个待编译的文件，故直接走 Std.IO.File（hook 本就加载在 z42b 进程里）。
+        File.WriteAllText(pins, text);
+        ctx.Log("z42b hooks: generated " + pins);
+    }
+
+    // 与 scripts/common/xtask_versions.z42 的 _syncBuilderPins 渲染逐字一致。
+    static string _render(string iosMin) {
+        return "// GENERATED from scripts/versions.toml — do not edit, not committed.\n"
+            + "namespace Z42Builder;\n\n"
+            + "// = versions.toml platform.ios.min_ios\n"
+            + "string _pinIosMin() { return \"" + iosMin + "\"; }\n";
+    }
+}
