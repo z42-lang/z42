@@ -8,7 +8,7 @@
 这页是 z42 的**设计北极星**：语言为谁设计、往哪演进、哪些决定永不改变。
 改 z42 时拿不准「该不该加这个特性」「这样实现对不对」，先读这里再动手。
 
-本页**只写取舍与理由**，不写机制。机制在各子系统页；用户视角的规则在[语言参考](../../reference/src/language/README.md)。
+本页**只写取舍与理由**，不写机制。机制在各子系统页；用户视角的规则在[语言参考](https://z42-lang.github.io/z42/reference/language/index.html)。
 
 ---
 
@@ -39,9 +39,9 @@ z42 面向**系统方向的应用开发者**——同一门语言从嵌入式固
 5. **副作用走显式入口**——I/O 与一切 native 效应只经显式调用或 `[Native]` 标注发生，
    没有隐式的环境魔法。（这条管的是**效应入口**，不是可变性——`static` 字段仍是进程级可变状态。）
 
-> 约束 1 的用户可见形态见[所有权与内存模型](../../reference/src/language/memory-model.md)，
+> 约束 1 的用户可见形态见[所有权与内存模型](https://z42-lang.github.io/z42/reference/language/memory-model.html)，
 > 实现见 [GC 子系统](runtime/gc.md)；约束 2 见[执行模型](runtime/execution-model.md)；
-> 约束 4 见[接口](../../reference/src/language/interfaces.md)。
+> 约束 4 见[接口](https://z42-lang.github.io/z42/reference/language/interfaces.html)。
 
 ## 三、语法：C# 的形、Rust 的纪律、Python 的易上手
 
@@ -64,8 +64,8 @@ z42 面向**系统方向的应用开发者**——同一门语言从嵌入式固
 - **`Nullable<T>` 与空安全流分析**——见[已知边界](#已知边界)。
 
 > **没砍的**：`global using`（包级 prelude）与 `using Id = T;`（文件级类型别名）都在，
-> 见[命名空间与导入](../../reference/src/language/namespaces.md)。
-> 命名约定见[命名约定](../../reference/src/conventions/naming.md)。
+> 见[命名空间与导入](https://z42-lang.github.io/z42/reference/language/namespaces.html)。
+> 命名约定见[命名约定](https://z42-lang.github.io/z42/reference/conventions/naming.html)。
 
 ## 四、Bytecode-native：一份字节码，三档执行
 
@@ -101,8 +101,8 @@ z42 VM 的目标形态是**被别的程序嵌进去**，独立可执行文件只
 | **数据共享** | struct 字段布局可预测；GC 指针不跨边界 |
 | **调用成本** | 从 z42 调一个 native 函数不应比一次间接跳转更贵——不插 trampoline、不做 marshaling |
 
-> 契约（宿主开发者视角）见[嵌入宿主](../../reference/src/embedding/c-abi.md)与
-> [native 互操作](../../reference/src/embedding/native-interop.md)；
+> 契约（宿主开发者视角）见[嵌入宿主](https://z42-lang.github.io/z42/reference/embedding/c-abi.html)与
+> [native 互操作](https://z42-lang.github.io/z42/reference/embedding/native-interop.html)；
 > VM 侧实现见 [native ABI](runtime/native-abi.md) 与[嵌入宿主](runtime/embedding.md)。
 
 ## 六、动态执行不是可选项
@@ -136,7 +136,7 @@ z42 不是纯静态语言。**运行期编译并执行一段新代码**是一等
 
 代价同样摆明：停顿与堆占用是 z42 要持续投入的方向，不是一次做完的事。
 
-> 实现见 [GC 子系统](runtime/gc.md)；用户可感知的旋钮见[运行时设置](../../reference/src/toolchain/runtime-settings.md)。
+> 实现见 [GC 子系统](runtime/gc.md)；用户可感知的旋钮见[运行时设置](https://z42-lang.github.io/z42/reference/toolchain/runtime-settings.html)。
 
 ## 八、并发：真线程 + 库级原语
 
@@ -150,7 +150,7 @@ z42 的并发设施是**真 OS 线程**：`Thread` 起停、`Channel<T>` 传值�
 
 GC 与线程的协调（safepoint、park）由 VM 承担，对用户代码不可见。
 
-> 用户面见 [z42.threading](../../reference/src/stdlib/threading.md)，实现见[同步原语](runtime/sync-primitives.md)
+> 用户面见 [z42.threading](https://z42-lang.github.io/z42/reference/stdlib/threading.html)，实现见[同步原语](runtime/sync-primitives.md)
 > 与 [GC 子系统与 safepoint 协议](runtime/gc.md)；async 的长期设计见[并发与 async](runtime/concurrency.md)。
 
 ## 九、全栈从简

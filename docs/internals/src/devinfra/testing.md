@@ -7,7 +7,7 @@
 > gate 由哪些 stage 组成、`--skip` 与 `test changed` 的清单见[测试门禁](test-gate.md)（唯一权威）；
 > 一份测试是怎么被跑起来的见[测试流水线](test-pipeline.md)；CI 把 stage 摊到并行 job 见
 > [CI 拓扑](ci.md)；`[Test]` 属性怎么写、`z42 test` 怎么用见
-> [参考手册](../../../reference/src/toolchain/cli-z42c-z42b.md)。
+> [参考手册](https://z42-lang.github.io/z42/reference/toolchain/cli-z42c-z42b.html)。
 
 这页回答三个问题：有哪几层测试、各层**单跑时**有哪些旗标、**我改了 X 该验什么**。
 

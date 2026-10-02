@@ -1,6 +1,6 @@
 # @z42/wasm — WebAssembly facade for the z42 embedding API
 
-> 状态：🟢 H4 落地（2026-05-12）。
+> 状态：🟢 已落地。
 >
 > 跨平台契约：[`../README.md`](../README.md)
 > 实现原理：[`docs/internals/src/runtime/embedding.md`](../../../../docs/internals/src/runtime/embedding.md) §6.2 / §11
@@ -17,7 +17,7 @@ rustup target add wasm32-unknown-unknown
 cargo install wasm-pack --locked
 
 # 编译器 + stdlib（产出 .zpkg 字节）
-dotnet build src/compiler/z42.slnx
+./xtask build stdlib
 ```
 
 ### 构建 + 跑 demo
@@ -30,7 +30,6 @@ dotnet build src/compiler/z42.slnx
 cd src/toolchain/workload/wasm/platform
 # 跑浏览器 demo（无需 Node；任选一个静态服务器）：
 miniserve --index demo/web/index.html .        # 然后开 http://127.0.0.1:8080/
-# 或：dotnet serve -p 8000                      # 开 http://127.0.0.1:8000/demo/web/index.html
 # 或：python3 -m http.server 8000               # 同上 URL
 
 # 或跑 Node demo（需要本地 Node — 走 artifacts/tools/node）
@@ -143,11 +142,11 @@ wasm/
 |------|----------|------|
 | `wasm-pack not found` | 工具链未装 | `cargo install wasm-pack --locked` |
 | `wasm32-unknown-unknown target not installed` | rust target 缺 | `rustup target add wasm32-unknown-unknown` |
-| `fixture missing: hello.zbc` | 编译器/stdlib 没构建 | 先 `dotnet build src/compiler/z42.slnx` + `./xtask build stdlib`，再 `./xtask test platform wasm assets` |
+| `fixture missing: hello.zbc` | 编译器/stdlib 没构建 | 先 `./xtask build stdlib`，再 `./xtask test platform wasm assets` |
 | `Z42VMError: undefined function Std.IO.Console.WriteLine` | stdlib zpkg 没载入 | 检查 `js/stdlib/*.zpkg` 是否生成（`test platform wasm assets` 末尾列出复制数）|
 | Node demo 报 `command not found: node` | Node 未装 | `brew install node`（或任何 Node ≥ 18 发行版）|
 
-## 与跨平台契约的对齐
+## 跨平台契约
 
 本 facade 严格遵守 [`platform-contract.md`](../README.md) 的同形 API + 命名约定：
 
@@ -155,6 +154,3 @@ wasm/
 - `ZpkgResolver` 协议：函数或 `{ resolve }` 对象任一
 - 错误码 → `Z42VMError.status` 映射详见 platform-contract.md §错误码映射表
 
-## 下一步
-
-H4 内剩余两个平台 — `add-platform-ios` / `add-platform-android` — 解锁。两者直接复用本 wasm spec 顺手解决的 `native-interop` feature gate。

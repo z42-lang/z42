@@ -2,10 +2,9 @@
 
 ## 职责
 CLI argv 解析器 — flag / option / positional + auto `-h/--help` 文本生成。
-对标 Python `argparse` + Rust `clap` + Go `flag`（最小子集）。
+最小子集，参照 Python `argparse` / Rust `clap` / Go `flag`。
 
-**用途**：脚本类 z42 程序解析命令行参数。Phase 0 基础设施之一，为
-`scripts/*.sh → *.z42` 迁移提供 argv parser。
+**用途**：脚本类 z42 程序解析命令行参数。为 `scripts/*.sh → *.z42` 脚本提供 argv parser。
 
 ## 核心文件
 | 文件 | 职责 |
@@ -110,9 +109,9 @@ HelpText 拼接）。
 
 ## 进阶特性（完整 API 见 `docs/reference/src/stdlib/cli.md`）
 
-v0 之后逐步补齐，均已 ship：
+已支持：
 
-- subcommand 单层（`SubcommandRouter`，2026-05-27）+ **嵌套**（`AddRouter`/`Resolve`，2026-06-10）
+- subcommand 单层（`SubcommandRouter`）+ **嵌套**（`AddRouter`/`Resolve`）
 - required option（`AddRequiredOption` + `WasOptionSet`）
 - 类型转换 getter（`GetIntOption`/`GetLongOption`/`GetDoubleOption`/`GetBoolOption`）
 - env-var fallback（`AddOptionWithEnv`，优先级 argv > env > default）

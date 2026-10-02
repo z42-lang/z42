@@ -4,8 +4,8 @@
 > `scripts/install/install.sh`、`scripts/install/xtask_install.z42`、`scripts/versions.toml`、
 > `src/runtime/Cargo.toml`、`src/compiler/z42c.driver/src/Main.z42`、`.gitattributes`
 >
-> 只想**写 z42 程序**不用读这页——装 SDK 见学习手册的[安装 z42](../../../learn/src/getting-started/install.md)。
-> `z42` / `z42c` / `z42b` 的用户命令面见[参考手册 · 工具链](../../../reference/src/toolchain/README.md)。
+> 只想**写 z42 程序**不用读这页——装 SDK 见学习手册的[安装 z42](https://z42-lang.github.io/z42/learn/getting-started/install.html)。
+> `z42` / `z42c` / `z42b` 的用户命令面见[参考手册 · 工具链](https://z42-lang.github.io/z42/reference/toolchain/index.html)。
 
 这页是**改 z42 本身**（编译器 / VM / stdlib / xtask）的第一页：一台干净机器上从零到能跑
 gate 要敲哪几条命令、每个 host 平台各自要注意什么。命令树与 `--toolchain` 的机制见
@@ -123,7 +123,7 @@ cargo build --manifest-path src/runtime/Cargo.toml --no-default-features --featu
 （开了会改 golden 字节）；`--opt-all` 按真实 release 全优化编——**写优化类 golden 必须挂
 `opt_all` sidecar**，否则那些 pass 一条路都走不到。
 
-`z42c build` 的选项在[参考手册](../../../reference/src/toolchain/cli-z42c-z42b.md)，那里是 SoT。
+`z42c build` 的选项在[参考手册](https://z42-lang.github.io/z42/reference/toolchain/cli-z42c-z42b.html)，那里是 SoT。
 `clean` / `test` / `bench` 不在 z42c 上，它们由 `z42b` 编排。
 
 ## 6. 三个 host 平台的差异

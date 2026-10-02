@@ -61,7 +61,7 @@ TIDX 独有的字符串（skip reason、platform 名、ShouldThrow 类型链）�
 位置与签名（`[Test]` 必须是零参 / 非泛型 / 有 body 的 free function 或 static 方法）、
 以及实参语义（`[Skip]` 的 reason、`[Timeout]` 的 milliseconds、`[ShouldThrow]` 的类型实参）
 由 `z42c.semantics` 的 `DeclEnforcer` 在符号收集期强制，发射 E0911–E0917。
-**具体每个码的触发条件与发射点** 见 [错误码参考](../../../reference/src/appendix/error-codes.md)
+**具体每个码的触发条件与发射点** 见 [错误码参考](https://z42-lang.github.io/z42/reference/appendix/error-codes.html)
 的「E0911–E0917 测试框架」一节——那里逐条带 `DeclEnforcer.z42:<line>`，本页不复制。
 
 ## 3. Runner 协议

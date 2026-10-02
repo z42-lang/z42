@@ -18,7 +18,7 @@ byte[] zstdEnc = Zstd.Compress(original);                // default level 3
 byte[] zstdDec = Zstd.Decompress(zstdEnc);
 ```
 
-## Pipeline (Stream-based, refactor 2026-05-24)
+## Pipeline (Stream-based)
 
 ```z42
 using Std.IO;
@@ -49,7 +49,7 @@ using Std.Archive;
 ZipEntry[] entries = Zip.Read(zipBytes);
 byte[] hello = Zip.ExtractFile(zipBytes, "hello.txt");
 
-// Extract all entries to a directory (add-zip-extractall 2026-05-27):
+// Extract all entries to a directory:
 int n = Zip.ExtractAllTo(zipBytes, "destDir");
 // 自动 mkdir-p 父目录 + 目录条目 + Zip-Slip 防御。Zip.Write 仍是 deferred。
 
@@ -59,7 +59,7 @@ TarEntry[] entries = new TarEntry[] {
 };
 byte[] tarBytes = Tar.Write(entries);
 
-// Tar extract to filesystem (add-tar-extract-to 2026-05-26):
+// Tar extract to filesystem:
 //   tar -xzf foo.tar.gz -C dest 等价 z42 流程
 byte[] tarBytes = Gzip.Decompress(File.ReadAllBytes("foo.tar.gz"));
 int n = Tar.ExtractTo(tarBytes, "dest");

@@ -4,7 +4,7 @@
 > `src/runtime/src/corelib/reflection/attributes.rs`
 >
 > 公开 API（`Serialize` / `Deserialize<T>` / `[JsonProperty]` / `[JsonIgnore]` / 类型覆盖）见参考手册
-> [Std.Json](../../../reference/src/stdlib/json.md)。本页写**这套东西怎么跑起来的**。
+> [Std.Json](https://z42-lang.github.io/z42/reference/stdlib/json.html)。本页写**这套东西怎么跑起来的**。
 >
 > DOM 层（`JsonValue` 的 parse / stringify）不在本页范围——serde 只是站在 DOM 之上的一层反射绑定。
 

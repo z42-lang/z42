@@ -1,6 +1,6 @@
 # 构造器继承与隐式 base()
 
-> 对齐日期：2026-09-15 · change `add-implicit-base-ctor-call`。语言规则见 [实例构造器与初始化子句](../../../reference/src/language/constructors.md)。
+> 对齐日期：2026-09-15 · change `add-implicit-base-ctor-call`。语言规则见 [实例构造器与初始化子句](https://z42-lang.github.io/z42/reference/language/constructors.html)。
 
 两件事分在编译的两个阶段做：**收集期**给没写构造器的类合成构造器声明（继承来的 / 默认的）；**绑定期**给每个
 实例构造器接上基类构造器调用（写了子句按子句、没写就是隐式 `base()`）。
@@ -52,7 +52,7 @@ process(C):
 `IdentExpr("$macro:<name>")`，`ParamsFrom` 还原 `params`。
 
 **确定性**：继承来的构造器谁拿裸键（primary）决定字节，所以候选按「基类 primary 在前、其余按注册键」排序，
-不依赖 `StrMap` 的槽位顺序（[跨语言共同陷阱 §1](../../../agent/rules/common-pitfalls.md)）。
+不依赖 `StrMap` 的槽位顺序（[跨语言共同陷阱 §1](https://github.com/z42-lang/z42/blob/main/docs/agent/rules/common-pitfalls.md)）。
 
 ## 绑定期：初始化调用
 

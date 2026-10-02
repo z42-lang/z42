@@ -29,7 +29,7 @@ z42 Tier 2 native interop API（用户面向）。Rust 库作者通过实现这�
 
 ## 状态
 
-C3 接通 ergonomic macros（2026-04-29）。`#[z42::methods]` + `module!` 实现 Rust 用户的主入口；`Z42Type` trait 已可由宏自动 emit。derive / trait_impl / reverse-call 等高层能力等待 source generator (C5) 联动设计。
+已接通 ergonomic macros。`#[z42::methods]` + `module!` 实现 Rust 用户的主入口；`Z42Type` trait 已可由宏自动 emit。derive / trait_impl / reverse-call 等高层能力等待 source generator (C5) 联动设计。
 
 ## 用法示例
 

@@ -30,12 +30,12 @@
 
 🔴 用户要写 linter / 格式化器 / 代码生成 ⇒ 在 `[dependencies]` 里**按名声明**要用的编译器域包（SDK 库，
 如 `"z42c.syntax" = "*"`），exe 会把用到的 SDK 库连同依赖拷进输出目录；analyzer 免声明、自动可见。
-隔离**不是禁止**，是「不隐式可见」。规则见 [z42-toml.md](../../../reference/src/toolchain/z42-toml.md)。
+隔离**不是禁止**，是「不隐式可见」。规则见 [z42-toml.md](https://z42-lang.github.io/z42/reference/toolchain/z42-toml.html)。
 
 ## 2. 层级：只要求 DAG，不钉固定层
 
 硬约束只有一条：**依赖图必须无环，且 `z42.core` 在所有库之下**。这是通用规则「包依赖必须无环」
-（见 [`z42.toml` 参考](../../../reference/src/toolchain/z42-toml.md#依赖必须无环no-circular-dependencies)）在
+（见 [`z42.toml` 参考](https://z42-lang.github.io/z42/reference/toolchain/z42-toml.html#依赖必须无环no-circular-dependencies)）在
 stdlib 上的特化。
 
 **「层级」是从 manifest 算出来的量，不是钉在包上的标签**——一个包的深度 = 它依赖闭包里最深那条链

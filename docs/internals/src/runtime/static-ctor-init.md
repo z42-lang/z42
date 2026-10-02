@@ -1,6 +1,6 @@
 # 静态构造函数的按类型初始化
 
-> 语义面见[静态构造函数](../../../reference/src/language/static-constructors.md)。本页讲实现。
+> 语义面见[静态构造函数](https://z42-lang.github.io/z42/reference/language/static-constructors.html)。本页讲实现。
 > 代码：`src/runtime/src/vm_context/cctor.rs`；启动路径共用步骤 `src/runtime/src/boot.rs`。
 > 对齐：2026-09-14（fix-host-static-init）。
 

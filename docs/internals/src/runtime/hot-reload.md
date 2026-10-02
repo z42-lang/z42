@@ -392,4 +392,4 @@ fn main() {
 
 - [philosophy.md](../philosophy.md) — Dynamic execution principle
 - [execution-model.md](execution-model.md) — Interpreter mode (required for hot reload)
-- [language-overview.md](../../../reference/src/language/README.md) — `[HotReload]` and `[ExecMode]` syntax
+- [language-overview.md](https://z42-lang.github.io/z42/reference/language/index.html) — `[HotReload]` and `[ExecMode]` syntax

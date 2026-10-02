@@ -2,7 +2,7 @@
 
 > 对齐：2026-09-17（change `restructure-docs-three-books`）｜ 代码：`src/toolchain/launcher/core/`、`src/toolchain/workload/desktop/platform/apphost/src/`
 >
-> 命令与旗标怎么敲 → [工具链参考](../../../reference/src/toolchain/README.md)。
+> 命令与旗标怎么敲 → [工具链参考](https://z42-lang.github.io/z42/reference/toolchain/index.html)。
 
 `z42` 是用户唯一敲的那个命令，但它几乎不干活：它是一个原生 stub 加一个 z42 程序，
 负责**找到 z42vm、认出动词、把活派给 z42c / z42b / z42i，或者自己起一个子进程跑 app**。

@@ -1,6 +1,6 @@
 # Z42VM — Android facade
 
-> 🟢 H4 落地（2026-05-12）。
+> 🟢 已落地。
 >
 > 跨平台契约：[`../README.md`](../README.md)
 > 实现原理：[`docs/internals/src/runtime/embedding.md`](../../../../docs/internals/src/runtime/embedding.md)
@@ -18,7 +18,7 @@
 z42 xtask.zpkg deps install android-sdk
 rustup target add aarch64-linux-android x86_64-linux-android
 cargo install cargo-ndk --locked
-dotnet build src/compiler/z42.slnx                         # 编 stdlib
+./xtask build stdlib                                       # 编 stdlib
 
 # 每次（export 一次后下次重用）
 export ANDROID_HOME="$PWD/artifacts/tools/android-sdk"
@@ -119,15 +119,15 @@ src/runtime/  (interp + aot feature; no JIT inside Android sandbox)
 ## 限制（v0.1）
 
 - **仅 interp 模式**：JIT 与 Android ART 互斥
-- ~~**无 `native-interop`**~~ → **已启用**：libffi 5.1 / libffi-sys 4.1 的 bundled libffi 3.4.7 修复了旧 2.3 与 NDK 工具链不兼容的 CFI advance_loc 问题；`android` feature preset 现含 `native-interop`（首次 cross-compile 时通过 `cargo ndk` + NDK r25+ 验证；构建经 `AndroidBackend.BuildProject`）
+- **native interop**：`android` feature preset 含 `native-interop`（libffi 5.1 / libffi-sys 4.1 的 bundled libffi 3.4.7；经 `cargo ndk` + NDK r25+ 构建，构建经 `AndroidBackend.BuildProject`）
 - **单实例**
 - **同步 invoke**：UI 上请用 `Dispatchers.Default` 异步包装
-- **Demo / CI**：推迟到独立 spec（`add-android-demo` / `-ci`）；JUnit instrumented test 已在 `add-android-tests` (2026-05-12) 落地，跑 `./test.sh` 即可
+- **Demo / CI**：暂无；JUnit instrumented test 跑 `./test.sh` 即可
 
 ## 故障排查
 
 详细的 step-by-step 故障兜底见 [`docs/internals/src/devinfra/build-platforms.md`](../../../../docs/internals/src/devinfra/build-platforms.md) §Step 各栏的 ❗ 行。
 
-## 与跨平台契约的对齐
+## 跨平台契约
 
 类名 `Z42VM` / `Z42VMModule` / `Z42VMEntry` / `Z42VMValue` / `Z42VMException`、`ZpkgResolver` 接口、错误码 → status 数值映射，全部与 [`platforms/README.md`](../README.md) 一致。同一份 `.zbc` 在 iOS / Android / WASM 三平台行为应等价。

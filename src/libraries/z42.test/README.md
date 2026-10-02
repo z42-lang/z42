@@ -2,25 +2,25 @@
 
 z42 标准测试库 —— 给 stdlib 自身和用户脚本提供 attribute 注解（[Test] / [Skip] / [ShouldThrow<E>] 等）+ TestIO + Bencher + Runner，配合 [z42b](../../toolchain/builder/)（`z42b test`）运行。
 
-## 现状（v0.5, 2026-05-05）
+## 现状
 
-R 系列基础设施已落（R1 / R2 minimal / R2 完整版 / R3 minimal+R3a+R3c / R4.A+R4.B / R5）。当前能力：
+当前能力：
 
 | 能力 | 状态 | API |
 |---|---|---|
-| Attribute 注解 | ✅ R1.C / R4.A / R4.B / add-test-timeout-attribute / add-test-skip-platform-feature-eval | `[Test]` / `[Skip(reason:, platform?:, feature?:)]` (平台/特性条件实际生效) / `[Ignore]` / `[Setup]` / `[Teardown]` / `[Benchmark]` / `[ShouldThrow<E>]` / `[Timeout(milliseconds: N)]` |
-| 失败位置展示 | ✅ surface-test-failure-source-location | runner pretty/TAP/JSON 均自动展示 `failure_location` + 完整 `stack_trace`；reason 字段保持向前兼容（in-process; subprocess + JIT 待跟进 spec） |
-| Assert 数值比较 | ✅ extend-assert-numeric-and-collection-helpers | `Greater` / `Less` / `GreaterOrEqual` / `LessOrEqual` / `InRange` × `{long, double}`；浮点 NaN guard |
-| Assert 数组集合助手 | ✅ 同上 | `ArrayContains` / `ArrayDoesNotContain` / `ArrayIsEmpty` / `ArrayIsNotEmpty` (`object[]`)；`Array` 前缀原为避开与 z42.core 那份 Assert 的跨包 overload-resolution 限制，两份合并后（unify-assert-api）只剩命名惯例 |
-| Assert 基础（9 方法） | ✅ R2 minimal | Equal / NotEqual / True / False / Null / NotNull / Contains / Fail / Skip |
-| Assert 扩展（lambda） | ✅ R2 完整版 | Throws / DoesNotThrow / EqualApprox |
-| ⚠️ `Assert *`（上面 4 行） | **已迁出本包** | unify-assert-api (2026-09-08) 把本包的 `Std.Test.Assert` 与 z42.core 的 `Std.Assert` 合并成唯一一份，落在 **z42.core**（`src/Assert.z42` + `src/Failure.z42`）——断言必须 prelude 可见。能力清单保留在此仅作历史索引 |
-| TestIO（捕获 console） | ✅ R2 完整版 | captureStdout / captureStderr / captureBoth |
-| Bencher（基准测量） | ✅ R2 完整版 | Bencher.iter(Action) / printSummary / Min·Max·Median·Total·Samples + BenchHelpers.blackBox |
-| Imperative TestRunner（旧） | ✅ v0 保留 | Begin / Fail / Summary（lambda 前的兼容路径）|
-| Runner [Benchmark] 调度 | ✅ add-benchmark-runner-dispatch + rebuild-bench-structured-output | `[Benchmark] void f()` **或** `void f(Bencher b)`（后者编译期 desugar 成前者）；与 `[Test]` 同执行路径。默认 pretty（`PASS`/`FAIL`/`SKIP` + `Result:` 汇总）；`z42b {test,bench} --format json` 产结构化报告 `TestReport`：per-entry `is_benchmark` + benchmark 的 `bench_stats`（`Runner` json 模式捕获 benchmark stdout → `BenchStats.parse`）|
+| Attribute 注解 | ✅ | `[Test]` / `[Skip(reason:, platform?:, feature?:)]` (平台/特性条件实际生效) / `[Ignore]` / `[Setup]` / `[Teardown]` / `[Benchmark]` / `[ShouldThrow<E>]` / `[Timeout(milliseconds: N)]` |
+| 失败位置展示 | ✅ | runner pretty/TAP/JSON 均自动展示 `failure_location` + 完整 `stack_trace`；reason 字段保持向前兼容（in-process; subprocess + JIT 待跟进 spec） |
+| Assert 数值比较 | ✅ | `Greater` / `Less` / `GreaterOrEqual` / `LessOrEqual` / `InRange` × `{long, double}`；浮点 NaN guard |
+| Assert 数组集合助手 | ✅ 同上 | `ArrayContains` / `ArrayDoesNotContain` / `ArrayIsEmpty` / `ArrayIsNotEmpty` (`object[]`)；`Array` 前缀为命名惯例 |
+| Assert 基础（9 方法） | ✅ | Equal / NotEqual / True / False / Null / NotNull / Contains / Fail / Skip |
+| Assert 扩展（lambda） | ✅ | Throws / DoesNotThrow / EqualApprox |
+| ⚠️ `Assert *`（上面 4 行） | **位于 z42.core** | 全仓唯一一份 `Std.Assert`，落在 **z42.core**（`src/Assert.z42` + `src/Failure.z42`）——断言必须 prelude 可见 |
+| TestIO（捕获 console） | ✅ | captureStdout / captureStderr / captureBoth |
+| Bencher（基准测量） | ✅ | Bencher.iter(Action) / printSummary / Min·Max·Median·Total·Samples + BenchHelpers.blackBox |
+| Imperative TestRunner | ✅ | Begin / Fail / Summary（无 lambda 的兼容路径）|
+| Runner [Benchmark] 调度 | ✅ | `[Benchmark] void f()` **或** `void f(Bencher b)`（后者编译期 desugar 成前者）；与 `[Test]` 同执行路径。默认 pretty（`PASS`/`FAIL`/`SKIP` + `Result:` 汇总）；`z42b {test,bench} --format json` 产结构化报告 `TestReport`：per-entry `is_benchmark` + benchmark 的 `bench_stats`（`Runner` json 模式捕获 benchmark stdout → `BenchStats.parse`）|
 
-## 推荐用法（lambda 时代）
+## 推荐用法
 
 ```z42
 namespace MyTests;
@@ -59,16 +59,15 @@ class Counter { public int n; public Counter() { this.n = 0; } }
 
 跑测试：`just test-stdlib mylib`（默认串行，in-process VM 保留 [Setup]/[Teardown]）。
 
-> 🔴 **`using Std.Test;` 必写，别靠搭便车**（fix-bench-corpus-using-stdtest, 2026-09-08）。
+> 🔴 **`using Std.Test;` 必写，别靠搭便车**。
 > `Assert` 在 **z42.core**（prelude，免 `using` 恒可见）；但 `Bencher` / `BenchHelpers` /
 > `TestIO` / `BenchStats` 都在 **z42.test** 的 `Std.Test` 命名空间，**必须显式 `using Std.Test;`**。
-> 包激活是**整包**粒度的（同包任一模块 ns 命中你任一 `using` → 整包激活），历史上 14 个 bench
-> 文件只写 `using Std;` 也能编过，纯粹因为 `z42.test` 里有个 `namespace Std;` 的文件替它们
-> 开了门；那个文件一搬走，`Bencher` 当场解析失败、且**编译期静默**、运行期才炸
+> 包激活是**整包**粒度的（同包任一模块 ns 命中你任一 `using` → 整包激活），若只写 `using Std;`，`Bencher`
+> 可能解析失败、且**编译期静默**、运行期才炸
 > （`VCall: … .<unknown>.get_WarmupIters not found`）。机制与现场见
 > [book/compiler/project-model.md「激活是整包粒度」](../../../docs/internals/src/compiler/project-model.md)。
 
-**并行执行**（add-test-runner-parallel 2026-05-27）：`z42 xtask.zpkg test lib --jobs N mylib`
+**并行执行**：`z42 xtask.zpkg test lib --jobs N mylib`
 或 `--jobs 0` 自动用 `available_parallelism()`。N > 1 强制 subprocess 模式 —
 速度上 4–8× 但 [Setup]/[Teardown] 不会运行（VmContext 是 `!Send`，无法跨线程
 共享）。z42.crypto 7 文件实测：serial 18s → `--jobs 8` 5.7s。
@@ -79,7 +78,7 @@ class Counter { public int n; public Counter() { this.n = 0; } }
 - z42 lambda 对值类型采用快照捕获语义，要把 capture 结果传出 lambda body 必须用引用类型（class wrapper / array），不能直接对外部 int / string 局部变量赋值
 - BenchHelpers.blackBox 接 `object` 而非 generic `<T>`（z42 parser 在表达式上下文不识别方法级显式 generic call）
 
-## 旧 v0 imperative TestRunner（保留）
+## Imperative TestRunner
 
 ## 使用
 
@@ -123,9 +122,9 @@ void Main() {
 
 ## 路线图
 
-### 已交付（2026-04-29 ~ 2026-05-05）
+### 已交付
 
-[Test] attribute 注解发现 + z42-test-runner subprocess 调度（R3 minimal）→ 与 v2 路线图对齐：
+[Test] attribute 注解发现 + z42-test-runner subprocess 调度：
 
 ```z42
 public class MyTests {
@@ -138,7 +137,7 @@ public class MyTests {
 
 ### 后续
 
-- Runner [Benchmark] 调度 + criterion-style baseline diff（独立 spec）
+- criterion-style baseline diff（独立 spec）
 - 类型敏感的 `Assert.Throws<E>(Action)` —— 等 z42 反射能力增强（is X cross-module / generic-E IsInstance / Object.GetType() vtable inheritance 任一修好）
 
 ## 设计选择
@@ -151,8 +150,7 @@ public class MyTests {
 ## 不做（明确否决）
 
 - ❌ 第二个 Assert 类 —— 全仓只有一个 `Std.Assert`（在 **z42.core**：断言必须 prelude 可见），不重复发明。
-  曾经有两个（本包的 `Std.Test.Assert` + z42.core 的 `Std.Assert`），那是 stdlib 里唯一的跨
-  命名空间同短名类，代价见 common-pitfalls §1
+  跨命名空间同短名类的代价见 common-pitfalls §1
 - ❌ 异步测试支持 —— 等 L3 async/await
 - ❌ 参数化测试 —— 等 lambda + collection literals
 - ❌ 测试发现 / 自动注册 —— 等 reflection

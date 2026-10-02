@@ -41,14 +41,14 @@ z42 设计目标是"全栈系统语言"，host-equivalent 动态编译能力（�
 **2b 选择理由**：
 - z42-written compiler 体积估 2–5 MB（z42 字节码 + 元数据），跟随 VM 走
 - 不引入额外 toolchain（zpkg 是 VM 已经能加载的产物）
-- 自举本就是 [roadmap 1.0 必经里程碑](../../../roadmap.md#长期-semver-路线05--10)，全平台 compiler 是顺带
+- 自举本就是 [roadmap 1.0 必经里程碑](https://github.com/z42-lang/z42/blob/main/docs/roadmap.md#长期-semver-路线05--10)，全平台 compiler 是顺带
 - 与 project_supported_platforms "只支持厂商官方维护的架构" 兼容
 
 ---
 
 ## 3. 目标模块拆分
 
-把当前 C# 7 模块（[src/compiler/README.md](../../../../src/compiler/README.md)）映射到 8 个 stdlib 包：
+把当前 C# 7 模块（[src/compiler/README.md](https://github.com/z42-lang/z42/blob/main/src/compiler/README.md)）映射到 8 个 stdlib 包：
 
 | 标准库包 | 层级 | 对应 C# 模块 | 当前 C# 行数 | 主要类型 |
 |---------|:---:|------|:---:|------|
@@ -188,7 +188,7 @@ ScriptOptions opts = ScriptOptions.Default;
 |-----|------|
 | [`compiler-architecture.md`](../formats/zpkg.md) | 当前 C# bootstrap 形态；C4 完成后此 doc 转为"过渡阶段历史记录"，新 SoT 是 z42-written 源 + 本 charter |
 | `compilation.md` | 编译产物粒度策略；自举后维持不变（z42 compiler 产出同一种 .zbc / .zpkg）|
-| [`project.md`](../../../reference/src/toolchain/z42-toml.md) | manifest schema；自举后 `z42.compiler.project` 实现这套 schema |
+| [`project.md`](https://z42-lang.github.io/z42/reference/toolchain/z42-toml.html) | manifest schema；自举后 `z42.compiler.project` 实现这套 schema |
 | [`runtime/embedding.md`](../runtime/embedding.md) | VM 嵌入 API；scripting 在其上加 in-memory module 加载（C2 引入）|
 | [`runtime/hot-reload.md`](../runtime/hot-reload.md) | runtime 加载模块；scripting 与 hot-reload 共享 `Vm.LoadInMemoryModule(bytes)` 接口 |
 | [`stdlib/organization.md`](../stdlib/organization.md) | 包划分与依赖无环规则；本拆分严格遵守 |

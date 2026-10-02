@@ -9,7 +9,7 @@
 ---
 
 ## 1. 现状
-- [aot.rs](../../../../src/runtime/src/aot.rs) = **stub**（`run()` 报未实现），原计划 **LLVM/inkwell（M9）**。
+- [aot.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/aot.rs) = **stub**（`run()` 报未实现），原计划 **LLVM/inkwell（M9）**。
 - 但 z42 **已用 cranelift 做 JIT**（codegen/frontend/jit/module/native）；`translate.rs` 把 zbc→cranelift IR。
 - cranelift 有 **`cranelift-object`（ObjectModule）**，与 `JITModule` **共用 `cranelift_module::Module` trait** → 能发 `.o`。
 
@@ -80,4 +80,4 @@ AOT 码发 **cranelift user stack map**(与 JIT 共享机制)→ AOT 路径精�
 - AOT 作 tier / 与 JIT 共存 / deopt：[tiered-execution.md](tiered-execution.md) · 精确 GC stack map / 后端注册槽：[safepoint.md](safepoint-design.md)
 - 值/对象 ABI：[object-abi.md](object-abi.md) · 组件化(libz42_aot)：[componentized-runtime.md](componentized-runtime.md)
 - 动态加载边界：[load-context.md](load-context.md) · 当前架构：[vm-architecture.md](vm-architecture.md)
-- export/打包：[../toolchain/runtime-workload-distribution.md](../../../internals/src/toolchain/workload-distribution.md)
+- export/打包：[../toolchain/runtime-workload-distribution.md](../toolchain/workload-distribution.md)

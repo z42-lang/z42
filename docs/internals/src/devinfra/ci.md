@@ -48,14 +48,14 @@ cargo 指纹，它会把整个 crate 冷编一遍（`compiler-checks` 的 `test 
 ### 步骤里怎么调 xtask
 
 两个 bootstrap action（`ci-bootstrap` / `xtask-bootstrap-artifact`）结束时都把
-[`.github/ci/xtask`](../../../../.github/ci/xtask) 所在目录加进 `$GITHUB_PATH`，之后的步骤一律写
+[`.github/ci/xtask`](https://github.com/z42-lang/z42/blob/main/.github/ci/xtask) 所在目录加进 `$GITHUB_PATH`，之后的步骤一律写
 
 ```bash
 xtask test all --no-build --skip "$SKIP"
 ```
 
 **xtask 跑在 `.z42` SDK 上，与本地 `./xtask` 完全一致**（add-sdk-libs D7）。两个 bootstrap action 都先经
-[`setup-z42-sdk`](../../../../.github/actions/setup-z42-sdk/action.yml) 把上一版 nightly 装进仓库根 `.z42/`——
+[`setup-z42-sdk`](https://github.com/z42-lang/z42/blob/main/.github/actions/setup-z42-sdk/action.yml) 把上一版 nightly 装进仓库根 `.z42/`——
 与本地 `scripts/install-z42.sh` 同位置同形态；xtask.zpkg 也是用这份 SDK 的 z42c 编的。垫片于是只做本地
 apphost 做的事：`.z42/bin/z42vm`（Windows 带 `.exe`）+ `Z42_LIBS=.z42/libs`（调用方设了则尊重）跑
 `artifacts/xtask/xtask.zpkg`，**不设** `Z42_PORTABLE_VM` / `Z42_HOME`。
@@ -229,7 +229,7 @@ Swatinem `rust-cache` 用 `shared-key` 跨 job 共享；**一个 key 命中后�
 ## 3.1 自举种子从哪来（以及它怎么死锁过一次）
 
 **每个**跑 xtask 的 job（`ci-bootstrap` 与 `xtask-bootstrap-artifact` 两条路径都一样）都要先经
-[`setup-z42-sdk`](../../../../.github/actions/setup-z42-sdk/action.yml) 拿一份上一版 SDK，装进 `.z42/`。
+[`setup-z42-sdk`](https://github.com/z42-lang/z42/blob/main/.github/actions/setup-z42-sdk/action.yml) 拿一份上一版 SDK，装进 `.z42/`。
 它既是 xtask 运行所在的 SDK，也是 **z42c 种子**：用它编当前源码，xtask 的 `_seedSdkDir` 会自己找到 `./.z42`。
 取用顺序如下：
 
@@ -241,7 +241,7 @@ nightly release 的 z42-sdk-nightly-<rid>          （首选，10 次重试）
 报错退出（错误信息带人工恢复指引）
 ```
 
-**回退为什么是安全的**：自举纪律（[bootstrap-seed.md](../../../agent/rules/bootstrap-seed.md)）
+**回退为什么是安全的**：自举纪律（[bootstrap-seed.md](https://github.com/z42-lang/z42/blob/main/docs/agent/rules/bootstrap-seed.md)）
 保证「上一版 z42c 永远能编当前源码」——新语法与格式 bump 都是 support 先行、晚一个
 nightly 再 use。成功 CI 运行的产物顶多落后一两个 commit，牢牢在这条**单向递推**的纪律内。
 

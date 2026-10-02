@@ -2,7 +2,7 @@
 
 Infrastructure that lets a stdlib package's native code live **outside**
 the `z42vm` binary, in a separate `cdylib` that z42vm `dlopen`s at
-startup. First user: [`z42.compression`](../../../reference/src/stdlib/compression.md)
+startup. First user: [`z42.compression`](https://z42-lang.github.io/z42/reference/stdlib/compression.html)
 (shipped 2026-05-24). Designed so future heavy native stdlibs
 (`z42.net`, `z42.numerics`, second-wave `z42.crypto` algorithms) follow
 the same template.
@@ -85,7 +85,7 @@ See ``src/compiler/z42.Semantics/Codegen/IrGen.Classes.cs::EmitNativeStub``（C#
 
 ### Native search path
 
-[`src/runtime/src/native/ext.rs::native_search_paths`](../../../../src/runtime/src/native/ext.rs)
+[`src/runtime/src/native/ext.rs::native_search_paths`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/native/ext.rs)
 returns a `Vec<PathBuf>` in priority order:
 
 1. **`$Z42_NATIVE_PATH`** env var (colon-separated on Unix, semicolon
@@ -106,7 +106,7 @@ interfere.
 
 ### dlopen + registration
 
-For each matched file, [`load_one`](../../../../src/runtime/src/native/ext.rs)
+For each matched file, [`load_one`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/native/ext.rs)
 runs:
 
 1. `libloading::Library::new(path)` — opens the cdylib
@@ -143,7 +143,7 @@ the runtime call site as `unknown builtin '__deflate_compress'`.
 
 ### ext_builtins table
 
-[`VmCore.ext_builtins: Mutex<ExtBuiltinTable>`](../../../../src/runtime/src/native/ext.rs):
+[`VmCore.ext_builtins: Mutex<ExtBuiltinTable>`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/native/ext.rs):
 
 ```rust
 pub struct ExtBuiltinTable {
@@ -162,7 +162,7 @@ crate::corelib::builtin_id_of(name)                  // static BUILTINS[]
 
 ### BuiltinId high-bit dispatch
 
-[`BUILTIN_ID_EXT_BIT = 0x8000_0000`](../../../../src/runtime/src/corelib/mod.rs).
+[`BUILTIN_ID_EXT_BIT = 0x8000_0000`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/corelib/mod.rs).
 When set on a `BuiltinId.0`, dispatch routes through
 `ext_builtins.dispatch(low_31_bits)` instead of `BUILTINS[id]`. The
 existing fast-path indexing for static builtins stays one array index
@@ -171,7 +171,7 @@ resolve via the stable `by_idx` index).
 
 ### Marshalling wrappers
 
-[`wrap_deflate_compress`](../../../../src/runtime/src/native/ext.rs) and
+[`wrap_deflate_compress`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/native/ext.rs) and
 its siblings handle the Value ↔ raw-bytes conversion:
 
 ```rust
@@ -238,7 +238,7 @@ and z42vm auto-discovers it" path — the symbol resolution + wrapper
 functions are hardcoded per lib. This is intentional for stdlib's
 curated finite set; for user-extensible plugins, the existing Tier 1
 type-registry path
-([`src/runtime/src/native/loader.rs`](../../../../src/runtime/src/native/loader.rs))
+([`src/runtime/src/native/loader.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/native/loader.rs))
 is the right tool once spec C5 (byte[] / String marshal) lands.
 
 ## Relationship to Tier 1 native interop

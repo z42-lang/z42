@@ -1,6 +1,6 @@
 # platforms/desktop/ — 桌面平台测试（Tier-1 C ABI）
 
-> add-desktop-platform-backend, 2026-06-16。与 [`../wasm`](../wasm/) / [`../ios`](../ios/) /
+> 与 [`../wasm`](../wasm/) / [`../ios`](../ios/) /
 > [`../android`](../android/) 平级：desktop 作为统一 `test platform` 框架的第 4 个平台。
 
 ## 职责

@@ -3,7 +3,7 @@
 > **相关**：[对象与值表示 ABI](object-abi.md) · [嵌入宿主](embedding.md) ·
 > [Native 扩展库范式](native-extensions.md) ｜ **对齐**：2026-09-17
 >
-> 用户侧契约见参考手册 [Native 互操作（FFI）契约](../../../reference/src/embedding/native-interop.md)。
+> 用户侧契约见参考手册 [Native 互操作（FFI）契约](https://z42-lang.github.io/z42/reference/embedding/native-interop.html)。
 > 本页讲 VM 内部**怎么实现**它、为什么这么分层、哪些部分还没通电。
 
 ## 与邻页的边界
@@ -86,11 +86,11 @@
 
 | 路径 | 内容 |
 |---|---|
-| [`src/runtime/include/z42_abi.h`](../../../../src/runtime/include/z42_abi.h) | Tier 1 C 头（与 `z42_host.h` 平行） |
-| [`src/runtime/src/native/`](../../../../src/runtime/src/native) | Tier 1 在 VM 内的实现（`registry` / `marshal` / `dispatch` / `loader` / `error` / `exports` / `ext`） |
-| [`src/runtime/crates/z42-abi`](../../../../src/runtime/crates/z42-abi) | Tier 1 的 Rust 镜像（结构体 + 冻结 tag 常量 + `extern "C"` 声明） |
-| [`src/runtime/crates/z42-rs`](../../../../src/runtime/crates/z42-rs) | 面向用户的门面 crate（`Z42Type` trait + helper） |
-| [`src/runtime/crates/z42-macros`](../../../../src/runtime/crates/z42-macros) | proc macro：`methods_attr` / `module_macro` / `shim` / `signature` |
+| [`src/runtime/include/z42_abi.h`](https://github.com/z42-lang/z42/blob/main/src/runtime/include/z42_abi.h) | Tier 1 C 头（与 `z42_host.h` 平行） |
+| [`src/runtime/src/native/`](https://github.com/z42-lang/z42/tree/main/src/runtime/src/native) | Tier 1 在 VM 内的实现（`registry` / `marshal` / `dispatch` / `loader` / `error` / `exports` / `ext`） |
+| [`src/runtime/crates/z42-abi`](https://github.com/z42-lang/z42/tree/main/src/runtime/crates/z42-abi) | Tier 1 的 Rust 镜像（结构体 + 冻结 tag 常量 + `extern "C"` 声明） |
+| [`src/runtime/crates/z42-rs`](https://github.com/z42-lang/z42/tree/main/src/runtime/crates/z42-rs) | 面向用户的门面 crate（`Z42Type` trait + helper） |
+| [`src/runtime/crates/z42-macros`](https://github.com/z42-lang/z42/tree/main/src/runtime/crates/z42-macros) | proc macro：`methods_attr` / `module_macro` / `shim` / `signature` |
 | `src/compiler/z42c.semantics/src/Emission/StubEmitter.z42` | 编译器侧：`[Native]` → `CallNativeInstr` / `BuiltinInstr` 的分流 |
 
 整条通路由 cargo feature **`native-interop`** 门控（`= ["dep:libffi", "dep:libloading"]`，在默认
@@ -374,7 +374,7 @@ tag 编号已冻结，占位在那里等接。
 `.z42abi` manifest 曾是 Tier 3 的元数据载体。今天仓里只剩一个 JSON Schema 文件与一个校验它的测试
 （`src/runtime/tests/manifest_schema_validation.rs`）——**没有生产者也没有消费者**：宏不产出 manifest，
 编译器不读 manifest。相关诊断码 `E0909`（manifest 读取失败）/ `E0916`（native import 合成失败）有定义、
-零发射点，见[诊断码全表](../../../reference/src/appendix/error-codes.md)。
+零发射点，见[诊断码全表](https://z42-lang.github.io/z42/reference/appendix/error-codes.html)。
 
 ### 8.5 native 类型怎样才能脚本可见
 
@@ -414,4 +414,4 @@ tag 编号已冻结，占位在那里等接。
 - IR 指令编号与 zbc 编码：[ir.md](../formats/ir.md)
 - 宿主嵌入方向的同族 ABI：[embedding.md](embedding.md)
 - cdylib 扩展范式与加载：[native-extensions.md](native-extensions.md) · [native-ext-loader.md](native-ext-loader.md) · [native-libraries.md](native-libraries.md)
-- 用户侧契约：[Native 互操作（FFI）契约](../../../reference/src/embedding/native-interop.md)
+- 用户侧契约：[Native 互操作（FFI）契约](https://z42-lang.github.io/z42/reference/embedding/native-interop.html)

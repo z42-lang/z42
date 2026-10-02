@@ -79,7 +79,7 @@ z42 源码 ──z42c──> z42 IR
 > **基于 sealed 的去虚化（`Opt.Devirt=2048`，change `add-sealed-devirt`）**：receiver 静态类型是
 > 本地非泛型 **sealed 类** → 目标编译期唯一 → `CallEmitter._emitCall` **emit 时就地**把 `VCallInstr`
 > 降级为直接 `CallInstr`（天然在 `IrInline` 前，解锁 virtual 方法内联；`VCall` inline pass 吃不进）。
-> 目标解析不确定即回落 VCall。机制与 v1 边界详见 [sealed 修饰符 · 去虚化](../../../reference/src/language/sealed.md)。
+> 目标解析不确定即回落 VCall。机制与 v1 边界详见 [sealed 修饰符 · 去虚化](https://z42-lang.github.io/z42/reference/language/sealed.html)。
 > 🔴 **「永不 miscall」这句话此前是假的**（2026-09-27 `fix-devirt-bare-name-alias` 改正）：校验「目标确为
 > 已发射函数」用的 `Deps.Statics` **含裸名别名**（`DependencyIndex` 给 `Name$N$T` 这类 mangle 名额外注册
 > `Cls.Name` / `ns.Cls.Name`），而命中别名后拿来当直呼目标名的是**那个键本身** ⇒ 发出一条指向不存在函数名
@@ -232,7 +232,7 @@ pre-header）；⑤ **不变量**：循环体内 IsPure + **单赋值 dst** 指�
   ~~**实测 interp ~200×**（递归 `fib(23)` 循环不变调用被外提）~~——递归已不再投机外提（见上），该收益不复存在。
 
 **pass 2h 常量条件死分支消除（`Opt.DeadBranch=1024`，change `add-const-keyword`；跑在 const-fold 后、licm/cse 前）**：
-喂料来自 [`const` 编译期常量](../../../reference/src/language/const.md)替换（`const bool` 引用 → `ConstBoolInstr`）与 const-fold
+喂料来自 [`const` 编译期常量](https://z42-lang.github.io/z42/reference/language/const.html)替换（`const bool` 引用 → `ConstBoolInstr`）与 const-fold
 （常量比较 → `ConstBoolInstr`）。分两步：
 - **① 折叠**：块终结子 `br.cond(cond, T, F)` 且 `cond` 由**单赋值** `ConstBoolInstr` 产出 → 折成无条件
   `br(命中分支)`。**始终安全**（条件跳转→无条件跳转，不移块）；折掉的 `cond` 读消失，其 `ConstBool`

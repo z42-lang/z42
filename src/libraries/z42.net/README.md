@@ -22,12 +22,12 @@ z42 标准网络类型。K1: TCP sockets only (sync blocking)。UDP / IPAddress 
 
 ## 入口点
 
-- `Std.Net.Sockets.TcpClient` / `TcpListener` / `NetworkStream` (K1 TCP, 2026-05-24)
-- `Std.Net.Sockets.UdpClient` / `UdpReceiveResult` (K2 UDP, 2026-05-25)
+- `Std.Net.Sockets.TcpClient` / `TcpListener` / `NetworkStream` (TCP)
+- `Std.Net.Sockets.UdpClient` / `UdpReceiveResult` (UDP)
 - `Std.Net.Http.HttpClient` / `HttpRequest` / `HttpResponse` / `HttpHeaders` /
-  `HttpMethod` / `HttpStatusCode` / `HttpUrl` (K3 HTTP/1.1, 2026-05-25)
+  `HttpMethod` / `HttpStatusCode` / `HttpUrl` (HTTP/1.1)
 - `Std.Net.WebSockets.WebSocketClient` / `WebSocketMessage` /
-  `WebSocketMessageType` / `WebSocketState` (K4 WebSocket ws://, 2026-05-25)
+  `WebSocketMessageType` / `WebSocketState` (WebSocket ws://)
 
 ## src/WebSockets/ 核心文件
 

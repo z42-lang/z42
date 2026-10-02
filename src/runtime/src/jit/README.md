@@ -39,7 +39,7 @@ cargo test --manifest-path src/runtime/Cargo.toml --lib jit::lazy   # 惰性编�
 Z42_JIT_PROFILE=1 <z42vm> <artifact> <entry> --mode jit             # 打印每个被惰性编译的函数（数十，非整套 stdlib）
 ```
 
-## Helper 边界（formalize-jit-vm-interface, 2026-05-07）
+## Helper 边界
 
 加新 helper 改 **2 处**:
 1. 对应 `helpers/<category>.rs` 添加函数定义

@@ -5,7 +5,7 @@ z42vm —— Rust 写的虚拟机：加载 `.zpkg`、执行字节码、管理内
 > 想知道**怎么调**运行时旋钮（`--set` / `Z42_GC_*`）→ [语言与库参考](https://z42-lang.github.io/z42/reference/)。
 > 本部分只回答「怎么实现的、为什么这样、在哪改」。
 
-代码在 `src/runtime/`（crate `z42`）；产物格式见[产物格式](../formats/README.md)。
+代码在 `src/runtime/`（crate `z42`）；产物格式见[产物格式](../formats/index.md)。
 
 ## 从哪读起
 

@@ -2,7 +2,7 @@
 
 > 对齐：2026-09-17（change `restructure-docs-three-books`）｜ 代码：`src/toolchain/launcher/core/launcher_export.z42`、`src/toolchain/workload/{ios,android,wasm}/appbuilder/export.z42`
 >
-> `[platform.*]` 有哪些键 → [`z42.toml` 参考](../../../reference/src/toolchain/z42-toml.md)；
+> `[platform.*]` 有哪些键 → [`z42.toml` 参考](https://z42-lang.github.io/z42/reference/toolchain/z42-toml.html)；
 > export 与其它动词的分工 → [平台发布与导出](platform-export.md)。
 
 `z42 export <manifest> --rid <rid>` 从一份平台无关的工程描述生成对应平台的原生工程骨架，

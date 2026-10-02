@@ -196,4 +196,4 @@ int y = (int)c2;           // (T)x 亦接受 implicit → 30
 - 引入/演进：change `add-conversion-classifier`（PR1）、`tighten-implicit-conversions`（PR2）、`add-user-conversions`（PR3，用户自定义转换 + ②③ 改进）——均已落地
 - [enum](enums.md)——枚举值装箱后的类型身份
 - [结构体](structs.md)——值类型的复制语义
-- 承载代码：[`z42c.semantics/README.md`](../../../../src/compiler/z42c.semantics/README.md)
+- 承载代码：[`z42c.semantics/README.md`](https://github.com/z42-lang/z42/blob/main/src/compiler/z42c.semantics/README.md)

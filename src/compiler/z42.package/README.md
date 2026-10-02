@@ -1,25 +1,12 @@
 # z42.package
 
-> 📌 **2026-09-27 两次更名**（均 User 裁）：
-> 1. **包名** `z42.ir` → `z42.package`（#896）。理由：它装的**不只是 IR 模型**，而是「整个 package
->    文件的读写」—— IR 内存模型是包文件的**内容模型**，zbc 是它的编码，zpkg 是容器，三者是一件事。
->    包名不出现在任何 FQN 里，所以调用点零改；只需一份旧文件名的运行期兼容副本
->    （落在只挂 `probing-paths` 的目录、**不进编译期 libs**——进去会让编译器看见两个包导出相同
->    FQN ⇒ `E0606`）。下一 nightly 后删除，已挂阶段-2 欠账。
-> 2. **命名空间** `Z42.Project` → `Z42.Package`（change `rename-project-namespaces` B3a）。本库里装
->    zpkg 容器读写的那个命名空间原先叫 `Z42.Project` —— 名字装错了内容（真正的工程清单模型在
->    `z42.project` 包里，只能退到 `Z42.Project`）。这次**抹掉了旧 FQN**，比包名改名难一个
->    数量级：上一代二进制在运行期按旧 FQN 调用，文件副本救不了。代际约束见该 change 的
->    design.md §3/§6/§7。
->
-> 工程清单那一半（`Z42.Project` → `Z42.Project`）**延后**：它撞上 xtask 的跨代性
-> （编译与运行都挂在上一代 SDK 上），需要先加一版并存、跨一个 nightly。见 design.md §6。
-
+> 📌 **命名**：包名 `z42.package`、命名空间 `Z42.Package`。它装的**不只是 IR 模型**，而是「整个 package
+> 文件的读写」—— IR 内存模型是包文件的**内容模型**，zbc 是它的编码，zpkg 是容器，三者是一件事。
+> 真正的工程清单模型在 `z42.project` 包里（命名空间 `Z42.Project`）。
 
 ## 职责
 编译栈**基础库**：IR 内存模型 + zbc 单模块字节码格式 + zpkg 包格式后端 + 类型导出/依赖索引。
-z42c / z42b / 未来 REPL·分析工具经本库**共享**「emit IR → zbc/zpkg 读写」实现（converge-z42c-ir-metadata-onto-stdlib：
-从旧 `z42c.ir` + `z42c.project`(zpkg 后端) 下沉，沿用 `z42.project` 收敛范式）。无编译器逻辑（IrGen 留 z42c.semantics）。
+z42c / z42b / 未来 REPL·分析工具经本库**共享**「emit IR → zbc/zpkg 读写」实现。无编译器逻辑（IrGen 留 z42c.semantics）。
 
 ## 核心文件
 | 分组 | 文件 | 职责 |
@@ -56,8 +43,5 @@ xtask test runtime                     # VM 读 tests/fixtures/ 的字节基线�
 [zpkg-format/README.md](tests/fixtures/zpkg-format/README.md) 的配方重生。格式 bump 的完整步骤见
 [version-bumping.md](../../../docs/agent/rules/version-bumping.md)。
 
-> 这三个单元 2026-09-06 前**从未跑过**：它们曾是 `tests/<name>/<name>_tests.z42` +
-> 手写 `.z42.toml`，而 stdlib 的 dir 单元发现要求目录里有 `source.z42`，于是三个目录
-> 全被静默跳过，`test stdlib z42.package` 报「all 0 file(s) passed」。改成 flat 单文件后
-> 才真正入门禁——首次运行即抓出 `zpkg.z42` 里钉死的 zpkg minor 已过期 10 个版本。
-> 详见 change `tidy-test-layout`。
+> 这三个单元为 flat 单文件（`tests/<name>.z42`）：stdlib 的 dir 单元发现要求目录里有 `source.z42`，
+> 否则会被静默跳过（`test stdlib z42.package` 报「all 0 file(s) passed」）。

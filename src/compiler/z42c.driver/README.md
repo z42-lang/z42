@@ -10,19 +10,19 @@ CLI 入口（命令路由）。唯一 **exe** 子包，对外别名 = 用户 `z4
 | `src/BuildCommand.z42` | `z42c build` 参数解析：未知选项报错、`-h`、`--quiet`；不给清单时 `ManifestLocator.FindUp` 定位（工作区 → `--workspace`）→ `_build` / `_buildWorkspace` |
 | `src/BuildLog.z42` | 进度行开关（`--quiet` 抑制 `cached:` / `wrote ->` / `cache ->`；诊断不受影响）|
 | `src/PathDepBuild.z42` | path 依赖闭包代建（`_buildPathDepClosure`，自 Main.z42 `_build` 搬出）：`PathDepPlan.Resolve` 叶子在前的闭包 → 逐个 `_build` + 累积 libsDirs，结果经 `PathClosureOut` 回给调用方 |
-| `src/IndexedDist.z42` | indexed dist 投影（add-indexed-zpkg-min-patch）：散装 zbc 原样落盘（字节相等不触碰→最小 patch）+ FILE 主文件 + 孤儿清理 |
+| `src/IndexedDist.z42` | indexed dist 投影：散装 zbc 原样落盘（字节相等不触碰→最小 patch）+ FILE 主文件 + 孤儿清理 |
 | `src/BuildPaths.z42` | pack 模式守卫（`_distModeMatches`：packed↔indexed 切换使 preserved 失效）+ handler 指纹 + 可复现 build_id；dist/cache 目录解析在 z42.project `BuildLayout` |
 | `src/ProfileKnobs.z42` | 构建期旋钮名校验（compiler-checks-knob-names）：`_validateProfileKnobs` 在 `_build` 早期扫全部 `[profile.<n>.runtime]`——未知名 → warning + 最近邻建议（全集问 `Std.Runtime.RuntimeConfig.Names()`，不留第二份清单）；`[profile.<n>]` 下直接写键 → 致命，库工程同样管 |
 | `src/RuntimeConfigSidecar.z42` | `dist/<name>.runtimeconfig.toml` 侧车生成（`[runtime]` 旋钮 + `[properties]` 应用属性，分表）|
-| `src/IncrementalDriver.z42` | 文件级增量编排（add-file-level-incremental）：`Prepare`（种子 → parse-all → **名字级指纹 diff** → 失效闭包 → cached zbc 读回 + meta 残留回填，失败降级 fresh）/ `WriteMetas`（meta + 包级源清单落 cache）/ `_writeCacheZbc`。**`Prepare(..., canPreserve)`**：`canPreserve` 由调用方按「dist 主文件在 + pack 模式一致 + 非多 exe」预先算好——只有它为真时，全命中才可廉价早退（调用方马上 preserved、用不到 IrModule）；为假时**必须**把 cached zbc 读回来，否则调用方装配 dist 时拿不到模块只能全部重编（fix-incr-allcached-cache-drop） |
-| `src/SurfaceHash.z42` | **名字级**声明面指纹（incr-name-level-invalidation）：token 流剥掉方法/属性/索引器**体内** token 后，按「上一个声明的收尾符」切片，逐名字（类型/enum/自由函数/成员方法/成员字段/enum 成员）各出一个指纹 + 该文件声明面标识符集。增量闭包的判据来源——「改注释 / 改函数体」零波及、「新增类型 / 新增函数」只波及真正提到新名字的文件 |
+| `src/IncrementalDriver.z42` | 文件级增量编排：`Prepare`（种子 → parse-all → **名字级指纹 diff** → 失效闭包 → cached zbc 读回 + meta 残留回填，失败降级 fresh）/ `WriteMetas`（meta + 包级源清单落 cache）/ `_writeCacheZbc`。**`Prepare(..., canPreserve)`**：`canPreserve` 由调用方按「dist 主文件在 + pack 模式一致 + 非多 exe」预先算好——只有它为真时，全命中才可廉价早退（调用方马上 preserved、用不到 IrModule）；为假时**必须**把 cached zbc 读回来，否则调用方装配 dist 时拿不到模块只能全部重编（fix-incr-allcached-cache-drop） |
+| `src/SurfaceHash.z42` | **名字级**声明面指纹：token 流剥掉方法/属性/索引器**体内** token 后，按「上一个声明的收尾符」切片，逐名字（类型/enum/自由函数/成员方法/成员字段/enum 成员）各出一个指纹 + 该文件声明面标识符集。增量闭包的判据来源——「改注释 / 改函数体」零波及、「新增类型 / 新增函数」只波及真正提到新名字的文件 |
 
 ## 入口点
 `Z42.Driver.Main`（auto-detected exe 入口）。
 用法：`z42c --dump-tokens|--dump-ast|--dump-bound <file.z42>` / `z42c --emit-zbc <file.z42> <out.zbc>` /
 `z42c build <project.z42.toml> [--release] [--no-incremental]`（`[project].pack` 决议 packed/indexed：debug 默认 indexed——散装 zbc + FILE 主文件，`pack=false ∧ --release` 报错） / `z42c build --workspace [--output-dir <d>]`。
 
-## 增量编译（文件级，add-file-level-incremental 2026-07-08）
+## 增量编译（文件级）
 `build` 的判定与组装 SoT = cache（`<rel>.zbc` fullMode + `<rel>.meta` + 包级源清单，
 `[build].cache_dir` → `${output_dir}/.cache`；workspace 成员由 `WsPlan.CacheDirs` 给出）。
 **不论是否增量都落盘**（含 workspace / `--output-dir` / `--no-incremental` / 多 exe）；workspace 构建目前只写不读
@@ -46,7 +46,7 @@ vm-architecture.md 的「VM 启动流程」`libs_env_to_publish`）。SDK 安装
 z42vm <programs/z42c>/z42c.driver.zpkg -- --emit-zbc <file.z42> <out.zbc>
 z42vm <out.zbc> Main        # 执行自举编译器产物
 ```
-仅当 libs 不在 VM 的默认搜索路径（如把 z42c 后端包 + 前端库 + stdlib 临时合到自定义 flat 目录）时，
+仅当 libs 不在 VM 的默认搜索路径（如把 z42c 后端包 + 前端库 + stdlib 合到自定义 flat 目录）时，
 才需显式 `Z42_LIBS=<flat>` 覆盖——此时**必须是单个**目录含全部依赖（见 self-hosting.md 的
 Z42_LIBS 单目录陷阱）。端到端冒烟由 `xtask test compiler` 的 e2e 步骤覆盖（自检程序 +
 div-by-zero oracle）。

@@ -2,10 +2,9 @@
 
 ## 职责
 正则表达式 parser + 匹配 / 搜索 / 替换 / split。RFC 5234 + POSIX BRE/ERE
-子集。对标 C# `System.Text.RegularExpressions.Regex` + Python `re` +
-JavaScript `RegExp`。
+子集。接口参照 Python `re` / JavaScript `RegExp`。
 
-**引擎**：backtracking NFA（同 Python/Java/JS/C#）。简单、覆盖 90% 用例；
+**引擎**：backtracking NFA（同 Python/Java/JS）。简单、覆盖 90% 用例；
 pathological pattern（`(a+)+x` 类）下可能指数时间 — 详 design doc Deferred。
 
 ## 核心文件

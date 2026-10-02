@@ -355,7 +355,7 @@ closure 的 `ClosureData`、array 的元素后端原本各自在 GC **外**（�
 全部收进 GC，达成 CLR/JVM 式的**单一堆**（为将来移动/压缩/去重 GC 铺路）。
 
 **分配器方向 = A'（变长块 region）**：新增第三个 region
-`region_var: Mutex<VarRegion>`（[`gc/var_region.rs`](../../../../src/runtime/src/gc/var_region.rs)），
+`region_var: Mutex<VarRegion>`（[`gc/var_region.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/gc/var_region.rs)），
 与 `region_object` / `region_array` 并列、同一 mark/sweep cycle 回收。一个变长对象 =
 **单块 `{GcBlockHeader, inline payload…}` 单次分配**（等价原 thin-Arc 的紧凑度，但纳入 GC）。
 
@@ -377,7 +377,7 @@ VarRegion 变长块（16B 对齐原始 chunk + 四分之一八度 size-class fre
 | `ArrayPrim` / `ArrayStruct` | 紧凑 `[T;n]`（packed 基元 / struct[] 字节区）| `ArrayObj` backing | POD，无 |
 | `ArrayValue` | inline `[Value;n]`（Boxed 数组 / struct[] refs 侧表）| `ArrayObj` backing | **唯一需 finalizer**：drop 每个 `Value` |
 
-**分配落地 = ambient 堆**（[`gc/ambient.rs`](../../../../src/runtime/src/gc/ambient.rs)）：`current_heap()` +
+**分配落地 = ambient 堆**（[`gc/ambient.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/gc/ambient.rs)）：`current_heap()` +
 `HeapGuard` 在 `exec_function`（interp 每帧）/ `jit::run_fn`（JIT 顶层）设 thread-local，
 `Str::new`/`.into()` 走活堆分配 → **~189 处 `.into()` 站点零改动**；无堆上下文（无 VM 的单测）
 回退 `alloc_leaked`。避免了「188 处线程穿透 `&heap`」的侵入式改造（D11）。
@@ -395,7 +395,7 @@ chunk 内存还给系统 malloc，新堆可能在**同一地址**重分配块，
 **融合拼接分配 `alloc_str_concat2(a, b)`**（fuse-str-concat-alloc, 2026-08）：字符串 `+`
 （IR `StrConcat` / `Std.String.Concat`）此前走 `alloc_str(&format!("{a}{b}"))`——**两次堆分配**
 （中间 `String` + GC 块）+ interp 侧还各 clone 一份操作数（`str_val`）共 **4 次分配 / 3 次 O(n) 拷贝**。
-`MagrGC::alloc_str_concat2`（[`gc/heap.rs`](../../../../src/runtime/src/gc/heap.rs)，`ArcMagrGC` 覆写
+`MagrGC::alloc_str_concat2`（[`gc/heap.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/gc/heap.rs)，`ArcMagrGC` 覆写
 `alloc_str_concat2_in_region`）按 `a.len()+b.len()` **一次性**分配 `BlockType::Str` 块、直接拷入两段，
 **降到 1 次分配 / 1 次拷贝**（两段皆合法 UTF-8 → 拼接合法）。interp `str_concat`/`Add` 字符串臂借
 `&str` 直传、JIT `jit_str_concat` helper 同步。产出字节相同。热字符串 workload 实测 mimalloc 压力
@@ -507,10 +507,10 @@ only 验证器在每次 collect 末尾检查；release 构建完全编译掉。
 
 **两层 API**：
 
-- [`Region<T>::validate(&self) -> Result<(), Violation>`](../../../../src/runtime/src/gc/region.rs)
+- [`Region<T>::validate(&self) -> Result<(), Violation>`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/gc/region.rs)
   —— per-region check，返回结构化 `Violation` 让 test 通过模式匹配确
   认期望的 invariant 被触发
-- [`ArcMagrGC::debug_validate_invariants(&self)`](../../../../src/runtime/src/gc/arc_heap.rs)
+- [`ArcMagrGC::debug_validate_invariants(&self)`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/gc/arc_heap.rs)
   —— panicking wrapper，由 collect 路径在 cycle 完成后调用；任何
   violation 立即 panic + 详细消息
 

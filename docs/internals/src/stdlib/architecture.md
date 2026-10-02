@@ -5,7 +5,7 @@
 >
 > 包怎么划分、新包怎么开 → [包划分与依赖层级](organization.md)。
 > builtin 表结构 / `BuiltinId` 不变式 / typed native 通路 → [native ABI](../runtime/native-abi.md)。
-> 用户怎么调这些 API → 参考手册 [标准库](../../../reference/src/stdlib/README.md)。
+> 用户怎么调这些 API → 参考手册 [标准库](https://z42-lang.github.io/z42/reference/stdlib/index.html)。
 
 本页写**一个 stdlib 方法该落在哪一层实现**、全仓 native 表面今天有多大、以及新增一个 builtin 要改哪几处。
 

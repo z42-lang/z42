@@ -8,7 +8,7 @@
 | `symbolicate` | 离线还原剥离档崩溃栈（`at <fn> +0x<off>` + `.zsym` → `file:line:col`）| ✅ 已实现 |
 | `install` | 把 SDK 自带的编辑器集成装进用户编辑器（`z42d install vscode`）| ✅ 已实现（unify-editor-install）|
 |--------|------|----------------|
-| `fmt`  | z42 源码格式化 | planned（0.2.4 → 0.4.x；收编原独立 `z42-fmt`）|
+| `fmt`  | z42 源码格式化 | planned（0.2.4 → 0.4.x）|
 | `doc`  | doc comment → HTML/markdown 文档站点 | planned（0.4.6；收编原独立 `z42-doc`）|
 | `dbg`  | 调试器（断点 / 单步 / 变量）| planned（前端在本目录 + VM 断点/单步钩子住 `runtime/`，DAP 0.8.x）|
 | `prof` | 运行期 / 编译期性能剖析 | planned（0.4.4 Pv4/Pc4 profiling 门控）|
@@ -77,7 +77,7 @@ z42d symbolicate crash.txt --syms symdir/ --syms other.zsym # 多个（目录递
 > 2. [roadmap.md:260-263](../../../docs/roadmap.md) —— 又规划**独立 binary** `z42-fmt`/`z42-lint`/`z42-doc`
 > 3. 本目录 —— 统一收进 muxer `z42d`
 >
-> `fmt`/`doc` 同时出现在「z42c 动词集」与「独立 binary」两处。User 决策（2026-06-30）：
+> `fmt`/`doc` 同时出现在「z42c 动词集」与「独立 binary」两处。User 决策：
 > **先立 z42d 骨架，暂不动 z42c 规划**；三处收敛留待各工具真正实现期裁决（倾向：z42d 统一承接，
 > z42c 退为纯编译动词，launcher 转发）。届时同步改 roadmap 唯一真相。
 
@@ -91,7 +91,7 @@ z42d symbolicate crash.txt --syms symdir/ --syms other.zsym # 多个（目录递
 
 🟡 **骨架占位，已打包**。命令面 + apphost bin/payload 均已就位，`z42.devtools.z42.toml`
 已登记进 [`scripts/packages.toml`](../../../scripts/packages.toml)（`[component.z42d]`，
-2026-07-01 User 裁决），随 SDK 包一起发行——但每个子命令目前仍只打印 "planned" 并
+User 裁决），随 SDK 包一起发行——但每个子命令目前仍只打印 "planned" 并
 `return 1`，尚无一个真正实现。
 
 落地走 spec-first（架构性 + 多工具分期），各工具按 `docs/roadmap.md` 时点推进。

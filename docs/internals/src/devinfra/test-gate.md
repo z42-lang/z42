@@ -165,7 +165,7 @@ walker 文件里找 `is <类名>`；全集里既不被匹配、又不在该 walk
 **不硬编码计数**——那种计数本身在漂。
 
 **`diagcodes` 是活体对账 + 一条棘轮**（`scripts/test/xtask_test_diagcodes.z42`）。守的是
-**用户可见契约**：拿到 `E0477` 会去[诊断码全表](../../../reference/src/appendix/error-codes.md)
+**用户可见契约**：拿到 `E0477` 会去[诊断码全表](https://z42-lang.github.io/z42/reference/appendix/error-codes.html)
 查它是什么意思，一码两义 ⇒ 查到的是**另一个诊断的解释**——比查不到更坏，因为它看起来是个答案。
 唯一 SoT 是 `DiagnosticCodes.z42`。规则（**不写条数**——这一页上面刚说过「不硬编码计数」，
 而这里原先写着「五条」却列了七条，正是它自己在漂）：
@@ -174,7 +174,7 @@ walker 文件里找 `is <类名>`；全集里既不被匹配、又不在该 walk
 2. **发射出去的每个码都必须在登记表里登记**（扫 `src/**` 非 `tests/`，剥行注释后取字符串字面量）；
 3. `DiagnosticCodes.<Name>` 引用的常量名必须存在（防笔误造幽灵码）；
 4. 字面量发码站点清单 `scripts/test/diag-literal-emitters.txt` **双向棘轮**（多一条 / 少一条都红）；
-5. [诊断码全表](../../../reference/src/appendix/error-codes.md)的码 ↔ 登记表**双向相等**；
+5. [诊断码全表](https://z42-lang.github.io/z42/reference/appendix/error-codes.html)的码 ↔ 登记表**双向相等**；
 6. 清单里的每条**欠账必须按时结清**——字面量发码的正当理由（常量还没进种子）**会过期**，
    挂账超过宽限期（3 天）即红，逼它切回 `DiagnosticCodes.<Name>`；
 7. **任何源文件的散文里都不得断言发射形态**——不准写「XX 层用字面量 `E04xx` 发码」。形态是
@@ -232,7 +232,7 @@ walker 文件里找 `is <类名>`；全集里既不被匹配、又不在该 walk
 
 > **发射点为什么还允许用字面量**：新增的 `DiagnosticCodes` 常量**不能在同一个 PR 里被引用**
 > （上一版 z42c 的 `z42c.core` 里还没有这个常量，见
-> [bootstrap-seed.md](../../../agent/rules/bootstrap-seed.md) 的分阶段引入纪律；`GeneratorDriver`
+> [bootstrap-seed.md](https://github.com/z42-lang/z42/blob/main/docs/agent/rules/bootstrap-seed.md) 的分阶段引入纪律；`GeneratorDriver`
 > 的 E0449 是走完两阶段的既有先例）。所以字面量是**过渡期形态**，清单只应缩短。
 >
 > **清算是常态、不是一次性事件**：2026-09-23 `migrate-diag-literals-to-constants` 切回 100 个发射点，

@@ -540,7 +540,7 @@ string Greet<T>(T t) where T: IGreet { return t.Hello(); }
 **永久禁止：impl 块内 `extern` 方法**（Decision 2026-04-26）：
 
 `extern` 关键字的语义是"VM intrinsic / host FFI 绑定"，是类型本身的一部分（与
-类型同生命周期）。`int.op_Add` 的 native 绑定属于 [Int32.z42](../../../../src/libraries/z42.core/src/Primitives/Int32.z42)
+类型同生命周期）。`int.op_Add` 的 native 绑定属于 [Int32.z42](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/Int32.z42)
 的 struct body，**不应该被任何外部包通过 impl 块追加**。
 
 理由：
@@ -816,7 +816,7 @@ VM interp:  ObjNew 时创建实例化 TypeDesc（填充 type_args）
 
 ### 设计：shadow-only mangling
 
-[`Z42ClassType`](../../../../src/compiler/z42c.semantics/src/Types/Z42Type.z42) 增 `IrName` 派生属性 + `HasArityMangle` 标志：
+[`Z42ClassType`](https://github.com/z42-lang/z42/blob/main/src/compiler/z42c.semantics/src/Types/Z42Type.z42) 增 `IrName` 派生属性 + `HasArityMangle` 标志：
 
 | 场景 | Registry key | `IrName` | `HasArityMangle` |
 |------|-------------|---------|-----------------|
@@ -857,7 +857,7 @@ GenericType("Foo", [T..])   → _classes["Foo$N"] first, fallback _classes["Foo"
 
 ## Deferred / Future Work
 
-> 索引也存于 [docs/roadmap.md](../../../roadmap.md) "Deferred Backlog Index"。
+> 索引也存于 [docs/roadmap.md](https://github.com/z42-lang/z42/blob/main/docs/roadmap.md) "Deferred Backlog Index"。
 
 ### D-4: 协变 / 逆变（`<in T, out R>` 等）
 

@@ -3,12 +3,12 @@
 ## 职责
 语法层（Lexer 词法 + Parser 语法 → AST）。命名空间 `Z42.Syntax`。手写 Lexer + Pratt 表达式 + 递归下降语句/声明（class 继承 + virtual `Dump()` 出 s-expression，受限写法）。依赖 `z42c.core`（Span/Diagnostic）。
 
-> **位置（converge-z42-syntax-lib，route A 地基）**：本包是 **host-platform-independent 可移植前端**，已从 `src/compiler/` 挪进 `src/libraries/`，成 z42c 编译器**与** scripting/playground/runtime 共享的可移植库。**包名/命名空间不变**（仍 `z42c.syntax` / `Z42.Syntax`）——非 Std/z42.* 标准库 API 面，只是恰好与 stdlib 同处 build+ship。冷启动破环预建见 [self-hosting.md](../../../docs/internals/src/compiler/self-hosting.md) 轴 ④。
+> **位置**：本包是 **host-platform-independent 可移植前端**，供 z42c 编译器**与** scripting/playground/runtime 共享。非 Std/z42.* 标准库 API 面，只是恰好与 stdlib 同处 build+ship。冷启动破环预建见 [self-hosting.md](../../../docs/internals/src/compiler/self-hosting.md) 轴 ④。
 
 ## 核心文件
 | 文件 | 职责 |
 |------|------|
-| `src/TokenKind.z42` | token 类型常量（int；镜像 C# enum TokenKind）——含 `readonly`(150) / `const`(151) 字段修饰关键字 + `implicit`(59) / `explicit`(60) 转换运算符修饰关键字 |
+| `src/TokenKind.z42` | token 类型常量（int）——含 `readonly`(150) / `const`(151) 字段修饰关键字 + `implicit`(59) / `explicit`(60) 转换运算符修饰关键字 |
 | `src/Token.z42` | 词法 token（Kind / Text / Span）|
 | `src/Lexer.z42` | 手写词法器：trivia 跳过 + 标识符/关键字 + 数字（十进制/hex/bin + `_` 分隔 + 小数/指数 + 后缀）+ 字符串/字符/raw `"""`/插值 `$"` + 全符号最长匹配 + EOF；`DecodeString` 转义解码（C 系单字符全集 `\a\b\f\n\r\t\v\0\\\"\'`）+ 未知转义报 E0102 |
 | `src/TypeExpr.z42` | 类型表达式 AST（TypeExpr + virtual Dump；NamedType/ArrayType/NullableType；Dump 复刻规范 type-text）+ TypeParamList（形参 `<T>`）+ WhereClause/WhereConstraint（泛型约束）|
@@ -23,12 +23,11 @@
 ## 入口点
 `Z42.Syntax.Parser`（`new Parser(src,file)`）：`ParseExpression()` → `Expr` / `ParseStatement()` → `Stmt` / `ParseCompilationUnit()` → `CompilationUnit`（均 `.Dump()` 出 s-expression）；`Z42.Syntax.Lexer`：`Tokenize()` → `TokenCount()`/`TokenAt(i)`。
 测试：`tests/{lexer.z42 27, decl.z42 33, parser.z42 23, stmt.z42 21, incomplete_at_eof.z42 8,
-dump.z42 2}`（共 114 个 `[Test]`），经 **`xtask test stdlib z42c.syntax`**（本库住
-`src/libraries/`，走 stdlib [Test] 门禁；`xtask test compiler` 只扫
-`src/compiler/<member>/tests/`，扫不到这里——2026-09-06 前这些单元因此从未运行，
-见 change `tidy-test-layout`）。
+dump.z42 2}`（共 114 个 `[Test]`），经 **`xtask test stdlib z42c.syntax`**（走
+stdlib [Test] 门禁；`xtask test compiler` 只扫
+`src/compiler/<member>/tests/`，扫不到这里）。
 **z42c driver 已接前端**：`z42c --dump-tokens|--dump-ast <file.z42>`（调用 `DumpTool`）——自举编译器前端作为真实 CLI 可跑（0.3.4 lex/parse 解锁）。
-**incr 6d 全部完成**：类型全部结构化（TypeExpr + TypeParamList + WhereClause；is/as/new/var-decl/foreach/声明位/catch/where 全切；`_parseTypeText`/`_consumeAngles` 已移除）。
+类型全部结构化（TypeExpr + TypeParamList + WhereClause；is/as/new/var-decl/foreach/声明位/catch/where 全切）。
 待移植（incr 6e+）：byte-identical 对账（最硬，强依赖 AST 形态）；lambda；Visitor（并入后端 semantics）；转义 `\0`/`\uXXXX` 解码。
 
 ## 依赖关系

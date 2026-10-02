@@ -24,7 +24,7 @@ xtask deps install vscode   # 重新生成 grammar + symlink 到 <repo>/.vscode/
 # 重载 VSCode 窗口即生效；首次会提示信任/启用 workspace 扩展（需 VSCode ≥1.89）
 ```
 
-装在**项目目录**而非用户目录（User 裁决 2026-07-08：工作区本地扩展）：随仓库走、
+装在**项目目录**而非用户目录（User 裁决：工作区本地扩展）：随仓库走、
 不污染 `~`；symlink 用相对路径，仓库整体移动不破链（已 gitignore）。
 Windows：不支持自动 symlink，把本目录复制到 `<repo>\.vscode\extensions\z42.z42-lang`。
 

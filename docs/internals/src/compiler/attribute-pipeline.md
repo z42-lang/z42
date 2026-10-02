@@ -4,7 +4,7 @@
 > `MacroRegistry.z42`、`AnalyzerDriver.z42`
 
 用户面的写法（后缀约定、五个反射载体、`#suppress`、caller 宏）见 reference 的
-[自定义 Attribute 与反射](../../../reference/src/language/attributes.md)。本页写**编译器怎么把
+[自定义 Attribute 与反射](https://z42-lang.github.io/z42/reference/language/attributes.html)。本页写**编译器怎么把
 `[X]` 变成运行期能读回的活实例**。
 
 > 范围：本页只讲 **store-meta** 一支——即「`[X]` 是纯元数据，运行期经反射读回」。
@@ -187,7 +187,7 @@ z42 一侧（`Type.z42` / `Reflection/*.z42`）把结果缓存在反射对象的
 
 **发码**：`DeclBinder._validateCallerMacroDefaults` 发 `DiagnosticCodes.CallerMacroInvalid`。
 ⚠️ 它**曾经**用字面量 `"E0450"`——新增的 `DiagnosticCodes` 常量不能在同一个 PR 里被引用（上一版
-z42c 的 `z42c.core` 里还没有它，见 [bootstrap-seed.md](../../../agent/rules/bootstrap-seed.md)
+z42c 的 `z42c.core` 里还没有它，见 [bootstrap-seed.md](https://github.com/z42-lang/z42/blob/main/docs/agent/rules/bootstrap-seed.md)
 的分阶段引入纪律）。常量随 nightly 进种子后，`migrate-diag-literals-to-constants`（2026-09-23）
 把这一族 100 个发射点整体切回了常量引用。**新码仍按老路走**：先字面量一轮，跨一个 nightly 再切回，
 过渡期由 `xtask test diagcodes` 的第 ④ 条棘轮盯着。
@@ -252,6 +252,6 @@ statics / exceptions / strings / reflection）。真正的修法是让 typecheck
 
 ## 关联文档
 
-- 用户面写法：[自定义 Attribute 与反射](../../../reference/src/language/attributes.md)
+- 用户面写法：[自定义 Attribute 与反射](https://z42-lang.github.io/z42/reference/language/attributes.html)
 - wire 布局：[zbc 格式](../formats/zbc.md)
 - `available!()` 的运行期折叠：[符号可用性折叠](../runtime/availability-folding.md)

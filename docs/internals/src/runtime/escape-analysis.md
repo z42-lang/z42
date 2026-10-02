@@ -369,5 +369,5 @@ reference 那条「循环变量每次迭代是新绑定」的语义**由值快�
 
 ## 关联文档
 - 开关 / 管线位置：[optimization-pipeline](optimization-pipeline.md)
-- 闭包的用户面捕获语义：[闭包与捕获语义](../../../reference/src/language/closures.md)
-- 格式 bump：[version-bumping.md](../../../agent/rules/version-bumping.md)
+- 闭包的用户面捕获语义：[闭包与捕获语义](https://z42-lang.github.io/z42/reference/language/closures.html)
+- 格式 bump：[version-bumping.md](https://github.com/z42-lang/z42/blob/main/docs/agent/rules/version-bumping.md)

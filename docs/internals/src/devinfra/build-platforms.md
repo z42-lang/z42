@@ -7,7 +7,7 @@
 > `scripts/install/xtask_install{,_android}.z42`、`scripts/versions.toml`
 >
 > 嵌入宿主的**契约**（C ABI、三层架构）见[嵌入宿主](../runtime/embedding.md)与
-> [参考手册 · C ABI](../../../reference/src/embedding/c-abi.md)；打发行包见[打包与发版](release.md)。
+> [参考手册 · C ABI](https://z42-lang.github.io/z42/reference/embedding/c-abi.html)；打发行包见[打包与发版](release.md)。
 
 把 z42 VM 编进浏览器 / iOS / Android 宿主，并在那些宿主上跑 R1–R7 嵌入契约测试。三个平台统一
 三段结构：**① host 环境准备 → ② 编 facade → ③ 跑测试**。要读这页的场景：改

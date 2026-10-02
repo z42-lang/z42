@@ -3,7 +3,7 @@
 > 对齐：2026-09-17（change `restructure-docs-three-books`）｜ 代码：`scripts/xtask.z42`、`scripts/xtask_cli.z42`、`scripts/cli/`、`scripts/common/`
 >
 > 每个子命令的旗标以 `xtask <命令> -h` 为准（帮助文本由路由树自动生成）；逐文件职责表见
-> [`scripts/README.md`](../../../../scripts/README.md)，本页不复列。
+> [`scripts/README.md`](https://github.com/z42-lang/z42/blob/main/scripts/README.md)，本页不复列。
 
 `xtask` 是仓库里所有开发动作（构建 / 测试 / 打包 / 依赖 / 基准 / 剖析）的唯一入口，
 本身是一个用 z42 写、由 z42c 编译、跑在 z42vm 上的 z42 程序。
@@ -39,11 +39,11 @@
 代价是**自举依赖**：编 xtask 需要 z42c 和 stdlib，而它们又由 xtask 编排构建（见 §5）。
 
 依赖面：`Std.*` 不列，按名从 `Z42_LIBS` 解析；编译器域的 `Z42.Project` / `Z42.Build` 声明为 SDK 库
-（`{ version = "*", deploy = "sdk" }`，见 [z42-toml.md](../../../reference/src/toolchain/z42-toml.md)）。xtask 本来就
+（`{ version = "*", deploy = "sdk" }`，见 [z42-toml.md](https://z42-lang.github.io/z42/reference/toolchain/z42-toml.html)）。xtask 本来就
 强依赖 SDK：本地 `./xtask` 与 CI 垫片都用仓库根 `.z42/` 编它、跑它。所以**不复制**：编译期从这份 SDK 的
 `programs/z42c/` 解析；运行期侧车自动带 `${Z42_HOME}/programs/z42c`，VM 从自己的位置（`.z42/bin/z42vm`）推出
 `.z42`，取的是同一份。编 xtask 的是上一 nightly，所以 xtask 用这两个包的新 API 要晚一个 nightly
-（[bootstrap-seed.md](../../../agent/rules/bootstrap-seed.md)「stdlib API 面」）。
+（[bootstrap-seed.md](https://github.com/z42-lang/z42/blob/main/docs/agent/rules/bootstrap-seed.md)「stdlib API 面」）。
 
 ### 改了 `scripts/*.z42` 之后
 
@@ -131,7 +131,7 @@ graph TD
 （见[构建编排](build.md)）。
 
 为什么种子必须存在、新语法为什么要晚一个 nightly 才能用，见
-[自举与种子纪律](../../../agent/rules/bootstrap-seed.md)与[编译器自举](../compiler/self-hosting.md)。
+[自举与种子纪律](https://github.com/z42-lang/z42/blob/main/docs/agent/rules/bootstrap-seed.md)与[编译器自举](../compiler/self-hosting.md)。
 
 ## 6. `deps`：依赖的两层模型
 

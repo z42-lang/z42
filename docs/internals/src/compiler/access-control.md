@@ -16,7 +16,7 @@ z42 的访问修饰符（`public` / `private` / `protected` / `internal`）遵�
 | `internal` | **同包**（同一编译单元 / zpkg）；跨包不可 | 声明类 `IsImported == false` |
 
 **默认可见性 = 最小封闭作用域**（default-member-private；用户面规则见
-[访问权限控制](../../../reference/src/language/access-control.md)）：
+[访问权限控制](https://z42-lang.github.io/z42/reference/language/access-control.html)）：
 无修饰符声明只对**直接封闭的那层结构**可见。
 
 | 声明位置 | 默认可见性 | 封闭层 |
@@ -189,7 +189,7 @@ VM 此前 read-and-discard 的可见性字节现存入 `ClassDesc.visibility →
 z42 侧 `Type.z42` 以一个 extern auto-property 暴露它，顶层 vs 嵌套由既有 `Type.IsNested`（FQ 名内 `+`）
 这条**正交**轴给出；在这两者之上是 C# 那套 6 个 bool 属性，每个都是**计算属性**
 （`{ get { return …; } }`），纯脚本层派生（实现见 `src/libraries/z42.core/src/Type.z42`）。
-**API 清单见用户文档**：[访问权限控制 · 反射：类可见性](../../../reference/src/language/access-control.md#反射类可见性)。
+**API 清单见用户文档**：[访问权限控制 · 反射：类可见性](https://z42-lang.github.io/z42/reference/language/access-control.html#反射类可见性)。
 
 > **设计（完全对齐 C#）**：native interop 只用**一个** `__type_visibility` builtin（返回声明可见性
 > 字节的 `TypeVisibility` enum），6 个 bool **全部在脚本层计算**——这正是 C# 的做法（C# 的 6 个 bool
