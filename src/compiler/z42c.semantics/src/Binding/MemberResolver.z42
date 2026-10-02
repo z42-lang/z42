@@ -130,8 +130,8 @@ public sealed partial class MemberResolver {
                 args = this._tc._overload.BindArgsToSignature(args, rawArgs, argCount, null, env);
                 return new BoundCall("instance", true, recv, ct.Name(), mem.Name, args, argCount, new Z42UnknownType(), sp);
             }
-            // ⑦ span 地基：下划线收窄到**成员名本身**（mem.NameSpan），不再画在整个调用
-            // 表达式（sp）上——「没有这个方法」指的是那个名字，不是整个调用。
+            BoundExpr dmc = this.TryBindDelegateMemberCall(mem, ct, false, args, argCount, rawArgs, env, sp); if (dmc != null) { return dmc; }   // 委托字段 / 属性
+            // ⑦ span 地基：下划线收窄到**成员名本身**（mem.NameSpan）——「没有这个方法」指的是那个名字，不是整个调用。
             if (!this._tc._overload.LastAmbiguous) {
                 this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol,
                     "no method `" + mem.Name + "` on `" + ct.Name() + "`", mem.NameSpan);
@@ -228,15 +228,13 @@ public sealed partial class MemberResolver {
                 // ⚠️ 只验被该 where 提到的型参，约束不上升为类级（`List<Opaque>.Add` 必须照常可用）。
                 this._tc._constraints.CheckMethodRefinedClassParams(env.GetSymbols(), itms.Decl,
                     itDef2.GenericParamNames, itDef2.GenericParamCount, instRecv.TypeArgs, instRecv.ArgCount, sp);
-                // add-struct-generic-boxing (P3a)：方法返回 type-param 且 subst 为 blob 值 struct（如
-                // `List<P>.First()`）→ 返回装箱值 → 包 BoundConvert 拆箱回值 struct（内层 call 类型 Unknown
-                // 触发 _emitConvert AsCast 拆箱臂）。
+                // add-struct-generic-boxing (P3a)：方法返回 type-param 且 subst 为 blob 值 struct（如 `List<P>.First()`）
+                // → 返回装箱值 → 包 BoundConvert 拆箱回值 struct（内层 call 类型 Unknown 触发 _emitConvert AsCast 拆箱臂）。
                 Z42Type ubR = this._tc.StructUnboxTarget(itms.Signature.Ret, instRecv);
                 if (ubR != null) {
                     BoundCall rawM = new BoundCall("instance", true, recv, itDef2.Name(), itms.CallKey(), fa, fa.Length, new Z42UnknownType(), sp);
                     this._applyMethodTypeArgs(rawM, call, itms, env);
-                    // complete-generic-class-identity P4：把代换后的返回类型交给发射端。
-                    // 成员**已特化**时 callee 走 sret（返回值写进 caller 预留的槽），调用侧必须一致，
+                    // complete-generic-class-identity P4：把代换后的返回类型交给发射端。成员**已特化**时 callee 走 sret（返回值写进 caller 预留的槽），调用侧必须一致，
                     // 否则 callee 在自己帧里 struct_alloc 再交出句柄 ⇒ use-after-free（本 change 的用例 A）。
                     rawM.InstRetType = ubR;
                     return new BoundConvert(rawM, ubR, sp);
@@ -245,6 +243,7 @@ public sealed partial class MemberResolver {
                 this._applyMethodTypeArgs(gbc, call, itms, env);   // 泛型受者上的实例泛型方法同款
                 return gbc;
             }
+            BoundExpr dgc = this.TryBindDelegateMemberCall(mem, itDef2, false, args, argCount, rawArgs, env, sp); if (dgc != null) { return dgc; }   // `Box<F>` 上类型为 T 的委托字段
             args = this._tc._overload.BindArgsToSignature(args, rawArgs, argCount, null, env);
             return new BoundCall("instance", true, recv, itDef2.Name(), mem.Name, args, argCount, new Z42UnknownType(), sp);
         }
@@ -733,6 +732,7 @@ public sealed partial class MemberResolver {
                     this._applyMethodTypeArgs(bc, call, ms, env);   // add-generic-methods：静态泛型方法（serde 招牌路径）
                     return bc;
                 }
+                BoundExpr dsc = this.TryBindDelegateMemberCall(mem, ct, true, args, argCount, rawArgs, env, sp); if (dsc != null) { return dsc; }   // 委托静态字段 / 属性
                 if (!this._tc._overload.LastAmbiguous) {
                     this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol,
                         "no static method `" + mem.Name + "` on `" + ct.Name() + "`", sp);
