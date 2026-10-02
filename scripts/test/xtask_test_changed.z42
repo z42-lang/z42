@@ -239,6 +239,8 @@ _MapResult _mapFile(string f) {
         return _mapCmds(new string[]{ "xtask test examples " + chapter });
     }
     if (f.StartsWith("docs/learn/")) { return _mapCmds(new string[]{ "xtask test examples --book-only" }); }
+    // 测试布局规范页带机器可读清单（类别 / 能力词表），`test layout` 拿它对账 —— 同样排在「docs 一律跳过」之前。
+    if (f == "docs/internals/src/devinfra/test-layout.md") { return _mapCmds(new string[]{ "xtask test layout" }); }
     // Docs / spec / claude state — no tests.
     if (f.EndsWith(".md") || f.StartsWith("docs/") || f.StartsWith(".claude/")
         || f == ".gitignore" || f == ".gitattributes"
@@ -269,7 +271,7 @@ _MapResult _mapFile(string f) {
     // missed file type would silently skip the check, while over-matching only
     // costs one quick run.
     if (f.StartsWith("src/tests/perf/"))       { return _mapCmds(new string[]{ "xtask bench --quick" }); }
-    if (f.StartsWith("src/tests/"))            { return _mapCmds(new string[]{ "xtask test e2e" }); }
+    if (f.StartsWith("src/tests/"))            { return _mapCmds(new string[]{ "xtask test e2e", "xtask test layout" }); }
 
     // z42c self-host compiler (src/compiler).
     if (f.StartsWith("src/compiler/")) {

@@ -1,0 +1,225 @@
+// 测试布局门（add-test-layout-spec，2026-10-02）。
+//
+// ## 守的是什么
+//
+// 测试用例组织规范（docs/internals/src/devinfra/test-layout.md）里能机械判定的三条：
+//
+//   ① src/tests 的顶层类别 = 规范页「语言类别」∪「待搬迁」两张清单（双向，且两张不得重叠）。
+//      新类别没登记 → 红：逼人先回答「它测的是语言 / VM 特性，还是某个组件的契约」——后者应放
+//      进所属组件的 tests/，不进 src/tests。已搬走却还挂在「待搬迁」→ 红：那张清单只缩不涨。
+//   ② 能力词表的「已生效」区 = src/runtime/src/corelib/platform.rs 的 builtin_platform_caps
+//      实际报告的能力（双向）。运行期加 / 删一个能力不同步文档 → 红。
+//   ③ `// requires-caps:` 与 `[Skip(feature: "…")]` 只能用「已生效」的能力名。
+//      两处都是 deny-by-default：VM 不报告的名字一律视为「缺」⇒ 用例在**所有平台**上静默跳过——
+//      不红、不报，只是从此没人跑它。typo 和「规划中、运行期还没报」的能力名都是这个下场。
+//
+// ## 不判的
+//
+//   · 注释、字符串字面量里的 `[Skip(…)]`（只认 trim 后以 `[` 开头的属性行）；
+//   · _tlCapFixtures() 列的 fixture：它们故意写未知能力名，测的正是 TIDX 解码 / deny-by-default 本身。
+namespace Z42Xtask;
+
+using Std.IO;
+
+string _tlDocPath(string root) { return Path.Join(root, "docs/internals/src/devinfra/test-layout.md"); }
+
+// 故意使用未登记能力名的 fixture（相对仓库根的路径前缀）。
+string[] _tlCapFixtures() {
+    return new string[]{
+        "src/runtime/tests/data/",                              // TIDX 解码 fixture：字段值是任意字符串
+        "src/libraries/z42.test/tests/skip_platform_demo.z42"   // deny-by-default 演示：故意写未知能力名
+    };
+}
+
+int _testLayout() {
+    string root = _root();
+    string docPath = _tlDocPath(root);
+    if (!File.Exists(docPath)) {
+        ConsoleError.WriteLine("error: 测试布局规范页不存在: " + docPath);
+        return 1;
+    }
+    string doc = File.ReadAllText(docPath);
+    int bad = _tlCheckCategories(root, doc);
+    string[] active = _docListBlock(doc, "caps-active");
+    bad = bad + _tlCheckCapVocab(root, doc, active);
+    if (active != null) { bad = bad + _tlCheckCapUses(root, active); }
+    if (bad > 0) {
+        ConsoleError.WriteLine("  " + bad.ToString() + " 处不符 —— 规范见 docs/internals/src/devinfra/test-layout.md");
+        return 1;
+    }
+    return 0;
+}
+
+bool _tlHas(string[] xs, string x) {
+    int i = 0;
+    while (i < xs.Length) { if (xs[i] == x) { return true; } i = i + 1; }
+    return false;
+}
+
+// ① src/tests 顶层类别对账。
+int _tlCheckCategories(string root, string doc) {
+    Console.WriteLine("① src/tests 顶层类别 = 「语言类别」∪「待搬迁」");
+    string[] lang = _docListBlock(doc, "test-lang-categories");
+    string[] pend = _docListBlock(doc, "test-pending-moves");
+    if (lang == null || pend == null) {
+        ConsoleError.WriteLine("  ✗ test-layout.md 缺 test-lang-categories / test-pending-moves 标记区（清单的机器可读副本，不能删）");
+        return 1;
+    }
+    string[] dirs = _enumDirsSorted(Path.Join(root, "src/tests"));
+    // 空门守卫：扫描面没了（目录搬家 / 枚举出错）就别报绿。
+    if (dirs.Length < 10) {
+        ConsoleError.WriteLine("  ✗ src/tests 下只有 " + dirs.Length.ToString() + " 个类别 —— 扫描面不对");
+        return 1;
+    }
+    int bad = 0;
+    foreach (var d in dirs) {
+        if (!_tlHas(lang, d) && !_tlHas(pend, d)) {
+            ConsoleError.WriteLine("  ✗ src/tests/" + d + "/ 未登记 —— 测语言 / VM 特性就登记进「语言类别」，"
+                + "测某个组件的契约就放进那个组件的 tests/");
+            bad = bad + 1;
+        }
+    }
+    foreach (var l in lang) {
+        if (!_tlHas(dirs, l)) {
+            ConsoleError.WriteLine("  ✗ 「语言类别」里的 `" + l + "` 在 src/tests 下不存在 —— 删掉这一行");
+            bad = bad + 1;
+        }
+        if (_tlHas(pend, l)) {
+            ConsoleError.WriteLine("  ✗ `" + l + "` 同时出现在「语言类别」与「待搬迁」—— 二选一");
+            bad = bad + 1;
+        }
+    }
+    foreach (var p in pend) {
+        if (!_tlHas(dirs, p)) {
+            ConsoleError.WriteLine("  ✗ 「待搬迁」里的 `" + p + "` 已不在 src/tests —— 搬完了就从清单删掉");
+            bad = bad + 1;
+        }
+    }
+    if (bad == 0) {
+        Console.WriteLine("  ✓ " + lang.Length.ToString() + " 个语言类别 + " + pend.Length.ToString() + " 个待搬迁");
+    }
+    return bad;
+}
+
+// platform.rs 的 builtin_platform_caps 里 `caps.push("x")` 的全部 x；找不到函数返回 null。
+string[] _tlRuntimeCaps(string root) {
+    string src = File.ReadAllText(Path.Join(root, "src/runtime/src/corelib/platform.rs"));
+    int b = src.IndexOf("fn builtin_platform_caps");
+    if (b < 0) { return null; }
+    string body = src.Substring(b);
+    int e = body.IndexOf("\n}");
+    if (e > 0) { body = body.Substring(0, e); }
+    string[] lines = body.Split("\n");
+    string[] caps = new string[8];
+    int n = 0;
+    foreach (var raw in lines) {
+        string ln = raw.Trim();
+        if (ln.StartsWith("//")) { continue; }
+        string c = _tlQuotedAfter(ln, "caps.push(");
+        if (c.Length > 0) { caps = _append(caps, n, c); n = n + 1; }
+    }
+    string[] outCaps = new string[n];
+    int i = 0;
+    while (i < n) { outCaps[i] = caps[i]; i = i + 1; }
+    return outCaps;
+}
+
+// `key` 之后的第一个 "…" 字面量内容；没有则 ""。
+string _tlQuotedAfter(string s, string key) {
+    int k = s.IndexOf(key);
+    if (k < 0) { return ""; }
+    string rest = s.Substring(k + key.Length);
+    int q1 = rest.IndexOf("\"");
+    if (q1 < 0) { return ""; }
+    rest = rest.Substring(q1 + 1);
+    int q2 = rest.IndexOf("\"");
+    if (q2 <= 0) { return ""; }
+    return rest.Substring(0, q2);
+}
+
+// ② 能力词表「已生效」区 ↔ 运行期实际报告的能力。
+int _tlCheckCapVocab(string root, string doc, string[] active) {
+    Console.WriteLine("② 能力词表「已生效」= platform.rs 的 builtin_platform_caps");
+    string[] planned = _docListBlock(doc, "caps-planned");
+    if (active == null || planned == null) {
+        ConsoleError.WriteLine("  ✗ test-layout.md 缺 caps-active / caps-planned 标记区");
+        return 1;
+    }
+    string[] rt = _tlRuntimeCaps(root);
+    if (rt == null || rt.Length == 0) {
+        ConsoleError.WriteLine("  ✗ 在 src/runtime/src/corelib/platform.rs 里找不到 builtin_platform_caps 的 caps.push —— 扫描面不对");
+        return 1;
+    }
+    int bad = 0;
+    foreach (var c in rt) {
+        if (!_tlHas(active, c)) {
+            ConsoleError.WriteLine("  ✗ 运行期报告 `" + c + "`，但「已生效」区没有 —— 登记进去（含它在哪些平台出现）");
+            bad = bad + 1;
+        }
+    }
+    foreach (var c in active) {
+        if (!_tlHas(rt, c)) {
+            ConsoleError.WriteLine("  ✗ 「已生效」区的 `" + c + "` 运行期并不报告 —— 移回「规划中」或删掉");
+            bad = bad + 1;
+        }
+        if (_tlHas(planned, c)) {
+            ConsoleError.WriteLine("  ✗ `" + c + "` 同时出现在「已生效」与「规划中」");
+            bad = bad + 1;
+        }
+    }
+    if (bad == 0) {
+        Console.WriteLine("  ✓ " + active.Length.ToString() + " 个已生效 + " + planned.Length.ToString() + " 个规划中");
+    }
+    return bad;
+}
+
+bool _tlIsCapFixture(string relp) {
+    foreach (var f in _tlCapFixtures()) {
+        if (relp.StartsWith(f)) { return true; }
+    }
+    return false;
+}
+
+// ③ src/**/*.z42 里的 `// requires-caps:` 与 `[Skip(feature: …)]` 只用已生效能力名。
+int _tlCheckCapUses(string root, string[] active) {
+    Console.WriteLine("③ requires-caps / [Skip(feature:)] 只用已生效能力名");
+    string[] rel = Directory.EnumerateRecursive(Path.Join(root, "src"));
+    int files = 0;
+    int uses = 0;
+    int bad = 0;
+    foreach (var r in rel) {
+        string relp = "src/" + r.Replace("\\", "/");
+        if (!relp.EndsWith(".z42") || relp.Contains("/node_modules/") || _tlIsCapFixture(relp)) { continue; }
+        files = files + 1;
+        string[] lines = File.ReadAllText(Path.Join(root, relp)).Split("\n");
+        int i = 0;
+        while (i < lines.Length) {
+            string t = lines[i].Trim();
+            i = i + 1;
+            string[] names = new string[0];
+            if (t.StartsWith("//") && t.Contains("requires-caps:")) {
+                names = t.Substring(t.IndexOf("requires-caps:") + 14).Split(",");
+            } else if (t.StartsWith("[") && t.Contains("Skip(") && t.Contains("feature:")) {
+                names = new string[]{ _tlQuotedAfter(t, "feature:") };
+            }
+            foreach (var raw in names) {
+                string c = raw.Trim();
+                if (c.Length == 0) { continue; }
+                uses = uses + 1;
+                if (!_tlHas(active, c)) {
+                    ConsoleError.WriteLine("  ✗ " + relp + ":" + i.ToString() + ": `" + c
+                        + "` 不是已生效能力 —— 运行期不报告它 ⇒ 该用例在所有平台上都会被静默跳过");
+                    bad = bad + 1;
+                }
+            }
+        }
+    }
+    if (files < 500) {
+        ConsoleError.WriteLine("  ✗ 只扫到 " + files.ToString() + " 个 .z42 —— 扫描面不对");
+        return bad + 1;
+    }
+    if (bad == 0) {
+        Console.WriteLine("  ✓ " + files.ToString() + " 个文件，" + uses.ToString() + " 处能力声明");
+    }
+    return bad;
+}

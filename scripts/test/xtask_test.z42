@@ -472,7 +472,8 @@ string[] _gateStageNames() {
         "diagcodes",
         "stage2",
         "ci-shell",
-        "proc-env"
+        "proc-env",
+        "layout"
     };
 }
 
@@ -481,31 +482,37 @@ string _gateStagesDocPath(string root) {
     return Path.Join(root, "docs/internals/src/devinfra/test-gate.md");
 }
 
-// 从 test-gate.md 的 <!-- gate-stages:begin/end --> 区抽出 stage 名（每行一个
-// `- \`name\``）。区块缺失返回 null（调用方报「标记不见了」而非「清单为空」——
-// 两种失败原因不同，混在一起会让人去改清单而不是去找被删掉的标记）。
-string[] _gateStagesFromDoc(string text) {
-    int b = text.IndexOf("<!-- gate-stages:begin -->");
-    int e = text.IndexOf("<!-- gate-stages:end -->");
+// 从 test-gate.md 的 <!-- gate-stages:begin/end --> 区抽出 stage 名（每行一个 `- \`name\``）。
+string[] _gateStagesFromDoc(string text) { return _docListBlock(text, "gate-stages"); }
+
+// 文档里机器可读清单区 <!-- <name>:begin/end --> 的条目：每行 `- \`item\` …`，取第一对反引号里的
+// 内容，其后的文字是给人读的说明（test-layout.md 的清单带「搬去哪 / 为什么」）。区块缺失返回 null
+// （调用方报「标记不见了」而非「清单为空」——两种失败原因不同，混在一起会让人去改清单而不是去找
+// 被删掉的标记）。
+string[] _docListBlock(string text, string name) {
+    int b = text.IndexOf("<!-- " + name + ":begin -->");
+    int e = text.IndexOf("<!-- " + name + ":end -->");
     if (b < 0 || e < 0 || e < b) { return null; }
     // "\n" 而非 '\n'：z42 的 Split 无 char 重载。CRLF 下每行尾留的 \r 由下面的 Trim() 吃掉。
     string[] lines = text.Substring(b, e - b).Split("\n");
-    string[] names = new string[32];
+    string[] items = new string[32];
     int n = 0;
     int i = 0;
     while (i < lines.Length) {
         string ln = lines[i].Trim();
-        // 只认 "- `name`" 形状，其余（标记行 / 空行 / 说明文字）跳过。
-        if (ln.StartsWith("- `") && ln.EndsWith("`")) {
-            names = _append(names, n, ln.Substring(3, ln.Length - 4));
-            n = n + 1;
-        }
         i = i + 1;
+        // 只认 "- `item`…" 形状，其余（标记行 / 空行 / 说明文字）跳过。
+        if (!ln.StartsWith("- `")) { continue; }
+        string rest = ln.Substring(3);
+        int q = rest.IndexOf("`");
+        if (q <= 0) { continue; }
+        items = _append(items, n, rest.Substring(0, q));
+        n = n + 1;
     }
-    string[] outNames = new string[n];
+    string[] outItems = new string[n];
     int j = 0;
-    while (j < n) { outNames[j] = names[j]; j = j + 1; }
-    return outNames;
+    while (j < n) { outItems[j] = items[j]; j = j + 1; }
+    return outItems;
 }
 
 // 对账 _gateStageNames() 与 test-gate.md。不一致 → 打印逐条差异后返回 1。
@@ -733,6 +740,13 @@ int _testAll(bool noBuild, string skip) {
         swStage = _stageStart("proc-env");
         c = _testProcEnv(); if (c != 0) { return c; }
         _stageEnd(slog, "proc-env", swStage);
+    }
+    // stage 13: 测试布局（test-layout.md 里能机械判定的部分）：src/tests 类别登记、能力词表 ↔
+    // platform.rs、requires-caps / [Skip(feature:)] 只用已生效能力名。纯文本扫描。Skippable: "layout"。
+    if (!_skipHas(skip, "layout")) {
+        swStage = _stageStart("layout");
+        c = _testLayout(); if (c != 0) { return c; }
+        _stageEnd(slog, "layout", swStage);
     }
     Console.WriteLine("\n✅ GREEN — all stages passed");
     _stageSummary(slog, sw.Elapsed().TotalMilliseconds());

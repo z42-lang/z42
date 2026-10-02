@@ -135,6 +135,7 @@
   **测试与门禁**
 
   - [怎么跑测试](devinfra/testing.md)
+  - [测试用例组织规范](devinfra/test-layout.md)
   - [GREEN gate](devinfra/test-gate.md)
   - [测试流水线（两层模型）](devinfra/test-pipeline.md)
   - [性能基准与回归门禁](devinfra/benchmarking.md)
