@@ -234,7 +234,8 @@ public sealed class DeclBinder {
                         psEnv.Define("this", ct);
                         DeclBinder._defineInstanceFields(psEnv, ct);
                     }
-                    psEnv.Define("value", psEnv.ResolveType(pd.Type));
+                    psEnv.MarkFnBoundary();   // forbid-local-shadowing：访问器体与方法体同口径
+                    psEnv.DefineParam("value", psEnv.ResolveType(pd.Type), pd.Span);
                     TypeExpr psVoid = new NamedType("void", new TypeExpr[0], 0, pd.Span);
                     Param[] psPs = DeclBinder._accessorSetParams(new Param[0], 0, pd.Type, pd.Span);
                     model.AddBody(ctKey + ".set_" + pd.Name,
@@ -248,7 +249,8 @@ public sealed class DeclBinder {
                     getEnv.Define("this", ct);
                     DeclBinder._defineInstanceFields(getEnv, ct);
                     int gp = 0;
-                    while (gp < id.ParamCount) { getEnv.Define(id.Params[gp].Name, getEnv.ResolveType(id.Params[gp].Type)); gp = gp + 1; }
+                    getEnv.MarkFnBoundary();
+                    while (gp < id.ParamCount) { getEnv.DefineParam(id.Params[gp].Name, getEnv.ResolveType(id.Params[gp].Type), id.Params[gp].Span); gp = gp + 1; }
                     Z42Type gret = getEnv.ResolveType(id.RetType);
                     model.AddBody(ctKey + ".get_Item",
                         this._bindAccessorBody(id.GetBody, getEnv, gret, id.RetType, id.Params, id.ParamCount, id.Span));
@@ -258,8 +260,9 @@ public sealed class DeclBinder {
                     setEnv.Define("this", ct);
                     DeclBinder._defineInstanceFields(setEnv, ct);
                     int sp = 0;
-                    while (sp < id.ParamCount) { setEnv.Define(id.Params[sp].Name, setEnv.ResolveType(id.Params[sp].Type)); sp = sp + 1; }
-                    setEnv.Define("value", setEnv.ResolveType(id.RetType));
+                    setEnv.MarkFnBoundary();
+                    while (sp < id.ParamCount) { setEnv.DefineParam(id.Params[sp].Name, setEnv.ResolveType(id.Params[sp].Type), id.Params[sp].Span); sp = sp + 1; }
+                    setEnv.DefineParam("value", setEnv.ResolveType(id.RetType), id.Span);
                     TypeExpr isVoid = new NamedType("void", new TypeExpr[0], 0, id.Span);
                     Param[] isPs = DeclBinder._accessorSetParams(id.Params, id.ParamCount, id.RetType, id.Span);
                     model.AddBody(ctKey + ".set_Item",
@@ -511,9 +514,10 @@ public sealed class DeclBinder {
     }
 
     private BoundStmt _bindMethodBodyCore(SymbolTable symbols, TypeEnv env, MethodDecl md) {
+        env.MarkFnBoundary();   // forbid-local-shadowing：函数体内的重名检查走到形参这层为止（字段、`this` 不进 DeclSpans）
         int p = 0;
         while (p < md.ParamCount) {
-            env.Define(md.Params[p].Name, env.ResolveType(md.Params[p].Type));
+            env.DefineParam(md.Params[p].Name, env.ResolveType(md.Params[p].Type), md.Params[p].Span);
             p = p + 1;
         }
         // PR6b：记录当前 enclosing 成员名，供 caller_member!() 在本体内的调用点注入（三挂载点

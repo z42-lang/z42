@@ -305,7 +305,7 @@ public sealed partial class ExprTyper {
             if (ra.IsDiscard) { ra.IsVarDecl = true; }   // VarName 由 parser 定（`_$d<源偏移>`）
             // `ref var n` 内联声明：先在 env 声明（调用后可见，如 Assert.Equal(42, n)），再绑 inner。
             if (ra.IsVarDecl) {
-                env.Define(ra.VarName, new Z42UnknownType());
+                this._tc.DefineLocal(env, ra.VarName, new Z42UnknownType(), ra.Span);
             }
             BoundExpr inner = this._bindExpr(ra.Inner, env);
             // fix-ref-lvalue-addressing：`ref` / `out` 的实参必须是**有存储、可取址**的左值。

@@ -364,7 +364,7 @@ public sealed class TypeOpTyper {
             this._tc._chkTypeRef(env.ResolveType(ix.Type), env, ix.Type.Span);   // enforce-class-access：is 目标类型引用
             this._tc.ChkAmbiguousBareNameT(env.Symbols, ix.Type, ix.Type.Span);   // add-bare-name-ambiguity-diagnostic：E0456
             // is-pattern 绑定：声明变量（narrowed 类型）使 true 分支可用（同 env，_bindIf 先绑 cond 再绑 then）。
-            if (ix.BindName != "") { env.Define(ix.BindName, env.ResolveType(ix.Type)); }
+            if (ix.BindName != "") { this._tc.DefineLocal(env, ix.BindName, env.ResolveType(ix.Type), ix.Span); }
             BoundIsExpr bie = new BoundIsExpr(operand, tn, ix.BindName, ix.Span);
             bie.TargetType = env.ResolveType(ix.Type);   // P2：发射端据此算实例化身份名（`TypeName` 丢实参）
             return bie;
