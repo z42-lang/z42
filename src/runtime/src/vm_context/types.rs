@@ -388,6 +388,18 @@ pub struct VmContext {
     /// no lock, no string hashing. See `isa_cache.rs` for the key/lifetime contract; cleared
     /// together with the memo on explicit module (re)load.
     pub(crate) isa_cache:         super::isa_cache::IsaCache,
+    /// parallel-parse-and-cache (2026-10-02): per-context front caches for
+    /// `try_lookup_type` / `try_lookup_function` hits. The shared `lazy_loader`
+    /// RwLock was the top contention point under parallel `--jobs` compile
+    /// (native samples at jobs=8: ~3000 in `lock_shared_slow` under
+    /// `try_lookup_type`) — z42c's own types live in the lazy loader, so every
+    /// `obj_new` took the shared read lock and all threads bounced one cache line.
+    /// Only **complete** answers are cached (base chain merged): the registry only
+    /// mutates a TypeDesc during inheritance fixup, which `probe_type` never returns,
+    /// and the function table is first-loaded-wins. Cleared with the memo on
+    /// explicit module (re)load (REPL redefinition).
+    pub(crate) type_lookup_cache: Mutex<FxHashMap<Box<str>, std::sync::Arc<crate::metadata::TypeDesc>>>,
+    pub(crate) fn_lookup_cache:   Mutex<FxHashMap<Box<str>, std::sync::Arc<crate::metadata::Function>>>,
     /// **add-vmcontext-registry (2026-05-20)**: marks `VmContext: !Unpin`,
     /// so callers cannot `mem::swap` / move out of the `Pin<Box<VmContext>>`
     /// returned by [`new`]. Required so the raw pointer registered in

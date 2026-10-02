@@ -253,10 +253,7 @@ public static class SurfaceHash {
             memEnd[me] = lim;
             me = me + 1;
         }
-        StrMap slot = new StrMap();
-        string[] bufNames = new string[16];
-        SurfaceBufZ[] bufs = new SurfaceBufZ[16];
-        int bufN = 0;
+        SurfaceSlotsZ slots = new SurfaceSlotsZ();
         int tc = 0;
         int mc = 0;
         int si = 0;
@@ -265,55 +262,31 @@ public static class SurfaceHash {
             while (mc + 1 < mems.Count && si >= memAt[mc + 1]) { mc = mc + 1; }
             string piece = SurfaceHash._enc(sv, si);
             if (tops.Count > 0 && si >= topAt[tc]) {
-                int bt = SurfaceHash._slotOf(slot, tops.Names[tc], bufNames, bufs, bufN);
-                if (bt == bufN) { bufNames = SurfaceHash._lastNames; bufs = SurfaceHash._lastBufs; bufN = bufN + 1; }
-                bufs[bt].Put(piece);
+                int bt = slots.SlotOf(tops.Names[tc]);   // 先取下标：SlotOf 可能扩容替换 Bufs
+                slots.Bufs[bt].Put(piece);
             }
             if (mems.Count > 0 && si >= memAt[mc] && si < memEnd[mc]) {
-                int bm = SurfaceHash._slotOf(slot, mems.Names[mc], bufNames, bufs, bufN);
-                if (bm == bufN) { bufNames = SurfaceHash._lastNames; bufs = SurfaceHash._lastBufs; bufN = bufN + 1; }
-                bufs[bm].Put(piece);
+                int bm = slots.SlotOf(mems.Names[mc]);
+                slots.Bufs[bm].Put(piece);
             }
             si = si + 1;
         }
 
-        string[] names = new string[bufN];
-        string[] hashes = new string[bufN];
+        string[] names = new string[slots.N];
+        string[] hashes = new string[slots.N];
         int q = 0;
-        while (q < bufN) {
-            names[q] = bufNames[q];
-            hashes[q] = ZpkgBuilder.SourceHashHex(headerStr + bufs[q].Take());
+        while (q < slots.N) {
+            names[q] = slots.Names[q];
+            hashes[q] = ZpkgBuilder.SourceHashHex(headerStr + slots.Bufs[q].Take());
             q = q + 1;
         }
-        return new NameSurfacesZ(names, hashes, bufN, idents, identN);
+        return new NameSurfacesZ(names, hashes, slots.N, idents, identN);
     }
 
     // 单条活 token 的编码：`kind:len:text` —— 带长度前缀，任何 token 文本（含 raw string /
     // 插值串里的换行）都无法伪造出分隔边界 → 不同 token 流不会撞出同一条串。
     private static string _enc(SurviveZ sv, int i) {
         return sv.Kinds[i].ToString() + ":" + sv.Texts[i].Length.ToString() + ":" + sv.Texts[i] + "\n";
-    }
-
-    // 名字 → 桶下标；新名字时追加（数组按需扩容，扩容后的数组经 _lastNames/_lastBufs 交回）。
-    private static string[]      _lastNames;
-    private static SurfaceBufZ[] _lastBufs;
-    private static int _slotOf(StrMap slot, string name, string[] bufNames, SurfaceBufZ[] bufs, int bufN) {
-        if (slot.ContainsKey(name)) {
-            SurfaceHash._lastNames = bufNames; SurfaceHash._lastBufs = bufs;
-            return (slot.Get(name) as IntBoxZ).Value;   // IntBoxZ 复用 IncrementalDriver.z42 里那一个（同 ns，勿重复定义）
-        }
-        string[] bn = bufNames;
-        SurfaceBufZ[] bb = bufs;
-        if (bufN == bn.Length) {
-            bn = new string[bufN * 2];
-            bb = new SurfaceBufZ[bufN * 2];
-            int k = 0;
-            while (k < bufN) { bn[k] = bufNames[k]; bb[k] = bufs[k]; k = k + 1; }
-        }
-        bn[bufN] = name; bb[bufN] = new SurfaceBufZ();
-        slot.Put(name, new IntBoxZ(bufN));
-        SurfaceHash._lastNames = bn; SurfaceHash._lastBufs = bb;
-        return bufN;
     }
 
     // 把「声明起点（byte offset）」对齐成「活 token 流下标」，并向前回退到修饰符 / attribute 之前。
@@ -441,5 +414,32 @@ public static class SurfaceHash {
         }
         if (inner is ClassDecl) { mems.Add((inner as ClassDecl).Name, d.Span); return; }   // 嵌套类型
         if (inner is EnumDecl)  { mems.Add((inner as EnumDecl).Name, d.Span);  return; }
+    }
+}
+
+// 名字 → 桶（每次 `SurfaceHash.Of` 一份，局部持有）。此前桶数组扩容后经两个**静态字段**交回调用方 ——
+// 解析阶段并行（parallel-parse-and-cache）后多个线程同时算表面哈希，静态字段会互相覆盖。
+sealed class SurfaceSlotsZ {
+    public StrMap        Slot;
+    public string[]      Names;
+    public SurfaceBufZ[] Bufs;
+    public int           N;
+    public SurfaceSlotsZ() {
+        this.Slot = new StrMap(); this.Names = new string[16]; this.Bufs = new SurfaceBufZ[16]; this.N = 0;
+    }
+    // 名字 → 桶下标；新名字时追加（按需扩容）。
+    public int SlotOf(string name) {
+        if (this.Slot.ContainsKey(name)) { return (this.Slot.Get(name) as IntBoxZ).Value; }   // IntBoxZ 复用 IncrementalDriver.z42 里那一个
+        if (this.N == this.Names.Length) {
+            string[] bn = new string[this.N * 2];
+            SurfaceBufZ[] bb = new SurfaceBufZ[this.N * 2];
+            int k = 0;
+            while (k < this.N) { bn[k] = this.Names[k]; bb[k] = this.Bufs[k]; k = k + 1; }
+            this.Names = bn; this.Bufs = bb;
+        }
+        this.Names[this.N] = name; this.Bufs[this.N] = new SurfaceBufZ();
+        this.Slot.Put(name, new IntBoxZ(this.N));
+        this.N = this.N + 1;
+        return this.N - 1;
     }
 }
