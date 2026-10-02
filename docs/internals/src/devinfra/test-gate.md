@@ -31,7 +31,8 @@ graph LR
     S8 --> S9[stage2<br/>阶段-2 欠账挂账 + 到期]
     S9 --> S10[ci-shell<br/>CI 内嵌 shell 先用后赋]
     S10 --> S11[proc-env<br/>子进程 env 单一入口]
-    S11 --> G((GREEN))
+    S11 --> S12[layout<br/>测试布局规范]
+    S12 --> G((GREEN))
 ```
 
 **机器可读清单**（`_checkGateStageDoc` 解析此区；条目文本 = `_stageStart` 打的 banner 名，
@@ -57,6 +58,7 @@ graph LR
 - `stage2`
 - `ci-shell`
 - `proc-env`
+- `layout`
 <!-- gate-stages:end -->
 
 先备工具链与基线（build wave），再依序跑其余验证 stage；任一步失败立即终止。
@@ -113,6 +115,7 @@ fixture、debug VM 跑 `main.zpkg`——跨包 dispatch 的 debug 断言覆盖�
 | `stage2` | 阶段-1 过渡形态必须挂账且不超期（双向棘轮 + 到期），见 `scripts/test/xtask_test_stage2.z42` 头注 | 纯文本扫描 < 1 s |
 | `ci-shell` | `.github/**` 的多行 `run:` 块里**没有先用后赋**的变量（立门时 7 个 yml / 76 块），见下 | 纯文本扫描 < 1 s |
 | `proc-env` | xtask 子进程的 `Z42_LIBS` / `Z42_PROBING_PATHS` **只经** `_z42Proc` / `_z42bProc` 设置，调用点不得直接 `.Env(...)`，见下 | 纯文本扫描 < 1 s |
+| `layout` | [测试用例组织规范](test-layout.md)里能机械判定的部分：`src/tests` 类别登记、能力词表 ↔ 运行期、能力声明只用已生效的名字 | 纯文本扫描，秒级 |
 
 **`stdlib [Benchmark]` 为什么必须在 gate 里**：bench 语料此前唯一的看门人是 `bench-pr.yml`，
 而那个 job **不在分支保护的 required 列表里**。一次把 `Failure.z42` 搬出 `z42.test` 的改动让
@@ -289,8 +292,9 @@ walker 文件里找 `is <类名>`；全集里既不被匹配、又不在该 walk
 ## 5. `--skip`：只改「在哪跑」，不改 gate 的组成
 
 除 build wave 与 `e2e goldens` 外，其余 stage 都可经 `--skip <csv>` 下放到独立 CI job
-（`_skipHas`）。skip 名是短名，**不等于 banner 全名**：`cross-zpkg` / `multi-exe` / `stdlib` /
-`bench` / `targets` / `examples` / `docs` / `compiler` / `gcgen` / `vscode` / `lines` / `walkers` / `diagcodes`。
+（`_skipHas`）。skip 名是短名，**不等于 banner 全名**：`rust-units` / `cross-zpkg` / `multi-exe` / `stdlib` /
+`bench` / `targets` / `examples` / `docs` / `compiler` / `gcgen` / `vscode` / `lines` / `walkers` / `diagcodes` /
+`stage2` / `ci-shell` / `proc-env` / `layout`。
 
 skip 只影响**在哪跑**，不改变 gate 的 stage 组成，所以 §1 的清单不随 `--skip` 变化，
 `_checkGateStageDoc` 也照常对全量清单对账。

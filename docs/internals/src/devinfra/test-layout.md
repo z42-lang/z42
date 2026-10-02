@@ -1,0 +1,281 @@
+# 测试用例组织规范
+
+> 对齐：2026-10-02（change `add-test-layout-spec`）｜ 代码：`scripts/test/xtask_test_layout.z42`（本页清单的对账门）、
+> `scripts/common/xtask_golden.z42`（golden 语料枚举）、`scripts/test/xtask_test_embedded_corpus.z42`（app 语料）、
+> `scripts/common/xtask_layout.z42`（产物路径）、`src/runtime/src/corelib/platform.rs`（运行期能力集）
+> 相关：[怎么跑测试](testing.md) · [GREEN gate](test-gate.md) · [产物目录布局](artifacts-layout.md) · [跨平台测试](../testing/cross-platform.md)
+> 待办：标 ⏳ 的规则还没落地，按 [Deferred](#deferred) 的顺序推进；⏳ 规则落地前，旧做法照常有效
+
+## 概述
+
+一条用例**放哪、写成什么形态、在哪些平台跑、输出落哪、用哪条命令跑**，全仓只有一套答案，写在本页。
+加用例、搬用例、加平台、加能力之前读这页。`[Test]` / `Assert` 的写法不在这里，见
+[参考手册的测试页](../../../reference/src/testing.md)。
+
+## 设计目标与约束
+
+- **一个判据决定归属**：看「这条断言在描述谁的契约」，不看实现落在哪一层。
+- **目录即范围**：用例在哪个组件的 `tests/` 下，就由那个组件的命令跑、在那个组件改动时触发、
+  产物落在那个组件的输出目录下。不需要额外的登记表来说明「这条用例属于谁」。
+- **声明需要什么，而不是在哪失败**：平台差异用**能力**表达，用例声明自己需要的能力；
+  不按用例名维护排除表。
+- **本地与 CI 同一条路径**：CI 能跑的任何一层测试，本地用同一条命令也能完整跑完。
+- **规范可机械检查**：能判定的部分由 `xtask test layout` 守着（见[实现](#实现)），不靠纪律。
+
+## 方案与决策
+
+| 问题 | 决定 | 为什么不选另一个 |
+|---|---|---|
+| 组件的测试放在组件内还是集中放 | **放组件内** `<component>/tests/` | 集中目录会混进不同 owner 的用例：改一个组件时既不知道该跑哪些，也不知道该看哪些 |
+| 语言 / VM 特性测试放哪 | **保留 `src/tests/`，只放语言 / VM 特性** | 它们同时测编译器与 VM，没有单一 owner；对标 dotnet/runtime 的 `src/tests/` |
+| 整程序性能场景放哪 | **`src/bench/`**（⏳ 现在在 `src/tests/perf/`） | 不是测试（不判对错，只计时），也不属于 runtime（测的是编译器 + VM + stdlib 全链路）。微基准仍跟着代码走（各库 `bench/`、`src/runtime/benches/`），与 Rust / Go 的惯例一致；整程序套件做成与 `src/tests` 并列的独立目录，与 Swift / Node 顶层 `benchmark/` 同理 |
+| 平台过滤用什么表达 | **能力名**（`// requires-caps:` / `[Skip(feature:)]`）；只有能力表达不了的 OS 差异才用 `[Skip(platform:)]` | 按名字维护的排除表（`_targetExcludes`）说不清每条为什么在那里，而且只增不减 |
+| golden 的能力声明用 marker 文件还是源码头注释 | **头注释 `// requires-caps: a, b`** | 与 bench 场景已有的写法、解析函数共用；flat 模式用例不必为此多建一个 sidecar |
+| 测试输出放哪 | **所属组件的输出目录 + `/tests/`**（⏳） | 各组件输出目录本就镜像 `src/`，测试输出跟着镜像，不需要另一套路径规则 |
+
+## 机制
+
+### 1. 用例放哪
+
+**先问「这条断言在描述谁的契约」，按下表找 owner；找到 owner 就放进它的 `tests/`。**
+
+| 契约属于 | 放哪 | 由谁跑 |
+|---|---|---|
+| 语言 / VM 特性（语法、类型系统、派发、GC、优化 pass、OSR） | `src/tests/<category>/` | `xtask test e2e` |
+| 某个库的 API | `src/libraries/<lib>/tests/`（即使该 API 由 VM builtin 实现） | `xtask test stdlib <lib>` |
+| 编译器某成员（含**期望编译报错**：写成 `[Test]` + `SemanticDump`） | `src/compiler/<member>/tests/` | `xtask test compiler` |
+| 工具链某组件（launcher / builder / interactive / workload …） | `src/toolchain/<comp>/tests/` | ⏳ `xtask test toolchain [<comp>]` |
+| VM 内部（Rust） | 同模块 `*_tests.rs`；集成测试在 `src/runtime/tests/` | `xtask test runtime` |
+| 整程序性能场景 | ⏳ `src/bench/scenarios/` | `xtask bench` |
+
+拿不准时的三个常见误判：
+
+- 测 `String.Trim`、`Enum.Parse`、`List<T>` 这类 API 的是**库**用例，不是语言用例。
+- 测多包编译、`.zpkg` / `.zbc` 字节格式、清单解析的是**编译器 / 工具链**用例，不是语言用例。
+- 学习手册的 `examples/` 不是测试语料，覆盖一律写进上表的位置。
+
+### 2. `src/tests/` 的类别清单
+
+`src/tests/` 的每个顶层目录必须登记在下面两张清单之一，`xtask test layout` 双向对账：新类别没登记 → 红；
+清单里的类别已不存在 → 红。
+
+**语言类别**（加新类别时登记在这里）：
+
+<!-- test-lang-categories:begin -->
+- `attributes`
+- `basic`
+- `classes`
+- `closures`
+- `const`
+- `control_flow`
+- `ctor-reflection`
+- `delegates`
+- `exceptions`
+- `gc`
+- `generic-method-invoke`
+- `generic-methods`
+- `generics`
+- `inheritance`
+- `interfaces`
+- `named-args`
+- `null_checks`
+- `operators`
+- `optimization`
+- `osr`
+- `params`
+- `partial-types`
+- `pattern-matching`
+- `reflection`
+- `refs`
+- `static-ctor`
+- `strings`
+- `structs`
+- `tuples`
+- `types`
+- `user-conversions`
+<!-- test-lang-categories:end -->
+
+**待搬迁**（按 §1 不属于这里；**只删不加**，搬完一项删一行）：
+
+<!-- test-pending-moves:begin -->
+- `app-properties` → `src/libraries/z42.core/tests/`（测 `Std.Runtime.AppProperties` 的 API）
+- `runtime-config` → `src/libraries/z42.core/tests/`（测 `Std.Runtime.RuntimeConfig` 的 API）
+- `cross-zpkg` → `src/compiler/z42c.pipeline/tests/cross-zpkg/`（多包编译与链接）
+- `multi-exe` → `src/compiler/z42c.pipeline/tests/multi-exe/`（一工程产多个 exe）
+- `manifest-targets` → `src/toolchain/builder/tests/manifest-targets/`（`[[test]]` / `[[example]]` target，由 z42b 驱动）
+- `z42b` → `src/toolchain/builder/tests/`（z42b 自身的 fixture 工程）
+- `zbc-format` → `src/compiler/z42.package/tests/formats/zbc/`（字节基线；`src/runtime/tests/zbc_compat.rs` 按路径引用）
+- `zpkg-format` → `src/compiler/z42.package/tests/formats/zpkg/`（同上）
+- `perf` → `src/bench/`（性能场景、能力探针、结果 schema、判红自检 fixture）
+- `symbol-resolution` → `src/tests/classes/`（单用例类别，并入现有类别）
+<!-- test-pending-moves:end -->
+
+### 3. 用例形态
+
+**每个 `tests/` 下只有三种用例形态，按「由谁判对错」区分。**
+
+| 形态 | 形状 | 判定 | 由谁跑 |
+|---|---|---|---|
+| **unit** | 带 `[Test]` 的 `.z42`（文件或目录） | `Assert.*` 抛异常即失败 | `z42b test` |
+| **golden** | flat：`<name>.z42`；dir：`<name>/source.z42` + sidecar | 程序跑完；有 `expected_output.txt` 时 stdout 必须相等 | VM 直接跑 |
+| **fixture** | 含 `z42.toml` 的工程目录 + `expected_output.txt` 或 `expected_build_error.txt` | 先构建再比对；期望报错时 stderr 必须包含给定子串 | xtask 按所属组件的 harness |
+
+Rust 侧的 `*_tests.rs` 与 `tests/*.rs` 按 cargo 惯例，不在此列。
+
+写法规则：
+
+- **先写 assert-only**：断言写成 `Assert.Equal(...)`，不要默认加 `expected_output.txt`。
+  sidecar 只在 **stdout 本身就是被测契约**时才有（异常栈迹文本、`Console` 的格式化、REPL 会话记录）。
+  理由与 sidecar 全表见 [src/tests/README.md](../../../../src/tests/README.md)。
+- golden 的 marker sidecar：`interp_only`（跳过 JIT）、`opt_all`（按 release 全优化编；测优化 pass 的用例必须加）。
+  flat 模式写成 `<name>.interp_only` / `<name>.opt_all`。
+- **用例 ID = 相对 `src/` 的路径去掉扩展名**，例如 `tests/basic/hello`、`libraries/z42.io/tests/file_temp`。
+  ⏳ `test list`、host 运行结果、app 报告统一用它，失败可以直接定位到源文件。
+
+### 4. 平台与能力
+
+**过滤分三层，按顺序：目录决定能不能进 app，能力声明决定在哪个平台跑，平台名只留给 OS 差异。**
+
+| 层 | 写法 | 适用 |
+|---|---|---|
+| ① 目录 | 不用写。⏳ app 语料只收 `src/tests/**` 与 `src/libraries/*/tests/`；编译器、工具链的用例天然只在 host 跑 | 所有用例。例如 REPL 的用例放进 `src/toolchain/interactive/repl/tests/` 就自动是 host-only |
+| ② 能力 | golden：源码头注释 `// requires-caps: threads, socket`；`[Test]`：`[Skip(feature: "threads", reason: "…")]` | 会进 app 语料、但需要某种能力的用例 |
+| ③ 平台名 | `[Skip(platform: "windows", reason: "…")]` | 能力词表表达不了的真实 OS 差异，例如 pty 只在 unix 上有 |
+
+匹配规则：用例声明的能力 ⊆ 该平台的能力集时才跑，否则记为跳过。能力集是 VM 的**运行期真值**
+（`Std.Platform.Capabilities()`），未知名字一律视为「缺」（deny-by-default）。⏳ golden 的
+`// requires-caps:` 目前只有 `xtask bench` 读取；golden runner 与 app 语料读取它之后，取代按名字排除的
+`_targetExcludes`（`scripts/test/xtask_test_embedded_golden.z42`）。
+
+**能力词表**。只能使用「已生效」的名字：deny-by-default 下，运行期不报告的名字会让用例在**所有平台**上
+被静默跳过。`xtask test layout` 检查两件事：「已生效」区与 `platform.rs` 的 `builtin_platform_caps` 双向相等；
+`src/**/*.z42` 里的能力声明只用「已生效」的名字。
+
+已生效（运行期报告）：
+
+<!-- caps-active:begin -->
+- `jit` — cargo feature `jit`
+- `native-interop` — cargo feature `native-interop`
+- `bundled-compression` — cargo feature `bundled-compression`
+- `threads` — 真 OS 线程；wasm 之外都有
+- `socket` — 真 OS 网络（TCP / UDP / HTTP / WS）；wasm 之外都有
+<!-- caps-active:end -->
+
+规划中（⏳ 名字是提案，运行期开始报告时定稿并移到上一区；来源是[跨平台测试 §4.2](../testing/cross-platform.md) 的能力表）：
+
+<!-- caps-planned:begin -->
+- `fs` — 可写文件系统（wasm 缺）
+- `process` — 起子进程（wasm、mobile 缺）
+- `tty` — 终端 / console（wasm、mobile 测试宿主缺）
+- `env` — 可变环境变量与桌面 OS 身份（wasm、mobile 缺）
+- `clock` — 系统时钟（wasm 缺）
+- `entropy` — OS 熵源（wasm 缺）
+- `socket-listen` — bind / listen 服务端 socket 与 loopback（wasm、mobile 沙箱缺）
+- `dns` — 名字解析（wasm 缺；CI 无外网时也缺）
+<!-- caps-planned:end -->
+
+> 「跑不了」先分清是**能力缺口**还是**用例自身不可移植**（例如硬编码 `/tmp/...`）。后者改用例
+> （`File.CreateTempDir`），不加能力声明。
+
+### 5. 测试输出（⏳）
+
+**测试输出 = 所属组件的输出目录 + `/tests/`（bench 为 `/bench/`），组件内再按用例相对 `tests/` 的路径镜像。**
+各组件的输出目录本就镜像 `src/`（见[产物目录布局 §2](artifacts-layout.md)），所以测试输出跟着镜像：
+
+| 组件 | 测试输出 |
+|---|---|
+| 有清单的组件（库、编译器成员、工具链组件） | 清单 `output_dir` 下的 `tests/`，例如 `artifacts/build/toolchain/interactive/tests/` |
+| 无清单的目录（`src/tests`、`src/bench`） | `artifacts/build/<相对 src 的路径>/` |
+| fixture 暂存（多包、清单类工程） | 所属组件 tests 输出下的同名子目录 |
+| 平台测试（app 宿主、bundle） | `artifacts/build/toolchain/workload/<platform>/tests/` |
+
+例外：给 CI 消费的报告不进 `build/`，仍在 `artifacts/test-reports/<platform>/` 与 `artifacts/bench/`。
+所有输出都有 owner 之后，`artifacts/tmp/` 不再作为默认落点，整个桶取消。
+
+### 6. 在 app 里跑（⏳）
+
+**用例编译一次，host 与 app 共用；进包体的东西都在 `artifacts/` 里组装，不写源码树。**
+
+```mermaid
+flowchart LR
+  S[src/**/tests 用例] -->|① 收集：目录 + 能力| C[用例清单]
+  C -->|② 编译一次| Z[组件 tests 输出里的 .zbc<br/>host 直接跑]
+  Z -->|③ 组 bundle：manifest + .zbc + agent + stdlib| B[workload/&lt;p&gt;/tests/bundle]
+  B -->|④ 放进暂存的宿主工程副本| H[workload/&lt;p&gt;/tests/host]
+  H -->|构建 · 起设备 · 运行 · 取报告| R[test-reports/&lt;p&gt;/]
+```
+
+图里各步的产物都在 `artifacts/build/toolchain/workload/<platform>/tests/` 下，报告落 `artifacts/test-reports/`。
+
+1. **收集**：只扫 §4 ① 的语料根，再按 §4 ② 与该平台的能力集匹配；分片 `--shard k/n` 与采样规则不变。
+2. **编译**：`.zbc` 与平台无关，直接引用用例自己的测试输出，不为 bundle 重编。
+3. **组 bundle**：bundle 内部继续按用例 ID 镜像 `src/` 路径。
+4. **放进包体**：把平台宿主工程**增量同步**到固定路径的暂存副本，再放入 bundle。增量是为了让
+   Gradle / Xcode 的缓存生效；路径固定是为了能直接用 Android Studio / Xcode 打开它调试。
+
+一条命令完成全部步骤，本地与 CI 相同：
+
+```bash
+xtask test app <wasm|ios|android|all> [--filter <pat>] [--shard k/n] [--keep-device]
+```
+
+设备生命周期由 z42b 负责：已有在跑的设备就复用、跑完不关；没有就以 headless 方式启动、跑完关掉。
+本机不具备的平台（无 Xcode、Linux 无 KVM）报**跳过**并说明原因，不报失败；`all` 跑本机支持的全部平台。
+
+### 7. 怎么跑
+
+| 范围 | 命令 |
+|---|---|
+| 完整门禁 | `xtask test` |
+| 语言 / VM 特性 | `xtask test e2e [--dir <category>] [--file <name>]` |
+| 某个库 | `xtask test stdlib <lib>` |
+| 编译器 | `xtask test compiler` |
+| 工具链 | ⏳ `xtask test toolchain [<comp>]` |
+| VM（Rust） | `xtask test runtime` |
+| app（wasm / iOS / Android） | ⏳ `xtask test app <platform>`；现在是 `xtask test embedded --rid <rid>` 后再加 `--run` |
+| 本次改动影响到的 | `xtask test changed` |
+| 用例目录表 | `xtask test list` |
+| 本页规范 | `xtask test layout` |
+
+各命令的旗标见[怎么跑测试](testing.md)。
+
+## 实现
+
+`xtask test layout` 是 GREEN gate 的一个纯文本扫描 stage（秒级、与 host 无关），检查本页能机械判定的部分：
+
+| # | 检查 | 失败时怎么修 |
+|---|---|---|
+| ① | `src/tests/` 的顶层目录 = §2「语言类别」∪「待搬迁」，两张清单不重叠 | 新类别：是语言特性就登记，否则放进所属组件；搬走的：从「待搬迁」删掉 |
+| ② | §4「已生效」能力 = `platform.rs` 里 `builtin_platform_caps` 实际 `push` 的能力 | 运行期加了能力就登记，删了就移除 |
+| ③ | `src/**/*.z42` 里的 `// requires-caps:` 与 `[Skip(feature: "…")]` 只用「已生效」的名字 | 改成已生效的名字；需要新能力就先让运行期报告它 |
+
+③ 豁免两类故意写未知能力名的 fixture（`_tlCapFixtures()`）：`src/runtime/tests/data/`（TIDX 解码）与
+`z42.test` 的 `skip_platform_demo.z42`（deny-by-default 演示）。⏳ 落地输出镜像后，再加一条：
+`artifacts/build/` 下的目录必须能对应到 `src/` 下的路径。
+
+| 组件 | 位置 |
+|---|---|
+| 布局门 | `scripts/test/xtask_test_layout.z42` |
+| 文档清单区解析（与 gate-stages 共用） | `scripts/test/xtask_test.z42` 的 `_docListBlock` |
+| golden 语料枚举（host） | `scripts/common/xtask_golden.z42` 的 `_walkGoldenCorpus` |
+| app 语料枚举 / 分片 / 排除表 | `scripts/test/xtask_test_embedded_corpus.z42`、`scripts/test/xtask_test_embedded_golden.z42` |
+| 产物路径（单一定义） | `scripts/common/xtask_layout.z42` |
+| 运行期能力集 | `src/runtime/src/corelib/platform.rs` 的 `builtin_platform_caps` |
+| 改动 → 命令映射 | `scripts/test/xtask_test_changed.z42` |
+
+## 边界与限制
+
+- 布局门只检查 `src/tests/` 的**顶层类别**，不判断一个用例放进某个已登记类别是否合适；这一点仍靠 §1 的判据和评审。
+- ③ 只认单行写法：`[Skip(...feature: "x"...)]` 必须写在一行上。
+
+## Deferred
+
+按顺序推进，每一步一个 PR；完成后删掉本页对应的 ⏳ 标记：
+
+1. **源码搬迁**：按 §2「待搬迁」逐项搬，同步改 xtask 路径、CI path filter、`test changed` 映射与文档链接。
+2. **输出路径统一**：引入单一的组件测试输出根，替换 `_devTargetOutRoot`、`_goldenArtifactDir`、
+   `_stageFixtureTree`、`_testOutDir` 各自的拼法；取消 `artifacts/tmp/`；布局门加 `artifacts/build/` 镜像检查。
+3. **能力声明取代排除表**：运行期报告规划中的能力；golden runner 与 app 语料读取 `// requires-caps:`；
+   把 `_targetExcludes` 逐条翻译成声明后删除。
+4. **`xtask test app`**：一条命令的 app 流水线、宿主工程暂存、z42b 管理设备生命周期，CI 改调同一条命令。
+5. **工具链测试套件**：`xtask test toolchain` 与对应的 gate stage。

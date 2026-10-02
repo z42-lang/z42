@@ -104,19 +104,16 @@
 
 ## 添加新测试
 
-按以下顺序判断归属（先到先得）：
+**先判归属**：用例该不该放这里、不放这里该放哪，以
+[测试用例组织规范](../../docs/internals/src/devinfra/test-layout.md) 为准（唯一权威）。
+本目录只收语言 / VM 特性；**新增类别要登记**进该页的「语言类别」清单，否则 `xtask test layout` 判红。
 
-1. **库 API 行为** → `src/libraries/<lib>/tests/<name>[.z42]`
-2. **期望编译报错** → `src/compiler/z42c.semantics/tests/typecheck/<topic>_tests.z42`
-   （`[Test]` 单测 + `SemanticDump.FirstErrorCode`，**不放本目录**；见上方说明）
-3. **仅 ZASM 匹配** → `src/compiler/z42c.syntax/tests/dump/`（parser dump 单测）
-4. **跨多 zpkg** → `src/tests/cross-zpkg/<name>/`
-5. **其他 VM/编译器特性**：
-   - 用 `Console.WriteLine` 测打印行为 / 需要 sidecar → `src/tests/<category>/<name>/source.z42` + sidecars（dir 模式）
-   - 仅用 `Assert.*` 测计算 / 控制流，无 sidecar → `src/tests/<category>/<name>.z42`（flat 模式）
-   - 不确定类别归 `basic/`
+确定放这里之后：
+- 用 `Console.WriteLine` 测打印行为 / 需要 sidecar → `src/tests/<category>/<name>/source.z42` + sidecars（dir 模式）
+- 仅用 `Assert.*` 测计算 / 控制流，无 sidecar → `src/tests/<category>/<name>.z42`（flat 模式）
+- 不确定类别归 `basic/`
 
-完整规则见 [docs/internals/src/testing/framework.md](../../docs/internals/src/testing/framework.md)。
+runner 怎么发现、执行用例见 [docs/internals/src/testing/framework.md](../../docs/internals/src/testing/framework.md)。
 
 ## 运行
 

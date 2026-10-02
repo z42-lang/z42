@@ -1,8 +1,9 @@
 # 测试怎么跑
 
-> 对齐：2026-09-17（change `restructure-docs-three-books`）｜ 代码：`scripts/test/`、
+> 对齐：2026-10-02（change `add-test-layout-spec`）｜ 代码：`scripts/test/`、
 > `scripts/cli/xtask_cli_test.z42`、`src/tests/`、`src/libraries/<lib>/tests/`、`src/runtime/src/*_tests.rs`
 >
+> 用例放哪、写成什么形态、平台能力怎么声明见[测试用例组织规范](test-layout.md)（唯一权威）；
 > gate 由哪些 stage 组成、`--skip` 与 `test changed` 的清单见[测试门禁](test-gate.md)（唯一权威）；
 > 一份测试是怎么被跑起来的见[测试流水线](test-pipeline.md)；CI 把 stage 摊到并行 job 见
 > [CI 拓扑](ci.md)；`[Test]` 属性怎么写、`z42 test` 怎么用见
