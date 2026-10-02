@@ -26,7 +26,7 @@ int _testManifestExamples(bool noBuild) {
     return _exampleRun(root, tt, "", true);
 }
 
-// Core: iterate every project dir under src/libraries + src/tests/manifest-targets,
+// Core: iterate every project dir under src/libraries + src/toolchain/builder/tests/fixtures/manifest-targets,
 // discover its example targets, compile all (gate), and run the selected ones.
 // gate=true → run only RunInTest targets; gate=false → run `name` (exact) or all
 // RunInTest when name=="". A name matching nothing → error listing available.

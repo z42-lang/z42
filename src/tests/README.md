@@ -42,7 +42,6 @@
 | `refs/` | ref / out / in / nested ref |
 | `classes/` | class / namespace / access / static / auto-property / ctor / indexer |
 | `strings/` | **语言侧**的字符串字面量：raw string `"""…"""` / 插值 / 拼接。String 的**库行为**（Length·Trim·Split·Join·Format…）归 [z42.core](../libraries/z42.core/tests/string_methods.z42)，不在这里 |
-| `cross-zpkg/` | 多 zpkg 端到端（target / ext / main 三方协作；由 `z42 xtask.zpkg test cross-zpkg` 跑） |
 
 > **仓库根 `examples/`** 不是测试语料：它是学习手册的配套工程，由 `xtask test examples`
 > 按会话脚本逐条运行校验（见 [docs/internals/src/devinfra/test-gate.md](../../docs/internals/src/devinfra/test-gate.md)）。
@@ -62,9 +61,10 @@
 > 配上**包名**喂 `ImportedSymbolLoader.Load`，即可在内存里造出任意跨包形状，再用
 > `IrDump.BuildPackage(..., imported, ...)` 编消费方并断言诊断码。范例见
 > `z42c.semantics/tests/typecheck/crosspkg_duplicate/`（不碰磁盘上的 .zpkg，快）。
-> ② **cross-zpkg 负例 fixture**——目录里放 `expected_build_error.txt`（**不是**
-> `expected_output.txt`），内容为 stderr 必须包含的子串；`main` 编过了判红、错误文本对不上也判红。
-> 范例见 `cross-zpkg/dup_fqn_crosspkg/`（走真实三包 + 真 .zpkg 元数据，慢但覆盖真实接线）。
+> ② **cross-zpkg 负例 fixture**（在 [z42c.pipeline 的 fixtures](../compiler/z42c.pipeline/tests/fixtures/cross-zpkg/)）——
+> 目录里放 `expected_build_error.txt`（**不是** `expected_output.txt`），内容为 stderr 必须包含的子串；
+> `main` 编过了判红、错误文本对不上也判红。范例见 `cross-zpkg/dup_fqn_crosspkg/`（走真实三包 +
+> 真 .zpkg 元数据，慢但覆盖真实接线）。
 >
 > ✅ **E0404（跨包 internal 类/接口）也已建门**（2026-09-13 harden-crosspkg-gates）：
 > `cross-zpkg/class_internal_access` 与 `interface_internal_access` 此前是「手工验证 fixture」——
@@ -118,9 +118,9 @@ runner 怎么发现、执行用例见 [docs/internals/src/testing/framework.md](
 ## 运行
 
 ```bash
-z42 xtask.zpkg test vm          # 全部 run 用例（interp + jit；不含 cross-zpkg）
-z42 xtask.zpkg test cross-zpkg  # 仅 cross-zpkg
-z42 xtask.zpkg test compiler    # z42c 自举 + 编译器 [Test] 单测（含期望报错的负例）
+xtask test e2e                  # 本目录全部用例（interp + jit），随后跑 cross-zpkg / multi-exe 夹具
+xtask test e2e --dir <category> # 只跑一个类别
+xtask test compiler             # z42c 自举 + 编译器 [Test] 单测（含期望报错的负例）
 ```
 
-或一把跑全 GREEN：`z42 xtask.zpkg test`。
+或一把跑全 GREEN：`xtask test`。

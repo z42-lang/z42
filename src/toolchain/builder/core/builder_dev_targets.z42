@@ -253,6 +253,9 @@ bool _textHasTestAttr(string text) {
 ///   ② **`auto = false` ⇒ 本包显式声明「这里没有约定单元」**。欠债记在**债主自己的清单**里
 ///      （可见、可 grep），而不是工具里一张硬编码名单。豁免**不等于消音**：调用方仍会响亮打印
 ///      一行 ⚠（形态同 `test lines` 的棘轮基线）。
+///   ③ **段根下名为 `fixtures` 的子目录 ⇒ harness 驱动的夹具工程**（多包编译、清单解析、字节基线
+///      这类「先构建再比对」的用例），由各自的 harness 跑，不是 `[Test]` 单元。保留名而非名单：
+///      同 Go 的 `testdata/`，约定写在测试布局规范与 z42.toml 参考页里。
 string _dtOrphanSourceDir(ProjectManifest m, string kind, string sourceDir) {
     TargetSection sec = (kind == "bench") ? m.BenchSection : m.TestsSection;
     if (sec == null || sec.IncCount == 0) { return ""; }
@@ -263,18 +266,23 @@ string _dtOrphanSourceDir(ProjectManifest m, string kind, string sourceDir) {
     if (!Directory.Exists(root)) { return ""; }
     // 段根直下的 .z42 → 一定是本包该认领的（一文件一单元），有就是孤儿。
     if (Path.Glob(root, "*.z42").Length > 0) { return root; }
-    // 子目录：自带 toml 的跳过（独立工程）；其余只要有 .z42 就是孤儿。
+    // 子目录：自带 toml 的、`fixtures/` 跳过（豁免 ① ③）；其余只要有 .z42 就是孤儿。
     string[] entries = Path.Glob(root, "*");
     int i = 0;
     while (i < entries.Length) {
-        if (Directory.Exists(entries[i])
-            && Path.Glob(entries[i], "*.z42.toml").Length == 0
-            && Path.GlobRecursive(entries[i], "*.z42").Length > 0) {
-            return root;
-        }
+        if (_dtIsUnclaimedSubdir(entries[i])) { return root; }
         i = i + 1;
     }
     return "";
+}
+
+// 段根下的一个条目是不是「有 .z42 源却没人认领」的子目录：是目录、不叫 `fixtures`（豁免 ③）、
+// 不自带 `*.z42.toml`（豁免 ①）、递归下去有 `.z42`。孤儿守卫与欠债计数共用这一个判据。
+bool _dtIsUnclaimedSubdir(string entry) {
+    return Directory.Exists(entry)
+        && Path.GetFileName(entry) != "fixtures"
+        && Path.Glob(entry, "*.z42.toml").Length == 0
+        && Path.GlobRecursive(entry, "*.z42").Length > 0;
 }
 
 // `auto = false` 豁免掉的欠债**规模**：段根下有几处「有 .z42 源却没有任何目标认领」。
@@ -295,11 +303,7 @@ int _dtUnclaimedSourceDirs(ProjectManifest m, string kind, string sourceDir) {
     string[] entries = Path.Glob(root, "*");
     int i = 0;
     while (i < entries.Length) {
-        if (Directory.Exists(entries[i])
-            && Path.Glob(entries[i], "*.z42.toml").Length == 0
-            && Path.GlobRecursive(entries[i], "*.z42").Length > 0) {
-            n = n + 1;
-        }
+        if (_dtIsUnclaimedSubdir(entries[i])) { n = n + 1; }
         i = i + 1;
     }
     return n;

@@ -276,7 +276,7 @@ public sealed class SymbolCollector {
         }
         // report-crosspkg-duplicate-type：把「FQN → 全部来源包」并进符号表（逐包并，同 ClassNsAll）。
         // ⚠️ 上面那条 ClassesByFqn 的 local-wins 守卫旁写着「键天然唯一（FQN 不会撞）」——**那句是错的**：
-        // 两个包各声明 `Demo.Ns.Widget` 时键就是撞的，实测（`src/tests/cross-zpkg/dup_fqn_crosspkg/`）
+        // 两个包各声明 `Demo.Ns.Widget` 时键就是撞的，实测（`src/compiler/z42c.pipeline/tests/fixtures/cross-zpkg/dup_fqn_crosspkg/`）
         // 编译期零诊断、字母序靠前的包赢。这张表就是为了把那件事变成响的错。
         string[] pkk = imported.ClassPkgAll.Keys();
         i = 0;

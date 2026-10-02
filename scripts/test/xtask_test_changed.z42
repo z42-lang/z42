@@ -256,7 +256,11 @@ _MapResult _mapFile(string f) {
     if (f.StartsWith("src/runtime/tests/")) {
         return _mapCmds(new string[]{ "xtask test runtime" });
     }
-    if (f.StartsWith("src/tests/cross-zpkg/")) { return _mapCmds(new string[]{ "xtask test e2e --dir cross-zpkg" }); }
+    // harness 驱动的夹具（`<component>/tests/fixtures/<suite>/`，见 test-layout.md）只喂自己的 harness，
+    // 必须排在下面 src/compiler/ 与 src/toolchain/ 的整组件映射之前。
+    if (f.StartsWith("src/compiler/z42c.pipeline/tests/fixtures/cross-zpkg/")) { return _mapCmds(new string[]{ "xtask test e2e --dir cross-zpkg" }); }
+    if (f.StartsWith("src/compiler/z42c.pipeline/tests/fixtures/multi-exe/"))  { return _mapCmds(new string[]{ "xtask test e2e --dir multi-exe" }); }
+    if (f.StartsWith("src/toolchain/builder/tests/fixtures/"))                 { return _mapCmds(new string[]{ "xtask test targets" }); }
     // perf subtree (move-bench-into-tests, 2026-09-05). Two things it is NOT:
     //   - not the e2e golden suite: these are timing scenarios, excluded from
     //     golden discovery, so `test e2e` below would be pure cost here;

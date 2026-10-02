@@ -257,9 +257,10 @@ _GoldenEntry[] _walkGoldenCorpus(string root) {
 
 // ── golden-walk exclusions (added by test-vm fold) ───────────────────────────
 
-// Categories whose golden is NOT "run z42vm and diff stdout": cross-zpkg and
-// multi-exe are multi-package / multi-target project e2e runs handled by their
-// own runners; zbc-format / zpkg-format are byte-format goldens (no stdout).
+// Categories whose golden is NOT "run z42vm and diff stdout": zbc-format /
+// zpkg-format are byte-format goldens (no stdout). Harness-driven fixture trees
+// (multi-package, multi-exe, manifest targets) live under their owning
+// component's `tests/fixtures/`, outside this walk (test-layout.md).
 // Deliberately NOT the same set as regen's _isNonRegenCat, which KEEPS the two
 // format categories (they are the byte baselines it exists to refresh).
 //
@@ -271,8 +272,7 @@ _GoldenEntry[] _walkGoldenCorpus(string root) {
 // states the exclusion instead of relying on that layout accident, so a later
 // `perf/<name>.z42` can't silently enlist a benchmark as a golden test.
 bool _isNonRunnableCat(string cat) {
-    return cat == "cross-zpkg" || cat == "multi-exe" || cat == "zbc-format" || cat == "zpkg-format"
-        || cat == "manifest-targets" || cat == "perf";
+    return cat == "zbc-format" || cat == "zpkg-format" || cat == "perf";
 }
 
 // ── golden-zbc artifact mirror (mirror-build-output-per-component, 2026-06-16) ─

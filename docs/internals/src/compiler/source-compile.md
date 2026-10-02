@@ -155,8 +155,8 @@ AST → Bound 树 + `SemanticModel`。分两步：先由 `SymbolCollector` 遍�
 > 实参里，剥出 `String>`），正确形态是「**截 `<`、保留 ns**」，即现在的 `_fqTrimTypeArgs`。
 >
 > 回归门（两条各一个负例，都断言 E0402）：
-> `src/tests/cross-zpkg/iface_shortname_collision_crosspkg/`（类的直接接口）·
-> `src/tests/cross-zpkg/iface_base_shortname_collision_crosspkg/`（接口父链）。
+> `src/compiler/z42c.pipeline/tests/fixtures/cross-zpkg/iface_shortname_collision_crosspkg/`（类的直接接口）·
+> `src/compiler/z42c.pipeline/tests/fixtures/cross-zpkg/iface_base_shortname_collision_crosspkg/`（接口父链）。
 
 > **② 已修**（2026-09-10 `add-bare-name-ambiguity-diagnostic`）：非限定同短名（`using A; using B;`
 > 后裸写 `Foo`）不再静默选一，报 **E0456**（对标 C# CS0104）。判据：候选 ns 取自新表
@@ -737,7 +737,7 @@ primary = **声明序第一个**同名成员（跨 partial 碎片按碎片加载
 - **impl-block 方法**：不参与 primary/非-primary，恒用裸名（并入需 rekey + 格式 bump，是独立的语义扩展）；由 `_passImpls` 走写侧入口补齐。
 - **被擦除的 decl-only partial**：它自己不注册符号，但 `MemberCollector` 的擦除分支**照样写键**——消费方（TSIG 导出 / 暴露检查）要问的是「该解析到哪个键」，答案正是实现碎片注册的那个。两侧键一致：静态走全签名 mangle（只依赖签名）；实例恒裸名（decl-only 不进 primary tracker）。**同名重载分处两碎片时不成立**，但那是 partial v1 的既有限制（重载须同碎片）。
 
-回归守卫：`src/tests/cross-zpkg/partial_crosscu_export/`（跨-CU partial 的导出面）+ `src/tests/partial-types/partial_static_method.z42`（`static partial`）。
+回归守卫：`src/compiler/z42c.pipeline/tests/fixtures/cross-zpkg/partial_crosscu_export/`（跨-CU partial 的导出面）+ `src/tests/partial-types/partial_static_method.z42`（`static partial`）。
 
 #### 名字与「拿名字当键」的三条纪律
 

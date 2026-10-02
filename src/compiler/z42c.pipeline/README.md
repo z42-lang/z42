@@ -3,6 +3,17 @@
 ## 职责
 编译管线编排（单文件 + 包级 Lexer→Parser→Sem→IR→Emit）+ 依赖扫描 + workspace 构建 + 文件级增量。后端三包的编排层，向下调 `z42c.semantics` 编译、`z42.package` 产 zpkg。
 
+## 如何测试验证
+
+```bash
+xtask test compiler                 # tests/<unit>/（各带 *.z42.toml）的 [Test] 单元，全部 PASS 即通过
+xtask test e2e --dir cross-zpkg     # tests/fixtures/cross-zpkg/：多包编译与链接夹具
+xtask test e2e --dir multi-exe      # tests/fixtures/multi-exe/：一工程产多个 exe 的夹具
+```
+
+`tests/fixtures/` 放 harness 驱动的夹具工程，不是 `[Test]` 单元；约定见
+[测试用例组织规范](../../../docs/internals/src/devinfra/test-layout.md)。
+
 ## 核心文件
 | 文件 | 职责 |
 |------|------|

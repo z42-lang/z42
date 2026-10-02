@@ -3,7 +3,7 @@
 // generic helpers it relies on (_enumDirsSorted / _sortStrings / _append) live in
 // xtask_golden.z42, and _root / _z42vm come from xtask.z42 (cross-file, same ns).
 //
-// Each test under src/tests/cross-zpkg/<name>/ ships three z42.toml packages
+// Each test under src/compiler/z42c.pipeline/tests/fixtures/cross-zpkg/<name>/ ships three z42.toml packages
 // (target / ext / main) plus expected_output.txt. We build them in
 // dependency order, populating each one's <pkg>/libs/ with prior zpkgs so
 // PackageCompiler's lib lookup resolves cross-package symbols. Then run
@@ -68,8 +68,8 @@ int _testCrossZpkgImpl(string mode) {
     // isolate-xtask-fixture-builds：在 artifacts/tmp 里的**拷贝**上编 / 跑，源码树零写入
     // （`_stageFixtureTree` 头注）。下面所有路径（`_fixtureDist` / `<pkg>/libs` / expected_*.txt）
     // 都相对 testsDir，故只改这一处。
-    if (!Directory.Exists(Path.Join(root, "src/tests/cross-zpkg"))) { return 0; }
-    string testsDir = _stageFixtureTree(root, "src/tests/cross-zpkg", "xpkg-fixtures");
+    if (!Directory.Exists(Path.Join(root, "src/compiler/z42c.pipeline/tests/fixtures/cross-zpkg"))) { return 0; }
+    string testsDir = _stageFixtureTree(root, "src/compiler/z42c.pipeline/tests/fixtures/cross-zpkg", "xpkg-fixtures");
     // --toolchain (compile-once P3): when an active toolchain is selected, locate
     // z42c.driver + its siblings + stdlib + z42vm from that `.z42` set (the
     // downloaded current-sdk consumed cross-job) instead of the build-tree.

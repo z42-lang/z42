@@ -1,5 +1,5 @@
 // xtask — multi-exe e2e runner (unify-run-modes P3). Each case under
-// src/tests/multi-exe/<name>/ is ONE project whose z42.toml declares N `[[exe]]`
+// src/compiler/z42c.pipeline/tests/fixtures/multi-exe/<name>/ is ONE project whose z42.toml declares N `[[exe]]`
 // targets sharing `[sources]`. We build it once (z42c produces dist/<exe>.zpkg
 // per target — the compile-once-restamp path), then run EACH produced zpkg
 // through z42vm, concatenate stdout in sorted (by zpkg path) order, and diff
@@ -21,9 +21,9 @@ int _testMultiExeCore(string mode, bool noBuild) {
 // Returns 0 if every multi-exe case passes, 1 on any failure (or setup error).
 int _testMultiExeImpl(string mode) {
     string root = _root();
-    if (!Directory.Exists(Path.Join(root, "src/tests/multi-exe"))) { return 0; }   // no cases → clean skip
+    if (!Directory.Exists(Path.Join(root, "src/compiler/z42c.pipeline/tests/fixtures/multi-exe"))) { return 0; }   // no cases → clean skip
     // isolate-xtask-fixture-builds：在 artifacts/tmp 的拷贝上编 / 跑，源码树零写入（同 cross-zpkg）。
-    string testsDir = _stageFixtureTree(root, "src/tests/multi-exe", "multi-exe-fixtures");
+    string testsDir = _stageFixtureTree(root, "src/compiler/z42c.pipeline/tests/fixtures/multi-exe", "multi-exe-fixtures");
 
     // Tool resolution (mirror cross-zpkg setup: --toolchain consume vs build-tree).
     // Same VM-role split as cross-zpkg (speed-up-cross-zpkg-compile-vm): compile the

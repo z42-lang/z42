@@ -131,7 +131,7 @@ cctor 屏障只有三个触发点，而 `ensure_callee_owner_init` 是靠**砍 F
 类型的 —— 自由函数推不出 owner，于是「只调了包里一个自由函数」这条路上，惰性方案的包
 初始化器**永远不会跑**，用户看到的是空注册表而不是报错。改成「加载即登记」后，无论首次
 触达走类型还是自由函数，都必然先经过 `insert_type`。守这条的是
-`src/tests/cross-zpkg/module_init_free_function/`。
+`src/compiler/z42c.pipeline/tests/fixtures/cross-zpkg/module_init_free_function/`。
 
 ### ⚠️ 它推翻了一条批准惰性化时的前提
 
@@ -221,7 +221,7 @@ catch (Exception e) {
 急切主包那条路额外收一个 `func_names`：主包自己的**自由函数**既不在类型表里、也不是任何
 类型的成员，不传进来就判不出归属。
 
-守这条的是 `src/tests/cross-zpkg/module_init_failure_catchable/`，判别力在最后那两行
+守这条的是 `src/compiler/z42c.pipeline/tests/fixtures/cross-zpkg/module_init_failure_catchable/`，判别力在最后那两行
 **无关调用**上（退回修复 ⇒ 死在第一个 catch 块内部）。
 
 #### ⚠️ 「能 catch」的前提是加载没被提前（2026-09-23 实测，未修）
