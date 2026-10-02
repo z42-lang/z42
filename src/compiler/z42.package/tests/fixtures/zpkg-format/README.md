@@ -31,7 +31,7 @@
 export Z42_LIBS=$PWD/artifacts/build/libraries/dist/release
 VM=./artifacts/build/runtime/release/z42vm
 DRV=artifacts/build/compiler/z42c.driver/release/dist/z42c.driver.zpkg
-cd src/tests/zpkg-format
+cd src/compiler/z42.package/tests/fixtures/zpkg-format
 for d in packed-minimal packed-multi-module sym-only-sidecar; do
   (cd $d && $VM $DRV -- build $d.z42.toml --release)
 done

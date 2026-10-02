@@ -37,10 +37,10 @@ dist/
 
 # 例外：zpkg-format / zbc-format fixture 目录是 checked-in 字节基线（非构建产物），
 # 其 source.zbc 必须入库供 Rust reader 兼容测试（add-indexed-zpkg-min-patch 的
-# indexed-minimal/source.zbc 是散装 zbc 装载测试夹具；writer minor bump 后经
-# src/tests/zbc-format/generate-fixtures.sh 重生）。
-!src/tests/zpkg-format/**/source.zbc
-!src/tests/zbc-format/**/source.zbc
+# indexed-minimal/source.zbc 是散装 zbc 装载测试夹具）。writer minor bump 后：zbc-format 由
+# `xtask build test` 就地重生，zpkg-format 按其 README 的配方重生。
+!src/compiler/z42.package/tests/fixtures/zpkg-format/**/source.zbc
+!src/compiler/z42.package/tests/fixtures/zbc-format/**/source.zbc
 
 # Cross-zpkg e2e test build artifacts (per-package libs/ populated by test driver).
 src/compiler/z42c.pipeline/tests/fixtures/cross-zpkg/*/*/libs/

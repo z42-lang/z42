@@ -10,10 +10,10 @@
 //
 // Recompiles every golden `.z42` the shared corpus walk finds (_walkGoldenCorpus,
 // common/xtask_golden.z42 — see there for the segments, and for how the four
-// consumers' inclusion policies differ). Output goes to the artifacts mirror, with
-// ONE exception: the `zbc-format` category's `.zbc` is a checked-in byte baseline,
-// overwritten in place so `git diff` flags format drift. Categories skipped here:
-// _isNonRegenCat. Tally + return 1 on any failure.
+// consumers' inclusion policies differ). Output goes to the artifacts mirror.
+// The full (unfiltered) regen also rewrites the checked-in zbc wire-format byte
+// baselines IN PLACE (_formatZbcFixtureCases), so `git diff` flags format drift.
+// Categories skipped here: _isNonRegenCat. Tally + return 1 on any failure.
 namespace Z42Xtask;
 
 using Std.IO;
@@ -105,23 +105,37 @@ _GoldenCases _collectGoldenCasesF(string root, string dirFilter, string fileFilt
             if (_isNonRegenCat(e.cat)) { continue; }
             if (!_e2eIncluded(e.cat, e.name, e.src, dirFilter, fileFilter)) { continue; }
         }
-        // zbc-format: checked-in byte baseline → regen overwrites in place (git diff
-        // = format drift). All other goldens redirect to the artifacts mirror
-        // (redirect-golden-zbc-to-artifacts, 2026-06-16). zbc-format is dir-mode
-        // under src/tests only — never flat, never under libraries.
-        string outPath = "";
-        if (e.seg == "tests-dir" && e.cat == "zbc-format") {
-            outPath = Path.Join(e.dir, "source.zbc");
-        } else {
-            string mirrorDir = _goldenArtifactDir(root, e.relUnderSrc);
-            Directory.Create(mirrorDir);
-            outPath = Path.Join(mirrorDir, e.zbcName);
-        }
+        string mirrorDir = _goldenArtifactDir(root, e.relUnderSrc);
+        Directory.Create(mirrorDir);
+        string outPath = Path.Join(mirrorDir, e.zbcName);
         caseNames[caseCount]   = e.name;
         caseSources[caseCount] = e.src;
         caseOutputs[caseCount] = outPath;
         caseOptAlls[caseCount] = e.optAll;
         caseCount = caseCount + 1;
+    }
+
+    // Full regen only: the zbc wire-format byte baselines, rewritten in place. A
+    // --dir / --file narrowed regen is for iterating on goldens and leaves them alone.
+    if (dirFilter.Length == 0 && fileFilter.Length == 0) {
+        string[] fx = _formatZbcFixtureCases(root);
+        string[] n2 = new string[caseCount + fx.Length];
+        string[] s2 = new string[caseCount + fx.Length];
+        string[] o2 = new string[caseCount + fx.Length];
+        bool[]   a2 = new bool[caseCount + fx.Length];
+        int k = 0;
+        while (k < caseCount) {
+            n2[k] = caseNames[k]; s2[k] = caseSources[k]; o2[k] = caseOutputs[k]; a2[k] = caseOptAlls[k];
+            k = k + 1;
+        }
+        foreach (var d in fx) {
+            n2[k] = "zbc-format/" + Path.GetFileName(d);
+            s2[k] = Path.Join(d, "source.z42");
+            o2[k] = Path.Join(d, "source.zbc");
+            a2[k] = false;
+            k = k + 1;
+        }
+        caseNames = n2; caseSources = s2; caseOutputs = o2; caseOptAlls = a2; caseCount = k;
     }
 
     _GoldenCases gc = new _GoldenCases();
@@ -131,6 +145,28 @@ _GoldenCases _collectGoldenCasesF(string root, string dirFilter, string fileFilt
     gc.optAlls = caseOptAlls;
     gc.count   = caseCount;
     return gc;
+}
+
+// The checked-in `.zbc` wire-format byte baselines (z42.package owns the writer):
+// every `<fixtures>/zbc-format/<name>/` with a `source.z42`. Regen compiles each
+// back onto its own committed `source.zbc` — that is what makes CI's
+// "regen produced no diff" check mean "the committed bytes are current".
+string _formatZbcFixtureDir(string root) {
+    return Path.Join(root, "src/compiler/z42.package/tests/fixtures/zbc-format");
+}
+
+string[] _formatZbcFixtureCases(string root) {
+    string[] dirs = _enumDirsSorted(_formatZbcFixtureDir(root));
+    string[] found = new string[dirs.Length];
+    int n = 0;
+    foreach (var d in dirs) {
+        string full = Path.Join(_formatZbcFixtureDir(root), d);
+        if (File.Exists(Path.Join(full, "source.z42"))) { found[n] = full; n = n + 1; }
+    }
+    string[] r = new string[n];
+    int i = 0;
+    while (i < n) { r[i] = found[i]; i = i + 1; }
+    return r;
 }
 
 int _regenGolden() {
@@ -261,11 +297,6 @@ int _regenGoldenF(string dirFilter, string fileFilter) {
 
 // Categories with no single-source golden .zbc to regenerate: errors / parse
 // expect compile/parse failure (no .zbc).
-//
-// Deliberately NOT the same set as the runners' _isNonRunnableCat: this one KEEPS
-// zbc-format / zpkg-format (they are exactly the byte baselines regen must
-// refresh) while the runners drop them (no stdout to diff). That asymmetry is the
-// point, not drift.
 //
 // `errors` / `parse` do not exist under src/tests today — that negative-test corpus
 // evaporated when the C# compiler was removed. The guards stay as the landing pad

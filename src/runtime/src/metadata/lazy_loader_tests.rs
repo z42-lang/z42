@@ -227,7 +227,7 @@ fn vm_context_install_with_deps_no_libs_no_declared_returns_none() {
 /// Path to a committed, valid zpkg fixture usable as a real on-disk zpkg.
 fn fixture_zpkg() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../tests/zpkg-format/packed-minimal/source.zpkg")
+        .join("../compiler/z42.package/tests/fixtures/zpkg-format/packed-minimal/source.zpkg")
 }
 
 #[test]

@@ -46,10 +46,10 @@
 14. `ZbcFormat.z42` 的 `ZbcVersion.Minor++` + 常量旁 changelog
 15. `src/runtime/src/metadata/zbc_reader/versions.rs` 的 `ZBC_VERSION_MINOR` + changelog
 16. zbc 格式页的 Minor changelog 表加行（`docs/internals/src/formats/zbc.md`）
-17. regen `src/tests/zbc-format/*/source.zbc`（`xtask build test`）
+17. regen `src/compiler/z42.package/tests/fixtures/zbc-format/*/source.zbc`（`xtask build test`）
 18. `src/compiler/z42c.semantics/tests/zbc/zbc_tests.z42` 内嵌 hex 串重截
 19. **联动 zpkg**：`ZpkgWriter.z42` 的 `Minor++` + Rust `ZPKG_VERSION_MINOR` + `zpkg.md` changelog
-    + **手工** regen `src/tests/zpkg-format/*`（无一键 regen）
+    + **手工** regen `src/compiler/z42.package/tests/fixtures/zpkg-format/*`（无一键 regen）
 
 ### 文档
 

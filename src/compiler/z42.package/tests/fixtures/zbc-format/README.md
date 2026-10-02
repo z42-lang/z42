@@ -38,17 +38,17 @@
 ```bash
 xtask build compiler && xtask build stdlib   # 必要 — fixture 须由**新 writer** emit
 xtask build test                             # 重生全部 golden（含本目录的 source.zbc，in-place）
-git diff src/tests/zbc-format/               # review 哪些 fixture 受影响
+git diff src/compiler/z42.package/tests/fixtures/zbc-format/               # review 哪些 fixture 受影响
 ```
 
 `build test` 对 `zbc-format` 目录特判：直接覆写各 fixture 的 `source.zbc`（其余 run-golden 落 artifacts 镜像）。每次 bump 必须把 fixture 一同 commit。
 
 > 🔴 **2026-09-27 更正**：本节此前写的是 `z42 xtask.zpkg regen` —— **`xtask` 没有 `regen` 这个
 > 子命令**（实跑报 `xtask: unknown command 'regen'`）。真实命令是 `xtask build test`，与
-> [version-bumping.md](../../../docs/agent/rules/version-bumping.md) 步骤 4 和 CI 的
+> [version-bumping.md](../../../../../../docs/agent/rules/version-bumping.md) 步骤 4 和 CI 的
 > `compile-test-assets` job 用的是同一条（`test-host` 的 `test all` 走的也是同一个 regen）。照旧文本做会找不到命令，进而以为「本地没法重生」。
 >
-> ⚠️ 本目录**不覆盖** `src/tests/zpkg-format/`：那 4 份 fixture `build test` **不碰**，
+> ⚠️ 本目录**不覆盖** `src/compiler/z42.package/tests/fixtures/zpkg-format/`：那 4 份 fixture `build test` **不碰**，
 > 得按 [zpkg-format/README.md](../zpkg-format/README.md) 从各自的 `<name>.z42.toml` 逐个重建
 > （version-bumping.md 步骤 9）。它们的消费方是 **Rust 单测**，所以跑完 `build test` 后
 > `git status` 干净**不能**证明它们是最新的。
@@ -59,7 +59,7 @@ git diff src/tests/zbc-format/               # review 哪些 fixture 受影响
 |------|---------|
 | `zbc_compat.rs` | Rust 解码这些 check-in 的 `source.zbc` 字节基线，验证 reader 兼容当前 wire format |
 
-详见 [`src/runtime/tests/zbc_compat.rs`](../../../src/runtime/tests/zbc_compat.rs)。
+详见 [`src/runtime/tests/zbc_compat.rs`](../../../../../../src/runtime/tests/zbc_compat.rs)。
 
 ## 入口点
 
