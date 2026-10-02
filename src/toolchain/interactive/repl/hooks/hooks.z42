@@ -6,8 +6,8 @@
 // 也让消费方（z42.interactive）publish 时沿 path-dep 闭包自动平铺进 payload。
 //
 // cargo 与 VM 同源：裸 `cargo`（ctx.Exec，PATH 解析，versions.toml 在 xtask 入口已校 channel）
-// + `-p z42-repl --manifest-path src/runtime/Cargo.toml`；z42-repl 是 runtime workspace 成员 →
-// 落进 VM 已 warm 的 artifacts/build/runtime/<profile>/，再拷进 dist/<rid>/。REPL host-only
+// + `-p z42-repl --manifest-path src/runtime/Cargo.toml --target-dir artifacts/build/runtime`；z42-repl 是 runtime
+// workspace 成员 → 落进 VM 已 warm 的 artifacts/build/runtime/<profile>/，再拷进 dist/<rid>/。REPL host-only
 // （scripting-charter 2b）→ 只为 host 编，prefix/suffix 按运行平台派生；rid 仍作 dist 子目录键。
 //
 // 注入约定（builder_hooks.z42）：`namespace Build;` + `class ProjectHooks : BuildHooks`，
@@ -31,10 +31,13 @@ public class ProjectHooks : BuildHooks {
             return;
         }
         ctx.Log("z42.repl hooks: cargo build --release -p z42-repl…");
-        string[] args = new string[6];
+        // --target-dir 同 src/runtime/.cargo/config.toml：cargo 按 cwd 找配置，ctx.Exec 不能设 cwd ⇒ 显式传。
+        string targetDir = Path.Join(repo, Path.Join("artifacts", Path.Join("build", "runtime")));
+        string[] args = new string[8];
         args[0] = "build"; args[1] = "--release";
         args[2] = "-p"; args[3] = "z42-repl";
         args[4] = "--manifest-path"; args[5] = manifest;
+        args[6] = "--target-dir"; args[7] = targetDir;
         ExecResult r = ctx.Exec("cargo", args);
         if (r.ExitCode != 0) {
             ctx.Warn("z42.repl hooks: cargo build failed (rc=" + r.ExitCode.ToString() + ")");
@@ -43,8 +46,7 @@ public class ProjectHooks : BuildHooks {
         }
         // host cdylib 落点（VM warm 目录，host 无 target triple）+ 平台派生文件名。
         string fname = ProjectHooks._nativeFileName("z42_repl");
-        string built = Path.Join(repo, Path.Join("artifacts",
-            Path.Join("build", Path.Join("runtime", Path.Join("release", fname)))));
+        string built = Path.Join(targetDir, Path.Join("release", fname));
         if (!ctx.Exists(built)) {
             ctx.Warn("z42.repl hooks: built cdylib missing: " + built);
             return;

@@ -1,6 +1,6 @@
 # 产物目录布局（`artifacts/`）
 
-> 对齐：2026-10-02（change `unify-test-output-dirs`）｜ 代码：`scripts/common/xtask_layout.z42`（路径 SoT）、`src/libraries/z42.workspace.toml` 与 `src/compiler/z42.workspace.toml` 的 `[workspace.build]`、`.cargo/config.toml`
+> 对齐：2026-10-02（change `unify-test-output-dirs`、`per-crate-cargo-config`）｜ 代码：`scripts/common/xtask_layout.z42`（路径 SoT）、`src/libraries/z42.workspace.toml` 与 `src/compiler/z42.workspace.toml` 的 `[workspace.build]`、各 cargo crate 的 `.cargo/config.toml`
 >
 > 构建步骤本身见[构建编排](build.md)；打包见[打包引擎](packaging.md)。
 
@@ -35,7 +35,8 @@
 
 | `src/` | `artifacts/build/` | 内容 |
 |---|---|---|
-| `src/runtime/` | `build/runtime/<profile>/` | cargo target-dir：`z42vm`、`libz42.*`、`z42` trampoline |
+| `src/runtime/` | `build/runtime/<profile>/` | cargo target-dir：`z42vm`、`libz42.*`、`libz42_compression.*`、`libz42_repl.*`、`z42` trampoline |
+| `src/toolchain/workload/<p>/…/<crate>/`（cargo）| `build/toolchain/workload/<p>/…/<crate>/[<triple>/]<profile>/` | 平台 crate 各自的 cargo target-dir：wasm `platform`、ios / android `platform/rust`、desktop `platform/apphost`（apphost stub）|
 | `src/libraries/<lib>/` | `build/libraries/<lib>/<profile>/{dist,cache}/` | **per-lib** 编译，构建私有 |
 | （聚合拷出）| `build/libraries/dist/<profile>/` | 全部 stdlib `.zpkg` 的**扁平单目录视图** = `Z42_LIBS` 查找点 |
 | `src/compiler/<member>/` | `build/compiler/<member>/<profile>/{dist,cache}/` | 编译器后端各成员 |
@@ -45,12 +46,46 @@
 
 **per-member 的产物路径不是硬编码的**：`scripts/common/xtask_layout.z42` 读各 workspace toml 的
 `[workspace.build].output_dir` / `cache_dir` 模板（正是 z42c 的 `WorkspaceBuild.PlanLayout` 消费的
-同一份）再展开。改 toml 模板，xtask 自动跟上。cargo 侧同理由 `.cargo/config.toml` 的
-`target-dir = "artifacts/build/runtime"` 决定——**注意它不带 `<cargo-target>` 这一层**，profile
-直接挂在 `runtime/` 下。
+同一份）再展开。改 toml 模板，xtask 自动跟上。
+
+### cargo crate：各自的 `.cargo/config.toml`
+
+cargo 侧的 SoT 是**每个 crate 自带**的 `<crate>/.cargo/config.toml`，规则一条：
+
+> `target-dir = artifacts/build/<crate 相对 src/ 的路径>`
+
+| crate | target-dir |
+|---|---|
+| `src/runtime`（workspace：z42 + z42-abi / -host / -compression / -repl …）| `build/runtime` |
+| `src/toolchain/workload/wasm/platform` | `build/toolchain/workload/wasm/platform` |
+| `src/toolchain/workload/ios/platform/rust` | `build/toolchain/workload/ios/platform/rust` |
+| `src/toolchain/workload/android/platform/rust` | `build/toolchain/workload/android/platform/rust` |
+| `src/toolchain/workload/desktop/platform/apphost` | `build/toolchain/workload/desktop/platform/apphost` |
+
+host 构建落 `<profile>/`，交叉构建落 `<triple>/<profile>/`（**不带**额外的 `<cargo-target>` 层）。平台 crate 的目录与同名
+z42 workload 组件的 `{dist,.cache,publish}`、平台测试输出 `tests/`（§3）同处 `build/toolchain/workload/<p>/` 下、子目录名
+不冲突；`z42 clean` 只删它解析出的那几个子目录，不会碰 cargo 的。cargo 在每个 target-dir 根写 `CACHEDIR.TAG`，
+`xtask clean tests` 凭它认出 target-dir、不往里递归（见 §4）。wasm crate 的配置另带 `[target.wasm32-unknown-unknown]` 的
+`-zstack-size`（见[嵌入式应用运行](../testing/embedded-app-run.md)）。
+
+🔴 **cargo 按工作目录向上查找 `.cargo/config.toml`，`--manifest-path` 不算数**（cargo 1.98 实测；
+`cargo -C <dir>` 仍是 nightly-only）。所以：
+
+- xtask 一律经 `_cargoIn(p, <crate>)` 在 crate 目录里跑 cargo / cargo-ndk / wasm-pack；z42b 的设备构建同样
+  `WorkingDirectory(<crate>)`；CI 里直接调 cargo 的 step 先 `cd src/runtime`。
+- 做不到的调用点——build hook 的 `ctx.Exec` 不能设 cwd（`scripts/hooks/hooks.z42`、
+  `src/toolchain/interactive/repl/hooks/hooks.z42`）——显式传**同值**的 `--target-dir`。
+- 从仓根 `cargo build --manifest-path src/runtime/Cargo.toml` 会落进 `src/runtime/target/`（被 `.gitignore` 忽略），
+  xtask 不认那里的产物。手动构建用 `xtask build runtime`，或 `cd src/runtime` 再 `cargo …`。
+
+> **历史：仓根 `.cargo/config.toml`（2026-10-02 删除）**。此前只有仓根一份 `target-dir = "artifacts/build/runtime"`。
+> 因为查找按 cwd，它对仓内**每个** crate 都生效：toolchain 下的平台 crate、apphost 全部挤进 `build/runtime`
+> （交叉构建落 `build/runtime/<triple>/`），`build/` 因此不镜像 `src/`；wasm / ios 平台 crate 的 `.gitignore`
+> 还写着「本 crate 在重定向之外、产出自己的 `target/`」，android 打包为此留了一条走不到的 `<crate>/target/` 回落路径。
 
 xtask 自己发明、没有 toml 归属的路径，**全部在 `xtask_layout.z42` 里各有一个单一定义**：
-扁平 stdlib dist（`_libsFlatDist`）、cargo target 目录（`_cargoTargetDir` / `_runtimeOut`）、测试输出与工作目录
+扁平 stdlib dist（`_libsFlatDist`）、cargo crate 位置与其 target 目录（`_runtimeCrate` / `_wasmCrate` / `_iosCrate` /
+`_androidCrate` / `_apphostCrate`、`_crateTargetDir` / `_cargoTargetDir` / `_runtimeOut`，与各 crate 配置同步）、测试输出与工作目录
 （`_buildMirror` / `_testOut` / `_testOutRootOf` / `_xtaskTestOut` / `_compilerWsWork`，见 §3），以及 §1 的
 每个顶层桶（`_toolsDir` / `_devSdkDir` / `_packagesDir` / `_archivesDir` / `_testReportsDir` / `_benchDir` /
 `_profileDir`）。使用点只写「桶 + 自己的子目录名」或「owner 组件 + 名字」，不写 `"artifacts/…"` 字面量——
@@ -160,7 +195,7 @@ z42c 写产物同样是就地写 ⇒ 穿透到 `libraries/z42.core/release/dist/
 | 命令 | 删什么 |
 |---|---|
 | `xtask clean` | 生产 cache/dist：各 stdlib 成员的 `<lib>/<profile>/{cache,dist}` + 扁平 `libraries/dist/` |
-| `xtask clean tests` | `build/` 下每个组件的 `tests/`（§3 的全部测试输出；不进入 `dist` / `cache` 与 cargo target）+ 旧位置 `<工程目录>/artifacts/test-targets` |
+| `xtask clean tests` | `build/` 下每个组件的 `tests/`（§3 的全部测试输出；不进入 `dist` / `cache` 与 cargo target-dir——凭根下的 `CACHEDIR.TAG` 认出，只删它直接下面的 `tests/`，如 `build/runtime/tests`）+ 旧位置 `<工程目录>/artifacts/test-targets` |
 | `xtask clean bench` | z42b 的 bench 目标输出（`<m>/<profile>/bench`；旧位置 `<工程目录>/artifacts/bench-targets`）|
 | `xtask clean all` | `build/` + 旧布局残留（`tmp/`、`.scratch/`、`publish/`、`release/`）+ **源码树里**各 z42 工程旁的 `artifacts/`、`dist/`（+ cross-zpkg 用例的 `libs/`）|
 

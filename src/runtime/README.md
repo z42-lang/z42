@@ -74,8 +74,9 @@ C 头文件位于 [`include/z42_abi.h`](include/z42_abi.h)；`.z42abi` manifest 
 ## 构建与测试
 
 ```bash
-cargo build --workspace --manifest-path src/runtime/Cargo.toml
-cargo test  --workspace --manifest-path src/runtime/Cargo.toml
+# 必须在 src/runtime 里跑：target-dir（artifacts/build/runtime）由本目录的 .cargo/config.toml 定，cargo 按 cwd 查找它
+(cd src/runtime && cargo build --workspace)
+(cd src/runtime && cargo test  --workspace)
 z42 xtask.zpkg test vm
 ```
 

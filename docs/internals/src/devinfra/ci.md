@@ -103,7 +103,7 @@ push / schedule / dispatch 不走快速通道。
 | `platform` | `src/runtime/**`、`src/toolchain/{workload,launcher,devtools,interactive,builder}/**`、`scripts/{package/**,packages.toml,install/**}`、`scripts/test/xtask_test_{dist,platform,wasm,ios,android,desktop,embedded}*.z42`、`scripts/versions.toml` |
 | `examples` | `examples/**`、`docs/learn/**`（只门控 `package-host`——唯一用打包 SDK 重放示例的 job） |
 | `compiler` | `src/compiler/**`、`src/toolchain/devtools/vscode/**` |
-| `vm` | `src/runtime/**`、`.cargo/**` |
+| `vm` | `src/runtime/**` |
 | `stdlib` | `src/libraries/**`、`src/toolchain/builder/**`（z42b 是 [Test] 执行器）、`scripts/test/xtask_test_lib*.z42` |
 
 `src/toolchain/builder/**` 同时在 `platform` 与 `stdlib` 里：z42b 既是 [Test] 执行器，它的 `publish`
@@ -174,8 +174,9 @@ required check 视同通过。新增 job 时记得加进它的 `needs`。
   = `ci-bootstrap` + `test compiler`，两半都与上述重复，2026-09-30 删除。
 - **没有专门的 feature 组合 job**：曾有 `verify-features`（host 上 `cargo check` interp-only / wasm / ios /
   android 四个组合），而后三者 `package-*` 本就在真实目标平台上完整构建；它独有的「interp-only 不含
-  cranelift」断言挪进了 `package-wasm`，2026-10-02 删除（drop-feature-matrix）。`.cargo/**` 随之并入
-  `platform` 过滤器。
+  cranelift」断言挪进了 `package-wasm`，2026-10-02 删除（drop-feature-matrix）。cargo 配置随后改为各 crate
+  自带（`src/runtime/.cargo/`、`src/toolchain/workload/*/…/.cargo/`，per-crate-cargo-config），已在
+  `vm` / `platform` 的路径里，不再单列 `.cargo/**`。
 
 `test-host` 各腿用 `--skip` 把 stage 卸给并行 job：linux-x64 跳 `stdlib,compiler,vscode`，
 其余 OS 再多跳 `cross-zpkg,bench`（这两者 host 无关，一条腿够了）。Windows 腿不跑
@@ -222,9 +223,16 @@ Swatinem `rust-cache` 用 `shared-key` 跨 job 共享；**一个 key 命中后�
 | `artifact-host-v1` | `xtask-bootstrap-artifact` 默认 | release workspace |
 | `package-host-v2` / `ios-v2` / `android-v2` / `wasm-v2` | 各打包 job | + cdylib / staticlib / 交叉编译 |
 
-⚠️ target 目录由根 `.cargo/config.toml` 统一重定向到 `artifacts/build/runtime`，**所有** job 的
-`workspaces` 都要写 `src/runtime -> ../../artifacts/build/runtime`——写裸 `src/runtime` 缓存的是
-一个空目录（`verify-features` 曾这样白缓存了很久）。
+⚠️ 每个 crate 的 target 目录由它自己的 `.cargo/config.toml` 重定向到 `artifacts/build/<crate 相对 src/>`
+（见[产物目录布局](artifacts-layout.md) §2），所以 `workspaces` 必须写 `<crate> -> <target-dir>` 的映射：runtime 是
+`src/runtime -> ../../artifacts/build/runtime`——写裸 `src/runtime` 缓存的是一个空目录（`verify-features` 曾这样白缓存了很久）。
+平台 crate（wasm / ios / android）各有自己的 target 目录、**不在** runtime 那条里，编它们的 job 经
+`xtask-bootstrap-artifact` 的 `extra-workspaces` 输入追加一行（`package-android` / `package-wasm` / `test-{wasm,ios,android}`）。
+它们的 `[profile.release]`（`opt-level = "z"` + lto）与 runtime workspace 不同，本来就不与 runtime 共享编译产物——
+2026-10-02 前共用 `build/runtime` 时也只是「同一个缓存目录」，拆开不多编任何东西。
+
+同理，**直接调 cargo 的 step 必须先 `cd` 进 crate 目录**（`cd src/runtime && cargo build --locked --release`）：
+cargo 按工作目录找 `.cargo/config.toml`，`--manifest-path` 不算数，从仓根跑会落进 `src/runtime/target`。
 
 ## 3.1 自举种子从哪来（以及它怎么死锁过一次）
 

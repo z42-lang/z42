@@ -62,7 +62,7 @@
 //! model B in the sibling file. Objects shaded by the write barrier — that path
 //! already works and modelling it would only add states.
 //!
-//! Run: `RUSTFLAGS="--cfg loom" cargo test --manifest-path src/runtime/Cargo.toml \
+//! Run (in src/runtime): `RUSTFLAGS="--cfg loom" cargo test \
 //!       --test gc_alloc_black_loom --release`
 
 #![cfg(loom)]

@@ -18,16 +18,18 @@ z42 VM 同一份 Rust 代码通过 Cargo features 构建出适合不同平台的
 ## 构建矩阵
 
 ```bash
+cd src/runtime   # 在 crate 目录里跑：target-dir 由 src/runtime/.cargo/config.toml 定（见 devinfra/artifacts-layout §2）
+
 # 默认（含 JIT，桌面开发用）
-cargo build --manifest-path src/runtime/Cargo.toml
+cargo build
 
 # 仅 interpreter（轻量产物，无 cranelift）
-cargo build --manifest-path src/runtime/Cargo.toml --no-default-features --features interp-only
+cargo build --no-default-features --features interp-only
 
 # 平台 preset（host target；实际 cross-compile 由 P4.2/P4.3/P4.4 接入）
-cargo build --manifest-path src/runtime/Cargo.toml --no-default-features --features wasm
-cargo build --manifest-path src/runtime/Cargo.toml --no-default-features --features ios
-cargo build --manifest-path src/runtime/Cargo.toml --no-default-features --features android
+cargo build --no-default-features --features wasm
+cargo build --no-default-features --features ios
+cargo build --no-default-features --features android
 ```
 
 CI 由 `package-wasm` / `package-ios` / `package-android` 在各自真实目标平台上完整构建对应 preset 来锁定；

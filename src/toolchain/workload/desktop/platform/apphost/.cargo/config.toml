@@ -1,0 +1,8 @@
+# cargo 构建输出镜像 src/：本 crate（src/toolchain/workload/desktop/platform/apphost）→ artifacts/build/toolchain/workload/desktop/platform/apphost
+# （约定见 docs/internals/src/devinfra/artifacts-layout.md §2）。
+#
+# ⚠️ cargo 按**工作目录**向上查找 .cargo/config.toml，不认 --manifest-path ⇒ 本配置只在 cwd 位于本 crate
+# 目录内时生效。xtask / z42b / CI 一律在 crate 目录里跑 cargo；做不到的调用点（build hook 的 ctx.Exec 不能设
+# cwd）显式传同值的 --target-dir。
+[build]
+target-dir = "../../../../../../artifacts/build/toolchain/workload/desktop/platform/apphost"

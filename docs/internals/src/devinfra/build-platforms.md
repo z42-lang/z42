@@ -21,7 +21,7 @@
 ```bash
 ./xtask build compiler     # 或由 ./scripts/install-z42.sh 直接提供
 ./xtask build stdlib
-cargo build --release --manifest-path src/runtime/Cargo.toml
+./xtask build runtime      # = 在 src/runtime 里 cargo build --release
 ```
 
 产出 `artifacts/build/compiler/z42c.driver/release/dist/z42c.driver.zpkg` +

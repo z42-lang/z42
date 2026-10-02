@@ -90,8 +90,10 @@ int _cleanDevOutputs(string root, string kind) {
 }
 
 // build/ 下每个名为 `tests` 的目录（组件的测试输出根）。不进入构建产物目录（dist / cache / publish），
-// 也不进入 cargo 的 target 目录（`build/runtime/<profile>` 等，体量大且不含测试输出）：runtime 只认
-// `build/runtime/tests`。
+// 也不进入 cargo 的 target-dir（体量大且不含测试输出，依赖的构建产物里还可能有同名 `tests` 目录）：只删它
+// 直接下面的 `tests/`（如 `build/runtime/tests`）。target-dir 认法：cargo 在其根写 `CACHEDIR.TAG`——
+// per-crate-cargo-config 后 target-dir 不止 `build/runtime`，平台 crate 的在 `build/toolchain/workload/…` 下；
+// 未建过的 runtime 没有标记文件，照旧按名字兜住。
 int _rmTestsDirs(string dir, bool top) {
     if (!Directory.Exists(dir)) { return 0; }
     int n = 0;
@@ -100,7 +102,9 @@ int _rmTestsDirs(string dir, bool top) {
         if (!Directory.Exists(p)) { continue; }
         if (e == "tests") { n = n + _rmIfExists(p); continue; }
         if (e == "dist" || e == "cache" || e == ".cache" || e == "publish") { continue; }
-        if (top && e == "runtime") { n = n + _rmIfExists(Path.Join(p, "tests")); continue; }
+        if ((top && e == "runtime") || File.Exists(Path.Join(p, "CACHEDIR.TAG"))) {
+            n = n + _rmIfExists(Path.Join(p, "tests")); continue;
+        }
         n = n + _rmTestsDirs(p, false);
     }
     return n;

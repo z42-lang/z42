@@ -8,7 +8,7 @@
 > `src/toolchain/workload/desktop/shell/testhost.c`（desktop C 壳）、
 > `src/toolchain/workload/wasm/platform/src/lib.rs` + `wasm/testhost/`（浏览器面）、
 > `scripts/test/xtask_test_embedded_corpus.z42`（语料枚举 / 采样 / 分片）、
-> `.cargo/config.toml`（wasm shadow stack）。
+> `src/toolchain/workload/wasm/platform/.cargo/config.toml`（wasm shadow stack）。
 >
 > 平台管线与 CI 拓扑见 [跨平台测试](cross-platform.md)；runner 协议见 [测试框架机制](framework.md)。
 
@@ -189,8 +189,12 @@ z42 解释器**在原生调用栈上递归**——每次 z42 调用一层原生�
   `__stack_pointer` 下溢 → 下一次 local 存储越界 → OOB 陷阱。
   wasm **无栈保护页**，所以溢出表现为 OOB 而不是 "call stack exhausted"——这也是它伪装成
   "随机" OOB、console 无输出、trap 后实例即死无法回读 VFS 的原因。
-  **修法**：`.cargo/config.toml` 给 `[target.wasm32-unknown-unknown]` 加
-  `-C link-arg=-zstack-size=16777216`，把 shadow stack 提到 16 MiB。
+  **修法**：wasm 平台 crate 的 `src/toolchain/workload/wasm/platform/.cargo/config.toml` 给
+  `[target.wasm32-unknown-unknown]` 加 `-C link-arg=-zstack-size=16777216`，把 shadow stack 提到 16 MiB。
+  只放在这个 crate：它（cdylib，wasm-pack 的入口）是唯一真正链接出 wasm 模块的地方；runtime 的 wasm32
+  产物是 staticlib，link-arg 对它无效。2026-10-02 前这段配置在仓根 `.cargo/config.toml`（per-crate-cargo-config）。
+  ⚠️ cargo 按**工作目录**找这份配置——wasm-pack 必须在该 crate 目录里跑（xtask / z42b 都是），否则 16 MiB 不生效、
+  深嵌套用例重新 OOB。
 
 **16 MB 这个数不是拍的**：崩溃用例在约 1MB 的移动端栈溢出、却在 desktop 8MB 通过 → ≥8MB 即够，
 2× 留余量；再大无益（需要 >8MB 的程序在 desktop 本来就崩）。64 位下是虚拟保留、只 commit 触及页，
@@ -227,4 +231,4 @@ z42 解释器**在原生调用栈上递归**——每次 z42 调用一层原生�
 | bundle 的跑法（golden 隔离 / unit 共享） | `src/libraries/z42.test/src/BundleRunner.z42` |
 | 语料枚举 / 采样 / 分片 | `scripts/test/xtask_test_embedded_corpus.z42` |
 | wasm 宿主面 | `src/toolchain/workload/wasm/platform/src/lib.rs` + `wasm/testhost/` |
-| 栈预算 | mobile：`host/mod.rs` 的 `EMBED_STACK`；wasm：`.cargo/config.toml` 的 `-zstack-size` |
+| 栈预算 | mobile：`host/mod.rs` 的 `EMBED_STACK`；wasm：`src/toolchain/workload/wasm/platform/.cargo/config.toml` 的 `-zstack-size` |

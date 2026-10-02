@@ -177,22 +177,32 @@ string _cargoTargetFor(string rid) {
     return (rid == _detectHostRid()) ? "" : _ridToCargo(rid);
 }
 
-// The cargo output dir matching _cargoTargetFor: <profile> for host (no triple),
-// <triple>/<profile> for cross. All three desktop package functions read from here.
-string _cargoOutFor(string root, string rid, string profile) {
+// The cargo output dir of `crate` matching _cargoTargetFor: <profile> for host (no triple),
+// <triple>/<profile> for cross. Each crate has its own target-dir (xtask_layout.z42 cargo crates).
+string _crateOutFor(string root, string crate, string rid, string profile) {
     string t = _cargoTargetFor(rid);
     string sub = (t.Length == 0) ? profile : (t + "/" + profile);
-    return Path.Join(_cargoTargetDir(root), sub);
+    return Path.Join(_crateTargetDir(root, crate), sub);
 }
 
-int _cargo(bool rel, string verb, string manifest, string target, string pkg) {
+// runtime workspace 的输出目录（z42vm / libz42 / z42-compression）。All three desktop package functions read from here.
+string _cargoOutFor(string root, string rid, string profile) {
+    return _crateOutFor(root, _runtimeCrate(), rid, profile);
+}
+
+// apphost stub（z42-apphost crate）的输出目录 —— 它有自己的 target-dir，不在 runtime 的 cargoOut 里。
+string _apphostOutFor(string root, string rid, string profile) {
+    return _crateOutFor(root, _apphostCrate(), rid, profile);
+}
+
+// `crate` = repo-relative crate dir (`_runtimeCrate()` / `_apphostCrate()` …)；在 crate 目录里跑（`_cargoIn`）。
+int _cargo(bool rel, string verb, string crate, string target, string pkg) {
     Process p = new Process("cargo").Arg(verb);
     if (rel) { p = p.Arg("--release"); }
     if (pkg.Length > 0) { p = p.Arg("-p").Arg(pkg); }
-    p = p.Arg("--manifest-path").Arg(manifest);
     if (target.Length > 0) { p = p.Arg("--target").Arg(target); }   // host: no --target → reuse warm build
     p = p.Arg("--quiet");
-    return _exec(p);
+    return _cargoIn(p, crate);
 }
 
 // libz42 的 C 嵌入产物：staticlib + cdylib，**一次** `cargo rustc` 同时产出（cargo-one-rustc，2026-10-01）。
@@ -210,11 +220,10 @@ string _embedCrateTypes() { return "staticlib,cdylib"; }
 void _cargoRustc(bool rel, string target, string crateType) {
     Process p = new Process("cargo").Arg("rustc");
     if (rel) { p = p.Arg("--release"); }
-    p = p.Arg("--lib").Arg("--crate-type=" + crateType)
-        .Arg("--manifest-path").Arg(_runtimeManifest());
+    p = p.Arg("--lib").Arg("--crate-type=" + crateType);
     if (target.Length > 0) { p = p.Arg("--target").Arg(target); }
     p = p.Arg("--quiet");
-    _exec(p);
+    _cargoIn(p, _runtimeCrate());
 }
 
 // ── file assembly helpers ───────────────────────────────────────────────────
@@ -252,9 +261,10 @@ void _pkgEmitBinReadmePlaceholder(string pkgDir, string targetLabel) {
 }
 
 // Copy the desktop VM native libs present in cargoOut into native/. Excludes
-// mobile platform facades (libz42_platform_ios/android.*): they can linger stale
-// in the shared cargo target dir and do NOT belong in a desktop SDK — they ship
-// only in their own mobile runtime packs.
+// mobile platform facades (libz42_platform_ios/android.*): they do NOT belong in a
+// desktop SDK — they ship only in their own mobile runtime packs. (Since
+// per-crate-cargo-config they build into their own target dirs, but a build tree
+// from before that can still hold stale copies in build/runtime — keep the filter.)
 void _copyNativeLibs(string cargoOut, string pkgDir) {
     if (!Directory.Exists(cargoOut)) { return; }
     Directory.Create(Path.Join(pkgDir, "native"));   // 谁写谁建（见 _pkgSetupDir 注释）

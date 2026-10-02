@@ -1,5 +1,11 @@
+# cargo 构建输出镜像 src/：本 crate（src/toolchain/workload/wasm/platform）→ artifacts/build/toolchain/workload/wasm/platform
+# （约定见 docs/internals/src/devinfra/artifacts-layout.md §2）。
+#
+# ⚠️ cargo 按**工作目录**向上查找 .cargo/config.toml，不认 --manifest-path ⇒ 本配置只在 cwd 位于本 crate
+# 目录内时生效。xtask / z42b / CI 一律在 crate 目录里跑 cargo；做不到的调用点（build hook 的 ctx.Exec 不能设
+# cwd）显式传同值的 --target-dir。
 [build]
-target-dir = "artifacts/build/runtime"
+target-dir = "../../../../../artifacts/build/toolchain/workload/wasm/platform"
 
 # wasm shadow-stack size (fix-wasm-yaml-deep-recursion-oob, 2026-08-20).
 #
@@ -14,5 +20,8 @@ target-dir = "artifacts/build/runtime"
 # underflowed and the next local store trapped as "memory access out of bounds".
 # Give wasm the same 16 MiB budget as the mobile run thread so the depth cap is
 # reachable and the intended clean YamlException is thrown instead of a trap.
+#
+# 只放在这里：本 crate（cdylib，wasm-pack 的入口）是唯一真正链接出 wasm 模块的地方；runtime 的
+# wasm32 产物（`xtask package runtime --rid browser-wasm` 的 libz42.a）是 staticlib，link-arg 对它无效。
 [target.wasm32-unknown-unknown]
 rustflags = ["-C", "link-arg=-zstack-size=16777216"]

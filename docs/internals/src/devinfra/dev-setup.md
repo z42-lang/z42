@@ -84,8 +84,9 @@ git clone https://github.com/z42-lang/z42 && cd z42
 `ios` / `android` = `interp-only` + `aot` + `native-interop` + `bundled-compression`。
 
 ```bash
-cargo build --manifest-path src/runtime/Cargo.toml --release
-cargo build --manifest-path src/runtime/Cargo.toml --no-default-features --features interp-only
+cd src/runtime   # cargo 按 cwd 找 .cargo/config.toml（target-dir），--manifest-path 不算数
+cargo build --release
+cargo build --no-default-features --features interp-only
 ```
 
 > 没有名为 `interp` 或 `host` 的 feature；解释器是无条件编进去的。

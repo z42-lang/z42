@@ -104,10 +104,9 @@ int _cargoWasmRustc(string root, bool rel, string cargoTarget) {
     Process p = new Process("cargo").Arg("rustc");
     if (rel) { p = p.Arg("--release"); }
     p = p.Arg("--lib").Arg("--crate-type=staticlib")
-        .Arg("--manifest-path").Arg(Path.Join(root, _runtimeManifest()))
         .Arg("--target").Arg(cargoTarget)
         .Arg("--no-default-features").Arg("--features").Arg("wasm").Arg("--quiet");
-    return _exec(p);
+    return _cargoIn(p, _runtimeCrate());
 }
 
 // Copy pkg-web/ + pkg-nodejs/ (.js/.wasm/.ts + package.json + README) into pkg root.

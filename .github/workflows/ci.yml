@@ -71,11 +71,9 @@ jobs:
         with:
           filters: |
             platform:
+              # 各 crate 自带的 .cargo/config.toml（target-dir / wasm rustflags）都在这两棵树下，
+              # 随之覆盖（per-crate-cargo-config：此前是仓根一份 .cargo/，要单列一行）。
               - 'src/runtime/**'
-              # 根 .cargo/config.toml（target-dir / wasm rustflags）改了 = 所有 cargo 构建都变了。
-              # 此前只在 `vm` 里，由 verify-features 兜着；那个 job 删了（drop-feature-matrix），
-              # 这几个真正在各目标平台上编 runtime 的 package-* job 得接过来。
-              - '.cargo/**'
               - 'src/toolchain/workload/**'
               # 打包管道自身 + 消费包的 e2e（fix-package-gates-false-red, 2026-09-06）：
               # 此前 package-* 只由上面几项触发，只改 scripts/package/ 或 dist e2e 的 PR
@@ -135,9 +133,7 @@ jobs:
             # + JIT consistency. Only a src/runtime change can affect it.
             # ci.yml fallback = 保底全跑.
             vm:
-              - 'src/runtime/**'
-              # 根 .cargo/config.toml 决定 target-dir 与 wasm rustflags —— 改它等于改所有 cargo 构建。
-              - '.cargo/**'
+              - 'src/runtime/**'   # 含 src/runtime/.cargo/config.toml（runtime 的 target-dir）
               - '.github/workflows/ci.yml'
             # change-detect rule (d): gates stdlib [Test] consistency (interp+jit).
             # stdlib 源码之外，[Test] 的**执行器**也算：z42b（反射 test-runner）与 xtask 的
@@ -1183,6 +1179,8 @@ jobs:
         with:
           cache-key: android-v2
           rust-targets: aarch64-linux-android,x86_64-linux-android
+          # 平台 crate 有自己的 target-dir（.cargo/config.toml，镜像 src/），不在 runtime 那条缓存里。
+          extra-workspaces: src/toolchain/workload/android/platform/rust -> ../../../../../../artifacts/build/toolchain/workload/android/platform/rust
 
       - name: Package android-arm64 + android-x64 (xtask package)
         shell: bash
@@ -1272,6 +1270,8 @@ jobs:
         with:
           cache-key: wasm-v2
           rust-targets: wasm32-unknown-unknown
+          # 平台 crate 有自己的 target-dir（.cargo/config.toml，镜像 src/），不在 runtime 那条缓存里。
+          extra-workspaces: src/toolchain/workload/wasm/platform -> ../../../../../artifacts/build/toolchain/workload/wasm/platform
 
       # 从已删的 verify-features job 接过来的唯一一条独有检查（drop-feature-matrix，2026-10-02）：
       # interp-only 的依赖图里不许混进 cranelift（jit 依赖）。其余「各 feature 组合编不编得过」由
@@ -1572,6 +1572,8 @@ jobs:
         with:
           cache-key: tier2-wasm
           rust-targets: wasm32-unknown-unknown
+          # 平台 crate 有自己的 target-dir（.cargo/config.toml，镜像 src/），不在 runtime 那条缓存里。
+          extra-workspaces: src/toolchain/workload/wasm/platform -> ../../../../../artifacts/build/toolchain/workload/wasm/platform
       - name: Prime Playwright (node deps + Chromium + OS libs)
         shell: bash
         run: |
@@ -1674,6 +1676,8 @@ jobs:
         with:
           cache-key: tier2-ios
           rust-targets: aarch64-apple-ios,aarch64-apple-ios-sim,aarch64-apple-darwin
+          # 平台 crate 有自己的 target-dir（.cargo/config.toml，镜像 src/），不在 runtime 那条缓存里。
+          extra-workspaces: src/toolchain/workload/ios/platform/rust -> ../../../../../../artifacts/build/toolchain/workload/ios/platform/rust
       - name: test platform ios + embedded (shard ${{ matrix.shard }}/3, one simulator run)
         shell: bash
         run: |
@@ -1769,6 +1773,8 @@ jobs:
         with:
           cache-key: tier2-android
           rust-targets: aarch64-linux-android,x86_64-linux-android
+          # 平台 crate 有自己的 target-dir（.cargo/config.toml，镜像 src/），不在 runtime 那条缓存里。
+          extra-workspaces: src/toolchain/workload/android/platform/rust -> ../../../../../../artifacts/build/toolchain/workload/android/platform/rust
       - name: test platform android — cargo-ndk + AAR + assets
         shell: bash
         env:
