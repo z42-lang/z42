@@ -285,10 +285,10 @@ int _runOneDevTarget(ParseResult r, ProjectManifest m, DevTarget t, string kind,
         // 子进程按同一条 Z42_LIBS 解析依赖；产物目录已 colocate 父包 zpkg（见上）。
         string libs = Environment.GetEnvironmentVariable("Z42_LIBS", "");
         if (libs.Length > 0) { p = p.Env("Z42_LIBS", libs); }
-        int rc = p.Stdout(Stdio.Inherit()).Stderr(Stdio.Inherit()).Run().ExitCode;
-        if (rc == 0) { Console.WriteLine("  ✓ " + t.Name + " (harness=false, exit 0)"); }
-        else { ConsoleError.WriteLine("  ✗ " + t.Name + " (harness=false, exit " + rc.ToString() + ")"); }
-        return rc;
+        int exitCode = p.Stdout(Stdio.Inherit()).Stderr(Stdio.Inherit()).Run().ExitCode;
+        if (exitCode == 0) { Console.WriteLine("  ✓ " + t.Name + " (harness=false, exit 0)"); }
+        else { ConsoleError.WriteLine("  ✗ " + t.Name + " (harness=false, exit " + exitCode.ToString() + ")"); }
+        return exitCode;
     }
     return Runner.RunModule(dist, format);
 }

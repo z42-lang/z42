@@ -362,15 +362,15 @@ public class ArgParser {
                 int seenCount = 0;
                 string firstSeen = "";
                 string secondSeen = "";
-                int k = 0;
-                while (k < grp._count) {
-                    int oi = this.FindOptionLongIndex(grp._names[k]);
+                int gk = 0;
+                while (gk < grp._count) {
+                    int oi = this.FindOptionLongIndex(grp._names[gk]);
                     if (oi >= 0 && r._optionWasSet[oi]) {
-                        if (seenCount == 0) { firstSeen  = grp._names[k]; }
-                        else if (seenCount == 1) { secondSeen = grp._names[k]; }
+                        if (seenCount == 0) { firstSeen  = grp._names[gk]; }
+                        else if (seenCount == 1) { secondSeen = grp._names[gk]; }
                         seenCount = seenCount + 1;
                     }
-                    k = k + 1;
+                    gk = gk + 1;
                 }
                 if (seenCount > 1) {
                     throw new CliException("options '--" + firstSeen +

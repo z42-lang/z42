@@ -32,16 +32,16 @@ void Main() {
 
     object sq = new Square(9);
     int got2 = -1;
-    if (sq is Circle(rr) | Square(rr)) {
-        got2 = rr;
+    if (sq is Circle(rr2) | Square(rr2)) {   // is 绑定作用到外层块（同 C#）⇒ 同一函数里不能再叫 rr
+        got2 = rr2;
     }
     Assert.Equal(9, got2);
 
     // ── or 带绑定不匹配 → false，分支不入 ─────────────────────
     object rc = new Rect(4, 5);
     int got3 = 100;
-    if (rc is Circle(rr) | Square(rr)) {
-        got3 = rr;
+    if (rc is Circle(rr3) | Square(rr3)) {
+        got3 = rr3;
     }
     Assert.Equal(100, got3);
 
