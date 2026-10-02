@@ -1,6 +1,6 @@
 # Z42VM — iOS facade
 
-> 🟢 H4 落地（2026-05-12）。
+> 🟢 已落地。
 >
 > 跨平台契约：[`../README.md`](../README.md)
 > 实现原理：[`docs/internals/src/runtime/embedding.md`](../../../../docs/internals/src/runtime/embedding.md)
@@ -15,7 +15,6 @@
 rustup target add aarch64-apple-ios aarch64-apple-ios-sim aarch64-apple-darwin
 
 # 2. 编 compiler + stdlib
-dotnet build src/compiler/z42.slnx
 ./xtask build stdlib
 
 # 3. 编 iOS facade（含 macOS arm64 slice）+ test 资产
@@ -90,10 +89,10 @@ public protocol ZpkgResolver {
 ## 限制（v0.1）
 
 - **仅 interp 模式**：App Store 政策禁动态代码生成；JIT 不可用，AOT 占位
-- ~~**无 native interop**~~ → **已启用**：libffi 5.1 / libffi-sys 4.1 的 bundled 汇编（libffi 3.4.7）修复了旧 2.3 在 iOS arm64 上的 CFI advance_loc 不兼容；`ios` feature preset 现含 `native-interop`
+- **native interop**：`ios` feature preset 含 `native-interop`（libffi 5.1 / libffi-sys 4.1 的 bundled 汇编，libffi 3.4.7）
 - **单实例**：与其他平台一致；一个进程一个 `Z42VM`
 - **同步 invoke**：长任务阻塞调用线程；UI 上请用 `DispatchQueue.global().async`
-- **Demo / CI**：推迟到独立 spec（`add-platform-ios-demo` / `-ci`）；XCTest 已在 `add-ios-tests` (2026-05-12) 落地，跑 `swift test` 即可
+- **Demo / CI**：暂无；XCTest 跑 `swift test` 即可
 
 ## 错误码映射
 
@@ -108,6 +107,6 @@ public protocol ZpkgResolver {
 | `dyld: Library not loaded` | xcframework slice 选错；真机 vs simulator |
 | stdoutHandler 没触发 | z42 代码用了非 corelib I/O；或 sink 在异步线程被 race；切回同一线程 retry |
 
-## 与跨平台契约的对齐
+## 跨平台契约
 
 类名、API 形态、错误码与 [`platforms/README.md`](../README.md) 一致。同一份 `.zbc` 在 iOS / Android / WASM 三平台行为应等价（marshal 类型限制相同）。

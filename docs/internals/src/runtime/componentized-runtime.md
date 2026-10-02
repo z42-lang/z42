@@ -6,7 +6,7 @@
 >
 > **实施触发**：ROI 出现（如某分发渠道对 z42vm 单二进制体积敏感、或 interp/jit 需按需下发）。在此之前仅作为目标设计存在；`runtime-workload-distribution.md` 的 Deferred `runtime-future-jit-cdylib-split` 指向本文。
 >
-> 当前运行时架构（单 crate + feature gate）见 [vm-architecture.md](vm-architecture.md)；运行时/包分发见 [runtime-workload-distribution.md](../../../internals/src/toolchain/workload-distribution.md)。
+> 当前运行时架构（单 crate + feature gate）见 [vm-architecture.md](vm-architecture.md)；运行时/包分发见 [runtime-workload-distribution.md](../toolchain/workload-distribution.md)。
 
 ---
 
@@ -57,7 +57,7 @@
 ### 4.1 唯一的潜在环
 当前（单 crate）实测依赖：
 - **后端 → core**：大量直接边（`crate::interp::exec_function` 回退、helpers 调 core、共享 `VmContext`）。
-- **core → jit**：**只有一条**——[src/runtime/src/vm.rs](../../../../src/runtime/src/vm.rs) 的 `ExecMode::Jit => crate::jit::run(...)`（模式派发）。
+- **core → jit**：**只有一条**——[src/runtime/src/vm.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/vm.rs) 的 `ExecMode::Jit => crate::jit::run(...)`（模式派发）。
 - **interp → jit**：零（无 tiered 提升环）。
 
 拆分后 `libz42`（含 vm.rs 派发）若仍直调 `jit::run` → `libz42 → libz42_jit → libz42` 成环。**Cargo 在 crate 层禁止循环依赖**，会直接编译失败，所以这条边**必须**反转。
@@ -84,7 +84,7 @@ pub fn register() -> BackendApi { BackendApi { run: jit_run, compile: jit_compil
 
 结果：**jit → core 直接；core → 后端走抽象槽（不静态依赖后端 crate）→ 无环**，Cargo 通过。
 
-这与 [src/runtime/src/native/ext.rs](../../../../src/runtime/src/native/ext.rs) 现对 native 扩展的做法（core 持 `ExtBuiltinTable`、插件注册 fn 指针）**完全同构**；调试钩子复用 [src/runtime/src/observer.rs](../../../../src/runtime/src/observer.rs)（JIT 编译事件已 fire observer）。框架地基已有雏形。
+这与 [src/runtime/src/native/ext.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/native/ext.rs) 现对 native 扩展的做法（core 持 `ExtBuiltinTable`、插件注册 fn 指针）**完全同构**；调试钩子复用 [src/runtime/src/observer.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/observer.rs)（JIT 编译事件已 fire observer）。框架地基已有雏形。
 
 > 将来若加 tiered（interp 把热函数提升到 JIT），那条 interp→jit 也走同一注册槽 → 依然无环。
 
@@ -187,7 +187,7 @@ gc     = static  仅此一种   # 不参与 dynlink/dlopen，见 §3
 
 - **当前架构**（单 crate、`#[cfg(feature = "jit"/"aot"/"native-interop"/"interp-only"/"bundled-compression")]`）见 [vm-architecture.md](vm-architecture.md)：本文是它的演进目标，feature gate 是迈向组件化的第一步雏形。
 - **嵌入 API / C ABI** 见 [embedding.md](embedding.md)：host 入口归 libz42 基座，不拆。
-- **包分发** 见 [runtime-workload-distribution.md](../../../internals/src/toolchain/workload-distribution.md)：其 Deferred `runtime-future-jit-cdylib-split` 是本架构的第一个落地切口。
+- **包分发** 见 [runtime-workload-distribution.md](../toolchain/workload-distribution.md)：其 Deferred `runtime-future-jit-cdylib-split` 是本架构的第一个落地切口。
 - **分层执行 / OSR / 回收 / hot-reload**（叠在本组件框架之上，引擎内部各自分层）见 [tiered-execution.md](tiered-execution.md)。
 - **IR 优化 / 特化 / intrinsic / tier0 基线质量** 见 [ir-specialization.md](ir-specialization-design.md)。
 - **zpkg 加载上下文 / 重载 / 卸载回收 / 保留根诊断**（ALC 式，复用 observer/注册基座）见 [load-context.md](load-context.md)。

@@ -14,8 +14,6 @@ xtask <command> [args]                         # 直接运行
 
 > 改了 `scripts/*.z42` 后**直接重跑上面这条 publish 就够了**：publish 每次都过一遍 z42c
 > 的增量编译，改了什么重编什么、没改就空转（~0.5s，一个字节都不重写），无需先 `z42 build`。
-> （2026-09-06 前不是这样：publish 见 `xtask.zpkg` 已存在就跳过编译，改完源码 publish 会
-> 静默把**旧 payload** 重新签一遍——见 change `fix-publish-stale-payload`。）
 
 xtask 是独立的 z42 应用——它不是通用 `z42` launcher 的一部分（launcher 保持通用
 运行时）。冷启动如何先产出 xtask 见下文「冷启动 bootstrap」。
@@ -100,14 +98,13 @@ xtask 是独立的 z42 应用——它不是通用 `z42` launcher 的一部分�
 | `test dist` | 验证打包后发行版能独立工作 | `package sdk` 产物 | packaged z42c+z42vm 跑 golden 通过率 |
 | `test changed [base]` | 增量自测（按改动文件挑 stage） | 上述各命令（in-process 调度） | 仅跑受影响的 stage |
 
-> **构建输出约定（add-build-toolchain, 2026-07-05）**：
-> - `artifacts/build/` **只放编译/publish 产物**（2026-10-01 起不再有聚合视图 `build/views/`：alllibs 已删，见 artifacts-layout.md）；
+> **构建输出约定**：
+> - `artifacts/build/` **只放编译/publish 产物**（无聚合视图，见 artifacts-layout.md）；
 >   各命令自己的工作区跟着 owner 落 `artifacts/build/` 的镜像：测试类落 `<组件>/tests/`，编译器自举快照（`stdlib-run`、`selfhost-gen1` 等）落 `build/compiler/<name>`；xtask 自检落 `artifacts/xtask/tests/`（规则见 test-layout.md §5）。
 > - **toolchain 组件的输出/publish 路径一律从各 `z42.toml` 读**（`[build].dist_dir`/`output_dir`、
 >   `[platform.desktop].publish_dir`，级联默认见 `docs/reference/src/toolchain/z42-toml.md`）——xtask 不硬编码，
 >   改路径只动 toml。定位 helper：`build/xtask_toolchain.z42` 的 `_desktopPublishDir` / `_toolchainZpkg`。
-> - **workspace per-member 产物路径同样单源自 `z42.workspace.toml`**（unify-xtask-paths-from-toml,
->   2026-08-29）：`artifacts/build/{libraries,compiler}/<member>/<profile>/dist` 由
+> - **workspace per-member 产物路径同样单源自 `z42.workspace.toml`**：`artifacts/build/{libraries,compiler}/<member>/<profile>/dist` 由
 >   `[workspace.build].output_dir` 模板经 `common/xtask_layout.z42` 的 `_memberDist`
 >   （`ManifestLoader.LoadWorkspace` + `PathTemplate.Expand`，与 z42c `WorkspaceBuild.PlanLayout`
 >   同一份布局真相）展开——xtask 不再字面拼接。flat dist / runtime out / build root 等 xtask 约定
@@ -207,8 +204,8 @@ xtask deps check --os android       # 严格校验该平台依赖已就位（缺
 xtask test               # 串联全部验证 stage（组成见 internals/devinfra/test-gate.md；runtime 独立，见 test runtime）
 ```
 
-> 不要单独只跑其中一个 stage 就当作通过 —— 历史上 cross-zpkg subclass catch
-> bug 就是因为 `test stdlib` 不在默认 GREEN 路径里，每次 spec 验证都被漏掉。
+> 不要单独只跑其中一个 stage 就当作通过 —— 例如 cross-zpkg subclass catch
+> 这类 bug 只有 `test stdlib` 能发现。
 
 **日常开发循环（最高频）**：
 ```bash
@@ -309,7 +306,7 @@ scripts/
 
 每个命令的详细 Usage 见 `xtask -h`（每层子命令 `-h` 自动生成）与各源文件顶部注释。
 
-### 目录分层规则（scripts-batch3-layering, 2026-09-06）
+### 目录分层规则
 
 **依赖只有一个方向：`build/` `test/` `package/` `install/` `cli/` 各族 → `common/`。
 族与族之间不得互相调用，`common/` 更不得反调任何族。**
@@ -319,14 +316,13 @@ scripts/
 
 > ⚠️ **编译器不会拦你**：namespace 扁平（`Z42Xtask`）+ `include = ["**/*.z42"]`，
 > 任何文件都能裸名调任何文件的函数，反向依赖不会报错、只会让人读代码时在目录间打转。
-> 这条规则只能靠 review 守。此前就积了三条：`common/` 反调 `build/` 的 `_copyAll`、
-> `build/` 反调 `package/` 的 `_makeExe`、`package/` 反调 `build/` 的 `_resetDir`。
+> 这条规则只能靠 review 守。
 >
 > **已知余项**：`_pkgCopyLibs`（`package/xtask_package.z42`）仍被 `build/` 的 `_buildSdk`
 > 调用。它不是纯原语（带 `<dir>/libs` 布局语义 + 报错文案 + 返回码），该去的是将来的
 > 「SDK 布局组装」共用层（与 `_stageToolchain` 同处），不是 `xtask_fs.z42`。
 
-### 文件命名规则（scripts-batch3-naming, 2026-09-06）
+### 文件命名规则
 
 **`xtask_test_<x>.z42` 这个前缀在全 `scripts/` 下只有一个含义：`test <x>` 命令的实现**
 （`xtask_test_<x>_<y>.z42` = 该命令拆出的子文件）。新增文件时按下表取名：

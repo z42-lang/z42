@@ -1,11 +1,9 @@
 # 工具链
 
-> 对齐：2026-09-17（change `restructure-docs-three-books`）
-
 编译器与 VM 之外、随 SDK 分发的那些程序：把一个工程推到可运行 / 可分发的东西。
 
 **用法不在这里**——`z42` / `z42c` / `z42b` 的命令面在
-[语言与库参考的工具链部分](../../../reference/src/toolchain/README.md)。本部分只写**怎么实现的、在哪改**。
+[语言与库参考的工具链部分](https://z42-lang.github.io/z42/reference/toolchain/index.html)。本部分只写**怎么实现的、在哪改**。
 
 | 页 | 什么时候读 |
 |---|---|

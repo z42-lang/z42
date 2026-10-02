@@ -9,7 +9,7 @@
 ---
 
 ## 1. 现状（已成形，但隐式且脆弱）
-- **Value = Rust tagged enum**（[metadata/types.rs](../../../../src/runtime/src/metadata/types.rs)）：`I64=0/F64=1/Bool=2/Char=3`（内联值）、`Str(Str)=4`、`Array(GcRef<ArrayObj>)=6`/`Object(GcRef<ScriptObject>)=7`、`Closure(VarGcRef)`、`Ref/PinnedView/StackClosure/StructRefHeap`(→ 8B `{idx,frame_id}` transient-arena 句柄，见 §2.2)。**`Value` 现为 `Copy`（16B POD，无 `Drop` glue）**。
+- **Value = Rust tagged enum**（[metadata/types.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/types.rs)）：`I64=0/F64=1/Bool=2/Char=3`（内联值）、`Str(Str)=4`、`Array(GcRef<ArrayObj>)=6`/`Object(GcRef<ScriptObject>)=7`、`Closure(VarGcRef)`、`Ref/PinnedView/StackClosure/StructRefHeap`(→ 8B `{idx,frame_id}` transient-arena 句柄，见 §2.2)。**`Value` 现为 `Copy`（16B POD，无 `Drop` glue）**。
 - **ScriptObject** = `{ type_desc: Arc<TypeDesc>, slots: Box<[Value]>, native: NativeData }`。
 - **GcRef** = `NonNull<RegionEntry<T>> + generation`（ABA 防护）；RegionEntry **Box-owned 永不重定位 → 当前非移动堆**。
 - **JIT 与 interp 共享内存 Value 表示**：JIT 直接 `store tag`+payload 到帧的 Value 寄存器数组，**硬编码 tag 值 + 偏移**。
@@ -28,12 +28,12 @@
 
 > **状态（2026-08-15）**：本节从「Deferred 候选」提为**已采纳并落地**，走**路 A（标记指针）**，`Value` 现为 **16B**。分 PR 落地：
 > - **PR-3**：`GcRef`/`WeakGcRef` 16B→8B 单标记指针（低 48 位 RegionEntry 地址、高 16 位窄 generation，deref mask）。**保留非移动 region GC**（generation 变窄，ABA 窗口 2^16 已接受，见 §4 / Decision 2）。wasm32（usize 32 位）按 `target_pointer_width` cfg-gate 成 `{ptr:NonNull(4B), generation:u32(4B)}` 仍 8B。
-> - **PR-4**：`Value::Str` 从 `Arc<str>`(16B 胖) 换成手写 thin-Arc-DST `Str`（[`metadata/vstr.rs`](../../../../src/runtime/src/metadata/vstr.rs)，8B 细指针，长度进 `StrHeader`）。**interim**：仍 Arc refcount，非 tracing GC；string 全 GC 化（`Value::Str`→`GcRef<StrHeader>`）是后续专项（需变长 GC 分配器，与 §5 合流）。
-> - **PR-5**：`Value::FuncRef` 从 `Box<str>`(16B 胖) 换成 `Str`（8B 细）——这是最后一个 16B payload。至此每个 payload ≤ 8B → `#[repr(C,u8)]` 给出 tag(1B padded to 8) + 8B = **16B**。由 [`types.rs`](../../../../src/runtime/src/metadata/types.rs) 的 `const _: () = assert!(size_of::<Value>()==16)` 编译期锁死；JIT 的 `VALUE_STRIDE`/`STRIDE` 从硬编码 24 改为 `size_of::<Value>()`（单一真相，不再漂移，[`jit/translate.rs`](../../../../src/runtime/src/jit/translate/)）。
+> - **PR-4**：`Value::Str` 从 `Arc<str>`(16B 胖) 换成手写 thin-Arc-DST `Str`（[`metadata/vstr.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/vstr.rs)，8B 细指针，长度进 `StrHeader`）。**interim**：仍 Arc refcount，非 tracing GC；string 全 GC 化（`Value::Str`→`GcRef<StrHeader>`）是后续专项（需变长 GC 分配器，与 §5 合流）。
+> - **PR-5**：`Value::FuncRef` 从 `Box<str>`(16B 胖) 换成 `Str`（8B 细）——这是最后一个 16B payload。至此每个 payload ≤ 8B → `#[repr(C,u8)]` 给出 tag(1B padded to 8) + 8B = **16B**。由 [`types.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/types.rs) 的 `const _: () = assert!(size_of::<Value>()==16)` 编译期锁死；JIT 的 `VALUE_STRIDE`/`STRIDE` 从硬编码 24 改为 `size_of::<Value>()`（单一真相，不再漂移，[`jit/translate.rs`](https://github.com/z42-lang/z42/tree/main/src/runtime/src/jit/translate)）。
 >
-> payload 偏移**不变**（tag@0、payload@8）；只有总 stride 24→16。native FFI 的 `Z42Value` 是**独立冻结的 16B ABI struct**（`{tag:u32, reserved:u32, payload:u64}`，[z42-abi](../../../../src/runtime/crates/z42-abi)），与内部 `Value` enum 表示解耦，marshal 显式转换 → 本变更不触及 native ABI。
+> payload 偏移**不变**（tag@0、payload@8）；只有总 stride 24→16。native FFI 的 `Z42Value` 是**独立冻结的 16B ABI struct**（`{tag:u32, reserved:u32, payload:u64}`，[z42-abi](https://github.com/z42-lang/z42/tree/main/src/runtime/crates/z42-abi)），与内部 `Value` enum 表示解耦，marshal 显式转换 → 本变更不触及 native ABI。
 
-**动机**：CLR/JVM 的对象引用 = **单个平台指针（8B）**，我们的是 **16B**。两个来源（已核对）：① `GcRef` = `NonNull<RegionEntry>`(8B) + `generation:u32`(4B, ABA 防护) 对齐 16B（[refs.rs](../../../../src/runtime/src/gc/refs.rs)）；② `Value::Str` = `Arc<str>` 胖指针 = ptr8+len8 = 16B。因 `Value` 最大 payload = 16B → **`Value` enum 被钉在 24B**（`#[repr(C,u8)]`，JIT 按 `regs_base + reg_idx*24` 内联寻址）。若最大 payload 降到 8B，`Value` 可 **24B→16B**：每个寄存器 / 数组 boxed 元素 / 对象槽省 33%，全 VM 密度 + cache 收益。
+**动机**：CLR/JVM 的对象引用 = **单个平台指针（8B）**，我们的是 **16B**。两个来源（已核对）：① `GcRef` = `NonNull<RegionEntry>`(8B) + `generation:u32`(4B, ABA 防护) 对齐 16B（[refs.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/gc/refs.rs)）；② `Value::Str` = `Arc<str>` 胖指针 = ptr8+len8 = 16B。因 `Value` 最大 payload = 16B → **`Value` enum 被钉在 24B**（`#[repr(C,u8)]`，JIT 按 `regs_base + reg_idx*24` 内联寻址）。若最大 payload 降到 8B，`Value` 可 **24B→16B**：每个寄存器 / 数组 boxed 元素 / 对象槽省 33%，全 VM 密度 + cache 收益。
 
 > **前提校正**：主要收益是**内存/cache 密度**，**不是 native 交互**——托管引用（带 generation 的 region 句柄 / Arc）本就不能直接交给 native；FFI 零 marshaling 靠 struct **基元字节打包**（见 [struct-value-semantics.md] D1-a），与引用宽度无关。
 
@@ -56,7 +56,7 @@
 
 **改动**：把这 4 个「仅在创建帧的调用栈内存活、创建后不可变」的瞬态变体，从 `Box<T>` 改为 8B
 `{ idx:u32, frame_id:u32 }` 句柄，payload 存进 per-`VmContext` 的 **`TransientArena`**
-（[`interp/transient_arena.rs`](../../../../src/runtime/src/interp/transient_arena.rs)）；`GcRef` 删除显式
+（[`interp/transient_arena.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/interp/transient_arena.rs)）；`GcRef` 删除显式
 no-op `Drop` 并加 `Copy` → **`Value` 派生 `#[derive(Copy)]`**。
 
 - **`TransientArena` 生命周期模型**：与 `StackArena`/`StructArena` 同构——`Vec<TransientSlot>`（`Mutex`
@@ -80,7 +80,7 @@ no-op `Drop` 并加 `Copy` → **`Value` 派生 `#[derive(Copy)]`**。
 
 ### 2.3 `Value::Ref` —— `ref`/`out`/`in` 的运行期表示
 
-用户侧规则见参考手册 [参数修饰符](../../../reference/src/language/parameter-modifiers.md)。本节讲**为什么这样表示**
+用户侧规则见参考手册 [参数修饰符](https://z42-lang.github.io/z42/reference/language/parameter-modifiers.html)。本节讲**为什么这样表示**
 以及它带来的约束。
 
 #### 设计约束：引用永远不离开调用栈帧
@@ -96,9 +96,9 @@ local / ref return，这套表示要连同 §2.2 一起重做。
 
 #### 表示
 
-- `Value::Ref { idx: u32, frame_id: u32 } = 12`（[`metadata/types/value.rs`](../../../../src/runtime/src/metadata/types/value.rs)），
+- `Value::Ref { idx: u32, frame_id: u32 } = 12`（[`metadata/types/value.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/types/value.rs)），
   8B 句柄指向 `TransientArena` 中的 `RefKind` payload（早期版本是内联 `Box<RefKind>`，`make-value-copy` 改掉）。
-- `RefKind` 三变体（[`metadata/types/value_aux.rs`](../../../../src/runtime/src/metadata/types/value_aux.rs)）：
+- `RefKind` 三变体（[`metadata/types/value_aux.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/types/value_aux.rs)）：
   `Stack { frame_idx, slot }` / `Array { gc_ref, idx }` / `Field { gc_ref, field_name }`。
 - **GC 协调**：arena 本身是 root，`Array` / `Field` 里的 `GcRef` 因此恒被扫到，底层数组/对象在调用期间存活；
   `Stack` 不持 `GcRef`（帧在调用栈上自然存活）。故 `Value::visit_gc_children` 对 `Ref` 是 no-op。
@@ -274,7 +274,7 @@ ObjectHeader {
 ## 5. 字符串改 GC 对象
 
 > **✅ 已落地（unify-gc-heap PR-4，2026-08-16）**：`Value::Str` 的字节**已纳入单一 GC 堆**。
-> `Str`（[`metadata/vstr.rs`](../../../../src/runtime/src/metadata/vstr.rs)）从「手写 thin-Arc + 原子
+> `Str`（[`metadata/vstr.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/vstr.rs)）从「手写 thin-Arc + 原子
 > refcount」换成 **8B `VarGcRef`**（`gc/var_region.rs` 的变长块，`BlockType::Str`，`{GcBlockHeader,
 > inline UTF-8}` 单次分配）——**refcount 删除，GC 管生死**（mark/sweep）。分配走 **ambient 堆**
 > （`gc/ambient.rs`，每帧 `HeapGuard` 设 thread-local，`Str::new`/`.into()` 保持不变）；无堆上下文

@@ -3,7 +3,7 @@
 ## 职责
 基础设施层（源码位置 Span / 诊断 Diagnostic·DiagnosticBag / 语言特性开关 LanguageFeatures）。命名空间 `Z42.Core`。无兄弟依赖，被编译器前后端引用。
 
-> **位置（converge-z42-syntax-lib，route A 地基）**：本包是 **host-platform-independent 可移植前端**，已从 `src/compiler/` 挪进 `src/libraries/`，成 z42c 编译器**与** scripting/playground/runtime 共享的可移植库。**包名/命名空间不变**（仍 `z42c.core` / `Z42.Core`）——非 Std/z42.* 标准库 API 面，只是恰好与 stdlib 同处 build+ship。冷启动破环预建见 [self-hosting.md](../../../docs/internals/src/compiler/self-hosting.md) 轴 ④。
+> **位置**：本包是 **host-platform-independent 可移植前端**，供 z42c 编译器**与** scripting/playground/runtime 共享。非 Std/z42.* 标准库 API 面，只是恰好与 stdlib 同处 build+ship。冷启动破环预建见 [self-hosting.md](../../../docs/internals/src/compiler/self-hosting.md) 轴 ④。
 
 ## 核心文件
 | 文件 | 职责 |
@@ -12,18 +12,17 @@
 | `src/DiagnosticSeverity.z42` | Error/Warning/Info（int 常量；z42 暂无 enum）|
 | `src/Diagnostic.z42` | 单条诊断（Severity/Code/Message/Span + IsError + Format + 工厂）|
 | `src/DiagnosticBag.z42` | 诊断收集器（typed array + count；Add/Error/Count/Get/ErrorCount/HasErrors）|
-| `src/DiagnosticCodes.z42` | E01xx–E10xx 错误码常量（镜像 C# `DiagnosticCodes`）|
+| `src/DiagnosticCodes.z42` | E01xx–E10xx 错误码常量 |
 | `src/LanguageFeatures.z42` | 特性开关（snake_case 名 + 并行数组；IsEnabled / Has / Phase1Profile）|
 
 > 受限写法（无 enum / 类字段无泛型 / List 约束 → typed array）见 [self-hosting.md](../../../docs/internals/src/compiler/self-hosting.md)。
 > 测试：`tests/diag.z42`（诊断 7）+ `tests/features.z42`（LanguageFeatures 4），
-> 经 **`xtask test stdlib z42c.core`**（本库住 `src/libraries/`，走 stdlib [Test] 门禁；
-> `xtask test compiler` 只扫 `src/compiler/<member>/tests/`，从来扫不到这里——
-> 2026-09-06 前这两个单元因此从未运行，见 change `tidy-test-layout`）。
+> 经 **`xtask test stdlib z42c.core`**（走 stdlib [Test] 门禁；
+> `xtask test compiler` 只扫 `src/compiler/<member>/tests/`，扫不到这里）。
 > 待移植：DiagnosticRenderer·Catalog·Category（CLI 渲染，driver 需要时）/ PreludePackages。
 
 ## 入口点
-`Z42.Core`（命名空间，镜像 C# 同名）。
+`Z42.Core`（命名空间）。
 
 ## 依赖关系
 无（叶子）。stdlib 自动可用。

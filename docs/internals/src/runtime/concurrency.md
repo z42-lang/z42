@@ -21,7 +21,7 @@
 - **VmCore / VmContext 类型层划分**：共享 8 字段 (`Arc<VmCore>`) + per-thread 4 字段（VmContext 持 `Arc<VmCore>` 加自己的 Arc<Mutex<>> 字段）
 - **GcRef 切到 Arc backing**：`Rc<GcAllocation>` → `Arc<GcAllocation>`，内部 `RefCell<T>` → `parking_lot::Mutex<T>`
 - **MagrGC trait 加 Send + Sync 边界**：实施 backend `ArcMagrGC`（前 `RcMagrGC`）满足
-- **6 个编译期 Send+Sync assertion**（[src/runtime/src/gc/arc_heap_tests/send_sync.rs](../../../../src/runtime/src/gc/arc_heap_tests/send_sync.rs)）+ 3 个 cross-thread 集成测试（[src/runtime/tests/cross_thread_smoke.rs](../../../../src/runtime/tests/cross_thread_smoke.rs)）钉死不可回归
+- **6 个编译期 Send+Sync assertion**（[src/runtime/src/gc/arc_heap_tests/send_sync.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/gc/arc_heap_tests/send_sync.rs)）+ 3 个 cross-thread 集成测试（[src/runtime/tests/cross_thread_smoke.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/tests/cross_thread_smoke.rs)）钉死不可回归
 
 **Phase 1+2+3 完成后能做什么 / 还不能做什么**：
 
@@ -426,7 +426,7 @@ task scope {
 ```
 
 跨 `spawn` / async task 边界的闭包捕获遵循通用闭包规范——用户面的捕获语义见
-[闭包与捕获语义](../../../reference/src/language/closures.md)。本节只列并发特有的约束（⚠️ `spawn` /
+[闭包与捕获语义](https://z42-lang.github.io/z42/reference/language/closures.html)。本节只列并发特有的约束（⚠️ `spawn` /
 `task` 语法与 `Send` 派生**均未实现**，以下是设计意图）：
 
 - **强制 move 捕获**（与 Rust async 一致）：`spawn` 之后外部不得再用被捕获变量

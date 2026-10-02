@@ -73,7 +73,7 @@ graph TD
   编进去的版本号会跟着一起旧，正好在最需要它的场合失效。
 - **读不到那个常量就不判也不删**，退回旧行为：这道校验是防呆，不该自己变成新的故障源。
 - 暂存用的 SDK 种子若落后一代，**只告警不失败**——「上一版 z42c 能编当前源」是
-  [bootstrap-seed](../../../agent/rules/bootstrap-seed.md) 的纪律，落后一代未必不能用。
+  [bootstrap-seed](https://github.com/z42-lang/z42/blob/main/docs/agent/rules/bootstrap-seed.md) 的纪律，落后一代未必不能用。
 
 **为什么值得一道专门的校验**：错代产物的失败形态与「种子过期」毫无字面关系。实证
 （2026-09-23）：一棵树里躺着 zpkg 0.48 时代的 driver，那一代的静态初始化还走
@@ -243,7 +243,7 @@ z42c（writer）在每个 `.zbc` / `.zpkg` 头写版本常量；z42vm（reader�
 
 - 改 wire 格式（新 opcode / section / 字段语义）→ **writer 与 reader 的版本常量必须同一 commit 一起
   bump**，否则 strict-pin 校验失败。完整同步清单见
-  [version-bumping.md](../../../agent/rules/version-bumping.md)。
+  [version-bumping.md](https://github.com/z42-lang/z42/blob/main/docs/agent/rules/version-bumping.md)。
 - strict-pin 让所有旧 `.zbc` / `.zpkg` 立即失效——所以 bump 后必须 `xtask build test` 重生 golden
   基线，并重截 z42c 的 golden hex 单测（header 的 minor 字段会变）。
 - `zbc_reader_tests.rs::zpkg_version_constants_pinned` 钉住 reader 常量的当前值，防止 writer/reader

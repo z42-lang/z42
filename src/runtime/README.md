@@ -51,9 +51,9 @@
 | 目录 | 说明 |
 |------|------|
 | `src/jit/` | JIT 后端，interp 全绿后填充 |
-| `src/gc/` | 垃圾回收，Phase 1 用 Rust `Rc` 管理生命周期 |
-| `src/exception/` | 结构化异常，当前通过 `thread_local PENDING_EXCEPTION` 临时处理 |
-| `src/thread/` | 多线程，Phase 1 单线程执行 |
+| `src/gc/` | 垃圾回收，用 Rust `Rc` 管理生命周期 |
+| `src/exception/` | 结构化异常，通过 `thread_local PENDING_EXCEPTION` 处理 |
+| `src/thread/` | 多线程，当前单线程执行 |
 
 ### crates/ — Native interop Rust crates（C1 落地）
 本目录是 z42 native interop 三层 ABI 的 Rust 侧公开接口；详见 [`crates/README.md`](crates/README.md)。

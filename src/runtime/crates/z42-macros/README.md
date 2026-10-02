@@ -50,7 +50,7 @@ z42::module! {
 
 ## 状态
 
-C3 实现完成（2026-04-29）。`#[derive(Z42Type)]` 与 `#[trait_impl]` 等 source generator (C5) 阶段一并设计 z42-side trait 形状后再实现。
+`#[derive(Z42Type)]` 与 `#[trait_impl]` 尚未实现，待 source generator (C5) 一并设计 z42-side trait 形状。
 
 ## 依赖关系
 

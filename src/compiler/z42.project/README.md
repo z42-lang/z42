@@ -8,7 +8,7 @@
 固定字段，不用开放 map）。模型 + `ManifestLoader`（TOML → 组合式模型）齐备，用 `Std.Toml`
 解析，fs-free 入口（`ParseText` / `ParseWorkspaceText`）可供 REPL / playground 复用。
 
-> ⚠️ **Parked / 接口先行（2026-06-18；loader 补齐 2026-06-29）**：受限自举子集写法
+> ⚠️ **Parked / 接口先行**：受限自举子集写法
 > （sealed class + 构造函数、`bool HasX` 替 nullable、`array + count` 替泛型；无 record /
 > 无泛型 / 无 nullable），与 `src/compiler/z42c.project` 同子集，类型名对齐（`DepEntry` /
 > `WorkspaceManifest`）便于日后 z42c 直接引用本库（届时删 z42c 自带的 ProjectModel）。

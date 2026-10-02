@@ -9,7 +9,7 @@
 > |--------|------|------|
 > | `LanguageFeatures` 类 | **已接线**。`z42.toml [syntax]` → `ManifestLoader._parseSyntax` → `Main._build`（唯一一次 resolve，未知名报错退出）→ `CompileInput.Features` → `IncrementalDriver` 两处 `new Parser` → `Parser._requireFeature` 发 **E0301** | add-l0-protocol-table（批 1，#841）|
 > | `ParseTable` 类 | **已存在**：`src/libraries/z42c.syntax/src/ParseTable.z42` —— 绑定力 / led 角色 / 特性名 + 语句步骤顺序 `StmtRules` | add-l2-parse-table（批 2）|
-> | `z42.toml` 的 `[syntax]` 节 | **已存在** | 同批 1；字段见[清单参考](../../../reference/src/toolchain/z42-toml.md) |
+> | `z42.toml` 的 `[syntax]` 节 | **已存在** | 同批 1；字段见[清单参考](https://z42-lang.github.io/z42/reference/toolchain/z42-toml.html) |
 > | `using syntax` 指令（配置来源②）| **不存在** | `grep -rn "using syntax" src/` |
 > | `operator` / `keyword` 用户声明（第 3 层）| **不存在** | 同上 |
 >

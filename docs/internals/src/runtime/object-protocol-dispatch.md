@@ -8,7 +8,7 @@
 **两条**入口（`ToStr` 指令与 `VCall` 指令）而不是一条。
 
 用户面的契约（哪四个方法、覆写 `Equals` 必须同时覆写 `GetHashCode`、struct 不继承 `Object`）见
-reference 的[类](../../../reference/src/language/classes.md)一页，本页不复述。
+reference 的[类](https://z42-lang.github.io/z42/reference/language/classes.html)一页，本页不复述。
 
 ## 两条入口
 

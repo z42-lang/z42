@@ -6,13 +6,13 @@
 > 🔶 **别把本页读成"z42 没有编译期代码生成"**。另有一条**已经发布**的路：
 > **Analyzer / Generator**——消费方工程用 `[analyzers]` 段把你的 zpkg 加载进编译器，
 > generator 在 bind 之后经 `AddSource` / `Augment` / `Replace` 三个 sink 产码并重新 bind。
-> 见 [编译期扩展：Analyzer 与 Generator](../../../reference/src/toolchain/compile-time-extensions.md)。
+> 见 [编译期扩展：Analyzer 与 Generator](https://z42-lang.github.io/z42/reference/toolchain/compile-time-extensions.html)。
 > 两者不是同一件事的两种实现：Generator 是**写一个编译器插件**（单独一个包、看得见整个编译），
 > 本页的宏是**在声明旁边标一行**（零样板、只看被标注处）。引擎侧的实现落点见
-> [`src/compiler/z42c.semantics/README.md`](../../../../src/compiler/z42c.semantics/README.md)
+> [`src/compiler/z42c.semantics/README.md`](https://github.com/z42-lang/z42/blob/main/src/compiler/z42c.semantics/README.md)
 > 的 `AnalyzerDriver` / `GeneratorDriver` 两行。
 >
-> 相关：[reflection.md](../../../reference/src/stdlib/reflection.md)（共用语义 API）、[syntax-customization.md](syntax-customization.md)（语法层定制，正交）。
+> 相关：[reflection.md](https://z42-lang.github.io/z42/reference/stdlib/reflection.html)（共用语义 API）、[syntax-customization.md](syntax-customization.md)（语法层定制，正交）。
 > 受众友好：没接触过 Rust 宏 / C# Source Generator 也能读，先看「概念扫盲」。
 
 ---
@@ -265,4 +265,4 @@ public Ast Timed(MethodDecl m) {                    // 输入是整个方法的 
 - **前置**：`z42c expand` 稳定 + 确定性展开。
 
 > 与既有路线一致：**简单场景声明式（derive），任意逻辑用代码（编译期 z42），不发明独立宏语言/
-> token DSL**——同 task DAG、condition 的结论一条哲学（[build-orchestrator.md](../../../internals/src/toolchain/z42b.md) Decision #5/#8）。
+> token DSL**——同 task DAG、condition 的结论一条哲学（[build-orchestrator.md](../toolchain/z42b.md) Decision #5/#8）。

@@ -3,7 +3,7 @@
 > 对齐：2026-09-17 ｜ 代码：`src/libraries/z42c.syntax/src/Lexer.z42`（关键字表）、
 > `src/compiler/z42c.semantics/src/Lowering/HandlerRegistry.z42`（内建 attribute 集）
 >
-> 规则面（怎么写、报什么错、有哪些形态）**一律在**[语言参考](../../reference/src/language/README.md)，
+> 规则面（怎么写、报什么错、有哪些形态）**一律在**[语言参考](https://z42-lang.github.io/z42/reference/language/index.html)，
 > 本页不重复。这里只回答一个问题：**为什么是这个形状，而不是另一个。**
 
 改 z42 时要提一个语言特性提案，先在这里找同类决策——多数争论上一轮已经吵过一次。
@@ -28,7 +28,7 @@ C# 关键字（`int` / `double`）与 Rust 短名（`i32` / `f64`）指向同一
 **为什么**：C# 拼写让迁移者零成本上手，短名让位宽一眼可见。选一个牺牲另一个都不划算；
 归一到短名而不是关键字，是因为位宽才是类型的本质，关键字只是别名。
 
-→ [基本类型与字面量](../../reference/src/language/types.md)
+→ [基本类型与字面量](https://z42-lang.github.io/z42/reference/language/types.html)
 
 ### `string` 内部是 UTF-8，`char` 是完整 Unicode 标量值
 
@@ -40,7 +40,7 @@ C ABI、文件与网络 I/O 也全按 UTF-8 走——选 UTF-16 等于每次跨�
 `char` 选 32 位（而不是 C# 的 16 位 UTF-16 code unit），是为了让「一个 `char` = 一个字符」
 这条直觉成立，代理对问题在语言层直接消失。
 
-→ [字符串](../../reference/src/language/strings.md)
+→ [字符串](https://z42-lang.github.io/z42/reference/language/strings.html)
 
 ### struct 是值类型，`[Record]` 是正交的第三根轴
 
@@ -52,8 +52,8 @@ C ABI、文件与网络 I/O 也全按 UTF-8 走——选 UTF-16 等于每次跨�
 缠进了身份轴。用 attribute 表达同一件事，作用于两种身份，语言机制更简单，也不占关键字预算——
 `record` 在 z42 里是普通标识符，可以当类名和变量名（实测可用）。
 
-→ [`[Record]` 与主构造器](../../reference/src/language/record-attribute.md)、
-[结构体](../../reference/src/language/structs.md)
+→ [`[Record]` 与主构造器](https://z42-lang.github.io/z42/reference/language/record-attribute.html)、
+[结构体](https://z42-lang.github.io/z42/reference/language/structs.html)
 
 ### 元组由 `ValueTupleN` 承载，arity 2–8
 
@@ -62,7 +62,7 @@ C ABI、文件与网络 I/O 也全按 UTF-8 走——选 UTF-16 等于每次跨�
 **为什么有上界**：8 之后应该定义一个具名类型。不设上界要么递归嵌套（`ValueTuple8<...,TRest>`
 那套 C# 把戏），要么无限生成——两者都是为极少数用例付永久复杂度。
 
-→ [元组](../../reference/src/language/tuples.md)
+→ [元组](https://z42-lang.github.io/z42/reference/language/tuples.html)
 
 ## 二、空值
 
@@ -78,7 +78,7 @@ C ABI、文件与网络 I/O 也全按 UTF-8 走——选 UTF-16 等于每次跨�
 ⚠️ 这条的副作用要写在脸上：**z42 当前没有空安全。** `string s = null;` 编得过，
 空引用在运行期解引用时才暴露。
 
-→ [基本类型与字面量 · 可空标记](../../reference/src/language/types.md)
+→ [基本类型与字面量 · 可空标记](https://z42-lang.github.io/z42/reference/language/types.html)
 
 ## 三、错误处理
 
@@ -93,7 +93,7 @@ C ABI、文件与网络 I/O 也全按 UTF-8 走——选 UTF-16 等于每次跨�
 `catch { }` 能捕获非对象抛出物，`StackTrace` 只在 interp 路径自动填充（JIT 路径留空）——
 这两条是实现现状，不是设计意图。
 
-→ [异常](../../reference/src/language/exceptions.md)
+→ [异常](https://z42-lang.github.io/z42/reference/language/exceptions.html)
 
 ## 四、抽象与多态
 
@@ -113,8 +113,8 @@ C ABI、文件与网络 I/O 也全按 UTF-8 走——选 UTF-16 等于每次跨�
 
 **为什么生成真方法而不是编译期重写调用点**：只有真方法才能满足接口、被反射看见、被 IDE 跳转。
 
-→ [接口](../../reference/src/language/interfaces.md)、
-[`[Forward]` 成员转发](../../reference/src/language/member-forwarding.md)
+→ [接口](https://z42-lang.github.io/z42/reference/language/interfaces.html)、
+[`[Forward]` 成员转发](https://z42-lang.github.io/z42/reference/language/member-forwarding.html)
 
 ## 五、函数与闭包
 
@@ -134,9 +134,9 @@ C ABI、文件与网络 I/O 也全按 UTF-8 走——选 UTF-16 等于每次跨�
 ——循环变量晚绑定、值类型幻读。z42 选快照，一次性消掉两者。代价是「闭包里改外层变量」写不了，
 需要共享可变状态时请显式共享一个对象。
 
-→ [函数与方法](../../reference/src/language/functions.md)、
-[闭包与捕获语义](../../reference/src/language/closures.md)、
-[命名实参](../../reference/src/language/named-arguments.md)
+→ [函数与方法](https://z42-lang.github.io/z42/reference/language/functions.html)、
+[闭包与捕获语义](https://z42-lang.github.io/z42/reference/language/closures.html)、
+[命名实参](https://z42-lang.github.io/z42/reference/language/named-arguments.html)
 
 ## 六、泛型
 
@@ -167,8 +167,8 @@ C ABI、文件与网络 I/O 也全按 UTF-8 走——选 UTF-16 等于每次跨�
 嵌套泛型调用）时，**E0455** 要求显式写出类型实参——把一个静默的错值变成编译错误。
 推断失败时静默退化，不产生诊断。
 
-→ [泛型约束](../../reference/src/language/generic-constraints.md)、
-[泛型方法](../../reference/src/language/generic-methods.md)；
+→ [泛型约束](https://z42-lang.github.io/z42/reference/language/generic-constraints.html)、
+[泛型方法](https://z42-lang.github.io/z42/reference/language/generic-methods.html)；
 实现见[泛型的实现](compiler/generics.md)、[泛型类型实参推断](compiler/generic-inference.md)
 
 ### `List<T>` / `Dictionary<K,V>` 是真 stdlib 泛型
@@ -177,8 +177,8 @@ C ABI、文件与网络 I/O 也全按 UTF-8 走——选 UTF-16 等于每次跨�
 编译器里硬编码的伪类。编译器里唯一的硬编码是**集合字面量的 desugar 目标名**——只是点名，
 不是定义。
 
-→ [集合字面量](../../reference/src/language/collection-literals.md)、
-[Std.Collections](../../reference/src/stdlib/collections.md)
+→ [集合字面量](https://z42-lang.github.io/z42/reference/language/collection-literals.html)、
+[Std.Collections](https://z42-lang.github.io/z42/reference/stdlib/collections.html)
 
 ## 七、模式匹配
 
@@ -195,7 +195,7 @@ record 位置解构、属性模式、嵌套、裸绑定、`if` 守卫，外加 o
 穷尽性目前是**警告 W0700**，覆盖 `bool` / `enum` / 封闭的非公开类层次；`sealed` 不在范围内。
 强制穷尽要等原生 ADT。
 
-→ [模式匹配](../../reference/src/language/pattern-matching.md)
+→ [模式匹配](https://z42-lang.github.io/z42/reference/language/pattern-matching.html)
 
 ## 八、不可变性
 
@@ -213,7 +213,7 @@ record 位置解构、属性模式、嵌套、裸绑定、`if` 守卫，外加 o
 **已知边界**：跨 zpkg 导入的 readonly（要 zbc / zpkg 格式 bump）、非 `this` 接收者的
 循环不变外提（要非空分析）、`readonly struct` 都还没有。
 
-→ [readonly 字段](../../reference/src/language/readonly-fields.md)；
+→ [readonly 字段](https://z42-lang.github.io/z42/reference/language/readonly-fields.html)；
 优化侧见[优化管线](runtime/optimization-pipeline.md)
 
 ## 九、并发
@@ -235,7 +235,7 @@ record 位置解构、属性模式、嵌套、裸绑定、`if` 守卫，外加 o
 
 ⚠️ 线程间**共享 GC 堆与静态字段**，**数据竞争由程序员负责**。「类型系统防竞争」不是当前状态。
 
-→ [z42.threading](../../reference/src/stdlib/threading.md)；
+→ [z42.threading](https://z42-lang.github.io/z42/reference/stdlib/threading.html)；
 长期设计见[并发与 async](runtime/concurrency.md)
 
 ## 十、模块与产物
@@ -252,7 +252,7 @@ C# / Rust / Python / Go / TS 一致；真正需要团队 prelude 的场景由 `g
 
 命名空间跨包**不允许循环依赖**。
 
-→ [命名空间与导入](../../reference/src/language/namespaces.md)
+→ [命名空间与导入](https://z42-lang.github.io/z42/reference/language/namespaces.html)
 
 ### 两种产物，两个职责
 
@@ -269,7 +269,7 @@ C# / Rust / Python / Go / TS 一致；真正需要团队 prelude 的场景由 `g
 按模块内联，因为跨模块的类型描述重合度远不如字符串。
 
 → 格式规格见 [zbc 字节码格式](formats/zbc.md)、[zpkg 包格式](formats/zpkg.md)；
-清单字段见[工程清单 z42.toml](../../reference/src/toolchain/z42-toml.md)
+清单字段见[工程清单 z42.toml](https://z42-lang.github.io/z42/reference/toolchain/z42-toml.html)
 
 ## 十一、执行与部署
 
@@ -293,8 +293,8 @@ JIT 只在 cargo feature `jit` 打开时可用；AOT 后端是自述的 stub，�
 **为什么收成一个入口**：SDK 是单版本的，launcher 不管理多个运行时版本；
 安装与更新由安装脚本负责，不占命令面。
 
-→ [`z42` 命令面](../../reference/src/toolchain/cli-z42.md)、
-[z42c 与 z42b](../../reference/src/toolchain/cli-z42c-z42b.md)
+→ [`z42` 命令面](https://z42-lang.github.io/z42/reference/toolchain/cli-z42.html)、
+[z42c 与 z42b](https://z42-lang.github.io/z42/reference/toolchain/cli-z42c-z42b.html)
 
 ### 运行时行为由登记表驱动的旋钮控制
 
@@ -304,7 +304,7 @@ z42 脚本只读面全部由该表派生。设了一个本 build 不支持的旋
 **为什么是登记表而不是各处分别解析**：旋钮有五个来源层，分散解析必然漂移——
 某个层少支持一个旋钮、或者两个层语义不一致，都不会有任何东西报错。
 
-→ 旋钮清单与取值语义见[运行时设置](../../reference/src/toolchain/runtime-settings.md)；
+→ 旋钮清单与取值语义见[运行时设置](https://z42-lang.github.io/z42/reference/toolchain/runtime-settings.html)；
 五层如何归并见[运行时设置的实现](runtime/runtime-settings.md)
 
 ## 十二、标准库
@@ -377,10 +377,10 @@ List / Dictionary 字面量。
 **为什么两套括号**：数组是语言内建的连续存储，List / Dictionary 是 stdlib 类型——
 让括号形状直接编码这个归属，读代码时不必回头看声明类型。
 
-→ [`available!()`](../../reference/src/language/available-macro.md)、
-[`methodof`](../../reference/src/language/methodof.md)、
-[集合字面量](../../reference/src/language/collection-literals.md)、
-[数组](../../reference/src/language/arrays.md)
+→ [`available!()`](https://z42-lang.github.io/z42/reference/language/available-macro.html)、
+[`methodof`](https://z42-lang.github.io/z42/reference/language/methodof.html)、
+[集合字面量](https://z42-lang.github.io/z42/reference/language/collection-literals.html)、
+[数组](https://z42-lang.github.io/z42/reference/language/arrays.html)
 
 ## 十四、可裁剪性
 

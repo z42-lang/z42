@@ -23,13 +23,8 @@
 | `<fixture>/source.z42`     | z42 源（check in）|
 | `<fixture>/source.zbc`     | z42c 输出字节（check in；regen 后 git diff = 实际格式变化）|
 
-> 每个 fixture 曾另有一份 `expected.json`（解码后形态的人类可读快照）。**2026-09-11 已删除**：
-> 全仓无任何代码读它、也没有防腐门，于是一路腐坏到落后 **18 个 minor**（停在 `minor: 20`，
-> 而彼时格式已是 38），还被当成可信事实误导过一次排查。
-> 这是补完 [PR #424](https://github.com/z42-lang/z42/pull/424)（commit `aab7013b`）的同一次清理——那个 PR 已按同样理由删掉了
-> `zpkg-format/*/expected.json` 全部 4 份，只是漏了本目录。
-> 若将来需要「格式 bump 时可读的 diff」，请**连同防腐门一起**作为独立变更引入
-> （形态参考 `format_fixture_versions` 那道门），不要再引入无门禁的快照文件。
+> 不放解码后形态的 `expected.json` 快照：无代码读取、无防腐门的快照会腐坏并误导排查。
+> 若需要「格式 bump 时可读的 diff」，请**连同防腐门一起**引入（形态参考 `format_fixture_versions` 那道门）。
 
 ## 维护流程
 
@@ -43,10 +38,9 @@ git diff src/compiler/z42.package/tests/fixtures/zbc-format/               # rev
 
 `build test` 对 `zbc-format` 目录特判：直接覆写各 fixture 的 `source.zbc`（其余 run-golden 落 artifacts 镜像）。每次 bump 必须把 fixture 一同 commit。
 
-> 🔴 **2026-09-27 更正**：本节此前写的是 `z42 xtask.zpkg regen` —— **`xtask` 没有 `regen` 这个
-> 子命令**（实跑报 `xtask: unknown command 'regen'`）。真实命令是 `xtask build test`，与
+> 注意：重生命令是 `xtask build test`（`xtask` 没有 `regen` 子命令），与
 > [version-bumping.md](../../../../../../docs/agent/rules/version-bumping.md) 步骤 4 和 CI 的
-> `compile-test-assets` job 用的是同一条（`test-host` 的 `test all` 走的也是同一个 regen）。照旧文本做会找不到命令，进而以为「本地没法重生」。
+> `compile-test-assets` job 用的是同一条（`test-host` 的 `test all` 走的也是同一个 regen）。
 >
 > ⚠️ 本目录**不覆盖** `src/compiler/z42.package/tests/fixtures/zpkg-format/`：那 4 份 fixture `build test` **不碰**，
 > 得按 [zpkg-format/README.md](../zpkg-format/README.md) 从各自的 `<name>.z42.toml` 逐个重建

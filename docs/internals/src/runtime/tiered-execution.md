@@ -90,7 +90,7 @@ desktop/android 上可在 interp 之上叠加"热函数提升到 JIT"一档；iO
 - **活跃栈帧**（扫调用栈）
 - **per-site 调用缓存** `OnceLock<Arc<Function>>`（`cache-cross-zpkg-call-target`——典型隐性保留边）
 - **异常 handler 表 / catch 落点**
-- **observer / 调试钩子**（[observer.rs](../../../../src/runtime/src/observer.rs)）
+- **observer / 调试钩子**（[observer.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/observer.rs)）
 - **lazy_loader 注册项**
 
 用法：某 tier0"本该死却活着" → 工具直接指出"被 N 个调用缓存钉住"或"还有 1 个活跃帧"。**与 `feedback_leak_via_diagnostics` 哲学一致**（生命周期问题靠 runtime 诊断，不在语言层加标注）。诊断 API + arena 登记归 **libz42 基座**；各引擎组件注册自己的可回收产物。

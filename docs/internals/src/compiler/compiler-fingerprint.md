@@ -1,7 +1,7 @@
 # 编译器语义指纹（`CompilerFingerprint`）
 
 > 页型：机制页 ｜ 状态：✅ 已实现 ｜ 代码：`src/compiler/z42c.pipeline/src/CompilerFingerprint.z42`
-> 规则见 [version-bumping.md](../../../agent/rules/version-bumping.md)「编译器语义指纹」。
+> 规则见 [version-bumping.md](https://github.com/z42-lang/z42/blob/main/docs/agent/rules/version-bumping.md)「编译器语义指纹」。
 
 ## 它是什么
 
@@ -39,7 +39,7 @@ public static string[] Entries = new string[] {
 
 ## 什么时候要追加一条
 
-判据不变，见 [version-bumping.md](../../../agent/rules/version-bumping.md)。一句话：
+判据不变，见 [version-bumping.md](https://github.com/z42-lang/z42/blob/main/docs/agent/rules/version-bumping.md)。一句话：
 **同一份源码的编译结果（含诊断集）是否可能变**。⚠️ 注意「诊断变、发码不变」也算 ——
 那一档 **CI 的 fingerprint 守门是瞎的**（它比的是产物字节），只能靠人记。
 

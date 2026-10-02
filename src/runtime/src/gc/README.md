@@ -10,7 +10,7 @@ observers / profiler / weak refs / finalizers / strict OOM / ...）。
 
 | 文件 | 职责 |
 |------|------|
-| `heap.rs` | `trait MagrGC` —— GC 抽象接口（对齐 MMTk porting contract，10 能力组 ~30 方法）|
+| `heap.rs` | `trait MagrGC` —— GC 抽象接口（MMTk porting contract 形态，10 能力组 ~30 方法）|
 | `arc_heap.rs` | `ArcMagrGC` 协调器 —— struct/字段、`RcHeapInner`、句柄表、类型别名、`Default`/`Debug`、`new()` + concern 子模块声明（`GcRef` backing 是 `Rc<GcAllocation<T>>`，wrapper 含 finalizer Cell + 自定义 Drop）|
 | `arc_heap/alloc.rs` | region 分配尾部 + OOM 兜底 + 内存压力检查 + size 估算/查询（`object_size_bytes`）|
 | `arc_heap/collect.rs` | mark-sweep 原语：mark/sweep 阶段 + soft-ref 复活 + live 快照 |
@@ -84,7 +84,7 @@ z42 脚本端可调 `Std.GC.Collect()` / `UsedBytes()` / `ForceCollect()`（见
 
 详见 [`docs/internals/src/runtime/gc.md`](../../../../docs/internals/src/runtime/gc.md).
 
-**至 add-generational-gc 完成（2026-05-22）GC 主功能完整 —— A1 / A2 / A3 / A4
+**GC 主功能完整 —— A1 / A2 / A3 / A4
 均已落地（custom allocator / mark-sweep / generational / concurrent mark），
 三种 GcMode 可选 opt-in。可投产。**
 

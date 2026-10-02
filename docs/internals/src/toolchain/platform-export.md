@@ -2,7 +2,7 @@
 
 > 对齐：2026-09-17（change `restructure-docs-three-books`）｜ 代码：`src/toolchain/launcher/core/launcher_export.z42`、`src/toolchain/builder/core/builder_publish.z42`、`src/toolchain/builder/core/builder_device.z42`
 >
-> 命令与旗标怎么敲 → [工具链参考](../../../reference/src/toolchain/README.md)；
+> 命令与旗标怎么敲 → [工具链参考](https://z42-lang.github.io/z42/reference/toolchain/index.html)；
 > 产物形态的坐标系 → [部署模型](deployment-model.md)；工程生成细节 → [export](export.md)。
 
 z42 有五个跟平台沾边的动词（`build` / `run` / `export` / `publish` / `test`），

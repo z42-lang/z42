@@ -27,7 +27,7 @@ vm.run(&ctx, hint)?;
 | `VmContext::new() -> Pin<Box<Self>>` | 测试入口；构造新 VmCore + `module = None` | 单测大量用（heap / static_fields / corelib 单测均不需要真 Module） |
 | `VmContext::new_with_core(core: Arc<VmCore>) -> Pin<Box<Self>>` | spawn 入口；**复用现有 VmCore**，仅构造 per-thread 字段 + register self 到 `vm_contexts` | `__thread_spawn` worker 通过此构造，让 worker 看见父 VmCore 的 static_fields / heap / lazy_loader / native_libs |
 
-`__thread_spawn`（[corelib/threading.rs](../../../../src/runtime/src/corelib/threading.rs)）流程：拿到调用者 `ctx.core` 的 `Arc::clone` → `std::thread::spawn` → worker 内 `VmContext::new_with_core(core)` 构造 worker ctx → `interp::exec_function` dispatch。worker 的 per-thread 字段（pending_exception / call_stack / func_ref_slots）私有；通过 `vm_contexts` 注册让 GC scanner 看见 worker 自己的 roots。
+`__thread_spawn`（[corelib/threading.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/corelib/threading.rs)）流程：拿到调用者 `ctx.core` 的 `Arc::clone` → `std::thread::spawn` → worker 内 `VmContext::new_with_core(core)` 构造 worker ctx → `interp::exec_function` dispatch。worker 的 per-thread 字段（pending_exception / call_stack / func_ref_slots）私有；通过 `vm_contexts` 注册让 GC scanner 看见 worker 自己的 roots。
 
 ### VmCore：跨线程共享状态
 
@@ -178,7 +178,7 @@ z42vm <file>
 已发布的 app：**SDK 自己的 `bin/z42c` 就是一个 apphost**（见
 [packaging.md](../devinfra/packaging.md) 的 `kind = apphost`），所以拿装好的工具链跑
 `Z42_LIBS=… z42c build …` 是**完全无效**的——不报警、不报错，就是没生效。`Z42_LIBS` 在
-`knob_table.rs` 里标着 `PUBLIC`、在 [runtime-settings.md](../../../reference/src/toolchain/runtime-settings.md)
+`knob_table.rs` 里标着 `PUBLIC`、在 [runtime-settings.md](https://z42-lang.github.io/z42/reference/toolchain/runtime-settings.html)
 是有名有姓的一行，而这条路径上它一直是死的。实测口径（patch 过的 apphost + 一个把收到的
 `Z42_LIBS` 回显出来的 `z42vm` 桩）：
 
@@ -201,7 +201,7 @@ z42vm <file>
 相对项按 entry 目录解析、`*`/`**` 展开成目录、不存在的静默跳过，另外认一个 `${Z42_HOME}` 占位符
 （relocate-compiler-domain-libs §5.3.1 —— 侧车随产物分发，不能烤具体路径；候选根 = `$Z42_HOME` →
 `$Z42_PORTABLE_VM` 反推 → 正在跑的 z42vm 自己的位置）。规则全表见
-[runtime-settings.md](../../../reference/src/toolchain/runtime-settings.md)。
+[runtime-settings.md](https://z42-lang.github.io/z42/reference/toolchain/runtime-settings.html)。
 🔴 占位符今天**只有 support 侧**：z42c 尚未发射它（受 bootstrap-seed 分阶段纪律，挂在
 `probing.rs#probing-z42home-emit`）。
 
@@ -262,7 +262,7 @@ for ((module, ns), (sym_ns, fns)) in module_pairs.iter_mut().zip(sidecar.modules
 | 单个 module 内 function 数不一致 | warn + 跳过该 module，其他 module 仍合并 |
 | Module 加载主 zbc / zpkg 被发现 `SymOnly` flag | `bail!` —— sidecar 不可作为主模块加载 |
 
-> **实现位置**：[src/runtime/src/metadata/loader/](../../../../src/runtime/src/metadata/loader/) `apply_zbc_sidecar` / `apply_zpkg_sidecar`；解析在 [zbc_reader.rs](../../../../src/runtime/src/metadata/zbc_reader/) `parse_zbc_sidecar` / `parse_zpkg_sidecar`。
+> **实现位置**：[src/runtime/src/metadata/loader/](https://github.com/z42-lang/z42/tree/main/src/runtime/src/metadata/loader) `apply_zbc_sidecar` / `apply_zpkg_sidecar`；解析在 [zbc_reader.rs](https://github.com/z42-lang/z42/tree/main/src/runtime/src/metadata/zbc_reader) `parse_zbc_sidecar` / `parse_zpkg_sidecar`。
 
 ## Embedding Entry（2026-05-10 add-embedding-api H1）
 
@@ -394,7 +394,7 @@ try_lookup_function(func_name):
 **每次调用都重跑** `try_lookup_function`（上面的策略 C/B，至少一次 String hash）。
 
 修法：`ResolvedTokens` 加一条与 `method_tokens` 平行、同 site 索引的
-`cross_module_targets: Vec<OnceLock<Arc<Function>>>`。dispatch（[exec_call.rs](../../../../src/runtime/src/interp/exec_call.rs)）在
+`cross_module_targets: Vec<OnceLock<Arc<Function>>>`。dispatch（[exec_call.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/interp/exec_call.rs)）在
 **本模块两级 miss 之后**：
 
 ```
@@ -422,9 +422,9 @@ if let Some(cell) = cross_cell:
 上面所有 per-site 缓存（`method_tokens` / `cross_module_targets` / `vcall_ic` /
 `field_ic` / `builtin_tokens` / `static_field_tokens` / `type_tokens` / `site_index`）
 都挂在 `Function.resolved: OnceLock<ResolvedTokens>`，由
-[`resolver::resolve_module`](../../../../src/runtime/src/metadata/resolver.rs) 一次性填充。
+[`resolver::resolve_module`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/resolver.rs) 一次性填充。
 但 `resolve_module` **只在 `Vm::run` 里对 entry module 跑一次**——而
-interp/JIT 模式下依赖是**纯惰性加载**（[app.rs](../../../../src/runtime/src/app.rs)
+interp/JIT 模式下依赖是**纯惰性加载**（[app.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/app.rs)
 `is_eager = matches!(mode, Aot)`，非 AOT 全 false）：除用户 artifact 外，
 **所有依赖 zpkg**（自编译时即 z42c.core / z42c.syntax / z42c.semantics /
 z42c.pipeline 全部）经 `LazyLoader::load_zpkg_file` 进 `function_table`，其
@@ -437,8 +437,8 @@ Field 无 IC、Builtin/Static 走名字查、每个 Call 都对 entry module 的
 profile 里 `get_inner`+`memcmp`+`try_lookup_*` 的大头即源于此。
 
 修法：把 `resolve_module` 的**单函数体**抽成
-[`resolve_function_tokens(func, module, ctx)`](../../../../src/runtime/src/metadata/resolver.rs)，
-并在 [`exec_function_body`](../../../../src/runtime/src/interp/mod.rs) 顶部**首次执行时**
+[`resolve_function_tokens(func, module, ctx)`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/resolver.rs)，
+并在 [`exec_function_body`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/interp/mod.rs) 顶部**首次执行时**
 按需填充（`if func.resolved.get().is_none()`，OnceLock 门禁 → 每函数只解析一次；
 热路径仅一次 relaxed atomic load，指令循环本就要再读它）。
 
@@ -463,7 +463,7 @@ per-site 首执缓存兜住（见上一节）。**`vcall_ic` / `field_ic`（运�
 JIT 把一个模块的全部函数编译成原生码，`jit_call` 跳转到 `fn_entries`（本 JIT 模块
 编入的函数）。**跨 zpkg 的 callee 不在 `fn_entries`**，需两条配合机制：
 
-1. **eager 加载必须 transitive**（[main.rs](../../../../src/runtime/src/main.rs) `is_eager` 分支）。
+1. **eager 加载必须 transitive**（[main.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/main.rs) `is_eager` 分支）。
    旧实现只加载 entry 的**直接** `dependencies` / `import_namespaces`，**传递依赖漏掉** ——
    例如 `Std.Toml.TomlValue.Parse` 经 `z42c.project → z42.toml` 间接到达，既没 merge
    进 `final_module` 也没进 `declared_zpkgs`（interp 靠运行期懒加载的传递 unfold 兜住，
@@ -472,7 +472,7 @@ JIT 把一个模块的全部函数编译成原生码，`jit_call` 跳转到 `fn_
    依赖图穷尽（`loaded_paths` 按 canonical path 去重）。于是整个传递闭包都 merge 进
    `final_module`、全部 JIT 编译、调用原生解析。
 
-2. **`jit_call` 的 interp 兜底**（[jit/helpers/call.rs](../../../../src/runtime/src/jit/helpers/call.rs)
+2. **`jit_call` 的 interp 兜底**（[jit/helpers/call.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/jit/helpers/call.rs)
    `cross_zpkg_via_interp`）。`fn_entries` miss 后镜像 interp `exec_call::call` 的解析
    顺序：① `module.func_index` → `module.functions`（已 merge 但未 JIT 编入的函数）；
    ② `try_lookup_function`（仅懒加载可达的 zpkg）——两者都在**解释器**上执行 callee，
@@ -495,8 +495,8 @@ JIT 把一个模块的全部函数编译成原生码，`jit_call` 跳转到 `fn_
 
 修法：把"整模块要么全编译要么全失败"改成**逐函数降级**。
 
-1. **预扫描跳过**（[jit/mod.rs](../../../../src/runtime/src/jit/mod.rs) `compile_module` +
-   [jit/translate.rs](../../../../src/runtime/src/jit/translate/) `jit_unsupported_reason`）：
+1. **预扫描跳过**（[jit/mod.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/jit/mod.rs) `compile_module` +
+   [jit/translate.rs](https://github.com/z42-lang/z42/tree/main/src/runtime/src/jit/translate) `jit_unsupported_reason`）：
    declare / translate 前先扫描每个函数，含不可翻译 opcode 的**既不 declare 也不 translate**
    （留在 `func_ids` / `fn_entries` 之外）。`fn_entries_by_id` 仍按 `functions` 顺序逐槽
    push `None`，MethodId↔槽位对齐不变。`jit_unsupported_reason` 的 opcode 名单必须与
@@ -506,7 +506,7 @@ JIT 把一个模块的全部函数编译成原生码，`jit_call` 跳转到 `fn_
    emit cranelift 直接调用，所以被跳过的 callee 在 `fn_entries` miss → `cross_zpkg_via_interp`
    Case 1（`module.func_index` 命中已 merge 但未编入的函数）→ 解释器执行。`VCall` 三条派发路径
    （IC 快路径 / 原始类型接收者 / 对象 vtable）都补齐了同样的 merged-module interp 兜底
-   （[jit/helpers/vcall.rs](../../../../src/runtime/src/jit/helpers/vcall.rs)）。
+   （[jit/helpers/vcall.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/jit/helpers/vcall.rs)）。
 
 3. **entry / static-init 也兜底**：`JitModule::run_fn` 在 `fn_entries` miss 时（被跳过的
    entry 或 `__static_init__`）改用 `interp::exec_function` 执行，不再硬报 `entry not found`；
@@ -584,7 +584,7 @@ Sub : Std.Exception { ... }` 加载时，`Std.Exception`（在 z42.core）尚
   可解析 → 仅含 own 部分（后续 fixup 补齐）。
 
 **阶段 2 — fixup**（`try_fixup_inheritance`）：
-- 在 [`LazyLoader::load_zpkg_file`](../../../../src/runtime/src/metadata/lazy_loader.rs)
+- 在 [`LazyLoader::load_zpkg_file`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/lazy_loader.rs)
   把新 zpkg 的 TypeDesc 插入全局 `type_registry` 之后调用。
 - 扫描整个 `type_registry`，对每个 base 链 *新近可解析* 的 TypeDesc
   （`needs_fixup` 检测），用 `merge_with_base` 用全局 registry 重算
@@ -723,7 +723,7 @@ N > K HashMap），调用方零改动 —— `NameIndex` 的 public API 故意�
 
 **API**：`get(&str) -> Option<&usize>` / `insert(String, usize) -> Option<usize>` /
 `iter()` / `FromIterator<(String, usize)>` / `Clone`。位于
-[`src/runtime/src/metadata/name_index.rs`](../../../../src/runtime/src/metadata/name_index.rs)。
+[`src/runtime/src/metadata/name_index.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/name_index.rs)。
 
 ### VCall 指令执行
 
@@ -792,7 +792,7 @@ Char → Std.Char   Str → Std.String   Array → Std.Array
 （`T.Zero` / `T.Parse(s)`）这条路走不通——那需要把 `T` 的 TypeDesc 传到泛型 callsite，未实现。
 
 面向用户的规则（含实现方必须写 `static override`、结果类型恒为 `T`）见
-[泛型约束 · 运算符如何在型参上派发](../../../reference/src/language/generic-constraints.md)。
+[泛型约束 · 运算符如何在型参上派发](https://z42-lang.github.io/z42/reference/language/generic-constraints.html)。
 
 ---
 
@@ -845,7 +845,7 @@ match callee_value {
 
 ## JIT↔VM 元数据契约（review.md Part 1 P0 / E1.P2 Phase 1, 2026-06-02）
 
-位置：[`src/runtime/src/jit/vm_interface.rs`](../../../../src/runtime/src/jit/vm_interface.rs)
+位置：[`src/runtime/src/jit/vm_interface.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/jit/vm_interface.rs)
 
 `pub trait JitVm` 是 JIT 后端对 metadata 模块的**只读契约** ——
 codifies "JIT 编译期需要从 module 拿到什么"，与 helper 运行期通过
@@ -1258,9 +1258,9 @@ allocator、分代 GC、card marking、finalizer 契约、迭代规划等）已�
 
 简要状态（更新自 2026-05-22 add-generational-gc P4 归档）：
 
-- **核心 trait**：[`crate::gc::MagrGC`](../../../../src/runtime/src/gc/heap.rs) ——
+- **核心 trait**：[`crate::gc::MagrGC`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/gc/heap.rs) ——
   对齐 [MMTk](https://www.mmtk.io/) `VMBinding` porting contract
-- **Backing**：[`Region<T>`](../../../../src/runtime/src/gc/region.rs) chunked
+- **Backing**：[`Region<T>`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/gc/region.rs) chunked
   allocator + `NonNull<RegionEntry>` 12B handle（add-custom-allocator）
 - **三种 mode 可选**（`GcMode` enum + `Z42_GC_MODE` env var）:
   - `StwMarkSweep` (default) — stop-the-world mark + sweep

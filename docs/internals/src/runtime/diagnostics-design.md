@@ -15,9 +15,9 @@
 
 | 设施 | 现状 | 文件 |
 |---|---|---|
-| **RuntimeObserver** 事件流 | 事件：`ModuleLoaded`/`JitModuleCompiled`/`ExceptionThrown`/`ExceptionCaught`/`NativeCallEntered` + `Custom{source,payload}` 逃逸口；`Mutex<Vec<Arc<dyn RuntimeObserver>>>` on VmCore；对标 CoreCLR EventPipe | [observer.rs](../../../../src/runtime/src/observer.rs) |
-| **GcObserver** | 独立 `GcEvent` 流（与 Runtime 那套**分离**，两套 trait） | [gc/types.rs](../../../../src/runtime/src/gc/types.rs) |
-| **RuntimeCounters** | `AtomicU64`：`builtin_calls`/`native_calls`/`jit_methods_compiled`/**`jit_compile_us_total`**/`exceptions_thrown`/`exceptions_caught`；`snapshot()` + `--print-counters`；对标 dotnet EventCounters | [counters.rs](../../../../src/runtime/src/counters.rs) |
+| **RuntimeObserver** 事件流 | 事件：`ModuleLoaded`/`JitModuleCompiled`/`ExceptionThrown`/`ExceptionCaught`/`NativeCallEntered` + `Custom{source,payload}` 逃逸口；`Mutex<Vec<Arc<dyn RuntimeObserver>>>` on VmCore；对标 CoreCLR EventPipe | [observer.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/observer.rs) |
+| **GcObserver** | 独立 `GcEvent` 流（与 Runtime 那套**分离**，两套 trait） | [gc/types.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/gc/types.rs) |
+| **RuntimeCounters** | `AtomicU64`：`builtin_calls`/`native_calls`/`jit_methods_compiled`/**`jit_compile_us_total`**/`exceptions_thrown`/`exceptions_caught`；`snapshot()` + `--print-counters`；对标 dotnet EventCounters | [counters.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/counters.rs) |
 | **tracing** crate | 日志（`tracing::warn!` 等） | Cargo.toml |
 
 **三方面真实状态**：事件=有但薄；计数=已有且有快照（**有必要、且已在**）；时间=仅 `jit_compile_us_total` 一个粗聚合，**per-函数/分位/span 缺失**。
@@ -70,7 +70,7 @@
 ## 4. 缺口与设计（逐项具体）
 
 ### 4.1 🔴 `fire()` 近零成本门控（现有真实开销，必修）
-现 `fire()` 每次都 `Mutex::lock` + clone Vec，**空 observer 也付费**（[observer.rs:128](../../../../src/runtime/src/observer.rs#L128)）：
+现 `fire()` 每次都 `Mutex::lock` + clone Vec，**空 observer 也付费**（[observer.rs:128](https://github.com/z42-lang/z42/blob/main/src/runtime/src/observer.rs#L128)）：
 ```rust
 pub fn fire(&self, event: &RuntimeEvent) -> usize {
     let snapshot = { let g = self.inner.lock(); g.iter().cloned().collect() }; // 每次锁+clone

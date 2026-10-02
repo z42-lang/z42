@@ -6,8 +6,7 @@
 runtime 其余模块**零 cfg 调用** OS 服务。每个 concern 一个文件，公开 surface
 返回 OS-neutral 类型。
 
-**当前状态（review.md Part 1 P2 Phase 1, 2026-06-03）**：刚起步。完整设计 +
-Phase 2-N migration 路径见 [`docs/internals/src/runtime/pal.md`](../../../../docs/internals/src/runtime/pal.md)。
+完整设计与迁移路径见 [`docs/internals/src/runtime/pal.md`](../../../../docs/internals/src/runtime/pal.md)。
 
 ## 核心文件
 

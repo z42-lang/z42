@@ -80,4 +80,4 @@ auto-prop）。Dict 非字符串键 / Set / enum / nullable 见 roadmap Deferred
 依赖 `z42.core` + `z42.text`（StringBuilder for stringify 缓冲）。无其他 stdlib 依赖。
 
 ## 与 z42.toml 的关系
-两个包并用没问题（仅在 fix-instance-method-binding-receiver-aware 修复后正确）—— 之前因为 method-name dispatch bug 互相干扰，已在 2026-05-15 修复。
+两个包可并用。

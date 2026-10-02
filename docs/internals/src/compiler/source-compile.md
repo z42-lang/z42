@@ -1,7 +1,7 @@
 # 源代码编译流程（z42c）
 
 > **页型**: 机制页 ｜ **状态**: ✅ 已实现 ｜ **代码**: `src/libraries/z42c.syntax/` · `src/compiler/z42c.semantics/` · `src/libraries/z42.package/`
-> **相关**: [架构总览](architecture.md) · [工程模型、依赖解析与工作区编译](project-model.md) · [zbc 字节码格式](../formats/zbc.md) · [zpkg 包格式](../formats/zpkg.md) · [CLI 与诊断工具](../../../reference/src/toolchain/cli-z42c-z42b.md) ｜ **对齐**: 2026-09-10（`fix-arity-mangle-package-wide` / `report-duplicate-type-name` / `fix-multiple-file-scoped-namespaces`；前序 `restore-emit-zbc-diagnostics` / `add-bare-name-ambiguity-diagnostic`）
+> **相关**: [架构总览](architecture.md) · [工程模型、依赖解析与工作区编译](project-model.md) · [zbc 字节码格式](../formats/zbc.md) · [zpkg 包格式](../formats/zpkg.md) · [CLI 与诊断工具](https://z42-lang.github.io/z42/reference/toolchain/cli-z42c-z42b.html) ｜ **对齐**: 2026-09-10（`fix-arity-mangle-package-wide` / `report-duplicate-type-name` / `fix-multiple-file-scoped-namespaces`；前序 `restore-emit-zbc-diagnostics` / `add-bare-name-ambiguity-diagnostic`）
 
 ## 概述
 
@@ -18,7 +18,7 @@ graph LR
 
 ## 机制
 
-各阶段单向推进，前一阶段的产物是后一阶段的唯一输入。每个阶段都有对应的 `--dump-*` 命令可单独观察其产物（见 [CLI 与诊断工具](../../../reference/src/toolchain/cli-z42c-z42b.md)）。
+各阶段单向推进，前一阶段的产物是后一阶段的唯一输入。每个阶段都有对应的 `--dump-*` 命令可单独观察其产物（见 [CLI 与诊断工具](https://z42-lang.github.io/z42/reference/toolchain/cli-z42c-z42b.html)）。
 
 ### 词法（Lexer）
 
@@ -71,7 +71,7 @@ AST → Bound 树 + `SemanticModel`。分两步：先由 `SymbolCollector` 遍�
 `namespace B { class Foo }`）会在该表里 first/last-wins 只留一份。仅靠裸名表，限定引用 `new A.Foo` 会被剥成
 `Foo` 再查裸名表 → 撞见碰巧赢的那份（B.Foo），致对象身份、`is`/`as`、`GetType().FullName` 全错
 （`fix-type-ref-ns-collision`；与静态调用侧 `fix-crosspkg-static-ns-collision` 同源，见
-[common-pitfalls §1](../../../agent/rules/common-pitfalls.md)）。
+[common-pitfalls §1](https://github.com/z42-lang/z42/blob/main/docs/agent/rules/common-pitfalls.md)）。
 
 根治靠**并存的 FQN 视图**：
 
@@ -575,11 +575,11 @@ getter 是真实函数体。
 
 **VM 侧无需改动**：基元接收者 VCall 的运行期派发（`src/runtime/src/interp/exec_vcall.rs:321-379`）按 `<class>.<method名>` 拼函数名直查——即它**本就以完整 mangle RegKey 为派发键**。只要绑定 emit 出正确的 `Split$1$string`，VM 就命中 `Std.String.Split$1$string`，跨包一样生效。
 
-> 阶段纪律（[bootstrap-seed.md](../../../agent/rules/bootstrap-seed.md)）：本 change 是**阶段 1（support）**——只扩 z42c 绑定能力，z42c / stdlib 源自身**不使用** prim 类同 arity 重载。往 `Std.String` 加 `Split(char[])` 等实际重载是**阶段 2**（晚一个 nightly，独立 change）。
+> 阶段纪律（[bootstrap-seed.md](https://github.com/z42-lang/z42/blob/main/docs/agent/rules/bootstrap-seed.md)）：本 change 是**阶段 1（support）**——只扩 z42c 绑定能力，z42c / stdlib 源自身**不使用** prim 类同 arity 重载。往 `Std.String` 加 `Split(char[])` 等实际重载是**阶段 2**（晚一个 nightly，独立 change）。
 
 #### 重载决议：默认值形参、命名实参、params 两种形态
 
-> fix-overload-defaults-named-args（2026-09-15）。语言规则见 [命名实参](../../../reference/src/language/named-arguments.md)。
+> fix-overload-defaults-named-args（2026-09-15）。语言规则见 [命名实参](https://z42-lang.github.io/z42/reference/language/named-arguments.html)。
 
 `OverloadResolver.Resolve` 只认「形参个数 == 实参个数」。在它之上，`OverloadResolver.Map` / `ResolveMapped` 按 C#
 的规则把实参**映射**到形参再判适用：
@@ -660,7 +660,7 @@ CallExpr ─► MemberResolver._bindCall / _bindMemberCall
 诊断的 span 指向**实参本身**而非调用点；同一调用里多个不符实参**逐条**报，不在第一条短路。
 
 > **为什么这条检查缺席了这么久**：`--emit-zbc` 路径长期丢弃全部编译诊断（见
-> [CLI 与诊断工具](../../../reference/src/toolchain/cli-z42c-z42b.md)），而单文件 e2e / golden / bench 全走那条路 —— 于是「binder 报的错没人
+> [CLI 与诊断工具](https://z42-lang.github.io/z42/reference/toolchain/cli-z42c-z42b.html)），而单文件 e2e / golden / bench 全走那条路 —— 于是「binder 报的错没人
 > 看见、emitter 那半边碰巧能跑」成了常态。补上检查时暴露的问题**没有一条是真实的用户类型错误**，
 > 全部落在既存的编译器缺陷上，其中四条同属一族：**`ImportedSymbolLoader` 的类型保真度**——跨包读回
 > 时把结构化类型降级成「名字对但种类错」的 `Z42ClassType`：
@@ -761,7 +761,7 @@ primary = **声明序第一个**同名成员（跨 partial 碎片按碎片加载
 
 > 遗留限制：同短名多 arity 的泛型基类（`Classes` 键带 `$N`）仍对不上——与接口侧（同样存裸名）
 > 一致；以及基类**实参**没地方存，故 `class Sub<T> : Bag<string>` 与 `GBase<int> b = new CSub();`
-> 仍不通（见 [type-conversion.md 步 6c](../../../reference/src/language/conversions.md)）。
+> 仍不通（见 [type-conversion.md 步 6c](https://z42-lang.github.io/z42/reference/language/conversions.html)）。
 
 **② delegate 注册的两个漏口（bug B5 / B1）**。`Delegates` 是 `name → Z42FuncType` 一张表，键恒裸名：
 
@@ -796,7 +796,7 @@ primary = **声明序第一个**同名成员（跨 partial 碎片按碎片加载
 
 > ⚠️ **为什么编译期的门必须建在语义单测里**：`src/tests/` 的单文件 golden 走 `--emit-zbc`，
 > 而那条路径**曾经**丢弃全部诊断、以 exit 0 照写产物（已于 2026-09-10 `restore-emit-zbc-diagnostics`
-> 修复，见 [CLI 与诊断工具](../../../reference/src/toolchain/cli-z42c-z42b.md)）⇒ 「本该报错却没报」在那侧看不见。
+> 修复，见 [CLI 与诊断工具](https://z42-lang.github.io/z42/reference/toolchain/cli-z42c-z42b.html)）⇒ 「本该报错却没报」在那侧看不见。
 > **修好之后这条建议依然成立**：golden 断言的是**输出**，「期望编译报错」的用例放进去只会变成
 > 一个编译失败的测试，表达不了「必须报这一条码」——负例门仍然只能走语义单测。上面几条 bug 的 emitter 半边碰巧还能跑（delegate 类型擦除 /
 > 元组 blob），所以 e2e 断言照样绿——`src/tests/tuples/tuple_basic.z42` 与
@@ -825,7 +825,7 @@ primary = **声明序第一个**同名成员（跨 partial 碎片按碎片加载
 > 自举纪律：z42c / stdlib 源码**不使用**嵌套类型，`NestedFlatten` 对它们零改动 ⇒
 > 自举字节不动点零扰动。
 
-面向用户的规则见 [嵌套类型](../../../reference/src/language/nested-types.md)。
+面向用户的规则见 [嵌套类型](https://z42-lang.github.io/z42/reference/language/nested-types.html)。
 
 #### 数组类型（`Z42ArrayType`）的检查
 

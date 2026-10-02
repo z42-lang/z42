@@ -410,7 +410,7 @@ runtime 才认（`is_instance` 无裸 `StructRef` 臂）。因此调用点**必�
   > 就是 `E`；`E.Red == 0` 与「传 int 参」都不再成立（双向都要显式 cast）。**载体是 `BoundLitInt`、
   > 运行期表示是 i64** 这两点不变，变的是**身份**：擦除到 `object` 时装箱成挂 enum 自己 `TypeDesc`
   > 的盒，`GetType()` 因此与这里的编译期折叠答案一致。
-  > enum 的完整语义 SoT 见 [`language/enums.md`](../../../reference/src/language/enums.md)。
+  > enum 的完整语义 SoT 见 [`language/enums.md`](https://z42-lang.github.io/z42/reference/language/enums.html)。
 - **`ToString`/`Equals`/`GetHashCode`（struct 未自声明时）→ `__box_struct(recv)` 装箱 + VCall**
   （`_emitBoxedStructObjectCall`），命中上面的 runtime 装箱-struct 协议。**自声明**（record 合成 / 用户覆写，
   `EmitContext.ChainHasMethod` 命中）仍走各自静态 `Call`——保 record 的 `ToString`（`R { A = 1, B = 2 }`）/
@@ -649,7 +649,7 @@ is-a / `GetType` / vcall。
 
 **拆箱消歧**：`(int)x` 有两义——① `x` 是 object / 接口 → 拆箱（`AsCast`）；② `x` 是数值 → 数值窄化
 （`Convert`）。按 `x.Type()` 分派，绝大多数既有 cast 属 ②，不受影响。分类器口径见
-reference 的[类型转换](../../../reference/src/language/conversions.md)。
+reference 的[类型转换](https://z42-lang.github.io/z42/reference/language/conversions.html)。
 
 **call-arg 与基元 native 的交互**：call-arg 装箱会把整数实参装成 object（`Assert.Equal(object,object)`
 这类），而基元 struct 的 native 方法按裸 long 读参 —— `arg_i64`（`corelib/convert.rs` 取参助手）

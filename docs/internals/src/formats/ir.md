@@ -353,7 +353,7 @@ receiver 变成 `Value::StackArray { idx, frame_id }`，同四条指令走 `ctx.
 **越界不是异常**：`array_get` / `array_set` 越界直接
 `bail!("array index {} out of bounds (len={})")`（`interp/exec_array.rs:196`）—— VM abort，
 用户侧 `catch` 接不住。面向用户的规则见
-[数组](../../../reference/src/language/arrays.md)。
+[数组](https://z42-lang.github.io/z42/reference/language/arrays.html)。
 
 **交错数组**：`T[][]` 无专门指令——外层就是元素类型为 `T[]` 的普通数组，逐层 `array_get` 即可。
 多维 `T[,]` 没有 IR 支持，也没有对应的类型语法。
@@ -396,7 +396,7 @@ JSON wire format (tag = `"op"`):
 
 `obj_new` 分配 `ScriptObject`（slot-indexed 字段）后用 `[this, ...args]`
 调用。0.7 起 `ctor_name` 字段必备，0.6 及更早 zbc 不再被支持
-（按 [`../../agent/rules/philosophy.md "不为旧版本提供兼容"`](../../../agent/rules/philosophy.md#不为旧版本提供兼容)）。
+（按 [`../../agent/rules/philosophy.md "不为旧版本提供兼容"`](https://github.com/z42-lang/z42/blob/main/docs/agent/rules/philosophy.md#不为旧版本提供兼容)）。
 
 0.9（2026-05-07，add-default-generic-typeparam）起，`obj_new` 携带 **resolved
 type-args 列表**（如 `new Foo<int>()` → `["int"]`），VM 在分配实例后写入
@@ -498,7 +498,7 @@ exec.mode interp | jit | aot    # module-level directive
 
 ### Closures (草案，L3 落地)
 
-闭包 / lambda / 函数引用相关的 IR 指令。用户面捕获语义见[闭包与捕获语义](../../../reference/src/language/closures.md)，运行期表示与栈分配见[逃逸分析](../runtime/escape-analysis.md)。
+闭包 / lambda / 函数引用相关的 IR 指令。用户面捕获语义见[闭包与捕获语义](https://z42-lang.github.io/z42/reference/language/closures.html)，运行期表示与栈分配见[逃逸分析](../runtime/escape-analysis.md)。
 opcode 编号在 `impl-closure-l3` 变更落地时分配。
 
 ```

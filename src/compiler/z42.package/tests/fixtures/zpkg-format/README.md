@@ -19,7 +19,7 @@
 | 文件 | 职责 |
 |------|------|
 | `<fixture>/source.z42`（或 `mod_a.z42` + `mod_b.z42`） | z42 源（check in）|
-| `<fixture>/<fixture>.z42.toml` | **构建配方**（check in；refresh-format-fixtures 2026-09-04 新增）—— `[project].pack` 决定 packed/indexed，是否带 `--release` 决定 strip/sidecar |
+| `<fixture>/<fixture>.z42.toml` | **构建配方**（check in）—— `[project].pack` 决定 packed/indexed，是否带 `--release` 决定 strip/sidecar |
 | `<fixture>/source.zpkg`     | z42c 输出字节基线（check in；regen 后 git diff = 实际格式变化）|
 
 ## 维护流程
@@ -39,9 +39,7 @@ done
 # 各自把 dist/<name>.zpkg 覆写为 source.zpkg；sym-only-sidecar 取 dist/demo.sidecar.zsym
 ```
 
-> **历史**：配方此前只存在于口头（本 README 曾挂着「暂需手工用 `z42c build` 逐个重生」的 TODO），
-> 于是 zbc 1.37→1.38 那次 bump 漏掉了本目录 —— `packed-multi-module` 停在 zpkg 42、
-> `sym-only-sidecar` 停在 **35**（落后 8 个 minor）。把配方 check in 成 toml 就是为了让这一步可复现。
+> 配方 check in 成 toml，是为了让重生这一步可复现、避免格式 bump 时漏掉本目录。
 
 ## 测试 harness
 

@@ -15,8 +15,8 @@ z42c —— **用 z42 自己写的编译器**，把 `.z42` 源码编成 `.zpkg`�
 | `z42c.pipeline` | `src/compiler/z42c.pipeline/` | 编译管线编排、依赖扫描、工作区构建、增量缓存 |
 | `z42c.driver` | `src/compiler/z42c.driver/` | CLI 入口（= `z42c` 可执行） |
 
-> IR 模型与 zbc/zpkg 后端在 `z42.package`，清单解析在 `z42.project`——同在 `src/compiler/`（2026-09-27 前曾位于 `src/libraries/`）。
-> 格式本身见[产物格式](../formats/README.md)。
+> IR 模型与 zbc/zpkg 后端在 `z42.package`，清单解析在 `z42.project`——同在 `src/compiler/`。
+> 格式本身见[产物格式](../formats/index.md)。
 
 ## 从哪读起
 
@@ -33,7 +33,7 @@ z42c —— **用 z42 自己写的编译器**，把 `.z42` 源码编成 `.zpkg`�
 | [源代码编译流程](source-compile.md) | 五个阶段的机制与踩过的坑 |
 | [工程模型](project-model.md) | 清单 → 源发现 → 依赖解析 → 工作区拓扑 |
 | [自举与种子](self-hosting.md) | warm / cold 种子、两代自举、破环预建 |
-| [Binder 层次](binder-hierarchy.md) | 多态 Binder 链（Phase 1 已落） |
+| [Binder 层次](binder-hierarchy.md) | 多态 Binder 链 |
 | [访问权限强制](access-control.md) | 可见性在哪一步被检查 |
 | [构造器继承与隐式 `base()`](ctor-inheritance.md) | 构造链的生成规则 |
 | [错误码体系](error-codes.md) | 诊断结构、码段分配、**怎么新增一个码** |

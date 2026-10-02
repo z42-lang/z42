@@ -10,10 +10,10 @@ z42 标准库的 `.z42` 源文件。每个库是独立的 z42 包，通过 `z42 
 |------|------|------|
 | `z42.core/` | `z42.core` | 核心类型 + 隐式 prelude；按子目录组织：`Primitives/`（6 个 primitive 成员方法）/ `Delegates/`（callable + multicast + 订阅）/ `Protocols/`（核心接口）/ `Exceptions/`（Exception 树）/ `Collections/`（List / Dict / KVP）；根留 Object / Type / String / Convert / Assert / GC / Disposable。详见 [src/README.md](z42.core/src/README.md) |
 | `z42.collections/` | `z42.collections` | 次级集合类型：`Queue`、`Stack`（未来 `LinkedList` / `SortedDictionary` / `PriorityQueue`） |
-| `z42.io/` | `z42.io` | IO 应用层（纯脚本）：`FileStream` / `Stream` 家族 / `Process` / `ProcessHandle` / `Ansi` / `Stdio` + 二进制流读写 `BinaryReader` / `BinaryWriter`（namespace `Std.IO.Binary`，2026-08-31 由原 `z42.io.binary` 并入）（`Console`/`File`/`Directory`/`Environment`/`Path` 已上移 `z42.core`，native 语义在 core `*Native`）|
+| `z42.io/` | `z42.io` | IO 应用层（纯脚本）：`FileStream` / `Stream` 家族 / `Process` / `ProcessHandle` / `Ansi` / `Stdio` + 二进制流读写 `BinaryReader` / `BinaryWriter`（namespace `Std.IO.Binary`）（`Console`/`File`/`Directory`/`Environment`/`Path` 已上移 `z42.core`，native 语义在 core `*Native`）|
 | `z42.text/` | `z42.text` | 文本处理：`StringBuilder`、`Regex` |
 | `z42.encoding/` | `z42.encoding` | 字符 ↔ 字节编码：`Hex`、`Base64` (RFC 4648 §4)、`Utf8` |
-| `z42.test/` | `z42.test` | 单元测试运行时（v0 imperative TestRunner；lambda 就绪后升级 v1）|
+| `z42.test/` | `z42.test` | 单元测试运行时（attribute 注解 + Runner + Bencher + imperative TestRunner）|
 | `z42.toml/` | `z42.toml` | TOML 1.0 subset reader/writer：`TomlValue.Parse(text)` / `Stringify(root)` |
 | `z42.json/` | `z42.json` | JSON RFC 8259 reader/writer：`JsonValue.Parse(text)` / `Stringify(v)` / `StringifyPretty(v)` |
 | `z42.random/` | `z42.random` | Deterministic PRNG（PCG-XSH-RR）：`new Random(seed).NextInt() / NextLong() / NextDouble() / NextBool() / NextIntRange(min, max)` |
@@ -29,7 +29,7 @@ z42 标准库的 `.z42` 源文件。每个库是独立的 z42 包，通过 `z42 
 
 **尽可能把逻辑放到 `.z42` 脚本实现，减少 VM 侧的 extern / intrinsic。**
 
-- 新增方法默认用 `.z42` 脚本实现，即使暂时性能不优
+- 新增方法默认用 `.z42` 脚本实现，即使性能暂不是最优
 - 性能问题延后优化（profile → JIT 优化 → 必要时再下沉为 intrinsic）
 - 现存 extern 逐步评估下沉：若能用"更小的 intrinsic 核 + 脚本组合"表达，
   优先迁移。例：`Contains` / `IndexOf` / `Trim` / `Substring` 已迁脚本；
@@ -38,7 +38,7 @@ z42 标准库的 `.z42` 源文件。每个库是独立的 z42 包，通过 `z42 
 - 只有真正无法用脚本表达的原语才保留 extern：内存布局 / 原子指令 / 底层
   分配 / 与 VM ABI 绑定的协议方法（`Equals` / `GetHashCode` / `ToString`）。
 
-> **判定准则（BCL/Rust 对标，2026-04-26）**：
+> **判定准则（BCL/Rust 参照）**：
 > Runtime 提供 **primitive**（JIT 无法消除的硬能力：syscall / libm / GC barrier /
 > 类型元数据 / UTF-8 codepoint 访问 / 数值字面量 parse），**feature**（集合 / 算法 /
 > 格式化 / Assert / Path 字符串操作 / 算术辅助）一律脚本实现。
@@ -46,20 +46,19 @@ z42 标准库的 `.z42` 源文件。每个库是独立的 z42 包，通过 `z42 
 
 ### 2. Interop 按 native 角色两层安置（native 语义层 → core，应用层 → 纯脚本）
 
-> **2026-08-27 refine-interop-native-separation 更新**（先后取代「VM extern 只在 core，io 例外」与
-> 「io/net/threading 各作平台边界库」两版表述）。唯一 SoT：
+> 唯一 SoT：
 > [docs/internals/src/stdlib/organization.md「native 语义层 → core，应用层 → 纯脚本能力库」](../../docs/internals/src/stdlib/organization.md)。
 
 **每个能力拆两层：① native 语义层（`extern`/`[Native]` 原语）② 应用层（纯脚本高层 API）。按 native 角色安置：**
 
-1. **执行基座**（io / net / threading）—— native 语义层**并入 `z42.core`**（对齐 .NET CoreLib）；
+1. **执行基座**（io / net / threading）—— native 语义层**并入 `z42.core`**；
    应用层（`FileStream` / `TcpClient` / `Thread` / `Stream` 家族 / 进程编排）留 `z42.io` / `z42.net` /
    `z42.threading` **转纯脚本**、调 core 的 `*Native` 原语。`Std.IO`（Console/File/Directory/Environment/Path）、
    `Std.Time`（DateTime/…）也在 core。
 2. **可插拔工具 / 算法**（compression / crypto / diagnostics / test / build）—— native + 应用整库**留独立**：
    正常执行不需要的可选插件，可独立编译、按需加载、可裁剪。**例外：OS 熵原语**
-   `__crypto_random_bytes` 不是「crypto 算法」而是 OS 能力（同 `__time_now_*`），已重分类为 ③ 的
-   cross-cutting 原语落 core `Std.Runtime.Entropy`（reclassify-os-entropy-to-core，2026-09-03）——
+   `__crypto_random_bytes` 不是「crypto 算法」而是 OS 能力（同 `__time_now_*`），归 ③ 的
+   cross-cutting 原语，落 core `Std.Runtime.Entropy`——
    core 的 `Guid.NewGuid` 需要它、prelude 不能反依赖 crypto。crypto 的**算法**（哈希 / HMAC）仍留本类
    可裁剪；`SecureRandom` 作安全语义门面留 crypto、委托 core 熵原语。
 3. **运行时内核 + cross-cutting 原语**（值语义 / 反射 / GC / libm / 时钟 / 位转换 / **OS 熵**）—— 本就在 `z42.core`。
@@ -69,7 +68,7 @@ cli / random / numerics / io.binary / …），要用 native 时**通过调 core
 
 > **注意**：zpkg 是可移植字节码，native 引用只是"按名字在 VM **调用期**解析"的字符串，**所有 zpkg
 > 本就跨平台字节相同**（core 也是），且带缺失 builtin 的 zpkg 仍能加载、调用到才报错。本规则**不是**为了
-> 让 zpkg 字节相同（那已成立），而是为了：① 单一、可审计的 native ABI 面（.NET CoreLib 式）；② 服务
+> 让 zpkg 字节相同（那已成立），而是为了：① 单一、可审计的 native ABI 面；② 服务
 > 后续**按需加载 native、裁剪运行时体积**（声明位置与 native 模块加载解耦）；③ 消灭重复声明。
 
 **配套纪律：**
@@ -78,8 +77,8 @@ cli / random / numerics / io.binary / …），要用 native 时**通过调 core
 - **接口最小化**：interop 符号**非必要不导出**；对 interop 的包装保持**薄封装**，不叠便利方法。
 - **单一声明点**：每个 native 符号在**全仓库只声明一次**。cross-cutting 原语归 core；平台能力原语归其
   能力库。（位转换 `__*_to_bits`/`__*_from_bits` → core `Std.BitConverter`、时钟 `__time_now_*` → core
-  `Std.Runtime.Clock` 的多库重复声明已由 consolidate-core-intrinsics(A1) 收敛；OS 熵 `__crypto_random_bytes`
-  → core `Std.Runtime.Entropy`，`z42.crypto.SecureRandom` 委托而不再重声明，见 reclassify-os-entropy-to-core。）
+  `Std.Runtime.Clock`、OS 熵 `__crypto_random_bytes` → core `Std.Runtime.Entropy`，
+  `z42.crypto.SecureRandom` 委托 core 而不重声明。）
 - **性能升级阶梯**：**脚本实现 → 持续优化（JIT / 算法 / VM 调用机制提速）→ 仍不达标 → 才下沉为
   VM 内置实现**。VM 内置是最后手段，不是默认——优先投资"让脚本层本身更快"的通用机制。
 
@@ -102,7 +101,7 @@ z42 xtask.zpkg build stdlib         # 编译全部 lib + 扁平视图（release�
 
 ## 修改后
 
-修改任意 `.z42` 源文件后重跑 `z42 xtask.zpkg build stdlib` 即可 —— 无需再手动 `package.sh` 或 `cp` 同步（这是 wave1-path-script 实施时反复踩到的坑，已修）。
+修改任意 `.z42` 源文件后重跑 `z42 xtask.zpkg build stdlib` 即可 —— 构建自动同步产物，无需手动 `cp`。
 
 ---
 
@@ -119,7 +118,6 @@ z42 xtask.zpkg build stdlib         # 编译全部 lib + 扁平视图（release�
 | `z42.async` | `Task<T>` / `async`/`await` runtime / `ValueTask` | L3 | 关键字 `async` / `await` parser 完成 |
 | `z42.net` | `Socket` / `HttpClient` / `Url` | L3+ | 异步运行时就绪后 |
 | `z42.json` | `JsonReader` / `JsonWriter` / `JsonNode` | L3+ | 反射 (L3-R) 完成（自动序列化）|
-| ~~`z42.test`~~ | ✅ v0 已落地（imperative `TestRunner`）—— v1 等 lambda、v2 等 [Test] attribute + reflection | — | 2026-04-27 |
 | `z42.linq` | `Where` / `Select` / `OrderBy` 扩展（基于 `IEnumerable<T>`）| L3 | Lambda + IEnumerable codegen 升级 |
 | `z42.numerics` | `BigInteger` / `Complex` / 矩阵基础 | L3 | 数值计算需求 |
 | `z42.crypto` | 哈希 / 对称加密 / 签名（封装 native 库）| L3+ | 安全场景需求 |
@@ -129,7 +127,7 @@ z42 xtask.zpkg build stdlib         # 编译全部 lib + 扁平视图（release�
 
 | 包 | 待补齐 |
 |----|--------|
-| `z42.core` | `Nullable<T>` 显式类型（暂用语言级 `T?`，独立类型留待系统设计）<br>`KeyValuePair<K,V>`（Dictionary 实现 `IEnumerable` 需要）<br>`Range` / `Index`（C# 8 风切片）<br>`Tuple<...>`（多返回值；当前 z42 无 tuple 类型）|
+| `z42.core` | `Nullable<T>` 显式类型（暂用语言级 `T?`，独立类型留待系统设计）<br>`KeyValuePair<K,V>`（Dictionary 实现 `IEnumerable` 需要）<br>`Range` / `Index`（切片）<br>`Tuple<...>`（多返回值；当前 z42 无 tuple 类型）|
 | `z42.collections` | `LinkedList<T>` / `SortedDictionary<K,V>` / `PriorityQueue<T>` / `ImmutableArray<T>`<br>List / Dictionary 实现 `IEnumerable<T>`（端到端 foreach IEnumerator 路径）|
 | `z42.io` | `Stream` / `BufferedStream` / `MemoryStream`<br>`TextReader` / `TextWriter` 抽象类<br>`Directory` / `FileInfo` / `DirectoryInfo`<br>`Encoding` (UTF-8 / UTF-16)|
 | `z42.text` | `Encoding` 体系（与 `z42.io` 协调）<br>`StringReader` / `StringWriter`<br>`Regex` 完整实现（当前占位）|
@@ -143,7 +141,7 @@ z42 xtask.zpkg build stdlib         # 编译全部 lib + 扁平视图（release�
 
 ### 不规划做的（明确否决）
 
-- ❌ "完整 BCL 移植"：z42 仅取 C# BCL **常用 80%**，避开 LINQ-to-SQL / WPF / WCF / Remoting 等历史包袱
+- ❌ "完整 BCL 移植"：z42 仅取 BCL **常用 80%**，避开 LINQ-to-SQL / WPF / WCF / Remoting 等包袱
 - ❌ Reflection-heavy 序列化（XmlSerializer 等）：等 L3-R 反射完成后再考虑，且只做 JSON
 - ❌ AppDomain / 卸载：与 z42 lazy-loader 模型不契合
 - ❌ 静态类反射创建（`Activator.CreateInstance`）：等 L3-R
@@ -152,24 +150,16 @@ z42 xtask.zpkg build stdlib         # 编译全部 lib + 扁平视图（release�
 
 ## Extern 现状审计表
 
-> **2026-04-26 起维护**。每次 stdlib 改动起手必看；新增 extern 必须在 PR 描述里
+> 每次 stdlib 改动起手必看；新增 extern 必须在 PR 描述里
 > 回答"BCL/Rust 把它当 primitive 吗？" —— 回答不出 → 拒绝。
 >
 > **状态枚举**：
 > - 🟢 **Primitive 必须保留** —— BCL/Rust 同样是 intrinsic / extern / syscall
-> - 🟡 **Wave 1 待迁** —— 纯脚本可表达，无需新基础设施
-> - 🔵 **Wave 2 待迁** —— 走 codegen 特化（不是脚本，是 IR 直降）
-> - ⚫ **Wave 3 待迁** —— 需要先补一个底层原语
-> - ❌ **Dead code 待删** —— 编译器已不 emit
+> - 🟡 **可迁脚本** —— 纯脚本可表达，无需新基础设施
+> - 🔵 **codegen 特化** —— 走 codegen 特化（不是脚本，是 IR 直降）
+> - ⚫ **待补原语** —— 需要先补一个底层原语
 
-### Wave 0（dead code）— 13 项
-
-| Builtin | 状态 | 备注 |
-|---|---|---|
-| `__list_new` / `__list_add` / `__list_remove_at` / `__list_contains` / `__list_clear` / `__list_insert` / `__list_sort` / `__list_reverse` (8) | ❌ | L3-G4h step3 后 List<T> 已纯脚本 atop `T[]`，编译器不再 emit |
-| `__dict_new` / `__dict_contains_key` / `__dict_remove` / `__dict_keys` / `__dict_values` (5) | ❌ | 同上，Dictionary<K,V> 已纯脚本 |
-
-### I/O — 6 项
+### I/O
 
 | Builtin | 状态 | 备注 |
 |---|---|---|
@@ -178,68 +168,50 @@ z42 xtask.zpkg build stdlib         # 编译全部 lib + 扁平视图（release�
 | `__len` | 🟢 | 通用长度（数组 / 字符串），UTF-8 byte vs char 由 VM 决定 |
 | `__contains` | 🟡 | 字符串 / 列表通用，可拆为 per-type 脚本实现 |
 
-### String — 10 项
+### String
 
 | Builtin | 状态 | 备注 |
 |---|---|---|
 | `__str_length` / `__str_char_at` / `__str_from_chars` | 🟢 | UTF-8 codepoint 访问，BCL `string.Length` / Rust `str::chars` 同级 |
-| ~~`__str_split` / `__str_join` (2)~~ | ✅ 已删 | 2026-04-27 wave1-string-script — 脚本基于 `CharAt` + `Substring` 两遍扫描 |
-| ~~`__str_concat`~~ | ✅ 已删 | 2026-04-27 wave3a-str-concat-script — `Std.String.Concat` 用 `+` 即 IR StrConcatInstr |
-| ~~`__str_format`~~ | ✅ 已删 | 2026-04-27 wave3b-str-format-script — `Std.String.Format` 用链式 `Replace` + `Convert.ToString`。原计划等 IFormattable，实测无需（builtin 只做 `{0}` 字面替换） |
-| ~~`__str_to_string`~~ | ✅ 已删 | 2026-08-28 shrink-primitive-native-interop **Stage 2** — 旧 builtin 只是原样返回自身，`Std.String.ToString` 现为脚本 `return this;`（Stage 1 源迁 #310，本阶段删 builtin）|
 | `__str_equals` / `__str_hash_code` / `__str_compare_to` | 🟢 | Object 协议方法（`__str_equals` 类型宽容处理 null/装箱），VM ABI 绑定 → 保留 |
 
-### Char — 3 项
+### Char
 
 | Builtin | 状态 | 备注 |
 |---|---|---|
 | `__char_is_whitespace` | 🟢 | Rust `char::is_whitespace()` 真 Unicode 分类，脚本无法等价 → 保留 |
-| ~~`__char_to_lower` / `__char_to_upper` (2)~~ | ✅ 已删 | 2026-08-28 shrink-primitive-native-interop **Stage 2** — 旧实现是 `to_ascii_lowercase/uppercase`（纯 ASCII，非 Unicode），`Std.Char.ToLower/.ToUpper` 现为等价 ASCII 脚本见 [Primitives/Char.z42](z42.core/src/Primitives/Char.z42)（Stage 1 源迁 #310）|
 
-### Convert / Parse — 4 项
+### Convert / Parse
 
 | Builtin | 状态 | 备注 |
 |---|---|---|
 | `__int_parse` / `__long_parse` / `__double_parse` | 🟢 | Rust 数值解析；BCL `int.Parse` / Rust `str::parse` 同级 |
 | `__to_str` | 🟢 | 通用动态值 → 字符串，VM 元数据依赖 |
 
-### Primitive 协议 — 17 项
+### Primitive 协议
 
 | Builtin | 状态 | 备注 |
 |---|---|---|
-| ~~`__int_compare_to` / `__double_compare_to` / `__char_compare_to` (3)~~ | ✅ 已删 | 2026-04-27 wave2-compare-to-script — 5 个 primitive (int/long/double/float/char) 的 `CompareTo` 全脚本：`if (this < other) return -1; if (this > other) return 1; return 0;` 用 IR `<`/`>`，与 Rust `partial_cmp.unwrap_or(0)` 等价（NaN → 0 自然落到 return 0）|
-| ~~`__int32_equals` / `__int32_hash_code` (2)~~ | ✅ 已删 | 2026-08-28 shrink-primitive-native-interop **Stage 2** — 8 个整型（Int32/Int16/SByte/Byte/UInt16/UInt32/Int64/UInt64）共享；`Equals`→`this == other`，`GetHashCode`→统一 `(int)this`（确定性满足 Dictionary 契约；z42 `(int)` 不像 C# 截断到 32 位，故不套 C# 的高低字折叠）（Stage 1 源迁 #310）|
 | `__int32_to_string` (1) | 🟢 | 整数十进制格式化，纯脚本 digit-loop 是热路径回归 → 保留 |
-| ~~`__double_equals` / `__double_hash_code` (2)~~ | ✅ 已删 | 2026-08-28 shrink-primitive-native-interop **Stage 2** — Double/Single；`Equals`→`this == other`，`GetHashCode` 经 BitConverter 折叠 IEEE-754 位模式（Stage 1 源迁 #310）|
 | `__double_to_string` (1) | 🟢 | 浮点最短往返（Ryū 级）纯脚本不现实 → 保留 |
-| ~~`__bool_equals` / `__bool_hash_code` / `__bool_to_string` (3)~~ | ✅ 已删 | 2026-04-27 wave1-bool-script — 脚本实现见 [z42.core/src/Bool.z42](z42.core/src/Bool.z42)，`ToString` 输出 `"true"/"false"` 小写（与 Rust 一致）|
-| ~~`__char_equals` / `__char_hash_code` (2)~~ | ✅ 已删 | 2026-08-28 shrink-primitive-native-interop **Stage 2** — `Equals`→`this == other`，`GetHashCode`→`(int)this`（Stage 1 源迁 #310）|
 | `__char_to_string` (1) | 🟢 | 保留 native（char→单字符 string）|
 | `__str_compare_to`（已计入 String 区）| — | — |
 
-### Assert — 0 项（2026-04-27 wave1-assert-script 全部迁出）
+### Math
 
 | Builtin | 状态 | 备注 |
 |---|---|---|
-| ~~`__assert_eq` / `__assert_true` / `__assert_false` / `__assert_null` / `__assert_not_null` / `__assert_contains`~~ | ✅ 已删 | 脚本实现见 [z42.core/src/Assert.z42](z42.core/src/Assert.z42) — 纯 `if (!cond) throw new Exception(...)`，与 BCL/Rust 一致 |
-
-### Math — 15 项
-
-| Builtin | 状态 | 备注 |
-|---|---|---|
-| ~~`__math_abs` / `__math_max` / `__math_min` (3)~~ | ✅ 已删 | 2026-04-27 wave1-math-script — int + double overload 脚本，见 [z42.core/src/Math.z42](z42.core/src/Math.z42) |
 | `__math_pow` / `__math_sqrt` / `__math_log` / `__math_log10` / `__math_sin` / `__math_cos` / `__math_tan` / `__math_atan2` / `__math_exp` (9) | 🟢 | libm FPU 指令，BCL/Rust 都是 extern |
 | `__math_floor` / `__math_ceiling` / `__math_round` (3) | 🟢 | libm 一致性；技术上脚本可表达，但保 libm 行为以匹配 BCL/Rust |
 
-### File / Path / Env — 14 项
+### File / Path / Env
 
 | Builtin | 状态 | 备注 |
 |---|---|---|
 | `__file_read_text` / `__file_write_text` / `__file_append_text` / `__file_exists` / `__file_delete` (5) | 🟢 | syscall，BCL/Rust 同级 |
-| ~~`__path_join` / `__path_get_extension` / `__path_get_filename` / `__path_get_directory` / `__path_get_filename_without_ext` (5)~~ | ✅ 已删 | 2026-04-27 wave1-path-script — Unix `/` 语义脚本，见 [z42.io/src/Path.z42](z42.io/src/Path.z42) + golden test [16_path](z42.io/tests/16_path/)。`Path.Separator` 常量待静态字段访问支持（L3+）|
 | `__env_get` / `__env_args` / `__process_exit` / `__time_now_ms` (4) | 🟢 | syscall / process state |
 
-### Object 协议 — 5 项
+### Object 协议
 
 | Builtin | 状态 | 备注 |
 |---|---|---|
@@ -247,28 +219,6 @@ z42 xtask.zpkg build stdlib         # 编译全部 lib + 扁平视图（release�
 
 ### 汇总
 
-| Wave | 数量 | 处置 |
+| 类别 | 数量 | 说明 |
 |---|---|---|
-| Wave 0（dead code）| 13 | ✅ 已完成（extern-audit-wave0）|
-| Wave 1（feature → 脚本）| 19 | ✅ 全部完成（assert 6 + bool 3 + math 3 + path 5 + str split/join 2）|
-| Wave 2（codegen 特化 → 实际纯脚本）| 3 | ✅ 完成（wave2-compare-to-script）。原计划 codegen 特化，实测 `<`/`>` 走 IR cmp+jmp 已足够 |
-| Wave 3a（str_concat → 脚本）| 1 | ✅ 完成（wave3a-str-concat-script），原计划 codegen，实测 `+` 已是 IR 指令 |
-| Wave 3b（str_format → 脚本）| 1 | ✅ 完成（wave3b-str-format-script），用 Replace + Convert.ToString 替代；IFormattable 等真正需要格式说明符再独立 spec |
-| Wave 4（primitive Eq/Hash/casing/str-ToString → 脚本）| 9 | ✅ **完成**（shrink-primitive-native-interop）。纠正「Object 协议成员必须保留」的错误判据——判据应是「native 实现是否平凡」（bool 早已迁脚本即先例）。涉及 `__int32_equals`/`__int32_hash_code`/`__double_equals`/`__double_hash_code`/`__char_equals`/`__char_hash_code`/`__char_to_lower`/`__char_to_upper`/`__str_to_string`。**Stage 1（源迁脚本，#310）→ 随 nightly 发布后 Stage 2 删 builtin**（两-nightly 变更：种子 z42c 编译期引用这些 builtin，必须等其不再引用才能删——否则零格式-bump 路径下当前 VM 直接跑旧种子会 `unknown builtin`）|
-| 🟢 Primitive 必须保留 | ~34 | ToString/Parse/UTF-8 intrinsic/libm/BitConverter/Object 协议/反射 等，与 BCL/Rust 标杆一致 |
-| **当前总计** | **~34** | Wave 4 Stage 2 删 9 个 builtin 后，余下均为「native 实现非平凡」的必留项 |
-
-### Wave 进度
-
-| Wave | 状态 | 完成日期 |
-|---|---|---|
-| Wave 0 | ✅ 已完成（extern-audit-wave0）| 2026-04-26 |
-| Wave 1.1 Assert | ✅ 已完成（wave1-assert-script）| 2026-04-27 |
-| Wave 1.2 Bool 三件套 | ✅ 已完成（wave1-bool-script）| 2026-04-27 |
-| Wave 1.3 Math abs/max/min | ✅ 已完成（wave1-math-script）| 2026-04-27 |
-| Wave 1.4 Path 五件套 | ✅ 已完成（wave1-path-script）| 2026-04-27 |
-| Wave 1.5 String split/join | ✅ 已完成（wave1-string-script）| 2026-04-27 |
-| Wave 2 | ✅ 已完成（wave2-compare-to-script）| 2026-04-27 |
-| Wave 3a str_concat | ✅ 已完成（wave3a-str-concat-script）| 2026-04-27 |
-| Wave 3b str_format | ✅ 已完成（wave3b-str-format-script）| 2026-04-27 |
-| Wave 4 primitive Eq/Hash/casing/str-ToString | ✅ 已完成（shrink-primitive-native-interop；Stage 1 源迁 #310 / Stage 2 删 builtin）| 2026-08-28 |
+| 🟢 Primitive 必须保留 | ~34 | ToString/Parse/UTF-8 intrinsic/libm/BitConverter/Object 协议/反射 等，与 BCL/Rust 标杆一致；native 实现均非平凡 |

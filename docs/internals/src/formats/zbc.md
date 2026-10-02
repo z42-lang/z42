@@ -1,7 +1,7 @@
 # zbc 字节码格式
 
 > **页型**: 参考页 ｜ **状态**: ✅ 已实现（v1.46）｜ **代码**: `src/compiler/z42.package/src/BinaryFormat/`（`ZbcFormat.z42` / `ZbcWriter.z42` / `ZbcInstr.z42` / `ZbcReaderInstr.z42`）
-> **相关**: [源代码编译流程](../../../internals/src/compiler/source-compile.md) · [zpkg 包格式](zpkg.md) ｜ **对齐**: 2026-07-19
+> **相关**: [源代码编译流程](../compiler/source-compile.md) · [zpkg 包格式](zpkg.md) ｜ **对齐**: 2026-07-19
 
 ## 概述
 
@@ -343,7 +343,7 @@ bump 的同步 checklist 见开发基础设施部分的 version-bumping 规范�
 | 1.45 | 2026-09-27 | **TYPE 记录两项新增，均 A-support（写端写、两个读端对称消费、无人使用）**。① **`class_flags2: u16`，紧随 `visibility`、恒存在**（每条 TYPE 记录 +2 字节，无 gate）—— 既有 `class_flags` 是 u8 且 **8 位已用满**（abstract/sealed/struct/record/interface/enum/delegate/has-inline-struct）。位用光的后果**已经现形**：1.33/1.34 的对象全字段块拿不到 flag 位，只能由一个**推导谓词**当闸门（「非 struct/接口/枚举/委托」，写端 `(Flags & 116) == 0`），而那个谓词在写端与 Rust 读端**各抄一份** —— 正是结构审计 R2「判据复制」的样本。`class_flags2` 为「新块按位 gated、判据下沉为数据」开位面；bit0 = `HAS_STRUCT_FIELD_TABLE`，其余位留空。② **值 struct 的逐字段布局表**（`class_flags2` bit0 gated，紧随 struct 引用位图块）：`field_count:u16 + (off:u32, size:u32, kind:u8)×n`，**同序平行于 `fields`**（字段名与类型名不重复承载 —— `fields[i]` 已有）。🔴 为什么要它：`StructFieldGetPrim/SetPrim` 的 `byte_offset` 今天由 codegen **烘焙成立即数**，而那是「泛型实例化必须有自己的体」的**唯一活跃动因**（`IrGen.InstNeedsOwnBody` 的另一条 `DefHasStaticState` 实测在**产品代码零命中**：全仓 269 个泛型声明里真带静态字段的 2 个、都在专测该特性的 fixture 里）⇒ 承载逐字段偏移是让运行期**有可能**自己解析的前置条件，即符号化访问（提案 `symbolic-struct-field-access` 的 P0）。数据**零新计算**：`StructLayoutInfo.FieldOffsets/FieldSizes/FieldKinds` 早已算好，此前只是没进 wire。耦合 zpkg 0.50。Pre-1.45 zbc 不可读 |
 | 1.44 | 2026-09-22 | **字符串池内容变更，wire 布局不变**：primitive 的 canonical 拼写从短名（`i8`/`i16`/`u8`/`u16`/`u32`/`u64`）统一到 C# 关键字（`sbyte`/`short`/`byte`/`ushort`/`uint`/`ulong`）。此前 canonical 表里 `int`/`long`/`float`/`double` 走关键字、窄整数族走短名，两套风格并存；收敛后 **源码拼写 == canonical == 线格式名**，SIGS/TYPE/FUNC 写出的类型名字符串随之变化（`u8[]` → `byte[]` 等）。连带：`Tag.FromName` 的窄整数族改绑关键字 —— 返回类型 tag 与 bump 前**逐条等价**（`i8 Parse` → `sbyte Parse` 仍是 `Tag.I8`），并把原先因只认短名而误落 `Object`(0x20) 的 `byte`/`short` 等源拼写归位到正确 tag（struct 字段侧无影响：全仓没有任何 struct 声明窄整型字段）。短名同时从词法器退役（`TokenKind.I8..F64` 删除），不再是合法 z42 类型拼写。**注**：`[Extern]` FFI 签名串与 IR 文本 dump 里的 `i8`/`u8` 是各自独立的记法（C/Rust ABI、LLVM 风格），不在此次收敛范围。耦合 zpkg 0.49 |
 
-> **如何 bump minor**：见 [`version-bumping.md` §"Bumping `.zbc` minor version"](../../../agent/rules/version-bumping.md#bumping-zbc-minor-version)。简而言之 — 写 `ZbcWriter.VersionMinor++` + 同步 `zbc_reader.rs` 常量 + 本表加一行 + `xtask build test` regen（原地重生 6 个 zbc-format fixture）+ commit。Invariant CI 校验三方常量一致。
+> **如何 bump minor**：见 [`version-bumping.md` §"Bumping `.zbc` minor version"](https://github.com/z42-lang/z42/blob/main/docs/agent/rules/version-bumping.md#bumping-zbc-minor-version)。简而言之 — 写 `ZbcWriter.VersionMinor++` + 同步 `zbc_reader.rs` 常量 + 本表加一行 + `xtask build test` regen（原地重生 6 个 zbc-format fixture）+ commit。Invariant CI 校验三方常量一致。
 
 ### Token 编码（v1.0+）
 
@@ -376,4 +376,4 @@ v0.x 的 namespace 提取语义（用于 lazy zpkg 路由）。
 ---
 
 > 本表自 `docs/internals/src/formats/zbc.md` 迁入（批 2）。
-> **每次格式 bump 必须在此加一行** —— 见 [version-bumping.md](../../../agent/rules/version-bumping.md) 第 3 步。
+> **每次格式 bump 必须在此加一行** —— 见 [version-bumping.md](https://github.com/z42-lang/z42/blob/main/docs/agent/rules/version-bumping.md) 第 3 步。

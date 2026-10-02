@@ -2,15 +2,11 @@
 
 > change：`enforce-crosspkg-internal-class`（类级访问强制 ②）。
 
-## 现在是自动门了（2026-09-13）
+## 自动门
 
-> 曾是「手工验证 fixture」：cross-zpkg runner 当时只支持**成功运行 + stdout 比对**
-> （`expected_output.txt`），表达不了「期望构建失败」，于是本目录**故意不放** `expected_output.txt`
-> ⇒ runner 直接跳过它 —— **连 FAIL 都不是，是根本没跑**。
-
-`report-crosspkg-duplicate-type`（#576）给 runner 加了 `expected_build_error.txt` 约定：
-`main` 必须**编译失败**且 stderr 含该文件内容；编过了判红，错误文本对不上也判红。
-本 fixture 已据此转为自动门，纳入 `xtask test e2e --dir cross-zpkg`。
+cross-zpkg runner 的 `expected_build_error.txt` 约定：`main` 必须**编译失败**且 stderr 含该文件内容；
+编过了判红，错误文本对不上也判红。本 fixture 据此作为自动门，纳入 `xtask test e2e --dir cross-zpkg`。
+（不放 `expected_output.txt`：期望构建失败，无 stdout 可比对。）
 
 ## 期望行为
 

@@ -7,7 +7,7 @@
 > `src/runtime/src/corelib/io.rs`（sink 路由）、`src/toolchain/workload/{desktop,ios,android,wasm}/`（Tier 3 facade）。
 >
 > **宿主怎么调**（函数签名、返回码、生命周期与线程约束）见
-> [嵌入 C ABI 契约](../../../reference/src/embedding/c-abi.md)，本页不复述。
+> [嵌入 C ABI 契约](https://z42-lang.github.io/z42/reference/embedding/c-abi.html)，本页不复述。
 
 本页讲 VM **内部怎么实现**那套 ABI：三层怎么分、单例状态放在哪、句柄怎么编码、
 输出怎么从解释器路由到宿主回调、错误怎么从 `anyhow::Error` 归类成状态码、zpkg 依赖按什么顺序解析。
@@ -364,4 +364,4 @@ wasm 是单线程、且经 `z42_wasm` 而不是这个 C 符号进来，所以那
 4. Tier 3 三家 facade 的桥接层（Swift `Z42VM.swift` 的 `cfg` 填充、
    Android `cpp/z42vm_jni.c`、wasm `wasm/platform/src/lib.rs`）。
 5. `src/runtime/src/host/host_tests.rs`（状态码路径）+ `workload/desktop/tests/r1_r7.c`（外部 C 消费者）。
-6. [嵌入 C ABI 契约](../../../reference/src/embedding/c-abi.md)——对外可见的任何变化都要落到那一页。
+6. [嵌入 C ABI 契约](https://z42-lang.github.io/z42/reference/embedding/c-abi.html)——对外可见的任何变化都要落到那一页。

@@ -1,7 +1,7 @@
 # z42c — z42 自举编译器（self-host）
 
 ## 职责
-用 z42 编写的自举编译器：源码全 z42，端到端 `build` 跑通、自编译为 zpkg。C# bootstrap 编译器已于 2026-06-26 删除，z42c 是唯一编译器。编译器域的全部包都在 `src/compiler/` 这一个 workspace 里（`z42.workspace.toml` 为准）：后端三包（semantics / pipeline / driver），以及可移植前端 `z42c.core` / `z42c.syntax`、IR·后端库 `z42.package`、清单模型 `z42.project`、构建管线 `z42.build`、eval 内核 `z42.scripting`（2026-09-27 relocate-compiler-domain-libs 从 `src/libraries/` 挪回）。
+用 z42 编写的自举编译器：源码全 z42，端到端 `build` 跑通、自编译为 zpkg。z42c 是唯一编译器。编译器域的全部包都在 `src/compiler/` 这一个 workspace 里（`z42.workspace.toml` 为准）：后端三包（semantics / pipeline / driver），以及可移植前端 `z42c.core` / `z42c.syntax`、IR·后端库 `z42.package`、清单模型 `z42.project`、构建管线 `z42.build`、eval 内核 `z42.scripting`。
 
 ## 子包（编译器 workspace = 后端三包）
 | 子包 → zpkg | kind | 命名空间 | 依赖 |
@@ -10,12 +10,12 @@
 | `z42c.pipeline` | lib | Z42.Pipeline（编排）| z42c.core, z42c.syntax, semantics, z42.package, z42.project |
 | `z42c.driver` | **exe** | Z42.Driver（CLI = z42c 入口）| pipeline, z42.package, z42c.core |
 
-**可移植共享库（同在 `src/compiler/`；2026-09-27 前曾位于 `src/libraries/`）**——包名/命名空间不变：
+**可移植共享库（同在 `src/compiler/`）**：
 | 库 → zpkg | 命名空间 | 收敛 |
 |------|------|------|
-| `z42c.core` | Z42.Core（Span/Diagnostic/Features）| converge-z42-syntax-lib（route A 地基）——可移植前端 |
+| `z42c.core` | Z42.Core（Span/Diagnostic/Features）| 可移植前端 |
 | `z42c.syntax` | Z42.Syntax（Lexer+Parser+AST）| 同上；依赖 z42c.core |
-| `z42.package` | Z42.IR + Z42.Package（IR 模型 + zbc/zpkg 后端 + manifest）| converge-z42c-ir-metadata（收敛自旧 z42c.ir+z42c.project）|
+| `z42.package` | Z42.IR + Z42.Package（IR 模型 + zbc/zpkg 后端 + manifest）| IR + 后端 + manifest 合一|
 
 后端三包经**跨-workspace dist 发现**解析这些共享库（冷启动由 `_ensureBootstrapSelfDepLibs` 破环预建，
 见 [self-hosting.md](../../docs/internals/src/compiler/self-hosting.md) 轴 ④）。

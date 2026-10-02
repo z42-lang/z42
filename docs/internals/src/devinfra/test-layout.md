@@ -10,7 +10,7 @@
 
 一条用例**放哪、写成什么形态、在哪些平台跑、输出落哪、用哪条命令跑**，全仓只有一套答案，写在本页。
 加用例、搬用例、加平台、加能力之前读这页。`[Test]` / `Assert` 的写法不在这里，见
-[参考手册的测试页](../../../reference/src/testing.md)。
+[参考手册的测试页](https://z42-lang.github.io/z42/reference/testing.html)。
 
 ## 设计目标与约束
 
@@ -114,7 +114,7 @@
 Rust 侧的 `*_tests.rs` 与 `tests/*.rs` 按 cargo 惯例，不在此列。
 
 **`tests/fixtures/` 是保留目录名**：z42b 的约定单元发现与孤儿源守卫都跳过它（用户工程同样适用，见
-[z42.toml 参考](../../../reference/src/toolchain/z42-toml.md)），里面的内容只由 harness 读取。现有的 suite：
+[z42.toml 参考](https://z42-lang.github.io/z42/reference/toolchain/z42-toml.html)），里面的内容只由 harness 读取。现有的 suite：
 
 | suite | 位置 | harness |
 |---|---|---|
@@ -129,7 +129,7 @@ Rust 侧的 `*_tests.rs` 与 `tests/*.rs` 按 cargo 惯例，不在此列。
 
 - **先写 assert-only**：断言写成 `Assert.Equal(...)`，不要默认加 `expected_output.txt`。
   sidecar 只在 **stdout 本身就是被测契约**时才有（异常栈迹文本、`Console` 的格式化、REPL 会话记录）。
-  理由与 sidecar 全表见 [src/tests/README.md](../../../../src/tests/README.md)。
+  理由与 sidecar 全表见 [src/tests/README.md](https://github.com/z42-lang/z42/blob/main/src/tests/README.md)。
 - golden 的 marker sidecar：`interp_only`（跳过 JIT）、`opt_all`（按 release 全优化编；测优化 pass 的用例必须加）。
   flat 模式写成 `<name>.interp_only` / `<name>.opt_all`。
 - **用例 ID = 相对 `src/` 的路径去掉扩展名**，例如 `tests/basic/hello`、`libraries/z42.io/tests/file_temp`。

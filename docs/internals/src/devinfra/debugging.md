@@ -94,7 +94,7 @@ z42vm script.zbc --stats=json     # 单行 JSON，供工具抓取
 输出的是一份 `ProfileSnapshot`：7 个 counter（builtin / native call、JIT 编译数与耗时、
 异常 throw/catch…）+ 堆派生的 allocations + GC 分代 + 并发探针。程序正常退出后打到 stderr。
 脚本侧读同一组计数用 `Std.Diagnostics.RuntimeStats.Counters()`，见
-[参考手册 · diagnostics](../../../reference/src/stdlib/diagnostics.md)。
+[参考手册 · diagnostics](https://z42-lang.github.io/z42/reference/stdlib/diagnostics.html)。
 
 `--info` 是 boot 期的构建信息，`--stats` 是运行期计数，两个可以同时给。
 

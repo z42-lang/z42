@@ -1,11 +1,11 @@
 # 编译器自举（self-hosting）— `src/compiler/` 架构
 
 > **页型**: 机制页 ｜ **状态**: ✅ 已实现（全链 z42 自举）｜ **代码**: `src/compiler/` · `src/libraries/z42c.*`
-> **相关**: [架构总览](architecture.md) · [源代码编译流程](source-compile.md) · [自举种子纪律](../../../agent/rules/bootstrap-seed.md) ｜ **对齐**: 2026-09-16
+> **相关**: [架构总览](architecture.md) · [源代码编译流程](source-compile.md) · [自举种子纪律](https://github.com/z42-lang/z42/blob/main/docs/agent/rules/bootstrap-seed.md) ｜ **对齐**: 2026-09-16
 
 > 状态：🚧 进行中（0.3.x B 主线）
 >
-> 本文是 z42 自举编译器的**唯一权威架构文档**：布局、受限写法、构建解析、对账策略、CLI parity、1.0 切换。规划背景见 [`roadmap.md` 0.3.x](../../../roadmap.md)。
+> 本文是 z42 自举编译器的**唯一权威架构文档**：布局、受限写法、构建解析、对账策略、CLI parity、1.0 切换。规划背景见 [`roadmap.md` 0.3.x](https://github.com/z42-lang/z42/blob/main/docs/roadmap.md)。
 
 ## 目标
 
@@ -39,7 +39,7 @@ dist 发现**解析它们（与 `z42.package` / `z42.project` 同机制），冷
 
 **目录名 == `[project].name` == zpkg basename**（如 `z42c.core`），与 stdlib 约定一致：member 逻辑名（WS001 / default-members）、`${member_name}` 模板、产物名三者重合，消除歧义。命名空间镜像 C#：`Z42.Core` / `Z42.Syntax` / `Z42.IR` / `Z42.Package` / `Z42.Semantics` / `Z42.Pipeline` / `Z42.Driver`。
 
-**依赖图**（镜像 [`src/compiler/README.md`](../../../../src/compiler/README.md) 邻接表）：
+**依赖图**（镜像 [`src/compiler/README.md`](https://github.com/z42-lang/z42/blob/main/src/compiler/README.md) 邻接表）：
 
 ```
 core ──(无依赖)        ir ──(无依赖)
@@ -141,7 +141,7 @@ z42c 自身 7 包不用这些写法 → 旧 byte-identical 门（仅 z42c 自身
 > stdlib 依赖复制进输出 dist（.NET 式自包含），故 `z42c.driver` dist 已**自带** 6 个
 > `z42c.*` 兄弟包——跑它时 `Z42_LIBS` 只需 stdlib，z42vm 从 driver 自身目录解析兄弟包。
 > 下面「合并 z42c+stdlib 到一个 flat 目录」的手工步骤只对**非自包含**旧产物需要；当前机制见
-> [`docs/internals/src/devinfra/build.md`](../../../internals/src/devinfra/build.md)。
+> [`docs/internals/src/devinfra/build.md`](../devinfra/build.md)。
 
 **运行期 `Z42_LIBS` 是单个目录（非 colon-list），且必须含全部依赖 zpkg。** 跑**非自包含**的 z42c 产物时，
 先把「z42c 7 包 + stdlib」**合并到一个 flat 目录**，再 `Z42_LIBS=<该目录>`。（xtask 自己已不这么做：
@@ -188,7 +188,7 @@ z42c.driver 只 ship 已就绪命令，**绝不** fallback 到 dotnet z42c.dll�
 ## 开发迭代验证流程（staged bootstrap + 不变量）
 
 把「下载种子 → 编 xtask → 驱动编项目 → 测试 → 不动点」串成一张端到端图，标注每步守哪条
-不变量。**纪律**见 [`../../agent/rules/bootstrap-seed.md`](../../../agent/rules/bootstrap-seed.md)；本节是总览，
+不变量。**纪律**见 [`../../agent/rules/bootstrap-seed.md`](https://github.com/z42-lang/z42/blob/main/docs/agent/rules/bootstrap-seed.md)；本节是总览，
 下文 byte-identical 自举闭环是其细节。
 
 ### 依赖图：环在哪
@@ -384,7 +384,7 @@ z42c 达到 golden 编译 parity（编通全部 ~333 golden，含 reflection/clo
   17e342fc / 4dc2896b / 08ef874d）+ bootstrap-no-csharp fixpoint + cross-zpkg + jit-consistency 多次绿 run。
 
 > 操作层流程（SDK/Current 两套 toolchain、共享 host SDK、边界不变量、CI 冗余清单）见
-> [`docs/internals/src/devinfra/build.md`](../../../internals/src/devinfra/build.md)。后续 CI 去冗余
+> [`docs/internals/src/devinfra/build.md`](../devinfra/build.md)。后续 CI 去冗余
 > （compile-once：编一次全下游复用 + fixpoint gate 发布 + format-bump 兜底）尚在规划。
 
 ## compile-perf gate
@@ -436,7 +436,7 @@ z42c 达到 golden 编译 parity（编通全部 ~333 golden，含 reflection/clo
 - **前置依赖**：出现真实 indexed 消费方需求时，先设计（谁在什么时机读/写 indexed zpkg、debug-态按文件加载策略），再实现 `ZpkgWriterZ.WriteIndexed` + `ZpkgReader` 对称读。
 - **触发条件**：需要 debug-态 indexed（按文件散装）zpkg 时。
 - **当前 workaround**：`z42c build` 永远产 packed zpkg；`src/compiler/z42.package/tests/fixtures/zpkg-format/indexed-minimal/` fixture 保留 C# 时代旧字节基线（`minor=22`），随 add-params-varargs 的 zpkg minor 0.23 bump **不跟随 regen**——该 fixture 当前无法用 z42c 生成，其余 3 个 zpkg-format fixture 已 regen 到 0.23。
-- **范围收窄（port-incremental-build-cache，2026-07-05）**：本条原兼指「增量编译 cache」——packed 模式单文件 fullMode cache `.zbc` 落盘 + 整包级增量 probe 已在该 change 落地（见 [project.md 增量编译节](../../../reference/src/toolchain/z42-toml.md)），本条仅剩 **indexed/FILE zpkg 模式**本身；workspace 构建的增量布线另见 [project.md#incremental-future-workspace-wiring](../../../reference/src/toolchain/z42-toml.md#incremental-future-workspace-wiring)。
+- **范围收窄（port-incremental-build-cache，2026-07-05）**：本条原兼指「增量编译 cache」——packed 模式单文件 fullMode cache `.zbc` 落盘 + 整包级增量 probe 已在该 change 落地（见 [project.md 增量编译节](https://z42-lang.github.io/z42/reference/toolchain/z42-toml.html)），本条仅剩 **indexed/FILE zpkg 模式**本身；workspace 构建的增量布线另见 [project.md#incremental-future-workspace-wiring](https://z42-lang.github.io/z42/reference/toolchain/z42-toml.html#incremental-future-workspace-wiring)。
 
 ### ~~self-hosting-future-single-vm-bootstrap-gap~~（✅ 已解决 2026-07-09，fix-bootstrap-format-bump-deadlock）
 

@@ -22,25 +22,25 @@ z42 的工具链是三个独立进程，互相之间只通过**文件格式**通
 
 | 进程 | 语言 | 职责 | 在哪 |
 |---|---|---|---|
-| `z42c` | z42（**自举**） | 编译：源码 → zpkg | [编译器](compiler/README.md) |
-| `z42vm` | Rust | 执行：解释器 / JIT / GC | [运行时](runtime/README.md) |
-| `z42b` | z42 | 构建编排、测试运行、发布 | [工具链](toolchain/README.md) |
-| `z42` | z42 | launcher，按动词转发给上面三个 | [工具链](toolchain/README.md) |
+| `z42c` | z42（**自举**） | 编译：源码 → zpkg | [编译器](compiler/index.md) |
+| `z42vm` | Rust | 执行：解释器 / JIT / GC | [运行时](runtime/index.md) |
+| `z42b` | z42 | 构建编排、测试运行、发布 | [工具链](toolchain/index.md) |
+| `z42` | z42 | launcher，按动词转发给上面三个 | [工具链](toolchain/index.md) |
 
-三者之间的**协议**（zbc 字节码、zpkg 包、IR）单独成部分：[产物格式](formats/README.md)——
+三者之间的**协议**（zbc 字节码、zpkg 包、IR）单独成部分：[产物格式](formats/index.md)——
 改编译器和改 VM 的人都要查它，挂在任一侧都会让另一侧找不到。
 
 ## 各部分
 
 | 部分 | 内容 |
 |---|---|
-| [编译器](compiler/README.md) | z42c：架构、编译流程、类型检查、codegen、工程模型、自举与种子 |
-| [运行时](runtime/README.md) | z42vm：执行模型、解释器、JIT、GC、对象布局、加载上下文、native 扩展 |
-| [产物格式](formats/README.md) | zbc / zpkg / IR —— 编译器与运行时之间的协议 |
-| [标准库](stdlib/README.md) | 三层架构、包划分规则、API 准则、关键实现 |
-| [工具链](toolchain/README.md) | launcher / z42b / workload / 平台发布 / REPL |
-| [测试体系](testing/README.md) | 测试框架、TIDX 格式、runner 协议、跨平台测试 |
-| [开发基础设施](devinfra/README.md) | 构建、测试门禁、CI、发布、调试、基准——**怎么跑** |
+| [编译器](compiler/index.md) | z42c：架构、编译流程、类型检查、codegen、工程模型、自举与种子 |
+| [运行时](runtime/index.md) | z42vm：执行模型、解释器、JIT、GC、对象布局、加载上下文、native 扩展 |
+| [产物格式](formats/index.md) | zbc / zpkg / IR —— 编译器与运行时之间的协议 |
+| [标准库](stdlib/index.md) | 三层架构、包划分规则、API 准则、关键实现 |
+| [工具链](toolchain/index.md) | launcher / z42b / workload / 平台发布 / REPL |
+| [测试体系](testing/index.md) | 测试框架、TIDX 格式、runner 协议、跨平台测试 |
+| [开发基础设施](devinfra/index.md) | 构建、测试门禁、CI、发布、调试、基准——**怎么跑** |
 
 ## 行文约定
 

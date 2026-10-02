@@ -1,7 +1,7 @@
 # zpkg 包格式
 
 > **页型**: 参考页 ｜ **状态**: ✅ 已实现（v0.51）｜ **代码**: `src/compiler/z42.package/src/`（`ZpkgWriter.z42` / `ZpkgWriterIndexed.z42` / `ZpkgReader.z42`）
-> **相关**: [zbc 字节码格式](zbc.md) · [工程模型、依赖解析与工作区编译](../../../internals/src/compiler/project-model.md) ｜ **对齐**: 2026-10-02
+> **相关**: [zbc 字节码格式](zbc.md) · [工程模型、依赖解析与工作区编译](../compiler/project-model.md) ｜ **对齐**: 2026-10-02
 
 ## 概述
 

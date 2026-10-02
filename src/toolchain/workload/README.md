@@ -2,7 +2,7 @@
 
 ## 职责
 
-承载按需下载的 **workload**，分两类：**平台 workload**（`ios` / `android` / `wasm` / `desktop`）把 runtime 产的平台无关 `app.zpkg` + 原始库包装成各平台可发布/可导出的工程与产物；**能力 workload**（`test`）提供跨平台的共享件（on-device test-agent，平台无关一份字节码，跑测试流程时按需下载）。按 dotnet workload 模型，**按需 `z42 workload install <name>`** 下载。
+承载按需下载的 **workload**，分两类：**平台 workload**（`ios` / `android` / `wasm` / `desktop`）把 runtime 产的平台无关 `app.zpkg` + 原始库包装成各平台可发布/可导出的工程与产物；**能力 workload**（`test`）提供跨平台的共享件（on-device test-agent，平台无关一份字节码，跑测试流程时按需下载）。**按需 `z42 workload install <name>`** 下载。
 
 立柱（见 [platform-export-lifecycle.md](../../../docs/internals/src/toolchain/platform-export.md)）：**`z42 build` 一次产平台无关 `app.zpkg`，零 workload；`export`/`publish`/on-platform `test` 才分叉并门控对应平台 workload。**
 
@@ -27,10 +27,9 @@ workload/<plat>/          # ios / android / wasm（desktop 见下）
 >
 > 🔴 **desktop 不套上面这个模板**：它复用宿主 runtime ⇒ 既没有 runtime pack，也**不需要 export**
 > （`export.z42` 才是那三个 appbuilder 里唯一的活代码，被 `launcher_export.z42` 调用）。
-> 它没有 `appbuilder/`、没有 `template/`（2026-09-29 删除：那里只剩一个方法体全是注释的
-> `DesktopWorkload` 桩 + apphost patcher 的第二份副本，而在跑的是 z42b 内联的那份）。
+> 它没有 `appbuilder/`、没有 `template/`（apphost patcher 的实现只有 z42b 内联的那一份）。
 > 它**有** `platform/apphost/` —— per-RID apphost stub 的 Rust 源，打进 `z42-workload-desktop` 包，
-> `z42 publish` 必需。（旧版本这里写「desktop **无 `platform/`**」，是错的。）
+> `z42 publish` 必需。
 >
 > 另有一个**非平台的能力 workload**（不套上面平台模板）：
 >

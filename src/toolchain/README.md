@@ -8,16 +8,16 @@
 
 | 目录 | 职责 | 状态 |
 |------|------|:----:|
-| [launcher/](launcher/) | `z42` launcher（muxer）：原生 trampoline + `launcher.zpkg`（run/link/list/install/export…）+ per-app 原生 apphost（`apphost.z42` patch 库，经 `z42 publish`）。类比 `dotnet` muxer + `rustup` | ✅ 已实装 |
-| [builder/](builder/) | `z42b` 构建编排器：读 `z42.toml`/`--rid` 驱动 `z42.build` 管线（compile→trim→assets→workload），launcher 分发调用（`build`/`publish`/`export`）；**兼跑 stdlib/工程的 `[Test]`/`[Benchmark]` 用例（取代原 Rust `z42-test-runner`，`xtask test` 内嵌调用）**。取代原 `packager` 占位 | 占位 |
-| [devtools/](devtools/) | `z42d` 开发者工具链（muxer apphost）：`fmt`/`doc`/`dbg`/`prof`/`lint` 统一在单 exe + Std.Cli router 下，launcher 分发（`z42 fmt` → `z42d fmt`）。收编原独立 `z42-fmt`/`z42-doc`/`z42-lint` 规划 | 占位 |
-| [interactive/](interactive/) | `z42i` 交互式 REPL（apphost，非 muxer）：源码片段 → 编译 → VM 求值 → 打印；0.3.x capstone，前置 `extract-compile-pipeline-api` | 占位 |
-| [repl/](repl/) | `z42.repl`（lib，`Std.Repl`）：REPL **终端交互层（tier1）**——rustyline 行编辑 + 缩进感知键位。依赖 `z42.scripting`（Completeness）。真 tty + native 行编辑 builtin、平台绑定重 → 留 toolchain（非 stdlib 料）。拆自 scripting（`split-z42-repl`） | ✅ 已实装 |
-| [workload/](workload/) | 平台相关能力束（consolidate-platform-into-workload）：`{ios,android,wasm,desktop}/`（各含 `appbuilder/`·`platform/`·`template/`·`tests/`）+ `platform-contract.md`；按需 `z42 workload install`。Tier 2 `z42-host` crate 已移入 `runtime/crates/z42-host` | 🚧 实装中 |
+| [launcher/](launcher/) | `z42` launcher（muxer）：原生 trampoline + `launcher.zpkg`（run/link/list/install/export…）+ per-app 原生 apphost（`apphost.z42` patch 库，经 `z42 publish`） | ✅ 已实装 |
+| [builder/](builder/) | `z42b` 构建编排器：读 `z42.toml`/`--rid` 驱动 `z42.build` 管线（compile→trim→assets→workload），launcher 分发调用（`build`/`publish`/`export`）；**兼跑 stdlib/工程的 `[Test]`/`[Benchmark]` 用例（`xtask test` 内嵌调用）** | 占位 |
+| [devtools/](devtools/) | `z42d` 开发者工具链（muxer apphost）：`fmt`/`doc`/`dbg`/`prof`/`lint` 统一在单 exe + Std.Cli router 下，launcher 分发（`z42 fmt` → `z42d fmt`） | 占位 |
+| [interactive/](interactive/) | `z42i` 交互式 REPL（apphost，非 muxer）：源码片段 → 编译 → VM 求值 → 打印；0.3.x capstone | 占位 |
+| [repl/](repl/) | `z42.repl`（lib，`Std.Repl`）：REPL **终端交互层（tier1）**——rustyline 行编辑 + 缩进感知键位。依赖 `z42.scripting`（Completeness）。真 tty + native 行编辑 builtin、平台绑定重 → 属 toolchain（非 stdlib 料） | ✅ 已实装 |
+| [workload/](workload/) | 平台相关能力束：`{ios,android,wasm,desktop}/`（各含 `appbuilder/`·`platform/`·`template/`·`tests/`）+ `platform-contract.md`；按需 `z42 workload install`。Tier 2 `z42-host` crate 在 `runtime/crates/z42-host` | 🚧 实装中 |
 
 > 命名说明：`toolchain` 取"围绕 compiler/runtime 的整套配套工具"之广义；语言核心**编译器在 [`../compiler/`](../compiler/)**（自举 z42c，含下沉到 [`../libraries/`](../libraries/) 的前端库）、VM 在 [`../runtime/`](../runtime/)，不在本目录。
 
-## 构建（add-build-toolchain, 2026-07-05）
+## 构建
 
 对称于 `xtask build compiler|stdlib`：
 
@@ -31,7 +31,7 @@
 
 ## 状态
 
-launcher / test-runner 已实装并在 CI / xtask 中使用；workload 实装中（承接 host 解散迁入的 host-api + 平台 facade，consolidate-platform-into-workload）；builder / devtools / interactive 为占位，具体设计与落地时机见 `docs/roadmap.md`。`host/` 顶层已移除——Tier 1 C ABI + 头在 [`../runtime/src/host/`](../runtime/src/host/) + [`../runtime/include/`](../runtime/include/)，Tier 2/Tier 3 在 `workload/`。
+launcher / test-runner 已实装并在 CI / xtask 中使用；workload 实装中（含 host-api + 平台 facade）；builder / devtools / interactive 为占位，具体设计与落地时机见 `docs/roadmap.md`。本目录无 `host/`——Tier 1 C ABI + 头在 [`../runtime/src/host/`](../runtime/src/host/) + [`../runtime/include/`](../runtime/include/)，Tier 2/Tier 3 在 `workload/`。
 
 > launcher 的演进方向（命令分发三层、平台工程导出、runtime/workload 分发）见 [`docs/internals/src/toolchain/`](../../docs/internals/src/toolchain/)。
 

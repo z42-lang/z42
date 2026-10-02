@@ -34,12 +34,12 @@ C2 接口 + 单元测试落地。
 - ✅ `z42_last_error` thread-local 槽
 - ✅ libffi 调度（`Cif::call<R>` 多返回类型分发）
 - ✅ marshal 双向（i8..i64 / u8..u64 / f32 / f64 / bool / null / pointer）
-- ✅ `CallNative` interp dispatch（取代 C1 trap）
-- ✅ `PinPtr` / `UnpinPtr` interp dispatch + `Value::PinnedView` (spec C4 2026-04-29)
+- ✅ `CallNative` interp dispatch
+- ✅ `PinPtr` / `UnpinPtr` interp dispatch + `Value::PinnedView` (C4)
 - ✅ `PinnedView` 经 `FieldGet view,"ptr"/"len"`（`exec_object::field_get`，从 per-context transient
   arena 解析）投成标量，再由 `marshal::value_to_z42` 投 `*const u8` / `usize`
-  （make-value-copy：`PinnedView` 现是 transient-arena 句柄；`value_to_z42` 无 `ctx`，其直接接 raw view
-  的旧防御路径退化为错误——source-gen 始终先 `FieldGet` 再传标量，见 `docs/internals/src/runtime/object-abi.md` §2.2）
+  （`PinnedView` 是 transient-arena 句柄；`value_to_z42` 无 `ctx`，直接接 raw view
+  会报错——source-gen 始终先 `FieldGet` 再传标量，见 `docs/internals/src/runtime/object-abi.md` §2.2）
 - 🟡 `z42_invoke` / `z42_invoke_method`：spec C5 接入（reverse-call 是 source generator 一起的工作）
 - 🟡 `Z42_VALUE_TAG_STR` / `OBJECT` / `TYPEREF`：tag 已冻结，marshal 路径在 C5 接入
 
