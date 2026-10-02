@@ -45,6 +45,8 @@ include = ["builder_cli.z42", "builder_test.z42", "builder_device.z42", "builder
 "z42.project" = { version = "0.1.0", deploy = "shared" }   # ProjectManifest / ManifestLoader（build/new/export 动词读清单）
 
 [build]
+# 编译前由 hooks/ 从 versions.toml 生成 builder_pins.z42（见 hooks/hooks.z42；xtask 自举直编路径另有等价生成）。
+hooks = "hooks"
 # 产物落共享 artifacts 树：artifacts/build/toolchain/builder/{dist,.cache,publish}
 # （From this toml's dir src/toolchain/builder/core up 4 levels to repo root）。
 # 只配 output_dir —— dist / cache / publish 都走级联默认（${output_dir}/dist 等），与 launcher 同形。
