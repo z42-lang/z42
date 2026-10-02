@@ -48,7 +48,13 @@ z42.core（prelude）+ z42.encoding（Utf8）+ z42.io（zpkg 文件）+ z42.cryp
 ```bash
 xtask test stdlib z42.package          # 本库全部单元
 xtask test stdlib z42.package -k zpkg  # 只跑一个
+xtask test runtime                     # VM 读 tests/fixtures/ 的字节基线（zbc_compat、format_fixture_versions）
 ```
+
+`tests/fixtures/{zbc-format,zpkg-format}/` 是本包两个 writer 的**签入字节基线**（不是 `[Test]` 单元）：
+`.zbc` 一组由 `xtask build test` 就地重生，`git diff` 非空即格式漂移；`.zpkg` 一组按
+[zpkg-format/README.md](tests/fixtures/zpkg-format/README.md) 的配方重生。格式 bump 的完整步骤见
+[version-bumping.md](../../../docs/agent/rules/version-bumping.md)。
 
 > 这三个单元 2026-09-06 前**从未跑过**：它们曾是 `tests/<name>/<name>_tests.z42` +
 > 手写 `.z42.toml`，而 stdlib 的 dir 单元发现要求目录里有 `source.z42`，于是三个目录

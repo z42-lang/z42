@@ -1,6 +1,6 @@
 // xtask — VM golden-test runner (folded from the former scripts/test-vm.z42 by
 // the test-vm fold). Same Z42Xtask namespace; the golden-walk + entry-derivation
-// helpers it calls (_deriveEntry / _enumDirsSorted / _isNonRunnableCat /
+// helpers it calls (_deriveEntry / _enumDirsSorted /
 // _firstLine / _stripTrailingNewlines / ...) live in xtask_golden.z42.
 //
 // Runs VM golden tests in interp / jit mode. Each golden case's source +
@@ -295,7 +295,6 @@ _Case[] _enumerateCasesF(string root, string mode, string dirFilter, string file
             // must skip them (else "entry function …Main not found").
             if (e.hasTestMethods) { continue; }
         } else {
-            if (_isNonRunnableCat(e.cat)) { continue; }
             if (_isExcludedDirName(e.cat, e.name)) { continue; }
             if (!_e2eIncluded(e.cat, e.name, e.src, dirFilter, fileFilter)) { continue; }
         }

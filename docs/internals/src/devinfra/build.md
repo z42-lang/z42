@@ -19,7 +19,7 @@
 |---|---|---|
 | stdlib 由谁编 | 自建的 z42c，drop-in 替换种子产物 | 每次构建都是一轮自举验证；产物永远出自当前源码的编译器 |
 | 扁平视图 | hard-link 汇聚到单目录，**无 namespace index** | VM 与嵌入宿主都直读 zpkg 的 `NSPC` section，索引是冗余状态 |
-| golden 输出 | 重定向到 `artifacts/` 镜像；仅 `zbc-format` 类原地覆盖 | 仓库不积构建产物；zbc-format 是签入的字节基线，`git diff` 即格式漂移探针 |
+| golden 输出 | 重定向到 `artifacts/` 镜像；另把 z42.package 的 zbc 字节基线原地覆盖 | 仓库不积构建产物；字节基线是签入的，`git diff` 即格式漂移探针 |
 | golden 编译并发 | 每 case 独立 spawn z42c 进程，`max(8, CpuCount())` 路 | 单 case 成本被 driver 启动主导（加载 driver + 兄弟包 + stdlib），进程级并行收益最大 |
 
 ## 2. 成员清单没有第二份副本
@@ -270,15 +270,13 @@ golden 语料被 4 条命令消费。遍历只有一次——`_walkGoldenCorpus(
 | 消费者 | 排除类别 | 额外过滤 |
 |---|---|---|
 | `build test`（regen） | `_isNonRegenCat` | — |
-| `test e2e`（VM golden） | `_isNonRunnableCat` | `_isExcludedDirName`、镜像 `.zbc` 存在、`interp_only` |
-| `test dist` | `_isNonRunnableCat` | `_isTestRunnerSource`、`interp_only` |
-| `test embedded` / `test list` | `_isNonRunnableCat` | `_isExcludedDirName` |
+| `test e2e`（VM golden） | — | `_isExcludedDirName`、镜像 `.zbc` 存在、`interp_only` |
+| `test dist` | — | `_isTestRunnerSource`、`interp_only` |
+| `test embedded` / `test list` | — | `_isExcludedDirName` |
 
-两套类别谓词的差异**是有意的**：`_isNonRegenCat` **保留** `zbc-format` / `zpkg-format`
-（它们正是要被重生成的字节基线），三个 runner 则排除它们（没有 stdout 可比对）；
-`cross-zpkg` / `multi-exe` / `manifest-targets` / `perf` 两边都排除（多包 / 多目标 / 性能场景，
-非单 source 产物，各有自己的 runner）。库测试目录里带 `[Test]` / `[Benchmark]` 的没有 `Main`，
-归 `test stdlib` 跑，四路都跳过。
+`src/tests/` 的每个类别都是可运行的语言 golden（[测试用例组织规范](test-layout.md)），runner 不需要按类别排除；
+多包 / 多目标夹具、字节基线、性能场景都在各自 owner 的 `tests/fixtures/` 或 `src/bench/`，不在这次遍历里。
+库测试目录里带 `[Test]` / `[Benchmark]` 的没有 `Main`，归 `test stdlib` 跑，四路都跳过。
 
 > `test embedded` / `test list` 的**发射顺序是 load-bearing 的**（分片切片与 `_sampleCorpus`
 > 依赖「同 bucket 连续」，且 src/tests 桶内 dir 与 flat 两种模式按原始 basename **交错**排序），
@@ -287,9 +285,9 @@ golden 语料被 4 条命令消费。遍历只有一次——`_walkGoldenCorpus(
 ### `build test`：golden 基线重生
 
 拿上面的清单逐 case spawn z42c 编译，并发度 `max(8, CpuCount())`（`Z42_REGEN_JOBS` 可覆盖；
-对少核机器——GitHub 标准 runner 4 核——保持 8，不冒进）。输出一律写 artifacts 镜像，
-**唯一例外**是 `zbc-format` 类：它的 `.zbc` 是签入仓库的字节基线，原地覆盖，好让 `git diff`
-直接暴露格式漂移。工具链选择尊重 `Z42_HOME`，未设或布局不符时用 build-tree 的 z42c + stdlib + z42vm。
+对少核机器——GitHub 标准 runner 4 核——保持 8，不冒进）。输出一律写 artifacts 镜像。
+全量 regen（不带 `--dir` / `--file`）另外把 `src/compiler/z42.package/tests/fixtures/zbc-format/*/source.zbc`
+这组签入的字节基线**原地覆盖**（`_formatZbcFixtureCases`），好让 `git diff` 直接暴露格式漂移。工具链选择尊重 `Z42_HOME`，未设或布局不符时用 build-tree 的 z42c + stdlib + z42vm。
 
 ## 9. `test bootstrap`：跨版本自举边界检查
 

@@ -4,8 +4,8 @@ paths:
   - "src/runtime/src/metadata/**"
   - "docs/internals/src/formats/zbc.md"
   - "docs/internals/src/formats/zpkg.md"
-  - "src/tests/zbc-format/**"
-  - "src/tests/zpkg-format/**"
+  - "src/compiler/z42.package/tests/fixtures/zbc-format/**"
+  - "src/compiler/z42.package/tests/fixtures/zpkg-format/**"
 ---
 
 # `.zbc` / `.zpkg` minor version bump checklist
@@ -55,10 +55,10 @@ paths:
    `zbc_reader_tests.rs` 的 `zbc_version_constants_pinned` / `zpkg_version_constants_pinned`——它们只在
    `cargo test --lib` 里跑，`xtask test` 不包含）；并在常量上方 changelog 注释块追加一行（日期 / spec / 字段变化）；reader 解码逻辑（`read_*_section`）同步新格式。
 3. **`docs/internals/src/formats/zbc.md`** — "Minor changelog" 表加一行（minor / 日期 / 触发 spec / 引入内容）。
-4. **regen zbc-format fixture** — 跑 `xtask build test`（前置 `build compiler`+`build stdlib` 已用新格式重建），原地覆写 `src/tests/zbc-format/*/source.zbc`（6 个 committed 字节基线：`empty` / `strp-func-minimal` / `multi-method` / `with-tidx` / `cross-import-token` / `with-frcs`）；`git diff` 应显示格式 delta，**必须连同 bump 一起提交**。
+4. **regen zbc-format fixture** — 跑 `xtask build test`（前置 `build compiler`+`build stdlib` 已用新格式重建），原地覆写 `src/compiler/z42.package/tests/fixtures/zbc-format/*/source.zbc`（6 个 committed 字节基线：`empty` / `strp-func-minimal` / `multi-method` / `with-tidx` / `cross-import-token` / `with-frcs`）；`git diff` 应显示格式 delta，**必须连同 bump 一起提交**。
 
    > 🔒 **CI 有门（`refresh-format-fixtures`）**：`test-host` 的三条非 Windows 腿在
-   > `test all`（其 build wave 就地 regen）之后跑 `git diff --quiet -- src/tests/zbc-format`，**有差异即红**。
+   > `test all`（其 build wave 就地 regen）之后跑 `git diff --quiet -- src/compiler/z42.package/tests/fixtures/zbc-format`，**有差异即红**。
    > （该门在 `test-host`：三个架构都覆盖，且 `test-host` 是 required check。）
    >
    > 为什么需要这道门：regen 在所有消费者
@@ -79,7 +79,7 @@ paths:
 
    第一个从 regen 后的 fixture 重截：
    ```bash
-   xxd -p src/tests/zbc-format/empty/source.zbc | tr -d '\n'
+   xxd -p src/compiler/z42.package/tests/fixtures/zbc-format/empty/source.zbc | tr -d '\n'
    ```
    验证：`xtask test compiler`（z42c zbc 单元须绿）。
 
@@ -108,10 +108,10 @@ xtask test compiler    # z42c golden hex 单测
    **当前配对**（`当前 0.NN ↔ 1.MM`，两处）。
    ⚠️ **本页没有 Minor changelog 表**。
    zpkg 的逐 minor 历史写在写端常量旁：`ZpkgWriter.z42` 的 `ZpkgWriterZ.Minor` 注释（步骤 6 已覆盖）。
-9. **regen zpkg-format fixture** — 覆写 `src/tests/zpkg-format/*/source.zpkg`（4 个 committed 基线：`packed-minimal` / `packed-multi-module` / `indexed-minimal` / `sym-only-sidecar`）。
+9. **regen zpkg-format fixture** — 覆写 `src/compiler/z42.package/tests/fixtures/zpkg-format/*/source.zpkg`（4 个 committed 基线：`packed-minimal` / `packed-multi-module` / `indexed-minimal` / `sym-only-sidecar`）。
    每个 fixture 目录自带 **committed 构建配方 `<fixture>.z42.toml`**：
    `[project].pack` 决定 packed/indexed，是否带 `--release` 决定 strip/sidecar。
-   完整重生命令见 [`src/tests/zpkg-format/README.md`](../../../src/tests/zpkg-format/README.md)「维护流程」。
+   完整重生命令见 [`src/compiler/z42.package/tests/fixtures/zpkg-format/README.md`](../../../src/compiler/z42.package/tests/fixtures/zpkg-format/README.md)「维护流程」。
 
    > 🔒 **有防腐门**：`cargo test --test format_fixture_versions` 读 committed 字节、断言 header 版本
    > == 当前常量，**陈旧即红**（zbc 与 zpkg 两套一起覆盖）。
@@ -213,7 +213,7 @@ overlay 成种子，**种子与 cargo VM 就同为新格式** → warm 建/测/r
    #   （按 fixture 目录名对应）
    #   packed → --release；indexed → 无 --release（另产散装 source.zbc）
    Z42_LIBS="$LIBS" "$VM" "$Z42C" -- build <temp>/demo.minimal.z42.toml --release
-   cp <temp>/dist/demo.minimal.zpkg src/tests/zpkg-format/packed-minimal/source.zpkg
+   cp <temp>/dist/demo.minimal.zpkg src/compiler/z42.package/tests/fixtures/zpkg-format/packed-minimal/source.zpkg
    # indexed 另拷 dist/source.zbc → indexed-minimal/source.zbc（散装 + FILE 段 hash 自动同步）
    ```
    `sym-only-sidecar` 无 Rust 字节读测试 → 保持旧格式不动。

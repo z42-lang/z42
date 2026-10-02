@@ -48,7 +48,6 @@ _CorpusCase[] _enumerateCorpus(string root, string filter) {
     // 1. src/tests goldens — per category, dir-mode (<cat>/<name>/source.z42) and
     // flat-mode (<cat>/<name>.z42) merged back into one sorted-by-entry-name run.
     foreach (var cat in _enumDirsSorted(Path.Join(root, "src/tests"))) {
-        if (_isNonRunnableCat(cat)) { continue; }
         _GoldenEntry[] bucket = _entriesInBucket(es, "tests-dir", "tests-flat", cat);
         int bi = 0;
         while (bi < bucket.Length) {

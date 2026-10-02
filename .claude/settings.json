@@ -37,7 +37,7 @@
       "Bash(./scripts/*)",
       "Bash(bash scripts/*)",
       "Bash(bash -n scripts/*)",
-      "Bash(./src/tests/zbc-format/generate-fixtures.sh)",
+      "Bash(./src/compiler/z42.package/tests/fixtures/zbc-format/generate-fixtures.sh)",
       "Bash(artifacts/build/runtime/release/z42vm *)",
       "Bash(artifacts/build/runtime/debug/z42vm *)",
       "Bash(./artifacts/build/runtime/debug/z42vm *)",

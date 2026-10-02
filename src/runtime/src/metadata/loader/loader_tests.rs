@@ -561,10 +561,10 @@ fn aggregate_zpkg_tidx_test_case_arg_repr_is_left_alone() {
 
 // ── indexed zpkg load（add-indexed-zpkg-min-patch，zpkg 0.24）─────────────────
 
-/// committed fixture: indexed 主文件 + 散装自包含 zbc（src/tests/zpkg-format/indexed-minimal）。
+/// committed fixture: indexed 主文件 + 散装自包含 zbc（src/compiler/z42.package/tests/fixtures/zpkg-format/indexed-minimal）。
 fn indexed_fixture_dir() -> std::path::PathBuf {
     std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../tests/zpkg-format/indexed-minimal")
+        .join("../compiler/z42.package/tests/fixtures/zpkg-format/indexed-minimal")
 }
 
 #[test]

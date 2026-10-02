@@ -1,5 +1,5 @@
 # z42c byte-identical .zbc writer 单测（port-z42c-zbc-writer ZW-1A）。
-# 源 → IrGen → ZbcWriter → 小写 hex，对 src/tests/zbc-format/ ground-truth golden 逐字节。
+# 源 → IrGen → ZbcWriter → 小写 hex，对 src/compiler/z42.package/tests/fixtures/zbc-format/ ground-truth golden 逐字节。
 [project]
 name    = "z42c.semantics.test.zbc"
 version = "0.1.0"

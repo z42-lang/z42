@@ -8,8 +8,8 @@ use super::*;
 //   1. src/compiler/z42.package/src/BinaryFormat/ZbcWriter.z42 (ZbcFormat.Major / .Minor)
 //   2. these two constants
 //   3. docs/internals/src/formats/zbc.md "Minor changelog" table
-//   4. the committed byte baselines — BOTH src/tests/zbc-format/ AND
-//      src/tests/zpkg-format/; they regen by different commands
+//   4. the committed byte baselines — BOTH src/compiler/z42.package/tests/fixtures/zbc-format/ AND
+//      src/compiler/z42.package/tests/fixtures/zpkg-format/; they regen by different commands
 //
 // ⚠️ This list is a convenience pointer, NOT the procedure. The procedure lives in
 // docs/agent/rules/version-bumping.md and has 9+ steps — notably step 5
@@ -19,7 +19,7 @@ use super::*;
 //
 // 🔴 2026-09-27（type-section-flags2-and-struct-fields）：四条里有两条指向不存在的东西 ——
 // 第 1 条指 `src/compiler/z42.IR/BinaryFormat/ZbcWriter.cs`（**C# 编译器 2026-06-26 已整体
-// 删除**），第 4 条指 `src/tests/zbc-format/generate-fixtures.sh`（**该脚本不存在**）。
+// 删除**），第 4 条指 `src/compiler/z42.package/tests/fixtures/zbc-format/generate-fixtures.sh`（**该脚本不存在**）。
 // 这就是「摘录一份规范放进代码注释」的必然结局：正本更新了，副本不会跟。
 
 pub const ZBC_VERSION_MAJOR: u16 = 1;

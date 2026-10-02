@@ -180,7 +180,7 @@ required check 视同通过。新增 job 时记得加进它的 `needs`。
 `test-host` 各腿用 `--skip` 把 stage 卸给并行 job：linux-x64 跳 `stdlib,compiler,vscode`，
 其余 OS 再多跳 `cross-zpkg,bench`（这两者 host 无关，一条腿够了）。Windows 腿不跑
 `test all`，只跑 `build test` + `xtask test runtime`。三条非 Windows 腿在 `test all` 之后
-跑 **zbc-format 字节基线门**（`git diff --quiet -- src/tests/zbc-format`；regen 就地重写了基线，
+跑 **zbc-format 字节基线门**（`git diff --quiet -- src/compiler/z42.package/tests/fixtures/zbc-format`；regen 就地重写了基线，
 有 diff = 提交的基线过期）——一次覆盖三个架构，且挂在 required check 上。
 
 ### 3.0 PR 的绿是「过期快照」——与抢号预检

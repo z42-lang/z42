@@ -77,7 +77,7 @@
 | 文件 | 何时存在 | 含义 |
 |------|---------|------|
 | `source.z42` | 必须 | z42 源码 |
-| `source.zbc` | run / parse | 由 `z42 xtask.zpkg regen` 生成，按组件镜像落 `artifacts/build/tests/<rel>/source.zbc`（**不与源同处**，gitignored，不污染 src）。例外：`zbc-format/*/source.zbc` 是 check-in 字节基线，就地重写 |
+| `source.zbc` | run / parse | 由 `z42 xtask.zpkg regen` 生成，按组件镜像落 `artifacts/build/tests/<rel>/source.zbc`（**不与源同处**，gitignored，不污染 src） |
 | `source.zasm` | 可选 | ZASM 调试文本 |
 | `expected_output.txt` | run | stdout 期望。**默认不要有这个文件**——见下方「先写 assert-only」。空文件 = 删除；缺失 = assert-only 模式（用例靠 `Std.Assert` 抛异常表达失败，期望空 stdout）|
 | `expected.zasm` | parse | IR ZASM 期望 |
