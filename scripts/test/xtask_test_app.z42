@@ -1,0 +1,134 @@
+// `xtask test app <wasm|ios|android|all> [--filter <pat>] [--shard k/n]` —— 设备测试一条命令
+// （test-layout.md §6）。本地与 CI 走同一条路径：
+//
+//   准备 test agent → 平台 R1–R7（分片时只在第 1 片）→ 组嵌入 bundle → 构建宿主（副本里）→ 在设备上跑 → 报告
+//
+// 每个平台的步骤顺序就是 CI 原先分步调用的顺序，这里只是把它们收成一个入口；各步本身（宿主副本、
+// z42b 设备驱动、bundle 构建）在 xtask_test_{platform,embedded,device_host}.z42 里。
+//
+// 本机不具备的平台**跳过**并说明原因，不算失败（非 macOS / 没装 Xcode 跑不了 iOS；Linux 没有 KVM
+// 跑不了 Android 模拟器）。`all` 跑本机支持的全部平台，最后给一张汇总表。
+namespace Z42Xtask;
+
+using Std.IO;
+using Std.Cli;
+
+int _testApp(ParseResult r) {
+    string which = r.GetPositional(0);
+    string filter = r.GetOption("filter");
+    int[] sh = _parseShard(r.GetOption("shard"));
+    string[] plats;
+    if (which == "all") { plats = new string[]{ "wasm", "ios", "android" }; }
+    else if (which == "wasm" || which == "ios" || which == "android") { plats = new string[]{ which }; }
+    else {
+        ConsoleError.WriteLine("error: xtask test app <wasm|ios|android|all> — unknown platform '" + which + "'");
+        return 2;
+    }
+    string root = _root();
+    int dep = _ensureToolchainDeps(root); if (dep != 0) { return dep; }
+
+    string[] outcome = new string[plats.Length];
+    bool failed = false;
+    bool agentReady = false;
+    int i = 0;
+    while (i < plats.Length) {
+        string p = plats[i];
+        Console.WriteLine("");
+        Console.WriteLine("════ test app " + p + " ════");
+        string skip = _appSkipReason(root, p);
+        if (skip.Length > 0) {
+            Console.WriteLine("  ⏭  skipped: " + skip);
+            outcome[i] = "skipped — " + skip;
+            i = i + 1;
+            continue;
+        }
+        if (!agentReady) {
+            if (_provisionTestAgent(root) != 0) { return 1; }
+            agentReady = true;
+        }
+        int rc = _testAppOne(root, p, filter, sh[0], sh[1]);
+        outcome[i] = rc == 0 ? "passed" : "FAILED (exit " + rc.ToString() + ")";
+        if (rc != 0) { failed = true; }
+        i = i + 1;
+    }
+
+    Console.WriteLine("");
+    Console.WriteLine("── test app ──");
+    int k = 0;
+    while (k < plats.Length) { Console.WriteLine("  " + _padRight(plats[k], 10) + outcome[k]); k = k + 1; }
+    return failed ? 1 : 0;
+}
+
+// 本机跑不了这个平台的原因；能跑返回 ""。只判断宿主条件（OS / 虚拟化 / 设备），缺可安装的工具
+// （wasm-pack、cargo-ndk…）不算跳过 —— 那是该装的东西，由各步报错并给出安装提示。
+string _appSkipReason(string root, string platform) {
+    if (platform == "ios") {
+        if (!Platform.IsMacOS()) { return "iOS 模拟器只在 macOS 上有"; }
+        if (Process.Which("xcodebuild") == null) { return "没装 Xcode（xcodebuild 不在 PATH）"; }
+        return "";
+    }
+    if (platform == "android") {
+        if (Platform.IsLinux() && !File.Exists("/dev/kvm")) { return "Linux 上没有 /dev/kvm，Android 模拟器跑不起来"; }
+        if (!_androidDeviceAttached(root)) {
+            return "没有在跑的 Android 设备 / 模拟器（先启动一个，例如 `emulator @z42_pixel6_api37`）";
+        }
+        return "";
+    }
+    return "";
+}
+
+// adb 能看到至少一台 `device` 状态的设备。adb 取 ANDROID_HOME / ANDROID_SDK_ROOT，否则 hermetic SDK。
+bool _androidDeviceAttached(string root) {
+    string sdk = Environment.GetEnvironmentVariable("ANDROID_HOME", "");
+    if (sdk.Length == 0) { sdk = Environment.GetEnvironmentVariable("ANDROID_SDK_ROOT", ""); }
+    if (sdk.Length == 0) { sdk = Path.Join(_toolsDir(root), "android-sdk"); }
+    string adb = Path.Join(sdk, "platform-tools/adb");
+    if (!File.Exists(adb)) { return false; }
+    ProcessResult res = new Process(adb).Arg("devices").Run();
+    if (res.ExitCode != 0) { return false; }
+    foreach (var line in res.Stdout.Split("\n")) {
+        string t = line.Trim();
+        if (t.EndsWith("\tdevice") || t.EndsWith(" device")) { return true; }
+    }
+    return false;
+}
+
+// 一个平台的整条流水线。顺序与 CI 原先分步调用的一致。
+int _testAppOne(string root, string platform, string filter, int shardK, int shardN) {
+    bool firstShard = shardN == 0 || shardK == 1;
+    if (platform == "wasm") {
+        // R1–R7 与语料无关，分片时只在第 1 片跑。
+        if (firstShard) { int c = _platformDispatch("wasm", "", root); if (c != 0) { return c; } }
+        if (_buildWasmTesthost(root, filter, shardK, shardN).Length == 0) { return 1; }
+        return _runWasmTesthost(root);
+    }
+    if (platform == "ios") {
+        // iOS 的 R1–R7（Z42VMTests）与嵌入语料（Z42EmbeddedTests）在同一次 `xcodebuild test` 里跑：
+        // 先建 xcframework + 放语料，再放 R1–R7 夹具，最后一次模拟器启动跑完两组。
+        string rid = "iossim-arm64";
+        if (_buildIosTesthost(root, filter, rid, shardK, shardN).Length == 0) { return 1; }
+        int a = _platformDispatch("ios", "assets", root); if (a != 0) { return a; }
+        return _runIosTesthost(root, rid);
+    }
+    // android：同样一次 connectedAndroidTest 跑 R1–R7 + 嵌入语料。ABI 跟宿主架构走（Apple Silicon 上的
+    // 模拟器是 arm64，CI 的 linux-x64 是 x86_64）。
+    string arid = Platform.Arch() == "aarch64" ? "android-arm64" : "android-x64";
+    int b = _platformDispatch("android", "build", root); if (b != 0) { return b; }
+    int s = _platformDispatch("android", "assets", root); if (s != 0) { return s; }
+    if (_buildAndroidTesthost(root, filter, arid, shardK, shardN).Length == 0) { return 1; }
+    return _runAndroidTesthost(root, arid);
+}
+
+// 把 test agent 装进 z42b 会去找的 SDK：z42b 由 Z42_PORTABLE_VM（= xtask 用来跑 z42b 的那个 VM，
+// 见 _z42bDevice）推出 SDK 根，再找 `<home>/runtimes/*/workloads/test/z42.testagent.zpkg`。
+// 构建树里 home = VM 所在目录的上一级（artifacts/build/runtime）。CI 原先用一个单独的 step 做这件事。
+int _provisionTestAgent(string root) {
+    string agent = _ensureTestAgent(root);
+    if (agent.Length == 0) { ConsoleError.WriteLine("error: build test-agent failed"); return 1; }
+    string home = Path.GetDirectoryName(Path.GetDirectoryName(_z42bDeviceVm(root)));
+    string dest = Path.Join(home, "runtimes/dev/workloads/test");
+    Directory.Create(dest);
+    File.Copy(agent, Path.Join(dest, "z42.testagent.zpkg"));
+    Console.WriteLine("  test agent → " + dest);
+    return 0;
+}
