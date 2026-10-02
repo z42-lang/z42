@@ -1,3 +1,4 @@
+// requires-caps: threads
 // add-threading-stdlib (2026-05-20): smoke test — spawn an empty worker
 // and join. Verifies the basic plumbing (Thread.Start → JoinHandle in
 // VmCore.threads → join → JOIN_OK discriminator → quiet return).

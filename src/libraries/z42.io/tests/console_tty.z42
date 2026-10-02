@@ -1,3 +1,4 @@
+// requires-caps: tty
 // extend-z42-io-script-helpers (2026-05-16)：IsTerminal smoke test。
 //
 // 在 test runner 下 stdout/stderr 被 capture，IsTerminal() 应返回 false；

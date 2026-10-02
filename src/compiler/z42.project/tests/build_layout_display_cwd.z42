@@ -10,8 +10,8 @@
 //
 // 也就是说这三条在 cwd == "/" 下失败**不是 Display 的缺陷**，是测试对环境的假设不成立。
 // 故按 `z42.io/operating_system`（排除理由同样是 current_dir）的既有先例，把它们隔离到
-// 本文件，由 `scripts/test/xtask_test_embedded_golden.z42` 的 `_targetExcludes` 挡在
-// tier-2 之外；同目录 `build_layout.z42` 里与 cwd 无关的 8 条继续在全部目标上跑。
+// 本文件，首行声明 `env`（进程环境：cwd 等）——没有它的平台（app 沙箱、wasm）上整个文件记为
+// skipped；同目录 `build_layout.z42` 里与 cwd 无关的 8 条继续在全部目标上跑。
 namespace Z42ProjectBuildLayoutDisplayCwdTests;
 
 using Std.IO;

@@ -1,3 +1,4 @@
+// requires-caps: threads
 // fix-spawn-env-gc-root：`Thread.Start` 捕获的环境，在「spawn 完成」到「worker 把它装进帧」
 // 之间必须仍然是 GC 根。
 //

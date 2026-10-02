@@ -1,3 +1,4 @@
+// requires-caps: fs
 // add-stream-overloads-to-format-parsers (2026-05-24): Stream-based
 // TOML parse / write overloads on TomlValue.
 namespace Z42TomlStreamTests;

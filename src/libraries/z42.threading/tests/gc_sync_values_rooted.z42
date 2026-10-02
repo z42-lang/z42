@@ -1,3 +1,4 @@
+// requires-caps: threads
 // store-sync-values-in-heap：同步原语持有的值必须对 GC 可达。
 //
 // 缺陷形状（修复前）：`Channel` / `Mutex` / `RwLock` 把值存进 Rust 侧的 mpsc 队列 / parking_lot

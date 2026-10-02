@@ -1,3 +1,4 @@
+// requires-caps: fs
 // add-z42-io-ergonomics-bytes-glob (2026-05-27): Directory.CreateTempDir alias.
 namespace Z42IoDirectoryTempTests;
 

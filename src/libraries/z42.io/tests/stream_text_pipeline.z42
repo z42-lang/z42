@@ -1,3 +1,4 @@
+// requires-caps: fs
 // add-encoding-and-stream-text (2026-05-24): end-to-end text pipelines
 // chaining StreamWriter / StreamReader with byte Streams.
 namespace Z42IoStreamTextPipelineTests;

@@ -1,3 +1,4 @@
+// requires-caps: threads
 // add-threading-stdlib (2026-05-20): worker throws an exception; main
 // thread's Join() observes a Std.ThreadException whose Message carries
 // the worker exception's formatted text (Decision 5 in design.md).

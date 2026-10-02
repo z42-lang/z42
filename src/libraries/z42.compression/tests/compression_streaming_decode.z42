@@ -1,3 +1,4 @@
+// requires-caps: fs, native-interop
 // add-compression-streaming-decode (2026-06-09): true per-chunk streaming
 // decode via CompressionDecoderStream. Verifies small-count Read serves
 // decompressed bytes incrementally (feed → buffer → finish), a large payload

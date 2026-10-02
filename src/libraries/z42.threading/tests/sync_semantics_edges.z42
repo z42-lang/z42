@@ -1,3 +1,4 @@
+// requires-caps: threads
 // store-sync-values-in-heap：Mutex / RwLock / Channel 改由 z42 写在 Monitor 之上后的边界语义。
 //
 // 两类用例：

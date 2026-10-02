@@ -1,3 +1,4 @@
+// requires-caps: process
 // add-std-process: timeout tests.
 //
 // Timeout API takes a `long` (milliseconds) until z42.time lands and an

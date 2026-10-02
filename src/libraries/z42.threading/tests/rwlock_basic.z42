@@ -1,3 +1,4 @@
+// requires-caps: threads
 // add-sync-primitives-rwlock (2026-05-20): RwLock<T> single-thread +
 // cross-thread coverage. Stored mutable state goes through static fields
 // per closure.md §4.4 (callback body can't escape value-type writes).

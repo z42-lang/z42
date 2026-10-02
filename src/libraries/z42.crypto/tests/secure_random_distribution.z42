@@ -1,3 +1,4 @@
+// requires-caps: entropy
 // add-csprng-to-crypto (2026-05-26): statistical sanity check.
 //
 // NOT a NIST randomness test suite — just guards against gross failures

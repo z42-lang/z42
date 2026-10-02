@@ -1,3 +1,4 @@
+// requires-caps: socket-listen
 // add-z42-net-udp-connected (2026-05-27): Connect / SendConnected / Disconnect.
 namespace Z42NetUdpConnectedTests;
 

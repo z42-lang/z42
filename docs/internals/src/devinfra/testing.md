@@ -238,11 +238,11 @@ golden 用例的文件约定：
 查用例元数据不必读源码：
 
 ```bash
-./xtask test list [--dir <bucket>] [--filter <kw>] [--kind golden|test] [--rid <rid>] [--json]
+./xtask test list [--dir <bucket>] [--filter <kw>] [--kind golden|test] [--json]
 ```
 
-它把「用例名 → 运行命令 / interp·jit / 平台门控」列成表。`--rid browser-wasm`（或某个
-ios/android RID）标出哪些用例因目标平台缺能力（socket / threads / native-fs）被排除。
+它把「用例名 → 运行命令 / interp·jit / 声明的能力要求（`requires`）」列成表；缺能力的平台上，
+设备上的 runner 会把这些用例记为 skipped（见[跨平台测试 §4](../testing/cross-platform.md)）。
 
 ## 4. 缩窄迭代范围
 
@@ -339,8 +339,8 @@ fixture `.zbc` + 收 stdlib zpkg 进平台 bundle；`run` 跑测试（C ABI harn
 ```
 
 `test embedded` 把 `src/tests` golden + stdlib `[Test]` 汇成一个 bundle，穿过**嵌入**的 VM 跑。
-缺目标平台能力（socket / threads / native-fs）的用例整例排除；`test list --rid <rid>` 能先查
-排除名单。两种覆盖模式：
+用例源码声明的 `// requires-caps:` 随 bundle 下发，目标 VM 缺其中任一能力时该用例记为 skipped、不加载；
+`test list` 能先查每个用例声明了什么。两种覆盖模式：
 
 - **默认（无 `--shard`）**：带 cap 的类别 round-robin 采样——每个类别都有代表用例、不偏向字母序
   靠前的类。定位是「验嵌入执行路径通不通」，本地/ 手动快速跑。

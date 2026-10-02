@@ -1,6 +1,6 @@
 # 嵌入式运行与测试 agent（app-run 核心 · bundle · 栈预算）
 
-> 对齐：2026-09-17（change `restructure-docs-three-books`）｜ 代码：
+> 对齐：2026-10-02（change `caps-replace-target-excludes`）｜ 代码：
 > `src/runtime/src/app.rs`（`z42::app::run` 核心）、`src/runtime/src/host/mod.rs`（C ABI
 > `z42_host_run_app`）、`src/runtime/include/z42_host.h`（公有头）、
 > `src/runtime/crates/z42-host`（Rust wrapper）、
@@ -132,11 +132,11 @@ readAsset(path) -> bytes               // 读回报告文件
 
 ```
 _enumerateCorpus(root, filter)        → _CorpusCase[]   （结构化，rid 无关）
-  → _targetExcludes(rid, name) 过滤    → included[]      （平台能力门控）
   → 二选一：
-       shardN > 0  → _shardCorpus(included, k, n) → selected[]   （全覆盖分片，不 cap）
-       shardN == 0 → _sampleCorpus(included, cap) → selected[]   （按类 round-robin 采样）
+       shardN > 0  → _shardCorpus(all, k, n)  → selected[]   （全覆盖分片，不 cap）
+       shardN == 0 → _sampleCorpus(all, cap)  → selected[]   （按类 round-robin 采样）
   → 逐 selected 编译（kind → golden / unit / dir-unit）→ manifest.json
+    （每条带上源码声明的 requires；平台能力门控在设备上由 BundleRunner 做，见 cross-platform.md §4）
 ```
 
 ### 5.1 枚举是唯一 SoT
@@ -146,8 +146,8 @@ _enumerateCorpus(root, filter)        → _CorpusCase[]   （结构化，rid 无
 ③ stdlib `[Test]` 目录单元 ④ stdlib lib-goldens。
 **`xtask test list`（只读 catalog）与 bundle 构建共用这一个枚举**——两个消费者、零漂移。
 
-枚举**刻意 rid 无关**：能力门控与 cap 是 bundle 时的策略，不混进枚举，
-所以 `test list --rid <rid>` 能对同一份用例集叠加任意平台视角（标为 `EXCL(<rid>)`）。
+枚举**刻意 rid 无关**：cap 是 bundle 时的策略，能力门控在设备上按运行期能力集判定，都不混进枚举；
+`test list` 照列每个用例声明的 `requires`。
 
 > **不变式**：枚举顺序稳定，且**同 bucket 的用例在数组里连续**。
 > `_sampleCorpus` 靠这一点做零额外分配的分桶，`_shardCorpus` 靠它让每片天然跨类别均衡。

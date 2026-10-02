@@ -1,3 +1,4 @@
+// requires-caps: fs
 // add-gc-heap-snapshot-export (2026-05-24): end-to-end test that
 // `Std.GC.WriteHeapSnapshot(path)` writes a V8 `.heapsnapshot` JSON
 // file containing the expected top-level keys + root sentinel.
@@ -7,6 +8,7 @@ namespace Z42IoGcHeapSnapshotTests;
 using Std.IO;
 
 [Test]
+[Skip(platform: "android", reason: "内存而非能力：嵌入 runner 共享一个 VM，跑到这里时堆已很大，整堆快照膨胀到数 GB，模拟器的 low-memory-killer 直接杀掉 app")]
 void test_write_snapshot_creates_nonempty_file() {
     string base = File.CreateTempDir("z42snap");
     string path = base + "/snapshot.heapsnapshot";
@@ -39,6 +41,7 @@ void test_write_snapshot_creates_nonempty_file() {
 }
 
 [Test]
+[Skip(platform: "android", reason: "内存而非能力：嵌入 runner 共享一个 VM，跑到这里时堆已很大，整堆快照膨胀到数 GB，模拟器的 low-memory-killer 直接杀掉 app")]
 void test_returned_bytes_equal_file_length() {
     string base = File.CreateTempDir("z42snap");
     string path = base + "/snapshot-len.heapsnapshot";

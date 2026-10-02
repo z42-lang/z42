@@ -1,3 +1,4 @@
+// requires-caps: socket-listen
 // add-z42-net-tls (2026-06-03): https:// is now accepted (TLS landed), so the
 // old "https throws NotSupportedException" assertion is gone. What remains
 // here are the scheme/format error paths that are still rejected: a missing

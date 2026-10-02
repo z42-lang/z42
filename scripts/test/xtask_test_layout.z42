@@ -202,8 +202,8 @@ int _tlCheckCapUses(string root, string[] active) {
             string t = lines[i].Trim();
             i = i + 1;
             string[] names = new string[0];
-            if (t.StartsWith("//") && t.Contains("requires-caps:")) {
-                names = t.Substring(t.IndexOf("requires-caps:") + 14).Split(",");
+            if (t.StartsWith("// requires-caps:")) {
+                names = t.Substring(17).Split(",");
             } else if (t.StartsWith("[") && t.Contains("Skip(") && t.Contains("feature:")) {
                 names = new string[]{ _tlQuotedAfter(t, "feature:") };
             }

@@ -1,3 +1,4 @@
+// requires-caps: native-interop
 // add-z42-compression (2026-05-22): gzip round-trip via the dlopened
 // `libz42_compression` cdylib (or statically-linked rlib on wasm).
 namespace Z42CompressionGzipTests;
