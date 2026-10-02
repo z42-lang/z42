@@ -1,6 +1,6 @@
 # 测试门禁（GREEN gate）
 
-> 对齐：2026-09-17（change `restructure-docs-three-books`）｜ 代码：`scripts/test/xtask_test.z42`（gate 编排 + stage 清单）、`scripts/test/xtask_test_*.z42`（各 stage）
+> 对齐：2026-10-02｜ 代码：`scripts/test/xtask_test.z42`（gate 编排 + stage 清单）、`scripts/test/xtask_test_*.z42`（各 stage）
 >
 > 怎么写 `[Test]`、`z42 test` 怎么用 → 参考手册；本页写 **gate 由哪些 stage 组成、谁保证这份清单不漂移、加一个 stage 要改哪两处**。
 
@@ -152,11 +152,14 @@ xtask 起的每个跑 z42 代码的子进程都经 `_z42Proc(exe, libs)` 建（z
 拆分后降到硬限以下的文件用 `xtask test lines --update` 从基线剔除（只降不升）。
 注意软限从来不变红：写个 600 行的新文件 gate 并不会拦。
 
-**`walkers` 是活体对账**（`scripts/test/xtask_test_walkers.z42`）：扫 `src/libraries/z42c.syntax/src`
-里节点类的全集（`Expr` / `Stmt` / `Pattern` / `TypeExpr` 的子类），逐个登记的 walker 文件里找
-`is <类名>`；全集里既不被匹配、又不在该 walker 白名单里的类 → **红**。登记表是 `_walkerRegistry()`
-（当前四个：`MethodTypeParamUse.Consumes` / `ExprTyper._bindExpr` / `StmtBinder._bindStmt` /
-`PatternBinder.Bind`），加新 walker 加一行。**不硬编码计数**——那种计数本身在漂。
+**`walkers` 是活体对账**（`scripts/test/xtask_test_walkers.z42`）：扫节点类的全集——语法树
+`src/compiler/z42c.syntax/src`（`Expr` / `Stmt` / `Pattern` / `TypeExpr` 的子类）+ 绑定树
+`src/compiler/z42c.semantics/src/BoundTree`（`BoundExpr` / `BoundStmt` / `BoundPattern` 的子类），逐个登记的
+walker 文件里找 `is <类名>`；全集里既不被匹配、又不在该 walker 白名单里的类 → **红**。登记表是 `_walkerRegistry()`：
+语法树侧 `MethodTypeParamUse.Consumes` / `ExprTyper._bindExpr` / `StmtBinder._bindStmt` / `PatternBinder.Bind`，
+绑定树侧 `ExprEmitter.Emit` / `StmtEmitter._emitStmt` / `PatternEmitter.EmitMatch` / `FlowAnalyzer._reads/_stmt`
+（后者按「没覆盖即保守当成已赋值」的设计带白名单：不读局部的叶子与 break / continue）。加新 walker 加一行。
+**不硬编码计数**——那种计数本身在漂。
 
 **`diagcodes` 是活体对账 + 一条棘轮**（`scripts/test/xtask_test_diagcodes.z42`）。守的是
 **用户可见契约**：拿到 `E0477` 会去[诊断码全表](../../../reference/src/appendix/error-codes.md)
