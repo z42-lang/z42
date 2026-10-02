@@ -499,7 +499,7 @@ string _seedLibsSource(string root) {
 // 🔴 **快照每轮重取**，不做「已存在就跳过」：跳过会让它停留在更早的一代，而 driver 已经换过代
 //    —— 那正是这一路反复吃亏的「陈旧快照假装是权威」。
 string _seedRunLibs(string root, string profile) {
-    return _tmpDir(root, Path.Join("seed-run-libs", profile));
+    return _compilerWsWork(root, Path.Join("seed-run-libs", profile));
 }
 
 // 注：曾有一个 `_snapshotSeedRunLibs`（从 flat 快照出种子代运行期面）——**已删**。

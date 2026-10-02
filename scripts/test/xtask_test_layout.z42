@@ -12,6 +12,10 @@
 //   ③ `// requires-caps:` 与 `[Skip(feature: "…")]` 只能用「已生效」的能力名。
 //      两处都是 deny-by-default：VM 不报告的名字一律视为「缺」⇒ 用例在**所有平台**上静默跳过——
 //      不红、不报，只是从此没人跑它。typo 和「规划中、运行期还没报」的能力名都是这个下场。
+//   ④ artifacts/build/ 的每个一级目录都在 src/ 下有同名目录（build/ 逐路径镜像 src/）。
+//      谁再往 build/ 下随手建一个 `build/<name>` 工作目录，当场红 —— 输出要跟着 owner 走。
+//      只查一级：编译器 workspace 级中间物（driver-home、自举快照…）与库的扁平 dist 合法地与成员并列。
+//      build/ 不存在（新克隆、只跑本门）时跳过这一条。
 //
 // ## 不判的
 //
@@ -43,6 +47,7 @@ int _testLayout() {
     string[] active = _docListBlock(doc, "caps-active");
     bad = bad + _tlCheckCapVocab(root, doc, active);
     if (active != null) { bad = bad + _tlCheckCapUses(root, active); }
+    bad = bad + _tlCheckBuildMirror(root);
     if (bad > 0) {
         ConsoleError.WriteLine("  " + bad.ToString() + " 处不符 —— 规范见 docs/internals/src/devinfra/test-layout.md");
         return 1;
@@ -221,5 +226,27 @@ int _tlCheckCapUses(string root, string[] active) {
     if (bad == 0) {
         Console.WriteLine("  ✓ " + files.ToString() + " 个文件，" + uses.ToString() + " 处能力声明");
     }
+    return bad;
+}
+
+// ④ artifacts/build/ 一级目录 ⊆ src/ 一级目录。
+int _tlCheckBuildMirror(string root) {
+    Console.WriteLine("④ artifacts/build/ 的一级目录都镜像 src/");
+    string build = _buildDir(root);
+    if (!Directory.Exists(build)) {
+        Console.WriteLine("  - artifacts/build/ 不存在，跳过");
+        return 0;
+    }
+    string[] srcDirs = _enumDirsSorted(Path.Join(root, "src"));
+    string[] got = _enumDirsSorted(build);
+    int bad = 0;
+    foreach (var d in got) {
+        if (!_tlHas(srcDirs, d)) {
+            ConsoleError.WriteLine("  ✗ artifacts/build/" + d + "/ 在 src/ 下没有对应目录 —— 输出要落在 owner 组件的镜像里"
+                + "（测试类用 _testOut / _testOutRootOf，见 scripts/common/xtask_layout.z42）；旧布局的残留用 `xtask clean all` 清掉");
+            bad = bad + 1;
+        }
+    }
+    if (bad == 0) { Console.WriteLine("  ✓ " + got.Length.ToString() + " 个一级目录"); }
     return bad;
 }

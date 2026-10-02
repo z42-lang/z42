@@ -38,7 +38,7 @@ string _buildWasmTesthost(string root, string filter, int shardK, int shardN) {
     // pkg + static harness on top (browser-fetched, not via VFS). xtask keeps corpus
     // build (1); the test-agent is resolved by z42b from the installed `test`
     // workload (dogfood, PR-4) — not handed over by xtask.
-    string outDir = _testOutDir(root, "wasm-test");
+    string outDir = _testOut(root, "src/toolchain/workload/wasm", "");
     int ac = _z42bBuildDeployable(root, manifest, "browser-wasm", outDir);
     if (ac != 0) { ConsoleError.WriteLine("error: z42b build/stage wasm deployable failed"); return ""; }
 
@@ -54,7 +54,7 @@ string _buildWasmTesthost(string root, string filter, int shardK, int shardN) {
 // bundle/manifest.json. node is provisioned on PATH (CI setup-node / local); z42b
 // spawns npx playwright. z42b-device-run PR-1.
 int _runWasmTesthost(string root) {
-    string outDir   = _testOutDir(root, "wasm-test");
+    string outDir   = _testOut(root, "src/toolchain/workload/wasm", "");
     string manifest = Path.Join(outDir, "bundle/manifest.json");
     if (!File.Exists(manifest)) {
         ConsoleError.WriteLine("error: wasm deployable not built — run `test embedded --rid browser-wasm` first (missing " + manifest + ")");

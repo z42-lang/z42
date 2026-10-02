@@ -238,7 +238,7 @@ string _epEnsureProbe(string root, string vm, string driver, string libs) {
             + "across trees (did a PR move the probe without a transitional fallback?)");
         return "";
     }
-    string outDir = _tmpDir(root, "exec-profile");
+    string outDir = Path.Join(_buildMirror(root, "src/bench"), "probe");
     Directory.Create(outDir);
     string zbc = Path.Join(outDir, "capabilities.zbc");
     int cc = _z42Proc(vm, libs).Arg(driver).Arg("--mode").Arg(_z42cMode()).Arg("--")

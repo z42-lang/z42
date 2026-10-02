@@ -70,7 +70,7 @@ int _buildStdlib() {
     //    stdlib 正被重建 → driver 的运行期 Std.* 需一份不随构建 churn 的稳定副本。
     //    只拷 stdlib：driver 的 z42c 兄弟包已 bundle 在其自身 dist（自包含 exe，
     //    simplify-compiler-build），不再拼 {stdlib+z42c} 的 dogfood 目录。
-    string stdlibRun = _tmpDir(root, "stdlib-run/" + profile);
+    string stdlibRun = _compilerWsWork(root, "stdlib-run/" + profile);
     _resetDir(stdlibRun);
     _copyAll(flatDir, stdlibRun, "*.zpkg");
     // z42c.driver 自包含（_buildCompilerViaZ42c 已保证兄弟包在其 dist）→ 直接跑。

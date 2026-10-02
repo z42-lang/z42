@@ -1,6 +1,6 @@
 # 构建编排（`xtask build`）
 
-> 对齐：2026-09-17（change `restructure-docs-three-books`）｜ 代码：`scripts/build/`（`xtask_stdlib.z42` / `xtask_compiler.z42` / `xtask_golden_assets.z42` / `xtask_bootstrap_check.z42` / `xtask_toolchain.z42`）、`scripts/common/xtask_layout.z42`
+> 对齐：2026-10-02（change `unify-test-output-dirs`）｜ 代码：`scripts/build/`（`xtask_stdlib.z42` / `xtask_compiler.z42` / `xtask_golden_assets.z42` / `xtask_bootstrap_check.z42` / `xtask_toolchain.z42`）、`scripts/common/xtask_layout.z42`
 >
 > 产物落在哪、哪个目录归谁，见[产物目录布局](artifacts-layout.md)；命令面见 `xtask build -h`。
 
@@ -57,7 +57,7 @@ graph TD
 ```
 
 阶段一用 `z42c build --workspace`：拓扑序编各成员，兄弟依赖由 workspace 内部解析。
-阶段二**直接跑**这个 driver 编 stdlib——`Z42_LIBS` 指向 `artifacts/tmp/stdlib-run/<profile>`
+阶段二**直接跑**这个 driver 编 stdlib——`Z42_LIBS` 指向 `artifacts/build/compiler/stdlib-run/<profile>`
 的快照，因为 stdlib 正在被重建，运行中的 driver 需要一份稳定的 `Std.*` 副本。
 阶段三用 hard-link（零拷贝）把各成员 dist 汇聚成单目录。
 
@@ -84,8 +84,8 @@ graph TD
 
 `build compiler` 就是单独执行阶段一 + 成员 zpkg 完整性校验。
 
-> **`artifacts/build/` 只放编译 / publish 产物**。构建与测试的**中间态**——`stdlib-run` 快照、
-> `selfhost-gen1` 等工作区——一律落 `artifacts/tmp/`（gitignored、可重生）。（`alllibs` 扁平视图 `build/views/<profile>/all`
+> **中间态跟着 owner 落 `artifacts/build/` 的镜像**：`stdlib-run` 快照、`selfhost-gen1` 等编译器自举工作区是
+> 编译器 workspace 级的，落 `build/compiler/<name>`；测试类落各组件的 `tests/`（见[产物布局 §3](artifacts-layout.md)）。（`alllibs` 扁平视图 `build/views/<profile>/all`
 > 已于 2026-10-01 删除：开发树的 `Z42_LIBS` 只是 stdlib flat，编译器包运行期经 `Z42_PROBING_PATHS`，见 [产物布局](artifacts-layout.md)。）
 
 ### driver 的自包含化与两处破环
@@ -110,7 +110,7 @@ gen2 = **用 gen1 的 driver 再跑一遍同样的 `--workspace`**；**gen1 与 
 实现在 `_testSelfHostByteIdentical`（`scripts/build/xtask_compiler.z42`）：
 
 ```
-snapshot gen1: 拷 canonical dist 的每个 <member>.zpkg → artifacts/tmp/selfhost-gen1
+snapshot gen1: 拷 canonical dist 的每个 <member>.zpkg → artifacts/build/compiler/selfhost-gen1
 rebuild gen2:  gen1 的自包含 driver 跑 build --workspace（Z42_LIBS = stdlib 扁平视图）→ 覆盖 canonical dist
 compare:       逐成员 _sectionsEqualIgnoreBlid(gen1, gen2)
 ```
