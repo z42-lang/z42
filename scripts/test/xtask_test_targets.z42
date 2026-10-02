@@ -535,7 +535,7 @@ int _smokeBundleHost(string root, TargetTooling tt) {
     if (!File.Exists(src)) { return 0; }
     Console.WriteLine("");
     Console.WriteLine("── bundle-host (z42b test <manifest.json> --rid host) ──");
-    string outDir = Path.Join(_buildTestOutDir(root, "embedded-test"), "smoke-bundle-host");
+    string outDir = Path.Join(_testOutDir(root, "embedded-test"), "smoke-bundle-host");
     Directory.Create(outDir);
     string zbc = Path.Join(outDir, "pass_unit.zbc");
     int ec = _exec(_z42Proc(tt.Vm, tt.Libs).Arg(tt.DriverZpkg).Arg("--mode").Arg(_z42cMode())

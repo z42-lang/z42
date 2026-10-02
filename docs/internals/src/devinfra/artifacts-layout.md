@@ -43,7 +43,6 @@
 | （边界检查）| `build/compiler/bootstrap-check/` | `xtask test bootstrap` 的双轨隔离工作目录 |
 | `src/toolchain/<comp>/` | `build/toolchain/<comp>/{dist,.cache,publish}/` | launcher / builder / devtools / interactive 等：清单只配 `output_dir`，三个子目录走级联默认 |
 | `src/tests/<rel>` | `build/tests/<rel>` | golden 编译出的 `.zbc` 镜像 |
-| （wasm 测试）| `build/wasm-test/` | wasm deployable（agent + bundle + libs）|
 
 **per-member 的产物路径不是硬编码的**：`scripts/common/xtask_layout.z42` 读各 workspace toml 的
 `[workspace.build].output_dir` / `cache_dir` 模板（正是 z42c 的 `WorkspaceBuild.PlanLayout` 消费的
@@ -121,6 +120,13 @@ z42c 写产物同样是就地写 ⇒ 穿透到 `libraries/z42.core/release/dist/
 | `tmp/targets/<proj>` | `test targets` | manifest target fixture 输出 |
 | `tmp/incr-reconcile` | `test incremental` | 增量 vs 全量对账的两份产物 |
 | `tmp/fingerprint` | `test fingerprint` | base 与本树编译器各编一份 stdlib 的对比场地 |
+| `tmp/embedded-test` | `test embedded` / `test targets` | golden → [Test] 归一的 bundle、语料 bundle、bundle-host smoke |
+| `tmp/desktop-test` | `test platform desktop` | C ABI R1–R7 的夹具 zbc 与链接出的 `r1_r7` |
+| `tmp/wasm-test` | `test embedded --rid browser-wasm` | wasm deployable（agent + bundle + libs + harness）；同一命令的 `--run` 由 z42b 经 `Z42_WASM_DEPLOY` 交给 playwright |
+
+> 上面三个测试输出树 2026-10-02 前在 `build/<name>`，与 `runtime/` `libraries/` 并列、破坏「`build/` 镜像 `src/`」。
+> 它们只被**同一个测试命令**的后续阶段读（wasm 的 `--run`），不是跨命令的产物，按上面的判据归 `tmp/`
+> （tidy-test-output-dirs）。
 | `tmp/exec-profile` | bench / profile | 执行画像探测 |
 | `tmp/install-test-*` | `test packages` | 打包自检的一次性目录 |
 
