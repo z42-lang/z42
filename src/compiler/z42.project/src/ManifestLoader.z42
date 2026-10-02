@@ -205,7 +205,7 @@ public static class ManifestLoader {
         if (root.TryGet("project", ref p)) {
             p.TryGetValue<string>("name",    ref name);
             p.TryGetValue<string>("version", ref version);
-            p.TryGetValue<string>("kind",    ref kind);      // 未命中保留默认 "lib"
+            p.TryGetValue<string>("kind",    ref kind);      // 未命中保留默认 "lib"；合法性由 ManifestKnobs.Resolve 判
             hasEntry = p.TryGetValue<string>("entry", ref entry);
             hasPack  = p.TryGetValue<bool>("pack",    ref pack);
         }

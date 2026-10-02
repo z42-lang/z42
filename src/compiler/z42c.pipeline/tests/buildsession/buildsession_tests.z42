@@ -68,6 +68,16 @@ void test_unknown_optimize_name_is_usage_error() {
     Assert.Equal(true, rep.ErrorsText().Contains("unknown optimization `no-such-pass`"));
 }
 
+// `kind` 写错 = 用法错误（此前静默当成 lib 编完）。
+[Test]
+void test_unknown_kind_is_usage_error() {
+    string dir = _mkProj("kind", _hdr("bs.kind", "exx"), "lib.z42", "int Helper() { return 1; }\n");
+    CollectingReporter rep = new CollectingReporter();
+    BuildResult r = _run(dir, false, rep);
+    Assert.Equal(BuildExit.UsageError, r.Code);
+    Assert.Equal(true, rep.ErrorsText().Contains("unknown kind \"exx\""));
+}
+
 // 本路径只产 packed ⇒ 显式 `pack = false` 是用法错误（而非悄悄出一个 packed）。
 [Test]
 void test_pack_false_rejected_on_packed_only_path() {
