@@ -15,7 +15,7 @@
 //   package sdk | runtime | workload | index
 //   deps    check | install | env
 //   bench   (empty=e2e) | stdlib | targets
-//   run / profile / example / clean / feature-matrix
+//   run / profile / example / clean
 //
 // 命令树、每个叶子的 flag/positional、逐层 `-h`、未知命令报错都在 xtask_cli.z42
 // （`_runCli` + 各 `_xRouter()` / `_dispatchX`）——Main 只做 argv 取用与转发。
@@ -25,7 +25,7 @@
 // 本文件只剩**入口**：`Main`（校验 VM → 转 _runCli）与 `run` 直通。任何 build /
 // test / deps 的 handler 都不在这里——它们归各自的族目录
 // （relocate-xtask-handlers, 2026-09-05：此前 _buildRuntime / _buildStdlib /
-// _regenCore / _testChanged / _depsCheck / _clean / _featureMatrix 错落在此，
+// _regenCore / _testChanged / _depsCheck / _clean 错落在此，
 // 与「Main 只做转发」的自述矛盾）。`run` 留下是因为它是 _runCli 在 Resolve 之前
 // 就拦截的裸直通，属于入口层而非某个命令族。
 namespace Z42Xtask;

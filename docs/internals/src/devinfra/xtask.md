@@ -21,7 +21,6 @@
 | `bench` | 基准；裸 `bench` = e2e 场景（见[性能基准与回归门禁](benchmarking.md)）|
 | `deps` | 工具链依赖：`check` / `install` / `env` |
 | `profile` | 对单个 `.z42` 脚本做 cpu / heap / threads / e2e 剖析 |
-| `feature-matrix` | 逐个 cargo feature 组合验证可编译 |
 | `clean` | 删构建产物（`tests` / `bench` / `tmp` / `all`，默认删生产 cache/dist；各自删什么见[产物目录布局](artifacts-layout.md) §4）|
 | `layout` | 打印产物布局路径：无参列出全部 `key  path`，`layout <key>` 只打印一条（给 CI / 脚本查询，见[产物目录布局](artifacts-layout.md)）|
 | `run` | 把参数原样透传给 **PATH 上的 `z42` launcher**（找不到 launcher 即报错退出）|

@@ -72,6 +72,10 @@ jobs:
           filters: |
             platform:
               - 'src/runtime/**'
+              # 根 .cargo/config.toml（target-dir / wasm rustflags）改了 = 所有 cargo 构建都变了。
+              # 此前只在 `vm` 里，由 verify-features 兜着；那个 job 删了（drop-feature-matrix），
+              # 这几个真正在各目标平台上编 runtime 的 package-* job 得接过来。
+              - '.cargo/**'
               - 'src/toolchain/workload/**'
               # 打包管道自身 + 消费包的 e2e（fix-package-gates-false-red, 2026-09-06）：
               # 此前 package-* 只由上面几项触发，只改 scripts/package/ 或 dist e2e 的 PR
@@ -1073,56 +1077,6 @@ jobs:
           set -euo pipefail
           xtask test vscode-syntax
 
-  # 2026-05-07 add-runtime-feature-flags (P4.1): verify all 4 feature presets
-  # compile on host target. The real cross-compiles (wasm32 / aarch64-apple-ios /
-  # aarch64-linux-android) live in package-{wasm,ios,android}.
-  #
-  # `cargo check` 而不是 `cargo build --release`（speed-up-ci-quick-wins）：这个 job 回答的是
-  # 「各 feature 组合能不能编过」—— 类型检查 + cfg 分支，全在 check 里。原先 4 次 release build
-  # 每次都走 z42 crate 的 fat-LTO 链接（`lto = true, codegen-units = 1`），约 5 min 里大头是
-  # codegen + 链接，而产物随即丢弃。保留 `--release`：让 cfg(debug_assertions) 分支与发布形态一致。
-  feature-matrix:
-    name: verify-features(linux-x64)
-    timeout-minutes: 40
-    needs: changes
-    if: ${{ needs.changes.outputs.vm == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      # 🔴 target 目录**不是** src/runtime/target：根 `.cargo/config.toml` 把 target-dir 重定向到
-      # artifacts/build/runtime，本 job 的 cargo 也落在那里。此前这里写的是裸 `src/runtime`
-      # （即缓存 src/runtime/target）并注释「用默认 target」—— 缓存的是一个空目录，
-      # 这个 key 从来没起过作用。独立 key：feature 组合的依赖图与 host 构建不同。
-      - name: Cache Rust deps (Swatinem)
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: src/runtime -> ../../artifacts/build/runtime
-          shared-key: feature-matrix-v2
-
-      - name: Check interp-only (no cranelift)
-        run: cargo check --locked --release --manifest-path src/runtime/Cargo.toml --no-default-features --features interp-only
-
-      - name: Check wasm preset (host target)
-        run: cargo check --locked --release --manifest-path src/runtime/Cargo.toml --no-default-features --features wasm
-
-      - name: Check ios preset (host target)
-        run: cargo check --locked --release --manifest-path src/runtime/Cargo.toml --no-default-features --features ios
-
-      - name: Check android preset (host target)
-        run: cargo check --locked --release --manifest-path src/runtime/Cargo.toml --no-default-features --features android
-
-      - name: Verify cranelift excluded under interp-only
-        run: |
-          if cargo tree --manifest-path src/runtime/Cargo.toml \
-             --no-default-features --features interp-only 2>&1 | grep -q "cranelift"; then
-            echo "ERROR: cranelift still present in interp-only build" >&2
-            exit 1
-          fi
-
   # ── iOS packaging ──────────────────────────────────────────────────────
   # Packages ios-arm64 + iossim-arm64. Requires Xcode (pre-installed on
   # macos-26 arm64) + iOS Rust targets. The source bootstrap also builds z42c.
@@ -1319,6 +1273,19 @@ jobs:
           cache-key: wasm-v2
           rust-targets: wasm32-unknown-unknown
 
+      # 从已删的 verify-features job 接过来的唯一一条独有检查（drop-feature-matrix，2026-10-02）：
+      # interp-only 的依赖图里不许混进 cranelift（jit 依赖）。其余「各 feature 组合编不编得过」由
+      # package-{wasm,ios,android} 在真实目标平台上的完整构建覆盖。`cargo tree` 只解析依赖图、不编译。
+      - name: Verify cranelift excluded under interp-only
+        shell: bash
+        run: |
+          set -euo pipefail
+          if cargo tree --locked --manifest-path src/runtime/Cargo.toml \
+             --no-default-features --features interp-only 2>&1 | grep -q "cranelift"; then
+            echo "ERROR: cranelift still present in interp-only build" >&2
+            exit 1
+          fi
+
       - name: Build wasm platform (pkg-web/ + pkg-nodejs/ via test platform wasm build)
         shell: bash
         run: |
@@ -1425,9 +1392,6 @@ jobs:
     needs:
       - build-and-test
       - host-package
-      # feature-matrix: removed from needs (no artifact produced; pure compile-check
-      # now gated on vm changes — a skip would block publish). It still gates
-      # correctness independently.
       - package-ios
       - package-android
       - package-wasm
@@ -1913,9 +1877,10 @@ jobs:
 
   # ── 单一结论 job（ci-ok）──────────────────────────────────────────────────────
   # 汇总本 workflow 的**所有** job：任何一个 failure / cancelled ⇒ 红；success / skipped ⇒ 绿。
-  # 用途：分支保护只需要求这一个 check。此前保护里逐个列 test-host ×4 + verify-features +
-  # compiler-checks —— 新增 / 改名 job 时容易漏（verify-selfhost 删掉后保护里还挂着它，曾让
-  # PR 永远等不到这个 check）。`if: always()`：上游失败时本 job 也要跑出「红」，而不是被 skip
+  # 用途：分支保护只需要求这一个 check。⚠️ 截至 2026-10-02 实际的保护设置**仍**逐个列着
+  # test-host ×4 + verify-features + compiler-checks（没有 ci-ok）—— 新增 / 改名 job 时容易漏
+  # （verify-selfhost 删掉后保护里还挂着它，曾让 PR 永远等不到这个 check；drop-feature-matrix
+  # 删 verify-features 时又撞上一次）。`if: always()`：上游失败时本 job 也要跑出「红」，而不是被 skip
   # （被 skip 的 required check 视同通过 —— 那正是要避免的）。
   # 新增 job 时把它加进下面的 needs（漏加只是少汇总一个，不会误红）。
   ci-ok:
@@ -1933,7 +1898,6 @@ jobs:
       - stdlib-jit-consistency
       - stdlib-interp-consistency
       - compiler-checks
-      - feature-matrix
       - package-ios
       - package-android
       - package-wasm

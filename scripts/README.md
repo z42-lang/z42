@@ -261,7 +261,7 @@ scripts/
 │   ├── xtask_stdlib.z42         build stdlib（z42c build --workspace + 扁平视图）+ build sdk / stage-toolchain
 │   ├── xtask_compiler.z42       build/test compiler（自建 + 不动点 + units）
 │   ├── xtask_compiler_e2e.z42   z42c 自举 e2e oracle 套件（div-by-zero 验证）
-│   ├── xtask_runtime.z42        build runtime（cargo z42vm）+ feature-matrix（逐 feature 组合编译）
+│   ├── xtask_runtime.z42        build runtime（cargo z42vm）
 │   ├── xtask_toolchain.z42      build workload / build toolchain（apphost publish，路径从各 toml 读）
 │   ├── xtask_golden_assets.z42  **`build test` 的实现**（golden .zbc 编译；_buildTest / _regenGolden / _regenCore）
 │   ├── xtask_clean.z42          clean（production / tests / bench / tmp / all，见 artifacts-layout.md §4）
