@@ -314,7 +314,7 @@ int _runBundleHost(string manifestPath, string format) {
     return BundleRunner.ExitCode(all);
 }
 
-// Parse a bundle manifest (`{cases:[{name,zbc[,entry][,expected]}]}`) into
+// Parse a bundle manifest (`{cases:[{name,zbc[,entry][,expected][,requires]}]}`) into
 // BundleCase[]. `entry` present → golden; absent → unit (Entry null). Mirrors the
 // on-device agent's adapter — the JSON glue is per-host; the execution is shared.
 BundleCase[] _parseBundleManifest(string manifestPath) {
@@ -329,6 +329,12 @@ BundleCase[] _parseBundleManifest(string manifestPath) {
         string entry = null;    c.TryGetValue<string>("entry", ref entry);
         string expected = null; c.TryGetValue<string>("expected", ref expected);
         outp[i] = new BundleCase(name, zbc, entry, expected);
+        if (c.ContainsKey("requires")) {
+            JsonValue rq = c.Get("requires");
+            string[] reqs = new string[rq.Count()];
+            for (int k = 0; k < reqs.Length; k = k + 1) { reqs[k] = rq.At(k).AsString(); }
+            outp[i].Requires = reqs;
+        }
     }
     return outp;
 }

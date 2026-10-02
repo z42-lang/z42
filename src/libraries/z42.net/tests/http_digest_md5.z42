@@ -1,3 +1,4 @@
+// requires-caps: socket-listen
 // add-z42-net-http-digest-auth (2026-05-31): RFC 7616 / RFC 2617 Digest
 // MD5 auth — challenge-response 401 retry roundtrip.
 namespace Z42NetHttpDigestMd5Tests;

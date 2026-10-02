@@ -1,3 +1,4 @@
+// requires-caps: fs
 // add-std-io-polish (2026-05-12)：File.Copy + File.Move 测试。
 // 隔离写盘到 File.CreateTempDir 建的临时目录（跨平台可写；不硬编码 /tmp）。
 namespace Z42IoFileExtrasTests;

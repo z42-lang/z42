@@ -1,3 +1,4 @@
+// requires-caps: fs
 // add-buffered-stream (2026-05-24): BufferedStream behaviour.
 namespace Z42IoBufferedStreamTests;
 

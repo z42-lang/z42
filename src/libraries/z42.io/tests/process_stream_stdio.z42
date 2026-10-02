@@ -1,3 +1,4 @@
+// requires-caps: fs, process
 // add-process-stream-stdio (2026-05-24): ProcessStdinStream /
 // ProcessOutputStream behaviour — Stream API over live child pipes.
 namespace Z42IoProcessStreamStdioTests;

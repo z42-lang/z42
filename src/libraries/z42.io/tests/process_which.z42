@@ -1,3 +1,4 @@
+// requires-caps: process
 // add-process-which (2026-05-26): Std.IO.Process.Which() PATH lookup.
 //
 // Tests assume POSIX (`sh` is on $PATH in any sane Unix env). Windows

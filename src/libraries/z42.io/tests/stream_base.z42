@@ -1,3 +1,4 @@
+// requires-caps: fs
 // add-z42-io-stream (2026-05-24): bare Stream base class behaviour —
 // every operation throws NotSupportedException unless a subclass
 // overrides; capability flags default to false.

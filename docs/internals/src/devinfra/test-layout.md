@@ -29,7 +29,7 @@
 | 组件的测试放在组件内还是集中放 | **放组件内** `<component>/tests/` | 集中目录会混进不同 owner 的用例：改一个组件时既不知道该跑哪些，也不知道该看哪些 |
 | 语言 / VM 特性测试放哪 | **保留 `src/tests/`，只放语言 / VM 特性** | 它们同时测编译器与 VM，没有单一 owner；对标 dotnet/runtime 的 `src/tests/` |
 | 整程序性能场景放哪 | **`src/bench/`** | 不是测试（不判对错，只计时），也不属于 runtime（测的是编译器 + VM + stdlib 全链路）。微基准仍跟着代码走（各库 `bench/`、`src/runtime/benches/`），与 Rust / Go 的惯例一致；整程序套件做成与 `src/tests` 并列的独立目录，与 Swift / Node 顶层 `benchmark/` 同理 |
-| 平台过滤用什么表达 | **能力名**（`// requires-caps:` / `[Skip(feature:)]`）；只有能力表达不了的 OS 差异才用 `[Skip(platform:)]` | 按名字维护的排除表（`_targetExcludes`）说不清每条为什么在那里，而且只增不减 |
+| 平台过滤用什么表达 | **能力名**（`// requires-caps:` / `[Skip(feature:)]`）；只有能力表达不了的 OS 差异才用 `[Skip(platform:)]` | 按用例名维护的排除表说不清每条为什么在那里，而且只增不减；按 rid 写死的能力表必然与运行期漂移 |
 | golden 的能力声明用 marker 文件还是源码头注释 | **头注释 `// requires-caps: a, b`** | 与 bench 场景已有的写法、解析函数共用；flat 模式用例不必为此多建一个 sidecar |
 | harness 驱动的工程树放在 `tests/` 的哪里 | **保留子目录 `tests/fixtures/<suite>/`** | 直接放 `tests/<suite>/` 会被 z42b 的单元发现与孤儿源守卫当成「没人认领的源」判红；保留名同 Go 的 `testdata/`，规则一条、不需要名单 |
 | 测试输出放哪 | **所属组件的输出目录 + `/tests/`**（⏳） | 各组件输出目录本就镜像 `src/`，测试输出跟着镜像，不需要另一套路径规则 |
@@ -145,10 +145,16 @@ Rust 侧的 `*_tests.rs` 与 `tests/*.rs` 按 cargo 惯例，不在此列。
 | ② 能力 | golden：源码头注释 `// requires-caps: threads, socket`；`[Test]`：`[Skip(feature: "threads", reason: "…")]` | 会进 app 语料、但需要某种能力的用例 |
 | ③ 平台名 | `[Skip(platform: "windows", reason: "…")]` | 能力词表表达不了的真实 OS 差异，例如 pty 只在 unix 上有 |
 
-匹配规则：用例声明的能力 ⊆ 该平台的能力集时才跑，否则记为跳过。能力集是 VM 的**运行期真值**
-（`Std.Platform.Capabilities()`），未知名字一律视为「缺」（deny-by-default）。⏳ golden 的
-`// requires-caps:` 目前只有 `xtask bench` 读取；golden runner 与 app 语料读取它之后，取代按名字排除的
-`_targetExcludes`（`scripts/test/xtask_test_embedded_golden.z42`）。
+匹配规则：用例声明的能力 ⊆ 目标 VM 的能力集时才跑，否则记为 skipped。能力集是 VM 的**运行期真值**
+（`Std.Platform.Capabilities()`），未知名字一律视为「缺」（deny-by-default）。
+
+**`// requires-caps:` 的写法**：源码里**单独一行** `// requires-caps: fs, env`（trim 后以 `// requires-caps:` 开头；
+散文里提到这个词不算声明）。单文件用例写在文件里，目录用例写在任一 `.z42` 里（取并集）。谁读它：
+
+- app 语料：xtask 写进 bundle manifest 的 `requires`，设备上的 `BundleRunner` 在**加载模块之前**对照，
+  缺能力 → skipped、不加载（判定细节见[跨平台测试 §4](../testing/cross-platform.md)）；
+- `xtask bench`：场景缺能力时显式跳过；
+- 桌面宿主报告全部能力，host 上跑的 `test stdlib` / `test e2e` 不需要判定。
 
 **能力词表**。只能使用「已生效」的名字：deny-by-default 下，运行期不报告的名字会让用例在**所有平台**上
 被静默跳过。`xtask test layout` 检查两件事：「已生效」区与 `platform.rs` 的 `builtin_platform_caps` 双向相等；
@@ -161,21 +167,29 @@ Rust 侧的 `*_tests.rs` 与 `tests/*.rs` 按 cargo 惯例，不在此列。
 - `native-interop` — cargo feature `native-interop`
 - `bundled-compression` — cargo feature `bundled-compression`
 - `threads` — 真 OS 线程；wasm 之外都有
-- `socket` — 真 OS 网络（TCP / UDP / HTTP / WS）；wasm 之外都有
+- `socket` — 真 OS 网络客户端（TCP / UDP / HTTP / WS）；wasm 之外都有
+- `fs` — 可写文件系统、文件流、glob；wasm 之外都有
+- `clock` — 系统时钟（`DateTime.UtcNow`）；wasm 之外都有
+- `entropy` — OS 熵源（`secure_random`）；wasm 之外都有
+- `process` — 起子进程（spawn / stdio / which）；仅桌面
+- `tty` — 终端 / console；仅桌面
+- `env` — 进程环境：可变环境变量、cwd、桌面 OS 身份字符串；仅桌面
+- `socket-listen` — bind / listen 服务端 socket 与 loopback（`z42.net` 的用例都靠它）；仅桌面
+- `hardlink` — POSIX 硬链接；wasm 与 Android 之外都有
 <!-- caps-active:end -->
 
-规划中（⏳ 名字是提案，运行期开始报告时定稿并移到上一区；来源是[跨平台测试 §4.2](../testing/cross-platform.md) 的能力表）：
+规划中（名字是提案，运行期开始报告时移到上一区；当前为空）：
 
 <!-- caps-planned:begin -->
-- `fs` — 可写文件系统（wasm 缺）
-- `process` — 起子进程（wasm、mobile 缺）
-- `tty` — 终端 / console（wasm、mobile 测试宿主缺）
-- `env` — 可变环境变量与桌面 OS 身份（wasm、mobile 缺）
-- `clock` — 系统时钟（wasm 缺）
-- `entropy` — OS 熵源（wasm 缺）
-- `socket-listen` — bind / listen 服务端 socket 与 loopback（wasm、mobile 沙箱缺）
-- `dns` — 名字解析（wasm 缺；CI 无外网时也缺）
 <!-- caps-planned:end -->
+
+三档平台的能力集由 `platform.rs` 的 cfg 决定，`z42.core/tests/platform_capabilities.z42` 在每个平台上钉住这三档：
+
+| 平台 | 有 | 缺 |
+|---|---|---|
+| 桌面 | 全部 | — |
+| iOS / Android（app 沙箱） | `native-interop` `bundled-compression` `threads` `socket` `fs` `clock` `entropy`，iOS 另有 `hardlink` | `process` `tty` `env` `socket-listen`，Android 另缺 `hardlink` |
+| wasm | `bundled-compression` | 其余全部 |
 
 > 「跑不了」先分清是**能力缺口**还是**用例自身不可移植**（例如硬编码 `/tmp/...`）。后者改用例
 > （`File.CreateTempDir`），不加能力声明。
@@ -280,7 +294,5 @@ xtask test app <wasm|ios|android|all> [--filter <pat>] [--shard k/n] [--keep-dev
 
 按顺序推进，每一步一个 PR；完成后删掉本页对应的 ⏳ 标记：
 
-1. **能力声明取代排除表**：运行期报告规划中的能力；golden runner 与 app 语料读取 `// requires-caps:`；
-   把 `_targetExcludes` 逐条翻译成声明后删除。
-2. **`xtask test app`**：一条命令的 app 流水线、宿主工程暂存、z42b 管理设备生命周期，CI 改调同一条命令。
-3. **工具链测试套件**：`xtask test toolchain` 与对应的 gate stage。
+1. **`xtask test app`**：一条命令的 app 流水线、宿主工程暂存、z42b 管理设备生命周期，CI 改调同一条命令。
+2. **工具链测试套件**：`xtask test toolchain` 与对应的 gate stage。

@@ -1,3 +1,4 @@
+// requires-caps: tty
 // Spec R5 — z42.io 库本地测试。受 closure 缺失限制，无法捕获 stdout
 // 内容做精确比对（TestIO.captureStdout 待 R2.B 实施）；本期只做 smoke 测试，
 // 验证 IO API 不抛异常 + 数值类 API 返回合理值。

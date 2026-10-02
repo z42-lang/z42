@@ -1,3 +1,4 @@
+// requires-caps: threads
 // add-sync-primitives-bounded-channel (2026-05-20): Channel<T>.WithCapacity
 // + bounded-channel back-pressure semantics.
 namespace Z42ThreadingChannelBoundedTests;

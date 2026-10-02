@@ -1,9 +1,9 @@
 # 跨平台测试（平台管线 · 能力门控 · CI 拓扑）
 
-> 对齐：2026-09-17（change `restructure-docs-three-books`）｜ 代码：
+> 对齐：2026-10-02（change `caps-replace-target-excludes`）｜ 代码：
 > `scripts/test/xtask_test_platform.z42`（三阶段框架 + `IPlatformBackend`）、
 > `scripts/test/xtask_test_{desktop,wasm,ios,android}.z42`（四个 backend）、
-> `scripts/test/xtask_test_embedded_golden.z42`（`_targetExcludes` 能力门控）、
+> `src/runtime/src/corelib/platform.rs`（能力集）、`src/libraries/z42.test/src/BundleRunner.z42`（设备上的能力门）、
 > `src/toolchain/workload/platform-contract.md`（状态码 ↔ 平台异常映射）、
 > `.github/workflows/ci.yml`（`test-desktop` / `test-wasm` / `test-ios` / `test-android`）。
 >
@@ -90,67 +90,46 @@ public class AssetLayout {
 
 ### 4.1 判据是运行期真值
 
-一个测试能不能在某平台跑，由两处独立判定：
+一个用例能不能在某平台跑，**只由运行期判定**：对照目标 VM 的 `Std.Platform.Capabilities()`
+（`platform.rs` 的 `builtin_platform_caps`，按 cfg 报告这个二进制实际具备什么）。声明有三层：
 
-- **运行期、逐用例**：`[Skip(feature: X)]` → runner 查 `Std.Platform.Capabilities()`
-  （见 [测试框架机制 §3.3](framework.md)）。这是 VM 二进制**实际编译进了什么**，不是静态猜测。
-- **编排期、逐用例名**：`_targetExcludes(rid, caseName)` 在装 bundle 时整例排除。
-  粗粒度（库级 / 前缀级），目的是让平台语料**诚实**——不去跑注定崩的用例。
+| 粒度 | 写法 | 谁判定 |
+|---|---|---|
+| 整个用例（文件 / 目录） | 源码里一行 `// requires-caps: a, b` | xtask 装 bundle 时把它写进 manifest 的 `requires`；设备上 `BundleRunner` 在**加载前**对照，缺任一项 → 记 skipped（原因列出缺的能力），模块不加载 |
+| 单个 `[Test]` | `[Skip(feature: "x")]` | `Runner` 运行到它时对照（见 [测试框架机制 §3.3](framework.md)） |
+| 能力表达不了的 OS 差异 | `[Skip(platform: "android")]` | 同上，比对 `Platform.OS()` |
 
-第二层是本节的主题。
+xtask 装 bundle 时**不排除任何用例**，也没有按 rid 写的能力表——那种表必然与运行期漂移。
+「不加载」是第一层的要点：`[Native]` facade 在没有 native interop 的 VM 上**一加载就在 resolver 里 panic**，
+判定必须先于加载（`z42.test/tests/bundle_runner_caps.z42` 钉住这一点）。
 
-### 4.2 `_targetExcludes` 的两层结构
+能力词表、三档平台（桌面 / app 沙箱 / wasm）各有哪些能力，见[测试用例组织规范 §4](../devinfra/test-layout.md)；
+`z42.core/tests/platform_capabilities.z42` 不声明能力、在每个平台都跑，钉住三档的分界。
 
-关键洞察：**mobile 的能力集与 wasm 不同，不能照搬 wasm 的排除表**。
+### 4.2 三条值得单独记的
 
-| 能力 | wasm | mobile（iOS sim / Android emu） |
-|---|:---:|:---:|
-| 线程（pthreads） | ✗ | ✓ |
-| 原生扩展（compression 静态链接） | ✗（无 dlopen） | ✓ |
-| OS 熵（secure_random） | ✗ | ✓ |
-| 系统时钟（`DateTime.UtcNow`） | ✗ | ✓ |
-| 可写文件系统 | ✗ | ✓（app 沙箱 tmp/Documents） |
-| server/loopback socket + DNS | ✗ | ✗（沙箱禁 bind/listen；CI 无外网） |
-| 进程 fork/exec | ✗ | ✗ |
-| TTY / console | ✗ | ✗（测试 harness 无 tty） |
-| 可变 env / 桌面 OS 身份 | ✗ | ✗ |
-
-于是排除表分三段（`scripts/test/xtask_test_embedded_golden.z42`）：
-
-```
-desktop（非 wasm 非 mobile）  → 全跑，直接 return false
-SHARED（wasm 与 mobile 都缺）  → z42.net/* · z42.io/process* · z42.io/console* · z42.io/env* ·
-                                z42.io/ansi_color · z42.io/operating_system · z42.io/platform ·
-                                z42.cli/cli_env_fallback_and_mutex
-WASM-ONLY（仅 isWasm）        → z42.threading/* · z42.compression/* · *stream* · z42.io/file* ·
-                                z42.io/directory* · z42.io/path_glob* · z42.io/gc_heap_snapshot ·
-                                z42.crypto/secure_random* · z42.core/datetime
-ANDROID-ONLY（仅 isAndroid）  → z42.io/file_chmod_link_size · z42.io/gc_heap_snapshot
-```
-
-三条值得单独记的：
-
-- **`z42.compression` 是唯一的 native-ext facade 库**（brotli/gzip/zstd/zip/lz4/tar 全走
-  `[Native(lib="z42_compression")]`）。wasm 无 dlopen → ext 注册表空 → **元数据 resolver 加载即 panic**
-  （`unknown builtin __brotli_compress`），不是断言失败。crypto 走静态 `BUILTINS`，wasm 有。
-- **`file_chmod_link_size` 只在 Android 排除**：Android app 沙箱拒绝 POSIX 硬链接
-  （`File.Link` → `Permission denied`；symlink 却可以），iOS 沙箱能跑。**不要上移到 SHARED。**
-- **`gc_heap_snapshot` 在 Android 的排除是内存问题，不是文件系统问题**：
+- **`z42.compression` 声明的是 `native-interop`**，不是 `bundled-compression`：库是
+  `[Native(lib="z42_compression")]` facade（brotli/gzip/zstd/zip/lz4/tar），wasm 虽然编进了压缩库，但没有
+  native interop，ext 注册表为空 → 加载即 panic（`unknown builtin __brotli_compress`）。mobile 两者都有，照跑。
+- **`hardlink` 只在 Android 缺**：Android app 沙箱拒绝 POSIX 硬链接（`File.Link` → `Permission denied`；
+  symlink 却可以），iOS 沙箱能跑。`z42.io/file_chmod_link_size` 声明了它。
+- **`gc_heap_snapshot` 在 Android 上跳过是内存问题，不是能力缺口**，所以用平台名：
   `GC.WriteHeapSnapshot` 把整个活堆序列化成 V8 JSON 串再读回；嵌入 runner 里 `[Test]` unit
   共享一个 VM，此例在分片内偏后跑时累积堆已很大 → 快照膨胀到数 GB → Android 模拟器的
   low-memory-killer 直接 SIGKILL 整个 app。iOS-sim（macOS 宿主内存充足）跑得过，desktop 非共享 VM。
 
-### 4.3 排除表怎么演进
+### 4.3 声明怎么演进
 
-mobile 那半边的 fs / stream **保留**是一个**能力假设**，靠 tier-2 CI 分片验证：app 沙箱有可写 tmp，
+mobile 那一档的 `fs` 是一个**能力假设**，靠 tier-2 CI 分片验证：app 沙箱有可写 tmp，
 所以 `file_temp` / `directory_temp` / 各种 stream 假定可跑。某例实际需要沙箱拒绝的东西时，
-CI dispatch 会把它显成红，**按证据**加排除。
+CI dispatch 会把它显成红，**按证据**处理：是能力缺口，就让它声明对应能力（词表里没有就新增一个：
+`platform.rs` 上报 + 规范页登记，`xtask test layout` 对账两边）；是用例自身的可移植性缺陷，就改用例。
 
 > 全覆盖的原则是「揭真实平台差异、按证据收敛」，不是「先排干净求绿」。
-> 反向的例子也有：曾有 4 个 `z42.io` 用例硬编码 `/tmp/...` 写盘路径——iOS-sim（跑在 macOS）与
+> 反例：曾有 4 个 `z42.io` 用例硬编码 `/tmp/...` 写盘路径——iOS-sim（跑在 macOS）与
 > desktop 有可写 `/tmp` 所以过，Android 模拟器无可写 `/tmp` 直接 `Read-only file system`。
-> 那**不是**能力缺口，是测试自身的可移植性缺陷；改用 `File.CreateTempDir` 后四例全平台通过，
-> 它们的临时排除被删掉。分不清这两类，排除表就会越滚越大且再也说不清为什么。
+> 那**不是**能力缺口，是测试自身的可移植性缺陷；改用 `File.CreateTempDir` 后四例全平台通过。
+> 分不清这两类，能力声明就会越写越多且再也说不清为什么。
 
 ## 5. CI 拓扑
 
@@ -202,5 +181,5 @@ junit / logcat / crash-diagnostics 这些 artifact 均按 `${{ matrix.shard }}` 
 | 加一个平台 | 新 backend class 实现 `IPlatformBackend` + `_platformDispatch` 注册一行 |
 | 某平台的原生构建 / runner | 对应 `scripts/test/xtask_test_<plat>.z42` |
 | R1–R7 场景或状态码 | 本页 §3.1 + `src/toolchain/workload/platform-contract.md` + 三份宿主语言测试 |
-| 某用例在某平台跑不了 | `_targetExcludes`（`xtask_test_embedded_golden.z42`），并在注释里写清是能力缺口还是可移植性缺陷 |
+| 某用例在某平台跑不了 | 能力缺口 → 用例源码声明 `// requires-caps:`（新能力名：`platform.rs` + [规范页 §4](../devinfra/test-layout.md)）；可移植性缺陷 → 改用例 |
 | 分片数 / 超时 / 触发条件 | `.github/workflows/ci.yml` 对应 job |

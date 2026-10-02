@@ -27,8 +27,8 @@ using Std.Cli;
 // assembly + the static harness. RUN is browser/Playwright-gated (CI); this
 // command builds + assembles the deployable dir (compile-once, per platform).
 string _buildWasmTesthost(string root, string filter, int shardK, int shardN) {
-    // 1. bundle (goldens 归一 + stdlib units) — identical to the desktop bundle,
-    // minus tests needing caps wasm lacks (socket/threads/native-fs; see _targetExcludes).
+    // 1. bundle (goldens 归一 + stdlib units) — identical to the desktop bundle; cases whose
+    // `requires-caps` the wasm VM lacks are skipped on-device by BundleRunner.
     Console.WriteLine("→ build test-bundle" + (filter.Length > 0 ? (" (filter: " + filter + ")") : " (all)"));
     string manifest = _buildTestBundle(root, filter, "browser-wasm", shardK, shardN);
     if (manifest.Length == 0) { return ""; }

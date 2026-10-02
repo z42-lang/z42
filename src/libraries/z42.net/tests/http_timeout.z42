@@ -1,3 +1,4 @@
+// requires-caps: socket-listen
 // add-httpclient-timeout (2026-05-27): HttpClient.SetTimeout + TcpClient
 // read/write timeout pipeline.
 namespace Z42NetHttpTimeoutTests;

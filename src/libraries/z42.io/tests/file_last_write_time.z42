@@ -1,3 +1,4 @@
+// requires-caps: fs
 // add-file-last-write-time (2026-06-09)：File.GetLastWriteTime（mtime）本地测试。
 // 覆盖：刚写的文件 mtime 是真实当前时刻（>2020 且 ≤now+1d）/ 重写后 mtime 单调
 // 不减（freshness 检查核心保证）/ 文件不存在抛异常。

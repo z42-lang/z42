@@ -1,3 +1,4 @@
+// requires-caps: threads
 // fix-sync-lock-release-on-throw (2026-07-12): a callback body that throws
 // must NOT leak the lock. The runtime releases only via explicit unlock
 // (mem::forget'd guard, corelib/sync.rs), so `Mutex.Lock` / `RwLock.*` wrap

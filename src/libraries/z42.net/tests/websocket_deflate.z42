@@ -1,3 +1,4 @@
+// requires-caps: socket-listen
 // add-z42-net-websocket-deflate (2026-05-28): per-message-deflate
 // (RFC 7692) wire-format + frame-codec tests.
 //

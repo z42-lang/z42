@@ -1,3 +1,4 @@
+// requires-caps: socket-listen
 // add-z42-net K1 (2026-05-24): in-process echo loopback — listener +
 // client round-trip bytes both directions.
 namespace Z42NetTcpLoopbackTests;

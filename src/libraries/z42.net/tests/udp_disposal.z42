@@ -1,3 +1,4 @@
+// requires-caps: socket-listen
 // add-z42-net-udp K2 (2026-05-25): UdpClient disposal semantics + use-after-close.
 namespace Z42NetUdpDisposalTests;
 

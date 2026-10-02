@@ -1,3 +1,4 @@
+// requires-caps: socket-listen
 // add-z42-net-http-auth (2026-05-27): WithBasicAuth / WithBearerToken.
 namespace Z42NetHttpAuthHelpersTests;
 
