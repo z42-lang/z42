@@ -33,7 +33,7 @@ class ProfileCtx {
     public string zbc;      // compiled script
     public string entry;    // "<ns>.Main"
     public string mode;     // interp | jit (measured mode)
-    public string outDir;   // artifacts/profile/<name>
+    public string outDir;   // artifacts/reports/profile/<name>
     public string name;     // script basename (no ext)
 
     public ProfileCtx() {

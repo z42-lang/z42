@@ -210,7 +210,7 @@ bundle 与宿主都是测试输出，各自落在 owner 的 `tests/` 下：
 
 没有共享的 scratch 目录：不属于测试、也不属于某个成员的中间物（编译器自举快照等）落所属 workspace 的
 `build/<area>/<name>`；xtask 自检的工作目录在 xtask 自己的输出目录 `artifacts/xtask/tests/`。
-给 CI 消费的报告不进 `build/`：`artifacts/test-reports/<platform>/` 与 `artifacts/bench/`。完整清单见
+给 CI 消费的报告不进 `build/`：`artifacts/reports/tests/<platform>/` 与 `artifacts/reports/bench/`。完整清单见
 [产物目录布局 §3](artifacts-layout.md)；路径只在 `scripts/common/xtask_layout.z42` 里定义
 （`_buildMirror` / `_testOut` / `_testOutRootOf`）。
 
@@ -224,10 +224,10 @@ flowchart LR
   C -->|② 编译一次| Z[组件 tests 输出里的 .zbc<br/>host 直接跑]
   Z -->|③ 组 bundle：manifest + .zbc + agent + stdlib| B[workload/&lt;p&gt;/tests/bundle]
   B -->|④ 放进暂存的宿主工程副本| H[workload/&lt;p&gt;/tests/host]
-  H -->|构建 · 起设备 · 运行 · 取报告| R[test-reports/&lt;p&gt;/]
+  H -->|构建 · 起设备 · 运行 · 取报告| R[reports/tests/&lt;p&gt;/]
 ```
 
-图里各步的产物都在 `artifacts/build/toolchain/workload/<platform>/tests/` 下，报告落 `artifacts/test-reports/`。
+图里各步的产物都在 `artifacts/build/toolchain/workload/<platform>/tests/` 下，报告落 `artifacts/reports/tests/`。
 
 1. **收集**：只扫 §4 ① 的语料根，再按 §4 ② 与该平台的能力集匹配；分片 `--shard k/n` 与采样规则不变。
 2. **编译**：`.zbc` 与平台无关，直接引用用例自己的测试输出，不为 bundle 重编。

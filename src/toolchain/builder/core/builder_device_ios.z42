@@ -13,7 +13,7 @@
 //            the XCTest cases self-assert; z42b relays the verdict + junit.
 //
 // z42b writes its own junit (Z42Xtask's shared _writeJUnitReport is unreachable
-// from here) — same XML shape, same path (artifacts/test-reports/ios/junit.xml)
+// from here) — same XML shape, same path (artifacts/reports/tests/ios/junit.xml)
 // so CI's report consumer is unchanged.
 namespace Z42Builder;
 
@@ -150,7 +150,7 @@ string _firstSimulatorUdid() {
 }
 
 // Parse xcodebuild `Test Case '-[<Suite> testX]' passed/failed` lines →
-// junit.xml (artifacts/test-reports/ios/). Same XML shape as Z42Xtask's shared
+// junit.xml (artifacts/reports/tests/ios/). Same XML shape as Z42Xtask's shared
 // _writeJUnitReport; z42b re-implements it inline (that helper is unreachable here).
 void _writeIosJUnit(string buildRoot, string stdout) {
     int tests = 0;
@@ -175,7 +175,7 @@ void _writeIosJUnit(string buildRoot, string stdout) {
     string xml = "<testsuites tests=\"" + tests + "\" failures=\"" + failures + "\">\n"
                + "<testsuite name=\"ios.Z42VMTests\" tests=\"" + tests + "\" failures=\"" + failures + "\">\n"
                + body + "</testsuite>\n</testsuites>\n";
-    string reportDir = Path.Join(buildRoot, "artifacts/test-reports/ios");
+    string reportDir = Path.Join(buildRoot, "artifacts/reports/tests/ios");
     Directory.Create(reportDir);
     File.WriteAllText(Path.Join(reportDir, "junit.xml"), xml);
     Console.WriteLine("z42b: junit.xml (" + tests + " cases, " + failures + " failed)");

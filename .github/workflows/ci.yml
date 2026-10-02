@@ -1629,7 +1629,7 @@ jobs:
         uses: dorny/test-reporter@v3
         with:
           name: platform-tests / wasm
-          path: artifacts/test-reports/wasm/junit.xml
+          path: artifacts/reports/tests/wasm/junit.xml
           reporter: java-junit
           fail-on-error: false
       - name: Upload wasm JUnit
@@ -1637,7 +1637,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: junit-wasm
-          path: artifacts/test-reports/wasm/junit.xml
+          path: artifacts/reports/tests/wasm/junit.xml
           if-no-files-found: warn
 
   test-ios:
@@ -1704,7 +1704,7 @@ jobs:
         if: always()
         with:
           name: platform-tests / ios (shard ${{ matrix.shard }})
-          path: artifacts/test-reports/ios/junit.xml
+          path: artifacts/reports/tests/ios/junit.xml
           reporter: java-junit
           fail-on-error: false
       - name: Upload iOS JUnit
@@ -1712,7 +1712,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: junit-ios-${{ matrix.shard }}
-          path: artifacts/test-reports/ios/**
+          path: artifacts/reports/tests/ios/**
           if-no-files-found: warn
 
   test-android:
@@ -1865,7 +1865,7 @@ jobs:
         if: always()
         with:
           name: platform-tests / desktop
-          path: artifacts/test-reports/desktop/junit.xml
+          path: artifacts/reports/tests/desktop/junit.xml
           reporter: java-junit
           fail-on-error: false
       - name: Upload desktop JUnit
@@ -1873,7 +1873,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: junit-desktop
-          path: artifacts/test-reports/desktop/junit.xml
+          path: artifacts/reports/tests/desktop/junit.xml
           if-no-files-found: warn
 
   # ── 单一结论 job（ci-ok）──────────────────────────────────────────────────────

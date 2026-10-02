@@ -11,11 +11,11 @@
 //      members hard-linked into one Z42_LIBS dir), the cargo runtime output dir,
 //      the build roots xtask scans/stages. These live here as single definitions.
 //
-//   ③ the top-level `artifacts/` buckets (tmp / tools / packages / publish /
-//      test-reports / bench / profile / .z42 …). centralize-xtask-layout（2026-09-30）：这些
+//   ③ the top-level `artifacts/` buckets (tools / packages / reports / .z42 …).
+//      centralize-xtask-layout（2026-09-30）：这些
 //      此前散落在 ~35 个使用点、各写一遍字面量，理由是「一次性目录、没有布局含义」。但整理
 //      artifacts/ 布局时恰恰要逐个挪它们 —— 散着就得逐个找。现在每个桶**只在这里定义一次**，
-//      使用点只写桶名 + 自己的子目录名。`xtask layout` 把它们打印出来给 CI / 脚本查询。
+//      使用点只写桶名 + 自己的子目录名。`xtask layout` 把它们打印成目录树，也按相对路径给 CI / 脚本查询。
 //
 // Same Z42Xtask namespace as the rest of xtask, so callers use bare names.
 namespace Z42Xtask;
@@ -268,59 +268,139 @@ string _archivesDir(string root) { return Path.Join(_packagesDir(root), "archive
 // 旧位置：只供 `clean all` 清走残留，不再有人写。
 string _legacyReleaseDir(string root) { return Path.Join(_artifactsDir(root), "release"); }
 
-// artifacts/test-reports — junit reports of platform tests (one subdir per platform).
-string _testReportsDir(string root) { return Path.Join(_artifactsDir(root), "test-reports"); }
+// artifacts/reports — 给人与 CI 看的**结果**（不是构建产物，`clean all` 也不删）：一个桶、按种类分子目录。
+string _reportsDir(string root) { return Path.Join(_artifactsDir(root), "reports"); }
 
-// artifacts/bench — benchmark result JSON.
-string _benchDir(string root) { return Path.Join(_artifactsDir(root), "bench"); }
+// artifacts/reports/tests — 平台测试的 junit（每个平台一个子目录：<platform>/junit.xml）。
+string _testReportsDir(string root) { return Path.Join(_reportsDir(root), "tests"); }
 
-// artifacts/profile — `xtask profile` reports (one subdir per profiled script).
-string _profileDir(string root) { return Path.Join(_artifactsDir(root), "profile"); }
+// artifacts/reports/bench — benchmark 结果 JSON（e2e.json / ab.json / micro-*.json）。
+string _benchDir(string root) { return Path.Join(_reportsDir(root), "bench"); }
 
-// `xtask layout` 的条目表：key → 路径。key 是**对外契约**（CI / 脚本按 key 查询），
-// 路径可以随布局整理而变 —— 这正是查询而不是写死的意义。
-// 只列「有人要查、或看一眼就该知道在哪」的入口（simplify-layout，2026-10-02）：删掉了
-// `vm-debug`（`vm` 旁边换个 profile 目录，列出来只是重复）、`cargo-target`（就是 `build/runtime`）、
-// `libraries-build`（`build/libraries`，无消费方）。仓内实际按 key 查询的只有 `libs` / `compiler-build`。
-string[] _layoutKeys() {
-    return new string[]{
-        "root", "artifacts", "build", "vm", "libs", "xtask", "compiler-build",
-        "sdk", "packages", "archives", "tools", "test-reports", "bench", "profile" };
+// artifacts/reports/profile — `xtask profile` 报告（每个被测脚本一个子目录）。
+string _profileDir(string root) { return Path.Join(_reportsDir(root), "profile"); }
+
+// 旧位置（三个结果目录曾是 artifacts/ 的顶层桶）：只供 `clean all` 清走残留，不再有人写。
+string[] _legacyReportDirs(string root) {
+    return new string[]{ Path.Join(_artifactsDir(root), "test-reports"),
+                         Path.Join(_artifactsDir(root), "bench"),
+                         Path.Join(_artifactsDir(root), "profile") };
 }
-string _layoutPath(string root, string key) {
-    if (key == "root")            { return root; }
-    if (key == "artifacts")       { return _artifactsDir(root); }
-    if (key == "build")           { return _buildDir(root); }
-    if (key == "vm")              { return _builtVm(root, "release"); }
-    if (key == "libs")            { return _libsDir(root); }
-    if (key == "xtask")           { return _xtaskZpkg(root); }
-    if (key == "compiler-build")  { return _compilerBuildRoot(root); }
-    if (key == "sdk")             { return _devSdkDir(root); }
-    if (key == "packages")        { return _packagesDir(root); }
-    if (key == "archives")        { return _archivesDir(root); }
-    if (key == "tools")           { return _toolsDir(root); }
-    if (key == "test-reports")    { return _testReportsDir(root); }
-    if (key == "bench")           { return _benchDir(root); }
-    if (key == "profile")         { return _profileDir(root); }
+
+// ── `xtask layout`：artifacts/ 的目录树 ───────────────────────────────────────
+//
+// 条目 = 相对 artifacts/ 的路径（它同时是查询用的 key）+ 层级 + 一句说明。名字就是磁盘上的目录名：
+// build/ 下的子目录直接枚举 src/ 的一级目录（build/ 逐路径镜像 src/，新组件自动出现），不另起
+// `vm` / `compiler-build` 这类别名。路径由各自的单一定义函数算出，改布局时这里自动跟上。
+public sealed class LayoutEntriesZ {
+    public string[] Rel;     // 相对 artifacts/ 的路径（目录带尾 /）；不在 artifacts/ 下时是绝对路径
+    public string[] Name;    // 显示名：相对父条目的那一段
+    public int[] Depth;
+    public string[] Desc;
+    public string[] Abs;
+    public int Count;
+    public LayoutEntriesZ() {
+        Rel = new string[32]; Name = new string[32]; Depth = new int[32];
+        Desc = new string[32]; Abs = new string[32]; Count = 0;
+    }
+    public void Add(string rel, string name, int depth, string desc, string abs) {
+        if (Count >= Rel.Length) { return; }
+        Rel[Count] = rel; Name[Count] = name; Depth[Count] = depth; Desc[Count] = desc; Abs[Count] = abs;
+        Count = Count + 1;
+    }
+}
+
+// abs 相对 artifacts/ 的路径；dir = true 加尾 /。不在 artifacts/ 下（如 --toolchain 指向外部 SDK）原样返回。
+string _layoutRel(string root, string abs, bool dir) {
+    string a = _cleanPath(_artifactsDir(root).Replace("\\", "/"));
+    string p = _cleanPath(abs.Replace("\\", "/"));
+    string rel = p.StartsWith(a + "/") ? p.Substring(a.Length + 1) : p;
+    return dir ? rel + "/" : rel;
+}
+
+// child 相对 parent 的显示名（parent 不是它的前缀时用完整 rel）。
+string _layoutName(string parentRel, string rel) {
+    return (parentRel.Length > 0 && rel.StartsWith(parentRel)) ? rel.Substring(parentRel.Length) : rel;
+}
+
+string _layoutBuildDesc(string d) {
+    if (d == "runtime")   { return "cargo target-dir"; }
+    if (d == "libraries") { return "stdlib 各成员 <lib>/<profile>/"; }
+    if (d == "compiler")  { return "编译器各成员 + workspace 级自举中间物"; }
+    if (d == "toolchain") { return "工具链各组件；平台测试的 bundle 与工作目录"; }
+    if (d == "tests")     { return "src/tests golden 的 .zbc"; }
+    if (d == "bench")     { return "性能场景的探针输出"; }
     return "";
 }
 
-// `xtask layout [key]`：无参 = 列出全部 `key  path`；带 key = 只打印该路径（给 CI / 脚本用，
-// 例：`libs=$(xtask layout libs)`）。未知 key → exit 2 并列出可用 key。
+LayoutEntriesZ _layoutEntries(string root) {
+    LayoutEntriesZ e = new LayoutEntriesZ();
+    string build = _layoutRel(root, _buildDir(root), true);
+    e.Add(build, build, 0, "编译产物与测试输出，逐路径镜像 src/", _buildDir(root));
+    foreach (var d in _enumDirsSorted(Path.Join(root, "src"))) {
+        string abs = Path.Join(_buildDir(root), d);
+        string rel = _layoutRel(root, abs, true);
+        e.Add(rel, _layoutName(build, rel), 1, _layoutBuildDesc(d), abs);
+        if (d == "runtime") {
+            string vm = _builtVm(root, "release");
+            string vrel = _layoutRel(root, vm, false);
+            e.Add(vrel, _layoutName(rel, vrel), 2, "VM 二进制", vm);
+        }
+        if (d == "libraries") {
+            string flat = _libsDir(root);
+            string frel = _layoutRel(root, flat, true);
+            e.Add(frel, _layoutName(rel, frel), 2, "扁平 stdlib = Z42_LIBS", flat);
+        }
+    }
+    string xz = _xtaskZpkg(root);
+    string xdir = Path.GetDirectoryName(xz);
+    string xrel = _layoutRel(root, xdir, true);
+    e.Add(xrel, xrel, 0, "xtask 自身（xtask.zpkg）与它的自检目录 tests/", xdir);
+    string sdk = _layoutRel(root, _devSdkDir(root), true);
+    e.Add(sdk, sdk, 0, "dev SDK（build sdk）", _devSdkDir(root));
+    string pk = _layoutRel(root, _packagesDir(root), true);
+    e.Add(pk, pk, 0, "组装好的发行包", _packagesDir(root));
+    string ar = _layoutRel(root, _archivesDir(root), true);
+    e.Add(ar, _layoutName(pk, ar), 1, "发布归档 + SHA256SUMS + release-index.json", _archivesDir(root));
+    string tl = _layoutRel(root, _toolsDir(root), true);
+    e.Add(tl, tl, 0, "下载的第三方工具（node / android-sdk / playwright-browsers …）", _toolsDir(root));
+    string rp = _layoutRel(root, _reportsDir(root), true);
+    e.Add(rp, rp, 0, "给人与 CI 看的结果", _reportsDir(root));
+    string rt = _layoutRel(root, _testReportsDir(root), true);
+    e.Add(rt, _layoutName(rp, rt), 1, "平台测试 junit：<platform>/junit.xml", _testReportsDir(root));
+    string rb = _layoutRel(root, _benchDir(root), true);
+    e.Add(rb, _layoutName(rp, rb), 1, "bench 结果 JSON", _benchDir(root));
+    string rf = _layoutRel(root, _profileDir(root), true);
+    e.Add(rf, _layoutName(rp, rf), 1, "profile 报告：<script>/", _profileDir(root));
+    return e;
+}
+
+// `xtask layout [path]`：无参 = 打印 artifacts/ 的目录树（首行是 artifacts/ 的绝对路径，其余相对它、按层级缩进）；
+// 带参 = 该条目的绝对路径（给 CI / 脚本：`libs=$(xtask layout build/libraries/dist/release)`）。
+// 参数就是树里显示的相对路径，尾 / 可有可无。未知 → exit 2 并列出全部路径。
 int _layoutCmd(ParseResult r) {
     string root = _root();
-    string key = r.GetPositional(0);
+    string key = r.GetPositional(0).Replace("\\", "/");
+    LayoutEntriesZ e = _layoutEntries(root);
     if (key.Length > 0) {
-        string p = _layoutPath(root, key);
-        if (p.Length == 0) {
-            ConsoleError.WriteLine("xtask layout: unknown key '" + key + "'. keys: " + String.Join(", ", _layoutKeys()));
-            return 2;
+        string k = key.EndsWith("/") ? key.Substring(0, key.Length - 1) : key;
+        int i = 0;
+        while (i < e.Count) {
+            string rel = e.Rel[i].EndsWith("/") ? e.Rel[i].Substring(0, e.Rel[i].Length - 1) : e.Rel[i];
+            if (rel == k) { Console.WriteLine(e.Abs[i]); return 0; }
+            i = i + 1;
         }
-        Console.WriteLine(p);
-        return 0;
+        ConsoleError.WriteLine("xtask layout: unknown path '" + key + "'. paths:");
+        int j = 0;
+        while (j < e.Count) { ConsoleError.WriteLine("  " + e.Rel[j]); j = j + 1; }
+        return 2;
     }
-    foreach (var k in _layoutKeys()) {
-        Console.WriteLine(k.PadRight(15) + _layoutPath(root, k));
+    Console.WriteLine("artifacts: " + _artifactsDir(root));
+    int n = 0;
+    while (n < e.Count) {
+        string label = "".PadRight(e.Depth[n] * 2) + e.Name[n];
+        Console.WriteLine(e.Desc[n].Length > 0 ? label.PadRight(28) + e.Desc[n] : label);
+        n = n + 1;
     }
     return 0;
 }

@@ -87,7 +87,7 @@ R_upper < 1 - thr   → ↓ faster       (informational)
 
 `thr` 的**代码默认是 0.10**（`bench --ab` 与 `bench --micro-diff` 同；`bench --diff` 另有一套
 默认 0.05 时间 / 0.10 内存）。**CI 显式传 0.15**——见 §6。
-结果落 `artifacts/bench/ab.json`（`ab-v1` schema：每 scenario 的 base/pr mean·stddev、ratio、
+结果落 `artifacts/reports/bench/ab.json`（`ab-v1` schema：每 scenario 的 base/pr mean·stddev、ratio、
 r_lower/r_upper、verdict、每轮比值 `round_ratios`）。
 
 同机抵消让 within-run SEM 在此统计有效——这是跨-runner 比法下不成立、A/B 下才成立的关键。
