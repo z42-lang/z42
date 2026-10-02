@@ -1,6 +1,6 @@
 # 平台构建与嵌入
 
-> 对齐：2026-09-17（change `restructure-docs-three-books`）｜ 代码：
+> 对齐：2026-10-03（change `stage-device-host-projects`）｜ 代码：
 > `src/toolchain/workload/{wasm,ios,android,desktop}/platform/`、
 > `src/toolchain/workload/platform-contract.md`、
 > `scripts/test/xtask_test_{platform,wasm,ios,android,desktop}.z42`、
@@ -18,6 +18,11 @@
 平台测试消费**已构建的 z42 工具链**（编译器 + VM + stdlib）——facade 要把 stdlib zpkg 收进
 自己的 bundle（wasm 的 `js/stdlib/`、iOS 的 `Resources/stdlib/`、Android 的 `assets/stdlib/`）。
 
+**这些目录都在宿主工程的暂存副本里，不在源码树**：每个 step 开头先把 `src/toolchain/workload/<p>/platform`
+里 git 跟踪的文件增量同步到 `artifacts/build/toolchain/workload/<p>/tests/host/`，下文提到的 `js/stdlib/`、
+`Resources/stdlib/`、`pkg-web/`、`Z42VM.xcframework/`、`jniLibs/`、gradle 的 `build/` 都是这份副本里的相对路径；
+Rust crate 仍从源码位置编，产物输出到副本（见[产物布局 §3](artifacts-layout.md)）。
+
 ```bash
 ./xtask build compiler     # 或由 ./scripts/install-z42.sh 直接提供
 ./xtask build stdlib
@@ -30,11 +35,12 @@ cargo build --release --manifest-path src/runtime/Cargo.toml
 统一入口是三段式的：
 
 ```bash
-./xtask test platform <desktop|wasm|ios|android|all> [build|assets|run]
+./xtask test platform <desktop|wasm|ios|android|all> [stage|build|assets|run]
 ```
 
 | step | 做什么 |
 |---|---|
+| `stage` | 只同步宿主工程副本（其余 step 开头也会做；CI 预装 node 依赖前单独调） |
 | `build` | 构建平台原生工程（apphost / wasm-pack / xcframework / AAR） |
 | `assets` | 编 R1–R7 fixture → `.zbc`，收 stdlib zpkg 进平台 bundle（wasm 还写 `files.json`） |
 | `run` | 跑测试（C ABI harness / Playwright / `xcodebuild test` / emulator） |

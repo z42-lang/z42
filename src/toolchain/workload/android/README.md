@@ -29,7 +29,7 @@ export JAVA_HOME=$(/usr/libexec/java_home -v 17+)
 ./xtask test platform android assets     # fixtures + stdlib 进 assets
 ```
 
-产物：`z42vm/build/outputs/aar/z42vm-release.aar` + `jniLibs/{arm64-v8a,x86_64}/libz42_platform_android.so` + `assets/stdlib/*.zpkg`（无 index——`AssetZpkgResolver` 读各 zpkg 的 NSPC）+ `androidTest/assets/test-fixtures/*.zbc`（32-bit ABI 已退场；见 memory project_supported_platforms）。
+产物（都在宿主工程副本 `artifacts/build/toolchain/workload/android/tests/host/` 里，不写本目录；gradle 在副本里跑）：`z42vm/build/outputs/aar/z42vm-release.aar` + `jniLibs/{arm64-v8a,x86_64}/libz42_platform_android.so` + `assets/stdlib/*.zpkg`（无 index——`AssetZpkgResolver` 读各 zpkg 的 NSPC）+ `androidTest/assets/test-fixtures/*.zbc`（32-bit ABI 已退场；见 memory project_supported_platforms）。
 
 ## Run tests
 
