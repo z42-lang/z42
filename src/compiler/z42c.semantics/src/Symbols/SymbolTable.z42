@@ -425,6 +425,39 @@ public sealed partial class SymbolTable {
         return this.ResolveTypeP(te, new string[0], 0);
     }
 
+    // report-nested-ambiguous-names：类型写法里**第一个**歧义裸名（E0456 判据见 IsBareNameAmbiguous），没有返回 ""。
+    // 递归进泛型实参 / 数组元素 / 可空内层 / 函数类型的参数与返回 / 关联类型绑定 —— 此前两个消费端只看最外层，
+    // `List<Widget>`、`Widget[]` 里的歧义 `Widget` 零诊断、静默绑到先注册的那份（发射端只能诚实降级成短名）。
+    // 限定名（含 `.`）已消歧、编译器合成的引用（Synthetic）不是用户写的，都跳过。
+    public string FirstAmbiguousBareName(TypeExpr te) {
+        if (te == null) { return ""; }
+        if (te is NamedType) {
+            NamedType nt = te as NamedType;
+            if (!nt.Synthetic && nt.Name.IndexOf(".") < 0 && this.IsBareNameAmbiguous(nt.Name)) { return nt.Name; }
+            int i = 0;
+            while (i < nt.ArgCount) {
+                string a = this.FirstAmbiguousBareName(nt.Args[i]);
+                if (a != "") { return a; }
+                i = i + 1;
+            }
+            return "";
+        }
+        if (te is ArrayType) { return this.FirstAmbiguousBareName((te as ArrayType).Elem); }
+        if (te is NullableType) { return this.FirstAmbiguousBareName((te as NullableType).Inner); }
+        if (te is AssocBindingType) { return this.FirstAmbiguousBareName((te as AssocBindingType).Bound); }
+        if (te is FuncTypeExpr) {
+            FuncTypeExpr ft = te as FuncTypeExpr;
+            int j = 0;
+            while (j < ft.ParamCount) {
+                string p = this.FirstAmbiguousBareName(ft.Params[j]);
+                if (p != "") { return p; }
+                j = j + 1;
+            }
+            return this.FirstAmbiguousBareName(ft.Ret);
+        }
+        return "";
+    }
+
     // using-csharp-rules PR-2：记一次「本文件用到了 ns」（视图挂了记录器才记）。
     public void NoteUse(string ns) {
         if (this.UseRecorder != null) { this.UseRecorder.Note(ns); }
