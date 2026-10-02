@@ -81,7 +81,7 @@ per-platform driver（`builder_device.z42` 管 wasm；`builder_device_ios.z42`�
 | rid | build | run（z42b spawn 原生工具）| report |
 |---|---|---|---|
 | `browser-wasm` | `wasm-pack build --target web` + stage `{app,libs,bundle}` + `files.json` + 拷 pkg/harness | `npx playwright test --config playwright.embedded.config.ts` | playwright 退出码（`run.js` 自断言 `window.__report`）|
-| `ios-arm64` / `iossim-arm64` | cargo × slices（host + device/sim）+ `xcodebuild -create-xcframework` + stage embedded 语料进 XCTest `Resources/embedded` | `xcodebuild test -scheme Z42VM -destination <sim>`（sim UDID 由 `xcrun simctl` 解析；**一次 boot 同跑全部**）| 解析 `Test Case … passed/failed` → `artifacts/test-reports/ios/junit.xml` |
+| `ios-arm64` / `iossim-arm64` | cargo × slices（host + device/sim）+ `xcodebuild -create-xcframework` + stage embedded 语料进 XCTest `Resources/embedded` | `xcodebuild test -scheme Z42VM -destination <sim>`（sim UDID 由 `xcrun simctl` 解析；**一次 boot 同跑全部**）| 解析 `Test Case … passed/failed` → `artifacts/reports/tests/ios/junit.xml` |
 | `android-arm64` / `android-x64` | `cargo ndk -t <abi> build --release` → jniLibs（NDK + ABI 由 rid 解析）+ stage 语料进 `androidTest/assets/embedded` | `gradlew :z42vm:connectedAndroidTest`（**一次 emulator run 同跑全部**）| gradle 自产 junit |
 
 合法 RID 值域：`host`（默认，in-process）、`browser-wasm`、`ios-arm64`、`iossim-arm64`、

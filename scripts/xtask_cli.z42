@@ -186,9 +186,9 @@ SubcommandRouter _cliRoot() {
     root.Add("profile", "profile a .z42 script (cpu/heap/threads/e2e; no flag = all)", profile);
 
     // centralize-xtask-layout: 产物布局的查询口（CI / 脚本按 key 取路径，不再各自写死）。
-    ArgParser layout = new ArgParser("xtask layout", "print artifact layout paths (no key = all)");
-    layout.AddOptionalPositional("key", "vm|libs|xtask|packages|stage|… (see `xtask layout`)");
-    root.Add("layout", "print artifact layout paths (no key = all)", layout);
+    ArgParser layout = new ArgParser("xtask layout", "print the artifacts/ tree (no path) or one entry's absolute path");
+    layout.AddOptionalPositional("path", "an entry's path relative to artifacts/, e.g. build/libraries/dist/release or reports/bench (see `xtask layout`)");
+    root.Add("layout", "print the artifacts/ tree (no path) or one entry's absolute path", layout);
 
     ArgParser clean = new ArgParser("xtask clean", "remove build artifacts");
     clean.AddOptionalPositional("target", "tests|bench|all (default: production cache/dist)");

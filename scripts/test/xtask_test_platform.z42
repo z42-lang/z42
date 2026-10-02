@@ -173,7 +173,7 @@ string _xmlEscape(string s) {
 }
 
 // Build a JUnit report from parsed cases and write it to the uniform report dir
-// (artifacts/test-reports/<platform>/junit.xml). `suite` doubles as the testsuite
+// (artifacts/reports/tests/<platform>/junit.xml). `suite` doubles as the testsuite
 // name and each testcase's classname (matches the former per-backend writers).
 void _writeJUnitReport(string root, string platform, string suite, JUnitCase[] cases) {
     int tests = cases.Length;

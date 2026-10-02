@@ -26,7 +26,7 @@ rustup target add aarch64-apple-ios aarch64-apple-ios-sim aarch64-apple-darwin
 
 ## Run tests
 
-`test platform ios` 全流程：build xcframework + 编 fixture 进 `Tests/Z42VMTests/Resources/` + 在 **iOS Simulator** 上 `xcodebuild test` 跑 7 个 XCTest（R1–R7），产 `artifacts/test-reports/ios/junit.xml`：
+`test platform ios` 全流程：build xcframework + 编 fixture 进 `Tests/Z42VMTests/Resources/` + 在 **iOS Simulator** 上 `xcodebuild test` 跑 7 个 XCTest（R1–R7），产 `artifacts/reports/tests/ios/junit.xml`：
 
 ```bash
 ./xtask test platform ios

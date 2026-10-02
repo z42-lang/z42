@@ -137,6 +137,7 @@ int _testLib(ParseResult r, string kind) {
                             r.GetOption("vm"), r.GetOption("driver"), r.GetOption("libs"));
     if (agg != null) {
         string outPath = _absUnder(_root(), jsonOut);
+        Directory.Create(Path.GetDirectoryName(outPath));   // 结果目录（reports/bench）可能还不存在
         File.WriteAllText(outPath, agg.toSchemaV2(_root()));
         Console.WriteLine("wrote baseline -> " + jsonOut + " (" + agg.count().ToString() + " benchmarks)");
     }

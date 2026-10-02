@@ -63,7 +63,7 @@ cargo build --release --manifest-path src/runtime/Cargo.toml
 ```
 
 `run` 段做 `npm install` + `playwright install chromium`（首次约 280 MB）再跑 R1–R7，
-JUnit 落 `artifacts/test-reports/wasm/junit.xml`。
+JUnit 落 `artifacts/reports/tests/wasm/junit.xml`。
 
 `pkg-web/`（浏览器）与 `pkg-nodejs/`（Node）是标准 wasm-bindgen npm 包，宿主 `import` 后加载
 `.zbc` + `js/stdlib/`。JS / TS API 与错误码见 `src/toolchain/workload/wasm/README.md`。
@@ -94,7 +94,7 @@ xcode-select -p                    # 应输出 .../Xcode.app/Contents/Developer
 `Resources/stdlib/*.zpkg`。`run` 段用 `xcodebuild test` 在**真 iOS Simulator** 上跑 R1–R7，
 默认取 `simctl` 的第一个可用 iPhone；`Z42_IOS_DEST='id=<udid>'`（或
 `platform=iOS Simulator,name=...`）覆盖。JUnit 从 `xcodebuild` 的 Test Case 行解析，
-落 `artifacts/test-reports/ios/junit.xml`，不需要 xcbeautify。
+落 `artifacts/reports/tests/ios/junit.xml`，不需要 xcbeautify。
 
 iOS 的 cargo build 自动带上 `IPHONEOS_DEPLOYMENT_TARGET=platform.ios.min_ios`（`versions.toml`），
 否则 zlib-ng 的 C 部署目标与 rlib 不匹配 → `___chkstk_darwin` 链接失败。

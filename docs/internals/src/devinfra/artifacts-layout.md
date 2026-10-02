@@ -1,6 +1,6 @@
 # 产物目录布局（`artifacts/`）
 
-> 对齐：2026-10-02（change `unify-test-output-dirs`）｜ 代码：`scripts/common/xtask_layout.z42`（路径 SoT）、`src/libraries/z42.workspace.toml` 与 `src/compiler/z42.workspace.toml` 的 `[workspace.build]`、`.cargo/config.toml`
+> 对齐：2026-10-02（change `tidy-layout-reports`）｜ 代码：`scripts/common/xtask_layout.z42`（路径 SoT）、`src/libraries/z42.workspace.toml` 与 `src/compiler/z42.workspace.toml` 的 `[workspace.build]`、`.cargo/config.toml`
 >
 > 构建步骤本身见[构建编排](build.md)；打包见[打包引擎](packaging.md)。
 
@@ -14,14 +14,13 @@
 | `build/` | 编译产物、测试输出与各命令的工作目录，子目录**逐路径镜像 `src/`**（见 §2、§3）| `xtask build *` / `xtask test *`、cargo |
 | `packages/` | 组装好的发行包（`z42-<...>-<rid>-<profile>/`）+ `archives/`（发布归档、`SHA256SUMS`、`release-index.json`；2026-10-02 前是顶层 `release/`）| `xtask package *` |
 | `xtask/` | xtask 自己的 zpkg / zsym / cache，以及 xtask 自检的工作目录 `xtask/tests/<name>` —— **不在 `build/` 里面** | `z42 publish scripts/xtask.z42.toml`、xtask 自检 |
-| `bench/` | `e2e.json` / `ab.json` 等测量结果 | `xtask bench` |
-| `profile/<name>/` | 火焰图、dhat 报告、counter 摘要、`report.md` | `xtask profile` |
 | `tools/` | 构建**下载**的第三方工具（`node`、`android-sdk`、`playwright-browsers`）| `xtask deps install` 与按需自动安装 |
-| `test-reports/<platform>/` | `junit.xml`（平台三段测试）| `xtask test platform *` |
+| `reports/` | 给人与 CI 看的**结果**，按种类分子目录：`tests/<platform>/junit.xml`（平台测试）、`bench/`（`e2e.json` / `ab.json` / `micro-*.json`）、`profile/<script>/`（火焰图、dhat 报告、counter 摘要、`report.md`）| `xtask test platform *` / z42b 设备驱动、`xtask bench`、`xtask profile` |
 | `.z42` | `xtask build sdk` 默认组装出的 SDK 布局（`programs/` + `libs/` + `bin/`）| `xtask build sdk` |
 
 这个划分是常规的**中间态 / 输出 / vendored** 三分：`build/` = 「我们编出来的」，
-`packages/` = 「我们要发的」，`tools/` = 「别人给我们的」。
+`packages/` = 「我们要发的」，`tools/` = 「别人给我们的」；`reports/` 是跑出来给人看的结果，
+`clean` 不碰它。
 
 > **`xtask/` 为什么是 `build/` 的兄弟而不是它的子目录**：xtask **先于**并且**驱动**所有构建。
 > 它的产物路径由 `scripts/xtask.z42.toml` 的 `[build]` 段决定
@@ -59,11 +58,12 @@ xtask 自己发明、没有 toml 归属的路径，**全部在 `xtask_layout.z42
 ### 查询：`xtask layout`
 
 ```bash
-xtask layout            # 列出全部 key  path
-xtask layout libs       # 只打印一条，给脚本用：libs=$(xtask layout libs)
+xtask layout                                # artifacts/ 的目录树：首行是 artifacts/ 的绝对路径，其余相对它、按层级缩进
+xtask layout build/libraries/dist/release   # 只打印一条的绝对路径，给脚本用
 ```
 
-**key 是对外契约，路径不是**：CI / 脚本按 key 取路径，布局整理时 key 不变、值跟着变。
+树里的名字就是磁盘上的目录名（`build/` 下的子目录直接枚举 `src/` 的一级目录），查询参数就是树里显示的
+相对路径（尾 `/` 可有可无）。路径由 `xtask_layout.z42` 里各自的单一定义函数算出，布局整理时树自动跟上。
 仍然写死在 xtask 之外的有：`.github/ci/xtask`（CI 垫片，跑在 `.z42` SDK 上、要先能启动 xtask，鸡生蛋）、
 `scripts/hooks/hooks.z42`（z42b publish 时单独编译的 hooks 工程，调不到 xtask 的函数）、
 Rust 测试里的若干 cwd 相对路径。
@@ -165,7 +165,7 @@ z42c 写产物同样是就地写 ⇒ 穿透到 `libraries/z42.core/release/dist/
 | `xtask clean all` | `build/` + 旧布局残留（`tmp/`、`.scratch/`、`publish/`、`release/`）+ **源码树里**各 z42 工程旁的 `artifacts/`、`dist/`（+ cross-zpkg 用例的 `libs/`）|
 
 `clean all` **保留** `xtask/`（驱动自身，正在运行）、`tools/`（下载的第三方工具）、
-`packages/`（含 `packages/archives/` 发布归档）`.z42/`（成品）与 `bench/` `profile/` `test-reports/`（报告）。
+`packages/`（含 `packages/archives/` 发布归档）`.z42/`（成品）与 `reports/`（结果）。
 
 > **源码树里为什么会有产物**（实测一次完整 GREEN 后约 450 个目录）：
 > - 单独编一个 workspace 成员（xtask 的 path 依赖 `z42.project` / `z42.build`、z42b dev 目标的父包）时

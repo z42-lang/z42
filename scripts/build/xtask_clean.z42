@@ -13,9 +13,10 @@ using Std.Cli;   // ParseResult
 //                 工作目录、平台测试 bundle、z42b 的 `<m>/<profile>/tests`；规则见 test-layout.md §5）
 //                 + 旧位置 <工程目录>/artifacts/test-targets
 //   clean bench   z42b 的 bench 目标输出（`<m>/<profile>/bench`；旧位置 <工程目录>/artifacts/bench-targets）
-//   clean all     build/ + 旧工作树残留（tmp/、.scratch/、publish/、release/）+ 源码树里各 z42 工程旁的 artifacts/、dist/
+//   clean all     build/ + 旧工作树残留（tmp/、.scratch/、publish/、release/、顶层 test-reports/ bench/ profile/）
+//                 + 源码树里各 z42 工程旁的 artifacts/、dist/
 //                 **保留**：xtask/（驱动自身，正在运行）、tools/（下载的第三方工具）、
-//                 packages/ .z42/（成品）、bench/ profile/ test-reports/（报告）
+//                 packages/ .z42/（成品）、reports/（结果）
 //
 // tidy-artifacts-tmp-and-clean（2026-09-30）修了两处：
 //   · `clean tests|bench` 此前删的是 `<lib>/<profile>/{tests,bench}` —— 当前布局里**不存在**这个目录
@@ -113,6 +114,7 @@ int _cleanAll(string root) {
     n = n + _rmIfExists(_legacyScratchDir(root));
     n = n + _rmIfExists(_legacyPubStagingDir(root));
     n = n + _rmIfExists(_legacyReleaseDir(root));   // 归档已挪进 packages/archives（simplify-layout）
+    foreach (var d in _legacyReportDirs(root)) { n = n + _rmIfExists(d); }   // 结果已收进 reports/
     int strays = 0;
     foreach (var d in _srcZ42ProjectDirs(root)) {
         strays = strays + _rmIfExists(Path.Join(d, "artifacts")) + _rmIfExists(Path.Join(d, "dist"));
@@ -124,7 +126,7 @@ int _cleanAll(string root) {
     }
     Console.WriteLine("✅ clean all: removed " + n.ToString() + " artifacts/ dir(s) (build + old-layout leftovers)"
         + " + " + strays.ToString() + " source-tree output dir(s)");
-    Console.WriteLine("   kept: artifacts/{xtask,tools,packages,.z42,bench,profile,test-reports}");
+    Console.WriteLine("   kept: artifacts/{xtask,tools,packages,.z42,reports}");
     return 0;
 }
 

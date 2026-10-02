@@ -28,7 +28,7 @@ facade **同一套 7 场景**。补齐桌面 C-ABI 这条路径在自动化 gate
 ```
 
 后端实现 [`scripts/xtask_test_desktop.z42`](../../../../../scripts/xtask_test_desktop.z42)
-（`DesktopBackend : IPlatformBackend`）。JUnit → `artifacts/test-reports/desktop/junit.xml`。
+（`DesktopBackend : IPlatformBackend`）。JUnit → `artifacts/reports/tests/desktop/junit.xml`。
 
 ## R1–R7 契约
 

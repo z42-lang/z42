@@ -1,7 +1,7 @@
 // xtask — e2e benchmarks (migrate-scripts-to-z42). Native port of
 // the former scripts/bench-run.sh + scripts/_merge-bench-results.py. Compiles
 // src/bench/scenarios/*.z42, runs hyperfine on z42vm per scenario, then merges the
-// hyperfine JSONs into artifacts/bench/e2e.json — parse with native Std.Json,
+// hyperfine JSONs into artifacts/reports/bench/e2e.json — parse with native Std.Json,
 // output string-built (replacing python3). Same Z42Xtask namespace; calls
 // _exec/_root/_buildRuntime/_utcNow in xtask.z42 / xtask_package.z42.
 namespace Z42Xtask;
@@ -425,7 +425,7 @@ void _abPrint(string name, string m, AbVerdict v) {
 // `bench --ab --base-vm V --base-libs L --base-driver D [--mode M] [--threshold-time T] [--quick]`
 // Same-runner A/B regression gate. For each scenario×mode: compile with the base
 // toolchain and the PR toolchain, hyperfine both on this runner, and verdict via
-// `_abVerdict`. Writes artifacts/bench/ab.json. Exit: 0 = no regression, 1 =
+// `_abVerdict`. Writes artifacts/reports/bench/ab.json. Exit: 0 = no regression, 1 =
 // regression(s), 2 = tool error / bad args. bench-baselines/bench-update untouched.
 int _benchAb(ParseResult r) {
     string baseVm = r.GetOption("base-vm");
@@ -537,7 +537,7 @@ int _benchAb(ParseResult r) {
     return _abFinish(nb, regr, toolErr);
 }
 
-// wrap accumulated A/B result fragments in the ab-v1 envelope → artifacts/bench/ab.json.
+// wrap accumulated A/B result fragments in the ab-v1 envelope → artifacts/reports/bench/ab.json.
 void _abWriteJson(string root, string resultsDir, string items) {
     string commit = _gitOut(root, "rev-parse", "--short", "HEAD");
     string branch = _gitOut(root, "rev-parse", "--abbrev-ref", "HEAD");
@@ -887,7 +887,7 @@ int _benchDiff(ParseResult r) {
     // `--diff` 现在必须显式给 --baseline <path>（本地优化前后对比的正常用法）。
     if (baseline.Length == 0) {
         ConsoleError.WriteLine("error: bench --diff requires an explicit --baseline <path>");
-        ConsoleError.WriteLine("  hint: capture one first, e.g. `xtask bench` then copy artifacts/bench/e2e.json aside");
+        ConsoleError.WriteLine("  hint: capture one first, e.g. `xtask bench` then copy artifacts/reports/bench/e2e.json aside");
         return 2;
     }
     string curPath  = _absUnder(root, current);

@@ -60,7 +60,7 @@ public class AssetLayout {
 |---|---|---|
 | ① build project | — | desktop `cargo rustc` staticlib；wasm `wasm-pack`；iOS cargo × targets + `xcframework`；Android `cargo-ndk` + gradle AAR |
 | ② build test assets | 编 R1–R7 fixture → `.zbc` + 收 stdlib zpkg，落点参数化 | 只**声明**落点（`Assets()` 返回 `AssetLayout`） |
-| ③ run tests | 统一 JUnit 报告落点 `artifacts/test-reports/<platform>/junit.xml` | desktop 链 `libz42.a` 跑 C 壳；wasm Playwright；iOS `xcodebuild test`；Android `connectedAndroidTest` |
+| ③ run tests | 统一 JUnit 报告落点 `artifacts/reports/tests/<platform>/junit.xml` | desktop 链 `libz42.a` 跑 C 壳；wasm Playwright；iOS `xcodebuild test`；Android `connectedAndroidTest` |
 
 **阶段 ② 的共享是这个设计的全部意义**。三平台各自在 `build.sh` / `test.sh` 里跑测试时，
 "编 fixture + 收 stdlib" 在三处重复，是最容易漂移的一块。`_platformAssets` 拿 `backend.Assets()`
@@ -169,7 +169,7 @@ CI dispatch 会把它显成红，**按证据**处理：是能力缺口，就让�
 
 ### 5.4 报告聚合
 
-每平台 ③ 把 JUnit 落到 `artifacts/test-reports/<platform>/junit.xml`，CI 用 `dorny/test-reporter`
+每平台 ③ 把 JUnit 落到 `artifacts/reports/tests/<platform>/junit.xml`，CI 用 `dorny/test-reporter`
 把它变成 PR 上的一个 GitHub Check（R1–R7 明细逐条可见）。
 junit / logcat / crash-diagnostics 这些 artifact 均按 `${{ matrix.shard }}` 命名，避免矩阵内碰撞。
 **GitHub Checks 就是"远程同步层"**，不需要自建服务。
