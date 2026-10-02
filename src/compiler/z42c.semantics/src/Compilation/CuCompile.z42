@@ -148,7 +148,24 @@ public static class CuCompile {
         }
         string ns = "";
         if (cu.HasNamespace) { ns = cu.Namespace; }
-        var cm2 = new CompiledModuleZ(irm, ns, usings, uc, gen.UsedDepNs, gen.UsedDepNsCount, diags.ErrorCount());
+        // deterministic-zpkg-deps：DEPS 的输入 = 代码生成命中的依赖 ∪ 源码里写出的导入符号（带归属包）。
+        // 后者此前由 `using` 兜着（「using 了某 ns ⇒ 记它的全部提供包」），那正是 DEPS 随环境变化的来源。
+        string[] depRefs = gen.UsedDepNs;
+        int depN = gen.UsedDepNsCount;
+        if (tc.UsedNs.DepCount > 0) {
+            depRefs = new string[gen.UsedDepNsCount + tc.UsedNs.DepCount];
+            int g = 0;
+            while (g < gen.UsedDepNsCount) { depRefs[g] = gen.UsedDepNs[g]; g = g + 1; }
+            int t = 0;
+            while (t < tc.UsedNs.DepCount) {
+                string e = tc.UsedNs.DepItems[t];
+                bool dup = false;
+                int q = 0; while (q < depN) { if (depRefs[q] == e) { dup = true; } q = q + 1; }
+                if (!dup) { depRefs[depN] = e; depN = depN + 1; }
+                t = t + 1;
+            }
+        }
+        var cm2 = new CompiledModuleZ(irm, ns, usings, uc, depRefs, depN, diags.ErrorCount());
         cm2.UsedNs = tc.UsedNs.ToArray();   // using-csharp-rules PR-2
         string[] dm = new string[diags.Count()];
         int di = 0;

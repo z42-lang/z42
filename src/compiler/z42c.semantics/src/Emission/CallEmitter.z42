@@ -241,7 +241,7 @@ public sealed class CallEmitter {
                 // IC-2：prim/unknown/链上无 → DepIndex instance 捷径（arity 键→bare）
                 DepCallEntry de = this._ctx.Deps.GetInstance(c.MethodName, c.ArgCount);
                 if (de != null) {
-                    this._ctx.TrackDepNamespace(de.Namespace);
+                    this._ctx.TrackDepCall(de);
                     int fextra = retStruct ? 1 : 0;
                     TypedReg[] full = new TypedReg[c.ArgCount + 1 + fextra];
                     full[0] = recv;
@@ -317,7 +317,7 @@ public sealed class CallEmitter {
             func = this._ctx.QualifyClass(c.OwnerClass) + "." + c.MethodName;
         } else if (c.FreeNs != null) {
             // resolve-free-functions-by-namespace：绑定期已按 ns 解析 —— 直接用它（导入的记依赖 ns，使 DEPS 收录）。
-            if (c.FreeImported) { this._ctx.TrackDepNamespace(c.FreeNs); }
+            if (c.FreeImported) { this._ctx.TrackDepRef(c.FreeNs, this._ctx.Symbols.ImportedFuncPkgOf(c.MethodName, c.FreeNs)); }
             func = SymbolTable.QualOf(c.FreeNs, c.MethodName);
         } else {
             func = this._ctx.Qualify(c.MethodName);
@@ -405,7 +405,7 @@ public sealed class CallEmitter {
         if (de == null) { de = this._ctx.Deps.GetStatic(ownerClass, arityKey); }
         if (de == null) { de = this._ctx.Deps.GetStatic(ownerClass, methodName); }
         if (de == null) { return ""; }
-        this._ctx.TrackDepNamespace(de.Namespace);
+        this._ctx.TrackDepCall(de);
         return de.QualifiedName;
     }
 

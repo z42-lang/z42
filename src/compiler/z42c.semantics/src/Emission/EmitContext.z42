@@ -92,7 +92,21 @@ public sealed class EmitContext {
         this.ExcCount = this.ExcCount + 1;
     }
 
-    // 记录命中的依赖 ns（首现序去重；镜像 C# TrackDepNamespace）。
+    // deterministic-zpkg-deps：记录命中的依赖符号 —— ns + 它**实际**来自的包（"" = 归属不明，DEPS 回落为该 ns
+    // 的全部提供包）。条目编码见 DepRef。
+    public void TrackDepRef(string ns, string pkg) { this.TrackDepNamespace(DepRef.Encode(ns, pkg)); }
+
+    // DepIndex 命中（静态 / 实例捷径）：`QualifiedName` 形如 `ns.Class.Method[$N]`，去掉末段即类 FQN。
+    public void TrackDepCall(DepCallEntry de) {
+        string q = de.QualifiedName;
+        int dot = q.LastIndexOf(".");
+        string owner = dot < 0 ? "" : q.Substring(0, dot);
+        string pkg = owner == "" ? "" : this.Symbols.ImportedPkgOf(owner);
+        if (pkg == "" && owner != "" && this.Symbols.IsLocalTypeFqn(owner)) { return; }   // 本包声明的类型：不是依赖
+        this.TrackDepRef(de.Namespace, pkg);
+    }
+
+    // 记录命中的依赖 ns（首现序去重；镜像 C# TrackDepNamespace）。条目也可以是 DepRef 编码（`ns#pkg`）。
     public void TrackDepNamespace(string ns) {
         int i = 0;
         while (i < this.UsedDepNsCount) {
@@ -473,7 +487,14 @@ public sealed class EmitContext {
         if (this.LocalClasses != null && this.LocalClasses.ContainsKey(clsName)) { return; }
         if (this.ImportedClassNs != null && this.ImportedClassNs.ContainsKey(clsName)) {
             StrBox b = this.ImportedClassNs.Get(clsName) as StrBox;
-            if (b != null) { this.TrackDepNamespace(b.Value); }
+            if (b != null) {
+                string fqn = b.Value == "" ? clsName : b.Value + "." + clsName;
+                // deterministic-zpkg-deps：ImportedClassNs 含本包跨 ns 的自有类型（以及编译器内建注入、源码里也有声明的
+                // 接口，如 z42.core 的 `ISubscription`）—— 它们不是依赖，跳过；否则会落进「归属不明」的按 ns 保守回落。
+                string pkg = this.Symbols.ImportedPkgOf(fqn);
+                if (pkg == "" && this.Symbols.IsLocalTypeFqn(fqn)) { return; }
+                this.TrackDepRef(b.Value, pkg);
+            }
         }
     }
 

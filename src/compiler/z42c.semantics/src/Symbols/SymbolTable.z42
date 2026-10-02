@@ -430,6 +430,11 @@ public sealed partial class SymbolTable {
         if (this.UseRecorder != null) { this.UseRecorder.Note(ns); }
     }
 
+    // deterministic-zpkg-deps：同时记「这个导入符号来自哪个包」（pkg 为空 = 本包 / 归属不明，不记）。
+    public void NoteDepUse(string ns, string pkg) {
+        if (this.UseRecorder != null && pkg != "") { this.UseRecorder.NoteDep(DepRef.Encode(ns, pkg)); }
+    }
+
     // 带活跃类型形参（泛型类/方法 scope）：名字命中 paramNames → Z42GenericParamType。
     // using-csharp-rules PR-2：外壳 —— 解析交给 `_resolveTypePCore`，再按结果记「用到的 ns」。核心里递归解析
     // 泛型实参 / 数组元素 / 可空内层时走回本外壳，所以嵌套的类型引用也都记到。
@@ -446,11 +451,19 @@ public sealed partial class SymbolTable {
         if (this.CurrentAliases != null && nt.ArgCount == 0 && this.CurrentAliases.Find(nt.Name) >= 0) { return; }
         if (r is Z42InstantiatedType) {
             Z42ClassType d = (r as Z42InstantiatedType).Def;
-            if (d != null) { this.NoteUse(d.Namespace); }
+            if (d != null) { this.NoteUse(d.Namespace); this.NoteDepUse(d.Namespace, this.ImportedPkgOf(d.Fqn())); }
             return;
         }
-        if (r is Z42ClassType) { this.NoteUse((r as Z42ClassType).Namespace); return; }
-        if (r is Z42InterfaceType) { this.NoteUse((r as Z42InterfaceType).Namespace); return; }
+        if (r is Z42ClassType) {
+            Z42ClassType rc = r as Z42ClassType;
+            this.NoteUse(rc.Namespace); this.NoteDepUse(rc.Namespace, this.ImportedPkgOf(rc.Fqn()));
+            return;
+        }
+        if (r is Z42InterfaceType) {
+            Z42InterfaceType ri = r as Z42InterfaceType;
+            this.NoteUse(ri.Namespace); this.NoteDepUse(ri.Namespace, this.ImportedPkgOf(ri.Fqn()));
+            return;
+        }
         if (r is Z42FuncType) {
             string dk = this.DelegateKey(nt.Name);
             if (dk == null) { dk = this.DelegateKey(nt.Name.Replace(".", "+")); }   // 嵌套 delegate 的 `+` 键

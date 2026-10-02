@@ -466,10 +466,10 @@ public static class PackageCompile {
         ExportedModuleZ[] exported = new ExportedModuleZ[srcCount];
         i = 0;
         while (i < srcCount) { exported[i] = cms[i].Exported; i = i + 1; }
-        // DEPS 条目（usings ∪ usedDepNs → nsMap）
+        // DEPS 条目：每个符号实际来自的包（规则与来龙去脉见 ZpkgDeps.z42）。
         ZpkgDepList depList = new ZpkgDepList(new ZpkgDepZ[0], 0);
         if (scan != null) {
-            depList = ZpkgBuilder.BuildDependencyMap(mods, srcCount, scan.NsNames, scan.NsFiles, scan.NsCount, inp.Name + ".zpkg");
+            depList = ZpkgDeps.Build(mods, srcCount, scan.NsNames, scan.NsFiles, scan.NsCount, inp.Name, inp.ParentPkg == null ? "" : inp.ParentPkg);
         }
         // fix-crosspkg-ns-split-deps（refine-interop-native-separation）：命名空间跨包时
         // （如 Std.IO 分布在 z42.core + z42.io），BuildDependencyMap 的 ns→file 是 first-wins，

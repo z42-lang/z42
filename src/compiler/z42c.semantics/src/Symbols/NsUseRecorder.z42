@@ -31,6 +31,25 @@ public sealed class NsUseRecorder {
         this.Count = this.Count + 1;
     }
 
+    // deterministic-zpkg-deps：源码里引用到的**导入**符号（编码 `ns#pkg`，见 DepRef），并入 `UsedDepNs` 供 DEPS 用。
+    // 与上面的 ns 集分开记：那份含同包跨 ns、管 W0607 / E0436；这份只含跨包、且必须带归属包。
+    public string[] DepItems;
+    public int      DepCount;
+
+    public void NoteDep(string entry) {
+        if (!this.Active || this.Suspend > 0) { return; }
+        if (this.DepItems == null) { this.DepItems = new string[4]; this.DepCount = 0; }
+        int i = 0;
+        while (i < this.DepCount) { if (this.DepItems[i] == entry) { return; } i = i + 1; }
+        if (this.DepCount == this.DepItems.Length) {
+            string[] b = new string[this.DepItems.Length * 2];
+            int k = 0; while (k < this.DepCount) { b[k] = this.DepItems[k]; k = k + 1; }
+            this.DepItems = b;
+        }
+        this.DepItems[this.DepCount] = entry;
+        this.DepCount = this.DepCount + 1;
+    }
+
     public string[] ToArray() {
         string[] r = new string[this.Count];
         int i = 0; while (i < this.Count) { r[i] = this.Items[i]; i = i + 1; }

@@ -1,0 +1,85 @@
+// zpkg DEPS 段的计算（deterministic-zpkg-deps）。
+//
+// DEPS 是运行期惰性加载的**候选包**清单（加载器按 ns 路由、找不到再在候选闭包里兜底）。规则：
+//   每个模块的 `UsedDepNs` 条目（代码生成命中的依赖 ∪ 源码里写出的导入符号，编码见 Semantics.DepRef）——
+//   · `ns#pkg`：符号实际来自 pkg ⇒ 只记 pkg；
+//   · `ns`（归属不明）：保守地记该 ns 在本次扫描里的全部提供包。
+//
+// 此前的规则是「每个 `using` 和用到的 ns ⇒ 本次扫描里该 ns 的全部提供包」。`Std` 有十来个包在提供，于是写了
+// `using Std;` 的包会把**当时看得见的**那几个全记成依赖（z42.json 带着 z42.regex / z42.uri）——而看得见哪些，
+// 随构建方式（workspace 拓扑分档 / 单包 / flat 目录里已有什么）而变 ⇒ 同一份源码产出不同的 DEPS 字节。
+// 现在 `using` 本身不再贡献依赖；只有「归属不明」的条目还走按 ns 的保守回落，`Z42C_TRACE_DEPS=1` 打印它们。
+//
+// 记少的后果是运行期 `undefined function`（候选闭包里没有那个包），记多只是多一个候选 —— 所以归属不明时宁可多记。
+namespace Z42.Pipeline;
+
+using Std.IO;
+using Z42.Package;
+using Z42.Semantics;
+
+public static class ZpkgDeps {
+    public static ZpkgDepList Build(ZbcFileZ[] modules, int moduleCount,
+                                    string[] nsNames, string[] nsFiles, int nsCount,
+                                    string selfPkg, string parentPkg) {
+        string selfFile = selfPkg + ".zpkg";
+        bool trace = Environment.GetEnvironmentVariable("Z42C_TRACE_DEPS", "") == "1";
+        ZpkgDepPairs buf = new ZpkgDepPairs();
+        int mi = 0;
+        while (mi < moduleCount) {
+            ZbcFileZ m = modules[mi];
+            int u = 0;
+            while (u < m.UsedDepNsCount) {
+                string e = m.UsedDepNs[u];
+                string ns = DepRef.NsOf(e);
+                string pkg = DepRef.PkgOf(e);
+                if (pkg != "") {
+                    string file = pkg + ".zpkg";
+                    if (file != selfFile) { buf.Add(file, ns); }
+                } else {
+                    if (trace) { ConsoleError.WriteLine("deps-unattributed " + selfPkg + " " + m.SourceFile + " " + ns); }
+                    int i = 0;
+                    while (i < nsCount) {
+                        if (nsNames[i] == ns && nsFiles[i] != selfFile) { buf.Add(nsFiles[i], ns); }
+                        i = i + 1;
+                    }
+                }
+                u = u + 1;
+            }
+            mi = mi + 1;
+        }
+        // 测试 / bench 目标：父包按同包待遇编译（其符号不进来源表 ⇒ 永远归属不明），而运行期必须能加载它。
+        if (parentPkg != "" && parentPkg != selfPkg) { buf.Add(parentPkg + ".zpkg", ""); }
+        return ZpkgDeps._group(buf);
+    }
+
+    // (file, ns) 对 → 按 file 首现序聚合成 DEPS 条目（ns 列表保首现序；空 ns 不进列表）。
+    private static ZpkgDepList _group(ZpkgDepPairs buf) {
+        string[] files = new string[buf.Count + 1];
+        int fileCount = 0;
+        int i = 0;
+        while (i < buf.Count) {
+            bool seen = false;
+            int j = 0;
+            while (j < fileCount) { if (files[j] == buf.Files[i]) { seen = true; } j = j + 1; }
+            if (!seen) { files[fileCount] = buf.Files[i]; fileCount = fileCount + 1; }
+            i = i + 1;
+        }
+        ZpkgDepZ[] deps = new ZpkgDepZ[fileCount];
+        i = 0;
+        while (i < fileCount) {
+            int n = 0;
+            int j = 0;
+            while (j < buf.Count) { if (buf.Files[j] == files[i] && buf.Nss[j] != "") { n = n + 1; } j = j + 1; }
+            string[] nsList = new string[n];
+            int k = 0;
+            j = 0;
+            while (j < buf.Count) {
+                if (buf.Files[j] == files[i] && buf.Nss[j] != "") { nsList[k] = buf.Nss[j]; k = k + 1; }
+                j = j + 1;
+            }
+            deps[i] = new ZpkgDepZ(files[i], nsList, n);
+            i = i + 1;
+        }
+        return new ZpkgDepList(deps, fileCount);
+    }
+}
