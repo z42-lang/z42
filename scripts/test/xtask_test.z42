@@ -279,7 +279,7 @@ int _testE2eCore(string modes, bool rebuild, bool noBuild, string jobs, string s
 // change stops the collector firing, the count collapses and this stage goes red rather than
 // silently testing nothing.
 int _testGcModeWorkload(string label, string modeEnv, string nurseryEnv, string budgetEnv,
-                        int minCycles) {
+                        int minCycles, int jobs) {
     string root = _root();
     string vm = _builtVm(root, "release");
     string driver = _driverZpkg(root, "release");
@@ -289,6 +289,9 @@ int _testGcModeWorkload(string label, string modeEnv, string nurseryEnv, string 
     Process p = _z42Proc(vm, flat)
         .Arg(driver).Arg("--")
         .Arg("build").Arg(toml).Arg("--release").Arg("--no-incremental")
+        // 显式给并行度：`z42c build` 的默认值是 min(4, 核数)（default-compile-jobs），而回收次数在多线程下
+        // 随平台与时序剧烈波动（同一构建 linux-arm64 88 次、linux-x64 1356 次）⇒ 串行腿钉 1 以保持确定性。
+        .Arg("--jobs").Arg(jobs.ToString())
         // isolate-xtask-fixture-builds：产物进 artifacts/tmp，不落 `src/compiler/z42c.semantics/dist`
         // （这次构建只为给 GC 施压，产物本身没人用）。
         .Arg("--output-dir").Arg(_tmpDir(root, "gc-modes"))
@@ -331,9 +334,14 @@ int _countGcCycles(string stderrText) {
 
 int _testGcModes() {
     // The default leg: mode UNSET on purpose — see the note above.
-    int c = _testGcModeWorkload("default mode, nursery 1M", "", "1M", "", 200);
+    int c = _testGcModeWorkload("default mode, nursery 1M", "", "1M", "", 200, 1);
     if (c != 0) { return c; }
-    return _testGcModeWorkload("Z42_GC_MODE=stw, budget 32M", "stw", "", "32M", 40);
+    c = _testGcModeWorkload("Z42_GC_MODE=stw, budget 32M", "stw", "", "32M", 40, 1);
+    if (c != 0) { return c; }
+    // fix-gc-stress-jobs：多线程编译腿。#1053 的分代写屏障漏洞（年轻字符串写进老对象不标脏卡）只在
+    // `--jobs 4` + 小年轻代下才稳定复现 —— 串行腿从来没撞上过。回收次数在多线程下不确定（多个线程同时越过
+    // 阈值时请求会合并），下限只用来抓「回收器完全没被触发」，不追求压测强度（那由上面的串行腿保证）。
+    return _testGcModeWorkload("default mode, nursery 1M, --jobs 4", "", "1M", "", 20, 4);
 }
 
 // ── cross-zpkg harness (invoked by `test e2e`) ──────────────────────────────
