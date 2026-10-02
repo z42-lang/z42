@@ -1,6 +1,6 @@
 # 命名空间与 `using`
 
-> 对齐：2026-10-01 ｜ 实测基准：`./artifacts/.z42/z42 run`
+> 对齐：2026-10-02 ｜ 实测基准：`./artifacts/.z42/z42 run`
 
 ## 语法
 
@@ -14,7 +14,7 @@ dotted_name    ::= IDENT ( "." IDENT )*
 - ⚠️ **`namespace` 与 `using` 的相对顺序不受约束** —— `using` 写在 `namespace` 之前照样合法，
   且 `namespace` 正常生效。这是刻意的：`using` / `global using` / 类型别名**不算声明**
   （`z42c.syntax` 的 parser 单测钉着这条）。
-- ⚠️ **`using` 出现在顶层声明之后目前不报错**（能编过）。习惯上仍应全部写在文件顶部。
+- `using` / `global using` / 类型别名必须写在**所有类型/函数声明**之前（违反 → `E0210`）。
 - 不支持 block-scoped namespace（`namespace Foo { ... }`）。
 
 ## 命名空间声明
@@ -196,7 +196,7 @@ z42c build: kind=exe but no Main() found
 |---|---|
 | `namespace` 出现在类型/函数声明之后 | `E0457: \`namespace\` must appear before any type or function declaration in the file` |
 | 同一文件两条 `namespace` | `E0457: a file may declare only one namespace (\`A\` was already declared above) — split the file, or move all declarations under a single namespace` |
-| `using` 出现在顶层声明之后 | **不报错**（见上方「语法」小节的 ⚠️）|
+| `using` 出现在顶层声明之后 | `E0210: \`using\` must appear before any type or function declaration in the file — move it to the top of the file`（`global using` 同款，消息里写 `global using`）|
 
 ### 缺 `using` 怎么补
 

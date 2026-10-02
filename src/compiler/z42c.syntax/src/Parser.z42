@@ -503,6 +503,15 @@ public sealed class Parser {
         return false;
     }
 
+    // reject-using-after-decl：`using` / `global using` / `using X = T;` 必须排在文件里所有类型 / 函数声明之前
+    // （对齐 C# CS1529）。此前写在声明之后也照常生效（作用到整个文件，包括上面的声明），读者从文件顶部看不出
+    // 某个名字从哪来。只报错、照常收下这条 using（不级联出「undefined」）。与 `namespace` 的相对顺序仍不限。
+    private void _chkUsingPos(bool sawTypeDecl, string what, Span sp) {
+        if (!sawTypeDecl) { return; }
+        this._diags.Error("E0210", "`" + what + "` must appear before any type or function declaration in the file"
+            + " — move it to the top of the file", sp);
+    }
+
     // ════ 顶层声明 ══════════════════════════════════════════════════════════
     public CompilationUnit ParseCompilationUnit() {
         Span cusp = this._peek().Span;
@@ -551,6 +560,7 @@ public sealed class Parser {
             // 置于普通 using 判定前——`global` 是 Identifier，仅在紧跟 `using` 时特判。
             if (k == TokenKind.Identifier && this._peek().Text == "global" && this._peekAt(1).Kind == TokenKind.Using) {
                 Span gsp = this._peek().Span;
+                this._chkUsingPos(sawTypeDecl, "global using", gsp);
                 this._advance();   // global
                 this._advance();   // using
                 string gn = this._declP._parseQualifiedName(); this._expectSemi();
@@ -560,6 +570,7 @@ public sealed class Parser {
             }
             if (k == TokenKind.Using) {
                 Span usp = this._peek().Span;
+                this._chkUsingPos(sawTypeDecl, "using", usp);
                 this._advance();
                 // add-type-alias：`using Id = Type;`——`using` 后 Identifier 紧跟 `=` → 类型别名。
                 if (this._peek().Kind == TokenKind.Identifier && this._peekAt(1).Kind == TokenKind.Eq) {

@@ -243,7 +243,7 @@ int _e2eUsedNsCacheChecks(string vm, string driverZpkg, string e2eDir, string fl
     Directory.Create(root);
     File.WriteAllText(Path.Join(root, "unc.z42.toml"),
         "[project]\nname    = \"unc\"\nversion = \"0.1.0\"\nkind    = \"lib\"\n\n[sources]\ninclude = [\"*.z42\"]\n");
-    string f0 = "namespace UnA;\n\npublic class W { public int V; }\n\nglobal using UnA;\n";
+    string f0 = "namespace UnA;\n\nglobal using UnA;\n\npublic class W { public int V; }\n";
     File.WriteAllText(Path.Join(root, "f0.z42"), f0);
     File.WriteAllText(Path.Join(root, "f1.z42"), "namespace UnB;\n\npublic static class U {\n    public static int F() { W w = new W(); return w.V; }\n}\n");
     string[] a = new string[2];

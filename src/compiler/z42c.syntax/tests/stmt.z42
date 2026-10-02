@@ -242,6 +242,41 @@ void test_single_namespace_at_top_reports_nothing() {
     Assert.False(p.Diagnostics().HasErrors());
 }
 
+// ── `using` 必须排在所有类型 / 函数声明之前（reject-using-after-decl，对齐 C# CS1529）─────
+// 断言用字面量码，理由同上面 E0457 那组。
+
+[Test]
+void test_using_after_type_declaration_is_reported() {
+    var p = new Parser("class X { }\nusing Std;\n", "t.z42");
+    p.ParseCompilationUnit();
+    Assert.Equal(1, countCode(p.Diagnostics(), "E0210"));
+}
+
+[Test]
+void test_global_using_and_alias_after_function_are_reported() {
+    var p = new Parser("void F() { }\nglobal using Std.IO;\nusing Id = int;\n", "t.z42");
+    p.ParseCompilationUnit();
+    Assert.Equal(2, countCode(p.Diagnostics(), "E0210"));
+}
+
+[Test]
+void test_using_after_declaration_still_collected() {
+    // 只报错不丢弃：using 照常进 AST，不级联出别的错误。
+    var p = new Parser("class X { }\nusing Std;\n", "t.z42");
+    var cu = p.ParseCompilationUnit();
+    Assert.Equal(1, p.Diagnostics().ErrorCount());
+    Assert.Equal(2, cu.DeclCount);
+}
+
+[Test]
+void test_usings_before_and_after_namespace_report_nothing() {
+    // 与 namespace 的相对顺序不限；只要都在声明之前。
+    var p = new Parser("using Std;\nnamespace N;\nusing Std.IO;\nusing Id = int;\nclass X { }\n", "t.z42");
+    p.ParseCompilationUnit();
+    Assert.Equal(0, countCode(p.Diagnostics(), "E0210"));
+    Assert.False(p.Diagnostics().HasErrors());
+}
+
 // fix-parser-silent-misparse：无初值的泛型类型局部声明。此前泛型前瞻只认 `name =`，
 // `List<int> xs;` 落成比较表达式 `(List < int) > xs`，语义层随后报一串误导性的 `undefined: xs`。
 [Test]

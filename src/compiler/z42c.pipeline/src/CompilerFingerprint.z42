@@ -134,7 +134,9 @@ public static class CompilerFingerprint {
         // forbid-local-shadowing：同一作用域重复声明局部（E0467）、内层与外层局部 / 形参重名（E0491）新报错 —— 诊断变化。
         "forbid-local-shadowing",
         // deterministic-zpkg-deps：DEPS 只记符号实际来自的包，`using` 不再贡献依赖 —— 几乎所有 zpkg 的 DEPS 段字节变化。
-        "deterministic-zpkg-deps"
+        "deterministic-zpkg-deps",
+        // reject-using-after-decl：`using` 写在类型/函数声明之后新报 E0210 —— 诊断变化。
+        "reject-using-after-decl"
     };
 
     // 指纹值：`Entries` 逐条以 `\n` 连接后取内容哈希（`mmh3:` 前缀，同 SourceHash）。

@@ -22,6 +22,9 @@ public static class DiagnosticCodes {
     // 语言本就不接受，但此前只是一路级联出 4 条无关错误（"unexpected token in expression"
     // / "expected ';'" / 两条 "undefined"），没有一条说得出真正原因。
     public static string DeclarationInStatement = "E0209";
+    // `using` / `global using` / 类型别名写在文件里第一个类型 / 函数声明**之后**。对齐 C# CS1529。此前照常生效、
+    // 而且作用到整个文件（包括它上面的声明），读者从文件顶部看不出名字从哪来。与 `namespace` 的相对顺序不限。
+    public static string UsingAfterDeclaration = "E0210";
 
     // Feature gates
     public static string FeatureDisabled     = "E0301";

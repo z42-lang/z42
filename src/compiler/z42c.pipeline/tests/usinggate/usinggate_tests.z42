@@ -194,7 +194,7 @@ void test_duplicate_using_warns_W0608() {
 [Test]
 void test_using_covered_by_global_using_warns_W0608() {
     if (!ugHasLibs()) { return; }
-    CompileArtifacts art = ugCompile(ug2(ugLibA() + "global using A;\n",
+    CompileArtifacts art = ugCompile(ug2("global using A;\n" + ugLibA(),
         "namespace B;\nusing A;\nint F() { return Helper.Who(); }\n"));
     Assert.Equal(1, ugCount(art, "global using A;` already imports it"));
 }
@@ -255,7 +255,7 @@ void test_cached_file_still_reports_E0436_after_global_using_removed() {
     // f1 的同包跨 ns 引用必须报 E0436。修前 cached 文件只回填 `UsedDepNs`（依赖包那一半），`A` 是本包 ns ⇒ 不报。
     if (!ugHasLibs()) { return; }
     string f1 = "namespace B;\nint F() { W w = new W(); return w.V; }\n";
-    CompileArtifacts a1 = ugCompile(ug2(ugLibA() + "global using A;\n", f1));
+    CompileArtifacts a1 = ugCompile(ug2("global using A;\n" + ugLibA(), f1));
     Assert.Equal(0, a1.ErrorCount);
     IrModule[] cm = new IrModule[2]; cm[1] = a1.Cms[1].Module;
     CachedNsMeta[] meta = new CachedNsMeta[2];
@@ -288,7 +288,7 @@ void test_global_using_used_by_another_file_does_not_warn() {
     // 声明在 f0、用在 f1：全包有人用 ⇒ 不报。也守 3.6 之前的误报：`namespace A;` 的文件里写 `global using A;`
     // 曾被当成「本文件 ns，本来就可见」报 W0607 —— global using 是给全包别的文件用的。
     if (!ugHasLibs()) { return; }
-    CompileArtifacts art = ugCompile(ug2(ugLibA() + "global using A;\n", "namespace B;\nint F() { return Helper.Who(); }\n"));
+    CompileArtifacts art = ugCompile(ug2("global using A;\n" + ugLibA(), "namespace B;\nint F() { return Helper.Who(); }\n"));
     Assert.Equal(0, art.ErrorCount);
     Assert.Equal(0, ugCount(art, "W0607"));
 }
