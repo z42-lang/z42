@@ -1,0 +1,19 @@
+# z42c.pipeline 导入类实例方法按接收者定位调用目标（instance-call-by-receiver）。
+[project]
+name    = "z42c.pipeline.test.receivercall"
+version = "0.1.0"
+kind    = "lib"
+
+[sources]
+include = ["**/*.z42"]
+
+[dependencies]
+"z42c.pipeline"  = "0.1.0"
+"z42.package"    = "0.1.0"
+"z42c.semantics" = "0.1.0"
+"z42c.core"      = "0.1.0"
+
+[build]
+# Build output → artifacts mirror (mirror-build-output-per-component):
+# src/compiler/z42c.pipeline/tests/receivercall → artifacts/build/compiler/z42c.pipeline/tests/receivercall
+output_dir = "../../../../../artifacts/build/compiler/z42c.pipeline/tests/receivercall"

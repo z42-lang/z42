@@ -258,6 +258,15 @@ public sealed class EmitContext {
         return ct;
     }
 
+    // instance-call-by-receiver：prim 接收者（`string` / `int` …，OwnerClass 是关键字小写）的包装类（`Std.String` …），
+    // 仅当它是**导入**类时返回（编译 z42.core 自身时包装类是本地类，交给本地路径）。
+    public Z42ClassType ImportedPrimWrapperClass(string ownerClass) {
+        if (this.Symbols == null || ownerClass == null || ownerClass == "") { return null; }
+        Z42ClassType w = this.Symbols.GetClass(TypeFactsTc._primWrapper(ownerClass));
+        if (w == null || !w.IsImported) { return null; }
+        return w;
+    }
+
     // 类的 IR 短名（镜像 IrGen._classIrShortName）：泛型类若以 `Name$N` 键注册（同名多 arity 重载）→ 返回
     // `Name$N`，否则裸 `Name`。去虚化目标名 + ImportedClassNs 查键都用它，逐字节匹配 IrGen 发射。
     private string _classShortName(Z42ClassType ct) {

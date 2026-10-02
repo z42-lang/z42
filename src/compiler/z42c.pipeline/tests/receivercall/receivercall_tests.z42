@@ -1,0 +1,78 @@
+// 导入类上的非虚实例方法：调用目标按「接收者类型的基类链 + 注册键」定位（instance-call-by-receiver）。
+//
+// 此前走 DepIndex 实例捷径 `GetInstance(方法名, 参数个数)`，不看接收者类型：全部可见包里只要另有同名同 arity
+// 的实例方法就判歧义、退回 VCall —— 可见哪些包随构建方式变，于是同一份源码有时发 Call、有时发 VCall。
+// 这里用真实 stdlib 当依赖世界（`Get` / `Set` 在好几个包里都有，正是旧逻辑必判歧义的环境；无 Z42_LIBS 时早退）。
+namespace Z42cPipelineReceiverCallTests;
+
+using Std.IO;
+using Z42.Pipeline;
+using Z42.IR;
+using Z42.Semantics;
+
+CompileArtifacts rcCompile(string src) {
+    string libs = Environment.GetEnvironmentVariable("Z42_LIBS", "");
+    string[] dirs = libs.Split(":");
+    string[] texts = new string[1]; texts[0] = src;
+    string[] files = new string[1]; files[0] = "a.z42";
+    string[] hashes = new string[1]; hashes[0] = "DEADBEEF";
+    CompileInputs cin = new CompileInputs();
+    cin.Texts = texts; cin.Files = files; cin.SrcHashes = hashes; cin.SrcCount = 1;
+    cin.Cus = IrDump.ParseAll(texts, files, 1);
+    cin.CachedMods = null; cin.CachedMetas = null;
+    cin.Name = "demo.rc"; cin.Version = "0.1.0"; cin.Kind = "lib";
+    cin.HasEntry = false; cin.Entry = "";
+    cin.IsRelease = false;
+    cin.LibsDirs = dirs; cin.LibsDirsN = dirs.Length;
+    cin.DeclaredDeps = new string[0]; cin.DepCount = 0;
+    CompileArtifacts art = PackageCompile.Compile(cin);
+    Assert.Equal(0, art.ErrorCount);
+    return art;
+}
+
+bool rcHasLibs() { return Environment.GetEnvironmentVariable("Z42_LIBS", "") != ""; }
+
+// 模块里直接 Call 到 `target` 的次数。
+int rcCallsTo(CompileArtifacts art, string target) {
+    IrModule m = art.Cms[0].Module;
+    int n = 0;
+    int f = 0;
+    while (f < m.FuncCount) {
+        IrFunction fn = m.Functions[f];
+        int b = 0;
+        while (b < fn.BlockCount) {
+            IrBlock blk = fn.Blocks[b];
+            int i = 0;
+            while (i < blk.InstrCount) {
+                if (blk.Instrs[i] is CallInstr && (blk.Instrs[i] as CallInstr).Func == target) { n = n + 1; }
+                i = i + 1;
+            }
+            b = b + 1;
+        }
+        f = f + 1;
+    }
+    return n;
+}
+
+[Test]
+void test_dictionary_methods_call_the_declaring_class_directly() {
+    if (!rcHasLibs()) { return; }
+    CompileArtifacts art = rcCompile("namespace Demo;\nusing Std.Collections;\npublic static class A {\n"
+        + "    public static int F(Dictionary<string, int> d) {\n"
+        + "        d.Set(\"a\", 1);\n"
+        + "        if (d.ContainsKey(\"a\")) { return d.Get(\"a\"); }\n"
+        + "        return 0;\n"
+        + "    }\n}\n");
+    Assert.Equal(1, rcCallsTo(art, "Std.Collections.Dictionary.Set"));
+    Assert.Equal(1, rcCallsTo(art, "Std.Collections.Dictionary.ContainsKey"));
+    Assert.Equal(1, rcCallsTo(art, "Std.Collections.Dictionary.Get"));
+}
+
+// prim 接收者走包装类：`string` 的实例方法直呼 `Std.String.<方法>`。
+[Test]
+void test_prim_receiver_calls_wrapper_class_directly() {
+    if (!rcHasLibs()) { return; }
+    CompileArtifacts art = rcCompile("namespace Demo;\npublic static class A {\n"
+        + "    public static string F(string s) { return s.Trim(); }\n}\n");
+    Assert.Equal(1, rcCallsTo(art, "Std.String.Trim"));
+}
