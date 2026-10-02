@@ -157,9 +157,10 @@ string _runtimeOut(string root, string profile) {
     return Path.Join(_cargoTargetDir(root), profile);
 }
 
-// artifacts/build/<name> — xtask-owned test output trees under build/ (desktop-test /
-// embedded-test / wasm-test). Named here so a later move of test outputs is one edit.
-string _buildTestOutDir(string root, string name) { return Path.Join(_buildDir(root), name); }
+// artifacts/tmp/<name> — 测试命令的输出树（desktop-test / embedded-test / wasm-test）：可重生、不进任何包，
+// 正是 `tmp/` 的定义。2026-10-02 前在 `artifacts/build/<name>`，与 runtime/ libraries/ 等并列，
+// 破坏「build/ 镜像 src/」（tidy-test-output-dirs）。
+string _testOutDir(string root, string name) { return _tmpDir(root, name); }
 
 // xtask's own product — resolved from scripts/xtask.z42.toml [build] (dist_dir/output_dir).
 string _xtaskZpkg(string root) { return _toolchainZpkg(root, "scripts/xtask.z42.toml"); }

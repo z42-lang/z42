@@ -116,7 +116,7 @@ int _runWasm(ParseResult r, string manifestPath, string outDir,
     // provisioned by xtask, passed via --node-bin / Z42_PW_BROWSERS. Double-read:
     // run.js self-asserts window.__report; z42b collects the pass/fail verdict.
     if (wantRun) {
-        return _runWasmPlaywright(r, buildRoot);
+        return _runWasmPlaywright(r, buildRoot, outDir);
     }
     return 0;
 }
@@ -124,7 +124,9 @@ int _runWasm(ParseResult r, string manifestPath, string outDir,
 // Spawn `npx playwright test --config playwright.embedded.config.ts` in the wasm
 // tests dir. node bin (hermetic, from xtask) via --node-bin prepended to PATH;
 // browser cache via Z42_PW_BROWSERS. Exit code = the device run verdict.
-int _runWasmPlaywright(ParseResult r, string buildRoot) {
+// `outDir`（`--out`）非空 ⇒ 经 Z42_WASM_DEPLOY 告诉 playwright 配置 deployable 在哪（此前配置里写死了
+// `artifacts/build/wasm-test`，布局一挪就断——tidy-test-output-dirs）。
+int _runWasmPlaywright(ParseResult r, string buildRoot, string outDir) {
     string testsDir = Path.Join(buildRoot, "src/toolchain/workload/wasm/platform/tests");
     string nodeBin  = r.GetOption("node-bin");
     string browsers = Environment.GetEnvironmentVariable("Z42_PW_BROWSERS", "");
@@ -139,6 +141,7 @@ int _runWasmPlaywright(ParseResult r, string buildRoot) {
         pw = pw.Env("PATH", nodeBin + ":" + oldPath);
     }
     if (browsers.Length > 0) { pw = pw.Env("PLAYWRIGHT_BROWSERS_PATH", browsers); }
+    if (outDir.Length > 0) { pw = pw.Env("Z42_WASM_DEPLOY", outDir); }
     ProcessResult res = pw.Run();
     if (res.Stdout.Length > 0) { Console.Write(res.Stdout); }
     if (res.Stderr.Length > 0) { ConsoleError.WriteLine(res.Stderr); }
