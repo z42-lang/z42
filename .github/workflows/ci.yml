@@ -1652,7 +1652,8 @@ jobs:
     # tier2-mobile-coverage: fan the embedded corpus into N shards for FULL
     # coverage (`test embedded --shard k/N`, no 60-cap), mirroring test-wasm.
     # Mobile's runnable corpus (~465 cases; only net + process/console/env + OS
-    # identity are capability-excluded — see _targetExcludes) is much larger than
+    # identity lack a cap there — their `requires-caps` make BundleRunner skip them
+    # on-device without loading, ~0 cost) is much larger than
     # wasm's, so the uncapped full corpus blew the 60min emulator/sim wall (why
     # the 60-smoke cap existed). n=3 keeps each shard's ~155-case slice under the
     # wall. Each shard boots its own simulator and runs its 1/N slice + R1–R7

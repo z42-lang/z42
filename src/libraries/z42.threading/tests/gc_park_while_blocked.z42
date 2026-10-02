@@ -1,3 +1,4 @@
+// requires-caps: threads
 // fix-sync-primitives-gc-park：阻塞的同步原语必须让出 GC safepoint。
 //
 // 这组用例的形状都一样：**一个线程阻塞等另一个线程，而另一个线程大量分配**。

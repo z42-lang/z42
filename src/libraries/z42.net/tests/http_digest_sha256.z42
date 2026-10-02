@@ -1,3 +1,4 @@
+// requires-caps: socket-listen
 // add-z42-net-http-digest-auth (2026-05-31): RFC 7616 SHA-256 Digest
 // — same challenge-response flow as MD5 but `algorithm=SHA-256` switches
 // HA1 / HA2 / response to SHA-256.

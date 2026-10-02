@@ -1,3 +1,4 @@
+// requires-caps: fs
 // add-std-io-directory (2026-05-13)：z42.io.Directory 库本地测试。
 // 5 个 extern API 各覆盖 happy path + 必要的边界（不存在 / 非空目录）。
 //

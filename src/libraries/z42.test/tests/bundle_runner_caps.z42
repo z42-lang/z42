@@ -1,0 +1,37 @@
+// BundleRunner 的能力门：manifest 里带 `requires` 的用例，在当前 VM 的 Capabilities()
+// 缺其中任一项时报 skipped，且**不加载**它的模块。
+//
+// 「不加载」是这道门的要点：在没有 native interop 的 VM 上，光是加载一个 [Native] facade
+// 就会在 resolver 里 panic，所以判定必须先于加载。这里让用例指向一个不存在的 zbc ——
+// runner 若先加载再判定，这条测试会直接炸掉而不是拿到 skipped。
+namespace Z42TestBundleRunnerCapsTests;
+
+using Std.Test;
+
+[Test]
+void test_case_missing_a_cap_is_skipped_without_loading() {
+    BundleCase c = new BundleCase("caps/needs_missing", "does-not-exist.zbc", null, null);
+    c.Requires = new string[] { "no-such-capability" };
+    TestResult[] rs = BundleRunner.RunBundle(new BundleCase[] { c }, ".", "");
+    Assert.Equal(1, rs.Length);
+    Assert.Equal("caps/needs_missing", rs[0].Name);
+    Assert.Equal("skipped", rs[0].Status);
+    Assert.True(rs[0].Reason.Contains("no-such-capability"));
+}
+
+[Test]
+void test_reason_lists_only_the_missing_caps() {
+    string[] have = Platform.Capabilities();
+    Assert.True(have.Length > 0);
+    BundleCase c = new BundleCase("caps/partly_present", "does-not-exist.zbc", null, null);
+    c.Requires = new string[] { have[0], "no-such-capability" };
+    TestResult[] rs = BundleRunner.RunBundle(new BundleCase[] { c }, ".", "");
+    Assert.Equal("skipped", rs[0].Status);
+    Assert.False(rs[0].Reason.Contains(have[0]));
+}
+
+[Test]
+void test_no_requires_means_no_gate() {
+    BundleCase c = new BundleCase("caps/none", "x.zbc", null, null);
+    Assert.Equal(0, c.Requires.Length);
+}

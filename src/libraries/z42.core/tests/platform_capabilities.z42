@@ -33,6 +33,29 @@ void test_has_aot_matches_exec_modes() {
     Assert.True(_contains(Platform.ExecModes(), "aot") == Platform.HasAot());
 }
 
+// OS-facility caps come in three platform tiers (platform.rs `builtin_platform_caps`).
+// The test corpus's `// requires-caps:` declarations rely on exactly this split —
+// a cap reported where the facility is missing would let a case run (and fail /
+// crash) on that target; one missing where it exists would silently skip coverage.
+// This file declares no caps, so it runs on every target and pins all three tiers.
+[Test]
+void test_os_facility_caps_follow_platform_tier() {
+    string[] caps = Platform.Capabilities();
+    bool wasm = Platform.IsWasm();
+    bool mobile = Platform.IsIos() || Platform.IsAndroid();
+    // fs / clock / entropy: everywhere but wasm.
+    Assert.Equal(!wasm, _contains(caps, "fs"));
+    Assert.Equal(!wasm, _contains(caps, "clock"));
+    Assert.Equal(!wasm, _contains(caps, "entropy"));
+    // process / tty / env / socket-listen: desktop only (the app sandbox denies them).
+    Assert.Equal(!wasm && !mobile, _contains(caps, "process"));
+    Assert.Equal(!wasm && !mobile, _contains(caps, "tty"));
+    Assert.Equal(!wasm && !mobile, _contains(caps, "env"));
+    Assert.Equal(!wasm && !mobile, _contains(caps, "socket-listen"));
+    // hardlink: everywhere but wasm and Android.
+    Assert.Equal(!wasm && !Platform.IsAndroid(), _contains(caps, "hardlink"));
+}
+
 bool _contains(string[] arr, string v) {
     for (int i = 0; i < arr.Length; i = i + 1) {
         if (arr[i] == v) { return true; }

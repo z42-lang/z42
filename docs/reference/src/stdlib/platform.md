@@ -116,7 +116,7 @@ public static class ArchKind {
 名猜的。要写「有就用、没有就退化」的自适应逻辑，问这两个，别去猜 OS。
 
 ```z42
-public static extern string[] Capabilities();   // 例：["jit", "native-interop", "threads", "socket"]
+public static extern string[] Capabilities();   // 例：["jit", "native-interop", "threads", "socket", "fs", …]
 public static extern string[] ExecModes();      // 例：["interp", "jit"]
 ```
 
@@ -128,7 +128,15 @@ public static extern string[] ExecModes();      // 例：["interp", "jit"]
 | `"native-interop"` | 编进了 native FFI（`[Native]` extern 走动态库那一支） |
 | `"bundled-compression"` | 编进了内置压缩编解码器 |
 | `"threads"` | 有真实 OS 线程（`Std.Threading`）。wasm 上没有 |
-| `"socket"` | 有真实 OS 网络（TCP / UDP / HTTP / WS）。wasm 上没有 |
+| `"socket"` | 有真实 OS 网络客户端（TCP / UDP / HTTP / WS）。wasm 上没有 |
+| `"fs"` | 有可写文件系统（文件、目录、流、glob）。wasm 上没有 |
+| `"clock"` | 有系统时钟（`DateTime.UtcNow`）。wasm 上没有 |
+| `"entropy"` | 有 OS 熵源（安全随机数、`Guid.NewGuid`）。wasm 上没有 |
+| `"process"` | 能起子进程。只在桌面系统上有（iOS / Android 的 app 沙箱与 wasm 都没有） |
+| `"tty"` | 有终端 / console。只在桌面系统上有 |
+| `"env"` | 进程环境可用：可变环境变量、工作目录、桌面 OS 身份。只在桌面系统上有 |
+| `"socket-listen"` | 能 bind / listen 服务端 socket。只在桌面系统上有 |
+| `"hardlink"` | 支持 POSIX 硬链接。wasm 与 Android 上没有 |
 
 | `ExecModes()` 元素 | 含义 |
 |---|---|

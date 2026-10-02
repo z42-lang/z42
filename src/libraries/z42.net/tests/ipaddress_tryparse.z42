@@ -1,3 +1,4 @@
+// requires-caps: socket-listen
 // add-ipaddress-tryparse (2026-06-09): non-throwing IPAddress.TryParse →
 // IPAddress? (null on malformed input). Same grammar as Parse.
 namespace Z42NetIPAddressTryParseTests;

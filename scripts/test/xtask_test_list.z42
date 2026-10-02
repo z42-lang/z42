@@ -27,13 +27,12 @@ string _runCmdFor(_CorpusCase c) {
     return "test stdlib " + c.lib + " -k " + c.leaf;
 }
 
-// `test list [--dir <bucket>] [--filter <substr>] [--kind golden|test|all] [--rid <rid>] [--json]`
+// `test list [--dir <bucket>] [--filter <substr>] [--kind golden|test|all] [--json]`
 int _testList(ParseResult r) {
     string root = _root();
     string dirF = r.GetOption("dir");
     string filter = r.GetOption("filter");
     string kindF = r.GetOption("kind");     // golden | test | all(default)
-    string rid = r.GetOption("rid");
     bool json = r.GetFlag("json");
 
     _CorpusCase[] all = _enumerateCorpus(root, filter);
@@ -52,18 +51,18 @@ int _testList(ParseResult r) {
         i = i + 1;
     }
 
-    if (json) { return _testListJson(cases, n, rid); }
-    return _testListPretty(cases, n, rid);
+    if (json) { return _testListJson(cases, n); }
+    return _testListPretty(cases, n);
 }
 
 // Human catalog: grouped by bucket, one line per case with run command + mode +
-// (when --rid given) platform-exclusion note. Trailing summary counts.
-int _testListPretty(_CorpusCase[] cases, int n, string rid) {
+// declared `requires-caps` (the on-device runner skips the case where one is missing). Trailing summary counts.
+int _testListPretty(_CorpusCase[] cases, int n) {
     Console.WriteLine("case catalog — src/tests goldens (test e2e --file) + stdlib [Test] (test stdlib -k)");
     Console.WriteLine("");
     int golden = 0;
     int tests = 0;
-    int excluded = 0;
+    int withReq = 0;
     string curBucket = "";
     int i = 0;
     while (i < n) {
@@ -76,9 +75,10 @@ int _testListPretty(_CorpusCase[] cases, int n, string rid) {
         string kindTag = (c.kind == "golden") ? "golden" : "test  ";
         string mode = (c.kind == "golden" && c.interpOnly) ? "[interp]" : "[interp+jit]";
         string note = "";
-        if (rid.Length > 0 && _targetExcludes(rid, c.name)) {
-            note = "  EXCL(" + rid + ")";
-            excluded = excluded + 1;
+        string[] req = _caseRequires(c);
+        if (req.Length > 0) {
+            note = "  requires: " + String.Join(",", req);
+            withReq = withReq + 1;
         }
         Console.WriteLine("  " + _padCol(c.name, 40) + " " + kindTag
             + "  " + _padCol(mode, 12) + "  " + _runCmdFor(c) + note);
@@ -88,13 +88,13 @@ int _testListPretty(_CorpusCase[] cases, int n, string rid) {
     Console.WriteLine("");
     string summary = "Total: " + n.ToString() + " cases (" + golden.ToString()
         + " golden, " + tests.ToString() + " [Test])";
-    if (rid.Length > 0) { summary = summary + "; " + excluded.ToString() + " excluded for rid=" + rid; }
+    summary = summary + "; " + withReq.ToString() + " declare required caps (skipped by the runner where missing)";
     Console.WriteLine(summary);
     return 0;
 }
 
-// Machine catalog: JSON array of {name, bucket, kind, run, interpOnly[, excluded]}.
-int _testListJson(_CorpusCase[] cases, int n, string rid) {
+// Machine catalog: JSON array of {name, bucket, kind, run, interpOnly, requires}.
+int _testListJson(_CorpusCase[] cases, int n) {
     string outv = "[\n";
     int i = 0;
     while (i < n) {
@@ -102,9 +102,11 @@ int _testListJson(_CorpusCase[] cases, int n, string rid) {
         string obj = "  {\"name\": \"" + c.name + "\", \"bucket\": \"" + c.bucket
             + "\", \"kind\": \"" + c.kind + "\", \"run\": \"" + _runCmdFor(c)
             + "\", \"interpOnly\": " + (c.interpOnly ? "true" : "false");
-        if (rid.Length > 0) {
-            obj = obj + ", \"excluded\": " + (_targetExcludes(rid, c.name) ? "true" : "false");
-        }
+        string[] req = _caseRequires(c);
+        obj = obj + ", \"requires\": [";
+        int q = 0;
+        while (q < req.Length) { if (q > 0) { obj = obj + ", "; } obj = obj + "\"" + req[q] + "\""; q = q + 1; }
+        obj = obj + "]";
         obj = obj + "}";
         if (i + 1 < n) { obj = obj + ","; }
         outv = outv + obj + "\n";

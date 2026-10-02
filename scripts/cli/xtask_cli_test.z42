@@ -56,7 +56,6 @@ SubcommandRouter _testRouter() {
     list.AddOption("dir", "", "only this bucket (src/tests <cat> or stdlib <lib>)", "");
     list.AddOption("filter", "", "only cases whose name contains this substring", "");
     list.AddOption("kind", "", "golden | test | all (default: all)", "");
-    list.AddOption("rid", "", "annotate platform exclusion for a target RID (e.g. browser-wasm)", "");
     list.AddFlag("json", "", "emit JSON instead of the human table");
     t.Add("list", "catalog the case-granular corpus (--dir/--filter/--kind/--rid/--json)", list);
     // wire-embedded-testhost: run a compiled test module through the embedded

@@ -74,7 +74,20 @@ pub fn builtin_platform_arch_kind(_ctx: &VmContext, _: &[Value]) -> Result<Value
 ///     wherever `std::thread` exists — i.e. everywhere except wasm. It is *not*
 ///     a cargo feature, so it is gated on `target_arch` directly (mirrors the
 ///     wasm `interp-only` preset which also has no threads).
-/// Order is stable (feature declaration order) so probe output is deterministic.
+///   - OS-facility caps (`fs` / `clock` / `entropy` / `process` / `tty` / `env` /
+///     `socket-listen` / `hardlink`): what the TARGET's process environment
+///     provides, gated on `target_arch` / `target_os`. Three tiers:
+///       · wasm32 — none of them (no real fs, no SystemTime, no OS entropy …);
+///       · ios / android — a real native process inside an APP SANDBOX: fs, clock and
+///         entropy yes; no fork/exec, no TTY, no mutable env / desktop OS identity,
+///         no server sockets (bind/listen is denied, CI has no network); Android's
+///         sandbox additionally denies POSIX hard links;
+///       · desktop — all of them.
+///     These back `// requires-caps:` / `[Skip(feature:)]` in the test corpus: the
+///     on-device bundle runner skips a case whose declared caps are not all here.
+///     The vocabulary (and which caps are live) is docs/internals/src/devinfra/test-layout.md §4;
+///     `xtask test layout` reconciles that list with the pushes below.
+/// Order is stable (declaration order) so probe output is deterministic.
 pub fn builtin_platform_caps(ctx: &VmContext, _: &[Value]) -> Result<Value> {
     let mut caps: Vec<&str> = Vec::new();
     #[cfg(feature = "jit")]                 caps.push("jit");
@@ -83,8 +96,15 @@ pub fn builtin_platform_caps(ctx: &VmContext, _: &[Value]) -> Result<Value> {
     #[cfg(not(target_arch = "wasm32"))]     caps.push("threads");
     // fix-wasm-corpus-capability-gate: `socket` = real OS networking (TCP/UDP/HTTP/
     // WS) — compiled in wherever `std::net` works, i.e. everywhere except wasm.
-    // Backs `[Skip(feature: "socket")]` gating so z42.net tests skip in-browser.
     #[cfg(not(target_arch = "wasm32"))]     caps.push("socket");
+    #[cfg(not(target_arch = "wasm32"))]     caps.push("fs");
+    #[cfg(not(target_arch = "wasm32"))]     caps.push("clock");
+    #[cfg(not(target_arch = "wasm32"))]     caps.push("entropy");
+    #[cfg(not(any(target_arch = "wasm32", target_os = "ios", target_os = "android")))] caps.push("process");
+    #[cfg(not(any(target_arch = "wasm32", target_os = "ios", target_os = "android")))] caps.push("tty");
+    #[cfg(not(any(target_arch = "wasm32", target_os = "ios", target_os = "android")))] caps.push("env");
+    #[cfg(not(any(target_arch = "wasm32", target_os = "ios", target_os = "android")))] caps.push("socket-listen");
+    #[cfg(not(any(target_arch = "wasm32", target_os = "android")))]                    caps.push("hardlink");
     let list: Vec<Value> = caps.into_iter().map(|s| Value::Str(s.to_string().into())).collect();
     Ok(ctx.heap().alloc_array(list))
 }

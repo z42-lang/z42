@@ -1,3 +1,4 @@
+// requires-caps: socket-listen
 // add-z42-net-websocket-server (2026-05-27): WebSocketServer + WebSocketConnection.
 //
 // API / lifecycle tests only. End-to-end Connect↔Accept↔Send↔Receive

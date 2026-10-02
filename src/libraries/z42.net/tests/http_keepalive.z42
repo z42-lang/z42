@@ -1,3 +1,4 @@
+// requires-caps: socket-listen
 // add-z42-net-http-keepalive (2026-05-28): connection-reuse tests.
 namespace Z42NetHttpKeepAliveTests;
 

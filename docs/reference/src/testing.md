@@ -124,15 +124,8 @@ benchmark），别这么写。
 
 ### `[Skip(feature:)]` 的取值
 
-比对的是 [`Std.Platform.Capabilities()`](stdlib/platform.md) 报告的能力集。**全部合法值只有五个**：
-
-| 能力名 | 含义 |
-|---|---|
-| `"jit"` | 该 VM 二进制编入了 JIT 后端 |
-| `"native-interop"` | 编入了 native interop |
-| `"bundled-compression"` | 编入了内置压缩 |
-| `"threads"` | 有真实 OS 线程（wasm 之外都有） |
-| `"socket"` | 有真实 OS 网络（TCP / UDP / HTTP / WS；wasm 之外都有） |
+比对的是 [`Std.Platform.Capabilities()`](stdlib/platform.md) 报告的能力集；**合法的能力名就是那张表里列出的元素**
+（JIT、native interop、线程、网络、文件系统、时钟、熵源、子进程、终端、进程环境……各平台有哪些也在那里）。
 
 > 🔴 **deny-by-default：能力名拼错不报错，判为「缺失」⇒ 测试被静默跳过。**
 > `[Skip(feature: "thread")]`（少个 s）、`[Skip(feature: "multithreading")]`、

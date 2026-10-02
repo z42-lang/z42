@@ -207,9 +207,11 @@ _CorpusCase[] _shardCorpus(_CorpusCase[] cases, int k, int n) {
 }
 
 // Build the test bundle. Returns the manifest.json path ("" if no cases matched).
-// Pipeline: enumerate full corpus → exclude cases needing caps the target lacks
-// (_targetExcludes) → SELECT (shard slice OR per-category smoke sample) → compile
-// the selection. Desktop (cap=0, no shard) compiles the full included set unchanged.
+// Pipeline: enumerate full corpus → SELECT (shard slice OR per-category smoke
+// sample) → compile the selection. Platform capability gating is NOT done here:
+// each case's `// requires-caps:` goes into its manifest entry and the on-device
+// runner (Std.Test.BundleRunner) skips it when the target VM's Capabilities()
+// lack one — the runtime is the ground truth, there is no per-rid table to drift.
 //
 // Two select modes on tier-2 (wasm/ios/android):
 //   • shardN>0  → full-coverage slice k/n (_shardCorpus, NO cap). Nightly CI
@@ -226,19 +228,9 @@ string _buildTestBundle(string root, string filter, string rid, int shardK, int 
     _cleanGlob(bundleDir, "*.zbc");
     int embedCap = (rid.Contains("wasm") || rid.Contains("ios") || rid.Contains("android")) ? 60 : 0;
 
-    // enumerate (structural) → capability-exclude → select (shard slice | smoke sample).
-    _CorpusCase[] all = _enumerateCorpus(root, filter);
-    _CorpusCase[] incl = new _CorpusCase[all.Length];
-    int ni = 0;
-    int excluded = 0;
-    int a = 0;
-    while (a < all.Length) {
-        if (_targetExcludes(rid, all[a].name)) { excluded = excluded + 1; }
-        else { incl[ni] = all[a]; ni = ni + 1; }
-        a = a + 1;
-    }
-    _CorpusCase[] included = new _CorpusCase[ni];
-    int c0 = 0; while (c0 < ni) { included[c0] = incl[c0]; c0 = c0 + 1; }
+    // enumerate (structural) → select (shard slice | smoke sample).
+    _CorpusCase[] included = _enumerateCorpus(root, filter);
+    int ni = included.Length;
     // --shard k/n wins over the smoke cap: run the full 1/n slice, no cap.
     _CorpusCase[] sel;
     if (shardN > 0) { sel = _shardCorpus(included, shardK, shardN); }
@@ -266,16 +258,13 @@ string _buildTestBundle(string root, string filter, string rid, int shardK, int 
             entry = _goldenEntry(root, c.name, c.src, c.exp, bundleDir);
             if (entry.Length == 0) { ConsoleError.WriteLine("  ✗ golden " + c.name); si = si + 1; continue; }
         }
+        entry = _withRequires(entry, _caseRequires(c));
         if (count > 0) { items = items + ",\n"; }
         items = items + entry;
         count = count + 1;
         si = si + 1;
     }
 
-    if (excluded > 0) {
-        Console.WriteLine("  (excluded " + excluded.ToString() + " case(s) requiring caps '"
-            + rid + "' lacks — socket/threads/native-fs)");
-    }
     if (shardN > 0) {
         Console.WriteLine("  (embed shard " + shardK.ToString() + "/" + shardN.ToString()
             + ": full-coverage slice — selected " + sel.Length.ToString() + " of "
@@ -292,4 +281,41 @@ string _buildTestBundle(string root, string filter, string rid, int shardK, int 
     File.WriteAllText(mpath, "{\n  \"cases\": [\n" + items + "\n  ]\n}\n");
     Console.WriteLine("  bundle: " + count.ToString() + " cases → " + mpath);
     return mpath;
+}
+
+// The capabilities a case declares (`// requires-caps: a, b` in its source; see
+// test-layout.md §4). A file case reads its file; a dir case unions every .z42 under
+// its dir. Same parser as the bench scenarios (_epScenarioRequiredCaps) — one syntax.
+string[] _caseRequires(_CorpusCase c) {
+    string[] files = new string[0];
+    if (c.src.Length > 0) { files = new string[]{ c.src }; }
+    else if (c.dir.Length > 0 && Directory.Exists(c.dir)) { files = _sortedStrings(Path.GlobRecursive(c.dir, "*.z42")); }
+    string[] acc = new string[8];
+    int n = 0;
+    foreach (var f in files) {
+        foreach (var cap in _epScenarioRequiredCaps(File.ReadAllText(f))) {
+            bool seen = false;
+            int i = 0;
+            while (i < n) { if (acc[i] == cap) { seen = true; } i = i + 1; }
+            if (!seen) { acc = _append(acc, n, cap); n = n + 1; }
+        }
+    }
+    string[] r = new string[n];
+    int k = 0;
+    while (k < n) { r[k] = acc[k]; k = k + 1; }
+    return r;
+}
+
+// Append `"requires": [...]` to a manifest entry object (`{...}`) when non-empty.
+string _withRequires(string entry, string[] reqs) {
+    if (reqs.Length == 0) { return entry; }
+    string arr = "";
+    int i = 0;
+    while (i < reqs.Length) {
+        if (i > 0) { arr = arr + ", "; }
+        arr = arr + "\"" + reqs[i] + "\"";
+        i = i + 1;
+    }
+    int close = entry.LastIndexOf("}");
+    return entry.Substring(0, close) + ", \"requires\": [" + arr + "]" + entry.Substring(close);
 }

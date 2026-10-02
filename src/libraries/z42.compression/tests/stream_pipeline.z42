@@ -1,3 +1,4 @@
+// requires-caps: fs, native-interop
 // refactor-compression-stream-on-iostream (2026-05-24): pipeline-shape
 // streaming compression. Verifies the new `WrapWrite(Stream) /
 // WrapRead(Stream)` factory shape composes with `Std.IO.MemoryStream`.

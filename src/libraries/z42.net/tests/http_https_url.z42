@@ -1,3 +1,4 @@
+// requires-caps: socket-listen
 // add-z42-net-tls (2026-06-03): deterministic (no-network) coverage for the
 // https wiring. The live TLS handshake + GET is validated by the Rust
 // `tls_tests::real_https_handshake_and_get_round_trip` (run with --ignored)

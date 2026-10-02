@@ -21,18 +21,21 @@ using Std.IO;
 
 // One bundle case. `Entry == null` marks a unit case; a non-null `Entry` (the
 // golden program's entry symbol) marks a golden. `Zbc` / `Expected` are file names
-// relative to the bundle dir.
+// relative to the bundle dir. `Requires` = the capabilities the case declares
+// (`// requires-caps:` in its source, carried by the manifest); empty = none.
 public class BundleCase {
     public string Name;
     public string Zbc;
     public string Entry;      // null → unit; non-null → golden entry symbol
     public string Expected;   // golden: expected-output file name (may be null / "")
+    public string[] Requires;
 
     public BundleCase(string name, string zbc, string entry, string expected) {
         this.Name = name;
         this.Zbc = zbc;
         this.Entry = entry;
         this.Expected = expected;
+        this.Requires = new string[0];
     }
 
     public bool IsGolden() { return this.Entry != null; }
@@ -43,7 +46,27 @@ public static class BundleRunner {
     // then units — the order the agent has always produced). `bundleDir` holds the
     // case zbc / expected files; `libsDir` is the stdlib dir for the isolated
     // golden VMs ("" → Z42_LIBS, else <bundleDir>/../libs).
-    public static TestResult[] RunBundle(BundleCase[] cases, string bundleDir, string libsDir) {
+    public static TestResult[] RunBundle(BundleCase[] allCases, string bundleDir, string libsDir) {
+        // Capability gate FIRST, before anything is loaded: a case whose declared caps
+        // this VM lacks is reported skipped and never loaded — loading alone can trap
+        // (a [Native] facade on a VM without native interop panics in the resolver).
+        // The VM's Capabilities() is the ground truth; nothing upstream guesses it.
+        string[] have = Platform.Capabilities();
+        TestResult[] skipped = new TestResult[0];
+        int runnable = 0;
+        for (int i = 0; i < allCases.Length; i = i + 1) {
+            if (BundleRunner._missingCaps(allCases[i], have).Length == 0) { runnable = runnable + 1; }
+        }
+        BundleCase[] cases = new BundleCase[runnable];
+        int ri = 0;
+        for (int i = 0; i < allCases.Length; i = i + 1) {
+            string missing = BundleRunner._missingCaps(allCases[i], have);
+            if (missing.Length == 0) { cases[ri] = allCases[i]; ri = ri + 1; continue; }
+            TestResult[] one = new TestResult[1];
+            one[0] = new TestResult(allCases[i].Name, "skipped", false,
+                "requires caps this platform lacks: " + missing, null);
+            skipped = BundleRunner._concat(skipped, one);
+        }
         int n = cases.Length;
 
         // Pass 1: count goldens (need their own gathered arrays for the batched
@@ -101,7 +124,21 @@ public static class BundleRunner {
             all = BundleRunner._concat(all, rs);
         }
 
-        return all;
+        return BundleRunner._concat(all, skipped);
+    }
+
+    // Comma-joined declared caps of `c` that are absent from `have` ("" = runnable).
+    static string _missingCaps(BundleCase c, string[] have) {
+        string missing = "";
+        if (c.Requires == null) { return missing; }
+        for (int i = 0; i < c.Requires.Length; i = i + 1) {
+            bool found = false;
+            for (int j = 0; j < have.Length; j = j + 1) {
+                if (have[j] == c.Requires[i]) { found = true; }
+            }
+            if (!found) { missing = missing.Length == 0 ? c.Requires[i] : missing + "," + c.Requires[i]; }
+        }
+        return missing;
     }
 
     // Exit code for a bundle result: 1 if any case failed, else 0.

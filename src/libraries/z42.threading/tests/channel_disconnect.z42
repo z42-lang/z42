@@ -1,3 +1,4 @@
+// requires-caps: threads
 // add-sync-primitives (2026-05-20): Channel<T> close + disconnect semantics.
 namespace Z42ThreadingChannelDisconnectTests;
 

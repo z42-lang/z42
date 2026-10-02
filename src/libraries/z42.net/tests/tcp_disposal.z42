@@ -1,3 +1,4 @@
+// requires-caps: socket-listen
 // add-z42-net K1 (2026-05-24): TcpClient / TcpListener disposal — idempotent
 // Dispose + connection failures + post-stop semantics.
 namespace Z42NetTcpDisposalTests;
