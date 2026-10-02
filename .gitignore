@@ -75,3 +75,6 @@ src/toolchain/*/core/bin/
 # runners (`test lib` dir-mode + `test embedded` dir-units); self-deleted after
 # build, ignored defensively in case a build aborts mid-way.
 **/.xtask-*.z42.toml
+
+# xtask 生成的 z42b 构建期常量（自 scripts/versions.toml；见 xtask_versions.z42 _syncBuilderPins）
+src/toolchain/builder/core/builder_pins.z42
