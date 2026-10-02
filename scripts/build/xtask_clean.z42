@@ -111,8 +111,8 @@ int _cleanAll(string root) {
     foreach (var d in _srcZ42ProjectDirs(root)) {
         strays = strays + _rmIfExists(Path.Join(d, "artifacts")) + _rmIfExists(Path.Join(d, "dist"));
         // cross-zpkg 用例：xtask 把依赖 zpkg 拷进 `<fixture>/<pkg>/libs/`（.gitignore 专门登记了
-        // `src/tests/cross-zpkg/*/*/libs/`）。只在这条路径下删 `libs`，别处同名目录不碰。
-        if (d.Replace("\\", "/").Contains("/src/tests/cross-zpkg/")) {
+        // `src/compiler/z42c.pipeline/tests/fixtures/cross-zpkg/*/*/libs/`）。只在这条路径下删 `libs`，别处同名目录不碰。
+        if (d.Replace("\\", "/").Contains("/src/compiler/z42c.pipeline/tests/fixtures/cross-zpkg/")) {
             strays = strays + _rmIfExists(Path.Join(d, "libs"));
         }
     }

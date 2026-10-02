@@ -240,7 +240,7 @@ public static partial class ImportedSymbolLoader {
                         // `ConstructTyper._bindWith` 与 `PatternBinder._bindPositional` 都以 `!IsRecord`
                         // 为拒绝条件 ⇒ **跨包 record 的 `with` 与位置解构模式一律误拒**（实测 E0402
                         // ``with` requires a record type` / `positional pattern requires a record type`，
-                        // 阴性对照见 `src/tests/cross-zpkg/crosspkg_record_members`）。
+                        // 阴性对照见 `src/compiler/z42c.pipeline/tests/fixtures/cross-zpkg/crosspkg_record_members`）。
                         // 种子 ABI 安全：IsRecord 不进 ExportedClassZ ctor 签名，默认 false、构造后赋值。
                         nct.IsRecord = cl.IsRecord;
                         // 类侧关联类型绑定（zbc 1.42，assoc-type-crosspkg）：`class IntBag:IEnum{type Item=int;}` 的

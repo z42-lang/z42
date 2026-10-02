@@ -181,7 +181,7 @@ z42c 写产物同样是就地写 ⇒ 穿透到 `libraries/z42.core/release/dist/
 >   自 isolate-xtask-fixture-builds 起改在 `tmp/` 的拷贝上编，不再写源码树）。
 >
 > 它们都被 `.gitignore` 忽略、仓库里没有任何入库文件在其下。`clean all` 只删「带清单（`<name>.z42.toml`
-> 或 `z42.toml`）的工程目录」旁边的 `artifacts/` `dist/`，`libs/` 只在 `src/tests/cross-zpkg/` 下删
+> 或 `z42.toml`）的工程目录」旁边的 `artifacts/` `dist/`，`libs/` 只在 `src/compiler/z42c.pipeline/tests/fixtures/cross-zpkg/` 下删
 > （不做全树通配，免得碰到 wasm / node 工程的同名目录）。根治是让这些构建写进 `artifacts/`，属于后续 change。
 
 `tmp/`、`tools/` 任何时候 `rm -rf` 都安全（前者可重生，`tools/` 会被下次

@@ -85,6 +85,6 @@ available!(SomeType.Method)   // 该类型上的静态或实例方法
 
 完整可运行示例见：
 
-- `src/tests/cross-zpkg/available_present/` —— 依赖在场 → 走新路径
-- `src/tests/cross-zpkg/available_skew/` —— 依赖运行期缺失 → 走旧路径（**同一份产物**）
+- `src/compiler/z42c.pipeline/tests/fixtures/cross-zpkg/available_present/` —— 依赖在场 → 走新路径
+- `src/compiler/z42c.pipeline/tests/fixtures/cross-zpkg/available_skew/` —— 依赖运行期缺失 → 走旧路径（**同一份产物**）
 - `src/tests/optimization/available_exception_table/` —— 在 `try/catch` 中使用（只折不剪，见机制页）

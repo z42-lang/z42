@@ -1,0 +1,62 @@
+// Std.Runtime.RuntimeConfig / ModuleSearch 的只读查询面。
+//
+// 不设任何 Z42_* 环境变量，断言的是「无输入时链末端的行为」+ 结构性不变式
+// ——若断言某个旋钮的具体值，用例会随开发者 shell 里的 Z42_* 变红。带 env / CLI /
+// 配置文件的优先级断言在 Rust 侧（src/runtime/src/config_tests.rs）。
+namespace Z42CoreRuntimeConfigTests;
+
+[Test]
+void test_registry_is_loaded() {
+    Assert.True(RuntimeConfig.Names().Length > 10);
+}
+
+[Test]
+void test_known_knob_has_description_and_layer() {
+    Assert.NotNull(RuntimeConfig.Describe("gc-mode"));
+    string src = RuntimeConfig.Source("gc-mode");
+    Assert.True(src == "default" || src == "env" || src == "cli"
+             || src == "user-config" || src == "app-config");
+    // 无平台 / feature 约束的旋钮在任何 build 上都存在。
+    Assert.True(RuntimeConfig.IsAvailable("gc-mode"));
+}
+
+[Test]
+void test_unknown_knob_is_empty_not_thrown() {
+    Assert.Null(RuntimeConfig.Get("no-such-knob"));
+    Assert.Equal("unknown", RuntimeConfig.Source("no-such-knob"));
+    Assert.Null(RuntimeConfig.Describe("no-such-knob"));
+    Assert.False(RuntimeConfig.IsAvailable("no-such-knob"));
+    Assert.Equal("fallback", RuntimeConfig.GetOrDefault("no-such-knob", "fallback"));
+}
+
+[Test]
+void test_query_accepts_env_var_form() {
+    // 查询面比 `--set` 宽松：环境变量名形式也解析。
+    Assert.NotNull(RuntimeConfig.Describe("Z42_GC_MODE"));
+}
+
+[Test]
+void test_dump_matches_names() {
+    string[] names = RuntimeConfig.Names();
+    string[] dump = RuntimeConfig.Dump();
+    Assert.Equal(names.Length, dump.Length);
+    for (int i = 0; i < dump.Length; i = i + 1) {
+        Assert.True(dump[i].Contains("="));
+        Assert.True(dump[i].Contains("|"));
+    }
+}
+
+[Test]
+void test_module_search_dirs_are_resolved() {
+    // 只断言结构性不变式，不断言具体路径——那会随 Z42_LIBS / 运行目录变红。
+    string[] dirs = ModuleSearch.Dirs();
+    Assert.True(dirs.Length > 0);
+    for (int i = 0; i < dirs.Length; i = i + 1) {
+        Assert.True(dirs[i].Length > 0);
+        // 🔴 **不重复**：给出的是解析**结果**（相对项已归一、重复项已去重），不是原始配置——
+        // 调用方可以直接按序找文件，不必再操心 `a/../b` 与 `b` 是不是同一个目录。
+        for (int j = i + 1; j < dirs.Length; j = j + 1) {
+            Assert.True(dirs[i] != dirs[j]);
+        }
+    }
+}

@@ -425,7 +425,7 @@ string[] _sortedDir(string dir) {
 // 建父包本体一次（多目标共用），返回其 dist 目录；失败返 ""。
 // 返回父包 dist 目录；**父包没有任何源时返回 ""**（不是失败）—— 见下。
 string _buildParentForTargets(ProjectManifest m, Target tgt, string sourceDir, bool reuse) {
-    // 纯测试工程：整个包只有 `[[test]]` 目标、没有自己的源（如 src/tests/manifest-targets/basic）。
+    // 纯测试工程：整个包只有 `[[test]]` 目标、没有自己的源（如 src/toolchain/builder/tests/fixtures/manifest-targets/basic）。
     // 这类工程没有「父包」可建，也就没有 internal 可暴露 —— 无条件建父包会撞
     // 「no .z42 sources under <projdir>」而整个目标跑不起来。跳过它，让目标独立编译。
     if (!_parentHasSources(m, sourceDir)) { return ""; }

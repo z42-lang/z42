@@ -106,7 +106,7 @@ GREEN（`xtask test` 全 stage gate），全绿才能合。**
 发现规则），合并前至少跑一轮**冷**的：
 
 ```bash
-rm -rf src/compiler/*/dist src/tests/z42b/*/artifacts   # 清掉会掩盖问题的热产物
+rm -rf src/compiler/*/dist src/toolchain/builder/tests/fixtures/z42b/*/artifacts   # 清掉会掩盖问题的热产物
 xtask test
 ```
 

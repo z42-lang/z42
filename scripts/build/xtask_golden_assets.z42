@@ -260,8 +260,7 @@ int _regenGoldenF(string dirFilter, string fileFilter) {
 }
 
 // Categories with no single-source golden .zbc to regenerate: errors / parse
-// expect compile/parse failure (no .zbc), cross-zpkg / multi-exe are multi-
-// package / multi-target project builds handled by their own runners.
+// expect compile/parse failure (no .zbc).
 //
 // Deliberately NOT the same set as the runners' _isNonRunnableCat: this one KEEPS
 // zbc-format / zpkg-format (they are exactly the byte baselines regen must
@@ -277,8 +276,7 @@ int _regenGoldenF(string dirFilter, string fileFilter) {
 // as part of measuring. Excluded here for the same reason as in _isNonRunnableCat:
 // state it, don't lean on the nested layout.
 bool _isNonRegenCat(string cat) {
-    return cat == "errors" || cat == "parse" || cat == "cross-zpkg" || cat == "multi-exe"
-        || cat == "manifest-targets" || cat == "perf";
+    return cat == "errors" || cat == "parse" || cat == "perf";
 }
 
 // z42c 编译单个 golden（z42vm 跑 z42c.driver.zpkg --emit-zbc）。golden 的 stdlib 依赖

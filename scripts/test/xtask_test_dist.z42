@@ -315,7 +315,7 @@ int[] _launcherSmoke(string distDir, string work) {
     // fixture is absent.
     string z42cBin = Path.Join(distDir, "bin/z42c");
     if (!File.Exists(z42cBin)) { z42cBin = z42cBin + ".exe"; }
-    string mexeSrc = Path.Join(_root(), "src/tests/multi-exe/two_mains");
+    string mexeSrc = Path.Join(_root(), "src/compiler/z42c.pipeline/tests/fixtures/multi-exe/two_mains");
     if (File.Exists(z42cBin) && Directory.Exists(mexeSrc)) {
         string mexeWork = Path.Join(work, "mexe-run");
         Directory.Copy(mexeSrc, mexeWork, true);

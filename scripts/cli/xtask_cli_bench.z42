@@ -26,7 +26,7 @@ SubcommandRouter _benchRouter() {
     stdlib.AddOption("libs", "", "override: prebuilt flat libs dir (stdlib + z42c siblings)", "");
     stdlib.AddOptionalPositional("lib", "single lib (default: all)");
     bn.Add("stdlib", "per-lib [Benchmark]", stdlib);
-    ArgParser btargets = new ArgParser("xtask bench targets", "manifest [[bench]] target fixtures (src/tests/manifest-targets)");
+    ArgParser btargets = new ArgParser("xtask bench targets", "manifest [[bench]] target fixtures (src/toolchain/builder/tests/fixtures/manifest-targets)");
     btargets.AddFlag("no-build", "", "skip tooling rebuild");
     btargets.AddOptionalPositional("name", "single target name (default: all)");
     bn.Add("targets", "manifest [[bench]] target fixtures (all or one by name)", btargets);
