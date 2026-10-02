@@ -15,6 +15,10 @@
 //
 // 加一个新 walker：往 `_walkerRegistry()` 添一行（文件 + 覆盖哪几族 + 故意跳过的白名单）。
 // 加一个新 AST 节点类：本门变红，直到每个登记 walker 处理它（或显式加白名单）。
+//
+// 节点族两处来源：语法树四族（z42c.syntax：Expr / Stmt / Pattern / TypeExpr）+ 绑定树三族
+// （z42c.semantics/src/BoundTree：BoundExpr / BoundStmt / BoundPattern）。绑定树这半边（extend-walkers-gate-bound-tree）
+// 管发射器与流分析：发射端漏一类以前会静默发 `const.null`（ExprEmitter 现已改成抛），流分析漏一类则静默不报。
 namespace Z42Xtask;
 
 using Std.IO;
@@ -24,18 +28,14 @@ using Std.Time;
 sealed class WalkerEntryZ {
     public string Label;
     public string File;      // repo-relative
-    public bool Expr; public bool Stmt; public bool Pat; public bool Type;
+    public string[] Fams;    // 要求穷举的节点族（基类名）
     public string[] Allow; public int AllowN;
-    public WalkerEntryZ(string label, string file, bool e, bool s, bool p, bool t, string[] allow, int an) {
-        this.Label = label; this.File = file;
-        this.Expr = e; this.Stmt = s; this.Pat = p; this.Type = t;
+    public WalkerEntryZ(string label, string file, string[] fams, string[] allow, int an) {
+        this.Label = label; this.File = file; this.Fams = fams;
         this.Allow = allow; this.AllowN = an;
     }
     public bool Covers(string baseName) {
-        if (baseName == "Expr") { return this.Expr; }
-        if (baseName == "Stmt") { return this.Stmt; }
-        if (baseName == "Pattern") { return this.Pat; }
-        if (baseName == "TypeExpr") { return this.Type; }
+        int i = 0; while (i < this.Fams.Length) { if (this.Fams[i] == baseName) { return true; } i = i + 1; }
         return false;
     }
     public bool Allows(string name) {
@@ -48,20 +48,39 @@ sealed class WalkerEntryZ {
 // 只登记「穷举一个 AST 节点族、漏一类即静默/错值」的 walker；按类型-lattice / 目标-shape 分派的
 // （MemberResolver / AssignTyper）与「按设计部分覆盖、null→诊断兜底」的（ConstEval）不登记。
 WalkerEntryZ[] _walkerRegistry() {
-    WalkerEntryZ[] r = new WalkerEntryZ[4];
+    WalkerEntryZ[] r = new WalkerEntryZ[8];
     // MethodTypeParamUse 过近似地穷举全四族；8 个 Expr 叶子（无子节点、无类型位）故意 fall-through。
     string[] mtpuAllow = new string[]{
         "IntLitExpr", "FloatLitExpr", "StringLitExpr", "CharLitExpr",
         "BoolLitExpr", "NullLitExpr", "IdentExpr", "EmptyBraceLitExpr" };
     r[0] = new WalkerEntryZ("MethodTypeParamUse.Consumes",
-        "src/compiler/z42c.semantics/src/Types/MethodTypeParamUse.z42", true, true, true, true, mtpuAllow, 8);
+        "src/compiler/z42c.semantics/src/Types/MethodTypeParamUse.z42",
+        new string[]{ "Expr", "Stmt", "Pattern", "TypeExpr" }, mtpuAllow, 8);
     string[] none = new string[]{};
     r[1] = new WalkerEntryZ("ExprTyper._bindExpr",
-        "src/compiler/z42c.semantics/src/Binding/ExprTyper.z42", true, false, false, false, none, 0);
+        "src/compiler/z42c.semantics/src/Binding/ExprTyper.z42", new string[]{ "Expr" }, none, 0);
     r[2] = new WalkerEntryZ("StmtBinder._bindStmt",
-        "src/compiler/z42c.semantics/src/Binding/StmtBinder.z42", false, true, false, false, none, 0);
+        "src/compiler/z42c.semantics/src/Binding/StmtBinder.z42", new string[]{ "Stmt" }, none, 0);
     r[3] = new WalkerEntryZ("PatternBinder.Bind",
-        "src/compiler/z42c.semantics/src/Binding/PatternBinder.z42", false, false, true, false, none, 0);
+        "src/compiler/z42c.semantics/src/Binding/PatternBinder.z42", new string[]{ "Pattern" }, none, 0);
+    // ── 绑定树：发射器（漏一类 = 运行期才炸或发错）+ 流分析（漏一类 = 静默不报）──
+    r[4] = new WalkerEntryZ("ExprEmitter.Emit",
+        "src/compiler/z42c.semantics/src/Emission/ExprEmitter.z42", new string[]{ "BoundExpr" }, none, 0);
+    r[5] = new WalkerEntryZ("StmtEmitter._emitStmt",
+        "src/compiler/z42c.semantics/src/Emission/StmtEmitter.z42", new string[]{ "BoundStmt" }, none, 0);
+    r[6] = new WalkerEntryZ("PatternEmitter.EmitMatch",
+        "src/compiler/z42c.semantics/src/Emission/PatternEmitter.z42", new string[]{ "BoundPattern" }, none, 0);
+    // FlowAnalyzer 按设计「没覆盖的节点保守当成已赋值」（只漏报、不误报，见其文件头）。白名单是今天故意不看的：
+    // 不读局部变量的叶子表达式，以及按保守语义处理的 break / continue。新加的绑定节点仍会让本门变红，
+    // 逼着显式决定它对 definite assignment 有没有影响。
+    string[] flowAllow = new string[]{
+        "BoundLitInt", "BoundLitFloat", "BoundLitStr", "BoundLitChar", "BoundLitBool",
+        "BoundDefault", "BoundError", "BoundTypeof", "BoundMethodOf", "BoundSymAvailable",
+        "BoundFuncRef", "BoundMethodGroup", "BoundStaticGet", "BoundCapturedIdent",
+        "BoundBreak", "BoundContinue" };
+    r[7] = new WalkerEntryZ("FlowAnalyzer._reads/_stmt",
+        "src/compiler/z42c.semantics/src/Validation/FlowAnalyzer.z42",
+        new string[]{ "BoundExpr", "BoundStmt" }, flowAllow, 16);
     return r;
 }
 
@@ -71,10 +90,10 @@ int _testWalkers() {
     string root = _root();
 
     // ① 活体枚举节点类全集（name/base 并行数组）。
-    string[] nName = new string[128]; string[] nBase = new string[128];
+    string[] nName = new string[256]; string[] nBase = new string[256];
     int nc = _wgCollectNodes(root, nName, nBase);
     if (nc == 0) {
-        ConsoleError.WriteLine("  ✗ found 0 AST node subclasses under src/compiler/z42c.syntax/src — enumeration broke");
+        ConsoleError.WriteLine("  ✗ found 0 node subclasses under z42c.syntax/src + z42c.semantics/src/BoundTree — enumeration broke");
         return 1;
     }
 
@@ -124,11 +143,20 @@ int _testWalkers() {
     return 0;
 }
 
-// ── 节点类全集：扫 z42c.syntax/src/*.z42 的 `public sealed class NAME : BASE`（BASE ∈ 四族）──
+// ── 节点类全集：语法树（z42c.syntax/src）+ 绑定树（z42c.semantics/src/BoundTree）里 `class NAME : BASE`（BASE ∈ 七族）──
 int _wgCollectNodes(string root, string[] outName, string[] outBase) {
-    string dir = Path.Join(root, "src/compiler/z42c.syntax/src");
+    int n = _wgCollectNodesIn(Path.Join(root, "src/compiler/z42c.syntax/src"), outName, outBase, 0);
+    return _wgCollectNodesIn(Path.Join(root, "src/compiler/z42c.semantics/src/BoundTree"), outName, outBase, n);
+}
+
+bool _wgIsFamily(string b) {
+    return b == "Expr" || b == "Stmt" || b == "Pattern" || b == "TypeExpr"
+        || b == "BoundExpr" || b == "BoundStmt" || b == "BoundPattern";
+}
+
+int _wgCollectNodesIn(string dir, string[] outName, string[] outBase, int n0) {
     string[] rel = Directory.EnumerateRecursive(dir);
-    int n = 0;
+    int n = n0;
     int f = 0;
     while (f < rel.Length) {
         string p = Path.Join(dir, rel[f]);
@@ -147,7 +175,7 @@ int _wgCollectNodes(string root, string[] outName, string[] outBase) {
                         string name = rest.Substring(0, colon).Trim();
                         string after = rest.Substring(colon + 3, rest.Length - colon - 3);
                         string bas = _wgFirstToken(after);
-                        if (bas == "Expr" || bas == "Stmt" || bas == "Pattern" || bas == "TypeExpr") {
+                        if (_wgIsFamily(bas)) {
                             if (n < outName.Length) { outName[n] = name; outBase[n] = bas; n = n + 1; }
                         }
                     }
