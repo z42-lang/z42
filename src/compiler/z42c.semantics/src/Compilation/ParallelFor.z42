@@ -28,9 +28,10 @@ public interface IParallelBody {
 // ⚠️ **默认串行**。最初（parallelize-package-compile，归档于
 // docs/spec/archive/2026-08-29-parallelize-package-compile/design.md）实测并行净负：每次分配都抢
 // 全局锁。TLAB（#342，2026-08-30）已消掉分配锁；2026-10-02 在 main 上编 z42c.semantics（24 核）
-// 重测：--jobs 2/4/8 比串行快约 16% / 19% / 13%，16 线程以上反而慢 30%+ —— 全进程共用一块年轻代，
-// 线程越多越快写满，每次回收都要停下全部线程。默认值是否改成小并行度另行评估。
-//   · 未设 / --jobs 1 → 串行（默认；ParallelFor 内联、不起线程）。
+// 重测：--jobs 2/4/8 比串行快约 16% / 19% / 13%，16 线程以上反而慢 30%+。这里的默认值保持串行：
+// **z42c 命令行**不写 `--jobs` 时由 driver 设成 min(4, 核数)（BuildCommand `_defaultBuildJobs`）；
+// z42b 进程内编译不经那里，仍是串行（xtask 会成批并发起 z42b，再开多线程会超订）。
+//   · 未设 / --jobs 1 → 串行（ParallelFor 内联、不起线程）。
 //   · --jobs N (N>1)  → N 线程（少量线程有收益，见上）。
 //   · --jobs 0        → auto = CpuCount（实验用）。
 // Jobs(n) 上限收敛到 n（不起超过项数的线程）。
