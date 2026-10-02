@@ -20,7 +20,6 @@ namespace Z42Builder;
 
 using Std.IO;
 using Std.Cli;
-using Std.Collections;
 
 // Entry from _runModule when target=.json and rid is a device RID. Reads the
 // build/run/stage-only flags and drives the matching per-platform steps.
@@ -227,7 +226,9 @@ string _findInstalledAgent(string home) {
     string runtimes = Path.Join(home, "runtimes");
     if (!Directory.Exists(runtimes)) { return ""; }
     string[] vers = Directory.Enumerate(runtimes);
-    vers.Sort();
+    // 数组没有实例方法 Sort()；`vers.Sort()` 会被编成对数组接收者的虚调用，运行期即
+    // `VCall: expected object, got Array`（装了 test workload、runtimes/ 存在时才走到这里）。
+    Array.Sort(vers);
     for (int i = 0; i < vers.Length; i = i + 1) {
         string cand = Path.Join(Path.Join(Path.Join(Path.Join(runtimes, vers[i]),
             "workloads"), "test"), "z42.testagent.zpkg");
