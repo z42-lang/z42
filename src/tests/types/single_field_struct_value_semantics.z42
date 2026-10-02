@@ -89,8 +89,11 @@ void Main() {
     Assert.Equal("SInt", o.ToString());          // 无自声明 ToString → 短类型名
 
     // ── ⑩ stdlib 的单字段 struct（`Std.Guid`，其单字段是 byte[] 引用叶子）──
-    Guid gu = Guid.NewGuid();
+    // 用 Parse 而不是 NewGuid：这里测的是值语义，不需要随机性；NewGuid 要 OS 熵源，
+    // wasm32 上没有（`__crypto_random_bytes: CSPRNG not available`）⇒ 整个用例在 wasm 设备测试里红
+    // （fix-device-tests，2026-10-02）。
+    Guid gu = Guid.Parse("0f8fad5b-d9cb-469f-a165-70867728950e");
     Guid gu2 = gu;
     Assert.Equal(true, gu == gu2);               // 复制后仍相等
-    Assert.Equal(36, gu.ToString().Length);      // 规范形态可用
+    Assert.Equal("0f8fad5b-d9cb-469f-a165-70867728950e", gu.ToString());   // 规范形态可用
 }

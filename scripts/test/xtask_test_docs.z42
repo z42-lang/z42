@@ -155,6 +155,10 @@ string[] _docMarkdownFiles(string root) {
     int s = 0;
     while (s < srcMds.Length) {
         string rel = srcMds[s].Replace("\\", "/");
+        // 第三方依赖目录不是仓库文档（gitignore 掉的）：跑过 wasm 设备测试（`npm install` 进
+        // workload/wasm/platform/tests/node_modules）之后，本地 GREEN 会把那些包自带 README 的
+        // 死链算成「新死链」判红（fix-device-tests，2026-10-02 实测 6 条）。
+        if (rel.StartsWith("node_modules/") || rel.Contains("/node_modules/")) { s = s + 1; continue; }
         if (rel.EndsWith("README.md")) {
             string full = Path.Join(srcRoot, rel);
             if (File.Exists(full) && n < acc.Length) { acc[n] = full.Replace("\\", "/"); n = n + 1; }

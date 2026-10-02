@@ -381,7 +381,12 @@ impl CctorRegistry {
     ///    **会响的错误**而不是挂死，也不是静默读到半成品——两害相权取其轻。
     pub fn claim(&self, class_fq: &str) -> Result<Option<String>, String> {
         let me = std::thread::current().id();
-        let deadline = std::time::Instant::now() + WAIT_TIMEOUT;
+        // 截止时间**到真要等待时才取时钟**（fix-device-tests，2026-10-02）：此前在入口就
+        // `Instant::now()`，每次认领都读一次时钟——而 `wasm32-unknown-unknown` 上它直接 panic
+        // （"time not implemented on this platform"）。本函数 09-22 引入后，wasm 上第一个带
+        // 类型初始化器的类型就崩，nightly 的 test-wasm-browser 自那天起全红。只有「他线程
+        // 正在跑」才需要等待，而单线程的 wasm 永远走不到那一支。
+        let mut deadline: Option<std::time::Instant> = None;
         let mut spins: u32 = 0;
         loop {
             // 判定与认领在同一把锁里完成；**出作用域即释放**，等待绝不持锁。
@@ -402,7 +407,9 @@ impl CctorRegistry {
                     },
                 }
             }
-            if std::time::Instant::now() >= deadline {
+            let now = std::time::Instant::now();
+            let deadline = *deadline.get_or_insert(now + WAIT_TIMEOUT);
+            if now >= deadline {
                 return Err(format!(
                     "timed out waiting for the type initializer of `{class_fq}` to finish on \
                      another thread (possible circular type initialization across threads)"
