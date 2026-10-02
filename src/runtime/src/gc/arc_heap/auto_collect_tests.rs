@@ -58,7 +58,7 @@ fn an_over_budget_live_set_does_not_re_collect_forever() {
     // The pathology the futility backoff was added for: a live set that genuinely exceeds the
     // budget makes every collection reclaim ~nothing while the heap keeps growing, so a gate
     // that only asks for growth re-arms forever. Measured on
-    // `src/tests/perf/scenarios/09_alloc_ctorless` with a 64MB budget: a 0.29s run had not
+    // `src/bench/scenarios/09_alloc_ctorless` with a 64MB budget: a 0.29s run had not
     // finished after 9 minutes, doing a 0-byte 75ms mark-sweep every ~6MB.
     //
     // **arm-gc-by-default (2026-09-09)** attacks it from the other side as well: the gate is

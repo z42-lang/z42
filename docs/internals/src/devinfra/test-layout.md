@@ -28,7 +28,7 @@
 |---|---|---|
 | 组件的测试放在组件内还是集中放 | **放组件内** `<component>/tests/` | 集中目录会混进不同 owner 的用例：改一个组件时既不知道该跑哪些，也不知道该看哪些 |
 | 语言 / VM 特性测试放哪 | **保留 `src/tests/`，只放语言 / VM 特性** | 它们同时测编译器与 VM，没有单一 owner；对标 dotnet/runtime 的 `src/tests/` |
-| 整程序性能场景放哪 | **`src/bench/`**（⏳ 现在在 `src/tests/perf/`） | 不是测试（不判对错，只计时），也不属于 runtime（测的是编译器 + VM + stdlib 全链路）。微基准仍跟着代码走（各库 `bench/`、`src/runtime/benches/`），与 Rust / Go 的惯例一致；整程序套件做成与 `src/tests` 并列的独立目录，与 Swift / Node 顶层 `benchmark/` 同理 |
+| 整程序性能场景放哪 | **`src/bench/`** | 不是测试（不判对错，只计时），也不属于 runtime（测的是编译器 + VM + stdlib 全链路）。微基准仍跟着代码走（各库 `bench/`、`src/runtime/benches/`），与 Rust / Go 的惯例一致；整程序套件做成与 `src/tests` 并列的独立目录，与 Swift / Node 顶层 `benchmark/` 同理 |
 | 平台过滤用什么表达 | **能力名**（`// requires-caps:` / `[Skip(feature:)]`）；只有能力表达不了的 OS 差异才用 `[Skip(platform:)]` | 按名字维护的排除表（`_targetExcludes`）说不清每条为什么在那里，而且只增不减 |
 | golden 的能力声明用 marker 文件还是源码头注释 | **头注释 `// requires-caps: a, b`** | 与 bench 场景已有的写法、解析函数共用；flat 模式用例不必为此多建一个 sidecar |
 | harness 驱动的工程树放在 `tests/` 的哪里 | **保留子目录 `tests/fixtures/<suite>/`** | 直接放 `tests/<suite>/` 会被 z42b 的单元发现与孤儿源守卫当成「没人认领的源」判红；保留名同 Go 的 `testdata/`，规则一条、不需要名单 |
@@ -47,7 +47,7 @@
 | 编译器某成员（含**期望编译报错**：写成 `[Test]` + `SemanticDump`） | `src/compiler/<member>/tests/` | `xtask test compiler` |
 | 工具链某组件（launcher / builder / interactive / workload …） | `src/toolchain/<comp>/tests/` | ⏳ `xtask test toolchain [<comp>]` |
 | VM 内部（Rust） | 同模块 `*_tests.rs`；集成测试在 `src/runtime/tests/` | `xtask test runtime` |
-| 整程序性能场景 | ⏳ `src/bench/scenarios/` | `xtask bench` |
+| 整程序性能场景 | `src/bench/scenarios/` | `xtask bench` |
 
 拿不准时的三个常见误判：
 
@@ -101,7 +101,6 @@
 <!-- test-pending-moves:begin -->
 - `zbc-format` → `src/compiler/z42.package/tests/fixtures/zbc-format/`（字节基线；`src/runtime/tests/zbc_compat.rs` 按路径引用）
 - `zpkg-format` → `src/compiler/z42.package/tests/fixtures/zpkg-format/`（同上）
-- `perf` → `src/bench/`（性能场景、能力探针、结果 schema、判红自检 fixture）
 <!-- test-pending-moves:end -->
 
 ### 3. 用例形态
