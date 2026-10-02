@@ -219,7 +219,8 @@ int _buildCompilerViaZ42c(string root, string profile, string[] members, string 
     } else {
         _vNormal("  seed driver 不认 --compile-libs（早于该旗标）→ 运行期/编译期共用 flat（旧行为）");
     }
-    _ensureBootstrapSelfDepLibs(root, vm, driver, stdlibFlat, seedRun);  // 冷启动破 z42c⇄z42.package 环（须在 workspace build 前）
+    // 冷启动破 z42c⇄z42.package 环（须在 workspace build 前）。失败即判红，见 `_prebuildOne`。
+    if (_ensureBootstrapSelfDepLibs(root, vm, driver, stdlibFlat, seedRun) != 0) { return 1; }
     // 预建刚把当前源的库写进 flat ⇒ 此刻把成员 + **fresh** 前端补回 driver bundle
     // （与 flat 同代 ⇒ 不遮蔽；外部包已搬进 run-libs，不再回到成员 dist）。
     if (splitLibs) { _ensureDriverSelfContained(root, profile, members); }
@@ -294,7 +295,7 @@ void _purgeBootstrapPrebuildsFromFlat(string root, string stdlibFlat) {
 // 跳过实际重编）；源变了本就该重建。随后 `build stdlib` 全量 workspace 仍用 fresh z42c 覆盖为规范产物。
 // `runLibs` = 种子代的运行期 libs 快照（driver 自己加载用）；`stdlibFlat` 仍是**产物落点 +
 // 编译期解析面**。分开的理由见调用点注释与 design.md §3。
-void _ensureBootstrapSelfDepLibs(string root, string vm, string driver, string stdlibFlat,
+int _ensureBootstrapSelfDepLibs(string root, string vm, string driver, string stdlibFlat,
                                  string runLibs) {
     _vNormal("  bootstrap: (re)building current-source z42.core + z42.project + z42.build + z42.package + z42c.core + z42c.syntax into build-libs（破 z42c⇄stdlib 轴④环）");
     // 🔴 先断链再写（fix-flat-hardlink-clobber，2026-10-02）。flat 是 `_assembleStdlibFlatView` 从
@@ -318,27 +319,23 @@ void _ensureBootstrapSelfDepLibs(string root, string vm, string driver, string s
     // `undefined function`。故先用同款「先预建覆盖种子」模式把**当前源 z42.core** 建进 flat，再建 z42.package。
     // 与下面 z42.package 同理由：z42c 运行期自依赖链上的当前源库，必须先于消费者进 flat（轴 ④）。
     string coreToml = Path.Join(root, "src/libraries/z42.core/z42.core.z42.toml");
-    int rcCore = _z42cBuildPackage(vm, driver, coreToml, runLibs, stdlibFlat, stdlibFlat);
-    if (rcCore != 0) { ConsoleError.WriteLine("  ✗ bootstrap: build z42.core failed (" + rcCore.ToString() + ")"); }
+    if (_prebuildOne(vm, driver, coreToml, "z42.core", runLibs, stdlibFlat) != 0) { return 1; }
     // attribute-handler-registry PR3a-load：z42c.driver **编译期**消费 z42.project 的 ProjectManifest
     // （新增 `[analyzers]` 段的 Analyzers/AnalyzerCount 字段）。z42c workspace self-build 早于 step-4
     // 全量 stdlib 重建 → 若不先把当前源 z42.project 建进 flat，driver 会对着**旧** z42.project 编 →
     // `no field AnalyzerCount on ProjectManifest`（轴②：z42c 源新用一个 stdlib API，须先于 z42c 自建进
     // flat）。与 z42.core/z42.package 同款「先预建覆盖种子」。z42.project 依赖 z42.core（已上预建）+ io/toml（flat 已有）。
     string projToml = Path.Join(root, "src/compiler/z42.project/z42.project.z42.toml");
-    int rcProj = _z42cBuildPackage(vm, driver, projToml, runLibs, stdlibFlat, stdlibFlat);
-    if (rcProj != 0) { ConsoleError.WriteLine("  ✗ bootstrap: build z42.project failed (" + rcProj.ToString() + ")"); }
+    if (_prebuildOne(vm, driver, projToml, "z42.project", runLibs, stdlibFlat) != 0) { return 1; }
     // sink-repl-compile-facade：z42c.pipeline **编译期**消费 z42.build 的新 API（`IReplCompiler` +
     // `ReplCompileResult`，供 REPL 编译门面 `Z42cReplCompiler` 实现）。同 z42.project/z42.package 的轴② ——
     // z42c 源新用一个 stdlib API，须先把**当前源** z42.build 建进 flat，否则 z42c 自建 z42c.pipeline
     // 会对着**旧**（种子）z42.build 编 → `E0443: undefined type IReplCompiler`。z42.build 依赖
     // z42.core（已上预建）+ z42.io（flat 已有）+ z42.project（已上预建）。
     string buildToml = Path.Join(root, "src/compiler/z42.build/z42.build.z42.toml");
-    int rcBuild = _z42cBuildPackage(vm, driver, buildToml, runLibs, stdlibFlat, stdlibFlat);
-    if (rcBuild != 0) { ConsoleError.WriteLine("  ✗ bootstrap: build z42.build failed (" + rcBuild.ToString() + ")"); }
+    if (_prebuildOne(vm, driver, buildToml, "z42.build", runLibs, stdlibFlat) != 0) { return 1; }
     string irToml = Path.Join(root, "src/compiler/z42.package/z42.package.z42.toml");
-    int rc = _z42cBuildPackage(vm, driver, irToml, runLibs, stdlibFlat, stdlibFlat);
-    if (rc != 0) { ConsoleError.WriteLine("  ✗ bootstrap: build z42.package failed (" + rc.ToString() + ")"); }
+    if (_prebuildOne(vm, driver, irToml, "z42.package", runLibs, stdlibFlat) != 0) { return 1; }
     // converge-z42-syntax-lib（route A 地基）：z42c.core + z42c.syntax（可移植前端）已挪入
     // src/libraries/，成 z42c.semantics/pipeline/driver 的**共享库**依赖。冷启动 flat 里躺的是
     // 上一 nightly 种子的旧 z42c.core/syntax；z42c 自建期若不先把**当前源**建进 flat，semantics/
@@ -346,11 +343,37 @@ void _ensureBootstrapSelfDepLibs(string root, string vm, string driver, string s
     // 与 z42.package 同款「不 warm-skip、先预建覆盖种子」，让 fresh z42c 永远对着当前源前端编译+运行。
     // 顺序：z42c.core 靠 z42.core（隐式 prelude，已上建）；z42c.syntax 靠 z42c.core（先于它建）。
     string z42cCoreToml = Path.Join(root, "src/compiler/z42c.core/z42c.core.z42.toml");
-    int rcZc = _z42cBuildPackage(vm, driver, z42cCoreToml, runLibs, stdlibFlat, stdlibFlat);
-    if (rcZc != 0) { ConsoleError.WriteLine("  ✗ bootstrap: build z42c.core failed (" + rcZc.ToString() + ")"); }
+    if (_prebuildOne(vm, driver, z42cCoreToml, "z42c.core", runLibs, stdlibFlat) != 0) { return 1; }
     string z42cSynToml = Path.Join(root, "src/compiler/z42c.syntax/z42c.syntax.z42.toml");
-    int rcZs = _z42cBuildPackage(vm, driver, z42cSynToml, runLibs, stdlibFlat, stdlibFlat);
-    if (rcZs != 0) { ConsoleError.WriteLine("  ✗ bootstrap: build z42c.syntax failed (" + rcZs.ToString() + ")"); }
+    if (_prebuildOne(vm, driver, z42cSynToml, "z42c.syntax", runLibs, stdlibFlat) != 0) { return 1; }
+    return 0;
+}
+
+// 预建一个包进 flat。**失败即判红**（fail-on-prebuild-error）：此前这里只打印一行 ✗ 就继续，flat 里留着
+// 上一代的旧包，随后的 workspace 自建对着旧包编 —— 成功了也是错的组合，失败了报的是下游的无关错误。
+// 实测：上一轮产物里的编译器带着新规则、当前源码某处违规，z42.package 预建失败，`xtask build compiler`
+// 照样显示成功。
+// 判据是「产物写出来没有」而不是退出码：先输出到一个干净的临时目录，产物在 ⇒ 拷进 flat；不在 ⇒ 真失败。
+// 存在而退出码非零只警告 —— 旧 nightly 的 z42c 在 Windows 上会在**写完 zpkg 之后**写增量缓存时崩
+// （os error 3），产物是好的（CI ci-bootstrap 用的是同一个「产物守卫」口径）。
+// 不直接写 flat 再删旧文件：种子不认 `--compile-libs` 时 runLibs 就是 flat，正在跑的 driver 自己也从这里加载库。
+int _prebuildOne(string vm, string driver, string toml, string name, string runLibs, string stdlibFlat) {
+    string tmp = Path.Join(Path.GetDirectoryName(stdlibFlat), ".prebuild-" + name);
+    _resetDir(tmp);
+    int rc = _z42cBuildPackage(vm, driver, toml, runLibs, tmp, stdlibFlat);
+    string built = Path.Join(tmp, name + ".zpkg");
+    if (!File.Exists(built)) {
+        ConsoleError.WriteLine("  ✗ bootstrap: build " + name + " failed (" + rc.ToString() + ") — no " + name + ".zpkg produced");
+        return 1;
+    }
+    if (rc != 0) {
+        ConsoleError.WriteLine("  ⚠ bootstrap: build " + name + " exited " + rc.ToString() + " but wrote " + name + ".zpkg (tolerated: seed crashed after writing)");
+    }
+    File.Copy(built, Path.Join(stdlibFlat, name + ".zpkg"));
+    string sym = Path.Join(tmp, name + ".zsym");
+    if (File.Exists(sym)) { File.Copy(sym, Path.Join(stdlibFlat, name + ".zsym")); }
+    Directory.Delete(tmp, true);
+    return 0;
 }
 
 // 防 zpkg 版本 skew 假失败（2026-06-10）：z42c 测试单元先被 z42c 编成 zpkg，再交

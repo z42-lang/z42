@@ -193,7 +193,7 @@ int _bcRunWorkspace(string root, string label, string vm, string driver, string 
         _copyAll(runlibs, bcSeedRun, "*.zpkg");
         _copyAll(runlibs, bcSeedRun, "*.zsym");
     }
-    _ensureBootstrapSelfDepLibs(root, vm, driver, runlibs, bcSeedRun);
+    if (_ensureBootstrapSelfDepLibs(root, vm, driver, runlibs, bcSeedRun) != 0) { return 1; }
     string outRoot = Path.Join(work, label + "-out");
     _resetDir(outRoot);
     int fail = 0;
