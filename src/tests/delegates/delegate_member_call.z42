@@ -1,0 +1,64 @@
+// call-delegate-members regression golden：直接调用委托类型的字段 / 属性（`x.F(args)` / `C.S(args)`，对齐 C#）。
+//
+// 改动前这些写法报 `E0401: no method F on Holder`，只能先取到局部变量再调。覆盖：实例字段、静态字段、
+// 实例属性、静态属性、继承来的字段、泛型类里类型为 T 的字段、类内经 `this.F(v)` 调用、null 委托抛
+// NullReferenceException。纯 Assert，空 stdout。
+//
+// 末尾的**方法优先**对照：类上同时能找到方法时仍调方法（委托成员只在方法查找失败后才轮到）。
+namespace Demo;
+
+public delegate int IntOp(int x);
+public delegate int IntOp2(int a, int b);
+
+class Base {
+    public IntOp Inherited;
+}
+
+class Holder : Base {
+    public IntOp F;
+    public static IntOp S;
+    public IntOp2 Two;
+    private IntOp _p;
+    public IntOp P { get { return this._p; } set { this._p = value; } }
+    public static IntOp SP { get { return (int x) => x - 1; } }
+    public int Fire(int v) { if (this.F != null) { return this.F(v); } return -1; }
+    public int Run(int x) { return x * 100; }
+}
+
+class Box<T> {
+    public T Value;
+}
+
+void Main() {
+    Holder h = new Holder();
+    h.F = (int x) => x + 1;
+    Assert.Equal(42, h.F(41));
+
+    Holder.S = (int x) => x * 2;
+    Assert.Equal(42, Holder.S(21));
+
+    h.Two = (int a, int b) => a + b;
+    Assert.Equal(42, h.Two(40, 2));
+
+    h.P = (int x) => x * 3;
+    Assert.Equal(42, h.P(14));
+    Assert.Equal(41, Holder.SP(42));
+
+    h.Inherited = (int x) => x + 2;
+    Assert.Equal(42, h.Inherited(40));
+
+    Box<IntOp> b = new Box<IntOp>();
+    b.Value = (int x) => x - 8;
+    Assert.Equal(42, b.Value(50));
+
+    Assert.Equal(42, h.Fire(41));   // 类内 `this.F(v)`
+    Assert.Equal(-1, new Holder().Fire(1));
+
+    Holder empty = new Holder();
+    bool threw = false;
+    try { empty.F(1); } catch (NullReferenceException e) { threw = true; }
+    Assert.True(threw);
+
+    // 方法优先：Run 是方法，照常调方法。
+    Assert.Equal(300, h.Run(3));
+}
