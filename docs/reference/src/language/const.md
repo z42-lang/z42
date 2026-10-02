@@ -82,4 +82,3 @@ void g() {
 ## 关联文档
 
 - 对比：[readonly 字段](readonly-fields.md)（运行期不可变）
-- 引入：change `add-const-keyword`（`docs/spec/archive/`）

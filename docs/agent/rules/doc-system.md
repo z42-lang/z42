@@ -12,8 +12,7 @@ docs/
 ├── learn/          学习手册    —— 用 z42 写程序的人（学）
 ├── reference/      语言与库参考 —— 用 z42 写程序的人（查）
 ├── internals/      实现内幕    —— 改 z42 本身的人 / AI
-├── agent/rules/    开发规范    —— 怎么干活的行为约束
-├── spec/           变更工作区  —— changes/ 进行中 + archive/ 已归档
+├── agent/          AI 协作规范 —— rules/ 行为约束 + playbooks/ 任务清单
 └── roadmap.md      项目计划与 Deferred 索引
 
 src/**/README.md    目录说明 —— 这个目录有什么、怎么改
@@ -45,7 +44,7 @@ README.md           仓库门面 —— 定位 + 上手 + 分流
 | 位置 | 职责 | 不写什么 |
 |---|---|---|
 | `docs/agent/rules/` | 怎么干活的**行为约束** | **任何系统知识**——那是三本书的事 |
-| `docs/spec/changes` + `archive/` | 这一次迭代在做什么 | 长期知识（归档时上浮到三书） |
+| Pull Request 描述 | 这一次迭代在做什么（方案 / 进度 / 验证） | 长期知识（合并前上浮到三书） |
 | `src/**/README.md` | 这个目录有什么、怎么改 | 设计原理（链 internals） |
 | `docs/roadmap.md` | 项目计划与 Deferred 索引 | 知识 |
 | 根 `README.md` | 仓库门面与分流 | 实质内容 |
@@ -116,17 +115,17 @@ learn  ──链──▶  reference          internals  ──链──▶  lea
 |---|---|---|
 | `learn` | 按 `OUTLINE.md` 推进；被覆盖特性变更时同步 | `xtask test examples`——代码与终端输出**逐条真实重放** |
 | `reference` | 特性落地即更新规则页；新 stdlib API 即更新包页 | 人工 + `xtask test docs` |
-| `internals` | change 归档时**知识上浮**；踩坑即补「为什么」 | 人工 + 页头「对齐」日期 |
+| `internals` | PR 合并前**知识上浮**；踩坑即补「为什么」 | 人工 + 页头「对齐」日期 |
 
 ## 五、三道门
 
 | 门 | 内容 |
 |---|---|
-| **① 同一个 PR** | 文档与代码同分支同 PR。禁止「代码先合、文档后补」——归档、README 同步、机制页都是这次变更**本身**的一部分 |
+| **① 同一个 PR** | 文档与代码同分支同 PR。禁止「代码先合、文档后补」——README 同步、机制页都是这次变更**本身**的一部分 |
 | **② `xtask test docs`** | 机械检查：相对链接可解析（死链清零）；每个 `.md` 挂进所属书 SUMMARY；页头有「对齐」字段；命令面改名后旧名 grep 清零；learn ↔ examples 双向引用（B1–B10） |
-| **③ 归档 doc-check 清单** | 人工兜底，见下 |
+| **③ 合并前 doc-check 清单** | 人工兜底，见下 |
 
-**归档前 doc-check 清单**（全部勾上才能 commit）：
+**合并前 doc-check 清单**（全部勾上才能合并）：
 
 - [ ] 三问逐条过一遍，命中的文档均已更新
 - [ ] 所改目录的 README 六段齐全（六段制见 [code-organization.md](code-organization.md)）
@@ -163,7 +162,7 @@ learn  ──链──▶  reference          internals  ──链──▶  lea
 
 ## 七、知识上浮
 
-**每个 change 归档时，凡改变了对外行为或内部机制的，其知识必须上浮进三本书对应页**——然后变更目录随后可删（git 留痕）。
+**每个 PR 合并前，凡改变了对外行为或内部机制的，其知识必须上浮进三本书对应页**——PR 描述只是过程档案，不是知识的家。
 
 **上浮的目的地由 §3 的三问决定，不由作者偏好决定。**
 

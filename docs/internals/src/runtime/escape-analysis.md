@@ -370,6 +370,4 @@ reference 那条「循环变量每次迭代是新绑定」的语义**由值快�
 ## 关联文档
 - 开关 / 管线位置：[optimization-pipeline](optimization-pipeline.md)
 - 闭包的用户面捕获语义：[闭包与捕获语义](../../../reference/src/language/closures.md)
-- 闭包栈分配先例：change `impl-closure-l3-escape-stack`（`docs/spec/archive/`）
 - 格式 bump：[version-bumping.md](../../../agent/rules/version-bumping.md)
-- 引入：change `add-escape-analysis-stack-alloc`（`docs/spec/`）

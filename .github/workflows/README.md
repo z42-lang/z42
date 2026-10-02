@@ -25,4 +25,3 @@
 - P4.3：`platform-android` job
 - P4.4：`platform-ios` job
 
-详见 [docs/spec/changes/](../../spec/changes/) 中各 sub-spec 的 CI 接入设计。

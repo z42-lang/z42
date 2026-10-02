@@ -55,5 +55,4 @@ mark 阶段的 `external_root_scanner` 只吐**匿名** Value，报不出根类�
 
 ## 关联
 
-- 引入：change `add-heap-retention-diagnostics`（`docs/spec/archive/`）。
 - context 卸载诊断应用：[load-context.md](load-context.md)（`AssemblyLoadContext` 卸载不回收时用本工具查保留者）。

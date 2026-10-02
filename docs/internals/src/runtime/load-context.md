@@ -117,7 +117,6 @@ GC 侧经 `ContextReclaim` trait（`VmCore` 用 `CoreContextReclaimer` 捕 `Weak
 
 ## 关联
 
-- 引入：change `add-load-context-model`（`docs/spec/archive/`）。
 - 目标架构：[load-context.md](load-context-design.md) /
   [tiered-execution.md](tiered-execution.md) /
   [safepoint.md](safepoint-design.md)。

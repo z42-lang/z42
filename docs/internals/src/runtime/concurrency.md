@@ -3,7 +3,7 @@
 > **状态**：L3 前瞻性设计草案（2026-04-30），语言层尚未实现；**runtime
 > foundation 已落地**（2026-05-20，详下方）
 > **定位**：与 `generics.md` / `static-abstract-interface.md` 同级 — 长期规范，等
-> 到 L3 阶段才进入 `docs/spec/changes/` 实施流程
+> 到 L3 阶段才进入实施
 > **参考**：C# / .NET TPL（主蓝本）+ Rust（Send/Sync）+ Kotlin / Swift（结构化并发）
 > **核心选型**：染色（async/await 显式）+ 全 async-only 标准库 + 结构化并发强制 +
 > `Send`/`Sync` 类型层安全 + 单一 runtime
@@ -16,7 +16,7 @@
 
 ## Runtime foundation 现状（2026-05-20 落地）
 
-[`add-multithreading-foundation`](../../../spec/archive/2026-05-20-add-multithreading-foundation) spec 已完成 Phase 1+2+3：
+已完成 Phase 1+2+3：
 
 - **VmCore / VmContext 类型层划分**：共享 8 字段 (`Arc<VmCore>`) + per-thread 4 字段（VmContext 持 `Arc<VmCore>` 加自己的 Arc<Mutex<>> 字段）
 - **GcRef 切到 Arc backing**：`Rc<GcAllocation>` → `Arc<GcAllocation>`，内部 `RefCell<T>` → `parking_lot::Mutex<T>`

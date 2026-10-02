@@ -308,7 +308,7 @@ v0.1 单实例：`HOST: RwLock<Option<HostState>>`。`Z42HostRef` 是一个 sent
 
 多实例 / ALC-like 上下文进 [embedding.md §12 Deferred](embedding.md)。届时 `RwLock<Option<...>>` 升级为 `Slab<HostState>`，`Z42HostRef` 编码 `(idx, gen)`，VM 全局状态（GC heap、JIT cache、type registry）必须 per-handle 化。zpkg 重载/卸载/回收的完整设计（含保留根诊断、内部缓存回收）见 [load-context.md](load-context.md)。
 
-详见 [docs/internals/src/runtime/embedding.md](embedding.md) 与 [docs/spec/archive/2026-05-10-add-embedding-api/design.md](../../../spec/archive/2026-05-10-add-embedding-api/design.md) D1/D5。
+详见 [docs/internals/src/runtime/embedding.md](embedding.md)。
 
 ---
 
@@ -629,10 +629,6 @@ needs_fixup = td.fields.len() != expected || td.vtable.len() != expected_v
 的子类，相关字段访问会写入越界 slot（潜在 UB）—— 当前依赖 build 系统
 保证依赖完整性；未来可在 try_lookup_type 路径加 "all-deps-loaded" 断言。
 
-**前置 spec**：[docs/spec/archive/2026-05-14-fix-cross-pkg-subclass-fields/](../../../spec/archive/2026-05-14-fix-cross-pkg-subclass-fields)
-（首次触发：add-std-process 的 4 个 z42.io exception 类继承 z42.core
-的 Std.Exception）。
-
 ---
 
 ## resolve_namespace / resolve_dependency 的分工
@@ -681,7 +677,7 @@ JIT (`jit_obj_new`) 共享实现。需要这一步的前提是 `FieldSlot` 携�
 ctor 入口由编译器侧 IrGen 注入字段 init（base ctor call 之后、用户 body
 之前）；无显式 ctor 但本类或本地祖先链有字段 init 的类，编译器合成无参
 隐式 ctor 内联整条链的 init 表达式。详见
-`docs/reference/src/language/README.md` §6.3 + `docs/spec/archive/2026-05-02-fix-class-field-default-init/`。
+`docs/reference/src/language/README.md` §6.3。
 
 ### TypeDesc 结构
 

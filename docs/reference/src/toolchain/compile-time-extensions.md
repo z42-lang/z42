@@ -252,5 +252,4 @@ kind    = "analyzer"
 > 在 2026-09-24 之前这条路是断的：契约 zpkg 只作为 z42c 的 payload 落在 `programs/z42c/`，
 > **在 SDK 目录里、却不在解析器会去看的地方**，插件作者拿到的是一句位置在别处的
 > `E0443: undefined type: ModuleGenerator`，且没有任何东西会诊断它。引擎、loader、多轮调度
-> 当时全是通的——只差包模型里的一个**角色**维度。来龙去脉见
-> `docs/spec/changes/add-package-roles/`。
+> 当时全是通的——只差包模型里的一个**角色**维度。

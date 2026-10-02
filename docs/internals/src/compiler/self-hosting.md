@@ -3,9 +3,9 @@
 > **页型**: 机制页 ｜ **状态**: ✅ 已实现（全链 z42 自举）｜ **代码**: `src/compiler/` · `src/libraries/z42c.*`
 > **相关**: [架构总览](architecture.md) · [源代码编译流程](source-compile.md) · [自举种子纪律](../../../agent/rules/bootstrap-seed.md) ｜ **对齐**: 2026-09-16
 
-> 状态：🚧 进行中（0.3.x B 主线）｜起点：B0 [scaffold-z42c-selfhost](../../../spec/archive/2026-06-19-scaffold-z42c-selfhost/)（2026-06-07）
+> 状态：🚧 进行中（0.3.x B 主线）
 >
-> 本文是 z42 自举编译器的**唯一权威架构文档**：布局、受限写法、构建解析、对账策略、CLI parity、1.0 切换。规划背景见 [`roadmap.md` 0.3.x](../../../roadmap.md) + [`plan-0.3.x-three-streams`](../../../spec/archive/2026-06-19-plan-0.3.x-three-streams/proposal.md)。
+> 本文是 z42 自举编译器的**唯一权威架构文档**：布局、受限写法、构建解析、对账策略、CLI parity、1.0 切换。规划背景见 [`roadmap.md` 0.3.x](../../../roadmap.md)。
 
 ## 目标
 
@@ -309,8 +309,7 @@ z42c **运行期依赖 `z42.package`**——它建任何 zpkg 都要调 `Z42.Pac
 名字会被成员 dist 档放行，必须另挡。
 ⚠️ **但它自己也受种子纪律**：跑 workspace 构建的是**种子** driver，故要跨一个 nightly 才生效；
 在那之前编排侧的「搬」仍是唯一防线。进种子之后，`_relocateSeedRunLibs` 可从「搬」退回「拷」
-（运行期载荷留在 dist，编译期不再看它）。详见
-`docs/spec/archive/2026-09-27-rename-project-namespaces/design.md` §7。
+（运行期载荷留在 dist，编译期不再看它）。
 
 ### 分阶段流程（每阶段守哪条不变量）
 
@@ -386,8 +385,7 @@ z42c 达到 golden 编译 parity（编通全部 ~333 golden，含 reflection/clo
 
 > 操作层流程（SDK/Current 两套 toolchain、共享 host SDK、边界不变量、CI 冗余清单）见
 > [`docs/internals/src/devinfra/build.md`](../../../internals/src/devinfra/build.md)。后续 CI 去冗余
-> （compile-once：编一次全下游复用 + fixpoint gate 发布 + format-bump 兜底）规划见
-> `docs/spec/changes/compile-once-toolchain/`。
+> （compile-once：编一次全下游复用 + fixpoint gate 发布 + format-bump 兜底）尚在规划。
 
 ## compile-perf gate
 

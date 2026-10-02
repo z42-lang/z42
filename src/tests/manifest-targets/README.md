@@ -27,7 +27,6 @@
 
 ## 关联文档
 - 设计：`docs/reference/src/toolchain/z42-toml.md` L5b（目标模型 / harness / exit-code / 约定发现）
-- 引入：change `add-tests-bench-manifest-config`（`docs/spec/changes/`）
 
 ## 核心文件
 | 文件 | 职责 |

@@ -812,7 +812,7 @@ VM interp:  ObjNew 时创建实例化 TypeDesc（填充 type_args）
 
 ## Class arity overloading（2026-05-07）
 
-由 [`docs/spec/archive/2026-05-07-add-class-arity-overloading/`](../../../spec/archive/2026-05-07-add-class-arity-overloading/) 落地（D-8b-0）。修复 `class Foo` + `class Foo<R>` 同源名冲突的结构性 type-system gap，与 delegate 的 `Action$N` 命名约定对齐。
+修复 `class Foo` + `class Foo<R>` 同源名冲突的结构性 type-system gap，与 delegate 的 `Action$N` 命名约定对齐。
 
 ### 设计：shadow-only mangling
 
@@ -861,7 +861,6 @@ GenericType("Foo", [T..])   → _classes["Foo$N"] first, fallback _classes["Foo"
 
 ### D-4: 协变 / 逆变（`<in T, out R>` 等）
 
-- **来源**：[docs/spec/archive/2026-05-02-add-delegate-type/](../../../spec/archive/2026-05-02-add-delegate-type/)
 - **关联设计文档**：[`delegates-events.md`](../runtime/delegates-events.md) §12 明确"推迟到 L3 后期"
 - **触发原因**：协变 / 逆变涉及泛型 type-arg 关系约束，z42 当前 generic 系统未做这类规则，加进来牵扯 ImportedSymbols / RebuildFuncType / 子类型规则全链路。
 - **前置依赖**：L3 后期完整 type-system 规划；与 `generics.md` / `static-abstract-interface.md` 协同。

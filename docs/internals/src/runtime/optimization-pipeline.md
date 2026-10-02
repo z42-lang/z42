@@ -315,4 +315,3 @@ IrModule = 单 CU，callee 在同模块内解析（函数共享 StringPool → �
 ## 关联文档
 - 自举与 REGT 先例(编译期算好、运行时消费的模式):[self-hosting](../compiler/self-hosting.md)
 - JIT 惰性逐函数编译:[jit-lazy-compile](jit.md)
-- 引入/演进:change `jit-lowering-pipeline`（`docs/spec/changes/`）

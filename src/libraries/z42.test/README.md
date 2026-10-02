@@ -152,7 +152,7 @@ public class MyTests {
 
 - ❌ 第二个 Assert 类 —— 全仓只有一个 `Std.Assert`（在 **z42.core**：断言必须 prelude 可见），不重复发明。
   曾经有两个（本包的 `Std.Test.Assert` + z42.core 的 `Std.Assert`），那是 stdlib 里唯一的跨
-  命名空间同短名类，代价见 [unify-assert-api](../../../docs/spec/archive/2026-09-08-unify-assert-api/) 与 common-pitfalls §1
+  命名空间同短名类，代价见 common-pitfalls §1
 - ❌ 异步测试支持 —— 等 L3 async/await
 - ❌ 参数化测试 —— 等 lambda + collection literals
 - ❌ 测试发现 / 自动注册 —— 等 reflection

@@ -72,7 +72,7 @@ xtask test stdlib
 
 - 设计/机制（深入层）：[反射机制](../../../../docs/reference/src/stdlib/reflection.md)、
   [运行时 IR](../../../../docs/internals/src/formats/ir.md)
-- 反射能力的引入/演进：`docs/spec/archive/2026-06-*-add-reflection-*` 等（需求↔迭代可追溯）
+- 反射能力的引入/演进：`git log -- src/runtime/src/corelib/`（需求↔迭代可追溯）
 - 拆分：change `refactor-reflection-split`（`reflection.rs` 2840 行 → `reflection/` 11 子模块，全 <500）
 
 ## 核心文件

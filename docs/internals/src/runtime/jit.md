@@ -444,9 +444,8 @@ offset 读 8B + 重建 `Value`，与 `read_inline_ref` 逐字节等价：
 
 ## 寄存器访问汇点：`reg_access`（jit-unbox-regalloc Phase 2.0）
 
-> `jit/reg_access.rs`（新）+ `jit/translate.rs`（全部 emitter 改调汇点）。属
-> [jit-unbox-regalloc](../../../spec/changes/jit-unbox-regalloc/proposal.md) 程序的地基相（纯重构，
-> 无外部行为变化、自举字节不动）。
+> `jit/reg_access.rs`（新）+ `jit/translate.rs`（全部 emitter 改调汇点）。纯重构，
+> 无外部行为变化、自举字节不动。
 
 ### 为什么
 
@@ -473,7 +472,7 @@ P5-B 之前，JIT 的寄存器文件访问模式（`regs_base + idx * VALUE_STRI
 
 ### 为什么这是 unbox/驻留的地基
 
-后续相（[proposal](../../../spec/changes/jit-unbox-regalloc/proposal.md) 的 2B 块内标量 unbox / 2C
+后续相（2B 块内标量 unbox / 2C
 loop-carried 机器寄存器驻留）要让热标量**不再每 op 内存往返**。有了汇点，缓存逻辑只需改
 `reg_access` 一处：`load_*` 变"若该 reg 已驻留 SSA 值则直接返回、否则 load"，`store_*` 变"更新缓存 +
 标脏"，仅在设计枚举的边界（块终结子 / Category-B helper·call / safepoint / OSR 入口）spill 回内存——
@@ -482,8 +481,7 @@ e2e jit 与 interp 逐字节一致，自举 5/5 gen1==gen2 不动。
 
 ## 整数原生快路径放宽到全宽度 I8..U64（jit-unbox-regalloc Phase 2A）
 
-> 位置：`jit/translate.rs`（三个触发谓词 + `Convert` 的 src 判定）。属
-> [jit-unbox-regalloc](../../../spec/changes/jit-unbox-regalloc/proposal.md) Phase 2A。
+> 位置：`jit/translate.rs`（三个触发谓词 + `Convert` 的 src 判定）。
 
 Phase 2.0 之前，整数算术/比较/位运算/移位/取负/取反的原生快路径**只在
 `reg_types[reg] == IrType::I64` 精确匹配时触发**（`is_i64_typed` 等谓词）。但 z42 的窄整数
@@ -515,8 +513,7 @@ BitNot）interp==jit 逐字节一致，JIT ~1.5× 快于 interp；`cargo --lib` 
 
 ## 块内整数标量缓存：`RegCache`（jit-unbox-regalloc Phase 2B）
 
-> 位置：`jit/reg_access.rs`（`RegCache`）+ `jit/translate.rs`（五整数 emitter + flush 汇点）。属
-> [jit-unbox-regalloc](../../../spec/changes/jit-unbox-regalloc/proposal.md) Phase 2B。
+> 位置：`jit/reg_access.rs`（`RegCache`）+ `jit/translate.rs`（五整数 emitter + flush 汇点）。
 
 Phase 2A 之前的所有整数 op 都是「`load payload@off8 → 算 → store tag+payload`」，每 op 一次内存
 往返——interp 也这样，JIT 只省了 dispatch。Cranelift 帮不上：VM 用 `opt_level=none`（无别名分析），
@@ -565,9 +562,7 @@ interp==jit 逐字节 + 自举 5/5 gen1==gen2 + stdlib 全绿。
 
 ## loop-carried 整数标量跨迭代驻留：Cranelift `Variable`（jit-unbox-regalloc Phase 2C）
 
-> 位置：`jit/translate.rs`（`compute_promotable_regs` + `load_int`/`store_int` + prologue 种子）。属
-> [jit-unbox-regalloc](../../../spec/changes/jit-unbox-regalloc/proposal.md) Phase 2C，mini-DRAFT 见
-> [design-2c.md](../../../spec/changes/jit-unbox-regalloc/design-2c.md)。
+> 位置：`jit/translate.rs`（`compute_promotable_regs` + `load_int`/`store_int` + prologue 种子）。
 
 2B 的块内缓存跨不过循环回边——`for(…) s += …` 里 `s` 每迭代仍 load/store `frame.regs`。2C 让这类
 **loop-carried 整数标量跨迭代常驻机器寄存器**，是打破 `s+=…` 天花板的一步（实测 **1.35–1.75× 快于
@@ -617,7 +612,7 @@ promoted reg 与 `frame.regs` 的同步只在两处：
 ## 原生 F64 浮点算术（jit-native-float）
 
 > 位置：`jit/translate.rs`（`is_f64_typed`/`_cmp`/`_typed_unary` + `emit_f64_binop`/`_cmp`/`_neg` +
-> Add/Sub/Mul/Div/Neg/Eq..Ge 各臂）。change 容器 `docs/spec/changes/jit-native-float/`。
+> Add/Sub/Mul/Div/Neg/Eq..Ge 各臂）。
 
 整数原生化收官后，浮点仍全走 helper：`double` 的 Add/Sub/Mul/Div/比较/取负都路由到 extern
 `jit_add`/`jit_lt`/… → 纯 `double` 累加环 JIT 仅 1.59× interp。本节给 F64 加原生快路径，与 2A 的整数
@@ -642,8 +637,7 @@ promoted reg 与 `frame.regs` 的同步只在两处：
 
 ## 浮点 ↔ 整数原生转换（jit-native-convert-float）
 
-> 位置：`jit/translate.rs`（`Convert` 臂 + `emit_int_to_f64` / `emit_f64_to_int`）。change 容器
-> `docs/spec/changes/jit-native-convert-float/`（int→f64）+ `jit-native-float-residency/`（float→int）。
+> 位置：`jit/translate.rs`（`Convert` 臂 + `emit_int_to_f64` / `emit_f64_to_int`）。
 
 `(double)i` / `(int)f` 这类 `Convert` 原本每次走 `hr_convert` helper（Rust call + `convert_value`
 分派）。热循环里的强制转换是纯逐迭代开销，两个方向都补上原生快路径：
@@ -671,7 +665,7 @@ interp==jit==jitOSR 逐字节。
 ## F64 residency：loop-carried 浮点标量跨迭代驻留（jit-unbox-regalloc Phase 2C-for-floats）
 
 > 位置：`jit/translate.rs`（`compute_promotable_regs` 基集 + 各 F64 臂、`load_f64`/`store_f64`、prologue
-> 种子、`ConstF64`/`Ret` 分派）。change 容器 `docs/spec/changes/jit-native-float-residency/`。
+> 种子、`ConstF64`/`Ret` 分派）。
 
 2C 把 loop-carried **整数**标量常驻机器寄存器；本节把同一机制扩到 **F64**：`double sum += …` 里的 `sum`
 不再每迭代 load/store `frame.regs`。做法与整数 2C 完全同构，只是 Variable 类型是 `F64`：
@@ -693,8 +687,7 @@ interp==jit==jitOSR 逐字节。
 
 ## 原生整数除 / 取余（jit-native-int-divrem）
 
-> 位置：`jit/translate.rs`（`Div`/`Rem` 臂 + `emit_int_divrem!` 宏，紧邻 `check!`）。change 容器
-> `docs/spec/changes/jit-native-int-divrem/`。
+> 位置：`jit/translate.rs`（`Div`/`Rem` 臂 + `emit_int_divrem!` 宏，紧邻 `check!`）。
 
 整数原生化收官后，`Div`/`Rem` 是唯一还全走 helper 的常见算术（`Add`/`Sub`/`Mul`/比较/位运算/转换/全
 `double` 已 native）——原因是**硬件除法陷阱**：x86_64 `idiv` 对 `/0` 与 `i64::MIN / -1` 溢出都触发

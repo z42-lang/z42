@@ -73,8 +73,7 @@ see [`docs/README.md`](docs/README.md) for the full split.
 | [`docs/internals/`](docs/internals/) | Changing z42 itself — architecture, mechanisms, decisions, build/test/release | <https://z42-lang.github.io/z42/internals/> |
 
 Beyond the books: [`docs/roadmap.md`](docs/roadmap.md) (plan + deferred index),
-[`docs/agent/`](docs/agent/) (collaboration rules for AI + human contributors),
-[`docs/spec/`](docs/spec/) (per-change work area: in-flight `changes/` + `archive/`).
+[`docs/agent/`](docs/agent/) (collaboration rules for AI + human contributors).
 
 ---
 
@@ -89,7 +88,7 @@ z42/
 │   └── toolchain/         # Launcher (z42), builder (z42b), REPL, workloads, devtools
 ├── scripts/               # xtask dev CLI (build / test / package) + install primers
 ├── docs/                  # learn/ + reference/ + internals/ books, book/ site root,
-│                          # roadmap.md, agent/ rules, spec/ change records
+│                          # roadmap.md, agent/ rules
 ├── examples/              # Companion projects for the learn book, run by `xtask test examples`
 └── .claude/               # Claude Code entry: thin pointer to docs/agent/ + shared permissions
 ```

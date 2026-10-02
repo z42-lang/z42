@@ -131,4 +131,3 @@ PIC 的命中点各设一道常驻断言（`vcall_resolve::assert_pic_target` �
 
 - JIT 内联快路径与 helper 边界：[JIT 惰性逐函数编译](jit.md)、
   `src/runtime/src/jit/README.md`。
-- 引入：change `refactor-jit-translate-split`（`docs/spec/archive/`）。

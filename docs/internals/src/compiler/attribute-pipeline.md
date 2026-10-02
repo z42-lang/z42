@@ -9,8 +9,7 @@
 
 > 范围：本页只讲 **store-meta** 一支——即「`[X]` 是纯元数据，运行期经反射读回」。
 > 编译期 **handler** 体系（`Analyzer` / `Generator` / `ModuleGenerator` 契约、`AnalyzerDriver` /
-> `GeneratorDriver`、外部 analyzer zpkg 加载、有界多轮）的全貌仍在
-> `docs/spec/changes/attribute-handler-registry/design.md`，尚未上浮。
+> `GeneratorDriver`、外部 analyzer zpkg 加载、有界多轮）的全貌尚未上浮到本书。
 
 ## 三路分流：`HandlerRegistry.KindOf`
 
@@ -256,4 +255,3 @@ statics / exceptions / strings / reflection）。真正的修法是让 typecheck
 - 用户面写法：[自定义 Attribute 与反射](../../../reference/src/language/attributes.md)
 - wire 布局：[zbc 格式](../formats/zbc.md)
 - `available!()` 的运行期折叠：[符号可用性折叠](../runtime/availability-folding.md)
-- handler / generator / analyzer 体系全貌：`docs/spec/changes/attribute-handler-registry/design.md`

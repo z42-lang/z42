@@ -752,4 +752,3 @@ Run(g, 3);   // E0422: … parameter 1 is `String`, the constraint requires it t
 ## 相关
 
 - [泛型方法](generic-methods.md) —— 方法级类型参数与 `<` 歧义消解
-- change [`complete-where-constraints`](../../../spec/archive/2026-09-05-complete-where-constraints/proposal.md) —— 本页所述行为的引入过程（含三层塌陷的完整定位）

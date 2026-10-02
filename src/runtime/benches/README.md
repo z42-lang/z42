@@ -43,4 +43,3 @@ P1.D 引入：
 - `z42 xtask.zpkg bench --diff` 与 baseline diff
 - CI PR 阶段 quick 子集 + diff 性能门禁
 
-详见 [docs/spec/changes/add-benchmark-framework/](../../../spec/changes/add-benchmark-framework/)。

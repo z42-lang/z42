@@ -66,8 +66,6 @@ this.F(new());              // ✗ E0437：重载歧义，需写 new A() / new B
    无需类型即可选中（歧义则报 `E0437`）；选定后按形参类型回填。命名实参 / 默认值路径的
    `_adaptArgs` 本就持有形参类型，就地定型。
 
-详见 change 提案与设计：`docs/spec/archive/…-add-target-typed-new/`。
-
 ## 当前边界（Deferred）
 
 - **集合字面量元素位**：`A[] a = { new(), new() }` 中元素不接收目标类型 → `E0437`。
@@ -79,4 +77,3 @@ this.F(new());              // ✗ E0437：重载歧义，需写 new A() / new B
 ## 关联文档
 
 - 相关简化：[集合字面量](collection-literals.md) / [数组](arrays.md)
-- 引入：change `add-target-typed-new`（`docs/spec/archive/`）

@@ -338,4 +338,3 @@ JSON 留抽象层**——`unify-run-modes` 已裁决过把 .NET 风格的 JSON �
 
 - [GC 调参与自动回收 / safepoint 协议](gc-tuning.md)——`Z42_GC_*` 各旋钮的语义
 - [诊断与性能分析](diagnostics.md)——`Z42_SAMPLE_HZ` / `Z42_TRACE_OUT`
-- change `complete-runtime-settings`（`docs/spec/changes/`）——需求↔迭代可追溯

@@ -62,8 +62,7 @@ xtask / build 基础设施驱动；stdlib 又被两者依赖。任何「从源�
    不等就走**两代自举**：用 SDK 自带的**旧 VM**（`bin/z42vm`，与旧种子同版本、能读旧种子）跑
    Gen1（旧种子 z42c 编当前源→旧壳/新逻辑）+ Gen2（旧 VM 跑 gen1 z42c→新格式产物），再交新 VM
    接管。runtime stdlib（entry-dir 旧）与 compile stdlib（`Z42_LIBS` 新）分离解开死锁（design D7）。
-   → **格式 bump 的 build-and-test / toolchain-bootstrap / package 路径 CI 自动过、免手动传种子**。机制见
-   [`docs/spec/archive/…-fix-bootstrap-format-bump-deadlock`](../../spec/archive)。
+   → **格式 bump 的 build-and-test / toolchain-bootstrap / package 路径 CI 自动过、免手动传种子**。
    > **残留**：纯 download-bootstrap 的 job（vm-jit / bench 等，不 feed publish-nightly）在 bump 当次
    > 仍短暂红一跑，等新 nightly 发布自愈——不阻塞发布链。删 cold 兜底照旧**不要踩在 format bump
    > 同一周期**（该残留窗口期）。
@@ -235,8 +234,7 @@ z42c *自己运行期就要用* 的 stdlib 库**（如把 `z42c.ir`+`z42c.projec
 - ❌ **同一个包里同时声明两套命名空间**：同包内两套**同短名类**会串味（`E0401: no field … on
   <Class>`，短名键混同），**且种子 z42c 一样如此** ⇒ 阶段 1 的源码根本编不出来，修当前 z42c 也没用。
 
-✅ **可行形态 = 编译期 overlay + 运行期旁置**（配方与四段实测判据见
-[`docs/spec/archive/2026-09-27-rename-project-namespaces/design.md`](../../spec/archive/2026-09-27-rename-project-namespaces/design.md) §6.2）：
+✅ **可行形态 = 编译期 overlay + 运行期旁置**：
 用种子 z42c 先把**当前源**那个库编出来、覆盖进一份种子 libs 的副本供编译期用；再把这份新名产物
 **`cp` 到消费者 zpkg 旁边**（搜索序 `[entry-dir, Z42_LIBS, probing]`，entry-dir 最优先）供运行期用。
 两件齐了，改名就能**一步落**，不必拆成跨 nightly 的三步。
@@ -281,7 +279,7 @@ z42c 源码，确认上一个 nightly 仍能编当前源 → 没有「用了比�
 - **[philosophy.md](philosophy.md) 不为旧版本提供兼容**：种子的「format 漂移」是该规则的例外——nightly 种子是
   *跨进程的二进制接口*，删兜底要尊重发布周期，不能假设旧种子永远可读。**分阶段引入纪律（见上）正是让这个
   「发布周期」可控的前提。**
-- **[workflow.md](workflow.md) 阶段 8 GREEN**：cold 路径本地不可验 → 该路径的「全绿」判定**以 CI 为准**，
+- **[workflow.md](workflow.md) 阶段 5 GREEN**：cold 路径本地不可验 → 该路径的「全绿」判定**以 CI 为准**，
   不是本地 warm 跑通就算数。
 - **设计原理**（为什么自举需要种子、warm/cold 两态如何切换）落在 [`docs/internals/src/compiler/self-hosting.md`](../../internals/src/compiler/self-hosting.md)，
   本文件只管「改动时如何避免踩坑」的流程约束。
