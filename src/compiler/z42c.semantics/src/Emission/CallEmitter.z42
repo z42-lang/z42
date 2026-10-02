@@ -238,10 +238,22 @@ public sealed class CallEmitter {
             bool ownerIsLocalInst = this._ctx.LocalClasses != null
                 && this._ctx.LocalClasses.ContainsKey(TypeFactsTc._primWrapper(c.OwnerClass));
             if (!owns && !ifaceRecv && !virtualRecv && !ownerIsLocalInst && this._ctx.Deps != null) {
-                // IC-2：prim/unknown/链上无 → DepIndex instance 捷径（arity 键→bare）
-                DepCallEntry de = this._ctx.Deps.GetInstance(c.MethodName, c.ArgCount);
-                if (de != null) {
-                    this._ctx.TrackDepCall(de);
+                // instance-call-by-receiver：导入类（含 prim 的包装类）上的**非虚**实例方法 → 直接 Call 声明类的实现。
+                // 目标按「接收者类型的基类链 + 注册键」定位（ResolveSealedTarget 以 classSealed=true 调用：走到这里
+                // 已排除虚方法，目标唯一），并经 DepIndex 校验确为已发射函数。
+                // 此前是 `Deps.GetInstance(方法名, 参数个数)`：**不看接收者类型**，在全部可见包里按名字找 ——
+                // ① 可见包里另有同名同 arity 的实例方法时判歧义、退回 VCall，而可见哪些包随构建方式变 ⇒ 同一份源码
+                //   有时发 Call、有时发 VCall（z42.json 的 `Dictionary.Get/Set/ContainsKey` 实测）；
+                // ② 名字唯一却属于**另一个类**时，直接 Call 到错的函数（DepIndex 劫持，`Std.Regex.Split` 有先例）。
+                // 定位不到（接收者类型不明 / 不可限定）→ 落到下方 VCall，按运行期类型派发，永远正确。
+                // ⚠️ Object 的四个虚方法名（ToString / Equals / GetHashCode / GetType）恒走 VCall：导入类的 override 在
+                // 类型签名里不带 virtual 标记，而基类是 Object 时导入侧不记基类 ⇒ `ReceiverMethodIsVirtual` 沿链找不到
+                // 虚根、判成非虚（实测 `e.ToString()` 被直呼到 `Exception.ToString`，子类 TestFailure 的覆写失效）。
+                // 旧捷径同样排除这四个名字（DependencyIndex._isProtocol）。
+                Z42ClassType rc = this._isObjectVirtualName(c.MethodName) ? null : this._ctx.DevirtReceiverClass(c.Receiver.Type());
+                if (rc == null && !this._isObjectVirtualName(c.MethodName)) { rc = this._ctx.ImportedPrimWrapperClass(c.OwnerClass); }
+                string rtgt = rc == null ? "" : this._ctx.ResolveSealedTarget(rc, c.MethodName, c.ArgCount, true);
+                if (rtgt != "") {
                     int fextra = retStruct ? 1 : 0;
                     TypedReg[] full = new TypedReg[c.ArgCount + 1 + fextra];
                     full[0] = recv;
@@ -249,7 +261,7 @@ public sealed class CallEmitter {
                     while (fi < c.ArgCount) { full[fi + 1] = iargs[fi]; fi = fi + 1; }
                     if (retStruct) { full[c.ArgCount + 1] = sretH; }   // 末尾隐藏 sret 实参
                     TypedReg ddst = this._ctx.Alloc(retStruct ? IrType.Void : itag);
-                    CallInstr dici = new CallInstr(ddst, de.QualifiedName, full, c.ArgCount + 1 + fextra);
+                    CallInstr dici = new CallInstr(ddst, rtgt, full, c.ArgCount + 1 + fextra);
                     if (c.MethodTypeArgCount > 0) { dici.MethodTypeArgs = this._methodTypeArgNames(c); dici.MethodTypeArgCount = c.MethodTypeArgCount; }
                     this._ctx.Emit(dici);
                     return retStruct ? sretH : ddst;
@@ -393,6 +405,13 @@ public sealed class CallEmitter {
         }
         if (!g.GenericFnInsts.ContainsKey(spec)) { g.GenericFnInsts.Put(spec, new StrBox(lookup)); }
         return spec;
+    }
+
+    private bool _isObjectVirtualName(string callKey) {
+        string m = MethodSymbol.StripCallKey(callKey);
+        int d = m.IndexOf("$");
+        if (d >= 0) { m = m.Substring(0, d); }
+        return m == "ToString" || m == "Equals" || m == "GetHashCode" || m == "GetType";
     }
 
     // 依赖包里的静态方法 → FQ 调用目标（DepIndex）；不在依赖里（或无 DepIndex）→ ""。
