@@ -63,9 +63,12 @@ int _runIos(ParseResult r, string manifestPath, string outDir,
 // rid adds its deploy slice — ios-arm64 → device, iossim-arm64 → simulator, "" →
 // both. IPHONEOS_DEPLOYMENT_TARGET pins the C deps (zlib-ng) to the rlibs' min ver
 // = platform.ios.min_ios（builder_pins.z42，xtask 自 versions.toml 生成）.
+//
+// cargo 在 rust/ 里跑：crate 的 .cargo/config.toml 把 target-dir 定到
+// artifacts/build/toolchain/workload/ios/platform/rust（镜像 src/）。cargo 按 cwd 找配置、不认 --manifest-path。
 int _buildIosXcframework(string buildRoot, string here, string rid) {
-    string manifest = Path.Join(here, "rust/Cargo.toml");
-    string targetDir = Path.Join(buildRoot, "artifacts/build/runtime");
+    string rustDir = Path.Join(here, "rust");
+    string targetDir = Path.Join(buildRoot, "artifacts/build/toolchain/workload/ios/platform/rust");
     string libName = "libz42_platform_ios.a";
     bool wantDev = (rid == "ios-arm64" || rid.Length == 0);
     bool wantSim = (rid == "iossim-arm64" || rid.Length == 0);
@@ -79,10 +82,9 @@ int _buildIosXcframework(string buildRoot, string here, string rid) {
     while (i < n) {
         Console.WriteLine("z42b: cargo build --release --target " + targets[i]);
         int c = _execInherit(new Process("cargo").Arg("build").Arg("--release")
-            .Arg("--manifest-path").Arg(manifest)
-            .Arg("--target-dir").Arg(targetDir)
             .Arg("--target").Arg(targets[i])
-            .Env("IPHONEOS_DEPLOYMENT_TARGET", iosMin));
+            .Env("IPHONEOS_DEPLOYMENT_TARGET", iosMin)
+            .WorkingDirectory(rustDir));
         if (c != 0) { return c; }
         i = i + 1;
     }

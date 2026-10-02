@@ -302,7 +302,7 @@ partial 验证只算 dev 期快速 iterate，不替代门禁。缩窄手段只�
 常用的单 stage（调试期缩窄用，**不替代**完整 `xtask test`）：
 
 ```bash
-cargo build --manifest-path src/runtime/Cargo.toml --release   # z42vm（Rust VM）
+xtask build runtime                 # z42vm（Rust VM；= 在 src/runtime 里 cargo build --release）
 xtask test e2e                      # VM goldens（interp）
 xtask test e2e --dir cross-zpkg     # 跨 zpkg 端到端
 xtask test stdlib                   # stdlib [Test] dogfood

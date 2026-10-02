@@ -201,10 +201,9 @@ string _profileHeap(ProfileCtx c) {
     Console.WriteLine("── heap (dhat) ──");
     string tdir = Path.Join(c.outDir, "dhat-target");
     Console.WriteLine("  building dhat-heap z42vm (isolated target-dir)…");
-    int bc = _exec(_cargoRelease()
-        .Arg("--manifest-path").Arg(_runtimeManifest())
+    int bc = _cargoIn(_cargoRelease()
         .Arg("--features").Arg("dhat-heap")
-        .Arg("--target-dir").Arg(tdir));
+        .Arg("--target-dir").Arg(tdir), _runtimeCrate());
     if (bc != 0) {
         Console.WriteLine("  ✗ dhat-heap build failed (rc=" + bc.ToString() + ")");
         return "## heap\n\n_dhat-heap build failed (rc=" + bc.ToString() + ")._\n\n";
@@ -249,10 +248,9 @@ string _profileThreads(ProfileCtx c) {
     // 2) Contention VM: isolated `profile-contention` build → real lock_* data.
     string tdir = Path.Join(c.outDir, "contention-target");
     Console.WriteLine("  building profile-contention z42vm (isolated target-dir)…");
-    int bc = _exec(_cargoRelease()
-        .Arg("--manifest-path").Arg(_runtimeManifest())
+    int bc = _cargoIn(_cargoRelease()
         .Arg("--features").Arg("profile-contention")
-        .Arg("--target-dir").Arg(tdir));
+        .Arg("--target-dir").Arg(tdir), _runtimeCrate());
     string contention = "(build failed rc=" + bc.ToString() + ")";
     if (bc == 0) {
         string cvm = Path.Join(tdir, Path.Join("release", "z42vm"));

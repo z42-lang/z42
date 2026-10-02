@@ -15,6 +15,9 @@ artifacts/
 **/examples/**/Cargo.lock
 *.rlib
 *.rmeta
+# cargo 产物正常落 artifacts/build/<crate>（各 crate 的 .cargo/config.toml）；从 crate 目录**外**用
+# --manifest-path 跑 cargo 时配置不生效（按 cwd 查找），会在 crate 旁生成 target/（per-crate-cargo-config）。
+target/
 
 # IDE
 .vscode/settings.json

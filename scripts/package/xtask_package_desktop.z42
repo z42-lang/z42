@@ -67,7 +67,7 @@ int _packageDesktop(string root, string pkgDir, string rid, string version, stri
     ictx.Z42bZpkg    = _toolchainZpkg(root, _z42bToml());   // z42b publishes itself deploy-only (`--no-build`)
     // 解析面在此刻取：[2c/5] 已把 workload ×4 / launcher / z42b / z42d / z42i 全建完，快照这时才完整。
     ictx.Libs        = _toolchainCompileLibs(root);
-    ictx.ApphostStub = Path.Join(cargoOut, isWin ? "apphost.exe" : "apphost");
+    ictx.ApphostStub = Path.Join(_apphostOutFor(root, rid, profile), isWin ? "apphost.exe" : "apphost");
     ictx.Rid         = rid;
     _PackagesConfig cfg = _pkgcfgLoad(root);
     c = _pkgInstallPackage(cfg, root, "sdk", pkgDir, ictx);
@@ -87,10 +87,10 @@ int _packageDesktop(string root, string pkgDir, string rid, string version, stri
 // programs/z42c/ via publish dependency-bundling.
 int _pkgBuildToolchainComponents(string root, string z42cDir, string cargoOut, string cargoTarget, bool rel) {
     Console.WriteLine("[2c/5] toolchain zpkgs + apphost stub");
-    // apphost stub (z42-apphost crate) → cargoOut/apphost — desktop workload's
+    // apphost stub (z42-apphost crate) → _apphostOutFor(...)/apphost — desktop workload's
     // per-RID stub AND the publish template (Z42_APPHOST_TEMPLATE) for z42/z42c/z42b.
     // NOT shipped in the SDK (Decision 9); delivered via the desktop workload.
-    int c = _cargo(rel, "build", "src/toolchain/workload/desktop/platform/apphost/Cargo.toml", cargoTarget, ""); if (c != 0) { return c; }
+    int c = _cargo(rel, "build", _apphostCrate(), cargoTarget, ""); if (c != 0) { return c; }
     // 编译解析面 = `_toolchainCompileLibs(root)`（纯 stdlib flat；工具链程序用到的编译器域包是按名声明、
     // `deploy = "shared"` 的 SDK 库，由 driver 从编译器目录解析，见该函数头注）。
     // replace-csharp Phase C: components built with z42c (host z42vm + colocated
@@ -153,8 +153,7 @@ int _buildDesktopWorkload(string root, string rid, string version, string profil
     if (Directory.Exists(pkgDir)) { Directory.Delete(pkgDir, true); }
     Directory.Create(pkgDir);
 
-    string cargoOut = _cargoOutFor(root, rid, profile);
-    string stub = Path.Join(cargoOut, srcExe);
+    string stub = Path.Join(_apphostOutFor(root, rid, profile), srcExe);
     if (!File.Exists(stub)) {
         ConsoleError.WriteLine("error: apphost stub not built at " + stub + "; run the z42-apphost crate cargo build first");
         return 1;

@@ -34,7 +34,7 @@
 
 ## 如何测试验证
 ```bash
-cargo test --manifest-path src/runtime/Cargo.toml --lib jit::lazy   # 惰性编译单测（8 个）
+(cd src/runtime && cargo test --lib jit::lazy)                      # 惰性编译单测（8 个）
 ./xtask test e2e --mode jit                                         # golden 端到端（JIT，输出须与 interp 逐字节一致）
 Z42_JIT_PROFILE=1 <z42vm> <artifact> <entry> --mode jit             # 打印每个被惰性编译的函数（数十，非整套 stdlib）
 ```

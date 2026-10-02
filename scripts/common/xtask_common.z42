@@ -657,11 +657,17 @@ string _runtimeManifest() { return "src/runtime/Cargo.toml"; }
 // ── bin-invocation builders (return a Process; callers add args + _exec) ─────
 
 // `cargo build --release` — the common Rust build prefix. Callers append
-// `.Arg("-q")` / `.Arg("--manifest-path").Arg(m)` / `--features` / `-p` /
-// `--target` etc. then `_exec` it. (cargo ignores flag order, so the few
-// `-q`-before-manifest sites are unaffected.)
+// `.Arg("-q")` / `--features` / `-p` / `--target` etc. then `_cargoIn` it.
+// (cargo ignores flag order, so the few `-q`-first sites are unaffected.)
 Process _cargoRelease() {
     return new Process("cargo").Arg("build").Arg("--release");
+}
+
+// Run a cargo (or cargo-ndk / wasm-pack) Process INSIDE `crate` (repo-relative, e.g. `_runtimeCrate()`).
+// cargo 按工作目录查找 crate 的 .cargo/config.toml（target-dir / rustflags），不认 --manifest-path ——
+// 用 `_exec`（cwd = 仓根）跑，配置就不生效、产物落进 crate 自己的 target/（见 xtask_layout.z42 的 cargo crates 段）。
+int _cargoIn(Process p, string crate) {
+    return _execIn(p, Path.Join(_root(), crate));
 }
 
 // ── tool presence ────────────────────────────────────────────────────────────

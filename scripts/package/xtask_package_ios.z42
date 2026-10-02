@@ -25,7 +25,7 @@ int _buildRuntimePackageIos(string root, string rid, string version, string prof
 
     // libz42.a (iOS slice staticlib)
     Console.WriteLine("  [1/4] libz42.a (cargo " + cargoTarget + ", " + profile + ")");
-    int c = _exec(_iosRustc(root, rel, cargoTarget, "staticlib", iosMin));
+    int c = _cargoIn(_iosRustc(root, rel, cargoTarget, "staticlib", iosMin), _runtimeCrate());
     if (c != 0) { ConsoleError.WriteLine("error: cargo rustc staticlib for " + cargoTarget + " failed"); return 1; }
     string cargoOut = Path.Join(_cargoTargetDir(root), cargoTarget + "/" + profile);
     string lib = Path.Join(cargoOut, "libz42.a");
@@ -36,9 +36,9 @@ int _buildRuntimePackageIos(string root, string rid, string version, string prof
     Console.WriteLine("  [2/4] libz42_compression.a");
     Process pc = new Process("cargo").Arg("build");
     if (rel) { pc = pc.Arg("--release"); }
-    pc = pc.Arg("-p").Arg("z42-compression").Arg("--manifest-path").Arg(Path.Join(root, _runtimeManifest()))
+    pc = pc.Arg("-p").Arg("z42-compression")
         .Arg("--target").Arg(cargoTarget).Arg("--quiet").Env("IPHONEOS_DEPLOYMENT_TARGET", iosMin);
-    c = _exec(pc);
+    c = _cargoIn(pc, _runtimeCrate());
     if (c != 0) { return c; }
     string compLib = Path.Join(cargoOut, "libz42_compression.a");
     if (File.Exists(compLib)) { File.Copy(compLib, Path.Join(pkgDir, "native/libz42_compression.a")); }
@@ -144,11 +144,11 @@ int _packageIos(string root, string pkgDir, string rid, string version, string p
 }
 
 // cargo rustc for an iOS target with the `ios` feature + IPHONEOS_DEPLOYMENT_TARGET.
+// Run it in the runtime crate (`_cargoIn(p, _runtimeCrate())`).
 Process _iosRustc(string root, bool rel, string cargoTarget, string crateType, string iosMin) {
     Process p = new Process("cargo").Arg("rustc");
     if (rel) { p = p.Arg("--release"); }
     p = p.Arg("--lib").Arg("--crate-type=" + crateType)
-        .Arg("--manifest-path").Arg(Path.Join(root, _runtimeManifest()))
         .Arg("--target").Arg(cargoTarget)
         .Arg("--no-default-features").Arg("--features").Arg("ios")
         .Arg("--quiet")

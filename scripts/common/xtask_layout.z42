@@ -8,7 +8,7 @@
 //      BuildLayout.Resolve use). Change the toml template → xtask follows automatically.
 //
 //   ② xtask-invented conventions with NO toml home — the flat stdlib dist (all
-//      members hard-linked into one Z42_LIBS dir), the cargo runtime output dir,
+//      members hard-linked into one Z42_LIBS dir), the cargo crate output dirs,
 //      the build roots xtask scans/stages. These live here as single definitions.
 //
 //   ③ the top-level `artifacts/` buckets (tmp / tools / packages / publish /
@@ -147,10 +147,28 @@ string _libsFlatDist(string root, string profile) {
     return Path.Join(_libsBuildRoot(root), "dist/" + profile);
 }
 
-// artifacts/build/runtime — cargo's target-dir for EVERY crate (z42vm / native libs / apphost /
-// platform crates). Governed by .cargo/config.toml `target-dir`, not a z42 workspace.toml —
-// keep the two in sync. Host builds land in <profile>/, cross builds in <triple>/<profile>/.
-string _cargoTargetDir(string root) { return Path.Join(_buildDir(root), "runtime"); }
+// ── cargo crates（per-crate-cargo-config，2026-10-02）─────────────────────────
+//
+// 仓内每个 cargo crate 自带 `<crate>/.cargo/config.toml`，`target-dir` 镜像 src/：
+// `artifacts/build/<crate 相对 src/ 的路径>`。目录由 crate 配置决定（SoT），这里只记 crate 位置并按
+// 同一规则推出产物目录供 xtask 读取 —— 改一边要同步另一边。Host 构建落 `<profile>/`，交叉构建落
+// `<triple>/<profile>/`。
+//
+// ⚠️ cargo 按**工作目录**向上查找 .cargo/config.toml，不认 --manifest-path ⇒ cargo 一律经 `_cargoIn`
+// 在 crate 目录里跑（cargo-ndk / wasm-pack 同理），否则配置不生效、产物落进 crate 自己的 target/。
+// 此前是仓根一份 .cargo/config.toml 把**所有** crate（含 toolchain 下的平台 crate）都重定向进
+// build/runtime，toolchain 的产物因此不镜像 src/。
+string _runtimeCrate() { return "src/runtime"; }
+string _wasmCrate()    { return "src/toolchain/workload/wasm/platform"; }
+string _iosCrate()     { return "src/toolchain/workload/ios/platform/rust"; }
+string _androidCrate() { return "src/toolchain/workload/android/platform/rust"; }
+string _apphostCrate() { return "src/toolchain/workload/desktop/platform/apphost"; }
+
+// 该 crate 的 cargo target-dir = 它在 build/ 下的镜像（`_buildMirror`，与测试输出同一条规则）。
+string _crateTargetDir(string root, string crate) { return _buildMirror(root, crate); }
+
+// artifacts/build/runtime — runtime workspace（z42vm / libz42 / native cdylib / z42-repl）的 target-dir。
+string _cargoTargetDir(string root) { return _crateTargetDir(root, _runtimeCrate()); }
 
 // artifacts/build/runtime/<profile> — host cargo output dir for z42vm / native libs.
 string _runtimeOut(string root, string profile) {

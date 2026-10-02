@@ -26,7 +26,9 @@ public class ProjectHooks : BuildHooks {
             ctx.Warn("xtask hooks: apphost Cargo.toml not found: " + manifest);
             return;
         }
-        string targetDir = Path.Join(ctx.Dirs.Intermediate, "apphost-target");
+        // target-dir = 该 crate 的 .cargo/config.toml 同值（artifacts/build/<crate 相对 src/>）。cargo 按 cwd 找配置，
+        // 而 ctx.Exec 不能设 cwd ⇒ 只能显式传；与 xtask 的 apphost 构建（_apphostOutFor）共用同一目录、互相命中。
+        string targetDir = Path.Join(repo, "artifacts/build/toolchain/workload/desktop/platform/apphost");
         ctx.Log("xtask hooks: cargo build --release (apphost stub)…");
         string[] args = new string[6];
         args[0] = "build"; args[1] = "--release";
@@ -62,9 +64,11 @@ public class ProjectHooks : BuildHooks {
         if (!ctx.Exists(libA)) {
             // crate-type 列表与 xtask 打包的 `_embedCrateTypes()` 保持一致（staticlib,cdylib）：参数不同会让
             // 两边交替时互相作废 cargo 指纹、每次全编。hooks 是独立工程，调不到 xtask 的函数，故此处照抄。
+            // --target-dir 同 src/runtime/.cargo/config.toml（ctx.Exec 不能设 cwd，crate 配置读不到）。
             ctx.Log("xtask hooks: cargo rustc --crate-type=staticlib,cdylib (libz42.a)…");
             ExecResult rc = ctx.Exec("cargo", new string[]{ "rustc", "--release",
                 "--manifest-path", Path.Join(repo, "src/runtime/Cargo.toml"),
+                "--target-dir", Path.Join(repo, "artifacts/build/runtime"),
                 "--lib", "--crate-type=staticlib,cdylib" });
             if (rc.ExitCode != 0 || !ctx.Exists(libA)) {
                 ctx.Warn("xtask hooks: libz42.a build failed; --self-contained needs Z42_EMBED_*");

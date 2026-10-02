@@ -38,6 +38,15 @@ inputs:
       jobs that cross-compile after bootstrapping. Empty = host only.
     required: false
     default: ""
+  extra-workspaces:
+    description: >
+      Extra Swatinem rust-cache `workspaces` lines (`<crate dir> -> <target-dir relative to it>`),
+      one per line, for jobs that also build a toolchain platform crate (wasm / ios / android).
+      Each crate has its own target-dir under artifacts/build/ mirroring src/ (its
+      `.cargo/config.toml`), so it is NOT covered by the runtime line below (per-crate-cargo-config;
+      before that, every crate shared artifacts/build/runtime and rode the runtime cache).
+    required: false
+    default: ""
   prebuilt-vm:
     description: >
       "true" = on a Linux X64 runner, take z42vm + native cdylibs from the `z42vm-linux-x64`
@@ -62,16 +71,19 @@ runs:
       if: ${{ !(inputs.prebuilt-vm == 'true' && runner.os == 'Linux' && runner.arch == 'X64') }}
       uses: Swatinem/rust-cache@v2
       with:
-        workspaces: src/runtime -> ../../artifacts/build/runtime
+        workspaces: |
+          src/runtime -> ../../artifacts/build/runtime
+          ${{ inputs.extra-workspaces }}
         shared-key: ${{ inputs.cache-key }}
 
     # z42vm + native cdylibs (libz42, libz42_compression, …) — host-matched, fresh.
-    # cargo's target-dir is artifacts/build/runtime, so this lands z42vm at the
-    # standard artifacts/build/runtime/release/z42vm the zpkg artifact expects.
+    # src/runtime/.cargo/config.toml sets target-dir = artifacts/build/runtime (cargo finds it
+    # from CWD, hence `cd`), so this lands z42vm at the standard
+    # artifacts/build/runtime/release/z42vm the zpkg artifact expects.
     - name: cargo build z42vm + native libs (release)
       if: ${{ !(inputs.prebuilt-vm == 'true' && runner.os == 'Linux' && runner.arch == 'X64') }}
       shell: bash
-      run: cargo build --locked --release --manifest-path src/runtime/Cargo.toml
+      run: cd src/runtime && cargo build --locked --release
 
     - name: Download prebuilt z42vm (linux-x64)
       if: ${{ inputs.prebuilt-vm == 'true' && runner.os == 'Linux' && runner.arch == 'X64' }}

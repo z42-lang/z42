@@ -151,11 +151,10 @@ int _testRuntime() {
     // 也在选择集外。这是全仓唯一的 `cargo test` 入口（CI 的 "Rust VM unit tests" 即此），
     // 所以「从来没跑过」是字面意思。z42-abi 守的正是 C ABI 结构体布局契约——坏了直接
     // 表现为嵌入端内存错位，却全绿。本地实测加上后 24 个全过，无存量红。
-    int __rc = _exec(new Process("cargo").Arg("test").Arg("--locked").Arg("--workspace")
+    int __rc = _cargoIn(new Process("cargo").Arg("test").Arg("--locked").Arg("--workspace")
         .Arg("--features").Arg("z42-test-fixtures")
-        .Arg("--manifest-path").Arg(_runtimeManifest())
         .Arg("--").Arg("--test-threads=1")
-        .Env("RUST_MIN_STACK", "8388608"));
+        .Env("RUST_MIN_STACK", "8388608"), _runtimeCrate());
     if (__rc == 0) { _procEnd("test runtime", sw); }
     return __rc;
 }
@@ -182,22 +181,19 @@ int _testRuntime() {
 // 实测成本（warm）：`--lib` 66s（1402 条：1367 + z42-abi 21 + 其余 14）、`--no-run` 0s（全缓存）。
 // 完整版仍保留为 `xtask test runtime` / CI 的独立 leg / `test changed`。
 int _testRuntimeUnits() {
-    string m = _runtimeManifest();
     // `--workspace`：不带它包选择会落到 default-members，z42-abi/z42-repl/z42-rs/z42-macros
     // 的单测就整批不跑（fix-more-silent-gates 修过一次，别在这里重新引入）。
     // `--features z42-test-fixtures`：见 `_testRuntime` 的头注（fixture 只有 Rust 单测需要）。
-    int rc = _exec(new Process("cargo").Arg("test").Arg("--locked").Arg("--workspace")
+    int rc = _cargoIn(new Process("cargo").Arg("test").Arg("--locked").Arg("--workspace")
         .Arg("--features").Arg("z42-test-fixtures")
-        .Arg("--manifest-path").Arg(m)
         .Arg("--lib")
         .Arg("--").Arg("--test-threads=1")
-        .Env("RUST_MIN_STACK", "8388608"));
+        .Env("RUST_MIN_STACK", "8388608"), _runtimeCrate());
     if (rc != 0) { return rc; }
     // 只编不跑：抓「跨 src/ 与 tests/ 都构造的公共 struct 加了字段却没补齐」这类编译漏。
-    return _exec(new Process("cargo").Arg("test").Arg("--locked").Arg("--workspace")
+    return _cargoIn(new Process("cargo").Arg("test").Arg("--locked").Arg("--workspace")
         .Arg("--features").Arg("z42-test-fixtures")
-        .Arg("--manifest-path").Arg(m)
-        .Arg("--no-run"));
+        .Arg("--no-run"), _runtimeCrate());
 }
 
 // regen goldens for a test stage: --toolchain active OR --no-build set → z42c+stdlib
@@ -219,9 +215,9 @@ int _regenForTestF(bool haveTc, bool noBuild, string dirFilter, string fileFilte
 // runner resolves (artifacts/build/runtime/debug/z42vm; JIT dlopens the compressor).
 // Shared: _testE2eCore + _testAll.
 int _buildDebugVmAndCompression() {
-    int cd = _exec(new Process("cargo").Arg("build").Arg("-q").Arg("--manifest-path").Arg(_runtimeManifest()));
+    int cd = _cargoIn(new Process("cargo").Arg("build").Arg("-q"), _runtimeCrate());
     if (cd != 0) { return cd; }
-    return _exec(new Process("cargo").Arg("build").Arg("-q").Arg("--manifest-path").Arg("src/runtime/crates/z42-compression/Cargo.toml"));
+    return _cargoIn(new Process("cargo").Arg("build").Arg("-q").Arg("-p").Arg("z42-compression"), _runtimeCrate());
 }
 
 int _testE2eCore(string modes, bool rebuild, bool noBuild, string jobs, string shard, string dirFilter, string fileFilter) {
@@ -362,8 +358,7 @@ int _testGcModes() {
 // 就是另一条构建波上的同类次序问题。
 int _ensureFixtureToolchain(bool noBuild) {
     if (noBuild || _toolchainDir(_root()).Length > 0) { return 0; }
-    int cr = _exec(new Process("cargo").Arg("build").Arg("-q")
-        .Arg("--manifest-path").Arg(_runtimeManifest()));
+    int cr = _cargoIn(new Process("cargo").Arg("build").Arg("-q"), _runtimeCrate());
     if (cr != 0) { return cr; }
     string root = _root();
     if (!File.Exists(Path.Join(_libsDir(root), "z42.core.zpkg"))) {

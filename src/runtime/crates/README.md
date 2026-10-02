@@ -61,10 +61,11 @@ below/above-VM 线 + proc-macro 编译约束，就是这些 crate 不能互相�
 ## 如何测试验证
 
 ```bash
-cargo test --manifest-path src/runtime/Cargo.toml -p z42-abi     # ABI 布局不变量
-cargo test --manifest-path src/runtime/Cargo.toml -p z42-macros  # trybuild 宏展开（含 fail 用例）
-cargo test --manifest-path src/runtime/Cargo.toml -p z42-rs      # skeleton trait
-cargo test --manifest-path src/runtime/Cargo.toml -p z42-repl    # 行编辑器单测
+cd src/runtime   # target-dir 由 src/runtime/.cargo/config.toml 定（cargo 按 cwd 查找）
+cargo test -p z42-abi     # ABI 布局不变量
+cargo test -p z42-macros  # trybuild 宏展开（含 fail 用例）
+cargo test -p z42-rs      # skeleton trait
+cargo test -p z42-repl    # 行编辑器单测
 # native 扩展端到端（dlopen 路径）随 VM goldens 覆盖：
 xtask test e2e
 ```

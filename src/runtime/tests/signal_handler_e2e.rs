@@ -14,8 +14,9 @@ use std::process::Command;
 /// Locate the helper binary. Search candidates in priority order:
 /// 1. `CARGO_TARGET_DIR/<profile>/examples/signal_crash_helper` (when env var set)
 /// 2. `<crate-root>/../../artifacts/build/runtime/<profile>/examples/...` (z42 default
-///    via .cargo/config.toml `target-dir`)
-/// 3. `<crate-root>/target/<profile>/examples/...` (vanilla cargo default)
+///    via src/runtime/.cargo/config.toml `target-dir`, when cargo runs inside src/runtime)
+/// 3. `<crate-root>/target/<profile>/examples/...` (vanilla cargo default — e.g. cargo run
+///    from the repo root with --manifest-path, which does not pick up the crate config)
 fn helper_path() -> PathBuf {
     let mut candidates: Vec<PathBuf> = Vec::new();
 

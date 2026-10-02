@@ -95,7 +95,7 @@
 //! objects white is still unsound, so a candidate fix has to keep all three
 //! files green.
 //!
-//! Run: `RUSTFLAGS="--cfg loom" cargo test --manifest-path src/runtime/Cargo.toml \
+//! Run (in src/runtime): `RUSTFLAGS="--cfg loom" cargo test \
 //!       --test gc_registration_race_loom --release`
 
 #![cfg(loom)]

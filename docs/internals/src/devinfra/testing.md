@@ -114,7 +114,7 @@ xtask 的 `--jobs N` 是**上层 unit 级**批宽（每批 N 个 unit 同时 com
 ```bash
 ./xtask test compiler                                      # 不动点 + [Test] unit
 ./xtask test runtime                                       # cargo test（串行化）
-cargo test --manifest-path src/runtime/Cargo.toml <substr>  # 按名过滤
+(cd src/runtime && cargo test <substr>)                   # 按名过滤
 ```
 
 CI 只在 Windows 腿跑 `cargo test`，容易静默腐烂——改 ClassDesc / 反射 / 版本相关代码后

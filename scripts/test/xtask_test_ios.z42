@@ -37,8 +37,7 @@ public class IosBackend : IPlatformBackend {
             return 1;
         }
         string here = Path.Join(root, "src/toolchain/workload/ios/platform");
-        string manifest = Path.Join(here, "rust/Cargo.toml");
-        string targetDir = _cargoTargetDir(root);
+        string targetDir = _crateTargetDir(root, _iosCrate());
         string libName = "libz42_platform_ios.a";
 
         TomlValue toml = _vparse(root);
@@ -50,8 +49,8 @@ public class IosBackend : IPlatformBackend {
         // vs 18.5 mismatch).
         string iosMin = _vReadOr(root, "platform.ios.min_ios", "16.0");
 
-        int c = this._cargoTargets(manifest, targetDir, iosTargets, iosMin);  if (c != 0) { return c; }
-        c = this._cargoTargets(manifest, targetDir, extra, iosMin);           if (c != 0) { return c; }
+        int c = this._cargoTargets(iosTargets, iosMin);  if (c != 0) { return c; }
+        c = this._cargoTargets(extra, iosMin);           if (c != 0) { return c; }
 
         // Assemble xcframework from device + simulator + macOS slices.
         string dev = Path.Join(targetDir, Path.Join("aarch64-apple-ios/release", libName));
@@ -77,14 +76,13 @@ public class IosBackend : IPlatformBackend {
         return _runIosTesthost(root, "iossim-arm64");
     }
 
-    int _cargoTargets(string manifest, string targetDir, string[] targets, string iosMin) {
+    // 在 ios crate 里跑：target-dir 由它的 .cargo/config.toml 定（= _crateTargetDir(root, _iosCrate())）。
+    int _cargoTargets(string[] targets, string iosMin) {
         foreach (var t in targets) {
             Console.WriteLine("  cargo build --release --target " + t + " (IPHONEOS_DEPLOYMENT_TARGET=" + iosMin + ")");
-            int c = _exec(new Process("cargo").Arg("build").Arg("--release")
-                .Arg("--manifest-path").Arg(manifest)
-                .Arg("--target-dir").Arg(targetDir)
+            int c = _cargoIn(new Process("cargo").Arg("build").Arg("--release")
                 .Arg("--target").Arg(t)
-                .Env("IPHONEOS_DEPLOYMENT_TARGET", iosMin));
+                .Env("IPHONEOS_DEPLOYMENT_TARGET", iosMin), _iosCrate());
             if (c != 0) { return c; }
         }
         return 0;

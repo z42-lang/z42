@@ -1,5 +1,6 @@
-# Cargo build artifacts (this crate sits outside the runtime workspace
-# target redirect — its own target/ here).
+# Cargo build artifacts normally go to artifacts/build/toolchain/workload/ios/platform/rust
+# (rust/.cargo/config.toml). A crate-local `rust/target/` only appears when cargo runs
+# from OUTSIDE rust/ (config is found from CWD, not --manifest-path).
 rust/target/
 
 # build.sh intermediate (lipo'd simulator universal .a before xcframework).

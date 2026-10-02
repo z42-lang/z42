@@ -163,8 +163,8 @@ int _pkgInstallEditorAssets(string root, string pkgDir) {
 int _pkgBuildRuntime(string rid, string profile) {
     bool rel = (profile == "release");
     string cargoTarget = _cargoTargetFor(rid);
-    int c = _cargo(rel, "build", "src/runtime/Cargo.toml", cargoTarget, "");
+    int c = _cargo(rel, "build", _runtimeCrate(), cargoTarget, "");
     if (c != 0) { return c; }
     _cargoRustc(rel, cargoTarget, _embedCrateTypes());
-    return _cargo(rel, "build", "src/runtime/Cargo.toml", cargoTarget, "z42-compression");
+    return _cargo(rel, "build", _runtimeCrate(), cargoTarget, "z42-compression");
 }
