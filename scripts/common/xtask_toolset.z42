@@ -59,7 +59,7 @@ ToolsetZ _resolveToolset(string root) {
             // 无声回落会让整条链慢 5-10× 且看不出原因——必须说出来。
             _vNormal("  ⚠ release z42vm 不存在，编译回落到 debug vm（会慢 5-10×）："
                      + t.CompileVm);
-            _vNormal("    建议先跑：(cd src/runtime && cargo build --release)");
+            _vNormal("    建议先跑：./xtask build runtime");
             t.CompileVm = t.RunVm;
         }
     }

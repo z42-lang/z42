@@ -241,6 +241,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: src/runtime -> ../../artifacts/build/runtime
+          cache-directories: artifacts/build/toolchain/target
           shared-key: test-host-v1
 
       # ALL legs bootstrap from the prev nightly seed — download the prev published

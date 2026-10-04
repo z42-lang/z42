@@ -223,9 +223,10 @@ Swatinem `rust-cache` 用 `shared-key` 跨 job 共享；**一个 key 命中后�
 | `artifact-host-v1` | `xtask-bootstrap-artifact` 默认 | release workspace |
 | `package-host-v2` / `ios-v2` / `android-v2` / `wasm-v2` | 各打包 job | + cdylib / staticlib / 交叉编译 |
 
-⚠️ target 目录由 `src/runtime/.cargo/config.toml`（及 `src/toolchain/` 那份）统一重定向到
-`artifacts/build/runtime`。cargo 只从 **cwd** 向上找这份配置（不看 `--manifest-path`），所以 CI 里的
-cargo 都在 `src/runtime` 下跑，xtask 则显式传 `--config`。**所有** job 的
+⚠️ target 目录由 `src/runtime/.cargo/config.toml` 重定向到 `artifacts/build/runtime`（toolchain 平台 crate
+走 `src/toolchain/.cargo` → `artifacts/build/toolchain/target`，由 `cache-directories` 一并缓存）。cargo 只从
+**cwd** 向上找配置（不看 `--manifest-path`），所以 CI 不直接调 cargo，一律走 `xtask`（它显式传 `--config`）；
+唯一例外是 `bench-pr.yml`：预热 job 不装 SDK、base 侧编的是另一棵树，它们在 `src/runtime` 下跑 cargo。**所有** job 的
 `workspaces` 都要写 `src/runtime -> ../../artifacts/build/runtime`——写裸 `src/runtime` 缓存的是
 一个空目录（`verify-features` 曾这样白缓存了很久）。
 

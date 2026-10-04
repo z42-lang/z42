@@ -84,7 +84,7 @@ git clone https://github.com/z42-lang/z42 && cd z42
 `ios` / `android` = `interp-only` + `aot` + `native-interop` + `bundled-compression`。
 
 ```bash
-(cd src/runtime && cargo build --release)
+./xtask build runtime
 (cd src/runtime && cargo build --no-default-features --features interp-only)
 ```
 

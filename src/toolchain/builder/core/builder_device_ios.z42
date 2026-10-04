@@ -65,7 +65,7 @@ int _runIos(ParseResult r, string manifestPath, string outDir,
 // = platform.ios.min_ios（builder_pins.z42，xtask 自 versions.toml 生成）.
 int _buildIosXcframework(string buildRoot, string here, string rid) {
     string manifest = Path.Join(here, "rust/Cargo.toml");
-    string targetDir = Path.Join(buildRoot, "artifacts/build/runtime");
+    string targetDir = Path.Join(buildRoot, "artifacts/build/toolchain/target");   // = src/toolchain/.cargo target-dir
     string libName = "libz42_platform_ios.a";
     bool wantDev = (rid == "ios-arm64" || rid.Length == 0);
     bool wantSim = (rid == "iossim-arm64" || rid.Length == 0);

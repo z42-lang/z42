@@ -180,9 +180,18 @@ string _cargoTargetFor(string rid) {
 // The cargo output dir matching _cargoTargetFor: <profile> for host (no triple),
 // <triple>/<profile> for cross. All three desktop package functions read from here.
 string _cargoOutFor(string root, string rid, string profile) {
+    return _cargoOutIn(_cargoTargetDir(root), rid, profile);
+}
+
+// Same shape for the toolchain crates' target-dir (apphost stub).
+string _toolchainCargoOutFor(string root, string rid, string profile) {
+    return _cargoOutIn(_toolchainCargoTargetDir(root), rid, profile);
+}
+
+string _cargoOutIn(string targetDir, string rid, string profile) {
     string t = _cargoTargetFor(rid);
     string sub = (t.Length == 0) ? profile : (t + "/" + profile);
-    return Path.Join(_cargoTargetDir(root), sub);
+    return Path.Join(targetDir, sub);
 }
 
 int _cargo(bool rel, string verb, string manifest, string target, string pkg) {

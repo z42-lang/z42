@@ -110,7 +110,7 @@ jobs:
   # GitHub 的缓存作用域：PR 分支上存的缓存**只有这个 PR 自己**能读；main 上存的才对所有 PR 可见。
   # 此前只有 PR 在存 ⇒ 每个新 PR 都冷编一轮（同一个 key、每个 PR 各存一份 172MB，还挤占仓库 10GB 配额，
   # 把 main 上有用的缓存挤出去）。现在：main 上编一遍、存一份；PR 只读（bench-regression 的 save-if）。
-  # 编的东西与 bench-regression 实际会编的一致：z42vm + z42-compression（ci-bootstrap [0/5] 与 base
+  # 编的东西与 bench-regression 实际会编的一致：z42vm + z42-compression（ci-bootstrap 里的 `xtask build runtime` 与 base
   # 工具链那两条）+ gc_cycle_bench 的 bench profile（criterion A/B）。Rust 配置逐字照抄，key 才对得上。
   bench-cache-warm:
     name: bench-cache-warm(linux-x64)

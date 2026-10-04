@@ -244,7 +244,7 @@ int _buildToolchain() {
     int sc = _exec(_cargoRelease(_toolchainCargoConfig())
         .Arg("--manifest-path").Arg("src/toolchain/workload/desktop/platform/apphost/Cargo.toml"));
     if (sc != 0) { ConsoleError.WriteLine("  ✗ apphost stub cargo build failed"); return sc; }
-    string cargoOut = _cargoOutFor(root, rid, "release");
+    string cargoOut = _toolchainCargoOutFor(root, rid, "release");
     string apphostStub = Path.Join(cargoOut, Platform.IsWindows() ? "apphost.exe" : "apphost");
     // z42b must exist before it can publish the others.
     string builderToml = _z42bToml();
@@ -284,7 +284,7 @@ int _sdkMergeApphosts(string root, string outDir, bool noBuild) {
         string vm = _builtVm(root, "release");
         string rid = _detectHostRid();
         string z42bZpkg = _toolchainZpkg(root, _z42bToml());
-        string stub = Path.Join(_cargoOutFor(root, rid, "release"),
+        string stub = Path.Join(_toolchainCargoOutFor(root, rid, "release"),
             Platform.IsWindows() ? "apphost.exe" : "apphost");
         int zc = _z42bPublish(vm, z42bZpkg, _toolchainCompileLibs(root), stub, z42cToml, rid,
             _desktopPublishDir(root, z42cToml));
