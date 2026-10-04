@@ -91,7 +91,8 @@ runs:
         # xtask-only：xtask 跑在 SDK 的 VM 上、只做纯源码 / 文档检查 ⇒ 不需要构建树 VM，整步跳过。
         if [ "${XTASK_ONLY:-false}" != "true" ]; then
           echo "── [0/5] cargo build z42vm + cdylibs (release; unit set 对齐 _buildRuntime) ──"
-          cargo build --locked --release --manifest-path src/runtime/Cargo.toml
+          # 在 src/runtime 里跑：cargo 只从 cwd 向上找 .cargo/config.toml（target-dir），配置在 src/runtime/.cargo。
+          ( cd src/runtime && cargo build --locked --release )
         fi
 
         # ── 1. 种子 = setup-z42-sdk 装好的 .z42（nightly，或回退到最近成功 CI 运行的归档）────────

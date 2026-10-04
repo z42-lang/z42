@@ -186,7 +186,9 @@ string _cargoOutFor(string root, string rid, string profile) {
 }
 
 int _cargo(bool rel, string verb, string manifest, string target, string pkg) {
-    Process p = new Process("cargo").Arg(verb);
+    // apphost (src/toolchain/...) vs the runtime workspace each have their own cargo config.
+    string config = manifest.StartsWith("src/toolchain/") ? _toolchainCargoConfig() : _runtimeCargoConfig();
+    Process p = _cargoCmd(verb, config);
     if (rel) { p = p.Arg("--release"); }
     if (pkg.Length > 0) { p = p.Arg("-p").Arg(pkg); }
     p = p.Arg("--manifest-path").Arg(manifest);
@@ -208,7 +210,7 @@ string _embedCrateTypes() { return "staticlib,cdylib"; }
 
 // cargo rustc --crate-type=X[,Y] (best-effort: rlib already exists; ignore failure like the .sh).
 void _cargoRustc(bool rel, string target, string crateType) {
-    Process p = new Process("cargo").Arg("rustc");
+    Process p = _cargoCmd("rustc", _runtimeCargoConfig());
     if (rel) { p = p.Arg("--release"); }
     p = p.Arg("--lib").Arg("--crate-type=" + crateType)
         .Arg("--manifest-path").Arg(_runtimeManifest());

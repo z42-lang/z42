@@ -34,7 +34,7 @@ int _buildRuntimePackageIos(string root, string rid, string version, string prof
 
     // libz42_compression.a
     Console.WriteLine("  [2/4] libz42_compression.a");
-    Process pc = new Process("cargo").Arg("build");
+    Process pc = _cargoCmd("build", _runtimeCargoConfig());
     if (rel) { pc = pc.Arg("--release"); }
     pc = pc.Arg("-p").Arg("z42-compression").Arg("--manifest-path").Arg(Path.Join(root, _runtimeManifest()))
         .Arg("--target").Arg(cargoTarget).Arg("--quiet").Env("IPHONEOS_DEPLOYMENT_TARGET", iosMin);
@@ -145,7 +145,7 @@ int _packageIos(string root, string pkgDir, string rid, string version, string p
 
 // cargo rustc for an iOS target with the `ios` feature + IPHONEOS_DEPLOYMENT_TARGET.
 Process _iosRustc(string root, bool rel, string cargoTarget, string crateType, string iosMin) {
-    Process p = new Process("cargo").Arg("rustc");
+    Process p = _cargoCmd("rustc", _runtimeCargoConfig());
     if (rel) { p = p.Arg("--release"); }
     p = p.Arg("--lib").Arg("--crate-type=" + crateType)
         .Arg("--manifest-path").Arg(Path.Join(root, _runtimeManifest()))

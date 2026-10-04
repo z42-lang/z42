@@ -1,6 +1,6 @@
 # 测试怎么跑
 
-> 对齐：2026-10-02（change `add-test-layout-spec`）｜ 代码：`scripts/test/`、
+> 对齐：2026-10-04（change `move-cargo-config`）｜ 代码：`scripts/test/`、
 > `scripts/cli/xtask_cli_test.z42`、`src/tests/`、`src/libraries/<lib>/tests/`、`src/runtime/src/*_tests.rs`
 >
 > 用例放哪、写成什么形态、平台能力怎么声明见[测试用例组织规范](test-layout.md)（唯一权威）；
@@ -114,7 +114,7 @@ xtask 的 `--jobs N` 是**上层 unit 级**批宽（每批 N 个 unit 同时 com
 ```bash
 ./xtask test compiler                                      # 不动点 + [Test] unit
 ./xtask test runtime                                       # cargo test（串行化）
-cargo test --manifest-path src/runtime/Cargo.toml <substr>  # 按名过滤
+(cd src/runtime && cargo test <substr>)  # 按名过滤
 ```
 
 CI 只在 Windows 腿跑 `cargo test`，容易静默腐烂——改 ClassDesc / 反射 / 版本相关代码后

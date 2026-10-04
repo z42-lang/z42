@@ -1,6 +1,6 @@
 # 平台构建与嵌入
 
-> 对齐：2026-09-17（change `restructure-docs-three-books`）｜ 代码：
+> 对齐：2026-10-04（change `move-cargo-config`）｜ 代码：
 > `src/toolchain/workload/{wasm,ios,android,desktop}/platform/`、
 > `src/toolchain/workload/platform-contract.md`、
 > `scripts/test/xtask_test_{platform,wasm,ios,android,desktop}.z42`、
@@ -21,7 +21,7 @@
 ```bash
 ./xtask build compiler     # 或由 ./scripts/install-z42.sh 直接提供
 ./xtask build stdlib
-cargo build --release --manifest-path src/runtime/Cargo.toml
+(cd src/runtime && cargo build --release)
 ```
 
 产出 `artifacts/build/compiler/z42c.driver/release/dist/z42c.driver.zpkg` +

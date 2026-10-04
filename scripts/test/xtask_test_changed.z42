@@ -176,7 +176,8 @@ int _runPlanCmd(string cmd) {
         return _runCli(argv);
     }
     if (toks[0] == "cargo") {
-        Process p = new Process("cargo");
+        // Plan cargo commands are runtime-workspace ones; load its config (see _cargoCmd).
+        Process p = new Process("cargo").Arg("--config").Arg(Path.Join(_root(), _runtimeCargoConfig()));
         int i = 1;
         while (i < toks.Length) { p = p.Arg(toks[i]); i = i + 1; }
         return _exec(p);

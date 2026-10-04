@@ -148,8 +148,8 @@ string _libsFlatDist(string root, string profile) {
 }
 
 // artifacts/build/runtime — cargo's target-dir for EVERY crate (z42vm / native libs / apphost /
-// platform crates). Governed by .cargo/config.toml `target-dir`, not a z42 workspace.toml —
-// keep the two in sync. Host builds land in <profile>/, cross builds in <triple>/<profile>/.
+// platform crates). Governed by `target-dir` in src/runtime/.cargo/config.toml and
+// src/toolchain/.cargo/config.toml, not a z42 workspace.toml — keep all three in sync. Host builds land in <profile>/, cross builds in <triple>/<profile>/.
 string _cargoTargetDir(string root) { return Path.Join(_buildDir(root), "runtime"); }
 
 // artifacts/build/runtime/<profile> — host cargo output dir for z42vm / native libs.

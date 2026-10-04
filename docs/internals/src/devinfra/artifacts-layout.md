@@ -1,6 +1,6 @@
 # 产物目录布局（`artifacts/`）
 
-> 对齐：2026-10-02（change `tidy-layout-reports`）｜ 代码：`scripts/common/xtask_layout.z42`（路径 SoT）、`src/libraries/z42.workspace.toml` 与 `src/compiler/z42.workspace.toml` 的 `[workspace.build]`、`.cargo/config.toml`
+> 对齐：2026-10-04（change `move-cargo-config`）｜ 代码：`scripts/common/xtask_layout.z42`（路径 SoT）、`src/libraries/z42.workspace.toml` 与 `src/compiler/z42.workspace.toml` 的 `[workspace.build]`、`src/{runtime,toolchain}/.cargo/config.toml`
 >
 > 构建步骤本身见[构建编排](build.md)；打包见[打包引擎](packaging.md)。
 
@@ -44,8 +44,8 @@
 
 **per-member 的产物路径不是硬编码的**：`scripts/common/xtask_layout.z42` 读各 workspace toml 的
 `[workspace.build].output_dir` / `cache_dir` 模板（正是 z42c 的 `WorkspaceBuild.PlanLayout` 消费的
-同一份）再展开。改 toml 模板，xtask 自动跟上。cargo 侧同理由 `.cargo/config.toml` 的
-`target-dir = "artifacts/build/runtime"` 决定——**注意它不带 `<cargo-target>` 这一层**，profile
+同一份）再展开。改 toml 模板，xtask 自动跟上。cargo 侧同理由 `src/runtime/.cargo/config.toml`（与 `src/toolchain/` 那份）的
+`target-dir = "../../artifacts/build/runtime"`（相对 `src/runtime`，即仓根下的 `artifacts/build/runtime`）决定——**注意它不带 `<cargo-target>` 这一层**，profile
 直接挂在 `runtime/` 下。
 
 xtask 自己发明、没有 toml 归属的路径，**全部在 `xtask_layout.z42` 里各有一个单一定义**：

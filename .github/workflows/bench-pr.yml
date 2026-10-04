@@ -94,7 +94,6 @@ on:
     branches: [main]
     paths:
       - 'src/runtime/**'
-      - '.cargo/**'
       - '.github/workflows/bench-pr.yml'
       - '!**/*.md'
   schedule:
@@ -136,9 +135,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cargo build --locked --release --manifest-path src/runtime/Cargo.toml
-          cargo build --locked --release --manifest-path src/runtime/crates/z42-compression/Cargo.toml
-          cargo bench --locked --manifest-path src/runtime/Cargo.toml --bench gc_cycle_bench --no-run
+          # cargo 只从 cwd 向上找 .cargo/config.toml（target-dir），配置在 src/runtime/.cargo ⇒ 在那里跑。
+          cd src/runtime
+          cargo build --locked --release
+          cargo build --locked --release --manifest-path crates/z42-compression/Cargo.toml
+          cargo bench --locked --bench gc_cycle_bench --no-run
 
   bench-regression:
     name: bench-regression(linux-x64)
@@ -442,16 +443,17 @@ jobs:
             echo "→ src/runtime changed → cargo-build base z42vm + native cdylib"
             # fix-bench-base-cdylib (2026-09-03): build the z42-compression cdylib too.
             # The VM resolves `[Native(lib = "z42_compression")]` next to its own binary
-            # (`artifacts/build/runtime/release/`, per the repo-root .cargo target-dir).
+            # (`artifacts/build/runtime/release/`, per the .cargo target-dir).
             # Building only `--bin z42vm` left base-src's dir without the dylib, so every
             # compression [Benchmark] failed on the BASE side → "captured compression_bench
             # (partial: some benches failed)" → non-zero exit → this job red. That hit
             # EVERY PR touching src/runtime (#394 / #395 / #402 / #406 / #409 / #413) and
             # no others — the PR side was fine because its dylib sits beside the PR vm.
-            ( cd base-src && cargo build --locked --release \
-                --manifest-path src/runtime/Cargo.toml --bin z42vm \
+            # Run inside src/runtime: cargo reads .cargo/config.toml from its cwd upward, which
+            # finds the config whether base still has it at the repo root or in src/runtime/.
+            ( cd base-src/src/runtime && cargo build --locked --release --bin z42vm \
               && cargo build --locked --release \
-                --manifest-path src/runtime/crates/z42-compression/Cargo.toml )
+                --manifest-path crates/z42-compression/Cargo.toml )
             BASEVM="$ROOT/base-src/artifacts/build/runtime/release/z42vm"
           fi
 
@@ -698,13 +700,13 @@ jobs:
           export CRITERION_HOME="$PWD/.criterion-ab"
           rm -rf "$CRITERION_HOME"; mkdir -p "$CRITERION_HOME"
           echo "── base: save criterion baseline 'ab-base' (base tree) ──"
-          ( cd base-src && CRITERION_HOME="$CRITERION_HOME" \
-              cargo bench --locked --manifest-path src/runtime/Cargo.toml \
+          ( cd base-src/src/runtime && CRITERION_HOME="$CRITERION_HOME" \
+              cargo bench --locked \
                 --bench gc_cycle_bench -- --save-baseline ab-base )
           echo "── pr: compare against 'ab-base' (this tree) ──"
-          CRITERION_HOME="$CRITERION_HOME" \
-            cargo bench --locked --manifest-path src/runtime/Cargo.toml \
-              --bench gc_cycle_bench -- --baseline ab-base
+          ( cd src/runtime && CRITERION_HOME="$CRITERION_HOME" \
+            cargo bench --locked \
+              --bench gc_cycle_bench -- --baseline ab-base )
           echo "── informational: 整个 95% 区间在 +25% 之上（lower_bound > thr）= 标记，但不 fail ──"
           python3 - "$CRITERION_HOME" <<'PY'
           # fix-criterion-ci-separation (2026-09-05)：判红条件是**整个区间**在阈值之上

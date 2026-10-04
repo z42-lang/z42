@@ -71,7 +71,9 @@ runs:
     - name: cargo build z42vm + native libs (release)
       if: ${{ !(inputs.prebuilt-vm == 'true' && runner.os == 'Linux' && runner.arch == 'X64') }}
       shell: bash
-      run: cargo build --locked --release --manifest-path src/runtime/Cargo.toml
+      # Run inside src/runtime: cargo finds .cargo/config.toml (target-dir) from its cwd only.
+      working-directory: src/runtime
+      run: cargo build --locked --release
 
     - name: Download prebuilt z42vm (linux-x64)
       if: ${{ inputs.prebuilt-vm == 'true' && runner.os == 'Linux' && runner.arch == 'X64' }}

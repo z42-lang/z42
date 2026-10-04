@@ -241,7 +241,7 @@ int _buildToolchain() {
     string libs = _toolchainCompileLibs(root);
     string rid = _detectHostRid();
     // native apphost stub (shared by every apphost; z42b publish patches a copy).
-    int sc = _exec(_cargoRelease()
+    int sc = _exec(_cargoRelease(_toolchainCargoConfig())
         .Arg("--manifest-path").Arg("src/toolchain/workload/desktop/platform/apphost/Cargo.toml"));
     if (sc != 0) { ConsoleError.WriteLine("  ✗ apphost stub cargo build failed"); return sc; }
     string cargoOut = _cargoOutFor(root, rid, "release");

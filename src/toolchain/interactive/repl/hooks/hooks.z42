@@ -6,7 +6,7 @@
 // 也让消费方（z42.interactive）publish 时沿 path-dep 闭包自动平铺进 payload。
 //
 // cargo 与 VM 同源：裸 `cargo`（ctx.Exec，PATH 解析，versions.toml 在 xtask 入口已校 channel）
-// + `-p z42-repl --manifest-path src/runtime/Cargo.toml`；z42-repl 是 runtime workspace 成员 →
+// + `-p z42-repl --manifest-path src/runtime/Cargo.toml --config src/runtime/.cargo/config.toml`；z42-repl 是 runtime workspace 成员 →
 // 落进 VM 已 warm 的 artifacts/build/runtime/<profile>/，再拷进 dist/<rid>/。REPL host-only
 // （scripting-charter 2b）→ 只为 host 编，prefix/suffix 按运行平台派生；rid 仍作 dist 子目录键。
 //
@@ -31,10 +31,14 @@ public class ProjectHooks : BuildHooks {
             return;
         }
         ctx.Log("z42.repl hooks: cargo build --release -p z42-repl…");
-        string[] args = new string[6];
+        // --config：cargo 只从 cwd 向上找 .cargo/config.toml（target-dir），配置在 src/runtime/.cargo 下，
+        // 不显式给出就会落进 src/runtime/target，下面的 built 永远找不到。
+        string config = Path.Join(repo, Path.Join("src", Path.Join("runtime", Path.Join(".cargo", "config.toml"))));
+        string[] args = new string[8];
         args[0] = "build"; args[1] = "--release";
         args[2] = "-p"; args[3] = "z42-repl";
         args[4] = "--manifest-path"; args[5] = manifest;
+        args[6] = "--config"; args[7] = config;
         ExecResult r = ctx.Exec("cargo", args);
         if (r.ExitCode != 0) {
             ctx.Warn("z42.repl hooks: cargo build failed (rc=" + r.ExitCode.ToString() + ")");

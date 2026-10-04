@@ -654,14 +654,30 @@ string _builtVm(string root, string profile) {
 // the Rust VM/runtime cargo manifest (--manifest-path): src/runtime/Cargo.toml
 string _runtimeManifest() { return "src/runtime/Cargo.toml"; }
 
+// The cargo configs (target-dir = artifacts/build/runtime, wasm rustflags) live beside
+// the crates, not at the repo root: one for the runtime
+// workspace, one for the toolchain platform crates. cargo finds .cargo/config.toml by
+// walking up from its *cwd*, never from --manifest-path, and xtask runs cargo at the
+// repo root — so every cargo call names its config explicitly via _cargoCmd. Without it
+// cargo silently falls back to <crate>/target and every artifacts/build/runtime lookup
+// misses. (cargo-ndk / wasm-pack run inside the crate dir and pick it up on their own.)
+string _runtimeCargoConfig()   { return "src/runtime/.cargo/config.toml"; }
+string _toolchainCargoConfig() { return "src/toolchain/.cargo/config.toml"; }
+
+// `cargo <verb> --config <abs config>` — the base for every cargo invocation. The path is
+// absolute so it holds under any WorkingDirectory.
+Process _cargoCmd(string verb, string config) {
+    return new Process("cargo").Arg(verb).Arg("--config").Arg(Path.Join(_root(), config));
+}
+
 // ── bin-invocation builders (return a Process; callers add args + _exec) ─────
 
-// `cargo build --release` — the common Rust build prefix. Callers append
+// `cargo build --release --config <config>` — the common Rust build prefix. Callers append
 // `.Arg("-q")` / `.Arg("--manifest-path").Arg(m)` / `--features` / `-p` /
 // `--target` etc. then `_exec` it. (cargo ignores flag order, so the few
 // `-q`-before-manifest sites are unaffected.)
-Process _cargoRelease() {
-    return new Process("cargo").Arg("build").Arg("--release");
+Process _cargoRelease(string config) {
+    return _cargoCmd("build", config).Arg("--release");
 }
 
 // ── tool presence ────────────────────────────────────────────────────────────

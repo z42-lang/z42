@@ -80,7 +80,7 @@ public class IosBackend : IPlatformBackend {
     int _cargoTargets(string manifest, string targetDir, string[] targets, string iosMin) {
         foreach (var t in targets) {
             Console.WriteLine("  cargo build --release --target " + t + " (IPHONEOS_DEPLOYMENT_TARGET=" + iosMin + ")");
-            int c = _exec(new Process("cargo").Arg("build").Arg("--release")
+            int c = _exec(_cargoCmd("build", _toolchainCargoConfig()).Arg("--release")
                 .Arg("--manifest-path").Arg(manifest)
                 .Arg("--target-dir").Arg(targetDir)
                 .Arg("--target").Arg(t)

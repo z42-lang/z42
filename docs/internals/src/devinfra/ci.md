@@ -1,6 +1,6 @@
 # CI 拓扑与 job 表
 
-> 对齐：2026-09-30（change `speed-up-ci-quick-wins`）｜ 代码：`.github/workflows/ci.yml`、
+> 对齐：2026-10-04（change `move-cargo-config`）｜ 代码：`.github/workflows/ci.yml`、
 > `.github/actions/ci-bootstrap/`、`.github/actions/xtask-bootstrap-artifact/`、
 > `.github/workflows/{bench-pr,release,deploy-book,jit-fixpoint-check}.yml`
 >
@@ -103,7 +103,7 @@ push / schedule / dispatch 不走快速通道。
 | `platform` | `src/runtime/**`、`src/toolchain/{workload,launcher,devtools,interactive,builder}/**`、`scripts/{package/**,packages.toml,install/**}`、`scripts/test/xtask_test_{dist,platform,wasm,ios,android,desktop,embedded}*.z42`、`scripts/versions.toml` |
 | `examples` | `examples/**`、`docs/learn/**`（只门控 `package-host`——唯一用打包 SDK 重放示例的 job） |
 | `compiler` | `src/compiler/**`、`src/toolchain/devtools/vscode/**` |
-| `vm` | `src/runtime/**`、`.cargo/**` |
+| `vm` | `src/runtime/**`（含 `src/runtime/.cargo/`） |
 | `stdlib` | `src/libraries/**`、`src/toolchain/builder/**`（z42b 是 [Test] 执行器）、`scripts/test/xtask_test_lib*.z42` |
 
 `src/toolchain/builder/**` 同时在 `platform` 与 `stdlib` 里：z42b 既是 [Test] 执行器，它的 `publish`
@@ -175,7 +175,8 @@ required check 视同通过。新增 job 时记得加进它的 `needs`。
 - **没有专门的 feature 组合 job**：曾有 `verify-features`（host 上 `cargo check` interp-only / wasm / ios /
   android 四个组合），而后三者 `package-*` 本就在真实目标平台上完整构建；它独有的「interp-only 不含
   cranelift」断言挪进了 `package-wasm`，2026-10-02 删除（drop-feature-matrix）。`.cargo/**` 随之并入
-  `platform` 过滤器。
+  `platform` 过滤器（配置在 `src/runtime/.cargo` 与 `src/toolchain/.cargo`：
+  前者由 `src/runtime/**` 覆盖，后者单列 `src/toolchain/.cargo/**`）。
 
 `test-host` 各腿用 `--skip` 把 stage 卸给并行 job：linux-x64 跳 `stdlib,compiler,vscode`，
 其余 OS 再多跳 `cross-zpkg,bench`（这两者 host 无关，一条腿够了）。Windows 腿不跑
@@ -222,7 +223,9 @@ Swatinem `rust-cache` 用 `shared-key` 跨 job 共享；**一个 key 命中后�
 | `artifact-host-v1` | `xtask-bootstrap-artifact` 默认 | release workspace |
 | `package-host-v2` / `ios-v2` / `android-v2` / `wasm-v2` | 各打包 job | + cdylib / staticlib / 交叉编译 |
 
-⚠️ target 目录由根 `.cargo/config.toml` 统一重定向到 `artifacts/build/runtime`，**所有** job 的
+⚠️ target 目录由 `src/runtime/.cargo/config.toml`（及 `src/toolchain/` 那份）统一重定向到
+`artifacts/build/runtime`。cargo 只从 **cwd** 向上找这份配置（不看 `--manifest-path`），所以 CI 里的
+cargo 都在 `src/runtime` 下跑，xtask 则显式传 `--config`。**所有** job 的
 `workspaces` 都要写 `src/runtime -> ../../artifacts/build/runtime`——写裸 `src/runtime` 缓存的是
 一个空目录（`verify-features` 曾这样白缓存了很久）。
 
