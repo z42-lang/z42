@@ -204,7 +204,7 @@ int _regenGoldenF(string dirFilter, string fileFilter) {
     string vmBin = _activeVm(root, "release");
     if (!File.Exists(vmBin)) { vmBin = _activeVm(root, "debug"); }
     if (!File.Exists(vmBin)) {
-        ConsoleError.WriteLine("error: z42vm not found (build via cargo build --manifest-path src/runtime/Cargo.toml)");
+        ConsoleError.WriteLine("error: z42vm not found (build via: cd src/runtime && cargo build)");
         return 1;
     }
 

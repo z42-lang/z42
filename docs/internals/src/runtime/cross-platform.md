@@ -19,15 +19,15 @@ z42 VM 同一份 Rust 代码通过 Cargo features 构建出适合不同平台的
 
 ```bash
 # 默认（含 JIT，桌面开发用）
-cargo build --manifest-path src/runtime/Cargo.toml
+(cd src/runtime && cargo build)
 
 # 仅 interpreter（轻量产物，无 cranelift）
-cargo build --manifest-path src/runtime/Cargo.toml --no-default-features --features interp-only
+(cd src/runtime && cargo build --no-default-features --features interp-only)
 
 # 平台 preset（host target；实际 cross-compile 由 P4.2/P4.3/P4.4 接入）
-cargo build --manifest-path src/runtime/Cargo.toml --no-default-features --features wasm
-cargo build --manifest-path src/runtime/Cargo.toml --no-default-features --features ios
-cargo build --manifest-path src/runtime/Cargo.toml --no-default-features --features android
+(cd src/runtime && cargo build --no-default-features --features wasm)
+(cd src/runtime && cargo build --no-default-features --features ios)
+(cd src/runtime && cargo build --no-default-features --features android)
 ```
 
 CI 由 `package-wasm` / `package-ios` / `package-android` 在各自真实目标平台上完整构建对应 preset 来锁定；

@@ -25,8 +25,8 @@ inputs:
 
       历史：`host-v2`（ci-bootstrap 侧的 key）曾经只含 bin/rlib —— 那时 ci-bootstrap
       跑的是 `cargo build --bin z42vm`，共用它会让这里建的 cdylib 永远进不了缓存、
-      每轮冷编（2026-09-04 前有 7 个 job 中招）。2026-09-05 起 ci-bootstrap 的 [0/5]
-      已改为全 workspace（与本 action 同一 unit 集合，见该 action 注释），两边内容
+      每轮冷编（2026-09-04 前有 7 个 job 中招）。2026-09-05 起 ci-bootstrap 的 runtime 构建
+      （现为 `xtask build runtime`）已改为全 workspace（与本 action 同一 unit 集合，见该 action 注释），两边内容
       因此趋同；但仍保持两个 key 分开，因为两条 bootstrap 路径后续做的事不同，
       合并需要单独验证。把缓存配置留在本 action 内（而不是每个 job 抄一份）才是
       当初那个 bug 不再复发的原因。
@@ -63,15 +63,9 @@ runs:
       uses: Swatinem/rust-cache@v2
       with:
         workspaces: src/runtime -> ../../artifacts/build/runtime
+        # toolchain 平台 crate（apphost / wasm / ios / android）的 target-dir，见 src/toolchain/.cargo/config.toml。
+        cache-directories: artifacts/build/toolchain/target
         shared-key: ${{ inputs.cache-key }}
-
-    # z42vm + native cdylibs (libz42, libz42_compression, …) — host-matched, fresh.
-    # cargo's target-dir is artifacts/build/runtime, so this lands z42vm at the
-    # standard artifacts/build/runtime/release/z42vm the zpkg artifact expects.
-    - name: cargo build z42vm + native libs (release)
-      if: ${{ !(inputs.prebuilt-vm == 'true' && runner.os == 'Linux' && runner.arch == 'X64') }}
-      shell: bash
-      run: cargo build --locked --release --manifest-path src/runtime/Cargo.toml
 
     - name: Download prebuilt z42vm (linux-x64)
       if: ${{ inputs.prebuilt-vm == 'true' && runner.os == 'Linux' && runner.arch == 'X64' }}
@@ -123,3 +117,13 @@ runs:
     - name: Put the xtask CI shim on PATH
       shell: bash
       run: echo "$GITHUB_WORKSPACE/.github/ci" >> "$GITHUB_PATH"
+
+    # z42vm + native cdylibs (libz42, libz42_compression, …) — host-matched, fresh.
+    # `xtask build runtime` = the workspace `cargo build --release` (target-dir
+    # artifacts/build/runtime), so z42vm lands at the standard
+    # artifacts/build/runtime/release/z42vm the zpkg artifact expects. Runs after the
+    # shim so every cargo invocation goes through xtask (one place owns the cargo config).
+    - name: Build z42vm + native libs (release)
+      if: ${{ !(inputs.prebuilt-vm == 'true' && runner.os == 'Linux' && runner.arch == 'X64') }}
+      shell: bash
+      run: xtask build runtime

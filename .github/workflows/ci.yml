@@ -72,10 +72,9 @@ jobs:
           filters: |
             platform:
               - 'src/runtime/**'
-              # 根 .cargo/config.toml（target-dir / wasm rustflags）改了 = 所有 cargo 构建都变了。
-              # 此前只在 `vm` 里，由 verify-features 兜着；那个 job 删了（drop-feature-matrix），
-              # 这几个真正在各目标平台上编 runtime 的 package-* job 得接过来。
-              - '.cargo/**'
+              # .cargo/config.toml（target-dir / wasm rustflags）改了 = 所有 cargo 构建都变了。
+              # runtime 那份在 src/runtime/** 里；toolchain 那份不在 workload/** 下，单列。
+              - 'src/toolchain/.cargo/**'
               - 'src/toolchain/workload/**'
               # 打包管道自身 + 消费包的 e2e（fix-package-gates-false-red, 2026-09-06）：
               # 此前 package-* 只由上面几项触发，只改 scripts/package/ 或 dist e2e 的 PR
@@ -135,9 +134,8 @@ jobs:
             # + JIT consistency. Only a src/runtime change can affect it.
             # ci.yml fallback = 保底全跑.
             vm:
+              # （含 src/runtime/.cargo/config.toml：target-dir 与 wasm rustflags）
               - 'src/runtime/**'
-              # 根 .cargo/config.toml 决定 target-dir 与 wasm rustflags —— 改它等于改所有 cargo 构建。
-              - '.cargo/**'
               - '.github/workflows/ci.yml'
             # change-detect rule (d): gates stdlib [Test] consistency (interp+jit).
             # stdlib 源码之外，[Test] 的**执行器**也算：z42b（反射 test-runner）与 xtask 的
@@ -243,6 +241,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: src/runtime -> ../../artifacts/build/runtime
+          cache-directories: artifacts/build/toolchain/target
           shared-key: test-host-v1
 
       # ALL legs bootstrap from the prev nightly seed — download the prev published

@@ -38,7 +38,7 @@ public class IosBackend : IPlatformBackend {
         }
         string here = Path.Join(root, "src/toolchain/workload/ios/platform");
         string manifest = Path.Join(here, "rust/Cargo.toml");
-        string targetDir = _cargoTargetDir(root);
+        string targetDir = _toolchainCargoTargetDir(root);
         string libName = "libz42_platform_ios.a";
 
         TomlValue toml = _vparse(root);
@@ -80,7 +80,7 @@ public class IosBackend : IPlatformBackend {
     int _cargoTargets(string manifest, string targetDir, string[] targets, string iosMin) {
         foreach (var t in targets) {
             Console.WriteLine("  cargo build --release --target " + t + " (IPHONEOS_DEPLOYMENT_TARGET=" + iosMin + ")");
-            int c = _exec(new Process("cargo").Arg("build").Arg("--release")
+            int c = _exec(_cargoCmd("build", _toolchainCargoConfig()).Arg("--release")
                 .Arg("--manifest-path").Arg(manifest)
                 .Arg("--target-dir").Arg(targetDir)
                 .Arg("--target").Arg(t)

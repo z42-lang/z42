@@ -59,7 +59,7 @@ ToolsetZ _resolveToolset(string root) {
             // 无声回落会让整条链慢 5-10× 且看不出原因——必须说出来。
             _vNormal("  ⚠ release z42vm 不存在，编译回落到 debug vm（会慢 5-10×）："
                      + t.CompileVm);
-            _vNormal("    建议先跑：cargo build --release --manifest-path src/runtime/Cargo.toml");
+            _vNormal("    建议先跑：./xtask build runtime");
             t.CompileVm = t.RunVm;
         }
     }
@@ -71,7 +71,7 @@ ToolsetZ _resolveToolset(string root) {
     t.DriverZpkg = Path.Join(driverHome, "z42c.driver.zpkg");
     if (!File.Exists(t.CompileVm) || !File.Exists(t.RunVm)) {
         ConsoleError.WriteLine("error: z42vm not found (compile=" + t.CompileVm + " run=" + t.RunVm + ")");
-        ConsoleError.WriteLine("       Build it via: cargo build --manifest-path src/runtime/Cargo.toml");
+        ConsoleError.WriteLine("       Build it via: (cd src/runtime && cargo build)");
         return t;
     }
     t.Ok = true;

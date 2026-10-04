@@ -147,10 +147,17 @@ string _libsFlatDist(string root, string profile) {
     return Path.Join(_libsBuildRoot(root), "dist/" + profile);
 }
 
-// artifacts/build/runtime — cargo's target-dir for EVERY crate (z42vm / native libs / apphost /
-// platform crates). Governed by .cargo/config.toml `target-dir`, not a z42 workspace.toml —
+// artifacts/build/runtime — cargo's target-dir for the runtime workspace (z42vm / native libs).
+// Governed by `target-dir` in src/runtime/.cargo/config.toml, not a z42 workspace.toml —
 // keep the two in sync. Host builds land in <profile>/, cross builds in <triple>/<profile>/.
 string _cargoTargetDir(string root) { return Path.Join(_buildDir(root), "runtime"); }
+
+// artifacts/build/toolchain/target — cargo's target-dir for the toolchain platform crates
+// (apphost stub, wasm / ios / android platform crates). Governed by `target-dir` in
+// src/toolchain/.cargo/config.toml — keep the two in sync. Same <profile>/ vs <triple>/<profile>/ shape.
+string _toolchainCargoTargetDir(string root) {
+    return Path.Join(Path.Join(_buildDir(root), "toolchain"), "target");
+}
 
 // artifacts/build/runtime/<profile> — host cargo output dir for z42vm / native libs.
 string _runtimeOut(string root, string profile) {
@@ -350,6 +357,11 @@ LayoutEntriesZ _layoutEntries(string root) {
             string flat = _libsDir(root);
             string frel = _layoutRel(root, flat, true);
             e.Add(frel, _layoutName(rel, frel), 2, "扁平 stdlib = Z42_LIBS", flat);
+        }
+        if (d == "toolchain") {
+            string tt = _toolchainCargoTargetDir(root);
+            string trel = _layoutRel(root, tt, true);
+            e.Add(trel, _layoutName(rel, trel), 2, "cargo target-dir（apphost / 平台 crate）", tt);
         }
     }
     string xz = _xtaskZpkg(root);

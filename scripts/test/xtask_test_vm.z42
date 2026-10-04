@@ -51,7 +51,7 @@ int _runVmGoldensF(string[] modes, int jobs, int shardK, int shardN, string dirF
     string vmBin = _activeVm(root, "debug");
     if (!File.Exists(vmBin)) {
         ConsoleError.WriteLine("error: VM binary not found at " + vmBin);
-        ConsoleError.WriteLine("       Build via: cargo build --manifest-path src/runtime/Cargo.toml");
+        ConsoleError.WriteLine("       Build via: (cd src/runtime && cargo build)");
         return 1;
     }
 

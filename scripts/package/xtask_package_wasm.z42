@@ -101,7 +101,7 @@ int _packageWasm(string root, string pkgDir, string rid, string version, string 
 
 // cargo rustc for wasm32 staticlib with --no-default-features --features wasm.
 int _cargoWasmRustc(string root, bool rel, string cargoTarget) {
-    Process p = new Process("cargo").Arg("rustc");
+    Process p = _cargoCmd("rustc", _runtimeCargoConfig());
     if (rel) { p = p.Arg("--release"); }
     p = p.Arg("--lib").Arg("--crate-type=staticlib")
         .Arg("--manifest-path").Arg(Path.Join(root, _runtimeManifest()))

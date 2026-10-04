@@ -1,6 +1,6 @@
 # 性能基准与回归门禁
 
-> 对齐：2026-10-02（change `move-perf-to-src-bench`）｜ 代码：`scripts/xtask_bench.z42`、`scripts/common/xtask_bench_pause.z42`、`src/bench/`、`src/runtime/benches/`、`.github/workflows/bench-pr.yml`
+> 对齐：2026-10-04（change `move-cargo-config`）｜ 代码：`scripts/xtask_bench.z42`、`scripts/common/xtask_bench_pause.z42`、`src/bench/`、`src/runtime/benches/`、`.github/workflows/bench-pr.yml`
 >
 > 命令与旗标以 `xtask bench -h` / `xtask bench stdlib -h` 为准。
 
@@ -315,7 +315,7 @@ criterion 层噪声底的实测（同一个 PR 的四次跑，**每次 base 与 
    非空 ⇒ 再采两轮，用三轮判红。
 7. **criterion A/B（informational，永不 fail）**：仅 `src/runtime` 有非文档改动时跑。
 
-**Rust 依赖缓存在 main 上预热**（`bench-cache-warm` job：push 到 main 且动了 `src/runtime` / `.cargo` / 本
+**Rust 依赖缓存在 main 上预热**（`bench-cache-warm` job：push 到 main 且动了 `src/runtime`（含其 `.cargo`）/ 本
 workflow，外加每周一次与手动触发）。原因是 GitHub 的缓存作用域：PR 分支上存的缓存**只有这个 PR 自己**能读，
 main 上存的才对所有 PR 可见。此前只有 PR 在存——每个新 PR 都冷编一轮，同一个 key 每个 PR 各存一份 172 MB，
 还挤占仓库 10 GB 的缓存配额。现在 PR 侧 `save-if: false` 只读；预热 job 编的东西与门禁实际会编的一致

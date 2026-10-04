@@ -1,6 +1,6 @@
 # 开发环境与工具链自举
 
-> 对齐：2026-09-17（change `restructure-docs-three-books`）｜ 代码：`scripts/install-z42.sh`、
+> 对齐：2026-10-04（change `move-cargo-config`）｜ 代码：`scripts/install-z42.sh`、
 > `scripts/install/install.sh`、`scripts/install/xtask_install.z42`、`scripts/versions.toml`、
 > `src/runtime/Cargo.toml`、`src/compiler/z42c.driver/src/Main.z42`、`.gitattributes`
 >
@@ -84,8 +84,8 @@ git clone https://github.com/z42-lang/z42 && cd z42
 `ios` / `android` = `interp-only` + `aot` + `native-interop` + `bundled-compression`。
 
 ```bash
-cargo build --manifest-path src/runtime/Cargo.toml --release
-cargo build --manifest-path src/runtime/Cargo.toml --no-default-features --features interp-only
+./xtask build runtime
+(cd src/runtime && cargo build --no-default-features --features interp-only)
 ```
 
 > 没有名为 `interp` 或 `host` 的 feature；解释器是无条件编进去的。

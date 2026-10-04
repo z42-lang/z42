@@ -10,7 +10,8 @@ using Std.Time;   // Stopwatch — _procStart/_procEnd 进程计时标记
 
 int _buildRuntime() {
     Stopwatch sw = _procStart("build runtime (cargo z42vm)");
-    int __rc = _exec(_cargoRelease()
+    // --locked：Cargo.lock 入库，与 `test runtime` 一致；CI 的 bootstrap 也走这里，不再自己调 cargo。
+    int __rc = _exec(_cargoRelease(_runtimeCargoConfig()).Arg("--locked")
         .Arg("--manifest-path").Arg(_runtimeManifest()));
     if (__rc == 0) { _procEnd("build runtime (cargo z42vm)", sw); }
     return __rc;

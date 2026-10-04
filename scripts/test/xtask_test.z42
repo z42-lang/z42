@@ -151,7 +151,7 @@ int _testRuntime() {
     // 也在选择集外。这是全仓唯一的 `cargo test` 入口（CI 的 "Rust VM unit tests" 即此），
     // 所以「从来没跑过」是字面意思。z42-abi 守的正是 C ABI 结构体布局契约——坏了直接
     // 表现为嵌入端内存错位，却全绿。本地实测加上后 24 个全过，无存量红。
-    int __rc = _exec(new Process("cargo").Arg("test").Arg("--locked").Arg("--workspace")
+    int __rc = _exec(_cargoCmd("test", _runtimeCargoConfig()).Arg("--locked").Arg("--workspace")
         .Arg("--features").Arg("z42-test-fixtures")
         .Arg("--manifest-path").Arg(_runtimeManifest())
         .Arg("--").Arg("--test-threads=1")
@@ -186,7 +186,7 @@ int _testRuntimeUnits() {
     // `--workspace`：不带它包选择会落到 default-members，z42-abi/z42-repl/z42-rs/z42-macros
     // 的单测就整批不跑（fix-more-silent-gates 修过一次，别在这里重新引入）。
     // `--features z42-test-fixtures`：见 `_testRuntime` 的头注（fixture 只有 Rust 单测需要）。
-    int rc = _exec(new Process("cargo").Arg("test").Arg("--locked").Arg("--workspace")
+    int rc = _exec(_cargoCmd("test", _runtimeCargoConfig()).Arg("--locked").Arg("--workspace")
         .Arg("--features").Arg("z42-test-fixtures")
         .Arg("--manifest-path").Arg(m)
         .Arg("--lib")
@@ -194,7 +194,7 @@ int _testRuntimeUnits() {
         .Env("RUST_MIN_STACK", "8388608"));
     if (rc != 0) { return rc; }
     // 只编不跑：抓「跨 src/ 与 tests/ 都构造的公共 struct 加了字段却没补齐」这类编译漏。
-    return _exec(new Process("cargo").Arg("test").Arg("--locked").Arg("--workspace")
+    return _exec(_cargoCmd("test", _runtimeCargoConfig()).Arg("--locked").Arg("--workspace")
         .Arg("--features").Arg("z42-test-fixtures")
         .Arg("--manifest-path").Arg(m)
         .Arg("--no-run"));
@@ -219,9 +219,9 @@ int _regenForTestF(bool haveTc, bool noBuild, string dirFilter, string fileFilte
 // runner resolves (artifacts/build/runtime/debug/z42vm; JIT dlopens the compressor).
 // Shared: _testE2eCore + _testAll.
 int _buildDebugVmAndCompression() {
-    int cd = _exec(new Process("cargo").Arg("build").Arg("-q").Arg("--manifest-path").Arg(_runtimeManifest()));
+    int cd = _exec(_cargoCmd("build", _runtimeCargoConfig()).Arg("-q").Arg("--manifest-path").Arg(_runtimeManifest()));
     if (cd != 0) { return cd; }
-    return _exec(new Process("cargo").Arg("build").Arg("-q").Arg("--manifest-path").Arg("src/runtime/crates/z42-compression/Cargo.toml"));
+    return _exec(_cargoCmd("build", _runtimeCargoConfig()).Arg("-q").Arg("--manifest-path").Arg("src/runtime/crates/z42-compression/Cargo.toml"));
 }
 
 int _testE2eCore(string modes, bool rebuild, bool noBuild, string jobs, string shard, string dirFilter, string fileFilter) {
@@ -362,7 +362,7 @@ int _testGcModes() {
 // 就是另一条构建波上的同类次序问题。
 int _ensureFixtureToolchain(bool noBuild) {
     if (noBuild || _toolchainDir(_root()).Length > 0) { return 0; }
-    int cr = _exec(new Process("cargo").Arg("build").Arg("-q")
+    int cr = _exec(_cargoCmd("build", _runtimeCargoConfig()).Arg("-q")
         .Arg("--manifest-path").Arg(_runtimeManifest()));
     if (cr != 0) { return cr; }
     string root = _root();

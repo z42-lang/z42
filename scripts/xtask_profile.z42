@@ -201,7 +201,7 @@ string _profileHeap(ProfileCtx c) {
     Console.WriteLine("── heap (dhat) ──");
     string tdir = Path.Join(c.outDir, "dhat-target");
     Console.WriteLine("  building dhat-heap z42vm (isolated target-dir)…");
-    int bc = _exec(_cargoRelease()
+    int bc = _exec(_cargoRelease(_runtimeCargoConfig())
         .Arg("--manifest-path").Arg(_runtimeManifest())
         .Arg("--features").Arg("dhat-heap")
         .Arg("--target-dir").Arg(tdir));
@@ -249,7 +249,7 @@ string _profileThreads(ProfileCtx c) {
     // 2) Contention VM: isolated `profile-contention` build → real lock_* data.
     string tdir = Path.Join(c.outDir, "contention-target");
     Console.WriteLine("  building profile-contention z42vm (isolated target-dir)…");
-    int bc = _exec(_cargoRelease()
+    int bc = _exec(_cargoRelease(_runtimeCargoConfig())
         .Arg("--manifest-path").Arg(_runtimeManifest())
         .Arg("--features").Arg("profile-contention")
         .Arg("--target-dir").Arg(tdir));
