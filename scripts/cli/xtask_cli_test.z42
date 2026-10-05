@@ -72,6 +72,12 @@ SubcommandRouter _testRouter() {
     embedded.AddFlag("run", "", "device RID: run the already-built deployable on the device (delegates to z42b --run)");
     embedded.AddOptionalPositional("target", ".zbc / golden-case dir (omit → build+run full bundle)");
     t.Add("embedded", "run tests via the embedded test-agent (bundle all / --case / --filter / single)", embedded);
+    // test-layout §6：设备测试一条命令（本地与 CI 同一路径）。
+    ArgParser app = new ArgParser("xtask test app", "device tests end-to-end: agent → R1–R7 → embedded bundle → host build → run on device");
+    app.AddOptionalPositional("platform", "wasm | ios | android | all (all = every platform this host supports; others are skipped with a reason)");
+    app.AddOption("filter", "", "only embedded cases whose name contains this substring", "");
+    app.AddOption("shard", "", "k/n: run shard k of n of the embedded corpus (R1–R7 runs on shard 1 only)", "");
+    t.Add("app", "device tests in one command (wasm / ios / android / all; unsupported hosts are skipped)", app);
     ArgParser dist = new ArgParser("xtask test dist", "distribution verification");
     dist.AddOptionalPositional("mode", "interp|jit (default: both)");
     t.Add("dist", "distribution verification", dist);
@@ -167,6 +173,7 @@ int _dispatchTest(string[] p, ParseResult r) {
     if (sub == "incremental")  { return _testIncremental(r); }   // 文件级增量暴力对账（D4/D8）
     if (sub == "fingerprint")  { return _testFingerprint(r); }   // 编译器输出变 ⇒ 版本号必须累加
     if (sub == "changed")      { return _testChanged(r); }
+    if (sub == "app")          { return _testApp(r); }                                       // 设备测试一条命令（test-layout §6）
     if (sub == "platform") {
         string plat = p.Length > 2 ? p[2] : "";
         return _platformDispatch(plat, r.GetPositional(0), _root());
