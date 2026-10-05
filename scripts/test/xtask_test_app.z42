@@ -25,7 +25,8 @@ int _testApp(ParseResult r) {
         return 2;
     }
     string root = _root();
-    int dep = _ensureToolchainDeps(root); if (dep != 0) { return dep; }
+    // z42b 每次增量重编（源未变时近 no-op）：只查「在不在」会让本地改过 z42b 源后继续跑旧的 z42b。
+    int dep = _ensureZ42b(root); if (dep != 0) { return dep; }
 
     string[] outcome = new string[plats.Length];
     bool failed = false;
@@ -68,29 +69,12 @@ string _appSkipReason(string root, string platform) {
         return "";
     }
     if (platform == "android") {
-        if (Platform.IsLinux() && !File.Exists("/dev/kvm")) { return "Linux 上没有 /dev/kvm，Android 模拟器跑不起来"; }
-        if (!_androidDeviceAttached(root)) {
-            return "没有在跑的 Android 设备 / 模拟器（先启动一个，例如 `emulator @z42_pixel6_api37`）";
+        if (Platform.IsLinux() && !File.Exists("/dev/kvm") && !_androidDeviceAttached(root)) {
+            return "Linux 上没有 /dev/kvm，Android 模拟器跑不起来（也没有接着的设备）";
         }
         return "";
     }
     return "";
-}
-
-// adb 能看到至少一台 `device` 状态的设备。adb 取 ANDROID_HOME / ANDROID_SDK_ROOT，否则 hermetic SDK。
-bool _androidDeviceAttached(string root) {
-    string sdk = Environment.GetEnvironmentVariable("ANDROID_HOME", "");
-    if (sdk.Length == 0) { sdk = Environment.GetEnvironmentVariable("ANDROID_SDK_ROOT", ""); }
-    if (sdk.Length == 0) { sdk = Path.Join(_toolsDir(root), "android-sdk"); }
-    string adb = Path.Join(sdk, "platform-tools/adb");
-    if (!File.Exists(adb)) { return false; }
-    ProcessResult res = new Process(adb).Arg("devices").Run();
-    if (res.ExitCode != 0) { return false; }
-    foreach (var line in res.Stdout.Split("\n")) {
-        string t = line.Trim();
-        if (t.EndsWith("\tdevice") || t.EndsWith(" device")) { return true; }
-    }
-    return false;
 }
 
 // 一个平台的整条流水线。顺序与 CI 原先分步调用的一致。
@@ -110,9 +94,9 @@ int _testAppOne(string root, string platform, string filter, int shardK, int sha
         int a = _platformDispatch("ios", "assets", root); if (a != 0) { return a; }
         return _runIosTesthost(root, rid);
     }
-    // android：同样一次 connectedAndroidTest 跑 R1–R7 + 嵌入语料。ABI 跟宿主架构走（Apple Silicon 上的
-    // 模拟器是 arm64，CI 的 linux-x64 是 x86_64）。
-    string arid = Platform.Arch() == "aarch64" ? "android-arm64" : "android-x64";
+    // android：同样一次 connectedAndroidTest 跑 R1–R7 + 嵌入语料。ABI 跟宿主架构走（_androidHostRid）；
+    // 没有接着的设备时 z42b 会自己起 AVD（_runAndroidTesthost 先补装模拟器组件）。
+    string arid = _androidHostRid();
     int b = _platformDispatch("android", "build", root); if (b != 0) { return b; }
     int s = _platformDispatch("android", "assets", root); if (s != 0) { return s; }
     if (_buildAndroidTesthost(root, filter, arid, shardK, shardN).Length == 0) { return 1; }
@@ -132,3 +116,4 @@ int _provisionTestAgent(string root) {
     Console.WriteLine("  test agent → " + dest);
     return 0;
 }
+

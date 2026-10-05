@@ -92,9 +92,11 @@ per-platform driver（`builder_device.z42` 管 wasm；`builder_device_ios.z42`�
 stage 需 `--out`。
 
 xtask 保留**语料发现 / 编译 / 分片**与 native 工具**供给**（node / Xcode / NDK），把单目标的
-deploy/run 交给 z42b；原生 runtime 的**构建**也留在 xtask。**android 是有意的不对称**：emulator 的 AVD 生命周期
-（boot + 关机）留在 CI action 或本地 `test.sh`，**不进 z42b**——z42b 只管「在一台已经在跑的设备上
-构建并执行」，供给设备本身不是它的职责。
+deploy/run 交给 z42b；原生 runtime 的**构建**也留在 xtask。设备由运行它的工具启停（规则见
+[测试用例组织规范](test-layout.md) §6）：iOS 模拟器由 `xcodebuild` 启动；android 由 z42b 负责——
+`adb devices` 里已有设备（CI 的 emulator action、本地手动起的模拟器、手机）就复用、跑完不关；没有且给了
+`--avd <name>` 就以 headless 方式启动该 AVD、等 `sys.boot_completed`、跑完只关自己起的那台
+（`_runAndroidGradle`；adb / emulator 取调用方导出的 `ANDROID_HOME`）。
 
 ## 4. test-agent 的解析：dogfood `test` workload
 

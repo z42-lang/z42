@@ -158,10 +158,10 @@ export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/<与 versions.toml 一致的版本>"
 export PATH="$PATH:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools"
 ```
 
-`deps install --os android` 只装 build tier；emulator tier（emulator + system-image + AVD +
-Gradle，约 4 GB / 10~15 分钟）没有单独命令，`run` 步骤检测到缺失时自动装。`run` 桥接
-`src/toolchain/workload/android/platform/test.sh`（起 emulator +
-`gradlew :z42vm:connectedAndroidTest`）——这是整条链上仅存的一个 shell 脚本。
+`deps install --os android` 只装 build tier；emulator tier（emulator + 本机架构的 system-image + AVD +
+Gradle，约 4 GB / 10~15 分钟）没有单独命令，要靠 z42b 启动 AVD（没有接着的设备）时自动装。
+`run` 交给 z42b：有接着的设备就复用，没有就以 headless 方式启动 `versions.toml` 的 `avd_name`，
+跑 `gradlew :z42vm:connectedAndroidTest`，跑完关掉（[测试用例组织规范](test-layout.md) §6）。
 
 `build` 段跑 `cargo ndk -t arm64-v8a -t x86_64 build --release` + `./gradlew :z42vm:assembleRelease`，
 产出 `z42vm-release.aar`、`jniLibs/{arm64-v8a,x86_64}/libz42_platform_android.so` 和

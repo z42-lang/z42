@@ -10,28 +10,96 @@
 // host project (orchestrator + --stage-only); z42b builds no native code. NDK / SDK
 // locations come from the environment (ANDROID_NDK_HOME / ANDROID_HOME), set by the caller.
 //
-// ASYMMETRY (design D2, User-confirmed): the emulator AVD lifecycle stays with the
-// CI action (reactivecircus/android-emulator-runner) — z42b only TRIGGERS gradle on
-// an already-booted device. Porting the emulator lifecycle is a separate change.
+// Device lifecycle (test-layout.md §6): a device that is already attached (a running
+// emulator, a plugged-in phone, CI's emulator action) is REUSED and left running. With
+// none attached and `--avd <name>` given, z42b boots that AVD headless, waits for
+// sys.boot_completed, runs, and shuts down only the emulator IT started. adb / emulator
+// come from the SDK the caller exports (ANDROID_HOME / ANDROID_SDK_ROOT).
 namespace Z42Builder;
 
 using Std.IO;
 using Std.Cli;
+using Std.Threading;
 
-// ./gradlew :z42vm:connectedAndroidTest at the host project — ONE connected
-// emulator runs Z42VMInstrumentedTest (R1–R7) + Z42EmbeddedInstrumentedTest
-// (embedded corpus). The emulator is already booted (CI action / local dev, design
-// D2 asymmetry). Gradle builds the test APK from jniLibs + androidTest assets,
-// installs, runs, and writes its OWN junit under
-// z42vm/build/outputs/androidTest-results/ — the CI report consumer reads that path
-// unchanged, so z42b just relays gradle's exit code. AGP finds the SDK via
-// ANDROID_HOME/ANDROID_SDK_ROOT (CI's setup-android exports them; local = hermetic).
-int _runAndroidGradle(string here) {
+// ./gradlew :z42vm:connectedAndroidTest at the host project — ONE connected device runs
+// Z42VMInstrumentedTest (R1–R7) + Z42EmbeddedInstrumentedTest (embedded corpus). Gradle
+// builds the test APK from jniLibs + androidTest assets, installs, runs, and writes its OWN
+// junit under z42vm/build/outputs/androidTest-results/ — the CI report consumer reads that
+// path unchanged, so z42b just relays gradle's exit code. With no device attached, boots
+// `avd` first (see the header) and shuts it down after.
+int _runAndroidGradle(string here, string avd) {
     string gradlew = Path.Join(here, "gradlew");
     if (!File.Exists(gradlew)) {
         ConsoleError.WriteLine("z42b: gradlew not found at " + gradlew); return 1;
     }
+    string sdk = Environment.GetEnvironmentVariable("ANDROID_HOME", "");
+    if (sdk.Length == 0) { sdk = Environment.GetEnvironmentVariable("ANDROID_SDK_ROOT", ""); }
+    string adb = Path.Join(sdk, "platform-tools/adb");
+    if (sdk.Length == 0 || !File.Exists(adb)) {
+        ConsoleError.WriteLine("z42b: adb not found — set ANDROID_HOME to the Android SDK (got '" + sdk + "')"); return 1;
+    }
+    ProcessHandle? emu = null;
+    if (!_adbHasDevice(adb)) {
+        if (avd.Length == 0) {
+            ConsoleError.WriteLine("z42b: no Android device attached — start one, or pass --avd <name> to boot it"); return 1;
+        }
+        emu = _bootEmulator(sdk, adb, avd);
+        if (emu == null) { return 1; }
+    } else {
+        Console.WriteLine("z42b: reusing the attached Android device");
+    }
     Console.WriteLine("z42b: ./gradlew :z42vm:connectedAndroidTest (emulator R1–R7 + embedded)");
     // ANDROID_NDK_HOME / ANDROID_HOME / ANDROID_SDK_ROOT are inherited from the caller's environment.
-    return _execInherit(new Process(gradlew).Arg(":z42vm:connectedAndroidTest").WorkingDirectory(here));
+    int rc = _execInherit(new Process(gradlew).Arg(":z42vm:connectedAndroidTest").WorkingDirectory(here));
+    if (emu != null) {
+        // Only the emulator z42b started: `adb emu kill` lets it shut down cleanly; Kill() is the backstop.
+        Console.WriteLine("z42b: shutting down the emulator it started");
+        new Process(adb).Arg("emu").Arg("kill").Stdout(Stdio.Null()).Stderr(Stdio.Null()).Run();
+        try { emu.Kill(); } catch (Exception e) { }
+    }
+    return rc;
+}
+
+// `adb devices` lists at least one entry in the `device` state (attached and authorized).
+bool _adbHasDevice(string adb) {
+    ProcessResult res = new Process(adb).Arg("devices").Run();
+    if (res.ExitCode != 0) { return false; }
+    foreach (var line in res.Stdout.Split("\n")) {
+        string t = line.Trim();
+        if (t.EndsWith("\tdevice") || t.EndsWith(" device")) { return true; }
+    }
+    return false;
+}
+
+// Boot `avd` headless and wait until Android reports sys.boot_completed (≤ 5 min).
+// Returns the emulator handle, or null after printing why (the half-booted emulator is killed).
+ProcessHandle? _bootEmulator(string sdk, string adb, string avd) {
+    string emulator = Path.Join(sdk, "emulator/emulator");
+    if (!File.Exists(emulator)) {
+        ConsoleError.WriteLine("z42b: Android emulator not installed under " + sdk); return null;
+    }
+    Console.WriteLine("z42b: booting AVD " + avd + " (headless)…");
+    ProcessHandle emu = new Process(emulator).Arg("@" + avd)
+        .Arg("-no-window").Arg("-no-audio").Arg("-no-boot-anim").Arg("-gpu").Arg("swiftshader_indirect")
+        .Stdout(Stdio.Null()).Stderr(Stdio.Null()).Spawn();
+    int waited = 0;
+    while (waited < 300) {
+        ProcessResult? exited = emu.TryWait();
+        if (exited != null) {
+            ConsoleError.WriteLine("z42b: emulator exited during boot (exit " + exited.ExitCode.ToString() + ")"); return null;
+        }
+        ProcessResult bp = new Process(adb).Arg("shell").Arg("getprop").Arg("sys.boot_completed")
+            .Stderr(Stdio.Null()).Run();
+        if (bp.ExitCode == 0 && bp.Stdout.Trim() == "1") {
+            Console.WriteLine("z42b: emulator booted (" + waited.ToString() + "s)");
+            Thread.Sleep(3000);   // settle: package manager / activity services come up just after boot_completed
+            return emu;
+        }
+        Thread.Sleep(2000);
+        waited = waited + 2;
+    }
+    ConsoleError.WriteLine("z42b: emulator did not finish booting within 300s");
+    new Process(adb).Arg("emu").Arg("kill").Stdout(Stdio.Null()).Stderr(Stdio.Null()).Run();
+    try { emu.Kill(); } catch (Exception e) { }
+    return null;
 }

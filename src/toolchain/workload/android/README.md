@@ -49,12 +49,14 @@ marshal 仅 null + `I64` / `F64` / `Bool`（string / object / Array 见 embeddin
 ## 如何测试验证
 
 ```bash
-./xtask test platform android
+./xtask test app android [--filter <pat>]
 ```
 
-全流程 build + assets + run：`platform/test.sh` 自启 headless emulator `@z42_pixel6_api37` 并跑
-`./gradlew :z42vm:connectedAndroidTest`，退出时 `adb emu kill`。期望尾部 `Finished 7 tests` + `BUILD SUCCESSFUL`
-（7 个测试 = R1–R7，与 iOS XCTest / wasm playwright 对齐）。CI 由 emulator-runner 提供模拟器，经 `z42b` 触发 gradle。
+一条命令跑完整条流水线（与 CI 相同）：test agent → .so + AAR + assets 进宿主副本 → 嵌入 bundle →
+z42b 跑一次 `./gradlew :z42vm:connectedAndroidTest`（R1–R7 + 嵌入语料）。已有接着的设备 / 在跑的模拟器就复用
+（CI 的 emulator-runner 就是这样）；没有就以 headless 方式启动 `@z42_pixel6_api37`（模拟器组件缺了先自动装，
+约 4GB），等 boot 完成再跑，跑完 `adb emu kill`。期望尾部 `Finished 7 tests` + `BUILD SUCCESSFUL`
+（7 个测试 = R1–R7，与 iOS XCTest / wasm playwright 对齐）。
 
 ## 关联文档
 
@@ -70,4 +72,3 @@ marshal 仅 null + `I64` / `F64` / `Bool`（string / object / Array 见 embeddin
 | `template/` | `export` 渲染进用户工程的脚手架 |
 | `platform/z42vm/` | AAR 模块（Kotlin API + JNI C + androidTest） |
 | `platform/rust/` | cargo-ndk 构建的 cdylib |
-| `platform/test.sh` | 本地 emulator 生命周期 + connectedAndroidTest |

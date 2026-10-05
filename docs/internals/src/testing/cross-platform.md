@@ -140,7 +140,7 @@ CI dispatch 会把它显成红，**按证据**处理：是能力缺口，就让�
 | `test-desktop` | `test-desktop-cabi(linux-x64)` | 1 | `platform` 变更 / schedule / dispatch | `test platform desktop`（R1–R7） |
 | `test-wasm` | `test-wasm-browser(linux-x64) shard k` | 2 | **仅** schedule / dispatch | `xtask test app wasm --shard k/3`（R1–R7 只在 shard 1；每片跑 1/3 嵌入语料） |
 | `test-ios` | `test-ios-sim(macos-arm64) shard k` | 2 | **仅** schedule / dispatch | `xtask test app ios --shard k/3`：每片单次 `xcodebuild test -scheme Z42VM` 同时跑 R1–R7 与嵌入语料 |
-| `test-android` | `test-android-emu(linux-x64) shard k` | 2 | **仅** schedule / dispatch | 每片单次 `connectedAndroidTest` 同时跑 R1–R7 与嵌入语料 |
+| `test-android` | `test-android-emu(linux-x64) shard k` | 2 | **仅** schedule / dispatch | `xtask test app android --shard k/3`（在 emulator action 里跑；z42b 复用它起的模拟器）：每片单次 `connectedAndroidTest` 同时跑 R1–R7 与嵌入语料 |
 
 三个 tier-2 job 都是 `matrix.shard: [1,2,3]`，`needs: toolchain-bootstrap`，`fail-fast: false`。
 

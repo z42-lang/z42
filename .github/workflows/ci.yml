@@ -1718,33 +1718,21 @@ jobs:
         with:
           cache-key: tier2-android
           rust-targets: aarch64-linux-android,x86_64-linux-android
-      - name: test platform android — cargo-ndk + AAR + assets
-        shell: bash
-        env:
-          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
-        run: |
-          set -euo pipefail
-          xtask test platform android build
-          xtask test platform android assets
-          # z42b-device-run PR-4 (dogfood): stage the test-agent into z42b's own SDK
-          # home workload dir (<home>/runtimes/<ver>/workloads/test/) so z42b's --build
-          # resolves it from there — no in-tree --agent, no launcher / download (design D4).
-          xtask package workload test dev
-          dest="$PWD/artifacts/build/runtime/runtimes/dev/workloads/test"
-          mkdir -p "$dest"
-          cp artifacts/packages/z42-workload-dev-test*/z42.testagent.zpkg "$dest/"
-          # add-wasm-testhost G6 + tier2-mobile-coverage: build this shard's embedded
-          # slice (x86_64 .so — matches the emulator ABI — + androidTest/assets/embedded)
-          # so the single connectedAndroidTest below runs Z42EmbeddedInstrumentedTest's
-          # 1/3 full-coverage slice too.
-          xtask test embedded --rid android-x64 --shard ${{ matrix.shard }}/3
       # No AVD snapshot cache (ci-perf-tier2 #4 had one): every boot is cold. It was
       # dropped while chasing system_server restarts mid-test on API 37, which turned
       # out to be the surfaceflinger renderer abort fixed by `runs-on: ubuntu-26.04`
       # above — not the snapshot. Cold boot costs a few minutes per shard (nightly
       # only); restoring the cache is a separate, optional speed-up.
-      - name: connectedAndroidTest on emulator (R1–R7 + embedded corpus)
+      # test-layout §6: the whole pipeline is ONE command, same as local — `xtask test app
+      # android` provisions the test agent, builds the .so + AAR into the staged host copy,
+      # stages this shard's embedded slice, and runs ONE connectedAndroidTest (R1–R7 +
+      # embedded). The action only supplies the emulator (KVM, image, cold boot); z42b sees
+      # it attached and reuses it (it boots an AVD itself only when none is attached).
+      - name: xtask test app android on emulator (shard ${{ matrix.shard }}/3)
         uses: reactivecircus/android-emulator-runner@v2
+        env:
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+          Z42_SHARD: ${{ matrix.shard }}
         with:
           api-level: '37.0'   # API 37 packages are named android-37.0; a bare 37 resolves to a non-existent image
           arch: x86_64
