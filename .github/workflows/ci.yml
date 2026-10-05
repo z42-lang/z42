@@ -72,9 +72,6 @@ jobs:
           filters: |
             platform:
               - 'src/runtime/**'
-              # .cargo/config.toml（target-dir / wasm rustflags）改了 = 所有 cargo 构建都变了。
-              # runtime 那份在 src/runtime/** 里；toolchain 那份不在 workload/** 下，单列。
-              - 'src/toolchain/.cargo/**'
               - 'src/toolchain/workload/**'
               # 打包管道自身 + 消费包的 e2e（fix-package-gates-false-red, 2026-09-06）：
               # 此前 package-* 只由上面几项触发，只改 scripts/package/ 或 dist e2e 的 PR
@@ -241,7 +238,6 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: src/runtime -> ../../artifacts/build/runtime
-          cache-directories: artifacts/build/toolchain/target
           shared-key: test-host-v1
 
       # ALL legs bootstrap from the prev nightly seed — download the prev published
@@ -1692,9 +1688,9 @@ jobs:
           cp artifacts/packages/z42-workload-dev-test*/z42.testagent.zpkg "$dest/"
           # add-wasm-testhost G6 + tier2-mobile-coverage: fold this shard's embedded
           # slice into the SAME xcodebuild/simulator run as R1–R7 (no 2nd sim boot).
-          # z42b-device-run PR-2: iOS build+deploy+run 下沉 z42b's ios driver.
-          #  1) embedded --rid iossim-arm64 → z42b --build: xcframework (sim+host) +
-          #     this shard's Resources/embedded slice (Z42EmbeddedTests corpus).
+          # z42b-device-run PR-2: iOS native build in xtask, stage + run in z42b's ios driver.
+          #  1) embedded --rid iossim-arm64 → xcframework (sim+host) built by xtask, then
+          #     z42b --stage-only: this shard's Resources/embedded slice (Z42EmbeddedTests corpus).
           #  2) platform ios assets → R1–R7 fixtures + stdlib into Resources.
           #  3) embedded --rid iossim-arm64 --run → z42b --run: ONE `xcodebuild test
           #     -scheme Z42VM` runs both Z42VMTests (R1–R7) and Z42EmbeddedTests,

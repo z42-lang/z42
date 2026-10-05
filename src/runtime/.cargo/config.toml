@@ -1,13 +1,15 @@
-# cargo config for every crate under this directory. The wasm section is shared with
-# src/toolchain/.cargo/config.toml — keep the two in sync.
+# The one cargo config for every Rust crate in the repo: the runtime workspace here AND the
+# toolchain platform crates under src/toolchain/workload/*/platform (apphost / wasm / ios /
+# android), which sit outside this directory.
 #
-# cargo discovers this file by walking up from its *cwd*, NOT from --manifest-path.
-# So `cd` into this tree before running cargo, or pass `--config <this file>` when
-# running from the repo root (xtask does the latter: _runtimeCargoConfig /
-# _toolchainCargoConfig in scripts/common/xtask_common.z42).
+# cargo discovers this file by walking up from its *cwd*, NOT from --manifest-path — so it is
+# only found automatically for crates under src/runtime. Everything else passes
+# `--config <this file>` explicitly (xtask: _runtimeCargoConfig in scripts/common/xtask_common.z42;
+# wasm-pack / cargo-ndk get it too, since they run inside the platform crate dir).
 #
-# target-dir is relative to the directory that holds `.cargo/` (src/runtime):
-# the runtime workspace builds into artifacts/build/runtime (artifacts/build/ mirrors src/).
+# target-dir is relative to the directory that holds `.cargo/` (src/runtime): every crate builds
+# into artifacts/build/runtime (artifacts/build/ mirrors src/). Crates are told apart by
+# <profile>/ vs <triple>/<profile>/ and by their own artifact names.
 [build]
 target-dir = "../../artifacts/build/runtime"
 

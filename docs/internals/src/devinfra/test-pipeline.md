@@ -64,32 +64,35 @@ xtask 的 `_testEmbedded` desktop 分支因此收缩为「组 bundle → 委托 
 ——清单里声明了 `[[test]]` / `[[bench]]` 等 dev target 就**按目标编译 + 运行**（目标在内存里派生
 manifest、不落文件，父包身份直达编译器 ⇒ 测试可见父包 internal），没声明则回落到「编译项目自身」。
 
-## 3. device 路径：z42b 接管 build + deploy + run
+## 3. device 路径：xtask 备好原生 runtime，z42b 组装 + 运行
 
-`z42b test <manifest.json> --rid <device> [--out <dir>] [--build-root <repo>]`（libs 走 `Z42_LIBS`）。
-sub-step flag 选粒度，默认无 flag = build + run：
+`z42b test <manifest.json> --rid <device> [--out <dir>] [--project <host>] [--report-dir <dir>]`（libs 走 `Z42_LIBS`，runtime pack 走 `Z42_RUNTIME_DIR`）。
+**z42b 不编原生代码、不认仓库路径**：它消费预编译的 runtime pack（wasm `pkg-web/` / iOS `native/Z42VM.xcframework` /
+Android `native/*.so`，与 `z42 workload install` 同布局），环境变量 `Z42_RUNTIME_DIR` 指定，缺省取 SDK 里已装的。
+xtask 在 `Z42_RUNTIME_DIR` 未设时先从源码编出同形目录（`_buildDeviceRuntime` → `…/tests/runtime`）；
+设了就直接用现成的 pack（如 CI 的 package 产物），并原样传给 z42b。
+sub-step flag 选粒度，默认无 flag = stage + run：
 
 | flag | 语义 |
 |---|---|
-| `--stage-only` | 仅组装 deployable `<out>/{app,libs,bundle}`（`browser-wasm` 额外产 `files.json`）。枚举前按 ordinal 排序保确定序 |
-| `--build` | native 平台构建 + deploy（stage + 平台产物就位）|
-| `--run` | 触发设备 runner + 回收报告 |
+| `--stage-only` | 组装 deployable `<out>/{app,libs,bundle}`（`browser-wasm` 额外产 `files.json`，枚举前按 ordinal 排序保确定序），并把 runtime pack 铺进宿主工程（wasm 则铺进 `<out>`）|
+| `--run` | 触发设备 runner + 回收报告（需 `--project`）|
 
 per-platform driver（`builder_device.z42` 管 wasm；`builder_device_ios.z42`；
 `builder_device_android.z42`）：
 
-| rid | build | run（z42b spawn 原生工具）| report |
+| rid | 原生 runtime（xtask 预备）| run（z42b spawn 原生工具）| report |
 |---|---|---|---|
-| `browser-wasm` | `wasm-pack build --target web` + stage `{app,libs,bundle}` + `files.json` + 拷 pkg/harness | `npx playwright test --config playwright.embedded.config.ts` | playwright 退出码（`run.js` 自断言 `window.__report`）|
-| `ios-arm64` / `iossim-arm64` | cargo × slices（host + device/sim）+ `xcodebuild -create-xcframework` + stage embedded 语料进 XCTest `Resources/embedded` | `xcodebuild test -scheme Z42VM -destination <sim>`（sim UDID 由 `xcrun simctl` 解析；**一次 boot 同跑全部**）| 解析 `Test Case … passed/failed` → `artifacts/reports/tests/ios/junit.xml` |
-| `android-arm64` / `android-x64` | `cargo ndk -t <abi> build --release` → jniLibs（NDK + ABI 由 rid 解析）+ stage 语料进 `androidTest/assets/embedded` | `gradlew :z42vm:connectedAndroidTest`（**一次 emulator run 同跑全部**）| gradle 自产 junit |
+| `browser-wasm` | `wasm-pack build --target web` → `pkg-web/`；z42b 铺进 deployable，xtask 再叠 harness | `npx playwright test --config playwright.embedded.config.ts` | playwright 退出码（`run.js` 自断言 `window.__report`）|
+| `ios-arm64` / `iossim-arm64` | cargo × slices（host + device/sim）+ `xcodebuild -create-xcframework`；z42b stage embedded 语料进 XCTest `Resources/embedded` | `xcodebuild test -scheme Z42VM -destination <sim>`（sim UDID 由 `xcrun simctl` 解析；**一次 boot 同跑全部**）| 解析 `Test Case … passed/failed` → `<--report-dir>/junit.xml` |
+| `android-arm64` / `android-x64` | `cargo ndk -t <abi> build --release` → jniLibs（ABI 由 rid 解析）；z42b stage 语料进 `androidTest/assets/embedded` | `gradlew :z42vm:connectedAndroidTest`（**一次 emulator run 同跑全部**）| gradle 自产 junit |
 
 合法 RID 值域：`host`（默认，in-process）、`browser-wasm`、`ios-arm64`、`iossim-arm64`、
-`android-arm64`、`android-x64`；未知 RID 报错并列出合法值。`--build` / `--run` 需 `--build-root`，
-`--build` 另需 `--out`。
+`android-arm64`、`android-x64`；未知 RID 报错并列出合法值。`--run` 需 `--project`，
+stage 需 `--out`。
 
 xtask 保留**语料发现 / 编译 / 分片**与 native 工具**供给**（node / Xcode / NDK），把单目标的
-build/deploy/run 交给 z42b。**android 是有意的不对称**：emulator 的 AVD 生命周期
+deploy/run 交给 z42b；原生 runtime 的**构建**也留在 xtask。**android 是有意的不对称**：emulator 的 AVD 生命周期
 （boot + 关机）留在 CI action 或本地 `test.sh`，**不进 z42b**——z42b 只管「在一台已经在跑的设备上
 构建并执行」，供给设备本身不是它的职责。
 

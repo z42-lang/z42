@@ -20,23 +20,10 @@ public class WasmBackend : IPlatformBackend {
 
     // ① wasm-pack build → pkg-web/ + pkg-nodejs/ (wasm-bindgen output).
     public int BuildProject(string root) {
-        string? wp = Process.Which("wasm-pack");
-        if (wp == null) {
-            ConsoleError.WriteLine("error: wasm-pack not on PATH (cargo install wasm-pack --locked)");
-            return 1;
-        }
-        // crate 在源码位置编（Cargo.toml 相对依赖 src/runtime）；产物直接输出到宿主副本。
-        string crate = _deviceHostSrc(root, "wasm");
         string host = _deviceHost(root, "wasm");
-
-        Console.WriteLine("  wasm-pack build --target web → " + Path.Join(host, "pkg-web"));
-        int c = _execIn(new Process("wasm-pack").Arg("build").Arg("--target").Arg("web")
-            .Arg("--out-dir").Arg(Path.Join(host, "pkg-web")).Arg("--out-name").Arg("z42_wasm").Arg("--no-typescript"), crate);
+        int c = _wasmPackBuild(root, "web", host);
         if (c != 0) { return c; }
-
-        Console.WriteLine("  wasm-pack build --target nodejs → " + Path.Join(host, "pkg-nodejs"));
-        return _execIn(new Process("wasm-pack").Arg("build").Arg("--target").Arg("nodejs")
-            .Arg("--out-dir").Arg(Path.Join(host, "pkg-nodejs")).Arg("--out-name").Arg("z42_wasm").Arg("--no-typescript"), crate);
+        return _wasmPackBuild(root, "nodejs", host);
     }
 
     // ③ Playwright R1–R7 against pkg-web/. Prefers the hermetic local node
@@ -106,4 +93,21 @@ public class WasmBackend : IPlatformBackend {
         }
         return p;
     }
+}
+
+// wasm-pack build --target <web|nodejs> → <outRoot>/pkg-<target>/（wasm-bindgen 产物；runtime pack 的
+// `pkg-web/` 同形）。crate 在源码位置编
+// （Cargo.toml 相对依赖 src/runtime）；产物直接输出到宿主副本。wasm-pack 在 crate 目录里跑，cargo 找不到
+// src/runtime/.cargo，所以显式传 `--config`（`--` 之后的参数原样交给 cargo）。
+int _wasmPackBuild(string root, string target, string outRoot) {
+    if (Process.Which("wasm-pack") == null) {
+        ConsoleError.WriteLine("error: wasm-pack not on PATH (cargo install wasm-pack --locked)");
+        return 1;
+    }
+    string crate = _deviceHostSrc(root, "wasm");
+    string outDir = Path.Join(outRoot, "pkg-" + target);
+    Console.WriteLine("  wasm-pack build --target " + target + " → " + outDir);
+    return _execIn(new Process("wasm-pack").Arg("build").Arg("--target").Arg(target)
+        .Arg("--out-dir").Arg(outDir).Arg("--out-name").Arg("z42_wasm").Arg("--no-typescript")
+        .Arg("--").Arg("--config").Arg(Path.Join(root, _runtimeCargoConfig())), crate);
 }

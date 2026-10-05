@@ -5,11 +5,11 @@
 //   ② Assets       : fixtures → androidTest/assets/test-fixtures; stdlib → main/assets/stdlib
 //   ③ RunTests     : local emulator-lifecycle harness (test.sh: boot + connectedAndroidTest)
 //
-// z42b-device-run PR-3: the embedded corpus build+deploy (cargo-ndk .so + stage)
-// AND the emulator RUN (gradlew connectedAndroidTest) 下沉 z42b's android driver
-// (builder_device_android.z42). CI drives z42b directly — `test embedded --rid
-// android-x64` (→ z42b --build) + the reactivecircus action's `script` calls z42b
-// --run. This backend's ③ RunTests keeps test.sh for the LOCAL path only: the
+// z42b-device-run PR-3: the embedded corpus staging and the emulator RUN (gradlew
+// connectedAndroidTest) live in z42b's android driver (builder_device_android.z42); the
+// cargo-ndk .so build stays here (_cargoNdkJniLibs) — z42b builds no native code. CI drives
+// it through xtask: `test embedded --rid android-x64` (build .so + z42b --stage-only) and
+// `test embedded --rid android-x64 --run` (→ z42b --run). This backend's ③ RunTests keeps test.sh for the LOCAL path only: the
 // emulator AVD lifecycle (boot/poll/kill) stays out of z42b by design (D2
 // asymmetry — CI's reactivecircus action supplies the emulator; test.sh supplies it
 // locally). Needs cargo-ndk + ANDROID_NDK_HOME + JDK + Android SDK.
@@ -39,33 +39,13 @@ public class AndroidBackend : IPlatformBackend {
             ConsoleError.WriteLine("error: cargo-ndk not found (cargo install cargo-ndk)");
             return 1;
         }
-        // rust crate 在源码位置编；.so 输出到宿主副本的 jniLibs，gradle 也在副本里跑。
         string here = _deviceHost(root, "android");
-        string rustDir = Path.Join(_deviceHostSrc(root, "android"), "rust");
-        string jniLibs = Path.Join(here, "z42vm/src/main/jniLibs");
-
-        string ndk = this._resolveNdk(root);
+        string ndk = _androidNdkDir(root);
         if (ndk.Length == 0) { return 1; }
 
         TomlValue toml = _vparse(root);
         string[] abis = _vgetList(toml, "platform.android.abis");
-
-        // cargo ndk -t <abi> ... -o <jniLibs> build --release   (run in rust/)
-        Process p = new Process("cargo").Arg("ndk");
-        foreach (var abi in abis) { p = p.Arg("-t").Arg(abi); }
-        p = p.Arg("-o").Arg(jniLibs).Arg("build").Arg("--release");
-        // cargo-ndk's C-dep CMake cross-builds (zlib-ng via z42-compression) use
-        // CMake's *built-in* Android toolchain, which locates the NDK via the
-        // ANDROID_NDK / ANDROID_NDK_ROOT env vars — NOT ANDROID_NDK_HOME (which
-        // only cargo-ndk + gradle read). Without these, cmake aborts with
-        // "Neither the NDK nor a standalone toolchain was found", which cascades
-        // into a misleading "unable to find a build program corresponding to
-        // Ninja". Set all three so cmake finds the NDK; the default Unix Makefiles
-        // generator (make from Xcode CLT / build-essential) then works — no Ninja
-        // needed on any platform.
-        p = p.Env("ANDROID_NDK_HOME", ndk).Env("ANDROID_NDK", ndk).Env("ANDROID_NDK_ROOT", ndk);
-        Console.WriteLine("  cargo ndk build --release (ABIs from versions.toml) -> " + jniLibs);
-        int c = _execIn(p, rustDir);
+        int c = _cargoNdkJniLibs(root, abis, Path.Join(here, "z42vm/src/main/jniLibs"));
         if (c != 0) { return c; }
 
         // gradle assembleRelease → z42vm-release.aar
@@ -79,7 +59,7 @@ public class AndroidBackend : IPlatformBackend {
         // are unset, so point gradle at the hermetic SDK (deps install --os
         // android → artifacts/tools/android-sdk). Without this gradle aborts with
         // "SDK location not found".
-        string sdk = this._resolveSdk(root);
+        string sdk = _androidSdkDir(root);
         if (sdk.Length == 0) { return 1; }
         Console.WriteLine("  ./gradlew :z42vm:assembleRelease");
         return _execIn(new Process(gradlew).Arg(":z42vm:assembleRelease")
@@ -93,7 +73,7 @@ public class AndroidBackend : IPlatformBackend {
     // 依赖，零命令面（simplify-xtask-deps, User 裁决 2026-07-07）：在这里检测缺失
     // 并自动安装，绝不由用户手动触发。安装失败 = 测试失败（不吞不跳过）。
     public int RunTests(string root) {
-        string sdk = this._resolveSdk(root);
+        string sdk = _androidSdkDir(root);
         if (sdk.Length == 0) { return 1; }
         if (!File.Exists(Path.Join(sdk, "emulator/emulator"))) {
             TomlValue toml = _vparse(root);
@@ -112,38 +92,72 @@ public class AndroidBackend : IPlatformBackend {
         // test.sh 在宿主副本里跑，不能再按自身位置推仓库根 → 显式告诉它（Z42_ROOT）。
         return _execIn(new Process("bash").Arg("test.sh").Env("Z42_ROOT", root), here);
     }
+}
 
-    // ANDROID_NDK_HOME env, else auto from versions.toml install_root/ndk/<version>.
-    string _resolveNdk(string root) {
-        string env = Environment.GetEnvironmentVariable("ANDROID_NDK_HOME", "");
-        if (env.Length > 0) {
-            if (Directory.Exists(env)) { return env; }
-            ConsoleError.WriteLine("error: ANDROID_NDK_HOME set but not a dir: " + env);
-            return "";
-        }
-        TomlValue toml = _vparse(root);
-        string installRoot = _vget(toml, "build.android.install_root");
-        string ver = _vget(toml, "build.android.ndk.version");
-        string auto = Path.Join(root, Path.Join(installRoot, Path.Join("ndk", ver)));
-        if (Directory.Exists(auto)) { return auto; }
-        ConsoleError.WriteLine("error: NDK not found. Set ANDROID_NDK_HOME or install to " + auto);
+// ANDROID_NDK_HOME env, else auto from versions.toml install_root/ndk/<version>.
+string _androidNdkDir(string root) {
+    string env = Environment.GetEnvironmentVariable("ANDROID_NDK_HOME", "");
+    if (env.Length > 0) {
+        if (Directory.Exists(env)) { return env; }
+        ConsoleError.WriteLine("error: ANDROID_NDK_HOME set but not a dir: " + env);
         return "";
     }
+    TomlValue toml = _vparse(root);
+    string installRoot = _vget(toml, "build.android.install_root");
+    string ver = _vget(toml, "build.android.ndk.version");
+    string auto = Path.Join(root, Path.Join(installRoot, Path.Join("ndk", ver)));
+    if (Directory.Exists(auto)) { return auto; }
+    ConsoleError.WriteLine("error: NDK not found. Set ANDROID_NDK_HOME or install to " + auto);
+    return "";
+}
 
-    // ANDROID_HOME / ANDROID_SDK_ROOT env, else auto from versions.toml install_root.
-    string _resolveSdk(string root) {
-        string env = Environment.GetEnvironmentVariable("ANDROID_HOME", "");
-        if (env.Length == 0) { env = Environment.GetEnvironmentVariable("ANDROID_SDK_ROOT", ""); }
-        if (env.Length > 0) {
-            if (Directory.Exists(env)) { return env; }
-            ConsoleError.WriteLine("error: ANDROID_HOME/ANDROID_SDK_ROOT set but not a dir: " + env);
-            return "";
-        }
-        TomlValue toml = _vparse(root);
-        string installRoot = _vget(toml, "build.android.install_root");
-        string auto = Path.Join(root, installRoot);
-        if (Directory.Exists(auto)) { return auto; }
-        ConsoleError.WriteLine("error: Android SDK not found. Set ANDROID_HOME or run deps install --os android (-> " + auto + ")");
+// ANDROID_HOME / ANDROID_SDK_ROOT env, else auto from versions.toml install_root.
+string _androidSdkDir(string root) {
+    string env = Environment.GetEnvironmentVariable("ANDROID_HOME", "");
+    if (env.Length == 0) { env = Environment.GetEnvironmentVariable("ANDROID_SDK_ROOT", ""); }
+    if (env.Length > 0) {
+        if (Directory.Exists(env)) { return env; }
+        ConsoleError.WriteLine("error: ANDROID_HOME/ANDROID_SDK_ROOT set but not a dir: " + env);
         return "";
     }
+    TomlValue toml = _vparse(root);
+    string installRoot = _vget(toml, "build.android.install_root");
+    string auto = Path.Join(root, installRoot);
+    if (Directory.Exists(auto)) { return auto; }
+    ConsoleError.WriteLine("error: Android SDK not found. Set ANDROID_HOME or run deps install --os android (-> " + auto + ")");
+    return "";
+}
+
+// cargo ndk -t <abi>… -o <outDir> build --release → <outDir>/<abi>/*.so（jniLibs 形）。crate 在源码位置编；cargo-ndk 在 crate 目录里跑，找不到 src/runtime/.cargo，
+// 所以显式传 `--config`。
+int _cargoNdkJniLibs(string root, string[] abis, string outDir) {
+    if (Process.Which("cargo") == null) {
+        ConsoleError.WriteLine("error: cargo not found (https://rustup.rs)");
+        return 1;
+    }
+    if (Process.Which("cargo-ndk") == null) {
+        ConsoleError.WriteLine("error: cargo-ndk not found (cargo install cargo-ndk)");
+        return 1;
+    }
+    string ndk = _androidNdkDir(root);
+    if (ndk.Length == 0) { return 1; }
+    string rustDir = Path.Join(_deviceHostSrc(root, "android"), "rust");
+    string jniLibs = outDir;
+
+    Process p = new Process("cargo").Arg("ndk");
+    foreach (var abi in abis) { p = p.Arg("-t").Arg(abi); }
+    p = p.Arg("-o").Arg(jniLibs).Arg("build").Arg("--release")
+        .Arg("--config").Arg(Path.Join(root, _runtimeCargoConfig()));
+    // cargo-ndk's C-dep CMake cross-builds (zlib-ng via z42-compression) use
+    // CMake's *built-in* Android toolchain, which locates the NDK via the
+    // ANDROID_NDK / ANDROID_NDK_ROOT env vars — NOT ANDROID_NDK_HOME (which
+    // only cargo-ndk + gradle read). Without these, cmake aborts with
+    // "Neither the NDK nor a standalone toolchain was found", which cascades
+    // into a misleading "unable to find a build program corresponding to
+    // Ninja". Set all three so cmake finds the NDK; the default Unix Makefiles
+    // generator (make from Xcode CLT / build-essential) then works — no Ninja
+    // needed on any platform.
+    p = p.Env("ANDROID_NDK_HOME", ndk).Env("ANDROID_NDK", ndk).Env("ANDROID_NDK_ROOT", ndk);
+    Console.WriteLine("  cargo ndk build --release (" + abis.Length.ToString() + " ABI) -> " + jniLibs);
+    return _execIn(p, rustDir);
 }

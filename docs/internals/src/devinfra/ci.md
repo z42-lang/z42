@@ -175,8 +175,7 @@ required check 视同通过。新增 job 时记得加进它的 `needs`。
 - **没有专门的 feature 组合 job**：曾有 `verify-features`（host 上 `cargo check` interp-only / wasm / ios /
   android 四个组合），而后三者 `package-*` 本就在真实目标平台上完整构建；它独有的「interp-only 不含
   cranelift」断言挪进了 `package-wasm`，2026-10-02 删除（drop-feature-matrix）。`.cargo/**` 随之并入
-  `platform` 过滤器（配置在 `src/runtime/.cargo` 与 `src/toolchain/.cargo`：
-  前者由 `src/runtime/**` 覆盖，后者单列 `src/toolchain/.cargo/**`）。
+  `platform` 过滤器（配置只有 `src/runtime/.cargo` 一份，由 `src/runtime/**` 覆盖）。
 
 `test-host` 各腿用 `--skip` 把 stage 卸给并行 job：linux-x64 跳 `stdlib,compiler,vscode`，
 其余 OS 再多跳 `cross-zpkg,bench`（这两者 host 无关，一条腿够了）。Windows 腿不跑
@@ -224,7 +223,7 @@ Swatinem `rust-cache` 用 `shared-key` 跨 job 共享；**一个 key 命中后�
 | `package-host-v2` / `ios-v2` / `android-v2` / `wasm-v2` | 各打包 job | + cdylib / staticlib / 交叉编译 |
 
 ⚠️ target 目录由 `src/runtime/.cargo/config.toml` 重定向到 `artifacts/build/runtime`（toolchain 平台 crate
-走 `src/toolchain/.cargo` → `artifacts/build/toolchain/target`，由 `cache-directories` 一并缓存）。cargo 只从
+经 xtask 显式传 `--config` 共用同一个 target-dir）。cargo 只从
 **cwd** 向上找配置（不看 `--manifest-path`），所以 CI 不直接调 cargo，一律走 `xtask`（它显式传 `--config`）；
 唯一例外是 `bench-pr.yml`：预热 job 不装 SDK、base 侧编的是另一棵树，它们在 `src/runtime` 下跑 cargo。**所有** job 的
 `workspaces` 都要写 `src/runtime -> ../../artifacts/build/runtime`——写裸 `src/runtime` 缓存的是

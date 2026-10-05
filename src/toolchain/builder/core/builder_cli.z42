@@ -75,17 +75,15 @@ SubcommandRouter _builderRoot() {
     test.AddOption("rid", "", "target RID: host (default, in-process) | device (assemble deployable)", "");
     test.AddOption("out", "", "device RID: output dir for the assembled {app,libs,bundle} deployable", "");
     // Device RID sub-steps (z42b-device-run Slice 3). Default (no flag) on a device
-    // RID = build+deploy+run full pipeline; the flags select individual steps for
-    // CI / debug. --stage-only preserves the ②b behaviour (assemble deployable only).
-    test.AddFlag("build", "", "device RID: run the native platform build (wasm-pack / xcframework / cargo-ndk)");
-    test.AddFlag("run", "", "device RID: deploy + run on the device/emulator, collect the report");
-    test.AddFlag("stage-only", "", "device RID: only assemble the {app,libs,bundle} deployable (no build/run)");
-    // --build-root: repo root, so the per-platform driver can locate the native
-    // platform crate (src/toolchain/workload/<plat>/…) for --build/--run. The fleet
-    // orchestrator (xtask) knows the repo layout and passes it; z42b owns the build
-    // invocation logic. Required for --build/--run on a device RID.
-    test.AddOption("build-root", "", "device RID --build/--run: repo root for locating the native platform crate", "");
-    test.AddOption("project", "", "device RID --build/--run: the host project dir to build/run in (default: the platform dir under --build-root)", "");
+    // RID = stage + run; the flags select individual steps for CI / debug.
+    // --stage-only preserves the ②b behaviour (assemble deployable only).
+    test.AddFlag("run", "", "device RID: run on the device/emulator (the deployable + prebuilt native runtime are already in place), collect the report");
+    test.AddFlag("stage-only", "", "device RID: only assemble the {app,libs,bundle} deployable (no run)");
+    // z42b builds no native code and knows no repo layout: the prebuilt platform runtime is a runtime
+    // pack (env Z42_RUNTIME_DIR, default the SDK-installed one) that z42b beds into the host project;
+    // everything else it needs is passed in explicitly.
+    test.AddOption("project", "", "device RID: the host project dir (Playwright page / SwiftPM package / Gradle project) — the runtime pack is bedded into it and --run starts the platform driver there", "");
+    test.AddOption("report-dir", "", "device RID --run (ios): directory to write junit.xml into", "");
     test.AddOption("node-bin", "", "device RID --run: hermetic node bin dir (provisioned by xtask) to prepend to PATH", "");
     test.AddFlag("release", "", "compile-then-test: release profile (default: debug)");
     // --list：只列目标名（一行一个），不编不跑。给**编排方**用 —— xtask 靠它拿到单元清单后
