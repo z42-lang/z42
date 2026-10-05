@@ -22,4 +22,10 @@ smart-punctuation = true
 site-url = "/z42/reference/"
 git-repository-url = "https://github.com/z42-lang/z42"
 edit-url-template = "https://github.com/z42-lang/z42/edit/main/docs/reference/{path}"
-additional-js = ["theme/z42-highlight.js"]
+additional-js = ["theme/z42-highlight.js", "theme/z42-toc.js"]
+
+# 嵌套子页可折叠：level=0 → 有子页的条目默认收起（当前页的祖先自动展开）。
+# 分部标题（# 标题）的折叠由 theme/z42-toc.js 负责。
+[output.html.fold]
+enable = true
+level = 0
