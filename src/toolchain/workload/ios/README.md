@@ -22,7 +22,7 @@ rustup target add aarch64-apple-ios aarch64-apple-ios-sim aarch64-apple-darwin
 ./xtask test platform ios assets
 ```
 
-产物：`Z42VM.xcframework/` (ios-arm64 + ios-arm64_x86_64-simulator + macos-arm64) + `Resources/stdlib/*.zpkg`（无 index——`BundleZpkgResolver` 读各 zpkg 的 NSPC）。详见 [`docs/internals/src/devinfra/build-platforms.md`](../../../../docs/internals/src/devinfra/build-platforms.md)。
+产物（都在宿主工程副本 `artifacts/build/toolchain/workload/ios/tests/host/` 里，不写本目录；xtask / z42b 在副本里跑 `xcodebuild`）：`Z42VM.xcframework/` (ios-arm64 + ios-arm64_x86_64-simulator + macos-arm64) + `Resources/stdlib/*.zpkg`（无 index——`BundleZpkgResolver` 读各 zpkg 的 NSPC）。详见 [`docs/internals/src/devinfra/build-platforms.md`](../../../../docs/internals/src/devinfra/build-platforms.md)。
 
 ## Run tests
 

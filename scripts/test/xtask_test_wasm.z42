@@ -12,7 +12,7 @@ public class WasmBackend : IPlatformBackend {
     public string Name() { return "wasm"; }
 
     public AssetLayout Assets(string root) {
-        string wasmDir = Path.Join(root, "src/toolchain/workload/wasm/platform");
+        string wasmDir = _deviceHost(root, "wasm");
         string[] stdlibDirs = new string[1];
         stdlibDirs[0] = Path.Join(wasmDir, "js/stdlib");
         return new AssetLayout(Path.Join(wasmDir, "js/fixtures"), stdlibDirs, true);
@@ -25,23 +25,25 @@ public class WasmBackend : IPlatformBackend {
             ConsoleError.WriteLine("error: wasm-pack not on PATH (cargo install wasm-pack --locked)");
             return 1;
         }
-        string wasmDir = Path.Join(root, "src/toolchain/workload/wasm/platform");
+        // crate 在源码位置编（Cargo.toml 相对依赖 src/runtime）；产物直接输出到宿主副本。
+        string crate = _deviceHostSrc(root, "wasm");
+        string host = _deviceHost(root, "wasm");
 
-        Console.WriteLine("  wasm-pack build --target web");
+        Console.WriteLine("  wasm-pack build --target web → " + Path.Join(host, "pkg-web"));
         int c = _execIn(new Process("wasm-pack").Arg("build").Arg("--target").Arg("web")
-            .Arg("--out-dir").Arg("pkg-web").Arg("--out-name").Arg("z42_wasm").Arg("--no-typescript"), wasmDir);
+            .Arg("--out-dir").Arg(Path.Join(host, "pkg-web")).Arg("--out-name").Arg("z42_wasm").Arg("--no-typescript"), crate);
         if (c != 0) { return c; }
 
-        Console.WriteLine("  wasm-pack build --target nodejs");
+        Console.WriteLine("  wasm-pack build --target nodejs → " + Path.Join(host, "pkg-nodejs"));
         return _execIn(new Process("wasm-pack").Arg("build").Arg("--target").Arg("nodejs")
-            .Arg("--out-dir").Arg("pkg-nodejs").Arg("--out-name").Arg("z42_wasm").Arg("--no-typescript"), wasmDir);
+            .Arg("--out-dir").Arg(Path.Join(host, "pkg-nodejs")).Arg("--out-name").Arg("z42_wasm").Arg("--no-typescript"), crate);
     }
 
     // ③ Playwright R1–R7 against pkg-web/. Prefers the hermetic local node
     // (artifacts/tools/node, dev) and prepends it to PATH; in CI (no local node)
     // falls back to PATH node/npm/npx from actions/setup-node.
     public int RunTests(string root) {
-        string testsDir = Path.Join(root, "src/toolchain/workload/wasm/platform/tests");
+        string testsDir = Path.Join(_deviceHost(root, "wasm"), "tests");
         string nodeBin  = Path.Join(_toolsDir(root), "node/bin");
         bool localNode  = File.Exists(Path.Join(nodeBin, "node"));
         if (!localNode) {
@@ -66,7 +68,7 @@ public class WasmBackend : IPlatformBackend {
         // self-asserting demo loads pkg-nodejs + invokes Hello.Main + checks
         // stdout=="hello, world". Covers the Node target Playwright (browser)
         // doesn't. Fail-fast: no chromium download needed.
-        string wasmDir = Path.Join(root, "src/toolchain/workload/wasm/platform");
+        string wasmDir = _deviceHost(root, "wasm");
         Console.WriteLine("  node demo/node/run.js (pkg-nodejs smoke)");
         int nc = _execIn(new Process(nodeExe).Arg(Path.Join(wasmDir, "demo/node/run.js")), wasmDir);
         if (nc != 0) { ConsoleError.WriteLine("error: pkg-nodejs node smoke failed"); return nc; }

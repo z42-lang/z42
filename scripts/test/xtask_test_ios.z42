@@ -18,7 +18,7 @@ public class IosBackend : IPlatformBackend {
     public string Name() { return "ios"; }
 
     public AssetLayout Assets(string root) {
-        string here = Path.Join(root, "src/toolchain/workload/ios/platform");
+        string here = _deviceHost(root, "ios");
         string[] stdlibDirs = new string[2];
         stdlibDirs[0] = Path.Join(here, "Resources/stdlib");
         stdlibDirs[1] = Path.Join(here, "Tests/Z42VMTests/Resources/stdlib");
@@ -36,8 +36,9 @@ public class IosBackend : IPlatformBackend {
             ConsoleError.WriteLine("error: cargo not found (https://rustup.rs)");
             return 1;
         }
-        string here = Path.Join(root, "src/toolchain/workload/ios/platform");
-        string manifest = Path.Join(here, "rust/Cargo.toml");
+        // rust crate 在源码位置编；xcframework 输出到宿主副本（SwiftPM 的 binaryTarget 在那里找它）。
+        string manifest = Path.Join(_deviceHostSrc(root, "ios"), "rust/Cargo.toml");
+        string here = _deviceHost(root, "ios");
         string targetDir = _toolchainCargoTargetDir(root);
         string libName = "libz42_platform_ios.a";
 

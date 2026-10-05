@@ -22,11 +22,13 @@ using Std.Cli;
 
 // iossim-arm64 / ios-arm64 driver. `here` = the SwiftPM platform crate root.
 int _runIos(ParseResult r, string manifestPath, string outDir,
-            string libs, string buildRoot, string rid, bool wantBuild, bool wantRun) {
+            string libs, string buildRoot, string host, string rid, bool wantBuild, bool wantRun) {
     if (buildRoot.Length == 0) {
         ConsoleError.WriteLine("z42b test --rid " + rid + " --build/--run: --build-root <repo-root> required"); return 2;
     }
-    string here = Path.Join(buildRoot, "src/toolchain/workload/ios/platform");
+    // `here` = the SwiftPM host package (xcframework lands here; xcodebuild runs here);
+    // the rust crate always builds from the source platform dir under buildRoot.
+    string here = host;
 
     // 1. build (xcframework) + deploy (stage the embedded corpus into Resources).
     if (wantBuild) {
@@ -64,7 +66,7 @@ int _runIos(ParseResult r, string manifestPath, string outDir,
 // both. IPHONEOS_DEPLOYMENT_TARGET pins the C deps (zlib-ng) to the rlibs' min ver
 // = platform.ios.min_ios（builder_pins.z42，xtask 自 versions.toml 生成）.
 int _buildIosXcframework(string buildRoot, string here, string rid) {
-    string manifest = Path.Join(here, "rust/Cargo.toml");
+    string manifest = Path.Join(buildRoot, "src/toolchain/workload/ios/platform/rust/Cargo.toml");
     string targetDir = Path.Join(buildRoot, "artifacts/build/toolchain/target");   // = src/toolchain/.cargo target-dir
     string libName = "libz42_platform_ios.a";
     bool wantDev = (rid == "ios-arm64" || rid.Length == 0);

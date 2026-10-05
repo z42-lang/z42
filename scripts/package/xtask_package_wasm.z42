@@ -19,7 +19,9 @@ using Std.Time;
 int _buildRuntimePackageWasm(string root, string rid, string version, string profile) {
     string cargoTarget = _ridToCargo(rid);
     bool rel = (profile == "release");
-    string wasmRoot = Path.Join(root, "src/toolchain/workload/wasm/platform");
+    // wasm-bindgen 产物（pkg-web / pkg-nodejs）由 `test platform wasm build` 输出到宿主工程副本
+    // （xtask_test_device_host.z42），不在源码平台目录。
+    string bindgenRoot = _deviceHost(root, "wasm");
     string pkgDir = _runtimePkgScaffold(root, rid, version, profile);
     string nativeOut = Path.Join(pkgDir, "native");
 
@@ -31,8 +33,8 @@ int _buildRuntimePackageWasm(string root, string rid, string version, string pro
         ConsoleError.WriteLine("error: rust target " + cargoTarget + " not installed (rustup target add " + cargoTarget + ")");
         return 1;
     }
-    if (!Directory.Exists(Path.Join(wasmRoot, "pkg-web")) || !Directory.Exists(Path.Join(wasmRoot, "pkg-nodejs"))) {
-        ConsoleError.WriteLine("error: " + wasmRoot + "/pkg-web or pkg-nodejs missing — run the wasm-pack build first");
+    if (!Directory.Exists(Path.Join(bindgenRoot, "pkg-web")) || !Directory.Exists(Path.Join(bindgenRoot, "pkg-nodejs"))) {
+        ConsoleError.WriteLine("error: " + bindgenRoot + "/pkg-web or pkg-nodejs missing — run `xtask test platform wasm build` first");
         return 1;
     }
 
@@ -46,14 +48,14 @@ int _buildRuntimePackageWasm(string root, string rid, string version, string pro
 
     // z42_wasm_bg.wasm (the wasm runtime module) + C ABI headers
     Console.WriteLine("  [2/4] z42_wasm_bg.wasm + headers");
-    string wasmBg = Path.Join(wasmRoot, "pkg-web/z42_wasm_bg.wasm");
-    if (!File.Exists(wasmBg)) { ConsoleError.WriteLine("error: " + wasmBg + " missing — run the wasm-pack build first"); return 1; }
+    string wasmBg = Path.Join(bindgenRoot, "pkg-web/z42_wasm_bg.wasm");
+    if (!File.Exists(wasmBg)) { ConsoleError.WriteLine("error: " + wasmBg + " missing — run `xtask test platform wasm build` first"); return 1; }
     File.Copy(wasmBg, Path.Join(nativeOut, "z42_wasm_bg.wasm"));
     _copyAbiHeaders(root, Path.Join(pkgDir, "native/include"));
 
     // pkg-web/ + pkg-nodejs/ (wasm-bindgen output = the runtime binding)
     Console.WriteLine("  [3/4] pkg-web/ + pkg-nodejs/");
-    c = _pkgCopyWasmBindgen(pkgDir, wasmRoot); if (c != 0) { return c; }
+    c = _pkgCopyWasmBindgen(pkgDir, bindgenRoot); if (c != 0) { return c; }
 
     // stdlib libs
     Console.WriteLine("  [4/4] libs/");

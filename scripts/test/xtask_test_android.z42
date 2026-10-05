@@ -22,7 +22,7 @@ public class AndroidBackend : IPlatformBackend {
     public string Name() { return "android"; }
 
     public AssetLayout Assets(string root) {
-        string here = Path.Join(root, "src/toolchain/workload/android/platform");
+        string here = _deviceHost(root, "android");
         string[] stdlibDirs = new string[1];
         stdlibDirs[0] = Path.Join(here, "z42vm/src/main/assets/stdlib");
         return new AssetLayout(Path.Join(here, "z42vm/src/androidTest/assets/test-fixtures"),
@@ -39,8 +39,9 @@ public class AndroidBackend : IPlatformBackend {
             ConsoleError.WriteLine("error: cargo-ndk not found (cargo install cargo-ndk)");
             return 1;
         }
-        string here = Path.Join(root, "src/toolchain/workload/android/platform");
-        string rustDir = Path.Join(here, "rust");
+        // rust crate 在源码位置编；.so 输出到宿主副本的 jniLibs，gradle 也在副本里跑。
+        string here = _deviceHost(root, "android");
+        string rustDir = Path.Join(_deviceHostSrc(root, "android"), "rust");
         string jniLibs = Path.Join(here, "z42vm/src/main/jniLibs");
 
         string ndk = this._resolveNdk(root);
@@ -106,9 +107,10 @@ public class AndroidBackend : IPlatformBackend {
             int ic = _depsInstallAndroidEmulator(false);
             if (ic != 0) { return ic; }
         }
-        string here = Path.Join(root, "src/toolchain/workload/android/platform");
+        string here = _deviceHost(root, "android");
         Console.WriteLine("  bash test.sh  (emulator + connectedAndroidTest; full port → CI change)");
-        return _execIn(new Process("bash").Arg("test.sh"), here);
+        // test.sh 在宿主副本里跑，不能再按自身位置推仓库根 → 显式告诉它（Z42_ROOT）。
+        return _execIn(new Process("bash").Arg("test.sh").Env("Z42_ROOT", root), here);
     }
 
     // ANDROID_NDK_HOME env, else auto from versions.toml install_root/ndk/<version>.

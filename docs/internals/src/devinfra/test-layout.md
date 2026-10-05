@@ -1,6 +1,6 @@
 # 测试用例组织规范
 
-> 对齐：2026-10-02（change `add-test-layout-spec`）｜ 代码：`scripts/test/xtask_test_layout.z42`（本页清单的对账门）、
+> 对齐：2026-10-03（change `stage-device-host-projects`）｜ 代码：`scripts/test/xtask_test_layout.z42`（本页清单的对账门）、
 > `scripts/common/xtask_golden.z42`（golden 语料枚举）、`scripts/test/xtask_test_embedded_corpus.z42`（app 语料）、
 > `scripts/common/xtask_layout.z42`（产物路径）、`src/runtime/src/corelib/platform.rs`（运行期能力集）
 > 相关：[怎么跑测试](testing.md) · [GREEN gate](test-gate.md) · [产物目录布局](artifacts-layout.md) · [跨平台测试](../testing/cross-platform.md)
@@ -214,7 +214,7 @@ bundle 与宿主都是测试输出，各自落在 owner 的 `tests/` 下：
 [产物目录布局 §3](artifacts-layout.md)；路径只在 `scripts/common/xtask_layout.z42` 里定义
 （`_buildMirror` / `_testOut` / `_testOutRootOf`）。
 
-### 6. 在 app 里跑（⏳）
+### 6. 在 app 里跑
 
 **用例编译一次，host 与 app 共用；进包体的东西都在 `artifacts/` 里组装，不写源码树。**
 
@@ -229,19 +229,24 @@ flowchart LR
 
 图里各步的产物都在 `artifacts/build/toolchain/workload/<platform>/tests/` 下，报告落 `artifacts/reports/tests/`。
 
-1. **收集**：只扫 §4 ① 的语料根，再按 §4 ② 与该平台的能力集匹配；分片 `--shard k/n` 与采样规则不变。
-2. **编译**：`.zbc` 与平台无关，直接引用用例自己的测试输出，不为 bundle 重编。
-3. **组 bundle**：bundle 内部继续按用例 ID 镜像 `src/` 路径。
-4. **放进包体**：把平台宿主工程**增量同步**到固定路径的暂存副本，再放入 bundle。增量是为了让
-   Gradle / Xcode 的缓存生效；路径固定是为了能直接用 Android Studio / Xcode 打开它调试。
+1. **收集**：只扫 §4 ① 的语料根；能力匹配在设备上做（§4）；分片 `--shard k/n` 与采样规则不变。
+2. ⏳ **编译**：`.zbc` 与平台无关，应直接引用用例自己的测试输出；目前 bundle 构建仍为每个用例单独编一份。
+3. ⏳ **组 bundle**：bundle 内部按用例 ID 镜像 `src/` 路径；目前是扁平的安全文件名。
+4. **放进包体**：平台宿主工程（Playwright 页面 / SwiftPM 包 / Gradle 工程）里**被 git 跟踪的文件**增量同步到
+   `build/toolchain/workload/<p>/tests/host/`（`_stageDeviceHost`），R1–R7 夹具、stdlib、嵌入 bundle、
+   native 产物（pkg-web / xcframework / jniLibs 里的 .so）都放进这份副本，构建与运行也在副本里做，
+   源码树零写入。增量是为了让 Gradle / Xcode / npm 的缓存继续生效；路径固定是为了能直接用
+   Android Studio / Xcode 打开副本调试。Rust crate 不进副本：它们的 `Cargo.toml` 相对依赖 `src/runtime`，
+   仍从源码位置编，只把产物输出到副本。wasm 的嵌入 deployable 在副本旁边的 `tests/deploy/`。
 
-一条命令完成全部步骤，本地与 CI 相同：
+⏳ 一条命令完成全部步骤，本地与 CI 相同（目前要按 CI 的顺序分步调 `test platform <p> …` 与 `test embedded --rid …`）：
 
 ```bash
 xtask test app <wasm|ios|android|all> [--filter <pat>] [--shard k/n] [--keep-device]
 ```
 
-设备生命周期由 z42b 负责：已有在跑的设备就复用、跑完不关；没有就以 headless 方式启动、跑完关掉。
+⏳ 设备生命周期由 z42b 负责：已有在跑的设备就复用、跑完不关；没有就以 headless 方式启动、跑完关掉
+（目前 Android 模拟器由 CI 的 action 或本地的 `test.sh` 启动）。
 本机不具备的平台（无 Xcode、Linux 无 KVM）报**跳过**并说明原因，不报失败；`all` 跑本机支持的全部平台。
 
 ### 7. 怎么跑
@@ -294,5 +299,6 @@ xtask test app <wasm|ios|android|all> [--filter <pat>] [--shard k/n] [--keep-dev
 
 按顺序推进，每一步一个 PR；完成后删掉本页对应的 ⏳ 标记：
 
-1. **`xtask test app`**：一条命令的 app 流水线、宿主工程暂存、z42b 管理设备生命周期，CI 改调同一条命令。
+1. **`xtask test app`**：一条命令的 app 流水线（含 test agent 的准备）、z42b 管理设备生命周期，CI 改调同一条命令；
+   bundle 引用用例自己的测试输出、内部按用例 ID 镜像。
 2. **工具链测试套件**：`xtask test toolchain` 与对应的 gate stage。

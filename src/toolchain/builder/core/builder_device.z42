@@ -36,6 +36,10 @@ int _runDevice(ParseResult r, string manifestPath, string rid) {
 
     string outDir    = r.GetOption("out");
     string buildRoot = r.GetOption("build-root");
+    // --project: 宿主外壳（Playwright 页面 / SwiftPM 包 / Gradle 工程）在哪里构建与运行。xtask 传的是
+    // build/ 下的暂存副本，源码树零写入；缺省 = --build-root 下的平台目录。Rust crate 不受它影响：
+    // 它们的 Cargo.toml 相对依赖 src/runtime，永远从 --build-root 的源码位置编。
+    string project   = r.GetOption("project");
     string libs      = Environment.GetEnvironmentVariable("Z42_LIBS", "");
 
     if (!_isDeviceRid(rid)) {
@@ -53,13 +57,13 @@ int _runDevice(ParseResult r, string manifestPath, string rid) {
 
     // Per-platform build/run drivers: wasm (PR-1), ios (PR-2), android (PR-3).
     if (rid == "browser-wasm") {
-        return _runWasm(r, manifestPath, outDir, libs, buildRoot, wantBuild, wantRun);
+        return _runWasm(r, manifestPath, outDir, libs, buildRoot, _hostProject(buildRoot, project, "wasm"), wantBuild, wantRun);
     }
     if (rid == "ios-arm64" || rid == "iossim-arm64") {
-        return _runIos(r, manifestPath, outDir, libs, buildRoot, rid, wantBuild, wantRun);
+        return _runIos(r, manifestPath, outDir, libs, buildRoot, _hostProject(buildRoot, project, "ios"), rid, wantBuild, wantRun);
     }
     if (rid == "android-arm64" || rid == "android-x64") {
-        return _runAndroid(r, manifestPath, outDir, libs, buildRoot, rid, wantBuild, wantRun);
+        return _runAndroid(r, manifestPath, outDir, libs, buildRoot, _hostProject(buildRoot, project, "android"), rid, wantBuild, wantRun);
     }
     ConsoleError.WriteLine("z42b test --rid " + rid + ": device build/run not wired for this rid");
     return 2;
@@ -67,8 +71,14 @@ int _runDevice(ParseResult r, string manifestPath, string rid) {
 
 // browser-wasm: build (wasm-pack) → deploy (stage {app,libs,bundle}+files.json +
 // pkg/harness) → run (playwright embedded config) → collect report.
+// The host project dir: --project if given, else the platform dir under the build root.
+string _hostProject(string buildRoot, string project, string platform) {
+    if (project.Length > 0) { return project; }
+    return Path.Join(buildRoot, "src/toolchain/workload/" + platform + "/platform");
+}
+
 int _runWasm(ParseResult r, string manifestPath, string outDir,
-             string libs, string buildRoot, bool wantBuild, bool wantRun) {
+             string libs, string buildRoot, string host, bool wantBuild, bool wantRun) {
     if ((wantBuild || wantRun) && buildRoot.Length == 0) {
         ConsoleError.WriteLine("z42b test --rid browser-wasm --build/--run: --build-root <repo-root> required"); return 2;
     }
@@ -90,9 +100,10 @@ int _runWasm(ParseResult r, string manifestPath, string outDir,
         if (Process.Which("wasm-pack") == null) {
             ConsoleError.WriteLine("z42b: wasm-pack not found (required for browser-wasm build)"); return 1;
         }
-        Console.WriteLine("z42b: wasm-pack build --target web");
+        string pkgWeb = Path.Join(host, "pkg-web");
+        Console.WriteLine("z42b: wasm-pack build --target web → " + pkgWeb);
         ProcessResult wp = new Process("wasm-pack").Arg("build").Arg("--target").Arg("web")
-            .Arg("--out-dir").Arg("pkg-web").Arg("--out-name").Arg("z42_wasm").Arg("--no-typescript")
+            .Arg("--out-dir").Arg(pkgWeb).Arg("--out-name").Arg("z42_wasm").Arg("--no-typescript")
             .WorkingDirectory(wasmCrate).Run();
         if (wp.Stdout.Length > 0) { Console.Write(wp.Stdout); }
         if (wp.Stderr.Length > 0) { ConsoleError.WriteLine(wp.Stderr); }
@@ -100,7 +111,6 @@ int _runWasm(ParseResult r, string manifestPath, string outDir,
 
         int sc = _stageDeployable(Path.GetDirectoryName(manifestPath), agent, libs, outDir, true);
         if (sc != 0) { return sc; }
-        string pkgWeb = Path.Join(wasmCrate, "pkg-web");
         File.Copy(Path.Join(pkgWeb, "z42_wasm.js"), Path.Join(outDir, "z42_wasm.js"));
         File.Copy(Path.Join(pkgWeb, "z42_wasm_bg.wasm"), Path.Join(outDir, "z42_wasm_bg.wasm"));
         string thDir = Path.Join(buildRoot, "src/toolchain/workload/wasm/testhost");
@@ -115,7 +125,7 @@ int _runWasm(ParseResult r, string manifestPath, string outDir,
     // provisioned by xtask, passed via --node-bin / Z42_PW_BROWSERS. Double-read:
     // run.js self-asserts window.__report; z42b collects the pass/fail verdict.
     if (wantRun) {
-        return _runWasmPlaywright(r, buildRoot, outDir);
+        return _runWasmPlaywright(r, host, outDir);
     }
     return 0;
 }
@@ -125,8 +135,8 @@ int _runWasm(ParseResult r, string manifestPath, string outDir,
 // browser cache via Z42_PW_BROWSERS. Exit code = the device run verdict.
 // `outDir`（`--out`）非空 ⇒ 经 Z42_WASM_DEPLOY 告诉 playwright 配置 deployable 在哪（此前配置里写死了
 // `artifacts/build/wasm-test`，布局一挪就断——tidy-test-output-dirs）。
-int _runWasmPlaywright(ParseResult r, string buildRoot, string outDir) {
-    string testsDir = Path.Join(buildRoot, "src/toolchain/workload/wasm/platform/tests");
+int _runWasmPlaywright(ParseResult r, string host, string outDir) {
+    string testsDir = Path.Join(host, "tests");
     string nodeBin  = r.GetOption("node-bin");
     string browsers = Environment.GetEnvironmentVariable("Z42_PW_BROWSERS", "");
     string npx = (nodeBin.Length > 0) ? Path.Join(nodeBin, "npx") : "npx";
