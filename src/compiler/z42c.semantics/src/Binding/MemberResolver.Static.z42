@@ -3,6 +3,7 @@
 // （partial 拆分只为守 code-organization 行数上限），共享 `_tc`。
 namespace Z42.Semantics;
 using Z42.IR;
+using Z42.Syntax;
 
 using Z42.Core;
 
@@ -38,6 +39,89 @@ public sealed partial class MemberResolver {
             return pg;
         }
         return null;
+    }
+
+    // ── 经派生类访问基类静态成员（reject-derived-static-access）────────────────────────────────
+    // 参考手册 static-members.md：`Derived.baseStatic` 与派生类体内裸名引用基类静态成员**不支持**，应写
+    // `Base.x`。此前三种形态都没拦：`B.M()` 与派生类体内裸调 `M()` 经重载决议沿基类链找到 `A.M`、发射端却按
+    // 接收者 / 当前类拼目标 `B.M` ⇒ 编译通过、运行期 MissingSymbolException；`B.T`（静态字段 / 属性）落到
+    // 「把类名当值」那条回落，报出与实情无关的 E0436（「请 using 本文件自己的 ns」）。现在统一报 E0401 并点名声明类。
+
+    // 重载决议沿基类链找到的静态方法是否声明在**基类**上（不是 `ct` 自己的）。
+    // 双重判据：不在 `ct.Methods` 里（impl 块并入的方法在）且声明类名不是 `ct`（导入类展平的方法挂在 `ct` 名下）。
+    internal static bool IsBaseStaticMethod(Z42ClassType ct, MethodSymbol ms) {
+        if (ct == null || ms == null || !ms.IsStatic) { return false; }
+        if (ct.Methods.Get(ms.RegKey) == ms) { return false; }
+        return ms.ContainingTypeName != "" && ms.ContainingTypeName != ct.Name();
+    }
+
+    internal BoundExpr ErrBaseStaticCall(string recvName, MethodSymbol ms, string name, BoundExpr[] args, int argCount, Expr[] rawArgs, TypeEnv env, Span sp) {
+        this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol,
+            "static method `" + name + "` is declared on base class `" + ms.ContainingTypeName + "`, not on `" + recvName
+            + "`; call it through the declaring class: `" + ms.ContainingTypeName + "." + name + "(...)`", sp);
+        args = this._tc._overload.BindArgsToSignature(args, rawArgs, argCount, null, env);
+        return new BoundCall("static", false, null, recvName, name, args, argCount, new Z42ErrorType(), sp);
+    }
+
+    // 类名接收者上找不到静态方法：两处限定静态调用（裸类名 / ns 限定）共用的报错出口。
+    internal BoundExpr NoStaticMethod(Z42ClassType ct, string recvName, string name, BoundExpr[] args, int argCount, Expr[] rawArgs, TypeEnv env, Span sp) {
+        if (!this._tc._overload.LastAmbiguous) {
+            this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol, "no static method `" + name + "` on `" + ct.Name() + "`", sp);
+        }
+        args = this._tc._overload.BindArgsToSignature(args, rawArgs, argCount, null, env);
+        return new BoundCall("static", false, null, recvName, name, args, argCount, new Z42ErrorType(), sp);
+    }
+
+    // `C.x` 在 C 上不是静态成员时的诊断（类名接收者的成员读）。返回 null = 不归这里管，调用方照旧回落：
+    //   · 类名同时是当前类的裸名静态成员（`static Foo Foo;` 里的 `Foo.Bar` —— C# 的 Color Color）；
+    //   · `x` 是嵌套类型（`Outer.Inner...`），或 C 上有同名的非静态成员（实例成员 / 方法组），交给原路径。
+    // `x` 是基类的静态字段 / 属性 ⇒ E0401 点名声明类；C 及其基类上都没有叫 `x` 的成员 ⇒ E0401 no static member。
+    internal BoundExpr StaticMemberMiss(Z42ClassType sct, string clsName, MemberExpr m, TypeEnv env) {
+        if (env.HasClass() && env.Symbols.HasClass(env.CurrentClass())) {
+            Z42ClassType cur = env.Symbols.GetClass(env.CurrentClass());
+            if (MemberResolver._staticMemberOf(cur, clsName)) { return null; }
+        }
+        if (env.Symbols.HasClass(clsName + "+" + m.Name) || env.Symbols.HasInterface(clsName + "+" + m.Name)
+            || env.Symbols.EnumKey(clsName + "+" + m.Name) != null) { return null; }
+        Z42ClassType b = env.Symbols.BaseOf(sct);
+        int hops = 0;
+        while (b != null) {
+            if (MemberResolver._staticMemberOf(b, m.Name)) {
+                this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol,
+                    "static member `" + m.Name + "` is declared on base class `" + b.Name() + "`, not on `" + clsName
+                    + "`; access it through the declaring class: `" + b.Name() + "." + m.Name + "`", m.NameSpan);
+                return new BoundError("base static " + m.Name, new Z42ErrorType(), m.Span);
+            }
+            b = env.Symbols.BaseOf(b);
+            hops = hops + 1;
+            if (hops > 100000) { return null; }
+        }
+        if (sct.Fields.ContainsKey(m.Name) || sct.Methods.ContainsKey(m.Name) || sct.Methods.ContainsKey("get_" + m.Name)) { return null; }
+        if (MemberResolver._hasMethodNamed(sct, m.Name)) { return null; }
+        this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol, "no static member `" + m.Name + "` on `" + clsName + "`", m.NameSpan);
+        return new BoundError("no static member " + m.Name, new Z42ErrorType(), m.Span);
+    }
+
+    // `ct` 自己声明了名为 `name` 的静态字段 / const / 静态属性（本包 FieldSymbol 或跨包静态访问器）。
+    private static bool _staticMemberOf(Z42ClassType ct, string name) {
+        FieldSymbol f = ct.Fields.Get(name) as FieldSymbol;
+        if (f != null) { return f.IsStatic; }
+        MethodSymbol g = ct.Methods.Get("get_" + name) as MethodSymbol;
+        return g != null && g.IsStatic;
+    }
+
+    // 方法表里有没有名为 `name` 的方法（键可能带 arity / 签名后缀 `M$1`）——方法组交给原路径。
+    private static bool _hasMethodNamed(Z42ClassType ct, string name) {
+        int cap = ct.Methods.Capacity();
+        int i = 0;
+        while (i < cap) {
+            if (ct.Methods.UsedAt(i)) {
+                MethodSymbol ms = ct.Methods.ValAt(i) as MethodSymbol;
+                if (ms != null && ms.Name == name) { return true; }
+            }
+            i = i + 1;
+        }
+        return false;
     }
 
     // 类内裸名 → 本类静态成员（C# 语义：裸名 `x` ≡ `C.x`）。局部 / 形参 / 实例字段已由调用方的
