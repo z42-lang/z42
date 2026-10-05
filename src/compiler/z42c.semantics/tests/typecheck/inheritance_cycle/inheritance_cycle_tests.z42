@@ -1,0 +1,110 @@
+// 基类型成环（reject-inheritance-cycle，对齐 C# CS0146 / CS0529）：E0502。
+//
+// 此前零诊断：类环让编译器沿基类链走查时死循环（挂住），类实现自环接口时编译器无声退出。
+// 每个环只报一次，报错后断环 —— 下游 pass 不再挂、不再崩。阴性对照：深链 / 菱形接口不报。
+namespace Z42cSemanticsInheritanceCycleTests;
+
+using Z42.Semantics;
+
+string[] icDiags(string[] srcs) {
+    string[] files = new string[srcs.Length];
+    int f = 0;
+    while (f < srcs.Length) { files[f] = "f" + f.ToString() + ".z42"; f = f + 1; }
+    CompiledModuleZ[] cms = IrDump.BuildPackage(srcs, files, srcs.Length, null, null, false);
+    int total = 0;
+    int m = 0;
+    while (m < cms.Length) { total = total + cms[m].DiagCount; m = m + 1; }
+    string[] r = new string[total];
+    int k = 0;
+    m = 0;
+    while (m < cms.Length) {
+        int j = 0;
+        while (j < cms[m].DiagCount) { r[k] = cms[m].DiagMsgs[j]; k = k + 1; j = j + 1; }
+        m = m + 1;
+    }
+    return r;
+}
+
+string[] icOne(string src) { string[] s = new string[1]; s[0] = src; return s; }
+
+int icCount(string[] srcs, string code) {
+    string[] msgs = icDiags(srcs);
+    int n = 0;
+    int i = 0;
+    while (i < msgs.Length) { if (msgs[i].Contains(code)) { n = n + 1; } i = i + 1; }
+    return n;
+}
+
+int icErrors(string[] srcs) {
+    string[] msgs = icDiags(srcs);
+    int n = 0;
+    int i = 0;
+    while (i < msgs.Length) { if (msgs[i].Contains("E0") || msgs[i].Contains("E1")) { n = n + 1; } i = i + 1; }
+    return n;
+}
+
+// ── 报错 ──────────────────────────────────────────────
+
+[Test]
+void test_class_self_base_reports_E0502() {
+    Assert.Equal(1, icCount(icOne("namespace P;\nclass A : A { }\n"), "E0502"));
+}
+
+[Test]
+void test_two_class_cycle_reports_once() {
+    Assert.Equal(1, icCount(icOne("namespace P;\nclass A : B { }\nclass B : A { }\nvoid F() { A a = new A(); }\n"), "E0502"));
+}
+
+[Test]
+void test_three_class_cycle_with_derived_outsider_reports_once() {
+    // D 不在环上，但从它出发会走进环 —— 只能由环上的类报，D 自己不报、也不能挂住。
+    string src = "namespace P;\nclass D : A { }\nclass A : B { }\nclass B : C { }\nclass C : A { }\nvoid F() { D d = new D(); }\n";
+    Assert.Equal(1, icCount(icOne(src), "E0502"));
+}
+
+[Test]
+void test_generic_class_cycle_reports_E0502() {
+    Assert.Equal(1, icCount(icOne("namespace P;\nclass G<T> : H<T> { }\nclass H<T> : G<T> { }\n"), "E0502"));
+}
+
+[Test]
+void test_class_cycle_across_files_reports_once() {
+    string[] srcs = new string[2];
+    srcs[0] = "namespace P;\nclass A : B { }\n";
+    srcs[1] = "namespace P;\nclass B : A { }\n";
+    Assert.Equal(1, icCount(srcs, "E0502"));
+}
+
+[Test]
+void test_interface_self_base_reports_E0502() {
+    Assert.Equal(1, icCount(icOne("namespace P;\ninterface I : I { }\n"), "E0502"));
+}
+
+[Test]
+void test_two_interface_cycle_reports_once() {
+    Assert.Equal(1, icCount(icOne("namespace P;\ninterface I : J { }\ninterface J : I { }\n"), "E0502"));
+}
+
+[Test]
+void test_class_implementing_cyclic_interface_reports_E0502() {
+    string src = "namespace P;\ninterface I : I { void F(); }\nclass K : I { public void F() { } }\nvoid G() { I i = new K(); i.F(); }\n";
+    Assert.Equal(1, icCount(icOne(src), "E0502"));
+}
+
+// ── 不报 ──────────────────────────────────────────────
+
+[Test]
+void test_deep_class_chain_is_not_a_cycle() {
+    string src = "namespace P;\nclass L0 { public int Top; }\n";
+    int i = 1;
+    while (i <= 40) { src = src + "class L" + i.ToString() + " : L" + (i - 1).ToString() + " { }\n"; i = i + 1; }
+    src = src + "void F() { L40 x = new L40(); x.Top = 1; L0 up = x; }\n";
+    Assert.Equal(0, icErrors(icOne(src)));
+}
+
+[Test]
+void test_diamond_interfaces_are_not_a_cycle() {
+    string src = "namespace P;\ninterface IBase { }\ninterface IA : IBase { }\ninterface IB : IBase { }\ninterface IC : IA, IB { }\n"
+        + "class K : IC { }\nvoid F() { IBase b = new K(); }\n";
+    Assert.Equal(0, icErrors(icOne(src)));
+}

@@ -93,8 +93,7 @@ public sealed partial class MemberResolver {
                 return new BoundError("base static " + m.Name, new Z42ErrorType(), m.Span);
             }
             b = env.Symbols.BaseOf(b);
-            hops = hops + 1;
-            if (hops > 100000) { return null; }
+            hops = SymbolTable.NextBaseHop(hops);
         }
         if (sct.Fields.ContainsKey(m.Name) || sct.Methods.ContainsKey(m.Name) || sct.Methods.ContainsKey("get_" + m.Name)) { return null; }
         if (MemberResolver._hasMethodNamed(sct, m.Name)) { return null; }

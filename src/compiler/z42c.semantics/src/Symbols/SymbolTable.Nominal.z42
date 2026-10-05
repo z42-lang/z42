@@ -82,8 +82,8 @@ public sealed partial class SymbolTable {
         // A4：base 链走查**脱离名字** —— 入口按名字查一次，之后每跳走 `ct.Base` 句柄
         // （数组索引，零哈希）。理由见 `IsSubclassOf` 里的同款注释。
         Z42ClassType ct = this.GetClass(clsName);
-        while (ct != null && hops < 32) {
-            hops = hops + 1;
+        while (ct != null) {
+            hops = SymbolTable.NextBaseHop(hops);
             int i = 0;
             while (i < ct.InterfaceCount) {
                 if (SymbolTable._sameIface(ct.Interfaces, i, targetRef)) { return true; }
@@ -132,9 +132,8 @@ public sealed partial class SymbolTable {
         int targetRef = this._refOfIface(target);
         int qh = 0;
         int qt = count;
-        int guard = 0;
-        while (qh < qt && guard < 256) {
-            guard = guard + 1;
+        // 无需跳数护栏：按名字去重，每个接口最多展开一次 ⇒ 队列有限（接口环在收集期已报 E0502 并断开）。
+        while (qh < qt) {
             string name = queue[qh]; qh = qh + 1;
             // 线性去重：本项此前是否已出现过（含 seeds 里的重复声明）。
             bool dup = false;
@@ -389,8 +388,8 @@ public sealed partial class SymbolTable {
         // 且 A 轴尚未收口（`Resolve` 入口还没建），此处保留直到 A5。
         Z42ClassType ct = this.GetClass(sub);
         int hops = 0;
-        while (ct != null && hops < 64) {
-            hops = hops + 1;
+        while (ct != null) {
+            hops = SymbolTable.NextBaseHop(hops);
             if (!ct.HasBase) { return false; }
             if (SymbolTable._sameRef(ct.Base, targetRef)) { return true; }
             ct = this.BaseOf(ct);   // A5：收敛到唯一出口
@@ -414,8 +413,8 @@ public sealed partial class SymbolTable {
         int targetRef = target.TypeId;
         Z42ClassType ct = sub;
         int hops = 0;
-        while (ct != null && hops < 64) {
-            hops = hops + 1;
+        while (ct != null) {
+            hops = SymbolTable.NextBaseHop(hops);
             if (!ct.HasBase) { return false; }
             if (SymbolTable._sameRef(ct.Base, targetRef)) { return true; }
             ct = this.BaseOf(ct);
@@ -453,5 +452,16 @@ public sealed partial class SymbolTable {
         if (ct.Base != 0) { return this.Intern.At(ct.Base) as Z42ClassType; }   // 零哈希
         if (ct.BaseName == null || ct.BaseName == "") { return null; }
         return this.GetClass(ct.BaseName);
+    }
+
+    // 基类链走查的**跳数护栏**（全部沿 base 链走的循环共用）。合法的链没有层数上限：继承环在收集期就报
+    // E0502 并断开（`SymbolCollector._passRejectBaseCycles`），之后链必然有限。所以走到这么多跳只可能是
+    // 编译器内部错误（某条没断的环 / 名字回落绕回自身）⇒ 抛错。不要换回「到上限就当链到头」——那正是
+    // 深于 32 层的类层次静默丢继承成员、误报 E0402 的来源。
+    public static int NextBaseHop(int hops) {
+        if (hops >= 100000) {
+            throw new Exception("z42c internal: base-class chain walk exceeded 100000 hops — an inheritance cycle was not broken");
+        }
+        return hops + 1;
     }
 }
