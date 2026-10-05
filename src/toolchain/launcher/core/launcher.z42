@@ -17,7 +17,12 @@ using Std.Crypto;          // Sha256 —— 单文件运行的缓存目录按源
 using Z42.Project;   // ManifestLocator / ManifestLoader / BuildLayout —— `z42 run <工程>`
 
 void Main() {
-    _runLauncher(Environment.GetCommandLineArgs());
+    // 清单写错（TOML 语法 / 值类型）⇒ 一行错误 + 退出码 1（同 z42c / z42b），不甩未捕获异常的栈。
+    try { _runLauncher(Environment.GetCommandLineArgs()); }
+    catch (TomlException e) {
+        ConsoleError.WriteLine("z42: invalid manifest: " + e.Message);
+        Environment.Exit(1);
+    }
 }
 
 // ── SDK 布局 ────────────────────────────────────────────────────────────────

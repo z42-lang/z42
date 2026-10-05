@@ -7,12 +7,22 @@ namespace Z42Builder;
 
 using Std.IO;
 using Std.Cli;
+using Std.Toml;
 using Z42.Project;   // ManifestLoader / BuildLayout（clean）
 
 // exe 入口。standalone（`z42vm z42.builder.zbc -- <verb> ...`）与 launcher 透传
 // （`z42 <verb> ...`）都经 Environment.GetCommandLineArgs() 拿到动词起的 argv。
 void Main() {
-    Environment.Exit(_runBuilder(Environment.GetCommandLineArgs()));
+    Environment.Exit(_runBuilderGuarded(Environment.GetCommandLineArgs()));
+}
+
+// 清单写错（TOML 语法 / 值类型）⇒ 一行错误 + 退出码 1（同 z42c build），不甩未捕获异常的栈。
+int _runBuilderGuarded(string[] argv) {
+    try { return _runBuilder(argv); }
+    catch (TomlException e) {
+        ConsoleError.WriteLine("z42b: invalid manifest: " + e.Message);
+        return 1;
+    }
 }
 
 // 入口：launcher 透传的 argv（已去掉 `z42` 前缀的动词起）。

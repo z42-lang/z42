@@ -16,8 +16,15 @@ using Std.Toml;
 public static class ManifestLoader {
 
     /// 从文件路径加载单项目清单。
+    /// 清单写错（TOML 语法 / 值类型）抛 `TomlException`，消息前缀 `<路径>[:行:列]: `——各 CLI 入口接住后
+    /// 原样打印一行，用户不必再从未捕获异常的栈里猜是哪个文件。
     public static ProjectManifest Load(string tomlPath) {
-        return ManifestLoader.ParseText(File.ReadAllText(tomlPath));
+        string text = File.ReadAllText(tomlPath);
+        try { return ManifestLoader.ParseText(text); }
+        catch (TomlException e) {
+            string at = e.Line > 0 ? ":" + e.Line.ToString() + ":" + e.Column.ToString() : "";
+            throw new TomlException(tomlPath + at + ": " + e.Message, e.Line, e.Column);
+        }
     }
 
     /// 从 TOML 文本解析单项目清单（fs-free —— REPL / playground 可复用）。
