@@ -226,6 +226,8 @@ public sealed partial class SymbolTable {
         int lt = n.IndexOf("<");
         if (lt >= 0) { n = n.Substring(0, lt); }
         if (n.IndexOf(".") >= 0) { return ""; }
+        // 本作用域解析得到 ⇒ 不是「缺 using」（调用方在别的原因上失败了，比如把类名当值用）——别指路去 using 本来就可见的 ns。
+        if (this.HasClass(n) || this.HasInterface(n)) { return ""; }
         string ns = "";
         Z42ClassType c = this.Classes.Get(n) as Z42ClassType;
         if (c != null) { ns = c.Namespace; }
