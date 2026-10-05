@@ -1,6 +1,6 @@
 # 测试用例组织规范
 
-> 对齐：2026-10-03（change `stage-device-host-projects`）｜ 代码：`scripts/test/xtask_test_layout.z42`（本页清单的对账门）、
+> 代码：`scripts/test/xtask_test_layout.z42`（本页清单的对账门）、
 > `scripts/common/xtask_golden.z42`（golden 语料枚举）、`scripts/test/xtask_test_embedded_corpus.z42`（app 语料）、
 > `scripts/common/xtask_layout.z42`（产物路径）、`src/runtime/src/corelib/platform.rs`（运行期能力集）
 > 相关：[怎么跑测试](testing.md) · [GREEN gate](test-gate.md) · [产物目录布局](artifacts-layout.md) · [跨平台测试](../testing/cross-platform.md)

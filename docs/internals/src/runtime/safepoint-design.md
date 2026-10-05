@@ -1,9 +1,8 @@
 # 统一 Safepoint / STW 协议（+ 精确 GC 契约）
 
-> **页型**: 决策页 ｜ **状态**: 📋 设计已定 / **未实施**（GC safepoint 本身已实施，见 [gc.md](gc.md)） ｜ **代码**: —
-> **相关**: [gc.md](gc.md) ｜ **对齐**: 2026-09-17
-
-> **状态：DESIGN（GC safepoint 已实施，泛化未实施）** · 创建 2026-06-21
+> **页型**: 决策页 ｜ **代码**: —
+> **相关**: [gc.md](gc.md)
+> 待办：统一 `SafepointRequest`、线程状态模型、精确 GC map、OSR / context 卸载 / hot-reload 三个 handler 尚未实施（GC 专用 safepoint 已实现，见 [gc.md](gc.md)）。
 >
 > 把现有 **GC 专用**的协作轮询 safepoint 泛化成**统一安全点**：GC STW、tier OSR、load-context 卸载、hot-reload 帧迁移**共用一套**。并定义**精确 GC 对 safepoint / codegen 的契约**（GC map 只在安全点有效）。
 >
@@ -11,11 +10,11 @@
 
 ---
 
-## 1. 现状（`gc/safepoint.rs`，add-gc-safepoint 2026-05-20，已实施）
+## 1. 现状（`gc/safepoint.rs`）
 - **协作轮询**：mutator 每次 `check_safepoint` 读 `gc_phase`，GC 要 STW 时 park（condvar + parked 计数）。
-- **节流**：per-thread 计数器，每 N 次（默认 `safepoint_throttle=1024`，env 可调）才真做 Mutex poll → 热循环近零成本。计数器 fast path 是**普通 load/store 递减**（非原子 RMW）——`safepoint_skip` 每-mutator 单写（唯一跨线程写 `force_safepoint` 是 test/embedder-only），故 RMW 原子性对正确性不必要（inline-jit-safepoint-check 2026-08-01）。
+- **节流**：per-thread 计数器，每 N 次（默认 `safepoint_throttle=1024`，env 可调）才真做 Mutex poll → 热循环近零成本。计数器 fast path 是**普通 load/store 递减**（非原子 RMW）——`safepoint_skip` 每-mutator 单写（唯一跨线程写 `force_safepoint` 是 test/embedder-only），故 RMW 原子性对正确性不必要。
 - **两模式**：STW mark+sweep（默认）+ 并发（mutator 跑、写屏障、仅短 STW handshake）。
-- **JIT 插桩**：fast-path 已**内联**（inline-jit-safepoint-check，2026-08-01）——`translate::emit_safepoint_check` 在 5 处 site（function entry / 后向 Br / BrCond / Call·CallIndirect 返回）emit 原生 `load + iadd_imm(-1) + store + brif`，替代 `jit_check_safepoint` helper call（~10ns→~1-2ns）；仅 counter 归零的 slow 分支调 `jit_check_safepoint_slow`。用普通 load/store（非 `atomic_rmw`）是关键：前一版 `atomic_rmw sub` 在 x86_64 Cranelift lowering panic 被 revert，load/store 形式从根因绕开。
+- **JIT 插桩**：fast-path **内联**——`translate::emit_safepoint_check` 在 5 处 site（function entry / 后向 Br / BrCond / Call·CallIndirect 返回）emit 原生 `load + iadd_imm(-1) + store + brif`，替代 `jit_check_safepoint` helper call（~10ns→~1-2ns）；仅 counter 归零的 slow 分支调 `jit_check_safepoint_slow`。用普通 load/store（非 `atomic_rmw`）是关键：`atomic_rmw sub` 在 x86_64 Cranelift lowering 会 panic。
 
 → 机制可用，但**硬绑 GC**（单一 `gc_phase`），且**无显式线程状态**。
 
@@ -81,7 +80,7 @@ z42 追求**精确 GC**。精确的代价/约束**集中在与 safepoint + codeg
 
 ---
 
-## 8. 决策记录（2026-06-21，按讨论推荐采纳，可改）
+## 8. 决策记录
 | # | 决策 | 选择 |
 |---|---|---|
 | D1 轮询模型 | **协作轮询 only + 线程状态**（iOS/wasm 唯一可移植；不引入 signal） |
@@ -93,7 +92,7 @@ z42 追求**精确 GC**。精确的代价/约束**集中在与 safepoint + codeg
 ## 9. 分阶段
 1. `gc_phase` → 泛化 `SafepointRequest{kind,target}`，复用现有停车/握手。
 2. 线程状态模型（InVm/InNative/Parked）+ FFI 边界切换 + pinned 对接。
-3. JIT poll 插桩重做（reverted fast-path）+ OSR entry 点。
+3. JIT poll 插桩接入统一请求 + OSR entry 点。
 4. 精确 GC map：interp/JIT/AOT 发 stack map + 派生指针契约落地。
 5. 接 tier OSR / context teardown / hot-reload 三个 handler。
 

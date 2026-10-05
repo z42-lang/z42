@@ -1,15 +1,12 @@
 # GC TLAB：线程本地分配（chunk 独占）
 
-> 对齐：2026-09-12（change `lazy-var-free-list` 把 `free_lists` 的 purge 从 chunk 回收挪到
-> pop 时校验 —— 总停顿 −24%；`fix-gc-budget-not-enforced` 补 D7 的代价一节；
-> 原 change `add-gc-tlab`，阶段 1–5）。
 > 代码：`gc/tlab.rs`（Tlab + thread-local + arm 门）、`gc/region.rs`（`ChunkClaim` + borrow/retire/reclaim，定长对象/数组）、
 > `gc/var_region.rs`（`VarChunkClaim` + borrow/retire/reclaim，变长字符串/闭包）、
 > `gc/arc_heap/alloc.rs`（fast path）、`gc/safepoint.rs`（retire-on-park）。
 
 ## 为什么
 
-`ArcMagrGC` 是**单一共享堆**，所有 mutator 线程共用一个 `Arc<VmCore>` → 一个堆。改造前分配热路径
+`ArcMagrGC` 是**单一共享堆**，所有 mutator 线程共用一个 `Arc<VmCore>` → 一个堆。无 TLAB 时分配热路径
 （`new` / `Str::new` / …）每个对象都要抢**进程级 region 锁**（`region_object`/`region_array`/`region_var`
 各一把 `Mutex`）。N 个线程并行分配 → 全在这几把锁上排队，并行编译**越多线程越慢**。
 
@@ -64,15 +61,15 @@ flowchart TB
   （ABA 守卫，同 free_list 复用纪律）。
 - **`retire_chunk(claim)`**（锁下）：`initialized[0..next]=true`；`young_list` 批量 push；
   清 `borrowed`。局部未填的尾部槽被放弃（每 safepoint retire ≤ CHUNK_SIZE-1，chunk 全死后整体回收）。
-- **ambient 路径**：strict-OOM / 无 VmContext 线程走旧的**锁下** `Region::alloc`（`ambient_cur` 独立
-  游标，只 grow 全新 chunk，永不碰在借 chunk 的索引——修复了 `next_bump` 的 `ci >= chunks.len()`
+- **ambient 路径**：strict-OOM / 无 VmContext 线程走**锁下**的 `Region::alloc`（`ambient_cur` 独立
+  游标，只 grow 全新 chunk，永不碰在借 chunk 的索引——避免 `next_bump` 的 `ci >= chunks.len()`
   grow 与 borrow 追加同一 `chunks` Vec 的**索引撞车**）。
 
 ### 变长 `VarRegion`（字符串 / 闭包）
 
 - 结构类似，但块是**变长** bump（64KB chunk 内按 footprint 前移 `off`），claim 记
   `{base 裸指针, off, local_blocks}`；retire 把 `local_blocks` append 进 `all_blocks`。
-- **oversized 块**（> chunk）/ **free-list 复用**走旧锁路径（低频，不进 TLAB）。
+- **oversized 块**（> chunk）/ **free-list 复用**走锁路径（低频，不进 TLAB）。
 
 ### ⚠️ size class：四分之一八度，不是 2 的幂
 
@@ -81,14 +78,14 @@ flowchart TB
 这条捷径成立的前提是**一个 class 索引只对应唯一一个 footprint**。改分档规则时这是首要不变量。
 
 分档规则是**每八度 4 档**（32/40/48/56、64/80/96/112、128/160/192/224 …），
-索引编码 `octave << 2 | sub`。原实现是**纯 2 的幂**（索引直接是 `log2(footprint)`），
-2026-09-07 换掉，原因是实测浪费大得离谱：
+索引编码 `octave << 2 | sub`。不用**纯 2 的幂**（索引直接是 `log2(footprint)`），
+因为实测浪费大得离谱：
 
 `z42c.semantics --release --no-incremental` 一次构建里 274 万个活块，逻辑字节
 （头+payload）共 **323.4 MB**，2 的幂分档后实占 **516.4 MB** —— **193.0 MB 是纯取整浪费，
 占进程 RSS 的 17%**。浪费不是均匀摊开的，而是撞在几个恰好越过八度边界的形状上：
 仅 total 落在 257..320 字节的 **293,849** 个块（各占一个 512 字节槽）就吃掉约 59 MB。
-换成四分之一八度后浪费降到 57.9 MB，实测 RSS 未武装 1026.7 → 884.8 MB（**−13.8%**）、
+四分之一八度分档后浪费降到 57.9 MB，实测 RSS 未武装 1026.7 → 884.8 MB（**−13.8%**）、
 武装 256M 预算 818.7 → 736.8 MB（**−10.0%**），指令数与墙钟均持平。
 
 ⚠️ **每八度不能超过 4 档**。bump 与 TLAB 的偏移只按 footprint 前移，其 8 对齐完全依赖
@@ -96,11 +93,11 @@ flowchart TB
 `32 >> 2 = 8` 刚好卡在下限；再细成 8 档步长就变成 4 字节，直接破坏对齐。
 所以理论上更省的 8 档（浪费可降到 34.5 MB）**在当前 16 字节块头下不可取**。
 
-### 变长区的分代（2026-09-08 fix-minor-gc-skips-var-region）
+### 变长区的分代
 
-在此之前，minor GC 只扫两个定长区，`region_var` 完全不参与——而它占 RSS 约 45%，
-只能等 major。同时数组头 tombstone 时把 `array_size_estimate`（含 `elem_storage_bytes()`）
-计进 `freed_bytes`，那些字节却住在变长块里、这一轮并没被回收：**账退了、内存没退**。
+minor GC 同时扫变长区 `region_var`——它占 RSS 约 45%，
+不能只等 major。注意数组头 tombstone 时把 `array_size_estimate`（含 `elem_storage_bytes()`）
+计进 `freed_bytes`，那些字节却住在变长块里、这一轮并没被回收：须防**账退了、内存没退**。
 
 **年龄塞在哪。** `GcBlockHeader` 被 `assert!(size_of == 16)` 钉死，头涨到 24 会把
 180 万个 total 恰好 32 字节的块推进下一个 size class，吐回 15 MB+（见 `class_for` 的实测）。
@@ -129,16 +126,16 @@ tombstone 故意留下陈旧条目，代价是下次 sweep 一次 `is_alive()` �
 ⚠️ **`reclaim_dead_var_chunks` 必须连 `young_list` 一起 purge**（和 `all_blocks` 同一趟）。
 回收的 chunk 会从 offset 0 重新 bump，漏掉的条目会悬垂到下一个占用者身上，被 minor 拿去
 老化或 tombstone。
-（**`free_lists` 自 `lazy-var-free-list`（2026-09-12）起不再在这里 purge** ——
+（**`free_lists` 不在这里 purge** ——
 改为 pop 时校验，见下「free-list 的陈旧条目为什么可以留着」。）
 
-### free-list 的陈旧条目为什么可以留着（lazy-var-free-list, 2026-09-12）
+### free-list 的陈旧条目为什么可以留着
 
-这一趟 purge 原本要对 `free_lists` 做一次 `retain`：**每个条目解引用一次块头**去读它的
+这一趟 purge 若要对 `free_lists` 做一次 `retain`：**每个条目解引用一次块头**去读它的
 `chunk_idx`。那是 `O(堆)` 的活，干的却是 `O(本次回收的 chunk)` 的事 —— 实测
 `z42c.semantics` 上 **142.5 ms / 总停顿 513 ms**（45 次 minor × 最多 123 万条目）。
-`retune-gc-nursery-and-promotion-age` 把 nursery 砍到 16M、回收次数翻了两番之后，
-它变成了单项最大开销。
+nursery 为 16M、回收频繁时，
+它会是单项最大开销。
 
 **为什么可以不扫**：free_lists 里**不可能有悬垂指针**。真正被 `dealloc` 交还内存的只有
 专用（oversized）chunk，而 `tombstone` 对 `OVERSIZED_CLASS` **根本不 push**。
@@ -163,7 +160,7 @@ push 条目时记下当时的值，pop 时对不上就丢弃。
 墙钟 −1.3%。压缩**不做** `shrink_to_fit`：这些表有好几 MB，归还容量要在旧缓冲还活着时
 先分配新的，实测那个尖峰比它还回来的还多。
 
-⚠️ **young 表只在分代模式下维护**（`set_generational`，与 `Region<T>` 的 #524 同款）。
+⚠️ **young 表只在分代模式下维护**（`set_generational`，与 `Region<T>` 同款）。
 这个区有 270 万个块，非分代模式下一张没人消费的表实测多吃 **20 MB** RSS。
 
 **不需要卡表。** 变长块不产生跨代写：`Str` / `ArrayPrim` 是叶子；
@@ -171,11 +168,11 @@ push 条目时记下当时的值，pop 时对不上就丢弃。
 `ClosureData` **创建后不可变**。老数组头经脏卡重新入根后，`trace_children` 里的
 `arr.mark_backing()` 会标记它的元素块——标记覆盖早就完整。
 
-### ⚠️ 陈旧 mark 位曾导致 use-after-free
+### ⚠️ 陈旧 mark 位会导致 use-after-free
 
-同一次改动查出的真缺陷，比上面两条都严重。minor 从不清变长块的 mark 位，
-而 `gen_age_of` 对变长块是瞎的（`Value::Str` 落到 `_ => 0` 恒为「年轻」，
-`Value::Closure` 读的是 **env 的**年龄而非闭包块自己的）：
+minor 必须清变长块 survivor 的 mark 位，且 `gen_age_of` 必须读真实年龄
+（否则 `Value::Str` 落到 `_ => 0` 恒为「年轻」，`Value::Closure` 读的是 **env 的**年龄而非闭包块自己的）。
+否则：
 
 ```
 minor #1: 标记闭包块 → mark 位留着没人清
@@ -186,7 +183,7 @@ minor #2: c.mark() CAS 失败 → just_marked = false → children 不再被追
 
 `Str` / `ArrayPrim` 是叶子，陈旧 mark 只造成一轮浮动垃圾；`Value::Array` 走头节点、
 mark 位被正常清理。**这条只打在 `Closure` 上**——唯一「自身是变长块又有出边」的类型。
-两处同修：`sweep_young` 清 survivor 的 mark 位，`gen_age_of` 读真实年龄（老块不再被推入）。
+两处缺一不可：`sweep_young` 清 survivor 的 mark 位，`gen_age_of` 读真实年龄（老块不再被推入）。
 回归测试 `closure_env_survives_repeated_minors` 锁住它：不修则第 2 轮必红。
 
 **残留（已知、有界）**：从脏卡以老数组头入根时 `mark_backing()` 仍会标记一个**老**元素块，
@@ -196,44 +193,44 @@ minor 不清老块的 mark，该块若随后成为垃圾会多活一个 major �
 `run_cycle_collection_stw`（major）里调。所以 minor 释放的槽只进 free-list 供复用，
 压不下 chunk 高水位。实测 `z42c.semantics` 配 256MB 预算跑分代模式：0 次 major，
 RSS 966 MB，比纯 STW 的 743 MB 还高——老垃圾一次都没被收。这是升级启发式
-（存活率 ≥ `gc-minor-threshold`）从未触发的后果，待 `add-bounded-nursery` 处理。
+（存活率 ≥ `gc-minor-threshold`）从未触发的后果，由 nursery 有界化机制处理。
 
 ### chunk 级回收（D7）
 
 sweep 尾（STW）扫全死 chunk（所有已初始化槽 dead）→ 移入 `free_chunk_pool` 供 borrow 复用。
 短命对象密集 workload（编译器正是）的大头内存靠此回收；**slot 级复用留 Deferred**（见下）。
 
-⚠️ **变长 region 的这一步曾是整个 GC 停顿本身**。`VarRegion` 的块变长，没有「地址 → 槽下标」
-的算术，判某块属于哪个 chunk 只能查地址区间。原实现对 `all_blocks` 里**每个块**线性扫一遍
+⚠️ **变长 region 的这一步若写得不当会是整个 GC 停顿本身**。`VarRegion` 的块变长，没有「地址 → 槽下标」
+的算术，判某块属于哪个 chunk 只能查地址区间。朴素实现会对 `all_blocks` 里**每个块**线性扫一遍
 `chunks`，收尾清理 `all_blocks` / `free_lists` 时又对每块线性扫一遍被回收的区间——两个
 `O(块数 × chunk 数)` 项，且 chunk 数只增不减。实测 `z42c.semantics` 配 128MB 预算，
 `reclaim_dead_var_chunks` 一处占每次停顿的 **92–98%**，并逐周期翻倍（494ms → 975ms →
 1490ms → 3072ms），同期 mark 加两个定长 region 的 sweep 合计只有 15–45ms。
 
-改法是每次回收先按 base 地址排一份 chunk 区间表，之后按块二分（`partition_point`）；
-「是否属于被回收的 chunk」也改成查下标位表而非扫区间。同一形状的平方项 #519 在定长 region
-的 `young_list` 上刚修过一次——**「按块线性扫另一个只增不减的表」是这套 region 代码的惯犯，
+做法是每次回收先按 base 地址排一份 chunk 区间表，之后按块二分（`partition_point`）；
+「是否属于被回收的 chunk」也改成查下标位表而非扫区间。同一形状的平方项在定长 region
+的 `young_list` 上也出现过——**「按块线性扫另一个只增不减的表」是这套 region 代码的惯犯，
 新增每块一次的查找时先问它是不是 O(1)/O(log n)**。
 
 定长 `Region<T>` 的 `reclaim_dead_chunks` 没有这个问题：槽定长，chunk 归属是下标除法。
 
-### per-chunk 普查：「这个 chunk 全死了吗」必须是 O(1)（2026-09-10）
+### per-chunk 普查：「这个 chunk 全死了吗」必须是 O(1)
 
-chunk 回收对每个 chunk 只问两件事：**它有过块吗**、**它还有活块吗**。这两个问题原本都是
-**扫出来**的 —— 定长区逐槽扫（`O(chunk 数 × 256)`），变长区逐块扫 `all_blocks` 并对每块
-**二分查找**归属（`O(块数 × log chunk 数)`）。
+chunk 回收对每个 chunk 只问两件事：**它有过块吗**、**它还有活块吗**。这两个问题若靠
+**扫描**回答 —— 定长区逐槽扫（`O(chunk 数 × 256)`），变长区逐块扫 `all_blocks` 并对每块
+**二分查找**归属（`O(块数 × log chunk 数)`）——代价太高。
 
 实测（`z42c.semantics`，分代模式，后几次大堆 minor，给各段套 `Instant`）：
 
-| 段 | 修前 | 修后 |
+| 段 | 扫描 | 计数器 |
 |---|---|---|
 | `reclaim_dead_var_chunks` | **45–59 ms** | **6–10 ms** |
 | `reclaim_dead_chunks` ×2（定长） | ~6.5 ms | **0.44 ms** |
 | `mark_phase_minor` | ~23 ms | ~25 ms（未动） |
 
-变长区那一个函数原本占 sweep 的 **85%**、整个停顿的约 **60%**。
+扫描方案下变长区那一个函数占 sweep 的 **85%**、整个停顿的约 **60%**。
 
-改法是把两个问题换成**增量维护的计数器**：
+做法是把两个问题换成**增量维护的计数器**：
 
 ```
               分配 / retire                tombstone
@@ -259,11 +256,10 @@ alloc（bump / dedicated / 自由链复用）、`retire_chunk`、`tombstone`、�
 - **入池的 chunk 保留「曾构造」计数** —— 它的槽仍是构造好的（`ChunkClaim::fill` 靠这个
   保留每槽的 tombstone generation，即 ABA 守卫），所以「已在池中」那道 guard 不能删。
 
-⚠️ **顺带一条规律**：普查修完之后定长区还剩 5–9 ms，全是
+⚠️ **顺带一条规律**：普查之后定长区若仍扫描还剩 5–9 ms，全是
 `already_pooled: HashSet` 的构建 + `free_list.retain` 里**每条一次哈希查找**
 （free_list 有几十万条）。换成 `vec![false; chunks.len()]` 之后 **→ 0.44 ms**。
 **GC 里凡是「每元素查一次集合」、而键是 chunk 下标的地方，都该是标志表而不是 HashSet。**
-（同一族的第三次：#519 是 `young_list` 线性扫、#521 是 `chunks` 线性扫。）
 
 **结果**：minor 中位停顿 76.1 → **32.5 ms（−57%）**，最大 152.9 → **88.7 ms（−42%）**；
 STW 98.7 → **58.8 ms（−40%）**。RSS 一分不差（回收的**判定**没变，只是变快了）。
@@ -271,9 +267,9 @@ nursery 终于开始买停顿了（分代中位：32M → 32.5 ms、8M → 27.3 
 新的地板是 `mark_phase_minor` 的 ~25 ms —— **卡是 chunk 粒度的，一个脏 chunk 里
 256 条活条目全部当根**，那是下一个杠杆。
 
-### chunk 的三种归宿（2026-09-08 fix-loh-never-freed）
+### chunk 的三种归宿
 
-sweep 尾的 `reclaim_dead_var_chunks` 现在按 chunk 的**种类**分流，不再只有「入池 / 不动」两种：
+sweep 尾的 `reclaim_dead_var_chunks` 按 chunk 的**种类**分流：
 
 | 条件 | 归宿 | 内存 |
 |---|---|---|
@@ -282,7 +278,7 @@ sweep 尾的 `reclaim_dead_var_chunks` 现在按 chunk 的**种类**分流，不
 | 整块死 & `cap != CHUNK_BYTES`（dedicated chunk） | `dealloc` | **还给分配器** |
 
 **dedicated chunk** 是超过 `CHUNK_BYTES`（64 KB）的块专用的、按 payload 精确定尺的独立
-malloc。在这之前它死后无路可走：`tombstone` 不把 `OVERSIZED_CLASS` 放进任何 free list
+malloc。它死后必须有去处：`tombstone` 不把 `OVERSIZED_CLASS` 放进任何 free list
 （尺寸各异、没有可复用的 size class），`reclaim_dead_var_chunks` 用 `cap != CHUNK_BYTES`
 把它排除在池子外，而全仓唯一的 `dealloc` 在 `VarRegion::drop` 里 ——
 **一个死掉的大对象把内存攥到 VM 退出为止**。
@@ -301,8 +297,7 @@ double free）、`ChunkIndex` 不给它建地址区间、`partition_dead_chunks`
 ~29 B 只增不减，RSS 依然单调增、只是慢三千倍。
 
 ⚠️ **释放会让这一类块失去 generation 守卫**。入池的 chunk 内存还在，陈旧 `VarGcRef`
-解引用读到的是有效块头、`reuse_gen` 对不上 → `resolve` 干净地返回 `None`（#533 那次
-分代崩溃呈现成 `expected string, got Null` 就是这层网兜的）。释放掉的 chunk 没有这层网：
+解引用读到的是有效块头、`reuse_gen` 对不上 → `resolve` 干净地返回 `None`（这类崩溃会被兜成 `expected string, got Null`）。释放掉的 chunk 没有这层网：
 陈旧句柄就是 use-after-free。之所以可接受，是因为块走到这一步的前提是**刚刚那次 sweep
 把它 tombstone 了**（从任何根都不可达），且三个 region 的 sweep 都在 mutator 停住时跑。
 准确的代价表述：**一个标记 bug 在 oversized 块上的现场，从「一个 `Null`」变成「内存损坏」**。
@@ -346,18 +341,18 @@ sequenceDiagram
 
 thread-local `TlabCell { armed: u32, tlab }`（`UnsafeCell`，owner 独占 + alloc 非重入 → 无运行期借用
 检查）。`VmContext::new*` `arm()`、`drop` `disarm()`（嵌套计数）。**无 VmContext 的线程**（cargo 直连
-`ArcMagrGC` 的 GC 单测、任何 VM 起来前的 ambient `Str::new`）**不 arm** → 走旧锁路径 → region 内部
+`ArcMagrGC` 的 GC 单测、任何 VM 起来前的 ambient `Str::new`）**不 arm** → 走锁路径 → region 内部
 单测「alloc 后立即观测存活」行为零变化。
 
 **heap epoch 绑定**：Tlab 记当前借用所属堆的 epoch；`0`=未绑。空 Tlab 首次分配绑定当前堆；若持有他堆
 借用（仅多堆 cargo 测试、不 drop VmContext 就换堆）→ fast path 退回锁路径，不混 region。
 
-## 性能门 / 阶段决策
+## 性能门 / 决策
 
 - **正确性门**（每阶段）：`cargo test --lib gc::`（含 6 线程并发共享堆压力，debug build 每次 collect 跑
   `debug_validate_invariants`）+ 真机自举 byte-identical（TLAB 是纯运行期分配器内部改动，不改
   zbc/zpkg 产物）。
-- **性能门（阶段 4 实测结论，两个层面必须分开看）**：
+- **性能门（实测结论，两个层面必须分开看）**：
 
   **① 分配机制层（微基准 `tlab_alloc_scaling_probe`，本机 24 核，每线程恒定 200k 对象）——TLAB 大幅有效**：
 
@@ -374,7 +369,7 @@ thread-local `TlabCell { armed: u32, tlab }`（`UnsafeCell`，owner 独占 + all
 
   **② 编译器墙钟层——当前看不出来（不是 TLAB 无效，是编译器没充分并行）**：z42.core/z42c.semantics/stdlib
   workspace 串行 vs `--jobs 8/24` **墙钟持平**。根因：当前 z42c 只并行了 **per-file 源读取 + SHA**（`Main.z42`
-  唯一 build-path `ParallelFor.Run`；#333 从 3 处 fan-out 砍到 1 处），parse/typecheck/codegen 仍串行 →
+  唯一 build-path `ParallelFor.Run`），parse/typecheck/codegen 仍串行 →
   并行段太小、Amdahl 受限、也没充分触发并行分配 → 机制层的 4.73× 在墙钟里被稀释成噪声。
 
   **决定**：**不翻 `ParallelConfig` 默认**（编译器墙钟这个「性能门」未转正）。但 TLAB **不是**投机地基——

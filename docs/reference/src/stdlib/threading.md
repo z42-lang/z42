@@ -1,6 +1,5 @@
 # z42.threading —— OS 线程与同步原语
 
-> 对齐：2026-09-17（change `restructure-docs-three-books`）；
 > 包路径 `src/libraries/z42.threading/`；命名空间 `Std.Threading`
 > （`ThreadException` / `ChannelDisconnectedException` 在 `Std`）
 

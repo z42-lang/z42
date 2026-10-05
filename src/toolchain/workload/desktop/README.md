@@ -6,7 +6,7 @@
 ## 职责
 
 桌面(host)平台的 **R1–R7 嵌入契约**测试——一个真实外部 C 消费者链接 `libz42.a`，
-经 Tier-1 C ABI（[`z42_host.h`](../../../../runtime/include/z42_host.h)）跑与 wasm/iOS/Android
+经 Tier-1 C ABI（[`z42_host.h`](../../../runtime/include/z42_host.h)）跑与 wasm/iOS/Android
 facade **同一套 7 场景**。补齐桌面 C-ABI 这条路径在自动化 gate 里的覆盖（此前只有 Rust 级
 `host_tests.rs` 测内部函数，无"链接 libz42.a 的外部程序"端到端）。
 
@@ -27,7 +27,7 @@ facade **同一套 7 场景**。补齐桌面 C-ABI 这条路径在自动化 gate
 ./xtask test platform desktop run      # 只 ③ cc r1_r7.c + 跑
 ```
 
-后端实现 [`scripts/xtask_test_desktop.z42`](../../../../../scripts/xtask_test_desktop.z42)
+后端实现 [`scripts/xtask_test_desktop.z42`](../../../../scripts/test/xtask_test_desktop.z42)
 （`DesktopBackend : IPlatformBackend`）。JUnit → `artifacts/reports/tests/desktop/junit.xml`。
 
 ## R1–R7 契约

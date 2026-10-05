@@ -5,11 +5,11 @@
 
 ## 它解决什么
 
-在此之前，z42 没有任何**在代码里精确指代一个方法**的手段。想拿到一个 `MethodInfo`，只能
+没有 `methodof` 时，z42 没有任何**在代码里精确指代一个方法**的手段。想拿到一个 `MethodInfo`，只能
 `typeof(X).GetMethods()` 再按字符串名筛——重载还筛不开：
 
 ```z42
-// 之前：手写循环按名字筛，两个 Log 重载根本分不开
+// 没有 methodof：手写循环按名字筛，两个 Log 重载根本分不开
 MethodInfo find(Type t, string name) {
     MethodInfo[] ms = t.GetMethods();
     int i = 0;
@@ -19,7 +19,7 @@ MethodInfo find(Type t, string name) {
 ```
 
 痛点在 attribute 场景最尖锐——想让 attribute 记录「这个声明关联哪个函数」（路由表、事件
-注册、序列化字段选择器、测试桩），此前只能塞字符串：
+注册、序列化字段选择器、测试桩），只能塞字符串：
 
 | | `[Route("HandleGet")]` 字符串 | `[Route(methodof(Api.HandleGet(string)))]` |
 |---|---|---|
@@ -77,11 +77,8 @@ methodof(Demo.Api.Handle)              // owner 可以是限定名
 两条都是刻意保持对称的：单给一边加会让两个号称对称的特性行为不一致。
 反射对象**驻留**（让 `ReferenceEquals` 也为真）仍是独立的优化项，要做也两边一起做。
 
-> 📜 **2026-09-25 之前这里只有「对象身份」一条，写着 `typeof(T) == typeof(T)` 为 `false`**，
-> 并把它归因于「没做驻留」——**那个归因是错的**。C# 里 `typeof(int)==typeof(int)`
-> 为真靠的是 **值相等语义**，不是对象缓存；值相等不需要任何驻留、也不引入对象身份语义。
-> 后果是一切按 `typeof` 分派的代码（序列化器的招牌写法）**静默走错分支**。
-> 见 `add-reflection-value-equality`。
+> `typeof(int) == typeof(int)` 为真靠的是 **值相等语义**，不是对象缓存（C# 同）；值相等不需要任何驻留、
+> 也不引入对象身份语义。否则一切按 `typeof` 分派的代码（序列化器的招牌写法）会**静默走错分支**。
 
 ## attribute 里的 `methodof`——为什么 z42 能做而 C# / Java 不能
 

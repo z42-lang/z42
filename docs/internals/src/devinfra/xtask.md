@@ -1,6 +1,6 @@
 # xtask：仓库开发 CLI
 
-> 对齐：2026-09-17（change `restructure-docs-three-books`）｜ 代码：`scripts/xtask.z42`、`scripts/xtask_cli.z42`、`scripts/cli/`、`scripts/common/`
+> 代码：`scripts/xtask.z42`、`scripts/xtask_cli.z42`、`scripts/cli/`、`scripts/common/`
 >
 > 每个子命令的旗标以 `xtask <命令> -h` 为准（帮助文本由路由树自动生成）；逐文件职责表见
 > [`scripts/README.md`](https://github.com/z42-lang/z42/blob/main/scripts/README.md)，本页不复列。

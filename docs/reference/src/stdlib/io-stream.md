@@ -1,6 +1,5 @@
 # z42.io —— 字节流与字符读写器
 
-> 对齐：2026-09-17（change `restructure-docs-three-books`）；
 > 包路径 `src/libraries/z42.io/`；命名空间 `Std.IO`（异常类型在 `Std`）
 
 `Std.IO.Stream` 是所有字节流的统一基类：内存、文件、缓冲、子进程管道、压缩管道
@@ -373,9 +372,8 @@ void Main() {
   误用只能在运行期以 `NotSupportedException` 暴露。
 - **`Stream` 本身仍不实现 `Std.IDisposable`**（只有 `Close()`）⇒ 它还不能直接进 `using`；
   给它加那个接口是独立一条（会新增公开成员）。
-  但 **`TextReader` / `TextWriter` 现在名义实现了 `Std.IDisposable`**
-  （add-using-statement 批 3）⇒ `using (var r = new StreamReader(s)) { ... }` 可用。
-  ⚠️ 旧版本这里写「z42 没有 `using (...)` 语句」—— 那句话在 `using` 语句落地后已作废。
+  但 **`TextReader` / `TextWriter` 名义实现了 `Std.IDisposable`**
+  ⇒ `using (var r = new StreamReader(s)) { ... }` 可用。
 - **没有 async**：不存在 `ReadAsync` / `WriteAsync`。
 - **没有超时旋钮**：`ReadTimeout` / `WriteTimeout` 不存在。
 - **没有 `ObjectDisposedException`**：关闭后的误用要么抛 `InvalidOperationException`，

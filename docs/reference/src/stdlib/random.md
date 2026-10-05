@@ -1,6 +1,5 @@
 # z42.random —— 确定性伪随机数
 
-> 对齐：2026-09-17（change `restructure-docs-three-books`）；
 > 包路径 `src/libraries/z42.random/`；命名空间 `Std.Random`
 
 可复现的伪随机数发生器：给同一个 seed 就得到同一串数。适合测试 fixture、模拟、洗牌、

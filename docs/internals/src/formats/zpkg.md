@@ -1,7 +1,7 @@
 # zpkg 包格式
 
-> **页型**: 参考页 ｜ **状态**: ✅ 已实现（v0.51）｜ **代码**: `src/compiler/z42.package/src/`（`ZpkgWriter.z42` / `ZpkgWriterIndexed.z42` / `ZpkgReader.z42`）
-> **相关**: [zbc 字节码格式](zbc.md) · [工程模型、依赖解析与工作区编译](../compiler/project-model.md) ｜ **对齐**: 2026-10-02
+> **页型**: 参考页｜ **代码**: `src/compiler/z42.package/src/`（`ZpkgWriter.z42` / `ZpkgWriterIndexed.z42` / `ZpkgReader.z42`）
+> **相关**: [zbc 字节码格式](zbc.md) · [工程模型、依赖解析与工作区编译](../compiler/project-model.md)
 
 ## 概述
 
@@ -26,7 +26,7 @@
 
 **flags**：`bit0 (0x01)` Packed、`bit1 (0x02)` Exe、`bit2 (0x04)` SymOnly（`.zsym` sidecar，reader 见此位即拒绝作工程包加载）。
 
-Section 目录同 zbc：每条 12 字节（tag 4B + offset u32 + size u32），首段偏移 `= 16 + sec_count × 12`。reader strict-pin，`major`/`minor` 任一不符即拒绝该文件（**不再静默跳过**，见 [版本](#版本)）。
+Section 目录同 zbc：每条 12 字节（tag 4B + offset u32 + size u32），首段偏移 `= 16 + sec_count × 12`。reader strict-pin，`major`/`minor` 任一不符即拒绝该文件（**不静默跳过**，见 [版本](#版本)）。
 
 ### Section 顺序
 
@@ -93,7 +93,7 @@ tidx_len  u32 + tidx 体      （无测试则 0）
 x86_128）。它只服务增量构建的**变更检测**——「这个 `.z42` 与上次编译时是否一字不差」，纯相等性比较，
 不参与信任决策；Rust 侧 `formats.rs` 只把它当不透明字段存取，从不重算或校验。理由与 [BLID](#blid--build-id)
 同（解释执行下 SHA-256 需 6.38 G 指令 / 800 KB，Murmur3 只需 0.41 G）。算法前缀带在值里：`mmh3:` 与
-2026-09-06 前的 `sha256:` 天然不等 ⇒ 跨版本混用的缓存一次全量失效，正是想要的语义。
+旧的 `sha256:` 天然不等 ⇒ 跨版本混用的缓存一次全量失效，正是想要的语义。
 
 ### FILE — 模块目录（仅 indexed）
 
@@ -122,8 +122,8 @@ zbc_hash       pool idx（散装 zbc 内容 SHA-256，一致性校验）
 `.zsym` **自足**映射「函数名 → 行表」，供离线 `z42d symbolicate` 还原剥离档崩溃栈的
 `at <name>(<types>) +0x<offset>`（offset 打包 `(block<<16)|instr`）为 `file:line:col`。
 
-> **frameName 是 within-minor 33 演进**（add-offline-symbolication, 2026-08-04）：MDBG 只在临时、
-> 每次 release 重生的 `.zsym`（非分发稳定件），写读同版落地，故**不 bump 共享 minor**（依据见
+> **frameName 是 within-minor 演进**：MDBG 只在临时、
+> 每次 release 重生的 `.zsym`（非分发稳定件），写读同版，故**不 bump 共享 minor**（依据见
 > [`docs/internals/src/formats/zpkg.md`](zpkg.md) within-minor 例外）。runtime
 > 加载相邻 .zsym 时按 index merge（跳过 frameName，名来自主包）；z42d 离线时用 frameName 直接查。
 
@@ -136,12 +136,12 @@ zbc_hash       pool idx（散装 zbc 内容 SHA-256，一致性校验）
 > runtime 里没有调用点）。而 z42c 是解释执行的，BLAKE3 在这条路径上贵得离谱——800 KB 输入实测
 > BLAKE3-128 需 6.21 G 指令，MurmurHash3 x86_128 只需 0.41 G（**15×**）。选 x86 而非 x64 变体是因为
 > z42 没有逻辑右移也没有无符号整数：x86 的 lane 是 32 位，用 `long` 承载 + `& 0xFFFFFFFF` 掩码即可
-> 保证值恒非负、`>>` 等价逻辑右移，无需模拟 64 位无符号移位。（2026-09-06 前为 BLAKE3-128。）
+> 保证值恒非负、`>>` 等价逻辑右移，无需模拟 64 位无符号移位。
 >
 > **注意**：indexed 包的散装 `.zbc` 内容哈希（`FILE` 段的 `zbc_hash`）**仍是 BLAKE3-128** ——
 > 那个值 Rust 侧 `loader/artifact.rs` 会**重算校验**，是真的跨语言契约，与本节的 BLID 无关。
 
-### 跨 zpkg `impl` 块传播 — IMPL section + Phase 3 merge（2026-04-26 cross-zpkg-impl-propagation）
+### 跨 zpkg `impl` 块传播 — IMPL section + Phase 3 merge
 
 #### 背景
 
@@ -151,9 +151,9 @@ impl 方法合并进 target class 的 `Methods` 字典 + trait 加到
 的 `int` 实现 `INumber<int>`，下游消费者读 z42.core TSIG 看不到这个 trait
 → `where T: INumber<int>` + `int` 类型实参编译报错。
 
-#### IMPL section（zpkg v0.8）
+#### IMPL section
 
-zpkg 加新 section `IMPL`：每个 ExportedModule 携带本 CU 的 `impl Trait for Type`
+zpkg 的 `IMPL` section：每个 ExportedModule 携带本 CU 的 `impl Trait for Type`
 列表（仅 declarations，方法 body 仍走 MODS section）。
 
 ```
@@ -178,12 +178,12 @@ namespace 索引 —— 一个包内多个 .z42 文件可能共享 namespace（z
 
 ### ImportedSymbolLoader Phase 3
 
-`ImportedSymbolLoader.Load` 由两阶段扩展为三阶段：
+`ImportedSymbolLoader.Load` 分三阶段：
 
 ```
-Phase 1 — 骨架登记                ← 已有
-Phase 2 — 成员填充                ← 已有
-Phase 3 — impl merge (NEW)
+Phase 1 — 骨架登记
+Phase 2 — 成员填充
+Phase 3 — impl merge
   foreach module.Impls:
     targetClass = classes[short_name(impl.TargetFqName)]
     foreach method in impl.Methods:
@@ -197,12 +197,10 @@ Phase 3 — impl merge (NEW)
 
 ### IrGen — QualifyClassName 对齐 imported target
 
-`IrGen.cs` 早先用 `QualifyName(targetNt.Name)` 给 impl 方法注册 funcParams
-和生成方法 body 的 IR 函数符号。当 target 是 imported（如 z42.numerics 给
-z42.core `int` 加方法），这会把方法生成到错误命名空间（`numerics.int.op_Add`
-而非 `Std.Int32.op_Add`），导致 VM `func_index` 注册符号与消费者 VCall 期望
-不一致。修复：改用 `((IEmitterContext)this).QualifyClassName(...)`，imported
-target 走 source namespace，local target 行为不变（等同 QualifyName）。
+`src/compiler/z42c.semantics/src/Emission/IrGen.z42` 用 `QualifyClassName` 给 impl 方法注册 funcParams
+和生成方法 body 的 IR 函数符号：imported target（如 z42.numerics 给
+z42.core `int` 加方法）走 source namespace，生成 `Std.Int32.op_Add`
+而非 `numerics.int.op_Add`，与消费者 VCall 期望的 `func_index` 符号一致；local target 等同 QualifyName。
 
 ### VM 端零改动
 
@@ -214,12 +212,11 @@ section（基于 tag 查找天然跳过未识别 section）。
 
 ### 兼容性
 
-zbc version 0.7 → 0.8。pre-1.0 规则：旧 zbc 不可读，需要 `./xtask build test`
-重生。
+旧版本 zbc 不可读，需要 `./xtask build test` 重生。
 
 ---
 
-## 泛型接口 dispatch — Z42InterfaceType.TypeParams（2026-04-26 fix-generic-interface-dispatch）
+## 泛型接口 dispatch — Z42InterfaceType.TypeParams
 
 > 写出/读取实现：`z42.package/src/ZpkgWriter.z42` 的 IMPL 段 · `ZpkgReader.z42` 按位置挂回 `Impls`。
 
@@ -292,7 +289,7 @@ Strict-pin，与 zbc 同政策；zpkg 版本与 zbc 版本强耦合（当前 0.5
 > `src/compiler/z42.package/src/ZpkgWriter.z42` 的 `ZpkgWriterZ.Minor` 注释，那里逐条记着
 > 「这一版内嵌哪个 zbc、outer 布局有没有变」。bump 时更新的是**上面那句当前配对** + 那条注释。
 
-### 版本失配怎么表现（fix-version-mismatch-diagnosis，2026-09-05）
+### 版本失配怎么表现
 
 Strict-pin 是**双向**的：reader 只认与自己 writer 完全相同的 `major.minor`，比自己**旧**的
 zpkg 同样读不了。所以 **一个 z42vm 与它加载的每一个 `.zpkg` 必须同代**，没有兼容层可退。
@@ -306,9 +303,9 @@ zpkg 同样读不了。所以 **一个 z42vm 与它加载的每一个 `.zpkg` �
 | 依赖 / 命名空间解析出的其它 `.zpkg` | 警告（一个命名空间可能有多个候选，未必致命），但警告文案里点明是版本失配 + 补救命令 |
 | `.zsym` sidecar | 警告（调试符号是可选的，缺了只影响栈回溯可读性） |
 
-改这条之前，`z42.core` 加载失败只是一条 `WARN`，程序照跑，直到很远处才以
+若 `z42.core` 加载失败只是一条 `WARN`，程序照跑，会在很远处才以
 `undefined function Std.IO.Environment.GetCommandLineArgs$0` 这种**完全误导**的形式炸掉
-（比运行时更旧的 VM 上则直接挂死）。典型触发场景：仓库里 `install-z42.sh` 下载的
+（比运行时更旧的 VM 上则直接挂死），故取致命。典型触发场景：仓库里 `install-z42.sh` 下载的
 `.z42/` 种子还停在旧格式，而构建树已经跟着 main 的格式 bump 走到了新版本。
 
 实现：`zbc_reader/versions.rs` 的 `FormatVersionMismatch`（带类型的错误，Display 文案与
@@ -316,18 +313,18 @@ zpkg 同样读不了。所以 **一个 z42vm 与它加载的每一个 `.zpkg` �
 补救命令由错误类型自带：zpkg → `xtask build stdlib`，zbc → `xtask regen`；也可以改用
 `Z42_PORTABLE_VM=<配套的 z42vm>` 反过来迁就产物。
 
-### 有**两个** reader，这条政策要各实现一遍（warn-on-zpkg-version-mismatch，2026-09-22）
+### 有**两个** reader，这条政策要各实现一遍
 
 `.zpkg` 有两个独立的读取实现，走的是完全不同的路径：
 
 | reader | 谁在用 | 什么时候读 |
 |---|---|---|
 | `src/runtime/src/metadata/zbc_reader`（Rust） | z42vm | **运行期**加载包 |
-| `src/libraries/z42.package/src/ZpkgReader.z42`（z42） | z42c / z42b / REPL / 分析工具 | **编译期**跨包扫描（`DepScan.ScanDirs` 把 libsDirs 下所有 `z42.*.zpkg` 当数据盲读） |
+| `src/compiler/z42.package/src/ZpkgReader.z42`（z42） | z42c / z42b / REPL / 分析工具 | **编译期**跨包扫描（`DepScan.ScanDirs` 把 libsDirs 下所有 `z42.*.zpkg` 当数据盲读） |
 
-上一节那套「点名 + 给补救命令」此前**只在 Rust 那边落地**；z42 侧的 `ZpkgReader.Open` 对版本
-失配是一条光秃秃的 `return null`，一个字都不打。后果与上一节描述的一模一样，只是搬到了编译期：
-依赖包被**整包跳过**，而「跳过」不会失败 —— 它在很远的地方以满屏
+上一节那套「点名 + 给补救命令」在 Rust 侧是失败路径；z42 侧的 `ZpkgReader.Open` 对版本
+失配若只 `return null`、一个字都不打，后果与上一节一模一样，只是搬到了编译期：
+依赖包被**整包跳过**，而「跳过」不会失败 —— 它会在很远的地方以满屏
 
 ```
 E0401: undefined: DiagnosticCodes
@@ -335,13 +332,12 @@ E0443: undefined type: Span
 ```
 
 的形态浮出来。**真因是「整个包不见了」，症状却是「你引用了不存在的类型」**，中间没有任何桥。
-实测为此二分过三轮。
 
-现在 z42 侧也在**检测点**点名（`_warnVersionSkew`），三行：跳过了谁 + 它是哪个版本 / 为什么你
+z42 侧因此也在**检测点**点名（`_warnVersionSkew`），三行：跳过了谁 + 它是哪个版本 / 为什么你
 会在别处看到一堆 `undefined` / 怎么修。两点设计取舍：
 
 - **按版本去重**：一个过期的 libs 目录常有几十个同代旧包，逐个报会把真信号淹在噪声里
-  ⇒ 同一个 `<major>.<minor>` 只报一次，并明说同版本的其余包不再重复。
+  ⇒ 同一个 `<major>.<minor>` 只报一次，并明说同版本的其余包不重复报。
 - **只有版本失配会出声**；坏 magic / 长度不足 / SymOnly sidecar 维持静默跳过 —— 那些确实
   可能是无关产物，与 Rust 侧「version mismatch 点名，其余 warn-and-continue」的分界一致。
 

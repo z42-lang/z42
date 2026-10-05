@@ -1,18 +1,16 @@
 # 逃逸分析与栈上分配
 
-> 对齐：2026-09-16（fix-ref-param-escape：`ref`/`out` 出口写回补进逃逸汇点 + golden `opt_all` sidecar）；2026-09-13（fix-stackalloc-misses-inlined-refs：栈 arena 根扫描补上字节内联引用那一半）；2026-09-03（unify-ir-operand-access：规则表兜底改为经统一操作数接口标全部读操作数，代码与本页「铁律」对齐）；2026-08-06（change `add-escape-analysis-stack-alloc` + `add-crossproc-escape-summary` 跨过程参数逃逸摘要）
-> 对齐：2026-09-17（闭包栈分配先例并入本页：三档策略 + 运行时表示 + 编译期分析已消失的现状）
-> 状态：🟡 编译期分析 + IR 标志 + interp 运行时（对象+数组）已实现；JIT 消费与跨过程精度为 future。
-> **闭包**一支只剩运行时表示，编译期不再置标志（见末节）。
+> 待办：JIT 消费（JIT 忽略 `StackAlloc` 标志照常堆分配）、字段敏感 / 标量替换等精度扩展尚未实施。
+> **闭包**一支只有运行时表示，编译期不置标志（见末节）。
 
 z42 的分配（`new Foo(...)` / `new T[n]` / `[a,b,c]`）默认走 GC 堆——region 分配锁 + 标记/清扫追踪
 （profile 实测 interp 热路径 ~7% 在对象/数组分配）。其中相当一部分是**不逃逸的临时对象/数组**：只在
 创建它的函数帧内被读写、从不流出。**逃逸分析**在编译期证明这一点，把这类分配改到**帧局部 arena** 上分配、
 随帧退出即释放、完全绕过 GC。
 
-这条范式 z42 先为**闭包**试过一次（`Value::StackClosure` + `Frame::env_arena`）——运行时那一半至今完整
-保留，但**编译期那一半已经不在了**，所以闭包今天全部堆分配（见末节「闭包栈分配：运行时还在，编译期已停」）。
-本机制把同一范式推广到对象与数组，并且这次把编译期分析做成了一个**可扩展规则**的 pass，以 `OptSet` 位独立开关。
+这条范式也有**闭包**一支（`Value::StackClosure` + `Frame::env_arena`）——只有运行时那一半，
+**编译期不置标志**，所以闭包全部堆分配（见末节「闭包栈分配：运行时还在，编译期已停」）。
+本机制把同一范式用于对象与数组，编译期分析是一个**可扩展规则**的 pass，以 `OptSet` 位独立开关。
 
 ## 总览
 
@@ -70,13 +68,10 @@ CFG」的坑）。
 **铁律（对齐 LICM 的保守姿态）**：规则表**不认识**的指令读了目标 reg → **默认判逃逸**（over-approximate
 安全兜底）。加精度 = 往规则表加/改一条分支，引擎（两趟）不动 —— 这是「后面可补规则」的落点。
 
-> 2026-09-03 校正：unify-ir-operand-access 之前代码的实际兜底是「未列出 = neutral」（与本页铁律相反，靠人工
-> 镜像 `AddReads` 枚举保完整）；现改为经接口标全部读操作数，代码与铁律一致。
-
-### `ref`/`out` 形参的出口写回是逃逸汇点（change `fix-ref-param-escape`，2026-09-16）
+### `ref`/`out` 形参的出口写回是逃逸汇点
 
 **坑在于：callee 的 IR 里根本看不出哪个形参是 `ref`。** 运行时的 `ref`/`out` 走「入口 copy-in / 出口
-copy-out」（`impl-ref-out-in-runtime`）——`exec_function_body` 在入口把持 `Value::Ref` 的参数寄存器解引用成
+copy-out」——`exec_function_body` 在入口把持 `Value::Ref` 的参数寄存器解引用成
 底层值（于是 callee 的 80+ 个指令 handler 完全不必感知 `Ref`），`run_ref_writebacks` 在**每条退出路径**上
 把该寄存器的**终值**存回 caller 的 lvalue。`Param.IsRef` 只影响 **caller** 侧发 `load_local_addr`；callee
 的形参寄存器类型不变、没有任何一条指令把「写回」表达成汇点。
@@ -102,23 +97,22 @@ def 就挡住了所有可能被写回的分配；从未被重定义的参数槽�
 值**是否逃逸」——参数槽事后被重新赋值，与入参值的去向无关；在摘要里一并标，会把 `while (n != null) { n =
 n.Next; }` 这类「循环里推进形参」的常见写法判成参数逃逸，白白让**所有调用方**的实参丢掉栈分配。
 
-**但被 copy 进参数槽的那个值，摘要里必须标逃逸**（Pass A″，fix-release-opt-soundness）。`void Stash(Box p,
-ref Box q) { q = p; }` 发射成 `copy q ← p`：写回 caller 的正是入参 p。摘要此前在 `markRefWriteback=false`
+**但被 copy 进参数槽的那个值，摘要里必须标逃逸**（Pass A″）。`void Stash(Box p,
+ref Box q) { q = p; }` 发射成 `copy q ← p`：写回 caller 的正是入参 p。摘要若在 `markRefWriteback=false`
 时什么都不做 ⇒ 判 p 不逃逸 ⇒ caller 把 `new Box(7)` 栈分配后传进来 ⇒ 经写回落进 caller 的 lvalue、caller
 帧退出后悬垂（`FieldGet: expected object, got Null`）。只标 **copy 的源**：非 copy 的定义（新分配 / 调用结果 /
 字段读）产出的都不是入参值，与「入参是否逃逸」无关；copy 链由 Pass B 往回传。上面那条「推进形参」写法是
 `FieldGet` 定义，不受影响。门：`src/tests/optimization/escape_summary_ref_writeback.z42`（与
 `escape_ref_param_writeback/` 对称：那边 callee 分配，这边 caller 分配）。
 
-> **为什么这个 bug 能活到 release 用户手上**：`--emit-zbc`（golden 用例的编译路径）的默认优化集**减掉了**
-> `StackAlloc`（会改 golden 字节），于是 `src/tests/optimization/escape_*.z42` 整套在门禁里**一次也没开过
-> 逃逸分析**——本页此前写的「专项单测覆盖」从来没被写出来过。同一 change 加了 `opt_all` sidecar
->（`z42c --emit-zbc --opt-all` → `Opt.All`）并给 `src/tests/optimization/` 全体挂上，这类用例才真正开始
+> **为什么这类 bug 会活到 release 用户手上**：`--emit-zbc`（golden 用例的编译路径）的默认优化集**减掉了**
+> `StackAlloc`（会改 golden 字节），于是不带 `opt_all` sidecar 的用例在门禁里**不会开逃逸分析**。
+> `opt_all` sidecar（`z42c --emit-zbc --opt-all` → `Opt.All`）挂在 `src/tests/optimization/` 全体上，这类用例才真正
 > 测它们声称要测的东西。见 `src/tests/README.md` sidecar 表。
 
-### 🔴 `ref` 的调用点不可内联（change `fix-inline-breaks-ref-params`，2026-09-27）
+### 🔴 `ref` 的调用点不可内联
 
-上一节说「callee 的 IR 里根本看不出哪个形参是 `ref`」——**同一条信息缺口还咬了内联器一口，而且更狠**。
+上一节说「callee 的 IR 里根本看不出哪个形参是 `ref`」——**同一条信息缺口也影响内联器，而且更狠**。
 
 `ref` 靠「callee **入口** copy-in / **出口** copy-out」实现。**内联把 callee 帧整个去掉了**
 ⇒ 没有入口做解引用、没有出口做写回 ⇒ 裸 `Value::Ref` 直接流进 body：
@@ -130,7 +124,7 @@ Error: type mismatch in arithmetic: Ref { idx: 0, frame_id: 1 } vs I64(1)
 
 复现源就是仓库自己的 `src/tests/refs/ref_local`（10 行，`void Increment(ref int x) { x = x + 1; }`）。
 **debug 通过、`--release` 必崩**；`--release --no-opt inline` 通过、`-O0 --opt inline` 复现
-⇒ 单变量锁定 Inline。**interp 与 jit 都崩**（不同于 `fix-stackobj-inline-struct-leaf` 那条只崩一侧）。
+⇒ 单变量锁定 Inline。**interp 与 jit 都崩**。
 
 **判据取调用点侧**：实参由**任一取址指令**产生就拒绝内联该调用点 ——
 
@@ -140,8 +134,7 @@ Error: type mismatch in arithmetic: Ref { idx: 0, frame_id: 1 } vs I64(1)
 | `LoadElemAddrInstr` | **数组元素** |
 | `LoadFieldAddrInstr` | **对象字段** |
 
-⚠️ **三种必须全覆盖**：只判第一种时实测 **4/7** 个 refs fixture 转绿，后两种形态照旧崩
-（本仓反复出现的「只做一格漏掉常见形态」）。
+⚠️ **三种必须全覆盖**：只判第一种时实测只有 **4/7** 个 refs fixture 转绿，后两种形态照旧崩。
 
 ⚠️ **既有的「被写形参材料化」救不了它**：`_writtenParamsAll` 给被写形参 emit
 `copy (p+offset), arg[p]`，而那个 arg 装的就是 `Value::Ref` —— 材料化出来的是**一份地址的
@@ -152,11 +145,10 @@ Error: type mismatch in arithmetic: Ref { idx: 0, frame_id: 1 } vs I64(1)
 writeback（正确性更完整、工作量大得多、且大概要动格式）；若将来 `ref` 小函数的内联真成为
 热点，那才是该做的事。与本页「铁律」同一姿态：**宁可少一次机会，不要错**。
 
-**为什么活到今天**：`--emit-zbc`（golden 的编译路径）默认优化集**关掉 Inline**，而 `opt_all`
-sidecar 在 2026-09-27 之前只覆盖 `optimization/` 一个类目 —— `refs/` 类目**一个都没挂**。
-挂上 7 个空文件，7 个用例当场全红。详见 [测试怎么跑](../devinfra/testing.md) 的 `opt_all` 一节。
+**为什么容易漏**：`--emit-zbc`（golden 的编译路径）默认优化集**关掉 Inline**，所以 `refs/` 类目的用例
+须挂 `opt_all` sidecar 才会覆盖到。详见 [测试怎么跑](../devinfra/testing.md) 的 `opt_all` 一节。
 
-### 跨过程参数逃逸摘要（`IrEscapeSummary`，change `add-crossproc-escape-summary`）
+### 跨过程参数逃逸摘要（`IrEscapeSummary`）
 
 **动机**：单函数分析里「传进任何调用的实参」一律判逃逸 → 最常见的「造临时对象传给只读它的辅助函数」
 （`sum += Dist(new Point(i,i))`）享受不到栈分配。跨过程摘要打破这条保守。
@@ -175,7 +167,7 @@ funcName→`ParamFlags(bool[ParamCount])`）。参数槽↔寄存器：`IrFuncti
 → 该实参**保守全标逃逸**。宁可多标绝不漏标（漏标 = 悬垂栈引用）。
 
 **对象的 ctor this-escape 前提**（`_ctorThisEscapes`）：`new Foo(a,b)` 带 `this`(槽0)调 ctor，对象合格需
-ctor 不泄漏 this = 摘要 `table[ctor][0]==false`（跨包/无体/静态 ctor→保守判泄漏）。**这就是原单函数
+ctor 不泄漏 this = 摘要 `table[ctor][0]==false`（跨包/无体/静态 ctor→保守判泄漏）。**这是单函数
 `_ctorLeaksThis` 的推广**——ctor 只是「槽0=this」的普通函数，this-泄漏是槽0逃逸的特例，已并入通用摘要。
 
 **对象完整合格条件**（三者皆满足）：① 结果 reg 本函数内不逃逸（用摘要解析 call 实参）；② 单赋值 temp
@@ -210,7 +202,7 @@ arena 索引在子帧里无意义。**per-thread（per-`VmContext`）arena** 任
 - **访问**：FieldGet/Set、ArrayGet/Set/Len 识别栈句柄 → `ctx.stack_arena` 校验访问。栈对象字段存堆引用
   **不发 GC 写屏障**（栈对象非堆槽；其堆字段由根扫描保活）。
   > ⚠️ **「识别栈句柄」必须覆盖每一个接受堆对象 base 的处理器，不只是 FieldGet/Set**
-  > （`fix-stackobj-inline-struct-leaf`，2026-09-27）——这是本页同一条不变量的**第三例**
+  > ——这是本页同一条不变量的**第三例**
   > （前两例：根扫描的两半、JIT/OSR 的镜像）。
   >
   > `StructFieldGetPrim` / `StructFieldSetPrim`（内联 struct 字段的叶子读写）各有一条
@@ -219,43 +211,37 @@ arena 索引在子帧里无意义。**per-thread（per-`VmContext`）arena** 任
   > 实测形态：**一个带 struct 字段的普通类**，`z42c build --release`（默认 `Opt.All`）后
   > `--mode interp` 运行**必崩**，栈帧指向 ctor 的 `this.Item = t`。
   >
-  > 它活了很久，是三层遮挡刚好叠满：① debug profile 不开优化 ⇒ 没有栈对象；
-  > ② 全部 golden 走**默认 emit-zbc 优化集**（StackAlloc 关），而 `opt_all` 当时的 11 个里
-  > **10 个在 `optimization/`、1 个在 `closures/`** —— `types/`·`generics/`·`classes/` 等
-  > 特性类目**一个都没有**，而优化类目的形状是为触发 pass 挑的，不含「带 struct 字段的
-  > 普通类」；③ **JIT 侧一直是对的** ⇒ jit 泳道两边都绿。
+  > 它容易漏，是三层遮挡叠加：① debug profile 不开优化 ⇒ 没有栈对象；
+  > ② golden 走**默认 emit-zbc 优化集**（StackAlloc 关），只有挂 `opt_all` 的用例才覆盖，
+  > 而优化类目的形状是为触发 pass 挑的，不含「带 struct 字段的普通类」；③ **JIT 侧是对的** ⇒ jit 泳道两边都绿。
   > 「两个后端只有一个错」是现有门禁最难发现的形状。
   >
   > 判据落在 `src/tests/optimization/stackalloc_inline_struct_field/`（带 `opt_all`，覆盖
   > prim 叶子读写 / **引用叶子**读写 / copy-out / 值语义传参）+ 单测
   > `stack_object_inline_struct_field_roundtrips`。两个 ref 分支都实测过是活码
   > （逐个插 `bail!` 确认被触达，不是写了不跑的代码）。
-  **字段访问接单态 inline cache（`opt-stack-field-ic`）**：栈对象 FieldGet/FieldSet **复用堆路径同款
+  **字段访问接单态 inline cache**：栈对象 FieldGet/FieldSet **复用堆路径同款
   `FieldIC`**（缓存 `TypeId→slot`）——`type_desc.id` 已解析、`field_index` 按类型定 slot，故 `(TypeId→slot)`
   缓存对堆/栈**同一份有效**。命中即直接 `slots[slot]`，跳过每访问一次的 `field_index` 字符串哈希查找。
-  > 修正早期"栈访问非热路径、直接 hashmap 即可"的判断：对象**传进 callee 反复读字段**时哈希查找主导，使
+  > 栈访问并非「非热路径、直接 hashmap 即可」：对象**传进 callee 反复读字段**时哈希查找主导，使
   > 栈分配在该模式下反被堆（有 IC）反超；接 IC 后栈字段访问≈堆。实测密集字段访问 8M：**interp +5%**（jit
   > 不受影响——JIT 忽略 flag、对象走堆、本就用堆 IC）。
 - **生命期（LIFO 截断）**：帧入栈 `push_frame` 记录 arena 长度基线（`VmFrame::stack_obj_base/arr_base`）；
   帧退出 `pop_frame` 截断回基线，bulk-free 该帧的栈分配。嵌套（对象 ctor 里再 `new`）自然 LIFO 正确。
 - **GC**：`Value` 的 `trace_children` 视栈句柄为叶；外部根扫描器在 safepoint 扫 `ctx.stack_arena` 每个栈
   对象的字段 / 栈数组的 elems 作根（它们可能持堆 GcRef，必须保活）。arena 锁从不跨 GC 触发持有 → 不死锁。
-  > ⚠️ **「栈对象的字段」是两半，缺一即悬垂**（`fix-stackalloc-misses-inlined-refs`，2026-09-13）：
-  > `unify-object-byte-layout` PR-3 chunk 2b 把**直接的 object/array 字段**从引用侧表 `refs` 挪进
-  > `bytes` 里的 8B 内联指针。堆一侧的 `Value::visit_gc_children` 同时读两半（`refs()` +
-  > `trace_inline_refs`），而 `StackArena::scan_roots` 长期只读 `refs`——于是**一个不逃逸对象的数组字段
-  > 不被任何根覆盖**：minor 在其 owner 还活着时就把它扫了，槽位复用后旧句柄静默解析到新住户
-  > （`GcRef::entry_ref` 的 generation/alive 守卫报 `use-after-finalize` panic；自
-  > `fix/gc-entry-ref-release-uaf-guard` 起该守卫无条件生效，debug 与 release 均 panic——
-  > 此前 release 用 `debug_assert!` 会静默答错对象）。
-  > 现场就是 `xtask test` 自己：13 个 stage 全绿之后，耗时汇总死在自己的 `long[]` 上
-  > （`long[]` 读出一个 `Char`）。**新增任何「对象引用存放位置」的表示，必须同时更新堆遍历与每个
+  > ⚠️ **「栈对象的字段」是两半，缺一即悬垂**：
+  > **直接的 object/array 字段**存在 `bytes` 里的 8B 内联指针（不在引用侧表 `refs`）。堆一侧的 `Value::visit_gc_children` 同时读两半（`refs()` +
+  > `trace_inline_refs`），而 `StackArena::scan_roots` 若只读 `refs`——**一个不逃逸对象的数组字段
+  > 就不被任何根覆盖**：minor 在其 owner 还活着时就把它扫了，槽位复用后旧句柄静默解析到新住户
+  > （`GcRef::entry_ref` 的 generation/alive 守卫报 `use-after-finalize` panic；该守卫无条件生效，
+  > debug 与 release 均 panic）。**新增任何「对象引用存放位置」的表示，必须同时更新堆遍历与每个
   > arena 根扫描**——两者是同一条不变量的两个端点。
 - **JIT（新分配）**：读得进新 zbc 的 `StackAlloc` 标志但**忽略**——`ObjNew`/`ArrayNew` 照常堆分配
   （`translate.rs` "JIT ignores stack_alloc in v1"）。interp-first（准则 1）：优化只服务无 Cranelift
   兜底的 interp；`interp==jit` 靠「输出相同、表示不同」成立。
-- **JIT（OSR 继承的栈句柄）—— 必须处理**：⚠️ 曾误以为"一个对象整个生命期在同一引擎内 → JIT 永不遇到栈
-  句柄"。**错**：**OSR 是函数中途 interp→JIT 切换**（`add-osr-loop-tiering`，`from_interp_regs` 拷
+- **JIT（OSR 继承的栈句柄）—— 必须处理**：⚠️ 不能以为"一个对象整个生命期在同一引擎内 → JIT 永不遇到栈
+  句柄"：**OSR 是函数中途 interp→JIT 切换**（`from_interp_regs` 拷
   `frame.regs`）。若 interp 段在**循环外**已栈分配一个对象/数组（`Value::StackObject/StackArray` 存于
   `frame.regs`），回边 OSR 进 JIT 后 JIT 代码会**继承并访问**该句柄。故 JIT 的字段/元素 helper
   **必须**镜像 interp 处理栈句柄：`jit_field_get`/`jit_field_set`（对象，复用 FieldIC、栈槽无 write
@@ -263,8 +249,7 @@ arena 索引在子帧里无意义。**per-thread（per-`VmContext`）arena** 任
   臂，经 `ctx.stack_arena` 解析。原生内联字段/元素快路径的 hoist（`jit_obj_field_slot` /
   `jit_array_data_opt`）对非堆 receiver 返回 sentinel（`off=-1` / `ptr=null`）→ 路由到冷 helper，故修
   helper 即全覆盖。**漏这条 = OSR 下 `FieldGet/FieldSet/ArraySet…: expected object/array, got Stack*`
-  崩**（默认 OSR 阈值高、`--release` 才开逃逸分析 → 平时 latent；见
-  `fix-jit-osr-stackarray` #204 数组侧 / `fix-jit-osr-stackobject` 对象侧）。
+  崩**（默认 OSR 阈值高、`--release` 才开逃逸分析 → 平时 latent）。
 
 ### 诊断（栈分配出错要能第一时间知道）
 
@@ -280,7 +265,7 @@ arena 索引在子帧里无意义。**per-thread（per-`VmContext`）arena** 任
 
 ## 闭包栈分配：运行时还在，编译期已停
 
-闭包是这条范式的**先例**（change `impl-closure-l3-escape-stack`，2026-05-02）。它的现状与对象/数组
+闭包是这条范式的**先例**。它的现状与对象/数组
 那一半很不一样，必须写清楚，否则读代码会得出相反的结论。
 
 ### 三档策略（设计意图）
@@ -299,8 +284,8 @@ arena 索引在子帧里无意义。**per-thread（per-`VmContext`）arena** 任
 设计上的决策算法是：泛型形参 → 档 B；具体函数类型形参且不逃逸 → 档 A；字段赋值 / 集合插入 / 返回值
 → 档 C；`var` 绑定 → 分析后递归归类；判不出来 → 档 C（保守）。
 
-**今天只有档 C 是活的。** 档 A 曾有过一个子集实现、档 B 曾有过一个 alias 子集实现，两者的编译器侧
-都已经不在仓库里（见下）。这意味着上表除了最后一列，当前全部是**意图**而非现状。
+**只有档 C 是活的。** 档 A、档 B 的编译器侧都不在仓库里（见下）。
+这意味着上表除了最后一列，全部是**意图**而非现状。
 
 ### 编译器侧：三个发射点全部写死 `false`
 
@@ -311,16 +296,13 @@ arena 索引在子帧里无意义。**per-thread（per-`VmContext`）arena** 任
 - `ExprEmitter.z42:356`（lambda 字面量）
 - `CallEmitter.z42:504`（合成 thunk）
 
-原来置位的那个 pass —— `ClosureEscapeAnalyzer`（TypeChecker 后置 pass：找 `var x = lambda;` 候选 →
-扫函数体确认所有对 `x` 的引用都在 `BoundCall.Receiver` 位 → 写进 `SemanticModel.StackAllocClosures`
-→ Codegen 透传）——**连同 `SemanticModel.StackAllocClosures` 一起已从 `src/` 全数消失**（两个名字
-全仓零命中）。所以 `Value::StackClosure` 在今天的编译产物里**永不出现**。
+没有置位闭包 `StackAlloc` 的 pass（`ClosureEscapeAnalyzer`、`SemanticModel.StackAllocClosures`
+在 `src/` 里零命中）。所以 `Value::StackClosure` 在今天的编译产物里**永不出现**。
 
-同样消失的还有档 B 的 alias 子集：`TypeEnv._funcAliases`（把 `var f = Helper;` 折成 `Call "ns.Helper"`
-的别名表）零命中。`var f = Helper;` 今天走的是 `ExprTyper.z42:104` 的 `BoundFuncRef` →
+档 B 的 alias 折叠也不存在（`TypeEnv._funcAliases` 零命中）。`var f = Helper;` 走的是 `ExprTyper.z42:104` 的 `BoundFuncRef` →
 `ExprEmitter.z42:194-199` 的 `LoadFn`，是一个**函数指针值**，调用点仍是 `CallIndirect`——不是别名折叠。
 
-> 这两件事一起说明：本页开头说的「先为闭包落地过」只对**运行时**成立。要复活闭包栈分配，正确的做法
+> 闭包栈分配只有**运行时**那一半。要启用它，正确的做法
 > 不是重写 `ClosureEscapeAnalyzer`，而是把闭包接进本页的 `IrEscapeAnalysis`——`MkClos` 已经在规则表里
 > （「所有捕获 reg 入种子」），缺的只是「`MkClos` 的**结果** reg 不逃逸时置 `StackAlloc`」这一条消费规则。
 
@@ -335,8 +317,8 @@ arena 索引在子帧里无意义。**per-thread（per-`VmContext`）arena** 任
   （`exec_call.rs:356-361`）——arena 里是裸 `Vec`，而 callee 的生命周期必须独立于 caller 帧，
   否则 caller 弹栈后就是 use-after-free。callee 因此完全不区分栈闭包与堆闭包。
   （对比 `Value::Closure`：堆闭包直接把已有的 env `GcRef` 交给 callee，引用计数 +1，零拷贝。）
-- **GC 根**：⚠️ **不存在** `VmContext::env_arena_stack`。`unify-frame-chain`（2026-05-10）把
-  `exec_stack` / `env_arena_stack` / `call_stack` 三个平行栈合并成单一的 `Vec<VmFrame>`
+- **GC 根**：⚠️ **不存在** `VmContext::env_arena_stack`：
+  `exec_stack` / `env_arena_stack` / `call_stack` 三个栈是单一的 `Vec<VmFrame>`
   （`exception/mod.rs:43`），push/pop 同步、没人能「只忘一半」。根扫描经 `VmFrame.env_arena`
   裸指针遍历每个 env 的每个 `Value`（`vm_context/construct.rs:318-324` 与 `394-400` 两处，
   分别对应两种 visitor 签名）。
@@ -360,7 +342,6 @@ reference 那条「循环变量每次迭代是新绑定」的语义**由值快�
 ## 判定与扩展（后续可补规则）
 
 同一「规则表 + 引擎」框架的 future 扩展（引擎不动，改规则 / 加运行时分支）：
-- **跨过程参数逃逸摘要**（模块不动点）：让方法调用后仍不逃逸的对象合格（放宽 ctor 单函数摘要 + IsInstance）。
 - **字段敏感 / 部分逃逸**。
 - **标量替换**（把对象炸成寄存器彻底消除分配）作第二种 lowering。
 - **JIT 侧 arena 落地**。

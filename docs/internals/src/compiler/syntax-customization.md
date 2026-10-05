@@ -1,28 +1,26 @@
 # 语法定制：三层配置机制
 
-> **页型**: 决策页 ｜ **状态**: 🟡 **第 1、2 层已实施 / 第 3 层未实施** ｜ **代码**: `src/libraries/z42c.core/src/LanguageFeatures.z42`（特性表）· `src/libraries/z42c.syntax/src/ParseTable.z42`（规则表）
-> **相关**: [源代码编译流程](source-compile.md) · [架构总览](architecture.md) · [工程模型、依赖解析与工作区编译](project-model.md) · [元编程 / 宏](metaprogramming.md) · [脚本化 charter（未实施）](scripting-charter.md) ｜ **对齐**: 2026-09-26
+> **页型**: 决策页 ｜ **代码**: `src/compiler/z42c.core/src/LanguageFeatures.z42`（特性表）· `src/compiler/z42c.syntax/src/ParseTable.z42`（规则表）
+> **相关**: [源代码编译流程](source-compile.md) · [架构总览](architecture.md) · [工程模型、依赖解析与工作区编译](project-model.md) · [元编程 / 宏](metaprogramming.md) · [脚本化 charter（未实施）](scripting-charter.md)
+> **待办**: 第 3 层（`using syntax` 指令与 `operator` / `keyword` 用户声明）未实施
 
-> **现状（2026-09-26 复核）**：第 1 层（含配置来源①）与第 2 层已落地，第 3 层仍未动。
+> **现状**：第 1 层（含配置来源①）与第 2 层已实现，第 3 层未实施。
 >
-> | 设计物 | 现状 | 证据 |
-> |--------|------|------|
-> | `LanguageFeatures` 类 | **已接线**。`z42.toml [syntax]` → `ManifestLoader._parseSyntax` → `Main._build`（唯一一次 resolve，未知名报错退出）→ `CompileInput.Features` → `IncrementalDriver` 两处 `new Parser` → `Parser._requireFeature` 发 **E0301** | add-l0-protocol-table（批 1，#841）|
-> | `ParseTable` 类 | **已存在**：`src/libraries/z42c.syntax/src/ParseTable.z42` —— 绑定力 / led 角色 / 特性名 + 语句步骤顺序 `StmtRules` | add-l2-parse-table（批 2）|
-> | `z42.toml` 的 `[syntax]` 节 | **已存在** | 同批 1；字段见[清单参考](https://z42-lang.github.io/z42/reference/toolchain/z42-toml.html) |
-> | `using syntax` 指令（配置来源②）| **不存在** | `grep -rn "using syntax" src/` |
-> | `operator` / `keyword` 用户声明（第 3 层）| **不存在** | 同上 |
+> | 设计物 | 现状 |
+> |--------|------|
+> | `LanguageFeatures` 类 | **已接线**。`z42.toml [syntax]` → `ManifestLoader._parseSyntax` → `Main._build`（唯一一次 resolve，未知名报错退出）→ `CompileInput.Features` → `IncrementalDriver` 两处 `new Parser` → `Parser._requireFeature` 发 **E0301** |
+> | `ParseTable` 类 | **已存在**：`src/compiler/z42c.syntax/src/ParseTable.z42` —— 绑定力 / led 角色 / 特性名 + 语句步骤顺序 `StmtRules` |
+> | `z42.toml` 的 `[syntax]` 节 | **已存在**；字段见[清单参考](https://z42-lang.github.io/z42/reference/toolchain/z42-toml.html) |
+> | `using syntax` 指令（配置来源②）| **不存在** |
+> | `operator` / `keyword` 用户声明（第 3 层）| **不存在** |
 >
 > 🔴 **但「接线了」≠「每个名字都生效了」**：16 个特性名里今天真的关得掉东西的是 **6 个**
 > —— `control_flow`（if/while/for/foreach/do/switch + break/continue）、`exceptions`（try + throw）、
 > `bitwise`（`| ^ & << >>`）、`ternary`（`?:`）、`pattern_match`（进模式引擎的那几条路）。
-> `using_stmt`（`using` **语句**四形态，add-using-statement 批 3 —— 它曾是被删掉的**幻影名**之一，
-> 现在以真名回来）。**其余 10 个仍是死旋钮**：它们描述的是「将来可裁剪的语法面」，不是今天生效的配置。
-> 这张表当年的原罪正是宣告了 6 个**不存在**的特性而三年无人发现（已于 2026-09-23 删除）。
+> `using_stmt`（`using` **语句**四形态）。**其余 10 个仍是死旋钮**：它们描述的是「将来可裁剪的语法面」，不是今天生效的配置。
+> 特性表只能列真实存在的语法构造：宣告**不存在**的特性而无人发现，是这类表的原罪。
 >
-> 另有一个遗留物需要知道：曾有两个 `features.toml` sidecar（`src/tests/control_flow/switch/` 与
-> `src/tests/exceptions/exceptions/`）号称能 override `LanguageFeatures`，实则**全仓没有任何代码
-> 读取**——唯一读过它们的是随自举删除的 C# `GoldenTests.cs`。已于 2026-09-23 删除。
+> `features.toml` sidecar 不是配置来源：**全仓没有任何代码读取**它，不要用它 override `LanguageFeatures`。
 
 ---
 
@@ -59,14 +57,14 @@
 
 ### 已实现的数据结构
 
-`src/libraries/z42c.core/src/LanguageFeatures.z42` 定义 `Z42.Core.LanguageFeatures`：
+`src/compiler/z42c.core/src/LanguageFeatures.z42` 定义 `Z42.Core.LanguageFeatures`：
 
-- 受语言限制（当时无 enum、类字段不支持泛型），内部是**并行数组** `string[] _names` + `bool[] _enabled` + `int _count`，而非字典；
+- 受语言限制（无 enum、类字段不支持泛型），内部是**并行数组** `string[] _names` + `bool[] _enabled` + `int _count`，而非字典；
 - `Set(name, on)` 为 upsert；
 - **`IsEnabled(未知名) = false`** —— 拼错的特性名不会静默启用，这是刻意的安全默认；
 - 另有 `int Phase` 字段（1 = Phase1，2 保留）；
 - **一个**预置 profile：`Phase1Profile()`（**15** 个特性全开）。另有 `Has(name)` / `NameAt(i)`：与 `IsEnabled` 分开是必须的——`IsEnabled` 对「未知名」与「已知但关着」都返回 false，靠它分不出拼写错误，而 `[syntax]` 要对未知名报错。
-  （曾有 `MinimalProfile()`，已于 2026-09-26 删除：零生产调用方，且 `[syntax]` 语法里选不到 profile ⇒ 用不上。真要按 profile 裁剪得先加 manifest 键，是独立一条。）
+  （没有 `MinimalProfile()`：`[syntax]` 语法里选不到 profile，用不上。真要按 profile 裁剪得先加 manifest 键，是独立一条。）
 
 解析器持有它（`Parser._features`，**可空 = 全开**，于是单测 / REPL 不必改签名也不被裁语法）。关掉 `control_flow` / `exceptions` / `bitwise` / `ternary` / `pattern_match` / `using_stmt` 这 **6** 个会真的改变解析行为并发 E0301；其余 10 个名字今天没有消费点（见页首那条 🔴）。
 
@@ -92,21 +90,18 @@
 | `interpolated_str` | `$"..."` 字符串插值 |
 | `reflection` | `typeof` / `methodof` |
 
-> 🔴 **这张表只列真实存在的语法构造。** 2026-09-23 删掉了 6 个名字，它们指向的语法
-> **在 z42 里根本不存在**——而它们曾以「已启用」的姿态躺在 `Phase1Profile()` 里：
+> 🔴 **这张表只列真实存在的语法构造。** 下面这些名字指向的语法
+> **在 z42 里根本不存在**，所以不得登记进 `Phase1Profile()`：
 >
-> | 删掉的名字 | 事实 |
+> | 不得登记的名字 | 事实 |
 > |---|---|
-> | `using_stmt` | z42 没有 `using` 语句，`using` 只做 import / 别名 |
 > | `null_coalesce` | `??` / `?.` 已从语言移除，parser 见到报 E0480 |
 > | `async` | `await` 从不被任何 parser 消费，也没有 `Task` 类型 |
 > | `list_patterns` | 全仓零 `ListPattern`，模式解析器没有 `[` 分支 |
 > | `threading` | 库有（`z42.threading`），但 `lock` 连关键字都不是 |
 > | `native_interop` | FFI 真有（`[Native]` + dlopen），但挂它名下的 `pinned` 是个没人消费的死 token |
 >
-> 之所以能长期没人发现，是因为**开关零调用方**：没有任何门能检验「这个名字背后真有语法」。
-> 第 1 层接线之后才谈得上真门 —— 判据见下面「实施路径」的第 4 条（开启/关闭**两个**测试）。
-> 在那之前，加名字前请自己确认 parser 真有消费该语法的代码路径。
+> 加名字前请自己确认 parser 真有消费该语法的代码路径；判据见下面「实施路径」的第 4 条（开启/关闭**两个**测试）。
 
 ### 配置来源 ①：项目级 `z42.toml [syntax]`
 
@@ -119,7 +114,7 @@ lambda          = false
 bitwise         = true
 ```
 
-由 manifest 加载路径读入，构造出该项目的 `LanguageFeatures`，交给编译流水线。落地点是 `src/libraries/z42.project/`（manifest 模型 + `ManifestLoader`）与 `src/compiler/z42c.pipeline/`（把它传进编译单元），详见 [工程模型、依赖解析与工作区编译](project-model.md)。
+由 manifest 加载路径读入，构造出该项目的 `LanguageFeatures`，交给编译流水线。落地点是 `src/compiler/z42.project/`（manifest 模型 + `ManifestLoader`）与 `src/compiler/z42c.pipeline/`（把它传进编译单元），详见 [工程模型、依赖解析与工作区编译](project-model.md)。
 
 ### 配置来源 ②：文件级 `using syntax`
 
@@ -141,7 +136,7 @@ using syntax bitwise = true;
 
 ### 表达式规则
 
-**🔴 落地形态与下面这几段画的不同**：z42 **无 delegate**（且命名 delegate 跨 zpkg 会丢 FQ 名），
+**🔴 实际形态与下面这几段画的不同**：z42 **无 delegate**（且命名 delegate 跨 zpkg 会丢 FQ 名），
 所以 `nud:` / `led:` / `handler:` **函数指针在 z42c 里写不出来**。实际形态照
 `z42c.semantics/src/Types/BinaryTypeTable.z42` 的在仓先例：**int tag + if 链 + 一处集中派发**
 （`LedKind` / `PostfixKind` / `StmtStep` 是 tag，`ParseTable.LeftBp/Led/Postfix/Feature`
@@ -209,7 +204,7 @@ using syntax bitwise = true;
 
 ### 一致性守门
 
-规则表一旦成为数据，就需要一条自动检查：**`ParseTable` / `StmtRules` 中出现的每个 `feature` 名，必须在 `LanguageFeatures` 的已知名单里声明**。没有它，一个拼错的特性名会让该表项被 `IsEnabled` 静默判为 `false`，对应语法凭空消失且无任何报错——这正是 `IsEnabled(未知名) = false` 这条安全默认的代价。**此检查已落地**（add-l2-parse-table 批 2，`src/libraries/z42c.syntax/tests/parse_table.z42` 的 `test_every_feature_name_is_declared`）：逐个 token kind 核 `Phase1Profile().Has(feature)`。判别力已实测——把某个 `Feature(...)` 改成不存在的名字，**stdlib 构建照常全绿、只有这道门红**，而那正是它唯一的存在理由（冷门运算符上的拼写错误构建看不见）。同一文件还守着两件事：四条平行 if 链的同步（`LeftBp != 0 ⇔ Led != None`）、以及那些「关系型」绑定力的不变式（`AboveAssign() == LeftBp(Eq)+1`、`BetweenOrAndXor()` 严格落在 `|` 与 `^` 之间）。
+规则表一旦成为数据，就需要一条自动检查：**`ParseTable` / `StmtRules` 中出现的每个 `feature` 名，必须在 `LanguageFeatures` 的已知名单里声明**。没有它，一个拼错的特性名会让该表项被 `IsEnabled` 静默判为 `false`，对应语法凭空消失且无任何报错——这正是 `IsEnabled(未知名) = false` 这条安全默认的代价。**此检查已落地**（add-l2-parse-table 批 2，`src/compiler/z42c.syntax/tests/parse_table.z42` 的 `test_every_feature_name_is_declared`）：逐个 token kind 核 `Phase1Profile().Has(feature)`。判别力已实测——把某个 `Feature(...)` 改成不存在的名字，**stdlib 构建照常全绿、只有这道门红**，而那正是它唯一的存在理由（冷门运算符上的拼写错误构建看不见）。同一文件还守着两件事：四条平行 if 链的同步（`LeftBp != 0 ⇔ Led != None`）、以及那些「关系型」绑定力的不变式（`AboveAssign() == LeftBp(Eq)+1`、`BetweenOrAndXor()` 严格落在 `|` 与 `^` 之间）。
 
 ---
 
@@ -353,41 +348,39 @@ operator infix "**" as Math.Pow bp 75;
 var x = 2 ** 10;   // 展开为 Math.Pow(2, 10)
 ```
 
-> 注意**不能**用 `^` 做幂运算：`^` 已是按位异或（bp 46）的既有 token，与上面的约束 3 直接冲突。被合并的设计稿之一曾用 `^` 举例，此处已改正为新 token `**`。
+> 注意**不能**用 `^` 做幂运算：`^` 已是按位异或（bp 46）的既有 token，与上面的约束 3 直接冲突。所以用新 token `**`。
 
 ---
 
 ## 实施路径
 
-**分四批**（第 1 层占两批：配置来源 ① / ②）。下表是唯一的批次清单 ——
-此前正文写「分三批」、表里列 4 批、后文又写「批 1–3 落地后」，三处互相矛盾。
+**分四批**（第 1 层占两批：配置来源 ① / ②）。下表是唯一的批次清单。
 
 | 批次 | 内容 | 落点 |
 |:----:|------|------|
-| **1** | 第 1 层配置来源 ①：`z42.toml` 解析出 `[syntax]` 节并构造 `LanguageFeatures`；把它一路传进解析器，**让第一个特性门真正生效**（当前所有开关都是死的） | `src/libraries/z42.project/`（manifest 模型 + loader）、`src/compiler/z42c.pipeline/`、`src/libraries/z42c.syntax/` |
-| **2** | 第 1 层配置来源 ②：词法/解析入口识别 `using syntax` 指令，按并集规则叠加到项目配置上 | `src/libraries/z42c.syntax/src/Lexer.z42` · `Parser.z42` |
-| **3** | 第 2 层：把 `_infixBp()` 与 `StmtParser` 的分发提取成 `ParseTable` / `StmtRules` 数据表，表项挂 `feature`；补一致性守门 | `src/libraries/z42c.syntax/src/ExprParser.z42` · `StmtParser.z42` |
+| **1** | 第 1 层配置来源 ①：`z42.toml` 解析出 `[syntax]` 节并构造 `LanguageFeatures`；把它一路传进解析器，**让第一个特性门真正生效**（当前所有开关都是死的） | `src/compiler/z42.project/`（manifest 模型 + loader）、`src/compiler/z42c.pipeline/`、`src/compiler/z42c.syntax/` |
+| **2** | 第 1 层配置来源 ②：词法/解析入口识别 `using syntax` 指令，按并集规则叠加到项目配置上 | `src/compiler/z42c.syntax/src/Lexer.z42` · `Parser.z42` |
+| **3** | 第 2 层：把 `_infixBp()` 与 `StmtParser` 的分发提取成 `ParseTable` / `StmtRules` 数据表，表项挂 `feature`；补一致性守门 | `src/compiler/z42c.syntax/src/ExprParser.z42` · `StmtParser.z42` |
 | **4** | 第 3 层：词法器支持运行时注册 token pattern，`ParseTable` 支持运行时插入表项，实现 `operator` / `keyword` / `keyword alias` 的解析与展开 | 同上 + 新增脱糖模块 |
 
-顺序不可换：批 3 的表格化是批 4 运行时插入的前提，批 1 不落地则任何特性门都无从验证。
+顺序不可换：批 3 的表格化是批 4 运行时插入的前提，没有批 1 则任何特性门都无从验证。
 
-> ✅ **批 1 已落地**（add-l0-protocol-table，2026-09-25）：`z42.toml [syntax]` →
+> **批 1（特性门接线）**：`z42.toml [syntax]` →
 > `ManifestLoader._parseSyntax`（只搬中性 name/value）→ `Main._build` **唯一一次** resolve
 > （未知特性名报错退出）→ `CompileInput.Features` → `IncrementalDriver` 的**两处** `new Parser`
-> → `Parser._requireFeature` 发 **E0301**（该码此前已分配、零发射点）。特性集折进 `depsId`，
+> → `Parser._requireFeature` 发 **E0301**。特性集折进 `depsId`，
 > 否则旋钮「全量生效、增量被忽略」。门：`xtask test incremental` 的 `_syntaxKnobTakesEffect`。
 >
 > ⚠️ **粒度 = 整个语法构造，裁不到协议内的某一步。** 门挂在 `Parser` 里那**一处**语句关键字
 > 派发上（批 3 要表化的正是这块）⇒ `control_flow = false` 关掉的是 if/while/for/foreach/do/switch
 > **全部**。将来若要「关掉 foreach 的枚举器回落、只留索引面」这种协议内裁剪，做法是给
 > `ForeachProtocol.Resolve` 里的**步骤**挂 feature 名（= 批 3 表项挂 `feature` 的同款做法），
-> 不是加细 `[syntax]` 的语义。这条边界来自 add-l0-protocol-table 的 D-new-1：策略链取
+> 不是加细 `[syntax]` 的语义。这条边界的依据：策略链取
 > 「名字是数据、**链是一处集中的代码**」，链本身不是可配置数据。
 >
-> ⚠️ **只有 `control_flow` 与 `exceptions` 那时真的关得掉东西**，其余 13 个名字仍是死旋钮。
-> 别把「这张表接线了」读成「每个名字都生效了」。
+> ⚠️ 别把「这张表接线了」读成「每个名字都生效了」——见页首那条 🔴。
 
-> ✅ **批 3 已落地**（add-l2-parse-table，2026-09-26）：`ParseTable` + `StmtRules` 建成，
+> **批 3（`ParseTable`）**：`ParseTable` + `StmtRules` 建成，
 > `_infixBp` 与 9 处内联 `minBp <= N` 守卫塌成「查表 → **一道**守卫 → 按 led tag 派发」；
 > 三处跨构造魔数（switch arm 的 11 / lambda 体的 10 / 模式常量的 45）改成**从表里算**的关系函数；
 > 语句位的**步骤顺序**成为数据（`Parser._steps`）；一致性守门 + 同步门 + 不变式断言落在
@@ -397,14 +390,10 @@ var x = 2 ** 10;   // 展开为 Math.Pow(2, 10)
 > 只能证明「现在这个顺序能过」，等于没测。成为数据后，单测拿一张故意写反的顺序表跑同一批
 > 夹具，「顺序写错会怎样」第一次可观测（`{ X: x } = e` 被当成块、`int F()` 被 var-decl 抢走）。
 >
-> 同批把 `bitwise` / `ternary` / `pattern_match` 接上，并补齐批 1 漏掉的
-> `break` / `continue`（属 `control_flow`）与 `throw`（属 `exceptions`）——
-> 那三个洞正是上面那条 ⚠️ 警告过的形状。**今天真的关得掉东西的是 5 个，死旋钮 10 个。**
+> `bitwise` / `ternary` / `pattern_match` 已接上，`break` / `continue`（属 `control_flow`）与 `throw`（属 `exceptions`）也挂了门。
 > `pattern_match` 的边界：只关**进模式引擎**的那几条路，`x is T` / `x is T v`（类型测试）保留。
 
-（两个无人读取的 `features.toml` sidecar 已于 2026-09-23 删除，批 1 不必再迁就它们。）
-
-新增一个特性的完整清单（批 3 落地后的目标形态；**批 1 已落地**，今天第 2 步改为「在该构造的解析入口加一句 `_requireFeature`」）：
+新增一个特性的完整清单（目标形态；今天第 2 步为「在该构造的解析入口加一句 `_requireFeature`」）：
 
 1. 在 `Phase1Profile()` 中声明该名字（那就是「已知名单」；未登记的名字会让 `[syntax]` 报错退出），并在 `FeatureNames` 里给它一个常量；
 2. 在 `ParseTable.Feature` / `StmtRules.Feature` 中把表项指向它 —— 若粒度比「整个 token 的构造」更细（如 `pattern_match`），则挂在该构造的**解析入口**上；

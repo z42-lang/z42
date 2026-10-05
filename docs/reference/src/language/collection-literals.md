@@ -1,7 +1,5 @@
 # 集合字面量（`{}` List / Dictionary）
 
-> 对齐：2026-08-07（change `add-collection-literals`）
-
 花括号 `{}` 在**表达式位置**是 List / Dictionary 字面量；方括号 `[]` 一律是数组，见
 [数组](arrays.md)。
 

@@ -1,6 +1,6 @@
 # 测试框架机制（TIDX · runner 协议 · GREEN gate）
 
-> 对齐：2026-09-17（change `restructure-docs-three-books`）｜ 代码：
+> 代码：
 > `src/runtime/src/metadata/test_index.rs`（TIDX 类型 + decoder）、
 > `src/runtime/src/corelib/reflection/module_load.rs` + `src/runtime/src/corelib/builtin_table.rs`
 > （`__load_module` / `__invoke_static` / `__run_goldens_isolated` 三个 builtin）、
@@ -231,7 +231,7 @@ golden 走隔离 VM + 比对 stdout，unit 走共享 VM + `Runner.RunModuleResul
   `<清单目录>/artifacts/<kind>-targets`（**源码树**）；父包按 `BuildLayout` 落 —— stdlib / 编译器成员的清单
   没有 `[build]`、继承 workspace 布局，于是父包 dist 就是 z42c 建的**正式成员产物**，会被覆盖。xtask 因此传
   成员输出目录下的 `tests/` | `bench/`（`_devTargetOutRoot`）——**不能**是输出目录本身，理由同上。
-  没声明任何目标、回落到「编项目自身再跑」时同样生效（此前回落路径从磁盘重读清单，`--out-root` 被丢掉）。
+  没声明任何目标、回落到「编项目自身再跑」时同样生效（回落路径也必须透传 `--out-root`，不能从磁盘重读清单）。
 
 **执行模式不是 runner 的参数**：runner 与被加载的测试函数在同一个 VM、同一模式下跑，模式由承载
 z42b 的 `z42vm --mode <mode>` 决定。所以"stdlib 测试在 JIT 下跑"就是拿 `--mode jit` 的 z42vm 跑 z42b，
@@ -260,9 +260,8 @@ build wave 也算一个 stage：它同样走 `_stageStart` 打 banner、同样�
 
 ### 6.1 清单本身有门禁
 
-这份清单历史上被复列在五六处、互相漂移；后来把它收敛成一处"唯一权威清单"的文档页，
-结果连那页自己也烂了——先后三次加 stage（multi-exe、manifest targets、examples）都没同步，
-文档停在 6 个而 gate 实跑 9 个。
+这份清单若被复列在多处会互相漂移；收敛成一处"唯一权威清单"的文档页后，
+那页自己也会烂——加 stage 时不同步，文档就会落后于 gate 实跑的 stage 数。
 
 结论写进了代码：**纯纪律守不住一份没有测试盯着的清单**。现在 gate 名单是数据
 （`_gateStageNames()`，代码侧唯一 SoT），`_checkGateStageDoc()` 在**构建波之前**（几毫秒）
@@ -295,8 +294,7 @@ build wave 也算一个 stage：它同样走 `_stageStart` 打 banner、同样�
 
 - **JIT 的 leg 要看 compiler 的改动，不只看 vm**。编译器的优化 pass（inline / LICM / CSE…）
   会重构 IR，于是 JIT 的**输入**变了、它对新 IR 的 lowering 才被跑到。test-host 的 interp golden
-  只覆盖新 `.zbc` 的解释执行，**不覆盖**它的 JIT lowering。历史上有一次 opt-pipeline 改动跳过了
-  这条 leg，优化后的 IR 从没被 JIT 测过。
+  只覆盖新 `.zbc` 的解释执行，**不覆盖**它的 JIT lowering。跳过这条 leg，优化后的 IR 就从没被 JIT 测过。
 - **Tier-2（浏览器 / 模拟器 / 真机模拟器）是 nightly-only + 手动**，不进每个 PR；
   Tier-1 的 `test-desktop` 仍按 `platform` 变更过滤器进 PR。
 
@@ -306,7 +304,7 @@ build wave 也算一个 stage：它同样走 `_stageStart` 打 banner、同样�
 |---|---|
 | TIDX 加字段 / 改语义 | `src/runtime/src/metadata/test_index.rs` + 编译器 emit 侧 + [zbc 格式](../formats/zbc.md)（**要 bump section version**） |
 | 一个 attribute 的运行期行为 | `src/libraries/z42.test/src/Runner.z42` |
-| 一个 attribute 的编译期校验 | `src/compiler/z42c.semantics/.../DeclEnforcer.z42` |
+| 一个 attribute 的编译期校验 | `src/compiler/z42c.semantics/src/Validation/DeclEnforcer.z42` |
 | 报告字段 | `src/libraries/z42.test/src/TestReport.z42`（json）+ `Runner._runOne`（pretty） |
 | benchmark 统计形状 | `Bencher.printSummary` **和** `BenchStats._parseLine`，同一个 commit |
 | 加载/调用能力 | `src/runtime/src/corelib/reflection/module_load.rs` + `builtin_table.rs` 登记 |

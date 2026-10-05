@@ -1,6 +1,6 @@
 # attribute 管线（store-meta 一支）
 
-> 对齐：2026-09-17 ｜ 代码：`z42c.semantics/src/Lowering/AttributeSynth.z42`、`HandlerRegistry.z42`、
+> 代码：`z42c.semantics/src/Lowering/AttributeSynth.z42`、`HandlerRegistry.z42`、
 > `MacroRegistry.z42`、`AnalyzerDriver.z42`
 
 用户面的写法（后缀约定、五个反射载体、`#suppress`、caller 宏）见 reference 的
@@ -52,12 +52,11 @@ public Attribute __attr$cls$C$0() { return new RouteAttribute("/u", method: "POS
 代价是这两条的诊断文本是通用的（`cannot return X` 等）而不是专用的「X 不是 attribute」。
 那半仍是 Deferred（`attribute-future-dedicated-diagnostics`）。
 
-🔴 **「实参不是常量」这条靠不住过，已改为专门的 pass**（`enforce-attribute-const-args`，
-2026-09-29）。原先的推断是「非常量实参会在无参工厂的作用域里变成未知标识符」——**只对局部变量
+🔴 **「实参不是常量」不能靠工厂 typecheck 推断，而由专门的 pass 强制**。推断「非常量实参会在无参工厂的作用域里变成未知标识符」——**只对局部变量
 成立**：静态字段读、方法调用、`new` 在工厂作用域里都解析得好好的，于是
 `[Tag(K.Make())]` / `[Num(K.Mutable)]` 一路放行（实测零诊断）。而工厂是**首次反射查询时**才
 执行的 ⇒ 那种实参读回什么取决于谁先查、以及那一刻的可变状态。
-现由 `DeclEnforcer._passAttrArgConst`（`DeclEnforcer.AttrArgs.z42`）在收集期按白名单强制，
+`DeclEnforcer._passAttrArgConst`（`DeclEnforcer.AttrArgs.z42`）在收集期按白名单强制，
 码 `E0500`；白名单与理由见[特性](https://z42-lang.github.io/z42/reference/language/attributes.html)。
 ⚠️ 该 pass 的遍历面必须与 `AttributeSynth._process*` 一致（后者决定谁被合成工厂 = 谁的实参会被
 执行），加新载体时两处都要动。
@@ -111,11 +110,10 @@ is_static / ptypes` 五条平行数组）——那个块**没有任何 attr 槽*
 > 让寻址凭空多出一层下标。
 
 
-> **「顶层函数」这一格曾经是空头支票**（fix-free-function-attrs 修）。wire 一直在、读端一直在，
-> 只有**写端**漏了：`IrGenMemberEmitter` 给类方法填 `irf.Attrs`，而自由函数走的是另一条发射路径
+> **「顶层函数」这一格的写端要单独走一条路径**：`IrGenMemberEmitter` 给类方法填 `irf.Attrs`，而自由函数走的是另一条发射路径
 > `IrGenAuxEmitter.EmitFreeFunctions`，它一进循环就 `IrGenFacts._unwrap` 剥掉 `AttributedDecl` 外壳
 > ——attribute 列表只挂在外壳上，剥了就再也取不回。于是自由函数的 attr 块恒为空，
-> 与「这个函数没写 attribute」**字节全等**，无错无警。教训与 `ParamAttrs` 那半（#679）同源：
+> 与「这个函数没写 attribute」**字节全等**，无错无警。教训与 `ParamAttrs` 那半同源：
 > **两条发射路径各写各的，漏一条不会有任何东西喊疼**。
 
 **自由函数的弃用要走满四棒**，缺一棒就静默失效（这也是它拖了数月没人发现的原因——
@@ -147,7 +145,7 @@ z42 一侧（`Type.z42` / `Reflection/*.z42`）把结果缓存在反射对象的
 
 ## `#suppress` / `[Suppress]`：两条路，都不写产物
 
-- **`#suppress <Id> ["reason"]` / `#restore <Id>`** —— 源码指令。`#` 词法产 `Hash` token（此前无语义）。
+- **`#suppress <Id> ["reason"]` / `#restore <Id>`** —— 源码指令。`#` 词法产 `Hash` token。
   parser 在语句列表 / 顶层声明列表的边界收集成 `CompilationUnit.SuppressRegions`
   （`SuppressRegion{RuleId, Start, End}` 字节区间；**AST-only，不序列化**）。判定是
   `at.Start ∈ [Start, End)` 且规则 Id 全等——**精确匹配、无通配**（通配归 `z42.toml` 的 `[lints]`）。
@@ -186,10 +184,9 @@ z42 一侧（`Type.z42` / `Reflection/*.z42`）把结果缓存在反射对象的
 - `ParamTypeOk(kind, typeName)` —— 定义侧类型校验（`line` 要 `int`，其余要 `string`）。
 
 **发码**：`DeclBinder._validateCallerMacroDefaults` 发 `DiagnosticCodes.CallerMacroInvalid`。
-⚠️ 它**曾经**用字面量 `"E0450"`——新增的 `DiagnosticCodes` 常量不能在同一个 PR 里被引用（上一版
+⚠️ **新码的引入纪律**：新增的 `DiagnosticCodes` 常量不能在同一个 PR 里被引用（上一版
 z42c 的 `z42c.core` 里还没有它，见 [bootstrap-seed.md](https://github.com/z42-lang/z42/blob/main/docs/agent/rules/bootstrap-seed.md)
-的分阶段引入纪律）。常量随 nightly 进种子后，`migrate-diag-literals-to-constants`（2026-09-23）
-把这一族 100 个发射点整体切回了常量引用。**新码仍按老路走**：先字面量一轮，跨一个 nightly 再切回，
+的分阶段引入纪律）。所以新码先用字面量一轮，跨一个 nightly 进种子后再切回常量引用，
 过渡期由 `xtask test diagcodes` 的第 ④ 条棘轮盯着。
 
 **持久化**：caller 宏的默认值编成 `$Caller:<kind>` 的 param attr-ref 哨兵（`FactoryFunc` 为空），
@@ -216,33 +213,31 @@ namespace 的字面量——所以跨包调用注入的是**消费方**的上下
 | `MemberResolver.Prim.z42:44` | prim 收者的方法调用查不到，**且**包装类成员表为空（stub） → `sig=null` |
 
 **这不是可以顺手收紧的小 fix。** 这条逃生通道被大量**合法写法**依赖——enum 成员访问、类名静态成员、
-异常内建属性、字符串上的 extern 属性、链式反射等。历史上实测过一次：即便只对非 Unknown/Error 接收者
+异常内建属性、字符串上的 extern 属性、链式反射等。实测：即便只对非 Unknown/Error 接收者
 收紧、并保留 poison cascade 抑制，也会把 **26 个合法 golden 程序**变成编译错误（横跨 enums /
 statics / exceptions / strings / reflection）。真正的修法是让 typechecker 对上述每一类成员**完整静态
 建模**，是多子系统工程。
 
-> **prim 收者那两条已经收紧了**（`fix-prim-member-not-found`，2026-09-24）。上面那次「26 个 golden
+> **prim 收者那两条已经收紧。**上面「26 个 golden
 > 变红」的实测是**对所有收者一起收紧**；prim 这一支单独拿出来收，判据窄得多，实测零回归：
 >
 > - 收紧的前提是**候选集完整**——`env.Symbols.HasClass(wrapper)` 拿到的是主符号表里的真包装类，
 >   成员面是全的，够格判「这个名字不存在」。成员表为空的 stub（懒加载 / 冷启动未载真类）仍然松绑。
-> - 「名字不存在」与「名字在、但没有重载适用」是两句不同的诊断，共用 E0401；后者是 `#724` 加的。
-> - 为什么非收不可：`int x = 5; x.Bogus();` 此前**编译期零诊断**，崩在运行期
+> - 「名字不存在」与「名字在、但没有重载适用」是两句不同的诊断，共用 E0401。
+> - 为什么非收不可：`int x = 5; x.Bogus();` 若不收，**编译期零诊断**，崩在运行期
 >   `VCall: expected object, got I64(5)` —— 不可 catch 的内部错误。而同样的写法在用户类上报 E0401、
 >   在数组上报 E0402，**只有基元这一条路是松的**，不对称本身就是它是漏写而非设计的证据。
-> - `#724` 留下这个洞时给的理由（「要保 `string.Length` 经 DepIndex 解析」）**已经过期**：
->   `String.Length` 现在是真实声明的 extern 属性，getter 查找本就命中。
->   注释里的理由会腐坏，读到「保持现行为」这类措辞要去核，别当结论接受。
+> - 「要保 `string.Length` 经 DepIndex 解析」不是保留松绑的理由：
+>   `String.Length` 是真实声明的 extern 属性，getter 查找本就命中。
 
 > 注意 `sig == null` 的连带后果：`OverloadBinder.CheckArgTypes` 第一行就是 `if (sig == null) return;`
-> ⇒ 走到松绑分支的调用**实参一律不检查**。`bind-self-param-and-constraint-members` 已经把「型参收者
-> 查约束接口方法」这一支从松绑里救了出来（拿到真签名 + `E0463`），剩下的仍然是松的。
-> 全落空的**属性**访问（非方法）今天已经会报 `E0402 member access on non-class`，不再静默。
+> ⇒ 走到松绑分支的调用**实参一律不检查**。「型参收者
+> 查约束接口方法」这一支已不松绑（拿到真签名 + `E0463`），剩下的仍然是松的。
+> 全落空的**属性**访问（非方法）会报 `E0402 member access on non-class`，不静默。
 
 ## Deferred
 
-- `attribute-future-dedicated-diagnostics` —— **「实参须为常量」那半已交付**（`E0500`，
-  `enforce-attribute-const-args`，见上）。剩下的是「X 不是 attribute」「构造器对不上」——
+- `attribute-future-dedicated-diagnostics` —— 「实参须为常量」那半已由 `E0500` 强制（见上）；待做的是「X 不是 attribute」「构造器对不上」——
   它们仍借工厂 typecheck 报通用错误，需要专用码 + negative 测试 harness。
 - `attribute-future-attributeusage` —— target / 重复性限制。要做成声明上的一等子句（不是 C# 那种
   自循环元属性），默认 `AllowMultiple=true`、无隐式继承。

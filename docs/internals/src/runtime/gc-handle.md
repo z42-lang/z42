@@ -1,6 +1,6 @@
 # GC 句柄表（Std.GCHandle）
 
-> 对齐：2026-09-17（change `restructure-docs-three-books`）｜ 代码：
+> 代码：
 > `src/libraries/z42.core/src/GC/GCHandle.z42`、`src/libraries/z42.core/src/GC/HeapStats.z42`、
 > `src/runtime/src/corelib/gc.rs`、`src/runtime/src/gc/arc_heap.rs`（`HandleSlab` / `HandleEntry`）、
 > `src/runtime/src/gc/arc_heap/interface.rs`（`handle_*` 实现）、`src/runtime/src/gc/heap.rs`（trait 声明）

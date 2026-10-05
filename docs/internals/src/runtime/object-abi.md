@@ -1,6 +1,6 @@
 # 对象与值表示 ABI（Object & Value ABI）
 
-> **状态：DESIGN（值/对象表示已实施，规范化+演进未实施）** · 创建 2026-06-21
+> 待办：Value ABI 版本化规范、统一对象头（`gc_word`）、GcRef 可重定位、card table、移动/分代 GC 尚未实施（值/对象表示本身已实现）。
 >
 > 把当前**隐式**的跨引擎值/对象表示固化成**显式、版本化的 ABI**（组件化的"共享契约"本体），并为**移动/分代 GC**预留空间、**统一所有堆对象**（含字符串）到一个对象头。
 >
@@ -24,40 +24,39 @@
 - **保留 fat tagged 值**（tag + payload，~16–24B）作 v1；**NaN-box / tagged-pointer 压缩进 Deferred**（后续优化，复杂度大，现 fat enum 够用）。
 - 跨引擎契约：一个 Value slot 的 `{tag 偏移, payload 偏移, 总大小}` 是 ABI 一部分；JIT/AOT 据此 load/store。
 
-### 2.1 引用压到平台指针大小 → `Value` 24B→16B（✅ 已落地，路 A，2026-08-15 `unify-object-byte-layout` PR-3~5）
+### 2.1 引用压到平台指针大小 → `Value` 16B（路 A：标记指针）
 
-> **状态（2026-08-15）**：本节从「Deferred 候选」提为**已采纳并落地**，走**路 A（标记指针）**，`Value` 现为 **16B**。分 PR 落地：
-> - **PR-3**：`GcRef`/`WeakGcRef` 16B→8B 单标记指针（低 48 位 RegionEntry 地址、高 16 位窄 generation，deref mask）。**保留非移动 region GC**（generation 变窄，ABA 窗口 2^16 已接受，见 §4 / Decision 2）。wasm32（usize 32 位）按 `target_pointer_width` cfg-gate 成 `{ptr:NonNull(4B), generation:u32(4B)}` 仍 8B。
-> - **PR-4**：`Value::Str` 从 `Arc<str>`(16B 胖) 换成手写 thin-Arc-DST `Str`（[`metadata/vstr.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/vstr.rs)，8B 细指针，长度进 `StrHeader`）。**interim**：仍 Arc refcount，非 tracing GC；string 全 GC 化（`Value::Str`→`GcRef<StrHeader>`）是后续专项（需变长 GC 分配器，与 §5 合流）。
-> - **PR-5**：`Value::FuncRef` 从 `Box<str>`(16B 胖) 换成 `Str`（8B 细）——这是最后一个 16B payload。至此每个 payload ≤ 8B → `#[repr(C,u8)]` 给出 tag(1B padded to 8) + 8B = **16B**。由 [`types.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/types.rs) 的 `const _: () = assert!(size_of::<Value>()==16)` 编译期锁死；JIT 的 `VALUE_STRIDE`/`STRIDE` 从硬编码 24 改为 `size_of::<Value>()`（单一真相，不再漂移，[`jit/translate.rs`](https://github.com/z42-lang/z42/tree/main/src/runtime/src/jit/translate)）。
+> 采用**路 A（标记指针）**，`Value` 为 **16B**：
+> - `GcRef`/`WeakGcRef` 是 8B 单标记指针（低 48 位 RegionEntry 地址、高 16 位窄 generation，deref mask）。**保留非移动 region GC**（generation 变窄，ABA 窗口 2^16 已接受，见 §4）。wasm32（usize 32 位）按 `target_pointer_width` cfg-gate 成 `{ptr:NonNull(4B), generation:u32(4B)}` 仍 8B。
+> - `Value::Str` 是 8B 细指针 `Str`（[`metadata/vstr.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/vstr.rs)，长度进块头；GC 化见 §5）。
+> - `Value::FuncRef` 是 `Str`（8B 细）。每个 payload ≤ 8B → `#[repr(C,u8)]` 给出 tag(1B padded to 8) + 8B = **16B**。由 [`types.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/types.rs) 的 `const _: () = assert!(size_of::<Value>()==16)` 编译期锁死；JIT 的 `VALUE_STRIDE`/`STRIDE` 取 `size_of::<Value>()`（单一真相，[`jit/translate.rs`](https://github.com/z42-lang/z42/tree/main/src/runtime/src/jit/translate)）。
 >
-> payload 偏移**不变**（tag@0、payload@8）；只有总 stride 24→16。native FFI 的 `Z42Value` 是**独立冻结的 16B ABI struct**（`{tag:u32, reserved:u32, payload:u64}`，[z42-abi](https://github.com/z42-lang/z42/tree/main/src/runtime/crates/z42-abi)），与内部 `Value` enum 表示解耦，marshal 显式转换 → 本变更不触及 native ABI。
+> payload 偏移固定（tag@0、payload@8）。native FFI 的 `Z42Value` 是**独立冻结的 16B ABI struct**（`{tag:u32, reserved:u32, payload:u64}`，[z42-abi](https://github.com/z42-lang/z42/tree/main/src/runtime/crates/z42-abi)），与内部 `Value` enum 表示解耦，marshal 显式转换。
 
-**动机**：CLR/JVM 的对象引用 = **单个平台指针（8B）**，我们的是 **16B**。两个来源（已核对）：① `GcRef` = `NonNull<RegionEntry>`(8B) + `generation:u32`(4B, ABA 防护) 对齐 16B（[refs.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/gc/refs.rs)）；② `Value::Str` = `Arc<str>` 胖指针 = ptr8+len8 = 16B。因 `Value` 最大 payload = 16B → **`Value` enum 被钉在 24B**（`#[repr(C,u8)]`，JIT 按 `regs_base + reg_idx*24` 内联寻址）。若最大 payload 降到 8B，`Value` 可 **24B→16B**：每个寄存器 / 数组 boxed 元素 / 对象槽省 33%，全 VM 密度 + cache 收益。
+**动机**：CLR/JVM 的对象引用 = **单个平台指针（8B）**。若引用带 `generation:u32`（ABA 防护）对齐成 16B、字符串用 `Arc<str>` 胖指针（ptr8+len8），`Value` 最大 payload = 16B → `Value` 会被钉在 24B。把最大 payload 压到 8B，`Value` 即为 **16B**：每个寄存器 / 数组 boxed 元素 / 对象槽省 33%，全 VM 密度 + cache 收益。
 
 > **前提校正**：主要收益是**内存/cache 密度**，**不是 native 交互**——托管引用（带 generation 的 region 句柄 / Arc）本就不能直接交给 native；FFI 零 marshaling 靠 struct **基元字节打包**（见 [struct-value-semantics.md] D1-a），与引用宽度无关。
 
-**两条路（generation 是障碍）**：
+**两条路（generation 是障碍；本系统取 A）**：
 - **A｜标记指针（改动小）**：x86-64/ARM64 虚拟地址仅 48 位，把窄 generation 塞进指针高 16 位（tagged pointer），deref mask 掉。**保留现有 region + 非移动 GC**，generation 变窄（ABA 窗口需评估）；deref 一次 mask（廉价）+ 与 ARM MTE/PAC、ASAN 交互需注意。参考 V8/JVM compressed oops（甚至到 4B）。
 - **B｜移动式 tracing GC（改动大）**：引用永远指活对象、GC 移动统一改写 → 从构造上无悬垂，generation 直接不需要（CLR 模型）。与本 doc §6「移动/分代预留」同向，但最重。
 
-**String 侧**：`Arc<str>` 的"胖"只在 8B 长度 → 换 `Arc<StrHeader{len,[u8]}>` 细指针 = 8B（长度进堆对象头，CLR/JVM 模型，与 §5「字符串改 GC」合流）；代价 = 取 len 多一次解引用。
+**String 侧**：长度进堆对象头换成细指针 = 8B（CLR/JVM 模型，与 §5「字符串改 GC」合流）；代价 = 取 len 多一次解引用。
 
-**范围**：全 VM 横切（GcRef 句柄模型 + String 表示 + `Value` 布局 pin + **JIT 24B 硬编码寻址** + `value_layout` 断言），属 **B-radical 统一值类型模型**子目标，**不在 struct P3b**（P3b 保持 16B 引用不动）。落地前需与 §6 移动/分代 GC 的 `gc_word`/forwarding 设计一并评估路 A vs 路 B。
+**范围**：全 VM 横切（GcRef 句柄模型 + String 表示 + `Value` 布局 pin + JIT 寻址 + `value_layout` 断言）。路 A vs 路 B 的最终取舍需与 §6 移动/分代 GC 的 `gc_word`/forwarding 设计一并评估。
 
-### 2.2 `Value` 成为 `Copy` —— 4 个 Box 瞬态变体 → arena 句柄（✅ 已落地，2026-08-18 `make-value-copy`）
+### 2.2 `Value` 是 `Copy` —— 4 个瞬态变体用 arena 句柄
 
-> **对齐**：2026-08-18。**动机（实测驱动）**：interp-bound workload（z42c 前端）profile 中 `Value::clone`
-> 是**头号 leaf（11.4%）**，`drop_in_place<Frame>` 再占 **6.0%**。根因**不是**堆操作——`unify-gc-heap`
-> 之后 clone 已无 refcount（`GcRef::clone`=8B memcpy、`Str`=`Copy`、`GcRef::Drop`=no-op）——而是
-> `Value` 仍挂 **4 个 `Box` 冷变体**（`Ref`/`PinnedView`/`StackClosure`/`StructRefHeap`）+ `GcRef` 的
-> 显式 no-op `Drop`，逼编译器把每次 clone 编成「match 判别号 + drop-glue」、把 `Vec<Value>` 析构编成
-> 逐元素循环，**无法退化成平凡 memcpy / O(1) 释放**。
+> **动机（实测驱动）**：interp-bound workload（z42c 前端）profile 中，若 `Value` 挂 **4 个 `Box` 冷变体**
+> （`Ref`/`PinnedView`/`StackClosure`/`StructRefHeap`）或 `GcRef` 带显式 no-op `Drop`，编译器会把每次 clone 编成
+> 「match 判别号 + drop-glue」、把 `Vec<Value>` 析构编成逐元素循环，**无法退化成平凡 memcpy / O(1) 释放**
+> （实测 `Value::clone` 是头号 leaf 11.4%、`drop_in_place<Frame>` 6.0%）。堆模型统一后 clone 本已无 refcount
+> （`GcRef::clone`=8B memcpy、`Str`=`Copy`），所以要让 `Value` 成为真正的 POD。
 
-**改动**：把这 4 个「仅在创建帧的调用栈内存活、创建后不可变」的瞬态变体，从 `Box<T>` 改为 8B
+**做法**：这 4 个「仅在创建帧的调用栈内存活、创建后不可变」的瞬态变体用 8B
 `{ idx:u32, frame_id:u32 }` 句柄，payload 存进 per-`VmContext` 的 **`TransientArena`**
-（[`interp/transient_arena.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/interp/transient_arena.rs)）；`GcRef` 删除显式
-no-op `Drop` 并加 `Copy` → **`Value` 派生 `#[derive(Copy)]`**。
+（[`interp/transient_arena.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/interp/transient_arena.rs)）；`GcRef` 无显式
+`Drop` 且 `Copy` → **`Value` 派生 `#[derive(Copy)]`**。
 
 - **`TransientArena` 生命周期模型**：与 `StackArena`/`StructArena` 同构——`Vec<TransientSlot>`（`Mutex`
   保护）、`frame_id` staleness 守卫、`push_frame` 戳 `transient_base` / `pop_frame` LIFO `truncate`、
@@ -65,7 +64,7 @@ no-op `Drop` 并加 `Copy` → **`Value` 派生 `#[derive(Copy)]`**。
   base（JIT 经 `struct_ops::frame_id_of` 懒分配帧 id，与既有 `StructRef` 句柄同法）。
 - **GC**：arena 是 root → payload 内 GcRef（`Ref` 的 Array/Field 目标、`StructRefHeap` 的 backing 数组）
   恒被标记；故 `Value::visit_gc_children` / `arc_heap::mark_if_unmarked` 对这 4 变体是 **no-op**
-  （同 `StructRef`/`StackObject`）——**净效果是从 GC mark 热路径移除工作**，无需写屏障（root 每次重扫）。
+  （同 `StructRef`/`StackObject`）——GC mark 热路径无额外工作，无需写屏障（root 每次重扫）。
 - **相等 / stringify 退化**：4 变体 `==` 按 `{idx,frame_id}` 句柄相等（同 `StackObject`）；`value_to_str`
   返回通用占位串——照 `StackObject`/`StructRef` 先例（ToString 是 escape sink，这些瞬态句柄永不到达
   用户可见 stringify 路径）。有 `ctx` 的消费点（`deref_ref`/`UnpinPtr`/FFI marshal/FieldGet `.ptr/.len`/
@@ -73,10 +72,7 @@ no-op `Drop` 并加 `Copy` → **`Value` 派生 `#[derive(Copy)]`**。
 - **native marshal**：`value_to_z42`（无 `ctx`）的 `PinnedView` 防御臂退化为明确错误——编译器路径本就
   先 `FieldGet ptr/len`（经 arena 解析）再传标量，从不把 raw view 交给 marshal。
 
-**效果（实测）**：前端 typecheck big.z42 **7.37s→6.19s = 1.19×（16% faster）**，输出逐字节一致，
-`Value::clone` 离开 profile 头部、`drop<Frame>` 195→68 样本。`size_of::<Value>()==16` 不变（8B 句柄）。
-**无 zbc/zpkg 格式 bump**（纯运行时表示）。这是 §2.1 布局线的自然延续：§2.1 把 `Value` 压到 16B，
-§2.2 把它变成真正的 POD（`Copy` + 无 `Drop` glue）。
+`size_of::<Value>()==16`（8B 句柄）。纯运行时表示，不涉及 zbc/zpkg 格式。§2.1 把 `Value` 压到 16B，§2.2 让它成为真正的 POD（`Copy` + 无 `Drop` glue）。
 
 ### 2.3 `Value::Ref` —— `ref`/`out`/`in` 的运行期表示
 
@@ -97,7 +93,7 @@ local / ref return，这套表示要连同 §2.2 一起重做。
 #### 表示
 
 - `Value::Ref { idx: u32, frame_id: u32 } = 12`（[`metadata/types/value.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/types/value.rs)），
-  8B 句柄指向 `TransientArena` 中的 `RefKind` payload（早期版本是内联 `Box<RefKind>`，`make-value-copy` 改掉）。
+  8B 句柄指向 `TransientArena` 中的 `RefKind` payload。
 - `RefKind` 三变体（[`metadata/types/value_aux.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/types/value_aux.rs)）：
   `Stack { frame_idx, slot }` / `Array { gc_ref, idx }` / `Field { gc_ref, field_name }`。
 - **GC 协调**：arena 本身是 root，`Array` / `Field` 里的 `GcRef` 因此恒被扫到，底层数组/对象在调用期间存活；
@@ -121,14 +117,14 @@ local / ref return，这套表示要连同 §2.2 一起重做。
 #### 现状缺口（与上面的模型不符的部分）
 
 - **三个修饰符在 AST 上塌成一个布尔**：`MemberParser` 对 `ref`/`out`/`in` 一律置 `Param.IsRef`
-  （`src/libraries/z42c.syntax/src/Decl.z42`），调用点同理塌成 `RefArgExpr`。于是 `out` 定值分析、`in` 写保护、
+  （`src/compiler/z42c.syntax/src/Decl.z42`），调用点同理塌成 `RefArgExpr`。于是 `out` 定值分析、`in` 写保护、
   修饰符参与重载**全都无处可挂**，也确实都没实现。
 - **`callee 的 IR 看不见 `ref``**：`Param.IsRef` 只影响 **caller** 侧发不发地址加载指令，callee 寄存器类型不变。
   逃逸分析因此没有任何指令可以认出"写回汇点"，只能保守地把**被函数体重新定义过的参数槽一律标逃逸**——
   详见 [escape-analysis.md](escape-analysis.md)。
 - **只有 `LoadLocalAddrInstr` 真正落地**：`z42.package` 里没有 `LoadElemAddrInstr` / `LoadFieldAddrInstr`，
   `ExprEmitter` 对任何 `BoundRefArg` 都先把 inner 发射成一个寄存器再取该寄存器的地址。于是 `ref arr[i]` /
-  `ref obj.field` 编译通过但写回落在临时槽上——**写入静默丢失**（2026-09-17 实测）。`RefKind::Array` /
+  `ref obj.field` 编译通过但写回落在临时槽上——**写入静默丢失**。`RefKind::Array` /
   `Field` 两个变体目前在 z42c 产物里没有生产者。
 
 #### 延后形态（设计期主动决定不引入）
@@ -182,14 +178,13 @@ ObjectHeader {
 - 名→槽由 `TypeDesc.field_index`（类级共享）。**继承:基类字段在前、子类追加**（基类槽号父子稳定）。
 - 访问 `obj.f` = `slots[常量槽号]`（O(1)）；JIT = `slots 基址 + 槽号×sizeof(Value)` 的 Value 大小 load/store → **槽偏移 + Value 大小是 ABI 一部分,须固化**。
 
-### 槽位零初始化（`enforce-value-type-non-null`）
+### 槽位零初始化
 
-**不变式：值类型的存储槽永不含 `Value::Null`。** 值类型「默认值是 null」曾经不是一条策略，
-而是存储初始化**根本不看声明类型**（`vec![Value::Null; n]`）；由此长出一族内部错误
-（`__box_prim: expected integer value, got Null` / `type mismatch in arithmetic: Null vs I64(1)`），
-历史上反复在**读取侧**打补丁。
+**不变式：值类型的存储槽永不含 `Value::Null`。** 值类型必须在**分配点**一次解决，而不是在读取侧打补丁——若存储初始化不看声明类型
+（`vec![Value::Null; n]`），会长出一族内部错误
+（`__box_prim: expected integer value, got Null` / `type mismatch in arithmetic: Null vs I64(1)`）。
 
-今天的口径是**在分配点一次解决**：`alloc_object` 不再逐字段填默认值，而是按
+口径：`alloc_object` 不逐字段填默认值，而是按
 `TypeDesc::object_storage()` composed layout 分配**整块零字节区 + `Null` 引用区**
 （`gc/arc_heap/interface.rs`）。于是：
 
@@ -214,10 +209,10 @@ ObjectHeader {
 编译期那一侧配套堵住「写 null 进值类型槽」（E0475 / E0476 / E0483），
 `object` → 值类型的**拆箱**则按两段报错，见下。
 
-> ✅ **这两格已由泛型实例化单调化补上**（#831「泛型实例化成为运行期真正的类型」）：
+> 泛型实例化单调化覆盖了继承与泛型 struct 两种形态：
 > `class D : GBox<int> {}` 的继承字段、`struct GS<T> { T F; }` 的型参字段，
-> **存储零值现在都对**（interp / jit 一致，钉在 `src/tests/types/value_field_zero/`）。
-> ⇒ 不变式「值类型的存储槽永不含 `Value::Null`」现已**全域成立**。
+> **存储零值都对**（interp / jit 一致，钉在 `src/tests/types/value_field_zero/`）。
+> ⇒ 不变式「值类型的存储槽永不含 `Value::Null`」**全域成立**。
 >
 > ⚠️ 但**存储**对了不等于**编译期类型**也代换了：继承来的型参字段在编译期仍被当成 `T`，
 > `d.V + 1` / `if (d.V)` 各报 E0402（泛型 struct 那格已代换，两者不是同一条路径）。
@@ -225,7 +220,7 @@ ObjectHeader {
 
 ### `object` → 值类型的拆箱：两段检查
 
-拆箱失败分**两种**错，各报各的（`make-hard-cast-fail-properly` #746；用例
+拆箱失败分**两种**错，各报各的（用例
 `src/tests/types/hard_cast_value/`，interp + JIT 行为一致）：
 
 | 情形 | 异常 | 消息 |
@@ -234,13 +229,12 @@ ObjectHeader {
 | 收者类型不符 | `InvalidCastException` | ``cannot cast string to `int` `` |
 
 **顺序不能反**：null 没有类型，先查类型会得到一条误导的消息。两者都是**用户级可 `catch`
-的真异常**，不是内部 `bail!`（改前两种都落在同一条 Rust `Debug` 格式的内部错误上，
-`catch (Exception)` 抓不到）。
+的真异常**，不是内部 `bail!`（内部错误 `catch (Exception)` 抓不到）。
 
 ### 反方向：装箱点收到 `Null` = 不变式被破
 
 `__box_prim` 收到 `Value::Null` 时 **debug 报错、release 放行为 `null`**
-（`alarm-on-boxing-null-value-slot`）。
+。
 
 既然上面那条不变式成立，用户代码就**没有任何合法写法**能把 `Null` 送到装箱点
 （E0475 / E0476 / E0483 在编译期堵住）⇒ 走到那里只可能是 **VM / 编译器缺陷**。
@@ -248,16 +242,11 @@ ObjectHeader {
 | 档 | 行为 | 为什么 |
 |---|---|---|
 | debug | `bail!`，消息指明「不变式被破、去查这个值从哪个槽读出来的」 | **e2e golden 语料默认跑 debug VM**（`_activeVm(root, "debug")`）⇒ 整个语料成为这条不变式的探测器，缺陷炸在**发生点** |
-| release | 原样返 `null`（与 `fix-box-null-nullable` 之后一字不变） | 摸底零命中只说明现有语料没踩到，不等于不存在；不拿用户的崩溃换诊断能力 |
+| release | 原样返 `null` | 语料零命中只说明现有语料没踩到，不等于不存在；不拿用户的崩溃换诊断能力 |
 
-⚠️ **这里不能报用户级异常**（与拆箱那侧的关键差别）：拆箱是**用户写的**转换，所以 #746 抛
+⚠️ **这里不能报用户级异常**（与拆箱那侧的关键差别）：拆箱是**用户写的**转换，所以抛
 `NullReferenceException` / `InvalidCastException` 是对的；装箱点的 `Null` 不是用户的错，
 报用户级异常会把责任指向错误的一方。
-
-> 历史：这条分支原是 `fix-box-null-nullable` (#717) 的**无声放行**，理由是「`?` 纯擦除 ⇒
-> `int x = null;` 合法 ⇒ 装箱点分不清用户合法赋 null 与读到未初始化槽位」。那套前提已随
-> `enforce-value-type-non-null` 全部作废（那三个诊断码），所以「分不清好坏信号」这个核心取舍
-> 也不再成立 —— 今天的信号是明确的。
 
 ---
 
@@ -271,16 +260,12 @@ ObjectHeader {
 
 ---
 
-## 5. 字符串改 GC 对象
+## 5. 字符串是 GC 对象
 
-> **✅ 已落地（unify-gc-heap PR-4，2026-08-16）**：`Value::Str` 的字节**已纳入单一 GC 堆**。
-> `Str`（[`metadata/vstr.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/vstr.rs)）从「手写 thin-Arc + 原子
-> refcount」换成 **8B `VarGcRef`**（`gc/var_region.rs` 的变长块，`BlockType::Str`，`{GcBlockHeader,
-> inline UTF-8}` 单次分配）——**refcount 删除，GC 管生死**（mark/sweep）。分配走 **ambient 堆**
-> （`gc/ambient.rs`，每帧 `HeapGuard` 设 thread-local，`Str::new`/`.into()` 保持不变）；无堆上下文
-> （无 VM 的单测）回退 leaked 块。**这是最后一类离开「GC 外」的变长 payload，统一堆模型闭合。**
-> 实现原理（变长块 `VarRegion` / A' 分配器 / D3 块头替 Arc / D11 ambient 堆）详见本节下方；
-> `gc.md` / `gc-handle.md` 的统一堆机制页归 **PR-5 收敛**统一落地（tasks 5.3）。
+> `Value::Str` 的字节在单一 GC 堆内。`Str`（[`metadata/vstr.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/vstr.rs)）是 **8B `VarGcRef`**（`gc/var_region.rs` 的变长块，`BlockType::Str`，`{GcBlockHeader,
+> inline UTF-8}` 单次分配）——无 refcount，GC 管生死（mark/sweep）。分配走 **ambient 堆**
+> （`gc/ambient.rs`，每帧 `HeapGuard` 设 thread-local，`Str::new`/`.into()` 无需显式堆参数）；无堆上下文
+> （无 VM 的单测）回退 leaked 块。变长 payload 全部在 GC 堆内，统一堆模型闭合。
 
 - `Value::Str(VarGcRef)` = **GC 字符串对象**：8B 细指针指变长块，与 Object/Array 同一堆的
   mark/sweep（string 是**不可变叶子**，trace 无出边）。字段存储：string 字段落对象 `refs` 侧表
@@ -288,22 +273,18 @@ ObjectHeader {
   string-in-object 正确可达；`is_heap_ref(Str)=true` → 存进堆槽触发写屏障（分代 card / 并发 mark-queue）。
 - **驻留/字面量串**：**lazy per-context interning**——加载期**不**物化（无堆），首次 `ConstStr(idx)`
   用活堆分配 GC string + 缓存进 `VmContext.interned_cache`（`(module ptr, idx)` 键），缓存项经
-  external root scanner 注册为 **GC root**；后续命中拷 8B 句柄。原 `Module.interned_strings`（加载期
-  `Vec<Str>`）+ 其 JIT 镜像 `JitModuleCtx.string_pool` + `build/populate_interned_strings` no-op
-  producer **已于 PR-5 删除**（write-only 死代码，运行期全走 `intern_const_str`）。
+  external root scanner 注册为 **GC root**；后续命中拷 8B 句柄（运行期全走 `intern_const_str`）。
 - **safepoint 安全**：GC 只在显式 safepoint（interp 回边/调用边界）/`ForceCollect` 运行，从不在单条
   指令/builtin 的 Rust 执行中途 → 临时 string（表达式中间值）落寄存器前天然安全，与既有
   Object/Array 临时值同一不变式（分配器 `maybe_auto_collect` 只置标志、延到 safepoint）。
-- 代价:纳入 GC → 多点 GC 压力(换掉 Arc 确定性释放，string-heavy 的 z42c 自编译最敏感);收益:统一一套堆 + 为可移动/压缩/去重铺路。**User 已接受（架构统一优先，非短期性能）**。
-- **✅ PR-5 收敛（2026-08-17）**：`ClosureData.fn_name` `String` → GC `Str`（8B），闭包块随之全 POD
-  → 删 `var_drop_glue` 的 `BlockType::Closure` 分支（region_var 现仅 `ArrayValue` 需 finalizer）；
-  `trace_children`（mark）/ `scan_object_refs`（枚举）两个近重复访问器合并为单一
-  `Value::visit_gc_children(for_marking, …)`。
-- **不迁移的 `Arc<str>`（事实校正）**：frame 栈帧名/文件名（`VmFrame.func_name`/`file`、
+- 代价:纳入 GC → 多点 GC 压力(换掉 Arc 确定性释放，string-heavy 的 z42c 自编译最敏感);收益:统一一套堆 + 为可移动/压缩/去重铺路。架构统一优先于短期性能。
+- **闭包与访问器**：`ClosureData.fn_name` 是 GC `Str`（8B），闭包块全 POD（region_var 仅 `ArrayValue` 需 finalizer）；
+  mark 与枚举共用单一访问器 `Value::visit_gc_children(for_marking, …)`。
+- **不迁移的 `Arc<str>`**：frame 栈帧名/文件名（`VmFrame.func_name`/`file`、
   `Function.frame_meta`）**保留 `Arc<str>`**——它们是**诊断/栈回溯元数据、非 `Value::Str` GC payload**，
-  且刻意 `Arc<str>` 以与 JIT `FnEntry` 共享、每次调用 O(1) clone（`perf-frame-name-precompute` 的收益）；
-  迁进 GC 堆会**回退**该热路径、增加分配，与本程序意图相反 → **不动**。`ArrayObj.element_type: Arc<str>`
-  触及 heap-less/leaked/test 构造点，**延后**（非 payload 闭合所需）。
+  且刻意 `Arc<str>` 以与 JIT `FnEntry` 共享、每次调用 O(1) clone；
+  迁进 GC 堆会**回退**该热路径、增加分配，故保持 `Arc<str>`。`ArrayObj.element_type: Arc<str>`
+  触及 heap-less/leaked/test 构造点，暂保留 `Arc<str>`。
 - (Deferred)小字符串内联优化(SSO)；`ArrayObj.element_type` 迁 GC string / type-id。
 
 ### 5.1 Finalizer
@@ -331,7 +312,7 @@ ObjectHeader {
 
 ---
 
-## 8. 决策记录（2026-06-21）
+## 8. 决策记录
 | # | 决策 |
 |---|---|
 | 值布局 | `#[repr(C)]`+tag 表+偏移规范化(冻结/版本化);fat enum v1,NaN-box 延后 |
@@ -344,7 +325,7 @@ ObjectHeader {
 
 ## 9. 分阶段
 1. 固化 Value ABI(`#[repr(C)]`+tag/偏移规范),JIT/AOT 对规范编码。
-2. 统一对象头(加 `gc_word`)+ 对象 kind 化,去 `native` 字段;字符串改 GC。
+2. 统一对象头(加 `gc_word`)+ 对象 kind 化,去 `native` 字段(字符串已是 GC 对象,§5)。
 3. GcRef 改名 epoch + 可重定位接口(先 non-moving 实现满足接口)。
 4. 写屏障 → card table / remembered set;pin 区。
 5. 移动/分代实现(young 复制 / old mark-sweep)——**单独 GC 设计文档**驱动,本 ABI 已就位。

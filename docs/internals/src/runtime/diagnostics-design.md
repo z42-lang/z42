@@ -1,9 +1,9 @@
 # 诊断与跟踪（Diagnostics & Tracing）
 
-> **页型**: 决策页 ｜ **状态**: 📋 部分已实施；事件分类 L2 与 `fire()` 门控**未实施** ｜ **代码**: —
-> **相关**: [diagnostics.md](diagnostics.md) ｜ **对齐**: 2026-09-17
+> **页型**: 决策页 ｜ **代码**: —
+> **相关**: [diagnostics.md](diagnostics.md)
 
-> **状态：DESIGN（部分已实施，扩展未实施）** · 创建 2026-06-21
+> 待办：事件分类 L2 与 `fire()` 门控未实施；观测地基（计数、采样 profiler）已实施
 >
 > 设计 z42 VM 的诊断/跟踪子系统：**诊断事件**（编译、类型加载、GC、deopt、load-context…）、**计数统计**、**时间统计**（含 per-函数编译耗时）。在现有 `observer.rs` / `counters.rs` / `tracing` 地基上补齐缺口。
 >
@@ -104,13 +104,12 @@ pub fn fire(&self, event: &RuntimeEvent) -> usize {
   - **gauge**（瞬时值）：堆占用字节、活跃 context 数、已加载类型数、JIT code cache 字节。
   - **histogram**（分布）：编译耗时、GC 暂停、分配大小。
 - **扩覆盖**：`gc_cycles`/`gc_reclaimed_bytes`/`gc_pause_us`(hist)、`types_loaded`、`deopts`、`osr_count`、`allocations`/`alloc_bytes`、`zpkg_loaded`/`zpkg_unloaded`、`contexts_active`(gauge)。
-  - **已 surface 到 profile 快照（extend-runtime-counters P1a, 2026-08-23）**：`HeapStats` 新增
+  - **已 surface 到 profile 快照**：`HeapStats` 新增
     `minor_collections`/`major_collections`/`reclaimed_bytes`（generational 分代拆分；`gc_cycles` 合计语义不变）；
     `--print-stats-on-exit` 输出点用 `counters::ProfileSnapshot` 合并 `RuntimeCounters` 快照 + 上述堆派生字段
     （`allocations` + 分代）成**一行** JSON（`z42vm_counters` sentinel 超集，仅加键→scraper 后向兼容），
-    `xtask profile` 展示。仅进 **profile 快照**；暴露到 z42（下条）仍待 P1c。
-  - （另：`native_calls`/`exceptions_thrown`/`exceptions_caught` 早于 2026-05-26 已埋点，非"待埋"。）
-  - **并发探针（add-concurrency-probes P1b, 2026-08-23）**：ProfileSnapshot 再加两组并发字段。
+    `xtask profile` 展示。
+  - **并发探针**：ProfileSnapshot 再加两组并发字段。
     ① **park 直方图（常开）**：mutator 在 GC safepoint STW park 的时长，记进 `VmCore.park_histogram`
     （复用 `gc::types::PauseHistogram`），埋点在 `gc::safepoint::park_until_idle`——只在真实 GC 暂停的
     slow path 跑，`check_safepoint` 热路径零成本，故常开无 feature。surface `park_count`/`park_us_total`/
@@ -119,14 +118,14 @@ pub fn fire(&self, event: &RuntimeEvent) -> usize {
     + 计时 `lock_wait_us`；默认构建 `#[cfg]`-编译掉探针 → acquire 路径零成本（见 §6 feature-gate）。
     `xtask profile --threads` 展示 park（默认 VM）+ contention（现建 `profile-contention` throwaway VM，
     复用 `--heap` 的隔离 target-dir 手法）。仅进 profile 快照；暴露到 z42 API 延后。
-- **暴露到 z42（已落地 expose-diagnostics-counters P1c, 2026-08-23）**：`Std.Diagnostics.RuntimeStats.Counters()`
+- **暴露到 z42**：`Std.Diagnostics.RuntimeStats.Counters()`
   返回一个 `Std.Diagnostics.RuntimeCounters` 值对象（11 只读 auto-property = 7 运行时 counter +
   `Allocations` + 3 分代 GC 字段），backing builtin `__diag_counters`（`corelib/diagnostics.rs`，append 到
   `BUILTINS` 末尾，BuiltinId 不移位）。投影来源与 `app.rs` 的 `ProfileSnapshot` 同（`RuntimeCounters::snapshot`
   + `HeapStats`），故脚本内读值与 `--print-stats-on-exit` JSON 一致。z42.core 的 `Std.HeapStats`（7 字段）
   保持不动——全景归 Diagnostics.Runtime（决策 D3）。**无格式 bump**（builtin 运行时解析 + `[Native]` 字符串）。
-  - **`allocations` 分配回归 gate**：先 **informational**（CI 打印不 fail，观察 3–5 轮跨 GC-mode 稳定性），
-    稳定后由后续 change 转确定性硬 gate（绝对/相对%）。见 `.github/workflows/bench-pr.yml`。
+  - **`allocations` 分配回归 gate**：目前 **informational**（CI 打印不 fail，观察跨 GC-mode 稳定性），
+    稳定后转确定性硬 gate（绝对/相对%）。见 `.github/workflows/bench-pr.yml`。
 
 ---
 
@@ -146,10 +145,10 @@ pub fn fire(&self, event: &RuntimeEvent) -> usize {
   - `span(category, name) -> SpanHandle` + `end()`（z42 代码自埋点）
   - `whyRetained(ctx)` / `inspectArtifacts()`（转发 load-context / tiered 诊断）
 - **CLI**：`--print-counters`（已有）；扩 `--trace=<cat,cat>`、`--trace-out=trace.json`（**perfetto / chrome trace 格式**，火焰图/时间线可视化）。
-  > **✅ 部分落地（script-profiling P2，add-sampling-profiler）**：**采样型** perfetto/chrome trace 已交付——
+  > **采样型** perfetto/chrome trace 已实现——
   > 经 `Z42_TRACE_OUT` env（+ `Z42_SAMPLE_HZ` 开采样）或 `xtask profile --cpu`，用 safepoint 采样的栈快照写
   > chrome legacy JSON（`ph:"P"` sample 事件 + `stackFrames` 帧树），不依赖 §4.2 span 埋点。**span 埋点型**
-  > trace（每帧精确 enter/exit）仍 Deferred（需 §4.2）。机制上浮见
+  > trace（每帧精确 enter/exit）Deferred（需 §4.2）。机制上浮见
   > [`docs/internals/src/runtime/diagnostics.md`](diagnostics.md) §2。
 - **统一总线**：tier 回收、load-context 卸载/保留根、context 生命周期 全 emit 到同一事件流；调试组件 `libz42_debug`（componentized）是一个 sink；可桥到 `tracing`。
 
@@ -160,9 +159,9 @@ pub fn fire(&self, event: &RuntimeEvent) -> usize {
 2. **埋点**：`JitCompile` begin/end + `TypeLoad` + GC 入统一流 + `Deopt`/`Osr`/`InterpTierUp` + load-context 生命周期。
 3. **计数扩**：gauge/histogram kind + 覆盖（§5）+ `Std.Diagnostics.counters()`。
 4. **时间**：histogram（p50/p99）+ per-函数编译耗时面板。
-5. **trace 输出**：perfetto/chrome JSON + CLI `--trace`。〔✅ 采样型 perfetto trace 已落地（P2，见 §7）；
+5. **trace 输出**：perfetto/chrome JSON + CLI `--trace`。〔采样型 perfetto trace 已实现（见 §7）；
    埋点型 span trace 待 §4.2〕
-6. **高频处理**：采样 / feature-gate probe。〔✅ safepoint 采样 profiler 落地（P2）；lock 争用 feature-gate probe 落地（P1b）〕
+6. **高频处理**：采样 / feature-gate probe。〔safepoint 采样 profiler 与 lock 争用 feature-gate probe 已实现〕
 
 ---
 

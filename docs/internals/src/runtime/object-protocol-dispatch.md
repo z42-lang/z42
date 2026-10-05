@@ -1,10 +1,10 @@
 # 对象协议的运行期派发（ToString / Equals / GetHashCode / GetType）
 
-> 对齐：2026-09-17 ｜ 代码：`interp/dispatch.rs`（`obj_to_string`）、`interp/vcall_resolve.rs`
+> 代码：`interp/dispatch.rs`（`obj_to_string`）、`interp/vcall_resolve.rs`
 > （统一接收者阶梯）、`corelib/convert.rs`（`value_to_str`）、`corelib/object.rs`（`__obj_*` builtin）
 
 `Std.Object` 的四个协议方法在**每一种 `Value` 变体**上都必须有答案——对象、裸基元、数组、装箱盒、
-栈句柄。本页写这套「一个方法名 → N 种接收者表示」的派发是怎么落地的，以及为什么至今还留着
+栈句柄。本页写这套「一个方法名 → N 种接收者表示」的派发是怎么落地的，以及为什么有
 **两条**入口（`ToStr` 指令与 `VCall` 指令）而不是一条。
 
 用户面的契约（哪四个方法、覆写 `Equals` 必须同时覆写 `GetHashCode`、struct 不继承 `Object`）见
@@ -76,9 +76,7 @@ i64），先查 enum 名才能让 `Console.WriteLine(Color.Blue)` 与 `((object)
 
 ## `VCall`：统一的接收者阶梯
 
-`unify-vcall-resolution`（2026-09-03）之前，interp 与 JIT 各自抄了一份接收者阶梯、候选名生成和
-PIC 安装规则（约 900 行手工保持同步，JIT 那份的 `resolve_virtual` 甚至是对 `module.functions`
-的线性扫）。现在**「调谁」只在 `interp/vcall_resolve.rs::resolve_vcall` 决定一次**，两个引擎各自
+**「调谁」只在 `interp/vcall_resolve.rs::resolve_vcall` 决定一次**（接收者阶梯、候选名生成、PIC 安装规则不在两引擎各抄一份），两个引擎各自
 只决定「怎么调」（interp 帧 vs 原生 `FnEntry`，以及各自的冷路径 / 跨 zpkg 兜底）。
 
 阶梯顺序即语义，先命中者胜：
@@ -91,10 +89,10 @@ PIC 安装规则（约 900 行手工保持同步，JIT 那份的 `resolve_virtua
 | 4 | **对象** | `vtable_index` → `dispatch::resolve_virtual`（模块内类链）→ 经 `ctx.try_lookup_type` 的惰性基类链走（跨 zpkg 基类）|
 
 解析结果是 `VCallTarget` 四态：`Immediate(Value)`（第 1/2 级的原生拦截，一个 z42 函数都没跑）、
-`Local(idx)`、`Lazy(Arc<Function>)`、`Thrown(Value)`（`fix-call-arity-skew`：按站点键找到了定义
+`Local(idx)`、`Lazy(Arc<Function>)`、`Thrown(Value)`（按站点键找到了定义
 但其签名吃不下这次调用的实参，携带 `MissingSymbolException`，**绝不进 PIC**）。
 
-第 4 级里 `vtable_index` 必须排在 `resolve_virtual` **前面**（`fix-jit-vcall-overload-dispatch`）：
+第 4 级里 `vtable_index` 必须排在 `resolve_virtual` **前面**：
 vtable 把「可能重载的方法名」映射到编译器为该站点绑定的那个覆写槽，而 `resolve_virtual` 的
 `Class.method` 字符串走法会撞上先遇到的同名函数。
 
@@ -104,8 +102,8 @@ vtable 把「可能重载的方法名」映射到编译器为该站点绑定的�
 `{c}.{m}${arity}`、`{c}.{m}`，以及当操作数本身已是完整键（`Name$arity$types`）时的裸规范槽；
 然后对 `Std.Object` 再压同样三种。
 
-`arity_first` 参数控制前两者的先后——基元路径（第 3 级）历史上是「先裸名后 mangle」，盒路径
-（第 1/2 级）是反的，这个不对称是保字节不动点留下的，不是语义需要。
+`arity_first` 参数控制前两者的先后——基元路径（第 3 级）是「先裸名后 mangle」，盒路径
+（第 1/2 级）是反的，这个不对称是为保字节不动点，不是语义需要。
 
 为什么必须重试：**IR 里的方法名未必带 mangle**。接收者静态类型是 `object` 时（`Std.Assert.Equal(object, object)`
 里的 `expected.Equals(actual)`）IR 带的是裸名 `Equals`，而编译器在**声明处**总是给重载加后缀
@@ -117,7 +115,7 @@ vtable 把「可能重载的方法名」映射到编译器为该站点绑定的�
 凡是解析到的 callee 属于本模块、且接收者有类型 id（对象用真 `TypeDesc.id`，基元用合成
 `PRIM_TYPE_*`；**盒没有** id），就把 `(type_id, slot, fn_idx)` 写进站点的 `VCallIC`，下一次同类型
 接收者走 `vcall_ic_hit`、根本进不到本模块。安装前还要校验目标签名吃得下这次的实参
-（`install_ic`，`fix-call-arity-skew`）——缓存一个 arity 不匹配的目标，等于让之后**每一次**调用
+（`install_ic`）——缓存一个 arity 不匹配的目标，等于让之后**每一次**调用
 都从 PIC 直接派发到错的函数、绕过 `resolve_vcall` 里的检查。
 
 细节见 [inline cache 发布](inline-cache-publication.md)与 [interp / JIT 语义一致性](interp-jit-semantics.md)。
@@ -126,12 +124,11 @@ vtable 把「可能重载的方法名」映射到编译器为该站点绑定的�
 
 它们全部走上面那条 `VCall` 阶梯，**没有**各自的 `dispatch.rs` helper。三件事值得单记：
 
-- **基元的 `Equals` / `GetHashCode` 已经没有 builtin 了**。`__int32_equals` / `__int32_hash_code` /
-  `__double_equals` / `__double_hash_code` / `__char_equals` / `__char_hash_code` 在
-  `shrink-primitive-native-interop` Stage 2（2026-08-28）删除（`corelib/builtin_table.rs:88-89`），
-  现在是 `Std.Int32` 等 wrapper 里的纯脚本方法（`Equals` → `this == other`，`GetHashCode` → `(int)this`）。
-  `Std.String.ToString` 同理，2026-08-27 起是 `String.z42:65` 的 `return this;`——旧的
-  `__str_to_string` builtin 只是原样返回自身，不值得占一个 `BuiltinId`。
+- **基元的 `Equals` / `GetHashCode` 没有 builtin**（没有 `__int32_equals` / `__double_hash_code` /
+  `__char_equals` 之类），
+  它们是 `Std.Int32` 等 wrapper 里的纯脚本方法（`Equals` → `this == other`，`GetHashCode` → `(int)this`）。
+  `Std.String.ToString` 同理，是 `String.z42:65` 的 `return this;`——一个只原样返回自身的
+  builtin 不值得占一个 `BuiltinId`。
 - **`GetType`** 在阶梯的第 1/2 级是原生拦截（盒自己带精确 type_desc），在第 3/4 级经
   `Std.Object.GetType` → `__obj_get_type` builtin（`corelib/object.rs`）合成 `Std.Type` 对象。
   `Std.Type` 自己的 `GetType()` 有一个独立的 vtable 撞车坑，见

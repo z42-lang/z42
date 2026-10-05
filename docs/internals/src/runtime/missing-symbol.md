@@ -1,11 +1,10 @@
 # 缺符号不再静默：用到才抛可 catch 的类型化异常
 
-> 对应 change：`fix-silent-symbol-resolution`（2026-09-13）。
 > 显式降级通道见[加载期可用性折叠与死分支剪枝](availability-folding.md)。
 
 ## 问题：一个哨兵编码了两件事
 
-依赖 zpkg 的**版本 skew**（编译时依赖 v2、运行时加载到 v1）在 z42 里此前**几乎全是静默
+依赖 zpkg 的**版本 skew**（编译时依赖 v2、运行时加载到 v1）若不加判定，在 z42 里**几乎全是静默
 错误答案，不是报错**。根因是单一的：`UNRESOLVED` 这个哨兵在设计上**同时编码**
 
 - 「跨包待解析」——按需加载下，符号现在不在注册表里，下一个 zpkg 到场就有了；
@@ -13,7 +12,7 @@
 
 所有下游兜底都按前者处理：一路 fallback、合成描述符、返 `Null`。于是
 
-| 场景 | 修复前 | 修复后 |
+| 场景 | 无此机制时 | 现行为 |
 |------|--------|--------|
 | 读缺失的静态字段 | 静默 `Value::Null` | `MissingSymbolException` |
 | `new` 一个解析不到的类型 | 合成零字段零 vtable 空壳 | `MissingSymbolException` |
@@ -121,8 +120,8 @@ IR pass 而必须挂在装配上。
 `new_from_receiver_regs`）**不做任何 arity 校验**，缺的形参就停在默认值上继续跑——实测
 `new Widget()` 把字段写成 `0`、`b.Label()` 输出 `null7`。这不是「缺符号」，是**静默调错**。
 
-**覆盖面**：构造器（fix-ctor-arity-skew）、实例方法——`VCall` 与 sealed 去虚化后的直接 `Call`
-（fix-call-arity-skew）、静态虚成员。**常规静态方法天然免疫**：它们的键恒为全签名 mangle
+**覆盖面**：构造器、实例方法——`VCall` 与 sealed 去虚化后的直接 `Call`、
+静态虚成员。**常规静态方法天然免疫**：它们的键恒为全签名 mangle
 （`OverloadResolver.MangleKey`），签名一变键就变、解析失败，由「缺符号」那条路报——
 `src/compiler/z42c.pipeline/tests/fixtures/cross-zpkg/call_arity_static_skew` 守住这个事实。
 
@@ -137,9 +136,8 @@ params 变长 ⇒ phys ≥ want；否则 phys == want
 两条都来自在全量 `xtask test` 上给解释器的三个函数体入口挂探针的**普查**，不是推断：
 
 - **合法调用里「实参数 < 形参数」0 次。** z42 的默认值由**调用点**在编译期填满（跨包构造器那一支
-  由 #623 补齐）⇒ 任何少于 `param_count` 的调用都是 skew，典型是「被调方新加了一个可选参数」。
-  构造器此前用 `min_arg` 当下界，恰恰放过了这种 skew；那段为 `min_arg` 两种口径并存而写的夹取补丁
-  随之整体删除。
+  同样由编译期补齐）⇒ 任何少于 `param_count` 的调用都是 skew，典型是「被调方新加了一个可选参数」。
+  若用 `min_arg` 当下界，恰恰会放过这种 skew，故构造器与方法一样按精确相等判定。
 - **「实参数 = 形参数 + 1」有 10 个合法站点**，全是返回 blob 值 struct 的函数：caller 在末尾传一个
   **sret 隐藏返回槽**，`FunctionEmitter` 为了不污染反射/跨包签名，故意**不**把它计入 `param_count`。
 
@@ -177,17 +175,17 @@ params 变长 ⇒ phys ≥ want；否则 phys == want
 复用 `MissingSymbolException` 而不新增异常类：新类要先进 stdlib，而冷启动种子的 stdlib 里没有它
 ⇒ 得走两-nightly。语义上也说得通：调用点指名的那个签名**确实不在**，撞上的是同键下的另一个。
 
-> ⚠️ **判定也会抓到「根本不是 skew」的调用。** 上线第一轮就在 z42b 里拦下一条**同包**调用：
+> ⚠️ **判定也会抓到「根本不是 skew」的调用。** 该判定曾在 z42b 里拦下一条**同包**调用：
 > `_pubBundleProjectDeps` 要 4 个参数（末参无默认值），调用点只传了 3 个——源码写错，参数一直静默为 `Null`。
 > 根因是 **z42c 对普通调用「实参少于必填形参」不报错**（构造器有 E0426，方法/自由函数没有，同文件也放行），
-> 于是编译器发出了一条参数不足的 `Call`。运行期判定是它的兜底；编译期诊断另行补齐。
+> 于是编译器发出了一条参数不足的 `Call`。运行期判定是它的兜底；编译期诊断应另行补齐。
 >
 > 普查的覆盖边界也由此可见：探针挂在解释器的函数体入口，JIT native 直调不经过——那一处正走 native。
 > 普查只用来定「合法调用长什么样」，判定本身挂在两后端共用的绑定点，不依赖探针覆盖。
 
-#### 谁负责传 sret：裸名入口一律不传（unify-blob-return-abi，2026-09-26）
+#### 谁负责传 sret：裸名入口一律不传
 
-上面那条判定是对的，但它把一条**编译期约定的自相矛盾**暴露成了运行期异常：
+上面那条判定会把一条**编译期约定的潜在矛盾**暴露成运行期异常：
 
 - sret 由**调用点的静态返回类型**决定（`CallEmitter` 的 `_isBlobStruct(c.Type())`）；
 - 而它是**每方法固定**的 `method_flags bit3`；
@@ -211,31 +209,31 @@ params 变长 ⇒ phys ≥ want；否则 phys == want
 （调用点**知道**要传 sret，桥接反而会打坏）。后者由 golden `interfaces/self_return_blob_struct.z42`
 的 `IExact` 那一组守着。
 
-#### 三条「绕过 VCall 的捷径」里，静态那条漏了 sret（fix-crosspkg-static-sret，2026-09-26）
+#### 三条「绕过 VCall 的捷径」都必须拼 sret 槽
 
-`CallEmitter._emitCall` 有三条捷径，**两条实例路一直正确拼 sret 槽，静态那条从一开始就没拼**：
+`CallEmitter._emitCall` 有三条捷径，**实例路（devirt、DepIndex instance）与静态路（DepIndex static / 静态属性访问器）都须拼 sret 槽**；静态路最易漏：
 
 | 捷径 | sret |
 |---|---|
 | devirt（sealed / 精确类） | ✅ |
 | DepIndex **instance** | ✅ |
-| **DepIndex `static`** ＋ **静态属性访问器的依赖分支** | 🔴 修前直接发裸 `CallInstr` |
+| **DepIndex `static`** ＋ **静态属性访问器的依赖分支** | ✅（须拼；漏拼则直接发裸 `CallInstr`） |
 
-⇒ 跨包调用一个返回 blob 值 struct 的**静态**方法/属性：生产方按 sret 编、消费方少传一槽
+⇒ 若漏拼，跨包调用一个返回 blob 值 struct 的**静态**方法/属性时：生产方按 sret 编、消费方少传一槽
 ⇒ 编译期零诊断、运行期 `takes N+1 physical argument(s), the call passes N`。
 
-**为什么四个月没响**：全仓没有任何 golden 跨包调用过「返回 struct 的方法」——
-`struct_cross_pkg` 只测跨包**构造**与**字段读**，而 `z42.core` 里**一个多字段 struct 都没有**
+**这类漏拼为什么不易察觉**：若无 golden 跨包调用「返回 struct 的方法」——
+`struct_cross_pkg` 只测跨包**构造**与**字段读**，而 `z42.core` 里**没有多字段 struct**
 （`GCHandle`/`Guid` 各 1 字段 + 12 个零字段基元 wrapper）⇒ 这条路在 stdlib 上走不到。
-守门的 fixture 现在有了：`src/compiler/z42c.pipeline/tests/fixtures/cross-zpkg/single_field_struct_cross_pkg/`。
+守门的 fixture：`src/compiler/z42c.pipeline/tests/fixtures/cross-zpkg/single_field_struct_cross_pkg/`。
 
 ⚠️ **调查工具的陷阱**：`z42c --dump-ir` / `--dump-bound` **不加载 stdlib/依赖**（带 `Z42_LIBS`
-也一样）⇒ 用它们看「跨包调用点发了什么」会得到假象（我据此错判成 loose VCall）。
+也一样）⇒ 用它们看「跨包调用点发了什么」会得到假象（容易据此误判成 loose VCall）。
 可靠办法：在编译器里打点，或只信运行期措辞。
 
 ⚠️ **为什么不让 VM 按目标 flags 自适应**：那会把每方法固定的 ABI 变成**派发时协商**，
 与本页判定「精确相等」的立场反向，且 JIT 要发条件化调用序列 ⇒ 接口/泛型调用整体降级回解释执行。
-`add-iface-return-bridge` 的 D1 已裁决过同一个问题。
+接口返回桥接的设计已裁决过同一个问题。
 
 ### 类型 —— `missing_type_exception`
 
@@ -249,10 +247,10 @@ module.classes 里有            → 回落描述符正确，放行
 没有，且名字带点              → 跨包引用没解析到 ⇒ 定案缺失，抛
 ```
 
-这三条此前就写在一条 `tracing::warn!` 的判断里（`defer-class-initialization`）。日志挡不住
+这三条若只写在 `tracing::warn!` 的判断里，日志挡不住
 静默数据损坏：空壳没有字段槽 ⇒ 构造器的 `FieldSet` 被**丢弃**、后续 `FieldGet` 全读
 `Null`（实测：`Std.IO.Process` 被合成空壳后，崩在 `AppendString` 的 `arr.Length`）。判据
-既然已经确定，就该抛。
+既然已经确定，就抛。
 
 ### 基类 —— `base_unmerged` 旗子 + `missing_base_exception`
 
@@ -274,10 +272,9 @@ module.classes 里有            → 回落描述符正确，放行
 `ensure_base_chain_loaded` + 把继承 fixup 跑到不动点）；取回来**仍然**带旗子，才是站点 ④
 的定案。
 
-## 顺带修掉的两个既有 bug
+## 两个与 skew 无关的陷阱
 
-这两个都不是 skew 问题，是被静默行为盖住的真 bug——**一个静默失败的特性会掩盖别的 bug**
-在这个 change 里又应验了两次。
+这两个都不是 skew 问题，是容易被静默行为盖住的真 bug——**静默失败会掩盖别的 bug**。
 
 ### 主模块的类继承跨包基类时丢掉全部继承字段
 
@@ -286,19 +283,19 @@ module.classes 里有            → 回落描述符正确，放行
 
 根因是两份注册表的分叉：主模块的类型注册表在**构建期**合并继承视图，那时跨包依赖还没
 加载 ⇒ 退化成「只有自己的字段」；`try_fixup_inheritance` 事后能补齐，但
-`fix-projecthooks-vtable-fixup` 的 `Arc::make_mut` 写时复制只让**惰性**注册表拿到修好的
+`Arc::make_mut` 写时复制只让**惰性**注册表拿到修好的
 副本。而 `ObjNew` **先查主模块** —— 于是永远拿残缺的那份。
 
-`VCall` 另有基类回落路径（`fix-vcall-base-class-fallback`），所以 `d.Who()` 一直是好的，
-把这个洞盖了很久。修法即上面的 `base_unmerged` 旗子 + `ObjNew` 改取修好的那份。
+`VCall` 另有基类回落路径，所以 `d.Who()` 是好的，
+会把这个洞盖住。解法即上面的 `base_unmerged` 旗子 + `ObjNew` 取修好的那份。
 
 > **教训**：方法派发通过 ≠ 字段布局正确。跨包继承的用例两样都要测。
 
 ### JIT 的回落描述符是空的
 
-`ObjNew` 的 JIT 助手此前**就地合成一个空 `TypeDesc`**，而 interp 走
-`make_fallback_type_desc`（按 `ClassDesc` 继承链把字段槽建齐）——同一个「合并模块不带预建
-`TypeDesc`」的合法回落，JIT 下却丢掉全部字段。现已改为两后端共用同一份实现。
+`ObjNew` 的 JIT 助手若就地合成一个空 `TypeDesc`，而 interp 走
+`make_fallback_type_desc`（按 `ClassDesc` 继承链把字段槽建齐），同一个「合并模块不带预建
+`TypeDesc`」的合法回落在 JIT 下就会丢掉全部字段。故两后端共用同一份实现。
 
 ## 想主动降级怎么办
 

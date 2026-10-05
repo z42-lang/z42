@@ -1,7 +1,5 @@
 # 泛型方法（方法级类型参数）
 
-> 对齐：2026-08-22（change `add-generic-methods` M1 + `add-reflective-invoke` G2/构造函数反射）
-
 方法可以有**自身的类型参数**（独立于所在类的类型参数），在调用点用 `Foo<Type>(args)` 显式指定，
 方法体内可对这些类型参数做 `typeof(T)`、`new T()`、`default(T)`：
 
@@ -60,11 +58,8 @@ new Box<int>().isInt()   // → true
 
 这两格要具化就把型参挪到**方法级**（`Convert<U>()`）——方法级不依赖实例。
 
-> 📜 **2026-09-25 之前类级 `typeof(T)` 一律产占位名**（`typeof(T) == typeof(int)` 恒为
-> `false`，是个静默错分支）。`add-generic-methods` design 的 D3 把类级具化留作后续，
-> 由 `fix-class-level-typeof` 兑现：载体用 `__class_type_arg` builtin 读实例 `type_args`，
-> 与类级 `default(T)` 同一个载体。机制见
-> [internals / 泛型](https://z42-lang.github.io/z42/internals/compiler/generics.html)。
+类级 `typeof(T)` 的载体是 `__class_type_arg` builtin：读实例 `type_args`，与类级 `default(T)` 同一个载体。
+机制见 [internals / 泛型](https://z42-lang.github.io/z42/internals/compiler/generics.html)。
 
 ## `<` 的歧义消解
 
@@ -88,7 +83,7 @@ int  g = Id<int>(x);       // 泛型调用
 | 维度 | 载体 | 读取指令 |
 |------|------|----------|
 | 类级（`class Box<T>`） | 实例 `Object.type_args`（`regs[0]`，由 `obj.new` 填充） | `DefaultOf`（读 `regs[0]`） |
-| **方法级**（`Foo<T>()`，本 change） | **`Frame.method_type_args`**（建帧时由调用点填充） | `MethodTypeArg` / `MethodDefault`（读 frame 槽） |
+| **方法级**（`Foo<T>()`） | **`Frame.method_type_args`**（建帧时由调用点填充） | `MethodTypeArg` / `MethodDefault`（读 frame 槽） |
 
 静态方法没有 `this`，无法用实例载体——所以方法级新增一个 **frame 槽**，与类级实例载体对称。
 
@@ -131,28 +126,25 @@ flowchart LR
 - **JIT**：含方法级泛型指令、或含泛型调用点的函数暂走解释器（`jit_unsupported_reason` 拦截）；
   JIT frame 尚无 `method_type_args` 载体，留后续。
 
-### 边界（M1 Scope）
+### 边界
 
-- **M1 只做直接调用** `Foo<T>()`；反射式 `MakeGenericMethod().Invoke()` 由 **G2**
-  （add-reflective-invoke）补齐，见下节。
-- **类级 `typeof(T)` 的具体化不在本 Scope**（当前仍产占位名）；本 change 只补方法级。
-- ~~类型**推断**（从实参推 `T`，省略 `<...>`）留后续；M1 要求显式写 `Foo<T>()`。~~
-  ✅ **已落地**（2026-09-08，change `add-generic-type-arg-inference`）：省略尖括号会从实参结构化
+- 直接调用 `Foo<T>()`；反射式 `MakeGenericMethod().Invoke()` 见下节。
+- 类型**推断**（从实参推 `T`，省略 `<...>`）：省略尖括号会从实参结构化
   unify 出型参绑定，用于**形参位实参检查**与 **`where` 约束校验**。但推断结果**刻意不回灌**
   `BoundCall.MethodTypeArgs` —— 回灌会把 opcode 从 `Op.Call` 换成 `Op.CallGeneric`、重排 zbc
   串池、并关掉 native 快路径门，而全仓 112 处隐式泛型调用全是不消费型参的 `Array.Copy<T>`
   ⇒ 纯回归。⇒ **本页「非泛型调用逐字节不变」的不变量不受推断影响**；callee 真消费型参时
   由 **E0455** 要求显式写出 `<T>`。类型实参推断的语义细节属编译器实现范畴，本手册不展开。
-  - ✅ **lambda 实参也参与推断**（2026-09-11，change `generic-inference-lambda-args`）：`Map(nums, n => n*n)`
-    / `Array.Sort(xs, (a,b) => b-a)` 这类**省略 `<>` + 无标注 lambda** 现在能编能跑——从非-lambda 实参或
+  - **lambda 实参也参与推断**：`Map(nums, n => n*n)`
+    / `Array.Sort(xs, (a,b) => b-a)` 这类**省略 `<>` + 无标注 lambda** 能编能跑——从非-lambda 实参或
     lambda 标注推出型参、只代换 Func 形参位、据此重绑 lambda 拿具体类型。见
     lambda 实参驱动的推断。
 
-## 方法级形参转发（add-generic-activator）
+## 方法级形参转发
 
-M1 曾要求「类型实参须为具体类型」——调用者**把自己的方法级形参 `T` 转发给嵌套泛型调用**
-（`Foo<T>() { Bar<T>() }`）此前不支持：调用点发字面 `"T"`，被调方 `typeof(T)` 的
-`make_type_from_name("T")` 落空 → 丢 handle。**add-generic-activator 修复了顶层转发**（`Activator.CreateInstance<T>()`
+调用者可以**把自己的方法级形参 `T` 转发给嵌套泛型调用**
+（`Foo<T>() { Bar<T>() }`）：若调用点发字面 `"T"`，被调方 `typeof(T)` 的
+`make_type_from_name("T")` 会落空 → 丢 handle，所以编译期改发标记（顶层转发，是 `Activator.CreateInstance<T>()`
 在泛型方法内可用的前置）。
 
 **机制（`$mta:<idx>` 标记，零格式改动）**：
@@ -175,10 +167,10 @@ Make<ActWidget>()              → Make frame.method_type_args = ["…ActWidget"
 - **限制**：只做**顶层**类型实参转发（`Bar<T>`）；`Bar<List<T>>` 里嵌套的 T（标记落在尖括号内）留
   后续（需 `make_type_from_name` 角括号解析里嵌转发）。
 
-## 反射式调用（G2 — MakeGenericMethod + Invoke）
+## 反射式调用（MakeGenericMethod + Invoke）
 
-> add-reflective-invoke。M1 的直接调用在**编译期**把类型实参编进 `CallGeneric` 指令；G2 让
-> 类型实参在**运行期**经 `MethodInfo` 绑定后再调用，路径不同但**复用 M1 的帧槽物化**。参照 C#
+> 直接调用在**编译期**把类型实参编进 `CallGeneric` 指令；反射式调用让
+> 类型实参在**运行期**经 `MethodInfo` 绑定后再调用，路径不同但**复用直接调用的帧槽物化**。参照 C#
 > `System.Reflection.MethodInfo.{IsGenericMethod, GetGenericArguments, MakeGenericMethod}`。
 
 ```z42
@@ -196,33 +188,33 @@ Assert.Equal(false, made.IsGenericMethodDefinition);
 object r = made.Invoke(null, new object[]{});        // == 直接调用 Reflector.TypeName<Box>()
 ```
 
-### 数据流（复用 M1 帧槽）
+### 数据流（复用帧槽）
 
 ```mermaid
 flowchart LR
   A["MethodInfo 定义态<br/>__typeParamNames=['T']"] -->|"MakeGenericMethod(typeof(Box))"| B["MethodInfo 构造态<br/>__typeArgs=[typeof(Box)]"]
   B -->|"Invoke(obj, args)"| C["读 __typeArgs → FQ 名 ['…Box']"]
   C -->|"exec_function_with_type_args"| D["Frame.method_type_args = ['…Box']"]
-  D --> E["方法体 M1 opcode 物化<br/>typeof(T)/new T()/default(T)"]
+  D --> E["方法体 opcode 物化<br/>typeof(T)/new T()/default(T)"]
 ```
 
 - **构造态无独立子类型**（参 C#）：`MakeGenericMethod` 返回同为 `MethodInfo` 的对象，只是多带隐藏
   `__typeArgs`（`Std.Type[]`），并翻转 `IsGenericMethodDefinition=false`。
 - **元数据来源无格式 bump**：方法级类型形参名早已由 zbc SIGS 段的 `tpCount` 槽承载
-  （此前 writer 恒写 0），G2 让 `ZbcWriter` 填真实值即可——非泛型方法 `tpCount=0` 逐字节不变，
+  ，`ZbcWriter` 填真实值——非泛型方法 `tpCount=0` 逐字节不变，
   reader 全链路（z42 + Rust）早已就绪。反射侧经 `Function.type_params()` → `build_method_info`
   露出 `IsGenericMethod` + `__typeParamNames`。
 - **Invoke 线程**：`builtin_method_invoke` 读 `__typeArgs` 的每个 `Type` 取其 FQ 名，经
-  `exec_function_with_type_args` 填入 callee `frame.method_type_args`（M1 建的槽）→ 方法体
+  `exec_function_with_type_args` 填入 callee `frame.method_type_args`（直接调用用的同一个槽）→ 方法体
   `MethodTypeArg`/`MethodDefault` opcode 物化，与直接调用**逐点一致**。空切片（非泛型/定义态）→
   与非泛型 Invoke byte-identical。
 - **arity 校验**：`MakeGenericMethod` 在 native 层校验（非泛型 / 实参数 ≠ 类型形参数 → 可 catch 的
-  `Std.Exception`）。反射式 `where` 约束校验留 Deferred（M1 直接调用仍有编译期约束校验）。
+  `Std.Exception`）。反射式 `where` 约束校验留 Deferred（直接调用有编译期约束校验）。
 
 ## 构造函数反射（MethodBase / ConstructorInfo）
 
-> add-reflective-invoke。反射类型层级对齐 C# `MemberInfo → MethodBase → {MethodInfo,
-> ConstructorInfo}`。`ConstructorInfo.Invoke(args)` 提供**带参构造**（此前 `Activator.CreateInstance`
+> 反射类型层级对齐 C# `MemberInfo → MethodBase → {MethodInfo,
+> ConstructorInfo}`。`ConstructorInfo.Invoke(args)` 提供**带参构造**（`Activator.CreateInstance`
 > 只无参、且不跑构造函数）。
 
 ```z42
@@ -239,6 +231,6 @@ object p = two.Invoke(new object[]{ 3, 4 });         // 分配 + 跑 ctor + 返�
   `$` 前的段等于类简名者；按 func-index 去重（bare + mangled 别名）+ 按键排序（确定序）。
 - **`ConstructorInfo.Invoke(args)` = 带参构造**：解析类 → 默认字段分配（同 `__activator_create`）→
   以新对象为 reg0 + args 跑 ctor 函数 → 返回对象。arity 错 / ctor 体内 throw 均走 catchable 通道。
-  重开了此前 Deferred 的带参构造能力；`Activator.CreateInstance(Type)` 保持无参快路径不变。
+  `Activator.CreateInstance(Type)` 保持无参快路径不变。
 - **Deferred**：`GetConstructor(Type[])` 按参数类型的重载解析（调用方用 `GetConstructors()` +
   `GetParameters()` 自选）。

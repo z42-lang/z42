@@ -1,6 +1,6 @@
 # AOT 后端（Ahead-of-Time Compilation）
 
-> **状态：DESIGN（未实施，aot.rs 为 stub）** · 创建 2026-06-21
+> 待办：设计已定，尚未实施（`aot.rs` 为 stub）
 >
 > 设计 z42 的 AOT 后端：把 `.zbc` 提前编译成目标原生码。**iOS/wasm 无运行时 JIT，性能命脉靠 AOT + interp 分层**；desktop/android 上 AOT 作 baseline 与 JIT 共存。
 >
@@ -59,7 +59,7 @@ AOT 码发 **cranelift user stack map**(与 JIT 共享机制)→ AOT 路径精�
 - AOT 化的是**随包静态 zpkg**;**运行时动态加载的 zpkg**([load-context.md](load-context.md))→ iOS 走 interp、desktop 走 JIT。AOT 不覆盖动态加载。
 - AOT 码属某 context;context 卸载时其 AOT 码(若 dlopen 的 AOT 模块)随之卸载(组件化 dlopen)。静态链进 app 的 AOT 不卸载(随进程)。
 
-## 9. 决策记录（2026-06-21）
+## 9. 决策记录
 | # | 决策 |
 |---|---|
 | D1 后端 | **cranelift-AOT**(复用 JIT 翻译,泛化 Module trait,cranelift-object 发 .o);**修订 M9 LLVM 计划**;LLVM 延后 |

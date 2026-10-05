@@ -1,6 +1,6 @@
 # 产物目录布局（`artifacts/`）
 
-> 对齐：2026-10-05（change `stage-device-host-projects`）｜ 代码：`scripts/common/xtask_layout.z42`（路径 SoT）、`src/libraries/z42.workspace.toml` 与 `src/compiler/z42.workspace.toml` 的 `[workspace.build]`、`.cargo/config.toml`
+> 代码：`scripts/common/xtask_layout.z42`（路径 SoT）、`src/libraries/z42.workspace.toml` 与 `src/compiler/z42.workspace.toml` 的 `[workspace.build]`、`.cargo/config.toml`
 >
 > 构建步骤本身见[构建编排](build.md)；打包见[打包引擎](packaging.md)。
 
@@ -12,7 +12,7 @@
 | 桶 | 装什么 | 谁写 |
 |---|---|---|
 | `build/` | 编译产物、测试输出与各命令的工作目录，子目录**逐路径镜像 `src/`**（见 §2、§3）| `xtask build *` / `xtask test *`、cargo |
-| `packages/` | 组装好的发行包（`z42-<...>-<rid>-<profile>/`）+ `archives/`（发布归档、`SHA256SUMS`、`release-index.json`；2026-10-02 前是顶层 `release/`）| `xtask package *` |
+| `packages/` | 组装好的发行包（`z42-<...>-<rid>-<profile>/`）+ `archives/`（发布归档、`SHA256SUMS`、`release-index.json`）| `xtask package *` |
 | `xtask/` | xtask 自己的 zpkg / zsym / cache，以及 xtask 自检的工作目录 `xtask/tests/<name>` —— **不在 `build/` 里面** | `z42 publish scripts/xtask.z42.toml`、xtask 自检 |
 | `tools/` | 构建**下载**的第三方工具（`node`、`android-sdk`、`playwright-browsers`）| `xtask deps install` 与按需自动安装 |
 | `reports/` | 给人与 CI 看的**结果**，按种类分子目录：`tests/<platform>/junit.xml`（平台测试）、`bench/`（`e2e.json` / `ab.json` / `micro-*.json`）、`profile/<script>/`（火焰图、dhat 报告、counter 摘要、`report.md`）| `xtask test platform *` / z42b 设备驱动、`xtask bench`、`xtask profile` |
@@ -27,8 +27,7 @@
 > （`output_dir = "../artifacts/xtask"`、`dist_dir = "${output_dir}"`，所以是扁平的
 > `artifacts/xtask/xtask.zpkg` 而不是 `.../dist/...`；`publish_dir = ".."` 把 apphost 送到仓库根 `./xtask`）。
 
-> **没有 `deps/` 这个桶。** 早期布局文档写过一个「留给第三方二进制」的 `artifacts/deps/`，
-> 代码里从未出现过；真正的落点是 `artifacts/tools/`。
+> **没有 `deps/` 这个桶。** 第三方二进制的落点是 `artifacts/tools/`。
 
 ## 2. `build/` 镜像 `src/`
 
@@ -152,8 +151,7 @@ z42c 写产物同样是就地写 ⇒ 穿透到 `libraries/z42.core/release/dist/
 工具链程序（launcher / z42b / z42d / z42i）用到的编译器包在各自清单里写 `deploy = "shared"`：不复制进发布包，运行期经
 `probing-paths = "../z42c"`。
 
-> **历史：alllibs（`build/views/<profile>/all`，2026-10-01 删除）**。此前因为 VM 的 `Z42_LIBS` 只能是一个目录，xtask
-> 把 stdlib flat 与全部编译器成员 dist **拷**进一个目录当唯一的 `Z42_LIBS`。代价有两个：
+> **为什么不把 stdlib flat 与编译器成员 dist 拷成一个目录当唯一的 `Z42_LIBS`**（VM 的 `Z42_LIBS` 只能是一个目录）。代价有两个：
 > ① 编译器 dist 里的 stdlib 副本会把新 stdlib 遮蔽成旧的。PR #955 实测：命令显式喂了 flat，跑的却是旧 stdlib；
 > 只能靠「先 flat 后成员、不覆盖」的拷贝顺序加事后逐字节对账兜住。② 工具链程序在它下面编译时，编译器包被当成
 > 「框架」不复制——发布包里有没有它们取决于构建环境，而不是清单。只编译、且被编的东西只用 stdlib 的地方

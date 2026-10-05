@@ -1,6 +1,6 @@
 # 打包引擎（`packages.toml`）
 
-> 对齐：2026-09-17（change `restructure-docs-three-books`）｜ 代码：`scripts/packages.toml`、`scripts/package/`
+> 代码：`scripts/packages.toml`、`scripts/package/`
 >
 > 本地怎么打一个包、RID 支持矩阵、发版流程、失败排查 → [打包与发版](release.md)；本页写**引擎本身**：
 > 清单怎么组织、组件怎么产出、组装完为什么还有一道逐字节的门。
@@ -42,12 +42,10 @@ graph LR
 先构建（cargo、工具链 zpkg、stdlib），再按包定义的 include **逐组件直接装进包目录**
 （`_pkgInstallPackage` → 按 kind 分派），最后生成 manifest、跑 source-identity 门（§5）。
 
-> 🔴 **不再有暂存根**（drop-package-staging，2026-10-01）。原设计（add-package-layout-config Decision 6）是
-> 两段：组件先产出到 `artifacts/publish/<comp>/`，包再整目录拷过去。去掉的理由：
+> 🔴 **没有暂存根**：组件不先产出到 `artifacts/publish/<comp>/` 再整目录拷进包，而是直接发布进包目录。理由：
 > ① 固定形态组件本来就是从构建产物拷出来的，暂存只是多拷一遍；apphost 组件的 publish **不清空** `--output`，
-> 各落各的 `bin/<名>` + `programs/<名>/`，可以直接发布进包目录；② 只有桌面 sdk / runtime 用暂存——
-> ios / wasm / android 打包与 `build sdk` 一直直接往包目录写，两套做法并存；③ apphost 组件的工程路径
-> 在清单与打包代码里各写一份，现在只读清单的 `project`。runtime 包与 sdk 共享 native + stdlib，
+> 各落各的 `bin/<名>` + `programs/<名>/`，可以直接发布进包目录；② ios / wasm / android 打包与 `build sdk` 都直接往包目录写，两套做法并存没有必要；③ apphost 组件的工程路径
+> 若在清单与打包代码里各写一份会漂移，所以只读清单的 `project`。runtime 包与 sdk 共享 native + stdlib，
 > 各自从同一份构建产物装，字节一致。
 
 ## 3. 清单的三层结构
@@ -104,8 +102,7 @@ graph LR
 仓库源，逐字节**。
 
 **不是哈希**——直接读两个文件比字节，比 hash 更强（无碰撞面、不依赖外部工具）。
-函数曾名 `_pkgSha256Check`，源自最初 bash 实现里真的算 sha256sum 的那一版；实现早换成字节比较，
-名字后来才正过来。所以仓里、CI 日志里出现的 "SHA invariant" 字样指的就是这道门。
+函数名不含 sha。仓里、CI 日志里出现的 "SHA invariant" 字样指的就是这道门。
 
 规则表是「包内相对路径 ↔ 仓库源路径」（`_pkgIdentityRules`，`scripts/package/xtask_package.z42`）：
 
@@ -128,12 +125,12 @@ graph LR
 三条容易踩的设计点：
 
 1. **「路径存在却 0 个文件可比」= 失败，不是警告。** 那意味着规则与拷贝点脱钩了，门在验一个不相干
-   的东西 = 假保障。初版只打 ⚠ 不计失败，于是「本门要防的那个形状」自己复发时门是黄的不是红的。
-2. **这个判据依赖「不预建空目录」。** 曾经 `_pkgSetupDir` 无条件预建 `libs/` 与 `native/include/`，
+   的东西 = 假保障。若只打 ⚠ 不计失败，则「本门要防的那个形状」自己复发时门是黄的不是红的。
+2. **这个判据依赖「不预建空目录」。** 若 `_pkgSetupDir` 无条件预建 `libs/` 与 `native/include/`，
    而 ios/android/wasm 的 **workload pack** 根本不装这两类（它们在另一个 **runtime pack** 里）
-   → 门看见空壳，把「本包没有这一类」误判成「规则脱钩」，三个平台的 package job 全红。
+   → 门会看见空壳，把「本包没有这一类」误判成「规则脱钩」，三个平台的 package job 全红。
    现在是**谁写谁建**：`_pkgCopyLibs` / `_copyAbiHeaders` / `_copyNativeLibs` 各自 ensure 自己的
-   目标目录，空目录不再出现在发布包里。
+   目标目录，空目录不会出现在发布包里。
 3. **ios 的 `Sources/Z42VMC/` 与 android 的 `…/cpp/` 不能整棵目录递归比**：它们的 `include/` 装的是
    拷进去的**真 runtime 头**，而源树同名目录里是 `#include "../../.."` 的转发 stub，整棵比会假红。
    故那两处是显式文件规则 + 单独一条指向 `src/runtime/include` 的 include 规则。

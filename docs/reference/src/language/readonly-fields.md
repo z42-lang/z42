@@ -1,7 +1,5 @@
 # readonly 字段
 
-> 对齐：2026-08-06（change `add-readonly-fields-opt`）
-
 `readonly` 修饰符标记一个**构造后不变**的字段。它既是给读者的意图声明，也是给优化器的
 **可信契约**——编译器据此把该字段的读（`field_get`）纳入 CSE 消重与循环外提（LICM），详见
 优化管线。

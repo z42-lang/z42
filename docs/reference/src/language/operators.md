@@ -26,12 +26,12 @@
 
 这套次序与 C# 一致，除了 z42 **没有** `??`（已移除，见下）。
 
-> **这张表的真相源是编译器里的 `ParseTable`**（`src/libraries/z42c.syntax/src/ParseTable.z42`：
+> **这张表的真相源是编译器里的 `ParseTable`**（`src/compiler/z42c.syntax/src/ParseTable.z42`：
 > 每个 token 的绑定力 + led 角色 + 可选特性名），本页是它的人类可读镜像。数值与不变式
 > 由 `tests/parse_table.z42` 钉住（改动某个绑定力会让那道门红）。
 >
 > 其中 `| ^ & << >>` 挂 `bitwise`、`?:` 挂 `ternary`：在 `z42.toml` 的
-> `[syntax]` 里把它们置 `false`，用到就报 **E0301**（见[语法定制](../../../internals/src/compiler/syntax-customization.md)）。
+> `[syntax]` 里把它们置 `false`，用到就报 **E0301**（见[语法定制](https://z42-lang.github.io/z42/internals/compiler/syntax-customization.html)）。
 
 ```z42
 if (a && b || c) { }   // ≡ ((a && b) || c)
@@ -289,9 +289,6 @@ string home = Environment.GetEnvironmentVariable("HOME", "");   // 结果保证�
 同款：`AppProperties.GetOrDefault(key, fallback)` /
 `RuntimeConfig.GetOrDefault(key, fallback)`。
 
-> 顺带修掉的一个真 bug：`?.` 旧的脱糖把接收者**绑定了两次**，所以 `F()?.X` 会
-> **调用 `F` 两次**。写成显式检查后，接收者只求值一次。
-
 ## 运算符重载（用户类型）
 
 class / struct 可用 `public static` 方法重载二元运算符，写法与 C# 一致——`operator <sym>(a, b)`，
@@ -324,7 +321,7 @@ class Ver {
 | `^` | `op_ExclusiveOr` | `>>` | `op_RightShift` |
 
 - **这张表就是全部**：表外的符号（`!` / `~` / `&&` / …）与**一元形态**（`operator -(T a)` 只有一个
-  形参）都**不可重载**，写了报 [E0495](../appendix/error-codes.md)。这两种写法此前**声明处一句话
+  形参）都**不可重载**，写了报 [E0495](../appendix/error-codes.md)。这两种写法若不在声明处拦下，会**一句话
   不说**：表外符号被造出一个非法名（`op_!`）、一元 `-` 撞进 `op_Subtract`，方法照样发进 zbc，
   而派发侧永远查不到它 —— 你只会在**使用处**看到一句与真因无关的
   `operator `-` requires numeric operand`。

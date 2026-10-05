@@ -1,11 +1,11 @@
 # `z42` 命令面
 
-> 对齐：2026-09-17（change `restructure-docs-three-books`）｜ 代码：
+> 代码：
 > `src/toolchain/launcher/core/launcher_cli.z42`（命令树与路由）、
 > `src/toolchain/launcher/core/launcher.z42`（`run` / `version` / SDK 布局）、
 > `src/toolchain/launcher/core/launcher_export.z42`（`publish` / `export`）、
 > `src/toolchain/launcher/core/launcher_workload.z42`（`workload`）、
-> `src/libraries/z42.project/src/ManifestLocator.z42`（工程定位）
+> `src/compiler/z42.project/src/ManifestLocator.z42`（工程定位）
 >
 > 清单字段（`[project]` / `[[exe]]` / `[platform.*]` / `[profile.*]`…）见
 > [工程清单 z42.toml](z42-toml.md)；`z42c` / `z42b` 的直接命令面见
@@ -248,9 +248,9 @@ z42: unknown runtime knob `gc-mdoe` in --set; did you mean `gc-mode`?
 | Windows | `%LOCALAPPDATA%\z42\cache` |
 | 其他 | `$XDG_CACHE_HOME/z42`，未设则 `$HOME/.cache/z42` |
 
-> 📌 缺省曾是 `<SDK 根>/cache`（2026-09-28 改）。往安装目录写缓存有三个问题：安装位常是
+> 📌 缺省不放在 `<SDK 根>/cache`。往安装目录写缓存有三个问题：安装位常是
 > 只读/需提权的（`Program Files` / `/usr/local` / 容器镜像层）；多用户共享同一份安装时缓存
-> 互相串；分发目录被运行期状态污染。**旧版本在 SDK 里留下的 `cache/` 可以直接删**，没有别的
+> 互相串；分发目录被运行期状态污染。SDK 里残留的 `cache/` 可以直接删，没有别的
 > 东西读它。
 
 三条边界：

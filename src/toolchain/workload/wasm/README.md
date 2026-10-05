@@ -64,7 +64,7 @@ playwright 在 headless chromium 中跑 7 个 platform-test-contract scenario。
 
 ## API 概览
 
-完整 TS 类型见 [`js/index.d.ts`](js/index.d.ts)：
+完整 TS 类型见 [`js/index.d.ts`](platform/js/index.d.ts)：
 
 ```ts
 import init, { Z42VM, readNamespaces } from '@z42/wasm';
@@ -130,7 +130,7 @@ wasm/
 ```
 
 `pkg-*/` 和 `stdlib/` 由 `./xtask test platform wasm build` / `assets` 重新生成；都在 `.gitignore` 内。
-（构建逻辑已从 `build.sh`/`test.sh` 迁入 `WasmBackend`，见 [`scripts/xtask_test_wasm.z42`](../../../../scripts/xtask_test_wasm.z42)。）
+（构建逻辑已从 `build.sh`/`test.sh` 迁入 `WasmBackend`，见 [`scripts/xtask_test_wasm.z42`](../../../../scripts/test/xtask_test_wasm.z42)。）
 
 ## 限制（v0.1）
 

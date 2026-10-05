@@ -41,7 +41,7 @@ entry   = "Hello.Main" # 可选；省略时由 PackageCompiler 自动发现 Main
 | `name` | string | ✅ | 全小写；作为输出文件基名和依赖引用键。命名规则见下节 |
 | `version` | string | ✅ | SemVer，如 `"0.1.0"` |
 | `kind` | `"exe"` \| `"lib"` \| `"analyzer"` | 单目标必填；多目标用 `[[exe]]` 时省略 | 可执行程序 / 类库 / 编译期扩展（analyzer、generator 都用这个 kind）。写其它值 → 构建报用法错误 `unknown kind` |
-| `entry` | string | ❌ 可选 | 完全限定入口函数。**省略时**`PackageCompiler` 自动从编译后的 module 查找 `Main`（优先 `<Namespace>.Main` 再 `<Namespace>.main` 再裸 `Main` / `main`）；找不到则**编译期报错**（2026-05-14 起）|
+| `entry` | string | ❌ 可选 | 完全限定入口函数。**省略时**`PackageCompiler` 自动从编译后的 module 查找 `Main`（优先 `<Namespace>.Main` 再 `<Namespace>.main` 再裸 `Main` / `main`）；找不到则**编译期报错** |
 
 ### 包名命名规则
 
@@ -65,11 +65,6 @@ version = "0.1.0"
   `z42.*` 是官方保留前缀——它们随工具链分发、**始终可用**，`[dependencies]` 里
   **只写第三方包**（Rust-std 模型），也不要给自己的包起 `z42.` 开头的名字。
   声明 `z42.*` 是冗余、但无害：编译器不报错也不警告。
-
-  > 📜 本条原先写着「会触发 WS013 警告」。**WS013 已经不存在了** —— 它是 C# 编译器时代的
-  > lint（`simplify-stdlib-auto-import`，2026-06-06），随 2026-06-26 移除 C# 编译器一起蒸发，
-  > 自举实现从未补回（判据：`grep WS013 src/` 为空）。同族于 E0407 / `FlowAnalyzer.cs`
-  > 那类「常量在、文档在、发它的 pass 不在」。
 
 - **第三方包必须声明**，漏写会在编译期报 [`E0497`](../appendix/error-codes.md)，
   消息里直接给出要加的那一行。判据是**类型的归属包**，不是 `using` 的命名空间。
@@ -145,7 +140,7 @@ include = ["src/tool/**/*.z42"] # 可选：覆盖共享 [sources]
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
 | `name` | string | ✅ | exe 名，同时作为产物文件基名 |
-| `entry` | string | ❌ 可选 | 完全限定入口函数；省略时走 `PackageCompiler` 的 `Main` 自动发现路径（2026-05-14 起）|
+| `entry` | string | ❌ 可选 | 完全限定入口函数；省略时走 `PackageCompiler` 的 `Main` 自动发现路径 |
 | `src` | string[] | ❌ | 独立 glob，覆盖 `[sources]`；省略则继承 `[sources]` |
 
 ```bash
@@ -263,8 +258,7 @@ entry = "MyApp.main"
 pack = false           # 工程级 pack 默认值（最低优先级）
 
 [build]
-# restructure-publish-output-dirs (2026-06-19): 四件套字段（output_dir / cache_dir /
-# dist_dir / publish_dir）都是可选的，未设走级联默认。
+# 四件套字段（output_dir / cache_dir / dist_dir / publish_dir）都是可选的，未设走级联默认。
 # output_dir  = "/build/myproj"      # 顶层根目录（单工程默认 <清单目录>/artifacts/<profile>；workspace 成员见下表）
 # cache_dir   = "/dev/shm/cache"     # 中间产物（默认 ${output_dir}/.cache）
 # dist_dir    = "/build/dist"        # 最终产物（默认见下表：单工程未配 output_dir 时是 <清单目录>/dist）
@@ -280,18 +274,18 @@ pack  = true           # release build → packed zpkg（单文件，dist/<name>
 strip = true           # 默认剥离 DBUG → 配套 <name>.zsym sidecar
 ```
 
-**`[build]` 字段说明（restructure-publish-output-dirs, 2026-06-19）：**
+**`[build]` 字段说明：**
 
 | 字段 | 类型 | 默认（单工程） | 默认（workspace 成员） | 说明 |
 |------|------|------|------|------|
 | `output_dir` | string? | `<清单目录>/artifacts/<profile>`（= `${workspace_dir}/artifacts/${profile}`） | 展开 `[workspace.build].output_dir`（相对 workspace 根；未声明 = `artifacts/${project_name}/${profile}`） | 顶层输出根目录；`${output_dir}` 模板变量解析为此值。 |
 | `cache_dir` | string? | `${output_dir}/.cache` | `[workspace.build].cache_dir` ?? `${output_dir}/.cache`（模板不含成员名时追加成员子目录防碰撞） | 中间产物（`.zbc` / 索引 / 增量元数据）。 |
-| `dist_dir` | string? | 未配 `output_dir` 时 **`<清单目录>/dist`**；配了则 `${output_dir}/dist` | `${output_dir}/dist` | 最终分发产物（`.zpkg` + `.zsym`）。替代了 0.1.x 的 `out_dir`。 |
+| `dist_dir` | string? | 未配 `output_dir` 时 **`<清单目录>/dist`**；配了则 `${output_dir}/dist` | `${output_dir}/dist` | 最终分发产物（`.zpkg` + `.zsym`）。 |
 | `generated_dir` | string? | `${output_dir}/generated`（显式 `""` = 不落盘） | 同左 | generator 生成的源码。 |
 
 发布目录不在 `[build]`：它是 `[platform.desktop].publish_dir`（见下文 publish 一节），默认 `${output_dir}/publish`。
-| `incremental` | bool | `true` | `true` | 基于 source hash 跳过未改动文件。CLI `--no-incremental` 是一次性覆盖，**永远压过本键**；两者任一为「关」即关（wire-build-incremental）。 |
-| `hooks` | string? | （无） | （无） | **项目 build hook 源目录**（projDir 相对；wire-z42b-host-build 阶段 7）。声明后 z42b 用注入的同一 `ICompiler` 编该目录 → 动态实例化 `Build.ProjectHooks : BuildHooks` → 注入 `Pipeline.Hooks`。hook 源须 `namespace Build;` + `class ProjectHooks : BuildHooks`。hook 目录里 stdlib 与 **SDK 库**（`z42.build` / `z42.project` 等编译器域包）**自动可见**、免声明，且不拷贝——hook 加载进 z42b 进程，用的就是宿主那份。**z42c 不消费此键**（仅 z42b 编排读），与 `[platform.*]` 同为编排/发布侧配置。用途见下文 publish 一节（`z42 publish` 经 hook 免装 workload 产 apphost）；编排实现属内部细节，本书不展开。 |
+| `incremental` | bool | `true` | `true` | 基于 source hash 跳过未改动文件。CLI `--no-incremental` 是一次性覆盖，**永远压过本键**；两者任一为「关」即关。 |
+| `hooks` | string? | （无） | （无） | **项目 build hook 源目录**（projDir 相对）。声明后 z42b 用注入的同一 `ICompiler` 编该目录 → 动态实例化 `Build.ProjectHooks : BuildHooks` → 注入 `Pipeline.Hooks`。hook 源须 `namespace Build;` + `class ProjectHooks : BuildHooks`。hook 目录里 stdlib 与 **SDK 库**（`z42.build` / `z42.project` 等编译器域包）**自动可见**、免声明，且不拷贝——hook 加载进 z42b 进程，用的就是宿主那份。**z42c 不消费此键**（仅 z42b 编排读），与 `[platform.*]` 同为编排/发布侧配置。用途见下文 publish 一节（`z42 publish` 经 hook 免装 workload 产 apphost）；编排实现属内部细节，本书不展开。 |
 
 **模板变量（`${...}`）**：
 
@@ -308,7 +302,7 @@ strip = true           # 默认剥离 DBUG → 配套 <name>.zsym sidecar
 ```toml
 # A) 全部不设 → 全部默认
 [build]
-# output_dir = ${workspace_dir}/artifacts/${profile}；cache = ${output_dir}/.cache；dist = ./dist（z42c 历史默认，见 z42.project BuildLayout）
+# output_dir = ${workspace_dir}/artifacts/${profile}；cache = ${output_dir}/.cache；dist = ./dist（见 z42.project BuildLayout）
 
 # B) 只设顶层 → cache / dist 跟随
 [build]
@@ -328,7 +322,7 @@ cache_dir  = "/b"
 dist_dir   = "/c"
 ```
 
-**workspace 成员继承规则**（unify-build-layout 起对所有构建方式一致）：成员清单的 `[build]` **既没配
+**workspace 成员继承规则**（对所有构建方式一致）：成员清单的 `[build]` **既没配
 `output_dir` 也没配 `dist_dir`** ⇒ 整套走上表「workspace 成员」一列 —— 无论是 `z42c build --workspace`、
 单独构建该成员（`z42c build <member>.z42.toml` / `z42 build`）、被别的工程当作 **path 依赖**代建，还是
 `z42 run` / `z42 clean` / `z42 publish` 查询产物位置，都是同一处。成员自己配了 `output_dir` 或 `dist_dir`
@@ -358,7 +352,7 @@ dist_dir   = "/c"
 
 **内置默认值（未显式配置时）：** `debug` → `false`（indexed），`release` → `true`（packed）
 
-**`strip` 字段说明（2026-05-10 split-debug-symbols）：**
+**`strip` 字段说明：**
 
 控制 DBUG section 的产出位置。strip=true 时主 `<name>.zpkg` 不含 DBUG body，配套产出 `<name>.zsym` sidecar（zpkg 0.4 `SymOnly` flag，含 MDBG + BLID）。runtime 加载主 zpkg 后自动探测同目录 sidecar 并按 build_id 配对合并，缺失或不匹配时静默退化（trace 维持函数名 + 签名）。
 
@@ -372,7 +366,7 @@ dist_dir   = "/c"
 
 | pack 值 | strip 值 | 产物 | 说明 |
 |---------|---------|------|------|
-| `false` | `false` | `dist/<name>.zpkg`（indexed 主文件）+ `dist/<rel>.zbc` 散装 + `.cache/` | 开发态（debug 默认），DBUG 内嵌散装 zbc；未变文件 zbc 字节稳定 → 最小 patch（add-indexed-zpkg-min-patch，zpkg 0.24 实装）|
+| `false` | `false` | `dist/<name>.zpkg`（indexed 主文件）+ `dist/<rel>.zbc` 散装 + `.cache/` | 开发态（debug 默认），DBUG 内嵌散装 zbc；未变文件 zbc 字节稳定 → 最小 patch |
 | `false` | `true`  | ——（构建报错）| indexed 为开发态，与 `--release` strip 不兼容 |
 | `true`  | `false` | `dist/<name>.zpkg` (packed)                  | 发布态，DBUG 内嵌（便于现场 debug）|
 | `true`  | `true`  | `dist/<name>.zpkg` + `dist/<name>.zsym`      | 发布态，最小体积，离线可符号化 |
@@ -381,15 +375,15 @@ dist_dir   = "/c"
 > indexed 的散装 `<rel>.zbc` 会在成员之间按同名相对路径互相覆盖。所以这种构建下成员**总是** packed
 > （debug 也一样）；成员显式写了 `pack = false` 则报错。per-member 布局（不带 `--output-dir`）不受影响。
 
-> **z42c 实现现状（2026-07-08）**：`pack` 三层中 `[project].pack` + 内置默认已生效；
+> **z42c 实现现状**：`pack` 三层中 `[project].pack` + 内置默认已生效；
 > `[profile.*].pack` / `[[exe]].pack` 随 profiles 解析延后线（z42c 尚未解析 profile 段）。
 > z42c 的 strip ≡ `--release`（无独立 `--strip-symbols` flag）。
 
-**增量编译工作方式（C5 2026-04-27 引入整包版；文件级 add-file-level-incremental，2026-07-08）：**
+**增量编译工作方式：**
 
 判定与组装 SoT = **cache**（`<cache>/<rel>.zbc` fullMode + 同名 `.meta`），不再读上次 zpkg
 MODS。粒度是**文件级**：只重编「变化文件 + 包内传递依赖方」，其余文件的 IrModule 从
-cache zbc 读回（ZbcReader）。与 C# 当年被放弃的混合重建的本质区别：**无跨代元数据合并**
+cache zbc 读回（ZbcReader）。其关键特性是**无跨代元数据合并**
 ——TSIG/符号每次由当前源 AST 全包重算（每文件 TSIG 天然全包耦合：自由函数兄弟泄漏 +
 全包 AST 依赖），zbc 来自 hash 校验一致的 cache，两来源不一致的根因被结构性消除。
 
@@ -416,11 +410,10 @@ touch，断言增量产物与全量产物**逐字节相等** + D8 计时（增�
 `<rel>.meta`（z42c 内部行式文本，带 metaVersion/**z42c-fp 编译器语义指纹**/zbc/zpkg 四重版本
 pin：源 hash、ns、usedDepNs、模块池原序（hex）、每函数块 label 表（hex）——后两者是 zbc wire
 不携带、但参与 STRS 字节的 writer 残留）+ 包级 `package.meta`（上次源清单 + **`deps` 依赖身份**：编译扫描到的
-全部依赖 zpkg 的 BLID/内容哈希，任一变化 ⇒ 整包全量；依赖重编但输出不变时 BLID 不变 ⇒ 下游照常命中，
-add-dep-identity-to-cache-key）。任何 pin 不符/损坏
+全部依赖 zpkg 的 BLID/内容哈希，任一变化 ⇒ 整包全量；依赖重编但输出不变时 BLID 不变 ⇒ 下游照常命中）。任何 pin 不符/损坏
 → 条目作废按 fresh 处理（宁 fresh 不误命中）。`z42c-fp`（`CacheStore.CompilerFingerprint`）堵住
 「源没变 + 格式没 bump 但编译器 codegen/优化/typecheck 变了」的误命中漏洞（bump 纪律见
-[version-bumping.md](../../../agent/rules/version-bumping.md#编译器语义指纹非格式失效次元)）。cache 可整目录删除。
+[version-bumping.md](https://github.com/z42-lang/z42/blob/main/docs/agent/rules/version-bumping.md#编译器语义指纹非格式失效次元)）。cache 可整目录删除。
 indexed 模式（stripped zbc = `<dist>/<rel>.zbc`）自举重写未实现，见
 self-hosting.md Deferred。
 
@@ -429,21 +422,20 @@ self-hosting.md Deferred。
 
 ### incremental-future-tsig-level-invalidation
 
-- **来源**：add-file-level-incremental design D3（2026-07-08）
-- **触发原因**：第一版失效边取保守粒度（token ∩ 定义名；被引用文件任何变化即失效引用方），
+- **触发原因**：失效边取保守粒度（token ∩ 定义名；被引用文件任何变化即失效引用方），
   过近似只多编不错编；「B 的导出签名（TSIG）不变则不失效 A」的细化需 TSIG 结构化 diff
 - **前置依赖**：per-file TSIG 规范化比较（剥全包自由函数泄漏段）
 - **触发条件**：实测大包增量命中率低 / 对账器计时显示闭包过宽成为主要成本
 - **当前 workaround**：无需——保守边正确性优先
 
-### workspace 增量（workspace-read-cache，2026-09-15 落地）
+### workspace 增量
 
 workspace 成员（`--workspace`，per-member 与 flat 两种布局）与单工程一样 probe cache；`--no-incremental` 透传到每个成员。
 正确性由三道键保证：编译器身份（`CompilerFingerprint` + 格式 Minor，CI `test fingerprint` 守门）、依赖身份
 （`package.meta` 的 `deps` 行）、源哈希。自举不动点 gen2 与 CI 两代自举显式 `--no-incremental`。
 
 **成员可见性是封闭的**：编译第 i 个成员时，拓扑序排在它之后的成员（它们的 dist 与 `Z42_LIBS` 里的同名副本）一律不可见，
-依赖身份口径相同。此前后序成员上一轮的旧产物参与编译（依赖索引会因同名方法出现歧义键），构建结果随可见性漂移，
+依赖身份口径相同。否则后序成员上一轮的旧产物会参与编译（依赖索引会因同名方法出现歧义键），构建结果随可见性漂移，
 依赖身份也会让前序成员每轮白编一次。
 
 实测（stdlib 25 包，release）：全量 12.4s；无改动 0.6s；z42.core 只改注释 1.3s（24/25 命中）；拓扑序第 5 的 z42.text
@@ -468,57 +460,27 @@ my-app/
 
 ---
 
-## 跨包类型签名：从 TYPE/SIGS/IMPL 重建（unify-type-metadata P2→P3，2026-07-11）
+## 跨包类型签名：从 TYPE/SIGS/IMPL 重建
 
-> 背景：zpkg 曾并存两份类型元数据——**运行时段**（`TYPE` ClassDesc + `SIGS` FuncSig，VM 执行 +
-> 反射读）与**编译期段**（`TSIG` ExportedModuleZ + `IMPL`，z42c 跨包解析读）。unify-type-metadata
-> P1 把 TSIG 独有的字段（可见性 / virtual·abstract / min_arg / 参数名·默认值 / enum 值 / delegate /
-> impl）全部补进 TYPE/SIGS/IMPL。**P2** 建 `TsigReconcile.Rebuild`（从 TYPE/SIGS/IMPL 重建
-> ExportedModuleZ）+ 对账器与 TSIG oracle 逐字段验证 29 包 0-DIFF（安全网）。**P3（已落地
-> 2026-07-11，zpkg 0.31）删 TSIG + EXPT 两段**：`DepScan` 跨包解析改走 `Rebuild`，`Rebuild` 是
-> 跨包类型签名的**唯一来源**；对账器 + verb + `ReadTsig` 随 TSIG 一并移除。**每 zpkg ~半：
-> z42.core 193KB→92KB。**
+> zpkg 的类型元数据只有一份**运行时段**（`TYPE` ClassDesc + `SIGS` FuncSig + `IMPL`），VM 执行、反射、
+> z42c 跨包解析都读它。`DepScan` 跨包解析走 `TsigReconcile.Rebuild`（从 TYPE/SIGS/IMPL 重建
+> ExportedModuleZ），它是跨包类型签名的**唯一来源**；zpkg 不再有独立的 TSIG / EXPT 段。
 
-**机制**（`src/compiler/z42.package/src/TsigReconcile.z42`，driver verb `z42c reconcile-tsig <zpkg>...`；converge-z42c-ir-metadata：随 zpkg 后端下沉 z42.package）：
+**机制**（`src/compiler/z42.package/src/TsigReconcile.z42`）：`Rebuild(z, world)` 从 TYPE/SIGS/IMPL
+重建 ExportedModuleZ；`world` = 全部相关 zpkg（跨包 base 链：imported 祖先字段/方法从 dep 包 TYPE/SIGS 取）。
 
-```
-world = 全部待对账 zpkg（跨包 base 链：imported 祖先字段/方法从 dep 包 TYPE/SIGS 取）
-每包：
-  oracle   = ZpkgReader.ReadTsig(z)          # 现有 TSIG 段（当基准）
-  rebuilt  = Rebuild(z, world)               # 从 TYPE/SIGS/IMPL 重建 ExportedModuleZ
-  Compare(oracle, rebuilt)                    # 逐字段（归一化后）assert；空差异 = OK
-```
-
-**Rebuild 的口径**（镜像 `ExportedTypeExtractor`——TSIG 的生产端）：
+**Rebuild 的口径**（镜像 `ExportedTypeExtractor`）：
 
 - **类**：TYPE 每条（跳 interface bit4 / delegate bit6 / enum bit5 / 隐式根 `Std.Object`）→ 裸名
   （剥 ns + 尾部 arity-mangle `$N`）；base 链 topmost-first 展平字段；方法 = Object 四方法（非
   struct）+ 链实例方法合并（override 替换祖先位、`IsVirtual:=false`）+ 本类 static append。
   祖先 SIGS 用 **world 全包 (pkg, mod) 精确定位**（非 ns 首中——同 ns 多模块会错配）。
-- **enum**：TSIG 恒 = 内建 `GCHandleType{Weak,Strong}`（本地 enum 不进 TSIG）。
+- **enum**：恒 = 内建 `GCHandleType{Weak,Strong}`（本地 enum 不进跨包签名）。
 - **自由函数**：全包 SIGS 中 ns 剥离后**不含 `.`** 的条目（类方法为 `<Class$N>.<m>`——用 `_stripNs`
   保 `.` 判别，勿用剥 `$N` 的 `_bare` 否则 `Foo$1.Bar` 误判为自由函数）；排除 `__static_init__` /
   `__lambda` / `__local_` / `[Native]`。
 
-**归一化**（TYPE/SIGS 与 TSIG 是**不同编码**，语义等价即通过——非字节等价）：
-
-| 维度 | TSIG（oracle） | TYPE/SIGS（rebuilt） | 归一 |
-|------|---------------|---------------------|------|
-| 可见性 | `"internal"`（SymbolCollector 无修饰默认）| u8 `0=public` | internal ≈ public（无消费方按 internal 门禁）|
-| 类型拼写 | 解析短名 `Type` / `int` | 源拼写 `Std.Type` / `i32`，点缀名 → `"unknown"` | 短名 + prim 别名（byte↔u8…）+ nullable/泛型实参擦除 + `unknown ≈ 任一非基本类型` |
-| 方法集 | getter-only（**漏报属性 `private set`**）| getter + setter 齐全 | **子集语义**：oracle ⊆ rebuilt（按 name+isStatic+paramCount 匹配）|
-
-**关键发现**：**TSIG 是有损的**——它漏报属性 `private set`，SIGS 更全。故子集语义（oracle ⊆
-rebuilt）是「无信息丢失」安全网的**正确判据**：rebuilt 多出的方法是**信息增益**，非重建 bug。
-⟹ **P3 删 TSIG 零信息损失、反而更完整。**
-
-**对账 gate 揪出的 SIGS 源码精度缺陷**（`IrGen` 根因修，P3「SIGS 作唯一真相」的前置）：native
-桩返回/参数类型原硬编码 `"object"` → 改真实声明类型；property/indexer/隐式 ctor 合成点补逻辑
-`MinArg`；auto-prop 后备字段可见性 public → private。
-
-**验证**：P2 期全 29 包 `reconcile-tsig` 全 OK；P3 切换后 `Rebuild` 是编译热路径，每次跨包编译都
-经它，自举不动点 + GREEN 天然覆盖。**IMPL 段保留**（跨包 impl Trait for Type 关联，`Rebuild`
-经 `ReadImplInto` 读进 `Impls`——跨包 impl 方法传播/反射靠它）。
+**IMPL 段**：跨包 `impl Trait for Type` 关联，`Rebuild` 经 `ReadImplInto` 读进 `Impls`——跨包 impl 方法传播 / 反射靠它。`Rebuild` 是编译热路径，每次跨包编译都经它。
 
 ---
 
@@ -612,10 +574,6 @@ entry   = "MyApp.main"
 > **「工程目录」的判据与 `z42c build <dir>` 完全一致**（同一个 `ManifestLocator.FindIn`）：
 > 先认裸 `z42.toml`，再认唯一一份 `*.z42.toml`，多份则报歧义并列出候选。
 > 所以 `z42 new` 造出来的工程（它写的是**裸 `z42.toml`**）可以直接当 path 依赖。
->
-> 📜 此前 path 依赖解析自己 glob `"*.z42.toml"`，比这条判据**更严** —— `z42 new` 的产物
-> 因此当不了 path 依赖，而报错文本（「期望恰 1 份 `*.z42.toml`，实得 0」）离真正的原因
-> 很远。同一个「工程清单在哪」的问题曾有三份判据、三份都比权威那份严。
 
 #### SDK 库：按名声明即可引用编译器域的库
 
@@ -639,7 +597,7 @@ entry   = "MyApp.main"
 > ⚠️ SDK 库**不是稳定 API**：编译器内部随版本调整，不承诺兼容。拷进产物后运行期不受 SDK 升级影响，
 > 但用新 SDK 重编时可能要跟着改代码。
 
-**`${compiler_libs}` 路径宏已删除**（2026-10-01）：旧写法 `{ path = "${compiler_libs}/z42c.syntax.zpkg" }` 会**当场报错**，
+**不存在 `${compiler_libs}` 路径宏**：写 `{ path = "${compiler_libs}/z42c.syntax.zpkg" }` 会**当场报错**，
 并给出等价的按名写法 `"z42c.syntax" = "*"`。依赖的 `path` 不支持任何宏。
 
 产物引用的三条语义：
@@ -684,7 +642,7 @@ entry   = "MyApp.main"
 > （复制）最稳。只装了 runtime 的机器上运行会失败，报错附「是否没有安装 z42 SDK？」。
 
 只接受这三个值，写错（`Copy` / typo）**报错** —— 否则会被当成未声明静默走默认规则。校验在编译**之前**
-跑，对**所有 `kind`** 生效（此前只在 exe 构建时跑，于是 lib 里的 typo 静默无效）。
+跑，对**所有 `kind`** 生效。
 
 `deploy` 在两个地方**没有意义、写了报错**：
 
@@ -712,7 +670,7 @@ entry   = "MyApp.main"
 
 这意味着 `using` 语句中的命名空间名称与 `[dependencies]` 中的包名**无需一致**，由 zpkg 自身的 manifest 决定。
 
-**stdlib 自动可用，永不声明（Rust-std 模型，simplify-stdlib-auto-import 2026-06-06）：**
+**stdlib 自动可用，永不声明（Rust-std 模型）：**
 
 标准库（`Std.*` 命名空间 / `z42.*` 包）跟工具链一起分发，**始终可用，无需在任何 manifest section 声明**——就像 Rust 从不在 `Cargo.toml` 写 `std`，`use std::...` 直接可用。机制：编译器对 `meta.Name` 以 `z42.` 开头的包**无条件可见**（`ScanLibsForNamespaces` / `BuildDepIndex` 的 isStdlib 旁路），与是否声明无关；版本跟工具链走。
 
@@ -720,15 +678,9 @@ entry   = "MyApp.main"
 
 - **`[dependencies]` / `[tests.dependencies]` / `[bench.dependencies]` 只用于第三方依赖。** stdlib（`z42.*`）出现在其中纯属冗余。
 - **声明 `z42.*` 不报错也不警告**，只是冗余。
-  > 📜 本条原先写的是「**WS013 lint（warning）**：非 `z42.*` 项目声明了 `z42.*` 包 → 警告」。
-  > **WS013 已经不存在**——它是 C# 编译器时代的 lint，随 2026-06-26 移除 C# 编译器一起蒸发，
-  > 自举实现从未补回（判据：`grep WS013 src/` 为空）。与 #805 退役的 WS012 / WS040-043 同一族：
-  > **规则是真的，发它的 lint 不在了**。
 - **第三方包漏写会报 [`E0497`](../appendix/error-codes.md)**（编译期）——这是本节约定里
   真正有执行的那一半。
 - **`Std.*` 命名空间保留（E0605，硬错误）**：非 `z42.*` 包在源码声明 `namespace Std.*`（或裸 `Std`）→ **编译错误**。`Std` / `Std.*` 专属官方 stdlib（同 Rust 保留 `std`/`core`/`alloc`），保证程序里任何 `Std.*` 一定解析到官方、自动可用的 stdlib，永不被第三方 shadow。（消费一个已构建的、占用 `Std.*` 的第三方 zpkg 时另有 W0603 warning 作软网。）
-
-> 历史背景：早期约定 / 示例鼓励「用啥 stdlib 声明啥」，但编译器本就自动加载，声明从无作用。本次把隐式机制正式化为「显式约定 + lint 守护」。stdlib 各包 manifest 自身曾带的 `[tests.dependencies] "z42.test"` 也一并清掉（z42.test 是 stdlib，自动可用）。
 
 **有 `[dependencies]` vs 无 `[dependencies]`：**
 
@@ -810,7 +762,7 @@ strip    = true
 
 - ❌ 运行时延迟 import / 函数体内 import（Python 风格） —— z42 不提供此后门
 - ❌ "源码引用"打洞（Haskell `{-# SOURCE #-}` 风格） —— z42 不引入此机制
-- ❌ 新旧 zpkg 共存 + 灰度迁移以"绕开"循环 —— pre-1.0 不留兼容（见 [philosophy.md "不为旧版本提供兼容"](../../../agent/rules/philosophy.md#不为旧版本提供兼容)）
+- ❌ 新旧 zpkg 共存 + 灰度迁移以"绕开"循环 —— pre-1.0 不留兼容（见 [philosophy.md "不为旧版本提供兼容"](https://github.com/z42-lang/z42/blob/main/docs/agent/rules/philosophy.md#不为旧版本提供兼容)）
 
 **编译器报错要求**（待实现时遵守）：
 
@@ -822,10 +774,9 @@ strip    = true
 
 ---
 
-## L5b — 测试 / Bench / Example 目标配置（add-tests-bench-manifest-config, 2026-07-29 落地）
+## L5b — 测试 / Bench / Example 目标配置
 
-> **本节 2026-07-29 重写**（原 2026-06-06 纸面设计从未实现）。落地形态与旧稿的四处差异见节末
-> 「与 2026-06-06 旧稿的差异」。设计参照 Cargo target 模型（`[[test]]`/`[[bench]]`/`[[example]]`
+> 设计参照 Cargo target 模型（`[[test]]`/`[[bench]]`/`[[example]]`
 > + auto-discovery），按 z42 自举子集精简。
 
 声明 test / bench / **example** 运行目标的位置、驱动方式、共享依赖、产物布局。设计原则：**约定优先
@@ -876,7 +827,7 @@ strip    = true
 3. `bench/*` 与 `examples/*` → 同 1/2 规则（默认发现 dir 分别为 `bench/` `examples/`）
 4. 子目录内非 `.z42` 文件（fixture / data）随产物打包，运行时 cwd 切到 `<dir>`，相对路径读取
 5. `_` 前缀的 `.z42` 文件是 dir-mode 内的辅助；不是目标入口
-6. **发现循环必须先按稳定键 sort** 再注册（[common-pitfalls §1](../../../agent/rules/common-pitfalls.md)——
+6. **发现循环必须先按稳定键 sort** 再注册（[common-pitfalls §1](https://github.com/z42-lang/z42/blob/main/docs/agent/rules/common-pitfalls.md)——
    first-wins 禁止依赖 FS 枚举序）
 7. `tests/fixtures/`（`bench/`、`examples/` 下同名目录同理）是**保留目录**：约定发现不从里面认领目标，
    「目录里有 `.z42` 源却一个目标都没解析出来」的检查也跳过它。放由外部脚本驱动、先构建再比对的
@@ -912,11 +863,9 @@ strip    = true
 # 默认发现 examples/*.z42（同上：目录单元显式配）
 ```
 
-> **源文件清单统一叫 `include`**（unify-manifest-include-key，2026-09-12）——`[sources]` /
-> `[tests]` / `[benches]` / `[examples]` 段与 `[[exe]]` / `[[test]]` / `[[bench]]` /
-> `[[example]]` 数组**全部同一个键名**。此前数组形式另叫 `sources`（run 目标）和 `src`
-> （exe 目标），同一个概念三种拼法；`src` 当时零使用者。选 `include` 而非 `sources` 是因为
-> 它自带搭档 `exclude`，而数组形式此前**根本无法排除文件**。
+> **源文件清单统一叫 `include`**——`[sources]` / `[tests]` / `[benches]` / `[examples]` 段与
+> `[[exe]]` / `[[test]]` / `[[bench]]` / `[[example]]` 数组**全部同一个键名**。选 `include` 而非
+> `sources` 是因为它自带搭档 `exclude`，数组形式同样可以排除文件。
 
 ### `[[test]]` / `[[bench]]` / `[[example]]` 数组（显式覆盖）
 
@@ -985,11 +934,11 @@ artifacts/build/libraries/<lib>/<profile>/
         └── <lib>.bench.<dir_name>.zpkg         ← dir-mode
 ```
 
-> 单文件单元走轻量 `z42c --emit zbc` 产 `.zbc`；dir-mode 单元(多文件)合成 mini-manifest 跑 `z42c build` 产 packed `.zpkg`。两者都由 z42b（z42.builder.zpkg）经 TIDX 发现 + 调度，落同一 `<subtree>/dist/`。统一单文件也产 `.zpkg` 是后续可选 polish（runner 无所谓）。
+> 单文件单元走轻量 `z42c --emit zbc` 产 `.zbc`；dir-mode 单元(多文件)合成 mini-manifest 跑 `z42c build` 产 packed `.zpkg`。两者都由 z42b（z42.builder.zpkg）经 TIDX 发现 + 调度，落同一 `<subtree>/dist/`。
 
 **zpkg 命名硬约束**：`.test.` / `.bench.` infix 是文件名硬规则（也是 CI 守门正则的 anchor）。`tests_dir` / `bench_dir` 字段**不暴露** — 强制 `<output_dir>/tests/` 和 `<output_dir>/bench/`；改路径走 `output_dir`，两子树一并变。
 
-### xtask 命令 ↔ 目录（Phase 3.2 / 3.4，2026-06-07）
+### xtask 命令 ↔ 目录
 
 | 命令 | 写入 | 读取 deps |
 |------|------|----------|
@@ -1018,29 +967,15 @@ artifacts/build/libraries/<lib>/<profile>/
 三类 kind 的命名 namespace **独立** —— `[[test]] name = "x"` / `[[bench]] name = "x"` /
 `[[example]] name = "x"` 可共存（重名只在同一 kind 内判）。auto 与显式撞名以显式为准，不报错。
 
-> 四条都是**干净的错误退出**（非零退出码 + 一条说明），不是未捕获异常。test / bench 路径上
-> 的编译失败此前会以 `Error: uncaught exception: Std.Exception: compile failed` 收场——看着像
-> z42b 自己崩了，而真正的原因上一行就已经打印过；2026-09-25 修正。
+> 四条都是**干净的错误退出**（非零退出码 + 一条说明），不是未捕获异常。
 
-> 📌 **历史**：这几条规则原计划用 `WS012` / `WS040`–`WS043` 诊断码表达，由 C# 侧
-> `Z42.Package.ManifestErrors` 发射。C# bootstrap 编译器 2026-06-26 删除后**那些码一个都不存在**，
-> 而规则本身在 xtask 侧独立实现了（上表，已逐条实测会红）。**码号不再使用**，另见
-> [错误码全表](../appendix/error-codes.md)的 WSxxx 节。
+> 📌 这几条规则**不用** `WS` 诊断码（`WS012` / `WS040`–`WS043` 码号不存在，另见
+> [错误码全表](../appendix/error-codes.md)的 WSxxx 节），由 xtask 侧独立实现（上表）。
 >
-> 其中 **`WS012`（test-only dep 出现在 `[dependencies]`）连规则都不再保留**：它靠一个按名字写死的
-> curated set（`{ "z42.test" }`）加一条 `.test.` / `.bench.` infix 豁免才能工作，而 `z42.test` 是
-> 个普通的运行期库、**无法自证**自己"只该在测试里出现"——这类判据机制化不了。dev-dependency 的
-> 正确表达是 `[tests.dependencies]` / `[benches.dependencies]`（三层合并已支持，见上文 D6）。
-
-### 与 2026-06-06 旧稿的差异（落地时修订）
-
-| 维度 | 旧稿（纸面，未实现）| 落地（2026-07-29）|
-|------|------|------|
-| 目标入口字段 | `src`（单入口**文件**，必填）| `entry`（FQ **函数**名）+ `sources[]`（glob），对齐 `[[exe]]` |
-| 驱动方式 | 无区分（隐含 Main + golden）| `harness` 布尔（true=z42b 反射 / false=Main 退出码）|
-| 验证 | dir-mode 隐含 golden 比对 | harness=false 一律**退出码**；golden 归 `xtask_test_vm` 独立 harness |
-| example | 「future iteration」无配置 | **一等目标**：默认只编不跑，`test=true` 才跑 |
-| 段名 | `[bench]`（与 `[[bench]]` 撞 key，非法 TOML）| 复数 `[benches]`/`[examples]`（避撞）|
+> 「test-only dep 出现在 `[dependencies]`」**不做校验**：这类判据只能靠按名字写死的 curated set
+>（`{ "z42.test" }`）加 `.test.` / `.bench.` infix 豁免，而 `z42.test` 是个普通的运行期库、
+> **无法自证**自己"只该在测试里出现"——机制化不了。dev-dependency 的正确表达是
+> `[tests.dependencies]` / `[benches.dependencies]`（三层合并，见上文）。
 
 ---
 
@@ -1066,7 +1001,7 @@ artifacts/build/libraries/<lib>/<profile>/
 | `path = "..."` | 支持，z42c 代建整个**闭包** | 支持，z42c 代建**那一个工程**（它的依赖由它自己解析）|
 | 被引工程的 `kind` | `lib`（引 `analyzer` 会被拒绝）| 必须是 `analyzer`（引普通库会被拒绝）|
 
-**path 条目**（add-package-roles 批 2）：指向目录，其中须恰有一份**工程清单**（判据同
+**path 条目**：指向目录，其中须恰有一份**工程清单**（判据同
 `[dependencies]` 的 path：裸 `z42.toml` 优先，否则唯一一份 `*.z42.toml`），且
 `[project].name` 与这里写的名字一致。z42c 会定位它 → 校验 `kind = "analyzer"` → **代为构建** →
 把产出的 zpkg 交给 generator/analyzer 引擎。改了扩展的源码，消费方下次构建会重编（handler
@@ -1170,9 +1105,6 @@ using_stmt    = false     # 关掉 `using` **语句**（import / 别名**指令*
 
 管理多工程 monorepo，统一构建、版本与共享元数据。
 
-> **C1 落地范围（2026-04-26）**：本节描述 schema 与共享继承的最终形态。
-> include 机制（C2）、policy 强制（C3）、CLI 工具链（C4）见后续章节。
-
 ### L6.1 文件名与角色
 
 | 文件 | 数量 | 角色 |
@@ -1204,8 +1136,8 @@ description = "..."
 [workspace.dependencies]                 # 中央版本声明
 "my-utils" = { path = "libs/my-utils", version = "0.1.0" }
 
-[workspace.build]                        # 集中产物（C3 落地实际行为）
-# restructure-publish-output-dirs (2026-06-19): 四件套；unset = 级联默认。
+[workspace.build]                        # 集中产物
+# 四件套；unset = 级联默认。
 # 默认等价于：
 #   output_dir  = "artifacts/${project_name}/${profile}"
 #   cache_dir   = "${output_dir}/.cache"
@@ -1214,7 +1146,7 @@ description = "..."
 # 整段可以省略，留这里只为展示语法。
 dist_dir = "dist/${profile}"
 
-[policy]                                 # 强制策略（C3 落地）
+[policy]                                 # 强制策略
 "build.dist_dir" = "dist"
 
 [profile.debug]                          # 集中 profile（成员不可覆盖）
@@ -1281,7 +1213,7 @@ exclude = ["libs/sandbox-*"]
 
 orphan member（子树有 manifest 但未被 `members` 命中）→ `WS007`（warning，不阻塞构建）。
 
-### L6.5 include 机制（C2，2026-04-26）
+### L6.5 include 机制
 
 Member 与 preset 文件可通过 `include` 字段拉入**子树/分组共享配置**（如 "libs/* 都用 lib defaults"），位置自由、不依赖目录层级。
 
@@ -1327,17 +1259,17 @@ Preset **允许**：`[project] kind / license / authors / description / pack`、
 - 循环 include（A→A 或 A→B→A）→ `WS020`，错误信息列完整环
 - 菱形 include（同一文件被多次拉入）→ 去重，仅合并一次（不报错）
 
-#### 配置生效顺序（C2 完整）
+#### 配置生效顺序
 
 ```
-1. workspace 根 [workspace.project] / [workspace.dependencies]   （C1 默认）
-2. member 的 include 链按声明顺序展开 + 合并                     （C2 新增）
+1. workspace 根 [workspace.project] / [workspace.dependencies]   （默认）
+2. member 的 include 链按声明顺序展开 + 合并
 3. member 自身字段                                              （member 覆盖）
-4. workspace 根 [policy]                                        （C3 强制）
-5. CLI flag                                                     （C4 最终）
+4. workspace 根 [policy]                                        （强制）
+5. CLI flag                                                     （最终）
 ```
 
-#### 错误码（C2 新增）
+#### 错误码
 
 | 码 | 含义 | 级别 |
 |---|---|---|
@@ -1357,7 +1289,7 @@ Preset **允许**：`[project] kind / license / authors / description / pack`、
 
 ---
 
-### L6.6 z42c workspace 模式（C4a，2026-04-26）
+### L6.6 z42c workspace 模式
 
 z42c 在执行命令前先尝试发现 workspace 根：从 CWD 向上找 `z42.workspace.toml`。
 
@@ -1368,7 +1300,7 @@ z42c 在执行命令前先尝试发现 workspace 根：从 CWD 向上找 `z42.wo
 | CWD 在 workspace 根 + 无 `-p` / `--workspace` | 编译 `default-members`（无则全部） |
 | 给出显式 path / `--no-workspace` / 不在 workspace 内 | 单工程模式 / 单文件模式（行为不变） |
 
-#### 命令矩阵（C4a 范围）
+#### 命令矩阵
 
 ```bash
 z42c build                      # 自动发现 workspace；按 default-members 或当前 member 编译
@@ -1387,10 +1319,10 @@ z42c check ...                  # 同 build，但仅类型检查（不写产物�
 core ← utils ← hello
 ```
 
-`z42c build --workspace` 编译顺序：先 `core`，后 `utils`，最后 `hello`（C4a 串行，并行 future）。
+`z42c build --workspace` 编译顺序：先 `core`，后 `utils`，最后 `hello`（串行，并行 future）。
 任一 member 失败 → 其传递下游被标记为 `blocked`（不编译）；姐妹分支不受影响。
 
-#### 错误码（C4a 新增）
+#### 错误码
 
 | 码 | 含义 | 级别 |
 |---|---|---|
@@ -1402,7 +1334,7 @@ core ← utils ← hello
 
 跨 member 依赖的构建拓扑由 `src/compiler/z42c.pipeline/tests/workspace_topo/` 覆盖。
 
-#### 查询命令（C4b，2026-04-26）
+#### 查询命令
 
 ```bash
 z42c info                       # 列出 workspace 概览（members/kinds/默认 profile）
@@ -1418,7 +1350,7 @@ z42c lint-manifest              # 静态校验所有 manifest（不编译；返�
 - 检测到 `NO_COLOR` 环境变量或 stderr 重定向时自动禁用
 - ManifestException 原 message 内容完整保留
 
-#### 脚手架 + 清理（C4c，2026-04-26）
+#### 脚手架 + 清理
 
 ```bash
 z42c new --workspace mymonorepo       # 生成新 workspace 完整骨架
@@ -1447,15 +1379,13 @@ mymonorepo/
 └── apps/
 ```
 
-C4c 同时完成 WS004 完全移除（C3 标记 `[Obsolete]` 后）；归并入 WS010。
-
 ---
 
-### L6.7 Policy 与集中产物（C3，2026-04-26）
+### L6.7 Policy 与集中产物
 
 #### `[workspace.build]` 集中产物布局
 
-workspace 模式下，所有 member 产物**集中**到 workspace 根下的 `artifacts/` 子树（restructure-publish-output-dirs 2026-06-19 新默认）：
+workspace 模式下，所有 member 产物**集中**到 workspace 根下的 `artifacts/` 子树：
 
 ```
 <workspace_root>/
@@ -1480,13 +1410,12 @@ workspace 模式下，所有 member 产物**集中**到 workspace 根下的 `art
 ```toml
 # z42.workspace.toml
 [workspace.build]
-# 省略即等价于以下设置（unify-build-layout 起真正生效：此前未声明 output_dir 时
-# `--workspace` 直接报错、成员也不继承）：
+# 省略即等价于以下设置：
 # output_dir  = "artifacts/${project_name}/${profile}"
 # cache_dir   = "${output_dir}/.cache"    (+ member 子目录防碰撞)
 # 成员 dist = ${output_dir}/dist；成员 publish = ${output_dir}/publish（[platform.desktop].publish_dir 未配时）
 
-# 若要按 profile 做顶层区分（0.3.x 以前旧默认），显式设置：
+# 若要按 profile 做顶层区分，显式设置：
 # output_dir = "artifacts/${project_name}/${profile}"
 dist_dir = "dist/${profile}"   # ${profile} 模板示例：debug/release 各自分流
 ```
@@ -1503,7 +1432,7 @@ dist_dir = "dist/${profile}"   # ${profile} 模板示例：debug/release 各自�
 
 **字段路径表达式**（D3.1）：用点分隔的扁平字符串 key。
 
-**默认锁定字段**（D3.2，restructure-publish-output-dirs 2026-06-19 扩展为四件套）：
+**默认锁定字段**（D3.2，四件套）：
 
 | 字段路径 | 默认锁定值 |
 |---|---|
@@ -1533,30 +1462,27 @@ dist_dir = "dist/${profile}"   # ${profile} 模板示例：debug/release 各自�
 
 #### ResolvedManifest 集中产物字段
 
-C3 在 `ResolvedManifest` 上的 effective 路径字段（restructure-build-output-dirs
-2026-06-06 扩为三件套；workspace 和单工程**两种模式都填充**，不再是
-workspace-only）：
+`ResolvedManifest` 上的 effective 路径字段（workspace 和单工程**两种模式都填充**）：
 
 | 字段 | 含义 |
 |---|---|
 | `IsCentralized` | true = workspace 集中布局；false = 单工程 |
 | `EffectiveOutputDir` | 顶层输出根目录绝对路径（`${output_dir}` 模板变量解析为此） |
 | `EffectiveCacheDir` | 该 member 的 cache 目录绝对路径（workspace 模式下含 member 子目录） |
-| `EffectiveDistDir` | 该 member 的 dist 目录绝对路径（替代了原 `EffectiveOutDir` 字段） |
+| `EffectiveDistDir` | 该 member 的 dist 目录绝对路径 |
 | `EffectiveProductPath` | 该 member 产物完整路径 (`<EffectiveDistDir>/<name>.zpkg`) |
 
-C4 的 `WorkspaceBuildOrchestrator` 直接消费 `EffectiveProductPath` 写产物；
-单工程 `PackageCompiler.Run` 也走同一字段（restructure-build-output-dirs
-统一了两条路径，避免之前各自计算 effective 路径的双份逻辑）。
+`WorkspaceBuildOrchestrator` 直接消费 `EffectiveProductPath` 写产物；
+单工程 `PackageCompiler.Run` 也走同一字段。
 
-#### 错误码（C3 新增）
+#### 错误码
 
 | 码 | 含义 | 级别 |
 |---|---|---|
 | WS010 | Policy 冲突：member 字段值与 workspace 锁定值不一致 | error |
 | WS011 | Policy 字段路径不存在（含 fuzzy 建议） | error |
 
-> WS004（C1 占位）在 C3 标记 `[Obsolete]`，C4c 阶段已彻底移除（归并入 WS010）。
+> WS004 已归并入 WS010，编号不再使用。
 
 #### 示例
 
@@ -1590,8 +1516,8 @@ Member `<name>.z42.toml` **不允许**以下段（违反报 `WS003`）：
 
 **允许字段白名单**（其他字段出现 `${...}` 报 `WS039`）：
 
-- `include` 数组各元素（C2 用）
-- `[build] output_dir / cache_dir / dist_dir`（restructure-build-output-dirs, 2026-06-06）
+- `include` 数组各元素
+- `[build] output_dir / cache_dir / dist_dir`
 - `[workspace.build] output_dir / cache_dir / dist_dir`（同上）
 - `[workspace.dependencies] xxx.path` / `[dependencies] xxx.path`
 - `[sources] include / exclude`
@@ -1614,16 +1540,14 @@ version = "${profile}"                    # 标量字段不允许变量
 ```
 最终 member 配置 = 以下层按顺序合并：
 
-1. workspace 根 [workspace.project] / [workspace.build] / [workspace.dependencies]   (C1 默认)
-2. member 的 include 链按声明顺序展开 + 合并                                          (C2)
-3. member 自身 *.z42.toml 字段                                                       (C1 member 覆盖)
-4. workspace 根 [policy] 段                                                          (C3 强制覆盖)
-5. CLI flag（--release / --profile X / --no-incremental 等）                          (C4 最终覆盖)
+1. workspace 根 [workspace.project] / [workspace.build] / [workspace.dependencies]   (默认)
+2. member 的 include 链按声明顺序展开 + 合并
+3. member 自身 *.z42.toml 字段                                                       (member 覆盖)
+4. workspace 根 [policy] 段                                                          (强制覆盖)
+5. CLI flag（--release / --profile X / --no-incremental 等）                          (最终覆盖)
 ```
 
-C1 仅落实步骤 1 + 3（含路径模板展开）；C2 加 2；C3 加 4；C4 加 5。
-
-### L6.11 错误码索引（C1+C2+C3+C4a 范围）
+### L6.11 错误码索引
 
 | 码 | 含义 | 级别 |
 |---|---|---|
@@ -1641,7 +1565,7 @@ C1 仅落实步骤 1 + 3（含路径模板展开）；C2 加 2；C3 加 4；C4 �
 | WS038 | 路径模板语法非法 | error |
 | WS039 | 模板变量出现在不允许的字段 | error |
 
-> WS020-024 为 C2 启用（include）。WS010/011 为 C3 启用（policy）。WS001/002/006 为 C4a 启用（编译运行时）。WS004 已在 C4c 移除。
+> WS020-024 属 include，WS010/011 属 policy，WS001/002/006 属编译运行时。WS004 已归并入 WS010，编号不再使用。
 
 ### L6.12 目录结构样板
 
@@ -1659,7 +1583,7 @@ monorepo/
         └── src/
 ```
 
-面向用户的工作区教程与可运行示例见学习手册「依赖与工作区」一章（`examples/engineering/workspaces/`，章节落地前暂缺）。
+面向用户的工作区教程与可运行示例见学习手册「依赖与工作区」一章（`examples/engineering/workspaces/`，该章节尚未提供）。
 
 ---
 
@@ -1693,7 +1617,7 @@ include = ["src/**/*.z42"]      # 默认值
 exclude = []                    # 默认值
 
 [build]
-# restructure-build-output-dirs (2026-06-06): 三件套字段全 optional；
+# 三件套字段全 optional；
 # 不设走级联默认（output_dir 默认 = <toml 所在目录>/artifacts/<profile>；cache_dir 默认
 # ${output_dir}/.cache；未配 output_dir 时 dist 默认 <toml 所在目录>/dist，配了则 ${output_dir}/dist）。
 # output_dir = "/build/myproj"    # 顶层
@@ -1742,14 +1666,14 @@ description = ""
 [workspace.dependencies]         # 中央版本声明；成员用 dep.workspace = true 引用
 # "pkg-name" = { path = "...", version = "0.1.0" }
 
-[workspace.build]                # 集中产物（C3 实施实际行为）
-# restructure-build-output-dirs (2026-06-06): 三件套同 [build]；不设
+[workspace.build]                # 集中产物
+# 三件套同 [build]；不设
 # 走 ${workspace_root}/.cache 和 ${workspace_root}/dist 的默认。
 # output_dir = "/build/${workspace_dir}"
 # cache_dir  = ".cache"
 # dist_dir   = "dist/${profile}"
 
-[policy]                         # 强制策略（C3 实施）
+[policy]                         # 强制策略
 # "build.dist_dir" = "dist"
 
 [workspace]                     # L6，与 [project] 可共存
@@ -1758,7 +1682,7 @@ members = []
 # name = { path = "...", version = "..." }
 ```
 
-## `[platform.*]` 平台配置段（add-export-command, 2026-06-14）
+## `[platform.*]` 平台配置段
 
 `z42c` **不读取**这些段；由 `z42 export` 命令消费。注册到 `ProjectManifest.KnownTopLevelKeys` 以避免 WS008 告警。
 
@@ -1793,17 +1717,17 @@ target_sdk   = 37                   # optional: targetSdk（默认 37 = Android 
 title = "My App"   # optional: HTML &lt;title&gt;（默认 = project name）
 ```
 
-### `[platform.desktop]`（apphost-as-config, 2026-06-17；apphost gate 显式化 2026-06-30）
+### `[platform.desktop]`
 
 ```toml
 [platform.desktop]
 apphost     = true   # GATE：唯有 apphost = true，`z42 publish <toml> --rid <desktop-rid>` 才产 apphost。
                      # 缺省 / false → publish 报 "not configured to publish a desktop apphost" 并退出。
 publish_dir = ".."   # 仅输出位置（部署根，相对 toml 所在目录，同 [build].output_dir 基准）。
-                     # 不再充当 gate；缺省 = ${output_dir}/publish（对齐 [build] 四件套默认，
-                     # add-build-toolchain 2026-07-05；output_dir 未设→workspace 继承→<项目目录>/publish）。
+                     # 不充当 gate；缺省 = ${output_dir}/publish（对齐 [build] 四件套默认，
+                     # output_dir 未设→workspace 继承→<项目目录>/publish）。
                      # --output 可覆盖。
-# 部署布局（可选，add-package-layout-config）：apphost 二进制与 payload zpkg 在
+# 部署布局（可选）：apphost 二进制与 payload zpkg 在
 # 部署根（publish_dir）下的相对路径。缺省 → 扁平：apphost = publish_dir/<name>，
 # payload 原地内嵌（不复制）。
 bin     = "bin/myapp"                 # apphost 二进制落点（相对部署根）
@@ -1814,9 +1738,9 @@ payload = "programs/myapp/myapp.zpkg" # payload zpkg 落点；publish 把已编�
 `apphost = true` 时，读 `publish_dir`（部署根）+ 从 `[build]`/`[project]` 推出已编译 zpkg，patch 原生 apphost
 stub 产出 exe。与 ios/android/wasm export 对称——apphost 不是独立命令。
 
-> **部署布局 `bin` / `payload`（add-package-layout-config）**：apphost 应用天生两部分——原生启动器
+> **部署布局 `bin` / `payload`**：apphost 应用天生两部分——原生启动器
 > 二进制 + payload zpkg。两个可选字段把它们放到部署根下的**完整相对路径**：
-> - `bin`：apphost 二进制路径（如 `bin/myapp`；不写则 `<name>` 落部署根，保持旧扁平行为）。
+> - `bin`：apphost 二进制路径（如 `bin/myapp`；不写则 `<name>` 落部署根，即扁平布局）。
 > - `payload`：payload zpkg 路径（如 `programs/myapp/myapp.zpkg`）。设了 → publish 把已编译 zpkg
 >   **复制**到此处，使部署子树自洽；不设 → 原地内嵌已编译 zpkg（不复制）。
 >
@@ -1824,9 +1748,8 @@ stub 产出 exe。与 ios/android/wasm export 对称——apphost 不是独立�
 > 这是面向用户的通用旋钮——用户发布自己的 app 与 z42 SDK 内部布置 z42c/z42b/z42d **共用同一套字段**。
 > 解析见 `z42.project` 的 `DesktopConfig.Bin` / `.Payload`；消费见 `launcher_export.z42` 的 `_cmdPublishDesktop`。
 
-> **gate 与位置分离（2026-06-30）**：旧逻辑用「`publish_dir` 是否存在」充当「是否产 apphost」的开关，
-> 把"输出目录"与"是否启用"耦合在一个键上。现拆分——`apphost = true` 是唯一 gate，`publish_dir` 退化为
-> 纯输出位置。解析见 `z42.project` 的 `DesktopConfig.Apphost`；gate 实现见 `launcher_export.z42`
+> **gate 与位置分离**：`apphost = true` 是唯一 gate，`publish_dir` 只是输出位置
+>（不会把"输出目录"与"是否启用"耦合在一个键上）。解析见 `z42.project` 的 `DesktopConfig.Apphost`；gate 实现见 `launcher_export.z42`
 > 的 `_cmdPublishDesktop`。apphost 的打桩与签名属实现细节，本书不展开。
 
 ### CLI 覆盖
@@ -1909,4 +1832,4 @@ myapp/
 - **相位封闭**（八个，线性，不可增删改序）：所有自定义只落在 Hooks / Workload override 上，
   不开放注册新相位（保证构建确定性与缓存模型）。
 
-扩展点基类（`BuildHooks` / `WorkloadBase`）住 [`src/compiler/z42.build/`](../../../../src/compiler/z42.build)。
+扩展点基类（`BuildHooks` / `WorkloadBase`）住 [`src/compiler/z42.build/`](https://github.com/z42-lang/z42/blob/main/src/compiler/z42.build)。

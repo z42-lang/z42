@@ -1,6 +1,6 @@
 # 测试怎么跑
 
-> 对齐：2026-10-04（change `move-cargo-config`）｜ 代码：`scripts/test/`、
+> 代码：`scripts/test/`、
 > `scripts/cli/xtask_cli_test.z42`、`src/tests/`、`src/libraries/<lib>/tests/`、`src/runtime/src/*_tests.rs`
 >
 > 用例放哪、写成什么形态、平台能力怎么声明见[测试用例组织规范](test-layout.md)（唯一权威）；
@@ -157,7 +157,7 @@ cp -R <warm>/.z42 $BASE/.z42 && cp <warm>/xtask $BASE/xtask      # 种子 + apph
 - 🔴 **只把 flat libs 铺进 `artifacts/build/libraries/dist/release/` 不够** —— 那是**运行期**
   libs，而门比的是 **per-member dist**（`artifacts/build/libraries/<pkg>/release/dist/<pkg>.zpkg`）。
   漏了这步，门会明确报「只有一侧有产物，无从比对」并拒绝出结论
-  （此前它会把这种输入缺失静默报成「N 个包输出变了，请加 slug」—— 25/25 全变，
+  （不会把这种输入缺失静默报成「N 个包输出变了，请加 slug」——那种假象 25/25 全变，
   非常像真的）。
 - ⭐ `Z42_PORTABLE_VM` 可以直接借**本树刚建好的** z42vm：VM 与源码树无关，同 sha 下等价，
   省掉 base 树一次 ~10 分钟的 cargo 全量。（但**别拷 `artifacts/build/runtime/` 目录本身** ——
@@ -196,42 +196,30 @@ golden 用例的文件约定：
 | `interp_only` | 空文件 marker：JIT 模式跳过该用例 |
 | `opt_all` | 空文件 marker：用 `--emit-zbc --opt-all` 编。默认 emit 优化集关掉了 StackAlloc / Inline / PureCall / DeadBranch / Devirt（开了会改 golden 字节），**不挂这个 sidecar 的用例一条优化 pass 都走不到** |
 
-> 🔴 **`opt_all` 的覆盖面缺口是「类目性」的，不是「数量性」的**：到 2026-09-27 之前全仓 11 个
-> `opt_all`，其中 10 个在 `optimization/`、1 个在 `closures/` —— 也就是说
-> **`types/` · `generics/` · `classes/` · `interfaces/` · `cross-zpkg/` 这些「语言特性」类目一个都没有**。
->
-> 这个分布看着合理（「优化的用例归优化类目」），但它测的是**pass 本身**，形状是为触发 pass 挑的；
-> 「一个带 struct 字段的普通类」这种日常形状不在其中。于是 `--release` 下的对象表示对特性类目
-> **整体不可见**。给 3 个泛型 fixture 补挂之后**当场炸出一个 release 必崩的真 bug**
-> （`fix-stackobj-inline-struct-leaf`：栈分配对象上的内联 struct 字段读写，interp 崩、jit 正常）。
->
-> 挂 `opt_all` 的成本是一个空文件 —— **写涉及对象分配 / 字段布局 / 调用约定的用例时默认挂上，
-> 不要因为「这不是优化用例」就不挂**。
->
-> ⚠️ 数 `opt_all` 有两种拼写（dir 形态 `opt_all` / flat 形态 `<name>.opt_all`）。
-> 我第一次只数了前者、得出「只有 2 个」并写进了 PR，**是错的** —— 判据只认一种拼写。
->
-> ✅ **2026-09-27 已铺开**（change `fix-inline-breaks-ref-params`）：19 个特性类目全挂，
-> `opt_all` 从 **11 → 267**。这一个动作**炸出两个既存的 release-only 崩溃**，都在仓库自己的
-> 测试语料里、都是 debug 全绿：
+> 🔴 **`opt_all` 要挂在「语言特性」类目上，不只是 `optimization/`**：
+> `optimization/` 里的用例测的是 **pass 本身**，形状是为触发 pass 挑的；
+> 「一个带 struct 字段的普通类」这种日常形状不在其中。若只有优化类目挂 `opt_all`，`--release` 下的对象表示对
+> `types/` · `generics/` · `classes/` · `interfaces/` · `cross-zpkg/` 这些特性类目就**整体不可见**。
+> 现在全部特性类目都挂了（`opt_all` 约 350 个、覆盖 32 个类目）；这一覆盖当初炸出了几个既存的 release-only 崩溃
+> （debug 全绿），例如栈分配对象上的内联 struct 字段读写（interp 崩、jit 正常）：
 >
 > | 元凶 pass | 症状 | 影响面 |
 > |---|---|---|
-> | **Inline** | `ref` 形参的 `Value::Ref` 流进算术（7 个 `refs/*` 用例） | 任何被内联的带 `ref` 形参的函数 |
-> | **Devirt** | 去虚化到不存在的 `Std.Type.GetType`（`types/value_type_object_methods`）| 值类型收者上的 `GetType()` |
+> | **Inline** | `ref` 形参的 `Value::Ref` 流进算术（7 个 `refs/*` 用例） | 任何被内联的带 `ref` 形参的函数（已修，见 [逃逸分析](../runtime/escape-analysis.md) 的 `ref` 调用点一节）|
+> | **Devirt** | 去虚化到不存在的 `Std.Type.GetType`（`types/value_type_object_methods`）| 值类型收者上的 `GetType()`（**尚未修**）|
 >
-> Inline 那条已修（见 [逃逸分析](../runtime/escape-analysis.md) 的 `ref` 调用点一节）；
-> Devirt 那条**尚未修**，故 `value_type_object_methods` 是**唯一刻意不挂 `opt_all`** 的用例 ——
-> 修好那条 pass 时**连它的 sidecar 一起加上**，别忘了。
+> 挂 `opt_all` 的成本是一个空文件 —— **写涉及对象分配 / 字段布局 / 调用约定的用例时默认挂上，
+> 不要因为「这不是优化用例」就不挂**。Devirt 那条未修，故 `value_type_object_methods` 是**唯一刻意不挂 `opt_all`** 的用例 ——
+> 修好那条 pass 时**连它的 sidecar 一起加上**。
 >
-> ✅ **第二轮铺完（`opt-all-round2`）**：余下 13 个类目，`opt_all` 268 → **352**（32 个类目）。**这轮只红 1 个、而且是断言失败不是崩溃** ⇒ 前两轮已把优化相关的崩溃基本清完。
+> ⚠️ 数 `opt_all` 有两种拼写（dir 形态 `opt_all` / flat 形态 `<name>.opt_all`），判据两种都要认。
 >
-> 那 1 个（`gc/gc_oom_exception`）**不是编译器 bug，是用例的前提错了**：它 `try { var obj = new BigObj(42); }` —— `obj` 从不被用、不逸逸 ⇒ 全优化下被**栈分配**，一个字节都不碰 GC 堆 ⇒ strict OOM 不触发。**没人承诺「每个 `new` 都落 GC 堆」** —— 不逸逸对象绕开 GC 正是栈分配的目的。⇒ 已改成强制堆分配（存进数组元素 = 逸逸汇点）。
+> ⚠️ **写 GC / 分配行为的用例时要问：我要测的那次分配，在全优化下还存在吗**？不逃逸的对象会被**栈分配**、
+> 一个字节都不碰 GC 堆（例如 `try { var obj = new BigObj(42); }` 里从不被用的 `obj`，strict OOM 不会触发）。
+> **没人承诺「每个 `new` 都落 GC 堆」**；要强制堆分配就让它逃逸（如存进数组元素）。汇点表见 [逃逸分析](../runtime/escape-analysis.md)。
 >
-> ⚠️ **写 GC / 分配行为的用例时要问：我要测的那次分配，在全优化下还存在吗**？不逸逸就没了。汇点表见 [逸逸分析](../runtime/escape-analysis.md)。
->
-> ⭐ **这就是「先补测量，再谈重构」的样本**：两个崩溃的修复成本远小于发现它们的成本，而发现
-> 它们只需要 253 个空文件。
+> ⭐ **「先补测量，再谈重构」的样本**：这类崩溃的修复成本远小于发现它们的成本，而发现
+> 它们只需要一批空文件。
 
 单文件形态（`<category>/<name>.z42`）的 marker 写成同名前缀：`<name>.interp_only` / `<name>.opt_all`。
 

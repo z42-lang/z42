@@ -1,28 +1,23 @@
 # 类型转换分类器（Conversion classifier）
 
-> 对齐：2026-08-12（tighten-implicit-conversions，PR2）｜ 代码：`src/compiler/z42c.semantics/src/Types/Conversion.z42` + `TypeChecker.z42`
+> 代码：`src/compiler/z42c.semantics/src/Types/Conversion.z42` + `TypeChecker.z42`
 
 z42 的类型转换体系借鉴 C#（隐式 / 显式），但**比 C# 更严、更可预测**：隐式只允许**绝对无损**
 的转换，任何可能丢信息或丢精度的转换都要求显式 `(T)` cast。本页描述承载这套规则的**分类器**
 机制。
 
-> **演进路线（三 PR）**：**PR1** 立分类器（分类并打标签，执行门宽松、与历史逐字节等价）；
-> **PR2（已落地）** 收紧执行门（窄化 / 有损浮点在隐式上下文要求显式 `(T)`，含 C# 常量在范围内
-> 例外）+ 为数值拓宽插 `ConvertInstr`（修 `double d=5` 表示 bug 与窄化不截断）；**PR3** 加用户
-> 自定义 `implicit`/`explicit operator`。本页反映 **PR2 落地状态**。
-
 ## 为什么要一个分类器
 
-历史上可赋性判定散在一堆返回 `bool` 的谓词里（`TypeFactsTc._isAssignable`、
+可赋性判定若散在一堆返回 `bool` 的谓词里（`TypeFactsTc._isAssignable`、
 `Z42Type.IsAssignableTo`、cast 绑定、`BoxIfNeeded`），只回答"能不能转"，**不携带**"这是哪种
-转换 / 隐式还是显式 / 该调哪个转换方法"。收紧规则（PR2）和用户自定义转换（PR3）都需要这条
+转换 / 隐式还是显式 / 该调哪个转换方法"。收紧规则和用户自定义转换都需要这条
 信息。分类器把判定集中到一处，并给每种转换打上**语义正确**的种类标签。
 
 ## 分类种类（`ConvKind`）
 
 `Conversion.Classify(from, to, symbols)` 返回 `ConvResult{Kind, Method}`。`Kind` 取自：
 
-| 种类 | 含义 | 隐式可赋（PR2 起）|
+| 种类 | 含义 | 隐式可赋|
 |------|------|:---:|
 | `None` | 不存在任何转换 | ✗ |
 | `Absorb` | 任一侧 error/unknown（防级联报错）| ✓ |
@@ -34,12 +29,12 @@ z42 的类型转换体系借鉴 C#（隐式 / 显式），但**比 C# 更严、�
 | `Unboxing` | `object`/接口 → 值类型 | ✗（要求 `(T)`）|
 | `ImplicitRef` | 引用上转（派生→基、类→接口、**接口→祖先接口**、`null`→引用、任意→`object`）| ✓ |
 | `ExplicitRef` | 引用下转（基→派生）| ✗（要求 `(T)`）|
-| `UserImplicit` / `UserExplicit` | 用户自定义转换运算符（PR3）| 隐式 ✓ / 显式 ✗ |
+| `UserImplicit` / `UserExplicit` | 用户自定义转换运算符| 隐式 ✓ / 显式 ✗ |
 
-> **执行门（PR2 收紧）**：`ConvResult.ImplicitOk()` 是隐式可赋白名单——`{Absorb, GenericErase,
+> **执行门**：`ConvResult.ImplicitOk()` 是隐式可赋白名单——`{Absorb, GenericErase,
 > Identity, ImplicitNumeric, Boxing, ImplicitRef, UserImplicit}`，**剔除 `ExplicitNumeric`**（`Unboxing`/
 > `ExplicitRef` 本就不在）。`TypeFactsTc._isAssignable` 即其薄封装。窄化 / 有损浮点在隐式上下文由此
-> 拒绝。`ImplicitOkPermissive()`（含 `ExplicitNumeric`）保留作 PR1 历史等价的参照，不再用于执行门。
+> 拒绝。`ImplicitOkPermissive()`（含 `ExplicitNumeric`）仅作参照，不用于执行门。
 
 ## 隐式数值矩阵（比 C# 严）
 
@@ -107,9 +102,6 @@ Pair<int, string> p = (Pair<int, string>)q;   // 多实参，逗号在 `<…>` �
 GBox<GBox<int>> n = (GBox<GBox<int>>)m;       // 嵌套（`>>` 正确拆开）
 ```
 
-> ⚠️ **此前**只有 `x as GBox<int>` 合法，`(GBox<int>)x` 报 `E0202: expected ')'` ——
-> 同一件事两种写法口径不一。
->
 > `(f<int>)(x)` 仍解析为**泛型调用**而非 cast（与 `(f)(x)` 一致，这条歧义刻意留给调用）。
 > 要在那种形状下转换，请用 `as` 或临时变量。
 
@@ -131,13 +123,6 @@ catch (Exception e) { Console.WriteLine(e.GetType().Name); }   // InvalidCastExc
 
 「没有对象」与「对象类型不对」是两种不同的错，分成两个异常种类是为了让调试时一眼看出是哪一种。
 
-> ⚠️ **此前**（make-hard-cast-fail-properly 之前）这两种都是**终止性内部错误，`catch` 捕获不到**，
-> 消息还是 Rust 调试格式（`cannot convert Str("hello") to type tag 0x04`）。
->
-> ✅ **引用类型之间**的硬转换（`(Box)someOther`）**现在也受检**（make-ref-hard-cast-checked）：
-> 类型不符抛 `InvalidCastException`，`null` 照 C# 语义放行。此前它在发射层**一条指令都不发**，
-> 错类型的对象原样流下去、到很远的地方才以别的面目崩。
-
 **健全性**：装箱 = 加宽上转（安全）+ 受检下转（运行期核对精确类型）。因为装箱值携带精确类型，
 下转可靠、`is` / `as` 精确——没有办法把一个类型当成另一个用。引用类型之间的硬转换同样受检。
 
@@ -147,7 +132,7 @@ catch (Exception e) { Console.WriteLine(e.GetType().Name); }   // InvalidCastExc
 > 只有把值赋给 **`object` 或接口**才发生装箱。赋给泛型形参（`List<int>` 的元素）不装箱，
 > 容器里外的表示不变。
 
-## 用户自定义转换（User-defined conversions，PR3 `add-user-conversions`）
+## 用户自定义转换（User-defined conversions）
 
 用户可用 C# 同款语法声明转换运算符，**并修掉 C# 的几处设计硬伤，令 z42 更严更可预测**：
 
@@ -183,17 +168,14 @@ int y = (int)c2;           // (T)x 亦接受 implicit → 30
 
 ## 验证
 
-- **单测** `src/compiler/z42c.semantics/tests/conversion/`：分类器种类标签（PR1）+ 收紧门布尔投影
+- **单测** `src/compiler/z42c.semantics/tests/conversion/`：分类器种类标签 + 收紧门布尔投影
   `ImplicitOk()` + E0439 拒绝（非常量窄化 / `long→int` / 有损浮点）+ 常量例外接受/越界拒绝
   （`byte b=48` ✓ / `byte b=300` ✗ / `sbyte s=-1` ✓）+ 拓宽插 `(convert …)` 节点。
 - **自举字节不动点**：`ConvertIfNeeded` 不触达 z42c 自身 codegen（其源无隐式 int↔float 拓宽），
   gen1==gen2 逐字节相同；全 golden / stdlib / cross-zpkg 绿。
-- **迁移面为零**：常量在范围内例外覆盖了 stdlib 全部窄化点（binary-format writer 的在范围常量），
-  z42c 源亦无真窄化点——PR2 未改一处 stdlib / z42c 源（仅修一个 int-vs-double 松比较的 math 测试）。
 
 ## 关联文档
 
-- 引入/演进：change `add-conversion-classifier`（PR1）、`tighten-implicit-conversions`（PR2）、`add-user-conversions`（PR3，用户自定义转换 + ②③ 改进）——均已落地
 - [enum](enums.md)——枚举值装箱后的类型身份
 - [结构体](structs.md)——值类型的复制语义
 - 承载代码：[`z42c.semantics/README.md`](https://github.com/z42-lang/z42/blob/main/src/compiler/z42c.semantics/README.md)

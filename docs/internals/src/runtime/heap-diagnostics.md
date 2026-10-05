@@ -1,6 +1,5 @@
 # 堆保留诊断（Heap Retention Diagnostics）
 
-> 对齐：2026-08-06（change `add-heap-retention-diagnostics`）。
 > 上位设计（context 卸载专项诊断）：[load-context.md](load-context-design.md) §5。
 
 ## 为什么

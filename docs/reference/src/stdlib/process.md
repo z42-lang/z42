@@ -1,6 +1,5 @@
 # z42.io —— 子进程与终端着色
 
-> 对齐：2026-09-17（change `restructure-docs-three-books`）；
 > 包路径 `src/libraries/z42.io/`；命名空间 `Std.IO`（异常类型在 `Std`）
 
 `Process` 是 builder 形态的子进程执行入口：argv 数组进出、**不经过 shell**、

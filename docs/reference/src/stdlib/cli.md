@@ -1,6 +1,5 @@
 # z42.cli —— 命令行参数解析
 
-> 对齐：2026-09-17（change `restructure-docs-three-books`）；
 > 包路径 `src/libraries/z42.cli/`；命名空间 `Std.Cli`（`CliException` 在 `Std`）
 
 把 `string[] argv` 解析成 flag / option / positional 三类参数，并自动生成 `-h/--help`

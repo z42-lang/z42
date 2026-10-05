@@ -1,11 +1,10 @@
 # Compiler Scripting Charter
 
-> **页型**: 决策页 ｜ **状态**: 📋 设计已定 / **未实施**（charter，不进 roadmap minor 表）｜ **代码**: —
-> **相关**: [架构总览](architecture.md) ｜ **对齐**: 2026-09-16
+> **页型**: 决策页 ｜ **代码**: —
+> **相关**: [架构总览](architecture.md)
+> **待办**: 设计已定，尚未实施（charter，不进 roadmap minor 表）
 
 > **Status**: charter / not-scheduled — 长期目标，不进 roadmap minor 表
->
-> **Created**: 2026-05-22
 >
 > **Driving question**: 如何让 z42 在全平台支持 Roslyn-style 动态编译 API（`Compile(source)` / `Eval(source)`），同时不让 mobile 包体爆炸？
 >
@@ -17,9 +16,9 @@
 
 ## 1. 动机
 
-z42 设计目标是"全栈系统语言"，host-equivalent 动态编译能力（运行时 `Eval(source)` / `Compile(source)`）应该全平台可用。问题是：当前 compiler 是 C# bootstrap，**移植到 mobile/WASM 不优雅**（NativeAOT 矩阵脆 + 包体 15–30 MB）。
+z42 设计目标是"全栈系统语言"，host-equivalent 动态编译能力（运行时 `Eval(source)` / `Compile(source)`）应该全平台可用。问题是：mobile/WASM 不适合 ship 一个原生 toolchain（NativeAOT 矩阵脆 + 包体 15–30 MB）。
 
-观察：z42 在 1.0 自举完成后，compiler 自身 = 一组 `.zpkg`，跟随 VM 走，零额外 toolchain。这意味着 **"全平台 compiler" 在自举完成后是白送的** —— 只要 compiler 已经被组织成 stdlib 包形态。
+观察：z42c 全部由 z42 编写，compiler 自身 = 一组 `.zpkg`，跟随 VM 走，零额外 toolchain。这意味着 **"全平台 compiler" 是白送的** —— 只要 compiler 已经被组织成包形态。
 
 本 charter 定义这件事的**目标形态**，让自举工作 + scripting 工作向同一方向收敛。
 
@@ -29,13 +28,13 @@ z42 设计目标是"全栈系统语言"，host-equivalent 动态编译能力（�
 
 | 路径 | 内容 | 决策 |
 |------|------|------|
-| **2a** | 把 C# bootstrap compiler 用 .NET NativeAOT 编译到 iOS/Android/WASM | ❌ 不选 |
-| **2b** | 等 1.0 自举完成，z42-written compiler 作为 zpkg 分发到全平台 | ✅ 选定 2026-05-22 |
+| **2a** | 把原生 compiler 用 NativeAOT 编译到 iOS/Android/WASM | ❌ 不选 |
+| **2b** | z42-written compiler 作为 zpkg 分发到全平台 | ✅ 选定 |
 
 **2a 弃用理由**：
 - mobile 包体 +15–30 MB
 - NativeAOT 在 iOS（.NET 9+ 才转正）/ Android（.NET 9+ limited）/ WASM（走 mono-wasm，不同 toolchain）矩阵脆
-- 需维护双 codebase：C# bootstrap × 4 mobile 平台 + z42 自举后 × 4 mobile 平台
+- 需为 4 个 mobile 平台各维护一套原生 compiler 构建
 - Roslyn 自己也没有真正在生产 ship 到 mobile
 
 **2b 选择理由**：
@@ -48,25 +47,23 @@ z42 设计目标是"全栈系统语言"，host-equivalent 动态编译能力（�
 
 ## 3. 目标模块拆分
 
-把当前 C# 7 模块（[src/compiler/README.md](https://github.com/z42-lang/z42/blob/main/src/compiler/README.md)）映射到 8 个 stdlib 包：
+compiler 域的包都在 [`src/compiler/`](https://github.com/z42-lang/z42/blob/main/src/compiler/README.md) 这一个 workspace 里：
 
-| 标准库包 | 层级 | 对应 C# 模块 | 当前 C# 行数 | 主要类型 |
-|---------|:---:|------|:---:|------|
-| `z42.compiler.diagnostics` | L1 | `z42.Core` | 1.1K | `Diagnostic` / `Span` / `DiagnosticBag` / `LanguageFeatures` |
-| `z42.compiler.ir` | L1 | `z42.IR` | 4.2K | `IrModule` / `Op` / `ZbcReader` / `ZbcWriter` / `BinaryFormat` |
-| `z42.compiler.syntax` | L1 | `z42.Syntax` | 5.2K | `Lexer` / `Parser` / AST 节点 |
-| `z42.compiler.semantics` | L2 | `z42.Semantics` | 14.7K | `TypeChecker` / `Bound*` / `IrGen` / `SymbolCollector` |
-| `z42.compiler.project` | L2 | `z42.Project` | 4.6K | manifest 解析 / source discovery / `ZpkgBuilder` |
-| `z42.compiler.pipeline` | L2 | `z42.Pipeline` | 3.3K | `SingleFileCompiler` / `PackageCompiler` / `WorkspaceBuildOrchestrator` |
-| `z42.scripting` | L3 | **NEW** | ~500（估）| `Script.Eval` / `Script.Compile` / `ScriptState` / `ScriptOptions` |
-| `z42.compiler.driver` | L3 | `z42.Driver` | 1.6K | CLI 命令路由（build / check / disasm / explain / test）|
-
-**合计**：~35K 行 C# 源 → 8 个 zpkg。
+| 包 | 层级 | 命名空间 | 主要类型 |
+|---|:---:|------|------|
+| `z42c.core` | L1 | `Z42.Core` | `Diagnostic` / `Span` / `DiagnosticBag` / `LanguageFeatures` |
+| `z42.package` | L1 | `Z42.IR` / `Z42.Package` | IR 模型 / `ZbcReader` / `ZbcWriter` / `ZpkgBuilder` / `BinaryFormat` |
+| `z42c.syntax` | L1 | `Z42.Syntax` | `Lexer` / `Parser` / AST 节点 |
+| `z42c.semantics` | L2 | `Z42.Semantics` | `TypeChecker` / `Bound*` / `IrGen` / `SymbolCollector` |
+| `z42.project` | L2 | — | manifest 解析 / source discovery |
+| `z42c.pipeline` | L2 | `Z42.Pipeline` | `Z42cCompiler` / `PackageCompile` / `WorkspaceBuild` |
+| `z42.scripting` | L3 | — | `Script.Eval` / `ScriptState` / `Engine` |
+| `z42c.driver` | L3 | `Z42.Driver` | CLI 命令路由（build / check / disasm / explain / test）|
 
 层级分配理由：
-- **L1**（`diagnostics` / `ir` / `syntax`）：纯数据结构 + 字节流；任何独立工具可单独消费（fmt / lsp / disasm 等）
-- **L2**（`semantics` / `project` / `pipeline`）：需要 `z42.io` 文件能力（加载 zpkg / 写 zbc）
-- **L3**（`scripting` / `driver`）：消费 pipeline 的 API 层 + CLI
+- **L1**（`z42c.core` / `z42.package` / `z42c.syntax`）：纯数据结构 + 字节流；任何独立工具可单独消费（fmt / lsp / disasm 等）
+- **L2**（`z42c.semantics` / `z42.project` / `z42c.pipeline`）：需要 `z42.io` 文件能力（加载 zpkg / 写 zbc）
+- **L3**（`z42.scripting` / `z42c.driver`）：消费 pipeline 的 API 层 + CLI
 
 ---
 
@@ -75,20 +72,20 @@ z42 设计目标是"全栈系统语言"，host-equivalent 动态编译能力（�
 ```
 z42.core (prelude)
   ↓
-z42.compiler.diagnostics ────┐
-                              ↓
-z42.compiler.ir ─────────┐    │
-                          ↓   ↓
-                    z42.compiler.syntax
-                          ↓
-                    z42.compiler.semantics ←── z42.compiler.project
-                          ↓                          ↓
-                    z42.compiler.pipeline ←─────────┘
-                          ↓
-              ┌───────────┴───────────┐
-              ↓                       ↓
-        z42.scripting          z42.compiler.driver
-        (eval/script API)        (CLI 命令)
+z42c.core ──────────────┐
+                         ↓
+z42.package ────────┐    │
+                     ↓   ↓
+                z42c.syntax
+                     ↓
+                z42c.semantics ←── z42.project
+                     ↓                  ↓
+                z42c.pipeline ←────────┘
+                     ↓
+         ┌───────────┴───────────┐
+         ↓                       ↓
+   z42.scripting            z42c.driver
+   (eval/script API)        (CLI 命令)
 ```
 
 严格遵守 [`stdlib/organization.md` §2](../stdlib/organization.md)：依赖图必须无环，`z42.core` 在所有库之下。
@@ -99,9 +96,9 @@ z42.compiler.ir ─────────┐    │
 
 这些问题在本 charter 阶段不强制定下，但接近实施时必须先回答。
 
-### P1. `z42.compiler.diagnostics` 独立 vs 并入 `syntax`
+### P1. `z42c.core` 独立 vs 并入 `syntax`
 
-**问题**：仅 1.1K 行的 Diagnostic 体系是否值得单独成包？
+**问题**：小体量的 Diagnostic 体系是否值得单独成包？
 
 **选项**：
 - A：独立包 —— diagnostic 是跨阶段共享契约（lsp / fmt / lint / scripting 都消费）
@@ -109,17 +106,17 @@ z42.compiler.ir ─────────┐    │
 
 **当前倾向**：A（保持独立）—— 跨工具共享的契约不应绑死在 syntax 上
 
-### P2. `z42.compiler.semantics` 14.7K 单包 vs 拆分
+### P2. `z42c.semantics` 单包 vs 拆分
 
-**问题**：semantics 内部已分 `TypeCheck/` / `Codegen/` / `Bound/` / `Symbols/` / `Synthesis/` 5 子目录，是否拆为多个 zpkg？
+**问题**：semantics 内部已分 `Binding/` / `Emission/` / `BoundTree/` / `Symbols/` / `Lowering/` 等子目录，是否拆为多个 zpkg？
 
 **选项**：
-- A：保持单包，内部用 namespace 切分（对照 C# `System.Private.CoreLib` 单 assembly 多 namespace）
-- B：拆 `z42.compiler.semantics.typecheck` + `z42.compiler.semantics.codegen` —— fmt / lint 工具可只取 typecheck
+- A：保持单包，内部用 namespace 切分（对照 .NET `System.Private.CoreLib` 单 assembly 多 namespace）
+- B：拆 `z42c.semantics.typecheck` + `z42c.semantics.codegen` —— fmt / lint 工具可只取 typecheck
 
 **当前倾向**：A —— 跨包内部 API 会变成公开 API，对内部演化是负担
 
-### P3. `z42.compiler.driver` 是否进 mobile 分发？
+### P3. `z42c.driver` 是否进 mobile 分发？
 
 **问题**：CLI 入口在移动端有意义吗？
 
@@ -141,7 +138,7 @@ z42.compiler.ir ─────────┐    │
 **问题**：如何验证 z42-written compiler 自举固定点？
 
 **当前方案**：
-1. **Stage 1**：C# bootstrap 编译 z42-written compiler `.z42` 源 → `z42.compiler.*.zpkg.v1`
+1. **Stage 1**：已有 z42c 编译 compiler `.z42` 源 → gen1 zpkg
 2. **Stage 2**：用 v1 重新编译同一份源 → `v2`
 3. **Stage 3**：`v1 ≡ v2` 字节相同 → 自举固定点
 
@@ -167,10 +164,10 @@ ScriptOptions opts = ScriptOptions.Default;
 
 | 阶段 | 动作 | 估算触发点 | 依赖 |
 |------|------|---------|------|
-| **C1** | C# 端把 7 模块改造为"可作为库被嵌入"（`ICompiler` / `IPipeline` interface） | 0.5.x 间隙（与 LSP Q13 共用基础）| 现有 C# 模块成熟 |
-| **C2** | `z42.scripting` v0 上线 host 5 平台，底层调 C# library | 0.6.x – 0.7.x | C1 |
+| **C1** | 把 compiler 模块组织为"可作为库被嵌入"（`ICompiler` / `IPipeline` interface） | 与 LSP Q13 共用基础 | 现有模块成熟 |
+| **C2** | `z42.scripting` v0 上线 host 5 平台，底层调 compiler 库 | 0.6.x – 0.7.x | C1 |
 | **C3** | L3 全 feature 就绪（lambda / generic / async / Result / 反射） | 0.5 – 0.9 主线 | roadmap 主线 |
-| **C4** | z42 重写 7 个 compiler 模块的 `.z42` 源（每模块独立 spec） | 1.0-α – 1.0-rc | C3 |
+| **C4** | compiler 模块全部以 `.z42` 源维护（每模块独立 spec） | 1.0-α – 1.0-rc | C3 |
 | **C5** | byte-identical fixed-point 验证 | 1.0.0 | C4 |
 | **C6** | 7 个 zpkg + scripting 进 mobile / WASM 分发；移除 `PlatformNotSupportedException` | 1.1.x – 1.2.x | C5 + Q15 (WASM GC) |
 
@@ -186,9 +183,9 @@ ScriptOptions opts = ScriptOptions.Default;
 
 | Doc | 关系 |
 |-----|------|
-| [`compiler-architecture.md`](../formats/zpkg.md) | 当前 C# bootstrap 形态；C4 完成后此 doc 转为"过渡阶段历史记录"，新 SoT 是 z42-written 源 + 本 charter |
+| [`compiler-architecture.md`](../formats/zpkg.md) | compiler 形态以 z42-written 源（`src/compiler/`）+ 本 charter 为 SoT |
 | `compilation.md` | 编译产物粒度策略；自举后维持不变（z42 compiler 产出同一种 .zbc / .zpkg）|
-| [`project.md`](https://z42-lang.github.io/z42/reference/toolchain/z42-toml.html) | manifest schema；自举后 `z42.compiler.project` 实现这套 schema |
+| [`project.md`](https://z42-lang.github.io/z42/reference/toolchain/z42-toml.html) | manifest schema；自举后 `z42.project` 实现这套 schema |
 | [`runtime/embedding.md`](../runtime/embedding.md) | VM 嵌入 API；scripting 在其上加 in-memory module 加载（C2 引入）|
 | [`runtime/hot-reload.md`](../runtime/hot-reload.md) | runtime 加载模块；scripting 与 hot-reload 共享 `Vm.LoadInMemoryModule(bytes)` 接口 |
 | [`stdlib/organization.md`](../stdlib/organization.md) | 包划分与依赖无环规则；本拆分严格遵守 |
@@ -199,15 +196,14 @@ ScriptOptions opts = ScriptOptions.Default;
 
 **必要条件**（任一不满足 → 本 charter 保持冰冻，不开 spec）：
 
-- ✅ L2 测试体系 + 标准库基础完成（M6 / M7，当前焦点）
-- ✅ L3 主要特性就绪（lambda / generic / async / Result / 反射，0.5 – 0.8.x 主线）
-- ✅ 用户明确呼声 / 应用场景出现
+- L2 测试体系 + 标准库基础完成（M6 / M7，当前焦点）
+- L3 主要特性就绪（lambda / generic / async / Result / 反射，0.5 – 0.8.x 主线）
+- 用户明确呼声 / 应用场景出现
 
 **建议触发节点**：
 
 - **0.5.x 中期**：C1 可启动（compiler library API 抽象）—— 与 LSP 共用
 - **0.6.x – 0.7.x**：C2 启动（host scripting v0）
-- **1.0-α**：C4 启动（z42 重写）
 
 ---
 

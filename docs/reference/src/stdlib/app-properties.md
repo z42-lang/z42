@@ -1,6 +1,5 @@
 # `Std.Runtime.AppProperties` —— 应用自定义配置
 
-> 对齐：2026-09-17（change `restructure-docs-three-books`）；
 > 包路径 `src/libraries/z42.core/`（`src/Runtime/AppProperties.z42`）；
 > 命名空间 `Std.Runtime`
 

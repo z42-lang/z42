@@ -1,14 +1,12 @@
 # `[Record]` attribute 与主构造器
 
-> 对齐：2026-08-26（change `add-record-attribute` + `add-record-value-semantics`；含值相等 / 记录式 ToString）
-
-z42 用内建 attribute **`[Record]`** 标记「记录」类型，**取代已删除的 `record` 关键字**（`record` 现为普通
+z42 用内建 attribute **`[Record]`** 标记「记录」类型，**没有 `record` 关键字**（`record` 是普通
 标识符，可作类型 / 变量名）。同一根 attribute 可作用于
 **`class` 和 `struct`**——把类型的**位置参数**展开为 public 字段 + 主构造器，并在反射里标记 `IsRecord`。
 非 `[Record]` 的 `class/struct` 也可带位置参数，那是 **primary constructor（主构造器）**：参数变成
 private 字段。
 
-> **为什么从关键字改成 attribute**：C# 的 `record` 既能是 `class` 又能是 `struct`，作为独立关键字与
+> **为什么用 attribute 而不是关键字**：C# 的 `record` 既能是 `class` 又能是 `struct`，作为独立关键字与
 > class/struct 两条身份轴纠缠。z42 里「自动数据载体」是一根正交、opt-in 的轴——用 attribute 表达，
 > 作用于两种身份，语言机制更简单。`[Record]` 提供「位置参数糖 + 反射标记 + **值语义**（值相等 / 记录式
 > ToString）」；`with` / 解构 / init-only 仍是独立特性（见文末 Deferred）。
@@ -97,7 +95,7 @@ new Empty().ToString()   // "Empty { }"（无字段）
 AttributedDecl([Record], ClassDecl{ Kind="class"/"struct", Members=[X,Y,ctor,...块成员] })
   │
   ▼ SymbolCollector → TypeChecker → IrGen → ClassDescBuilder → zbc / 反射
-    · 走 Kind 对应机制（record 不再是独立 Kind）
+    · 走 Kind 对应机制（record 不是独立 Kind）
     · IrGen 从原始 AttributedDecl.Attrs 判 [Record]（HandlerRegistry.HasRecord），传
       ClassDescBuilder._classDesc(c, hasRecord) → bit3 → 运行时 __type_is_record
 ```
@@ -140,7 +138,7 @@ parser 能判 `[Record]` 是因为把已解析的 `attrs` 作参传进了 `_pars
 > 候选查找路径不同。② **`as_cast` 后 `field_get` 读结果 jit 会误编**（引用类型）——type-exact 已确认类型，
 > 直接 `field_get other.field`（镜像普通 codegen）。合成 IR 必须 interp+jit 双验。
 
-## Deferred（独立特性，本 change 不含）
+## Deferred（独立特性）
 
 - **`with` 非破坏性拷贝**（`r with { X = 5 }`）——需新语法/关键字，走两-nightly support-先行纪律。
 - **`Deconstruct` 解构**（`var (x, y) = p`）——需 tuple 支持。

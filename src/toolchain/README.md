@@ -12,7 +12,7 @@
 | [builder/](builder/) | `z42b` 构建编排器：读 `z42.toml`/`--rid` 驱动 `z42.build` 管线（compile→trim→assets→workload），launcher 分发调用（`build`/`publish`/`export`）；**兼跑 stdlib/工程的 `[Test]`/`[Benchmark]` 用例（`xtask test` 内嵌调用）** | 占位 |
 | [devtools/](devtools/) | `z42d` 开发者工具链（muxer apphost）：`fmt`/`doc`/`dbg`/`prof`/`lint` 统一在单 exe + Std.Cli router 下，launcher 分发（`z42 fmt` → `z42d fmt`） | 占位 |
 | [interactive/](interactive/) | `z42i` 交互式 REPL（apphost，非 muxer）：源码片段 → 编译 → VM 求值 → 打印；0.3.x capstone | 占位 |
-| [repl/](repl/) | `z42.repl`（lib，`Std.Repl`）：REPL **终端交互层（tier1）**——rustyline 行编辑 + 缩进感知键位。依赖 `z42.scripting`（Completeness）。真 tty + native 行编辑 builtin、平台绑定重 → 属 toolchain（非 stdlib 料） | ✅ 已实装 |
+| [interactive/repl/](interactive/repl/) | `z42.repl`（lib，`Std.Repl`）：REPL **终端交互层（tier1）**——rustyline 行编辑 + 缩进感知键位。依赖 `z42.scripting`（Completeness）。真 tty + native 行编辑 builtin、平台绑定重 → 属 toolchain（非 stdlib 料） | ✅ 已实装 |
 | [workload/](workload/) | 平台相关能力束：`{ios,android,wasm,desktop}/`（各含 `appbuilder/`·`platform/`·`template/`·`tests/`）+ `platform-contract.md`；按需 `z42 workload install`。Tier 2 `z42-host` crate 在 `runtime/crates/z42-host` | 🚧 实装中 |
 
 > 命名说明：`toolchain` 取"围绕 compiler/runtime 的整套配套工具"之广义；语言核心**编译器在 [`../compiler/`](../compiler/)**（自举 z42c，含下沉到 [`../libraries/`](../libraries/) 的前端库）、VM 在 [`../runtime/`](../runtime/)，不在本目录。

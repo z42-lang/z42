@@ -1,6 +1,6 @@
 # 分层执行（Tiered Execution）：interp/JIT 各自分层 + OSR/deopt + 回收 + hot-reload
 
-> **状态：DESIGN（目标架构，未实施）** · 创建 2026-06-21
+> 待办：本页的分层执行（interp/JIT 各自分层、OSR/deopt、回收、hot-reload）整体尚未实施。
 >
 > 本文设计 z42 运行时的**分层执行优化**：**每个执行引擎（interp、JIT）各自内部分层**，低层产物在被取代且无人引用时回收，并提供引用诊断。叠在 [componentized-runtime.md](componentized-runtime.md) 的组件框架之上；IR/特化层面的优化见 [ir-specialization.md](ir-specialization-design.md)；当前单态架构见 [vm-architecture.md](vm-architecture.md)。
 >
@@ -106,7 +106,7 @@ desktop/android 上可在 interp 之上叠加"热函数提升到 JIT"一档；iO
 
 ---
 
-## 9. 决策记录（2026-06-21，与 User 讨论确定）
+## 9. 决策记录
 
 | # | 决策 | 选择 |
 |---|---|---|

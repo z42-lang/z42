@@ -1,6 +1,5 @@
 # z42.collections —— 进阶集合容器
 
-> 对齐：2026-09-17（change `restructure-docs-three-books`）；
 > 包路径 `src/libraries/z42.collections/`；命名空间 `Std.Collections`
 
 `Stack<T>`（LIFO）、`Queue<T>`（FIFO）、`LinkedList<T>` / `LinkedListNode<T>`（双向链表）、
@@ -23,14 +22,8 @@ Stack<int> s = new Stack<int>();
 
 **单文件脚本同样可用**：`z42 run foo.z42` 里 `new Stack<int>()` 能编译也能跑。
 
-> 📜 **2026-09-25 之前这一节写的是反的**，而且三处文档互相矛盾：
-> 本节说「必须在清单里写上」「单文件用不了本包」，`z42-toml.md` 说「`z42.*` 始终可用、不要声明」。
->
-> 真相是**两边都没执行**：能不能用取决于该包的命名空间有没有被 `z42.core` 抢先占住
-> （nsMap first-wins）——`Std.Text` 没被占，未声明照样能用；`Std.Collections` 被占了，
-> 于是 `new Stack<int>()` 编得过、跑起来 `MissingSymbolException`，声明与否都不影响判决。
-> 那是一条实现细节冒充的规则。现在编译产物按「用到的类型实际来自哪个包」记录依赖，
-> 这条不对称随之消失。
+> `z42.*` 始终可用、不要声明。编译产物按「用到的类型实际来自哪个包」记录依赖，
+> 与该包的命名空间是否被 `z42.core` 占用无关。
 
 ## 公共形状
 

@@ -1,6 +1,6 @@
 # CI 拓扑与 job 表
 
-> 对齐：2026-10-04（change `move-cargo-config`）｜ 代码：`.github/workflows/ci.yml`、
+> 代码：`.github/workflows/ci.yml`、
 > `.github/actions/ci-bootstrap/`、`.github/actions/xtask-bootstrap-artifact/`、
 > `.github/workflows/{bench-pr,release,deploy-book,jit-fixpoint-check}.yml`
 >
@@ -27,17 +27,17 @@ flowchart TD
 核心思想：**平台无关的东西编一次、下游消费**。`compile-toolchain` 把当前源编成一套
 `{z42c, stdlib, xtask}` zpkg 上传成 `toolchain-ubuntu-latest` artifact；`compile-test-assets` 再消费它
 regen 一次 golden `.zbc`、连同 `.z42` 布局打成 `current-sdk-ubuntu-latest`。下游测试 job 下载这些产物
-`--no-build` 跑，不再自己自举、不再重复 regen。
+`--no-build` 跑，自己不自举、也不重复 regen。
 
 这两个 job **只有 linux 一条腿**：产物全是 zpkg，与宿主无关，macOS / Windows 的消费方
 取的是同一份（只有 z42vm 按宿主 cargo 现编）。
 
-`compile-toolchain` 另传一份 `z42vm-linux-x64`（z42vm + 同目录的 cdylib）。linux-x64 上**之后不再调 cargo**
+`compile-toolchain` 另传一份 `z42vm-linux-x64`（z42vm + 同目录的 cdylib）。linux-x64 上**之后不调 cargo**
 的消费方（`test stdlib --no-build` 两类 job、`publish-nightly`）用 `xtask-bootstrap-artifact` 的
 `prebuilt-vm: "true"` 直接拿它，省掉 Rust 准备与 `cargo build`：rust-cache 只缓存**依赖**，即使 key 精确命中，
 z42 crate 本身仍要 fat-LTO 重链一遍，实测约 95 s / job。**会调 cargo 的 job 不能开**——target 目录里没有
-cargo 指纹，它会把整个 crate 冷编一遍（`compiler-checks` 的 `test compiler`、`test-vm-jit` 的 debug VM 都属此类）。2026-09-30 前两者都还有一条 macOS 腿——
-它产出等价的 artifact，却让所有 `needs:` 它们的 linux 下游陪着等整个 matrix。
+cargo 指纹，它会把整个 crate 冷编一遍（`compiler-checks` 的 `test compiler`、`test-vm-jit` 的 debug VM 都属此类），所以这两个 job 只留 linux 一条腿——
+再加一条 macOS 腿只会产出等价的 artifact，却让所有 `needs:` 它们的 linux 下游陪着等整个 matrix。
 
 `compile-test-assets` **故意从 `compile-toolchain` 里拆出来**：golden regen 很慢，留在里面会卡住
 `package-*` → `publish-nightly` 这条关键路径，而打包根本不消费测试资产。
@@ -54,7 +54,7 @@ cargo 指纹，它会把整个 crate 冷编一遍（`compiler-checks` 的 `test 
 xtask test all --no-build --skip "$SKIP"
 ```
 
-**xtask 跑在 `.z42` SDK 上，与本地 `./xtask` 完全一致**（add-sdk-libs D7）。两个 bootstrap action 都先经
+**xtask 跑在 `.z42` SDK 上，与本地 `./xtask` 完全一致**。两个 bootstrap action 都先经
 [`setup-z42-sdk`](https://github.com/z42-lang/z42/blob/main/.github/actions/setup-z42-sdk/action.yml) 把上一版 nightly 装进仓库根 `.z42/`——
 与本地 `scripts/install-z42.sh` 同位置同形态；xtask.zpkg 也是用这份 SDK 的 z42c 编的。垫片于是只做本地
 apphost 做的事：`.z42/bin/z42vm`（Windows 带 `.exe`）+ `Z42_LIBS=.z42/libs`（调用方设了则尊重）跑
@@ -62,11 +62,11 @@ apphost 做的事：`.z42/bin/z42vm`（Windows 带 `.exe`）+ `Z42_LIBS=.z42/lib
 
 这带来两点：
 
-- **编 xtask 与跑 xtask 是同一个工具链**。之前 CI 用种子编 xtask，却在 cargo 现编的构建树 z42vm 和构建树
-  stdlib 上跑它，本地和 CI 不一样。xtask 引用的 SDK 库（`z42.project` / `z42.build`）因此能直接用 SDK 里的，
+- **编 xtask 与跑 xtask 是同一个工具链**。若用种子编 xtask、却在 cargo 现编的构建树 z42vm 和构建树
+  stdlib 上跑它，本地和 CI 就不一样。xtask 引用的 SDK 库（`z42.project` / `z42.build`）因此能直接用 SDK 里的，
   不必复制进产物。
-- **Windows 不再需要「从拷贝启动」**。以前垫片跑的是构建树的 `z42vm.exe`，`package` 等命令让 cargo 重链它时会
-  撞上「不能覆盖正在运行的 exe」。现在 xtask 跑在 SDK 的 VM 上，cargo 碰不到它。
+- **Windows 不需要「从拷贝启动」**。xtask 跑在 SDK 的 VM 上，cargo 碰不到它；若垫片跑构建树的 `z42vm.exe`，`package` 等命令让 cargo 重链它时会
+  撞上「不能覆盖正在运行的 exe」。
 
 构建树的 z42vm（cargo 现编 / `prebuilt-vm`）仍然要有：那是**被测对象**，xtask 构建、测试当前源码时由它自己去
 定位，与本地相同。
@@ -76,7 +76,7 @@ apphost 做的事：`.z42/bin/z42vm`（Windows 带 `.exe`）+ `Z42_LIBS=.z42/lib
 会这样），本 job 装到的就是新的一版，而跨格式 bump 时旧 xtask.zpkg 在新 VM 上加载不了。所以 action 会比对
 `artifacts/xtask/seed-id.txt` 与 `.z42/seed-id.txt`，不一致就用本机 SDK 的 z42c 原地重编 xtask（约 1 分钟）。
 
-⇒ xtask 的启动方式变了，**CI 侧只改这一个文件**。`ci.yml` / `release.yml` / `bench-pr.yml` 全部走它。
+⇒ xtask 的启动方式只在这一个文件里，**CI 侧只改这一个文件**。`ci.yml` / `release.yml` / `bench-pr.yml` 全部走它。
 例外：`test-consume` 故意用下载来的 current-sdk 里的 z42vm 跑，不走垫片。`bench-pr.yml` 里
 `cd base-src && xtask …` 也成立：垫片按**自己所在位置**定位 PR 树的三样东西、不看 cwd，于是跑的仍是
 PR 的 xtask，而 xtask 的 `_root()` 取 cwd 的仓库根 = base-src（base 工具链另经 `--base-vm` 等显式传入）。
@@ -170,13 +170,12 @@ required check 视同通过。新增 job 时记得加进它的 `needs`。
 
 - **没有专门的「种子自举边界」job**：「上一版 nightly 能编当前源」由每个跑 `ci-bootstrap` 的
   job（`test-host` ×4 OS、`compile-toolchain`）顺带实测，且它们会真的**运行**刚建出的 gen1 z42c
-  （编 stdlib + golden）；in-tree 不动点 gen1==gen2 在 `compiler-checks`。原先的 `verify-selfhost`
-  = `ci-bootstrap` + `test compiler`，两半都与上述重复，2026-09-30 删除。
-- **没有专门的 feature 组合 job**：曾有 `verify-features`（host 上 `cargo check` interp-only / wasm / ios /
-  android 四个组合），而后三者 `package-*` 本就在真实目标平台上完整构建；它独有的「interp-only 不含
-  cranelift」断言挪进了 `package-wasm`，2026-10-02 删除（drop-feature-matrix）。`.cargo/**` 随之并入
-  `platform` 过滤器（配置在 `src/runtime/.cargo` 与 `src/toolchain/.cargo`：
-  前者由 `src/runtime/**` 覆盖，后者单列 `src/toolchain/.cargo/**`）。
+  （编 stdlib + golden）；in-tree 不动点 gen1==gen2 在 `compiler-checks`。再单设一个
+  `ci-bootstrap` + `test compiler` 的 job 两半都与上述重复。
+- **没有专门的 feature 组合 job**：host 上 `cargo check` interp-only / wasm / ios /
+  android 四个组合没有必要：后三者 `package-*` 本就在真实目标平台上完整构建；「interp-only 不含
+  cranelift」断言在 `package-wasm` 里。`.cargo/**` 并入 `platform` 过滤器（配置在 `src/runtime/.cargo` 与
+  `src/toolchain/.cargo`：前者由 `src/runtime/**` 覆盖，后者单列 `src/toolchain/.cargo/**`）。
 
 `test-host` 各腿用 `--skip` 把 stage 卸给并行 job：linux-x64 跳 `stdlib,compiler,vscode`，
 其余 OS 再多跳 `cross-zpkg,bench`（这两者 host 无关，一条腿够了）。Windows 腿不跑
@@ -190,7 +189,7 @@ required check 视同通过。新增 job 时记得加进它的 `needs`。
 `actions/checkout` 在 `pull_request` 事件下拿的是 merge ref，所以跑的确实是合并结果；
 但 **base 后来前进不会自动重跑**。于是两个并行 PR 可以各自全绿、双双合入、main 才红。
 
-实测（2026-09-22）：#747 在 13:43:15 合入 main，#759 在 13:46:00 合入而它的 `baseRefOid`
+实测：#747 在 13:43:15 合入 main，#759 在 13:46:00 合入而它的 `baseRefOid`
 还停在 #761 —— 两边的绿都不含对方，两个 PR 各拿走了同一个诊断码号 `E0481`，
 [诊断码唯一性](test-gate.md)的门在各自的 base 上都看不见冲突，`main` 才红（#762 收拾残局）。
 
@@ -228,9 +227,9 @@ Swatinem `rust-cache` 用 `shared-key` 跨 job 共享；**一个 key 命中后�
 **cwd** 向上找配置（不看 `--manifest-path`），所以 CI 不直接调 cargo，一律走 `xtask`（它显式传 `--config`）；
 唯一例外是 `bench-pr.yml`：预热 job 不装 SDK、base 侧编的是另一棵树，它们在 `src/runtime` 下跑 cargo。**所有** job 的
 `workspaces` 都要写 `src/runtime -> ../../artifacts/build/runtime`——写裸 `src/runtime` 缓存的是
-一个空目录（`verify-features` 曾这样白缓存了很久）。
+一个空目录。
 
-## 3.1 自举种子从哪来（以及它怎么死锁过一次）
+## 3.1 自举种子从哪来
 
 **每个**跑 xtask 的 job（`ci-bootstrap` 与 `xtask-bootstrap-artifact` 两条路径都一样）都要先经
 [`setup-z42-sdk`](https://github.com/z42-lang/z42/blob/main/.github/actions/setup-z42-sdk/action.yml) 拿一份上一版 SDK，装进 `.z42/`。
@@ -250,8 +249,8 @@ nightly release 的 z42-sdk-nightly-<rid>          （首选，10 次重试）
 nightly 再 use。成功 CI 运行的产物顶多落后一两个 commit，牢牢在这条**单向递推**的纪律内。
 
 > 🔴 **回退目标必须是 CI artifact，不能是「最近的正式 release」。**
-> 第一版就是那么写的，实测**救不回来**：正式 release 可能落后很多个 zpkg 格式 bump
-> （2026-09-17 那次 v0.5.0 是 minor 43、当时源码 48，差 5 个），会触发 [1.5] 两代自举；
+> 若回退到最近的正式 release，实测**救不回来**：正式 release 可能落后很多个 zpkg 格式 bump
+> （实例：v0.5.0 是 minor 43、当时源码 48，差 5 个），会触发 [1.5] 两代自举；
 > 而两代自举**全程用种子自带的旧 VM**，它加载不了 gen1 产出的新格式 stdlib——
 > run 35290607109 的日志就停在
 > `z42.core.zpkg … zpkg minor 48 not supported (writer is at 0.43)`。
@@ -267,9 +266,9 @@ nightly 再 use。成功 CI 运行的产物顶多落后一两个 commit，牢牢
 > ⚠️ 按 RID **后缀**挑目录（`z42-*-<rid>-release`），不要硬编码 runner 标签
 > （`ubuntu-latest` / `macos-26` 这些会变，包名由 packaging 决定、稳定）。
 
-### 为什么必须有回退（2026-09-17 的事故）
+### 为什么必须有回退
 
-nightly 曾是**唯一**种子来源。那天 `publish-nightly` 的
+若 nightly 是**唯一**种子来源，`publish-nightly` 的
 `gh release delete nightly` → `gh release create nightly` 跑到一半，整个 workflow 被
 下一个 push 取消，留下一个**残缺的 draft nightly**（有 4 个资产，但没有任何 SDK 包）。
 
@@ -281,7 +280,7 @@ bootstrap job。实测（run 35287940676）照样全红。
 
 ⇒ 破环只能靠**种子有第二来源**。这就是回退链存在的理由。
 
-**当时是怎么解开的**（回退链上线前的人工流程，也是错误信息里指的那条）：
+**回退链失效时的人工破环流程**（也是错误信息里指的那条）：
 
 1. `gh run list --workflow CI --branch main --status success --limit 5` 找最近一次全绿的 run
 2. `gh run download <run> -p 'release-*' -D artifacts/packages/archives` 取它的归档（各 package job 已用
@@ -300,7 +299,7 @@ minor 不一致就会把所有 job 推进两代自举那条已知会挂的路。
 
 `publish-nightly` 的 `concurrency.cancel-in-progress: false` 只序列化**该 job 自身**的
 并发，**挡不住新 push 取消整个 run**。delete→create 之间被砍，仍会留下 stuck-draft。
-回退链让这件事不再致命（CI 能继续跑、并自动重发健康 nightly），但根因未除。
+回退链让这件事并不致命（CI 能继续跑、并自动重发健康 nightly），但根因未除。
 
 ## 4. 其它 workflow
 
