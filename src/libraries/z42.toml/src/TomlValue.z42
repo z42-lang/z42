@@ -239,10 +239,16 @@ public class TomlValue {
         TomlValue v = null;
         if (!this.TryGet(key, ref v)) { return false; }
         Type t = typeof(T);
-        if (t == typeof(string))    { object o = v.AsString(); value = (T)o; return true; }
-        if (t == typeof(long))      { object o = v.AsLong();   value = (T)o; return true; }
-        if (t == typeof(double))    { object o = v.AsDouble(); value = (T)o; return true; }
-        if (t == typeof(bool))      { object o = v.AsBool();   value = (T)o; return true; }
+        // 类型不符的异常带上**键名**（`version: expected string, got long`）——值对象不知道自己挂在哪个键下，
+        // 只有这里知道；不带的话用户只能对着「expected string, got long」去整份文件里猜是哪一行。
+        try {
+            if (t == typeof(string))    { object o = v.AsString(); value = (T)o; return true; }
+            if (t == typeof(long))      { object o = v.AsLong();   value = (T)o; return true; }
+            if (t == typeof(double))    { object o = v.AsDouble(); value = (T)o; return true; }
+            if (t == typeof(bool))      { object o = v.AsBool();   value = (T)o; return true; }
+        } catch (TomlException e) {
+            throw new TomlException("`" + key + "`: " + e.Message, e.Line, e.Column);
+        }
         if (t == typeof(TomlValue)) { object o = v;            value = (T)o; return true; }
         throw new TomlException("TryGetValue<" + t.FullName + "> is not supported — "
             + "use string / long / double / bool / TomlValue");
