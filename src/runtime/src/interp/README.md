@@ -1,4 +1,4 @@
-# interp — Tree-walking bytecode interpreter
+# interp — 字节码解释器
 
 ## 职责
 执行 IR 指令的解释器后端。逐块遍历、逐指令 dispatch，支持异常处理和虚方法分发。
@@ -6,20 +6,22 @@
 ## 核心文件
 | 文件 | 职责 |
 |------|------|
-| `mod.rs` | 模块表 + 执行主循环 `exec_function_body`（refactor-split-interp-mod 后只留这两块；入口 / Frame / 支撑函数经 `pub use` / `pub(crate) use` 全量再导出，兄弟模块 `super::X` 路径不变）|
+| `mod.rs` | 模块表 + 执行主循环 `exec_function_body`（入口 / Frame / 支撑函数经 `pub use` / `pub(crate) use` 全量再导出，兄弟模块 `super::X` 路径不变）|
 | `entry.rs` | 公开 API：`ExecOutcome`、`run` / `run_returning` / `run_outcome`、`init_static_fields` / `run_with_static_init` |
 | `frame.rs` | `Frame`（寄存器文件按 `Function::reg_file_len` 一次性预分配——loader 回填 `func.max_reg`，见 book「超级指令融合」页；`Frame.method_type_args` 携泛型方法调用点的具体类型实参名，供 `MethodTypeArg`/`MethodDefault`——见 book「泛型方法」页）、执行循环、异常表查找
 | `exec_support.rs` | `exec_function` 族入口、`FrameGuard`（帧登记 RAII）、OSR / 原生分流（`try_osr` / `try_native_exec`）、异常事件、`find_handler`、ref 写回 |
-| `exec_instr.rs` | 薄分发器：穷尽 match 把 `Instruction` 分派到下面 7 个 `exec_<category>.rs` |
+| `exec_instr.rs` | 薄分发器：穷尽 match 把 `Instruction` 分派到下面各 `exec_<category>.rs` |
 | `exec_value.rs` | 常量 / Copy / 算术 / 比较 / 逻辑 / 一元 / 位运算 / 字符串构造 |
 | `exec_address.rs` | `LoadLocalAddr` / `LoadElemAddr` / `LoadFieldAddr` / `DefaultOf`（类级泛型零值）/ `MethodTypeArg`·`MethodDefault`（方法级泛型：读 `Frame.method_type_args`，见 book「泛型方法」页）|
 | `exec_call.rs` | `Call` / `Builtin` / `LoadFn` / `LoadFnCached` / `CallIndirect` / `MkClos` |
 | `exec_array.rs` | `ArrayNew` / `ArrayNewLit` / `ArrayGet` / `ArraySet` / `ArrayLen` |
-| `exec_object.rs` | `ObjNew` / `FieldGet` / `FieldSet` / `IsInstance` / `AsCast` / `Static*` |
-| `vcall_resolve.rs` | **虚调用目标解析单一实现**（装箱基元 / 装箱 struct / 基元 / 对象 vtable·层级 walk + 候选名 + PIC 安装），interp `exec_vcall` 与 JIT `helpers/vcall.rs` 共用（unify-vcall-resolution） |
+| `exec_object.rs` | `ObjNew` / `FieldGet` / `FieldSet` / `Static*` |
+| `exec_object_isa.rs` | `IsInstance` / `AsCast` 类型判定（`exec_object` 再导出） |
+| `exec_struct.rs` | 值 struct blob 指令：`StructAlloc` / `StructCopy` / `StructFieldGetPrim` / `StructFieldSetPrim`（作用于 `struct_arena`，寄存器持 `Value::StructRef` 句柄） |
+| `vcall_resolve.rs` | **虚调用目标解析单一实现**（装箱基元 / 装箱 struct / 基元 / 对象 vtable·层级 walk + 候选名 + PIC 安装），interp `exec_vcall` 与 JIT `helpers/vcall.rs` 共用|
 | `exec_vcall.rs` | `VCall` 的 interp 调用侧（PIC 命中 / 解析结果 → 帧执行、mixed-mode 原生分流）+ `primitive_class_name` + `is_array_isa` |
 | `exec_native.rs` | `CallNative` / `CallNativeVtable` / `PinPtr` / `UnpinPtr` |
-| `dispatch.rs` | 对象分发辅助：vtable 解析、ToString 协议、**类型判定单一入口 `isa_td`**（`is` / `as` / 带类型 `catch`，interp 与 JIT 共用；前置身份键 `vm_context::isa_cache`，后置字符串 memo + 基链/接口遍历，perf-vm-isa-cache）、静态字段、fallback TypeDesc |
+| `dispatch.rs` | 对象分发辅助：vtable 解析、ToString 协议、**类型判定单一入口 `isa_td`**（`is` / `as` / 带类型 `catch`，interp 与 JIT 共用；前置身份键 `vm_context::isa_cache`，后置字符串 memo + 基链/接口遍历）、静态字段、fallback TypeDesc |
 | `ops.rs` | 寄存器级辅助：`int_binop`、`collect_args`、`bool_val`、`str_val` |
 | `stack_alloc.rs` / `struct_arena.rs` / `transient_arena.rs` | per-`VmContext` arena：逃逸对象/数组、值 struct blob、以及 `Ref`/`PinnedView`/`StackClosure`/`StructRefHeap` 瞬态 payload（`Value` 里只留 8B `{idx,frame_id}` 句柄 → `Value: Copy`，见 `docs/internals/src/runtime/object-abi.md` §2.2）。均 LIFO 随帧 truncate + GC root 扫描 |
 
@@ -30,3 +32,10 @@
 ## 依赖关系
 - 依赖 `corelib` 模块的 `exec_builtin` 和 `value_to_str`
 - 依赖 `metadata` 模块的 `Module`、`Function`、`Instruction`、`Value` 等类型
+
+## 如何测试验证
+
+```bash
+./xtask test runtime              # cargo test（含 interp 单测）
+./xtask test e2e --mode interp   # golden 端到端（解释器）
+```

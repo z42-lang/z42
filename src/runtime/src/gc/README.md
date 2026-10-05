@@ -10,34 +10,40 @@ observers / profiler / weak refs / finalizers / strict OOM / ...）。
 
 | 文件 | 职责 |
 |------|------|
-| `heap.rs` | `trait MagrGC` —— GC 抽象接口（MMTk porting contract 形态，10 能力组 ~30 方法）|
-| `arc_heap.rs` | `ArcMagrGC` 协调器 —— struct/字段、`RcHeapInner`、句柄表、类型别名、`Default`/`Debug`、`new()` + concern 子模块声明（`GcRef` backing 是 `Rc<GcAllocation<T>>`，wrapper 含 finalizer Cell + 自定义 Drop）|
+| `heap.rs` | `trait MagrGC` —— GC 抽象接口（MMTk porting contract 形态，11 能力组） |
+| `mode.rs` | `GcMode`：`GenerationalMarkSweep`（默认）/ `StwMarkSweep` / `ConcurrentMarkSweep`，`Z42_GC_MODE` 选择 |
+| `arc_heap.rs` | `ArcMagrGC` 协调器 —— struct/字段、句柄表、类型别名、`Default`/`Debug` + concern 子模块声明 |
+| `arc_heap/construct.rs` | `Default` 构造（`new()` 委托到它） |
 | `arc_heap/alloc.rs` | region 分配尾部 + OOM 兜底 + 内存压力检查 + size 估算/查询（`object_size_bytes`）|
+| `arc_heap/alloc_black.rs` | 标记期间 allocate-black |
+| `arc_heap/auto_collect.rs` | 自动 collect 触发策略（分配压力） |
 | `arc_heap/collect.rs` | mark-sweep 原语：mark/sweep 阶段 + soft-ref 复活 + live 快照 |
 | `arc_heap/control.rs` | 环回收编排与控制 API：`run_cycle_collection(_stw)` + `collect_cycles`/`force_collect` + finalize + soft-ref |
-| `arc_heap/generational.rs` | 分代 GC：minor/major/promotion/card + `gen_age` + write barriers |
+| `arc_heap/generational.rs` / `barrier.rs` | 分代 GC：minor/major/promotion/card + `gen_age`；分代写屏障 |
+| `arc_heap/promotion_policy.rs` / `pause_budget.rs` | 自适应晋升判定 / 停顿预算化 nursery |
 | `arc_heap/roots.rs` | roots/retention 扫描：root 快照 + marked-context 扫描 + 反向引用图 |
 | `arc_heap/observe.rs` | 观测：barrier observer(test) + 事件分发 + pause 计时 + snapshot/stats |
-| `arc_heap/incremental.rs` | **增量 major**（add-incremental-major-gc M2b）：切片状态机（Marking / Sweeping）、切片预算、pacer、`admit_resurrected`（弱读 / 堆遍历不交出待清扫的死对象）。机制见 [book: 增量 major](../../../../docs/internals/src/runtime/gc-incremental-major.md) |
-| `arc_heap/interface.rs` | `impl MagrGC for ArcMagrGC` —— GC 公共 trait 接口（薄委托层，重方法体下沉到上列 concern 模块）|
+| `arc_heap/incremental.rs` | **增量 major**：切片状态机（Marking / Sweeping）、切片预算、pacer、`admit_resurrected`（弱读 / 堆遍历不交出待清扫的死对象）。机制见 [book: 增量 major](../../../../docs/internals/src/runtime/gc-incremental-major.md) |
+| `arc_heap/interface.rs` | `impl MagrGC for ArcMagrGC` —— 公共 trait 接口（薄委托层，重方法体下沉到上列 concern 模块）|
 | `arc_heap/debug.rs` | `#[cfg(test)]`/`#[cfg(debug_assertions)]` 辅助：test accessors + `debug_validate_invariants` |
-| `region.rs` | 定长 `Region<T>` chunk 分配器（对象/数组）+ `ChunkClaim`（TLAB borrow/retire/reclaim 链本地分配）|
-| `var_region.rs` | 变长 `VarRegion` 字节 bump 分配器（字符串/闭包）——alloc / resolve / tombstone / sweep 主体 |
-| `var_region/block.rs` | `BlockType` / `GcBlockHeader`（16 B 头）/ payload 指针 + `PayloadDropGlue` |
-| `var_region/chunk.rs` | 尺寸类 + 原始 chunk + `VarChunkClaim`（TLAB + per-chunk `reuse_gen` ABA 守）+ chunk 增长/借出/回收 |
-| `var_region/var_ref.rs` | `VarGcRef` —— 8 字节类型擦除 tagged 句柄 |
-| `satb.rs` | **SATB 删除屏障**（M2a）：进程级 `MARKING_HEAPS` 快路径 + 线程本地记录缓冲（按线程绑定的堆归属），`retire_thread_tlab` 时交给堆 |
-| `tlab.rs` | **add-gc-tlab**：thread-local `Tlab{obj,arr,var}` + arm 门（仅 VmContext 线程走零锁 TLAB）。机制见 [book: GC TLAB](../../../../docs/internals/src/runtime/gc-tlab.md) |
-| `refs.rs` | `GcRef<T>` / `WeakGcRef<T>` 不透明句柄 + `GcAllocation<T>` wrapper |
+| `region.rs` + `region/` | 定长 `Region<T>` chunk 分配器（对象/数组）+ `ChunkClaim`（TLAB borrow/retire/reclaim）；`entry.rs`（`RegionEntry`：值 + GC 元数据）、`generation.rs`（年轻代记账 / 晋升 / 卡表）、`invariants.rs`（debug 不变量） |
+| `var_region.rs` + `var_region/` | 变长 `VarRegion` 字节 bump 分配器（字符串/闭包）：`block.rs`（`GcBlockHeader` 16 B 头 + payload）、`chunk.rs`（尺寸类 + `VarChunkClaim`）、`var_ref.rs`（`VarGcRef` 8 字节 tagged 句柄）、`generation.rs`（young list） |
+| `satb.rs` | **SATB 删除屏障**：进程级 `MARKING_HEAPS` 快路径 + 线程本地记录缓冲，`retire_thread_tlab` 时交给堆 |
+| `tlab.rs` | thread-local `Tlab{obj,arr,var}` + arm 门（仅 VmContext 线程走零锁 TLAB）。机制见 [book: GC TLAB](../../../../docs/internals/src/runtime/gc-tlab.md) |
+| `safepoint.rs` | GC safepoint 协议 |
+| `ambient.rs` | thread-local 当前 VM 堆指针，供无堆参数的调用点分配 GC block |
+| `refs.rs` | `GcRef<T>` / `WeakGcRef<T>` 不透明句柄（8B 标记指针：低 48 位 `RegionEntry` 地址 + 高 16 位 generation 快照；`Clone` 无 atomic，`Drop` no-op，finalizer 在 sweep 触发） |
 | `types.rs` | 支持类型 —— `RootHandle` / `FrameMark` / `GcEvent` / `GcObserver` / `WeakRef` / `HeapSnapshot` / `HeapStats` / `FinalizerFn` / `AllocSamplerFn` / ... |
-| `heap_tests.rs` | trait 默认方法契约测试 |
-| `arc_heap_tests.rs` | ArcMagrGC 行为单元测试（覆盖全 11 能力组 + cycle / drop-time finalizer / strict OOM 等）|
+| `retention.rs` / `snapshot.rs` | 堆保留诊断（反向引用图 + `whyRetained`）/ V8 `.heapsnapshot` 导出 |
+| `soft_registry.rs` | soft-reference 注册表（堆压力下可被清除的引用） |
+| `sampler.rs` / `phase_timer.rs` / `trace.rs` | safepoint 采样 profiler / `Z42_GC_PHASES` 分阶段停顿计时 / `Z42_GC_TRACE` 每次 collect 的 stderr trace |
+| `heap_tests.rs` / `arc_heap_tests/` / `*_tests.rs` | trait 默认方法契约测试 / `ArcMagrGC` 行为单测（分配 / 收集 / 并发标记 / 分代 / 增量 / finalizer / 不变量等）/ 各模块单测 |
 
 ## 入口点
 
-- `crate::gc::MagrGC` —— GC 接口 trait（10 能力组）
-- `crate::gc::ArcMagrGC` —— 默认实现（GcRef backing 是 `Rc<GcAllocation<T>>`，Phase 3e 起 wrapper Drop 自动触发 finalizer）
-- `crate::gc::GcRef<T>` / `crate::gc::WeakGcRef<T>` —— 堆引用不透明句柄；后续 backing 切换（自定义堆 / mark-sweep / MMTk）零 callsite 修改
+- `crate::gc::MagrGC` —— GC 接口 trait（11 能力组）
+- `crate::gc::ArcMagrGC` —— 默认实现（`GcRef` 指向 `Region<T>` 内的 `RegionEntry`；默认 `GenerationalMarkSweep`）
+- `crate::gc::GcRef<T>` / `crate::gc::WeakGcRef<T>` —— 堆引用不透明句柄；backing 切换（如 MMTk）零 callsite 修改
 - 嵌入相关类型：`RootHandle` / `FrameMark` / `GcEvent` / `GcObserver` / `AllocSample` / `WeakRef` / `HeapSnapshot` / `HeapStats` / ...
 
 ### 能力组（按 trait 内分组）
@@ -71,42 +77,27 @@ let snap = ctx.heap().take_snapshot();
 ```
 
 z42 脚本端可调 `Std.GC.Collect()` / `UsedBytes()` / `ForceCollect()`（见
-`src/libraries/z42.core/src/GC.z42`）。
+`src/libraries/z42.core/src/GC/GC.z42`）。
 
 ## 依赖关系
 
 - 上游：`metadata::{Value, ScriptObject, TypeDesc, NativeData}`
 - 下游：`vm_context::VmContext` 持有 `Box<dyn MagrGC>` + 注入 external root
   scanner 闭包（扫描 static_fields / pending_exception / interp+JIT exec_stack）；
-  `interp/exec_instr.rs` 与 `jit/helpers_*.rs` 通过 `ctx.heap()` 调用
+  `interp/` 与 `jit/helpers/` 通过 `ctx.heap()` 调用
 
-## Phase 路线
+## 如何测试验证
 
-详见 [`docs/internals/src/runtime/gc.md`](../../../../docs/internals/src/runtime/gc.md).
+```bash
+(cd src/runtime && cargo test --lib gc)     # GC 单测（含 arc_heap_tests/）
+./xtask test e2e --dir gc                   # GC golden 端到端
+```
 
-**GC 主功能完整 —— A1 / A2 / A3 / A4
-均已落地（custom allocator / mark-sweep / generational / concurrent mark），
-三种 GcMode 可选 opt-in。可投产。**
+## 关联文档
 
-后续可选迭代规划（剩余性能轨道 / 嵌入式工具 / 测试质量 / MMTk 集成）见同文档
-["GC 后续迭代规划"](../../../../docs/internals/src/runtime/gc.md#gc-后续迭代规划) 段，
-每条目带 What / Why / Deps / Size / Risk 四元组，可按优先级独立启动 spec。
-
-### 已完成 Phase 速览
-
-| Phase | 主要内容 |
-|-------|---------|
-| 1 / 1.5 | trait MagrGC + ArcMagrGC + 全 host-side 嵌入接口 + corelib NativeFn 签名带 `&VmContext` |
-| 3a | `GcRef<T>` / `WeakGcRef<T>` 不透明句柄抽象 |
-| 3b | Heap registry + snapshot/iterate Full coverage |
-| 3c | Trial-deletion 环回收器（Bacon-Rajan）→ 修复环引用泄漏 |
-| 3d | Finalizer 真触发 + 内存压力自动 collect + `near_limit_warned` reset |
-| 3d.1 | External root scanner —— VmContext `static_fields` / `pending_exception` 自动暴露给 cycle collector |
-| 3d.2 | `Std.GC.*` 脚本暴露 + 端到端 golden test 验证（110_gc_cycle）|
-| 3e | `GcRef<T>` backing 升级 `Rc<GcAllocation<T>>` —— Drop 自动触发 finalizer（含纯 Rc Drop 路径）|
-| 3f | interp 栈扫描（`FrameGuard` RAII push/pop frame.regs 到 exec_stack）|
-| 3f-2 | JIT 栈扫描（6 个 JitFrame::new callsite 同样模式）+ 112_gc_jit_transitive 验证 |
-| 3-OOM | strict OOM 模式（`set_strict_oom`；启用后 alloc 越限返 Null 不入 registry/stats）|
+设计与机制见 [`docs/internals/src/runtime/gc.md`](../../../../docs/internals/src/runtime/gc.md)（含「GC 后续迭代规划」），
+句柄见 [`gc-handle.md`](../../../../docs/internals/src/runtime/gc-handle.md)。
+三种 `GcMode`（分代 / STW / 并发标记）均可用，默认分代。
 
 ## 命名
 

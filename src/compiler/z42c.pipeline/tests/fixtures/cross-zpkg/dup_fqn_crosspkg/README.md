@@ -5,15 +5,12 @@
 `target`（`demo.dupalpha`）与 `ext`（`demo.dupbeta`）各声明一个 `Demo.DupNs.Widget`——
 不是同短名跨 ns（那归 E0456），是**同一个 FQN**。消费方 `main` 引用它。
 
-## 修前行为（实测，非推断）
+## 为什么这是真门
 
-编译 **rc=0、零诊断**；字母序靠前的 `demo.dupalpha` 赢，`demo.dupbeta` 的 `Widget` 连同
-全部成员从未存在过。运行期倒是会 warn（`duplicate type ... keeping first-loaded`，默认打 stderr），
-**全哑的只有编译期**。
-
-更糟的形态：给 beta 的 `Widget` 加一个 alpha 没有的成员再调用它 →
-`E0401: no method 'OnlyBeta' on 'Widget'`。用户正看着 beta 的源码，诊断答非所问——
-真相不是「没有这个方法」，而是「`Widget` 根本不是你以为的那一个」。
+若编译期无诊断，字母序靠前的 `demo.dupalpha` 赢，`demo.dupbeta` 的 `Widget` 连同全部成员从未存在过；
+运行期虽会 warn（`duplicate type ... keeping first-loaded`，打 stderr），**编译期是唯一防线**。
+更糟的形态：给 beta 的 `Widget` 加一个 alpha 没有的成员再调用它 → `E0401: no method 'OnlyBeta' on 'Widget'`，
+诊断答非所问——真相不是「没有这个方法」，而是「`Widget` 根本不是你以为的那一个」。
 
 ## 负例 fixture 约定
 

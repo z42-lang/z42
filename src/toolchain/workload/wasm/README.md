@@ -1,160 +1,79 @@
-# @z42/wasm — WebAssembly facade for the z42 embedding API
+# workload/wasm — @z42/wasm WebAssembly facade
 
-> 状态：🟢 已落地。
->
-> 跨平台契约：[`../README.md`](../README.md)
-> 实现原理：[`docs/internals/src/runtime/embedding.md`](../../../../docs/internals/src/runtime/embedding.md) §6.2 / §11
+## 职责
 
-把 z42 VM 包成 WebAssembly + JS facade，供浏览器 / Node.js / wasm-runtime 一行 `import` 即可跑 `.zbc` 字节码。
+把 z42 VM 包成 WebAssembly + JS facade（`@z42/wasm`），供浏览器 / Node.js / wasm runtime 跑 `.zbc`；
+并含 wasm 平台 workload 的 appbuilder（`export`）、测试宿主与 R1–R7 契约测试。仅 interp，无文件系统。
 
-## Quick Start
+## 功能索引
 
-### 一次性环境准备
+| 功能 | 入口 / 文件 |
+|------|-----------|
+| `Z42VM` wasm-bindgen 入口 | `platform/src/lib.rs` |
+| 值 / 错误 / resolver 的 JS 桥 | `platform/src/{value,error,resolver}.rs` |
+| JS 入口 + TS 类型 | `platform/js/index.js`、`platform/js/index.d.ts` |
+| stdlib resolver（`bundleStdlibNode` / `bundleStdlibBrowser`） | `platform/js/stdlib-resolver.js` |
+| 发布 / 导出管线（`: WorkloadBase`） | `appbuilder/WasmWorkload.z42`、`appbuilder/export.z42` |
+| 嵌入测试宿主 | `testhost/{index.html,run.js}` |
+| Playwright R1–R7 + 嵌入语料 | `platform/tests/` |
 
-```bash
-# Rust target + wasm-pack（如果还没装）
-rustup target add wasm32-unknown-unknown
-cargo install wasm-pack --locked
-
-# 编译器 + stdlib（产出 .zpkg 字节）
-./xtask build stdlib
-```
-
-### 构建 + 跑 demo
-
-```bash
-# 一站式构建（pkg-web/pkg-nodejs via wasm-pack）+ 测试资产（fixture .zbc + stdlib）：
-./xtask test platform wasm build      # ① wasm-pack web/node 两 target
-./xtask test platform wasm assets     # ② 编 fixtures + 拷 stdlib + files.json
-
-cd src/toolchain/workload/wasm/platform
-# 跑浏览器 demo（无需 Node；任选一个静态服务器）：
-miniserve --index demo/web/index.html .        # 然后开 http://127.0.0.1:8080/
-# 或：python3 -m http.server 8000               # 同上 URL
-
-# 或跑 Node demo（需要本地 Node — 走 artifacts/tools/node）
-./xtask deps install --os wasm                # 一次性，node 属 wasm 必备，装到 artifacts/tools/node
-PATH="$PWD/../../../../artifacts/tools/node/bin:$PATH" node demo/node/run.js
-# 期望输出：[host] hello, world
-```
-
-> 详细 step-by-step 跑通流程见 [`docs/internals/src/devinfra/build-platforms.md`](../../../../docs/internals/src/devinfra/build-platforms.md)。
-
-`[host]` 前缀来自 demo 注册的 stdout handler，证明输出**经过宿主回调**而不是 wasm 内部 println。
-
-## Run tests
-
-```bash
-# 每次（自动 build + assets + pkg-nodejs Node smoke + Playwright R1–R7；
-# 本地 Node 缺失时自动装到 artifacts/tools/，不动系统）：
-./xtask test platform wasm
-```
-
-期望尾部输出：
-
-```
-Running 7 tests using 1 worker
-  ✓  1 [chromium] › r1-r7.spec.ts:14:1 › R1 smoke / hello world
-  ✓  2 ... R2 error / bad zbc throws status 10
-  ...
-  7 passed (4.0s)
-```
-
-playwright 在 headless chromium 中跑 7 个 platform-test-contract scenario。浏览器装到 `artifacts/tools/playwright-browsers/`（~280MB，gitignored），不污染系统。
-
-## API 概览
-
-完整 TS 类型见 [`js/index.d.ts`](platform/js/index.d.ts)：
+## 基础用法
 
 ```ts
 import init, { Z42VM, readNamespaces } from '@z42/wasm';
 import { bundleStdlibNode } from '@z42/wasm/stdlib-resolver';
 
-await init();  // 浏览器需要 await fetch；Node 路径自动从 fs 读
-
+await init();
 const vm = new Z42VM({
-    zpkgResolver: await bundleStdlibNode(readNamespaces),
+    zpkgResolver: await bundleStdlibNode(readNamespaces),   // 经各 zpkg 的 NSPC 建 namespace→bytes 表
     stdoutHandler: (bytes) => process.stdout.write(bytes),
 });
-const module = vm.loadZbc(zbcBytes);
-const entry  = vm.resolveEntry(module, 'My.Namespace.Main');
-vm.invoke(entry);
+vm.invoke(vm.resolveEntry(vm.loadZbc(zbcBytes), 'My.Namespace.Main'));
 vm.dispose();
 ```
 
-### `Z42VMOptions`
+`Z42VMOptions`：`zpkgResolver`（函数或 `{ resolve }`）、`stdoutHandler`、`stderrHandler`；完整类型见 `platform/js/index.d.ts`。
+浏览器侧 `bundleStdlibBrowser(baseUrl, readNamespaces)` 读构建生成的 `files.json`（zpkg 文件名列表）。
 
-| 字段 | 形态 | 用途 |
-|------|------|------|
-| `zpkgResolver` | 函数 `(name) => Uint8Array \| null` 或对象 `{ resolve(name) }` | 把 namespace 解析成 zpkg 字节。runtime 总是先问 resolver，miss 后才考虑 search_paths（wasm 没有 search_paths） |
-| `stdoutHandler` | `(bytes: Uint8Array) => void` | 接 `Console.WriteLine` 输出。每次写一调一次 |
-| `stderrHandler` | 同上 | 接 `Console.Error.WriteLine` |
+构建与 demo：
 
-### 内置 resolver helpers
-
-`@z42/wasm/stdlib-resolver` 提供两套工具（都需传入 wasm 的 `readNamespaces` 导出——用它读各 zpkg 的 `NSPC` 建 namespace→bytes 表，不再依赖 `index.json`）：
-
-- `bundleStdlibNode(readNamespaces)` — Node 从包内 `stdlib/` 枚举并加载所有 stdlib zpkg
-- `bundleStdlibBrowser(baseUrl, readNamespaces)` — 浏览器 fetch build 生成的 `files.json` + 各 zpkg
-
-两套都返回 `(name) => Uint8Array | null` 形态的 resolver。
-
-## 目录结构
-
-标 `←` 的生成物不写进本目录：`test platform wasm` / `test embedded --rid browser-wasm` 先把本目录里
-git 跟踪的文件同步到 `artifacts/build/toolchain/workload/wasm/tests/host/`，生成物都落在那份副本的同名位置
-（wasm crate 本身仍在这里编，`--out-dir` 指向副本）。
-
-```
-wasm/
-├── Cargo.toml               wasm crate (cdylib + wasm-bindgen)
-├── src/                     Rust 桥
-│   ├── lib.rs               Z42VM #[wasm_bindgen] 入口
-│   ├── value.rs             Z42VMValue ↔ JsValue marshal
-│   ├── error.rs             HostError → JsValue 含 name + status
-│   └── resolver.rs          JsCallbackResolver bridge
-├── js/                      npm package surface
-│   ├── package.json         @z42/wasm
-│   ├── index.{js,d.ts}      入口 + TS 类型
-│   ├── stdlib-resolver.js   bundleStdlibNode / bundleStdlibBrowser
-│   ├── stdlib/*.zpkg        ← `test platform wasm assets` 从 stdlib dist 复制
-│   ├── pkg-web/             ← wasm-pack --target web 产物
-│   └── pkg-nodejs/          ← wasm-pack --target nodejs 产物
-├── demo/
-│   ├── fixtures/hello.z42   demo 源代码（assets 编 → js/fixtures/hello.zbc）
-│   ├── node/run.js          Node hello-world demo（pkg-nodejs smoke）
-│   └── web/                 浏览器版 hello-world demo（无 Node，配静态服务器）
-│       ├── index.html
-│       └── run.js
-└── tests/                   Playwright R1–R7（`test platform wasm run`）
+```bash
+rustup target add wasm32-unknown-unknown && cargo install wasm-pack --locked
+./xtask build stdlib
+./xtask test platform wasm build      # wasm-pack web + nodejs
+./xtask test platform wasm assets     # fixtures + stdlib + files.json
+./xtask deps install --os wasm        # 本地缺 Node 时（装到 artifacts/tools/node）
+node src/toolchain/workload/wasm/platform/demo/node/run.js     # 期望 [host] hello, world
 ```
 
-`pkg-*/` 和 `stdlib/` 由 `./xtask test platform wasm build` / `assets` 重新生成；都在 `.gitignore` 内。
-（构建逻辑已从 `build.sh`/`test.sh` 迁入 `WasmBackend`，见 [`scripts/xtask_test_wasm.z42`](../../../../scripts/test/xtask_test_wasm.z42)。）
+浏览器 demo：`platform/demo/web/index.html`，配任一静态服务器。
 
-## 限制（v0.1）
+限制：仅 interp；同步 invoke；marshal 仅 null / boolean / number / bigint；单实例；
+`pkg-*/`、`js/stdlib/` 等生成物落宿主工程副本 `artifacts/build/toolchain/workload/wasm/tests/host/`，不写本目录。
 
-- **仅 interp 模式**：wasm 沙箱禁动态代码生成；JIT / AOT 不可用
-- **无文件系统**：必须通过 `zpkgResolver` 把 zpkg 字节喂进来；`search_paths` 在 wasm 上无效
-- **同步 invoke**：v0.1 不支持 async；长任务会阻塞 JS 主线程，需要用户自行 `Worker`
-- **marshal**：JS ↔ z42 仅支持 null / boolean / number / bigint。string / object / Array 推迟到后续 spec（见 [`embedding.md §12 Deferred`](../../../../docs/internals/src/runtime/embedding.md)）
-- **单实例**：与桌面 / iOS / Android 一致 — 一个进程内一个 Z42VM；多实例进 Deferred
+## 如何测试验证
 
-## 故障排查
+```bash
+./xtask test platform wasm
+```
 
-| 现象 | 可能原因 | 处理 |
-|------|----------|------|
-| `wasm-pack not found` | 工具链未装 | `cargo install wasm-pack --locked` |
-| `wasm32-unknown-unknown target not installed` | rust target 缺 | `rustup target add wasm32-unknown-unknown` |
-| `fixture missing: hello.zbc` | 编译器/stdlib 没构建 | 先 `./xtask build stdlib`，再 `./xtask test platform wasm assets` |
-| `Z42VMError: undefined function Std.IO.Console.WriteLine` | stdlib zpkg 没载入 | 检查 `js/stdlib/*.zpkg` 是否生成（`test platform wasm assets` 末尾列出复制数）|
-| Node demo 报 `command not found: node` | Node 未装 | `brew install node`（或任何 Node ≥ 18 发行版）|
+build + assets + pkg-nodejs Node smoke + headless chromium 的 Playwright R1–R7，期望 `7 passed`。
+浏览器装到 `artifacts/tools/playwright-browsers/`。后端实现 [`scripts/test/xtask_test_wasm.z42`](../../../../scripts/test/xtask_test_wasm.z42)。
 
-## 跨平台契约
+## 关联文档
 
-本 facade 严格遵守 [`platform-contract.md`](../README.md) 的同形 API + 命名约定：
+- 跨平台契约：[`../platform-contract.md`](../platform-contract.md)
+- 嵌入机制：[embedding.md](../../../../docs/internals/src/runtime/embedding.md) §6.2 / §11
+- 构建与故障排查：[build-platforms.md](../../../../docs/internals/src/devinfra/build-platforms.md)
 
-- 类名 `Z42VM` / `Z42VMModule` / `Z42VMEntry` / `Z42VMValue` / `Z42VMError`（跨平台一致）
-- `ZpkgResolver` 协议：函数或 `{ resolve }` 对象任一
-- 错误码 → `Z42VMError.status` 映射详见 platform-contract.md §错误码映射表
+## 核心文件
 
+| 路径 | 职责 |
+|------|------|
+| `appbuilder/` | workload handler + export |
+| `template/` | `export` 渲染进用户工程的脚手架 |
+| `platform/Cargo.toml` + `src/` | wasm crate（cdylib + wasm-bindgen） |
+| `platform/js/` | npm package surface（`@z42/wasm`） |
+| `platform/demo/` | Node / 浏览器 hello-world demo |
+| `platform/tests/` | Playwright 测试 |
+| `testhost/` | 嵌入测试宿主 |

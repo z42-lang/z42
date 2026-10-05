@@ -8,10 +8,10 @@ z42 Tier 2 ergonomic Rust API 的 proc macro 实现。让 Rust 用户不必手�
 
 | Macro | 形式 | 作用 |
 |-------|------|------|
-| `z42::methods` | `#[methods(module = "...", name = "...")]` 作用于 `impl T { ... }` | **C3 主入口**：一次性 emit descriptor + 方法表 + 所有 `extern "C"` shim + `Z42Type` impl |
+| `z42::methods` | `#[methods(module = "...", name = "...")]` 作用于 `impl T { ... }` | **主入口**：一次性 emit descriptor + 方法表 + 所有 `extern "C"` shim + `Z42Type` impl |
 | `z42::module` | `module! { name: "...", types: [T1, T2, ...] }` | 生成 `#[no_mangle] pub extern "C" fn <name>_register()` 把每个类型推入 VM |
-| `z42::Z42Type` | `#[derive(Z42Type)]` | **C3 stub**：报清晰 `compile_error!` 指向 spec C5 |
-| `z42::trait_impl` | `#[trait_impl("trait_name")]` | **C3 stub**：报清晰 `compile_error!` 指向 spec C5 |
+| `z42::Z42Type` | `#[derive(Z42Type)]` | 未实现：报清晰 `compile_error!` 指向 spec C5 |
+| `z42::trait_impl` | `#[trait_impl("trait_name")]` | 未实现：报清晰 `compile_error!` 指向 spec C5 |
 
 ## 用法示例
 
@@ -44,13 +44,13 @@ z42::module! {
 | `src/lib.rs` | `#[proc_macro*]` 入口；路由到子模块 |
 | `src/methods_attr.rs` | `#[z42::methods]` 实现（核心：解析 attribute + impl 块 → emit descriptor / 方法表 / shim / Z42Type impl）|
 | `src/module_macro.rs` | `module!` 实现（生成 `<name>_register()`）|
-| `src/signature.rs` | Rust 类型 → ABI 签名字符串映射；C3 仅 blittable 子集（i*/u*/f*/bool/raw ptr/SelfRef/void）|
+| `src/signature.rs` | Rust 类型 → ABI 签名字符串映射；仅 blittable 子集（i*/u*/f*/bool/raw ptr/SelfRef/void）|
 | `src/shim.rs` | 每个用户方法 → `extern "C"` shim（`catch_unwind` 包裹，panic 经 `z42_rs::native_helpers::set_panic` 转 Z0905）|
 | `src/util.rs` | c-string literal 生成、私有 ident 命名、模块名校验 |
 
-## 状态
+## 待办
 
-`#[derive(Z42Type)]` 与 `#[trait_impl]` 尚未实现，待 source generator (C5) 一并设计 z42-side trait 形状。
+`#[derive(Z42Type)]` 与 `#[trait_impl]` 待 source generator（C5）一并设计 z42-side trait 形状。
 
 ## 依赖关系
 
@@ -60,5 +60,6 @@ z42::module! {
 
 ## 测试
 
-- `tests/expand_smoke.rs` + trybuild：4 个诊断 case（缺 module/name attr、非法 module 名、derive 重定向消息）
+- `tests/expand_smoke.rs` + trybuild（`tests/fail/`）：4 个诊断 case（缺 module/name attr、非法 module 名、derive 重定向消息）
+- 运行：`(cd src/runtime && cargo test -p z42-macros)`
 - 端到端（`z42_vm` 测试 binary 内）：`tests/native_interop_e2e.rs::rust_counter_*` 验证宏生成的 descriptor 与 C 写的等价

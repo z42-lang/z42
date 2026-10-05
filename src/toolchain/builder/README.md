@@ -22,6 +22,24 @@ src/toolchain/builder/core/*.z42  →  z42b.zpkg  →  apphost z42b
 - **管线接口/相位流程定义** —— 住 [`src/compiler/z42.build/`](../../compiler/z42.build/)
   （`Pipeline` / `IPipelineContext` / `ICompiler` / `WorkloadBase` / `BuildHooks`）。本模块是**驱动方**。
 
+## 功能索引
+
+| 功能 | 入口 / 文件 |
+|------|-----------|
+| 命令路由（new / test / bench / clean / publish / build / export） | `core/builder_cli.z42` |
+| 管线编排与编译器注入 | `core/builder.z42` 的 `_orchestrate` / `_hostCompiler` |
+| 反射式 `[Test]` / `[Benchmark]` 运行 | `core/builder_test.z42` |
+| desktop publish（apphost + payload） | `core/builder_publish.z42`、`core/builder_apphost.z42` |
+| 设备 RID 构建 + 部署 + 运行 | `core/builder_device*.z42` |
+
+## 基础用法
+
+```bash
+z42 build / z42 publish / z42 test     # 经 launcher 转发到 z42b
+```
+
+完整命令参考见 [z42 / z42c / z42b 命令参考](../../../docs/reference/src/toolchain/cli-z42c-z42b.md)。
+
 ## 如何测试验证
 
 ```bash
@@ -32,42 +50,29 @@ xtask test stdlib       # z42b 作为 [Test] 运行器跑全部 stdlib 单元
 `tests/fixtures/` 放 harness 驱动的夹具工程，不是 `[Test]` 单元；约定见
 [测试用例组织规范](../../../docs/internals/src/devinfra/test-layout.md)。
 
-## 核心文件（`core/`）
+## 关联文档
 
-**LIVE（已入 build，`include` 于 `z42.builder.z42.toml`）：**
+- 设计与机制：[z42b 构建编排器](../../../docs/internals/src/toolchain/z42b.md)、[launcher](../../../docs/internals/src/toolchain/launcher.md)
+
+## 核心文件（`core/`）
 
 | 文件 | 职责 |
 |------|------|
 | `core/builder_cli.z42` | **CLI 路由**（对照 `launcher_cli.z42`）：`Std.Cli` 嵌套 router + dispatch。verbs：new / test / bench / clean / publish（用户经 `z42` 到达，帮助名写 `z42 <verb>`）+ build / export（编排方直接调用）|
-| `core/builder_test.z42` | **test / bench**：反射式 `[Test]`/`[Benchmark]` 运行器。**target 双形态**：已编译 `.zbc/.zpkg` 直跑 / 工程 `z42.toml`（或无 target 默认）→ **compile-then-test**（经注入编译器 `_buildProject` 现编到 dist 再反射跑）|
-| `core/builder_publish.z42` | **desktop publish**：产 apphost + `[platform.desktop]` `bin`/`payload` 布局 + 依赖/native/payload 落位。launcher 转发 `z42 publish` 至此，并经 `Z42_APPHOST_TEMPLATE` 传预解析的 apphost stub。**不依赖 z42.project/z42.build**（不碰自举串味雷区）|
-| `core/builder_publish_build.z42` | **产物新旧这一步**：`_pubEnsureBuilt` 每次都经 z42c 编一遍（增量，未变即空转）→ 源码改了 publish 就重出产物；`--no-build` 保留「就用现成字节」契约给 xtask 的 SDK 组装 / 自举不动点路径（避免「zpkg 文件在就当已最新」把旧 payload 静默重签） |
-| `core/builder_apphost.z42` | **apphost patcher 的唯一实现**（`_pubProduceApphost`）。z42b 兼作测试运行器，`stdlib [Test]` 构建阶段只有 stdlib 在 Z42_LIBS，看不到 `z42.workload.desktop`，故 patcher 内联于此而不依赖那个包。xtask 打包（`_packageDesktop`）调 `z42b publish` 复用它。⚠ MAGIC 须与 Rust stub 同步 |
-
-**PARKED（不在 build，待 `wire-z42b-host-build` 接入 in-process 编译器 API）：**
-
-| 文件 | 职责 |
-|------|------|
-| `core/builder.z42` | **编排核心**：`_orchestrate` 选路径 → 构造 `Pipeline`（注入 `ICompiler` + workload + hooks）+ `PipelineContext`→ `Run`。标准路径进程内组合（零子进程/零代码生成）|
-| `core/builder_commands.z42` | **命令处理**：build/export 共用 `_runVerb`（ManifestLoader → Target → `_orchestrate`）|
-| `core/builder_new.z42` | **`new` 脚手架**：生成 z42.toml + src 模板（exe/lib）+ .gitignore + README；工程名校验、`--path` 为父目录。纯 `Std.IO` |
-
-## 计划模块（实现期补全）
-
-| 模块 | 职责 |
-|------|------|
-| 共享编译实现适配 | `_hostCompiler()` 暂返 `NoCompiler`；待 `extract-compile-pipeline-api` 落地 `PackageCompiler`/`CompileResult` 后封装为 `Z42cCompiler : ICompiler`（与 `z42c.driver` 同一份）|
-| driver 装配 | 项目带自定义 `build/` 时，组装一次性 driver 源码（链 `z42.build` + workload + 项目 `build/`），用**同一 `ICompiler`** 编译后运行 |
-| 平台 workload | `_selectWorkload()` 暂返 `WorkloadBase` no-op；待各 `*.workload` 库的 `: WorkloadBase` 子类（desktop/ios/android/wasm）|
-| test/bench | 见 `retire-test-runner` spec（前置 boxing 0.3.11 + Method.Invoke 0.3.12）|
-
-> **`IPipelineContext` 实现归属**：置于 `z42.build` 库
-> （[`PipelineContext.z42`](../../compiler/z42.build/src/PipelineContext.z42)），编排器 import 它构造 ctx。
-> in-process 编译让**标准路径无需生成 driver**（直接进程内组合 Pipeline 跑），仅项目带自定义
-> `build/` 的自定义路径才落 driver 生成。
->
-> **计划重构**：`ICompiler` 等编译接口后续抽到中立微库，z42c 与 z42b 同依赖该微库——面向接口，
-> 「改成直接调 z42c」只换实现不动调用方。落地写 `build-orchestrator.md` 时入 Deferred。
+| `core/builder.z42` | **编排核心**：`_orchestrate` 选路径 → 构造 `Pipeline`（注入 `ICompiler` + workload + hooks）+ `PipelineContext` → `Run`；`_hostCompiler` 运行时加载 `programs/z42c/z42c.pipeline.zpkg` 注入编译器（缺失则 `NoCompiler` 兜底）|
+| `core/builder_commands.z42` | **命令处理**：build / export / publish 共用 `_runVerb`（ManifestLoader → Target → `_orchestrate`）|
+| `core/builder_hooks.z42` | 项目 build hook 动态注入：把 `[build] hooks` 目录编成 zpkg → 加载 `Build.ProjectHooks` |
+| `core/builder_new.z42` | **`new` 脚手架**：生成 z42.toml + src 模板（exe/lib）+ .gitignore + README；工程名校验、`--path` 为父目录 |
+| `core/builder_test.z42` | **test / bench**：反射式 `[Test]`/`[Benchmark]` 运行器。target 双形态：已编译 `.zbc/.zpkg` 直跑 / 工程 `z42.toml`（或无 target）→ compile-then-test |
+| `core/builder_dev_targets.z42` | test / bench 目标从真 manifest 解析并在内存派生 `ProjectManifest`（保留父包身份）|
+| `core/builder_publish.z42` | **desktop publish**：产 apphost + `[platform.desktop]` `bin`/`payload` 布局 + 依赖/native/payload 落位；launcher 转发 `z42 publish` 至此 |
+| `core/builder_publish_build.z42` | publish 前每次经 z42c 增量编一遍；`--no-build` 保留「就用现成字节」供 xtask 的 SDK 组装 / 自举不动点路径 |
+| `core/builder_publish_sidecar.z42` | publish 时把 `<name>.runtimeconfig.toml` 侧车随 zpkg 一起搬进部署布局 |
+| `core/builder_apphost.z42` | **apphost patcher 的唯一实现**（`_pubProduceApphost`）；xtask 打包经 `z42b publish` 复用。MAGIC 须与 Rust stub 同步 |
+| `core/builder_device{,_ios,_android}.z42` | 设备 RID 的 build + deploy + run 驱动（wasm / iOS 模拟器 / Android 模拟器），`xtask test platform` 委托于此 |
+| `core/builder_pins.z42` | 由 `scripts/versions.toml` 生成的平台版本常量（xtask 生成、不入库）|
+| `core/hooks/hooks.z42` | z42b 自身的 build hook：编译前把 `versions.toml` 常量渲染成 `builder_pins.z42` |
+| `tests/fixtures/` | harness 驱动的夹具工程（`manifest-targets/`、`z42b/`）|
 
 ## 依赖关系
 
@@ -76,11 +81,3 @@ xtask test stdlib       # z42b 作为 [Test] 运行器跑全部 stdlib 单元
 - 调用 `z42c`（编译）、各 workload（平台尾相位）；经 `extern` 调 VM native 原语
   （Sign / Archive / Hash / Download / ProbeVersion，住 `runtime`）。
 - 被 launcher 命令分发调用（见 [`docs/internals/src/toolchain/launcher.md`](../../../docs/internals/src/toolchain/launcher.md)）。
-
-## 状态
-
-🔴 **占位 / 未接编译**。当前仅目录骨架 + 本 README，**未登记 workspace / xtask / CI**，
-不影响任何现有构建。
-
-落地走 spec-first（架构性变更），设计文档 `docs/internals/src/toolchain/z42b.md`（待建）。
-推进计划见 `docs/roadmap.md`。

@@ -4,23 +4,22 @@
 
 z42 VM 内部模块的微基准。用 [criterion](https://bheisler.github.io/criterion.rs/) 框架，自动 warmup + 多次 iter + 统计中位数与 95% 置信区间。
 
-`cargo bench` 不会被 `cargo build` 或 `cargo test` 触发，仅在显式 `cargo bench` / `just bench-rust` 时编译。
+`cargo bench` 不会被 `cargo build` 或 `cargo test` 触发，仅在显式 `cargo bench` 时编译。
 
 ## 现有 bench 文件
 
-| 文件 | 内容 | 状态 |
-|------|------|------|
-| `smoke_bench.rs` | criterion 框架 sanity check（纯 Rust 基线） | ✅ P1.A |
-| `interp_bench.rs` | interp dispatch / call / 算术循环 | ⏳ P1.B/C |
-| `gc_bench.rs` | alloc / collect / write barrier | ⏳ P1.B/C |
-| `decoder_bench.rs` | .zbc 解码吞吐 | ⏳ P1.B/C |
+| 文件 | 内容 |
+|------|------|
+| `smoke_bench.rs` | criterion 框架 sanity check（纯 Rust 基线） |
+| `gc_cycle_bench.rs` | GC 环回收：`cycle_heavy_100`（大量小环）/ `shallow_tree_1k`（纯 mark）/ `large_array_10k`（大数组 mark） |
 
 ## 运行
 
 ```bash
-just bench-rust              # 跑全部 bench
-cargo bench --bench smoke_bench   # 跑单个 bench 文件
-cargo bench -- --quick       # 快速模式（每个 bench 总耗时上限缩短）
+cd src/runtime
+cargo bench                          # 跑全部 bench
+cargo bench --bench gc_cycle_bench   # 跑单个 bench 文件
+cargo bench -- --quick               # 快速模式（每个 bench 总耗时上限缩短）
 ```
 
 ## 结果位置
@@ -36,10 +35,10 @@ cargo bench -- --quick       # 快速模式（每个 bench 总耗时上限缩短
 - 同一 bench 文件内的 group 用 `criterion_group!` 聚合
 - 不在 bench 中跑 IO（避免抖动）；如需 .zbc 输入，用 `include_bytes!`
 
-## 与 baseline 的对比（P1.D 加）
+## 与 baseline 的对比
 
-P1.D 引入：
-- criterion 原生 `--save-baseline` / `--baseline`（同-runner 对照，见 `.github/workflows/bench-pr.yml` Part C）
-- `z42 xtask.zpkg bench --diff` 与 baseline diff
-- CI PR 阶段 quick 子集 + diff 性能门禁
+criterion 原生 `--save-baseline` / `--baseline` 做同 runner 对照（CI 见 `.github/workflows/bench-pr.yml`）；端到端场景与 baseline diff 用 `xtask bench --diff`（`xtask bench -h`）。
 
+## 待办
+- `interp` dispatch / call / 算术循环 bench
+- `.zbc` 解码吞吐 bench

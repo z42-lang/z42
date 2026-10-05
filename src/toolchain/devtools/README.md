@@ -4,15 +4,13 @@
 
 围绕**源码与开发体验**的工具集合，统一在单个 muxer apphost `z42d` 下：
 
-| 子命令 | 职责 | 状态 / roadmap |
-| `symbolicate` | 离线还原剥离档崩溃栈（`at <fn> +0x<off>` + `.zsym` → `file:line:col`）| ✅ 已实现 |
-| `install` | 把 SDK 自带的编辑器集成装进用户编辑器（`z42d install vscode`）| ✅ 已实现（unify-editor-install）|
-|--------|------|----------------|
-| `fmt`  | z42 源码格式化 | planned（0.2.4 → 0.4.x）|
-| `doc`  | doc comment → HTML/markdown 文档站点 | planned（0.4.6；收编原独立 `z42-doc`）|
-| `dbg`  | 调试器（断点 / 单步 / 变量）| planned（前端在本目录 + VM 断点/单步钩子住 `runtime/`，DAP 0.8.x）|
-| `prof` | 运行期 / 编译期性能剖析 | planned（0.4.4 Pv4/Pc4 profiling 门控）|
-| `lint` | 静态检查 | planned（0.7.x；收编原独立 `z42-lint`）|
+| 子命令 | 职责 |
+|--------|------|
+| `symbolicate` | 离线还原剥离档崩溃栈（`at <fn> +0x<off>` + `.zsym` → `file:line:col`）|
+| `install` | 把 SDK 自带的编辑器集成装进用户编辑器（`z42d install vscode`）|
+
+待办：`fmt`（源码格式化）、`doc`（doc comment → 文档站点）、`dbg`（调试器 / DAP）、`prof`（性能剖析）、
+`lint`（静态检查）五个子命令已登记命令面，运行时只打印 "planned" 并返回 1；时点见 `docs/roadmap.md`。
 
 形态对照 z42b（builder）：**一个 exe + 一个 Std.Cli 嵌套 router**，launcher 命令分发
 （`z42 fmt` → `z42d fmt`，同 `z42 test` → `z42b`）。
@@ -43,19 +41,7 @@ language-configuration，**无 `main`、无需编译**。
 （`*.tpl.json` 生成器模板**不进包**，由 `xtask test packages` 的 staging 自检守着）。
 grammar 防漂移 = `xtask test vscode-syntax`（GREEN gate）。
 
-**B 期 LSP**（诊断/跳转/语义着色）落地时：server = 本目录新增 `lsp` 子命令
-（调 z42c API，对照 `dbg`/DAP 的前端+协议模式），client = `vscode/` 扩展升级为 LSP 宿主。
-
-## 核心文件（`core/`，scaffold）
-
-| 文件 | 职责 |
-|------|------|
-| `core/devtools_cli.z42` | **CLI 路由**（对照 `builder_cli.z42`）：`Std.Cli` 嵌套 router 登记 symbolicate + fmt/doc/dbg/prof/lint（每层 `-h`）+ dispatch（symbolicate 已实现，其余 "planned"）|
-| `core/symbolicate.z42` | **离线符号化引擎**（add-offline-symbolication）：读崩溃栈 + `.zsym`（多目录递归）→ `SidecarReader` 建 frame-name→行表 索引 → `+0x<off>` 解包(block<<16\|instr) → `file:line:col` |
-| `core/z42.devtools.z42.toml` | 包清单（exe / pack / apphost；依赖 z42.core/io/cli/**ir**）|
-
-## 基础用法（symbolicate）
-
+## 基础用法
 release（剥符号）构建把行表剥到旁挂 `.zsym`；部署常不带 `.zsym`，故线上崩溃栈是
 `at <fn> +0x<off>`（无行号）。归档好 `.zsym` 后离线还原：
 
@@ -69,29 +55,28 @@ z42d symbolicate crash.txt --syms symdir/ --syms other.zsym # 多个（目录递
 缺符号保留原行 + stderr 警告（尽力而为，退出码 0）。机制见
 [`docs/internals/src/formats/zpkg.md`](../../../docs/internals/src/formats/zpkg.md)（`.zsym` MDBG within-minor 例外）。
 
-## 与现有规划的关系（待收敛 —— 规范冲突，已记录）
+## 如何测试验证
 
-> 当前 `docs/roadmap.md` 对这些工具有**三套并存且互相矛盾**的说法，需后续裁决统一：
->
-> 1. [roadmap.md:258](../../../docs/roadmap.md) —— `z42c` 编译器驱动**自身**计划托管 `fmt/doc/...`
-> 2. [roadmap.md:260-263](../../../docs/roadmap.md) —— 又规划**独立 binary** `z42-fmt`/`z42-lint`/`z42-doc`
-> 3. 本目录 —— 统一收进 muxer `z42d`
->
-> `fmt`/`doc` 同时出现在「z42c 动词集」与「独立 binary」两处。User 决策：
-> **先立 z42d 骨架，暂不动 z42c 规划**；三处收敛留待各工具真正实现期裁决（倾向：z42d 统一承接，
-> z42c 退为纯编译动词，launcher 转发）。届时同步改 roadmap 唯一真相。
+```bash
+xtask build toolchain       # 构建并 publish z42d
+xtask test vscode-syntax    # 编辑器 grammar 一致性
+```
+
+## 关联文档
+
+- 编辑器集成：[editor-integration.md](../../../docs/internals/src/toolchain/editor-integration.md)；`.zsym` 格式：[zpkg.md](../../../docs/internals/src/formats/zpkg.md)
+
+## 核心文件（`core/`）
+
+| 文件 | 职责 |
+|------|------|
+| `core/devtools_cli.z42` | **CLI 路由**（对照 `builder_cli.z42`）：`Std.Cli` 嵌套 router 登记全部子命令（每层 `-h`）+ dispatch |
+| `core/symbolicate.z42` | **离线符号化引擎**：读崩溃栈 + `.zsym`（多目录递归）→ `SidecarReader` 建 frame-name→行表 索引 → `+0x<off>` 解包(block<<16\|instr) → `file:line:col` |
+| `core/editor_install.z42` | `z42d install <target>`：把 `<sdk>/editors/vscode/` 拷到 `~/.vscode/extensions/z42.z42-lang/` |
+| `core/z42.devtools.z42.toml` | 包清单（exe / pack / apphost；依赖 z42.core/io/cli/**ir**）|
+| `vscode/` | VSCode 编辑器资产包（见其 README）|
 
 ## 依赖关系
 
-- 依赖 `z42.core` / `z42.io` / `z42.cli`（命令面）；各工具实现期再按需加（编译器 API / `z42.io` 文件等）。
-- 调用 `runtime/`（dbg/prof 的 VM 钩子）、`compiler/`（doc/lint/fmt 的语法·语义）。
+- 依赖 `z42.core` / `z42.io` / `z42.cli`（命令面）与 `z42.package`（`.zsym` 读取）。
 - 被 launcher 命令分发调用。
-
-## 状态
-
-🟡 **骨架占位，已打包**。命令面 + apphost bin/payload 均已就位，`z42.devtools.z42.toml`
-已登记进 [`scripts/packages.toml`](../../../scripts/packages.toml)（`[component.z42d]`，
-User 裁决），随 SDK 包一起发行——但每个子命令目前仍只打印 "planned" 并
-`return 1`，尚无一个真正实现。
-
-落地走 spec-first（架构性 + 多工具分期），各工具按 `docs/roadmap.md` 时点推进。

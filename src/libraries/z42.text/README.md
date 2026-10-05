@@ -13,13 +13,12 @@ z42 文本处理类型。**纯脚本实现** —— 严格遵循 [`src/libraries
 | `Levenshtein.z42`   | `Levenshtein` static class | 编辑距离 `Distance(a, b)` + 归一化相似度 `SimilarityRatio(a, b) ∈ [0,1]`（fuzzy search / 拼写纠错） |
 | `Strings.z42`       | `Strings` static class | 字符串 shaping helpers：`PadLeft / PadRight / Repeat / IndexOfAny / TrimChars` |
 
-> **Regex 在 [`z42.regex`](../z42.regex/)** —— 不在本包。
+> 正则在 [`z42.regex`](../z42.regex/)，不在本包。
 
 ## 实现备注
 
 `StringBuilder` 内部用 `string[]` 收集 Append 片段（按 2× 扩容），ToString 时
-经 `String.ConcatParts(parts, count)` 一次原生拼接（perf-stdlib-hot-paths；此前是逐字符
-`CharAt` 复制进 `char[]` 再 `FromChars`，每个输出字符一次 builtin 派发）。不用 `List<string>` 是因为
+经 `String.ConcatParts(parts, count)` 一次原生拼接。不用 `List<string>` 是因为
 parser 当前对字段声明的泛型实例化语法（`List<string> _parts;`）会误识别为
 method header；待后续 parser 修复后可以切换。
 
@@ -27,3 +26,12 @@ method header；待后续 parser 修复后可以切换。
 `Remove`/`Replace`）不能直接落在分段 buffer 上，故先 `ToString()` 收敛成单段字符串
 再 `_setSingle` 重置为一段，单次编辑 O(n)——契合 StringBuilder「大量 Append、偶发编辑」
 的使用画像。索引器 getter 走分段遍历（O(段数)），不做 collapse。
+
+## 如何测试验证
+
+```bash
+xtask test stdlib z42.text    # 本库全部 [Test]
+```
+
+## 依赖关系
+仅依赖 `z42.core`。

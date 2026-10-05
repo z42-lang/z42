@@ -84,9 +84,12 @@ z42/
 ├── src/
 │   ├── compiler/          # z42 self-hosting compiler (.z42 source → zpkg)
 │   ├── runtime/           # Rust VM (interp / JIT)
-│   ├── libraries/         # Standard library + compiler front-end libs (.z42 source)
+│   ├── libraries/         # Standard library (.z42 source)
+│   ├── tests/             # End-to-end golden tests
+│   ├── bench/             # Whole-program performance scenarios
 │   └── toolchain/         # Launcher (z42), builder (z42b), REPL, workloads, devtools
 ├── scripts/               # xtask dev CLI (build / test / package) + install primers
+├── .github/               # CI workflows and composite actions
 ├── docs/                  # learn/ + reference/ + internals/ books, book/ site root,
 │                          # roadmap.md, agent/ rules
 ├── examples/              # Companion projects for the learn book, run by `xtask test examples`

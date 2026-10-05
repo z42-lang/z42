@@ -4,7 +4,7 @@
 CLI argv 解析器 — flag / option / positional + auto `-h/--help` 文本生成。
 最小子集，参照 Python `argparse` / Rust `clap` / Go `flag`。
 
-**用途**：脚本类 z42 程序解析命令行参数。为 `scripts/*.sh → *.z42` 脚本提供 argv parser。
+**用途**：脚本类 z42 程序解析命令行参数。为 z42 脚本（含 `xtask`）提供 argv parser。
 
 ## 核心文件
 | 文件 | 职责 |
@@ -74,7 +74,7 @@ ParseResult r = res.Result();  // 叶子解析结果
 - `xtask build package -h` / `xtask build -h` / `xtask -h` 均归 `IsHelp()`，打印**对应层**帮助（叶子层走该 `ArgParser.HelpText()`）。
 - 任一 router 层未知 token → `IsUnknown()`，带该层帮助。
 - 叶子 option 级错误（未知 flag / 缺 value）仍抛 `CliException`，`Resolve` 不吞 —— 消费端 try/catch。
-- 单层场景仍可用 `Match` / `SubcommandMatch`（不变）。
+- 单层场景用 `Match` / `SubcommandMatch`。
 
 ## 支持的 argv 形式
 
@@ -105,11 +105,9 @@ ParseResult r = res.Result();  // 叶子解析结果
 
 ## 依赖关系
 依赖 `z42.core`（基础类型 + Exception）+ `z42.text`（StringBuilder 用于
-HelpText 拼接）。
+HelpText 拼接）+ `z42.io`（`AddOptionWithEnv` 读环境变量）。
 
 ## 进阶特性（完整 API 见 `docs/reference/src/stdlib/cli.md`）
-
-已支持：
 
 - subcommand 单层（`SubcommandRouter`）+ **嵌套**（`AddRouter`/`Resolve`）
 - required option（`AddRequiredOption` + `WasOptionSet`）
@@ -120,8 +118,14 @@ HelpText 拼接）。
 - short flag 串联（`-vxf`）
 - strict-vs-extras 透传（`AllowExtras` + `ParseResult.Extras()`）
 
-## 仍未支持（Deferred）
+## 待办
 
 - subcommand 别名（`co` = `commit`）
 - 跨子命令全局 flag
 - `-nvalue` 紧贴形式（易歧义）
+
+## 如何测试验证
+
+```bash
+xtask test stdlib z42.cli    # 本库全部 [Test]
+```

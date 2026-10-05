@@ -9,7 +9,7 @@
 | `mod.rs` | 公开 API（`JitModule::setup` 建基础设施不编译、`JitModule::run` 先编入口再执行、`jit::run` 入口）；委托 helper 注册到 `helpers::registry` |
 | `lazy.rs` | `LazyCompiler`：持 cranelift `JITModule` + helper ids；`setup`（建基础设施）+ `compile_one`（按需编译单函数）。Mutex 守护，`Z42_JIT_PROFILE` 逐函数打印 |
 | `frame.rs` | `JitFrame`（寄存器文件 + 变量槽）、`JitModuleCtx`（`OnceLock` 编译槽 + 字符串池 + 集中解析器 `resolve_fn_by_id`/`resolve_fn_by_name`，热路径零锁、首编串行化） |
-| `translate/` | z42 指令 → Cranelift IR（`translate_function` 取单 `FuncId`）；`HelperIds` 重导出自 `helpers`。按职责拆为 20 个子模块：`mod.rs`（驱动：函数序言 + 逐块循环 + `TxCtx` 构造 + 按类别分发）、`ctx.rs`（`TxCtx` 每块上下文 + 6 个前置局部宏转成的方法 `ri`/`str_val`/`regs_val`/`check`/`dispatch_to_catch_or_return`/`emit_int_divrem`）、`hoist.rs`（循环不变量提升）、指令 handler `value`/`arith`/`compare`/`convert`/`call`/`array`/`object`/`structs`/`term`（各 `impl TxCtx { fn tr_* }`）、Cranelift 发射 `emit_int`/`emit_fc`、谓词 `predicates`、分析 `analysis`、寄存器变量 `reg_var`、站点缓存 `ic`、控制流 `control`、不支持指令表 `unsupported`。语义锚：`emit_*` 以 `// SEMANTICS: semantics::<fn>` 引用 `crate::semantics`（H3） |
+| `translate/` | z42 指令 → Cranelift IR（`translate_function` 取单 `FuncId`）；`HelperIds` 重导出自 `helpers`。按职责拆为 20 个子模块：`mod.rs`（驱动：函数序言 + 逐块循环 + `TxCtx` 构造 + 按类别分发）、`ctx.rs`（`TxCtx` 每块上下文 + 6 个前置局部宏转成的方法 `ri`/`str_val`/`regs_val`/`check`/`dispatch_to_catch_or_return`/`emit_int_divrem`）、`hoist.rs`（循环不变量提升）、指令 handler `value`/`arith`/`compare`/`convert`/`call`/`array`/`object`/`structs`/`term`（各 `impl TxCtx { fn tr_* }`）、Cranelift 发射 `emit_int`/`emit_fc`、谓词 `predicates`、分析 `analysis`、寄存器变量 `reg_var`、站点缓存 `ic`、控制流 `control`、不支持指令表 `unsupported`。语义锚：`emit_*` 以 `// SEMANTICS: semantics::<fn>` 引用 `crate::semantics` |
 | `helpers/` | `extern "C"` helper 集合（按指令类别拆分；与 `interp/exec_*.rs` 命名对称）。查表统一经 `resolve_fn_*`（含惰性 hook） |
 
 ### `helpers/` 子目录
@@ -22,10 +22,11 @@
 | `control.rs` | `throw` / `install_catch` / `match_catch_type` |
 | `call.rs` | `jit_call`、`jit_builtin` |
 | `array.rs` | 数组分配、元素访问、长度 |
-| `object.rs` | 对象分配、字段访问、类型检查、静态字段、`default(T)` |
-| `vcall.rs` | 虚调用的 JIT **调用侧**：PIC 命中 → by-id tiered `FnEntry`；miss → `interp::vcall_resolve::resolve_vcall`（与 interp 共用的**唯一**目标解析：装箱基元 / 装箱 struct / primitive-as-struct / vtable·层级 walk + PIC 安装）→ 编译入口或 interp 回退（unify-vcall-resolution） |
+| `object.rs` | 对象分配、类型检查、静态字段、`default(T)` |
+| `vcall.rs` | 虚调用的 JIT **调用侧**：PIC 命中 → by-id tiered `FnEntry`；miss → `interp::vcall_resolve::resolve_vcall`（与 interp 共用的**唯一**目标解析：装箱基元 / 装箱 struct / primitive-as-struct / vtable·层级 walk + PIC 安装）→ 编译入口或 interp 回退 |
 | `closure.rs` | L3 闭包：`load_fn` / `mk_clos` / `call_indirect` / `load_fn_cached` |
-| `struct_ops.rs` | struct 值类型指令（`struct_alloc`/`copy`/`field_get_prim`/`field_set_prim`）——桥接到共享 `struct_arena`，复用 interp `exec_struct` 的 `*_val` 核心（add-struct-jit-value-path P5-A） |
+| `object_field.rs` | 字段访问 helper：提升出循环的无抛出 field-slot 解析（`jit_obj_field_slot` / `jit_obj_ref_field_slot`）及其回退的 `jit_field_get` / `jit_field_set` |
+| `struct_ops.rs` | struct 值类型指令（`struct_alloc`/`copy`/`field_get_prim`/`field_set_prim`）——桥接到共享 `struct_arena`，复用 interp `exec_struct` 的 `*_val` 核心 |
 
 ## 入口点
 - `jit::run(ctx, module, entry)` → 建基础设施（`JitModule::setup`）+ 执行入口
@@ -34,7 +35,7 @@
 
 ## 如何测试验证
 ```bash
-(cd src/runtime && cargo test --lib jit::lazy)   # 惰性编译单测（8 个）
+(cd src/runtime && cargo test --lib jit::lazy)   # 惰性编译单测
 ./xtask test e2e --mode jit                                         # golden 端到端（JIT，输出须与 interp 逐字节一致）
 Z42_JIT_PROFILE=1 <z42vm> <artifact> <entry> --mode jit             # 打印每个被惰性编译的函数（数十，非整套 stdlib）
 ```
@@ -50,5 +51,5 @@ Z42_JIT_PROFILE=1 <z42vm> <artifact> <entry> --mode jit             # 打印每�
 ## 依赖关系
 - 依赖 `corelib` 的 `exec_builtin` 和 `value_to_str`
 - 依赖 `metadata` 的 `Module`、`Function`、`Instruction`、`Value` 等类型
-- 依赖 `interp::vcall_resolve`（vcall 目标解析单一实现）+ `interp::primitive_class_name`（is/as 共享判定）+ `interp::dispatch::isa_td`（is / as / catch 类型判定单一实现，含 `IsaCache`；helpers/object.rs 与 control.rs 共享，JIT 不再自带基链遍历——perf-vm-isa-cache）
+- 依赖 `interp::vcall_resolve`（vcall 目标解析单一实现）+ `interp::primitive_class_name`（is/as 共享判定）+ `interp::dispatch::isa_td`（is / as / catch 类型判定单一实现，含 `IsaCache`；helpers/object.rs 与 control.rs 共享，JIT 不自带基链遍历）
 - 外部依赖：`cranelift-codegen`、`cranelift-frontend`、`cranelift-jit`、`cranelift-module`

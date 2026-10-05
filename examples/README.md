@@ -1,6 +1,6 @@
 # examples — 《z42 学习手册》配套示例
 
-这里的每个目录对应[学习手册](https://z42-lang.github.io/z42/learn/)的一章，里面是书中用到的完整代码，可以直接运行：
+这里的每个章节目录对应[学习手册](https://z42-lang.github.io/z42/learn/)的一章，里面是书中用到的完整代码，可以直接运行：
 
 ```sh
 cd examples/getting-started/hello-world/greet
@@ -9,8 +9,10 @@ z42 run greet.z42 -- 小明
 
 | 目录 | 章节 |
 |------|------|
-| [`getting-started/hello-world/`](getting-started/hello-world/) | [Hello, World](../docs/learn/src/getting-started/hello-world.md) |
-| [`getting-started/projects/`](getting-started/projects/) | [工程与构建](../docs/learn/src/getting-started/projects.md) |
+| `getting-started/` | [入门](../docs/learn/src/getting-started/)：`hello-world/`、`projects/`、`tooling/` |
+| `basics/` | [基础](../docs/learn/src/basics/)：`variables` / `operators` / `strings` / `control-flow` / `functions` / `collections` / `tuples` |
+| `types/` | [类型](../docs/learn/src/types/)：`classes` / `structs-records` / `inheritance` / `interfaces` / `generics` / `lambdas` / `exceptions` / `patterns` / `attributes-reflection` / `organization` |
+| `stdlib/` | [标准库](../docs/learn/src/stdlib/)：`data-formats` / `files` |
 
 ## 给贡献者
 

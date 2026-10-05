@@ -1,112 +1,70 @@
-# Z42VM — iOS facade
+# workload/ios — Z42VM iOS facade
 
-> 🟢 已落地。
->
-> 跨平台契约：[`../README.md`](../README.md)
-> 实现原理：[`docs/internals/src/runtime/embedding.md`](../../../../docs/internals/src/runtime/embedding.md)
-> 构建工作流：[`docs/internals/src/devinfra/build-platforms.md`](../../../../docs/internals/src/devinfra/build-platforms.md)
+## 职责
 
-把 z42 VM 编进 SwiftPM 包 + xcframework，让 Swift / SwiftUI iOS app 一行 `import Z42VM` 跑 `.zbc`。
+把 z42 VM 编进 SwiftPM 包 + xcframework（`import Z42VM`），Swift / SwiftUI iOS app 跑 `.zbc`；
+并含 iOS 平台 workload 的 appbuilder（`export`）与 R1–R7 嵌入契约测试。仅 interp（App Store 禁动态代码生成）。
+不做：编译 `.z42`（host 端 z42c 预编）。
 
-## Quick Start
+## 功能索引
 
-```bash
-# 1. 一次性 toolchain
-rustup target add aarch64-apple-ios aarch64-apple-ios-sim aarch64-apple-darwin
+| 功能 | 入口 / 文件 |
+|------|-----------|
+| Swift 公开 API（`Z42VM` / `Z42VMModule` / `Z42VMEntry` / `Z42VMValue` / `Z42VMError`） | `platform/Sources/Z42VM/` |
+| zpkg 解析（`BundleZpkgResolver` / `MapZpkgResolver`） | `platform/Sources/Z42VM/ZpkgResolver.swift` |
+| C 桥头（`z42_host.h`） | `platform/Sources/Z42VMC/` |
+| Rust staticlib（`z42_host_*` 再导出） | `platform/rust/` |
+| 发布 / 导出管线（`: WorkloadBase`） | `appbuilder/iOSWorkload.z42`、`appbuilder/export.z42` |
+| 设备侧测试宿主 | `Z42TestHost.swift`；XCTest 在 `platform/Tests/Z42VMTests/` |
 
-# 2. 编 compiler + stdlib
-./xtask build stdlib
+## 基础用法
 
-# 3. 编 iOS facade（含 macOS arm64 slice）+ test 资产
-./xtask test platform ios build
-./xtask test platform ios assets
+```swift
+import Z42VM
+
+let vm = try Z42VM(zpkgResolver: BundleZpkgResolver(),
+                   stdoutHandler: { bytes in textArea.append(String(decoding: bytes, as: UTF8.self)) })
+let module = try vm.loadZbc(Data(contentsOf: zbcURL))
+let entry  = try vm.resolveEntry(module, fqn: "App.Main")
+_ = try vm.invoke(entry)
 ```
 
-产物（都在宿主工程副本 `artifacts/build/toolchain/workload/ios/tests/host/` 里，不写本目录；xtask / z42b 在副本里跑 `xcodebuild`）：`Z42VM.xcframework/` (ios-arm64 + ios-arm64_x86_64-simulator + macos-arm64) + `Resources/stdlib/*.zpkg`（无 index——`BundleZpkgResolver` 读各 zpkg 的 NSPC）。详见 [`docs/internals/src/devinfra/build-platforms.md`](../../../../docs/internals/src/devinfra/build-platforms.md)。
+构建：
 
-## Run tests
+```bash
+rustup target add aarch64-apple-ios aarch64-apple-ios-sim aarch64-apple-darwin
+./xtask build stdlib
+./xtask test platform ios build          # xcframework（ios-arm64 + simulator + macos-arm64 slice）
+./xtask test platform ios assets         # fixtures + stdlib
+```
 
-`test platform ios` 全流程：build xcframework + 编 fixture 进 `Tests/Z42VMTests/Resources/` + 在 **iOS Simulator** 上 `xcodebuild test` 跑 7 个 XCTest（R1–R7），产 `artifacts/reports/tests/ios/junit.xml`：
+产物在宿主工程副本 `artifacts/build/toolchain/workload/ios/tests/host/`（不写本目录）：
+`Z42VM.xcframework/`、`Resources/stdlib/*.zpkg`。
+
+限制：仅 interp；单实例；同步 invoke；marshal 仅 null + `i64` / `f64` / `bool`。
+
+## 如何测试验证
 
 ```bash
 ./xtask test platform ios
 ```
 
-测试覆盖 R1–R7 facade 契约（smoke / 错误码映射 / resolver / lifecycle / 多行 stdout）。
+build xcframework + 编 fixture + 在 iOS Simulator 上 `xcodebuild test` 跑 R1–R7（7 个 XCTest），
+JUnit → `artifacts/reports/tests/ios/junit.xml`。
 
-## API 速记
+## 关联文档
 
-```swift
-import Z42VM
+- 跨平台契约：[`../platform-contract.md`](../platform-contract.md)（含错误码映射）
+- 嵌入机制：[embedding.md](../../../../docs/internals/src/runtime/embedding.md)
+- 构建与故障排查：[build-platforms.md](../../../../docs/internals/src/devinfra/build-platforms.md)
 
-let vm = try Z42VM(
-    zpkgResolver: BundleZpkgResolver(),
-    stdoutHandler: { bytes in
-        textArea.append(String(decoding: bytes, as: UTF8.self))
-    }
-)
-let module = try vm.loadZbc(Data(contentsOf: zbcURL))
-let entry  = try vm.resolveEntry(module, fqn: "App.Main")
-_ = try vm.invoke(entry)
-// vm.deinit 自动调 z42_host_shutdown
-```
+## 核心文件
 
-### `Z42VM.init(zpkgResolver:stdoutHandler:stderrHandler:)`
-
-- `zpkgResolver: ZpkgResolver` — 默认 `BundleZpkgResolver()`（读 `Bundle.main/stdlib/<ns>.zpkg`）
-- `stdoutHandler / stderrHandler: ((Data) -> Void)?` — 每条 z42 输出触发一次，UTF-8 字节
-
-### `Z42VMValue`
-
-```swift
-public enum Z42VMValue: Equatable {
-    case null
-    case i64(Int64)
-    case f64(Double)
-    case bool(Bool)
-}
-```
-
-v0.1 marshal 仅支持 null + 三种原语；string / object / Array 推迟到后续 spec（[`embedding.md §12 Deferred`](../../../../docs/internals/src/runtime/embedding.md)）。
-
-### `Z42VMError`
-
-`enum` 含 10 个 case 对应 `Z42HostStatus`：`alreadyInit` / `notInit` / `badConfig` / `featureOff` / `badZbc` / `verification` / `entryNotFound` / `argMismatch` / `vmException` / `internal`。每个携带 message + 数值 `status: Int32`。
-
-### `ZpkgResolver` 协议
-
-```swift
-public protocol ZpkgResolver {
-    func resolve(namespace: String) -> Data?
-}
-```
-
-内置实现：
-
-- `BundleZpkgResolver(bundle:subdirectory:)` —— 默认从 `Bundle.main/stdlib/<ns>.zpkg` 加载
-- `MapZpkgResolver([:])` —— `[String: Data]` 测试用 / 自定义来源
-
-## 限制（v0.1）
-
-- **仅 interp 模式**：App Store 政策禁动态代码生成；JIT 不可用，AOT 占位
-- **native interop**：`ios` feature preset 含 `native-interop`（libffi 5.1 / libffi-sys 4.1 的 bundled 汇编，libffi 3.4.7）
-- **单实例**：与其他平台一致；一个进程一个 `Z42VM`
-- **同步 invoke**：长任务阻塞调用线程；UI 上请用 `DispatchQueue.global().async`
-- **Demo / CI**：暂无；XCTest 跑 `swift test` 即可
-
-## 错误码映射
-
-详见 [`platforms/README.md`](../README.md) §错误码映射表。
-
-## 故障排查
-
-| 现象 | 处理 |
+| 路径 | 职责 |
 |------|------|
-| `linker not found for aarch64-apple-ios` | `rustup target add aarch64-apple-ios` |
-| `Z42VMError(20): function ... not found` | `.zbc` 与 stdlib 的命名空间不一致；检查 FQN 拼写 |
-| `dyld: Library not loaded` | xcframework slice 选错；真机 vs simulator |
-| stdoutHandler 没触发 | z42 代码用了非 corelib I/O；或 sink 在异步线程被 race；切回同一线程 retry |
-
-## 跨平台契约
-
-类名、API 形态、错误码与 [`platforms/README.md`](../README.md) 一致。同一份 `.zbc` 在 iOS / Android / WASM 三平台行为应等价（marshal 类型限制相同）。
+| `appbuilder/` | workload handler + export |
+| `template/` | `export` 渲染进用户工程的脚手架 |
+| `platform/Package.swift` | SwiftPM 清单 |
+| `platform/Sources/` | Swift facade + C 桥 |
+| `platform/rust/` | staticlib crate |
+| `platform/Tests/` | XCTest（R1–R7 + 嵌入语料） |

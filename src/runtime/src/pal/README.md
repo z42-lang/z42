@@ -6,18 +6,17 @@
 runtime 其余模块**零 cfg 调用** OS 服务。每个 concern 一个文件，公开 surface
 返回 OS-neutral 类型。
 
-完整设计与迁移路径见 [`docs/internals/src/runtime/pal.md`](../../../../docs/internals/src/runtime/pal.md)。
+完整设计见 [`docs/internals/src/runtime/pal.md`](../../../../docs/internals/src/runtime/pal.md)。
 
 ## 核心文件
 
 | 文件 | 职责 |
 |------|------|
-| `system.rs` | `hostname()` / `os_version()` —— Phase 1 |
-| `fs.rs` | `make_executable()` / `symlink()` —— Phase 2 |
-| `signal.rs` (unix) | fatal-signal 注册 + `sigsafe` async-signal-safe write + `signal_name` + reset/reraise —— Phase 3（z42 崩溃 reporter 在 `signal_handler.rs`，调本模块）|
+| `system.rs` | `hostname()` / `os_version()` |
+| `fs.rs` | `make_executable()` / `symlink()` |
+| `signal.rs` (unix) | fatal-signal 注册 + `sigsafe` async-signal-safe write + `signal_name` + reset/reraise（z42 崩溃 reporter 在 `signal_handler.rs`，调本模块）|
 
-未来：`thread.rs` (Phase 4，consumer-gated：随多线程 runtime 落地) /
-`mem.rs` (Phase 5，consumer-gated：随 GC bump allocator 落地)。
+测试：各文件配套 `*_tests.rs`。
 
 ## 入口点
 
@@ -36,7 +35,16 @@ runtime 其余模块**零 cfg 调用** OS 服务。每个 concern 一个文件�
 3. **graceful degrade**：未实现的平台返回 None / 空字符串而非 panic
 4. **错误也 OS-neutral**：用 `Option<T>` / `Result<T, E>` 抽象，不暴露 errno
 
+## 如何测试验证
+
+```bash
+(cd src/runtime && cargo test --lib pal)
+```
+
 ## 依赖关系
 
 依赖 `libc` (unix-only)。其他 cargo feature 见
 `docs/internals/src/runtime/pal.md` "platform feature gates" 节。
+
+## 待办
+- `thread.rs`（随多线程 runtime 落地，按 consumer 驱动）/ `mem.rs`（随 GC bump allocator 落地）

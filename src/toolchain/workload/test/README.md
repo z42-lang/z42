@@ -18,7 +18,7 @@
 | test-agent（命令 → 跑测试 → 结构化报告） | `agent/src/agent.z42` 的 `Z42.TestHost.Agent.Main` |
 | agent 工程（app.zpkg） | `agent/z42.testagent.z42.toml` |
 | 单模块执行逻辑（发现/执行/报告） | `Std.Test.Runner.RunModule`（`src/libraries/z42.test`）|
-| **bundle 执行逻辑（golden 隔离 + unit 共享 + 聚合）** | `Std.Test.BundleRunner.RunBundle`（`src/libraries/z42.test`）——**agent 与 z42b 共用一份核**（wire-z42b-embedded-test ②b） |
+| **bundle 执行逻辑（golden 隔离 + unit 共享 + 聚合）** | `Std.Test.BundleRunner.RunBundle`（`src/libraries/z42.test`）——**agent 与 z42b 共用一份核** |
 | 嵌入入口（load app.zpkg + 跑） | `z42-host::run_app` → `z42::app::run`（`src/runtime`） |
 
 ## 基础用法
@@ -46,7 +46,7 @@ agent 通过转发的 `-- <args>` 收一条一次性命令，签名（`agent/src
   `format` 渲染。给了 `out-path` 时改走 `RunModuleResults` → 聚合 JSON → 写文件。
 - **测试包**（以 `.json` 结尾的 manifest `{cases:[…]}`）——聚合成**一份**报告。agent 把 manifest 解析成
   `BundleCase[]` 后交 **`Std.Test.BundleRunner.RunBundle`** 执行（**host 上 z42b 直接调同一函数**，无需
-  agent/testhost 进程——wire-z42b-embedded-test ②b）。用例分两类：
+  agent/testhost 进程）。用例分两类：
   - `golden` = `{name, zbc, entry, expected}`：整个程序，在**全新隔离 VM**（`RunGoldensIsolated`，
     每例独立 `VmContext` 不串味）跑，比对 stdout 与 `expected` 文件。
   - `unit` = `{name, zbc}`：`[Test]` 模块，共享 VM 跑（命名空间隔离，天然无冲突）。
@@ -65,7 +65,7 @@ z42vm z42.testagent.zpkg -- bundle-manifest.json pretty            # 测试包�
 ```bash
 xtask test embedded        # host: xtask 组 bundle → 委托 z42b test --rid host（in-process）
 xtask test embedded --rid android-x64  # device: xtask 组 bundle → z42b 组装 {app,libs,bundle} deployable
-xtask test platform desktop # 老 IPlatformBackend 原生 R1–R7 嵌入契约（与 test-agent 语料路径无关）
+xtask test platform desktop # 原生 R1–R7 嵌入契约（与 test-agent 语料路径无关）
 ```
 
 ## 打包发布（payload-only workload）
@@ -81,17 +81,14 @@ z42 workload install test                 # 用户按需下载安装（release-i
 manifest 复用 `kind="workload-tooling"`（`host=["*"]`、无 runtime pack），单 zpkg 由新
 `[contents.payload]` 段描述（install 侧 `runtimes=[]` → 天然跳过 bedding，同 desktop）。CI（release /
 publish-nightly）在 macos-arm64 单 host 建一次 + 归档 `z42-workload-<label>-test.tar.gz` + 纳入
-`package index`。见 change `package-test-workload`。
+`package index`。
 
 ## 关联文档
 
 - 设计/机制：[test-pipeline](../../../../docs/internals/src/devinfra/test-pipeline.md)（两层模型：z42b 单-bundle
-  执行器 + xtask fleet 编排器 + BundleRunner 缝，SoT）；旧
+  执行器 + xtask fleet 编排器 + BundleRunner 缝，SoT）；另见
   [embedded-app-run](../../../../docs/internals/src/testing/embedded-app-run.md)、
-  [cross-platform-testing](../../../../docs/internals/src/testing/cross-platform.md)（迁移中）
-- 引入/演进：change `unify-test-pipeline-z42b`（阶段①归位）+ `wire-z42b-embedded-test`（②b：z42b 接管
-  host bundle 执行 + 设备语料组装）+ `package-test-workload`（payload-only 打包发布 + `workload install`
-  描述泛化为「平台 tooling 或能力」）
+  [cross-platform-testing](../../../../docs/internals/src/testing/cross-platform.md)
 
 ## 核心文件
 

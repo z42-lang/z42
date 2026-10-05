@@ -2,76 +2,73 @@
 
 ## 职责
 
-z42 标准库的加密算法子模块。**纯脚本实现** —— 不依赖 OpenSSL / libcrypto，
-所有算法用 z42 源码 + `long` (i64) 算术实现，便于审计 + 多平台 (包括 wasm)。
-本包**不**做需要 OS 熵源的 CSPRNG（见 Deferred 段）。
+z42 标准库的加密算法包：摘要 / MAC / 密钥派生 / 对称加密与 AEAD / 公钥签名与密钥交换。
+**算法纯脚本实现**（z42 源码 + `long` 算术，不依赖 OpenSSL / libcrypto，便于审计与多平台含 wasm）；
+唯一的 native 入口是 `SecureRandom`（OS 熵源，经 `z42.core` 的 `Entropy` 声明点）。
+只提供一次性 `byte[]` 进 / `byte[]` 出的原语，不含流式接口、密钥格式解析、证书 / TLS 封装。
 
-设计参考：详见 [`docs/reference/src/stdlib/crypto.md`](../../../docs/reference/src/stdlib/crypto.md)。
+API 参考：[`docs/reference/src/stdlib/crypto.md`](../../../docs/reference/src/stdlib/crypto.md)。
 
-## src/ 核心文件
+## 功能索引
 
-| 文件 | 类型 | 说明 |
+按能力分组，全部是 `Std.Crypto` 下的 `static class`（RSA 另有两个密钥类）。
+
+| 能力 | 入口 / 文件 |
+|------|-----------|
+| 摘要 | `Sha1.z42`（legacy）/ `Sha256.z42` / `Sha384.z42` / `Sha512.z42` / `Sha3.z42` / `Md5.z42`（legacy）/ `Blake2b.z42` / `Blake2s.z42` / `Blake3.z42` |
+| MAC | `Hmac.z42`（`HmacSha256` / `HmacSha1` / `HmacSha512` 等）/ `Poly1305.z42` |
+| 密钥派生 | `Pbkdf2.z42`（HMAC-SHA-256）/ `Hkdf.z42`（`HkdfSha256` / `HkdfSha512` / `HkdfSha1`）/ `Scrypt.z42` |
+| 对称加密 / AEAD | `Aes.z42` / `ChaCha20.z42` / `ChaCha20Poly1305.z42` |
+| 签名 / 密钥交换 | `Ed25519.z42` / `X25519.z42` / `EcdsaP256.z42` / `EcdsaSecp256k1.z42` / `Rsa.z42`（`Rsa` + `RsaPublicKey` / `RsaPrivateKey`） |
+| 随机 / 常数时间比较 | `SecureRandom.z42`（CSPRNG）/ `ConstantTime.z42`（`Equals(byte[], byte[])`，防 MAC 时序侧信道） |
+
+## 基础用法
+
+```z42
+using Std.Crypto;
+
+byte[] digest = Sha256.Hash(data);                 // 原始 32 字节 digest
+string hex    = Sha256.HashStringHex("abc");       // UTF-8 + Hash + lowercase hex
+byte[] mac    = HmacSha256.Compute(key, message);
+```
+
+**命名约定**：不同参数形态用不同方法名（`Hash` / `HashString` / `HashHex` / `HashStringHex`，
+`Compute` / `ComputeString` / `ComputeHex` / `ComputeStringHex`），而非按参数类型重载
+（`byte[]` vs `string` 的重载解析有歧义，见 `crypto.md`）。
+
+## 如何测试验证
+
+```bash
+xtask test stdlib z42.crypto    # 本库全部 [Test]：每个算法一个 *_vectors.z42，对照 NIST / RFC 官方向量
+```
+
+`tests/secp256k1/` 是目录单元（`source.z42` + `vectors.z42` 共享 namespace，须一起编）。全部通过即可。
+
+## 关联文档
+- API 参考与「不支持」清单：[`docs/reference/src/stdlib/crypto.md`](../../../docs/reference/src/stdlib/crypto.md)
+
+## 核心文件
+
+| 文件 | 类型 | 职责 |
 |------|------|------|
-| `Sha256.z42` | `static class Sha256` | SHA-256 hash（FIPS 180-4）— 4 个 entry point |
-| `Sha1.z42` | `static class Sha1` | SHA-1 hash（FIPS 180-4）— legacy/compat only (SHAttered); use SHA-256 for new designs |
-| `Hmac.z42` | `static class HmacSha256` / `HmacSha1` | HMAC-SHA-256 + HMAC-SHA-1（RFC 2104） |
-| `Pbkdf2.z42` | `static class Pbkdf2` | PBKDF2-HMAC-SHA256 KDF（RFC 8018 §5.2）— 密码哈希 / 派生密钥 |
-| `ConstantTime.z42` | `static class ConstantTime` | 常数时间 `Equals(byte[],byte[])` — 校验 MAC / auth token 防时序侧信道 |
-
-## 入口点
-
-### `Std.Crypto.Sha256`
-
-```z42
-Sha256.Hash(byte[] data) -> byte[32]               // 原始 digest
-Sha256.HashString(string s) -> byte[32]            // UTF-8 + Hash
-Sha256.HashHex(byte[] data) -> string              // lowercase hex
-Sha256.HashStringHex(string s) -> string           // UTF-8 + Hash + hex
-```
-
-### `Std.Crypto.HmacSha256`
-
-```z42
-HmacSha256.Compute(byte[] key, byte[] message) -> byte[32]
-HmacSha256.ComputeString(string key, string message) -> byte[32]
-HmacSha256.ComputeHex(byte[] key, byte[] message) -> string
-HmacSha256.ComputeStringHex(string key, string message) -> string
-```
-
-**命名约定**：mirror `Sha256` — distinct method name per parameter form
-而非 overload-by-arg-type（z42 当前 overload 解析对 `byte[]` vs `string`
-有歧义，见 [`crypto.md`](../../../docs/reference/src/stdlib/crypto.md)）。
+| `Sha256.z42` / `Sha384.z42` / `Sha512.z42` | `static class` | SHA-2 家族（FIPS 180-4） |
+| `Sha1.z42` / `Md5.z42` | `static class` | legacy / 兼容用途，新设计用 SHA-256 |
+| `Sha3.z42` / `Blake2b.z42` / `Blake2s.z42` / `Blake3.z42` | `static class` | SHA-3（FIPS 202）与 BLAKE 系列 |
+| `Hmac.z42` | `static class HmacSha*` | HMAC（RFC 2104） |
+| `Poly1305.z42` | `static class` | 一次性 MAC（RFC 8439） |
+| `Pbkdf2.z42` / `Hkdf.z42` / `Scrypt.z42` | `static class` | 口令哈希 / 密钥派生 |
+| `Aes.z42` / `ChaCha20.z42` / `ChaCha20Poly1305.z42` | `static class` | 对称加密 + AEAD |
+| `Ed25519.z42` / `X25519.z42` / `EcdsaP256.z42` / `EcdsaSecp256k1.z42` / `Rsa.z42` | `static class`（+ `RsaPublicKey` / `RsaPrivateKey`） | 公钥原语（基于 `z42.numerics` 的 `BigInt`） |
+| `SecureRandom.z42` | `static class` | OS 熵源 CSPRNG；wasm32 上抛 `NotSupportedException` |
+| `ConstantTime.z42` | `static class` | 常数时间字节比较 |
 
 ## 依赖关系
 
-- **`z42.core`** — `byte[]` / `string` primitives + `Std.Encoding.Utf8` for string→bytes
-- **`z42.encoding`** — `Hex.Encode` for `*Hex` 变体
+- `z42.core`：`byte[]` / `string` 基元
+- `z42.encoding`：`*Hex` 变体用 `Hex.Encode`；字符串入口用 `Utf8`
+- `z42.numerics`：`BigInt`，供 Ed25519 / ECDSA / RSA / X25519 / Poly1305
 
-无 native 依赖；纯 z42 脚本算术 + builtin `__str_*` UTF-8 helpers。
-
-## Deferred / Future Work
-
-详见 [`docs/reference/src/stdlib/crypto.md`](../../../docs/reference/src/stdlib/crypto.md)「不支持」节。
-摘要：
-
-- **CSPRNG** (`Std.Crypto.Random`) — 阻塞于 z42.os / z42.io.fs syscall 抽象层
-- **AES / ChaCha20** symmetric ciphers — 阻塞于 BigInt 性能 + IV 管理设计
-- **RSA / ECDSA** asymmetric — 阻塞于 `z42.math.BigInteger`
-- **X.509 / TLS** — 阻塞于上述全部 + ASN.1 parser
-
-注：HMAC-SHA-384 / SHA-512 等 SHA 家族其他变体 v0 不做；后续作为 sibling
-类（`HmacSha384` / `HmacSha512`）落地，不破 API。
-
-## 测试
-
-`tests/`：2 个 `.z42` 测试文件 ——
-
-- `sha256_vectors.z42` — NIST FIPS 180-2 Appendix B 全部向量（"" / "abc" /
-  56-char two-block / 1000×"a" 多块 / 单字符）+ 32-byte digest length
-- `hmac_sha256_vectors.z42` — RFC 4231 §4.2-4.4 / §4.5 / §4.7 / §4.8 全部向量
-
-运行：
-
-```bash
-z42 xtask.zpkg test lib         # 完整 stdlib 测试套
-```
+## 待办
+- Argon2 / bcrypt 口令哈希
+- 流式 / 增量接口；DER / PEM / JWK 密钥格式；RSA 密钥生成
+- 完整「不支持」清单见 `crypto.md`

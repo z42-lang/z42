@@ -2,81 +2,85 @@
 
 ## 职责
 
-执行 z42 编译产物（`.zbc`/`.zpkg`）。当前实现解释器（interp）；JIT 和 AOT 为桩，待 interp 全绿后填充。
+执行 z42 编译产物（`.zbc` / `.zpkg`）。后端：解释器（interp）+ Cranelift JIT（desktop 默认，惰性逐函数编译）；AOT 为桩。
+不含编译器（在 `src/compiler/`）与标准库（在 `src/libraries/`）。
 
 ## 目录结构与核心文件
 
-### 顶层
+### 顶层（`src/`）
 | 文件 | 职责 |
 |------|------|
-| `src/main.rs` | CLI 入口，加载产物并交给 `Vm` 执行 |
-| `src/vm.rs` | `Vm` 结构体：持有 `Module`，按 `ExecMode` 分发到 interp/jit/aot |
-| `src/app.rs` | `app::run`：加载 `.zbc`/`.zpkg` + 合并依赖 + 执行入口（z42vm / `z42_run_app` / wasm `runTestApp` 共用）|
-| `src/boot.rs` | 合并后的启动步骤（`boot_context` / `prepare_execution`），`app::run` 与宿主 API（`host/ops.rs`）共用，防两条路径分叉（fix-host-static-init）|
-| `src/lib.rs` | 库入口，re-export 公开 API |
-| `src/config.rs` + `src/config/` | `RuntimeConfig`（每个 `Z42_*` 旋钮的单一登记处；refactor-split-config 后：hub 留本体 / Default / from_env / toml 加载 / 全局单例，`config/knobs.rs` 旋钮表 `KNOWN_KNOBS`，`config/parse.rs` 各 `parse_*`；单测在 `config_tests.rs`）|
-| `src/aot.rs` | AOT 后端桩（未实现） |
+| `main.rs` | `z42vm` CLI 入口，加载产物并交给 `Vm` 执行 |
+| `startup.rs` | `z42vm` 启动期辅助：stdlib 定位、tracing 初始化、panic hook、构建信息打印、模块搜索路径解析 |
+| `vm.rs` | `Vm`：持有 `Module`，按 `ExecMode` 分发到 interp / jit / aot |
+| `app.rs` | `app::run`：加载 `.zbc`/`.zpkg` + 合并依赖 + 执行入口（z42vm / `z42_run_app` / wasm `runTestApp` 共用）|
+| `boot.rs` | 合并后的启动步骤（`boot_context` / `prepare_execution`），`app::run` 与宿主 API（`host/ops.rs`）共用，防两条路径分叉 |
+| `probing.rs` | zpkg 依赖的额外搜索目录展开（`Z42_PROBING_PATHS` / `[runtime] probing-paths`） |
+| `lib.rs` | 库入口，re-export 公开 API |
+| `config.rs` + `config/` | `RuntimeConfig`（每个 `Z42_*` 旋钮的单一登记处）：`config.rs` 为 hub（Default / from_env / toml 加载 / 全局单例）；`config/knob_table.rs` 的 `KNOWN_KNOBS` 旋钮表、`knobs.rs`、`parse.rs`（各 `parse_*`）、`resolve.rs`（四层输入 + 默认的分层解析与 provenance）、`source.rs`（`Z42_CONFIG` / `Z42_APP_CONFIG` 文件层）、`cli.rs`（`--set key=value`）、`availability.rs`（旋钮可用性）、`render.rs`（`--info` / `--list-knobs` / `--show-config` 渲染）；单测在 `config_tests.rs` |
+| `semantics.rs` | 语言标量语义（算术 / 比较 / 数值转换）的单一真相源，interp / JIT / 常量折叠共同引用 |
+| `counters.rs` | `RuntimeCounters`：VM 可观测性原子计数器 |
+| `observer.rs` | `RuntimeObserver`：非 GC 运行时事件的 push 流（与 `gc::GcObserver` 对称） |
+| `signal_handler.rs` | 硬崩溃时捕获 z42 调用栈的 OS 信号 handler（调 `pal::signal`） |
+| `aot.rs` | AOT 后端桩（未实现） |
+
+### 子模块
+| 目录 | 职责 |
+|------|------|
+| `src/metadata/` | IR 元数据与加载层（见下） |
+| `src/interp/` | 字节码解释器，见 [`src/interp/README.md`](src/interp/README.md) |
+| `src/jit/` | Cranelift JIT 后端，见 [`src/jit/README.md`](src/jit/README.md) |
+| `src/corelib/` | 内置函数（builtin）实现，统一入口 `exec_builtin_by_id` 供 interp / JIT 调用，见 [`src/corelib/README.md`](src/corelib/README.md) |
+| `src/gc/` | GC 子系统（`trait MagrGC` + 分代 / STW / 并发 / 增量 major），见 [`src/gc/README.md`](src/gc/README.md) |
+| `src/vm_context/` | `VmContext`：单个 VM 实例所有可变状态的唯一持有者（静态字段、type / 方法解析缓存、isa cache、cctor、资源登记、native 句柄表） |
+| `src/native/` | Tier 1 C ABI 运行时 + stdlib native 扩展加载，见 [`src/native/README.md`](src/native/README.md) |
+| `src/host/` | 嵌入 / 宿主 API（`z42_host.h` 的 Tier 1 C ABI 实现），见 [embedding.md](../../docs/internals/src/runtime/embedding.md) |
+| `src/pal/` | 平台抽象层（OS 相关 `#[cfg]` 分支集中处），见 [`src/pal/README.md`](src/pal/README.md) |
+| `src/exception/` | 异常对象布局、传播模型与栈迹捕获 |
+| `src/thread/` | 线程支持（占位，无公开 API；线程原语在 `corelib/threading.rs` / `monitor.rs`） |
 
 ### src/metadata/ — IR 元数据与加载层
 | 文件 | 职责 |
 |------|------|
-| `types.rs` + `types/` | 运行时值类型与对象模型（refactor-split-metadata-types 后按职责分 9 个子模块，hub 全量 `pub use` 路径不变）：`field`（FieldSlot / TAG_*）、`type_desc`（TypeDesc / Cold）、`layout` / `codec`（字节布局与编解码）、`object`（ScriptObject / NativeData）、`array` / `array_access`（ArrayObj）、`value` / `value_aux`（Value / ExecMode / Closure 数据）|
-| `bytecode.rs` + `bytecode/` | zbc IR 数据结构（refactor-split-bytecode 后按职责分子模块，hub 全量 `pub use` 路径不变）：`module`（Module）、`class`（ClassDesc / FieldDesc / 布局描述 / 约束束 / CLASS_FLAG_*）、`function`（Function / FunctionCold / BasicBlock / 异常表）、`insn`（*Insn 指令载荷）、`instruction`（Instruction / Terminator / BranchTargets）|
-| `formats.rs` | `.zbc`/`.zpkg` 磁盘格式数据结构（镜像 C# `PackageTypes.cs`） |
-| `loader.rs` | 统一加载入口：`load_artifact(path)` → `Module`；`build_type_registry` 预构建 `TypeDesc` 注册表 |
+| `types.rs` + `types/` | 运行时值类型与对象模型：`field`（FieldSlot / TAG_*）、`type_desc`（TypeDesc / Cold）、`layout` / `codec`（字节布局与编解码）、`object` / `obj_storage`（ScriptObject / NativeData）、`array` / `array_access`（ArrayObj）、`value` / `value_aux`（Value / ExecMode / Closure 数据）；hub 全量 `pub use` |
+| `bytecode.rs` + `bytecode/` | zbc IR 数据结构：`module`（Module）、`class`（ClassDesc / FieldDesc / 布局描述 / CLASS_FLAG_*）、`function`（Function / BasicBlock / 异常表）、`insn`（*Insn 载荷）、`instruction`（Instruction / Terminator）；`bytecode_serde.rs` 为 TypedReg 兼容 serde |
+| `formats.rs` | `.zbc` / `.zpkg` 磁盘格式数据结构 |
+| `zbc_reader/` | zbc / zpkg 二进制读取：`cursor` / `opcodes` / `instr_decode` / `func_reader` / `type_reader` / `zpkg` / `zpkg_index` / `sidecar` / `versions` |
+| `loader.rs` + `loader/` | 统一加载入口 `load_artifact(path)` → `Module`；`build_type_registry` 预构建 `TypeDesc` 注册表；`namespace` / `indices` / `constraints` / `availability` 等关注点子模块 |
+| `lazy_loader.rs` + `lazy_loader/` | 惰性依赖加载（启动只载 `z42.core`，其余 zpkg 按命名空间首次引用时加载） |
 | `merge.rs` | 多模块合并：字符串池重映射 + 函数拼接 |
-| `project.rs` | 项目清单类型（`.z42.toml` Rust 侧类型） |
+| `resolver.rs` + `resolver/` | 加载期 token 解析（预填每函数 `ResolvedTokens`）+ 内联缓存（`ic.rs`） |
+| `context.rs` | 加载上下文模型（`AssemblyLoadContext` 对等的代码边界抽象） |
+| `tokens.rs` / `string_id.rs` / `name_index.rs` / `namespace_index.rs` / `vstr.rs` | 热路径 token 新类型 / 字符串池索引 / 字段·vtable 名称索引 / namespace→zpkg 索引 / GC 堆内不可变字符串句柄 |
+| `superinstr.rs` | 超级指令融合框架 |
+| `test_index.rs` / `build_id.rs` / `well_known_names.rs` / `ir_type.rs` / `project.rs` | 编译期测试发现 TIDX 段 / 分离调试符号的 build id / 常用限定名常量 / 寄存器类型 tag / 项目清单类型 |
 
-### src/interp/ — 字节码解释器（当前唯一可用后端）
-| 文件 | 职责 |
-|------|------|
-| `mod.rs` | 公开 API、`Frame`、核心执行循环；用户异常（`PENDING_EXCEPTION`）；静态字段（`STATIC_FIELDS`） |
-| `ops.rs` | 寄存器级辅助：`int_binop`、`numeric_lt`、`collect_args` 等 |
-
-### src/corelib/ — 内置函数实现
-统一入口 `exec_builtin(name, args)` 供解释器和 JIT 调用（对应 CoreCLR `classlibnative/`）。
-
-| 文件 | 职责 |
-|------|------|
-| `convert.rs` | `value_to_str`、`require_str/usize`、parse/to_str |
-| `io.rs` | `println`、`print`、`readline`、`concat`、`len` |
-| `string.rs` | `str_length`（`__str_length`）、`str_substring`、`str_split`、`str_join`、`str_format` 等 |
-| `math.rs` | `abs`、`max`、`min`、`pow`、`sqrt`、三角函数等 |
-| `fs.rs` | `file_*` / `path_*` / `env_*` / `process_exit` / `time_now_ms` |
-| `object.rs` | `obj_get_type`、`obj_ref_eq`、`obj_hash_code` |
-
-> StringBuilder / List / Assert 等纯 z42 可写的能力已从 corelib 下沉到 stdlib 脚本（`collections.rs` / `string_builder.rs` 已删）；corelib 只保留真正需要 Rust 的最小面。完整文件表见 [`src/corelib/README.md`](src/corelib/README.md)。
-
-### 桩模块（未实现）
-| 目录 | 说明 |
-|------|------|
-| `src/jit/` | JIT 后端，interp 全绿后填充 |
-| `src/gc/` | 垃圾回收，用 Rust `Rc` 管理生命周期 |
-| `src/exception/` | 结构化异常，通过 `thread_local PENDING_EXCEPTION` 处理 |
-| `src/thread/` | 多线程，当前单线程执行 |
-
-### crates/ — Native interop Rust crates（C1 落地）
-本目录是 z42 native interop 三层 ABI 的 Rust 侧公开接口；详见 [`crates/README.md`](crates/README.md)。
+### crates/ — Rust workspace 子 crate
+native interop 三层 ABI 的 Rust 侧公开接口与宿主 / native 扩展 crate；详见 [`crates/README.md`](crates/README.md)。
 
 | 子 crate | 职责 | 状态 |
 |---------|------|------|
-| `crates/z42-abi/` | Tier 1 C ABI 的 Rust `#[repr(C)]` 镜像（`no_std`，无依赖） | ✅ C1 接口锁定 |
-| `crates/z42-rs/` | Tier 2 用户面向 trait/type（`Z42Type`、`Z42Traceable`、`Visitor`） | ✅ 骨架 |
-| `crates/z42-macros/` | proc macro 入口（`Z42Type` derive、`methods`/`trait_impl`、`module!`） | 🟡 入口已注册，展开报 `compile_error!` 指向 C3 |
-| `crates/z42-host/` | Tier 2 宿主嵌入 API（workload host facade，原 `toolchain/workload/host-api` 迁入） | — |
-| `crates/z42-compression/` | 压缩后端 Rust crate（`z42.compression` 的 native 侧） | — |
+| `crates/z42-abi/` | Tier 1 C ABI 的 Rust `#[repr(C)]` 镜像（`no_std`，无依赖） | 在用 |
+| `crates/z42-rs/` | Tier 2 用户面向 trait/type（`Z42Type`、`Z42Traceable`、`Visitor`） | 在用（高层能力待 C5） |
+| `crates/z42-macros/` | proc macro 入口（`methods`、`module!`；`Z42Type` derive / `trait_impl` 待 C5，现报 `compile_error!`） | 在用 |
+| `crates/z42-host/` | Tier 2 宿主进程内嵌入 API（workload host facade） | 在用 |
+| `crates/z42-compression/` | 压缩后端 cdylib（`z42.compression` 的 native 侧） | 在用 |
+| `crates/z42-repl/` | host-only REPL 行编辑器 cdylib（`z42i`，被 `z42vm` 懒 dlopen） | 在用 |
 
-> apphost 的**进程外**运行时解析（原 `crates/z42-hostrun`）已并入桌面 apphost 桩的 `hostrun` 模块
-> （`src/toolchain/workload/desktop/platform/apphost/src/hostrun.rs`），不再是本 workspace 的 crate（merge-hostrun-into-apphost）。
+> apphost 的**进程外**运行时解析在桌面 apphost 桩的 `hostrun` 模块
+> （`src/toolchain/workload/desktop/platform/apphost/src/hostrun.rs`），不是本 workspace 的 crate。
 
 C 头文件位于 [`include/z42_abi.h`](include/z42_abi.h)；`.z42abi` manifest schema 在 [`docs/internals/src/formats/manifest-schema.json`](../../docs/internals/src/formats/manifest-schema.json)。
 
 ## 构建与测试
 
+`tests/` 存放跨模块集成测试（`zbc_compat.rs` / `native_interop_e2e.rs` / `signal_handler_e2e.rs` / GC loom 模型测试等）；`benches/` 见 [`benches/README.md`](benches/README.md)。
+
 ```bash
-(cd src/runtime && cargo build --workspace)
-(cd src/runtime && cargo test  --workspace)
-z42 xtask.zpkg test vm
+xtask build runtime                           # cargo build z42vm + libz42（--release）
+(cd src/runtime && cargo test --workspace)   # 全部 Rust 单测与集成测试
+xtask test runtime                            # 同上（xtask 串行封装）
+xtask test e2e                                # VM golden 端到端（interp + jit）
 ```
 
 ### Cargo features
@@ -88,4 +92,4 @@ z42 xtask.zpkg test vm
 |---------|------|
 | `jit` | Cranelift JIT 后端（desktop x64/arm64） |
 | `native-interop` | Tier 1 原生扩展 ABI（dlopen + libffi） |
-| `mimalloc-alloc` | z42vm 二进制的 `#[global_allocator]` 走 mimalloc。z42c 自编译**分配受限**（profile：系统 malloc ~31%、`--mode jit`≈`interp`），换 mimalloc 后 z42c 编译 −40%、字符串重负载 ~3×。仅二进制生效（嵌入 lib 用宿主分配器）；wasm/移动预设不含（C 构建不入 wasm 沙箱 / 移动体积敏感） |
+| `mimalloc-alloc` | z42vm 二进制的 `#[global_allocator]` 走 mimalloc。z42c 自编译**分配受限**，换 mimalloc 后 z42c 编译显著提速。仅二进制生效（嵌入 lib 用宿主分配器）；wasm/移动预设不含（C 构建不入 wasm 沙箱 / 移动体积敏感） |
