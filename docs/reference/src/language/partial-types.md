@@ -1,8 +1,8 @@
 # partial 类型
 
-> 对齐：2026-07-22（add-partial-types 落地）。代码路径：`src/libraries/z42c.syntax`（词法/语法）、
+> 代码：`src/compiler/z42c.syntax`（词法/语法）、
 > `src/compiler/z42c.semantics/{SymbolCollector,IrGen,IrDump}.z42`（合并/codegen）、
-> `src/compiler/z42c.pipeline/IncrementalBuild.z42`（增量联动）。
+> `src/compiler/z42c.pipeline/src/IncrementalBuild.z42`（增量联动）。
 
 一个类型（`class` / `struct` / `record` / `interface`）可由多个 `partial` 声明碎片拼成，
 碎片可分处不同源文件。**合并完全在编译期完成**——zbc/zpkg 格式、Rust VM、加载器全部零改动，
@@ -47,11 +47,10 @@ partial class Widget {
 `GetHashCode` / `GetType` / `get_Item` / `set_Item`，恒以裸名注册）：`Equals(object?)` 与
 `Equals(string)` 都注册为键 `"Equals"`，但签名不同，可分处不同碎片而不报 E0433（这正是 prelude
 `Std.String` 得以 partial 拆分的前提）。只有**同名 + 同完整签名**的真重复才报 E0433。
-（此前 MemberCollector 误按注册键判重，把协议豁免重载错报为重复 —— 已修。）
 
 **顺序确定性**：合并后的字段布局顺序 = 对象内存偏移 = zbc 字节，必须确定。碎片按**项目相对
 路径 Ordinal 序**拼接——`SourceDiscovery` 本就对源文件做 Ordinal 排序（见
-[common-pitfalls 规则 1](../../../agent/rules/common-pitfalls.md)），故合并序天然确定，逐字节稳定。
+[common-pitfalls 规则 1](https://github.com/z42-lang/z42/blob/main/docs/agent/rules/common-pitfalls.md)），故合并序天然确定，逐字节稳定。
 
 ### 主碎片：单条完整 TYPE record
 
@@ -89,11 +88,11 @@ partial class Calc {
 }
 ```
 
-- **允许任意返回类型、访问修饰符、`out`/`ref` 参数**（不采旧版 void-only 规则）。
-- **允许重载**（`fix-partial-method-overloads`）：同名不同签名的多个 partial 方法各自配对。
+- **允许任意返回类型、访问修饰符、`out`/`ref` 参数**（不采 void-only 规则）。
+- **允许重载**：同名不同签名的多个 partial 方法各自配对。
   判重时「只有声明、没有实现」的那一份**当它不存在** —— 它确实被擦除了，且它的「重复」对象
-  本就是它自己的实现。此前这条缺失，导致 `partial string L(string m);` 与
-  `partial string L(int n);` 被误报成 E0408「参数类型相同」。
+  本就是它自己的实现。否则 `partial string L(string m);` 与
+  `partial string L(int n);` 会被误报成 E0408「参数类型相同」。
 - 声明与实现的签名必须完全一致，否则 `E0434`；至多一个实现。
 - **无实现时整体擦除**：只有声明、无任何碎片提供实现 → 不发方法桩、不占签名；对它的调用视同
   「方法不存在」（无返回值 / 无 out 的调用被静默消解）。
@@ -135,9 +134,8 @@ z42c 是文件级增量（1 源文件 ↔ 1 cache 条目）。partial 让类型�
 
   **Deferred（正解）**：把 `emittedInst` 从碎片局部提升为**按类型**的 tracker（碎片已有确定序 ——
   项目相对路径 Ordinal 序，见上「顺序确定性」，故 primary 选择仍是确定的）。属编译器改动，
-  受 support-先行纪律约束（见 `../../../agent/rules/bootstrap-seed.md`），未随本次 stdlib 变更落地。
+  受 support-先行纪律约束（见 `../../../agent/rules/bootstrap-seed.md`），尚未实施。
 
 ## 关联
 
-- 引入：change `add-partial-types`（2026-07-22）。
 - 诊断码：`E0430`–`E0435`（见[错误码全量表](../appendix/error-codes.md)）。

@@ -49,7 +49,7 @@ z42 **不引入原生元组 opcode / 类型 tag**。元组在编译器前端**�
 ### 为什么零格式 bump
 
 zbc / zpkg 里类型引用一律 intern 进字符串池（非封闭 tag enum），故「又多一个字符串
-`ValueTupleN`」不需要任何二进制格式变更；与泛型当年落地同款。原生 tuple opcode（`tuple.new` /
+`ValueTupleN`」不需要任何二进制格式变更；与泛型同款。原生 tuple opcode（`tuple.new` /
 `tuple.get`）才会 bump，而 z42 的 blob struct 本就无对象头、原生 opcode 边际收益极小，不值。
 
 ### 运行时表示：类型擦除的均匀槽
@@ -82,10 +82,6 @@ void f(MyValueTupleBox b) {
 }
 ```
 
-> 2026-09-24 之前判据是「名字里**含** ValueTuple」（子串匹配），于是上面这段**编译零诊断**、
-> 还真去按 blob 字节偏移解构；而逐字段完全同形、只是名字正常的 `PlainBox` 报 E0402 ——
-> 能力按名字子串分叉。位置解构本身对任意形状都成立，挡住它的一直只是这条名字检查。
-
 ### 元素类型从哪来
 
 元组字面量脱糖成 `new ValueTupleN<t0..tn>(e0..en)` 时，**类型实参是在脱糖处写出来的**
@@ -93,21 +89,6 @@ void f(MyValueTupleBox b) {
 
 这一步是必需的：`new` **不做类级型参推断**，写成裸的 `new ValueTupleN(...)` 时结果类型就是
 泛型定义本身，元素静态类型停在擦除的 `T1..Tn`。做法与集合字面量（`{1,2,3}` → `List<int>`）同款。
-
-> 2026-09-22 之前正是漏了这一步，于是**凡是用 `var` 接元组字面量，元素类型全丢**：
->
-> ```z42
-> var t = (1, 2);
-> t.Item1 + t.Item2          // ✗ E0402: operator + requires numeric operand, got T1
->
-> var n = ((1, 2), 3);
-> ((a, b), c) = n;           // ✗ E0402: tuple pattern requires a tuple-typed subject, got T1
-> n.Item1.Item2;             // ✗ 运行期 FieldGet: expected object, got StructRef
-> ```
->
-> 写显式类型（`(int, int) t = (1, 2)`）一直是好的 —— 那条路的实例化类型由变量声明的目标类型
-> 提供，压根没经过脱糖里的推断。平坦解构 `(a, b) = t` 也一直「能用」，但那只是因为绑定子模式
-> 不做类型检查，`a` / `b` 的静态类型其实也是 `T1` / `T2`。现已全部修正。
 
 ### 语句位歧义消解（`(` 开头）
 
@@ -132,11 +113,7 @@ void f(MyValueTupleBox b) {
 - **元数 2..8**；更大元组报 `E0402: tuples support between 2 and 8 elements, got N`
   （可后续加 `Rest` 嵌套，如 C#）。**类型位与字面量位同码同文案**。
 
-  > 2026-09-24 之前上界**只在字面量侧**校验：9 元组**类型**照样合成出内部名 `ValueTuple9`，
-  > 于是用户拿到的是 `E0443: undefined type: ValueTuple9` —— 一个自己从没写过的名字。
-  > 同一件事在字面量侧一直有准确诊断。本节这行「更大元组报错」当时只兑现了一半。
-- 嵌套元组的**链式字段访问** `t.Item1.Item2` 可直接读写（2026-09-15 fix-generic-struct-chain-access
-  修复了显式类型那条路；`var` 那条路到 2026-09-22 才补齐，见下方「元素类型从哪来」）。
+- 嵌套元组的**链式字段访问** `t.Item1.Item2` 可直接读写（`var` 接字面量时见上方「元素类型从哪来」）。
   但嵌套在元组里的 struct 值目前**不是独立副本**——struct 的值复制语义见
   [所有权与内存模型](memory-model.md)。
 - **具名元组元素** `(x: int, y: int)`、`Deconstruct` 方法载体、`(T)[]` / `(T)?` 后缀——均后议。

@@ -1,6 +1,5 @@
 # z42.io —— 二进制读写器
 
-> 对齐：2026-09-17（change `restructure-docs-three-books`）；
 > 包路径 `src/libraries/z42.io/`；命名空间 `Std.IO.Binary`（异常类型 `BinaryException` 在 `Std`）
 
 `BinaryReader` / `BinaryWriter` 在 [`Std.IO.Stream`](io-stream.md) 之上提供定长整数、

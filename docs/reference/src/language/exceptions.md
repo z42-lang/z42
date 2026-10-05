@@ -1,7 +1,5 @@
 # 异常 `throw` / `try` / `catch` / `finally`
 
-> 对齐：2026-09-26 ｜ 实测基准：`./artifacts/.z42/z42 run`
-
 ## 抛出与捕获
 
 ```z42
@@ -47,7 +45,7 @@ catch          { /* 落到这里 */ }
 `catch (MulticastException<int> e)` 透明工作：编译器把类型实参编进 mangled 名
 （`Std.MulticastException$1`），运行期按同一个名字比对并沿基类链上溯。
 
-### 非对象抛出（Phase 1 遗留）
+### 非对象抛出
 
 `throw "some string"` / `throw 42` 仍然合法。这类抛出物**只能被 `catch { }` 接住**，
 typed `catch (Exception e)` 不会捕获它们。新代码请一律 `throw new <某个 Exception 子类>(...)`。
@@ -94,8 +92,7 @@ outer.InnerException.Message;      // "cause"
 
 - 重抛同一个对象**不会**覆盖已填的 trace。
 - **JIT 路径同样填** trace —— `jit/helpers/control.rs` 的 throw helper 调的是同一个
-  `populate_stack_trace`（`820e583ce` "feat(jit): stack trace parity with interp"，2026-05-10）。
-  ⚠️ 本页此前写着「JIT 不填（留 follow-up）」，那条 follow-up 当天就做完了、文档没跟上。
+  `populate_stack_trace`。
   ⚠️ **验这件事不能只看 `--mode jit` 跑通** —— 小用例里抛出的函数可能全程解释执行；
   判据是 `Z42_JIT_PROFILE=1` 里有没有该函数的 `lazy-compile` / `osr-compile`。
 - 帧名带参数类型签名（如 `Greeter.greet(Greeter,str)`），实例方法含隐式 `this`。
@@ -130,14 +127,11 @@ outer.InnerException.Message;      // "cause"
 | `MulticastException` | `AggregateException` | 多播委托 `Invoke(continueOnException: true)` 时聚合各 handler 的异常 |
 
 每个子类只有 ctor 转发 + 一个 `override ToString()`（返回 `"<ClassName>: <Message>"`）——
-⚠️ 那些 override 如今是**冗余**的：基类已按运行期类型取名，输出一字不差。
+⚠️ 那些 override 是**冗余**的：基类已按运行期类型取名，输出一字不差。
 （`IOException` **尚不存在**。）
 
-> 📜 **2026-09-26 之前 `Exception.ToString()` 硬编码字面量 `"Exception: "`** ⇒
-> **用户自定义的异常子类一律打错类名**（`class NotFoundException : Exception` 的实例得到
-> `"Exception: …"`）；stdlib 的子类看起来没事，只是因为每一个都重复硬编码了自己的名字。
-> 现在基类用 `this.GetType().Name`，自定义异常不必再自己重写 `ToString`。
-> ⭐ 全仓没有任何 golden 打印**用户自定义**异常的 `ToString()`，所以这个缺陷一直没被测试抓到。
+> `Exception.ToString()` 用 `this.GetType().Name` 取类名，所以**用户自定义的异常子类**
+> （`class NotFoundException : Exception`）自动得到 `"NotFoundException: …"`，不必自己重写 `ToString`。
 
 ## 当前限制
 

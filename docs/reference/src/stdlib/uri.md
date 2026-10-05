@@ -1,6 +1,5 @@
 # z42.uri —— URI 解析与 percent 编解码
 
-> 对齐：2026-09-17（change `restructure-docs-three-books`）；
 > 包路径 `src/libraries/z42.uri/`；命名空间 `Std.Uri`（`UriException` 在 `Std`）
 
 把 URI / URL 字符串拆成结构化组件（scheme / userInfo / host / port / path / query /

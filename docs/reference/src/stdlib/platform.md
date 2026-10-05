@@ -1,6 +1,5 @@
 # `Std.Platform` / `Std.OperatingSystem` —— 宿主与运行时能力查询
 
-> 对齐：2026-09-17（change `restructure-docs-three-books`）；
 > 包路径 `src/libraries/z42.core/`（`src/Platform.z42`、`src/OperatingSystem.z42`）；
 > 命名空间 `Std`
 >

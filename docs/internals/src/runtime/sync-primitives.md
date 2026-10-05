@@ -1,18 +1,17 @@
 # 同步原语：值在堆上，原生层只留 Monitor
 
-> 对齐：2026-09-14 `store-sync-values-in-heap`。
 > 代码：`src/runtime/src/corelib/monitor.rs`（原生底座）、
 > `src/libraries/z42.threading/src/{Mutex,RwLock,Channel}.z42`（z42 实现）、
 > `src/libraries/z42.core/src/Native/ThreadingNative.z42`（`MonitorNative` 声明）。
 
 ## 为什么
 
-`Std.Threading.Mutex<T>` / `RwLock<T>` / `Channel<T>` 原先把值存在 **Rust 侧容器**里——
+`Std.Threading.Mutex<T>` / `RwLock<T>` / `Channel<T>` 若把值存在 **Rust 侧容器**里——
 `parking_lot::Mutex<Value>` / `parking_lot::RwLock<Value>` / `std::sync::mpsc` 队列，按槽位 id
-登记在 `VmCore.{mutexes,rwlocks,channels}`。GC 的外部根扫描器（`vm_context/construct.rs`）只扫
+登记在 `VmCore` 的 registry——GC 的外部根扫描器（`vm_context/construct.rs`）只扫
 static 字段、各线程帧寄存器和几个 arena，**看不见这些容器**。
 
-后果是：一个值一旦**只被原语持有**，下一次回收就会被收掉。单线程即可确定性复现——往 `Channel<Box>`
+就会出问题：一个值一旦**只被原语持有**，下一次回收就会被收掉。单线程即可确定性复现——往 `Channel<Box>`
 发几个对象、分配一批垃圾、`GC.ForceCollect()`、再收回来：
 
 | 运行方式 | 结果 |
@@ -24,7 +23,7 @@ static 字段、各线程帧寄存器和几个 arena，**看不见这些容器**
 的一类成因：`z42.net` 的 `HttpServer.ServeWithPool` 经 `Channel<TcpClient>` 把连接交给工作线程，
 在队列里等待的 `TcpClient` 就处在无根状态。
 
-同类问题此前出现过一次：#617（`Thread.Start` 捕获的环境在 spawn 窗口里没有根）。两者形状相同——
+同类问题还有 `Thread.Start` 捕获的环境在 spawn 窗口里没有根（#617）。两者形状相同——
 **原生代码持有 `Value`，却不在根集里**。
 
 ### 为什么不「存入时 pin 一下」
@@ -170,8 +169,8 @@ O(1) 的 z42 片段，持有者通常转眼就释放，而 park 一次要拿全�
 
 | 写法 | 结果 |
 |---|---|
-| `Lock` 里再 `Lock` | 抛异常（原先永久自死锁） |
-| `Write` 里再 `Write` / `Read` | 抛异常（原先永久自死锁） |
+| `Lock` 里再 `Lock` | 抛异常（否则永久自死锁） |
+| `Write` 里再 `Write` / `Read` | 抛异常（否则永久自死锁） |
 | `Read` 里 `Write` | **自等**：等自己的读者退出 |
 | 有写者排队时 `Read` 里再 `Read` | **自等**：写者优先 ⇒ 等写者 |
 
@@ -179,7 +178,7 @@ O(1) 的 z42 片段，持有者通常转眼就释放，而 park 一次要拿全�
 
 ## 性能
 
-同一个 VM 二进制（旧 builtin 仍在），分别配旧 stdlib（nightly SDK）与新 stdlib，交替各跑 5 次取中位数，
+同一个 VM 二进制，分别配值存 Rust 侧的旧 stdlib 与当前 stdlib，交替各跑 5 次取中位数，
 每项 30 万次操作，interp：
 
 | 操作 | 旧（值存 Rust 侧） | 新（Monitor + z42） | 比值 |
@@ -199,8 +198,8 @@ Channel 变慢**：旧实现底下是 `std::sync::mpsc`，生产者和消费者�
 ## 测试
 
 - `z42.threading/tests/gc_sync_values_rooted.z42`：三种原语的值在强制回收后完好。**做过退回对照**——
-  修复前 interp 下 8 条里 7 条失败（报的正是 `got Null`），JIT 下连测试宿主都被打崩；
-  唯一修复前就通过的是「被丢弃的 Mutex 不保留值」，它防的是泄漏回归。
+  退回值存 Rust 侧的实现后 interp 下 8 条里 7 条失败（报的正是 `got Null`），JIT 下连测试宿主都被打崩；
+  唯一仍通过的是「被丢弃的 Mutex 不保留值」，它防的是泄漏回归。
 - `z42.threading/tests/sync_semantics_edges.z42`：重入抛异常、关闭后 `Send`、会合、扩容跨回绕保序、
   跨线程 GC 压力、`Close` 放出所有阻塞的接收者。
 - `corelib/monitor_tests.rs`：互斥、重入 / 非持有者报错、`wait` 释放并重新持有、两个等待者不空转、
@@ -208,33 +207,3 @@ Channel 变慢**：旧实现底下是 `std::sync::mpsc`，生产者和消费者�
 
 ⚠️ 写这类用例时，值必须**真的只剩原语一个持有者**：在调用方直接 `new Mutex<Box>(mk(7))`，`mk(7)` 的
 临时寄存器会一直留在帧里把对象保活，用例「碰巧绿」。建锁一律放进只返回锁的辅助函数。
-
-## Deferred / Future Work
-
-### store-sync-values-in-heap-remove-legacy：删除旧同步原语 builtin ✅ 已完成（2026-09-26）
-
-19 个旧 builtin（`__mutex_*` 4 / `__channel_*` 7 / `__rwlock_*` 8）、`VmCore.{mutexes,rwlocks,channels}`
-三个 registry、`corelib/sync.rs`（596 行）与 `native_decl_tests.rs` 的豁免条目**已全部删除**。
-
-**触发条件是怎么核的**（按本节原先写下的办法）：对下载到本地的 nightly 种子
-（`artifacts/build/compiler/bootstrap-check/nightly/`）的 `programs/z42c/*.zpkg` 与 `libs/*.zpkg`
-执行 `strings -n 3 | grep -E "__mutex_|__channel_|__rwlock_"` —— **必须先 `strings` 再 grep**，
-直接 grep 二进制会假缺席。结果两处皆 **0 引用**（同一份种子里 `__monitor_` 有 5 处，
-说明它确实是 2026-09-14 之后的）。
-
-> 📌 **原先记的「为什么没一起删」有一处说法需要更正。** 本节原文写「builtin id 在加载时按名解析」
-> 是对的，但 `builtin_table_ext.rs` 的头注同时写着「BuiltinId 就是下标，插在中间会让既有 zbc 里的
-> 调用全部错位」—— 两处互相矛盾。读码定论（2026-09-26）：
->
-> - zbc 里存的是**名字**：`BuiltinInsn { dst, name, args }`（`zbc_reader/instr_decode.rs`）；
-> - `BuiltinId` 由 resolver 在**加载期**经 `builtin_id_of(name)` 填进
->   `Function.resolved.builtin_tokens`，解释器与 JIT 都只把它当**单次运行内的派发令牌**；
-> - AOT 不烤它。
->
-> ⇒ **槽位可以真删**，append-only 是便于 review / 稳定 id 类测试的**约定**，不是格式约束。
-> 该头注已一并更正。真正的判据始终是上面那条：**已发布种子里还有没有 z42 源声明这个名字**。
-
-**顺带**：`runtime/tests/cross_thread_smoke.rs` 里直接调旧 builtin 的两个测试（mutex 自增、channel
-生产消费）随之删除 —— 覆盖没有蒸发，它在 z42 那一层：`src/libraries/z42.threading/tests/` 的
-17 个单元跑在活路径（`__monitor_*`）上，由 GREEN 的 `stdlib [Test]` 阶段执行。该文件头注声明的
-「Send/Sync 端到端证明」由其余 8 个测试继续扛着。

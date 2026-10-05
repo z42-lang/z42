@@ -1,6 +1,5 @@
 # Std.Time —— 时刻、时间段、计时器与时区
 
-> 对齐：2026-09-17（change `restructure-docs-three-books`）；
 > 包路径 `src/libraries/z42.core/src/Time/`；命名空间 `Std.Time`
 >
 > 时间类型住在 **`z42.core`** 里，没有独立的时间包。core 是隐式 prelude，

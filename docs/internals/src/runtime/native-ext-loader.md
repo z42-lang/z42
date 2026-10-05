@@ -2,8 +2,8 @@
 
 Infrastructure that lets a stdlib package's native code live **outside**
 the `z42vm` binary, in a separate `cdylib` that z42vm `dlopen`s at
-startup. First user: [`z42.compression`](https://z42-lang.github.io/z42/reference/stdlib/compression.html)
-(shipped 2026-05-24). Designed so future heavy native stdlibs
+startup. First user: [`z42.compression`](https://z42-lang.github.io/z42/reference/stdlib/compression.html).
+Designed so future heavy native stdlibs
 (`z42.net`, `z42.numerics`, second-wave `z42.crypto` algorithms) follow
 the same template.
 
@@ -81,7 +81,7 @@ The `lib + entry` form (no `type=`) tells the compiler to:
    `lib=` annotation is preserved as metadata for future tooling (SDK
    dependency manifests) but doesn't affect IR.
 
-See ``src/compiler/z42.Semantics/Codegen/IrGen.Classes.cs::EmitNativeStub``（C# 编译器已移除）.
+See `src/compiler/z42c.semantics/src/Emission/StubEmitter.z42` (`_emitNativeStub`).
 
 ### Native search path
 
@@ -258,9 +258,8 @@ management but otherwise don't overlap.
 
 ## Migration of existing stdlib natives
 
-Out of scope for the compression spec. Once we have ≥ 2 ext libs and
-the pattern is comfortable, an `add-migrate-stdlib-natives-to-ext`
-spec can selectively move existing in-VM natives where the
+Not done: existing in-VM stdlib natives stay in `BUILTINS[]`. Once there are ≥ 2 ext libs and
+the pattern is comfortable, existing in-VM natives can selectively move where the
 modularity benefit justifies the friction (crypto's SHA-256 is small
 enough to stay in-VM; future crypto additions like RSA / EC might be
 worth extracting).

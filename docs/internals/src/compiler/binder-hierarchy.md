@@ -1,12 +1,11 @@
 # Binder Hierarchy
 
-> **页型**: 机制页 ｜ **状态**: 🚧 Phase 1 已落（抽象基类 + 3 个子类桩）｜ **代码**: `src/compiler/z42c.semantics/src/`
-> **相关**: [源代码编译流程](source-compile.md) ｜ **对齐**: 2026-09-16
+> **页型**: 机制页 ｜ **代码**: `src/compiler/z42c.semantics/src/`
+> **相关**: [源代码编译流程](source-compile.md)
+> **待办**: Binder 链尚未实现，TypeChecker 当前走 `TypeEnv`
 
-> review.md F2.4 — Roslyn-style polymorphic Binder chain replacing the
-> monolithic `TypeEnv`. Phase 1 (2026-06-03, add-binder-hierarchy-phase1)
-> shipped the abstract base + 3 stub subclasses; this document codifies the
-> long-form design + Phase 2-N migration plan.
+> Roslyn-style polymorphic Binder chain replacing the monolithic `TypeEnv`：
+> 本页记录长期设计与分阶段迁移计划。
 
 ## 设计目标
 
@@ -17,24 +16,14 @@ dictionaries 持各种 scope 信息 —— 重构为多态 `Binder` 子类链。
 
 ## 为什么不继续用 TypeEnv
 
-当前 `TypeEnv` (`src/compiler/z42.Semantics/TypeCheck/TypeEnv.cs`, ~200 LOC)
+当前 `TypeEnv`（`src/compiler/z42c.semantics/src/Types/TypeEnv.z42`）
 聚合了所有 scope 的所有 slot 类型：
 
-```csharp
-internal sealed class TypeEnv {
-    private readonly TypeEnv? _parent;
-    private readonly Dictionary<string, Z42Type> _vars;
-    private readonly Dictionary<string, Z42FuncType> _localFuncs;
-    private readonly Dictionary<string, FunctionDecl> _localFuncDecls;
-    private readonly Dictionary<string, ParamModifier> _paramMods;
-    private readonly Dictionary<string, string> _funcAliases;
-    private readonly IReadOnlyDictionary<string, Z42FuncType> _funcs;  // global
-    private readonly IReadOnlyDictionary<string, Z42ClassType> _classes;  // global
-    private readonly IReadOnlySet<string> _importedClassNames;  // global
-    internal string? CurrentClass { get; }
-    // ... + 9 Lookup* methods
-}
-```
+- 父链：`Parent`
+- 本层 scope：`Vars` / `Consts` / `LocalFns`
+- 全局：`Symbols`（`SymbolTable`）
+- 类上下文：`ClassName` / `TypeParamNames` / `InCtorThis` / `InStaticCtor`
+- 其余按需追加的 scope 状态字段（`FnLocals` 等）+ 一组 `Lookup*` 方法
 
 每个 TypeEnv 实例都分配所有这些字典，即便它只 represent 一个简单 `if`
 块（只关心 `_vars`，其余字段是浪费的内存 + cache pressure）。加新 scope
@@ -75,19 +64,18 @@ Binder
 每个子类只 own 自己 scope 的 slot 类型。Lookup 默认 forward to `Next`，
 具体子类 override 来在 forward 前先查自己。
 
-## z42 Phase 1 现状（2026-06-03）
+## 现状
 
-`src/compiler/z42.Semantics/TypeCheck/Binders/`:
+Binder 链是设计目标，代码中尚无 `Binder` 基类或子类；`TypeChecker`（`src/compiler/z42c.semantics/src/Binding/TypeChecker.z42`）与各 `*Typer` / `*Binder` 统一经 `TypeEnv` 查 scope。
 
-| 类 | 对应 TypeEnv 概念 | 状态 |
-|---|---|---|
-| `Binder` | abstract base | scaffold |
-| `GlobalScopeBinder` | `_funcs` + `_classes` + `_importedClassNames` | stub |
-| `InMethodBinder` | `_paramMods` + `CurrentClass` | stub |
-| `InBlockBinder` | `_vars` | stub |
+拟引入的子类与 `TypeEnv` 概念的对应：
 
-每个 Phase 1 子类 just holds `Dictionary<string, ISymbol>` —— 演示 chain
-dispatch。**未接入 TypeChecker** —— consumers 见 Phase 2-N 计划。
+| 类 | 对应 TypeEnv 概念 |
+|---|---|
+| `Binder` | abstract base |
+| `GlobalScopeBinder` | 全局符号表 |
+| `InMethodBinder` | 参数修饰符 + `ClassName` |
+| `InBlockBinder` | `Vars` |
 
 ## Phase 2-N Migration Plan
 
@@ -95,8 +83,8 @@ dispatch。**未接入 TypeChecker** —— consumers 见 Phase 2-N 计划。
 
 候选第一个迁移点是 `TypeChecker.TryBindClassMethods`：
 
-```csharp
-private void TryBindClassMethods(ClassDecl cls) {
+```z42
+void TryBindClassMethods(ClassDecl cls) {
     var classEnv = _rootEnv.WithClass(cls.Name);     // current TypeEnv path
     foreach (var method in cls.Methods) {
         var scope = classEnv.PushScope();
@@ -108,8 +96,8 @@ private void TryBindClassMethods(ClassDecl cls) {
 
 Phase 2 重写为：
 
-```csharp
-private void TryBindClassMethods(ClassDecl cls) {
+```z42
+void TryBindClassMethods(ClassDecl cls) {
     var classBinder = new InClassBinder(_globalBinder, cls.Symbol);  // NEW: InClassBinder Phase 2
     foreach (var method in cls.Methods) {
         var methodBinder = new InMethodBinder(classBinder);
@@ -121,7 +109,7 @@ private void TryBindClassMethods(ClassDecl cls) {
 
 需要：
 - NEW `InClassBinder` (Phase 2 specific class scope binder)
-- TypeChecker.Exprs.cs `BindIdent` 改走 `_currentBinder.LookupSymbol(name)`
+- `ExprTyper` 的标识符绑定 改走 `_currentBinder.LookupSymbol(name)`
   替代 `env.LookupVar(name)` / `env.IsClassName(name)`
 - TypeEnv 当前其它 caller (closure / for / try) 仍保留 TypeEnv 走原路径 —
   gradual migration
@@ -144,8 +132,8 @@ scope), `InPinnedBinder` (`pinned p = s { ... }` block).
 
 每个 Binder 子类 override `LookupSymbol`：
 
-```csharp
-public override ISymbol? LookupSymbol(string name) {
+```z42
+public override ISymbol LookupSymbol(string name) {
     if (_mySlot.TryGetValue(name, out var s)) return s;
     return base.LookupSymbol(name);  // ← 必须 forward；否则破坏 shadowing 语义
 }
@@ -156,9 +144,8 @@ public override ISymbol? LookupSymbol(string name) {
 ## 与 ISymbol (F2.2) 的关系
 
 Binder.LookupSymbol 返回 `ISymbol?`（review.md F2.2 Phase 1 的产物）。
-当前 Phase 1 stub 只能 return 一个简单 dict 里 stored 的 ISymbol；Phase 3+
-当 Binder 接 TypeChecker 后，会 return TypeChecker 已构造的 MethodSymbol /
-FieldSymbol 实例 + Phase 3 引入的 LocalSymbol / ParameterSymbol。
+Binder 接入 TypeChecker 后，会 return TypeChecker 已构造的 MethodSymbol /
+FieldSymbol 实例 + 后续引入的 LocalSymbol / ParameterSymbol。
 
 ## Deferred / Future Work
 

@@ -1,6 +1,6 @@
 # 跨平台测试（平台管线 · 能力门控 · CI 拓扑）
 
-> 对齐：2026-10-02（change `caps-replace-target-excludes`）｜ 代码：
+> 代码：
 > `scripts/test/xtask_test_platform.z42`（三阶段框架 + `IPlatformBackend`）、
 > `scripts/test/xtask_test_{desktop,wasm,ios,android}.z42`（四个 backend）、
 > `src/runtime/src/corelib/platform.rs`（能力集）、`src/libraries/z42.test/src/BundleRunner.z42`（设备上的能力门）、

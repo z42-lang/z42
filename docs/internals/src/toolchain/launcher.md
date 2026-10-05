@@ -1,6 +1,6 @@
 # launcher：`z42` 命令怎么落到进程上
 
-> 对齐：2026-09-17（change `restructure-docs-three-books`）｜ 代码：`src/toolchain/launcher/core/`、`src/toolchain/workload/desktop/platform/apphost/src/`
+> 代码：`src/toolchain/launcher/core/`、`src/toolchain/workload/desktop/platform/apphost/src/`
 >
 > 命令与旗标怎么敲 → [工具链参考](https://z42-lang.github.io/z42/reference/toolchain/index.html)。
 
@@ -115,7 +115,7 @@ apphost 启动做两步。
 解析结果经 `Z42_APPHOST_TEMPLATE` 传给 z42b，于是 z42b 的 publish 不含任何 runtime/workload 解析逻辑。
 
 ⚠️ **转发 publish 的 argv 是手工重建的**（`_publishForwardArgv`）：launcher 注册了却没重建进 argv 的
-旗标会被**静默吞掉**。这条不是理论风险——`--self-contained` 曾整条缺失，导致只有直接敲 `z42b publish`
+旗标会被**静默吞掉**。这不是理论风险——漏了 `--self-contained` 就会导致只有直接敲 `z42b publish`
 才能走到嵌入路径。加一个 publish 旗标 = 改两处。
 
 ## `z42 run`：四种目标，一条构建路径
@@ -142,7 +142,7 @@ apphost 启动做两步。
 缓存目录：`<缓存根>/run/<源文件绝对路径的 SHA-256>/`。缓存根由 `Z42_CACHE_DIR` 覆盖，
 **缺省是用户级缓存目录**（Windows `%LOCALAPPDATA%\z42\cache`；其他 `$XDG_CACHE_HOME/z42`
 或 `$HOME/.cache/z42`）—— **不是 SDK 安装目录**：安装位常只读/需提权，多用户共享时缓存会串，
-而且分发目录不该被运行期状态污染（2026-09-28 改；此前缺省是 `<SDK 根>/cache`）。
+而且分发目录不该被运行期状态污染。
 门在 `xtask test dist` 的单文件冒烟里，两段判据：SDK 根下不得有 `cache/`，且用户级目录下
 **真的**有 `cache/run/<sha>/`（少后一段，「SDK 干净」也可能只是缓存整个没写成）。按**路径**而不是内容取哈希——同一文件反复改仍落同一条目，增量才生效。
 清单每次重写，避免用户移动文件后清单陈旧。

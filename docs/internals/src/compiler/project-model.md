@@ -1,7 +1,7 @@
 # 工程模型、依赖解析与工作区编译
 
-> **页型**: 机制页 ｜ **状态**: ✅ 已实现 ｜ **代码**: `src/libraries/z42.project/` · `src/compiler/z42c.pipeline/` · `src/libraries/z42.package/DependencyIndex.z42`
-> **相关**: [源代码编译流程](source-compile.md) · [架构总览](architecture.md) · [zbc 字节码格式](../formats/zbc.md) · [zpkg 包格式](../formats/zpkg.md) ｜ **对齐**: 2026-09-08
+> **页型**: 机制页 ｜ **代码**: `src/compiler/z42.project/` · `src/compiler/z42c.pipeline/` · `src/compiler/z42.package/src/DependencyIndex.z42`
+> **相关**: [源代码编译流程](source-compile.md) · [架构总览](architecture.md) · [zbc 字节码格式](../formats/zbc.md) · [zpkg 包格式](../formats/zpkg.md)
 
 ## 概述
 
@@ -69,23 +69,19 @@ path 依赖与名字依赖的关键差异：名字依赖假定其 zpkg **已在*
 2. **逐成员构建 + libsDirs 累积（driver `_build`）**：按闭包序（叶子在前）逐个 `_build`，把已建成员的 dist 目录累积起来，作为**后续成员**与**最终消费方**的 `libsDirs`（并入继承的 `Z42_LIBS`）。因是 post-order，任一成员被建时其 path 依赖的 dist 都已在累积集里——单遍即可，无需二次扫描。
 3. **私有组件 colocate（`_bundleExeDeps`）**：消费方为 exe 时，把 **闭包全体**的 `<name>.zpkg`（+ `.zsym`）从 libsDirs **复制进消费方 dist**，使 `z42 run dist/<exe>.zpkg` 能从 entry-zpkg 同目录解析到它们（运行期惰性加载器把 entry-zpkg 所在目录并入搜索路径）。待拷名单 = **消费方直接依赖 ∪ 第 1 步算出的 path 闭包全体**（去重）；闭包名单由 `_build` 透下来，**不在这里重算**——非 top-level 子建（`libsDirsCount>0`）本就跳过闭包解析，那个语境下重算会抛 `No such file or directory`。复制判据是**真-stdlib**（`<srcRoot>/libraries/<name>` 存在）走 `Z42_LIBS` 不复制、其余（path 依赖 / 非 stdlib 命名依赖）复制——与 publish 侧 `_pubBundleProjectDeps` 一致；path 依赖名即便形如 `z42.*`（如 `z42.repl`）也因不在 `src/libraries/` 而被正确复制。
 
-   > 📜 **2026-09-25 之前这里只搬「直接依赖」**（`ExeDeps.z42` 头注白纸黑字「仅直接依赖……传递闭包记 Deferred，exe 应直接声明全部所需兄弟」）⇒ **path 依赖链深度 >1 不可用**：`bar → foo → baz` 时 `bar/dist/` 里只有 `foo.zpkg`，编译期正常（闭包 dist 早已并进 libsDirs）、运行期 `MissingSymbolException`。
+   > 📜 **为什么搬闭包全体而不是只搬「直接依赖」**：`bar → foo → baz` 时若只搬直接依赖，`bar/dist/` 里只有 `foo.zpkg`，编译期正常（闭包 dist 早已并进 libsDirs）、运行期 `MissingSymbolException`。**`bar` 根本没引用过 `baz` 的任何符号**（是 `foo` 内部在用），要求消费方声明一个自己不用的包，正是包管理器该替你做的事。
    >
-   > 那条 Deferred 的理由站不住：**`bar` 根本没引用过 `baz` 的任何符号**（是 `foo` 内部在用），要求消费方声明一个自己不用的包，正是包管理器该替你做的事。
-   >
-   > ⭐ **它藏了一个月的原因**：`add-path-dependencies` 的 e2e（阶段 2.5）只造了 **1 层**（`lib foo + exe bar`），而深度为 1 时「直接依赖」恰好等于「闭包」——缺陷被完整遮住。同族于 `static_abstract_operator` 挑中单字段 `Money` 恰好绕开 sret 那条。现已把该 e2e 加深到 2 层。
+   > ⭐ **深度为 1 时「直接依赖」恰好等于「闭包」**，会完整遮住这类缺陷，所以 path 依赖的 e2e 要造到 2 层。
 
-> 🔧 **fix-path-dep-closure-scope（2026-09-30）补的三处**：
-> - **workspace 成员也解析闭包**。此前只有 top-level（`libsDirsCount==0`）解析，而 workspace 调用总带着 libsDirs ⇒
+> 🔧 **workspace 与 path 闭包的几处约束**：
+> - **workspace 成员也解析闭包**，不止 top-level（`libsDirsCount==0`）：workspace 调用总带着 libsDirs，若不解析 ⇒
 >   成员指向 workspace **外**的 path 依赖永不代建（报「未找到……path 依赖由 z42c 代建」，自相矛盾）。闭包里的
 >   成员跳过（`WsTier.IsMember`，由 workspace 循环建）；代建出的 dist **追加在 libsDirs 末尾**——前 `MemberDirs`
 >   个必须仍是成员 dist（`WsTier.Admits` 按下标分档），外部包归外部档。
-> - **基础解析域是已决议的 libsDirs**（`--compile-libs` > `Z42_LIBS`），不再重读 `Z42_LIBS`——此前代建与消费方都绕过了 `--compile-libs`。
-> - **闭包代建默认 packed**（调用约定 `tier == null && libsDirsCount > 0`；显式 `pack` 优先）。此前 debug 构建的 exe
->   只要有 path 依赖就运行期 `undefined function`：indexed 主文件被拷进 dist，它的散装 zbc 没跟过去。
->   现有 path 闭包 e2e 全是 `--release`，所以一直没暴露。门：`xtask test compiler` 的 `_e2ePathDepScopeChecks`。
-> - **其余来源的 indexed 依赖（workspace lib 成员等）连散装 zbc 一起装配**（fix-bundle-indexed-deps，User
->   2026-09-30 裁决保留 indexed）：`ZpkgReader.ReadIndexedZbcRels` 列出依赖 FILE 目录里的散装 zbc，按原相对布局
+> - **基础解析域是已决议的 libsDirs**（`--compile-libs` > `Z42_LIBS`），不重读 `Z42_LIBS`（否则代建与消费方都会绕过 `--compile-libs`）。
+> - **闭包代建默认 packed**（调用约定 `tier == null && libsDirsCount > 0`；显式 `pack` 优先）。否则 debug 构建的 exe
+>   只要有 path 依赖就运行期 `undefined function`：indexed 主文件被拷进 dist，它的散装 zbc 没跟过去。门：`xtask test compiler` 的 `_e2ePathDepScopeChecks`。
+> - **其余来源的 indexed 依赖（workspace lib 成员等）连散装 zbc 一起装配**：`ZpkgReader.ReadIndexedZbcRels` 列出依赖 FILE 目录里的散装 zbc，按原相对布局
 >   拷进 exe 的 dist（加载器按「主文件所在目录 + rel」找）。与**本包自己的**散装 zbc、或**本轮另一个依赖**拷入的
 >   同路径文件撞名 ⇒ 构建期报错（上一轮拷来的旧副本直接覆盖）。exe 的孤儿清理会先删掉这些副本、装配再拷回，
 >   fresh 构建的终态一致；preserved 路径只装配不清理。门：`_e2eBundleIndexedChecks`（workspace exe + lib 成员
@@ -115,40 +111,35 @@ path 依赖与名字依赖的关键差异：名字依赖假定其 zpkg **已在*
 > **死在 `mid` 的方法里**（`MissingSymbolException: NcLeaf.Deep`）—— 报的像是「mid 的代码有问题」，
 > 实际是打包漏了 `leaf`。编译期全绿（vendored 目录早已并进 libsDirs）。
 
-> 📌 **解析器住在 `z42.project` 而不是编译器里**（2026-09-26 搬的）：它只依赖清单模型、零编译器
-> 依赖。搬下去的理由是 **`z42b` 要用它** —— z42b 刻意 stdlib-only、只经注入的 `ICompiler` 碰编译器，
-> 解析器留在 `z42c.pipeline` 它就够不着，于是 `z42b build` 长期**完全不解析 path 依赖**（repo 外对着
-> 带 path 依赖的工程报 `E0494`；repo 内看着能用只因依赖早已预建进 libs）。
+> 📌 **解析器住在 `z42.project` 而不是编译器里**：它只依赖清单模型、零编译器
+> 依赖。理由是 **`z42b` 要用它** —— z42b 刻意 stdlib-only、只经注入的 `ICompiler` 碰编译器，
+> 解析器若留在 `z42c.pipeline` 它就够不着，`z42b build` 就会**完全不解析 path 依赖**（repo 外对着
+> 带 path 依赖的工程报 `E0494`）。
 > **共用的是解析器，不是循环** —— per-member 构建两边本就不同（driver 调 `_build` 走增量缓存与侧车，
-> z42b 调 `_orchestrate` 走 rid/workload/hooks）。`z42c.pipeline` 暂留一层同名转发，是因为上一 nightly
-> 的 driver 二进制在运行期还按旧 FQN 调它（种子 ABI），下一 nightly 后删。
+> z42b 调 `_orchestrate` 走 rid/workload/hooks）。`z42c.pipeline` 暂留一层同名转发（种子 ABI：上一 nightly
+> 的 driver 二进制还按旧 FQN 调它）。待办：下一 nightly 后删除。
 
 > 📌 **发布（`z42 publish`）不另建一份闭包**：payload 里的依赖 zpkg 全部来自
-> `_pubCopyDistDeps(dist → payload)`，即上面这份 dist。publisher 侧曾有第二份走源码树 toml 的
-> BFS（`_pubBundleProjectDeps`），2026-09-26 实测撤除后 payload 清单逐字不变 ⇒ 已删。
-> 守着这条不变式的门 = `xtask_toolchain.z42` 的 `_assertPayloadComplete`。
+> `_pubCopyDistDeps(dist → payload)`，即上面这份 dist。守着这条不变式的门 = `xtask_toolchain.z42` 的 `_assertPayloadComplete`。
 
-> **packed 前提（运行期约束）**：colocate 的依赖 zpkg 必须是 **packed**（release 布局）——运行期惰性加载器只把 packed zpkg 当依赖候选，**indexed**（debug 多文件开发态布局）不作候选。故私有 path 依赖的**部署构建走 `--release`**（消费方与其闭包一并 packed；z42.interactive→z42.repl 即如此）。debug 单包 build 仍可编译解析（编译期读 `.zsym`），只是产出的 indexed 依赖不适合 colocate 运行——这是既有惰性加载器约束，非 path 依赖新引入。
+> **packed 前提（运行期约束）**：colocate 的依赖 zpkg 必须是 **packed**（release 布局）——运行期惰性加载器只把 packed zpkg 当依赖候选，**indexed**（debug 多文件开发态布局）不作候选。故私有 path 依赖的**部署构建走 `--release`**（消费方与其闭包一并 packed；z42.interactive→z42.repl 即如此）。debug 单包 build 仍可编译解析（编译期读 `.zsym`），只是产出的 indexed 依赖不适合 colocate 运行——这是惰性加载器的既有约束。
 
 > **与 workspace 编译的关系**：两者都做「拓扑序逐成员建」，但正交——workspace 沿*成员目录内*的依赖边（`z42.workspace.toml` 的 `members`），path 依赖沿*manifest 显式 `path`* 边跨目录。single build 才触发 path 闭包；workspace 成员建带 `libsDirsOverride`（已由 orchestrator 组装 libsDirs）→ 跳过 path 闭包解析。native 库的同族跟随见 [Native 库的布局与解析](../runtime/native-libraries.md)。
 
-> **两阶段（自举纪律）**：`z42.project` 认 `path` 并填 `DepEntry.Path` 是 **support 阶段（PR-1）**；上面 z42c 的**消费机制**（闭包 + colocate）是 **PR-2（use）**，在 PR-1 nightly 发布后落地——上一版 z42c 不引用 `.Path`，故跨版本自举不断链。
-
 ### 编译期扩展的解析域与 `[analyzers]` 的 path 条目
 
-`[analyzers]` 声明的 handler zpkg（analyzer / generator 本体）**加载进编译器进程、编译期运行、永不链入目标产物**。这条与 `[dependencies]` 正交的通道，在 add-package-roles 批 1/批 2 补齐了两件事：契约够得着、扩展工程能被路径引用。
+`[analyzers]` 声明的 handler zpkg（analyzer / generator 本体）**加载进编译器进程、编译期运行、永不链入目标产物**。这条与 `[dependencies]` 正交的通道有两件事要保证：契约够得着、扩展工程能被路径引用。
 
 #### 解析域：SDK 库（编译器域包）的可见性
 
 编译器域的包（`z42c.semantics` 等 Generator 契约所在，以及 `z42.project` / `z42.build` …，统称 **SDK 库**）**不在 SDK 的
-`libs/`**，而在**编译器目录**：SDK 的 `programs/z42c/`（z42c.driver 的自包含闭包）。曾经有过一个独立的 `compiler-libs/`
-目录，它在发布态恒不存在，2026-09-27（relocate-compiler-domain-libs）删除，落点改为 `programs/z42c/`。
+`libs/`**，而在**编译器目录**：SDK 的 `programs/z42c/`（z42c.driver 的自包含闭包）。
 
 编译器目录由 `CompilerDomain.Dirs()`（`z42c.pipeline/src/BuildSession.z42`）按序探测，存在者都收：① `Z42_COMPILER_LIBS`；
 ② `Z42_HOME/programs/z42c/`；③ 由 `Z42_PORTABLE_VM` 反推 SDK 根 → `programs/z42c/`；④ 开发树——自 `Z42_LIBS` 上溯到
 `artifacts/build/` → `compiler/z42c.driver/release/dist/`（与 `programs/z42c/` 同形）。
 
-**可见性规则**（add-sdk-libs，2026-10-01；实现在 `z42c.pipeline/src/SdkLibs.z42`，driver 与 BuildSession 共用）：
+**可见性规则**（实现在 `z42c.pipeline/src/SdkLibs.z42`，driver 与 BuildSession 共用）：
 
 | 工程 | SDK 库可见 | 机制 |
 |---|---|---|
@@ -166,7 +157,7 @@ path 依赖与名字依赖的关键差异：名字依赖假定其 zpkg **已在*
 - **放行的包也算「已声明」**：`SdkLibs.ExtendDeclared` 把它们并进 `DeclaredDeps` 白名单——DepIndex 只索引
   「stdlib（`z42.` 前缀）+ 声明依赖」，E0497 也按它放行；传递闭包里的包、analyzer 免声明的包都是合法可达的。
 - **exe 复制**：声明的 SDK 库从编译器目录解析到（不是 shipped `libs/`）⇒ 按既有规则判为私有、复制；传递闭包由
-  `_bundleExeDeps` 既有的 DEPS 走查覆盖（#849）。
+  `_bundleExeDeps` 既有的 DEPS 走查覆盖。
 - **E0494 提示**：`using` 指向的命名空间若由某个**当前不可见**的 SDK 库提供，报错点名该库并给出 `"<包>" = "*"`。
   `SdkLibs.HiddenProviderOf` 只在报错路径调用；它直接到编译器目录里找（工程一个 SDK 库都没声明时，编译器目录根本
   不在解析域里——那正是最常见的「忘了声明」）。
@@ -184,9 +175,9 @@ path 依赖与名字依赖的关键差异：名字依赖假定其 zpkg **已在*
 | 产物去向 | 并入消费方 `libsDirs`，可被普通代码引用 | **不并入任何 libsDirs**，只把单个 zpkg 路径交给 handler 引擎 |
 | 校验 | 名字须与 `[project].name` 一致 | 同上，外加 `kind` 必须是 `"analyzer"` |
 
-🔴 **代建产物不进 libsDirs 是本机制的要害**：把它并进去就等于让编译期扩展对消费方的**运行期代码**可见，批 1 刚立起来的解析域隔离当场破掉。代建用消费方的 `isRelease` / `optSet`，但 **libsDirs 一律不继承**（传 `count = 0`），让 analyzer 工程走自己的 path 闭包 + `Z42_LIBS` + 编译器目录（`CompilerDomain.Dirs()`）。
+🔴 **代建产物不进 libsDirs 是本机制的要害**：把它并进去就等于让编译期扩展对消费方的**运行期代码**可见，解析域隔离当场破掉。代建用消费方的 `isRelease` / `optSet`，但 **libsDirs 一律不继承**（传 `count = 0`），让 analyzer 工程走自己的 path 闭包 + `Z42_LIBS` + 编译器目录（`CompilerDomain.Dirs()`）。
 
-**顺序依赖（易踩）**：handler 解析必须排在 `_handlerFingerprint` **之前**。指纹把 handler zpkg 的内容揉进每个源文件的 hash，是「改了 generator 但消费方源没变 ⇒ 也要重编」唯一的失效通道；path 条目若在指纹之后才代建，指纹看到的是「zpkg 不存在」⇒ 改扩展不触发重编，消费方**编出旧结果**且无人报错。两者现在吃同一份解析结果（此前指纹与 `CompileInputs` 各按名扫一遍 libsDirs）。
+**顺序依赖（易踩）**：handler 解析必须排在 `_handlerFingerprint` **之前**。指纹把 handler zpkg 的内容揉进每个源文件的 hash，是「改了 generator 但消费方源没变 ⇒ 也要重编」唯一的失效通道；path 条目若在指纹之后才代建，指纹看到的是「zpkg 不存在」⇒ 改扩展不触发重编，消费方**编出旧结果**且无人报错。两者吃同一份解析结果。
 
 **双向校验**（都只在 path 条目上判得出来——按名引用时手上只有 zpkg，而 zpkg 不记 `kind`）：
 
@@ -216,7 +207,7 @@ P 激活  ⟹  P 的所有类（含 ns 未被 using 到的那些）短名可见
 
 这是有意的简化（激活是「拉不拉这个包」的开关，不是逐 ns 过滤），但有个**反直觉后果**：一个类可能仅仅因为**同包某个不相干的文件**恰好声明在你 `using` 到的命名空间里，才对你可见。这种可见性是**搭便车**，不是契约——同包任何一次文件搬迁都可能抽走它。
 
-> **现场案例（2026-09-08 fix-bench-corpus-using-stdtest）**：14 个 stdlib bench 文件只写了 `using Std;`，却用着 `Std.Test.Bencher`。它们能编过，是因为 `z42.test` 里的 `Failure.z42` 声明为 `namespace Std;` ⇒ `using Std;` 命中它 ⇒ 整个 `z42.test` 激活 ⇒ `Bencher` 短名可见。`unify-assert-api`（#532）把 `Failure.z42` 搬进 `z42.core` 后，`z42.test` 只剩 `Std.Test` / `Std.Test.Contracts` 两个 ns，便车没了：`Bencher` 解析成 `Z42UnknownType`（`Name()` = `"<unknown>"`），而**发射端照发** `newobj Z42XxxBench.<unknown>` ⇒ 运行期合成空 TypeDesc ⇒ `VCall: function 'Z42XxxBench.<unknown>.get_WarmupIters' not found`。编译期之所以静默 exit 0，是 `--emit-zbc` 吞诊断那个洞（见 `restore-emit-zbc-diagnostics`）。
+> **现场案例**：14 个 stdlib bench 文件只写了 `using Std;`，却用着 `Std.Test.Bencher`。它们能编过，是因为 `z42.test` 里的 `Failure.z42` 声明为 `namespace Std;` ⇒ `using Std;` 命中它 ⇒ 整个 `z42.test` 激活 ⇒ `Bencher` 短名可见。当 `Failure.z42` 被搬进 `z42.core` 后，`z42.test` 只剩 `Std.Test` / `Std.Test.Contracts` 两个 ns，便车没了：`Bencher` 解析成 `Z42UnknownType`（`Name()` = `"<unknown>"`），而**发射端照发** `newobj Z42XxxBench.<unknown>` ⇒ 运行期合成空 TypeDesc ⇒ `VCall: function 'Z42XxxBench.<unknown>.get_WarmupIters' not found`。编译期若静默 exit 0，是 `--emit-zbc` 吞了诊断。
 >
 > 两条教训：① **用哪个 ns 的类型就 `using` 哪个 ns**，别依赖同包搭便车；② 「binder 解析失败 → Unknown → emitter 照发占位名」这条不对称是本仓的系统性形状，诊断被吞时它一律推迟到运行期才爆。
 
@@ -236,10 +227,10 @@ driver 拿到拓扑序后逐个调用单包编译（即[源代码编译流程](s
 
 `DepScanCache`（`z42c.pipeline/src/DepScanCache.z42`）把这两块**最贵的纯函数原语** memo 到进程级缓存：按绝对 path 缓存打开的 `ZpkgInfo` 与该包的 `Rebuild` 结果。`ScanDirs` 的算法、排序（prelude-first + Ordinal）、`declaredDeps` 过滤、self-exclude 全都不变——只把两处原语换成缓存查——因此**产物逐字节不变**（字节不动点天然成立）。合法性有两条：`Open` 是 zpkg 字节的纯函数；某包 `P` 的 TSIG 重建结果只依赖 `P` 自身与其祖先字段/方法，而拓扑序保证 `P` 被任何成员扫到时其依赖都已建、在类型世界里，故 `P` 的 TSIG 跨成员恒定（后续成员的世界只是超集，不改 `P` 的输出）。
 
-**重建本身的复杂度（perf-tsig-reconcile-index，2026-09-03）**：memo 解决的是"同一包被 N 个成员重复重建"；
-单次 `Rebuild` 内部此前还有两处随 world 规模平方增长的扫描——每个类 `_locate` / 基链定位在**整个 world**（全部包 × 模块 × 类）
+**重建本身的复杂度**：memo 解决的是"同一包被 N 个成员重复重建"；
+单次 `Rebuild` 内部若不加索引，有两处随 world 规模平方增长的扫描——每个类 `_locate` / 基链定位在**整个 world**（全部包 × 模块 × 类）
 按名线性查找，每个祖先层再扫祖先模块**全部** SIGS 函数做 `StartsWith(类名 + ".")`。25 包 world 下单次 DepScan 三段实测
-open 73 ms / sigs 140 ms / **tsig 939 ms**（`Z42C_TRACE_DEPSCAN=1` 打印）。`z42.package/src/TsigIndex.z42` 加两张索引：
+open 73 ms / sigs 140 ms / **tsig 939 ms**（`Z42C_TRACE_DEPSCAN=1` 打印）。`z42.package/src/TsigIndex.z42` 的两张索引消掉它们：
 `ReconClassIndex`（类 FQ → (包, 模块, 类)，模块进入 `LazyReconWorld.Wp` 时登记；重名保留 (p,m,t) 字典序最小者，等价于原
 p→m→t 升序 first-wins）与 `SigsClassIndex`（每 `ZpkgModuleSigs` 按"函数名最后一个 `.` 之前"分桶的函数链，桶内保持原下标序，
 等价于原 `StartsWith` + "余名无 `.`" 过滤）。产物逐字节不变（自举不动点 + 全 stdlib 逐包 `cmp` 对账）。
@@ -288,7 +279,7 @@ p→m→t 升序 first-wins）与 `SigsClassIndex`（每 `ZpkgModuleSigs` 按"�
 ### 诊断也是缓存内容（`diag` 行，meta v7）
 
 上表讲的是**失效**：什么变了要重编。还有一类缺陷与失效无关 —— 源码确实没变、不该重编，
-但**警告仍然应该每次都打印**，因为缺陷还在代码里。此前不是这样：
+但**警告仍然应该每次都打印**，因为缺陷还在代码里。若缓存不保存诊断，会是这样：
 
 | 构建 | 缓存状态 | W0700 |
 |---|---|---|
@@ -329,10 +320,10 @@ preserved 早退**（`fix-analyzer-diags-preserved`）。早退路径只能回�
 ### 缓存条目的完整性（meta v8）
 
 每个源文件的缓存是**一对**文件：`<rel>.zbc`（产物）+ `<rel>.meta`（「这份 zbc 对哪版源码有效」的证明）。
-三条保证它们不会以半截或错配的形态被读回（`fix-cache-atomic-writes`）：
+三条保证它们不会以半截或错配的形态被读回：
 
 - **原子写**：zbc、meta、`package.meta` 都走 `File.Write*Atomic`（临时文件 + rename）——中途崩溃要么是旧的、
-  要么是新的，没有半截。此前是普通写，而 `Parse` 只核开头几行的版本 pin、后面字段全可选 ⇒ 半截 meta
+  要么是新的，没有半截。若是普通写，则 `Parse` 只核开头几行的版本 pin、后面字段全可选 ⇒ 半截 meta
   （token 列表不全）会被当成有效，该失效的文件没失效。
 - **末行哨兵** `end <行数>`：即便绕过原子写（外部工具拷坏、磁盘满），截断的 meta 也整条作废。
 - **zbc↔meta 配对**：meta 记 `zbchash`（zbc 内容的 Murmur3-128）；读回 cached zbc 时比对，对不上就走既有的
@@ -344,13 +335,13 @@ preserved 早退**（`fix-analyzer-diags-preserved`）。早退路径只能回�
 
 | 关注点 | 关键文件 |
 |--------|---------|
-| 工程模型 | `z42c.project/src/ManifestLoader.z42`、`ProjectModel.z42`、`PackageTypes.z42`、`SourceDiscovery.z42` |
+| 工程模型 | `z42.project/src/ManifestLoader.z42`、`ProjectManifest.z42`、`SourceDiscovery.z42`；`z42.package/src/PackageTypes.z42` |
 | 包级缓存身份 | `z42c.driver/src/Main.z42`（拼 `depsId`）、`z42c.pipeline/src/DepIdentity.z42`、`IncrementalDriver.z42`、`CacheStore.z42` |
 | 依赖扫描 | `z42c.pipeline/src/DepScan.z42`；跨成员 memo：`DepScanCache.z42`（F2） |
-| 依赖索引 | `z42c.ir/src/DependencyIndex.z42` |
-| 跨包符号加载（TSIG） | `z42c.semantics/src/Symbols/ImportedSymbolLoader.z42`；调和：`z42c.project/src/TsigReconcile.z42` |
+| 依赖索引 | `z42.package/src/DependencyIndex.z42` |
+| 跨包符号加载（TSIG） | `z42c.semantics/src/Symbols/ImportedSymbolLoader.z42`；调和：`z42.package/src/TsigReconcile.z42` |
 | 工作区规划 | `z42c.pipeline/src/WorkspaceBuild.z42`；增量：`IncrementalBuild.z42` |
-| 产物组装 | `z42c.project/src/ZpkgBuilder.z42`、`ZpkgWriter.z42` |
+| 产物组装 | `z42.package/src/ZpkgBuilder.z42`、`ZpkgWriter.z42` |
 | 编译期扩展解析域 / `[analyzers]` 解析 | 编译器目录 `z42c.pipeline/src/BuildSession.z42`（`CompilerDomain.Dirs`）；SDK 库可见性 `z42c.pipeline/src/SdkLibs.z42`；`z42c.driver/src/BuildPaths.z42`（`_resolveHandlerZpkgs` / `_handlerFingerprint`）；`${compiler_libs}` 宏 `ExeDeps.z42`；接线在 `Main.z42` |
 | handler 加载与执行 | `z42c.pipeline/src/AnalyzerLoader.z42`、`GeneratorLoader.z42`、`PackageCompile.z42` |
 

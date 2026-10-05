@@ -1,6 +1,5 @@
 # z42.text —— 字符串构建与文本工具
 
-> 对齐：2026-09-17（change `restructure-docs-three-books`）；
 > 包路径 `src/libraries/z42.text/`；命名空间 `Std.Text`
 
 三个类型：可变字符串缓冲 `StringBuilder`、字符串 shaping 静态工具 `Strings`、

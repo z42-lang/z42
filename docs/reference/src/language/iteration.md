@@ -35,37 +35,13 @@ foreach (string s in names)      { /* ... */ }   // 也可以写显式类型
 > 「整数下标」这个限定是必要的：`Dictionary<K,V>` 的索引器是 `this[TKey]`，若只看「有没有
 > `get_Item`」，它会被判去走索引路径、拿 `int` 计数器调 `get_Item(TKey)`。
 
-> 2026-09 之前判定只认类那条继承线，目标的静态类型写成**接口**时三条路径全部落空，
-> `foreach` 静默落到数组路径、对一个对象发 `array_len`：编译期零诊断，运行期抛
-> `ArrayLen: expected array`。接口上的计数成员只以 `get_Count` / `get_Length` 形态
-> 出现（接口没有字段面），这一档同样认。现已修正。
-
-### 路径 1：数组
-
-按下标从 `0` 到 `Length - 1` 遍历，无额外开销。
-
-### 路径 2：索引鸭子协议
-
-类型只要同时提供这两样，不需要实现任何接口：
-
-```z42
-public int Count;              // 或 Length；字段 / 方法 / 属性都行
-public T get_Item(int i);      // 通常由索引器 `public T this[int i]` 合成
-```
-
-计数成员按 **`Count` 优先、其次 `Length`** 查找，三种声明形态都认：
-
-| 声明 | 编译成 |
-|---|---|
-| `public int Count;`（字段） | `field_get Count` |
-| `public int Count()`（方法） | `vcall Count()` |
-| `public int Count { get; }`（属性） | `vcall get_Count()` |
+> 目标的静态类型写成**接口**时同样适用：接口上的计数成员只以 `get_Count` / `get_Length` 形态
+> 出现（接口没有字段面），这一档同样认。
 
 标准库的 `List<T>` 走字段那档，`string` 走 `Length` 属性那档。
 
-> 2026-09 之前只认字段与方法两档。`Count` 写成**属性**时编译器按源名发 `field_get`——
-> 而 auto 属性的存储叫 `__prop_Count`、计算属性根本没有存储 ⇒ 读到空值 ⇒ 按一个垃圾
-> 长度多迭代、静默越界。现已修正。
+> `Count` 写成**属性**也认：auto 属性的存储叫 `__prop_Count`、计算属性根本没有存储，所以不能按源名发 `field_get`。
+
 
 ### 路径 3：枚举器协议
 
@@ -96,7 +72,7 @@ try {
 ```
 
 `try` / `finally` 保证**任何离开方式**都会调到 `Dispose()` —— **五条**：正常结束、`break`、
-`continue`、`return`、抛异常。（此前这里只列了四条、漏了 `continue`；五条各自的夹具见
+`continue`、`return`、抛异常。（五条各自的夹具见
 `src/tests/control_flow/using_exit_paths.z42`，[`using` 语句](using-statement.md) 与 foreach
 共用同一套保证。）
 `IEnumerator<T>` 继承 `IDisposable` 正是为了这个。
@@ -107,10 +83,6 @@ try {
 >
 > 「有没有 `Dispose`」按**继承面**问，口径与你自己写 `__e.Dispose()` 时编译器找成员的完全一致：
 > 从父接口继承（`IEnumerator<T> : IDisposable`）或从基类继承来的 `Dispose` **都算有**。
->
-> 2026-09-25 之前是**无条件**发 `__e.Dispose()`：照本节写的最小枚举器编译会报
-> `E0401: no method Dispose`，位置还指在 `foreach` 那一行、不提这个调用是脱糖合成的 ——
-> 读者对不上号，只能被迫给每个自定义枚举器加一个空 `Dispose(){}` 桩。
 
 ## 协议接口
 
@@ -135,9 +107,6 @@ foreach (var kv in dict) { /* kv.Key / kv.Value */ }
 
 **遍历顺序不作保证**。只要键或只要值时，`Keys()` / `Entries()` 仍然可用，但它们返回的是
 **快照数组**（每次调用分配一次），逐项遍历用 `foreach (var kv in dict)` 更省。
-
-> 2026-09 之前第 2 条只看「有没有 `get_Item`」，`Dictionary` 因此被判去走索引路径 ——
-> `foreach` 跑满 `Count` 轮、每轮取到 `0`，且**没有任何诊断**。现已修正。
 
 ## 已知陷阱
 

@@ -1,6 +1,5 @@
 # z42.core —— 控制台、文件、目录与路径
 
-> 对齐：2026-09-17（change `restructure-docs-three-books`）；
 > 包路径 `src/libraries/z42.core/src/IO/`；命名空间 `Std.IO`
 
 脚本层最常用的一组静态类：`Console` 读写标准流、`File` / `Directory` 做一次性文件与目录

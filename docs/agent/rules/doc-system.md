@@ -115,21 +115,21 @@ learn  ──链──▶  reference          internals  ──链──▶  lea
 |---|---|---|
 | `learn` | 按 `OUTLINE.md` 推进；被覆盖特性变更时同步 | `xtask test examples`——代码与终端输出**逐条真实重放** |
 | `reference` | 特性落地即更新规则页；新 stdlib API 即更新包页 | 人工 + `xtask test docs` |
-| `internals` | PR 合并前**知识上浮**；踩坑即补「为什么」 | 人工 + 页头「对齐」日期 |
+| `internals` | PR 合并前**知识上浮**；踩坑即补「为什么」 | 人工（PR 合并前知识上浮） |
 
 ## 五、三道门
 
 | 门 | 内容 |
 |---|---|
 | **① 同一个 PR** | 文档与代码同分支同 PR。禁止「代码先合、文档后补」——README 同步、机制页都是这次变更**本身**的一部分 |
-| **② `xtask test docs`** | 机械检查：相对链接可解析（死链清零）；每个 `.md` 挂进所属书 SUMMARY；页头有「对齐」字段；命令面改名后旧名 grep 清零；learn ↔ examples 双向引用（B1–B10） |
+| **② `xtask test docs`** | 机械检查：相对链接可解析（死链清零）；每个 `.md` 挂进所属书 SUMMARY；命令面改名后旧名 grep 清零；learn ↔ examples 双向引用（B1–B10） |
 | **③ 合并前 doc-check 清单** | 人工兜底，见下 |
 
 **合并前 doc-check 清单**（全部勾上才能合并）：
 
 - [ ] 三问逐条过一遍，命中的文档均已更新
 - [ ] 所改目录的 README 六段齐全（六段制见 [code-organization.md](code-organization.md)）
-- [ ] 所改 / 新写的书页：页头「对齐」日期已刷新、代码路径可解析、已挂入所属书的 `SUMMARY.md`
+- [ ] 所改 / 新写的书页：页面描述的是当前状态、代码路径可解析、已挂入所属书的 `SUMMARY.md`
 - [ ] 本次触及文档中的相对链接均可解析（`xtask test docs` 绿）
 - [ ] **删 / 改 / 重命名任何命令面**（xtask 子命令、CLI verb、工程文件字段、脚本入口）时，
       `grep -rn "<旧名>" docs/ scripts/ .claude/` 必须清零——命令面重构的文档半径系统性被低估，

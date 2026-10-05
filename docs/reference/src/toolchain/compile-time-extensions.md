@@ -14,9 +14,9 @@ path 条目据此校验，`[dependencies]` 据此拒收。
 
 > 契约包（`z42c.syntax` / `z42c.core` / `z42c.semantics`）是 **SDK 库**：住在 `programs/z42c/`、
 > 不在 `libs/`。`kind = "analyzer"` 自动看得见它们；普通工程（`kind = "lib"` / `"exe"`）要在
-> `[dependencies]` 里**按名声明**才可见（add-sdk-libs，2026-10-01；此前普通工程声明了也解析不到）。
+> `[dependencies]` 里**按名声明**才可见。
 
-> 本页所有代码片段都来自实跑通过的最小工程（2026-09-23；path 条目 2026-09-25）。
+> 本页所有代码片段都来自实跑通过的最小工程。
 
 ## `[analyzers]` 段
 
@@ -75,8 +75,7 @@ path 条目据此校验，`[dependencies]` 据此拒收。
 `ModuleGenerator` 的类型），报 **E0496**。成因两个：挂错了包（那是个普通库），或这个 handler 由
 **另一代编译器**编出、契约接口对不上——后者用当前工具链重建该 handler 工程即可。
 
-> 此前这种情形**零诊断、退出码 0**：扩展干脆不跑，而编译照常成功。「声明了、也没报错、就是
-> 不生效」是最难查的一类，因为没有任何东西提示你去查。
+> 这里必须报错：否则扩展干脆不跑而编译照常成功，「声明了、也没报错、就是不生效」是最难查的一类。
 
 zpkg **格式**代差（handler 由另一代工具链编出、wire 格式已经 bump 过）是另一条路：加载时就被
 拦下，报 **E0493**，消息里直接说出两边的格式版本号。
@@ -224,11 +223,8 @@ generator 跑在 bind **之后**，拿得到解析后的符号（`Z42ClassType` 
 | `kind = "analyzer"` | **自动**，免声明 | 不拷：加载进 z42c 进程，用宿主那份 |
 | `kind = "lib"` / `"exe"` | **按名声明**才可见；未声明 ⇒ `E0494`，并点名提供它的 SDK 库与声明写法 | exe 拷进输出目录（连同传递依赖） |
 
-> 📌 **曾经有过一个 `compiler-libs/` 目录**，本页此前就是按它写的。实测发现它**在发布态恒不
-> 存在**（只有开发树靠探测序的最后一档命中）—— 也就是说「用户能写 generator」在发布的 SDK 里
-> 一直是空的。`relocate-compiler-domain-libs`（2026-09-28）把整个机制删掉，落点改成已经真实
-> 存在的 `programs/z42c/`。普通工程（非 analyzer）要引用编译器域的库，在 `[dependencies]` 按名
-> 声明即可，见 [z42-toml.md](z42-toml.md)。
+> 📌 编译器域的库落在 `programs/z42c/`（不存在 `compiler-libs/` 目录）。普通工程（非 analyzer）
+> 要引用编译器域的库，在 `[dependencies]` 按名声明即可，见 [z42-toml.md](z42-toml.md)。
 
 所以一个 generator 工程的清单长这样：
 
@@ -249,7 +245,3 @@ kind    = "analyzer"
 "demo.gen" = { path = "../gen" }
 ```
 
-> 在 2026-09-24 之前这条路是断的：契约 zpkg 只作为 z42c 的 payload 落在 `programs/z42c/`，
-> **在 SDK 目录里、却不在解析器会去看的地方**，插件作者拿到的是一句位置在别处的
-> `E0443: undefined type: ModuleGenerator`，且没有任何东西会诊断它。引擎、loader、多轮调度
-> 当时全是通的——只差包模型里的一个**角色**维度。

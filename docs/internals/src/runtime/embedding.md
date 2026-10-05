@@ -1,6 +1,5 @@
 # 嵌入宿主 API（VM 侧实现）
 
-> 对齐：2026-09-17（change `restructure-docs-three-books`）。
 > 代码：`src/runtime/src/host/`（`mod.rs` extern "C" 分发 · `config.rs` 配置校验 · `error.rs` 状态码与 TLS
 > last_error · `state.rs` 单例状态 · `ops.rs` 加载/解析/调用 · `marshal.rs` 值编组 · `resolver.rs` zpkg 钩子）、
 > `src/runtime/include/z42_host.h`（Tier 1 头文件）、`src/runtime/crates/z42-host/`（Tier 2 crate）、
@@ -122,9 +121,8 @@ pub(crate) struct HostState {
 第 4 步选 eager 而不是靠 `declared_candidates` 懒解析，是刻意的：宿主是单实例、每次 `load_zbc`
 只走一遍依赖，用一点加载期开销换「invoke 期间不会有意外的懒查找」。
 
-> 第 5 步必须走 `boot::boot_context`，不能手抄。这条路径曾经手工复制过一份更老的子集
-> （没有 cctor 注册、没有 lazy loader 播种、没有 availability 折叠、module 放在 ctx 外面），
-> 结果嵌入路径的静态初始化行为和 `z42vm` 不一致。
+> 第 5 步必须走 `boot::boot_context`，不能手抄。手抄的子集会缺 cctor 注册、
+> lazy loader 播种、availability 折叠，导致嵌入路径的静态初始化行为和 `z42vm` 不一致。
 
 静态初始化本身挂在 `HostModule::static_init: OnceLock<Result<(), String>>` 上，
 第一次 invoke 时跑、且**只跑一次**（`init_static_fields` 会先清空所有静态字段，跑第二遍会把已初始化的状态抹掉）。
@@ -174,8 +172,8 @@ pub trait ZpkgResolver: Send + Sync {
 
 平台 facade 自己的「namespace → 字节」表**由读 zpkg 的 `NSPC` section 派生**，没有索引文件。
 一份 zpkg 通常提供多个 namespace（`z42.core.zpkg` 同时 ship `z42.core` / `Std` / `Std.Exceptions` …），
-所以不能假设 `namespace == 文件名`；早先那张手维护的 `index.json` 是 `NSPC` 之外的**第二真相源**、
-必然漂移，已经删掉。
+所以不能假设 `namespace == 文件名`；手维护的 `index.json` 会是 `NSPC` 之外的**第二真相源**、
+必然漂移，所以不用。
 
 | 平台 | 默认 resolver | 位置 |
 |---|---|---|

@@ -2,11 +2,11 @@
 
 > 本页讲 z42 VM 运行时**观测面**的实现机制：计数器面、并发探针、以及 safepoint **采样 profiler**
 > （z42 函数火焰图 + perfetto 采样 trace）。目标是让接手者不必读大量源码即可理解「为什么这样设计」。
-> 完整设计蓝图（含尚未落地的 span/事件流）见 [`docs/internals/src/runtime/diagnostics-design.md`](diagnostics-design.md)。
+> 完整设计蓝图（含尚未实施的 span/事件流）见 [`docs/internals/src/runtime/diagnostics-design.md`](diagnostics-design.md)。
 
-脚本性能分析程序（plan-script-profiling）分四步落地，全部**格式中立**（无 zbc/zpkg bump）：
+脚本性能分析由下列层次构成，全部**格式中立**（无 zbc/zpkg bump）：
 
-| 阶段 | 交付 | 落点 |
+| 层 | 内容 | 落点 |
 |------|------|------|
 | P0 | `xtask profile` CLI + `z42vm --print-stats-on-exit --stats-format=json` | `scripts/xtask_profile.z42`、`counters.rs` |
 | P1a | `ProfileSnapshot`：counter 快照 + 堆派生 allocations + GC 分代 | `counters.rs`、`gc/types.rs` |
@@ -35,8 +35,8 @@ z42 的观测遵循**两层成本**原则（design §6）：
 
 ### 2.1 动机
 
-`xtask profile --cpu` 原本只有 **samply**（native）：给的是 **Rust / JIT machine** 栈。对「哪个 **z42
-函数**吃 CPU」很不直观——JIT code 是 mangled machine frame、interp 全在 dispatch loop 里。P2 补上按
+`xtask profile --cpu` 的 **samply**（native）层给的是 **Rust / JIT machine** 栈。对「哪个 **z42
+函数**吃 CPU」很不直观——JIT code 是 mangled machine frame、interp 全在 dispatch loop 里。采样 profiler 补上按
 **z42 源函数**聚合的采样火焰图：`Main;foo;bar` 这样的 z42 调用栈 + 采样计数。
 
 ### 2.2 机制：复用协作式 safepoint（零信号 / 零 ptrace）
@@ -81,7 +81,7 @@ flowchart TD
 ### 2.4 perfetto trace 是**采样型**（非 span 埋点）
 
 chrome/perfetto trace 常见于「每帧 enter/exit 精确计时」的 **span 埋点**——那需要给每次调用插桩、
-违反默认零成本、且依赖 design §4.2 尚未落地的 span 基建。z42 的 perfetto 输出**绕开**它：chrome trace
+违反默认零成本、且依赖 design §4.2 尚未实施的 span 基建。z42 的 perfetto 输出**绕开**它：chrome trace
 格式**原生支持采样** profiling（`ph:"P"` sample 事件 + `stackFrames` 帧树），故用同一次采样的栈快照
 即可，零额外热路径成本。
 
@@ -104,7 +104,7 @@ chrome/perfetto trace 常见于「每帧 enter/exit 精确计时」的 **span �
 | `Z42_SAMPLE_OUT` | folded 输出路径 | `z42-samples.folded`（仅采样开时写）|
 | `Z42_TRACE_OUT` | chrome/perfetto trace 路径；设了才记时间线 | unset = 不写 trace |
 
-`xtask profile --cpu <script>` 现在两层都跑：samply（native）+ 用 `Z42_SAMPLE_HZ=4000`(+`Z42_TRACE_OUT`)
+`xtask profile --cpu <script>` 两层都跑：samply（native）+ 用 `Z42_SAMPLE_HZ=4000`(+`Z42_TRACE_OUT`)
 跑一遍 → `inferno-flamegraph` 渲 SVG（缺则留 `.folded` + 安装提示）+ perfetto trace 产物（镜像 `--heap`
 的 dhat 产物模式；缺工具永不让 profile 失败）。
 
@@ -124,7 +124,7 @@ chrome/perfetto trace 常见于「每帧 enter/exit 精确计时」的 **span �
 
 ## 4. 交叉引用
 
-- 设计蓝图（含 span/事件流/统一总线的未落地部分）：[`docs/internals/src/runtime/diagnostics-design.md`](diagnostics-design.md)
+- 设计蓝图（含 span/事件流/统一总线的未实施部分）：[`docs/internals/src/runtime/diagnostics-design.md`](diagnostics-design.md)
 - 堆保留诊断（whyRetained）：[heap-diagnostics.md](heap-diagnostics.md)
 - safepoint / GC 暂停机制：[GC]() ·（`gc/safepoint.rs`）
 - interp/JIT 语义单一真相源：[interp-jit-semantics.md](interp-jit-semantics.md)

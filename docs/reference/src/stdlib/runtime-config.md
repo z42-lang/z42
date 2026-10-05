@@ -1,6 +1,5 @@
 # `Std.Runtime.RuntimeConfig` —— 只读地查询运行时旋钮
 
-> 对齐：2026-09-17（change `restructure-docs-three-books`）；
 > 包路径 `src/libraries/z42.core/`（`src/Runtime/RuntimeConfig.z42`）；
 > 命名空间 `Std.Runtime`
 

@@ -1,6 +1,5 @@
 # `Std.String` —— 字符串的方法面
 
-> 对齐：2026-09-17（change `restructure-docs-three-books`）；
 > 包路径 `src/libraries/z42.core/`（`String.z42` / `String.Split.z42` / `String.Edit.z42`）；
 > 命名空间 `Std`
 

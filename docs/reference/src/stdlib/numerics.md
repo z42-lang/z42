@@ -1,6 +1,5 @@
 # z42.numerics —— 任意精度整数 / 十进制定点 / 复数
 
-> 对齐：2026-09-17（change `restructure-docs-three-books`）；
 > 包路径 `src/libraries/z42.numerics/`；命名空间 `Std.Numerics`
 
 三个互不依赖的数值类型，都是引用类型，按**不可变**使用——每个运算返回新对象，从不改动接收者：

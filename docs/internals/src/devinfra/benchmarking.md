@@ -1,6 +1,6 @@
 # 性能基准与回归门禁
 
-> 对齐：2026-10-04（change `move-cargo-config`）｜ 代码：`scripts/xtask_bench.z42`、`scripts/common/xtask_bench_pause.z42`、`src/bench/`、`src/runtime/benches/`、`.github/workflows/bench-pr.yml`
+> 代码：`scripts/xtask_bench.z42`、`scripts/common/xtask_bench_pause.z42`、`src/bench/`、`src/runtime/benches/`、`.github/workflows/bench-pr.yml`
 >
 > 命令与旗标以 `xtask bench -h` / `xtask bench stdlib -h` 为准。
 
@@ -17,8 +17,8 @@ benchmark 基础设施回答一个问题：**这次改动让 z42 变慢了吗？
 | **Rust micro** | criterion | `src/runtime/benches/gc_cycle_bench.rs` | VM 内部热路径（GC cycle / minor / sweep / alloc）| ⚠️ **只打印、不判红**（仅 `src/runtime` 有非文档改动时才测）|
 
 e2e 捕获全管线回归（启动开销 / dispatch / 整体吞吐）；micro 把回归定位到具体函数、守 stdlib 热路径。
-前两层都由[可疑即复测](#5-可疑即复测)决定最终判定——它们此前的共同病根是「区间低估约三倍」，
-复测把那部分方差测出来之后病根就没了。
+前两层都由[可疑即复测](#5-可疑即复测)决定最终判定——它们的共同病根是「区间低估约三倍」，
+复测把那部分方差测出来，病根即消除。
 
 **criterion 是唯一只打印不判红的一层**：同样的病根，但它的复测代价不成比例（一轮 A/B 约 390 s，
 重采两轮再加约 780 s），而 GC 热路径的真回归会在 e2e 的 gate 场景里露头
@@ -202,7 +202,7 @@ exit 2，不是「没有回归」）；某条 benchmark 没有出现在**每一�
 
 ## 6. 噪声底与阈值（改阈值前必须先读）
 
-门禁曾经每个 PR 期望假红约 2 条，连续 4 次失败逐条核对**全部是假红**。三个叠加缺陷：
+若不做下述处理，门禁每个 PR 期望假红约 2 条（实测连续 4 次失败逐条核对**全部是假红**）。三个叠加缺陷：
 
 **① 判红阈值画在噪声底之下。** 拿两个**应当 perf-neutral 的 PR** 反推真实噪声
 （比值对数标准差 × 1.96）：
@@ -248,7 +248,7 @@ e2e 情况好些（hyperfine 跨 10 次**进程启动**采样，声称 7.9% vs �
 （一次 `gc_cycle/large_array_10k +13.2%`，作者五分钟后照常合并；另有两例出现在 base 与 pr 的 VM
 代码**逐字节相同**的对照上）。
 
-两个曾经的根因都修掉了，但**结构性缺陷修不掉**：
+两个已知根因都已修掉，但**结构性缺陷修不掉**：
 
 | 根因 | 修法 |
 |---|---|
@@ -317,8 +317,8 @@ criterion 层噪声底的实测（同一个 PR 的四次跑，**每次 base 与 
 
 **Rust 依赖缓存在 main 上预热**（`bench-cache-warm` job：push 到 main 且动了 `src/runtime`（含其 `.cargo`）/ 本
 workflow，外加每周一次与手动触发）。原因是 GitHub 的缓存作用域：PR 分支上存的缓存**只有这个 PR 自己**能读，
-main 上存的才对所有 PR 可见。此前只有 PR 在存——每个新 PR 都冷编一轮，同一个 key 每个 PR 各存一份 172 MB，
-还挤占仓库 10 GB 的缓存配额。现在 PR 侧 `save-if: false` 只读；预热 job 编的东西与门禁实际会编的一致
+main 上存的才对所有 PR 可见。若让 PR 自己存，每个新 PR 都冷编一轮，同一个 key 每个 PR 各存一份 172 MB，
+还挤占仓库 10 GB 的缓存配额。所以 PR 侧 `save-if: false` 只读；预热 job 编的东西与门禁实际会编的一致
 （z42vm + z42-compression + `gc_cycle_bench` 的 bench profile），Rust 配置逐字相同，key 才对得上。
 
 ### 第 3 步自检守的是什么

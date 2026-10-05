@@ -1,6 +1,6 @@
 # 嵌入式运行与测试 agent（app-run 核心 · bundle · 栈预算）
 
-> 对齐：2026-10-04（change `move-cargo-config`）｜ 代码：
+> 代码：
 > `src/runtime/src/app.rs`（`z42::app::run` 核心）、`src/runtime/src/host/mod.rs`（C ABI
 > `z42_host_run_app`）、`src/runtime/include/z42_host.h`（公有头）、
 > `src/runtime/crates/z42-host`（Rust wrapper）、
@@ -12,8 +12,8 @@
 >
 > 平台管线与 CI 拓扑见 [跨平台测试](cross-platform.md)；runner 协议见 [测试框架机制](framework.md)。
 
-「跑一个 z42 app」在 desktop 与 mobile 曾是两套模型：desktop 的 apphost **spawn** 一个外部 z42vm，
-mobile **嵌入** z42vm（进程内）。统一到**嵌入模型**——四个平台都进程内嵌 VM——才能让一份
+「跑一个 z42 app」在四个平台上都是**嵌入模型**——进程内嵌 VM（desktop 的 apphost 若 spawn 外部 z42vm
+则是另一条路）。这样才能让一份
 test-agent 与一份 app-run 代码全平台共享；而且这条嵌入路径同时是 workload 面向用户构建
 跨平台 app 的地基。读这页的时机：要改嵌入入口、加一个平台的测试宿主、或者在排查
 「只在设备上崩、desktop 好好的」这类问题。
@@ -163,8 +163,8 @@ _enumerateCorpus(root, filter)        → _CorpusCase[]   （结构化，rid 无
 - **`_shardCorpus`（`--shard k/n`）** —— **不设 cap**，取 `included[]` 里 `index % n == k-1` 的那一片。
   n 片并集 = 全集、零重叠、可复现。nightly tier-2 用它跑全覆盖。
 
-> 采样的旧实现是「排序后取前 60」，结果字母序靠前的类别（arith / array…）挤满预算，
-> 靠后的（try / string / stdlib 单元）一个都抽不到——覆盖面偏斜。round-robin 是为了修这个。
+> 采样不用「排序后取前 60」：那会让字母序靠前的类别（arith / array…）挤满预算，
+> 靠后的（try / string / stdlib 单元）一个都抽不到——覆盖面偏斜。所以用 round-robin。
 >
 > **本地怎么验**：`xtask test embedded --rid iossim-arm64 [--shard k/4]` 会打印
 > `bundle: N cases` 与采样/分片报告，看被抽到的 case 名跨类别分布、或确认 n 片并集=全集，

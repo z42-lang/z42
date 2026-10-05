@@ -1,6 +1,6 @@
 # `z42c` / `z42b` / `z42d`
 
-> 对齐：2026-09-17（change `restructure-docs-three-books`）｜ 代码：
+> 代码：
 > `src/compiler/z42c.driver/src/Main.z42`（z42c 入口与退出码契约）、
 > `src/compiler/z42c.driver/src/BuildCommand.z42`（`build` 的选项解析）、
 > `src/compiler/z42c.semantics/src/Optimization/OptSet.z42`（优化名表）、
@@ -182,7 +182,7 @@ z42b 编译为 `z42.builder.zpkg`，用户通过 launcher 到达它的命令：
 测试 / bench 目标**继承父包**的 `[optimize]` / `[syntax]` / `[lints]` / `[analyzers]`。
 
 与 `z42c build` 的差别：z42b 只产出 packed 单产物——显式写 `pack = false` 是用法错误；`[[exe]]` 多入口不认；
-没有增量缓存。编译**警告**以 `warning:` 前缀打到 stderr（此前成功时警告被丢弃）。
+没有增量缓存。编译**警告**以 `warning:` 前缀打到 stderr。
 
 ## `z42d install <target>`
 

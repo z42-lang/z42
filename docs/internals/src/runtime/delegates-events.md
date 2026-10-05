@@ -1,6 +1,6 @@
 # 委托与事件的实现
 
-> 对齐：2026-09-17。用户视角的语法与 API 见参考手册的「委托与事件」；本页只回答
+> 用户视角的语法与 API 见参考手册的「委托与事件」；本页只回答
 > 「为什么这样设计、编译期和运行期各做了什么、在哪改」。
 
 涉及三层：编译器（`delegate`/`event` 的解析与脱糖、方法组转换）、运行时（closure 值表示 +
@@ -43,8 +43,8 @@
 | K13 | `event` 关键字 = 多播类型字段的语法糖 | C# 视觉一致；底层无新机制 |
 | K14 | 三个性能优化是实现强约束 | strong 路径必须达 C# 等价；见 §4 |
 
-**K8 的实施偏差**：写规范时 `Failures` 提案为 `Dictionary<int, Exception>`；实际落地为
-`Exception[] Failures` + `int[] FailureIndices` **平行数组**，为的是避开 stdlib 里
+**K8 的形状**：`Failures` 是 `Exception[]` + `int[] FailureIndices` **平行数组**
+（不是 `Dictionary<int, Exception>`），为的是避开 stdlib 里
 `z42.core` 对 Dictionary 的依赖。用户可见 API 因此是 `.Length` + 双下标，不是 `.Count` +
 `foreach (var (i, ex) in ...)`。
 
@@ -52,8 +52,8 @@
 
 ### 2.1 没有专属 IR 指令
 
-设计期曾规划 `DelegateNew` / `DelegateInvoke` 两条 IR opcode 和一个 zbc `DELG` section
-——**都没有落地，也不该再去做**。实际走的是通用闭包路径：
+没有专属的 `DelegateNew` / `DelegateInvoke` IR opcode，也没有 zbc `DELG` section，
+走通用闭包路径：
 
 | 用途 | 实际指令 |
 |---|---|
@@ -65,7 +65,7 @@ delegate 类型自身在 IR 里由 `StubEmitter._emitDelegateInvoke`
 （`src/compiler/z42c.semantics/src/Emission/StubEmitter.z42`）合成一个 `Invoke` 桩函数，
 由 `IrGenAuxEmitter` 挂进模块；跨 zpkg 导出走通用类型元数据通道。
 
-### 2.1a `.Invoke(args)` 为什么不派发到那个桩（add-delegate-invoke-syntax）
+### 2.1a `.Invoke(args)` 为什么不派发到那个桩
 
 `d.Invoke(args)` 在**绑定期**就被脱糖成与括号调用 `d(args)` **同一个** `BoundIndirectCall`
 节点（`MemberResolver.Func.z42`），发的还是 `CallIndirect` ⇒ **零 VM 改动、零新指令、
@@ -77,15 +77,14 @@ TypeDesc** 索引 vtable；委托值在 VM 里是 `FuncRef` / `Closure` / `Stack
 TypeDesc**（`interp/vcall_resolve.rs` 直接 bail）。所以桩永远派发不到，它只服务**反射签名
 与跨包元数据重建**。
 
-⚠️ 修之前 `.Invoke` 恰恰走到了 VCall 那条死路上：`_bindInstanceMemberCall` 没有
+⚠️ 若不在绑定期脱糖，`.Invoke` 会走到 VCall 那条死路上：`_bindInstanceMemberCall` 没有
 `Z42FuncType` 分支 ⇒ fallthrough 到 prim 收者路径 ⇒ `HasClass("Action<string>")` 恒假
 （delegate 不进 `SymbolTable.Classes`，它在 `SymbolTable.Delegates`）⇒ 跳过诊断闸门 ⇒
 撞上「查无则松绑 Unknown」兜底 ⇒ 发 VCall ⇒ 运行期 `VCall: expected object, got FuncRef(...)`，
 **编译期零诊断且不可 catch**。
 
-同一条路上的实参个数校验也是那时补的（`OverloadBinder._checkFuncValueArity`）：此前
-`BoundIndirectCall` 从不校验个数 —— 多传**静默丢掉**多余实参，少传让形参拿到 `Null`
-再崩在别处。🔴 **型参收者（`where T : Func<..>`）刻意不校验**：返回类型是 Unknown、
+同一条路上的实参个数由 `OverloadBinder._checkFuncValueArity` 校验：不校验的话
+多传会**静默丢掉**多余实参，少传让形参拿到 `Null` 再崩在别处。🔴 **型参收者（`where T : Func<..>`）刻意不校验**：返回类型是 Unknown、
 擦除后形参表不可信，校验会误报。
 
 ### 2.2 方法组转换
@@ -94,10 +93,9 @@ TypeDesc**（`interp/vcall_resolve.rs` 直接 bail）。所以桩永远派发不
 （slot 表在 `boot.rs` 的 `alloc_func_ref_slots` 分配）。反复进入同一作用域不重复分配，消除
 C# 高频 callback 路径的 GC 压力。
 
-> ⚠️ **这条只覆盖自由函数，不覆盖类的静态方法**（2026-09-26 实测）：
+> ⚠️ **这条只覆盖自由函数，不覆盖类的静态方法**：
 > `Func<int,int> f = C.F;` 报 `E0401: undefined: C`，类内不限定写 `F` 报 `undefined: F`
-> —— 静态方法组转换**整条没接**，两种拼写都不行。本页旧措辞写的是「静态方法组」，
-> 容易读成「类的静态方法也走这条」。既存缺口，候选后续 `support-static-method-group-conversion`。
+> —— 静态方法组转换**整条没接**，两种拼写都不行。既存缺口，候选后续 `support-static-method-group-conversion`。
 
 **实例方法组** `obj.Method`（D-1b）→ 编译期合成一个 static thunk：
 
@@ -110,15 +108,15 @@ emit `MkClos(thunk, [recv])`；thunk 体内对 `env[0]` 做 vcall。合成点在
 **这条路径没有 static slot 缓存**——每次求值分配一个 Closure。§2.3 的弱引用协议依赖
 "receiver 一定落在 `env[0]`" 这个约定。
 
-#### 重载自由函数取引用：typer 选键、emitter 发键（add-target-typed-funcref-resolution）
+#### 重载自由函数取引用：typer 选键、emitter 发键
 
-自由函数支持按参数类型重载后（free-function-overloads，#731/#739），把一个**重载**自由函数当值
+自由函数支持按参数类型重载，把一个**重载**自由函数当值
 取引用需要在候选间**定向**。关键在**发射键**：`LoadFn @<name>` 存的是函数名字符串，运行期
 `call_indirect`（`exec_call.rs`）用它查 `module.func_index`——与一次普通自由函数 `Call` **同一张表**、
 同一 key（`QualOf(ns, RegKey)`）。所以选中哪个重载，就发它的 **RegKey**：
 
 - **primary**（声明序首个同名）= 裸键（`Kind`）；**非-primary** = mangle 键（`Kind$1$long`）。
-  primary 时 `RegKey == FuncName` ⇒ 既有单份取引用的发射逐字节不变（#414 primary-bare 复用），
+  primary 时 `RegKey == FuncName` ⇒ 既有单份取引用的发射逐字节不变（primary-bare 复用），
   零格式 bump、零 VM 改动、不动点 3/3 gen1==gen2 逐字节复现。
 
 **跨组件契约**：绑定期 `ExprTyper.Funcref.z42:_bindFuncRefTargeted` 按目标委托签名精确选中重载，
@@ -154,7 +152,7 @@ emit `MkClos(thunk, [recv])`；thunk 体内对 `env[0]` 做 vcall。合成点在
 
 ### 2.4 `event` 脱糖在哪
 
-- **解析 + 访问器合成**：`src/libraries/z42c.syntax/src/MemberParser.z42`
+- **解析 + 访问器合成**：`src/compiler/z42c.syntax/src/MemberParser.z42`
   （`_synthEventAccessor` 多播 / `_synthSinglecastAccessor` 单播 / `_isMulticastEventType` 判别）。
   多播 event 字段无初始化器时在这里补 `new MulticastXxx<...>()`。
 - **`+=` / `-=` 改写**：`src/compiler/z42c.semantics/src/Binding/AssignTyper.z42` 的 `+=`/`-=` 分支，
@@ -175,12 +173,8 @@ emit `MkClos(thunk, [recv])`；thunk 体内对 `env[0]` 做 vcall。合成点在
 
 ### 2.6 嵌套 delegate
 
-嵌套 `delegate` 声明曾经**根本没被解析**——自举迁移时 `MemberParser._parseMemberBody` 没有
-`delegate` 分支，`delegate` 被当成一个类型名，整条声明报废、该 delegate 类型整体消失。
-D-6 的 golden（`src/tests/delegates/nested_delegate_dotted.z42`）因此带着 12+ 条编译错误
-"通过"了四个月——`--emit-zbc` 吞诊断所致。
-
-现行实现走 `NestedFlatten` 的 `Outer+Inner` 展平（与嵌套 class/enum 同机制），引用侧写
+`MemberParser._parseMemberBody` 有 `delegate` 分支解析嵌套 `delegate` 声明
+（golden：`src/tests/delegates/nested_delegate_dotted.z42`）；实现走 `NestedFlatten` 的 `Outer+Inner` 展平（与嵌套 class/enum 同机制），引用侧写
 `Outer.Inner`（`SymbolTable.ResolveTypeP` 的 dots→`+` 兜底）。
 **代价：类内部裸名 `OnClick handler;` 不解析**，类内外一律得写限定名。
 展平与"拿名字当键"的纪律见
@@ -209,8 +203,7 @@ advanced[] + advancedAlive[]   ← ISubscription 包装，slow loop 走 IsAlive/
 **索引口径**：`FailureIndices` 是"实际调用序"的 0-based 下标（strong 先、advanced 后），
 **不是** `strong[]` / `advanced[]` 的物理下标——中间被跳过的死槽不计数。
 
-**设计文档里那段 Rust 伪码是错的**：早期规范把 `MulticastStorage` 写成 VM 内部的 Rust
-结构体。实际实现全在 z42 stdlib，VM 侧对多播一无所知。
+多播存储**全在 z42 stdlib**（不是 VM 内部的 Rust 结构体），VM 侧对多播一无所知。
 
 ## 4. 三个性能约束
 
@@ -235,7 +228,7 @@ JIT 可内联消除。备选的 C-2（marker interface `IStatefulSubscription`�
   源码侧仍写 `MulticastException`。
 - 构造器用 `: base(failures, indices, totalHandlers)` 委托，父类设三个字段，子类只设
   `Results`。
-- 对外是 **plain field**（不是属性），`SuccessCount()` 是方法而非属性——与 stdlib 当时
+- 对外是 **plain field**（不是属性），`SuccessCount()` 是方法而非属性——与 stdlib 的
   的整体风格一致。
 - `catch` 子句 parser 已接受泛型类型（`catch (MulticastException<int> e)`），mangle 到
   `Name$N` 与类注册键对齐。
@@ -268,7 +261,6 @@ SymbolCollector 三层联动。
 ### N>4 arity 的 `Action` / `Func`
 
 规范里"用 `tools/gen-delegates.z42` 脚本生成 0–16 arity"的方案**从未实施，该脚本不存在**。
-原始阻塞（编译器是 C#，跑 z42 脚本生成 z42 源码是循环依赖）已随自举消失，但复核结论是
 **保持 deferred**：examples / tests 里 5+ arity 真实使用 0 个，编译器 / 运行时也无
 per-arity 特殊路径，加 5–16 是纯机械重复。
 

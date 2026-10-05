@@ -1,6 +1,5 @@
 # z42.compression —— 压缩算法与归档格式
 
-> 对齐：2026-09-17（change `restructure-docs-three-books`）；
 > 包路径 `src/libraries/z42.compression/`；命名空间 `Std.Compression`（算法）、
 > `Std.Archive`（归档）、`Std`（异常类型）
 

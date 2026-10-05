@@ -1,9 +1,9 @@
 # 编辑器集成（VSCode 语法高亮）
 
-> 对齐：2026-09-17（change `restructure-docs-three-books`）｜ 代码：
+> 代码：
 > `src/toolchain/devtools/vscode/`（扩展资产）、
 > `scripts/install/xtask_install_vscode.z42`（生成器 + 门禁检查）、
-> `src/libraries/z42c.syntax/src/Lexer.z42`（关键字 SoT）、
+> `src/compiler/z42c.syntax/src/Lexer.z42`（关键字 SoT）、
 > `src/compiler/z42c.driver/src/Main.z42:51`（`--dump-keywords` 路由）、
 > `scripts/test/xtask_test.z42`（gate 挂接）。
 

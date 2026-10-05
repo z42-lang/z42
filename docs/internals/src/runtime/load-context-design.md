@@ -1,21 +1,11 @@
 # 加载上下文（Load Context）：zpkg 重载 / 卸载 / 内存回收
 
-> **页型**: 决策页 ｜ **状态**: 📋 Phase 1/2 已落地（见 [load-context.md](load-context.md)）；**强制清理 / 保留根诊断未实施** ｜ **代码**: —
-> **相关**: [load-context.md](load-context.md) ｜ **对齐**: 2026-09-17
+> **页型**: 决策页 ｜ **代码**: —
+> **相关**: [load-context.md](load-context.md)
+> 待办：**强制清理**（tombstone/trap）、`whyRetained` 完整诊断（L3 引用链 / 具体根名 / 框架边常驻注册）、跨 context 执行、hot-reload 未实施。已实现部分（`AssemblyLoadContext` 运行时模型 + zpkg 身份 `Std.Reflection.Assembly` + `Std.Type.IsCollectible`/`.Assembly`；惰性卸载）见 [load-context.md](load-context.md)。
+>
+> **决策**：目标含**强制内存清理**轴（tombstone/trap 模型：STW → 间接槽改陷阱 + 活对象类型降 tombstone → 确定性 free 码/元数据大头，类型身份 tombstone 随活实例惰性收尾）；§3 "整体卸载"**粒度可调**（context 单元大小由用户决定，可细至单 zpkg / 单类型的 micro-context）。
 
-> **状态：Phase 1 地基 + Phase 2 惰性卸载已落地；强制清理 / 诊断仍 DESIGN** · 创建 2026-06-21
->
-> **已落地**：Phase 1（`add-load-context-model`，2026-07-30）`AssemblyLoadContext` 运行时模型 + zpkg 身份
-> `Std.Reflection.Assembly` + `Std.Type.IsCollectible`/`.Assembly`；Phase 2（`add-lazy-context-unload`，
-> 2026-08-05）**惰性卸载**——`Unload()` 标 Unloading + GC major 回收无引用 context 的 arena（Erlang 等自然死、
-> 反射对象计入保留边）。用户视角机制页见 [`docs/internals/src/runtime/load-context.md`](load-context.md)。
-> **未落地**：**强制卸载**（惰性 §8 已落，强制/tombstone 见决策修订）、`whyRetained` 诊断、跨 context 执行、hot-reload。
->
-> **决策修订（2026-07-27，与 User 讨论）**：§9 决策 (b)"不做确定性强制卸载"已翻转——目标新增**强制内存清理**
-> 轴（tombstone/trap 模型：STW → 间接槽改陷阱 + 活对象类型降 tombstone → 确定性 free 码/元数据大头，
-> 类型身份 tombstone 随活实例惰性收尾）。§3 "整体卸载"放宽为**粒度可调**（context 单元大小由用户决定，
-> 可细至单 zpkg / 单类型的 micro-context）。这两条在后续 change 落地。
->
 > 本文设计 z42 的 **AssemblyLoadContext（ALC）式机制**：把 zpkg 加载进可卸载的上下文，实现代码重载更新，并对不再使用的已加载 zpkg **卸载、回收内存**（含运行时内部 metadata / 缓存池）。
 >
 > 复用 [tiered-execution.md](tiered-execution.md) 的回收+诊断基建（安全点 + 可达性 + 保留边注册 + `inspect_artifacts`），同一地基服务 **tier 回收 / hot-reload / zpkg 卸载** 三件事；组件框架见 [componentized-runtime.md](componentized-runtime.md)；落实 [vm-architecture.md](vm-architecture.md) "多实例 / ALC-like → 全局态 per-handle 化" 的延后项。
@@ -83,12 +73,11 @@ context 自己 arena 内的缓存随 arena 整丢，无所谓；跨 context / �
 
 ## 5. 保留根诊断（核心差异化）
 
-> **已泛化落地（`add-heap-retention-diagnostics`，2026-08-06）**：本节的「保留根诊断」不再绑定
-> AssemblyLoadContext，做成**通用** `Std.Diagnostics.Heap`（任意对象）——见
-> [`docs/internals/src/runtime/heap-diagnostics.md`](heap-diagnostics.md)。已落
-> **第 2 层堆路径路线的 L1（直接引用者）+ L2（保留根，类别级）**（按需反向图堆扫描 + 触发 GC 保准）；
-> **L3 完整引用链 + 具体根名 + 第 1 层框架边常驻注册**延后。context 卸载不回收的诊断 = 对其保留者对象
-> 调用本通用工具。下文为原始设计（含未落地部分）。
+> **已泛化实现**：本节的「保留根诊断」不绑定 AssemblyLoadContext，做成**通用**
+> `Std.Diagnostics.Heap`（任意对象）——见 [`docs/internals/src/runtime/heap-diagnostics.md`](heap-diagnostics.md)。
+> 已实现**第 2 层堆路径路线的 L1（直接引用者）+ L2（保留根，类别级）**（按需反向图堆扫描 + 触发 GC 保准）；
+> **L3 完整引用链 + 具体根名 + 第 1 层框架边常驻注册**未实施。context 卸载不回收的诊断 = 对其保留者对象
+> 调用本通用工具。下文为完整设计（含未实施部分）。
 
 ### 为何 z42 能、.NET 不能
 z42 **自有 GC**：可达性扫描时能记录"引用从哪来"；.NET GC 不暴露 root 来源，用户只能外部 profiler 硬挖。z42 做成内建、context-aware。
@@ -126,11 +115,11 @@ context 持有的 native 扩展库句柄（ext.rs dlopen 的 `libz42_*`）teardo
 
 ---
 
-## 9. 决策记录（2026-06-21，与 User 讨论确定）
+## 9. 决策记录
 | # | 决策 |
 |---|---|
 | a | 接受 all-or-nothing 整体卸载；`type identity = (context,type)` 新旧分离是**特性**，不规避 |
-| b | 接受 GC 惰性卸载（不做确定性强制卸载）；**但必须有保留根诊断**（§5） |
+| b | GC 惰性卸载为基线，另设强制内存清理轴（见页头）；**必须有保留根诊断**（§5） |
 | c | **内部态/缓存池同等回收**（§4）：context arena 确定性 free + 缓存不自钉铁律 |
 
 ---

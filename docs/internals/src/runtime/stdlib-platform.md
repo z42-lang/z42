@@ -1,6 +1,6 @@
 # 平台识别的脚本表面（Std.Platform / Std.OperatingSystem）
 
-> 对齐：2026-09-17（change `restructure-docs-three-books`）｜ 代码：
+> 代码：
 > `src/libraries/z42.core/src/Platform.z42`、`src/libraries/z42.core/src/OperatingSystem.z42`、
 > `src/runtime/src/corelib/platform.rs`、`src/runtime/src/corelib/system.rs`、
 > `src/runtime/src/corelib/builtin_table_ext.rs`（注册）、`src/runtime/src/pal/system.rs`

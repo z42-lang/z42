@@ -1,6 +1,6 @@
 # workload 分发：装什么、从哪来、怎么铺
 
-> 对齐：2026-09-17（change `restructure-docs-three-books`）｜ 代码：`src/toolchain/launcher/core/launcher_workload.z42`、`src/toolchain/launcher/core/launcher_network.z42`、`scripts/package/xtask_release.z42`
+> 代码：`src/toolchain/launcher/core/launcher_workload.z42`、`src/toolchain/launcher/core/launcher_network.z42`、`scripts/package/xtask_release.z42`
 >
 > 命令与旗标怎么敲 → [工具链参考](https://z42-lang.github.io/z42/reference/toolchain/index.html)；
 > 谁在消费这些 workload → [平台发布与导出](platform-export.md)。

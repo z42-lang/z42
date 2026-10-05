@@ -1,6 +1,6 @@
 # 标准库的实现分层与 native 预算
 
-> 对齐：2026-09-17 ｜ 代码：`src/libraries/`（z42 源）、`src/runtime/src/corelib/`（builtin 实现）、
+> 代码：`src/libraries/`（z42 源）、`src/runtime/src/corelib/`（builtin 实现）、
 > `src/compiler/z42c.semantics/src/Emission/StubEmitter.z42`（`[Native]` 分流）
 >
 > 包怎么划分、新包怎么开 → [包划分与依赖层级](organization.md)。
@@ -158,13 +158,13 @@ compression 那 12 个**不在** `BUILTINS` 里——它们由 cdylib 在加载�
 - `__rwlock_*`（9 个）
 - `__channel_*`（6 个）
 
-`Mutex<T>` / `RwLock<T>` / `Channel<T>` 自 `store-sync-values-in-heap` 起改为纯 z42 实现，只用
+`Mutex<T>` / `RwLock<T>` / `Channel<T>` 是纯 z42 实现，只用
 `MonitorNative`（`New` / `Enter` / `TryEnter` / `Exit` / `Wait`）这一组原语——把值放回普通字段让 GC 看得见，
-此前存在 Rust 侧 `parking_lot::Mutex<Value>` 里的值没有 GC 根覆盖。旧的那 19 个 builtin 从此无人
+（值存在 Rust 侧 `parking_lot::Mutex<Value>` 里则没有 GC 根覆盖。）上述 19 个 builtin 现在无人
 声明。因为下标就是 `BuiltinId`，**它们不能删，只能留着占位**。
 
 > 审计时注意：`grep "extern"` 会大量命中注释——`z42.io` / `z42.net` / `z42.json` / `z42.text` 里
-> 提到 extern 的行全是「本文件不再自带 extern，已上移 core」这类说明。要数真实声明必须匹配
+> 提到 extern 的行全是「本文件不自带 extern，已上移 core」这类说明。要数真实声明必须匹配
 > `[Native(` 或带修饰符的 `extern` 声明行。
 
 ## 6. 加载与可见性
@@ -202,4 +202,4 @@ zpkg（含 core）跨平台字节相同**，且**缺 builtin 的 zpkg 仍能正�
 构建把 native-interop builtin 编译掉正属此情形。
 
 **代价**：extern 全在 core 之后，「按包有没有 extern 判定平台纯度」这个包级静态信号就没了（core
-声明全部平台原语）。需要表达「这段代码零平台依赖」时改用能力清单 / 方法级标注，不再靠包边界。
+声明全部平台原语）。需要表达「这段代码零平台依赖」时改用能力清单 / 方法级标注，不靠包边界。

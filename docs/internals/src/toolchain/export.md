@@ -1,6 +1,6 @@
 # export：原生工程生成器
 
-> 对齐：2026-09-17（change `restructure-docs-three-books`）｜ 代码：`src/toolchain/launcher/core/launcher_export.z42`、`src/toolchain/workload/{ios,android,wasm}/appbuilder/export.z42`
+> 代码：`src/toolchain/launcher/core/launcher_export.z42`、`src/toolchain/workload/{ios,android,wasm}/appbuilder/export.z42`
 >
 > `[platform.*]` 有哪些键 → [`z42.toml` 参考](https://z42-lang.github.io/z42/reference/toolchain/z42-toml.html)；
 > export 与其它动词的分工 → [平台发布与导出](platform-export.md)。
@@ -123,8 +123,8 @@ wasm 是唯一消费 **`.zbc`**（单模块字节码）而不是 `.zpkg` 的导�
 **pbxproj 用固定 ID。** 换来重复生成字节相同，代价是同一工程里的 ID 必须手工保证不撞。
 
 **xcframework 目前仍靠手工 `cp -r`。** 生成器打印命令提示而不是自动拷贝。
-这条限制当初的理由（stdlib 没有 `Directory.Copy`）**已经不成立**——
-`Std.IO.Directory.Copy(src, dst, recursive)` 早已可用，生成器还没改过来。
+这条限制的理由（stdlib 没有 `Directory.Copy`）**已经不成立**——
+`Std.IO.Directory.Copy(src, dst, recursive)` 可用，生成器还没改成用它。
 
 ## 代码地图
 

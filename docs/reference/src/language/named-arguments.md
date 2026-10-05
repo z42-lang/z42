@@ -1,7 +1,6 @@
 # 命名实参
 
-> **页型**: 语言参考 ｜ **状态**: ✅ 已实现 ｜ **代码**: `z42c.syntax/ExprParser._parseCallArg` + `z42c.semantics/OverloadBinder._adaptArgs` + `z42c.semantics/CallParams`
-> ｜ **对齐**: 2026-09-15（change `fix-crosspkg-named-args`；前序 `fix-overload-defaults-named-args` / `restore-named-arguments`）
+> **页型**: 语言参考 ｜ **代码**: `z42c.syntax/ExprParser._parseCallArg` + `z42c.semantics/OverloadBinder._adaptArgs` + `z42c.semantics/CallParams`
 
 任何形参都可以按**名字**传：
 
@@ -66,10 +65,6 @@ P("h", 1, 2, 3);                       // 位置展开，照旧
 - 「命名实参 + 展开的多个位置元素」（`P(head: "h", 1, 2)`）不支持——那几个位置实参没有空位可落，
   报「找不到方法」。需要展开就全用位置实参。
 
-> 🔴 此前（`fix-crosspkg-named-args` 之前）**只要方法带 `params` 形参，任何命名实参调用都编不过**：
-> 唯一候选是 params 方法时不走实参映射，命名实参的延迟占位被当成 target-typed `new`
-> （`E0437` + `undefined: head`）；归位时又把「params 尾参没给」当成缺实参。
-
 ## 跨包
 
 对另一个包里的函数 / 方法 / 构造器用命名实参，与同包完全一样：
@@ -86,20 +81,20 @@ Painter.K(s: "x");                      // 同 arity 重载，按名字选
 
 ### 机制
 
-形参名一直在 zpkg 里——SIGS 段每个形参都有 `name_str_idx`（zbc 1.25 起恒写）。缺的是读包那一侧：
+形参名在 zpkg 里——SIGS 段每个形参都有 `name_str_idx`（zbc 1.25 起恒写）。读包一侧这样用：
 
-| 环节 | 此前 | 现在 |
-|---|---|---|
-| `TsigReconcile._params`（读包时从 SIGS 重建导出签名） | 名一律合成 `p0/p1/…`（沿用已删除的 TSIG 段的 C# 字节口径） | 取 SIGS 的形参源名（缺失才回落 `p{i}`） |
-| `ImportedSymbolLoader._fillParamMeta` | 只填默认值 / caller 宏 | 同批填 `Z42FuncType.ParamNames` |
-| `CallParams`（名字 → 第几个形参） | 不存在；`_adaptArgs` 与 `OverloadResolver.Map` 各写一遍、都只认本地 `MethodDecl` | 唯一出处：本地看 `MethodDecl`，导入看 `ParamNames` |
-| `_adaptArgs` 补缺位 | 只认本地默认值表达式 | 导入缺位走 `_crossPkgDefault`（与位置调用的跨包补位同一条）；`params` 尾位补空数组 |
+| 环节 | 做法 |
+|---|---|
+| `TsigReconcile._params`（读包时从 SIGS 重建导出签名） | 取 SIGS 的形参源名（缺失才回落 `p{i}`） |
+| `ImportedSymbolLoader._fillParamMeta` | 填默认值 / caller 宏，同批填 `Z42FuncType.ParamNames` |
+| `CallParams`（名字 → 第几个形参） | 唯一出处：本地看 `MethodDecl`，导入看 `ParamNames`（`_adaptArgs` 与 `OverloadResolver.Map` 共用） |
+| `_adaptArgs` 补缺位 | 导入缺位走 `_crossPkgDefault`（与位置调用的跨包补位同一条）；`params` 尾位补空数组 |
 
 名字只在读包时重建进内存里的签名，**不写入任何新字节**，零格式变化。
 
-同一 change 修掉的相邻缺口：**导入的自由函数此前拿不到默认值**——参数默认值以 `$Default` 哨兵挂在
-`IrFunction.ParamAttrs` 上，而 `ParamAttrs` 只在类成员的发射路径（`IrGenMemberEmitter`）填，自由函数
-（`IrGenAuxEmitter`）从不填 ⇒ 跨包 `Label("a")` 对 `Label(string text, int width = 8, …)` 报 `E1005`。
+导入的自由函数同样拿得到默认值：参数默认值以 `$Default` 哨兵挂在
+`IrFunction.ParamAttrs` 上，类成员（`IrGenMemberEmitter`）与自由函数（`IrGenAuxEmitter`）两条发射路径都要填，
+跨包 `Label("a")` 对 `Label(string text, int width = 8, …)` 才能补上默认值（否则报 `E1005`）。
 
 ## 与赋值实参的区分
 
@@ -111,17 +106,6 @@ z42 的判据是 **`x` 是不是当前作用域里的变量**：
 
 判据只此一份（`ExprTyper.IsNamedArg`），解析期的延迟决定与绑定期的归位共用它。
 
-> 🔴 **这里曾有一个静默错值的 bug**（本 change 一并修）：判据以前**不看是不是变量**，于是
-> 一个货真价实的赋值实参 `Greet(who = "Bob")` 被误判成「名为 `who` 的命名实参」→ 没有这个
-> 形参 → 整个适配失败 → **默认参数填充被跳过**，可选形参静默留 `null`（实测打印
-> `null, Bob` 而非 `Hello, Bob`）。
-
-## 历史：这个特性丢过一次
-
-原 spec（`add-named-arguments`, 2026-05-12）是在 **C# bootstrap 编译器**里实现的
-（`z42.Syntax/Parser/ExprParser.Atoms.cs` 的 `IDENT :` 前瞻）。C# 编译器 2026-06-26 移除后，
-**parser 这一半没有被移植到自举编译器**——语义层的归位逻辑（`_adaptArgs`，其注释里写的正是
-`f(x: new())`）一直在等一个永远不会到来的形态，而当时仓库根的演示文件整个用的都是这个语法、
-**从来没有被编译过**。
-
-⇒ 现在由行为 golden `src/tests/named-args/` 把关（断言**重排真的发生**，不是「能编过」就算数）。
+> 🔴 判据必须**看是不是变量**：否则一个货真价实的赋值实参 `Greet(who = "Bob")` 会被误判成
+> 「名为 `who` 的命名实参」→ 没有这个形参 → 整个适配失败 → **默认参数填充被跳过**，可选形参静默留 `null`
+>（打印 `null, Bob` 而非 `Hello, Bob`）。

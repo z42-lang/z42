@@ -1,6 +1,6 @@
 # 执行画像矩阵（exec-profile）
 
-> 对齐：2026-10-02（change `move-perf-to-src-bench`）｜ 代码：
+> 代码：
 > `scripts/common/xtask_exec_profile.z42`（共享模块：`_epProbe` / `_epCellStatus` /
 > `_epModeLabel` / `_epProfileJson` / `_epScenarioRequiredCaps` / `_epCapsMissing`）、
 > `src/runtime/src/corelib/platform.rs`（`__platform_caps` / `__platform_exec_modes` builtin）、

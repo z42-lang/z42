@@ -1,6 +1,8 @@
 # Hot Reload — Runtime Code Updates
 
 > This document describes z42's hot reload mechanism: the ability to update function code at runtime without restarting the VM or losing application state. Designed for game scripting, server applications, and rapid iteration workflows.
+>
+> 待办：本页描述的热重载机制尚未实施（设计页）。
 
 ---
 
@@ -110,7 +112,7 @@ The VM calls these hooks **automatically** when reloading (if they exist).
 
 ## Constraints
 
-### Phase 1 Limitations
+### Limitations
 
 | Constraint | Reason |
 |-----------|--------|

@@ -1,6 +1,6 @@
 # 嵌入 C ABI（`z42_host.h`）
 
-> **对齐**：2026-09-17（change `restructure-docs-three-books`）｜ **代码**：`src/runtime/include/z42_host.h`、`src/runtime/src/host/`
+> **代码**：`src/runtime/include/z42_host.h`、`src/runtime/src/host/`
 >
 > 反方向（native 代码把类型注册**进** z42）见[原生互操作契约](native-interop.md)；两边共用 `z42_abi.h` 的 `Z42Value` / `Z42Args` / `Z42Error`。
 

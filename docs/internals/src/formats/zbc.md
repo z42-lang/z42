@@ -1,7 +1,7 @@
 # zbc 字节码格式
 
-> **页型**: 参考页 ｜ **状态**: ✅ 已实现（v1.46）｜ **代码**: `src/compiler/z42.package/src/BinaryFormat/`（`ZbcFormat.z42` / `ZbcWriter.z42` / `ZbcInstr.z42` / `ZbcReaderInstr.z42`）
-> **相关**: [源代码编译流程](../compiler/source-compile.md) · [zpkg 包格式](zpkg.md) ｜ **对齐**: 2026-07-19
+> **页型**: 参考页｜ **代码**: `src/compiler/z42.package/src/BinaryFormat/`（`ZbcFormat.z42` / `ZbcWriter.z42` / `ZbcInstr.z42` / `ZbcReaderInstr.z42`）
+> **相关**: [源代码编译流程](../compiler/source-compile.md) · [zpkg 包格式](zpkg.md)
 
 ## 概述
 
@@ -116,7 +116,7 @@ interface ×     pool idx
 > 🔴 **这个 u8 已经满了（8/8）**——再加一个类形状位必须扩宽字段或另开一字节，不能「找个空位」。
 > 权威副本在 `src/runtime/src/metadata/bytecode/class.rs`（`CLASS_FLAG_ABSTRACT` …
 > `CLASS_FLAG_HAS_INLINE_STRUCT`，`1 << 0` … `1 << 7`）；z42 侧是裸数字，无常量。
-> ⚠️ 本表曾停在 bit6 整整两代格式（bit7 自 1.32 起在用），**正文表落后 = 下一个分配位的人
+> ⚠️ 正文表必须与实际位同步（bit7 自 1.32 起在用）：**表落后 = 下一个分配位的人
 > 以为 bit7 空着**。加位的同一个 PR 里必须改这一行。
 
 `visibility`：`0` public / `1` private / `2` protected。
@@ -250,7 +250,7 @@ dst       u16    目标寄存器；无目标 = 0xFFFF
 | 0x84 | ArrayLen | `u16 arr` |
 | 0x85 | StrConcat | `u16 a, u16 b` |
 | 0xA0 | LoadLocalAddr | `u16 slot`（ref 参数取址） |
-| 0xA1 | LoadElemAddr | `dst`, `arr:u16`, `idx:u16` — `ref arr[i]` 取址（1.43 起由 z42c 发射；VM 侧 2026-05-05 即可解码执行）|
+| 0xA1 | LoadElemAddr | `dst`, `arr:u16`, `idx:u16` — `ref arr[i]` 取址|
 | 0xA2 | LoadFieldAddr | `dst`, `obj:u16`, `field:u32`(STRS) — `ref obj.f` 取址（同上）|
 | 0xB0 | DefaultOf | `u8 param_index`（`default(T)`） |
 | 0xB1 | Convert | `u16 src`（数值转换） |
@@ -375,5 +375,4 @@ v0.x 的 namespace 提取语义（用于 lazy zpkg 路由）。
 
 ---
 
-> 本表自 `docs/internals/src/formats/zbc.md` 迁入（批 2）。
 > **每次格式 bump 必须在此加一行** —— 见 [version-bumping.md](https://github.com/z42-lang/z42/blob/main/docs/agent/rules/version-bumping.md) 第 3 步。

@@ -1,6 +1,5 @@
 # z42.toml —— TOML 读写
 
-> 对齐：2026-09-17（change `restructure-docs-three-books`）；
 > 包路径 `src/libraries/z42.toml/`；命名空间 `Std.Toml`（异常类 `TomlException` 在 `Std`）
 
 把 [TOML 1.0](https://toml.io/en/v1.0.0) 文本解析成值树（`TomlValue`），或把值树写回 canonical

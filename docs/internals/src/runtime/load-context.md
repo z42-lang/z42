@@ -1,17 +1,16 @@
 # 加载上下文（AssemblyLoadContext / ALC 地基）
 
-> 对齐：2026-08-05（Phase 1 `add-load-context-model` 地基 + Phase 2 `add-lazy-context-unload` 惰性卸载）。
-> 目标架构全景（含**强制清理** / whyRetained 诊断，均未落地）见
+> 待办：**强制清理** / whyRetained 诊断 / 跨 context 执行未实施。目标架构全景见
 > [`docs/internals/src/runtime/load-context-design.md`](load-context-design.md)、
 > [`docs/internals/src/runtime/tiered-execution.md`](tiered-execution.md)。
-> 本页写**已落地**：Phase 1 代码边界 + zpkg 运行时身份；Phase 2 惰性卸载（`Unload()` + GC 回收）。
+> 本页写已实现部分：代码边界 + zpkg 运行时身份；惰性卸载（`Unload()` + GC 回收）。
 
 ## 为什么需要
 
-z42 运行时以往**没有任何代码边界**：`metadata::merge::merge_modules` 把所有 zpkg 塌成
+z42 的 root 区域**没有代码边界**：`metadata::merge::merge_modules` 把所有 zpkg 塌成
 **一个扁平 `Module`**，zpkg 身份在运行时被销毁。没有边界 = 没有可卸载的单元、没有可问
 "被谁引用"的对象、没有可界定"重载范围"的粒度。加载上下文（dotnet `AssemblyLoadContext`
-对标）引入这个边界。**Phase 1 只建边界 + 反射身份**——卸载、热重载是后续 change。
+对标）引入这个边界。边界只承载反射身份与惰性卸载；强制卸载、热重载见上。
 
 ## 模型：root + collectible
 
@@ -28,7 +27,7 @@ z42 运行时以往**没有任何代码边界**：`metadata::merge::merge_module
 
 - **root**（`ContextId(0)`，永驻不可回收）：core / stdlib / 主程序所在。**保持现有扁平
   merge + `MethodId` 位置索引 dispatch，一字不改**——99% 代码在 root，热路径零回归。
-- **collectible**（`CreateCollectible` 按需创建）：各持一个独立 arena（Phase 1 = 一个
+- **collectible**（`CreateCollectible` 按需创建）：各持一个独立 arena（一个
   context-owned `Module`）承载载入的 zpkg，反射可见。
 
 **"粒度比 dotnet 更小"的落点**：dotnet 加载单元固定在 assembly；z42 的 context 单元大小
@@ -42,9 +41,9 @@ z42 运行时以往**没有任何代码边界**：`metadata::merge::merge_module
 | `Std.Runtime.AssemblyLoadContext` | `Default()`（静态） | 永驻 root 上下文 |
 | | `CreateCollectible(name)`（静态） | 建可回收上下文 |
 | | `Name` / `IsCollectible`（实例属性） | 名字 / 是否可回收 |
-| | `Load(zpkgPath) -> Assembly`（实例） | 载入 zpkg（Phase 1 反射可见，暂不可跨 context 调用） |
+| | `Load(zpkgPath) -> Assembly`（实例） | 载入 zpkg（反射可见，暂不可跨 context 调用） |
 | | `GetAssemblies()`（实例） | 已载入的 assembly |
-| | `Unload()`（实例） | 标记 Unloading，GC 惰性回收（Phase 2；root 抛 `InvalidOperationException`）——见下「卸载 / 回收」 |
+| | `Unload()`（实例） | 标记 Unloading，GC 惰性回收（root 抛 `InvalidOperationException`）——见下「卸载 / 回收」 |
 | `Std.Reflection.Assembly` | `Name` / `IsCollectible` / `AssemblyLoadContext` / `GetTypes()` | zpkg 的运行时反射投影 |
 | `Std.Type` | `IsCollectible` / `Assembly`（新增） | 镜像 .NET `Type.IsCollectible` / `Type.Assembly`；root 类型恒 `false` |
 
@@ -77,11 +76,11 @@ root 走现有 `merge_modules`（不动）；collectible 走 `AssemblyLoadContex
 `loader::load_artifact` 解析 zpkg → 存入该 context 的 `AssemblyEntry.module`，**不 merge 进
 root**。`GetTypes()` 按 FQ 名有序返回（`assembly_types` sort，避免 HashMap 非确定序）。
 
-## 卸载 / 回收（Phase 2 · add-lazy-context-unload）
+## 卸载 / 回收
 
 `AssemblyLoadContext.Unload()` 标记 collectible context 为 **Unloading**，由 GC 惰性回收其
-arena。Erlang current/old 语义——**有活实例/反射引用就不回收，等它们自然死**（无 tombstone，
-强制清理是后续）。`Unload()` 是 `void`（fire-and-forget，不保证立即回收）；root 卸载抛
+arena。Erlang current/old 语义——**有活实例/反射引用就不回收，等它们自然死**（无 tombstone；
+强制清理未实施）。`Unload()` 是 `void`（fire-and-forget，不保证立即回收）；root 卸载抛
 `InvalidOperationException`；对 Unloading context 再 `Load` 抛异常。
 
 ### 状态机
@@ -94,7 +93,7 @@ Active ──Unload()──▶ Unloading ──(GC 判定无引用)──▶ Rec
 ### 机制（GC 驱动，major STW）
 
 1. **反查表**（`ContextRegistry.td_to_ctx: HashMap<*const TypeDesc, ContextId>`）：`load_into`
-   时登记 collectible 类型的 `Arc::as_ptr`（root 类型不登记）。不 mutate `TypeDesc`（Phase 1 D5）。
+   时登记 collectible 类型的 `Arc::as_ptr`（root 类型不登记）。不 mutate `TypeDesc`。
 2. **保留边扫描**（`unloading_count > 0` 才激活，零回归）：major GC mark 后、sweep 前，`ArcMagrGC::scan_marked_contexts`
    遍历 marked `ScriptObject`，解析其**两类保留边** → 累积 `live_contexts`：
    - **活实例**：`obj.type_desc` ptr → 反查表；
@@ -110,10 +109,10 @@ GC 侧经 `ContextReclaim` trait（`VmCore` 用 `CoreContextReclaimer` 捕 `Weak
 
 ## 边界与后续
 
-- **Phase 2 不含**：**强制卸载 / tombstone/trap**（有引用就不回收）、`whyRetained` 诊断、细粒度
+- **不含**：**强制卸载 / tombstone/trap**（有引用就不回收）、`whyRetained` 诊断、细粒度
   hot-reload、**跨 context 执行**（collectible zpkg 只保证反射可见，其函数暂不可跨 context 调用）。
 - 既有 `Std.Runtime.Runtime.LoadZpkg` / `CallStatic`（DEFERRED stub）保留不动；`AssemblyLoadContext.Load`
-  是动态加载能力的正确归宿，后续单开小 change 收敛。
+  是动态加载能力的正确归宿，是后续收敛的方向。
 
 ## 关联
 

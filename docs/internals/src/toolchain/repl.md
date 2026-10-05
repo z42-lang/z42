@@ -1,10 +1,10 @@
 # REPL 实现（z42i / z42.scripting）
 
-> 对齐：2026-09-17（change `restructure-docs-three-books`）｜ 代码：
-> `src/libraries/z42.scripting/src/`（eval-core）、
+> 代码：
+> `src/compiler/z42.scripting/src/`（eval-core）、
 > `src/toolchain/interactive/core/interactive_main.z42`（宿主主循环）、
 > `src/toolchain/interactive/repl/src/`（tty 行编辑绑定 + 键位策略）、
-> `src/libraries/z42.build/src/IReplCompiler.z42`（编译门面）、
+> `src/compiler/z42.build/src/IReplCompiler.z42`（编译门面）、
 > `src/compiler/z42c.pipeline/src/Z42cReplCompiler.z42`（门面实现）、
 > `src/runtime/crates/z42-repl/`（行编辑 cdylib）、
 > `src/runtime/src/corelib/repl.rs` · `repl_native.rs` · `repl_editing.rs`（VM 侧 builtin）、
@@ -236,7 +236,7 @@ Python 报错（NEWLINE 是 token，`1 +\n` 本身非法）。z42 与 C#/JS 同�
 
 `Completeness.ContinuationIndent(buf)` 用既有 `Lexer` 数 `buf` 仍未闭合的括号层数，返回 `层数 × 4 空格`。
 用 Lexer 而不是自己扫字符：它天然跳过注释，并把字符串/字符字面量里的括号锁在 token 内不计。
-缩进对 parser 是纯空白、无语义影响——`IsIncomplete` 才是权威。native 侧因此**不再保留任何括号状态机**。
+缩进对 parser 是纯空白、无语义影响——`IsIncomplete` 才是权威。native 侧因此**没有任何括号状态机**。
 
 ### 4.5 两条读取路径
 
@@ -394,7 +394,7 @@ worker 只做 `DepScan.ScanDirsLazy`——命名空间路由 nsMap + 惰性 worl
   逐字节相同。
 - **ns 索引落盘**（`z42c.pipeline/src/NsIndexCache.z42`）：`ScanDirsLazy` 把「每 zpkg → 命名空间列表 +
   每 ns 声明的类型短名」缓存到**用户缓存目录**的 `nsindex/<目录集 key>`（`Z42_CACHE_DIR` 覆盖；规则同 launcher 单文件运行缓存，不写进 SDK 的 `libs/`），失效靠 libs 指纹
-  `basename:size:mtime`。命中则直接从缓存建路由，**不再 open-all** 全部包，只按需 `Open` 引用闭包。
+  `basename:size:mtime`。命中则直接从缓存建路由，**不 open-all** 全部包，只按需 `Open` 引用闭包。
   这是 Windows 的对症解——消除二十多次被 Defender 逐个扫的文件打开。文件头是 `NSIDX2`
   （每 ns 字段形如 `ns=T1,T2`），指纹变了自动重建，缓存目录不可写就静默回退 open-all。
 

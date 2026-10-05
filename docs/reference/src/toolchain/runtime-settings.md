@@ -1,6 +1,6 @@
 # 运行时设置（旋钮）
 
-> 对齐：2026-09-17（change `restructure-docs-three-books`）｜ 代码：
+> 代码：
 > `src/runtime/src/config/knob_table.rs`（旋钮全表）、`src/runtime/src/config/knobs.rs`（类型）、
 > `src/runtime/src/config/render.rs`（三个查询命令的渲染）
 >
@@ -227,10 +227,7 @@ probing 路径 ${Z42_HOME}/programs/z42c 无法解析 —— 是否没有安装 
 - **`log`** — `tracing-subscriber` 的 EnvFilter 指令串，如 `z42::jit=debug,z42=warn`。
 - **`libs`** — 标准库 zpkg 的搜索目录。**单个路径**，不是路径列表。设了它就压过所有内置
   探测档，**经 apphost 启动的程序也一样**——这包括 SDK 自己的 `bin/z42c` / `bin/z42b` 等
-  （它们都是 apphost）。⚠️ 2026-09-27 之前 apphost 会**无条件覆写**这个变量，于是对装好的
-  工具链设 `Z42_LIBS` 完全无效、且不给任何提示；如果你手上的 SDK 早于该日期，唯一的绕行法是
-  **不经 apphost**——直接 `z42vm <programs/z42c/z42c.driver.zpkg> -- <args>`（设
-  `Z42_PORTABLE_VM` 不行：它只改 apphost 强制成哪个 libs，覆写照旧）。
+  （它们都是 apphost）。`Z42_PORTABLE_VM` 只改 apphost 强制成哪个 libs，不影响 `Z42_LIBS` 的优先级。
 - **`native-path`** — native `.dylib` / `.so` / `.dll` 模块的搜索路径，平台分隔符分隔。
 - **`crash-dir`** — panic / 信号崩溃报告文件的落盘目录。
 - **`gc-mode`** — GC 算法，六个取值：`stw` / `concurrent` / `generational`，以及三者各自的
@@ -251,9 +248,9 @@ probing 路径 ${Z42_HOME}/programs/z42c 无法解析 —— 是否没有安装 
 
 ## 已退役的旋钮
 
-| 旋钮 | 环境变量 | 退役 | 原因 |
-|---|---|---|---|
-| `path` | `Z42_PATH` | 2026-09-25 | 散装 `.zbc` 模块的搜索路径。**解析出来只进日志** —— 五个生产调用方全传空，它承诺的「`.zbc` 覆盖 `libs/` 里的 zpkg」从未生效过。该能力随 zpkg 打包格式落地而被淘汰：VM 的惰性加载器不再按命名空间路由，改按 zpkg 文件名（设计出处见归档 `2026-04-04-design-module-loading`）。要给 zpkg **依赖**加搜索目录，用 [`probing-paths`](#probing-paths--依赖的额外搜索目录) |
+| 旋钮 | 环境变量 | 原因 |
+|---|---|---|
+| `path` | `Z42_PATH` | 散装 `.zbc` 模块的搜索路径。**解析出来只进日志** —— 五个生产调用方全传空，它承诺的「`.zbc` 覆盖 `libs/` 里的 zpkg」从未生效过。该能力已被 zpkg 打包格式取代：VM 的惰性加载器不再按命名空间路由，改按 zpkg 文件名。要给 zpkg **依赖**加搜索目录，用 [`probing-paths`](#probing-paths--依赖的额外搜索目录) |
 
 > 退役 = 从旋钮登记表删除。设了也不会有任何效果，`--list-knobs` 也不再列出它。
 > 编号/名字空出来了，但**不复用**——复用会让老脚本里的配置突然有了新含义。

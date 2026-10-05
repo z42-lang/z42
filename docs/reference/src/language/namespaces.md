@@ -1,7 +1,5 @@
 # 命名空间与 `using`
 
-> 对齐：2026-10-02 ｜ 实测基准：`./artifacts/.z42/z42 run`
-
 ## 语法
 
 ```
@@ -80,11 +78,10 @@ E0436: namespace `Std.Collections` is used but not imported in this file; add `u
 函数引用。限定写法 `A.W` 同样算用到 `A`（规则 4）。编译器**合成**的类型不算：`[1, 2]` 生成 `List<int>`、`(1, 2)` 生成
 元组类型，都不要求 `using Std.Collections;`。`using Id = 全限定名;` 别名的目标也不算。
 
-> 2026-10-01 前，同包内的跨命名空间引用不受此约束；按 C# 规则收紧后（using-csharp-rules）同包也要 `using`。
+同包内的跨命名空间引用同样要 `using`。
 
-> 历史上 `using` 事实上是**包级泄漏**的：一个文件写了 `using Std.Text;`，整个包的文件都能用
-> `StringBuilder`。删掉兄弟文件的 `using` 会让不相关的文件神秘编译失败。现改为强制文件级，
-> 与 C# / Rust / Python / Go / TS 一致。
+> `using` 是**文件级**的：若是包级泄漏，一个文件写了 `using Std.Text;`，整个包的文件都能用
+> `StringBuilder`，删掉兄弟文件的 `using` 会让不相关的文件神秘编译失败。这与 C# / Rust / Python / Go / TS 一致。
 
 ### 多余的 `using` 会告警
 
@@ -201,7 +198,6 @@ z42c build: kind=exe but no Main() found
 ### 缺 `using` 怎么补
 
 z42c 的报错会精确点名缺失的命名空间，按提示手动补一行即可。
-（旧的正则启发式自动补齐工具 `xtask audit` 已于 2026-07-07 移除。）
 
 ## 示例
 

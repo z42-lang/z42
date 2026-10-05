@@ -1,6 +1,6 @@
 # 开发环境与工具链自举
 
-> 对齐：2026-10-04（change `move-cargo-config`）｜ 代码：`scripts/install-z42.sh`、
+> 代码：`scripts/install-z42.sh`、
 > `scripts/install/install.sh`、`scripts/install/xtask_install.z42`、`scripts/versions.toml`、
 > `src/runtime/Cargo.toml`、`src/compiler/z42c.driver/src/Main.z42`、`.gitattributes`
 >

@@ -1,7 +1,8 @@
 # z42 JIT 后端规范
 
-> **页型**: 决策页 ｜ **状态**: ⚠️ 本页的「模块加载时预热式 JIT」**已被取代** —— 当前是 lazy per-function，见 [jit.md](jit.md)。仅 Cranelift 后端部分仍有参考价值 ｜ **代码**: —
-> **相关**: [jit.md](jit.md) ｜ **对齐**: 2026-09-17
+> **页型**: 决策页 ｜ **代码**: —
+> **相关**: [jit.md](jit.md)
+> 当前实现（lazy per-function 编译）见 [jit.md](jit.md)；本页仅 Cranelift 后端部分供参考。
 
 ## 概述
 
@@ -179,12 +180,12 @@ src/runtime/src/
 | 函数调用 | 线性扫描函数名 | 直接函数指针调用 |
 | Value 运算 | 同解释器 match | 调用 helper（同等开销）|
 
-Phase 1 JIT 的主要收益在**控制流密集**（循环、条件分支多）和**函数调用密集**的场景。
+JIT 的主要收益在**控制流密集**（循环、条件分支多）和**函数调用密集**的场景。
 
 ---
 
 ## 限制与后续工作
 
-- **Phase 1**：所有 Value 操作通过 helper 调用，不做 unboxing 优化
-- **Phase 2**（后续）：IR 携带类型标注后，对标量类型（i32/i64/f64/bool）生成 Cranelift 原生算术指令，消除 helper 调用开销
+- **现状**：所有 Value 操作通过 helper 调用，不做 unboxing 优化
+- **待办**：IR 携带类型标注后，对标量类型（i32/i64/f64/bool）生成 Cranelift 原生算术指令，消除 helper 调用开销
 - **混合执行**（后续）：按函数粒度决定走 JIT 还是 Interp

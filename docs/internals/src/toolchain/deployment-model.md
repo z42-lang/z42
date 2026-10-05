@@ -1,6 +1,6 @@
 # 部署模型：把一个 app 交出去的五条轴
 
-> 对齐：2026-09-17（change `restructure-docs-three-books`）｜ 代码：`src/toolchain/builder/core/builder_publish.z42`、`src/toolchain/workload/desktop/`
+> 代码：`src/toolchain/builder/core/builder_publish.z42`、`src/toolchain/workload/desktop/`
 >
 > `[platform.desktop]` 有哪些键 → [`z42.toml` 参考](https://z42-lang.github.io/z42/reference/toolchain/z42-toml.html)；
 > 谁产出这些形态 → [平台发布与导出](platform-export.md)。
