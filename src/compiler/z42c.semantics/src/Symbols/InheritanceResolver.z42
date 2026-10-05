@@ -117,7 +117,7 @@ public sealed class InheritanceResolver {
                         // 组合手法照 `InterfaceClosure.BaseAt`（那边是接口侧的同一件事）。
                         Z42InstantiatedType curInst = null;
                         int depth = 0;
-                        while (cur != null && table.BaseOf(cur) != null && depth < 32) {
+                        while (cur != null && table.BaseOf(cur) != null) {
                             Z42ClassType baseCt = table.BaseOf(cur);
                             if (baseCt == null) { cur = null; }
                             else {
@@ -133,7 +133,7 @@ public sealed class InheritanceResolver {
                                 }
                                 curInst = baseInst;
                                 cur = baseCt;
-                                depth = depth + 1;
+                                depth = SymbolTable.NextBaseHop(depth);
                             }
                         }
                     }
@@ -387,11 +387,11 @@ public sealed class InheritanceResolver {
     // 本函数只写空位，两者都单调，最终不动点与中途穿插无关。
     internal void _propagateBridgeMarks(SymbolTable table) {
         string[] keys = table.Classes.Keys();
-        int pass = 0;
         bool changed = true;
         // 迭代到不动点：一次遍历的类序不保证自上而下，A→B→C 三层可能要两轮才推到底。
-        // 层数有限（`hops<32` 同款上限口径），pass 上限足够。
-        while (changed && pass < 32) {
+        // 不设轮数上限：每轮至少把一个空位填上（只写空位、单调）⇒ 轮数不超过方法总数；层数也不设上限
+        // （此前 `pass < 32` 让深于 32 层的链推不到底）。
+        while (changed) {
             changed = false;
             int i = 0;
             while (i < keys.Length) {
@@ -416,7 +416,6 @@ public sealed class InheritanceResolver {
                 }
                 i = i + 1;
             }
-            pass = pass + 1;
         }
     }
 

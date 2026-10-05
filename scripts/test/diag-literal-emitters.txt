@@ -7,3 +7,4 @@
 E0210 src/compiler/z42c.syntax/src/Parser.z42 2026-10-02
 E0467 src/compiler/z42c.semantics/src/Binding/TypeChecker.z42 2026-10-02
 E0491 src/compiler/z42c.semantics/src/Binding/TypeChecker.z42 2026-10-02
+E0502 src/compiler/z42c.semantics/src/Symbols/SymbolCollector.z42 2026-10-05

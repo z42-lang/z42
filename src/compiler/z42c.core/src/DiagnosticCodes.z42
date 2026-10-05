@@ -108,6 +108,12 @@ public static class DiagnosticCodes {
     // 必须划在编译期。
     public static string AttributeArgNotConstant = "E0500";
 
+    // reject-inheritance-cycle（2026-10-05）：基类型**成环**——类的基类链（`class A : B {}  class B : A {}`、
+    // `class A : A {}`）或接口的父接口图（`interface I : J {}  interface J : I {}`）走回自身。对齐 C# CS0146 /
+    // CS0529。此前零诊断：类环让编译器沿基类链走查时**死循环挂住**，接口环在有类实现它时让编译器无声退出。
+    // 每个环报一次（报在环上先被检查的那个类型），报错后清掉它的基类型断环，下游不再级联。
+    public static string CircularBaseType = "E0502";
+
     // IrGen
     public static string UnsupportedSyntax   = "E0501";
 

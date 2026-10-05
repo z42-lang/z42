@@ -71,14 +71,14 @@ public static class ClassExtractor {
         //    mergedFields = new Dict(base.Fields) ∪ own。z42c Fields 是 hashed StrMap 不可按序迭代，
         //    故走 Z42ClassType.OwnField* 有序元数据 + base 链（imported/Object 祖先 OwnFieldCount=0 → 不贡献，
         //    imported base 字段继承延后；syntax base 均本地）。G18。
-        Z42ClassType[] chain = new Z42ClassType[32];
+        Z42ClassType[] chain = new Z42ClassType[8];
         int chainLen = 0;
         Z42ClassType walk = ct;
-        int chops = 0;
-        while (walk != null && chops < 32) {
-            chain[chainLen] = walk; chainLen = chainLen + 1;
+        while (walk != null) {
+            if (chainLen == chain.Length) { Z42ClassType[] g = new Z42ClassType[chainLen * 2]; int k = 0; while (k < chainLen) { g[k] = chain[k]; k = k + 1; } chain = g; }
+            chain[chainLen] = walk;
+            chainLen = SymbolTable.NextBaseHop(chainLen);
             walk = symbols.BaseOf(walk);   // A5：唯一出口（「没基类」「名字空」「基类不可见」都归一成 null）
-            chops = chops + 1;
         }
         int ci = chainLen - 1;          // 反向：topmost 祖先先
         while (ci >= 0) {

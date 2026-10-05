@@ -70,6 +70,7 @@ public sealed class SymbolCollector {
         t.InternAllTypes();        // enforce-fqn-name-identity B1：**必须在 Object stub 之后** —— 它也登记类型
         this._passBindClassBases(t, cu);   // A5b-2b-3：本地类的基类句柄按声明方作用域先绑（三处都挂）
         t.BindTypeRefs();          // B3：名字 → 句柄。**必须紧跟 InternAllTypes**（id 那时才存在）
+        this._passRejectBaseCycles(t, cu);   // reject-inheritance-cycle：断环必须先于一切基类链走查（三处都挂）
         this._stub._passDelegates(t, cu);
         this._mergeImportedDelegates(t, imported);   // 本包 delegate 之后并：同 FQN 本包胜出；成员签名（下一步）能用到导入的
         this._member._passMembers(t, cu);
@@ -357,6 +358,8 @@ public sealed class SymbolCollector {
         while (c < cuCount) { this._passBindClassBases(table, cus[c]); c = c + 1; }   // A5b-2b-3
         table.BindTypeRefs();     // B3：名字 → 句柄。**必须紧跟 InternAllTypes**（id 那时才存在）
         c = 0;
+        while (c < cuCount) { this._passRejectBaseCycles(table, cus[c]); c = c + 1; }   // reject-inheritance-cycle
+        c = 0;
         while (c < cuCount) { this._stub._passDelegates(table, cus[c]); c = c + 1; }
         this._mergeImportedDelegates(table, imported);   // 本包 delegate 之后并（同 FQN 本包胜出），成员收集之前
         c = 0;
@@ -430,6 +433,7 @@ public sealed class SymbolCollector {
         table.InternAllTypes();   // enforce-fqn-name-identity B1：全部登记之后一次扫
         this._passBindClassBases(table, cu);   // A5b-2b-3
         table.BindTypeRefs();     // B3：名字 → 句柄。**必须紧跟 InternAllTypes**（id 那时才存在）
+        this._passRejectBaseCycles(table, cu);   // reject-inheritance-cycle
         this._stub._passDelegates(table, cu);
         this._member._passMembers(table, cu);
         this._runCtorInheritance(table, cu);   // add-implicit-base-ctor-call（单 CU 路径，同 CollectAll）
@@ -487,6 +491,94 @@ public sealed class SymbolCollector {
             }
             i = i + 1;
         }
+    }
+
+    // reject-inheritance-cycle：基类型成环报 E0502 并**断环**。对齐 C# CS0146（类）/ CS0529（接口）：
+    //   类：`class A : B {}  class B : A {}`、`class A : A {}`；接口：`interface I : J {}  interface J : I {}`。
+    // 此前没有任何检查：类环让没设层数上限的基类链走查死循环（编译器挂住），接口环在有类实现它时让编译器
+    // 无声退出。跑在 `BindTypeRefs` 之后（句柄已绑）、任何沿继承链走的 pass 之前；断环后链必然有限，
+    // 下游走查不再需要层数上限。
+    // 每个环只报一次：从环上第一个被检查的类型出发走回自身时报错并清掉它的基类型，环随之断开，环上其余
+    // 类型再走就到头了。撞到不经过起点的环时止步（按已访问去重），交给环上的类型自己去报。
+    internal void _passRejectBaseCycles(SymbolTable table, CompilationUnit cu) {
+        SymbolTable sv = table.WithScopeOf(cu);
+        int i = 0;
+        while (i < cu.DeclCount) {
+            Decl d = this._unwrap(cu.Decls[i]);
+            i = i + 1;
+            if (!(d is ClassDecl)) { continue; }
+            ClassDecl c = d as ClassDecl;
+            if (c.Kind == "class") { this._rejectClassCycle(table, sv, c); }
+            else if (c.Kind == "interface") { this._rejectIfaceCycle(table, sv, c); }
+        }
+    }
+
+    private void _rejectClassCycle(SymbolTable table, SymbolTable sv, ClassDecl c) {
+        string key = c.Name;
+        if (c.TypeParams.Count > 0) { string mk = c.Name + "$" + c.TypeParams.Count.ToString(); if (sv.Classes.ContainsKey(mk)) { key = mk; } }
+        Z42ClassType ct = sv.GetClass(key);
+        if (ct == null) { return; }
+        int self = table.Intern.Of(ct);
+        int[] seen = new int[16];
+        int n = 0;
+        Z42ClassType cur = table.BaseOf(ct);
+        while (cur != null) {
+            int id = table.Intern.Of(cur);
+            if (id == self) {
+                this.Diags.Error("E0502",
+                    "circular base type dependency: class `" + c.Name + "` derives from itself through its base class chain", c.Span);
+                ct.HasBase = false; ct.BaseName = ""; ct.Base = 0;
+                return;
+            }
+            if (SymbolCollector._hasId(seen, n, id)) { return; }
+            seen = SymbolCollector._pushId(seen, n, id); n = n + 1;
+            cur = table.BaseOf(cur);
+        }
+    }
+
+    // 接口可多继承 ⇒ 沿父接口图做一遍可达性：起点能走回自己即成环。断环 = 清空它的父接口名单。
+    private void _rejectIfaceCycle(SymbolTable table, SymbolTable sv, ClassDecl c) {
+        Z42InterfaceType it = sv.GetInterface(c.Name);
+        if (it == null) { return; }
+        int self = table.Intern.Of(it);
+        Z42InterfaceType[] work = new Z42InterfaceType[8];
+        int wn = 0;
+        int[] seen = new int[16];
+        int n = 0;
+        work[0] = it; wn = 1;
+        while (wn > 0) {
+            wn = wn - 1;
+            Z42InterfaceType cur = work[wn];
+            int b = 0;
+            while (b < cur.BaseCount) {
+                Z42InterfaceType bi = table.GetInterface(cur.BaseNames[b]);
+                b = b + 1;
+                if (bi == null) { continue; }
+                int id = table.Intern.Of(bi);
+                if (id == self) {
+                    this.Diags.Error("E0502",
+                        "circular base type dependency: interface `" + c.Name + "` inherits from itself through its base interfaces", c.Span);
+                    it.BaseCount = 0;
+                    return;
+                }
+                if (SymbolCollector._hasId(seen, n, id)) { continue; }
+                seen = SymbolCollector._pushId(seen, n, id); n = n + 1;
+                if (wn == work.Length) { Z42InterfaceType[] g = new Z42InterfaceType[wn * 2]; int z = 0; while (z < wn) { g[z] = work[z]; z = z + 1; } work = g; }
+                work[wn] = bi; wn = wn + 1;
+            }
+        }
+    }
+
+    private static bool _hasId(int[] ids, int n, int id) {
+        int k = 0;
+        while (k < n) { if (ids[k] == id) { return true; } k = k + 1; }
+        return false;
+    }
+
+    private static int[] _pushId(int[] ids, int n, int id) {
+        if (n == ids.Length) { int[] g = new int[n * 2]; int z = 0; while (z < n) { g[z] = ids[z]; z = z + 1; } ids = g; }
+        ids[n] = id;
+        return ids;
     }
 
     internal Decl _unwrap(Decl d) {

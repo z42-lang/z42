@@ -70,7 +70,7 @@ public sealed partial class MemberResolver {
         }
         Z42ClassType cur = ct;
         int hops = 0;
-        while (cur != null && hops < 32) {
+        while (cur != null) {
             int at = cur.Methods.Find("get_" + name);
             if (at >= 0) {
                 MethodSymbol g = cur.Methods.ValAt(at) as MethodSymbol;
@@ -78,7 +78,7 @@ public sealed partial class MemberResolver {
                 return g.Signature.Ret is Z42FuncType || g.Signature.Ret is Z42GenericParamType;
             }
             cur = cur.HasBase ? symbols.BaseOf(cur) : null;
-            hops = hops + 1;
+            hops = SymbolTable.NextBaseHop(hops);
         }
         return false;
     }

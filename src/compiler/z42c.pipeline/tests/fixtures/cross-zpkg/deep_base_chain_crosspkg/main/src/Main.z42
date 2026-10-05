@@ -1,0 +1,15 @@
+namespace Demo.DeepChainApp;
+
+using Std.IO;
+using Demo.DeepChainTarget;
+
+// 跨包导入一条 40 层的基类链：重建导入签名（TsigReconcile._rebuildClass）时沿 base 链合并祖先的
+// 字段 / 方法。此前链长上限写死 32 且超出时静默截断 ⇒ L0 的 `Top` / `Root()` 对 L40 不可见。
+void Main() {
+    L40 x = new L40();
+    x.Top = 5;
+    Console.WriteLine("Top=" + x.Top.ToString());
+    Console.WriteLine("Root=" + x.Root());
+    L0 up = x;
+    Console.WriteLine("upTop=" + up.Top.ToString());
+}
