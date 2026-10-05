@@ -1,0 +1,47 @@
+namespace Demo.DeepChainTarget;
+
+// 40 层继承链：根类 L0 的字段 / 方法要穿过整条链被导入方看到（TsigReconcile 曾在 32 层静默截断）。
+public class L0 {
+    public int Top;
+    public string Root() { return "root"; }
+}
+public class L1 : L0 { }
+public class L2 : L1 { }
+public class L3 : L2 { }
+public class L4 : L3 { }
+public class L5 : L4 { }
+public class L6 : L5 { }
+public class L7 : L6 { }
+public class L8 : L7 { }
+public class L9 : L8 { }
+public class L10 : L9 { }
+public class L11 : L10 { }
+public class L12 : L11 { }
+public class L13 : L12 { }
+public class L14 : L13 { }
+public class L15 : L14 { }
+public class L16 : L15 { }
+public class L17 : L16 { }
+public class L18 : L17 { }
+public class L19 : L18 { }
+public class L20 : L19 { }
+public class L21 : L20 { }
+public class L22 : L21 { }
+public class L23 : L22 { }
+public class L24 : L23 { }
+public class L25 : L24 { }
+public class L26 : L25 { }
+public class L27 : L26 { }
+public class L28 : L27 { }
+public class L29 : L28 { }
+public class L30 : L29 { }
+public class L31 : L30 { }
+public class L32 : L31 { }
+public class L33 : L32 { }
+public class L34 : L33 { }
+public class L35 : L34 { }
+public class L36 : L35 { }
+public class L37 : L36 { }
+public class L38 : L37 { }
+public class L39 : L38 { }
+public class L40 : L39 { }

@@ -145,7 +145,9 @@ public static class CompilerFingerprint {
         "call-delegate-members",
         // reject-derived-static-access：经派生类访问基类静态成员（`B.M()` / `B.T` / 派生类体内裸调）新报 E0401；
         // 类名接收者上找不到静态成员报 E0401 而非 E0436 —— 诊断变化。
-        "reject-derived-static-access"
+        "reject-derived-static-access",
+        // reject-inheritance-cycle：基类型成环新报 E0502；继承链走查去掉 32 层上限（深链不再误报 E0402 / E0401）—— 诊断与输出变化。
+        "reject-inheritance-cycle"
     };
 
     // 指纹值：`Entries` 逐条以 `\n` 连接后取内容哈希（`mmh3:` 前缀，同 SourceHash）。

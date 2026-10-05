@@ -250,6 +250,7 @@ E0442 / E0457 / E0462 除外（见上一节）。**E0402 另有一处语法层�
 | E0460 | `methodof` 无法唯一确定目标：给了参数类型列表却匹配到多个，或省略了参数列表而候选 ≥ 2。**绝不静默择一** | ✅ `TypeOpTyper.z42:181,191` | `methodof(Logger.Log)`，`Log` 有两个重载 |
 | E0461 | `methodof` 的目标是**指不了**的方法：用户定义的运算符与转换在源码里没有名字（`op_*` 是编译器内部拼写） | ✅ `TypeOpTyper.z42:104` | `methodof(Vec.op_Addition)` |
 | E0500 | store-meta attribute 的实参不是**编译期常量**。允许：字面量 / 常量表达式 / enum 成员 / `const` 字段 / `typeof(..)` / `methodof(..)`，以及由这些构成的数组。attribute 工厂在**首次反射查询**时才执行，依赖运行期状态会让读回的元数据取决于谁先查 | ✅ `DeclEnforcer.AttrArgs.z42:97` | `[Tag(K.Make())]`、`[Num(K.Mutable)]` |
+| E0502 | 基类型**成环**：类直接或经若干层基类派生自己，或接口经父接口继承自己。对齐 C# CS0146 / CS0529。每个环只报一次（报在环上最先被检查的那个类型），报错后清掉它的基类型断环 | ✅ `SymbolCollector._passRejectBaseCycles` | `class A : B { }  class B : A { }`、`class A : A { }`、`interface I : J { }  interface J : I { }` |
 
 ### `[Forward]` 转发生成（⚠️ 常量名与实际发射不符，以本表为准）
 

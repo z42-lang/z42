@@ -1,7 +1,7 @@
 # 源代码编译流程（z42c）
 
 > **页型**: 机制页 ｜ **状态**: ✅ 已实现 ｜ **代码**: `src/libraries/z42c.syntax/` · `src/compiler/z42c.semantics/` · `src/libraries/z42.package/`
-> **相关**: [架构总览](architecture.md) · [工程模型、依赖解析与工作区编译](project-model.md) · [zbc 字节码格式](../formats/zbc.md) · [zpkg 包格式](../formats/zpkg.md) · [CLI 与诊断工具](https://z42-lang.github.io/z42/reference/toolchain/cli-z42c-z42b.html) ｜ **对齐**: 2026-09-10（`fix-arity-mangle-package-wide` / `report-duplicate-type-name` / `fix-multiple-file-scoped-namespaces`；前序 `restore-emit-zbc-diagnostics` / `add-bare-name-ambiguity-diagnostic`）
+> **相关**: [架构总览](architecture.md) · [工程模型、依赖解析与工作区编译](project-model.md) · [zbc 字节码格式](../formats/zbc.md) · [zpkg 包格式](../formats/zpkg.md) · [CLI 与诊断工具](https://z42-lang.github.io/z42/reference/toolchain/cli-z42c-z42b.html) ｜ **对齐**: 2026-10-05（`reject-inheritance-cycle`；前序 `fix-arity-mangle-package-wide` / `report-duplicate-type-name` / `fix-multiple-file-scoped-namespaces`；前序 `restore-emit-zbc-diagnostics` / `add-bare-name-ambiguity-diagnostic`）
 
 ## 概述
 
@@ -826,6 +826,24 @@ primary = **声明序第一个**同名成员（跨 partial 碎片按碎片加载
 > 自举字节不动点零扰动。
 
 面向用户的规则见 [嵌套类型](https://z42-lang.github.io/z42/reference/language/nested-types.html)。
+
+#### 继承链的不变量：无环、无层数上限（E0502）
+
+编译器里沿继承链走的循环有二十来处（子类判定 / 成员查找 / 重载适用性 / 虚派发判定 / devirt 目标 /
+导出字段合并 / 父接口闭包 …）。它们共同依赖一条**收集期建立的不变量**：
+
+1. **无环**：`SymbolCollector._passRejectBaseCycles` 跑在 `BindTypeRefs` 之后（基类句柄已绑）、任何沿
+   继承链走的 pass 之前，三条收集路径（`Collect` / `CollectWithImports` / `CollectAll`）都挂。类沿
+   `BaseOf` 走、接口沿父接口图做可达性，走回起点即报 E0502，并**清掉起点的基类型**断环。每个环只报一次。
+2. **无层数上限**：环断开后链必然有限，所以走查循环**不设层数上限**，只经 `SymbolTable.NextBaseHop`
+   计跳——超过 10 万跳只可能是不变量被破坏（某条环没断 / 名字回落绕回自身），此时**抛内部错误**。
+
+不要回到「`hops < 32` 到上限就当链到头」：那会让深于上限的类层次**静默**丢继承成员（`IRoot r = deep;`
+误报 E0402、父接口方法 E0401），而且没设上限的那一半循环在真有环时直接死循环。
+
+另一条纪律：**每跳走句柄（`BaseOf`），不按 `BaseName` 短名重查**。跨 ns 同短名（`A.Foo : B.Foo`）按短名
+查会查回自己 —— 那是一条假环，过去被层数上限掩盖。导入侧的 `TsigReconcile._rebuildClass` 对 zbc 里的
+基类链同理：链长不设上限，按 FQ 名判出环即视为包损坏（源码里的环编译期就报了）抛错。
 
 #### 数组类型（`Z42ArrayType`）的检查
 

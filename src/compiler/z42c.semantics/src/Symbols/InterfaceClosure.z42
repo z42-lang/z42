@@ -92,10 +92,10 @@ public sealed class InterfaceClosure {
         return symbols.GetInterface(it.BaseNames[i]);
     }
 
-    // 沿父接口链递归。`depth` 是**成环护栏**——接口继承成环本不该发生，但查找不该因此挂死；
-    // 接口继承链在实际代码里是个位数深度，32 层足够宽松。
+    // 沿父接口链递归。不设层数上限：接口继承环在收集期已报 E0502 并断开，链必然有限；`depth` 只喂
+    // `NextBaseHop` 护栏（超限即编译器内部错误，抛错而不是静默当「找不到」）。
     private static IfaceMethodHit _walkBases(SymbolTable symbols, Z42InterfaceType it, string method, int depth) {
-        if (depth > 32) { return null; }
+        SymbolTable.NextBaseHop(depth);
         int i = 0;
         while (i < it.BaseCount) {
             Z42InterfaceType bit = InterfaceClosure.BaseAt(symbols, it, i);
@@ -142,9 +142,9 @@ public sealed class InterfaceClosure {
         return InterfaceClosure.IsInterfaceSubtype(symbols, from, symbols.GetInterface(toName));
     }
 
-    // 沿父接口链递归找 `to`。`depth` 是成环护栏，口径同 `_walkBases`（接口继承实际是个位数深度）。
+    // 沿父接口链递归找 `to`。`depth` 口径同 `_walkBases`（无层数上限，只喂护栏）。
     private static bool _anyBaseIs(SymbolTable symbols, Z42InterfaceType it, Z42InterfaceType to, int depth) {
-        if (depth > 32) { return false; }
+        SymbolTable.NextBaseHop(depth);
         int i = 0;
         while (i < it.BaseCount) {
             Z42InterfaceType bit = InterfaceClosure.BaseAt(symbols, it, i);

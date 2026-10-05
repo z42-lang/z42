@@ -347,24 +347,16 @@ public sealed class StmtBinder {
         if (ct == null || env == null || env.Symbols == null) { return; }
         SymbolTable symbols = env.Symbols;
         if (!symbols.HasClass("Exception")) { return; }   // 宽松闸门（见上）
-        string cur = ct.Name();
+        // 入口按名字查一次，之后每跳走句柄（`BaseOf`），不按 `BaseName` 短名重查（跨 ns 同短名会查回自己）。
+        Z42ClassType c = symbols.GetClass(ct.Name());
+        if (c == null) { return; }                        // 解析不到 ⇒ 拿不准，不报
         int hops = 0;
-        while (cur != "" && hops < 64) {
-            if (SymbolTable.ShortNameOf(cur) == "Exception") { return; }   // 导入基类名是 FQ（`Std.Exception`）
-            Z42ClassType c = symbols.GetClass(cur);
+        while (c != null) {
+            if (SymbolTable.ShortNameOf(c.Name()) == "Exception") { return; }   // 导入基类名是 FQ（`Std.Exception`）
+            if (!c.HasBase || c.BaseName == "") { break; }
+            c = symbols.BaseOf(c);
             if (c == null) { return; }                    // 链上某环解析不到 ⇒ 拿不准，不报
-            if (c.HasBase && c.BaseName != "") {
-                // 去掉泛型尖括号（同 ResolveSealedTarget 的基链上滯）
-                string bare = c.BaseName;
-                int bi = 0;
-                while (bi < bare.Length) {
-                    if (bare.CharAt(bi) == '<') { bare = bare.Substring(0, bi); bi = bare.Length; }
-                    else { bi = bi + 1; }
-                }
-                cur = bare;
-            }
-            else { cur = ""; }
-            hops = hops + 1;
+            hops = SymbolTable.NextBaseHop(hops);
         }
         this._tc._diags.Error(DiagnosticCodes.InvalidCatchType,
             "`" + ct.Name() + "` is not an exception type; `catch` requires `Exception` or a subclass", sp);
