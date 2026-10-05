@@ -5,7 +5,7 @@ description: >
   like the local `./xtask` apphost does (add-sdk-libs D7: CI 与本地一致), and it doubles as the z42c seed
   (xtask's `_seedSdkDir` finds `./.z42` on its own).
   Fallback when the nightly is unusable: the newest successful main CI run's `release-host-<rid>` archive
-  (and, for runs before unify-release-archive, the legacy unpacked `z42-host-package-*` dirs).
+  (candidates come from the artifact list, not the filtered run list — see the fallback block).
   Writes `.z42/seed-id.txt`: the identity of this seed (nightly → the commit it was built from; fallback →
   that run's head sha). Jobs that reuse an xtask.zpkg built elsewhere compare it to decide whether to rebuild.
 inputs:
@@ -99,8 +99,19 @@ runs:
         # `permissions:`，必须显式带上 `actions: read`**，否则这条回退会静默失效。
         if [ "$dl_ok" != 1 ]; then
           echo "   nightly unusable — falling back to the newest successful CI run's host package"
-          for run_id in $(gh run list --workflow CI --branch main --status success \
-                            --limit 5 --json databaseId --jq '.[].databaseId' 2>/dev/null || true); do
+          # 候选运行从 **artifact 列表**（按名字，新→旧）里挑，不用 `gh run list --branch main --status success`：
+          # 带过滤条件的运行列表是最终一致的，故障期间能长时间返回陈旧结果——2026-10-05 它给出的 5 个
+          # 「最近成功运行」全是 9 月的（artifact 早已过期），整条回退因此失效。artifact 列表是实时的；
+          # 每个候选再按 ID 查一次运行结论（单个运行查询不走过滤索引），只用 main 上 success 的。
+          cand=$(gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts?name=release-host-${RID}&per_page=30" \
+                   --jq '.artifacts[] | select(.expired == false and .workflow_run.head_branch == "main") | .workflow_run.id' \
+                   2>/dev/null || true)
+          tried=0
+          for run_id in $cand; do
+            [ "$tried" -ge 5 ] && break
+            concl="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/$run_id" --jq .conclusion 2>/dev/null || true)"
+            [ "$concl" = "success" ] || continue
+            tried=$((tried + 1))
             echo "   trying CI run $run_id …"
             rm -rf "$work/art"; mkdir -p "$work/art"
             if gh run download "$run_id" -p "release-host-${RID}" -D "$work/art" 2>"$work/dlerr"; then
@@ -113,21 +124,9 @@ runs:
               echo "     release-host-${RID} has no usable z42-sdk-nightly-${RID}.${EXT}"
               continue
             fi
-            # 旧形态（unify-release-archive 之前的运行）：已解包的 SDK 目录。过渡期过后可删这一支。
-            rm -rf "$work/art"; mkdir -p "$work/art"
-            if ! gh run download "$run_id" -p 'z42-host-package-*' -D "$work/art" 2>"$work/dlerr"; then
-              echo "     download failed ($(head -1 "$work/dlerr" 2>/dev/null))"
-              continue
-            fi
-            pkg="$(find "$work/art" -maxdepth 2 -type d -name "z42-*-${RID}-release" | head -1)"
-            if [ -z "$pkg" ] || ! ls "$pkg/programs/z42c/"*.zpkg >/dev/null 2>&1; then
-              echo "     no usable z42-*-${RID}-release dir in this run's artifacts"
-              continue
-            fi
-            rm -rf "$DEST"; cp -R "$pkg" "$DEST"
-            dl_ok=1; seed_src="ci-run-$run_id"
-            seed_id="$(gh run view "$run_id" --json headSha -q .headSha 2>/dev/null || true)"
-            break
+            # 打出**这一次**下载的真实错误（此前紧跟一条旧形态 `z42-host-package-*` 的重试，日志里只剩
+            # 它的报错，把主路径失败的原因盖掉了）。
+            echo "     release-host-${RID} download failed ($(head -1 "$work/dlerr" 2>/dev/null))"
           done
         fi
 

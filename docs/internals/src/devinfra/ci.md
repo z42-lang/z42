@@ -238,7 +238,7 @@ Swatinem `rust-cache` 用 `shared-key` 跨 job 共享；**一个 key 命中后�
 ```
 nightly release 的 z42-sdk-nightly-<rid>          （首选，10 次重试）
   ↓ 下载不到，或包里没有 programs/z42c/
-最近 5 次成功 CI 运行的 release-host-<rid> artifact（回退，逐个试；内含 z42-sdk-nightly-<rid> 归档）
+main 上最近 5 次成功 CI 运行的 release-host-<rid> artifact（回退，逐个试；内含 z42-sdk-nightly-<rid> 归档）
   ↓ 全都过期 / 没有本 RID
 报错退出（错误信息带人工恢复指引）
 ```
@@ -256,6 +256,13 @@ nightly 再 use。成功 CI 运行的产物顶多落后一两个 commit，牢牢
 > 成功 CI 运行的 artifact 格式天然对得上，**根本不进两代路径**。
 >
 > 附带一个好处：不依赖 release 是否被正确发布（artifact 里就是 package job 出好的同一份归档）。保留期 90 天，所以逐个试最近 5 次。
+
+> 🔴 **候选运行从 artifact 列表挑，不能用 `gh run list --branch main --status success`。**
+> 带过滤条件的运行列表是**最终一致**的，故障期间会长时间返回陈旧结果（实测返回的「最近 5 次成功运行」
+> 全是一个月前的、artifact 早已过期，回退因此整条失效）。现在的做法：
+> `GET /actions/artifacts?name=release-host-<rid>`（实时、新→旧）→ 留未过期且 `workflow_run.head_branch == main` 的
+> → 逐个 `GET /actions/runs/<id>` 确认 `conclusion == success`（单个运行查询不走过滤索引）→ 前 5 个依次试。
+> 每次下载失败都打印**该次**的错误，便于判断是没归档、过期还是权限问题。
 
 > ⚠️ **权限**：这条回退要 token 的 `actions: read`。仓库默认 workflow 权限是 read（含 actions），
 > 但自定义了 `permissions:` 块的 job（`publish-nightly`、`test-*` 平台测试、`release.yml`、
