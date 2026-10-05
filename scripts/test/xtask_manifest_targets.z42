@@ -317,7 +317,7 @@ string _renderTargetManifest(string projName, string kindStr, string entry, bool
     return body;
 }
 
-// ── stdlib per-lib driver (called by _testLibCore, xtask_test_lib.z42) ─────────
+// ── per-package driver (called by _testPkgsCore, xtask_test_lib.z42) ───────────
 
 // 跑一个 lib 的 test/bench：**一律转发 z42b**（xtask-forward-tests-to-z42b D2）。
 // 返回该 lib 的失败数，或 -1 表示目标声明有误（调用方中止整个 stage）。
@@ -330,11 +330,10 @@ string _renderTargetManifest(string projName, string kindStr, string entry, bool
 //
 // File.Exists(parentToml)：`src/libraries` 的枚举里混着 README.md 之类的非目录条目，
 // 旧路径靠「清单缺失 → 约定扫描 → 零单元」静默跳过，这里改为显式确认这是个真工程。
-int _runLibKind(string root, string libsRoot, string lib, string kind,
+int _runLibKind(string root, string projDir, string lib, string kind,
                 string label, string filter, string builderZpkg, int jobsN, string mode,
                 string vm, string driverZpkg, string libs, MicroBenchAgg agg,
                 ref int totalFiles, ref int libsTested) {
-    string projDir = Path.Join(libsRoot, lib);
     string parentToml = Path.Join(projDir, lib + ".z42.toml");
     if (!File.Exists(parentToml)) { return 0; }
     // 清单 lint（名字缺失 / 重名 / harness=false 缺 entry）留在 xtask 侧：z42b 对

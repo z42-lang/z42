@@ -239,22 +239,8 @@ z42b 的 `z42vm --mode <mode>` 决定。所以"stdlib 测试在 JIT 下跑"就�
 
 ## 6. GREEN gate 的组成
 
-`xtask test`（不带子命令）= `_testAll`，顺序执行、**首错即停**。当前 14 个 stage：
-
-1. `build wave (debug vm + regen)`
-2. `e2e goldens (interp; jit → vm-jit-consistency)`
-3. `e2e cross-zpkg`
-4. `e2e multi-exe`
-5. `stdlib [Test]`
-6. `stdlib [Benchmark]`
-7. `manifest targets ([[test]] + [[example]])`
-8. `examples (learn book transcripts)`
-9. `docs (relative links)`
-10. `compiler`
-11. `gc modes (z42c.semantics build)`
-12. `vscode-syntax`
-13. `lines`
-14. `walkers`
+`xtask test`（不带子命令）= `_testAll`，顺序执行、**首错即停**。stage 清单见[测试门禁](../devinfra/test-gate.md)
+的 gate-stages 区（唯一权威，由下面 §6.1 的门禁对账）。
 
 build wave 也算一个 stage：它同样走 `_stageStart` 打 banner、同样计入耗时表，对读日志的人就是一个 stage。
 

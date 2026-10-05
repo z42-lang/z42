@@ -1,0 +1,93 @@
+// `xtask test toolchain [<comp>]` —— 工具链组件自己的用例（test-layout.md §1）：`src/toolchain/<comp>/` 下
+// 每个工程的 `tests/`，与库、编译器成员同一套 `[Test]` runner（_testPkgsCore → z42b）。
+//
+// 只收 `tests/` 里有 `fixtures/` 以外内容的工程：`tests/fixtures/` 是各 harness 的私有地盘（builder 的
+// manifest-targets / z42b 两套归 `xtask test targets`），不算单元。工具链用例从不进 app 语料，天然 host-only。
+namespace Z42Xtask;
+
+using Std.IO;
+using Std.Time;
+using Std.Cli;
+
+int _testToolchain(ParseResult r) {
+    Stopwatch sw = _procStart("test toolchain");
+    int rc = _testToolchainCore(r.GetPositional(0), r.GetFlag("no-build"), r.GetOption("filter"));
+    if (rc == 0) { _procEnd("test toolchain", sw); }
+    return rc;
+}
+
+// comp = `src/toolchain/` 下的组件目录名（builder / interactive …）或包名（z42.repl）；空 = 全部。
+int _testToolchainCore(string comp, bool noBuild, string filter) {
+    string root = _root();
+    string[] all = _toolchainTestPkgs(root);
+    int n = 0;
+    foreach (var d in all) { if (_toolchainPkgMatches(root, d, comp)) { n = n + 1; } }
+    if (n == 0) {
+        if (comp.Length > 0) {
+            ConsoleError.WriteLine("error: no toolchain package with tests matches '" + comp + "'");
+            return 2;
+        }
+        Console.WriteLine("  (no toolchain package has tests)");
+        return 0;
+    }
+    string[] dirs = new string[n];
+    string[] names = new string[n];
+    int k = 0;
+    foreach (var d in all) {
+        if (!_toolchainPkgMatches(root, d, comp)) { continue; }
+        dirs[k] = d;
+        names[k] = _toolchainPkgName(d);
+        k = k + 1;
+    }
+    return _testPkgsCore("test", "toolchain", dirs, names, noBuild, filter, "4", "interp", null, "", "", "");
+}
+
+// `src/toolchain/` 下有单元用例的工程目录（排序稳定）：目录里有 `<name>.z42.toml`，且 `tests/` 下有
+// `fixtures/` 以外的条目。不进 `tests/` 内部找工程 —— fixture 工程不是被测对象。
+string[] _toolchainTestPkgs(string root) {
+    string[] found = new string[64];
+    int n = 0;
+    _tcCollect(Path.Join(root, "src/toolchain"), found, ref n);
+    string[] r = new string[n];
+    int i = 0;
+    while (i < n) { r[i] = found[i]; i = i + 1; }
+    return _sortedStrings(r);
+}
+
+void _tcCollect(string dir, string[] found, ref int n) {
+    if (_toolchainPkgName(dir).Length > 0 && _tcHasUnits(dir) && n < found.Length) {
+        found[n] = dir;
+        n = n + 1;
+    }
+    foreach (var e in _sortedStrings(Directory.Enumerate(dir))) {
+        if (e == "tests" || e.StartsWith(".")) { continue; }
+        string sub = Path.Join(dir, e);
+        if (Directory.Exists(sub)) { _tcCollect(sub, found, ref n); }
+    }
+}
+
+bool _tcHasUnits(string dir) {
+    string td = Path.Join(dir, "tests");
+    if (!Directory.Exists(td)) { return false; }
+    foreach (var e in Directory.Enumerate(td)) {
+        if (e != "fixtures") { return true; }
+    }
+    return false;
+}
+
+// 工程目录里的 `<name>.z42.toml` → name；没有返回 ""。一个目录只放一个工程清单。
+string _toolchainPkgName(string dir) {
+    foreach (var f in Path.Glob(dir, "*.z42.toml")) {
+        string b = Path.GetFileName(f);
+        return b.Substring(0, b.Length - ".z42.toml".Length);
+    }
+    return "";
+}
+
+bool _toolchainPkgMatches(string root, string dir, string comp) {
+    if (comp.Length == 0) { return true; }
+    if (_toolchainPkgName(dir) == comp) { return true; }
+    string base = Path.Join(root, "src/toolchain") + "/";
+    string rel = dir.StartsWith(base) ? dir.Substring(base.Length) : dir;
+    return rel == comp || rel.StartsWith(comp + "/");
+}

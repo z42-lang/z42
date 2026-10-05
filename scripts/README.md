@@ -272,7 +272,8 @@ scripts/
 │   ├── xtask_test_vm.z42        e2e golden 跑分（+ --dir/--file 子选择）
 │   ├── xtask_test_cross.z42     e2e cross-zpkg 多包
 │   ├── xtask_test_multiexe.z42  e2e multi-exe（一工程 → N 个 exe zpkg）
-│   ├── xtask_test_lib.z42       stdlib [Test]/[Benchmark] 编排（per-lib + 分片）
+│   ├── xtask_test_lib.z42       stdlib [Test]/[Benchmark] 编排（per-lib + 分片）；共用 runner `_testPkgsCore`
+│   ├── xtask_test_toolchain.z42 `test toolchain`：src/toolchain/<comp>/ 下各工程的 [Test] unit
 │   ├── xtask_test_lib_units.z42 unit 级机制（发现 / 批量编译运行 / 合成 manifest）
 │   ├── xtask_manifest_targets.z42  manifest [[test]]/[[bench]]/[[example]] target **引擎**
 │   │                            （被 lib / targets / example 三个 flow 共用，不对应任何命令）

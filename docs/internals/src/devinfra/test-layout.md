@@ -45,7 +45,7 @@
 | 语言 / VM 特性（语法、类型系统、派发、GC、优化 pass、OSR） | `src/tests/<category>/` | `xtask test e2e` |
 | 某个库的 API | `src/libraries/<lib>/tests/`（即使该 API 由 VM builtin 实现） | `xtask test stdlib <lib>` |
 | 编译器某成员（含**期望编译报错**：写成 `[Test]` + `SemanticDump`） | `src/compiler/<member>/tests/` | `xtask test compiler` |
-| 工具链某组件（launcher / builder / interactive / workload …） | `src/toolchain/<comp>/tests/` | ⏳ `xtask test toolchain [<comp>]` |
+| 工具链某组件（launcher / builder / interactive / workload …） | `src/toolchain/<comp>/tests/` | `xtask test toolchain [<comp>]` |
 | VM 内部（Rust） | 同模块 `*_tests.rs`；集成测试在 `src/runtime/tests/` | `xtask test runtime` |
 | 整程序性能场景 | `src/bench/scenarios/` | `xtask bench` |
 
@@ -262,7 +262,7 @@ emulator action 提供，Android 的 CI job 也还没改成调 `test app`）。
 | 语言 / VM 特性 | `xtask test e2e [--dir <category>] [--file <name>]` |
 | 某个库 | `xtask test stdlib <lib>` |
 | 编译器 | `xtask test compiler` |
-| 工具链 | ⏳ `xtask test toolchain [<comp>]` |
+| 工具链 | `xtask test toolchain [<comp>]` |
 | VM（Rust） | `xtask test runtime` |
 | app（wasm / iOS / Android） | `xtask test app <platform|all> [--filter <pat>] [--shard k/n]` |
 | 本次改动影响到的 | `xtask test changed` |
@@ -306,4 +306,3 @@ emulator action 提供，Android 的 CI job 也还没改成调 `test app`）。
 
 1. **设备生命周期**：z42b 接管 Android 模拟器的启动与关闭（复用已在跑的设备），Android 的 CI job 改调 `xtask test app android`；
    bundle 引用用例自己的测试输出、内部按用例 ID 镜像。
-2. **工具链测试套件**：`xtask test toolchain` 与对应的 gate stage。

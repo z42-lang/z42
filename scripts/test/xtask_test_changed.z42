@@ -279,11 +279,12 @@ _MapResult _mapFile(string f) {
     // Toolchain (incl. z42b — the z42.builder test/bench host). A toolchain change
     // can affect how [Test]/[Benchmark] units run, so sweep the stdlib suite.
     // launcher / z42b 的命令行输出直接出现在学习手册的会话脚本里 → 追加 examples。
+    // 工具链组件自己的 [Test] unit（test-layout §1）由 `test toolchain` 跑，一并带上。
     if (f.StartsWith("src/toolchain/launcher/") || f.StartsWith("src/toolchain/builder/")) {
-        return _mapCmds(new string[]{ "xtask test stdlib", "xtask test examples" });
+        return _mapCmds(new string[]{ "xtask test stdlib", "xtask test toolchain", "xtask test examples" });
     }
     if (f.StartsWith("src/toolchain/")) {
-        return _mapCmds(new string[]{ "xtask test stdlib" });
+        return _mapCmds(new string[]{ "xtask test stdlib", "xtask test toolchain" });
     }
 
     // All xtask CLI source is now ONE compiled xtask.zpkg (the command logic is

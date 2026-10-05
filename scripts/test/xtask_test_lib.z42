@@ -158,10 +158,24 @@ int _testLibCore(string kind, string[] reqLibsIn, bool noBuild, string filter, s
     // `_driverZpkg` / `_libsDir`, and skip the in-tree rebuild. The micro
     // A/B base capture points these at the same `.ab-base-alllibs` the e2e A/B uses,
     // so base benchmarks compile+run against a proven-consistent base stdlib.
+    string root = _root();
+    // add-tests-bench-manifest-config Phase 3.3 (2026-06-06): sort
+    // Directory.Enumerate output so first-wins downstream behaviour is
+    // platform-stable (common-pitfalls.md §1 — macOS APFS vs Linux ext4
+    // give different orderings; CI on Linux blew up here before).
+    string[] libList = reqLibsIn.Length > 0 ? reqLibsIn : _allTestableLibs(root);
+    string[] dirs = new string[libList.Length];
+    int li = 0;
+    while (li < libList.Length) { dirs[li] = Path.Join(_libSrcRoot(root, libList[li]), libList[li]); li = li + 1; }
+    return _testPkgsCore(kind, "stdlib", dirs, libList, noBuild, filter, jobs, mode, agg, ovVm, ovDriver, ovLibs);
+}
+
+// 共用的 [Test] / [Benchmark] 跑测器：给定一组包（目录 + 包名，清单 = <dir>/<name>.z42.toml），先备工具链
+// （z42vm + stdlib + z42b），再逐包转发给 z42b。`suite` 只用于汇总行（stdlib / toolchain）。
+int _testPkgsCore(string kind, string suite, string[] dirs, string[] names, bool noBuild, string filter,
+                  string jobs, string mode, MicroBenchAgg agg, string ovVm, string ovDriver, string ovLibs) {
     string label  = (kind == "bench") ? "bench" : "test";
     if (jobs.Length == 0) { jobs = "1"; }   // forwarded to z42b
-    string[] reqLibs = reqLibsIn;
-    int nReq = reqLibsIn.Length;
     string root = _root();
     bool useOverride = ovVm.Length > 0 && ovDriver.Length > 0 && ovLibs.Length > 0;
     if (!noBuild && !useOverride) {
@@ -209,18 +223,6 @@ int _testLibCore(string kind, string[] reqLibsIn, bool noBuild, string filter, s
     Console.WriteLine("→ Building z42b (z42.builder.zpkg; reflective test runner)...");
     int bcRC = _buildZ42bWith(root, vm, driverZpkg, libs);
     if (bcRC != 0) { return bcRC; }
-    string[] libList;
-    if (nReq > 0) {
-        libList = new string[nReq];
-        int k = 0;
-        while (k < nReq) { libList[k] = reqLibs[k]; k = k + 1; }
-    } else {
-        // add-tests-bench-manifest-config Phase 3.3 (2026-06-06): sort
-        // Directory.Enumerate output so first-wins downstream behaviour is
-        // platform-stable (common-pitfalls.md §1 — macOS APFS vs Linux ext4
-        // give different orderings; CI on Linux blew up here before).
-        libList = _allTestableLibs(root);
-    }
     int totalFailed = 0;
     int totalFiles = 0;
     int libsTested = 0;
@@ -239,12 +241,14 @@ int _testLibCore(string kind, string[] reqLibsIn, bool noBuild, string filter, s
     // [[test]]/[[bench]] targets (harness=true → z42b reflection; harness=false →
     // exit-code) drive _runLibKind (xtask_manifest_targets.z42). 3-layer dev-deps
     // (target > section > project) via ManifestLoader replace the raw-toml harvest.
-    foreach (var lib in libList) {
-        int f = _runLibKind(root, _libSrcRoot(root, lib), lib, kind, label, filter,
+    int pi = 0;
+    while (pi < dirs.Length) {
+        int f = _runLibKind(root, dirs[pi], names[pi], kind, label, filter,
                             builderZpkg, jobsN, mode, vm, driverZpkg, libs, agg,
                             ref totalFiles, ref libsTested);
         if (f < 0) { return 2; }
         totalFailed = totalFailed + f;
+        pi = pi + 1;
     }
     Console.WriteLine("");
     Console.WriteLine("════════════════════════════════════════════════");
@@ -259,11 +263,11 @@ int _testLibCore(string kind, string[] reqLibsIn, bool noBuild, string filter, s
     // 两条独立原因让它在唯一重要的那条路径上永不触发。而它本就是为
     // 「z42.package / z42c.core / z42c.syntax 静默数月」而加的——修补存在，却没装在漏过去的路上。
     if (totalFailed > 0) {
-        Console.WriteLine("  ❌ stdlib " + label + ": " + totalFailed.ToString()
+        Console.WriteLine("  ❌ " + suite + " " + label + ": " + totalFailed.ToString()
             + " file(s) failed (of " + totalFiles.ToString() + " in " + libsTested.ToString() + " lib(s))");
         return 1;
     }
-    Console.WriteLine("  ✅ stdlib " + label + ": all " + totalFiles.ToString()
+    Console.WriteLine("  ✅ " + suite + " " + label + ": all " + totalFiles.ToString()
         + " file(s) passed (in " + libsTested.ToString() + " lib(s))");
     return 0;
 }

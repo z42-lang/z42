@@ -8,7 +8,7 @@ SubcommandRouter _testRouter() {
     SubcommandRouter t = new SubcommandRouter("xtask test", "run tests");
     ArgParser allP = new ArgParser("xtask test all", "full gate");
     allP.AddFlag("no-build", "", "skip z42c+stdlib rebuild — consume what the bootstrap/toolchain already built");
-    allP.AddOption("skip", "", "skip named stages (csv: rust-units,stdlib,cross-zpkg,compiler,vscode) — CI uses per-leg skip lists to offload stages to parallel jobs; local runs omit this for the full gate", "");
+    allP.AddOption("skip", "", "skip named stages (csv: rust-units,stdlib,toolchain,cross-zpkg,compiler,vscode) — CI uses per-leg skip lists to offload stages to parallel jobs; local runs omit this for the full gate", "");
     t.Add("all", "e2e + stdlib + compiler (runtime 独立，见 test runtime)", allP);
     ArgParser stdlib = new ArgParser("xtask test stdlib", "stdlib [Test] (all or one)");
     stdlib.AddFlag("no-build", "", "skip tooling rebuild");
@@ -22,6 +22,12 @@ SubcommandRouter _testRouter() {
     stdlib.AddOption("libs", "", "override: prebuilt flat libs dir (stdlib + z42c siblings)", "");
     stdlib.AddOptionalPositional("lib", "single lib (default: all)");
     t.Add("stdlib", "stdlib [Test] (all or one)", stdlib);
+    // 工具链组件自己的 [Test] 单元（test-layout §1）：src/toolchain/<comp>/ 下各工程的 tests/。
+    ArgParser toolchain = new ArgParser("xtask test toolchain", "toolchain components' own [Test] units (src/toolchain/<comp>/**/tests)");
+    toolchain.AddFlag("no-build", "", "skip tooling rebuild");
+    toolchain.AddOption("filter", "k", "test-name filter", "");
+    toolchain.AddOptionalPositional("comp", "component dir (builder / interactive …) or package name (z42.repl); default: all");
+    t.Add("toolchain", "toolchain components' [Test] units (all or one component)", toolchain);
     ArgParser targets = new ArgParser("xtask test targets", "manifest [[test]] target fixtures (harness true/false; src/toolchain/builder/tests/fixtures/manifest-targets)");
     targets.AddFlag("no-build", "", "skip tooling rebuild");
     targets.AddOptionalPositional("name", "single target name (default: all)");
@@ -174,6 +180,7 @@ int _dispatchTest(string[] p, ParseResult r) {
     if (sub == "fingerprint")  { return _testFingerprint(r); }   // 编译器输出变 ⇒ 版本号必须累加
     if (sub == "changed")      { return _testChanged(r); }
     if (sub == "app")          { return _testApp(r); }                                       // 设备测试一条命令（test-layout §6）
+    if (sub == "toolchain")    { return _testToolchain(r); }                                 // 工具链组件的 [Test] 单元
     if (sub == "platform") {
         string plat = p.Length > 2 ? p[2] : "";
         return _platformDispatch(plat, r.GetPositional(0), _root());
