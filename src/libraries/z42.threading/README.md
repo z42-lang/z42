@@ -19,6 +19,7 @@ GC 可见、随对象回收。原生层只提供不含值的 Monitor。机制见
 | `Mutex.z42` | `Std.Threading.Mutex<T>` | 排他互斥；RAII callback `Lock(Func<T,T>)`；同线程重入抛异常 |
 | `RwLock.z42` | `Std.Threading.RwLock<T>` | 多读单写 lock；`Read(Action<T>)` 多 reader 并发 + `Write(Func<T,T>)` 单 writer 排他、写者优先 |
 | `Channel.z42` | `Std.Threading.Channel<T>` | 多生产者多消费者 FIFO：unbounded (`new Channel<T>()`)、bounded with back-pressure (`new Channel<T>(N)`) 或会合 (`new Channel<T>(0)`)；`Send` / `Recv` / `TryRecv` / `TrySend` / `Close` |
+| `Timer.z42` | `Std.Threading.Timer` | 定时器：`StartPeriodic(ms, Action)` 等；回调异常经 `Log.Error` 吞掉，单次失败不杀 Timer 线程 |
 | `ChannelDisconnectedException.z42` | `Std.ChannelDisconnectedException` | 所有 sender 关闭且队列空时 `Recv()` 抛出 |
 
 ## 入口点
@@ -44,4 +45,10 @@ long v = c.Recv();
 
 ## 依赖关系
 
-仅依赖 `z42.core`（异常基类 + delegate `Action` / `Func`）。
+依赖 `z42.core`（异常基类 + delegate `Action` / `Func`）+ `z42.diagnostics`（`Timer` 回调异常经 `Log.Error` 记录）。
+
+## 如何测试验证
+
+```bash
+xtask test stdlib z42.threading    # 本库全部 [Test]
+```

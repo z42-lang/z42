@@ -19,13 +19,13 @@ z42 Tier 1 native interop ABI 的 Rust 镜像。是 [`include/z42_abi.h`](../../
 - 常量：`Z42_ABI_VERSION` + `Z42_TYPE_FLAG_*` / `Z42_METHOD_FLAG_*` / `Z42_FIELD_FLAG_*`
 - 函数：`z42_register_type` / `z42_resolve_type` / `z42_invoke` / `z42_invoke_method` / `z42_last_error`
 
-## 状态
+## 实现位置
 
-C1 接口骨架。所有 `extern "C"` 函数实现位于 `z42_vm` crate，C1 阶段返回 "not implemented" 错误（错误码 Z0905+，具体语义在 C2/C5 中钉死）。
+本 crate 只声明 `extern "C"` 签名；函数实现在 VM 主 crate `z42` 的 `src/native/`（`exports.rs` 等，见 [`src/native/README.md`](../../src/native/README.md)）。
 
 ## 依赖关系
 
-无依赖；被 `z42-rs`、`z42_vm` 引用。
+无依赖；被 `z42-rs`、`z42-host`、`z42`（VM 主 crate）引用。
 
 ## ABI 演进规则
 

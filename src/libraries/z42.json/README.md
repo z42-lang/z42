@@ -72,12 +72,16 @@ User back = JsonSerializer.Deserialize<User>(json);  // 反射构造 + 按名回
 ```
 
 类型覆盖：基元（int/long/double/bool/string）+ 嵌套对象 + 定长数组 `T[]` + **`List<T>`（↔ JSON array）
-+ `Dictionary<string,V>`（↔ JSON object，字符串键）**（add-collection-serde，反射-only）。构造：有无参
++ `Dictionary<string,V>`（↔ JSON object，字符串键）**（反射-only）。构造：有无参
 ctor → `Activator` + 按名 `SetValue`；否则按参数名映射 JSON 键 `ConstructorInfo.Invoke`（record / 只读
-auto-prop）。Dict 非字符串键 / Set / enum / nullable 见 roadmap Deferred。
+auto-prop）。不支持：Dict 非字符串键 / Set / enum / nullable。
+
+## 如何测试验证
+
+```bash
+xtask test stdlib z42.json    # 本库全部 [Test]（DOM / JsonPath / serde / stream）
+```
 
 ## 依赖关系
-依赖 `z42.core` + `z42.text`（StringBuilder for stringify 缓冲）。无其他 stdlib 依赖。
+依赖 `z42.core` + `z42.text`（StringBuilder for stringify 缓冲）+ `z42.io`（`ParseStream` / `WriteTo` 的 Stream 重载）。
 
-## 与 z42.toml 的关系
-两个包可并用。

@@ -1,26 +1,24 @@
 # z42.test
 
-z42 标准测试库 —— 给 stdlib 自身和用户脚本提供 attribute 注解（[Test] / [Skip] / [ShouldThrow<E>] 等）+ TestIO + Bencher + Runner，配合 [z42b](../../toolchain/builder/)（`z42b test`）运行。
+## 职责
 
-## 现状
+z42 标准测试库：给 stdlib 自身和用户脚本提供 `TestIO`（console 捕获）+ `Bencher`（基准测量）+ `TestRunner`（命令式 runner）+ `Runner` / `BundleRunner`（`[Test]` / `[Benchmark]` 发现与调度、`TestReport` 报告），配合 [z42b](../../toolchain/builder/)（`z42b test` / `z42b bench`）运行。
+`[Test]` / `[Skip]` / `[Ignore]` / `[Setup]` / `[Teardown]` / `[Benchmark]` / `[ShouldThrow<E>]` / `[Timeout]` 等 attribute 的语法见 `docs/reference/`。
 
-当前能力：
+**`Assert` 不在本包**：全仓唯一的 `Std.Assert`（及 `TestFailure` / `SkipSignal`）位于 **z42.core**（`src/Assert.z42` + `src/Failure.z42`），因为断言必须 prelude 可见。本包不提供 Assert 类。
 
-| 能力 | 状态 | API |
-|---|---|---|
-| Attribute 注解 | ✅ | `[Test]` / `[Skip(reason:, platform?:, feature?:)]` (平台/特性条件实际生效) / `[Ignore]` / `[Setup]` / `[Teardown]` / `[Benchmark]` / `[ShouldThrow<E>]` / `[Timeout(milliseconds: N)]` |
-| 失败位置展示 | ✅ | runner pretty/TAP/JSON 均自动展示 `failure_location` + 完整 `stack_trace`；reason 字段保持向前兼容（in-process; subprocess + JIT 待跟进 spec） |
-| Assert 数值比较 | ✅ | `Greater` / `Less` / `GreaterOrEqual` / `LessOrEqual` / `InRange` × `{long, double}`；浮点 NaN guard |
-| Assert 数组集合助手 | ✅ 同上 | `ArrayContains` / `ArrayDoesNotContain` / `ArrayIsEmpty` / `ArrayIsNotEmpty` (`object[]`)；`Array` 前缀为命名惯例 |
-| Assert 基础（9 方法） | ✅ | Equal / NotEqual / True / False / Null / NotNull / Contains / Fail / Skip |
-| Assert 扩展（lambda） | ✅ | Throws / DoesNotThrow / EqualApprox |
-| ⚠️ `Assert *`（上面 4 行） | **位于 z42.core** | 全仓唯一一份 `Std.Assert`，落在 **z42.core**（`src/Assert.z42` + `src/Failure.z42`）——断言必须 prelude 可见 |
-| TestIO（捕获 console） | ✅ | captureStdout / captureStderr / captureBoth |
-| Bencher（基准测量） | ✅ | Bencher.iter(Action) / printSummary / Min·Max·Median·Total·Samples + BenchHelpers.blackBox |
-| Imperative TestRunner | ✅ | Begin / Fail / Summary（无 lambda 的兼容路径）|
-| Runner [Benchmark] 调度 | ✅ | `[Benchmark] void f()` **或** `void f(Bencher b)`（后者编译期 desugar 成前者）；与 `[Test]` 同执行路径。默认 pretty（`PASS`/`FAIL`/`SKIP` + `Result:` 汇总）；`z42b {test,bench} --format json` 产结构化报告 `TestReport`：per-entry `is_benchmark` + benchmark 的 `bench_stats`（`Runner` json 模式捕获 benchmark stdout → `BenchStats.parse`）|
+## 功能索引
 
-## 推荐用法
+| 功能 | 入口 |
+|------|------|
+| 捕获 console 输出 | `TestIO.captureStdout` / `captureStderr` / `captureBoth`（`src/TestIO.z42`） |
+| 基准测量 | `Bencher.iter(Action)` / `printSummary` / `Min·Max·Median·Mean·StdDev·Total·Samples`；`BenchHelpers.blackBox`（`src/Bencher.z42`） |
+| 命令式 runner（无 lambda） | `TestRunner.Begin` / `Fail` / `Summary`（`src/TestRunner.z42`） |
+| `[Test]` / `[Benchmark]` 发现与调度 | `Runner` / `ModuleLoader` / `BundleRunner`；`[Benchmark] void f()` 或 `void f(Bencher b)`（后者编译期 desugar 成前者），与 `[Test]` 同执行路径 |
+| 报告 | 默认 pretty（`PASS` / `FAIL` / `SKIP` + `Result:` 汇总）；`z42b {test,bench} --format json` 产 `TestReport`（含 `failure_location` / `stack_trace`，benchmark 条目带 `is_benchmark` + `bench_stats`） |
+| 集合契约测试 | `BasicCollectionContract`（`src/Contracts/`） |
+
+## 基础用法
 
 ```z42
 namespace MyTests;
@@ -51,106 +49,63 @@ void test_with_bench() {
     var c = new Counter();
     b.iter(() => { c.n = c.n + 1; });
     Assert.True(b.Samples >= 20);   // 显式固定采样用 new Bencher(warmup, samples)
-    b.printSummary("counter");      // bench[counter] min=..ns .. mean=..ns stddev=..ns samples=..
+    b.printSummary("counter");
 }
 
 class Counter { public int n; public Counter() { this.n = 0; } }
 ```
 
-跑测试：`just test-stdlib mylib`（默认串行，in-process VM 保留 [Setup]/[Teardown]）。
-
-> 🔴 **`using Std.Test;` 必写，别靠搭便车**。
-> `Assert` 在 **z42.core**（prelude，免 `using` 恒可见）；但 `Bencher` / `BenchHelpers` /
-> `TestIO` / `BenchStats` 都在 **z42.test** 的 `Std.Test` 命名空间，**必须显式 `using Std.Test;`**。
-> 包激活是**整包**粒度的（同包任一模块 ns 命中你任一 `using` → 整包激活），若只写 `using Std;`，`Bencher`
-> 可能解析失败、且**编译期静默**、运行期才炸
-> （`VCall: … .<unknown>.get_WarmupIters not found`）。机制与现场见
-> [book/compiler/project-model.md「激活是整包粒度」](../../../docs/internals/src/compiler/project-model.md)。
-
-**并行执行**：`z42 xtask.zpkg test lib --jobs N mylib`
-或 `--jobs 0` 自动用 `available_parallelism()`。N > 1 强制 subprocess 模式 —
-速度上 4–8× 但 [Setup]/[Teardown] 不会运行（VmContext 是 `!Send`，无法跨线程
-共享）。z42.crypto 7 文件实测：serial 18s → `--jobs 8` 5.7s。
-
-## 已知限制（待 z42 反射能力增强）
-
-- `Assert.Throws(Action)` 不带类型断言（任意 throw 都算命中）；类型敏感的"应抛特定类型"用 `[ShouldThrow<E>]` 测试级注解
-- z42 lambda 对值类型采用快照捕获语义，要把 capture 结果传出 lambda body 必须用引用类型（class wrapper / array），不能直接对外部 int / string 局部变量赋值
-- BenchHelpers.blackBox 接 `object` 而非 generic `<T>`（z42 parser 在表达式上下文不识别方法级显式 generic call）
-
-## Imperative TestRunner
-
-## 使用
+命令式 runner（无 attribute，`Main` 返回失败计数作为 exit code）：
 
 ```z42
 using Std.Test;
 
 void Main() {
     var t = new TestRunner("MyTests");
-
     t.Begin("Addition");
     try { Assert.Equal(4, 2 + 2); } catch (Exception e) { t.Fail(e); }
-
-    t.Begin("Concatenation");
-    try { Assert.Equal("ab", "a" + "b"); } catch (Exception e) { t.Fail(e); }
-
-    return t.Summary();   // exit code = failed 计数
+    return t.Summary();
 }
 ```
 
-输出（全过场景）：
+> **`using Std.Test;` 必写，别靠搭便车**。`Assert` 在 z42.core（prelude，免 `using`）；但 `Bencher` / `BenchHelpers` /
+> `TestIO` / `BenchStats` 在 z42.test 的 `Std.Test` 命名空间，必须显式 `using Std.Test;`。
+> 包激活是**整包**粒度的，只写 `using Std;` 时 `Bencher` 可能编译期静默解析失败、运行期才炸
+> （`VCall: … .<unknown>.get_WarmupIters not found`）。机制见
+> [project-model.md「激活是整包粒度」](../../../docs/internals/src/compiler/project-model.md)。
 
-```
-══════════════════════════════════════
- MyTests
-══════════════════════════════════════
-  ✓ Addition
-  ✓ Concatenation
-──────────────────────────────────────
- Result: 2 passed, 0 failed
-══════════════════════════════════════
-```
+已知限制：
 
-## API
+- `Assert.Throws(typeName, Action)` 按类型名字符串比对；`Assert.ThrowsAny(Action)` 不断言类型；泛型 `Throws<E>` 待反射能力增强
+- z42 lambda 对值类型采用快照捕获语义，要把结果传出 lambda body 须用引用类型（class wrapper / array）
+- `BenchHelpers.blackBox` 接 `object` 而非 `<T>`（parser 在表达式上下文不识别方法级显式 generic call）
 
-| 方法 | 说明 |
-|---|---|
-| `new TestRunner(string contextName)` | 打印 header（用 contextName） |
-| `void Begin(string name)` | 开始一个 case；隐式 finalize 上一个（未 fail 视为 pass）|
-| `void Fail(Exception e)` | 标记当前 case 失败 + 打印失败原因 |
-| `int Summary()` | finalize 最后一个 case + 打印汇总 + 返回 failed 计数 |
+## 如何测试验证
 
-## 路线图
-
-### 已交付
-
-[Test] attribute 注解发现 + z42-test-runner subprocess 调度：
-
-```z42
-public class MyTests {
-    [Test] public void Addition() { Assert.Equal(4, 2 + 2); }
-    [Test] public void Concat()   { Assert.Equal("ab", "a" + "b"); }
-}
+```bash
+xtask test stdlib z42.test          # 本包 [Test]（单元 + runner 行为）
+xtask test stdlib mylib             # 跑某个库的 [Test]（默认 in-process VM，保留 [Setup]/[Teardown]）
+xtask test stdlib --jobs 0 mylib    # 并行：0 = available_parallelism；N>1 走 subprocess，[Setup]/[Teardown] 不运行
 ```
 
-由 `just test-stdlib` 自动发现 + 调度。imperative TestRunner v0 仍可用（向后兼容）。
+## 核心文件
 
-### 后续
+| 文件 | 类型 | 职责 |
+|------|------|------|
+| `src/TestIO.z42` | `static class TestIO` + `CaptureResult` | console 捕获 |
+| `src/Bencher.z42` | `Bencher` / `static class BenchHelpers` | 基准测量与防优化 |
+| `src/BenchStats.z42` | `BenchStats` | benchmark 统计（含 `parse`，供 runner 解析 benchmark stdout） |
+| `src/TestRunner.z42` | `TestRunner` | 命令式 runner |
+| `src/Runner.z42` | `static class Runner` + `InvokeOutcome` | `[Test]` / `[Benchmark]` 调度执行 |
+| `src/ModuleLoader.z42` | `static class ModuleLoader` + `TestEntry` | 加载模块并发现测试入口 |
+| `src/BundleRunner.z42` | `static class BundleRunner` + `BundleCase` | 嵌入式 test-agent 的 bundle 运行 |
+| `src/TestReport.z42` | `static class TestReport` + `TestResult` | pretty / JSON 报告 |
+| `src/Contracts/BasicCollectionContract.z42` | `static class` | `IBasicCollection` 契约测试 |
 
-- criterion-style baseline diff（独立 spec）
-- 类型敏感的 `Assert.Throws<E>(Action)` —— 等 z42 反射能力增强（is X cross-module / generic-E IsInstance / Object.GetType() vtable inheritance 任一修好）
+## 依赖关系
+依赖 `z42.core` + `z42.io`（`Bencher` 用 `Console.WriteLine`）。纯脚本，无 native 库、无新 builtin。
 
-## 设计选择
-
-- **不依赖 native 库** — 纯脚本，可被 stdlib 自身用（一旦 z42 编译速度允许 stdlib 互测）
-- **不引入新 builtin** — 复用 `Std.Assert.*` + `Console.WriteLine` + `Exception.Message`
-- **Summary 返回 int** — 适合做 `Main()` 的返回值传给 process exit code
-- **Begin 是显式动词** —— 故意与 xUnit `[Fact]`/JUnit 隐式风格不同；v0 用户必须手写每个 case 的开始
-
-## 不做（明确否决）
-
-- ❌ 第二个 Assert 类 —— 全仓只有一个 `Std.Assert`（在 **z42.core**：断言必须 prelude 可见），不重复发明。
-  跨命名空间同短名类的代价见 common-pitfalls §1
-- ❌ 异步测试支持 —— 等 L3 async/await
-- ❌ 参数化测试 —— 等 lambda + collection literals
-- ❌ 测试发现 / 自动注册 —— 等 reflection
+## 待办
+- criterion-style baseline diff
+- 类型敏感的泛型 `Assert.Throws<E>(Action)`
+- 异步测试 / 参数化测试（待 async/await、collection literals）

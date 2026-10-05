@@ -6,10 +6,20 @@
 
 立柱（见 [platform-export-lifecycle.md](../../../docs/internals/src/toolchain/platform-export.md)）：**`z42 build` 一次产平台无关 `app.zpkg`，零 workload；`export`/`publish`/on-platform `test` 才分叉并门控对应平台 workload。**
 
-与 `runtime/` 的区别：runtime = 平台无关核心 + **嵌入 API**（VM + Tier1 C ABI + **Tier2 host-api**，住 `runtime/crates/z42-host` + 头 + per-RID 原始库）；本模块 = 平台相关工程化（appbuilder 发布管线 + template 脚手架 + tests 契约 + platform 原生绑定 Tier3）。
+与 `runtime/` 的区别：runtime = 平台无关核心 + **嵌入 API**（VM + Tier1 C ABI + **Tier2 host-api**，住 `src/runtime/crates/z42-host` + 头 + per-RID 原始库）；本模块 = 平台相关工程化（appbuilder 发布管线 + template 脚手架 + platform 原生绑定 Tier3 及其 R1–R7 契约测试）。
 与 `launcher/`（SDK）的区别：launcher = `z42` CLI core（install/build/run...），引导关键、baked-in；本模块 = 平台命令（publish/export/工程生成），目录发现、按需装。
 
-不做：VM 执行引擎（归 `runtime/`）；CLI core（归 `launcher/`）；SDK installer / 应用打包基础设施（归 `packager/`，另议）。
+不做：VM 执行引擎（归 `runtime/`）；CLI core（归 `launcher/`）。
+
+## 功能索引
+
+| 子目录 | 内容 |
+|------|------|
+| [android/](android/) / [ios/](ios/) / [wasm/](wasm/) | 平台 workload（appbuilder + template + platform）|
+| [desktop/](desktop/) | 桌面 workload：apphost stub + C-ABI 契约测试 |
+| [test/](test/) | 能力 workload：on-device test-agent |
+| `fixtures/` | 各平台测试共用夹具 |
+| `platform-contract.md` | 平台契约 |
 
 ## 目录结构
 
@@ -19,34 +29,39 @@
 workload/<plat>/          # ios / android / wasm（desktop 见下）
 ├── appbuilder/   # z42 workload handler（: WorkloadBase）+ export.z42 —— 发布管线的平台实现
 ├── template/     # 工程脚手架（export 渲染进用户工程，包住 runtime pack + app.zpkg）
-├── tests/        # R1–R7 嵌入契约测试（dogfood）
-└── platform/     # 原生绑定 Tier3（Swift / Kotlin / TS + rust → 编成 runtime pack）
+└── platform/     # 原生绑定 Tier3（Swift / Kotlin / TS + rust → 编成 runtime pack）+ 该平台 R1–R7 嵌入契约测试
+                  #（ios `Tests/`、android `z42vm/src/androidTest/`、wasm `tests/`）
 ```
 
-> 四**平台** workload：`ios` / `android` / `wasm`（含 target runtime pack）/ `desktop`。分发模型见 [runtime-workload-distribution.md](../../../docs/internals/src/toolchain/workload-distribution.md)。
+> 四**平台** workload：`ios` / `android` / `wasm`（含 target runtime pack）/ `desktop`。分发模型见 [workload-distribution.md](../../../docs/internals/src/toolchain/workload-distribution.md)。
 >
-> 🔴 **desktop 不套上面这个模板**：它复用宿主 runtime ⇒ 既没有 runtime pack，也**不需要 export**
+> **desktop 不套上面这个模板**：它复用宿主 runtime ⇒ 既没有 runtime pack，也**不需要 export**
 > （`export.z42` 才是那三个 appbuilder 里唯一的活代码，被 `launcher_export.z42` 调用）。
 > 它没有 `appbuilder/`、没有 `template/`（apphost patcher 的实现只有 z42b 内联的那一份）。
-> 它**有** `platform/apphost/` —— per-RID apphost stub 的 Rust 源，打进 `z42-workload-desktop` 包，
-> `z42 publish` 必需。
+> 它**有** `platform/apphost/`（per-RID apphost stub 的 Rust 源，打进 `z42-workload-desktop` 包，
+> `z42 publish` 必需）、`shell/`（测试壳 C 源）与 `tests/`（R1–R7 C harness，见其 README）。
 >
-> 另有一个**非平台的能力 workload**（不套上面平台模板）：
->
-> ```
-> workload/test/            # 「测试运行」能力 workload（z42 workload install test；平台无关）
-> └── agent/                # on-device test-agent（一份字节码全平台共享；见 test/README.md）
-> ```
->
+> 另有一个**非平台的能力 workload**（不套上面平台模板）：`workload/test/`——「测试运行」能力
+> （`z42 workload install test`；平台无关），内含 `agent/`（on-device test-agent，一份字节码全平台共享，见其 README）。
 > 它是 **payload-only 形状**（只有 agent zpkg、无 per-RID runtime pack、`host:["*"]`），复用现有 install CLI（名 manifest 驱动、通配 host）。
 >
-> `workload/fixtures/`：各平台 R1–R7 嵌入契约测试**共用**的 z42 夹具（`hello.z42` / `multi_line.z42`），
+> `workload/fixtures/`：各平台 R1–R7 嵌入契约测试**共用**的 z42 夹具（`hello.z42` / `multi_line.z42` 及其 `.z42.toml`），
 > 由 `xtask test platform <plat> assets` 编成 `.zbc` 喂给 wasm / iOS / Android / desktop 的测试壳。
+
+## 如何测试验证
+
+```bash
+xtask build workload                  # 构建 4 个平台 workload 库
+xtask test platform all               # 各平台 R1–R7 嵌入契约（wasm / ios / android / desktop）
+xtask test embedded                   # 经 test-agent 跑嵌入语料
+```
+
+各平台细节见各自 README。
+
+## 关联文档
+
+- 设计与机制：[platform-export.md](../../../docs/internals/src/toolchain/platform-export.md)、[workload-distribution.md](../../../docs/internals/src/toolchain/workload-distribution.md)、[platform-contract.md](platform-contract.md)
 
 ## 依赖关系
 
 - 依赖 `runtime/`（原始库 + C ABI 头）；被 `launcher` 的目录发现注册为平台命令。
-
-## 关联文档
-
-- 引入 / 演进：change `consolidate-platform-into-workload` / `build-workload-subsystem`（平台优先布局）、`unify-test-pipeline-z42b`（能力 workload `test`）。

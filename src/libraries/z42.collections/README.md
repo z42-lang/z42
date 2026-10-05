@@ -15,6 +15,7 @@ z42 **次级集合类型**（FIFO / LIFO / 有序 / 专用场景容器）。
 | `Queue.z42` | `Queue<T>` | 队列（FIFO） |
 | `Stack.z42` | `Stack<T>` | 栈（LIFO） |
 | `LinkedList.z42` | `LinkedList<T>` / `LinkedListNode<T>` | 双向链表（O(1) 端点 / O(n) Find） |
+| `SortedSet.z42` | `SortedSet<T> where T: IComparable + IEquatable` | 有序集合 |
 | `PriorityQueue.z42` | `PriorityQueue<T> where T: IComparable` | 最小堆优先队列（O(log n) Enqueue/Dequeue / O(1) Peek） |
 
 ## Namespace
@@ -25,9 +26,14 @@ z42 **次级集合类型**（FIFO / LIFO / 有序 / 专用场景容器）。
 > 注意：`List<T>` / `Dictionary<K,V>` 虽然物理位于 `z42.core` 包，但 namespace
 > 仍是 `Std.Collections`（包位置与 namespace 解耦）。
 
-## 未来扩展（按需补齐）
+## 如何测试验证
 
-| 类型 | 说明 | 阶段 |
-|------|------|------|
-| `SortedDictionary<K,V>` | 有序映射（红黑树） | L2 |
-| `PriorityQueue<T>` | 优先队列（二叉堆） | L2 |
+```bash
+xtask test stdlib z42.collections    # 本库全部 [Test]
+```
+
+## 依赖关系
+仅依赖 `z42.core`。
+
+## 待办
+- `SortedDictionary<K,V>`（有序映射，红黑树）

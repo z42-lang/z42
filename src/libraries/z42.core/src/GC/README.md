@@ -10,6 +10,7 @@
 | `GC.z42` | `Std.GC` 静态类：Collect / UsedBytes / ForceCollect / GetStats |
 | `GCHandle.z42` | `Std.GCHandle` struct（_slot: long，corelib HandleTable backing）+ `Std.GCHandleType` enum（Weak / Strong）|
 | `HeapStats.z42` | `Std.HeapStats` class（7 long 字段：Allocations / GcCycles / UsedBytes / MaxBytes / RootsPinned / FinalizersPending / Observers）|
+| `SoftHandle.z42` | `Std.SoftHandle`：GC 可清除引用——堆压力低于 `Z42_GC_SOFT_THRESHOLD`（默认 80%）时保活，超过则被清 |
 | `WeakHandle.z42` | `Std.WeakHandle` 轻量弱引用 primitive（无 Free，自动 GC）；`Delegates/SubscriptionRefs.z42` 内部消费 |
 
 ## 入口点

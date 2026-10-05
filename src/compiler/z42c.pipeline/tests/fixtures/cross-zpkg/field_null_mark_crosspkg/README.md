@@ -1,6 +1,6 @@
 # field_null_mark_crosspkg（正例：跨包字段 / 属性的 `?` 标记生效）
 
-`carry-field-null-marks` 的跨包回归门。
+跨包字段 / 属性 `?` 标记携带的回归门。
 
 - `target`（`demo.fnull`）：`public string? Marked;` / `public string? MarkedProp { get; set; }`，
   各配一个**没标**的对照（`Unmarked` / `UnmarkedProp`）。

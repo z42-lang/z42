@@ -1,54 +1,23 @@
-# Z42VM — Android facade
+# workload/android — Z42VM Android facade
 
-> 🟢 已落地。
->
-> 跨平台契约：[`../README.md`](../README.md)
-> 实现原理：[`docs/internals/src/runtime/embedding.md`](../../../../docs/internals/src/runtime/embedding.md)
-> 构建工作流：[`docs/internals/src/devinfra/build-platforms.md`](../../../../docs/internals/src/devinfra/build-platforms.md)
+## 职责
 
-把 z42 VM 编进 Gradle AAR 模块，Kotlin / Compose app 引入后一行 `import io.z42.vm.Z42VM` 跑 `.zbc`。
+把 z42 VM 编进 Gradle AAR 模块（`io.z42.vm.Z42VM`），Kotlin / Compose app 引入后跑 `.zbc`；
+并含 Android 平台 workload 的 appbuilder（`export`）与 R1–R7 嵌入契约测试。仅 interp，JIT 与 ART 互斥。
+不做：编译 `.z42`（host 端 z42c 编好 `.zbc` / `.zpkg` 再装进 assets）。
 
-## Quick Start
+## 功能索引
 
-详细 step-by-step 见 [`docs/internals/src/devinfra/build-platforms.md`](../../../../docs/internals/src/devinfra/build-platforms.md)。最简略：
+| 功能 | 入口 / 文件 |
+|------|-----------|
+| Kotlin 公开 API（`Z42VM` / `Z42VMModule` / `Z42VMEntry` / `Z42VMValue` / `Z42VMException`） | `platform/z42vm/src/main/java/io/z42/vm/` |
+| zpkg 解析（`AssetZpkgResolver` / `MapZpkgResolver`） | `ZpkgResolver.kt` |
+| JNI 桥 → `z42_host_*` C ABI | `platform/z42vm/src/main/cpp/z42vm_jni.c` |
+| Rust cdylib（`libz42_platform_android.so`，`z42_host_*` 再导出） | `platform/rust/` |
+| 发布 / 导出管线（`: WorkloadBase`） | `appbuilder/AndroidWorkload.z42`、`appbuilder/export.z42` |
+| 设备侧测试宿主 | `Z42TestHost.kt`（`main`）、`Z42VMInstrumentedTest.kt` / `Z42EmbeddedInstrumentedTest.kt`（`androidTest`） |
 
-```bash
-# 一次性：SDK + NDK + emulator + AVD + Gradle 全装到 artifacts/tools/
-# 不动系统（~4 GB；详见 z42 xtask.zpkg deps install android-sdk）
-z42 xtask.zpkg deps install android-sdk
-rustup target add aarch64-linux-android x86_64-linux-android
-cargo install cargo-ndk --locked
-./xtask build stdlib                                       # 编 stdlib
-
-# 每次（export 一次后下次重用）
-export ANDROID_HOME="$PWD/artifacts/tools/android-sdk"
-export ANDROID_NDK_HOME="$PWD/artifacts/tools/android-ndk"
-export GRADLE_USER_HOME="$PWD/artifacts/tools/gradle-user-home"
-export JAVA_HOME=$(/usr/libexec/java_home -v 17+)
-./xtask test platform android build      # cargo-ndk × ABIs + gradle AAR
-./xtask test platform android assets     # fixtures + stdlib 进 assets
-```
-
-产物（都在宿主工程副本 `artifacts/build/toolchain/workload/android/tests/host/` 里，不写本目录；gradle 在副本里跑）：`z42vm/build/outputs/aar/z42vm-release.aar` + `jniLibs/{arm64-v8a,x86_64}/libz42_platform_android.so` + `assets/stdlib/*.zpkg`（无 index——`AssetZpkgResolver` 读各 zpkg 的 NSPC）+ `androidTest/assets/test-fixtures/*.zbc`（32-bit ABI 已退场；见 memory project_supported_platforms）。
-
-## Run tests
-
-```bash
-./xtask test platform android
-```
-
-全流程(build + assets + run)。③ run 由 `AndroidBackend.RunTests` 桥接 `test.sh`：自启 headless emulator `@z42_pixel6_api37`（installer 预创建的 AVD）+ adb 等 boot 完成 + 跑 `./gradlew :z42vm:connectedAndroidTest`，退出时 `adb emu kill`。期望尾部：
-
-```
-Starting 7 tests on z42_pixel6_api37(AVD) - 17
-Finished 7 tests on z42_pixel6_api37(AVD) - 17
-BUILD SUCCESSFUL
-✅ Z42VMInstrumentedTest passed
-```
-
-7 个测试覆盖 platform-test-contract R1–R7（smoke / 错误码 / resolver / lifecycle / 多行 stdout），与 iOS XCTest / wasm playwright 对齐。
-
-## API 速记
+## 基础用法
 
 ```kotlin
 import io.z42.vm.Z42VM
@@ -57,77 +26,48 @@ import io.z42.vm.AssetZpkgResolver
 Z42VM(zpkgResolver = AssetZpkgResolver(assets)).use { vm ->
     vm.stdoutHandler = { bytes -> textView.append(String(bytes)) }
     val m = vm.loadZbc(assets.open("hello.zbc").readBytes())
-    val e = vm.resolveEntry(m, "App.Main")
-    vm.invoke(e)
+    vm.invoke(vm.resolveEntry(m, "App.Main"))
 }
 ```
 
-### `Z42VM(zpkgResolver, stdoutHandler?, stderrHandler?)`
+构建与安装：
 
-- `zpkgResolver: ZpkgResolver` —— 默认 `AssetZpkgResolver(context.assets)` 读 `assets/stdlib/<ns>.zpkg`
-- `stdoutHandler / stderrHandler: ((ByteArray) -> Unit)?` —— 每条 z42 输出触发一次，UTF-8 字节
-
-### `Z42VMValue`
-
-```kotlin
-sealed class Z42VMValue {
-    object Null : Z42VMValue()
-    data class I64(val v: Long)    : Z42VMValue()
-    data class F64(val v: Double)  : Z42VMValue()
-    data class Bool(val v: Boolean): Z42VMValue()
-}
+```bash
+./xtask deps install --os android        # SDK + NDK + emulator + AVD + Gradle，装到 artifacts/tools/
+./xtask build stdlib
+./xtask test platform android build      # cargo-ndk × ABIs + gradle AAR
+./xtask test platform android assets     # fixtures + stdlib 进 assets
 ```
 
-H2 marshal 限 null + 三种原语；string / object / Array 推迟。
+产物在宿主工程副本 `artifacts/build/toolchain/workload/android/tests/host/`（不写本目录）：
+`z42vm/build/outputs/aar/z42vm-release.aar`、`jniLibs/{arm64-v8a,x86_64}/libz42_platform_android.so`、
+`assets/stdlib/*.zpkg`（`AssetZpkgResolver` 读各 zpkg 的 NSPC 建索引）。
 
-### `Z42VMException`
+限制：仅 interp；单实例；同步 invoke（UI 线程请用 `Dispatchers.Default` 包装）；
+marshal 仅 null + `I64` / `F64` / `Bool`（string / object / Array 见 embedding.md 的 Deferred）。
 
-`RuntimeException` + `val status: Int` (1..99) + 标准 status 常量。映射详见 [`platforms/README.md`](../README.md) §错误码映射表。
+## 如何测试验证
 
-### `ZpkgResolver` 接口
-
-```kotlin
-interface ZpkgResolver {
-    fun resolve(namespace: String): ByteArray?
-}
+```bash
+./xtask test platform android
 ```
 
-内置：
+全流程 build + assets + run：`platform/test.sh` 自启 headless emulator `@z42_pixel6_api37` 并跑
+`./gradlew :z42vm:connectedAndroidTest`，退出时 `adb emu kill`。期望尾部 `Finished 7 tests` + `BUILD SUCCESSFUL`
+（7 个测试 = R1–R7，与 iOS XCTest / wasm playwright 对齐）。CI 由 emulator-runner 提供模拟器，经 `z42b` 触发 gradle。
 
-- `AssetZpkgResolver(assets, subdir = "stdlib")` —— 读 AAR `assets/stdlib/<ns>.zpkg`
-- `MapZpkgResolver(initial = emptyMap())` —— 测试 / 自定义来源
+## 关联文档
 
-## 架构
+- 跨平台契约：[`../platform-contract.md`](../platform-contract.md)
+- 嵌入机制：[embedding.md](../../../../docs/internals/src/runtime/embedding.md)
+- 构建与故障排查：[build-platforms.md](../../../../docs/internals/src/devinfra/build-platforms.md)
 
-```
-io.z42.vm.Z42VM  (Kotlin / public API)
-        │
-        ▼ JNI external fun nativeInitialize / nativeLoadZbc / ...
-        │
-libz42vm_jni.so  (C, CMake-built; src/main/cpp/z42vm_jni.c)
-        │
-        ▼ z42_host_*  (C ABI from z42_host.h)
-        │
-libz42_platform_android.so  (cargo-ndk-built; thin re-export of z42_host_*)
-        │
-        ▼  in-process
-src/runtime/  (interp + aot feature; no JIT inside Android sandbox)
-```
+## 核心文件
 
-`libz42vm_jni.so` 和 `libz42_platform_android.so` 都打进 AAR 的 `jniLibs/<abi>/`，每 ABI 一份。
-
-## 限制（v0.1）
-
-- **仅 interp 模式**：JIT 与 Android ART 互斥
-- **native interop**：`android` feature preset 含 `native-interop`（libffi 5.1 / libffi-sys 4.1 的 bundled libffi 3.4.7；经 `cargo ndk` + NDK r25+ 构建，构建经 `AndroidBackend.BuildProject`）
-- **单实例**
-- **同步 invoke**：UI 上请用 `Dispatchers.Default` 异步包装
-- **Demo / CI**：暂无；JUnit instrumented test 跑 `./test.sh` 即可
-
-## 故障排查
-
-详细的 step-by-step 故障兜底见 [`docs/internals/src/devinfra/build-platforms.md`](../../../../docs/internals/src/devinfra/build-platforms.md) §Step 各栏的 ❗ 行。
-
-## 跨平台契约
-
-类名 `Z42VM` / `Z42VMModule` / `Z42VMEntry` / `Z42VMValue` / `Z42VMException`、`ZpkgResolver` 接口、错误码 → status 数值映射，全部与 [`platforms/README.md`](../README.md) 一致。同一份 `.zbc` 在 iOS / Android / WASM 三平台行为应等价。
+| 路径 | 职责 |
+|------|------|
+| `appbuilder/` | workload handler + export |
+| `template/` | `export` 渲染进用户工程的脚手架 |
+| `platform/z42vm/` | AAR 模块（Kotlin API + JNI C + androidTest） |
+| `platform/rust/` | cargo-ndk 构建的 cdylib |
+| `platform/test.sh` | 本地 emulator 生命周期 + connectedAndroidTest |

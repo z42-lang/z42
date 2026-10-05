@@ -10,24 +10,27 @@ z42 隐式 prelude 的源码。VM 启动时无条件加载；用户项目**不�
 
 | 路径 | 内容 |
 |------|------|
-| `Object.z42` | 所有引用类型的基类；`ToString` / `Equals` / `GetHashCode` 协议方法 |
-| `Type.z42` | 运行时类型对象（`typeof` 结果） |
-| `Array.z42` | 所有 `T[]` 的基类（`sealed`）：`Length` / `Clone` / Object 协议 + 反射式 `CreateInstance`(静态)/`GetValue`/`SetValue`（照搬 C# `System.Array`，供反射式 serde）|
-| `Reflection/` | 反射成员对象：`MemberInfo` / `FieldInfo`（含 `GetCustomAttributes`/`GetAttribute`）/ `MethodInfo` / `PropertyInfo`（含 `GetValue`/`SetValue` + `GetCustomAttributes`/`GetAttribute`）/ `ParameterInfo` / `Activator` / `Assembly`（详见 `docs/reference/src/stdlib/reflection.md`）|
-| `String.z42` | `string` primitive 的成员方法（`Substring` / `Contains` / 等）|
-| `Primitives/` | 6 个数值/布尔 primitive 的成员方法（Bool / Char / Int / Long / Float / Double） |
-| `Delegates/` | callable + multicast + 订阅策略整套（详见 `docs/reference/src/language/delegates-events.md`）<br>• `Delegates.z42` / `DelegateOps.z42` — base Action/Func/Predicate + `==` / `!=`<br>• `MulticastAction/Func/Predicate.z42` — 多播容器<br>• `ISubscription.z42` + `SubscriptionRefs.z42` — 订阅策略 wrapper |
-| `Protocols/` | 接口契约集中：IEquatable / IComparable / IDisposable / IFormattable / INumber / IEnumerable / IEnumerator / IComparer / IEqualityComparer |
-| `Exceptions/` | `Exception` 基类 + 11 个标准子类（`AggregateException` / `MulticastException` / `ArgumentException` 等）|
-| `Collections/` | 基础泛型集合：`List<T>` / `Dictionary<K,V>` / `KeyValuePair<K,V>` |
-| `Convert.z42` | `Convert.ToInt32` / `ToDouble` / `ToString` 等转换辅助 |
-| `BitConverter.z42` | `Std.BitConverter`：IEEE-754 位重解释 `SingleToBits`/`SingleFromBits`/`DoubleToBits`/`DoubleFromBits`（`__*_to_bits`/`__*_from_bits` 唯一声明点；z42.io.binary / z42.package 调它——consolidate-core-intrinsics A1）|
-| `Math.z42` | `Std.Math`（= `System.Math`）：libm 原语 `Pow`/`Sqrt`/`Floor`/`Ceiling`/`Round`/`Log`/`Log10`/`Sin`/`Cos`/`Tan`/`Atan2`/`Exp`（`__math_*` 唯一声明点）+ 派生 `Abs`/`Min`/`Max`/`Clamp`/`Sign` + 常量 `Pi`/`E`/`Tau`。move-math-to-core (A2)：整类自 z42.math 迁入，对齐 CoreLib |
-| `Assert.z42` | `Assert.Equal` / `True` / `Null` 等运行时断言 |
-| `GC/` | GC 控制 + 句柄类型（详见 `docs/internals/src/runtime/gc-handle.md`）<br>• `GC.z42` — `Std.GC.*` 静态类（Collect / UsedBytes / ForceCollect / GetStats）<br>• `GCHandle.z42` — `Std.GCHandle` struct + `GCHandleType` enum（C# 风格 weak/strong + 显式 Free，corelib HandleTable backing）<br>• `HeapStats.z42` — `Std.GC.GetStats()` 返回类型（7 long 字段）<br>• `WeakHandle.z42` — 轻量 weak ref primitive（`Delegates/SubscriptionRefs.z42` 内部用）|
-| `Disposable.z42` | `IDisposable` 的通用实现 + `Disposable.From(Action)` 工厂；用于单播 event token、`SubscribeScoped` 返回值等 |
-| `Runtime.z42` | `Std.Runtime` 动态加载 + 静态调用：`LoadZpkg(path)` / `CallStatic(fqn, args)->int`（extern，VM builtins `__load_zpkg` / `__call_static`；实现待反射 + 自举完成后接入） |
-| `Clock.z42` | `Std.Runtime.Clock`：`WallMillis()`（`__time_now_ms`）/ `MonoNanos()`（`__time_now_mono_ns`）时钟原语唯一声明点；z42.time / z42.io / z42.net / z42.test 调它——consolidate-core-intrinsics A1 |
+| `Object.z42` / `Type.z42` / `TypeVisibility.z42` | 引用类型基类（`ToString` / `Equals` / `GetHashCode`）；运行时类型对象（`typeof` 结果）；反射可见性枚举 |
+| `Array.z42` | 所有 `T[]` 的基类（`sealed`）：`Length` / `Clone` / 反射式 `CreateInstance` / `GetValue` / `SetValue` + 静态算法（排序 / 查找 / 谓词 / 变换 / `AsReadOnly`），供反射式 serde |
+| `String.z42` / `String.Split.z42` / `String.Edit.z42` | `string` 的 partial 三片：最小 intrinsic 核 + 纯脚本方法；`Split` / `Join` / `Concat` / `Format`；`Insert` / `Remove` / `Pad*` |
+| `SplitOptions.z42` | `String.Split` 的 bitwise 选项常量 |
+| `Primitives/` | 数值 / 布尔 / 字符 primitive（`Boolean` / `Char` / `Byte` / `SByte` / `Int16/32/64` / `UInt16/32/64` / `Single` / `Double`）的成员方法 |
+| `Protocols/` | 接口契约：`IEquatable` / `IComparable` / `IDisposable` / `IFormattable` / `INumber` / `IEnumerable` / `IEnumerator` / `IComparer` / `IEqualityComparer` / `IBasicCollection` |
+| `Collections/` | 基础泛型集合：`List<T>`（`List.z42` + `List.Query.z42`）/ `Dictionary<K,V>` / `HashSet<T>` / `ReadOnlyCollection<T>` / `KeyValuePair<K,V>` + 对应 Enumerator |
+| `Exceptions/` | `Exception` 基类 + 标准子类（`ArgumentException` / `InvalidOperationException` / `AggregateException` / `MulticastException` 等） |
+| `Delegates/` | callable + multicast + 订阅策略（详见 `docs/reference/src/language/delegates-events.md`）：`Delegates.z42` / `DelegateOps.z42`（Action / Func / Predicate + `==`）、`Multicast*.z42`、`ISubscription.z42` + `SubscriptionRefs.z42` |
+| `Reflection/` | 反射成员对象：`MemberInfo` / `FieldInfo` / `MethodInfo` / `PropertyInfo` / `ConstructorInfo` / `MethodBase` / `ParameterInfo` / `Activator` / `Assembly`（详见 `docs/reference/src/stdlib/reflection.md`）；`Attribute.z42` / `ForwardAttribute.z42` / `Enum.z42` 在顶层 |
+| `Runtime/` | `AppProperties` / `RuntimeConfig`（只读配置面）/ `AssemblyLoadContext` / `ModuleSearch`；顶层 `Runtime.z42` 为 `Std.Runtime` 动态加载入口（`LoadZpkg` / `CallStatic`） |
+| `Time/` | `DateTime` / `DateTimeOffset` / `TimeSpan` / `Stopwatch` / `TimeZone` |
+| `IO/` | 控制台 / 文件 / 目录 / 路径 / 环境 / 进程的 native 语义层（`Console` / `File` / `Directory` / `Path` / `Environment` / `FileStreamNative` / `ProcessNative`） |
+| `Native/` | 网络（TCP / UDP / TLS / DNS）与线程 / Monitor 的 native 语义层，供 z42.net / z42.threading 包装 |
+| `GC/` | GC 控制 + 句柄类型（见 [GC/README.md](GC/README.md)；机制 `docs/internals/src/runtime/gc-handle.md`） |
+| `Convert.z42` / `Math.z42` | 类型转换；`Std.Math`（libm 原语 `__math_*` 唯一声明点 + 纯脚本派生 + 常量） |
+| `BitConverter.z42` / `Clock.z42` / `Entropy.z42` | cross-cutting native 原语的**唯一声明点**：IEEE-754 位重解释；`WallMillis` / `MonoNanos` 时钟；OS 熵源 |
+| `Platform.z42` / `OperatingSystem.z42` | OS / 架构标识（`Platform` / `OSKind` / `ArchKind`）；进程与机器信息 |
+| `Assert.z42` / `Failure.z42` | 全仓唯一断言 API；`TestFailure` / `SkipSignal` |
+| `Disposable.z42` | `IDisposable` 通用实现 + `Disposable.From(Action)` |
+| `Guid.z42` / `Lazy.z42` / `Version.z42` / `ValueTuple.z42` | `Guid`（v4）/ `Lazy<T>` / `Version` / `ValueTuple<…>`（元组类型的运行时载体） |
 
 ## 设计原则
 

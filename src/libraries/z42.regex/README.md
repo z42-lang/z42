@@ -1,11 +1,10 @@
 # z42.regex
 
 ## 职责
-正则表达式 parser + 匹配 / 搜索 / 替换 / split。RFC 5234 + POSIX BRE/ERE
-子集。接口参照 Python `re` / JavaScript `RegExp`。
+正则表达式 parser + 匹配 / 搜索 / 替换 / split。常见正则语法的子集，接口参照 Python `re` / JavaScript `RegExp`。
 
 **引擎**：backtracking NFA（同 Python/Java/JS）。简单、覆盖 90% 用例；
-pathological pattern（`(a+)+x` 类）下可能指数时间 — 详 design doc Deferred。
+pathological pattern（`(a+)+x` 类）下可能指数时间 — 详 `docs/reference/src/stdlib/regex.md`。
 
 ## 核心文件
 | 文件 | 职责 |
@@ -13,7 +12,7 @@ pathological pattern（`(a+)+x` 类）下可能指数时间 — 详 design doc D
 | `src/Regex.z42`          | `Std.Regex.Regex` main class + backtracking engine |
 | `src/RegexParser.z42`    | pattern string → `RegexNode[]` AST，递归下降 |
 | `src/RegexNode.z42`      | AST 节点（_kind + fields；同 TomlValue/JsonValue 模式） |
-| `src/Match.z42`          | `Std.Regex.Match` — Start/End/Length/Value/Group(i)/GroupCount |
+| `src/Match.z42`          | `Std.Regex.Match` — Start/End/Length/Value/Group(i)/GroupByName/GroupCount |
 | `src/RegexException.z42` | `Std.RegexException`（compile-time errors） |
 
 ## 入口点
@@ -53,46 +52,48 @@ m2.Group(1);   // "name"
 m2.Group(2);   // "alice"
 ```
 
-## 支持的语法（v0）
+## 支持的语法
 
 | 语法 | 含义 |
 |------|------|
-| 字面字符 | `a`, `1`, `_` 等 |
-| `.` | 任意单字符（v0：包括换行） |
-| `^` / `$` | 字符串首 / 末锚点 |
-| `\\` `\.` `\*` `\(` `\[` 等 | 转义 metachar |
-| `\n` `\t` `\r` | 控制字符 |
-| `\d` `\D` | 数字 / 非数字 |
-| `\w` `\W` | word char `[A-Za-z0-9_]` / 非 |
-| `\s` `\S` | 空白 / 非空白 |
+| 字面字符 / `\.` `\*` 等 | 字面 / 转义 metachar；`\n` `\t` `\r` 控制字符 |
+| `.` | 任意单字符（含换行，无 dotall 开关） |
+| `^` / `$` | 输入首 / 末锚点；`(?m)` 下也匹配 `\n` 前后 |
+| `\b` `\B` | ASCII 词边界 |
+| `\d` `\D` `\w` `\W` `\s` `\S` | 预定义类（ASCII，仅字符类外） |
 | `[abc]` `[a-z]` `[^abc]` | 字符类（正 / 负 / 区间） |
-| `?` `*` `+` | quantifier（greedy） |
-| `{n}` `{n,}` `{n,m}` | 计数 quantifier |
-| `(...)` | capturing group（按 `(` 顺序 1-based） |
+| `?` `*` `+` `{n}` `{n,}` `{n,m}` | 贪婪量词；加 `?` 为惰性（`*?` 等） |
+| `(...)` / `(?:...)` / `(?<name>...)` | 捕获 / 非捕获 / 命名组（`GroupByName` / `GroupIndexOf`） |
 | `\|` | alternation |
+| `(?i)` `(?m)` | 仅 pattern 开头的内联 flag |
+| Replace 中 `$0`–`$9` / `$$` | 捕获组引用 |
 
-## 不支持（详 `docs/reference/src/stdlib/regex.md`「不支持」节）
+## 不支持
 
-- backreference `\1`, `\2`
-- non-greedy `*?` `+?` `??`
-- lookahead / lookbehind `(?=)` `(?!)` `(?<=)` `(?<!)`
-- named group `(?<name>...)`
-- non-capturing group `(?:...)`
+详见 `docs/reference/src/stdlib/regex.md`「不支持」节与「静默按字面量处理的写法」：
+
+- lookahead / lookbehind、原子组、占有量词
+- backreference `\1`（静默退化为字面量）
+- 字符类内的 `\d` `\w` `\s`（退化为字面字母）
 - Unicode property classes `\p{L}`
-- flags（i / m / s — 大小写不敏感、多行 ^$、`.` 匹配换行）
-- Replace 中的 `$1` 反向引用
-- atomic group / possessive quantifier
+- `(?s)` / `(?x)` / 作用域 flag；`\x41` / `\u0041` 数值转义
+- group 内部的选择不回溯：`(a|ab)c` 匹配不上 `"abc"`
+
+## 如何测试验证
+
+```bash
+xtask test stdlib z42.regex    # 本库全部 [Test]
+```
 
 ## 依赖关系
-依赖 `z42.core`（基础类型 + Exception）+ `z42.collections`（manifest 依赖，
-实际未直接使用 List<T>；通过 z42.core 间接可用）。
+依赖 `z42.core`（基础类型 + Exception）。
 
 ## 性能特征
 
 - 编译：O(N) where N = pattern 长度
 - 匹配：典型 O(N·M) where N = pattern, M = input 长度
 - pathological：`(a+)+x` 对 input `aaaa...aab` 是指数时间（ReDoS 风险）
-  → v1 升级到 Thompson NFA simulation 可消除（详 design doc Deferred）
+  → 无步数 / 超时上限，勿对不受信任的 pattern 或超长输入使用
 
 ## 实现说明
 
@@ -100,4 +101,4 @@ m2.Group(2);   // "alice"
   type param dropping 限制；同 TomlValue / JsonValue 模式）
 - Concat 隐式：序列即 `RegexNode[]`；ALT / QUANT / GROUP 的 child 是子序列
 - Group capture 用 `_gStarts[i]` / `_gEnds[i]` 数组，回溯时 snapshot + restore
-- Quantifier 是 greedy：先匹配最多次，再 backtrack 一格一格短
+- Quantifier 默认 greedy：先匹配最多次，再 backtrack 一格一格短；`?` 后缀为 lazy

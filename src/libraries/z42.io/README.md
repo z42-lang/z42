@@ -2,37 +2,48 @@
 
 ## 职责
 
-z42 标准 IO 类型。
+流式 I/O（Stream / 文本读写 / 二进制读写）、子进程、ANSI 着色。
+不含 `Console` / `File` / `Directory` / `Path` / `Environment`——这些基础 IO 门面位于
+`z42.core/src/IO/`（prelude，无需声明依赖）；本包在其上提供流抽象与进程子系统。
 
-## src/ 核心文件
+## 功能索引
 
-| 文件 | 类型 | 说明 |
+| 功能 | 入口 |
+|------|------|
+| 字节流抽象与实现 | `Stream` / `MemoryStream` / `FileStream` / `BufferedStream`（`Std.IO`） |
+| 字符读写 | `TextReader` / `TextWriter` 基类；`StringReader` / `StringWriter`；`StreamReader` / `StreamWriter`（经 `Encoding` 编解码） |
+| 二进制读写 | `Std.IO.Binary.BinaryReader` / `BinaryWriter`（LE / BE 显式后缀 + varint + float/double） |
+| 子进程 | `Process`（启动 / 等待 / kill / stdin 写入）+ `ProcessHandle` / `ProcessResult` / `Stdio`；`Process.Which(name)`；`ShareProcessGroup()` |
+| ANSI 着色 | `Ansi.Red(s)` / `Bold` / `BrightGreen` …，自动检测 TTY + `NO_COLOR`，`Strip(s)` 去 escape |
+
+二进制读写的设计要点见 `docs/reference/src/stdlib/io-binary.md`。
+
+## 核心文件
+
+| 文件 | 类型 | 职责 |
 |------|------|------|
-| `Console.z42` | `Console` | 标准输入/输出（`ReadLine`、`WriteLine` 等） |
-| `Ansi.z42` | `Ansi` | ANSI SGR 包裹：`Ansi.Red(s)` / `Bold` / `BrightGreen` …；自动检测 TTY + `NO_COLOR`，不启用时透传；`Strip(s)` 去 escape 码 |
-| `Stdio.z42` | `Stdio` | stdin/stdout/stderr 原语 (`IsTty` 等) |
-| `File.z42` | `File` | 文件读写操作（`ReadAllText/Bytes` + `WriteAllText/Bytes` + atomic 写 `WriteAllTextAtomic/WriteAllBytesAtomic` + Link/SymLink/MakeExecutable/CreateTempDir/GetSize） |
-| `Directory.z42` | `Directory` | 目录创建 / 列表 / 删除；`CreateTempDir(prefix)` 为 `File.CreateTempDir` 的 alias |
-| `Path.z42` | `Path` | 路径拼接和解析；`Glob`（直接子项）+ `GlobRecursive(dir, pattern)` 递归 |
-| `Environment.z42` | `Environment` | 环境变量、进程退出 |
-| `Process.z42` / `ProcessHandle.z42` / `ProcessResult.z42` | 进程子系统 | 启动 / 等待 / kill / stdin 写入（`WriteStdin(byte[])` + `WriteStdinString(string)`）；静态 `Process.Which(name)` 在 `$PATH` 查可执行；`ShareProcessGroup()` 让子进程留在调用方进程组（交互式 tty 透传必需，如 `z42 repl`；默认独立进程组以便 run-timeout 树杀，fix-repl-launcher-process-group） |
-| `ProcessStdinStream.z42` | `ProcessStdinStream` | write-only Stream over a live child stdin pipe (delegates to ProcessHandle.WriteStdin / CloseStdin) |
-| `ProcessOutputStream.z42` | `ProcessOutputStream` | read-only Stream over child stdout/stderr (fd-parameterised；backed by `__process_handle_read_*` builtins) |
-| `Stream.z42` | `Stream` | 流式 I/O base class（capability + Read/Write/Seek + ReadAllBytes / WriteAllBytes / ReadExactly） |
-| `MemoryStream.z42` | `MemoryStream` | `byte[]`-backed Stream（writable + growable / read-only view + `ToArray()`） |
-| `FileStream.z42` | `FileStream` | OS-file-backed Stream（Read / Write / Append mode，走 `VmCore.file_handles` slot table；`Seek` 拒绝 resulting position < 0 with `ArgumentException`） |
-| `BufferedStream.z42` | `BufferedStream` | single-buffer Stream wrapper batching small Read/Write into larger inner ops（4 KB default） |
-| `FileMode.z42` | `FileMode` | `FileStream` 构造模式常量（Read=0 / Write=1 / Append=2） |
-| `SeekOrigin.z42` | `SeekOrigin` | `Seek(offset, origin)` origin 常量（Begin=0 / Current=1 / End=2） |
-| `StringReader.z42` | `StringReader` | char-oriented reader over an in-memory string（`Peek` / `Read` / `ReadLine` / `ReadToEnd`） |
-| `StringWriter.z42` | `StringWriter` | char-oriented writer accumulating into a string（`Write` / `WriteLine` / `ToString` / `Clear`） |
-| `StreamReader.z42` | `StreamReader` | char-oriented reader over a byte `Stream` via an `Encoding`（drain-and-decode v0） |
-| `StreamWriter.z42` | `StreamWriter` | char-oriented writer over a byte `Stream` via an `Encoding`（encode-on-write） |
-| `BinaryReader.z42` | `BinaryReader`（namespace `Std.IO.Binary`） | 低层二进制读：byte / int16 / int32 / int64（LE+BE）/ bytes / UTF-8 string / 7-bit varint / float / double；`new BinaryReader(byte[])` 或 `BinaryReader.OverStream(stream)` |
-| `BinaryWriter.z42` | `BinaryWriter`（namespace `Std.IO.Binary`） | 对称写 API + 内部 `byte[]` 自动 2x grow；`new BinaryWriter()` 或 `BinaryWriter.OverStream(stream)` |
-| `BinaryException.z42` | `BinaryException`（namespace `Std`） | 二进制越界 / 非法参数错误 |
-| `Exceptions/` | 各类 IO 异常 | `FileNotFoundException` / `ProcessHandleInvalidException` 等 |
+| `Stream.z42` | `Stream` | 流 base class（capability + Read/Write/Seek + ReadAllBytes / WriteAllBytes / ReadExactly） |
+| `MemoryStream.z42` | `MemoryStream` | `byte[]`-backed Stream（可写可增长 / 只读视图 + `ToArray()`） |
+| `FileStream.z42` | `FileStream` | OS 文件 Stream（Read / Write / Append，走 `VmCore.file_handles` slot table；`Seek` 拒绝负位置） |
+| `BufferedStream.z42` | `BufferedStream` | 单缓冲包装，合并小读写（默认 4 KB） |
+| `FileMode.z42` / `SeekOrigin.z42` | 常量类 | `FileStream` 构造模式（Read / Write / Append）/ `Seek` origin（Begin / Current / End） |
+| `TextReader.z42` / `TextWriter.z42` | `TextReader` / `TextWriter` | 字符读写基类（`IDisposable`） |
+| `StringReader.z42` / `StringWriter.z42` | `StringReader` / `StringWriter` | 内存字符串读 / 累积写 |
+| `StreamReader.z42` / `StreamWriter.z42` | `StreamReader` / `StreamWriter` | 字节 Stream 之上经 `Encoding` 的字符读写 |
+| `BinaryReader.z42` / `BinaryWriter.z42` | `BinaryReader` / `BinaryWriter`（namespace `Std.IO.Binary`） | 低层二进制读 / 写；`new …` 或 `OverStream(stream)` |
+| `BinaryException.z42` | `BinaryException`（namespace `Std`） | 二进制越界 / 非法参数 |
+| `Process.z42` | `Process` | 子进程 builder + 启动；`Which`；`ShareProcessGroup()` 让子进程留在调用方进程组（交互式 tty 透传必需；默认独立进程组以便超时树杀） |
+| `ProcessHandle.z42` / `ProcessResult.z42` | 进程句柄 / 结果 | 等待 / kill / `WriteStdin(byte[])` / `WriteStdinString(string)` / 退出结果 |
+| `Stdio.z42` | `Stdio` | 子进程 stdio 配置（Null / Inherit / Pipe / File） |
+| `ProcessStdinStream.z42` / `ProcessOutputStream.z42` | Stream 子类 | 子进程 stdin 管道只写流 / stdout·stderr 只读流 |
+| `Ansi.z42` | `Ansi` | ANSI SGR 包裹 |
+| `Exceptions/` | 异常 | `EndOfStreamException` / `Process{Exit,HandleInvalid,Start,Timeout}Exception` |
 
-> **二进制读写**（本包内置）：`using Std.IO.Binary;`
-> 提供 `BinaryReader` / `BinaryWriter`，LE / BE 显式后缀 + varint + float/double。
-> 用于协议解析、自定义文件格式、调试 `.zbc` 二进制内容等。设计要点见 `docs/reference/src/stdlib/io-binary.md`。
+## 如何测试验证
+
+```bash
+xtask test stdlib z42.io    # 本库全部 [Test]（含 core/IO 门面的 console / file / directory / path 等用例）
+```
+
+## 依赖关系
+`z42.core` + `z42.encoding`（`StreamReader/Writer` 的 `Encoding`）+ `z42.text`（`StringWriter` 用 `StringBuilder`）。

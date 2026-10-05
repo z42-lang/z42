@@ -1,35 +1,49 @@
-# z42c — z42 自举编译器（self-host）
+# z42c — z42 自举编译器
 
 ## 职责
-用 z42 编写的自举编译器：源码全 z42，端到端 `build` 跑通、自编译为 zpkg。z42c 是唯一编译器。编译器域的全部包都在 `src/compiler/` 这一个 workspace 里（`z42.workspace.toml` 为准）：后端三包（semantics / pipeline / driver），以及可移植前端 `z42c.core` / `z42c.syntax`、IR·后端库 `z42.package`、清单模型 `z42.project`、构建管线 `z42.build`、eval 内核 `z42.scripting`。
+用 z42 编写的自举编译器：源码全 z42，端到端 `build` 跑通、自编译为 zpkg。z42c 是唯一编译器。编译器域的全部包都在 `src/compiler/` 这一个 workspace 里（`z42.workspace.toml` 为准，`default-members` 即全部九个包）。不放用户 stdlib（`Std.*`，在 `src/libraries/`）。
 
-## 子包（编译器 workspace = 后端三包）
-| 子包 → zpkg | kind | 命名空间 | 依赖 |
+物理位置即「这是编译器域」的声明：普通工程的解析域只有 shipped `libs/`，看不到本 workspace 的包；要用得在 `[dependencies]` 里按名声明。
+
+## 功能索引
+| 子包 → zpkg | kind | 命名空间 | 依赖（本 workspace 内）|
 |------|:----:|------|------|
-| `z42c.semantics` | lib | Z42.Semantics（TypeCheck+Codegen）| z42c.core, z42c.syntax, z42.package |
-| `z42c.pipeline` | lib | Z42.Pipeline（编排）| z42c.core, z42c.syntax, semantics, z42.package, z42.project |
-| `z42c.driver` | **exe** | Z42.Driver（CLI = z42c 入口）| pipeline, z42.package, z42c.core |
+| `z42c.core` | lib | `Z42.Core`（Span / Diagnostic / Features）| — |
+| `z42c.syntax` | lib | `Z42.Syntax`（Lexer + Parser + AST）| z42c.core |
+| `z42.package` | lib | `Z42.IR` / `Z42.IR.BinaryFormat` / `Z42.Package`（IR 模型 + zbc/zpkg 读写）| — |
+| `z42.project` | lib | `Z42.Project`（`z42.toml` 清单模型）| — |
+| `z42.build` | lib | `Z42.Build`（构建管线框架 + `ICompiler` / `IReplCompiler` 接口）| z42.project |
+| `z42c.semantics` | lib | `Z42.Semantics`（TypeCheck + Codegen + IR 优化）| z42c.core, z42c.syntax, z42.package |
+| `z42c.pipeline` | lib | `Z42.Pipeline`（编排 / 依赖扫描 / workspace / 增量）| z42c.core, z42c.syntax, z42c.semantics, z42.package, z42.project, z42.build |
+| `z42c.driver` | **exe** | `Z42.Driver`（CLI = `z42c` 入口）| z42c.pipeline, z42c.semantics, z42c.syntax, z42c.core, z42.package, z42.project |
+| `z42.scripting` | lib | `Std.Scripting`（REPL / 脚本 eval 内核）| z42c.core, z42c.syntax, z42.build |
 
-**可移植共享库（同在 `src/compiler/`）**：
-| 库 → zpkg | 命名空间 | 收敛 |
-|------|------|------|
-| `z42c.core` | Z42.Core（Span/Diagnostic/Features）| 可移植前端 |
-| `z42c.syntax` | Z42.Syntax（Lexer+Parser+AST）| 同上；依赖 z42c.core |
-| `z42.package` | Z42.IR + Z42.Package（IR 模型 + zbc/zpkg 后端 + manifest）| IR + 后端 + manifest 合一|
+包间依赖经 `z42c build --workspace` 的拓扑序 + 同 workspace dist 自动发现解析；冷启动由 `_ensureBootstrapSelfDepLibs` 破 z42c ⇄ z42.package 环预建，见 [self-hosting.md](../../docs/internals/src/compiler/self-hosting.md) 轴 ④。
 
-后端三包经**跨-workspace dist 发现**解析这些共享库（冷启动由 `_ensureBootstrapSelfDepLibs` 破环预建，
-见 [self-hosting.md](../../docs/internals/src/compiler/self-hosting.md) 轴 ④）。
+用户入口：`z42c.driver.zpkg`（exe）= `z42c` 命令别名，路由 `build` 等命令（`z42c.driver/src/Main.z42`，增量构建 `IncrementalDriver.z42`）。
 
-## 入口点
-`z42c.driver.zpkg`（exe）= 用户 `z42c` 命令别名，路由 `build` / manifest-check 等命令（`z42c.driver/src/Main.z42`，含增量构建 `IncrementalDriver.z42`）。
-
-## 构建
+## 基础用法
+```bash
+./xtask build compiler     # 编整个编译器域 → artifacts/build/compiler/<pkg>/<profile>/{dist,cache}/
 ```
-z42 xtask.zpkg build compiler     # 编译后端 3 包 → artifacts/build/compiler/<pkg>/release/dist/
-                                  # （前端 z42c.core/syntax 由 build stdlib 建，先于此进 flat）
-z42 xtask.zpkg test  compiler     # 上述 + 断言 3 zpkg 产出（smoke；前端单测归 test stdlib）
+
+## 如何测试验证
+```bash
+./xtask test compiler      # z42c 自举不动点 + smoke；跑 tests/<unit>/*.z42.toml 目录单元（semantics / pipeline）
+./xtask test stdlib <pkg>  # 扁平 tests/*.z42 的包：z42c.core / z42c.syntax / z42.package / z42.project / z42.build / z42.scripting
 ```
-兄弟依赖经 workspace 自动解析（须在各 manifest `[dependencies]` 声明）；stdlib 自动可用。
+`<member>/tests/<unit>/*.z42.toml` 是独立 lib 项目，由 `xtask test compiler` 单独构建并运行，不是 workspace member；
+`z42c build --workspace` 对其报 WS007（orphan manifest）——非致命、纯提示，可忽略。
+
+## 关联文档
+- 架构 / 受限写法 / 对账策略：[self-hosting.md](../../docs/internals/src/compiler/self-hosting.md)
+- 编译器总览：[architecture.md](../../docs/internals/src/compiler/architecture.md)
+
+## 核心文件
+| 路径 | 职责 |
+|------|------|
+| `z42.workspace.toml` | workspace 清单：members / default-members / `[workspace.build]` 产物布局 |
+| `<pkg>/README.md` | 各子包自己的职责、功能索引与核心文件 |
 
 ## 依赖关系
-依赖 stdlib（`src/libraries/`，自动可用）。架构 / 受限写法 / 对账策略见 [docs/internals/src/compiler/self-hosting.md](../../docs/internals/src/compiler/self-hosting.md)。
+依赖 stdlib（`src/libraries/`，自动可用）。

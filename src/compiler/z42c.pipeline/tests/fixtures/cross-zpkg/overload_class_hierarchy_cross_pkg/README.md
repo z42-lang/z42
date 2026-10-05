@@ -1,6 +1,6 @@
 # overload_class_hierarchy_cross_pkg
 
-`fix-overload-ref-conversion` 的**跨包**守卫。
+重载决议的**跨包**守卫。
 
 重载集在 `main`，类层次（`Leaf : Mid : Base`、`Leaf : IMark`）在 `target`。
 消费方判定适用性时必须沿 **TSIG 重建的** 基类名与接口表走链 ——

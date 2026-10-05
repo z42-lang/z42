@@ -6,7 +6,7 @@
 （`RuntimeStats.Counters()`，把 VM 的 counter + 堆派生快照暴露给 z42 脚本）。
 
 **不包含**：日志 sink 路由（文件 / syslog / OTel）、JSON 日志格式化、async / batch buffering；
-完整引用链（堆诊断 L3）；并发探针 / 采样 profiler（脚本性能分析程序 P1b/P2，另库/另面）。
+完整引用链（堆诊断 L3）；并发探针 / 采样 profiler。
 
 ## 功能索引
 | 功能 | 入口 / 文件 |
@@ -38,7 +38,7 @@ Console.WriteLine("allocations so far: " + c.Allocations.ToString());
 ## 如何测试验证
 
 ```bash
-xtask test stdlib z42.diagnostics    # 本库全部 [Test]（log / heap / runtime counters）
+xtask test stdlib z42.diagnostics    # 本库全部 [Test]（log / runtime counters）
 ```
 
 RuntimeStats.Counters 的投影单测（Rust 侧 append-only 注册）：`cargo test --manifest-path
@@ -46,9 +46,7 @@ src/runtime/Cargo.toml --release --lib diagnostics`。
 
 ## 关联文档
 - 日志 API 参考：`docs/reference/src/stdlib/diagnostics.md`
-- 堆保留诊断：change `add-heap-retention-diagnostics`（已归档）
-- 运行时计数暴露：change `expose-diagnostics-counters`（脚本性能分析 P1c）；机制见
-  `docs/internals/src/runtime/diagnostics-design.md` §5
+- 运行时计数暴露机制：`docs/internals/src/runtime/diagnostics-design.md` §5
 - 计数来源（VM 侧）：`src/runtime/src/counters.rs`（`RuntimeCounters`/`ProfileSnapshot`）、
   `src/runtime/src/corelib/diagnostics.rs`（`__diag_counters` builtin）
 
@@ -64,4 +62,4 @@ src/runtime/Cargo.toml --release --lib diagnostics`。
 | `src/RuntimeCounters.z42` | `Counters()` 返回类型 — 11 只读 auto-property（7 counter + allocations + 3 分代 GC）|
 
 ## 依赖关系
-`z42.core`（基础类型）+ `z42.io`（`ConsoleError` + `Ansi` 颜色）+ `z42.time`（ISO8601 时间戳）。
+`z42.core`（基础类型 + `Std.Time` 的 ISO8601 时间戳）+ `z42.io`（`Ansi` 颜色）；输出走 core 的 `ConsoleError`。
