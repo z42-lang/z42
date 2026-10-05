@@ -92,7 +92,6 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: src/runtime -> ../../artifacts/build/runtime
-          cache-directories: artifacts/build/toolchain/target
           shared-key: release-${{ matrix.rid }}
 
       # Android-only: cargo-ndk + NDK r30
@@ -189,7 +188,6 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: src/runtime -> ../../artifacts/build/runtime
-          cache-directories: artifacts/build/toolchain/target
           shared-key: release-publish
       - name: Provision z42vm + xtask (bootstrap from prev nightly seed)
         uses: ./.github/actions/ci-bootstrap

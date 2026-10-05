@@ -39,7 +39,7 @@ public class IosBackend : IPlatformBackend {
         // rust crate 在源码位置编；xcframework 输出到宿主副本（SwiftPM 的 binaryTarget 在那里找它）。
         string manifest = Path.Join(_deviceHostSrc(root, "ios"), "rust/Cargo.toml");
         string here = _deviceHost(root, "ios");
-        string targetDir = _toolchainCargoTargetDir(root);
+        string targetDir = _cargoTargetDir(root);
         string libName = "libz42_platform_ios.a";
 
         TomlValue toml = _vparse(root);
@@ -81,7 +81,7 @@ public class IosBackend : IPlatformBackend {
     int _cargoTargets(string manifest, string targetDir, string[] targets, string iosMin) {
         foreach (var t in targets) {
             Console.WriteLine("  cargo build --release --target " + t + " (IPHONEOS_DEPLOYMENT_TARGET=" + iosMin + ")");
-            int c = _exec(_cargoCmd("build", _toolchainCargoConfig()).Arg("--release")
+            int c = _exec(_cargoCmd("build", _runtimeCargoConfig()).Arg("--release")
                 .Arg("--manifest-path").Arg(manifest)
                 .Arg("--target-dir").Arg(targetDir)
                 .Arg("--target").Arg(t)
@@ -90,4 +90,54 @@ public class IosBackend : IPlatformBackend {
         }
         return 0;
     }
+}
+
+// 只编 `test embedded --rid <ios>` 需要的切片 —— macOS host（`swift test` 要用）+ rid 对应的部署切片
+// （ios-arm64 → 真机，iossim-arm64 → 模拟器，空 → 两者）—— 再拼成 `<rtDir>/native/Z42VM.xcframework`
+// （runtime pack 的同形布局）；z42b 把它铺进宿主工程（SwiftPM 的 binaryTarget 在那里找它）。
+// IPHONEOS_DEPLOYMENT_TARGET 取 versions.toml 的 platform.ios.min_ios：C 依赖（zlib-ng）要和 rlib 的
+// 最低版本一致，否则真机链接失败。
+int _buildIosXcframework(string root, string rid, string rtDir) {
+    if (Process.Which("xcodebuild") == null) {
+        ConsoleError.WriteLine("error: xcodebuild not found (Xcode required for iOS build)");
+        return 1;
+    }
+    if (Process.Which("cargo") == null) {
+        ConsoleError.WriteLine("error: cargo not found (https://rustup.rs)");
+        return 1;
+    }
+    string manifest = Path.Join(_deviceHostSrc(root, "ios"), "rust/Cargo.toml");
+    string targetDir = _cargoTargetDir(root);
+    string libName = "libz42_platform_ios.a";
+    bool wantDev = (rid == "ios-arm64" || rid.Length == 0);
+    bool wantSim = (rid == "iossim-arm64" || rid.Length == 0);
+    string[] targets = new string[3];
+    int n = 0;
+    targets[n] = "aarch64-apple-darwin"; n = n + 1;
+    if (wantDev) { targets[n] = "aarch64-apple-ios"; n = n + 1; }
+    if (wantSim) { targets[n] = "aarch64-apple-ios-sim"; n = n + 1; }
+    string iosMin = _vReadOr(root, "platform.ios.min_ios", "16.0");
+
+    int i = 0;
+    while (i < n) {
+        Console.WriteLine("  cargo build --release --target " + targets[i] + " (IPHONEOS_DEPLOYMENT_TARGET=" + iosMin + ")");
+        int c = _exec(_cargoCmd("build", _runtimeCargoConfig()).Arg("--release")
+            .Arg("--manifest-path").Arg(manifest)
+            .Arg("--target-dir").Arg(targetDir)
+            .Arg("--target").Arg(targets[i])
+            .Env("IPHONEOS_DEPLOYMENT_TARGET", iosMin));
+        if (c != 0) { return c; }
+        i = i + 1;
+    }
+    Directory.Create(Path.Join(rtDir, "native"));
+    string xcf = Path.Join(rtDir, "native/Z42VM.xcframework");
+    if (Directory.Exists(xcf)) { Directory.Delete(xcf, true); }
+    Console.WriteLine("  xcodebuild -create-xcframework -> " + xcf);
+    Process xb = new Process("xcodebuild").Arg("-create-xcframework");
+    i = 0;
+    while (i < n) {
+        xb = xb.Arg("-library").Arg(Path.Join(targetDir, targets[i] + "/release/" + libName));
+        i = i + 1;
+    }
+    return _exec(xb.Arg("-output").Arg(xcf));
 }

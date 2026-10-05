@@ -279,11 +279,13 @@ z42: unknown runtime knob `gc-mdoe` in --set; did you mean `gc-mode`?
 | `--out-root <dir>` | 产物根（默认 `<清单目录>/artifacts`）：目标输出落 `<dir>/test-targets/<目标>`；父包未显式配 `output_dir` 时落 `<dir>/<包名>/<profile>`；未声明目标、回落到编项目自身时同样生效 |
 | `--rid <rid>` | `host`（默认，在本进程内跑）或 `device`（组装可部署件） |
 | `--out <dir>` | device：组装出的 `{app,libs,bundle}` 输出目录 |
-| `--stage-only` | device：只组装可部署件，不构建也不运行 |
-| `--build` | device：跑原生平台构建（wasm-pack / xcframework / cargo-ndk） |
-| `--run` | device：部署 + 在设备 / 模拟器上运行并收报告 |
-| `--build-root <dir>` | device `--build` / `--run`：定位原生平台 crate 的仓库根 |
+| `--stage-only` | device：只组装可部署件，不运行 |
+| `--run` | device：在设备 / 模拟器上运行并收报告（预编译的原生 runtime 与可部署件须已就位；不带 `--stage-only` 时先组装再运行） |
+| `--project <dir>` | device：宿主工程目录（Playwright 页面 / SwiftPM 包 / Gradle 工程）——runtime pack 铺进它，`--run` 在其中启动平台驱动 |
+| `--report-dir <dir>` | device `--run`（iOS）：junit.xml 写到哪 |
 | `--node-bin <dir>` | device `--run`：前置到 PATH 的 node bin 目录 |
+
+ device `--stage-only` 用的预编译 runtime pack（wasm `pkg-web/` · iOS `native/Z42VM.xcframework` · Android `native/*.so`，即 `z42 workload install` 铺设用的同一布局）由环境变量 `Z42_RUNTIME_DIR` 指定；缺省取 SDK 里已装的 `runtimes/<rid>/<ver>/`（最高版本）。
 
 `--name` 与 `--filter` 是**两种语义**，都作用在**目标名**上：`--name` 是「就这一个，
 点不中退出 2」，`--filter` 是「筛一批，筛空了只是没事可做」。两者都给时取交集。

@@ -91,7 +91,7 @@ int _cleanDevOutputs(string root, string kind) {
 }
 
 // build/ 下每个名为 `tests` 的目录（组件的测试输出根）。不进入构建产物目录（dist / cache / publish），
-// 也不进入 cargo 的 target 目录（`build/runtime/<profile>`、`build/toolchain/target`，体量大且不含测试输出）：
+// 也不进入 cargo 的 target 目录（`build/runtime/<profile>`，体量大且不含测试输出）：
 // runtime 只认 `build/runtime/tests`。
 int _rmTestsDirs(string dir, bool top) {
     if (!Directory.Exists(dir)) { return 0; }
@@ -102,7 +102,6 @@ int _rmTestsDirs(string dir, bool top) {
         if (e == "tests") { n = n + _rmIfExists(p); continue; }
         if (e == "dist" || e == "cache" || e == ".cache" || e == "publish") { continue; }
         if (top && e == "runtime") { n = n + _rmIfExists(Path.Join(p, "tests")); continue; }
-        if (e == "target" && Path.GetFileName(dir) == "toolchain") { continue; }   // toolchain 的 cargo target-dir
         n = n + _rmTestsDirs(p, false);
     }
     return n;

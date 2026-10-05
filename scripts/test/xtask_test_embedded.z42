@@ -6,7 +6,7 @@
 // (the single-bundle EXECUTOR):
 //   • host (desktop)  → z42b test <manifest> --rid host   → runs it in-process via
 //                       Std.Test.BundleRunner (no testhost/agent spawn on the host).
-//   • device (wasm/   → z42b test <manifest> --rid <dev> --out <dir> [--build|--run]
+//   • device (wasm/   → z42b test <manifest> --rid <dev> --out <dir> [--stage-only|--run]
 //     ios/android)      → z42b owns the full device pipeline: native platform build
 //                       (wasm-pack / xcframework / cargo-ndk) + deploy + device RUN
 //                       (Playwright / xcodebuild-sim / gradle, CI-gated). The
@@ -65,7 +65,7 @@ int _runWasmTesthost(string root) {
     string host = _stageDeviceHost(root, "wasm");
     if (host.Length == 0) { return 1; }
     return _z42bDevice(root, manifest, "browser-wasm", outDir,
-        new string[] { "--run", "--build-root", root, "--project", host });
+        new string[] { "--run", "--project", host });
 }
 
 // Invoke `z42b test <manifest> --rid <device> --out <dir>` + extra flags, with flat
@@ -79,8 +79,10 @@ int _runWasmTesthost(string root) {
 // exported it globally; since the shim runs xtask on the `.z42` SDK it no longer does
 // (e2bef5d6a, 2026-10-01) and every nightly device job died with
 // "cannot locate SDK home" — so it is set here, per process. `extra` selects the sub-step:
-//   ["--stage-only"]                → assemble deployable only (②b; ios/android)
-//   ["--build", "--build-root", R]  → native build + deploy (wasm build 下沉)
+//   ["--stage-only", "--project", H]  → assemble deployable + bed the runtime pack into the host project
+//   ["--run", "--project", H, …]      → run on the device (deployable + native runtime already in place)
+// z42b builds no native code and knows no repo path: xtask hands the runtime pack over (env
+// Z42_RUNTIME_DIR) and passes every location explicitly.
 // xtask 用来跑 z42b 的 VM（release 优先）。z42b 由它推出 SDK 根去找 test agent（_provisionTestAgent 装在那里）。
 string _z42bDeviceVm(string root) {
     string vm = _builtVm(root, "release");
@@ -89,6 +91,11 @@ string _z42bDeviceVm(string root) {
 }
 
 int _z42bDevice(string root, string manifestPath, string rid, string destDir, string[] extra) {
+    return _z42bDeviceEnv(root, manifestPath, rid, destDir, extra, new string[0]);
+}
+
+// Same, plus extra environment for the z42b process as flat name,value,name,value… pairs.
+int _z42bDeviceEnv(string root, string manifestPath, string rid, string destDir, string[] extra, string[] envKv) {
     string vm = _z42bDeviceVm(root);
     string builderZpkg = _toolchainZpkg(root, _z42bToml());
     if (builderZpkg.Length == 0 || !File.Exists(builderZpkg)) {
@@ -102,6 +109,7 @@ int _z42bDevice(string root, string manifestPath, string rid, string destDir, st
         .Arg("--").Arg("test").Arg(manifestPath).Arg("--rid").Arg(rid)
         .Arg("--out").Arg(destDir);
     for (int i = 0; i < extra.Length; i = i + 1) { p = p.Arg(extra[i]); }
+    for (int e = 0; e + 1 < envKv.Length; e = e + 2) { p = p.Env(envKv[e], envKv[e + 1]); }
     // **总是**覆盖：本地经 `.z42/z42` apphost 跑 xtask 时，apphost 会给 xtask 注入
     // Z42_PORTABLE_VM=<.z42>/bin/z42vm；沿用它，z42b 就去 .z42 下找 test agent，而 agent 装在构建树里。
     p = p.Env("Z42_PORTABLE_VM", vm);
@@ -111,16 +119,68 @@ int _z42bDevice(string root, string manifestPath, string rid, string destDir, st
     return res.ExitCode;
 }
 
-// Native build + deploy 下沉 z42b: z42b runs the platform build (wasm-pack /
-// xcframework) then stages the full deployable (wasm: + pkg/harness; ios: into the
-// XCTest Resources). --build-root lets z42b's driver locate the native platform
-// crate (src/toolchain/workload/<plat>/…).
+// Have z42b assemble the {app,libs,bundle} deployable and bed the prebuilt runtime pack into the
+// host project. The runtime pack is env Z42_RUNTIME_DIR (an SDK install, a CI package dir, …) or,
+// when unset, one xtask builds from source (_buildDeviceRuntime). xtask (the repo-aware
+// orchestrator) owns the native build; z42b only stages, beds and runs.
 int _z42bBuildDeployable(string root, string manifestPath, string rid, string destDir) {
-    // 宿主工程副本（xtask_test_device_host.z42）：z42b 的 native 产物与平台构建都落在这里。
-    string host = _stageDeviceHost(root, _ridCategory(rid));
+    string cat = _ridCategory(rid);
+    // 宿主工程副本（xtask_test_device_host.z42）：runtime pack 铺进这里。
+    string host = _stageDeviceHost(root, cat);
     if (host.Length == 0) { return 1; }
-    return _z42bDevice(root, manifestPath, rid, destDir,
-        new string[] { "--build", "--build-root", root, "--project", host });
+    string rt = Environment.GetEnvironmentVariable("Z42_RUNTIME_DIR", "");
+    if (rt.Length == 0) {
+        rt = _deviceRuntimeDir(root, cat);
+        int bc = _buildDeviceRuntime(root, rid, cat, rt);
+        if (bc != 0) { return bc; }
+    }
+    int sc = _z42bDeviceEnv(root, manifestPath, rid, destDir, new string[] { "--stage-only", "--project", host },
+        new string[] { "Z42_RUNTIME_DIR", rt });
+    if (sc != 0) { return sc; }
+    if (cat == "wasm") { return _placeWasmHarness(root, destDir); }
+    return 0;
+}
+
+// Where xtask builds a runtime pack for the device tests: <platform tests output>/runtime.
+string _deviceRuntimeDir(string root, string cat) {
+    return _testOut(root, "src/toolchain/workload/" + cat, "runtime");
+}
+
+// Build the native platform runtime from source into `rt`, in the runtime-pack layout z42b beds:
+//   wasm: <rt>/pkg-web/   ios: <rt>/native/Z42VM.xcframework   android: <rt>/native/*.so (rid's ABI only)
+int _buildDeviceRuntime(string root, string rid, string cat, string rt) {
+    if (cat == "wasm") { return _wasmPackBuild(root, "web", rt); }
+    if (cat == "ios") { return _buildIosXcframework(root, rid, rt); }
+    if (cat == "android") {
+        string abi = _ridToAndroidAbi(rid);
+        string ndkOut = Path.Join(rt, ".ndk-out");
+        if (Directory.Exists(ndkOut)) { Directory.Delete(ndkOut, true); }
+        string[] abis = new string[1];
+        abis[0] = abi;
+        int c = _cargoNdkJniLibs(root, abis, ndkOut);
+        if (c != 0) { return c; }
+        string nat = Path.Join(rt, "native");
+        if (Directory.Exists(nat)) { Directory.Delete(nat, true); }
+        Directory.Create(nat);
+        string built = Path.Join(ndkOut, abi);
+        foreach (var f in Directory.Enumerate(built)) {
+            if (f.EndsWith(".so")) { File.Copy(Path.Join(built, f), Path.Join(nat, f)); }
+        }
+        Directory.Delete(ndkOut, true);
+        return 0;
+    }
+    ConsoleError.WriteLine("error: no native build for rid " + rid);
+    return 1;
+}
+
+// wasm deployable：z42b 暂存 {app,libs,bundle}+files.json 并铺入 wasm 产物之后（它会先清空目标目录），
+// 把静态 harness 叠上去 —— 浏览器直接 fetch，不走 VFS 的 files.json。
+int _placeWasmHarness(string root, string destDir) {
+    string th = Path.Join(root, "src/toolchain/workload/wasm/testhost");
+    File.Copy(Path.Join(th, "index.html"), Path.Join(destDir, "index.html"));
+    File.Copy(Path.Join(th, "run.js"), Path.Join(destDir, "run.js"));
+    Console.WriteLine("  wasm deployable → " + destDir);
+    return 0;
 }
 
 // wasm deployable（agent + bundle + libs + harness）：与宿主副本 `host/` 并列的 `deploy/`。
@@ -141,9 +201,8 @@ string _wasmDeployDir(string root) { return _testOut(root, "src/toolchain/worklo
 // z42_host_run_app C symbol as desktop; only the native shell differs per platform.
 
 // iOS: build the xcframework + assemble the embedded corpus into the XCTest bundle
-// Resources — both 下沉 z42b (z42b-device-run PR-2, `--build`: cargo × slices +
-// xcodebuild -create-xcframework + stage). xtask keeps corpus build + agent; the
-// platform build/deploy is z42b's ios driver. The embedded runner is
+// Resources. xtask builds the xcframework (_buildIosXcframework: cargo × slices +
+// xcodebuild -create-xcframework); z42b `--stage-only` stages the corpus. The embedded runner is
 // Z42EmbeddedTests.testEmbeddedBundle (in the Z42VM scheme) — RUN via
 // `test embedded --rid <ios> --run` (→ z42b xcodebuild test, one sim boot).
 string _buildIosTesthost(string root, string filter, string rid, int shardK, int shardN) {
@@ -181,14 +240,12 @@ int _runIosTesthost(string root, string rid) {
     }
     // --run only spawns xcodebuild (build/deploy already done); out unused.
     return _z42bDevice(root, manifest, rid, "",
-        new string[] { "--run", "--build-root", root, "--project", here });
+        new string[] { "--run", "--project", here, "--report-dir", Path.Join(_testReportsDir(root), "ios") });
 }
 
 // Android: assemble the embedded corpus into the androidTest assets + build
-// libz42_platform_android.so via cargo-ndk — both 下沉 z42b (z42b-device-run PR-3,
-// `--build`: cargo ndk -t <abi> build --release + stage). xtask keeps corpus build
-// + agent; the platform .so build/deploy is z42b's android driver (which resolves
-// the NDK + ABI from the rid). `rid` selects the ABI — `android-x64` builds only
+// libz42_platform_android.so via cargo-ndk. xtask builds the .so (_cargoNdkJniLibs,
+// ABI from the rid); z42b `--stage-only` stages the corpus. `rid` selects the ABI — `android-x64` builds only
 // x86_64 (e.g. for an x64 emulator), `android-arm64` only arm64-v8a. The embedded
 // runner is Z42EmbeddedInstrumentedTest (in the z42vm test apk) — RUN via
 // `test embedded --rid <android> --run` (→ z42b gradlew connectedAndroidTest, one
@@ -229,8 +286,12 @@ int _runAndroidTesthost(string root, string rid) {
         return 1;
     }
     // --run only spawns gradlew (build/deploy already done); out unused.
-    return _z42bDevice(root, manifest, rid, "",
-        new string[] { "--run", "--build-root", root, "--project", here });
+    // z42b 不认仓库布局：NDK / SDK 位置由这里解好经环境交给 gradle（CI 的 setup-android 已导出则原样沿用）。
+    string ndk = _androidNdkDir(root);
+    string sdk = _androidSdkDir(root);
+    if (ndk.Length == 0 || sdk.Length == 0) { return 1; }
+    return _z42bDeviceEnv(root, manifest, rid, "", new string[] { "--run", "--project", here },
+        new string[] { "ANDROID_NDK_HOME", ndk, "ANDROID_HOME", sdk, "ANDROID_SDK_ROOT", sdk });
 }
 
 // `xtask test embedded [target.zbc | golden-case-dir] [--platform desktop|wasm]
@@ -265,7 +326,7 @@ int _testEmbedded(ParseResult r) {
         // --run: the deployable was already built (a prior `--rid browser-wasm` step);
         // delegate the browser RUN to z42b's wasm driver (playwright embedded). z42b-
         // device-run PR-1. Otherwise BUILD the deployable (build 下沉 z42b via
-        // _buildWasmTesthost → z42b --build).
+        // _buildWasmTesthost → wasm-pack + z42b --stage-only).
         if (r.GetFlag("run")) {
             return _runWasmTesthost(root);
         }
@@ -276,7 +337,7 @@ int _testEmbedded(ParseResult r) {
         // --run: the xcframework + Resources/embedded corpus were already built (a
         // prior `--rid <ios>` step); delegate the sim RUN to z42b's ios driver (one
         // xcodebuild test = R1–R7 + embedded). z42b-device-run PR-2. Otherwise BUILD
-        // (xcframework + stage 下沉 z42b via _buildIosTesthost → z42b --build).
+        // (xcframework here + z42b --stage-only via _buildIosTesthost).
         if (r.GetFlag("run")) {
             return _runIosTesthost(root, rid);
         }
@@ -288,7 +349,7 @@ int _testEmbedded(ParseResult r) {
         // prior `--rid <android>` step); delegate the emulator RUN to z42b's android
         // driver (one gradlew connectedAndroidTest = R1–R7 + embedded). z42b-device-
         // run PR-3. Otherwise BUILD (cargo-ndk + stage 下沉 z42b via
-        // _buildAndroidTesthost → z42b --build).
+        // _buildAndroidTesthost → cargo-ndk + z42b --stage-only).
         if (r.GetFlag("run")) {
             return _runAndroidTesthost(root, rid);
         }

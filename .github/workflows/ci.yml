@@ -72,9 +72,6 @@ jobs:
           filters: |
             platform:
               - 'src/runtime/**'
-              # .cargo/config.toml（target-dir / wasm rustflags）改了 = 所有 cargo 构建都变了。
-              # runtime 那份在 src/runtime/** 里；toolchain 那份不在 workload/** 下，单列。
-              - 'src/toolchain/.cargo/**'
               - 'src/toolchain/workload/**'
               # 打包管道自身 + 消费包的 e2e（fix-package-gates-false-red, 2026-09-06）：
               # 此前 package-* 只由上面几项触发，只改 scripts/package/ 或 dist e2e 的 PR
@@ -241,7 +238,6 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: src/runtime -> ../../artifacts/build/runtime
-          cache-directories: artifacts/build/toolchain/target
           shared-key: test-host-v1
 
       # ALL legs bootstrap from the prev nightly seed — download the prev published

@@ -63,8 +63,6 @@ runs:
       uses: Swatinem/rust-cache@v2
       with:
         workspaces: src/runtime -> ../../artifacts/build/runtime
-        # toolchain 平台 crate（apphost / wasm / ios / android）的 target-dir，见 src/toolchain/.cargo/config.toml。
-        cache-directories: artifacts/build/toolchain/target
         shared-key: ${{ inputs.cache-key }}
 
     - name: Download prebuilt z42vm (linux-x64)

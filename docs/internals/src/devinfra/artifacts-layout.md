@@ -33,25 +33,25 @@
 
 | `src/` | `artifacts/build/` | 内容 |
 |---|---|---|
-| `src/runtime/` | `build/runtime/<profile>/` | cargo target-dir：`z42vm`、`libz42.*`、`z42` trampoline |
+| `src/runtime/` 与 `src/toolchain/` 的全部 Rust crate | `build/runtime/<profile>/`、`build/runtime/<triple>/<profile>/` | 唯一的 cargo target-dir：`z42vm`、`libz42.*`、`z42` trampoline，以及 apphost stub、wasm / ios / android 平台 crate（产物名互不重名，依赖按 hash 区分） |
 | `src/libraries/<lib>/` | `build/libraries/<lib>/<profile>/{dist,cache}/` | **per-lib** 编译，构建私有 |
 | （聚合拷出）| `build/libraries/dist/<profile>/` | 全部 stdlib `.zpkg` 的**扁平单目录视图** = `Z42_LIBS` 查找点 |
 | `src/compiler/<member>/` | `build/compiler/<member>/<profile>/{dist,cache}/` | 编译器后端各成员 |
 | （编译器 workspace 级）| `build/compiler/<name>/` | 不属于某个成员的自举中间物：`bootstrap-check/`（`test bootstrap` 的双轨隔离）、`driver-home/`、`selfhost-gen1/`、`stdlib-run/<profile>`、`seed-run-libs/<profile>`（见 §3）|
 | `src/toolchain/<comp>/` | `build/toolchain/<comp>/{dist,.cache,publish}/` | launcher / builder / devtools / interactive 等：清单只配 `output_dir`，三个子目录走级联默认 |
-| `src/toolchain/` 的 Rust crate | `build/toolchain/target/<profile>/`、`build/toolchain/target/<triple>/<profile>/` | cargo target-dir：apphost stub、wasm / ios / android 平台 crate |
 | `src/<组件>/` 的测试 | `build/<组件>/tests/…` | 组件的全部测试输出（见 §3）。例：`src/tests/<rel>` → `build/tests/<rel>` 的 golden `.zbc` |
 
 **per-member 的产物路径不是硬编码的**：`scripts/common/xtask_layout.z42` 读各 workspace toml 的
 `[workspace.build].output_dir` / `cache_dir` 模板（正是 z42c 的 `WorkspaceBuild.PlanLayout` 消费的
 同一份）再展开。改 toml 模板，xtask 自动跟上。cargo 侧同理由 `.cargo/config.toml` 的
-`target-dir` 决定：`src/runtime/.cargo` → `artifacts/build/runtime`，`src/toolchain/.cargo` →
-`artifacts/build/toolchain/target`（路径相对 `.cargo/` 所在目录）。**注意 runtime 那份不带 `<cargo-target>`
-这一层**，profile 直接挂在 `runtime/` 下。cargo 只从 cwd 向上找配置、不看 `--manifest-path`，所以 xtask
-的每个 cargo 调用都经 `_cargoCmd` 显式传 `--config`。
+`target-dir` 决定：全仓只有一份 `src/runtime/.cargo` → `artifacts/build/runtime`（路径相对 `.cargo/`
+所在目录），runtime workspace 与 toolchain 平台 crate 共用。**注意它不带 `<cargo-target>` 这一层**，
+profile 直接挂在 `runtime/` 下。cargo 只从 cwd 向上找配置、不看 `--manifest-path`，而 `src/toolchain/**`
+不在 `src/runtime` 之下，所以 xtask 的每个 cargo 调用（含在平台 crate 目录里跑的 wasm-pack / cargo-ndk）
+都显式传 `--config`。
 
 xtask 自己发明、没有 toml 归属的路径，**全部在 `xtask_layout.z42` 里各有一个单一定义**：
-扁平 stdlib dist（`_libsFlatDist`）、cargo target 目录（`_cargoTargetDir` / `_runtimeOut` / `_toolchainCargoTargetDir`）、测试输出与工作目录
+扁平 stdlib dist（`_libsFlatDist`）、cargo target 目录（`_cargoTargetDir` / `_runtimeOut`）、测试输出与工作目录
 （`_buildMirror` / `_testOut` / `_testOutRootOf` / `_xtaskTestOut` / `_compilerWsWork`，见 §3），以及 §1 的
 每个顶层桶（`_toolsDir` / `_devSdkDir` / `_packagesDir` / `_archivesDir` / `_testReportsDir` / `_benchDir` /
 `_profileDir`）。使用点只写「桶 + 自己的子目录名」或「owner 组件 + 名字」，不写 `"artifacts/…"` 字面量——

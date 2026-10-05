@@ -102,15 +102,22 @@ desktop workload 是**一个 RID 无关的包**，里面带每个桌面 RID 的 
 z42b 跑在宿主的 z42vm 上，它当然不可能「是」浏览器里或模拟器里的那个 runner；
 所谓 `--run` 是在宿主上拉起平台原生驱动（playwright / xcodebuild / gradlew），
 把暂存好的部署件注入进去，再把报告读回来。原生工具链（node / 浏览器 / Xcode / NDK）由编排方
-（xtask）**预备**并把位置传进来（`--build-root` / `--node-bin`），z42b 只拥有**调用逻辑**。
+（xtask）**预备**并把位置传进来（`--project` / `--report-dir` / `--node-bin`），z42b 只拥有**调用逻辑**。
 
-三个子步骤可以单独跑（CI / 调试用），不带任何一个就是 build+deploy+run 全流程：
+**z42b 不编原生代码，也不认仓库布局。** 平台 runtime 是**预编译的 runtime pack**
+（wasm `pkg-web/`、iOS `native/Z42VM.xcframework`、Android `native/*.so`——与 `z42 workload install`
+铺设用的同一布局，见 [workload-distribution](workload-distribution.md)），`--stage-only` 时 z42b 把它
+铺进宿主工程。pack 来自环境变量 `Z42_RUNTIME_DIR`（任意目录：SDK 安装、CI 的 package 目录、本地构建），缺省取 SDK 里
+已装的 `runtimes/<rid>/<ver>/`。仓库里 xtask 在 `Z42_RUNTIME_DIR` 未设时先用 wasm-pack / cargo / cargo-ndk
+从源码编出同形目录再交给 z42b；设了 `Z42_RUNTIME_DIR` 就直接用现成的 pack。
+z42b 里没有任何 cargo / wasm-pack / cargo-ndk 调用。
+
+两个子步骤可以单独跑（CI / 调试用），不带任何一个就是 stage + run：
 
 | 旗标 | 做什么 |
 |---|---|
-| `--stage-only` | 只组装 `{app, libs, bundle}` 部署件（平台无关，任何设备 RID 都能做） |
-| `--build` | 跑平台原生构建（wasm-pack / xcframework / cargo-ndk） |
-| `--run` | 部署到设备/模拟器、跑、回收报告 |
+| `--stage-only` | 组装 `{app, libs, bundle}` 部署件，并把 runtime pack 铺进宿主工程 / 部署目录 |
+| `--run` | 在设备/模拟器上跑、回收报告（原生 runtime 与部署件须已就位） |
 
 ## 边界与限制
 
