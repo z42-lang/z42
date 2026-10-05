@@ -1,6 +1,5 @@
 # z42.net —— TCP / UDP / TLS / HTTP / WebSocket
 
-> 对齐：2026-09-17（change `restructure-docs-three-books`）；
 > 包路径 `src/libraries/z42.net/`；命名空间 `Std.Net.Sockets` / `Std.Net.Http` /
 > `Std.Net.WebSockets`（异常类在 `Std`）
 

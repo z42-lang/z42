@@ -1,6 +1,5 @@
 # z42.json —— JSON 读写与对象序列化
 
-> 对齐：2026-09-17（change `restructure-docs-three-books`）；
 > 包路径 `src/libraries/z42.json/`；命名空间 `Std.Json`（异常类 `JsonException` 在 `Std`）
 
 两层 API，按需取用：

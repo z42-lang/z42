@@ -337,7 +337,7 @@ public sealed class ForwardGenerator : Generator {
     private static bool _provides(Z42ClassType ct, string name) {
         Z42ClassType cur = ct;
         int hops = 0;
-        while (cur != null && hops < 32) {
+        while (cur != null) {
             string[] keys = cur.Methods.Keys();
             int i = 0;
             while (i < keys.Length) {
@@ -347,7 +347,7 @@ public sealed class ForwardGenerator : Generator {
             }
             if (!cur.HasBase) { return false; }
             cur = null;   // 本包基类需要 SymbolTable 才能上溯，GenTarget 不提供 → v1 只看本类 + TSIG 展平面
-            hops = hops + 1;
+            hops = SymbolTable.NextBaseHop(hops);
         }
         return false;
     }

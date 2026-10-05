@@ -160,13 +160,6 @@ public Pair(int a, int b) { A = a; B = b; }
 一个字段的 struct 与多字段 struct 走**同一个**值模型（字节 blob + 逐叶子复制）：赋值、传参、
 返回、数组元素、类的内联字段一律是复制。
 
-> 📜 **2026-09-26 之前（`single-field-struct-value-semantics`）**：闸门 `IsBlobStruct` 要求
-> `FieldCount >= 2`，**单字段 struct 落在引用模型上** —— `S b = a; b.X = 50;` 会改到 `a`。
-> 翻闸门要**编译器与 VM 两侧同时改**：VM 在 `try_struct_backed` 有一份逐字镜像的判据，
-> 只翻一侧会让 `S[]`（单字段）退化成引用数组、元素全 `Null`。
-> 同一刀还连带修了两条既存缺陷：跨包静态调用漏传 sret（`fix-crosspkg-static-sret`）、
-> `extern` 桩不支持 blob 返回（`GCHandle.Alloc`）。
-
 ### `ToString` 在所有字符串化路径上一致
 
 自定义的 `ToString` 在**每一条**字符串化路径上生效，答案完全相同：
@@ -184,15 +177,6 @@ public Pair(int a, int b) { A = a; B = b; }
 
 ⚠️ **自指的 `ToString` 会无限递归**：`public override string ToString() => "P" + this;`
 —— 拼接会再次调用 `ToString`，栈溢出（C# 同）。要打类型名用 `GetType().Name`。
-
-> **收敛过程**（两刀）：
-> - 2026-09-22 `fix-struct-tostring-paths` 修插值 / 拼接 / 经 `object` 调用
->   （此前插值与拼接吐 `<struct value>` 占位符）——但**只覆盖两个及以上字段的 struct**。
-> - 2026-09-25 `dispatch-tostring-in-native-stringify` 补齐
->   `Console.WriteLine` / `Write`（对所有类型），以及**拼接**对 **class / record /
->   单字段 struct** ——本页此前把 `"x" + s` 一律记作 ✅，那**只对双字段 struct 成立**。
->   机制：`builtin_println` 与 `exec_value::add` 改走 `obj_to_string`
->   （它一直在重入 VM 派发，只是这两条路没接上它）。
 
 ## 与接口一起用
 

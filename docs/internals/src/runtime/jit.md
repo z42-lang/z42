@@ -1,23 +1,21 @@
 # 惰性逐函数 JIT（lazy per-function compilation）
 
-> 对齐：2026-07-23（change `lazy-per-function-jit`）。代码：`src/runtime/src/jit/`
+> 代码：`src/runtime/src/jit/`
 > （`lazy.rs` / `frame.rs` / `mod.rs` / `helpers/call.rs` / `helpers/vcall.rs`）。
 
 ## 为什么
 
 `--mode jit` 下，VM 先把入口程序的**整个传递依赖闭包**（stdlib 全体）合并成一个
-`Module`（`main.rs` 的 eager transitive BFS），再由 JIT 后端编译。**旧策略**在加载时就
-把合并模块里**每一个函数**用 cranelift 全量编译一遍。
-
-对一个只调用少量 stdlib 函数的短命程序，这意味着编译了数千个**从不会被调用**的函数。
-后果：
+`Module`（`main.rs` 的 eager transitive BFS），再由 JIT 后端编译。若在加载时就
+把合并模块里**每一个函数**用 cranelift 全量编译一遍，则对一个只调用少量 stdlib 函数的短命程序，
+就意味着编译了数千个**从不会被调用**的函数。后果：
 
 - 每次 `z42vm ... --mode jit` 启动付一次「整套 stdlib 冷编译」的固定成本（实测约 1–2 秒起，
   随 stdlib 增大而上升）。
 - CI 的 `test-vm-jit` 每个 golden 用例 fork 一个新进程 → 固定成本 × 用例数，一个 shard 撞
-  55 分钟超时（run 被取消，见 change 背景）。
+  55 分钟超时。
 
-**根因**：JIT「加载即全量编译」——编译了程序不调用的东西。
+**根因**：「加载即全量编译」会编译程序不调用的东西。
 
 ## 核心思想
 
@@ -45,7 +43,7 @@ JitModule
 
 - **`fn_entries_by_id`** 在 `setup` 时**预分配到 `module.functions.len()` 并永不 resize** →
   每个槽地址稳定，`OnceLock::get()` 交出的 `&FnEntry` 在整个 run 内有效、**热路径读取零锁**。
-- **by-name 表已删除**：名字查表统一走 `module.func_index[name] → idx → 同一套 by-id 槽`。
+- **无 by-name 表**：名字查表统一走 `module.func_index[name] → idx → 同一套 by-id 槽`。
 - **`Mutex<LazyCompiler>`** 只在**首次编译某函数**时加锁。
 
 ## 首次调用流程
@@ -110,17 +108,17 @@ fn resolve_fn_by_id(&self, idx) -> Option<&FnEntry> {
 
 | 决策 | 选择 | 理由 |
 |------|------|------|
-| eager vs lazy | **彻底 lazy**，删 eager 全量循环 | 不留兼容路径；AOT 若需 eager，随 AOT 再引入策略分叉 |
+| eager vs lazy | **彻底 lazy**，无 eager 全量循环 | 不留兼容路径；AOT 若需 eager，随 AOT 再引入策略分叉 |
 | 槽结构 | `Vec<OnceLock<FnEntry>>` 预分配不 resize | 热路径零锁 + 地址稳定（借用长期有效） |
-| by-name 表 | 删除，经 `func_index` 路由回 by-id | 消除第二套内部可变结构 |
+| by-name 表 | 无，经 `func_index` 路由回 by-id | 消除第二套内部可变结构 |
 | 计数器 | `jit_methods_compiled` = **实际编译数** | 更真实；`JitModuleCompiled` 事件仍每模块一次（报模块规模 + setup 耗时） |
 
 ## 覆盖不变（与 interp 的关系）
 
 被调到的可翻译函数照常 JIT 原生执行；interp-only 指令的函数（`LoadLocalAddr` /
 `CallNative` 等，见 `jit_unsupported_reason`）仍走 `cross_zpkg_via_interp` 解释执行——
-与旧策略「skip 后 interp」逐一对齐。golden 套件 `test e2e --mode jit` 全部输出与 interp
-参考逐字节一致，是本变更「语义/覆盖不变」的最强回归保证。
+与「skip 后 interp」逐一对齐。golden 套件 `test e2e --mode jit` 全部输出与 interp
+参考逐字节一致，是「语义/覆盖不变」的最强回归保证。
 
 ## 效果佐证
 
@@ -128,9 +126,9 @@ fn resolve_fn_by_id(&self, idx) -> Option<&FnEntry> {
 应从「整套 stdlib（数千）」降到「该用例实际调用（数十）」。CI `test-vm-jit` shard 墙钟随之
 从 ~55 分钟大幅回落。
 
-## 分层：热度阈值 + 三态负缓存（runtime-jit-tiering Phase 1a，准则 2）
+## 分层：热度阈值 + 三态负缓存（准则 2）
 
-lazy-per-function-jit 是「首次调用即编译」；分层把它推进为「**热函数才编译**」——冷函数（调用次数
+惰性逐函数编译是「首次调用即编译」；分层把它推进为「**热函数才编译**」——冷函数（调用次数
 未达阈值）留在解释器（省编译时间 + code 页，准则 2「只有热函数值得升级」）。
 
 **机制**（`jit/frame.rs`）：
@@ -140,42 +138,41 @@ lazy-per-function-jit 是「首次调用即编译」；分层把它推进为「*
   `OnceLock` 空 = Unknown。Rejected 一次判定后缓存 → **消除不可编函数每次调用重扫 `jit_unsupported_reason`**
   （整函数指令走一遍）的浪费。两条 resolve 路径通用。
 - **阈值**：`Z42_JIT_THRESHOLD`（默认 **2**，clamp≥1；N=1 = 首 call 即编）。第 N 次调用时编译，前 N-1 次解释。
-  演进：最初 1000（只编真热函数）→ lower-jit-threshold-default（2026-08-31）改 1（z42c 这类「每函数只调几次」
-  的程序在 1000 下几乎全程解释，−12–17%）→ perf-jit-threshold-2（2026-09-03）改 **2**：N=1 会把每个进程里
+  为什么默认是 2：阈值过高（如 1000）时 z42c 这类「每函数只调几次」的程序几乎全程解释；N=1 又会把每个进程里
   **只跑一次**的函数也全编了——短命 z42c 进程（每个 golden / stdlib 成员编译）hello-world 0.80 s 里 0.33 s 是
   Cranelift 编 561 个一次性函数；N=2 只编 35 个，小编译 0.80→0.46 s，大编译 z42c.semantics 12.80→12.83 s 无损；
-  混合模式（Phase 1.5）保证少数已编译的热 callee 即便被冷 interp 帧调到也走原生。
+  混合模式保证少数已编译的热 callee 即便被冷 interp 帧调到也走原生。
 
-**分阶段接入各调用点**：阈值需要调用点的 `None`-臂能健壮 interp 任意冷 callee。
-- **Phase 1a — `jit_call`（静态/自由）**：其 `cross_zpkg_via_interp` 冷兜底已证通用,直接切 tiered。
-- **Phase 1b — `jit_vcall`/`jit_call_indirect`/`jit_obj_new`（方法/闭包/构造）**：改前把**所有**冷函数→`None`
-  会暴露这三者兜底不健壮（86 个 jit golden 挂）。逐一补齐后切 tiered：
+**各调用点接入阈值**：阈值需要调用点的 `None`-臂能健壮 interp 任意冷 callee。
+- **`jit_call`（静态/自由）**：其 `cross_zpkg_via_interp` 冷兜底通用,直接 tiered。
+- **`jit_vcall`/`jit_call_indirect`/`jit_obj_new`（方法/闭包/构造）**：把**所有**冷函数→`None`
+  要求这三者的兜底健壮。各自如下：
   - `jit_vcall`：vtable 路径 `None`-臂本已健壮 interp（receiver+args）→ PIC + vtable 两 resolve site 切
-    > unify-vcall-resolution（2026-09-03）：`jit_vcall` 与 interp `vcall` 的**目标解析**已合一为 `interp/vcall_resolve.rs`（接收者阶梯 / 候选名 / PIC 安装），两侧只剩调用侧；上述 tiering 语义不变（Local → by-id tiered，Lazy → by-name tiered，None → interp）。
+    > `jit_vcall` 与 interp `vcall` 的**目标解析**合一为 `interp/vcall_resolve.rs`（接收者阶梯 / 候选名 / PIC 安装），两侧只剩调用侧；上述 tiering 语义不变（Local → by-id tiered，Lazy → by-name tiered，None → interp）。
     `resolve_fn_by_id_tiered` / `resolve_fn_by_name_tiered`。
-    - **primitive 接收者也进 IC（add-jit-primitive-vcall-ic，镜像 interp `refactor-vcall-ic-primitives`）**：
+    - **primitive 接收者也进 IC（镜像 interp）**：
       IC 快路径的 `recv_type` 对 object 取 `TypeDesc.id`、对 primitive（string/int/…）取
       `value_synthetic_type_id` 的合成 `PRIM_TYPE_*`；primitive 慢路径解析成功后按合成 id 安装 PIC
-      （仅 intra-module fn_idx）。改前 primitive 接收者**每次**调用都走 `primitive_class_name` 慢路径的
+      （仅 intra-module fn_idx）。否则 primitive 接收者**每次**调用都走 `primitive_class_name` 慢路径的
       `format!`×4 候选名 + `Vec`——string-key `Dictionary` 的 `GetHashCode`/`Equals` 首当其冲（实测
       dict e2e jit 从慢 interp 3.1× 追平；string-heavy 反超）。Boxed / `Null` 仍返回 `None` 落慢路径，
       与 interp 一致。
-  - `jit_call_indirect`：`None`-臂原本只报「undefined function」（无兜底）→ 补 interp（env 前置 + args）。
-  - `jit_obj_new`：`None`-臂原本**静默跳过 ctor**（字段未初始化）→ 补 interp 跑 ctor（原地改 `this`）。
-  三态负缓存两路径通用,不受接入阶段影响。
+  - `jit_call_indirect`：`None`-臂走 interp（env 前置 + args）。
+  - `jit_obj_new`：`None`-臂走 interp 跑 ctor（原地改 `this`），不能静默跳过 ctor（字段未初始化）。
+  三态负缓存两路径通用。
 
-**验证**：`Z42_JIT_PROFILE=1` 下，冷静态函数不出现在编译列表、热函数出现（默认阈值 1000 时，调用不足 1000 次的
+**验证**：`Z42_JIT_PROFILE=1` 下，冷静态函数不出现在编译列表、热函数出现（阈值为 N 时，调用不足 N 次的
 冷函数留 interp；调试可 `Z42_JIT_THRESHOLD=1` 强制首调即编）；`test e2e --mode jit` 全绿（输出与 interp 逐字节一致）。
 
-### 阈值也管住 lazy 函数 + 一次性 static-init（runtime-jit-tiering Phase 1c）
+### 阈值也管住 lazy 函数 + 一次性 static-init
 
-Phase 1a/1b 的阈值只作用于**合并模块**函数（`resolve_merged_slot(tier=true)`）。**lazy 加载的
-dep-zpkg 函数**（`resolve_lazy_slot`）此前**无条件首调即编**，绕过阈值——启动时 `force_load_all_declared`
-把每个 declared zpkg 的 `__static_init__` 全跑一遍，加上任何冷 dep 函数，全都编译了。实测：**一个典型启动
+阈值作用于**合并模块**函数（`resolve_merged_slot(tier=true)`），也须作用于 **lazy 加载的
+dep-zpkg 函数**（`resolve_lazy_slot`）：若后者**无条件首调即编**则绕过阈值——启动时 `force_load_all_declared`
+把每个 declared zpkg 的 `__static_init__` 全跑一遍，加上任何冷 dep 函数，全都会被编译。实测：**一个典型启动
 里 ~73% 的编译函数是一次性 `*.__static_init__`**（跑一次、编译纯浪费——付一次 cranelift 编译 + 一个原生
 code page 只为跑一遍函数体）。
 
-Phase 1c 两处补齐，让阈值对**所有**函数一致生效：
+两处机制让阈值对**所有**函数一致生效：
 
 1. **lazy-slot 门控**：`LazySlot` 加 `count: AtomicU32`（合并路径 `call_counts` 的 lazy 版），
    `resolve_lazy_slot(i, tier)` 加 `tier` 参数——tiered 调用者（`resolve_fn_by_id_tiered`）计数，
@@ -190,22 +187,20 @@ Phase 1c 两处补齐，让阈值对**所有**函数一致生效：
 `jit_compile_us_total` **−83%…−94%**；A/B vs 基线**运行时零回归**（480 vs 486ms / 1633 vs 1624ms——
 只是不再编译那些浪费的一次性/冷函数）。
 
-> **call-count 分层的固有局限（待 OSR）**：阈值按**调用次数**分层，无法区分「一次性 init」与
+> **call-count 分层的固有局限（由 OSR 补足，见下节）**：阈值按**调用次数**分层，无法区分「一次性 init」与
 > 「只调一次但内部大循环」——二者都只被调 1 次。故任何**阈值 ≥ 2** 都会把 `SumSquares(10M 循环)` 这类
 > 「被调一次、循环极热」的函数留在 interp（04_arith bench 在阈值 1000 下比阈值 1 慢 **4.2×**，因为
-> `SumSquares` 被 `Main` 只调一次、永不 tier-up）。这不是 Phase 1c 引入的（合并函数在 `d6094594`
-> 阈值 1000 起就如此），而是 call-count 分层的本质。**真正的解**是**循环回边计数 / OSR**（按循环迭代
-> 数 tier-up，而非调用数），是独立的未来特性。当前权衡：编译密集/计算重 workload 用低阈值（甚至 1），
+> `SumSquares` 被 `Main` 只调一次、永不 tier-up）。这是 call-count 分层的本质。**真正的解**是**循环回边计数 / OSR**（按循环迭代
+> 数 tier-up，而非调用数），见下节。权衡：编译密集/计算重 workload 用低阈值（甚至 1），
 > 启动/内存敏感用高阈值。
 
-## 混合模式：interp 帧回跳 JIT（runtime-jit-tiering Phase 1.5）
+## 混合模式：interp 帧回跳 JIT
 
-分层前有个「冷子树粘滞」：interp 的 `Call`/`VCall` 永远留 interp（不回跳 JIT），所以一个冷函数（走 interp）
+若 interp 的 `Call`/`VCall` 永远留 interp（不回跳 JIT），会出现「冷子树粘滞」：一个冷函数（走 interp）
 调用的所有子函数——**即便已编译为原生**——也全在 interp 跑。混合模式打破它:**interp 的调用分发也路由到
 已编译的原生码**。
 
-**唯一结构缺口 + 解法**（探查证实是小 hook，非重构）：VmContext 原本没有指向 JitModuleCtx 的前向指针
-（只有反向 `JitModuleCtx.vm_ctx`）。加一个类型擦除的 `VmContext.jit_ctx: AtomicUsize`
+**结构**：VmContext 需要指向 JitModuleCtx 的前向指针（另有反向 `JitModuleCtx.vm_ctx`）。为此有类型擦除的 `VmContext.jit_ctx: AtomicUsize`
 （`vm_context.rs`），在 `JitModule::run_fn` 里与 `vm_ctx` **同生命周期设置/清零**（二者必须一起有效——原生码
 经 `(*jit_ctx).vm_ctx` 够到 VmContext）。
 
@@ -222,19 +217,19 @@ push/pop_frame 复制即安全。
 > 混合模式是**唯一**的 interp→native 边界，故这条守卫只在此处需要。这是边界不变量（"栈地址不进原生码"），
 > 非兼容补丁。
 
-**效果 + 验证**：冷函数里调热函数现在走原生（不再粘 interp）。计数器 `jit_native_from_interp`
+**效果 + 验证**：冷函数里调热函数走原生（不粘 interp）。计数器 `jit_native_from_interp`
 （`--print-stats-on-exit`）= interp 帧路由到原生的次数,>0 即混合模式生效（实测:冷 Driver 循环调热 Hot,
 编译后 99 次调用全路由原生）。`test e2e --mode jit` 全绿（语义不变）。
 
-### 集中拦截 backstop（Phase 1.5.2 —— 保证「已编译函数永不被 interp 执行」）
+### 集中拦截 backstop（保证「已编译函数永不被 interp 执行」）
 
 上面的 per-site hook（`try_native_static_call` / `try_native_method_call`）只覆盖 interp 的**静态 Call +
-IC 虚 VCall 热路径**。审计所有「interp 会执行函数体」的入口后发现还有多条绕过它们、直接经 `exec_function`
+IC 虚 VCall 热路径**。「interp 会执行函数体」的入口里还有多条绕过它们、直接经 `exec_function`
 跑函数体：**构造函数**（`exec_object`）、**闭包/委托**（CallIndirect）、**`ToString` 派发**
 （`interp/dispatch.rs`）、**非 IC / vtable / base-fallback 的虚调用路径**、**跨包静态调用**、以及最隐蔽的
 **builtin 回调**（传给 stdlib 原生方法的比较器/谓词，被调够多次编译后又经 `exec_function` 解释执行）。
 
-只靠逐点补全，「已编译函数永不被 interp 执行」这条 Phase 2 前提**并不成立**——任何新增调用点都可能重开缺口。
+只靠逐点补全，「已编译函数永不被 interp 执行」这条前提**不成立**——任何新增调用点都可能重开缺口。
 解法是**单一 choke point**：三个入口变体（`exec_function` / `exec_function_from_regs` /
 `exec_function_from_receiver_regs`）都汇到 `exec_function_body`，且每个 `&Function` 带 `.name` +
 已有 `resolve_fn_by_name_tiered`。故在 `exec_function` 入口加 `try_native_exec`（name-based
@@ -246,14 +241,13 @@ backstop 完备。同样带 `Ref(Stack)` 守卫（arg 为 Ref → 不路由）�
 - **分工**：per-site idx hook = 热路径快车道（无名查）；`exec_function` name backstop = 其余全部路径 +
   不变量保证。二者对同一调用互斥（hook 命中即 return，不到 `exec_function`），无重复执行。
 
-> **解锁 Phase 2**：Phase 1.5.2 后「已编译函数永不被 interp 执行」对**全部** interp 路径成立 →
-> 已编译函数的 IR `blocks` 可安全回收（Phase 2:内存半）。**注意**默认阈值 1000 下只有少数热函数编译，
-> 故 Phase 2 回收量本身有限（冷长尾 IR 仍需保留供 interp 执行）;回收机制的收益随「实际 tier-up 的函数数」
-> 增长（低阈值 / 编译密集 workload 更显著）。
+> **意义**：有了 backstop，「已编译函数永不被 interp 执行」对**全部** interp 路径成立 →
+> 已编译函数的 IR `blocks` 可安全回收（待办：内存回收半）。回收量取决于实际 tier-up 的函数数
+> （冷长尾 IR 仍需保留供 interp 执行；低阈值 / 编译密集 workload 收益更显著）。
 
-## OSR / 循环回边分层（add-osr-loop-tiering）
+## OSR / 循环回边分层
 
-> 对齐：2026-08-01。代码：`interp/mod.rs`（`try_osr` + `Frame.back_edge_count`）、
+> 代码：`interp/mod.rs`（`try_osr` + `Frame.back_edge_count`）、
 > `jit/translate.rs`（`osr_entry`）、`jit/lazy.rs`（`compile_fn_osr`）、
 > `jit/frame.rs`（`from_interp_regs` / `resolve_osr_entry`）。
 
@@ -318,13 +312,13 @@ flowchart TD
 
 | 机制 | 管什么 |
 |------|--------|
-| call-count 阈值（Phase 1/1c） | 「被调够多次」的函数升级；冷/一次性函数留 interp |
-| 混合模式（Phase 1.5/1.5.2） | 冷 interp 调用者路由到已编译的热 callee |
+| call-count 阈值 | 「被调够多次」的函数升级；冷/一次性函数留 interp |
+| 混合模式 + backstop | 冷 interp 调用者路由到已编译的热 callee |
 | **OSR（本节）** | **「被调少但循环热」的函数就地升级——call-count 够不到的一类** |
 
 三者合起来：分层真正按「热度 = 实际执行工作量」决策，不多编一个、不漏编一个。
 
-## 字段访问快路径：对象原语字段原生字节内联（P5-B）
+## 字段访问快路径：对象原语字段原生字节内联
 
 > `jit/translate.rs`（`field_prim_kind` / FieldGet·FieldSet emit / hoist）+
 > `jit/helpers/object.rs`（`jit_obj_field_slot`）+ `metadata/types.rs`（`ScriptObject::inline_prim_field`）。
@@ -337,10 +331,6 @@ flowchart TD
 （`jit_field_get`/`jit_field_set`）：每次访问 = 一次 native→Rust 调用 + `RefCell` borrow +
 `FieldIC` 查表 + `field_value`/`set_field_value` 里的 tag 分派。字段密集热循环里这层桥是主开销——
 实测「非可提升的原语字段读+写热循环」JIT 仅 **1.09×** interp（几乎白 JIT）。
-
-> 历史：布局统一前 `translate.rs` 曾有「方案 B」原生 slot 内联骨架，但 PR-2 字节化后
-> `jit_obj_field_slot` 被 stub 成恒返回「无快路」（旧 `slots.as_ptr()+STRIDE` 假设失效），
-> 骨架变死代码。P5-B 按 `bytes` 布局复活它。
 
 ### 机制：编译期定形 + 运行期只 hoist 基址
 
@@ -365,10 +355,10 @@ flowchart TD
 
 ### 边界（必留 helper，回落即等价改前）
 
-`off=-1` 回落 `jit_field_get`/`jit_field_set` 的情形，与改前逐字等价（老 stub 恒 -1 时本就全走 helper）：
+`off=-1` 回落 `jit_field_get`/`jit_field_set` 的情形，与无快路径时逐字等价：
 **非 `Value::Object` receiver**（含逃逸分析的 `StackObject`）、引用字段（写要 barrier）、
 byte-inline 的 object/array 引用、内联 struct 叶、`object`/`interface` 多态擦除字段、
-`Str.Length`/`Array.Length` 内建伪字段、null-throw。故唯一新增行为 = **具体对象的原语字段走原生**。
+`Str.Length`/`Array.Length` 内建伪字段、null-throw。故快路径只覆盖 **具体对象的原语字段**。
 
 ### 正确性靠的不变式
 
@@ -384,24 +374,24 @@ byte-inline 的 object/array 引用、内联 struct 叶、`object`/`interface` �
 interp==jit；且 **z42c 自举 5/5 gen1==gen2 逐字节**（z42c 海量字段访问跑在原生路径上仍字节复现）是
 最强回归保证。
 
-## 字段访问快路径：对象引用字段 GET 原生内联（T1-B）
+## 字段访问快路径：对象引用字段 GET 原生内联
 
 > `jit/translate.rs`（`hoisted_ref_fields` hoist + FieldGet emit）+ `jit/helpers/object.rs`
 > （`jit_obj_ref_field_slot`）+ `metadata/types.rs`（`ScriptObject::inline_ref_field`）。
-> P5-B 的**引用侧对偶**：P5-B 内联了原语字段读写，本节内联对象/数组**引用字段的 GET**。
+> 原语字段内联的**引用侧对偶**：上节内联原语字段读写，本节内联对象/数组**引用字段的 GET**。
 
 ### 为什么
 
-P5-B 后**原语**字段走原生，但**引用**字段（类实例 / 数组类型）的 FieldGet 仍 100% 走
+**原语**字段走原生后，**引用**字段（类实例 / 数组类型）的 FieldGet 仍 100% 走
 `jit_field_get` helper——同一层 native→Rust 调用 + borrow + `FieldIC` 桥。引用字段密集的热循环
 （对象图遍历、成员集合/子对象反复读）因此 JIT≈interp：实测「非可提升的引用字段读+写热循环」JIT 仅
-**1.05×** interp（P5-B 前原语场景 1.09× 的翻版）。前置：统一对象堆（`gc.md`）让引用变成**单机器字
+**1.05×** interp（与原语场景 1.09× 同形）。前置：统一对象堆（`gc.md`）让引用变成**单机器字
 的非拥有 `GcRef` tagged 指针**（无 Arc/无 Drop）——这正是「原生 store 一个引用 `Value`」得以成立的地基
-（布局统一前引用 payload 需 Arc 处理，故 `reg_access.rs` 旧注释「堆 tag 从不原生 store」在统一堆后过时）。
+。
 
 ### 机制：8B tagged 指针原生 load + 重建 Value
 
-布局统一（`object-abi.md` chunk 2b）后，**直接**的 object/array 引用字段被**字节内联**进对象
+按统一对象布局（`object-abi.md`），**直接**的 object/array 引用字段被**字节内联**进对象
 `bytes`——8B tagged 指针（`ref_slot==-1`，tag=`TAG_OBJECT`/`TAG_ARRAY`），`0` = `Null` 哨兵；
 只有 closure/func/**string** 引用留 `refs` 侧表（`ref_slot≥0`）。故引用字段 GET = 从 `bytes` 定
 offset 读 8B + 重建 `Value`，与 `read_inline_ref` 逐字节等价：
@@ -426,7 +416,7 @@ offset 读 8B + 重建 `Value`，与 `read_inline_ref` 逐字节等价：
 `off=-1` 回落 `jit_field_get`：**非 `Value::Object` receiver**（含 OSR 下的 `StackObject`）、
 侧表引用（closure/func/string）、struct 根、字段未找到/null-throw、`Str.Length`/`Array.Length`。
 **无 FieldSet 对偶**——引用 store 要 GC write barrier，故引用 SET 仍走 helper。原语 XOR 引用，故
-本 hoist 与 P5-B 的 `hoisted_fields` 永不重叠。
+本 hoist 与原语字段的 `hoisted_fields` 永不重叠。
 
 ### 正确性靠的不变式
 
@@ -442,18 +432,16 @@ offset 读 8B + 重建 `Value`，与 `read_inline_ref` 逐字节等价：
 正确性：object/array/null/循环内改写 混合场景 interp==jit==jit-OSR 逐字节（值相关校验和
 297000000）；且 **z42c 自举 5/5 gen1==gen2 逐字节**是最强回归保证。
 
-## 寄存器访问汇点：`reg_access`（jit-unbox-regalloc Phase 2.0）
+## 寄存器访问汇点：`reg_access`
 
-> `jit/reg_access.rs`（新）+ `jit/translate.rs`（全部 emitter 改调汇点）。纯重构，
-> 无外部行为变化、自举字节不动。
+> `jit/reg_access.rs` + `jit/translate.rs`（全部 emitter 经汇点）。
 
 ### 为什么
 
-P5-B 之前，JIT 的寄存器文件访问模式（`regs_base + idx * VALUE_STRIDE` 地址算术 + `VALUE_STRIDE`/
-`PAYLOAD_OFFSET`/`TAG_*` 常量）在 `translate.rs` 里 **开放编码并各自重声明** 于 ~15 个 emitter
-（`emit_i64_binop`/`_cmp`/`_convert`/`_neg`/`_bit_not`/`emit_primitive_copy`/`emit_const_*` +
-内联 ArrayGet/Set·FieldGet/Set·BrCond 各臂）。**没有单一 `load_reg`/`store_reg` 汇点**，Value 布局
-知识散落十几处（漂移风险），且**任何"把热标量缓存进机器寄存器"的优化都无处 hook**——要改 15 个地方。
+若 JIT 的寄存器文件访问（`regs_base + idx * VALUE_STRIDE` 地址算术 + `VALUE_STRIDE`/
+`PAYLOAD_OFFSET`/`TAG_*` 常量）开放编码于 ~15 个 emitter（`emit_i64_binop`/`_cmp`/`_convert`/`_neg`/
+`_bit_not`/`emit_primitive_copy`/`emit_const_*` + 内联 ArrayGet/Set·FieldGet/Set·BrCond 各臂），
+Value 布局知识就散落十几处（漂移风险），且**任何"把热标量缓存进机器寄存器"的优化都无处 hook**。故收敛到单一汇点。
 
 ### 机制
 
@@ -464,33 +452,30 @@ P5-B 之前，JIT 的寄存器文件访问模式（`regs_base + idx * VALUE_STRI
 2. **地址算术**：`reg_addr(builder, regs_base, reg) -> ClifValue`（唯一的 `regs_base + reg*16`）。
 3. **读写原语**：`load_payload_i64` / `load_payload(ty)` / `load_tag`（读）；`store_tagged(tag,payload)` /
    `store_const_tag(tag_u8,payload)` / `store_tag_const(tag_u8)` / `store_payload`（写）。所有
-   emitter（含 P5-B 字段臂、packed 数组臂、BrCond bool 读）一律经此，**无一处再直接算 `regs_base+off`
+   emitter（含字段臂、packed 数组臂、BrCond bool 读）一律经此，**无一处再直接算 `regs_base+off`
    或直发 `load/store`**（唯二例外：prologue 建立 `regs_base` 本身、以及数组/字段的 **数据指针**
    `bytes_ptr+off`/`data_ptr+idx*width`——那些不是寄存器槽访问）。
 
-净效果：translate.rs −100 行（172 行开放算术 → 汇点调用），Value 布局单一真相。
+净效果：Value 布局单一真相。
 
 ### 为什么这是 unbox/驻留的地基
 
-后续相（2B 块内标量 unbox / 2C
-loop-carried 机器寄存器驻留）要让热标量**不再每 op 内存往返**。有了汇点，缓存逻辑只需改
+块内标量缓存与 loop-carried 机器寄存器驻留要让热标量**不再每 op 内存往返**。有了汇点，缓存逻辑只需改
 `reg_access` 一处：`load_*` 变"若该 reg 已驻留 SSA 值则直接返回、否则 load"，`store_*` 变"更新缓存 +
 标脏"，仅在设计枚举的边界（块终结子 / Category-B helper·call / safepoint / OSR 入口）spill 回内存——
-而非在 15 个 emitter 里各自维护。纯重构相本身零行为变化：`cargo --lib` 908/0（含 `value_*` 布局钉），
-e2e jit 与 interp 逐字节一致，自举 5/5 gen1==gen2 不动。
+而非在 15 个 emitter 里各自维护。汇点本身零行为变化（`value_*` 布局钉、e2e jit 与 interp 逐字节一致）。
 
-## 整数原生快路径放宽到全宽度 I8..U64（jit-unbox-regalloc Phase 2A）
+## 整数原生快路径覆盖全宽度 I8..U64
 
 > 位置：`jit/translate.rs`（三个触发谓词 + `Convert` 的 src 判定）。
 
-Phase 2.0 之前，整数算术/比较/位运算/移位/取负/取反的原生快路径**只在
-`reg_types[reg] == IrType::I64` 精确匹配时触发**（`is_i64_typed` 等谓词）。但 z42 的窄整数
-`I8/I16/I32/U8/U16/U32/U64` **运行时全部物理存为 `Value::I64`**（payload i64 @off8），一个
-`int + int`、`uint & mask`、`ulong >> 5` 今天却因谓词太窄而**路由到 Rust helper**（native→Rust
-call + tag 分派），纯属浪费。
+z42 的窄整数
+`I8/I16/I32/U8/U16/U32/U64` **运行时全部物理存为 `Value::I64`**（payload i64 @off8），所以整数
+算术/比较/位运算/移位/取负/取反的原生快路径（`int + int`、`uint & mask`、`ulong >> 5`）不能只在
+`reg_types[reg] == IrType::I64` 精确匹配时触发，否则会无谓地路由到 Rust helper（native→Rust
+call + tag 分派）。
 
-Phase 2A 把谓词从 `== I64` 放宽到 `IrType::is_integer()`（I8..U64），谓词随之更名
-`is_int_typed` / `is_int_cmp` / `is_int_typed_unary`；`Convert` 的 `src` 判定同样放宽。合法性来自
+谓词是 `IrType::is_integer()`（I8..U64）：`is_int_typed` / `is_int_cmp` / `is_int_typed_unary`；`Convert` 的 `src` 判定同样如此。合法性来自
 **同一条不变式**：所有整数都是 `Value::I64` 物理表示，native 的 `iadd`/`band`/`ishl`/`icmp`/`ineg`/
 `bnot` 在 i64 payload 上算完存 `Value::I64`，与 helper 回落路径（`jit_add` 的 I64 fast-path、
 `int_bitop_helper`、`numeric_lt_helper`）**逐位一致**。窄化不在这里——z42 无隐式窄化，中间值恒 i64、
@@ -505,17 +490,16 @@ Phase 2A 把谓词从 `== I64` 放宽到 `IrType::is_integer()`（I8..U64），�
 helper 回落（`numeric_lt_helper`、`int_bitop_helper`）——对所有整数类型**一律按有符号 i64** 处理。
 若 native 改用无符号指令，就会与 helper **和** interp **双双背离**，破坏 `vm-jit-consistency` 的逐字节
 门禁。让 `U64` 成为真正的无符号类型是一次独立的 VM 级语义变更（需同时改 interp + helper + JIT），
-不在本相范围。
+不在此范围。
 
-净效果：窄整数密集代码从 helper 转 native，无需任何 spill 机制、值仍住内存（是 P5-B 之后又一块
-「免费」native 化）。验证：`scratch_bench` 全宽度混合 workload（含 U64 高位比较/移位、Convert/Neg/
-BitNot）interp==jit 逐字节一致，JIT ~1.5× 快于 interp；`cargo --lib` + e2e jit + 自举 5/5 全绿。
+净效果：窄整数密集代码走 native，无需任何 spill 机制、值仍住内存。验证：`scratch_bench` 全宽度混合 workload（含 U64 高位比较/移位、Convert/Neg/
+BitNot）interp==jit 逐字节一致，JIT ~1.5× 快于 interp。
 
-## 块内整数标量缓存：`RegCache`（jit-unbox-regalloc Phase 2B）
+## 块内整数标量缓存：`RegCache`
 
 > 位置：`jit/reg_access.rs`（`RegCache`）+ `jit/translate.rs`（五整数 emitter + flush 汇点）。
 
-Phase 2A 之前的所有整数 op 都是「`load payload@off8 → 算 → store tag+payload`」，每 op 一次内存
+若每个整数 op 都是「`load payload@off8 → 算 → store tag+payload`」，就每 op 一次内存
 往返——interp 也这样，JIT 只省了 dispatch。Cranelift 帮不上：VM 用 `opt_level=none`（无别名分析），
 且实测 `opt_level=speed` 也**零收益**（`regs_base` 裸指针 + 不透明 helper 调用让它无法跨 op forward，
 见 `lazy.rs`）。但**我们**有 Cranelift 没有的语义：不同 reg index 永不别名、哪些 op 是纯的。
@@ -536,7 +520,7 @@ clean；`store_i64` 只更新缓存 + 标脏、**不写内存**（延到 flush�
 `translate.rs` 用一个判据 `instr_uses_int_cache` 统一守住：**非参与缓存的指令前一律先 `flush`**
 （spill 脏条目 + 清空）。这一条覆盖了所有汇点——
 
-- **块终结子前**：terminator 是独立 `Terminator` 枚举、在指令循环后单点 flush（跨块值走内存，2B 不引
+- **块终结子前**：terminator 是独立 `Terminator` 枚举、在指令循环后单点 flush（跨块值走内存，块内缓存不引
   block param）；
 - **每个 Category-B helper / Call / VCall / ObjNew / Builtin / const / copy / field / array / bool 前**：
   它们直接读写 `frame.regs` 或按 index 调 helper。**`check!` 宏拆 Cranelift 块的点必是 helper 调用**、
@@ -551,30 +535,28 @@ clean；`store_i64` 只更新缓存 + 标脏、**不写内存**（延到 flush�
 
 ### 收益范围（实测诚实标注）
 
-- **理想场景**——长直线算术块、值重度复用（无分支无调用）：**JIT 2B 比 JIT 2A 快 1.30×**
+- **理想场景**——长直线算术块、值重度复用（无分支无调用）：**比无块内缓存的 JIT 快 1.30×**
   （byte-identical）。「块内多次触及同一值省掉中间往返」的直接兑现。
 - **控制流/调用密集代码**：**基本持平**——if 分支与 helper 调用把基本块切碎到复用距离之下，块内缓存
-  跨不过去。**单次触及的 loop-carried 标量（`s+=…`）零收益**——那是 Phase 2C（跨块 block-param 驻留）
-  的领域。
+  跨不过去。**单次触及的 loop-carried 标量（`s+=…`）零收益**——那是下节跨迭代驻留的领域。
 
-即 2B 是**数值/表达式内核**的真实局部胜利、对一般控制流代码中性无害。验证：`cargo --lib` + e2e
-interp==jit 逐字节 + 自举 5/5 gen1==gen2 + stdlib 全绿。
+即块内缓存是**数值/表达式内核**的真实局部胜利、对一般控制流代码中性无害。验证：e2e interp==jit 逐字节。
 
-## loop-carried 整数标量跨迭代驻留：Cranelift `Variable`（jit-unbox-regalloc Phase 2C）
+## loop-carried 整数标量跨迭代驻留：Cranelift `Variable`
 
 > 位置：`jit/translate.rs`（`compute_promotable_regs` + `load_int`/`store_int` + prologue 种子）。
 
-2B 的块内缓存跨不过循环回边——`for(…) s += …` 里 `s` 每迭代仍 load/store `frame.regs`。2C 让这类
-**loop-carried 整数标量跨迭代常驻机器寄存器**，是打破 `s+=…` 天花板的一步（实测 **1.35–1.75× 快于
-2B**）。
+块内缓存跨不过循环回边——`for(…) s += …` 里 `s` 每迭代仍 load/store `frame.regs`。跨迭代驻留让这类
+**loop-carried 整数标量常驻机器寄存器**，打破 `s+=…` 天花板（实测 **1.35–1.75× 快于
+仅块内缓存**）。
 
 ### 用 Cranelift `Variable` 把 SSA 构造外包
 
 关键手法：把符合条件的整数 reg 建成 Cranelift `Variable`（`declare_var` + `use_var`/`def_var`）。
 Cranelift 的 SSA 构造在 `seal_all_blocks` 时**自动**在循环头插 phi、给每条前驱边（含回边、含 OSR 入口
 那条空-args `jump cl_blocks[k]`）**追加 block-param arg**。于是**无需手工检测循环、无需手工 threading
-block-param**——这两个 DRAFT 原以为最难的点被 Cranelift 全包。promoted reg 的读→`use_var`、写→`def_var`
-（`load_int`/`store_int` 按 `promoted[reg]` 分流：promoted 走 Variable，否则走 2B 缓存/内存）。
+block-param**——这两个最难的点被 Cranelift 全包。promoted reg 的读→`use_var`、写→`def_var`
+（`load_int`/`store_int` 按 `promoted[reg]` 分流：promoted 走 Variable，否则走块内缓存/内存）。
 
 ### 谁能驻留：per-reg 白名单（正确性核心）
 
@@ -585,7 +567,7 @@ static / throw / 非整数 convert / …）碰过的 reg 一律 disqualify。分
 未识别的新变体 → 保守 disqualify 其全部 reg。
 
 这条白名单是正确性的关键：promoted reg **永不**被任何 memory-backed op 触及，所以它**永不需要 mid-function
-的 spill/reload**（DRAFT 曾担心的「memory-sync 陷阱」被从根消除）。**per-reg 粒度**——含 helper 的循环里
+的 spill/reload**（「memory-sync 陷阱」被从根消除）。**per-reg 粒度**——含 helper 的循环里
 helper 碰的 temp 留内存，但累加器/计数器若只被原生 op 触及仍驻留（`s += foo(i)` 的 `s`/`i` 照驻留）。
 
 ### 内存同步只有两点 + safepoint 不 spill
@@ -598,24 +580,24 @@ promoted reg 与 `frame.regs` 的同步只在两处：
 2. **`Ret` 前 spill**：`store frame.regs[r] = use_var(var)`，供 `hr_set_ret`（按 index 读）看到当前值。
 
 **safepoint 不 spill**：回边每迭代有 safepoint（可能转 slow helper 触发 GC），但 GC 是**非移动**的、root
-扫描**跳过整数槽**，无 JIT→interp deopt 读整数寄存器 → resident 整数跨 safepoint 无需 spill。**这正是 2C
-相对 2B 每迭代省下 load/store 的收益来源**（若 safepoint 必 spill，每迭代 spill 就零收益）。
+扫描**跳过整数槽**，无 JIT→interp deopt 读整数寄存器 → resident 整数跨 safepoint 无需 spill。**这正是跨迭代驻留
+相对块内缓存每迭代省下 load/store 的收益来源**（若 safepoint 必 spill，每迭代 spill 就零收益）。
 
 ### 收益与验证
 
-- **收益（JIT 2C vs JIT 2B）**：纯算术累加环 **1.75×**；realistic field 累加 `s += this.v` **1.35×**。
+- **收益（vs 仅块内缓存）**：纯算术累加环 **1.75×**；realistic field 累加 `s += this.v` **1.35×**。
 - **验证**：全循环形态（nested / break-continue / param-carried+early-return / helper-in-loop /
   unsigned-narrow）**normal + `Z42_OSR_THRESHOLD=1`（强制每循环走 OSR）双模式** interp==jit 逐字节；
-  `cargo --lib` + e2e 490/0（含 OSR-forced e2e）+ 自举 5/5 gen1==gen2 + stdlib 全绿。纯 runtime codegen,
+  e2e（含 OSR-forced e2e）与自举字节一致。纯 runtime codegen,
   无格式 bump。
 
-## 原生 F64 浮点算术（jit-native-float）
+## 原生 F64 浮点算术
 
 > 位置：`jit/translate.rs`（`is_f64_typed`/`_cmp`/`_typed_unary` + `emit_f64_binop`/`_cmp`/`_neg` +
 > Add/Sub/Mul/Div/Neg/Eq..Ge 各臂）。
 
-整数原生化收官后，浮点仍全走 helper：`double` 的 Add/Sub/Mul/Div/比较/取负都路由到 extern
-`jit_add`/`jit_lt`/… → 纯 `double` 累加环 JIT 仅 1.59× interp。本节给 F64 加原生快路径，与 2A 的整数
+若 `double` 的 Add/Sub/Mul/Div/比较/取负都路由到 extern
+`jit_add`/`jit_lt`/…，纯 `double` 累加环 JIT 仅 1.59× interp。故 F64 有原生快路径，与整数
 快路径同构（谓词全 F64 → 原生 Cranelift 指令、否则回落 helper）。
 
 - **算术** `emit_f64_binop`：`fadd`/`fsub`/`fmul`/`fdiv`，读 off8 的 f64 payload、算完存 `TAG_F64`。
@@ -629,18 +611,18 @@ promoted reg 与 `frame.regs` 的同步只在两处：
 
 **范围**：只 `F64`（double）——`F32` widened 存 `Value::F64`、写回需 round 到 f32 精度，native `fadd`
 不做 → F32 留 helper（`is_f64_typed` 精确匹配 F64 排除 F32）；混合 int/float 留 helper（促 int→f64）。
-（落地时 F64 op 直写内存；F64 loop-carried residency 随后并入 2C，见下「F64 residency」节。）
+（F64 loop-carried residency 见下「F64 residency」节。）
 
 **收益/验证**：纯 `double` 累加环 JIT **1.59×→2.78× interp**（jit 自身 608→349ms=1.74×）；`ftest.z42`
 （全 6 比较 + 四则 + fneg + **NaN/±inf/±0/inf×0 边界** + 混合 int/float 留 helper）interp==jit==jitOSR
-逐字节；cargo --lib + e2e + 自举 5/5 + stdlib 全绿。纯 runtime codegen，无格式 bump。
+逐字节；纯 runtime codegen，无格式 bump。
 
-## 浮点 ↔ 整数原生转换（jit-native-convert-float）
+## 浮点 ↔ 整数原生转换
 
 > 位置：`jit/translate.rs`（`Convert` 臂 + `emit_int_to_f64` / `emit_f64_to_int`）。
 
-`(double)i` / `(int)f` 这类 `Convert` 原本每次走 `hr_convert` helper（Rust call + `convert_value`
-分派）。热循环里的强制转换是纯逐迭代开销，两个方向都补上原生快路径：
+`(double)i` / `(int)f` 这类 `Convert` 若每次走 `hr_convert` helper（Rust call + `convert_value`
+分派），在热循环里是纯逐迭代开销，故两个方向都有原生快路径：
 
 - **int→f64**（`emit_int_to_f64`）：窄整数全物理存 `Value::I64`（payload 已 sext/zext 到 i64），故
   一条 `fcvt_from_sint`（有符号源）/ `fcvt_from_uint`（无符号源）即复刻 interp 的 `x as f64`。目标
@@ -653,46 +635,45 @@ promoted reg 与 `frame.regs` 的同步只在两处：
 **残余 helper**：`char↔数值`、`f64→char`（要 Unicode 合法性校验）、`f64→f64` 恒等、以及任何盒装基元
 unbox convert 仍走 `hr_convert`。
 
-**residency 交互**（关键）：int→f64 的 int 源、float→int 的 f64 源都**从内存读**（helper 时代不变），故
-它们在 2C 白名单里被 disqualify（不驻留），保证内存权威；两个方向的**整数侧 dst** 经 `store_int`
-（可进 2B 缓存 / 2C Variable），**f64 侧 dst** 经 `store_f64`（可进 2C Variable，见下节）——转换结果直接
+**residency 交互**（关键）：int→f64 的 int 源、float→int 的 f64 源都**从内存读**，故
+它们在跨迭代驻留白名单里被 disqualify（不驻留），保证内存权威；两个方向的**整数侧 dst** 经 `store_int`
+（可进块内缓存 / 驻留 Variable），**f64 侧 dst** 经 `store_f64`（可进驻留 Variable，见下节）——转换结果直接
 喂驻留累加器不再内存往返。
 
 **收益/验证**：float→int 密集环（`(long)f + (int)(f*.5) + (short)f` per iter）JIT **2.70×→5.45×
 interp**（jit 791→392ms）；`ftintcheck.z42`（8 目标宽度 × 正常/边界值含 NaN/±inf/越界饱和）
 interp==jit==jitOSR 逐字节。
 
-## F64 residency：loop-carried 浮点标量跨迭代驻留（jit-unbox-regalloc Phase 2C-for-floats）
+## F64 residency：loop-carried 浮点标量跨迭代驻留
 
 > 位置：`jit/translate.rs`（`compute_promotable_regs` 基集 + 各 F64 臂、`load_f64`/`store_f64`、prologue
 > 种子、`ConstF64`/`Ret` 分派）。
 
-2C 把 loop-carried **整数**标量常驻机器寄存器；本节把同一机制扩到 **F64**：`double sum += …` 里的 `sum`
-不再每迭代 load/store `frame.regs`。做法与整数 2C 完全同构，只是 Variable 类型是 `F64`：
+上节把 loop-carried **整数**标量常驻机器寄存器；同一机制也用于 **F64**：`double sum += …` 里的 `sum`
+不再每迭代 load/store `frame.regs`。做法与整数驻留完全同构，只是 Variable 类型是 `F64`：
 
 - **promotion 基集**：`compute_promotable_regs` 除整数外也收 `IrType::F64` 候选。routed 位置 = F64 原生
   op：`ConstF64`、`Add`/`Sub`/`Mul`/`Div`（全 F64）、`Neg`、比较 `Eq..Ge` 的 a/b（dst 是 Bool 恒不驻留）、
   `Ret`。任何 memory-backed op（field/array/copy/call/int→f64 dst 之外的转换/…）碰过的 F64 reg 一律
   disqualify——与整数同一套「全routed 才驻留」不变式。
-- **`load_f64` / `store_f64`**：F64 版的驻留访问汇点。**F64 无块内缓存**（2B `RegCache` 只存整数
+- **`load_f64` / `store_f64`**：F64 版的驻留访问汇点。**F64 无块内缓存**（`RegCache` 只存整数
   `Value::I64`）——F64 reg 要么是驻留 Variable、要么直落内存，故无 cache/flush 交互。
 - **prologue 种子**：promoted F64 reg 声明 `types::F64` Variable，从 `frame.regs` 读 f64 payload 播种
   （dead 种子被首个真实 def 覆盖）。`Ret` 时按 `reg_types` 选 `TAG_F64`/`TAG_I64` spill 回内存。
 - **safepoint 不 spill**：GC 非移动、把 F64 槽当标量（非 root），驻留 F64 跨 safepoint 无需 spill——
   与整数同因（陈旧内存槽也总带标量/Null tag，GC 不误判为堆引用）。
-- **OSR**：与整数 2C 一致——Cranelift 给 OSR 空-args jump 自动补循环头 phi arg，OSR 变体照常驻留。
+- **OSR**：与整数驻留一致——Cranelift 给 OSR 空-args jump 自动补循环头 phi arg，OSR 变体照常驻留。
 
 **收益/验证**：`double s = s + (double)i*1.5 - seed` 累加环 JIT **3.23×→6.28× interp**（jit
 303→155ms≈2×）；`fbench.z42`/`ftest.z42` interp==jit==jitOSR 逐字节；纯 runtime codegen，无格式 bump。
 
-## 原生整数除 / 取余（jit-native-int-divrem）
+## 原生整数除 / 取余
 
 > 位置：`jit/translate.rs`（`Div`/`Rem` 臂 + `emit_int_divrem!` 宏，紧邻 `check!`）。
 
-整数原生化收官后，`Div`/`Rem` 是唯一还全走 helper 的常见算术（`Add`/`Sub`/`Mul`/比较/位运算/转换/全
-`double` 已 native）——原因是**硬件除法陷阱**：x86_64 `idiv` 对 `/0` 与 `i64::MIN / -1` 溢出都触发
+`Div`/`Rem` 与其他常见算术不同：需要特别处理**硬件除法陷阱**：x86_64 `idiv` 对 `/0` 与 `i64::MIN / -1` 溢出都触发
 SIGFPE，直接崩进程，而 interp 的 `/0` 要抛可捕获的 `Std.DivideByZeroException`、`i64::MIN/-1` 要
-panic（与 Rust `x / y` 一致）。本节让整数 Div/Rem 走原生 `sdiv`/`srem`，用一个**冷守卫**把两个必须交给
+panic（与 Rust `x / y` 一致）。整数 Div/Rem 走原生 `sdiv`/`srem`，用一个**冷守卫**把两个必须交给
 helper 的除数值分流出去：
 
 - **守卫** `(b as u64).wrapping_add(1) <= 1`（一条 `iadd_imm` + 无符号 `icmp_imm`）当且仅当
@@ -702,11 +683,11 @@ helper 的除数值分流出去：
 - **常路**（`b ∉ {0,-1}`）→ 原生 `sdiv`/`srem`，i64 宽度（所有窄整数物理存 `Value::I64`，与
   `emit_i64_binop` 同——不做窄化，结果直接存 `TAG_I64`，逐位复刻 interp 的 i64 `x/y`/`x%y`）。
 
-**为什么无需碰 2C / 2B**（正确性关键）：整数 `Div`/`Rem` 的 dst/a/b 早已被 `compute_promotable_regs`
+**为什么与驻留 / 块内缓存互不干扰**（正确性关键）：整数 `Div`/`Rem` 的 dst/a/b 被 `compute_promotable_regs`
 的 Div/Rem 臂 disqualify（不驻留 Variable），且不参与 `instr_uses_int_cache`（执行前 `RegCache` 已
 flush）——故内存权威。冷块里 helper 按 index 读写 `frame.regs` 天然一致，操作数/结果全走**直接内存**
-（`load_payload_i64` / `store_const_tag`），与内联数组快路径的内存纪律同构。因此本改**只动 Div/Rem 两个
-codegen 臂**，promotion 白名单与 cache 汇点均不变。
+（`load_payload_i64` / `store_const_tag`），与内联数组快路径的内存纪律同构。因此 Div/Rem 只涉及自己两个
+codegen 臂，promotion 白名单与 cache 汇点均不受影响。
 
 **浮点 Rem**：`double % double` 非 int-typed（`is_int_typed` 三操作数全整数才真）→ 落 helper 的
 `int_binop_helper` f64 路径（浮点取余是 `fmod` libcall，无单条 Cranelift 指令）。

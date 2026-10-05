@@ -1,6 +1,6 @@
 # Native 互操作（FFI）契约
 
-> **对齐**：2026-09-17 ｜ **状态**：Tier 1 C ABI 可用（仅解释器）；Tier 2 Rust 宏部分可用；Tier 3 未实现
+> **待办**：Tier 1 C ABI 仅解释器可用（JIT 未支持）；Tier 2 Rust 宏仅部分可用；Tier 3 未实现
 
 本页是**扩展作者与宿主开发者**要查的契约：z42 代码怎么声明一个 native 调用、native 库怎么把类型注册进
 VM、边界上允许出现哪些类型、谁负责释放什么。[C ABI 契约](c-abi.md) 讲的是反方向——宿主怎么启动并驱动
@@ -85,7 +85,7 @@ public static class Console {
 
 ## 3. Tier 1：C ABI
 
-头文件：[`src/runtime/include/z42_abi.h`](../../../../src/runtime/include/z42_abi.h)。
+头文件：[`src/runtime/include/z42_abi.h`](https://github.com/z42-lang/z42/blob/main/src/runtime/include/z42_abi.h)。
 
 ### 3.1 类型描述符
 
@@ -160,8 +160,7 @@ tag 值已冻结，只能追加：`NULL=0` `I64=1` `F64=2` `BOOL=3` `STR=4` `OBJ
 `Z42MethodDesc.signature` 是 `(P1, P2, …) -> R` 形式的字符串，VM 在注册时解析它并预建 libffi 调用接口。
 每个位置只接受下面这些拼法，其余一律注册失败：
 
-> ⚠️ **这张表是 C/Rust 的 ABI 记法，不是 z42 的源码类型拼写**（drop-short-primitive-aliases，
-> 2026-09-22）。`i8` / `u8` / `f64` 在这里合法，是因为它们与 `usize` / `isize` / `*const T` / `CStr`
+> ⚠️ **这张表是 C/Rust 的 ABI 记法，不是 z42 的源码类型拼写**。`i8` / `u8` / `f64` 在这里合法，是因为它们与 `usize` / `isize` / `*const T` / `CStr`
 > 同属一套描述 C ABI 的词汇，由 VM 的 `native/dispatch.rs::parse_type` 解析。**z42 源码里写
 > `u8 x = 1;` 是错的**——语言侧只有 C# 关键字一套拼写（`byte` / `sbyte` / …），见
 > [基本类型与字面量](../language/types.md)。两层互不影响。
@@ -222,7 +221,7 @@ Z42Error   z42_last_error(void);
 
 ## 4. Tier 2：Rust 侧的宏
 
-三个 crate 在 [`src/runtime/crates/`](../../../../src/runtime/crates)：
+三个 crate 在 [`src/runtime/crates/`](https://github.com/z42-lang/z42/tree/main/src/runtime/crates)：
 
 | crate | 职责 |
 |---|---|

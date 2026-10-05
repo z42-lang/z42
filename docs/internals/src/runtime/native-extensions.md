@@ -78,8 +78,8 @@ z42_repl_last_error() -> *const c_char                  // Z42_REPL_ERROR 时取
 | `3` ERROR | 真错误 | `bail!`（消息取自 `last_error`） |
 | `4` NO_EDITOR | 编辑器起不来（无 tty） | 退回 `plain_readline` 逐行读 |
 
-> `ERROR` vs `NO_EDITOR` 分开是有意的：旧的 in-VM 实现里，`Editor::with_config` 失败（无 tty）
-> 会**静默降级**到 plain 逐行读，而真正的读取错误才报错。若只有一个 ERROR 码，z42vm 无法区分
+> `ERROR` vs `NO_EDITOR` 分开是有意的：`Editor::with_config` 失败（无 tty）
+> 属于**应静默降级**到 plain 逐行读的情形，而真正的读取错误才报错。若只有一个 ERROR 码，z42vm 无法区分
 > 「该兜底」和「该报错」。
 
 ### 2.2 回调表 `ReplCallbacks`
@@ -151,10 +151,10 @@ prewarm 线程的 GC 能在本线程等输入时推进。但回调（`complete`/
 SDK 打包（`scripts/package/`）：`libz42_repl` 由 **z42.repl 的 build hook**（`ProvideNative`）在
 `z42b publish z42.interactive` 时 `cargo build -p z42-repl` 产出，经 `_pubBundleProjectNativeDeps`
 平铺进 **z42i 组件的 `programs/z42i/`**（`[assemble]` 自动并入 `pkgDir`，与 2.4 的 `<sdk>/programs/z42i/`
-发现对齐）——**不再有** xtask `_pkgStageReplCdylib` 特殊处理（add-native-dep-config）。两条**关键排除**：
+发现对齐）——无 xtask 针对 repl 的特殊拷贝逻辑。两条**关键排除**：
 ① `_pkgInstallZ42vm` **不**往 `bin/` 放 repl 库；② `_copyNativeLibs` 的 `libz42*` glob **显式排除**
 `libz42_repl`/`z42_repl`（hook 把它建进共享 cargoOut），否则会误拷进
-`<sdk>/native/`。把 repl 移出共享 `bin/` 是为根治 §1 急切扫描器对它喷 `ignoring unknown lib repl`
+`<sdk>/native/`。repl 不放共享 `bin/`，否则 §1 急切扫描器会对它喷 `ignoring unknown lib repl`
 ——它是**组件私有 native**（跟随 z42i），不是 `<sdk>/native/` 里的跨平台 stdlib 扩展，也不是
 `bin/` 的通用可执行件。布局/解析全轴见 [Native 库的布局与解析](native-libraries.md)。dev 流不建
 cdylib（与 compression 一致，靠开发者 `cargo build -p`）。

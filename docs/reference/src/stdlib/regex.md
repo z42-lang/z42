@@ -1,6 +1,5 @@
 # z42.regex —— 正则表达式编译与匹配
 
-> 对齐：2026-09-17（change `restructure-docs-three-books`）；
 > 包路径 `src/libraries/z42.regex/`；命名空间 `Std.Regex`（`RegexException` 在 `Std`）
 
 把 pattern 字符串编译成 `Regex` 对象，再做匹配 / 查找 / 替换 / 切分。语法是常见正则的

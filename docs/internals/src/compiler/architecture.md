@@ -1,7 +1,7 @@
 # 架构总览
 
-> **页型**: 机制页 ｜ **状态**: ✅ 已实现 ｜ **代码**: `src/compiler/`（z42c）· `src/toolchain/builder/` + `src/libraries/z42.build/`（z42b）
-> **相关**: [源代码编译流程](source-compile.md) · [工程模型、依赖解析与工作区编译](project-model.md) · [项目构建与发布编排](../toolchain/z42b.md) ｜ **对齐**: 2026-07-17
+> **页型**: 机制页 ｜ **代码**: `src/compiler/`（z42c）· `src/toolchain/builder/` + `src/compiler/z42.build/`（z42b）
+> **相关**: [源代码编译流程](source-compile.md) · [工程模型、依赖解析与工作区编译](project-model.md) · [项目构建与发布编排](../toolchain/z42b.md)
 
 ## 两个角色
 
@@ -18,7 +18,7 @@ graph LR
 
 ## z42c 的组成
 
-z42c 按依赖顺序分成七个逻辑包；`driver` 是唯一的可执行程序，也就是 `z42c` 命令。**物理布局**：全部在 `src/compiler/` 这一个 workspace 里——后端三包 `z42c.semantics` / `z42c.pipeline` / `z42c.driver`，可移植前端 `z42c.core` / `z42c.syntax`，IR·后端库 `z42.package`（含 zbc/zpkg 后端），清单模型 `z42.project`（2026-09-27 前后四者曾位于 `src/libraries/`）。依赖单向无环，各包细节见后续各章。
+z42c 按依赖顺序分成七个逻辑包；`driver` 是唯一的可执行程序，也就是 `z42c` 命令。**物理布局**：全部在 `src/compiler/` 这一个 workspace 里——后端三包 `z42c.semantics` / `z42c.pipeline` / `z42c.driver`，可移植前端 `z42c.core` / `z42c.syntax`，IR·后端库 `z42.package`（含 zbc/zpkg 后端），清单模型 `z42.project`。依赖单向无环，各包细节见后续各章。
 
 ```mermaid
 graph TD
@@ -33,7 +33,7 @@ graph TD
 
 ## z42b 的构建阶段
 
-z42b 位于 `src/toolchain/builder/`（`z42b.zpkg`），由 launcher 分发（`build` / `publish` / `run --rid` …），驱动一条固定的构建流水线（框架位于 `src/libraries/z42.build/`），平台相关逻辑由各 workload 以 `: WorkloadBase` 注入：
+z42b 位于 `src/toolchain/builder/`（`z42b.zpkg`），由 launcher 分发（`build` / `publish` / `run --rid` …），驱动一条固定的构建流水线（框架位于 `src/compiler/z42.build/`），平台相关逻辑由各 workload 以 `: WorkloadBase` 注入：
 
 ```
 Resolve → Compile → Trim → Assets → Configure → GenerateProject → NativeBuild → Package

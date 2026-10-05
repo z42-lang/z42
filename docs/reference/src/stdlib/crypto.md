@@ -1,6 +1,5 @@
 # z42.crypto —— 加密原语
 
-> 对齐：2026-09-17（change `restructure-docs-three-books`）；
 > 包路径 `src/libraries/z42.crypto/`；命名空间 `Std.Crypto`
 
 摘要、MAC、密钥派生、对称加密与 AEAD、公钥签名与密钥协商、OS CSPRNG。全部是静态类，

@@ -193,9 +193,6 @@ IMid<int>    ok  = r;      // ✓ 实参一致
 IMid<string> bad = r;      // ✗ E0402
 ```
 
-> 2026-09-26 之前**这条不成立**：接口身份只比裸名，`IRepo<int> i = repoOfString;` 编译期零诊断，
-> 于是 `int n = i.Get();` 拿到的其实是个 string —— 静态类型与运行期值不符，且一路静默流下去。
-
 接口作为**泛型约束**（`where T : IShape`）的规则见[泛型约束](generic-constraints.md)。
 
 ## `Self` 类型
@@ -263,7 +260,7 @@ Sum3(1, 2, 3);                                          // 6 —— 基元类型
 >   `E0401: undefined: T`。
 > - **自定义的 `static abstract` 接口目前不可靠**：同样形状的用户接口
 >   （`interface ICombine { static abstract Self op_Add(Self a, Self b); }`）
->   实测在运行期抛 `MissingSymbolException`。
+>   在运行期抛 `MissingSymbolException`。
 >
 > 需要这类能力时，请实现标准库的 `Std.INumber`，而不是自己声明 `static abstract` 接口。
 
@@ -313,9 +310,6 @@ IBase b = ...;
 IDerived d2 = b;        // ✗ E0402 —— 下转，隐式不成立
 IDerived d3 = (IDerived)b;   // ✓
 ```
-
-> 2026-09-26 之前这条边不存在：`IBase b = d;` 会报 `E0402: cannot assign IDerived to IBase`，
-> 只有**类**到祖先接口可以。当时的绕法（用具体类型赋值、或让实现类直接列出所有接口）现已不必要。
 
 ## 已知缺口：没有默认实现
 

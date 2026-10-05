@@ -1,7 +1,6 @@
 # 内联缓存（PIC）：为什么一条 entry 必须是一个原子量
 
 > SoT：`src/runtime/src/metadata/resolver/ic.rs`。
-> 由 `fix-field-ic-publication-race`（2026-09-17）确立。
 
 ## 这个缓存是什么
 
@@ -63,20 +62,19 @@ entry 原为 (tidA, payloadA)，现在要装 (tidB, payloadB)
 要靠内存序修，就得引入「先置 `UNRESOLVED` → 写载荷 → 再发布 TypeId」+ 读侧复读 TypeId 的
 seqlock 协议。**打包成一个原子量让这些协议全都不必要**，而且读侧从 2~3 次 load 降到 1 次。
 
-## 顺带删掉的死载荷
+## 不存死载荷
 
-`VCallICEntry` 原本存三个字段 `(type_id, slot, fn_idx)`。`slot`（虚表槽位）**没有任何消费者**——
-唯一的读取点写的是 `let (_slot, fn_idx) = …`。留着它就得凑够 96 位、没法单原子发布，所以删了。
+`VCallICEntry` 只存 `(type_id, fn_idx)`。虚表槽位 `slot` **没有任何消费者**，存它就得凑够 96 位、没法单原子发布，所以不存。
 
 ## 守这条不变量的东西
 
 | 门 | 位置 | 说明 |
 |---|---|---|
-| debug 断言 | `assert_field_ic_slot`（`ic.rs`） | PIC 命中后拿权威 `field_index` 复核，不符即 panic。**它就是抓到本 bug 的那条**（形态 `cached at slot 4294967295`） |
+| debug 断言 | `assert_field_ic_slot`（`ic.rs`） | PIC 命中后拿权威 `field_index` 复核，不符即 panic。违例形态如 `cached at slot 4294967295` |
 | debug 断言 | `assert_pic_target`（`interp/vcall_resolve.rs`） | VCall 侧同款：命中的目标必须属于该接收者 |
 | loom 模型 | `tests/ic_publication_loom.rs` | 穷举交错验证打包协议不撕裂；**自带阴性对照**（旧的双原子协议，`--ignored` 手动跑，必红） |
 | 并发压力单测 | `metadata::resolver::resolver_tests` | 多写多读跑 300ms，断言命中的载荷永远配对 |
 
 > ⚠️ **给这条热路径加探针/开关时**：必须用 `OnceLock` 在启动时读一次环境变量。
-> 调查期间我把开关写成在 lookup 里调 `std::env::var`，它自己要拿全局锁、把路径串行化，
+> 在 lookup 里调 `std::env::var` 会自己拿全局锁、把路径串行化，
 > 结果**对照组和实验组都变成 0 失败**——探针把要测的竞态掩盖掉了。

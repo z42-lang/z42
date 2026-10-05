@@ -4,9 +4,7 @@ z42 的 `switch`（语句 + 表达式）与 `is` 支持一套统一的**结构�
 **record 位置解构**、属性、嵌套、裸绑定，配 `if` 守卫。record 是积类型数据载体，模式匹配是消费它的
 天然方式——`Point(x, y)` 直接按主构造器声明序绑定字段，**无需 `Deconstruct` 方法、无需 `out` 参数**。
 
-> 本页对应 A1（结构化核心）+ A2（组合子：or-模式 `|` / `@` 绑定 / `..=` 闭区间 / 关系模式 `> 0`）
-> + A3（or-模式**带绑定**：`Circle(r) | Square(r)` 各 alt 绑同一变量）。
-> 解构声明 `Point(x,y) = p`（B）、穷尽性诊断（C）、`with`/`init`（D/E）为后续独立特性。
+> 待办：见文末「Deferred」。
 
 ## 模式文法
 
@@ -20,7 +18,7 @@ Pattern :=
   | <Type> ( <Pattern>, ... )      // 位置模式（record 解构）：Point(x, y) / Point(0, y)
   | <Type>? { <field>: <Pat>, ...} // 属性模式：Point { X: 0, Y: y } / { X: 0 }
                                    // 嵌套：Line(Point(x, _), _)
-  // ── A2 组合子 ──
+  // ── 组合子 ──
   | <Pat> | <Pat> | ...            // or-模式（仅 switch 臂）：1 | 2 | 3 / Circle | Square
   | <ident> @ <Pat>                // @ 绑定：p @ Point(0, y)（绑整体 + 解构）
   | <const> ..= <const>            // 闭区间范围：1 ..= 5 / 'a' ..= 'z'（含端点）
@@ -74,13 +72,13 @@ if (obj is Point(a, b)) { use(a, b); }
 // Point(0, y) → 先测 X==0，再绑 y ← Y
 ```
 
-> **struct record 位置 / 属性解构（complete-pattern-engine 放开）**：位置 / 属性模式除 record class 外，
+> **struct record 位置 / 属性解构**：位置 / 属性模式除 record class 外，
 > 亦支持 **struct record**（值类型，`[Record] struct`）——覆盖 switch / is / 解构声明全位点。struct 的字段读**不经**
 > auto-property getter，一律走 **blob 字节偏移 + TypeTag**（`StructFieldGetPrim`，`PatternEmitter._emitPatFieldRead`
 > 按 `_isBlobStruct(container)` 分派），而非 class 的 `FieldGet`；struct 静态已知类型（值 subject）→ 不发 `IsInstance`。
 >
 > **嵌套 struct-record 字段**（字段本身是 struct，如 `struct Line(Point A, Point B)`）与 **boxed struct subject**
-> （`object` / 接口持装箱 struct，如 `object o = point; o is Point(x, y)`）均已支持（complete-struct-pattern-destructuring）：
+> （`object` / 接口持装箱 struct，如 `object o = point; o is Point(x, y)`）均已支持：
 > - **嵌套 struct 字段**：字段本身是 struct 时，`_emitPatFieldRead` 走 `StructAlloc` + `copyRegion` 复制出一个
 >   **值副本子 blob**（`ExprEmitter._copyStructOut`，非别名），供递归子模式解构；叶子基元 / 引用字段仍走单条
 >   `StructFieldGetPrim`。
@@ -90,9 +88,9 @@ if (obj is Point(a, b)) { use(a, b); }
 >   BoxedStruct 全就绪，**无新 IR / 无 runtime 改动**。
 > - **不可跨 struct 匹配**：subject 是别的 value struct / 基元标量（值 struct 无多态、无装箱）→ 编译诊断 `E0402`。
 
-## A2 组合子：or / `@` / `..=` / 关系
+## 组合子：or / `@` / `..=` / 关系
 
-A2 在 A1 引擎上加四个 Rust 组合子，全部**纯编译期 lowering 到既有 IR**（新增 `Ge`/`Le`/`Gt`/`Lt` 比较），
+四个 Rust 组合子建在结构化引擎之上，全部**纯编译期 lowering 到既有 IR**（新增 `Ge`/`Le`/`Gt`/`Lt` 比较），
 无格式 bump、无新关键字（只加 `@` / `..=` 两个词法记号）。
 
 ```z42
@@ -124,20 +122,20 @@ if (v is 1 ..= 100) { ... }
 | `..=` 范围 | `lo ..= hi` | `subj >= lo && subj <= hi`（含端点）；仅可全序基元 | switch 臂 + `is` |
 | 关系 | `> v` / `>= v` / `< v` / `<= v` | `subj <op> v`；仅可全序基元 | switch 臂 + `is` |
 
-### A2 边界（`..=` / 关系）
+### 边界（`..=` / 关系）
 
 - **`..=` / 关系仅可全序基元**（numeric | char）：subject 静态类型非可比较基元 → 诊断。
 
-> **or / `@` 入 `is`（complete-pattern-engine 放开）**：`is` 表达式现支持 or `|` 与 `@` 绑定，与 switch
+> **or / `@` 入 `is`**：`is` 表达式支持 or `|` 与 `@` 绑定，与 switch
 > 臂对等——`if (p is Circle(r) | Square(r))`（or 带绑定，`r` 真分支可见）、`if (p is c @ Circle(_))`。
-> A2 曾限 switch-only 的两条顾虑均不成立：① `x is A | B` 旧解析 `(x is A) | B` = `bool | int`，而 z42 `|`
+> 在 `is` 里放开 or / `@` 没有风险：① `x is A | B` 若解析成 `(x is A) | B` = `bool | int`，而 z42 `|`
 > 只对整数 → 恒类型错、无合法程序回归 → 放开零风险；② `@` 用「`is` 后 `Identifier @`」一 token 前瞻消解
 > （类型名后永不合法跟 `@`）。binder / emitter 零改（`Bind` / `EmitMatch` 位点无关），纯 parser 层放开。
 
-## A3：or-模式带绑定
+## or-模式带绑定
 
-A2 曾禁止 or 各 alt 引入绑定（`case Circle(r) | Square(r):` 报错）——因不同 alt 把同名变量绑到**不同寄存器**，
-到 arm body 需合流。A3 补齐这块，让 Rust 最自然的**「多变体、同处理」**成立：
+or 各 alt 可以引入绑定（`case Circle(r) | Square(r):`）——不同 alt 把同名变量绑到**不同寄存器**，
+到 arm body 需合流。这让 Rust 最自然的**「多变体、同处理」**成立：
 
 ```z42
 int sizeOf(Shape s) {
@@ -160,10 +158,10 @@ int sizeOf(Shape s) {
 | `Circle(r) \| Triangle`  | `Triangle` 无绑定 → `'r' is not bound by every alternative` |
 | `Circle(r) \| Wide(r)`（int vs double） | 同名不同类型 → `inconsistent type across alternatives` |
 
-**合流机制（phi-free）**：z42 IR 无 phi 节点，绑定在 A1/A2 是零成本别名（指向既有寄存器）。or 各 alt 产出
-不同寄存器 → 别名失效。A3 用**稳定寄存器 + `Copy`**：为每个统一绑定预分配一个稳定寄存器，各 alt 匹配成功后把
+**合流机制（phi-free）**：z42 IR 无 phi 节点，绑定通常是零成本别名（指向既有寄存器）。or 各 alt 产出
+不同寄存器 → 别名失效。这里用**稳定寄存器 + `Copy`**：为每个统一绑定预分配一个稳定寄存器，各 alt 匹配成功后把
 该 alt 绑的变量 `Copy` 进稳定寄存器再跳 matchL；matchL 处所有绑定 = 稳定寄存器（单一一致）。**递归可组合**：
-嵌套 or 先合流成自己的稳定寄存器，外层读到单一寄存器再 Copy——无需特判嵌套深度。**无绑定 or**（A2 全部用法）
+嵌套 or 先合流成自己的稳定寄存器，外层读到单一寄存器再 Copy——无需特判嵌套深度。**无绑定 or**
 走逐字未改的旧 lowering（byte-identical）。
 
 ### or 与常量吞 `|` 的解析处理
@@ -199,10 +197,10 @@ flowchart LR
 | 类型 `T` / `T x` | `IsInstance(subj, T)` | `T x`：命中后 `x ← as_cast(subj, T)` |
 | 位置 `T(p_i)` | `IsInstance(subj, T)` ∧ 逐字段 | `field_get subj.f_i` → 递归子模式 |
 | 属性 `T{F:p}` | `IsInstance(subj, T)`（T 可省）∧ 按名 | `field_get subj.F` → 递归子模式 |
-| or `P1\|P2`（A2/A3） | 依次试 alt：前 n-1 失败落下一 alt，末 alt 失败落 `failL` | A2 无绑定：子模式无绑定；**A3 带绑定**：预分配稳定寄存器，各 alt 成功后 `Copy` 进稳定寄存器再跳 `matchL`（phi-free 合流，递归可组合） |
-| `@`（A2） | 恒真 + 匹配子模式 | `name ← subj`（别名，同裸绑定） |
-| `..=`（A2） | `Ge(subj, lo)` 短路 → `Le(subj, hi)` | — |
-| 关系（A2） | `Gt/Ge/Lt/Le(subj, v)` | — |
+| or `P1\|P2` | 依次试 alt：前 n-1 失败落下一 alt，末 alt 失败落 `failL` | 无绑定：子模式无绑定；**带绑定**：预分配稳定寄存器，各 alt 成功后 `Copy` 进稳定寄存器再跳 `matchL`（phi-free 合流，递归可组合） |
+| `@` | 恒真 + 匹配子模式 | `name ← subj`（别名，同裸绑定） |
+| `..=` | `Ge(subj, lo)` 短路 → `Le(subj, hi)` | — |
+| 关系 | `Gt/Ge/Lt/Le(subj, v)` | — |
 
 三位点的**外壳**编排 match→guard→body/result：`switch` 是 case 链（失败落下一 case），`is` 收口成
 布尔结果寄存器（绑定在 match 路径写入，true 分支支配其使用）。
@@ -223,7 +221,7 @@ flowchart LR
 格式 bump、无新 runtime、无新关键字**（扩 `switch`；`is` 已有；守卫复用 `if`）。新语法只在测试文件出现，
 上一 nightly 的 z42c 仍能编当前源（满足两-nightly 纪律）。
 
-## B：解构声明 `Point(x, y) = p`
+## 解构声明 `Point(x, y) = p`
 
 模式匹配的**第四个应用位点**：把一个 record 直接按位置解构到**新声明的局部变量**，无需 `switch`/`is`
 外壳。是 Rust `let Point{x,y} = p;` / C# `var (x,y) = p;` 的对应物——积类型数据消费的最简形态。绑定在
@@ -252,7 +250,7 @@ Line(Point(ax, ay), Point(bx, by)) = seg;    // 嵌套解构
 只逐字段 `field_get` 直读 + 绑定，递归下降嵌套位置（`PatternEmitter.EmitIrrefutable`）。解析用一条 lookahead
 判别 `T ( ... ) =`（`StmtParser._isDeconstructDeclStart`）与函数调用语句（后随 `;`）区分。
 
-### 属性形态解构声明 `{ X: x } = p`（complete-pattern-engine）
+### 属性形态解构声明 `{ X: x } = p`
 
 解构声明除位置形态外，支持**属性形态**——按字段名解构，可省类型、可只列部分字段：
 
@@ -291,9 +289,9 @@ binder 解开 `.Def` 走 `IsRecord` / arity 校验，字段类型（声明为 `T
 按名 `FieldGet` 类型擦除。故泛型 record 解构**无新运行时、无格式 bump**，纯 binder 层补线。
 
 > **泛型 struct record 解构** defer（诊断 `E0402`）——struct 值语义需按实例化单态化 blob 布局
-> （`Box<int>` vs `Box<string>` 布局不同），首版限泛型 **class** record。元组模式为后续特性。
+> （`Box<int>` vs `Box<string>` 布局不同），首版限泛型 **class** record。
 
-## C：switch 穷尽性诊断（bool / enum / 封闭类层次）
+## switch 穷尽性诊断（bool / enum / 封闭类层次）
 
 `switch`（语句 + 表达式）对**封闭域**（值集有限的类型）未覆盖全部情形且无兜底臂时报 **warning
 `W0700`**（默认开启，不阻断编译）。对齐 Rust `match` 的穷尽性检查——把「漏一个 enum 成员 / 漏一个子类」
@@ -336,10 +334,6 @@ int a = n switch { 1 => 10, 2 => 20 };   // 编译期无诊断（int 是开放�
 ```
 
 `switch` **语句**不受此约束：语句不产值，无匹配 `case` 就什么都不做，**不抛**（C# 同）。
-
-> 📜 **历史**：throw-on-switch-expr-no-match（2026-09）之前，落空的 switch 表达式**读一个从没被
-> 写过的寄存器** —— 不是崩溃、不是类型默认值，而是垃圾值（`int` 变量能打印成 `null`、`a + 1`
-> 打出 17179869186）。
 
 > ⚡ **性能注意**：落空块是一条 `Throw` 终结符，而
 > **含 `Throw` 的函数不可内联、且被判为非纯**（内联白名单只有 `Ret`/`Br`/`BrCond`；非纯则丢
@@ -386,7 +380,7 @@ int area = s switch {
 > - **无格式 bump**：`IsAbstract` 是 semantics 内存标志；封闭性纯用既有 `Visibility`（已持久化、已跨包
 >   强制）+ 本包 `IsSubclassOf`，不新增任何持久化位。
 
-## D：`with` 表达式（record 非破坏式更新）
+## `with` 表达式（record 非破坏式更新）
 
 `p with { Y = 99 }` 产出一个**新 record**——除指定字段外逐字段拷贝原值（Rust `Point { y: 99, ..p }` /
 C# `p with { Y = 99 }` 对应物）。record 是不可变积类型，`with` 是「基于旧值造新值」的头号人体工学特性。
@@ -411,9 +405,8 @@ Point u = p with { X = 8 } with { Y = 9 };   // 链式
 
 ## Deferred（后续独立特性）
 
-- 泛型 **struct** record 位置解构（需单态化 blob 布局；泛型 class record 已支持，见上「泛型 record 解构」）；
-  元组模式（需元组类型系统构造，可能格式 bump）
-- `with` 的 struct record / `..base` 结构更新；`init`-only 访问器（E）
+- 泛型 **struct** record 位置解构（需单态化 blob 布局；泛型 class record 已支持，见上「泛型 record 解构」）
+- `with` 的 struct record / `..base` 结构更新；`init`-only 访问器
 - **公开（public）封闭 sum type** 的穷尽性（需把封闭标记持久化进 zpkg + 跨包强制，独立 `[Closed]`
-  follow-up；包内封闭层次已支持，见「C：封闭类层次」）
+  follow-up；包内封闭层次已支持，见「封闭类层次」）
 - 接口层次 / 泛型基类的穷尽性（v1 只做非泛型 class 基类）

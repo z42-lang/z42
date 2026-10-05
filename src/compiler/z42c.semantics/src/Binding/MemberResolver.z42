@@ -43,6 +43,7 @@ public sealed partial class MemberResolver {
                     if (ot is Z42InstantiatedType) { (sm as BoundStaticGet).OwnerType = ot; }
                 }
                 if (sm != null) { return sm; }
+                sm = this.StaticMemberMiss(sct, clsName, m, env); if (sm != null) { return sm; }   // reject-derived-static-access
             }
             // 枚举常量访问 `EnumType.Member` → BoundLitInt，**静态类型 = 该 enum 类型**
             // （make-enum-distinct-type；此前是 `long`，即 enum-as-int 模型）。
@@ -723,6 +724,7 @@ public sealed partial class MemberResolver {
                 // `Util.go()` 零诊断、字母序靠前的包赢。
                 this._tc._chkStaticOwner(env.Symbols, ct, sp);
                 MethodSymbol ms = this._tc._overload._resolveOverload(env.Symbols, ct, mem.Name, args, argCount, call.TypeArgCount, sp, rawArgs, env);   // 限定名静态调用（Array.Sort<int>）→ 传显式类型实参个数启用 arity 过滤
+                if (MemberResolver.IsBaseStaticMethod(ct, ms)) { return this.ErrBaseStaticCall(tid.Name, ms, mem.Name, args, argCount, rawArgs, env, sp); }   // reject-derived-static-access
                 if (ms != null) {
                     ms = MethodTypeArgSubst.ForExplicitTypeArgs(ms, call, env);   // 显式 `<T>` → 先代换签名再绑实参
                     this._tc._access.CheckAccess(ms.Visibility, ms.ContainingTypeName, env, env.Symbols, "method", mem.Name, sp);   // enforce-access-control
@@ -733,12 +735,7 @@ public sealed partial class MemberResolver {
                     return bc;
                 }
                 BoundExpr dsc = this.TryBindDelegateMemberCall(mem, ct, true, args, argCount, rawArgs, env, sp); if (dsc != null) { return dsc; }   // 委托静态字段 / 属性
-                if (!this._tc._overload.LastAmbiguous) {
-                    this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol,
-                        "no static method `" + mem.Name + "` on `" + ct.Name() + "`", sp);
-                }
-                args = this._tc._overload.BindArgsToSignature(args, rawArgs, argCount, null, env);
-                return new BoundCall("static", false, null, tid.Name, mem.Name, args, argCount, new Z42ErrorType(), sp);
+                return this.NoStaticMethod(ct, tid.Name, mem.Name, args, argCount, rawArgs, env, sp);
             }
         }
         // GS6: prim 关键字静态调用（int.Parse / string.FromChars 等）→ wrapper class 静态方法
@@ -793,6 +790,7 @@ public sealed partial class MemberResolver {
                     // 也分不开两份（FQN 逐字相同），故与裸名一视同仁。
                     this._tc._chkStaticOwner(env.Symbols, qct, sp);
                     MethodSymbol qms = this._tc._overload._resolveOverload(env.Symbols, qct, mem.Name, args, argCount, call.TypeArgCount, sp, rawArgs, env);
+                    if (MemberResolver.IsBaseStaticMethod(qct, qms)) { return this.ErrBaseStaticCall(qcls, qms, mem.Name, args, argCount, rawArgs, env, sp); }   // reject-derived-static-access
                     if (qms != null) {
                         qms = MethodTypeArgSubst.ForExplicitTypeArgs(qms, call, env);   // 显式 `<T>` → 先代换签名再绑实参
                         this._tc._access.CheckAccess(qms.Visibility, qms.ContainingTypeName, env, env.Symbols, "method", mem.Name, sp);
@@ -802,12 +800,7 @@ public sealed partial class MemberResolver {
                         this._applyMethodTypeArgs(qbc, call, qms, env);
                         return qbc;
                     }
-                    if (!this._tc._overload.LastAmbiguous) {
-                        this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol,
-                            "no static method `" + mem.Name + "` on `" + qct.Name() + "`", sp);
-                    }
-                    args = this._tc._overload.BindArgsToSignature(args, rawArgs, argCount, null, env);
-                    return new BoundCall("static", false, null, qcls, mem.Name, args, argCount, new Z42ErrorType(), sp);
+                    return this.NoStaticMethod(qct, qcls, mem.Name, args, argCount, rawArgs, env, sp);
                 }
             }
         }

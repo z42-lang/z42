@@ -1,7 +1,6 @@
 # 监听 socket：为什么 accept 是非阻塞 + 轮询
 
 > SoT：`src/runtime/src/corelib/network/tcp.rs`。
-> 由 `fix-accept-not-interruptible`（2026-09-17）确立。
 
 ## 要解决的问题
 
@@ -23,7 +22,7 @@
 
 监听槽位是 `ListenerSlot { listener: Arc<TcpListener>, closed: Arc<AtomicBool> }`：
 
-- `accept` **不再把 listener 摘出资源表**，只克隆 `Arc`（同 #648 给子进程管道用的手法）。
+- `accept` **不把 listener 摘出资源表**，只克隆 `Arc`（与子进程管道用的手法相同）。
   然后把 socket 设为非阻塞，在 `NativeParkGuard` 内循环：
   `accept()` → `WouldBlock` → `poll(fd, POLLIN, 100ms)` → 回到循环顶部复查 `closed`。
 - `__net_tcp_listener_drop` **先置 `closed`、再摘表**。阻塞中的 accept 下一轮（≤100ms）看到标志，
@@ -62,4 +61,3 @@ Windows 的 `WSAPoll` 只能 poll socket 所以还得换回环 socket 对 ——
 
 > 🔴 那条回归测试**必须用 detached 线程 + 带超时的 channel**，不能用 `thread::scope`：
 > scope 退出时会 join worker，于是回退实现时**整个测试进程挂住**（CI 超时），而不是报一条失败。
-> 写这条测试时先踩了这个坑。

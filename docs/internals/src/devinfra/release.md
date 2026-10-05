@@ -1,10 +1,10 @@
 # 打包与发版
 
-> 对齐：2026-09-17（change `restructure-docs-three-books`）｜ 代码：`scripts/package/`、
+> 代码：`scripts/package/`、
 > `scripts/packages.toml`、`scripts/cli/xtask_cli_package.z42`、`.github/workflows/release.yml`、
 > `.github/workflows/ci.yml`（`publish-nightly`）、`scripts/versions.toml`
 >
-> 打包**引擎**（清单三层结构、staging→组装两段流水、source-identity 门的实现）见[打包引擎](packaging.md)；
+> 打包**引擎**（清单三层结构、组装流水、source-identity 门的实现）见[打包引擎](packaging.md)；
 > 这页是操作面：产哪些包、怎么在本地产、怎么验、怎么发出去。
 
 要读这页的场景：在本地打一个发行包来 inspect / 冒烟 / 给别人用；改了 `scripts/package/` 或

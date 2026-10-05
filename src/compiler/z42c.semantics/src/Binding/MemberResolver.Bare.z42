@@ -15,6 +15,8 @@ public sealed partial class MemberResolver {
             if (env.Symbols.HasClass(cls)) {
                 Z42ClassType sct = env.Symbols.GetClass(cls);
                 MethodSymbol sms = this._tc._overload._resolveOverload(env.Symbols, sct, id.Name, args, call.ArgCount, call.TypeArgCount, call.Span, call.Args, env);
+                // reject-derived-static-access：派生类体内裸调**基类**的静态方法（发射端会按当前类拼目标 ⇒ 运行期找不到）。
+                if (MemberResolver.IsBaseStaticMethod(sct, sms)) { return this.ErrBaseStaticCall(cls, sms, id.Name, args, call.ArgCount, call.Args, env, call.Span); }
                 if (sms != null && sms.IsStatic) {
                     // add-call-arity-diagnostics：此前本路径不经 _withDefaults（只绑定 + params 打包）⇒ 默认值不补、
                     // 实参个数不校验。汇入同一汇聚点（绑定 / 装箱 / params / 默认值 / 个数判定）。

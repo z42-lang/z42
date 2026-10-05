@@ -23,7 +23,7 @@ string json = """{"k": "v"}""";        // 原始串：逐字保留，不处理�
 | `\\` | `\` | `\"` | `"` |
 | `\'` | `'` | | |
 
-**未知转义是编译错误 `E0102`**（unrecognized escape sequence），不会像旧行为那样静默吞掉
+**未知转义是编译错误 `E0102`**（unrecognized escape sequence），不会静默吞掉
 反斜杠：
 
 ```z42
@@ -96,10 +96,8 @@ string msg = $"Hello, {b}! Length = {b.Length}";
 >
 > 需要定宽 / 进制格式时，自己拼接或调用相应的转换方法。
 >
-> 📜 **2026-09-23 之前这里是静默的**：冒号后面的内容被直接丢弃、输出等同于 `$"{x}"`，零诊断。
-> 判据是 `_parseInterpolated` 只取子 parser `ParseExpression()` 的结果、**从不问它有没有读完**
-> ⇒ `:X2` 一个字节没人看。现在洞里表达式之后**只要还剩 token 就报 E0492**——所以
-> `$"{a b}"` 这类手误同样不再静默。
+> 洞里表达式之后**只要还剩 token 就报 E0492**（`_parseInterpolated` 要求子 parser 读完），所以
+> `:X2` 这类说明符与 `$"{a b}"` 这类手误都不会静默。
 >
 > ⚠️ 仍在的缺口：洞内**解析失败**（`$"{a +}"` / `$"{@#}"`）时，子 parser 的诊断被丢弃，
 > 只有带**假位置**的语义诊断漏出来（`<interp>(1,4)` —— `<interp>` 不是用户的文件、列号是洞内
@@ -128,9 +126,7 @@ void Main() {
   `Split(char[])`，所以要写 `a.Split(",")` 而不是 `a.Split(',')`；写成字符会报
   `E0401: no overload of \`Split\` on \`String\` accepts these arguments`。
 
-  > 2026-09 之前 `a.Split(',')` **能通过编译**，到运行期才崩在 `Std.String.Split` 内部
-  > （`VCall: expected object, got Char`）——prim 收者的重载决议解析不到时会松绑定到裸名。
-  > 现已在编译期拦下。
+
 
 完整的字符串成员清单见标准库参考的 `Std.String`。
 
@@ -157,10 +153,6 @@ void Main() {
 `string` 命中 `foreach` 的**索引路径**（`Length` + `this[int]`），**不物化 `char[]`**；
 `Length` 与 `CharAt` 都是 O(1) 摊还，所以整个循环是 O(n)。`foreach` 支持哪些形态见
 [迭代](iteration.md)。
-
-> 2026-09 之前 `foreach (char c in s)` 能通过编译却在运行期 trap
-> （`expected array, got Str`），`s[i]` 则报 `E0402: index on non-array String`；
-> 当时的变通是先 `s.ToCharArray()`。两者现已直接可用。
 
 ## 与其他形态的关系
 

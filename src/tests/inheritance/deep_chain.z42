@@ -1,0 +1,187 @@
+// 40 层继承链（类 / 接口 / 异常）：沿继承链的遍历不得有层数上限。
+//
+// 编译器里沿 base 链走的循环（子类判定 / 成员查找 / 重载适用性 / 虚方法派发 / 接口实现 / 导出合并 …）
+// 曾各自写死 `hops < 32` 之类的上限，超出时**静默**当作「链到头了」——深于 32 层的类层次会出现
+// 找不到继承成员、上转被拒、override 对不上等错误。继承环在声明期就报错，链必然有限，
+// 这些上限只是历史上的防死循环兜底。
+namespace Demo;
+
+interface IRoot { int RootIface(); }
+
+class L0 : IRoot {
+    public int Top;
+    public int Prop { get; set; }
+    public virtual int Who() { return 0; }
+    public int RootIface() { return 99; }
+    public int Plain() { return 11; }
+}
+class L1 : L0 { public override int Who() { return 1; } }
+class L2 : L1 { }
+class L3 : L2 { }
+class L4 : L3 { }
+class L5 : L4 { }
+class L6 : L5 { }
+class L7 : L6 { }
+class L8 : L7 { }
+class L9 : L8 { }
+class L10 : L9 { }
+class L11 : L10 { }
+class L12 : L11 { }
+class L13 : L12 { }
+class L14 : L13 { }
+class L15 : L14 { }
+class L16 : L15 { }
+class L17 : L16 { }
+class L18 : L17 { }
+class L19 : L18 { }
+class L20 : L19 { }
+class L21 : L20 { }
+class L22 : L21 { }
+class L23 : L22 { }
+class L24 : L23 { }
+class L25 : L24 { }
+class L26 : L25 { }
+class L27 : L26 { }
+class L28 : L27 { }
+class L29 : L28 { }
+class L30 : L29 { }
+class L31 : L30 { }
+class L32 : L31 { }
+class L33 : L32 { }
+class L34 : L33 { }
+class L35 : L34 { }
+class L36 : L35 { }
+class L37 : L36 { }
+class L38 : L37 { }
+class L39 : L38 { }
+class L40 : L39 { }
+
+interface J0 { int J(); }
+interface J1 : J0 { }
+interface J2 : J1 { }
+interface J3 : J2 { }
+interface J4 : J3 { }
+interface J5 : J4 { }
+interface J6 : J5 { }
+interface J7 : J6 { }
+interface J8 : J7 { }
+interface J9 : J8 { }
+interface J10 : J9 { }
+interface J11 : J10 { }
+interface J12 : J11 { }
+interface J13 : J12 { }
+interface J14 : J13 { }
+interface J15 : J14 { }
+interface J16 : J15 { }
+interface J17 : J16 { }
+interface J18 : J17 { }
+interface J19 : J18 { }
+interface J20 : J19 { }
+interface J21 : J20 { }
+interface J22 : J21 { }
+interface J23 : J22 { }
+interface J24 : J23 { }
+interface J25 : J24 { }
+interface J26 : J25 { }
+interface J27 : J26 { }
+interface J28 : J27 { }
+interface J29 : J28 { }
+interface J30 : J29 { }
+interface J31 : J30 { }
+interface J32 : J31 { }
+interface J33 : J32 { }
+interface J34 : J33 { }
+interface J35 : J34 { }
+interface J36 : J35 { }
+interface J37 : J36 { }
+interface J38 : J37 { }
+interface J39 : J38 { }
+interface J40 : J39 { }
+class JImpl : J40 { public int J() { return 40; } }
+
+class E0 : Exception { public E0(string m) : base(m) { } }
+class E1 : E0 { public E1(string m) : base(m) { } }
+class E2 : E1 { public E2(string m) : base(m) { } }
+class E3 : E2 { public E3(string m) : base(m) { } }
+class E4 : E3 { public E4(string m) : base(m) { } }
+class E5 : E4 { public E5(string m) : base(m) { } }
+class E6 : E5 { public E6(string m) : base(m) { } }
+class E7 : E6 { public E7(string m) : base(m) { } }
+class E8 : E7 { public E8(string m) : base(m) { } }
+class E9 : E8 { public E9(string m) : base(m) { } }
+class E10 : E9 { public E10(string m) : base(m) { } }
+class E11 : E10 { public E11(string m) : base(m) { } }
+class E12 : E11 { public E12(string m) : base(m) { } }
+class E13 : E12 { public E13(string m) : base(m) { } }
+class E14 : E13 { public E14(string m) : base(m) { } }
+class E15 : E14 { public E15(string m) : base(m) { } }
+class E16 : E15 { public E16(string m) : base(m) { } }
+class E17 : E16 { public E17(string m) : base(m) { } }
+class E18 : E17 { public E18(string m) : base(m) { } }
+class E19 : E18 { public E19(string m) : base(m) { } }
+class E20 : E19 { public E20(string m) : base(m) { } }
+class E21 : E20 { public E21(string m) : base(m) { } }
+class E22 : E21 { public E22(string m) : base(m) { } }
+class E23 : E22 { public E23(string m) : base(m) { } }
+class E24 : E23 { public E24(string m) : base(m) { } }
+class E25 : E24 { public E25(string m) : base(m) { } }
+class E26 : E25 { public E26(string m) : base(m) { } }
+class E27 : E26 { public E27(string m) : base(m) { } }
+class E28 : E27 { public E28(string m) : base(m) { } }
+class E29 : E28 { public E29(string m) : base(m) { } }
+class E30 : E29 { public E30(string m) : base(m) { } }
+class E31 : E30 { public E31(string m) : base(m) { } }
+class E32 : E31 { public E32(string m) : base(m) { } }
+class E33 : E32 { public E33(string m) : base(m) { } }
+class E34 : E33 { public E34(string m) : base(m) { } }
+class E35 : E34 { public E35(string m) : base(m) { } }
+class E36 : E35 { public E36(string m) : base(m) { } }
+class E37 : E36 { public E37(string m) : base(m) { } }
+class E38 : E37 { public E38(string m) : base(m) { } }
+class E39 : E38 { public E39(string m) : base(m) { } }
+class E40 : E39 { public E40(string m) : base(m) { } }
+
+class Pick {
+    public static int F(L0 x)     { return 1; }
+    public static int F(object o) { return 2; }
+    public static int G<T>(T x) where T : L0 { return x.Plain(); }
+}
+
+void Main() {
+    L40 x = new L40();
+    x.Top = 5;
+    Assert.Equal(5, x.Top);                 // 根类字段
+    x.Prop = 6;
+    Assert.Equal(6, x.Prop);                // 根类属性
+    Assert.Equal(11, x.Plain());            // 根类实例方法
+    Assert.Equal(1, x.Who());               // L1 的 override
+    Assert.Equal(99, x.RootIface());        // 根类实现的接口方法
+
+    L0 up = x;                              // 上转
+    Assert.Equal(5, up.Top);
+    Assert.Equal(1, up.Who());              // 虚派发
+    IRoot r = x;                            // 类 → 祖先实现的接口
+    Assert.Equal(99, r.RootIface());
+
+    object o = x;
+    Assert.True(o is L0);
+    Assert.True(o is IRoot);
+    L0 back = o as L0;
+    Assert.True(back != null);
+    if (o is L0 pat) { Assert.Equal(5, pat.Top); } else { Assert.True(false); }
+
+    Assert.Equal(1, Pick.F(x));             // 重载：L0 形参优于 object
+    Assert.Equal(11, Pick.G<L40>(x));       // 泛型约束 where T : L0
+
+    J40 j = new JImpl();
+    Assert.Equal(40, j.J());                // 40 层父接口链上的方法
+    J0 j0 = j;                              // 接口 → 祖先接口
+    Assert.Equal(40, j0.J());
+    object jo = j;
+    Assert.True(jo is J0);
+
+    int caught = 0;
+    try { throw new E40("deep"); }
+    catch (E0 e) { caught = 1; Assert.Equal("deep", e.Message); }
+    Assert.Equal(1, caught);
+}

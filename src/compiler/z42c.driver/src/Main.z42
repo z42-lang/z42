@@ -53,7 +53,7 @@ void Main() {
         return;
     }
     if (argv.Length >= 1 && argv[0] == "build") {
-        Environment.Exit(_cmdBuild(argv));   // 参数解析 + 清单定位见 BuildCommand.z42
+        Environment.Exit(_cmdBuildGuarded(argv));   // 参数解析 + 清单定位见 BuildCommand.z42
         return;
     }
     if (argv.Length < 2) {

@@ -1,6 +1,6 @@
 # 构建编排（`xtask build`）
 
-> 对齐：2026-10-02（change `unify-test-output-dirs`）｜ 代码：`scripts/build/`（`xtask_stdlib.z42` / `xtask_compiler.z42` / `xtask_golden_assets.z42` / `xtask_bootstrap_check.z42` / `xtask_toolchain.z42`）、`scripts/common/xtask_layout.z42`
+> 代码：`scripts/build/`（`xtask_stdlib.z42` / `xtask_compiler.z42` / `xtask_golden_assets.z42` / `xtask_bootstrap_check.z42` / `xtask_toolchain.z42`）、`scripts/common/xtask_layout.z42`
 >
 > 产物落在哪、哪个目录归谁，见[产物目录布局](artifacts-layout.md)；命令面见 `xtask build -h`。
 
@@ -35,7 +35,6 @@
 可移植前端（`z42c.core` = Span/Diagnostic、`z42c.syntax` = Lexer/Parser/AST）与 IR·后端库
 `z42.package` 住在 `src/libraries/`，**随 stdlib 一起建、一起进扁平视图**，后端三包经跨-workspace
 dist 发现来解析它们。所以「编译器有几个包」这个数是算出来的，别在文档或代码里写死——
-`scripts/` 与 `src/` 的若干注释里仍留着「7 包 / 6 个兄弟包」的旧口径，那是历史文本，
 以 `default-members` 为准。
 
 产物路径同理不是硬编码：`scripts/common/xtask_layout.z42` 读 `[workspace.build].output_dir`
@@ -75,9 +74,8 @@ graph TD
 - 暂存用的 SDK 种子若落后一代，**只告警不失败**——「上一版 z42c 能编当前源」是
   [bootstrap-seed](https://github.com/z42-lang/z42/blob/main/docs/agent/rules/bootstrap-seed.md) 的纪律，落后一代未必不能用。
 
-**为什么值得一道专门的校验**：错代产物的失败形态与「种子过期」毫无字面关系。实证
-（2026-09-23）：一棵树里躺着 zpkg 0.48 时代的 driver，那一代的静态初始化还走
-`__static_init__`，而 `unify-static-init-into-cctor` 已把运行期对它的支持删掉 ⇒ 静态量
+**为什么值得一道专门的校验**：错代产物的失败形态与「种子过期」毫无字面关系。实证：一棵树里躺着 zpkg 0.48 时代的 driver，那一代的静态初始化还走
+`__static_init__`，而运行期已不再支持它 ⇒ 静态量
 永不初始化，崩成 `ArrayGet: expected array, got Null @ PrimModel.SurfaceName`。
 排查时极易误判成「main 有回归」——**而且「换棵 pristine 树验一遍」也分辨不出来，
 因为那只控制了源码、没控制 `artifacts/`**。
@@ -85,8 +83,7 @@ graph TD
 `build compiler` 就是单独执行阶段一 + 成员 zpkg 完整性校验。
 
 > **中间态跟着 owner 落 `artifacts/build/` 的镜像**：`stdlib-run` 快照、`selfhost-gen1` 等编译器自举工作区是
-> 编译器 workspace 级的，落 `build/compiler/<name>`；测试类落各组件的 `tests/`（见[产物布局 §3](artifacts-layout.md)）。（`alllibs` 扁平视图 `build/views/<profile>/all`
-> 已于 2026-10-01 删除：开发树的 `Z42_LIBS` 只是 stdlib flat，编译器包运行期经 `Z42_PROBING_PATHS`，见 [产物布局](artifacts-layout.md)。）
+> 编译器 workspace 级的，落 `build/compiler/<name>`；测试类落各组件的 `tests/`（见[产物布局 §3](artifacts-layout.md)）。开发树的 `Z42_LIBS` 只是 stdlib flat，编译器包运行期经 `Z42_PROBING_PATHS`，见 [产物布局](artifacts-layout.md)。
 
 ### driver 的自包含化与两处破环
 
@@ -117,8 +114,8 @@ compare:       逐成员 _sectionsEqualIgnoreBlid(gen1, gen2)
 
 两个关键点：
 
-1. **gen1、gen2 必须走完全相同的构建路径**（都 `--workspace`）。曾经 gen2 走「逐包 `build <toml>` +
-   胖扁平 `Z42_LIBS`」，与 gen1 分歧：单包胖-flat 构建从目录里拉入的依赖闭包更大、扫描顺序又非确定，
+1. **gen1、gen2 必须走完全相同的构建路径**（都 `--workspace`）。若 gen2 走「逐包 `build <toml>` +
+   胖扁平 `Z42_LIBS`」会与 gen1 分歧：单包胖-flat 构建从目录里拉入的依赖闭包更大、扫描顺序又非确定，
    于是 gen2 ≠ gen1 且逐次漂移。**不动点两代必须同路径**，否则测的是「两条不同构建是否巧合一致」，
    而不是「编译器能否复现自身」。这一条由 `_z42cWorkspaceBuild` 这个单一封装从注释纪律固化成代码。
 2. **忽略 BLID**：zpkg 末尾 16 B 是 MurmurHash3 x86_128 build-id（内容哈希尾），天然每次不同；
@@ -193,12 +190,12 @@ dist 清空后全命中重装配三轮，每轮都要求增量 dist 与 `--no-in
 它还**没有跑 typecheck**，于是所有**以 typecheck 产物为输入的诊断**都要专门安排，
 否则就是「增量绿、全量红」的假绿。
 
-已知的两处（`fix-incremental-file-scope-diagnostics`）：
+已知的两处：
 
-- ✅ **E0436（文件级 `using` 强制）已修**：它的输入是 `cm.UsedDepNs`，而 cached 分支构造
+- **E0436（文件级 `using` 强制）**：它的输入是 `cm.UsedDepNs`，而 cached 分支构造
   `CompiledModuleZ` 时那个数组是**空的**（typecheck 产物，本轮没跑），真正的回填在
-  `PackageCompile` 从 cache meta 补 —— 比原先的调用点（`IrDump` 的 per-file 并行体）**晚**。
-  于是 cached 文件**永远不可能报 E0436**。现已把检查移到回填之后
+  `PackageCompile` 从 cache meta 补 —— 比检查原本所在的调用点（`IrDump` 的 per-file 并行体）**晚**。
+  于是 cached 文件**永远不可能报 E0436**。检查因此放在回填之后
   （`IrDump.EnforceFileScopeAll`）。
 - 🔴 **cached 文件的 warning 仍会静默消失**：per-file 并行体在 cached 分支把 `DiagMsgs`
   整体清空。带 error 的构建不落 cache，所以丢的只有 warning。

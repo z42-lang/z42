@@ -1,7 +1,7 @@
 # Native interop ABI（Tier 1 运行时）
 
 > **相关**：[对象与值表示 ABI](object-abi.md) · [嵌入宿主](embedding.md) ·
-> [Native 扩展库范式](native-extensions.md) ｜ **对齐**：2026-09-17
+> [Native 扩展库范式](native-extensions.md)
 >
 > 用户侧契约见参考手册 [Native 互操作（FFI）契约](https://z42-lang.github.io/z42/reference/embedding/native-interop.html)。
 > 本页讲 VM 内部**怎么实现**它、为什么这么分层、哪些部分还没通电。
@@ -235,15 +235,9 @@ pub(crate) const BUILTINS: &[(&str, Native)] = &JOINED;
 
 **slice 下标就是 `BuiltinId`。**
 
-> 🔴 **本节原先写着「而 `BuiltinId` 会被烤进 zbc；在中间插入会让所有既有产物整体错位」——
-> 那句话不成立**（2026-09-27 更正；判据见 `builtin_table_ext.rs` 抬头 2026-09-26 的读码核实）：
-> zbc 里存的是**名字**（`BuiltinInsn { dst, name, args }`），`BuiltinId` 由 resolver 在**加载期**
-> 按名字填进 `Function.resolved.builtin_tokens`，AOT 也不烤它 ⇒ 它是**单次运行内的派发令牌**，
-> 不跨进程持久化。
->
-> ⚠️ 这句话当时有**三份副本**（本页、`builtin_table.rs` 抬头、`builtin_table_ext.rs` 抬头），
-> 其中只有最后一份是核实过的正确版本 —— 典型的「同一条断言抄成多份，副本不跟着正本更新」。
-> 三份已统一。
+> `BuiltinId` **不会被烤进 zbc**：zbc 里存的是**名字**（`BuiltinInsn { dst, name, args }`），
+> `BuiltinId` 由 resolver 在**加载期**按名字填进 `Function.resolved.builtin_tokens`，AOT 也不烤它
+> ⇒ 它是**单次运行内的派发令牌**，不跨进程持久化，在表中间插入不会让既有产物错位。
 
 - **约定上只在表尾追加**：真实价值是让按 id 做的测试/遥测稳定，以及避免 review 时重核整张表，
   **不是**格式约束。表里多处 "appended to preserve existing BuiltinIds" 注释记的是历次追加点。
@@ -258,12 +252,11 @@ per-VM 的 ext 表；两边都没有则留 `UNRESOLVED`，在真正调用时按�
 
 ### 6.1b 有返回值 vs 无返回值（`Native::Val` / `Native::Void`）
 
-change `split-null-sentinel-channels` ④（2026-09-27）：**void builtin 不再用 `Value::Null`
-表示「没有返回值」**。
+**void builtin 不用 `Value::Null` 表示「没有返回值」**。
 
-此前所有 builtin 共用 `-> Result<Value>`，无返回值的那些返回 `Ok(Value::Null)`，而
-`exec_call::builtin` / `jit_builtin` 都**无条件** `frame.set(dst, v)` ⇒ 「无返回值」与
-「返回 null」在寄存器里**长得一模一样**。这是审计 R3「`Value::Null` 六义哨兵」里的 ④ 那一义。
+若所有 builtin 共用 `-> Result<Value>`，无返回值的那些返回 `Ok(Value::Null)`，而
+`exec_call::builtin` / `jit_builtin` 若**无条件** `frame.set(dst, v)` ⇒ 「无返回值」与
+「返回 null」在寄存器里**长得一模一样**。这正是 `Value::Null` 多义哨兵中的一义。
 
 | 部件 | 契约 |
 |---|---|
@@ -283,7 +276,7 @@ change `split-null-sentinel-channels` ④（2026-09-27）：**void builtin 不�
 
 🔒 **有门**：`corelib/native_decl_tests.rs::declared_voidness_matches_the_builtin_table`
 对账「stdlib 声明 `void` ⟺ 表项是 `Native::Void`」。`Native::Val`/`Void` 是**手写的第三份数据**，
-漂开的后果不是崩而是**悄悄退回旧行为**（声明 void 却登记成 `Val` + 返回 `Ok(Value::Null)`
+漂开的后果不是崩而是**悄悄退回 `Null` 哨兵行为**（声明 void 却登记成 `Val` + 返回 `Ok(Value::Null)`
 —— 那编得过）。只改「味」编不过（签名不匹配），所以门防的正是这个方向。
 
 ### 6.2 命名约定
@@ -371,7 +364,7 @@ tag 编号已冻结，占位在那里等接。
 
 ### 8.4 manifest 通路
 
-`.z42abi` manifest 曾是 Tier 3 的元数据载体。今天仓里只剩一个 JSON Schema 文件与一个校验它的测试
+`.z42abi` manifest 是 Tier 3 预留的元数据载体。仓里只有一个 JSON Schema 文件与一个校验它的测试
 （`src/runtime/tests/manifest_schema_validation.rs`）——**没有生产者也没有消费者**：宏不产出 manifest，
 编译器不读 manifest。相关诊断码 `E0909`（manifest 读取失败）/ `E0916`（native import 合成失败）有定义、
 零发射点，见[诊断码全表](https://z42-lang.github.io/z42/reference/appendix/error-codes.html)。

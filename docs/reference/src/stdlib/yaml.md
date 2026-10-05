@@ -1,6 +1,5 @@
 # z42.yaml —— YAML 读写
 
-> 对齐：2026-09-17（change `restructure-docs-three-books`）；
 > 包路径 `src/libraries/z42.yaml/`；命名空间 `Std.Yaml`（异常类 `YamlException` 在 `Std`）
 
 把 [YAML 1.2](https://yaml.org/spec/1.2.2/) 文本解析成值树（`YamlValue`），或把值树写成块风格

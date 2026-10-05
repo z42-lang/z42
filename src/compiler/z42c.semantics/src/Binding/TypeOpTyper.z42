@@ -162,7 +162,7 @@ public sealed class TypeOpTyper {
             int cc = 0;
             Z42ClassType cur = ownerCt;
             int hops = 0;
-            while (cur != null && hops < 32) {
+            while (cur != null) {
                 string[] keys = cur.Methods.Keys();
                 TypeOpTyper._sortStr(keys);
                 int i = 0;
@@ -186,7 +186,7 @@ public sealed class TypeOpTyper {
                 }
                 if (!cur.HasBase) { break; }
                 cur = env.Symbols.BaseOf(cur);   // A5：走句柄
-                hops = hops + 1;
+                hops = SymbolTable.NextBaseHop(hops);
             }
 
             if (cc == 0) {
@@ -298,7 +298,7 @@ public sealed class TypeOpTyper {
         int n = 0;
         Z42ClassType cur = ct;
         int hops = 0;
-        while (cur != null && hops < 32) {
+        while (cur != null) {
             string[] keys = cur.Methods.Keys();
             TypeOpTyper._sortStr(keys);
             int i = 0;
@@ -316,7 +316,7 @@ public sealed class TypeOpTyper {
             }
             if (!cur.HasBase) { break; }
             cur = env.Symbols.BaseOf(cur);   // A5：走句柄
-            hops = hops + 1;
+            hops = SymbolTable.NextBaseHop(hops);
         }
         if (n == 0) { return ""; }
         string[] shown = new string[n];

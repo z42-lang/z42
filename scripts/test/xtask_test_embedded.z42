@@ -74,23 +74,29 @@ int _runWasmTesthost(string root) {
 // hands them over. The test-agent is NOT handed over — z42b resolves it from the
 // installed `test` workload (dogfood, PR-4) under the SDK home it derives from
 // Z42_PORTABLE_VM (`<home>/<x>/z42vm` → `<home>`). xtask sets that to the very VM it runs
-// z42b on (build tree ⇒ home = `artifacts/build/runtime`, where CI provisions the agent)
-// unless the caller already set it. 🔴 It used to be *inherited* from the CI shim, which
+// z42b on (build tree ⇒ home = `artifacts/build/runtime`, where `test app` provisions the
+// agent), overriding any inherited value. 🔴 It used to be *inherited* from the CI shim, which
 // exported it globally; since the shim runs xtask on the `.z42` SDK it no longer does
 // (e2bef5d6a, 2026-10-01) and every nightly device job died with
 // "cannot locate SDK home" — so it is set here, per process. `extra` selects the sub-step:
-//   ["--stage-only"]                → assemble deployable only
-//   ["--run", "--project", H, …]    → run on the device (deployable + native runtime already in place)
-// z42b builds no native code and knows no repo path: xtask builds the native runtime into the host
-// project first (_buildDeviceNative) and passes every location explicitly.
+//   ["--stage-only", "--project", H]  → assemble deployable + bed the runtime pack into the host project
+//   ["--run", "--project", H, …]      → run on the device (deployable + native runtime already in place)
+// z42b builds no native code and knows no repo path: xtask hands the runtime pack over (env
+// Z42_RUNTIME_DIR) and passes every location explicitly.
+// xtask 用来跑 z42b 的 VM（release 优先）。z42b 由它推出 SDK 根去找 test agent（_provisionTestAgent 装在那里）。
+string _z42bDeviceVm(string root) {
+    string vm = _builtVm(root, "release");
+    if (!File.Exists(vm)) { vm = _builtVm(root, "debug"); }
+    return vm;
+}
+
 int _z42bDevice(string root, string manifestPath, string rid, string destDir, string[] extra) {
     return _z42bDeviceEnv(root, manifestPath, rid, destDir, extra, new string[0]);
 }
 
 // Same, plus extra environment for the z42b process as flat name,value,name,value… pairs.
 int _z42bDeviceEnv(string root, string manifestPath, string rid, string destDir, string[] extra, string[] envKv) {
-    string vm = _builtVm(root, "release");
-    if (!File.Exists(vm)) { vm = _builtVm(root, "debug"); }
+    string vm = _z42bDeviceVm(root);
     string builderZpkg = _toolchainZpkg(root, _z42bToml());
     if (builderZpkg.Length == 0 || !File.Exists(builderZpkg)) {
         ConsoleError.WriteLine("error: z42b (z42.builder.zpkg) not built; run build toolchain");
@@ -104,9 +110,9 @@ int _z42bDeviceEnv(string root, string manifestPath, string rid, string destDir,
         .Arg("--out").Arg(destDir);
     for (int i = 0; i < extra.Length; i = i + 1) { p = p.Arg(extra[i]); }
     for (int e = 0; e + 1 < envKv.Length; e = e + 2) { p = p.Env(envKv[e], envKv[e + 1]); }
-    if (Environment.GetEnvironmentVariable("Z42_PORTABLE_VM", "").Length == 0) {
-        p = p.Env("Z42_PORTABLE_VM", vm);
-    }
+    // **总是**覆盖：本地经 `.z42/z42` apphost 跑 xtask 时，apphost 会给 xtask 注入
+    // Z42_PORTABLE_VM=<.z42>/bin/z42vm；沿用它，z42b 就去 .z42 下找 test agent，而 agent 装在构建树里。
+    p = p.Env("Z42_PORTABLE_VM", vm);
     ProcessResult res = p.Run();
     if (res.Stdout.Length > 0) { Console.Write(res.Stdout); }
     if (res.Stderr.Length > 0) { ConsoleError.WriteLine(res.Stderr); }

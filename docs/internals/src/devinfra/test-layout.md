@@ -1,6 +1,6 @@
 # 测试用例组织规范
 
-> 对齐：2026-10-03（change `stage-device-host-projects`）｜ 代码：`scripts/test/xtask_test_layout.z42`（本页清单的对账门）、
+> 代码：`scripts/test/xtask_test_layout.z42`（本页清单的对账门）、
 > `scripts/common/xtask_golden.z42`（golden 语料枚举）、`scripts/test/xtask_test_embedded_corpus.z42`（app 语料）、
 > `scripts/common/xtask_layout.z42`（产物路径）、`src/runtime/src/corelib/platform.rs`（运行期能力集）
 > 相关：[怎么跑测试](testing.md) · [GREEN gate](test-gate.md) · [产物目录布局](artifacts-layout.md) · [跨平台测试](../testing/cross-platform.md)
@@ -32,7 +32,7 @@
 | 平台过滤用什么表达 | **能力名**（`// requires-caps:` / `[Skip(feature:)]`）；只有能力表达不了的 OS 差异才用 `[Skip(platform:)]` | 按用例名维护的排除表说不清每条为什么在那里，而且只增不减；按 rid 写死的能力表必然与运行期漂移 |
 | golden 的能力声明用 marker 文件还是源码头注释 | **头注释 `// requires-caps: a, b`** | 与 bench 场景已有的写法、解析函数共用；flat 模式用例不必为此多建一个 sidecar |
 | harness 驱动的工程树放在 `tests/` 的哪里 | **保留子目录 `tests/fixtures/<suite>/`** | 直接放 `tests/<suite>/` 会被 z42b 的单元发现与孤儿源守卫当成「没人认领的源」判红；保留名同 Go 的 `testdata/`，规则一条、不需要名单 |
-| 测试输出放哪 | **所属组件的输出目录 + `/tests/`**（⏳） | 各组件输出目录本就镜像 `src/`，测试输出跟着镜像，不需要另一套路径规则 |
+| 测试输出放哪 | **所属组件的输出目录 + `/tests/`** | 各组件输出目录本就镜像 `src/`，测试输出跟着镜像，不需要另一套路径规则 |
 
 ## 机制
 
@@ -141,7 +141,7 @@ Rust 侧的 `*_tests.rs` 与 `tests/*.rs` 按 cargo 惯例，不在此列。
 
 | 层 | 写法 | 适用 |
 |---|---|---|
-| ① 目录 | 不用写。⏳ app 语料只收 `src/tests/**` 与 `src/libraries/*/tests/`；编译器、工具链的用例天然只在 host 跑 | 所有用例。例如 REPL 的用例放进 `src/toolchain/interactive/repl/tests/` 就自动是 host-only |
+| ① 目录 | 不用写。app 语料只收 `src/tests/**` 的 golden 与库、编译器成员 `tests/` 下的 `[Test]` 单元；工具链组件的用例与各处 `tests/fixtures/` 不进语料，天然只在 host 跑 | 所有用例。例如 REPL 的用例放进 `src/toolchain/interactive/repl/tests/` 就自动是 host-only |
 | ② 能力 | golden：源码头注释 `// requires-caps: threads, socket`；`[Test]`：`[Skip(feature: "threads", reason: "…")]` | 会进 app 语料、但需要某种能力的用例 |
 | ③ 平台名 | `[Skip(platform: "windows", reason: "…")]` | 能力词表表达不了的真实 OS 差异，例如 pty 只在 unix 上有 |
 
@@ -239,14 +239,19 @@ flowchart LR
    Android Studio / Xcode 打开副本调试。Rust crate 不进副本：它们的 `Cargo.toml` 相对依赖 `src/runtime`，
    仍从源码位置编，只把产物输出到副本。wasm 的嵌入 deployable 在副本旁边的 `tests/deploy/`。
 
-⏳ 一条命令完成全部步骤，本地与 CI 相同（目前要按 CI 的顺序分步调 `test platform <p> …` 与 `test embedded --rid …`）：
+一条命令完成全部步骤，本地与 CI 相同（`scripts/test/xtask_test_app.z42`）：
 
 ```bash
-xtask test app <wasm|ios|android|all> [--filter <pat>] [--shard k/n] [--keep-device]
+xtask test app <wasm|ios|android|all> [--filter <pat>] [--shard k/n]
 ```
 
-⏳ 设备生命周期由 z42b 负责：已有在跑的设备就复用、跑完不关；没有就以 headless 方式启动、跑完关掉
-（目前 Android 模拟器由 CI 的 action 或本地的 `test.sh` 启动）。
+它先把 test agent 装进 z42b 会去找的 SDK（构建树的 `artifacts/build/runtime/runtimes/dev/workloads/test/`；xtask 调 z42b
+时总把 `Z42_PORTABLE_VM` 设成跑 z42b 的那个 VM，所以本地经 `.z42/z42` 启动也找得到），再按平台串起
+R1–R7（分片时只在第 1 片）→ 嵌入 bundle → 宿主构建 → 设备运行，最后给一张汇总表。
+
+⏳ 设备生命周期由 z42b 负责：已有在跑的设备就复用、跑完不关；没有就以 headless 方式启动、跑完关掉。
+目前 iOS 模拟器由 `xcodebuild` 自己启动；Android 要求已有在跑的设备，没有就**跳过**并提示（CI 由
+emulator action 提供，Android 的 CI job 也还没改成调 `test app`）。
 本机不具备的平台（无 Xcode、Linux 无 KVM）报**跳过**并说明原因，不报失败；`all` 跑本机支持的全部平台。
 
 ### 7. 怎么跑
@@ -259,7 +264,7 @@ xtask test app <wasm|ios|android|all> [--filter <pat>] [--shard k/n] [--keep-dev
 | 编译器 | `xtask test compiler` |
 | 工具链 | ⏳ `xtask test toolchain [<comp>]` |
 | VM（Rust） | `xtask test runtime` |
-| app（wasm / iOS / Android） | ⏳ `xtask test app <platform>`；现在是 `xtask test embedded --rid <rid>` 后再加 `--run` |
+| app（wasm / iOS / Android） | `xtask test app <platform|all> [--filter <pat>] [--shard k/n]` |
 | 本次改动影响到的 | `xtask test changed` |
 | 用例目录表 | `xtask test list` |
 | 本页规范 | `xtask test layout` |
@@ -299,6 +304,6 @@ xtask test app <wasm|ios|android|all> [--filter <pat>] [--shard k/n] [--keep-dev
 
 按顺序推进，每一步一个 PR；完成后删掉本页对应的 ⏳ 标记：
 
-1. **`xtask test app`**：一条命令的 app 流水线（含 test agent 的准备）、z42b 管理设备生命周期，CI 改调同一条命令；
+1. **设备生命周期**：z42b 接管 Android 模拟器的启动与关闭（复用已在跑的设备），Android 的 CI job 改调 `xtask test app android`；
    bundle 引用用例自己的测试输出、内部按用例 ID 镜像。
 2. **工具链测试套件**：`xtask test toolchain` 与对应的 gate stage。

@@ -1,6 +1,6 @@
 # 本仓命名与目录约定
 
-> 对齐：2026-09-17。面向**改 z42 本身**的人。用户代码的命名规则在参考手册的
+> 面向**改 z42 本身**的人。用户代码的命名规则在参考手册的
 > [命名约定](https://z42-lang.github.io/z42/reference/conventions/naming.html)——那是 SoT，本页只补
 > "这个仓库自己额外遵守什么、以及它是怎么实现的"。
 
@@ -8,7 +8,7 @@
 
 用户看到的是"`int` 和 `Int32` 是同一个类型"。实现上归一在一张表里：
 
-**`src/compiler/z42c.semantics/src/Types/PrimModel.z42`**（change `unify-value-types` Phase 1）——
+**`src/compiler/z42c.semantics/src/Types/PrimModel.z42`**——
 单一「关键字 ↔ `Std.*` 值类型」模型表。它接受**任意拼写**：
 
 ```
@@ -19,17 +19,15 @@
         由短名投影出 IrType / IrTag / 包装类名 / 反射名 …
 ```
 
-设计不变式（byte-identical 门禁）：每个投影与它取代的历史函数**逐条同义**，故消费点切到
+设计不变式（byte-identical 门禁）：每个投影与它取代的旧函数**逐条同义**，故消费点切到
 本表后 codegen 逐字节不变。
 
 **归一覆盖**：整数族 `i8..u64`、`f32`/`f64`、`bool`、`char` 为 **Scalar 值类型**
 （裸 `Value` 承载、算术热路径）；`string` / `object` 为**有专属 IR 标签的内建引用类型**
 （非 Scalar，但 IrTag 保留 `Str`/`Ref` 以维持 byte-identical）。
 
-> ⚠️ **`TypeRegistry.StdlibClassName` 已废弃。** 那是 C# bootstrap 编译器时代的入口，
-> 在 z42 编译器里**零命中**。全仓唯一残留是 `src/runtime/src/metadata/well_known_names.rs:17`
-> 的一句注释（"by the **C#** TypeChecker via `TypeRegistry.StdlibClassName`"）——
-> 注释本身也已过期。看到旧文档提这个名字一律按 `PrimModel` 理解。
+> ⚠️ **`TypeRegistry.StdlibClassName` 不存在。** z42 编译器里**零命中**；
+> 看到旧文档提这个名字一律按 `PrimModel` 理解。
 
 `PrimModel.Canon` 的实现细节（先按 `(长度, 首字符)` 分桶再比较，而不是 24 次顺序 `==`）是
 热路径优化：绝大多数入参是用户类名，分桶后一次字符串比较都不做，最坏 3 次。
@@ -110,9 +108,8 @@ public class ModeFlags {
 符号带来的冷启动 stale-cache 问题，与 `DiagnosticCodes` 早期那批"语义层用字面量发码"是同一
 手法。改这些数值时要连同消费点的字面量一起改。
 
-> ⚠️ 这个手法是**过渡形态，不是终态**：诊断码那边的字面量已于 2026-09-23
-> （`migrate-diag-literals-to-constants`）在常量随 nightly 进种子后切回常量引用，只留下最新一轮
-> 还没进种子的两个。这里的位掩码同理——常量进种子后就该切回去，否则"改数值要连同字面量一起改"
+> ⚠️ 这个手法是**过渡形态，不是终态**：诊断码那边的字面量在常量随 nightly 进种子后就切回常量引用，只留下最新一轮
+> 还没进种子的。这里的位掩码同理——常量进种子后就该切回去，否则"改数值要连同字面量一起改"
 > 这条约定迟早会被漏掉，而且没有任何东西盯着它（诊断码那边至少有 `xtask test diagcodes` 第 ④ 条）。
 
 `[Flags]` attribute 落地后，这类容器可以正式升级为 enum。

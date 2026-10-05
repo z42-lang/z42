@@ -1,7 +1,5 @@
 # 实例构造器与初始化子句
 
-> 对齐日期：2026-09-15 · change `add-implicit-base-ctor-call`（前序 `fix-ctor-init-silent-bugs`）
-
 ```z42
 class Shape {
     public string name;
@@ -111,15 +109,3 @@ class Token {
 - `new C(..)` 与 `: base(..)` / `: this(..)` 的构造器选择只看实例构造器；
 - 实参个数校验（E0426）只看实例构造器——只有 `static C()` 与 `C(int)` 时 `new C()` 报 E0426；
 - `where T : new()` 只看实例构造器——只写了静态构造器的类等同于「没有显式构造器」，满足约束。
-
-## 历史
-
-2026-09-14 之前有两个静默错误（不报错、字段停在默认值）：零实参的 `: base()` / `: this()` 被整条丢弃；
-同一个类里的静态构造器被当作无参实例构造器选中，导致 `new C()` 不执行实例构造器，并让 E0426 与
-`new()` 约束检查把静态构造器算作「可零实参调用」。回归用例：`src/tests/classes/ctor_init_clauses.z42`、
-`src/tests/classes/static_ctor_with_instance_ctor.z42`。
-
-2026-09-15 之前 z42 **不自动调用基类构造器**，而「无显式构造器的类」只内联**同一编译单元**里祖先的字段初始化器：
-同包跨文件、跨包的基类初始化器静默丢失；`class D : W { }` 连基类构造器也不执行；派生类也无法继承基类构造器。
-回归用例：`src/tests/classes/implicit_base_ctor.z42`、`src/tests/classes/inherited_ctors.z42`、
-`src/compiler/z42c.pipeline/tests/fixtures/cross-zpkg/inherited_ctor_cross_pkg/`。

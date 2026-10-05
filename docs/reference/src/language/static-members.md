@@ -1,7 +1,5 @@
 # 静态成员的名字解析
 
-> 对齐日期：2026-09-14 · change `add-static-properties`
-
 静态字段、`const`、静态属性有两种写法，语义对标 C#：
 
 ```z42
@@ -38,19 +36,13 @@ lambda 里的裸名静态成员**不是捕获**：读到的是调用时的当前
 - 嵌套类里用裸名引用**外层类**的静态成员——写 `Outer.x`。
 - 静态字段初始化器里用裸名引用同类其它静态成员（`static int b = a + 1;`）——写 `C.a`。
 
-## 历史：为什么这曾经是静默错误
-
-`add-static-properties` 之前，体绑定环境把 `ct.Fields` **全部**（含 static / const）定义成变量，发射端也把它们
-放进「裸字段表」⇒ **实例方法**里的裸名静态字段 / const 被发成 `field_get this.x`，**静默读回 Null**；
-**静态方法**里又什么都没定义 ⇒ E0401。现有用例全写成 `Counter.count`，所以长期没暴露。
-
 ## 实现
 
-- 体绑定环境只 `Define` **非 static** 字段（`DeclBinder._defineInstanceFields`，原先 6 处手写循环收敛为一处）；
+- 体绑定环境只 `Define` **非 static** 字段（`DeclBinder._defineInstanceFields`）；
   `FunctionEmitter` 的裸字段表同样只收非 static。
 - `ExprTyper._bindIdent` 在 `LookupVar` 落空后调 `MemberResolver.BindBareStatic`，它与限定名 `C.x` 走
   **同一个** `BindStaticMember` 判据，产出 `BoundStaticGet`——之后读、写、`++`、复合赋值全部复用 `C.x` 的既有路径。
-- `C.x += v` 此前报 `E0401 undefined: C`：`AssignTyper` 为 event `+=`/`-=` 做的拦截先把接收者当表达式绑定，
-  `=` 分支早有「接收者是类名就跳过」的判定、`+=` 分支漏了；两处现共用 `_isStaticRecv`。
+- `C.x += v` 的接收者是类名：`AssignTyper` 为 event `+=`/`-=` 做的拦截不能先把接收者当表达式绑定，
+  所以 `=` 与 `+=` 两个分支共用「接收者是类名就跳过」的判定 `_isStaticRecv`。
 
 静态属性的访问器规则见[属性与索引器](properties-indexers.md)。

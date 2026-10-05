@@ -1,14 +1,13 @@
 # 增量 major：SATB 屏障与有界停顿
 
-> **相关**: [GC 调参与 safepoint](gc-tuning.md) · [GC TLAB](gc-tlab.md) ｜ **对齐**: 2026-09-17
-> change `add-incremental-major-gc`（M2a：SATB 屏障；M2b：切片调度；M2c 验收完成后补全验收数据）
+> **相关**: [GC 调参与 safepoint](gc-tuning.md) · [GC TLAB](gc-tlab.md)
 
 ## 为什么
 
 分代 GC 的**最大停顿全部来自 major**，而 major 的每个阶段都随活堆线性增长：`13_gc_large_heap` 上一次 major
 约 60~70 ms（full mark 40 + sweep 20），活堆 ×3 时最大停顿 392 ms。目标是**最大停顿 ≤ 10 ms 且与堆大小无关**，
 路线是把 major 拆成有界的 STW 切片，切片之间 mutator 照常运行。这就要求标记在 mutator 改图的同时仍然正确 ——
-本页先讲保证正确性的屏障（M2a），再讲切片调度（M2b）。
+本页先讲保证正确性的屏障，再讲切片调度。
 
 ## 标记位：minor 位 + major epoch
 
@@ -63,8 +62,8 @@ close_major_marking ── loop { retire 自己；取 satb_queue；标记入 mar
 ```
 
 `open_major_cycle`（开 epoch + `begin_marking`）与 `close_major_marking` 接在 STW 周期和并发周期（Phase 1 / Phase 5）上。
-在一次性 STW 周期里屏障实际不起作用（标记期没有 mutator 在写），但并发模式的 Phase 3 有 —— **M2a 起并发模式的
-上述漏洞已被堵上**。
+在一次性 STW 周期里屏障实际不起作用（标记期没有 mutator 在写），但并发模式的 Phase 3 有 —— **并发模式的
+上述漏洞由屏障堵上**。
 
 ### 弱 / 软引用读取
 
@@ -79,7 +78,7 @@ close_major_marking ── loop { retire 自己；取 satb_queue；标记入 mar
 真正被这条规则保住的是灰条目**还没被追到的子节点**——条目本身早有 `keep_major` 兜底（见「切片调度」），
 而「灰」的定义就是*已标记、尚未追踪*，所以只经由它可达的子节点仍是白的。
 
-**老条目不入根**（`trim-minor-cycle-roots`, 2026-09-18）。minor 根本不回收老年代条目，
+**老条目不入根**。minor 根本不回收老年代条目，
 把它们当根唯一的效果是多追一层子节点，而那一层里唯一有意义的（年轻子节点）卡表已经覆盖。
 对任意一个老灰条目 X，二者必居其一：
 
@@ -95,7 +94,7 @@ close_major_marking ── loop { retire 自己；取 satb_queue；标记入 mar
 1. **minor 永不回收「按年龄算已老」的条目**。`Region::sweep_young_in_one_pass` 只走 `young_list`，
    而自适应晋升只在「mark 已用旧线跑完、紧接着的升龄趟会把新线判老的全部排空」那个窗口里降线
    （`Region::set_promotion_age`）。`VarRegion::sweep_young` 另有**显式**跳过
-   （`fix-old-block-left-in-young-list`——`age_backing_with_owner` 会在不摘表的情况下抬高 backing 年龄）。
+   （`age_backing_with_owner` 会在不摘表的情况下抬高 backing 年龄）。
 2. **`region_var` 没有卡表**（`maybe_mark_cross_gen_card` 的 `_ => {}` 臂），所以上面那条论证对 var 条目
    要逐个变体核查：`Str` / `FuncRef` 是叶子；闭包的 `env` 在构造时固定、此后与闭包同步升龄
    （每次够得着闭包的 minor 都会标记 env 表头）⇒ 老闭包的 env 必老，而 env 是**数组**、有卡；
@@ -104,7 +103,7 @@ close_major_marking ── loop { retire 自己；取 satb_queue；标记入 mar
 
 队列本身原封不动——标记器仍然拿到它记录的每一条，SATB 的快照承诺不受影响；变的只是**minor 播种什么**。
 
-**这笔账有多大 —— 比想象的小得多，别再来挖第二遍**（2026-09-18 实测）。
+**这笔账有多大 —— 比想象的小得多，别再来挖第二遍**（实测）。
 账面上是唬人的：`13_gc_large_heap --large` 每次 minor 拷 **118 690** 个老条目，
 78 次 minor 累计 683 092 条灰根里 **68.3%** 是老的。但**去掉它买不到停顿**：
 A/B（同机交错 ×3）总停顿 −1.4%，最大停顿在逐轮离散度之内，墙钟 / RSS 持平；
@@ -124,7 +123,7 @@ A/B（同机交错 ×3）总停顿 −1.4%，最大停顿在逐轮离散度之�
 **2 088 956** 个老条目）。灰队列是它的零头。要继续压 minor 停顿，砍卡表或做增量 minor，
 别再回来动根集。
 
-## 切片调度（M2b）
+## 切片调度
 
 ### 周期的形状
 
@@ -151,7 +150,7 @@ minor 把灰队列与 SATB 记录当根。状态机在 `gc/arc_heap/incremental.
 
 | 路径 | 不处理会怎样 | 处理 |
 |---|---|---|
-| 弱 / 软引用读、`iterate_live_objects` | 把马上要被回收的句柄放进寄存器 | `admit_resurrected`：Sweeping 期未标记 ⇒ 拒绝（返回 null / 跳过）；Marking 期照 M2a 染色 |
+| 弱 / 软引用读、`iterate_live_objects` | 把马上要被回收的句柄放进寄存器 | `admit_resurrected`：Sweeping 期未标记 ⇒ 拒绝（返回 null / 跳过）；Marking 期照 SATB 染色 |
 | minor 的脏卡播种 | 老的死对象 D 在脏卡里，D.f 指向已回收并被复用的槽 ⇒ minor 追进别人的对象（`use-after-finalize`） | `seed_from_dirty_cards`：Sweeping 期跳过未标记条目 |
 | debug 校验器 | 周期中灰队列非空、老 epoch 合法存在 | 周期打开时只做 region 结构校验 |
 
@@ -189,7 +188,7 @@ minor 第一次访问保留新对象并清掉 minor 位，第二次访问判它�
 
 ### 代价落在 chunk 碎片上，不是浮动垃圾
 
-`13_gc_large_heap` 上 M2b 的峰值 RSS 比一次性 major 高 30~43%，但**GC 计账的峰值 `used` 一样**（339M vs 355M）。
+`13_gc_large_heap` 上切片化 major 的峰值 RSS 比一次性 major 高 30~43%，但**GC 计账的峰值 `used` 一样**（339M vs 355M）。
 差在 **chunk 数**：切片与周期期间的保留让幸存者散布在更多 chunk 里，而 chunk 只有全死才回池、TLAB 又只整块取、
 不复用块内空洞。⇒ 这笔账属于「空洞复用」那条线，不是切片本身的结构代价；两个便宜旋钮（收紧 pacer 目标、
 把保留缩到只覆盖标记期）各能拿回 8~10%，但都不足以到 ≤5%，且后者会削弱刚立起来的正确性保证。
@@ -215,19 +214,14 @@ minor 第一次访问保留新对象并清掉 minor 位，第二次访问判它�
 
 ## 切片化之后：剩下的长停顿全是 minor
 
-major 的停顿与堆大小脱钩之后，实测剩余的最大停顿**全部来自 minor**，于是
-[`add-pause-budget-nursery`](gc-tuning.md#按停顿预算自适应-nursery) 接着把 nursery 从常量改成
-按实测代价反推的量。那一轮实测也反过来暴露了本机制留下的两个账，都记在这里：
+major 的停顿与堆大小脱钩之后，剩余的最大停顿**全部来自 minor**，所以 nursery 按
+[停顿预算自适应](gc-tuning.md#按停顿预算自适应-nursery)。本机制还留下一笔未解的账：
 
-- **开着的周期会把 grey 队列变成每次 minor 的根**（M2a 的 `queue.extend(mark_queue)`）。
-  实测 `13_gc_large_heap --large` 上是 **108 142** 个老条目，*每次* minor 重新遍历一遍
-  （`Z42_GC_PHASES` 的 `minor roots` 行可见）。这些老条目的年轻子节点**卡表已经覆盖** ——
-  minor 的 BFS 本身就靠这条不入队老 children —— 所以这份工作很可能是白做的。
 - **清扫切片会把下一次 minor 推远**。`rearm_auto_collect` 以*当前* `used` 为锚，而切片释放的字节
   也走 `sub_used_bytes` 落到那里，于是每个切片都把 minor 闸门往后推至多一个闸门。实测
   `z42c.semantics` 打出 `trip minor gate 18.1M grown 30.2M` —— **超调 67%**。
 
-两条都需要各自的 change 与设计评审（改锚点的原型把 semantics 打到 11.5 ms，但让
+这条需要单独的设计评审（改锚点的原型把 semantics 打到 11.5 ms，但让
 `13_gc_large_heap --large` 从 22.8 ms 崩到 131.6 ms）。
 
 ## 代价
@@ -246,7 +240,7 @@ major 的停顿与堆大小脱钩之后，实测剩余的最大停顿**全部来
 - 标记期弱读：读了存活 / 不读被回收
 - minor 把 SATB 记录当根：有记录存活 / 无记录被回收
 
-M2b（同一文件，切片用工作量预算手工驱动，交错完全确定）：
+切片调度（同一文件，切片用工作量预算手工驱动，交错完全确定）：
 
 - 周期跨多个切片、回收垃圾、保留根链
 - 真实切片之间的「字段读进寄存器再清字段」：开屏障存活 / 关屏障丢失

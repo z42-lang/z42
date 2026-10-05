@@ -1,7 +1,5 @@
 # static 类
 
-> 对齐：2026-09-01（change `fix-static-class-instance-members`）
-
 `static class` 声明一个**只容纳静态成员**的类——它不能被实例化、不持有实例状态。语义与 C# 一致，
 用途是把一组无状态的相关函数 / 常量组织到一个命名容器里（stdlib 的 `Std.Math`、`Std.Convert`、
 `Std.Path`，以及 z42c 内部「无 enum → static class + int 常量」的 `TokenKind` / `SyntaxKind` 皆如此）。
@@ -53,11 +51,9 @@ static class Also : IComparable {   // ✗ E0451: static class `Also` cannot imp
 2. 类级：`HasBase` 或 `InterfaceCount > 0` 各报一条 E0451；
 3. 成员级：逐个成员，凡实例方法 / 字段（非 `static`·非 `const`）/ 属性 / 构造器 / 索引器各报一条。
 
-> **历史坑（本 change 的动机）**：`static` 修饰在早期 z42c 里被 `StubCollector` **完全忽略**（只读
-> `sealed` / `abstract` / `struct`），所以「`static class` + 实例成员」这种矛盾声明能静默通过。
-> 标准库的 `Std.String`（primitive `string` 的包装类，`s.Length` / `s.Contains(...)` 皆为实例调用、
-> 且实现 `IComparable` / `IEquatable`）就曾被误标 `static class`——它本该是 `sealed class`（对齐 C#
-> `System.String`）。本 change 同时修正了 `Std.String` 并补上 E0451 强制，杜绝此类矛盾再次出现。
+> **为什么要强制**：若 `static` 修饰不被检查，「`static class` + 实例成员」这种矛盾声明会静默通过。
+> `Std.String`（primitive `string` 的包装类，`s.Length` / `s.Contains(...)` 皆为实例调用、
+> 且实现 `IComparable` / `IEquatable`）是 `sealed class` 而非 `static class`（对齐 C# `System.String`）。
 
 ## 与 sealed 的区别
 

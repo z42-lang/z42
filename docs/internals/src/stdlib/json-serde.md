@@ -1,6 +1,6 @@
 # JSON serde 的反射实现
 
-> 对齐：2026-09-17 ｜ 代码：`src/libraries/z42.json/src/{JsonSerializer,JsonBinder,JsonMember,JsonReflect}.z42`、
+> 代码：`src/libraries/z42.json/src/{JsonSerializer,JsonBinder,JsonMember,JsonReflect}.z42`、
 > `src/runtime/src/corelib/reflection/attributes.rs`
 >
 > 公开 API（`Serialize` / `Deserialize<T>` / `[JsonProperty]` / `[JsonIgnore]` / 类型覆盖）见参考手册
@@ -120,7 +120,7 @@ serde 用到的反射能力分两批：
 - **`Std.Reflection.PropertyInfo`**：`GetCustomAttributes()` / `GetAttribute(Type)`（镜像 `FieldInfo`）。
 
 **仍留在 `JsonReflect.z42` 的集合辅助**——它们封装的都是已公开的反射 API
-（`GetGenericArguments` / `Activator` / `MethodInfo.Invoke` / `FieldInfo.GetValue`），本库**不再自带
+（`GetGenericArguments` / `Activator` / `MethodInfo.Invoke` / `FieldInfo.GetValue`），本库**不自带
 任何 extern**：
 
 | 辅助 | 实现 |

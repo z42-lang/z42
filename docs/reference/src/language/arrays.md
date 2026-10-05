@@ -1,8 +1,5 @@
 # 数组
 
-> 对齐：2026-08-07（change `add-collection-literals`）；`Std.Array` 基类 2026-05-07
-> （change `add-array-base-class`）
-
 `T[]` 是**一维动态数组**，**引用类型**（堆分配，赋值传引用）。方括号 `[]` 是数组的专属字面量
 语法；花括号 `{}` 归 List / Dictionary，见 [集合字面量](collection-literals.md)。
 
@@ -128,12 +125,7 @@ string[] src = new string[1];
 Array.CopyRange(src, 0, dst, 0, 1);   // ❌ 抛；dst 不被改动
 ```
 
-> 🔴 **历史**（fix-silent-array-elem-zero，2026-09-27 修正）：这两个入口此前**静默把目标元素
-> 存成 0**（`0` / `'\0'` / `false` / `0.0`），不抛、报成功。`int[0]` 原值 9 被 `SetValue(null, 0)`
-> 变成 **0**；`double[]` 收一个整数——一个在 C# 里合法的写法——也被静默变成 0。
-> 而 `0` 是程序**完全无法与合法写入区分**的答案。
->
-> ⚠️ 只在 **release** 如此：debug 构建一直会在那里 panic，所以本地/CI 的 debug 语料看不见它。
+> 不静默写入 0：`0` 是程序**完全无法与合法写入区分**的答案，所以类型不符一律抛。
 >
 > **严格而不拓宽是刻意选择**：判据无歧义，且严格版随时可以放宽、反过来不行。
 

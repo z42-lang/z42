@@ -1578,49 +1578,15 @@ jobs:
           cd artifacts/build/toolchain/workload/wasm/tests/host/tests
           npm install --no-audit --no-fund
           npx playwright install --with-deps chromium
-      # tier2-shard-full-coverage: R1–R7 is corpus-independent → run it only on
-      # shard 1 (not N× redundantly). Its junit is published/uploaded below, also
-      # shard-1-only, so the artifact name stays unique.
-      - name: test platform wasm (build + assets + Playwright R1–R7)
-        if: ${{ matrix.shard == 1 }}
+      # test-layout §6: the whole device pipeline is ONE command, same as local —
+      # provision the test agent into z42b's SDK home → R1–R7 (shard 1 only: it is
+      # corpus-independent) → this shard's embedded bundle → host build in the staged
+      # copy → Playwright in-browser run. `xtask test app` owns the step order.
+      - name: xtask test app wasm (shard ${{ matrix.shard }}/3)
         shell: bash
         run: |
           set -euo pipefail
-          xtask test platform wasm
-      # z42b-device-run PR-4 (dogfood): z42b resolves the on-device test-agent from
-      # the installed `test` workload in ITS OWN SDK home (Z42_PORTABLE_VM →
-      # artifacts/build/runtime), not an in-tree --agent. Stage the agent there at
-      # compile time: build the workload payload from current source and drop its
-      # z42.testagent.zpkg into <home>/runtimes/<ver>/workloads/test/ — the exact
-      # path `z42 workload install test` would populate. z42b finds it → no launcher
-      # spawn / archive download needed in CI (design D4; the install-if-missing
-      # branch covers real installed SDKs / local dev).
-      - name: Provision test workload into z42b's SDK (dogfood)
-        shell: bash
-        run: |
-          set -euo pipefail
-          xtask package workload test dev
-          dest="$PWD/artifacts/build/runtime/runtimes/dev/workloads/test"
-          mkdir -p "$dest"
-          cp artifacts/packages/z42-workload-dev-test*/z42.testagent.zpkg "$dest/"
-      # add-wasm-testhost G6: same runner + primed Playwright — build the embedded
-      # deployable (agent+bundle+libs → artifacts/build/toolchain/workload/wasm/tests/deploy/) and run the
-      # bundled corpus in-browser (distinct config rooted at that dir).
-      # tier2-shard-full-coverage: --shard k/N → this shard's full-coverage slice.
-      - name: test embedded --rid browser-wasm (build deployable, shard ${{ matrix.shard }}/3)
-        shell: bash
-        run: |
-          set -euo pipefail
-          xtask test embedded --rid browser-wasm --shard ${{ matrix.shard }}/3
-      # z42b-device-run PR-1: the embedded RUN is z42b's wasm driver (spawns the
-      # playwright embedded config in the tests dir). node is on PATH here
-      # (actions/setup-node) → --node-bin empty. Report回收 = playwright exit code
-      # (run.js still self-asserts window.__report; z42b relays the verdict).
-      - name: Playwright — embedded corpus runs green in-browser (via z42b --run)
-        shell: bash
-        run: |
-          set -euo pipefail
-          xtask test embedded --rid browser-wasm --run
+          xtask test app wasm --shard ${{ matrix.shard }}/3
       # R1–R7 junit exists only on shard 1 (Playwright embedded reports via `list`,
       # not junit — its result is the step exit code above).
       - name: Publish wasm test report (GitHub Check)
@@ -1673,31 +1639,15 @@ jobs:
         with:
           cache-key: tier2-ios
           rust-targets: aarch64-apple-ios,aarch64-apple-ios-sim,aarch64-apple-darwin
-      - name: test platform ios + embedded (shard ${{ matrix.shard }}/3, one simulator run)
+      # test-layout §6: one command, same as local — provision the test agent → this
+      # shard's embedded slice + xcframework (into the staged host copy) → R1–R7
+      # fixtures → ONE `xcodebuild test` simulator run for both Z42VMTests (R1–R7)
+      # and Z42EmbeddedTests; z42b resolves the sim UDID and writes the JUnit below.
+      - name: xtask test app ios (shard ${{ matrix.shard }}/3, one simulator run)
         shell: bash
         run: |
           set -euo pipefail
-          run() { xtask "$@"; }
-          # z42b-device-run PR-4 (dogfood): stage the test-agent into z42b's own SDK
-          # home workload dir (<home>/runtimes/<ver>/workloads/test/, where
-          # `z42 workload install test` puts it) so z42b resolves it from there — no
-          # in-tree --agent, no launcher spawn / archive download in CI (design D4).
-          run package workload test dev
-          dest="$PWD/artifacts/build/runtime/runtimes/dev/workloads/test"
-          mkdir -p "$dest"
-          cp artifacts/packages/z42-workload-dev-test*/z42.testagent.zpkg "$dest/"
-          # add-wasm-testhost G6 + tier2-mobile-coverage: fold this shard's embedded
-          # slice into the SAME xcodebuild/simulator run as R1–R7 (no 2nd sim boot).
-          # z42b-device-run PR-2: iOS native build in xtask, stage + run in z42b's ios driver.
-          #  1) embedded --rid iossim-arm64 → xcframework (sim+host) built by xtask, then
-          #     z42b --stage-only: this shard's Resources/embedded slice (Z42EmbeddedTests corpus).
-          #  2) platform ios assets → R1–R7 fixtures + stdlib into Resources.
-          #  3) embedded --rid iossim-arm64 --run → z42b --run: ONE `xcodebuild test
-          #     -scheme Z42VM` runs both Z42VMTests (R1–R7) and Z42EmbeddedTests,
-          #     resolves the sim UDID, and writes the JUnit below.
-          run test embedded --rid iossim-arm64 --shard ${{ matrix.shard }}/3
-          run test platform ios assets
-          run test embedded --rid iossim-arm64 --run
+          xtask test app ios --shard ${{ matrix.shard }}/3
       - name: Publish iOS test report (GitHub Check)
         uses: dorny/test-reporter@v3
         if: always()

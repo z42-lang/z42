@@ -1,6 +1,6 @@
 # stdlib 接口面设计准则
 
-> 对齐：2026-09-17 ｜ 代码：`src/libraries/z42.io/src/Stream.z42`、`BinaryReader.z42`、
+> 代码：`src/libraries/z42.io/src/Stream.z42`、`BinaryReader.z42`、
 > `src/libraries/z42.json/src/JsonValue.z42`
 >
 > 与[实现分层](architecture.md)正交：那管「实现住哪一层」，这管「对外暴露多少接口、怎么暴露」。

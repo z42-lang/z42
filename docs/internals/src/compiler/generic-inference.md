@@ -1,38 +1,35 @@
 # 泛型类型实参推断
 
-> **页型**: 机制页 ｜ **状态**: ✅ 已实现 ｜ **代码**: `src/compiler/z42c.semantics/src/Types/TypeArgInference.z42`
+> **页型**: 机制页 ｜ **代码**: `src/compiler/z42c.semantics/src/Types/TypeArgInference.z42`
 > （`Infer` / `InferPreBinding` / `_unify` / `_resolvedForm`）· `MethodTypeArgSubst.z42` · `MethodTypeParamUse.z42`
-> **相关**: [源代码编译流程](source-compile.md) · [架构总览](architecture.md) ｜ **对齐**: 2026-09-17
+> **相关**: [源代码编译流程](source-compile.md) · [架构总览](architecture.md)
 >
 > 用户视角的「`where` 能写什么、报什么错」在参考手册的「泛型约束」页；本页只回答
 > **省略尖括号时，编译器怎么把型参绑出来**，以及为此定下的三条不变式。
->
-> 本页抽自原 `docs/book/src/language/generics.md`（三书重构批 3b）——那篇 1521 行里
-> 这三节是唯一「近期、准确、纯实现」的内容，其余或与参考手册重复、或已被实现推翻。
 
-## 类型实参推断（2026-09-08 `add-generic-type-arg-inference`）
+## 类型实参推断
 
 省略尖括号的泛型方法调用 `IdOf(7)` 会从**已绑定的实参类型**结构化 unify 出方法级型参绑定
 （裸型参 / 数组元素 / 实例化类型实参 / func 形参·返回四个层面递归）。推断成功后：
 
 - 形参位按绑定代换 → 实参走与赋值 / `return` / var-decl **同一条**可转检查门；
-- 复用 `ConstraintChecker.CheckMethod` 校验 `where` 约束（此前只有显式写类型实参才校验）。
+- 复用 `ConstraintChecker.CheckMethod` 校验 `where` 约束。
 
 **保守收口四条**（爆炸半径全部来自这里）：型参未全绑定 → 整体失败；同一型参绑到不同类型 →
 见下「数值取最佳公共类型」；实参类型是 `Unknown`/`Error`
 （含 lambda、target-typed new 的延迟位）→ 跳过该位；`params` 尾位整段跳过。
-**失败 = 完全按改动前行为、不发任何诊断。**
+**失败 = 不发任何诊断，按未推断处理。**
 
-**数值冲突取最佳公共类型**（2026-09-10 `generic-inference-best-common-type`）：同一型参在多个形参位
+**数值冲突取最佳公共类型**：同一型参在多个形参位
 绑到不同类型时，若**双方都是数值**，取算术拓宽公共类型（`double > float > long > int`，复用二元
-`int + long` 的同一张 `TypeFacts.ArithmeticResult` 表）而非整体失败 —— `Max(1, 2L)` 现在推出 `T = long`
+`int + long` 的同一张 `TypeFacts.ArithmeticResult` 表）而非整体失败 —— `Max(1, 2L)` 推出 `T = long`
 并真正校验 where / 实参（`long` 归一同 `_resolvedForm`，与显式 `<long>` 同形）；3+ 参的折叠与顺序无关
 （数值拓宽是格上的 max）。**边界**：无数值公共类型的冲突（`string` + `int`、`int` + `uint` 等）仍按
-上面「整体失败、静默」处理 —— 把这类冲突改成响亮的 E0402 是独立的爆炸半径问题，留待单独 change。
+上面「整体失败、静默」处理 —— 把这类冲突改成响亮的 E0402 是独立的爆炸半径问题，暂不做。
 **仍不回灌 `MethodTypeArgs`**（见下）⇒ 发射零改动、无格式 bump。
 
-**不变式：推断出的类型实参必须与显式写出的同形**（2026-09-09 `fix-inferred-type-arg-not-resolved`）。
-内建基元在 z42c 里**两种拼写并存**（`unify-value-types` 阶段 3 删掉 `Z42PrimType` 后的遗留）：
+**不变式：推断出的类型实参必须与显式写出的同形**。
+内建基元在 z42c 里**两种拼写并存**：
 
 | 来源 | 类型对象 | `Name()` |
 |---|---|---|
@@ -47,7 +44,7 @@
 会漏掉 `where T : IComparable` 下的 `Max("a", "b")`）。归一放出口而不是放各判定函数：
 后者只是众多消费方之一，逐个打补丁等于承认「型参实参有两种形态」。
 
-## 显式类型实参：**先代换签名，再绑实参**（2026-09-10 `fix-explicit-type-arg-not-substituted`）
+## 显式类型实参：**先代换签名，再绑实参**
 
 写出 `Foo<int>(...)` 时，被调方的签名在**绑定实参之前**就按类型实参代换掉——
 `Array.Sort<int>(xs, (a, b) => b - a)` 的第二个形参目标类型是 `Comparison<int>` 而不是
@@ -62,13 +59,11 @@
 实现：`MemberResolver._substForExplicitTypeArgs` 在 7 个调用形态（自由函数 / 实例 / 接口 /
 实例化 / 裸类名静态 / prim wrapper 静态 / ns 限定静态）各接一次，产出一个换了签名的
 `MethodSymbol` 浅拷贝（`MethodSymbol.WithSignature`，`RegKey` 原样保留 ⇒ 发射目标不变）。
-按名代换需要方法级型参**名**，故 `MethodSymbol` 新增 `TypeParamNames`（本地取
-`Decl.TypeParams.Names`，跨包取 `ExportedMethodZ.TypeParams`——那些名字早就读进来了，
-只是此前只当解析上下文用、没留在符号上）。
+按名代换需要方法级型参**名**，故 `MethodSymbol` 带 `TypeParamNames`（本地取
+`Decl.TypeParams.Names`，跨包取 `ExportedMethodZ.TypeParams`）。
 
-> 🔴 **`_substByName` 的 `Z42FuncType` 分支是这次补的**。此前它只递归数组元素与实例化类型实参，
-> 而 `TypeArgInference._unify` 的注释把这个不对称记成「这不会出错（只是少换一次）」——**那句话是错的**：
-> func 位正是 lambda 形参类型的唯一来源，少换一次就是上面那 18 条。
+> 🔴 **`_substByName` 必须递归 `Z42FuncType`**，不能只递归数组元素与实例化类型实参：
+> 「func 位少换一次不会出错」是错的——func 位正是 lambda 形参类型的唯一来源，少换一次就是上面那 18 条 E0402。
 
 **与推断路径的分工**（两条不变式并存，别混）：
 
@@ -90,7 +85,7 @@
 真消费型参（`typeof(T)` / `new T()` / `default(T)` / `new T[n]`，或把 `T` **转发**给嵌套泛型调用）
 时，省略尖括号直接报错、要求显式写出——把静默错值换成编译错误。
 
-## lambda 实参驱动推断（2026-09-11 `generic-inference-lambda-args`）
+## lambda 实参驱动推断
 
 省略尖括号时，**lambda 实参也参与型参推断**——这是让 `Map(nums, n => n * n)` /
 `Filter(nums, n => n > 4)` / `Array.Sort(xs, (a, b) => b - a)` 这类**无标注 lambda** 能编、能跑的关键。
@@ -104,8 +99,8 @@
 推断出的型参**只代换 Func 形参位**（`MethodTypeArgSubst.SubstituteFuncParams`），据此在**绑定 lambda
 之前**把目标从 `Func<T,…>` 换成 `Func<int,…>`，于是**无标注 lambda 形参拿到具体类型**、体内运算定型、
 发射具体 opcode。**非-Func 形参位保持原裸型参**——非-lambda 实参的绑定 / 装箱 / params 展开 / 默认值
-逐字节不变（`Array.Copy<T>` 等无 Func 位的隐式泛型调用零触碰）。这也解除了一个既存缺陷：此前 lambda
-位的裸 `T` 会与其它实参推出的绑定**冲突**、令整条推断失败（连 `where` 都不校验）。
+逐字节不变（`Array.Copy<T>` 等无 Func 位的隐式泛型调用零触碰）。这也避免了 lambda
+位的裸 `T` 与其它实参推出的绑定**冲突**、令整条推断失败（连 `where` 都不校验）。
 
 **两条边界**：
 
@@ -120,10 +115,10 @@
 > 本推断路径**只**放开「lambda 重绑」这一条通道，其余对非-lambda 位一律关闭 ⇒ 对自举 / stdlib 构建
 > 零字节漂移（build 源里没有「省略 `<>` + lambda」形态；不动点 3/3 gen1==gen2 兜底）。
 
-## 类级型参的载体：沿基链定位**声明类**（2026-09-26）
+## 类级型参的载体：沿基链定位**声明类**
 
-类级 `typeof(T)` / `default(T)` 的载体此前只有一个：**受者自己**的 `type_args`。
-于是从泛型基继承来的型参取不到 —— `class Derived : Box<int> {}` 的实例自己没有实参：
+类级 `typeof(T)` / `default(T)` 若只以**受者自己**的 `type_args` 为载体，
+从泛型基继承来的型参就取不到 —— `class Derived : Box<int> {}` 的实例自己没有实参：
 
 ```z42
 class Box<T> { string Tof() { return typeof(T).FullName; } T Def() { return default(T); } }
@@ -132,8 +127,8 @@ new Derived().Tof()   // 修前 → 占位名 "T"（应为 Std.Int32）
 new Derived().Def()   // 修前 → null（应为 0）
 ```
 
-⭐ **实参其实一直都在 —— 在基的名字里**，只是此前被剥掉了。#831（P1）让**闭合**泛型基保留
-实参（`Derived` 的 base 现在是 `Demo.Box<int>`）之后，这条路才通。
+⭐ **实参在基的名字里**：**闭合**泛型基保留
+实参（`Derived` 的 base 是 `Demo.Box<int>`），这条路才通。
 
 **两个载体，顺序是关键：**
 
@@ -144,8 +139,7 @@ new Derived().Def()   // 修前 → null（应为 0）
 
 🔴 **②绝不能在「声明类是某个基」时生效**：`class DG<U> : Box<int>` 的受者
 `type_args = [U 的实参]`，按下标 0 读回答的是 `DG` 的型参，而问的是 `Box` 的
-—— **看起来对的错类型**，比占位名更糟。实测 `DG<string>` 曾把 `Box` 的 `T` 报成 `Std.String`
-（这条是新用例抓出来的，不是设计时想到的）。
+—— **看起来对的错类型**，比占位名更糟。实测会把 `DG<string>` 里 `Box` 的 `T` 报成 `Std.String`。
 
 所以 builtin 多带一个**声明类 FQ 名**实参，按它定位那一层 —— 精确，不是按下标启发式。
 类级 `default(T)` 也因此从 `DefaultOfInstr` 改发 `__class_default`（指令只带下标，加操作数要
@@ -160,10 +154,10 @@ class Box<T> { static string S(Box<int> probe) { … default(T) … } }
 Box<string>.S(boxOfInt)   // 修前 → "0"（读了 probe 的实参表！）应为 null
 ```
 
-类级 `typeof(T)` 早就有这道语境判据（`TypeOpTyper` 注释写明了同一个理由），`default(T)` 一直漏着
-—— 把「明显不知道」升级成了「看起来对的错值」。现在静态语境给 null，与 typeof 给占位名同口径。
+类级 `typeof(T)` 与 `default(T)` 都要有这道语境判据，漏掉会把「明显不知道」升级成「看起来对的错值」。
+静态语境给 null，与 typeof 给占位名同口径。
 
-## 含型参的形参位由谁检查（2026-09-25 `fix-ctor-param-resolved-in-caller-scope`）
+## 含型参的形参位由谁检查
 
 实参检查分两条路，**按形参声明类型含不含型参分区**，不重不漏：
 
@@ -172,7 +166,7 @@ Box<string>.S(boxOfInt)   // 修前 → "0"（读了 probe 的实参表！）应
 | 含型参（`U` / `U[]` / `G<U>`） | `CheckSubstitutedArgs`（方法）/ `ConstructTyper._chkCtorSubstArgs`（ctor） | 按 receiver 实参**代换后**的类型 |
 | 不含型参（`int` / `string`） | `_adaptArgs` 的 `CheckArg` / `_checkOneArg` | 声明类型本身 |
 
-🔴 **修前 ctor 那条路两边都查**，而它的目标类型来自
+🔴 **ctor 路径不能两边都查**：不分区时，目标类型来自
 `OverloadBinder._adaptParamType` 的 `md != null` 分支 —— 那是在**调用点**的环境里
 `env.ResolveType(md.Params[i].Type)` 重新解析声明类型。型参在调用点根本不存在 ⇒ `Unknown`。
 
@@ -188,20 +182,13 @@ new Wrap<int>(new G<int>(7));
 ```
 
 ⭐ 只有**嵌套**形态会变成误报：裸型参与数组型参的 `Unknown` 被转换格吸收，看上去「没事」。
-⇒ 修完之后**漏报那一侧会开始响**，这正是必须 bump `CompilerFingerprint` 的理由
-（那类源文件此前编得过、哈希一字未变）。发码零变化（自举不动点 3/3 兜底）。
+⇒ 这一分区让**漏报那一侧会开始响**（那类源文件源码哈希不变、诊断却变），所以相关语义变更必须记入 `CompilerFingerprint`。
 
 用例：`src/compiler/z42c.semantics/tests/typecheck/ctor_param_scope_tests.z42`（误报侧 3 条 +
 漏报侧 4 条，两侧都立）与 `src/tests/generics/generic_ctor_param_scope.z42`（端到端）。
 
 ## 限制（本阶段）
 
-- ~~primitive 类型（int/string/...）**未**实现 interface，`Max<int>(1, 2)` 暂不可用~~
-  ✅ **已失效**（2026-09-09 核实更正）：`src/libraries/z42.core/src/Primitives/` 下每个 wrapper
-  都写着 `struct Int32 : IComparable, IEquatable, INumber`，`Max<int>(1, 2)` / `Double<int>(21)`
-  编译期与运行期都正常。这条限制在实现落地后**一直没有被撤**——而 `Max(1, 2)`（省略尖括号）
-  当时确实报「`int` 不满足 `IComparable`」，那不是本条限制，是
-  `fix-inferred-type-arg-not-resolved` 修掉的归一缺口。
 - 约束不写入 zbc 二进制（仅编译期使用），VM 不做运行时校验（**L3-G3 必须补齐**）
 - 其他约束范式排期见 L3-G2.5 子迭代（见下）
 - **返回类型不按推断代换**：推断只驱动诊断，不进入任何发射决策（不变式：**推断**的代换结果

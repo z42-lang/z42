@@ -1,7 +1,5 @@
 # target-typed `new`（省略构造类名）
 
-> 对齐：2026-08-09（change `add-target-typed-new`）
-
 当**目标类型已知**时，`new(args)` 可省略构造的类名，由编译器从目标类型推断——镜像 C# 9 的
 target-typed `new`。构造对象时不必把类名写两遍：
 

@@ -1,6 +1,6 @@
 # 平台构建与嵌入
 
-> 对齐：2026-10-05（change `stage-device-host-projects`）｜ 代码：
+> 代码：
 > `src/toolchain/workload/{wasm,ios,android,desktop}/platform/`、
 > `src/toolchain/workload/platform-contract.md`、
 > `scripts/test/xtask_test_{platform,wasm,ios,android,desktop}.z42`、

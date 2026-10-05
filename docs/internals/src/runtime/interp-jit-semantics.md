@@ -1,6 +1,5 @@
 # 解释器 / JIT 标量语义的单一真相源
 
-> 对齐：2026-09-03（change `perf-vm-isa-cache`；此前 2026-08-23 `refactor-jit-translate-split`，H3）。
 > 代码：`src/runtime/src/semantics.rs`（真相源）、`src/runtime/src/interp/ops.rs` +
 > `interp/exec_value.rs`（interp 消费）、`src/runtime/src/jit/helpers/arith.rs` +
 > `jit/helpers/object.rs`（JIT helper 消费）、`src/runtime/src/jit/translate/emit_int.rs` +
@@ -16,8 +15,7 @@ z42 的算术 / 比较 / 数值转换语义，运行时有**三条执行路径**
    JIT **绕过 helper**，直接发 Cranelift 原语（`iadd`/`fcmp`/`fcvt_to_sint_sat`…）。
 
 改一处语义（wrapping 策略、除零行为、新数值类型）需记得同步三处；漏改即 interp 与 JIT
-行为分歧。对「编译器全自举 byte-identical」目标，这是致命隐患——历史上已发生并修过多次漂移
-（`fix-jit-int-div-by-zero`、`fix-char-comparison`）。
+行为分歧。对「编译器全自举 byte-identical」目标，这是致命隐患（整数除零、char 比较都出现过漂移）。
 
 ## 机制：能共享的共享，不能的锚定 + 差分
 
@@ -33,49 +31,45 @@ is_int_div_by_zero(divisor)  DIV_BY_ZERO_EXC  div_by_zero_msg(op)  SHIFT_MASK
 
 - interp `ops.rs` 保留**寄存器取值**（「undefined register」错误是 interp 执行模型专属），
   取到 `&Value` 后调 `semantics::*`。
-- JIT helper（`arith.rs`）删除此前**逐字重复**的 `int_binop_helper`/`numeric_lt_helper`
-  （曾是 `ops.rs` 的副本），改调 `semantics::*`；`jit_convert` 委托 `semantics::convert_value`。
+- JIT helper（`arith.rs`）不自带 `int_binop_helper`/`numeric_lt_helper` 之类副本，统一调 `semantics::*`；`jit_convert` 委托 `semantics::convert_value`。
 
 于是路径 1、2 对同一规则只有**一份**实现。
 
-> ⚠️ **收敛曾经漏过两个 helper（fix-mixed-numeric-equality, 2026-09-18）。**
-> 上面这句在 `jit_eq` / `jit_ne` 上一度不成立：`jit_lt`/`jit_le`/`jit_gt`/`jit_ge` 都改调了
-> `semantics::numeric_lt`，而相等那两个一直直接用 `Value: PartialEq`。`PartialEq` 按变体配对、
-> **没有混合数值臂**，于是 `int == double` / `char == int` 在**三路全部**恒假（interp 侧
-> `eval_cmp` 也把 `Eq`/`Ne` 委给了 `PartialEq`），而同样操作数的 `<` `<=` `>` `>=` 全部正确。
+> ⚠️ **相等比较必须同样走 `semantics::*`。**
+> `Value: PartialEq` 按变体配对、**没有混合数值臂**；若 `jit_eq` / `jit_ne`（或 interp 侧
+> `eval_cmp` 的 `Eq`/`Ne`）直接用它，`int == double` / `char == int` 会在**三路全部**恒假，
+> 而同样操作数的 `<` `<=` `>` `>=`（走 `semantics::numeric_lt`）却正确。
 >
-> 两条教训：
+> 两条要点：
 >
 > 1. **差分测试对混合操作数是盲区。** 它比的是内联码与 `semantics.rs` 的 byte-identity，
 >    而混合操作数**根本不产生内联码**（`is_int_cmp` / `is_f64_cmp` 只在两侧静态同类时内联）。
 >    混合路径只能靠 golden（`src/tests/operators/mixed_numeric_equality.z42`）+ 单测守。
 > 2. **新增 / 改动任何比较 helper 前，先确认它调的是 `semantics::*`**，而不是自己就地写一个
->    看起来等价的 `==`。「等价」在同类操作数上成立、在混合操作数上不成立，正是这次漏网的形状。
+>    看起来等价的 `==`。「等价」在同类操作数上成立、在混合操作数上不成立，正是漏网的形状。
 
-**对象级判定同款（2026-09-03）**：标量之外，两条对象路径也已收敛到运行期同一 Rust 函数——
+**对象级判定同款**：标量之外，两条对象路径也已收敛到运行期同一 Rust 函数——
 
 | 判定 | 单一实现 | 缓存 | interp 调用侧 | JIT 调用侧 |
 |------|---------|------|--------------|-----------|
 | 虚调用目标（`VCall`） | `interp/vcall_resolve.rs::resolve_vcall` | 站点 PIC（`VCallIC`） | `exec_vcall.rs` | `helpers/vcall.rs` |
 | 类型判定（`is` / `as` / 带类型 `catch`） | `interp/dispatch.rs::isa_td` | `vm_context/isa_cache.rs`（身份键直接映射）→ `subclass_memo`（字符串 memo）→ 基链/接口遍历 | `exec_object.rs`、`find_handler` | `helpers/object.rs`、`helpers/control.rs` |
 
-`IsaCache`（change `perf-vm-isa-cache`）键的是**身份**而非内容：接收者 `*const TypeDesc`（注册表 / 惰性加载器持有的
+`IsaCache` 键的是**身份**而非内容：接收者 `*const TypeDesc`（注册表 / 惰性加载器持有的
 描述符在 VM 生命周期内不朽；`id == UNRESOLVED` 的临时 fallback 描述符按对象分配，**不缓存**）+ 目标类名串的地址
 （只接受指令 / 异常表 / JIT 烘焙的同一串这类不朽元数据；反射路径仍走字符串 memo）。命中 = 两次 relaxed load，
-无锁无哈希；直接映射、冲突覆盖；与 memo 一起在显式模块 (re)load（REPL 重定义）时清空。此前 JIT 侧自带一份
-`is_subclass_or_eq_walk` + `iface_reaches_mod`（按 `module.classes` 线性查找的等价遍历），随本 change 删除。
+无锁无哈希；直接映射、冲突覆盖；与 memo 一起在显式模块 (re)load（REPL 重定义）时清空。JIT 侧不自带子类遍历，同样调 `isa_td`。
 
-#### PIC 的键必须是**全局**类型身份（fix-crosspkg-typeid-collision, 2026-09-08）
+#### PIC 的键必须是**全局**类型身份
 
-上表两行的缓存键取向不同，这个差别是有代价的教训：
+上表两行的缓存键取向不同，这个差别很关键：
 
 - `IsaCache` 键的是**指针身份**（`*const TypeDesc`）——天然全局唯一。
 - 两条 PIC（`VCallIC` / `FieldIC`）为了「命中 = 两次 relaxed load」，键的是
   `TypeDesc.id` 这个裸 `u32`。
 
-于是 PIC 的正确性完全押在**「`TypeId` 在比较发生的范围内唯一」**上。而它曾经不是：
-`TypeId` 每个 `Module` 从 0 重开（当时文档契约就写「per module」），跨 zpkg 的 `TypeDesc`
-由惰性加载器**原样返回**、保留外来模块的号。任何**跨 zpkg 多态**的站点因此会把后到的
+于是 PIC 的正确性完全押在**「`TypeId` 在比较发生的范围内唯一」**上。若 `TypeId` 每个 `Module` 从 0 重开（per module），跨 zpkg 的 `TypeDesc`
+由惰性加载器**原样返回**、保留外来模块的号，任何**跨 zpkg 多态**的站点就会把后到的
 receiver 误命中先到者的条目：
 
 ```
@@ -88,14 +82,14 @@ site: body.Run(i)            // IParallelBody 接口调用，z42c.semantics
 
 `FieldIC` 撞键更隐蔽：拿到**错误的字段槽**，不崩不报错，直接静默读写错数据。
 
-**现在的不变量**：`TypeId` 由进程级发号器 `tokens::alloc_type_id_block` 批量分配、**全进程
-唯一**，号段限定 `[0, IMPORT_BASE)`，越界 panic（回绕等于把 bug 放回来）。debug 构建在两条
+**不变量**：`TypeId` 由进程级发号器 `tokens::alloc_type_id_block` 批量分配、**全进程
+唯一**，号段限定 `[0, IMPORT_BASE)`，越界 panic（回绕等于引入撞号）。debug 构建在两条
 PIC 的命中点各设一道常驻断言（`vcall_resolve::assert_pic_target` 校验 callee 归属；
 `resolver::assert_field_ic_slot` 校验槽位），违反即**在误派发当场** panic；release 编译掉，
 热路径不变。
 
 > **可迁移的判据**：任何「在作用域 S 内发号、却拿到 S 之外做相等比较」的 id 都是这个形状的
-> bug。要么把发号范围提升到比较范围（本次选择），要么改用天然全局的身份（指针，`IsaCache`
+> bug。要么把发号范围提升到比较范围（本系统的选择），要么改用天然全局的身份（指针，`IsaCache`
 > 的做法）。
 
 ### 路径 3：注释锚定 + 差分测试（无法运行期调 Rust）
@@ -122,10 +116,10 @@ PIC 的命中点各设一道常驻断言（`vcall_resolve::assert_pic_target` �
 
 ## 配套：JIT 不支持指令单表
 
-「哪些 opcode JIT 不能翻译、原因是什么」此前在两处手工并行维护（prescan `jit_unsupported_reason`
-与 translate 的 `bail!` 臂）。收敛为单个 `unsupported_reason(&Instruction) -> Option<&str>`
+「哪些 opcode JIT 不能翻译、原因是什么」在两处检查点使用（prescan `jit_unsupported_reason`
+与 translate 的 `bail!` 臂）。由单个 `unsupported_reason(&Instruction) -> Option<&str>`
 （`jit/translate/unsupported.rs`）：prescan 循环调它；每个 `bail!` 臂的原因文案也源自它，两检查点
-不可能漂移。须收 `&Instruction`（非静态 opcode 集）——generic `Call`/`VCall` 是**条件**不支持。
+不会漂移。须收 `&Instruction`（非静态 opcode 集）——generic `Call`/`VCall` 是**条件**不支持。
 
 ## 相关
 

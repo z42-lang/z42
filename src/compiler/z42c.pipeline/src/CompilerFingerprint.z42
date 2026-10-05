@@ -142,7 +142,12 @@ public static class CompilerFingerprint {
         // instance-call-by-receiver：导入类非虚实例方法按接收者类型定位直接 Call（不再按方法名在全部可见包里猜）—— 输出变化。
         "instance-call-by-receiver",
         // call-delegate-members：委托类型的字段 / 属性可直接调用（`x.F(args)`，此前报 E0401）—— 诊断与输出变化。
-        "call-delegate-members"
+        "call-delegate-members",
+        // reject-derived-static-access：经派生类访问基类静态成员（`B.M()` / `B.T` / 派生类体内裸调）新报 E0401；
+        // 类名接收者上找不到静态成员报 E0401 而非 E0436 —— 诊断变化。
+        "reject-derived-static-access",
+        // reject-inheritance-cycle：基类型成环新报 E0502；继承链走查去掉 32 层上限（深链不再误报 E0402 / E0401）—— 诊断与输出变化。
+        "reject-inheritance-cycle"
     };
 
     // 指纹值：`Entries` 逐条以 `\n` 连接后取内容哈希（`mmh3:` 前缀，同 SourceHash）。

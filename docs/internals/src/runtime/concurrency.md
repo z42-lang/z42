@@ -1,7 +1,6 @@
 # z42 并发与异步设计
 
-> **状态**：L3 前瞻性设计草案（2026-04-30），语言层尚未实现；**runtime
-> foundation 已落地**（2026-05-20，详下方）
+> 待办：L3 前瞻性设计，语言层（`async`/`await`/`task scope`/`spawn`/`select` 等）尚未实现；runtime foundation 已实现（详下方）
 > **定位**：与 `generics.md` / `static-abstract-interface.md` 同级 — 长期规范，等
 > 到 L3 阶段才进入实施
 > **参考**：C# / .NET TPL（主蓝本）+ Rust（Send/Sync）+ Kotlin / Swift（结构化并发）
@@ -14,36 +13,26 @@
 
 ---
 
-## Runtime foundation 现状（2026-05-20 落地）
-
-已完成 Phase 1+2+3：
+## Runtime foundation 现状
 
 - **VmCore / VmContext 类型层划分**：共享 8 字段 (`Arc<VmCore>`) + per-thread 4 字段（VmContext 持 `Arc<VmCore>` 加自己的 Arc<Mutex<>> 字段）
-- **GcRef 切到 Arc backing**：`Rc<GcAllocation>` → `Arc<GcAllocation>`，内部 `RefCell<T>` → `parking_lot::Mutex<T>`
-- **MagrGC trait 加 Send + Sync 边界**：实施 backend `ArcMagrGC`（前 `RcMagrGC`）满足
+- **GcRef 以 Arc 为 backing**：`Arc<GcAllocation>`，内部 `parking_lot::Mutex<T>`
+- **MagrGC trait 带 Send + Sync 边界**：实施 backend `ArcMagrGC` 满足
 - **6 个编译期 Send+Sync assertion**（[src/runtime/src/gc/arc_heap_tests/send_sync.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/gc/arc_heap_tests/send_sync.rs)）+ 3 个 cross-thread 集成测试（[src/runtime/tests/cross_thread_smoke.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/tests/cross_thread_smoke.rs)）钉死不可回归
-
-**Phase 1+2+3 完成后能做什么 / 还不能做什么**：
 
 | 现状 | 描述 |
 |------|------|
 | ✅ Rust 类型层 Send+Sync | `VmContext` / `VmCore` / `GcRef` / `Value` / `Box<dyn MagrGC>` 全 Send+Sync |
 | ✅ 跨线程 read 共享 GC | `Arc<VmCore>` 可跨线程；GcRef 可跨线程 move / clone / borrow |
-| ✅ 多 VmContext 共享 GC heap | VmCore `vm_contexts` 注册表 + `Pin<Box<VmContext>>` 地址稳定 + scanner walk registry（add-vmcontext-registry 2026-05-20） |
-| ✅ 用户层线程 API | `Std.Threading.Thread.Start(Action)` / `.Join()` + `Std.ThreadException`（add-threading-stdlib 2026-05-20）。底层 `__thread_spawn` / `__thread_join` builtin 接 `VmCore.threads: Mutex<HashMap<u64, JoinHandle>>` slot table。worker 走 `VmContext::new_with_core(Arc::clone(core))` 共享父 VmCore |
-| ✅ 同步原语 | `Std.Threading.Mutex<T>` / `Channel<T>` + `Std.ChannelDisconnectedException`（add-sync-primitives 2026-05-20）。Mutex 走 `parking_lot::Mutex<Value>` + thread-local guard parking（`__mutex_lock_acquire` / `__mutex_store` / `__mutex_unlock`，z42 facade 暴露 RAII `Lock(Func<T,T>)`）；Channel 走 `std::sync::mpsc` unbounded MPSC（`__channel_send` / `__channel_recv` / `__channel_try_recv` / `__channel_close`）。GcRef::borrow 同时从 `try_lock+panic` 改为 blocking `lock`（多线程下两 worker 并发 field_get 同一 object 的根因修复）|
-| ✅ 并发 GC (safepoint complete) | **Safepoint 协议落地**：interp dispatch loop 在 function entry / backward branch / Call return 三处 `check_safepoint(ctx)`；script-driven `__gc_collect` / `__gc_force_collect` 由 `request_gc_pause` RAII guard 包成 stop-the-world（add-gc-safepoint 2026-05-20）。auto-threshold 路径 `maybe_auto_collect` 现也走 safepoint：trip 时 set `VmCore.needs_auto_collect` AtomicBool flag → 下个 `check_safepoint(ctx)` swap claim → safepoint-wrapped collect（add-gc-safepoint-auto-threshold 2026-05-20）。所有 mutator VmContext park 在 `gc_phase_cv` Condvar 上等 phase 回 Idle。**仍单线程 mark+sweep**（多线程化待 `add-concurrent-gc`）；JIT-mode safepoint 待 `add-gc-safepoint-jit`|
+| ✅ 多 VmContext 共享 GC heap | VmCore `vm_contexts` 注册表 + `Pin<Box<VmContext>>` 地址稳定 + scanner walk registry |
+| ✅ 用户层线程 API | `Std.Threading.Thread.Start(Action)` / `.Join()` + `Std.ThreadException`。底层 `__thread_spawn` / `__thread_join` builtin 接 `VmCore.threads: Mutex<HashMap<u64, JoinHandle>>` slot table。worker 走 `VmContext::new_with_core(Arc::clone(core))` 共享父 VmCore |
+| ✅ 同步原语 | `Std.Threading.Mutex<T>` / `Channel<T>` + `Std.ChannelDisconnectedException`。Mutex 走 `parking_lot::Mutex<Value>` + thread-local guard parking（`__mutex_lock_acquire` / `__mutex_store` / `__mutex_unlock`，z42 facade 暴露 RAII `Lock(Func<T,T>)`）；Channel 走 `std::sync::mpsc` unbounded MPSC（`__channel_send` / `__channel_recv` / `__channel_try_recv` / `__channel_close`）。GcRef::borrow 用 blocking `lock`（多线程下两 worker 并发 field_get 同一 object 不 panic）|
+| ✅ 并发 GC (safepoint) | interp dispatch loop 在 function entry / backward branch / Call return 三处 `check_safepoint(ctx)`；JIT translate 在对应 4 个 site emit `jit_check_safepoint` helper call，与 interp 对齐。script-driven `__gc_collect` / `__gc_force_collect` 由 `request_gc_pause` RAII guard 包成 stop-the-world。auto-threshold 路径 `maybe_auto_collect` 也走 safepoint：trip 时 set `VmCore.needs_auto_collect` AtomicBool flag → 下个 `check_safepoint(ctx)` swap claim → safepoint-wrapped collect。所有 mutator VmContext park 在 `gc_phase_cv` Condvar 上等 phase 回 Idle。**仍单线程 mark+sweep**（多线程化待 `add-concurrent-gc`）|
 | ❌ `spawn` / `task scope` 语法 | L3 阶段引入（本文档 §3.5） |
 
-**下一步实施 spec**（已在 add-multithreading-foundation tasks.md 列）：
-1. ~~`add-vmcontext-registry`~~ ✅ 已落地（2026-05-20）—— VmCore registry + Pin<Box<VmContext>> + scanner walk
-2. ~~`add-threading-stdlib`~~ ✅ 已落地（2026-05-20）—— `Std.Threading.Thread.Start` / `.Join` + ThreadException
-3. ~~`add-sync-primitives`~~ ✅ 已落地（2026-05-20）—— `Std.Threading.Mutex<T>` / `Channel<T>` + ChannelDisconnectedException + GcRef::borrow blocking 修复
-4. ~~`add-gc-safepoint`~~ ✅ 已落地（2026-05-20）—— interp safepoint 协议 + stop-the-world wrapper
-5. ~~`add-gc-safepoint-auto-threshold`~~ ✅ 已落地（2026-05-20）—— auto-threshold 路径也走 safepoint，关闭 v0 race window
-6. ~~`add-gc-safepoint-jit`~~ ✅ 已落地（2026-05-21）—— JIT translate 在 function entry / backward branch / Call return 等 4 个 site emit `jit_check_safepoint` helper call，与 interp 完全对齐
-7. `add-concurrent-gc` — Phase A 性能轨道
-8. `add-spawn-syntax` — L3，本文档 §3.5
+**未完成项**：
+1. `add-concurrent-gc` — 性能轨道
+2. `add-spawn-syntax` — L3，本文档 §3.5
 
 ---
 
@@ -502,7 +491,7 @@ var result = await SpawnBlocking(() => HeavyCpuWork());
 | Z0809 | Capture of non-`Send` value into spawn | spawn 闭包捕获了非 `Send` 变量 |
 | Z0810 | Reference to non-`Sync` value across task | scope 内 task 引用了非 `Sync` 的外部变量 |
 
-> 完整诊断信息（措辞 / fix-it 建议）在 L3 实施时与 `DiagnosticCatalog.cs` 同步定稿。
+> 完整诊断信息（措辞 / fix-it 建议）在 L3 实施时与诊断码表同步定稿。
 
 ---
 
@@ -570,12 +559,3 @@ L3-A7 完成后，将引入并发基准：
 | `compiler-architecture.md` | async 方法 lowering pass / Send-Sync 推导 / scope 词法检查（L3 实施时新增章节）|
 | `error-codes.md` | Z08xx 段加入 |
 | `ir.md` | 状态机字段编码、await yield 标记、task spawn 指令（L3 实施时定义）|
-
----
-
-## 13. 修订历史
-
-| 日期 | 版本 | 变更 |
-|------|------|------|
-| 2026-04-30 | DRAFT v1 | 初稿；L3 前瞻性设计；选型染色 + 减痛栈；待 User 审阅 |
-| 2026-04-30 | DRAFT v2 | 全文代码示例由 Rust 风格统一改为 z42 现行 C# 语法（与 `language-overview.md` / `examples/` 对齐）：`async fn name(p: T) -> R` → `async R Name(T p)`；`let` → `var`；`Future<T>` 完全隐式（用户写 `async R F()` 而非 `async Future<R> F()`）；`fn main` → `async void Main`；`for await` → `await foreach`；`async using` → `await using`；`Channel<T>::bounded` → `Channel<T>.Bounded`；闭包 `\|x\| ...` → `x => ...`；`trait Send`/`Sync` → `interface Send`/`Sync`；`Z0805` 标题保留英文 "Cannot call async method from sync context"。设计内容与减痛清单 16 条不变。 |

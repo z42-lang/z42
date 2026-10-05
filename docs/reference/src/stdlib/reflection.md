@@ -1,6 +1,5 @@
 # 反射 —— 运行时检视、构造与调用类型
 
-> 对齐：2026-09-17（change `restructure-docs-three-books`）；
 > 包路径 `src/libraries/z42.core/`；命名空间 `Std`（`Type` / `Enum` / `Attribute` /
 > `TypeVisibility` / `Array`）与 `Std.Reflection`（`MemberInfo` / `MethodBase` /
 > `MethodInfo` / `ConstructorInfo` / `FieldInfo` / `PropertyInfo` / `ParameterInfo` /
@@ -353,17 +352,10 @@ public class FieldInfo : MemberInfo {
 > 作为 `object` 传参时会被装箱成 `Std.Int32`）一律抛 `Std.Exception`，字段保持原值。
 > 嵌套 struct 叶子（`struct Line { Point a; }` 的 `a`）同一条规则。
 >
-> 🔴 **历史**（fix-reflect-struct-field-type-check，2026-09-28 修正）：此前那道守卫只问
-> 「值**是不是**一个装箱 struct」，而不问「**是哪个** struct」。装箱基元通过了它，
-> 接着按字段区域宽度拷字节 ⇒ `pt=(11,22)` 被 `SetValue(h, 42)` **静默改成 `(42,22)`**
-> —— 一个**半写坏的 struct**、零报错。判据现为**全限定名逐字相等**（不做短名回退，
-> 否则 `a.Point` 能冒充 `b.Point`）。
->
-> 🔴 **历史**（fix-silent-prim-field-write，2026-09-27 修正）：此前值类型字段那一格
-> **静默什么都不做还报成功** —— 写入被丢弃、字段留着旧值、调用方拿不到任何信号。
-> 同一个缺陷也盖住了 `PropertyInfo.SetValue`（它经 setter 到达同一个写入点）。
-> 而装箱 struct 的字段、对象内联 struct 的叶子这两条路**一直是抛的** ⇒ 那时的行为
-> 取决于目标恰好是哪种字段，这一刀把三者统一。
+> 判据是**全限定名逐字相等**（不做短名回退，否则 `a.Point` 能冒充 `b.Point`），
+> 而不只是「值是不是一个装箱 struct」。类型不符一律抛、不会半写坏 struct；
+> 值类型字段、装箱 struct 的字段、对象内联 struct 的叶子三条路行为一致，
+> `PropertyInfo.SetValue`（经 setter 到达同一个写入点）同理。
 
 ## `Std.Reflection.PropertyInfo`
 

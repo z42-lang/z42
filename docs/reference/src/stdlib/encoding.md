@@ -1,6 +1,5 @@
 # z42.encoding —— 字节与文本的编解码
 
-> 对齐：2026-09-17（change `restructure-docs-three-books`）；
 > 包路径 `src/libraries/z42.encoding/`；命名空间 `Std.Encoding`
 
 `byte[]` ↔ `string` 的两类转换：**文本编码**（UTF-8 / UTF-16 / UTF-32，把字符串变成字节）

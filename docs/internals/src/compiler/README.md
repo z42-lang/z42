@@ -37,6 +37,13 @@ z42c —— **用 z42 自己写的编译器**，把 `.z42` 源码编成 `.zpkg`�
 | [访问权限强制](access-control.md) | 可见性在哪一步被检查 |
 | [构造器继承与隐式 `base()`](ctor-inheritance.md) | 构造链的生成规则 |
 | [错误码体系](error-codes.md) | 诊断结构、码段分配、**怎么新增一个码** |
+| [类型转换的实现](conversions.md) | 分类器的判定顺序、lowering 落点 |
+| [Attribute 的编译期管线](attribute-pipeline.md) | `[X]` 怎么变成运行期可读回的实例 |
+| [泛型的实现](generics.md) | 代码共享策略、约束、reified 类型 |
+| [泛型类型实参推断](generic-inference.md) | 调用点怎么推出 `T` |
+| [编译器语义指纹](compiler-fingerprint.md) | 增量缓存的失效判据 |
+| [语法定制](syntax-customization.md) | 📋 设计已定 / 未实施 |
+| [元编程 / 宏](metaprogramming.md) | 📋 设计已定 / 未实施 |
 | [脚本化 charter](scripting-charter.md) | 📋 设计已定 / 未实施 |
 
 > 错误码的**全量码表**在参考手册的附录，不在这里——这里只讲「怎么分配、怎么加」。

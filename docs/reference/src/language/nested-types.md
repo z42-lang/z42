@@ -1,7 +1,5 @@
 # 嵌套类型
 
-> 对齐：2026-07-25（change `add-nested-types` + `nested-types-followup`）
-
 一个类型可以**声明在另一个类型体内**，作为其成员：
 
 ```z42
@@ -71,7 +69,7 @@ typeof(Outer).GetMembers();       // 含嵌套类型（MemberTypes.NestedType）
 
   > ⚠️ 别与**嵌套的泛型实参**混淆——那是另一件事，**已支持**：`Box<Pair<int,string>>` 这类
   > 类型实参里再套泛型，可递归到任意深度，`GetGenericArguments()` 也逐层还原
-  > （见 `src/tests/types/nested_generic_args.z42`，2026-07-23）。不支持的是**外层**本身带型参。
+  > （见 `src/tests/types/nested_generic_args.z42`）。不支持的是**外层**本身带型参。
 
 - 跨包用**限定名**引用嵌套类型（`geo.Shape.Corner`）；当前解析包内的 `Outer.Inner`。
 - 嵌套类型自身标 `partial` —— 报 **E0435**（发射点

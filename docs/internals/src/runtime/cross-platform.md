@@ -1,6 +1,6 @@
 # Cross-Platform 构建
 
-> 状态：P4.1 已落地（feature flags），P4.2/P4.3/P4.4（wasm/iOS/Android 实际脚手架）待实施。
+> 待办：wasm / iOS / Android 实际脚手架（P4.2/P4.3/P4.4）尚未实施。
 
 z42 VM 同一份 Rust 代码通过 Cargo features 构建出适合不同平台的产物。`src/runtime/Cargo.toml` `[features]` 段定义可组合的 feature 集合。
 
@@ -31,8 +31,7 @@ z42 VM 同一份 Rust 代码通过 Cargo features 构建出适合不同平台的
 ```
 
 CI 由 `package-wasm` / `package-ios` / `package-android` 在各自真实目标平台上完整构建对应 preset 来锁定；
-`package-wasm` 另断言 interp-only 的依赖图里没有 cranelift。（曾有专门的 `feature-matrix` job 与同名 xtask 命令，
-只在 host 上 `cargo check` 这四个组合，与上面三个 job 重复，2026-10-02 删除。）
+`package-wasm` 另断言 interp-only 的依赖图里没有 cranelift。
 
 ## CLI 行为差异
 

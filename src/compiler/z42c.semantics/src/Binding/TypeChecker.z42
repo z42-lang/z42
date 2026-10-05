@@ -191,10 +191,10 @@ public sealed class TypeChecker {
                 Span first = hit.DeclSpans.Get(name) as Span;
                 string at = first == null ? "" : " (first declared at " + first.Line.ToString() + ":" + first.Column.ToString() + ")";
                 if (hit == env) {
-                    this._diags.Error("E0467",
+                    this._diags.Error(DiagnosticCodes.DuplicateLocal,
                         "a local variable named `" + name + "` is already declared in this scope" + at, sp);
                 } else {
-                    this._diags.Error("E0491",
+                    this._diags.Error(DiagnosticCodes.LocalShadowsOuter,
                         "`" + name + "` is already declared in an enclosing scope as a local variable or parameter" + at
                         + "; a nested declaration cannot reuse the name — rename one of them", sp);
                 }

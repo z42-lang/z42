@@ -456,25 +456,38 @@ public static class TsigReconcile {
         string bare = TsigReconcile._bare(cd.Name, ns);
         // base 链（惰性 world：遇祖先 FQ 先 EnsureFq 路由填充其包，再按 FQ 名在已填包中定位；
         // 记录 (pkg, mod) 供祖先 SIGS 精确定位）。lazy-type-world：跳过未填充（null）条目。
-        IrClassDesc[] chain = new IrClassDesc[32];
-        int[] chainPkg = new int[32]; int[] chainMod = new int[32];
+        // 链长不设上限（数组按需翻倍）；此前写死 32 层、超出静默截断。环（只可能来自损坏的包——
+        // 源码里的继承环编译期就报错）按 FQ 名判出后抛错，不再靠层数上限兜底。
+        IrClassDesc[] chain = new IrClassDesc[8];
+        int[] chainPkg = new int[8]; int[] chainMod = new int[8];
         int chainLen = 0;
         IrClassDesc walk = cd;
         int walkPkg = 0 - 1; int walkMod = 0 - 1;
         TsigReconcile._locate(cd.Name, world, chainPkg, chainMod, 0);   // 定位自身（内含 EnsureFq）
         walkPkg = chainPkg[0]; walkMod = chainMod[0];
-        int guard = 0;
-        while (walk != null && guard < 32) {
+        while (walk != null) {
+            if (chainLen == chain.Length) {
+                IrClassDesc[] nc = new IrClassDesc[chainLen * 2]; int[] np = new int[chainLen * 2]; int[] nm = new int[chainLen * 2];
+                int k = 0;
+                while (k < chainLen) { nc[k] = chain[k]; np[k] = chainPkg[k]; nm[k] = chainMod[k]; k = k + 1; }
+                chain = nc; chainPkg = np; chainMod = nm;
+            }
             chain[chainLen] = walk; chainPkg[chainLen] = walkPkg; chainMod[chainLen] = walkMod;
             chainLen = chainLen + 1;
             string bn = walk.HasBase ? walk.BaseName : "";
             walk = null;
             if (bn != "" && bn != "Std.Object" && bn != "Object") {
+                int seen = 0;
+                while (seen < chainLen) {
+                    if (chain[seen].Name == bn) {
+                        throw new Exception("corrupt package: base-class cycle through `" + bn + "` while importing `" + cd.Name + "`");
+                    }
+                    seen = seen + 1;
+                }
                 world.EnsureFq(bn);   // 路由填充声明 bn 命名空间的所有包
                 int bs = world.FindClass(bn);   // perf-tsig-reconcile-index：O(1) 定位（原 world 全扫）
                 if (bs >= 0) { walk = world.FoundDesc(bs); walkPkg = world.FoundPkg(bs); walkMod = world.FoundMod(bs); }
             }
-            guard = guard + 1;
         }
         // base 名（oracle：非 struct 恒 HasBase=true 短名默认 "Object"；struct HasBase=false base ""）
         string baseName = "Object";

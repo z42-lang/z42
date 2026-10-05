@@ -1,6 +1,5 @@
 # `Std.GC` 与 GC 句柄 —— 脚本侧的显式内存控制
 
-> 对齐：2026-09-17（change `restructure-docs-three-books`）；
 > 包路径 `src/libraries/z42.core/`（`src/GC/GC.z42`、`GCHandle.z42`、`HeapStats.z42`、
 > `WeakHandle.z42`、`SoftHandle.z42`）；命名空间 `Std`
 >

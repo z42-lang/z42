@@ -1,0 +1,9 @@
+[project]
+name    = "demo.deepchainapp"
+version = "0.1.0"
+kind    = "exe"
+entry   = "Demo.DeepChainApp.Main"
+pack    = true
+
+[dependencies]
+"demo.deepchaintarget" = "0.1.0"

@@ -1,6 +1,6 @@
 # 调试与运行时诊断
 
-> 对齐：2026-09-17（change `restructure-docs-three-books`）｜ 代码：`src/runtime/src/startup.rs`
+> 代码：`src/runtime/src/startup.rs`
 > （`--info` / panic hook）、`src/runtime/src/signal_handler.rs`、`src/runtime/src/pal/signal.rs`、
 > `src/runtime/src/app.rs`（`--stats`）、`src/runtime/src/observer.rs`、
 > `src/runtime/src/config/`、`src/runtime/src/metadata/build_id.rs`、`scripts/xtask_profile.z42`

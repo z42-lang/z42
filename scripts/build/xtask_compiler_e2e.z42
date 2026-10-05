@@ -398,6 +398,24 @@ int _e2eKnobChecks(string vm, string driverZpkg, string e2eDir, string flat) {
         return 1;
     }
     Console.WriteLine("  ✓ [project] kind 写错 → 致命");
+
+    // ⑤⑥ 清单写错（TOML 语法 / 值类型）→ 一行带路径（语法错还带行:列）的错误 + 退出码 1，
+    //    不是带 z42c 内部栈帧的 uncaught exception（此前两种都是）。值类型错要点名是哪个键。
+    File.WriteAllText(ktoml, head + "[build\n");
+    ProcessResult r5 = _z42Proc(vm, flat).Arg(driverZpkg).Arg("--").Arg("build").Arg(ktoml)
+        .Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
+    if (r5.ExitCode != 1 || r5.Stderr.IndexOf("invalid manifest: " + ktoml + ":") < 0 || r5.Stderr.IndexOf("uncaught exception") >= 0) {
+        Console.WriteLine("  ✗ TOML 语法错没有报成带路径:行的一行错误（rc=" + r5.ExitCode.ToString() + "）: " + r5.Stderr.Trim());
+        return 1;
+    }
+    File.WriteAllText(ktoml, head.Replace("version = \"0.1.0\"", "version = 1"));
+    ProcessResult r6 = _z42Proc(vm, flat).Arg(driverZpkg).Arg("--").Arg("build").Arg(ktoml)
+        .Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
+    if (r6.ExitCode != 1 || r6.Stderr.IndexOf("`version`: expected string") < 0 || r6.Stderr.IndexOf("uncaught exception") >= 0) {
+        Console.WriteLine("  ✗ 清单值类型错没有点名键（rc=" + r6.ExitCode.ToString() + "）: " + r6.Stderr.Trim());
+        return 1;
+    }
+    Console.WriteLine("  ✓ 清单 TOML 语法 / 值类型错 → 一行带路径的错误，exit 1");
     return 0;
 }
 

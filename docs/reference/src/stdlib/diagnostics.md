@@ -1,6 +1,5 @@
 # z42.diagnostics —— 日志与运行时自省
 
-> 对齐：2026-09-17（change `restructure-docs-three-books`）；
 > 包路径 `src/libraries/z42.diagnostics/`；命名空间 `Std.Diagnostics`
 
 三组互不相干的能力：

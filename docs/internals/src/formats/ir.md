@@ -94,7 +94,7 @@ entry:
 %r = ge  <type> %a, %b    -> bool
 ```
 
-### Numeric Cast (spec fix-numeric-cast-lowering, 2026-05-13)
+### Numeric Cast
 
 `Convert` lowers an explicit user-level cast (e.g. `(long)d`) to a runtime
 type conversion. Target type rides on the destination register's static
@@ -137,7 +137,7 @@ ret %value
 throw %val          # terminate block by throwing %val; handled by exception table
 ```
 
-### Exception Handling (Phase 1)
+### Exception Handling
 
 Functions may carry an exception table (list of `ExceptionEntry`). Each entry:
 
@@ -146,7 +146,7 @@ Functions may carry an exception table (list of `ExceptionEntry`). Each entry:
 | `try_start` | Label of first block inside the try region |
 | `try_end` | Label of first block **after** the try region (exclusive) |
 | `catch_label` | Label of catch handler block |
-| `catch_type` | Optional exception type string (Phase 1: ignored, catches all) |
+| `catch_type` | Optional exception type string (currently ignored, catches all) |
 | `catch_reg` | Register that receives the thrown value on handler entry |
 
 `throw %val` terminates the block. The VM searches the exception table for an entry whose
@@ -206,7 +206,7 @@ JSON wire format:
 {"op": "builtin", "dst": 3, "name": "__list_add",               "args": [0, 1]}
 ```
 
-### Native Interop (C1 scaffold)
+### Native Interop
 
 ```
 %r = call.native     "<module>::<type>::<symbol>"(%arg0, ...)
@@ -216,15 +216,15 @@ JSON wire format:
 ```
 
 Four opcodes lock down the binary format for the L2+ three-tier ABI (see
-[native-abi.md](../runtime/native-abi.md)). Each is **declared** in C1 with no runtime
-behaviour; subsequent specs (C2, C4, C5) wire up dispatch.
+[native-abi.md](../runtime/native-abi.md)). `call.native.vt` is declared but its
+dispatch is not yet implemented.
 
-| Opcode | Byte | Operands | Filled by spec |
-|--------|------|----------|----------------|
-| `call.native` | `0x53` | `dst`, module:str, type:str, symbol:str, args | C2 (`impl-tier1-c-abi`) |
-| `call.native.vt` | `0x54` | `dst`, recv:reg, vtable_slot:u16, args | C5 (`impl-source-generator`) |
-| `pin` | `0x90` | `dst`, src:reg | C4 ✅ |
-| `unpin` | `0x91` | pinned:reg (no dst) | C4 ✅ |
+| Opcode | Byte | Operands | Status |
+|--------|------|----------|--------|
+| `call.native` | `0x53` | `dst`, module:str, type:str, symbol:str, args | implemented |
+| `call.native.vt` | `0x54` | `dst`, recv:reg, vtable_slot:u16, args | not yet implemented |
+| `pin` | `0x90` | `dst`, src:reg | implemented |
+| `unpin` | `0x91` | pinned:reg (no dst) | implemented |
 
 `call.native` is the direct-symbol path used to call functions registered
 through `z42_register_type` (Tier 1 C ABI). `call.native.vt` is the
@@ -232,21 +232,20 @@ vtable-indexed path: the source generator picks `vtable_slot` at compile
 time so no name lookup happens at runtime, matching C# 11+
 `[LibraryImport]` semantics.
 
-> **z42c codegen — two `[Native]` forms (port-z42c-typed-native-call):** an `extern`
+> **z42c codegen — two `[Native]` forms:** an `extern`
 > method's stub body is emitted from its `[Native]` attribute. The **typed** named
 > form `[Native(lib="L", type="T", entry="E")]` lowers to `call.native L::T::E(...)`
 > (this opcode). The **positional / `entry=`-only** form `[Native("__name")]` lowers
 > to `builtin __name(...)` (`0x51`), resolved via the VM's `dispatch_table` /
-> `ext_builtins` registry. (The self-hosted z42c originally only carried the builtin
-> path; the typed path was restored after the C# compiler's removal exposed the gap.)
+> `ext_builtins` registry.
 
 `pin` borrows the raw buffer of a `String` (and, in a follow-up spec,
 blittable-element byte arrays) for FFI use; `unpin` returns it to normal
 use. Pinned regions cannot be mutated or relocated until unpinned. The
-`pinned` block syntax in user code (introduced in spec C5) lowers to a
+`pinned` block syntax in user code lowers to a
 `pin` … `unpin` pair around the FFI call.
 
-**Runtime semantics (C4)**: `pin` constructs a `Value::PinnedView { ptr, len, kind }`
+**Runtime semantics**: `pin` constructs a `Value::PinnedView { ptr, len, kind }`
 from a `Value::Str` source — `ptr` is the raw `String` buffer address,
 `len` is the byte count, `kind = PinSourceKind::Str`. Field access
 `view.ptr` / `view.len` projects via `FieldGet` to `Value::I64`.
@@ -258,13 +257,11 @@ reserved for a follow-up spec that introduces a dedicated byte-buffer
 Value variant.
 
 > User-facing marshal failures (`pin` on an unsupported source, NUL in a C
-> string, etc.) became typed z42 exceptions (`Std.InvalidMarshalException`)
-> in 2026-05-11 retire-z-codes; only IR-shape invariants remain as Rust
-> `anyhow!` traps.
+> string, etc.) are typed z42 exceptions (`Std.InvalidMarshalException`);
+> only IR-shape invariants are Rust `anyhow!` traps.
 
 VM behaviour for the still-trapping opcodes (`call.native.vt`): the
-interpreter raises a clean error ("`<opcode>` not yet implemented
-(see spec C5)") if executed. The JIT translator refuses to
+interpreter raises a clean error ("`<opcode>` not yet implemented") if executed. The JIT translator refuses to
 compile a function that contains any of the four FFI opcodes (lands in
 L3.M16).
 
@@ -327,9 +324,9 @@ Five instructions cover the whole surface of `T[]` (`Instruction::ArrayNew` / `A
 
 `array_new_lit` 的元素个数在 zbc 里与所有 `args` 一样是 **u8**（[zbc.md](zbc.md) 的 args 编码）。
 字面量超过 255 个元素时，IrGen 改发 `array_new`（size = 元素个数）+ 逐元素 `array_set`——元素已按
-源序求值完毕，语义等价（`ExprEmitter` 的 `BoundArrayLit` 分支，fix-zbc-writer-silent-truncation）。
+源序求值完毕，语义等价（`ExprEmitter` 的 `BoundArrayLit` 分支）。
 blob 值 struct 元素不走这条下沉（整元素写要经句柄拷贝），超长时由写端的宽度检查报错。
-写端（`ByteWriter`）对所有 u8 / u16 字段做宽度检查，**超宽即抛**，不再静默截断。
+写端（`ByteWriter`）对所有 u8 / u16 字段做宽度检查，**超宽即抛**，不静默截断。
 
 ```
 # new int[] { 1, 2, 3 }
@@ -358,7 +355,7 @@ receiver 变成 `Value::StackArray { idx, frame_id }`，同四条指令走 `ctx.
 **交错数组**：`T[][]` 无专门指令——外层就是元素类型为 `T[]` 的普通数组，逐层 `array_get` 即可。
 多维 `T[,]` 没有 IR 支持，也没有对应的类型语法。
 
-### Objects (Phase 1 — class instances)
+### Objects (class instances)
 ```
 %r = obj_new  <ClassName> ctor=<CtorName>(%arg0, %arg1, ...)
                                                 # allocate + call overload-resolved ctor
@@ -395,16 +392,14 @@ JSON wire format (tag = `"op"`):
   调用（默认无参 ctor 语义）
 
 `obj_new` 分配 `ScriptObject`（slot-indexed 字段）后用 `[this, ...args]`
-调用。0.7 起 `ctor_name` 字段必备，0.6 及更早 zbc 不再被支持
-（按 [`../../agent/rules/philosophy.md "不为旧版本提供兼容"`](https://github.com/z42-lang/z42/blob/main/docs/agent/rules/philosophy.md#不为旧版本提供兼容)）。
+调用。`ctor_name` 字段必备（不为旧版本提供兼容，见 [`../../agent/rules/philosophy.md "不为旧版本提供兼容"`](https://github.com/z42-lang/z42/blob/main/docs/agent/rules/philosophy.md#不为旧版本提供兼容)）。
 
-0.9（2026-05-07，add-default-generic-typeparam）起，`obj_new` 携带 **resolved
+`obj_new` 携带 **resolved
 type-args 列表**（如 `new Foo<int>()` → `["int"]`），VM 在分配实例后写入
 `ScriptObject.type_args` 字段，供后续 `default_of` 等运行时类型查询使用。
-非泛型类传空列表，零开销。interp 与 JIT 路径都 propagate（JIT 路径 by
-`expand-jit-type-args` 2026-05-07 同日补齐）。
+非泛型类传空列表，零开销。interp 与 JIT 路径都 propagate。
 
-#### `default_of` (D-8b-3 Phase 2)
+#### `default_of`
 
 ```
 %r = default_of $<param_index>      # default value of this.type_args[idx]
@@ -496,10 +491,10 @@ exec.mode interp | jit | aot    # module-level directive
 
 ---
 
-### Closures (草案，L3 落地)
+### Closures（草案）
 
 闭包 / lambda / 函数引用相关的 IR 指令。用户面捕获语义见[闭包与捕获语义](https://z42-lang.github.io/z42/reference/language/closures.html)，运行期表示与栈分配见[逃逸分析](../runtime/escape-analysis.md)。
-opcode 编号在 `impl-closure-l3` 变更落地时分配。
+opcode 编号尚未分配。
 
 ```
 # 创建闭包：栈分配（档 A，env 在调用方栈帧）
@@ -529,7 +524,7 @@ opcode 编号在 `impl-closure-l3` 变更落地时分配。
 
 `.zbc` 和 `.zpkg` 二进制格式的完整规范见 [zbc.md](zbc.md)。
 
-## Rust 内存表示：热/冷装箱（slim-instruction-enum, 2026-06-11）
+## Rust 内存表示：热/冷装箱
 
 > 这是 **VM 内部内存布局** 决策，与 zbc/zpkg wire format **完全解耦**——
 > 二进制字节序列不变，无版本 bump。
@@ -548,8 +543,7 @@ VM 的 `metadata::Instruction` 是一个枚举，`Function.body` 是其 `Box<[In
 - **保持 inline**：所有算术/比较/位运算/常量/数组存取/地址加载（`LoadLocalAddr` 等）
   /`Convert`/`DefaultOf`/`PinPtr`/`UnpinPtr`，以及无 `String` 的 call 类
   `CallIndirect` / `CallNativeVtable`（它们的 inline payload 仍 ≤ 枚举上限）。
-- **效果**：`size_of::<Instruction>()` 从 **96 B**（旧最大变体 `CallNative`，三个
-  inline `String`）降到 **32 B**（现由 `CallIndirect` / `CallNativeVtable` 这两个无
+- **效果**：`size_of::<Instruction>()` 为 **32 B**（由 `CallIndirect` / `CallNativeVtable` 这两个无
   String 但带 `Box<[Reg]>` 的变体决定）。`metadata::bytecode_tests::instruction_size_is_slim`
   静态断言 ≤ 32 B 守门。
 
@@ -562,7 +556,6 @@ newtype 变体的内层 struct 字段会被 serde **摊平进 tag 对象**，故
 
 #### slim-terminator-future: 装箱 `Terminator` 的 String label
 
-- **来源**：slim-instruction-enum（2026-06-11）
 - **触发原因**：`Terminator`（`Br { label }` / `BrCond { …labels }`）带 `String`，
   但它是 **per-block**（每个 basic block 末尾一个），不是 per-instruction 热数组，
   装箱收益远低于 `Instruction`。
@@ -573,7 +566,6 @@ newtype 变体的内层 struct 字段会被 serde **摊平进 tag 对象**，故
 
 #### slim-instruction-stringid: `String → StringId` 收敛（E2.P3，正交后续）
 
-- **来源**：review.md E2.P3。
 - **触发原因**：本变更只调整装箱布局，未改 `String` 表示本身；把 name 字段换成
   intern 过的 `StringId` 可进一步缩小 payload struct 并去重。
 - **前置依赖**：StringId intern 表贯通 zbc reader → metadata。

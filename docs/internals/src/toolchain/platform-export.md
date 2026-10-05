@@ -1,6 +1,6 @@
 # 平台发布与导出：动词模型
 
-> 对齐：2026-09-17（change `restructure-docs-three-books`）｜ 代码：`src/toolchain/launcher/core/launcher_export.z42`、`src/toolchain/builder/core/builder_publish.z42`、`src/toolchain/builder/core/builder_device.z42`
+> 代码：`src/toolchain/launcher/core/launcher_export.z42`、`src/toolchain/builder/core/builder_publish.z42`、`src/toolchain/builder/core/builder_device.z42`
 >
 > 命令与旗标怎么敲 → [工具链参考](https://z42-lang.github.io/z42/reference/toolchain/index.html)；
 > 产物形态的坐标系 → [部署模型](deployment-model.md)；工程生成细节 → [export](export.md)。
@@ -132,6 +132,6 @@ z42b 里没有任何 cargo / wasm-pack / cargo-ndk 调用。
   重新 export 会覆盖，平台专属改动没有受保护的去处（见 [export](export.md)）。
 - **workload 的尾阶段没接线**：`iOSWorkload` / `AndroidWorkload` / `WasmWorkload`
   描述了 `Configure → Package` 该做什么，但方法体是注释，且没被 `_selectWorkload` 选中。
-  （`DesktopWorkload` 连类都没有了：desktop 的 appbuilder 于 2026-09-29 删除——它零活内容，
+  （`DesktopWorkload` 连类都没有了：desktop 没有 appbuilder——它零活内容，
   真接尾阶段时要重建一个 handler。）今天真跑的平台逻辑在 launcher 的 export 与 z42b 的 publish 里，
   不在管线上（见 [z42b](z42b.md#管线之外的两条实路)）。

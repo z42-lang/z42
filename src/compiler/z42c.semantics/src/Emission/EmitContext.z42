@@ -154,28 +154,29 @@ public sealed class EmitContext {
         // `$struct` 后缀；而 `Methods` 映射键仍是 `RegKey`（裸名）⇒ 必须先剥回来，否则本该
         // 「自有」的方法查不到、IC-1 反劫持守卫（调用方的 `owns`）静默失效。
         string method = MethodSymbol.StripCallKey(method0);
-        string cur = clsName;
+        // 泛型实例化名（List<string>）→ 裸名（List）查 LocalClasses/SymbolTable。
+        string bare = clsName;
+        int bi = 0;
+        bool foundAngle = false;
+        while (bi < bare.Length && !foundAngle) {
+            if (bare.CharAt(bi) == '<') { bare = bare.Substring(0, bi); foundAngle = true; }
+            bi = bi + 1;
+        }
+        // IC-3 prim→wrapper：prim 别名（"string"）→ 包装类名（"String"）再查 LocalClasses
+        // 镜像 C# ReceiverChainHasMethod 经 QualifyClassName 把 prim 映射到 "Std.String" 等
+        // FQ 类名在 ClassRegistry 查找；z42c 用短名 LocalClasses，故只需 bare→wrapper 映射。
+        string lookup = EmitContext._primWrapper(bare);
+        if (!this.Symbols.HasClass(lookup)) { return false; }
+        Z42ClassType ct = this.Symbols.GetClass(lookup);
+        // 入口按名字查一次，之后每跳走句柄（`_nextBase`）。此前每跳都按 `BaseName` 短名重查 ——
+        // 跨 ns 同短名（`A.Foo : B.Foo`）会查回自己，靠 32 跳上限才停下。
         int hops = 0;
-        while (hops < 32) {
-            // 泛型实例化名（List<string>）→ 裸名（List）查 LocalClasses/SymbolTable。
-            string bare = cur;
-            int bi = 0;
-            bool foundAngle = false;
-            while (bi < bare.Length && !foundAngle) {
-                if (bare.CharAt(bi) == '<') { bare = bare.Substring(0, bi); foundAngle = true; }
-                bi = bi + 1;
-            }
-            // IC-3 prim→wrapper：prim 别名（"string"）→ 包装类名（"String"）再查 LocalClasses
-            // 镜像 C# ReceiverChainHasMethod 经 QualifyClassName 把 prim 映射到 "Std.String" 等
-            // FQ 类名在 ClassRegistry 查找；z42c 用短名 LocalClasses，故只需 bare→wrapper 映射。
-            string lookup = EmitContext._primWrapper(bare);
-            if (this.LocalClasses == null || !this.LocalClasses.ContainsKey(lookup)) { return false; }   // 非本地声明类 → 不算 vtable-owned
-            if (!this.Symbols.HasClass(lookup)) { return false; }
-            Z42ClassType ct = this.Symbols.GetClass(lookup);
+        while (ct != null) {
+            if (this.LocalClasses == null || !this.LocalClasses.ContainsKey(ct.Name())) { return false; }   // 非本地声明类 → 不算 vtable-owned
             if (ct.Methods.ContainsKey(method)) { return true; }
             if (!ct.HasBase || ct.BaseName == "") { return false; }
-            cur = ct.BaseName;
-            hops = hops + 1;
+            ct = this._nextBase(ct);
+            hops = SymbolTable.NextBaseHop(hops);
         }
         return false;
     }
@@ -211,7 +212,7 @@ public sealed class EmitContext {
         string method = MethodSymbol.StripCallKey(method0);
         Z42ClassType ct = recvType as Z42ClassType;
         int hops = 0;
-        while (ct != null && hops < 32) {
+        while (ct != null) {
             int i = 0;
             while (i < ct.OwnMethodCount) {
                 string nm = ct.OwnMethodNames[i];
@@ -226,7 +227,7 @@ public sealed class EmitContext {
             if (this.Symbols == null) { return false; }
             ct = this._nextBase(ct);
             if (ct == null) { return false; }
-            hops = hops + 1;
+            hops = SymbolTable.NextBaseHop(hops);
         }
         return false;
     }
@@ -369,7 +370,7 @@ public sealed class EmitContext {
     public string ResolveMethodOfTarget(Z42ClassType startCt, string methodKey) {
         Z42ClassType ct = startCt;
         int hops = 0;
-        while (ct != null && hops < 32) {
+        while (ct != null) {
             if (ct.Methods.ContainsKey(methodKey)) {
                 string fq = ct.Fqn() + "." + methodKey;
                 if (this.LocalClasses != null && this.LocalClasses.ContainsKey(ct.Name())) { return fq; }
@@ -379,7 +380,7 @@ public sealed class EmitContext {
             if (!ct.HasBase) { return ""; }
             if (this.Symbols == null) { return ""; }
             ct = this.Symbols.BaseOf(ct);   // A5：走句柄
-            hops = hops + 1;
+            hops = SymbolTable.NextBaseHop(hops);
         }
         return "";
     }
@@ -406,7 +407,7 @@ public sealed class EmitContext {
         if (methodKey.EndsWith("$struct")) { return ""; }
         Z42ClassType ct = startCt;
         int hops = 0;
-        while (ct != null && hops < 32) {
+        while (ct != null) {
             // 只在**可限定**类上构造目标名（QualifyClass 给出与 IrGen 发射一致的 FQ——本地=当前 ns、
             // imported=ImportedClassNs 源 ns；泛型经 _classShortName 的 $N 条件 mangle）。
             if (!this._devirtQualifiable(ct)) { return ""; }
@@ -447,7 +448,7 @@ public sealed class EmitContext {
             if (this.Symbols == null) { return ""; }
             ct = this._nextBase(ct);
             if (ct == null) { return ""; }
-            hops = hops + 1;
+            hops = SymbolTable.NextBaseHop(hops);
         }
         return "";
     }

@@ -1,6 +1,6 @@
 # 包划分与依赖层级
 
-> 对齐：2026-09-17 ｜ 代码：`src/libraries/*/z42.*.z42.toml`（依赖声明）、`src/libraries/README.md`（目录说明）
+> 代码：`src/libraries/*/z42.*.z42.toml`（依赖声明）、`src/libraries/README.md`（目录说明）
 >
 > 一个方法落哪一层实现、全仓 native 表面有多大 → [实现分层与 native 预算](architecture.md)。
 > 接口面怎么设计（漏斗 / 正交轴 / 便利糖）→ [API 设计准则](api-guidelines.md)。
@@ -9,7 +9,7 @@
 
 ## 1. `src/libraries/` 只放用户 stdlib（`Std.*`）
 
-**区分靠物理位置，不靠命名空间**（relocate-compiler-domain-libs，2026-09-27 起）：
+**区分靠物理位置，不靠命名空间**：
 
 | 域 | 在哪 | 命名空间 | 面向 | 普通工程能看见吗 |
 |---|---|---|---|---|
@@ -21,9 +21,9 @@
 （`Std.Scripting` —— 命名空间待后续改名批次归位）+ 编译器后端 `z42c.semantics` / `z42c.pipeline` /
 `z42c.driver`。
 
-⭐ **为什么改成按位置**：此前这五个 `Z42.*` 包与用户 stdlib 同住 `src/libraries/`，于是「进不进 SDK
-`libs/`」「publisher 要不要 bundle」「递归穿透算不算框架到此为止」三条判据**共用一个旋钮**（目录在哪），
-而隔离只靠「命名空间不同」这条约定 —— 约定不执行任何检查。挪开之后，**普通工程的解析域只有
+⭐ **为什么按位置区分**：若编译器域的 `Z42.*` 包与用户 stdlib 同住 `src/libraries/`，则「进不进 SDK
+`libs/`」「publisher 要不要 bundle」「递归穿透算不算框架到此为止」三条判据会**共用一个旋钮**（目录在哪），
+而隔离只靠「命名空间不同」这条约定 —— 约定不执行任何检查。分开放之后，**普通工程的解析域只有
 `libs/`，它在结构上就找不到编译器域的包**：关键不变量从「靠约定」变成「构造式不变式」。
 
 **本页其余规则（层级、interop 归属、R1–R4）只约束 `Std.*` 用户 stdlib。**

@@ -1,11 +1,3 @@
 # xtask test docs —— 存量死链基线（棘轮）。
 # 每行 `<文件> -> <链接目标>`。**只许剔除已修好的，不许写进新死链**。
 # 三书重构搬走一批，这里就该少一批；重构完成后本文件应为空并删除。
-src/libraries/README.md -> z42.core/src/Bool.z42
-src/libraries/README.md -> z42.io/src/Path.z42
-src/libraries/README.md -> z42.io/tests/16_path/
-src/toolchain/README.md -> repl/
-src/toolchain/workload/desktop/README.md -> ../../../../runtime/include/z42_host.h
-src/toolchain/workload/desktop/README.md -> ../../../../../scripts/xtask_test_desktop.z42
-src/toolchain/workload/wasm/README.md -> js/index.d.ts
-src/toolchain/workload/wasm/README.md -> ../../../../scripts/xtask_test_wasm.z42

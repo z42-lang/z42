@@ -1,15 +1,14 @@
 # IR 优化与特化（IR Optimization & Specialization）
 
-> **页型**: 决策页 ｜ **状态**: 📋 设计已定 / **未实施** ｜ **代码**: —
-> **相关**: [optimization-pipeline.md](optimization-pipeline.md) ｜ **对齐**: 2026-09-17
-
-> **状态：DESIGN（目标架构，未实施）** · 创建 2026-06-21
+> **页型**: 决策页 ｜ **代码**: —
+> **相关**: [optimization-pipeline.md](optimization-pipeline.md)
+> 待办：本页设计的特化框架（intrinsic 注册表 / 常量折叠 / 引擎内联）尚未实施。
 >
 > 本文设计 z42 的**编译期 IR 优化**与 **intrinsic 特化**：让 tier0 基线本身就快，并提供一套可持续扩展的特化框架（常量折叠 + 引擎内联）。与分层执行 [tiered-execution.md](tiered-execution.md) 互补（那篇讲运行时分层/回收，本篇讲 IR 层优化）；当前架构见 [vm-architecture.md](vm-architecture.md)、IR 指令集见 [ir.md](../formats/ir.md)。
 
 ---
 
-## 1. 核心原则：编译期就把 tier0 优化好（2026-06-21 定）
+## 1. 核心原则：编译期就把 tier0 优化好
 
 **编译生成 IR 时一定要对 tier0 做优化，使 tier0 基线性能本身就好——不依赖后续 tier 兜底。**
 
@@ -35,7 +34,7 @@
 
 ## 2. 特化 / intrinsic 框架（已定方案）
 
-**决策（2026-06-21）**：编译器折常量 + 引擎内联非常量 + **纯度用硬编码 intrinsic 表**（对标 HotSpot intrinsics / .NET `[Intrinsic]`）。
+**决策**：编译器折常量 + 引擎内联非常量 + **纯度用硬编码 intrinsic 表**（对标 HotSpot intrinsics / .NET `[Intrinsic]`）。
 
 ### 2.1 两级特化
 1. **编译期常量折叠**：intrinsic + 全常量输入 + 纯 → 折成字面量。跨 interp/jit/aot 受益（尤其 iOS）。
@@ -57,7 +56,7 @@ IR codegen 发成员调用前查表：命中且常量+纯 → 折叠；命中非
 - `pure` 必须真纯（无副作用、确定性）才可折叠 / 跨调用消除。
 
 ### 2.4 案例：`"sss".Length`
-- `String` sealed + `.Length` 纯 + 不可 override + 输入是**驻留字面量**（`Module.interned_strings`，`string literal interning` 已落地）→ 编译期直接折成 `3`，**零运行时调用**。
+- `String` sealed + `.Length` 纯 + 不可 override + 输入是**驻留字面量**（`Module.interned_strings`）→ 编译期直接折成 `3`，**零运行时调用**。
 - `s.Length`（s 运行时才知）→ 降成 `StrLen` opcode → interp 复用已有 **"Length/CharAt 元数据缓存"** 快路径；JIT 内联 `load [str + len_off]`。
 
 ---

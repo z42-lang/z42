@@ -1,6 +1,5 @@
 # 基础泛型集合（`List` / `Dictionary` / `HashSet`）
 
-> 对齐：2026-09-17（change `restructure-docs-three-books`）；
 > 源码路径 `src/libraries/z42.core/src/Collections/`；命名空间 `Std.Collections`
 
 `List<T>`、`Dictionary<TKey, TValue>`、`HashSet<T>` 是 z42 的三件基础泛型容器，
@@ -18,14 +17,12 @@ struct。它们**物理上住在 `z42.core` 包**（隐式依赖，工程无需�
 泛型动态数组：摊还 O(1) 尾部追加与随机访问，O(n) 插入 / 删除 / 线性查找。
 **对 `T` 没有类型约束**——相等与比较是**运行期**要求，不是编译期约束（见下「相等与比较」）。
 
-`List<T>` **实现 `IEnumerable<T>`**（2026-09-25 起）—— 可以赋给 / 传给 `IEnumerable<T>`，也可以
+`List<T>` **实现 `IEnumerable<T>`**—— 可以赋给 / 传给 `IEnumerable<T>`，也可以
 经接口静态类型迭代。⚠️ `List<T>` 自身的 `foreach` 仍走**索引快路径**（`Count` + `get_Item`），
 **不经** enumerator、不装箱；接口那条路才会用到 `ListEnumerator<T>`。
 
-> 这句声明此前**写不出来**：`GetEnumerator()` 按无装箱设计返回具体 struct `ListEnumerator<T>`
-> （两字段 = blob、走 sret），而接口声明返回 `IEnumerator<T>`（引用型、无 sret），两侧调用约定
-> 不符 ⇒ 编译期零诊断、运行期 `takes 2 physical argument(s), the call passes 1`。
-> 编译器现在为这种协变合成桥接（`add-iface-return-bridge`），声明才成立。
+> `GetEnumerator()` 按无装箱设计返回具体 struct `ListEnumerator<T>`，而接口声明返回
+> `IEnumerator<T>`（引用型）；两侧调用约定不同，编译器为这种协变合成桥接，声明才成立。
 
 ```z42
 public partial class List<T> : IEnumerable<T> {

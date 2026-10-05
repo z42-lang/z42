@@ -12,17 +12,16 @@ z42 有**两类** native 库，走**两条**互不干扰的布局/解析路径�
 | 布局 | `<sdk>/native/`（集中） | **平铺在消费方 zpkg 旁** `<zpkg-dir>/lib<name>.<suffix>` |
 | 发现 | `ext::native_search_paths()` **急切扫描**目录 | `ext::resolve_native_beside(zpkg_dir, name)` **按名定向 stat** |
 | 盲扫? | 是——扫目录里所有 `libz42_*` 并 `dlopen` | **否**——只 stat 被声明需要的那一个 |
-| 本页焦点 | 现状不变（下 §1 概述） | 本 change 新增（§2/§3） |
+| 本页章节 | §1 | §2/§3 |
 
 > native 库是「path 依赖」的另一半：path 依赖 colocate 私有组件的 **zpkg** 进 payload，native
 > 库同族，也 colocate 在消费方 zpkg 旁。
 
 ---
 
-## 1. 标准库 native：`<sdk>/native/` 急切扫描（现状不变）
+## 1. 标准库 native：`<sdk>/native/` 急切扫描
 
-compression 等是**运行时横切库**（跨平台、随 SDK 走、不属任何单个 app），布局与解析**本 change 不
-碰**：
+compression 等是**运行时横切库**（跨平台、随 SDK 走、不属任何单个 app），布局与解析如下：
 
 - **布局**：`<sdk>/native/libz42_<name>.{so,dylib,dll}`。
 - **发现**：VM 启动 `ext::load_all` 扫 `native_search_paths()`（按序：`Z42_NATIVE_PATH` 覆盖 →
@@ -32,8 +31,7 @@ compression 等是**运行时横切库**（跨平台、随 SDK 走、不属任�
 - **确定序**：扫描前必须 `sort`（common-pitfalls §1：`read_dir` 顺序依赖 OS/FS，first-wins 注册
   会非确定）。
 
-急切盲扫对「随 SDK 分发的一小撮已知横切库」够用，但它是 repl WARN 污染的根源（§2 讲为什么把
-repl 移出这条路径）。
+急切盲扫对「随 SDK 分发的一小撮已知横切库」够用，但它是 repl WARN 污染的来源（§2 讲为什么 repl 不走这条路径）。
 
 ---
 
@@ -69,18 +67,17 @@ pub(crate) fn resolve_native_beside(zpkg_dir: &Path, lib_name: &str) -> Option<P
 「消费方 zpkg 目录」= interactive apphost 的 payload 目录 **`<sdk>/programs/z42i/`**（`z42i` 的
 `z42.interactive.zpkg` 就在那）。
 
-- **产出 + 打包**（add-native-dep-config）：`libz42_repl` 由 **z42.repl 自己的 build hook**
+- **产出 + 打包**：`libz42_repl` 由 **z42.repl 自己的 build hook**
   （`repl/hooks/hooks.z42` 的 `ProvideNative`）在 `z42b publish z42.interactive` 时现场
   `cargo build -p z42-repl` 产出，经 `_pubBundleProjectNativeDeps` 沿 path-dep 闭包平铺进
-  `programs/z42i/`——**不再有** xtask 的 `_pkgStageReplCdylib` 特殊处理，packaging 只整目录拷
-  publish 输出。`_pkgInstallZ42vm` **不**往 `bin/` 放 repl 库；`_copyNativeLibs` 的 `libz42*` glob 仍
+  `programs/z42i/`——packaging 只整目录拷 publish 输出，无 repl 特殊处理。`_pkgInstallZ42vm` **不**往 `bin/` 放 repl 库；`_copyNativeLibs` 的 `libz42*` glob 仍
   显式排除 repl（hook 把它建进共享 cargoOut，排除防其漏进 `<sdk>/native/`）。
 - **发现**（`corelib::repl_native::candidates()`）：`Z42_REPL_NATIVE` 覆盖 → dev cargo-target
   目录（z42vm 旁）→ 从运行 `<sdk>/bin/<app>` 派生 `<sdk>/programs/z42i/`，经共享的
   `resolve_native_beside` 解析。
-- **为什么移出 `bin/`**：repl 库曾与通用 z42vm 同处 `bin/`，被 §1 的急切 ext 扫描器 `dlopen` →
+- **为什么不放 `bin/`**：放进 `bin/` 会被 §1 的急切 ext 扫描器 `dlopen` →
   `ignoring unknown lib repl` WARN，SDK VM 跑任何程序都喷、污染 golden。物理隔离到
-  `programs/z42i/`（通用 z42vm 的 `exec_dir` 扫描不含它）根治了这条 WARN，同时把 repl 归入
+  `programs/z42i/`（通用 z42vm 的 `exec_dir` 扫描不含它）避免了这条 WARN，同时把 repl 归入
   「组件私有 native」这条正规路径。
 
 > repl **不是** `[Native(lib=)]` ext-builtin（那是 §1 的注册式扩展），而是带回调 C ABI 的专用
@@ -89,7 +86,7 @@ pub(crate) fn resolve_native_beside(zpkg_dir: &Path, lib_name: &str) -> Option<P
 
 ---
 
-## 3. 声明面：`[native.<name>]` + build-hook 产出（add-native-dep-config）
+## 3. 声明面：`[native.<name>]` + build-hook 产出
 
 一个包在 manifest 里**声明**它携带的私有 native 库，由 build-hook 现场产出（或指向预编译文件），
 `z42 publish` 沿依赖闭包自动把目标平台那份平铺进消费方 payload。
@@ -99,10 +96,10 @@ pub(crate) fn resolve_native_beside(zpkg_dir: &Path, lib_name: &str) -> Option<P
   生产端、运行期 `resolve_native_beside` **共用这一条派生规则**，Windows 不是特例（模型 `NativeSpec`，
   解析 `ManifestLoader._parseNative` → `ProjectManifest.Natives`）。
 - **两条产出/定位路径**（语言无关：rust/c/c++/vendor blob 一视同仁）：
-  - **hook 现场编**（add-native-dep-config）：`[build] hooks` + `BuildHooks.ProvideNative(ctx)`（专用窄相位）
+  - **hook 现场编**：`[build] hooks` + `BuildHooks.ProvideNative(ctx)`（专用窄相位）
     —— hook `cargo build`/`cc` 出 native，拷进 `ctx.Dirs.Dist/<rid>/<prefix><name><suffix>`（按 rid 分目录，
     交叉编译不撞）+ `ctx.AddOutput("native", …)`。
-  - **已提交预编译文件**（add-precompiled-native）：`[native.<name>].dir = "<基目录>"`（相对 manifest，**无**
+  - **已提交预编译文件**：`[native.<name>].dir = "<基目录>"`（相对 manifest，**无**
     `[build] hooks`）—— 文件按约定放在 `<dir>/<rid>/<prefix><name><suffix>`，消费方按**目标 rid** 复制。示例：
     ```
     mylib/
@@ -114,15 +111,14 @@ pub(crate) fn resolve_native_beside(zpkg_dir: &Path, lib_name: &str) -> Option<P
     ```
     二者并存时 **hook 优先**（`dir` 忽略）。
 - **传递复制**：`_pubBundleProjectNativeDeps` 走消费方 dep 闭包（**按 dep 声明的 `{ path }` 解析**，
-  version-string / 仓内 dep 才按名搜 `srcRoot`——故**仓外 path-dep 消费者**同样生效，不再要求在仓源码树内）
+  version-string / 仓内 dep 才按名搜 `srcRoot`——故**仓外 path-dep 消费者**同样生效，无需在仓源码树内）
   → 对声明 `[native]` 的 dep：有 hooks 跑其 `ProvideNative`、无 hooks 从 `dir` 复制预编译文件 → 取**目标
   rid** 那份、平铺（去 rid 子目录）进消费方 dist → `_pubCopyDistDeps` 带进 payload（如 `programs/z42i/`）。
   运行期 `resolve_native_beside` 按名解析，不变。
-- **消费者**：`z42.repl.z42.toml` 声明 `[build] hooks` + `[native.z42_repl]`，hook 编 `crates/z42-repl`
-  （取代已删的 xtask `_pkgStageReplCdylib`）——**hook 路径**的实例。**预编译路径**由合成 fixture
+- **消费者**：`z42.repl.z42.toml` 声明 `[build] hooks` + `[native.z42_repl]`，hook 编 `crates/z42-repl`——**hook 路径**的实例。**预编译路径**由合成 fixture
   （`_apphostSmoke` 的 prebuilt-native 一腿）覆盖，暂无仓内真实预编译消费者。
 
-**Deferred**：① 显式 per-rid 任意路径覆盖（`files."rid"="path"`，破 `<dir>/<rid>/<派生名>` 约定的 vendor
+**待办**：① 显式 per-rid 任意路径覆盖（`files."rid"="path"`，破 `<dir>/<rid>/<派生名>` 约定的 vendor
 blob）；② cross-desktop / 移动端 native **交叉编译产出**（复制已支持任意目标 rid，产出仍 host-only）。
 
 ---

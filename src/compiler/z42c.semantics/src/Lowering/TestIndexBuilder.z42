@@ -153,17 +153,17 @@ public sealed class TestIndexBuilder {
         return chain;
     }
 
+    // 入口按名字查一次，之后每跳走句柄（`BaseOf`）；祖先按**短名**比较（`[ShouldThrow<E>]` 的 E 是源码短名）。
     private bool _isDescendantOf(string clsName, string ancestorShortName) {
-        string cur = clsName;
+        SymbolTable st = this._g._symbols;
+        Z42ClassType ct = st.Classes.Get(clsName) as Z42ClassType;
         int hops = 0;
-        while (hops < 32) {
-            if (!this._g._symbols.Classes.ContainsKey(cur)) { return false; }
-            Z42ClassType ct = this._g._symbols.Classes.Get(cur) as Z42ClassType;
-            if (!ct.HasBase || ct.BaseName == "") { return false; }
-            string baseShort = this._shortName(ct.BaseName);
-            if (baseShort == ancestorShortName) { return true; }
-            cur = baseShort;
-            hops = hops + 1;
+        while (ct != null) {
+            Z42ClassType b = st.BaseOf(ct);
+            if (b == null) { return false; }
+            if (this._shortName(b.Name()) == ancestorShortName) { return true; }
+            ct = b;
+            hops = SymbolTable.NextBaseHop(hops);
         }
         return false;
     }
