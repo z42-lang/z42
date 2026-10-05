@@ -114,3 +114,19 @@ void test_trygetvalue_unsupported_type_throws() {
     }
     Assert.True(threw);
 }
+
+[Test]
+void test_trygetvalue_wrong_kind_message_names_the_key() {
+    // 值对象不知道自己挂在哪个键下 ⇒ 只有 TryGetValue 能把键名补进消息；不补的话用户只看到
+    // 「expected string, got long」，得在整份文件里猜是哪一项。
+    var t = TomlValue.Parse("version = 1");
+    string msg = "";
+    try {
+        string v = "";
+        t.TryGetValue<string>("version", ref v);
+    } catch (TomlException e) {
+        msg = e.Message;
+    }
+    Assert.True(msg.StartsWith("`version`: "));
+    Assert.True(msg.Contains("expected string"));
+}
