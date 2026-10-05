@@ -494,21 +494,19 @@ public sealed partial class DeclEnforcer {
         }
     }
 
-    // 基类链是否（传递地）到达 `Exception`；类型自身就是 Exception 也算。32 跳上限防成环。
-    // 按**短名**比较 —— 表里存的 BaseName 可能带命名空间（同 TestIndexBuilder._isDescendantOf；
-    // 那份是 private + 绑 IrGen 反向引用，无法复用，属刻意重复，见 design §6）。
+    // 基类链是否（传递地）到达 `Exception`；类型自身就是 Exception 也算。入口按名字查一次，之后每跳走句柄
+    // （`BaseOf`）；按**短名**比较（同 TestIndexBuilder._isDescendantOf；那份是 private + 绑 IrGen 反向引用，
+    // 无法复用，属刻意重复）。
     private bool _tsDerivesFromException(SymbolTable t, string clsName) {
         if (clsName == "Exception") { return true; }
-        string cur = clsName;
+        Z42ClassType ct = t.Classes.Get(clsName) as Z42ClassType;
         int hops = 0;
-        while (hops < 32) {
-            if (!t.Classes.ContainsKey(cur)) { return false; }
-            Z42ClassType ct = t.Classes.Get(cur) as Z42ClassType;
-            if (!ct.HasBase || ct.BaseName == "") { return false; }
-            string baseShort = this._tsShortName(ct.BaseName);
-            if (baseShort == "Exception") { return true; }
-            cur = baseShort;
-            hops = hops + 1;
+        while (ct != null) {
+            Z42ClassType b = t.BaseOf(ct);
+            if (b == null) { return false; }
+            if (this._tsShortName(b.Name()) == "Exception") { return true; }
+            ct = b;
+            hops = SymbolTable.NextBaseHop(hops);
         }
         return false;
     }

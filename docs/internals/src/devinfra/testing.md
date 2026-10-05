@@ -313,8 +313,18 @@ nightly 周期——两个断链窗口叠加。
 
 ## 7. 平台测试与嵌入 corpus
 
+**设备测试走一条命令**，本地与 CI 相同：
+
 ```bash
-./xtask test platform <desktop|wasm|ios|android|all> [build|assets|run]
+./xtask test app <wasm|ios|android|all> [--filter <kw>] [--shard k/n]
+```
+
+准备 test agent → R1–R7 → 嵌入 bundle → 在宿主工程副本里构建 → 设备上运行，最后给汇总表；本机跑不了的
+平台（非 macOS / 无 Xcode；Linux 无 KVM；Android 没有在跑的设备）记为**跳过**并说明原因。
+步骤与设计见[测试用例组织规范 §6](test-layout.md)。下面两条是它串起来的分步命令，排查单步时用：
+
+```bash
+./xtask test platform <desktop|wasm|ios|android|all> [stage|build|assets|run]
 ```
 
 三阶段：`build` 造平台原生工程（apphost / wasm-pack / xcframework / AAR）；`assets` 编
