@@ -43,7 +43,7 @@ public static class ModuleInitScan {
         if (md.ParamCount != 0) { return false; }
         if (md.TypeParams != null && md.TypeParams.Count != 0) { return false; }
         if (!ModuleInitScan._returnsVoid(md)) { return false; }
-        if (isClassMember && !DeclFacts._hasWord(md.Mods, "static")) { return false; }
+        if (isClassMember && !Mod.Has(md.ModFlags, Mod.Static)) { return false; }
         return true;
     }
 
@@ -58,7 +58,7 @@ public static class ModuleInitScan {
         MethodDecl md = inner as MethodDecl;
         if (md.IsCtor) { return "`[ModuleInit]` 不能标注构造器"; }
         if (!md.HasBody) { return "`[ModuleInit]` 方法必须有方法体"; }
-        if (isClassMember && !DeclFacts._hasWord(md.Mods, "static")) {
+        if (isClassMember && !Mod.Has(md.ModFlags, Mod.Static)) {
             return "`[ModuleInit]` 方法必须是 `static`（包初始化器无 this）";
         }
         if (md.ParamCount != 0) { return "`[ModuleInit]` 方法不能有参数"; }

@@ -1,5 +1,5 @@
 // 符号收集 Pass B（成员填充）：从 SymbolCollector 分出。字段/方法/属性/索引器签名 + regKey mangle
-// + const 收集 + 转换运算符声明检测。共享辅助（_unwrap/_vis/_hasWord/_chkTypeRef/_methodSymbol）+ partial
+// + const 收集 + 转换运算符声明检测。共享辅助（_unwrap/_vis/_chkTypeRef/_methodSymbol）+ partial
 // 状态（_partialDecls/_partialImpls）留 hub SymbolCollector，经 _sc 委回。
 namespace Z42.Semantics;
 using Z42.IR;
@@ -252,37 +252,37 @@ public sealed class MemberCollector {
                 FieldDecl fd = mem as FieldDecl;
                 Z42Type ft = table.ResolveTypeP(fd.Type, tp, tpc);
                 this._sc._chkTypeRefT(ft, fd.Type, c.Name, table, fd.Type.Span);   // enforce-class-access：字段类型引用 + E0456
-                bool fconst = this._sc._hasWord(fd.Mods, "const");   // add-const-keyword：const 隐式 static、无存储
-                bool fstatic = this._sc._hasWord(fd.Mods, "static") || fconst;
+                bool fconst = Mod.Has(fd.ModFlags, Mod.Const);   // add-const-keyword：const 隐式 static、无存储
+                bool fstatic = Mod.Has(fd.ModFlags, Mod.Static) || fconst;
                 // add-partial-types：跨碎片重复字段 → 报错（同碎片内重复是既有语义，不新增判断）。
                 if (ct.IsPartial && ct.Fields.ContainsKey(fd.Name)) {
                     this._sc.Diags.Error(DiagnosticCodes.PartialDuplicateMember,
                         "partial type `" + c.Name + "` defines field `" + fd.Name + "` in more than one fragment", fd.Span);
                 }
-                FieldSymbol fsym = new FieldSymbol(fd.Name, this._sc._vis(fd.Mods, "private"), ft, fstatic, c.Name);
+                FieldSymbol fsym = new FieldSymbol(fd.Name, this._sc._vis(fd.ModFlags, "private"), ft, fstatic, c.Name);
                 fsym.IsNullable = (fd.Type is NullableType);   // define-null-check-marks：`string? X;` → 读出即受检
-                fsym.IsReadonly = this._sc._hasWord(fd.Mods, "readonly");   // add-readonly-fields-opt：本地字段 readonly → 优化提示
+                fsym.IsReadonly = Mod.Has(fd.ModFlags, Mod.Readonly);   // add-readonly-fields-opt：本地字段 readonly → 优化提示
                 if (fconst) { this._collectConstField(fd, fsym, c.Name, classConstEnv); }   // add-const-keyword：求值 + 登记 ConstVal + 诊断
                 if (HandlerRegistry.HasDeprecated(c.Members[j])) { fsym.IsDeprecated = true; fsym.DeprecationMsg = HandlerRegistry.DeprecatedMsg(c.Members[j]); }   // add-deprecated-directive：本地字段级
                 ct.Fields.Put(fd.Name, fsym);
-                if (this._sc._hasWord(fd.Mods, "event")) { ct.EventFields.Put(fd.Name, "1"); }   // add-event-keyword-multicast
+                if (Mod.Has(fd.ModFlags, Mod.Event)) { ct.EventFields.Put(fd.Name, "1"); }   // add-event-keyword-multicast
 
                 // G18：实例字段记有序元数据（声明序 + TSIG 规范拼写）供 TSIG 继承字段展开；static 不入（C# 不继承合并 static）。
                 // 用 resolved Z42Type.Name() 镜像 C# TypeToString(sym.Type)：接口→裸名、Predicate<T>→Func<T,bool>、
                 // Func/Action 规范化；Unknown/Error → AST fallback（imported 包 interface 未进 ImportedSymbols 时降级）。
-                if (!fstatic) { string fsp = (ft is Z42UnknownType || ft is Z42ErrorType) ? TypeNameResolver.TsigTypeName(fd.Type) : TypeNameResolver.SurfaceTypeName(ft); ct.AddOwnField(fd.Name, fsp, this._sc._vis(fd.Mods, "private")); }
+                if (!fstatic) { string fsp = (ft is Z42UnknownType || ft is Z42ErrorType) ? TypeNameResolver.TsigTypeName(fd.Type) : TypeNameResolver.SurfaceTypeName(ft); ct.AddOwnField(fd.Name, fsp, this._sc._vis(fd.ModFlags, "private")); }
             } else if (mem is PropertyDecl) {
                 // 属性作为字段处理（type-checking 用；auto-property { get;/set; } 等同只读/读写字段）。
                 PropertyDecl pd = mem as PropertyDecl;
                 Z42Type pft = table.ResolveTypeP(pd.Type, tp, tpc);
                 this._sc._chkTypeRefT(pft, pd.Type, c.Name, table, pd.Type.Span);   // enforce-class-access：属性类型引用 + E0456
-                bool pfstatic = this._sc._hasWord(pd.Mods, "static");
-                FieldSymbol pfsym = new FieldSymbol(pd.Name, this._sc._vis(pd.Mods, "private"), pft, pfstatic, c.Name);
+                bool pfstatic = Mod.Has(pd.ModFlags, Mod.Static);
+                FieldSymbol pfsym = new FieldSymbol(pd.Name, this._sc._vis(pd.ModFlags, "private"), pft, pfstatic, c.Name);
                 pfsym.IsNullable = (pd.Type is NullableType);   // define-null-check-marks：属性同理（D4 的第一条理由正是属性会被读两次）
                 ct.Fields.Put(pd.Name, pfsym);
                 // 镜像 C# SynthesizeClassAutoProp：后备字段名 __prop_X（非源名 X），供 TSIG 导出匹配。
                 // extern/native 属性无后备字段；后备字段 vis 固定 private（C# 合成行为）。
-                bool pfExtern = this._sc._hasWord(pd.Mods, "extern");
+                bool pfExtern = Mod.Has(pd.ModFlags, Mod.Extern);
                 // add-property-getter：计算属性（HasGetBody）无后备字段——getter 是真实函数体，不读 __prop_X。
                 // add-property-custom-setter：自定义 setter（HasSetBody）同理无后备——setter 自管存储；混合（一半带体
                 // 一半 auto）已在 parser 报 E0474，故这里「任一带体 ⇒ 无后备」不会漏掉 auto 半边的存储。
@@ -299,13 +299,13 @@ public sealed class MemberCollector {
                 if (pfHasStorage) { pfsym.PropBackingName = "__prop_" + pd.Name; }
                 if (!pd.HasSet) { pfsym.IsPropNoSetter = true; }
                 // get_X / set_X accessor 方法符号（IrGen 发 builtin stub 或编译体；镜像 C# SynthesizeClassAutoProp）。
-                string pvis = this._sc._vis(pd.Mods, "private");
+                string pvis = this._sc._vis(pd.ModFlags, "private");
                 // add-accessor-visibility：访问器级可见性修饰符（`public int P { get; private set; }` 的 `private`）
                 // 覆盖属性级；空则继承属性级（`_vis` 对空 mods 回落 dflt=pvis）。此前 get_X/set_X 一律用 pvis
                 // ⇒ `private set` 被静默当 public，封装被突破、反射报错 public。CheckAccess 据 set_X.Visibility
                 // 拦外部写，故符号可见性一改，访问控制自动生效。
-                string pgetVis = this._sc._vis(pd.GetMods, pvis);
-                string psetVis = this._sc._vis(pd.SetMods, pvis);
+                string pgetVis = this._sc._vis(pd.GetModFlags, pvis);
+                string psetVis = this._sc._vis(pd.SetModFlags, pvis);
                 // 仅访问器级修饰符存在时带上 setter 可见性（否则与属性级同、普通字段访问检查已覆盖）。
                 if (pd.SetMods != "") { pfsym.SetterVis = psetVis; }
                 Z42Type[] getPs0 = new Z42Type[0];
@@ -324,8 +324,8 @@ public sealed class MemberCollector {
                 IndexerDecl id = mem as IndexerDecl;
                 Z42Type idRet = table.ResolveTypeP(id.RetType, tp, tpc);
                 this._sc._chkTypeRef(idRet, c.Name, table, id.RetType.Span);   // enforce-class-access：索引器返回类型引用
-                bool idStatic = this._sc._hasWord(id.Mods, "static");
-                string idvis = this._sc._vis(id.Mods, "private");
+                bool idStatic = Mod.Has(id.ModFlags, Mod.Static);
+                string idvis = this._sc._vis(id.ModFlags, "private");
                 if (id.HasGet) {
                     Z42Type[] getPs1 = new Z42Type[id.ParamCount];
                     int qi0 = 0;
@@ -351,7 +351,7 @@ public sealed class MemberCollector {
                 // ctor（G11）也收集为方法（名=类名，ret void）：使 TypeChecker 能绑其体、IrGen 能发 `<Class>.<Class>` 函数。
                 // GS3：重载方法注册 Name$arity；unique 方法 bare name（镜像 C# SymbolCollector.Classes.cs regName 逻辑）。
                 // add-type-based-overloads：同 (name,arity) ≥2（type-based 重载）→ Name$arity$typesig 消歧。
-                bool mst = this._sc._hasWord(md.Mods, "static");
+                bool mst = Mod.Has(md.ModFlags, Mod.Static);
                 MethodSymbol msym = this._sc._methodSymbol(table, md, c.Name, tp, tpc);
                 if (HandlerRegistry.HasDeprecated(c.Members[j])) { msym.IsDeprecated = true; msym.DeprecationMsg = HandlerRegistry.DeprecatedMsg(c.Members[j]); }   // add-deprecated-directive：本地方法级
                 // stabilize-dispatch-keys（方案A，静态-only）：
@@ -364,7 +364,7 @@ public sealed class MemberCollector {
                 // - 实例方法：保持基线键规则（unique bare / arity 重载 Name$arity / type 重载全 mangle；协议豁免名
                 //   ToString/Equals/GetHashCode/GetType/get_Item/set_Item 恒裸——被 VM vtable / DepIndex 按裸字面量
                 //   硬查，mangle 会断锚点）。实例 / 虚 / 接口 / 泛型 / 委托 / foreach / ctor 派发依赖此基线锚点，不动。
-                bool staticVirtual = mst && (this._sc._hasWord(md.Mods, "override") || this._sc._hasWord(md.Mods, "abstract"));
+                bool staticVirtual = mst && (Mod.Has(md.ModFlags, Mod.Override) || Mod.Has(md.ModFlags, Mod.Abstract));
                 string regName;
                 if (mst && !staticVirtual) {
                     regName = OverloadResolver.MangleKey(md.Name, msym.Signature.ParamTypes, msym.Signature.ParamCount);

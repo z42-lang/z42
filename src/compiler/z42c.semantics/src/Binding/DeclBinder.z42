@@ -111,7 +111,7 @@ public sealed class DeclBinder {
     }
 
     private string _dupCheckKey(MethodDecl md) {
-        string bucket = TypeFactsTc._hasWordTc(md.Mods, "static") ? "s$" : "i$";
+        string bucket = Mod.Has(md.ModFlags, Mod.Static) ? "s$" : "i$";
         return bucket + md.Name + "$" + md.ParamCount.ToString();
     }
 
@@ -218,7 +218,7 @@ public sealed class DeclBinder {
                 if (pd.HasGetBody) {
                     var pgEnv = TypeEnv.Root(symbols).WithClassGeneric(ct.Name(), c.TypeParams.Names, c.TypeParams.Count);
                     // add-static-properties：静态计算 getter 是静态上下文——此前无条件定义 this 与字段。
-                    if (!TypeFactsTc._hasWordTc(pd.Mods, "static")) {
+                    if (!Mod.Has(pd.ModFlags, Mod.Static)) {
                         pgEnv.Define("this", ct);
                         DeclBinder._defineInstanceFields(pgEnv, ct);
                     }
@@ -230,7 +230,7 @@ public sealed class DeclBinder {
                     // add-property-custom-setter：自定义 setter body 绑定 → set_<Name>（镜像索引器 set_Item，无索引参数，
                     // 隐式 value 参 = 属性类型、void 返回）。静态属性走静态上下文（同计算 getter）。
                     var psEnv = TypeEnv.Root(symbols).WithClassGeneric(ct.Name(), c.TypeParams.Names, c.TypeParams.Count);
-                    if (!TypeFactsTc._hasWordTc(pd.Mods, "static")) {
+                    if (!Mod.Has(pd.ModFlags, Mod.Static)) {
                         psEnv.Define("this", ct);
                         DeclBinder._defineInstanceFields(psEnv, ct);
                     }
@@ -347,7 +347,7 @@ public sealed class DeclBinder {
             Decl m = tc._unwrap(c.Members[j]);
             if (m is MethodDecl) {
                 MethodDecl md = m as MethodDecl;
-                if (md.IsCtor && TypeFactsTc._hasWordTc(md.Mods, "static") && md.HasBody) { return true; }
+                if (md.IsCtor && Mod.Has(md.ModFlags, Mod.Static) && md.HasBody) { return true; }
             }
             j = j + 1;
         }
@@ -538,7 +538,7 @@ public sealed class DeclBinder {
         // 目标 ctor 的选择与实参适配（按类型的重载决议 / 命名实参 / 默认值 / params）与 `new` 共用
         // `BindCtorArgs`——此前这里只按实参个数取键，是另一套口径。
         // fix-ctor-init-silent-bugs：「有没有子句」看 HasCtorInit，不看实参个数（零实参子句曾被整条丢弃）。
-        if (md.IsCtor && !TypeFactsTc._hasWordTc(md.Mods, "static")) {
+        if (md.IsCtor && !Mod.Has(md.ModFlags, Mod.Static)) {
             Z42Type thisType = env.LookupVar("this");
             if (thisType is Z42ClassType) {
                 Z42ClassType curCls = thisType as Z42ClassType;

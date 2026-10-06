@@ -46,7 +46,7 @@ public static class ClassExtractor {
             j = j + 1;
         }
         ExportedInterfaceZ eiz = new ExportedInterfaceZ(c.Name, ms, mc, c.TypeParams.Names, c.TypeParams.Count);
-        eiz.Visibility = DeclFacts.classVis(c.Mods, c.Name.IndexOf("+") >= 0);   // complete-class-access-control ④：同包导出模型一致携带接口可见性（跨包走 TsigReconcile；此处防未来消费者读默认误判）
+        eiz.Visibility = DeclFacts.classVis(c.ModFlags, c.Name.IndexOf("+") >= 0);   // complete-class-access-control ④：同包导出模型一致携带接口可见性（跨包走 TsigReconcile；此处防未来消费者读默认误判）
         return eiz;
     }
 
@@ -104,7 +104,7 @@ public static class ClassExtractor {
             Decl mem = ExportedTypeExtractor._unwrap(c.Members[j]);
             if (mem is FieldDecl) {
                 FieldDecl fd = mem as FieldDecl;
-                if (ExportedTypeExtractor._hasWord(fd.Mods, "static")) {
+                if (Mod.Has(fd.ModFlags, Mod.Static)) {
                     FieldSymbol fs = ct.Fields.Get(fd.Name) as FieldSymbol;
                     string tn = "unknown";
                     string vis = "internal";
@@ -185,7 +185,7 @@ public static class ClassExtractor {
                     Decl amem = ExportedTypeExtractor._unwrap(ancd.Members[aj]);
                     if (amem is MethodDecl) {
                         MethodDecl amd = amem as MethodDecl;
-                        if (!ExportedTypeExtractor._hasWord(amd.Mods, "static")) {     // 实例方法（含 ctor，G11）
+                        if (!Mod.Has(amd.ModFlags, Mod.Static)) {     // 实例方法（含 ctor，G11）
                             // unify-regkey-source-of-truth：键解析收敛到 OverloadResolver.MethodKeyOf。
                             // 此处曾是 #414 漏同步的那份抄本（拿错 symbol → _fromSymbol 里 ParamTypes[i] 越界崩）。
                             string amkey = OverloadResolver.MethodKeyOf(amd);
@@ -213,13 +213,13 @@ public static class ClassExtractor {
                     } else if (amem is PropertyDecl) {
                         // auto-property getter → TSIG method "get_PropName"（镜像 C# ExportedTypeExtractor）
                         PropertyDecl apd = amem as PropertyDecl;
-                        if (!ExportedTypeExtractor._hasWord(apd.Mods, "static") && apd.HasGet) {
+                        if (!Mod.Has(apd.ModFlags, Mod.Static) && apd.HasGet) {
                             string gkey = "get_" + apd.Name;
                             if (chain[mci].Methods.ContainsKey(gkey)) {
                                 MethodSymbol gms = chain[mci].Methods.Get(gkey) as MethodSymbol;
                                 string gret = TypeNameResolver.TsigTypeName(apd.Type);
-                                bool gVirt = ExportedTypeExtractor._hasWord(apd.Mods, "virtual");
-                                bool gAbs = ExportedTypeExtractor._hasWord(apd.Mods, "abstract");
+                                bool gVirt = Mod.Has(apd.ModFlags, Mod.Virtual);
+                                bool gAbs = Mod.Has(apd.ModFlags, Mod.Abstract);
                                 ExportedMethodZ gem = new ExportedMethodZ(gkey, gret, gms.Visibility, false, gVirt, gAbs, 0, new ExportedParamZ[0], 0);
                                 int gat = ClassExtractor._indexOf(seenName, seenc, gkey);
                                 if (gat >= 0) { methods[seenAt[gat]] = gem; }
@@ -242,14 +242,14 @@ public static class ClassExtractor {
                     } else if (amem is IndexerDecl) {
                         // indexer get_Item / set_Item → TSIG methods（镜像 C# ct.Methods 含 IndexerDecl lowering）
                         IndexerDecl id = amem as IndexerDecl;
-                        if (!ExportedTypeExtractor._hasWord(id.Mods, "static")) {
+                        if (!Mod.Has(id.ModFlags, Mod.Static)) {
                             if (id.HasGet) {
                                 string gkey = "get_Item";
                                 if (chain[mci].Methods.ContainsKey(gkey)) {
                                     MethodSymbol gms = chain[mci].Methods.Get(gkey) as MethodSymbol;
                                     string gret = TypeNameResolver.TsigTypeName(id.RetType);
-                                    bool gVirt = ExportedTypeExtractor._hasWord(id.Mods, "virtual");
-                                    bool gAbs = ExportedTypeExtractor._hasWord(id.Mods, "abstract");
+                                    bool gVirt = Mod.Has(id.ModFlags, Mod.Virtual);
+                                    bool gAbs = Mod.Has(id.ModFlags, Mod.Abstract);
                                     int gpc = id.ParamCount;
                                     ExportedParamZ[] gps = new ExportedParamZ[gpc];
                                     int qi = 0;
@@ -277,8 +277,8 @@ public static class ClassExtractor {
                                 string skey = "set_Item";
                                 if (chain[mci].Methods.ContainsKey(skey)) {
                                     MethodSymbol sms = chain[mci].Methods.Get(skey) as MethodSymbol;
-                                    bool sVirt = ExportedTypeExtractor._hasWord(id.Mods, "virtual");
-                                    bool sAbs = ExportedTypeExtractor._hasWord(id.Mods, "abstract");
+                                    bool sVirt = Mod.Has(id.ModFlags, Mod.Virtual);
+                                    bool sAbs = Mod.Has(id.ModFlags, Mod.Abstract);
                                     int spc = id.ParamCount + 1;
                                     ExportedParamZ[] sps = new ExportedParamZ[spc];
                                     int qi = 0;
@@ -319,7 +319,7 @@ public static class ClassExtractor {
             Decl smem = ExportedTypeExtractor._unwrap(c.Members[sj]);
             if (smem is MethodDecl) {
                 MethodDecl smd = smem as MethodDecl;
-                if (ExportedTypeExtractor._hasWord(smd.Mods, "static")) {
+                if (Mod.Has(smd.ModFlags, Mod.Static)) {
                     string smkey = OverloadResolver.MethodKeyOf(smd);
                     MethodSymbol sms = ct.Methods.Get(smkey) as MethodSymbol;
                     if (sms != null && ClassExtractor._indexOf(seenStatic, seenStaticCount, smkey) < 0) {
@@ -338,7 +338,7 @@ public static class ClassExtractor {
                         mc = mc + 1;
                     }
                 }
-            } else if (smem is PropertyDecl && ExportedTypeExtractor._hasWord((smem as PropertyDecl).Mods, "static")) {
+            } else if (smem is PropertyDecl && Mod.Has((smem as PropertyDecl).ModFlags, Mod.Static)) {
                 // add-static-properties：静态属性访问器此前从不进 TSIG ⇒ 跨包 `C.P` 看不到它（导入侧也没有属性名字段）。
                 // 导入侧 MemberResolver.BindStaticMember 按 `get_X`（IsStatic）认属性、按 `set_X` 定可写性。
                 PropertyDecl spd = smem as PropertyDecl;
@@ -392,8 +392,8 @@ public static class ClassExtractor {
         }
         // G18：override → flags 0（镜像 C# FuncToMethod：仅 FunctionModifiers.Virtual 置 isVirtual；
         // override 方法的 Modifiers 不含 Virtual）。仅 `virtual` 关键字置位。
-        bool isVirtual = ExportedTypeExtractor._hasWord(md.Mods, "virtual");
-        bool isAbstract = ExportedTypeExtractor._hasWord(md.Mods, "abstract");
+        bool isVirtual = Mod.Has(md.ModFlags, Mod.Virtual);
+        bool isAbstract = Mod.Has(md.ModFlags, Mod.Abstract);
         string ret = "void";
         if (!md.IsCtor) { ret = TypeNameResolver._hybridTypeName(md.RetType, sig.Ret); }
         int reqd = ExportedTypeExtractor._requiredCount(md.Params, pc);

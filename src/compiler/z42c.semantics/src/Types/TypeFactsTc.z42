@@ -2,7 +2,6 @@
 // 「ConversionChecker」片——无状态叶子助手集中到 static class，供各子绑定器 + Facade 共用。
 namespace Z42.Semantics;
 
-
 public static class TypeFactsTc {
 
     public static string _operatorMethodNameTc(string op) {
@@ -27,10 +26,6 @@ public static class TypeFactsTc {
         if (op == ">>") { return "op_RightShift"; }
         return "";
     }
-
-    // 转发到规范实现（DeclFacts._hasWord）——原本是 `(" "+mods+" ").IndexOf(" "+w+" ")`，
-    // 每次调用拼两个新串。对非空 w 语义等价（都要求整词、两侧是空格或串边界）。
-    public static bool _hasWordTc(string mods, string w) { return DeclFacts._hasWord(mods, w); }
 
     public static Z42Type _floatLitType(string text) {
         int n = text.Length;

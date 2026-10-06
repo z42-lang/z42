@@ -286,7 +286,11 @@ int _testGcModeWorkload(string label, string modeEnv, string nurseryEnv, string 
     string flat = _libsDir(root);   // 纯 stdlib flat；z42c.semantics 按名声明的编译器包由 driver 从编译器目录解析
     string toml = root + "/src/compiler/z42c.semantics/z42c.semantics.z42.toml";
     Console.WriteLine("  ▶ z42c.semantics --release --no-incremental (" + label + ")");
+    // 编译器目录**显式**指向本树刚建的 driver dist（同 `_testCompilerUnits`）：xtask 经 SDK apphost 启动，
+    // `Z42_PORTABLE_VM` 被子进程继承，CompilerDomain 的 SDK 档排在开发树档之前 ⇒ 不显式指定时 semantics
+    // 是对着**种子 SDK 里的旧编译器包**（z42c.core / z42c.syntax …）编的 —— 源码一用到它们的新成员就编不过。
     Process p = _z42Proc(vm, flat)
+        .Env("Z42_COMPILER_LIBS", _driverDist(root, "release"))
         .Arg(driver).Arg("--")
         .Arg("build").Arg(toml).Arg("--release").Arg("--no-incremental")
         // 显式给并行度：`z42c build` 的默认值是 min(4, 核数)（default-compile-jobs），而回收次数在多线程下

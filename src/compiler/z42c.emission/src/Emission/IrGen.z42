@@ -472,7 +472,7 @@ public sealed class IrGen {
                             if (gm.TypeParams.Count > 0 && gm.HasBody) {
                                 string lk = gownerKey + "." + gm.RegKey;
                                 if (!bodies.ContainsKey(lk)) {
-                                    string rk = DeclFacts._hasWord(gm.Mods, "static") ? "" : gm.RegKey;
+                                    string rk = Mod.Has(gm.ModFlags, Mod.Static) ? "" : gm.RegKey;
                                     bodies.Put(lk, new GenericBodySrc(gc.Members[gmi], mdl, gownerKey, rk));
                                 }
                             }
@@ -536,12 +536,12 @@ public sealed class IrGen {
         var fe = new FunctionEmitter(model.Symbols, this);
         // 三种形态：自由函数（无 owner、无 this）/ 静态方法（有 owner、无 this）/ 实例方法（两者皆有）。
         bool isMember = src.OwnerKey != "";
-        bool isStaticMethod = isMember && DeclFacts._hasWord(md.Mods, "static");
+        bool isStaticMethod = isMember && Mod.Has(md.ModFlags, Mod.Static);
         bool isInstance = isMember && !isStaticMethod;
         IrFunction irf = fe.EmitFunction(specName, md, bm.GetBody(rk.Value), isInstance, isStaticMethod,
                                          owner, new string[0], 0);
-        irf.Visibility = DeclFacts._visCode(md.Mods, isMember ? 1 : 3);
-        irf.MethodFlags = irf.MethodFlags | IrGenFacts._methodFlags(md.Mods);
+        irf.Visibility = DeclFacts._visCode(md.ModFlags, isMember ? 1 : 3);
+        irf.MethodFlags = irf.MethodFlags | IrGenFacts._methodFlags(md.ModFlags);
         irf.ParamAttrs = this._classDescB._paramAttrRefs(md, isInstance); irf.ParamAttrsLen = irf.ParamAttrs.Length;
         IrGenFacts._fillParamMeta(irf, md, isInstance);
         sink.AddFunc(irf);

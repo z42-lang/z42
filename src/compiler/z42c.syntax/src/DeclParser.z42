@@ -111,17 +111,10 @@ public sealed class DeclParser {
         if (k == TokenKind.Static || k == TokenKind.Abstract || k == TokenKind.Sealed || k == TokenKind.Override) { return true; }
         if (k == TokenKind.Virtual || k == TokenKind.Extern || k == TokenKind.Async || k == TokenKind.New) { return true; }
         if (k == TokenKind.Event) { return true; }   // add-event-keyword-multicast：event 作字段修饰（Mods 含 "event"）
-        if (k == TokenKind.Partial) { return true; }  // add-partial-types：partial 作类型/方法修饰（Mods 含 "partial"，_modsHas 派生 IsPartial）
+        if (k == TokenKind.Partial) { return true; }  // add-partial-types：partial 作类型/方法修饰（Mods 含 "partial"，Mod.Partial 派生 IsPartial）
         if (k == TokenKind.Readonly) { return true; }  // add-readonly-fields-opt：readonly 作字段修饰（Mods 含 "readonly"）
         if (k == TokenKind.Const) { return true; }     // add-const-keyword：const 作字段修饰（Mods 含 "const"，隐式 static、无存储）
         return false;
-    }
-
-    public bool _modsHas(string mods, string w) {
-        if (mods == w) { return true; }
-        if (mods.StartsWith(w + " ")) { return true; }
-        if (mods.EndsWith(" " + w)) { return true; }
-        return mods.IndexOf(" " + w + " ") >= 0;
     }
 
     public Decl _parseTypeDecl(string mods, string kind, AttrList attrs) {   // add-nested-types：MemberParser 嵌套类型也调用
@@ -187,7 +180,7 @@ public sealed class DeclParser {
         if (primaryPc > 0 && this._p._peek().Kind != TokenKind.LBrace) {
             this._p._expectSemi();
             ClassDecl cds = new ClassDecl(kind, mods, name, typeParams, bases, bc, wl.Items, wl.Count, members, mc, sp);
-            cds.IsPartial = this._modsHas(mods, "partial");
+            cds.IsPartial = Mod.Has(Mod.Parse(mods), Mod.Partial);
             return cds;
         }
         this._p._expect(TokenKind.LBrace, "{");
@@ -196,7 +189,7 @@ public sealed class DeclParser {
             // event 字段 → 合成 add_X/remove_X 访问器（镜像 C# SynthesizeClassEvent）。
             // multicast（MulticastAction/Func/Predicate）：add 体 `return this.X.Subscribe(h)`、
             // remove 体 `this.X.Unsubscribe(h)`。interface：丢 backing field，仅留签名（无 body）。
-            if ((mem is FieldDecl) && this._modsHas((mem as FieldDecl).Mods, "event")
+            if ((mem is FieldDecl) && Mod.Has((mem as FieldDecl).ModFlags, Mod.Event)
                 && this._p._memberP._isMulticastEventType((mem as FieldDecl).Type)) {
                 FieldDecl ev = mem as FieldDecl;
                 if (!isIface) { members = this._growDecls(members, mc); members[mc] = ev; mc = mc + 1; }
@@ -204,7 +197,7 @@ public sealed class DeclParser {
                 MethodDecl rmM  = this._p._memberP._synthEventAccessor(ev, false, !isIface);
                 members = this._growDecls(members, mc); members[mc] = addM; mc = mc + 1;
                 members = this._growDecls(members, mc); members[mc] = rmM;  mc = mc + 1;
-            } else if ((mem is FieldDecl) && this._modsHas((mem as FieldDecl).Mods, "event")
+            } else if ((mem is FieldDecl) && Mod.Has((mem as FieldDecl).ModFlags, Mod.Event)
                 && this._p._memberP._isSinglecastEventType((mem as FieldDecl).Type)) {
                 FieldDecl ev = mem as FieldDecl;
                 if (!isIface) { members = this._growDecls(members, mc); members[mc] = ev; mc = mc + 1; }
@@ -218,7 +211,7 @@ public sealed class DeclParser {
         }
         this._p._expect(TokenKind.RBrace, "}");
         ClassDecl cd = new ClassDecl(kind, mods, name, typeParams, bases, bc, wl.Items, wl.Count, members, mc, sp);
-        cd.IsPartial = this._modsHas(mods, "partial");   // add-partial-types
+        cd.IsPartial = Mod.Has(Mod.Parse(mods), Mod.Partial);   // add-partial-types
         return cd;
     }
 
@@ -233,10 +226,6 @@ public sealed class DeclParser {
         }
         return false;
     }
-
-
-
-
 
     internal Decl _parseImplDecl(string mods) {
         Span sp = this._p._peek().Span;
@@ -321,17 +310,11 @@ public sealed class DeclParser {
         return this._p._memberP._parseMethodTail(mods, true, false, retType, name, typeParams, sp);
     }
 
-
-
-
-
-
     public bool _isVisibilityModifier(int k) {
         if (k == TokenKind.Public || k == TokenKind.Private) { return true; }
         if (k == TokenKind.Protected || k == TokenKind.Internal) { return true; }
         return false;
     }
-
 
     private TypeList _parseBaseList() {
         Span sp = this._p._peek().Span;
@@ -350,7 +333,5 @@ public sealed class DeclParser {
         }
         return new TypeList(items, n, sp);
     }
-
-
 
 }

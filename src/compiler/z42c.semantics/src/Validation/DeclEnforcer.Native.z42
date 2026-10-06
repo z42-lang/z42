@@ -51,11 +51,11 @@ public sealed partial class DeclEnforcer {
         string what = "";
         if (d is MethodDecl) {
             MethodDecl md = d as MethodDecl;
-            isExtern = this._sc._hasWord(md.Mods, "extern");
+            isExtern = Mod.Has(md.ModFlags, Mod.Extern);
             what = "method `" + (owner == "" ? md.Name : owner + "." + md.Name) + "`";
         } else if (d is PropertyDecl) {
             PropertyDecl pd = d as PropertyDecl;
-            isExtern = this._sc._hasWord(pd.Mods, "extern");
+            isExtern = Mod.Has(pd.ModFlags, Mod.Extern);
             what = "property `" + (owner == "" ? pd.Name : owner + "." + pd.Name) + "`";
         }
         Attr nat = null;

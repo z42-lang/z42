@@ -1,5 +1,5 @@
 // 类/接口/属性描述符子构建器（compiler-review P1-3 step2）。类元数据 + attr 引用。
-// 持 IrGen 反向引用 _g：_g._symbols/IfaceDecls + 助手 _q/_qClass/_hasWord/_visCode/_unwrap/_classIrShortName。
+// 持 IrGen 反向引用 _g：_g._symbols/IfaceDecls + 助手 _q/_qClass/_visCode/_unwrap/_classIrShortName。
 namespace Z42.Emission;
 
 using Z42.Semantics;
@@ -232,7 +232,7 @@ public sealed partial class ClassDescBuilder {
                     }
                     IrFieldDesc sfdesc = new IrFieldDesc(fd.Name, tn);
                     sfdesc.Attrs = this._withNullableMark(this._attrRefs(c.Members[j]), fd.Type); sfdesc.AttrCount = sfdesc.Attrs.Length;
-                    sfdesc.Visibility = DeclFacts._visCode(fd.Mods, 1);   // add-member-visibility
+                    sfdesc.Visibility = DeclFacts._visCode(fd.ModFlags, 1);   // add-member-visibility
                     sfields[sfcount] = sfdesc;
                     sfcount = sfcount + 1;
                 } else {
@@ -243,15 +243,15 @@ public sealed partial class ClassDescBuilder {
                     }
                     IrFieldDesc fdesc = new IrFieldDesc(fd.Name, tn);
                     fdesc.Attrs = this._withNullableMark(this._attrRefs(c.Members[j]), fd.Type); fdesc.AttrCount = fdesc.Attrs.Length;
-                    fdesc.Visibility = DeclFacts._visCode(fd.Mods, 1);   // add-member-visibility
+                    fdesc.Visibility = DeclFacts._visCode(fd.ModFlags, 1);   // add-member-visibility
                     fields[fcount] = fdesc;
                     fcount = fcount + 1;
                 }
             } else if (mem is PropertyDecl) {
                 // 非 extern auto-prop → 合成 __prop_X 备份字段（镜像 C# SynthesizeClassAutoProp backing field）。
                 PropertyDecl fpd = mem as PropertyDecl;
-                bool fpdExtern = DeclFacts._hasWord(fpd.Mods, "extern");
-                bool fpdStatic = DeclFacts._hasWord(fpd.Mods, "static");
+                bool fpdExtern = Mod.Has(fpd.ModFlags, Mod.Extern);
+                bool fpdStatic = Mod.Has(fpd.ModFlags, Mod.Static);
                 // add-json-serde：属性 attribute（如 [JsonProperty]/[JsonIgnore]）挂到合成的背后字段
                 // `__prop_X` 的 .Attrs（复用既有 field_attributes 格式，无格式 bump）。`PropertyInfo.
                 // GetCustomAttributes` 经 __property_custom_attributes 查 `__prop_<Name>` 字段 attr。
@@ -311,14 +311,14 @@ public sealed partial class ClassDescBuilder {
         }
         // class-shape flags（zbc 1.12，G12）：从修饰符/kind 推导（镜像 C# cls.IsAbstract/IsSealed/IsStruct/IsRecord）。
         int flags = 0;
-        if (DeclFacts._hasWord(c.Mods, "abstract")) { flags = flags + 1; }   // bit0
-        if (DeclFacts._hasWord(c.Mods, "sealed"))   { flags = flags + 2; }   // bit1
+        if (Mod.Has(c.ModFlags, Mod.Abstract)) { flags = flags + 1; }   // bit0
+        if (Mod.Has(c.ModFlags, Mod.Sealed))   { flags = flags + 2; }   // bit1
         if (c.Kind == "struct")  { flags = flags + 4; }                 // bit2
         if (hasRecord) { flags = flags + 8; }                           // bit3（add-record-attribute：
         //   `[Record]`（hasRecord，由 IrGen 从原始 AttributedDecl.Attrs 判）触发 is-record。N+1 已删 `record`
         //   关键字，Kind 不再有 "record"，唯一来源即 [Record] attribute。格式位不变、__type_is_record 读法不变。）
         cd2.Flags = flags;
-        cd2.Visibility = DeclFacts.classVisCode(c.Mods, c.Name.IndexOf("+") >= 0);   // enforce-class-access（zbc 1.33）：类可见性进 TYPE 记录（跨包 internal 强制载体）
+        cd2.Visibility = DeclFacts.classVisCode(c.ModFlags, c.Name.IndexOf("+") >= 0);   // enforce-class-access（zbc 1.33）：类可见性进 TYPE 记录（跨包 internal 强制载体）
         // add-struct-value-semantics A-use（zbc 1.31）：值 struct 的字节+引用布局随 TYPE 尾部 emit。
         // 布局键 = 符号表短名（_classIrShortName，与 StructLayout.BuildFromSymbols 的 Classes 键一致——
         // 那是短名 Name/Name$N，非 FQ；用 cd2.Name(FQ) 查会 miss）。含引用叶子（string/object/array 字段）
@@ -439,7 +439,7 @@ public sealed partial class ClassDescBuilder {
         IrFieldDesc[] empty = new IrFieldDesc[0];
         IrClassDesc cd = new IrClassDesc(this._g._q(c.Name), false, "", empty, 0);
         cd.Flags = 17;
-        cd.Visibility = DeclFacts.classVisCode(c.Mods, c.Name.IndexOf("+") >= 0);   // complete-class-access-control ④：接口可见性入 TYPE 记录（复用 #184 已在线字节，无 bump；此前恒 0=public）
+        cd.Visibility = DeclFacts.classVisCode(c.ModFlags, c.Name.IndexOf("+") >= 0);   // complete-class-access-control ④：接口可见性入 TYPE 记录（复用 #184 已在线字节，无 bump；此前恒 0=public）
         // 传递基接口（add-reflection-transitive-interfaces）：typeof(IB).GetInterfaces() 含 IA。
         if (c.BaseCount > 0) {
             string[] directBases = new string[c.BaseCount];
@@ -496,7 +496,7 @@ public sealed partial class ClassDescBuilder {
             Decl imem = DeclFacts._unwrap(c.Members[mj]);
             if (imem is MethodDecl) {
                 MethodDecl imd = imem as MethodDecl;
-                int st = 0; if (DeclFacts._hasWord(imd.Mods, "static")) { st = 1; }
+                int st = 0; if (Mod.Has(imd.ModFlags, Mod.Static)) { st = 1; }
                 buf.Add(imd.Name, this._typeFieldName(imd.RetType), imd.ParamCount, st);
                 nullRefs = ClassDescBuilder._ifaceNullRef(nullRefs, buf.count - 1, IrIfaceNullable.RetSlot, imd.RetType);
                 int pj = 0;
@@ -506,7 +506,7 @@ public sealed partial class ClassDescBuilder {
                 }
             } else if (imem is PropertyDecl) {
                 PropertyDecl ipd = imem as PropertyDecl;
-                int pst = 0; if (DeclFacts._hasWord(ipd.Mods, "static")) { pst = 1; }
+                int pst = 0; if (Mod.Has(ipd.ModFlags, Mod.Static)) { pst = 1; }
                 if (ipd.HasGet) {
                     buf.Add("get_" + ipd.Name, this._typeFieldName(ipd.Type), 0, pst);
                     nullRefs = ClassDescBuilder._ifaceNullRef(nullRefs, buf.count - 1, IrIfaceNullable.RetSlot, ipd.Type);
@@ -673,7 +673,7 @@ public sealed partial class ClassDescBuilder {
             if (m is AttributedDecl) { m = (m as AttributedDecl).Inner; }
             if (m is MethodDecl) {
                 MethodDecl md = m as MethodDecl;
-                if (md.IsCtor && DeclFacts._hasWord(md.Mods, "static") && md.HasBody) {
+                if (md.IsCtor && Mod.Has(md.ModFlags, Mod.Static) && md.HasBody) {
                     return this._g._q(this._g._classIrShortName(c)) + "." + IrStaticCtor.MethodKey;
                 }
             }

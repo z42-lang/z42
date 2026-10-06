@@ -148,8 +148,6 @@ public sealed class ForwardGenerator : Generator {
         sink.Augment(t.DeclId, body);
     }
 
-
-
     // ── ① 接口面：`[Forward(typeof(ILogger))]` ────────────────────────────────────
     //
     // 转发面 = 该接口声明的全部方法。签名由**接口**钉死 —— 上游给实现类新增重载不会自动进来，
@@ -373,7 +371,7 @@ public sealed class ForwardGenerator : Generator {
     // （整个方法都是 generator 造的），带上 `partial` 反而是 E0434「实现找不到匹配的声明」。
     private static string _renderForwarderM(MethodDecl md, string fieldName, string modsOverride, bool asPartial) {
         string sig = "    " + modsOverride;
-        if (asPartial && !ForwardGenerator._hasWord(modsOverride, "partial")) { sig = sig + " partial"; }
+        if (asPartial && !Mod.Has(Mod.Parse(modsOverride), Mod.Partial)) { sig = sig + " partial"; }
         sig = sig + " " + md.RetType.Dump() + " " + md.Name + "(";
         string args = "";
         int i = 0;
@@ -392,13 +390,6 @@ public sealed class ForwardGenerator : Generator {
         string call = "this." + fieldName + "." + md.Name + "(" + args + ");";
         if (isVoid) { return sig + " { " + call + " }"; }
         return sig + " { return this." + fieldName + "." + md.Name + "(" + args + "); }";
-    }
-
-    private static bool _hasWord(string mods, string w) {
-        string[] parts = mods.Split(" ");
-        int i = 0;
-        while (i < parts.Length) { if (parts[i] == w) { return true; } i = i + 1; }
-        return false;
     }
 
     // 插入排序（成员量小；生成顺序必须确定，见 Generate 里的注释）。

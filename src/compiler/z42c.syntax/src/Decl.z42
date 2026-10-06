@@ -113,11 +113,12 @@ public sealed class UsingAliasDecl : Decl {
 // 在 `_parseType()` 之前做三 token 前瞻拦截，与 `class`/`enum`/`implicit` 同款。
 public sealed class AssocTypeDecl : Decl {
     public string   Mods;
+    public int      ModFlags;   // `Mods` 的位标志（Mod.*），构造时解析
     public string   Name;
     public bool     HasBound;
     public TypeExpr Bound;
     public AssocTypeDecl(string mods, string name, bool hasBound, TypeExpr bound, Span span) { this.Span = span;
-        this.Mods = mods; this.Name = name; this.HasBound = hasBound; this.Bound = bound;
+        this.Mods = mods; this.ModFlags = Mod.Parse(mods); this.Name = name; this.HasBound = hasBound; this.Bound = bound;
     }
     public override string Dump() {
         if (this.HasBound) { return "(assoc-type " + this.Name + " = " + this.Bound.Dump() + ")"; }
@@ -127,12 +128,13 @@ public sealed class AssocTypeDecl : Decl {
 
 public sealed class FieldDecl : Decl {
     public string   Mods;
+    public int      ModFlags;   // `Mods` 的位标志（Mod.*），构造时解析
     public TypeExpr Type;
     public string   Name;
     public bool     HasInit;
     public Expr     Init;
     public FieldDecl(string mods, TypeExpr type, string name, bool hasInit, Expr init, Span span) { this.Span = span;
-        this.Mods = mods; this.Type = type; this.Name = name;
+        this.Mods = mods; this.ModFlags = Mod.Parse(mods); this.Type = type; this.Name = name;
         this.HasInit = hasInit; this.Init = init;
     }
     public override string Dump() {
@@ -147,6 +149,7 @@ public sealed class FieldDecl : Decl {
 // TypeParams（如 "<T>"，含尖括号，"" 表无）+ WhereText（如 "where T : new()"，"" 表无）。
 public sealed class MethodDecl : Decl {
     public string        Mods;
+    public int      ModFlags;   // `Mods` 的位标志（Mod.*），构造时解析
     public bool          IsFree;     // 顶层自由函数（命名空间级，无 this）
     public bool          IsCtor;
     public TypeExpr      RetType;    // ctor 时为占位 NamedType("")（不 Dump）
@@ -182,7 +185,7 @@ public sealed class MethodDecl : Decl {
                       TypeParamList typeParams, WhereClause[] wheres, int whereCount,
                       Param[] ps, int pc, bool hasBody, Stmt body, Expr[] baseArgs, int baseArgCount,
                       bool isThisInit, Span span) { this.Span = span;
-        this.Mods = mods; this.IsFree = isFree; this.IsCtor = isCtor; this.RetType = retType; this.Name = name;
+        this.Mods = mods; this.ModFlags = Mod.Parse(mods); this.IsFree = isFree; this.IsCtor = isCtor; this.RetType = retType; this.Name = name;
         this.TypeParams = typeParams; this.Wheres = wheres; this.WhereCount = whereCount;
         this.Params = ps; this.ParamCount = pc; this.HasBody = hasBody; this.Body = body;
         this.BaseArgs = baseArgs; this.BaseArgCount = baseArgCount; this.IsThisInit = isThisInit;
@@ -214,12 +217,15 @@ public sealed class MethodDecl : Decl {
 // desugar（合成 backing field + get_X/set_X）留给后端；parser 仅捕获结构。
 public sealed class PropertyDecl : Decl {
     public string   Mods;
+    public int      ModFlags;   // `Mods` 的位标志（Mod.*），构造时解析
     public TypeExpr Type;
     public string   Name;
     public bool     HasGet;
     public string   GetMods;   // 访问器修饰（如 "private"），"" 表示无
+    public int      GetModFlags;
     public bool     HasSet;
     public string   SetMods;
+    public int      SetModFlags;
     public bool     HasInit;
     public Expr     Init;      // 仅 HasInit 时有效
     public bool     HasGetBody;   // add-property-getter：计算属性 getter（`{ get { ... } }`）；true → GetBody 有效、无 __prop_X 后备字段
@@ -230,8 +236,8 @@ public sealed class PropertyDecl : Decl {
                         bool hasGet, string getMods, bool hasSet, string setMods,
                         bool hasInit, Expr init,
                 Span span) { this.Span = span;
-        this.Mods = mods; this.Type = type; this.Name = name;
-        this.HasGet = hasGet; this.GetMods = getMods; this.HasSet = hasSet; this.SetMods = setMods;
+        this.Mods = mods; this.ModFlags = Mod.Parse(mods); this.Type = type; this.Name = name;
+        this.HasGet = hasGet; this.GetMods = getMods; this.GetModFlags = Mod.Parse(getMods); this.HasSet = hasSet; this.SetMods = setMods; this.SetModFlags = Mod.Parse(setMods);
         this.HasInit = hasInit; this.Init = init;
         this.HasGetBody = false; this.GetBody = null;   // post-construction 由 parser 置（镜像 ClassDecl.IsPartial）
         this.HasSetBody = false; this.SetBody = null;
@@ -256,6 +262,7 @@ public sealed class PropertyDecl : Decl {
 public sealed class ClassDecl : Decl {
     public string        Kind;    // "class" / "struct" / "interface"
     public string        Mods;
+    public int      ModFlags;   // `Mods` 的位标志（Mod.*），构造时解析
     public string        Name;
     public TypeParamList TypeParams;
     public TypeExpr[]    Bases;
@@ -269,7 +276,7 @@ public sealed class ClassDecl : Decl {
     public ClassDecl(string kind, string mods, string name, TypeParamList typeParams,
                      TypeExpr[] bases, int baseCount, WhereClause[] wheres, int whereCount, Decl[] members, int mc,
                 Span span) { this.Span = span;
-        this.Kind = kind; this.Mods = mods; this.Name = name; this.TypeParams = typeParams;
+        this.Kind = kind; this.Mods = mods; this.ModFlags = Mod.Parse(mods); this.Name = name; this.TypeParams = typeParams;
         this.Bases = bases; this.BaseCount = baseCount; this.Wheres = wheres; this.WhereCount = whereCount;
         this.Members = members; this.MemberCount = mc;
         this.IsPartial = false;
@@ -310,6 +317,7 @@ public sealed class ImplDecl : Decl {
 // 未来 byte-identical 需展开为 get_Item/set_Item（镜像 C# IndexerDecl lowering）。
 public sealed class IndexerDecl : Decl {
     public string  Mods;
+    public int      ModFlags;   // `Mods` 的位标志（Mod.*），构造时解析
     public TypeExpr RetType;       // 元素类型（TValue）
     public Param[] Params;         // 索引器参数（TKey key）
     public int     ParamCount;
@@ -319,7 +327,7 @@ public sealed class IndexerDecl : Decl {
     public Stmt    SetBody;        // 仅 HasSet 时有效
     public IndexerDecl(string mods, TypeExpr retType, Param[] params_, int paramCount,
                        bool hasGet, Stmt getBody, bool hasSet, Stmt setBody, Span span) { this.Span = span;
-        this.Mods = mods; this.RetType = retType; this.Params = params_; this.ParamCount = paramCount;
+        this.Mods = mods; this.ModFlags = Mod.Parse(mods); this.RetType = retType; this.Params = params_; this.ParamCount = paramCount;
         this.HasGet = hasGet; this.GetBody = getBody; this.HasSet = hasSet; this.SetBody = setBody;
     }
     public override string Dump() { return "(indexer " + this.RetType.Dump() + ")"; }
@@ -361,13 +369,14 @@ public sealed class EnumMember {
 
 public sealed class EnumDecl : Decl {
     public string       Mods;
+    public int      ModFlags;   // `Mods` 的位标志（Mod.*），构造时解析
     public string       Name;
     public bool         HasBase;     // 底层类型 `: int` 等
     public TypeExpr     Base;        // 仅 HasBase 时有效
     public EnumMember[] Members;
     public int          MemberCount;
     public EnumDecl(string mods, string name, bool hasBase, TypeExpr baseType, EnumMember[] members, int mc, Span span) { this.Span = span;
-        this.Mods = mods; this.Name = name; this.HasBase = hasBase; this.Base = baseType;
+        this.Mods = mods; this.ModFlags = Mod.Parse(mods); this.Name = name; this.HasBase = hasBase; this.Base = baseType;
         this.Members = members; this.MemberCount = mc;
     }
     public override string Dump() {
@@ -383,6 +392,7 @@ public sealed class EnumDecl : Decl {
 // delegate R Name<T>(params) where ...; —— 类型声明（无体）。
 public sealed class DelegateDecl : Decl {
     public string        Mods;
+    public int      ModFlags;   // `Mods` 的位标志（Mod.*），构造时解析
     public TypeExpr      RetType;
     public string        Name;
     public TypeParamList TypeParams;
@@ -393,7 +403,7 @@ public sealed class DelegateDecl : Decl {
     public DelegateDecl(string mods, TypeExpr retType, string name, TypeParamList typeParams,
                         Param[] ps, int pc, WhereClause[] wheres, int whereCount,
                 Span span) { this.Span = span;
-        this.Mods = mods; this.RetType = retType; this.Name = name; this.TypeParams = typeParams;
+        this.Mods = mods; this.ModFlags = Mod.Parse(mods); this.RetType = retType; this.Name = name; this.TypeParams = typeParams;
         this.Params = ps; this.ParamCount = pc; this.Wheres = wheres; this.WhereCount = whereCount;
     }
     public override string Dump() {

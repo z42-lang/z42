@@ -98,7 +98,7 @@ public sealed class CtorInheritance {
         this._done.Put(key, "1");
         ClassDecl c = this._declByKey.Get(key) as ClassDecl;
         if (c == null) { c = c0; }
-        if (this._sc._hasWord(c.Mods, "static")) { return; }
+        if (Mod.Has(c.ModFlags, Mod.Static)) { return; }
         Z42ClassType ct = this._table.Classes.Get(key) as Z42ClassType;
         if (ct == null || ct.IsImported) { return; }
         if (ct.InstanceCtors().Length > 0) { return; }   // 写了构造器：不继承、不合成
@@ -256,10 +256,10 @@ public sealed class CtorInheritance {
             Decl mem = sc._unwrap(c.Members[j]);
             if (mem is FieldDecl) {
                 FieldDecl fd = mem as FieldDecl;
-                if (fd.HasInit && !sc._hasWord(fd.Mods, "static") && !sc._hasWord(fd.Mods, "const")) { return true; }
+                if (fd.HasInit && !Mod.Has(fd.ModFlags, Mod.Static) && !Mod.Has(fd.ModFlags, Mod.Const)) { return true; }
             } else if (mem is PropertyDecl) {
                 PropertyDecl pd = mem as PropertyDecl;
-                if (pd.HasInit && !sc._hasWord(pd.Mods, "static")) { return true; }
+                if (pd.HasInit && !Mod.Has(pd.ModFlags, Mod.Static)) { return true; }
             }
             j = j + 1;
         }
