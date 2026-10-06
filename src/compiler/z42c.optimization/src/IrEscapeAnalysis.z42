@@ -19,7 +19,7 @@
 //   - **仅标单赋值 temp**（defs==1）：多定义命名局部保守不标。
 //   - **ref/out 写回汇点**（fix-ref-param-escape）：运行时出口把参数寄存器的终值 copy-out 回 caller，
 //     而 IR 看不见 `ref` 修饰 → 被函数体重新定义过的参数槽一律按逃逸处理（见 `ComputeEscapedRegs` Pass A′）。
-namespace Z42.Semantics;
+namespace Z42.Optimization;
 
 using Z42.IR;
 

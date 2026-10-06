@@ -18,7 +18,7 @@ graph LR
 
 ## z42c 的组成
 
-z42c 按依赖顺序分成七个逻辑包；`driver` 是唯一的可执行程序，也就是 `z42c` 命令。**物理布局**：全部在 `src/compiler/` 这一个 workspace 里——后端三包 `z42c.semantics` / `z42c.pipeline` / `z42c.driver`，可移植前端 `z42c.core` / `z42c.syntax`，IR·后端库 `z42.package`（含 zbc/zpkg 后端），清单模型 `z42.project`。依赖单向无环，各包细节见后续各章。
+z42c 按依赖顺序分成八个逻辑包；`driver` 是唯一的可执行程序，也就是 `z42c` 命令。**物理布局**：全部在 `src/compiler/` 这一个 workspace 里——后端四包 `z42c.optimization` / `z42c.semantics` / `z42c.pipeline` / `z42c.driver`，可移植前端 `z42c.core` / `z42c.syntax`，IR·后端库 `z42.package`（含 zbc/zpkg 后端），清单模型 `z42.project`。依赖单向无环，各包细节见后续各章。
 
 ```mermaid
 graph TD
@@ -26,9 +26,10 @@ graph TD
     ir[ir·IR+zbc/zpkg]
     syntax[syntax·Lexer/Parser/AST] --> core
     project[project·manifest] --> ir
-    semantics[semantics·TypeCheck/IrGen] --> core & syntax & ir
-    pipeline[pipeline·管线编排] --> core & syntax & semantics & ir & project
-    driver[driver·exe·z42c 命令] --> pipeline & ir & core
+    optimization[optimization·IR→IR 优化] --> ir
+    semantics[semantics·TypeCheck/IrGen] --> core & syntax & ir & optimization
+    pipeline[pipeline·管线编排] --> core & syntax & semantics & optimization & ir & project
+    driver[driver·exe·z42c 命令] --> pipeline & optimization & ir & core
 ```
 
 ## z42b 的构建阶段

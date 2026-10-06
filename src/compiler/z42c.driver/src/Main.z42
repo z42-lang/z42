@@ -19,6 +19,7 @@ using Z42.Package;
 using Z42.IR;
 using Z42.Project;
 using Z42.Pipeline;
+using Z42.Optimization;
 
 // 进程 exit code 契约（compiler-review §三/P2-4：原 0/1/2 魔数无契约、语义靠各函数自觉）。
 // z42 受限写法：static class + int 常量（同 TokenKind 模式）。

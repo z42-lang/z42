@@ -7,7 +7,7 @@
 //
 // 注：代数恒等式（x+0→copy 等）在 IrOptInfo.TryConstFold 内，与常量折叠同属 ConstFold
 // 一个开关；如需更细粒度，未来拆 TryConstFold 再加一位。
-namespace Z42.Semantics;
+namespace Z42.Optimization;
 
 public static class Opt {
     public static int None      = 0;

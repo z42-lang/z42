@@ -20,7 +20,7 @@ int _packageDesktop(string root, string pkgDir, string rid, string version, stri
 
     // [1/5] z42c self-host compiler seed (7 zpkg) → programs/z42c/. The shipped
     // compiler runs on z42vm; the 7 z42c.* seed zpkgs are colocated so the VM
-    // resolves the driver's 6 siblings next to the payload (stdlib via libs/). The
+    // resolves the driver's sibling compiler members next to the payload (stdlib via libs/). The
     // `bin/z42c` entry is the apphost trampoline produced in [2c].
     // _buildCompiler builds host z42vm + stdlib + z42c seed (self-seeded). --no-build
     // SKIPS that rebuild and reuses what the CI bootstrap already produced (warm) —

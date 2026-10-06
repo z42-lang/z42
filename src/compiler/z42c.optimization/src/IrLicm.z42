@@ -10,7 +10,7 @@
 //      （副作用）→ 提到「可能零迭代」的 pre-header 也安全（纯值、不触发陷阱/副作用）。
 //   ⑥ 外提：不变指令按程序序移到 pre-header 终结子之前（依赖序保留），从循环体删除。
 //   单赋值 temp → 定义唯一、pre-header 支配循环 → 提前定义仍支配所有使用点，正确。
-namespace Z42.Semantics;
+namespace Z42.Optimization;
 
 using Z42.IR;
 

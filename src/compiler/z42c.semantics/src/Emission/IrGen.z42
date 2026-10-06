@@ -6,6 +6,7 @@ namespace Z42.Semantics;
 
 using Z42.Syntax;
 using Z42.IR;
+using Z42.Optimization;
 
 public sealed class IrGen {
     private string[]    _pool;       // 字符串池（1-based；[0]=""占位）

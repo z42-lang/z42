@@ -139,7 +139,7 @@ test ──► _testAll
 build stdlib ──► _buildStdlib
   ① 校验 warm 种子 (z42c.driver.zpkg + stdlib dist 存在)   缺 → _ensureSeed 冷启动供种 (SDK)
   ② z42c 自建编译器域全部成员    _buildCompilerViaZ42c (build/xtask_compiler.z42)
-       └ z42c build --workspace（driver dist 自包含 6 个 z42c.* 兄弟包）
+       └ z42c build --workspace（driver dist 自包含全部编译器成员包）
   ③ 快照 stdlib → .stdlib-run (只 stdlib；driver 运行期 Std.* 需稳定副本)   _copyAll(flatDir, .stdlib-run)
   ④ 直跑自包含 z42c.driver build --workspace --release    CWD=src/libraries, interp, Z42_LIBS=.stdlib-run
        └ per-member dist 覆盖 canonical 布局

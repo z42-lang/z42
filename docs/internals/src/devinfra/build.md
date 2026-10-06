@@ -29,7 +29,7 @@
 
 | workspace | 成员 |
 |---|---|
-| `src/compiler/` | 编译器**后端三包**：`z42c.semantics` / `z42c.pipeline` / `z42c.driver`（exe）|
+| `src/compiler/` | 编译器**后端四包**：`z42c.optimization` / `z42c.semantics` / `z42c.pipeline` / `z42c.driver`（exe）|
 | `src/libraries/` | stdlib 全部成员，外加三个工具链库 `z42.package`、`z42c.core`、`z42c.syntax` |
 
 可移植前端（`z42c.core` = Span/Diagnostic、`z42c.syntax` = Lexer/Parser/AST）与 IR·后端库

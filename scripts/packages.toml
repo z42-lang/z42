@@ -9,7 +9,7 @@
 #   ① z42 组件（launcher / z42c / z42b / z42d / z42i）：自带
 #      [platform.desktop] bin/payload，统一走 `z42 publish` 产出。这套 bin/payload
 #      是**用户面**机制——任何人发布自己的 app 用的是同一套配置，z42c/z42b 只是
-#      恰好也用它打包自己，不享有特殊待遇。z42c.driver 依赖的 6 个非 driver 兄弟库
+#      恰好也用它打包自己，不享有特殊待遇。z42c.driver 依赖的其余编译器成员库
 #      （core/ir/syntax/project/semantics/pipeline）是它的项目依赖（workspace 内
 #      本地包，非 stdlib），`z42 publish` 会自动解析拷到同一落点
 #      （programs/z42c/），因此**不单独登记组件**，include 里只写一次 "z42c"。
@@ -89,7 +89,7 @@ project = "src/toolchain/interactive/core/z42.interactive.z42.toml"
 kind = "apphost"
 project = "src/compiler/z42c.driver/z42c.driver.z42.toml"
 # → bin/z42c + programs/z42c/z42c.driver.zpkg
-#   + 它的非 stdlib 项目依赖（z42c.semantics/pipeline）由 `z42 publish` 自动解析拷贝到
+#   + 它的非 stdlib 项目依赖（z42c.optimization/semantics/pipeline 等编译器成员）由 `z42 publish` 自动解析拷贝到
 #     programs/z42c/ 同目录。可移植前端 z42c.core/syntax 与 z42.package 已下沉共享库层
 #     （src/libraries/），随 stdlib 打进 libs/，driver 运行期从 libs/ 解析（与 z42.io 等同理）。
 

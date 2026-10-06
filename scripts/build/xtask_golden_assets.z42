@@ -180,7 +180,7 @@ int _regenGolden() {
 int _regenGoldenF(string dirFilter, string fileFilter) {
     string root = _root();
     // replace-csharp Phase C：golden 编译改用 z42c（z42vm + z42c.driver.zpkg），不再 dotnet。
-    // driverHome = 含 z42c.driver.zpkg + 7 个 z42c.* 兄弟；golden 的 stdlib 依赖走 Z42_LIBS=stdlibDist。
+    // driverHome = 含 z42c.driver.zpkg + 全部编译器成员；golden 的 stdlib 依赖走 Z42_LIBS=stdlibDist。
     // --toolchain (compile-once P3): compile goldens with the selected toolchain's
     // z42c + stdlib + z42vm when set; else the build-tree.
     string tc = _toolchainDir(root);

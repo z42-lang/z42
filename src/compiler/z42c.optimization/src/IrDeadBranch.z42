@@ -8,7 +8,7 @@
 // ⚠️ CFG 铁律（见 IrLicm）：z42 IR 的 CFG 只从终结子建、**不含异常隐式边**（try→catch/finally）。
 //   故 ExcCount>0 的函数只折不移——贸然移块会删掉 handler 可达的块 → miscompile。折叠对异常无影响。
 //   移块安全性：有效 IR 里 def 支配 use → 可达块引用的寄存器其定义块必可达，移不可达块不产生悬垂读。
-namespace Z42.Semantics;
+namespace Z42.Optimization;
 
 using Z42.IR;
 

@@ -14,6 +14,7 @@ using Z42.Syntax;
 using Z42.Semantics;
 using Z42.IR;
 using Z42.Package;
+using Z42.Optimization;
 
 // cached 文件的 UsedDepNs 回填元数据（driver 增量 meta → 本核心；typecheck 本轮跳过时从 meta 补）。
 // 用 pipeline 本地类型承载，避免核心反向依赖 driver 的 IncrementalDriver.Meta（依赖方向：driver→pipeline）。

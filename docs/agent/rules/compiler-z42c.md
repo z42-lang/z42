@@ -34,6 +34,7 @@ IR 模型 + zbc/zpkg 格式 + 依赖索引在 stdlib 库 **`z42.package`**（nam
 | `z42c.core`| 基础设施：`Span` / `Diagnostic` / `DiagnosticBag` / `DiagnosticCodes` / `LanguageFeatures` | `Span.z42`、`Diagnostic*.z42`、`LanguageFeatures.z42` |
 | `z42c.syntax`| **语法层**：Lexer + Parser + AST | `TokenKind.z42`、`Lexer.z42`、`Parser.z42`、`Ast.z42`、`Stmt.z42`、`Decl.z42`、`TypeExpr.z42` |
 | `z42c.semantics` | 类型检查（符号收集 + TypeCheck）+ Codegen（Bound→IR，用 `z42.package` 的模型） | `SymbolCollector.z42`、`TypeChecker.z42`、`Bound.z42`、`ExprEmitter.z42`、`IrGen.z42` |
+| `z42c.optimization` | IR → IR 优化管线（只依赖 `z42.package`）+ `Opt` 开关 | `IrOptPipeline.z42`、`IrOptInfo.z42`、`OptSet.z42`、`IrInline.z42` |
 | `z42c.pipeline` | 编译管线编排 + 依赖扫描 + workspace 构建 + `CacheStore`（增量缓存） | `BuildSession.z42`、`DepScan.z42`、`WorkspaceBuild.z42`、`CacheStore.z42` |
 | `z42c.driver` | CLI 入口（exe） | `Main.z42` |
 

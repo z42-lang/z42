@@ -1,7 +1,7 @@
 # z42c.semantics
 
 ## 职责
-语义分析 + 代码生成：`SymbolCollector`（Pass 0 符号收集）→ `TypeChecker`（Pass 1 绑定 + 类型检查）→ `Bound` 树（每节点携解析后 `Z42Type`）→ codegen（Bound→IR：`ExprEmitter` / `FunctionEmitter` / `IrGen` / `IrDump`）+ IR 优化管线。后端最大的子系统，dogfood 缺口高发段。
+语义分析 + 代码生成：`SymbolCollector`（Pass 0 符号收集）→ `TypeChecker`（Pass 1 绑定 + 类型检查）→ `Bound` 树（每节点携解析后 `Z42Type`）→ codegen（Bound→IR：`ExprEmitter` / `FunctionEmitter` / `IrGen` / `IrDump`）。出 IR 后交给 [`z42c.optimization`](../z42c.optimization/README.md) 的 IR 优化管线。后端最大的子系统，dogfood 缺口高发段。
 
 ## 功能索引
 命名空间 `Z42.Semantics`。
@@ -12,7 +12,6 @@
 | 绑定 + 类型检查（Pass 1） | `new TypeChecker(diags).Infer(cu, symbols)` → `SemanticModel` |
 | Bound dump | `SemanticDump.DumpBody(src, key)` / `ErrorCount(src)` |
 | 源 → IR / zbc | `IrDump.ZbcBytes*` / `BuildPackage*`（包编译门面，pipeline / driver 依赖）|
-| IR 优化管线 | `IrOptPipeline.Run(m, optSet)`，位集见 `Opt` |
 
 ## 目录结构
 
@@ -28,7 +27,6 @@
 | `src/Validation/` | 声明期约束（`DeclEnforcer`）、流分析（`FlowAnalyzer`）、声明位类型引用补录、多余 `using` 告警 |
 | `src/Emission/` | Bound → IR：`IrGen*`、`EmitContext`、各 `*Emitter`、`ClassDescBuilder`、常量 blob |
 | `src/Lowering/` | 合成与脱糖：attribute 合成 / handler 注册表、record / 模块初始化 / 接口桥合成、benchmark 脱糖、测试索引 |
-| `src/Optimization/` | IR 优化管线与各 pass |
 | `src/Exports/` | 导出签名（TSIG）提取、编译产物束 `CompiledModuleZ` |
 | `src/Generators/` | 源码生成器：契约、驱动、多轮拓扑、内建 `[Forward]` |
 | `src/Analyzers/` | 分析器：驱动、加载、`[lints]` 决策、局部抑制 |
@@ -97,20 +95,8 @@
 | `src/Validation/DeclTypeUses.z42` | 声明位类型引用的补录：`Infer` 末尾把本文件全部声明里的 TypeExpr 在挂了记录器的视图上再解析一遍（成员签名 / 基类列表 / 接口 / delegate / 约束 / impl），只记录、不发诊断 |
 | `src/Validation/UsingLint.z42` | 多余 `using` 告警：W0607 不必要（没用到 / prelude / 外围）、W0608 重复（同文件 / 已有 global using）；`CuCompile` 代码生成后调用，判据与 E0436 同一份用法集合 |
 | `src/Exports/CompiledModuleZ.z42` | 带依赖编译的产物束：`Module`/`Exported`/诊断/`Namespace`/`Usings`/`UsedDepNs`/`ErrorCount`。irdump-pipeline-split 从 IrDump 抽出为独立数据文件（同包 FQN 不变，跨包消费透明） |
-| `src/Optimization/IrOptInfo.z42` | **IR 优化基石**：逐 opcode 的写寄存器 `DstId`/`AddDef` / 读寄存器 `AddReads`+`AddTermReads`（经 z42.package 统一操作数接口 `DefReg`/`ReadAt`/`ReadReg` 枚举）/ **读操作数重写 `ReplaceReads`+`ReplaceTermReads`**（按 remap 改写读操作数，供 use-site copy-prop / CSE 复用）/ **CSE value-number `CseKey`+`DstReg`**（纯计算 op 的 `op|操作数ids` key + dst 提取）/ 可删性 `IsPure`（白名单，未知 opcode 保留）/ retarget `SetDst`（copy-prop）/ `TryConstFold`（const-fold 规则表，可扩展） |
-| `src/Optimization/OptSet.z42` | **可独立开关的具名优化位集**（`Opt` static class）：`ConstFold=1/CopyProp=2/Dce=4/Inline=8/Cse=16/Licm=32/StackAlloc=64/LoopAllocReuse=128/ReadonlyLoad=256/PureCall=512/DeadBranch=1024/All=2047` + `Has`/`ByName`/`ProfileDefault(isRelease)`（debug=None/-O0、release=All）/`Resolve`（CLI>toml>profile）|
 | `src/Binding/ConstValue.z42` | **编译期常量值**：`ConstValue{Kind, IntVal, StrVal}`，Kind 区分 `Int/Bool/Char/Float(bits)/Str/Null`——供 codegen 把 const 引用替换成对应字面量指令时选对指令 |
 | `src/Binding/ConstEval.z42` | **常量表达式求值器**：AST `Expr` + 已定义 const 环境(`StrMap`) → `ConstValue`（非常量返回 null，调用方报诊断）。覆盖字面量 + 一元/二元 算术·比较·逻辑·位·串接 + 已定义 const 引用（镜像 `IrGenFacts._foldBinary` 语义） |
-| `src/Optimization/IrDeadBranch.z42` | **常量条件死分支消除 pass**（`Opt.DeadBranch`）：单赋值 `ConstBoolInstr` 条件的 `br.cond`→无条件 `br` 折叠 + `ExcCount==0` 时可达性 BFS 移不可达块。**`ExcCount>0` 只折不移**（CFG 铁律：异常隐式边不在终结子 CFG，镜像 IrLicm 跳过）。见 book optimization-pipeline |
-| `src/Optimization/IrPureFunctionTable.z42` | **纯函数推断**：`PureTable`（funcName 集）+ `Compute(m)` 模块**单调不动点**（与 escape 相反：乐观全纯→发现副作用/读可变/抛/调非纯→降级→收敛；StrMap 无 Remove 故每轮重建）。`pure(f)`=每指令 IsPure∪对纯函数 call∪readonly-fget 且无 throw 终结。供 CSE/LICM 判纯调用可消重/外提。无体/imported→保守非纯 |
-| `src/Optimization/IrEscapeSummary.z42` | **跨过程参数逃逸摘要**：`ParamEscapeTable`（funcName→`ParamFlags(bool[ParamCount])`，参数槽含 this=槽0）+ `Compute(m)` 模块**单调不动点**（乐观全 false→逃逸的置 true→收敛）。供 IrEscapeAnalysis 把「传进静态调用的实参」从「一律逃逸」精确成「按 callee 摘要逐判」。无体 stub 不登记→调用点保守 |
-| `src/Optimization/IrEscapeAnalysis.z42` | **逃逸分析栈上分配 pass**（`Opt.StackAlloc`，入 All）：CFG-free 流不敏感 may-escape 过近似——`ComputeEscapedRegs(m,f,table)`（Pass A 角色感知逃逸汇点规则表 `_markEscaping` 入种子 + Pass B copy 传递闭包）。**跨过程摘要**：`CallInstr`(args[i]→槽 i)/`ObjNew`(args[i]→ctor 槽 i+1) 实参按 `ParamEscapeTable` 逐判；VCall/CallIndirect/builtin/闭包/跨包保守全标。对象合格前提 = ctor 摘要槽 0 不逃逸（原 `_ctorLeaksThis` 并入）。不逃逸+单赋值 `ObjNew`/`ArrayNew`/`ArrayNewLit`→`StackAlloc=true`。见 book escape-analysis-stack-alloc |
-| `src/Optimization/IrLoopUtil.z42` | **自然循环分析共享机件**（供 IrLicm + IrLoopAllocReuse）：`LoopCfg`（后继/前驱/支配）+ `BuildCfg`（<2 块 / 有异常表 → null）+ `Headers`（回边目标）+ `LoopBody`（并同 header 多回边体）+ `CleanPreheader`（唯一循环外 `br h` 前驱）+ `BlockIdx`。从 IrLicm 抽出，逐字节等价 |
-| `src/Optimization/IrLicm.z42` | **循环不变量外提 pass**（`Opt.Licm`，入 All）：CFG/循环机件复用 `IrLoopUtil` + 不变量（IsPure + 单赋值 dst + 操作数不在 **header 支配域**内定义）+ 外提。**跳过有异常表的函数**（`ExcCount>0`——CFG 不含异常隐式边）。`Run(f, optSet)` 增 `_isHoistableReadonlyFget` 分支（`Opt.ReadonlyLoad` 门控）——接收者 `this`（reg0 恒非空）的 readonly `field_get` + 循环体内该字段无 `field_set` → 外提。`Run(f, optSet, pureTable)` 增 `_isHoistablePureCall` 分支（`Opt.PureCall` 门控）——纯 `CallInstr`（callee 在纯表、含 no-throw）+ args 全循环不变 → 外提。见 book optimization-pipeline |
-| `src/Optimization/IrLoopAllocReuse.z42` | **循环内分配 hoist + 对象复用 pass**（`Opt.LoopAllocReuse=128`，入 All；escape 之后）：复用 `IrLoopUtil`，把循环体内**迭代内可复用**的 `ObjNew`/`ArrayNew`（C1 StackAlloc + C2 前向 copy 闭包无多赋值 = 不跨迭代携带 + C3 数组 Size 循环不变 + C4 对象 ctor 单块/数组常量下标读前写全）hoist 到 pre-header 只分配一次 + 循环体重初始化（对象=空 ctor 名裸分配 + `Call ctor(%r,args)`；数组=整条移走）。无格式 bump。主正确性门=`--no-opt loop-alloc-reuse` 开/关对拍 |
-| `src/Optimization/IrRegCounts.z42` | **寄存器读/写计数单一实现**（`Defs` / `DefsCap` / `Reads`，扫全函数累加 `IrOptInfo.AddDef`/`AddReads`/`AddTermReads`）；IrOptPipeline / IrDeadBranch / IrEscapeAnalysis / IrLoopAllocReuse 共用。 |
-| `src/Optimization/IrOptPipeline.z42` | **编译期 IR 优化管线**（IrGen.Generate 末尾）：`Run(m, optSet)` 按 `Opt.Has` 门控每 pass（`None`→整体跳过=-O0）。先模块级 inline（`IrInline.Run`，靠前产更多下游机会），再逐函数 const-fold → **licm**（`IrLicm.Run` 循环不变量外提）→ **cse**（`_passCse` 块内 value-number 去重）→ copy-prop（producer-retarget + **use-site 级联** `_passCopyPropUse`，靠 `ReplaceReads`）→ temp-DCE。licm/cse 两 pass 的触发改为 `Licm||ReadonlyLoad` / `Cse||ReadonlyLoad`，readonly `field_get` 消重/外提分支由 `ReadonlyLoad` 位单独门控（CSE 侧 `_collectWrittenFields` 失效被写字段）。`Run` 在 per-函数 pass 前算 `IrPureFunctionTable.Compute(m)` 传下去；licm/cse 触发再加 `||PureCall`，纯 `CallInstr` 消重/外提由 `PureCall` 位门控（纯调用无需失效表）。interp-first，见 book optimization-pipeline |
-| `src/Optimization/IrInline.z42` | **函数内联 pass**（`Opt.Inline`）：模块级逐 caller 展开合格直接调用点。curated 集（const/copy/算术/比较/位·一元/convert/field_get），callee 非递归/无异常表·varargs/精确 arity；offset=caller.MaxReg 重映射寄存器 + reg_types 同步扩 + 稳定序（自举不动点）。**只读形参直代入实参寄存器**（`InlineCtx`/`_writtenParamsAll`，免 param copy）。**Phase A 单块就地 splice + Phase B 多块 split+insert**（`InlineState`/`_spliceMultiBlock`/`_cloneCalleeBlock`，含控制流 callee 拆块内联、唯一 relabel、Ret→续延块）。资格/展开 |
 | `src/Binding/ExprTyper.z42` / `AssignTyper.z42` / `CollectionTyper.z42` / `ConstructTyper.z42` / `TypeOpTyper.z42` | 各类表达式的绑定与类型推断（`TypeChecker` 的 `*Typer` 分工：一般表达式 / 赋值 / 集合与索引 / new·构造 / is·as·typeof·cast）|
 | `src/Binding/MemberResolver.z42`（+ `.Bare` / `.Func` / `.Prim` / `.Static` / `.Subst` / `.TypeParam` 碎片） | 成员解析：实例 / 静态 / 基元 / 型参 / 函数类型成员，含泛型代换 |
 | `src/Binding/OverloadResolver.z42` / `OverloadBinder.z42`（+ `.Candidates`） | 重载决议与实参归位 |
@@ -144,4 +130,4 @@ TSIG 导出面提取：用户类/函数按 **CU 声明序**（hashed StrMap 不�
 **设计模型**：静态类变体——spoke 与 hub 均 `static class`，用限定静态调（`ClassExtractor._extractClass` / `ExportedTypeExtractor._unwrap`）单向委回，无实例 `_ref` 字段。唯一 spoke→spoke 边 = ClassExtractor / FuncImplExtractor → `TypeNameResolver`（单向进纯叶子工具，干净分层）；其余全经 hub。跨类方法 `private→internal`。
 
 ## 依赖关系
-`z42c.core`（Diagnostic/Span/DiagnosticCodes）、`z42c.syntax`（AST：Expr/Stmt/Decl + TypeExpr）、`z42.package`（IR 模型 + zbc/zpkg 后端，codegen 消费）。stdlib 自动可用。
+`z42c.core`（Diagnostic/Span/DiagnosticCodes）、`z42c.syntax`（AST：Expr/Stmt/Decl + TypeExpr）、`z42.package`（IR 模型 + zbc/zpkg 后端，codegen 消费）、`z42c.optimization`（`IrGen.Generate` 末尾调 `IrOptPipeline.Run`；`Opt` 开关供 devirt 门控与 dump 路径）。stdlib 自动可用。

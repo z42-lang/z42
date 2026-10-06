@@ -3,7 +3,7 @@
 > 代码：
 > `src/compiler/z42c.driver/src/Main.z42`（z42c 入口与退出码契约）、
 > `src/compiler/z42c.driver/src/BuildCommand.z42`（`build` 的选项解析）、
-> `src/compiler/z42c.semantics/src/Optimization/OptSet.z42`（优化名表）、
+> `src/compiler/z42c.optimization/src/OptSet.z42`（优化名表）、
 > `src/toolchain/builder/core/builder_cli.z42`（z42b 命令树）、
 > `src/toolchain/devtools/core/devtools_cli.z42`（z42d 命令树）
 >

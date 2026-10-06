@@ -379,7 +379,7 @@ string _seedSdkDir(string root) {
     return "";
 }
 
-// z42c seed dir (z42c.driver.zpkg + 6 siblings) = <sdk>/programs/z42c. "" if no SDK.
+// z42c seed dir (z42c.driver.zpkg + sibling compiler members) = <sdk>/programs/z42c. "" if no SDK.
 string _seedDriverHome(string root) {
     _vDetailed("  seed·z42c: resolving driver-home ← SDK");
     string sdk = _seedSdkDir(root);
@@ -578,6 +578,10 @@ int _ensureSeed(string root) {
     // relocate-compiler-domain-libs（2026-09-27）就是这么让 CI 八个 job 全红在 `[3/5]` 的：
     // `z42.scripting` 那一代还住种子的 `libs/`，当前源期望它在 `programs/z42c/`。
     // ⇒ **挪动编译器成员集合前，先想「上一代种子里这个文件在哪」**（曾为此留过一代 `libs/` 兜底）。
+    // **新增成员**（种子那一代还没有它，如拆出的 z42c.optimization）不算缺：供种只给 dist 预置一份可用的上一代，
+    // 随后的 `build --workspace` 按拓扑序从当前源建出每个成员。缺了就跳过、打一行提示；唯独 driver 必须有
+    // （它就是种子本身，下面的种子 driver 要靠它跑）。此前一律报错 ⇒ 新增成员的 PR 冷启动必红，而 nightly
+    // 只从绿的 main 发布 ⇒ 永远拿不到带新成员的种子（死锁）。
     string[] members = _compilerMembers(root);
     int i = 0;
     while (i < members.Length) {
@@ -586,8 +590,11 @@ int _ensureSeed(string root) {
         Directory.Create(dst);
         _copyAll(driverHome, dst, m + ".zpkg");
         if (!File.Exists(Path.Join(dst, m + ".zpkg"))) {
-            ConsoleError.WriteLine("error: seed missing " + m + ".zpkg in " + driverHome);
-            return 1;
+            if (m == "z42c.driver") {
+                ConsoleError.WriteLine("error: seed missing " + m + ".zpkg in " + driverHome);
+                return 1;
+            }
+            _vNormal("  seed: no " + m + ".zpkg (member newer than the seed) — built from source by the workspace build");
         }
         i = i + 1;
     }
@@ -595,7 +602,7 @@ int _ensureSeed(string root) {
     // （z42c.ir/z42c.project 尚在其兄弟集、当前 members 已不含）。它运行时按 entry-dir 解析兄弟，
     // 缺 z42c.project → `ZpkgBuilder.Sha256Hex` 等 undefined（CI bootstrap 全红根因）。故把
     // driverHome 的**全部 z42c.* 兄弟**（含遗留 z42c.ir/z42c.project）铺到 driver dist，令种子
-    // driver 自包含可跑。gen1 起用当前 5 成员就地覆盖，遗留兄弟无害闲置（当前 z42c 不引用）。
+    // driver 自包含可跑。gen1 起用当前成员就地覆盖，遗留兄弟无害闲置（当前 z42c 不引用）。
     string driverDist = _driverDist(root, profile);
     Directory.Create(driverDist);
     _copyAll(driverHome, driverDist, "z42c.*.zpkg");

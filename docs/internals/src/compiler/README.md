@@ -12,6 +12,7 @@ z42c —— **用 z42 自己写的编译器**，把 `.z42` 源码编成 `.zpkg`�
 | `z42c.core` | `src/compiler/z42c.core/` | `Span` / `Diagnostic` / `DiagnosticCodes` |
 | `z42c.syntax` | `src/compiler/z42c.syntax/` | Lexer + Parser（Pratt 表达式）+ AST |
 | `z42c.semantics` | `src/compiler/z42c.semantics/` | 符号收集 + 类型检查 + Codegen |
+| `z42c.optimization` | `src/compiler/z42c.optimization/` | IR → IR 优化管线（只依赖 IR 模型）+ `Opt` 开关 |
 | `z42c.pipeline` | `src/compiler/z42c.pipeline/` | 编译管线编排、依赖扫描、工作区构建、增量缓存 |
 | `z42c.driver` | `src/compiler/z42c.driver/` | CLI 入口（= `z42c` 可执行） |
 

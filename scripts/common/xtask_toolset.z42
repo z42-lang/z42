@@ -29,7 +29,7 @@ using Std.IO;
 // 解析结果。Ok=false 时 _resolveToolset 已经打印过具体原因，调用方直接 return 1 即可。
 // 自动属性 + 隐式默认构造，沿用本仓 TargetTooling / DepBundle 的写法。
 class ToolsetZ {
-    public string DriverZpkg { get; set; }   // z42c.driver.zpkg（7 个 z42c.* 兄弟包 colocated 在同目录）
+    public string DriverZpkg { get; set; }   // z42c.driver.zpkg（全部编译器成员包 colocated 在同目录）
     public string StdlibDist { get; set; }   // Z42_LIBS
     public string CompileVm  { get; set; }   // 编 fixture 用：优先 release（比 debug 快一个量级）
     public string RunVm      { get; set; }   // 跑 fixture 用：build-tree 下取 debug，保住断言覆盖
@@ -50,7 +50,7 @@ ToolsetZ _resolveToolset(string root) {
         t.RunVm      = t.CompileVm;                // toolchain 只带 release vm
     } else {
         t.StdlibDist = _libsDir(root);
-        // driverHome = 含 z42c.driver.zpkg + 7 个 z42c.* 兄弟的目录（z42vm 从 entry
+        // driverHome = 含 z42c.driver.zpkg + 全部编译器成员的目录（z42vm 从 entry
         // zpkg 所在目录解析其依赖；fixture 自身的 deps + stdlib 走 Z42_LIBS）。
         driverHome  = _assembleDriverHome(root);
         t.RunVm     = _builtVm(root, "debug");

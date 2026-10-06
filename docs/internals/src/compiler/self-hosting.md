@@ -16,9 +16,10 @@ z42c 是用 z42 写的编译器，由上一代 z42c 编译自己。结论：**�
 | `z42.package` | lib | IR 模型 + zbc/zpkg 读写后端 | — |
 | `z42.project` | lib | 工程清单模型 | — |
 | `z42.build` | lib | 构建管线接口（`ICompiler` / `IReplCompiler`） | project |
-| `z42c.semantics` | lib | TypeCheck + Codegen | core, syntax, package |
-| `z42c.pipeline` | lib | 编排（workspace 构建、依赖扫描、缓存）| core, syntax, semantics, package, project, build |
-| `z42c.driver` | exe | `z42c` 命令入口 | pipeline, semantics, syntax, core, package, project |
+| `z42c.optimization` | lib | IR → IR 优化管线 + `Opt` 开关 | package |
+| `z42c.semantics` | lib | TypeCheck + Codegen | core, syntax, package, optimization |
+| `z42c.pipeline` | lib | 编排（workspace 构建、依赖扫描、缓存）| core, syntax, semantics, optimization, package, project, build |
+| `z42c.driver` | exe | `z42c` 命令入口 | pipeline, semantics, optimization, syntax, core, package, project |
 | `z42.scripting` | lib | eval 内核 | core, syntax, build |
 
 各包另依赖 stdlib（`z42.core` / `z42.io` / `z42.toml` 等，自动可用）。`z42.package` / `z42.project` / `z42.build` / `z42c.core` / `z42c.syntax` 与 `z42.core` 合称**自依赖库**：z42c 运行期与编译期都要用它们，而它们又由 z42c 构建（见轴 ④）。普通工程的解析域只有 shipped `libs/`，要用编译器域库须在 `[dependencies]` 按名声明。
@@ -125,7 +126,7 @@ Stage 2  gen1 再编 z42c 源 → gen2；各成员 zpkg 除 BLID 段外逐段一
 
 xtask 最先被种子编出来、还要回头驱动编 stdlib / z42c，所以它只能用种子已有的语法与 stdlib API，INV-1 是最受约束的不变量。
 
-**种子来源**：SDK package（`z42-sdk-<ver>-<rid>`）的 `programs/z42c/` + `libs/`，而非 runtime package（runtime package 是纯嵌入式运行时，可能跨 host 使用，不携带单一 host 的 z42c）。冷启动由 `_ensureSeed` 按 `Z42_HOME` → 运行 xtask 的 apphost SDK → `./.z42` 找到 SDK 并供种到 in-tree；warm 树不被覆盖（gen2 不动点靠「从 in-tree gen1 再种」收敛）。CI 与本地走同一条 resolver，详见 [自举种子纪律](https://github.com/z42-lang/z42/blob/main/docs/agent/rules/bootstrap-seed.md)。
+**种子来源**：SDK package（`z42-sdk-<ver>-<rid>`）的 `programs/z42c/` + `libs/`，而非 runtime package（runtime package 是纯嵌入式运行时，可能跨 host 使用，不携带单一 host 的 z42c）。冷启动由 `_ensureSeed` 按 `Z42_HOME` → 运行 xtask 的 apphost SDK → `./.z42` 找到 SDK 并供种到 in-tree（按当前 `default-members` 逐个拷；**种子那一代还没有的成员**——新拆出 / 新增的包——跳过，由随后的 `build --workspace` 按拓扑序从源码建出，只有 `z42c.driver` 必须在种子里）；warm 树不被覆盖（gen2 不动点靠「从 in-tree gen1 再种」收敛）。CI 与本地走同一条 resolver，详见 [自举种子纪律](https://github.com/z42-lang/z42/blob/main/docs/agent/rules/bootstrap-seed.md)。
 
 ### 门
 

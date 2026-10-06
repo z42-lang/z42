@@ -10,5 +10,6 @@ kind    = "lib"
 "z42c.core"   = "0.1.0"
 "z42c.syntax" = "0.1.0"
 "z42.package"      = "0.1.0"   # IR 模型 + zbc/zpkg 格式（converge-z42c-ir-metadata-onto-stdlib：取代 z42c.ir）
+"z42c.optimization" = "0.1.0"   # IR 优化管线 + Opt/OptSet 优化开关（Z42.Optimization）
 "z42.io"      = "0.1.0"   # File —— AnalyzerDriver `--fix` 就地重写源（PR7-wire；z42.io 已经 z42.package 传递引入）
 "z42.threading" = "0.1.0"   # parallelize-package-compile：ParallelFor 工作池（Thread/ThreadException）

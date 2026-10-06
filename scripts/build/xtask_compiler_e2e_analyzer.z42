@@ -247,7 +247,7 @@ int _e2ePathAnalyzerChecks(string root, string vm, string driverZpkg, string e2e
 // `cdomain/`（编译器域包，镜像 `<sdk>/programs/z42c/`，经 `Z42_COMPILER_LIBS` 交给 z42c 的编译器目录查找）。
 // **这正是我实施时第一次验错的地方**（用了 flat，结论反了）。
 string[] _e2eDomainPkgNames() {
-    return new string[]{ "z42c.core", "z42c.syntax", "z42c.semantics", "z42c.pipeline", "z42c.driver",
+    return new string[]{ "z42c.core", "z42c.syntax", "z42c.optimization", "z42c.semantics", "z42c.pipeline", "z42c.driver",
                          "z42.package", "z42.project", "z42.build", "z42.scripting" };
 }
 

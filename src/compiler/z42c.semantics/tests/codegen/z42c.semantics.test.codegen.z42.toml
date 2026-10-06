@@ -12,6 +12,7 @@ include = ["**/*.z42"]
 "z42c.syntax"    = "0.1.0"
 "z42c.core"      = "0.1.0"
 "z42.package"         = "0.1.0"   # fix-primtype-static-init-order：prim_model_tag_tests 比对 IrType 标签
+"z42c.optimization" = "0.1.0"   # codegen_tests：按 Opt.* 开关跑优化管线 + IrInline 直接断言
 
 [build]
 # Build output → artifacts mirror (mirror-build-output-per-component, 2026-06-16):

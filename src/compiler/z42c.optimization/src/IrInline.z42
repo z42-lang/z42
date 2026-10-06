@@ -35,7 +35,7 @@
 //   **多块展开（Phase B，inline-multiblock）**：拆 caller 块为 head（前半 + 被写形参 copy + `br entry`）与
 //      cont（后半 + 原终结子）；中间插 callee 各块（relabel `prefix+label`、指令 clone+remap、Br/BrCond 目标
 //      relabel、每 Ret → 绑返回值 + `br cont`）。形参 copy 放 head → 只执行一次（loop 安全）。
-namespace Z42.Semantics;
+namespace Z42.Optimization;
 
 using Z42.IR;
 

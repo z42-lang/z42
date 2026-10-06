@@ -180,7 +180,7 @@ int _crossSummary(int pass, int fail, string[] failures, int failCount) {
 
 // ── z42c build path (replace-csharp Phase B：cross-zpkg gate 脱 dotnet) ──────
 
-// 组装 z42c driver-home：含 z42c.driver.zpkg + 7 个 z42c.* 兄弟（从 per-member dist）。
+// 组装 z42c driver-home：含 z42c.driver.zpkg + 全部编译器成员（从 per-member dist）。
 // z42vm 从 entry zpkg 所在目录解析其依赖，故 driver 的 z42c.* 依赖放这里，与
 // compilation 的 Z42_LIBS（stdlib + fixture deps）隔离，避免单-libs 目录污染。
 // 返回 driver-home 目录路径；z42c 未构建（缺任一成员 dist）返回 ""。
