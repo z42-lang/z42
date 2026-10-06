@@ -114,6 +114,12 @@ public static class DiagnosticCodes {
     // 每个环报一次（报在环上先被检查的那个类型），报错后清掉它的基类型断环，下游不再级联。
     public static string CircularBaseType = "E0502";
 
+    // diag-recursive-generic：泛型实例化**展不完**——值类型实例化各有一份代码，`struct Rec<T>` 的体里用到
+    // `Rec<Rec<T>>` 时，编 `Rec<int>` 就要先编 `Rec<Rec<int>>`，类型实参逐层加深没有尽头。类型检查合法，
+    // 只有单态化时才看得出来（对齐 Rust 单态化期的 recursion limit 报错）。引用类型实例化共用代码，同形状的
+    // `class` 不触发。此前撞工作表上限后抛未捕获异常、编译器打出整段栈退出。
+    public static string RecursiveGenericInstantiation = "E0503";
+
     // IrGen
     public static string UnsupportedSyntax   = "E0501";
 

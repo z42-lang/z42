@@ -26,3 +26,46 @@ void test_recursive_generic_does_not_hang() {
     string dump = IrDump.DumpModule(src);
     Assert.Equal(true, dump.Length > 0);   // 能走到这一行就说明没挂死
 }
+
+// ── 良型的无界展开：报 E0503，不再让编译器崩溃 ───────────────────────────
+//
+// 值类型实例化各有一份代码（布局不同），所以 `struct Rec<T>` 里用到 `Rec<Rec<T>>` 时，编 `Rec<int>`
+// 就得先编 `Rec<Rec<int>>`，再编 `Rec<Rec<Rec<int>>>`……没有尽头。类型检查完全合法，只有展开时才看得出来
+// （Rust 同样在单态化阶段报这一类）。此前撞上限后抛一个未捕获异常、打出整段栈。
+
+bool gsHasCode(CompiledModuleZ cm, string code) {
+    int i = 0;
+    while (i < cm.DiagCount) { if (cm.DiagMsgs[i].Contains(code)) { return true; } i = i + 1; }
+    return false;
+}
+
+string gsMsg(CompiledModuleZ cm, string code) {
+    int i = 0;
+    while (i < cm.DiagCount) { if (cm.DiagMsgs[i].Contains(code)) { return cm.DiagMsgs[i]; } i = i + 1; }
+    return "";
+}
+
+[Test]
+void test_recursive_struct_generic_reports_e0503() {
+    string src = "namespace D;\n"
+               + "struct Rec<T> { public T V; public Rec<Rec<T>> Next() { return new Rec<Rec<T>>(); } }\n"
+               + "void Main() { Rec<int> r = new Rec<int>(); var n = r.Next(); }\n";
+    CompiledModuleZ cm = IrDump.BuildModuleD(src, "rec.z42", null, null);
+    Assert.Equal(true, cm.ErrorCount > 0);
+    Assert.Equal(true, gsHasCode(cm, "E0503"));
+    string m = gsMsg(cm, "E0503");
+    Assert.Equal(true, m.Contains("`Rec`"));      // 点名是哪个泛型
+    Assert.Equal(true, m.Contains("rec.z42(2,"));  // 报在它的声明处
+    Assert.Equal(true, m.Contains("nested more than 100 levels"));   // 深度上限先到：百来项内失败，不攒满 2000
+}
+
+// 同一形状换成 class：引用类型实例化共用一份代码，展开有界，必须照常编过 —— 这条锁住
+// 「只在真的展不完时才报」，不能退化成一条静态的「禁止递归泛型」规则。
+[Test]
+void test_recursive_class_generic_still_compiles() {
+    string src = "namespace D;\n"
+               + "class Rec<T> { public Rec<Rec<T>> Next() { return new Rec<Rec<T>>(); } }\n"
+               + "void Main() { Rec<int> r = new Rec<int>(); var n = r.Next(); }\n";
+    CompiledModuleZ cm = IrDump.BuildModuleD(src, "recc.z42", null, null);
+    Assert.Equal(0, cm.ErrorCount);
+}
