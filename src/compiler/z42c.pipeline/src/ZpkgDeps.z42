@@ -74,7 +74,7 @@ public static class ZpkgDeps {
         return list;
     }
 
-    // 把 (file, sym) 对挂到各 DEPS 条目上（条目的文件集合一定覆盖 symFiles：带符号的条目必带 pkg，已进 buf）。
+    // 把 (file, sym) 对挂到各 DEPS 条目上（条目的文件集合一定覆盖 symFiles：带符号的条目必带 pkg，已进 buf），按序号序排序。
     private static void _attachSymbols(ZpkgDepList list, string[] symFiles, string[] symNames, int symCount) {
         int d = 0;
         while (d < list.Count) {
@@ -86,6 +86,15 @@ public static class ZpkgDeps {
             int k = 0;
             i = 0;
             while (i < symCount) { if (symFiles[i] == dep.File) { syms[k] = symNames[i]; k = k + 1; } i = i + 1; }
+            // **排序**：记录序跟着绑定期方法体的遍历序走（不确定），不排序 ⇒ DEPS 字节随之漂（自举不动点 gen1≠gen2 实测抓到）。
+            int a = 1;
+            while (a < n) {
+                string x = syms[a];
+                int b = a - 1;
+                while (b >= 0 && syms[b].CompareTo(x) > 0) { syms[b + 1] = syms[b]; b = b - 1; }
+                syms[b + 1] = x;
+                a = a + 1;
+            }
             dep.Symbols = syms; dep.SymCount = n;
             d = d + 1;
         }

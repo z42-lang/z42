@@ -39,6 +39,19 @@ bool zdHas(ZpkgFileZ z, string file) {
     return false;
 }
 
+// precise-pkg-refs：DEPS 里 `file` 那一项的符号表含 `sym`。
+bool zdHasSym(ZpkgFileZ z, string file, string sym) {
+    int i = 0;
+    while (i < z.DepCount) {
+        if (z.Deps[i].File == file) {
+            int k = 0;
+            while (k < z.Deps[i].SymCount) { if (z.Deps[i].Symbols[k] == sym) { return true; } k = k + 1; }
+        }
+        i = i + 1;
+    }
+    return false;
+}
+
 // `using Std;` + 只用 z42.core 的 `Math` ⇒ DEPS 只有 z42.core，其它 `Std` 提供包一个不带。
 [Test]
 void test_using_std_records_only_the_package_actually_used() {
@@ -95,7 +108,14 @@ void test_unwritten_receiver_type_is_recorded() {
     CompiledModuleZ cm = art.Cms[0];
     bool hit = false;
     int i = 0;
-    while (i < cm.UsedDepNsCount) { if (cm.UsedDepNs[i] == "Std.Time#z42.core") { hit = true; } i = i + 1; }
+    // 条目形如 `Std.Time#z42.core#Std.Time.<类型>`（precise-pkg-refs：带被引用符号，运行期据此精确路由）。
+    while (i < cm.UsedDepNsCount) {
+        string e = cm.UsedDepNs[i];
+        if (DepRef.NsOf(e) == "Std.Time" && DepRef.PkgOf(e) == "z42.core" && DepRef.SymOf(e).StartsWith("Std.Time.")) { hit = true; }
+        i = i + 1;
+    }
     Assert.Equal(true, hit);
     Assert.Equal(true, zdHas(art.Z, "z42.yaml.zpkg"));
+    // 写出的形参类型 `YamlValue` 进 z42.yaml 那一项的符号表（运行期缺这个名字时只加载 z42.yaml）。
+    Assert.Equal(true, zdHasSym(art.Z, "z42.yaml.zpkg", "Std.Yaml.YamlValue"));
 }
