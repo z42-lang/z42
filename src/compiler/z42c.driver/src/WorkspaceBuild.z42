@@ -1,6 +1,6 @@
 // z42c driver —— workspace 构建编排（`_buildWorkspace*` / `_findWorkspaceToml`）。
 // refactor-split-driver-main（complete-runtime-settings P5 前置，2026-09-05）：
-// `Main.z42` 长期 636 行、在 line-limit 棘轮基线上，任何增长都会让 `xtask test lines`
+// `Main.z42` 长期 636 行、在 line-limit 棘轮基线上，任何增长都会让 `xtask check lines`
 // 变红。本文件是从它逐行搬出的**纯移动**（无逻辑改动），同包同 namespace，调用方
 // 不变；搬完 Main.z42 回到 500 行硬限之下、可从基线剔除。
 namespace Z42.Driver;

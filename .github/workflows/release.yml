@@ -133,7 +133,7 @@ jobs:
       - name: Build wasm platform
         if: matrix.rid == 'browser-wasm'
         shell: bash
-        run: xtask test platform wasm build
+        run: xtask test app wasm build
 
       # `xtask` 是 ci-bootstrap 加进 PATH 的垫片（.github/ci/xtask）：与本地 `./xtask` 一样，用 `.z42` SDK 的
       # z42vm + libs 跑 xtask.zpkg（cargo 重链构建树 z42vm.exe 时碰不到它）。

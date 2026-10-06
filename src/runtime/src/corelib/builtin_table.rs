@@ -12,7 +12,7 @@
 //!
 //! refactor-split-corelib-mod（complete-runtime-settings P5 前置，2026-09-05）：
 //! 自 `corelib/mod.rs` 逐行搬出的**纯移动**（无逻辑改动）。mod.rs 长期 665 行、在
-//! line-limit 棘轮基线上，再追加一条 builtin 就会让 `xtask test lines` 变红；而表
+//! line-limit 棘轮基线上，再追加一条 builtin 就会让 `xtask check lines` 变红；而表
 //! 本身是数据、按名字线性增长，与 mod.rs 里的分发逻辑变更频率完全不同。
 
 use super::*;

@@ -51,7 +51,7 @@ cargo 指纹，它会把整个 crate 冷编一遍（`compiler-checks` 的 `test 
 [`.github/ci/xtask`](https://github.com/z42-lang/z42/blob/main/.github/ci/xtask) 所在目录加进 `$GITHUB_PATH`，之后的步骤一律写
 
 ```bash
-xtask test all --no-build --skip "$SKIP"
+xtask test --no-build --skip "$SKIP"
 ```
 
 **xtask 跑在 `.z42` SDK 上，与本地 `./xtask` 完全一致**。两个 bootstrap action 都先经
@@ -91,8 +91,8 @@ PR 的 xtask，而 xtask 的 `_root()` 取 cwd 的仓库根 = base-src（base �
 
 **纯文档快速通道**：PR 的改动**全部**是 `docs/**` 或 `*.md`（`docs/learn/**`、`examples/**` 除外——学习手册的
 示例会被重放）时，`detect-changes` 输出 `docs_only=true`，只跑 `docs-check`：ci-bootstrap 的 `xtask-only`
-模式（种子 z42c 只编出 xtask，省掉 build compiler / stdlib）+ `xtask test docs`（相对链接 + gate stage 清单
-↔ `test-gate.md`）+ `xtask test diagcodes`（诊断码 ↔ `error-codes.md`）。读文档的门禁就这几道。
+模式（种子 z42c 只编出 xtask，省掉 build compiler / stdlib）+ `xtask test docs links`（相对链接 + gate stage 清单
+↔ `test-gate.md`）+ `xtask check diagcodes`（诊断码 ↔ `error-codes.md`）。读文档的门禁就这几道。
 `test-host` ×4 与 toolchain 链（`compile-toolchain` → `compile-test-assets` / `test-consume`）随之 skip。
 push / schedule / dispatch 不走快速通道。
 
@@ -178,7 +178,7 @@ required check 视同通过。新增 job 时记得加进它的 `needs`。
 
 `test-host` 各腿用 `--skip` 把 stage 卸给并行 job：linux-x64 跳 `stdlib,compiler,vscode`，
 其余 OS 再多跳 `cross-zpkg,bench`（这两者 host 无关，一条腿够了）。Windows 腿不跑
-`test all`，只跑 `build test` + `xtask test runtime`。三条非 Windows 腿在 `test all` 之后
+`test`，只跑 `build test` + `xtask test runtime`。三条非 Windows 腿在 `test` 之后
 跑 **zbc-format 字节基线门**（`git diff --quiet -- src/compiler/z42.package/tests/fixtures/zbc-format`；regen 就地重写了基线，
 有 diff = 提交的基线过期）——一次覆盖三个架构，且挂在 required check 上。
 
@@ -197,7 +197,7 @@ required check 视同通过。新增 job 时记得加进它的 `needs`。
 对这条 CI 太贵。
 
 替代是 `test-host(linux-x64)` 末尾的 **抢号预检** 步骤：GREEN 已经跑完、树可以随便动，
-于是 `git merge` 进**最新** main，重跑一次纯文本扫描的 `xtask test diagcodes`（秒级）。
+于是 `git merge` 进**最新** main，重跑一次纯文本扫描的 `xtask check diagcodes`（秒级）。
 窗口从「PR 的整个生命周期」缩到「最后一次 CI 到合并之间」；**按下 merge 前重跑一次这个 job
 就能把窗口压到近零**。挖不到共同祖先（浅克隆）或与 main 有文本冲突时它**放行**——
 前者是环境限制，后者 GitHub 本身已经挡住合并，不重复报警。

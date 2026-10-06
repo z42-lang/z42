@@ -38,8 +38,8 @@ z42 help run
 
 ```bash
 xtask package sdk --no-build            # 打出 SDK 包（含 launcher）
-DIST_SMOKE_ONLY=launcher xtask test dist  # launcher 命令行冒烟（新手路径 + run/repl）
-xtask test dist                          # 完整：再加 publish 冒烟与打包 goldens
+DIST_SMOKE_ONLY=launcher xtask package verify  # launcher 命令行冒烟（新手路径 + run/repl）
+xtask package verify                          # 完整：再加 publish 冒烟与打包 goldens
 ```
 
 冒烟用例在 `scripts/test/xtask_test_dist_cli.z42`（new → run → build → clean / 版本 / 帮助 / 错误路径）与 `scripts/test/xtask_test_dist.z42`。

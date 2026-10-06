@@ -20,7 +20,7 @@
 - **声明需要什么，而不是在哪失败**：平台差异用**能力**表达，用例声明自己需要的能力；
   不按用例名维护排除表。
 - **本地与 CI 同一条路径**：CI 能跑的任何一层测试，本地用同一条命令也能完整跑完。
-- **规范可机械检查**：能判定的部分由 `xtask test layout` 守着（见[实现](#实现)），不靠纪律。
+- **规范可机械检查**：能判定的部分由 `xtask check layout` 守着（见[实现](#实现)），不靠纪律。
 
 ## 方案与决策
 
@@ -57,7 +57,7 @@
 
 ### 2. `src/tests/` 的类别清单
 
-`src/tests/` 的每个顶层目录必须登记在下面两张清单之一，`xtask test layout` 双向对账：新类别没登记 → 红；
+`src/tests/` 的每个顶层目录必须登记在下面两张清单之一，`xtask check layout` 双向对账：新类别没登记 → 红；
 清单里的类别已不存在 → 红。
 
 **语言类别**（加新类别时登记在这里）：
@@ -120,8 +120,8 @@ Rust 侧的 `*_tests.rs` 与 `tests/*.rs` 按 cargo 惯例，不在此列。
 |---|---|---|
 | 多包编译与链接 | `src/compiler/z42c.pipeline/tests/fixtures/cross-zpkg/` | `xtask test e2e --dir cross-zpkg` |
 | 一工程产多个 exe | `src/compiler/z42c.pipeline/tests/fixtures/multi-exe/` | `xtask test e2e --dir multi-exe` |
-| `[[test]]` / `[[example]]` / `[[bench]]` target | `src/toolchain/builder/tests/fixtures/manifest-targets/` | `xtask test targets` |
-| z42b 自身的清单 / hook / 发现规则 | `src/toolchain/builder/tests/fixtures/z42b/` | `xtask test targets` |
+| `[[test]]` / `[[example]]` / `[[bench]]` target | `src/toolchain/builder/tests/fixtures/manifest-targets/` | `xtask test toolchain builder` |
+| z42b 自身的清单 / hook / 发现规则 | `src/toolchain/builder/tests/fixtures/z42b/` | `xtask test toolchain builder` |
 | `.zbc` 字节基线 | `src/compiler/z42.package/tests/fixtures/zbc-format/` | `xtask build test` 就地重生；`xtask test runtime`（`zbc_compat`、`format_fixture_versions`）读取 |
 | `.zpkg` 字节基线 | `src/compiler/z42.package/tests/fixtures/zpkg-format/` | 按该目录 README 的配方重生；`xtask test runtime` 读取 |
 
@@ -157,7 +157,7 @@ Rust 侧的 `*_tests.rs` 与 `tests/*.rs` 按 cargo 惯例，不在此列。
 - 桌面宿主报告全部能力，host 上跑的 `test stdlib` / `test e2e` 不需要判定。
 
 **能力词表**。只能使用「已生效」的名字：deny-by-default 下，运行期不报告的名字会让用例在**所有平台**上
-被静默跳过。`xtask test layout` 检查两件事：「已生效」区与 `platform.rs` 的 `builtin_platform_caps` 双向相等；
+被静默跳过。`xtask check layout` 检查两件事：「已生效」区与 `platform.rs` 的 `builtin_platform_caps` 双向相等；
 `src/**/*.z42` 里的能力声明只用「已生效」的名字。
 
 已生效（运行期报告）：
@@ -242,12 +242,18 @@ flowchart LR
 一条命令完成全部步骤，本地与 CI 相同（`scripts/test/xtask_test_app.z42`）：
 
 ```bash
-xtask test app <wasm|ios|android|all> [--filter <pat>] [--shard k/n]
+xtask test app <desktop|wasm|ios|android|all> [stage|build|assets|bundle|run] [--filter <pat>] [--shard k/n]
 ```
 
-它先把 test agent 装进 z42b 会去找的 SDK（构建树的 `artifacts/build/runtime/runtimes/dev/workloads/test/`；xtask 调 z42b
-时总把 `Z42_PORTABLE_VM` 设成跑 z42b 的那个 VM，所以本地经 `.z42/z42` 启动也找得到），再按平台串起
-R1–R7（分片时只在第 1 片）→ 嵌入 bundle → 宿主构建 → 设备运行，最后给一张汇总表。
+desktop 也是一个嵌入宿主（C ABI 宿主），与三个设备平台同一条流水线：R1–R7（分片时只在第 1 片）→ 嵌入
+bundle → 宿主构建 → 运行，最后给一张汇总表。desktop 的语料在 z42b 进程内跑（`--rid host`，与设备上 agent
+内嵌的是同一个 `Std.Test.BundleRunner`）；设备平台先把 test agent 装进 z42b 会去找的 SDK（构建树的
+`artifacts/build/runtime/runtimes/dev/workloads/test/`；xtask 调 z42b 时总把 `Z42_PORTABLE_VM` 设成跑 z42b 的那个
+VM，所以本地经 `.z42/z42` 启动也找得到）。
+
+带 step 只做一步（调试 / CI 分步）：`stage` 同步宿主工程副本、`build` 原生构建、`assets` 放 R1–R7 夹具与
+stdlib、`bundle` 组嵌入语料并放进宿主、`run` 在宿主 / 设备上运行。desktop 另有 `--zbc <file|golden 目录>`
+只跑一个模块，`--format json|pretty|tap` 选报告格式。
 
 设备的启停由运行它的工具负责，规则统一：已有在跑的设备就复用、跑完不关；没有就以 headless 方式启动、
 跑完只关自己起的那台。iOS 模拟器由 `xcodebuild` 启动。Android 由 z42b 负责（`builder_device_android.z42`）：
@@ -268,16 +274,17 @@ R1–R7（分片时只在第 1 片）→ 嵌入 bundle → 宿主构建 → 设�
 | 编译器 | `xtask test compiler` |
 | 工具链 | `xtask test toolchain [<comp>]` |
 | VM（Rust） | `xtask test runtime` |
-| app（wasm / iOS / Android） | `xtask test app <platform|all> [--filter <pat>] [--shard k/n]` |
+| 嵌入宿主（desktop / wasm / iOS / Android） | `xtask test app <platform\|all> [step] [--filter <pat>] [--shard k/n]` |
 | 本次改动影响到的 | `xtask test changed` |
 | 用例目录表 | `xtask test list` |
-| 本页规范 | `xtask test layout` |
+| 文档 | `xtask test docs [links\|examples]` |
+| 本页规范（及其它静态检查） | `xtask check layout`（`xtask check` 全跑） |
 
 各命令的旗标见[怎么跑测试](testing.md)。
 
 ## 实现
 
-`xtask test layout` 是 GREEN gate 的一个纯文本扫描 stage（秒级、与 host 无关），检查本页能机械判定的部分：
+`xtask check layout` 是 GREEN gate 的一个纯文本扫描 stage（秒级、与 host 无关），检查本页能机械判定的部分：
 
 | # | 检查 | 失败时怎么修 |
 |---|---|---|

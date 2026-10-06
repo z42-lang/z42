@@ -133,7 +133,7 @@ windows-x64 / macos-arm64 四平台）确认 z42c `--workspace` 编译在 **inte
 1.67×（小包）～3.6×（大包如 `z42.core`）。
 
 逃生舱：`Z42C_BUILD_MODE=interp`（格式-bump 窗口、确定性审计、调 codegen 时用），`=jit` 亦可显式指定。
-**例外**是 `xtask test bootstrap`：它恒用 interp，因为要走上一版 nightly 种子最稳的解释路径，不随本默认变。
+**例外**是 `xtask test compiler bootstrap`：它恒用 interp，因为要走上一版 nightly 种子最稳的解释路径，不随本默认变。
 
 ## 5. 增量编译：判据下沉到名字
 
@@ -180,7 +180,7 @@ windows-x64 / macos-arm64 四平台）确认 z42c `--workspace` 编译在 **inte
 
 旋钮与验收：`--no-incremental` 强制全量；`Z42_INCR_DEBUG=1` 打印种子与传播链
 （`[name-changed]` / `[name-removed]` / `[invalidated] … uses-changed-name X` / `[spread]`）；
-硬验收是 `xtask test incremental` 的暴力对账器——逐文件 touch、逐文件追加一个新自由函数、
+硬验收是 `xtask test compiler incremental` 的暴力对账器——逐文件 touch、逐文件追加一个新自由函数、
 dist 清空后全命中重装配三轮，每轮都要求增量 dist 与 `--no-incremental` 全量**逐字节相等**。
 **workspace / flat 构建（§3 的阶段一/二）不落 cache、不 probe**，gen1/gen2 字节对比路径零扰动。
 
@@ -201,7 +201,7 @@ dist 清空后全命中重装配三轮，每轮都要求增量 dist 与 `--no-in
   整体清空。带 error 的构建不落 cache，所以丢的只有 warning。
   候选后续 `replay-cached-file-warnings`。
 
-⚠️ **`xtask test incremental` 照不到这一类**，三个独立原因：
+⚠️ **`xtask test compiler incremental` 照不到这一类**，三个独立原因：
 ① 三个变异算子（追加注释 / 追加自由函数 / 删 dist）都不改任何文件的 `using` 集合；
 ② 判据只比 dist 字节（`_incrBuild` 把 stdout/stderr 接到 `Stdio.Null()`，只取 exit code）——
 而缺的恰恰是**诊断**，字节一模一样；③ 三份语料里根本没有 `global using`。
@@ -268,14 +268,14 @@ golden 语料被 4 条命令消费。遍历只有一次——`_walkGoldenCorpus(
 |---|---|---|
 | `build test`（regen） | `_isNonRegenCat` | — |
 | `test e2e`（VM golden） | — | `_isExcludedDirName`、镜像 `.zbc` 存在、`interp_only` |
-| `test dist` | — | `_isTestRunnerSource`、`interp_only` |
-| `test embedded` / `test list` | — | `_isExcludedDirName` |
+| `package verify` | — | `_isTestRunnerSource`、`interp_only` |
+| `test app desktop` / `test list` | — | `_isExcludedDirName` |
 
 `src/tests/` 的每个类别都是可运行的语言 golden（[测试用例组织规范](test-layout.md)），runner 不需要按类别排除；
 多包 / 多目标夹具、字节基线、性能场景都在各自 owner 的 `tests/fixtures/` 或 `src/bench/`，不在这次遍历里。
 库测试目录里带 `[Test]` / `[Benchmark]` 的没有 `Main`，归 `test stdlib` 跑，四路都跳过。
 
-> `test embedded` / `test list` 的**发射顺序是 load-bearing 的**（分片切片与 `_sampleCorpus`
+> `test app desktop` / `test list` 的**发射顺序是 load-bearing 的**（分片切片与 `_sampleCorpus`
 > 依赖「同 bucket 连续」，且 src/tests 桶内 dir 与 flat 两种模式按原始 basename **交错**排序），
 > 所以它在共享 walk 之上做一次按桶重组，而不是单遍扫描。
 
@@ -286,9 +286,9 @@ golden 语料被 4 条命令消费。遍历只有一次——`_walkGoldenCorpus(
 全量 regen（不带 `--dir` / `--file`）另外把 `src/compiler/z42.package/tests/fixtures/zbc-format/*/source.zbc`
 这组签入的字节基线**原地覆盖**（`_formatZbcFixtureCases`），好让 `git diff` 直接暴露格式漂移。工具链选择尊重 `Z42_HOME`，未设或布局不符时用 build-tree 的 z42c + stdlib + z42vm。
 
-## 9. `test bootstrap`：跨版本自举边界检查
+## 9. `test compiler bootstrap`：跨版本自举边界检查
 
-`xtask test bootstrap [rid]` 验证「上一个已发布 nightly 的 z42c 能否编译当前源」——
+`xtask test compiler bootstrap [rid]` 验证「上一个已发布 nightly 的 z42c 能否编译当前源」——
 support-先行纪律的本地快门。
 
 ```mermaid

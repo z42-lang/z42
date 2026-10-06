@@ -4,7 +4,7 @@
 # src/tests/**（任意文本扩展名，含 expected_build_error.txt）∪ examples/** ∪ scripts/test/**
 # ∪ scripts/build/xtask_compiler_e2e*.z42（编译器 e2e harness）
 # ∪ docs/learn/**。本门要答的是「有没有被任何一处钉住」，不是「钉得够不够好」。
-# 每一条都是**欠账**：给它补一个按码断言的用例，然后重跑 `xtask test diagcodes --update`。
+# 每一条都是**欠账**：给它补一个按码断言的用例，然后重跑 `xtask check diagcodes --update`。
 # 这份清单只应缩短 —— 新增一个活码而不给它测试，门会红并要求你在这里显式记一笔。
 E0103
 E0435

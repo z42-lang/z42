@@ -1,4 +1,4 @@
-// xtask — `test dist` 的命令行冒烟：用**打包出的** `z42` 走一遍新手路径
+// xtask — `package verify` 的命令行冒烟：用**打包出的** `z42` 走一遍新手路径
 // （new → run → build → clean、从子目录运行、不在工程里时的报错、版本、帮助）。
 // 每条断言失败都打印命令、退出码与输出，便于直接定位。
 namespace Z42Xtask;

@@ -38,8 +38,8 @@ language-configuration，**无 `main`、无需编译**。
 | **仓库开发者** | `xtask deps install vscode` | `<repo>/.vscode/extensions/`（工作区） | **symlink 回源码树**，且先经 `z42c --dump-keywords` 重新生成 grammar——改 Lexer 关键字即时生效 |
 
 资产随 SDK 分发靠 `packages.toml` 的 `[component.editor-assets]`
-（`*.tpl.json` 生成器模板**不进包**，由 `xtask test packages` 的 staging 自检守着）。
-grammar 防漂移 = `xtask test vscode-syntax`（GREEN gate）。
+（`*.tpl.json` 生成器模板**不进包**，由 `xtask package check` 的 staging 自检守着）。
+grammar 防漂移 = `xtask check vscode-syntax`（GREEN gate）。
 
 ## 基础用法
 release（剥符号）构建把行表剥到旁挂 `.zsym`；部署常不带 `.zsym`，故线上崩溃栈是
@@ -59,7 +59,7 @@ z42d symbolicate crash.txt --syms symdir/ --syms other.zsym # 多个（目录递
 
 ```bash
 xtask build toolchain       # 构建并 publish z42d
-xtask test vscode-syntax    # 编辑器 grammar 一致性
+xtask check vscode-syntax    # 编辑器 grammar 一致性
 ```
 
 ## 关联文档

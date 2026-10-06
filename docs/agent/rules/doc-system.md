@@ -115,7 +115,7 @@ learn  ──链──▶  reference          internals  ──链──▶  lea
 
 | 书 | 何时更新 | 完备性靠什么保证 |
 |---|---|---|
-| `learn` | 按 `OUTLINE.md` 推进；被覆盖特性变更时同步 | `xtask test examples`——代码与终端输出**逐条真实重放** |
+| `learn` | 按 `OUTLINE.md` 推进；被覆盖特性变更时同步 | `xtask test docs examples`——代码与终端输出**逐条真实重放** |
 | `reference` | 特性落地即更新规则页；新 stdlib API 即更新包页 | 人工 + `xtask test docs` |
 | `internals` | PR 合并前**知识上浮**；踩坑即补「为什么」 | 人工（PR 合并前知识上浮） |
 

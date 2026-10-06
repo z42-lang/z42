@@ -392,7 +392,7 @@ int _ensureCompilerTooling() {
 // member list derives from the workspace manifest's default-members (single
 // source of truth; cf. _stdlibList). member name == [project].name == zpkg
 // basename, so the product path is build/compiler/<name>/release/dist/<name>.zpkg.
-// noBuild=true: skip the tooling + z42c rebuild (the caller — `test all` — already
+// noBuild=true: skip the tooling + z42c rebuild (the caller — `test` — already
 // built z42c fresh in its build wave; rebuilding here was z42c's 2nd/3rd full
 // self-build in one gate run). Standalone `test compiler` passes false.
 int _testCompiler(bool noBuild) {

@@ -46,14 +46,14 @@ workload/<plat>/          # ios / android / wasm（desktop 见下）
 > 它是 **payload-only 形状**（只有 agent zpkg、无 per-RID runtime pack、`host:["*"]`），复用现有 install CLI（名 manifest 驱动、通配 host）。
 >
 > `workload/fixtures/`：各平台 R1–R7 嵌入契约测试**共用**的 z42 夹具（`hello.z42` / `multi_line.z42` 及其 `.z42.toml`），
-> 由 `xtask test platform <plat> assets` 编成 `.zbc` 喂给 wasm / iOS / Android / desktop 的测试壳。
+> 由 `xtask test app <plat> assets` 编成 `.zbc` 喂给 wasm / iOS / Android / desktop 的测试壳。
 
 ## 如何测试验证
 
 ```bash
 xtask build workload                  # 构建 4 个平台 workload 库
-xtask test platform all               # 各平台 R1–R7 嵌入契约（wasm / ios / android / desktop）
-xtask test embedded                   # 经 test-agent 跑嵌入语料
+xtask test app all               # 各平台 R1–R7 嵌入契约（wasm / ios / android / desktop）
+xtask test app desktop                   # 经 test-agent 跑嵌入语料
 ```
 
 各平台细节见各自 README。

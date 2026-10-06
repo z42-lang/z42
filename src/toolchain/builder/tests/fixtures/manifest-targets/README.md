@@ -18,8 +18,8 @@
 | compile-then-test（`z42b test <toml>`） | `compile-then-test/`——纯 test 工程（**不**声明 `[[test]]`，故被清单引擎跳过），由 fixtures stage 的 `_smokeCompileThenTest` 单独驱动，验证 toml→build→反射跑|
 
 ## 如何测试验证
-    xtask test targets            # 跑本目录所有 [[test]] 目标（harness 两态）+ example 编译门禁
-    xtask test targets exit_ok    # 只跑名为 exit_ok 的目标（具名精确）
+    xtask test toolchain builder            # 跑本目录所有 [[test]] 目标（harness 两态）+ example 编译门禁
+    xtask test toolchain builder exit_ok    # 只跑名为 exit_ok 的目标（具名精确）
     xtask bench targets           # 跑所有 [[bench]] 目标
     xtask test                    # 全 gate（含 targets stage）
 

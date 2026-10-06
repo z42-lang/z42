@@ -34,8 +34,8 @@ _ = try vm.invoke(entry)
 ```bash
 rustup target add aarch64-apple-ios aarch64-apple-ios-sim aarch64-apple-darwin
 ./xtask build stdlib
-./xtask test platform ios build          # xcframework（ios-arm64 + simulator + macos-arm64 slice）
-./xtask test platform ios assets         # fixtures + stdlib
+./xtask test app ios build          # xcframework（ios-arm64 + simulator + macos-arm64 slice）
+./xtask test app ios assets         # fixtures + stdlib
 ```
 
 产物在宿主工程副本 `artifacts/intermediate/toolchain/workload/ios/host/`（不写本目录）：
@@ -46,7 +46,7 @@ rustup target add aarch64-apple-ios aarch64-apple-ios-sim aarch64-apple-darwin
 ## 如何测试验证
 
 ```bash
-./xtask test platform ios
+./xtask test app ios
 ```
 
 build xcframework + 编 fixture + 在 iOS Simulator 上 `xcodebuild test` 跑 R1–R7（7 个 XCTest），

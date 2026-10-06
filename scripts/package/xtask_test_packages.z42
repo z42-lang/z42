@@ -1,4 +1,4 @@
-// xtask — `test packages`: packages.toml self-checks aggregator (simplify-xtask-verify,
+// xtask — `package check`: packages.toml self-checks aggregator (simplify-xtask-verify,
 // 2026-07-07).
 //
 // Runs the packages.toml pipeline self-checks in sequence — one command. Each is a plain

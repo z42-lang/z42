@@ -68,5 +68,5 @@
 cd src/runtime && cargo build --release --bin z42vm
 ./xtask build compiler
 ./xtask test              # 全 stage
-./xtask test bootstrap    # 改了语法/格式能力必跑
+./xtask test compiler bootstrap    # 改了语法/格式能力必跑
 ```

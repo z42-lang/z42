@@ -72,7 +72,7 @@ public class IosBackend : IPlatformBackend {
     // ③ Thinned (z42b-device-run PR-2): the iOS run 下沉 z42b's ios driver. ONE
     // `xcodebuild test -scheme Z42VM` runs R1–R7 (Z42VMTests) + the embedded corpus
     // (Z42EmbeddedTests) in a single simulator boot; z42b resolves the sim UDID and
-    // writes junit.xml. Requires a prior `test embedded --rid iossim-arm64` to have
+    // writes junit.xml. Requires a prior `test app ios bundle` to have
     // staged the xcframework + Resources/embedded corpus (CI runs it before this).
     public int RunTests(string root) {
         return _runIosTesthost(root, "iossim-arm64");
@@ -92,7 +92,7 @@ public class IosBackend : IPlatformBackend {
     }
 }
 
-// 只编 `test embedded --rid <ios>` 需要的切片 —— macOS host（`swift test` 要用）+ rid 对应的部署切片
+// 只编 `test app desktop --rid <ios>` 需要的切片 —— macOS host（`swift test` 要用）+ rid 对应的部署切片
 // （ios-arm64 → 真机，iossim-arm64 → 模拟器，空 → 两者）—— 再拼成 `<rtDir>/native/Z42VM.xcframework`
 // （runtime pack 的同形布局）；z42b 把它铺进宿主工程（SwiftPM 的 binaryTarget 在那里找它）。
 // IPHONEOS_DEPLOYMENT_TARGET 取 versions.toml 的 platform.ios.min_ios：C 依赖（zlib-ng）要和 rlib 的

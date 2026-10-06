@@ -166,7 +166,7 @@ _enumerateCorpus(root, filter)        → _CorpusCase[]   （结构化，rid 无
 > 采样不用「排序后取前 60」：那会让字母序靠前的类别（arith / array…）挤满预算，
 > 靠后的（try / string / stdlib 单元）一个都抽不到——覆盖面偏斜。所以用 round-robin。
 >
-> **本地怎么验**：`xtask test embedded --rid iossim-arm64 [--shard k/4]` 会打印
+> **本地怎么验**：`xtask test app ios bundle [--shard k/4]` 会打印
 > `bundle: N cases` 与采样/分片报告，看被抽到的 case 名跨类别分布、或确认 n 片并集=全集，
 > **不需要真跑模拟器**。
 

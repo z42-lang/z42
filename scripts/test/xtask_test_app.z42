@@ -1,13 +1,15 @@
-// `xtask test app <wasm|ios|android|all> [--filter <pat>] [--shard k/n]` —— 设备测试一条命令
-// （test-layout.md §6）。本地与 CI 走同一条路径：
+// `xtask test app <desktop|wasm|ios|android|all> [stage|build|assets|bundle|run] [--filter] [--shard k/n]
+//               [--format json|pretty|tap] [--zbc <file|golden-dir>]` —— 嵌入宿主测试一条命令（test-layout.md §6）。
+// desktop 也是一个嵌入宿主（C ABI 宿主），与 wasm / iOS / Android 同一条流水线；本地与 CI 走同一路径：
 //
-//   准备 test agent → 平台 R1–R7（分片时只在第 1 片）→ 组嵌入 bundle → 构建宿主（副本里）→ 在设备上跑 → 报告
+//   准备 test agent（设备平台）→ 平台 R1–R7（分片时只在第 1 片）→ 组嵌入 bundle → 构建宿主（副本里）→ 运行 → 报告
 //
-// 每个平台的步骤顺序就是 CI 原先分步调用的顺序，这里只是把它们收成一个入口；各步本身（宿主副本、
-// z42b 设备驱动、bundle 构建）在 xtask_test_{platform,embedded,device_host}.z42 里。
+// 带 step 时只做那一步（调试用）：stage = 同步宿主工程副本；build = 原生构建；assets = R1–R7 夹具 + stdlib；
+// bundle = 组嵌入语料 bundle 并放进宿主；run = 在宿主 / 设备上运行。各步本身（宿主副本、z42b 设备驱动、
+// bundle 构建）在 xtask_test_{platform,embedded,device_host}.z42 里。
 //
-// 本机不具备的平台**跳过**并说明原因，不算失败（非 macOS / 没装 Xcode 跑不了 iOS；Linux 没有 KVM
-// 跑不了 Android 模拟器）。`all` 跑本机支持的全部平台，最后给一张汇总表。
+// 本机不具备的平台**跳过**并说明原因，不算失败（非 macOS / 没装 Xcode 跑不了 iOS；Linux 没有 KVM 且没有
+// 接着的设备跑不了 Android）。`all` 跑本机支持的全部平台，最后给一张汇总表。
 namespace Z42Xtask;
 
 using Std.IO;
@@ -15,18 +17,34 @@ using Std.Cli;
 
 int _testApp(ParseResult r) {
     string which = r.GetPositional(0);
+    string step = r.GetPositional(1);
     string filter = r.GetOption("filter");
+    string format = r.GetOption("format");
+    string zbc = r.GetOption("zbc");
     int[] sh = _parseShard(r.GetOption("shard"));
     string[] plats;
-    if (which == "all") { plats = new string[]{ "wasm", "ios", "android" }; }
-    else if (which == "wasm" || which == "ios" || which == "android") { plats = new string[]{ which }; }
+    if (which == "all") { plats = new string[]{ "desktop", "wasm", "ios", "android" }; }
+    else if (which == "desktop" || which == "wasm" || which == "ios" || which == "android") { plats = new string[]{ which }; }
     else {
-        ConsoleError.WriteLine("error: xtask test app <wasm|ios|android|all> — unknown platform '" + which + "'");
+        ConsoleError.WriteLine("error: xtask test app <desktop|wasm|ios|android|all> — unknown platform '" + which + "'");
+        return 2;
+    }
+    if (step.Length > 0 && step != "stage" && step != "build" && step != "assets" && step != "bundle" && step != "run") {
+        ConsoleError.WriteLine("error: xtask test app " + which + " — unknown step '" + step + "' (stage | build | assets | bundle | run)");
+        return 2;
+    }
+    if (step.Length > 0 && which == "all") {
+        ConsoleError.WriteLine("error: a single step needs a single platform (xtask test app <platform> " + step + ")");
+        return 2;
+    }
+    if (zbc.Length > 0 && which != "desktop") {
+        ConsoleError.WriteLine("error: --zbc runs on the desktop host only (xtask test app desktop --zbc <file>)");
         return 2;
     }
     string root = _root();
     // z42b 每次增量重编（源未变时近 no-op）：只查「在不在」会让本地改过 z42b 源后继续跑旧的 z42b。
     int dep = _ensureZ42b(root); if (dep != 0) { return dep; }
+    if (zbc.Length > 0) { return _runDesktopEmbedded(root, "", zbc, format, 0, 0); }
 
     string[] outcome = new string[plats.Length];
     bool failed = false;
@@ -35,7 +53,7 @@ int _testApp(ParseResult r) {
     while (i < plats.Length) {
         string p = plats[i];
         Console.WriteLine("");
-        Console.WriteLine("════ test app " + p + " ════");
+        Console.WriteLine("════ test app " + p + (step.Length > 0 ? " " + step : "") + " ════");
         string skip = _appSkipReason(root, p);
         if (skip.Length > 0) {
             Console.WriteLine("  ⏭  skipped: " + skip);
@@ -43,11 +61,13 @@ int _testApp(ParseResult r) {
             i = i + 1;
             continue;
         }
-        if (!agentReady) {
+        // 设备平台经 z42b 的设备驱动跑，要从 SDK 里解析 test agent；desktop 在 z42b 进程内跑，不需要。
+        if (!agentReady && p != "desktop" && (step.Length == 0 || step == "bundle" || step == "run")) {
             if (_provisionTestAgent(root) != 0) { return 1; }
             agentReady = true;
         }
-        int rc = _testAppOne(root, p, filter, sh[0], sh[1]);
+        int rc = step.Length > 0 ? _testAppStep(root, p, step, filter, format, sh[0], sh[1])
+                                 : _testAppOne(root, p, filter, format, sh[0], sh[1]);
         outcome[i] = rc == 0 ? "passed" : "FAILED (exit " + rc.ToString() + ")";
         if (rc != 0) { failed = true; }
         i = i + 1;
@@ -77,9 +97,14 @@ string _appSkipReason(string root, string platform) {
     return "";
 }
 
-// 一个平台的整条流水线。顺序与 CI 原先分步调用的一致。
-int _testAppOne(string root, string platform, string filter, int shardK, int shardN) {
+// 一个平台的整条流水线。
+int _testAppOne(string root, string platform, string filter, string format, int shardK, int shardN) {
     bool firstShard = shardN == 0 || shardK == 1;
+    if (platform == "desktop") {
+        // C ABI 宿主的 R1–R7（与语料无关，分片时只在第 1 片），再在 z42b 进程内跑嵌入语料。
+        if (firstShard) { int c = _platformDispatch("desktop", "", root); if (c != 0) { return c; } }
+        return _runDesktopEmbedded(root, filter, "", format, shardK, shardN);
+    }
     if (platform == "wasm") {
         // R1–R7 与语料无关，分片时只在第 1 片跑。
         if (firstShard) { int c = _platformDispatch("wasm", "", root); if (c != 0) { return c; } }
@@ -101,6 +126,29 @@ int _testAppOne(string root, string platform, string filter, int shardK, int sha
     int s = _platformDispatch("android", "assets", root); if (s != 0) { return s; }
     if (_buildAndroidTesthost(root, filter, arid, shardK, shardN).Length == 0) { return 1; }
     return _runAndroidTesthost(root, arid);
+}
+
+// 只做一步（调试 / CI 分步）。stage / build / assets 是平台三段式里的同名阶段；bundle / run 是嵌入语料段。
+int _testAppStep(string root, string platform, string step, string filter, string format, int shardK, int shardN) {
+    if (step == "stage" || step == "build" || step == "assets") { return _platformDispatch(platform, step, root); }
+    string iosRid = "iossim-arm64";
+    if (step == "bundle") {
+        if (platform == "desktop") { return _buildTestBundle(root, filter, "", shardK, shardN).Length > 0 ? 0 : 1; }
+        if (platform == "wasm")    { return _buildWasmTesthost(root, filter, shardK, shardN).Length > 0 ? 0 : 1; }
+        if (platform == "ios")     { return _buildIosTesthost(root, filter, iosRid, shardK, shardN).Length > 0 ? 0 : 1; }
+        return _buildAndroidTesthost(root, filter, _androidHostRid(), shardK, shardN).Length > 0 ? 0 : 1;
+    }
+    // run：desktop / wasm 的 R1–R7 与语料是两次运行；iOS / Android 一次设备运行同时跑两组。
+    if (platform == "desktop") {
+        int c = _platformDispatch("desktop", "run", root); if (c != 0) { return c; }
+        return _runDesktopEmbedded(root, filter, "", format, shardK, shardN);
+    }
+    if (platform == "wasm") {
+        int c = _platformDispatch("wasm", "run", root); if (c != 0) { return c; }
+        return _runWasmTesthost(root);
+    }
+    if (platform == "ios") { return _runIosTesthost(root, iosRid); }
+    return _runAndroidTesthost(root, _androidHostRid());
 }
 
 // 把 test agent 装进 z42b 会去找的 SDK：z42b 由 Z42_PORTABLE_VM（= xtask 用来跑 z42b 的那个 VM，

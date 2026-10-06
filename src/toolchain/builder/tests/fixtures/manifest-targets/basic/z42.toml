@@ -8,7 +8,7 @@
 # (section [tests] Auto default). unit_ok/exit_ok share a name with their file so
 # the explicit target OVERRIDES the auto unit (spec "显式覆盖同名 auto").
 #
-# Run by: `xtask test targets`, `xtask bench targets`, `xtask example`, and the
+# Run by: `xtask test toolchain builder`, `xtask bench targets`, `xtask example`, and the
 # `manifest targets` / `examples` stages of `xtask test`. NOT built into stdlib
 # dist (lives under src/tests/, excluded from golden regen/run + packaging).
 [project]

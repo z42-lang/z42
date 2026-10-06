@@ -35,8 +35,8 @@ Z42VM(zpkgResolver = AssetZpkgResolver(assets)).use { vm ->
 ```bash
 ./xtask deps install --os android        # SDK + NDK + emulator + AVD + Gradle，装到 artifacts/tools/
 ./xtask build stdlib
-./xtask test platform android build      # cargo-ndk × ABIs + gradle AAR
-./xtask test platform android assets     # fixtures + stdlib 进 assets
+./xtask test app android build      # cargo-ndk × ABIs + gradle AAR
+./xtask test app android assets     # fixtures + stdlib 进 assets
 ```
 
 产物在宿主工程副本 `artifacts/intermediate/toolchain/workload/android/host/`（不写本目录）：

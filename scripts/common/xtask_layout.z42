@@ -274,7 +274,7 @@ string _legacyScratchDir(string root) { return Path.Join(_artifactsDir(root), ".
 // artifacts/tools — downloaded third-party tools (node / android-sdk / gradle / playwright).
 string _toolsDir(string root) { return Path.Join(_artifactsDir(root), "tools"); }
 
-// artifacts/.z42 — the local dev SDK assembled by `build sdk` (default `--sdk` of `test examples`).
+// artifacts/.z42 — the local dev SDK assembled by `build sdk` (default `--sdk` of `test docs examples`).
 string _devSdkDir(string root) { return Path.Join(_artifactsDir(root), ".z42"); }
 
 // 旧的 artifacts/publish（打包暂存根）—— drop-package-staging（2026-10-01）起组件直接装进包目录，不再写这里。

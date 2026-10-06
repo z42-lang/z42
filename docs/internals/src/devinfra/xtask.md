@@ -11,17 +11,18 @@
 
 ## 1. 命令树
 
-顶层十个命令，`xtask -h` 打印的就是这棵树的根：
+顶层十一个命令，`xtask -h` 打印的就是这棵树的根：
 
 | 命令 | 管什么 |
 |---|---|
 | `build` | 编译各组件：`runtime` / `compiler` / `stdlib` / `sdk` / `stage-toolchain` / `workload` / `toolchain` / `test` / `all` |
-| `package` | 组装发行包：`sdk` / `runtime` / `workload` / `index`（见[打包引擎](packaging.md)）|
-| `test` | 测试编排；裸 `test` = 完整 GREEN gate（见[测试门禁](test-gate.md)）|
+| `package` | 组装发行包：`sdk` / `runtime` / `workload` / `index` / `archive` / `finalize`；打包自己的验证：`check`（packages.toml 自检）/ `verify`（拿打包出的发行版跑 golden + launcher smoke）（见[打包引擎](packaging.md)）|
+| `test` | 跑用例，按「契约属于谁」分：`e2e` / `stdlib` / `compiler` / `toolchain` / `runtime` / `app` / `docs`，外加 `changed`、`list`；裸 `test [--no-build] [--skip …]` = 完整 GREEN gate（见[怎么跑测试](testing.md)、[测试门禁](test-gate.md)）|
+| `check` | 不编译、不跑用例的静态检查：`vscode-syntax` / `lines` / `walkers` / `diagcodes` / `stage2` / `ci-shell` / `proc-env` / `layout`；不带名字 = 全跑并汇总（`--update` 重写 lines / diagcodes / stage2 的棘轮基线）|
 | `bench` | 基准；裸 `bench` = e2e 场景（见[性能基准与回归门禁](benchmarking.md)）|
 | `deps` | 工具链依赖：`check` / `install` / `env` |
 | `profile` | 对单个 `.z42` 脚本做 cpu / heap / threads / e2e 剖析 |
-| `clean` | 删构建产物（`tests` / `bench` / `tmp` / `all`，默认删生产 cache/dist；各自删什么见[产物目录布局](artifacts-layout.md) §4）|
+| `clean` | 删构建产物（`tests` / `bench` / `intermediate` / `all`，默认删生产 cache/dist；各自删什么见[产物目录布局](artifacts-layout.md) §4）|
 | `layout` | 打印产物布局路径：无参列出全部 `key  path`，`layout <key>` 只打印一条（给 CI / 脚本查询，见[产物目录布局](artifacts-layout.md)）|
 | `run` | 把参数原样透传给 **PATH 上的 `z42` launcher**（找不到 launcher 即报错退出）|
 
@@ -71,7 +72,12 @@ graph LR
 两 token 形式从 argv 摘除、last-wins，`--toolchain` 写进 `Z42_HOME`。
 ② **拦截层**：有两个命令的默认语义是路由树表达不了的——裸 `test` = 完整 GREEN gate、
 裸 `bench` = e2e 场景；它们在 `Resolve` 之前被拦下，但**仍注册在树里**，好让 `xtask -h` 列出、
-`xtask bench stdlib -h` 正常工作。`run` 同样在 Resolve 前直通 launcher。
+`xtask bench stdlib -h` 正常工作。裸 `test` 自己的旗标（`--no-build` / `--skip`）由拦截层用一个独立的
+`ArgParser` 解析。`run` 同样在 Resolve 前直通 launcher。
+
+路由树没有「不带子项 = 默认动作」，所以需要默认动作的子命令做成**叶子 + 可选位置参数**：
+`test compiler [incremental|fingerprint|bootstrap]`、`test app <platform> [step]`、`test docs [links|examples]`、
+`check [<name>]`，不带位置参数就是默认动作。
 ③ **路由树**解析后按路径首段分发。
 
 命令族的 **router**（声明每个叶子的 flag / option / positional，`-h` 文本由此生成）与
@@ -82,7 +88,8 @@ dispatch 之间没有任何引用。所以按**族**分文件，而不是「所�
 scripts/xtask_cli.z42              核心：全局选项剥离 → _cliRoot 根树 → _dispatch 分流
 scripts/cli/xtask_cli_build.z42    _buildRouter    + _dispatchBuild
 scripts/cli/xtask_cli_package.z42  _packageRouter  + _dispatchPackage
-scripts/cli/xtask_cli_test.z42     _testRouter (+_platformRouter) + _dispatchTest
+scripts/cli/xtask_cli_test.z42     _testRouter     + _dispatchTest
+scripts/cli/xtask_cli_check.z42    _checkParser    + _check（静态检查的单跑入口；GREEN 里它们仍各是一个 stage）
 scripts/cli/xtask_cli_deps.z42     _depsRouter     + _dispatchDeps
 scripts/cli/xtask_cli_bench.z42    _benchRouter    + _dispatchBench + 裸 bench 的 e2e 入口
 ```
@@ -141,7 +148,7 @@ graph TD
   build-tier SDK；ios = rust targets + Xcode 检查；wasm = rust targets + wasm-pack + hermetic node。
   **无 `--os` = 只管当前 host 的基础**，不铺开装交叉栈（交叉平台栈一律显式 opt-in）。
 - **用到才装**——重型 / 兜底依赖零命令面，消费步骤检测到缺失后自动装：android emulator tier
-  （emulator + system-image + AVD + Gradle，约 4 GB）由 `test platform android run` 安装，
+  （emulator + system-image + AVD + Gradle，约 4 GB）由 `test app android run` 安装，
   node 兜底由 wasm 测试步骤安装。**安装失败 = 该步骤失败**，不吞不跳过。
 
 下载来的东西一律落 `artifacts/tools/`（如 `artifacts/tools/node`、`artifacts/tools/android-sdk`），

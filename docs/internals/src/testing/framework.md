@@ -260,7 +260,7 @@ build wave 也算一个 stage：它同样走 `_stageStart` 打 banner、同样�
 
 ### 6.2 `--skip`：让 CI 拆解这块整料
 
-`xtask test all --skip stdlib,cross-zpkg` 按名跳过 stage。CI 用它给每条 leg 减负——
+`xtask test --skip stdlib,cross-zpkg` 按名跳过 stage。CI 用它给每条 leg 减负——
 被跳掉的 stage 由专门的并行 job 覆盖（见 §7）。本地 `xtask test` 传空串 → 全量 gate，不变。
 
 ## 7. CI 拓扑（谁跑哪一段）

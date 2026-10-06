@@ -11,41 +11,49 @@
 
 这页回答三个问题：有哪几层测试、各层**单跑时**有哪些旗标、**我改了 X 该验什么**。
 
-## 1. 五层 + 一个门禁
+## 1. 命令怎么分
 
-| 层 | 测什么 | 命令 |
+`xtask test` 的子命令按**契约属于谁**划分，与[测试用例组织规范 §1](test-layout.md) 的 owner 表一一对应；
+不跑用例的静态检查在 `xtask check`，打包自己的验证在 `xtask package check|verify`。
+
+| 类别 | 命令 | 测什么 |
 |---|---|---|
-| 编译器 | z42c 自编自的**不动点**（gen1 == gen2 逐字节）+ 编译器源码里的 `[Test]` unit | `xtask test compiler` |
-| VM golden | `src/tests/**/source.z42` 端到端，interp + JIT 双模 | `xtask test e2e` |
-| stdlib `[Test]` | `src/libraries/<lib>/tests/`，由 `z42b` 调度 | `xtask test stdlib [<lib>]` |
-| 工具链 `[Test]` | `src/toolchain/<comp>/` 下各工程的 `tests/`（`fixtures/` 除外），runner 同 stdlib | `xtask test toolchain [<comp>]` |
-| Rust VM 单测 | `src/runtime/src/*_tests.rs` + `src/runtime/tests/*.rs` | `xtask test runtime` |
-
-```bash
-./xtask test          # 完整 GREEN gate（串联全部 stage，任一失败立刻停）
-```
+| 门禁 | `xtask test [--no-build] [--skip <csv>]` | 完整 GREEN gate（串联全部 stage，任一失败立刻停） |
+| | `xtask test changed [--dry-run] [<base>]` | 按改动推导该跑的命令（§3） |
+| 语言 / VM | `xtask test e2e` | `src/tests/**` 的 golden，interp + JIT 双模；`--dir cross-zpkg` / `multi-exe` 是多包夹具 |
+| 库 | `xtask test stdlib [<lib>]` | `src/libraries/<lib>/tests/` 与编译器域库的 `[Test]`，由 `z42b` 调度 |
+| 编译器 | `xtask test compiler` | 自举不动点（gen1 == gen2 逐字节）+ 编译器 `[Test]` 单元 + 编译器 e2e |
+| | `xtask test compiler incremental` | 逐文件 touch，增量结果与全量**逐字节**相同 |
+| | `xtask test compiler fingerprint --base <tree>` | 编译器输出变了就必须 bump `CompilerFingerprint` / 格式 minor |
+| | `xtask test compiler bootstrap [--rid <rid>]` | 自举边界：上一 nightly 的 z42c 能不能编当前 z42c 源 |
+| 工具链 | `xtask test toolchain [<comp>] [--target <name>]` | `src/toolchain/<comp>/` 下各工程 `tests/` 的 `[Test]`（`fixtures/` 除外）+ builder 的 manifest 目标夹具（`[[test]]` / `[[example]]` / `[[bench]]`、z42b 清单 / hook / 发现规则） |
+| VM（Rust） | `xtask test runtime` | `src/runtime/src/*_tests.rs` + `src/runtime/tests/*.rs` |
+| 嵌入宿主 | `xtask test app <desktop\|wasm\|ios\|android\|all> [step]` | R1–R7 + 嵌入语料在宿主 / 设备上跑（[test-layout §6](test-layout.md)） |
+| 文档 | `xtask test docs [links\|examples]` | 相对链接可解析（棘轮基线，`--update` 只许减不许加）+ 学习手册会话脚本用真实 SDK 重放 |
+| 查询 | `xtask test list` | 用例目录（只读） |
 
 裸 `test` 先跑一个重建波（debug VM + stdlib + z42c 自建 + golden `.zbc` 基线），
 `--no-build` 跳过它、消费已有产物。**Rust VM 单测不在 gate 内**——它的
 signal-crash helper 会挂死整套 `cargo test`，所以 CI 每条腿单列一步。
+`--skip` 的完整 stage 名清单以[测试门禁 §5](test-gate.md) 为准。
 
-> `xtask test all --help` 里 `--skip` 只列了常用的几个 stage 名；完整的 skip 名清单以
-> [测试门禁 §5](test-gate.md) 为准。
-
-除四层外，gate 里还串着若干**门禁型** stage，各自也能单跑：
+gate 里还串着若干**静态检查** stage（纯文本扫描 / 生成物比对，秒级），单跑入口是 `xtask check`：
 
 | 命令 | 守什么 |
 |---|---|
-| `xtask test docs` | 文档里的相对链接都解析得了（有 baseline 棘轮，`--update` 只许减不许加） |
-| `xtask test lines` | 单文件行数硬上限（>500 行：新增/增长判红，已知的只警告） |
-| `xtask test walkers` | 注册的 exhaustive AST walker 覆盖每个节点子类 |
-| `xtask test vscode-syntax` | VSCode 语法文件 ↔ Lexer 关键字表同步 |
-| `xtask test fingerprint` | 编译器输出变了就必须 bump `CompilerFingerprint` / 格式 minor |
-| `xtask test incremental` | 逐文件 touch，增量结果与全量**逐字节**相同 |
-| `xtask test targets` | manifest 的 `[[test]]` / `[[example]]` target fixture |
-| `xtask test examples` | 学习手册的会话脚本用真实 SDK 重放 |
-| `xtask test packages` | `packages.toml` 的解析 / 组件安装 / 发布归档自检 |
-| `xtask test bootstrap [rid]` | 自举边界：上一 nightly 的 z42c 能不能编当前 z42c 源 |
+| `xtask check` | 下面全部，跑完汇总哪些红 |
+| `xtask check lines [--update]` | 单文件行数硬上限（>500 行：新增/增长判红，已知的只警告） |
+| `xtask check walkers` | 注册的 exhaustive AST walker 覆盖每个节点子类 |
+| `xtask check diagcodes [--update]` | 每个发得出去的诊断码在登记表里登记恰好一次 |
+| `xtask check stage2 [--update]` | 阶段-1 过渡形态必须挂账且不超期 |
+| `xtask check vscode-syntax` | VSCode 语法文件 ↔ Lexer 关键字表同步 |
+| `xtask check ci-shell` | CI composite action 的 `run:` 块没有先用后赋的变量 |
+| `xtask check proc-env` | `Z42_LIBS` / `Z42_PROBING_PATHS` 只经 `_z42Proc` / `_z42bProc` 设置 |
+| `xtask check layout` | 测试布局规范里能机械判定的部分（[test-layout](test-layout.md) 的「实现」节） |
+
+打包相关：`xtask package check` 自检 `packages.toml` 的解析 / 组件安装 / 发布归档（不需要包）；
+`xtask package verify [interp|jit]` 拿打包出的发行版（`bin/z42c`、`bin/z42vm`、`libs/`、launcher）跑 golden、
+launcher smoke 与 desktop publish（没有 release 包先打一个）。
 
 ## 2. 各层的单跑姿势
 
@@ -105,7 +113,7 @@ interface dispatch、`using` 的跨包 namespace 解析、同名 namespace 冲�
 
 xtask 的 `--jobs N` 是**上层 unit 级**批宽（每批 N 个 unit 同时 compile + run，重叠掉每个 unit 的
 `z42.core` bootstrap，这是 stdlib 测试的主要耗时），与 runner 自己的 `--jobs` 不是一回事；
-每个 runner 在其 unit 内仍串行，`[Setup]` / `[Teardown]` 因此正常执行。`test all` 默认传 4。
+每个 runner 在其 unit 内仍串行，`[Setup]` / `[Teardown]` 因此正常执行。`test` 默认传 4。
 
 更细的 runner 旗标（`--format pretty|json`，格式契约见[测试门禁 §8](test-gate.md)）直接对
 `z42b`：`z42b <unit>.zbc --format json`。
@@ -121,7 +129,7 @@ xtask 的 `--jobs N` 是**上层 unit 级**批宽（每批 N 个 unit 同时 com
 CI 只在 Windows 腿跑 `cargo test`，容易静默腐烂——改 ClassDesc / 反射 / 版本相关代码后
 **本地必跑**；版本 bump 还要更新 `zbc_reader_tests` 里的 version-pin 测试。
 
-### `test fingerprint`：本地怎么给它一棵 base 树
+### `test compiler fingerprint`：本地怎么给它一棵 base 树
 
 这道门要两棵树（本树编译器重编 **base 的** stdlib 源码，逐包比字节），过去多个 change 的
 tasks.md 都记着「本地无从提供 base 树」而只能等 CI。其实当 **nightly release 正好发自
@@ -151,7 +159,7 @@ cp -R <warm>/.z42 $BASE/.z42 && cp <warm>/xtask $BASE/xtask      # 种子 + apph
    ./xtask build stdlib)
 ```
 
-然后在本树 `./xtask test fingerprint --base $BASE`。
+然后在本树 `./xtask test compiler fingerprint --base $BASE`。
 
 两个容易踩的：
 
@@ -250,7 +258,7 @@ golden 用例的文件约定：
 base 默认 `HEAD`，也可以给 ref 或用 `Z42_TEST_CHANGED_BASE`；收集范围是
 `git diff --name-only <BASE>` 的 tracked 改动加 `git ls-files --others --exclude-standard`
 的 untracked；它不理解跨文件的语义依赖（改 stdlib 内部 helper 不会触发依赖它的 cross-zpkg 用例），
-靠「未识别路径一律坍缩为 `test all`」保守弥补。
+靠「未识别路径一律坍缩为 `test`」保守弥补。
 
 ## 5. 我改了 X，该验什么
 
@@ -258,19 +266,19 @@ base 默认 `HEAD`，也可以给 ref 或用 `Z42_TEST_CHANGED_BASE`；收集范
 
 | 改动 | 快速迭代 | commit 前额外必跑 | CI 替你验的 |
 |---|---|---|---|
-| **编译器 `src/compiler/`** | `test changed` | 触及 lexer / parser / codegen / 格式 writer，或源里用了新写法 → `test bootstrap` | `compiler-checks`、`test-host`（含种子自举边界）、`test-vm-jit` |
+| **编译器 `src/compiler/`** | `test changed` | 触及 lexer / parser / codegen / 格式 writer，或源里用了新写法 → `test compiler bootstrap` | `compiler-checks`、`test-host`（含种子自举边界）、`test-vm-jit` |
 | **stdlib（加 API / 改实现）** | `test stdlib <lib> -k <kw>` 或 `test changed` | — | `test-stdlib-interp` ×3 OS、`test-stdlib-jit` ×2 shard、`test-host` |
 | **stdlib（删 / 改 xtask 或 z42c 在用的 API）** | 同上 + 迁调用点 | ⚠️ 两步舞，见 §6 | 每腿 `ci-bootstrap`（用**种子** stdlib 编 xtask / z42c 源） |
 | **VM `src/runtime/`** | `xtask test runtime` + `test e2e` | — | `test-host`、`test-vm-jit`、`test-stdlib-*`、`package-*`（feature 组合）|
 | **只改用例 `src/tests/`** | `test e2e` | — | `test-host`（`test-vm-jit` / `stdlib-*` 不跑） |
 | **xtask 源 `scripts/`** | `z42 publish scripts/xtask.z42.toml` 重建后随便跑条命令冒烟 | changed 映射对 `scripts/**` = 全套 | 每腿 `ci-bootstrap` 的种子编 xtask 步 |
-| **新语法 / zbc·zpkg 格式** | 阶段一只落 support（仓库源码不用）→ `test bootstrap` | 格式 bump 另跑 `docs/agent/rules/version-bumping.md` 的清单；等 nightly 发布后才 use | 全腿 `ci-bootstrap`（种子编当前源）+ `compiler-checks` |
-| **打包 `scripts/package/` / `packages.toml`** | `test packages` | `xtask package sdk` + `xtask test dist` | `package-host` + `package-{ios,android,wasm}` |
-| **codegen / 优化 / typecheck / IR writer（会改产物字节）** | `test compiler` | 同步 `CacheStore.CompilerFingerprint` +1；自查 `test fingerprint` | `bench-regression` 的 fingerprint guard |
-| **增量编译（IncrementalBuild / CacheStore / ZbcReader）** | `test compiler` | `test incremental`（逐文件 touch 对账，增量 == 全量逐字节） | `compiler-checks` |
-| **学习手册 / `examples/`** | `test examples <part>/<chapter>`（只改页面加 `--book-only`）；输出确实该变则 `--bless` 后审 diff | `xtask build sdk` + `test examples` | `test-host` 的 examples stage、`package-host`（用打包 SDK 重放，含 Windows）、`deploy-book` |
-| **launcher / z42b 的命令行输出** | `test examples`（手册会话脚本记录了这些输出） | 同上 | 同上 |
-| **纯文档 / `.claude/`** | 无 | 无 | `.claude/**` 不触发；`docs/**` 会触发 `test docs` 死链门 |
+| **新语法 / zbc·zpkg 格式** | 阶段一只落 support（仓库源码不用）→ `test compiler bootstrap` | 格式 bump 另跑 `docs/agent/rules/version-bumping.md` 的清单；等 nightly 发布后才 use | 全腿 `ci-bootstrap`（种子编当前源）+ `compiler-checks` |
+| **打包 `scripts/package/` / `packages.toml`** | `package check` | `xtask package sdk` + `xtask package verify` | `package-host` + `package-{ios,android,wasm}` |
+| **codegen / 优化 / typecheck / IR writer（会改产物字节）** | `test compiler` | 同步 `CacheStore.CompilerFingerprint` +1；自查 `test compiler fingerprint` | `bench-regression` 的 fingerprint guard |
+| **增量编译（IncrementalBuild / CacheStore / ZbcReader）** | `test compiler` | `test compiler incremental`（逐文件 touch 对账，增量 == 全量逐字节） | `compiler-checks` |
+| **学习手册 / `examples/`** | `test docs examples <part>/<chapter>`（只改页面加 `--book-only`）；输出确实该变则 `--bless` 后审 diff | `xtask build sdk` + `test docs examples` | `test-host` 的 examples stage、`package-host`（用打包 SDK 重放，含 Windows）、`deploy-book` |
+| **launcher / z42b 的命令行输出** | `test docs examples`（手册会话脚本记录了这些输出） | 同上 | 同上 |
+| **纯文档 / `.claude/`** | 无 | 无 | `.claude/**` 不触发；`docs/**` 会触发 `test docs links` 死链门 |
 
 ## 6. 自举边界：什么会断链
 
@@ -301,14 +309,14 @@ grep -rn "GetSize" scripts/ src/compiler/     # 第 0 步：判定是否踩边�
   ```
 
 - **阶段二（commit B）**：调用点全切到新 API，**同一个原子提交里删掉旧 API**。先
-  `xtask test bootstrap`（绿 = 新种子已含新 API，z42c 源切换安全）再完整 gate。
+  `xtask test compiler bootstrap`（绿 = 新种子已含新 API，z42c 源切换安全）再完整 gate。
 
 踩线的症状：阶段二在 nightly 发布前 push → 所有腿在 bootstrap 阶段红（种子 stdlib 没有新 API），
 `publish-nightly` 因 `needs` 不满足而不发布，种子链不被污染。处置是 revert commit B、
 等 nightly 滚过去再重来，**不要**试图往种子里手补。不要与 zbc/zpkg 格式 bump 排在同一个
 nightly 周期——两个断链窗口叠加。
 
-`xtask test bootstrap [rid]` 是这条边界的本地快门（两轨对照的判定逻辑见
+`xtask test compiler bootstrap [rid]` 是这条边界的本地快门（两轨对照的判定逻辑见
 [构建编排 §9](build.md)）。注意它**只编编译器成员、不编 xtask 源**——xtask 侧的越界目前只能
 靠 CI 冷启动兜底。
 
@@ -317,7 +325,7 @@ nightly 周期——两个断链窗口叠加。
 **设备测试走一条命令**，本地与 CI 相同：
 
 ```bash
-./xtask test app <wasm|ios|android|all> [--filter <kw>] [--shard k/n]
+./xtask test app <desktop|wasm|ios|android|all> [stage|build|assets|bundle|run] [--filter <kw>] [--shard k/n]
 ```
 
 准备 test agent → R1–R7 → 嵌入 bundle → 在宿主工程副本里构建 → 设备上运行，最后给汇总表；本机跑不了的
@@ -325,7 +333,7 @@ nightly 周期——两个断链窗口叠加。
 步骤与设计见[测试用例组织规范 §6](test-layout.md)。下面两条是它串起来的分步命令，排查单步时用：
 
 ```bash
-./xtask test platform <desktop|wasm|ios|android|all> [stage|build|assets|run]
+./xtask test app <desktop|wasm|ios|android|all> [stage|build|assets|run]
 ```
 
 三阶段：`build` 造平台原生工程（apphost / wasm-pack / xcframework / AAR）；`assets` 编
@@ -334,10 +342,10 @@ fixture `.zbc` + 收 stdlib zpkg 进平台 bundle；`run` 跑测试（C ABI harn
 （各需重型工具链），CI 各平台独立 job。从零的本地配方见[平台构建与嵌入](build-platforms.md)。
 
 ```bash
-./xtask test embedded [--rid <rid>] [--case <name>|--filter <kw>|--shard k/n] [--format json|pretty]
+./xtask test app desktop [--rid <rid>] [--case <name>|--filter <kw>|--shard k/n] [--format json|pretty]
 ```
 
-`test embedded` 把 `src/tests` golden + stdlib `[Test]` 汇成一个 bundle，穿过**嵌入**的 VM 跑。
+`test app desktop` 把 `src/tests` golden + stdlib `[Test]` 汇成一个 bundle，穿过**嵌入**的 VM 跑。
 用例源码声明的 `// requires-caps:` 随 bundle 下发，目标 VM 缺其中任一能力时该用例记为 skipped、不加载；
 `test list` 能先查每个用例声明了什么。两种覆盖模式：
 
@@ -348,5 +356,5 @@ fixture `.zbc` + 收 stdlib zpkg 进平台 bundle；`run` 跑测试（C ABI harn
   提 cap 会撞墙，分片把编译 + 跑摊到 n 个 runner 上，墙不动而覆盖到 100%。CI 的
   wasm / iOS-sim / android-emu 三条 nightly 腿都是 `--shard k/3`。
 
-本地验分片切分：`xtask test embedded --rid iossim-arm64 --shard 1/4`（及 2/4…）看报告里的
+本地验分片切分：`xtask test app ios bundle --shard 1/4`（及 2/4…）看报告里的
 selected 数。

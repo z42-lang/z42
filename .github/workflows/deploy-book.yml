@@ -71,7 +71,7 @@ jobs:
             echo "::error::mdBook reported errors (broken {{#include}} etc.) — see the log above"; exit 1
           fi
           # mdBook 对缺失锚点完全静默（渲染成空代码块）；未解析的 include 会原样留在页面里。
-          # 完整的书↔示例校验（xtask test examples）要 SDK、只在 ci.yml 跑；这里把这两种
+          # 完整的书↔示例校验（xtask test docs examples）要 SDK、只在 ci.yml 跑；这里把这两种
           # **静默**失败判红——它们在渲染产物里才看得见。
           if grep -rl '{{#include' "$site/learn" --include='*.html'; then
             echo "::error::unresolved {{#include}} left in the rendered learn book (files above)"; exit 1

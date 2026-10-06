@@ -3,19 +3,19 @@ name: CI
 on:
   # change-detect rule (a): 只改 `.claude/**` 不触发 CI（那里没有门禁覆盖的内容）。
   # **`docs/**` 与 `**/*.md` 已从 paths-ignore 移出**（restructure-docs-three-books 批 0）：
-  # 纯文档改动也要跑 `xtask test docs` 的死链门禁——此前它们被整体忽略，文档 PR 完全不跑 CI，
+  # 纯文档改动也要跑 `xtask test docs links` 的死链门禁——此前它们被整体忽略，文档 PR 完全不跑 CI，
   # 死链可以一路漏到线上。改一处代码 + 一处文档的 push 照旧触发
   # （paths-ignore 只在**全部**改动路径都命中时才跳过）。
   pull_request:
     branches: [main]
     paths-ignore:
-      # docs/** 与 **/*.md 已不在此列：纯文档改动也要跑 `xtask test docs`（死链门禁）。
+      # docs/** 与 **/*.md 已不在此列：纯文档改动也要跑 `xtask test docs links`（死链门禁）。
       # 此前它们被整体忽略 ⇒ 文档 PR 完全不跑 CI，死链能一路漏到线上。
       - '.claude/**'
   push:
     branches: [main]
     paths-ignore:
-      # docs/** 与 **/*.md 已不在此列：纯文档改动也要跑 `xtask test docs`（死链门禁）。
+      # docs/** 与 **/*.md 已不在此列：纯文档改动也要跑 `xtask test docs links`（死链门禁）。
       # 此前它们被整体忽略 ⇒ 文档 PR 完全不跑 CI，死链能一路漏到线上。
       - '.claude/**'
   # Manual trigger: force a nightly republish from the latest main WITHOUT a new
@@ -121,7 +121,7 @@ jobs:
             # ci.yml fallback = 保底全跑.
             compiler:
               - 'src/compiler/**'
-              # vscode 语法门（compiler-checks 的 `test vscode-syntax`）比对的是
+              # vscode 语法门（compiler-checks 的 `check vscode-syntax`）比对的是
               # 「入库的生成产物 ↔ 模板 + Lexer 关键字表」。产物与模板都在这个目录下，
               # 却不在本 filter 里 ⇒ 只手改模板/产物的 PR，唯一守它的门静默 skip
               # （fix-more-silent-gates, 2026-09-06）。
@@ -172,7 +172,7 @@ jobs:
 
   # ── 纯文档 PR 的全部门禁（ci-docs-fast-path）─────────────────────────────────
   # 读文档的门禁只有这几道，全是纯源码 / 文档扫描、不需要 SDK：相对链接 + gate-stage 清单对账
-  # （`test docs`）、诊断码文档对账（`test diagcodes`）。xtask 用种子 z42c 编出来就够
+  # （`test docs links`）、诊断码文档对账（`check diagcodes`）。xtask 用种子 z42c 编出来就够
   # （ci-bootstrap 的 xtask-only：省掉 build compiler / stdlib）。
   docs-check:
     name: docs-check(linux-x64)
@@ -194,12 +194,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          xtask test docs
-          xtask test diagcodes
+          xtask test docs links
+          xtask check diagcodes
 
   build-and-test:
     name: test-host(${{ matrix.platform }})
-    # 60→75 (2026-07-21): `xtask test all` (full rebuild + all gates) sits at the
+    # 60→75 (2026-07-21): `xtask test` (full rebuild + all gates) sits at the
     # 60m cap on linux-x64 since the 0.4.x bench-suite additions inflated wall-time
     # (test-vm-jit likewise flaps at its cap — see vm-jit-consistency). Not a
     # functional regression; give headroom. Sharding is the longer-term fix if it
@@ -232,7 +232,7 @@ jobs:
       # 独立 key，**不与 compile-toolchain 共用 host-v2**（speed-up-ci-quick-wins）：
       # compile-toolchain 只编 release、又最先结束，总是它先写入 host-v2；本 job 命中后
       # post 步骤恒为 "Cache up-to-date"、从不回存 ⇒ 这里额外编的 debug / test profile
-      # 依赖（`test all` 的 debug z42vm + rust units）每轮冷编。实测 rust units 在
+      # 依赖（`test` 的 debug z42vm + rust units）每轮冷编。实测 rust units 在
       # linux-x64 1m56、macOS 2m51，而恰好没有 compile-toolchain 抢先写的 arm64 腿只要 1m12。
       - name: Cache Rust deps (Swatinem)
         uses: Swatinem/rust-cache@v2
@@ -243,7 +243,7 @@ jobs:
       # ALL legs bootstrap from the prev nightly seed — download the prev published
       # nightly's z42c compiler seed, then build current z42c + stdlib + xtask from
       # source with it. The staged-bootstrap discipline (docs/agent/rules/bootstrap-seed.md)
-      # guarantees the prev nightly compiles current source; `xtask test bootstrap`
+      # guarantees the prev nightly compiles current source; `xtask test compiler bootstrap`
       # is the local boundary check. Logic lives in the ci-bootstrap composite action
       # (Windows adds .zip/.exe handling — same seed contract). After this, every later
       # step drives work through `z42vm xtask.zpkg …`.
@@ -329,10 +329,10 @@ jobs:
           echo "release guard (reverse): tests/dist + bench/dist contain only harness zpkgs (OK)"
 
       # Test on Unix runners via the native z42 build CLI (xtask). The GREEN gate
-      # runs through `xtask test all` — was test-all.sh (migrate-scripts-to-z42);
+      # runs through `xtask test` — was test-all.sh (migrate-scripts-to-z42);
       # `--parallel`/`--jobs`/test-*.sh were C#/bash-era, not in the z42 xtask.
       # Bootstrap = release z42vm (to run xtask.zpkg) + compile xtask.zpkg; then
-      # `xtask test all` (which itself rebuilds stdlib/compiler/zbc + runs
+      # `xtask test` (which itself rebuilds stdlib/compiler/zbc + runs
       # compiler+vm+cross-zpkg+stdlib). z42c/stdlib from the prior steps are reused.
       # --no-build: the Bootstrap step already built z42c+stdlib+xtask, so `test
       # all` skips its redundant build-wave rebuild (_regenCore) and only regens
@@ -349,7 +349,7 @@ jobs:
           set -euo pipefail
           xtask build sdk
 
-      - name: Test (xtask test all --no-build --skip ...)
+      - name: Test (xtask test --no-build --skip ...)
         if: matrix.os != 'windows-latest'
         shell: bash
         run: |
@@ -371,11 +371,11 @@ jobs:
           if [ "${{ matrix.platform }}" != "linux-x64" ]; then
             SKIP="stdlib,cross-zpkg,bench,compiler,vscode"
           fi
-          xtask test all --no-build --skip "$SKIP" 2>&1 | tee artifacts/ci-logs/test-all.log
+          xtask test --no-build --skip "$SKIP" 2>&1 | tee artifacts/ci-logs/test-all.log
           exit "${PIPESTATUS[0]}"
 
       # refresh-format-fixtures: committed zbc-format byte baselines must be up to date.
-      # `test all` 的 build wave（_regenGolden）**就地**重写 src/compiler/z42.package/tests/fixtures/zbc-format/*/source.zbc，
+      # `test` 的 build wave（_regenGolden）**就地**重写 src/compiler/z42.package/tests/fixtures/zbc-format/*/source.zbc，
       # 所以这里 diff 非空 = 提交的字节过期了（某次格式变更漏了 version-bumping.md 第 4 步）。
       # 为什么需要这道门：regen 总在消费方之前跑，`zbc_compat` 校验的永远是**刚重写**的字节、
       # 从不是提交的那份 ⇒ 过期基线一直绿、却弄脏每个贡献者的工作树（曾在 1.37 停留到 1.38 bump 之后）。
@@ -418,16 +418,16 @@ jobs:
           if-no-files-found: warn
 
       # The Rust VM unit harness = `xtask test runtime` (cargo test --test-threads=1).
-      # It is NOT part of `test all` (its signal_handler_e2e tests spawn crash-helpers
+      # It is NOT part of `test` (its signal_handler_e2e tests spawn crash-helpers
       # that hang in signal-restricted sandboxes → would wedge the always-run gate).
       # It runs here as its own per-leg step so every OS gets Rust-unit coverage —
       # including the #[cfg(unix)] tests that Windows skips (cargo test used to be
       # Windows-only, so those unix tests never ran on CI; enabling all-legs surfaced +
       # got fixed a real run-timeout bug — see fix-process-run-timeout-orphan).
       #
-      # Windows doesn't run `test all` (goldens run on linux/macos), so it first needs
+      # Windows doesn't run `test` (goldens run on linux/macos), so it first needs
       # `build test` to populate artifacts/build/tests so zbc_compat sees ≥50 goldens.
-      # non-Windows already regen'd them in `test all` above.
+      # non-Windows already regen'd them in `test` above.
       # schedule/dispatch 逃生口同其余 changes 门控 job：paths-filter 在这两个事件下恒 false，
       # 否则 nightly 全量 sweep 上 windows 腿几乎什么都不做。
       - name: Build golden test assets (Windows — zbc_compat inputs)
@@ -470,7 +470,7 @@ jobs:
         run: |
           set -euo pipefail
           # checkout 是浅克隆 ⇒ 先把历史挖深到能找到共同祖先；挖不到就**放行**（这一步是加保险，
-          # 不是新增的失败源——真正的唯一性判据在 diagcodes 门本身，它在上面的 `test all` 里已跑过）。
+          # 不是新增的失败源——真正的唯一性判据在 diagcodes 门本身，它在上面的 `test` 里已跑过）。
           git fetch --no-tags --deepen=200 origin main 2>/dev/null || true
           if ! git merge-base HEAD FETCH_HEAD >/dev/null 2>&1; then
             echo "::notice::浅历史里找不到与 main 的共同祖先，跳过抢号预检"
@@ -481,11 +481,11 @@ jobs:
             echo "::notice::与最新 main 有文本冲突 —— GitHub 本身已挡住合并，此处不重复报警"
             exit 0
           fi
-          xtask test diagcodes
+          xtask check diagcodes
 
   # ── parallelize-host-package: SDK packaging, parallel to host tests (all 4 OS) ──
   # The host package (`xtask package release`) used to run sequentially after
-  # `test all` on each build-and-test leg, adding ~10 min to the critical path. It's
+  # `test` on each build-and-test leg, adding ~10 min to the critical path. It's
   # independent of the tests, so it now runs as its own job off the shared toolchain-
   # bootstrap artifact — ready well before the tests finish. All 4 OS, incl.
   # windows-latest (consumes the platform-independent toolchain-ubuntu-latest zpkgs +
@@ -563,7 +563,7 @@ jobs:
         #
         # fix-package-gates-false-red (2026-09-06): 此前这一步带 DIST_SMOKE_ONLY=launcher，
         # 注释说是「跳过更 flaky 的 desktop-publish/golden 腿」。但全仓**只有这一处**调
-        # `test dist` —— 所谓「跳过」的实际效果不是换个地方覆盖，而是那两条腿**永远没人跑**：
+        # `package verify` —— 所谓「跳过」的实际效果不是换个地方覆盖，而是那两条腿**永远没人跑**：
         #   · desktop-publish smoke 自 apphost 迁进 desktop workload 后判据恒不满足 → 静默 SKIP；
         #   · golden 腿调 z42c 的 CLI 根本不存在（`--emit zbc -o`）→ 282 个 case 全 compile fail。
         # 两条都是「从不打印、从不失败的门」。判据修好后在这里接通，让它真的会红。
@@ -571,7 +571,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          xtask test dist
+          xtask package verify
 
       - name: Learn-book examples (packaged SDK)
         # 与 test-host 的 examples stage 同一套会话脚本，这里用打包出的 SDK 跑——最贴近用户安装形态，
@@ -580,7 +580,7 @@ jobs:
         run: |
           set -euo pipefail
           pkg_dir=$(ls -d "$PWD"/artifacts/packages/z42-*-release | head -1)
-          xtask test examples --sdk "$pkg_dir"
+          xtask test docs examples --sdk "$pkg_dir"
 
       - name: Installer smoke (offline, packaged SDK)
         # 用户安装脚本（scripts/install/）对刚打出的 SDK 包跑一遍 `--archive` 离线安装：
@@ -871,7 +871,7 @@ jobs:
             --toolchain "$TC" test e2e --mode interp --no-rebuild
 
   # ── VM cross-mode consistency (0.3.0 退出标准) ───────────────────────────
-  # split-interp-jit: `xtask test all` in build-and-test runs the golden suites in
+  # split-interp-jit: `xtask test` in build-and-test runs the golden suites in
   # INTERP only (on every host OS). This job is the SOLE JIT gate — it runs the VM
   # goldens under JIT here, catching interp/JIT divergence (opcode handling, codegen
   # bugs) before main. Single linux-x64 lane is enough — cranelift JIT behaviour is
@@ -1066,11 +1066,11 @@ jobs:
           set -euo pipefail
           xtask test compiler
 
-      - name: VSCode grammar ↔ Lexer keyword sync (xtask test vscode-syntax)
+      - name: VSCode grammar ↔ Lexer keyword sync (xtask check vscode-syntax)
         shell: bash
         run: |
           set -euo pipefail
-          xtask test vscode-syntax
+          xtask check vscode-syntax
 
   # ── iOS packaging ──────────────────────────────────────────────────────
   # Packages ios-arm64 + iossim-arm64. Requires Xcode (pre-installed on
@@ -1245,7 +1245,7 @@ jobs:
   # ── wasm packaging ──────────────────────────────────────────────────────
   # Packages browser-wasm via wasm-pack (no Node.js needed — wasm-pack build
   # only generates JS glue, it doesn't execute it).
-  # `xtask test platform wasm build` (WasmBackend) produces pkg-web/ +
+  # `xtask test app wasm build` (WasmBackend) produces pkg-web/ +
   # pkg-nodejs/ before `xtask package` can assemble the wasm SDK package.
   package-wasm:
     name: package-wasm(linux-x64)
@@ -1281,11 +1281,11 @@ jobs:
             exit 1
           fi
 
-      - name: Build wasm platform (pkg-web/ + pkg-nodejs/ via test platform wasm build)
+      - name: Build wasm platform (pkg-web/ + pkg-nodejs/ via `xtask test app wasm build`)
         shell: bash
         run: |
           set -euo pipefail
-          xtask test platform wasm build
+          xtask test app wasm build
 
       - name: Package browser-wasm (xtask package)
         shell: bash
@@ -1329,7 +1329,7 @@ jobs:
       # has no std::time) compiled, validated and packaged fine here — and nightly
       # stayed red for three weeks (2026-08-24 → 09-14) without anyone noticing.
       # `src/runtime/**` is in the `platform` filter, so runtime PRs run this too.
-      # The pkg-nodejs it loads is built into the staged host copy (`test platform wasm
+      # The pkg-nodejs it loads is built into the staged host copy (`test app wasm
       # build`, artifacts/intermediate/…/wasm/host); `assets` puts js/fixtures + js/stdlib
       # beside it — nothing is written into the source platform dir.
       - uses: actions/setup-node@v7
@@ -1339,8 +1339,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          xtask test platform wasm build
-          xtask test platform wasm assets
+          xtask test app wasm build
+          xtask test app wasm assets
           node artifacts/intermediate/toolchain/workload/wasm/host/demo/node/run.js
 
       # unify-release-archive：在本 runner 上出归档（可执行位原样进 tar；Windows 出 zip）。PR 上也做（几秒）——
@@ -1376,7 +1376,7 @@ jobs:
     # on a prior nightly. The self-heal invariant rests entirely
     # on the staged-bootstrap discipline (docs/agent/rules/bootstrap-seed.md): the prev
     # nightly's z42c MUST always be able to compile current source (new syntax / zbc
-    # bump lands "support" one release before "use"; `xtask test bootstrap`
+    # bump lands "support" one release before "use"; `xtask test compiler bootstrap`
     # is the boundary check). If that discipline is ever violated, the prev nightly
     # can't build current source → these deps fail → publish can't republish a fixed
     # nightly → manual recovery. Keep `needs` to the jobs that
@@ -1385,7 +1385,7 @@ jobs:
     # gates (vm-jit / stdlib-jit) — they transiently fail on a bump until a
     # compatible nightly exists and self-heal next run, and gating publish on them
     # would add a needless deadlock edge. JIT correctness is gated by the dedicated
-    # vm-jit-consistency job (build-and-test's `xtask test all` is interp-only).
+    # vm-jit-consistency job (build-and-test's `xtask test` is interp-only).
     needs:
       - build-and-test
       - host-package
@@ -1536,7 +1536,7 @@ jobs:
           echo "✓ nightly @ ${short_sha} published in place (non-draft, tag moved, assets complete)"
 
   # ── Platform test pipeline → cross-platform CI dashboard ─────────────────
-  # `z42 xtask.zpkg test platform <p>` (add-platform-test-pipeline) on real
+  # `z42 xtask.zpkg test app <p>` (add-platform-test-pipeline) on real
   # runners: wasm (Playwright/Chromium), iOS Simulator (xcodebuild test),
   # Android emulator (reactivecircus). Each publishes its JUnit as a GitHub
   # Check via dorny/test-reporter — the 3 checks on the PR ARE the dashboard.
@@ -1557,8 +1557,8 @@ jobs:
     # UTC+8) + manual, NOT per-PR, to keep daily iteration fast (reduce-tier2-ci-cadence).
     if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
     # tier2-shard-full-coverage: fan out the embedded corpus into N parallel shards
-    # so nightly runs the FULL runnable corpus (`test embedded --shard k/N`, no cap)
-    # instead of the 60-case smoke sample. R1–R7 (`test platform wasm`) is NOT
+    # so nightly runs the FULL runnable corpus (`test app desktop --shard k/N`, no cap)
+    # instead of the 60-case smoke sample. R1–R7 (`test app wasm`) is NOT
     # per-corpus, so it runs only on shard 1 (gated below) to avoid N× redundancy;
     # the embedded slice + its Playwright run happen on every shard. wasm = n=3:
     # measured per-shard runtime is small (~5-7 min build-cached) with big wall
@@ -1605,8 +1605,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # node deps go into the staged host copy (where `test platform wasm` runs Playwright).
-          xtask test platform wasm stage
+          # node deps go into the staged host copy (where `test app wasm` runs Playwright).
+          xtask test app wasm stage
           cd artifacts/intermediate/toolchain/workload/wasm/host/tests
           npm install --no-audit --no-fund
           npx playwright install --with-deps chromium
@@ -1647,7 +1647,7 @@ jobs:
     # UTC+8) + manual, NOT per-PR, to keep daily iteration fast (reduce-tier2-ci-cadence).
     if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
     # tier2-mobile-coverage: fan the embedded corpus into N shards for FULL
-    # coverage (`test embedded --shard k/N`, no 60-cap), mirroring test-wasm.
+    # coverage (`test app desktop --shard k/N`, no 60-cap), mirroring test-wasm.
     # Mobile's runnable corpus (~465 cases; only net + process/console/env + OS
     # identity lack a cap there — their `requires-caps` make BundleRunner skip them
     # on-device without loading, ~0 cost) is much larger than
@@ -1705,7 +1705,7 @@ jobs:
     # UTC+8) + manual, NOT per-PR, to keep daily iteration fast (reduce-tier2-ci-cadence).
     if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
     # tier2-mobile-coverage: fan the embedded corpus into N shards for FULL
-    # coverage (`test embedded --shard k/N`, no 60-cap), mirroring test-wasm/ios.
+    # coverage (`test app desktop --shard k/N`, no 60-cap), mirroring test-wasm/ios.
     # The uncapped full corpus (~465 runnable) blew the 60min emulator wall (why
     # the 60-smoke cap existed); n=3 keeps each ~155-case slice under it. Every
     # shard boots its own emulator and runs its 1/N slice + R1–R7 (R1–R7 is
@@ -1824,11 +1824,11 @@ jobs:
       # consume the toolchain-ubuntu-latest artifact (z42c + stdlib + xtask)
       # + cargo-build z42vm。rust toolchain + rust-cache 由该 action 自带。
       - uses: ./.github/actions/xtask-bootstrap-artifact
-      - name: test platform desktop (Tier-1 C ABI R1–R7)
+      - name: test app desktop (Tier-1 C ABI R1–R7 + embedded corpus)
         shell: bash
         run: |
           set -euo pipefail
-          xtask test platform desktop
+          xtask test app desktop
       - name: Publish desktop test report (GitHub Check)
         uses: dorny/test-reporter@v3
         if: always()

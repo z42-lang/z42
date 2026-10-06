@@ -61,7 +61,7 @@ syntaxes/z42.tmLanguage.json              ← 生成产物，入库
 - 分组里的每个词必须在 dump 里存在——否则报「Lexer no longer has」（Lexer 删词后分类表必须跟删，
   防"幽灵"关键字）。
 
-所以新增一个关键字的路径是强制的：进 Lexer → `xtask test vscode-syntax` 变红 → 被迫补分类并重新生成。
+所以新增一个关键字的路径是强制的：进 Lexer → `xtask check vscode-syntax` 变红 → 被迫补分类并重新生成。
 
 ## 3. 三个命令面
 
@@ -69,7 +69,7 @@ syntaxes/z42.tmLanguage.json              ← 生成产物，入库
 |---|---|---|
 | `z42d install vscode` | **SDK 用户** | 从 `<sdk>/editors/vscode/` 拷到 `~/.vscode/extensions/z42.z42-lang/`（用户级，重复执行即更新） |
 | `xtask deps install vscode` | **仓库开发者** | 重新生成 grammar 写回入库路径，然后建 symlink `<repo>/.vscode/extensions/z42.z42-lang` → `src/toolchain/devtools/vscode` |
-| `xtask test vscode-syntax` | 门禁 | **in-process** 调同一个生成函数渲染到内存，与入库文件做字节 diff（分类穷尽校验顺带跑了）；产物缺失 → 提示去跑 install |
+| `xtask check vscode-syntax` | 门禁 | **in-process** 调同一个生成函数渲染到内存，与入库文件做字节 diff（分类穷尽校验顺带跑了）；产物缺失 → 提示去跑 install |
 
 **为什么两条安装路而不是一条**：SDK 里没有生成器（`--dump-keywords` 那套是编译器的调试面），
 只有生成好的产物；而开发者要的恰恰是「改完 Lexer 立刻看到效果」，需要 symlink 回源码树。
@@ -90,7 +90,7 @@ CI 的分腿 job 用 `xtask test --skip vscode` 把它挪到别的腿上。
 在打包时把 `src/toolchain/devtools/vscode/` 拷进 SDK 的 `editors/vscode/`。
 
 ⚠️ **`*.tpl.json` 不进包**——它是生成器的输入，出现在用户扩展目录里只会造成困惑。
-这条由 `xtask test packages` 的组件安装自检守着（`generator template NOT packaged`）。
+这条由 `xtask package check` 的组件安装自检守着（`generator template NOT packaged`）。
 
 `z42d install` 定位 SDK 根用的是与 launcher 同一套优先级：
 `Z42_HOME` > apphost 注入的 `Z42_PORTABLE_VM` 反推 > `~/.z42`。

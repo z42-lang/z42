@@ -1,4 +1,4 @@
-// xtask — `test targets` / `bench targets` impl（_testTargetsCore）：manifest-target
+// xtask — `test toolchain builder` / `bench targets` impl（_testTargetsCore）：manifest-target
 // fixture runner (add-tests-bench-manifest-config P4).
 // Same Z42Xtask namespace. Runs the end-to-end fixtures under
 // src/toolchain/builder/tests/fixtures/manifest-targets/<name>/ — each a real project whose z42.toml
@@ -64,7 +64,7 @@ TargetTooling _prepFixtureTooling(string root, bool noBuild) {
     return t;
 }
 
-// `xtask test targets [name]` / `xtask bench targets [name]` core. kind =
+// `xtask test toolchain builder [name]` / `xtask bench targets [name]` core. kind =
 // "test" | "bench". name = "" → run every matching target in every fixture;
 // otherwise only the target(s) whose name == name (across fixtures); a name that
 // matches nothing → error listing the available names, non-zero exit.
@@ -528,7 +528,7 @@ int _smokeHarnessFalse(string root, TargetTooling tt) {
 // .zbc, wrap it in a 1-case manifest, and run it through the single
 // `z42b test <manifest.json> --rid host` entry — exercising the in-process
 // Std.Test.BundleRunner path (the host half of the embedded flow xtask delegates
-// to z42b), which the default gate would otherwise not cover (`test embedded` is a
+// to z42b), which the default gate would otherwise not cover (`test app desktop` is a
 // separate stage). Returns 0 pass / 1 fail; skips cleanly (0) if the fixture is absent.
 int _smokeBundleHost(string root, TargetTooling tt) {
     string src = Path.Join(tt.FixturesRoot, "bundle-host/pass_unit.z42");

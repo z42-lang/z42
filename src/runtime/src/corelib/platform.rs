@@ -86,7 +86,7 @@ pub fn builtin_platform_arch_kind(_ctx: &VmContext, _: &[Value]) -> Result<Value
 ///     These back `// requires-caps:` / `[Skip(feature:)]` in the test corpus: the
 ///     on-device bundle runner skips a case whose declared caps are not all here.
 ///     The vocabulary (and which caps are live) is docs/internals/src/devinfra/test-layout.md §4;
-///     `xtask test layout` reconciles that list with the pushes below.
+///     `xtask check layout` reconciles that list with the pushes below.
 /// Order is stable (declaration order) so probe output is deterministic.
 pub fn builtin_platform_caps(ctx: &VmContext, _: &[Value]) -> Result<Value> {
     let mut caps: Vec<&str> = Vec::new();

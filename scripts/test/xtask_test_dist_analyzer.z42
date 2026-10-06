@@ -1,4 +1,4 @@
-// xtask — `test dist` 的编译期扩展冒烟：**在打出来的包上**验 analyzer/generator 整条链。
+// xtask — `package verify` 的编译期扩展冒烟：**在打出来的包上**验 analyzer/generator 整条链。
 //
 // 🔴 **为什么必须在发布态验**：这条链的 e2e（`xtask_compiler_e2e_analyzer.z42`）跑在**开发树**里
 // —— `Z42_LIBS` 指向 build-tree 的扁平 dist，契约包靠 `_compilerDomainDirs()` 探测序的**最后一档**

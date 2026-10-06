@@ -1,6 +1,6 @@
 // xtask — manifest-driven test/bench/example target engine
 // (add-tests-bench-manifest-config P2/P3). Same Z42Xtask namespace; consumed by
-// the stdlib per-lib flow (_testLibCore, xtask_test_lib.z42), the `test targets`
+// the stdlib per-lib flow (_testLibCore, xtask_test_lib.z42), the `test toolchain builder`
 // fixture flow (xtask_test_targets.z42) and the example runner
 // (xtask_test_example.z42).
 //

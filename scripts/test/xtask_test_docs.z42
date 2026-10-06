@@ -10,7 +10,7 @@
 // 检查规则：
 //   D1  markdown 链接 `[text](target)` 的 target 若是仓内相对路径，必须能解析到真实文件/目录
 //
-// **棘轮**（照 `xtask test lines` 的成熟做法）：存量死链记在
+// **棘轮**（照 `xtask check lines` 的成熟做法）：存量死链记在
 // `scripts/test/doc-link-baseline.txt`，只 warn 不判红；**基线之外的新死链一律红**。
 // 为什么不一次修完：首次跑出 206 条，其中 **121 条（59%）在 `docs/design/` 里，而那个目录
 // 正要被三书重构清空** —— 现在修等于白做。搬走一批，基线自然少一批。

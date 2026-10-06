@@ -1,4 +1,4 @@
-// xtask — `deps install vscode` 组件 + `test vscode-syntax` 检查
+// xtask — `deps install vscode` 组件 + `check vscode-syntax` 检查
 // (add-vscode-syntax-ext, 2026-07-07)。VSCode 编辑器资产的生成 + 安装：
 //
 //   Lexer.z42 _initKeywords()（关键字唯一 SoT）
@@ -14,7 +14,7 @@
 // 仓库本地 vs 用户级，互不覆盖，开发者可以两者并存。见 unify-editor-install。
 //
 // 资产项组织：目前唯一项 = 语法扩展；B 期 LSP client / snippets 在 install/检查
-// 主流程追加新项即可。检查函数供 `test vscode-syntax` gate stage 调用（in-process，
+// 主流程追加新项即可。检查函数供 `check vscode-syntax` gate stage 调用（in-process，
 // install 不留 --check flag——deps 收敛后一个动词一个语义）。
 namespace Z42Xtask;
 
@@ -58,10 +58,10 @@ int _depsInstallVscode() {
     return 0;
 }
 
-// ── `test vscode-syntax` gate stage ──────────────────────────────────────────
+// ── `check vscode-syntax` gate stage ──────────────────────────────────────────
 // grammar 防漂移：重渲染到内存与入库文件字节 diff（含分类穷尽校验）。
 int _testVscodeSyntax() {
-    Stopwatch sw = _procStart("test vscode-syntax");
+    Stopwatch sw = _procStart("check vscode-syntax");
     string root = _root();
     string rendered = _vscodeRenderGrammar(root);
     if (rendered.Length == 0) { return 1; }
@@ -76,7 +76,7 @@ int _testVscodeSyntax() {
         return 1;
     }
     Console.WriteLine("  ✓ grammar in sync with Lexer keyword table");
-    _procEnd("test vscode-syntax", sw);
+    _procEnd("check vscode-syntax", sw);
     return 0;
 }
 

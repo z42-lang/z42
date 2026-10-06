@@ -691,7 +691,7 @@ false）→ imported struct 会被当引用类型。
 
 **为何不加显式 `IsStruct` 字段**（bootstrap 约束）：`ExportedClassZ` 在 z42.package（stdlib 库），
 z42c.semantics 依赖它作跨包 API。给它加新 `IsStruct` 字段并在 z42c 源立即用 → 上一 nightly 种子的 z42.package 无
-此字段 → `xtask test bootstrap` 编当前 z42c 源报 `E0401: no field IsStruct`（stdlib API 面越界）。
+此字段 → `xtask test compiler bootstrap` 编当前 z42c 源报 `E0401: no field IsStruct`（stdlib API 面越界）。
 复用既有 `HasBase` 零越界；若未来去 `HasBase` 重载，需两-nightly 迁移到显式 `IsStruct`。
 
 分类正确后 `StructLayout.BuildFromSymbols` 从字段名/类型**重算**布局（`_compute` 确定性，与生产方持久化的

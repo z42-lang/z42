@@ -1,7 +1,7 @@
 // xtask — `package archive` / `package finalize` 自检（unify-release-archive）。
 //
 // 与同目录其它 selfcheck 同一形态：xtask 是 exe，反射 [Test] runner 看不到它 ⇒ 不匹配就抛。
-// 由 `xtask test packages` 聚合（opt-in，不在 GREEN 里；改发布归档时手动跑）。
+// 由 `xtask package check` 聚合（opt-in，不在 GREEN 里；改发布归档时手动跑）。
 //
 // 不碰真实产物：在 xtask 的自检目录（`_xtaskWork`）下造齐 9 个 RID 的**假包目录**（各放一个小文件；桌面 workload 放
 // `apphost-<rid>`），外加一个 debug profile 的噪声目录，然后整条走一遍 archive → finalize。锁住：

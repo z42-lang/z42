@@ -41,7 +41,7 @@ public class DesktopBackend : IPlatformBackend {
         string libDir  = _runtimeOut(root, "release");
         string libA    = Path.Join(libDir, "libz42.a");
         if (!File.Exists(libA)) {
-            ConsoleError.WriteLine("error: libz42.a not found at " + libA + "; run `test platform desktop build` first");
+            ConsoleError.WriteLine("error: libz42.a not found at " + libA + "; run `test app desktop build` first");
             return 1;
         }
         string outDir  = _workOut(root, "src/toolchain/workload/desktop", "");

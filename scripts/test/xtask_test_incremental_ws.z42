@@ -1,4 +1,4 @@
-// xtask — `test incremental` 的 stdlib 整体读回对账（workspace-read-cache）。
+// xtask — `test compiler incremental` 的 stdlib 整体读回对账（workspace-read-cache）。
 //
 // 小语料（demo / demo-packed / xtask）覆盖不到 stdlib 用到的全部指令与元数据：增量读回曾漏掉方法级泛型形参、
 // struct 指令的寄存器类型，只在 stdlib 上才暴露（下游 E0402 / 字节不一致）。这里用整个 stdlib 做一轮：

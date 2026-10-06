@@ -31,7 +31,7 @@ z42vm <out.zbc> Main        # 执行产物
 ## 如何测试验证
 ```bash
 ./xtask test compiler       # z42c 自举不动点 + smoke（含自检程序 + div-by-zero oracle）
-./xtask test incremental    # 增量 == 全量 逐字节对账 + 计时（增量编译的硬验收）
+./xtask test compiler incremental    # 增量 == 全量 逐字节对账 + 计时（增量编译的硬验收）
 ```
 
 ## 关联文档

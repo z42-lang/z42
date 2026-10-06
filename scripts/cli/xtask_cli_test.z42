@@ -1,52 +1,24 @@
-// xtask CLI — `test` 命令族：router（含嵌套的 `test platform` 子 router）+
-// dispatch。拆分背景见 scripts/cli/xtask_cli_build.z42 头部。
+// xtask CLI — `test` 命令族：router + dispatch。拆分背景见 scripts/cli/xtask_cli_build.z42 头部。
 namespace Z42Xtask;
 
+using Std.IO;
 using Std.Cli;
 
+// `xtask test` 按「契约属于谁」归类（test-layout.md §1 的 owner 表）：
+//   (无子命令)  完整 GREEN gate [--no-build] [--skip <csv>]（在 xtask_cli.z42 的 shim 里解析，router 不支持默认动作）
+//   changed     按改动推导该跑的命令
+//   e2e / stdlib / compiler / toolchain / runtime   各 owner 的用例
+//   app         嵌入宿主里跑（desktop / wasm / ios / android）
+//   docs        文档链接 + 学习手册示例
+//   list        用例目录（只读）
+// 不跑用例的静态检查在 `xtask check`（xtask_cli_check.z42）；打包自检在 `xtask package check|verify`。
 SubcommandRouter _testRouter() {
-    SubcommandRouter t = new SubcommandRouter("xtask test", "run tests");
-    ArgParser allP = new ArgParser("xtask test all", "full gate");
-    allP.AddFlag("no-build", "", "skip z42c+stdlib rebuild — consume what the bootstrap/toolchain already built");
-    allP.AddOption("skip", "", "skip named stages (csv: rust-units,stdlib,toolchain,cross-zpkg,compiler,vscode) — CI uses per-leg skip lists to offload stages to parallel jobs; local runs omit this for the full gate", "");
-    t.Add("all", "e2e + stdlib + compiler (runtime 独立，见 test runtime)", allP);
-    ArgParser stdlib = new ArgParser("xtask test stdlib", "stdlib [Test] (all or one)");
-    stdlib.AddFlag("no-build", "", "skip tooling rebuild");
-    stdlib.AddOption("filter", "k", "test-name filter", "");
-    stdlib.AddOption("jobs", "", "parallel unit batch width", "");
-    stdlib.AddOption("mode", "", "interp|jit (default: interp; jit forks z42vm)", "");
-    stdlib.AddOption("shard", "", "k/n: run shard k of n libs (balanced; for parallel CI)", "");
-    // extend-ab-bench-micro-criterion: _testLib 无条件读这三个 → test/bench 两侧都注册。
-    stdlib.AddOption("vm", "", "override: prebuilt z42vm (with --driver/--libs → skip in-tree build)", "");
-    stdlib.AddOption("driver", "", "override: prebuilt z42c.driver.zpkg", "");
-    stdlib.AddOption("libs", "", "override: prebuilt flat libs dir (stdlib + z42c siblings)", "");
-    stdlib.AddOptionalPositional("lib", "single lib (default: all)");
-    t.Add("stdlib", "stdlib [Test] (all or one)", stdlib);
-    // 工具链组件自己的 [Test] 单元（test-layout §1）：src/toolchain/<comp>/ 下各工程的 tests/。
-    ArgParser toolchain = new ArgParser("xtask test toolchain", "toolchain components' own [Test] units (src/toolchain/<comp>/**/tests)");
-    toolchain.AddFlag("no-build", "", "skip tooling rebuild");
-    toolchain.AddOption("filter", "k", "test-name filter", "");
-    toolchain.AddOptionalPositional("comp", "component dir (builder / interactive …) or package name (z42.repl); default: all");
-    t.Add("toolchain", "toolchain components' [Test] units (all or one component)", toolchain);
-    ArgParser targets = new ArgParser("xtask test targets", "manifest [[test]] target fixtures (harness true/false; src/toolchain/builder/tests/fixtures/manifest-targets)");
-    targets.AddFlag("no-build", "", "skip tooling rebuild");
-    targets.AddOptionalPositional("name", "single target name (default: all)");
-    t.Add("targets", "manifest [[test]] target fixtures (all or one by name)", targets);
-    // 学习手册配套示例（仓库根 examples/）：书↔示例引用校验 + 用 SDK 重放 *.console。
-    ArgParser examples = new ArgParser("xtask test examples", "learn-book examples: check book references + replay examples/**/*.console with a real SDK");
-    examples.AddOptionalPositional("path", "only transcripts under examples/<path> (default: all)");
-    examples.AddOption("sdk", "", "SDK to run `z42` from (default: artifacts/.z42 — build it with `xtask build sdk`)", "");
-    examples.AddFlag("book-only", "", "only check docs/learn ↔ examples references (no SDK needed)");
-    examples.AddFlag("bless", "", "rewrite mismatching expected output with the actual output");
-    examples.AddFlag("keep", "", "keep every sandbox directory (failed ones are always kept)");
-    examples.AddOption("timeout", "", "per-step timeout in seconds", "120");
-    t.Add("examples", "learn-book examples (book references + transcript replay)", examples);
-    // 文档机械门禁：相对链接死链。不需要 SDK，秒级。
-    ArgParser docsP = new ArgParser("xtask test docs", "documentation gate: every relative markdown link resolves");
-    docsP.AddFlag("update", "", "rewrite the dead-link baseline (only to drop fixed ones — never to admit new ones)");
-    t.Add("docs", "documentation gate (relative links resolve)", docsP);
-    t.Add("runtime", "Rust VM unit tests (cargo test src/runtime, serialized)",
-        new ArgParser("xtask test runtime", "Rust VM unit/integration harness (--test-threads=1)"));
+    SubcommandRouter t = new SubcommandRouter("xtask test",
+        "run tests (no subcommand = the full GREEN gate: xtask test [--no-build] [--skip <csv>])");
+    ArgParser changed = new ArgParser("xtask test changed", "only changed-area tests");
+    changed.AddFlag("dry-run", "", "print the plan, don't run");
+    changed.AddOptionalPositional("base", "git base ref (default: HEAD)");
+    t.Add("changed", "only changed-area tests", changed);
     ArgParser e2e = new ArgParser("xtask test e2e", "src/tests end-to-end suite (goldens + cross-zpkg)");
     e2e.AddFlag("no-rebuild", "", "skip rebuild before run");
     e2e.AddFlag("no-build", "", "regen goldens only — skip z42c+stdlib rebuild (consume bootstrap output)");
@@ -64,133 +36,98 @@ SubcommandRouter _testRouter() {
     list.AddOption("kind", "", "golden | test | all (default: all)", "");
     list.AddFlag("json", "", "emit JSON instead of the human table");
     t.Add("list", "catalog the case-granular corpus (--dir/--filter/--kind/--rid/--json)", list);
-    // wire-embedded-testhost: run a compiled test module through the embedded
-    // test-host (build agent + desktop testhost shell + run → structured result).
-    ArgParser embedded = new ArgParser("xtask test embedded", "run tests through the embedded test-host (desktop / wasm)");
-    embedded.AddOption("format", "", "json|pretty|tap (default: json)", "");
-    embedded.AddOption("case", "", "build+run one case by name (e.g. basic/zlib_format)", "");
-    embedded.AddOption("filter", "", "build+run cases whose name contains this substring", "");
-    embedded.AddOption("rid", "", "target RID: host desktop (default, in-process) | browser-wasm | ios-arm64 | iossim-arm64 | android-arm64 | android-x64", "");
-    embedded.AddOption("shard", "", "k/n: run shard k of n corpus cases (full slice, NO smoke cap; for parallel tier-2 CI)", "");
-    // --run (device RID): run the already-built deployable on the device (z42b-device-run
-    // PR-1). For browser-wasm: delegate to z42b's wasm driver (spawn playwright embedded).
-    // Without --run a device RID only BUILDS the deployable (compile-once, RUN separate).
-    embedded.AddFlag("run", "", "device RID: run the already-built deployable on the device (delegates to z42b --run)");
-    embedded.AddOptionalPositional("target", ".zbc / golden-case dir (omit → build+run full bundle)");
-    t.Add("embedded", "run tests via the embedded test-agent (bundle all / --case / --filter / single)", embedded);
-    // test-layout §6：设备测试一条命令（本地与 CI 同一路径）。
-    ArgParser app = new ArgParser("xtask test app", "device tests end-to-end: agent → R1–R7 → embedded bundle → host build → run on device");
-    app.AddOptionalPositional("platform", "wasm | ios | android | all (all = every platform this host supports; others are skipped with a reason)");
+    ArgParser stdlib = new ArgParser("xtask test stdlib", "stdlib [Test] (all or one)");
+    stdlib.AddFlag("no-build", "", "skip tooling rebuild");
+    stdlib.AddOption("filter", "k", "test-name filter", "");
+    stdlib.AddOption("jobs", "", "parallel unit batch width", "");
+    stdlib.AddOption("mode", "", "interp|jit (default: interp; jit forks z42vm)", "");
+    stdlib.AddOption("shard", "", "k/n: run shard k of n libs (balanced; for parallel CI)", "");
+    // extend-ab-bench-micro-criterion: _testLib 无条件读这三个 → test/bench 两侧都注册。
+    stdlib.AddOption("vm", "", "override: prebuilt z42vm (with --driver/--libs → skip in-tree build)", "");
+    stdlib.AddOption("driver", "", "override: prebuilt z42c.driver.zpkg", "");
+    stdlib.AddOption("libs", "", "override: prebuilt flat libs dir (stdlib + z42c siblings)", "");
+    stdlib.AddOptionalPositional("lib", "single lib (default: all)");
+    t.Add("stdlib", "stdlib [Test] (all or one)", stdlib);
+    // 编译器：不带 part = GREEN 里那三项（自举不动点 + [Test] 单元 + e2e）；其余是按需跑的专项。
+    ArgParser compiler = new ArgParser("xtask test compiler", "z42c: self-host fixpoint + [Test] units + e2e (no part); or one on-demand check");
+    compiler.AddOptionalPositional("part", "incremental | fingerprint | bootstrap (default: fixpoint + units + e2e)");
+    compiler.AddOption("base", "", "fingerprint: base source tree root (its stdlib already built by the base compiler)", "");
+    compiler.AddOption("base-driver", "", "fingerprint: the base side's driver zpkg (tells whether both sides are the same binary)", "");
+    compiler.AddOption("rid", "", "bootstrap: target RID (default: host)", "");
+    t.Add("compiler", "z42c fixpoint + units + e2e; or incremental | fingerprint | bootstrap", compiler);
+    // 工具链组件（test-layout §1）：各工程 tests/ 的 [Test] 单元 + builder 的 manifest 目标夹具。
+    ArgParser toolchain = new ArgParser("xtask test toolchain", "toolchain components: [Test] units (src/toolchain/<comp>/**/tests) + builder's manifest-target fixtures");
+    toolchain.AddFlag("no-build", "", "skip tooling rebuild");
+    toolchain.AddOption("filter", "k", "test-name filter", "");
+    toolchain.AddOption("target", "", "builder fixtures: one manifest target by name", "");
+    toolchain.AddOptionalPositional("comp", "component dir (builder / interactive …) or package name (z42.repl); default: all");
+    t.Add("toolchain", "toolchain components' units + builder manifest-target fixtures", toolchain);
+    t.Add("runtime", "Rust VM unit tests (cargo test src/runtime, serialized)",
+        new ArgParser("xtask test runtime", "Rust VM unit/integration harness (--test-threads=1)"));
+    // 嵌入宿主（test-layout §6）：desktop 也是一个宿主平台（C ABI 宿主），与 wasm / iOS / Android 同一条流水线。
+    ArgParser app = new ArgParser("xtask test app", "embedding hosts end-to-end: R1–R7 + embedded corpus bundle + run on the host / device");
+    app.AddOptionalPositional("platform", "desktop | wasm | ios | android | all (all = every platform this host supports; others are skipped with a reason)");
+    app.AddOptionalPositional("step", "one step only: stage | build | assets | bundle | run (default: the whole pipeline)");
     app.AddOption("filter", "", "only embedded cases whose name contains this substring", "");
     app.AddOption("shard", "", "k/n: run shard k of n of the embedded corpus (R1–R7 runs on shard 1 only)", "");
-    t.Add("app", "device tests in one command (wasm / ios / android / all; unsupported hosts are skipped)", app);
-    ArgParser dist = new ArgParser("xtask test dist", "distribution verification");
-    dist.AddOptionalPositional("mode", "interp|jit (default: both)");
-    t.Add("dist", "distribution verification", dist);
-    t.Add("compiler", "z42c 自举不动点 + smoke",
-        new ArgParser("xtask test compiler", "z42c fixpoint"));
-    t.Add("packages", "packages.toml self-checks (parse + staging + assembly)",
-        new ArgParser("xtask test packages", "packages.toml parse + staging + assembly self-checks"));
-    ArgParser bootstrap = new ArgParser("xtask test bootstrap", "staged-bootstrap boundary check (nightly z42c → current source)");
-    bootstrap.AddOptionalPositional("rid", "target RID (default: host)");
-    t.Add("bootstrap", "staged-bootstrap boundary check (nightly z42c → current source)", bootstrap);
-    t.Add("vscode-syntax", "VSCode grammar <-> Lexer keyword-table sync check",
-        new ArgParser("xtask test vscode-syntax", "regen grammar in-memory + diff vs committed"));
-    ArgParser lines = new ArgParser("xtask test lines", "file line-count hard-limit lint (ratchet baseline)");
-    lines.AddFlag("update", "", "rewrite scripts/test/line-limit-baseline.txt from the current tree");
-    t.Add("lines", "file line-count hard-limit lint (>500 lines: new/grown = red, known = warn)", lines);
-    t.Add("walkers", "AST-walker completeness gate (registered exhaustive walkers cover every node subclass)",
-        new ArgParser("xtask test walkers", "reconcile z42c.syntax node classes vs each registered walker's `is` arms"));
-    ArgParser diagcodes = new ArgParser("xtask test diagcodes", "reconcile the code registry vs every literal emission / constant reference in src");
-    diagcodes.AddFlag("update", "", "rewrite scripts/test/diag-literal-emitters.txt from the current tree");
-    t.Add("diagcodes", "diagnostic-code uniqueness gate (every emitted code is claimed exactly once in DiagnosticCodes.z42)", diagcodes);
-
-    ArgParser stage2 = new ArgParser("xtask test stage2", "staged-introduction debt: every STAGE2-DEBT marker is ledgered and not overdue");
-    stage2.AddFlag("update", "", "rewrite scripts/test/stage2-debt.txt from the current tree");
-    t.Add("stage2", "stage-2 debt gate (bootstrap-seed staged introduction: transitional forms must be ledgered + aged)", stage2);
-    t.Add("ci-shell", "CI 内嵌 shell 的先用后赋门（.github/actions/** 的 run: 块；set -u 会当场 exit 1）",
-        new ArgParser("xtask test ci-shell", "scan every composite action's run: block for variables used before assignment"));
-    t.Add("proc-env", "xtask 子进程环境单一入口门（Z42_LIBS / Z42_PROBING_PATHS 只经 _z42Proc / _z42bProc）",
-        new ArgParser("xtask test proc-env", "scan scripts/**/*.z42 for direct .Env(\"Z42_LIBS\" | \"Z42_PROBING_PATHS\", ...)"));
-    t.Add("layout", "测试布局门（src/tests 类别登记 · 能力词表 ↔ platform.rs · requires-caps / [Skip(feature:)] 只用已生效能力）",
-        new ArgParser("xtask test layout", "reconcile docs/internals/src/devinfra/test-layout.md against src/tests + platform.rs + capability uses"));
-    t.Add("incremental", "file-level incremental reconciler (per-file touch: incr == full, byte-exact)",
-        new ArgParser("xtask test incremental", "brute-force reconcile incremental vs full builds + timing"));
-    ArgParser fingerprint = new ArgParser("xtask test fingerprint", "base 与本树编译器编同一份 base stdlib，输出变了则版本号必须累加");
-    fingerprint.AddOption("base", "", "base 源码树根（其 stdlib 已由 base 编译器建好）", "");
-    // 给了就让门自己判「两侧 driver 是不是同一个二进制」—— 不是的话本门在这种输入下没有
-    // 判别力（自举代差异会伪装成输出差异），会如实说「判不了」而不判红。
-    fingerprint.AddOption("base-driver", "", "base 侧 driver 的 zpkg 路径（判定两侧是否同一二进制）", "");
-    t.Add("fingerprint", "compiler output changed ⇒ append a slug to CompilerFingerprint.Entries (or bump format minor)", fingerprint);
-    ArgParser changed = new ArgParser("xtask test changed", "only changed-area tests");
-    changed.AddFlag("dry-run", "", "print the plan, don't run");
-    changed.AddOptionalPositional("base", "git base ref (default: HEAD)");
-    t.Add("changed", "only changed-area tests", changed);
-    t.AddRouter("platform", "platform 3-phase tests (wasm/ios/android)", _platformRouter());
+    app.AddOption("format", "", "desktop run report: json | pretty | tap (default: json)", "");
+    app.AddOption("zbc", "", "desktop: run one .zbc or one golden case dir instead of a corpus bundle", "");
+    t.Add("app", "embedding hosts: desktop / wasm / ios / android / all (unsupported hosts are skipped)", app);
+    // 文档（三本书）：不带 kind = 两样都跑。
+    ArgParser docs = new ArgParser("xtask test docs", "documentation: relative links resolve + learn-book examples replay");
+    docs.AddOptionalPositional("kind", "links | examples (default: both)");
+    docs.AddOptionalPositional("path", "examples: only transcripts under examples/<path> (default: all)");
+    docs.AddFlag("update", "", "links: rewrite the dead-link baseline (only to drop fixed ones — never to admit new ones)");
+    docs.AddOption("sdk", "", "examples: SDK to run `z42` from (default: artifacts/.z42 — build it with `xtask build sdk`)", "");
+    docs.AddFlag("book-only", "", "examples: only check docs/learn ↔ examples references (no SDK needed)");
+    docs.AddFlag("bless", "", "examples: rewrite mismatching expected output with the actual output");
+    docs.AddFlag("keep", "", "examples: keep every sandbox directory (failed ones are always kept)");
+    docs.AddOption("timeout", "", "examples: per-step timeout in seconds", "120");
+    t.Add("docs", "documentation: links + learn-book examples", docs);
     return t;
-}
-
-// `test platform <wasm|ios|android|all> [stage|build|assets|run]` — three-phase
-// (build project / build test assets / run tests). Empty step = full pipeline.
-SubcommandRouter _platformRouter() {
-    SubcommandRouter pr = new SubcommandRouter("xtask test platform", "platform 3-phase tests");
-    ArgParser desktop = new ArgParser("xtask test platform desktop", "desktop C-ABI pipeline");
-    desktop.AddOptionalPositional("step", "stage|build|assets|run (default: all; stage = sync the host project copy only)");
-    pr.Add("desktop", "desktop 3-phase pipeline (Tier-1 C ABI R1–R7)", desktop);
-    ArgParser wasm = new ArgParser("xtask test platform wasm", "wasm pipeline");
-    wasm.AddOptionalPositional("step", "stage|build|assets|run (default: all; stage = sync the host project copy only)");
-    pr.Add("wasm", "wasm 3-phase pipeline", wasm);
-    ArgParser ios = new ArgParser("xtask test platform ios", "iOS pipeline");
-    ios.AddOptionalPositional("step", "stage|build|assets|run (default: all; stage = sync the host project copy only)");
-    pr.Add("ios", "iOS 3-phase pipeline", ios);
-    ArgParser android = new ArgParser("xtask test platform android", "Android pipeline");
-    android.AddOptionalPositional("step", "stage|build|assets|run (default: all; stage = sync the host project copy only)");
-    pr.Add("android", "Android 3-phase pipeline", android);
-    ArgParser all = new ArgParser("xtask test platform all", "all platforms");
-    all.AddOptionalPositional("step", "stage|build|assets|run (default: all; stage = sync the host project copy only)");
-    pr.Add("all", "all platforms", all);
-    return pr;
 }
 
 int _dispatchTest(string[] p, ParseResult r) {
     string sub = p.Length > 1 ? p[1] : "";
-    if (sub == "all")          { return _testAll(r.GetFlag("no-build"), r.GetOption("skip")); }
-    if (sub == "stdlib")       { return _testLib(r, "test"); }
-    if (sub == "targets")      { return _testTargetsCore("test", r.GetPositional(0), r.GetFlag("no-build")); }
-    if (sub == "examples")     { return _testExamples(_examplesOptions(r)); }
-    if (sub == "docs")         { return _testDocs(_root(), r.GetFlag("update")); }
-    if (sub == "runtime")      { return _testRuntime(); }
+    if (sub == "changed")      { return _testChanged(r); }
     if (sub == "e2e")          { return _testE2e(r); }
     if (sub == "list")         { return _testList(r); }        // read-only case catalog
-
-    if (sub == "embedded")     { return _testEmbedded(r); }   // 嵌入式 test-host 跑 .zbc（desktop harness）
-    if (sub == "dist")         { return _testDist(r); }
-    if (sub == "compiler") { return _testCompiler(false); }   // 自举不动点
-    if (sub == "packages")     { return _testPackages(); }    // packages.toml parse + staging + assembly 三自检
-    if (sub == "bootstrap")    { return _bootstrapCheck(r.GetPositional(0)); }   // staged-bootstrap 边界检查
-    if (sub == "vscode-syntax") { return _testVscodeSyntax(); }   // grammar ↔ Lexer 关键字一致性
-    if (sub == "lines")        { return _testLines(r.GetFlag("update")); }          // 文件行数硬上限（棘轮基线）
-    if (sub == "walkers")      { return _testWalkers(); }                            // AST walker 完备性对账
-    if (sub == "diagcodes")    { return _testDiagCodes(r.GetFlag("update")); }                          // 诊断码唯一性对账
-    if (sub == "stage2")       { return _testStage2Debt(r.GetFlag("update")); }                        // 阶段-2 欠账挂账 + 到期
-    if (sub == "ci-shell")     { return _testCiShell(); }                                   // CI 内嵌 shell 先用后赋（set -u）
-    if (sub == "proc-env")     { return _testProcEnv(); }                                   // 子进程 env 单一入口
-    if (sub == "layout")       { return _testLayout(); }                                    // 测试布局规范可机械判定的部分
-    if (sub == "incremental")  { return _testIncremental(r); }   // 文件级增量暴力对账（D4/D8）
-    if (sub == "fingerprint")  { return _testFingerprint(r); }   // 编译器输出变 ⇒ 版本号必须累加
-    if (sub == "changed")      { return _testChanged(r); }
-    if (sub == "app")          { return _testApp(r); }                                       // 设备测试一条命令（test-layout §6）
-    if (sub == "toolchain")    { return _testToolchain(r); }                                 // 工具链组件的 [Test] 单元
-    if (sub == "platform") {
-        string plat = p.Length > 2 ? p[2] : "";
-        return _platformDispatch(plat, r.GetPositional(0), _root());
-    }
+    if (sub == "stdlib")       { return _testLib(r, "test"); }
+    if (sub == "compiler")     { return _testCompilerCmd(r); }
+    if (sub == "toolchain")    { return _testToolchain(r); }
+    if (sub == "runtime")      { return _testRuntime(); }
+    if (sub == "app")          { return _testApp(r); }        // 嵌入宿主（test-layout §6）
+    if (sub == "docs")         { return _testDocsCmd(r); }
     return 2;
+}
+
+// `test compiler [part]`。
+int _testCompilerCmd(ParseResult r) {
+    string part = r.GetPositional(0);
+    if (part == "")            { return _testCompiler(false); }   // 自举不动点 + units + e2e
+    if (part == "incremental") { return _testIncremental(r); }   // 文件级增量暴力对账（D4/D8）
+    if (part == "fingerprint") { return _testFingerprint(r); }   // 编译器输出变 ⇒ 版本号必须累加
+    if (part == "bootstrap")   { return _bootstrapCheck(r.GetOption("rid")); }   // staged-bootstrap 边界检查
+    ConsoleError.WriteLine("xtask test compiler: unknown part '" + part + "' (incremental | fingerprint | bootstrap; none = fixpoint + units + e2e)");
+    return 2;
+}
+
+// `test docs [links|examples] [path]`：不带 kind = 先链接（秒级）再示例（要 SDK）。
+int _testDocsCmd(ParseResult r) {
+    string kind = r.GetPositional(0);
+    if (kind != "" && kind != "links" && kind != "examples") {
+        ConsoleError.WriteLine("xtask test docs: unknown kind '" + kind + "' (links | examples; none = both)");
+        return 2;
+    }
+    if (kind == "" || kind == "links") {
+        int c = _testDocs(_root(), r.GetFlag("update")); if (c != 0 || kind == "links") { return c; }
+    }
+    return _testExamples(_examplesOptions(r));
 }
 
 ExamplesOptions _examplesOptions(ParseResult r) {
     ExamplesOptions o = new ExamplesOptions();
-    o.Filter = r.GetPositional(0);
+    o.Filter = r.GetPositional(1);   // `test docs examples <path>`
     o.Sdk = r.GetOption("sdk");
     o.BookOnly = r.GetFlag("book-only");
     o.Bless = r.GetFlag("bless");

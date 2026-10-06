@@ -40,8 +40,8 @@ vm.dispose();
 ```bash
 rustup target add wasm32-unknown-unknown && cargo install wasm-pack --locked
 ./xtask build stdlib
-./xtask test platform wasm build      # wasm-pack web + nodejs
-./xtask test platform wasm assets     # fixtures + stdlib + files.json
+./xtask test app wasm build      # wasm-pack web + nodejs
+./xtask test app wasm assets     # fixtures + stdlib + files.json
 ./xtask deps install --os wasm        # 本地缺 Node 时（装到 artifacts/tools/node）
 node src/toolchain/workload/wasm/platform/demo/node/run.js     # 期望 [host] hello, world
 ```
@@ -54,7 +54,7 @@ node src/toolchain/workload/wasm/platform/demo/node/run.js     # 期望 [host] h
 ## 如何测试验证
 
 ```bash
-./xtask test platform wasm
+./xtask test app wasm
 ```
 
 build + assets + pkg-nodejs Node smoke + headless chromium 的 Playwright R1–R7，期望 `7 passed`。

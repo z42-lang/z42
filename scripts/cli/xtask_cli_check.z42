@@ -1,0 +1,84 @@
+// xtask CLI — `check` 命令：不编译、不跑用例的静态检查（纯文本扫描 / 生成物比对，秒级）。
+//
+//   xtask check            全部跑一遍（顺序同 GREEN gate 里的对应 stage），汇总哪些红
+//   xtask check <name>     只跑一个
+//   xtask check <name> --update   重写该检查的棘轮基线（lines / diagcodes / stage2）
+//
+// 它们在 GREEN gate 里仍各是一个 stage（stage 名不变，见 test-gate.md）；这里只是单跑的入口。
+// 各检查的实现留在 scripts/test/ 下原处。
+namespace Z42Xtask;
+
+using Std.IO;
+using Std.Cli;
+
+// 名字 → 说明。顺序即 `xtask check` 全跑的顺序（= GREEN gate 里的顺序）。
+string[] _checkNames() {
+    return new string[]{ "vscode-syntax", "lines", "walkers", "diagcodes", "stage2", "ci-shell", "proc-env", "layout" };
+}
+
+string _checkDesc(string name) {
+    if (name == "vscode-syntax") { return "VSCode grammar ↔ Lexer keyword table (regenerate in memory, diff vs committed)"; }
+    if (name == "lines")         { return "file line-count hard limit (ratchet baseline: new / grown over the limit = red)"; }
+    if (name == "walkers")       { return "every registered exhaustive AST walker covers every node subclass"; }
+    if (name == "diagcodes")     { return "every emitted diagnostic code is registered exactly once in DiagnosticCodes"; }
+    if (name == "stage2")        { return "staged-introduction debt: every STAGE2-DEBT marker is ledgered and not overdue"; }
+    if (name == "ci-shell")      { return "CI composite actions' run: blocks use no variable before assigning it (set -u)"; }
+    if (name == "proc-env")      { return "Z42_LIBS / Z42_PROBING_PATHS are set only via _z42Proc / _z42bProc"; }
+    if (name == "layout")        { return "test layout spec: src/tests categories, capability vocabulary, artifacts mirror"; }
+    return "";
+}
+
+ArgParser _checkParser() {
+    string names = "";
+    foreach (var n in _checkNames()) { names = names.Length == 0 ? n : names + " | " + n; }
+    ArgParser c = new ArgParser("xtask check", "static checks (no build, no test run): " + names);
+    c.AddOptionalPositional("name", "one check (default: all): " + names);
+    c.AddFlag("update", "", "lines / diagcodes / stage2: rewrite the ratchet baseline from the current tree");
+    return c;
+}
+
+int _check(ParseResult r) {
+    string name = r.GetPositional(0);
+    bool update = r.GetFlag("update");
+    if (name.Length > 0) {
+        if (_checkDesc(name).Length == 0) {
+            ConsoleError.WriteLine("xtask check: unknown check '" + name + "'");
+            foreach (var n in _checkNames()) { ConsoleError.WriteLine("  " + _padRight(n, 15) + _checkDesc(n)); }
+            return 2;
+        }
+        if (update && name != "lines" && name != "diagcodes" && name != "stage2") {
+            ConsoleError.WriteLine("xtask check: --update only applies to lines / diagcodes / stage2");
+            return 2;
+        }
+        return _checkOne(name, update);
+    }
+    if (update) {
+        ConsoleError.WriteLine("xtask check: --update needs a check name (lines / diagcodes / stage2)");
+        return 2;
+    }
+    // 全跑：不在第一处红就停 —— 一次看到所有红的检查。
+    string failed = "";
+    foreach (var n in _checkNames()) {
+        Console.WriteLine("");
+        Console.WriteLine("── check " + n + " ──");
+        if (_checkOne(n, false) != 0) { failed = failed.Length == 0 ? n : failed + ", " + n; }
+    }
+    Console.WriteLine("");
+    if (failed.Length > 0) {
+        ConsoleError.WriteLine("❌ check: " + failed);
+        return 1;
+    }
+    Console.WriteLine("✅ check: all " + _checkNames().Length.ToString() + " passed");
+    return 0;
+}
+
+int _checkOne(string name, bool update) {
+    if (name == "vscode-syntax") { return _testVscodeSyntax(); }
+    if (name == "lines")         { return _testLines(update); }
+    if (name == "walkers")       { return _testWalkers(); }
+    if (name == "diagcodes")     { return _testDiagCodes(update); }
+    if (name == "stage2")        { return _testStage2Debt(update); }
+    if (name == "ci-shell")      { return _testCiShell(); }
+    if (name == "proc-env")      { return _testProcEnv(); }
+    return _testLayout();
+}

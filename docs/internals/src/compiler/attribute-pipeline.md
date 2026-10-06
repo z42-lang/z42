@@ -187,7 +187,7 @@ z42 一侧（`Type.z42` / `Reflection/*.z42`）把结果缓存在反射对象的
 ⚠️ **新码的引入纪律**：新增的 `DiagnosticCodes` 常量不能在同一个 PR 里被引用（上一版
 z42c 的 `z42c.core` 里还没有它，见 [bootstrap-seed.md](https://github.com/z42-lang/z42/blob/main/docs/agent/rules/bootstrap-seed.md)
 的分阶段引入纪律）。所以新码先用字面量一轮，跨一个 nightly 进种子后再切回常量引用，
-过渡期由 `xtask test diagcodes` 的第 ④ 条棘轮盯着。
+过渡期由 `xtask check diagcodes` 的第 ④ 条棘轮盯着。
 
 **持久化**：caller 宏的默认值编成 `$Caller:<kind>` 的 param attr-ref 哨兵（`FactoryFunc` 为空），
 骑既有的 param attr 通道，**零格式 bump**。`IrParamDefault.Caller()` 读回、`ImportedSymbolLoader`

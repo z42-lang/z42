@@ -153,7 +153,7 @@ xtask 起的每个跑 z42 代码的子进程都经 `_z42Proc(exe, libs)` 建（z
 - **软限 500 行**——只打一行 advisory 计数，**不进棘轮、不阻断**。
 
 扫 `src/` 下的非测试 `.z42` / `.rs`，对照 `scripts/test/line-limit-baseline.txt`（首行即注明硬限值）。
-拆分后降到硬限以下的文件用 `xtask test lines --update` 从基线剔除（只降不升）。
+拆分后降到硬限以下的文件用 `xtask check lines --update` 从基线剔除（只降不升）。
 注意软限从来不变红：写个 600 行的新文件 gate 并不会拦。
 
 **`walkers` 是活体对账**（`scripts/test/xtask_test_walkers.z42`）：扫节点类的全集——语法树
@@ -252,12 +252,12 @@ walker 文件里找 `is <类名>`；全集里既不被匹配、又不在该 walk
 欠账时钟拨回今天，⑥ 永远不会到期），超过宽限期就红。
 
 > ⚠️ **判据为什么是「挂账天数」而不是「去种子里查这个常量在不在」**：后者更精确，但**在 CI 里拿不到
-> 种子**。`xtask test diagcodes` 跑的时候 `Z42_LIBS` 指的是**自建** stdlib
+> 种子**。`xtask check diagcodes` 跑的时候 `Z42_LIBS` 指的是**自建** stdlib
 > （`artifacts/build/libraries/dist/release`，里面的 `z42c.core` 含全部常量 ⇒ 每条欠账都判红，假红
 > 挡人）；而 `Z42_HOME` 在整个 `test-host` job 里**一次都没设**，nightly 种子解在 ci-bootstrap 自己的
 > `$(mktemp -d)/sdkpkg` 里、test 步骤看不见 ⇒ 只认种子就是**恒跳过的假门**。两条路都不成立。
 >
-> 粗判据之所以安全，是因为**反方向已经有门**：若切早了（常量还没进种子），`xtask test bootstrap`
+> 粗判据之所以安全，是因为**反方向已经有门**：若切早了（常量还没进种子），`xtask test compiler bootstrap`
 > 会直接红。两个方向互为对照——⑥ 说「该切了」，bootstrap 说「切早了」，中间那条缝就是正确时机。
 > 附带好处：nightly 发布链卡住时 ⑥ 会假红，而那**正是该知道的事**（上一次种子停在 #756，把这个
 > 程序卡了好几天，零信号）。
@@ -300,7 +300,7 @@ skip 只影响**在哪跑**，不改变 gate 的 stage 组成，所以 §1 的�
 `_checkGateStageDoc` 也照常对全量清单对账。
 
 `--no-build`（或 `--toolchain <sdk>`）跳过构建波、直接消费既有产物——CI 正是先集中构建一次、
-再多 job `test all --no-build` 消费的形态；本地缓存后反复迭代同理。
+再多 job `test --no-build` 消费的形态；本地缓存后反复迭代同理。
 **这些都不构成 GREEN**：提交判定只认完整 `xtask test`。
 
 ## 6. stage 耗时归因（无条件输出）
@@ -342,13 +342,13 @@ verbosity ≥ 4 才输出，而 CI 跑的是默认 verbosity——于是 `xtask 
 | 其余 `src/tests/` | `test e2e` |
 | `src/compiler/` | `test compiler` + `test e2e` |
 | `src/toolchain/` | `test stdlib`（工具链影响 `[Test]` 的执行方式，全库扫）+ `test toolchain`（组件自己的 unit）|
-| `examples/<part>/<chapter>/…` | `test examples <part>/<chapter>` |
-| `docs/learn/` | `test examples --book-only` |
-| `src/toolchain/launcher/`、`src/toolchain/builder/` | 追加 `test examples`（命令行输出一变，手册里的会话脚本就失配）|
-| `scripts/xtask*`、`*.workspace.toml`、未识别路径 | **full**（坍缩为 `test all`）|
+| `examples/<part>/<chapter>/…` | `test docs examples <part>/<chapter>` |
+| `docs/learn/` | `test docs examples --book-only` |
+| `src/toolchain/launcher/`、`src/toolchain/builder/` | 追加 `test docs examples`（命令行输出一变，手册里的会话脚本就失配）|
+| `scripts/xtask*`、`*.workspace.toml`、未识别路径 | **full**（坍缩为 `test`）|
 | 其余文档 / `.claude/` / artifacts | 跳过 |
 
-设计取向是**宁可多跑不可漏跑**：任一未识别路径即保守坍缩为完整 `test all`。
+设计取向是**宁可多跑不可漏跑**：任一未识别路径即保守坍缩为完整 `test`。
 计划里的逻辑命令**在进程内重入 CLI 路由**（不 shell out），免去每命令一次进程启动；cargo 命令例外
 走子进程。
 

@@ -403,7 +403,7 @@ z42c build <toml> [--release] [--no-incremental]      （单工程模式；works
 ```
 
 **编译日志输出**：`cached: N/M files`（stderr）；全命中时 `no changes; preserved -> <zpkg>`。
-`--no-incremental` 强制全量。**硬验收 = 暴力对账器 `xtask test incremental`**：语料逐文件
+`--no-incremental` 强制全量。**硬验收 = 暴力对账器 `xtask test compiler incremental`**：语料逐文件
 touch，断言增量产物与全量产物**逐字节相等** + D8 计时（增量 vs 全量墙钟）。
 
 **cache 条目格式**：`<rel>.zbc`（fullMode，与 `--emit-zbc` 同一 `ZbcWriter.Write` 产出）+
@@ -431,7 +431,7 @@ self-hosting.md Deferred。
 ### workspace 增量
 
 workspace 成员（`--workspace`，per-member 与 flat 两种布局）与单工程一样 probe cache；`--no-incremental` 透传到每个成员。
-正确性由三道键保证：编译器身份（`CompilerFingerprint` + 格式 Minor，CI `test fingerprint` 守门）、依赖身份
+正确性由三道键保证：编译器身份（`CompilerFingerprint` + 格式 Minor，CI `test compiler fingerprint` 守门）、依赖身份
 （`package.meta` 的 `deps` 行）、源哈希。自举不动点 gen2 与 CI 两代自举显式 `--no-incremental`。
 
 **成员可见性是封闭的**：编译第 i 个成员时，拓扑序排在它之后的成员（它们的 dist 与 `Z42_LIBS` 里的同名副本）一律不可见，
@@ -439,7 +439,7 @@ workspace 成员（`--workspace`，per-member 与 flat 两种布局）与单工�
 依赖身份也会让前序成员每轮白编一次。
 
 实测（stdlib 25 包，release）：全量 12.4s；无改动 0.6s；z42.core 只改注释 1.3s（24/25 命中）；拓扑序第 5 的 z42.text
-改实现 10.5s；靠后的 z42.yaml 改实现 7.2s。各场景增量产物与全量逐字节一致；`xtask test incremental` 含 stdlib 整体读回对账。
+改实现 10.5s；靠后的 z42.yaml 改实现 7.2s。各场景增量产物与全量逐字节一致；`xtask test compiler incremental` 含 stdlib 整体读回对账。
 
 **目录结构（含产物，单工程默认）：**
 
@@ -888,13 +888,13 @@ test = true                       # 破例纳入 xtask test 执行（默认 exam
 
 ### example 的执行语义（借 Cargo）
 
-- `xtask test`（targets stage，`xtask test targets` 单跑）：**编译**所有 example 当门禁（确保永远编得过），**默认不执行**。
+- `xtask test`（targets stage，`xtask test toolchain builder` 单跑）：**编译**所有 example 当门禁（确保永远编得过），**默认不执行**。
 - 目标写 `test = true` → 纳入该 stage 执行（编 + 跑，退出码判定）。
-- 注意与仓库根 `examples/`（学习手册配套示例，`xtask test examples`）无关。
+- 注意与仓库根 `examples/`（学习手册配套示例，`xtask test docs examples`）无关。
 
 ### 具名选择运行
 
-`xtask test targets <name>` / `xtask bench targets <name>` 只跑一个
+`xtask test toolchain builder <name>` / `xtask bench targets <name>` 只跑一个
 （裸 `test`/`bench` 是全量 gate / e2e 默认动作，故 test/bench 走 `targets <name>` 子动作）。名不存在
 → 报错列出可用目标名，非零退出（不静默）。**注**：自定义段 `include` glob 运行期暂只扫约定目录
 （`tests/`·`bench/`·`examples/`）。
@@ -944,7 +944,7 @@ artifacts/build/libraries/<lib>/<profile>/
 |------|------|----------|
 | `./xtask test stdlib [lib]`  | `<lib>/<profile>/tests/{cache/<unit>,dist}/` | `[dependencies]` + `[tests.dependencies]` |
 | `./xtask bench stdlib [lib]` | `<lib>/<profile>/bench/{cache/<unit>,dist}/` | `[dependencies]` + `[benches.dependencies]` |
-| `./xtask test targets <name>` / `bench targets <name>` / `example <name>` | 同上（具名单目标）| 三层合并 |
+| `./xtask test toolchain builder <name>` / `bench targets <name>` / `example <name>` | 同上（具名单目标）| 三层合并 |
 | `./xtask clean`              | 删每个 `<lib>/<profile>/{cache,dist}` + 聚合 `libraries/dist/`（**保留** tests/bench） | — |
 | `./xtask clean tests`        | 删每个 `<lib>/<profile>/tests/` | — |
 | `./xtask clean bench`        | 删每个 `<lib>/<profile>/bench/` | — |

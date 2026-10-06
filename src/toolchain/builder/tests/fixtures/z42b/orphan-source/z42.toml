@@ -1,4 +1,4 @@
-# 孤儿源守卫 fixture（**预期判红**，由 xtask test targets 的 _smokeOrphanGuard 驱动）。
+# 孤儿源守卫 fixture（**预期判红**，由 xtask test toolchain builder 的 _smokeOrphanGuard 驱动）。
 #
 # tests/nested/ 里躺着 .z42 源，但默认发现 glob（`tests/*.z42`，一文件一单元）不认领它，
 # 而 nested/ 也没有自己的 `*.z42.toml`（那会让它成为独立工程）。于是：有源、零单元。

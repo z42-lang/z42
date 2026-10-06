@@ -16,7 +16,7 @@
 | `packages/` | 组装好的发行包（`z42-<...>-<rid>-<profile>/`）+ `archives/`（发布归档、`SHA256SUMS`、`release-index.json`）| `xtask package *` |
 | `xtask/` | xtask 自己的 zpkg / zsym / cache —— **不在 `build/` 里面**（它的自检工作目录在 `intermediate/xtask/`）| `z42 publish scripts/xtask.z42.toml` |
 | `tools/` | 构建**下载**的第三方工具（`node`、`android-sdk`、`playwright-browsers`）| `xtask deps install` 与按需自动安装 |
-| `reports/` | 给人与 CI 看的**结果**，按种类分子目录：`tests/<platform>/junit.xml`（平台测试）、`bench/`（`e2e.json` / `ab.json` / `micro-*.json`）、`profile/<script>/`（火焰图、dhat 报告、counter 摘要、`report.md`）| `xtask test platform *` / z42b 设备驱动、`xtask bench`、`xtask profile` |
+| `reports/` | 给人与 CI 看的**结果**，按种类分子目录：`tests/<platform>/junit.xml`（平台测试）、`bench/`（`e2e.json` / `ab.json` / `micro-*.json`）、`profile/<script>/`（火焰图、dhat 报告、counter 摘要、`report.md`）| `xtask test app *` / z42b 设备驱动、`xtask bench`、`xtask profile` |
 | `.z42` | `xtask build sdk` 默认组装出的 SDK 布局（`programs/` + `libs/` + `bin/`）| `xtask build sdk` |
 
 划分的判据只有一句：`build/` = 「我们**编**出来的」，`packages/` = 「我们要**发**的」，
@@ -60,7 +60,7 @@ xtask 自己发明、没有 toml 归属的路径，**全部在 `xtask_layout.z42
 `_workOut` / `_workRootOf` / `_xtaskWork` / `_compilerWsWork`，见 §3），以及 §1 的每个顶层桶（`_intermediateDir` /
 `_toolsDir` / `_devSdkDir` / `_packagesDir` / `_archivesDir` / `_testReportsDir` / `_benchDir` / `_profileDir`）。
 使用点只写「桶 + 自己的子目录名」或「owner 组件 + 名字」，不写 `"artifacts/…"` 字面量——挪一个位置只改一处。
-`xtask test layout` 守着镜像：`build/` 的一级目录、`build/{compiler,libraries,toolchain}/` 的二级目录、
+`xtask check layout` 守着镜像：`build/` 的一级目录、`build/{compiler,libraries,toolchain}/` 的二级目录、
 `intermediate/` 的一级目录，出现 `src/` 里没有的即红（例外：`libraries/dist`、`intermediate/xtask`）。
 
 ### 查询：`xtask layout`
@@ -132,18 +132,18 @@ z42c 写产物同样是就地写 ⇒ 穿透到 `libraries/z42.core/release/dist/
 
 | 位置 | 谁写 | 是什么 |
 |---|---|---|
-| `intermediate/compiler/{selfhost-gen1,stdlib-run/<profile>,seed-run-libs/<profile>,bootstrap-check}` | 编译器构建与自举、`test bootstrap` | 不属于某个成员的 workspace 级自举中间物 |
+| `intermediate/compiler/{selfhost-gen1,stdlib-run/<profile>,seed-run-libs/<profile>,bootstrap-check}` | 编译器构建与自举、`test compiler bootstrap` | 不属于某个成员的 workspace 级自举中间物 |
 | `intermediate/compiler/z42c.pipeline/tests/fixtures/{cross-zpkg,multi-exe}` | `test e2e` | 夹具的**暂存拷贝**（`_stageFixtureTree`），每轮重建，在这里编 / 跑，源码树零写入 |
-| `intermediate/compiler/z42c.pipeline/{incremental,fingerprint}` | `test incremental` / `test fingerprint` | 增量 vs 全量对账；base 与本树编译器的对比场地 |
+| `intermediate/compiler/z42c.pipeline/{incremental,fingerprint}` | `test compiler incremental` / `test compiler fingerprint` | 增量 vs 全量对账；base 与本树编译器的对比场地 |
 | `intermediate/compiler/z42c.driver/e2e` | `test compiler` | 编译器 e2e 用例工作区 |
-| `intermediate/toolchain/builder/tests/fixtures/{manifest-targets,z42b}` | `test targets` | z42b 夹具的暂存拷贝；它们的目标产物在组件工作根下的 `targets/`、`dev-targets/` |
-| `intermediate/toolchain/workload/test/` | `test embedded` / `test targets` | golden → `[Test]` 归一的 bundle、语料 bundle、bundle-host smoke |
-| `intermediate/toolchain/workload/desktop/` | `test platform desktop` | C ABI R1–R7 的夹具 zbc 与链接出的 `r1_r7` |
-| `intermediate/toolchain/workload/{wasm,ios,android}/host` | `test platform <p>` / `test embedded --rid …` | 平台宿主工程（Playwright 页面 / SwiftPM 包 / Gradle 工程）的**暂存副本**：git 跟踪的文件增量同步过来，R1–R7 夹具、stdlib、嵌入 bundle、pkg-web / xcframework / .so 都放这里，平台构建与运行也在这里（`_stageDeviceHost`）。可直接用 Xcode / Android Studio 打开调试 |
-| `intermediate/toolchain/workload/wasm/deploy` | `test embedded --rid browser-wasm` | wasm 嵌入 deployable（agent + bundle + libs + harness）；`--run` 由 z42b 经 `Z42_WASM_DEPLOY` 交给 Playwright |
+| `intermediate/toolchain/builder/tests/fixtures/{manifest-targets,z42b}` | `test toolchain builder` | z42b 夹具的暂存拷贝；它们的目标产物在组件工作根下的 `targets/`、`dev-targets/` |
+| `intermediate/toolchain/workload/test/` | `test app desktop` / `test toolchain builder` | golden → `[Test]` 归一的 bundle、语料 bundle、bundle-host smoke |
+| `intermediate/toolchain/workload/desktop/` | `test app desktop` | C ABI R1–R7 的夹具 zbc 与链接出的 `r1_r7` |
+| `intermediate/toolchain/workload/{wasm,ios,android}/host` | `test app <p>` / `test app desktop --rid …` | 平台宿主工程（Playwright 页面 / SwiftPM 包 / Gradle 工程）的**暂存副本**：git 跟踪的文件增量同步过来，R1–R7 夹具、stdlib、嵌入 bundle、pkg-web / xcframework / .so 都放这里，平台构建与运行也在这里（`_stageDeviceHost`）。可直接用 Xcode / Android Studio 打开调试 |
+| `intermediate/toolchain/workload/wasm/deploy` | `test app wasm bundle` | wasm 嵌入 deployable（agent + bundle + libs + harness）；`--run` 由 z42b 经 `Z42_WASM_DEPLOY` 交给 Playwright |
 | `intermediate/runtime/gc-modes` | gate 的 `gc modes` | 各 GC 模式下重编 `z42c.semantics` 的输出 |
 | `intermediate/runtime/{dhat,contention}-target` | `xtask profile` | 一次性特性 VM 的 cargo target 目录（跨脚本复用缓存） |
-| `intermediate/xtask/<name>` | `test packages` / release 自检 / cross-zpkg 的写穿检查 | xtask 自身的自检工作目录 |
+| `intermediate/xtask/<name>` | `package check` / release 自检 / cross-zpkg 的写穿检查 | xtask 自身的自检工作目录 |
 
 ### 开发树里编译器包从哪来：没有 alllibs
 

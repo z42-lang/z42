@@ -244,7 +244,7 @@ pub(crate) const BUILTINS: &[(&str, Native)] = &JOINED;
 - 名字 → id 的反查表 `BUILTIN_INDEX: OnceLock<HashMap<&str, u32>>` 首次访问时从 `BUILTINS` 现算
   （`corelib/mod.rs`），保证单一真相。
 - 拆成 `PART1` / `PART2` 两段纯粹是行数门禁：表是按名字线性增长的数据，与 `mod.rs` 里的分发逻辑变更
-  频率完全不同，合在一起会顶到 `xtask test lines` 的棘轮基线。
+  频率完全不同，合在一起会顶到 `xtask check lines` 的棘轮基线。
 
 加载期由 `metadata::resolver` 把每个 builtin 调用点的名字解析成 token：先查 `BUILTINS`，未命中再查
 per-VM 的 ext 表；两边都没有则留 `UNRESOLVED`，在真正调用时按名字再解一次

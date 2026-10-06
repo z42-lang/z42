@@ -2,28 +2,41 @@
 // 每个工程的 `tests/`，与库、编译器成员同一套 `[Test]` runner（_testPkgsCore → z42b）。
 //
 // 只收 `tests/` 里有 `fixtures/` 以外内容的工程：`tests/fixtures/` 是各 harness 的私有地盘（builder 的
-// manifest-targets / z42b 两套归 `xtask test targets`），不算单元。工具链用例从不进 app 语料，天然 host-only。
+// manifest-targets / z42b 两套归 `xtask test toolchain builder`），不算单元。工具链用例从不进 app 语料，天然 host-only。
 namespace Z42Xtask;
 
 using Std.IO;
 using Std.Time;
 using Std.Cli;
 
+// `xtask test toolchain [<comp>] [--target <name>]`：各工程的 [Test] 单元；comp 为空或是 builder 时再跑 builder 的
+// manifest 目标夹具（`[[test]]` / `[[example]]` / `[[bench]]` 与 z42b 自身的清单 / hook / 发现规则，
+// test-layout §3 的 fixtures 表）。GREEN 里两者是两个 stage（`toolchain [Test]`、`manifest targets`）。
 int _testToolchain(ParseResult r) {
     Stopwatch sw = _procStart("test toolchain");
-    int rc = _testToolchainCore(r.GetPositional(0), r.GetFlag("no-build"), r.GetOption("filter"));
+    string comp = r.GetPositional(0);
+    bool noBuild = r.GetFlag("no-build");
+    string target = r.GetOption("target");
+    int rc = 0;
+    if (target.Length == 0) {
+        rc = _testToolchainCore(comp, noBuild, r.GetOption("filter"), comp == "builder" || comp == "z42.builder");
+    }
+    if (rc == 0 && (comp.Length == 0 || comp == "builder" || comp == "z42.builder")) {
+        rc = _testTargetsCore("test", target, noBuild);
+    }
     if (rc == 0) { _procEnd("test toolchain", sw); }
     return rc;
 }
 
 // comp = `src/toolchain/` 下的组件目录名（builder / interactive …）或包名（z42.repl）；空 = 全部。
-int _testToolchainCore(string comp, bool noBuild, string filter) {
+// noUnitsOk：该组件只有夹具、没有单元（builder）时不报错。
+int _testToolchainCore(string comp, bool noBuild, string filter, bool noUnitsOk) {
     string root = _root();
     string[] all = _toolchainTestPkgs(root);
     int n = 0;
     foreach (var d in all) { if (_toolchainPkgMatches(root, d, comp)) { n = n + 1; } }
     if (n == 0) {
-        if (comp.Length > 0) {
+        if (comp.Length > 0 && !noUnitsOk) {
             ConsoleError.WriteLine("error: no toolchain package with tests matches '" + comp + "'");
             return 2;
         }

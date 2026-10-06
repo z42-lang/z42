@@ -1,4 +1,4 @@
-// xtask — `test walkers` gate stage（ast-walker-completeness-gate）。
+// xtask — `check walkers` gate stage（ast-walker-completeness-gate）。
 //
 // 为什么要这道门：z42c 里有若干**手写穷举** AST walker（一串 `if (x is SomeExpr) { ... }`），
 // 它们的**全部价值就是完备**——漏处理一个节点子类 = 一个静默洞（MethodTypeParamUse 漏一种
@@ -84,9 +84,9 @@ WalkerEntryZ[] _walkerRegistry() {
     return r;
 }
 
-// `xtask test walkers`
+// `xtask check walkers`
 int _testWalkers() {
-    Stopwatch sw = _procStart("test walkers");
+    Stopwatch sw = _procStart("check walkers");
     string root = _root();
 
     // ① 活体枚举节点类全集（name/base 并行数组）。
@@ -139,7 +139,7 @@ int _testWalkers() {
         return 1;
     }
     Console.WriteLine("  ✓ every registered walker covers its node families");
-    _procEnd("test walkers", sw);
+    _procEnd("check walkers", sw);
     return 0;
 }
 

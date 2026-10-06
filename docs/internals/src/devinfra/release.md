@@ -59,7 +59,7 @@ release.yml、nightly 与本地共用。`finalize` 要求 9 个 RID 的归档齐
 
 打包前提：`./xtask build stdlib`（+ 改了编译器才要 `build compiler`）。平台 RID 另需该平台的
 工具链，见[平台构建与嵌入](build-platforms.md)；wasm 还要先跑一遍
-`./xtask test platform wasm build` 产出 `pkg-web/` + `pkg-nodejs/`。
+`./xtask test app wasm build` 产出 `pkg-web/` + `pkg-nodejs/`。
 
 ## 4. 包内布局与验证
 
@@ -98,7 +98,7 @@ file .../native/libz42.dylib          # ② native 库架构（关键 invariant�
 #   android-arm64 → ELF 64-bit LSB shared object, ARM aarch64
 #   browser-wasm  → WebAssembly (wasm) binary module
 
-./xtask test packages                 # ③ packages.toml 的解析 / 组件安装 / 发布归档自检
+./xtask package check                 # ③ packages.toml 的解析 / 组件安装 / 发布归档自检
 ```
 
 `xtask package` 末尾还自动跑一道 **source-identity 门**：逐字节比对包内每一份从仓库拷进去的
@@ -107,7 +107,7 @@ file .../native/libz42.dylib          # ② native 库架构（关键 invariant�
 **跨包 byte-identical 是它的推论**：`libs/` 与 `native/include/` 在每个包里都拷自同一份仓库源，
 `A==源 ∧ B==源 ⟹ A==B`——所以不需要（也做不到，各包在独立进程 / 独立 CI job 里打）两两比对。
 
-装好的包还可以整包验：`./xtask test dist [interp|jit]` 用发行版 z42c 重编 stdlib 并跑 golden。
+装好的包还可以整包验：`./xtask package verify [interp|jit]` 用发行版 z42c 重编 stdlib 并跑 golden。
 
 ### 常见失败
 
@@ -120,7 +120,7 @@ file .../native/libz42.dylib          # ② native 库架构（关键 invariant�
 | `cargo-ndk not found` | `cargo install cargo-ndk --locked` |
 | `$ANDROID_NDK_HOME unset and NDK not found locally` | `./xtask deps install --os android` |
 | iOS `xcframework not created` | Xcode 未装或 `xcode-select -p` 指错 |
-| wasm `pkg-web/ or pkg-nodejs missing` | 先 `./xtask test platform wasm build` |
+| wasm `pkg-web/ or pkg-nodejs missing` | 先 `./xtask test app wasm build` |
 | source-identity 门报文件不一致 | 对应的源被改过而包没重打；重建源 + 重打包 |
 
 ## 5. 发 tag release

@@ -25,7 +25,7 @@ namespace Z42Xtask;
 
 using Std.IO;
 
-// `test dist [interp|jit]` body — run in-process. Returns 0 on pass, 1 on any
+// `package verify [interp|jit]` body — run in-process. Returns 0 on pass, 1 on any
 // failure (compile error / mismatch / launcher-smoke fail / missing package).
 // `modeArg` is the optional mode positional (interp|jit). Empty → both
 // modes ("interp jit").
@@ -34,7 +34,7 @@ int _testDistRun(string modeArg) {
     // DIST_SMOKE_ONLY=launcher → run only the launcher smokes (beginner CLI path +
     // `z42 run <dir> --bin`), skipping the heavier desktop-publish + golden legs.
     // 保留作本地快跑的开关；**CI 不再用它**（fix-package-gates-false-red, 2026-09-06）——
-    // 它曾是 CI 唯一的 `test dist` 调用形态，于是另两条腿永远没人跑，双双烂掉而无人知：
+    // 它曾是 CI 唯一的 `package verify` 调用形态，于是另两条腿永远没人跑，双双烂掉而无人知：
     // apphost 腿的模板判据停在 apphost 迁进 workload 之前（恒 SKIP，见
     // _distApphostTemplate），golden 腿调 z42c 的 CLI 根本不存在（`--emit zbc -o`，
     // 282 个 case 全 compile fail）。

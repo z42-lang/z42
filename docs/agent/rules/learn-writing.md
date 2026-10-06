@@ -39,7 +39,7 @@
 
 对应关系：`docs/reference/src/<路径>.md` → `https://z42-lang.github.io/z42/reference/<路径>.html`。
 
-⚠️ 绝对 URL **不在 `xtask test docs` 的死链检查范围内**（它只查相对链接）——
+⚠️ 绝对 URL **不在 `xtask test docs links` 的死链检查范围内**（它只查相对链接）——
 参考手册改动页面路径时，手册这边不会自动报红，需要人工留意。
 
 ## 二、页面
@@ -101,7 +101,7 @@
 
 ## 三、代码与终端输出只来自 examples/（由门禁强制）
 
-**书里的每一段 z42 代码、每一条命令及其输出，都 include 自 `examples/`，由 `xtask test examples` 用真实 SDK 重放校验。**
+**书里的每一段 z42 代码、每一条命令及其输出，都 include 自 `examples/`，由 `xtask test docs examples` 用真实 SDK 重放校验。**
 
 - ` ```z42 ` / ` ```console ` 代码块的正文**只能是一条** `{{#include …}}`（B6）；
   ` ```z42 ` 另允许**前置一行 `// <仓库相对路径>` 出处注释**，门禁校验它与 include 同指一个文件。
@@ -157,10 +157,10 @@ z42c build: 1 error(s) in ./src/Main.z42
 
 ```bash
 xtask build sdk                                    # 先有一个当前源码的 SDK（artifacts/.z42）
-xtask test examples                                # 书↔示例引用校验 + 重放全部会话脚本
-xtask test examples getting-started/hello-world    # 只跑一章
-xtask test examples --book-only                    # 只校验引用（不需要 SDK）
-xtask test examples <path> --bless                 # 输出确实该变时：用实际输出改写期望，再人工审阅 diff
+xtask test docs examples                                # 书↔示例引用校验 + 重放全部会话脚本
+xtask test docs examples getting-started/hello-world    # 只跑一章
+xtask test docs examples --book-only                    # 只校验引用（不需要 SDK）
+xtask test docs examples <path> --bless                 # 输出确实该变时：用实际输出改写期望，再人工审阅 diff
 ```
 
 - 失败时报告脚本位置、命令、期望 / 实际逐行对照，并保留沙箱目录供排查。

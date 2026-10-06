@@ -1,4 +1,4 @@
-// xtask — `test incremental` 暴力对账器（add-file-level-incremental D4/D8 硬验收；
+// xtask — `test compiler incremental` 暴力对账器（add-file-level-incremental D4/D8 硬验收；
 // add-indexed-zpkg-min-patch 扩展为 dist 全文件对账）。
 // 对每个语料工程：全量基线 → 逐文件 append 注释 touch → 增量 build → 与同源态
 // `--no-incremental` 全量 build 的 **dist 全部文件（主 zpkg + 散装 zbc）逐文件字节**
@@ -25,7 +25,7 @@ using Std.Crypto;
 using Z42.Project;
 
 int _testIncremental(ParseResult r) {
-    Stopwatch sw = _procStart("test incremental");
+    Stopwatch sw = _procStart("test compiler incremental");
     string root = _root();
     // 前置：z42c + stdlib（复用既有 warm/cold 链）。
     string vm = _builtVm(root, "release");
@@ -72,7 +72,7 @@ int _testIncremental(ParseResult r) {
     Console.WriteLine("\n✅ incremental reconciler: all dist files byte-identical (demo + demo-packed + xtask + stdlib readback)"
         + " + [build] incremental / [optimize] / [syntax] knobs take effect + manifest identity in cache key"
         + " + generic body touch invalidates consumers + warnings survive cache hits");
-    _procEnd("test incremental", sw);
+    _procEnd("test compiler incremental", sw);
     return 0;
 }
 

@@ -63,9 +63,9 @@ z42vm z42.testagent.zpkg -- bundle-manifest.json pretty            # 测试包�
 ## 如何测试验证
 
 ```bash
-xtask test embedded        # host: xtask 组 bundle → 委托 z42b test --rid host（in-process）
-xtask test embedded --rid android-x64  # device: xtask 组 bundle → z42b 组装 {app,libs,bundle} deployable
-xtask test platform desktop # 原生 R1–R7 嵌入契约（与 test-agent 语料路径无关）
+xtask test app desktop        # host: xtask 组 bundle → 委托 z42b test --rid host（in-process）
+xtask test app android bundle  # device: xtask 组 bundle → z42b 组装 {app,libs,bundle} deployable
+xtask test app desktop # 原生 R1–R7 嵌入契约（与 test-agent 语料路径无关）
 ```
 
 ## 打包发布（payload-only workload）

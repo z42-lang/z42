@@ -5,7 +5,7 @@
 // stdlib library members, so it cannot see this module. Mirrors the existing
 // `test compiler` precedent: a plain functional self-check command living in xtask
 // itself, asserting via throw-on-mismatch rather than [Test]-attribute discovery.
-// One of three layers dispatched by `test packages` (see xtask_test_packages.z42).
+// One of three layers dispatched by `package check` (see xtask_test_packages.z42).
 namespace Z42Xtask;
 
 using Std.IO;
@@ -34,7 +34,7 @@ void _pkgAssertThrows(string what, string packageName, bool findPackage) {
     }
 }
 
-// `test packages-config` — parses the real scripts/packages.toml and asserts the
+// `package check-config` — parses the real scripts/packages.toml and asserts the
 // shape callers rely on. Doubles as a regression guard for the 2026-07-01 ruling
 // that the runtime package is a pure embeddable runtime (native + stdlib only,
 // no z42c/z42vm — both host-only tooling; see design.md Decision 4/6).

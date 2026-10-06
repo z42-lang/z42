@@ -58,7 +58,7 @@ paths:
 4. **regen zbc-format fixture** — 跑 `xtask build test`（前置 `build compiler`+`build stdlib` 已用新格式重建），原地覆写 `src/compiler/z42.package/tests/fixtures/zbc-format/*/source.zbc`（6 个 committed 字节基线：`empty` / `strp-func-minimal` / `multi-method` / `with-tidx` / `cross-import-token` / `with-frcs`）；`git diff` 应显示格式 delta，**必须连同 bump 一起提交**。
 
    > 🔒 **CI 有门（`refresh-format-fixtures`）**：`test-host` 的三条非 Windows 腿在
-   > `test all`（其 build wave 就地 regen）之后跑 `git diff --quiet -- src/compiler/z42.package/tests/fixtures/zbc-format`，**有差异即红**。
+   > `test`（其 build wave 就地 regen）之后跑 `git diff --quiet -- src/compiler/z42.package/tests/fixtures/zbc-format`，**有差异即红**。
    > （该门在 `test-host`：三个架构都覆盖，且 `test-host` 是 required check。）
    >
    > 为什么需要这道门：regen 在所有消费者
@@ -309,7 +309,7 @@ PR 编译器各编一遍**同一份 base stdlib 源码**，逐包比 zpkg 字节
 > 不进产物。那一档只能靠人按上表第 1 行记一条；门禁不会替你发现。「不变」一格并不等于纯重构：
 > **只改诊断也落在这一格**。
 
-本地复现：`xtask test fingerprint --base <base 源码树根>`（base 树的 stdlib 须先由 base 编译器建好）。
+本地复现：`xtask test compiler fingerprint --base <base 源码树根>`（base 树的 stdlib 须先由 base 编译器建好）。
 覆盖面 = stdlib 实际走到的编译器路径；stdlib 没用到的 codegen 分支测不到（只会漏判，不会误判）——
 这类改动仍按上表手动 bump。
 

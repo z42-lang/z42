@@ -6,7 +6,7 @@ using Std.Cli;
 
 // deps 三正交子命令（simplify-xtask-deps, 2026-07-07）：check = 唯一只读校验
 // （presence + drift）；install = 纯安装平台必备；env = 环境导出。重型依赖
-// （android emulator tier）零命令面——`test platform android run` 用到才自动装。
+// （android emulator tier）零命令面——`test app android run` 用到才自动装。
 SubcommandRouter _depsRouter() {
     SubcommandRouter d = new SubcommandRouter("xtask deps", "toolchain deps");
     ArgParser check = new ArgParser("xtask deps check", "presence + versions.toml drift check (read-only)");

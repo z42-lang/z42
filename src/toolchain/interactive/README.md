@@ -31,7 +31,7 @@ z42 repl -c "1+2"         # 单次求值后退出
 
 ```bash
 xtask build toolchain     # 构建 z42.scripting → z42.repl → z42.interactive 并 publish z42i
-xtask test dist           # 打包后 smoke 含 `z42 repl -c "1+2"`
+xtask package verify           # 打包后 smoke 含 `z42 repl -c "1+2"`
 ```
 
 ## 关联文档

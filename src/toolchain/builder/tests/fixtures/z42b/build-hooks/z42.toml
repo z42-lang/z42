@@ -1,5 +1,5 @@
 # drop-legacy-compile-request 端到端 fixture：`[build] hooks` 目录经注入的 ICompiler 编译、动态实例化、挂进管线。
-# 由 `xtask test targets` 的 _smokeBuildHooks 驱动：`z42b build` 后输出里必须出现 hook 打的标记行。
+# 由 `xtask test toolchain builder` 的 _smokeBuildHooks 驱动：`z42b build` 后输出里必须出现 hook 打的标记行。
 # 此前门禁里 hooks 只经 `z42 publish` 被执行，而那条路用的是 `.z42` 已安装的 z42b + 它自带的编译器，
 # 开发树的 hooks 编译路径（builder_hooks.z42 → Z42cCompiler）没有任何覆盖。
 [project]
