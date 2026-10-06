@@ -88,6 +88,7 @@ public sealed class TypeChecker {
     public void ChkAmbiguousBareNameT(SymbolTable symbols, TypeExpr src, Span sp) {
         string name = symbols.FirstAmbiguousBareName(src);   // 含嵌套位置（泛型实参 / 数组元素…）；限定名跳过
         if (name != "") { this.ChkAmbiguousBareName(symbols, name, sp); }
+        NullableValueTypes.Check(src, symbols, new string[0], 0, this._diags);   // E0476：值类型写 `?`（struct / enum）
     }
     // fix-ns-qualified-static-call（bug B7）：扫本 CU 的 `using`（含 global using——它们已被注入进
     // 每个 CU，见 add-global-using）填 _currentUsings。`using A = B;`（UsingAliasDecl）不算 ns。
@@ -542,7 +543,7 @@ public sealed class TypeChecker {
             }
             i = i + 1;
         }
-        DeclTypeUses.Walk(cu, view);   // using-csharp-rules PR-2：声明位（成员签名 / 基类列表 / 接口 / delegate / 约束）的类型引用
+        DeclTypeUses.Walk(cu, view, this._diags);   // using-csharp-rules PR-2：声明位（成员签名 / 基类列表 / 接口 / delegate / 约束）的类型引用
         this.UsedNs.Active = false;
         return model;
     }

@@ -3,26 +3,27 @@
 // 表达式位与方法体里的类型引用由类型检查本身经 `ResolveTypeP` 外壳记下；但不少声明位**从不**在本文件的
 // 类型检查视图上解析 —— 成员签名在收集期（根表 / 作用域视图，没挂记录器）就解析完了，接口成员、delegate、
 // 约束、基类列表更是只在收集期走一遍。于是这里在 `Infer` 末尾把本文件全部声明里的 TypeExpr 在**挂了记录器的
-// 视图**上再解析一遍，只为记录（结果丢弃，不发诊断）。
+// 视图**上再解析一遍记录用法（结果丢弃）；同一遍顺带判声明位的 E0476（值类型写 `?`，见 NullableValueTypes）。
 //
 // 覆盖：类 / 结构 / 接口的基类列表、约束、字段、属性、方法（形参 / 返回 / 约束）、索引器、关联类型界；
 // 自由函数；delegate；impl 的 trait / target；`using` 别名不算（别名目标是全限定写法，C# 不要求另写 using）。
 namespace Z42.Semantics;
 
 using Z42.Syntax;
+using Z42.Core;   // DiagnosticBag（E0476 的声明位出口）
 
 public static class DeclTypeUses {
 
-    public static void Walk(CompilationUnit cu, SymbolTable view) {
+    public static void Walk(CompilationUnit cu, SymbolTable view, DiagnosticBag diags) {
         if (view.UseRecorder == null) { return; }
         int i = 0;
         while (i < cu.DeclCount) {
-            DeclTypeUses._decl(cu.Decls[i], view, new string[0], 0);
+            DeclTypeUses._decl(cu.Decls[i], view, new string[0], 0, diags);
             i = i + 1;
         }
     }
 
-    private static void _decl(Decl d0, SymbolTable view, string[] tps, int tpc) {
+    private static void _decl(Decl d0, SymbolTable view, string[] tps, int tpc, DiagnosticBag diags) {
         Decl d = d0;
         if (d is AttributedDecl) { d = (d as AttributedDecl).Inner; }
         if (d is ClassDecl) {
@@ -30,64 +31,65 @@ public static class DeclTypeUses {
             string[] ctp = DeclTypeUses._concat(tps, tpc, c.TypeParams);
             int cn = tpc + (c.TypeParams == null ? 0 : c.TypeParams.Count);
             int b = 0;
-            while (b < c.BaseCount) { DeclTypeUses._type(c.Bases[b], view, ctp, cn); b = b + 1; }
-            DeclTypeUses._wheres(c.Wheres, c.WhereCount, view, ctp, cn);
+            while (b < c.BaseCount) { DeclTypeUses._type(c.Bases[b], view, ctp, cn, diags); b = b + 1; }
+            DeclTypeUses._wheres(c.Wheres, c.WhereCount, view, ctp, cn, diags);
             int m = 0;
-            while (m < c.MemberCount) { DeclTypeUses._decl(c.Members[m], view, ctp, cn); m = m + 1; }
+            while (m < c.MemberCount) { DeclTypeUses._decl(c.Members[m], view, ctp, cn, diags); m = m + 1; }
         } else if (d is MethodDecl) {
             MethodDecl md = d as MethodDecl;
             string[] mtp = DeclTypeUses._concat(tps, tpc, md.TypeParams);
             int mn = tpc + (md.TypeParams == null ? 0 : md.TypeParams.Count);
-            if (!md.IsCtor) { DeclTypeUses._type(md.RetType, view, mtp, mn); }
-            DeclTypeUses._params(md.Params, md.ParamCount, view, mtp, mn);
-            DeclTypeUses._wheres(md.Wheres, md.WhereCount, view, mtp, mn);
+            if (!md.IsCtor) { DeclTypeUses._type(md.RetType, view, mtp, mn, diags); }
+            DeclTypeUses._params(md.Params, md.ParamCount, view, mtp, mn, diags);
+            DeclTypeUses._wheres(md.Wheres, md.WhereCount, view, mtp, mn, diags);
         } else if (d is FieldDecl) {
-            DeclTypeUses._type((d as FieldDecl).Type, view, tps, tpc);
+            DeclTypeUses._type((d as FieldDecl).Type, view, tps, tpc, diags);
         } else if (d is PropertyDecl) {
-            DeclTypeUses._type((d as PropertyDecl).Type, view, tps, tpc);
+            DeclTypeUses._type((d as PropertyDecl).Type, view, tps, tpc, diags);
         } else if (d is IndexerDecl) {
             IndexerDecl ix = d as IndexerDecl;
-            DeclTypeUses._type(ix.RetType, view, tps, tpc);
-            if (ix.Params != null) { DeclTypeUses._params(ix.Params, ix.Params.Length, view, tps, tpc); }
+            DeclTypeUses._type(ix.RetType, view, tps, tpc, diags);
+            if (ix.Params != null) { DeclTypeUses._params(ix.Params, ix.Params.Length, view, tps, tpc, diags); }
         } else if (d is AssocTypeDecl) {
-            DeclTypeUses._type((d as AssocTypeDecl).Bound, view, tps, tpc);
+            DeclTypeUses._type((d as AssocTypeDecl).Bound, view, tps, tpc, diags);
         } else if (d is DelegateDecl) {
             DelegateDecl dd = d as DelegateDecl;
             string[] dtp = DeclTypeUses._concat(tps, tpc, dd.TypeParams);
             int dn = tpc + (dd.TypeParams == null ? 0 : dd.TypeParams.Count);
-            DeclTypeUses._type(dd.RetType, view, dtp, dn);
-            DeclTypeUses._params(dd.Params, dd.ParamCount, view, dtp, dn);
-            DeclTypeUses._wheres(dd.Wheres, dd.WhereCount, view, dtp, dn);
+            DeclTypeUses._type(dd.RetType, view, dtp, dn, diags);
+            DeclTypeUses._params(dd.Params, dd.ParamCount, view, dtp, dn, diags);
+            DeclTypeUses._wheres(dd.Wheres, dd.WhereCount, view, dtp, dn, diags);
         } else if (d is ImplDecl) {
             ImplDecl im = d as ImplDecl;
-            DeclTypeUses._type(im.TraitType, view, tps, tpc);
-            DeclTypeUses._type(im.TargetType, view, tps, tpc);
+            DeclTypeUses._type(im.TraitType, view, tps, tpc, diags);
+            DeclTypeUses._type(im.TargetType, view, tps, tpc, diags);
         }
     }
 
-    private static void _type(TypeExpr te, SymbolTable view, string[] tps, int tpc) {
+    private static void _type(TypeExpr te, SymbolTable view, string[] tps, int tpc, DiagnosticBag diags) {
         if (te == null) { return; }
         if (te is NamedType && (te as NamedType).Name == "") { return; }   // ctor 返回位的占位
         view.ResolveTypeP(te, tps, tpc);
+        NullableValueTypes.Check(te, view, tps, tpc, diags);   // E0476：声明位的值类型 `?`
     }
 
-    private static void _params(Param[] ps, int n, SymbolTable view, string[] tps, int tpc) {
+    private static void _params(Param[] ps, int n, SymbolTable view, string[] tps, int tpc, DiagnosticBag diags) {
         if (ps == null) { return; }
         int i = 0;
         while (i < n && i < ps.Length) {
-            if (ps[i] != null) { DeclTypeUses._type(ps[i].Type, view, tps, tpc); }
+            if (ps[i] != null) { DeclTypeUses._type(ps[i].Type, view, tps, tpc, diags); }
             i = i + 1;
         }
     }
 
-    private static void _wheres(WhereClause[] ws, int n, SymbolTable view, string[] tps, int tpc) {
+    private static void _wheres(WhereClause[] ws, int n, SymbolTable view, string[] tps, int tpc, DiagnosticBag diags) {
         if (ws == null) { return; }
         int i = 0;
         while (i < n && i < ws.Length) {
             WhereClause w = ws[i];
             int k = 0;
             while (w != null && k < w.Count) {
-                if (w.Constraints[k].IsType) { DeclTypeUses._type(w.Constraints[k].Type, view, tps, tpc); }
+                if (w.Constraints[k].IsType) { DeclTypeUses._type(w.Constraints[k].Type, view, tps, tpc, diags); }
                 k = k + 1;
             }
             i = i + 1;
