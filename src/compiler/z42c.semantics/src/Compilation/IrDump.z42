@@ -25,6 +25,9 @@ sealed class CompileCuTask : IParallelBody {
     // complete-generic-instantiation S1：包级泛型体登记表（同 `_layouts`，并行段只读共享）。
     StrMap _pkgGenerics; StrMap _pkgGenericTypes;
     CompiledModuleZ[] _r;
+    // 包里已有收集期错误（收集期诊断要到并行段之后才分发到各文件，per-file 的 diags 看不见它们）⇒
+    // 各文件照常类型检查、报诊断，但都不进代码生成（`CuCompile.GenerateIfClean`）。构造后由 BuildPackageCus 设置。
+    public bool PkgHasErrors;
     public CompileCuTask(CompilationUnit[] cus, string[] files, SymbolTable symbols,
                          DependencyIndex deps, ImportedSymbols imported,
                          StrMap classNs, StrMap localClasses, bool isRelease,
@@ -51,7 +54,7 @@ sealed class CompileCuTask : IParallelBody {
         } else {
             this._r[i] = CuCompile._compileCu(this._cus[i], this._files[i], this._symbols, this._deps,
                 this._imported, this._classNs, this._localClasses, this._isRelease, this._partialMerged,
-                this._optSet, this._layouts, this._pkgGenerics, this._pkgGenericTypes);
+                this._optSet, this._layouts, this._pkgGenerics, this._pkgGenericTypes, this.PkgHasErrors);
         }
         string ns2 = "main";                                 // no-ns build 路径缺省（C# 字节实证）
         if (this._cus[i].HasNamespace) { ns2 = this._cus[i].Namespace; }
@@ -262,6 +265,7 @@ public static class IrDump {
         CompileCuTask _task = new CompileCuTask(cus, files, symbols, deps, imported, classNs,
             localClasses, isRelease, partialMerged, optSet, cachedModules, allFuncs, afc, pkgClassMap,
             layouts, pkgGenerics, pkgGenericTypes, r);
+        _task.PkgHasErrors = coll.Diags.ErrorCount() > 0;
         ParallelFor.Run(count, ParallelConfig.Jobs(count), _task);
         // add-partial-types：分发 partial 合并的包级诊断到对应文件的 CompiledModuleZ（按 Span.File 匹配；无匹配落 0 号）。
         // 这些诊断在 CollectAll（包级）产生，不属于任一 _compileCu 的 per-file bag，故此处并入使 PackageCompile 诊断门捕获。
@@ -314,7 +318,7 @@ public static class IrDump {
         gen.HasTypeErrors = diags.ErrorCount() > 0;   // S1：类型错误下不做特化（见 IrGen.HasTypeErrors）
         gen.Diags = diags;   // diag-recursive-generic：单态化不收敛报 E0503
         // optSet 由调用方给（默认见 `EmitZbcDefaultOpt`，golden 的 `opt_all` sidecar 传 Opt.All）。
-        IrModule irm = CuCompile.GenerateGuarded(gen, cu, model, optSet);
+        IrModule irm = CuCompile.GenerateIfClean(gen, cu, model, optSet);
         // usings 抽取（DEPS 用）
         string[] usings = new string[4];
         int uc = 0;
@@ -333,7 +337,8 @@ public static class IrDump {
         }
         string ns = "";
         if (cu.HasNamespace) { ns = cu.Namespace; }
-        var cm2 = new CompiledModuleZ(irm, ns, usings, uc, gen.UsedDepNs, gen.UsedDepNsCount, 0);
+        string[] depRefs = CuCompile.DepRefsOf(fe.Tc, model);
+        var cm2 = new CompiledModuleZ(irm, ns, usings, uc, depRefs, depRefs.Length, 0);
         cm2.AddAll(diags);
         return cm2;
     }

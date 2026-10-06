@@ -49,7 +49,6 @@ public sealed class EmitContext {
     public StrMap ImportedClassNs;     // imported 短类名 → ns（StrBox；IC-1：VCall 依赖追踪 + ObjNew FQ；**含本包跨-ns 自有类**，G17b）
     public string[] ActiveNs; public int ActiveNsCount;  // path C：本 CU 活跃命名空间集（usings + 本 ns，prelude-first）→ 静态调用 using-scoped 消歧
     public StrMap LocalClasses;        // 本包**自有声明**类名集（G18 修正：ChainHasMethod 反劫持守卫须仅认本地类，镜像 C# ClassRegistry）
-    public string[] UsedDepNs; public int UsedDepNsCount;   // codegen 期实际命中的依赖 ns（DEPS 用，首现序）
     public IrExcEntry[] ExcTable; public int ExcCount;       // 异常表（port-z42c-try）
     public string CurFnName;                                  // lift 命名用（port-z42c-closures）
     public int LambdaIdx;                                     // 本函数 lambda 计数（镜像 NextLambdaIndex）
@@ -76,7 +75,6 @@ public sealed class EmitContext {
         this.Deps = null;
         this.ImportedClassNs = null;
         this.ActiveNs = null; this.ActiveNsCount = 0;
-        this.UsedDepNs = new string[4]; this.UsedDepNsCount = 0;
         this.ExcTable = new IrExcEntry[2]; this.ExcCount = 0;
         this.CurFnName = ""; this.LambdaIdx = 0; this.InLambdaEnv = false;
         this.CaptureNames = new string[0]; this.CaptureNameCount = 0;
@@ -93,35 +91,6 @@ public sealed class EmitContext {
         this.ExcCount = this.ExcCount + 1;
     }
 
-    // deterministic-zpkg-deps：记录命中的依赖符号 —— ns + 它**实际**来自的包（"" = 归属不明，DEPS 回落为该 ns
-    // 的全部提供包）。条目编码见 DepRef。
-    public void TrackDepRef(string ns, string pkg) { this.TrackDepNamespace(DepRef.Encode(ns, pkg)); }
-
-    // DepIndex 命中（静态 / 实例捷径）：`QualifiedName` 形如 `ns.Class.Method[$N]`，去掉末段即类 FQN。
-    public void TrackDepCall(DepCallEntry de) {
-        string q = de.QualifiedName;
-        int dot = q.LastIndexOf(".");
-        string owner = dot < 0 ? "" : q.Substring(0, dot);
-        string pkg = owner == "" ? "" : this.Symbols.ImportedPkgOf(owner);
-        if (pkg == "" && owner != "" && this.Symbols.IsLocalTypeFqn(owner)) { return; }   // 本包声明的类型：不是依赖
-        this.TrackDepRef(de.Namespace, pkg);
-    }
-
-    // 记录命中的依赖 ns（首现序去重；镜像 C# TrackDepNamespace）。条目也可以是 DepRef 编码（`ns#pkg`）。
-    public void TrackDepNamespace(string ns) {
-        int i = 0;
-        while (i < this.UsedDepNsCount) {
-            if (this.UsedDepNs[i] == ns) { return; }
-            i = i + 1;
-        }
-        if (this.UsedDepNsCount == this.UsedDepNs.Length) {
-            string[] b = new string[this.UsedDepNs.Length * 2];
-            int k = 0; while (k < this.UsedDepNsCount) { b[k] = this.UsedDepNs[k]; k = k + 1; }
-            this.UsedDepNs = b;
-        }
-        this.UsedDepNs[this.UsedDepNsCount] = ns;
-        this.UsedDepNsCount = this.UsedDepNsCount + 1;
-    }
 
     // 类名限定（镜像 C# QualifyClassName）：imported 类 → 其原 ns 前缀；否则按模块 ns 限定。
     public string QualifyClass(string name) {
@@ -437,9 +406,10 @@ public sealed class EmitContext {
                     // 找到 declClass。sealed 判据不成立 → 目标可再 override → 回落 VCall（不再上溯：
                     // 更派生声明已定 dispatch，基类的 sealed 与否不影响 R 的目标）。
                     if (!sealedHere) { return ""; }
-                    // 定义类 imported（或跨-ns 自有类）→ 追踪其源 ns 入 DEPS，使加载器能解析这条直接 Call
-                    // （镜像 VCall 路径的 TrackImportedClass）。泛型用 mangle 短名（ImportedClassNs 键）。
-                    this.TrackImportedClass(this._classShortName(ct));
+                    // 直接 Call 的目标在 declClass 的包里，而本文件的依赖集（`CuCompile.DepRefsOf`）只记
+                    // **接收者类型**的包 —— 依赖集不看代码生成。declClass 是别的包里的基类时不去虚化、回落 VCall：
+                    // 按运行期类型分派，基类所在的包由接收者所在包自己的 DEPS 负责。罕见形状，只少一次优化。
+                    if (ct != startCt && this.Symbols.ImportedPkgOf(ct.Fqn()) != this._pkgOfClass(startCt)) { return ""; }
                     return fq;
                 }
                 // 本类仅继承该方法（FQ 非真实发射）→ 不在此返回，继续沿基链上溯找 declClass。
@@ -477,36 +447,10 @@ public sealed class EmitContext {
         return b.Value != this.Ns;
     }
 
-    // imported receiver 的依赖 ns 追踪（IC-1 镜像 C# VCall fallback 行 198-200）。
-    //
-    // 🔴 **本包自有类不算依赖**（fix-selfns-tracked-as-dep）：`ImportedClassNs` **有意含本包跨-ns
-    // 自有类**（见其声明处 G17b 注释 —— 为了让 `Z42.IR.BinaryFormat` 里能把 `StrMap` 限定成
-    // `Z42.IR.StrMap`）。但 `UsedDepNs` 的语义是**跨包**依赖：它既驱动 DEPS，也驱动
-    // `add-file-scoped-usings` 的 E0436「用了却没 import」。把本包另一个 ns 记进去 ⇒ 同一个包里
-    // 跨 ns 引用被要求写 `using`，**单包构建多命名空间的库直接编不过**。
-    //
-    // 实测 z42.package：`src/BinaryFormat/ZbcStringPool.z42`（`namespace Z42.IR.BinaryFormat`）引用
-    // `Z42.IR` 的 `StrMap` / `TypedReg` → E0436；把 `z42.package.zpkg` 移出扁平 `Z42_LIBS` 即刻通过。
-    //
-    // 两个条件叠加才触发，所以一直隐形：① 包是**多命名空间**的（单 ns 的走 `ns == cu.Namespace`
-    // 放行）；② 该包**自己上一次构建出的 zpkg** 躺在扁平 `Z42_LIBS` 里（`xtask build stdlib` 走
-    // `--workspace`，那时 libs 里还没有自己，故绕开）。
-    //
-    // DEPS 侧本来就容忍这种自记（`ZpkgBuilder._addPair` 按 selfZpkgFile 事后过滤），是后加的
-    // E0436 没跟上。判据用 `LocalClasses`（包级「自有声明类名集」）—— 本包声明的类，其 ns 必属本包。
-    public void TrackImportedClass(string clsName) {
-        if (this.LocalClasses != null && this.LocalClasses.ContainsKey(clsName)) { return; }
-        if (this.ImportedClassNs != null && this.ImportedClassNs.ContainsKey(clsName)) {
-            StrBox b = this.ImportedClassNs.Get(clsName) as StrBox;
-            if (b != null) {
-                string fqn = b.Value == "" ? clsName : b.Value + "." + clsName;
-                // deterministic-zpkg-deps：ImportedClassNs 含本包跨 ns 的自有类型（以及编译器内建注入、源码里也有声明的
-                // 接口，如 z42.core 的 `ISubscription`）—— 它们不是依赖，跳过；否则会落进「归属不明」的按 ns 保守回落。
-                string pkg = this.Symbols.ImportedPkgOf(fqn);
-                if (pkg == "" && this.Symbols.IsLocalTypeFqn(fqn)) { return; }
-                this.TrackDepRef(b.Value, pkg);
-            }
-        }
+    // 类的归属包（本包 / 归属不明 → ""）：跨包 devirt 门用。
+    private string _pkgOfClass(Z42ClassType ct) {
+        if (this.LocalClasses != null && this.LocalClasses.ContainsKey(ct.Name())) { return ""; }
+        return this.Symbols.ImportedPkgOf(ct.Fqn());
     }
 
     // 名字限定（镜像 C# QualifyName）：已含 '.' 视为已限定；ns 空则原样。

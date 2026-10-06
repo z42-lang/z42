@@ -152,10 +152,19 @@ void test_struct_implementing_interface_is_fine() {
     Assert.Equal(0, icErrors(icOne(src)));
 }
 
-// 有类型错误时 emission 的内部异常不再让编译器崩溃（CuCompile.GenerateGuarded）：struct 上拼错字段名
+// 有类型错误时不进代码生成（CuCompile.GenerateIfClean）：struct 上拼错字段名
 // 此前抛 `struct field path: layout lookup failed`、崩栈退出，那条 E0401 反倒打不出来。
 [Test]
 void test_struct_field_typo_reports_e0401_not_crash() {
     string src = "namespace D; struct S { public int X; }\nvoid Main() { S s = new S(); s.Nope = 5; int z = s.Nope2; }";
     Assert.Equal(true, icCount(icOne(src), "E0401") >= 1);
+}
+
+// 包构建路径：收集期错误（E0499，撞内建基元拼写 ⇒ 布局根本没建）要到并行段之后才分发到各文件，
+// per-file 的 diags 看不见 —— 由 `CompileCuTask.PkgHasErrors` 带进来，照样不进代码生成。
+// 否则 `[Record]` 合成会崩在布局守卫上，E0499 一个字都打不出来。
+[Test]
+void test_collector_error_skips_codegen_on_package_path() {
+    string src = "namespace D; [Record] struct Single(int X, int Y);\nvoid Main() { Single s = new Single(1, 2); }";
+    Assert.Equal(true, icCount(icOne(src), "E0499") >= 1);
 }

@@ -24,7 +24,7 @@
 | `src/Types/` | 类型模型：`Z42Type`、类型代换、转换分类、基元模型、泛型约束、类型实参推断、struct 布局 |
 | `src/BoundTree/` | Bound 树节点（表达式 / 语句 / 模式）、`SemanticModel` |
 | `src/Binding/` | 绑定 + 类型检查：`TypeChecker`、各 `*Typer`、`MemberResolver`（7 碎片）、重载决议、语句 / 声明 / 模式绑定、访问检查、穷尽检查、常量求值与常量 blob、编译期宏 |
-| `src/Validation/` | 声明期约束（`DeclEnforcer`）、流分析（`FlowAnalyzer`）、声明位类型引用补录、多余 `using` 告警、`[ModuleInit]` 校验 |
+| `src/Validation/` | 声明期约束（`DeclEnforcer`）、流分析（`FlowAnalyzer`）、声明位类型引用补录、跨包依赖收集（`DepUseCollector`）、多余 `using` 告警、`[ModuleInit]` 校验 |
 | `src/Emission/` | Bound → IR：`IrGen*`、`EmitContext`、各 `*Emitter`、`ClassDescBuilder` |
 | `src/Lowering/` | IR 级合成：record / 模块初始化 / 接口桥合成、测试索引 |
 | `src/Exports/` | 导出签名（TSIG）提取、编译产物束 `CompiledModuleZ` |
@@ -98,7 +98,8 @@ emission 层（Lowering / Emission / Exports）与编排层（Compilation）；�
 | `src/Symbols/NsUseRecorder.z42` | 每文件「用到的命名空间」集合：`TypeChecker.Infer` 新建并挂在本文件视图（`SymbolTable.UseRecorder`），`ResolveTypeP` 外壳与表达式位绑定点往里记声明 ns；E0436 的判据 |
 | `src/Symbols/DepRef.z42` | 依赖引用条目编码 `ns` / `ns#pkg`：`UsedDepNs` 的每一项；带 `#pkg` = 符号实际来自的包，DEPS 只记它。编进字符串是为了让增量 meta 经 driver 原样搬运、driver 零改动 |
 | `src/Validation/DeclTypeUses.z42` | 声明位类型引用的补录：`Infer` 末尾把本文件全部声明里的 TypeExpr 在挂了记录器的视图上再解析一遍（成员签名 / 基类列表 / 接口 / delegate / 约束 / impl），只记录、不发诊断 |
-| `src/Validation/UsingLint.z42` | 多余 `using` 告警：W0607 不必要（没用到 / prelude / 外围）、W0608 重复（同文件 / 已有 global using）；`CuCompile` 代码生成后调用，判据与 E0436 同一份用法集合 |
+| `src/Validation/DepUseCollector.z42` | 绑定树上的跨包依赖收集（穷举 walker，登记在 walkers 门）：补「接收者类型没写出来」的导入实例调用；与绑定期 `NoteDepUse` 合并成文件依赖集（`CuCompile.DepRefsOf`，DEPS / E0436 / W0607 的判据），不经代码生成 |
+| `src/Validation/UsingLint.z42` | 多余 `using` 告警：W0607 不必要（没用到 / prelude / 外围）、W0608 重复（同文件 / 已有 global using）；判据与 E0436 同一份用法集合 |
 | `src/Exports/CompiledModuleZ.z42` | 带依赖编译的产物束：`Module`/`Exported`/诊断/`Namespace`/`Usings`/`UsedDepNs`/`ErrorCount`。irdump-pipeline-split 从 IrDump 抽出为独立数据文件（同包 FQN 不变，跨包消费透明） |
 | `src/Binding/ConstValue.z42` | **编译期常量值**：`ConstValue{Kind, IntVal, StrVal}`，Kind 区分 `Int/Bool/Char/Float(bits)/Str/Null`——供 codegen 把 const 引用替换成对应字面量指令时选对指令 |
 | `src/Binding/ConstEval.z42` | **常量表达式求值器**：AST `Expr` + 已定义 const 环境(`StrMap`) → `ConstValue`（非常量返回 null，调用方报诊断）。覆盖字面量 + 一元/二元 算术·比较·逻辑·位·串接 + 已定义 const 引用（镜像 `IrGenFacts._foldBinary` 语义） |

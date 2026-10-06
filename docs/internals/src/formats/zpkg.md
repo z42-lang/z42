@@ -58,8 +58,8 @@ packed 与 indexed 只在"模块体段"不同（`MODS` ↔ `FILE`），其余段
 
 **记哪些包**（`z42c.pipeline/src/ZpkgDeps.z42`）：本包**实际引用到的符号**来自哪个包，就记哪个包；再并上 `[dependencies]` 声明的包，测试 / bench 目标另加父包。`using` 本身不贡献依赖。
 
-- 引用来源有两路，汇进每个模块的 `UsedDepNs`：代码生成命中的依赖（DepIndex 调用捷径、导入类、导入自由函数 / 方法组），以及类型检查期源码里写出的导入类型、枚举、自由函数。
-- 归属包取自符号表的来源表：类 / 接口 / enum 查 `ClassPkgAll`（FQN → 包），自由函数查 `FuncOriginAll`，DepIndex 条目取 `QualifiedName` 去掉末段得到类 FQN。条目编码为 `ns#pkg`（`Semantics.DepRef`）。编进字符串而不加字段，是因为 `UsedDepNs` 随增量 meta 由 driver 原样搬运。
+- 引用来源有两路，汇进每个模块的 `UsedDepNs`（`CuCompile.DepRefsOf`），**都不经代码生成**：类型检查期源码里写出的导入类型、枚举、静态成员、自由函数 / 方法组（`SymbolTable.NoteDepUse`），以及绑定树 walker `DepUseCollector` 补的「接收者类型没写出来」的实例调用（按接收者静态类型的归属包）。代码生成只读不写依赖集：去虚化到**别的包里的基类**方法会让直接 Call 指向依赖集之外的包，故该形状回落 VCall。
+- 归属包取自符号表的来源表：类 / 接口 / enum 查 `ClassPkgAll`（FQN → 包），自由函数查 `FuncOriginAll`。条目编码为 `ns#pkg`（`Semantics.DepRef`）。编进字符串而不加字段，是因为 `UsedDepNs` 随增量 meta 由 driver 原样搬运。
 - 查不到归属（来源表里没有、或多包同 FQN）的条目保守回落：记该 ns 在本次扫描里的**全部**提供包。本包自己声明的类型直接跳过。`Z42C_TRACE_DEPS=1` 打印走了回落的条目；stdlib 全量构建为 0 条。
 
 只有回落那一支依赖「本次构建能看到哪些包」，所以 DEPS 与构建方式（workspace 拓扑分档 / 单包 / flat 目录里已有什么）无关。

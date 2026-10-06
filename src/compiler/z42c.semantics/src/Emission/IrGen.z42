@@ -49,11 +49,8 @@ public sealed class IrGen {
     // 就是「当前是类级通道」的判据 —— `FunctionEmitter._blobStructNameT` 用它把**调用约定**的
     // 代换限定在类级通道（调用约定是两侧协议，见该处注释）。
     public StrMap SpecTypeArgs;
-    // complete-generic-instantiation S1：本 CU 已有类型错误 ⇒ **不做特化**。
-    // 病态源码的类型实参可以无限加深（`Rec<T>` 调 `Rec<Loc<T,int>>`），特化工作表会跟着无限
-    // 增长 ⇒ 编译器挂死，用户拿到的不是诊断而是一个不返回的进程。类型不对时 codegen 的产物
-    // 本就无意义，跳过特化让诊断正常输出。（良型代码今天够不到无限加深 —— 类型检查器不把
-    // 方法级实参代换进形参类型，那种递归一律 E0402 —— 但不能依赖这个偶然，故另有上限兜底。）
+    // 本 CU（或包的收集期）已有错误。为 true 时 `CuCompile.GenerateIfClean` **根本不调 `Generate`** ——
+    // emission 只处理通过检查的程序，内部不再为「绑定器的错误恢复节点」设守卫。
     public bool HasTypeErrors;
     // 单调化工作表的上限（见不动点循环处的注释）。超限 = 递归泛型展不完 ⇒ E0503（SpecializationGuard）。
     // 每个特化都要发一整个函数体，故上限取得保守：够任何真实程序用，又能在秒级内失败。
@@ -214,28 +211,6 @@ public sealed class IrGen {
         this.Lifted[this.LiftedCount] = f;
         this.LiftedCount = this.LiftedCount + 1;
     }
-    public string[] UsedDepNs; public int UsedDepNsCount;   // 全函数聚合（首现序）
-
-    public void _mergeUsedNsPub(EmitContext ctx) {
-        int i = 0;
-        while (i < ctx.UsedDepNsCount) {
-            string ns = ctx.UsedDepNs[i];
-            int j = 0;
-            bool seen = false;
-            while (j < this.UsedDepNsCount) { if (this.UsedDepNs[j] == ns) { seen = true; } j = j + 1; }
-            if (!seen) {
-                if (this.UsedDepNsCount == this.UsedDepNs.Length) {
-                    string[] b = new string[this.UsedDepNs.Length * 2];
-                    int k = 0; while (k < this.UsedDepNsCount) { b[k] = this.UsedDepNs[k]; k = k + 1; }
-                    this.UsedDepNs = b;
-                }
-                this.UsedDepNs[this.UsedDepNsCount] = ns;
-                this.UsedDepNsCount = this.UsedDepNsCount + 1;
-            }
-            i = i + 1;
-        }
-    }
-
     public string _q(string name) {
         if (this.Ns == "") { return name; }
         return this.Ns + "." + name;
@@ -282,7 +257,6 @@ public sealed class IrGen {
             }
             ifd = ifd + 1;
         }
-        if (this.UsedDepNs == null) { this.UsedDepNs = new string[4]; this.UsedDepNsCount = 0; }
         if (this.Lifted == null) { this.Lifted = new IrFunction[2]; this.LiftedCount = 0; }
         this.Ns = "";
         if (cu.HasNamespace) { this.Ns = cu.Namespace; }
@@ -353,7 +327,6 @@ public sealed class IrGen {
         // 或成员体里用到的别的实例化），故循环到集合不再增长为止。
         StrMap specDone = new StrMap();
         bool specMore = true;
-        if (this.HasTypeErrors) { this.GenericFnInsts = new StrMap(); }   // 有类型错误 ⇒ 不特化
         while (specMore) {
             specMore = false;
             string[] pend = this.InstLayouts.Keys();

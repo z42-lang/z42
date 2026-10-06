@@ -247,7 +247,7 @@ public sealed class TypeOpEmitter {
                 DepCallEntry de = this._ctx.Deps.GetStaticScoped(
                     this._ctx.ActiveNs, this._ctx.ActiveNsCount, s.Owner, s.Member);
                 if (de == null) { de = this._ctx.Deps.GetStatic(s.Owner, s.Member); }
-                if (de != null) { this._ctx.TrackDepCall(de); q = de.QualifiedName; }
+                if (de != null) { q = de.QualifiedName; }
             }
             if (q == "") { q = this._ctx.QualifyClass(s.Owner) + "." + s.Member; }
             key = "m:" + q;

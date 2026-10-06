@@ -66,3 +66,35 @@ void test_type_from_other_package_is_recorded() {
     Assert.Equal(true, zdHas(z, "z42.regex.zpkg"));
     Assert.Equal(false, zdHas(z, "z42.uri.zpkg"));
 }
+
+// 接收者类型源码里没写出来：`v.AsTimestamp()` 返回 `Std.Time.DateTime`（z42.core），再调它的实例方法。
+// 源码只写出 z42.yaml 的 `YamlValue`；`Std.Time#z42.core` 这一条只能由绑定树 walker `DepUseCollector` 按接收者
+// 静态类型记下（依赖集不再取代码生成的记录，deps-from-bound-tree）。按 ns 断言：z42.core 本身会因 `string` 被记，
+// 只看包名分不出来。`using Std.Time;` 是必须的 —— 用到的 ns 都要 import（E0436），与此前代码生成记录时一致。
+[Test]
+void test_unwritten_receiver_type_is_recorded() {
+    if (!zdHasLibs()) { return; }
+    string libs = Environment.GetEnvironmentVariable("Z42_LIBS", "");
+    string[] dirs = libs.Split(":");
+    string[] texts = new string[1];
+    texts[0] = "namespace Demo;\nusing Std.Yaml;\nusing Std.Time;\npublic static class A {\n    public static string F(YamlValue v) { return v.AsTimestamp().ToIso8601(); }\n}\n";
+    string[] files = new string[1]; files[0] = "a.z42";
+    string[] hashes = new string[1]; hashes[0] = "DEADBEEF";
+    CompileInputs cin = new CompileInputs();
+    cin.Texts = texts; cin.Files = files; cin.SrcHashes = hashes; cin.SrcCount = 1;
+    cin.Cus = IrDump.ParseAll(texts, files, 1);
+    cin.CachedMods = null; cin.CachedMetas = null;
+    cin.Name = "demo.zd"; cin.Version = "0.1.0"; cin.Kind = "lib";
+    cin.HasEntry = false; cin.Entry = "";
+    cin.IsRelease = false;
+    cin.LibsDirs = dirs; cin.LibsDirsN = dirs.Length;
+    cin.DeclaredDeps = new string[0]; cin.DepCount = 0;
+    CompileArtifacts art = PackageCompile.Compile(cin);
+    Assert.Equal(0, art.ErrorCount);
+    CompiledModuleZ cm = art.Cms[0];
+    bool hit = false;
+    int i = 0;
+    while (i < cm.UsedDepNsCount) { if (cm.UsedDepNs[i] == "Std.Time#z42.core") { hit = true; } i = i + 1; }
+    Assert.Equal(true, hit);
+    Assert.Equal(true, zdHas(art.Z, "z42.yaml.zpkg"));
+}

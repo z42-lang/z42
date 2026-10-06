@@ -48,7 +48,7 @@ sealed class WalkerEntryZ {
 // 只登记「穷举一个 AST 节点族、漏一类即静默/错值」的 walker；按类型-lattice / 目标-shape 分派的
 // （MemberResolver / AssignTyper）与「按设计部分覆盖、null→诊断兜底」的（ConstEval）不登记。
 WalkerEntryZ[] _walkerRegistry() {
-    WalkerEntryZ[] r = new WalkerEntryZ[8];
+    WalkerEntryZ[] r = new WalkerEntryZ[9];
     // MethodTypeParamUse 过近似地穷举全四族；8 个 Expr 叶子（无子节点、无类型位）故意 fall-through。
     string[] mtpuAllow = new string[]{
         "IntLitExpr", "FloatLitExpr", "StringLitExpr", "CharLitExpr",
@@ -81,6 +81,17 @@ WalkerEntryZ[] _walkerRegistry() {
     r[7] = new WalkerEntryZ("FlowAnalyzer._reads/_stmt",
         "src/compiler/z42c.semantics/src/Validation/FlowAnalyzer.z42",
         new string[]{ "BoundExpr", "BoundStmt" }, flowAllow, 16);
+    // 依赖集收集（漏一类 = 那类节点里的导入实例调用不进 DEPS，运行期 MissingSymbol）。白名单 = 无子节点、
+    // 也不以「接收者类型」引用导入符号的叶子（静态成员 / 类型引用由绑定期记录）。
+    string[] depAllow = new string[]{
+        "BoundLitInt", "BoundLitChar", "BoundLitFloat", "BoundLitStr", "BoundLitBool", "BoundLitNull",
+        "BoundIdent", "BoundStaticGet", "BoundCapturedIdent", "BoundDefault", "BoundError",
+        "BoundTypeof", "BoundMethodOf", "BoundSymAvailable",
+        "BoundWildcardPattern", "BoundTypePattern", "BoundBindingPattern",
+        "BoundBreak", "BoundContinue" };
+    r[8] = new WalkerEntryZ("DepUseCollector",
+        "src/compiler/z42c.semantics/src/Validation/DepUseCollector.z42",
+        new string[]{ "BoundExpr", "BoundStmt", "BoundPattern" }, depAllow, 19);
     return r;
 }
 

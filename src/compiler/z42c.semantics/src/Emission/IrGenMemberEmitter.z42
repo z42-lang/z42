@@ -77,7 +77,7 @@ public sealed class IrGenMemberEmitter {
                         this._out.AddFunc(bridge);
                     }
                 }
-            } else if (!g.HasTypeErrors) {
+            } else {
                 // 🔴 **键对不上时不能静默走过** —— 此前这里没有 else：`md.HasBody` 为真（AST 亲口说
                 // 有体）而 `bodyM.HasBody(key)` 为假 ⇒ **这个方法一个字节都不发**，零诊断。
                 // 症状是「方法静默消失」，在运行期才以 `undefined function …` / `MissingSymbolException`
@@ -92,9 +92,7 @@ public sealed class IrGenMemberEmitter {
                 // 的 `unify-regkey 不变量`、`ExprEmitter` 的 unhandled kind、`IrGen` 两处不收敛）：
                 // 这是「不该发生」的内部状态，报一条用户看不懂的诊断码不如直接指出不变式被破。
                 //
-                // ⚠️ `!g.HasTypeErrors` 这道守卫是必须的：有类型错误时绑定器本来就可能没绑这个体
-                //（IrGen 在 `ErrorCount > 0` 时**照常全量跑**），那时落空是预期的，诊断已经报过了 ——
-                // 不加守卫会把「一堆诊断」变成「编译器崩」。
+                // 有错误的 CU 不进代码生成（`CuCompile.GenerateIfClean`），所以走到这里就是键构造 bug。
                 throw new Exception("z42c internal: no bound body for `" + key + "` while emitting `"
                     + irName + "` (the AST says it has a body). The SemanticModel body key is hand-spelled"
                     + " at both ends — check `ownerKey`/`methKey` here against DeclBinder's spelling"
@@ -266,9 +264,9 @@ public sealed class IrGenMemberEmitter {
     }
 
     // 访问器（属性 get/set、索引器 get/set）「AST 说有体、model 里查不到」= 键构造 bug，与 EmitMethod
-    // 那条 throw 同一不变式、同一 `!HasTypeErrors` 守卫（有类型错误时绑定器可能本就没绑，诊断已报过）。
+    // 那条 throw 同一不变式（有错误的 CU 不进代码生成，落空只可能是键构造 bug）。
     private void _requireBody(SemanticModel bodyM, string key, string irName) {
-        if (bodyM.HasBody(key) || this._g.HasTypeErrors) { return; }
+        if (bodyM.HasBody(key)) { return; }
         throw new Exception("z42c internal: no bound body for accessor `" + key + "` while emitting `"
             + irName + "` (the AST says it has a body). Check `ownerKey` against DeclBinder's ctKey"
             + " spelling (arity-mangle → `Name$N`). Silently skipping would drop the accessor.");
