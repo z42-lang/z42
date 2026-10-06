@@ -126,7 +126,7 @@ Stage 2  gen1 再编 z42c 源 → gen2；各成员 zpkg 除 BLID 段外逐段一
 
 xtask 最先被种子编出来、还要回头驱动编 stdlib / z42c，所以它只能用种子已有的语法与 stdlib API，INV-1 是最受约束的不变量。
 
-**种子来源**：SDK package（`z42-sdk-<ver>-<rid>`）的 `programs/z42c/` + `libs/`，而非 runtime package（runtime package 是纯嵌入式运行时，可能跨 host 使用，不携带单一 host 的 z42c）。冷启动由 `_ensureSeed` 按 `Z42_HOME` → 运行 xtask 的 apphost SDK → `./.z42` 找到 SDK 并供种到 in-tree；warm 树不被覆盖（gen2 不动点靠「从 in-tree gen1 再种」收敛）。CI 与本地走同一条 resolver，详见 [自举种子纪律](https://github.com/z42-lang/z42/blob/main/docs/agent/rules/bootstrap-seed.md)。
+**种子来源**：SDK package（`z42-sdk-<ver>-<rid>`）的 `programs/z42c/` + `libs/`，而非 runtime package（runtime package 是纯嵌入式运行时，可能跨 host 使用，不携带单一 host 的 z42c）。冷启动由 `_ensureSeed` 按 `Z42_HOME` → 运行 xtask 的 apphost SDK → `./.z42` 找到 SDK 并供种到 in-tree（按当前 `default-members` 逐个拷；**种子那一代还没有的成员**——新拆出 / 新增的包——跳过，由随后的 `build --workspace` 按拓扑序从源码建出，只有 `z42c.driver` 必须在种子里）；warm 树不被覆盖（gen2 不动点靠「从 in-tree gen1 再种」收敛）。CI 与本地走同一条 resolver，详见 [自举种子纪律](https://github.com/z42-lang/z42/blob/main/docs/agent/rules/bootstrap-seed.md)。
 
 ### 门
 

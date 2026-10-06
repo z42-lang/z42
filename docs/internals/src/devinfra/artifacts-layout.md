@@ -137,7 +137,7 @@ z42c 写产物同样是就地写 ⇒ 穿透到 `libraries/z42.core/release/dist/
 
 | 场合 | 从哪解析 |
 |---|---|
-| **编译期**（driver 编工具链程序 / 编译器单元测试 / 带 SDK 库的工程）| 按名声明的 SDK 库，driver 从编译器目录解析（`CompilerDomain` 开发树档）|
+| **编译期**（driver 编工具链程序 / 编译器单元测试 / 带 SDK 库的工程）| 按名声明的 SDK 库，driver 从编译器目录解析（`CompilerDomain` 开发树档）。编译器单元测试由 xtask **显式**传 `Z42_COMPILER_LIBS` = 本树 driver dist：xtask 经 SDK apphost 启动，`Z42_PORTABLE_VM` 会被子进程继承，而 `CompilerDomain` 的 SDK 档排在开发树档之前——不显式指定，单元就是对着种子里的旧编译器包编译的 |
 | **运行期**（z42b 自身依赖 `z42.build` / `z42.project` + 注入 `z42c.pipeline`；它为编译器单元测试 fork 的子 VM）| xtask 给 z42b 进程挂 `Z42_PROBING_PATHS` = 各编译器成员的 dist（`_z42bProc`）|
 
 两条不变式，都由代码守着而不是靠约定：
