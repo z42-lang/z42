@@ -18,7 +18,7 @@
 //   - `Reads`：每条指令的读操作数 +1，每块终结子的读 +1。**不含**参数 live-out 种子——需要时调用方
 //     自行 `_seedParams`（temp-DCE 的保护逻辑属 pass 策略，不属计数）。
 //   - 每次调用都从当前 IR 重算（pass 之间 IR 会变；design D2「各 pass 独立开启也正确」）。
-namespace Z42.Semantics;
+namespace Z42.Optimization;
 
 using Z42.IR;
 

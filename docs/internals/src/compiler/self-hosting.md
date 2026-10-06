@@ -16,9 +16,10 @@ z42c 是用 z42 写的编译器，由上一代 z42c 编译自己。结论：**�
 | `z42.package` | lib | IR 模型 + zbc/zpkg 读写后端 | — |
 | `z42.project` | lib | 工程清单模型 | — |
 | `z42.build` | lib | 构建管线接口（`ICompiler` / `IReplCompiler`） | project |
-| `z42c.semantics` | lib | TypeCheck + Codegen | core, syntax, package |
-| `z42c.pipeline` | lib | 编排（workspace 构建、依赖扫描、缓存）| core, syntax, semantics, package, project, build |
-| `z42c.driver` | exe | `z42c` 命令入口 | pipeline, semantics, syntax, core, package, project |
+| `z42c.optimization` | lib | IR → IR 优化管线 + `Opt` 开关 | package |
+| `z42c.semantics` | lib | TypeCheck + Codegen | core, syntax, package, optimization |
+| `z42c.pipeline` | lib | 编排（workspace 构建、依赖扫描、缓存）| core, syntax, semantics, optimization, package, project, build |
+| `z42c.driver` | exe | `z42c` 命令入口 | pipeline, semantics, optimization, syntax, core, package, project |
 | `z42.scripting` | lib | eval 内核 | core, syntax, build |
 
 各包另依赖 stdlib（`z42.core` / `z42.io` / `z42.toml` 等，自动可用）。`z42.package` / `z42.project` / `z42.build` / `z42c.core` / `z42c.syntax` 与 `z42.core` 合称**自依赖库**：z42c 运行期与编译期都要用它们，而它们又由 z42c 构建（见轴 ④）。普通工程的解析域只有 shipped `libs/`，要用编译器域库须在 `[dependencies]` 按名声明。

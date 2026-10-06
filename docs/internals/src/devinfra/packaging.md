@@ -68,7 +68,7 @@ graph LR
 
 - **① z42 组件**（`launcher` / `z42c` / `z42b` / `z42d` / `z42i`）自带 `[platform.desktop]`
   的 bin/payload 配置，统一经 `z42 publish` 产出。这套配置是**用户面**机制——任何人发布自己的 app
-  用的都是它。`z42c.driver` 的非 stdlib 项目依赖（`z42c.semantics` / `z42c.pipeline`）由
+  用的都是它。`z42c.driver` 的非 stdlib 项目依赖（`z42c.optimization` / `z42c.semantics` / `z42c.pipeline`）由
   `z42 publish` 自动解析、拷到同一落点 `programs/z42c/`，**因此不单独登记组件**，include 里只写
   一次 `"z42c"`（编译器域的其它包同样随 publish 落进 `programs/z42c/`，不进 `libs/`）。
 - **② 固定形态组件**不经 publish，由 `scripts/package/xtask_package_install.z42` 按 kind 从构建产物

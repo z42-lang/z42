@@ -10,7 +10,7 @@
 //
 // 安全：copy-prop 只在**相邻** producer→copy、且 t 单赋值(defs==1)单读(reads==1，含终结子读)、t≠local
 //       时 retarget；temp-DCE 只删 IsPure 白名单 + Dst 零读 + 非参数寄存器。保守正确，单趟不级联。
-namespace Z42.Semantics;
+namespace Z42.Optimization;
 
 using Z42.IR;
 

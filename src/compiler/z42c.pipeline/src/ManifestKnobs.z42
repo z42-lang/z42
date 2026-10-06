@@ -24,6 +24,7 @@ namespace Z42.Pipeline;
 using Z42.Core;
 using Z42.Semantics;
 using Z42.Project;
+using Z42.Optimization;
 
 public sealed class KnobResult {
     public int              OptSet;

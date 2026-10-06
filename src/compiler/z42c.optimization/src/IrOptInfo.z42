@@ -11,7 +11,7 @@
 //   - IsPure 用**白名单**：只有明确无副作用（不抛/不调用户码/不写内存/不分配）的 opcode 才可删；
 //     未列出的一律当「有副作用、保留」（安全默认）。Div/Rem 会除零陷阱、FieldGet/ArrayGet 会
 //     NPE/越界、ToStr 调 ToString → 都不在白名单。
-namespace Z42.Semantics;
+namespace Z42.Optimization;
 
 using Z42.IR;
 using Z42.IR.BinaryFormat;   // ZbcInstr._parseIntLit（const-fold 复用编译器权威字面量解析）

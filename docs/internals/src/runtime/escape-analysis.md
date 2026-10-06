@@ -17,7 +17,7 @@ z42 的分配（`new Foo(...)` / `new T[n]` / `[a,b,c]`）默认走 GC 堆——
 ```
 z42 源码 ──z42c──> z42 IR ──[IrEscapeAnalysis]──> IR(部分 alloc 带 StackAlloc=true) ──zbc──┐
                                                                                           │
-   ① 编译期分析（z42c.semantics，引擎无关）                                                │
+   ① 编译期分析（z42c.optimization，引擎无关）                                             │
       · 流不敏感 may-escape 过近似（CFG-free）                                             │
       · 角色感知「逃逸汇点规则表」（可扩展点）                                              │
       · ctor this-escape 单函数摘要（对象合格前提）                                        ▼
@@ -30,7 +30,7 @@ z42 源码 ──z42c──> z42 IR ──[IrEscapeAnalysis]──> IR(部分 al
 
 ## 机制 / 实现
 
-### 编译期：`IrEscapeAnalysis`（`z42c.semantics`）
+### 编译期：`IrEscapeAnalysis`（`z42c.optimization`）
 
 **流不敏感 may-escape 过近似（CFG-free）**：逃逸是「该 reg 的**任一**使用是否到达逃逸汇点」——与控制流
 顺序无关的 may 问题，线性扫全函数即安全过近似，无需 CFG / 支配域（区别于 LICM，也天然规避「异常边不在

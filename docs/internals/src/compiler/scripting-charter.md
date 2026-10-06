@@ -54,6 +54,7 @@ compiler 域的包都在 [`src/compiler/`](https://github.com/z42-lang/z42/blob/
 | `z42c.core` | L1 | `Z42.Core` | `Diagnostic` / `Span` / `DiagnosticBag` / `LanguageFeatures` |
 | `z42.package` | L1 | `Z42.IR` / `Z42.Package` | IR 模型 / `ZbcReader` / `ZbcWriter` / `ZpkgBuilder` / `BinaryFormat` |
 | `z42c.syntax` | L1 | `Z42.Syntax` | `Lexer` / `Parser` / AST 节点 |
+| `z42c.optimization` | L2 | `Z42.Optimization` | `IrOptPipeline` / `Opt` / 各优化 pass |
 | `z42c.semantics` | L2 | `Z42.Semantics` | `TypeChecker` / `Bound*` / `IrGen` / `SymbolCollector` |
 | `z42.project` | L2 | — | manifest 解析 / source discovery |
 | `z42c.pipeline` | L2 | `Z42.Pipeline` | `Z42cCompiler` / `PackageCompile` / `WorkspaceBuild` |

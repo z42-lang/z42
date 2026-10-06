@@ -8,7 +8,7 @@
 //
 // 参数槽↔寄存器：IrFunction.ParamCount **含 this**；参数槽 i = 寄存器 i（实例方法 reg0=this）。
 // 故 esc[i]（reg i 是否逃逸）= 参数槽 i 是否逃逸（FunctionEmitter 形参 reg 分配 0..ParamCount-1）。
-namespace Z42.Semantics;
+namespace Z42.Optimization;
 
 using Z42.IR;
 

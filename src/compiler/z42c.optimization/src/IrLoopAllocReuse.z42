@@ -18,7 +18,7 @@
 //         循环体原址 → `Call ctor(%r, [args])`（静态调 ctor，this=%r；运行时 obj_new 内部本就这样调）。
 //   数组：`%r = ArrayNew(Size, elem)` 整条移到 pre-header；循环体依赖既有元素写回重初始化。
 //   SSA 铁律：dst 单赋值、定义支配所有使用点 → 变换后 ctor-Call/元素写仍支配所有读 → 每迭代读到重初始化值。
-namespace Z42.Semantics;
+namespace Z42.Optimization;
 
 using Z42.IR;
 

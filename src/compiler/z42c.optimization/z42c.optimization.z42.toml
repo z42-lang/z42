@@ -1,0 +1,11 @@
+# z42c.optimization —— 编译期 IR 优化管线（IR → IR）：常量折叠 / 复制传播 / 内联 / LICM / 逃逸分析 /
+# 死分支 / 纯函数表 / 循环分配复用 …，以及选择开哪些优化的 `Opt` / `OptSet`。
+# 只依赖 IR 模型（z42.package），与语义分析无关：z42c.semantics 的 IrGen 在出 IR 后调
+# `IrOptPipeline.Run`，pipeline / driver 用 `Opt` 解析清单与命令行的优化开关。
+[project]
+name    = "z42c.optimization"
+version = "0.1.0"
+kind    = "lib"
+
+[dependencies]
+"z42.package" = "0.1.0"   # IR 模型（Z42.IR）+ ZbcInstr._parseIntLit（常量折叠复用权威字面量解析）

@@ -3,6 +3,7 @@ namespace Z42cSemanticsCodegenTests;
 
 using Z42.Semantics;
 using Z42.IR;        // StrMap / StrBox
+using Z42.Optimization;
 
 [Test]
 void test_return_int_literal() {

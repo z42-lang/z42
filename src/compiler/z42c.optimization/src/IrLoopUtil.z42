@@ -11,7 +11,7 @@
 //
 //   有异常表（try/catch/finally）→ BuildCfg 返回 null：CFG 仅从 Br/BrCond/Ret 建、不含异常隐式边，
 //   支配/循环分析会错 → 误变换 → miscompile。异常边入 CFG 后再放开。
-namespace Z42.Semantics;
+namespace Z42.Optimization;
 
 using Z42.IR;
 

@@ -123,7 +123,7 @@ int _testPackagesInstall() {
     // ①「契约包在 compiler-libs/ 里」随该目录一并删除，而 ②「它**不在** libs/」**依然成立、
     // 而且现在更重要** —— 删机制时顺手把这半也删掉，正是本仓反复吃过的「迁移带走一道活门」。
     // 注释原话：只测①不测②，这门就管不住「哪天有人图省事把它塞进 libs/ 了事」。
-    string[] domain = new string[]{ "z42c.core", "z42c.syntax", "z42c.semantics", "z42c.pipeline",
+    string[] domain = new string[]{ "z42c.core", "z42c.syntax", "z42c.optimization", "z42c.semantics", "z42c.pipeline",
                                    "z42c.driver", "z42.package", "z42.project", "z42.build",
                                    "z42.scripting" };
     int di = 0;

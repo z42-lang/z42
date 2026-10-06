@@ -8,7 +8,7 @@
 // 设计见 docs/spec/changes/add-pure-call-opt/design.md（Decision 2/4）。
 //
 // StrMap 无 Remove（compiler-z42c.md 踩坑）→ 不动点每轮**重建** pure 集（单调收缩，几轮收敛）。
-namespace Z42.Semantics;
+namespace Z42.Optimization;
 
 using Z42.IR;
 
