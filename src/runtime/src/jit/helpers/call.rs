@@ -131,7 +131,7 @@ pub unsafe extern "C" fn jit_call(
             return 1;
         }
         if vm.any_cctor_pending() {
-            if let Err(msg) = vm.ensure_callee_owner_init(name) {
+            if let Err(msg) = vm.ensure_callee_owner_init(name, &entry.owner_init) {
                 let module = &*(*ctx).module;
                 let exc = crate::vm_context::cctor::make_type_init_exception(vm, module, &msg);
                 set_exception(vm, exc);
@@ -230,7 +230,7 @@ unsafe fn cross_zpkg_via_interp(
     }
     // add-static-constructors：静态方法调用是类型初始化触发点（本回落路径的屏障，见 jit_call 注释）。
     if vm_ctx.any_cctor_pending() {
-        if let Err(msg) = vm_ctx.ensure_callee_owner_init(func_name) {
+        if let Err(msg) = vm_ctx.ensure_callee_owner_init(func_name, &callee.owner_init) {
             set_exception(vm_ctx, crate::vm_context::cctor::make_type_init_exception(vm_ctx, module, &msg));
             return 1;
         }

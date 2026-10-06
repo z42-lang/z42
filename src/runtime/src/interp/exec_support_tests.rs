@@ -43,6 +43,7 @@ fn find_handler_skips_an_entry_whose_try_end_does_not_resolve() {
         fused_tails: Vec::new(),
         frame_meta: None,
         resolved: std::sync::OnceLock::new(),
+        owner_init: Default::default(),
     };
     let block_map: HashMap<String, usize> =
         [("b0", 0), ("b1", 1), ("b2", 2)].into_iter().map(|(l, i)| (l.to_string(), i)).collect();

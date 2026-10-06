@@ -447,6 +447,7 @@ fn ll_stub_function(name: &str) -> crate::metadata::bytecode::Function {
         fused_tails: Vec::new(),
         frame_meta: None,
         resolved: std::sync::OnceLock::new(),
+        owner_init: Default::default(),
     }
 }
 
@@ -660,6 +661,7 @@ fn fn_shape(name: &str, param_count: usize, instr_count: usize) -> Function {
         fused_tails: Vec::new(),
         frame_meta: None,
         resolved: std::sync::OnceLock::new(),
+        owner_init: Default::default(),
     }
 }
 

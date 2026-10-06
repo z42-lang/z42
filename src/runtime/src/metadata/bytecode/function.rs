@@ -188,7 +188,19 @@ pub struct Function {
     /// future multi-thread ready). Not serialized — purely runtime metadata.
     #[serde(skip)]
     pub resolved: std::sync::OnceLock<crate::metadata::resolver::ResolvedTokens>,
+    /// The type whose static constructor must run before this function is
+    /// called — `Some` only for a method of a type that has one; free functions
+    /// and methods of cctor-less types cache `None` and skip the barrier for
+    /// good. Filled on the first barrier check (`VmContext::ensure_callee_owner_init`).
+    /// `Arc` so the JIT's `FnEntry` shares the cell instead of re-deriving it.
+    #[serde(skip)]
+    pub owner_init: OwnerInitCell,
 }
+
+/// See [`Function::owner_init`].
+pub type OwnerInitCell =
+    std::sync::Arc<std::sync::OnceLock<Option<std::sync::Arc<crate::metadata::TypeDesc>>>>;
+
 impl Function {
     /// Borrow the cold side-table or return a static empty slice. Accessor
     /// methods below all delegate here.

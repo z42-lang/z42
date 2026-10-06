@@ -33,6 +33,7 @@ fn fn_with_block_sizes(sizes: &[usize]) -> Function {
         fused_tails: Vec::new(),
         frame_meta: None,
         resolved: std::sync::OnceLock::new(),
+        owner_init: Default::default(),
     }
 }
 

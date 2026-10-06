@@ -77,6 +77,7 @@ fn build_function(name: &str, instructions: Vec<Instruction>, terminator: Termin
         fused_tails: Vec::new(),
         frame_meta: None,
         resolved: std::sync::OnceLock::new(),
+        owner_init: Default::default(),
     }
 }
 
@@ -390,6 +391,7 @@ fn module_with_str(name: &str, s: &str, instructions: Vec<Instruction>, terminat
         fused_tails: Vec::new(),
         frame_meta: None,
         resolved: std::sync::OnceLock::new(),
+        owner_init: Default::default(),
     };
     Module {
         name: name.to_string(),
@@ -481,6 +483,7 @@ fn z42_byte_array_pins_and_calls_native_buflen() {
         fused_tails: Vec::new(),
         frame_meta: None,
         resolved: std::sync::OnceLock::new(),
+        owner_init: Default::default(),
     };
     let m = Module {
         name: "byte_pin_e2e".into(),
@@ -537,6 +540,7 @@ fn z42_str_with_interior_nul_traps_marshal() {
         fused_tails: Vec::new(),
         frame_meta: None,
         resolved: std::sync::OnceLock::new(),
+        owner_init: Default::default(),
     };
     let m = Module {
         name: "interior_nul".into(),
