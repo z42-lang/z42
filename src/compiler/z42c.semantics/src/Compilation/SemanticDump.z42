@@ -21,19 +21,9 @@ public static class SemanticDump {
     // 修法即本函数：**合并 collector 的 Diags**，并让 6 个入口共用同一条口径，不再各写各的
     // ——原来那 6 份复制粘贴的 preamble 正是「其中一份忘了合并」能长期不被发现的土壤。
     // 合并序 = parse → collector → typecheck（相位序），故 `FirstErrorCode` 取到的仍是**最早**那条。
-    private static DiagnosticBag _diags(CompilationUnit cu) {
-        var diags = new DiagnosticBag();
-        SemanticDump._model(cu, diags);
-        return diags;
-    }
-
-    // 同上，但把 bound 模型也带出来（DumpBody / DumpAll 用）。诊断合并逻辑只此一处。
-    private static SemanticModel _model(CompilationUnit cu, DiagnosticBag diags) {
-        var sc = new SymbolCollector();
-        var symbols = sc.Collect(cu);
-        cu.MergeParseDiags(diags);   // fix-parse-diags-dropped：parse 错误计入编译错误
-        diags.MergeFrom(sc.Diags);   // 收集期诊断（签名位置的 E0443 等）——曾整批被丢弃
-        return new TypeChecker(diags).Infer(cu, symbols);
+    // 前端本身（RunAst → CollectAll → 合并 → Infer）在 `FrontEnd.Check`，与 `--emit-zbc` 同一份。
+    private static DiagnosticBag _diags(string src) {
+        return FrontEnd.Check(src, "<input>", null).Diags;
     }
 
     // 导出类型签名（TSIG 形态）确定性 dump：每类 `Name(Base) F:[n:t(s?),...] M:[n(/flags)?,...]`。
@@ -129,20 +119,18 @@ public static class SemanticDump {
 
     // 指定 key（"Class.Method" / 顶层函数名）的方法体 bound s-expr。
     public static string DumpBody(string src, string key) {
-        var p = new Parser(src, "<input>");
-        var cu = p.ParseCompilationUnit();
-        var diags = new DiagnosticBag();
-        var model = SemanticDump._model(cu, diags);
+        FrontEndResult fe = FrontEnd.Check(src, "<input>", null);
+        DiagnosticBag diags = fe.Diags;
+        SemanticModel model = fe.Model;
         if (model.HasBody(key)) { return model.GetBody(key).Dump(); }
         return "(no-body " + key + ")";
     }
 
     // 全部方法体 bound s-expr（driver `--dump-bound`）：每行 `key: <bound>`，末附错误数。
     public static string DumpAll(string src) {
-        var p = new Parser(src, "<input>");
-        var cu = p.ParseCompilationUnit();
-        var diags = new DiagnosticBag();
-        var model = SemanticDump._model(cu, diags);
+        FrontEndResult fe = FrontEnd.Check(src, "<input>", null);
+        DiagnosticBag diags = fe.Diags;
+        SemanticModel model = fe.Model;
         string[] keys = model.Bodies.Keys();
         string s = "";
         int i = 0;
@@ -161,8 +149,7 @@ public static class SemanticDump {
 
     // 首条诊断的 "line:col"（span 链验证；无诊断 → ""）。
     public static string FirstErrorPos(string src) {
-        var p = new Parser(src, "<input>");
-        DiagnosticBag diags = SemanticDump._diags(p.ParseCompilationUnit());
+        DiagnosticBag diags = SemanticDump._diags(src);
         if (diags.Count() == 0) { return ""; }
         Diagnostic d = diags.Get(0);
         return d.Span.Line.ToString() + ":" + d.Span.Column.ToString();
@@ -170,16 +157,14 @@ public static class SemanticDump {
 
     // 首条诊断的错误码（错误用例精确断言，如 E0426；无诊断 → ""）。
     public static string FirstErrorCode(string src) {
-        var p = new Parser(src, "<input>");
-        DiagnosticBag diags = SemanticDump._diags(p.ParseCompilationUnit());
+        DiagnosticBag diags = SemanticDump._diags(src);
         if (diags.Count() == 0) { return ""; }
         return diags.Get(0).Code;
     }
 
     // 首条诊断的消息文本（错误用例断言消息内容用，如 add-user-conversions ③ 的走中间类型提示）。
     public static string FirstErrorMessage(string src) {
-        var p = new Parser(src, "<input>");
-        DiagnosticBag diags = SemanticDump._diags(p.ParseCompilationUnit());
+        DiagnosticBag diags = SemanticDump._diags(src);
         if (diags.Count() == 0) { return ""; }
         return diags.Get(0).Message;
     }
@@ -188,8 +173,7 @@ public static class SemanticDump {
     // 用于「我关心的那条诊断有没有报」而**不关心同时还报了几条**的用例 —— 断言总条数会把
     // 无关诊断的增减也变成红测试，锁死的是偶然行为而不是意图。
     public static bool HasErrorCode(string src, string code) {
-        var p = new Parser(src, "<input>");
-        DiagnosticBag diags = SemanticDump._diags(p.ParseCompilationUnit());
+        DiagnosticBag diags = SemanticDump._diags(src);
         int i = 0;
         while (i < diags.Count()) {
             if (diags.Get(i).Code == code) { return true; }
@@ -200,8 +184,7 @@ public static class SemanticDump {
 
     // 类型检查诊断错误条数（错误用例断言）。
     public static int ErrorCount(string src) {
-        var p = new Parser(src, "<input>");
-        DiagnosticBag diags = SemanticDump._diags(p.ParseCompilationUnit());
+        DiagnosticBag diags = SemanticDump._diags(src);
         return diags.ErrorCount();
     }
 }
