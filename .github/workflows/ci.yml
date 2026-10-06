@@ -275,17 +275,6 @@ jobs:
         with:
           gh-token: ${{ secrets.GITHUB_TOKEN }}
 
-      # migrate-scripts-to-z42: version-drift check via xtask (replaces the
-      # feature-matrix `bash scripts/check-versions-drift.sh` step). ubuntu only —
-      # the check is OS-independent (versions.toml + zbc/zpkg/gradle/Package.swift
-      # version constants). Reuses the from-source xtask bootstrapped above.
-      - name: Check versions.toml drift (xtask deps check)
-        if: matrix.os == 'ubuntu-latest'
-        shell: bash
-        run: |
-          set -euo pipefail
-          xtask deps check
-
       # add-tests-bench-manifest-config Phase 6.1 (2026-06-06): release guard.
       # xtask's dir-mode tests / benches produce synthetic
       # `<lib>.test.<unit>.zpkg` / `<lib>.bench.<unit>.zpkg` artifacts under
@@ -363,14 +352,15 @@ jobs:
       # consume path (_regenGolden + --no-build stages) is the same one the
       # test-consume job already exercises green.
       # examples stage（学习手册示例）用 SDK 里真实的 `z42` 重放会话脚本，需要一个带 launcher 的
-      # 完整 SDK（artifacts/.z42）。`build sdk` 在 bootstrap 之后是增量的：stdlib / z42c 命中缓存，
-      # 实际工作量是 apphost stub 的 cargo 构建 + 各工具 publish。
+      # 完整 SDK（artifacts/.z42）。bootstrap 已建好 z42c / stdlib，`build toolchain` 的实际工作量是
+      # apphost stub 的 cargo 构建 + 各工具 publish；`package dev-sdk` 只组装。
       - name: Build SDK for the examples stage
         if: matrix.os != 'windows-latest'
         shell: bash
         run: |
           set -euo pipefail
-          xtask build sdk
+          xtask build toolchain
+          xtask package dev-sdk
 
       - name: Test (xtask test --no-build --skip ...)
         if: matrix.os != 'windows-latest'
@@ -564,21 +554,17 @@ jobs:
           # still build. Verified locally byte-identical to a full build (mod build-date).
           # merge-package-release: the former combined `package release` split into
           # name-driven subcommands — host produces SDK + runtime + desktop workload.
-          xtask package sdk --no-build
-          xtask package runtime --no-build
-          xtask package workload
+          # --archive：在本 runner 上随打包出发布归档（可执行位原样进 tar；Windows 出 zip），放在包目录旁
+          # （artifacts/packages/）。PR 上也做（几秒）—— 下面的 Installer smoke 装的就是它，于是 4 个桌面平台
+          # 每个 PR 都真装一遍真归档；只有上传限非 PR。
+          xtask package sdk --no-build --archive --label nightly
+          xtask package runtime --no-build --archive --label nightly
+          xtask package workload --archive --label nightly
           # test workload = payload-only, platform-agnostic → build once on macos-arm64
-          # (package-test-workload). Uploaded within artifacts/packages/; publish-nightly
-          # re-archives it to z42-workload-nightly-test.tar.gz.
+          # (package-test-workload) → z42-workload-nightly-test.tar.gz.
           if [ "${{ matrix.platform }}" = "macos-arm64" ]; then
-            xtask package workload test
+            xtask package workload test --archive --label nightly
           fi
-
-      # unify-release-archive：在本 runner 上出归档（可执行位原样进 tar；Windows 出 zip）。PR 上也做（几秒）——
-      # 下面的 Installer smoke 装的就是它，于是 4 个桌面平台每个 PR 都真装一遍真归档；只有上传限非 PR。
-      - name: Archive packages (nightly label)
-        shell: bash
-        run: xtask package archive --label nightly
 
       - name: Dist test (launcher + desktop-publish + golden legs)
         # Runs on all RIDs incl. Windows (P5 cleanup fixed the dist-test preflight +
@@ -586,7 +572,7 @@ jobs:
         #
         # fix-package-gates-false-red (2026-09-06): 此前这一步带 DIST_SMOKE_ONLY=launcher，
         # 注释说是「跳过更 flaky 的 desktop-publish/golden 腿」。但全仓**只有这一处**调
-        # `package verify` —— 所谓「跳过」的实际效果不是换个地方覆盖，而是那两条腿**永远没人跑**：
+        # `test package` —— 所谓「跳过」的实际效果不是换个地方覆盖，而是那两条腿**永远没人跑**：
         #   · desktop-publish smoke 自 apphost 迁进 desktop workload 后判据恒不满足 → 静默 SKIP；
         #   · golden 腿调 z42c 的 CLI 根本不存在（`--emit zbc -o`）→ 282 个 case 全 compile fail。
         # 两条都是「从不打印、从不失败的门」。判据修好后在这里接通，让它真的会红。
@@ -594,7 +580,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          xtask package verify
+          xtask test package
 
       - name: Learn-book examples (packaged SDK)
         # 与 test-host 的 examples stage 同一套会话脚本，这里用打包出的 SDK 跑——最贴近用户安装形态，
@@ -612,16 +598,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # 装的是上面 `xtask package archive` 出的**发布归档**本身（与 nightly / release 上传的同一个文件）。
+          # 装的是上面 `--archive` 出的**发布归档**本身（与 nightly / release 上传的同一个文件）。
           rid="${{ matrix.platform }}"
           home="$RUNNER_TEMP/z42-install-home"
           rm -rf "$home"; mkdir -p "$home/runtimes/keep"
           if [ "${RUNNER_OS:-}" = "Windows" ]; then
-            archive="$PWD/artifacts/packages/archives/z42-sdk-nightly-${rid}.zip"
+            archive="$PWD/artifacts/packages/z42-sdk-nightly-${rid}.zip"
             pwsh -NoProfile -File scripts/install/install.ps1 -Archive "$archive" -Dest "$home" -NoModifyPath
             z42="$home/z42.exe"
           else
-            archive="$PWD/artifacts/packages/archives/z42-sdk-nightly-${rid}.tar.gz"
+            archive="$PWD/artifacts/packages/z42-sdk-nightly-${rid}.tar.gz"
             sh scripts/install/install.sh --archive "$archive" --dest "$home" --no-modify-path
             z42="$home/z42"
           fi
@@ -737,7 +723,9 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: release-host-${{ matrix.platform }}
-          path: artifacts/packages/archives/
+          path: |
+            artifacts/packages/z42-*.tar.gz
+            artifacts/packages/z42-*.zip
           retention-days: 14
           if-no-files-found: error
 
@@ -779,10 +767,13 @@ jobs:
         with:
           gh-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Stage toolchain (zpkg products only)
+      # z42b 进这个 artifact（tier-2 设备 job 经它跑），按当前 z42c 编；`package ci` 只组装。
+      - name: Snapshot built toolchain (package ci; zpkg products only)
         shell: bash
         run: |
-          xtask build stage-toolchain "$RUNNER_TEMP/tc"
+          set -euo pipefail
+          xtask build toolchain z42b
+          xtask package ci "$RUNNER_TEMP/tc"
 
       # ci-prebuilt-vm：只跑 xtask、不再调 cargo 的 linux-x64 消费方（xtask-bootstrap-artifact 的
       # `prebuilt-vm`）直接用这份 z42vm —— 与它们自己 `cargo build --release` 出来的是同一条命令的产物。
@@ -817,7 +808,7 @@ jobs:
   # z42vm) it runs fully in PARALLEL, off the critical path, and packages start as
   # soon as the toolchain zpkgs are up. Nothing gating publish needs current-sdk.
   # 不再逐步 continue-on-error（speed-up-ci-quick-wins）：regen 失败原本就会被紧跟的
-  # 基线门打红；build sdk / upload 失败则下游 test-vm-jit / test-consume 在下载处才红，
+  # 基线门打红；package dev-sdk / upload 失败则下游 test-vm-jit / test-consume 在下载处才红，
   # 离真正出错的地方隔了一个 job。直接在这里失败更好定位。
   assemble-current-sdk:
     name: compile-test-assets(linux-x64)
@@ -845,11 +836,11 @@ jobs:
         run: |
           xtask build test
 
-      - name: Assemble .z42 toolchain (build sdk --no-build) + bundle goldens
+      - name: Assemble .z42 toolchain (package dev-sdk) + bundle goldens
         shell: bash
         run: |
           set -euo pipefail
-          xtask build sdk --out "$RUNNER_TEMP/z42sdk" --no-build
+          xtask package dev-sdk --out "$RUNNER_TEMP/z42sdk"
           # bundle the prebuilt golden .zbc into current-sdk so consumers run them
           # with --no-build (shared compiled asset across interp/jit).
           if [ -d artifacts/build/tests ]; then
@@ -900,7 +891,7 @@ jobs:
             || { echo "::error::current-sdk compile failed — no xtask.zpkg"; exit 1; }
           # execute the just-compiled zpkg on the toolchain's z42vm (proves run, not just compile)
           out=$(Z42_LIBS="$TC/libs" "$TC/bin/z42vm" "$RUNNER_TEMP/consume-out/xtask.zpkg" -- build -h)
-          echo "$out" | grep -q "build sdk\|SUBCOMMANDS" \
+          echo "$out" | grep -q "build compiler\|SUBCOMMANDS" \
             && echo "✅ current-sdk compiles AND runs (cross-job, self-contained)" \
             || { echo "::error::current-sdk run failed"; echo "$out"; exit 1; }
       - name: Run cross-zpkg gate via --toolchain (real test-stage consume)
@@ -1161,8 +1152,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # --archive：平台 tooling 包只由主 RID（ios-arm64）出归档，iossim 那份说明后跳过。
           for rid in ios-arm64 iossim-arm64; do
-            xtask package runtime --rid "$rid"
+            xtask package runtime --rid "$rid" --archive --label nightly
           done
 
       - name: Verify iOS packages
@@ -1197,18 +1189,14 @@ jobs:
             echo "✓ $rid lipo: $lipo_out"
           done
 
-      # unify-release-archive：在本 runner 上出归档（可执行位原样进 tar；Windows 出 zip）。PR 上也做（几秒）——
-      # 下面的 Installer smoke 装的就是它，于是 4 个桌面平台每个 PR 都真装一遍真归档；只有上传限非 PR。
-      - name: Archive packages (nightly label)
-        shell: bash
-        run: xtask package archive --label nightly
-
       - name: Upload iOS archives
         if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@v7
         with:
           name: release-ios
-          path: artifacts/packages/archives/
+          path: |
+            artifacts/packages/z42-*.tar.gz
+            artifacts/packages/z42-*.zip
           retention-days: 14
           if-no-files-found: error
 
@@ -1251,8 +1239,9 @@ jobs:
           ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
         run: |
           set -euo pipefail
+          # --archive：平台 tooling 包只由主 RID（android-arm64）出归档，android-x64 那份说明后跳过。
           for rid in android-arm64 android-x64; do
-            xtask package runtime --rid "$rid"
+            xtask package runtime --rid "$rid" --archive --label nightly
           done
 
       - name: Verify Android packages
@@ -1293,18 +1282,14 @@ jobs:
             esac
           done
 
-      # unify-release-archive：在本 runner 上出归档（可执行位原样进 tar；Windows 出 zip）。PR 上也做（几秒）——
-      # 下面的 Installer smoke 装的就是它，于是 4 个桌面平台每个 PR 都真装一遍真归档；只有上传限非 PR。
-      - name: Archive packages (nightly label)
-        shell: bash
-        run: xtask package archive --label nightly
-
       - name: Upload Android archives
         if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@v7
         with:
           name: release-android
-          path: artifacts/packages/archives/
+          path: |
+            artifacts/packages/z42-*.tar.gz
+            artifacts/packages/z42-*.zip
           retention-days: 14
           if-no-files-found: error
 
@@ -1357,7 +1342,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          xtask package runtime --rid browser-wasm
+          xtask package runtime --rid browser-wasm --archive --label nightly
 
       - name: Verify wasm package + WebAssembly validation
         run: |
@@ -1409,18 +1394,14 @@ jobs:
           xtask test app wasm assets
           node artifacts/intermediate/toolchain/workload/wasm/host/demo/node/run.js
 
-      # unify-release-archive：在本 runner 上出归档（可执行位原样进 tar；Windows 出 zip）。PR 上也做（几秒）——
-      # 下面的 Installer smoke 装的就是它，于是 4 个桌面平台每个 PR 都真装一遍真归档；只有上传限非 PR。
-      - name: Archive packages (nightly label)
-        shell: bash
-        run: xtask package archive --label nightly
-
       - name: Upload wasm archives
         if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@v7
         with:
           name: release-wasm
-          path: artifacts/packages/archives/
+          path: |
+            artifacts/packages/z42-*.tar.gz
+            artifacts/packages/z42-*.zip
           retention-days: 14
           if-no-files-found: error
 
@@ -1500,14 +1481,14 @@ jobs:
         with:
           prebuilt-vm: "true"   # 后续只跑 xtask、不调 cargo（ci-prebuilt-vm；非 linux-x64 腿照常自建）
 
-      # unify-release-archive：各 package job 已在**自己的 runner** 上用 `xtask package archive --label nightly`
+      # unify-release-archive：各 package job 已在**自己的 runner** 上用 `--archive --label nightly`
       # 出好归档（可执行位原样进 tar、Windows 出真 zip）。此前这里下载**原始包目录**再集中打包 ——
       # upload-artifact 不保留可执行位，nightly tar 里的 z42vm 等都不可执行；还要从目录名反推 RID。
       - name: Download all release archives
         if: steps.stale.outputs.stale != 'true'
         uses: actions/download-artifact@v8
         with:
-          path: artifacts/packages/archives
+          path: artifacts/packages
           pattern: 'release-*'
           merge-multiple: true
 
@@ -1517,7 +1498,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ls -la artifacts/packages/archives/
+          ls -la artifacts/packages/
           xtask package finalize nightly --channel nightly --tag nightly --version nightly
 
       # Update the `nightly` release IN PLACE — never delete → recreate.
@@ -1584,8 +1565,8 @@ jobs:
           EOF
           )
           title="Nightly (main @ ${short_sha} · ${today})"
-          assets=(artifacts/packages/archives/SHA256SUMS artifacts/packages/archives/release-index.json
-                  artifacts/packages/archives/z42-* scripts/install/install.sh scripts/install/install.ps1)
+          assets=(artifacts/packages/SHA256SUMS artifacts/packages/release-index.json
+                  artifacts/packages/z42-* scripts/install/install.sh scripts/install/install.ps1)
           if gh release view nightly >/dev/null 2>&1; then
             # (1) assets first — same names, --clobber replaces each one
             gh release upload nightly "${assets[@]}" --clobber

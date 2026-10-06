@@ -17,7 +17,7 @@
 // example 是唯一还留在本文件里执行的一类 —— 它不是测试（判据是「编得过 + 可选跑得通」），
 // 走 `_runExitTarget` / `_compileTarget`。
 //
-// NOTE (xtask deps): `using Z42.Project` resolves because xtask.z42.toml declares
+// NOTE (xtask's dependencies): `using Z42.Project` resolves because xtask.z42.toml declares
 // z42.project / z42.build as SDK libs (`deploy = "sdk"`); stdlib (`z42.*` in
 // Z42_LIBS) stays visible without being listed.
 namespace Z42Xtask;

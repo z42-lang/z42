@@ -2,7 +2,7 @@
 //
 // 两步：① 书 ↔ examples 引用校验（xtask_examples_book.z42，不需要 SDK）；
 //      ② 用当前源码构建的 SDK 里真实的 `z42` 重放每个 `examples/**/*.console`（xtask_examples_run.z42）。
-// SDK 默认 `artifacts/.z42`（`xtask build sdk` 的产物），`--sdk <dir>` 可指定打包出的 SDK。
+// SDK 默认 `artifacts/.z42`（`xtask package dev-sdk` 的产物），`--sdk <dir>` 可指定打包出的 SDK。
 // 规则与写法见 docs/agent/rules/learn-writing.md；stage 说明见 docs/book/src/dev/test-gate.md。
 namespace Z42Xtask;
 
@@ -35,7 +35,7 @@ int _testExamples(ExamplesOptions o) {
     string launcher = Path.Join(sdk, Platform.IsWindows() ? "z42.exe" : "z42");
     if (!File.Exists(launcher) || !File.Exists(Path.Join(sdk, "programs/launcher/launcher.zpkg"))) {
         ConsoleError.WriteLine("  ✗ no runnable SDK at " + sdk + " (needs z42 + programs/launcher/)");
-        ConsoleError.WriteLine("    build one with: xtask build sdk   (or pass --sdk <dir>)");
+        ConsoleError.WriteLine("    build one with: xtask build toolchain && xtask package dev-sdk   (or pass --sdk <dir>)");
         return 1;
     }
 

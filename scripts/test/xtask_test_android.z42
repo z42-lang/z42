@@ -53,7 +53,7 @@ public class AndroidBackend : IPlatformBackend {
         }
         // AGP locates the SDK via ANDROID_HOME / ANDROID_SDK_ROOT (or sdk.dir in
         // local.properties). CI's setup-android action exports these; locally they
-        // are unset, so point gradle at the hermetic SDK (deps install --os
+        // are unset, so point gradle at the hermetic SDK (setup --os
         // android → artifacts/tools/android-sdk). Without this gradle aborts with
         // "SDK location not found".
         string sdk = _androidSdkDir(root);
@@ -83,7 +83,7 @@ string _androidNdkDir(string root) {
     string ver = _vget(toml, "build.android.ndk.version");
     string auto = Path.Join(root, Path.Join(installRoot, Path.Join("ndk", ver)));
     if (Directory.Exists(auto)) { return auto; }
-    ConsoleError.WriteLine("error: NDK not found — run `xtask deps install --os android` (installs to " + auto + "), or set ANDROID_NDK_HOME");
+    ConsoleError.WriteLine("error: NDK not found — run `xtask setup --os android` (installs to " + auto + "), or set ANDROID_NDK_HOME");
     return "";
 }
 
@@ -100,7 +100,7 @@ string _androidSdkDir(string root) {
     string installRoot = _vget(toml, "build.android.install_root");
     string auto = Path.Join(root, installRoot);
     if (Directory.Exists(auto)) { return auto; }
-    ConsoleError.WriteLine("error: Android SDK not found — run `xtask deps install --os android` (installs to " + auto + "), or set ANDROID_HOME");
+    ConsoleError.WriteLine("error: Android SDK not found — run `xtask setup --os android` (installs to " + auto + "), or set ANDROID_HOME");
     return "";
 }
 
@@ -176,5 +176,5 @@ int _ensureAndroidEmulatorTier(string root) {
         return 1;
     }
     Console.WriteLine("  Android emulator tier missing — installing (~4GB, one-time)");
-    return _depsInstallAndroidEmulator(false);
+    return _installAndroidEmulator(false);
 }

@@ -1,10 +1,9 @@
-// xtask — deps install (migrate-scripts-to-z42): native port of the former
-// scripts/setup-tools.sh. Verify/install the toolchain declared in versions.toml.
+// xtask — `setup`：按 versions.toml 装开发依赖（native port of the former scripts/setup-tools.sh）。
 // Source-of-truth = versions.toml (parsed with Std.Toml, no python).
 //
 // 依赖两层模型（simplify-xtask-deps, User 裁决 2026-07-07）：
 //   无 --os = 当前 host 基础（跨平台 rust/node 检查，不装交叉栈；User 裁决 2026-07-08）
-//   平台必备 — 该平台构建/测试没它就跑不了，`deps install --os <p>` 显式装：
+//   平台必备 — 该平台构建/测试没它就跑不了，`setup --os <p>` 显式装：
 //     android = rust targets + cargo-ndk + JDK check + build SDK (cmdline-tools
 //               + platforms;<p> + build-tools;<bt> + platform-tools + ndk;<ver>)
 //     ios     = rust targets (+ extra host slice) + Xcode check
@@ -14,8 +13,10 @@
 //       → `test app android run`（AndroidBackend.RunTests）自动装
 //     node 兜底 → wasm RunTests hermetic+PATH 均缺时自动装
 //
-// 只读校验（presence + drift）统一在 `deps check`（xtask_deps.z42）；
-// env 导出在 `deps env`（本文件 _depsEnv）。install 只装，不查不导。
+// 只读的在场校验在 `setup check`（install/xtask_setup_check.z42）；versions.toml ↔ 投影文件的漂移是
+// 与机器无关的静态检查，在 `xtask check versions`（test/xtask_check_versions.z42）。没有环境导出命令：
+// xtask 自己解析 NDK / SDK 位置（versions.toml 的 install_root，ANDROID_NDK_HOME / ANDROID_HOME 覆盖），
+// `setup --os android` 装完打印的 export 只给在 xtask 之外直接调 gradle / cargo-ndk 的人用。
 //
 // Same Z42Xtask namespace; calls _root/_exec/_have... defined here + in xtask.z42.
 namespace Z42Xtask;
@@ -24,19 +25,10 @@ using Std.IO;
 using Std.Toml;
 using Std.Cli;
 
-// Args from a Std.Cli ParseResult: --os <platform> / --force / [component]。
-// component = 主机集成资产（用户显式触发，两层模型外的第三类）：目前唯一项 vscode
-// （编辑器资产，add-vscode-syntax-ext）；缺省 = 平台必备安装。
-int _depsInstall(ParseResult r) {
-    bool force = r.GetFlag("force");
-    string component = r.GetPositional(0);
-    if (component == "vscode") { return _depsInstallVscode(); }
-    if (component.Length > 0) {
-        ConsoleError.WriteLine("deps install: unknown component '" + component + "' (vscode)"); return 2;
-    }
-    string platform = r.GetOption("os");
+// `setup [--os <platform>] [--force]`（default action，在 xtask_cli.z42 的 shim 里解析）。
+int _setupInstall(string platform, bool force) {
     if (platform.Length > 0 && platform != "android" && platform != "ios" && platform != "wasm") {
-        ConsoleError.WriteLine("deps install --os: unknown platform '" + platform + "' (android|ios|wasm)"); return 2;
+        ConsoleError.WriteLine("setup --os: unknown platform '" + platform + "' (android|ios|wasm)"); return 2;
     }
     string root = _root();
     TomlValue toml = TomlValue.Parse(File.ReadAllText(_versionsPath(root)));
@@ -50,7 +42,7 @@ int _depsInstall(ParseResult r) {
     if (platform.Length == 0) {
         Console.WriteLine("");
         Console.WriteLine("✅ host toolchain checked (cross-platform base only)");
-        Console.WriteLine("   Platform stacks are opt-in: deps install --os <android|ios|wasm>");
+        Console.WriteLine("   Platform stacks are opt-in: xtask setup --os <android|ios|wasm>");
         return 0;
     }
 
@@ -63,37 +55,11 @@ int _depsInstall(ParseResult r) {
         Console.WriteLine("");
         Console.WriteLine("✅ setup complete");
         if (platform == "android") {
-            Console.WriteLine("   For ANDROID_NDK_HOME export, run:");
-            Console.WriteLine("     eval \"$(xtask deps env)\"");
+            Console.WriteLine("   xtask finds the SDK / NDK above by itself; the exports are only for running gradle / cargo-ndk by hand.");
             Console.WriteLine("   Android emulator tier (instrumentation tests) auto-installs on `test app android run`.");
         }
     }
     return rc;
-}
-
-// `deps env [--os android]` — eval 用的环境导出：stdout 只输出 export 行（可
-// `eval "$(...)"`)，一切提示/错误走 stderr。目前只有 android 有可导出 env
-// （ANDROID_NDK_HOME）；--os 缺省即 android。
-int _depsEnv(ParseResult r) {
-    string os = r.GetOption("os");
-    if (os.Length == 0) { os = "android"; }
-    if (os == "ios" || os == "wasm") {
-        ConsoleError.WriteLine("# deps env: no env exports for '" + os + "' (android only)");
-        return 0;
-    }
-    if (os != "android") {
-        ConsoleError.WriteLine("deps env --os: unknown platform '" + os + "' (android|ios|wasm)");
-        return 2;
-    }
-    string root = _root();
-    TomlValue toml = TomlValue.Parse(File.ReadAllText(_versionsPath(root)));
-    string home = _resolveNdkHome(root, toml);
-    if (home.Length == 0) {
-        ConsoleError.WriteLine("# android: NDK not found; run xtask deps install --os android");
-        return 1;
-    }
-    Console.WriteLine("export ANDROID_NDK_HOME=\"" + home + "\"");
-    return 0;
 }
 
 // ── node installer (was install-node-local.sh; 现为内部函数，无命令面) ───────
@@ -101,7 +67,7 @@ int _depsEnv(ParseResult r) {
 
 // Download Node.js LTS into artifacts/tools/node/ (no system PATH changes).
 // Idempotent; force redownloads. POSIX-only (.tar.gz); Windows → MSI.
-int _depsInstallNode(bool force) {
+int _installNode(bool force) {
     string root = _root();
     TomlValue toml = TomlValue.Parse(File.ReadAllText(_versionsPath(root)));
     string nodeVersion = _vget(toml, "toolchain.node.version");   // SoT: versions.toml
@@ -294,7 +260,7 @@ string _resolveNdkHome(string root, TomlValue toml) {
     return "";
 }
 
-// mode: "install" | "check"（check 供 deps check 复用，verify-only 不装）。
+// mode: "install" | "check"（check 供 setup check 复用，verify-only 不装）。
 int _setupAndroid(string root, TomlValue toml, string mode, bool force) {
     Console.WriteLine("── android ──");
     int rc = 0;
@@ -308,7 +274,7 @@ int _setupAndroid(string root, TomlValue toml, string mode, bool force) {
     if (mode == "check") {
         int c = _checkAndroidBuildSdk(root, toml); if (c != 0) { rc = c; }
     } else {
-        int c = _depsInstallAndroidSdk(force, "build"); if (c != 0) { rc = c; }
+        int c = _installAndroidSdk(force, "build"); if (c != 0) { rc = c; }
     }
     return rc;
 }
@@ -328,7 +294,7 @@ int _checkAndroidBuildSdk(string root, TomlValue toml) {
     if (_resolveNdkHome(root, toml).Length > 0) {
         Console.WriteLine("  ✓ NDK " + ndkVer + " at " + _resolveNdkHome(root, toml));
     } else {
-        ConsoleError.WriteLine("  ✗ NDK " + ndkVer + " missing (run: xtask deps install --os android)"); rc = 1;
+        ConsoleError.WriteLine("  ✗ NDK " + ndkVer + " missing (run: xtask setup --os android)"); rc = 1;
     }
     string sdkDir = Path.Join(root, _vget(toml, "build.android.install_root"));
     string platformVer = _vget(toml, "build.android.sdk.platform");
@@ -386,7 +352,7 @@ int _setupWasm(string root, TomlValue toml, string mode, bool force) {
     if (mode == "check") {
         int kc = _checkWasmNode(root, toml); if (kc != 0) { rc = kc; }
     } else {
-        int nc = _depsInstallNode(force); if (nc != 0) { rc = nc; }
+        int nc = _installNode(force); if (nc != 0) { rc = nc; }
     }
     return rc;
 }
@@ -407,9 +373,9 @@ int _checkWasmNode(string root, TomlValue toml) {
             Console.WriteLine("  ✓ node v" + v + " (PATH, ≥ v" + wantMin + ")");
             return 0;
         }
-        ConsoleError.WriteLine("  ✗ node v" + v + " < min v" + wantMin + " (run: deps install --os wasm)");
+        ConsoleError.WriteLine("  ✗ node v" + v + " < min v" + wantMin + " (run: xtask setup --os wasm)");
         return 1;
     }
-    ConsoleError.WriteLine("  ✗ node missing (run: deps install --os wasm; wasm test run also auto-installs)");
+    ConsoleError.WriteLine("  ✗ node missing (run: xtask setup --os wasm; wasm test run also auto-installs)");
     return 1;
 }

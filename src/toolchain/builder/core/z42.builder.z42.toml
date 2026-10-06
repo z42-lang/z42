@@ -52,7 +52,7 @@ hooks = "hooks"
 # （From this toml's dir src/toolchain/builder/core up 4 levels to repo root）。
 # 只配 output_dir —— dist / cache / publish 都走级联默认（${output_dir}/dist 等），与 launcher 同形。
 # simplify-toolchain-output-dirs（2026-09-30）：此前另配 `dist_dir = output_dir`（平铺），
-# 让 zpkg 与 .cache/ build/ publish/ 挤在同一层，stage-toolchain 还得专门跳子目录。
+# 让 zpkg 与 .cache/ build/ publish/ 挤在同一层，`xtask package ci` 还得专门跳子目录。
 output_dir = "../../../../artifacts/build/toolchain/builder"
 
 [profile.release.runtime]

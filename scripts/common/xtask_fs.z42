@@ -19,9 +19,8 @@
 //     `_copyAll` 语义相反，不能合并；
 //   - `_rmIfExists`（build/xtask_clean.z42）—— 只在同文件用；
 //   - `_pkgCopyLibs` / `_copyNativeLibs`（package/xtask_package.z42）—— 不是原语：带
-//     `<dir>/libs` `<dir>/native` 的**布局语义** + 报错文案 + 返回码。`_pkgCopyLibs`
-//     被 build/ 的 `_buildSdk` 调用，仍是一条反向依赖，但它该去的是将来的「SDK 布局
-//     组装」共用层（与 `_stageToolchain` 同处），不是本文件。**已知余项，见 README。**
+//     `<dir>/libs` `<dir>/native` 的**布局语义** + 报错文案 + 返回码，只在 package/ 内用
+//     （含 `package dev-sdk`）。
 namespace Z42Xtask;
 
 using Std.IO;

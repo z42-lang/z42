@@ -32,7 +32,8 @@ graph LR
     S9 --> S10[ci-shell<br/>CI 内嵌 shell 先用后赋]
     S10 --> S11[proc-env<br/>子进程 env 单一入口]
     S11 --> S12[layout<br/>测试布局规范]
-    S12 --> G((GREEN))
+    S12 --> S13[versions<br/>versions.toml ↔ 投影文件]
+    S13 --> G((GREEN))
 ```
 
 **机器可读清单**（`_checkGateStageDoc` 解析此区；条目文本 = `_stageStart` 打的 banner 名，
@@ -60,6 +61,7 @@ graph LR
 - `ci-shell`
 - `proc-env`
 - `layout`
+- `versions`
 <!-- gate-stages:end -->
 
 先备工具链与基线（build wave），再依序跑其余验证 stage；任一步失败立即终止。
@@ -105,7 +107,7 @@ fixture、debug VM 跑 `main.zpkg`——跨包 dispatch 的 debug 断言覆盖�
 | `toolchain [Test]` | 工具链组件（REPL 键位策略等）自己的 `[Test]` unit；与 stdlib 同一个 runner，单列成 stage 是因为 CI 的 host 腿 `--skip stdlib`，而这些用例多与宿主相关、应在每条 host 腿上跑 | 秒级 |
 | `stdlib [Benchmark]` | **只验语料能不能跑**，不看快慢 | 全量约 14.6 s、零噪声、host-independent |
 | `manifest targets` | 清单驱动的 `[[test]]` / `[[example]]` target 契约 | — |
-| `examples` | 学习手册示例逐条可运行且与书一致（书 ↔ 示例引用 + 用 SDK 里真实的 `z42` 重放每个 `.console`） | 完整 gate 先 `build sdk`；`--no-build` 缺 SDK 即红 |
+| `examples` | 学习手册示例逐条可运行且与书一致（书 ↔ 示例引用 + 用 SDK 里真实的 `z42` 重放每个 `.console`） | 完整 gate 先 `build toolchain` + `package dev-sdk`；`--no-build` 缺 SDK 即红 |
 | `docs` | 相对 markdown 链接可解析（棘轮：存量死链在 `scripts/test/doc-link-baseline.txt` 里只 warn，基线之外的新死链判红） | 秒级，不需要 SDK |
 | `compiler` | 编译器自举不动点 gen1 == gen2 + units（见[构建编排](build.md)）| host-independent |
 | `gc modes` | 在每种 GC 模式下、把收集器调到触发上百次，重编一个真实包（`z42c.semantics`），每模式带一个收集次数下限断言 | 三个提前回收缺陷都是这么现形的：编译器在悬垂引用上崩在半途 |
@@ -117,6 +119,7 @@ fixture、debug VM 跑 `main.zpkg`——跨包 dispatch 的 debug 断言覆盖�
 | `ci-shell` | `.github/**` 的多行 `run:` 块里**没有先用后赋**的变量（立门时 7 个 yml / 76 块），见下 | 纯文本扫描 < 1 s |
 | `proc-env` | xtask 子进程的 `Z42_LIBS` / `Z42_PROBING_PATHS` **只经** `_z42Proc` / `_z42bProc` 设置，调用点不得直接 `.Env(...)`，见下 | 纯文本扫描 < 1 s |
 | `layout` | [测试用例组织规范](test-layout.md)里能机械判定的部分：`src/tests` 类别登记、能力词表 ↔ 运行期、能力声明只用已生效的名字 | 纯文本扫描，秒级 |
+| `versions` | `scripts/versions.toml` 与它的投影文件一致：`src/runtime/Cargo.toml` 的 workspace 版本、Android `build.gradle.kts` 的 minSdk / compileSdk、iOS harness `Package.swift` 的平台下限。只比文本、不看本机装了什么（那是 `xtask setup check`） | 纯文本扫描 < 1 s |
 
 **`stdlib [Benchmark]` 为什么必须在 gate 里**：bench 语料若只靠 `bench-pr.yml` 看门，
 而那个 job **不在分支保护的 required 列表里**。实例：一次把 `Failure.z42` 搬出 `z42.test` 的改动让
@@ -294,7 +297,7 @@ walker 文件里找 `is <类名>`；全集里既不被匹配、又不在该 walk
 除 build wave 与 `e2e goldens` 外，其余 stage 都可经 `--skip <csv>` 下放到独立 CI job
 （`_skipHas`）。skip 名是短名，**不等于 banner 全名**：`rust-units` / `cross-zpkg` / `multi-exe` / `stdlib` /
 `toolchain` / `bench` / `targets` / `examples` / `docs` / `compiler` / `gcgen` / `vscode` / `lines` / `walkers` / `diagcodes` /
-`stage2` / `ci-shell` / `proc-env` / `layout`。
+`stage2` / `ci-shell` / `proc-env` / `layout` / `versions`。
 
 skip 只影响**在哪跑**，不改变 gate 的 stage 组成，所以 §1 的清单不随 `--skip` 变化，
 `_checkGateStageDoc` 也照常对全量清单对账。

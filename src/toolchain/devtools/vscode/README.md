@@ -14,13 +14,13 @@ grammar）+ 括号匹配/注释切换/自动缩进（language-configuration）�
 | 语法高亮 grammar（生成产物，勿手改） | `syntaxes/z42.tmLanguage.json` |
 | grammar 模板（高亮规则的编辑处） | `syntaxes/z42.tmLanguage.tpl.json` |
 | 注释/括号/缩进/包围对 | `language-configuration.json` |
-| 生成 + 安装 | `xtask deps install vscode`（`scripts/install/xtask_install_vscode.z42`） |
+| 生成 + 安装 | `xtask setup vscode`（`scripts/install/xtask_install_vscode.z42`） |
 | 防漂移检查（GREEN gate） | `xtask check vscode-syntax` |
 
 ## 基础用法
 
 ```bash
-xtask deps install vscode   # 重新生成 grammar + symlink 到 <repo>/.vscode/extensions/z42.z42-lang
+xtask setup vscode   # 重新生成 grammar + symlink 到 <repo>/.vscode/extensions/z42.z42-lang
 # 重载 VSCode 窗口即生效；首次会提示信任/启用 workspace 扩展（需 VSCode ≥1.89）
 ```
 
@@ -48,4 +48,4 @@ xtask check vscode-syntax    # 生成器一致性：关键字分类穷尽 + 入�
 | `package.json` | 扩展清单：语言贡献点 + grammar/config 挂接（纯声明，无 main） |
 | `language-configuration.json` | 注释 `//` `/* */`、括号对、自动闭合、包围对、缩进规则 |
 | `syntaxes/z42.tmLanguage.tpl.json` | grammar 模板：非关键字规则手写 + `__KW_*__` 占位符 |
-| `syntaxes/z42.tmLanguage.json` | **生成产物**（`xtask deps install vscode`），入库；勿手改 |
+| `syntaxes/z42.tmLanguage.json` | **生成产物**（`xtask setup vscode`），入库；勿手改 |

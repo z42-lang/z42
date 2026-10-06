@@ -56,7 +56,7 @@ git clone https://github.com/z42-lang/z42 && cd z42
 ./xtask test                                 # full GREEN gate; ./xtask auto-locates ./.z42
 ```
 
-**Editor support (VSCode)**: `./xtask deps install vscode` installs `.z42` syntax highlighting
+**Editor support (VSCode)**: `./xtask setup vscode` installs `.z42` syntax highlighting
 as a repo-local workspace extension — reload the window and accept the prompt.
 
 ---

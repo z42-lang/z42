@@ -123,7 +123,7 @@ Rust 侧的 `*_tests.rs` 与 `tests/*.rs` 按 cargo 惯例，不在此列。
 | `[[test]]` / `[[example]]` / `[[bench]]` target | `src/toolchain/builder/tests/fixtures/manifest-targets/` | `xtask test toolchain builder` |
 | z42b 自身的清单 / hook / 发现规则 | `src/toolchain/builder/tests/fixtures/z42b/` | `xtask test toolchain builder` |
 | z42c 命令行与构建行为（清单 / 旋钮校验、`--emit-zbc` / `--dump-ir` 的诊断可见性、打包直跑、可复现 build_id、cache 布局、缓存键（依赖 / 清单身份、`[build]` / `[optimize]` / `[syntax]` 旋钮）、增量失效与警告回放、path 依赖闭包、workspace 成员发现与装配、部署判据（复制 / `deploy` / probing-paths / zpkg 产物引用）、SDK 库与 analyzer 的解析域） | `src/compiler/z42c.driver/tests/fixtures/cli/`（[声明式夹具](fixture-harness.md)：开发树的 z42c / z42b / z42vm） | `xtask test compiler` |
-| 打包出的 SDK 上的用户路径（新手命令行、单文件运行、`run --bin/--set`、`repl`、桌面发布、发布态 analyzer 与 build hooks） | `src/toolchain/launcher/tests/fixtures/package/`（[声明式夹具](fixture-harness.md)：包内的 z42 / z42c / z42b / z42vm） | `xtask package verify` |
+| 打包出的 SDK 上的用户路径（新手命令行、单文件运行、`run --bin/--set`、`repl`、桌面发布、发布态 analyzer 与 build hooks） | `src/toolchain/launcher/tests/fixtures/package/`（[声明式夹具](fixture-harness.md)：包内的 z42 / z42c / z42b / z42vm） | `xtask test package` |
 | `.zbc` 字节基线 | `src/compiler/z42.package/tests/fixtures/zbc-format/` | `xtask build test` 就地重生；`xtask test runtime`（`zbc_compat`、`format_fixture_versions`）读取 |
 | `.zpkg` 字节基线 | `src/compiler/z42.package/tests/fixtures/zpkg-format/` | 按该目录 README 的配方重生；`xtask test runtime` 读取 |
 

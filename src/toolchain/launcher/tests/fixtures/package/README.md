@@ -5,7 +5,7 @@
 桌面发布（apphost、多 exe、预编译 native）、发布态的 analyzer / generator 与 build hooks。开发树的夹具证明不了
 这些：发布态的解析路径（`Z42_HOME`、`programs/z42c/`、launcher 由自己的位置找 SDK）和开发树是不同的几档。
 
-每个子目录是一个用例：最小工程 + `expect.toml`；原因不显然的用例目录里另有 README。由 `xtask package verify` 跑
+每个子目录是一个用例：最小工程 + `expect.toml`；原因不显然的用例目录里另有 README。由 `xtask test package` 跑
 （定义在 `scripts/test/xtask_test_dist.z42` 的 `_distFixtureSuite`）：整棵目录暂存到系统临时目录（**仓库外**，
 用户工程不会在 z42 仓库里），全部通过后删掉，有失败时保留并打印路径。
 
@@ -41,7 +41,7 @@
 
 ## tags 与 `DIST_SMOKE_ONLY`
 
-`DIST_SMOKE_ONLY=<tag> xtask package verify` 只跑 `tags` 含 `<tag>` 的用例，并跳过 golden 腿。现有的 tag 只有
+`DIST_SMOKE_ONLY=<tag> xtask test package` 只跑 `tags` 含 `<tag>` 的用例，并跳过 golden 腿。现有的 tag 只有
 `launcher`（命令行路径的用例：不需要 apphost stub，只跑它们时 preflight 也不要求 workload）。本地快跑用；
 CI 跑全量。
 

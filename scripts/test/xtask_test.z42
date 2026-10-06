@@ -381,15 +381,15 @@ int _testCrossZpkgCore(string mode, bool noBuild) {
     return _testCrossZpkgImpl(mode);
 }
 
-// ── package verify (packaged-distribution e2e) ────────────────────────────────────
+// ── test package (packaged-distribution e2e) ────────────────────────────────────
 
-// `package verify [interp|jit]` — native port of the former scripts/test-dist.sh.
+// `test package [interp|jit]` — native port of the former scripts/test-dist.sh.
 // Ensure a host release package exists, then run the in-process dist e2e
 // (_testDistRun, xtask_test_dist.z42): the package fixtures
 // (src/toolchain/launcher/tests/fixtures/package/) + the goldens on the PACKAGED z42c/z42vm.
 // Not in the default GREEN gate (run on demand).
 int _testDist(ParseResult r) {
-    Stopwatch sw = _procStart("package verify");
+    Stopwatch sw = _procStart("test package");
     string root = _root();
     // Ensure a host release package exists — its internal build (_packageDesktop)
     // produces z42c + z42vm + stdlib itself. _testDistRun consumes ONLY the package
@@ -400,7 +400,7 @@ int _testDist(ParseResult r) {
         int c = _buildPackageCore("release", "", "", false); if (c != 0) { return c; }
     }
     int __rc = _testDistRun(r.GetPositional(0));
-    if (__rc == 0) { _procEnd("package verify", sw); }
+    if (__rc == 0) { _procEnd("test package", sw); }
     return __rc;
 }
 
@@ -486,7 +486,8 @@ string[] _gateStageNames() {
         "stage2",
         "ci-shell",
         "proc-env",
-        "layout"
+        "layout",
+        "versions"
     };
 }
 
@@ -667,10 +668,14 @@ int _testAll(bool noBuild, string skip) {
     }
     // stage 4c: 学习手册配套示例（add-learn-book-examples-gate）：书 ↔ examples 引用校验 +
     // 用 SDK 里真实的 `z42` 重放每个 examples/**/*.console。SDK 用 artifacts/.z42：本地完整 gate
-    // 先建（apphost 发布 + 组装，warm ~25s）；--no-build（CI）消费前一步 `xtask build sdk` 的产物，缺失即红。
+    // 先建（apphost 发布 + 组装，warm ~25s）；--no-build（CI）消费前一步 `build toolchain` + `package dev-sdk`
+    // 的产物，缺失即红。
     if (!_skipHas(skip, "examples")) {
         swStage = _stageStart("examples (learn book transcripts)");
-        if (!noBuild) { c = _buildSdk("", false); if (c != 0) { return c; } }
+        if (!noBuild) {
+            c = _buildToolchain(); if (c != 0) { return c; }
+            c = _packageDevSdk(""); if (c != 0) { return c; }
+        }
         ExamplesOptions eo = new ExamplesOptions();
         eo.Filter = ""; eo.Sdk = ""; eo.BookOnly = false; eo.Bless = false; eo.Keep = false; eo.TimeoutS = 120;
         c = _testExamples(eo); if (c != 0) { return c; }
@@ -768,6 +773,13 @@ int _testAll(bool noBuild, string skip) {
         swStage = _stageStart("layout");
         c = _testLayout(); if (c != 0) { return c; }
         _stageEnd(slog, "layout", swStage);
+    }
+    // stage 14: versions.toml ↔ 投影文件（Cargo.toml / build.gradle.kts / Package.swift）一致。与机器无关的
+    // 纯文本比对（本机装没装齐是 `setup check` 的事）。Skippable: "versions"。
+    if (!_skipHas(skip, "versions")) {
+        swStage = _stageStart("versions");
+        c = _checkVersions(); if (c != 0) { return c; }
+        _stageEnd(slog, "versions", swStage);
     }
     Console.WriteLine("\n✅ GREEN — all stages passed");
     _stageSummary(slog, sw.Elapsed().TotalMilliseconds());

@@ -38,7 +38,7 @@ z42c 编译 526.5 / 531.2 ms，指令数只多 1.3%。所有跑 z42 代码的进
    tracing subscriber、运行时配置对 dylib 内部都不生效。要修就得把整个 main 搬进 lib。
 2. **mimalloc 丢失**：`#[global_allocator]` 只在 `main.rs`，管不到 dylib 内部的分配（实测 z42c 慢 14–20%）。
 3. **Linux TLS 变慢**：.so 里的 `thread_local!` 走 general-dynamic 模型，热路径大量用 TLS（TLAB、SATB、safepoint、帧池）。
-4. **不再是单文件**：`build sdk`、CI 产物、`Z42_PORTABLE_VM`、apphost、`build.rs` 的 `find_z42vm` 都假设单个 z42vm。
+4. **不再是单文件**：`package dev-sdk`、CI 产物、`Z42_PORTABLE_VM`、apphost、`build.rs` 的 `find_z42vm` 都假设单个 z42vm。
 5. **平台细节**：Windows 加载器不搜 `native\`；Linux 要 rpath `$ORIGIN/../native`。
 6. **版本耦合**：`bin/` 与 `native/` 可以被分别替换，需要 build-id 握手。
 
@@ -75,7 +75,7 @@ graph LR
 
 > 🔴 **没有暂存根**：组件不先产出到 `artifacts/publish/<comp>/` 再整目录拷进包，而是直接发布进包目录。理由：
 > ① 固定形态组件本来就是从构建产物拷出来的，暂存只是多拷一遍；apphost 组件的 publish **不清空** `--output`，
-> 各落各的 `bin/<名>` + `programs/<名>/`，可以直接发布进包目录；② ios / wasm / android 打包与 `build sdk` 都直接往包目录写，两套做法并存没有必要；③ apphost 组件的工程路径
+> 各落各的 `bin/<名>` + `programs/<名>/`，可以直接发布进包目录；② ios / wasm / android 打包与 `package dev-sdk` 都直接往包目录写，两套做法并存没有必要；③ apphost 组件的工程路径
 > 若在清单与打包代码里各写一份会漂移，所以只读清单的 `project`。runtime 包与 sdk 共享 stdlib 与 ext 动态库，
 > 各自从同一份构建产物装，字节一致。
 
@@ -187,12 +187,12 @@ graph LR
 | desktop 管道 | `xtask_package_desktop.z42` | SDK 分段组装 |
 | 移动 / 浏览器管道 | `xtask_package_{ios,android,wasm}.z42` | native 产物 + 平台 facade（SwiftPM / Gradle / npm）|
 | 能力 workload | `xtask_package_test.z42` | 见 §4 |
-| 发布归档 / 索引 | `xtask_release.z42` | `package archive`（包目录 → 归档，命名规则唯一出处）、`package finalize`（合并 desktop workload → `SHA256SUMS` → `release-index.json`，launcher 的供给契约）|
-| 自检 | `xtask_selfcheck_*.z42`，入口 `xtask package check` | 解析 / 组件安装 / 发布归档三层各一个 harness，一条命令顺序跑完 |
+| 发布归档 / 索引 | `xtask_release.z42` | 打包命令的 `--archive`（本次产出的包目录 → 同目录下的归档，命名规则唯一出处）、`package finalize`（合并 desktop workload → `SHA256SUMS` → `release-index.json`，launcher 的供给契约）|
+| 自检 | `xtask_selfcheck_*.z42`，入口 `xtask check packages` | 解析 / 组件安装 / 发布归档三层各一个 harness，一条命令顺序跑完 |
 
 ## 7. 边界与限制
 
 - 组件落点全局唯一，无 per-package dest override（真需要时再引入）。
 - `workload-desktop` 单机只产 host RID，四 RID 的合并发生在 CI（`package finalize <label>` 的第一步）。
-- 发行包正确性的端到端验证依赖 `xtask package verify`，它需要先打 host-RID 包**加 desktop workload**——
+- 发行包正确性的端到端验证依赖 `xtask test package`，它需要先打 host-RID 包**加 desktop workload**——
   apphost 那条腿的 stub 模板来自 workload 包的 `apphost-<rid>`，SDK 包按设计不带它。

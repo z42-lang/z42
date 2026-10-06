@@ -1,0 +1,119 @@
+// xtask — `check versions`：versions.toml ↔ 它的「投影」文件一致（漂移即红）。
+//
+// 版本号的唯一真相源是 scripts/versions.toml；有几处文件格式所限只能各写一份副本（投影）：
+//   src/runtime/Cargo.toml [workspace.package].version   ← [project].version
+//   android build.gradle.kts minSdk / compileSdk          ← [platform.android]
+//   ios harness Package.swift .iOS / .macOS               ← [platform.ios]
+// 纯文本比对、与机器无关（不看装了什么）——所以它是 `xtask check` 的一项、GREEN gate 的一个 stage；
+// 「本机装没装齐」是另一回事，在 `xtask setup check`。scalar 解析复用 common/xtask_versions.z42 的 _scalarStr。
+namespace Z42Xtask;
+
+using Std.IO;
+using Std.Toml;
+using Std.Regex;
+
+int _checkVersions() {
+    string root = _root();
+    string tomlPath = _versionsPath(root);
+    if (!File.Exists(tomlPath)) {
+        ConsoleError.WriteLine("error: versions.toml not found at " + tomlPath);
+        return 2;
+    }
+    TomlValue toml = TomlValue.Parse(File.ReadAllText(tomlPath));
+    string cargoText = File.ReadAllText(Path.Join(root, _runtimeManifest()));
+    string wantVer = _scalarStr(toml.Get("project").Get("version"));
+    string gotVer  = _extractCargoWorkspaceVersion(cargoText);
+    int fail = _check("src/runtime/Cargo.toml [workspace.package].version", wantVer, gotVer);
+    fail = fail + _checkAndroidProjectionDrift(root, toml);
+    fail = fail + _checkIosProjectionDrift(root, toml);
+    if (fail > 0) {
+        ConsoleError.WriteLine("error: versions.toml drift detected — update the source files to match versions.toml");
+        ConsoleError.WriteLine("       See versions.toml → field comments (→ filename) for which file to fix.");
+        return 1;
+    }
+    Console.WriteLine("✅ versions.toml projections agree");
+    return 0;
+}
+
+// ── 平台投影 drift（versions.toml ↔ 源文件；单实现 SoT）──────────────────────
+
+int _checkAndroidProjectionDrift(string root, TomlValue toml) {
+    string gradleText = File.ReadAllText(Path.Join(root, "src/toolchain/workload/android/platform/z42vm/build.gradle.kts"));
+    int fail = 0;
+    string wantMin = _scalarStr(toml.Get("platform").Get("android").Get("min_api"));
+    string gotMin  = _firstMatchGroup(gradleText, "minSdk\\s*=\\s*([0-9]+)", 1);
+    fail = fail + _check("build.gradle.kts  minSdk", wantMin, gotMin);
+    string wantTgt = _scalarStr(toml.Get("platform").Get("android").Get("target_api"));
+    string gotTgt  = _firstMatchGroup(gradleText, "compileSdk\\s*=\\s*([0-9]+)", 1);
+    fail = fail + _check("build.gradle.kts  compileSdk", wantTgt, gotTgt);
+    return fail;
+}
+
+// iOS 锚点：committed host harness 的 Package.swift（`swift test` 用）。SDK 包的
+// Package.swift 由 xtask_package_ios.z42 运行期从 versions.toml 生成（结构上不可能
+// drift），故唯一残留的硬编码投影是这份 harness——drift 检查钉在它上面
+// （migrate-scripts-to-z42, 2026-06-04 锚点迁移史见 git）。
+int _checkIosProjectionDrift(string root, TomlValue toml) {
+    string pkgSwiftText = File.ReadAllText(Path.Join(root, "src/toolchain/workload/ios/platform/Package.swift"));
+    int fail = 0;
+    string wantIos = _scalarStr(toml.Get("platform").Get("ios").Get("min_ios"));
+    string gotIos  = _firstMatchGroup(pkgSwiftText, "\\.iOS\\(\\.v([0-9]+)\\)", 1) + ".0";
+    fail = fail + _check("ios/Package.swift  .iOS(.v<major>)", wantIos, gotIos);
+    string wantMac = _scalarStr(toml.Get("platform").Get("ios").Get("min_macos"));
+    string gotMac  = _firstMatchGroup(pkgSwiftText, "\\.macOS\\(\\.v([0-9]+)\\)", 1) + ".0";
+    fail = fail + _check("ios/Package.swift  .macOS(.v<major>)", wantMac, gotMac);
+    return fail;
+}
+
+// ── 输出与解析助手 ────────────────────────────────────────────────────────────
+
+// 同 bash check()：want == got → ✓，否则 ✗ + 计 1 失败。
+int _check(string desc, string want, string got) {
+    if (want == got) {
+        Console.WriteLine("  ✓ " + _padRight(desc, 50) + " " + got);
+        return 0;
+    } else {
+        ConsoleError.WriteLine("  ✗ " + _padRight(desc, 50) + " want=" + want + " got=" + got);
+        return 1;
+    }
+}
+
+// 左对齐到 width 列；超长不截断。
+string _padRight(string s, int width) {
+    if (s.Length >= width) { return s; }
+    string acc = s;
+    int n = width - s.Length;
+    int i = 0;
+    while (i < n) { acc = acc + " "; i = i + 1; }
+    return acc;
+}
+
+// _scalarStr 现由 shared xtask_versions.z42 提供（同 Z42Xtask 命名空间）。
+
+// 第一个 regex match 的指定 group；找不到返回 ""（同 bash `head -1` 失败时空）。
+string _firstMatchGroup(string text, string pattern, int groupIdx) {
+    Regex r = Regex.Compile(pattern);
+    Match m = r.Find(text);
+    if (m == null) { return ""; }
+    return m.Group(groupIdx);
+}
+
+// 等价 bash awk 块：找到 [workspace.package] section，取该 section 内第一个
+// `version = "..."` 行。section 边界由 `[...]` 起始的下一行决定。
+string _extractCargoWorkspaceVersion(string cargoText) {
+    string[] lines = cargoText.Split("\n");
+    Regex verLine = Regex.Compile("^\\s*version\\s*=\\s*\"([^\"]+)\"");
+    bool inSection = false;
+    int i = 0;
+    while (i < lines.Length) {
+        string line = lines[i];
+        if (line.StartsWith("[workspace.package]")) { inSection = true; i = i + 1; continue; }
+        if (line.StartsWith("[")) { inSection = false; i = i + 1; continue; }
+        if (inSection) {
+            Match m = verLine.Find(line);
+            if (m != null) { return m.Group(1); }
+        }
+        i = i + 1;
+    }
+    return "";
+}

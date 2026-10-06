@@ -36,6 +36,7 @@ int _pkgFinish(string root, string pkgDir) {
     if (c != 0) { ConsoleError.WriteLine("  ✗ source-identity check FAILED"); return c; }
     Console.WriteLine("");
     Console.WriteLine("✅ Package assembled: " + pkgDir);
+    PackageOutputs.Note(pkgDir);
     return 0;
 }
 
@@ -95,7 +96,7 @@ int _packageWorkloadBuild(string rid, string profile) {
     return c;
 }
 
-// Full host package (SDK + runtime + workload) — internal helper for `package verify`
+// Full host package (SDK + runtime + workload) — internal helper for `test package`
 // (needs a complete host release package). NOT a command anymore; the command layer
 // uses the split _packageSdk / _packageRuntime / _packageWorkloadBuild.
 int _buildPackageCore(string profile, string rid, string variant, bool noBuild) {

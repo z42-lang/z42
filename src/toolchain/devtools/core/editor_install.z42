@@ -6,7 +6,7 @@
 //       → z42d install vscode               拷到 ~/.vscode/extensions/z42.z42-lang/
 //
 // 为什么装到**用户级**而不是仓库本地：SDK 用户没有「仓库」这个概念。仓库开发者另有一条
-// `xtask deps install vscode`——那条会先经 `z42c --dump-keywords` 重新生成 tmLanguage
+// `xtask setup vscode`——那条会先经 `z42c --dump-keywords` 重新生成 tmLanguage
 // （SDK 里没有生成器，只有生成好的产物），再转发到这里。
 //
 // 加一个编辑器目标 = 在 _targetNames() / _destFor() 各加一行 + 在仓库里放好资产目录 + packages.toml 的
@@ -36,7 +36,7 @@ public static class EditorInstall {
         if (!Directory.Exists(src)) {
             ConsoleError.WriteLine("z42d install: editor assets not found at " + src);
             ConsoleError.WriteLine("       this SDK was packaged without the editor assets;");
-            ConsoleError.WriteLine("       reinstall the SDK, or run `xtask deps install " + target + "` in a z42 checkout");
+            ConsoleError.WriteLine("       reinstall the SDK, or run `xtask setup " + target + "` in a z42 checkout");
             return 1;
         }
 

@@ -1,0 +1,219 @@
+// xtask — 开发态的两种组装（tidy-xtask-cli, 2026-10-06 从 build 族挪来）：
+//   package dev-sdk          已编好的工具链 → `.z42` SDK 布局（默认 artifacts/.z42；`--toolchain` / 学习手册示例消费）
+//   package ci               已建好的构建树的 zpkg 快照（仓库相对路径）→ CI 的 `toolchain-<os>` artifact，
+//                            下游 job 原地还原即得一棵 warm 构建树
+// 两者**只组装、不编译**：缺什么产物就报错并点名该跑哪条 `xtask build …`。编译步骤全在 build 族
+// （`build compiler` / `build stdlib` / `build runtime` / `build toolchain`）。
+namespace Z42Xtask;
+
+using Std.IO;
+using Std.Time;
+
+// ── package dev-sdk ──────────────────────────────────────────────────────────
+
+// `package dev-sdk [--out <dir>]` — assemble the current toolchain into a `.z42` layout
+// consumable by `--toolchain <dir>`:
+//   <out>/programs/z42c/*.zpkg   (z42c members)
+//   <out>/libs/*.zpkg + *.zsym   (stdlib flat)
+//   <out>/bin/z42vm[.exe]        (host VM)
+//   <out>/bin/{z42,z42c,z42b,z42d,z42i} + programs/<app>/   (apphosts, from each toml's publish_dir)
+// Default --out = artifacts/.z42 (the local SDK set). outOpt is the raw `--out` value
+// ("" = default); a relative value resolves against repo root.
+//
+// 前置（缺即红）：`build compiler`（z42c 各成员 release dist）+ `build stdlib`（flat）+ release z42vm。
+// apphost 是**可选**的：没跑过 `build toolchain` 时只出编译工具链布局（CI 的 compile-test-assets 就是这种），
+// 跳过的会列出来；要可运行的完整 SDK（带 launcher）先 `xtask build toolchain`。
+int _packageDevSdk(string outOpt) {
+    string root = _root();
+    Stopwatch sw = _procStart("package dev-sdk");
+    string outDir = outOpt;
+    if (outOpt.Length == 0) { outDir = _devSdkDir(root); }
+    else if (!Path.IsRooted(outOpt)) { outDir = Path.Join(root, outOpt); }
+
+    string cargoOut = _runtimeOut(root, "release");
+    string vmName = Platform.IsWindows() ? "z42vm.exe" : "z42vm";
+    if (_devSdkMissing(_driverZpkg(root, "release"), "build compiler")
+        || _devSdkMissing(Path.Join(_libsDir(root), "z42.core.zpkg"), "build stdlib")
+        || _devSdkMissing(Path.Join(cargoOut, vmName), "build runtime")) {
+        return 1;
+    }
+
+    // reset for a clean SDK — no stale members.
+    Console.WriteLine("package dev-sdk -> " + outDir);
+    _resetDir(outDir);
+
+    string z42cDir = Path.Join(Path.Join(outDir, "programs"), "z42c");
+    Directory.Create(z42cDir);
+    string[] members = _compilerMembers(root);
+    int i = 0;
+    while (i < members.Length) {
+        string m = members[i];
+        string distDir = _compilerMemberDist(root, m, "release");
+        _copyIfExists(Path.Join(distDir, m + ".zpkg"), Path.Join(z42cDir, m + ".zpkg"));
+        _copyIfExists(Path.Join(distDir, m + ".zsym"), Path.Join(z42cDir, m + ".zsym"));
+        i = i + 1;
+    }
+    Console.WriteLine("  ✓ programs/z42c/ (" + members.Length.ToString() + " pkgs)");
+
+    Directory.Create(Path.Join(outDir, "libs"));
+    int c = _pkgCopyLibs(_libsDir(root), outDir); if (c != 0) { return c; }
+    Console.WriteLine("  ✓ libs/ (stdlib)");
+
+    // 注：**没有独立的 `compiler-libs/`**（relocate-compiler-domain-libs，2026-09-27）——编译期扩展的
+    // 解析域就是上面的 `programs/z42c/`，z42c 侧由 `_compilerDomainDirs()` 探它。
+    string binDir = Path.Join(outDir, "bin");
+    Directory.Create(binDir);
+    _copyIfExists(Path.Join(cargoOut, vmName), Path.Join(binDir, vmName));
+    _makeExe(Path.Join(binDir, "z42vm"));
+    Console.WriteLine("  ✓ bin/" + vmName);
+
+    _devSdkMergeApphosts(root, outDir);
+    _procEnd("package dev-sdk", sw);
+    return 0;
+}
+
+bool _devSdkMissing(string path, string buildCmd) {
+    if (File.Exists(path)) { return false; }
+    ConsoleError.WriteLine("package dev-sdk: 缺 " + path + " —— 先跑 xtask " + buildCmd);
+    return true;
+}
+
+// z42c + 4 个工具链 apphost 的 publish_dir 树（bin apphost + programs payload，布局按各自 toml）
+// 合进 SDK。publish_dir 从 toml 读（SoT）。没发布过的跳过并列出（见 _packageDevSdk 头注）。
+void _devSdkMergeApphosts(string root, string outDir) {
+    string[] tc4 = _toolchainApphostTomls();
+    string[] tomls = new string[tc4.Length + 1];
+    tomls[0] = _z42cDriverToml();
+    int k = 0;
+    while (k < tc4.Length) { tomls[k + 1] = tc4[k]; k = k + 1; }
+    int merged = 0;
+    string skipped = "";
+    int i = 0;
+    while (i < tomls.Length) {
+        string pub = _desktopPublishDir(root, tomls[i]);
+        if (Directory.Exists(pub)) {
+            _vNormal("  dev-sdk: merge apphost ← " + pub);
+            Directory.Copy(pub, outDir, true);
+            merged = merged + 1;
+        } else {
+            skipped = skipped.Length == 0 ? _rootRel(root, pub) : skipped + ", " + _rootRel(root, pub);
+        }
+        i = i + 1;
+    }
+    Console.WriteLine("  ✓ apphosts: " + merged.ToString() + "/" + tomls.Length.ToString() + " merged from publish_dir");
+    if (skipped.Length > 0) {
+        Console.WriteLine("  - not published (skipped; run `xtask build toolchain` for a runnable SDK): " + skipped);
+    }
+}
+
+// ── package ci (script-zero: replaces scripts/ci-stage-toolchain.sh) ──────────────
+// Stage ONLY the .zpkg/.zsym products (z42c per-member dist + stdlib flat dist +
+// per-member dist + xtask.zpkg) into <dest> for upload as the `toolchain-<os>` CI
+// artifact. NOT z42vm or cargo intermediates — consuming jobs cargo-build their
+// own host z42vm. Byte-for-byte the same layout the former bash script produced.
+int _packageCi(string dest) {
+    if (dest.Length == 0) {
+        ConsoleError.WriteLine("usage: xtask package ci <dest-dir>");
+        return 2;
+    }
+    string root = _root();
+    Stopwatch sw = _procStart("package ci");
+    // 1. stdlib flat dist (Z42_LIBS lookup): every file in dist/release/
+    string flatSrc = _libsDir(root);
+    string flatDst = Path.Join(dest, _rootRel(root, flatSrc));
+    Directory.Create(flatDst);
+    string[] flat = Path.Glob(flatSrc, "*");
+    int fi = 0;
+    while (fi < flat.Length) {
+        _copyIfExists(flat[fi], Path.Join(flatDst, Path.GetFileName(flat[fi])));
+        fi = fi + 1;
+    }
+    // 2. stdlib per-member dist (warm-seed self-build inputs)
+    _stageMembers(_libsBuildRoot(root), dest, _rootRel(root, _libsBuildRoot(root)));
+    // 3. z42c compiler per-member dist (7 zpkgs incl z42c.driver.zpkg = warm seed)
+    _stageMembers(_compilerBuildRoot(root), dest, _rootRel(root, _compilerBuildRoot(root)));
+    // 4. xtask dev CLI —— **整目录拷，不能只拷 .zpkg**。
+    //
+    // 🔴 侧车（`xtask.runtimeconfig.toml`）承载 `[runtime]` 的声明，其中包括
+    // `probing-paths`（relocate-compiler-domain-libs 给 xtask 加的编译器域搜索路径）。
+    // 只拷 zpkg ⇒ **声明在 artifact 里丢失** ⇒ 消费方（`xtask-bootstrap-artifact` 还原后
+    // 跑 xtask 的那些 job：test-stdlib-interp / test-stdlib-jit / …）当场
+    // `MissingSymbolException: Z42.Project.ManifestLoader.LoadWorkspace`。实测踩到（#921 三轮 CI）。
+    // 同 z42b（第 5 步）一直是整目录拷 —— 这里少的正是那一步的等价物。
+    string xtSrc = Path.GetDirectoryName(_xtaskZpkg(root));
+    string xtDst = Path.Join(dest, _rootRel(root, xtSrc));
+    Directory.Create(xtDst);
+    string[] xtFiles = Path.Glob(xtSrc, "*");
+    int xi2 = 0;
+    while (xi2 < xtFiles.Length) {
+        // ⚠️ glob 也会返回**目录**（这里有个 `.cache/`）—— 拷目录当文件会抛。只拷文件。
+        if (!Directory.Exists(xtFiles[xi2])) {
+            _copyIfExists(xtFiles[xi2], Path.Join(xtDst, Path.GetFileName(xtFiles[xi2])));
+        }
+        xi2 = xi2 + 1;
+    }
+    // 5. z42b（z42.builder.zpkg）—— 单-target 执行器（unify-test-pipeline-z42b）。
+    //
+    // 为什么必须进这个 artifact：`test app desktop` / `test app {ios,android}`
+    // 都经 _z42bDevice 调 z42b，而消费方（tier-2 的 test-ios/test-android 等）只
+    // 跑 xtask-bootstrap-artifact —— 它只还原 stdlib + z42c + xtask。此前 z42b 既
+    // 不在 artifact 里、CI 也从没有一个 `build toolchain` 步骤去建它，于是那些 job
+    // 恒定死在 `error: z42b (z42.builder.zpkg) not built`。因为 tier-2 是 nightly-only
+    // （PR 上 skip），这个洞在 nightly 里连红了很多晚都没人看见。
+    // 建一次、随 artifact 分发给所有消费方，比让每个 job 各自 `build toolchain` 便宜得多
+    // （后者还要重编 workload + apphost stub + 5 个 apphost publish）。
+    // 只组装：z42b 由前一步 `xtask build toolchain z42b` 按当前 z42c 编好（格式须与 z42c 一致，见 _ensureZ42b）。
+    if (!File.Exists(_toolchainZpkg(root, _z42bToml()))) {
+        ConsoleError.WriteLine("package ci: z42b 未编（" + _toolchainZpkg(root, _z42bToml())
+            + "）—— 先跑 xtask build toolchain z42b");
+        return 1;
+    }
+    // 目标位置 = z42b toml 解析出的 dist 目录相对仓库根的同一位置（不写死）。
+    string bSrc = Path.GetDirectoryName(_toolchainZpkg(root, _z42bToml()));
+    if (_rootRel(root, bSrc).Length == 0) {
+        ConsoleError.WriteLine("package ci: z42b dist 不在仓库内（" + bSrc + "），无法按相对位置暂存");
+        return 1;
+    }
+    string bDst = Path.Join(dest, _rootRel(root, bSrc));
+    Directory.Create(bDst);
+    string[] bFiles = Path.Glob(bSrc, "*");
+    int bi = 0;
+    while (bi < bFiles.Length) {
+        // 只拷产物文件、不拷子目录：dist 里可能有按 rid 分的 native 子目录（hooks 产出），
+        // 那些不属于 z42b 运行所需（历史上 dist_dir == output_dir 时这里还混着 .cache/）。
+        if (Directory.Exists(bFiles[bi])) { bi = bi + 1; continue; }
+        _copyIfExists(bFiles[bi], Path.Join(bDst, Path.GetFileName(bFiles[bi])));
+        bi = bi + 1;
+    }
+    Console.WriteLine("staged toolchain -> " + dest);
+    _procEnd("package ci", sw);
+    return 0;
+}
+
+// Copy <baseSrc>/<m>/release/dist/*.{zpkg,zsym} → <dest>/<relBase>/<m>/release/dist/
+// for every member dir <m> that has a release/dist (the flat `dist` dir has none).
+void _stageMembers(string baseSrc, string dest, string relBase) {
+    if (!Directory.Exists(baseSrc)) { return; }
+    string[] members = _enumDirsSorted(baseSrc);
+    int i = 0;
+    while (i < members.Length) {
+        string m = members[i];
+        string srcDist = Path.Join(Path.Join(baseSrc, m), "release/dist");
+        if (Directory.Exists(srcDist)) {
+            string dstDist = Path.Join(Path.Join(Path.Join(dest, relBase), m), "release/dist");
+            Directory.Create(dstDist);
+            _stageCopyExt(srcDist, dstDist, "*.zpkg");
+            _stageCopyExt(srcDist, dstDist, "*.zsym");
+        }
+        i = i + 1;
+    }
+}
+
+void _stageCopyExt(string srcDir, string dstDir, string pattern) {
+    string[] fs = Path.Glob(srcDir, pattern);
+    int i = 0;
+    while (i < fs.Length) {
+        _copyIfExists(fs[i], Path.Join(dstDir, Path.GetFileName(fs[i])));
+        i = i + 1;
+    }
+}

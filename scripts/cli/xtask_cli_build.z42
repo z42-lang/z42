@@ -5,6 +5,7 @@
 // 跨文件裸名互调；xtask_cli.z42 的 _cliRoot / _dispatch 是唯一的挂载点。
 namespace Z42Xtask;
 
+using Std.IO;
 using Std.Cli;
 
 SubcommandRouter _buildRouter() {
@@ -16,17 +17,11 @@ SubcommandRouter _buildRouter() {
     ArgParser stdlib = new ArgParser("xtask build stdlib", "build stdlib (all)");
     stdlib.AddOptionalPositional("lib", "(currently builds all)");
     b.Add("stdlib", "build stdlib -> build/libraries/<lib> + flat view", stdlib);
-    ArgParser sdk = new ArgParser("xtask build sdk", "assemble current toolchain into a .z42 layout (--toolchain consumable)");
-    sdk.AddOption("out", "", "output dir (default: artifacts/.z42)", "");
-    sdk.AddFlag("no-build", "", "assemble from existing artifacts (skip rebuild; for CI warm)");
-    b.Add("sdk", "assemble .z42 toolchain (programs/z42c + libs + bin)", sdk);
-    ArgParser stage = new ArgParser("xtask build stage-toolchain", "stage z42c+stdlib+xtask zpkgs → <dest> for the CI toolchain-<os> artifact");
-    stage.AddOptionalPositional("dest", "destination dir (required)");
-    b.Add("stage-toolchain", "stage toolchain zpkgs → <dest> (CI artifact)", stage);
     b.Add("workload", "build toolchain workload libs (src/toolchain/workload)",
         new ArgParser("xtask build workload", "build workload libs (desktop/ios/android/wasm)"));
-    b.Add("toolchain", "publish toolchain apphosts (launcher/z42b/z42d/z42i)",
-        new ArgParser("xtask build toolchain", "publish toolchain apphosts → each toml's publish_dir"));
+    ArgParser tc = new ArgParser("xtask build toolchain", "publish toolchain apphosts → each toml's publish_dir");
+    tc.AddOptionalPositional("component", "z42b = only (re)build the z42b builder zpkg, no apphost publish (default: all apphosts)");
+    b.Add("toolchain", "publish toolchain apphosts (z42/z42c/z42b/z42d/z42i); `toolchain z42b` = builder only", tc);
     b.Add("test", "compile golden test assets (src/tests → .zbc mirror)",
         new ArgParser("xtask build test", "compile golden test assets (= regen golden, deps build-if-missing)"));
     b.Add("all", "runtime + compiler + stdlib",
@@ -39,15 +34,22 @@ int _dispatchBuild(string[] p, ParseResult r) {
     if (sub == "runtime")      { return _buildRuntime(); }
     if (sub == "compiler")     { return _buildCompiler(); }   // z42 自举编译器（src/compiler）
     if (sub == "stdlib")       { return _buildStdlib(); }
-    if (sub == "sdk")          { return _buildSdk(r.GetOption("out"), r.GetFlag("no-build")); }
-    if (sub == "stage-toolchain") { return _stageToolchain(r.GetPositional(0)); }
     if (sub == "workload")     { return _buildWorkload(); }   // src/toolchain/workload libs
-    if (sub == "toolchain")    { return _buildToolchain(); }  // publish apphosts → toml publish_dir (含旧 build launcher 的 apphost stub)
+    if (sub == "toolchain")    { return _buildToolchainCmd(r.GetPositional(0)); }  // publish apphosts → toml publish_dir
     if (sub == "test")         { return _buildTest(); }       // 编译 golden 测试资产（src/tests → .zbc）
     if (sub == "all") {
         int c = _buildRuntime();  if (c != 0) { return c; }
         return _buildStdlib();    // builds z42c (self-build) + stdlib; a trailing
                                   // _buildCompiler would be a redundant gen2.
     }
+    return 2;
+}
+
+// `build toolchain [z42b]`：不带 component = 全部 apphost；`z42b` = 只按当前 z42c 编 z42b（CI 暂存
+// toolchain artifact 前用，不必付 workload + apphost publish 的代价）。
+int _buildToolchainCmd(string component) {
+    if (component == "")     { return _buildToolchain(); }
+    if (component == "z42b") { return _ensureZ42b(_root()); }
+    ConsoleError.WriteLine("xtask build toolchain: unknown component '" + component + "' (z42b; none = all apphosts)");
     return 2;
 }

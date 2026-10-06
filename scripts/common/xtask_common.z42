@@ -657,8 +657,8 @@ int _ensureSeed(string root) {
 
 // stdlib flat dist (= the Z42_LIBS value the compiler + VM load stdlib from):
 //   artifacts/intermediate/libraries/flat/release.
-// This is the CANONICAL build-tree path — where producer commands (build stdlib /
-// build sdk) WRITE. Consumer commands (test) that should READ from an active
+// This is the CANONICAL build-tree path — where the producer command (build stdlib)
+// WRITES. Consumer commands (test) that should READ from an active
 // `--toolchain` use _activeLibsDir() instead (which falls back here when unset).
 // ⚠️ scripts/hooks/hooks.z42（embed-libs）另写了一份（hooks 工程调不到本函数），改这里要同步。
 string _libsDir(string root) {

@@ -11,16 +11,16 @@
 
 ## 1. 命令树
 
-顶层十一个命令，`xtask -h` 打印的就是这棵树的根：
+顶层十个命令，`xtask -h` 打印的就是这棵树的根：
 
 | 命令 | 管什么 |
 |---|---|
-| `build` | 编译各组件：`runtime` / `compiler` / `stdlib` / `sdk` / `stage-toolchain` / `workload` / `toolchain` / `test` / `all` |
-| `package` | 组装发行包：`sdk` / `runtime` / `workload` / `index` / `archive` / `finalize`；打包自己的验证：`check`（packages.toml 自检）/ `verify`（拿打包出的发行版跑发行包夹具 + golden）（见[打包引擎](packaging.md)）|
-| `test` | 跑用例，按「契约属于谁」分：`e2e` / `stdlib` / `compiler` / `toolchain` / `runtime` / `app` / `docs`，外加 `changed`、`list`；裸 `test [--no-build] [--skip …]` = 完整 GREEN gate（见[怎么跑测试](testing.md)、[测试门禁](test-gate.md)）|
-| `check` | 不编译、不跑用例的静态检查：`vscode-syntax` / `lines` / `walkers` / `diagcodes` / `stage2` / `ci-shell` / `proc-env` / `layout`；不带名字 = 全跑并汇总（`--update` 重写 lines / diagcodes / stage2 的棘轮基线）|
+| `build` | **编译**各组件：`runtime` / `compiler` / `stdlib` / `workload` / `toolchain [z42b]` / `test` / `all` |
+| `package` | **组装**（只把已编好的产物摆成某种布局，缺产物即报错并点名该跑的 `build`）：发行包 `sdk` / `runtime` / `workload`（都可带 `--archive [--label L]` 同时出发布归档）、开发态 `dev-sdk`（`.z42` SDK 布局）/ `ci`（已建好构建树的 zpkg 快照，CI 的 `toolchain-<os>` artifact）、发布汇总 `finalize`（见[打包引擎](packaging.md)）|
+| `test` | 跑用例，按「契约属于谁」分：`e2e` / `stdlib` / `compiler` / `toolchain` / `runtime` / `app` / `docs` / `package`（打包出的发行版），外加 `changed`、`list`；裸 `test [--no-build] [--skip …]` = 完整 GREEN gate（见[怎么跑测试](testing.md)、[测试门禁](test-gate.md)）|
+| `check` | 不编译、不跑用例的静态检查：`vscode-syntax` / `lines` / `walkers` / `diagcodes` / `stage2` / `ci-shell` / `proc-env` / `layout` / `versions`；不带名字 = 全跑并汇总（`--update` 重写 lines / diagcodes / stage2 的棘轮基线）。另有按需单跑的 `packages`（packages.toml 自检，要碰构建产物，不在全跑里）|
 | `bench` | 基准；裸 `bench` = e2e 场景（见[性能基准与回归门禁](benchmarking.md)）|
-| `deps` | 工具链依赖：`check` / `install` / `env` |
+| `setup` | 准备本机：裸 `setup [--os android\|ios\|wasm] [--force]` = 安装，`setup vscode` = 编辑器扩展，`setup check` = 只读在场校验（见 §6）|
 | `profile` | 对单个 `.z42` 脚本做 cpu / heap / threads / e2e 剖析 |
 | `clean` | 删构建产物（`tests` / `bench` / `intermediate` / `all`，默认删生产 cache/dist；各自删什么见[产物目录布局](artifacts-layout.md) §4）|
 | `layout` | 打印产物布局路径：无参列出全部 `key  path`，`layout <key>` 只打印一条（给 CI / 脚本查询，见[产物目录布局](artifacts-layout.md)）|
@@ -90,7 +90,7 @@ scripts/cli/xtask_cli_build.z42    _buildRouter    + _dispatchBuild
 scripts/cli/xtask_cli_package.z42  _packageRouter  + _dispatchPackage
 scripts/cli/xtask_cli_test.z42     _testRouter     + _dispatchTest
 scripts/cli/xtask_cli_check.z42    _checkParser    + _check（静态检查的单跑入口；GREEN 里它们仍各是一个 stage）
-scripts/cli/xtask_cli_deps.z42     _depsRouter     + _dispatchDeps
+scripts/cli/xtask_cli_setup.z42    _setupRouter    + _dispatchSetup + 裸 setup 的安装入口
 scripts/cli/xtask_cli_bench.z42    _benchRouter    + _dispatchBench + 裸 bench 的 e2e 入口
 ```
 
@@ -140,11 +140,11 @@ graph TD
 为什么种子必须存在、新语法为什么要晚一个 nightly 才能用，见
 [自举与种子纪律](https://github.com/z42-lang/z42/blob/main/docs/agent/rules/bootstrap-seed.md)与[编译器自举](../compiler/self-hosting.md)。
 
-## 6. `deps`：依赖的两层模型
+## 6. `setup`：依赖的两层模型
 
 工具链依赖按「没有它，那个平台的构建/测试能不能跑」分两层：
 
-- **平台必备**——`deps install --os <p>` 显式装。android = rust targets + cargo-ndk + JDK +
+- **平台必备**——`setup --os <p>` 显式装。android = rust targets + cargo-ndk + JDK +
   build-tier SDK；ios = rust targets + Xcode 检查；wasm = rust targets + wasm-pack + hermetic node。
   **无 `--os` = 只管当前 host 的基础**，不铺开装交叉栈（交叉平台栈一律显式 opt-in）。
 - **用到才装**——重型 / 兜底依赖零命令面，消费步骤检测到缺失后自动装：android emulator tier
@@ -154,16 +154,20 @@ graph TD
 下载来的东西一律落 `artifacts/tools/`（如 `artifacts/tools/node`、`artifacts/tools/android-sdk`），
 不碰系统 PATH，见[产物目录布局](artifacts-layout.md)。
 
-命令面是三个正交子命令：
+命令面：
 
-| 子命令 | 语义 | 退出码策略 |
+| 命令 | 语义 | 退出码策略 |
 |---|---|---|
-| `deps check [--os]` | 唯一的只读校验 = presence + `versions.toml` ↔ 投影 drift | **drift 恒致败**（与机器无关）；**presence 仅在显式 `--os <p>` 时致败** |
-| `deps install [--os] [--force]` | 纯安装 | 失败即失败 |
-| `deps env` | 打印可 `eval` 的导出（`ANDROID_NDK_HOME` 等） | stdout 保持纯净 |
+| `setup [--os] [--force]` | 纯安装 | 失败即失败 |
+| `setup vscode` | 重新生成语法 + 把扩展链进工作区（主机集成，用户显式触发，见[编辑器集成](../toolchain/editor-integration.md)）| 失败即失败 |
+| `setup check [--os]` | 只读：本机依赖在不在、版本够不够 | **仅在显式 `--os <p>` 时致败**；裸跑只报告（没有平台 SDK 的机器缺这些是预期的） |
 
-presence 之所以默认不致败：CI 的通用 job 在没有平台 SDK 的 runner 上裸跑 `deps check` 当 **drift 门禁**，
-那里 presence 缺失是预期的，只作信息性展示。
+`versions.toml` ↔ 投影文件（`Cargo.toml` / `build.gradle.kts` / `Package.swift`）的漂移**与机器无关**，
+不归 setup，是静态检查 `xtask check versions`（也是 GREEN gate 的 `versions` stage）。
+
+没有「导出环境变量」的命令：xtask 自己解析 NDK / SDK 位置（`versions.toml` 的 `install_root`，
+`ANDROID_NDK_HOME` / `ANDROID_HOME` 可覆盖）并注入给它起的 cargo-ndk / gradle 子进程；`setup --os android`
+装完打印的 export 只给在 xtask 之外直接调这些工具的人用。
 
 ## 7. 边界
 

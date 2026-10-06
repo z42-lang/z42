@@ -25,8 +25,8 @@
 | 命令 | 产出 |
 |------|------|
 | `xtask build workload` | `workload/*` 各平台库 → stdlib libs dir（launcher 的依赖） |
-| `xtask build toolchain` | launcher/z42b/z42d/z42i 各 `publish <toml>` → **其 `[platform.desktop].publish_dir`**（native apphost + payload）；自动先 `build workload` |
-| `xtask build sdk` | 完整可运行 `.z42` SDK —— 把上述 apphost + z42c 从各 `publish_dir` 合并进 SDK |
+| `xtask build toolchain` | launcher/z42b/z42d/z42i（外加 z42c 驱动）各 `publish <toml>` → **其 `[platform.desktop].publish_dir`**（native apphost + payload）；自动先 `build workload` |
+| `xtask package dev-sdk` | 完整可运行 `.z42` SDK —— 只组装：把上述 apphost 从各 `publish_dir` 与已编好的 z42c / stdlib / z42vm 合进 SDK |
 
 **路径 SoT**：所有输出/publish 路径从各组件 `z42.toml` 读（`[build].dist_dir`/`output_dir`、`[platform.desktop].publish_dir`，级联默认 `${output_dir}/{dist,publish}`），xtask 不硬编码——改路径只动 toml。实现见 [`scripts/build/xtask_toolchain.z42`](../../scripts/build/xtask_toolchain.z42)。
 
@@ -38,7 +38,7 @@
 
 ```bash
 xtask build toolchain      # 各组件 publish 成功即编译通过
-xtask package verify            # 打包后 launcher / apphost 冒烟
+xtask test package            # 打包后 launcher / apphost 冒烟
 xtask test toolchain builder         # z42b 夹具
 ```
 

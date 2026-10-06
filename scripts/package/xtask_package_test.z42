@@ -44,5 +44,6 @@ int _buildTestWorkload(string root, string version, string profile) {
     m = m + "host-min-version = \"" + version + "\"\n";
     File.WriteAllText(Path.Join(pkgDir, "manifest.toml"), m);
     Console.WriteLine("      ✓ manifest.toml (workload payload — test, RID-agnostic)");
+    PackageOutputs.Note(pkgDir);
     return 0;
 }

@@ -34,7 +34,7 @@
 | 套件 | 夹具目录 | 命令 | 暂存位置 | 套件 README |
 |---|---|---|---|---|
 | z42c 命令行与构建行为 | `src/compiler/z42c.driver/tests/fixtures/cli/` | `xtask test compiler` | `artifacts/intermediate/` 下的镜像 | [cli/README.md](../../../../src/compiler/z42c.driver/tests/fixtures/cli/README.md) |
-| 发行包（打包出的 SDK） | `src/toolchain/launcher/tests/fixtures/package/` | `xtask package verify` | 系统临时目录（仓库外），全部通过后删除 | [package/README.md](../../../../src/toolchain/launcher/tests/fixtures/package/README.md) |
+| 发行包（打包出的 SDK） | `src/toolchain/launcher/tests/fixtures/package/` | `xtask test package` | 系统临时目录（仓库外），全部通过后删除 | [package/README.md](../../../../src/toolchain/launcher/tests/fixtures/package/README.md) |
 
 每个子目录是一个用例（有 `expect.toml` 才算），按目录名排序依次跑。套件 README 写本套件的工具表、占位符和环境约定；
 本页写所有套件共用的格式。

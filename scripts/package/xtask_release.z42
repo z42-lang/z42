@@ -1,7 +1,8 @@
-// xtask — release-archive assembly for `package workload <label>` (merge per-RID
-// pieces → one archive) + `package index` (release-index.json). Called from the
-// `package` router (_dispatchPackage). (Was scripts/xtask_release.z42; the standalone
-// `release` command was merged into `package` — merge-package-release, 2026-07-06.)
+// xtask — 发布归档：各打包命令的 `--archive`（包目录 → 归档）+ `package finalize`（合并 per-RID 桌面
+// workload → SHA256SUMS → release-index.json）。Called from the `package` router (_dispatchPackage).
+// (Was scripts/xtask_release.z42; the standalone `release` command was merged into `package` —
+// merge-package-release, 2026-07-06；独立的 `package archive` / `package index` 与 `workload <label>`
+// 合并模式 2026-10-06 收进 `--archive` / `finalize`，tidy-xtask-cli。)
 //
 // Release-time packaging glue, shared by release.yml (tagged) + ci.yml
 // publish-nightly (rolling). tar / unzip are driven as external subprocesses
@@ -12,17 +13,11 @@ using Std.IO;
 using Std.Json;
 using Std.Time;
 
-// `xtask package workload <LABEL> [<dist>]` (merge mode)
-// Merge the 4 per-RID desktop-workload pieces (each carries its apphost-<rid>)
+// finalize 第一步：merge the 4 per-RID desktop-workload pieces (each carries its apphost-<rid>)
 // into ONE RID-agnostic z42-workload-<LABEL>-desktop.tar.gz so any host can
 // `publish --rid <target>`. Removes the per-RID intermediates.
 int _releaseAssembleDesktop(string label, string dist) {
     Stopwatch sw = _procStart("release assemble-desktop-workload");
-    if (label.Length == 0) {
-        ConsoleError.WriteLine("usage: xtask package workload <LABEL> [dist]");
-        return 2;
-    }
-    if (dist.Length == 0) { dist = "dist"; }
     string root = _root();
     string distDir = Path.IsRooted(dist) ? dist : Path.Join(root, dist);
 
@@ -93,17 +88,11 @@ void _deleteGlob(string dir, string pattern) {
     while (i < hits.Length) { File.Delete(hits[i]); i = i + 1; }
 }
 
-// `xtask package index <LABEL> [<dist>] [<channel>] [<tag>] [<version>]`
-// Generate <dist>/release-index.json from <dist>/SHA256SUMS — the launcher's supply
+// finalize 第三步：generate <dist>/release-index.json from <dist>/SHA256SUMS — the launcher's supply
 // contract (`z42 workload install` and the install scripts read it). Shared by release.yml (tagged)
 // and ci.yml publish-nightly (rolling), so the schema lives in ONE place.
 int _releaseGenIndex(string label, string dist, string channel, string tag, string version) {
     Stopwatch sw = _procStart("release gen-release-index");
-    if (label.Length == 0) {
-        ConsoleError.WriteLine("usage: xtask package index <LABEL> [dist] [channel] [tag] [version]");
-        return 2;
-    }
-    if (dist.Length == 0)    { dist = "dist"; }
     if (channel.Length == 0) { channel = "stable"; }
     if (tag.Length == 0)     { tag = "v" + label; }
     if (version.Length == 0) { version = label; }
@@ -231,13 +220,13 @@ JsonValue _strArr1(string a) { JsonValue r = JsonValue.OfArray(); r.Add(JsonValu
 JsonValue _strArr2(string a, string b) { JsonValue r = JsonValue.OfArray(); r.Add(JsonValue.OfString(a)); r.Add(JsonValue.OfString(b)); return r; }
 JsonValue _strArr4(string a, string b, string c, string d) { JsonValue r = JsonValue.OfArray(); r.Add(JsonValue.OfString(a)); r.Add(JsonValue.OfString(b)); r.Add(JsonValue.OfString(c)); r.Add(JsonValue.OfString(d)); return r; }
 
-// ── `xtask package archive` / `xtask package finalize`（unify-release-archive）──────────
+// ── `--archive` / `xtask package finalize`（unify-release-archive）──────────────────────
 //
 // 发布归档此前在两处各写了一遍 bash：release.yml 的 package job（按 RID 分支 + `_tar` / `_wl_of` /
 // `_is_primary`）与 ci.yml 的 publish-nightly（把各 job 上传的**原始包目录**集中在 Linux 上打包，
 // 还要从目录名反推 RID）。两份命名规则相同、实现不同，而且后者有一个真缺陷：upload-artifact 不保留
 // 可执行位，集中打包出的 tar.gz 里 `z42vm` 等都不可执行。现在命名规则只在这里写一次：
-//   · `archive` 在**产出包的那台机器**上跑（可执行位原样进 tar；Windows 包出真 zip），本地发布同一条命令；
+//   · `--archive` 在**产出包的那台机器**上、随打包命令一起出（可执行位原样进 tar；Windows 包出真 zip），本地发布同一条命令；
 //   · `finalize` 在汇总 job 上跑：合并桌面 workload → SHA256SUMS → release-index.json。
 //
 // 包目录（release profile）→ 归档基名（`<L>` = label：版本号或 `nightly`）：
@@ -285,40 +274,47 @@ string _relArchiveBase(string dirName, string ver, string label) {
 
 string _relArchiveExt(string baseName) { return baseName.EndsWith("-windows-x64") ? ".zip" : ".tar.gz"; }
 
-// `xtask package archive [--label L] [--from DIR] [--out DIR]`
-int _releaseArchive(string label, string from, string outDir) {
-    Stopwatch sw = _procStart("package archive");
+// 本进程里各打包命令产出的包目录（`_pkgFinish` / 桌面与 test workload 登记）——`--archive` 在命令跑完后
+// 把它们逐个出成归档。打包命令的产出目录名由各自的实现决定，登记比在命令层再推一遍名字少一份拷贝。
+static class PackageOutputs {
+    static string _dirs = "";
+    public static void Note(string dir) {
+        PackageOutputs._dirs = PackageOutputs._dirs.Length == 0 ? dir : PackageOutputs._dirs + "\n" + dir;
+    }
+    public static string[] All() {
+        return PackageOutputs._dirs.Length == 0 ? new string[0] : PackageOutputs._dirs.Split("\n");
+    }
+}
+
+// `package sdk|runtime|workload --archive [--label L]`：本次产出的每个包目录 → 同目录下的发布归档
+// （artifacts/packages/<基名>.tar.gz|.zip；归档名自带平台 / 架构，与包目录并排不会撞）。不是发布包的
+// （非主 RID 的平台 tooling 包）说明后跳过。label 缺省 = versions.toml 的版本号（CI nightly 传 `nightly`）。
+int _pkgArchiveOutputs(string label) {
     string root = _root();
     string ver = _versionsGet(root);
-    if (ver.Length == 0) { ConsoleError.WriteLine("package archive: versions.toml 没有 [project].version"); return 1; }
+    if (ver.Length == 0) { ConsoleError.WriteLine("--archive: versions.toml 没有 [project].version"); return 1; }
     if (label.Length == 0) { label = ver; }
-    string src = from.Length > 0 ? (Path.IsRooted(from) ? from : Path.Join(root, from)) : _packagesDir(root);
-    string dst = outDir.Length > 0 ? (Path.IsRooted(outDir) ? outDir : Path.Join(root, outDir)) : _archivesDir(root);
-    if (!Directory.Exists(src)) { ConsoleError.WriteLine("package archive: 没有包目录 " + src + "（先跑 xtask package sdk|runtime|workload）"); return 1; }
-    Directory.Create(dst);
-    string[] names = _sortedStrings(Directory.Enumerate(src));
-    int n = 0;
-    int i = 0;
-    while (i < names.Length) {
-        string dir = Path.Join(src, names[i]);
-        string baseName = Directory.Exists(dir) ? _relArchiveBase(names[i], ver, label) : "";
-        if (baseName.Length > 0) {
-            string ar = Path.Join(dst, baseName + _relArchiveExt(baseName));
-            if (File.Exists(ar)) { File.Delete(ar); }
-            int rc = ar.EndsWith(".zip") ? _relZipDir(dir, ar)
-                : _exec(new Process("tar").Arg("-C").Arg(dir).Arg("-czf").Arg(ar).Arg("."));
-            if (rc != 0) { ConsoleError.WriteLine("package archive: 打包失败 " + ar); return 1; }
-            Console.WriteLine("✓ " + names[i] + " → " + Path.GetFileName(ar));
-            n = n + 1;
-        }
-        i = i + 1;
+    foreach (var dir in PackageOutputs.All()) {
+        if (_pkgArchiveDir(dir, ver, label, Path.GetDirectoryName(dir)) < 0) { return 1; }
     }
-    if (n == 0) {
-        ConsoleError.WriteLine("package archive: " + src + " 下没有版本 " + ver + " 的 release 包");
-        return 1;
-    }
-    _procEnd("package archive", sw);
     return 0;
+}
+
+// 一个包目录 → <outDir>/<归档基名><ext>。返回 1 = 出了归档，0 = 不是要发布的包（跳过），-1 = 打包失败。
+int _pkgArchiveDir(string dir, string ver, string label, string outDir) {
+    string name = Path.GetFileName(dir);
+    string baseName = _relArchiveBase(name, ver, label);
+    if (baseName.Length == 0) {
+        Console.WriteLine("- " + name + "：不是要发布的包（平台 tooling 只由主 RID 出归档），不出归档");
+        return 0;
+    }
+    string ar = Path.Join(outDir, baseName + _relArchiveExt(baseName));
+    if (File.Exists(ar)) { File.Delete(ar); }
+    int rc = ar.EndsWith(".zip") ? _relZipDir(dir, ar)
+        : _exec(new Process("tar").Arg("-C").Arg(dir).Arg("-czf").Arg(ar).Arg("."));
+    if (rc != 0) { ConsoleError.WriteLine("--archive: 打包失败 " + ar); return -1; }
+    Console.WriteLine("✓ " + name + " → " + Path.GetFileName(ar));
+    return 1;
 }
 
 // 目录内容（不含目录本身）→ zip。Windows 上用 .NET 的 ZipFile（条目分隔符是 `/`；Windows PowerShell 5.1 的
@@ -335,14 +331,15 @@ int _relZipDir(string dir, string zipPath) {
 
 // `xtask package finalize <label> [--dir DIR] [--channel C] [--tag T] [--version V]`
 // 汇总 job 的全部 z42 侧步骤：合并桌面 workload → SHA256SUMS → release-index.json。要求全部 RID 的归档齐全
-// （index 的校验会逐个点名缺的）。channel / tag / version 缺省同 `package index`（stable / v<label> / <label>）。
+// （index 的校验会逐个点名缺的）。channel / tag / version 缺省 stable / v<label> / <label>。
+// DIR 缺省 = artifacts/packages（`--archive` 出归档的地方；SHA256SUMS 只认 `z42-*.tar.gz|zip` 文件，包目录不干扰）。
 int _releaseFinalize(string label, string dist, string channel, string tag, string version) {
     if (label.Length == 0) {
         ConsoleError.WriteLine("usage: xtask package finalize <LABEL> [--dir DIR] [--channel C] [--tag T] [--version V]");
         return 2;
     }
     string root = _root();
-    if (dist.Length == 0) { dist = _archivesDir(root); }
+    if (dist.Length == 0) { dist = _packagesDir(root); }
     string distDir = Path.IsRooted(dist) ? dist : Path.Join(root, dist);
     int rc = _releaseAssembleDesktop(label, distDir);
     if (rc != 0) { return rc; }

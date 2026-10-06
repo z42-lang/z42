@@ -280,7 +280,7 @@ golden 语料被 4 条命令消费。遍历只有一次——`_walkGoldenCorpus(
 |---|---|---|
 | `build test`（regen） | `_isNonRegenCat` | — |
 | `test e2e`（VM golden） | — | `_isExcludedDirName`、镜像 `.zbc` 存在、`interp_only` |
-| `package verify` | — | `_isTestRunnerSource`、`interp_only` |
+| `test package` | — | `_isTestRunnerSource`、`interp_only` |
 | `test app desktop` / `test list` | — | `_isExcludedDirName` |
 
 `src/tests/` 的每个类别都是可运行的语言 golden（[测试用例组织规范](test-layout.md)），runner 不需要按类别排除；

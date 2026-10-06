@@ -1,4 +1,4 @@
-// xtask — `package verify`：打出来的 z42 发行包的端到端检查。两段：
+// xtask — `test package`：打出来的 z42 发行包的端到端检查。两段：
 //
 //   ① 发行包夹具（src/toolchain/launcher/tests/fixtures/package/，格式见该目录 README）：新手命令行路径、
 //      `z42 run --bin/--set`、`repl`、单文件运行、桌面发布（apphost / 多 exe / 预编译 native）、发布态 analyzer
@@ -19,12 +19,12 @@ using Std.IO;
 
 string _distFixturesSrc() { return "src/toolchain/launcher/tests/fixtures/package"; }
 
-// `package verify [interp|jit]` 的本体。全部通过返回 0，否则 1（缺包 / 夹具不符 / golden 编译失败或不符）。
+// `test package [interp|jit]` 的本体。全部通过返回 0，否则 1（缺包 / 夹具不符 / golden 编译失败或不符）。
 // `modeArg` 是可选的 mode 位置参数（interp|jit），空 = 两种都跑。
 int _testDistRun(string modeArg) {
     string root = _root();
     // DIST_SMOKE_ONLY=<tag> → 只跑 `tags` 含 <tag> 的发行包夹具（如 `launcher`：命令行路径那几例），
-    // 跳过 golden 腿。本地快跑的开关；CI 不用它 —— CI 那一处 `package verify` 必须把每条腿都跑到。
+    // 跳过 golden 腿。本地快跑的开关；CI 不用它 —— CI 那一处 `test package` 必须把每条腿都跑到。
     string onlyTag = _envOpt("DIST_SMOKE_ONLY", "");
 
     // ── 包目录 ──────────────────────────────────────────────────────────

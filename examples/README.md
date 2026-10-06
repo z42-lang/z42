@@ -19,5 +19,5 @@ z42 run greet.z42 -- 小明
 - 目录结构与页面路径一一对应：`examples/<part>/<chapter>/` ↔ `docs/learn/src/<part>/<chapter>.md`。
 - 书里的代码和终端输出全部 include 自这里；`*.console` 是会话脚本，记录命令与期望输出。
 - 这里只放手册配套内容；语言与库特性的测试写在 `src/tests/` 或各库的 `tests/`。
-- 校验：`xtask test examples`（需要先 `xtask build sdk`）。写法与规则见
+- 校验：`xtask test examples`（需要先 `xtask build toolchain` + `xtask package dev-sdk`）。写法与规则见
   [`docs/agent/rules/learn-writing.md`](../docs/agent/rules/learn-writing.md)。

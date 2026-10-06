@@ -38,7 +38,7 @@ public class WasmBackend : IPlatformBackend {
                 // 用到才装兜底（零命令面，simplify-xtask-deps 2026-07-07）：hermetic
                 // 与 PATH node 均缺 → 现场装 hermetic node；失败 = 测试失败。
                 Console.WriteLine("  node missing — auto-installing hermetic node (one-time)");
-                int nic = _depsInstallNode(false);
+                int nic = _installNode(false);
                 if (nic != 0) { return nic; }
                 localNode = File.Exists(Path.Join(nodeBin, "node"));
                 if (!localNode) { ConsoleError.WriteLine("error: node still missing after auto-install"); return 1; }

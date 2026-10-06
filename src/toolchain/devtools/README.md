@@ -35,10 +35,10 @@ language-configuration，**无 `main`、无需编译**。
 | 谁 | 命令 | 落点 | 特点 |
 |---|------|------|------|
 | **SDK 用户** | `z42d install vscode` | `~/.vscode/extensions/z42.z42-lang/`（用户级） | 从 `<sdk>/editors/vscode/` 拷贝；装了 SDK 就能用，不需要仓库 |
-| **仓库开发者** | `xtask deps install vscode` | `<repo>/.vscode/extensions/`（工作区） | **symlink 回源码树**，且先经 `z42c --dump-keywords` 重新生成 grammar——改 Lexer 关键字即时生效 |
+| **仓库开发者** | `xtask setup vscode` | `<repo>/.vscode/extensions/`（工作区） | **symlink 回源码树**，且先经 `z42c --dump-keywords` 重新生成 grammar——改 Lexer 关键字即时生效 |
 
 资产随 SDK 分发靠 `packages.toml` 的 `[component.editor-assets]`
-（`*.tpl.json` 生成器模板**不进包**，由 `xtask package check` 的 staging 自检守着）。
+（`*.tpl.json` 生成器模板**不进包**，由 `xtask check packages` 的 staging 自检守着）。
 grammar 防漂移 = `xtask check vscode-syntax`（GREEN gate）。
 
 ## 基础用法

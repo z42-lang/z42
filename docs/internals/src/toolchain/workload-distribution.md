@@ -48,7 +48,7 @@ SDK 是单版本的，由安装脚本装与更新。
 不裸爬 GitHub API（rate-limit、契约不稳、难离线、难签名）。每个 release 上传一个
 `release-index.json` 资产作为稳定契约（对标 rustup channel manifest / dotnet release-index）。
 
-生成方是 `xtask package index`（`_releaseGenIndex`），release 与 nightly 共用同一份实现，
+生成方是 `xtask package finalize` 的最后一步（`_releaseGenIndex`），release 与 nightly 共用同一份实现，
 **schema 只有这一处定义**。当前形状：
 
 ```json

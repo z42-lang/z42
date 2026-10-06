@@ -336,7 +336,7 @@ public sealed class BuildSession {
 // 🔴 **落点是 `programs/z42c/`，不是独立的 `compiler-libs/`**（User 2026-09-27 裁：避免复杂）。
 // 旧实现探的 `Z42_HOME/compiler-libs` 与 `<sdk>/compiler-libs` **在发布态恒不存在** ——
 // 实测今天的 nightly SDK 里没有那个目录，`z42c.semantics.zpkg` 躺在 `programs/z42c/`；
-// 两条组装路只有 `build sdk` 那条建了它，发布 tarball 里没有 ⇒ **批 1 声称打通的「用户能写
+// 两条组装路只有 `package dev-sdk` 那条建了它，发布 tarball 里没有 ⇒ **批 1 声称打通的「用户能写
 // generator」在发布态一直是空的**，只有开发树靠第 ③ 档命中。改指真实存在的那个目录即修复。
 //
 // 探测序（存在者为准；一个都没有 → 空数组，调用方照旧只看 libs/）：

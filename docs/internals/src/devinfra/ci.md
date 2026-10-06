@@ -319,8 +319,8 @@ bootstrap job。实测（run 35287940676）照样全红。
    `gh release edit nightly --draft=false --prerelease` 即可，不必走后面几步
 1. `gh api 'repos/z42-lang/z42/actions/artifacts?name=release-host-linux-x64'` 找最新、未过期、
    `head_branch == main` 且所属运行 `conclusion == success` 的那次 run（别用带过滤的 `gh run list`，理由见上）
-2. `gh run download <run> -p 'release-*' -D artifacts/packages/archives` 取它的归档（各 package job 已用
-   `xtask package archive --label nightly` 在自己的 runner 上出好）
+2. `gh run download <run> -p 'release-*' -D artifacts/packages --merge-multiple` 取它的归档（各 package job 已用
+   `--archive --label nightly` 在自己的 runner 上随打包一起出好）
 3. `xtask package finalize nightly --channel nightly --tag nightly --version nightly`
    （合并 desktop workload → `SHA256SUMS` → `release-index.json`，与 `publish-nightly` 同一条命令）
 4. 按 `publish-nightly` 的原地更新顺序发布：`gh release upload nightly <归档…> --clobber` →
@@ -367,7 +367,8 @@ CI 的分解只为并行，**本地永远整跑**：
 想缓存昂贵的前段、只反复迭代测试时，照着 CI 的分段来：
 
 ```bash
-./xtask build sdk            # 编一次当前 SDK → artifacts/.z42
+./xtask build toolchain      # 编一次当前工具链（含 apphost）
+./xtask package dev-sdk      # 组装成 SDK → artifacts/.z42
 ./xtask build test           # 编一次 golden .zbc
 ./xtask test --no-build      # 消费上面两者，不重编
 ```

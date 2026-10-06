@@ -1,5 +1,5 @@
 {
-  "__generated__": "z42.tmLanguage.json 由 `xtask deps install vscode` 从 z42.tmLanguage.tpl.json + `z42c --dump-keywords` 生成 — DO NOT EDIT。改高亮规则改 .tpl.json；改关键字改 Lexer.z42（SoT）；改分类改 xtask_install_vscode.z42。",
+  "__generated__": "z42.tmLanguage.json 由 `xtask setup vscode` 从 z42.tmLanguage.tpl.json + `z42c --dump-keywords` 生成 — DO NOT EDIT。改高亮规则改 .tpl.json；改关键字改 Lexer.z42（SoT）；改分类改 xtask_install_vscode.z42。",
   "name": "z42",
   "scopeName": "source.z42",
   "fileTypes": ["z42"],
