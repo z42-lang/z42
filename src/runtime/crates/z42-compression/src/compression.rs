@@ -129,7 +129,36 @@ pub fn lz4_compress(input: &[u8], _level: i32) -> AlgoResult {
         .map_err(|e| (Z42_COMPRESSION_ERR_COMPRESS, e.to_string()))
 }
 
+/// LZ4 frame magic number (little-endian `0x184D2204`).
+const LZ4_FRAME_MAGIC: [u8; 4] = [0x04, 0x22, 0x4D, 0x18];
+/// Smallest complete frame: magic (4) + FLG/BD (2) + header checksum (1) + EndMark (4).
+const LZ4_MIN_FRAME: usize = 11;
+
+/// lz4_flex reads a stream that ends inside a frame header as a clean end of
+/// stream, so a short or foreign input "decompressed" to nothing. Reject what
+/// cannot be a frame before decoding: a non-empty input must start with the
+/// frame magic (or a skippable-frame magic, `0x184D2A50`–`0x184D2A5F`) and be
+/// at least one minimal frame long.
+fn lz4_check_frame_start(input: &[u8]) -> Result<(), (i32, String)> {
+    if input.is_empty() {
+        return Ok(());
+    }
+    let bad = |why: &str| Err((Z42_COMPRESSION_ERR_DECOMPRESS, format!("invalid lz4 data: {why}")));
+    if input.len() < 4 {
+        return bad("shorter than a frame header");
+    }
+    let skippable = input[0] & 0xF0 == 0x50 && input[1..4] == [0x2A, 0x4D, 0x18];
+    if input[..4] != LZ4_FRAME_MAGIC && !skippable {
+        return bad("not an LZ4 frame (wrong magic number)");
+    }
+    if !skippable && input.len() < LZ4_MIN_FRAME {
+        return bad("truncated frame");
+    }
+    Ok(())
+}
+
 pub fn lz4_decompress(input: &[u8]) -> AlgoResult {
+    lz4_check_frame_start(input)?;
     let mut out: Vec<u8> = Vec::with_capacity(input.len() * 4);
     let mut dec = lz4_flex::frame::FrameDecoder::new(input);
     std::io::Read::read_to_end(&mut dec, &mut out)

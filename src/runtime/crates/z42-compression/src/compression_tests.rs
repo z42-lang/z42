@@ -188,3 +188,30 @@ fn compressor_begin_unknown_algo() {
     let err = compressor_begin(42, 6, false).unwrap_err();
     assert_eq!(err.0, Z42_COMPRESSION_ERR_INVALID_MODE);
 }
+
+// ── LZ4 malformed input ─────────────────────────────────────────────────────
+
+#[test]
+fn lz4_decompress_rejects_inputs_shorter_than_a_frame() {
+    // lz4_flex reads a stream that ends inside the frame header as a clean end
+    // of stream, so short garbage used to decompress to an empty array. (An input
+    // missing only the trailing EndMark still decodes — every data block is
+    // there — which is lz4_flex's behaviour and not changed here.)
+    let frame = lz4_compress(SAMPLE, 0).unwrap();
+    for len in 1..11 {
+        let r = lz4_decompress(&frame[..len]);
+        assert!(r.is_err(), "prefix of {len}/{} bytes decompressed to {:?}", frame.len(), r.map(|v| v.len()));
+    }
+}
+
+#[test]
+fn lz4_decompress_rejects_short_garbage() {
+    let err = lz4_decompress(&[0xde, 0xad, 0xbe, 0xef]).unwrap_err();
+    assert_eq!(err.0, Z42_COMPRESSION_ERR_DECOMPRESS);
+}
+
+#[test]
+fn lz4_decompress_empty_frame_round_trips() {
+    let frame = lz4_compress(b"", 0).unwrap();
+    assert_eq!(lz4_decompress(&frame).unwrap(), Vec::<u8>::new());
+}
