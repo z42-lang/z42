@@ -50,7 +50,6 @@ vm.run(&ctx, hint)?;
 - `vm_contexts: Mutex<Vec<VmContextPtr>>` — 本 core 上所有存活 `VmContext` 的注册表（见下「Send-safety 与 GC scanner 设计」）
 - 静态初始化：`cctors: Arc<CctorRegistry>`（有静态构造器的类型的初始化状态，见 [static-ctor-init.md](static-ctor-init.md)）/ `pending_type_inits` / `pending_type_init_count` / `init_batch_inflight` / `static_init_error`
 - `context_registry: Mutex<ContextRegistry>` — load context / assembly 注册表（见 [load-context.md](load-context.md)）
-- `pending_thrown: Mutex<Option<Value>>` — callback 型 builtin（反射 `MethodInfo.Invoke`）把原异常值带出 builtin 边界的槽位
 - GC safepoint 协议：`gc_phase` / `gc_phase_cv` / `parked_count` / `collector_active` / `needs_auto_collect`（见 [safepoint-design.md](safepoint-design.md)）
 - `program_args: Mutex<Vec<String>>` — `--` 之后的程序参数（`Std.IO.Environment.GetCommandLineArgs()`）
 - 观测：`counters`（`RuntimeCounters`）/ `runtime_observers` / `park_histogram`（safepoint park 时长分布）/ `lock_contentions` + `lock_wait_us`（仅 `profile-contention` feature 写入）/ `sampler`（`Z42_SAMPLE_HZ` 开启的采样 profiler）
@@ -75,6 +74,7 @@ vm.run(&ctx, hint)?;
 
 - `core: Arc<VmCore>` — 指向 VmCore 共享状态
 - `pending_exception: Arc<Mutex<Option<Value>>>` — JIT extern "C" 边界异常槽位
+- `pending_thrown: Mutex<Option<Value>>` — callback 型 builtin（反射 `MethodInfo.Invoke`）把原异常值带出 builtin 边界的槽位；每线程一份，GC 根
 - `call_stack: Arc<Mutex<Vec<VmFrame>>>` — 当前线程帧栈
 - `func_ref_slots: Arc<Mutex<Vec<Value>>>` — method-group-conversion FuncRef cache 槽位
 - `stack_arena` / `struct_arena` / `transient_arena`（及其发布长度原子，见下一节）、`next_frame_id`、`safepoint_skip`（safepoint 节流计数，JIT 内联读写）、`jit_ctx`（混合模式下指向当前 `JitModuleCtx`）
@@ -88,7 +88,7 @@ vm.run(&ctx, hint)?;
 
 Scanner closure 通过 `Weak<VmCore>` 捕获 VmCore（避免 `VmCore → heap → scanner → Arc<VmCore>` 循环引用），upgrade 失败时 silent skip。
 
-**VmContext 注册表**：VmCore 持 `vm_contexts: Mutex<Vec<VmContextPtr>>` 注册表。`VmContext::new()` 返回 `Pin<Box<VmContext>>` 以保证地址稳定（`PhantomPinned` 标 !Unpin 防 move-out），构造时 push 自身到注册表，Drop 时 retain 移除。GC scanner 改为：**1**) 上锁 vm_contexts → **2**) 遍历每个 VmContext ptr → **3**) `unsafe { &*ptr }` 扫其 `pending_exception` / `call_stack` 帧 / `func_ref_slots`。所有 VmContext 的 per-thread roots 在 mark 阶段都被看见 —— multi-thread 安全。Lock 持有期间 Drop 阻塞，无 use-after-free。
+**VmContext 注册表**：VmCore 持 `vm_contexts: Mutex<Vec<VmContextPtr>>` 注册表。`VmContext::new()` 返回 `Pin<Box<VmContext>>` 以保证地址稳定（`PhantomPinned` 标 !Unpin 防 move-out），构造时 push 自身到注册表，Drop 时 retain 移除。GC scanner 改为：**1**) 上锁 vm_contexts → **2**) 遍历每个 VmContext ptr → **3**) `unsafe { &*ptr }` 扫其 `pending_exception` / `pending_thrown` / `call_stack` 帧 / `func_ref_slots`。所有 VmContext 的 per-thread roots 在 mark 阶段都被看见 —— multi-thread 安全。Lock 持有期间 Drop 阻塞，无 use-after-free。
 
 API 方法都用 `&self`（内部 Mutex/RwLock）。详见 [`object-protocol-dispatch.md`](object-protocol-dispatch.md)、[`native-abi.md`](native-abi.md)、[`concurrency.md`](concurrency.md)。
 

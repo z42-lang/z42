@@ -100,6 +100,7 @@ impl VmContext {
         let ctx = Self {
             core,
             pending_exception,
+            pending_thrown: Mutex::new(None),
             call_stack,
             stack_arena: Arc::new(Mutex::new(Default::default())),
             struct_arena: Arc::new(Mutex::new(Default::default())),
@@ -179,7 +180,6 @@ impl VmContext {
             #[cfg(feature = "native-interop")]
             native_libs:        Mutex::new(Vec::new()),
             pinned_owned_buffers: Mutex::new(HashMap::new()),
-            pending_thrown:       Mutex::new(None),
             processes:            ResourceRegistry::new(),
             heap:                 Box::new(ArcMagrGC::new()),
             vm_contexts:          Mutex::new(Vec::new()),
@@ -270,13 +270,13 @@ impl VmContext {
 
         // External GC root scanner — invoked by the cycle collector during
         // mark phase. Walks all out-of-heap Value sources so cycles whose
-        // only roots are static fields / pending exception / live frame
+        // only roots are static fields / pending exceptions / live frame
         // regs / stack closure envs / func-ref slots stay alive.
         //
         // **add-vmcontext-registry (2026-05-20)**: scanner walks the
         // `vm_contexts` registry to find every live VmContext on this
         // VmCore. Each VmContext contributes its own per-thread roots
-        // (pending_exception / call_stack frames / func_ref_slots). The
+        // (pending_exception / pending_thrown / call_stack frames / func_ref_slots). The
         // closure captures `Weak<VmCore>` ONLY — no per-thread Arc clones.
         {
             let core_weak = Arc::downgrade(&core);
@@ -297,8 +297,11 @@ impl VmContext {
                 let registry = c.vm_contexts.lock();
                 for ctx_ptr in registry.iter() {
                     let ctx = unsafe { &*ctx_ptr.0 };
-                    // pending_exception
+                    // pending_exception / pending_thrown
                     if let Some(v) = ctx.pending_exception.lock().as_ref() {
+                        visit(v);
+                    }
+                    if let Some(v) = ctx.pending_thrown.lock().as_ref() {
                         visit(v);
                     }
                     // live z42 frame state — unified VmFrame entries.
@@ -384,6 +387,9 @@ impl VmContext {
                     if let Some(v) = ctx.pending_exception.lock().as_ref() {
                         visit(v, RootKind::StackFrame);
                     }
+                    if let Some(v) = ctx.pending_thrown.lock().as_ref() {
+                        visit(v, RootKind::StackFrame);
+                    }
                     for frame in ctx.call_stack.lock().iter() {
                         unsafe {
                             for v in (*frame.regs).iter() {
@@ -419,6 +425,7 @@ impl VmContext {
         let ctx = Self {
             core,
             pending_exception,
+            pending_thrown: Mutex::new(None),
             call_stack,
             stack_arena: Arc::new(Mutex::new(Default::default())),
             struct_arena: Arc::new(Mutex::new(Default::default())),

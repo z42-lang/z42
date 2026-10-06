@@ -74,14 +74,14 @@ impl VmContext {
     /// error channel (see `pending_thrown`). Set immediately before the builtin
     /// returns `Err`; consumed once by `take_pending_thrown`.
     pub fn set_pending_thrown(&self, val: Value) {
-        *self.core.pending_thrown.lock() = Some(val);
+        *self.pending_thrown.lock() = Some(val);
     }
 
     /// Take (and clear) a pending thrown exception value, if any. Called by
     /// `exec_call::builtin` in its error handler so the ORIGINAL thrown value
     /// (with its real type) re-enters z42 exception handling.
     pub fn take_pending_thrown(&self) -> Option<Value> {
-        self.core.pending_thrown.lock().take()
+        self.pending_thrown.lock().take()
     }
 
     /// Load a native library and invoke its `<basename>_register` entry point.

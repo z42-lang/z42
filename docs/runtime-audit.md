@@ -498,7 +498,7 @@ z42vm-cli/   clap / tracing-subscriber（不再是 lib 依赖）
 | P0-5 | fix | cctor 屏障按 Function 预计算属主：<br>• 自由函数、无 cctor 的类型永久免检；静态字段站点同理<br>• JIT 不生成屏障，或内联代际检查<br>• 派生名不再送进 `try_lookup_type` | 附录 A.5：hello + 自由函数不再惰性加载额外包；cctor 系列 golden 全绿；z42c 剖面里 `ensure_*_owner_init` 消失 | ⬜ |
 | P0-6 | fix | `obj_to_string` 传播 ToString 抛出的异常；`run_returning` 的调用方保留异常类型 | golden：ToString 抛出的异常能被 catch | ⬜ |
 | P0-7 | fix | `jit_get_bool` 出错时不再被当成 true（返回状态码 + 值） | 测试：非 Bool 条件在 JIT 下抛异常 | ✅ (#1092) |
-| P0-8 | fix | `pending_thrown` 移到 VmContext，并加入 GC 根扫描 | 测试：跨线程不串扰 | ⬜ |
+| P0-8 | fix | `pending_thrown` 移到 VmContext，并加入 GC 根扫描 | 测试：跨线程不串扰 | ✅ (#1095) |
 | P0-9 | fix | 异常表 `try_end` 哨兵：`find_handler` 里的 `?` 改成 `continue`，与 JIT 行为一致 | golden：try 区间覆盖到函数末尾、后面还有 catch 条目 | ⬜ |
 | P0-10 | fix | host：<br>• `invoke` 前先 clone 出 `Arc`，再释放全局 `HOST` 锁<br>• `z42_host.h` 配置结构加 `struct_size`，并同步 reference 的嵌入契约 | host 测试：回调里重入不死锁；旧尺寸结构不越界读 | ⬜ |
 | P0-11 | fix | 身份哈希加乘法混淆（`corelib/object.rs:243,248`） | 测试：哈希低位分布 | ⬜ |
