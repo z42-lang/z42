@@ -18,7 +18,6 @@
 namespace Z42Builder;
 
 using Std.IO;
-using Std.Cli;
 using Std.Threading;
 
 // ./gradlew :z42vm:connectedAndroidTest at the host project — ONE connected device runs

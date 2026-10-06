@@ -15,7 +15,6 @@
 namespace Z42Builder;
 
 using Std.IO;
-using Std.Cli;
 
 // Run a prepared Process inheriting the parent's stdio (live streaming; return
 // exit code). Mirrors xtask's `_exec`. Used for builds whose stdout must not be captured
