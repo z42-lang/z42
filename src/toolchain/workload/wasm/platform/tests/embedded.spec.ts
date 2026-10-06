@@ -2,7 +2,7 @@
 //
 // Distinct from r1-r7.spec.ts (which drives the handle-based facade for the
 // embedding-API contract): this serves the self-contained deployable produced
-// by `xtask test embedded --rid browser-wasm` (artifacts/build/toolchain/workload/wasm/tests/deploy/),
+// by `xtask test embedded --rid browser-wasm` (artifacts/intermediate/toolchain/workload/wasm/deploy/),
 // opens its index.html — which runs the shared z42 test-agent over the bundled
 // corpus entirely in-browser (runTestApp → z42::app::run) — and asserts the
 // JSON report has no failures. Run via playwright.embedded.config.ts, whose

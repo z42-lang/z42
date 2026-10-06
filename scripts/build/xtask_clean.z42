@@ -1,4 +1,4 @@
-// xtask — `clean` 命令：按 target 删 artifacts/build/ 下的产物目录。
+// xtask — `clean` 命令：按 target 删 artifacts/build/（编译产物）与 artifacts/intermediate/（中间物）。
 // 从 xtask.z42 搬来（relocate-xtask-handlers, 2026-09-05）——它删的全是 build/
 // 产物，归 build 族。
 namespace Z42Xtask;
@@ -9,12 +9,13 @@ using Std.Cli;   // ParseResult
 // ── clean ─────────────────────────────────────────────────────────────────────
 //
 //   clean         生产 cache/dist：各 stdlib 成员的 <lib>/<profile>/{cache,dist} + 扁平 libraries/dist/
-//   clean tests   测试产物：artifacts/build/ 下每个组件的 tests/ 输出（golden .zbc、夹具暂存拷贝、harness
-//                 工作目录、平台测试 bundle、z42b 的 `<m>/<profile>/tests`；规则见 test-layout.md §5）
-//                 + 旧位置 <工程目录>/artifacts/test-targets
+//   clean tests   测试的编译产物：build/ 下所有 tests/（golden .zbc、z42b 的 `<m>/<profile>/tests`；规则见
+//                 test-layout.md §5）+ 旧位置 <工程目录>/artifacts/test-targets
 //   clean bench   z42b 的 bench 目标输出（`<m>/<profile>/bench`；旧位置 <工程目录>/artifacts/bench-targets）
-//   clean all     build/ + 旧工作树残留（tmp/、.scratch/、publish/、release/、顶层 test-reports/ bench/ profile/）
-//                 + 源码树里各 z42 工程旁的 artifacts/、dist/
+//   clean intermediate  整个 intermediate/（夹具暂存拷贝、harness 工作目录、平台测试 bundle / 宿主、编译器
+//                 自举快照、xtask 自检目录 —— 全部可再生）
+//   clean all     build/ + intermediate/ + 旧工作树残留（tmp/、.scratch/、publish/、release/、顶层 test-reports/
+//                 bench/ profile/）+ 源码树里各 z42 工程旁的 artifacts/、dist/
 //                 **保留**：xtask/（驱动自身，正在运行）、tools/（下载的第三方工具）、
 //                 packages/ .z42/（成品）、reports/（结果）
 //
@@ -32,9 +33,14 @@ int _clean(ParseResult r) {
     string sub  = r.GetPositional(0);   // "" | tests | bench | all
     if (sub == "all") { return _cleanAll(root); }
     if (sub == "tests" || sub == "bench") { return _cleanDevOutputs(root, sub); }
+    if (sub == "intermediate") {
+        int ni = _rmIfExists(_intermediateDir(root));
+        Console.WriteLine("✅ clean intermediate: removed " + ni.ToString() + " dir(s)");
+        return 0;
+    }
     if (sub != "") {
         ConsoleError.WriteLine("xtask clean: unknown target '" + sub
-            + "'  (empty=production cache/dist | tests | bench | all)");
+            + "'  (empty=production cache/dist | tests | bench | intermediate | all)");
         return 2;
     }
     string libsRoot = _libsBuildRoot(root);   // workspace.toml output_dir 模板前缀
@@ -60,26 +66,19 @@ int _clean(ParseResult r) {
     return 0;
 }
 
-// 成员目录下只有这两个是 profile；其余子目录（golden 的 `tests/` 等）不是，不能当 profile 枚举。
+// 成员目录下的 profile 子目录（产物、测试目标、golden 都按 profile 放在其中）。
 string[] _cleanProfiles() { return new string[]{ "debug", "release" }; }
 
 // `clean tests` / `clean bench`。
 int _cleanDevOutputs(string root, string kind) {
     int n = 0;
     if (kind == "tests") {
-        // 测试输出全部在 build/ 镜像里某个组件的 tests/ 下（含 z42b 的 `<m>/<profile>/tests`），
+        // 测试的编译产物全部在 build/ 镜像里名为 tests/ 的目录下（golden、z42b 的 `<m>/<profile>/tests`），
         // 按名字递归找，不再维护一张位置清单 —— 新组件的测试输出自动被覆盖。
         n = n + _rmTestsDirs(_buildDir(root), true);
     } else {
-        // z42b bench 目标经 `--out-root` 落在成员输出目录下（`_devTargetOutRoot`：`<m>/<profile>/bench`）。
-        foreach (var br in new string[]{ _libsBuildRoot(root), _compilerBuildRoot(root) }) {
-            if (!Directory.Exists(br)) { continue; }
-            foreach (var m in _sortedStrings(Directory.Enumerate(br))) {
-                foreach (var prof in _cleanProfiles()) {
-                    n = n + _rmIfExists(Path.Join(Path.Join(Path.Join(br, m), prof), "bench"));
-                }
-            }
-        }
+        // z42b bench 目标经 `--out-root` 落在输出目录的 profile 下（`_devTargetOutRoot`：`<m>/<profile>/bench`）。
+        n = n + _rmProfileBenchDirs(_buildDir(root), true);
     }
     // 旧位置（不带 `--out-root` 时 z42b 的默认：`<sourceDir>/artifacts/<kind>-targets`）。
     string targets = (kind == "tests" ? "test" : "bench") + "-targets";
@@ -90,7 +89,7 @@ int _cleanDevOutputs(string root, string kind) {
     return 0;
 }
 
-// build/ 下每个名为 `tests` 的目录（组件的测试输出根）。不进入构建产物目录（dist / cache / publish），
+// build/ 下每个名为 `tests` 的目录（测试的编译产物根）。不进入构建产物目录（dist / cache / publish），
 // 也不进入 cargo 的 target 目录（`build/runtime/<profile>`，体量大且不含测试输出）：
 // runtime 只认 `build/runtime/tests`。
 int _rmTestsDirs(string dir, bool top) {
@@ -107,9 +106,26 @@ int _rmTestsDirs(string dir, bool top) {
     return n;
 }
 
+// build/ 下所有「profile 目录（debug / release）里的 bench/」。跳过 cargo 的 target 目录（build/runtime）
+// 与 src/bench 的镜像（build/bench，那是 bench 探针的编译产物，不是 z42b 的 bench 目标）。
+int _rmProfileBenchDirs(string dir, bool top) {
+    if (!Directory.Exists(dir)) { return 0; }
+    int n = 0;
+    foreach (var e in _sortedStrings(Directory.Enumerate(dir))) {
+        string p = Path.Join(dir, e);
+        if (!Directory.Exists(p)) { continue; }
+        if (top && (e == "runtime" || e == "bench")) { continue; }
+        if (e == "dist" || e == "cache" || e == ".cache" || e == "publish" || e == "tests") { continue; }
+        if (e == "debug" || e == "release") { n = n + _rmIfExists(Path.Join(p, "bench")); continue; }
+        n = n + _rmProfileBenchDirs(p, false);
+    }
+    return n;
+}
+
 int _cleanAll(string root) {
     int n = 0;
     n = n + _rmIfExists(_buildDir(root));
+    n = n + _rmIfExists(_intermediateDir(root));
     n = n + _rmIfExists(_legacyTmpDir(root));
     n = n + _rmIfExists(_legacyScratchDir(root));
     n = n + _rmIfExists(_legacyPubStagingDir(root));
@@ -124,7 +140,7 @@ int _cleanAll(string root) {
             strays = strays + _rmIfExists(Path.Join(d, "libs"));
         }
     }
-    Console.WriteLine("✅ clean all: removed " + n.ToString() + " artifacts/ dir(s) (build + old-layout leftovers)"
+    Console.WriteLine("✅ clean all: removed " + n.ToString() + " artifacts/ dir(s) (build + intermediate + old-layout leftovers)"
         + " + " + strays.ToString() + " source-tree output dir(s)");
     Console.WriteLine("   kept: artifacts/{xtask,tools,packages,.z42,reports}");
     return 0;

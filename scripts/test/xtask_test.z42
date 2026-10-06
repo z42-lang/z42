@@ -294,7 +294,7 @@ int _testGcModeWorkload(string label, string modeEnv, string nurseryEnv, string 
         .Arg("--jobs").Arg(jobs.ToString())
         // isolate-xtask-fixture-builds：产物进 runtime 的 tests/ 输出，不落 `src/compiler/z42c.semantics/dist`
         // （这次构建只为给 GC 施压，产物本身没人用）。
-        .Arg("--output-dir").Arg(_testOut(root, "src/runtime", "gc-modes"))
+        .Arg("--output-dir").Arg(_workOut(root, "src/runtime", "gc-modes"))
         .Env("Z42_GC_TRACE", "1");
     if (modeEnv != "")    { p = p.Env("Z42_GC_MODE", modeEnv); }
     if (nurseryEnv != "") { p = p.Env("Z42_GC_NURSERY_BYTES", nurseryEnv); }

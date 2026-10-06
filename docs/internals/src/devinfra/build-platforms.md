@@ -19,7 +19,7 @@
 自己的 bundle（wasm 的 `js/stdlib/`、iOS 的 `Resources/stdlib/`、Android 的 `assets/stdlib/`）。
 
 **这些目录都在宿主工程的暂存副本里，不在源码树**：每个 step 开头先把 `src/toolchain/workload/<p>/platform`
-里 git 跟踪的文件增量同步到 `artifacts/build/toolchain/workload/<p>/tests/host/`，下文提到的 `js/stdlib/`、
+里 git 跟踪的文件增量同步到 `artifacts/intermediate/toolchain/workload/<p>/host/`，下文提到的 `js/stdlib/`、
 `Resources/stdlib/`、`pkg-web/`、`Z42VM.xcframework/`、`jniLibs/`、gradle 的 `build/` 都是这份副本里的相对路径；
 Rust crate 仍从源码位置编，产物输出到副本（见[产物布局 §3](artifacts-layout.md)）。
 

@@ -90,7 +90,7 @@ string _buildGoldenCase(string root, string caseDir) {
     string exp = hasExp ? File.ReadAllText(expPath) : "";
     string combined = _wrapGoldenSource(srcText, hasExp, exp);
 
-    string outDir = _testOut(root, "src/toolchain/workload/test", "");
+    string outDir = _workOut(root, "src/toolchain/workload/test", "");
     Directory.Create(outDir);
     string name = Path.GetFileName(caseDir);
     string wrappedSrc = Path.Join(outDir, name + ".golden.z42");
@@ -135,7 +135,7 @@ string _emitUnitZbc(string root, string unitSrc, string safe, string bundleDir) 
 // as single-file `--emit-zbc`. Returns the copied path ("" on failure).
 string _emitDirUnit(string root, string lib, string name, string dirPath, string safe, string bundleDir) {
     string projName = lib + ".test." + name;
-    string outDir = Path.Join(_testOut(root, "src/toolchain/workload/test", ""), "dm/" + projName);
+    string outDir = Path.Join(_workOut(root, "src/toolchain/workload/test", ""), "dm/" + projName);
     Directory.Create(outDir);
     // Synthetic toml written NEXT TO the sources (glob is manifest-relative);
     // dot-prefixed + unique so it's git-ignored and won't collide.

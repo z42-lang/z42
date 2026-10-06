@@ -56,7 +56,7 @@ graph TD
 ```
 
 阶段一用 `z42c build --workspace`：拓扑序编各成员，兄弟依赖由 workspace 内部解析。
-阶段二**直接跑**这个 driver 编 stdlib——`Z42_LIBS` 指向 `artifacts/build/compiler/stdlib-run/<profile>`
+阶段二**直接跑**这个 driver 编 stdlib——`Z42_LIBS` 指向 `artifacts/intermediate/compiler/stdlib-run/<profile>`
 的快照，因为 stdlib 正在被重建，运行中的 driver 需要一份稳定的 `Std.*` 副本。
 阶段三用 hard-link（零拷贝）把各成员 dist 汇聚成单目录。
 
@@ -107,7 +107,7 @@ gen2 = **用 gen1 的 driver 再跑一遍同样的 `--workspace`**；**gen1 与 
 实现在 `_testSelfHostByteIdentical`（`scripts/build/xtask_compiler.z42`）：
 
 ```
-snapshot gen1: 拷 canonical dist 的每个 <member>.zpkg → artifacts/build/compiler/selfhost-gen1
+snapshot gen1: 拷 canonical dist 的每个 <member>.zpkg → artifacts/intermediate/compiler/selfhost-gen1
 rebuild gen2:  gen1 的自包含 driver 跑 build --workspace（Z42_LIBS = stdlib 扁平视图）→ 覆盖 canonical dist
 compare:       逐成员 _sectionsEqualIgnoreBlid(gen1, gen2)
 ```
@@ -325,7 +325,7 @@ per-member `--output-dir` + runlibs 累积的隔离布局才能让每个成员�
 种子取自 **SDK** nightly 的 `programs/z42c/`（runtime 包是纯嵌入包、不带 z42c）。
 (A) 轨的 z42vm / driver / stdlib **全是 nightly 的**（旧解析器 + 旧格式 + 旧 stdlib API），所以
 **语法轴和 stdlib API 轴的越界都会在此暴露**；(B) 轨换成仓库当前工具链，仅作「源码本身没写坏」的
-对照，不影响退出码。工作目录 `artifacts/build/compiler/bootstrap-check/`。
+对照，不影响退出码。工作目录 `artifacts/intermediate/compiler/bootstrap-check/`。
 
 **已知限制**：只编编译器成员，**不编 xtask 源**——xtask 源的越界目前只能由 CI 冷启动兜底。
 

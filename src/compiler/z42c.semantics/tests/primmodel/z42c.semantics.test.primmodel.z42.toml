@@ -14,5 +14,5 @@ include = ["**/*.z42"]
 
 [build]
 # Build output → artifacts mirror (mirror-build-output-per-component):
-# src/compiler/z42c.semantics/tests/primmodel → artifacts/build/compiler/z42c.semantics/tests/primmodel
-output_dir = "../../../../../artifacts/build/compiler/z42c.semantics/tests/primmodel"
+# src/compiler/z42c.semantics/tests/primmodel → artifacts/build/compiler/z42c.semantics/${profile}/tests/primmodel
+output_dir = "../../../../../artifacts/build/compiler/z42c.semantics/${profile}/tests/primmodel"

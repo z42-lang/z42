@@ -180,11 +180,11 @@ int _regenGolden() {
 int _regenGoldenF(string dirFilter, string fileFilter) {
     string root = _root();
     // replace-csharp Phase C：golden 编译改用 z42c（z42vm + z42c.driver.zpkg），不再 dotnet。
-    // driverHome = 含 z42c.driver.zpkg + 全部编译器成员；golden 的 stdlib 依赖走 Z42_LIBS=stdlibDist。
+    // driverHome = driver 自己的 release dist（自包含）；golden 的 stdlib 依赖走 Z42_LIBS=stdlibDist。
     // --toolchain (compile-once P3): compile goldens with the selected toolchain's
     // z42c + stdlib + z42vm when set; else the build-tree.
     string tc = _toolchainDir(root);
-    string driverHome = (tc.Length > 0) ? _toolchainDriverHome(tc) : _assembleDriverHome(root);
+    string driverHome = (tc.Length > 0) ? _toolchainDriverHome(tc) : _driverHome(root);
     if (driverHome.Length == 0) {
         ConsoleError.WriteLine("error: z42c driver not built (artifacts/build/compiler/z42c.*/release/dist)");
         ConsoleError.WriteLine("       Build it via stdlib/compiler build first.");
@@ -344,7 +344,7 @@ int _regenCore(bool rebuildStdlib) {
     // 与上面 `_buildDebugVmAndCompression` 先于 regen 是同一条道理（debug VM 那条已修）。
     int cr = _buildRuntime(); if (cr != 0) { return cr; }   // cargo build --release
     // golden 编译走 z42c。
-    // _buildStdlib（warm 路径）顺带把 z42c per-member dist 建好，_regenGolden 据此组 driver-home。
+    // _buildStdlib（warm 路径）顺带把 z42c per-member dist 建好，_regenGolden 直接用 driver 的 dist。
     if (rebuildStdlib) { int c = _buildStdlib(); if (c != 0) { return c; } }
     // in-process (unify-scripts-into-xtask): regen logic folded into xtask_regen.z42（_regenGolden，z42c）。
     return _regenGolden();

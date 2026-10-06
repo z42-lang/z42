@@ -4,7 +4,7 @@
 //
 //     tc = _toolchainDir(root)
 //     if (tc)  → libs/driver/vm 全取 toolchain（只带 release vm，compile==run）
-//     else     → libs=build-tree, driver=_assembleDriverHome,
+//     else     → libs=build-tree, driver=_driverHome（driver 自己的 release dist）,
 //                runVm=debug（保 overflow-check / debug_assert 覆盖）
 //                compileVm=release（编译快一个量级），缺 release 就回落 debug
 //     + driver 缺失 / vm 缺失 的两段报错
@@ -50,9 +50,9 @@ ToolsetZ _resolveToolset(string root) {
         t.RunVm      = t.CompileVm;                // toolchain 只带 release vm
     } else {
         t.StdlibDist = _libsDir(root);
-        // driverHome = 含 z42c.driver.zpkg + 全部编译器成员的目录（z42vm 从 entry
-        // zpkg 所在目录解析其依赖；fixture 自身的 deps + stdlib 走 Z42_LIBS）。
-        driverHome  = _assembleDriverHome(root);
+        // driverHome = driver 自己的 release dist（自包含：z42vm 从 entry zpkg 所在目录解析其依赖；
+        // fixture 自身的 deps + stdlib 走 Z42_LIBS）。
+        driverHome  = _driverHome(root);
         t.RunVm     = _builtVm(root, "debug");
         t.CompileVm = _builtVm(root, "release");
         if (!File.Exists(t.CompileVm)) {

@@ -2,7 +2,7 @@ import { defineConfig, devices } from '@playwright/test';
 
 // Config for the EMBEDDED wasm test-host RUN (add-wasm-testhost G6), separate
 // from playwright.config.ts (R1–R7 facade). Roots the web server at the
-// self-contained deployable (`artifacts/build/toolchain/workload/wasm/tests/deploy/`, produced by
+// self-contained deployable (`artifacts/intermediate/toolchain/workload/wasm/deploy/`, produced by
 // `xtask test embedded --rid browser-wasm`) so index.html + run.js + files.json
 // + app/libs/bundle resolve at the server root. Different port from the R1–R7
 // harness so both can coexist.
@@ -10,7 +10,7 @@ const PORT = 4243;
 
 // z42b passes the deployable dir as Z42_WASM_DEPLOY (its `--out`). Fallback for a
 // manual `npx playwright test`: xtask runs this config from the staged host copy
-// (artifacts/build/toolchain/workload/wasm/tests/host/tests), whose sibling `deploy/`
+// (artifacts/intermediate/toolchain/workload/wasm/host/tests), whose sibling `deploy/`
 // is the deployable — two levels up.
 const DEPLOY = process.env.Z42_WASM_DEPLOY || '../../deploy';
 

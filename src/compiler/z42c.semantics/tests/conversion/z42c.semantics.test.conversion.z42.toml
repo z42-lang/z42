@@ -13,4 +13,4 @@ include = ["**/*.z42"]
 
 [build]
 # Build output → artifacts mirror (mirror-build-output-per-component, 2026-06-16).
-output_dir = "../../../../../artifacts/build/compiler/z42c.semantics/tests/conversion"
+output_dir = "../../../../../artifacts/build/compiler/z42c.semantics/${profile}/tests/conversion"

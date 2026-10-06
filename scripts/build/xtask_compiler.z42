@@ -477,10 +477,11 @@ int _testCompilerUnits(string root, string profile, string[] members) {
                 }
                 // Build output → artifacts mirror via the unit toml's [build]
                 // output_dir (mirror-build-output-per-component, 2026-06-16):
-                //   src/compiler/<member>/tests/<unit> → artifacts/build/compiler/<member>/tests/<unit>
+                //   src/compiler/<member>/tests/<unit> → artifacts/build/compiler/<member>/release/tests/<unit>
+                // （profile 在外、tests 在内，与运行时 build/runtime/<profile>/ 同形；单元按 --release 编）
                 // so the produced .zpkg lands in <mirror>/dist/, NOT beside source.
                 string mirrorDist = Path.Join(
-                    Path.Join(_compilerBuildRoot(root), members[i] + "/tests/" + unit),
+                    Path.Join(_compilerBuildRoot(root), members[i] + "/release/tests/" + unit),
                     "dist");
                 string[] zps = Path.Glob(mirrorDist, "*.zpkg");
                 // Guard against a recurrence of the prior false-green: before

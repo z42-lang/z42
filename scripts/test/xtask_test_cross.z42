@@ -32,7 +32,7 @@ using Std.IO;
 // （查「规则在不在」要查行为——静态扫一眼 `_copyAll` 里有没有那行 unlink 是查码。）
 // 注入验证：把 `_unlinkIfExists` 从 `_copyAll` 里去掉，本门当场红。
 int _assertCopyDoesNotWriteThroughHardLinks(string root) {
-    string tmp = _xtaskTestOut(root, "fs-writethrough");
+    string tmp = _xtaskWork(root, "fs-writethrough");
     _resetDir(tmp);
     string srcDir = Path.Join(tmp, "src");
     string aliasDir = Path.Join(tmp, "alias");
@@ -180,30 +180,6 @@ int _crossSummary(int pass, int fail, string[] failures, int failCount) {
 
 // ── z42c build path (replace-csharp Phase B：cross-zpkg gate 脱 dotnet) ──────
 
-// 组装 z42c driver-home：含 z42c.driver.zpkg + 全部编译器成员（从 per-member dist）。
-// z42vm 从 entry zpkg 所在目录解析其依赖，故 driver 的 z42c.* 依赖放这里，与
-// compilation 的 Z42_LIBS（stdlib + fixture deps）隔离，避免单-libs 目录污染。
-// 返回 driver-home 目录路径；z42c 未构建（缺任一成员 dist）返回 ""。
-string _assembleDriverHome(string root) {
-    // Single SoT: compiler workspace default-members (same source as build/test/
-    // bootstrap-check), so adding a z42c.* member doesn't silently drift this assembly.
-    string[] members = _compilerMembers(root);
-    // Fixed path (not a /tmp TempDir): the returned home lives for the whole run (golden
-    // regen and cross-zpkg both use it) and had no deleter → every run leaked a /tmp dir.
-    // A compiler-workspace-level intermediate, reused; delete+recreate makes it self-cleaning.
-    string home = _compilerWsWork(root, "driver-home");
-    if (Directory.Exists(home)) { Directory.Delete(home, true); }
-    Directory.Create(home);
-    int i = 0;
-    while (i < members.Length) {
-        string m = members[i];
-        string src = _compilerMemberZpkg(root, m, "release");
-        if (!File.Exists(src)) { return ""; }
-        try { File.Copy(src, Path.Join(home, m + ".zpkg")); } catch (Exception e) { return ""; }
-        i = i + 1;
-    }
-    return home;
-}
 
 
 

@@ -1330,7 +1330,7 @@ jobs:
       # stayed red for three weeks (2026-08-24 → 09-14) without anyone noticing.
       # `src/runtime/**` is in the `platform` filter, so runtime PRs run this too.
       # The pkg-nodejs it loads is built into the staged host copy (`test platform wasm
-      # build`, artifacts/build/…/wasm/tests/host); `assets` puts js/fixtures + js/stdlib
+      # build`, artifacts/intermediate/…/wasm/host); `assets` puts js/fixtures + js/stdlib
       # beside it — nothing is written into the source platform dir.
       - uses: actions/setup-node@v7
         with:
@@ -1341,7 +1341,7 @@ jobs:
           set -euo pipefail
           xtask test platform wasm build
           xtask test platform wasm assets
-          node artifacts/build/toolchain/workload/wasm/tests/host/demo/node/run.js
+          node artifacts/intermediate/toolchain/workload/wasm/host/demo/node/run.js
 
       # unify-release-archive：在本 runner 上出归档（可执行位原样进 tar；Windows 出 zip）。PR 上也做（几秒）——
       # 下面的 Installer smoke 装的就是它，于是 4 个桌面平台每个 PR 都真装一遍真归档；只有上传限非 PR。
@@ -1607,7 +1607,7 @@ jobs:
           set -euo pipefail
           # node deps go into the staged host copy (where `test platform wasm` runs Playwright).
           xtask test platform wasm stage
-          cd artifacts/build/toolchain/workload/wasm/tests/host/tests
+          cd artifacts/intermediate/toolchain/workload/wasm/host/tests
           npm install --no-audit --no-fund
           npx playwright install --with-deps chromium
       # test-layout §6: the whole device pipeline is ONE command, same as local —
@@ -1796,7 +1796,7 @@ jobs:
         if: always()
         with:
           name: platform-tests / android (shard ${{ matrix.shard }})
-          path: 'artifacts/build/toolchain/workload/android/tests/host/z42vm/build/outputs/androidTest-results/connected/**/*.xml'
+          path: 'artifacts/intermediate/toolchain/workload/android/host/z42vm/build/outputs/androidTest-results/connected/**/*.xml'
           reporter: java-junit
           fail-on-error: false
       - name: Upload Android JUnit
@@ -1804,7 +1804,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: junit-android-${{ matrix.shard }}
-          path: artifacts/build/toolchain/workload/android/tests/host/z42vm/build/outputs/androidTest-results/connected/**
+          path: artifacts/intermediate/toolchain/workload/android/host/z42vm/build/outputs/androidTest-results/connected/**
           if-no-files-found: warn
 
   test-desktop:

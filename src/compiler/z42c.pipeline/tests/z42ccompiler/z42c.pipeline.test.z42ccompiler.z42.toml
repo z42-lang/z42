@@ -18,5 +18,5 @@ include = ["**/*.z42"]
 
 [build]
 # Build output → artifacts mirror (mirror-build-output-per-component):
-# src/compiler/z42c.pipeline/tests/z42ccompiler → artifacts/build/compiler/z42c.pipeline/tests/z42ccompiler
-output_dir = "../../../../../artifacts/build/compiler/z42c.pipeline/tests/z42ccompiler"
+# src/compiler/z42c.pipeline/tests/z42ccompiler → artifacts/build/compiler/z42c.pipeline/${profile}/tests/z42ccompiler
+output_dir = "../../../../../artifacts/build/compiler/z42c.pipeline/${profile}/tests/z42ccompiler"
