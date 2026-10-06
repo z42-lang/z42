@@ -9,11 +9,11 @@
 ---
 
 ## 1. 现状（已成形，但隐式且脆弱）
-- **Value = Rust tagged enum**（[metadata/types.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/types.rs)）：`I64=0/F64=1/Bool=2/Char=3`（内联值）、`Str(Str)=4`、`Array(GcRef<ArrayObj>)=6`/`Object(GcRef<ScriptObject>)=7`、`Closure(VarGcRef)`、`Ref/PinnedView/StackClosure/StructRefHeap`(→ 8B `{idx,frame_id}` transient-arena 句柄，见 §2.2)。**`Value` 现为 `Copy`（16B POD，无 `Drop` glue）**。
-- **ScriptObject** = `{ type_desc: Arc<TypeDesc>, slots: Box<[Value]>, native: NativeData }`。
-- **GcRef** = `NonNull<RegionEntry<T>> + generation`（ABA 防护）；RegionEntry **Box-owned 永不重定位 → 当前非移动堆**。
+- **Value = Rust tagged enum**（[metadata/types/value.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/types/value.rs)），`#[repr(C, u8)]` + 显式判别值：`I64=0/F64=1/Bool=2/Char=3`（内联值）、`Str(Str)=4`、`Null=5`、`Array(GcRef<ArrayObj>)=6`、`Object(GcRef<ScriptObject>)=7`、`PinnedView=8`、`FuncRef(Str)=9`、`Closure(VarGcRef)=10`、`StackClosure=11`、`Ref=12`、`StackObject=14`、`StackArray=15`、`StructRef=16`、`BoxedStruct(GcRef<ScriptObject>)=17`、`StructRefHeap=18`（13 空号）。`{idx, frame_id}` 形的变体都是 8B arena 句柄（瞬态的 4 个见 §2.2）。**`Value` 是 `Copy`（16B POD，无 `Drop` glue）**。
+- **ScriptObject** = `{ type_desc: Arc<TypeDesc>, storage: ObjStorage, extras: Option<Box<ObjExtras>> }`（[metadata/types/object.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/types/object.rs)）。`storage` 是单次分配的 `[refs: Value × n_refs][bytes: u8 × n_bytes]` 块（[obj_storage.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/types/obj_storage.rs)），布局见 §3「字段存储布局」；`extras` 装冷字段 `native: NativeData`（WeakRef / Type / LoadContext / Assembly / Monitor 句柄）与泛型实参 `type_args`，两者都空时不分配。
+- **GcRef** = 8B 标记指针（低 48 位 `RegionEntry` 地址、高 16 位窄 generation 快照，见 §2.1）。`RegionEntry` = `{ value: Mutex<T>, marked, alive, gen_age, generation, finalizer, … }`：mark 位和代龄在 entry 上，对象本身没有 GC 字；每个对象带一把 `Mutex`；chunk 是 Box-owned、永不重定位 → **当前非移动堆**。
 - **JIT 与 interp 共享内存 Value 表示**：JIT 直接 `store tag`+payload 到帧的 Value 寄存器数组，**硬编码 tag 值 + 偏移**。
-- 三套内存管理：Arc(`TypeDesc`/`Str`)、GcRef(`Array`/`Object`)、Box(`Closure`)。
+- 内存管理：`Value` 能到达的堆数据全在 GC 堆（`GcRef`：Object / Array / BoxedStruct；`VarGcRef` 变长块：Str / Closure / 数组元素）；`Arc` 只留给内部元数据（`TypeDesc`、帧名等，§5、§7）；瞬态句柄的 payload 在 per-`VmContext` arena（§2.2）。
 
 **核心问题**：已有一份**事实上的跨引擎 Value ABI**，但它绑死 rustc 对 enum 的布局——隐式、脆弱。**本文 = 把它固化成显式版本化规范。**
 
@@ -29,7 +29,7 @@
 > 采用**路 A（标记指针）**，`Value` 为 **16B**：
 > - `GcRef`/`WeakGcRef` 是 8B 单标记指针（低 48 位 RegionEntry 地址、高 16 位窄 generation，deref mask）。**保留非移动 region GC**（generation 变窄，ABA 窗口 2^16 已接受，见 §4）。wasm32（usize 32 位）按 `target_pointer_width` cfg-gate 成 `{ptr:NonNull(4B), generation:u32(4B)}` 仍 8B。
 > - `Value::Str` 是 8B 细指针 `Str`（[`metadata/vstr.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/vstr.rs)，长度进块头；GC 化见 §5）。
-> - `Value::FuncRef` 是 `Str`（8B 细）。每个 payload ≤ 8B → `#[repr(C,u8)]` 给出 tag(1B padded to 8) + 8B = **16B**。由 [`types.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/types.rs) 的 `const _: () = assert!(size_of::<Value>()==16)` 编译期锁死；JIT 的 `VALUE_STRIDE`/`STRIDE` 取 `size_of::<Value>()`（单一真相，[`jit/translate.rs`](https://github.com/z42-lang/z42/tree/main/src/runtime/src/jit/translate)）。
+> - `Value::FuncRef` 是 `Str`（8B 细）。每个 payload ≤ 8B → `#[repr(C,u8)]` 给出 tag(1B padded to 8) + 8B = **16B**。由 [`metadata/types/value.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/types/value.rs) 的 `const _: () = assert!(size_of::<Value>()==16)` 编译期锁死；JIT 的 `VALUE_STRIDE` 取 `size_of::<Value>()`（单一真相，[`jit/reg_access.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/jit/reg_access.rs)）。
 >
 > payload 偏移固定（tag@0、payload@8）。native FFI 的 `Z42Value` 是**独立冻结的 16B ABI struct**（`{tag:u32, reserved:u32, payload:u64}`，[z42-abi](https://github.com/z42-lang/z42/tree/main/src/runtime/crates/z42-abi)），与内部 `Value` enum 表示解耦，marshal 显式转换。
 
@@ -173,10 +173,13 @@ ObjectHeader {
 
 → `ScriptObject.native: NativeData` ad-hoc 字段**消除**；`WeakRef`/`TypeHandle`/未来 `FileHandle` 变成上述 kind。
 
-### slots 布局（= 对象内存布局本体，跨引擎 ABI）
-- `slots` 是**实例字段存储**:定长 `Value[]`,槽数 = `TypeDesc.fields.len()`,`alloc` 时定死不增长。
-- 名→槽由 `TypeDesc.field_index`（类级共享）。**继承:基类字段在前、子类追加**（基类槽号父子稳定）。
-- 访问 `obj.f` = `slots[常量槽号]`（O(1)）；JIT = `slots 基址 + 槽号×sizeof(Value)` 的 Value 大小 load/store → **槽偏移 + Value 大小是 ABI 一部分,须固化**。
+### 字段存储布局（= 对象内存布局本体，跨引擎 ABI）
+- 实例字段按**字节布局**存放在 `ScriptObject.storage`（`[refs][bytes]` 单块），布局由加载期组合出的 `ObjectLayout`（[metadata/types/layout.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/types/layout.rs) 的 `compose_object_layout`）决定，`alloc` 时定长：
+  - **基元字段**（含内联 struct 内部的基元叶子）按声明宽度打包在 `bytes` 的组合偏移处；
+  - **直接的 object / array 引用字段**以 8B 标记指针内联在 `bytes` 里（`ObjectLayout.inline_refs`，GC 读这 8B 重建 `Value::Object` / `Value::Array`；全 0 = `null`）；
+  - **其余引用叶子**（string / closure / func 字段、内联 struct 内部的引用叶子）放 `refs` 侧表，按 `ref_offsets` 位图顺序排列，GC 直接扫这些 `Value`。
+- 名→字段下标由 `TypeDesc.field_index`（类级共享）。**继承：基类字段在前、子类追加**（基类偏移父子稳定）。
+- 访问 `obj.f` = 按字段下标查 `ObjectLayout.field_access[i]`（`{offset, width, tag, ref_slot}`，加载期算好），基元按 `offset/width` 解码、`ref_slot ≥ 0` 时读 `refs[ref_slot]`。JIT 对基元字段的读写、对 object / array 引用字段的读，直接按字节偏移生成原生 load/store（见 [jit.md](jit.md)）→ **字段偏移、宽度与 Value 大小是 ABI 一部分，须固化**。
 
 ### 槽位零初始化
 
@@ -251,7 +254,7 @@ ObjectHeader {
 ---
 
 ## 4. GcRef 语义
-- 现:`NonNull<RegionEntry> + generation`(ABA 防护)。**改名 `generation`→`epoch`**:避免与**分代 GC 的 young/old generation** 混淆。
+- 现:8B 标记指针 = `RegionEntry` 地址 + 高 16 位窄 generation(ABA 防护，§2.1)。**改名 `generation`→`epoch`**:避免与**分代 GC 的 young/old generation** 混淆。
 - **必须"可重定位"**（为移动 GC，§6）。两方案(fork,待 benchmark):
   - **(a) 稳定 entry + 重定位 payload + 精确 fixup**:GC 把所有 GcRef 改写到新址(evacuation+fixup)。访问无额外间接;移动时全堆 fixup。
   - **(b) 句柄表间接**:GcRef→表→对象;移动只改表一格,访问多一跳。

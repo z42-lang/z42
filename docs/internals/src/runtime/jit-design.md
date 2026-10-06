@@ -1,191 +1,112 @@
-# z42 JIT 后端规范
+# JIT 后端（Cranelift）：结构与调用约定
 
-> **页型**: 决策页 ｜ **代码**: —
-> **相关**: [jit.md](jit.md)
-> 当前实现（lazy per-function 编译）见 [jit.md](jit.md)；本页仅 Cranelift 后端部分供参考。
+> 代码：`src/runtime/src/jit/`（`mod.rs` / `frame.rs` / `lazy.rs` / `translate/` / `helpers/`）
+> 相关：[惰性逐函数 JIT](jit.md)（编译时机、调用计数 tier-up、混合模式、OSR、原生快路径） · [解释器 / JIT 标量语义](interp-jit-semantics.md)
+> 待办：只有执行入口的线程跑 JIT，VM 创建的其他线程全程解释执行
+
+本页只讲 JIT 后端的骨架：入口、两块运行时数据结构、原生函数 ABI、指令怎么翻译、异常怎么走。
 
 ## 概述
 
-z42 JIT 后端使用 **Cranelift** 将 z42 SSA IR 编译为原生机器码。编译在模块加载时进行（预热式 JIT），运行时直接执行原生函数指针。
+`--mode jit`（默认模式）下，z42 函数由 **Cranelift** 编成原生机器码。编译是**惰性**的：`JitModule::setup`
+只建基础设施，不编任何用户函数；函数在调用次数达到 `jit-threshold`（默认 2）时才编译，热循环另由 OSR
+在回边计数达到 `osr-threshold`（默认 10000）时转入原生码。没编译的函数、以及含 JIT 不支持指令的函数，都在解释器上跑。
 
----
-
-## 架构
+## 入口
 
 ```
-z42 Module (IR)
+vm.rs: ExecMode::Jit → jit::run(ctx, module, entry)
     │
-    ▼ JitCompiler::compile_module()  ← 模块加载时一次性编译
-JitModule
-    ├── fn_table: HashMap<String, *const u8>  ← 原生函数指针
-    ├── ctx: Arc<JitModuleCtx>                ← 运行时上下文
-    └── _module: JITModule                    ← Cranelift JIT 模块（保持生命周期）
-    │
-    ▼ Vm::run() → JitModule::run_entry()
-原生机器码执行
+    ▼ JitModule::setup(module)      建 LazyCompiler（持 cranelift JITModule）+ JitModuleCtx，不编译
+    ▼ JitModule::run_fn(ctx, entry)
+        1. JitModuleCtx.vm_ctx ← ctx；stack_limit ← 本线程栈下限
+        2. ctx.set_jit_ctx(&JitModuleCtx)        —— 让本次运行里的 interp 帧能回跳原生码
+        3. resolve_fn_by_name(entry)             —— 首次调用即编译入口
+           └ 入口不可翻译 → 整个入口交给 interp::exec_function
+        4. push VmFrame → jit_fn(&mut frame, &ctx) → pop
+        5. 清空 vm_ctx / jit_ctx
 ```
 
----
+JIT 只在执行 `run_fn` 的那个线程上运行。VM 创建的其他线程用各自的 `VmContext`，其 `jit_ctx` 恒为 0，全程解释执行。
 
-## 运行时上下文（JitModuleCtx）
+## 运行时数据结构（`frame.rs`）
 
-编译后的函数需要访问以下运行时数据，打包为 `JitModuleCtx`，通过指针传入每个 JIT 函数：
+**`JitModuleCtx`**：每个 `JitModule` 一份，以 `*const JitModuleCtx` 传给每个原生函数和每个 helper。主要字段：
 
-```rust
-pub struct JitModuleCtx {
-    pub string_pool: Vec<String>,
-    /// 函数名 → 原生函数指针（用于 Call 指令）
-    pub fn_ptrs: HashMap<String, *const u8>,
-    /// 原始 Module 引用（用于 ObjNew/VCall 的类元数据）
-    pub module: *const bytecode::Module,
-}
-```
+| 字段 | 作用 |
+|---|---|
+| `fn_entries_by_id: Vec<OnceLock<FnEntry>>` | 已编译函数表，下标 = 合并模块里的函数 id；空槽 = 未编译或不可翻译 |
+| `lazy_table` | 惰性加载（尚未合并进模块）的函数的编译槽，id ≥ `merged_len` |
+| `module` | 指回字节码 `Module`（类描述、函数体、`func_index`） |
+| `lazy` | `Mutex<LazyCompiler>`：首编串行化，热路径只读 `OnceLock` |
+| `vm_ctx` | 本次运行的 `VmContext`；helper 经它访问可变 VM 状态 |
+| `call_counts` / `jit_threshold` | 调用计数 tier-up |
+| `osr_entries` / `osr_threshold` | OSR 入口缓存（按「函数 id, 循环头块」）与阈值 |
+| `stack_limit` | 函数序言做栈深检查用的下限 |
 
----
+`vm_ctx` 和 `stack_limit` 的偏移由 `offset_of!` 导出给生成码，内联 safepoint 检查和栈检查直接 load。
 
-## JIT 帧（JitFrame）
+**`JitFrame`**：一次调用一份。
 
-每次函数调用创建一个 `JitFrame`，寄存器文件为定长 `Vec<Value>`（按 reg 编号索引，比解释器的 HashMap 快）：
+| 字段 | 作用 |
+|---|---|
+| `regs: Vec<Value>` | 寄存器文件，按 SSA 寄存器号索引，长度 `max_reg + 1` |
+| `ret: Option<Value>` | 返回值，由 `jit_set_ret` 写入 |
+| `env_arena` | 不逃逸闭包的帧内环境 |
+| `frame_id` | 帧 id，供 struct 值的悬垂检查；OSR 时继承 interp 帧的 id |
 
-```rust
-pub struct JitFrame {
-    pub regs: Vec<Value>,   // 大小 = max_reg + 1
-    pub ret:  Option<Value>,
-}
-```
-
----
+每次进入原生函数前，调用方把 `regs` / `env_arena` 登记成一个 `VmFrame` 压进 `VmContext` 的调用栈，GC 从那里扫描根。
 
 ## 原生函数 ABI
 
-每个 z42 函数编译为一个符合以下签名的原生函数：
-
 ```rust
-type JitFn = unsafe extern "C" fn(
-    frame: *mut JitFrame,
-    ctx:   *const JitModuleCtx,
-) -> u8;
-// 返回值：0 = 正常返回，1 = 抛出了异常（异常值存于线程本地 PENDING_EXCEPTION）
+// helpers/mod.rs
+pub type JitFn = unsafe extern "C" fn(frame: *mut JitFrame, ctx: *const JitModuleCtx) -> u8;
+// 0 = 正常返回（返回值在 frame.ret）；1 = 抛出异常（异常值挂在 VmContext 上）
 ```
 
-调用约定：
-- 调用方在调用前将参数写入 `frame.regs[0..param_count]`
-- 被调方通过 `frame.ret` 返回值（如果有）
+调用方先把实参写进被调方 `frame.regs[0..argc]`。z42 函数之间**从不**生成 Cranelift 直接调用，
+一律经 `jit_call` / `jit_vcall` / `jit_call_indirect` 等 helper 按 id 或站点 IC 解析目标，所以每个函数都能独立编译。
 
----
+## 指令翻译（`translate/`）
 
-## 指令翻译策略
+- 每个 z42 基本块对应一个 Cranelift 块；`Br` / `BrCond` / `Ret` / `Throw` 译成原生跳转与返回。
+  `BrCond` 先调 `jit_get_bool`（返回 0 / 1，非 Bool 时返回 `JIT_GET_BOOL_ERR` 并挂异常）。
+- 回边和 `BrCond` 前内联 safepoint 快路（两次 load/store + 分支），慢路调 `jit_check_safepoint_slow`；函数序言内联栈深检查，越界调 `jit_stack_overflow`。
+- 类型已知的整数 / 浮点标量运算、比较、转换、除余，以及部分字段读写，直接生成原生指令（寄存器缓存、loop-carried 驻留等见 [jit.md](jit.md)）。
+- 其余操作调 `extern "C"` helper。helper 在 `helpers/registry.rs` 统一登记：`register_symbols` 把符号交给 `JITBuilder`，
+  `declare_imports` 在模块里声明导入，生成码用普通 `call` 调用。约定：前两个参数总是 `(frame, ctx)`；
+  可能失败的返回 `u8`（0 成功，1 异常），不会失败的返回 `()`。
+- 不可翻译的指令集中在 `translate/unsupported.rs`（`CallNative`、`PinPtr`、`LoadLocalAddr` 等地址类指令、
+  方法级泛型的 `MethodTypeArg` 与泛型调用等）。含这些指令的函数在编译前就被拒绝，留在解释器上。
 
-JIT 编译控制流为原生 Cranelift jump/branch，所有 Value 操作委托给 `extern "C"` helper 函数。
+## 异常
 
-### 控制流（Cranelift 原生指令）
+异常值存在 `VmContext` 上（helper 用 `set_exception` 写入），不放线程本地变量。每个可能失败的 helper 调用后都检查返回值：
 
-| z42 Terminator | Cranelift 指令 |
-|---------------|---------------|
-| `Br { label }` | `jump block_N` |
-| `BrCond { cond, t, f }` | `call jit_get_bool` → `brif v, block_T, block_F` |
-| `Ret { None }` | `return` (返回 0u8) |
-| `Ret { Some(r) }` | `call jit_set_ret(frame, r)` → `return` |
-| `Throw { reg }` | `call jit_throw(frame, reg)` → `return 1u8` |
-
-### Helper 函数列表（extern "C"）
-
-所有 helper 均为 `unsafe extern "C"` 函数，通过 Cranelift `call_indirect` 调用。
-
-返回 `u8` 的 helper：0=成功，1=抛出异常（操作数类型不匹配或运行时错误）。
-
-| 类别 | 签名 |
-|------|------|
-| 常量 | `jit_const_i32(frame, dst, val: i32)` |
-| 常量 | `jit_const_i64(frame, dst, val: i64)` |
-| 常量 | `jit_const_f64(frame, dst, val: i64/*bits*/)` |
-| 常量 | `jit_const_bool(frame, dst, val: u8)` |
-| 常量 | `jit_const_null(frame, dst)` |
-| 常量 | `jit_const_str(frame, dst, ctx, idx: u32)` |
-| 复制 | `jit_copy(frame, dst, src)` |
-| 算术 | `jit_add(frame, dst, a, b) -> u8` |
-| 算术 | `jit_sub / jit_mul / jit_div / jit_rem(frame, dst, a, b) -> u8` |
-| 比较 | `jit_eq / jit_ne / jit_lt / jit_le / jit_gt / jit_ge(frame, dst, a, b) -> u8` |
-| 逻辑 | `jit_and / jit_or(frame, dst, a, b) -> u8` |
-| 逻辑 | `jit_not / jit_neg / jit_bit_not(frame, dst, src) -> u8` |
-| 位运算 | `jit_bit_and / jit_bit_or / jit_bit_xor / jit_shl / jit_shr(frame, dst, a, b) -> u8` |
-| 变量槽 | `jit_store(frame, var_ptr: *const u8, var_len: usize, src)` |
-| 变量槽 | `jit_load(frame, dst, var_ptr: *const u8, var_len: usize)` |
-| 字符串 | `jit_str_concat(frame, dst, a, b) -> u8` |
-| 字符串 | `jit_to_str(frame, ctx, dst, src) -> u8`（Object 走 vtable ToString 分发）|
-| 函数调用 | `jit_call(frame, ctx, dst, fn_name_ptr, fn_name_len, args_ptr, argc) -> u8` |
-| 内置调用 | `jit_builtin(frame, ctx, dst, name_ptr, name_len, args_ptr, argc) -> u8` |
-| 数组 | `jit_array_new / jit_array_new_lit / jit_array_get / jit_array_set / jit_array_len` |
-| 对象 | `jit_obj_new / jit_field_get / jit_field_set / jit_vcall` |
-| 类型检查 | `jit_is_instance / jit_as_cast` |
-| 静态字段 | `jit_static_get / jit_static_set` |
-| 控制辅助 | `jit_get_bool(frame, reg) -> u8`（提取 bool 用于 BrCond）|
-| 控制辅助 | `jit_set_ret(frame, reg)`（写 ret 槽）|
-| 控制辅助 | `jit_throw(frame, reg)`（写线程本地异常并返回 1）|
-
-### 异常处理
-
-延续解释器的线程本地方案：
-
-```rust
-thread_local! {
-    static PENDING_EXCEPTION: RefCell<Option<Value>> = RefCell::new(None);
-}
+```
+v = call jit_xxx(frame, ctx, …)
+brif v, exc_block, next
 ```
 
-JIT 代码中，每个可能抛出异常的 helper 调用后检查返回值：
-```
-v = call jit_add(frame, dst, a, b)
-brif v, exception_dispatch, next_instr
-```
+`exc_block` 在编译期按异常表生成：
 
-`exception_dispatch` 块在编译时按 exception_table 预计算：
-- 若当前块在某个 try 区间内 → 跳转到对应 catch 块（调用 `jit_install_catch(frame, catch_reg)` 从线程本地取出异常值）
-- 否则 → `return 1u8`（向上传播）
-
----
-
-## Cranelift 依赖
-
-```toml
-[dependencies]
-cranelift-jit      = "0.135"
-cranelift-codegen  = "0.135"
-cranelift-module   = "0.135"
-cranelift-native   = "0.135"
-cranelift-frontend = "0.135"
-```
-
----
+- 当前块不在任何 try 区间内 → `return 1`，向调用方传播；
+- 在 try 区间内 → 先调 `jit_fatal_pending`（栈溢出等致命错误跳过所有 handler，直接传播），
+  再按 catch 条目依次 `jit_match_catch_type` 比对类型，命中的调 `jit_install_catch` 取出异常值写进 catch 寄存器后跳转；
+  通配 catch 直接进入；都不匹配 → `return 1`。
 
 ## 文件结构
 
 ```
-src/runtime/src/
-├── jit/
-│   ├── mod.rs        # JitCompiler, JitModule — 公开 API
-│   ├── frame.rs      # JitFrame, JitModuleCtx
-│   ├── helpers.rs    # 所有 extern "C" helper 函数
-│   └── translate.rs  # Cranelift IR 生成（每函数翻译）
+src/runtime/src/jit/
+├── mod.rs           JitModule（setup / run_fn）、jit::run
+├── lazy.rs          LazyCompiler：持 cranelift JITModule，compile_one 按需编译单函数
+├── frame.rs         JitFrame、JitModuleCtx、FnEntry、resolve_fn_by_* / OSR 入口解析
+├── reg_access.rs    frame.regs 槽位读写的唯一出口
+├── vm_interface.rs  编译期读取 VM 元数据的只读接口
+├── translate/       z42 指令 → Cranelift IR（按指令类别拆分；unsupported.rs 为不可翻译表）
+└── helpers/         extern "C" helper（按指令类别拆分；registry.rs 为中央注册表）
 ```
 
----
-
-## 性能模型
-
-| 操作 | 解释器 | JIT |
-|------|--------|-----|
-| 控制流（跳转） | HashMap 标签查找 + Rust 循环 | 原生 jump 指令 |
-| 寄存器读写 | `HashMap<u32, Value>` | `Vec<Value>` 数组索引 |
-| 函数调用 | 线性扫描函数名 | 直接函数指针调用 |
-| Value 运算 | 同解释器 match | 调用 helper（同等开销）|
-
-JIT 的主要收益在**控制流密集**（循环、条件分支多）和**函数调用密集**的场景。
-
----
-
-## 限制与后续工作
-
-- **现状**：所有 Value 操作通过 helper 调用，不做 unboxing 优化
-- **待办**：IR 携带类型标注后，对标量类型（i32/i64/f64/bool）生成 Cranelift 原生算术指令，消除 helper 调用开销
-- **混合执行**（后续）：按函数粒度决定走 JIT 还是 Interp
+加 helper 的步骤见 `src/runtime/src/jit/README.md` 的「Helper 边界」。

@@ -23,7 +23,7 @@
 //!
 //! PIC install: whenever the resolved callee is module-local and the receiver has a type id
 //! (real `TypeDesc.id` for objects, synthetic `PRIM_TYPE_*` for primitives; boxes have none),
-//! the `(type_id, slot, fn_idx)` triple is written to the site's `VCallIC` so the next call
+//! the `(type_id, fn_idx)` pair is written to the site's `VCallIC` so the next call
 //! with that receiver type takes `vcall_ic_hit` and never reaches this module.
 
 use std::sync::Arc;

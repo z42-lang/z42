@@ -103,16 +103,22 @@ mode = "interp"
 **运行时不需要任何人指路**：`Z42_APP_CONFIG` 未设时，**VM 自己**按「同目录、同 stem」
 从 app 文件推出侧车路径（`config::sidecar_for`）。这条推导发生在**装配**期——配置在
 `OnceLock` 里 boot 后冻结，`app::run` 那时再想加一层就晚了——所以它在两个入口各做一次：
-`z42vm` 的 `main()`（有 `cli.file`）与 `z42-host::run_app`（有 `file` 参数）。这两条就是
-**全部**进入执行核心的路径，于是覆盖：
+`z42vm` 的 `main()`（有 `cli.file`）与 Rust 嵌入 API `z42-host::run_app`（有 `file` 参数），
+两者共用 `config::load_app_config_tables`。另外两个进入执行核心的入口**不做**这一步，
+直接调 `app::run`，配置走 `RuntimeConfig::from_env`（只认显式 `Z42_APP_CONFIG`）：
+C 入口 `z42_host_run_app`（`src/runtime/src/host/mod.rs`）与 wasm 入口
+（`src/toolchain/workload/wasm/platform`）。于是覆盖：
 
 | 形态 | |
 |---|---|
 | `z42vm <app.zpkg>` 直跑 | ✅ |
 | `z42 run` / `z42 repl`（launcher）| ✅ |
-| `z42 publish` 出的 spawn apphost | ✅ |
-| 桌面自包含 apphost（进程内 `z42_host_run_app`）| ✅ |
-| wasm / iOS / Android | ✅ |
+| `z42 publish` 出的 spawn apphost | ✅（起的是 `z42vm`） |
+| Rust 宿主调 `z42-host::run_app` | ✅ |
+| 桌面自包含 apphost、iOS / Android 壳（C 入口 `z42_host_run_app`）| ❌ 不读侧车 |
+| wasm | ❌ 不读侧车 |
+
+> 待办：C 入口与 wasm 入口改走 `load_app_config_tables`，让所有入口都按约定读侧车。
 
 **约定只有一处实现，且没有谁再去"转发"它。** 调用方**可以**传显式路径
 （`Z42_APP_CONFIG` 仍优先），但不必自己去发现——对照 dotnet：host 永远读

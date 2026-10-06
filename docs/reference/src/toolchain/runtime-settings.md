@@ -315,8 +315,11 @@ mode = "interp"
   build 直接失败。
 
 **运行时不需要任何人指路**：VM 按「与 app 文件同目录、同 stem」自己推出侧车路径。
-`z42vm <app.zpkg>` 直跑、`z42 run`、publish 出的 apphost、自包含桌面 app、
-wasm / iOS / Android 都一样。找不到侧车是常态（多数工程没有 `[profile.*]` 旋钮），安静跳过。
+`z42vm <app.zpkg>` 直跑、`z42 run`、publish 出的（非自包含）apphost 都是这样。找不到侧车是常态
+（多数工程没有 `[profile.*]` 旋钮），安静跳过。
+
+> **已知限制**：自包含桌面 app、iOS / Android、wasm 目前**不读侧车**，只认环境变量以及
+> `Z42_CONFIG` / `Z42_APP_CONFIG` 显式指向的文件。在这些形态上，清单 `[profile.<n>.runtime]` 里的设置不会生效。
 
 `Z42_APP_CONFIG` 只是**可选的显式覆盖**：它指向的文件解析出了内容就用它，指向一个不存在的
 路径会警告并**回落到 app 自己的侧车**（指向一个**坏**文件——非法 TOML / `.json`——仍是硬错误）。
