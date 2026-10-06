@@ -105,7 +105,6 @@ pub(super) struct TxCtx<'a, 'b> {
     pub(super) hr_load_fn: FuncRef,
     pub(super) hr_mk_clos: FuncRef,
     pub(super) hr_call_indirect: FuncRef,
-    pub(super) hr_load_fn_cached: FuncRef,
     pub(super) hr_default_of: FuncRef,
     pub(super) hr_convert: FuncRef,
     pub(super) hr_check_safepoint_slow: FuncRef,

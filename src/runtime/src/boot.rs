@@ -13,7 +13,7 @@
 //! | `VmContext::with_module` | module shared through the ctx (`__thread_spawn` needs it) | `new()` |
 //! | `register_cctor_of` | static-constructor barrier knows the eagerly merged types | missing |
 //! | `seed_lazy_loader_{types,impls}` | lazy packages see merged base classes / impls | missing |
-//! | `alloc_func_ref_slots` + `resolve_module` | `LoadFnCached` slots, dispatch tokens | missing |
+//! | `resolve_module` | dispatch tokens | missing |
 //! | `init_static_fields` | runs `__static_init__` of merged packages | **missing** |
 //!
 //! The last one was visible: a static field with an initializer read back as its type
@@ -92,11 +92,6 @@ pub(crate) fn boot_context(mut module: Module, plan: BootPlan) -> Pin<Box<VmCont
 /// Per-module execution setup that must precede running any function of `module`.
 /// Idempotent, but meant to run once per module.
 pub(crate) fn prepare_execution(ctx: &VmContext, module: &Module) {
-    // 2026-05-02 add-method-group-conversion (D1b): pre-allocate the FuncRef
-    // cache slots needed by `LoadFnCached` instructions for this module's
-    // global slot range.
-    ctx.alloc_func_ref_slots(module.func_ref_cache_slots);
-
     // introduce-method-token Phase 3 (2026-05-08): pre-resolve dispatch
     // tokens for every Function. Idempotent — safe if hot paths run
     // before Phase 4 hookups consume the cache (they fall back to

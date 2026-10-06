@@ -9,7 +9,6 @@ paths:
 
 - 所有可能失败的函数返回 `anyhow::Result<T>`
 - 内部 VM 错误（非用户错误）用 `bail!("...")` 或 `anyhow::anyhow!(...)`
-- 领域错误类型（如 `BytecodeError`）用 `thiserror::Error` 定义
 - **禁止** `unwrap()` / `expect()` 在非测试代码中出现；测试代码中允许使用
 
 ## 测试文件组织
@@ -121,7 +120,7 @@ nightly `test-wasm-browser` 能照出来。典型场景：time builtins、GC `no
 ## 序列化
 
 - `Module`、`Function`、`Instruction` 等持久化类型必须 `#[derive(Serialize, Deserialize)]`
-- 二进制格式使用 `bincode`；文本调试格式用 `serde_json`（可选依赖）
+- `.zbc` / `.zpkg` 由 `metadata/zbc_reader` 手写解码（规格见 internals 的 formats 部分），不经 serde
 
 ## 资源加载顺序
 

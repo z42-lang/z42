@@ -13,7 +13,7 @@
 | `exec_instr.rs` | 薄分发器：穷尽 match 把 `Instruction` 分派到下面各 `exec_<category>.rs` |
 | `exec_value.rs` | 常量 / Copy / 算术 / 比较 / 逻辑 / 一元 / 位运算 / 字符串构造 |
 | `exec_address.rs` | `LoadLocalAddr` / `LoadElemAddr` / `LoadFieldAddr` / `DefaultOf`（类级泛型零值）/ `MethodTypeArg`·`MethodDefault`（方法级泛型：读 `Frame.method_type_args`，见 book「泛型方法」页）|
-| `exec_call.rs` | `Call` / `Builtin` / `LoadFn` / `LoadFnCached` / `CallIndirect` / `MkClos` |
+| `exec_call.rs` | `Call` / `Builtin` / `LoadFn` / `CallIndirect` / `MkClos` |
 | `exec_array.rs` | `ArrayNew` / `ArrayNewLit` / `ArrayGet` / `ArraySet` / `ArrayLen` |
 | `exec_object.rs` | `ObjNew` / `FieldGet` / `FieldSet` / `Static*` |
 | `exec_object_isa.rs` | `IsInstance` / `AsCast` 类型判定（`exec_object` 再导出） |

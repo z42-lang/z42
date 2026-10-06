@@ -53,9 +53,8 @@ mimalloc = { version = "0.1", optional = true }
 dhat = { version = "0.3", optional = true }
 # Serialization
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"   # JSON interchange format (legacy .z42ir.json)
-toml = "1"         # z42.toml project manifest format
-bincode = "2"      # compact binary format (.zbc)
+serde_json = "1"   # --list-knobs / --show-config JSON output (config/render.rs)
+toml = "1"         # runtime config files: `[runtime]` tables, app sidecars (config/)
 
 # Inline small argument lists (`interp::ops::collect_args`); already in the
 # dependency graph through cranelift. All targets (wasm too).
@@ -63,7 +62,6 @@ smallvec = "1"
 
 # Error handling
 anyhow = "1"
-thiserror = "2"
 
 # Bitflags (used by metadata::test_index for TestFlags; spec R1)
 bitflags = "2"

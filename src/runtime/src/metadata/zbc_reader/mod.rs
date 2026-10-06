@@ -17,7 +17,7 @@ use super::bytecode::{
 };
 use super::bytecode::{
     AsCastInsn, BuiltinInsn, CallInsn, CallNativeInsn, FieldGetInsn, FieldSetInsn, IsInstanceInsn,
-    LoadFieldAddrInsn, LoadFnCachedInsn, LoadFnInsn, MkClosInsn, ObjNewInsn, StaticGetInsn,
+    LoadFieldAddrInsn, LoadFnInsn, MkClosInsn, ObjNewInsn, StaticGetInsn,
     StaticSetInsn, StructAllocInsn, TypeofInsn, VCallInsn,
 };
 use super::formats::{ZpkgDep, ZPKG_MAGIC, ZBC_MAGIC};
@@ -218,17 +218,10 @@ pub fn read_zbc(data: &[u8]) -> Result<Module> {
 
     let name = if namespace.is_empty() { "unknown".to_owned() } else { namespace };
     let string_pool = rebuild_string_pool(&pool_raw, &mut functions);
-    // 2026-05-02 add-method-group-conversion (D1b): FRCS section holds the
-    // FuncRef cache slot count (u32). Absent / empty → 0.
-    let func_ref_cache_slots = get_section(data, &dir, b"FRCS")
-        .filter(|s| s.len() >= 4)
-        .map(|s| u32::from_le_bytes([s[0], s[1], s[2], s[3]]))
-        .unwrap_or(0);
     Ok(Module {
         name, string_pool, classes, functions,
         type_registry: rustc_hash::FxHashMap::default(),
         func_index: rustc_hash::FxHashMap::default(),
-        func_ref_cache_slots,
     })
 }
 

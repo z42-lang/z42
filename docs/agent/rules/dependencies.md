@@ -13,7 +13,6 @@ z42 包之间的依赖按 manifest 声明，见 [docs/reference/](../../referenc
 | 用途 | 推荐库 | 状态 | 说明 |
 |------|--------|------|------|
 | JIT 代码生成 | `cranelift-*` | ✅ 已用 | Bytecode Alliance，Wasmtime 同款（feature `jit`） |
-| 二进制格式 | `bincode` | ✅ 已用 | 序列化 `.zbc` |
 | 内容哈希 | `blake3` | ✅ 已用 | zbc build_id |
 | AOT / LLVM | `inkwell` | 调研 | LLVM safe bindings for Rust |
 | 解析辅助（调试格式） | `nom` 或 `winnow` | 调研 | 文本 IR（`.zasm`）解析 |

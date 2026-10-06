@@ -111,12 +111,11 @@ impl VmContext {
     ///
     /// The new VmContext registers itself in `core.vm_contexts` for GC root
     /// scanning, so the worker's per-thread roots (`pending_exception` /
-    /// `call_stack` / `func_ref_slots`) are visible to the cycle collector.
+    /// `call_stack`) are visible to the cycle collector.
     /// On drop, the entry is removed under the same Mutex discipline as
     /// the primary path.
     pub fn new_with_core(core: Arc<VmCore>) -> std::pin::Pin<Box<Self>> {
         let pending_exception: Arc<Mutex<Option<Value>>> = Arc::new(Mutex::new(None));
-        let func_ref_slots: Arc<Mutex<Vec<Value>>> = Arc::new(Mutex::new(Vec::new()));
         let call_stack: Arc<Mutex<Vec<crate::exception::VmFrame>>> = Arc::new(Mutex::new(Vec::new()));
 
         let ctx = Self {
@@ -134,7 +133,6 @@ impl VmContext {
             transient_len: std::sync::atomic::AtomicUsize::new(0),
             next_frame_id: std::sync::atomic::AtomicU32::new(1),
             jit_ctx: std::sync::atomic::AtomicUsize::new(0),
-            func_ref_slots,
             interned_cache: Arc::new(Mutex::new(FxHashMap::default())),
             subclass_memo: Mutex::new(FxHashMap::default()),
             type_lookup_cache: Mutex::new(FxHashMap::default()),
@@ -179,7 +177,6 @@ impl VmContext {
 
     fn new_internal(module: Option<Arc<crate::metadata::Module>>) -> std::pin::Pin<Box<Self>> {
         let pending_exception: Arc<Mutex<Option<Value>>> = Arc::new(Mutex::new(None));
-        let func_ref_slots: Arc<Mutex<Vec<Value>>> = Arc::new(Mutex::new(Vec::new()));
         // 2026-05-10 unify-frame-chain: single Vec<VmFrame> replaces the
         // previous trio (exec_stack / env_arena_stack / call_stack).
         let call_stack: Arc<Mutex<Vec<crate::exception::VmFrame>>> = Arc::new(Mutex::new(Vec::new()));
@@ -305,12 +302,12 @@ impl VmContext {
         // External GC root scanner — invoked by the cycle collector during
         // mark phase. Walks all out-of-heap Value sources so cycles whose
         // only roots are static fields / pending exceptions / live frame
-        // regs / stack closure envs / func-ref slots stay alive.
+        // regs / stack closure envs stay alive.
         //
         // **add-vmcontext-registry (2026-05-20)**: scanner walks the
         // `vm_contexts` registry to find every live VmContext on this
         // VmCore. Each VmContext contributes its own per-thread roots
-        // (pending_exception / pending_thrown / call_stack frames / func_ref_slots). The
+        // (pending_exception / pending_thrown / call_stack frames). The
         // closure captures `Weak<VmCore>` ONLY — no per-thread Arc clones.
         {
             let core_weak = Arc::downgrade(&core);
@@ -358,10 +355,6 @@ impl VmContext {
                                 }
                             }
                         }
-                    }
-                    // method group conversion cache slots (D1b).
-                    for v in ctx.func_ref_slots.lock().iter() {
-                        visit(v);
                     }
                     // unify-gc-heap PR-4: per-context interned string cache — the GC
                     // strings lazily allocated for ConstStr pool literals live only
@@ -438,9 +431,6 @@ impl VmContext {
                             }
                         }
                     }
-                    for v in ctx.func_ref_slots.lock().iter() {
-                        visit(v, RootKind::FuncRefSlot);
-                    }
                     ctx.stack_arena
                         .lock()
                         .scan_roots(&mut |v| visit(v, RootKind::StackFrame));
@@ -471,7 +461,6 @@ impl VmContext {
             transient_len: std::sync::atomic::AtomicUsize::new(0),
             next_frame_id: std::sync::atomic::AtomicU32::new(1),
             jit_ctx: std::sync::atomic::AtomicUsize::new(0),
-            func_ref_slots,
             interned_cache: Arc::new(Mutex::new(FxHashMap::default())),
             subclass_memo: Mutex::new(FxHashMap::default()),
             type_lookup_cache: Mutex::new(FxHashMap::default()),

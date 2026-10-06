@@ -171,7 +171,6 @@ public sealed class RootRef {
 public enum RootKind {
     StaticField,   // 某 static 字段（直接或经引用链）
     StackFrame,    // 某线程调用栈帧的局部 / 求值栈 / 栈上分配 arena
-    FuncRefSlot,   // 方法组转换缓存槽
     Pinned,        // 宿主 pin / 帧 pin
 }
 ```

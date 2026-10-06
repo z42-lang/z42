@@ -290,18 +290,12 @@ pub(super) fn read_mods_section(
 
         let name = if namespace.is_empty() { "unknown".to_owned() } else { namespace.clone() };
         let string_pool = rebuild_string_pool(pool, &mut functions);
-        // 2026-05-02 D1b: zpkg packed-mode 暂不支持 method group cache slot
-        // metadata（FRCS section 是 module-level；packed zpkg 的多 module 模式
-        // 需要后续扩展 MODS 携带 per-module slot count）。当前 fallback 为 0；
-        // zpkg 内的 LoadFnCached 命中会触发 OOB → bail（运行时报错）。视
-        // packed zpkg 是否实际命中 LoadFnCached 决定 follow-up。
         result.push((Module {
             name, string_pool, classes, functions,
-            type_registry: rustc_hash::FxHashMap::default(),
-            func_index: rustc_hash::FxHashMap::default(),
-            func_ref_cache_slots: 0,
             // Populated inside `merge_modules` (these per-namespace modules
             // are always merged before consumption).
+            type_registry: rustc_hash::FxHashMap::default(),
+            func_index: rustc_hash::FxHashMap::default(),
         }, namespace, tidx_entries));
 
         sig_offset += func_count;

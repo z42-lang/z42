@@ -45,7 +45,6 @@ fn make_module_with(
         functions,
         type_registry: rustc_hash::FxHashMap::default(),
         func_index: rustc_hash::FxHashMap::default(),
-        func_ref_cache_slots: 0,
     }
 }
 

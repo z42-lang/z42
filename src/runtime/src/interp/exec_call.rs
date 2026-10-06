@@ -323,23 +323,6 @@ pub(super) fn load_fn(frame: &mut Frame, dst: u32, func: &str) {
     frame.set(dst, Value::FuncRef(func.into()));
 }
 
-/// 2026-05-02 add-method-group-conversion (D1b): cached method group
-/// conversion. First execution constructs `Value::FuncRef(func)` and
-/// stores it into the module-level slot; subsequent hits read the slot.
-pub(super) fn load_fn_cached(
-    ctx: &VmContext, frame: &mut Frame, dst: u32, func: &str, slot_id: u32,
-) {
-    let cached = ctx.func_ref_slot(slot_id);
-    let value = if matches!(cached, Value::Null) {
-        let v = Value::FuncRef(func.into());
-        ctx.set_func_ref_slot(slot_id, v.clone());
-        v
-    } else {
-        cached
-    };
-    frame.set(dst, value);
-}
-
 /// Indirect call: dispatch on FuncRef (no-capture) or Closure (capturing).
 /// For Closures, env is prepended to the user args as the lifted body's
 /// implicit first parameter. See closure.md §6.

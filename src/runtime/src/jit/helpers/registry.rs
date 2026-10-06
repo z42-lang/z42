@@ -118,7 +118,6 @@ pub struct HelperIds {
     pub load_fn:        FuncId,
     pub mk_clos:        FuncId,
     pub call_indirect:  FuncId,
-    pub load_fn_cached: FuncId,
     /// fix-numeric-cast-lowering (2026-05-13): explicit numeric cast.
     pub convert:        FuncId,
     // add-struct-jit-value-path (P5): blob value-type instruction helpers.
@@ -211,7 +210,6 @@ pub fn register_symbols(builder: &mut JITBuilder) {
     reg!("jit_vcall",         vcall::jit_vcall);
     // closure
     reg!("jit_load_fn",       closure::jit_load_fn);
-    reg!("jit_load_fn_cached", closure::jit_load_fn_cached);
     reg!("jit_mk_clos",       closure::jit_mk_clos);
     reg!("jit_call_indirect", closure::jit_call_indirect);
     // add-struct-jit-value-path (P5): struct value-type instruction helpers
@@ -350,8 +348,6 @@ pub fn declare_imports(jit: &mut JITModule) -> Result<HelperIds> {
         mk_clos:        decl!("jit_mk_clos",       [ptr, ptr, i32t, ptr, i64t, ptr, i64t, i8t], [i8t]),
         // jit_call_indirect(frame, ctx, dst, callee, args_ptr, args_len, caller_line, caller_col) -> u8
         call_indirect:  decl!("jit_call_indirect", [ptr, ptr, i32t, i32t, ptr, i64t, i32t, i32t, i32t], [i8t]),
-        // jit_load_fn_cached(frame, ctx, dst, name_ptr, name_len, slot_id) -> u8
-        load_fn_cached: decl!("jit_load_fn_cached", [ptr, ptr, i32t, ptr, i64t, i32t],           [i8t]),
         // jit_default_of(frame, ctx, dst, param_index) -> u8
         default_of:     decl!("jit_default_of",     [ptr, ptr, i32t, i32t],                      [i8t]),
         // jit_convert(frame, ctx, dst, src, to_tag) -> u8  (spec fix-numeric-cast-lowering)

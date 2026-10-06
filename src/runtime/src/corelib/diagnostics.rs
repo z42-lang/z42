@@ -118,8 +118,7 @@ fn root_kind_ord(k: RootKind) -> i64 {
     match k {
         RootKind::StaticField => 0,
         RootKind::StackFrame => 1,
-        RootKind::FuncRefSlot => 2,
-        RootKind::Pinned => 3,
+        RootKind::Pinned => 2,
     }
 }
 

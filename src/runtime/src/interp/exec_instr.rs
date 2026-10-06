@@ -196,7 +196,6 @@ pub fn exec_instr(
             }
         }
         Instruction::LoadFn(insn) => exec_call::load_fn(frame, insn.dst, &insn.func),
-        Instruction::LoadFnCached(insn) => exec_call::load_fn_cached(ctx, frame, insn.dst, &insn.func, insn.slot_id),
         Instruction::CallIndirect { dst, callee, args } => {
             update_caller_line(ctx, func, block_idx, instr_idx);
             if let Some(thrown) = exec_call::call_indirect(ctx, module, frame, *dst, *callee, args)? {

@@ -347,7 +347,7 @@ bump 的同步 checklist 见开发基础设施部分的 version-bumping 规范�
 
 ### Token 编码（v1.0+）
 
-Tokenizable IR 字段（`Call.func` / `LoadFn.func` / `LoadFnCached.func` /
+Tokenizable IR 字段（`Call.func` / `LoadFn.func` /
 `MkClos.fn_name` / `ObjNew.{class_name, ctor_name}` / `IsInstance.class_name` /
 `AsCast.class_name`）以 u32 token 写入，编码语义：
 

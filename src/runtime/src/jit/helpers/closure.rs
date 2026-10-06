@@ -1,5 +1,5 @@
 #![allow(dangerous_implicit_autorefs)]
-//! L3 closure JIT helpers — `LoadFn` / `LoadFnCached` / `MkClos` / `CallIndirect`.
+//! L3 closure JIT helpers — `LoadFn` / `MkClos` / `CallIndirect`.
 //!
 //! Behaviour mirrors `interp::exec_call` / `exec_instr` (impl-closure-l3-core);
 //! see `docs/internals/src/runtime/escape-analysis.md`（闭包栈分配）+ `docs/spec/archive/2026-05-02-impl-closure-l3-jit-complete/`.
@@ -28,34 +28,6 @@ pub unsafe extern "C" fn jit_load_fn(
     let name = std::str::from_utf8(std::slice::from_raw_parts(name_ptr, name_len))
         .unwrap_or("<invalid>");
     (*frame).regs[dst as usize] = Value::FuncRef(name.into());
-    0
-}
-
-// ── LoadFnCached (D1b add-method-group-conversion) ───────────────────────────
-
-/// 2026-05-02 D1b: cached method group conversion. First execution constructs
-/// `Value::FuncRef(name)` and stores it into `vm_ctx.func_ref_slots[slot_id]`;
-/// subsequent hits read from slot. Slot allocation guaranteed by `Vm::run`
-/// calling `alloc_func_ref_slots` before entry.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn jit_load_fn_cached(
-    frame: *mut JitFrame, ctx: *const JitModuleCtx,
-    dst: u32,
-    name_ptr: *const u8, name_len: usize,
-    slot_id: u32,
-) -> u8 {
-    let vm_ctx = vm_ctx_ref(ctx);
-    let cached = vm_ctx.func_ref_slot(slot_id);
-    let value = if matches!(cached, Value::Null) {
-        let name = std::str::from_utf8(std::slice::from_raw_parts(name_ptr, name_len))
-            .unwrap_or("<invalid>");
-        let v = Value::FuncRef(name.into());
-        vm_ctx.set_func_ref_slot(slot_id, v.clone());
-        v
-    } else {
-        cached
-    };
-    (*frame).regs[dst as usize] = value;
     0
 }
 

@@ -80,7 +80,6 @@ fn module_with(
         functions,
         type_registry,
         func_index,
-        func_ref_cache_slots: 0,
     }
 }
 

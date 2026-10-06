@@ -16,7 +16,7 @@ z42 自有**精确 GC**，能回答 .NET GC 回答不了的问题：**"这个对
 | **L2** | `RetainingRoots(object) -> RootRef[]` | 从 target 反向可达的 **GC 根**（类别级） |
 
 - `Retainer`：`TypeName`（引用者 FQ 类型名，数组以 `[]` 结尾）+ `Id`（堆身份）。
-- `RootRef`：`Kind: RootKind`（`StaticField` / `StackFrame` / `FuncRefSlot` / `Pinned`）。
+- `RootRef`：`Kind: RootKind`（`StaticField` / `StackFrame` / `Pinned`）。
 - target 非堆对象（primitive/null）→ 空数组。
 
 ## 机制 / 实现
@@ -40,7 +40,7 @@ L2 retaining_roots(target)  = 从 target 沿 rev 反向 BFS，收集途经对象
 ### 分类根 scanner（L2 报根的前提）
 mark 阶段的 `external_root_scanner` 只吐**匿名** Value，报不出根类别。故新增**分类根 scanner**
 （`CategorizedRootScanner`，`VmCore` 接线捕 `Weak<VmCore>`）：按类别枚举 `static_fields → StaticField`、
-每线程帧 regs/env/stack-arena → `StackFrame`、`func_ref_slots → FuncRefSlot`；pinned 根（GC 内部）→
+每线程帧 regs/env/stack-arena → `StackFrame`；pinned 根（GC 内部）→
 `Pinned`。**只在诊断查询时调用**，mark 热路径不变（零回归）。
 
 ### 准确性

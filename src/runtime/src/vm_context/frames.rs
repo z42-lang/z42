@@ -1,39 +1,6 @@
 use super::*;
 
 impl VmContext {
-    // ── Interp exec stack（Phase 3f） ─────────────────────────────────────
-
-    /// Push current frame's regs pointer onto exec_stack, used by GC root
-    /// scanning. Caller must guarantee pointer stays valid until matching
-    /// `pop_frame_regs()` (typically via `FrameGuard` RAII).
-    /// 2026-05-02 add-method-group-conversion (D1b): ensure VmContext has at
-    /// least `n` FuncRef cache slots allocated. Idempotent — only grows.
-    pub fn alloc_func_ref_slots(&self, n: u32) {
-        let mut s = self.func_ref_slots.lock();
-        if s.len() < n as usize {
-            s.resize(n as usize, Value::Null);
-        }
-    }
-
-    /// LoadFnCached read: returns slot value, or `Value::Null` if uninitialised
-    /// (caller's responsibility to fill on first miss). Bounds-checked.
-    pub(crate) fn func_ref_slot(&self, idx: u32) -> Value {
-        self.func_ref_slots
-            .lock()
-            .get(idx as usize)
-            .cloned()
-            .unwrap_or(Value::Null)
-    }
-
-    /// LoadFnCached write: store a `Value::FuncRef` into the slot for future hits.
-    pub(crate) fn set_func_ref_slot(&self, idx: u32, value: Value) {
-        let mut s = self.func_ref_slots.lock();
-        if (idx as usize) >= s.len() {
-            s.resize((idx as usize) + 1, Value::Null);
-        }
-        s[idx as usize] = value;
-    }
-
     // ── Frame chain (2026-05-10 unify-frame-chain) ────────────────────────
     //
     // Single push_frame / pop_frame replaces the previously-separate

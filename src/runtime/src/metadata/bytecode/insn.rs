@@ -85,14 +85,6 @@ pub struct LoadFnInsn {
     pub func: String,
 }
 
-/// Payload for [`Instruction::LoadFnCached`].
-#[derive(Debug, Serialize, Deserialize)]
-pub struct LoadFnCachedInsn {
-    #[serde(with = "typed_reg_serde")] pub dst: Reg,
-    pub func: String,
-    pub slot_id: u32,
-}
-
 /// Payload for [`Instruction::MkClos`].
 #[derive(Debug, Serialize, Deserialize)]
 pub struct MkClosInsn {

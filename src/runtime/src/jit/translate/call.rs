@@ -73,16 +73,6 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                     let inst = self.builder.ins().call(self.hr_load_fn, &[self.frame_val, self.ctx_val, d, np, nl]);
                     let ret  = self.builder.inst_results(inst)[0]; self.check(ret);
                 }
-                // 2026-05-02 D1b: cached method group conversion
-                Instruction::LoadFnCached(insn) => {
-                    let LoadFnCachedInsn { dst, func, slot_id } = &**insn;
-                    let d = self.ri(*dst);
-                    let (np, nl) = self.str_val(func);
-                    let sid = self.builder.ins().iconst(types::I32, *slot_id as i64);
-                    let inst = self.builder.ins().call(self.hr_load_fn_cached,
-                        &[self.frame_val, self.ctx_val, d, np, nl, sid]);
-                    let ret  = self.builder.inst_results(inst)[0]; self.check(ret);
-                }
                 Instruction::MkClos(insn) => {
                     let MkClosInsn { dst, fn_name, captures, stack_alloc } = &**insn;
                     let d = self.ri(*dst);
