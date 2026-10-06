@@ -252,7 +252,7 @@ fn run_spawned_action(
             // text matches what `throw new ...Exception("msg")` set. Fall
             // back to value_to_str for non-Exception thrown values (rare —
             // z42 type-checker normally requires Exception subclasses).
-            let msg = crate::exception::read_message(&val, module)
+            let msg = crate::exception::read_message(&val, thread_ctx, module)
                 .unwrap_or_else(|| crate::corelib::convert::value_to_str(&val));
             bail!("{msg}")
         }
