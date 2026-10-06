@@ -1,0 +1,27 @@
+desc = "桌面发布：包里的 z42c 构建 → z42 publish 出 apphost → 对着一份已安装形态的 SDK 运行；工程的 [profile.release.runtime] 必须经侧车到达发布出的程序（见 README）"
+
+[[step]]
+tool = "z42c"
+args = ["build", "{case}/app/app.z42.toml", "--release"]
+exit = 0
+exists = ["app/app.zpkg"]
+
+# Z42_APPHOST_TEMPLATE 代替已安装的 desktop workload（launcher 解析出 workload 里的 apphost-<rid> 后转给 z42b 的就是它）
+[[step]]
+args = ["publish", "{case}/app/app.z42.toml"]
+env = { Z42_APPHOST_TEMPLATE = "{apphost_template}" }
+exit = 0
+exists = ["app/app{exe}"]
+
+# 已安装形态的 SDK：包的一份真拷贝（与安装脚本装出的 ~/.z42 同形）
+[[step]]
+tool = "copy"
+from = "{sdk}"
+to = "ahome"
+
+[[step]]
+tool = "exec"
+target = "app/app{exe}"
+args = ["x"]
+env = { Z42_HOME = "{case}/ahome" }
+stdout_contains = ["APPHOST_OK", "MODE_SRC=app-config"]

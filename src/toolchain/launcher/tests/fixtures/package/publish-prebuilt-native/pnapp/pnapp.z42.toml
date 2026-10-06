@@ -1,0 +1,20 @@
+[project]
+name = "pnapp"
+version = "0.1.0"
+kind = "exe"
+entry = "Pn.App.Main"
+pack = true
+[sources]
+include = ["*.z42"]
+[dependencies]
+"z42.core" = "0.1.0"
+"z42.io" = "0.1.0"
+"pnlib" = { path = "../pnlib" }
+[build]
+dist_dir = "dist"
+[platform.desktop]
+apphost = true
+publish_dir = "."
+payload = "payload/pnapp.zpkg"
+[profile.release.runtime]
+mode = "interp"

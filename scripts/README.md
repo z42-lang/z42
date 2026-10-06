@@ -225,7 +225,7 @@ xtask test e2e
 **完整发行验证**：
 ```bash
 xtask package sdk             # 打 host-RID 发行包
-xtask package verify               # 端到端验证发行包（packaged z42c/z42vm 跑 golden + launcher smoke）
+xtask package verify               # 端到端验证发行包（发行包夹具 + packaged z42c/z42vm 跑 golden）
 ```
 
 ## 源码结构（按命令分子目录）
@@ -256,12 +256,12 @@ scripts/
 │   ├── xtask_toolset.z42    外部工具（cargo/gh/tar/...）的存在性与定位
 │   ├── xtask_fs.z42         文件系统原语（_resetDir/_copyAll/_linkAll/_cleanGlob/_copyIfExists/_makeExe）
 │   ├── xtask_exec_profile.z42  执行剖面词汇（tier × aot_pkgs × VM caps；test 与 bench 共用）
-│   └── xtask_bench_pause.z42   GC 停顿指标解析（bench 场景头 `// gc-pause: report`）
+│   ├── xtask_bench_pause.z42   GC 停顿指标解析（bench 场景头 `// gc-pause: report`）
+│   └── xtask_fixture_harness.z42  声明式夹具（`expect.toml`）的通用引擎：z42c 命令行夹具与发行包夹具共用
 ├── build/              build stdlib / compiler / runtime / golden-assets + clean + 自举边界检查
 │   ├── xtask_stdlib.z42         build stdlib（z42c build --workspace + 扁平视图）+ build sdk / stage-toolchain
 │   ├── xtask_compiler.z42       build/test compiler（自建 + 不动点 + units）
-│   ├── xtask_compiler_e2e.z42   `test compiler` 的 e2e 段编排（`_testCompilerE2e`）
-│   ├── xtask_compiler_cli_fixtures.z42  z42c 命令行与构建夹具的 harness（用例在 `src/compiler/z42c.driver/tests/fixtures/cli/`）
+│   ├── xtask_compiler_e2e.z42   `test compiler` 的 e2e 段：z42c 命令行与构建夹具套件（用例在 `src/compiler/z42c.driver/tests/fixtures/cli/`）
 │   ├── xtask_runtime.z42        build runtime（cargo z42vm）
 │   ├── xtask_toolchain.z42      build workload / build toolchain（apphost publish，路径从各 toml 读）
 │   ├── xtask_golden_assets.z42  **`build test` 的实现**（golden .zbc 编译；_buildTest / _regenGolden / _regenCore）
@@ -286,11 +286,10 @@ scripts/
 │   ├── xtask_test_embedded_corpus.z42  语料枚举 SoT（`test app desktop` 与 `test list` 共用）
 │   ├── xtask_test_embedded_golden.z42  golden → [Test] 归一 + zbc/zpkg emit
 │   ├── xtask_test_list.z42      `test list`：只读语料目录（pretty / json）
-│   ├── xtask_test_dist.z42      发行包 e2e（golden + launcher/apphost 冒烟）
+│   ├── xtask_test_dist.z42      `package verify`：发行包夹具套件（用例在 `src/toolchain/launcher/tests/fixtures/package/`）+ golden 腿
 │   ├── xtask_test_incremental{,_ws}.z42 增量编译暴力对账（逐文件 touch：增量产物 == 全量，逐字节；`_ws` 为 stdlib 整体读回）
 │   ├── xtask_test_docs.z42      `test docs`：相对链接死链 + stage 清单对账
 │   ├── xtask_test_app.z42       `test app`：设备测试一条命令（+ `xtask_test_device_host.z42` 宿主工程暂存）
-│   ├── xtask_test_dist_{cli,analyzer,hooks}.z42  `package verify` 在打出的包上的 CLI / analyzer / hooks 冒烟
 │   ├── xtask_test_{diagcodes,walkers,layout,stage2,fingerprint,ci_shell,proc_env}.z42  各机械门（诊断码唯一 / AST walker 完备 / 测试布局 / 阶段-2 欠账 / 编译器指纹 / CI shell / 子进程环境）；账本 `*.txt` 同目录
 │   ├── xtask_test_lines.z42     `check lines`：src/ 非测试 .z42/.rs 500 行硬上限，对照 line-limit-baseline.txt 棘轮（新越界/增长 → 红）
 │   ├── xtask_test_changed.z42   按改动文件挑 stage

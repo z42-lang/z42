@@ -16,7 +16,7 @@
 | 命令 | 管什么 |
 |---|---|
 | `build` | 编译各组件：`runtime` / `compiler` / `stdlib` / `sdk` / `stage-toolchain` / `workload` / `toolchain` / `test` / `all` |
-| `package` | 组装发行包：`sdk` / `runtime` / `workload` / `index` / `archive` / `finalize`；打包自己的验证：`check`（packages.toml 自检）/ `verify`（拿打包出的发行版跑 golden + launcher smoke）（见[打包引擎](packaging.md)）|
+| `package` | 组装发行包：`sdk` / `runtime` / `workload` / `index` / `archive` / `finalize`；打包自己的验证：`check`（packages.toml 自检）/ `verify`（拿打包出的发行版跑发行包夹具 + golden）（见[打包引擎](packaging.md)）|
 | `test` | 跑用例，按「契约属于谁」分：`e2e` / `stdlib` / `compiler` / `toolchain` / `runtime` / `app` / `docs`，外加 `changed`、`list`；裸 `test [--no-build] [--skip …]` = 完整 GREEN gate（见[怎么跑测试](testing.md)、[测试门禁](test-gate.md)）|
 | `check` | 不编译、不跑用例的静态检查：`vscode-syntax` / `lines` / `walkers` / `diagcodes` / `stage2` / `ci-shell` / `proc-env` / `layout`；不带名字 = 全跑并汇总（`--update` 重写 lines / diagcodes / stage2 的棘轮基线）|
 | `bench` | 基准；裸 `bench` = e2e 场景（见[性能基准与回归门禁](benchmarking.md)）|

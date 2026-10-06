@@ -1,0 +1,15 @@
+desc = "z42 repl --config <file> -c <expr>：launcher 吃掉 --config、把 -c 交给 z42i 求值；REPL 的 ns 索引落 Z42_CACHE_DIR/nsindex，不写进 SDK 的 libs/"
+tags = ["launcher"]
+
+# 旧版 z42i 留在 SDK libs/ 里的索引先清掉，再断言这次没写回去
+[[step]]
+tool = "remove"
+paths = ["{sdk}/libs/.z42-nsindex"]
+
+# gc-mode 的效果从 stdout 看不出来；断言带着 --config 仍能求值（证明 --config 没有作为坏参数漏给 z42i）
+[[step]]
+args = ["repl", "--config", "{case}/repl-cfg.toml", "-c", "1 + 2"]
+env = { Z42_CACHE_DIR = "{case}/repl-cache" }
+stdout_contains = ["3"]
+absent = ["{sdk}/libs/.z42-nsindex"]
+exists = ["repl-cache/nsindex"]

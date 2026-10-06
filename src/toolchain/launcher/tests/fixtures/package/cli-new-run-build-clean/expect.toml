@@ -1,0 +1,40 @@
+desc = "新手路径：new → run（工程根 / src 子目录）→ build → clean；构建进度不混进程序输出，进度行与 removed 行的路径相对当前目录（见 README）"
+tags = ["launcher"]
+
+[[step]]
+args = ["new", "hello"]
+exit = 0
+exists = ["hello/z42.toml", "hello/src/Main.z42"]
+stdout_contains = ["z42 run"]
+
+# 构建进度行（cached: / wrote -> / cache ->）不得混进程序输出
+[[step]]
+args = ["run"]
+cwd = "hello"
+exit = 0
+stdout_equals = "Hello, World!"
+stderr_empty = true
+
+# 在子目录里向上找到工程
+[[step]]
+args = ["run"]
+cwd = "hello/src"
+exit = 0
+stdout_equals = "Hello, World!"
+
+# 工程已被上面的 run 建过，这次走增量（`preserved ->`）；只断言不变量，不钉具体哪一行
+[[step]]
+args = ["build"]
+cwd = "hello"
+exit = 0
+exists = ["hello/dist/hello.zpkg"]
+output_contains = ["-> ./"]
+output_not_contains = ["{case}", "/./"]
+
+[[step]]
+args = ["clean"]
+cwd = "hello"
+exit = 0
+absent = ["hello/dist", "hello/artifacts"]
+stdout_contains = ["removed ./dist", "removed ./artifacts"]
+stdout_not_contains = ["{case}", "/./"]

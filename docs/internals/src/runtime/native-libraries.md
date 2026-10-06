@@ -115,8 +115,8 @@ pub(crate) fn resolve_native_beside(zpkg_dir: &Path, lib_name: &str) -> Option<P
   → 对声明 `[native]` 的 dep：有 hooks 跑其 `ProvideNative`、无 hooks 从 `dir` 复制预编译文件 → 取**目标
   rid** 那份、平铺（去 rid 子目录）进消费方 dist → `_pubCopyDistDeps` 带进 payload（如 `programs/z42i/`）。
   运行期 `resolve_native_beside` 按名解析，不变。
-- **消费者**：`z42.repl.z42.toml` 声明 `[build] hooks` + `[native.z42_repl]`，hook 编 `crates/z42-repl`——**hook 路径**的实例。**预编译路径**由合成 fixture
-  （`_apphostSmoke` 的 prebuilt-native 一腿）覆盖，暂无仓内真实预编译消费者。
+- **消费者**：`z42.repl.z42.toml` 声明 `[build] hooks` + `[native.z42_repl]`，hook 编 `crates/z42-repl`——**hook 路径**的实例。**预编译路径**由合成夹具
+  （发行包夹具 `src/toolchain/launcher/tests/fixtures/package/publish-prebuilt-native/`）覆盖，暂无仓内真实预编译消费者。
 
 **待办**：① 显式 per-rid 任意路径覆盖（`files."rid"="path"`，破 `<dir>/<rid>/<派生名>` 约定的 vendor
 blob）；② cross-desktop / 移动端 native **交叉编译产出**（复制已支持任意目标 rid，产出仍 host-only）。

@@ -38,11 +38,14 @@ z42 help run
 
 ```bash
 xtask package sdk --no-build            # 打出 SDK 包（含 launcher）
-DIST_SMOKE_ONLY=launcher xtask package verify  # launcher 命令行冒烟（新手路径 + run/repl）
-xtask package verify                          # 完整：再加 publish 冒烟与打包 goldens
+xtask package workload                  # desktop workload 的 apphost stub（发布类夹具要用）
+DIST_SMOKE_ONLY=launcher xtask package verify  # 只跑命令行路径的发行包夹具（新手路径 / 单文件 / run / repl）
+xtask package verify                          # 完整：全部发行包夹具 + 打包 goldens
 ```
 
-冒烟用例在 `scripts/test/xtask_test_dist_cli.z42`（new → run → build → clean / 版本 / 帮助 / 错误路径）与 `scripts/test/xtask_test_dist.z42`。
+用例是 `tests/fixtures/package/` 下的声明式夹具（每个子目录一个最小工程 + `expect.toml`，工具与占位符见该目录
+README）：新手路径（new → run → build → clean / 版本 / 帮助 / 错误路径）、单文件运行、`run --bin/--set`、`repl`、
+桌面发布、发布态 analyzer 与 build hooks。
 
 ## 关联文档
 
@@ -60,3 +63,4 @@ xtask package verify                          # 完整：再加 publish 冒烟�
 | `core/launcher_workload.z42` | `workload` 子命令 |
 | `core/launcher_network.z42` | 下载辅助 |
 | `core/z42.launcher.z42.toml` | launcher 工程清单（产出 `launcher.zpkg` + 根 `z42` apphost） |
+| `tests/fixtures/package/` | 发行包夹具（`xtask package verify` 在打包出的 SDK 上跑；格式见该目录 README） |

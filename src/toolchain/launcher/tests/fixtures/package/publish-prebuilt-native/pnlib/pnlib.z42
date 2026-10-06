@@ -1,0 +1,5 @@
+namespace Pn.Lib;
+
+public static class Pnlib {
+    public static int Answer() { return 42; }
+}

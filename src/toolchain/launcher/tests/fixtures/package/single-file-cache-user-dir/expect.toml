@@ -1,0 +1,21 @@
+desc = "单文件运行的缓存落在用户级目录，不落进 SDK 安装目录；两段判据缺一不可（见 README）"
+tags = ["launcher"]
+
+# 用户目录类变量指向 fakehome（不碰真实 $HOME），且不给 Z42_CACHE_DIR / XDG_CACHE_HOME ⇒ 走缺省缓存位置
+[[step]]
+args = ["run", "hello.z42"]
+env = { HOME = "{case}/fakehome", USERPROFILE = "{case}/fakehome", LOCALAPPDATA = "{case}/fakehome/AppData/Local" }
+env_remove = ["Z42_CACHE_DIR", "XDG_CACHE_HOME"]
+exit = 0
+stdout_equals = "Hello, World!"
+absent = ["{sdk}/cache"]
+
+[[step]]
+tool = "check"
+os = ["windows"]
+exists = ["fakehome/AppData/Local/z42/cache/run"]
+
+[[step]]
+tool = "check"
+os = ["macos", "linux"]
+exists = ["fakehome/.cache/z42/run"]

@@ -1,0 +1,8 @@
+namespace Build;
+
+using Std.IO;
+using Z42.Build;
+
+public class ProjectHooks : BuildHooks {
+    public override void BeforeAssets(IPipelineContext ctx) { Console.WriteLine("DIST-HOOKS-SMOKE: BeforeAssets ran"); }
+}

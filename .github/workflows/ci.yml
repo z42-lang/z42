@@ -120,7 +120,7 @@ jobs:
               # （#981 修）。与上面 launcher/devtools/interactive 同形。
               - 'src/toolchain/builder/**'
               - 'scripts/test/xtask_test_dist.z42'
-              - 'scripts/test/xtask_test_dist_cli.z42'
+              - 'scripts/common/xtask_fixture_harness.z42'
               - 'scripts/test/xtask_test_platform.z42'
               - 'scripts/test/xtask_test_wasm.z42'
               - 'scripts/test/xtask_test_ios.z42'

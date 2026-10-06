@@ -1,0 +1,9 @@
+[project]
+name = "hooksmoke"
+version = "0.1.0"
+kind = "exe"
+entry = "Main"
+[sources]
+include = ["src/**/*.z42"]
+[build]
+hooks = "hooks"

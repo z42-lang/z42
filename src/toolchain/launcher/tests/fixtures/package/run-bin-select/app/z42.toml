@@ -1,0 +1,19 @@
+# 一个工程、两个 [[exe]] target，共用 [sources]；`z42 run --bin <名>` 选其一。
+[project]
+name    = "multiexe.demo"
+version = "0.1.0"
+pack    = true
+
+[sources]
+include = ["*.z42"]
+
+[[exe]]
+name  = "greet"
+entry = "App.Greet.Main"
+
+[[exe]]
+name  = "farewell"
+entry = "App.Farewell.Main"
+
+[profile.debug.runtime]
+mode = "interp"

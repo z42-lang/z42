@@ -1,0 +1,8 @@
+desc = "z42 run：app 进程的环境里没有 Z42_APP_CONFIG（侧车不跨进程流传），而 [profile.*.runtime] 仍到达 app（z42vm 自己推导侧车）；两条缺一不可（见 README）"
+tags = ["launcher"]
+
+[[step]]
+args = ["run"]
+cwd = "app"
+exit = 0
+stdout_contains = ["APPCFG_ENV=[]", "MODE_SRC=app-config"]

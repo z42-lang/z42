@@ -1,0 +1,10 @@
+[project]
+name    = "anlzapp"
+version = "0.1.0"
+kind    = "exe"
+
+[sources]
+include = ["*.z42"]
+
+[analyzers]
+"dist.gen" = { path = "../gen" }

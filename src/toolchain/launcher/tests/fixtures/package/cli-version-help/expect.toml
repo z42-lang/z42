@@ -1,0 +1,24 @@
+desc = "版本 / 帮助 / 已移除的命令 / 非法工程名：输出形态与退出码"
+tags = ["launcher"]
+
+[[step]]
+args = ["--version"]
+exit = 0
+stdout_starts_with = "z42 "
+stdout_contains = ["("]   # `z42 <version> (<rid>, <date>)`
+
+[[step]]
+args = ["help", "run"]
+exit = 0
+stdout_contains = ["usage: z42 run"]
+
+# 已移除的命令
+[[step]]
+args = ["which"]
+exit = 2
+stderr_contains = ["unknown command"]
+
+[[step]]
+args = ["new", "Bad_Name"]
+exit = 2
+stderr_contains = ["invalid project name"]

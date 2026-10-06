@@ -1,0 +1,18 @@
+desc = "z42 new 出的工程改出编译错误 → z42 run 退出码 1，诊断里的源文件路径相对当前目录（./src/Main.z42），不是临时目录的绝对路径"
+tags = ["launcher"]
+
+[[step]]
+args = ["new", "broken"]
+exit = 0
+
+# 模板的 `Console.` 改成 `Consle.`
+[[step]]
+tool = "copy"
+from = "variants/Main.z42"
+to = "broken/src/Main.z42"
+
+[[step]]
+args = ["run"]
+cwd = "broken"
+exit = 1
+stderr_contains = ["./src/Main.z42(6,5): E0401"]

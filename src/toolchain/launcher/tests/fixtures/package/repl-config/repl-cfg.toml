@@ -1,0 +1,2 @@
+[runtime]
+gc-mode = "stw"

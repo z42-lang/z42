@@ -1,0 +1,7 @@
+desc = "桌面发布多 [[exe]] 工程：每个 [[exe]] 一个 apphost（aexe + bexe）"
+
+[[step]]
+args = ["publish", "{case}/app/app.z42.toml"]
+env = { Z42_APPHOST_TEMPLATE = "{apphost_template}" }
+exit = 0
+exists = ["app/aexe{exe}", "app/bexe{exe}"]

@@ -1,0 +1,12 @@
+namespace DistGen;
+
+using Std;
+using Z42.Semantics;
+
+public sealed class DistProbeGenerator : ModuleGenerator {
+    public void Generate(GenContext ctx, GenSink sink) {
+        sink.AddSource("distgen", "namespace DistOut; public static class O { public static int V() { return 42; } }");
+    }
+    public string[] Consumes() { return new string[0]; }
+    public string[] Produces() { return new string[0]; }
+}

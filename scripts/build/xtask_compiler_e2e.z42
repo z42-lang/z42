@@ -1,6 +1,7 @@
 // xtask — z42c e2e（called by _testCompilerE2e）。命令行与构建行为——单次或多步构建、产物对照、cache 布局、
 // 依赖身份、workspace 增量、部署判据、SDK 库与 analyzer 解析域——都是 src 的夹具
-// （src/compiler/z42c.driver/tests/fixtures/cli/，harness 在 xtask_compiler_cli_fixtures.z42）；这里只编排。
+// （src/compiler/z42c.driver/tests/fixtures/cli/，格式见该目录 README）；这里只定义套件（开发树工具链的工具表 +
+// 占位符），执行与判定由通用引擎 common/xtask_fixture_harness.z42 负责。
 // z42c 自身逐字节一致由 xtask_compiler.z42 的自举不动点覆盖；语言功能由 src/tests 的 golden 覆盖。
 namespace Z42Xtask;
 
@@ -14,4 +15,38 @@ int _testCompilerE2e(string root, string vm, string flat) {
     if (_testCompilerCliFixtures(root, vm, driverZpkg, builderZpkg, flat) != 0) { return 1; }
     Console.WriteLine("✅ z42c e2e: self-compiled .zbc executes on z42vm");
     return 0;
+}
+
+// 开发树的工具：都由 z42vm 起，Z42_LIBS（以及 z42b 的编译器 probing）只经 `_z42Proc` / `_z42bProc` 设置。
+public sealed class DevFixtureTool : FixtureTool {
+    public bool Probing;
+    public DevFixtureTool(string name, string vm, bool probing) : base(name, vm) {
+        Probing = probing;
+        Libs = true;
+    }
+    public override Process Begin(string exe, string libs) { return Probing ? _z42bProc(exe, libs) : _z42Proc(exe, libs); }
+}
+
+// z42c 命令行与构建夹具。工具：z42c（缺省，本树的 driver）、z42b（本树建出的 z42b）、run（z42vm 跑产物）。
+// 占位符：{stdlib} = stdlib flat（也是 Z42_LIBS 缺省）、{compiler} = 开发树的编译器目录（driver 自包含 dist，
+// 发布态 `<sdk>/programs/z42c/` 的对应物）。
+int _testCompilerCliFixtures(string root, string vm, string driverZpkg, string builderZpkg, string flat) {
+    DevFixtureTool z42c = new DevFixtureTool("z42c", vm, false);
+    z42c.Pre = new string[]{ driverZpkg, "--" };
+    z42c.ClearAbsent = true;
+    DevFixtureTool z42b = new DevFixtureTool("z42b", vm, true);
+    z42b.Pre = new string[]{ builderZpkg, "--" };
+    z42b.ClearAbsent = true;
+    z42b.Requires = builderZpkg;
+    DevFixtureTool run = new DevFixtureTool("run", vm, false);
+    run.Target = true;
+
+    FixtureSuite s = new FixtureSuite("z42c 命令行与构建夹具", "src/compiler/z42c.driver/tests/fixtures/cli");
+    s.TmpTag = "cli";
+    s.DefaultTool = "z42c";
+    s.DefaultLibs = flat;
+    s.Tools = new FixtureTool[]{ z42c, z42b, run };
+    s.Vars = new FixturePair[]{ new FixturePair("stdlib", flat), new FixturePair("compiler", Path.GetDirectoryName(driverZpkg)) };
+    int[] r = _runFixtureSuite(root, s);
+    return r[1] == 0 ? 0 : 1;
 }

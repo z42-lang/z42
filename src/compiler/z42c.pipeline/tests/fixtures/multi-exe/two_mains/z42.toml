@@ -21,7 +21,6 @@ entry = "App.Farewell.Main"
 # dist/<exe>.runtimeconfig.toml; `z42 run` hands it to z42vm via Z42_APP_CONFIG
 # (the app-config layer, below the user's Z42_CONFIG). Build knobs (optimize/pack/
 # strip/debug) stay compiler-side and are not written to the sidecar.
-# so the debug run defaults to interp; exercised by the launcher smoke's
-# `z42 run --bin` path.
+# Here the debug run defaults to interp.
 [profile.debug.runtime]
 mode = "interp"
