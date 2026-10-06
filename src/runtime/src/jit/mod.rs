@@ -2,12 +2,15 @@
 ///
 /// Architecture
 /// ------------
-/// * `frame.rs`     — JitFrame (register file + var slots) and JitModuleCtx
-/// * `helpers/`     — `extern "C"` helper functions called by JIT code, split
-///                    by `Instruction` category and registered through
-///                    `helpers::registry`. See `helpers/mod.rs` for the list.
-/// * `translate.rs` — Cranelift IR translation
-/// * `mod.rs`       — top-level compile_module / JitModule::run
+/// * `frame.rs`        — JitFrame (register file) and JitModuleCtx (per-run shared state)
+/// * `lazy.rs`         — LazyCompiler: per-function compilation on first call / OSR entries
+/// * `helpers/`        — `extern "C"` helper functions called by JIT code, split
+///                       by `Instruction` category and registered through
+///                       `helpers::registry`. See `helpers/mod.rs` for the list.
+/// * `translate/`      — Cranelift IR translation (one submodule per instruction category)
+/// * `reg_access.rs`   — `frame.regs` slot load / store
+/// * `vm_interface.rs` — read-only metadata contract between JIT and VM
+/// * `mod.rs`          — JitModule::setup / run_fn / run (lazy: setup compiles nothing)
 
 pub(crate) mod frame; // runtime-jit-tiering Phase 1.5: interp dispatch reaches JitFrame/JitModuleCtx
 pub(crate) mod helpers;

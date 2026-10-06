@@ -1,6 +1,8 @@
 # 分层执行（Tiered Execution）：interp/JIT 各自分层 + OSR/deopt + 回收 + hot-reload
 
-> 待办：本页的分层执行（interp/JIT 各自分层、OSR/deopt、回收、hot-reload）整体尚未实施。
+> 待办：本页的目标设计大多尚未实施。已有的只是跨引擎的那一层：解释器起跑、按调用次数把函数
+> 编译成 JIT 码（`jit-threshold`），以及热循环从解释器 OSR 进 JIT 码（`osr-threshold`），见
+> [jit.md](jit.md)。尚未实施：interp 与 JIT 各自内部分层、deopt、低层产物回收、hot-reload。
 >
 > 本文设计 z42 运行时的**分层执行优化**：**每个执行引擎（interp、JIT）各自内部分层**，低层产物在被取代且无人引用时回收，并提供引用诊断。叠在 [componentized-runtime.md](componentized-runtime.md) 的组件框架之上；IR/特化层面的优化见 [ir-specialization.md](ir-specialization-design.md)；当前单态架构见 [vm-architecture.md](vm-architecture.md)。
 >
