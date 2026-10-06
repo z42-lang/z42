@@ -19,7 +19,7 @@
 //! thread-local last-error message slot (queried with
 //! [`z42_compression_last_error`]). z42vm wraps each entry on its side to
 //! marshal `Value::Array<I64>` ↔ `Vec<u8>` and translate error codes into
-//! `Std.CompressionException`.
+//! `Std.Compression.CompressionException`.
 //!
 //! This decoupling means the crate has zero dependency on the z42 main
 //! crate — no Cargo cycle, no shared-build-tree ABI assumption. Two
@@ -42,7 +42,7 @@ mod compression;
 
 /// Returned from every entry. Zero is success; non-zero values map to
 /// specific error categories that the z42-side wrapper translates into
-/// `Std.CompressionException`. The numeric values are part of the C ABI
+/// `Std.Compression.CompressionException`. The numeric values are part of the C ABI
 /// and must stay stable (additions OK; reuses or removals are a major
 /// version bump).
 pub const Z42_COMPRESSION_OK: i32 = 0;

@@ -1,4 +1,4 @@
-namespace Std;
+namespace Std.Net.Sockets;
 
 // add-z42-net K1 (2026-05-24): socket 操作 (connect / bind / read / write /
 // accept) 因系统错误失败时抛出。Message 包含底层 std::io::Error 的 debug

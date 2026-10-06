@@ -1,4 +1,4 @@
-namespace Std;
+namespace Std.IO;
 
 // 2026-05-13 add-std-process: 子进程在 `.Timeout(...)` 设定时限内未结束。
 // VM 已经发了 `kill` 并 reap，子进程已死亡——本异常不需要 caller 再清理。

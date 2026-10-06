@@ -4,7 +4,7 @@ namespace Std.Threading;
 // 2026-05-20 add-sync-primitives: multi-producer / multi-consumer FIFO channel.
 //
 // When the channel is closed (`Close()`) AND the queue is drained, subsequent
-// `Recv()` raises `Std.ChannelDisconnectedException`.
+// `Recv()` raises `Std.Threading.ChannelDisconnectedException`.
 //
 // Usage:
 //   var c = new Channel<long>();

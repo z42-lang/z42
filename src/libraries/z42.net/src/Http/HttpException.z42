@@ -1,4 +1,4 @@
-namespace Std;
+namespace Std.Net.Http;
 
 // add-z42-net-http K3 (2026-05-25): base HTTP exception. Subclassed by
 // `HttpProtocolException` (malformed wire / unexpected EOF) and may be

@@ -1,6 +1,6 @@
 # z42.toml —— TOML 读写
 
-> 包路径 `src/libraries/z42.toml/`；命名空间 `Std.Toml`（异常类 `TomlException` 在 `Std`）
+> 包路径 `src/libraries/z42.toml/`；命名空间 `Std.Toml`（含异常类 `TomlException`）
 
 把 [TOML 1.0](https://toml.io/en/v1.0.0) 文本解析成值树（`TomlValue`），或把值树写回 canonical
 TOML 文本。z42 自己的工程清单 `*.z42.toml` 与 `versions.toml` 就用它读。

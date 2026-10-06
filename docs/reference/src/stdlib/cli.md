@@ -1,6 +1,6 @@
 # z42.cli —— 命令行参数解析
 
-> 包路径 `src/libraries/z42.cli/`；命名空间 `Std.Cli`（`CliException` 在 `Std`）
+> 包路径 `src/libraries/z42.cli/`；命名空间 `Std.Cli`（含 `CliException`）
 
 把 `string[] argv` 解析成 flag / option / positional 三类参数，并自动生成 `-h/--help`
 文本。`SubcommandRouter` 在其上叠一层 `git` / `cargo` 风格的（可嵌套的）子命令路由。

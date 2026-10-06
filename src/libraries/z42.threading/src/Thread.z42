@@ -16,7 +16,7 @@ namespace Std.Threading;
 //
 // Errors:
 //   - Worker `throw new SomethingException(...)` → `Join()` raises
-//     `Std.ThreadException` whose `Message` carries the worker's
+//     `Std.Threading.ThreadException` whose `Message` carries the worker's
 //     formatted exception text
 //   - Rust panic in the worker → `Join()` raises `ThreadException("thread panicked")`
 //   - Second `Join()` on the same Thread → `ThreadException("thread already joined")`
@@ -41,8 +41,8 @@ public class Thread {
 
     // Block until the worker finishes. Idempotence:
     //   - Worker returned normally → returns void
-    //   - Worker threw → throws `Std.ThreadException`
-    //   - Already joined → throws `Std.ThreadException("thread already joined")`
+    //   - Worker threw → throws `Std.Threading.ThreadException`
+    //   - Already joined → throws `Std.Threading.ThreadException("thread already joined")`
     public void Join() {
         object[] result = ThreadNative.Join(this._slot);
         long kind = (long)result[0];

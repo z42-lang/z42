@@ -58,7 +58,7 @@ public class Stream {
 | `Seek(offset, origin)` | `origin` 取 `SeekOrigin.Begin / Current / End`，返回新的绝对位置 |
 | `ReadAllBytes()` | 读到 EOF 为止，返回精确长度的新 `byte[]`；内部按 4 KB 分块累积。不可读时抛 `NotSupportedException` |
 | `WriteAllBytes(data)` | 等价 `Write(data, 0, data.Length)`。不可写时抛 `NotSupportedException` |
-| `ReadExactly(count)` | 必须凑满 `count` 字节，否则抛 `Std.EndOfStreamException`；`count < 0` 抛 `ArgumentException` |
+| `ReadExactly(count)` | 必须凑满 `count` 字节，否则抛 `Std.IO.EndOfStreamException`；`count < 0` 抛 `ArgumentException` |
 | `CopyTo(dest)` / `CopyTo(dest, bufferSize)` | 把本流剩余内容全部灌入 `dest`，默认 4 KB 中转缓冲。**两端都不关闭**；`bufferSize <= 0` 抛 `ArgumentException` |
 
 越界参数（`offset < 0` / `count < 0` / `offset + count > buffer.Length`）在各具体子类的
@@ -174,7 +174,7 @@ public class ProcessOutputStream : Stream {
 - `ProcessStdinStream`：只写（`CanWrite` 在 `Close()` 前为 `true`，另两个能力恒 `false`）。
   `Close()` 关闭子进程的 stdin，让子进程读到 EOF；**不回收进程句柄**，仍需 `Wait()`。
   如果进程不是用 `Stdio.Pipe()` 启动的 stdin，首次 `Write` 抛
-  `Std.ProcessHandleInvalidException`。
+  `Std.IO.ProcessHandleInvalidException`。
 - `ProcessOutputStream`：只读。`Read` 阻塞到至少有一个字节或管道关闭（EOF 返回 0）。
   `fd` 不是 1 / 2 时构造抛 `ArgumentException`。`Close()` 只是本侧逻辑关闭，
   底层管道由 `ProcessHandle` 负责。

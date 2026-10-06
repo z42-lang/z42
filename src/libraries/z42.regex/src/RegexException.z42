@@ -1,4 +1,4 @@
-namespace Std;
+namespace Std.Regex;
 
 // add-z42-regex (2026-05-16)：Regex compile / match 错误。
 //

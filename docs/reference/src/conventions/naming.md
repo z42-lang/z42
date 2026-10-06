@@ -361,8 +361,9 @@ public class TomlParseFail : Exception { … }              // ✗
 
 - C# / Java / Python 的 `*Error` ≈ Rust 的 `*Error` ≠ z42 的 `*Exception`——z42 跟 C# 公约
   （"异常"比"错误"涵盖更广）；
-- **命名空间**：通常放在所属包的根 namespace（`Std` 而非 `Std.Toml`），让 `: Exception`
-  通过同命名空间查找解析到 `Std.Exception`。
+- **命名空间**：异常与它所属的 API 住同一个命名空间（`Std.Toml.TomlException`，不是
+  `Std.TomlException`）。`Std` 根命名空间只留给 z42.core 的类型；`: Exception` 无需额外 `using`——
+  外层命名空间（`Std`）的类型在内层（`Std.Toml`）里直接可见。
 
 ## 16. Enum：单数 vs 复数
 

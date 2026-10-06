@@ -1,6 +1,6 @@
 # z42.regex —— 正则表达式编译与匹配
 
-> 包路径 `src/libraries/z42.regex/`；命名空间 `Std.Regex`（`RegexException` 在 `Std`）
+> 包路径 `src/libraries/z42.regex/`；命名空间 `Std.Regex`（含 `RegexException`）
 
 把 pattern 字符串编译成 `Regex` 对象，再做匹配 / 查找 / 替换 / 切分。语法是常见正则的
 **子集**——够用于日志行解析、字段抽取、简单校验；不够用于需要 lookaround、backreference
@@ -17,7 +17,7 @@
 编译后的 pattern。线程内复用；同一个 `Regex` 实例不要跨线程并发调用（匹配过程写实例字段）。
 
 ```z42
-public static Regex Compile(string pattern)       // 失败抛 Std.RegexException
+public static Regex Compile(string pattern)       // 失败抛 Std.Regex.RegexException
 
 public bool     IsMatch(string input)
 public Match    Find(string input)                // 第一个 match；无匹配返回 null

@@ -1,6 +1,6 @@
 # z42.yaml —— YAML 读写
 
-> 包路径 `src/libraries/z42.yaml/`；命名空间 `Std.Yaml`（异常类 `YamlException` 在 `Std`）
+> 包路径 `src/libraries/z42.yaml/`；命名空间 `Std.Yaml`（含异常类 `YamlException`）
 
 把 [YAML 1.2](https://yaml.org/spec/1.2.2/) 文本解析成值树（`YamlValue`），或把值树写成块风格
 YAML。覆盖 Docker Compose / kubectl / Helm 这类配置日常用到的子集：块映射与块序列、flow 风格、

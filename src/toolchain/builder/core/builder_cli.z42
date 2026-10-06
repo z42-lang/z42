@@ -7,6 +7,7 @@ namespace Z42Builder;
 
 using Std.IO;
 using Std.Cli;
+using Std.Toml;
 using Z42.Project;   // ManifestLoader / BuildLayout（clean）
 
 // exe 入口。standalone（`z42vm z42.builder.zbc -- <verb> ...`）与 launcher 透传

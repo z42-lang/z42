@@ -1,4 +1,4 @@
-namespace Std;
+namespace Std.Net.WebSockets;
 
 // add-z42-net-websocket K4 (2026-05-25): base WebSocket exception. Subclassed
 // by `WebSocketProtocolException` for RFC 6455 wire violations. Caller can

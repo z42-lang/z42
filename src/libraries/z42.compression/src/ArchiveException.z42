@@ -1,0 +1,7 @@
+namespace Std.Archive;
+
+// `Std.Archive.*`（tar / zip）门面抛出的用户可见异常。继承 z42.core 的 `Exception`。
+
+public class ArchiveException : Exception {
+    public ArchiveException(string message) : base(message) { }
+}

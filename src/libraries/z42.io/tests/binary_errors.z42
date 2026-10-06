@@ -1,6 +1,7 @@
 // add-z42-io-binary (2026-05-15)：越界 read / 非法 seek / writer grow 行为。
 namespace Z42IoBinaryErrorsTests;
 
+using Std.IO;
 using Std.IO.Binary;
 
 [Test]

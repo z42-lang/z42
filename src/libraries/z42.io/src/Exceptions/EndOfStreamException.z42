@@ -1,4 +1,4 @@
-namespace Std;
+namespace Std.IO;
 
 // add-end-of-stream-exception (2026-05-27): dedicated exception for
 // premature stream EOF, replacing v0's reuse of `InvalidOperationException`

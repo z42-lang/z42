@@ -1,4 +1,4 @@
-namespace Std;
+namespace Std.IO;
 
 // 2026-05-13 add-std-process: 在 `ProcessHandle` 已 `Wait` / `Dispose` /
 // `Kill+wait reaped` 之后调用任何方法时抛出。也包括 slot id 在 VM 侧

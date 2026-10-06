@@ -1,10 +1,7 @@
-namespace Std;
+namespace Std.Yaml;
 
-// add-z42-yaml (2026-05-24): user-facing exception thrown by `Std.Yaml.*`
-// for parse errors / type-mismatch accessor calls / stringify errors.
-// Lives in `Std` namespace so `catch (Std.YamlException e)` and the
-// bare `catch (Std.Exception e)` both resolve cleanly — same pattern
-// as `Std.TomlException` / `Std.JsonException`.
+// `Std.Yaml.*` 抛出的用户可见异常：解析错误 / 访问器类型不符 / 序列化错误。
+// 与其余 stdlib 异常一样住在所属包的命名空间（`Std.Toml.TomlException` / `Std.Json.JsonException`）。
 
 public class YamlException : Exception {
     public YamlException(string message) : base(message) { }

@@ -1,4 +1,4 @@
-namespace Std;
+namespace Std.Net;
 
 // add-z42-net K1 (2026-05-24): 网络 API 在当前 target 不支持时抛出。
 // 主要场景：wasm32 — std::net 不可用，所有 `__net_tcp_*` builtin 直接返回

@@ -205,7 +205,7 @@ public class ProcessHandle : IDisposable {
 
 ## 异常
 
-四个异常都在 `Std` 命名空间，都继承 `Std.Exception`。
+四个异常都在 `Std.IO` 命名空间，都继承 `Std.Exception`。
 
 ```z42
 public class ProcessStartException : Exception {

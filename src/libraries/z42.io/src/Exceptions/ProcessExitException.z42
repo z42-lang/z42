@@ -1,4 +1,4 @@
-namespace Std;
+namespace Std.IO;
 
 // 2026-05-13 add-std-process: 子进程退出码非 0 时由
 // `ProcessResult.EnsureSuccess()` 抛出。**opt-in**：仅在用户显式调
