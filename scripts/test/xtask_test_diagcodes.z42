@@ -407,7 +407,7 @@ int _testDiagCodes(bool update) {
         //
         // ⚠️ 判据为什么是「挂账天数」而不是「去种子里查这个常量在不在」：那个判据更精确，但
         // **在 CI 里拿不到种子**——`xtask check diagcodes` 跑的时候 `Z42_LIBS` 指的是**自建**
-        // stdlib（`artifacts/build/libraries/dist/release`，含全部常量 ⇒ 每条都判红），而
+        // stdlib（`artifacts/intermediate/libraries/flat/release`，含全部常量 ⇒ 每条都判红），而
         // `Z42_HOME` 在整个 test-host job 里一次都没设，nightly 种子解在 ci-bootstrap 自己的
         // `$(mktemp -d)/sdkpkg` 里、test 步骤看不见 ⇒ 只认种子就是恒跳过的假门。
         //

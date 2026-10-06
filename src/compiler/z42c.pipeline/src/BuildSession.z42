@@ -342,7 +342,8 @@ public sealed class BuildSession {
 //   ① `Z42_COMPILER_LIBS`                       —— 自定义/非常规 SDK 布局的逃生口
 //   ② `Z42_HOME/programs/z42c/`                 —— SDK 安装态（launcher 转发时已设）
 //   ③ `Z42_PORTABLE_VM` 反推 SDK 根 → `<sdk>/programs/z42c/`
-//   ④ 开发树：自 `Z42_LIBS` 上溯到 `artifacts/build/` → `compiler/z42c.driver/release/dist/`
+//   ④ 开发树：自 `Z42_LIBS` 逐级上溯（至多 4 级），第一个含 `build/compiler/z42c.driver/release/dist/` 的
+//      祖先（即 `artifacts/`）命中
 //      （driver 是 exe，dist 里是它的**自包含闭包** —— 与 SDK 的 `programs/z42c/` 同形。此前指
 //      `z42c.semantics` 的 dist，那里只有它自己：analyzer 的契约包碰巧够用，`z42.project` 等其它编译器域
 //      包在开发树里就引用不到（tidy-xtask-config 里 xtask 改为 `${compiler_libs}` 引用时实测）。）
@@ -362,12 +363,15 @@ public static class CompilerDomain {
             string sdk = Path.GetDirectoryName(Path.GetDirectoryName(pv));
             n = CompilerDomain._add(found, n, Path.Join(sdk, Path.Join("programs", "z42c")));
         }
-        string libs = Environment.GetEnvironmentVariable("Z42_LIBS", "");
-        if (libs.Length > 0) {
-            string buildDir = Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(libs)));
-            if (buildDir.Length > 0) {
-                n = CompilerDomain._add(found, n, Path.Join(buildDir, Path.Join("compiler", Path.Join("z42c.driver", Path.Join("release", "dist")))));
-            }
+        // ④ 不按固定层数上溯：stdlib flat 在 artifacts/ 下的深度属于 xtask 的布局，换位置时编译器不该跟着改。
+        string anc = Environment.GetEnvironmentVariable("Z42_LIBS", "");
+        int up = 0;
+        while (anc.Length > 0 && up < 4) {
+            anc = Path.GetDirectoryName(anc);
+            if (anc.Length == 0) { break; }
+            string dev = Path.Join(anc, Path.Join("build", Path.Join("compiler", Path.Join("z42c.driver", Path.Join("release", "dist")))));
+            if (Directory.Exists(dev)) { n = CompilerDomain._add(found, n, dev); break; }
+            up = up + 1;
         }
         string[] r = new string[n];
         int i = 0; while (i < n) { r[i] = found[i]; i = i + 1; }

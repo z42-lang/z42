@@ -15,7 +15,7 @@
 //   ④ build/ 只放编译产物、逐路径镜像 src/；其余中间物在 intermediate/，同样镜像 src/
 //      （artifacts-layout.md §1）。机械可判的部分：
 //        · build/ 的一级目录、以及 build/{compiler,libraries,toolchain}/ 的二级目录，都在 src/ 下有同名目录
-//          —— 谁再往 build/ 下随手建一个工作目录或快照目录，当场红。唯一例外：库的扁平 dist（libraries/dist）。
+//          —— 谁再往 build/ 下随手建一个工作目录或快照目录，当场红。
 //        · intermediate/ 的一级目录 ⊆ src/ 一级目录 ∪ {xtask}。
 //      不存在的目录（新克隆、只跑本门）跳过。
 //
@@ -245,7 +245,6 @@ int _tlCheckBuildMirror(string root) {
             if (d != "compiler" && d != "libraries" && d != "toolchain") { continue; }
             foreach (var e in _enumDirsSorted(Path.Join(build, d))) {
                 checkedDirs = checkedDirs + 1;
-                if (d == "libraries" && e == "dist") { continue; }   // 扁平 stdlib = Z42_LIBS，正式产物
                 if (!Directory.Exists(Path.Join(Path.Join(src, d), e))) { bad = bad + _tlMirrorBad(root, Path.Join(Path.Join(build, d), e)); }
             }
         }

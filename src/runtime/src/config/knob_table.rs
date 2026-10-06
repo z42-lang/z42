@@ -301,7 +301,7 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         toml_key: "libs",
         value: ValueKind::Path,
         description: "stdlib zpkg search directory",
-        default_hint: "unset; falls back to artifacts/build/libraries/dist/release relative to z42vm binary",
+        default_hint: "unset; falls back to <z42vm dir>/../libs, then ./artifacts/intermediate/libraries/flat/{release,debug}",
         consumed_by: "main.rs",
         ..PUBLIC
     },

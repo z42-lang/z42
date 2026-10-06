@@ -20,7 +20,7 @@ include = ["export.z42"]
 # 不再按默认值落进源码树。
 output_dir = "../../../../../artifacts/build/toolchain/workload/android"
 # 🔴 **不再往 stdlib flat 里落**（2026-09-28）：原先 `dist_dir` 指着
-# `artifacts/build/libraries/dist/release`，理由是「让 launcher 的 z42c build 解析得到」——
+# `artifacts/intermediate/libraries/flat/release`，理由是「让 launcher 的 z42c build 解析得到」——
 # 但那是拿 stdlib flat 当编译期解析的堆放处，代价是**这些 zpkg 会随整目录被打进 SDK 的
 # `libs/`**（实测发布包里就有 `z42.workload.android.zpkg` 等四个）。`libs/` 是用户面的
 # 标准库表面，workload 不属于那里。

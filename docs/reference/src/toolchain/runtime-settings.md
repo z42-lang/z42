@@ -207,7 +207,7 @@ probing 路径 ${Z42_HOME}/programs/z42c 无法解析 —— 是否没有安装 
 |---|---|---|---|
 | `mode` | `Z42_MODE` | enum(`interp`\|`jit`\|`aot`) | build 默认（编进了 jit 就 jit，否则 interp） |
 | `log` | `Z42_LOG` | string | `z42=warn`（`--verbose` 下 `z42=info`） |
-| `libs` | `Z42_LIBS` | path | 相对 z42vm 二进制的 `artifacts/build/libraries/dist/release` |
+| `libs` | `Z42_LIBS` | path | `<z42vm 所在目录>/../libs/`；开发树里再回落到当前目录下的 `artifacts/intermediate/libraries/flat/release` |
 | `probing-paths` | `Z42_PROBING_PATHS` | path-list | 无 —— 依赖搜索序就是 `[entry-zpkg 目录, libs]` |
 | `native-path` | `Z42_NATIVE_PATH` | path-list | 包相对搜索 |
 | `crash-dir` | `Z42_CRASH_DIR` | path | 不写文件，崩溃报告只进 stderr |

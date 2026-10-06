@@ -293,7 +293,7 @@ int _testFingerprint(ParseResult r) {
         ConsoleError.WriteLine("    这**不是**「编译器输出变了」——是本门的输入不完整，别据此加指纹 slug。");
         ConsoleError.WriteLine("    base 侧缺 ⇒ 该树必须**真跑过** `xtask build stdlib`；门比的是 per-member dist");
         ConsoleError.WriteLine("    （`" + _memberDist(baseWs, "<pkg>", "release") + "`），只把 flat libs 铺进");
-        ConsoleError.WriteLine("    `artifacts/build/libraries/dist/release/` **不够**（那是运行期 libs，不是本门的比对面）。");
+        ConsoleError.WriteLine("    `artifacts/intermediate/libraries/flat/release/` **不够**（那是运行期 libs，不是本门的比对面）。");
         return 1;
     }
     if (nSame + nChanged == 0) {

@@ -29,7 +29,7 @@ cargo test indexed_zpkg                     # 加载 indexed-minimal 的 indexed
 
 ```bash
 # 前置：./xtask build compiler && ./xtask build stdlib（fixture 须由新 writer emit）
-export Z42_LIBS=$PWD/artifacts/build/libraries/dist/release
+export Z42_LIBS=$PWD/artifacts/intermediate/libraries/flat/release
 VM=./artifacts/build/runtime/release/z42vm
 DRV=artifacts/build/compiler/z42c.driver/release/dist/z42c.driver.zpkg
 cd src/compiler/z42.package/tests/fixtures/zpkg-format

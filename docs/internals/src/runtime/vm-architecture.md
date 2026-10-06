@@ -137,7 +137,7 @@ z42vm <file>                                   [main.rs：CLI + 运行时配置 
   │
   ├── resolve_libs_dir()                       [startup.rs]
   │      → libs 旋钮（$Z42_LIBS / --set libs= / [runtime].libs）| <binary>/../libs
-  │        | <cwd>/artifacts/build/libraries/dist/{release,debug} | <cwd>/artifacts/z42/libs
+  │        | <cwd>/artifacts/intermediate/libraries/flat/{release,debug}
   │      → 解析结果回写 $Z42_LIBS（仅当未设/为空）：进程内运行的程序
   │        （尤其 z42c，直接读 $Z42_LIBS 做跨包 dep 解析）与 VM 看到同一 libs 目录，
   │        SDK 布局无需手动 `Z42_LIBS=`；显式设置不覆盖。[libs_env_to_publish]

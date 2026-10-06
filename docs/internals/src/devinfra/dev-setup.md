@@ -42,7 +42,7 @@ git clone https://github.com/z42-lang/z42 && cd z42
 
   ```bash
   vm="$PWD/artifacts/build/runtime/release/z42vm"
-  libs="$PWD/artifacts/build/libraries/dist/release"
+  libs="$PWD/artifacts/intermediate/libraries/flat/release"
   Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" "$vm" artifacts/xtask/xtask.zpkg -- build stdlib
   ```
 
@@ -96,7 +96,7 @@ git clone https://github.com/z42-lang/z42 && cd z42
 
 | 环境变量 | 作用 |
 |---|---|
-| `Z42_LIBS` | stdlib 扁平目录；缺省回落 `artifacts/build/libraries/dist/release` |
+| `Z42_LIBS` | stdlib 扁平目录；缺省回落 `artifacts/intermediate/libraries/flat/release` |
 | `Z42_PORTABLE_VM` | 指定 z42vm 路径（CI 显式设，本地一般不用） |
 | `Z42_HOME` | SDK 根；由 `xtask --toolchain` 写入 |
 | `Z42_LOG` / `Z42_CRASH_DIR` / `Z42_SAMPLE_*` | 见[调试与运行时诊断](debugging.md) |

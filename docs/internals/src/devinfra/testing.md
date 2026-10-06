@@ -145,13 +145,13 @@ gh release view nightly --json targetCommitish,publishedAt   # == origin/main HE
 BASE=../z42-base
 git worktree add $BASE --detach <那个 sha>
 # nightly SDK 当冷种子（解包在 $SDK）
-mkdir -p $BASE/artifacts/build/{libraries/dist/release,compiler/z42c.driver/release/dist} $BASE/.seedvm
-cp $SDK/libs/*          $BASE/artifacts/build/libraries/dist/release/
+mkdir -p $BASE/artifacts/intermediate/libraries/flat/release $BASE/artifacts/build/compiler/z42c.driver/release/dist $BASE/.seedvm
+cp $SDK/libs/*          $BASE/artifacts/intermediate/libraries/flat/release/
 cp $SDK/programs/z42c/* $BASE/artifacts/build/compiler/z42c.driver/release/dist/
 cp $SDK/bin/z42vm       $BASE/.seedvm/z42vm && chmod +x $BASE/.seedvm/z42vm
 cp -R <warm>/.z42 $BASE/.z42 && cp <warm>/xtask $BASE/xtask      # 种子 + apphost
 # xtask.zpkg 用 SDK 自带的 z42c 现建（**别**用 .z42/bin/z42c，见 bootstrap-seed 的格式墙）
-(cd $BASE && Z42_LIBS=$PWD/artifacts/build/libraries/dist/release ./.seedvm/z42vm \
+(cd $BASE && Z42_LIBS=$PWD/artifacts/intermediate/libraries/flat/release ./.seedvm/z42vm \
    artifacts/build/compiler/z42c.driver/release/dist/z42c.driver.zpkg \
    -- build scripts/xtask.z42.toml --release)
 # 🔴 关键一步：**必须真跑一遍 build stdlib**
@@ -163,7 +163,7 @@ cp -R <warm>/.z42 $BASE/.z42 && cp <warm>/xtask $BASE/xtask      # 种子 + apph
 
 两个容易踩的：
 
-- 🔴 **只把 flat libs 铺进 `artifacts/build/libraries/dist/release/` 不够** —— 那是**运行期**
+- 🔴 **只把 flat libs 铺进 `artifacts/intermediate/libraries/flat/release/` 不够** —— 那是**运行期**
   libs，而门比的是 **per-member dist**（`artifacts/build/libraries/<pkg>/release/dist/<pkg>.zpkg`）。
   漏了这步，门会明确报「只有一侧有产物，无从比对」并拒绝出结论
   （不会把这种输入缺失静默报成「N 个包输出变了，请加 slug」——那种假象 25/25 全变，

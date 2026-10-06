@@ -183,7 +183,7 @@ overlay 成种子，**种子与 cargo VM 就同为新格式** → warm 建/测/r
 
    ```bash
    rm -f artifacts/xtask/xtask.zpkg artifacts/xtask/xtask.zsym    # 不删则 publish 不重编
-   Z42_LIBS="$PWD/artifacts/build/libraries/dist/release" \
+   Z42_LIBS="$PWD/artifacts/intermediate/libraries/flat/release" \
      artifacts/build/runtime/release/z42vm \
      artifacts/build/compiler/z42c.driver/release/dist/z42c.driver.zpkg \
      -- build scripts/xtask.z42.toml --release
@@ -208,7 +208,7 @@ overlay 成种子，**种子与 cargo VM 就同为新格式** → warm 建/测/r
    ```bash
    VM=$PWD/artifacts/build/runtime/release/z42vm
    Z42C=$(find /tmp/tc -name z42c.driver.zpkg | head -1)
-   LIBS=$PWD/artifacts/build/libraries/dist/release
+   LIBS=$PWD/artifacts/intermediate/libraries/flat/release
    # 临时工程：name 用 demo.minimal / demo.multi / demo.indexed，kind=lib
    #   （按 fixture 目录名对应）
    #   packed → --release；indexed → 无 --release（另产散装 source.zbc）

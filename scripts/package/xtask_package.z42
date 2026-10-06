@@ -281,7 +281,7 @@ void _copyNativeLibs(string cargoOut, string pkgDir) {
 
 // 🔴 **按 stdlib 成员清单拷，而不是把 flat 整目录拷走**（2026-09-28）。
 //
-// flat（`artifacts/build/libraries/dist/release`）**不只装 stdlib**：`build compiler` 的破环
+// flat（`artifacts/intermediate/libraries/flat/release`）**不只装 stdlib**：`build compiler` 的破环
 // 预建（`_ensureBootstrapSelfDepLibs`）会把编译器域的包写进去，而 `build stdlib` 的末步
 // `_assembleStdlibFlatView` 又会清空重装 ⇒ 那个目录里此刻有什么，**取决于最后跑的是哪条命令**。
 // 整目录拷因此让**发布包的内容依赖命令顺序**：实测 `build compiler` 之后 flat 里有 10 个
