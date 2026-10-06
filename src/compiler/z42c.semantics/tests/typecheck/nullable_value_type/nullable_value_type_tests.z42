@@ -1,0 +1,53 @@
+// E0476 的语义半边（Validation/NullableValueTypes）：struct / enum 写 `?` 报错。
+// 此前只有解析器拦基元关键字（`int?`），`P? Get()` / `Color? c` 一律放行 —— `?` 在类型解析时被擦掉，
+// 标注「看起来存在、实际为零」。
+namespace Z42cSemanticsNullableValueTypeTests;
+
+using Z42.Semantics;
+using Z42.Core;
+
+int nvtCount(string src) {
+    FrontEndResult fe = FrontEnd.Check(src, "t.z42", null);
+    int n = 0;
+    int i = 0;
+    while (i < fe.Diags.Count()) { if (fe.Diags.Get(i).Code == "E0476") { n = n + 1; } i = i + 1; }
+    return n;
+}
+
+[Test]
+void test_struct_return_type_is_rejected() {
+    Assert.Equal(1, nvtCount("namespace D; struct P { public int X; } P? Get() { P p = new P(); return p; }"));
+}
+
+[Test]
+void test_struct_field_and_param_are_rejected() {
+    Assert.Equal(2, nvtCount("namespace D; struct P { public int X; } class C { public P? F; public void M(P? p) { } }"));
+}
+
+[Test]
+void test_struct_local_is_rejected() {
+    Assert.Equal(1, nvtCount("namespace D; struct P { public int X; } void Main() { P? p = new P(); }"));
+}
+
+[Test]
+void test_enum_is_rejected() {
+    Assert.Equal(1, nvtCount("namespace D; enum Color { Red } Color? Pick() { return Color.Red; }"));
+}
+
+[Test]
+void test_nested_in_generic_argument_is_rejected() {
+    Assert.Equal(1, nvtCount("namespace D; struct P { public int X; } class Box<T> { } void Main() { Box<P?> b = null; }"));
+}
+
+// 阴性：数组可空（数组是引用类型）、类可空、型参可空都合法。
+[Test]
+void test_array_class_and_type_param_are_fine() {
+    Assert.Equal(0, nvtCount("namespace D; struct P { public int X; } class C { }\n"
+        + "P[]? A() { return null; } C? B() { return null; } T? Id<T>(T? v) { return v; }"));
+}
+
+// 基元关键字仍由解析器报，语义层不重复报。
+[Test]
+void test_keyword_reported_once() {
+    Assert.Equal(1, nvtCount("namespace D; int? Get() { return 1; }"));
+}

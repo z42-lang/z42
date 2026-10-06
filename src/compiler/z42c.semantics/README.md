@@ -85,6 +85,7 @@
 | `src/Symbols/NsUseRecorder.z42` | 每文件「用到的命名空间」集合：`TypeChecker.Infer` 新建并挂在本文件视图（`SymbolTable.UseRecorder`），`ResolveTypeP` 外壳与表达式位绑定点往里记声明 ns；E0436 的判据 |
 | `src/Symbols/DepRef.z42` | 依赖引用条目编码 `ns` / `ns#pkg`：`UsedDepNs` 的每一项；带 `#pkg` = 符号实际来自的包，DEPS 只记它。编进字符串是为了让增量 meta 经 driver 原样搬运、driver 零改动 |
 | `src/Validation/DeclTypeUses.z42` | 声明位类型引用的补录：`Infer` 末尾把本文件全部声明里的 TypeExpr 在挂了记录器的视图上再解析一遍（成员签名 / 基类列表 / 接口 / delegate / 约束 / impl），只记录、不发诊断 |
+| `src/Validation/NullableValueTypes.z42` | E0476 的语义半边：类型写法里 `X?` 的 X 解析成 struct / enum ⇒ 报错（基元关键字由解析器报）；挂在 `ChkAmbiguousBareNameT`（方法体类型位）与 `DeclTypeUses`（声明位） |
 | `src/Validation/DepUseCollector.z42` | 绑定树上的跨包依赖收集（穷举 walker，登记在 walkers 门）：补「接收者类型没写出来」的导入实例调用；与绑定期 `NoteDepUse` 合并成文件依赖集（`CuCompile.DepRefsOf`，DEPS / E0436 / W0607 的判据），不经代码生成 |
 | `src/Validation/UsingLint.z42` | 多余 `using` 告警：W0607 不必要（没用到 / prelude / 外围）、W0608 重复（同文件 / 已有 global using）；判据与 E0436 同一份用法集合 |
 | `src/Binding/ConstValue.z42` | **编译期常量值**：`ConstValue{Kind, IntVal, StrVal}`，Kind 区分 `Int/Bool/Char/Float(bits)/Str/Null`——供 codegen 把 const 引用替换成对应字面量指令时选对指令 |

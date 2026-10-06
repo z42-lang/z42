@@ -171,9 +171,7 @@ public sealed class TypeParser {
             // 不是元素。只看基名 `byte` 会把它误拦（实测被 z42.core 的
             // `ProcessNative.Spawn(..., byte[]? stdinBytes, ...)` 抓住）。
             if (ac == 0 && !isArray && TypeParser._isValueTypeKeyword(name)) {
-                this._p._diags.Error(DiagnosticCodes.NullableValueType,
-                    "`" + name + "?` is not allowed — `" + name + "` is a value type and can never be null; "
-                    + "for a \"maybe absent\" value-type result use `bool TryX(..., ref " + name + " v)`", qsp);
+                this._p._diags.Error(DiagnosticCodes.NullableValueType, TypeParser.NullableValueTypeMessage(name), qsp);
             }
             t = new NullableType(t, sp);
         }
@@ -269,7 +267,14 @@ public sealed class TypeParser {
 
     // enforce-value-type-non-null：永不可空的基元值类型关键字（含 i32/u8 一族别名）。
     // `string` / `object` 不在内——它们是引用类型，`string?` 合法。
-    private static bool _isValueTypeKeyword(string n) {
+    // E0476 的消息（解析器判基元关键字、语义层 `NullableValueTypes` 判 struct / enum，两处同一措辞）。
+    public static string NullableValueTypeMessage(string name) {
+        return "`" + name + "?` is not allowed — `" + name + "` is a value type and can never be null; "
+            + "for a \"maybe absent\" value-type result use `bool TryX(..., ref " + name + " v)`";
+    }
+
+    // 基元值类型关键字（`int` / `bool` / …）：`X?` 在语法上即可判 E0476；语义层据此跳过、不重复报。
+    public static bool _isValueTypeKeyword(string n) {
         if (n == "int"    || n == "i32")  { return true; }
         if (n == "long"   || n == "i64")  { return true; }
         if (n == "short"  || n == "i16")  { return true; }

@@ -1,0 +1,47 @@
+// E0476 的语义半边：类型写法里的 `X?`，X 解析成**值类型**（用户 / stdlib struct、enum）⇒ 报错。
+//
+// 解析器只拦得了基元关键字（`int?` —— 语法上就能判）；`Guid?` / 用户 `struct P` 的 `P?` / enum 的 `E?`
+// 要解析出类型才知道是值类型，此前一律放行：`?` 在类型解析时被擦掉，于是 `P? Get()` 这种标注
+// 「看起来存在、实际为零」，参考手册诊断码表的示例 `Guid?` 本身就不报。
+// 判据复用 `TypeChecker._isNonNullableValueType`（与 E0475「给值类型赋 null」同一份）；关键字由解析器报，
+// 这里跳过（`TypeParser._isValueTypeKeyword`），消息同一措辞（`TypeParser.NullableValueTypeMessage`）。
+// 数组（`P[]?`）是引用类型、合法；型参（`T?`）解析不成值类型、不报。
+//
+// 挂载：方法体里的类型位走 `TypeChecker.ChkAmbiguousBareNameT`（与 E0456 同一挂载面），声明位走
+// `DeclTypeUses`（成员签名 / 基类 / 约束 / delegate …，带声明处的型参表）。
+namespace Z42.Semantics;
+
+using Z42.Syntax;
+using Z42.Core;
+
+public static class NullableValueTypes {
+
+    public static void Check(TypeExpr te, SymbolTable view, string[] tps, int tpc, DiagnosticBag diags) {
+        if (te == null || diags == null) { return; }
+        if (te is NullableType) {
+            NullableType nt = te as NullableType;
+            TypeExpr inner = nt.Inner;
+            bool keyword = (inner is NamedType) && TypeParser._isValueTypeKeyword((inner as NamedType).Name);
+            if (!(inner is ArrayType) && !keyword) {
+                Z42Type r = view.ResolveTypeP(inner, tps, tpc);
+                if (r != null && TypeChecker._isNonNullableValueType(r)) {
+                    diags.Error(DiagnosticCodes.NullableValueType, TypeParser.NullableValueTypeMessage(inner.Dump()), nt.Span);
+                }
+            }
+            NullableValueTypes.Check(inner, view, tps, tpc, diags);
+        } else if (te is NamedType) {
+            NamedType n = te as NamedType;
+            int i = 0;
+            while (i < n.ArgCount) { NullableValueTypes.Check(n.Args[i], view, tps, tpc, diags); i = i + 1; }
+        } else if (te is ArrayType) {
+            NullableValueTypes.Check((te as ArrayType).Elem, view, tps, tpc, diags);
+        } else if (te is FuncTypeExpr) {
+            FuncTypeExpr ft = te as FuncTypeExpr;
+            int j = 0;
+            while (j < ft.ParamCount) { NullableValueTypes.Check(ft.Params[j], view, tps, tpc, diags); j = j + 1; }
+            NullableValueTypes.Check(ft.Ret, view, tps, tpc, diags);
+        } else if (te is AssocBindingType) {
+            NullableValueTypes.Check((te as AssocBindingType).Bound, view, tps, tpc, diags);
+        }
+    }
+}
