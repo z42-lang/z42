@@ -1,0 +1,63 @@
+namespace Demo;
+
+// 嵌套类型的访问与短名查找（nested-and-base-name-lookup）：
+//   ① 外部经限定名访问嵌套类型的静态成员：`Outer.Inner.X` / `Outer.Inner.F()` / `Outer.Kind.B`，任意深度；
+//   ② 外层类体内用短名指嵌套类型（签名与表达式里的 `Inner`）；
+//   ③ 嵌套类型可以访问外层类型的全部成员，含 private；
+//   ④ 嵌套类型体内的短名查找沿外层类型上溯（外层的静态字段 / 方法直接写名字）；
+//   ⑤ 派生类体内的短名沿基类链查找（基类静态方法 / 字段直接写名字）。
+public class Outer {
+    private static int Secret = 42;
+    private int v = 7;
+    public static int Counter = 1;
+    public static int Twice(int x) { return x * 2; }
+
+    public class Inner {
+        public static int X = 5;
+        public static int F() { return 9; }
+        public int GetBare() { return Secret; }
+        public int GetQualified() { return Outer.Secret; }
+        public int Peek(Outer o) { return o.v; }
+        public int CallOuter() { return Twice(3); }
+
+        public class Deep {
+            public static int D = 11;
+            public int Up() { return Counter + X; }
+        }
+    }
+
+    public enum Kind { A, B }
+
+    public static Inner Make() { return new Inner(); }
+    public static int UseInner() { return Inner.X + Inner.F(); }
+}
+
+public class Base {
+    protected static int Shared = 100;
+    public static int Helper(int x) { return x + 1; }
+}
+
+public class Derived : Base {
+    public int Use() { return Helper(Shared); }
+}
+
+void Main() {
+    // ①
+    Assert.Equal(5, Outer.Inner.X);
+    Assert.Equal(9, Outer.Inner.F());
+    Assert.Equal(11, Outer.Inner.Deep.D);
+    Assert.Equal(true, Outer.Kind.B != Outer.Kind.A);
+    Assert.Equal(1, (int)Outer.Kind.B);
+    // ②
+    Outer.Inner i = Outer.Make();
+    Assert.Equal(14, Outer.UseInner());
+    // ③ ④
+    Assert.Equal(42, i.GetBare());
+    Assert.Equal(42, i.GetQualified());
+    Assert.Equal(7, i.Peek(new Outer()));
+    Assert.Equal(6, i.CallOuter());
+    Outer.Inner.Deep d = new Outer.Inner.Deep();
+    Assert.Equal(6, d.Up());
+    // ⑤
+    Assert.Equal(101, new Derived().Use());
+}

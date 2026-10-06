@@ -123,12 +123,30 @@ public sealed partial class MemberResolver {
         return false;
     }
 
-    // 类内裸名 → 本类静态成员（C# 语义：裸名 `x` ≡ `C.x`）。局部 / 形参 / 实例字段已由调用方的
-    // `LookupVar` 先命中（体绑定环境只 Define 非 static 字段），故这里只在它们都没有时才被问到。
+    // 类内裸名 → 静态成员（C# 语义）。局部 / 形参 / 实例字段已由调用方的 `LookupVar` 先命中（体绑定环境只
+    // Define 非 static 字段），故这里只在它们都没有时才被问到。查找顺序（nested-and-base-name-lookup）：
+    //   本类 → 本类的基类链 → 外层类型（嵌套类型体内）→ 外层的基类链 → 再往外一层 …
+    // 命中基类 / 外层的成员时按**声明类**发 `static_get`（BoundStaticGet 的类名就是发射目标）。
+    // 经派生类名限定的 `Derived.x` 不走这里，仍报 E0401（StaticMemberMiss）。
     internal BoundExpr BindBareStatic(string name, Span sp, TypeEnv env) {
         if (!env.HasClass()) { return null; }
-        string cls = env.CurrentClass();
-        if (!env.Symbols.HasClass(cls)) { return null; }
-        return this.BindStaticMember(env.Symbols.GetClass(cls), cls, name, sp, env);
+        string scope = env.CurrentClass();
+        while (scope != "") {
+            if (env.Symbols.HasClass(scope)) {
+                Z42ClassType ct = env.Symbols.GetClass(scope);
+                BoundExpr own = this.BindStaticMember(ct, scope, name, sp, env);
+                if (own != null) { return own; }
+                Z42ClassType b = env.Symbols.BaseOf(ct);
+                int hops = 0;
+                while (b != null) {
+                    BoundExpr inh = this.BindStaticMember(b, b.Name(), name, sp, env);
+                    if (inh != null) { return inh; }
+                    b = env.Symbols.BaseOf(b);
+                    hops = SymbolTable.NextBaseHop(hops);
+                }
+            }
+            scope = MemberResolver._outerOf(scope);
+        }
+        return null;
     }
 }

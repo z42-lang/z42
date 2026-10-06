@@ -1,7 +1,7 @@
 // 经派生类访问基类静态成员（reject-derived-static-access）：E0401，消息点名声明类。
 //
-// 参考手册 static-members.md：`Derived.baseStatic` 与派生类体内裸名引用基类静态成员不支持，应写 `Base.x`。
-// 此前 `B.M()` / 派生类体内裸调 `M()` 编译通过、运行期 MissingSymbolException（发射端按 `B.M` 拼目标）；
+// 参考手册 static-members.md：经派生类名限定的 `Derived.baseStatic` 不支持，应写 `Base.x`；派生类体内的
+// **短名**沿基类链查找（`M()` / `T`，按声明类发射）。此前 `B.M()` 编译通过、运行期 MissingSymbolException；
 // `B.T` / `A.Nope` 报与实情无关的 E0436（「请 using 本文件自己的 ns」）。
 // 阴性对照：`A.T` / `A.M()`、Color Color（类名同时是当前类的静态字段）、枚举成员都照常。
 namespace Z42cSemanticsDerivedStaticAccessTests;
@@ -54,9 +54,10 @@ void test_ns_qualified_static_method_via_derived_name_reports_E0401() {
     Assert.Equal(1, dsCount(dsWrap("void F() { int x = P.B.M(); }\n"), "declared on base class `A`"));
 }
 
+// 派生类体内的短名沿基类链查找（nested-and-base-name-lookup）：裸调基类静态方法、裸读基类静态字段 / 属性都合法。
 [Test]
-void test_bare_base_static_call_in_derived_body_reports_E0401() {
-    Assert.Equal(1, dsCount(dsWrap("class C : A { int G() { return M(); } }\n"), "declared on base class `A`"));
+void test_bare_base_static_in_derived_body_is_fine() {
+    Assert.Equal(0, dsErrors(dsWrap("class C : A { int G() { return M() + T + Prop; } }\n")));
 }
 
 [Test]

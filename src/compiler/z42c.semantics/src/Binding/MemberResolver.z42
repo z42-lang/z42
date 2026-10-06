@@ -57,21 +57,9 @@ public sealed partial class MemberResolver {
             // typeof(E)（fix-value-type-object-methods）。类型已带 IsEnum 后它看着冗余，但两者不等价
             // ——标记记的是「字面量的来源 enum」，`(long)E.Red` 之后静态类型已是 long、来源仍是 E。
             string etk = env.LookupVar(tid.Name) == null ? env.Symbols.EnumKey(tid.Name) : null;   // enum 表键（FQN）
-            if (etk != null) {
-                string ekey = etk + "." + m.Name;
-                if (env.Symbols.EnumConsts.ContainsKey(ekey)) {
-                    // harden-crosspkg-gates：同 FQN 跨包 ⇒ 常量键 first-wins、两包成员顺序可不同 ⇒ 折之前先判来源。
-                    this._tc.ChkEnumOrigins(env.Symbols, etk, m.Span);
-                    StrBox evalBox = env.Symbols.EnumConsts.Get(ekey) as StrBox;
-                    BoundLitInt eb = new BoundLitInt(evalBox.Value, env.Symbols.EnumType(etk), m.Span);
-                    eb.EnumTypeName = etk;   // FQN（CallEmitter 的 GetType 折叠直接用它）
-                    return eb;
-                }
-                // enum 类型名后只能跟它的成员（此前落到实例成员路径：类型名绑成 Unknown，`Color.Nope` 零诊断）。
-                this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol, "enum `" + tid.Name + "` has no member `" + m.Name + "`", m.NameSpan);
-                return new BoundError("enum member " + m.Name, new Z42ErrorType(), m.Span);
-            }
+            if (etk != null) { return this._bindEnumMember(etk, tid.Name, m, env); }
         }
+        BoundExpr nsm = this._bindNestedStaticMember(m, env); if (nsm != null) { return nsm; }   // `Outer.Inner.X` / `Outer.Kind.B` / 外层体内 `Inner.X`
         BoundExpr target = this._tc._expr._bindExpr(m.Target, env);
         Z42Type tt = target.Type();
         return this._bindInstanceMember(m, target, tt, env);
@@ -707,27 +695,11 @@ public sealed partial class MemberResolver {
                 // `Std.Assert`，于是 z42.test 那份的方法全报「no static method」。#532 合并两份 Assert
                 // 消掉了起因，但**择一本身仍是静默的**：换个同短名跨 ns 的类，照样无声选一份。
                 this._tc.ChkAmbiguousBareName(env.Symbols, tid.Name, sp);
-                Z42ClassType ct = env.Symbols.GetClass(tid.Name);
-                // report-crosspkg-duplicate-type 的**覆盖漏洞**（本 change 补）：E0601/E0606 挂在
-                // `_chkTypeRef` 上，而**静态调用根本不走它** —— `Util.go()` 里的 `Util` 只经
-                // `GetClass` 取类、不作类型引用检查。实测两个包各声明 `Demo.FnNs.Util` 时
-                // `Util.go()` 零诊断、字母序靠前的包赢。
-                this._tc._chkStaticOwner(env.Symbols, ct, sp);
-                MethodSymbol ms = this._tc._overload._resolveOverload(env.Symbols, ct, mem.Name, args, argCount, call.TypeArgCount, sp, rawArgs, env);   // 限定名静态调用（Array.Sort<int>）→ 传显式类型实参个数启用 arity 过滤
-                if (MemberResolver.IsBaseStaticMethod(ct, ms)) { return this.ErrBaseStaticCall(tid.Name, ms, mem.Name, args, argCount, rawArgs, env, sp); }   // reject-derived-static-access
-                if (ms != null) {
-                    ms = MethodTypeArgSubst.ForExplicitTypeArgs(ms, call, env);   // 显式 `<T>` → 先代换签名再绑实参
-                    this._tc._access.CheckAccess(ms.Visibility, ms.ContainingTypeName, env, env.Symbols, "method", mem.Name, sp);   // enforce-access-control
-                    this._tc._access.CheckDeprecatedM(ms, mem.Name, sp);   // add-deprecated-directive
-                    BoundExpr[] fa = this._tc._overload._withDefaults(ms, args, rawArgs, argCount, env, sp, true);
-                    BoundCall bc = BoundCall.Marked(new BoundCall("static", false, null, ct.Name(), ms.CallKey(), fa, fa.Length, ms.Signature.Ret, sp), ms.Signature);
-                    this._applyMethodTypeArgs(bc, call, ms, env);   // add-generic-methods：静态泛型方法（serde 招牌路径）
-                    return bc;
-                }
-                BoundExpr dsc = this.TryBindDelegateMemberCall(mem, ct, true, args, argCount, rawArgs, env, sp); if (dsc != null) { return dsc; }   // 委托静态字段 / 属性
-                return this.NoStaticMethod(ct, tid.Name, mem.Name, args, argCount, rawArgs, env, sp);
+                return this._bindClassStaticCall(env.Symbols.GetClass(tid.Name), tid.Name, mem, args, argCount, rawArgs, env, sp, call);
             }
         }
+        // nested-and-base-name-lookup：嵌套类型的静态调用 `Outer.Inner.F()`，或外层类体内的短名 `Inner.F()`。
+        { string nk = this._nestedTypeKey(mem.Target, env); if (nk != "" && env.Symbols.HasClass(nk)) { return this._bindClassStaticCall(env.Symbols.GetClass(nk), nk, mem, args, argCount, rawArgs, env, sp, call); } }
         // GS6: prim 关键字静态调用（int.Parse / string.FromChars 等）→ wrapper class 静态方法
         if (mem.Target is IdentExpr) {
             IdentExpr tid2 = mem.Target as IdentExpr;

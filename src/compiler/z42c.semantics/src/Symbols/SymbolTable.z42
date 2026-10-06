@@ -120,6 +120,9 @@ public sealed partial class SymbolTable {
     public StrMap MultiArityNames;
     private StrMap _firstArity;   // NoteArities 的中间态：短名 → 首次见到的 arity
     public StrMap CurrentAliases;   // add-type-alias：当前 CU 的文件级类型别名 name → TypeExpr（null=无）；per-CU 设置
+    // 正在收集成员的类（展平名，嵌套为 `Outer+Inner`；"" = 不在类里）。裸类型名主解析落空时沿它的 `+` 链上溯找
+    // 嵌套类型（`Outer` 的成员签名里写 `Inner`）。**每个视图自己的**上下文，不随 WithAliases / WithScopeOf 复制。
+    public string EnclosingClass;
     public SymbolTable() {
         this.Classes = new StrMap();
         this.ClassesByFqn = new StrMap();   // fix-type-ref-ns-collision
@@ -146,6 +149,7 @@ public sealed partial class SymbolTable {
         this.MultiArityNames = new StrMap();
         this._firstArity = new StrMap();
         this.CurrentAliases = null;
+        this.EnclosingClass = "";
         this.ScopeNs = "";
         this.ScopeUsings = new string[0];
         this.ScopeUsingCount = 0;
@@ -473,8 +477,30 @@ public sealed partial class SymbolTable {
     // 泛型实参 / 数组元素 / 可空内层时走回本外壳，所以嵌套的类型引用也都记到。
     public Z42Type ResolveTypeP(TypeExpr te, string[] paramNames, int paramCount) {
         Z42Type r = this._resolveTypePCore(te, paramNames, paramCount);
+        if ((r is Z42UnknownType) && this.EnclosingClass != "") {
+            Z42Type nr = this.ResolveNested(te, paramNames, paramCount, this.EnclosingClass);
+            if (nr != null) { r = nr; }
+        }
         if (this.UseRecorder != null && te is NamedType) { this._noteTypeUse(te as NamedType, r); }
         return r;
+    }
+
+    // 嵌套类型的裸名兜底（唯一实现；收集期成员签名经 EnclosingClass、方法体经 TypeEnv 共用）：裸名 `X` 在 `encl`
+    // 体内依次试 `encl+X`、再上溯一层 `<外层>+X` …（`Outer+Inner` 体内 `X` → `Outer+Inner+X` → `Outer+X`）。
+    // 顶层类型优先：只在主解析落空时才走到这里。找不到 → null。
+    public Z42Type ResolveNested(TypeExpr te, string[] paramNames, int paramCount, string encl) {
+        if (!(te is NamedType) || encl == "") { return null; }
+        NamedType nt = te as NamedType;
+        if (nt.Name.IndexOf(".") >= 0 || nt.Name.IndexOf("+") >= 0) { return null; }
+        string e = encl;
+        while (e != "") {
+            NamedType cand = new NamedType(e + "+" + nt.Name, nt.Args, nt.ArgCount, nt.Span);
+            Z42Type ct = this._resolveTypePCore(cand, paramNames, paramCount);
+            if (!(ct is Z42UnknownType)) { return ct; }
+            int lp = e.LastIndexOf("+");
+            e = lp < 0 ? "" : e.Substring(0, lp);
+        }
+        return null;
     }
 
     // 只看**用户写的**具名类型：合成的跳过；别名跳过（C#：`using Id = 全限定名;` 的目标不需要另写 using，

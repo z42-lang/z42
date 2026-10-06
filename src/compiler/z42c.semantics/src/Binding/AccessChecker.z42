@@ -26,7 +26,9 @@ public sealed class AccessChecker {
         if (vis == "public") { return; }
         if (declClass == "") { return; }   // 声明类未知（prim/接口/泛型形参松绑路径不入此函数，兜底放行不误报）
         if (vis == "private") {
-            if (env.CurrentClass() == declClass) { return; }
+            // 声明类自身，或嵌套在它里面的类型（任意深度，`Outer+Inner` 访问 `Outer` 的 private —— 同 C#）。
+            string pc = env.CurrentClass();
+            if (pc == declClass || pc.StartsWith(declClass + "+")) { return; }
             this._deny("private", kind, name, declClass, false, sp);
             return;
         }
@@ -42,10 +44,20 @@ public sealed class AccessChecker {
         this._deny("internal", kind, name, declClass, true, sp);
     }
 
-    // CurrentClass()==declClass，或沿 CurrentClass 基链上溯能到 declClass（含隐式 Object，镜像 _findField）。
+    // CurrentClass() 或它的任一外层类型（嵌套类型共享外层的访问权，同 C#）==declClass，或沿其基链上溯能到
+    // declClass（含隐式 Object，镜像 _findField）。
     private bool _currentDerivesFrom(string declClass, TypeEnv env, SymbolTable symbols) {
-        string cur = env.CurrentClass();
-        if (cur == "") { return false; }     // 自由函数上下文：无「派生」身份
+        string scope = env.CurrentClass();
+        while (scope != "") {
+            if (this._derivesFrom(scope, declClass, symbols)) { return true; }
+            int lp = scope.LastIndexOf("+");
+            scope = lp < 0 ? "" : scope.Substring(0, lp);
+        }
+        return false;
+    }
+
+    private bool _derivesFrom(string start, string declClass, SymbolTable symbols) {
+        string cur = start;
         bool more = true;
         while (more) {
             // 导入类的 `BaseName` 是 FQ（TsigReconcile 原样搬运）⇒ 按短名比（declClass 是短名）。

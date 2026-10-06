@@ -15,16 +15,10 @@ public sealed partial class MemberResolver {
             if (env.Symbols.HasClass(cls)) {
                 Z42ClassType sct = env.Symbols.GetClass(cls);
                 MethodSymbol sms = this._tc._overload._resolveOverload(env.Symbols, sct, id.Name, args, call.ArgCount, call.TypeArgCount, call.Span, call.Args, env);
-                // reject-derived-static-access：派生类体内裸调**基类**的静态方法（发射端会按当前类拼目标 ⇒ 运行期找不到）。
-                if (MemberResolver.IsBaseStaticMethod(sct, sms)) { return this.ErrBaseStaticCall(cls, sms, id.Name, args, call.ArgCount, call.Args, env, call.Span); }
-                if (sms != null && sms.IsStatic) {
-                    // add-call-arity-diagnostics：此前本路径不经 _withDefaults（只绑定 + params 打包）⇒ 默认值不补、
-                    // 实参个数不校验。汇入同一汇聚点（绑定 / 装箱 / params / 默认值 / 个数判定）。
-                    BoundExpr[] fa = this._tc._overload._withDefaults(sms, args, call.Args, call.ArgCount, env, call.Span, false);
-                    BoundCall bc = BoundCall.Marked(new BoundCall("static", false, null, cls, sms.CallKey(), fa, fa.Length, sms.Signature.Ret, call.Span), sms.Signature);
-                    this._applyMethodTypeArgs(bc, call, sms, env);
-                    return bc;
-                }
+                // nested-and-base-name-lookup：派生类体内裸调**基类**的静态方法 —— 合法（短名沿基类链查找），按**声明类**
+                // 发调用（发射端按 OwnerClass 拼目标）。经派生类名限定的 `Derived.M()` 仍报 E0401（见 MemberResolver 主文件）。
+                if (MemberResolver.IsBaseStaticMethod(sct, sms)) { return this._bareStaticCall(sms.ContainingTypeName, sms, call, args, env); }
+                if (sms != null && sms.IsStatic) { return this._bareStaticCall(cls, sms, call, args, env); }
                 // 同类无限定**实例**调用：`M()` ≡ `this.M()`（fix-bare-instance-call）。
                 //
                 // 此前只认静态那一半，实例方法落到下方 “undefined function” —— 而裸名读**字段**、
@@ -43,8 +37,39 @@ public sealed partial class MemberResolver {
                     this._applyMethodTypeArgs(bc, call, sms, env);
                     return bc;
                 }
+                // 本类及其基类链都没有叫这个名字的方法 ⇒ 外层类型的**静态**方法（嵌套类型体内裸调外层的 `F()`，同 C#）。
+                // 逐层往外：`Outer+Mid+Inner` → `Outer+Mid` → `Outer`。外层的实例方法没有 `this` 可用，不在此列。
+                if (sms == null) {
+                    string e = MemberResolver._outerOf(cls);
+                    while (e != "") {
+                        if (env.Symbols.HasClass(e)) {
+                            Z42ClassType ect = env.Symbols.GetClass(e);
+                            MethodSymbol ems = this._tc._overload._resolveOverload(env.Symbols, ect, id.Name, args, call.ArgCount, call.TypeArgCount, call.Span, call.Args, env);
+                            if (ems != null && ems.IsStatic) {
+                                return this._bareStaticCall(MemberResolver.IsBaseStaticMethod(ect, ems) ? ems.ContainingTypeName : e, ems, call, args, env);
+                            }
+                            if (ems != null) { return null; }   // 外层同名实例方法：无 `this`，交回原路径报错
+                        }
+                        e = MemberResolver._outerOf(e);
+                    }
+                }
             }
         }
         return null;
+    }
+
+    // 无限定静态调用：`owner` = 发射目标所在的类（声明类）。
+    // add-call-arity-diagnostics：经 _withDefaults（绑定 / 装箱 / params / 默认值 / 个数判定同一汇聚点）。
+    private BoundExpr _bareStaticCall(string owner, MethodSymbol sms, CallExpr call, BoundExpr[] args, TypeEnv env) {
+        BoundExpr[] fa = this._tc._overload._withDefaults(sms, args, call.Args, call.ArgCount, env, call.Span, false);
+        BoundCall bc = BoundCall.Marked(new BoundCall("static", false, null, owner, sms.CallKey(), fa, fa.Length, sms.Signature.Ret, call.Span), sms.Signature);
+        this._applyMethodTypeArgs(bc, call, sms, env);
+        return bc;
+    }
+
+    // 嵌套类型的外层（展平名剥掉最后一个 `+` 段）；顶层 → ""。
+    internal static string _outerOf(string cls) {
+        int lp = cls.LastIndexOf("+");
+        return lp < 0 ? "" : cls.Substring(0, lp);
     }
 }
