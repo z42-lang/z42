@@ -53,10 +53,7 @@ void test_round_trip_at_quality_zero() {
 // `Compress(data, 11)` still works for production use; CI just uses
 // BrotliDefault (4) to keep test runtime bounded.
 
-// Note: explicit error-path tests (invalid level / garbage input) were
-// dropped — the runtime's `set_last_error` + dlopen bail flow appears to
-// hang under the test-runner harness when the cdylib returns a non-zero
-// rc. The error path is exercised in the Rust crate's unit tests directly.
+// Error paths (garbage input, invalid level) for all algorithms: error_paths.z42.
 
 [Test]
 void test_higher_quality_gives_smaller_output_or_equal() {
