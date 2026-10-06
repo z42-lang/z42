@@ -125,7 +125,8 @@ int _cleanAll(string root) {
     n = n + _rmIfExists(_legacyTmpDir(root));
     n = n + _rmIfExists(_legacyScratchDir(root));
     n = n + _rmIfExists(_legacyPubStagingDir(root));
-    n = n + _rmIfExists(_legacyReleaseDir(root));   // 归档已挪进 packages/archives（simplify-layout）
+    n = n + _rmIfExists(_legacyReleaseDir(root));    // 归档现与包目录并排放在 packages/
+    n = n + _rmIfExists(_legacyArchivesDir(root));
     foreach (var d in _legacyReportDirs(root)) { n = n + _rmIfExists(d); }   // 结果已收进 reports/
     int strays = 0;
     foreach (var d in _srcZ42ProjectDirs(root)) {

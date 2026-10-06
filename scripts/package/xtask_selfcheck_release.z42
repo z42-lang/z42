@@ -1,14 +1,16 @@
-// xtask — `package archive` / `package finalize` 自检（unify-release-archive）。
+// xtask — 打包命令的 `--archive` / `package finalize` 自检（unify-release-archive）。
 //
 // 与同目录其它 selfcheck 同一形态：xtask 是 exe，反射 [Test] runner 看不到它 ⇒ 不匹配就抛。
-// 由 `xtask package check` 聚合（opt-in，不在 GREEN 里；改发布归档时手动跑）。
+// 由 `xtask check packages` 聚合（opt-in，不在 GREEN 里；改发布归档时手动跑）。
 //
 // 不碰真实产物：在 xtask 的自检目录（`_xtaskWork`）下造齐 9 个 RID 的**假包目录**（各放一个小文件；桌面 workload 放
-// `apphost-<rid>`），外加一个 debug profile 的噪声目录，然后整条走一遍 archive → finalize。锁住：
+// `apphost-<rid>`），外加一个 debug profile 的噪声目录，逐个目录出归档（`--archive` 的那一步，归档与包目录同在一处，
+// 同 artifacts/packages/），再在同一个目录上 finalize。锁住：
 //   · 命名映射（sdk / runtime / desktop workload / 平台 workload 只由主 RID 出 / test workload）；
 //   · 噪声目录（非 release profile）不进归档；
 //   · windows-x64 出 .zip，其余 .tar.gz；
-//   · finalize 合并出一份含 4 个 apphost 的桌面 workload、删掉逐 RID 中间件，SHA256SUMS 与 index 齐全。
+//   · finalize 合并出一份含 4 个 apphost 的桌面 workload、删掉逐 RID 中间件，SHA256SUMS 与 index 齐全；
+//     与包目录同处一个目录不干扰（SHA256SUMS 只收归档文件）。
 namespace Z42Xtask;
 
 using Std.IO;
@@ -24,15 +26,14 @@ void _relFakePkg(string from, string name, string file) {
 }
 
 int _testPackagesRelease() {
-    Console.WriteLine("── package archive / finalize self-check ──");
+    Console.WriteLine("── --archive / finalize self-check ──");
     string root = _root();
     string ver = _versionsGet(root);
     string label = "0.0.0-selfcheck";
     string work = _xtaskWork(root, "selfcheck-release");
     if (Directory.Exists(work)) { Directory.Delete(work, true); }
-    string from = Path.Join(work, "packages");
-    string dist = Path.Join(work, "release");
-    Directory.Create(from);
+    string dist = Path.Join(work, "packages");   // 包目录与归档同处（= artifacts/packages）
+    Directory.Create(dist);
 
     try {
         // ── 命名映射（纯函数）──
@@ -44,21 +45,23 @@ int _testPackagesRelease() {
         _relAssert("windows ext", _relArchiveExt("z42-sdk-" + label + "-windows-x64") == ".zip");
         _relAssert("unix ext", _relArchiveExt("z42-runtime-" + label + "-macos-arm64") == ".tar.gz");
 
-        // ── 端到端：假包目录 → archive → finalize ──
+        // ── 端到端：假包目录 → 逐个出归档 → finalize ──
         string[] rids = _relRids();
         int i = 0;
         while (i < rids.Length) {
-            _relFakePkg(from, "z42-" + ver + "-" + rids[i] + "-release", "manifest.toml");
-            _relFakePkg(from, "z42-runtime-" + ver + "-" + rids[i], "manifest.toml");
+            _relFakePkg(dist, "z42-" + ver + "-" + rids[i] + "-release", "manifest.toml");
+            _relFakePkg(dist, "z42-runtime-" + ver + "-" + rids[i], "manifest.toml");
             if (_relIsDesktop(rids[i])) {
-                _relFakePkg(from, "z42-workload-" + ver + "-desktop-" + rids[i], "apphost-" + rids[i]);
+                _relFakePkg(dist, "z42-workload-" + ver + "-desktop-" + rids[i], "apphost-" + rids[i]);
             }
             i = i + 1;
         }
-        _relFakePkg(from, "z42-workload-" + ver + "-test", "manifest.toml");
-        _relFakePkg(from, "z42-" + ver + "-linux-x64-debug", "manifest.toml");   // 噪声
+        _relFakePkg(dist, "z42-workload-" + ver + "-test", "manifest.toml");
+        _relFakePkg(dist, "z42-" + ver + "-linux-x64-debug", "manifest.toml");   // 噪声
 
-        _relAssert("archive rc", _releaseArchive(label, from, dist) == 0);
+        foreach (var d in _sortedStrings(Directory.Enumerate(dist))) {
+            _relAssert("archive " + d, _pkgArchiveDir(Path.Join(dist, d), ver, label, dist) >= 0);
+        }
         // 4 × (sdk + runtime + desktop wl) + 5 平台 runtime + 3 平台 workload + test = 21
         int nArch = Path.Glob(dist, "z42-*.tar.gz").Length + Path.Glob(dist, "z42-*.zip").Length;
         _relAssert("archive count 21 (got " + nArch.ToString() + ")", nArch == 21);

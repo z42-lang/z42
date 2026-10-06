@@ -132,7 +132,7 @@ string _z42bToml() { return "src/toolchain/builder/core/z42.builder.z42.toml"; }
 //   test stdlib   ：支持 `--toolchain` override（ovVm/ovDriver/ovLibs）
 //   test compiler ：按 profile 取（_driverZpkg(root, profile)）
 //   test toolchain builder（manifest 目标夹具）：固定 release
-//   stage-toolchain：release + `_toolchainCompileLibs`
+//   package ci    ：release + `_toolchainCompileLibs`
 // **能统一的只有「怎么编 + 怎么校验」，输入不能统一** —— 强行统一就会把 override / profile 语义弄丢。
 // 工具链程序（launcher / z42b / z42d / z42i / workload libs）的**编译期解析面**。
 //
@@ -158,7 +158,7 @@ int _buildZ42bWith(string root, string vm, string driverZpkg, string libs) {
     return 0;
 }
 
-// 确保 z42b 已按**当前 z42c** 编好（stage-toolchain 用：自行解析 release 工具链）。
+// 确保 z42b 已按**当前 z42c** 编好（`build toolchain z42b` 用，`package ci` 消费它的产物：自行解析 release 工具链）。
 //
 // 为什么无条件重编而非 File.Exists 就跳过：z42b 是 zpkg，必须与当前 z42c 的 zpkg
 // 格式一致（strict-pin）——「存在」≠「可用」，上一格式版本的 z42.builder.zpkg 会在
@@ -229,9 +229,14 @@ int _assertPayloadComplete(string root, string tomlPath) {
     return (missing > 0) ? 1 : 0;
 }
 
-// Publish the 4 apphost components → each toml's publish_dir. Auto-builds workloads
-// first (launcher depends on them, User Q1). z42b compiled first since it publishes
-// the others. Every output/publish location is read from the component toml.
+// z42c 驱动自己的 apphost（`bin/z42c` + `programs/z42c` payload）。z42c 的 zpkg 由 `build compiler`
+// 编，这里只发布；与其余 apphost 同一个 stub、同一个 z42b。
+string _z42cDriverToml() { return "src/compiler/z42c.driver/z42c.driver.z42.toml"; }
+
+// Publish the toolchain apphosts (launcher / z42b / z42d / z42i + z42c) → each toml's
+// publish_dir. Auto-builds workloads first (launcher depends on them, User Q1). z42b
+// compiled first since it publishes the others. Every output/publish location is read
+// from the component toml. 这是 SDK 的全部编译步骤 —— `package dev-sdk` 只把这些产物组装起来。
 int _buildToolchain() {
     string root = _root();
     Stopwatch sw = _procStart("build toolchain (apphosts via publish)");
@@ -265,56 +270,11 @@ int _buildToolchain() {
         c = _assertPayloadComplete(root, toml);
         if (c != 0) { return c; }
     }
+    string z42cToml = _z42cDriverToml();
+    int zc = _z42bPublish(vm, z42bZpkg, libs, apphostStub, z42cToml, rid, _desktopPublishDir(root, z42cToml));
+    if (zc != 0) { ConsoleError.WriteLine("  ✗ z42c apphost publish failed"); return zc; }
+    zc = _assertPayloadComplete(root, z42cToml);
+    if (zc != 0) { return zc; }
     _procEnd("build toolchain (apphosts via publish)", sw);
-    return 0;
-}
-
-// ── sdk apphost merge ────────────────────────────────────────────────────────
-// Make `build sdk` produce a COMPLETE, runnable SDK: publish z42c + the 4 toolchain
-// apphosts, then merge each component's publish_dir tree (bin apphost + programs
-// payload, layout per its toml's bin/payload) into the SDK `outDir`. publish_dir is
-// read from each toml (SoT). `noBuild`: skip (re)publishing — merge whatever each
-// publish_dir already holds (CI warm path).
-int _sdkMergeApphosts(string root, string outDir, bool noBuild) {
-    string z42cToml = "src/compiler/z42c.driver/z42c.driver.z42.toml";
-    if (!noBuild) {
-        int tc = _buildToolchain(); if (tc != 0) { return tc; }   // launcher/z42b/z42d/z42i
-        // z42c is already built (build sdk's _buildStdlib); z42b + apphost stub were
-        // just built by _buildToolchain — publish z42c's apphost with them.
-        string vm = _builtVm(root, "release");
-        string rid = _detectHostRid();
-        string z42bZpkg = _toolchainZpkg(root, _z42bToml());
-        string stub = Path.Join(_cargoOutFor(root, rid, "release"),
-            Platform.IsWindows() ? "apphost.exe" : "apphost");
-        int zc = _z42bPublish(vm, z42bZpkg, _toolchainCompileLibs(root), stub, z42cToml, rid,
-            _desktopPublishDir(root, z42cToml));
-        if (zc != 0) { ConsoleError.WriteLine("  ✗ z42c apphost publish failed"); return zc; }
-        zc = _assertPayloadComplete(root, z42cToml);
-        if (zc != 0) { return zc; }
-    }
-    // merge z42c + 4 toolchain apphost publish trees into the SDK.
-    string[] tc4 = _toolchainApphostTomls();
-    string[] tomls = new string[tc4.Length + 1];
-    tomls[0] = z42cToml;
-    int k = 0;
-    while (k < tc4.Length) { tomls[k + 1] = tc4[k]; k = k + 1; }
-    int i = 0;
-    while (i < tomls.Length) {
-        string pub = _desktopPublishDir(root, tomls[i]);
-        if (Directory.Exists(pub)) {
-            _vNormal("  sdk: merge apphost ← " + pub);
-            Directory.Copy(pub, outDir, true);
-        } else if (noBuild) {
-            // --no-build: apphosts may legitimately not be published (e.g. CI's
-            // compile-test-assets assembles only the toolchain layout + goldens, never
-            // runs build toolchain) — skip, don't fail. Full SDK still needs them; the
-            // !noBuild path above publishes + guarantees them.
-            _vNormal("  sdk: skip apphost (not published, --no-build): " + pub);
-        } else {
-            ConsoleError.WriteLine("  ✗ sdk: apphost not published: " + pub + " (run build toolchain)");
-            return 1;
-        }
-        i = i + 1;
-    }
     return 0;
 }

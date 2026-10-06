@@ -13,7 +13,7 @@ members = [".", "crates/z42-abi", "crates/z42-rs", "crates/z42-macros", "crates/
 default-members = [".", "crates/z42-compression"]
 
 [workspace.package]
-# mirror of versions.toml [project].version — drift enforced by `z42 xtask.zpkg deps check`
+# mirror of versions.toml [project].version — drift enforced by `xtask check versions`
 version = "0.6.0"
 
 [package]

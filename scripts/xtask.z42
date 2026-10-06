@@ -8,14 +8,14 @@
 // 顶层命令面（**权威来源是 `xtask -h`，由 Std.Cli 命令树自动生成**——本注释是导航用的
 // 概览，不是清单；具体 flag/positional 一律看各层 `-h`，别在这里复列以免又漂）：
 //
-//   build   runtime | compiler | stdlib | sdk | stage-toolchain | workload | toolchain | test | all
-//   test    (empty=all) | e2e | stdlib | targets | runtime | list | embedded | dist
-//           | compiler | packages | bootstrap | vscode-syntax | incremental | lines
-//           | changed | platform <p>
-//   package sdk | runtime | workload | index
-//   deps    check | install | env
+//   build   runtime | compiler | stdlib | workload | toolchain [z42b] | test | all
+//   package sdk | runtime | workload [--archive] | dev-sdk | ci | finalize
+//   test    (empty=GREEN gate) | changed | e2e | list | stdlib | compiler | toolchain | runtime
+//           | app <platform> | docs | package
+//   check   (empty=all) | <name> …（静态检查）
+//   setup   (empty=install) | vscode | check
 //   bench   (empty=e2e) | stdlib | targets
-//   run / profile / example / clean
+//   profile / layout / clean / run
 //
 // 命令树、每个叶子的 flag/positional、逐层 `-h`、未知命令报错都在 xtask_cli.z42
 // （`_runCli` + 各 `_xRouter()` / `_dispatchX`）——Main 只做 argv 取用与转发。
@@ -23,11 +23,8 @@
 // `scripts/README.md` 的源码结构表。
 //
 // 本文件只剩**入口**：`Main`（校验 VM → 转 _runCli）与 `run` 直通。任何 build /
-// test / deps 的 handler 都不在这里——它们归各自的族目录
-// （relocate-xtask-handlers, 2026-09-05：此前 _buildRuntime / _buildStdlib /
-// _regenCore / _testChanged / _depsCheck / _clean 错落在此，
-// 与「Main 只做转发」的自述矛盾）。`run` 留下是因为它是 _runCli 在 Resolve 之前
-// 就拦截的裸直通，属于入口层而非某个命令族。
+// test / setup 的 handler 都不在这里——它们归各自的族目录。`run` 留下是因为它是
+// _runCli 在 Resolve 之前就拦截的裸直通，属于入口层而非某个命令族。
 namespace Z42Xtask;
 
 using Std.IO;

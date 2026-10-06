@@ -11,9 +11,10 @@ namespace Z42Xtask;
 using Std.IO;
 using Std.Cli;
 
-// 名字 → 说明。顺序即 `xtask check` 全跑的顺序（= GREEN gate 里的顺序）。
+// 名字 → 说明。顺序即 `xtask check` 全跑的顺序（= GREEN gate 里的顺序）。`packages` 不在这份名单里：
+// 它要组装真实组件（秒级以上、碰构建产物），是改打包时按需跑的单项，`xtask check packages` 单跑。
 string[] _checkNames() {
-    return new string[]{ "vscode-syntax", "lines", "walkers", "diagcodes", "stage2", "ci-shell", "proc-env", "layout" };
+    return new string[]{ "vscode-syntax", "lines", "walkers", "diagcodes", "stage2", "ci-shell", "proc-env", "layout", "versions" };
 }
 
 string _checkDesc(string name) {
@@ -25,12 +26,15 @@ string _checkDesc(string name) {
     if (name == "ci-shell")      { return "CI composite actions' run: blocks use no variable before assigning it (set -u)"; }
     if (name == "proc-env")      { return "Z42_LIBS / Z42_PROBING_PATHS are set only via _z42Proc / _z42bProc"; }
     if (name == "layout")        { return "test layout spec: src/tests categories, capability vocabulary, artifacts mirror"; }
+    if (name == "versions")      { return "versions.toml ↔ its projections (Cargo.toml / build.gradle.kts / Package.swift) agree"; }
+    if (name == "packages")      { return "packages.toml self-checks: parse + component install + archive / finalize (opt-in, not in the GREEN gate)"; }
     return "";
 }
 
 ArgParser _checkParser() {
     string names = "";
     foreach (var n in _checkNames()) { names = names.Length == 0 ? n : names + " | " + n; }
+    names = names + " | packages (opt-in)";
     ArgParser c = new ArgParser("xtask check", "static checks (no build, no test run): " + names);
     c.AddOptionalPositional("name", "one check (default: all): " + names);
     c.AddFlag("update", "", "lines / diagcodes / stage2: rewrite the ratchet baseline from the current tree");
@@ -44,6 +48,7 @@ int _check(ParseResult r) {
         if (_checkDesc(name).Length == 0) {
             ConsoleError.WriteLine("xtask check: unknown check '" + name + "'");
             foreach (var n in _checkNames()) { ConsoleError.WriteLine("  " + _padRight(n, 15) + _checkDesc(n)); }
+            ConsoleError.WriteLine("  " + _padRight("packages", 15) + _checkDesc("packages"));
             return 2;
         }
         if (update && name != "lines" && name != "diagcodes" && name != "stage2") {
@@ -80,5 +85,7 @@ int _checkOne(string name, bool update) {
     if (name == "stage2")        { return _testStage2Debt(update); }
     if (name == "ci-shell")      { return _testCiShell(); }
     if (name == "proc-env")      { return _testProcEnv(); }
+    if (name == "versions")      { return _checkVersions(); }
+    if (name == "packages")      { return _testPackages(); }
     return _testLayout();
 }

@@ -9,7 +9,7 @@
 // Decision 6）。去掉暂存的理由（User 2026-10-01）：
 //   ① 固定形态组件本就是从构建产物拷出来的，暂存只是多拷一遍；apphost 组件 publish 不清空 `--output`、各落各的
 //      子目录，可以直接发布进包目录；
-//   ② 只有桌面 sdk / runtime 用暂存 —— ios / wasm / android 与 `build sdk` 一直直接往包目录写，两套做法并存；
+//   ② 只有桌面 sdk / runtime 用暂存 —— ios / wasm / android 与 `package dev-sdk` 一直直接往包目录写，两套做法并存；
 //   ③ apphost 组件的工程路径在 packages.toml 与打包代码里各写一份，现在只读 packages.toml。
 // packages.toml 仍是「哪个包装哪些组件」的唯一声明；本文件只按 kind 分派「怎么装」。
 //

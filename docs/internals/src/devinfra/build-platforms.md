@@ -53,11 +53,11 @@ Rust crate 仍从源码位置编，产物输出到副本（见[产物布局 §3]
 最容易的一个：不需要模拟器。
 
 ```bash
-./xtask deps install --os wasm     # wasm-pack + wasm32-unknown-unknown + 本地 Node LTS
+./xtask setup --os wasm       # wasm-pack + wasm32-unknown-unknown + 本地 Node LTS
 ./xtask test app wasm         # 三段全跑
 ```
 
-`deps install --os wasm` 把 Node 装到 `artifacts/tools/node`（版本由 `versions.toml`
+`setup --os wasm` 把 Node 装到 `artifacts/tools/node`（版本由 `versions.toml`
 `[toolchain.node].version` 钉住）；PATH 上已有满足 `min_version` 的 node 也行，两者皆缺时
 测试步骤会自动装。Rust 1.88+ 装 `wasm-pack` 必须带 `--locked`，否则 `cargo-platform` 版本冲突。
 
@@ -91,7 +91,7 @@ JUnit 落 `artifacts/reports/tests/wasm/junit.xml`。
 ```bash
 sudo xcodebuild -license accept && xcode-select --install
 xcode-select -p                    # 应输出 .../Xcode.app/Contents/Developer
-./xtask deps install --os ios      # aarch64-apple-ios{,-sim} + aarch64-apple-darwin
+./xtask setup --os ios        # aarch64-apple-ios{,-sim} + aarch64-apple-darwin
 ./xtask test app ios
 ```
 
@@ -137,8 +137,7 @@ _ = try vm.invoke(try vm.resolveEntry(m, fqn: "App.Main"))
 rustup target add aarch64-linux-android x86_64-linux-android
 cargo install cargo-ndk
 
-./xtask deps install --os android   # SDK + NDK → artifacts/tools/android-sdk，不污染系统
-eval "$(./xtask deps env)"          # 导出 ANDROID_NDK_HOME 等
+./xtask setup --os android    # SDK + NDK → artifacts/tools/android-sdk，不污染系统
 ./xtask test app android
 ```
 
@@ -158,7 +157,7 @@ export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/<与 versions.toml 一致的版本>"
 export PATH="$PATH:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools"
 ```
 
-`deps install --os android` 只装 build tier；emulator tier（emulator + 本机架构的 system-image + AVD +
+`setup --os android` 只装 build tier；emulator tier（emulator + 本机架构的 system-image + AVD +
 Gradle，约 4 GB / 10~15 分钟）没有单独命令，要靠 z42b 启动 AVD（没有接着的设备）时自动装。
 `run` 交给 z42b：有接着的设备就复用，没有就以 headless 方式启动 `versions.toml` 的 `avd_name`，
 跑 `gradlew :z42vm:connectedAndroidTest`，跑完关掉（[测试用例组织规范](test-layout.md) §6）。

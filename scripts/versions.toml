@@ -4,7 +4,7 @@
 # 是唯一入口）；另有 release.yml 的 tag 校验、install-z42.{sh,bat}、z42b 的 iOS xcframework 构建。
 #
 # 唯一 SoT。**不**生成 rust-toolchain.toml 之类的"投影"文件（那只是把版本号写两遍），
-# 改由 xtask 在入口处显式校验（`xtask deps check` / `xtask deps install`）。代价：rustup 不再
+# 改由 xtask 在入口处显式校验（`xtask check versions` / `xtask setup`）。代价：rustup 不再
 # cd-into auto-install 该 channel；收益：单一文件就是答案。
 #
 # 四类块：
@@ -17,13 +17,13 @@
 # 标准做法、不算重复声明）：
 #   gradle/wrapper/gradle-wrapper.properties  ← gradle pin 由 wrapper 自管
 #
-# `xtask deps install` 用它下载 NDK 等；`xtask deps check` 拿 [platform.*] 对账
+# `xtask setup` 用它下载 NDK 等；`xtask check versions` 拿 [project] / [platform.*] 对账
 # Package.swift / build.gradle.kts（drift detection）。
 #
 # 字段约定：
 #   version 用字符串（"30.0.16248370" / "22"）；
 #   tier 用字符串 "tier1" / "tier2" / "tier3"（rust platform-support 约定）；
-#   url 模板里的 {os} = darwin / linux / windows（`xtask deps install` 替换）。
+#   url 模板里的 {os} = darwin / linux / windows（`xtask setup` 替换）。
 
 schema_version = 1
 
@@ -32,7 +32,7 @@ schema_version = 1
 # ══════════════════════════════════════════════════════════════════════════
 #
 # Bumping 流程：
-#   1. 改本字段 → 跑 `xtask deps check`
+#   1. 改本字段 → 跑 `xtask check versions`
 #   2. drift 报错 → 同步更新 src/runtime/Cargo.toml [workspace.package].version
 #   3. commit → git tag v<version> → push --tags
 #   4. .github/workflows/release.yml 自动触发跨平台 SDK package publish
@@ -53,7 +53,7 @@ components  = ["rustfmt", "clippy"]
 [toolchain.node]
 min_version = "22"
 # wasm tests / playwright 需要；versions_check_node verify-only
-version = "24.21.0"   # Active LTS "Krypton"; `xtask deps install node` 下载此版本到 artifacts/tools/node
+version = "24.21.0"   # Active LTS "Krypton"; `xtask setup --os wasm`（及 wasm 测试缺 node 时）下载此版本到 artifacts/tools/node
 
 [toolchain.z42]
 # z42-bootstrap (2026-06-04): which prebuilt z42 launcher package
@@ -88,14 +88,14 @@ cmdline_tools_url  = "https://dl.google.com/android/repository/commandlinetools-
 cmdline_tools_sha256_mac_arm64  = "58da8f215781cc0208743e88b65ae259780c55e7eb40e50373d377cf369232d6"
 cmdline_tools_sha256_mac_x86_64 = "7e601c04e7173754b3d051a87bb4c3a8243c65a9d7bfa9356ed6499fb8953fa3"
 cmdline_tools_sha256_linux      = "0877a1d048fe4a24efe2eff536ca4223f7adeb58648bb81909d33c446918cfa8"
-gradle             = "9.7.1"            # AGP 9.4 需要 Gradle ≥ 9.6；与 platform/gradle/wrapper 同版本；`deps install android-sdk` 下载
+gradle             = "9.7.1"            # AGP 9.4 需要 Gradle ≥ 9.6；与 platform/gradle/wrapper 同版本；`test app android run` 用到 emulator tier 时下载
 gradle_sha256      = "acd53f1edaf02f1a8ff99879f8a34b302661a057d9b063ae9e35b552f804d20a"   # OS 无关 zip（services.gradle.org 官方 .sha256）
 system_image_tag   = "google_apis_playstore;{abi}"   # AVD system image；{abi} = 宿主架构（Apple silicon / arm64 → arm64-v8a，x64 → x86_64：模拟器只能跑本机架构的镜像）
 avd_name           = "z42_pixel6_api37"
 avd_device         = "pixel_6"
 
 [build.ios]
-xcode_min          = "16.0"             # 真比较（`xtask deps check/install` 低于即 warning）；16 = swift-tools 6.0 / Swift 6 语言模式的下限。CI 用 macos-26 镜像默认 Xcode（26.x）
+xcode_min          = "16.0"             # 真比较（`xtask setup` / `setup check` 低于即 warning）；16 = swift-tools 6.0 / Swift 6 语言模式的下限。CI 用 macos-26 镜像默认 Xcode（26.x）
 extra_rust_targets = ["aarch64-apple-darwin"]   # `swift test` host slice (跑 unit tests，不是部署 target)
 
 [build.wasm]

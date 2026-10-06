@@ -13,11 +13,11 @@
 |---|---|---|
 | `build/` | **只放编译产物**：各包的 `<profile>/{dist,cache}`、测试的编译产物（golden `.zbc`、z42b 测试 / bench 目标、编译器测试单元）、cargo 的 target 目录。子目录**逐路径镜像 `src/`**（见 §2、§3）| `xtask build *` / `xtask test *`、cargo |
 | `intermediate/` | **其余一切中间物**：夹具的暂存拷贝、harness 工作目录、设备测试的 bundle / 宿主工程副本、编译器自举快照、xtask 自检目录。同样**逐路径镜像 `src/`**（外加 `xtask/`），整个删掉都能重生（见 §3）| `xtask test *`、`xtask build *`、`xtask profile` |
-| `packages/` | 组装好的发行包（`z42-<...>-<rid>-<profile>/`）+ `archives/`（发布归档、`SHA256SUMS`、`release-index.json`）| `xtask package *` |
+| `packages/` | 组装好的发行包（`z42-<...>-<rid>-<profile>/`），与之并排的发布归档（`z42-{sdk,runtime,workload}-<label>-….{tar.gz,zip}`，打包命令带 `--archive` 时出）及 `SHA256SUMS` / `release-index.json`（`package finalize`）| `xtask package *` |
 | `xtask/` | xtask 自己的 zpkg / zsym / cache —— **不在 `build/` 里面**（它的自检工作目录在 `intermediate/xtask/`）| `z42 publish scripts/xtask.z42.toml` |
-| `tools/` | 构建**下载**的第三方工具（`node`、`android-sdk`、`playwright-browsers`）| `xtask deps install` 与按需自动安装 |
+| `tools/` | 构建**下载**的第三方工具（`node`、`android-sdk`、`playwright-browsers`）| `xtask setup` 与按需自动安装 |
 | `reports/` | 给人与 CI 看的**结果**，按种类分子目录：`tests/<platform>/junit.xml`（平台测试）、`bench/`（`e2e.json` / `ab.json` / `micro-*.json`）、`profile/<script>/`（火焰图、dhat 报告、counter 摘要、`report.md`）| `xtask test app *` / z42b 设备驱动、`xtask bench`、`xtask profile` |
-| `.z42` | `xtask build sdk` 默认组装出的 SDK 布局（`programs/` + `libs/` + `bin/`）| `xtask build sdk` |
+| `.z42` | `xtask package dev-sdk` 默认组装出的 SDK 布局（`programs/` + `libs/` + `bin/`）| `xtask package dev-sdk` |
 
 划分的判据只有一句：`build/` = 「我们**编**出来的」，`packages/` = 「我们要**发**的」，
 `intermediate/` = 「为了编、为了测而**摆**出来的」，`tools/` = 「别人给我们的」；`reports/` 是跑出来给人看的结果，
@@ -57,7 +57,7 @@ xtask 自己发明、没有 toml 归属的路径，**全部在 `xtask_layout.z42
 扁平 stdlib dist（`_libsFlatDist`）、cargo target 目录（`_cargoTargetDir` / `_runtimeOut`）、driver 的 home
 （`_driverHome` = driver 自己的 release dist，自包含）、两种镜像（编译产物 `_buildMirror`；中间物 `_workMirror` /
 `_workOut` / `_workRootOf` / `_xtaskWork` / `_compilerWsWork`，见 §3），以及 §1 的每个顶层桶（`_intermediateDir` /
-`_toolsDir` / `_devSdkDir` / `_packagesDir` / `_archivesDir` / `_testReportsDir` / `_benchDir` / `_profileDir`）。
+`_toolsDir` / `_devSdkDir` / `_packagesDir` / `_testReportsDir` / `_benchDir` / `_profileDir`）。
 使用点只写「桶 + 自己的子目录名」或「owner 组件 + 名字」，不写 `"artifacts/…"` 字面量——挪一个位置只改一处。
 `xtask check layout` 守着镜像：`build/` 的一级目录、`build/{compiler,libraries,toolchain}/` 的二级目录、
 `intermediate/` 的一级目录，出现 `src/` 里没有的即红（例外：`intermediate/xtask`）。
@@ -143,7 +143,7 @@ z42c 写产物同样是就地写 ⇒ 穿透到 `libraries/z42.core/release/dist/
 | `intermediate/toolchain/workload/wasm/deploy` | `test app wasm bundle` | wasm 嵌入 deployable（agent + bundle + libs + harness）；`--run` 由 z42b 经 `Z42_WASM_DEPLOY` 交给 Playwright |
 | `intermediate/runtime/gc-modes` | gate 的 `gc modes` | 各 GC 模式下重编 `z42c.semantics` 的输出 |
 | `intermediate/runtime/{dhat,contention}-target` | `xtask profile` | 一次性特性 VM 的 cargo target 目录（跨脚本复用缓存） |
-| `intermediate/xtask/<name>` | `package check` / release 自检 / cross-zpkg 的写穿检查 | xtask 自身的自检工作目录 |
+| `intermediate/xtask/<name>` | `check packages` / release 自检 / cross-zpkg 的写穿检查 | xtask 自身的自检工作目录 |
 
 ### 开发树里编译器包从哪来：没有 alllibs
 
@@ -180,10 +180,10 @@ z42c 写产物同样是就地写 ⇒ 穿透到 `libraries/z42.core/release/dist/
 | `xtask clean tests` | `build/` 下所有 `tests/`（§3 里测试的编译产物；不进入 `dist` / `cache` 与 cargo target）+ 旧位置 `<工程目录>/artifacts/test-targets` |
 | `xtask clean bench` | z42b 的 bench 目标输出（`<m>/<profile>/bench`；旧位置 `<工程目录>/artifacts/bench-targets`）|
 | `xtask clean intermediate` | 整个 `intermediate/` |
-| `xtask clean all` | `build/` + `intermediate/` + 旧布局残留（`tmp/`、`.scratch/`、`publish/`、`release/`）+ **源码树里**各 z42 工程旁的 `artifacts/`、`dist/`（+ cross-zpkg 用例的 `libs/`）|
+| `xtask clean all` | `build/` + `intermediate/` + 旧布局残留（`tmp/`、`.scratch/`、`publish/`、`release/`、`packages/archives/`）+ **源码树里**各 z42 工程旁的 `artifacts/`、`dist/`（+ cross-zpkg 用例的 `libs/`）|
 
 `clean all` **保留** `xtask/`（驱动自身，正在运行）、`tools/`（下载的第三方工具）、
-`packages/`（含 `packages/archives/` 发布归档）`.z42/`（成品）与 `reports/`（结果）。
+`packages/`（含发布归档）`.z42/`（成品）与 `reports/`（结果）。
 
 > **源码树里为什么会有产物**（实测一次完整 GREEN 后约 450 个目录）：
 > - 单独编一个 workspace 成员（xtask 的 path 依赖 `z42.project` / `z42.build`、z42b dev 目标的父包）时
@@ -196,5 +196,5 @@ z42c 写产物同样是就地写 ⇒ 穿透到 `libraries/z42.core/release/dist/
 > （不做全树通配，免得碰到 wasm / node 工程的同名目录）。根治是让这些构建写进 `artifacts/`，属于后续 change。
 
 `build/`、`intermediate/`、`tools/` 任何时候 `rm -rf` 都安全（前者可重生，`tools/` 会被下次
-`deps install` / 按需安装补回）。
+`setup` / 按需安装补回）。
 `artifacts/` 整棵删掉之后是**冷启动**路径：需要网络下载 nightly 种子，见[xtask](xtask.md) §5。

@@ -274,23 +274,21 @@ string _legacyScratchDir(string root) { return Path.Join(_artifactsDir(root), ".
 // artifacts/tools — downloaded third-party tools (node / android-sdk / gradle / playwright).
 string _toolsDir(string root) { return Path.Join(_artifactsDir(root), "tools"); }
 
-// artifacts/.z42 — the local dev SDK assembled by `build sdk` (default `--sdk` of `test docs examples`).
+// artifacts/.z42 — the local dev SDK assembled by `package dev-sdk` (default `--sdk` of `test docs examples`).
 string _devSdkDir(string root) { return Path.Join(_artifactsDir(root), ".z42"); }
 
 // 旧的 artifacts/publish（打包暂存根）—— drop-package-staging（2026-10-01）起组件直接装进包目录，不再写这里。
 // 只供 `xtask clean all` 清理旧工作树里的残留。不要往这里写。
 string _legacyPubStagingDir(string root) { return Path.Join(_artifactsDir(root), "publish"); }
 
-// artifacts/packages — assembled package dirs (z42-<ver>-<rid>-<profile>…).
+// artifacts/packages — assembled package dirs (z42-<ver>-<rid>-<profile>…) + 打包命令 `--archive` 出的
+// 发布归档（z42-{sdk,runtime,workload}-<label>-….{tar.gz,zip}，名字自带平台 / 架构）+ `package finalize`
+// 写的 SHA256SUMS / release-index.json。归档与包目录并排：一个是目录、一个是文件，不会相撞。
 string _packagesDir(string root) { return Path.Join(_artifactsDir(root), "packages"); }
 
-// artifacts/packages/archives — release archives + SHA256SUMS + release-index.json（`package archive` /
-// `package finalize` 的输出）。曾是顶层 `artifacts/release/`；它只装 package 系列命令的产物，2026-10-02 起
-// 收进 `packages/`（simplify-layout）。子目录而不与包目录平级：`package archive` 遍历 `packages/` 下的
-// 包目录去打包，归档放同层会被当成待打包项（`_relArchiveBase` 只认包目录名，`archives` 天然被跳过）。
-string _archivesDir(string root) { return Path.Join(_packagesDir(root), "archives"); }
-// 旧位置：只供 `clean all` 清走残留，不再有人写。
+// 旧位置（顶层 artifacts/release/、packages/archives/）：只供 `clean all` 清走残留，不再有人写。
 string _legacyReleaseDir(string root) { return Path.Join(_artifactsDir(root), "release"); }
+string _legacyArchivesDir(string root) { return Path.Join(_packagesDir(root), "archives"); }
 
 // artifacts/reports — 给人与 CI 看的**结果**（不是构建产物，`clean all` 也不删）：一个桶、按种类分子目录。
 string _reportsDir(string root) { return Path.Join(_artifactsDir(root), "reports"); }
@@ -385,11 +383,9 @@ LayoutEntriesZ _layoutEntries(string root) {
     string xrel = _layoutRel(root, xdir, true);
     e.Add(xrel, xrel, 0, "xtask 自身（xtask.zpkg）", xdir);
     string sdk = _layoutRel(root, _devSdkDir(root), true);
-    e.Add(sdk, sdk, 0, "dev SDK（build sdk）", _devSdkDir(root));
+    e.Add(sdk, sdk, 0, "dev SDK（package dev-sdk）", _devSdkDir(root));
     string pk = _layoutRel(root, _packagesDir(root), true);
-    e.Add(pk, pk, 0, "组装好的发行包", _packagesDir(root));
-    string ar = _layoutRel(root, _archivesDir(root), true);
-    e.Add(ar, _layoutName(pk, ar), 1, "发布归档 + SHA256SUMS + release-index.json", _archivesDir(root));
+    e.Add(pk, pk, 0, "组装好的发行包 + 发布归档（--archive）+ SHA256SUMS / release-index.json", _packagesDir(root));
     string tl = _layoutRel(root, _toolsDir(root), true);
     e.Add(tl, tl, 0, "下载的第三方工具（node / android-sdk / playwright-browsers …）", _toolsDir(root));
     string rp = _layoutRel(root, _reportsDir(root), true);

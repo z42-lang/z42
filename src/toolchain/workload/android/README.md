@@ -33,7 +33,7 @@ Z42VM(zpkgResolver = AssetZpkgResolver(assets)).use { vm ->
 构建与安装：
 
 ```bash
-./xtask deps install --os android        # SDK + NDK + emulator + AVD + Gradle，装到 artifacts/tools/
+./xtask setup --os android        # SDK + NDK + emulator + AVD + Gradle，装到 artifacts/tools/
 ./xtask build stdlib
 ./xtask test app android build      # cargo-ndk × ABIs + gradle AAR
 ./xtask test app android assets     # fixtures + stdlib 进 assets

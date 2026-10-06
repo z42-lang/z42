@@ -6,9 +6,9 @@
 // declares its flags/options/positionals via ArgParser, so `-h` works at
 // every level and help text is generated (no hand-written _help()).
 //
-// `test` and `bench` are "default-action" commands (no subcommand = run
-// all / e2e) which the plain router doesn't model — _runCli handles those
-// two default cases before Resolve. They are still registered in the tree
+// `test`, `setup` and `bench` are "default-action" commands (no subcommand = run
+// all / install / e2e) which the plain router doesn't model — _runCli handles those
+// default cases before Resolve. They are still registered in the tree
 // so `xtask -h` lists them and `xtask test e2e -h` etc. work via Resolve.
 //
 // This file is the CLI **core** only: argv pre-processing (global options),
@@ -44,6 +44,16 @@ int _runCli(string[] argvIn) {
         try {
             ParseResult gr = gate.Parse(_sliceFrom(argv, 1));
             return _testAll(gr.GetFlag("no-build"), gr.GetOption("skip"));
+        } catch (CliException e) {
+            ConsoleError.WriteLine("xtask: " + e.Message);
+            return 2;
+        }
+    }
+    // default-action shim: `setup` (empty / leading non-help flag) → install (host base, or --os <p>).
+    if (c0 == "setup" && (c1 == "" || (_isFlag(c1) && !_isHelpFlag(c1)))) {
+        try {
+            ParseResult sr = _setupInstallParser().Parse(_sliceFrom(argv, 1));
+            return _setupInstall(sr.GetOption("os"), sr.GetFlag("force"));
         } catch (CliException e) {
             ConsoleError.WriteLine("xtask: " + e.Message);
             return 2;
@@ -176,12 +186,11 @@ SubcommandRouter _cliRoot() {
 
     root.AddRouter("build", "build components", _buildRouter());
 
-    root.AddRouter("package", "assemble release packages (sdk / runtime / workload / index)", _packageRouter());
-
+    root.AddRouter("package", "assemble from built artifacts (sdk / runtime / workload [--archive] · dev-sdk · ci · finalize)", _packageRouter());
 
     root.AddRouter("test", "run tests (no subcommand = full GREEN gate)", _testRouter());
-    root.Add("check", "static checks — no build, no test run (lines / walkers / diagcodes / layout …; no name = all)", _checkParser());
-    root.AddRouter("deps", "toolchain deps", _depsRouter());
+    root.Add("check", "static checks — no build, no test run (lines / walkers / diagcodes / versions …; no name = all)", _checkParser());
+    root.AddRouter("setup", "prepare this machine (no subcommand = install; vscode / check)", _setupRouter());
     root.AddRouter("bench", "benchmarks (no subcommand = e2e; see `bench -h`)", _benchRouter());
 
     // plan-script-profiling P0: profile one .z42 script across four dimensions
@@ -225,7 +234,7 @@ int _dispatch(CommandResolution res) {
     if (top == "package")        { return _dispatchPackage(p, r); }
     if (top == "test")           { return _dispatchTest(p, r); }
     if (top == "check")          { return _check(r); }
-    if (top == "deps")           { return _dispatchDeps(p, r); }
+    if (top == "setup")          { return _dispatchSetup(p, r); }
     if (top == "bench")          { return _dispatchBench(p, r); }
     if (top == "profile")        { return _profile(r); }
     if (top == "clean")          { return _clean(r); }

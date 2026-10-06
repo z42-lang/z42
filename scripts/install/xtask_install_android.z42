@@ -5,7 +5,7 @@
 //
 // Two tiers (依赖两层模型见 xtask_install.z42 头注释):
 //   "build"    — 平台必备 build deps: cmdline-tools + platforms + build-tools +
-//                platform-tools + NDK. Driven by `deps install --os android`.
+//                platform-tools + NDK. Driven by `setup --os android`.
 //   "emulator" — 用到才装（零命令面，simplify-xtask-deps 2026-07-07）: the build
 //                set PLUS emulator + system-image + AVD + Gradle. ~4 GB /
 //                ~10-15 min. Auto-installed by `test app android run`
@@ -23,10 +23,10 @@ using Std.Time;
 
 // emulator tier 入口（内部函数，无命令面）：full SDK incl emulator/AVD/Gradle。
 // 唯一调用方 = AndroidBackend.RunTests 的用到才装钩子。
-int _depsInstallAndroidEmulator(bool force) { return _depsInstallAndroidSdk(force, "emulator"); }
+int _installAndroidEmulator(bool force) { return _installAndroidSdk(force, "emulator"); }
 
-int _depsInstallAndroidSdk(bool force, string tier) {
-    Stopwatch sw = _procStart("deps install android");
+int _installAndroidSdk(bool force, string tier) {
+    Stopwatch sw = _procStart("setup android");
     bool wantEmu = (tier != "build");   // "emulator"/"full" → emulator + AVD + Gradle
     string root = _root();
     // ── version pins — single source of truth: versions.toml ─────────────
@@ -96,7 +96,7 @@ int _depsInstallAndroidSdk(bool force, string tier) {
 
     string gradleInstall = Path.Join(gradleDir, "gradle-" + gradleVer);
     _androidPrintExports(wantEmu, sdkDir, ndkDirLink, javaHome, gradleInstall);
-    _procEnd("deps install android", sw);
+    _procEnd("setup android", sw);
     return 0;
 }
 

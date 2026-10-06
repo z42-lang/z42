@@ -1,6 +1,6 @@
 // xtask — shared golden-test infrastructure (unify-scripts-into-xtask, 2026-06-05).
 // Generic enumeration/array helpers that the folded test commands (build test / test
-// e2e / package verify) all need — defined ONCE here instead of a private
+// e2e / test package) all need — defined ONCE here instead of a private
 // copy per script. Golden-walk + entry-derivation helpers also live here.
 // Same Z42Xtask namespace.
 namespace Z42Xtask;
@@ -67,7 +67,7 @@ string[] _append(string[] arr, int count, string v) {
 // ── unified golden-corpus walk (unify-golden-corpus-walk, 2026-09-05) ────────
 //
 // ONE filesystem traversal of the golden corpus, shared by all four consumers
-// (`build test` regen, `test e2e`, `package verify`, `test app desktop` / `test list`).
+// (`build test` regen, `test e2e`, `test package`, `test app desktop` / `test list`).
 // Before this, each consumer had its own ~100-line copy of the same three-layout
 // walk, kept in sync by hand via "mirrors XXX" comments — and they HAD drifted.
 //
@@ -79,7 +79,7 @@ string[] _append(string[] arr, int count, string v) {
 //   consumer             excluded cats        extra filters
 //   build test  (assets) _isNonRegenCat       —
 //   test e2e    (vm)     —                    _isExcludedDirName · mirror .zbc exists · interp_only
-//   package verify       —                    _isTestRunnerSource · interp_only
+//   test package       —                    _isTestRunnerSource · interp_only
 //   test app / test list —                    _isExcludedDirName
 //
 // Every src/tests category is a runnable language golden (test-layout.md). The

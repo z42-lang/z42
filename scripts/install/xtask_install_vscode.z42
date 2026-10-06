@@ -1,4 +1,4 @@
-// xtask — `deps install vscode` 组件 + `check vscode-syntax` 检查
+// xtask — `setup vscode` 组件 + `check vscode-syntax` 检查
 // (add-vscode-syntax-ext, 2026-07-07)。VSCode 编辑器资产的生成 + 安装：
 //
 //   Lexer.z42 _initKeywords()（关键字唯一 SoT）
@@ -15,7 +15,7 @@
 //
 // 资产项组织：目前唯一项 = 语法扩展；B 期 LSP client / snippets 在 install/检查
 // 主流程追加新项即可。检查函数供 `check vscode-syntax` gate stage 调用（in-process，
-// install 不留 --check flag——deps 收敛后一个动词一个语义）。
+// install 不留 --check flag——一个动词一个语义）。
 namespace Z42Xtask;
 
 using Std.IO;
@@ -30,9 +30,9 @@ string[] _kwOperatorExpr() { return new string[]{ "new", "typeof", "methodof", "
 string[] _kwPrimType() { return new string[]{ "string", "int", "long", "short", "double", "float", "byte", "uint", "ulong", "ushort", "sbyte", "object", "bool", "char", "void" }; }
 string[] _kwLiteral() { return new string[]{ "null", "true", "false" }; }
 
-// ── `deps install vscode` 入口 ────────────────────────────────────────────────
-int _depsInstallVscode() {
-    Stopwatch sw = _procStart("deps install vscode");
+// ── `setup vscode` 入口 ────────────────────────────────────────────────
+int _setupVscode() {
+    Stopwatch sw = _procStart("setup vscode");
     string root = _root();
     string rendered = _vscodeRenderGrammar(root);
     if (rendered.Length == 0) { return 1; }
@@ -54,7 +54,7 @@ int _depsInstallVscode() {
     if (lc != 0) { return lc; }
     Console.WriteLine("  installed → " + linkPath + " (workspace extension; reload VSCode window,");
     Console.WriteLine("  first time VSCode asks to trust/enable workspace extensions)");
-    _procEnd("deps install vscode", sw);
+    _procEnd("setup vscode", sw);
     return 0;
 }
 
@@ -67,12 +67,12 @@ int _testVscodeSyntax() {
     if (rendered.Length == 0) { return 1; }
     string outPath = _vscodeGrammarPath(root);
     if (!File.Exists(outPath)) {
-        ConsoleError.WriteLine("error: " + outPath + " missing — run: xtask deps install vscode");
+        ConsoleError.WriteLine("error: " + outPath + " missing — run: xtask setup vscode");
         return 1;
     }
     if (File.ReadAllText(outPath) != rendered) {
         ConsoleError.WriteLine("error: z42.tmLanguage.json is stale (Lexer keyword table or template changed)");
-        ConsoleError.WriteLine("       — regenerate: xtask deps install vscode");
+        ConsoleError.WriteLine("       — regenerate: xtask setup vscode");
         return 1;
     }
     Console.WriteLine("  ✓ grammar in sync with Lexer keyword table");

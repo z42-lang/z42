@@ -144,29 +144,29 @@ jobs:
         run: |
           set -euo pipefail
           rid="${{ matrix.rid }}"
+          # --archive：随打包在本 runner 上出发布归档（放在包目录旁的 artifacts/packages/）。归档命名
+          # （sdk / runtime / 桌面 workload / 平台 workload 只由主 RID 出 / test workload）与 windows 出 zip
+          # 都在 xtask 里（与 ci.yml nightly、本地发布同一份）。
+          arc=(--archive --label "${{ needs.verify.outputs.version }}")
           # Desktop host RID → SDK + runtime + desktop workload（--no-build：用 bootstrap 已建好的 z42c + stdlib）；
           # platform RID（ios/android/wasm）→ runtime pack + tooling facade。
           if [[ "$rid" == linux-* || "$rid" == macos-* || "$rid" == windows-* ]]; then
-            xtask package sdk --no-build
-            xtask package runtime --no-build
-            xtask package workload
+            xtask package sdk --no-build "${arc[@]}"
+            xtask package runtime --no-build "${arc[@]}"
+            xtask package workload "${arc[@]}"
             # test workload = payload-only、与平台无关 → 只在主桌面 host 出一份。
-            if [[ "$rid" == "macos-arm64" ]]; then xtask package workload test; fi
+            if [[ "$rid" == "macos-arm64" ]]; then xtask package workload test "${arc[@]}"; fi
           else
-            xtask package runtime --rid "$rid"
+            xtask package runtime --rid "$rid" "${arc[@]}"
           fi
-
-      # 归档命名（sdk / runtime / 桌面 workload / 平台 workload 只由主 RID 出 / test workload）与 windows 出 zip
-      # 都在 `xtask package archive` 里（与 ci.yml nightly、本地发布同一份）。
-      - name: Archive
-        shell: bash
-        run: xtask package archive --label "${{ needs.verify.outputs.version }}"
 
       - name: Upload archive
         uses: actions/upload-artifact@v7
         with:
           name: release-${{ matrix.rid }}
-          path: artifacts/packages/archives/z42-*
+          path: |
+            artifacts/packages/z42-*.tar.gz
+            artifacts/packages/z42-*.zip
           retention-days: 7
           if-no-files-found: error
 

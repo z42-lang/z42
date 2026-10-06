@@ -74,14 +74,14 @@ test workload 是**纯 payload** workload（不同于 desktop/ios/android/wasm �
 只含一份平台无关 `z42.testagent.zpkg`，无 per-RID apphost、无 runtime pack。打包与发布：
 
 ```bash
-xtask package workload test [<version>]   # 产 z42-workload-<version>-test/（agent zpkg + manifest.toml）
+xtask package workload test [--archive]   # 产 z42-workload-<version>-test/（agent zpkg + manifest.toml）；--archive 另出归档
 z42 workload install test                 # 用户按需下载安装（release-index.json 的 test 条目）
 ```
 
 manifest 复用 `kind="workload-tooling"`（`host=["*"]`、无 runtime pack），单 zpkg 由新
 `[contents.payload]` 段描述（install 侧 `runtimes=[]` → 天然跳过 bedding，同 desktop）。CI（release /
-publish-nightly）在 macos-arm64 单 host 建一次 + 归档 `z42-workload-<label>-test.tar.gz` + 纳入
-`package index`。
+publish-nightly）在 macos-arm64 单 host 建一次 + `--archive` 出 `z42-workload-<label>-test.tar.gz`，由
+`package finalize` 纳入 `release-index.json`。
 
 ## 关联文档
 

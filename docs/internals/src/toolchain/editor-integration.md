@@ -68,17 +68,17 @@ syntaxes/z42.tmLanguage.json              ← 生成产物，入库
 | 命令 | 谁用 | 做什么 |
 |---|---|---|
 | `z42d install vscode` | **SDK 用户** | 从 `<sdk>/editors/vscode/` 拷到 `~/.vscode/extensions/z42.z42-lang/`（用户级，重复执行即更新） |
-| `xtask deps install vscode` | **仓库开发者** | 重新生成 grammar 写回入库路径，然后建 symlink `<repo>/.vscode/extensions/z42.z42-lang` → `src/toolchain/devtools/vscode` |
+| `xtask setup vscode` | **仓库开发者** | 重新生成 grammar 写回入库路径，然后建 symlink `<repo>/.vscode/extensions/z42.z42-lang` → `src/toolchain/devtools/vscode` |
 | `xtask check vscode-syntax` | 门禁 | **in-process** 调同一个生成函数渲染到内存，与入库文件做字节 diff（分类穷尽校验顺带跑了）；产物缺失 → 提示去跑 install |
 
 **为什么两条安装路而不是一条**：SDK 里没有生成器（`--dump-keywords` 那套是编译器的调试面），
 只有生成好的产物；而开发者要的恰恰是「改完 Lexer 立刻看到效果」，需要 symlink 回源码树。
 两者落点故意不同（用户级 vs 工作区），互不覆盖，可并存。
 
-检查是 in-process 调用生成器的检查函数，不是给 install 留一个 `--check` 旗标——deps 收敛后一个动词一个语义。
+检查是 in-process 调用生成器的检查函数，不是给 install 留一个 `--check` 旗标——一个动词一个语义。
 
-`vscode` 在 `xtask deps install` 里是**组件位置参数**（缺省值 = 装平台必备依赖，不碰编辑器资产）。
-它属于 deps 依赖模型的第三类：**主机集成，用户显式触发**——编辑器集成没法「用到时自动装」。
+`vscode` 是 `xtask setup` 的一个子命令（不带子命令的 `setup` = 装平台必备依赖，不碰编辑器资产）。
+它属于依赖模型的第三类：**主机集成，用户显式触发**——编辑器集成没法「用到时自动装」。
 
 `vscode-syntax` 挂在全量 gate 的链尾（`scripts/test/xtask_test.z42`，`_gateStageNames()` 里有它），
 守的是跨子系统的 SoT 一致性，性质同自举字节不动点。成本≈一次 z42c fork，可忽略。
@@ -90,7 +90,7 @@ CI 的分腿 job 用 `xtask test --skip vscode` 把它挪到别的腿上。
 在打包时把 `src/toolchain/devtools/vscode/` 拷进 SDK 的 `editors/vscode/`。
 
 ⚠️ **`*.tpl.json` 不进包**——它是生成器的输入，出现在用户扩展目录里只会造成困惑。
-这条由 `xtask package check` 的组件安装自检守着（`generator template NOT packaged`）。
+这条由 `xtask check packages` 的组件安装自检守着（`generator template NOT packaged`）。
 
 `z42d install` 定位 SDK 根用的是与 launcher 同一套优先级：
 `Z42_HOME` > apphost 注入的 `Z42_PORTABLE_VM` 反推 > `~/.z42`。

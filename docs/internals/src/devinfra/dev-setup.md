@@ -170,5 +170,5 @@ windows-x64 包时用 Git Bash + 原生 `cargo.exe`。
 clone 完发现 `.sh` 带 `\r\n` 就 `git config --global core.autocrlf input` 后
 `git rm --cached -r . && git reset --hard`。
 
-`xtask deps install --os android` / `--os wasm` 的自动下载在 Windows 上**拒绝执行**（走 POSIX
+`xtask setup --os android` / `--os wasm` 的自动下载在 Windows 上**拒绝执行**（走 POSIX
 `.tar.gz` 路径），改用 Android Studio 的 SDK Manager 和 Node.js MSI。

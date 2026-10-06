@@ -8,13 +8,19 @@ using Std.Cli;
 // merge-package-release: `package` 收成 name 驱动 router（对齐 build compiler|stdlib|
 // toolchain），`release` 删除。profile 降为 --profile 选项（旧 `package release` 的
 // "release" 是 profile 位置参数，与子命令名冲突）。
+//
+// tidy-xtask-cli（2026-10-06）：package = **组装**（把已编好的产物摆成某种布局）。开发态的两种组装
+// （dev-sdk / ci）从 build 挪来；发布归档从独立的 `package archive` 收成各打包命令的
+// `--archive`（归档与包目录并排放在 artifacts/packages/）；`package index` 与 `workload <label>` 合并
+// 模式由 finalize 覆盖后删除；打包的自检 / 端到端验证分别去了 `xtask check packages` / `xtask test package`。
 SubcommandRouter _packageRouter() {
-    SubcommandRouter pkg = new SubcommandRouter("xtask package", "assemble release packages");
+    SubcommandRouter pkg = new SubcommandRouter("xtask package", "assemble packages / layouts from built artifacts");
 
     ArgParser sdk = new ArgParser("xtask package sdk", "assemble the host SDK package");
     sdk.AddOption("profile", "", "release|debug (default release)", "release");
     sdk.AddOption("variant", "", "package variant suffix", "");
     sdk.AddFlag("no-build", "", "assemble from existing z42c+stdlib artifacts (CI warm)");
+    _addArchiveOpts(sdk);
     pkg.Add("sdk", "assemble the host SDK package", sdk);
 
     ArgParser rt = new ArgParser("xtask package runtime", "assemble the runtime package (native+stdlib; platform via --rid)");
@@ -22,79 +28,65 @@ SubcommandRouter _packageRouter() {
     rt.AddOption("profile", "", "release|debug (default release)", "release");
     rt.AddOption("variant", "", "package variant suffix", "");
     rt.AddFlag("no-build", "", "assemble from existing z42c+stdlib artifacts (CI warm)");
+    _addArchiveOpts(rt);
     pkg.Add("runtime", "assemble the runtime package (native+stdlib; --rid for platform)", rt);
 
-    // dual-mode: `--rid <rid>` builds one per-RID desktop workload package
-    // (_buildDesktopWorkload); a `<label>` positional merges the 4 per-RID workloads
-    // into one RID-agnostic archive (_releaseAssembleDesktop).
-    ArgParser wl = new ArgParser("xtask package workload", "build a per-RID desktop workload (--rid) or merge all into one archive (<label>)");
-    wl.AddOption("rid", "", "build ONE per-RID desktop workload for this RID", "");
+    ArgParser wl = new ArgParser("xtask package workload", "build a per-RID desktop workload (--rid), or the payload-only test workload (`test`)");
+    wl.AddOption("rid", "", "desktop workload for this RID (default: host)", "");
     wl.AddOption("profile", "", "release|debug (default release)", "release");
-    wl.AddOptionalPositional("label", "merge mode: <LABEL> (e.g. 0.3.0 or nightly)");
-    wl.AddOptionalPositional("dist", "merge mode: dist dir (default: dist)");
-    pkg.Add("workload", "build per-RID desktop workload (--rid) or merge all → archive (<label>)", wl);
+    wl.AddOptionalPositional("kind", "test = the payload-only capability workload (default: per-RID desktop workload)");
+    _addArchiveOpts(wl);
+    pkg.Add("workload", "per-RID desktop workload (--rid), or `workload test`", wl);
 
-    ArgParser idx = new ArgParser("xtask package index", "generate release-index.json from SHA256SUMS");
-    idx.AddOptionalPositional("label", "<LABEL> (e.g. 0.3.0 or nightly)");
-    idx.AddOptionalPositional("dist", "dist dir (default: dist)");
-    idx.AddOptionalPositional("channel", "channel (default: stable)");
-    idx.AddOptionalPositional("tag", "tag (default: v<LABEL>)");
-    idx.AddOptionalPositional("version", "version (default: <LABEL>)");
-    pkg.Add("index", "generate release-index.json (launcher supply contract)", idx);
+    ArgParser dev = new ArgParser("xtask package dev-sdk", "assemble the built toolchain into a .z42 layout (--toolchain / learn-book examples consume it)");
+    dev.AddOption("out", "", "output dir (default: artifacts/.z42)", "");
+    pkg.Add("dev-sdk", "assemble built z42c + stdlib + z42vm (+ published apphosts) → .z42 layout", dev);
 
-    // unify-release-archive：发布归档的命名规则只在 xtask 里写一次（release.yml / nightly / 本地发布共用）。
-    ArgParser arc = new ArgParser("xtask package archive", "archive the release packages under artifacts/packages → artifacts/packages/archives");
-    arc.AddOption("label", "", "version label in archive names (default: versions.toml version; CI nightly: nightly)", "");
-    arc.AddOption("from", "", "package dirs (default: artifacts/packages)", "");
-    arc.AddOption("out", "", "output dir (default: artifacts/packages/archives)", "");
-    pkg.Add("archive", "archive release packages (tar.gz; windows → zip)", arc);
+    ArgParser ci = new ArgParser("xtask package ci", "snapshot the built tree's zpkgs (z42c + stdlib + xtask + z42b) → <dest>, repo-relative, for the CI toolchain-<os> artifact");
+    ci.AddOptionalPositional("dest", "destination dir (required)");
+    pkg.Add("ci", "built-tree zpkg snapshot → <dest> (CI toolchain-<os> artifact; downstream jobs restore it in place)", ci);
 
     ArgParser fin = new ArgParser("xtask package finalize", "merge desktop workloads + SHA256SUMS + release-index.json");
     fin.AddOptionalPositional("label", "<LABEL> (e.g. 0.3.0 or nightly)");
-    fin.AddOption("dir", "", "archive dir (default: artifacts/packages/archives)", "");
+    fin.AddOption("dir", "", "archive dir (default: artifacts/packages)", "");
     fin.AddOption("channel", "", "channel (default: stable)", "");
     fin.AddOption("tag", "", "tag (default: v<LABEL>)", "");
     fin.AddOption("version", "", "version (default: <LABEL>)", "");
     pkg.Add("finalize", "merge desktop workloads, write SHA256SUMS + release-index.json", fin);
 
-    // 打包自己的验证：check = packages.toml 的解析 / 暂存 / 组装自检（不需要包）；verify = 拿打包出的发行版
-    // （bin/z42c、bin/z42vm、libs/、launcher）跑发行包夹具 + golden（没有 release 包先打一个）。
-    pkg.Add("check", "packages.toml self-checks (parse + staging + assembly; no package needed)",
-        new ArgParser("xtask package check", "packages.toml parse + staging + assembly self-checks"));
-    ArgParser verify = new ArgParser("xtask package verify", "drive the PACKAGED distribution: package fixtures (launcher / publish / analyzer / hooks) + goldens");
-    verify.AddOptionalPositional("mode", "interp|jit (default: both)");
-    pkg.Add("verify", "end-to-end check of the packaged distribution (packs a host release package first if none)", verify);
-
     return pkg;
+}
+
+void _addArchiveOpts(ArgParser p) {
+    p.AddFlag("archive", "", "also write the release archive next to the package dir (artifacts/packages/z42-…{.tar.gz,.zip}); release profile only");
+    p.AddOption("label", "", "--archive: version label in archive names (default: versions.toml version; CI nightly: nightly)", "");
 }
 
 int _dispatchPackage(string[] p, ParseResult r) {
     string sub = p.Length > 1 ? p[1] : "";
-    if (sub == "sdk")     { return _packageSdk(r.GetOption("profile"), r.GetOption("variant"), r.GetFlag("no-build")); }
-    if (sub == "runtime") { return _packageRuntime(r.GetOption("rid"), r.GetOption("profile"), r.GetOption("variant"), r.GetFlag("no-build")); }
-    if (sub == "workload") {
-        // `workload test <version>` — the payload-only capability workload
-        // (package-test-workload). Reserved first-positional, checked before the
-        // desktop label-merge form below.
-        string a0 = r.GetPositional(0);
-        if (a0 == "test") {
-            string ver = r.GetPositional(1);
-            if (ver.Length == 0) { ver = _versionsGet(_root()); }
-            return _buildTestWorkload(_root(), ver, r.GetOption("profile"));
-        }
-        // A <label> positional selects MERGE mode (combine per-RID workloads → archive);
-        // otherwise BUILD mode (one per-RID workload; --rid or host default).
-        if (a0.Length > 0) { return _releaseAssembleDesktop(a0, r.GetPositional(1)); }
-        return _packageWorkloadBuild(r.GetOption("rid"), r.GetOption("profile"));
-    }
-    if (sub == "index")   { return _releaseGenIndex(r.GetPositional(0), r.GetPositional(1), r.GetPositional(2), r.GetPositional(3), r.GetPositional(4)); }
-    if (sub == "archive")  { return _releaseArchive(r.GetOption("label"), r.GetOption("from"), r.GetOption("out")); }
+    if (sub == "dev-sdk")         { return _packageDevSdk(r.GetOption("out")); }
+    if (sub == "ci")              { return _packageCi(r.GetPositional(0)); }
     if (sub == "finalize") {
         return _releaseFinalize(r.GetPositional(0), r.GetOption("dir"), r.GetOption("channel"),
             r.GetOption("tag"), r.GetOption("version"));
     }
-    if (sub == "check")    { return _testPackages(); }
-    if (sub == "verify")   { return _testDist(r); }
-    ConsoleError.WriteLine("usage: xtask package {sdk|runtime|workload|index|archive|finalize|check|verify}");
-    return 2;
+    bool archive = r.GetFlag("archive");
+    if (archive && r.GetOption("profile") != "release") {
+        ConsoleError.WriteLine("xtask package " + sub + ": --archive only applies to --profile release (only release packages are published)");
+        return 2;
+    }
+    int c = 2;
+    if (sub == "sdk")     { c = _packageSdk(r.GetOption("profile"), r.GetOption("variant"), r.GetFlag("no-build")); }
+    if (sub == "runtime") { c = _packageRuntime(r.GetOption("rid"), r.GetOption("profile"), r.GetOption("variant"), r.GetFlag("no-build")); }
+    if (sub == "workload") {
+        string kind = r.GetPositional(0);
+        if (kind == "test")         { c = _buildTestWorkload(_root(), _versionsGet(_root()), r.GetOption("profile")); }
+        else if (kind.Length == 0)  { c = _packageWorkloadBuild(r.GetOption("rid"), r.GetOption("profile")); }
+        else {
+            ConsoleError.WriteLine("xtask package workload: unknown kind '" + kind + "' (test; none = per-RID desktop workload)");
+            return 2;
+        }
+    }
+    if (c != 0 || !archive) { return c; }
+    return _pkgArchiveOutputs(r.GetOption("label"));
 }

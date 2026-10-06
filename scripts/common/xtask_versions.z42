@@ -3,7 +3,7 @@
 // used to live in xtask_install (_vget/_vgetList/_scalarStr), xtask_package
 // (_versionsGet), xtask_package_ios (_versionsGetIos) and xtask_package_android
 // (_avGet). Two access styles:
-//   - TomlValue-based (_vget/_vgetList): parse once, read many keys (deps install).
+//   - TomlValue-based (_vget/_vgetList): parse once, read many keys (setup).
 //   - root-based (_vRead/_vReadOr): convenience that parses versions.toml fresh.
 namespace Z42Xtask;
 

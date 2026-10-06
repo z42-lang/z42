@@ -156,7 +156,7 @@ z42c build: 1 error(s) in ./src/Main.z42
 ## 六、校验与更新
 
 ```bash
-xtask build sdk                                    # 先有一个当前源码的 SDK（artifacts/.z42）
+xtask build toolchain && xtask package dev-sdk          # 先有一个当前源码的 SDK（artifacts/.z42）
 xtask test docs examples                                # 书↔示例引用校验 + 重放全部会话脚本
 xtask test docs examples getting-started/hello-world    # 只跑一章
 xtask test docs examples --book-only                    # 只校验引用（不需要 SDK）

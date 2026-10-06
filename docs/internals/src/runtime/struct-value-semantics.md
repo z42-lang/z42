@@ -769,7 +769,7 @@ z42c.semantics 依赖它作跨包 API。给它加新 `IsStruct` 字段并在 z42
 - 端到端 golden `generics/erased_return_blob_field.z42`（四种叶子 + 显式/推断型参 + 静态方法承载
   + 200k 次热循环逼出 OSR 走 JIT 臂）。⭐ **两条臂各自有阴性对照**：撤 interp 臂 → interp
   措辞红；撤 JIT 臂 → **JIT 措辞红**（证明热循环真的进了 `jit_field_get`，而不是全程解释执行）。
-- ⚠️ 验这类改动必须 `xtask build runtime` **再** `build sdk`：`build sdk` 只装配、**不重编 Rust**，
+- ⚠️ 验这类改动必须 `xtask build runtime` **再** `package dev-sdk`：`package dev-sdk` 只装配、**不重编 Rust**，
   只跑后者会拿到上一轮的 `z42vm`，得到一字未变的假阴性。
 - 📉 **已知代价**：`struct_reflect::compute` + `validate_against`
   **每次访问都重算**（反射那条是冷路径，从来没人给它加缓存）。实测 interp 下 500 万次
