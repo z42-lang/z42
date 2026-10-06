@@ -1,0 +1,36 @@
+namespace Demo.Fq;
+
+// 全限定名不需要 using，各种成员形态都能写成全限定：
+//   静态字段 / const / 静态属性 / 枚举常量 / 嵌套类型的静态成员 / 静态方法 / 自由函数。
+// 根标识符是局部变量时按变量处理（`Demo` 不当命名空间）。
+
+public static class K {
+    public static int N = 3;
+    public const int C = 4;
+    public static int Twice { get { return N * 2; } }
+    public static int Add(int a, int b) { return a + b; }
+}
+
+public enum Shade { Dark, Light }
+
+public class Outer {
+    public static class Inner { public static int Deep = 5; }
+}
+
+public class Holder { public int Fq = 9; }
+
+public int Free(int x) { return x + 100; }
+
+void Main() {
+    Assert.Equal(3, Demo.Fq.K.N);
+    Assert.Equal(4, Demo.Fq.K.C);
+    Assert.Equal(6, Demo.Fq.K.Twice);
+    Assert.Equal(5, Demo.Fq.K.Add(2, 3));
+    Demo.Fq.Shade s = Demo.Fq.Shade.Light;
+    Assert.Equal(1, (int)s);
+    Assert.Equal(true, s == Shade.Light);
+    Assert.Equal(5, Demo.Fq.Outer.Inner.Deep);
+    Assert.Equal(101, Demo.Fq.Free(1));
+    Holder Demo = new Holder();
+    Assert.Equal(9, Demo.Fq);   // 局部变量 `Demo` 遮住了命名空间
+}

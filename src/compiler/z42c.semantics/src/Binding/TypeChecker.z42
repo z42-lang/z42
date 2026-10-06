@@ -145,9 +145,10 @@ public sealed class TypeChecker {
     // 于是 `Color.Green` 静默读到另一个包的那个值。这是本族里唯一「静默错**值**」而非
     // 「静默错**目标**」的形态，实测：两包 `{Red,Green}` / `{Green,Red}` ⇒ 1 vs 0。
     // enumKey = `EnumTypes` 的键，即 enum 的 FQN（`SymbolTable.EnumKey`）。
-    public void ChkEnumOrigins(SymbolTable symbols, string enumKey, Span sp) {
+    // `written` = 源码里 enum 类型的写法：全限定（`Ns.Color.Red`）不记「用到 ns」（不需要 using）。
+    public void ChkEnumOrigins(SymbolTable symbols, string enumKey, string written, Span sp) {
         string ens = symbols.EnumType(enumKey).Namespace;
-        symbols.NoteUse(ens);   // using-csharp-rules PR-2：enum 常量读（本函数唯一调用点即该绑定点）
+        symbols._noteNamedUse(written, ens);   // using-csharp-rules PR-2：enum 常量读（本函数唯一调用点即该绑定点）
         symbols.NoteDepUse(ens, symbols.ImportedPkgOf(enumKey));   // deterministic-zpkg-deps：enumKey 即 FQN
         // 表达式里读 enum 常量（`Color.Red`）不经过任何类型引用的 choke point，须在这里补判（enumKey 即 FQN）。
         symbols.ReportTypeOrigin(enumKey, this._diags, sp);
