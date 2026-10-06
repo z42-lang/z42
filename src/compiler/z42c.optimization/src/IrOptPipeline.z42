@@ -392,7 +392,7 @@ public sealed class IrOptPipeline {
 
     // 死 = 纯（可删白名单）+ 有 Dst + Dst 全函数零读（reads 已含参数 live-out 种子 → 参数不会判死）。
     private static bool _isDead(IrInstr ins, int[] reads) {
-        if (!IrOptInfo.IsPure(ins)) { return false; }
+        if (!ins.IsPure()) { return false; }
         int d = IrOptInfo.DstId(ins);
         if (d < 0 || d >= reads.Length) { return false; }
         return reads[d] == 0;

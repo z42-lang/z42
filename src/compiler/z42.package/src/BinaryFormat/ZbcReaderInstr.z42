@@ -428,74 +428,18 @@ public static class ZbcReaderInstr {
         while (i < count) { ZbcReaderInstr._set(rt, n, args[i]); i = i + 1; }
     }
 
+    // 头部带 tag 的那个寄存器（`IrInstr.TagReg`）→ _up；其余操作数只编了 id → _set。与写端的头部约定
+    // 同源（`IrInstr.Write` 的 Head / HeadNoDst / HeadTag），新增指令无需在这里补一条。
     private static void _retypeInstr(int[] rt, int n, IrInstr ins) {
-        if (ins is ConstI32Instr) { ZbcReaderInstr._set(rt, n, (ins as ConstI32Instr).Dst); return; }
-        if (ins is ConstI64Instr) { ZbcReaderInstr._set(rt, n, (ins as ConstI64Instr).Dst); return; }
-        if (ins is ConstStrInstr)  { ZbcReaderInstr._up(rt, n, (ins as ConstStrInstr).Dst); return; }
-        if (ins is ConstF64Instr)  { ZbcReaderInstr._up(rt, n, (ins as ConstF64Instr).Dst); return; }
-        if (ins is ConstBoolInstr) { ZbcReaderInstr._up(rt, n, (ins as ConstBoolInstr).Dst); return; }
-        if (ins is ConstCharInstr) { ZbcReaderInstr._up(rt, n, (ins as ConstCharInstr).Dst); return; }
-        if (ins is ConstNullInstr) { ZbcReaderInstr._up(rt, n, (ins as ConstNullInstr).Dst); return; }
-        if (ins is DefaultOfInstr) { ZbcReaderInstr._up(rt, n, (ins as DefaultOfInstr).Dst); return; }
-        if (ins is MethodTypeArgInsn) { ZbcReaderInstr._up(rt, n, (ins as MethodTypeArgInsn).Dst); return; }
-        if (ins is MethodDefaultInsn) { ZbcReaderInstr._up(rt, n, (ins as MethodDefaultInsn).Dst); return; }
-        if (ins is CopyInstr) { CopyInstr i = ins as CopyInstr; ZbcReaderInstr._up(rt, n, i.Dst); ZbcReaderInstr._set(rt, n, i.Src); return; }
-        if (ins is AddInstr) { AddInstr i = ins as AddInstr; ZbcReaderInstr._up(rt, n, i.Dst); ZbcReaderInstr._set(rt, n, i.A); ZbcReaderInstr._set(rt, n, i.B); return; }
-        if (ins is SubInstr) { SubInstr i = ins as SubInstr; ZbcReaderInstr._up(rt, n, i.Dst); ZbcReaderInstr._set(rt, n, i.A); ZbcReaderInstr._set(rt, n, i.B); return; }
-        if (ins is MulInstr) { MulInstr i = ins as MulInstr; ZbcReaderInstr._up(rt, n, i.Dst); ZbcReaderInstr._set(rt, n, i.A); ZbcReaderInstr._set(rt, n, i.B); return; }
-        if (ins is DivInstr) { DivInstr i = ins as DivInstr; ZbcReaderInstr._up(rt, n, i.Dst); ZbcReaderInstr._set(rt, n, i.A); ZbcReaderInstr._set(rt, n, i.B); return; }
-        if (ins is RemInstr) { RemInstr i = ins as RemInstr; ZbcReaderInstr._up(rt, n, i.Dst); ZbcReaderInstr._set(rt, n, i.A); ZbcReaderInstr._set(rt, n, i.B); return; }
-        if (ins is NegInstr) { NegInstr i = ins as NegInstr; ZbcReaderInstr._up(rt, n, i.Dst); ZbcReaderInstr._set(rt, n, i.Src); return; }
-        if (ins is NotInstr) { NotInstr i = ins as NotInstr; ZbcReaderInstr._up(rt, n, i.Dst); ZbcReaderInstr._set(rt, n, i.Src); return; }
-        if (ins is ConvertInstr) { ConvertInstr i = ins as ConvertInstr; ZbcReaderInstr._up(rt, n, i.Dst); ZbcReaderInstr._set(rt, n, i.Src); return; }
-        if (ins is ToStrInstr) { ToStrInstr i = ins as ToStrInstr; ZbcReaderInstr._up(rt, n, i.Dst); ZbcReaderInstr._set(rt, n, i.Src); return; }
-        if (ins is BitAndInstr) { BitAndInstr i = ins as BitAndInstr; ZbcReaderInstr._up(rt, n, i.Dst); ZbcReaderInstr._set(rt, n, i.A); ZbcReaderInstr._set(rt, n, i.B); return; }
-        if (ins is BitOrInstr)  { BitOrInstr i = ins as BitOrInstr; ZbcReaderInstr._up(rt, n, i.Dst); ZbcReaderInstr._set(rt, n, i.A); ZbcReaderInstr._set(rt, n, i.B); return; }
-        if (ins is BitXorInstr) { BitXorInstr i = ins as BitXorInstr; ZbcReaderInstr._up(rt, n, i.Dst); ZbcReaderInstr._set(rt, n, i.A); ZbcReaderInstr._set(rt, n, i.B); return; }
-        if (ins is BitNotInstr) { BitNotInstr i = ins as BitNotInstr; ZbcReaderInstr._up(rt, n, i.Dst); ZbcReaderInstr._set(rt, n, i.Src); return; }
-        if (ins is ShlInstr) { ShlInstr i = ins as ShlInstr; ZbcReaderInstr._up(rt, n, i.Dst); ZbcReaderInstr._set(rt, n, i.A); ZbcReaderInstr._set(rt, n, i.B); return; }
-        if (ins is ShrInstr) { ShrInstr i = ins as ShrInstr; ZbcReaderInstr._up(rt, n, i.Dst); ZbcReaderInstr._set(rt, n, i.A); ZbcReaderInstr._set(rt, n, i.B); return; }
-        if (ins is EqInstr) { EqInstr i = ins as EqInstr; ZbcReaderInstr._up(rt, n, i.Dst); ZbcReaderInstr._set(rt, n, i.A); ZbcReaderInstr._set(rt, n, i.B); return; }
-        if (ins is NeInstr) { NeInstr i = ins as NeInstr; ZbcReaderInstr._up(rt, n, i.Dst); ZbcReaderInstr._set(rt, n, i.A); ZbcReaderInstr._set(rt, n, i.B); return; }
-        if (ins is LtInstr) { LtInstr i = ins as LtInstr; ZbcReaderInstr._up(rt, n, i.Dst); ZbcReaderInstr._set(rt, n, i.A); ZbcReaderInstr._set(rt, n, i.B); return; }
-        if (ins is LeInstr) { LeInstr i = ins as LeInstr; ZbcReaderInstr._up(rt, n, i.Dst); ZbcReaderInstr._set(rt, n, i.A); ZbcReaderInstr._set(rt, n, i.B); return; }
-        if (ins is GtInstr) { GtInstr i = ins as GtInstr; ZbcReaderInstr._up(rt, n, i.Dst); ZbcReaderInstr._set(rt, n, i.A); ZbcReaderInstr._set(rt, n, i.B); return; }
-        if (ins is GeInstr) { GeInstr i = ins as GeInstr; ZbcReaderInstr._up(rt, n, i.Dst); ZbcReaderInstr._set(rt, n, i.A); ZbcReaderInstr._set(rt, n, i.B); return; }
-        if (ins is StrConcatInstr) { StrConcatInstr i = ins as StrConcatInstr; ZbcReaderInstr._up(rt, n, i.Dst); ZbcReaderInstr._set(rt, n, i.A); ZbcReaderInstr._set(rt, n, i.B); return; }
-        if (ins is CallInstr) { CallInstr i = ins as CallInstr; ZbcReaderInstr._up(rt, n, i.Dst); ZbcReaderInstr._setArgs(rt, n, i.Args, i.ArgCount); return; }
-        if (ins is BuiltinInstr) { BuiltinInstr i = ins as BuiltinInstr; ZbcReaderInstr._up(rt, n, i.Dst); ZbcReaderInstr._setArgs(rt, n, i.Args, i.ArgCount); return; }
-        if (ins is CallNativeInstr) { CallNativeInstr i = ins as CallNativeInstr; ZbcReaderInstr._up(rt, n, i.Dst); ZbcReaderInstr._setArgs(rt, n, i.Args, i.ArgCount); return; }
-        if (ins is VCallInstr) { VCallInstr i = ins as VCallInstr; ZbcReaderInstr._up(rt, n, i.Dst); ZbcReaderInstr._set(rt, n, i.Obj); ZbcReaderInstr._setArgs(rt, n, i.Args, i.ArgCount); return; }
-        if (ins is FieldGetInstr) { FieldGetInstr i = ins as FieldGetInstr; ZbcReaderInstr._up(rt, n, i.Dst); ZbcReaderInstr._set(rt, n, i.Obj); return; }
-        if (ins is FieldSetInstr) { FieldSetInstr i = ins as FieldSetInstr; ZbcReaderInstr._set(rt, n, i.Obj); ZbcReaderInstr._up(rt, n, i.Val); return; }
-        if (ins is ObjNewInstr) { ObjNewInstr i = ins as ObjNewInstr; ZbcReaderInstr._up(rt, n, i.Dst); ZbcReaderInstr._setArgs(rt, n, i.Args, i.ArgCount); return; }
-        if (ins is IsInstanceInstr) { IsInstanceInstr i = ins as IsInstanceInstr; ZbcReaderInstr._up(rt, n, i.Dst); ZbcReaderInstr._set(rt, n, i.Obj); return; }
-        if (ins is AsCastInstr) { AsCastInstr i = ins as AsCastInstr; ZbcReaderInstr._up(rt, n, i.Dst); ZbcReaderInstr._set(rt, n, i.Obj); return; }
-        if (ins is TypeofInstr) { ZbcReaderInstr._up(rt, n, (ins as TypeofInstr).Dst); return; }
-        if (ins is ArrayNewInstr) { ArrayNewInstr i = ins as ArrayNewInstr; ZbcReaderInstr._up(rt, n, i.Dst); ZbcReaderInstr._set(rt, n, i.Size); return; }
-        if (ins is ArrayNewLitInstr) { ArrayNewLitInstr i = ins as ArrayNewLitInstr; ZbcReaderInstr._up(rt, n, i.Dst); ZbcReaderInstr._setArgs(rt, n, i.Elems, i.ElemCount); return; }
-        if (ins is StaticGetInstr) { ZbcReaderInstr._up(rt, n, (ins as StaticGetInstr).Dst); return; }
-        if (ins is StaticSetInstr) { ZbcReaderInstr._up(rt, n, (ins as StaticSetInstr).Val); return; }
-        if (ins is ArrayLenInstr) { ArrayLenInstr i = ins as ArrayLenInstr; ZbcReaderInstr._up(rt, n, i.Dst); ZbcReaderInstr._set(rt, n, i.Arr); return; }
-        if (ins is LoadFnInstr) { ZbcReaderInstr._up(rt, n, (ins as LoadFnInstr).Dst); return; }
-        if (ins is CallIndirectInstr) { CallIndirectInstr i = ins as CallIndirectInstr; ZbcReaderInstr._up(rt, n, i.Dst); ZbcReaderInstr._set(rt, n, i.Callee); ZbcReaderInstr._setArgs(rt, n, i.Args, i.ArgCount); return; }
-        if (ins is MkClosInstr) { MkClosInstr i = ins as MkClosInstr; ZbcReaderInstr._up(rt, n, i.Dst); ZbcReaderInstr._setArgs(rt, n, i.Captures, i.CaptureCount); return; }
-        if (ins is ArrayGetInstr) { ArrayGetInstr i = ins as ArrayGetInstr; ZbcReaderInstr._up(rt, n, i.Dst); ZbcReaderInstr._set(rt, n, i.Arr); ZbcReaderInstr._set(rt, n, i.Idx); return; }
-        if (ins is ArraySetInstr) { ArraySetInstr i = ins as ArraySetInstr; ZbcReaderInstr._set(rt, n, i.Arr); ZbcReaderInstr._set(rt, n, i.Idx); ZbcReaderInstr._up(rt, n, i.Val); return; }
-        if (ins is LoadLocalAddrInstr) { LoadLocalAddrInstr i = ins as LoadLocalAddrInstr; ZbcReaderInstr._up(rt, n, i.Dst); ZbcReaderInstr._set(rt, n, i.Slot); return; }
-        if (ins is LoadElemAddrInstr) { LoadElemAddrInstr i = ins as LoadElemAddrInstr; ZbcReaderInstr._up(rt, n, i.Dst); ZbcReaderInstr._set(rt, n, i.Arr); ZbcReaderInstr._set(rt, n, i.Idx); return; }
-        if (ins is LoadFieldAddrInstr) { LoadFieldAddrInstr i = ins as LoadFieldAddrInstr; ZbcReaderInstr._up(rt, n, i.Dst); ZbcReaderInstr._set(rt, n, i.Obj); return; }
-        // 兜底（workspace-read-cache）：上面没列到的指令走统一操作数接口（与 writer _regtInstr 同源）。此前 Struct* 四条
-        // 指令漏列 ⇒ 读回后操作数恒 Unknown ⇒ 重建的 REGT 与原产物不同（z42.core 增量 KeyValuePair/DictionaryEnumerator
-        // 实测 Ref→Unknown）。规则与上面各条一致：解码时带 tag 的寄存器（非 Unknown）只做 tag 兼容升级，无 tag 的直接取 REGT。
-        ZbcReaderInstr._fit(rt, n, ins.DefReg());
+        TypedReg tr = ins.TagReg();
+        ZbcReaderInstr._fitReg(rt, n, ins.DefReg(), tr);
         int rc = ins.ReadCount();
         int ri = 0;
-        while (ri < rc) { ZbcReaderInstr._fit(rt, n, ins.ReadAt(ri)); ri = ri + 1; }
+        while (ri < rc) { ZbcReaderInstr._fitReg(rt, n, ins.ReadAt(ri), tr); ri = ri + 1; }
     }
 
-    private static void _fit(int[] rt, int n, TypedReg r) {
+    private static void _fitReg(int[] rt, int n, TypedReg r, TypedReg tagged) {
         if (r == null) { return; }
-        if (r.Type == IrType.Unknown) { ZbcReaderInstr._set(rt, n, r); } else { ZbcReaderInstr._up(rt, n, r); }
+        if (r == tagged) { ZbcReaderInstr._up(rt, n, r); } else { ZbcReaderInstr._set(rt, n, r); }
     }
 }

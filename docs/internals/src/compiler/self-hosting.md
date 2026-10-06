@@ -35,7 +35,7 @@ z42c 是用 z42 写的编译器，由上一代 z42c 编译自己。结论：**�
 |---|---|
 | 类字段的泛型参数被 parser 丢弃（`private List<X> f;` 取元素退化为 `<unknown>`，无法调其方法）| **typed array + count**：`Diagnostic[] _items; int _count;` + 手动 `Grow()`，故编译器内集合一律是并行数组 |
 | `new T[n][]` 不能创建交错数组 | 平铺单数组 + 偏移，或平行数组 + 线性查（如 `WsMembers.DepFlat/DepOff/DepLen`）|
-| AST / IR 节点 | `class` 继承层级 + `virtual` / 抽象 `Visitor` 基类 dispatch |
+| AST / IR 节点 | `class` 继承层级 + `virtual`。IR 指令的操作数 / 编码 / 头部 tag / 可删性是指令类上的虚方法（基类给安全默认）；AST 与 bound tree 的遍历是手写 `is` 穷举 walker，完备性由 `xtask check walkers` 对账 |
 | 错误路径 | `throw` / `try-catch` + Exception 子类 |
 
 `TokenKind` 等「枚举」是 `static class` + `int` 常量。
@@ -63,7 +63,7 @@ z42c 是用 z42 写的编译器，由上一代 z42c 编译自己。结论：**�
 
 ## .zbc 写入器（`z42.package/src/BinaryFormat/`）
 
-- **架构**：`ByteWriter`（`int[]` 0..255 + LE 助手，规避 byte 型）→ `ZbcInstr`（集中 if-is 编码）→ `ZbcWriter`（intern 预扫 + 分段组装）；`TokenAllocator`（插入序 index）；`ZbcStringPool`（插入序 = STRS 字节序）。格式规格见 [zpkg](../formats/zpkg.md)。
+- **架构**：`ByteWriter`（`byte[]` + LE 助手）→ 各指令类的 `IrInstr.Write(ZbcEncoder)`（指令布局跟指令类走；`ZbcEncoder` 打包缓冲 / 串池 / token 分配器，每函数一个）+ `ZbcInstr`（终结符编码、串池预扫、字面量解析）→ `ZbcWriter`（intern 预扫 + 分段组装）；读端 `ZbcReaderInstr.Retype` 按 `IrInstr.TagReg` 回填 REGT；`TokenAllocator`（插入序 index）；`ZbcStringPool`（插入序 = STRS 字节序）。格式规格见 [zpkg](../formats/zpkg.md)。
 - **确定性铁律**：字符串池 intern 序须固定（模块名 → const.str 池 → 类 → "?" → 每函数[名/ret/param → 每块 label→指令串]）；IMPT 写前 Ordinal 排序。
 - runtime builtin 在 z42 侧直接 `[Native("__double_to_bits")]` 自声明。
 

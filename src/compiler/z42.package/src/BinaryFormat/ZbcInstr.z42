@@ -1,21 +1,9 @@
-// 指令 + 终结符字节编码（port-z42c-zbc-writer ZW-1A-4）。镜像 C# ZbcWriter.Instructions.cs。
-// 调度：集中 if-is（D2，沿用 codegen）。指令头恒 = op u8 + type_tag u8 + dst u16（0xFFFF=无 dst）。
-// ZW-1A 子集：const(i32/i64/bool/null) / copy / 算术(add..rem) + 终结符(ret/retval/br/brcond)。
-// 其余 opcode（比较/位/一元/调用/字段/对象/数组/is·as）随 ZW-1B..1D 增量补。
+// 指令 + 终结符字节编码入口。指令布局在各指令类的 `IrInstr.Write`（经 ZbcEncoder）；本文件留终结符编码、
+// 串池预扫与字面量解析等共用助手。指令头恒 = op u8 + type_tag u8 + dst u16（0xFFFF=无 dst）。
 namespace Z42.IR.BinaryFormat;
 
 
 public static class ZbcInstr {
-
-    // symbolic-struct-field-access P2：字段序号路径 `depth:u8 + idx:u16 × depth`。
-    // **depth 0 不是合法编码** —— 一条字段访问至少走一级（扁平 `a.x` 就是 depth 1）；
-    // 空路径在读端会静默解析到偏移 0（blob 头部），正是本 change 要消掉的那类错偏移，
-    // 所以读端（Rust `read_field_path`）也显式拒 0，两端一致。
-    private static void _writeFieldPath(ByteWriter w, int[] path) {
-        w.WriteU8(path.Length);
-        int k = 0;
-        while (k < path.Length) { w.WriteU16(path[k]); k = k + 1; }
-    }
 
     public static int NoReg = 0xFFFF;
 
@@ -23,233 +11,11 @@ public static class ZbcInstr {
     // 保留本公开签名（z42c IrGenFacts 常量折叠在用，改 API 会踩 seed-API 轴），body 委托 core。
     public static long DoubleToBits(double v) { return BitConverter.DoubleToBits(v); }
 
-    // 一条指令 → 字节。strRemap：z42c 1-based 池 idx → 最终 STRS idx（ConstStr）；
+    // 一条指令 → 字节（各指令类的 `IrInstr.Write` 自己写布局）。ZbcWriter 每个函数建一个 ZbcEncoder 复用；
+    // 本入口供单条编码（测试）用。strRemap：z42c 1-based 池 idx → 最终 STRS idx（ConstStr）；
     // alloc：Call/ObjNew/IsInstance/AsCast 的 token（VCall/Field 不 token 化，直 pool idx）。
     public static void WriteInstr(ByteWriter w, IrInstr ins, ZbcStringPool pool, int[] strRemap, TokenAllocator alloc) {
-        if (ins is ConstStrInstr) {
-            ConstStrInstr i = ins as ConstStrInstr;
-            w.WriteU8(Op.ConstStr); w.WriteU8(Tag.FromIrType(i.Dst.Type)); w.WriteU16(i.Dst.Id);
-            w.WriteU32(strRemap[i.Idx]);
-            return;
-        }
-        if (ins is ConstF64Instr) {
-            ConstF64Instr i = ins as ConstF64Instr;
-            w.WriteU8(Op.ConstF); w.WriteU8(Tag.FromIrType(i.Dst.Type)); w.WriteU16(i.Dst.Id);
-            w.WriteI64(ZbcInstr.DoubleToBits(Convert.ToDouble(ZbcInstr._cleanFloat(i.Text))));
-            return;
-        }
-        if (ins is CallInstr) {
-            CallInstr i = ins as CallInstr;
-            // add-generic-methods：携方法类型实参 → CallGeneric（非泛型仍走 Op.Call，byte-identical）。
-            if (i.MethodTypeArgCount > 0) {
-                w.WriteU8(Op.CallGeneric); w.WriteU8(Tag.FromIrType(i.Dst.Type)); w.WriteU16(i.Dst.Id);
-                w.WriteU32(alloc.ResolveMethod(i.Func, pool));
-                ZbcInstr._mta(w, pool, i.MethodTypeArgs, i.MethodTypeArgCount);
-                ZbcInstr._args(w, i.Args, i.ArgCount);
-                return;
-            }
-            w.WriteU8(Op.Call); w.WriteU8(Tag.FromIrType(i.Dst.Type)); w.WriteU16(i.Dst.Id);
-            w.WriteU32(alloc.ResolveMethod(i.Func, pool));
-            ZbcInstr._args(w, i.Args, i.ArgCount);
-            return;
-        }
-        if (ins is BuiltinInstr) {
-            BuiltinInstr i = ins as BuiltinInstr;
-            w.WriteU8(Op.Builtin); w.WriteU8(Tag.FromIrType(i.Dst.Type)); w.WriteU16(i.Dst.Id);
-            w.WriteU32(pool.Idx(i.Name));   // builtin 名直接 pool idx（非 method token）
-            ZbcInstr._args(w, i.Args, i.ArgCount);
-            return;
-        }
-        if (ins is CallNativeInstr) {
-            CallNativeInstr i = ins as CallNativeInstr;
-            // OP_CALL_NATIVE(0x53): dst(tag+id) + module/type/symbol(3× pool idx u32) + args.
-            // 镜像 VM zbc_reader.rs OP_CALL_NATIVE decode。
-            w.WriteU8(Op.CallNative); w.WriteU8(Tag.FromIrType(i.Dst.Type)); w.WriteU16(i.Dst.Id);
-            w.WriteU32(pool.Idx(i.Module)); w.WriteU32(pool.Idx(i.Type)); w.WriteU32(pool.Idx(i.Symbol));
-            ZbcInstr._args(w, i.Args, i.ArgCount);
-            return;
-        }
-        if (ins is VCallInstr) {
-            VCallInstr i = ins as VCallInstr;
-            if (i.MethodTypeArgCount > 0) {
-                w.WriteU8(Op.VCallGeneric); w.WriteU8(Tag.FromIrType(i.Dst.Type)); w.WriteU16(i.Dst.Id);
-                w.WriteU32(pool.Idx(i.Method)); w.WriteU16(i.Obj.Id);
-                ZbcInstr._mta(w, pool, i.MethodTypeArgs, i.MethodTypeArgCount);
-                ZbcInstr._args(w, i.Args, i.ArgCount);
-                return;
-            }
-            w.WriteU8(Op.VCall); w.WriteU8(Tag.FromIrType(i.Dst.Type)); w.WriteU16(i.Dst.Id);
-            w.WriteU32(pool.Idx(i.Method)); w.WriteU16(i.Obj.Id);
-            ZbcInstr._args(w, i.Args, i.ArgCount);
-            return;
-        }
-        if (ins is FieldGetInstr) {
-            FieldGetInstr i = ins as FieldGetInstr;
-            w.WriteU8(Op.FieldGet); w.WriteU8(Tag.FromIrType(i.Dst.Type)); w.WriteU16(i.Dst.Id);
-            w.WriteU16(i.Obj.Id); w.WriteU32(pool.Idx(i.Field));
-            return;
-        }
-        // fix-ref-lvalue-addressing：wire 布局由 VM 解码器钉死（instr_decode.rs:274-282）——
-        // LoadElemAddr 与二元算术同形（dst + arr:u16 + idx:u16），LoadFieldAddr 与 FieldGet 同形
-        // （dst + obj:u16 + field:u32 池索引，故必须放在有 pool 的 WriteInstr 里而非 _writeCore）。
-        // 读侧在 ZbcReaderInstr **两处**对称补齐（解码 + REGT 回填）。
-        if (ins is LoadElemAddrInstr) {
-            LoadElemAddrInstr le = ins as LoadElemAddrInstr;
-            w.WriteU8(Op.LoadElemAddr); w.WriteU8(Tag.FromIrType(le.Dst.Type)); w.WriteU16(le.Dst.Id);
-            w.WriteU16(le.Arr.Id); w.WriteU16(le.Idx.Id);
-            return;
-        }
-        if (ins is LoadFieldAddrInstr) {
-            LoadFieldAddrInstr lf = ins as LoadFieldAddrInstr;
-            w.WriteU8(Op.LoadFieldAddr); w.WriteU8(Tag.FromIrType(lf.Dst.Type)); w.WriteU16(lf.Dst.Id);
-            w.WriteU16(lf.Obj.Id); w.WriteU32(pool.Idx(lf.Field));
-            return;
-        }
-        if (ins is FieldSetInstr) {
-            FieldSetInstr i = ins as FieldSetInstr;
-            w.WriteU8(Op.FieldSet); w.WriteU8(Tag.FromIrType(i.Val.Type)); w.WriteU16(ZbcInstr.NoReg);
-            w.WriteU16(i.Obj.Id); w.WriteU32(pool.Idx(i.Field)); w.WriteU16(i.Val.Id);
-            return;
-        }
-        if (ins is StructAllocInstr) {
-            StructAllocInstr i = ins as StructAllocInstr;
-            // op + tag(dst) + dst | typeName(u32 pool) | size(u32)
-            w.WriteU8(Op.StructAlloc); w.WriteU8(Tag.FromIrType(i.Dst.Type)); w.WriteU16(i.Dst.Id);
-            w.WriteU32(pool.Idx(i.TypeName)); w.WriteU32(i.Size);
-            return;
-        }
-        if (ins is StructCopyInstr) {
-            StructCopyInstr i = ins as StructCopyInstr;
-            // op + tag(dst) + dst | src(u16) | size(u32)
-            w.WriteU8(Op.StructCopy); w.WriteU8(Tag.FromIrType(i.Dst.Type)); w.WriteU16(i.Dst.Id);
-            w.WriteU16(i.Src.Id); w.WriteU32(i.Size);
-            return;
-        }
-        // symbolic-struct-field-access P2（zbc 1.46）：烘焙偏移 → (root 类型名, 字段序号路径)。
-        // `root_type` 兼任编号空间判别器；`depth` 的上界是 struct 嵌套深度（实测最大 4）。
-        if (ins is StructFieldGetPrimInstr) {
-            StructFieldGetPrimInstr i = ins as StructFieldGetPrimInstr;
-            // op + tag(dst) + dst | base(u16) | root_type(u32 池) | depth(u8) | idx(u16)×depth | kind(u8)
-            w.WriteU8(Op.StructFieldGetPrim); w.WriteU8(Tag.FromIrType(i.Dst.Type)); w.WriteU16(i.Dst.Id);
-            w.WriteU16(i.Base.Id); w.WriteU32(pool.Idx(i.RootType));
-            ZbcInstr._writeFieldPath(w, i.Path);
-            w.WriteU8(i.Kind);
-            return;
-        }
-        if (ins is StructFieldSetPrimInstr) {
-            StructFieldSetPrimInstr i = ins as StructFieldSetPrimInstr;
-            // op + tag(val) + NoReg(无 dst) | base(u16) | root_type(u32 池) | depth(u8) | idx(u16)×depth | kind(u8) | val(u16)
-            w.WriteU8(Op.StructFieldSetPrim); w.WriteU8(Tag.FromIrType(i.Val.Type)); w.WriteU16(ZbcInstr.NoReg);
-            w.WriteU16(i.Base.Id); w.WriteU32(pool.Idx(i.RootType));
-            ZbcInstr._writeFieldPath(w, i.Path);
-            w.WriteU8(i.Kind); w.WriteU16(i.Val.Id);
-            return;
-        }
-        if (ins is ObjNewInstr) {
-            ObjNewInstr i = ins as ObjNewInstr;
-            w.WriteU8(Op.ObjNew); w.WriteU8(Tag.FromIrType(i.Dst.Type)); w.WriteU16(i.Dst.Id);
-            w.WriteU32(alloc.ResolveType(i.ClassName, pool));
-            w.WriteU32(alloc.ResolveMethod(i.CtorName, pool));
-            ZbcInstr._args(w, i.Args, i.ArgCount);
-            w.WriteU8(i.TypeArgCount);
-            int t = 0;
-            while (t < i.TypeArgCount) { w.WriteU32(pool.Idx(i.TypeArgs[t])); t = t + 1; }
-            if (i.StackAlloc) { w.WriteU8(1); } else { w.WriteU8(0); }   // zbc 1.29 add-escape-analysis
-            if (i.CtorKnown) { w.WriteU8(1); } else { w.WriteU8(0); }     // zbc 1.39 encode-ctorless-objnew
-            return;
-        }
-        if (ins is TypeofInstr) {
-            TypeofInstr i = ins as TypeofInstr;
-            w.WriteU8(Op.Typeof); w.WriteU8(Tag.FromIrType(i.Dst.Type)); w.WriteU16(i.Dst.Id);
-            w.WriteU32(pool.Idx(i.TypeName));
-            w.WriteU8(i.TypeArgCount);
-            int t = 0;
-            while (t < i.TypeArgCount) { w.WriteU32(pool.Idx(i.TypeArgs[t])); t = t + 1; }
-            return;
-        }
-        if (ins is ArrayNewInstr) {
-            ArrayNewInstr an = ins as ArrayNewInstr;
-            w.WriteU8(Op.ArrayNew); w.WriteU8(Tag.FromIrType(an.Dst.Type)); w.WriteU16(an.Dst.Id);
-            w.WriteU16(an.Size.Id);
-            w.WriteU8(Tag.FromIrType(an.ElemTag));
-            w.WriteU32(pool.Idx(an.ElemName));   // zbc 1.16：elem FQ 名
-            if (an.StackAlloc) { w.WriteU8(1); } else { w.WriteU8(0); }   // zbc 1.29 add-escape-analysis
-            w.WriteU8(an.TypeParamKind);            // zbc 1.37 fix-generic-array-value-zero-init：泛型形参 kind 0/1/2
-            w.WriteU16(an.TypeParamIndex + 1);      // 偏置 +1：-1(none)→0，避免有符号
-            return;
-        }
-        if (ins is ArrayNewLitInstr) {
-            ArrayNewLitInstr al = ins as ArrayNewLitInstr;
-            w.WriteU8(Op.ArrayNewLit); w.WriteU8(Tag.FromIrType(al.Dst.Type)); w.WriteU16(al.Dst.Id);
-            ZbcInstr._args(w, al.Elems, al.ElemCount);
-            w.WriteU32(pool.Idx(al.ElemName));
-            if (al.StackAlloc) { w.WriteU8(1); } else { w.WriteU8(0); }   // zbc 1.29 add-escape-analysis
-            return;
-        }
-        if (ins is StaticGetInstr) {
-            StaticGetInstr sg = ins as StaticGetInstr;
-            w.WriteU8(Op.StaticGet); w.WriteU8(Tag.FromIrType(sg.Dst.Type)); w.WriteU16(sg.Dst.Id);
-            w.WriteU32(pool.Idx(sg.Field));
-            return;
-        }
-        if (ins is StaticSetInstr) {
-            StaticSetInstr ss = ins as StaticSetInstr;
-            w.WriteU8(Op.StaticSet); w.WriteU8(Tag.FromIrType(ss.Val.Type)); w.WriteU16(ZbcInstr.NoReg);
-            w.WriteU32(pool.Idx(ss.Field)); w.WriteU16(ss.Val.Id);
-            return;
-        }
-        if (ins is ArrayLenInstr) {
-            ArrayLenInstr al = ins as ArrayLenInstr;
-            w.WriteU8(Op.ArrayLen); w.WriteU8(Tag.FromIrType(al.Dst.Type)); w.WriteU16(al.Dst.Id);
-            w.WriteU16(al.Arr.Id);
-            return;
-        }
-        if (ins is LoadFnInstr) {
-            LoadFnInstr lf = ins as LoadFnInstr;
-            w.WriteU8(Op.LoadFn); w.WriteU8(Tag.FromIrType(lf.Dst.Type)); w.WriteU16(lf.Dst.Id);
-            w.WriteU32(alloc.ResolveMethod(lf.Func, pool));
-            return;
-        }
-        if (ins is MkClosInstr) {
-            MkClosInstr mk = ins as MkClosInstr;
-            w.WriteU8(Op.MkClos); w.WriteU8(Tag.FromIrType(mk.Dst.Type)); w.WriteU16(mk.Dst.Id);
-            w.WriteU32(alloc.ResolveMethod(mk.Func, pool));
-            if (mk.StackAlloc) { w.WriteU8(1); } else { w.WriteU8(0); }
-            ZbcInstr._args(w, mk.Captures, mk.CaptureCount);
-            return;
-        }
-        if (ins is CallIndirectInstr) {
-            CallIndirectInstr cind = ins as CallIndirectInstr;
-            w.WriteU8(Op.CallIndirect); w.WriteU8(Tag.FromIrType(cind.Dst.Type)); w.WriteU16(cind.Dst.Id);
-            w.WriteU16(cind.Callee.Id);
-            ZbcInstr._args(w, cind.Args, cind.ArgCount);
-            return;
-        }
-        if (ins is IsInstanceInstr) {
-            IsInstanceInstr i = ins as IsInstanceInstr;
-            w.WriteU8(Op.IsInstance); w.WriteU8(Tag.FromIrType(i.Dst.Type)); w.WriteU16(i.Dst.Id);
-            w.WriteU16(i.Obj.Id); w.WriteU32(alloc.ResolveType(i.ClassName, pool));
-            return;
-        }
-        if (ins is AsCastInstr) {
-            AsCastInstr i = ins as AsCastInstr;
-            w.WriteU8(Op.AsCast); w.WriteU8(Tag.FromIrType(i.Dst.Type)); w.WriteU16(i.Dst.Id);
-            w.WriteU16(i.Obj.Id); w.WriteU32(alloc.ResolveType(i.ClassName, pool));
-            return;
-        }
-        if (ins is ArrayGetInstr) {
-            ArrayGetInstr i = ins as ArrayGetInstr;
-            w.WriteU8(Op.ArrayGet); w.WriteU8(Tag.FromIrType(i.Dst.Type)); w.WriteU16(i.Dst.Id);
-            w.WriteU16(i.Arr.Id); w.WriteU16(i.Idx.Id);
-            return;
-        }
-        if (ins is ArraySetInstr) {
-            ArraySetInstr i = ins as ArraySetInstr;
-            w.WriteU8(Op.ArraySet); w.WriteU8(Tag.FromIrType(i.Val.Type)); w.WriteU16(ZbcInstr.NoReg);
-            w.WriteU16(i.Arr.Id); w.WriteU16(i.Idx.Id); w.WriteU16(i.Val.Id);
-            return;
-        }
-        ZbcInstr._writeCore(w, ins);
+        ins.Write(new ZbcEncoder(w, pool, strRemap, alloc));
     }
 
     // z42c 无 ctor 解析（BoundNew.CtorName 延后）→ 合成 FQ ctor 名 "{fqCls}.{短类名}"（镜像 C# ctor-less：
@@ -268,7 +34,7 @@ public static class ZbcInstr {
     }
 
     // 浮点字面量文本 → Convert.ToDouble 可解析形（剥后缀 f/F/d/D/m/M + 去 `_` 分隔符）。
-    private static string _cleanFloat(string text) {
+    internal static string _cleanFloat(string text) {
         string s = "";
         int i = 0;
         while (i < text.Length) {
@@ -323,111 +89,6 @@ public static class ZbcInstr {
         return d;
     }
 
-    private static void _args(ByteWriter w, TypedReg[] args, int argCount) {
-        w.WriteU8(argCount);
-        int i = 0;
-        while (i < argCount) { w.WriteU16(args[i].Id); i = i + 1; }
-    }
-
-    // add-generic-methods：方法类型实参串编码 —— count(u16) + count× pool idx(u32)。
-    private static void _mta(ByteWriter w, ZbcStringPool pool, string[] names, int count) {
-        w.WriteU16(count);
-        int i = 0;
-        while (i < count) { w.WriteU32(pool.Idx(names[i])); i = i + 1; }
-    }
-
-    // 无字符串/token 操作数的核心指令（const/copy/算术/比较/位/一元）。
-    private static void _writeCore(ByteWriter w, IrInstr ins) {
-        if (ins is ConstI32Instr) {
-            ConstI32Instr i = ins as ConstI32Instr;
-            w.WriteU8(Op.ConstI); w.WriteU8(Tag.I32); w.WriteU16(i.Dst.Id);
-            w.WriteU32((int)ZbcInstr._parseIntLit(i.Text));
-            return;
-        }
-        if (ins is ConstI64Instr) {
-            ConstI64Instr i = ins as ConstI64Instr;
-            w.WriteU8(Op.ConstI); w.WriteU8(Tag.I64); w.WriteU16(i.Dst.Id);
-            w.WriteI64(ZbcInstr._parseIntLit(i.Text));
-            return;
-        }
-        if (ins is ConstCharInstr) {
-            ConstCharInstr i = ins as ConstCharInstr;
-            w.WriteU8(Op.ConstChar); w.WriteU8(Tag.FromIrType(i.Dst.Type)); w.WriteU16(i.Dst.Id);
-            w.WriteU32((int)i.Val);
-            return;
-        }
-        if (ins is ConstBoolInstr) {
-            ConstBoolInstr i = ins as ConstBoolInstr;
-            w.WriteU8(Op.ConstBool); w.WriteU8(Tag.FromIrType(i.Dst.Type)); w.WriteU16(i.Dst.Id);
-            if (i.Value) { w.WriteU8(1); } else { w.WriteU8(0); }
-            return;
-        }
-        if (ins is ConstNullInstr) {
-            ConstNullInstr i = ins as ConstNullInstr;
-            w.WriteU8(Op.ConstNull); w.WriteU8(Tag.FromIrType(i.Dst.Type)); w.WriteU16(i.Dst.Id);
-            return;
-        }
-        if (ins is DefaultOfInstr) {
-            DefaultOfInstr i = ins as DefaultOfInstr;
-            w.WriteU8(Op.DefaultOf); w.WriteU8(Tag.FromIrType(i.Dst.Type)); w.WriteU16(i.Dst.Id);
-            w.WriteU8(i.ParamIndex);
-            return;
-        }
-        // add-generic-methods：方法级形参物化 / default（镜像 DefaultOf 编码，param_index u8）。
-        if (ins is MethodTypeArgInsn) {
-            MethodTypeArgInsn i = ins as MethodTypeArgInsn;
-            w.WriteU8(Op.MethodTypeArg); w.WriteU8(Tag.FromIrType(i.Dst.Type)); w.WriteU16(i.Dst.Id);
-            w.WriteU8(i.ParamIndex);
-            return;
-        }
-        if (ins is MethodDefaultInsn) {
-            MethodDefaultInsn i = ins as MethodDefaultInsn;
-            w.WriteU8(Op.MethodDefault); w.WriteU8(Tag.FromIrType(i.Dst.Type)); w.WriteU16(i.Dst.Id);
-            w.WriteU8(i.ParamIndex);
-            return;
-        }
-        if (ins is CopyInstr) {
-            CopyInstr i = ins as CopyInstr;
-            w.WriteU8(Op.Copy); w.WriteU8(Tag.FromIrType(i.Dst.Type)); w.WriteU16(i.Dst.Id);
-            w.WriteU16(i.Src.Id);
-            return;
-        }
-        if (ins is AddInstr) { AddInstr i = ins as AddInstr; ZbcInstr._bin(w, Op.Add, i.Dst, i.A, i.B); return; }
-        if (ins is SubInstr) { SubInstr i = ins as SubInstr; ZbcInstr._bin(w, Op.Sub, i.Dst, i.A, i.B); return; }
-        if (ins is MulInstr) { MulInstr i = ins as MulInstr; ZbcInstr._bin(w, Op.Mul, i.Dst, i.A, i.B); return; }
-        if (ins is DivInstr) { DivInstr i = ins as DivInstr; ZbcInstr._bin(w, Op.Div, i.Dst, i.A, i.B); return; }
-        if (ins is RemInstr) { RemInstr i = ins as RemInstr; ZbcInstr._bin(w, Op.Rem, i.Dst, i.A, i.B); return; }
-        // 比较（ZW-1B）：tag 取 Dst（恒 bool），镜像 C# WriteBin。
-        if (ins is EqInstr) { EqInstr i = ins as EqInstr; ZbcInstr._bin(w, Op.Eq, i.Dst, i.A, i.B); return; }
-        if (ins is NeInstr) { NeInstr i = ins as NeInstr; ZbcInstr._bin(w, Op.Ne, i.Dst, i.A, i.B); return; }
-        if (ins is LtInstr) { LtInstr i = ins as LtInstr; ZbcInstr._bin(w, Op.Lt, i.Dst, i.A, i.B); return; }
-        if (ins is LeInstr) { LeInstr i = ins as LeInstr; ZbcInstr._bin(w, Op.Le, i.Dst, i.A, i.B); return; }
-        if (ins is GtInstr) { GtInstr i = ins as GtInstr; ZbcInstr._bin(w, Op.Gt, i.Dst, i.A, i.B); return; }
-        if (ins is GeInstr) { GeInstr i = ins as GeInstr; ZbcInstr._bin(w, Op.Ge, i.Dst, i.A, i.B); return; }
-        // 位运算（ZW-1B）。
-        if (ins is BitAndInstr) { BitAndInstr i = ins as BitAndInstr; ZbcInstr._bin(w, Op.BitAnd, i.Dst, i.A, i.B); return; }
-        if (ins is BitOrInstr)  { BitOrInstr i = ins as BitOrInstr;   ZbcInstr._bin(w, Op.BitOr,  i.Dst, i.A, i.B); return; }
-        if (ins is BitXorInstr) { BitXorInstr i = ins as BitXorInstr; ZbcInstr._bin(w, Op.BitXor, i.Dst, i.A, i.B); return; }
-        if (ins is ShlInstr) { ShlInstr i = ins as ShlInstr; ZbcInstr._bin(w, Op.Shl, i.Dst, i.A, i.B); return; }
-        if (ins is ShrInstr) { ShrInstr i = ins as ShrInstr; ZbcInstr._bin(w, Op.Shr, i.Dst, i.A, i.B); return; }
-        if (ins is StrConcatInstr) { StrConcatInstr i = ins as StrConcatInstr; ZbcInstr._bin(w, Op.StrConcat, i.Dst, i.A, i.B); return; }
-        // 一元（ZW-1B）：op + dst-tag + dst + src，镜像 C# WriteUn。
-        if (ins is NegInstr) { NegInstr i = ins as NegInstr; ZbcInstr._un(w, Op.Neg, i.Dst, i.Src); return; }
-        if (ins is NotInstr) { NotInstr i = ins as NotInstr; ZbcInstr._un(w, Op.Not, i.Dst, i.Src); return; }
-        if (ins is BitNotInstr) { BitNotInstr i = ins as BitNotInstr; ZbcInstr._un(w, Op.BitNot, i.Dst, i.Src); return; }
-        if (ins is ConvertInstr) { ConvertInstr i = ins as ConvertInstr; ZbcInstr._un(w, Op.Convert, i.Dst, i.Src); return; }
-        if (ins is ToStrInstr) { ToStrInstr i = ins as ToStrInstr; ZbcInstr._un(w, Op.ToStr, i.Dst, i.Src); return; }
-        if (ins is LoadLocalAddrInstr) {
-            LoadLocalAddrInstr la = ins as LoadLocalAddrInstr;
-            w.WriteU8(Op.LoadLocalAddr); w.WriteU8(Tag.FromIrType(la.Dst.Type)); w.WriteU16(la.Dst.Id);
-            w.WriteU16(la.Slot.Id);
-            return;
-        }
-        // 未覆盖的 IrInstr 子类：新增指令忘了接编码。此前静默跳过 ⇒ 产出少一条指令的语义错流
-        // （fix-zbc-writer-silent-truncation）；现在当场抛，指名是哪一类。
-        throw new Exception("zbc writer: no encoding for IR instruction `" + ins.Dump() + "`");
-    }
-
     // 终结符 → 字节。labels/blockCount：本函数块 label 序（Br/BrCond 目标 → 块索引 u16）。
     public static void WriteTerm(ByteWriter w, IrTerminator t, string[] labels, int blockCount) {
         ZbcInstr.WriteTermIndexed(w, t, labels, blockCount, null);
@@ -464,16 +125,6 @@ public static class ZbcInstr {
             return;
         }
         throw new Exception("zbc writer: no encoding for terminator `" + t.Dump() + "`");
-    }
-
-    private static void _bin(ByteWriter w, int op, TypedReg dst, TypedReg a, TypedReg b) {
-        w.WriteU8(op); w.WriteU8(Tag.FromIrType(dst.Type)); w.WriteU16(dst.Id);
-        w.WriteU16(a.Id); w.WriteU16(b.Id);
-    }
-
-    private static void _un(ByteWriter w, int op, TypedReg dst, TypedReg src) {
-        w.WriteU8(op); w.WriteU8(Tag.FromIrType(dst.Type)); w.WriteU16(dst.Id);
-        w.WriteU16(src.Id);
     }
 
     private static int _idx(string label, string[] labels, int blockCount, StrIndex labelIdx) {

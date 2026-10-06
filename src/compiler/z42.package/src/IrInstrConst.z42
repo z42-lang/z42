@@ -2,6 +2,8 @@
 // 拆自 IrInstr.z42（unify-ir-operand-access）；接口约定见 IrInstr.z42 文件头。
 namespace Z42.IR;
 
+using Z42.IR.BinaryFormat;   // ZbcEncoder / Op / Tag（Write 编码）
+
 // ── 常量 ────────────────────────────────────────────────────────────────────────
 // 数值字面量存原始文本（解析/规范化留 byte-identical ZbcWriter；CG-1A 文本 dump 够用）。
 // 整数分 i32/i64 两条（镜像 C# ConstI32Instr/ConstI64Instr，值宽不同）：int 及更小 → i32，long/u64 → i64。
@@ -10,6 +12,12 @@ public sealed class ConstI32Instr : IrDefOnlyInstr {
     public ConstI32Instr(TypedReg dst, string text) { this.Dst = dst; this.Text = text; }
     public override string Dump() { return this.Dst.Dump() + " = const.i32 " + this.Text; }
     public override IrInstr Clone() { return new ConstI32Instr(this.Dst, this.Text); }
+    public override TypedReg TagReg() { return null; }
+    public override bool IsPure() { return true; }
+    public override void Write(ZbcEncoder e) {
+        e.HeadTag(Op.ConstI, Tag.I32, this.Dst);
+        e.U32((int)ZbcInstr._parseIntLit(this.Text));
+    }
 }
 
 public sealed class ConstI64Instr : IrDefOnlyInstr {
@@ -17,6 +25,12 @@ public sealed class ConstI64Instr : IrDefOnlyInstr {
     public ConstI64Instr(TypedReg dst, string text) { this.Dst = dst; this.Text = text; }
     public override string Dump() { return this.Dst.Dump() + " = const.i64 " + this.Text; }
     public override IrInstr Clone() { return new ConstI64Instr(this.Dst, this.Text); }
+    public override TypedReg TagReg() { return null; }
+    public override bool IsPure() { return true; }
+    public override void Write(ZbcEncoder e) {
+        e.HeadTag(Op.ConstI, Tag.I64, this.Dst);
+        e.I64(ZbcInstr._parseIntLit(this.Text));
+    }
 }
 
 public sealed class ConstF64Instr : IrDefOnlyInstr {
@@ -24,6 +38,11 @@ public sealed class ConstF64Instr : IrDefOnlyInstr {
     public ConstF64Instr(TypedReg dst, string text) { this.Dst = dst; this.Text = text; }
     public override string Dump() { return this.Dst.Dump() + " = const.f64 " + this.Text; }
     public override IrInstr Clone() { return new ConstF64Instr(this.Dst, this.Text); }
+    public override bool IsPure() { return true; }
+    public override void Write(ZbcEncoder e) {
+        e.Head(Op.ConstF, this.Dst);
+        e.I64(ZbcInstr.DoubleToBits(Convert.ToDouble(ZbcInstr._cleanFloat(this.Text))));
+    }
 }
 
 public sealed class ConstCharInstr : IrDefOnlyInstr {
@@ -31,6 +50,11 @@ public sealed class ConstCharInstr : IrDefOnlyInstr {
     public ConstCharInstr(TypedReg dst, char val) { this.Dst = dst; this.Val = val; }
     public override string Dump() { return "%" + this.Dst.Id.ToString() + " = const.char " + this.Val.ToString(); }
     public override IrInstr Clone() { return new ConstCharInstr(this.Dst, this.Val); }
+    public override bool IsPure() { return true; }
+    public override void Write(ZbcEncoder e) {
+        e.Head(Op.ConstChar, this.Dst);
+        e.U32((int)this.Val);
+    }
 }
 
 public sealed class ConstBoolInstr : IrDefOnlyInstr {
@@ -41,6 +65,11 @@ public sealed class ConstBoolInstr : IrDefOnlyInstr {
         return this.Dst.Dump() + " = const.bool " + v;
     }
     public override IrInstr Clone() { return new ConstBoolInstr(this.Dst, this.Value); }
+    public override bool IsPure() { return true; }
+    public override void Write(ZbcEncoder e) {
+        e.Head(Op.ConstBool, this.Dst);
+        e.Flag(this.Value);
+    }
 }
 
 public sealed class ConstStrInstr : IrDefOnlyInstr {
@@ -48,12 +77,21 @@ public sealed class ConstStrInstr : IrDefOnlyInstr {
     public ConstStrInstr(TypedReg dst, int idx) { this.Dst = dst; this.Idx = idx; }
     public override string Dump() { return this.Dst.Dump() + " = const.str #" + this.Idx.ToString(); }
     public override IrInstr Clone() { return new ConstStrInstr(this.Dst, this.Idx); }
+    public override bool IsPure() { return true; }
+    public override void Write(ZbcEncoder e) {
+        e.Head(Op.ConstStr, this.Dst);
+        e.ConstStrIdx(this.Idx);
+    }
 }
 
 public sealed class ConstNullInstr : IrDefOnlyInstr {
     public ConstNullInstr(TypedReg dst) { this.Dst = dst; }
     public override string Dump() { return this.Dst.Dump() + " = const.null"; }
     public override IrInstr Clone() { return new ConstNullInstr(this.Dst); }
+    public override bool IsPure() { return true; }
+    public override void Write(ZbcEncoder e) {
+        e.Head(Op.ConstNull, this.Dst);
+    }
 }
 
 // default(T) 泛型类型参数零值（D-8b-3 Phase 2；opcode 0xB0）。ParamIndex = 类型实参位置（0 起）。
@@ -63,6 +101,11 @@ public sealed class DefaultOfInstr : IrDefOnlyInstr {
     public DefaultOfInstr(TypedReg dst, int paramIndex) { this.Dst = dst; this.ParamIndex = paramIndex; }
     public override string Dump() { return this.Dst.Dump() + " = default_of " + this.ParamIndex.ToString(); }
     public override IrInstr Clone() { return new DefaultOfInstr(this.Dst, this.ParamIndex); }
+    public override bool IsPure() { return true; }
+    public override void Write(ZbcEncoder e) {
+        e.Head(Op.DefaultOf, this.Dst);
+        e.U8(this.ParamIndex);
+    }
 }
 
 // add-generic-methods：方法级泛型形参物化为具体 Std.Type（opcode 0xB1）。ParamIndex = 该形参在
@@ -73,6 +116,10 @@ public sealed class MethodTypeArgInsn : IrDefOnlyInstr {
     public MethodTypeArgInsn(TypedReg dst, int paramIndex) { this.Dst = dst; this.ParamIndex = paramIndex; }
     public override string Dump() { return this.Dst.Dump() + " = method_type_arg " + this.ParamIndex.ToString(); }
     public override IrInstr Clone() { return new MethodTypeArgInsn(this.Dst, this.ParamIndex); }
+    public override void Write(ZbcEncoder e) {
+        e.Head(Op.MethodTypeArg, this.Dst);
+        e.U8(this.ParamIndex);
+    }
 }
 
 // add-generic-methods：方法级 default(T) 零值（opcode 0xB2）。镜像 DefaultOfInstr 但读 frame.method_type_args。
@@ -82,6 +129,10 @@ public sealed class MethodDefaultInsn : IrDefOnlyInstr {
     public MethodDefaultInsn(TypedReg dst, int paramIndex) { this.Dst = dst; this.ParamIndex = paramIndex; }
     public override string Dump() { return this.Dst.Dump() + " = method_default " + this.ParamIndex.ToString(); }
     public override IrInstr Clone() { return new MethodDefaultInsn(this.Dst, this.ParamIndex); }
+    public override void Write(ZbcEncoder e) {
+        e.Head(Op.MethodDefault, this.Dst);
+        e.U8(this.ParamIndex);
+    }
 }
 
 // ── 静态读 / 函数引用 / typeof ───────────────────────────────────────────────────
@@ -92,6 +143,10 @@ public sealed class StaticGetInstr : IrDefOnlyInstr {
     public override int StrCount() { return 1; }
     public override string StrAt(int i) { if (i == 0) { return this.Field; } return null; }
     public override IrInstr Clone() { return new StaticGetInstr(this.Dst, this.Field); }
+    public override void Write(ZbcEncoder e) {
+        e.Head(Op.StaticGet, this.Dst);
+        e.Str(this.Field);
+    }
 }
 
 // 闭包三指令之一（port-z42c-closures）：load_fn @func → 函数引用。
@@ -102,6 +157,10 @@ public sealed class LoadFnInstr : IrDefOnlyInstr {
     public override int StrCount() { return 1; }
     public override string StrAt(int i) { if (i == 0) { return this.Func; } return null; }
     public override IrInstr Clone() { return new LoadFnInstr(this.Dst, this.Func); }
+    public override void Write(ZbcEncoder e) {
+        e.Head(Op.LoadFn, this.Dst);
+        e.MethodTok(this.Func);
+    }
 }
 
 // typeof(T) → reflection Std.Type 句柄（镜像 C# TypeofInstr / opcode 0x73）。
@@ -131,4 +190,10 @@ public sealed class TypeofInstr : IrDefOnlyInstr {
         return null;
     }
     public override IrInstr Clone() { return new TypeofInstr(this.Dst, this.TypeName, this.TypeArgs, this.TypeArgCount); }
+    public override bool IsPure() { return true; }
+    public override void Write(ZbcEncoder e) {
+        e.Head(Op.Typeof, this.Dst);
+        e.Str(this.TypeName);
+        e.TypeArgs(this.TypeArgs, this.TypeArgCount);
+    }
 }

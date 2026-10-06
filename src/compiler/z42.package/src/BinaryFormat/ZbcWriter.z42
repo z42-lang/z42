@@ -669,13 +669,14 @@ public static class ZbcWriter {
             }
             // 指令字节 + 块偏移。
             var instrs = new ByteWriter();
+            ZbcEncoder enc = new ZbcEncoder(instrs, pool, strRemap, alloc);
             int[] blockOffsets = new int[f.BlockCount];
             int b = 0;
             while (b < f.BlockCount) {
                 blockOffsets[b] = instrs.Len();
                 IrBlock blk = f.Blocks[b];
                 int ii = 0;
-                while (ii < blk.InstrCount) { ZbcInstr.WriteInstr(instrs, blk.Instrs[ii], pool, strRemap, alloc); ii = ii + 1; }
+                while (ii < blk.InstrCount) { blk.Instrs[ii].Write(enc); ii = ii + 1; }
                 if (blk.HasTerm) { ZbcInstr.WriteTermIndexed(instrs, blk.Term, labels, f.BlockCount, labelIdx); }
                 b = b + 1;
             }

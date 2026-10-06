@@ -2,6 +2,8 @@
 // 拆自 IrInstr.z42（unify-ir-operand-access）；接口约定见 IrInstr.z42 文件头。
 namespace Z42.IR;
 
+using Z42.IR.BinaryFormat;   // ZbcEncoder / Op / Tag（Write 编码）
+
 // ── 字段访问（CG-1C）──────────────────────────────────────────────────────────────
 public sealed class FieldGetInstr : IrInstr {
     public TypedReg Dst;
@@ -26,6 +28,9 @@ public sealed class FieldGetInstr : IrInstr {
         c.Readonly = this.Readonly;
         return c;
     }
+    public override void Write(ZbcEncoder e) {
+        e.Head(Op.FieldGet, this.Dst); e.Reg(this.Obj); e.Str(this.Field);
+    }
 }
 
 // 字段写：无定义寄存器，读 Obj, Val。
@@ -43,6 +48,11 @@ public sealed class FieldSetInstr : IrInstr {
     public override int StrCount() { return 1; }
     public override string StrAt(int i) { if (i == 0) { return this.Field; } return null; }
     public override IrInstr Clone() { return new FieldSetInstr(this.Obj, this.Field, this.Val); }
+    public override TypedReg TagReg() { return this.Val; }
+    public override void Write(ZbcEncoder e) {
+        e.HeadNoDst(Op.FieldSet, this.Val);
+        e.Reg(this.Obj); e.Str(this.Field); e.Reg(this.Val);
+    }
 }
 
 // ── 对象 / 数组 / 类型测试（CG-1D；CG-2 加泛型 type-args）─────────────────────────
@@ -110,6 +120,15 @@ public sealed class ObjNewInstr : IrInstr {
         c.CtorKnown = this.CtorKnown;
         return c;
     }
+    public override void Write(ZbcEncoder e) {
+        e.Head(Op.ObjNew, this.Dst);
+        e.TypeTok(this.ClassName);
+        e.MethodTok(this.CtorName);
+        e.Args(this.Args, this.ArgCount);
+        e.TypeArgs(this.TypeArgs, this.TypeArgCount);
+        e.Flag(this.StackAlloc);   // zbc 1.29 add-escape-analysis
+        e.Flag(this.CtorKnown);    // zbc 1.39 encode-ctorless-objnew
+    }
 }
 
 // x is T → bool。
@@ -129,6 +148,10 @@ public sealed class IsInstanceInstr : IrInstr {
     public override int StrCount() { return 1; }
     public override string StrAt(int i) { if (i == 0) { return this.ClassName; } return null; }
     public override IrInstr Clone() { return new IsInstanceInstr(this.Dst, this.Obj, this.ClassName); }
+    public override bool IsPure() { return true; }
+    public override void Write(ZbcEncoder e) {
+        e.Head(Op.IsInstance, this.Dst); e.Reg(this.Obj); e.TypeTok(this.ClassName);
+    }
 }
 
 // x as T → T（不匹配返回 null）。
@@ -148,6 +171,10 @@ public sealed class AsCastInstr : IrInstr {
     public override int StrCount() { return 1; }
     public override string StrAt(int i) { if (i == 0) { return this.ClassName; } return null; }
     public override IrInstr Clone() { return new AsCastInstr(this.Dst, this.Obj, this.ClassName); }
+    public override bool IsPure() { return true; }
+    public override void Write(ZbcEncoder e) {
+        e.Head(Op.AsCast, this.Dst); e.Reg(this.Obj); e.TypeTok(this.ClassName);
+    }
 }
 
 // ── 数组 ────────────────────────────────────────────────────────────────────────
@@ -176,6 +203,14 @@ public sealed class ArrayNewInstr : IrInstr {
         ArrayNewInstr c = new ArrayNewInstr(this.Dst, this.Size, this.ElemTag, this.ElemName);
         c.StackAlloc = this.StackAlloc; c.TypeParamKind = this.TypeParamKind; c.TypeParamIndex = this.TypeParamIndex;
         return c;
+    }
+    public override void Write(ZbcEncoder e) {
+        e.Head(Op.ArrayNew, this.Dst); e.Reg(this.Size);
+        e.U8(Tag.FromIrType(this.ElemTag));
+        e.Str(this.ElemName);          // zbc 1.16：elem FQ 名
+        e.Flag(this.StackAlloc);        // zbc 1.29 add-escape-analysis
+        e.U8(this.TypeParamKind);       // zbc 1.37：泛型形参 kind 0/1/2
+        e.U16(this.TypeParamIndex + 1); // 偏置 +1：-1(none)→0，避免有符号
     }
 }
 
@@ -210,6 +245,12 @@ public sealed class ArrayNewLitInstr : IrInstr {
         c.StackAlloc = this.StackAlloc;
         return c;
     }
+    public override void Write(ZbcEncoder e) {
+        e.Head(Op.ArrayNewLit, this.Dst);
+        e.Args(this.Elems, this.ElemCount);
+        e.Str(this.ElemName);
+        e.Flag(this.StackAlloc);   // zbc 1.29 add-escape-analysis
+    }
 }
 
 public sealed class ArrayGetInstr : IrInstr {
@@ -224,6 +265,9 @@ public sealed class ArrayGetInstr : IrInstr {
     public override TypedReg ReadAt(int i) { if (i == 0) { return this.Arr; } if (i == 1) { return this.Idx; } return null; }
     public override void SetReadAt(int i, TypedReg r) { if (i == 0) { this.Arr = r; } else if (i == 1) { this.Idx = r; } }
     public override IrInstr Clone() { return new ArrayGetInstr(this.Dst, this.Arr, this.Idx); }
+    public override void Write(ZbcEncoder e) {
+        e.Head(Op.ArrayGet, this.Dst); e.Reg(this.Arr); e.Reg(this.Idx);
+    }
 }
 
 // 数组写：无定义寄存器，读 Arr, Idx, Val。
@@ -244,6 +288,11 @@ public sealed class ArraySetInstr : IrInstr {
         if (i == 0) { this.Arr = r; } else if (i == 1) { this.Idx = r; } else if (i == 2) { this.Val = r; }
     }
     public override IrInstr Clone() { return new ArraySetInstr(this.Arr, this.Idx, this.Val); }
+    public override TypedReg TagReg() { return this.Val; }
+    public override void Write(ZbcEncoder e) {
+        e.HeadNoDst(Op.ArraySet, this.Val);
+        e.Reg(this.Arr); e.Reg(this.Idx); e.Reg(this.Val);
+    }
 }
 
 public sealed class ArrayLenInstr : IrInstr {
@@ -256,6 +305,9 @@ public sealed class ArrayLenInstr : IrInstr {
     public override TypedReg ReadAt(int i) { if (i == 0) { return this.Arr; } return null; }
     public override void SetReadAt(int i, TypedReg r) { if (i == 0) { this.Arr = r; } }
     public override IrInstr Clone() { return new ArrayLenInstr(this.Dst, this.Arr); }
+    public override void Write(ZbcEncoder e) {
+        e.Head(Op.ArrayLen, this.Dst); e.Reg(this.Arr);
+    }
 }
 
 // ── blob 值类型（add-struct-value-semantics Phase A）───────────────────────────────
@@ -274,6 +326,10 @@ public sealed class StructAllocInstr : IrDefOnlyInstr {
     public override int StrCount() { return 1; }
     public override string StrAt(int i) { if (i == 0) { return this.TypeName; } return null; }
     public override IrInstr Clone() { return new StructAllocInstr(this.Dst, this.TypeName, this.Size); }
+    public override void Write(ZbcEncoder e) {
+        // dst | typeName(u32 池) | size(u32)
+        e.Head(Op.StructAlloc, this.Dst); e.Str(this.TypeName); e.U32(this.Size);
+    }
 }
 
 public sealed class StructCopyInstr : IrInstr {
@@ -288,6 +344,11 @@ public sealed class StructCopyInstr : IrInstr {
     public override TypedReg ReadAt(int i) { if (i == 0) { return this.Dst; } if (i == 1) { return this.Src; } return null; }
     public override void SetReadAt(int i, TypedReg r) { if (i == 0) { this.Dst = r; } else if (i == 1) { this.Src = r; } }
     public override IrInstr Clone() { return new StructCopyInstr(this.Dst, this.Src, this.Size); }
+    public override TypedReg TagReg() { return this.Dst; }
+    public override void Write(ZbcEncoder e) {
+        // 头部 tag 取被写句柄 Dst（它是读操作数，不是定义）| src(u16) | size(u32)
+        e.Head(Op.StructCopy, this.Dst); e.Reg(this.Src); e.U32(this.Size);
+    }
 }
 
 // symbolic-struct-field-access P2（zbc 1.46，方案 A）：烘焙字节偏移 → `(RootType, Path)`。
@@ -318,6 +379,12 @@ public sealed class StructFieldGetPrimInstr : IrInstr {
     public override TypedReg ReadAt(int i) { if (i == 0) { return this.Base; } return null; }
     public override void SetReadAt(int i, TypedReg r) { if (i == 0) { this.Base = r; } }
     public override IrInstr Clone() { return new StructFieldGetPrimInstr(this.Dst, this.Base, this.RootType, this.Path, this.Kind); }
+    public override void Write(ZbcEncoder e) {
+        // dst | base(u16) | root_type(u32 池) | depth(u8) | idx(u16)×depth | kind(u8)
+        e.Head(Op.StructFieldGetPrim, this.Dst); e.Reg(this.Base); e.Str(this.RootType);
+        e.FieldPath(this.Path);
+        e.U8(this.Kind);
+    }
 }
 
 public sealed class StructFieldSetPrimInstr : IrInstr {
@@ -334,6 +401,13 @@ public sealed class StructFieldSetPrimInstr : IrInstr {
     public override TypedReg ReadAt(int i) { if (i == 0) { return this.Base; } if (i == 1) { return this.Val; } return null; }
     public override void SetReadAt(int i, TypedReg r) { if (i == 0) { this.Base = r; } else if (i == 1) { this.Val = r; } }
     public override IrInstr Clone() { return new StructFieldSetPrimInstr(this.Base, this.RootType, this.Path, this.Kind, this.Val); }
+    public override TypedReg TagReg() { return this.Val; }
+    public override void Write(ZbcEncoder e) {
+        // 无 dst | base(u16) | root_type(u32 池) | depth(u8) | idx(u16)×depth | kind(u8) | val(u16)
+        e.HeadNoDst(Op.StructFieldSetPrim, this.Val); e.Reg(this.Base); e.Str(this.RootType);
+        e.FieldPath(this.Path);
+        e.U8(this.Kind); e.Reg(this.Val);
+    }
 }
 
 // `Dump()` 用的路径渲染：`.0.2` 这样。IR 文本是 golden 的一部分，所以格式要稳定。
