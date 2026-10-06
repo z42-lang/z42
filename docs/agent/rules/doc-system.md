@@ -13,7 +13,8 @@ docs/
 ├── reference/      语言与库参考 —— 用 z42 写程序的人（查）
 ├── internals/      实现内幕    —— 改 z42 本身的人 / AI
 ├── agent/          AI 协作规范 —— rules/ 行为约束 + playbooks/ 任务清单
-└── roadmap.md      项目计划与 Deferred 索引
+├── roadmap.md      项目计划与 Deferred 索引
+└── <主题>.md       临时迭代底稿 —— 一轮多 PR 迭代的工作文档，迭代完删除
 
 src/**/README.md    目录说明 —— 这个目录有什么、怎么改
 README.md           仓库门面 —— 定位 + 上手 + 分流
@@ -47,6 +48,7 @@ README.md           仓库门面 —— 定位 + 上手 + 分流
 | Pull Request 描述 | 这一次迭代在做什么（方案 / 进度 / 验证） | 长期知识（合并前上浮到三书） |
 | `src/**/README.md` | 这个目录有什么、怎么改 | 设计原理（链 internals） |
 | `docs/roadmap.md` | 项目计划与 Deferred 索引 | 知识 |
+| `docs/` 根目录的临时迭代底稿 | 一轮多 PR 迭代的审计结论、证据（行号 / 实测）、计划与进度 | 长期知识。迭代完成即删除；届时未完成的项转入 internals 对应机制页的「待办 / Deferred」 |
 | 根 `README.md` | 仓库门面与分流 | 实质内容 |
 
 ### 2.1 链接方向：单向（硬规则）

@@ -24,6 +24,7 @@ z42 项目文档总入口。
 |---|---|---|
 | [`agent/rules/`](agent/rules/) | 怎么干活的**行为约束** | **任何系统知识**——那是三本书的事 |
 | [`roadmap.md`](roadmap.md) | 项目计划与 Deferred 索引 | 知识 |
+| 根目录的临时迭代底稿（当前：[`runtime-audit.md`](runtime-audit.md)） | 一轮多 PR 迭代的审计结论、证据、计划与进度 | 长期知识（迭代完删除，未完成项转入 internals） |
 | [`features.md`](internals/src/features.md) | 语言特性 catalog（决策 + 状态） | |
 | 各 `src/**/README.md` | 这个目录有什么、怎么改 | 设计原理（链 internals） |
 | 根 [`README.md`](../README.md) | 仓库门面与分流 | 实质内容 |
