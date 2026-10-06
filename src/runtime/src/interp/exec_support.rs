@@ -178,6 +178,10 @@ pub(super) fn try_osr(ctx: &VmContext, frame: &mut Frame, func: &Function, loop_
     // lockstep with vm_ctx). Only touched through &-methods / Copy field reads.
     let threshold = unsafe { (*jit_ctx).osr_threshold };
     if frame.back_edge_count != threshold { return None; }   // fire exactly once
+    // `ref` / `out` params are copied back to the caller by `run_ref_writebacks`
+    // on the interp frame's exit paths. The OSR native frame returns straight
+    // past them, so its final values would be lost — stay on the interpreter.
+    if !frame.ref_writebacks.is_empty() { return None; }
     // v1: OSR only merged functions — resolve this function's merged id by name.
     let id = unsafe { (*(*jit_ctx).module).func_index.get(&func.name).copied() }?;
     let entry = unsafe { (*jit_ctx).resolve_osr_entry(id, loop_header) }?; // owned FnEntry
