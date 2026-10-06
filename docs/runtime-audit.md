@@ -439,12 +439,62 @@ z42vm 继续静态链接 VM，不改为动态链接 `native/libz42`（结论与�
 
 **依赖与顺序**：P1-0、P1-1 先做；P1-2 是 P1-4、P1-6 的前置；P1-3 在 P1-4 之前（字段语义先收成一份再改载荷）；P1-5 不依赖 FnId（帧里存 `*const Function` 即可），帧管理是当前最大单项（§1.5），可与 P1-2 并行；P1-7、P1-8 与其余项独立。
 
+### 阶段 1 已定方案（User，2026-10-06）
+
+调研与论证细节见已关闭的方案 PR（P1-5 #1137、P1-2 #1139、P1-7 #1140）；这里只记决定和实施序列。
+
+**P1-5 调用协议 v1**（先于 P1-2 做）
+- 决定：
+  - 崩溃信号转储只完整打印崩溃线程的栈，其他线程只打帧数。
+  - 三个 arena 改为只由所属线程访问，另立一项，不放进本项。
+- 序列：
+  - PR-0：retention 诊断在停世界窗口里查询。
+  - PR-1：原生调用序列收成 `jit::invoke::call_native`，解释器帧登记收成 `enter_frame`。
+  - PR-2：瘦 `VmFrame{func, regs, pc, …}`，名字和行号在生成回溯时由 func + pc 现算；删掉解释器调用时的行号二分；JIT helper 少传两个参数。
+  - PR-3：`call_stack` 只由所属线程访问，跨线程只经 `scan_parked`。
+  - PR-4：合并两套寄存器池、guard 移到入口、frame_id 惰性分配。
+  - PR-5：JIT `regs_ptr` 按偏移 load，`Ret` 直写。
+
+**P1-2 进程级函数 / 类型身份**
+- 决定：
+  - FuncRef / Closure 在创建时就绑定 FnId，接受目标包加载和名字解析错误提前到 LoadFn / MkClos 时发生。
+  - 惰性函数与 merged 函数对称：按阈值计数后升层编译。
+  - TypeId 保持进程全局，用稀疏分段表承载。
+- 序列：
+  - 1：`SegVec` + `FuncTable` + FnId 登记。入口函数的 FnId 等于 `module.functions` 下标；惰性函数在包登记时分配，first-wins。
+  - 2：解释器 Call 的 `method_tokens` 改存 FnId。
+  - 3：JIT 槽位按 FnId 建、带负缓存；惰性目标也路由到 native；OSR 支持惰性函数。
+  - 4：VCall PIC 改存 FnId。
+  - 5：ObjNew 站点缓存。
+  - 6：TypeTable 与 `isa_cache` 改 key（顺带修 D5）。
+  - 7：ConstStr 改为每 ctx 一张无锁表。
+  - 8：FuncRef / Closure 改存 FnId。
+  - 9：清理。
+- 不改 `.zbc` / `.zpkg` 格式。
+
+**P1-7 GC**
+- 决定：
+  - 选 B1：删掉 `keep_major`，minor 只认自己能到达的；epoch 戳保留，作「周期内出生」的标签。
+  - 不做「sweep 时释放 payload」的过渡方案。payload 的根治随对象模型改造（阶段 2：payload 并入 GC 槽）。
+  - 池超阈值时 decommit。
+  - 软上限和 `Z42_GC_MAX_BYTES` 改按真实 footprint 计。
+- 前置验证：
+  - 模型 D 判定 B1 安全，现行策略在活性断言上给出反例（#1146）。
+  - 当前 main 关掉 `keep_major`、用 `Z42_GC_SLICE_MS=0.05` 跑 z42.net 全套 5 轮，每轮 50/50。历史记录里的挂死已不再出现。
+- 序列：
+  - B1：删 `keep_major`，并加断言「Sweeping 期间晋升的条目必须带 epoch」。
+  - A2：定长区续用 TLAB 尾巴，复用半活 chunk 的空洞（按槽的 claimed 位图）。
+  - A3：变长区复用空洞。
+  - A4：decommit（定长区按页对齐，记录 generation 下限）。
+  - A5：committed 计数、`stats()` 降为 O(1)、软上限按 footprint。
+
 **需 User 决策**（⏸）：
 - 删除 ConcurrentMarkSweep：会去掉 `gc-mode=concurrent` 这个用户可见取值。
 - 去掉每对象 Mutex：涉及字段访问的内存模型（D4 的根治）。
 - 可 catch 的栈溢出（当前是致命错误；前置条件见 vm-architecture.md「原生栈预算」）。
 - `int` 等窄整数的算术溢出不回绕到本宽度：`int.MaxValue + 1`、`int.MinValue / -1` 两路都得 `2147483648`，值仍按 i64 存、运算后不截断。要不要按声明宽度回绕、在哪一层截断（编译器插 Convert，还是 VM 按类型运算），属于语言语义决策。
-- GC 退避上限与「周期内的 minor 不判徒劳」：吞吐换停顿。13_gc_large_heap 分代模式下最大停顿 73.5→50 ms、p99 58.5→24 ms、不再出现 x64，代价是墙钟慢约 30%（`--large` 2.4 倍）。
+- 栈闭包（D6）：z42c 的逃逸分析从不给 `MkClos` 标栈分配，运行时的栈闭包路径（`Value::StackClosure`、帧 `env_arena`、OSR 搬运）整条不可达。删掉运行时支持，还是让编译器重新产出？
+- GC 退避上限与「周期内的 minor 不判徒劳」（B1 落地后先重测，可能不再需要）：吞吐换停顿。13_gc_large_heap 分代模式下最大停顿 73.5→50 ms、p99 58.5→24 ms、不再出现 x64，代价是墙钟慢约 30%（`--large` 2.4 倍）。
 
 **阶段 1 预期**【推断】：z42c 构建再快 1.3–1.5 倍（字段约 10%、帧约 10%、跨包 VCall，加上并行阶段吃到 JIT）。
 
