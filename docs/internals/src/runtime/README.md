@@ -23,7 +23,7 @@ z42vm —— Rust 写的虚拟机：加载 `.zpkg`、执行字节码、管理内
 | **加载与配置** | [加载上下文](load-context.md) · [运行时设置的实现](runtime-settings.md) |
 | **并发** | [同步原语](sync-primitives.md) · [并发与 async](concurrency.md) |
 | **原生互操作** | [对象与值的表示 ABI](object-abi.md) · [native ABI](native-abi.md) · [Native 扩展加载机制](native-ext-loader.md) · [Native 扩展库范式](native-extensions.md) · [Native 库布局与解析](native-libraries.md) |
-| **平台** | [PAL 平台抽象层](pal.md) · [跨平台](cross-platform.md) · [平台识别的脚本表面](stdlib-platform.md) · [嵌入宿主](embedding.md) · [监听 socket 的可中断 accept](accept-interruptible.md) |
+| **平台** | [PAL 平台抽象层](pal.md) · [跨平台](cross-platform.md) · [平台识别的脚本表面](stdlib-platform.md) · [嵌入宿主](embedding.md) · [socket：Close 打断阻塞调用](accept-interruptible.md) |
 | **诊断** | [诊断与性能分析](diagnostics.md) |
 
 ## 设计已定 / 未实施

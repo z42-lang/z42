@@ -76,7 +76,7 @@
 # 运行时 · 并发
 
 - [同步原语](runtime/sync-primitives.md)
-- [监听 socket：accept 的可中断性](runtime/accept-interruptible.md)
+- [socket：Close 打断阻塞调用](runtime/accept-interruptible.md)
 
 # 运行时 · 原生互操作
 

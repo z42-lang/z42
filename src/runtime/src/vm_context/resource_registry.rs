@@ -10,10 +10,11 @@ use super::*;
 ///
 /// Slot ids are monotonic, **start at 1**, and are never reused (u64 overflow
 /// is not a practical concern at ~10^19 allocations). [`lock`](Self::lock)
-/// exposes the raw guard for the multi-step take-out / put-back sequences in
-/// `corelib::network` / `corelib::fs` that must hold one lock across several
-/// map operations (e.g. remove a socket, do blocking I/O without the table
-/// lock, reinsert it).
+/// exposes the raw guard for multi-step map operations that must run under one
+/// lock acquisition. Resources used by blocking I/O are stored as `Arc`s and
+/// cloned out with [`get_cloned`](Self::get_cloned) — never taken out of the
+/// table for the duration of the call, which would make a concurrent close a
+/// no-op and put the resource back afterwards.
 pub(crate) struct ResourceRegistry<T> {
     table:   Mutex<HashMap<u64, T>>,
     next_id: std::sync::atomic::AtomicU64,

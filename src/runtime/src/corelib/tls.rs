@@ -1,10 +1,13 @@
 //! `Std.Net` TLS client builtins — rustls-backed blocking TLS streams.
 //!
-//! add-z42-net-tls (2026-06-03): mirrors `network.rs` exactly (slot-id
-//! handle + per-builtin slot lookup, remove-on-IO to avoid holding the
-//! map lock across a blocking read/write). The only difference from the
-//! raw TCP builtins is that the stored handle is a `rustls::StreamOwned`
-//! (TCP socket + TLS session state) instead of a bare `TcpStream`.
+//! Mirrors the raw TCP builtins (slot-id handle, the table holds an `Arc`
+//! that read / write clone instead of taking the stream out). The stored
+//! handle is a [`TlsSlot`]: the rustls session needs `&mut` for both read and
+//! write, so it sits behind a lock, and a dup of the TCP socket is kept beside
+//! it for shutdown and timeouts. Read and write are therefore serialized: while
+//! one thread is blocked in a read, another thread's write waits for it. Real
+//! full duplex would need the rustls state and the blocking socket I/O locked
+//! separately.
 //!
 //! Certificate verification is always on: roots come from the bundled
 //! Mozilla set (`webpki-roots`), so no host trust-store wiring is needed.
@@ -72,6 +75,17 @@ fn require_port(args: &[Value], idx: usize, name: &str) -> Result<u16> {
 }
 
 // ── desktop / mobile (non-wasm32) implementations ─────────────────────────
+
+/// One TLS connection. `stream` holds the TLS session plus the socket (rustls
+/// needs `&mut` for reads and writes alike); `sock` is a dup of the same socket,
+/// used to shut it down on drop — waking a read blocked inside `stream`'s lock —
+/// and to set timeouts without waiting for that lock.
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) struct TlsSlot {
+    pub(crate) stream: parking_lot::Mutex<
+        rustls::StreamOwned<rustls::ClientConnection, std::net::TcpStream>>,
+    pub(crate) sock: std::net::TcpStream,
+}
 
 #[cfg(not(target_arch = "wasm32"))]
 mod imp {
@@ -175,7 +189,12 @@ mod imp {
             let _ = stream.get_ref().set_read_timeout(None);
             let _ = stream.get_ref().set_write_timeout(None);
         }
-        let slot_id = ctx.alloc_tls_socket_slot(stream);
+        let sock = match stream.get_ref().try_clone() {
+            Ok(s) => s,
+            Err(e) => return Ok(socket_err(ctx, format!("tls: dup socket: {}", e))),
+        };
+        let slot = super::TlsSlot { stream: parking_lot::Mutex::new(stream), sock };
+        let slot_id = ctx.alloc_tls_socket_slot(slot);
         Ok(ok_value(ctx, slot_id as i64))
     }
 
@@ -198,20 +217,21 @@ mod imp {
         }
         if count == 0 { return Ok(ok_value(ctx, 0)); }
 
-        let stream = {
-            let mut map = ctx.core.tls_sockets.lock();
-            map.remove(&slot_id)
-        };
-        let Some(mut stream) = stream else {
+        let Some(slot) = ctx.core.tls_sockets.get_cloned(slot_id) else {
             return Ok(handle_invalid(ctx));
         };
 
         let mut tmp = vec![0u8; count];
         // fix-park-blocking-natives (2026-09-14): a blocking syscall runs parked, and the
         // park ends before any GC allocation (see `builtin_net_tls_connect`).
-        let read_result = { let _park = crate::gc::NativeParkGuard::enter(ctx); stream.read(&mut tmp) };
-
-        ctx.core.tls_sockets.lock().insert(slot_id, stream);
+        let read_result = {
+            let _park = crate::gc::NativeParkGuard::enter(ctx);
+            slot.stream.lock().read(&mut tmp)
+        };
+        // Closed while we were blocked: the drop's shutdown woke the read.
+        if !ctx.core.tls_sockets.lock().contains_key(&slot_id) {
+            return Ok(handle_invalid(ctx));
+        }
 
         match read_result {
             Ok(n) => {
@@ -254,11 +274,7 @@ mod imp {
             }
         }
 
-        let stream = {
-            let mut map = ctx.core.tls_sockets.lock();
-            map.remove(&slot_id)
-        };
-        let Some(mut stream) = stream else {
+        let Some(slot) = ctx.core.tls_sockets.get_cloned(slot_id) else {
             return Ok(handle_invalid(ctx));
         };
 
@@ -267,10 +283,12 @@ mod imp {
         // park ends before any GC allocation (see `builtin_net_tls_connect`).
         let write_result = {
             let _park = crate::gc::NativeParkGuard::enter(ctx);
+            let mut stream = slot.stream.lock();
             stream.write_all(&tmp).and_then(|_| stream.flush()).map(|_| count)
         };
-
-        ctx.core.tls_sockets.lock().insert(slot_id, stream);
+        if !ctx.core.tls_sockets.lock().contains_key(&slot_id) {
+            return Ok(handle_invalid(ctx));
+        }
 
         match write_result {
             Ok(n) => Ok(ok_value(ctx, n as i64)),
@@ -282,14 +300,18 @@ mod imp {
     pub fn builtin_net_tls_socket_drop(ctx: &VmContext, args: &[Value]) -> Result<()> {
         const NAME: &str = "__net_tls_socket_drop";
         let slot_id = require_slot_id(args, 0, NAME)?;
-        ctx.core.tls_sockets.lock().remove(&slot_id);
+        // Shut the socket down so a read blocked on another thread wakes up; the fd
+        // closes when that thread drops its `Arc`.
+        if let Some(slot) = ctx.core.tls_sockets.take(slot_id) {
+            let _ = slot.sock.shutdown(std::net::Shutdown::Both);
+        }
         Ok(())
     }
 
     // add-z42-net-tls (2026-06-03): read / write deadlines on the underlying
     // TCP socket so a stalled peer can't hang the script. `millis <= 0`
-    // clears the timeout (blocking I/O). Setting the timeout is non-blocking,
-    // so unlike read/write we hold the map lock briefly instead of removing.
+    // clears the timeout (blocking I/O). Goes through the socket dup, so it
+    // does not wait for a read / write holding the session lock.
     fn apply_timeout(
         ctx: &VmContext,
         slot_id: u64,
@@ -301,14 +323,13 @@ mod imp {
         } else {
             None
         };
-        let map = ctx.core.tls_sockets.lock();
-        let Some(stream) = map.get(&slot_id) else {
+        let Some(slot) = ctx.core.tls_sockets.get_cloned(slot_id) else {
             return Ok(handle_invalid(ctx));
         };
         let result = if which == "set_read_timeout" {
-            stream.get_ref().set_read_timeout(dur)
+            slot.sock.set_read_timeout(dur)
         } else {
-            stream.get_ref().set_write_timeout(dur)
+            slot.sock.set_write_timeout(dur)
         };
         match result {
             Ok(()) => Ok(ok_value(ctx, 0)),

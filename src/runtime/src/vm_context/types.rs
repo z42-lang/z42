@@ -206,10 +206,12 @@ pub struct VmCore {
     // ── add-z42-net K1 (2026-05-24) ───────────────────────────────────────
     /// live `Std.Net.Sockets.TcpClient` streams keyed by monotonic u64 slot
     /// id. `__net_tcp_connect` / `__net_tcp_accept` insert; `__net_tcp_socket_drop`
-    /// removes (TcpStream Drop closes the fd). wasm32 target: never populated.
+    /// removes and shuts the stream down. Read / write clone the `Arc` instead of
+    /// taking the stream out, so the socket is full duplex; the fd closes when the
+    /// last `Arc` drops. wasm32 target: never populated.
     /// (**M2**: slot-id counter embedded in the registry.)
     #[cfg(not(target_arch = "wasm32"))]
-    pub(crate) tcp_sockets:          ResourceRegistry<std::net::TcpStream>,
+    pub(crate) tcp_sockets:          ResourceRegistry<std::sync::Arc<std::net::TcpStream>>,
     /// live `Std.Net.Sockets.TcpListener` instances keyed by monotonic u64 slot id.
     /// (**M2**: slot-id counter embedded in the registry.)
     #[cfg(not(target_arch = "wasm32"))]
@@ -218,21 +220,21 @@ pub struct VmCore {
     // ── add-z42-net-tls (2026-06-03) ──────────────────────────────────────
     /// live rustls client TLS streams (TCP + handshake state) keyed by
     /// monotonic u64 slot id. `__net_tls_connect` inserts; `__net_tls_drop`
-    /// removes (the owned `StreamOwned` drops its `TcpStream` → closes the
-    /// fd). Slot space is independent from `tcp_sockets`. wasm32: never
+    /// removes and shuts the socket down; the fd closes when the last `Arc`
+    /// drops. Slot space is independent from `tcp_sockets`. wasm32: never
     /// populated (TLS builtins return KIND_UNSUPPORTED).
     /// (**M2**: slot-id counter embedded in the registry.)
     #[cfg(not(target_arch = "wasm32"))]
     pub(crate) tls_sockets:
-        ResourceRegistry<rustls::StreamOwned<rustls::ClientConnection, std::net::TcpStream>>,
+        ResourceRegistry<std::sync::Arc<crate::corelib::tls::TlsSlot>>,
 
     // ── add-z42-net-udp (K2, 2026-05-25) ───────────────────────────────────
     /// live `Std.Net.Sockets.UdpClient` sockets keyed by monotonic u64 slot id.
-    /// `__net_udp_bind` inserts; `__net_udp_drop` removes (UdpSocket Drop closes
-    /// the fd). wasm32 target: never populated.
+    /// `__net_udp_bind` inserts; `__net_udp_drop` removes. Send / recv clone the
+    /// `Arc`; the fd closes when the last `Arc` drops. wasm32 target: never populated.
     /// (**M2**: slot-id counter embedded in the registry.)
     #[cfg(not(target_arch = "wasm32"))]
-    pub(crate) udp_sockets:          ResourceRegistry<std::net::UdpSocket>,
+    pub(crate) udp_sockets:          ResourceRegistry<std::sync::Arc<std::net::UdpSocket>>,
 
     /// **add-runtime-counters (2026-05-26)**: atomic observation-only
     /// counters for JIT compiles / builtin calls / native calls /
