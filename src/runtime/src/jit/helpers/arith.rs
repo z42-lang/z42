@@ -27,6 +27,16 @@ unsafe fn jit_stringify(ctx: *const JitModuleCtx, v: &Value) -> anyhow::Result<S
     }
 }
 
+/// Raise a stringification failure: the user `ToString`'s own exception when it
+/// threw (`dispatch::tostring_threw` parks it in `pending_thrown`), otherwise
+/// the error text. Returns the "thrown" sentinel.
+pub(crate) unsafe fn stringify_failed(ctx: *const JitModuleCtx, e: anyhow::Error) -> u8 {
+    let vm = vm_ctx_ref(ctx);
+    let exc = vm.take_pending_thrown().unwrap_or_else(|| Value::Str(e.to_string().into()));
+    set_exception(vm, exc);
+    1
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_add(
     frame: *mut JitFrame, ctx: *const JitModuleCtx,
@@ -51,11 +61,11 @@ pub unsafe extern "C" fn jit_add(
             // —— 对象/装箱 struct 操作数派发用户 `ToString`（只补一侧的话热代码与解释器不一致）。
             (Value::Str(sa), vb) => match jit_stringify(ctx, vb) {
                 Ok(t)  => Value::Str(format!("{}{}", sa, t).into()),
-                Err(e) => { set_exception(vm_ctx_ref(ctx), Value::Str(e.to_string().into())); return 1; }
+                Err(e) => return stringify_failed(ctx, e),
             },
             (va, Value::Str(sb)) => match jit_stringify(ctx, va) {
                 Ok(t)  => Value::Str(format!("{}{}", t, sb).into()),
-                Err(e) => { set_exception(vm_ctx_ref(ctx), Value::Str(e.to_string().into())); return 1; }
+                Err(e) => return stringify_failed(ctx, e),
             },
             _ => match semantics::int_binop(va, vb, i64::wrapping_add, |x, y| x + y) {
                 Ok(r)  => r,
