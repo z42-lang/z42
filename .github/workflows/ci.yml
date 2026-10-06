@@ -687,13 +687,16 @@ jobs:
                   [ "$so" = "$lib.so" ] || { echo "error: $lib.so SONAME is '$so', want $lib.so"; exit 1; }
               done
               # glibc 下限对账：产物的**硬**版本需求（verneed flag 0x00；0x02 是 Rust std 的弱引用，旧 glibc 照样加载）
-              # 不得高于 scripts/versions.toml [platform.linux].min_glibc 的声明。
-              want=$(sed -n 's/^min_glibc *= *"\([0-9.]*\)".*/\1/p' scripts/versions.toml)
+              # 不得高于 scripts/versions.toml [platform.linux] 的声明（x64：min_glibc，arm64：min_glibc_arm64）。
+              key=min_glibc
+              [ "${{ matrix.platform }}" = "linux-arm64" ] && key=min_glibc_arm64
+              want=$(sed -n "s/^$key *= *\"\([0-9.]*\)\".*/\1/p" scripts/versions.toml)
+              [ -n "$want" ] || { echo "error: $key missing in scripts/versions.toml"; exit 1; }
               for bin in "$pkg_dir/bin/z42vm" "$rt_dir/native/libz42.so" "$rt_dir/native/libz42_compression.so"; do
                   need=$(objdump -p "$bin" | awk '$2 == "0x00" && $4 ~ /^GLIBC_[0-9.]+$/ { sub("GLIBC_", "", $4); print $4 }' | sort -V | tail -1)
                   [ -n "$need" ] || { echo "error: could not read glibc version needs of $bin"; exit 1; }
                   [ "$(printf '%s\n%s\n' "$need" "$want" | sort -V | tail -1)" = "$want" ] \
-                      || { echo "error: $bin needs GLIBC_$need > declared min_glibc $want (scripts/versions.toml)"; exit 1; }
+                      || { echo "error: $bin needs GLIBC_$need > declared $key $want (scripts/versions.toml)"; exit 1; }
                   echo "✓ $(basename "$bin"): hard glibc need $need ≤ declared $want"
               done
               echo "✓ runtime native/: libz42.a + libz42.so (SONAMEs set)" ;;

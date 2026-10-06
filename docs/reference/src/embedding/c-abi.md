@@ -413,7 +413,7 @@ int main(void) {
 | Linux | `libz42.a`（另加 `-lc -lm -lpthread -ldl -lrt -lgcc_s`） | `libz42.so`：SONAME 是 `libz42.so`，宿主加 `-Wl,-rpath,<目录>`（如 `$ORIGIN`）或走 `LD_LIBRARY_PATH` |
 | Windows | `z42.lib` | 链 import lib `z42.dll.lib`，运行时 `z42.dll` 放在 exe 旁 |
 
-Linux 包要求 glibc ≥ 2.34。
+Linux 包要求 glibc ≥ 2.34（x64）、≥ 2.39（arm64）。
 
 ---
 
