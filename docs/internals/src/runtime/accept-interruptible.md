@@ -64,6 +64,8 @@ Windows 的 `WSAPoll` 只能 poll socket 所以还得换回环 socket 对 ——
 - **Close 能打断阻塞中的 read**：`drop` 摘表后对 socket 调 `shutdown(Both)`。对**已连接**的 socket，
   shutdown 在 Linux 和 macOS 上都能唤醒阻塞中的 recv（不像监听 socket 的 accept）。read 返回后发现
   槽位已经不在表里，报 `KIND_HANDLE_INVALID`（z42 侧的 `SocketClosedException`）。
+  **Windows 例外**：shutdown 唤不醒另一个线程里阻塞中的 recv（只有 `closesocket` 能，而别人还持有
+  `Arc` 时不能关 fd）。阻塞中的读要等到数据、对端关闭或读超时才返回，返回后同样报句柄已关。
 - **不泄漏 fd**：摘表的做法在读完后会把 socket 放回表里，已关闭的 socket 就此复活、fd 泄漏。
   现在 fd 在最后一个 `Arc` 放手时关闭。
 
@@ -80,7 +82,7 @@ Windows 的 `WSAPoll` 只能 poll socket 所以还得换回环 socket 对 ——
 |---|---|
 | `a_blocked_accept_is_woken_by_dropping_the_listener` | `corelib/network_tests.rs` —— 回退 `closed` 标志即**红**（实测 5.17 秒后报失败） |
 | `accept_still_returns_a_real_connection` | 正向对照：别把 bug 修成「accept 不工作」 |
-| `a_socket_is_full_duplex_and_close_wakes_a_blocked_read` | `corelib/network_tests.rs` —— 读阻塞期间能写；Close 唤醒读并报句柄已关；槽位不复活 |
+| `a_socket_is_full_duplex_and_close_wakes_a_blocked_read` | `corelib/network_tests.rs` —— 读阻塞期间能写；Close 后读报句柄已关（unix 上由 Close 唤醒）；槽位不复活 |
 
 > 🔴 那条回归测试**必须用 detached 线程 + 带超时的 channel**，不能用 `thread::scope`：
 > scope 退出时会 join worker，于是回退实现时**整个测试进程挂住**（CI 超时），而不是报一条失败。

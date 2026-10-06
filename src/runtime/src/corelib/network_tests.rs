@@ -396,7 +396,8 @@ fn accept_still_returns_a_real_connection() {
 }
 
 /// 读写只克隆 `Arc`、不摘表：一个线程阻塞在 read 时，另一个线程照样能 write（全双工）；
-/// Close 唤醒阻塞中的 read，read 报句柄已关，槽位不会被放回表里。
+/// Close 后阻塞中的 read 返回时报句柄已关，槽位不会被放回表里。Close 唤醒阻塞中的 read
+/// 只在 unix 上成立（Windows 的 shutdown 唤不醒 recv）。
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn a_socket_is_full_duplex_and_close_wakes_a_blocked_read() {
@@ -438,8 +439,11 @@ fn a_socket_is_full_duplex_and_close_wakes_a_blocked_read() {
     assert_eq!(kind_of(&w), Some(0), "读阻塞期间写必须成功，不能报句柄无效");
     assert_eq!(got_rx.recv_timeout(std::time::Duration::from_secs(5)).expect("client got data"), *b"ping");
 
-    // 读阻塞期间关闭。
+    // 读阻塞期间关闭。Unix 上 shutdown 唤醒阻塞中的 recv；Windows 上唤不醒，
+    // 由对端关闭来结束这次读 —— 两边返回后都必须报句柄已关、槽位不复活。
     builtin_net_tcp_socket_drop(&ctx, &[Value::I64(sock)]).expect("drop");
+    #[cfg(not(unix))]
+    let _ = done_tx.send(());
     match read_rx.recv_timeout(std::time::Duration::from_secs(5)) {
         Ok(kind) => assert_eq!(kind, Some(2), "关闭后阻塞中的 read 应报 KIND_HANDLE_INVALID"),
         Err(_) => panic!("关闭 socket 后 5 秒，阻塞中的 read 仍未返回"),
