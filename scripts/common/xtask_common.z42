@@ -512,11 +512,39 @@ string _seedRunLibs(string root, string profile) {
 // (WARM). When absent (COLD), stage the resolved seed (Z42_LIBS / Z42_HOME
 // (--toolchain) / apphost SDK) into the in-tree layout — mirroring what CI used to
 // hand-copy. Returns 0 on success (or already warm), 1 if no seed source.
+// 供种覆盖了成员 m 的 dist ⇒ 作废它的增量 cache（让 workspace 自建按当前源重编，而不是 preserved 种子产物），
+// 并让 zsym 与种子 zpkg 配对：种子带 zsym 就用它的，不带就删掉 dist 里上一次构建留下的那份。
+void _seedInvalidateMember(string root, string m, string profile, string dist, string seedDir) {
+    string cache = _memberCache(_compilerWsToml(root), m, profile);
+    if (Directory.Exists(cache)) { Directory.Delete(cache, true); }
+    string seedSym = Path.Join(seedDir, m + ".zsym");
+    string distSym = Path.Join(dist, m + ".zsym");
+    if (File.Exists(distSym)) { File.Delete(distSym); }
+    if (File.Exists(seedSym)) { File.Copy(seedSym, distSym); }
+}
+
 int _ensureSeed(string root) {
     string profile = "release";
     string flatDir = _libsFlatDist(root, profile);
     string inDriver = _driverZpkg(root, profile);
     string inCore = Path.Join(flatDir, "z42.core.zpkg");
+    // 🔴 **只缺 flat ≠ 冷树**。flat 是 stdlib 成员 dist 汇聚出的视图（clean intermediate、手动删都会让它没了），
+    // 而 driver 还是本树当前那一代。此前这里一律落到下面的整树供种 ⇒ 用**上一代**种子覆盖当前的编译器成员 dist，
+    // 偏偏增量缓存还在 ⇒ workspace 自建「preserved」把种子产物当本代留下（emission 对着旧 semantics 报 E0404、
+    // 自举不动点 gen1≠gen2）。只缺 flat 时只给 flat 铺种子 stdlib，编译器一个不碰；随后 `build stdlib` 按当前源重建。
+    int wantGen = _treeZpkgMinor(root);
+    if (File.Exists(inDriver) && File.GetSize(inDriver) > 0L && !File.Exists(inCore)
+        && (wantGen <= 0 || _zpkgFileMinor(inDriver) == wantGen)) {
+        string seedLibs = _seedStdlibDir(root);
+        if (seedLibs.Length > 0) {
+            _vNormal("  seed: flat 缺失、driver 是本代 → 只铺种子 stdlib 进 flat（不动编译器）← " + seedLibs);
+            SeedStage.NoteStdlibFrom(seedLibs);
+            Directory.Create(flatDir);
+            _copyAll(seedLibs, flatDir, "z42.*.zpkg");
+            _copyAll(seedLibs, flatDir, "z42.*.zsym");
+            if (File.Exists(inCore)) { return 0; }
+        }
+    }
     if (File.Exists(inDriver) && File.GetSize(inDriver) > 0L
         && File.Exists(inCore) && File.GetSize(inCore) > 0L) {
         // ⚠️ 「在不在」不等于「能用」——warm 判据此前只有 Exists + size>0，于是**任意老的**
@@ -582,6 +610,10 @@ int _ensureSeed(string root) {
     // 随后的 `build --workspace` 按拓扑序从当前源建出每个成员。缺了就跳过、打一行提示；唯独 driver 必须有
     // （它就是种子本身，下面的种子 driver 要靠它跑）。此前一律报错 ⇒ 新增成员的 PR 冷启动必红，而 nightly
     // 只从绿的 main 发布 ⇒ 永远拿不到带新成员的种子（死锁）。
+    //
+    // 🔴 **成员 dist 与它的增量缓存必须出自同一次构建**。往 dist 里放种子产物时，同时作废该成员的 cache、删掉
+    // 配不上的 zsym（种子的 programs/z42c 不带 zsym）—— 否则随后的 workspace 自建判「源没变」直接 preserved，
+    // 种子那一代的产物就冒充了当前源的产物。
     string[] members = _compilerMembers(root);
     int i = 0;
     while (i < members.Length) {
@@ -589,6 +621,9 @@ int _ensureSeed(string root) {
         string dst = _compilerMemberDist(root, m, profile);
         Directory.Create(dst);
         _copyAll(driverHome, dst, m + ".zpkg");
+        if (File.Exists(Path.Join(dst, m + ".zpkg"))) {
+            _seedInvalidateMember(root, m, profile, dst, driverHome);
+        }
         if (!File.Exists(Path.Join(dst, m + ".zpkg"))) {
             if (m == "z42c.driver") {
                 ConsoleError.WriteLine("error: seed missing " + m + ".zpkg in " + driverHome);
@@ -606,8 +641,10 @@ int _ensureSeed(string root) {
     string driverDist = _driverDist(root, profile);
     Directory.Create(driverDist);
     _copyAll(driverHome, driverDist, "z42c.*.zpkg");
+    _copyAll(driverHome, driverDist, "z42c.*.zsym");
     Directory.Create(flatDir);
     _copyAll(stdlibDir, flatDir, "z42.*.zpkg");
+    _copyAll(stdlibDir, flatDir, "z42.*.zsym");
     if (!File.Exists(inCore)) {
         ConsoleError.WriteLine("error: seed stdlib missing z42.core.zpkg in " + stdlibDir);
         return 1;

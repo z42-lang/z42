@@ -83,11 +83,23 @@ graph TD
 > **中间态跟着 owner 落 `artifacts/build/` 的镜像**：`stdlib-run` 快照、`selfhost-gen1` 等编译器自举工作区是
 > 编译器 workspace 级的，落 `build/compiler/<name>`；测试类落各组件的 `tests/`（见[产物布局 §3](artifacts-layout.md)）。开发树的 `Z42_LIBS` 只是 stdlib flat，编译器包运行期经 `Z42_PROBING_PATHS`，见 [产物布局](artifacts-layout.md)。
 
+
+### 供种不能让成员 dist 与缓存错代
+
+冷启动供种把种子的编译器包拷进各成员 dist，**同时作废该成员的增量 cache、删掉配不上的 zsym**
+（种子的 `programs/z42c/` 不带 zsym）。否则随后的 workspace 自建判「源没变」直接 preserved，
+**种子那一代的产物就冒充了当前源的产物**：新拆出的包对着旧版兄弟编（如 emission 访问 semantics 里刚改成
+public 的成员报 E0404），自举不动点 gen1≠gen2，加载时满屏 `build_id mismatch`——而第二轮又全好了，极难定位。
+
+**只缺 flat 不算冷树**：flat 是 stdlib 成员 dist 汇聚出的视图（`clean intermediate` 会删它），driver 仍是本代时
+只给 flat 铺种子 stdlib，编译器一个不碰；随后 `build stdlib` 按当前源重建并重新汇聚。
+
 ### driver 的自包含化与两处破环
 
-`_ensureDriverSelfContained` 把非-driver 的编译器成员 zpkg，外加扁平 dist 里的
-`z42c.core.zpkg` / `z42c.syntax.zpkg`，复制进 `z42c.driver` 的 dist。于是下游一律跑
-**自包含 driver**（兄弟包从自身目录解析，`Z42_LIBS` 只需 stdlib），不用再拼 colocated 目录。
+`_ensureDriverSelfContained` 把非-driver 的编译器成员（zpkg 与 zsym **成对**），复制进 `z42c.driver` 的 dist。
+于是下游一律跑**自包含 driver**（兄弟包从自身目录解析，`Z42_LIBS` 只需 stdlib），不用再拼 colocated 目录。
+破环窗口里 flat 有当前源预建的 `z42c.core` / `z42c.syntax` 时用它们（见下表第二个环）；自建收尾**先清 flat 里的
+预建、再做最后一次自包含**，最终 bundle 与成员 dist 是同一份产物。
 
 两个环只在冷启动（fresh checkout / 新 CI runner）出现，处置都是「被依赖方先 fresh，再重试一遍」：
 
