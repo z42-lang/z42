@@ -1394,19 +1394,18 @@ jobs:
       - package-wasm
       - toolchain-bootstrap   # provides the toolchain-<os> artifact for `xtask release`
     runs-on: ubuntu-latest
-    # Serialize publish-nightly across ALL events/runs: it does `gh release delete
-    # nightly` → `gh release create nightly`, which two concurrent runs (e.g. a push
-    # and the daily schedule, now in separate top-level concurrency groups) would
-    # race on — one deletes the release out from under the other's edit → HTTP 403 /
-    # stuck-draft. cancel-in-progress: false queues the newer run so the in-flight
-    # publish finishes cleanly, then the newer SHA republishes. Job-level group, so
-    # only publish-nightly is serialized — build/test stay decoupled per event.
+    # Serialize publish-nightly across ALL events/runs: two concurrent runs (e.g. a push
+    # and the daily schedule, in separate top-level concurrency groups) would interleave
+    # their asset uploads / tag moves on the one `nightly` release. cancel-in-progress:
+    # false queues the newer run so the in-flight publish finishes cleanly, then the
+    # newer SHA republishes. Job-level group, so only publish-nightly is serialized —
+    # build/test stay decoupled per event.
     concurrency:
       group: publish-nightly-${{ github.ref }}
       cancel-in-progress: false
     permissions:
       actions: read     # setup-z42-sdk 回退（gh run download）
-      contents: write   # gh release create / delete
+      contents: write   # gh release upload / edit / create + tag ref PATCH
     steps:
       - uses: actions/checkout@v7
 
@@ -1433,7 +1432,19 @@ jobs:
           ls -la artifacts/packages/archives/
           xtask package finalize nightly --channel nightly --tag nightly --version nightly
 
-      - name: Force-replace nightly release
+      # Update the `nightly` release IN PLACE — never delete → recreate.
+      #
+      # Deleting and recreating the same tag name is racy on GitHub's side: a delayed
+      # deletion of the old `nightly` tag can land minutes AFTER the new tag was created,
+      # and a release whose tag vanishes silently turns back into a DRAFT — invisible to
+      # other runs' GITHUB_TOKEN, so every seed download fails and CI deadlocks (this
+      # step's own "not a draft" check had already passed by then). So the release object
+      # and its tag are kept forever; each publish only (1) uploads assets with --clobber,
+      # (2) drops assets this build no longer ships, (3) moves the tag with a ref PATCH,
+      # (4) edits title / notes / target. At no point does the release or its tag stop
+      # existing. (During an upload a downloader may still get the previous build's copy
+      # of that asset — a complete archive either way.)
+      - name: Update nightly release in place
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -1441,8 +1452,6 @@ jobs:
           set -euo pipefail
           short_sha=$(git rev-parse --short HEAD)
           today=$(date -u +%Y-%m-%d)
-          # Delete prior nightly (release + tag); ignore if absent.
-          gh release delete nightly --yes --cleanup-tag 2>/dev/null || true
           notes=$(cat <<EOF
           **Rolling pre-release** built from \`main\` on ${today} (commit \`${short_sha}\`).
 
@@ -1485,23 +1494,46 @@ jobs:
           Verify: \`shasum -a 256 -c SHA256SUMS --ignore-missing\`
           EOF
           )
-          gh release create nightly --prerelease --target "$GITHUB_SHA" \
-            --title "Nightly (main @ ${short_sha} · ${today})" \
-            --notes "$notes" \
-            artifacts/packages/archives/SHA256SUMS artifacts/packages/archives/release-index.json artifacts/packages/archives/z42-* \
-            scripts/install/install.sh scripts/install/install.ps1
-          # Defensive (fix-nightly-draft): the nightly MUST be a published (non-draft)
-          # release — a DRAFT is invisible to other runs' GITHUB_TOKEN, so every
-          # download-bootstrap job (build-and-test, compile-toolchain,
-          # vm-jit/stdlib-jit) fails with "release not found", and since build-and-test
-          # now seeds from the nightly, that DEADLOCKS the self-heal (no run can
-          # republish a fixed nightly). Some create paths (tag recreation after
-          # --cleanup-tag) can leave it draft, so force-publish + verify here.
-          gh release edit nightly --draft=false --prerelease
-          if [ "$(gh release view nightly --json isDraft -q .isDraft)" = "true" ]; then
-            echo "::error::nightly release is still a draft after edit — download-bootstrap jobs will fail"; exit 1
+          title="Nightly (main @ ${short_sha} · ${today})"
+          assets=(artifacts/packages/archives/SHA256SUMS artifacts/packages/archives/release-index.json
+                  artifacts/packages/archives/z42-* scripts/install/install.sh scripts/install/install.ps1)
+          if gh release view nightly >/dev/null 2>&1; then
+            # (1) assets first — same names, --clobber replaces each one
+            gh release upload nightly "${assets[@]}" --clobber
+            # (2) drop assets this build no longer ships (e.g. a renamed package)
+            keep=" "
+            for f in "${assets[@]}"; do keep="${keep}$(basename "$f") "; done
+            for name in $(gh release view nightly --json assets -q '.assets[].name'); do   # asset names have no spaces
+              case "$keep" in
+                *" $name "*) ;;
+                *) echo "  removing stale asset $name"; gh release delete-asset nightly "$name" --yes ;;
+              esac
+            done
+            # (3) move the tag to this commit — the release follows the tag NAME, so it never detaches
+            gh api -X PATCH "repos/${GITHUB_REPOSITORY}/git/refs/tags/nightly" -f sha="$GITHUB_SHA" -F force=true >/dev/null
+            # (4) metadata; target = the commit setup-z42-sdk records as the seed identity
+            gh release edit nightly --title "$title" --notes "$notes" --target "$GITHUB_SHA" --prerelease --draft=false
+          else
+            # No nightly at all (first publish, or deleted by hand): create once; later runs only update.
+            gh release create nightly --prerelease --target "$GITHUB_SHA" --title "$title" --notes "$notes" "${assets[@]}"
           fi
-          echo "✓ nightly published (non-draft) — reachable by GITHUB_TOKEN"
+          # Verify: published (a DRAFT is invisible to other runs' GITHUB_TOKEN ⇒ every
+          # download-bootstrap job fails), tag on this commit, every asset present.
+          if [ "$(gh release view nightly --json isDraft -q .isDraft)" = "true" ]; then
+            echo "::error::nightly release is a draft — download-bootstrap jobs will fail"; exit 1
+          fi
+          tag_sha=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/nightly" -q .object.sha)
+          if [ "$tag_sha" != "$GITHUB_SHA" ]; then
+            echo "::error::nightly tag points at $tag_sha, expected $GITHUB_SHA"; exit 1
+          fi
+          have=" $(gh release view nightly --json assets -q '.assets[].name' | tr '\n' ' ')"
+          for f in "${assets[@]}"; do
+            case "$have" in
+              *" $(basename "$f") "*) ;;
+              *) echo "::error::asset $(basename "$f") missing after publish"; exit 1 ;;
+            esac
+          done
+          echo "✓ nightly @ ${short_sha} published in place (non-draft, tag moved, assets complete)"
 
   # ── Platform test pipeline → cross-platform CI dashboard ─────────────────
   # `z42 xtask.zpkg test platform <p>` (add-platform-test-pipeline) on real
