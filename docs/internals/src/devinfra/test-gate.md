@@ -45,6 +45,7 @@ graph LR
 - `e2e cross-zpkg`
 - `e2e multi-exe`
 - `stdlib [Test]`
+- `toolchain [Test]`
 - `stdlib [Benchmark]`
 - `manifest targets ([[test]] + [[example]])`
 - `examples (learn book transcripts)`
@@ -101,6 +102,7 @@ fixture、debug VM 跑 `main.zpkg`——跨包 dispatch 的 debug 断言覆盖�
 | `e2e goldens` | 端到端语义。**只跑 interp**——cranelift JIT 行为 host-independent，jit 由专门的 CI 腿覆盖，在每个 OS 腿都跑一遍是 5× 冗余 | 主力 stage |
 | `e2e cross-zpkg` / `multi-exe` | 跨包行为；一工程产 N 个 exe zpkg | 见 §3 |
 | `stdlib [Test]` | 库正确性 | 最大的一块之一 |
+| `toolchain [Test]` | 工具链组件（REPL 键位策略等）自己的 `[Test]` unit；与 stdlib 同一个 runner，单列成 stage 是因为 CI 的 host 腿 `--skip stdlib`，而这些用例多与宿主相关、应在每条 host 腿上跑 | 秒级 |
 | `stdlib [Benchmark]` | **只验语料能不能跑**，不看快慢 | 全量约 14.6 s、零噪声、host-independent |
 | `manifest targets` | 清单驱动的 `[[test]]` / `[[example]]` target 契约 | — |
 | `examples` | 学习手册示例逐条可运行且与书一致（书 ↔ 示例引用 + 用 SDK 里真实的 `z42` 重放每个 `.console`） | 完整 gate 先 `build sdk`；`--no-build` 缺 SDK 即红 |
@@ -291,7 +293,7 @@ walker 文件里找 `is <类名>`；全集里既不被匹配、又不在该 walk
 
 除 build wave 与 `e2e goldens` 外，其余 stage 都可经 `--skip <csv>` 下放到独立 CI job
 （`_skipHas`）。skip 名是短名，**不等于 banner 全名**：`rust-units` / `cross-zpkg` / `multi-exe` / `stdlib` /
-`bench` / `targets` / `examples` / `docs` / `compiler` / `gcgen` / `vscode` / `lines` / `walkers` / `diagcodes` /
+`toolchain` / `bench` / `targets` / `examples` / `docs` / `compiler` / `gcgen` / `vscode` / `lines` / `walkers` / `diagcodes` /
 `stage2` / `ci-shell` / `proc-env` / `layout`。
 
 skip 只影响**在哪跑**，不改变 gate 的 stage 组成，所以 §1 的清单不随 `--skip` 变化，
@@ -339,7 +341,7 @@ verbosity ≥ 4 才输出，而 CI 跑的是默认 verbosity——于是 `xtask 
 | `src/compiler/z42c.pipeline/tests/fixtures/cross-zpkg/` | `test e2e --dir cross-zpkg` |
 | 其余 `src/tests/` | `test e2e` |
 | `src/compiler/` | `test compiler` + `test e2e` |
-| `src/toolchain/` | `test stdlib`（工具链影响 `[Test]` 的执行方式，全库扫）|
+| `src/toolchain/` | `test stdlib`（工具链影响 `[Test]` 的执行方式，全库扫）+ `test toolchain`（组件自己的 unit）|
 | `examples/<part>/<chapter>/…` | `test examples <part>/<chapter>` |
 | `docs/learn/` | `test examples --book-only` |
 | `src/toolchain/launcher/`、`src/toolchain/builder/` | 追加 `test examples`（命令行输出一变，手册里的会话脚本就失配）|

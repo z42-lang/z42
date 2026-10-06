@@ -468,6 +468,7 @@ string[] _gateStageNames() {
         "e2e cross-zpkg",
         "e2e multi-exe",
         "stdlib [Test]",
+        "toolchain [Test]",
         "stdlib [Benchmark]",
         "manifest targets ([[test]] + [[example]])",
         "examples (learn book transcripts)",
@@ -624,6 +625,14 @@ int _testAll(bool noBuild, string skip) {
         swStage = _stageStart("stdlib [Test]");
         c = _testLibCore("test", new string[0], true, "", "4", "interp", null, "", "", ""); if (c != 0) { return c; }
         _stageEnd(slog, "stdlib [Test]", swStage);
+    }
+    // stage 4a1: 工具链组件的 [Test] 单元（test-layout §1；src/toolchain/<comp>/**/tests）。与 stdlib 同一个
+    // runner，单独成 stage：CI 的 host 腿 `--skip stdlib`（stdlib 另有分 OS 的 job），工具链用例量小、
+    // 又多是 host 相关（REPL 终端键位），就留在每条 host 腿上跑。
+    if (!_skipHas(skip, "toolchain")) {
+        swStage = _stageStart("toolchain [Test]");
+        c = _testToolchainCore("", true, ""); if (c != 0) { return c; }
+        _stageEnd(slog, "toolchain [Test]", swStage);
     }
     // stage 4a2: stdlib [Benchmark] —— 只验**语料能不能跑**，不看快慢。
     //

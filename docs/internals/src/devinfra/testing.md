@@ -11,13 +11,14 @@
 
 这页回答三个问题：有哪几层测试、各层**单跑时**有哪些旗标、**我改了 X 该验什么**。
 
-## 1. 四层 + 一个门禁
+## 1. 五层 + 一个门禁
 
 | 层 | 测什么 | 命令 |
 |---|---|---|
 | 编译器 | z42c 自编自的**不动点**（gen1 == gen2 逐字节）+ 编译器源码里的 `[Test]` unit | `xtask test compiler` |
 | VM golden | `src/tests/**/source.z42` 端到端，interp + JIT 双模 | `xtask test e2e` |
 | stdlib `[Test]` | `src/libraries/<lib>/tests/`，由 `z42b` 调度 | `xtask test stdlib [<lib>]` |
+| 工具链 `[Test]` | `src/toolchain/<comp>/` 下各工程的 `tests/`（`fixtures/` 除外），runner 同 stdlib | `xtask test toolchain [<comp>]` |
 | Rust VM 单测 | `src/runtime/src/*_tests.rs` + `src/runtime/tests/*.rs` | `xtask test runtime` |
 
 ```bash
@@ -28,8 +29,8 @@
 `--no-build` 跳过它、消费已有产物。**Rust VM 单测不在 gate 内**——它的
 signal-crash helper 会挂死整套 `cargo test`，所以 CI 每条腿单列一步。
 
-> `xtask test all --help` 里 `--skip` 只列了四个 stage 名，实际接受十二个；
-> 以[测试门禁 §5](test-gate.md) 的清单为准。
+> `xtask test all --help` 里 `--skip` 只列了常用的几个 stage 名；完整的 skip 名清单以
+> [测试门禁 §5](test-gate.md) 为准。
 
 除四层外，gate 里还串着若干**门禁型** stage，各自也能单跑：
 

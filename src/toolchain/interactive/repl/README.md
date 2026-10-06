@@ -29,7 +29,8 @@ compiler-consuming 库（依赖 z42.scripting → z42c.*），用「warm z42c + 
 xtask build toolchain    # 建 z42.scripting → z42.repl → z42.interactive（合并 Z42_LIBS）
 ```
 键位策略的纯函数（`parse_action`）覆盖在 cdylib Rust 单测 `src/runtime/crates/z42-repl/src/editing.rs`（`cargo test -p z42-repl`）；
-z42 侧 golden `tests/repl_editing/` 直调 `ReplEditing.KeyEdit`（与 rustyline 回调同一策略）。
+z42 侧 `[Test]` unit `tests/repl_editing.z42` 直调 `ReplEditing.KeyEdit`（与 rustyline 回调同一策略），
+由 `xtask test toolchain interactive` 跑（GREEN 的 `toolchain [Test]` stage）。
 CI 全量 GREEN 以 toolchain 构建（`xtask build toolchain`）+ dist smoke（`z42 repl -c "1+2"`）为准。
 
 ## 关联文档
