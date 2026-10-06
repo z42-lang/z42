@@ -4,6 +4,7 @@
 /// ------------
 /// * `frame.rs`        — JitFrame (register file) and JitModuleCtx (per-run shared state)
 /// * `lazy.rs`         — LazyCompiler: per-function compilation on first call / OSR entries
+/// * `invoke.rs`       — `call_native`: the single push_frame → native code → pop_frame sequence
 /// * `helpers/`        — `extern "C"` helper functions called by JIT code, split
 ///                       by `Instruction` category and registered through
 ///                       `helpers::registry`. See `helpers/mod.rs` for the list.
@@ -14,6 +15,9 @@
 
 pub(crate) mod frame; // runtime-jit-tiering Phase 1.5: interp dispatch reaches JitFrame/JitModuleCtx
 pub(crate) mod helpers;
+/// The single native-call sequence (push_frame → compiled code → pop_frame), shared by
+/// the JIT entry, the call helpers and the interpreter's mixed-mode diverts.
+pub(crate) mod invoke;
 /// Lazy per-function compilation state (lazy-per-function-jit, 2026-07-23).
 mod lazy;
 /// Centralized `frame.regs` slot access — the single load/store choke point
@@ -35,7 +39,7 @@ use anyhow::Result;
 use crate::vm_context::VmContext;
 use frame::{JitFrame, JitModuleCtx};
 use lazy::LazyCompiler;
-use helpers::{take_exception_error, JitFn};
+use helpers::take_exception_error;
 use std::sync::Mutex;
 
 // ─── Public API ─────────────────────────────────────────────────────────────
@@ -191,25 +195,14 @@ impl JitModule {
                 };
             }
         };
-        let mut frame = JitFrame::new(entry.max_reg, &[]);
-        let f: JitFn = unsafe { std::mem::transmute(entry.ptr) };
-        // 2026-05-10 unify-frame-chain: single push enrolling this entry
-        // frame's regs / env_arena (GC roots) + name / file (trace) in
-        // one VmFrame. Inner JIT calls are wrapped by jit_call / jit_vcall
-        // / jit_call_indirect / jit_obj_new / jit_to_str on the same
-        // unified API.
-        ctx.push_frame(crate::exception::VmFrame::new(
-            entry.name.clone(),
-            entry.file.clone(),
-            &frame.regs as *const _,
-            &frame.env_arena as *const _,
-        ));
-        let r = unsafe { f(&mut frame, &*self.ctx) };
-        ctx.pop_frame();
-        frame.recycle();
+        // One `VmFrame` push enrolling the entry frame's regs / env_arena (GC roots)
+        // + name / file (trace); inner calls go through the same `invoke::call_native`.
+        let outcome = unsafe {
+            invoke::call_entry(ctx, &*self.ctx as *const JitModuleCtx, &entry, JitFrame::new(entry.max_reg, &[]))
+        };
         self.ctx.vm_ctx = std::ptr::null_mut();
         ctx.set_jit_ctx(0); // keep jit_ctx in lockstep with vm_ctx
-        if r != 0 {
+        if let invoke::NativeOutcome::Threw = outcome {
             // SAFETY: ctx.module set in compile_module from a &Module that
             // outlives the JitModule (caller-owned). Deref is safe here.
             let module = unsafe { &*self.ctx.module };

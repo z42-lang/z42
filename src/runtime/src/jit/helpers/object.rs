@@ -6,7 +6,8 @@ use crate::interp::dispatch::isa_td;
 use crate::metadata::{NativeData, Value};
 
 use super::super::frame::{JitFrame, JitModuleCtx};
-use super::{set_exception, vm_ctx_ref, JitFn};
+use super::super::invoke::{call_entry, NativeOutcome};
+use super::{set_exception, vm_ctx_ref};
 
 // ── Object allocation ────────────────────────────────────────────────────────
 
@@ -188,16 +189,9 @@ pub unsafe extern "C" fn jit_obj_new(
             set_exception(vm_ctx_ref(ctx), exc);
             return 1;
         }
-        let mut callee = JitFrame::new(entry.max_reg, &ctor_args);
-        let jit_fn: JitFn = std::mem::transmute(entry.ptr);
-        let vm_ctx = vm_ctx_ref(ctx);
-        vm_ctx.push_frame(crate::exception::VmFrame::new(
-            entry.name.clone(), entry.file.clone(),
-            &callee.regs as *const _, &callee.env_arena as *const _));
-        let r = jit_fn(&mut callee, ctx);
-        vm_ctx.pop_frame();
-        callee.recycle();
-        if r != 0 { return 1; }
+        let callee = JitFrame::new(entry.max_reg, &ctor_args);
+        // The ctor mutates `this` in place; its (void) return value is discarded.
+        if let NativeOutcome::Threw = call_entry(vm_ctx_ref(ctx), ctx, entry, callee) { return 1; }
     } else {
         let vm_ctx = vm_ctx_ref(ctx);
         let oc = if let Some(callee) = module.func_index.get(ctor_name)

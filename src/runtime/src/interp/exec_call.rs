@@ -47,20 +47,22 @@ fn try_native_static_call(
         (entry.max_reg, entry.ptr, entry.name.clone(), entry.file.clone())
     };
     ctx.counters().jit_native_from_interp.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let mut callee = crate::jit::frame::JitFrame::new_args_from(max_reg, &frame.regs, args);
-    let jit_fn: crate::jit::helpers::JitFn = unsafe { std::mem::transmute(ptr) };
-    ctx.push_frame(crate::exception::VmFrame::new(
-        name, file, &callee.regs as *const _, &callee.env_arena as *const _));
-    let r = unsafe { jit_fn(&mut callee, jit_ctx) };
-    ctx.pop_frame();
-    if r != 0 {
-        callee.recycle();
-        return Some(Ok(Some(ctx.take_exception().unwrap_or(Value::Null))));
+    let callee = crate::jit::frame::JitFrame::new_args_from(max_reg, &frame.regs, args);
+    let outcome = unsafe { crate::jit::invoke::call_native(ctx, jit_ctx, ptr, name, file, callee) };
+    Some(Ok(native_result_to_dst(ctx, frame, dst, outcome)))
+}
+
+/// Shared tail of the two per-site native diverts (`try_native_static_call` /
+/// `exec_vcall::try_native_method_call`): a return lands in `dst` (`Null` for
+/// void), a throw is taken off the context and propagated as `Some(exception)`.
+#[cfg(feature = "jit")]
+pub(super) fn native_result_to_dst(
+    ctx: &VmContext, frame: &mut Frame, dst: u32, outcome: crate::jit::invoke::NativeOutcome,
+) -> Option<Value> {
+    match outcome.into_exec(ctx) {
+        ExecOutcome::Returned(ret) => { frame.set(dst, ret.unwrap_or(Value::Null)); None }
+        ExecOutcome::Thrown(exc) => Some(exc),
     }
-    let ret = callee.ret.take().unwrap_or(Value::Null);
-    callee.recycle();
-    frame.set(dst, ret);
-    Some(Ok(None))
 }
 
 #[cfg(not(feature = "jit"))]

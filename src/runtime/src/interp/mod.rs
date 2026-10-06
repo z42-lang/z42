@@ -76,45 +76,9 @@ fn exec_function_body(ctx: &VmContext, module: &Module, func: &Function, mut fra
         }
     }
 
-    // 2026-05-10 unify-frame-chain: single push enrolling this frame as
-    // GC root + stack-trace metadata in one VmFrame entry. file taken
-    // from the line_table's first entry; falls back to empty when the
-    // emitter omits redundant file references.
-    //
-    // SAFETY: regs / env_arena Vec live inside `frame` on the Rust call
-    // stack; raw pointers stay valid until this function returns.
-    // FrameGuard's Drop pops on every exit path (`?` propagation, panic
-    // unwind, normal return).
-    // perf-frame-name-precompute: clone the load-time precomputed (name, file)
-    // Arc<str> pair — O(1) refcount bumps — instead of re-formatting the frame
-    // name (String alloc + format) + cloning the file string on every call
-    // (was 40–60% of call-heavy interp time). Hand-built test functions have no
-    // precomputed meta (`None`) → fall back to formatting on the fly.
-    let (frame_name, frame_file) = match &func.frame_meta {
-        Some((name, file)) => (name.clone(), file.clone()),
-        None => {
-            let file = func.line_table().first()
-                .and_then(|e| e.file.clone())
-                .unwrap_or_default();
-            (
-                std::sync::Arc::from(crate::metadata::bytecode::format_frame_name(func)),
-                std::sync::Arc::from(file),
-            )
-        }
-    };
-    // add-escape-analysis-stack-alloc: stamp this frame's monotonic id (keys any
-    // stack-allocated objects/arrays it creates, for stale-handle diagnostics).
-    frame.frame_id = ctx.next_frame_id();
-    ctx.push_frame(crate::exception::VmFrame::new(
-        frame_name,
-        frame_file,
-        &frame.regs as *const Vec<Value>,
-        &frame.env_arena as *const Vec<Vec<Value>>,
-    ));
-    let _frame_guard = FrameGuard { ctx };
-    // runtime-audit P0-4: stack overflow is fatal — checked once the frame is
-    // on the call stack, so the report includes it.
-    crate::stack_guard::check(ctx)?;
+    // Enrol `frame` as GC root + stack-trace row; the guard pops it on every exit
+    // path. `enter_frame` also runs the (fatal) stack-overflow check, after the push.
+    let _frame_guard = enter_frame(ctx, func, &mut frame)?;
 
     // add-gc-safepoint (2026-05-20): every newly-entered z42 function immediately respects a
     // pending GC request — a worker thread spawned mid-collect parks here before touching any
