@@ -235,17 +235,27 @@ pub fn builtin_delegate_eq(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     Ok(Value::Bool(result))
 }
 
-/// Identity-based hash code derived from the Rc pointer address.
+/// Identity hash of a heap address: non-negative 31 bits, stable because the
+/// GC never moves objects. The address itself is a poor hash — allocations
+/// are aligned, so its low bits are constant, and `Dictionary` picks the
+/// bucket from the low bits (`h & mask`). A Fibonacci multiply spreads every
+/// address bit into the high half, which is what we keep.
+pub(crate) fn identity_hash(addr: usize) -> i64 {
+    let mixed = (addr as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+    ((mixed >> 33) & 0x7fff_ffff) as i64
+}
+
+/// Identity-based hash code derived from the object's address.
 pub fn builtin_obj_hash_code(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
     match args.first() {
         Some(Value::Object(gc)) => {
-            let addr = crate::gc::GcRef::as_ptr(gc) as *const _ as i64;
-            Ok(Value::I64((addr & 0x7fff_ffff) as i64))
+            let addr = crate::gc::GcRef::as_ptr(gc) as *const _ as *const u8 as usize;
+            Ok(Value::I64(identity_hash(addr)))
         }
         // 2026-05-07 add-array-base-class: identity hash for Value::Array
         Some(Value::Array(gc)) => {
-            let addr = crate::gc::GcRef::as_ptr(gc) as *const _ as i64;
-            Ok(Value::I64((addr & 0x7fff_ffff) as i64))
+            let addr = crate::gc::GcRef::as_ptr(gc) as *const _ as *const u8 as usize;
+            Ok(Value::I64(identity_hash(addr)))
         }
         Some(Value::Null) => Ok(Value::I64(0)),
         _ => bail!("__obj_hash_code: expected an object"),
@@ -286,3 +296,7 @@ pub fn builtin_obj_to_str(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
 
 // 2026-04-27 wave1-assert-script: 6 `builtin_assert_*` functions removed.
 // `Std.Assert` is now pure z42 script in `z42.core/src/Assert.z42`.
+
+#[cfg(test)]
+#[path = "object_tests.rs"]
+mod object_tests;
