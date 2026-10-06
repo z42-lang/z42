@@ -92,6 +92,19 @@ void test_qualified_static_and_free_calls_need_no_using() {
 }
 
 [Test]
+void test_qualified_static_members_and_enum_constants_need_no_using() {
+    // 全限定的静态字段 / const / 枚举常量 / 嵌套类型的静态成员（`B2.K.N` / `B2.Shade.Light` / `B2.Outer.Inner.Deep`）。
+    if (!ugHasLibs()) { return; }
+    string lib = "namespace B2;\npublic static class K { public static int N = 3; public const int C = 4; }\n"
+        + "public enum Shade { Dark, Light }\n"
+        + "public class Outer { public static class Inner { public static int Deep = 5; } }\n";
+    CompileArtifacts d = ugCompile(ug2(lib,
+        "namespace B;\nvoid F() { int a = B2.K.N + B2.K.C; B2.Shade s = B2.Shade.Light; int d = B2.Outer.Inner.Deep; }\n"));
+    Assert.Equal(0, ugCount(d, "E0"));
+    Assert.Equal(0, ugCount(d, "W0607"));
+}
+
+[Test]
 void test_qualified_stdlib_name_needs_no_using() {
     // 跨包：依赖包里的名字不靠 using「激活」，全限定名直接找得到（decouple-pkg-activation）。
     if (!ugHasLibs()) { return; }

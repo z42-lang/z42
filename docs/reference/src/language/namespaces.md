@@ -51,7 +51,10 @@ using Std.Collections;
 3. `using` 只管**可见性**（短名能不能直接写），不管加载哪些包：依赖包（stdlib 与清单里声明的依赖）里的
    名字随时可以被找到，名字查找第一次落到哪个包，就用哪个包。
 4. **全限定名不需要 `using`**（与 C# 相同）：`Std.IO.Console.WriteLine("hi")`、`Std.Toml.TomlDocument doc;`
-   不写 `using Std.IO;` / `using Std.Toml;` 也能用。
+   不写 `using Std.IO;` / `using Std.Toml;` 也能用。所有成员形态都可以写成全限定：类型、静态方法、
+   静态字段 / 属性 / `const`（`A.B.K.N`）、枚举常量（`A.B.Shade.Light`）、嵌套类型的静态成员
+   （`A.B.Outer.Inner.X`）、自由函数（`A.B.f()`）。最左边的名字若是局部变量、形参或本作用域看得见的类名，
+   按它解析，不当命名空间。
 5. **外围命名空间隐式可见**（与 C# 相同）：写在 `namespace A.B` 里的代码，不写 `using` 就能用 `A.B` 与 `A`
    里的类型和函数。名字查找由内向外：`A.B` → `A` → `using` 进来的命名空间（含 prelude）。外围命名空间里的
    那一份**胜过** `using` 进来的同名者，不算歧义；多层外围都有时**最内层**胜出。外围按段算：`AB` 不是

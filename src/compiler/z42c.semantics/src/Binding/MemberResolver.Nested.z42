@@ -2,7 +2,8 @@
 // 与 MemberResolver 主文件同一个类（partial 拆分只为守 code-organization 行数上限），共享 `_tc`。
 //
 // 「类型名表达式」→ 符号表键：`Outer` / `Outer.Inner` / `Outer.Inner.Deep` → `Outer+Inner+Deep`；
-// 外层类体内的短名 `Inner` 沿外层链上溯（`Outer+Inner` 体内的 `X` → `Outer+Inner+X` → `Outer+X`）。
+// 外层类体内的短名 `Inner` 沿外层链上溯（`Outer+Inner` 体内的 `X` → `Outer+Inner+X` → `Outer+X`）；
+// 全限定写法 `Ns.Type` / `Ns.Outer.Inner` → `Ns.Type` / `Ns.Outer+Inner`（全限定名不需要 using）。
 // 局部变量 / 形参同名时按变量处理（名字查找顺序：局部 > 成员 > 类型）。
 namespace Z42.Semantics;
 
@@ -12,8 +13,8 @@ using Z42.Core;
 
 public sealed partial class MemberResolver {
 
-    // `e` 若是**嵌套**类型名（或外层体内的短名）→ 其符号表键（类 / 接口 / 枚举）；否则 ""。
-    // 顶层类名（`Outer` 本身）不归这里：主路径已按裸类名处理。
+    // `e` 若是**嵌套**类型名（或外层体内的短名）或**全限定**类型名 → 其符号表键（类 / 接口 / 枚举）；否则 ""。
+    // 裸写的顶层类名（`Outer` 本身）不归这里：主路径已按裸类名处理。
     internal string _nestedTypeKey(Expr e, TypeEnv env) {
         if (e is IdentExpr) {
             string n = (e as IdentExpr).Name;
@@ -35,7 +36,14 @@ public sealed partial class MemberResolver {
                 if (env.LookupVar(tn) == null && env.Symbols.HasClass(tn)) { baseKey = tn; }
             }
             if (baseKey == "") { baseKey = this._nestedTypeKey(me.Target, env); }
-            if (baseKey == "") { return ""; }
+            if (baseKey == "") {
+                // 全限定写法：整条点分路径就是类型全名。根标识符是局部变量或本作用域看得见的类名时不是命名空间。
+                string path = MemberResolver._dottedPath(e);
+                string root = MemberResolver._rootIdent(e);
+                if (path != "" && env.LookupVar(root) == null && !env.Symbols.HasClass(root)
+                    && MemberResolver._isTypeKey(path, env)) { return path; }
+                return "";
+            }
             string k = baseKey + "+" + me.Name;
             return MemberResolver._isTypeKey(k, env) ? k : "";
         }
@@ -55,6 +63,8 @@ public sealed partial class MemberResolver {
         if (ek != null) { return this._bindEnumMember(ek, nk, m, env); }
         if (!env.Symbols.HasClass(nk)) { return null; }
         Z42ClassType sct = env.Symbols.GetClass(nk);
+        // 写出的类名是一次类型引用（跨包同名判定 + 用量）；全限定写法只记依赖、不需要 using。
+        this._tc._chkStaticOwnerQualified(env.Symbols, sct, MemberResolver._dottedPath(m.Target), m.Span);
         BoundExpr sm = this.BindStaticMember(sct, nk, m.Name, m.Span, env);
         if (sm != null) { return sm; }
         return this.StaticMemberMiss(sct, nk, m, env);
@@ -73,7 +83,7 @@ public sealed partial class MemberResolver {
         string ekey = etk + "." + m.Name;
         if (env.Symbols.EnumConsts.ContainsKey(ekey)) {
             // harden-crosspkg-gates：同 FQN 跨包 ⇒ 常量键 first-wins、两包成员顺序可不同 ⇒ 折之前先判来源。
-            this._tc.ChkEnumOrigins(env.Symbols, etk, m.Span);
+            this._tc.ChkEnumOrigins(env.Symbols, etk, MemberResolver._dottedPath(m.Target), m.Span);
             StrBox evalBox = env.Symbols.EnumConsts.Get(ekey) as StrBox;
             BoundLitInt eb = new BoundLitInt(evalBox.Value, env.Symbols.EnumType(etk), m.Span);
             eb.EnumTypeName = etk;   // FQN（CallEmitter 的 GetType 折叠直接用它）
@@ -92,7 +102,7 @@ public sealed partial class MemberResolver {
         // `_chkTypeRef` 上，而**静态调用根本不走它** —— `Util.go()` 里的 `Util` 只经
         // `GetClass` 取类、不作类型引用检查。实测两个包各声明 `Demo.FnNs.Util` 时
         // `Util.go()` 零诊断、字母序靠前的包赢。
-        this._tc._chkStaticOwner(env.Symbols, ct, sp);
+        this._tc._chkStaticOwnerQualified(env.Symbols, ct, MemberResolver._dottedPath(mem.Target), sp);
         MethodSymbol ms = this._tc._overload._resolveOverload(env.Symbols, ct, mem.Name, args, argCount, call.TypeArgCount, sp, rawArgs, env);   // 限定名静态调用（Array.Sort<int>）→ 传显式类型实参个数启用 arity 过滤
         if (MemberResolver.IsBaseStaticMethod(ct, ms)) { return this.ErrBaseStaticCall(recvName, ms, mem.Name, args, argCount, rawArgs, env, sp); }   // reject-derived-static-access
         if (ms != null) {
