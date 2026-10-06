@@ -2,7 +2,7 @@
 // 两阶段：A 先建类 stub（注册名字，使成员类型可解析兄弟类）→ B 填字段/方法签名 + 顶层 func。
 // 1A 范围：class/struct（字段 + 方法签名，跳 ctor[1D] / property[后续]）+ 顶层 func。
 //
-// 本类是 **hub**：3 个编排入口（CollectWithImports / CollectAll / Collect）顺序调用各簇 pass +
+// 本类是 **hub**：唯一的编排序列 `CollectAll`（`Collect` / `CollectWithImports` 是它的单 CU 包装）顺序调用各簇 pass +
 // imported 符号种子 + 共享叶子辅助（_unwrap/_vis/_hasWord/_chkTypeRef/_methodSymbol/_mergeParams +
 // 静态 IsProtocolExempt/_isConvOp）+ partial 状态（_partialDecls/_partialImpls）。实际 pass 分入 4 簇
 // （refactor-symbolcollector-concern-split，同 ExprEmitter/ExprTyper/FunctionEmitter hub+spoke 模型）：
@@ -19,7 +19,6 @@ using Z42.Core;   // add-partial-types：DiagnosticBag/DiagnosticCodes/Span（pa
 
 public sealed class SymbolCollector {
     // add-partial-types：partial 合并的包级诊断（CollectAll 收集，BuildPackageCus 按 Span.File 分发到各文件）。
-    // 单文件 Collect/CollectWithImports 路径也复用（同文件多 partial 碎片合并同样走这套）。
     public DiagnosticBag Diags;
     // partial method 配对追踪：canonical sig key "Cls#Name(pt,…)" → MethodDecl。decl-only 擦除，impl 需匹配 decl。
     internal StrMap _partialDecls;
@@ -50,54 +49,22 @@ public sealed class SymbolCollector {
         this._enforce = new DeclEnforcer(this);
     }
 
-    // imported 符号先 seed，本地声明覆盖（CI-4；镜像 C# SymbolCollector.Collect：MergeImported
-    // 在成员收集前——使本地类**字段/方法类型**能解析为兄弟包 imported 类，而非降级 Unknown）。
-    // 顺序：本地 interface/class stub → seed imported（guard 跳本地同名，local-wins）→ 成员解析。
-    // 接口必须在 _passClassStubs 之前 seed（基表判别：_passClassStubs 查 table.Interfaces 区分 iface vs class base）。
+    // 单 CU 入口（dump / 单测 / 导出提取 / `--emit-zbc`）：**就是** `CollectAll` 的一元情形。
+    //
+    // 这里曾是三份平行的 pass 序列（`Collect` / `CollectWithImports` / `CollectAll`），每加一个 pass 都得
+    // 挂三处，头注里「三处都挂」「两处都要挂」的警告写了七八条 —— 漏挂过的实例：单 CU 路径没有 partial
+    // 校验（E0430/E0431/E0434/E0435）、没有 Object 桩（`obj.GetType()` 链式 getter 解析不出真实类型）。
+    // 收成一份之后，新 pass 只挂 `CollectAll`。
     public SymbolTable CollectWithImports(CompilationUnit cu, ImportedSymbols imported) {
-        var t = new SymbolTable();
-        NestedFlatten.Flatten(cu);   // add-nested-types：嵌套类型提升为顶层（幂等）
-        this._stub._passInterfaces(t, cu, "");
-        this._stub._passEnums(t, cu);
-        this._mergeImportedEnums(t, imported);
-        this._mergeImportedInterfaces(t, imported);
-        t.NoteArities(cu);   // fix-arity-mangle-package-wide：mangle 判据必须与符号表同尺度（见 SymbolTable.NoteArities）
-        this._stub._passClassStubs(t, cu, "");   // 单-CU 路径（dump/test）：无 partial 主碎片跟踪
-        this._mergeImports(t, imported);
-        this._stub._passQualifyIfaceNamesInScope(t, cu);   // A5b-2c：本地声明先按 CU 作用域归一
-        this._stub._passQualifyIfaceNames(t);   // interface-names-fqn：相位同 CollectAll（全部 stub 进表后、成员解析前）
-        this._seedObjectStub(t);   // imported Type 已入表后；GetType 返回真实 Type 类（链式 getter 分派）
-        t.InternAllTypes();        // enforce-fqn-name-identity B1：**必须在 Object stub 之后** —— 它也登记类型
-        this._passBindClassBases(t, cu);   // A5b-2b-3：本地类的基类句柄按声明方作用域先绑（三处都挂）
-        t.BindTypeRefs();          // B3：名字 → 句柄。**必须紧跟 InternAllTypes**（id 那时才存在）
-        this._passRejectBaseCycles(t, cu);   // reject-inheritance-cycle：断环必须先于一切基类链走查（三处都挂）
-        this._stub._passDelegates(t, cu);
-        this._mergeImportedDelegates(t, imported);   // 本包 delegate 之后并：同 FQN 本包胜出；成员签名（下一步）能用到导入的
-        this._member._passMembers(t, cu);
-        this._runCtorInheritance(t, cu);   // add-implicit-base-ctor-call（单 CU 路径，同 CollectAll）
-        this._inherit._passFixupOverrides(t, cu);   // add-type-based-overloads D7：override 同 arity 重载 regKey 对齐（阶段 8 修复）
-        this._inherit._passSealedEnforce(t, cu);    // impl-sealed-semantics-devirt：sealed 继承/override 强制
-        this._inherit._propagateBridgeMarks(t);     // add-iface-return-bridge ⑦（单 CU 路径，同 CollectAll）
-        this._enforce._passAttributeSuffixEnforce(cu);   // attribute-handler-registry PR2：`: Attribute` 类名后缀强制（D8）
-        this._enforce._passAnalyzerSuffixEnforce(cu);    // attribute-handler-registry PR3a：`: Analyzer` 类名后缀强制（D8）
-        this._enforce._passBuiltinNameClash(cu);         // add-builtin-name-clash-diagnostic：类型名撞内建基元拼写（E0499）
-        this._enforce._passGeneratorSuffixEnforce(cu);   // attribute-handler-registry PR4a：`: Generator` 类名后缀强制（D8）
-        // enforce-test-attr-placement：[Test]/[Benchmark]/[Setup]/[Teardown] 位置+签名强制（E0911/0912/0915）。
-        // ⚠️ 必须在 HandlerRegistry.RunAst 之后（BenchmarkDesugar 把 form-2 [Benchmark] void f(Bencher b)
-        //    脱糖成零参 wrapper；在它之前查「无参数」会让全仓 66 处 benchmark 全红）。本挂载点在 collect 内，
-        //    RunAst 已在 IncrementalDriver 解析阶段跑过 → 天然满足。移动前先读 design §3.2。
-        this._enforce._passTestAttrEnforce(cu);
-        this._enforce._passNativeEnforce(cu);   // validate-extern-native：extern ↔ [Native] 配对 + 形态（E0903/E0904/E0907）
-        // complete-test-attr-arg-checks：E0913（[ShouldThrow<E>] 的 E 须派生 Exception）——
-        // 需符号表走基类链，故与上面的纯语法 pass 分开（design §1）。
-        this._enforce._passTestAttrSemantic(t, cu);
-        this._enforce._passAttrArgConst(t, cu);   // enforce-attribute-const-args：attribute 实参须编译期常量（E0500）
-        this._inherit._passImpls(t, cu);   // port-z42c-impl-block：deps 路径同样须并 impl 方法入 target.Methods，
-                                  // 否则 _bindImpl 的 ms=null → "this" 不入 env → `this.field` 绑成 undefined → emit const.null
-        this._inherit._passInheritFields(t, cu);
-        this._inherit._passImplIfaceComplete(t, cu);   // fix-iface-self-completeness-gaps A2：impl 块接口成员齐备性（须在 _passImpls 后）
-        return t;
+        return this.CollectAll(ModuleInitScan.One(cu), SymbolCollector._noFile(), 1, imported);
     }
+
+    public SymbolTable Collect(CompilationUnit cu) {
+        return this.CollectAll(ModuleInitScan.One(cu), SymbolCollector._noFile(), 1, null);
+    }
+
+    // 单 CU 入口没有文件名（partial 主碎片跟踪按 "" 处理，与此前的单 CU 序列一致）。
+    private static string[] _noFile() { string[] f = new string[1]; f[0] = ""; return f; }
 
     // imported 接口骨架 seed（_passClassStubs 前调用；local 同名接口已由 _passInterfaces 注册，local-wins）。
     // G18-import：IBasicCollection 等跨包接口须在 _passClassStubs 前进 table.Interfaces，否则被误当 class base。
@@ -410,68 +377,12 @@ public sealed class SymbolCollector {
         // （target 与其 impl 块可能分处不同 CU，本 pass 独立成一轮跨 CU 循环才能看到全部并入的 trait）。
         while (c < cuCount) { this._inherit._passImplIfaceComplete(table, cus[c]); c = c + 1; }
         // add-module-init-hook：包编译路径的 `[ModuleInit]` 校验（E0486 标注目标非法 /
-        // E0485 包内第二个）。单 CU 路径（SemanticDump / `--emit-zbc` / REPL）挂在 `Collect`
-        // 末尾 —— 那是另一份平行的 pass 序列，两处都要挂。
+        // E0485 包内第二个）。单 CU 入口（SemanticDump / `--emit-zbc` / REPL）经 `Collect` 同样走到这里。
         //
         // 挂在 collector 而不是 IrDump.BuildPackageCus：collector 的 Diags 被两条路都合并，
         // 且 E0485 要跨 CU 计数、必须在 per-file 并行段之前。
         ModuleInitScan.CheckPackage(cus, cuCount, this.Diags);
         return table;
-    }
-
-    public SymbolTable Collect(CompilationUnit cu) {
-        var table = new SymbolTable();
-        NestedFlatten.Flatten(cu);   // add-nested-types：嵌套类型提升为顶层（幂等）
-        this._stub._passInterfaces(table, cu, "");
-        this._stub._passEnums(table, cu);
-        table.NoteArities(cu);   // fix-arity-mangle-package-wide：mangle 判据必须与符号表同尺度（见 SymbolTable.NoteArities）
-        this._stub._passClassStubs(table, cu, "");   // 单-CU 路径：无 partial 主碎片跟踪
-        // interface-names-fqn：🔴 **三处都要挂**。`Collect` / `CollectWithImports` / `CollectAll`
-        // 是三份平行的 pass 序列（见本函数末尾 ModuleInitScan 那段头注讲的同一个形状）。
-        // 漏挂一处 ⇒ 那条路上 `InterfaceNames` 仍是短名，而 `Implements` 已无条件把查询侧归一成
-        // FQN ⇒ **恒不相等**：class→iface 误报 E0402 **且** 约束满足性漏报。
-        // `Collect` 是活路径（`IrDump` 的 ExtractExports / TSIG 抽取走它），不是只给测试用的。
-        this._stub._passQualifyIfaceNamesInScope(table, cu);   // A5b-2c：本地声明先按 CU 作用域归一
-        this._stub._passQualifyIfaceNames(table);
-        table.InternAllTypes();   // enforce-fqn-name-identity B1：全部登记之后一次扫
-        this._passBindClassBases(table, cu);   // A5b-2b-3
-        table.BindTypeRefs();     // B3：名字 → 句柄。**必须紧跟 InternAllTypes**（id 那时才存在）
-        this._passRejectBaseCycles(table, cu);   // reject-inheritance-cycle
-        this._stub._passDelegates(table, cu);
-        this._member._passMembers(table, cu);
-        this._runCtorInheritance(table, cu);   // add-implicit-base-ctor-call（单 CU 路径，同 CollectAll）
-        this._inherit._passFixupOverrides(table, cu);   // add-type-based-overloads D7：override regKey 对齐（阶段 8 修复）
-        this._inherit._passSealedEnforce(table, cu);    // impl-sealed-semantics-devirt：sealed 继承/override 强制
-        this._inherit._propagateBridgeMarks(table);     // add-iface-return-bridge ⑦（单 CU 路径，同 CollectAll）
-        this._enforce._passAttributeSuffixEnforce(cu);   // attribute-handler-registry PR2：`: Attribute` 类名后缀强制（D8）
-        this._enforce._passAnalyzerSuffixEnforce(cu);    // attribute-handler-registry PR3a：`: Analyzer` 类名后缀强制（D8）
-        this._enforce._passBuiltinNameClash(cu);         // add-builtin-name-clash-diagnostic：类型名撞内建基元拼写（E0499）
-        this._enforce._passGeneratorSuffixEnforce(cu);   // attribute-handler-registry PR4a：`: Generator` 类名后缀强制（D8）
-        // enforce-test-attr-placement：[Test]/[Benchmark]/[Setup]/[Teardown] 位置+签名强制（E0911/0912/0915）。
-        // ⚠️ 必须在 HandlerRegistry.RunAst 之后（BenchmarkDesugar 把 form-2 [Benchmark] void f(Bencher b)
-        //    脱糖成零参 wrapper；在它之前查「无参数」会让全仓 66 处 benchmark 全红）。本挂载点在 collect 内，
-        //    RunAst 已在 IncrementalDriver 解析阶段跑过 → 天然满足。移动前先读 design §3.2。
-        this._enforce._passTestAttrEnforce(cu);
-        this._enforce._passNativeEnforce(cu);   // validate-extern-native：extern ↔ [Native] 配对 + 形态（E0903/E0904/E0907）
-        // complete-test-attr-arg-checks：E0913（[ShouldThrow<E>] 的 E 须派生 Exception）——
-        // 需符号表走基类链，故与上面的纯语法 pass 分开（design §1）。
-        this._enforce._passTestAttrSemantic(table, cu);
-        this._enforce._passAttrArgConst(table, cu);   // enforce-attribute-const-args（单 CU 路径，同 CollectAll）
-        this._inherit._passImpls(table, cu);   // port-z42c-impl-block
-        this._inherit._passInheritFields(table, cu);
-        this._inherit._passImplIfaceComplete(table, cu);   // fix-iface-self-completeness-gaps A2：impl 块接口成员齐备性（须在 _passImpls 后）
-        // add-module-init-hook：单 CU 路径（`--emit-zbc` / SemanticDump / REPL）的 `[ModuleInit]` 校验。
-        // 🔴 `Collect` 与 `CollectAll` 是**两份平行的 pass 序列** —— 只挂一处，另一条路就静默放行
-        // （合成侧只认合法站点，非法的被悄悄忽略）。这正是本文件上方 SemanticDump 头注讲的那个
-        // 「6 个入口各写各的 preamble，其中一份忘了合并」的形状。
-        ModuleInitScan.CheckPackage(ModuleInitScan.One(cu), 1, this.Diags);
-        return table;
-    }
-
-    private void _runCtorInheritance(SymbolTable table, CompilationUnit cu) {
-        CompilationUnit[] one = new CompilationUnit[1];
-        one[0] = cu;
-        new CtorInheritance(this, table).Run(one, 1);
     }
 
     // A5b-2b-3：本地类的基类句柄按**声明方 CU 的作用域**绑定（外围 ns → using → prelude），跑在

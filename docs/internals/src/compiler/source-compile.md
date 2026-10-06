@@ -813,7 +813,7 @@ primary = **声明序第一个**同名成员（跨 partial 碎片按碎片加载
 导出字段合并 / 父接口闭包 …）。它们共同依赖一条**收集期建立的不变量**：
 
 1. **无环**：`SymbolCollector._passRejectBaseCycles` 跑在 `BindTypeRefs` 之后（基类句柄已绑）、任何沿
-   继承链走的 pass 之前，三条收集路径（`Collect` / `CollectWithImports` / `CollectAll`）都挂。类沿
+   继承链走的 pass 之前，挂在唯一的收集序列 `CollectAll` 上（`Collect` / `CollectWithImports` 只是它的单 CU 包装）。类沿
    `BaseOf` 走、接口沿父接口图做可达性，走回起点即报 E0502，并**清掉起点的基类型**断环。每个环只报一次。
 2. **无层数上限**：环断开后链必然有限，所以走查循环**不设层数上限**，只经 `SymbolTable.NextBaseHop`
    计跳——超过 10 万跳只可能是不变量被破坏（某条环没断 / 名字回落绕回自身），此时**抛内部错误**。
