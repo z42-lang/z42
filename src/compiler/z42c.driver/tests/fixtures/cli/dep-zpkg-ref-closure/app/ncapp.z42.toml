@@ -1,0 +1,11 @@
+[project]
+name    = "ncapp"
+version = "0.1.0"
+kind    = "exe"
+entry   = "NcApp.Main"
+
+[sources]
+include = ["*.z42"]
+
+[dependencies]
+"ncmid" = { path = "../vendor/ncmid.zpkg" }

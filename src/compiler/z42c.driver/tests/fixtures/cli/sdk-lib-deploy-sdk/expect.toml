@@ -1,0 +1,32 @@
+desc = "deploy = \"sdk\"：SDK 库不复制进产物、侧车补 ${Z42_HOME}/programs/z42c，在只含这两个包的「SDK」上可运行；对 stdlib 写 deploy = \"sdk\" 报错（见 README）"
+
+[[step]]
+args = ["build", "app/sdkdeploy.z42.toml", "--release"]
+exit = 0
+absent = ["app/dist/z42c.pipeline.zpkg", "app/dist/z42c.semantics.zpkg"]
+file_contains = [["app/dist/sdkdeploy.runtimeconfig.toml", "${Z42_HOME}/programs/z42c"]]
+
+# 最小「SDK」：只有 programs/z42c 里那两个包（取自编译器目录）
+[[step]]
+tool = "copy"
+from = "{compiler}/z42c.pipeline.zpkg"
+to = "fakesdk/programs/z42c/"
+
+[[step]]
+tool = "copy"
+from = "{compiler}/z42c.semantics.zpkg"
+to = "fakesdk/programs/z42c/"
+
+[[step]]
+tool = "run"
+target = "app/dist/sdkdeploy.zpkg"
+env = { Z42_HOME = "{case}/fakesdk" }
+env_remove = ["Z42_COMPILER_LIBS"]
+exit = 0
+stdout_equals = "sdkdeploy ok"
+
+# deploy = "sdk" 只适用于 SDK 库
+[[step]]
+args = ["build", "bad/bad.z42.toml", "--release"]
+exit = "nonzero"
+stderr_contains = ["只适用于"]

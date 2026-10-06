@@ -84,8 +84,8 @@ path 依赖与名字依赖的关键差异：名字依赖假定其 zpkg **已在*
 > - **其余来源的 indexed 依赖（workspace lib 成员等）连散装 zbc 一起装配**：`ZpkgReader.ReadIndexedZbcRels` 列出依赖 FILE 目录里的散装 zbc，按原相对布局
 >   拷进 exe 的 dist（加载器按「主文件所在目录 + rel」找）。与**本包自己的**散装 zbc、或**本轮另一个依赖**拷入的
 >   同路径文件撞名 ⇒ 构建期报错（上一轮拷来的旧副本直接覆盖）。exe 的孤儿清理会先删掉这些副本、装配再拷回，
->   fresh 构建的终态一致；preserved 路径只装配不清理。门：`_e2eBundleIndexedChecks`（workspace exe + lib 成员
->   debug 能跑 / 同名 `x.z42` 撞车报错）。
+>   fresh 构建的终态一致；preserved 路径只装配不清理。门：z42c.driver 的 CLI 夹具 `bundle-indexed-deps` /
+>   `bundle-indexed-name-clash`（workspace exe + lib 成员 debug 能跑 / 同名 `x.z42` 撞车报错）。
 
 #### 按名/产物引用的依赖也建闭包
 
@@ -314,7 +314,7 @@ preserved 早退**（`fix-analyzer-diags-preserved`）。早退路径只能回�
 什么都不改再构建一次，analyzer 警告消失；只改 `[lints]` 把规则升成 error，源码没动 ⇒ 全命中 ⇒
 构建仍 exit 0。`[lints]` 也**不**进 `depsId`：它不改任何 CU 的产物，扩键会换来一次无谓的全量重编
 （上面那条「呈现问题 ≠ 失效问题」）。这类工程全命中时的代价是多一次装配 + analyzer 遍历
-（cached CU 不重做 typecheck）。门禁在 `xtask test compiler` 的 `_e2eAnalyzerDiagCacheChecks`：
+（cached CU 不重做 typecheck）。门禁是 z42c.driver 的 CLI 夹具 `analyzer-diag-survives-cache`（`xtask test compiler`）：
 冷构建报 / 全命中仍报 / 只改 `[lints]` 立即生效。
 
 ### 缓存条目的完整性（meta v8）

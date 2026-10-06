@@ -1,7 +1,7 @@
-// xtask — z42c e2e（called by _testCompilerE2e）。命令行行为——单次或多步构建、产物对照、cache 布局、
-// 依赖身份、workspace 增量——都是 src 的夹具（src/compiler/z42c.driver/tests/fixtures/cli/，harness 在
-// xtask_compiler_cli_fixtures.z42）；这里只剩还没迁成夹具的 analyzer / deploy 专项检查。z42c 自身逐字节一致
-// 由 xtask_compiler.z42 的自举不动点覆盖；语言功能由 src/tests 的 golden 覆盖。
+// xtask — z42c e2e（called by _testCompilerE2e）。命令行与构建行为——单次或多步构建、产物对照、cache 布局、
+// 依赖身份、workspace 增量、部署判据、SDK 库与 analyzer 解析域——都是 src 的夹具
+// （src/compiler/z42c.driver/tests/fixtures/cli/，harness 在 xtask_compiler_cli_fixtures.z42）；这里只编排。
+// z42c 自身逐字节一致由 xtask_compiler.z42 的自举不动点覆盖；语言功能由 src/tests 的 golden 覆盖。
 namespace Z42Xtask;
 
 using Std.IO;
@@ -10,39 +10,8 @@ int _testCompilerE2e(string root, string vm, string flat) {
     Console.WriteLine("");
     Console.WriteLine("── z42c e2e: self-compiled .zbc runs on z42vm ──");
     string driverZpkg = _driverZpkg(root, "release");
-    string e2eDir = _workOut(root, "src/compiler/z42c.driver", "e2e");
-    Directory.Create(e2eDir);
-
-    // 命令行行为（旋钮 / 清单校验、--emit-zbc / --dump-ir 的诊断可见性）：用例在 src 的夹具里。
-    if (_testCompilerCliFixtures(root, vm, driverZpkg, flat) != 0) { return 1; }
-
-    // 语言功能正确性由 src/tests 的 golden 覆盖；z42c 自身的 byte-identical 由 self-host 不动点（gen1==gen2）
-    // 覆盖（见 _testSelfHostByteIdentical）。
-
-    // 编译期扩展的解析域：analyzer 工程可引用契约 / 普通工程不可（xtask_compiler_e2e_analyzer.z42）。
-    if (_e2eAnalyzerDomainChecks(root, vm, driverZpkg, e2eDir) != 0) { return 1; }
-    if (_e2eSdkLibExeCopy(root, vm, driverZpkg, e2eDir) != 0) { return 1; }
-    if (_e2eSdkLibDeploySdk(root, vm, driverZpkg, e2eDir) != 0) { return 1; }
-    // `[analyzers]` 的 path 条目（add-package-roles 批 2）：代建 + 指纹 + 双向校验，四格。
-    if (_e2ePathAnalyzerChecks(root, vm, driverZpkg, e2eDir) != 0) { return 1; }
-    // 用户工程**显式引用**编译器域库（relocate-compiler-domain-libs）：三格，见该函数头注。
-    if (_e2eUserDomainRefChecks(root, vm, driverZpkg, e2eDir) != 0) { return 1; }
-    // analyzer 诊断 / [lints] 必须活过整包全命中（fix-analyzer-diags-preserved）：三格，见该文件头注。
-    if (_e2eAnalyzerDiagCacheChecks(root, vm, driverZpkg, e2eDir) != 0) { return 1; }
-    // exe 私有依赖的复制判据（add-deployment-model 批 1）——工程落 /tmp，见该文件头注。
-    if (_e2eDeployPredicateChecks(root, vm, driverZpkg) != 0) { return 1; }
-    // probing-paths（add-deployment-model 批 3）：声明的运行期搜索目录 + 侧车跟随。
-    if (_e2eProbingPathChecks(root, vm, driverZpkg) != 0) { return 1; }
-    // `[dependencies]` 的 zpkg 产物引用（add-deployment-model）：类似 C# 引用 DLL。
-    if (_e2eZpkgRefChecks(root, vm, driverZpkg) != 0) { return 1; }
-    // `deploy = copy|shared`（add-deployment-model 批 4 use）：显式覆盖默认的复制判据。
-    if (_e2eDeployUseChecks(root, vm, driverZpkg) != 0) { return 1; }
-    // 按名/产物引用的传递闭包（add-deployment-model 批 2.2 use）。
-    if (_e2eNamedClosureChecks(root, vm, driverZpkg) != 0) { return 1; }
-    if (_e2eDeployDeclChecks(root, vm, driverZpkg) != 0) { return 1; }
-    if (_e2eZ42bClosureChecks(root, vm) != 0) { return 1; }
-    if (_e2eProbingArrayChecks(root, vm, driverZpkg) != 0) { return 1; }
-    if (_e2eCompileLibsChecks(root, vm, driverZpkg) != 0) { return 1; }
+    string builderZpkg = _toolchainZpkg(root, _z42bToml());
+    if (_testCompilerCliFixtures(root, vm, driverZpkg, builderZpkg, flat) != 0) { return 1; }
     Console.WriteLine("✅ z42c e2e: self-compiled .zbc executes on z42vm");
     return 0;
 }

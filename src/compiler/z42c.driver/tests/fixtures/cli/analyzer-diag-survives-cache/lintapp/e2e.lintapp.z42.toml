@@ -1,0 +1,10 @@
+[project]
+name    = "e2e.lintapp"
+version = "0.1.0"
+kind    = "lib"
+
+[sources]
+include = ["*.z42"]
+
+[analyzers]
+"e2e.lint" = { path = "../lintpkg" }

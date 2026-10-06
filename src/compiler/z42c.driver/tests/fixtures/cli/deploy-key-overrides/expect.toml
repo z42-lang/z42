@@ -1,0 +1,63 @@
+desc = "deploy = copy | shared 显式覆盖默认复制判据：未声明时框架包不复制（对照）；copy 强制复制框架包；shared 阻止复制不在 libs/ 里的包；非法取值报错（见 README）"
+outside_repo = true
+
+[[step]]
+tool = "copy"
+from = "{stdlib}/*.zpkg"
+to = "libs/"
+
+# ① 未声明 ⇒ 框架包不复制（默认判据照常生效，也是下面几格的对照）
+[[step]]
+args = ["build", "app/deployuse.z42.toml", "--release"]
+libs = "libs"
+exit = 0
+absent = ["app/dist/z42.io.zpkg"]
+
+# ② copy ⇒ 强制复制框架包（即使它在 libs/ 里）
+[[step]]
+tool = "remove"
+paths = ["app/dist"]
+
+[[step]]
+tool = "copy"
+from = "variants/copy.z42.toml"
+to = "app/deployuse.z42.toml"
+
+[[step]]
+args = ["build", "app/deployuse.z42.toml", "--release"]
+libs = "libs"
+exit = 0
+exists = ["app/dist/z42.io.zpkg"]
+
+# ③ shared ⇒ 强制不复制。用 vendor/ 里的副本（不在 libs/），否则默认判据本来就不复制、测不出
+[[step]]
+tool = "copy"
+from = "libs/z42.io.zpkg"
+to = "vendor/"
+
+[[step]]
+tool = "remove"
+paths = ["app/dist"]
+
+[[step]]
+tool = "copy"
+from = "variants/shared.z42.toml"
+to = "app/deployuse.z42.toml"
+
+[[step]]
+args = ["build", "app/deployuse.z42.toml", "--release"]
+libs = "libs"
+exit = 0
+absent = ["app/dist/z42.io.zpkg"]
+
+# ④ 非法取值（大小写 typo）⇒ 报错，不得当成未声明静默走默认判据
+[[step]]
+tool = "copy"
+from = "variants/invalid.z42.toml"
+to = "app/deployuse.z42.toml"
+
+[[step]]
+args = ["build", "app/deployuse.z42.toml", "--release"]
+libs = "libs"
+exit = "nonzero"
+output_contains = ["不是合法取值"]

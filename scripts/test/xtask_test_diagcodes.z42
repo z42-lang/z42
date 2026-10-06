@@ -102,12 +102,8 @@ string _dcUntestedPath() { return "scripts/test/diag-untested-codes.txt"; }
 //   · `src/**` 里被 ②③ 排除掉的那些（即 `tests/` 下的，任意扩展名——`expected_build_error.txt`
 //     这类期望文件正是跨包用例的断言载体）
 //   · `examples/**`（`.console` 重放稿）· `scripts/test/**` · `docs/learn/**`
-//   · `scripts/build/xtask_compiler_e2e*.z42`——编译器 e2e harness（GREEN 的 `test compiler` 跑它们，按码断言
-//     清单层诊断，如 W0609）。只收这一个文件名前缀：`scripts/build/` 其余是构建脚本，不是测试。
 // 判据刻意宽：本门要答的是「这个码有没有被任何一处钉住」，不是「钉得够不够好」。
 string[] _dcCoverageRoots() { return new string[]{ "examples", "scripts/test", "docs/learn" }; }
-string _dcE2eDir() { return "scripts/build"; }
-string _dcE2ePrefix() { return "xtask_compiler_e2e"; }
 
 // 🔴 **本门自己的文件不算测试面** —— 否则棘轮会自我擦除。
 //
@@ -198,7 +194,7 @@ sealed class DcCovZ {
 }
 
 // 扫一棵子树进累加器。目录不存在 → 静默跳过（`docs/learn` 在某些精简检出里可能没有）。
-void _dcScanCoverageTree(string root, string sub, DcCovZ cov, string namePrefix) {
+void _dcScanCoverageTree(string root, string sub, DcCovZ cov) {
     string dir = Path.Join(root, sub);
     if (!Directory.Exists(dir)) { return; }
     string[] rel = Directory.EnumerateRecursive(dir);
@@ -209,7 +205,6 @@ void _dcScanCoverageTree(string root, string sub, DcCovZ cov, string namePrefix)
         if (!_dcIsTextFile(relp)) { continue; }
         if (_dcContains(relp, "/artifacts/")) { continue; }
         if (_dcIsOwnFile(relp)) { continue; }   // 见 `_dcIsOwnFile`：自指会让棘轮自我擦除
-        if (namePrefix.Length > 0 && !Path.GetFileName(relp).StartsWith(namePrefix)) { continue; }
         string text = "";
         try { text = File.ReadAllText(Path.Join(dir, relp)); } catch (Exception ex) { text = ""; }
         if (text != "") { cov.AddText(text, relp.EndsWith(".z42")); }
@@ -554,14 +549,13 @@ int _testDiagCodes(bool update) {
     // 判据宽（要答的是「有没有被任何一处钉住」，不是「钉得够不够好」）：码值或它的常量名
     // 出现在测试面任一处即算覆盖。测试面 = `src/**/tests/**` ∪ `src/tests/**`（任意文本扩展名，
     // 含 `expected_build_error.txt` 这类期望文件——跨包用例的断言就载在那里）∪ `examples/**`
-    // （`.console` 重放稿）∪ `scripts/test/**` ∪ `docs/learn/**` ∪ `scripts/build/xtask_compiler_e2e*.z42`。
+    // （`.console` 重放稿）∪ `scripts/test/**` ∪ `docs/learn/**`。
     //
     // 允许清单是**双向棘轮**（同 ④ 的形态，理由也同）：少一条红（新加的活码没测试就想混过去）、
     // 多一条也红（某个码补上测试了，清单里那条就是假话，必须删）。于是它**只能缩短**。
     int ci = 0;
     string[] covRoots = _dcCoverageRoots();
-    while (ci < covRoots.Length) { _dcScanCoverageTree(root, covRoots[ci], cov, ""); ci = ci + 1; }
-    _dcScanCoverageTree(root, _dcE2eDir(), cov, _dcE2ePrefix());
+    while (ci < covRoots.Length) { _dcScanCoverageTree(root, covRoots[ci], cov); ci = ci + 1; }
 
     string[] untested = new string[256]; int un = 0;
     int t = 0;
@@ -583,7 +577,6 @@ int _testDiagCodes(bool update) {
             + "# 「活码」= 有发射点（字面量或 DiagnosticCodes.<Name> 引用，见规则 ⑧）。\n"
             + "# 「被断言」判据很宽：码值或常量名出现在测试面任一处即算——测试面 = src/**/tests/** ∪\n"
             + "# src/tests/**（任意文本扩展名，含 expected_build_error.txt）∪ examples/** ∪ scripts/test/**\n"
-            + "# ∪ scripts/build/xtask_compiler_e2e*.z42（编译器 e2e harness）\n"
             + "# ∪ docs/learn/**。本门要答的是「有没有被任何一处钉住」，不是「钉得够不够好」。\n"
             + "# 每一条都是**欠账**：给它补一个按码断言的用例，然后重跑 `xtask check diagcodes --update`。\n"
             + "# 这份清单只应缩短 —— 新增一个活码而不给它测试，门会红并要求你在这里显式记一笔。\n";

@@ -1,0 +1,27 @@
+desc = "z42b build（编排路）也解析 path 依赖闭包：repo 外两层链 app → mid → leaf 编得过，闭包成员随产物进 dist，拷到别处照样跑（见 README）"
+outside_repo = true
+
+[[step]]
+tool = "copy"
+from = "{stdlib}/*.zpkg"
+to = "libs/"
+
+[[step]]
+tool = "z42b"
+args = ["build", "app/ncapp.z42.toml", "--release"]
+libs = "libs"
+exit = 0
+
+# 产物拷到别处：间接依赖 ncleaf 必须在
+[[step]]
+tool = "copy"
+from = "app/dist/*.zpkg"
+to = "run/"
+exists = ["run/ncapp.zpkg", "run/ncmid.zpkg", "run/ncleaf.zpkg"]
+
+[[step]]
+tool = "run"
+target = "run/ncapp.zpkg"
+libs = "libs"
+exit = 0
+output_contains = ["leaf"]

@@ -122,7 +122,7 @@ Rust 侧的 `*_tests.rs` 与 `tests/*.rs` 按 cargo 惯例，不在此列。
 | 一工程产多个 exe | `src/compiler/z42c.pipeline/tests/fixtures/multi-exe/` | `xtask test e2e --dir multi-exe` |
 | `[[test]]` / `[[example]]` / `[[bench]]` target | `src/toolchain/builder/tests/fixtures/manifest-targets/` | `xtask test toolchain builder` |
 | z42b 自身的清单 / hook / 发现规则 | `src/toolchain/builder/tests/fixtures/z42b/` | `xtask test toolchain builder` |
-| z42c 命令行与构建行为（清单 / 旋钮校验、`--emit-zbc` / `--dump-ir` 的诊断可见性、打包直跑、可复现 build_id、cache 布局与依赖身份、增量、path 依赖闭包、workspace 成员发现与装配） | `src/compiler/z42c.driver/tests/fixtures/cli/`（`expect.toml`：单步或 `[[step]]` 多步构建 / 跑产物 / 拷贝，断言输出、产物有无与字节对照；格式见该目录 README） | `xtask test compiler` |
+| z42c 命令行与构建行为（清单 / 旋钮校验、`--emit-zbc` / `--dump-ir` 的诊断可见性、打包直跑、可复现 build_id、cache 布局与依赖身份、增量、path 依赖闭包、workspace 成员发现与装配、部署判据（复制 / `deploy` / probing-paths / zpkg 产物引用）、SDK 库与 analyzer 的解析域） | `src/compiler/z42c.driver/tests/fixtures/cli/`（`expect.toml`：单步或 `[[step]]` 多步 z42c / z42b 构建 / 跑产物 / 拷贝，断言输出、产物有无、文件内容与字节对照；格式见该目录 README） | `xtask test compiler` |
 | `.zbc` 字节基线 | `src/compiler/z42.package/tests/fixtures/zbc-format/` | `xtask build test` 就地重生；`xtask test runtime`（`zbc_compat`、`format_fixture_versions`）读取 |
 | `.zpkg` 字节基线 | `src/compiler/z42.package/tests/fixtures/zpkg-format/` | 按该目录 README 的配方重生；`xtask test runtime` 读取 |
 

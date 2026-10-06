@@ -201,8 +201,8 @@ walker 文件里找 `is <类名>`；全集里既不被匹配、又不在该 walk
 
 「被断言」判据刻意宽——码值或常量名出现在**测试面**任一处即算；测试面 = `src/**/tests/**` ∪
 `src/tests/**`（任意文本扩展名，含 `expected_build_error.txt`）∪ `examples/**` ∪ `scripts/test/**`
-∪ `docs/learn/**` ∪ `scripts/build/xtask_compiler_e2e*.z42`（编译器 e2e harness：清单层诊断如 W0609 只能在这里
-按码断言；`scripts/build/` 的其余文件是构建脚本，不算）。要答的是「有没有被任何一处钉住」，不是「钉得够不够好」。
+∪ `docs/learn/**`（z42c 命令行夹具在 `src/compiler/z42c.driver/tests/fixtures/cli/`，已在 `src/**/tests/**` 里：
+清单层诊断就在那里按码断言）。要答的是「有没有被任何一处钉住」，不是「钉得够不够好」。
 
 > ⚠️ 两个坑都是实测踩出来的，别改回去：**注释里提到一个码不算钉住它**（`.z42` 测试面要先剥行
 > 注释——不剥的话 `E0493` 会被一句对比性注释算成已覆盖）；**本门自己的文件不算测试面**——

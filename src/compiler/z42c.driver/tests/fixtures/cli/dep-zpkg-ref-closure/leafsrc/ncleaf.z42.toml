@@ -1,0 +1,7 @@
+[project]
+name    = "ncleaf"
+version = "0.1.0"
+kind    = "lib"
+
+[sources]
+include = ["src/*.z42"]

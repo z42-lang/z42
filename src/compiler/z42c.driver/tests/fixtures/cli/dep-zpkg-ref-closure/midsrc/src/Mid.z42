@@ -1,0 +1,5 @@
+namespace NcMid;
+
+using NcLeaf;
+
+public class Mid { public string Call() { return new Deep().Who(); } }

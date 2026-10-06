@@ -1,0 +1,12 @@
+namespace E2ePathGen;
+
+using Std;
+using Z42.Semantics;
+
+public sealed class E2ePathGenerator : ModuleGenerator {
+    public void Generate(GenContext ctx, GenSink sink) {
+        sink.AddSource("e2e", "namespace E2eOut; public static class O { public static int V() { return 7; } }");
+    }
+    public string[] Consumes() { return new string[0]; }
+    public string[] Produces() { return new string[0]; }
+}

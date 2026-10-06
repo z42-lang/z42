@@ -1,0 +1,52 @@
+desc = "probing-paths 的 ${Z42_HOME} 占位符走通整条链：清单 → 侧车（仍是占位符，不烤具体路径）→ VM 展开 → 解析到 SDK 形状目录里的依赖；不设 Z42_HOME 必须跑不起来（见 README）"
+outside_repo = true
+
+# 依赖：编译期放进 libs/，运行期只在 sdkroot/programs/z42c/
+[[step]]
+tool = "copy"
+from = "{stdlib}/*.zpkg"
+to = "libs/"
+
+[[step]]
+args = ["build", "fx/probefx.z42.toml", "--release"]
+libs = "libs"
+exit = 0
+
+[[step]]
+tool = "copy"
+from = "fx/dist/probefx.zpkg"
+to = "libs/"
+
+[[step]]
+tool = "copy"
+from = "fx/dist/probefx.zpkg"
+to = "sdkroot/programs/z42c/"
+
+# 编译输出里不许出现具体路径 —— 侧车必须逐字保留占位符
+[[step]]
+args = ["build", "app/probeapp.z42.toml", "--release"]
+libs = "libs"
+exit = 0
+file_contains = [["app/dist/probeapp.runtimeconfig.toml", "${Z42_HOME}"]]
+file_not_contains = [["app/dist/probeapp.runtimeconfig.toml", "{case}/sdkroot"]]
+
+# 目标机的 libs/ 里没有它
+[[step]]
+tool = "remove"
+paths = ["libs/probefx.zpkg"]
+
+# 负对照：不设 Z42_HOME ⇒ 必须跑不起来
+[[step]]
+tool = "run"
+target = "app/dist/probeapp.zpkg"
+libs = "libs"
+env = { Z42_HOME = "" }
+exit = "nonzero"
+
+[[step]]
+tool = "run"
+target = "app/dist/probeapp.zpkg"
+libs = "libs"
+env = { Z42_HOME = "{case}/sdkroot" }
+exit = 0
+stdout_equals = "99"

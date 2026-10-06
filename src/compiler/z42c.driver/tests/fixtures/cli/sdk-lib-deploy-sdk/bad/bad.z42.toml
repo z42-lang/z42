@@ -1,0 +1,11 @@
+[project]
+name    = "sdkdeploybad"
+version = "0.1.0"
+kind    = "exe"
+entry   = "Main"
+
+[sources]
+include = ["*.z42"]
+
+[dependencies]
+"z42.io" = { version = "0.1.0", deploy = "sdk" }

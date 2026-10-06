@@ -1,0 +1,49 @@
+desc = "deploy 声明的校验对所有 kind 生效（不只 exe）：lib 里的非法取值、analyzer 工程的依赖写 deploy、[analyzers] 条目写 deploy 都被拒；lib + 合法取值照样编过（对照）（见 README）"
+outside_repo = true
+
+[[step]]
+tool = "copy"
+from = "{stdlib}/*.zpkg"
+to = "libs/"
+
+# ① 对照：lib + 合法取值 ⇒ 编过（否则下面三格的红说明不了任何事）
+[[step]]
+args = ["build", "prj/dvdecl.z42.toml", "--release"]
+libs = "libs"
+exit = 0
+
+# ② lib 里的非法取值
+[[step]]
+tool = "copy"
+from = "variants/lib-invalid.z42.toml"
+to = "prj/dvdecl.z42.toml"
+
+[[step]]
+args = ["build", "prj/dvdecl.z42.toml", "--release"]
+libs = "libs"
+exit = "nonzero"
+output_contains = ["不是合法取值"]
+
+# ③ analyzer 工程的依赖写 deploy（取值合法，但在编译期扩展上没有意义）
+[[step]]
+tool = "copy"
+from = "variants/analyzer-deploy.z42.toml"
+to = "prj/dvdecl.z42.toml"
+
+[[step]]
+args = ["build", "prj/dvdecl.z42.toml", "--release"]
+libs = "libs"
+exit = "nonzero"
+output_contains = ["kind = \"analyzer\""]
+
+# ④ [analyzers] 条目写 deploy
+[[step]]
+tool = "copy"
+from = "variants/analyzers-entry-deploy.z42.toml"
+to = "prj/dvdecl.z42.toml"
+
+[[step]]
+args = ["build", "prj/dvdecl.z42.toml", "--release"]
+libs = "libs"
+exit = "nonzero"
+output_contains = ["[analyzers]"]

@@ -1,0 +1,46 @@
+desc = "--compile-libs 把编译期依赖面与 driver 运行期加载面（Z42_LIBS）分开：依赖只在 --compile-libs 里时，不加旗标必须找不到它、加上必须编过；单包与 workspace 两条路都认（见 README）"
+outside_repo = true
+
+# libs/ = Z42_LIBS（只有 stdlib）；only/ = 只有 cldep
+[[step]]
+tool = "copy"
+from = "{stdlib}/*.zpkg"
+to = "libs/"
+
+[[step]]
+args = ["build", "dep/cldep.z42.toml", "--release"]
+libs = "libs"
+exit = 0
+
+[[step]]
+tool = "copy"
+from = "dep/dist/cldep.zpkg"
+to = "only/"
+
+# ① 反向对照：只有 Z42_LIBS ⇒ 必须失败，且理由是找不到 cldep
+[[step]]
+args = ["build", "app/clapp.z42.toml", "--release"]
+libs = "libs"
+exit = "nonzero"
+output_contains = ["cldep"]
+
+# ② 加 --compile-libs ⇒ 必须成功（Z42_LIBS 原样不动）
+[[step]]
+args = ["build", "app/clapp.z42.toml", "--release", "--compile-libs", "{case}/libs{sep}{case}/only"]
+libs = "libs"
+exit = 0
+exists = ["app/dist/clapp.zpkg"]
+
+# ③ workspace 路径也要认这个旗标：a. 对照 ⇒ 失败；b. 加旗标 ⇒ 成功
+[[step]]
+args = ["build", "--workspace", "--release"]
+cwd = "ws"
+libs = "libs"
+exit = "nonzero"
+output_contains = ["cldep"]
+
+[[step]]
+args = ["build", "--workspace", "--release", "--compile-libs", "{case}/libs{sep}{case}/only"]
+cwd = "ws"
+libs = "libs"
+exit = 0

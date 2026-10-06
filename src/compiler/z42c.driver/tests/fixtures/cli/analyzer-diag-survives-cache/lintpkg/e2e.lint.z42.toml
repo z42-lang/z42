@@ -1,0 +1,11 @@
+[project]
+name    = "e2e.lint"
+version = "0.1.0"
+kind    = "analyzer"
+
+[sources]
+include = ["*.z42"]
+
+[dependencies]
+"z42c.syntax" = "0.1.0"
+"z42c.core" = "0.1.0"

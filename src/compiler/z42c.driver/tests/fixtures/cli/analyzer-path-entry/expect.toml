@@ -1,0 +1,45 @@
+desc = "[analyzers] 的 path 条目：代建 generator 工程、产出的符号在消费方可用；改 generator 源码消费方必须重编；analyzer 写进 [dependencies]、或被引工程不是 analyzer，都被拒（见 README）"
+
+# ① path 引用 ⇒ 代建 ⇒ generator 产的符号在消费方可用
+[[step]]
+args = ["build", "pathapp/e2e.pathapp.z42.toml", "--release"]
+exit = 0
+
+[[step]]
+tool = "run"
+target = "pathapp/dist/e2e.pathapp.zpkg"
+exit = 0
+stdout_equals = "42"
+
+# ② 只改 generator 源码（42 → 7）⇒ 消费方必须重编出新值（handler 指纹覆盖 path 条目）
+[[step]]
+tool = "copy"
+from = "variants/gen.7.z42"
+to = "pathgen/gen.z42"
+
+[[step]]
+args = ["build", "pathapp/e2e.pathapp.z42.toml", "--release"]
+exit = 0
+
+[[step]]
+tool = "run"
+target = "pathapp/dist/e2e.pathapp.zpkg"
+exit = 0
+stdout_equals = "7"
+
+# ③ analyzer 工程写进 [dependencies] ⇒ 拒绝
+[[step]]
+args = ["build", "pathdep/e2e.pathapp.z42.toml", "--release"]
+exit = "nonzero"
+stderr_contains = ["不能作运行期依赖"]
+
+# ④ 被引工程 kind = "lib" ⇒ 拒绝（断言那一句诊断，见 README）
+[[step]]
+tool = "copy"
+from = "variants/e2e.pathgen.lib.z42.toml"
+to = "pathgen/e2e.pathgen.z42.toml"
+
+[[step]]
+args = ["build", "pathapp/e2e.pathapp.z42.toml", "--release"]
+exit = "nonzero"
+stderr_contains = ["不是 \"analyzer\""]

@@ -260,8 +260,8 @@ scripts/
 ├── build/              build stdlib / compiler / runtime / golden-assets + clean + 自举边界检查
 │   ├── xtask_stdlib.z42         build stdlib（z42c build --workspace + 扁平视图）+ build sdk / stage-toolchain
 │   ├── xtask_compiler.z42       build/test compiler（自建 + 不动点 + units）
-│   ├── xtask_compiler_e2e.z42   z42c 自举 e2e oracle 套件
-│   ├── xtask_compiler_e2e_*.z42 各专题 e2e（analyzer / cache / deploy / pathdeps / wsflat / wsmembers 等），由 `_testCompilerE2e` 调用
+│   ├── xtask_compiler_e2e.z42   `test compiler` 的 e2e 段编排（`_testCompilerE2e`）
+│   ├── xtask_compiler_cli_fixtures.z42  z42c 命令行与构建夹具的 harness（用例在 `src/compiler/z42c.driver/tests/fixtures/cli/`）
 │   ├── xtask_runtime.z42        build runtime（cargo z42vm）
 │   ├── xtask_toolchain.z42      build workload / build toolchain（apphost publish，路径从各 toml 读）
 │   ├── xtask_golden_assets.z42  **`build test` 的实现**（golden .zbc 编译；_buildTest / _regenGolden / _regenCore）

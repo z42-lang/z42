@@ -1,0 +1,7 @@
+namespace PparrApp;
+
+using Std.IO;
+using PparrA;
+using PparrB;
+
+void Main() { Console.WriteLine(new Ka().Who() + "+" + new Kb().Who()); }

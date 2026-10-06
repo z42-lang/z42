@@ -1,0 +1,15 @@
+desc = "exe 按名引用 SDK 库：z42c.pipeline 连同它在 SDK 库内的依赖 z42c.semantics 默认复制进产物，编译器目录里的 stdlib 副本不混入；产物在纯 stdlib 环境可运行（见 README）"
+
+[[step]]
+args = ["build", "app/sdkexe.z42.toml", "--release"]
+exit = 0
+exists = ["app/dist/z42c.pipeline.zpkg", "app/dist/z42c.semantics.zpkg"]
+absent = ["app/dist/z42.core.zpkg"]
+
+# 只有 runtime（纯 stdlib），不指 SDK
+[[step]]
+tool = "run"
+target = "app/dist/sdkexe.zpkg"
+env_remove = ["Z42_HOME", "Z42_COMPILER_LIBS"]
+exit = 0
+stdout_equals = "sdkexe ok"

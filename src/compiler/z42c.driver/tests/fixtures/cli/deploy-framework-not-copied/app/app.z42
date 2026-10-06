@@ -1,0 +1,6 @@
+namespace DeployApp;
+
+using Std.IO;
+using DeployFx;
+
+void Main() { Console.WriteLine(new Helper().V().ToString()); }

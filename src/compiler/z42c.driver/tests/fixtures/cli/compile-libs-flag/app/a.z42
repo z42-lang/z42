@@ -1,0 +1,5 @@
+namespace ClApp;
+
+using ClDep;
+
+public class Use { public int Go() { return new Thing().V(); } }

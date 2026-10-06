@@ -1,0 +1,10 @@
+[project]
+name    = "pparr_b"
+version = "0.1.0"
+kind    = "lib"
+
+[sources]
+include = ["x.z42"]
+
+[dependencies]
+"z42.core" = "0.1.0"

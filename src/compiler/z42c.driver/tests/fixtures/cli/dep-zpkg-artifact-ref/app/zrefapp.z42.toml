@@ -1,0 +1,11 @@
+[project]
+name    = "zrefapp"
+version = "0.1.0"
+kind    = "exe"
+entry   = "ZrefApp.Main"
+
+[sources]
+include = ["*.z42"]
+
+[dependencies]
+"zrefvendor" = { path = "../vendor/zrefvendor.zpkg" }

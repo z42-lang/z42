@@ -1,0 +1,7 @@
+[project]
+name    = "probefx"
+version = "0.1.0"
+kind    = "lib"
+
+[sources]
+include = ["*.z42"]

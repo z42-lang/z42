@@ -1,0 +1,5 @@
+namespace E2eLintApp;
+
+public static class A {
+    public static int F() { try { return 1; } catch (Exception e) { } return 0; }
+}
