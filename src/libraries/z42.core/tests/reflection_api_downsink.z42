@@ -3,8 +3,6 @@
 // 与 Std.Reflection.PropertyInfo 的属性 attribute API（GetCustomAttributes / GetAttribute）。
 namespace Z42CoreReflApiDownsinkTests;
 
-using Std.Reflection;
-
 // D8 后缀；extend 无限定 `Attribute`（via using Std）——限定 `Std.Attribute` 会触发 typechecker
 // FQN-upcast gap（见 reflection.z42:75 注释）。
 class PropTagAttribute : Attribute {
