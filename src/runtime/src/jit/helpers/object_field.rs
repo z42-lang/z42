@@ -40,10 +40,7 @@ pub unsafe extern "C" fn jit_obj_field_slot(
     // default: no fast path → the inline sees off<0 and routes to the helper.
     *out_bytes_ptr = std::ptr::null();
     *out_off = -1;
-    let field_name = match std::str::from_utf8(std::slice::from_raw_parts(field_name_ptr, field_name_len)) {
-        Ok(s) => s,
-        Err(_) => return,
-    };
+    let field_name = super::baked_str(field_name_ptr, field_name_len);
     let Value::Object(rc) = &(*frame).regs[obj as usize] else { return };
     let b = rc.borrow();
     if let Some((ptr, off, width, tag)) = b.inline_prim_field(field_name) {
@@ -81,10 +78,7 @@ pub unsafe extern "C" fn jit_obj_ref_field_slot(
     *out_bytes_ptr = std::ptr::null();
     *out_off = -1;
     *out_tag = 0;
-    let field_name = match std::str::from_utf8(std::slice::from_raw_parts(field_name_ptr, field_name_len)) {
-        Ok(s) => s,
-        Err(_) => return,
-    };
+    let field_name = super::baked_str(field_name_ptr, field_name_len);
     let Value::Object(rc) = &(*frame).regs[obj as usize] else { return };
     let b = rc.borrow();
     if let Some((ptr, off, is_array)) = b.inline_ref_field(field_name) {
@@ -108,8 +102,7 @@ pub unsafe extern "C" fn jit_field_get(
     field_name_ptr: *const u8, field_name_len: usize,
     ic_ptr: *const crate::metadata::resolver::FieldIC,
 ) -> u8 {
-    let field_name = std::str::from_utf8(std::slice::from_raw_parts(field_name_ptr, field_name_len))
-        .unwrap_or("<invalid>");
+    let field_name = super::baked_str(field_name_ptr, field_name_len);
     let obj_val = &(*frame).regs[obj as usize];
     let val = match obj_val {
         // fix-jit-osr-stackobject: under OSR the interp portion may have created a
@@ -214,8 +207,7 @@ pub unsafe extern "C" fn jit_field_set(
     field_name_ptr: *const u8, field_name_len: usize, val: u32,
     ic_ptr: *const crate::metadata::resolver::FieldIC,
 ) -> u8 {
-    let field_name = std::str::from_utf8(std::slice::from_raw_parts(field_name_ptr, field_name_len))
-        .unwrap_or("<invalid>");
+    let field_name = super::baked_str(field_name_ptr, field_name_len);
     let v = (*frame).regs[val as usize].clone();
     let owner = (*frame).regs[obj as usize].clone();
     match &owner {

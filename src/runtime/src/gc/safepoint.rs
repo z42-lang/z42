@@ -150,8 +150,12 @@ pub(crate) fn check_safepoint_slow(ctx: &VmContext) {
         park_until_idle(ctx);
         return;
     }
-    // Idle phase — drain pending auto-collect if any.
-    if ctx.core.needs_auto_collect.swap(false, Ordering::AcqRel) {
+    // Idle phase — drain pending auto-collect if any. Load before swapping: the
+    // flag is shared by every thread and almost always false, and an
+    // unconditional `swap` would take the cache line exclusive each time.
+    if ctx.core.needs_auto_collect.load(Ordering::Relaxed)
+        && ctx.core.needs_auto_collect.swap(false, Ordering::AcqRel)
+    {
         // add-concurrent-gc P4b (2026-05-22): use collect_cycles_with_context
         // so the heap can pick STW vs concurrent path internally. The STW
         // default impl does the same `request_gc_pause` + `collect_cycles`

@@ -38,10 +38,12 @@ pub(super) fn call_native(
     // Increment fires BEFORE dispatch so even failing calls (unknown type /
     // marshal error) are counted — they still represent FFI traffic.
     ctx.counters().native_calls.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    ctx.fire_runtime_event(&crate::observer::RuntimeEvent::NativeCallEntered {
-        module: module_name.to_string(),
-        symbol: format!("{type_name}::{symbol}"),
-    });
+    if ctx.has_runtime_observers() {
+        ctx.fire_runtime_event(&crate::observer::RuntimeEvent::NativeCallEntered {
+            module: module_name.to_string(),
+            symbol: format!("{type_name}::{symbol}"),
+        });
+    }
 
     let ty = ctx.resolve_native_type(module_name, type_name).ok_or_else(|| {
         anyhow::anyhow!(

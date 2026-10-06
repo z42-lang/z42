@@ -8,7 +8,12 @@ use crate::metadata::Value;
 use anyhow::{bail, Result};
 
 /// Collect register values into a Vec.
-pub(super) fn collect_args(regs: &[Value], reg_indices: &[u32]) -> Result<Vec<Value>> {
+/// Argument list for a builtin / indirect call. Inline up to [`INLINE_ARGS`]
+/// values — nearly every call — so the per-call heap allocation is gone.
+pub(super) type ArgVec = smallvec::SmallVec<[Value; INLINE_ARGS]>;
+pub(super) const INLINE_ARGS: usize = 6;
+
+pub(super) fn collect_args(regs: &[Value], reg_indices: &[u32]) -> Result<ArgVec> {
     reg_indices.iter()
         .map(|&r| regs.get(r as usize).cloned().ok_or_else(|| anyhow::anyhow!("undefined register %{r}")))
         .collect()

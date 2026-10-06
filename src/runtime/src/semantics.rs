@@ -184,6 +184,14 @@ pub use crate::metadata::types::{
 /// `(SomeClass)obj`）都发单个 `Convert` IR，故运行期需识别「窄化静态类型、值已匹配」为 no-op
 /// 而非数值转换。`Null` 可 cast 到任意引用目标。(add-std-process, 2026-05-13.)
 pub fn convert_value(v: Value, to_tag: u8) -> Result<Value> {
+    // Numeric sources first: they are almost every `Convert` (int ↔ long ↔
+    // double …), and none of the unbox / identity checks below applies to them.
+    match v {
+        Value::I64(x)  => return convert_from_i64(x, to_tag),
+        Value::F64(f)  => return convert_from_f64(f, to_tag),
+        Value::Char(c) => return convert_from_char(c, to_tag),
+        _ => {}
+    }
     // add-primitive-value-boxing → unify Phase 2 R3：`(T)o` 于装箱基元 → 先拆箱再转标量。
     // 基元盒现是 `BoxedStruct`（标量存 struct_bytes）；非整数盒 boxed_prim_i64 返 None → 不拦截。
     if let Value::BoxedStruct(gc) = &v {
@@ -204,10 +212,7 @@ pub fn convert_value(v: Value, to_tag: u8) -> Result<Value> {
         _ => {}
     }
     match v {
-        Value::F64(f)  => convert_from_f64(f, to_tag),
-        Value::I64(x)  => convert_from_i64(x, to_tag),
-        Value::Char(c) => convert_from_char(c, to_tag),
-        // bool / str / object 等 —— 不是合法的数值转换源。
+        // bool / str / object 等 —— 不是合法的数值转换源（数值源已在开头返回）。
         // make-hard-cast-fail-properly：此处原本 `bail!("InvalidCastException: …{:?}…")`，
         // 那是**内部错误**——不走异常机制、`catch (Exception)` 抓不到，消息还是 Rust Debug 格式
         // （`Str("hello")` / `type tag 0x04`）。真异常路径见 `hard_cast_failure`；本函数保留
@@ -265,7 +270,14 @@ pub fn tag_name(to_tag: u8) -> &'static str {
 ///
 /// 与 JIT 共用（同 `is_int_div_by_zero` / `div_by_zero_msg` 的分工：判据+消息在 semantics，
 /// 异常构造留在各自的宿主，因为那需要 ctx/module）。
+#[inline]
 pub fn hard_cast_failure(v: &Value, to_tag: u8) -> Option<(&'static str, String)> {
+    // 数值源从不在这里失败（见下方最后一个 match），先放行，免得热路径过一遍拆箱 / identity 判定。
+    if matches!(v, Value::I64(_) | Value::F64(_) | Value::Char(_)) { return None; }
+    hard_cast_failure_slow(v, to_tag)
+}
+
+fn hard_cast_failure_slow(v: &Value, to_tag: u8) -> Option<(&'static str, String)> {
     // 装箱基元先拆箱再判（与 convert_value 的首个分支对齐）。
     if let Value::BoxedStruct(gc) = v {
         if let Some(n) = gc.borrow().boxed_prim_i64() {

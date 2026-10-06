@@ -328,7 +328,7 @@ impl TypeDesc {
                 None => (0, 0),
             };
         }
-        if let Some(col) = self.composed_object_layout() {
+        if let Some(col) = self.composed_object_layout_ref() {
             return (col.size, col.ref_count());
         }
         if self.fields.is_empty() { return (0, 0); }

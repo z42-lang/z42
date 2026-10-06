@@ -332,7 +332,7 @@ impl VmContext {
     /// defer-class-initialization: 该类是否已在 registry 中（即所属包已加载 + 初始化过）。
     /// 只读，不触发任何加载——供 T3 入队前的快速过滤。
     pub fn has_loaded_type(&self, class_fq: &str) -> bool {
-        let state = self.core.lazy_loader.write();
+        let state = self.core.lazy_loader.read();
         match state.as_ref() {
             Some(loader) => loader.has_type(class_fq),
             None => false,
@@ -385,7 +385,7 @@ impl VmContext {
     /// package's IMPL section (returns owned Vec — the registry lives behind
     /// the lazy-loader lock). Empty when no loader / no impls.
     pub fn impl_traits_for(&self, target_fq: &str) -> Vec<String> {
-        let state = self.core.lazy_loader.write();
+        let state = self.core.lazy_loader.read();
         match state.as_ref() {
             Some(loader) => loader.impl_traits_for(target_fq).to_vec(),
             None => Vec::new(),
@@ -406,7 +406,7 @@ impl VmContext {
             }
         }
         {
-            let state = self.core.lazy_loader.write();
+            let state = self.core.lazy_loader.read();
             if let Some(loader) = state.as_ref() {
                 for name in loader.iter_type_names() {
                     set.insert(name.clone());
@@ -483,7 +483,7 @@ impl VmContext {
 
     /// All namespaces declared by lazy-loadable zpkgs (for static-init scan).
     pub fn declared_namespaces(&self) -> Vec<String> {
-        let state = self.core.lazy_loader.write();
+        let state = self.core.lazy_loader.read();
         match state.as_ref() {
             Some(loader) => loader.declared_namespaces(),
             None         => Vec::new(),

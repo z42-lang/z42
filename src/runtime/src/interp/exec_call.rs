@@ -391,16 +391,10 @@ pub(super) fn call_indirect(
         }
         other => bail!("CallIndirect: expected FuncRef / Closure / StackClosure, got {:?}", other),
     };
-    let user_vals = collect_args(&frame.regs, args)?;
-    let arg_vals: Vec<Value> = match env_val_opt {
-        None          => user_vals,
-        Some(env_val) => {
-            let mut v = Vec::with_capacity(user_vals.len() + 1);
-            v.push(env_val);
-            v.extend(user_vals);
-            v
-        }
-    };
+    let mut arg_vals = collect_args(&frame.regs, args)?;
+    if let Some(env_val) = env_val_opt {
+        arg_vals.insert(0, env_val);
+    }
     let callee_fn = module.func_index.get(fname.as_str())
         .and_then(|&idx| module.functions.get(idx));
     let outcome = if let Some(cfn) = callee_fn {

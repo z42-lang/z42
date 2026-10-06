@@ -37,6 +37,12 @@ impl VmContext {
     /// is empty (cost = one lock acquire + length check). Safe to call
     /// from any thread; observer callbacks must be `Send + Sync` so they
     /// handle cross-thread invocation themselves.
+    /// Whether a runtime observer is registered — gate for building costly events.
+    #[inline]
+    pub fn has_runtime_observers(&self) -> bool {
+        self.core.runtime_observers.has_observers()
+    }
+
     pub fn fire_runtime_event(&self, event: &crate::observer::RuntimeEvent) -> usize {
         self.core.runtime_observers.fire(event)
     }
