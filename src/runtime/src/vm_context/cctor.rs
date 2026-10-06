@@ -22,6 +22,10 @@
 //!
 //! 比原方案 B 的承诺更强：不只「只有有 cctor 的类型付」，而且「付的时段也有界」。
 //!
+//! ⚠️ 实际上门几乎总开着（boot 登记的 z42.core 类型大多永远用不到）。稳态代价由门后的
+//! 按对象缓存决定：静态调用看被调 `Function::owner_init`，类型看 `TypeDesc` 的初始化代际，
+//! 见 [`VmContext::ensure_callee_owner_init`] 与 `docs/internals/src/runtime/static-ctor-init.md`。
+//!
 //! 这个「无锁镜像只用于 `== 0`（可证无事可做）方向」的手法不是新发明——旁边的
 //! `pending_type_init_count` / `running_static_inits` 用的是同一套 idiom，见
 //! `vm_context/types.rs` 的 cache-failed-name-resolution 注释。
@@ -565,18 +569,51 @@ impl crate::vm_context::VmContext {
         Ok(())
     }
 
-    pub fn ensure_callee_owner_init(&self, func_fq: &str) -> Result<(), String> {
+    ///
+    /// `owner` is the callee's [`Function::owner_init`](crate::metadata::Function::owner_init)
+    /// cell. After the first call it holds the answer, so the steady-state cost
+    /// is one `OnceLock` read — and nothing at all for free functions and
+    /// methods of types without a static constructor, which is almost every call.
+    pub fn ensure_callee_owner_init(
+        &self, func_fq: &str, owner: &crate::metadata::bytecode::OwnerInitCell,
+    ) -> Result<(), String> {
         if !self.core.cctors.any_pending() { return Ok(()); }
-        let Some(owner) = owner_class_of_static_func(func_fq) else { return Ok(()) };
-        if let Some(m) = self.module() {
-            if let Some(td) = m.type_registry.get(owner) {
-                return self.ensure_type_init(td);
+        if let Some(cached) = owner.get() {
+            return match cached {
+                Some(td) => self.ensure_type_init(td),
+                None => Ok(()),
+            };
+        }
+        let found = owner_class_of_static_func(func_fq)
+            .and_then(|o| self.loaded_type(o))
+            .filter(|td| td.cctor_func().is_some());
+        match found {
+            // The loader's inheritance fixup mutates a type through
+            // `Arc::get_mut` until its base chain is merged; a cached clone
+            // would block it. Run the barrier without caching this time.
+            Some(td) if td.base_unmerged() => self.ensure_type_init(&td),
+            found => {
+                let _ = owner.set(found);
+                match owner.get() {
+                    Some(Some(td)) => self.ensure_type_init(td),
+                    _ => Ok(()),
+                }
             }
         }
-        match self.try_lookup_type(owner) {
-            Some(td) => self.ensure_type_init(&td),
-            None => Ok(()),
+    }
+
+    /// An already-registered type, from the merged module or a loaded package.
+    /// **Never loads a package.** For a callee's owner that is enough: the
+    /// callee's package is loaded, and a package registers all of its types in
+    /// the same load as its functions. A free function's "owner" is its
+    /// namespace, which is not a type — asking `try_lookup_type` for it walked
+    /// every declared-but-unloaded package before answering no (runtime-audit
+    /// A.5: one free-function call loaded 16 stdlib packages).
+    fn loaded_type(&self, name: &str) -> Option<Arc<crate::metadata::TypeDesc>> {
+        if let Some(td) = self.module().and_then(|m| m.type_registry.get(name)) {
+            return Some(Arc::clone(td));
         }
+        self.core.lazy_loader.read().as_ref().and_then(|l| l.loaded_type(name))
     }
 
     /// **cctor 屏障**：确保 `td` 这个类型的静态构造器已经跑过（C# 的「首次使用前」）。
@@ -695,147 +732,5 @@ pub fn owner_class_of_static_func(func_fq: &str) -> Option<&str> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    // add-module-init-hook：失败语义（失败是终态、不重试、每次重抛）已由既有的
-    // `failed_type_reports_error_on_every_later_access` 覆盖 —— 包初始化器复用同一套
-    // `claim`/`finish`，不另造一份重复断言。这里只测本变更**真正新增**的判定。
-    // fix-module-init-ownership（2026-09-27）：判据从「命名空间前缀」换成「**包的符号集合**」。
-    // 旧版本钉的是前缀语义，所以整段重写 —— 保留的是同一个意图：失败的包只毒它自己。
-    #[test]
-    fn module_owns_only_its_own_symbols() {
-        // 一个包真实拥有的东西：类型 FQN 与函数 FQN（登记时从整包的类型表+函数表算出）。
-        let owned: FxHashSet<String> = [
-            "Demo.MiFail.Touch$1",      // 自由函数
-            "Demo.MiFail.Api",          // 类型（其静态方法按 owner 判）
-            "Demo.MiFail.Sub.Widget",   // 嵌套 ns 下的类型
-            "Other.Ns.Sibling",         // ⭐ 同包的**兄弟命名空间** —— 旧前缀判据在这里漏判
-        ]
-        .iter()
-        .map(|s| s.to_string())
-        .collect();
-
-        assert!(module_owns_symbol(&owned, "Demo.MiFail.Touch$1"), "自由函数：精确命中");
-        assert!(module_owns_symbol(&owned, "Demo.MiFail.Api"), "类型：精确命中");
-        assert!(module_owns_symbol(&owned, "Demo.MiFail.Api.Get$1"), "静态方法：剥末段落到 owner 类型");
-        assert!(module_owns_symbol(&owned, "Demo.MiFail.Api.Level"), "静态字段：同上");
-        assert!(module_owns_symbol(&owned, "Demo.MiFail.Sub.Widget"), "嵌套 ns 下的类型");
-
-        // ⭐ 这一条是本次修复的要点：同包的兄弟命名空间**必须**判成自己的。
-        // 旧判据（前缀 `Demo.MiFail.`）在这里返回 false ⇒ 失败的包上继续跑。
-        assert!(
-            module_owns_symbol(&owned, "Other.Ns.Sibling"),
-            "同包的兄弟命名空间要算自己的 —— 旧前缀判据在这里漏判"
-        );
-
-        // ⭐ 另一个方向：不属于本包的，一概不算 —— 即便命名空间前缀看起来像。
-        assert!(!module_owns_symbol(&owned, "Std.IO.Console.WriteLine$1"), "别的包不许被毒");
-        assert!(!module_owns_symbol(&owned, "Demo.MiFailure.X"), "名字前缀相近但不是成员");
-        assert!(!module_owns_symbol(&owned, "Demo.MiFail"), "命名空间本身不是成员");
-        assert!(!module_owns_symbol(&owned, "Demo.MiFail.NotMine"), "同 ns 下但不属于本包");
-    }
-
-    // 过判方向的回归钉子：**裸 `Std` 那一格**。实测 11 个包都有 `namespace Std;` 的 CU，
-    // 所以「初始化器恰好写在裸 Std 里」是写得出来的形态，而旧判据会因此毒掉所有 `Std.*`。
-    #[test]
-    fn bare_std_module_init_does_not_poison_other_packages() {
-        // z42.compression 的符号（它自己也有一个裸 `Std` 的 CU）。
-        let owned: FxHashSet<String> = ["Std.Compression.Deflate", "Std.Archive.ZipReader", "Std.Zip$0"]
-            .iter()
-            .map(|s| s.to_string())
-            .collect();
-        assert!(module_owns_symbol(&owned, "Std.Archive.ZipReader"), "同包，兄弟 ns");
-        assert!(module_owns_symbol(&owned, "Std.Zip$0"), "同包，直接落在裸 Std 下");
-        // z42.io 的符号 —— 前缀 `Std.` 会命中，成员判定不会。
-        assert!(
-            !module_owns_symbol(&owned, "Std.IO.Console.WriteLine$1"),
-            "别的包的符号：前缀判据会误命中，成员判据不会"
-        );
-    }
-
-    #[test]
-    fn module_pseudo_type_is_recognised_by_suffix() {
-        // 编译器侧合成 `<ns>.$Module`；无 namespace 时就是裸 `$Module`。
-        assert!(is_module_pseudo_type("Demo.Lib.$Module"));
-        assert!(is_module_pseudo_type("$Module"));
-        assert!(!is_module_pseudo_type("Demo.Lib.Module"));
-        assert!(!is_module_pseudo_type("Demo.$ModuleThing"));
-        assert!(!is_module_pseudo_type("Demo.Lib.C"));
-    }
-
-    #[test]
-    fn empty_registry_is_never_pending() {
-        // 没有任何 cctor 的程序：热路径的门恒 false ⇒ 屏障免费。
-        let r = CctorRegistry::default();
-        assert!(!r.any_pending());
-    }
-
-    #[test]
-    fn register_makes_pending_and_finish_clears_it() {
-        let r = CctorRegistry::default();
-        r.register("A.C", "A.C.C$0");
-        assert!(r.any_pending(), "登记后必须待初始化");
-        let claimed = r.claim("A.C").unwrap();
-        assert_eq!(claimed.as_deref(), Some("A.C.C$0"), "认领应交回 cctor 函数名");
-        r.finish("A.C", None);
-        assert!(!r.any_pending(), "全部跑完后计数归零 ⇒ 屏障重新免费");
-        assert!(r.is_done("A.C"));
-    }
-
-    #[test]
-    fn register_is_idempotent() {
-        let r = CctorRegistry::default();
-        r.register("A.C", "f");
-        r.register("A.C", "f");
-        assert_eq!(r.registered_count(), 1);
-        r.finish("A.C", None);
-        assert!(!r.any_pending(), "重复登记不得把计数抬高到清不干净");
-    }
-
-    #[test]
-    fn second_claim_after_done_is_noop() {
-        let r = CctorRegistry::default();
-        r.register("A.C", "f");
-        assert!(r.claim("A.C").unwrap().is_some());
-        r.finish("A.C", None);
-        assert!(r.claim("A.C").unwrap().is_none(), "已 Done 的类型不得再跑一次");
-    }
-
-    #[test]
-    fn reentrant_claim_on_same_thread_is_allowed() {
-        // C# 语义：cctor 递归触发自身 → 放行（可能看到部分初始化），不死锁。
-        let r = CctorRegistry::default();
-        r.register("A.C", "f");
-        assert!(r.claim("A.C").unwrap().is_some());
-        assert!(r.claim("A.C").unwrap().is_none(), "同线程重入必须放行而非阻塞");
-    }
-
-    #[test]
-    fn failed_type_reports_error_on_every_later_access() {
-        // C# 语义：cctor 抛异常 → 类型不可用，后续访问一律报错（不重试）。
-        let r = CctorRegistry::default();
-        r.register("A.C", "f");
-        assert!(r.claim("A.C").unwrap().is_some());
-        r.finish("A.C", Some("boom".to_string()));
-        assert!(r.any_pending(),
-            "失败的类型必须让门继续开着——否则屏障短路、Failed 分支永远检查不到，\
-             失败类型会静默变回可用");
-        assert_eq!(r.claim("A.C").unwrap_err(), "boom");
-        assert_eq!(r.claim("A.C").unwrap_err(), "boom", "失败态必须稳定，不得重试");
-    }
-
-    #[test]
-    fn unregistered_type_never_blocks() {
-        let r = CctorRegistry::default();
-        r.register("A.C", "f");
-        assert!(r.claim("A.Other").unwrap().is_none(), "没有 cctor 的类型不进表 ⇒ 不受影响");
-    }
-
-    #[test]
-    fn owner_class_split() {
-        assert_eq!(owner_class_of_static_field("A.B.C.Field"), Some("A.B.C"));
-        assert_eq!(owner_class_of_static_field("Field"), None);
-        assert_eq!(owner_class_of_static_func("A.C.M$2"), Some("A.C"));
-    }
-}
+#[path = "cctor_tests.rs"]
+mod tests;

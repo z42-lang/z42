@@ -34,6 +34,7 @@ fn br_cond_on_int() -> Function {
         fused_tails: Vec::new(),
         frame_meta: None,
         resolved: std::sync::OnceLock::new(),
+        owner_init: Default::default(),
     }
 }
 

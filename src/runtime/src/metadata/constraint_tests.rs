@@ -63,6 +63,7 @@ fn generic_fn(name: &str, tp: &str, bundle: ConstraintBundle) -> Function {
         fused_tails: Vec::new(),
         frame_meta: None,
         resolved: std::sync::OnceLock::new(),
+        owner_init: Default::default(),
     }
 }
 

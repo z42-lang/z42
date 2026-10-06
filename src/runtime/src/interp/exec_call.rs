@@ -215,7 +215,7 @@ pub(super) fn call(
     if let Err(msg) = ctx.ensure_module_inits(Some(fname)) {
         return Ok(Some(crate::vm_context::cctor::make_type_init_exception(ctx, module, &msg)));
     }
-    if let Err(msg) = ctx.ensure_callee_owner_init(fname) {
+    if let Err(msg) = ctx.ensure_callee_owner_init(fname, &target.owner_init) {
         return Ok(Some(crate::vm_context::cctor::make_type_init_exception(ctx, module, &msg)));
     }
 

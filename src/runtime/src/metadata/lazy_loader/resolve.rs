@@ -69,6 +69,11 @@ impl LazyLoader {
         None
     }
 
+    /// 已注册的类型描述符（不触发任何加载，也不要求基类链已合并）。
+    pub(crate) fn loaded_type(&self, class_name: &str) -> Option<Arc<TypeDesc>> {
+        self.type_registry.get(class_name).map(Arc::clone)
+    }
+
     /// defer-class-initialization: 只读探测——该类是否已注册（不触发任何加载）。
     pub(crate) fn has_type(&self, class_name: &str) -> bool {
         self.type_registry.contains_key(class_name)

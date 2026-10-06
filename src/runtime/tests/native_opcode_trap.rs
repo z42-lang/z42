@@ -32,6 +32,7 @@ fn module_with_single_instr(name: &str, instr: Instruction) -> Module {
         fused_tails: Vec::new(),
         frame_meta: None,
         resolved: std::sync::OnceLock::new(),
+        owner_init: Default::default(),
     };
 
     Module {

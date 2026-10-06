@@ -36,6 +36,7 @@ fn f(param_count: usize, min_arg: u16, params_from: u8, method_flags: u8) -> Fun
         fused_tails: Vec::new(),
         frame_meta: None,
         resolved: std::sync::OnceLock::new(),
+        owner_init: Default::default(),
     }
 }
 

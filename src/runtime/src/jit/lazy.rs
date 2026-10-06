@@ -145,6 +145,7 @@ impl LazyCompiler {
             name:    frame_name,
             file:    file_str,
             arity:   crate::vm_context::symres::call_arity(func),
+            owner_init: std::sync::Arc::clone(&func.owner_init),
         })
     }
 
@@ -184,6 +185,7 @@ impl LazyCompiler {
             name:    frame_name,
             file:    file_str,
             arity:   crate::vm_context::symres::call_arity(func),
+            owner_init: std::sync::Arc::clone(&func.owner_init),
         })
     }
 }

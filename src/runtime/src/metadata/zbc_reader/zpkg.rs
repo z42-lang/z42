@@ -284,6 +284,7 @@ pub(super) fn read_mods_section(
             fused_tails:     Vec::new(),
             frame_meta:     None,
                 resolved:        std::sync::OnceLock::new(),
+                owner_init:        Default::default(),
             }
         }).collect();
 

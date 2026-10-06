@@ -50,6 +50,7 @@ fn cross_module_target_cell_fill_once_then_borrow() {
             fused_tails: Vec::new(),
             frame_meta: None,
             resolved: OnceLock::new(),
+            owner_init: Default::default(),
         })
     };
 

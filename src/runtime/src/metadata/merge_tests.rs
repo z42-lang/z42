@@ -35,6 +35,7 @@ fn make_module_with(
         fused_tails: Vec::new(),
         frame_meta: None,
         resolved: std::sync::OnceLock::new(),
+        owner_init: Default::default(),
     }];
     functions.extend(extra_functions);
     Module {
@@ -181,6 +182,7 @@ fn merge_deduplicates_functions_by_name() {
         fused_tails: Vec::new(),
         frame_meta: None,
         resolved: std::sync::OnceLock::new(),
+        owner_init: Default::default(),
     };
     let m0 = make_module("A", &["hello"], 0);
     let m1 = make_module_with("B", &["world"], 0, vec![], vec![dup_func]);

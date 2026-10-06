@@ -212,6 +212,7 @@ pub fn read_zbc(data: &[u8]) -> Result<Module> {
             fused_tails:     Vec::new(),
             frame_meta:     None,
             resolved:        std::sync::OnceLock::new(),
+            owner_init:        Default::default(),
         }
     }).collect();
 

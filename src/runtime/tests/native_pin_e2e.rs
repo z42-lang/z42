@@ -31,6 +31,7 @@ fn build_module(name: &str, instructions: Vec<Instruction>, terminator: Terminat
         fused_tails: Vec::new(),
         frame_meta: None,
         resolved: std::sync::OnceLock::new(),
+        owner_init: Default::default(),
     };
     Module {
         name: name.to_string(),
