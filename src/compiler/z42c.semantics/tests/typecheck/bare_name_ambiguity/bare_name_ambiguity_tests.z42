@@ -10,6 +10,7 @@
 namespace Z42cSemanticsBareNameAmbiguityTests;
 
 using Z42.Semantics;
+using Z42.Emission;
 
 // ⚠️ 辅助函数一律带 `amb` 前缀：同一测试单元（`typecheck` 工程 `include = ["**/*.z42"]`）里
 // 所有文件的自由函数**共享一个平坦命名空间**，而 z42 的自由函数**不按参数类型重载**——

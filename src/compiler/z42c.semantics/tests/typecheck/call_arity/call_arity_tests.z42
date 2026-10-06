@@ -12,6 +12,7 @@ using Z42.Semantics;
 using Z42.Syntax;
 using Z42.Core;
 using Z42.IR;
+using Z42.Emission;
 
 // 辅助函数带 `ar` 前缀：写于自由函数按 ns 解析之前（resolve-free-functions-by-namespace 起已非必需，保留无害）。
 
@@ -35,7 +36,7 @@ int arCount(DiagnosticBag d, string code) {
 // 一个依赖包 `demo.api`（ns Demo.Api）的导出面 → 消费方单 CU 编译 → 全部诊断消息。
 string[] arCrossPkg(string depSrc, string mainSrc) {
     ExportedModuleZ[] ems = new ExportedModuleZ[1];
-    ems[0] = IrDump.ExtractExports(depSrc, "dep.z42", "Demo.Api");
+    ems[0] = FrontEnd.ExtractExports(depSrc, "dep.z42", "Demo.Api");
     string[] pkgs = new string[1]; pkgs[0] = "demo.api";
     string[] us = new string[1]; us[0] = "Demo.Api";
     ImportedSymbols imp = ImportedSymbolLoader.Load(ems, pkgs, 1, us, 1);

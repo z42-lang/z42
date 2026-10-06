@@ -1,0 +1,551 @@
+// 每函数 Bound → IR lowering 的**函数级 hub**：函数入口（EmitFunction/静态 init/lambda lift/合成 equals）
+// + 签名装配 + 局部函数 lift + 共享状态（EmitContext/ExprEmitter/finally 栈）。
+// **语句 & 控制流**（_emitStmt 调度 + if/for/while/switch/foreach + try/finally）已分出到 StmtEmitter，
+// 经 _stmt 委派、经共享 internal 状态回流（同 ExprEmitter/ExprTyper 分解模型：hub 持状态、簇单向委回）。
+// 表达式 lowering 在 ExprEmitter，共享状态在 EmitContext（z42 无 partial class，故抽多类拆文件）。
+namespace Z42.Emission;
+
+using Z42.Semantics;
+
+using Z42.Syntax;
+using Z42.IR;
+using Z42.Core;
+
+public sealed class FunctionEmitter {
+    private SymbolTable  _symbols;
+    internal IrGen       _gen;      // internal：StmtEmitter 经 _fe._gen 访问（AddLifted/Layouts）
+    internal EmitContext _ctx;      // internal：StmtEmitter 经 _fe._ctx 发射（每入口重建）
+    internal ExprEmitter _expr;     // internal：StmtEmitter 经 _fe._expr 发射表达式
+    private StrMap       _seedLocalFns;   // impl-local-fn-l2：lifted 体继承父函数的 local-fn→lifted 名映射（兄弟/递归调用解析）
+    private StmtEmitter  _stmt;     // 语句 & 控制流簇（本 hub 唯一 spoke）
+    // 活跃 finally 栈（fix-finally-nonlocal-exit）：词法上包裹当前发射点的 try-with-finally 体，
+    // 内层在 _finDepth-1。return/break/continue 离开这些 try 前，须内→外内联跑对应 finally。
+    // internal：finally 栈的推/弹/内联在 StmtEmitter（_emitTry/_emitPendingFinallys），入口处重置在本 hub。
+    internal BoundStmt[] _finBodies;
+    internal int         _finDepth;
+
+    public FunctionEmitter(SymbolTable symbols, IrGen gen) {
+        this._symbols = symbols; this._gen = gen; this._seedLocalFns = null;
+        this._stmt = new StmtEmitter(this);
+    }
+
+    // lifted 局部函数体 emit 前注入兄弟 local-fn 映射（递归/前向引用解析为 Call <lifted>）。
+    public void SeedLocalFns(StrMap m) { this._seedLocalFns = m; }
+
+    // 入口：方法/自由函数 + 其 Bound 体 → IrFunction。
+    // isInstance = 有 this（实例方法；驱动 reg0=this / paramOffset）。
+    // isStaticMethod = SIGS IsStatic 标志（仅静态类方法 true；**自由函数 false**，与 C# byte-identical 一致——
+    //   自由函数无 this 但 IsStatic=0，故二者分离）。
+    // owner = 实例方法所属类（裸字段识别）；classTp = 类活跃型参（CG-2，ResolveTypeP）。
+    public IrFunction EmitFunction(string name, MethodDecl md, BoundStmt body, bool isInstance, bool isStaticMethod,
+                                   Z42ClassType owner, string[] classTp, int classTpCount) {
+        this._ctx = new EmitContext(this._symbols, this._gen);
+        this._finBodies = null; this._finDepth = 0;   // 每函数重置 finally 栈
+        this._ctx.Ns = this._gen.Ns;   // BP-0：emitter 侧名字限定（ObjNew/is/as 类引用）
+        this._ctx.Deps = this._gen.Deps;   // CI-4：跨包调用索引
+        this._ctx.ImportedClassNs = this._gen.ImportedClassNs;   // IC-1
+        this._ctx.ActiveNs = this._gen.ActiveNs; this._ctx.ActiveNsCount = this._gen.ActiveNsCount;  // path C
+        this._ctx.LocalClasses = this._gen.LocalClasses;
+        this._ctx.CurFnName = name;                               // lift 命名（port-z42c-closures）
+        if (this._seedLocalFns != null) {                          // impl-local-fn-l2：继承父函数 local-fn 映射
+            string[] sk = this._seedLocalFns.Keys();
+            int si = 0;
+            while (si < sk.Length) { this._ctx.LocalFnNames.Put(sk[si], this._seedLocalFns.Get(sk[si])); si = si + 1; }
+        }
+        this._expr = new ExprEmitter(this._ctx, this);
+        string[] tp = this._mergeTp(classTp, classTpCount, md.TypeParams.Names, md.TypeParams.Count);
+        int tpc = classTpCount + md.TypeParams.Count;
+        int paramOffset = 0;
+        int totalParams = md.ParamCount + (isInstance ? 1 : 0);
+        string[] paramTypes = new string[totalParams];   // SIGS：每形参（含 this 槽）类型名
+        if (isInstance) {
+            paramOffset = 1;
+            this._ctx.Locals.Put("this", new TypedReg(0, IrType.Ref));
+            this._ctx.RecordReg(0, IrType.Ref);
+            paramTypes[0] = (owner != null) ? owner.Name() : "?";   // this 槽类型 = 所属类
+            // add-struct-value-semantics A-use：所属类是 blob 值 struct → `this` 是 StructRef 句柄，
+            // 其字段 access（裸 `x` 或 `this.x`）翻转到 StructFieldGet/SetPrim（含 ctor 的 `this.f = a`）。
+            if (owner != null && this._gen.Layouts != null && this._gen.Layouts.IsBlobStruct(owner.Name())) {
+                // generic-struct-erased-slot-value-copy：特化通道下用**实例化名** ⇒ 体内 `this.f` 的
+                // 字节偏移按实例化布局烘焙。这是 B1 的核心：定义布局里型参字段一律 8B 句柄，
+                // 实例化布局里是内联字节，两者 size 与后续字段偏移都可能不同（P3 为 12B 时 Second 从 @8 挪到 @12）。
+                this._ctx.OwnerStructName = this._gen.SpecInstName != "" ? this._gen.SpecInstName : owner.Name();
+            }
+            // add-struct-heap-inline (P3b)：记所属类短名（含非-struct class）供裸 `pt`/`pt.x` 内联字段解析。
+            // struct owner 无内联字段（其字段是嵌套展平，非堆内联）→ InlineFieldByteOffset 恒 -1，安全共存。
+            // generic-struct-erased-slot-value-copy（形态 ②）：特化通道下用实例化名 ⇒ 体内裸字段
+            // （`item` 即 `this.item`）按**实例化的内联布局**解析 offset。
+            if (owner != null) { this._ctx.OwnerClassName = this._gen.SpecInstName != "" ? this._gen.SpecInstName : owner.Name(); }
+            if (owner != null) {   // 实例方法：裸字段 → field_get(reg0)
+                string[] fnames = owner.Fields.Keys();
+                int fi = 0;
+                while (fi < fnames.Length) {
+                    FieldSymbol ofs = owner.Fields.Get(fnames[fi]) as FieldSymbol;
+                    // add-static-properties：static / const 不进裸字段表——裸名静态成员已在绑定期改写成
+                    // BoundStaticGet（`C.x`）；留在表里只会让同名 BoundIdent 被发成 `field_get reg0.x`。
+                    if (ofs != null && ofs.IsStatic) { fi = fi + 1; continue; }
+                    this._ctx.Fields.Put(fnames[fi], "f");
+                    // add-readonly-fields-opt：记 readonly 字段名 → 裸 ident field_get 打 Readonly 标志
+                    if (ofs != null && ofs.IsReadonly) { this._ctx.ReadonlyFields.Put(fnames[fi], "1"); }
+                    // fix-autoprop-getonly-backing-write：实例属性另记一表 —— 裸 ident 须走访问器而非字段
+                    // （属性以源名 X 登记 FieldSymbol，存储却叫 __prop_X）。静态属性不入表（不经 reg0）。
+                    if (ofs != null && ofs.IsProp && !ofs.IsStatic) {
+                        this._ctx.InstProps.Put(fnames[fi], ofs.PropBackingName);
+                        if (owner.Methods.ContainsKey("set_" + fnames[fi])) { this._ctx.InstPropHasSet.Put(fnames[fi], "1"); }
+                    }
+                    fi = fi + 1;
+                }
+            }
+        }
+        int p = 0;
+        while (p < md.ParamCount) {
+            Z42Type pt = this._symbols.ResolveTypeP(md.Params[p].Type, tp, tpc);
+            // 形参 REGT tag 镜像 C# 语法重载 ToIrType(TypeExpr)=TypeRegistry.GetIrType(name)：
+            // prim 名→prim tag / array→Ref / 其它非基本 NamedType（class·interface·func·泛型）→Unknown
+            // （GetIrType 表只含 prim；体内局部值才走语义 ToIrType→class=Ref。REGT 字节实证两形态）。
+            int ptag = IrType.Unknown;
+            if (pt is Z42ClassType) { int _pc = pt.PrimCode(); if (_pc >= 0) { ptag = PrimModel.IrTagOfCode(_pc); } }   // 内建形参（int→Z42ClassType(Int32)）按名归一到 IR 标签
+            else if (pt is Z42ArrayType) { ptag = IrType.Ref; }
+            this._ctx.Locals.Put(md.Params[p].Name, new TypedReg(p + paramOffset, ptag));
+            this._ctx.RecordReg(p + paramOffset, ptag);
+            paramTypes[p + paramOffset] = this._sigTypeName(md.Params[p].Type, tp, tpc);   // G18f：SIGS 用源拼写（byte[]）
+            p = p + 1;
+        }
+        // add-struct-value-semantics A-use sret：函数返回 blob 值 struct → 末尾加隐藏 sret 参数（reg=totalParams，
+        // caller 预留的返回 blob handle）。**不入 SIGS**（内部 ABI，caller 显式在 Call args 末尾传，运行时按 arg
+        // 数 collect_args 填此 reg）→ 反射/跨包签名不受污染。callee `return s`→StructCopy(sret,s)+ret void。
+        // ctor 除外（ctor 填的是传入 handle、隐式返回，不走 sret）。
+        int regCount = totalParams;   // reg 分配总数（含 sret）；totalParams 仍是 SIGS param count（**不含 sret**，
+                                      // 故 paramTypes 数组 len==totalParams 不越界）。
+        if (!md.IsCtor) {
+            Z42Type rt = this._symbols.ResolveTypeP(md.RetType, tp, tpc);
+            string rsn = this._blobStructNameT(rt);
+            if (rsn != "") {
+                this._ctx.RetIsStruct = true;
+                this._ctx.RetStructSize = this._gen.Layouts.StructSize(rsn);
+                this._ctx.SretReg = new TypedReg(totalParams, IrType.Ref);   // sret reg = 末尾（totalParams）
+                this._ctx.RecordReg(totalParams, IrType.Ref);
+                regCount = totalParams + 1;   // sret 占额外 reg，但不计入 SIGS param count
+            }
+        }
+        this._ctx.NextReg = regCount;
+        this._ctx.MaxReg = this._ctx.NextReg;
+        this._ctx.StartBlock("entry");
+        // 顶层方法体：直接循环子语句（镜像 C# EmitFunction 的 foreach EmitBoundStmt——体 block 自身不 TrackLine；
+        // 嵌套 block 仍走 _emitStmt → 正常 track）。
+        if (body is BoundBlock) {
+            BoundBlock bb = body as BoundBlock;
+            this._registerLocalFns(bb.Stmts, bb.Count);   // impl-local-fn-l2：先注册 lifted 名（兄弟/递归解析）
+            int bi = 0;
+            while (bi < bb.Count) { this._stmt._emitStmt(bb.Stmts[bi]); bi = bi + 1; }
+        } else {
+            this._stmt._emitStmt(body);
+        }
+        if (!this._ctx.Ended) { this._ctx.EndBlock(new RetTerm(false, null)); }   // 隐式 ret
+        string retName = "void";   // G11：ctor 返回 void（RetType 占位空名）
+        if (!md.IsCtor) { retName = this._sigTypeName(md.RetType, tp, tpc); }   // G18f：SIGS 用源拼写（byte[]，非 u8[]）
+        int[] regTypes = new int[this._ctx.RegTagCount];
+        int rt = 0;
+        while (rt < this._ctx.RegTagCount) { regTypes[rt] = this._ctx.RegTags[rt]; rt = rt + 1; }
+        // 始终填充行表/局部变量表（供 InternPoolStrings 把 DBUG 串入 STRS 池）；
+        // release 模式下 DBUG 字节不写入 MODS——由 ZpkgWriter._buildMods(isRelease) 控制。
+        IrLineEntry[] lines = new IrLineEntry[this._ctx.LineCount];
+        int lineCount = this._ctx.LineCount;
+        int li = 0;
+        while (li < this._ctx.LineCount) { lines[li] = this._ctx.Lines[li]; li = li + 1; }
+        IrLocalVarEntry[] localVars = this._ctx.SnapshotLocals();
+        IrFunction irf = new IrFunction(name, totalParams, retName, isStaticMethod,
+                              this._ctx.Blocks, this._ctx.BlockCount, this._ctx.MaxReg,
+                              "Interp", paramTypes, totalParams, regTypes, this._ctx.RegTagCount,
+                              lines, lineCount, localVars, localVars.Length);
+        // fix-call-arity-skew：sret 是**物理签名**的一部分（末尾隐藏返回槽），却不计入 ParamCount。把它显式记进
+        // 元数据，运行期才能精确判「这条调用的实参数和被调方签名对不对得上」——否则只能猜（见 proposal 方案 A/B）。
+        if (this._ctx.RetIsStruct) { irf.MethodFlags = irf.MethodFlags | IrGenFacts.MethodFlagSret; }
+        if (this._ctx.ExcCount > 0) {                       // 异常表（port-z42c-try，可变字段赋值）
+            IrExcEntry[] xs = new IrExcEntry[this._ctx.ExcCount];
+            int xi = 0;
+            while (xi < this._ctx.ExcCount) { xs[xi] = this._ctx.ExcTable[xi]; xi = xi + 1; }
+            irf.ExcTable = xs;
+            irf.ExcCount = this._ctx.ExcCount;
+        }
+        // add-reflective-invoke：记**方法级**泛型类型形参名（md.TypeParams，不含类形参）→ SIGS tpCount 槽
+        // （ZbcWriter 从恒 0 改为写真实值）→ 运行期 MethodInfo.GetGenericArguments/MakeGenericMethod 可反射。
+        if (md.TypeParams.Count > 0) {
+            irf.TypeParams = md.TypeParams.Names;
+            irf.TypeParamCount = md.TypeParams.Count;
+        }
+        return irf;
+    }
+
+    // ── add-struct-object-methods (PR2b)：合成 blob 值 struct 的 `Equals(object)` IR 函数 ──────
+    // 无 SemanticModel body——直接搭 EmitContext + 调 ExprEmitter.EmitSynthEqualsResult 发 body。
+    // reg0=this、reg1=other，**均按 boxed object 处理**（不设 OwnerStructName；body 内 AsCast 拆箱），
+    // 使 boxed vcall（this=boxed）与静态 Call 两路一致。ret bool、实例方法（isStatic=false）。
+    public IrFunction EmitSynthStructEquals(string name, Z42ClassType owner) {
+        this._ctx = new EmitContext(this._symbols, this._gen);
+        this._finBodies = null; this._finDepth = 0;
+        this._ctx.Ns = this._gen.Ns;
+        this._ctx.Deps = this._gen.Deps;
+        this._ctx.ImportedClassNs = this._gen.ImportedClassNs;
+        this._ctx.ActiveNs = this._gen.ActiveNs; this._ctx.ActiveNsCount = this._gen.ActiveNsCount;
+        this._ctx.LocalClasses = this._gen.LocalClasses;
+        this._ctx.CurFnName = name;
+        this._expr = new ExprEmitter(this._ctx, this);
+        this._ctx.RecordReg(0, IrType.Ref);   // this（boxed）
+        this._ctx.RecordReg(1, IrType.Ref);   // other（object）
+        string[] paramTypes = new string[2];
+        paramTypes[0] = owner.Name();
+        paramTypes[1] = "object";
+        this._ctx.NextReg = 2;
+        this._ctx.MaxReg = 2;
+        this._ctx.StartBlock("entry");
+        // generic-struct-erased-slot-value-copy：特化后装箱值的运行期类型是**实例化**
+        // （合成描述符 `GRec<int,int>`），拿定义名 `GRec` 做 `other is …` 必失败 ⇒ 值相等误返 false
+        // （实测 generic_struct_equals 判红，且是**静默错值**不是崩）。按实例化名检查。
+        string seOwner = this._gen.SpecInstName != "" ? this._gen.SpecInstName : owner.Name();
+        TypedReg result = this._expr.EmitSynthEqualsResult(seOwner,
+                              new TypedReg(0, IrType.Ref), new TypedReg(1, IrType.Ref));
+        if (!this._ctx.Ended) { this._ctx.EndBlock(new RetTerm(true, result)); }
+        int[] regTypes = new int[this._ctx.RegTagCount];
+        int rti = 0;
+        while (rti < this._ctx.RegTagCount) { regTypes[rti] = this._ctx.RegTags[rti]; rti = rti + 1; }
+        IrLineEntry[] lines = new IrLineEntry[this._ctx.LineCount];
+        int lc = this._ctx.LineCount;
+        int li = 0;
+        while (li < this._ctx.LineCount) { lines[li] = this._ctx.Lines[li]; li = li + 1; }
+        IrLocalVarEntry[] localVars = this._ctx.SnapshotLocals();
+        IrFunction irf = new IrFunction(name, 2, "bool", false,
+                              this._ctx.Blocks, this._ctx.BlockCount, this._ctx.MaxReg,
+                              "Interp", paramTypes, 2, regTypes, this._ctx.RegTagCount,
+                              lines, lc, localVars, localVars.Length);
+        return irf;
+    }
+
+    // SIGS 签名类型名（ret + param）：**源拼写**（byte[]，非规范 u8[]）——whichsec 实证 C# 顶层 SIGS
+    // type_str 用源拼写，区别于 TSIG/MODS 用规范名（G18d）。仅会被规范化的次要 prim 别名
+    // （byte/sbyte/short/ushort/uint/ulong）走源名；其余（含 nullable 剥 ?、class/泛型/delegate）
+    // 委托 ResolveTypeP().Name() 保正确解析。数组递归保结构。G18f。
+    private string _sigTypeName(TypeExpr te, string[] tp, int tpc) {
+        if (te is ArrayType) { return this._sigTypeName((te as ArrayType).Elem, tp, tpc) + "[]"; }
+        if (te is NullableType) { return this._sigTypeName((te as NullableType).Inner, tp, tpc); }   // 剥 ?（镜像 ResolveTypeP）
+        if (te is NamedType) {
+            NamedType nt = te as NamedType;
+            // unify-type-identity-fqn：**删除了**「含点的限定名 → 字面量 "unknown"」这条短路。
+            // 它镜像的是 C# bootstrap 编译器的 `MemberType → _ → "unknown"`，而那个编译器已于
+            // 2026-06-26 移除 —— 等于在复刻一个不存在的编译器的缺陷。`ResolveTypeP` 本就能解析
+            // 限定名（FQN 精确 → 嵌套 `+` 键 → 末段回退，SymbolTable.z42:335-400），只是从没被调到。
+            // 后果：`Std.Type` / `Std.Attribute[]` 这类声明在反射面读回 "unknown"（实测 z42.core
+            // 四个反射类 37 个字段里 9 个如此），且类型检查被 Unknown 的 Absorb 守卫整片吞掉。
+        }
+        Z42Type resolved = this._symbols.ResolveTypeP(te, tp, tpc);
+        if (resolved is Z42UnknownType) { return "unknown"; }   // <unknown> → unknown（真·哨兵：确实解析不出来）
+        // unify-type-identity-fqn：歧义裸名不写 FQN（理由同 ClassDescBuilder._fqnOf 的守卫）。
+        // 走下方 SurfaceName 回落到既有短名拼写。
+        bool ambiguous = (te is NamedType) && this._symbols.IsBareNameAmbiguous((te as NamedType).Name);
+        if (!ambiguous) {
+            // unify-type-identity-fqn：用户声明的类 → **全限定名**。短名不是跨命名空间的唯一键
+            // （`A.Foo` 与 `B.Foo` 写进去都是 `Foo`），而消费端 `ImportedSymbolLoader._resolve` 按短名
+            // 查表 ⇒ 谁赢短名竞争就绑谁 = 静默错绑。运行期反过来**本就偏好 FQN**
+            // （`make_type_from_name` 先 `try_lookup_type`，仅在名字不含点时才退到防歧义的
+            // `resolve_dotless_simple` + `force_load_all_packages`）⇒ 给 FQN 直接命中，运行期零改动。
+            // 基元不参与（无 ns、本就无歧义，且 SIGS 对 byte/short… 刻意保源拼写 G18g）：用 PrimCode
+            // 判非基元、Namespace 非空判用户声明，两个条件由构造保证不误伤。
+            if (resolved is Z42ClassType) {
+                Z42ClassType rct = resolved as Z42ClassType;
+                if (rct.PrimCode() < 0 && rct.Namespace != "") { return rct.Fqn(); }
+            }
+            if (resolved is Z42InterfaceType) {
+                Z42InterfaceType rit = resolved as Z42InterfaceType;
+                if (rit.Namespace != "") { return rit.Fqn(); }
+            }
+            // 构造泛型：基名 FQ 化，实参递归套用同一文法（`List<int>` → `Std.List<int>`）。
+            // `Z42InstantiatedType.Name()` 是用 `Def.Name()`（短名）拼的，直接用会漏掉基名的 ns。
+            if (resolved is Z42InstantiatedType) {
+                Z42InstantiatedType rin = resolved as Z42InstantiatedType;
+                Z42ClassType rdef = rin.Def;
+                if (rdef != null && rdef.PrimCode() < 0 && rdef.Namespace != "") {
+                    string acc = rdef.Fqn() + "<";
+                    int ai = 0;
+                    while (ai < rin.ArgCount) {
+                        if (ai > 0) { acc = acc + ", "; }
+                        acc = acc + this._sigArgTypeName(rin.TypeArgs[ai]);
+                        ai = ai + 1;
+                    }
+                    return acc + ">";
+                }
+            }
+        }
+        // unify-value-types Phase 1：翻转后内建 leaf（int/string/object…）ResolveTypeP→Z42ClassType(wrapper)，
+        // Name()="Int32"/"String"/"Object"；SIGS 须回 baseline keyword 拼写（"int"/"string"/"object"），否则
+        // SIGS 泄漏 wrapper 名（`int[]`→`Int32[]`）→ 重建 stdlib 类型名不一致 → z42c 自编译误编。alias-prim
+        // （byte/short…）已在上方按源名返回、不到此，故 SurfaceName 对 int/long/float/double/bool/char/string/
+        // object 逐字复刻 baseline Prim.Name()，非内建原样。
+        return PrimModel.SurfaceName(resolved.Name());
+    }
+    // unify-type-identity-fqn：**已解析类型** → 持久化文法串（泛型实参递归用；与 _sigTypeName 同口径，
+    // 但入参是 Z42Type 而非 TypeExpr——实参在 Z42InstantiatedType 里已是解析好的类型对象）。
+    private string _sigArgTypeName(Z42Type t) {
+        if (t == null) { return "unknown"; }
+        if (t is Z42UnknownType) { return "unknown"; }
+        if (t is Z42ArrayType) { return this._sigArgTypeName((t as Z42ArrayType).Elem) + "[]"; }
+        if (t is Z42ClassType) {
+            Z42ClassType ct = t as Z42ClassType;
+            if (ct.PrimCode() < 0 && ct.Namespace != "") { return ct.Fqn(); }
+        }
+        if (t is Z42InterfaceType) {
+            Z42InterfaceType it = t as Z42InterfaceType;
+            if (it.Namespace != "") { return it.Fqn(); }
+        }
+        if (t is Z42InstantiatedType) {
+            Z42InstantiatedType it2 = t as Z42InstantiatedType;
+            Z42ClassType d = it2.Def;
+            string bn = (d != null && d.PrimCode() < 0 && d.Namespace != "") ? d.Fqn() : t.Name();
+            if (d != null && d.PrimCode() < 0 && d.Namespace != "") {
+                string acc = bn + "<";
+                int ai = 0;
+                while (ai < it2.ArgCount) {
+                    if (ai > 0) { acc = acc + ", "; }
+                    acc = acc + this._sigArgTypeName(it2.TypeArgs[ai]);
+                    ai = ai + 1;
+                }
+                return acc + ">";
+            }
+        }
+        // ⚠️ **不能**用 PrimModel.SurfaceName —— 那会把实参从 `Int32` 改写成 `int`，等于顺手统一了
+        // SIGS 与 TYPE 的实参拼写差异，违反本 change 的裁决 D2「只 FQ 化类名成分、不动实参拼写」。
+        // 原路径 `Z42InstantiatedType.Name()` 用的就是 `Name()`，此处逐字保持。
+        // （实测破坏：ext 导出签名 `Kv<String, Int32>[]` 变成 `Kv<string, int>[]` ⇒
+        //  generic_struct_array_cross_pkg 的 main 整个导入失效。）
+        return t.Name();
+    }
+
+    // drop-short-primitive-aliases：`_isAliasPrim` 守卫已删 —— 它存在的唯一理由是「这些次要别名
+    // 会被 Canon 规范化成 u8/i16/…，而 SIGS 要保源拼写」。canonical 收敛到关键字后，`SurfaceName`
+    // 对 byte/short/… 返回的**就是**源拼写，两条路同结果，守卫成了纯噪音。
+
+    // 类型初始化器合成（unify-static-init-into-cctor）：宿主类 `onlyCls` 的每个静态字段 init
+    // → StaticSet(FQ, init reg)，ret void、0 参。发射名 = 该类的 cctor 名，运行期按 $Cctor
+    // 哨兵在「首次使用该类型前」调用。
+    // 前史：此前本函数合成 per-CU `__static_init__`（一个文件的全部类混在一个函数里，按声明序
+    // 线性展开），于是「A 的初始化器依赖声明在后的 B」会读到未初始化值且**静默**。
+    public IrFunction EmitStaticInit(string name, SemanticModel model, string onlyCls) {
+        this._ctx = new EmitContext(this._symbols, this._gen);
+        this._ctx.Ns = this._gen.Ns;
+        this._ctx.Deps = this._gen.Deps;
+        this._ctx.ImportedClassNs = this._gen.ImportedClassNs;
+        this._ctx.ActiveNs = this._gen.ActiveNs; this._ctx.ActiveNsCount = this._gen.ActiveNsCount;  // path C
+        this._ctx.LocalClasses = this._gen.LocalClasses;
+        this._ctx.CurFnName = name;
+        this._expr = new ExprEmitter(this._ctx, this);
+        this._ctx.NextReg = 0; this._ctx.MaxReg = 0;
+        this._ctx.StartBlock("entry");
+        int i = 0;
+        while (i < model.SiCount) {
+            if (model.SiCls[i] != onlyCls) { i = i + 1; }
+            else {
+            TypedReg v = this._expr.Emit(model.SiInit[i]);   // 合成体无 LineTable（DBUG file 不在此入池）
+            // complete-generic-class-identity P3：特化通道下写**实例化**的槽。
+            // 这条路自己拼键、不经 `AccessEmitter._staticKey`，所以要在这里也认一次 —— 否则
+            // `Demo.GBox<int>.$cctor` 的体里写的还是擦除键 `Demo.GBox.Seed`，而读方查的是
+            // `Demo.GBox<int>.Seed` ⇒ `static int Seed = 7;` 恒读出 0（实测）。
+            string fq = this._gen.SpecInstName != ""
+                      ? this._expr._qualifyInstName(this._gen.SpecInstName) + "." + model.SiField[i]
+                      : this._ctx.Qualify(model.SiCls[i]) + "." + model.SiField[i];
+            // fix-static-struct-field-init：blob 值 struct 必须装箱后再存静态槽 —— 裸 StructRef 是
+            // **帧级 arena 句柄**，__static_init__ 一返回 slot 就被 LIFO 截断，下次读抛
+            // 「value-struct lifetime unsound」。有静态 ctor 时初始化器被注入 ctor 体、走
+            // AccessEmitter._emitStaticStore 已装箱；这条无静态 ctor 的路径此前漏挂。
+            TypedReg sv = this._expr._boxIfStaticStruct(v, model.SiInit[i].Type());
+            this._ctx.Emit(new StaticSetInstr(fq, sv));
+            i = i + 1;
+            }
+        }
+        if (!this._ctx.Ended) { this._ctx.EndBlock(new RetTerm(false, null)); }
+        int[] regTypes = new int[this._ctx.RegTagCount];
+        int rt = 0;
+        while (rt < this._ctx.RegTagCount) { regTypes[rt] = this._ctx.RegTags[rt]; rt = rt + 1; }
+        // 合成 __static_init__ 不带 DBUG 行表/局部表（镜像 C# EmitStaticInit：返回的
+        // IrFunction 用省略 lineTable 的构造重载，丢弃 EmitExpr 期 TrackLine 累积的行——
+        // 否则每个静态字段 init 表达式各记一条行，与 C# 字节漂移）。
+        IrLineEntry[] lines = new IrLineEntry[0];
+        IrLocalVarEntry[] localVars = new IrLocalVarEntry[0];
+        return new IrFunction(name, 0, "void", false,
+                              this._ctx.Blocks, this._ctx.BlockCount, this._ctx.MaxReg,
+                              "Interp", new string[0], 0, regTypes, this._ctx.RegTagCount,
+                              lines, 0, localVars, 0);
+    }
+
+    // lambda lift 发射（port-z42c-closures；镜像 C# EmitLifted/EmitLiftedLambdaWithEnv）。
+    // hasEnv：env=reg0、参数 reg1..；否则参数 reg0..。体内 BoundCapturedIdent → array_get env[idx]。
+    public IrFunction EmitLambdaLifted(string name, BoundLambda lam) {
+        // 子发射器自建 ctx（EmitFunction 才建 _ctx；镜像其入口装配）
+        this._ctx = new EmitContext(this._symbols, this._gen);
+        this._ctx.Ns = this._gen.Ns;
+        this._ctx.Deps = this._gen.Deps;
+        this._ctx.ImportedClassNs = this._gen.ImportedClassNs;
+        this._ctx.ActiveNs = this._gen.ActiveNs; this._ctx.ActiveNsCount = this._gen.ActiveNsCount;  // path C
+        this._ctx.LocalClasses = this._gen.LocalClasses;
+        this._ctx.CurFnName = name;
+        this._expr = new ExprEmitter(this._ctx, this);
+        bool hasEnv = lam.CaptureCount > 0;
+        int paramOffset = 0;
+        if (hasEnv) { paramOffset = 1; }
+        int totalParams = lam.ParamCount + paramOffset;
+        string[] paramTypes = new string[totalParams];
+        if (hasEnv) {
+            this._ctx.RecordReg(0, IrType.Ref);                  // env 槽
+            paramTypes[0] = "?";
+        }
+        int p = 0;
+        while (p < lam.ParamCount) {
+            int ptag = this._ctx.ToIrType(lam.ParamTypes[p]);
+            this._ctx.Locals.Put(lam.ParamNames[p], new TypedReg(p + paramOffset, ptag));
+            this._ctx.RecordReg(p + paramOffset, ptag);
+            paramTypes[p + paramOffset] = "?";                   // lift 形参类型串恒 "?"（SIGS 字节实证）
+            p = p + 1;
+        }
+        this._ctx.NextReg = totalParams;                     // 参数区之后分配（漏此则 const 撞 reg0）
+        this._ctx.MaxReg = this._ctx.NextReg;
+        this._ctx.InLambdaEnv = hasEnv;
+        // 记录本 lifted lambda 的捕获名（env 布局序 = lam.Captures 序）→ 嵌套 lambda 的
+        // _emitLambda 可把"外层捕获"解析为 array_get env[idx]（修嵌套捕获 MkClos null 捕获崩溃）。
+        string[] capNames = new string[lam.CaptureCount];
+        int ci = 0;
+        while (ci < lam.CaptureCount) { capNames[ci] = lam.Captures[ci].Name; ci = ci + 1; }
+        this._ctx.CaptureNames = capNames; this._ctx.CaptureNameCount = lam.CaptureCount;
+        this._ctx.StartBlock("entry");
+        if (lam.HasBlock) {
+            this._stmt._emitBlockChildren(lam.BlockBody);
+            if (!this._ctx.Ended) { this._ctx.EndBlock(new RetTerm(false, null)); }
+        } else {
+            this._ctx.TrackLine(lam.ExprBody.Span);          // 表达式体记 1 条行（DBUG 字节实证：体表达式位置）
+            TypedReg r = this._expr.Emit(lam.ExprBody);
+            this._ctx.EndBlock(new RetTerm(true, r));
+        }
+        Z42FuncType ft = lam.Type() as Z42FuncType;
+        string retName = "void";
+        if (ft != null) { retName = PrimModel.SurfaceName(ft.Ret.Name()); }   // unify-value-types P1：内建 leaf 回 keyword（SIGS 一致，见 _sigTypeName）
+        int[] regTypes = new int[this._ctx.RegTagCount];
+        int rt = 0;
+        while (rt < this._ctx.RegTagCount) { regTypes[rt] = this._ctx.RegTags[rt]; rt = rt + 1; }
+        IrLineEntry[] lines = new IrLineEntry[this._ctx.LineCount];
+        int lineCount = this._ctx.LineCount;
+        int li = 0;
+        while (li < this._ctx.LineCount) { lines[li] = this._ctx.Lines[li]; li = li + 1; }
+        IrLocalVarEntry[] localVars = this._ctx.SnapshotLocals();
+        // IsStatic=false（SIGS 字节实证——survey 报告与字节相左，以字节为准）
+        IrFunction lifted = new IrFunction(name, totalParams, retName, false,
+                              this._ctx.Blocks, this._ctx.BlockCount, this._ctx.MaxReg,
+                              "Interp", paramTypes, totalParams, regTypes, this._ctx.RegTagCount,
+                              lines, lineCount, localVars, localVars.Length);
+        // 异常表（lambda_try_catch）：lambda 体含 try/catch → 须把子 ctx 的 exc 表附到
+        // lifted 函数（镜像 EmitFunction:101-106）。漏此则 lifted 体无 handler → 异常不被捕获。
+        if (this._ctx.ExcCount > 0) {
+            IrExcEntry[] xs = new IrExcEntry[this._ctx.ExcCount];
+            int xi = 0;
+            while (xi < this._ctx.ExcCount) { xs[xi] = this._ctx.ExcTable[xi]; xi = xi + 1; }
+            lifted.ExcTable = xs;
+            lifted.ExcCount = this._ctx.ExcCount;
+        }
+        return lifted;
+    }
+
+    private string[] _mergeTp(string[] a, int ac, string[] b, int bc) {
+        string[] r = new string[ac + bc];
+        int i = 0;
+        while (i < ac) { r[i] = a[i]; i = i + 1; }
+        int j = 0;
+        while (j < bc) { r[ac + j] = b[j]; j = j + 1; }
+        return r;
+    }
+
+    // ════ 语句（集中 if-is）═══════════════════════════════════════════════════════
+    // impl-local-fn-l2：块内 BoundLocalFunction 预注册 lifted 名（CurFnName__localName）→ 兄弟/递归
+    // 调用先于体 emit 解析为 Call <lifted>。镜像 C# EmitBoundBlock sibling pre-pass。
+    internal void _registerLocalFns(BoundStmt[] stmts, int count) {
+        int i = 0;
+        while (i < count) {
+            if (stmts[i] is BoundLocalFunction) {
+                BoundLocalFunction lfn = stmts[i] as BoundLocalFunction;
+                if (!this._ctx.LocalFnNames.ContainsKey(lfn.Name)) {
+                    this._ctx.LocalFnNames.Put(lfn.Name, new StrBox(this._ctx.CurFnName + "__" + lfn.Name));
+                }
+            }
+            i = i + 1;
+        }
+    }
+
+    // 局部函数 lift。无捕获（L2）→ 自由函数（支持递归；call → Call <lifted>）；有捕获（L3）→
+    // 合成 BoundLambda 复用 EmitLambdaLifted（env 版）+ MkClos + Locals 存闭包（call → CallIndirect）。
+    internal void _emitLocalFn(BoundLocalFunction lfn) {
+        string lifted = (this._ctx.LocalFnNames.Get(lfn.Name) as StrBox).Value;
+        if (lfn.CaptureCount == 0) {
+            var fe = new FunctionEmitter(this._symbols, this._gen);
+            fe.SeedLocalFns(this._ctx.LocalFnNames);
+            IrFunction f = fe.EmitFunction(lifted, lfn.Decl, lfn.Body, false, false, null, new string[0], 0);
+            this._gen.AddLifted(f);
+            return;
+        }
+        // L3 捕获：镜像 C# EmitBoundLocalFunctionWithEnv。
+        MethodDecl md = lfn.Decl;
+        string[] pn = new string[md.ParamCount];
+        Z42Type[] pt = new Z42Type[md.ParamCount];
+        int i = 0;
+        while (i < md.ParamCount) { pn[i] = md.Params[i].Name; pt[i] = this._symbols.ResolveTypeP(md.Params[i].Type, new string[0], 0); i = i + 1; }
+        Z42Type lret = this._symbols.ResolveTypeP(md.RetType, new string[0], 0);
+        Z42FuncType ft = new Z42FuncType(pt, md.ParamCount, lret);
+        BoundLambda synth = new BoundLambda(pn, pt, md.ParamCount, true, null, lfn.Body, lfn.Captures, lfn.CaptureCount, ft, lfn.Span);
+        var fe2 = new FunctionEmitter(this._symbols, this._gen);
+        IrFunction lf = fe2.EmitLambdaLifted(lifted, synth);
+        this._gen.AddLifted(lf);
+        TypedReg[] caps = new TypedReg[lfn.CaptureCount];
+        int ci = 0;
+        while (ci < lfn.CaptureCount) {
+            string cn = lfn.Captures[ci].Name;
+            int _sl0 = this._ctx.Locals.Find(cn); if (_sl0 >= 0) { caps[ci] = this._ctx.Locals.ValAt(_sl0) as TypedReg; }
+            else { TypedReg ph = this._ctx.Alloc(IrType.Ref); this._ctx.Emit(new ConstNullInstr(ph)); caps[ci] = ph; }
+            ci = ci + 1;
+        }
+        TypedReg clos = this._ctx.Alloc(IrType.Ref);
+        this._ctx.Emit(new MkClosInstr(clos, lifted, caps, lfn.CaptureCount, false));
+        this._ctx.Locals.Put(lfn.Name, clos);
+    }
+
+    // add-struct-value-semantics A-use：某类型是 blob 值 struct 则返回其短名（供值语义翻转），否则 ""。
+    internal string _blobStructNameT(Z42Type t) {
+        // complete-generic-class-identity P4：**类实例化**特化通道下，已代换的型参算具体类型。
+        // `T Get()` 在 `G<P2>` 的特化体里返回的就是 `P2`（blob）——判否的代价是不走 sret，
+        // 返回值被拷进自己帧的 arena 再交出句柄，帧一弹即悬垂。
+        //
+        // ⚠️ 闸门 `SpecInstName != ""` 把它**限定在类实例化通道**，与调用侧
+        // `CallEmitter._specSretName` 能看见的判据（`_instLayoutName(receiver)`）严格对齐 ——
+        // 调用约定是两侧协议，一侧单方面改就是 ABI 撕裂。实测：去掉这道闸门后**泛型自由函数**
+        // 的特化体（`T makeValue<T>() where T : struct`）也跟着走 sret，而它的调用侧无从得知
+        // ⇒ `Demo.makeValue:Pair ... takes 1 physical argument(s), the call passes 0`。
+        // 泛型**体**（自由函数 / 泛型方法）那一侧今天两边都不代换 ⇒ 自洽（装箱模型），
+        // 要改得连调用约定一起改，属本线后续格（见 tasks P4b）。
+        if (t is Z42GenericParamType) {
+            if (this._gen.SpecInstName == "") { return ""; }
+            string sn = this._expr._substTypeParamPub(t);
+            if (sn != "" && this._gen.Layouts != null && this._gen.Layouts.IsBlobStruct(sn)) { return sn; }
+            return "";
+        }
+        Z42ClassType ct = null;
+        if (t is Z42ClassType) { ct = t as Z42ClassType; }
+        else if (t is Z42InstantiatedType) { ct = (t as Z42InstantiatedType).Def; }
+        if (ct == null) { return ""; }
+        if (this._gen.Layouts != null && this._gen.Layouts.IsBlobStruct(ct.Name())) {
+            // generic-struct-erased-slot-value-copy：与 ExprEmitter._blobStructName 同口径——
+            // 命中闸门的实例化给实例化规范名。两处必须一致，否则同一个值在
+            // 「变量声明」（走这里）与「成员访问」（走那里）上会各查一份不同布局。
+            string inst = this._expr._instLayoutName(t);
+            if (inst != "") { return inst; }
+            return ct.Name();
+        }
+        return "";
+    }
+
+    // BoundSeqExpr（集合字面量脱糖）的 prelude 语句发射入口——由 ExprEmitter 反向调用；委派语句簇。
+    public void EmitStmt(BoundStmt s) { this._stmt._emitStmt(s); }
+
+}

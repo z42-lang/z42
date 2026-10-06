@@ -10,6 +10,7 @@
 namespace Z42cSemanticsEnclosingNsTests;
 
 using Z42.Semantics;
+using Z42.Emission;
 
 string[] enclDiags(string[] srcs, ImportedSymbols imp) {
     string[] files = new string[srcs.Length];

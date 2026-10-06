@@ -253,7 +253,7 @@ C# 不会这样：它只在 `Main` 体**直接**引用依赖模块的类型时�
 | 校验 | `SymbolCollector.CollectAll` | E0486（标注目标非法）/ E0485（包内第二个）。挂这里是因为**包编译与单文件编译两条路都经过它** |
 | 合成 | `IrGen.Generate` → `ModuleInitSynth.Emit` | 本 CU 有合法站点 ⇒ 发伪类型 + cctor。per-CU 纯函数式（CU 是并行编译的） |
 
-伪类型名**不含包名**：`semantics` 层拿不到包名（`IrDump` 是自举冻结的公开 API），而
+伪类型名**不含包名**：代码生成层（`z42c.emission`）拿不到包名（`IrDump` 是自举冻结的公开 API），而
 「一个包至多一个 `[ModuleInit]`」这条约束使得 `<ns>.$Module` 整包至多一个，运行期按
 后缀认即可 —— 一条语义约束顺带消掉了一处跨层参数传递。
 

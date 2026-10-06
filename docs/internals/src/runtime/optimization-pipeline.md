@@ -67,7 +67,7 @@ z42 源码 ──z42c──> z42 IR
 
 **位置**：编译器包 `z42c.optimization`（`src/compiler/z42c.optimization/src/`：`IrOpt{Info,Pipeline}.z42` + `OptSet.z42` +
 `IrInline.z42` 等各 pass）。只依赖 IR 模型 `z42.package`（只用其现有 public 字段 type-switch，零 bootstrap API-face 延迟），
-由 `z42c.semantics` 的 `IrGen.Generate` 在出 IR 后调用。挂
+由 `z42c.emission` 的 `IrGen.Generate` 在出 IR 后调用。挂
 `IrGen.Generate` 末尾。
 
 > **逃逸分析栈上分配（`Opt.StackAlloc=64`）**：不逃逸的

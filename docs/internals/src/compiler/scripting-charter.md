@@ -55,7 +55,8 @@ compiler 域的包都在 [`src/compiler/`](https://github.com/z42-lang/z42/blob/
 | `z42.package` | L1 | `Z42.IR` / `Z42.Package` | IR 模型 / `ZbcReader` / `ZbcWriter` / `ZpkgBuilder` / `BinaryFormat` |
 | `z42c.syntax` | L1 | `Z42.Syntax` | `Lexer` / `Parser` / AST 节点 |
 | `z42c.optimization` | L2 | `Z42.Optimization` | `IrOptPipeline` / `Opt` / 各优化 pass |
-| `z42c.semantics` | L2 | `Z42.Semantics` | `TypeChecker` / `Bound*` / `IrGen` / `SymbolCollector` |
+| `z42c.semantics` | L2 | `Z42.Semantics` | `TypeChecker` / `Bound*` / `SymbolCollector` / `FrontEnd` |
+| `z42c.emission` | L2 | `Z42.Emission` | `IrGen` / 各 `*Emitter` / `IrDump` / `CompiledModuleZ` |
 | `z42.project` | L2 | — | manifest 解析 / source discovery |
 | `z42c.pipeline` | L2 | `Z42.Pipeline` | `Z42cCompiler` / `PackageCompile` / `WorkspaceBuild` |
 | `z42.scripting` | L3 | — | `Script.Eval` / `ScriptState` / `Engine` |
@@ -63,7 +64,7 @@ compiler 域的包都在 [`src/compiler/`](https://github.com/z42-lang/z42/blob/
 
 层级分配理由：
 - **L1**（`z42c.core` / `z42.package` / `z42c.syntax`）：纯数据结构 + 字节流；任何独立工具可单独消费（fmt / lsp / disasm 等）
-- **L2**（`z42c.semantics` / `z42.project` / `z42c.pipeline`）：需要 `z42.io` 文件能力（加载 zpkg / 写 zbc）
+- **L2**（`z42c.optimization` / `z42c.semantics` / `z42c.emission` / `z42.project` / `z42c.pipeline`）：需要 `z42.io` 文件能力（加载 zpkg / 写 zbc）
 - **L3**（`z42.scripting` / `z42c.driver`）：消费 pipeline 的 API 层 + CLI
 
 ---
@@ -79,7 +80,9 @@ z42.package ────────┐    │
                      ↓   ↓
                 z42c.syntax
                      ↓
-                z42c.semantics ←── z42.project
+                z42c.semantics
+                     ↓
+z42c.optimization → z42c.emission      z42.project
                      ↓                  ↓
                 z42c.pipeline ←────────┘
                      ↓
@@ -107,15 +110,12 @@ z42.package ────────┐    │
 
 **当前倾向**：A（保持独立）—— 跨工具共享的契约不应绑死在 syntax 上
 
-### P2. `z42c.semantics` 单包 vs 拆分
+### P2. 语义分析与代码生成的包边界
 
-**问题**：semantics 内部已分 `Binding/` / `Emission/` / `BoundTree/` / `Symbols/` / `Lowering/` 等子目录，是否拆为多个 zpkg？
-
-**选项**：
-- A：保持单包，内部用 namespace 切分（对照 .NET `System.Private.CoreLib` 单 assembly 多 namespace）
-- B：拆 `z42c.semantics.typecheck` + `z42c.semantics.codegen` —— fmt / lint 工具可只取 typecheck
-
-**当前倾向**：A —— 跨包内部 API 会变成公开 API，对内部演化是负担
+**已定**：拆为两包——`z42c.semantics`（符号收集 / 绑定 / 类型检查 / 校验 / TSIG 导出面提取）与
+`z42c.emission`（Bound → IR + 单文件 / 包编译编排）。依赖单向 `z42c.emission → z42c.semantics`，语义层零引用
+代码生成层；fmt / lint / lsp 类工具只取 `z42c.semantics`，不连带 IR 优化与代码生成。代价是两包之间的内部
+API 变成跨包公开面（`SymbolTable` / `Bound*` / `SemanticModel` 等），演化时要按跨包接口对待。
 
 ### P3. `z42c.driver` 是否进 mobile 分发？
 

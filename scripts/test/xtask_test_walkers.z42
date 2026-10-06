@@ -65,11 +65,11 @@ WalkerEntryZ[] _walkerRegistry() {
         "src/compiler/z42c.semantics/src/Binding/PatternBinder.z42", new string[]{ "Pattern" }, none, 0);
     // ── 绑定树：发射器（漏一类 = 运行期才炸或发错）+ 流分析（漏一类 = 静默不报）──
     r[4] = new WalkerEntryZ("ExprEmitter.Emit",
-        "src/compiler/z42c.semantics/src/Emission/ExprEmitter.z42", new string[]{ "BoundExpr" }, none, 0);
+        "src/compiler/z42c.emission/src/Emission/ExprEmitter.z42", new string[]{ "BoundExpr" }, none, 0);
     r[5] = new WalkerEntryZ("StmtEmitter._emitStmt",
-        "src/compiler/z42c.semantics/src/Emission/StmtEmitter.z42", new string[]{ "BoundStmt" }, none, 0);
+        "src/compiler/z42c.emission/src/Emission/StmtEmitter.z42", new string[]{ "BoundStmt" }, none, 0);
     r[6] = new WalkerEntryZ("PatternEmitter.EmitMatch",
-        "src/compiler/z42c.semantics/src/Emission/PatternEmitter.z42", new string[]{ "BoundPattern" }, none, 0);
+        "src/compiler/z42c.emission/src/Emission/PatternEmitter.z42", new string[]{ "BoundPattern" }, none, 0);
     // FlowAnalyzer 按设计「没覆盖的节点保守当成已赋值」（只漏报、不误报，见其文件头）。白名单是今天故意不看的：
     // 不读局部变量的叶子表达式，以及按保守语义处理的 break / continue。新加的绑定节点仍会让本门变红，
     // 逼着显式决定它对 definite assignment 有没有影响。

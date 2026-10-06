@@ -19,7 +19,7 @@
 
 ## 真要加 opcode：完整清单
 
-### 编译器侧（z42.package + z42c.semantics）
+### 编译器侧（z42.package + z42c.optimization + z42c.emission）
 
 1. `src/compiler/z42.package/src/IrInstr*.z42` — 新 `sealed class XxxInstr : IrInstr`
 2. `src/compiler/z42.package/src/BinaryFormat/ZbcFormat.z42`（`static class Op`）— 新 opcode 常量
@@ -27,7 +27,7 @@
 4. `.../ZbcReaderInstr.z42` — 解码分支 + 寄存器上界/重映射
 5. `src/compiler/z42c.optimization/src/IrOptInfo.z42` — **4 处**：Dst / args 计数 / args 替换 / Dst 改写
 6. `src/compiler/z42c.optimization/src/IrEscapeAnalysis.z42` — args 逃逸标记
-7. 发射点（各 `*Emitter.z42`）
+7. 发射点（`src/compiler/z42c.emission/src/Emission/` 各 `*Emitter.z42`）
 
 ### 运行时侧（Rust）
 
@@ -47,7 +47,7 @@
 15. `src/runtime/src/metadata/zbc_reader/versions.rs` 的 `ZBC_VERSION_MINOR` + changelog
 16. zbc 格式页的 Minor changelog 表加行（`docs/internals/src/formats/zbc.md`）
 17. regen `src/compiler/z42.package/tests/fixtures/zbc-format/*/source.zbc`（`xtask build test`）
-18. `src/compiler/z42c.semantics/tests/zbc/zbc_tests.z42` 内嵌 hex 串重截
+18. `src/compiler/z42c.emission/tests/zbc/zbc_tests.z42` 内嵌 hex 串重截
 19. **联动 zpkg**：`ZpkgWriter.z42` 的 `Minor++` + Rust `ZPKG_VERSION_MINOR` + `zpkg.md` changelog
     + **手工** regen `src/compiler/z42.package/tests/fixtures/zpkg-format/*`（无一键 regen）
 

@@ -1,0 +1,21 @@
+# z42c.emission codegen 单测（port-z42c-codegen CG-1A）。
+[project]
+name    = "z42c.emission.test.codegen"
+version = "0.1.0"
+kind    = "lib"
+
+[sources]
+include = ["**/*.z42"]
+
+[dependencies]
+"z42c.semantics" = "0.1.0"
+"z42c.emission"  = "0.1.0"
+"z42c.syntax"    = "0.1.0"
+"z42c.core"      = "0.1.0"
+"z42.package"         = "0.1.0"   # fix-primtype-static-init-order：prim_model_tag_tests 比对 IrType 标签
+"z42c.optimization" = "0.1.0"   # codegen_tests：按 Opt.* 开关跑优化管线 + IrInline 直接断言
+
+[build]
+# Build output → artifacts mirror (mirror-build-output-per-component, 2026-06-16):
+# src/compiler/z42c.emission/tests/codegen → artifacts/build/compiler/z42c.emission/${profile}/tests/codegen (no src pollution).
+output_dir = "../../../../../artifacts/build/compiler/z42c.emission/${profile}/tests/codegen"

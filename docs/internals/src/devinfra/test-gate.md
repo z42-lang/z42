@@ -22,7 +22,7 @@ graph LR
     S3a2 --> S3b[manifest targets<br/>&#91;&#91;test&#93;&#93; + &#91;&#91;example&#93;&#93; fixture]
     S3b --> S3c[examples<br/>书↔示例引用 + SDK 重放 .console]
     S3c --> S3d[docs<br/>相对链接可解析]
-    S3d --> S4[compiler 自举<br/>后端三包 + 不动点 + units]
+    S3d --> S4[compiler 自举<br/>编译器域 + 不动点 + units]
     S4 --> S4g[gc modes<br/>z42c.semantics 在各 GC 模式下重编]
     S4g --> S5[vscode-syntax<br/>grammar ↔ Lexer 防漂移]
     S5 --> S6[lines<br/>文件行数硬上限棘轮]

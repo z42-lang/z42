@@ -29,7 +29,7 @@ public static class SemanticDump {
     // 导出类型签名（TSIG 形态）确定性 dump：每类 `Name(Base) F:[n:t(s?),...] M:[n(/flags)?,...]`。
     // flags：s=static / v=virtual / a=abstract。验证继承字段展开 + 方法合并序 + override flags（G18 回归守护）。
     public static string DumpExports(string src) {
-        ExportedModuleZ em = IrDump.ExtractExports(src, "t.z42", "");
+        ExportedModuleZ em = FrontEnd.ExtractExports(src, "t.z42", "");
         string s = "";
         int i = 0;
         while (i < em.ClassCount) {
@@ -65,7 +65,7 @@ public static class SemanticDump {
 
     // 指定类方法的 TSIG 导出返回类型名（G18d 守护：方法签名类型规范化 byte[]→u8[]）。
     public static string ExportMethodRet(string src, string className, string methodName) {
-        ExportedModuleZ em = IrDump.ExtractExports(src, "t.z42", "");
+        ExportedModuleZ em = FrontEnd.ExtractExports(src, "t.z42", "");
         int i = 0;
         while (i < em.ClassCount) {
             ExportedClassZ c = em.Classes[i];
@@ -83,7 +83,7 @@ public static class SemanticDump {
 
     // 指定类字段的 TSIG 导出类型名（字段仍用源拼写 byte[]，区别于方法签名）。
     public static string ExportFieldType(string src, string className, string fieldName) {
-        ExportedModuleZ em = IrDump.ExtractExports(src, "t.z42", "");
+        ExportedModuleZ em = FrontEnd.ExtractExports(src, "t.z42", "");
         int i = 0;
         while (i < em.ClassCount) {
             ExportedClassZ c = em.Classes[i];
@@ -91,24 +91,6 @@ public static class SemanticDump {
                 int f = 0;
                 while (f < c.FieldCount) {
                     if (c.Fields[f].Name == fieldName) { return c.Fields[f].TypeName; }
-                    f = f + 1;
-                }
-            }
-            i = i + 1;
-        }
-        return "?";
-    }
-
-    // 指定类的 TYPE 段（IrClassDesc）字段类型名（G18g 守护：TYPE 字段源拼写 byte[]，非规范 u8[]）。
-    public static string TypeFieldName(string src, string className, string fieldName) {
-        IrModule irm = IrDump.BuildModule(src, "t.z42");
-        int i = 0;
-        while (i < irm.ClassCount) {
-            IrClassDesc c = irm.Classes[i];
-            if (c.Name == className || (className.Length > 0 && c.Name.EndsWith("." + className))) {
-                int f = 0;
-                while (f < c.FieldCount) {
-                    if (c.Fields[f].Name == fieldName) { return c.Fields[f].Type; }
                     f = f + 1;
                 }
             }

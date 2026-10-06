@@ -106,8 +106,8 @@ z42 VM 的 `TypeId` 每个 `Module`（≈每个 zpkg）从 0 重开——文档�
 
 ```
 site: body.Run(i)              // IParallelBody 接口调用，位于 z42c.semantics
-  第一次 receiver = SrcReadHashTask (z42c.driver,    TypeId 139) → 装入 PIC
-  第二次 receiver = CompileCuTask   (z42c.semantics, TypeId 139) → 误命中
+  第一次 receiver = SrcReadHashTask (z42c.driver,   TypeId 139) → 装入 PIC
+  第二次 receiver = CompileCuTask   (z42c.emission, TypeId 139) → 误命中
       ⇒ 跑了 SrcReadHashTask.Run，this._srcs[i] 读到 CompileCuTask 槽 0 的 _cus[i]
 ```
 

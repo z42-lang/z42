@@ -9,6 +9,7 @@
 namespace Z42cSemanticsClassIdentityNsTests;
 
 using Z42.Semantics;
+using Z42.Emission;
 
 string[] cidDiags(string[] srcs) {
     string[] files = new string[srcs.Length];

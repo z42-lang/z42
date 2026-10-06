@@ -6,6 +6,7 @@ using Z42.IR;
 using Z42.Syntax;
 using Z42.Semantics;
 using Z42.Core;   // add-partial-types：DiagnosticBag/Diagnostic（合并校验断言）
+using Z42.Emission;
 
 SymbolTable collect(string src) {
     var p = new Parser(src, "t.z42");
@@ -102,8 +103,8 @@ void test_tsig_method_nullable_return_preserved() {
 [Test]
 void test_type_section_field_source_spelling() {
     string src = "class W { public byte[] data; public int[] nums; }";
-    Assert.Equal("byte[]", SemanticDump.TypeFieldName(src, "W", "data"));
-    Assert.Equal("int[]", SemanticDump.TypeFieldName(src, "W", "nums"));
+    Assert.Equal("byte[]", IrDump.TypeFieldName(src, "W", "data"));
+    Assert.Equal("int[]", IrDump.TypeFieldName(src, "W", "nums"));
 }
 
 // G18 回归：多级继承字段链（topmost 祖先字段最前）+ static 字段不参与继承合并。

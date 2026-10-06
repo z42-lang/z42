@@ -1,0 +1,172 @@
+// z42c byte-identical .zbc writer 单测（port-z42c-zbc-writer ZW-1A..1D）。
+// golden = src/compiler/z42.package/tests/fixtures/zbc-format/empty/source.zbc（C# z42c 对 `void Main(){}` 产出，zbc 1.15，247 字节）的小写 hex。
+// 验证 z42c 自举 ZbcWriter 逐字节复刻 C# ZbcWriter（header/directory/全 8 section/intern 序/ret 终结符）。
+// 指令级编码 = spec-derived hex（DBUG 阻塞使 C# 全文件 golden 限于 empty；端到端正确性由 xtask e2e 验证）。
+namespace Z42cSemanticsZbcTests;
+
+using Z42.Semantics;
+using Z42.IR;
+using Z42.IR.BinaryFormat;
+using Z42.Emission;
+
+// 空 allocator（无本模块函数/类 → 全 import token）。
+TokenAllocator _emptyAlloc() {
+    return new TokenAllocator(new string[0], 0, new string[0], 0);
+}
+
+[Test]
+void test_zbc_empty_byte_identical() {
+    // void Main(){} → 8 section 最小完整文件（NSPC/STRS/TYPE/SIGS/IMPT/EXPT/FUNC/REGT）。
+    // 池序 main/?/Main/void/entry；STRS 改 segment-dict（reencode-strs-segment-dict，zbc 1.21）：
+    // 5 段无点串各自单段（无前缀共享）→ segCount5 + 段字典 + strCount5 + 单段索引序列（226B，原 247B）。
+    // SIGS 含 attrCount=0 + per-param 块（Main 无参 → 0 块）+ visibility + method_flags + **min_arg:u16+params_from:u8（add-param-metadata）**；FUNC entry 块仅 ret(42 00 ffff)。版本字段 = 2e00（zbc 1.46 symbolic-struct-field-access P2：struct 叶子访问改带 root_type + 字段序号路径，而**本用例只有 `void Main(){}`、一条 struct 指令都不发** ⇒ 逐字节对比确认**只有 header 的 minor 那一个字节变**（2d→2e），231B 不变；前史 1.45 type-section-flags2-and-struct-fields：**本用例源码无任何类声明** ⇒ TYPE 段只有 4 字节 class_count=0、新增的 class_flags2 与 struct 字段表一个字节都不进来，故**仅 header minor 变**；此前 1.44 drop-short-primitive-aliases：仅 header minor 变，字节数不变——`void Main(){}` 的签名不含任何窄整型名；此前 1.43；此前 1.27 注：stabilize-dispatch-keys 方案A bump——Main 是自由函数不 mangle → 仅 header minor 变，231B 不变）。
+    string src = "void Main() { }";
+    // enforce-access-control：Main（无修饰符自由函数）SIGS visibility 0→3（internal 默认，独立 public 编码）。
+    string golden = "5a42430001002e0000000800000000004e5350437000000006000000535452537600000029000000545950459f0000000400000053494753a300000019000000494d5054bc0000000400000045585054c00000000900000046554e43c90000001600000052454754df0000000800000004006d61696e05000000046d61696e013f044d61696e04766f696405656e747279050000000100010101020103010400000000010000000200000000000003000000000003000000ff000000000000000100000002000000000100000000000100040000000000000000004200ffff0100000000000000";
+    Assert.Equal(golden, IrDump.DumpZbcHex(src));
+}
+
+// STRS segment-dict（reencode-strs-segment-dict）：BuildStrs → DecodeStrs 往返无损。
+// 覆盖前缀去重（Std.A/Std.B/Std.A.C）、无点串、空串、空段保留。
+[Test]
+void test_strs_segment_dict_roundtrip() {
+    var pool = new ZbcStringPool();
+    pool.Intern("Std.A");
+    pool.Intern("Std.B");
+    pool.Intern("Std.A.C");
+    pool.Intern("int");     // 无点串 → 单段
+    pool.Intern("");        // 空串 → 单空段
+    pool.Intern("a..b");    // 空段保留（["a","","b"]）
+    ByteWriter w = ZbcWriter.BuildStrs(pool);
+    string[] got = ZbcReader.DecodeStrs(w.ToBytes(), 0);
+    Assert.Equal(6, got.Length);
+    Assert.Equal("Std.A", got[0]);
+    Assert.Equal("Std.B", got[1]);
+    Assert.Equal("Std.A.C", got[2]);
+    Assert.Equal("int", got[3]);
+    Assert.Equal("", got[4]);
+    Assert.Equal("a..b", got[5]);
+}
+
+// ── ZW-1B：比较/位/一元/throw ─────────────────────────────────────────────────────
+
+[Test]
+void test_zbc_instr_compare_and_binary() {
+    var pool = new ZbcStringPool();
+    // eq %2(bool), %0, %1 → op 0x30 + dst-tag bool(01) + dst 0200 + a 0000 + b 0100
+    var w1 = new ByteWriter();
+    ZbcInstr.WriteInstr(w1, new EqInstr(new TypedReg(2, IrType.Bool), new TypedReg(0, IrType.I32), new TypedReg(1, IrType.I32)),
+                        pool, new int[1], _emptyAlloc());
+    Assert.Equal("3001020000000100", w1.ToHex());
+    // bit_and %2(i32), %0, %1 → op 0x19 + tag i32(04)
+    var w2 = new ByteWriter();
+    ZbcInstr.WriteInstr(w2, new BitAndInstr(new TypedReg(2, IrType.I32), new TypedReg(0, IrType.I32), new TypedReg(1, IrType.I32)),
+                        pool, new int[1], _emptyAlloc());
+    Assert.Equal("1904020000000100", w2.ToHex());
+}
+
+[Test]
+void test_writer_utf8_multibyte() {
+    // ZW-1E：非 ASCII 串按 **UTF-8 字节**写入（`—` = U+2014 → E2 80 94，3 字节），
+    // 字节数与 ByteLength 一致。原 WriteAsciiBytes 按 char&0xFF 每 scalar 写 1 字节 →
+    // 与 STRS 长度表（ByteLength）错位 → z42c.driver banner 串损坏。
+    var w = new ByteWriter();
+    w.WriteUtf8Bytes("a—b");   // 'a'=61 / '—'=e2 80 94 / 'b'=62
+    Assert.Equal("61e2809462", w.ToHex());
+    Assert.Equal(5, "a—b".ByteLength);   // 写入字节数 == ByteLength（长度表一致性）
+}
+
+[Test]
+void test_zbc_instr_unary_and_throw() {
+    var pool = new ZbcStringPool();
+    // neg %1(i32), %0 → op 0x15 + tag 04 + dst 0100 + src 0000
+    var w1 = new ByteWriter();
+    ZbcInstr.WriteInstr(w1, new NegInstr(new TypedReg(1, IrType.I32), new TypedReg(0, IrType.I32)),
+                        pool, new int[1], _emptyAlloc());
+    Assert.Equal("150401000000", w1.ToHex());
+    // throw %3(ref) → op 0x44 + tag object(20) + reg 0300
+    var w2 = new ByteWriter();
+    ZbcInstr.WriteTerm(w2, new ThrowTerm(new TypedReg(3, IrType.Ref)), new string[0], 0);
+    Assert.Equal("44200300", w2.ToHex());
+}
+
+// ── ZW-1C/1D：调用/字段/对象 ─────────────────────────────────────────────────────
+
+[Test]
+void test_zbc_call_token_encoding() {
+    // call @Helper() → op 0x50 + tag + dst + u32 token（本模块函数 → 插入序 index）+ argc
+    var pool = new ZbcStringPool();
+    string[] fns = new string[2];
+    fns[0] = "Main"; fns[1] = "Helper";
+    var alloc = new TokenAllocator(fns, 2, new string[0], 0);
+    var w = new ByteWriter();
+    ZbcInstr.WriteInstr(w, new CallInstr(new TypedReg(0, IrType.I32), "Helper", new TypedReg[0], 0),
+                        pool, new int[1], alloc);
+    Assert.Equal("500400000100000000", w.ToHex());   // 50 04 0000 | token=1 LE | argc=0
+}
+
+[Test]
+void test_zbc_field_get_encoding() {
+    // field_get %1 = %0.v → op 0x60 + tag + dst + obj + u32 pool idx（VCall/Field 不 token 化）
+    var pool = new ZbcStringPool();
+    pool.Intern("v");
+    var w = new ByteWriter();
+    ZbcInstr.WriteInstr(w, new FieldGetInstr(new TypedReg(1, IrType.I32), new TypedReg(0, IrType.Ref), "v"),
+                        pool, new int[1], _emptyAlloc());
+    Assert.Equal("60040100000000000000", w.ToHex());   // 60 04 0100 | obj=0000 | idx=0
+}
+
+[Test]
+void test_zbc_objnew_ctorless_import_token() {
+    // new Counter()（无显式 ctor）→ class token = 本模块 index 0；ctor "Counter.Counter" 非本模块函数
+    // → IMPORT_BASE|STRS idx（VM 查无此函数即跳过 ctor = 默认无参语义）
+    var pool = new ZbcStringPool();
+    pool.Intern("Counter");            // idx 0
+    pool.Intern("Counter.Counter");    // idx 1
+    string[] cls = new string[1];
+    cls[0] = "Counter";
+    var alloc = new TokenAllocator(new string[0], 0, cls, 1);
+    var w = new ByteWriter();
+    ZbcInstr.WriteInstr(w, new ObjNewInstr(new TypedReg(0, IrType.Ref), "Counter", "Counter.Counter",
+                        new string[0], 0, new TypedReg[0], 0), pool, new int[1], alloc);
+    // 70 20 0000 | class=00000000 | ctor=0x80000001 LE=01000080 | argc=00 | tpCount=00
+    Assert.Equal("70200000000000000100008000000000", w.ToHex());   // zbc 1.29: +尾 stack_alloc u8=00；zbc 1.39: +尾 ctor_known u8=00
+}
+
+[Test]
+void test_zbc_const_f64_encoding() {
+    // const.f64 1.5 → op 0x01 + tag f64(0b) + dst + IEEE754 bits LE（1.5 = 0x3FF8000000000000）
+    var pool = new ZbcStringPool();
+    var w = new ByteWriter();
+    ZbcInstr.WriteInstr(w, new ConstF64Instr(new TypedReg(0, IrType.F64), "1.5"),
+                        pool, new int[1], _emptyAlloc());
+    Assert.Equal("010b0000000000000000f83f", w.ToHex());
+    // 后缀剥离：1.5f → float tag(0a)，bits 仍按 double 写（镜像 C# ConstF64Instr.Val 恒 8 字节）
+    var w2 = new ByteWriter();
+    ZbcInstr.WriteInstr(w2, new ConstF64Instr(new TypedReg(1, IrType.F32), "1.5f"),
+                        pool, new int[1], _emptyAlloc());
+    Assert.Equal("010a0100000000000000f83f", w2.ToHex());
+}
+
+[Test]
+void test_zbc_f5_with_dbug_byte_identical() {
+    // int F(){return 5;} → 9 section（含 DBUG 行表，flags.HasDebug）。golden = z42c 同源产物
+    // （file=f5.z42；TrackLine：体顶层 block 不记、return 行 1 列 11；int 字面量 ConstI64）。
+    // symbolic-struct-field-access P2（zbc 1.46）：`int F(){return 5;}` **一条 struct 指令都不发**
+    // → 仅 header minor 2d→2e。前史 drop-short-primitive-aliases（zbc 1.44）：f5 签名只含 `int`（串池不变）→ 仅 header minor 2b→2c。
+    // 前史 add-delegate-metadata（zbc 1.26）：f5 无 delegate → 仅 header minor 19→1a；前史 1.25 SIGS len 16→19、
+    // header minor 18→19、IMPT/EXPT/FUNC/REGT/DBUG 段偏移各再 +3（较 1.24 f5）。
+    string src = "int F() { return 5; }";
+    // enforce-access-control：F（无修饰符自由函数）SIGS visibility 0→3（internal 默认）。
+    string golden = "5a42430001002e0002000900000000004e5350437c0000000600000053545253820000002f00000054595045b10000000400000053494753b500000019000000494d5054ce0000000400000045585054d20000000900000046554e43db0000002200000052454754fd0000000900000044425547060100001800000004006d61696e07000000046d61696e013f014603696e7405656e747279026635037a3432060000000100010101020103010402050600000000010000000200000000000403000000000003000000ff00000000000000010000000200000000010000000100010010000000000000000000000500000500000000000000430400000100000001000000030100000001000000000001000000050000000b0000000000";
+    Assert.Equal(golden, IrDump.DumpZbcHexF(src, "f5.z42"));
+}
+
+[Test]
+void test_zbc_selfcheck_program_header() {
+    // e2e 自检程序（mul/add/le/eq/while/if/div）写出不应损坏：header = magic+minor+**flags=HasDebug(0200)**
+    // （add-z42c-source-spans：有语句体 → DBUG 行表 → flags bit1）
+    string src = "int Main() { int x = 6 * 7; int ok = 0; if (x == 42) { ok = 1; } return 100 / ok; }";
+    string hex = IrDump.DumpZbcHex(src);
+    Assert.Equal("5a42430001002e000200", hex.Substring(0, 20));
+}

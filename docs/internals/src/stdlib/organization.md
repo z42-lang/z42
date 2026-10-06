@@ -18,8 +18,8 @@
 
 编译器域的成员：`z42c.core`（`Z42.Core`）/ `z42c.syntax`（`Z42.Syntax`）/ `z42.package`（`Z42.IR` +
 `Z42.Package`）/ `z42.project`（`Z42.Project`）/ `z42.build`（`Z42.Build`）/ `z42.scripting`
-（`Std.Scripting` —— 命名空间待后续改名批次归位）+ 编译器后端 `z42c.semantics` / `z42c.pipeline` /
-`z42c.driver`。
+（`Std.Scripting` —— 命名空间待后续改名批次归位）+ 编译器后端 `z42c.optimization` / `z42c.semantics` /
+`z42c.emission` / `z42c.pipeline` / `z42c.driver`。
 
 ⭐ **为什么按位置区分**：若编译器域的 `Z42.*` 包与用户 stdlib 同住 `src/libraries/`，则「进不进 SDK
 `libs/`」「publisher 要不要 bundle」「递归穿透算不算框架到此为止」三条判据会**共用一个旋钮**（目录在哪），

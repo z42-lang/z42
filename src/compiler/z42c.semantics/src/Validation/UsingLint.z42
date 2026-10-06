@@ -51,13 +51,13 @@ public static class UsingLint {
     }
 
     // `UsedDepNs` 的条目可能带归属包（`ns#pkg`，deterministic-zpkg-deps / DepRef）—— 只比 ns 部分。
-    internal static bool _hasDep(string[] a, int n, string s) {
+    public static bool _hasDep(string[] a, int n, string s) {
         int i = 0;
         while (i < n) { if (DepRef.NsOf(a[i]) == s) { return true; } i = i + 1; }
         return false;
     }
 
-    internal static bool _has(string[] a, int n, string s) {
+    public static bool _has(string[] a, int n, string s) {
         int i = 0;
         while (i < n) { if (a[i] == s) { return true; } i = i + 1; }
         return false;

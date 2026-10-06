@@ -1,0 +1,810 @@
+// 类/接口/属性描述符子构建器（compiler-review P1-3 step2）。类元数据 + attr 引用。
+// 持 IrGen 反向引用 _g：_g._symbols/IfaceDecls + 助手 _q/_qClass/_hasWord/_visCode/_unwrap/_classIrShortName。
+namespace Z42.Emission;
+
+using Z42.Semantics;
+
+using Z42.Syntax;
+using Z42.IR;
+
+public sealed partial class ClassDescBuilder {
+    private IrGen _g;
+    public ClassDescBuilder(IrGen g) { this._g = g; }
+
+    internal string _typeFieldName(TypeExpr te) {
+        if (te is ArrayType) { return this._typeFieldName((te as ArrayType).Elem) + "[]"; }
+        if (te is NullableType) { return this._typeFieldName((te as NullableType).Inner); }
+        if (te is NamedType) {
+            NamedType nt = te as NamedType;
+            return this._typeSourceName(nt);
+        }
+        return "unknown";
+    }
+
+    // carry-field-null-marks：字段 / 属性标了 `?` → 在它自己的 attr-ref 块上追加 `$Nullable` 哨兵。
+    //
+    // **为什么不走类型拼写**：字段的 TYPE 段拼写（`_typeFieldName`）是**查找键 / 布局判据**
+    // —— `StructLayout` 按它判「字段是不是 struct」、TSIG 按它展开继承字段。把 `?` 拼进去会改键
+    //（同 `FunctionEmitter._sigTypeName` 历来剥 `?` 的理由：那串同时是派发键）。
+    // ⇒ 走 attr 旁路通道，与 `$Nullable`（形参）/ `$RetNullable`（返回值）同一套机制。
+    //
+    // **不配完备性标记**（与 `$ByRef` 的 `$RefSig` 的关键差别）：`?` 的语义是「请编译器强制检查」，
+    // **缺席 = 不强制**（不是「保证非空」）⇒ 旧包读不出哨兵落成 false 恰好正确。
+    private IrAttrRef[] _withNullableMark(IrAttrRef[] refs, TypeExpr t) {
+        if (!(t is NullableType)) { return refs; }
+        return ClassDescBuilder._appendAttrRef(refs, IrParamDefault.NullableSentinel, "");
+    }
+
+    // unify-type-identity-fqn：类名成分一律**全限定**。
+    //
+    // 修前这里有两条毛病：① 含点的限定名直接返回字面量 "unknown"（复刻已删除的 C# 编译器的
+    // `MemberType → _`）；② 其余返回源码写的**短名**。短名不是跨 ns 唯一键，消费端
+    // （`ImportedSymbolLoader._resolve` / 运行期 `resolve_dotless_simple`）只能靠短名竞争或
+    // 强制加载全部包去猜。
+    //
+    // ⚠️ **只修 ① 是不够的**：那样 `Std.Type x` 写成 FQN、`using Std; Type x` 写成短名，
+    // 同一个类因源码拼写不同产生两种持久化形式 —— 这本身就是设计缺陷。所以走解析器、
+    // 对**所有**用户声明类型取 `Fqn()`，与源码怎么拼无关。
+    //
+    // 保持不变：prim 别名的源拼写（`byte[]` 非 `u8[]`，G18g）由调用方 `_typeFieldName` 的
+    // `_isAliasPrim` 前置守卫拦住，不进本函数的解析路径；基元本身 PrimCode>=0 也不取 Fqn。
+    private string _typeSourceName(NamedType nt) {
+        if (nt.ArgCount == 0) {
+            string fq = this._fqnOf(nt);
+            if (fq != "") { return fq; }
+            if (this._hasDot(nt.Name)) { return "unknown"; }   // 真解析不出来的限定名 → 哨兵（消费端还原成 Z42UnknownType）
+            return nt.Name;
+        }
+        // 构造泛型：基名同样 FQ 化（`List<int>` → `Std.List<int>`）；实参递归套用同一文法。
+        string baseFq = this._fqnOf(nt);
+        string s = (baseFq != "" ? baseFq : nt.Name) + "<";
+        int i = 0;
+        while (i < nt.ArgCount) {
+            if (i > 0) { s = s + ", "; }
+            if (nt.Args[i] is NamedType) {
+                s = s + this._typeSourceName(nt.Args[i] as NamedType);
+            } else {
+                s = s + this._typeFieldName(nt.Args[i]);
+            }
+            i = i + 1;
+        }
+        return s + ">";
+    }
+
+    // 解析 `nt` 并取其**全限定名**；不适用时返回 ""（调用方回落原有拼写）。
+    // 只对「用户声明的类」FQ 化：基元（PrimCode>=0）无 ns 且 SIGS/TYPE 沿用关键字拼写；
+    // 全局 ns 的类 Fqn() 本就等于裸名，取不取一样。型参 / 接口 / enum 由后续 commit 覆盖。
+    private string _fqnOf(NamedType nt) {
+        // unify-type-identity-fqn：**歧义则不写 FQN**。若该裸名在本 CU 可见集内由 ≥2 个 ns 声明，
+        // 解析结果只是 Classes first/last-wins 撞出来的赢家 —— 把它写成 FQN 就是「自信的错答案」。
+        // 退回短名 = 与本 change 之前一致的诚实降级（运行期 resolve_dotless_simple 见歧义会给
+        // 无句柄合成类型，不乱绑）。判据见 SymbolTable.IsBareNameAmbiguous。
+        if (this._g._symbols.IsBareNameAmbiguous(nt.Name)) { return ""; }
+        Z42Type rt = this._g._symbols.ResolveType(nt);
+        if (rt is Z42ClassType) {
+            Z42ClassType ct = rt as Z42ClassType;
+            if (ct.PrimCode() < 0 && ct.Namespace != "") { return ct.Fqn(); }
+        }
+        if (rt is Z42InterfaceType) {
+            Z42InterfaceType it = rt as Z42InterfaceType;
+            if (it.Namespace != "") { return it.Fqn(); }
+        }
+        // 构造泛型（`List<int>` → Z42InstantiatedType）：取其定义类的 FQN 作基名；
+        // 实参由调用方递归走同一文法，故此处只负责基名。
+        if (rt is Z42InstantiatedType) {
+            Z42ClassType dct = (rt as Z42InstantiatedType).Def;
+            if (dct != null && dct.PrimCode() < 0 && dct.Namespace != "") { return dct.Fqn(); }
+        }
+        return "";
+    }
+
+    // drop-short-primitive-aliases：`_isAliasPrim` 守卫已删 —— 它存在的唯一理由是「这些次要别名
+    // 会被 Canon 规范化成 u8/i16/…，而 SIGS 要保源拼写」。canonical 收敛到关键字后，`SurfaceName`
+    // 对 byte/short/… 返回的**就是**源拼写，两条路同结果，守卫成了纯噪音。
+
+    private bool _hasDot(string name) {
+        int i = 0;
+        while (i < name.Length) {
+            if (name.CharAt(i) == '.') { return true; }
+            i = i + 1;
+        }
+        return false;
+    }
+
+    private string[] _expandIfaces(string[] direct, int count) {
+        string[] result = new string[count + 4]; int rc = 0;
+        StrMap seen = new StrMap();
+        string[] queue = new string[count + 4]; int qh = 0; int qt = 0;
+        int i = 0;
+        while (i < count) { queue[qt] = direct[i]; qt = qt + 1; i = i + 1; }
+        while (qh < qt) {
+            string name = queue[qh]; qh = qh + 1;
+            // 裸名（去泛型实参）查 IfaceDecls + 去重
+            string bare = name;
+            int lt = name.IndexOf("<");
+            if (lt >= 0) { bare = name.Substring(0, lt); }
+            // `IfaceDecls` 的键是**裸短名**（`IrGen` 按 `cfd.Name` 登记）。名字带 ns 时必须先剥，
+            // 否则查不中 ⇒ 父接口不展开 ⇒ **TYPE 段的接口表静默变短** ⇒ 跨包 `is IFace` 失配。
+            // 今天的输入还都是短名（本条恒等），但 `InterfaceNames` 正在往 FQN 迁（fqn-symbol-key），
+            // 先把这道门修好，免得迁移那一刀在这里静默掉一截闭包。
+            bare = SymbolTable.ShortNameOf(bare);
+            if (seen.ContainsKey(bare)) { continue; }
+            seen.Put(bare, "1");
+            if (rc == result.Length) {
+                string[] b2 = new string[result.Length * 2];
+                int z = 0; while (z < rc) { b2[z] = result[z]; z = z + 1; }
+                result = b2;
+            }
+            result[rc] = name; rc = rc + 1;
+            if (this._g.IfaceDecls != null && this._g.IfaceDecls.ContainsKey(bare)) {
+                ClassDecl idecl = this._g.IfaceDecls.Get(bare) as ClassDecl;
+                int bi = 0;
+                while (bi < idecl.BaseCount) {
+                    if (qt == queue.Length) {
+                        string[] q2 = new string[queue.Length * 2];
+                        int z = 0; while (z < qt) { q2[z] = queue[z]; z = z + 1; }
+                        queue = q2;
+                    }
+                    queue[qt] = idecl.Bases[bi].Dump(); qt = qt + 1;
+                    bi = bi + 1;
+                }
+            }
+        }
+        string[] trimmed = new string[rc];
+        int t = 0; while (t < rc) { trimmed[t] = result[t]; t = t + 1; }
+        return trimmed;
+    }
+
+    internal IrClassDesc _classDesc(ClassDecl c, bool hasRecord) {   // add-record-attribute：hasRecord 由 IrGen 从原始 AttributedDecl 判（[Record]）
+        // 镜像 C# EmitClassDesc：struct 无默认基类；Std.Object 自身无基类；其余默认 "Std.Object"。
+        // add-record-attribute（N+1，keyword 已删）：`[Record] class` 走 class（Kind=="class"）→ 自然拿回
+        // Std.Object 基；`[Record] struct` 走 struct → 无基。基类语义随底层 Kind 归位，attribute 不加特例。
+        bool isStruct = c.Kind == "struct";
+        bool isRoot = c.Name == "Object";
+        bool hasBase = !(isStruct || isRoot);
+        string baseName = hasBase ? "Std.Object" : "";
+        int bi2 = 0;
+        while (bi2 < c.BaseCount) {       // 基表判别（port-z42c-interface）：跳过接口，取首个类
+            string bn = c.Bases[bi2].Dump();
+            // HasInterface map 存裸名（无泛型实参）；去掉 <...> 再查。
+            string barebn = bn;
+            int ltIdx = bn.IndexOf("<");
+            if (ltIdx >= 0) { barebn = bn.Substring(0, ltIdx); }
+            // 🔴 判定走 `SymbolTable.InterfaceKeyOf`（与符号层 `_passClassStubs` **同一份**），
+            // 不再自己 `HasInterface(源码原样串)` —— 那样限定名查不中 ⇒ `Std.IDisposable` 被当成
+            // 基类，而循环紧接着 `bi2 = c.BaseCount` 提前结束 ⇒ **真基类根本没被看到**。
+            // 实测：符号层修好而这里没修时，`class E : Std.IDisposable, Base` 编译通过、
+            // 运行期 `VCall: Demo.E.Tag not found`。
+            if (SymbolTable.InterfaceKeyOf(this._g._symbols, barebn) == "") {
+                // fix-generic-base-name：泛型基名此前一律剥成裸名。理由是「写 `Ns.Bag<T>` 进元数据，
+                // VM 建 vtable 时按该名找不到任何类 ⇒ 继承来的方法运行期 `VCall: … not found`」。
+                //
+                // complete-generic-class-identity P1：**闭合**泛型基（实参全具体，如 `GBox<int>`）
+                // 现在自己就是一个运行期类型（`_instClassDesc` 为它发描述符），那条理由消失 ——
+                // 而剥名的代价是继承字段读出 `null`：运行期从**擦除定义**合并字段，`V` 的 type_tag
+                // 还是 `T`，`ObjNew` 按 tag 取默认值。实参在运行期元数据里根本不存在。
+                //
+                // ⚠️ **开放**泛型基（`class Sub<T> : Bag<T>`，实参仍是型参）仍剥成裸名：它不是一个
+                // 具体实例化、永远不会有描述符，原来的理由对它**依然成立**。
+                bool closed = ltIdx >= 0 && ClassDescBuilder._isClosedTypeExpr(c.Bases[bi2], c);
+                if (closed) {
+                    // 规范名必须与表达式侧同口径（`Int32`→`int`、嵌套递归、无空格）。
+                    string cn = ClassDescBuilder._substTypeName(c.Bases[bi2], new StrMap());
+                    baseName = this._qInst(cn);
+                    this._g.NoteInstName(cn);   // 基也要有描述符，否则运行期基链断在这里
+                } else {
+                    baseName = barebn;
+                    if (!this._hasDot(baseName)) { baseName = this._g._qClass(baseName); }   // 镜像 QualifyClassName
+                }
+                hasBase = true;
+                bi2 = c.BaseCount;        // 取首个类即止
+            }
+            bi2 = bi2 + 1;
+        }
+        IrFieldDesc[] fields = new IrFieldDesc[4];
+        int fcount = 0;
+        IrFieldDesc[] sfields = new IrFieldDesc[4];
+        int sfcount = 0;
+        // Arity-mangle：泛型类以 Name$N 键注册时从 Name$N 取 CT。
+        string ctdKey = c.Name;
+        if (c.TypeParams.Count > 0) { string ctdm = c.Name + "$" + c.TypeParams.Count.ToString(); if (this._g._symbols.HasClass(ctdm)) { ctdKey = ctdm; } }
+        Z42ClassType ctd = this._g._symbols.GetClass(ctdKey) as Z42ClassType;
+        int j = 0;
+        while (j < c.MemberCount) {
+            Decl mem = DeclFacts._unwrap(c.Members[j]);
+            if (mem is FieldDecl) {
+                FieldDecl fd = mem as FieldDecl;
+                FieldSymbol fsy = ctd.Fields.Get(fd.Name) as FieldSymbol;
+                if (fsy != null && fsy.IsConst) { j = j + 1; continue; }   // add-const-keyword：const 无字段布局（不进 zpkg 字段元数据）
+                string tn = this._typeFieldName(fd.Type);   // G18g：TYPE 段字段类型用源拼写（byte[]，非规范 u8[]）
+                // infer-var-field-types：var 字段源拼写「var」丢类型 → 用推断后的 fs.FieldType
+                // （VarFieldInfer 已回写）；非 var 字段保留源拼写不动（byte[] 语义）。
+                if (fsy != null && (fd.Type is NamedType) && ((fd.Type as NamedType).Name == "var")
+                        && !(fsy.FieldType is Z42UnknownType)) {
+                    tn = fsy.FieldType.Name();
+                }
+                bool isStatic = fsy != null && fsy.IsStatic;
+                if (isStatic) {
+                    if (sfcount == sfields.Length) {
+                        IrFieldDesc[] b2 = new IrFieldDesc[sfields.Length * 2];
+                        int k = 0; while (k < sfcount) { b2[k] = sfields[k]; k = k + 1; }
+                        sfields = b2;
+                    }
+                    IrFieldDesc sfdesc = new IrFieldDesc(fd.Name, tn);
+                    sfdesc.Attrs = this._withNullableMark(this._attrRefs(c.Members[j]), fd.Type); sfdesc.AttrCount = sfdesc.Attrs.Length;
+                    sfdesc.Visibility = DeclFacts._visCode(fd.Mods, 1);   // add-member-visibility
+                    sfields[sfcount] = sfdesc;
+                    sfcount = sfcount + 1;
+                } else {
+                    if (fcount == fields.Length) {
+                        IrFieldDesc[] bigger = new IrFieldDesc[fields.Length * 2];
+                        int k = 0; while (k < fcount) { bigger[k] = fields[k]; k = k + 1; }
+                        fields = bigger;
+                    }
+                    IrFieldDesc fdesc = new IrFieldDesc(fd.Name, tn);
+                    fdesc.Attrs = this._withNullableMark(this._attrRefs(c.Members[j]), fd.Type); fdesc.AttrCount = fdesc.Attrs.Length;
+                    fdesc.Visibility = DeclFacts._visCode(fd.Mods, 1);   // add-member-visibility
+                    fields[fcount] = fdesc;
+                    fcount = fcount + 1;
+                }
+            } else if (mem is PropertyDecl) {
+                // 非 extern auto-prop → 合成 __prop_X 备份字段（镜像 C# SynthesizeClassAutoProp backing field）。
+                PropertyDecl fpd = mem as PropertyDecl;
+                bool fpdExtern = DeclFacts._hasWord(fpd.Mods, "extern");
+                bool fpdStatic = DeclFacts._hasWord(fpd.Mods, "static");
+                // add-json-serde：属性 attribute（如 [JsonProperty]/[JsonIgnore]）挂到合成的背后字段
+                // `__prop_X` 的 .Attrs（复用既有 field_attributes 格式，无格式 bump）。`PropertyInfo.
+                // GetCustomAttributes` 经 __property_custom_attributes 查 `__prop_<Name>` 字段 attr。
+                // 计算属性（HasGetBody，无背后字段）不承载 attribute（M2 已知限制）。
+                // 属性的 `?` 同样挂在**背后字段**的 attr 块上（`add-json-serde` 建的那条路）。
+                IrAttrRef[] prAttrs = this._withNullableMark(this._attrRefs(c.Members[j]), fpd.Type);
+                // add-property-getter：计算属性（HasGetBody）无后备字段（getter 是真实函数体）。
+                // add-property-custom-setter：自定义 setter（HasSetBody）同理无后备（setter 自管存储）。
+                if (!fpdExtern && !fpd.HasGetBody && !fpd.HasSetBody) {
+                    string bfn = "__prop_" + fpd.Name;
+                    string bft = this._typeFieldName(fpd.Type);
+                    if (fpdStatic) {
+                        if (sfcount == sfields.Length) {
+                            IrFieldDesc[] b3 = new IrFieldDesc[sfields.Length * 2];
+                            int k = 0; while (k < sfcount) { b3[k] = sfields[k]; k = k + 1; }
+                            sfields = b3;
+                        }
+                        IrFieldDesc sbf = new IrFieldDesc(bfn, bft);
+                        sbf.Attrs = prAttrs; sbf.AttrCount = prAttrs.Length;   // add-json-serde：属性 attr 挂背后字段
+                        sbf.Visibility = 1;   // auto-prop 后备字段 = private（reconcile：镜像符号侧 OwnFieldVis）
+                        sfields[sfcount] = sbf; sfcount = sfcount + 1;
+                    } else {
+                        if (fcount == fields.Length) {
+                            IrFieldDesc[] b4 = new IrFieldDesc[fields.Length * 2];
+                            int k = 0; while (k < fcount) { b4[k] = fields[k]; k = k + 1; }
+                            fields = b4;
+                        }
+                        IrFieldDesc ibf = new IrFieldDesc(bfn, bft);
+                        ibf.Attrs = prAttrs; ibf.AttrCount = prAttrs.Length;   // add-json-serde：属性 attr 挂背后字段
+                        ibf.Visibility = 1;   // 同上：instance 后备字段 private
+                        fields[fcount] = ibf; fcount = fcount + 1;
+                    }
+                }
+            }
+            j = j + 1;
+        }
+        IrClassDesc cd2 = new IrClassDesc(this._g._q(this._g._classIrShortName(c)), hasBase, baseName, fields, fcount);
+        cd2.StaticFields = sfields; cd2.StaticFieldCount = sfcount;
+        if (ctd != null && ctd.InterfaceCount > 0) {   // TYPE 接口块（zbc 1.20：FQ 名，镜像 C# InterfaceTypeName→QualifyClassName）
+            // add-reflection-transitive-interfaces：展开间接继承（IB:IA → 类含 IA）。
+            string[] expanded = this._expandIfaces(ctd.InterfaceNames, ctd.InterfaceCount);
+            string[] ifqs = new string[expanded.Length];
+            int ifi = 0;
+            // 🔴 **点号守卫**（镜像 `:196` 基类那格）：`InterfaceNames` 自 interface-names-fqn 起
+            // 已是 FQN，无条件 `_qClass` 会**二次限定**成 `Demo.Std.IDisposable` 写进 TYPE 段。
+            // 守卫的存在证明就在基类那格 —— 两格本该同口径，接口这格此前漏了。
+            // ⚠️ 别指望 `TsigReconcile:561` 的 `_shortName` 兜住：它只掩盖编译路径，
+            // 运行期反射与 golden 字节照样暴露。
+            while (ifi < expanded.Length) {
+                string ifn = expanded[ifi];
+                if (!this._hasDot(ifn)) { ifn = this._g._qClass(ifn); }
+                ifqs[ifi] = ifn;
+                ifi = ifi + 1;
+            }
+            cd2.Interfaces = ifqs;
+            cd2.InterfaceCount = expanded.Length;
+        }
+        // class-shape flags（zbc 1.12，G12）：从修饰符/kind 推导（镜像 C# cls.IsAbstract/IsSealed/IsStruct/IsRecord）。
+        int flags = 0;
+        if (DeclFacts._hasWord(c.Mods, "abstract")) { flags = flags + 1; }   // bit0
+        if (DeclFacts._hasWord(c.Mods, "sealed"))   { flags = flags + 2; }   // bit1
+        if (c.Kind == "struct")  { flags = flags + 4; }                 // bit2
+        if (hasRecord) { flags = flags + 8; }                           // bit3（add-record-attribute：
+        //   `[Record]`（hasRecord，由 IrGen 从原始 AttributedDecl.Attrs 判）触发 is-record。N+1 已删 `record`
+        //   关键字，Kind 不再有 "record"，唯一来源即 [Record] attribute。格式位不变、__type_is_record 读法不变。）
+        cd2.Flags = flags;
+        cd2.Visibility = DeclFacts.classVisCode(c.Mods, c.Name.IndexOf("+") >= 0);   // enforce-class-access（zbc 1.33）：类可见性进 TYPE 记录（跨包 internal 强制载体）
+        // add-struct-value-semantics A-use（zbc 1.31）：值 struct 的字节+引用布局随 TYPE 尾部 emit。
+        // 布局键 = 符号表短名（_classIrShortName，与 StructLayout.BuildFromSymbols 的 Classes 键一致——
+        // 那是短名 Name/Name$N，非 FQ；用 cd2.Name(FQ) 查会 miss）。含引用叶子（string/object/array 字段）
+        // 时 RefLeaf* 非空 → 运行时 GC 扫描 + StructCopy 逐叶子 clone。纯基元 struct 引用位图空。
+        if (c.Kind == "struct" && this._g.Layouts != null) {
+            string layoutKey = this._g._classIrShortName(c);
+            if (this._g.Layouts.IsStructType(layoutKey)) {
+                StructLayoutInfo li = this._g.Layouts.LayoutOf(layoutKey);
+                cd2.StructSize = li.Size;
+                cd2.StructRefOffsets = li.RefLeafOffsets;
+                cd2.StructRefKinds = li.RefLeafKinds;
+                cd2.StructRefCount = li.RefLeafCount;
+                // 逐字段布局表（zbc 1.45）：数据早就算好了（`StructLayoutInfo.Field*`），此前只是
+                // 没写进 wire。bit0 = HAS_STRUCT_FIELD_TABLE，让新块**按位 gated**而不是再抄一个
+                // 推导谓词（对象块那条闸门就是因为 Flags 位用光才只能抄谓词）。
+                cd2.StructFieldOffsets = li.FieldOffsets;
+                cd2.StructFieldSizes = li.FieldSizes;
+                cd2.StructFieldKinds = li.FieldKinds;
+                cd2.StructFieldCount = li.FieldCount;
+                if (li.FieldCount > 0) { cd2.Flags2 = cd2.Flags2 | 1; }
+            }
+        }
+        // add-struct-heap-inline (P3b，zbc 1.32)：非-struct class 有内联 struct 字段（`class C { Point pt; }`）→
+        // 设 CLASS_FLAG_HAS_INLINE_STRUCT（bit7=0x80）+ emit 合成内联布局块（对象相对字节区 size + 引用位图）。
+        // 布局同源 StructLayout.InlineLayoutOf（codegen stage 4 烘焙 offset 用同一表 → 一致）。z42c/stdlib
+        // 零生产内联字段 class → HasInlineFields 恒 false → flag/块不写 → 格式字节不变（自举字节不动）。
+        if (c.Kind != "struct" && this._g.Layouts != null) {
+            string inlineKey = this._g._classIrShortName(c);
+            if (this._g.Layouts.HasInlineFields(inlineKey)) {
+                StructLayoutInfo il = this._g.Layouts.InlineLayoutOf(inlineKey);
+                cd2.Flags = cd2.Flags + 128;   // CLASS_FLAG_HAS_INLINE_STRUCT (bit7)
+                cd2.InlineSize = il.Size;
+                cd2.InlineRefOffsets = il.RefLeafOffsets;
+                cd2.InlineRefKinds = il.RefLeafKinds;
+                cd2.InlineRefCount = il.RefLeafCount;
+            }
+        }
+        // 对象全字段布局块（zbc 1.34，unify-object-byte-layout PR-1）：普通引用类（class/record）填对象全
+        // 字段布局（8B 引用）。ZbcWriter 按派生谓词（Flags 不含 struct/interface/enum/delegate 位）gated emit
+        // → 与 reader 一致，无需新标志位。struct 走上面 struct 块（ObjectLayoutOf 对 struct 返回空，且 writer
+        // 谓词排除）。休眠元数据：runtime 暂不消费（PR-2 切字节存储时替换 slots）。
+        if (c.Kind != "struct" && this._g.Layouts != null) {
+            string objKey = this._g._classIrShortName(c);
+            StructLayoutInfo ol = this._g.Layouts.ObjectLayoutOf(objKey);
+            cd2.ObjectSize = ol.Size;
+            cd2.ObjFieldOffsets = ol.FieldOffsets; cd2.ObjFieldSizes = ol.FieldSizes;
+            cd2.ObjFieldKinds = ol.FieldKinds; cd2.ObjFieldCount = ol.FieldCount;
+            cd2.ObjRefOffsets = ol.RefLeafOffsets; cd2.ObjRefKinds = ol.RefLeafKinds; cd2.ObjRefCount = ol.RefLeafCount;
+        }
+        // TypeParams + constraint bundles（zbc L3-G1/G3a）
+        if (c.TypeParams.Count > 0) {
+            cd2.TypeParams = c.TypeParams.Names;
+            cd2.TypeParamCount = c.TypeParams.Count;
+            SymbolTable st = this._g._symbols;
+            ConstraintSet cs = null;
+            if (st != null) {
+                string ck = st.ConstraintKey(c.Name, c.TypeParams.Count);
+                if (st.HasConstraints(ck)) { cs = st.GetConstraints(ck); }
+            }
+            cd2.TypeParamConstraints = this._constraintDescs(cs, c.TypeParams.Count);
+        }
+        // 类侧关联类型绑定（zbc 1.42，assoc-type-crosspkg）：`class IntBag : IEnum { type Item = int; }`
+        // → TYPE 统一 assoc 块，类写 (Item, int)。从语义 Z42ClassType 取（MemberCollector._fillClass 已填），
+        // 供跨包 ImportedSymbolLoader 恢复 AssocBinding、删 ConstraintChecker 使用点 IsImported 守卫。
+        if (ctd != null && ctd.AssocBindingCount > 0) {
+            cd2.AssocNames = ctd.AssocBindingNames; cd2.AssocTypes = ctd.AssocBindingTypeNames;
+            cd2.AssocCount = ctd.AssocBindingCount;
+        }
+        return cd2;
+    }
+
+    // ConstraintSet（语义侧，八类承载）→ IrConstraintDesc[]（IR 侧，与 zbc flag 位一一对应）。
+    //
+    // add-associated-types PR-1：此前这里**从 AST 重新推导**一遍分类，导致两处硬缺陷——
+    //   ① `!IsType` 的 special 约束（class / struct / enum / new()）**整条丢弃**（无 else 分支）；
+    //   ② base-class 与 interface **混塞进同一个 Interfaces 数组**（`else { ifaces[ifc] = ... }`），
+    //      因为这里没有符号表、区分不了「这个名字是接口还是类」。
+    // 而 ConstraintChecker._fillBundle 早就用 symbols.HasInterface/HasClass 正确分好了类。改为直接
+    // 复用那份结果：writer 与 checker 从此共用**同一个判定**，不可能再漂移；上面两个缺陷一并消失。
+    private IrConstraintDesc[] _constraintDescs(ConstraintSet cs, int tpCount) {
+        IrConstraintDesc[] descs = new IrConstraintDesc[tpCount];
+        int ti = 0;
+        while (ti < tpCount) { descs[ti] = new IrConstraintDesc(); ti = ti + 1; }
+        if (cs == null) { return descs; }
+        int n = tpCount;
+        if (cs.Count < n) { n = cs.Count; }
+        int i = 0;
+        while (i < n) {
+            ConstraintBundle b = cs.Bundles[i];
+            IrConstraintDesc d = descs[i];
+            d.RequiresClass  = b.RequiresClass;      // bit0
+            d.RequiresStruct = b.RequiresStruct;     // bit1
+            // bit2 base-class：**必须写 FQ 名**，不能像 bundle 里的接口名那样写裸名。
+            // 运行期 metadata/loader/constraints.rs::check_one 在**加载期**就校验约束引用，
+            // 查的是 module.type_registry（键为 FQ）；查不到直接 bail → 整个模块加载失败 →
+            // 「class X not found in module registry」+ 所有字段写入被丢弃。接口约束之所以
+            // 从没暴露这点，是因为 check_one 有一条「`I` + 大写开头就放行」的启发式兜住了它们
+            // （见该文件注释：registry 目前只装类，接口 soft-allow）——基类没有这层豁免。
+            // 与类级 cd.Interfaces 的既有约定一致：TYPE 段存 FQ，读端（TsigReconcile）剥回裸名。
+            if (b.HasBaseClass)    { d.BaseClass = this._g._qClass(b.BaseClassName); }   // bit2
+            if (b.HasTypeParamRef) { d.TypeParamConstraint = b.TypeParamRef; }   // bit3
+            d.RequiresCtor = b.RequiresCtor;         // bit4
+            d.RequiresEnum = b.RequiresEnum;         // bit5
+            if (b.InterfaceCount > 0) {
+                d.Interfaces = b.InterfaceNames; d.InterfaceCount = b.InterfaceCount;
+            }
+            // 关联类型绑定（zbc 1.42，assoc-type-crosspkg）：`where T:IEnum<Item=int>` → bit7 承载。
+            if (b.AssocBindingCount > 0) {
+                d.AssocBindingNames = b.AssocBindingNames; d.AssocBindingTypeNames = b.AssocBindingTypeNames;
+                d.AssocBindingCount = b.AssocBindingCount;
+            }
+            i = i + 1;
+        }
+        return descs;
+    }
+
+    internal IrClassDesc _interfaceDesc(ClassDecl c) {
+        IrFieldDesc[] empty = new IrFieldDesc[0];
+        IrClassDesc cd = new IrClassDesc(this._g._q(c.Name), false, "", empty, 0);
+        cd.Flags = 17;
+        cd.Visibility = DeclFacts.classVisCode(c.Mods, c.Name.IndexOf("+") >= 0);   // complete-class-access-control ④：接口可见性入 TYPE 记录（复用 #184 已在线字节，无 bump；此前恒 0=public）
+        // 传递基接口（add-reflection-transitive-interfaces）：typeof(IB).GetInterfaces() 含 IA。
+        if (c.BaseCount > 0) {
+            string[] directBases = new string[c.BaseCount];
+            int dbi = 0;
+            while (dbi < c.BaseCount) { directBases[dbi] = c.Bases[dbi].Dump(); dbi = dbi + 1; }
+            string[] expanded = this._expandIfaces(directBases, c.BaseCount);
+            string[] ifqs = new string[expanded.Length];
+            int ei = 0;
+            while (ei < expanded.Length) { ifqs[ei] = this._g._qClass(expanded[ei]); ei = ei + 1; }
+            cd.Interfaces = ifqs;
+            cd.InterfaceCount = expanded.Length;
+        }
+        if (c.TypeParams.Count > 0) {
+            cd.TypeParams = c.TypeParams.Names;
+            cd.TypeParamCount = c.TypeParams.Count;
+            // add-associated-types PR-1：接口的 where 此前恒建**全空** bundle —— 不是「接口没有约束」，
+            // 而是 ConstraintChecker.Resolve 当时压根不处理接口（条件只认 class/struct），这里无从取值。
+            // Resolve 放宽后接口约束存在 InterfaceConstraints（独立表，键恒裸名），此处按同一 ClassDecl.Name 取回。
+            SymbolTable st = this._g._symbols;
+            ConstraintSet cs = null;
+            if (st != null && st.HasIfaceConstraints(c.Name)) { cs = st.GetIfaceConstraints(c.Name); }
+            cd.TypeParamConstraints = this._constraintDescs(cs, c.TypeParams.Count);
+        }
+        // 关联类型名单（zbc 1.42，assoc-type-crosspkg）：接口声明的 `type Item;` → TYPE 统一 assoc 块，
+        // 接口写 (Item, "")。从语义 Z42InterfaceType 取（MemberCollector._fillInterface 已填），供跨包
+        // ImportedSymbolLoader 恢复 AssocTypeNames、删 ConstraintChecker/InheritanceResolver 的 IsImported 守卫。
+        SymbolTable stI = this._g._symbols;
+        if (stI != null) {
+            Z42InterfaceType itSym = stI.GetInterface(c.Name);
+            if (itSym != null && itSym.AssocTypeCount > 0) {
+                string[] an = new string[itSym.AssocTypeCount]; string[] at = new string[itSym.AssocTypeCount];
+                int ai = 0;
+                while (ai < itSym.AssocTypeCount) { an[ai] = itSym.AssocTypeNames[ai]; at[ai] = ""; ai = ai + 1; }
+                cd.AssocNames = an; cd.AssocTypes = at; cd.AssocCount = itSym.AssocTypeCount;
+            }
+        }
+        // 接口方法签名（zbc 1.28，fix-crosspkg-interface-impl）：从成员抽名/返回/参数类型
+        // （源拼写，同 _typeFieldName 字段策略——TsigReconcile 重建后经 ImportedSymbolLoader._resolve 消费）。
+        // add-crosspkg-interface-accessors：**属性 / 索引器**的访问器（get_X/set_X/get_Item/set_Item）也
+        // 作为普通方法进 TYPE record，与本包 `MemberCollector._fillInterface` 一致 ⇒ 用户接口属性/索引器
+        // 跨包保真（此前只处理 MethodDecl ⇒ 跨包一个 accessor 都过不去，`IEnumerator.get_Current` 能跨包
+        // 纯靠 BuiltinTypeDefs 硬编码注入）。set_X/set_Item value 参 = 属性/索引器类型、void 返回；接口访问器
+        // 恒实例（static=0）。走通用方法数组、无新格式字段，零格式 bump。
+        //
+        // carry-iface-null-marks：成员的 `?` 标记**不能**走上面这串类型名 —— `_typeFieldName`
+        // 对 `NullableType` 显式取 `Inner`（本文件开头第 3 行），与 SIGS 的 `_sigTypeName` 同理：
+        // 这串拼写同时是**查找键**（导入侧 `ImportedSymbolLoader._resolve` 按它找类型），塞 `?`
+        // 进去就改了键。标记改挂**类级** attr-ref 块的 `$IfaceNull` 哨兵（见 `IrIfaceNullable`），
+        // 下标 = 该方法在 `buf` 里的位置，消费方 `TsigReconcile._rebuildInterface` 按同序解码。
+        _IfaceMethodBuf buf = new _IfaceMethodBuf();
+        IrAttrRef[] nullRefs = new IrAttrRef[0];
+        int mj = 0;
+        while (mj < c.MemberCount) {
+            Decl imem = DeclFacts._unwrap(c.Members[mj]);
+            if (imem is MethodDecl) {
+                MethodDecl imd = imem as MethodDecl;
+                int st = 0; if (DeclFacts._hasWord(imd.Mods, "static")) { st = 1; }
+                buf.Add(imd.Name, this._typeFieldName(imd.RetType), imd.ParamCount, st);
+                nullRefs = ClassDescBuilder._ifaceNullRef(nullRefs, buf.count - 1, IrIfaceNullable.RetSlot, imd.RetType);
+                int pj = 0;
+                while (pj < imd.ParamCount) {
+                    nullRefs = ClassDescBuilder._ifaceNullRef(nullRefs, buf.count - 1, pj.ToString(), imd.Params[pj].Type);
+                    buf.AddPt(this._typeFieldName(imd.Params[pj].Type)); pj = pj + 1;
+                }
+            } else if (imem is PropertyDecl) {
+                PropertyDecl ipd = imem as PropertyDecl;
+                int pst = 0; if (DeclFacts._hasWord(ipd.Mods, "static")) { pst = 1; }
+                if (ipd.HasGet) {
+                    buf.Add("get_" + ipd.Name, this._typeFieldName(ipd.Type), 0, pst);
+                    nullRefs = ClassDescBuilder._ifaceNullRef(nullRefs, buf.count - 1, IrIfaceNullable.RetSlot, ipd.Type);
+                }
+                if (ipd.HasSet) {
+                    buf.Add("set_" + ipd.Name, "void", 1, pst); buf.AddPt(this._typeFieldName(ipd.Type));
+                    // setter 的 value 参承载属性类型 ⇒ 标记落在**形参 0**（返回位是 void）。
+                    nullRefs = ClassDescBuilder._ifaceNullRef(nullRefs, buf.count - 1, "0", ipd.Type);
+                }
+            } else if (imem is IndexerDecl) {
+                IndexerDecl iid = imem as IndexerDecl;
+                if (iid.HasGet) {
+                    buf.Add("get_Item", this._typeFieldName(iid.RetType), iid.ParamCount, 0);
+                    nullRefs = ClassDescBuilder._ifaceNullRef(nullRefs, buf.count - 1, IrIfaceNullable.RetSlot, iid.RetType);
+                    int qj = 0;
+                    while (qj < iid.ParamCount) {
+                        nullRefs = ClassDescBuilder._ifaceNullRef(nullRefs, buf.count - 1, qj.ToString(), iid.Params[qj].Type);
+                        buf.AddPt(this._typeFieldName(iid.Params[qj].Type)); qj = qj + 1;
+                    }
+                }
+                if (iid.HasSet) {
+                    buf.Add("set_Item", "void", iid.ParamCount + 1, 0);
+                    int qk = 0;
+                    while (qk < iid.ParamCount) {
+                        nullRefs = ClassDescBuilder._ifaceNullRef(nullRefs, buf.count - 1, qk.ToString(), iid.Params[qk].Type);
+                        buf.AddPt(this._typeFieldName(iid.Params[qk].Type)); qk = qk + 1;
+                    }
+                    buf.AddPt(this._typeFieldName(iid.RetType));
+                    // 末位 value 参承载索引器类型（下标 = ParamCount）。
+                    nullRefs = ClassDescBuilder._ifaceNullRef(nullRefs, buf.count - 1, iid.ParamCount.ToString(), iid.RetType);
+                }
+            }
+            mj = mj + 1;
+        }
+        cd.IfaceMethodNames = buf.names; cd.IfaceMethodRets = buf.rets;
+        cd.IfaceMethodParamCounts = buf.pcs; cd.IfaceMethodCount = buf.count;
+        cd.IfaceMethodParamTypes = buf.pts; cd.IfaceMethodParamTotal = buf.ptCount;
+        cd.IfaceMethodStatic = buf.statics;
+        cd.Attrs = nullRefs; cd.AttrCount = nullRefs.Length;
+        return cd;
+    }
+
+    // generic-struct-erased-slot-value-copy：为一个**实例化**造合成类描述符。
+    //
+    // 它不来自任何 `ClassDecl`（实例化没有声明），而是直接从 `StructLayout.LayoutOf(instName)`
+    // 反填：Flags 置 struct 位（bit2）以触发 writer 的 struct 布局块，size / 引用位图取自该实例化的布局。
+    // 字段表按布局的直接字段填（名 + **代换后**的类型名），使反射看到的 `Pair<P2,int>.First` 是 `P2`
+    // 而不是型参 `A`。
+    //
+    // 为什么不直接复用定义那条描述符：定义 `Pair` 的布局里 `First` 是 8 字节句柄，
+    // 而 `Pair<P2,int>` 的是内联字节——两者 size 与引用位图都不同，必须各是一条。
+    //
+    // 布局算不出来（基名不是 struct / 环）→ 返回 null，调用方跳过（保守：退回今天的行为）。
+    internal IrClassDesc _instLayoutDesc(string instName) {
+        StructLayout ly = this._g.Layouts;
+        if (ly == null) { return null; }
+        // 形态 ②：泛型 **class** 的实例化 —— 合成带**内联布局块**的描述符（P3b 的 bit7），
+        // 使 `CBox<P2>.Item` 真内联进堆对象字节区，而不是存一个栈帧作用域的 arena 句柄（use-after-free）。
+        if (!ly.IsStructType(instName)) { return this._instClassDesc(instName); }
+        StructLayoutInfo li = ly.LayoutOf(instName);
+        if (li.Size <= 0) { return null; }   // 空/环兜底布局不投送
+        int n = li.FieldCount;
+        IrFieldDesc[] fs = new IrFieldDesc[n];
+        int i = 0;
+        while (i < n) {
+            fs[i] = new IrFieldDesc(li.FieldNames[i], li.FieldTypeNames[i]);   // 类型名已是代换后的具体名
+            i = i + 1;
+        }
+        // 描述符名必须是 **FQ**（与 `_classDesc` 的 `_q(_classIrShortName(c))` 同口径）——运行期
+        // `build_type_registry` 按描述符 name 建键、`resolve_layout` 拿 `struct_alloc` 的 FQ 名去查。
+        // 用短名会**静默 miss**，回落到「只有 size、空引用位图」的兜底布局：零引用叶子的实例化
+        // （`Pair<P2,int>`）恰好照常工作，有引用叶子的（`Pair<P2,string>`）才在写 string 那一刻崩
+        // （`struct ref leaf at byte offset 8 not in type layout`）。**「能跑」曾经掩盖了它。**
+        // 只限定基名、实参原样，与 `ExprEmitter._qualifyInstName` 同一约定。
+        int ltq = instName.IndexOf("<");
+        string fqInst = ltq < 0 ? this._g._q(instName)
+                                : this._g._q(instName.Substring(0, ltq)) + instName.Substring(ltq, instName.Length - ltq);
+        IrClassDesc cd = new IrClassDesc(fqInst, false, "", fs, n);
+        cd.Flags = 4;   // bit2 = struct → writer 追加 struct 布局块
+        cd.StructSize = li.Size;
+        cd.StructRefOffsets = li.RefLeafOffsets;
+        cd.StructRefKinds = li.RefLeafKinds;
+        cd.StructRefCount = li.RefLeafCount;
+        // symbolic-struct-field-access P2：**实例化也要带逐字段表**（zbc 1.45 的块，
+        // `class_flags2` bit0 gated）。P0（#915）只给上面那条**声明**路径加了这四行，
+        // 这条实例化路径漏了 —— 在 P0 里表是**休眠元数据**、漏了没人看得见；
+        // 接通 P2 之后立刻现形为「field index 0 out of range for struct
+        // `Demo.Pair<int,long>` (0 field(s))」，8 个泛型 e2e 用例全红。
+        //
+        // ⚠️ 同一个位置已经有过同形态的前科（见上方注释：实例化描述符名用短名会静默 miss，
+        // 而「零引用叶子的实例化恰好照常工作」掩盖了它）。**这条路径每加一样东西，
+        // 都要回来问一遍声明路径加了什么。**
+        cd.StructFieldOffsets = li.FieldOffsets;
+        cd.StructFieldSizes = li.FieldSizes;
+        cd.StructFieldKinds = li.FieldKinds;
+        cd.StructFieldCount = li.FieldCount;
+        if (li.FieldCount > 0) { cd.Flags2 = cd.Flags2 | 1; }
+        return cd;
+    }
+
+
+    internal IrAttrRef[] _attrRefs(Decl rawMem) {
+        // add-static-constructors：此前这里对非-AttributedDecl **提前返回空数组**，于是「没写任何
+        // attribute 的类」根本走不到下面的哨兵追加。$Cctor 必须能挂在这种类上（静态构造器与
+        // attribute 无关），故改成统一追加。三者都不命中时仍返回空数组 → 既有产物字节不变。
+        IrAttrRef[] refs = new IrAttrRef[0];
+        if (rawMem is AttributedDecl) {
+            AttributedDecl ad = rawMem as AttributedDecl;
+            refs = this._attrRefsFromList(ad.Attrs, ad.AttrCount);
+        }
+        // add-deprecated-directive（PR5，零格式-bump）：`[Deprecated]` 是 directive（无 store-meta 工厂 → 不入
+        // 上面的 refs）。用**既有 attr-ref 块**（零格式变更、避开格式-bump 两代自举回归）持久化：追加一条
+        // 哨兵 IrAttrRef(TypeName="$Deprecated", FactoryFunc=msg)。消费方（TsigReconcile / 反射）按 TypeName 识别
+        // 并剥离——见 DeprecatedSentinel。未弃用符号不追加 → 零字节变化。
+        if (HandlerRegistry.HasDeprecated(rawMem)) {
+            refs = ClassDescBuilder._appendAttrRef(refs, IrDeprecation.Sentinel, HandlerRegistry.DeprecatedMsg(rawMem));
+        }
+        // add-static-constructors：类有静态构造器 → 挂 $Cctor 哨兵，载荷 = cctor 的发射函数名（FQ）。
+        // 运行期据此决定该类型是否需要「首次使用前初始化」屏障（方案 B），并知道该调哪个函数。
+        string cctorFn = this._cctorFuncName(rawMem);
+        if (cctorFn != "") {
+            refs = ClassDescBuilder._appendAttrRef(refs, IrStaticCtor.Sentinel, cctorFn);
+        }
+        // define-null-check-marks 3.3：**返回类型**标了 `?` → 挂 `$RetNullable` 哨兵。
+        // 返回值没有形参槽，故用方法级 attr-ref 块（同 `$Deprecated` 手法，零格式 bump）。
+        // 未标的符号不追加 ⇒ 既有产物字节不变。
+        // ⚠️ `rawMem` 是**未剥壳**的（带 attribute 时是 `AttributedDecl` 包装），
+        // 直接 `as MethodDecl` 会恒 null —— 同 `_cctorFuncName` 开头那两行的理由。
+        MethodDecl rmd = DeclFacts._unwrap(rawMem) as MethodDecl;
+        if (rmd != null && !rmd.IsCtor && (rmd.RetType is NullableType)) {
+            refs = ClassDescBuilder._appendAttrRef(refs, IrNullableRet.Sentinel, "");
+        }
+        return refs;
+    }
+
+    // carry-iface-null-marks：`te` 标了 `?` 时追加一条 `$IfaceNull` 哨兵，否则原样返回。
+    // 没标的槽**不发哨兵**（缺席 = 不强制），所以未用 `?` 的接口其 attr 块仍是 0 条、字节不变。
+    private static IrAttrRef[] _ifaceNullRef(IrAttrRef[] refs, int methodIndex, string slot, TypeExpr te) {
+        if (!(te is NullableType)) { return refs; }
+        return ClassDescBuilder._appendAttrRef(refs, IrIfaceNullable.Sentinel,
+                                               IrIfaceNullable.Encode(methodIndex, slot));
+    }
+
+    private static IrAttrRef[] _appendAttrRef(IrAttrRef[] refs, string typeName, string payload) {
+        IrAttrRef[] out2 = new IrAttrRef[refs.Length + 1];
+        int i = 0; while (i < refs.Length) { out2[i] = refs[i]; i = i + 1; }
+        out2[refs.Length] = new IrAttrRef(typeName, payload);
+        return out2;
+    }
+
+    // 该声明若是「带静态构造器的类」→ 返回 cctor 的发射函数名（FQ）；否则 ""。
+    //
+    // 名字必须与 FunctionEmitter 实际发射的一致：`_q(_classIrShortName(c)) + "." + md.RegKey`。
+    // RegKey 是注册键的单一真相（SymbolCollector.RegisterMethod 写、OverloadResolver.MethodKeyOf 读），
+    // **不另拼一份**——同 available! 的 D2.1 教训：手抄第二份键推导迟早漂移。
+    private string _cctorFuncName(Decl rawMem) {
+        Decl d = rawMem;
+        if (d is AttributedDecl) { d = (d as AttributedDecl).Inner; }
+        if (!(d is ClassDecl)) { return ""; }
+        ClassDecl c = d as ClassDecl;
+        int j = 0;
+        while (j < c.MemberCount) {
+            Decl m = c.Members[j];
+            if (m is AttributedDecl) { m = (m as AttributedDecl).Inner; }
+            if (m is MethodDecl) {
+                MethodDecl md = m as MethodDecl;
+                if (md.IsCtor && DeclFacts._hasWord(md.Mods, "static") && md.HasBody) {
+                    return this._g._q(this._g._classIrShortName(c)) + "." + IrStaticCtor.MethodKey;
+                }
+            }
+            j = j + 1;
+        }
+        // unify-static-init-into-cctor：没写显式静态 ctor、但有静态字段/静态 auto 属性初始化器的类，
+        // 由 IrGen 合成了类型初始化器 → 同样要挂哨兵，否则运行期不知道该在首次使用前调它。
+        // 判据取自 IrGen 的**实际发射记录**（SynthCctorClasses），而非在此重算一遍"有没有静态初始化器"。
+        if (this._g.SynthCctorClasses != null && this._g.SynthCctorClasses.ContainsKey(c.Name)) {
+            return this._g._q(this._g._classIrShortName(c)) + "." + IrStaticCtor.MethodKey;
+        }
+        return "";
+    }
+
+    private IrAttrRef[] _attrRefsFromList(Attr[] attrs, int count) {
+        IrAttrRef[] r = new IrAttrRef[count];
+        int n = 0;
+        int a = 0;
+        while (a < count) {
+            Attr at = attrs[a];
+            if (at.FactoryFunc != "") {
+                // D8：持久化的 attribute 类型名 = 后缀展开后的真实类名（`[Route]` → `RouteAttribute`），
+                // 与 AttributeSynth 合成工厂 `new RouteAttribute()` 及 typeof(RouteAttribute) 反射对齐。
+                r[n] = new IrAttrRef(this._g._qClass(HandlerRegistry.StoreMetaClassName(at.Name)), this._g._q(at.FactoryFunc)); n = n + 1;
+            }
+            a = a + 1;
+        }
+        if (n == count) { return r; }
+        IrAttrRef[] trimmed = new IrAttrRef[n];
+        int k = 0; while (k < n) { trimmed[k] = r[k]; k = k + 1; }
+        return trimmed;
+    }
+
+    internal IrAttrRefList[] _paramAttrRefs(MethodDecl md, bool isInstance) {
+        int off = isInstance ? 1 : 0;
+        int total = md.ParamCount + off;
+        IrAttrRefList[] r = new IrAttrRefList[total];
+        if (isInstance) { r[0] = new IrAttrRefList(new IrAttrRef[0], 0); }
+        int j = 0;
+        while (j < md.ParamCount) {
+            IrAttrRef[] pa = this._attrRefsFromList(md.Params[j].Attrs, md.Params[j].AttrCount);
+            // PR6：参数默认值统一常量表示——有默认值 → 追加 `$Default` 哨兵（ConstBlob）到 param attr-ref
+            // 列表（零格式-bump，骑 zbc 1.15 param attr-ref blob 通道）。非常量折叠失败 → 不追加（暂沿旧
+            // kind 路径；常量-性诊断 E04xx 在 typecheck 相位补，Phase D）。
+            Expr pd = md.Params[j].Default;
+            if (pd != null) {
+                if (MacroRegistry.IsMacro(pd)) {
+                    // PR6b：caller 宏默认值 → `$Caller:<kind>` 哨兵（FactoryFunc 空）。未知宏名（KindOf==""）
+                    // 已由 typecheck 报 E0450 → 此处不追加哨兵（保守，不产坏元数据）。
+                    string ck = MacroRegistry.KindOf(MacroRegistry.NameOf(pd));
+                    if (ck != "") {
+                        IrAttrRef[] pc = new IrAttrRef[pa.Length + 1];
+                        int t = 0; while (t < pa.Length) { pc[t] = pa[t]; t = t + 1; }
+                        pc[pa.Length] = new IrAttrRef("$Caller:" + ck, "");
+                        pa = pc;
+                    }
+                } else {
+                    string blob = ConstBlob.Encode(pd, this._constEnv(), this._g._symbols);
+                    if (blob != null) {
+                        IrAttrRef[] pd2 = new IrAttrRef[pa.Length + 1];
+                        int t = 0; while (t < pa.Length) { pd2[t] = pa[t]; t = t + 1; }
+                        pd2[pa.Length] = new IrAttrRef(ConstBlob.Sentinel, blob);
+                        pa = pd2;
+                    }
+                }
+            }
+            // record-ref-in-signature：`ref` 形参追加 `$ByRef` 哨兵（同 `$Default` 手法，零格式 bump）。
+            if (md.Params[j].IsRef) {
+                IrAttrRef[] pr = new IrAttrRef[pa.Length + 1];
+                int t2 = 0; while (t2 < pa.Length) { pr[t2] = pa[t2]; t2 = t2 + 1; }
+                pr[pa.Length] = new IrAttrRef(IrParamDefault.ByRefSentinel, "");
+                pa = pr;
+            }
+            // define-null-check-marks 3.3：标了 `?` 的形参追加 `$Nullable` 哨兵（同 `$ByRef` 手法）。
+            // **必须走旁路**：SIGS 的类型拼写同时是**派发键**的一部分（`Find$1$string`），
+            // 把 `?` 拼进去会改键、打烂派发与全部 golden —— 这正是 `_sigTypeName` 当初剥 `?` 的原因。
+            if (md.Params[j].Type is NullableType) {
+                IrAttrRef[] pn2 = new IrAttrRef[pa.Length + 1];
+                int t4 = 0; while (t4 < pa.Length) { pn2[t4] = pa[t4]; t4 = t4 + 1; }
+                pn2[pa.Length] = new IrAttrRef(IrParamDefault.NullableSentinel, "");
+                pa = pn2;
+            }
+            r[j + off] = new IrAttrRefList(pa, pa.Length);
+            j = j + 1;
+        }
+        // record-ref-in-signature：**完备性标记**放槽 0 —— 说明本方法的 ref 信息写全了。
+        // 缺它的包（本变更之前编的）在导入侧判为「不知道」而跳过对称性检查，不会误报。
+        // total==0（无形参的静态方法）不需要标记：没有实参可检查。
+        if (total > 0) {
+            IrAttrRefList s0 = r[0];
+            IrAttrRef[] sa = new IrAttrRef[s0.Count + 1];
+            int t3 = 0; while (t3 < s0.Count) { sa[t3] = s0.Items[t3]; t3 = t3 + 1; }
+            sa[s0.Count] = new IrAttrRef(IrParamDefault.RefSigSentinel, "");
+            r[0] = new IrAttrRefList(sa, sa.Length);
+        }
+        return r;
+    }
+
+    // PR6：ConstEval 的 const 环境（裸名 / `Class.FIELD` → ConstValue）。enum 成员经 ConstBlob._encodeEnum
+    // 直接查 syms.EnumConsts，故此处只需命名 const 字段；v1 先返回空表（现无参数默认值引用命名 const；
+    // 需要时从 syms 的 const 字段填充）。
+    private StrMap _constEnv() { return new StrMap(); }
+
+}
+
+// add-crosspkg-interface-accessors：接口方法块（含属性/索引器访问器）的可增长收集器——把原先内联在
+// `_interfaceDesc` 的四个平行方法数组 + 一个扁平参数类型数组的增长逻辑收敛到一处。names/rets/pcs/statics
+// 按方法并行增长；pts 是所有方法参数类型按方法序的扁平拼接（消费端按 pcs[k] 顺序取回）。
+public sealed class _IfaceMethodBuf {
+    public string[] names; public string[] rets; public int[] pcs; public int[] statics; public int count;
+    public string[] pts; public int ptCount;
+    public _IfaceMethodBuf() {
+        this.names = new string[4]; this.rets = new string[4]; this.pcs = new int[4]; this.statics = new int[4]; this.count = 0;
+        this.pts = new string[8]; this.ptCount = 0;
+    }
+    public void Add(string name, string ret, int pc, int isStatic) {
+        if (this.count == this.names.Length) {
+            int n = this.names.Length * 2;
+            string[] b1 = new string[n]; string[] b2 = new string[n]; int[] b3 = new int[n]; int[] b4 = new int[n];
+            int k = 0; while (k < this.count) { b1[k] = this.names[k]; b2[k] = this.rets[k]; b3[k] = this.pcs[k]; b4[k] = this.statics[k]; k = k + 1; }
+            this.names = b1; this.rets = b2; this.pcs = b3; this.statics = b4;
+        }
+        this.names[this.count] = name; this.rets[this.count] = ret; this.pcs[this.count] = pc; this.statics[this.count] = isStatic;
+        this.count = this.count + 1;
+    }
+    public void AddPt(string pt) {
+        if (this.ptCount == this.pts.Length) {
+            int n = this.pts.Length * 2; string[] b = new string[n];
+            int k = 0; while (k < this.ptCount) { b[k] = this.pts[k]; k = k + 1; }
+            this.pts = b;
+        }
+        this.pts[this.ptCount] = pt; this.ptCount = this.ptCount + 1;
+    }
+}

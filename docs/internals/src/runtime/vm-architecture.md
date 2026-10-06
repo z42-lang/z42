@@ -462,7 +462,7 @@ if let Some(cell) = cross_cell:
 interp/JIT 模式下依赖是**纯惰性加载**（[app.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/app.rs)
 `is_eager = matches!(mode, Aot)`，非 AOT 全 false）：除用户 artifact 外，
 **所有依赖 zpkg**（自编译时即 z42c.core / z42c.syntax / z42c.semantics /
-z42c.pipeline 全部）经 `LazyLoader::load_zpkg_file` 进 `function_table`，其
+z42c.emission / z42c.pipeline 全部）经 `LazyLoader::load_zpkg_file` 进 `function_table`，其
 `Function.resolved` **永不被 set**。
 
 若不做首执解析，后果是：**整个自编译工作负载（跑在惰性加载的 z42c.* 里）dispatch 时所有 per-site
@@ -1136,7 +1136,7 @@ pub struct ResolvedTokens {
 - `FieldIC` 撞键 → **读写错误的字段槽**，不崩不报错，**静默数据损坏**
 
 典型现场：`Z42.Semantics.ParallelFor.Run` 的 `body.Run(i)`（`IParallelBody` 接口调用）同时
-接 `CompileCuTask`（z42c.semantics）与 `SrcReadHashTask`（z42c.driver）。两者共号 139 时，
+接 `CompileCuTask`（z42c.emission）与 `SrcReadHashTask`（z42c.driver）。两者共号 139 时，
 `CompileCuTask` 的 receiver 跑进 `SrcReadHashTask.Run`，其首行 `File.ReadAllText(this._srcs[i])`
 读到槽 0 上的 `CompilationUnit[] _cus` ⇒ 自举链崩在
 `__file_read_text: arg 0 expected string, got CompilationUnit`。触发条件只是两边的号碰巧对齐。

@@ -1,0 +1,673 @@
+// call / new / method-group lowering（CG-1E follow-up：从 ExprEmitter 按职责抽出）。
+// 承载 Bound{Call,New,MethodGroup} → IR 的发射簇（含 struct-aware 实参 copy-in、sret 约定、
+// devirt/DepIndex/VCall 派发、泛型方法类型实参）。共享 EmitContext（与 ExprEmitter 同一 ctx）；
+// 递归发射子表达式与 struct/typeof/cast 谓词经父反向引用 _ee 委回 ExprEmitter。
+namespace Z42.Emission;
+
+using Z42.Semantics;
+
+using Z42.IR;
+
+public sealed class CallEmitter {
+    private EmitContext _ctx;
+    private ExprEmitter _ee;   // 反向引用：递归 .Emit() + struct/typeof/cast 谓词委回 ExprEmitter
+    public CallEmitter(EmitContext ctx, ExprEmitter ee) { this._ctx = ctx; this._ee = ee; }
+
+    // A-use：实参发射 + **struct 实参 copy-in**（值语义：callee 收独立副本，改参数不影响 caller）。
+    private TypedReg[] _emitStructAwareArgs(BoundCall c) {
+        TypedReg[] args = new TypedReg[c.ArgCount];
+        int i = 0;
+        while (i < c.ArgCount) {
+            TypedReg a = this._ee.Emit(c.Args[i]);
+            if (this._ee._isBlobStruct(c.Args[i].Type())) {
+                string sn = this._ee._blobStructName(c.Args[i].Type());
+                int sz = this._ctx.Gen.Layouts.StructSize(sn);
+                TypedReg cp = this._ctx.Alloc(IrType.Ref);
+                this._ctx.Emit(new StructAllocInstr(cp, this._ctx.QualifyClass(sn), sz));
+                this._ctx.Emit(new StructCopyInstr(cp, a, sz));
+                args[i] = cp;
+            } else { args[i] = a; }
+            i = i + 1;
+        }
+        return args;
+    }
+    // A-use：发射 Call，返回 blob 值 struct 时走 **sret**——caller 预留返回 blob 作末尾隐藏参数，callee
+    // `return s`→StructCopy 进去；结果=该 handle。recv=实例接收者句柄（null=静态/自由）；args 已 copy-in。
+    private TypedReg _emitCallSretAware(string fq, TypedReg recv, TypedReg[] args, int argCount, Z42Type retType) {
+        return this._emitCallSretAwareG(fq, recv, args, argCount, retType, new string[0], 0);
+    }
+    // add-generic-methods：带方法类型实参的变体（mta = FQ 名数组，写入 CallInstr.MethodTypeArgs）。
+    private TypedReg _emitCallSretAwareG(string fq, TypedReg recv, TypedReg[] args, int argCount, Z42Type retType,
+                                         string[] mta, int mtaCount) {
+        bool hasRecv = recv != null;
+        bool retStruct = this._ee._isBlobStruct(retType);
+        int total = argCount + (hasRecv ? 1 : 0) + (retStruct ? 1 : 0);
+        TypedReg[] full = new TypedReg[total];
+        int k = 0;
+        if (hasRecv) { full[k] = recv; k = k + 1; }
+        int i = 0; while (i < argCount) { full[k] = args[i]; k = k + 1; i = i + 1; }
+        TypedReg retHandle = null;
+        if (retStruct) {
+            string rsn = this._ee._blobStructName(retType);
+            int rsz = this._ctx.Gen.Layouts.StructSize(rsn);
+            retHandle = this._ctx.Alloc(IrType.Ref);
+            this._ctx.Emit(new StructAllocInstr(retHandle, this._ctx.QualifyClass(rsn), rsz));
+            full[k] = retHandle; k = k + 1;
+        }
+        int dtag = retStruct ? IrType.Void : this._ctx.ToIrType(retType);
+        TypedReg dst = this._ctx.Alloc(dtag);
+        CallInstr ci = new CallInstr(dst, fq, full, total);
+        if (mtaCount > 0) { ci.MethodTypeArgs = mta; ci.MethodTypeArgCount = mtaCount; }
+        this._ctx.Emit(ci);
+        if (retStruct) { return retHandle; }
+        return dst;
+    }
+
+    // complete-generic-class-identity P4：**已特化**的实例化成员返回 blob struct ⇒ callee 走 sret，
+    // 调用侧必须一致。返回该 blob 的布局名；不适用 → ""。
+    //
+    // 两个条件缺一不可，且分工明确：
+    //   · `c.InstRetType`（typer 给）：方法返回**类级型参**、按 receiver 实参代换后是什么类型。
+    //     发射端不自己算 —— 那要重做一遍重载决议，查错就是错发。
+    //   · `_instLayoutName(receiver) != ""`（发射端给）：该实例化的成员**确实被重发过**。
+    //     布局知识只在发射端。未特化（跨包擦除体）时装箱模型仍成立，不能改。
+    // 这正是 design D5 要的「同一判据单一出口」：**同一个** `_instLayoutName` 既决定成员派发名，
+    // 也决定调用约定，不可能漂移成两把尺子。
+    private string _specSretName(BoundCall c) {
+        if (c.InstRetType == null || c.Receiver == null) { return ""; }
+        if (this._ee._instLayoutName(c.Receiver.Type()) == "") { return ""; }
+        if (!this._ee._isBlobStruct(c.InstRetType)) { return ""; }
+        return this._ee._blobStructName(c.InstRetType);
+    }
+
+    // fix-struct-property-getter：blob struct 属性 getter 读（`x.Prop`）→ **静态 Call 传 handle**（0 参 +
+    // sret-aware），与 struct 实例方法调用同款派发（:99-104）——struct 无虚方法，VCall 会崩「expected object,
+    // got StructRef」。供 AccessEmitter._emitMember 经 ExprEmitter 转发。
+    internal TypedReg _emitStructInstanceGetter(string fqGetter, TypedReg recv, Z42Type retType) {
+        return this._emitCallSretAware(fqGetter, recv, new TypedReg[0], 0, retType);
+    }
+
+    // add-generic-methods：BoundCall 的解析后类型实参（Z42Type[]）→ FQ 名 string[]（与 typeof 同款
+    // _typeofArgName：FQ + 递归带尖括号，基元/数组保源拼写）。非泛型调用返回空数组。
+    private string[] _methodTypeArgNames(BoundCall c) {
+        if (c.MethodTypeArgCount == 0) { return new string[0]; }
+        string[] names = new string[c.MethodTypeArgCount];
+        int i = 0;
+        while (i < c.MethodTypeArgCount) {
+            // add-generic-activator：外层方法级形参 T → 转发标记 `$mta:<idx>`（运行期按调用方
+            // frame.method_type_args[idx] 解析），而非字面 "T"（后者 make_type_from_name 落空丢 handle）。
+            if (c.MethodTypeArgFwd != null && i < c.MethodTypeArgFwd.Length && c.MethodTypeArgFwd[i] >= 0) {
+                names[i] = "$mta:" + c.MethodTypeArgFwd[i].ToString();
+            } else {
+                names[i] = this._ee._typeofArgName(c.MethodTypeArgs[i]);
+            }
+            i = i + 1;
+        }
+        return names;
+    }
+
+    // 调用分派：free → call @f / static → call @Class.m / instance → vcall recv.m。
+    internal TypedReg _emitCall(BoundCall c) {
+        // base ctor call：call @QualBaseCls.CtorKey %0, ...args（静态 direct call，args 含 this）
+        if (c.Kind == "base_ctor") {
+            TypedReg[] bargs = this._emitArgs(c);
+            string fqCtor = this._ctx.QualifyClass(c.OwnerClass) + "." + c.MethodName;
+            TypedReg bdst = this._ctx.Alloc(IrType.Ref);
+            this._ctx.Emit(new CallInstr(bdst, fqCtor, bargs, c.ArgCount));
+            return bdst;
+        }
+        if (c.Kind == "instance") {
+            // fix-value-type-object-methods 阶段1：值类型（struct / enum）receiver 的 `GetType()`（0 参）
+            // → 折叠为 `typeof(静态类型)`。值类型 sealed → 编译期静态类型 == 运行期类型，GetType 结果编译期
+            // 已知。修 ① struct GetType（否则走下方无体静态 Call 崩）+ ② enum GetType（否则裸 i64→Std.Int32）。
+            // 排除 scalar 基元（其 IsStruct 亦 true，但 `5.GetType()` 已由运行期正确处理，不拦以免自举字节漂移）；
+            // enum 字面量 `E.Red`（静态类型 long）靠 BoundLitInt.EnumTypeName origin 标记识别。
+            if (c.MethodName == "GetType" && c.ArgCount == 0) {
+                string enumFqn = "";
+                if (c.Receiver is BoundLitInt) {
+                    BoundLitInt bli = c.Receiver as BoundLitInt;
+                    if (bli.EnumTypeName != "") { enumFqn = bli.EnumTypeName; }   // 绑定时已是 FQN（MemberResolver）
+                }
+                if (enumFqn != "" || this._isStructOrEnumStatic(c.Receiver.Type())) {
+                    return this._emitValueTypeGetType(c, enumFqn);
+                }
+            }
+            // make-enum-distinct-type 1.5：enum receiver 的 `ToString()` → 装箱 + VCall，命中
+            // runtime 的 enum 盒协议（成员名，C# `Enum.ToString`）。不拦的话 receiver 是裸 i64，
+            // 派发到 Int64.ToString 出数字——与同一个值经 `object` 装箱后出成员名互相矛盾。
+            if (c.MethodName == "ToString" && c.ArgCount == 0 && this._isEnumStatic(c.Receiver.Type())) {
+                TypedReg ev = this._ee.Emit(c.Receiver);
+                TypedReg eboxed = this._ee._boxEnumForStr(ev, c.Receiver.Type());
+                TypedReg edst = this._ctx.Alloc(this._ctx.ToIrType(c.Type()));
+                this._ctx.Emit(new VCallInstr(edst, eboxed, c.MethodName, new TypedReg[0], 0));
+                return edst;
+            }
+            // add-struct-value-semantics A-use：blob 值 struct 实例方法调用 → **静态 Call 传 handle**
+            // （struct 无继承/虚方法；receiver 是 StructRef 句柄非 object，走 VCall 会崩）。含返回 struct 的
+            // sret。绕过下方 devirt/DepIndex/VCall。实参先于 receiver（保发射序）+ struct 实参 copy-in。
+            if (this._ee._isBlobStruct(c.Receiver.Type())) {
+                // fix-value-type-object-methods 阶段2：struct **未自声明**的 Object 方法（ToString /
+                // GetHashCode / Equals）→ `__box_struct` 装箱 receiver + VCall，命中 runtime 装箱-struct
+                // Object 协议（exec_vcall.rs：ToString→短类型名 / GetHashCode→FNV / Equals→Std.Object）。
+                // 否则（record 合成 / 用户覆写，ChainHasMethod=true）走下方静态 Call，保各自语义不被拦。
+                if (this._isBoxedObjectMethod(c.MethodName, c.ArgCount)
+                    && !this._ctx.ChainHasMethod(c.OwnerClass, c.MethodName)) {
+                    return this._emitBoxedStructObjectCall(c);
+                }
+                TypedReg[] sargs = this._emitStructAwareArgs(c);
+                TypedReg srecv = this._ee.Emit(c.Receiver);
+                string sname = this._ee._blobStructName(c.Receiver.Type());
+                string fqm = this._ctx.QualifyClass(sname) + "." + c.MethodName;
+                return this._emitCallSretAware(fqm, srecv, sargs, c.ArgCount, c.Type());
+            }
+            // 镜像 C# EmitBoundCall：实参先于 receiver（寄存器编号序——byte-identical）
+            TypedReg[] iargs = this._emitArgs(c);
+            TypedReg recv = this._ee.Emit(c.Receiver);
+            // fix-narrow-prim-instance-dispatch：**窄基元接收者 → 静态 Call**（同 blob 值 struct 分支的
+            // 道理：基元是 sealed 值类型、无虚派发，编译期直呼语义上就是对的）。
+            // 不这么做的话运行期会按 Value 反推类（`Value::I64 => Std.Int32` / `Value::F64 => Std.Double`），
+            // 于是 sbyte/short/byte/ushort/uint/ulong/long/float 这 8 个包装类型上声明的实例方法**一个都
+            // 到不了**。判据与目标解析在 `EmitContext.NarrowPrimTarget`（解析不出即返回 "" → 落回下方
+            // VCall = 今天的行为，永不 miscall）。
+            // 返回 blob struct 的情形交给下方既有 sret 路径（基元方法不返回值 struct，这里不重复实现）。
+            if (!this._ee._isBlobStruct(c.Type())) {
+                string npTgt = this._ctx.NarrowPrimTarget(c.Receiver.Type(), c.MethodName);
+                if (npTgt != "") {
+                    TypedReg[] npFull = new TypedReg[c.ArgCount + 1];
+                    npFull[0] = recv;
+                    int npi = 0;
+                    while (npi < c.ArgCount) { npFull[npi + 1] = iargs[npi]; npi = npi + 1; }
+                    TypedReg npDst = this._ctx.Alloc(this._ctx.ToIrType(c.Type()));
+                    this._ctx.Emit(new CallInstr(npDst, npTgt, npFull, c.ArgCount + 1));
+                    return npDst;
+                }
+            }
+            // add-struct-method-return (P3b follow-up)：class 实例方法返回 blob 值 struct → **sret** 约定
+            // （caller 预留返回 blob 作末尾隐藏实参，callee `return s`→StructCopy(SretReg,s)+ret void；结果=该
+            // handle）。VCall 按 vtable slot(方法名)派发、arity 不入解析键 → 追加 sret 实参不破派发，runtime
+            // new_from_receiver_regs 全量传参落 callee SretReg(=1+用户参数数)；devirt/DepIndex 的 Call 同理。
+            string specSret = this._specSretName(c);
+            bool retStruct = specSret != "" || this._ee._isBlobStruct(c.Type());
+            TypedReg sretH = null;
+            if (retStruct) {
+                string rsn = specSret != "" ? specSret : this._ee._blobStructName(c.Type());
+                int rsz = this._ctx.Gen.Layouts.StructSize(rsn);
+                sretH = this._ctx.Alloc(IrType.Ref);
+                this._ctx.Emit(new StructAllocInstr(sretH, this._ctx.QualifyClass(rsn), rsz));
+            }
+            // G19a：receiver 是 `as`-cast 到类 → 调用结果 tag Unknown（同 _emitMember 字段；
+            // 镜像 C# BindMemberCallOnClass：cast-to-class 走 stub→method 未解析→Z42Type.Unknown）。
+            int itag = this._ctx.ToIrType(c.Type());
+            if (this._ee._castUnknownChain(c.Receiver)) { itag = IrType.Unknown; }
+            // IC-1 反劫持守卫：receiver 类链（local+imported）自有方法 → VCall（vtable 赢）
+            bool owns = this._ctx.ChainHasMethod(c.OwnerClass, c.MethodName);
+            // fix-iface-receiver-depindex-hijack：接口接收者恒 VCall（接口派发本就走 vtable），
+            // 不进 DepIndex instance 捷径——接口不在 LocalClasses（G18 守卫只认 class/struct/record），
+            // 曾致 `IB b; b.Assets(r)` 被依赖包同短名方法（z42.build Pipeline.Assets）劫持成直接
+            // Call → 错函数返 null（z42.build 注册入 stdlib 后 xtask 平台腿全红的根因）。
+            bool ifaceRecv = c.Receiver.Type() is Z42InterfaceType;
+            // fix-crosspkg-virtual-override：imported 虚方法恒 VCall（不进 DepIndex 直呼捷径），
+            // 否则跨 zpkg 具体基类 override 被基类实现钉死（`h.BeforeAssets()` 只跑基类 no-op）。
+            // 详见 EmitContext.ReceiverMethodIsVirtual。
+            bool virtualRecv = this._ctx.ReceiverMethodIsVirtual(c.Receiver.Type(), c.MethodName);
+            // add-sealed-devirt / extend-sealed-devirt-more：receiver 静态类型是可限定非泛型类 +
+            // 目标可解析 → 直接 Call 替 VCall（解锁 IrInline 内联）。整类 sealed（原）或方法 sealed
+            // override（extend-more）时目标唯一。cast-to-class Unknown 链 / 接口 receiver 跳过（既有
+            // 守卫优先）。目标解析不确定即返回 "" → 落到下方既有逻辑（VCall），永不 miscall。
+            // `Opt.Devirt` 门控供对拍。
+            if (this._ctx.DevirtEnabled() && !ifaceRecv && !this._ee._castUnknownChain(c.Receiver)) {
+                Z42ClassType sc = this._ctx.DevirtReceiverClass(c.Receiver.Type());
+                if (sc != null) {
+                    string tgt = this._ctx.ResolveSealedTarget(sc, c.MethodName, c.ArgCount, sc.IsSealed);
+                    if (tgt != "") {
+                        int dextra = retStruct ? 1 : 0;
+                        TypedReg[] dfull = new TypedReg[c.ArgCount + 1 + dextra];
+                        dfull[0] = recv;
+                        int dfi = 0;
+                        while (dfi < c.ArgCount) { dfull[dfi + 1] = iargs[dfi]; dfi = dfi + 1; }
+                        if (retStruct) { dfull[c.ArgCount + 1] = sretH; }   // 末尾隐藏 sret 实参
+                        TypedReg dvdst = this._ctx.Alloc(retStruct ? IrType.Void : itag);
+                        CallInstr dvci = new CallInstr(dvdst, tgt, dfull, c.ArgCount + 1 + dextra);
+                        if (c.MethodTypeArgCount > 0) { dvci.MethodTypeArgs = this._methodTypeArgNames(c); dvci.MethodTypeArgCount = c.MethodTypeArgCount; }
+                        this._ctx.Emit(dvci);
+                        return retStruct ? sretH : dvdst;
+                    }
+                }
+            }
+            // add-prim-instance-type-overload（辅修 A，对称守卫）：本地 prim 类实例调用（OwnerClass=
+            // 关键字小写，经 _primWrapper 映射到包装类名）恒不进 DepIndex 捷径——对称静态路径 :201-202
+            // 的 ownerIsLocal 守卫，防本地 prim 类方法被下游同短名方法（如 Std.Regex.Split）劫持。
+            bool ownerIsLocalInst = this._ctx.LocalClasses != null
+                && this._ctx.LocalClasses.ContainsKey(TypeFactsTc._primWrapper(c.OwnerClass));
+            if (!owns && !ifaceRecv && !virtualRecv && !ownerIsLocalInst && this._ctx.Deps != null) {
+                // instance-call-by-receiver：导入类（含 prim 的包装类）上的**非虚**实例方法 → 直接 Call 声明类的实现。
+                // 目标按「接收者类型的基类链 + 注册键」定位（ResolveSealedTarget 以 classSealed=true 调用：走到这里
+                // 已排除虚方法，目标唯一），并经 DepIndex 校验确为已发射函数。
+                // 此前是 `Deps.GetInstance(方法名, 参数个数)`：**不看接收者类型**，在全部可见包里按名字找 ——
+                // ① 可见包里另有同名同 arity 的实例方法时判歧义、退回 VCall，而可见哪些包随构建方式变 ⇒ 同一份源码
+                //   有时发 Call、有时发 VCall（z42.json 的 `Dictionary.Get/Set/ContainsKey` 实测）；
+                // ② 名字唯一却属于**另一个类**时，直接 Call 到错的函数（DepIndex 劫持，`Std.Regex.Split` 有先例）。
+                // 定位不到（接收者类型不明 / 不可限定）→ 落到下方 VCall，按运行期类型派发，永远正确。
+                // ⚠️ Object 的四个虚方法名（ToString / Equals / GetHashCode / GetType）恒走 VCall：导入类的 override 在
+                // 类型签名里不带 virtual 标记，而基类是 Object 时导入侧不记基类 ⇒ `ReceiverMethodIsVirtual` 沿链找不到
+                // 虚根、判成非虚（实测 `e.ToString()` 被直呼到 `Exception.ToString`，子类 TestFailure 的覆写失效）。
+                // 旧捷径同样排除这四个名字（DependencyIndex._isProtocol）。
+                Z42ClassType rc = this._isObjectVirtualName(c.MethodName) ? null : this._ctx.DevirtReceiverClass(c.Receiver.Type());
+                if (rc == null && !this._isObjectVirtualName(c.MethodName)) { rc = this._ctx.ImportedPrimWrapperClass(c.OwnerClass); }
+                string rtgt = rc == null ? "" : this._ctx.ResolveSealedTarget(rc, c.MethodName, c.ArgCount, true);
+                if (rtgt != "") {
+                    int fextra = retStruct ? 1 : 0;
+                    TypedReg[] full = new TypedReg[c.ArgCount + 1 + fextra];
+                    full[0] = recv;
+                    int fi = 0;
+                    while (fi < c.ArgCount) { full[fi + 1] = iargs[fi]; fi = fi + 1; }
+                    if (retStruct) { full[c.ArgCount + 1] = sretH; }   // 末尾隐藏 sret 实参
+                    TypedReg ddst = this._ctx.Alloc(retStruct ? IrType.Void : itag);
+                    CallInstr dici = new CallInstr(ddst, rtgt, full, c.ArgCount + 1 + fextra);
+                    if (c.MethodTypeArgCount > 0) { dici.MethodTypeArgs = this._methodTypeArgNames(c); dici.MethodTypeArgCount = c.MethodTypeArgCount; }
+                    this._ctx.Emit(dici);
+                    return retStruct ? sretH : ddst;
+                }
+
+            }
+            if (retStruct) {
+                TypedReg[] vargs = new TypedReg[c.ArgCount + 1];
+                int vi = 0; while (vi < c.ArgCount) { vargs[vi] = iargs[vi]; vi = vi + 1; }
+                vargs[c.ArgCount] = sretH;   // 末尾隐藏 sret 实参
+                TypedReg vvoid = this._ctx.Alloc(IrType.Void);
+                this._ctx.Emit(new VCallInstr(vvoid, recv, c.MethodName, vargs, c.ArgCount + 1));
+                return sretH;
+            }
+            TypedReg idst = this._ctx.Alloc(itag);
+            // complete-generic-instantiation S1-c：本包**非虚**实例泛型方法 ⇒ 改派特化体。
+            // vcall 只带简单名，运行期从接收者类型起按 `<类型>.<方法名>` 走基类链查 func_index
+            // （`vcall_resolve` 的 4c），故改简单名即可命中 `Demo.Helper.ReadSecond:P2`，无须动 vtable；
+            // 命中后照常装 IC，热路径不受影响。
+            VCallInstr vci = new VCallInstr(idst, recv, this._specializeVCallName(c), iargs, c.ArgCount);
+            if (c.MethodTypeArgCount > 0) { vci.MethodTypeArgs = this._methodTypeArgNames(c); vci.MethodTypeArgCount = c.MethodTypeArgCount; }
+            this._ctx.Emit(vci);
+            return idst;
+        }
+        TypedReg[] args = this._emitStructAwareArgs(c);   // A-use：struct 实参 copy-in（值语义）
+        // 静态调用先查 DepIndex（stdlib；арity 键→bare 键，镜像 C# EmitStaticBoundCall）
+        // path C：本包自有类（LocalClasses）恒走本地 emit，不查 DepIndex——否则当某依赖含**同短类名**
+        // 类（converge 期 z42.project 的 SourceDiscovery/ManifestLoader 与 z42c.project 自有同名）时，
+        // DepIndex 自排除 self → GetStaticScoped 落空 → 短键 fallback 误绑到依赖那份。local-wins 是正解。
+        // （无同名依赖时 DepIndex 本就自排除 self → 落空 → 走本地，与本守卫同果 → 字节不动。）
+        bool ownerIsLocal = this._ctx.LocalClasses != null && this._ctx.LocalClasses.ContainsKey(c.OwnerClass);
+        if (c.Kind == "static" && !ownerIsLocal) {
+            string depFq = this._depStaticTarget(c.OwnerClass, c.MethodName, c.ArgCount);
+            if (depFq != "") {
+                // fix-crosspkg-static-sret：这条捷径此前**直接发裸 CallInstr、不处理 sret** ——
+                // 跨包静态方法返回 blob 值 struct 时，生产方按 sret 编（末尾隐藏返回槽），消费方却少传一个
+                // ⇒ 编译期零诊断、运行期 `takes N+1 physical argument(s), the call passes N`。
+                // 实例那两条捷径（devirt :230-240 / DepIndex instance :253-265）一直是对的（各自拼 sretH），
+                // 只有静态这条漏了。改走同一个 sret-aware 发射器，顺带把 mta 一并交给它。
+                return this._emitCallSretAwareG(depFq, null, args, c.ArgCount, c.Type(),
+                    c.MethodTypeArgCount > 0 ? this._methodTypeArgNames(c) : new string[0],
+                    c.MethodTypeArgCount);
+            }
+        }
+        // func-typed 局部/参数值调用：`f(x)` where f 是 Locals 中的 Func 值（含泛型
+        // where T:Func 约束参 + 委托局部 + lambda 局部）→ CallIndirect 经寄存器，而非
+        // Call @f 按名（后者 undefined）。镜像 C# 对 func-valued callee 的间接派发。
+        if (c.Kind != "static" && this._ctx.Locals.ContainsKey(c.MethodName)) {
+            TypedReg callee = this._ctx.Locals.Get(c.MethodName) as TypedReg;
+            TypedReg cidst = this._ctx.Alloc(this._ctx.ToIrType(c.Type()));
+            this._ctx.Emit(new CallIndirectInstr(cidst, callee, args, c.ArgCount));
+            return cidst;
+        }
+        // 调用目标限定（BP-0）：静态类用 QualifyClass（imported/同包跨-ns aware，查 ImportedClassNs；
+        // 镜像 C# QualifyClassName）——否则同包跨-ns 静态调用（如 Std.Archive.Zip →
+        // Std.Compression.Deflate.Compress）被误限定当前 ns。自由函数用绑定期解析出的 ns（`FreeNs`，
+        // resolve-free-functions-by-namespace；取代按名猜的 QualifyFreeFunc）——跨包 / 同包跨 ns 都指到声明处。
+        // 局部函数（lifted）优先，已 FQ、不再 Qualify。
+        string func;
+        if (c.Kind != "static" && this._ctx.LocalFnNames.ContainsKey(c.MethodName)) {
+            func = (this._ctx.LocalFnNames.Get(c.MethodName) as StrBox).Value;
+        } else if (c.Kind == "static") {
+            func = this._ctx.QualifyClass(c.OwnerClass) + "." + c.MethodName;
+        } else if (c.FreeNs != null) {
+            // resolve-free-functions-by-namespace：绑定期已按 ns 解析 —— 直接用它。
+            func = SymbolTable.QualOf(c.FreeNs, c.MethodName);
+        } else {
+            func = this._ctx.Qualify(c.MethodName);
+        }
+        // complete-generic-instantiation S1：本包泛型自由函数 + 具体类型实参 ⇒ 改派**特化体**。
+        // 擦除体按擦除布局烘焙偏移，而实参是实例化形状 ⇒ 不改派就读错位置（静默错值）。
+        func = this._specializeGenericBody(func, c);
+        // A-use：返回 blob 值 struct 走 sret（如 operator 脱糖的静态 struct 工厂 Vec2.op_Add）；否则普通 Call。
+        // add-generic-methods：静态/自由泛型方法调用携方法类型实参（same-program 直呼的 e2e 主路径）。
+        return this._emitCallSretAwareG(func, null, args, c.ArgCount, c.Type(), this._methodTypeArgNames(c), c.MethodTypeArgCount);
+    }
+
+    // complete-generic-instantiation S1-c：实例泛型方法的 vcall 简单名 → 特化简单名。
+    // 登记的工作项键是**完整** IR 名（`<OwnerFq>.<简单名>:<实参…>`），与运行期解析拼出的名字一致。
+    private string _specializeVCallName(BoundCall c) {
+        if (c.MethodTypeArgCount <= 0) { return c.MethodName; }
+        IrGen g = this._ctx.Gen;
+        if (g == null || g.GenericBodies == null) { return c.MethodName; }
+        string lookup = c.OwnerClass + "." + c.MethodName;
+        if (!g.GenericBodies.ContainsKey(lookup)) { return c.MethodName; }   // 非本包 / 虚方法（刻意排除）
+        string suffix = "";
+        int i = 0;
+        while (i < c.MethodTypeArgCount) {
+            if (!this._ee._isConcreteTypeArg(c.MethodTypeArgs[i])) { return c.MethodName; }
+            string an = this._ee._canonTypeName(c.MethodTypeArgs[i]);
+            if (an == "") { return c.MethodName; }
+            suffix = suffix + ":" + an;
+            i = i + 1;
+        }
+        string specFq = this._ctx.QualifyClass(c.OwnerClass) + "." + c.MethodName + suffix;
+        if (!g.GenericFnInsts.ContainsKey(specFq)) { g.GenericFnInsts.Put(specFq, new StrBox(lookup)); }
+        // S1-d：虚派发可能落到**子类**的 override 上 ⇒ 本 CU 内同名的每个声明都要各特化一份，
+        // 否则那些接收者会 miss（运行期不沿基类链继承特化名，故是大声报错而非静默调错）。
+        g._noteSpecOverrides(c.MethodName, suffix);
+        return c.MethodName + suffix;
+    }
+
+    // complete-generic-instantiation S1：把对本包泛型体的调用改派到**按具体实参特化的体**，并登记工作项。
+    // 不该特化（非泛型 / 非本包 / 实参不全具体）时原样返回 `func`。
+    //
+    // 覆盖**自由函数**与类上的**静态**泛型方法（两者都走直接调用）。实例泛型方法走 `vcall` 按
+    // 简单名派发，改派要连 vtable 一起动，留给 S1-c。
+    //
+    // 特化名的拼法与 `IrGen.GenericFnInsts` 的注释一致：用 `:` 而非 `<…>` —— RegKey 本身就可能
+    // 含尖括号（`ReadSecondS$1$Loc<T,int>`），再套一层没法无歧义解析。
+    private string _specializeGenericBody(string func, BoundCall c) {
+        if (c.MethodTypeArgCount <= 0) { return func; }
+        IrGen g = this._ctx.Gen;
+        if (g == null || g.GenericBodies == null) { return func; }
+        // 体查找键：静态方法 = `OwnerKey.RegKey`；自由函数 = `RegKey`（= FQ 名去掉 ns 前缀）。
+        string lookup = "";
+        if (c.Kind == "static") {
+            int d1 = func.LastIndexOf(".");
+            if (d1 < 0) { return func; }
+            string ownerFq = func.Substring(0, d1);
+            string mkey = func.Substring(d1 + 1, func.Length - d1 - 1);
+            int d2 = ownerFq.LastIndexOf(".");
+            string ownerBare = d2 < 0 ? ownerFq : ownerFq.Substring(d2 + 1, ownerFq.Length - d2 - 1);
+            lookup = ownerBare + "." + mkey;
+        } else {
+            int d3 = func.LastIndexOf(".");
+            lookup = d3 < 0 ? func : func.Substring(d3 + 1, func.Length - d3 - 1);
+        }
+        if (!g.GenericBodies.ContainsKey(lookup)) { return func; }
+        string spec = func;
+        int i = 0;
+        while (i < c.MethodTypeArgCount) {
+            if (!this._ee._isConcreteTypeArg(c.MethodTypeArgs[i])) { return func; }   // 伪实例化：留在擦除体
+            string an = this._ee._canonTypeName(c.MethodTypeArgs[i]);
+            if (an == "") { return func; }
+            spec = spec + ":" + an;
+            i = i + 1;
+        }
+        if (!g.GenericFnInsts.ContainsKey(spec)) { g.GenericFnInsts.Put(spec, new StrBox(lookup)); }
+        return spec;
+    }
+
+    private bool _isObjectVirtualName(string callKey) {
+        string m = MethodSymbol.StripCallKey(callKey);
+        int d = m.IndexOf("$");
+        if (d >= 0) { m = m.Substring(0, d); }
+        return m == "ToString" || m == "Equals" || m == "GetHashCode" || m == "GetType";
+    }
+
+    // 依赖包里的静态方法 → FQ 调用目标（DepIndex）；不在依赖里（或无 DepIndex）→ ""。
+    // path C：先 using-scoped 精确消歧（arity → bare）；未唯一命中再回落短键 first-wins（既有行为，字节不动）。
+    private string _depStaticTarget(string ownerClass, string methodName, int argCount) {
+        if (this._ctx.Deps == null) { return ""; }
+        string arityKey = methodName + "$" + argCount.ToString();
+        DepCallEntry de = this._ctx.Deps.GetStaticScoped(this._ctx.ActiveNs, this._ctx.ActiveNsCount, ownerClass, arityKey);
+        if (de == null) { de = this._ctx.Deps.GetStaticScoped(this._ctx.ActiveNs, this._ctx.ActiveNsCount, ownerClass, methodName); }
+        if (de == null) { de = this._ctx.Deps.GetStatic(ownerClass, arityKey); }
+        if (de == null) { de = this._ctx.Deps.GetStatic(ownerClass, methodName); }
+        if (de == null) { return ""; }
+        return de.QualifiedName;
+    }
+
+    // add-static-properties：静态属性访问器调用（`get_X` / `set_X`），实参是**已发射**的寄存器——
+    // 赋值表达式要保住右值寄存器作为表达式值，`++/--` 要复用读出的旧值，故不能经 BoundCall 重发实参。
+    // 调用目标与 `_emitCall` 的 static 分支同一口径（本包类 → QualifyClass；依赖包 → DepIndex）。
+    internal TypedReg _emitStaticAccessor(string ownerClass, string accessor, TypedReg[] args, int argCount, Z42Type retType) {
+        bool ownerIsLocal = this._ctx.LocalClasses != null && this._ctx.LocalClasses.ContainsKey(ownerClass);
+        if (!ownerIsLocal) {
+            string depFq = this._depStaticTarget(ownerClass, accessor, argCount);
+            if (depFq != "") {
+                // fix-crosspkg-static-sret：与上面的静态捷径同一个漏洞（跨包静态**属性** getter
+                // 返回 blob 值 struct 时少传 sret 槽）。本地分支走的就是 `_emitCallSretAware`，
+                // 依赖分支必须同口径 —— 否则「同一个 getter，本包调对、跨包调崩」。
+                return this._emitCallSretAware(depFq, null, args, argCount, retType);
+            }
+        }
+        return this._emitCallSretAware(this._ctx.QualifyClass(ownerClass) + "." + accessor, null, args, argCount, retType);
+    }
+
+    private TypedReg[] _emitArgs(BoundCall c) {
+        TypedReg[] args = new TypedReg[c.ArgCount];
+        int i = 0;
+        while (i < c.ArgCount) { args[i] = this._ee.Emit(c.Args[i]); i = i + 1; }
+        return args;
+    }
+
+    // make-enum-distinct-type 1.5：静态类型就是 enum 本身？只认 `IsEnum` 标志（唯一置位点
+    // `Z42ClassType.Enum`），不查 `EnumTypes` 表——ToString 拦截必须与本变更建立的类型身份同源，
+    // 用名字查表会把「名字碰巧撞上某 enum 的非 enum 类型」也拦下来。
+    private bool _isEnumStatic(Z42Type t) {
+        return (t is Z42ClassType) && (t as Z42ClassType).IsEnum;
+    }
+
+    // fix-value-type-object-methods：静态类型是 **用户 struct 或 enum**（值类型，非 scalar 基元）？
+    // 供 GetType 折叠判定。scalar 基元的 Z42ClassType 亦 IsStruct=true（Z42Type.Builtin），但基元 GetType
+    // 已由运行期正确处理，故此处 !IsScalarValue 排除。enum 名走 EnumTypes 表（enum 的 Z42ClassType IsStruct=false）。
+    private bool _isStructOrEnumStatic(Z42Type t) {
+        if (t is Z42ClassType) {
+            Z42ClassType ct = t as Z42ClassType;
+            if (ct.IsStruct && !ct.IsScalarType()) { return true; }
+            if (this._ctx.Symbols != null && this._ctx.Symbols.EnumTypes.ContainsKey(SymbolTable.DeclKey(ct.Namespace, ct.Name()))) { return true; }
+            return false;
+        }
+        if (t is Z42InstantiatedType) {
+            // 泛型 struct receiver（`Pair<int,int> p; p.GetType()`）：Def 是 struct → 值类型。
+            Z42Type def = (t as Z42InstantiatedType).Def;
+            return (def is Z42ClassType) && (def as Z42ClassType).IsStruct && !def.IsScalarType();
+        }
+        return false;
+    }
+
+    // fix-value-type-object-methods：Object 继承的、struct 上装箱派发的方法（0 参 ToString/GetHashCode、
+    // 1 参 Equals）。GetType 不在此（已由值类型折叠拦截）。
+    private bool _isBoxedObjectMethod(string method, int argCount) {
+        if (argCount == 0 && (method == "ToString" || method == "GetHashCode")) { return true; }
+        if (argCount == 1 && method == "Equals") { return true; }
+        return false;
+    }
+
+    // fix-value-type-object-methods：struct receiver 未自声明的 Object 方法 → 装箱 + VCall。
+    // 实参先于 receiver（match struct 发射序），receiver 经 __box_struct 得 BoxedStruct 句柄 → VCall
+    // 命中 runtime 装箱-struct Object 协议。GetHashCode/ToString 0 参、Equals 1 参。
+    private TypedReg _emitBoxedStructObjectCall(BoundCall c) {
+        TypedReg[] oargs = this._emitStructAwareArgs(c);
+        TypedReg sv = this._ee.Emit(c.Receiver);
+        TypedReg[] ba = new TypedReg[1]; ba[0] = sv;
+        TypedReg boxed = this._ctx.Alloc(IrType.Ref);
+        this._ctx.Emit(new BuiltinInstr(boxed, "__box_struct", ba, 1));
+        TypedReg odst = this._ctx.Alloc(this._ctx.ToIrType(c.Type()));
+        this._ctx.Emit(new VCallInstr(odst, boxed, c.MethodName, oargs, c.ArgCount));
+        return odst;
+    }
+
+    // fix-value-type-object-methods：值类型 receiver 的 GetType() → typeof(静态类型) 折叠发射。
+    // enumFqn 非空时用之（`E.Red` 字面量已丢 enum 静态类型，靠 origin 标记提供 FQN）；否则据 receiver
+    // 静态类型经 _typeofName 产 FQN（泛型 struct 携实参，镜像 TypeOpEmitter._emitTypeof）。receiver 先
+    // 求值保副作用（`getStruct().GetType()`），结果弃用。
+    private TypedReg _emitValueTypeGetType(BoundCall c, string enumFqn) {
+        this._ee.Emit(c.Receiver);   // 求值 receiver 保副作用；句柄/值弃用（GetType 编译期已知）
+        string name;
+        string[] targs = new string[0];
+        int targc = 0;
+        if (enumFqn != "") {
+            name = enumFqn;
+        } else {
+            Z42Type rt = c.Receiver.Type();
+            name = this._ee._typeofName(rt);
+            if (rt is Z42InstantiatedType) {
+                Z42InstantiatedType it = rt as Z42InstantiatedType;
+                targs = new string[it.ArgCount];
+                while (targc < it.ArgCount) { targs[targc] = this._ee._typeofArgName(it.TypeArgs[targc]); targc = targc + 1; }
+            }
+        }
+        TypedReg dst = this._ctx.Alloc(IrType.Ref);
+        this._ctx.Emit(new TypeofInstr(dst, name, targs, targc));
+        return dst;
+    }
+
+    // new T(args) / new Box<int>(args) → obj_new（结果 ref）。泛型实例化携 resolved type-args。ctor 解析延后。
+    internal TypedReg _emitNew(BoundNew n) {
+        // add-generic-methods：`new T()` 其中 T 为方法级泛型形参 → 物化具体 Std.Type（读 frame 槽）+
+        // __activator_create（无参反射构造）。零实参已由绑定期保证。
+        if (n.IsMethodTypeParam) {
+            TypedReg treg = this._ctx.Alloc(IrType.Ref);
+            this._ctx.Emit(new MethodTypeArgInsn(treg, n.MethodParamIndex));
+            TypedReg[] acargs = new TypedReg[1];
+            acargs[0] = treg;
+            TypedReg acdst = this._ctx.Alloc(IrType.Ref);
+            this._ctx.Emit(new BuiltinInstr(acdst, "__activator_create", acargs, 1));
+            return acdst;
+        }
+        TypedReg[] args = new TypedReg[n.ArgCount];
+        int i = 0;
+        while (i < n.ArgCount) { args[i] = this._ee.Emit(n.Args[i]); i = i + 1; }
+        TypedReg dst = this._ctx.Alloc(IrType.Ref);  // obj.new 结果始终 Ref（镜像 C# Alloc(IrType.Ref)）
+        string className = n.TypeName;
+        string[] targs = new string[0];
+        int tcount = 0;
+        if (n.Type() is Z42InstantiatedType) {           // Box<int> → class "Box" + args ["int"]
+            Z42InstantiatedType inst = n.Type() as Z42InstantiatedType;
+            className = inst.Def.IrName();
+            targs = new string[inst.ArgCount];
+            int k = 0;
+            // 实参用 _typeofArgName（FQ + 递归带尖括号，与 typeof 同款）而非 .Name()（短名 + ", "
+            // 分隔）——让 obj.GetType().GetGenericArguments() 的嵌套实参能解析为真句柄 + 递归，
+            // 与 typeof 一致（add-reflection-instance-nested-generic-args）。基元/泛型形参不变。
+            while (k < inst.ArgCount) { targs[k] = this._ee._typeofArgName(inst.TypeArgs[k]); k = k + 1; }
+            tcount = inst.ArgCount;
+        }
+        // fix-type-ref-ns-collision：已解析到的类型（本地类带 Namespace）直接用其 FQN 发射，绕开
+        // QualifyClass 按短名走 ImportedClassNs first-wins 的撞名歧义（曾致 `new A.Foo` emit `B.Foo`）。
+        // Namespace=="" 的类（全局 / imported——本 change 未给 imported 设 ns）走原 QualifyClass 路径，无回归。
+        Z42ClassType _rct = null;
+        if (n.Type() is Z42ClassType) { _rct = n.Type() as Z42ClassType; }
+        else if (n.Type() is Z42InstantiatedType) { _rct = (n.Type() as Z42InstantiatedType).Def; }
+        string qualCls;
+        if (_rct != null && _rct.Namespace != "") { qualCls = _rct.Fqn(); }
+        else { qualCls = this._ctx.QualifyClass(className); }
+        // FQ ctor = "{qualCls}.{ctorKey}"（镜像 C# fqCtor = $"{qualCls}.{n.CtorName}"）
+        string fqCtor = qualCls + "." + n.CtorName;
+        // add-struct-value-semantics A-use：blob 值 struct 构造 → StructAlloc(零初始化 blob 句柄) + ctor
+        // Call(this=句柄, args)。ctor body 的 `this.f = a` 已翻转为 StructFieldSetPrim（OwnerStructName 生效），
+        // 在传入句柄上**原地**填字段（句柄携创建帧 frame_id，跨 ctor 子帧仍解同一 arena 槽，同 StackObject）。
+        // 结果=句柄（未装箱值以句柄流转）。ObjNew 那条（堆分配+ctor 一体）不发。
+        if (this._ee._isBlobStruct(n.Type())) {
+            string sname = this._ee._blobStructName(n.Type());
+            int size = this._ctx.Gen.Layouts.StructSize(sname);
+            // generic-struct-erased-slot-value-copy：命中闸门的实例化，StructAlloc 必须携**实例化的 FQ 名**
+            // 与**实例化的 ctor**——否则运行期按定义名 resolve_layout（First 是 8B 句柄）而 size 已是实例化的，
+            // 且 ctor 体按定义偏移往里写句柄 ⇒ 读出 0。限定只加在基名上、实参原样（同 _qualifyElemName 约定），
+            // 与合成描述符的注册键（ns + 短实例化名）对齐。
+            // 身份与布局解耦（User 裁决「实例化是独立类型」）：
+            //  · StructAlloc 的类型名走**身份名** —— 所有实例化一律独立，`GetType()` 才自洽；
+            //  · ctor 派发走**特化名** —— 只有布局不同的才有特化 ctor，布局相同的共享定义那份
+            //    （共享体按定义偏移烘焙，布局既相同则偏移对得上）。
+            string identN = this._ee._instIdentityName(n.Type());
+            string qualAlloc = identN != "" ? this._ee._qualifyInstName(identN) : qualCls;
+            string ctorOwner = sname.IndexOf("<") >= 0 ? this._ee._qualifyInstName(sname) : qualCls;
+            TypedReg handle = this._ctx.Alloc(IrType.Ref);   // StructRef 句柄（Ref tag）
+            this._ctx.Emit(new StructAllocInstr(handle, qualAlloc, size));
+            fqCtor = ctorOwner + "." + n.CtorName;
+            // 仅在 ctor **真实存在**时 Call：_ctorKey 有 ctor→"Name$arity"∈Methods、无 ctor→裸 name∉Methods。
+            // 无 ctor struct（如 partial `new Vec2()`）：StructAlloc 已零初始化 blob，字段随后逐个赋值——
+            // 别 Call 不存在的 `Vec2.Vec2`（undefined function 崩）。
+            Z42ClassType sctor = this._ee._receiverClassType(n.Type());
+            if (sctor != null && sctor.Methods.ContainsKey(n.CtorName)) {
+                TypedReg[] cargs = new TypedReg[n.ArgCount + 1];
+                cargs[0] = handle;
+                int cai = 0;
+                while (cai < n.ArgCount) { cargs[cai + 1] = args[cai]; cai = cai + 1; }
+                TypedReg voidr = this._ctx.Alloc(IrType.Void);
+                this._ctx.Emit(new CallInstr(voidr, fqCtor, cargs, n.ArgCount + 1));
+            }
+            return handle;
+        }
+        // generic-struct-erased-slot-value-copy（形态 ②）：泛型 class 实例化——
+        //  · ObjNew 的类名走**身份名**（描述符按该名注册，内联布局才查得到）；
+        //  · ctor 走**特化名**（布局不同才有特化 ctor；否则仍是定义那份）。
+        // 不能沿用旧的 `qualCls + targs` 渲染：那给 `Demo.CBox<Demo.P2>`（实参 FQ），
+        // 与描述符名 `Demo.CBox<P2>` 对不上 ⇒ 运行期查不到内联布局（实测形态 ② 不生效）。
+        string cIdent = this._ee._instIdentityName(n.Type());
+        if (cIdent != "") {
+            string cQual = this._ee._qualifyInstName(cIdent);
+            string cSpec = this._ee._instLayoutName(n.Type());
+            string cCtorOwner = cSpec != "" ? this._ee._qualifyInstName(cSpec) : qualCls;
+            // ⚠️ targs 置空：ObjNewInstr 会把 targs **再渲染一遍**贴到类名后，而 cQual 已带实参
+            // ⇒ 不清就成 `Demo.CBox<P2><Demo.P2>`（实测）。身份名里已含实参，这里不需要第二份。
+            this._ctx.Emit(new ObjNewInstr(dst, cQual, cCtorOwner + "." + n.CtorName, new string[0], 0, args, n.ArgCount));
+            return dst;
+        }
+        this._ctx.Emit(new ObjNewInstr(dst, qualCls, fqCtor, targs, tcount, args, n.ArgCount));
+        return dst;
+    }
+
+    // 实例方法组 `obj.M`（D-1b，镜像 C# GetOrCreateInstanceMethodThunk + MkClos）：
+    // 合成 static thunk(__mg_thunk_<safeClass>_<M>$<arity>__)：env[0]=receiver，body
+    // `recv = env[0]; ret recv.M(args)`；use 处 MkClos 捕获 receiver。thunk 按
+    // (qualClass, M, arity) 去重（IrGen.MgThunks）。
+    internal TypedReg _emitMethodGroup(BoundMethodGroup mg) {
+        Z42FuncType sig = mg.Type() as Z42FuncType;
+        int arity = sig.ParamCount;
+        string qualClass = this._ctx.QualifyClass(mg.ClassName);
+        string safeClass = CallEmitter._dotsToUnderscore(qualClass);
+        string cacheKey = qualClass + "." + mg.MethodName + "$" + arity.ToString();
+        string thunkName = this._ctx.Qualify("__mg_thunk_" + safeClass + "_" + mg.MethodName + "$" + arity.ToString() + "__");
+        if (!this._ctx.Gen.MgThunks.ContainsKey(cacheKey)) {
+            bool isVoid = sig.Ret is Z42VoidType;
+            TypedReg idxReg  = new TypedReg(arity + 1, IrType.I32);
+            TypedReg recvReg = new TypedReg(arity + 2, IrType.Ref);
+            int retTag = isVoid ? IrType.Void : this._ctx.ToIrType(sig.Ret);
+            TypedReg retReg  = new TypedReg(arity + 3, retTag);
+            TypedReg[] argRegs = new TypedReg[arity];
+            int ai = 0;
+            while (ai < arity) { argRegs[ai] = new TypedReg(1 + ai, this._ctx.ToIrType(sig.ParamTypes[ai])); ai = ai + 1; }
+            IrInstr[] tinstrs = new IrInstr[3];
+            tinstrs[0] = new ConstI32Instr(idxReg, "0");
+            tinstrs[1] = new ArrayGetInstr(recvReg, new TypedReg(0, IrType.Ref), idxReg);
+            tinstrs[2] = new VCallInstr(retReg, recvReg, mg.MethodName, argRegs, arity);
+            IrTerminator term = isVoid ? new RetTerm(false, retReg) : new RetTerm(true, retReg);
+            IrBlock[] blks = new IrBlock[1];
+            blks[0] = new IrBlock("entry", tinstrs, 3, term, true);
+            string retName = isVoid ? "void" : sig.Ret.Name();
+            IrFunction thunk = new IrFunction(thunkName, 1 + arity, retName, true,
+                blks, 1, arity + 4, "Interp", new string[0], 0, new int[0], 0,
+                new IrLineEntry[0], 0, new IrLocalVarEntry[0], 0);
+            this._ctx.Gen.AddLifted(thunk);
+            this._ctx.Gen.MgThunks.Put(cacheKey, "1");
+        }
+        TypedReg recv = this._ee.Emit(mg.Receiver);
+        TypedReg[] caps = new TypedReg[1];
+        caps[0] = recv;
+        TypedReg dst = this._ctx.Alloc(IrType.Ref);
+        this._ctx.Emit(new MkClosInstr(dst, thunkName, caps, 1, false));
+        return dst;
+    }
+
+    private static string _dotsToUnderscore(string s) {
+        string r = "";
+        int i = 0;
+        while (i < s.Length) {
+            string ch = s.Substring(i, 1);
+            if (ch == ".") { r = r + "_"; } else { r = r + ch; }
+            i = i + 1;
+        }
+        return r;
+    }
+}

@@ -7,6 +7,7 @@ using Z42.Semantics;
 using Z42.Package;
 using Z42.Project;
 using Z42.Pipeline;
+using Z42.Emission;
 
 // 逐文件写 fullMode .zbc + meta + 包级源清单。**不论是否增量都落盘**（含 workspace / --no-incremental）
 // ——增量开关只管下次构建「读不读」（Main 的 probe），不管「写不写」。唯一例外：单工程 `--output-dir`

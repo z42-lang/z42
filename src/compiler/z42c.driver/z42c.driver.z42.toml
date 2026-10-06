@@ -11,6 +11,7 @@ pack    = true
 [dependencies]
 "z42c.syntax"    = "0.1.0"
 "z42c.semantics" = "0.1.0"
+"z42c.emission"  = "0.1.0"   # 代码生成 + 编译编排（Z42.Emission：IrDump / CompiledModuleZ / CuCompile）
 "z42c.core"      = "0.1.0"
 "z42.package"         = "0.1.0"   # IR 模型 + zbc/zpkg 后端（Writer/Reader/Builder）（converge-z42c-ir-metadata：取代 z42c.ir + z42c.project）
 "z42c.optimization" = "0.1.0"   # IR 优化管线 + Opt/OptSet 优化开关（Z42.Optimization）

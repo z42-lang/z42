@@ -26,14 +26,15 @@ paths:
 
 ## 子包结构
 
-z42c 由 **5** 个子包组成（按依赖序），均在 `src/compiler/`——改动前先读对应子包的 `README.md`。
-IR 模型 + zbc/zpkg 格式 + 依赖索引在 stdlib 库 **`z42.package`**（namespace `Z42.IR` / `Z42.Package`；为 REPL 共享）——改 IR/格式/zpkg 后端去 `src/compiler/z42.package`。
+z42c 由 **7** 个子包组成（下表），均在 `src/compiler/`——改动前先读对应子包的 `README.md`。
+IR 模型 + zbc/zpkg 格式 + 依赖索引在编译器域库 **`z42.package`**（namespace `Z42.IR` / `Z42.Package`；为 REPL 共享）——改 IR/格式/zpkg 后端去 `src/compiler/z42.package`。
 
 | 子包 | 职责 | 关键文件 |
 |------|------|---------|
 | `z42c.core`| 基础设施：`Span` / `Diagnostic` / `DiagnosticBag` / `DiagnosticCodes` / `LanguageFeatures` | `Span.z42`、`Diagnostic*.z42`、`LanguageFeatures.z42` |
 | `z42c.syntax`| **语法层**：Lexer + Parser + AST | `TokenKind.z42`、`Lexer.z42`、`Parser.z42`、`Ast.z42`、`Stmt.z42`、`Decl.z42`、`TypeExpr.z42` |
-| `z42c.semantics` | 类型检查（符号收集 + TypeCheck）+ Codegen（Bound→IR，用 `z42.package` 的模型） | `SymbolCollector.z42`、`TypeChecker.z42`、`Bound.z42`、`ExprEmitter.z42`、`IrGen.z42` |
+| `z42c.semantics` | 语义分析（符号收集 + 绑定 + TypeCheck + 校验），不含代码生成；**不得引用** `z42c.emission` | `SymbolCollector.z42`、`TypeChecker.z42`、`BoundExpr.z42`、`FrontEnd.z42` |
+| `z42c.emission` | Codegen（Bound→IR，用 `z42.package` 的模型）+ 单文件 / 包编译编排；只对无错误的程序生成 | `IrGen.z42`、`ExprEmitter.z42`、`IrDump.z42`、`CuCompile.z42` |
 | `z42c.optimization` | IR → IR 优化管线（只依赖 `z42.package`）+ `Opt` 开关 | `IrOptPipeline.z42`、`IrOptInfo.z42`、`OptSet.z42`、`IrInline.z42` |
 | `z42c.pipeline` | 编译管线编排 + 依赖扫描 + workspace 构建 + `CacheStore`（增量缓存） | `BuildSession.z42`、`DepScan.z42`、`WorkspaceBuild.z42`、`CacheStore.z42` |
 | `z42c.driver` | CLI 入口（exe） | `Main.z42` |

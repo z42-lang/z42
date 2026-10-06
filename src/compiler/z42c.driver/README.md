@@ -1,7 +1,7 @@
 # z42c.driver
 
 ## 职责
-CLI 入口（命令路由）。唯一 **exe** 子包，对外别名 = 用户 `z42c` 命令。命令面：前端 dump（`--dump-keywords` / `--dump-tokens` / `--dump-ast` / `--dump-bound` / `--dump-ir`）、`--emit-zbc`（源 → IrGen → ZbcWriter → `.zbc`）、`build [<manifest>]`（产 zpkg，含文件级增量 + 运行配置侧车 + `[profile.*.runtime]` 旋钮名校验）、`build --workspace`（多包拓扑序）。编译实现在 `z42c.pipeline` / `z42c.semantics`，本包只做命令路由、构建编排与 dist 装配。
+CLI 入口（命令路由）。唯一 **exe** 子包，对外别名 = 用户 `z42c` 命令。命令面：前端 dump（`--dump-keywords` / `--dump-tokens` / `--dump-ast` / `--dump-bound` / `--dump-ir`）、`--emit-zbc`（源 → IrGen → ZbcWriter → `.zbc`）、`build [<manifest>]`（产 zpkg，含文件级增量 + 运行配置侧车 + `[profile.*.runtime]` 旋钮名校验）、`build --workspace`（多包拓扑序）。编译实现在 `z42c.pipeline` / `z42c.emission` / `z42c.semantics`，本包只做命令路由、构建编排与 dist 装配。
 
 ## 功能索引
 入口 `Z42.Driver.Main`（auto-detected exe 入口）。
@@ -57,4 +57,4 @@ z42vm <out.zbc> Main        # 执行产物
 | `tests/fixtures/cli/` | `z42c` 命令行与构建行为夹具：每个子目录一个最小工程（或 workspace / 几个互相依赖的工程）+ `expect.toml`（单步或 `[[step]]` 多步：构建 / 跑产物 / 拷贝；断言退出码、输出、产物有无与字节对照），由 `xtask test compiler` 跑（格式见该目录 README） |
 
 ## 依赖关系
-`z42c.syntax` / `z42c.semantics` / `z42c.core` / `z42c.pipeline`（编译实现）、`z42.package`（IR + zbc/zpkg 读写）、`z42.project`（清单模型）、`z42.io`、`z42.toml`（运行配置侧车序列化）、`z42.text`（旋钮名最近邻建议）、`z42.crypto`（indexed 散装 zbc 内容 hash）。
+`z42c.syntax` / `z42c.semantics` / `z42c.emission` / `z42c.optimization` / `z42c.core` / `z42c.pipeline`（编译实现）、`z42.package`（IR + zbc/zpkg 读写）、`z42.project`（清单模型）、`z42.io`、`z42.toml`（运行配置侧车序列化）、`z42.text`（旋钮名最近邻建议）、`z42.crypto`（indexed 散装 zbc 内容 hash）。

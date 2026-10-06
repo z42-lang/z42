@@ -13,6 +13,7 @@ using Z42.Package;
 using Z42.IR;
 using Z42.IR.BinaryFormat;
 using Z42.Pipeline;
+using Z42.Emission;
 
 // 增量准备结论：plan + 复用的 CU + cached IrModule（残留已回填；Fresh[i] 处 null）
 // + fresh 行的标识符集（parse 时捕获，WriteMetas 消费——零第二遍 lex，D8 修正）。
