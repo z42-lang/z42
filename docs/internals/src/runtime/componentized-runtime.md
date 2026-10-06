@@ -54,13 +54,13 @@
 
 ## 4. 依赖反转与无环
 
-### 4.1 唯一的潜在环
+### 4.1 两处环
 当前（单 crate）实测依赖：
-- **后端 → core**：大量直接边（`crate::interp::exec_function` 回退、helpers 调 core、共享 `VmContext`）。
-- **core → jit**：**只有一条**——[src/runtime/src/vm.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/vm.rs) 的 `ExecMode::Jit => crate::jit::run(...)`（模式派发）。
-- **interp → jit**：零（无 tiered 提升环）。
+- **后端 → core**：大量直接边。jit 侧约 40 处直接引用 `crate::interp::*`（`exec_function` 回退、`vcall_resolve` / `isa_td` 等共享判定），helpers 调 core，共享 `VmContext`。
+- **core → jit**：模式派发一条——[src/runtime/src/vm.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/vm.rs) 的 `ExecMode::Jit => crate::jit::run(...)`。
+- **interp → jit**：混合模式带来的 4 个入口，十余处引用：`exec_call::try_native_static_call`、`exec_vcall::try_native_method_call`（被调方已编译就直接跑原生码）、`exec_support::try_native_exec`（`exec_function` 处按名转入原生码）、`exec_support::try_osr`（回边 OSR）。它们把 `VmContext::jit_ctx_ptr()` 转回 `*const JitModuleCtx`，直接读其字段（`osr_threshold`、`module.func_index`）、调其解析方法、构造 `JitFrame`，再把入口指针 transmute 成 `JitFn` 调用。
 
-拆分后 `libz42`（含 vm.rs 派发）若仍直调 `jit::run` → `libz42 → libz42_jit → libz42` 成环。**Cargo 在 crate 层禁止循环依赖**，会直接编译失败，所以这条边**必须**反转。
+拆分后 `libz42`（含 vm.rs 派发与 interp）若仍直调 jit → `libz42 → libz42_jit → libz42` 成环。**Cargo 在 crate 层禁止循环依赖**，会直接编译失败，所以这两类边都**必须**反转。interp → jit 这一类目前直接依赖 `JitModuleCtx` / `JitFrame` 的内部布局，反转前要先把它收敛成槽上的少数几个函数（如「调用已编译函数」「尝试 OSR」）。
 
 ### 4.2 反转：注册槽（即 ext.rs 既有模式）
 core 不静态调后端，改持注册槽；后端在加载/初始化时把自己注册进来：
@@ -86,7 +86,7 @@ pub fn register() -> BackendApi { BackendApi { run: jit_run, compile: jit_compil
 
 这与 [src/runtime/src/native/ext.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/native/ext.rs) 现对 native 扩展的做法（core 持 `ExtBuiltinTable`、插件注册 fn 指针）**完全同构**；调试钩子复用 [src/runtime/src/observer.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/observer.rs)（JIT 编译事件已 fire observer）。框架地基已有雏形。
 
-> 将来若加 tiered（interp 把热函数提升到 JIT），那条 interp→jit 也走同一注册槽 → 依然无环。
+> interp→jit 的 tier-up / OSR 边收敛后也走同一注册槽 → 无环。
 
 ---
 
@@ -94,7 +94,7 @@ pub fn register() -> BackendApi { BackendApi { run: jit_run, compile: jit_compil
 
 两个独立维度，勿混：
 - **可用集（availability）**：这个部署里**存在哪些组件**。
-- **选用（selection）**：某次运行**用哪个**（`--mode interp|jit`、`--debug`），在模块入口处定，**不是函数执行中途切**（当前无 tiered/OSR）。
+- **选用（selection）**：某次运行**用哪个**（`--mode interp|jit`、`--debug`），在模块入口处定。`--mode jit` 下函数先解释执行、到调用阈值再编译，热循环经 OSR 中途转入原生码——这些都在 jit 组件内部完成（见 [jit.md](jit.md)），不改变「可用集 / 选用」这两个维度。
 
 interp 是基座基线（近乎永远可用）；jit/aot/debug 是可选可切的。规则：
 
@@ -151,6 +151,14 @@ gc     = static  仅此一种   # 不参与 dynlink/dlopen，见 §3
 
 ### 7.1 独立 z42vm（分平台，实现「不重复 + 按需」）
 
+> **此方案在 Rust 下不可行，不按此实施。** 原因：
+> - **导不出 core 符号**：LTO 会把 Rust 符号内部化，依赖 crate 里没人引用的 `#[no_mangle]` 也会被剥掉（z42vm 里实际就没有 `z42_register_type`）；导出可执行文件符号的 `-Zexport-executable-symbols` 是 unstable。
+> - **core 不止一份**：Rust cdylib（libz42_jit）依赖 z42 crate 时会**静态嵌入自己的一份 z42**，`runtime_config` 的 `OnceLock`、TLAB / SATB 的 `thread_local`、GC 注册表都会各有两份——这是正确性问题，不只是体积。本节和 §7 开头「薄库不含 core」的前提因此都不成立（Rust 的 staticlib 同样会打包全部依赖）。
+> - 只有 Rust `dylib` crate-type 能真正共享 core，但它 ABI 不稳定，要 `-C prefer-dynamic` 并随包发 libstd。
+> - JIT 是默认模式，拆出去也省不了常规运行的内存。
+>
+> Rust 下可行的形态只有三种：单体；全部 Rust 代码放进一个 cdylib + 薄 exe；叶子 C-ABI 插件（经函数表互调，不靠全局符号）。若「JIT 可选」成为硬需求，优先出「静态 interp-only」和「静态 full」两种 z42vm。下表保留原方案供对照。
+
 | 平台 | 做法 |
 |---|---|
 | **Unix（mac/linux）** | z42vm 静态链 `libz42.a` + `-rdynamic`（导出符号）→ `--mode jit` 时 dlopen `libz42_jit.dylib`，其对 core 的未定义符号**回解析到 z42vm 自身**。core 只一份（在 z42vm），JIT 按需，**零重复**。 |
@@ -175,7 +183,7 @@ gc     = static  仅此一种   # 不参与 dynlink/dlopen，见 §3
 ## 9. 分阶段实施（增量，post-ROI）
 
 1. **抽出 libz42 基座边界**：把后端现在 `crate::interp::*` / 共享件直够的部分，收敛成稳定的 `core::api` + 注册槽 + observer（最难、最该先做的解耦）。
-2. **后端插件 ABI + z42vm dlopen JIT**：先用 JIT 验证整套框架（§4/§6），方案见 §7.1。
+2. **后端插件 ABI + z42vm dlopen JIT**：先用 JIT 验证整套框架（§4/§6）。§7.1 的「静态 core + `-rdynamic` + dlopen」形态在 Rust 下不可行，此步须改用 §7.1 列出的可行形态之一。
 3. **模块化 staticlib/dylib + 嵌入 feature 矩阵 + 文档**：SDK 与 runtime pack 的 `native/` 改铺这套模块化库。
 4. **gc 模块化**（编译期可插拔）、**debug 组件**（observer 挂载）、**aot**（M9 时同形状接入）。
 

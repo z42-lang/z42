@@ -1,4 +1,6 @@
-/// Interpreter backend — tree-walking bytecode execution.
+/// Interpreter backend — register-based bytecode interpreter: walks a function's
+/// basic blocks and dispatches each `Instruction` through one `match`
+/// (`exec_instr`), with operands addressed as `frame.regs[reg]`.
 ///
 /// Implementation is split across submodules:
 /// • mod.rs        — public API, Frame, core execution loop

@@ -529,17 +529,18 @@ opcode 编号尚未分配。
 > 这是 **VM 内部内存布局** 决策，与 zbc/zpkg wire format **完全解耦**——
 > 二进制字节序列不变，无版本 bump。
 
-VM 的 `metadata::Instruction` 是一个枚举，`Function.body` 是其 `Box<[Instruction]>`
-热数组，interp / JIT 顺序迭代。枚举 size = 最大变体 size，所以一个臃肿变体会拖胖
+VM 的 `metadata::Instruction` 是一个枚举。`Function.blocks: Vec<BasicBlock>` 按基本块存函数体，
+每块的 `instructions: Vec<Instruction>` 是热数组（块尾另有一个 `terminator`），interp / JIT 顺序迭代。枚举 size = 最大变体 size，所以一个臃肿变体会拖胖
 **每一条** 指令槽位（含 `Add`/`Copy` 这类纯寄存器热指令），劣化 cache 局部性。
 
 **策略**：凡 **携带 `String`**（name-bearing，冷路径）的变体，把 payload 移入一个
 `<Variant>Insn` struct，变体改为 newtype `Variant(Box<XxxInsn>)`；纯寄存器/小标量的
 **热变体保持 inline**，dispatch 热路径不增一次指针解引用。
 
-- **装箱的 16 个冷变体**：`Call` `Builtin` `LoadFn` `LoadFnCached` `MkClos` `ObjNew`
+- **装箱的 21 个冷变体**：`Call` `Builtin` `LoadFn` `LoadFnCached` `MkClos` `ObjNew`
   `Typeof` `FieldGet` `FieldSet` `VCall` `IsInstance` `AsCast` `StaticGet` `StaticSet`
-  `CallNative` `LoadFieldAddr`（payload struct 见 `bytecode.rs`）。
+  `CallNative` `LoadFieldAddr` `ArrayNew` `ArrayNewLit` `StructAlloc` `StructFieldGetPrim`
+  `StructFieldSetPrim`（payload struct 见 `metadata/bytecode/insn.rs`）。
 - **保持 inline**：所有算术/比较/位运算/常量/数组存取/地址加载（`LoadLocalAddr` 等）
   /`Convert`/`DefaultOf`/`PinPtr`/`UnpinPtr`，以及无 `String` 的 call 类
   `CallIndirect` / `CallNativeVtable`（它们的 inline payload 仍 ≤ 枚举上限）。

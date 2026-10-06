@@ -25,7 +25,7 @@
 ### A — 运行时供给
 
 - **`shared`（默认）**：目标机装了 z42 SDK。apphost 按[探测顺序](launcher.md#z42vm-探测所有原生入口共用一套)
-  找到外部 `z42vm` 并 `exec` 它（同时设 `Z42_LIBS`），stdlib 从 SDK 的 `libs/` 解析。部署体积最小。
+  找到外部 `z42vm`，以子进程启动它并等待（同时设 `Z42_LIBS`），转发其退出码；stdlib 从 SDK 的 `libs/` 解析。部署体积最小。
 - **`self-contained`**：z42 运行时随 app 打包，目标机无需装 z42。经 `z42 publish --self-contained` 产出，
   **in-process 运行**（`z42_host_run_app`），不 spawn 外部 vm。
 
@@ -36,7 +36,7 @@
 | exe 来自 | apphost **stub** + patch 内嵌路径 | 预编好的 **embed apphost**，直接拷 |
 | exe 怎么找 app | 内嵌的「相对自身目录的 zpkg 路径」 | 固定名 `app.zpkg`（与 exe 同目录） |
 | stdlib | 目标机 SDK 的 `libs/` | 随包的 `libs/` |
-| 怎么跑 app | `exec z42vm <zpkg>` | 进程内调 `z42_host_run_app` |
+| 怎么跑 app | 子进程跑 `z42vm <zpkg>` 并等待，转发退出码（子进程被信号杀死时为 1） | 进程内调 `z42_host_run_app` |
 
 embed apphost（以及 `dynamic` 时的 `libz42.<dyn>`）由 desktop workload 提供；
 开发流也可经工程 `[build] hooks` 现场产出（注册 `embed-apphost-<link>` / `embed-libs` /
@@ -100,7 +100,7 @@ shared 供给下 vm 是外部进程，这条轴不存在。非法取值直接报
 
 | 轴 | 取值 | 状态 | 承载 |
 |---|---|---|---|
-| A | shared | ✅ | apphost 默认 `exec` 外部 z42vm |
+| A | shared | ✅ | apphost 默认以子进程启动外部 z42vm |
 | A | self-contained | ✅ | `z42 publish --self-contained`（embed libz42，in-process） |
 | B | static / dynamic | ✅ | `[platform.desktop] link` |
 | C | apphost | ✅ | `[platform.desktop] apphost = true` |

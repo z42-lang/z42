@@ -1,34 +1,34 @@
-//! `VmContext` — runtime-mutable state for one VM instance.
+//! `VmContext` — the per-thread half of one VM instance's mutable state.
 //!
-//! Single canonical owner of all per-VM mutable state. Replaces the historical
-//! `thread_local!` constellation under `interp/` + `jit/` (consolidate-vm-state,
-//! 2026-04-28). Fields:
+//! A VM is one shared [`VmCore`] (behind `Arc`: static fields, lazy loader, GC
+//! heap, native interop registries, OS resource tables, observers, …) plus one
+//! `VmContext` per thread that runs z42 code. The context holds what belongs to
+//! that thread:
 //!
-//! - **`static_fields`** — user-class static field storage
-//! - **`pending_exception`** — JIT extern-C exception ABI bridge slot
-//! - **`lazy_loader`** — on-demand zpkg loader registry
-//! - **`exec_stack`** — interp/JIT frame.regs raw pointers (Phase 3f / 3f-2 GC roots)
-//! - **`heap`** — `Box<dyn MagrGC>` GC subsystem (default `ArcMagrGC`)
-//! - **`native_types`** / **`native_libs`** — Tier 1 native interop registry (spec C2)
-//! - **`pinned_owned_buffers`** — owned byte buffers backing `Value::PinnedView` (spec C4)
-//!
-//! The only remaining `thread_local!` in the runtime is `jit/frame.rs::FRAME_POOL`
-//! (pure allocator cache, not state) and `native/exports.rs::CURRENT_VM` (FFI
-//! callback bridge, scoped via `VmGuard` RAII).
+//! - **`call_stack`** — `VmFrame`s of interp / JIT frames (GC roots + stack traces)
+//! - **`pending_exception`** / **`pending_thrown`** — exception hand-off slots
+//! - **`stack_arena`** / **`struct_arena`** / **`transient_arena`** — frame-scoped
+//!   payloads behind `{idx, frame_id}` handles
+//! - **`counters`** — this thread's `RuntimeCounters` shard
+//! - **`jit_ctx`** — the active `JitModuleCtx` (0 when this thread runs no JIT)
+//! - lookup / isa / interning caches, the safepoint throttle counter
 //!
 //! # Lifecycle
 //!
 //! ```ignore
-//! let mut ctx = VmContext::new();
+//! let ctx = VmContext::new();
 //! ctx.install_lazy_loader_with_deps(libs_dir, main_pool_len, declared, loaded);
-//! Vm::new(module, mode).run(&mut ctx, hint)?;
+//! Vm::new(module, mode).run(&ctx, hint)?;
 //! ```
 //!
 //! # Threading
 //!
-//! `VmContext` is **not** `Send` / `Sync` (intentionally — `Rc<RefCell<...>>`
-//! interiors throughout). One ctx serves one OS thread at a time; multi-threaded
-//! VM is a roadmap follow-up.
+//! `VmContext` is `Send + Sync` (its fields are `Arc` / `Mutex` / atomics, and
+//! `VmFrame`'s raw pointers are covered by an `unsafe impl`), but each context
+//! is driven by the one thread that runs z42 code through it. A VM-created
+//! thread gets its own context via [`VmContext::new_with_core`], sharing the
+//! same `VmCore`. Other threads reach a context only through
+//! `VmCore::vm_contexts` (GC root scanning, under the registry lock).
 //!
 //! # JIT integration
 //!

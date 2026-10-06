@@ -482,9 +482,11 @@ dispatch 所对的 Module**——始终是 entry module（惰性 callee 由调�
 一路透传，根在 entry）。`method_tokens` / `type_tokens` 是 `module.functions` /
 `module.type_registry` 的下标；对**别的** module 解析会铸出错下标。跨模块目标
 （不在 entry module）在此正确解析为 `UNRESOLVED`，交由 `cross_module_targets`
-per-site 首执缓存兜住（见上一节）。**`vcall_ic` / `field_ic`（运行期首派填充）、
+per-site 首执缓存兜住（见上一节）。**`field_ic`（运行期首派填充，载荷是类内字段下标）、
 `builtin_tokens`（全局闭集）、`static_field_tokens`（全局 `ctx.resolve_static_field_id`，
-锁保护幂等）** 均与 module 下标无关 → 这几条是首执解析的主要收益来源。
+锁保护幂等）** 与 module 下标无关；**`vcall_ic`** 的载荷 `fn_idx` 是 `module.functions` 的下标，
+但它在运行期首派时才按实际 dispatch 的 `module` 填写，且只缓存 module-local 目标（跨 zpkg 的惰性目标不进 PIC），
+同样满足上面的身份不变式 → 这几条是首执解析的主要收益来源。
 
 - **只填被执行的函数**：比"加载时对整个惰性 module 跑 `resolve_module`"更省
   （加载但从不调用的函数零解析开销），且天然拿到正确的 entry-module 身份。
@@ -674,7 +676,8 @@ needs_fixup = td.fields.len() != expected || td.vtable.len() != expected_v
 ```
 1. type_desc = module.type_registry[class_name] | lazy_loader.try_lookup_type(class_name)
             | make_fallback_type_desc(...)
-2. allocate ScriptObject(type_desc)，字段槽按 fields[i].type_tag 经 default_value_for 初始化
+2. allocate ScriptObject(type_desc)：TypeDesc::object_storage() 给出零字节区 + Null 引用区；
+   泛型实例再按实参改写型参字段（generic_field_zero_overrides）
 3. ctor_fn = module.func_index[ctor_name] | lazy_loader.try_lookup_function(ctor_name)
 4. if ctor_fn: exec_function(ctor_fn, [obj, ...args])
    else:       skip ctor call（默认无参 ctor 语义；TypeChecker 已确保
@@ -686,12 +689,13 @@ needs_fixup = td.fields.len() != expected || td.vtable.len() != expected_v
 不做 `${class}.${simple}` 名字推断。
 `ctor_name` 含 `$N` arity suffix（重载场景）；单 ctor 时无 suffix。
 
-**字段默认值**：步骤 2 把
-slot 初始化为对应类型的默认值（`int*`/`f64*` → 0、`bool` → false、`char` →
-`'\0'`、`str` / 引用 → null），而非一律 `Null`。具体映射由
-`metadata::default_value_for(type_tag) -> Value`（`metadata/types/field.rs`）单一函数提供，interp 与
-JIT (`jit_obj_new`) 共享实现。需要这一步的前提是 `FieldSlot` 携带
-`type_tag: Box<str>`（从 zbc `FieldDesc.type_tag` 透传），见下文 TypeDesc 结构。
+**字段默认值**：步骤 2 不逐字段填值。对象按加载期组合好的字节布局分配：基元字段落在清零的
+字节区（⇒ `0` / `false` / `'\0'` / `0.0`），引用字段为 `Null`（`TypeDesc::object_storage()`，
+`metadata/types/type_desc.rs`）。布局按**声明**算，`T` 型参字段因此被归为引用槽、零值是 `Null`；
+泛型实例由 `metadata/types/field.rs::generic_field_zero_overrides` 按实参把基元型参字段改写成该类型的零值。
+interp（堆 / 栈两支）与 JIT (`jit_obj_new`) 共用这两步。字段分类依赖 `FieldSlot` 携带的
+`type_tag: Box<str>`（从 zbc `FieldDesc.type_tag` 透传），见下文 TypeDesc 结构；
+完整的零初始化不变式见 [object-abi.md](object-abi.md)「槽位零初始化」。
 
 ctor 入口由编译器侧 IrGen 注入字段 init（base ctor call 之后、用户 body
 之前）；无显式 ctor 但本类或本地祖先链有字段 init 的类，编译器合成无参
@@ -764,7 +768,7 @@ if let Some(&slot) = type_desc.vtable_index.get(method) {
 // 全部 miss → bail!("VCall: function `{}.{}` not found")
 ```
 
-命中 module-local 函数时把 `(type_id, slot, fn_idx)` 写回该站点的 `VCallIC`（见下「Method token system」）。
+命中 module-local 函数（且实参个数匹配）时把 `(type_id, fn_idx)` 写回该站点的 `VCallIC`（见下「Method token system」）。
 
 **关键不变量**：`type_desc.name` 必须是 FQ 名（否则 4b/4c 生成的候选名是 bare 名 → miss）。
 `build_type_registry` 从 `Module.classes[].name`
@@ -1102,7 +1106,7 @@ pub struct ResolvedTokens {
    - 对每个 token-bearing instruction 分配 per-kind site_idx
    - 解析能解析的 token：
      - `Call.func` → `module.func_index` 命中 → `MethodId`，否则 `UNRESOLVED`
-     - `Builtin.name` → `corelib::builtin_id_of` 命中 → `BuiltinId`（必须，否则 panic）
+     - `Builtin.name` → `corelib::builtin_id_of`（再查 per-VM ext 注册表）命中 → `BuiltinId`，否则 `UNRESOLVED`（ext 库此时可能还没加载）
      - `ObjNew.class_name` → `module.type_registry` → `TypeId`
      - `StaticGet/Set.field` → `ctx.resolve_static_field_id(name)` 懒分配
      - `VCall` / `FieldGet/Set` → 留 IC UNRESOLVED（receiver-type-dependent）
@@ -1113,13 +1117,13 @@ pub struct ResolvedTokens {
 每条 token-bearing 指令在 `interp::exec_instr` 入口查 `resolved.site_index[block_idx][instr_idx] → site_idx`，传给对应 helper：
 
 - **Call**: 命中 → `module.functions[cached]`；UNRESOLVED → `func_index` 查找 + 写回 cache；cross-zpkg 目标走 `cross_module_targets`（见上）
-- **Builtin**: 直接 `BUILTINS[id]`（无 fallback；100% 命中）
+- **Builtin**: 命中 → `exec_builtin_by_id`（`BUILTINS[id]` 或 ext 表）；`UNRESOLVED` → 按名 `corelib::exec_builtin`（调用时重查 ext 注册表）
 - **ObjNew**: 仍走 `type_registry`（HashMap by name）；TypeId cache 用作 cross-zpkg observability
 - **StaticGet/Set**: 命中 → `static_fields[id]`；UNRESOLVED → name lookup + 回填
-- **VCall**: PIC 命中（4-slot 线性扫描；`recv.type_desc.id` 匹配任一槽位的 `type_id`）→ 直调 `module.functions[entry.fn_idx]`；miss → 走原 4 段 dispatch + 在 vtable_index hit 时通过 `vcall_ic_install` 填入第一个空槽（或 round-robin 牺牲一个槽）
-- **FieldGet/Set**: PIC 命中（4-slot 线性扫描）→ 直读/写 `obj.slots[entry.slot]`；miss → `field_index` 查 + 通过 `field_ic_install` 填槽
+- **VCall**: PIC 命中（4-slot 线性扫描；receiver 的 type id 匹配任一槽位的 `type_id`）→ 直调 `module.functions[fn_idx]`；miss → 走 `vcall_resolve` 的完整派发阶梯，目标是 module-local 函数且实参个数匹配时通过 `vcall_ic_install` 填入第一个空槽（或 round-robin 牺牲一个槽）
+- **FieldGet/Set**: PIC 命中（4-slot 线性扫描）→ 字段下标 `slot` → `field_access[slot]` 定位到对象的字节区或 `refs` 侧表读写；miss → `field_index` 查 + 通过 `field_ic_install` 填槽
 
-> **Polymorphic IC**：IC 是 4-slot polymorphic IC（每槽 `(type_id, 载荷)`）。线性扫描使用 `UNRESOLVED` sentinel 提前退出（mono 站点首槽命中即返回，0 额外开销）。超过 4 个 receiver type 的站点用 round-robin counter 牺牲槽位（`ic.round_robin.fetch_add(1, Relaxed) % 4`）。所有 atomic 操作均为 `Relaxed` —— `type_id` 守门 payload，torn-read 等价于"刚好遇到迁移中的同型 dispatch"，下一次会收敛到稳定态。Helpers `field_ic_lookup` / `field_ic_install` / `vcall_ic_lookup` / `vcall_ic_install` 在 `metadata::resolver` 公开，供 interp + JIT helpers 共用。
+> **Polymorphic IC**：IC 是 4-slot polymorphic IC（每槽 `(type_id, 载荷)`）。线性扫描使用 `UNRESOLVED` sentinel 提前退出（mono 站点首槽命中即返回，0 额外开销）。超过 4 个 receiver type 的站点用 round-robin counter 牺牲槽位（`ic.round_robin.fetch_add(1, Relaxed) % 4`）。每个槽是**一个** `AtomicU64`（高 32 位 `type_id`、低 32 位载荷：VCall 是 `fn_idx`，Field 是字段下标），安装写一次、查找读一次，`(type_id, 载荷)` 永远成对，撕裂在结构上不可能，所以 `Relaxed` 足够。发布协议的细节见 [inline-cache-publication.md](inline-cache-publication.md)。Helpers `field_ic_lookup` / `field_ic_install` / `vcall_ic_lookup` / `vcall_ic_install` 在 `metadata::resolver` 公开，供 interp + JIT helpers 共用。
 >
 #### TypeId 的作用域：为什么必须进程内全局唯一
 
