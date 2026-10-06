@@ -1,0 +1,148 @@
+// DeclEnforcer 的 `extern` ↔ `[Native]` 配对 + `[Native(...)]` 形态检查（E0903 / E0904 / E0907）。
+//
+// 三码在诊断码表里登记已久、全仓零发射点。此前三种写错都编得过，症状全推到运行期且指不回病灶：
+//   · `extern` 缺 `[Native]`：发射期 `_nativeIntrinsic` 取不到入口名 ⇒ **静默不出桩**，
+//     调用点照常发 call ⇒ 运行期 `MissingSymbolException`（名字是 mangle 过的 `D.N.Foo$1$int`）；
+//   · `[Native]` 贴在有体方法 / 类 / 字段上：整条被忽略；
+//   · `[Native(name = "__x")]`、`[Native(lib = "m")]`、`[Native("")]`：同第一条，静默不出桩。
+//
+// 判据与消费方 `StubEmitter._nativeIntrinsic` / `_nativeLibType` 对齐（native-interop.md §2.1）：
+//   入口名 = 首个位置实参（字符串字面量）或 `entry =`；`lib =` / `type =` 可选，`type =` 要求 `lib =`。
+// 纯语法：只看 AST，不查符号表，挂在 `_passTestAttrEnforce` 旁边。
+namespace Z42.Semantics;
+
+using Z42.Syntax;
+using Z42.Core;
+
+public sealed partial class DeclEnforcer {
+
+    internal void _passNativeEnforce(CompilationUnit cu) {
+        int i = 0;
+        while (i < cu.DeclCount) {
+            this._nvWalk(cu.Decls[i], "");
+            i = i + 1;
+        }
+    }
+
+    // 遍历面同 `_teWalk`：顶层 → 类成员 → impl 方法；跳过嵌套类型成员（NestedFlatten 已把它们提升为
+    // 顶层副本、但仍留在外层 Members，不跳会报两次）。
+    private void _nvWalk(Decl raw, string owner) {
+        Decl d = this._sc._unwrap(raw);
+        this._nvCheck(raw, d, owner);
+        if (d is ClassDecl) {
+            ClassDecl c = d as ClassDecl;
+            int j = 0;
+            while (j < c.MemberCount) {
+                Decl mem = this._sc._unwrap(c.Members[j]);
+                if (!(mem is ClassDecl) && !(mem is EnumDecl)) { this._nvWalk(c.Members[j], c.Name); }
+                j = j + 1;
+            }
+        } else if (d is ImplDecl) {
+            ImplDecl im = d as ImplDecl;
+            string tn = "";
+            if (im.TargetType is NamedType) { tn = (im.TargetType as NamedType).Name; }
+            int j = 0;
+            while (j < im.MethodCount) { this._nvWalk(im.Methods[j], tn); j = j + 1; }
+        }
+    }
+
+    private void _nvCheck(Decl raw, Decl d, string owner) {
+        bool isExtern = false;
+        string what = "";
+        if (d is MethodDecl) {
+            MethodDecl md = d as MethodDecl;
+            isExtern = this._sc._hasWord(md.Mods, "extern");
+            what = "method `" + (owner == "" ? md.Name : owner + "." + md.Name) + "`";
+        } else if (d is PropertyDecl) {
+            PropertyDecl pd = d as PropertyDecl;
+            isExtern = this._sc._hasWord(pd.Mods, "extern");
+            what = "property `" + (owner == "" ? pd.Name : owner + "." + pd.Name) + "`";
+        }
+        Attr nat = null;
+        if (raw is AttributedDecl) {
+            AttributedDecl ad = raw as AttributedDecl;
+            int a = 0;
+            while (a < ad.AttrCount) {
+                Attr at = ad.Attrs[a];
+                if (HandlerRegistry.IsNativeDirective(at.Name)) {
+                    if (nat != null) {
+                        this._sc.Diags.Error(DiagnosticCodes.NativeAttributeMalformed,
+                            "duplicate `[Native]` — a declaration binds to exactly one native entry", at.Span);
+                    } else {
+                        nat = at;
+                    }
+                }
+                a = a + 1;
+            }
+        }
+        if (nat == null) {
+            if (isExtern) {
+                this._sc.Diags.Error(DiagnosticCodes.ExternRequiresNative,
+                    "`extern` " + what + " has no `[Native(...)]` binding, so nothing implements it"
+                        + " (e.g. `[Native(\"__name\")]` or `[Native(lib = \"L\", type = \"T\", entry = \"E\")]`)",
+                    d.Span);
+            }
+            return;
+        }
+        // 位置错了只报位置：形态问题在一个本就不该出现的 attribute 上没有意义。
+        if (!isExtern) {
+            this._sc.Diags.Error(DiagnosticCodes.NativeRequiresExtern,
+                "`[Native]` can only be applied to an `extern` method or property"
+                    + " (a declaration without `extern` keeps its own body and the binding is ignored)",
+                nat.Span);
+            return;
+        }
+        string bad = this._nvShape(nat);
+        if (bad != "") { this._sc.Diags.Error(DiagnosticCodes.NativeAttributeMalformed, bad, nat.Span); }
+    }
+
+    // 返回首个形态问题的消息；"" = 合法。一次只报一条：后面几条往往是同一个笔误的连带。
+    private string _nvShape(Attr at) {
+        string usage = " (expected `[Native(\"__name\")]`, `[Native(entry = \"__name\")]`"
+            + " or `[Native(lib = \"L\", type = \"T\", entry = \"E\")]`)";
+        if (at.ArgCount == 0) { return "`[Native]` needs an entry name" + usage; }
+        bool hasEntry = false;
+        bool hasLib = false;
+        bool hasType = false;
+        int i = 0;
+        while (i < at.ArgCount) {
+            Expr arg = at.Args[i];
+            if (arg is AssignExpr && (arg as AssignExpr).Target is IdentExpr && (arg as AssignExpr).Op == "=") {
+                AssignExpr ae = arg as AssignExpr;
+                string key = (ae.Target as IdentExpr).Name;
+                if (key != "lib" && key != "type" && key != "entry") {
+                    return "unknown `[Native]` key `" + key + "`; the keys are `lib`, `type` and `entry`";
+                }
+                if (!(ae.Value is StringLitExpr)) {
+                    return "`[Native]` key `" + key + "` must be a string literal";
+                }
+                bool dup = (key == "lib" && hasLib) || (key == "type" && hasType) || (key == "entry" && hasEntry);
+                if (dup) {
+                    return "`[Native]` gives `" + key + "` more than once"
+                        + (key == "entry" ? " (a leading positional string is the entry too)" : "");
+                }
+                if (key == "entry") {
+                    if (Lexer.DecodeString((ae.Value as StringLitExpr).Raw) == "") {
+                        return "`[Native]` entry name must not be empty";
+                    }
+                    hasEntry = true;
+                }
+                if (key == "lib") { hasLib = true; }
+                if (key == "type") { hasType = true; }
+            } else if (i == 0 && arg is StringLitExpr) {
+                if (Lexer.DecodeString((arg as StringLitExpr).Raw) == "") {
+                    return "`[Native]` entry name must not be empty";
+                }
+                hasEntry = true;
+            } else {
+                return "`[Native]` takes one leading entry-name string and/or `key = \"value\"` pairs" + usage;
+            }
+            i = i + 1;
+        }
+        if (!hasEntry) { return "`[Native]` has no entry name" + usage; }
+        if (hasType && !hasLib) {
+            return "`[Native]` with `type` also needs `lib` — a Tier 1 call resolves `lib::type::entry`";
+        }
+        return "";
+    }
+}

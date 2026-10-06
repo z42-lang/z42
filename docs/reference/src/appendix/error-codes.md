@@ -297,19 +297,18 @@ E0442 / E0457 / E0462 除外（见上一节）。**E0402 另有一处语法层�
 |---|---|---|
 | E0900 | 编译器内部不一致。当前唯一发射点：宏注册表认了某个宏名、但绑定层没有对应分支 | ✅ `ExprTyper.z42:427` |
 
-### E0901–E0916 原生互操作（⚠️ 整组未接线）
+### E0901–E0916 原生互操作（⚠️ 部分未接线）
 
-> 🔴 这一组码**未接线到 z42c**。
-> 常量在 `DiagnosticCodes.z42` 里定义齐全，但**全仓零发射点**——
-> `extern` 缺 `[Native]`、`[Native]` 形态错、`pinned` 块里写 `return`、`.z42abi` manifest 有问题，
-> 这些当前编译器**都不会拦**。
+> `extern` ↔ `[Native]` 的配对与 `[Native(...)]` 的形态（E0903 / E0904 / E0907）已在符号收集期强制。
+> 其余几条仍是**全仓零发射点**——`pinned` 块里写 `return`、`.z42abi` manifest 有问题，
+> 这些当前编译器**都不会拦**（`pinned` 与 manifest 通路本身也还不存在）。
 
 | 码 | 含义 | 状态 |
 |---|---|---|
 | E0901 / E0902 | **已退役**。原 `UnknownNativeName`（`[Native("__name")]` 不在 VM dispatch_table 内）与 `NativeArityMismatch`（`extern` 形参数与注册项不一致）。两个编号由占号常量 `RetiredUnknownNativeName` / `RetiredNativeArityMismatch`（零发射点，仅防复用）占住 | ❌ |
-| E0903 | `extern` 方法缺少 `[Native]` 标注 | ⚠️ 零发射点 |
-| E0904 | `[Native]` 标注用在非 `extern` 方法上 | ⚠️ 零发射点 |
-| E0907 | `[Native(...)]` 形态错（未知键 / 值不是字符串字面量 / 完全无键），或 Tier1 binding 拼接后仍缺 lib / type / entry 任一字段 | ⚠️ 零发射点 |
+| E0903 | `extern` 方法 / 属性缺少 `[Native]` 标注 | ✅ `DeclEnforcer.Native.z42:80` |
+| E0904 | `[Native]` 标注用在非 `extern` 的声明上（有体方法、类、字段……） | ✅ `DeclEnforcer.Native.z42:89` |
+| E0907 | `[Native(...)]` 形态错：没有入口名（无实参 / 只有 `lib` / 空串）、未知键、值不是字符串字面量、同一个键给了两次、有 `type` 却没有 `lib`，或同一声明贴了两个 `[Native]` | ✅ `DeclEnforcer.Native.z42:96` |
 | E0908a | `pinned p = <expr> { ... }` 中 `<expr>` 类型不是 `string` | ⚠️ 零发射点 |
 | E0908b | `pinned` 块体内含 `return` / `break` / `continue` / `throw` | ⚠️ 零发射点 |
 | E0909 | `.z42abi` manifest 读取失败：文件不存在 / IO 失败 / JSON 不合法 / `abi_version` 不符 / 缺必需字段 | ⚠️ 零发射点 |
