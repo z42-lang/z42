@@ -10,27 +10,39 @@ use std::sync::Arc;
 
 /// Format a function's stack-trace display name with parameter signature.
 /// Returns `<name>(<t1>,<t2>,...)` (e.g. `Demo.Greeter.greet(str)`).
-/// Empty signature is `<name>()`. Used by VM frame push sites so traces
-/// disambiguate overloads (1.3 split-debug-symbols Phase 4).
+/// Empty signature is `<name>()`. Stack traces show it so overloads are
+/// distinguishable (1.3 split-debug-symbols Phase 4).
 pub fn format_frame_name(func: &Function) -> String {
     let mut out = String::with_capacity(func.name.len() + 2 + func.param_count * 4);
-    out.push_str(&func.name);
-    out.push('(');
+    for_each_frame_name_piece(func, |piece| out.push_str(piece));
+    out
+}
+
+/// The pieces of [`format_frame_name`], in order, without allocating — the
+/// crash-signal handler writes them straight to the fd.
+pub fn for_each_frame_name_piece(func: &Function, mut emit: impl FnMut(&str)) {
+    emit(&func.name);
+    emit("(");
     for (i, t) in func.param_types().iter().enumerate() {
-        if i > 0 { out.push(','); }
-        out.push_str(t);
+        if i > 0 { emit(","); }
+        emit(t);
     }
     // When SIGS lacks per-param types (older artifacts or null source), fall
     // back to "?" placeholders matching `param_count` so the shape is
     // recognizable.
     if func.param_types().is_empty() && func.param_count > 0 {
         for i in 0..func.param_count {
-            if i > 0 { out.push(','); }
-            out.push('?');
+            if i > 0 { emit(","); }
+            emit("?");
         }
     }
-    out.push(')');
-    out
+    emit(")");
+}
+
+/// Source file of a function's frames: the file of its line table's first
+/// entry, empty when the emitter omitted it.
+pub fn frame_file(func: &Function) -> &str {
+    func.line_table().first().and_then(|e| e.file.as_deref()).unwrap_or("")
 }
 
 /// Cold (rarely-accessed) slice fields on `Function`. Boxed behind an
@@ -149,11 +161,9 @@ pub struct Function {
     pub fused_tails: Vec<Option<crate::metadata::superinstr::SuperInstr>>,
     /// perf-frame-name-precompute: the stack-frame display name (`"Fn(params)"`)
     /// + source file as `Arc<str>`, precomputed once at load (like
-    /// `branch_targets`). `exec_function_body` clones these O(1) per call instead
-    /// of re-running `format_frame_name` (String alloc + format) + a file clone
-    /// on **every** call — that was 40–60% of call-heavy interp time (measured).
-    /// `None` for hand-built test functions the loader never post-processes → the
-    /// interp falls back to formatting on the fly.
+    /// `branch_targets`), so building a stack trace clones them instead of
+    /// formatting. `None` for hand-built test functions the loader never
+    /// post-processes → [`Function::frame_name_file`] formats on the fly.
     pub frame_meta: Option<(std::sync::Arc<str>, std::sync::Arc<str>)>,
     /// Per-function token cache (introduce-method-token, 2026-05-08).
     /// Lazy-init by `metadata::resolver::resolve_module` after module load.
@@ -235,6 +245,16 @@ impl Function {
         self.cold.get_or_insert_with(|| Box::new(FunctionCold::default()))
     }
 
+    /// The (display name, file) pair a stack trace shows for this function:
+    /// the load-time precomputed `frame_meta`, or — for a hand-built function
+    /// the loader never post-processed — [`format_frame_name`] / [`frame_file`].
+    pub fn frame_name_file(&self) -> (Arc<str>, Arc<str>) {
+        match &self.frame_meta {
+            Some((name, file)) => (name.clone(), file.clone()),
+            None => (Arc::from(format_frame_name(self)), Arc::from(frame_file(self))),
+        }
+    }
+
     // ── add-offline-symbolication: code-offset ↔ (block, instr) mapping ────────
     //
     // z42 IR is a block+intra-block-instruction model with no linear bytecode
@@ -244,9 +264,10 @@ impl Function {
     //
     //   offset(block, instr) = (block << 16) | (instr & 0xffff)
     //
-    // This is **O(1)** — critical because `update_caller_line` computes it on
-    // every Call/VCall (a prefix-sum linearization was measured ~5% slower on
-    // dispatch-heavy loops). The key is opaque but stable and block-major
+    // This is **O(1)** — critical because every interp Call/VCall stores it as
+    // the caller frame's `pc` (a prefix-sum linearization was measured ~5%
+    // slower on dispatch-heavy loops). Line/column are resolved from it only
+    // when a stack trace is built. The key is opaque but stable and block-major
     // monotonic; the user only treats `+0x<offset>` as a token to feed
     // `z42d symbolicate`, which unpacks it back to `(block, instr)` and looks up
     // the archived `.zsym` line table. `block`/`instr` fit u16 in every real z42

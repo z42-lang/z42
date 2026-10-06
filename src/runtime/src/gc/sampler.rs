@@ -11,7 +11,7 @@
 //!
 //! 复用**协作式 safepoint 轮询**，零信号 / 零 ptrace：一个后台定时线程按 `Z42_SAMPLE_HZ` 频率
 //! 置 [`Sampler::sample_pending`] flag；mutator 在**已经要跑的** `check_safepoint_slow`（Idle 末，
-//! 已被 throttle 到 ~1/1024）见 flag → 快照当前 `ctx.call_stack` 的 `VmFrame.func_name` → 累加。
+//! 已被 throttle 到 ~1/1024）见 flag → 快照当前 `ctx.call_stack` 各帧函数的帧名 → 累加。
 //! 默认关（`Z42_SAMPLE_HZ` 未设）时：无后台线程、flag 永不置、热路径只多一次 atomic load → **零成本**
 //! （故用运行时 flag gate，不需 cargo feature；区别于 P1b contention 探针在每次 lock acquire、需编译期 gate）。
 //!
@@ -157,10 +157,10 @@ impl Sampler {
         if !self.sample_pending.swap(false, Ordering::Relaxed) {
             return;
         }
-        // 快照栈：栈底在左（call_stack 顺序，index 0 = 最外层 Main）。只读 func_name。
+        // 快照栈：栈底在左（call_stack 顺序，index 0 = 最外层 Main）。只取帧名（函数的 frame_meta）。
         let names: Vec<Arc<str>> = {
             let cs = ctx.call_stack.lock();
-            cs.iter().map(|f| f.func_name.clone()).collect()
+            cs.iter().map(|f| f.func().frame_name_file().0).collect()
         };
         if names.is_empty() {
             return; // 空栈不产坏行

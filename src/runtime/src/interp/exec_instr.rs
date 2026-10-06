@@ -162,10 +162,10 @@ pub fn exec_instr(
         Instruction::Call(insn) => {
             let CallInsn { dst, func: fname, args, method_type_args } = &**insn;
             let _site_idx = site_idx!();
-            // 2026-05-10 exception-stack-trace: stamp current site's source
-            // line on this frame's FrameInfo before descending into the
+            // 2026-05-10 exception-stack-trace: stamp current site's code
+            // offset on this frame's VmFrame before descending into the
             // callee, so a downstream `throw` snapshot shows our call site.
-            update_caller_line(ctx, func, block_idx, instr_idx);
+            stamp_call_site(ctx, func, block_idx, instr_idx);
 
             // Hot path: pre-resolved MethodId direct-indexes module.functions.
             // Cross-zpkg cache (UNRESOLVED at load) backfills on first hit.
@@ -197,7 +197,7 @@ pub fn exec_instr(
         }
         Instruction::LoadFn(insn) => exec_call::load_fn(frame, insn.dst, &insn.func),
         Instruction::CallIndirect { dst, callee, args } => {
-            update_caller_line(ctx, func, block_idx, instr_idx);
+            stamp_call_site(ctx, func, block_idx, instr_idx);
             if let Some(thrown) = exec_call::call_indirect(ctx, module, frame, *dst, *callee, args)? {
                 return Ok(Some(thrown));
             }
@@ -269,7 +269,7 @@ pub fn exec_instr(
         Instruction::VCall(insn) => {
             let VCallInsn { dst, obj, method, args, method_type_args } = &**insn;
             let _site_idx = site_idx!();
-            update_caller_line(ctx, func, block_idx, instr_idx);
+            stamp_call_site(ctx, func, block_idx, instr_idx);
             // Hot path: monomorphic inline cache fires when receiver TypeId
             // matches the cached one at this site (same site + same recv type).
             // Polymorphic sites overwrite the slot each time (Phase 1 mono IC).
@@ -352,15 +352,11 @@ pub fn exec_instr(
     Ok(None)
 }
 
-/// 2026-05-10 exception-stack-trace: stamp the current source line of a
-/// call-class instruction onto the executing frame's `FrameInfo` so a
-/// downstream `throw` can format the call site (not 0). Cheap — one line
-/// table linear scan + Cell::set.
+/// 2026-05-10 exception-stack-trace: stamp the code offset of a call-class
+/// instruction onto the executing frame's `VmFrame::pc` so a downstream
+/// `throw` can show the call site (not 0). O(1) — the line / column are
+/// resolved from the offset only when a stack trace is built.
 #[inline]
-fn update_caller_line(ctx: &VmContext, func: &Function, block_idx: usize, instr_idx: usize) {
-    let (line, column) = super::resolve_line(func.line_table(), block_idx as u32, instr_idx as u32);
-    // add-offline-symbolication: stamp line/col + linearized code offset in one
-    // lock so a stripped-release trace (empty line table → line 0) still carries
-    // an offline-resolvable `+0x<offset>` key at this call site (no extra lock).
-    ctx.update_top_frame_pos(line, column, func.linear_offset(block_idx as u32, instr_idx as u32));
+fn stamp_call_site(ctx: &VmContext, func: &Function, block_idx: usize, instr_idx: usize) {
+    ctx.set_top_frame_pc(func.linear_offset(block_idx as u32, instr_idx as u32));
 }

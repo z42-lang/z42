@@ -60,10 +60,14 @@ fn empty_stack_produces_no_row() {
 fn maybe_sample_snapshots_call_stack() {
     use crate::exception::VmFrame;
     let ctx = VmContext::new();
+    let mut main = crate::exception::tests::test_function("Main", &[], Vec::new());
+    main.frame_meta = Some((Arc::from("Main"), Arc::from("t.z42")));
+    let mut foo = crate::exception::tests::test_function("foo", &[], Vec::new());
+    foo.frame_meta = Some((Arc::from("foo"), Arc::from("t.z42")));
     {
         let mut cs = ctx.call_stack.lock();
-        cs.push(VmFrame::new(Arc::from("Main"), Arc::from("t.z42"), std::ptr::null(), std::ptr::null()));
-        cs.push(VmFrame::new(Arc::from("foo"), Arc::from("t.z42"), std::ptr::null(), std::ptr::null()));
+        cs.push(VmFrame::new(&main, std::ptr::null(), std::ptr::null()));
+        cs.push(VmFrame::new(&foo, std::ptr::null(), std::ptr::null()));
     }
     let s = Sampler::for_test(false);
     // No pending flag yet → no sample.

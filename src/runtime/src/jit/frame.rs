@@ -4,11 +4,11 @@
 /// JIT-compiled function.  `JitModuleCtx` is the read-only module-level context
 /// that is shared across all calls within a single module execution.
 
-use crate::metadata::Value;
+use crate::metadata::{Function, Value};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 
 // ── JitFrame ─────────────────────────────────────────────────────────────────
 
@@ -158,10 +158,7 @@ fn return_pooled_regs(mut regs: Vec<Value>) {
 
 /// A compiled native function entry inside the JIT module.
 ///
-/// `Clone` (no longer `Copy`) since we now carry `Arc<str>` for name + file
-/// to give `jit_call` / `jit_vcall` cheap access to the callee's stack-trace
-/// metadata without reverse lookup into `module.functions`. Clone cost is
-/// two `Arc::clone` (refcount bump) — negligible vs. the JIT call itself.
+/// `Clone` (not `Copy`) because of the shared `owner_init` cell.
 ///
 /// (2026-05-10 jit-stack-trace; was `Copy` since introduce-method-token
 /// Phase 2.C / 2026-05-08.)
@@ -171,13 +168,12 @@ pub struct FnEntry {
     pub ptr:     *const u8,
     /// Size of the register file needed by this function (`max_reg`).
     pub max_reg: usize,
-    /// Fully-qualified function name (e.g. `"Demo.Inner"`), shared via Arc
-    /// across all FnEntry copies. Used to push a `FrameInfo` onto
-    /// `VmContext.call_stack` when the JIT invokes this function.
-    pub name:    std::sync::Arc<str>,
-    /// Source file path (from the function's first `LineEntry`). Empty
-    /// `Arc<str>` if the line table omits file references.
-    pub file:    std::sync::Arc<str>,
+    /// The function this code was compiled from — the `VmFrame` the call
+    /// pushes points at it, and stack traces derive name / file / line from it.
+    /// Valid for the whole run: a merged function lives in the module, a lazily
+    /// loaded one is kept alive by its `LazySlot::func`. Null for
+    /// [`FnEntry::rejected`].
+    pub func:    *const Function,
     /// fix-ctor-arity-skew: 可接受的**物理**实参数区间，编译时从 `&Function` 算好。
     /// `jit_obj_new` 的 native 分支只拿得到 `FnEntry`（跨包构造器正是惰性加载、
     /// 最容易 tier 到 native 的那批），没有它就得为每次构造再查一次函数元数据。
@@ -200,7 +196,7 @@ impl FnEntry {
     /// to `cross_zpkg_via_interp` exactly as they did for an empty slot.
     pub fn rejected() -> Self {
         FnEntry {
-            ptr: std::ptr::null(), max_reg: 0, name: "".into(), file: "".into(),
+            ptr: std::ptr::null(), max_reg: 0, func: std::ptr::null(),
             // rejected 项永远不会被当作可调用体，区间取全放行。
             arity: crate::vm_context::symres::CallArity { min: 0, max: u16::MAX },
             owner_init: Default::default(),
@@ -226,6 +222,9 @@ struct LazySlot {
     name:  String,
     /// Compiled native entry, filled on first call to this slot (compile-once).
     entry: OnceLock<FnEntry>,
+    /// The function `entry` was compiled from, kept alive for as long as the
+    /// entry (whose `func` pointer — and every frame pushed for it — points here).
+    func:  OnceLock<Arc<Function>>,
     /// runtime-jit-tiering Phase 1c: per-lazy-function call counter, the lazy-slot
     /// analogue of `JitModuleCtx.call_counts` (merged path). A lazily-loaded
     /// dep-zpkg function compiles only once its count reaches `jit_threshold`;
@@ -424,13 +423,14 @@ impl JitModuleCtx {
     unsafe fn resolve_lazy_slot(&self, i: usize, thr: u32) -> Option<&FnEntry> {
         // Stable raw pointers into the boxed slot (survive `Vec` growth), so the
         // table lock is released before the (slow) compile.
-        let (name_ptr, entry_ptr, count_ptr):
-            (*const String, *const OnceLock<FnEntry>, *const AtomicU32) = {
+        let (name_ptr, entry_ptr, count_ptr, func_ptr):
+            (*const String, *const OnceLock<FnEntry>, *const AtomicU32, *const OnceLock<Arc<Function>>) = {
             let table = match self.lazy_table.lock() { Ok(g) => g, Err(p) => p.into_inner() };
             let slot = table.slots.get(i)?;
             (&slot.name as *const String,
              &slot.entry as *const OnceLock<FnEntry>,
-             &slot.count as *const AtomicU32)
+             &slot.count as *const AtomicU32,
+             &slot.func as *const OnceLock<Arc<Function>>)
         };
         let entry_lock = &*entry_ptr;
         if let Some(e) = entry_lock.get() {
@@ -462,7 +462,13 @@ impl JitModuleCtx {
         if entry_lock.get().is_none() {
             let t0 = std::time::Instant::now();
             match guard.compile_fn(&func) {
-                Ok(entry) => { let _ = entry_lock.set(entry); self.bump_compile_counters(t0); }
+                Ok(entry) => {
+                    // Keep the compiled-from function alive before publishing the
+                    // entry that points at it (both set once, under the compiler lock).
+                    let _ = (*func_ptr).set(func.clone());
+                    let _ = entry_lock.set(entry);
+                    self.bump_compile_counters(t0);
+                }
                 Err(_) => return None,
             }
         }
@@ -508,7 +514,8 @@ impl JitModuleCtx {
         }
         let i = table.slots.len();
         table.slots.push(Box::new(LazySlot {
-            name: name.to_string(), entry: OnceLock::new(), count: AtomicU32::new(0),
+            name: name.to_string(), entry: OnceLock::new(), func: OnceLock::new(),
+            count: AtomicU32::new(0),
         }));
         table.by_name.insert(name.to_string(), i);
         Some((self.merged_len + i) as u32)

@@ -80,7 +80,23 @@ vm.run(&ctx, hint)?;
 - `stack_arena` / `struct_arena` / `transient_arena`（及其发布长度原子，见下一节）、`next_frame_id`、`safepoint_skip`（safepoint 节流计数，JIT 内联读写）、`jit_ctx`（混合模式下指向当前 `JitModuleCtx`）
 - `interned_cache`（`ConstStr` 字面量的 per-context 驻留缓存，GC root）、`subclass_memo` + `isa_cache`（`is`/`as`/`catch` 子类判定缓存）、`type_lookup_cache` + `fn_lookup_cache`（`try_lookup_type/function` 命中的前置缓存，免去共享 `lazy_loader` 锁）
 
-每个 `VmFrame` 同时承载 `(regs ptr, env_arena ptr, func_name, file, line, column, offset)` 及三个 arena 的截断 base：GC root scanner 扫 regs+env_arena，stack-trace 读 name/file/line/col，interp `RefKind::Stack` 跨帧 deref 通过 `frame.regs`。
+每个 `VmFrame` 只有 48 B：`func`（`*const Function`）、`regs` / `env_arena` 指针、`pc: Cell<u32>`，
+以及四个 arena（stack 对象 / stack 数组 / struct / transient）的截断 base（`u32`）。GC root scanner 扫
+regs+env_arena，interp `RefKind::Stack` 跨帧 deref 通过 `frame.regs`。
+
+- **`pc`** 只存当前位点的打包代码偏移 `Function::linear_offset(block, instr)` = `block << 16 | instr`，
+  `u32::MAX` = 尚未戳过。两个后端在 Call / VCall / CallIndirect 之前、以及 throw 时把它戳到栈顶帧
+  （`VmContext::set_top_frame_pc`；JIT helper 收的是 codegen 烘焙的常量偏移）。throw 位点用块尾槽
+  `(block, instructions.len())`。
+- **名字、文件、行列号在生成栈回溯时现算**（`VmFrame::snapshot`，经 `snapshot_call_stack` 生成
+  `FrameSnapshot`）：名字 / 文件取 `func.frame_meta`（加载时预算好的 `Arc<str>`，手搭的测试函数为
+  `None` 时现场 `format_frame_name` / `frame_file`），行列号 = `resolve_line(func.line_table(), pc>>16, pc&0xffff)`，
+  `pc` 本身就是无行号时打印的 `+0x<offset>`。调用路径上没有二分、没有引用计数。
+- **`func` 的寿命**：interp 帧指向调用方借给 `exec_function` 的 `&Function`；原生帧指向 `FnEntry.func`——
+  合并模块里的函数归模块所有，惰性加载的函数由它的 `LazySlot` 持 `Arc<Function>` 保活，与 `FnEntry` 同寿。
+- **读帧的地方**：异常 `StackTrace`、栈溢出致命报告（`stack_guard`）、采样器（只取名字）、
+  崩溃信号转储（`signal_handler::write_frame`：直接写 `frame_meta` 的字节，没有时用
+  `for_each_frame_name_piece` 分段写，行列号是一次二分——全程不分配）。
 
 **帧的登记只有两处**，改帧布局 / 登记方式只动这两处：
 

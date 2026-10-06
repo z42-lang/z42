@@ -86,22 +86,12 @@ impl<'a, 'b> TxCtx<'a, 'b> {
             }
             Terminator::Throw { reg } => {
                 let rv = self.ri(*reg);
-                // 2026-05-10 jit-stack-trace + span-column-propagate: pass
-                // the throw site's (line, col) so jit_throw can stamp the
-                // throwing frame's FrameInfo before populating
-                // Std.Exception.StackTrace. Throw is a block terminator;
-                // mirror interp's "self.instr_idx = block.len()" so the position
-                // resolves to the *last* LineEntry covering the block.
-                let (line, col) = crate::interp::resolve_line(
-                    self.func.line_table(),
-                    self.block_idx as u32,
-                    block_instr_count as u32,
-                );
-                let line_val = self.builder.ins().iconst(types::I32, line as i64);
-                let col_val  = self.builder.ins().iconst(types::I32, col as i64);
-                // add-offline-symbolication: bake throw-site offset (terminator slot).
+                // jit-stack-trace: pass the throw site's code offset so jit_throw
+                // can stamp the throwing frame before populating
+                // Std.Exception.StackTrace. Throw is a block terminator; mirror
+                // interp's end-of-block slot (`block_instr_count`).
                 let off_val = self.builder.ins().iconst(types::I32, self.func.linear_offset(self.block_idx as u32, block_instr_count as u32) as i64);
-                self.builder.ins().call(self.hr_throw, &[self.frame_val, self.ctx_val, rv, line_val, col_val, off_val]);
+                self.builder.ins().call(self.hr_throw, &[self.frame_val, self.ctx_val, rv, off_val]);
                 self.dispatch_to_catch_or_return();
             }
         }

@@ -34,32 +34,14 @@ impl Drop for FrameGuard<'_> {
 /// arguments are reachable only from `frame` (see `exec_function_body`).
 ///
 /// SAFETY of the raw pointers: `frame.regs` / `frame.env_arena` live in the
-/// caller's `Frame` on the Rust call stack, which outlives the guard.
+/// caller's `Frame` on the Rust call stack, and `func` is borrowed by the
+/// caller for the whole activation — both outlive the guard.
 pub(super) fn enter_frame<'a>(ctx: &'a VmContext, func: &Function, frame: &mut Frame) -> Result<FrameGuard<'a>> {
-    // perf-frame-name-precompute: clone the load-time precomputed (name, file)
-    // Arc<str> pair — O(1) refcount bumps — instead of re-formatting the frame
-    // name (String alloc + format) + cloning the file string on every call
-    // (was 40–60% of call-heavy interp time). Hand-built test functions have no
-    // precomputed meta (`None`) → fall back to formatting on the fly; file is
-    // taken from the line_table's first entry, empty when the emitter omits it.
-    let (frame_name, frame_file) = match &func.frame_meta {
-        Some((name, file)) => (name.clone(), file.clone()),
-        None => {
-            let file = func.line_table().first()
-                .and_then(|e| e.file.clone())
-                .unwrap_or_default();
-            (
-                std::sync::Arc::from(crate::metadata::bytecode::format_frame_name(func)),
-                std::sync::Arc::from(file),
-            )
-        }
-    };
     // add-escape-analysis-stack-alloc: stamp this frame's monotonic id (keys any
     // stack-allocated objects/arrays it creates, for stale-handle diagnostics).
     frame.frame_id = ctx.next_frame_id();
     ctx.push_frame(crate::exception::VmFrame::new(
-        frame_name,
-        frame_file,
+        func as *const Function,
         &frame.regs as *const Vec<Value>,
         &frame.env_arena as *const Vec<Vec<Value>>,
     ));
@@ -168,7 +150,7 @@ pub(super) fn try_native_exec(ctx: &VmContext, func: &Function, args: &[Value]) 
     // only ROUTES already-hot functions to native; tier-up counting belongs to the
     // primary call sites. The tiered resolve here double-counted a cold callee
     // (jit_call's counter, then this fallback's) — halving the effective threshold.
-    let (max_reg, ptr, name, file) = {
+    let (max_reg, ptr, callee_fn) = {
         // Z42_JIT_INTERP_TIERUP：0（默认）= 只 peek，与历史行为逐字一致；N ≥ 1 = 本路径
         // 也参与 tier-up 计数，第 N 次进入即编译。默认关的理由见 config.rs 的字段文档。
         let dthr = crate::config::runtime_config().jit_interp_tierup;
@@ -177,11 +159,11 @@ pub(super) fn try_native_exec(ctx: &VmContext, func: &Function, args: &[Value]) 
         } else {
             unsafe { (*jit_ctx).resolve_fn_by_name_tiered_thr(&func.name, dthr) }?
         };
-        (entry.max_reg, entry.ptr, entry.name.clone(), entry.file.clone())
+        (entry.max_reg, entry.ptr, entry.func)
     };
     ctx.counters().jit_native_from_interp.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let callee = crate::jit::frame::JitFrame::new(max_reg, args);
-    let outcome = unsafe { crate::jit::invoke::call_native(ctx, jit_ctx, ptr, name, file, callee) };
+    let outcome = unsafe { crate::jit::invoke::call_native(ctx, jit_ctx, ptr, callee_fn, callee) };
     Some(Ok(outcome.into_exec(ctx)))
 }
 
@@ -249,7 +231,7 @@ fn osr_hand_off(
     // (cosmetic). Popped in `call_native`; the interp frame's guard pops on the
     // caller's `return`.
     let outcome = unsafe {
-        crate::jit::invoke::call_native(ctx, jit_ctx, entry.ptr, entry.name, entry.file, osr)
+        crate::jit::invoke::call_native(ctx, jit_ctx, entry.ptr, entry.func, osr)
     };
     Some(Ok(outcome.into_exec(ctx)))
 }
