@@ -8,10 +8,8 @@
 // part most prone to drift. Backends only declare WHERE assets land (AssetLayout).
 //
 // Backends live in xtask_test_{wasm,ios,android,desktop}.z42; CLI wiring in
-// xtask_cli.z42 (`test platform <p> [stage|build|assets|run]`). The legacy
-// platforms/*/build.sh are removed (logic ported into the backends); only
-// android/test.sh remains, bridged by AndroidBackend.RunTests for emulator
-// orchestration (full z42 port = roadmap port-android-emulator-run-to-z42).
+// xtask_cli.z42 (`test platform <p> [stage|build|assets|run]`). The device
+// backends' `run` goes through z42b's device drivers (builder_device*.z42).
 namespace Z42Xtask;
 
 using Std.IO;

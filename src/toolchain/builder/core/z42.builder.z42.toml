@@ -37,6 +37,7 @@ include = ["builder_cli.z42", "builder_test.z42", "builder_device.z42", "builder
 # ⇒ 这段注释原话是「z42.build/z42.project 均为 stdlib → 不破 stdlib-only」，挪动后已不成立。
 "z42.core"    = "0.1.0"   # String / core / Platform / Std.Reflection (Activator/Type)
 "z42.io"      = "0.1.0"   # Console / File / Directory / Path / Process / Environment
+"z42.threading" = "0.1.0"   # Thread.Sleep — poll the Android emulator boot (device driver)
 "z42.cli"     = "0.1.0"   # Std.Cli nested router + ArgParser
 "z42.test"    = "0.1.0"   # Std.Test.Runner + ModuleLoader + BundleRunner（反射 runner + bundle 执行）
 "z42.json"    = "0.1.0"   # JsonValue.Parse — read a test-bundle manifest in `z42b test --rid host`

@@ -1,18 +1,15 @@
-// xtask — Android platform backend (add-platform-test-pipeline, 2026-06-15).
-// Implements IPlatformBackend (logic ported from the former
-// src/toolchain/workload/android/platform/build.sh, now removed):
+// xtask — Android platform backend (IPlatformBackend):
 //   ① BuildProject : cargo-ndk × ABIs → jniLibs, then gradle :z42vm:assembleRelease (AAR)
 //   ② Assets       : fixtures → androidTest/assets/test-fixtures; stdlib → main/assets/stdlib
-//   ③ RunTests     : local emulator-lifecycle harness (test.sh: boot + connectedAndroidTest)
+//   ③ RunTests     : z42b's android driver (`_runAndroidTesthost`) — ONE
+//                    `gradlew :z42vm:connectedAndroidTest` (R1–R7 + embedded corpus)
 //
-// z42b-device-run PR-3: the embedded corpus staging and the emulator RUN (gradlew
-// connectedAndroidTest) live in z42b's android driver (builder_device_android.z42); the
-// cargo-ndk .so build stays here (_cargoNdkJniLibs) — z42b builds no native code. CI drives
-// it through xtask: `test embedded --rid android-x64` (build .so + z42b --stage-only) and
-// `test embedded --rid android-x64 --run` (→ z42b --run). This backend's ③ RunTests keeps test.sh for the LOCAL path only: the
-// emulator AVD lifecycle (boot/poll/kill) stays out of z42b by design (D2
-// asymmetry — CI's reactivecircus action supplies the emulator; test.sh supplies it
-// locally). Needs cargo-ndk + ANDROID_NDK_HOME + JDK + Android SDK.
+// The cargo-ndk .so build stays here (_cargoNdkJniLibs) — z42b builds no native code; the
+// embedded corpus staging and the run are z42b's (builder_device_android.z42), and so is the
+// device lifecycle: an attached device (CI's emulator action, a dev's running emulator or
+// phone) is reused; with none attached z42b boots the AVD headless and shuts it down after
+// (test-layout.md §6). All of it runs in the staged host copy (_stageDeviceHost). Needs
+// cargo-ndk + ANDROID_NDK_HOME + JDK + Android SDK.
 namespace Z42Xtask;
 
 using Std.IO;
@@ -66,31 +63,10 @@ public class AndroidBackend : IPlatformBackend {
             .Env("ANDROID_NDK_HOME", ndk).Env("ANDROID_HOME", sdk).Env("ANDROID_SDK_ROOT", sdk), here);
     }
 
-    // ③ LOCAL emulator-lifecycle path (z42b-device-run PR-3: CI runs z42b --run via
-    // the reactivecircus action instead; this stays for `test platform android run`
-    // on a dev box). Delegates to test.sh (emulator boot + gradle connectedAndroidTest).
-    // emulator tier（emulator + system-image + AVD + Gradle，~4GB）是"用到才装"
-    // 依赖，零命令面（simplify-xtask-deps, User 裁决 2026-07-07）：在这里检测缺失
-    // 并自动安装，绝不由用户手动触发。安装失败 = 测试失败（不吞不跳过）。
+    // ③ z42b runs the staged host project on a device (the embedded bundle must be built —
+    // `xtask test app android` does the whole pipeline).
     public int RunTests(string root) {
-        string sdk = _androidSdkDir(root);
-        if (sdk.Length == 0) { return 1; }
-        if (!File.Exists(Path.Join(sdk, "emulator/emulator"))) {
-            TomlValue toml = _vparse(root);
-            string hermetic = Path.Join(root, _vget(toml, "build.android.install_root"));
-            if (sdk != hermetic) {
-                ConsoleError.WriteLine("error: SDK at " + sdk + " (ANDROID_HOME/ANDROID_SDK_ROOT) lacks emulator/;"
-                    + " install it there, or unset the env to use the hermetic SDK (auto-managed)");
-                return 1;
-            }
-            Console.WriteLine("  emulator tier missing — auto-installing (~4GB, one-time)");
-            int ic = _depsInstallAndroidEmulator(false);
-            if (ic != 0) { return ic; }
-        }
-        string here = _deviceHost(root, "android");
-        Console.WriteLine("  bash test.sh  (emulator + connectedAndroidTest; full port → CI change)");
-        // test.sh 在宿主副本里跑，不能再按自身位置推仓库根 → 显式告诉它（Z42_ROOT）。
-        return _execIn(new Process("bash").Arg("test.sh").Env("Z42_ROOT", root), here);
+        return _runAndroidTesthost(root, _androidHostRid());
     }
 }
 
@@ -107,7 +83,7 @@ string _androidNdkDir(string root) {
     string ver = _vget(toml, "build.android.ndk.version");
     string auto = Path.Join(root, Path.Join(installRoot, Path.Join("ndk", ver)));
     if (Directory.Exists(auto)) { return auto; }
-    ConsoleError.WriteLine("error: NDK not found. Set ANDROID_NDK_HOME or install to " + auto);
+    ConsoleError.WriteLine("error: NDK not found — run `xtask deps install --os android` (installs to " + auto + "), or set ANDROID_NDK_HOME");
     return "";
 }
 
@@ -124,7 +100,7 @@ string _androidSdkDir(string root) {
     string installRoot = _vget(toml, "build.android.install_root");
     string auto = Path.Join(root, installRoot);
     if (Directory.Exists(auto)) { return auto; }
-    ConsoleError.WriteLine("error: Android SDK not found. Set ANDROID_HOME or run deps install --os android (-> " + auto + ")");
+    ConsoleError.WriteLine("error: Android SDK not found — run `xtask deps install --os android` (installs to " + auto + "), or set ANDROID_HOME");
     return "";
 }
 
@@ -160,4 +136,45 @@ int _cargoNdkJniLibs(string root, string[] abis, string outDir) {
     p = p.Env("ANDROID_NDK_HOME", ndk).Env("ANDROID_NDK", ndk).Env("ANDROID_NDK_ROOT", ndk);
     Console.WriteLine("  cargo ndk build --release (" + abis.Length.ToString() + " ABI) -> " + jniLibs);
     return _execIn(p, rustDir);
+}
+
+// The android RID matching the host CPU: an emulator only runs (hardware-accelerated) an image
+// of the host's own architecture — Apple Silicon → arm64, CI's linux-x64 → x86_64.
+string _androidHostRid() {
+    return Platform.Arch() == "aarch64" ? "android-arm64" : "android-x64";
+}
+
+// adb sees at least one device in the `device` state. SDK = ANDROID_HOME / ANDROID_SDK_ROOT,
+// else the hermetic one (same order as _androidSdkDir, but silent: "no SDK" just means "no device").
+bool _androidDeviceAttached(string root) {
+    string sdk = Environment.GetEnvironmentVariable("ANDROID_HOME", "");
+    if (sdk.Length == 0) { sdk = Environment.GetEnvironmentVariable("ANDROID_SDK_ROOT", ""); }
+    if (sdk.Length == 0) { sdk = Path.Join(root, _vget(_vparse(root), "build.android.install_root")); }
+    string adb = Path.Join(sdk, "platform-tools/adb");
+    if (!File.Exists(adb)) { return false; }
+    ProcessResult res = new Process(adb).Arg("devices").Run();
+    if (res.ExitCode != 0) { return false; }
+    foreach (var line in res.Stdout.Split("\n")) {
+        string t = line.Trim();
+        if (t.EndsWith("\tdevice") || t.EndsWith(" device")) { return true; }
+    }
+    return false;
+}
+
+// The emulator tier (emulator + system image + AVD + Gradle, ~4GB) is an install-on-use
+// dependency with no command of its own (simplify-xtask-deps): needed only when z42b has to
+// boot an AVD, installed here when missing. An external SDK (ANDROID_HOME) is never modified —
+// missing emulator/ there is an error. Install failure = test failure.
+int _ensureAndroidEmulatorTier(string root) {
+    string sdk = _androidSdkDir(root);
+    if (sdk.Length == 0) { return 1; }
+    if (File.Exists(Path.Join(sdk, "emulator/emulator"))) { return 0; }
+    string hermetic = Path.Join(root, _vget(_vparse(root), "build.android.install_root"));
+    if (sdk != hermetic) {
+        ConsoleError.WriteLine("error: SDK at " + sdk + " (ANDROID_HOME/ANDROID_SDK_ROOT) lacks emulator/;"
+            + " install it there, or unset the env to use the hermetic SDK (auto-managed)");
+        return 1;
+    }
+    Console.WriteLine("  Android emulator tier missing — installing (~4GB, one-time)");
+    return _depsInstallAndroidEmulator(false);
 }

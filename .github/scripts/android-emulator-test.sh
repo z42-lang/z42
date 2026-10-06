@@ -9,11 +9,11 @@
 # without a single instrumented test having run. One line calling this file keeps all
 # state in one shell.
 #
-# z42b-device-run PR-3: the emulator RUN 下沉 z42b's android driver — `test embedded
-# --rid android-x64 --run` spawns `./gradlew :z42vm:connectedAndroidTest` (ONE emulator
-# run = R1–R7 + embedded corpus); gradle writes the junit the reporter step reads.
-# reactivecircus still supplies the emulator (design D2 asymmetry); z42b only triggers
-# gradle — in the staged host copy under artifacts/build (xtask passes it as --project).
+# `xtask test app android --shard k/3` (test-layout §6) runs the whole pipeline — agent,
+# .so + AAR into the staged host copy, this shard's embedded slice, then ONE
+# `./gradlew :z42vm:connectedAndroidTest` (R1–R7 + embedded corpus); gradle writes the junit
+# the reporter step reads. The action supplies the emulator; z42b finds it attached and
+# reuses it (it boots an AVD itself only when none is attached — the local path).
 # The step's working-directory is the android platform dir, but every path here
 # is absolute and xtask's `_root()` uses `git rev-parse`, so cwd does not matter.
 #
@@ -46,7 +46,7 @@ adb logcat > "$GITHUB_WORKSPACE/android-embed-logcat.txt" 2>&1 &
 logcat_pid=$!
 
 # xtask 经 CI shim 跑在 `.z42` SDK 上（与本地 `./xtask` 一致，add-sdk-libs D7）。
-"$GITHUB_WORKSPACE/.github/ci/xtask" test embedded --rid android-x64 --run
+"$GITHUB_WORKSPACE/.github/ci/xtask" test app android --shard "${Z42_SHARD:-1}/3"
 rc=$?
 
 # Gradle's connectedAndroidTest reports BUILD SUCCESSFUL even when the test APK never

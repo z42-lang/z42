@@ -37,7 +37,9 @@ int _depsInstallAndroidSdk(bool force, string tier) {
     string gradleVer = _vget(toml, "build.android.sdk.gradle");
     string cmdlineUrlTmpl = _vget(toml, "build.android.sdk.cmdline_tools_url");   // has {os} + version
     string gradleSha = _vget(toml, "build.android.sdk.gradle_sha256");            // OS-independent zip
-    string sysImage = "system-images;" + platformVer + ";" + _vget(toml, "build.android.sdk.system_image_tag");
+    // 模拟器只能（硬件加速地）跑本机架构的镜像 ⇒ {abi} 按宿主架构展开。
+    string hostAbi = Platform.Arch() == "aarch64" ? "arm64-v8a" : "x86_64";
+    string sysImage = "system-images;" + platformVer + ";" + _vget(toml, "build.android.sdk.system_image_tag").Replace("{abi}", hostAbi);
     string avdName = _vget(toml, "build.android.sdk.avd_name");
     string avdDevice = _vget(toml, "build.android.sdk.avd_device");
 

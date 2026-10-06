@@ -249,10 +249,14 @@ xtask test app <wasm|ios|android|all> [--filter <pat>] [--shard k/n]
 时总把 `Z42_PORTABLE_VM` 设成跑 z42b 的那个 VM，所以本地经 `.z42/z42` 启动也找得到），再按平台串起
 R1–R7（分片时只在第 1 片）→ 嵌入 bundle → 宿主构建 → 设备运行，最后给一张汇总表。
 
-⏳ 设备生命周期由 z42b 负责：已有在跑的设备就复用、跑完不关；没有就以 headless 方式启动、跑完关掉。
-目前 iOS 模拟器由 `xcodebuild` 自己启动；Android 要求已有在跑的设备，没有就**跳过**并提示（CI 由
-emulator action 提供，Android 的 CI job 也还没改成调 `test app`）。
-本机不具备的平台（无 Xcode、Linux 无 KVM）报**跳过**并说明原因，不报失败；`all` 跑本机支持的全部平台。
+设备的启停由运行它的工具负责，规则统一：已有在跑的设备就复用、跑完不关；没有就以 headless 方式启动、
+跑完只关自己起的那台。iOS 模拟器由 `xcodebuild` 启动。Android 由 z42b 负责（`builder_device_android.z42`）：
+`adb devices` 里有 `device` 状态的就复用（CI 的 emulator action、本地手动起的模拟器、插着的手机）；
+没有就按 `versions.toml` 的 `avd_name` 以 headless 方式启动 AVD，等到 `sys.boot_completed` 后再跑，
+跑完用 `adb emu kill` 关掉。启动本地 AVD 需要的模拟器组件（emulator + 本机架构的系统镜像 + AVD，约 4GB）
+由 `test app android` 在第一次用到时安装。
+本机不具备的平台（无 Xcode；Linux 无 KVM 且没有接着的设备）报**跳过**并说明原因，不报失败；
+`all` 跑本机支持的全部平台。
 
 ### 7. 怎么跑
 
@@ -304,5 +308,6 @@ emulator action 提供，Android 的 CI job 也还没改成调 `test app`）。
 
 按顺序推进，每一步一个 PR；完成后删掉本页对应的 ⏳ 标记：
 
-1. **设备生命周期**：z42b 接管 Android 模拟器的启动与关闭（复用已在跑的设备），Android 的 CI job 改调 `xtask test app android`；
-   bundle 引用用例自己的测试输出、内部按用例 ID 镜像。
+1. **bundle 组装**：bundle 引用用例自己的测试输出、内部按用例 ID 镜像（§6 第 2、3 步）。目前每个设备分片
+   逐例编 bundle 约 2–3 分钟（wasm 分片 239 例约 2m48s），省下的就是这部分；代价是三个平台的资源暂存都要
+   支持嵌套目录，并且设备 job 里要先有用例的测试输出。

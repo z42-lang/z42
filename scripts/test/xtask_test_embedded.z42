@@ -274,9 +274,8 @@ string _buildAndroidTesthost(string root, string filter, string rid, int shardK,
 // :z42vm:connectedAndroidTest` runs R1–R7 + embedded). The build step (`--rid
 // <android>` without --run) must have produced the .so (jniLibs) + androidTest
 // assets/embedded corpus; R1–R7 fixtures come from `test platform android assets`.
-// The emulator is booted by the CI action (reactivecircus) or local dev (design D2
-// asymmetry). Gradle writes its own junit — the CI report consumer reads that path.
-// z42b-device-run PR-3.
+// An attached device is reused; with none, z42b boots the AVD (test-layout.md §6).
+// Gradle writes its own junit — the CI report consumer reads that path.
 int _runAndroidTesthost(string root, string rid) {
     string here = _stageDeviceHost(root, "android");
     if (here.Length == 0) { return 1; }
@@ -286,11 +285,17 @@ int _runAndroidTesthost(string root, string rid) {
         return 1;
     }
     // --run only spawns gradlew (build/deploy already done); out unused.
-    // z42b 不认仓库布局：NDK / SDK 位置由这里解好经环境交给 gradle（CI 的 setup-android 已导出则原样沿用）。
+    // z42b 不认仓库布局：NDK / SDK 位置由这里解好经环境交给 z42b 与 gradle（CI 的 setup-android 已导出则原样沿用）。
+    // --avd：没有接着的设备时 z42b 以 headless 方式启动这个 AVD、跑完关掉；已接着的设备直接复用。
+    // 要自己起 AVD 时，先补装模拟器组件（用到才装）。
+    if (!_androidDeviceAttached(root)) {
+        int e = _ensureAndroidEmulatorTier(root); if (e != 0) { return e; }
+    }
     string ndk = _androidNdkDir(root);
     string sdk = _androidSdkDir(root);
     if (ndk.Length == 0 || sdk.Length == 0) { return 1; }
-    return _z42bDeviceEnv(root, manifest, rid, "", new string[] { "--run", "--project", here },
+    string avd = _vget(_vparse(root), "build.android.sdk.avd_name");
+    return _z42bDeviceEnv(root, manifest, rid, "", new string[] { "--run", "--project", here, "--avd", avd },
         new string[] { "ANDROID_NDK_HOME", ndk, "ANDROID_HOME", sdk, "ANDROID_SDK_ROOT", sdk });
 }
 

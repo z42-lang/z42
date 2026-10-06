@@ -90,7 +90,7 @@ cmdline_tools_sha256_mac_x86_64 = "7e601c04e7173754b3d051a87bb4c3a8243c65a9d7bfa
 cmdline_tools_sha256_linux      = "0877a1d048fe4a24efe2eff536ca4223f7adeb58648bb81909d33c446918cfa8"
 gradle             = "9.7.1"            # AGP 9.4 需要 Gradle ≥ 9.6；与 platform/gradle/wrapper 同版本；`deps install android-sdk` 下载
 gradle_sha256      = "acd53f1edaf02f1a8ff99879f8a34b302661a057d9b063ae9e35b552f804d20a"   # OS 无关 zip（services.gradle.org 官方 .sha256）
-system_image_tag   = "google_apis_playstore;arm64-v8a"   # AVD system image (Apple silicon)
+system_image_tag   = "google_apis_playstore;{abi}"   # AVD system image；{abi} = 宿主架构（Apple silicon / arm64 → arm64-v8a，x64 → x86_64：模拟器只能跑本机架构的镜像）
 avd_name           = "z42_pixel6_api37"
 avd_device         = "pixel_6"
 

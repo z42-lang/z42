@@ -66,7 +66,7 @@ int _runDevice(ParseResult r, string manifestPath, string rid) {
     // run: spawn the platform-native driver.
     if (rid == "browser-wasm") { return _runWasmPlaywright(r, project, outDir); }
     if (rid == "ios-arm64" || rid == "iossim-arm64") { return _runIosXcodebuild(r.GetOption("report-dir"), project); }
-    if (rid == "android-arm64" || rid == "android-x64") { return _runAndroidGradle(project); }
+    if (rid == "android-arm64" || rid == "android-x64") { return _runAndroidGradle(project, r.GetOption("avd")); }
     ConsoleError.WriteLine("z42b test --rid " + rid + ": device run not wired for this rid");
     return 2;
 }
