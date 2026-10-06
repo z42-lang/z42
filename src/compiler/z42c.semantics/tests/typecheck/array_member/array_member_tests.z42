@@ -1,0 +1,55 @@
+// 数组收者上**不存在的方法**必须编译期报错（fix-array-unknown-method）。
+//
+// 回归来源：`MemberResolver` 的数组收者路径只查 `Object` 的继承方法，查不到就落进 prim 路径的
+// **松绑定**（按裸名发 VCall、返回 Unknown）。`T[]` 没有包装类，于是 `string[] vers; vers.Sort();`
+// 编译期零诊断，运行期才崩——`Sort` 是 `Std.Array` 的**静态**方法，运行期在 `Std.Array` 上找
+// 0 参实例 `Sort` 找不到。z42b 的 `_findInstalledAgent` 就这样带着这个错合进了 main。
+//
+// 运行期 `T[]` 派发到 `Std.Array` 的实例方法，再落 `Std.Object`（exec_vcall.rs
+// `primitive_class_name`），所以编译期的「名字存在」= Object 或 Array 上有同名**实例**方法。
+//
+// ⚠️ 本文件自己声明 `Object` / `Array`：`SemanticDump` 不加载 stdlib（见 prim_member_tests 头注）。
+namespace Z42cSemanticsArrayMemberTests;
+
+using Z42.Semantics;
+
+// 与真实 z42.core 同形：Object 的继承方法 + Array 的实例方法（Clone / GetValue）与静态方法（Sort）。
+string _core() {
+    return "namespace Std; class Object { public string ToString() { return \"\"; } public int GetHashCode() { return 0; } } "
+         + "class Array { public Object Clone() { return null; } public Object GetValue(int i) { return null; } "
+         + "public static void Sort<T>(T[] a) { } } ";
+}
+
+[Test]
+void test_missing_method_on_array_is_an_error() {
+    string src = _core() + "class C { void M() { int[] xs = new int[2]; xs.Frobnicate(); } }";
+    Assert.Equal("E0401", SemanticDump.FirstErrorCode(src));
+    Assert.Equal("no method `Frobnicate` on `int[]`", SemanticDump.FirstErrorMessage(src));
+}
+
+[Test]
+void test_static_array_method_called_as_instance_is_an_error_with_hint() {
+    // 真实事故的形状：`vers.Sort()`。名字在 Array 上存在、但只是静态方法 ⇒ 报错并指路。
+    string src = _core() + "class C { void M() { string[] vers = new string[2]; vers.Sort(); } }";
+    Assert.Equal("E0401", SemanticDump.FirstErrorCode(src));
+    Assert.Equal("no method `Sort` on `string[]` — `Sort` is a static method: call `Array.Sort(…)` with the array as an argument",
+                 SemanticDump.FirstErrorMessage(src));
+}
+
+[Test]
+void test_existing_array_and_object_methods_still_resolve() {
+    // 正面对照：Array 的实例方法与 Object 的继承方法一条都不能被误伤。
+    Assert.Equal(0, SemanticDump.ErrorCount(_core() + "class C { Object M() { int[] xs = new int[2]; return xs.Clone(); } }"));
+    Assert.Equal(0, SemanticDump.ErrorCount(_core() + "class C { Object M() { int[] xs = new int[2]; return xs.GetValue(0); } }"));
+    Assert.Equal(0, SemanticDump.ErrorCount(_core() + "class C { string M() { int[] xs = new int[2]; return xs.ToString(); } }"));
+    Assert.Equal(0, SemanticDump.ErrorCount(_core() + "class C { int M() { int[] xs = new int[2]; return xs.Length; } }"));
+}
+
+[Test]
+void test_stub_or_absent_array_class_still_loose_binds() {
+    // 逃生口：Array 缺席或是成员表为空的 stub（懒加载）时候选集不完整，判「不存在」会误报 ⇒ 仍松绑定。
+    Assert.Equal(0, SemanticDump.ErrorCount("namespace Std; class Object { } class Array { } "
+        + "class C { void M() { int[] xs = new int[2]; xs.Frobnicate(); } }"));
+    Assert.Equal(0, SemanticDump.ErrorCount("namespace Std; class Object { } "
+        + "class C { void M() { int[] xs = new int[2]; xs.Frobnicate(); } }"));
+}

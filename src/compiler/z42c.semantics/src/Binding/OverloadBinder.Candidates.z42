@@ -56,6 +56,14 @@ public sealed partial class OverloadBinder {
         return this._collectOverloads(symbols, ct, name).Length > 0;
     }
 
+    // 名为 name 的候选（含基链）里有没有静态（wantStatic = true）/ 实例方法。数组收者判「名字不存在」用。
+    internal bool _hasOverloadOfKind(SymbolTable symbols, Z42ClassType ct, string name, bool wantStatic) {
+        foreach (var m in this._collectOverloads(symbols, ct, name)) {
+            if (m.IsStatic == wantStatic) { return true; }
+        }
+        return false;
+    }
+
     private MethodSymbol[] _collectOverloads(SymbolTable symbols, Z42ClassType ct, string name) {
         // 去重键 = **有效签名**（简单名 + 形参规范类型），非 RegKey。这样一个派生类型自己声明的
         // 方法会**隐藏**基类中同签名的方法（C# method hiding：more-derived wins）——因基链自派生向基

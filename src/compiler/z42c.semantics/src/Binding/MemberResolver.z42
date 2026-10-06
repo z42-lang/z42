@@ -292,20 +292,10 @@ public sealed partial class MemberResolver {
             args = this._tc._overload.BindArgsToSignature(args, rawArgs, argCount, null, env);
             return new BoundCall("instance", true, recv, rt.Name(), mem.Name, args, argCount, new Z42UnknownType(), sp);
         }
-        // fix-value-type-object-methods ④：数组收者的 Object 继承方法（GetType/ToString/Equals/
-        // GetHashCode）——查 Object 取**真实返回类型**（否则下方 fallthrough 松绑 Unknown → 链式
-        // `xs.GetType().FullName` 退化成 FieldGet "FullName" → null）。镜像上方 Z42GenericParamType 分支。
-        // 运行期 VCall 在数组值上仍走 builtin_obj_get_type（数组特化），OwnerClass 与 fallthrough 同名不改派发。
+        // 数组收者（`T[]`）：Object 继承方法 / Std.Array 实例方法 / 名字不存在 ⇒ E0401。整块在 MemberResolver.Prim.z42。
         if (rt is Z42ArrayType) {
-            if (env.Symbols.HasClass("Object")) {
-                Z42ClassType objCt = env.Symbols.GetClass("Object");
-                string aMkey = this._tc._overload._overloadKey(env.Symbols, objCt, mem.Name, argCount);
-                MethodSymbol aMs = this._tc._overload._findMethod(env.Symbols, objCt, aMkey);
-                if (aMs != null) {
-                    args = this._tc._overload.BindArgsToSignature(args, rawArgs, argCount, aMs.Signature, env);
-                    return BoundCall.Marked(new BoundCall("instance", true, recv, PrimModel.Canon(rt.Name()), aMkey, args, argCount, aMs.Signature.Ret, sp), aMs.Signature);
-                }
-            }
+            BoundExpr ab = this.BindArrayInstanceCall(mem, recv, rt, args, argCount, rawArgs, env, sp);
+            if (ab != null) { return ab; }
         }
         // 委托 / 函数类型收者（都是 `Z42FuncType`）：只有 `Invoke`。整块在 MemberResolver.Func.z42。
         if (rt is Z42FuncType) { return this.BindFuncValueMemberCall(mem, recv, rt as Z42FuncType, args, argCount, rawArgs, env, sp); }
