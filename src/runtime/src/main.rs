@@ -368,7 +368,7 @@ belong to the app and come only from its <app>.runtimeconfig.toml sidecar.");
 
     // Shared app-run core (add-embedded-app-run): load the app + execute its
     // entry — the same core the embedding path (z42-host::run_app) uses.
-    z42::app::run(
+    let result = z42::app::run(
         file,
         cli.entry.as_deref(),
         z42::app::RunOpts {
@@ -378,7 +378,14 @@ belong to the app and come only from its <app>.runtimeconfig.toml sidecar.");
             print_stats: cli.stats.is_some(),
             stats_json: cli.stats == Some(StatsFormat::Json),
         },
-    )
+    );
+    // runtime-audit P0-4: a fatal VM error (stack overflow) — whatever the run
+    // returned — is reported with the z42 call stack and a fixed exit code.
+    if let Some(report) = z42::stack_guard::take_report() {
+        eprintln!("{report}");
+        std::process::exit(z42::stack_guard::EXIT_CODE);
+    }
+    result
 }
 
 #[cfg(test)]

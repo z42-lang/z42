@@ -302,7 +302,15 @@ pub struct JitModuleCtx {
     /// add-osr-loop-tiering: OSR trigger threshold (loop back-edges in the interp).
     /// From `Z42_OSR_THRESHOLD`, clamped ≥ 1.
     pub osr_threshold: u32,
+    /// runtime-audit P0-4: lowest stack address a JIT function may start at
+    /// (`stack_guard::limit()` of the thread running `JitModule::run_fn`; JIT code
+    /// runs on that thread only). Read by every function prologue. `0` = no check.
+    pub stack_limit: usize,
 }
+
+/// Byte offset of [`JitModuleCtx::stack_limit`] (read by the inlined prologue check).
+pub const JIT_MODULE_CTX_STACK_LIMIT_OFFSET: usize =
+    std::mem::offset_of!(JitModuleCtx, stack_limit);
 
 /// Byte offset of [`JitModuleCtx::vm_ctx`] within `JitModuleCtx`.
 ///

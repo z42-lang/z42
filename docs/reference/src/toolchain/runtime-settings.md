@@ -90,22 +90,22 @@ z42c build: warning: [profile.release.runtime] 未知运行时旋钮 `gc-mdoe`�
 - `--all`：让 `--list-knobs` / `--show-config` 连 `unsupported` 与 `internal` 档一起列出；
 - `--json`：改输出 JSON 而非文本。
 
-### 默认只看得到 13 个
+### 默认只看得到 14 个
 
-`--list-knobs` 默认**只列 `public` 档的 13 个**，`--all` 才列出全部 46 个：
+`--list-knobs` 默认**只列 `public` 档的 14 个**，`--all` 才列出全部 47 个：
 
 ```console
 $ z42vm --list-knobs
-runtime knobs (13 of 46; pass --all for unsupported + internal knobs)
+runtime knobs (14 of 47; pass --all for unsupported + internal knobs)
 …
 $ z42vm --list-knobs --all
-runtime knobs (46 of 46)
+runtime knobs (47 of 47)
 ```
 
-`--show-config` 同样默认 13 行、`--all` 46 行。从 z42 代码里调
-`Std.Runtime.RuntimeConfig.Names()` 拿到的是**全部 46 个**——脚本侧不分档。
+`--show-config` 同样默认 14 行、`--all` 47 行。从 z42 代码里调
+`Std.Runtime.RuntimeConfig.Names()` 拿到的是**全部 47 个**——脚本侧不分档。
 
-那 46 个里有 5 个是**元旋钮**（`Z42_CONFIG` / `Z42_APP_CONFIG` / `Z42_STRICT_CONFIG` /
+那 47 个里有 5 个是**元旋钮**（`Z42_CONFIG` / `Z42_APP_CONFIG` / `Z42_STRICT_CONFIG` /
 `Z42_HOME` / `Z42_PORTABLE_VM`）：它们决定读哪个文件、诊断多严格、SDK 装在哪，只收命令行与
 环境变量，写进配置文件会自指（或者根本不是「这个应用的」设置），所以没有 kebab 形式的 key。
 
@@ -201,7 +201,7 @@ probing 路径 ${Z42_HOME}/programs/z42c 无法解析 —— 是否没有安装 
 
 ## 旋钮清单（public）
 
-日常会用到的就是这 13 个。「默认」一列是**未设时**的行为。
+日常会用到的就是这 14 个。「默认」一列是**未设时**的行为。
 
 | 旋钮 | 环境变量 | 类型 | 默认 |
 |---|---|---|---|
@@ -217,6 +217,7 @@ probing 路径 ${Z42_HOME}/programs/z42c 无法解析 —— 是否没有安装 
 | `jit-profile` | `Z42_JIT_PROFILE` | bool | 关 |
 | `sample-hz` | `Z42_SAMPLE_HZ` | int ≥1 | 关（不起后台线程） |
 | `sample-out` | `Z42_SAMPLE_OUT` | path | `z42-samples.folded`（仅在 `sample-hz` 设了时写） |
+| `thread-stack-bytes` | `Z42_THREAD_STACK_BYTES` | string（字节数或带后缀） | `16M` |
 | `trace-out` | `Z42_TRACE_OUT` | path | 不写 trace |
 
 逐条取值语义：
@@ -242,6 +243,9 @@ probing 路径 ${Z42_HOME}/programs/z42c 无法解析 —— 是否没有安装 
   `on`/`off`。
 - **`sample-hz`** — safepoint 采样剖析器频率（Hz），任何 ≥1 的值即开启 z42 级 CPU 采样。
 - **`sample-out`** — 采样火焰图的 folded-stacks 输出路径（inferno 格式）。
+- **`thread-stack-bytes`** — VM 创建的线程（`Std.Threading.Thread`、嵌入式 app 运行线程）的
+  原生栈大小，写法同 `gc-max-bytes`。z42 调用在原生栈上递归，栈用完是**致命错误**（打印 z42
+  调用栈后退出，`catch` 拦不住），所以它决定了程序能递归多深。主线程的栈由操作系统决定，不受它影响。
 - **`trace-out`** — chrome / perfetto 采样时间线 JSON 的输出路径；设了它就额外录一份
   逐采样时间线。
 

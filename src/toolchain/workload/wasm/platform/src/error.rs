@@ -20,6 +20,7 @@ pub(crate) fn to_js_error(e: HostError) -> JsValue {
         HostError::EntryNotFound(m) => ("EntryNotFound", 20, m.clone()),
         HostError::ArgMismatch(m) => ("ArgMismatch", 21, m.clone()),
         HostError::VmException(m) => ("VmException", 30, m.clone()),
+        HostError::Fatal(m) => ("Fatal", 31, m.clone()),
         HostError::Internal(m) => ("Internal", 99, m.clone()),
     };
     js_error(name, status, &message)

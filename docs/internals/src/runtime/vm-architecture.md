@@ -42,6 +42,7 @@ vm.run(&ctx, hint)?;
 - `native_libs: Mutex<Vec<libloading::Library>>` — 已加载的 native 库句柄（同上 cfg）
 - `ext_builtins: Mutex<ExtBuiltinTable>` — stdlib 原生扩展库注册的 builtin（`native::ext::load_all` 填充；同上 cfg）
 - `pinned_owned_buffers: Mutex<HashMap<u64, Box<[u8]>>>` — `Value::PinnedView` 的 owned 缓冲
+- `fatal: AtomicBool` — 致命 VM 错误（栈溢出）正在展开，见下文「原生栈预算」
 - `processes: ResourceRegistry<ProcessSlot>` — `Std.IO.Process` 子进程注册表
 - `heap: Box<dyn MagrGC>` — GC 子系统接口（后端 `ArcMagrGC`）
 - `module: Option<Arc<Module>>` — 用户编译后的 Module，跨线程共享；测试路径 `None`，生产路径 `Some(Arc::new(module))`
@@ -129,6 +130,28 @@ blob）、`transient_arena`（`Ref`/`PinnedView`/`StackClosure`/`StructRefHeap` 
 的 `VmGuard` RAII。
 
 ---
+
+## 原生栈预算：栈溢出是致命错误
+
+两个引擎都在原生栈上递归（每个 z42 调用至少一个 Rust / 机器码帧），所以递归深度受线程栈限制。
+`stack_guard`（`src/runtime/src/stack_guard.rs`）在**每个 z42 帧入口**比较栈指针与本线程的下限：
+
+- 下限 = 栈底 + 余量，余量为栈大小的 1/8、夹在 256 KiB–1 MiB（给两次检查之间的原生工作：builtin、
+  一次惰性 JIT 编译、生成报告）。栈边界来自 `pal::stack`，线程首次进入时算一次，存 TLS。
+- interp：`exec_function_body` 在 `push_frame` 之后检查（报告里含这一帧），越界返回内部错误。
+- JIT：函数 prologue 内联 `get_stack_pointer` 与 `JitModuleCtx::stack_limit` 比较（`run_fn` 按当前
+  线程设置；JIT 代码只在该线程上跑），越界调 `jit_stack_overflow` 后返回「已抛出」。
+
+越界时记下 z42 调用栈、置 `VmCore.fatal`（每个 VM 一份，同一 VM 的所有线程共享）。之后：
+
+- interp 的 `find_handler` 与 JIT 的 catch 分发（`jit_fatal_pending`）一律不进 handler，`finally` 也不跑；
+- builtin 错误不再转成 `Std.Exception`（`exec_call::builtin`）；
+- 于是错误一路退到最外层入口：`z42vm` 打印报告、以退出码 3 结束；`z42_host_run_app` 返回 3；
+  `z42_host_invoke` 返回 `Z42_HOST_ERR_FATAL`。
+
+不支持 catch 的理由与决策见 [reference：栈溢出是致命错误](https://z42-lang.github.io/z42/reference/language/exceptions.html)。
+VM 创建的线程（`Std.Threading.Thread`、`z42_host_run_app` 的运行线程）栈大小来自 `thread-stack-bytes`
+（默认 16 MiB）。
 
 ## VM 启动流程
 

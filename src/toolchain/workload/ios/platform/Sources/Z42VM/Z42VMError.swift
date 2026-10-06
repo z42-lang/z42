@@ -15,6 +15,8 @@ public enum Z42VMError: Error, CustomStringConvertible {
     case entryNotFound(String)
     case argMismatch(String)
     case vmException(String)
+    /// Fatal VM error (stack overflow); shut the VM down.
+    case fatal(String)
     case `internal`(String)
 
     /// Numeric `Z42HostStatus` value (1..99).
@@ -29,6 +31,7 @@ public enum Z42VMError: Error, CustomStringConvertible {
         case .entryNotFound:  return 20
         case .argMismatch:    return 21
         case .vmException:    return 30
+        case .fatal:          return 31
         case .internal:       return 99
         }
     }
@@ -38,7 +41,7 @@ public enum Z42VMError: Error, CustomStringConvertible {
         case let .alreadyInit(m), let .notInit(m), let .badConfig(m),
              let .featureOff(m), let .badZbc(m), let .verification(m),
              let .entryNotFound(m), let .argMismatch(m),
-             let .vmException(m), let .internal(m):
+             let .vmException(m), let .fatal(m), let .internal(m):
             return m
         }
     }
@@ -59,6 +62,7 @@ public enum Z42VMError: Error, CustomStringConvertible {
         case 20: return .entryNotFound(message)
         case 21: return .argMismatch(message)
         case 30: return .vmException(message)
+        case 31: return .fatal(message)
         default: return .internal(message)
         }
     }

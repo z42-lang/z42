@@ -27,6 +27,7 @@ fn make_jit_ctx(vm_ctx: &VmContext) -> JitModuleCtx {
         jit_threshold:    1,
         osr_entries:      std::sync::Mutex::new(std::collections::HashMap::new()),
         osr_threshold:    10_000,
+        stack_limit: 0,
     }
 }
 

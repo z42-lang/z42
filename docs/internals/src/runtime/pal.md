@@ -37,6 +37,7 @@ pal/
 ├── system.rs            — hostname / os_version
 ├── fs.rs                — make_executable / symlink
 ├── signal.rs            — POSIX signal 原语（unix）
+├── stack.rs             — 当前线程的原生栈边界（`stack_guard` 用）
 └── system_tests.rs      — 单元测试
 ```
 
@@ -97,6 +98,14 @@ pub fn signal_name(sig: i32) -> &'static [u8];
 pub fn reset_default_and_reraise(sig: i32);                  // SIG_DFL + raise
 pub mod sigsafe { pub fn write_str / write_dec_u32 / write_hex_u64 }
 ```
+
+`register_fatal_handlers` 注册后给每个信号补上 `SA_ONSTACK`：`signal-hook-registry` 注册时不带它，
+原生代码撞上栈的 guard page 时 SIGSEGV handler 就跑在已经耗尽的栈上，进程无声死亡。带上后 handler
+跑在线程的备用信号栈上（Rust 运行时为主线程和每个 `std::thread` 都建了一个）。
+
+`pal/stack.rs` 的 `current_thread_stack() -> Option<(low, high)>`：macOS / iOS 用
+`pthread_get_stackaddr_np` + `pthread_get_stacksize_np`，Linux / Android 用 `pthread_getattr_np`，
+Windows 用 `GetCurrentThreadStackLimits`；其他平台返回 `None`，栈检查对该线程关闭。
 
 `signal_handler.rs` 保留 z42 崩溃 reporter（`install` / `handler` / `write_call_stacks`
 走 VM_CORES），call `crate::pal::signal::*`（async-signal-safe 约束）。Windows VEH

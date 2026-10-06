@@ -643,7 +643,9 @@ fn classify_config_error(e: config::ConfigError) -> Z42HostStatus {
 /// `ops::invoke_impl`) because it has a structural cause rather than a
 /// runtime error string.
 fn classify_invoke_error(msg: &str) -> Z42HostStatus {
-    if msg.contains("arg-count-mismatch:") {
+    if msg.starts_with(crate::stack_guard::FATAL_PREFIX) {
+        Z42HostStatus::Fatal
+    } else if msg.contains("arg-count-mismatch:") {
         Z42HostStatus::ArgMismatch
     } else if msg.contains("uncaught exception") || msg.contains("undefined function") {
         // "undefined function" is the interp's dispatch-time error for
@@ -719,7 +721,13 @@ pub unsafe extern "C" fn z42_host_run_app(
                 print_stats: false,
                 stats_json: false,
             };
-            match crate::app::run(&app, entry_owned.as_deref(), opts) {
+            let result = crate::app::run(&app, entry_owned.as_deref(), opts);
+            // runtime-audit P0-4: fatal VM error → its report + the fixed code.
+            if let Some(report) = crate::stack_guard::take_report() {
+                eprintln!("z42_host_run_app: {report}");
+                return crate::stack_guard::EXIT_CODE;
+            }
+            match result {
                 Ok(()) => 0,
                 Err(e) => {
                     eprintln!("z42_host_run_app: {e:#}");
@@ -743,10 +751,11 @@ pub unsafe extern "C" fn z42_host_run_app(
             // a program needing >8 MB would already fail on desktop. Virtual
             // reservation on 64-bit (only touched pages commit), well within
             // Android/iOS per-thread limits.
-            const EMBED_STACK: usize = 16 * 1024 * 1024;
+            // runtime-audit P0-4: configurable as `thread-stack-bytes` (default 16M).
+            let embed_stack = crate::config::runtime_config().vm_thread_stack_size();
             match std::thread::Builder::new()
                 .name("z42-embedded-run".to_string())
-                .stack_size(EMBED_STACK)
+                .stack_size(embed_stack)
                 .spawn(run_vm)
             {
                 Ok(h) => match h.join() {

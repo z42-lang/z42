@@ -10,6 +10,7 @@
 //!
 //! - [`system`] — hostname / OS version (Phase 1).
 //! - [`fs`] — file-system OS calls: `make_executable` / `symlink` (Phase 2).
+//! - [`stack`] — the calling thread's native stack bounds (`stack_guard`).
 //! - `signal` (unix) — fatal-signal registration + async-signal-safe write
 //!   primitives + signal-name table (Phase 3). The z42 crash *reporter*
 //!   (`signal_handler.rs`) drives these; pal owns only the OS primitives.
@@ -23,6 +24,7 @@
 
 pub mod system;
 pub mod fs;
+pub mod stack;
 
 #[cfg(unix)]
 pub mod signal;

@@ -208,11 +208,14 @@ pub fn translate_function(
     // (counter hit 0) calls a helper. `hr_check_safepoint` is retained for
     // reference / tests but no longer emitted on the hot path.
     let hr_check_safepoint_slow = imp!(helper_ids.check_safepoint_slow);
+    let hr_stack_overflow  = imp!(helper_ids.stack_overflow);
+    let hr_fatal_pending   = imp!(helper_ids.fatal_pending);
     let hr_regs_ptr        = imp!(helper_ids.regs_ptr);
 
     // add-gc-safepoint-jit (2026-05-21): function-entry safepoint check.
     // A spawned worker that enters JIT-compiled code immediately after
     // spawn must respect a pending GC pause before touching any roots.
+    emit_stack_check(&mut builder, ptr, ctx_val, frame_val, hr_stack_overflow);
     emit_safepoint_check(&mut builder, ptr, ctx_val, frame_val, hr_check_safepoint_slow);
 
     // review.md C2 P1 step 1 (2026-05-28): cache `frame.regs.as_mut_ptr()`
@@ -355,7 +358,7 @@ pub fn translate_function(
             catch_info, catch_chain: &catch_chain,
             hoisted_arrays: &hoisted_arrays, hoisted_fields: &hoisted_fields,
             hoisted_ref_fields: &hoisted_ref_fields,
-            hr_const_i32, hr_const_i64, hr_const_f64, hr_const_bool, hr_const_char, hr_const_null, hr_const_str, hr_copy, hr_add, hr_sub, hr_mul, hr_div, hr_rem, hr_eq, hr_ne, hr_lt, hr_le, hr_gt, hr_ge, hr_and, hr_or, hr_not, hr_neg, hr_bit_and, hr_bit_or, hr_bit_xor, hr_bit_not, hr_shl, hr_shr, hr_str_concat, hr_to_str, hr_call, hr_builtin, hr_array_new, hr_array_new_lit, hr_array_get, hr_array_data, hr_array_set, hr_array_len, hr_obj_new, hr_typeof, hr_field_get, hr_field_set, hr_vcall, hr_is_instance, hr_as_cast, hr_static_get, hr_static_set, hr_struct_alloc, hr_struct_copy, hr_struct_field_get_prim, hr_struct_field_set_prim, hr_get_bool, hr_set_ret, hr_throw, hr_install_catch, hr_match_catch_type, hr_load_fn, hr_mk_clos, hr_call_indirect, hr_load_fn_cached, hr_default_of, hr_convert, hr_check_safepoint_slow,
+            hr_const_i32, hr_const_i64, hr_const_f64, hr_const_bool, hr_const_char, hr_const_null, hr_const_str, hr_copy, hr_add, hr_sub, hr_mul, hr_div, hr_rem, hr_eq, hr_ne, hr_lt, hr_le, hr_gt, hr_ge, hr_and, hr_or, hr_not, hr_neg, hr_bit_and, hr_bit_or, hr_bit_xor, hr_bit_not, hr_shl, hr_shr, hr_str_concat, hr_to_str, hr_call, hr_builtin, hr_array_new, hr_array_new_lit, hr_array_get, hr_array_data, hr_array_set, hr_array_len, hr_obj_new, hr_typeof, hr_field_get, hr_field_set, hr_vcall, hr_is_instance, hr_as_cast, hr_static_get, hr_static_set, hr_struct_alloc, hr_struct_copy, hr_struct_field_get_prim, hr_struct_field_set_prim, hr_get_bool, hr_set_ret, hr_throw, hr_install_catch, hr_match_catch_type, hr_load_fn, hr_mk_clos, hr_call_indirect, hr_load_fn_cached, hr_default_of, hr_convert, hr_check_safepoint_slow, hr_fatal_pending,
         };
         for (instr_idx, instr) in z42_block.instructions.iter().enumerate() {
             cx.instr_idx = instr_idx;

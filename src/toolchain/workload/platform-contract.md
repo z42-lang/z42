@@ -193,6 +193,7 @@ zpkg 文件本身**由 `dotnet build src/compiler/z42.slnx` 编译标准库产�
 | `ENTRY_NOT_FOUND` | `.entryNotFound(message)` | code=20 | `name: "EntryNotFound"` |
 | `ARG_MISMATCH` | `.argMismatch(message)` | code=21 | `name: "ArgMismatch"` |
 | `VM_EXCEPTION` | `.vmException(message)` | code=30 | `name: "VMException"` |
+| `FATAL` | `.fatal(message)` | code=31 | `name: "Fatal"` |
 | `INTERNAL` | `.internal(message)` | code=99 | `name: "Internal"` |
 
 实施细节见 [embedding.md §10 错误处理](../../../../docs/internals/src/runtime/embedding.md)。

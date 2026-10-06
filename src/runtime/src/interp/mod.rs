@@ -110,6 +110,9 @@ fn exec_function_body(ctx: &VmContext, module: &Module, func: &Function, mut fra
         &frame.env_arena as *const Vec<Vec<Value>>,
     ));
     let _frame_guard = FrameGuard { ctx };
+    // runtime-audit P0-4: stack overflow is fatal — checked once the frame is
+    // on the call stack, so the report includes it.
+    crate::stack_guard::check(ctx)?;
 
     // add-gc-safepoint (2026-05-20): every newly-entered z42 function immediately respects a
     // pending GC request — a worker thread spawned mid-collect parks here before touching any
