@@ -1,0 +1,39 @@
+namespace Demo;
+
+// 嵌套类型的合成构造器（默认构造器 / 继承来的构造器）：名字必须是源码短名（`Inner`），与调用点一致。
+// 曾经发成 `Outer+Inner.Outer+Inner`，调用点按 `Outer+Inner.Inner` 找不到 ⇒ 运行期按「无构造器」直接分配，
+// 字段初始化器静默不执行（`V` 读出 0）。
+class Outer {
+    public class Inner {
+        public int V = 3;
+        public string S = "init";
+    }
+
+    public class Base {
+        public int W;
+        public Base(int w) { this.W = w; }
+    }
+
+    public class Derived : Base {
+        public int V = 7;
+    }
+
+    public struct Point {
+        public int X = 1;
+        public int Y = 2;
+    }
+}
+
+void Main() {
+    Outer.Inner i = new Outer.Inner();
+    Assert.Equal(3, i.V);
+    Assert.Equal("init", i.S);
+
+    Outer.Derived d = new Outer.Derived(5);
+    Assert.Equal(5, d.W);
+    Assert.Equal(7, d.V);
+
+    Outer.Point p = new Outer.Point();
+    Assert.Equal(1, p.X);
+    Assert.Equal(2, p.Y);
+}

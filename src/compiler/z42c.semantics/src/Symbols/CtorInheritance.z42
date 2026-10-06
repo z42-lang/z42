@@ -201,7 +201,7 @@ public sealed class CtorInheritance {
         }
         string mods = m.Visibility;
         if (mods == "") { mods = "public"; }
-        MethodDecl md = new MethodDecl(mods, false, true, new NamedType("", new TypeExpr[0], 0, sp), c.Name,
+        MethodDecl md = new MethodDecl(mods, false, true, new NamedType("", new TypeExpr[0], 0, sp), CtorInheritance._ctorName(c),
                                        new TypeParamList(new string[0], 0, sp), new WhereClause[0], 0,
                                        ps, pc, true, new BlockStmt(new Stmt[0], 0, sp), fwd, pc, false, sp);
         md.HasCtorInit = true;
@@ -209,9 +209,18 @@ public sealed class CtorInheritance {
         return md;
     }
 
+    // 合成构造器的名字 = 源码短名，与解析器给显式构造器起的名字一致（`public Inner() { }` 的名字是 `Inner`）。
+    // 嵌套类型经 NestedFlatten 后 `c.Name` 是 `Outer+Inner`：此前直接拿它当构造器名，发出 `Outer+Inner.Outer+Inner`，
+    // 而调用点按短名找 `Outer+Inner.Inner` ⇒ 运行期找不到构造器、按「无构造器」直接分配 ⇒ 字段初始化器静默不执行
+    // （`public int V = 3;` 读出 0）。
+    private static string _ctorName(ClassDecl c) {
+        int p = c.Name.LastIndexOf("+");
+        return p < 0 ? c.Name : c.Name.Substring(p + 1);
+    }
+
     private MethodDecl _defaultCtor(ClassDecl c) {
         Span sp = c.Span;
-        MethodDecl md = new MethodDecl("public", false, true, new NamedType("", new TypeExpr[0], 0, sp), c.Name,
+        MethodDecl md = new MethodDecl("public", false, true, new NamedType("", new TypeExpr[0], 0, sp), CtorInheritance._ctorName(c),
                                        new TypeParamList(new string[0], 0, sp), new WhereClause[0], 0,
                                        new Param[0], 0, true, new BlockStmt(new Stmt[0], 0, sp), new Expr[0], 0, false, sp);
         md.IsSynthesized = true;
