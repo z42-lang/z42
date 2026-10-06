@@ -128,6 +128,25 @@ SoT 是脚本里的 `non_sdk_re`，这张表随它改。
 `publish-nightly` 自身仍是全局串行（job 级 `cancel-in-progress: false`）。main 运行不再互相取消后，较早的运行
 可能排在较新的之后才发布，所以它先查一次：**nightly 已指向本 commit 的后代** ⇒ 跳过，不拿旧 commit 覆盖新 nightly。
 
+串行靠 job 级 concurrency group，而 GitHub 每个 group **只保留一个等待者**：连续合并时，排队中的较早发布会被
+更新运行的发布顶掉（`Canceling since a higher priority waiting request …`）。这是想要的结局——顶替者已过全部
+前置 job、发布的是超集——所以 `ci-ok` 把 `publish-nightly = cancelled` 视为可接受（打印一行说明），main 上的
+commit 不因此挂红。publish 真失败照样红。
+
+### PR 运行的并发上限
+
+账号的 runner 池约 20 个并发 job，一次 PR 运行扇出 10~15 个；几个 PR 同时推就互相挤占、个个都慢。
+`detect-changes` 末尾的闸门（`.github/ci/pr-gate.sh`，上限 `CAP` 在 ci.yml 该步骤的 `env` 里，当前 3）让同时
+「在跑重 job」的 PR 运行不超过 `CAP` 个，其余在闸门里先来先过地排队（按 `run_number`；下游 job 都 `needs: changes`，
+所以整次运行一起等）：
+
+- 「在跑」= 运行里已出现 detect-changes / docs-check 以外的 job；「在排队」= detect-changes 还没结束；只有
+  detect-changes / docs-check 的轻量运行（纯文档 PR）不占名额。
+- 放行条件：比我早的「在跑」+「在排队」< `CAP`。只看比自己早的运行，API 调用随排队位置而非 PR 总数增长；
+  两个运行同时判定可能短暂超出 1 个。
+- 等满 90 分钟一律放行（防卡死）；`detect-changes` 的超时随之放宽到 100 分钟。
+- 纯文档 PR、main push、schedule、dispatch 不经过闸门。同一 PR 的新 push 照旧取消旧运行（连同它在闸门里的等待）。
+
 `detect-changes` 用 `dorny/paths-filter` 输出 flag，下游 job `needs: changes` + `if:` 门控：
 
 | flag | 命中路径（节选） |

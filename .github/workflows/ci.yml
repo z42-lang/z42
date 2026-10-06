@@ -28,7 +28,8 @@ jobs:
   # 按改动路径给重 job 开关；schedule / dispatch 下各 filter 恒 false，相应 job 的 if: 另有放行。
   changes:
     name: detect-changes
-    timeout-minutes: 15
+    # 含 PR 闸门的排队时间（pr-gate.sh 最多等 90 分钟后放行）。
+    timeout-minutes: 100
     runs-on: ubuntu-latest
     permissions:
       actions: write        # main-supersede：取消被替换的 main push 运行
@@ -139,6 +140,16 @@ jobs:
           if [ -n "$files" ] && [ -z "$nondoc" ] && [ -z "$learn" ]; then docs_only=true; fi
           echo "docs_only=$docs_only"
           echo "docs_only=$docs_only" >> "$GITHUB_OUTPUT"
+
+      # PR 并发闸门：同时在跑重 job 的 PR 运行不超过 CAP 个，其余在这里先来先过地排队（下游 job 都等本 job）。
+      # 纯文档 PR 与 main push / schedule / dispatch 不排队。判据与上限的取舍见 .github/ci/pr-gate.sh 头注。
+      - name: PR CI gate (queue when too many PR runs are active)
+        if: github.event_name == 'pull_request' && steps.docsonly.outputs.docs_only != 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CAP: "3"
+        run: .github/ci/pr-gate.sh
 
   # ── 纯文档改动的全部门禁：死链 + gate 清单对账、诊断码文档对账。不需要 SDK，xtask 用种子 z42c 编出即可。
   docs-check:
@@ -1328,6 +1339,12 @@ jobs:
           set -euo pipefail
           results="${RESULTS:?}"
           echo "$results" | jq -r 'to_entries[] | "  \(.key): \(.value.result)"'
-          bad=$(echo "$results" | jq -r '[to_entries[] | select(.value.result != "success" and .value.result != "skipped") | "\(.key)=\(.value.result)"] | join(", ")')
+          # publish-nightly 的发布按 job 级 concurrency 串行，等待中的会被更新的运行顶掉（GitHub 每组只留一个等待者）。
+          # 顶掉它的那个已过全部前置 job、发布的是超集 ⇒ 这里的 cancelled 是正常结局，不算红。
+          bad=$(echo "$results" | jq -r '[to_entries[] | select(.value.result != "success" and .value.result != "skipped")
+            | select((.key == "publish-nightly" and .value.result == "cancelled") | not) | "\(.key)=\(.value.result)"] | join(", ")')
           if [ -n "$bad" ]; then echo "::error::not green: $bad"; exit 1; fi
+          if echo "$results" | jq -e '.["publish-nightly"].result == "cancelled"' >/dev/null; then
+            echo "note: publish-nightly 被更新的 main 运行接管（发布排队被顶替），nightly 由它发布"
+          fi
           echo "✓ all jobs green or skipped"
