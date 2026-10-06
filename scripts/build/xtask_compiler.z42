@@ -42,6 +42,9 @@ int _buildCompiler() {
 // （可直接跑，兄弟包从自身目录解析，Z42_LIBS 只需 stdlib）。幂等（删+拷覆盖）。
 // z42c build(exe) 本已 bundle（simplify-compiler-build 阶段1）；此处对种子/旧版 z42c
 // 建的 driver 兜底，保证下游一律跑自包含 driver，无需拼 colocated 目录。
+//
+// 🔴 **zpkg 与 zsym 成对拷**：只拷 zpkg 会留下上一代的 zsym ⇒ 加载时 `build_id mismatch` WARN，
+// 且 driver bundle 与成员 dist 不再是同一份产物。
 void _ensureDriverSelfContained(string root, string profile, string[] members) {
     string driverDist = _driverDist(root, profile);
     int i = 0;
@@ -49,21 +52,22 @@ void _ensureDriverSelfContained(string root, string profile, string[] members) {
         string m = members[i];
         i = i + 1;
         if (m == "z42c.driver") { continue; }
-        string src = _compilerMemberZpkg(root, m, profile);
-        string dst = Path.Join(driverDist, m + ".zpkg");
-        if (File.Exists(src) && src != dst) {
-            if (File.Exists(dst)) { File.Delete(dst); }
-            File.Copy(src, dst);
-        }
+        string memberDist = _compilerMemberDist(root, m, profile);
+        if (memberDist != driverDist) { _copyZpkgPair(memberDist, driverDist, m); }
     }
-    // 前端库（route A 后 z42c.core + z42c.syntax 已挪入 src/libraries，非 compiler member）也被 driver
-    // 自包含 bundle。它们不在 members 循环里 → 若只刷 member，driver 会一直带**旧种子前端**（如缺新增
-    // syntax 节点 TupleExpr），冷启动 semantics self-build 报 `undefined type`、且内部环重试无法收敛
-    // （见 _buildCompilerViaZ42c line 72）。故须从 fresh libraries dist 同步这两个前端库进 driver bundle，
-    // 使重试用的 driver 认得当前源新增的前端符号（post-#317 冷启动收敛的必要环节）。
-    string libDist = _libsFlatDist(root, profile);
-    _copyIfNewer(Path.Join(libDist, "z42c.core.zpkg"),   Path.Join(driverDist, "z42c.core.zpkg"));
-    _copyIfNewer(Path.Join(libDist, "z42c.syntax.zpkg"), Path.Join(driverDist, "z42c.syntax.zpkg"));
+    // 破环窗口：`_ensureBootstrapSelfDepLibs` 刚把**当前源**的前端（z42c.core / z42c.syntax）预建进 flat，
+    // 比成员 dist 里上一代的新 ⇒ 用它，让 workspace 自建（及其重试）用的 driver 认得当前源新增的前端符号
+    // （缺了就是冷启动 semantics 报 `undefined type`、重试也收敛不了）。自建完成后预建包已从 flat 清走
+    // （`_purgeBootstrapPrebuildsFromFlat` 在最后一次自包含之前），这里自然不起作用 ⇒ 最终 bundle = 成员产物。
+    string flat = _libsFlatDist(root, profile);
+    _copyZpkgPair(flat, driverDist, "z42c.core");
+    _copyZpkgPair(flat, driverDist, "z42c.syntax");
+}
+
+// <name>.zpkg + 同名 .zsym 从 srcDir 拷到 dstDir（各自存在才拷；先删后拷，断开可能的硬链）。
+void _copyZpkgPair(string srcDir, string dstDir, string name) {
+    _copyIfNewer(Path.Join(srcDir, name + ".zpkg"), Path.Join(dstDir, name + ".zpkg"));
+    _copyIfNewer(Path.Join(srcDir, name + ".zsym"), Path.Join(dstDir, name + ".zsym"));
 }
 
 // 覆盖复制（存在即删后拷）；src 不存在则跳过（冷启动首刷时 libraries dist 可能尚未产出前端库，
@@ -239,8 +243,10 @@ int _buildCompilerViaZ42c(string root, string profile, string[] members, string 
         rc = _z42cWorkspaceBuild(vm, driver, compilerDir, seedRun, false, compileLibs);
     }
     if (rc != 0) { ConsoleError.WriteLine("  ✗ z42c --workspace self-build failed"); return 1; }
-    _ensureDriverSelfContained(root, profile, members);   // 新 gen driver 自包含（幂等兜底）
+    // 先清 flat 里的破环预建，再做最后一次自包含：反过来的话，`_ensureDriverSelfContained` 会把 flat 里
+    // **单包预建**的 z42c.core / z42c.syntax 盖在刚自建出的成员产物上 ⇒ 新 driver 带的前端与成员 dist 不是同一份。
     _purgeBootstrapPrebuildsFromFlat(root, stdlibFlat);
+    _ensureDriverSelfContained(root, profile, members);   // 新 gen driver 自包含 = 成员产物
     return 0;
 }
 
