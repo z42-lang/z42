@@ -7,10 +7,7 @@
 // ⚠️ 用例**必须带 `namespace`**：不带的话 `Fqn()` 退化成短名，FQ 与短名分不开、断言恒绿
 // = 空门。阶段 0 的 0.5 项就是为这个立的（既有用例源码都没有 namespace）。
 //
-// ⚠️ **覆盖范围**：本文件的 `collect()` 走 `SymbolCollector.Collect`（三个挂载点之一）。
-// 另两处（`CollectAll` / `CollectWithImports`）要多 CU / 导入上下文才压得到，由 stdlib 自举
-// 与 cross-zpkg 端到端兜 —— 三处漏挂任一处，那条路上的句柄会全是 0 且**静默**
-// （见 `parallel-pass-sequences-miss-new-hook`）。
+// 本文件的 `collect()` 走 `SymbolCollector.Collect` —— 它就是 `CollectAll` 的单 CU 包装，与包构建同一份序列。
 //
 // 单独成文件而不是追加进 `collect_tests.z42`：后者已 854 行，逼近 886 行硬限。
 namespace Z42cSemanticsTypeRefBindTests;
@@ -29,9 +26,8 @@ SymbolTable collect(string src) {
     return new SymbolCollector().Collect(cu).WithScopeOf(cu);
 }
 
-// ⚠️ `Collect` **不**播 `Object` 骨架 —— 只有 `CollectWithImports` / `CollectAll` 播
-// （`_seedObjectStub` 只挂在那两处）。要压 `Object` 的身份就得走这条。
-// `imported = null` 是合法输入：三个 `_merge*` 都对 null 早返回。
+// 带导入上下文的单 CU 入口（`imported = null` 合法：三个 `_merge*` 都对 null 早返回）。
+// `Object` 骨架由 `CollectAll` 播，`Collect` 与这里都有。
 SymbolTable collectWithObjectStub(string src) {
     var p = new Parser(src, "t.z42");
     var cu = p.ParseCompilationUnit();

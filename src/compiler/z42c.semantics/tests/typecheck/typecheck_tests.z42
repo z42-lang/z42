@@ -336,8 +336,9 @@ void test_error_no_such_method() {
 // ── 1D-1：is / as / new ────────────────────────────────────────────────────
 [Test]
 void test_is_expr() {
+    // `object` 绑到 `Object` 骨架类（`_seedObjectStub`）—— 单 CU 入口与包构建同一份收集序列，拼写与包构建一致。
     string src = "class C { bool Check(object o) { return o is C; } }";
-    Assert.Equal("(block (return (is (ident o :object) C :bool)))", SemanticDump.DumpBody(src, "C.Check"));
+    Assert.Equal("(block (return (is (ident o :Object) C :bool)))", SemanticDump.DumpBody(src, "C.Check"));
     Assert.Equal(0, SemanticDump.ErrorCount(src));
 }
 

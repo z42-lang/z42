@@ -63,7 +63,7 @@ void test_params_object_array_accepts_mixed_element_types() {
     string src = "class C { public static void Log(params object[] xs) { } " +
                  "void Call() { Log(1, \"hi\"); } }";
     Assert.Equal(0, SemanticDump.ErrorCount(src));
-    Assert.Equal("(block (expr (call-static C Log$1$object[] (array-lit object 2 :object[]) :void)))",
+    Assert.Equal("(block (expr (call-static C Log$1$object[] (array-lit object 2 :Object[]) :void)))",
                  SemanticDump.DumpBody(src, "C.Call"));
 }
 
