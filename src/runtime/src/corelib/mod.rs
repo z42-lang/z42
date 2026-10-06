@@ -159,14 +159,18 @@ pub fn builtin_id_of(name: &str) -> Option<BuiltinId> {
     builtin_index().get(name).copied().map(BuiltinId)
 }
 
-/// Resolve a builtin name via the per-VM extension table populated at
-/// VM startup by `native::ext::load_all`. Returns a `BuiltinId` whose
-/// high bit is set; dispatch routes it through `ext_builtins.dispatch`.
-/// Only available when the `native-interop` feature is enabled.
+/// Resolve a builtin name via the per-VM extension table. A miss loads the
+/// ext library that provides `name` (first use only, `native::ext::ensure_lib_for`)
+/// and looks again. Returns a `BuiltinId` whose high bit is set; dispatch
+/// routes it through `ext_builtins.dispatch`. Only available when the
+/// `native-interop` feature is enabled.
 #[cfg(feature = "native-interop")]
 pub fn ext_builtin_id_of(ctx: &VmContext, name: &str) -> Option<BuiltinId> {
-    ctx.core.ext_builtins.lock().lookup_id(name)
-        .map(|idx| BuiltinId(idx | BUILTIN_ID_EXT_BIT))
+    let lookup = || ctx.core.ext_builtins.lock().lookup_id(name)
+        .map(|idx| BuiltinId(idx | BUILTIN_ID_EXT_BIT));
+    lookup().or_else(|| {
+        if crate::native::ext::ensure_lib_for(ctx, name) { lookup() } else { None }
+    })
 }
 
 /// Fast-path dispatch by id. Static ids index into `BUILTINS`; ids with
@@ -205,13 +209,11 @@ pub fn exec_builtin(ctx: &VmContext, name: &str, args: &[Value]) -> Result<Optio
         return BUILTINS[id as usize].1.call(ctx, args);
     }
     #[cfg(feature = "native-interop")]
-    {
-        let ext = ctx.core.ext_builtins.lock();
-        if let Some(idx) = ext.lookup_id(name) {
-            if let Some(fn_ptr) = ext.dispatch(idx) {
-                drop(ext);  // release before invoking — wrappers may re-enter
-                return fn_ptr(ctx, args).map(Some);
-            }
+    if let Some(id) = ext_builtin_id_of(ctx, name) {
+        let fn_ptr = ctx.core.ext_builtins.lock().dispatch(id.0 & !BUILTIN_ID_EXT_BIT);
+        if let Some(fn_ptr) = fn_ptr {
+            // The table lock is released before invoking — wrappers may re-enter.
+            return fn_ptr(ctx, args).map(Some);
         }
     }
     Err(anyhow::anyhow!("unknown builtin `{name}`"))

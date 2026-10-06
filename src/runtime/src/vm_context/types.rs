@@ -187,10 +187,10 @@ pub struct VmCore {
     /// release picks the correct unlock path.
     /// (**M2**: slot-id counter embedded in the registry.)
     /// **add-z42-compression (2026-05-22)**: stdlib native extension builtins
-    /// (e.g. `__deflate_compress` from libz42_compression). Populated at VM
-    /// startup by `crate::native::ext::load_all`, which scans the SDK native
-    /// search path, dlopens each `libz42_*.{so,dylib,dll}`, and lets it
-    /// register `(name, fn_ptr)` pairs. Lookup parallels static `BUILTINS[]`;
+    /// (e.g. `__deflate_compress` from libz42_compression). Filled when a
+    /// library is first needed: a lookup miss loads the library that provides
+    /// the name (`crate::native::ext::ensure_lib_for`), which registers its
+    /// `(name, fn_ptr)` pairs. Lookup parallels static `BUILTINS[]`;
     /// see `corelib::ext_builtin_id_of` for the resolver fallback.
     /// Only present when `native-interop` feature is enabled (gated alongside
     /// the `native` module in lib.rs).

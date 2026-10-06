@@ -1,32 +1,6 @@
-//! Unit tests for `native::ext` — search path resolution + lib name parsing.
+//! Unit tests for `native::ext` — search path resolution + lazy library loading.
 
 use super::ext::*;
-use std::path::Path;
-
-#[test]
-fn parse_z42_lib_name_strips_lib_prefix_and_ext() {
-    assert_eq!(parse_z42_lib_name(Path::new("libz42_compression.dylib")).as_deref(),
-               Some("compression"));
-    assert_eq!(parse_z42_lib_name(Path::new("libz42_compression.so")).as_deref(),
-               Some("compression"));
-    assert_eq!(parse_z42_lib_name(Path::new("z42_compression.dll")).as_deref(),
-               Some("compression"));
-    assert_eq!(parse_z42_lib_name(Path::new("/abs/path/libz42_net.so")).as_deref(),
-               Some("net"));
-}
-
-#[test]
-fn parse_z42_lib_name_ignores_non_z42_prefix() {
-    assert!(parse_z42_lib_name(Path::new("libcurl.dylib")).is_none());
-    assert!(parse_z42_lib_name(Path::new("libsomething_else.so")).is_none());
-}
-
-#[test]
-fn parse_z42_lib_name_ignores_unknown_extension() {
-    assert!(parse_z42_lib_name(Path::new("libz42_compression.txt")).is_none());
-    assert!(parse_z42_lib_name(Path::new("libz42_compression.a")).is_none());
-    // .a is a staticlib, not for dlopen — correctly skipped.
-}
 
 #[test]
 fn native_search_paths_includes_default_sdk_layout() {
@@ -102,4 +76,24 @@ fn ext_builtin_table_register_and_lookup() {
     // Idempotent: re-register same name returns existing id, doesn't swap.
     let id0_again = table.register("__test_foo", f);
     assert_eq!(id0_again, id0);
+}
+
+#[cfg(not(feature = "bundled-compression"))]
+#[test]
+fn unknown_builtin_names_never_trigger_a_library_load() {
+    let ctx = crate::vm_context::VmContext::new();
+    assert!(!ensure_lib_for(&ctx, "__no_such_builtin"));
+}
+
+#[cfg(not(feature = "bundled-compression"))]
+#[test]
+fn a_library_is_looked_for_once_per_vm() {
+    // The first miss looks for libz42_compression (it may or may not sit next
+    // to the test binary); a later miss for another of its builtins does not
+    // look again.
+    let ctx = crate::vm_context::VmContext::new();
+    if ensure_lib_for(&ctx, "__deflate_compress") {
+        assert!(ctx.core.ext_builtins.lock().lookup_id("__deflate_compress").is_some());
+    }
+    assert!(!ensure_lib_for(&ctx, "__zstd_compress"), "second miss for the same library must not retry");
 }

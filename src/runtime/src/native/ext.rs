@@ -41,7 +41,7 @@ use crate::vm_context::VmContext;
 
 // ── ExtBuiltinTable ──────────────────────────────────────────────────────────
 
-/// Indexed builtin table populated at VM startup from the ext libs.
+/// Indexed builtin table, filled as ext libs are loaded (on first use).
 ///
 /// `by_name` resolves a textual `__<entry>` name to a stable index; the
 /// resolver caches this index as the low 31 bits of a `BuiltinId` with
@@ -52,6 +52,10 @@ use crate::vm_context::VmContext;
 pub struct ExtBuiltinTable {
     by_name: HashMap<String, u32>,
     by_idx:  Vec<NativeFn>,
+    /// Libraries this VM already tried to load (see `ensure_lib_for`), so a
+    /// missing library is looked for once, not on every lookup miss.
+    #[cfg_attr(feature = "bundled-compression", allow(dead_code))]
+    attempted: std::collections::HashSet<&'static str>,
 }
 
 impl ExtBuiltinTable {
@@ -81,24 +85,41 @@ impl ExtBuiltinTable {
 
 // ── Entry point ──────────────────────────────────────────────────────────────
 
-/// Scan native search paths, dlopen each `libz42_*.{so,dylib,dll}`, and
-/// register its symbols into `ctx.core.ext_builtins`. Failures are
-/// logged via `tracing::warn` but never abort VM startup — apps that
-/// don't need any ext lib still boot.
-///
-/// When `bundled-compression` is enabled (wasm default), the
-/// z42-compression cdylib is statically linked; this function short-
-/// circuits to the bundled registration path and skips dlopen entirely.
+/// VM-startup hook. The bundled build (wasm) registers the statically linked
+/// z42-compression entries here — no I/O involved. The dlopen build loads
+/// nothing at startup: a library is opened the first time one of its
+/// builtins is resolved ([`ensure_lib_for`]). Startup used to scan every
+/// native search directory and dlopen `libz42_compression` for every VM,
+/// whether or not the program compresses anything.
 pub fn load_all(ctx: &VmContext) -> Result<()> {
     #[cfg(feature = "bundled-compression")]
-    {
-        register_bundled_compression(ctx);
-        return Ok(());
-    }
+    register_bundled_compression(ctx);
+    #[cfg(not(feature = "bundled-compression"))]
+    let _ = ctx;
+    Ok(())
+}
 
+/// Load the ext library that provides builtin `name`, once per VM, if it is
+/// one of ours and not loaded yet. Returns `true` if a library was loaded by
+/// this call (the caller then looks `name` up again). Called on a lookup miss
+/// in the ext table.
+pub fn ensure_lib_for(ctx: &VmContext, name: &str) -> bool {
+    #[cfg(feature = "bundled-compression")]
+    {
+        let _ = (ctx, name);
+        false
+    }
     #[cfg(not(feature = "bundled-compression"))]
     {
-        load_via_dlopen(ctx)
+        let Some(lib) = KNOWN_EXT_LIBS.iter()
+            .find(|(_, builtins)| builtins.iter().any(|(n, _)| *n == name))
+            .map(|(lib, _)| *lib)
+        else { return false };
+        {
+            let mut table = ctx.core.ext_builtins.lock();
+            if !table.attempted.insert(lib) { return false; }
+        }
+        load_by_name(ctx, lib).unwrap_or(false)
     }
 }
 
@@ -115,54 +136,40 @@ fn register_bundled_compression(ctx: &VmContext) {
     );
 }
 
-/// The stdlib ext libs this loader knows how to wire up — the *allowlist* the
-/// eager scanner filters on.
-///
-/// Matching `libz42_<name>.*` is not enough to conclude a file is an ext lib.
-/// The third entry of [`native_search_paths`] is the raw cargo-target directory,
-/// which in a dev tree holds *every* cdylib in the workspace — `libz42_repl`
-/// (the host-only REPL editor, which has its own colocated by-name probe in
-/// `corelib::repl_native::candidates`) sits right next to `z42vm` there. Without
-/// this filter the scanner dlopen'd it, found no known symbols, parked the
-/// library for the VM lifetime, and emitted `ext: ignoring unknown lib repl` on
-/// *every* VM run in the dev tree — which, among other things, put a WARN line
-/// on stderr for all 325 golden cases. Skipping unknown names before the dlopen
-/// costs nothing and keeps the scanner to the libs it can actually register.
+/// The stdlib ext libs this loader knows how to wire up, with the builtins
+/// each one provides — the map from a missing builtin name to the library to
+/// open. Only these names are ever loaded from the search paths: the
+/// cargo-target directory (one of them, see [`native_search_paths`]) holds
+/// every cdylib of the workspace, e.g. `libz42_repl`, which has its own loader.
 #[cfg(not(feature = "bundled-compression"))]
-const KNOWN_EXT_LIBS: &[&str] = &["compression"];
+const KNOWN_EXT_LIBS: &[(&str, &[(&str, NativeFn)])] = &[
+    ("compression", COMPRESSION_BUILTINS),
+];
 
+/// Open `lib<z42_{name}>.{so,dylib,dll}` from the first native search path
+/// that has it and register its builtins. A named probe per directory — no
+/// directory listing. Logs and returns `false` when the library is missing
+/// or fails to load (the builtin then stays unresolved and its caller gets
+/// the usual missing-builtin error).
 #[cfg(not(feature = "bundled-compression"))]
-fn load_via_dlopen(ctx: &VmContext) -> Result<()> {
+fn load_by_name(ctx: &VmContext, name: &str) -> Result<bool> {
+    let file = format!(
+        "{}z42_{}{}",
+        std::env::consts::DLL_PREFIX, name, std::env::consts::DLL_SUFFIX
+    );
     for dir in native_search_paths() {
-        if !dir.is_dir() { continue; }
-        let entries = match std::fs::read_dir(&dir) {
-            Ok(e) => e,
+        let path = dir.join(&file);
+        if !path.is_file() { continue; }
+        return match load_one(ctx, &path, name) {
+            Ok(()) => Ok(true),
             Err(e) => {
-                tracing::debug!("ext: skip {}: {}", dir.display(), e);
-                continue;
+                tracing::warn!("ext: failed to load {}: {:#}", path.display(), e);
+                Ok(false)
             }
         };
-        // common-pitfalls.md §1: `read_dir` order is OS/FS-dependent and
-        // downstream `ExtBuiltinTable::register` is first-wins — two libs
-        // exporting the same builtin name would resolve non-deterministically
-        // across platforms. Sort by path so load order is stable everywhere.
-        let mut paths: Vec<PathBuf> = entries.flatten().map(|e| e.path()).collect();
-        paths.sort();
-        for path in paths {
-            if let Some(name) = parse_z42_lib_name(&path) {
-                // Filter *before* dlopen: a `libz42_*` file in a search path is
-                // not automatically ours to load. See `KNOWN_EXT_LIBS`.
-                if !KNOWN_EXT_LIBS.contains(&name.as_str()) {
-                    tracing::debug!("ext: skip `{}` ({}): not an ext lib", name, path.display());
-                    continue;
-                }
-                if let Err(e) = load_one(ctx, &path, &name) {
-                    tracing::warn!("ext: failed to load {}: {:#}", path.display(), e);
-                }
-            }
-        }
     }
-    Ok(())
+    tracing::debug!("ext: `{file}` not found in the native search paths");
+    Ok(false)
 }
 
 // ── Search paths ─────────────────────────────────────────────────────────────
@@ -200,18 +207,6 @@ pub(crate) fn native_search_paths() -> Vec<PathBuf> {
     paths
 }
 
-/// Match `libz42_<name>.{so,dylib,dll}` (with or without `lib` prefix on
-/// Windows). Returns the `<name>` suffix or `None` if the file doesn't
-/// fit the convention.
-pub(crate) fn parse_z42_lib_name(path: &std::path::Path) -> Option<String> {
-    let stem = path.file_stem()?.to_str()?;
-    let ext  = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-    if !matches!(ext, "so" | "dylib" | "dll") {
-        return None;
-    }
-    let core = stem.strip_prefix("lib").unwrap_or(stem);
-    core.strip_prefix("z42_").map(String::from)
-}
 
 /// Resolve a single native library *beside* a given directory — the "colocated
 /// native dependency" layout: a component's private native lib ships flat in the
