@@ -321,16 +321,20 @@ pub struct VmContext {
     /// runtime-audit P0-15: this thread's runtime counters (its own cache line,
     /// no cross-thread contention). Totals: `VmContext::counters_snapshot`.
     pub(crate) counters: crate::counters::RuntimeCounters,
-    /// 2026-05-10 unify-frame-chain: single source of truth for active
-    /// script frames. Each [`crate::exception::VmFrame`] carries the
-    /// `(name, file, line, column)` trace metadata **and** raw pointers
-    /// to `regs` / `env_arena` for GC root scanning.
+    /// Active script frames, one [`crate::exception::VmFrame`] per interp /
+    /// JIT activation: GC roots (raw `regs` / `env_arena` pointers) and
+    /// stack-trace rows (`func` + `pc`) in one entry.
+    ///
+    /// Owner-thread only, no lock — another thread reads it only while this
+    /// context is parked (GC root scanning, `scan_frames_parked`); the crash
+    /// signal handler reads just its published depth. See
+    /// [`super::frame_stack`].
     ///
     /// Raw ptrs valid only while the owning Rust frame
     /// (`interp::Frame` / `JitFrame`) is alive — `FrameGuard` RAII for
-    /// interp + paired `push_frame` / `pop_frame` in JIT helpers ensure
-    /// the pop runs before the owner returns.
-    pub(crate) call_stack:        Arc<Mutex<Vec<crate::exception::VmFrame>>>,
+    /// interp and `jit::invoke::call_native` for JIT pop before the owner
+    /// returns.
+    pub(crate) call_stack:        super::frame_stack::FrameStack,
     /// add-escape-analysis-stack-alloc: per-thread arena holding escape-analysis
     /// stack-allocated objects/arrays (`Value::StackObject`/`StackArray` index it).
     /// LIFO-truncated by `pop_frame` to each frame's stamped base. Scanned as GC

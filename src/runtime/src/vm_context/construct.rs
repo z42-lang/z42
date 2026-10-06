@@ -116,14 +116,13 @@ impl VmContext {
     /// the primary path.
     pub fn new_with_core(core: Arc<VmCore>) -> std::pin::Pin<Box<Self>> {
         let pending_exception: Arc<Mutex<Option<Value>>> = Arc::new(Mutex::new(None));
-        let call_stack: Arc<Mutex<Vec<crate::exception::VmFrame>>> = Arc::new(Mutex::new(Vec::new()));
 
         let ctx = Self {
             core,
             pending_exception,
             pending_thrown: Mutex::new(None),
             counters: Default::default(),
-            call_stack,
+            call_stack: Default::default(),
             stack_arena: Arc::new(Mutex::new(Default::default())),
             struct_arena: Arc::new(Mutex::new(Default::default())),
             transient_arena: Arc::new(Mutex::new(Default::default())),
@@ -178,9 +177,6 @@ impl VmContext {
 
     fn new_internal(module: Option<Arc<crate::metadata::Module>>) -> std::pin::Pin<Box<Self>> {
         let pending_exception: Arc<Mutex<Option<Value>>> = Arc::new(Mutex::new(None));
-        // 2026-05-10 unify-frame-chain: single Vec<VmFrame> replaces the
-        // previous trio (exec_stack / env_arena_stack / call_stack).
-        let call_stack: Arc<Mutex<Vec<crate::exception::VmFrame>>> = Arc::new(Mutex::new(Vec::new()));
 
         // Construct VmCore with heap embedded; scanner is installed AFTER
         // wrapping in Arc so the closure can capture Weak<VmCore> (cycle
@@ -338,24 +334,28 @@ impl VmContext {
                     }
                     // live z42 frame state — unified VmFrame entries.
                     //
-                    // SAFETY (frame.regs / env_arena): raw ptrs valid for
-                    // the lifetime of the owning Rust frame (FrameGuard
-                    // RAII for interp; paired push/pop for JIT). GC
-                    // collect is invoked from inside script code, so
-                    // every walk sees pointers still in-bounds.
-                    for frame in ctx.call_stack.lock().iter() {
-                        unsafe {
-                            for v in (*frame.regs).iter() {
-                                visit(v);
-                            }
-                            if !frame.env_arena.is_null() {
-                                for env in (*frame.env_arena).iter() {
-                                    for v in env.iter() {
-                                        visit(v);
+                    // SAFETY (frame stack): the scanner runs only inside a GC
+                    // pause (`request_gc_pause` → `Marking`), where every
+                    // other registered context is parked and this one is the
+                    // collector's own — `scan_frames_parked`'s contract.
+                    // SAFETY (frame.regs / env_arena): raw ptrs valid for the
+                    // lifetime of the owning Rust frame (FrameGuard RAII for
+                    // interp; `call_native` for JIT), which outlives the park.
+                    unsafe {
+                        ctx.scan_frames_parked(|frames| {
+                            for frame in frames {
+                                for v in (*frame.regs).iter() {
+                                    visit(v);
+                                }
+                                if !frame.env_arena.is_null() {
+                                    for env in (*frame.env_arena).iter() {
+                                        for v in env.iter() {
+                                            visit(v);
+                                        }
                                     }
                                 }
                             }
-                        }
+                        });
                     }
                     // unify-gc-heap PR-4: per-context interned string cache — the GC
                     // strings lazily allocated for ConstStr pool literals live only
@@ -418,19 +418,23 @@ impl VmContext {
                     if let Some(v) = ctx.pending_thrown.lock().as_ref() {
                         visit(v, RootKind::StackFrame);
                     }
-                    for frame in ctx.call_stack.lock().iter() {
-                        unsafe {
-                            for v in (*frame.regs).iter() {
-                                visit(v, RootKind::StackFrame);
-                            }
-                            if !frame.env_arena.is_null() {
-                                for env in (*frame.env_arena).iter() {
-                                    for v in env.iter() {
-                                        visit(v, RootKind::StackFrame);
+                    // SAFETY: as in the mark scanner above — callers hold the
+                    // GC pause, so other contexts are parked.
+                    unsafe {
+                        ctx.scan_frames_parked(|frames| {
+                            for frame in frames {
+                                for v in (*frame.regs).iter() {
+                                    visit(v, RootKind::StackFrame);
+                                }
+                                if !frame.env_arena.is_null() {
+                                    for env in (*frame.env_arena).iter() {
+                                        for v in env.iter() {
+                                            visit(v, RootKind::StackFrame);
+                                        }
                                     }
                                 }
                             }
-                        }
+                        });
                     }
                     ctx.stack_arena
                         .lock()
@@ -452,7 +456,7 @@ impl VmContext {
             pending_exception,
             pending_thrown: Mutex::new(None),
             counters: Default::default(),
-            call_stack,
+            call_stack: Default::default(),
             stack_arena: Arc::new(Mutex::new(Default::default())),
             struct_arena: Arc::new(Mutex::new(Default::default())),
             transient_arena: Arc::new(Mutex::new(Default::default())),

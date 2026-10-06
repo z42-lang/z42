@@ -18,11 +18,18 @@
 //!
 //! # Stack walk strategy
 //!
-//! Walking the z42 call stack requires reading
-//! [`vm_context::VM_CORES`] → each `Arc<VmCore>` → each
-//! `VmContext.call_stack`. All three are behind `Mutex`. Handler uses
-//! `try_lock` everywhere — on contention, writes a placeholder and
-//! continues. This trades capture completeness for deadlock safety.
+//! The handler walks [`vm_context::VM_CORES`] → each `Arc<VmCore>` → each
+//! registered `VmContext`. The two registries are behind `Mutex`es and are
+//! taken with `try_lock` — on contention it writes a placeholder and
+//! continues, trading completeness for deadlock safety.
+//!
+//! A context's frame stack is owner-thread only (`vm_context/frame_stack.rs`),
+//! so the handler prints full frames only for the contexts **the crashing
+//! thread owns** — it runs on that thread, so reading them is an owner read.
+//! For every other context it prints just the frame count, read from the
+//! stack's published-depth atomic: another thread may be pushing or popping
+//! right now, and dereferencing its frames could fault again and lose the
+//! whole report.
 //!
 //! # Termination
 //!
@@ -111,7 +118,7 @@ extern "C" fn handler(sig: i32) {
     // 2. Build banner
     write_banner(libc::STDERR_FILENO);
 
-    // 3. Z42 call stacks (best-effort, try_lock)
+    // 3. Z42 call stacks (best-effort, try_lock; other threads: frame count only)
     write_call_stacks(libc::STDERR_FILENO);
 
     // 4. Mirror to crash_report fd if configured
@@ -141,13 +148,14 @@ fn write_banner(fd: i32) {
     sigsafe::write_str(fd, b")\n");
 }
 
-/// Walk VM_CORES → vm_contexts → call_stack via try_lock everywhere.
-/// On any lock contention, writes a placeholder for that scope and continues.
+/// Walk VM_CORES → vm_contexts via try_lock; on contention, write a
+/// placeholder for that scope and continue. Frames are printed only for the
+/// crashing thread's own contexts (see the module docs).
 ///
 /// **Note**: VM_CORES uses `std::sync::Mutex` (const fn for static init);
-/// inner `core.vm_contexts` and `ctx.call_stack` use `parking_lot::Mutex`
-/// whose `try_lock` returns `Option<MutexGuard>` (not `Result`). Each
-/// `match` arm is shaped to its mutex type.
+/// `core.vm_contexts` uses `parking_lot::Mutex` whose `try_lock` returns
+/// `Option<MutexGuard>` (not `Result`). Each `match` arm is shaped to its
+/// mutex type.
 fn write_call_stacks(fd: i32) {
     use crate::vm_context::VM_CORES;
 
@@ -199,31 +207,46 @@ fn write_call_stacks(fd: i32) {
             // Drop). See SAFETY block at vm_context.rs::VmContextPtr.
             let ctx_ref = unsafe { &*ctx_ptr.0 };
 
-            sigsafe::write_str(fd, b"  thread #");
-            sigsafe::write_dec_u32(fd, ctx_idx as u32);
-
-            // ctx.call_stack: Arc<parking_lot::Mutex<Vec<VmFrame>>>
-            let frames = match ctx_ref.call_stack.try_lock() {
-                Some(g) => g,
-                None => {
-                    sigsafe::write_str(fd, b": <call_stack lock contended>\n");
-                    continue;
+            let stack = &ctx_ref.call_stack;
+            if stack.owned_by_current_thread() {
+                // SAFETY: this thread owns the stack (it pushed the bottom
+                // frame and has not emptied it since), so this is an owner
+                // read; the handler pushes / pops nothing.
+                unsafe {
+                    stack.scan_parked(|frames| {
+                        write_thread_header(fd, ctx_idx, frames.len(), true);
+                        for (i, frame) in frames.iter().enumerate() {
+                            sigsafe::write_str(fd, b"    #");
+                            sigsafe::write_dec_u32(fd, i as u32);
+                            sigsafe::write_str(fd, b"  ");
+                            write_frame(fd, frame);
+                        }
+                    });
                 }
-            };
-
-            sigsafe::write_str(fd, b" (");
-            sigsafe::write_dec_u32(fd, frames.len() as u32);
-            sigsafe::write_str(fd, b" frame(s))\n");
-
-            for (i, frame) in frames.iter().enumerate() {
-                sigsafe::write_str(fd, b"    #");
-                sigsafe::write_dec_u32(fd, i as u32);
-                sigsafe::write_str(fd, b"  ");
-                write_frame(fd, frame);
+            } else {
+                write_thread_header(fd, ctx_idx, stack.published_depth(), false);
             }
         }
     }
     sigsafe::write_str(fd, b"===\n");
+}
+
+/// One context's header line:
+///
+/// - `  thread #<i> (<n> frame(s))` — empty stack, or the crashing thread's
+///   own stack (its frames follow);
+/// - `  thread #<i> (<n> frame(s), other thread: frames not read)` — any other
+///   thread's stack, whose frames the handler must not dereference.
+fn write_thread_header(fd: i32, ctx_idx: usize, depth: usize, crashing: bool) {
+    sigsafe::write_str(fd, b"  thread #");
+    sigsafe::write_dec_u32(fd, ctx_idx as u32);
+    sigsafe::write_str(fd, b" (");
+    sigsafe::write_dec_u32(fd, depth.min(u32::MAX as usize) as u32);
+    sigsafe::write_str(fd, b" frame(s)");
+    if depth > 0 && !crashing {
+        sigsafe::write_str(fd, b", other thread: frames not read");
+    }
+    sigsafe::write_str(fd, b")\n");
 }
 
 /// `<name> at <file>:<line>:<col>\n` for one frame — the same text

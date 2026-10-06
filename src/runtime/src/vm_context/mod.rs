@@ -5,7 +5,8 @@
 //! `VmContext` per thread that runs z42 code. The context holds what belongs to
 //! that thread:
 //!
-//! - **`call_stack`** — `VmFrame`s of interp / JIT frames (GC roots + stack traces)
+//! - **`call_stack`** — `VmFrame`s of interp / JIT frames (GC roots + stack traces);
+//!   owner-thread only, see [`frame_stack`]
 //! - **`pending_exception`** / **`pending_thrown`** — exception hand-off slots
 //! - **`stack_arena`** / **`struct_arena`** / **`transient_arena`** — frame-scoped
 //!   payloads behind `{idx, frame_id}` handles
@@ -23,12 +24,13 @@
 //!
 //! # Threading
 //!
-//! `VmContext` is `Send + Sync` (its fields are `Arc` / `Mutex` / atomics, and
-//! `VmFrame`'s raw pointers are covered by an `unsafe impl`), but each context
-//! is driven by the one thread that runs z42 code through it. A VM-created
-//! thread gets its own context via [`VmContext::new_with_core`], sharing the
-//! same `VmCore`. Other threads reach a context only through
-//! `VmCore::vm_contexts` (GC root scanning, under the registry lock).
+//! `VmContext` is `Send + Sync` (its fields are `Arc` / `Mutex` / atomics, plus
+//! the `unsafe impl Sync` frame stack), but each context is driven by the one
+//! thread that runs z42 code through it. A VM-created thread gets its own
+//! context via [`VmContext::new_with_core`], sharing the same `VmCore`. Other
+//! threads reach a context only through `VmCore::vm_contexts` (GC root
+//! scanning, under the registry lock — and the frame stack only while its
+//! owner is parked).
 //!
 //! # JIT integration
 //!
@@ -57,6 +59,7 @@ mod construct;
 mod resources;
 mod native;
 mod frames;
+pub(crate) mod frame_stack;
 mod statics;
 mod lookup;
 mod isa_cache;
@@ -86,9 +89,11 @@ pub(crate) use resource_registry::ResourceRegistry;
 ///   (`retain` runs in Drop, prior to memory deallocation), so any
 ///   dereference performed while the entry is in `vm_contexts` is on a live
 ///   VmContext.
-/// - Cross-thread access: every per-thread field on VmContext is itself
-///   `Arc<Mutex<...>>` (Send + Sync), so reading them from another thread
-///   under registry-lock-then-deref discipline is sound.
+/// - Cross-thread access: the per-thread fields on VmContext are
+///   `Arc<Mutex<...>>` / atomics (Send + Sync), so reading them from another
+///   thread under registry-lock-then-deref discipline is sound. The one
+///   exception is `call_stack`, readable cross-thread only while its owner is
+///   parked (`VmContext::scan_frames_parked`).
 pub(crate) struct VmContextPtr(pub(crate) *const VmContext);
 
 // SAFETY: see SAFETY block on `VmContextPtr` above — the raw pointer is

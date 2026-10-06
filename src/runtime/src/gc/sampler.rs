@@ -152,16 +152,16 @@ impl Sampler {
     /// safepoint 命中点：若定时线程置了 flag，则 `swap(false)` 并快照当前 z42 调用栈。
     ///
     /// 前置：调用点已确认 `enabled()`；且此处不持任何 GC 锁（`check_safepoint_slow` 的 Idle
-    /// 末，gc_phase 锁已释放）。锁序：只取 `ctx.call_stack` 再取 `self.data`，两者与 gc_phase 无嵌套。
+    /// 末，gc_phase 锁已释放）。帧栈是所属线程读（无锁），之后只取 `self.data`，与 gc_phase 无嵌套。
     pub fn maybe_sample(&self, ctx: &VmContext) {
         if !self.sample_pending.swap(false, Ordering::Relaxed) {
             return;
         }
         // 快照栈：栈底在左（call_stack 顺序，index 0 = 最外层 Main）。只取帧名（函数的 frame_meta）。
-        let names: Vec<Arc<str>> = {
-            let cs = ctx.call_stack.lock();
-            cs.iter().map(|f| f.func().frame_name_file().0).collect()
-        };
+        // 本线程即栈的所属线程（safepoint 在所属线程上跑），读帧不加锁。
+        let names: Vec<Arc<str>> = ctx
+            .call_stack
+            .with_frames(|cs| cs.iter().map(|f| f.func().frame_name_file().0).collect());
         if names.is_empty() {
             return; // 空栈不产坏行
         }

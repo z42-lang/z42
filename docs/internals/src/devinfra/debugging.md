@@ -61,8 +61,10 @@ Z42_CRASH_DIR=/var/log/z42 RUST_BACKTRACE=1 ./z42vm script.zbc
 
 - **Rust panic 报告**：z42vm 版本 / `target` / `arch` / build profile / panic 位置 /
   payload / Rust backtrace（详细程度由 `RUST_BACKTRACE` 控制）。
-- **OS signal 报告**：信号名 / build banner / **所有线程的 z42 调用栈**（一行一帧，
-  `#<idx>  <func_name> at <file>:<line>:<col>`）。写完后把 handler 重置成 `SIG_DFL` 再
+- **OS signal 报告**：信号名 / build banner / **崩溃线程的 z42 调用栈**（一行一帧，
+  `#<idx>  <func_name> at <file>:<line>:<col>`），其余线程只报帧数
+  （`thread #<i> (<n> frame(s), other thread: frames not read)`）——帧栈只由所属线程访问，
+  handler 去解引用正在跑的别的线程的帧可能二次 fault、整份报告丢失。写完后把 handler 重置成 `SIG_DFL` 再
   `raise()`，让 kernel 走默认 abort + coredump（`ulimit -c unlimited` 仍生效）。
 
 捕获五个信号：
@@ -75,9 +77,10 @@ Z42_CRASH_DIR=/var/log/z42 RUST_BACKTRACE=1 ./z42vm script.zbc
 | `SIGILL` | 非法指令 —— JIT code 被写坏 |
 | `SIGBUS` | 对齐错误 / mmap 越界 —— ARM64 上偶发 |
 
-**锁争用时降级不死锁**：报告要 `try_lock` 拿 VM 核心注册表和每个线程的 `call_stack`。
-信号触发时若另一线程持锁（比如 GC mark 阶段），handler 写
-`<call stack lock contended>` 占位符——不死锁、不丢报告，进程照常 abort。
+**锁争用时降级不死锁**：报告要 `try_lock` 拿 VM 核心注册表（`VM_CORES`）和每个核心的
+`vm_contexts`。信号触发时若另一线程持锁（比如 GC mark 阶段），handler 写
+`<vm_contexts lock contended>` 一类占位符——不死锁、不丢报告，进程照常 abort。帧本身不加锁：
+崩溃线程读的是自己的栈，别的线程只读帧数原子。
 
 信号捕获目前只在 POSIX（macOS / Linux）；Windows build 编译得过但没有信号捕获。
 
