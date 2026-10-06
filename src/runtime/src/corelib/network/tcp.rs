@@ -228,11 +228,7 @@ pub fn builtin_net_tcp_socket_read(ctx: &VmContext, args: &[Value]) -> Result<Va
     }
     if count == 0 { return Ok(ok_value(ctx, 0)); }
 
-    let stream = {
-        let mut map = ctx.core.tcp_sockets.lock();
-        map.remove(&slot_id)
-    };
-    let Some(mut stream) = stream else {
+    let Some(stream) = ctx.core.tcp_sockets.get_cloned(slot_id) else {
         return Ok(handle_invalid(ctx));
     };
 
@@ -242,9 +238,12 @@ pub fn builtin_net_tcp_socket_read(ctx: &VmContext, args: &[Value]) -> Result<Va
     // （`request_gc_pause`）会等「全世界停下」——而这个线程停不下来 ⇒ **死锁**。
     // `NativeParkGuard` 就是为此存在的（add-repl-prewarm 给 REPL 的 readline 加的，
     // 同 JVM `_thread_in_native` / Go `entersyscall`），网络这边一直没用上。
-    let read_result = { let _park = crate::gc::NativeParkGuard::enter(ctx); stream.read(&mut tmp) };
+    let read_result = { let _park = crate::gc::NativeParkGuard::enter(ctx); (&*stream).read(&mut tmp) };
+    // 读的期间被 Close 了：`drop` 的 shutdown 把阻塞的 recv 唤醒，这里如实报句柄已关。
+    if !ctx.core.tcp_sockets.lock().contains_key(&slot_id) {
+        return Ok(handle_invalid(ctx));
+    }
 
-    ctx.core.tcp_sockets.lock().insert(slot_id, stream);
 
     match read_result {
         Ok(n) => {
@@ -291,11 +290,7 @@ pub fn builtin_net_tcp_socket_write(ctx: &VmContext, args: &[Value]) -> Result<V
         }
     }
 
-    let stream = {
-        let mut map = ctx.core.tcp_sockets.lock();
-        map.remove(&slot_id)
-    };
-    let Some(mut stream) = stream else {
+    let Some(stream) = ctx.core.tcp_sockets.get_cloned(slot_id) else {
         return Ok(handle_invalid(ctx));
     };
 
@@ -304,9 +299,11 @@ pub fn builtin_net_tcp_socket_write(ctx: &VmContext, args: &[Value]) -> Result<V
     // （`request_gc_pause`）会等「全世界停下」——而这个线程停不下来 ⇒ **死锁**。
     // `NativeParkGuard` 就是为此存在的（add-repl-prewarm 给 REPL 的 readline 加的，
     // 同 JVM `_thread_in_native` / Go `entersyscall`），网络这边一直没用上。
-    let write_result = { let _park = crate::gc::NativeParkGuard::enter(ctx); stream.write_all(&tmp).map(|_| count) };
+    let write_result = { let _park = crate::gc::NativeParkGuard::enter(ctx); (&*stream).write_all(&tmp).map(|_| count) };
+    if !ctx.core.tcp_sockets.lock().contains_key(&slot_id) {
+        return Ok(handle_invalid(ctx));
+    }
 
-    ctx.core.tcp_sockets.lock().insert(slot_id, stream);
 
     match write_result {
         Ok(n) => Ok(ok_value(ctx, n as i64)),
@@ -317,7 +314,12 @@ pub fn builtin_net_tcp_socket_write(ctx: &VmContext, args: &[Value]) -> Result<V
 pub fn builtin_net_tcp_socket_drop(ctx: &VmContext, args: &[Value]) -> Result<()> {
     const NAME: &str = "__net_tcp_socket_drop";
     let slot_id = require_slot_id(args, 0, NAME)?;
-    ctx.core.tcp_sockets.lock().remove(&slot_id);
+    // 读写都只克隆 `Arc`、不摘表（全双工：一个线程阻塞在 read 时另一个线程照样能 write）。
+    // 关闭 = 摘表 + shutdown：shutdown 唤醒阻塞中的 read / write，它们看到槽位没了就报
+    // 句柄已关；fd 在最后一个 `Arc` 放手时关闭，不会在别人用着的时候关掉。
+    if let Some(stream) = ctx.core.tcp_sockets.take(slot_id) {
+        let _ = stream.shutdown(std::net::Shutdown::Both);
+    }
     Ok(())
 }
 

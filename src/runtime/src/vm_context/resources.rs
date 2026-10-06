@@ -47,7 +47,7 @@ impl VmContext {
 
     #[cfg(not(target_arch = "wasm32"))]
     pub fn alloc_tcp_socket_slot(&self, stream: std::net::TcpStream) -> u64 {
-        self.core.tcp_sockets.insert_new(stream)
+        self.core.tcp_sockets.insert_new(std::sync::Arc::new(stream))
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -60,11 +60,8 @@ impl VmContext {
     /// add-z42-net-tls (2026-06-03): register a connected + handshaken rustls
     /// stream and return its slot id. `__net_tls_drop` removes (closing the fd).
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn alloc_tls_socket_slot(
-        &self,
-        stream: rustls::StreamOwned<rustls::ClientConnection, std::net::TcpStream>,
-    ) -> u64 {
-        self.core.tls_sockets.insert_new(stream)
+    pub(crate) fn alloc_tls_socket_slot(&self, slot: crate::corelib::tls::TlsSlot) -> u64 {
+        self.core.tls_sockets.insert_new(std::sync::Arc::new(slot))
     }
 
     /// Number of currently allocated TLS socket slots. Used by tests to
@@ -91,7 +88,7 @@ impl VmContext {
 
     #[cfg(not(target_arch = "wasm32"))]
     pub fn alloc_udp_socket_slot(&self, sock: std::net::UdpSocket) -> u64 {
-        self.core.udp_sockets.insert_new(sock)
+        self.core.udp_sockets.insert_new(std::sync::Arc::new(sock))
     }
 
     /// Number of currently allocated UDP socket slots.

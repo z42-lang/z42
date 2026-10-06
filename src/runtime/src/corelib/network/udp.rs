@@ -69,12 +69,7 @@ pub fn builtin_net_udp_send(ctx: &VmContext, args: &[Value]) -> Result<Value> {
         }
     }
 
-    // Take socket out for the blocking call; restore after.
-    let sock_opt = {
-        let mut map = ctx.core.udp_sockets.lock();
-        map.remove(&slot_id)
-    };
-    let Some(sock) = sock_opt else {
+    let Some(sock) = ctx.core.udp_sockets.get_cloned(slot_id) else {
         return Ok(handle_invalid(ctx));
     };
 
@@ -84,7 +79,6 @@ pub fn builtin_net_udp_send(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     // `NativeParkGuard` 就是为此存在的（add-repl-prewarm 给 REPL 的 readline 加的，
     // 同 JVM `_thread_in_native` / Go `entersyscall`），网络这边一直没用上。
     let send_result = { let _park = crate::gc::NativeParkGuard::enter(ctx); sock.send_to(&tmp, format!("{}:{}", host, port).as_str()) };
-    ctx.core.udp_sockets.lock().insert(slot_id, sock);
 
     match send_result {
         Ok(n) => Ok(ok_value(ctx, n as i64)),
@@ -97,11 +91,7 @@ pub fn builtin_net_udp_recv(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     const NAME: &str = "__net_udp_recv";
     let slot_id = require_slot_id(args, 0, NAME)?;
 
-    let sock_opt = {
-        let mut map = ctx.core.udp_sockets.lock();
-        map.remove(&slot_id)
-    };
-    let Some(sock) = sock_opt else {
+    let Some(sock) = ctx.core.udp_sockets.get_cloned(slot_id) else {
         return Ok(handle_invalid(ctx));
     };
 
@@ -114,7 +104,6 @@ pub fn builtin_net_udp_recv(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     // `NativeParkGuard` 就是为此存在的（add-repl-prewarm 给 REPL 的 readline 加的，
     // 同 JVM `_thread_in_native` / Go `entersyscall`），网络这边一直没用上。
     let recv_result = { let _park = crate::gc::NativeParkGuard::enter(ctx); sock.recv_from(&mut tmp) };
-    ctx.core.udp_sockets.lock().insert(slot_id, sock);
 
     match recv_result {
         Ok((n, peer)) => {
@@ -175,16 +164,11 @@ pub fn builtin_net_udp_join_multicast(ctx: &VmContext, args: &[Value]) -> Result
         Err(e) => return Ok(socket_err(ctx, e)),
     };
 
-    let sock_opt = {
-        let mut map = ctx.core.udp_sockets.lock();
-        map.remove(&slot_id)
-    };
-    let Some(sock) = sock_opt else {
+    let Some(sock) = ctx.core.udp_sockets.get_cloned(slot_id) else {
         return Ok(handle_invalid(ctx));
     };
 
     let result = sock.join_multicast_v4(&group_ip, &iface_ip);
-    ctx.core.udp_sockets.lock().insert(slot_id, sock);
     match result {
         Ok(()) => Ok(ok_unit(ctx)),
         Err(e) => Ok(socket_err(ctx, format!("join_multicast_v4 {}: {}", group_str, e))),
@@ -207,16 +191,11 @@ pub fn builtin_net_udp_leave_multicast(ctx: &VmContext, args: &[Value]) -> Resul
         Err(e) => return Ok(socket_err(ctx, e)),
     };
 
-    let sock_opt = {
-        let mut map = ctx.core.udp_sockets.lock();
-        map.remove(&slot_id)
-    };
-    let Some(sock) = sock_opt else {
+    let Some(sock) = ctx.core.udp_sockets.get_cloned(slot_id) else {
         return Ok(handle_invalid(ctx));
     };
 
     let result = sock.leave_multicast_v4(&group_ip, &iface_ip);
-    ctx.core.udp_sockets.lock().insert(slot_id, sock);
     match result {
         Ok(()) => Ok(ok_unit(ctx)),
         Err(e) => Ok(socket_err(ctx, format!("leave_multicast_v4 {}: {}", group_str, e))),
@@ -236,16 +215,11 @@ pub fn builtin_net_udp_set_multicast_loop(ctx: &VmContext, args: &[Value]) -> Re
         other => bail!("{}: arg 1 expected bool, got {:?}", NAME, other),
     };
 
-    let sock_opt = {
-        let mut map = ctx.core.udp_sockets.lock();
-        map.remove(&slot_id)
-    };
-    let Some(sock) = sock_opt else {
+    let Some(sock) = ctx.core.udp_sockets.get_cloned(slot_id) else {
         return Ok(handle_invalid(ctx));
     };
 
     let result = sock.set_multicast_loop_v4(enable);
-    ctx.core.udp_sockets.lock().insert(slot_id, sock);
     match result {
         Ok(()) => Ok(ok_unit(ctx)),
         Err(e) => Ok(socket_err(ctx, format!("set_multicast_loop_v4: {}", e))),
@@ -310,11 +284,7 @@ pub fn builtin_net_udp_recv_into(ctx: &VmContext, args: &[Value]) -> Result<Valu
         bail!("{}: offset {} + count {} exceeds buf length {}", NAME, offset, count, buf_len);
     }
 
-    let sock_opt = {
-        let mut map = ctx.core.udp_sockets.lock();
-        map.remove(&slot_id)
-    };
-    let Some(sock) = sock_opt else {
+    let Some(sock) = ctx.core.udp_sockets.get_cloned(slot_id) else {
         return Ok(handle_invalid(ctx));
     };
 
@@ -322,8 +292,7 @@ pub fn builtin_net_udp_recv_into(ctx: &VmContext, args: &[Value]) -> Result<Valu
     // borrow_mut on the Rc-wrapped Vec<Value> doesn't escape so this
     // never aliases.
     let mut tmp = vec![0u8; count];
-    let recv_result = sock.recv_from(&mut tmp);
-    ctx.core.udp_sockets.lock().insert(slot_id, sock);
+    let recv_result = { let _park = crate::gc::NativeParkGuard::enter(ctx); sock.recv_from(&mut tmp) };
 
     match recv_result {
         Ok((n, peer)) => {

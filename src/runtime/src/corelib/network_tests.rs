@@ -394,3 +394,63 @@ fn accept_still_returns_a_real_connection() {
 
     builtin_net_tcp_listener_drop(&ctx, &[Value::I64(slot)]).expect("drop");
 }
+
+/// 读写只克隆 `Arc`、不摘表：一个线程阻塞在 read 时，另一个线程照样能 write（全双工）；
+/// Close 后阻塞中的 read 返回时报句柄已关，槽位不会被放回表里。Close 唤醒阻塞中的 read
+/// 只在 unix 上成立（Windows 的 shutdown 唤不醒 recv）。
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn a_socket_is_full_duplex_and_close_wakes_a_blocked_read() {
+    use std::io::Read;
+    use std::sync::mpsc;
+
+    let ctx = ctx();
+    let listen = builtin_net_tcp_listen(&ctx, &[Value::Str("127.0.0.1".into()), Value::I64(0)])
+        .expect("listen");
+    let (listener, port) = ok_listen(&listen);
+
+    let (got_tx, got_rx) = mpsc::channel();
+    let (done_tx, done_rx) = mpsc::channel::<()>();
+    let client = std::thread::spawn(move || {
+        let mut s = std::net::TcpStream::connect(("127.0.0.1", port as u16)).expect("connect");
+        let mut buf = [0u8; 4];
+        s.read_exact(&mut buf).expect("read ping");
+        let _ = got_tx.send(buf);
+        let _ = done_rx.recv();   // 保持连接，直到服务端关闭
+    });
+    let sock = ok_slot(&builtin_net_tcp_accept(&ctx, &[Value::I64(listener)]).expect("accept"));
+
+    // 读线程：对端什么都不发，read 一直阻塞。
+    let (read_tx, read_rx) = mpsc::channel();
+    let core = std::sync::Arc::clone(&ctx.core);
+    std::thread::spawn(move || {
+        let w = VmContext::new_with_core(core);
+        let buf = w.heap().alloc_array(vec![Value::I64(0); 8]);
+        let r = builtin_net_tcp_socket_read(&w, &[Value::I64(sock), buf, Value::I64(0), Value::I64(8)])
+            .expect("read");
+        let _ = read_tx.send(kind_of(&r));
+    });
+    std::thread::sleep(std::time::Duration::from_millis(150));
+
+    // 读阻塞期间写同一个 socket。
+    let data = arr(b"ping".iter().map(|b| Value::I64(*b as i64)).collect(), &ctx);
+    let w = builtin_net_tcp_socket_write(&ctx, &[Value::I64(sock), data, Value::I64(0), Value::I64(4)])
+        .expect("write");
+    assert_eq!(kind_of(&w), Some(0), "读阻塞期间写必须成功，不能报句柄无效");
+    assert_eq!(got_rx.recv_timeout(std::time::Duration::from_secs(5)).expect("client got data"), *b"ping");
+
+    // 读阻塞期间关闭。Unix 上 shutdown 唤醒阻塞中的 recv；Windows 上唤不醒，
+    // 由对端关闭来结束这次读 —— 两边返回后都必须报句柄已关、槽位不复活。
+    builtin_net_tcp_socket_drop(&ctx, &[Value::I64(sock)]).expect("drop");
+    #[cfg(not(unix))]
+    let _ = done_tx.send(());
+    match read_rx.recv_timeout(std::time::Duration::from_secs(5)) {
+        Ok(kind) => assert_eq!(kind, Some(2), "关闭后阻塞中的 read 应报 KIND_HANDLE_INVALID"),
+        Err(_) => panic!("关闭 socket 后 5 秒，阻塞中的 read 仍未返回"),
+    }
+    assert_eq!(ctx.tcp_socket_slot_count(), 0, "读返回后槽位不得被放回表里");
+
+    let _ = done_tx.send(());
+    client.join().expect("client");
+    builtin_net_tcp_listener_drop(&ctx, &[Value::I64(listener)]).expect("drop listener");
+}
