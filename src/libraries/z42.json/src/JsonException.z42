@@ -1,10 +1,6 @@
-namespace Std;
+namespace Std.Json;
 
 // add-z42-json (2026-05-14)：JSON 解析 / 序列化错误。
-//
-// Placed in `Std` (not `Std.Json`) so the `: Exception` base reference
-// resolves via same-namespace lookup. Same pattern as TomlException /
-// ProcessStartException.
 //
 // 携带 1-based 行 / 列号（0 = 不可用，e.g. stringify-time errors）。
 public class JsonException : Exception {

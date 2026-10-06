@@ -1,4 +1,4 @@
-namespace Std;
+namespace Std.Net.WebSockets;
 
 // add-z42-net-websocket K4 (2026-05-25): RFC 6455 wire violation —
 // malformed frame header, invalid opcode, masked server frame, oversized

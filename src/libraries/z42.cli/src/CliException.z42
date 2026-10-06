@@ -1,4 +1,4 @@
-namespace Std;
+namespace Std.Cli;
 
 // add-z42-cli (2026-05-16)：ArgParser.Parse 失败时抛出。
 // 覆盖：未知 long flag、缺 option value、positional 数量不足。

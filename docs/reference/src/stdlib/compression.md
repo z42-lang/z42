@@ -1,7 +1,7 @@
 # z42.compression —— 压缩算法与归档格式
 
-> 包路径 `src/libraries/z42.compression/`；命名空间 `Std.Compression`（算法）、
-> `Std.Archive`（归档）、`Std`（异常类型）
+> 包路径 `src/libraries/z42.compression/`；命名空间 `Std.Compression`（算法 + `CompressionException`）、
+> `Std.Archive`（归档 + `ArchiveException`）
 
 六种压缩算法（gzip / zlib / raw deflate / Zstandard / Brotli / LZ4）加两种归档格式
 （tar / zip）。压缩算法都提供 `byte[] → byte[]` 的一次性 API；其中 gzip / zlib /
@@ -180,11 +180,11 @@ public static class Zip {
 
 ## 异常
 
-| 类型（`Std`） | 说明 |
+| 类型 | 说明 |
 |---|---|
-| `ArchiveException` | tar / zip 的格式错误、不支持的条目类型、不支持的压缩方法、条目找不到、Zip-Slip 拦截 |
-| `ArgumentException` | 包装流构造时目标 / 源的能力不符 |
-| `InvalidOperationException` | 对已 `Close()` 的包装流继续读写 |
+| `ArchiveException`（`Std.Archive`） | tar / zip 的格式错误、不支持的条目类型、不支持的压缩方法、条目找不到、Zip-Slip 拦截 |
+| `ArgumentException`（`Std`） | 包装流构造时目标 / 源的能力不符 |
+| `InvalidOperationException`（`Std`） | 对已 `Close()` 的包装流继续读写 |
 
 ```z42
 public class CompressionException : Exception { public CompressionException(string message); }

@@ -1,4 +1,4 @@
-namespace Std;
+namespace Std.Net;
 
 // add-z42-net K1 (2026-05-24): z42.net 异常体系基类。
 // 镜像 .NET BCL `System.Net.Sockets.SocketException : NetworkException : Exception`。

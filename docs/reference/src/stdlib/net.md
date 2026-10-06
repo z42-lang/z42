@@ -1,7 +1,7 @@
 # z42.net —— TCP / UDP / TLS / HTTP / WebSocket
 
-> 包路径 `src/libraries/z42.net/`；命名空间 `Std.Net.Sockets` / `Std.Net.Http` /
-> `Std.Net.WebSockets`（异常类在 `Std`）
+> 包路径 `src/libraries/z42.net/`；命名空间 `Std.Net`（异常基类）/ `Std.Net.Sockets` /
+> `Std.Net.Http` / `Std.Net.WebSockets`
 
 网络栈：原始 socket（TCP / UDP）、TLS 客户端、HTTP/1.1 客户端与服务端、
 WebSocket 客户端与服务端、DNS 解析、`IPAddress` / `IPEndPoint`。
@@ -17,19 +17,21 @@ wasm32 目标上所有 socket 操作抛 `NetUnsupportedException`。
 
 ## 异常
 
-全部在 `Std` 命名空间：
+各自住在所属 API 的命名空间：
 
 ```
 Exception
-└── NetException
-    ├── NetUnsupportedException     // 目标平台（wasm32）无 socket
-    ├── SocketException             // 连接失败 / IO 失败 / 超时 / DNS 失败
-    ├── SocketClosedException       // 对已关闭或已 Dispose 的句柄再操作
-    ├── HttpException
-    │   └── HttpProtocolException   // 响应不符合 HTTP/1.1 语法
-    └── WebSocketException
+└── NetException                    // Std.Net
+    ├── NetUnsupportedException     // Std.Net            目标平台（wasm32）无 socket
+    ├── SocketException             // Std.Net.Sockets    连接失败 / IO 失败 / 超时 / DNS 失败
+    ├── SocketClosedException       // Std.Net.Sockets    对已关闭或已 Dispose 的句柄再操作
+    ├── HttpException               // Std.Net.Http
+    │   └── HttpProtocolException   // Std.Net.Http       响应不符合 HTTP/1.1 语法
+    └── WebSocketException          // Std.Net.WebSockets
         └── WebSocketProtocolException
 ```
+
+只想统一兜住网络错误时 `using Std.Net;` 后 `catch (NetException e)`。
 
 `SocketException` 的 message 带 OS 错误原文，例如
 `connect to 127.0.0.1:1 (timeout 300ms): Connection refused (os error 61)`。

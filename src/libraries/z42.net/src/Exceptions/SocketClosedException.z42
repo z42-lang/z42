@@ -1,4 +1,4 @@
-namespace Std;
+namespace Std.Net.Sockets;
 
 // add-z42-net K1 (2026-05-24): 在已 `Dispose` / `Close` / `Stop` 的 socket
 // 或 listener 上调用操作时抛出。也包括 slot id 在 VM 侧找不到的边界情况

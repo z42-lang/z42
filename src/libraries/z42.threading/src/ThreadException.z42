@@ -1,4 +1,4 @@
-namespace Std;
+namespace Std.Threading;
 
 // 2026-05-20 add-threading-stdlib: cross-thread exception envelope.
 //

@@ -1,4 +1,4 @@
-namespace Std;
+namespace Std.IO;
 
 // 2026-05-13 add-std-process: 进程启动失败（可执行文件未找到 / 权限不足 /
 // fork-exec / CreateProcess 失败等）。**与 ProcessExitException 区别**：

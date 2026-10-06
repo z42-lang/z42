@@ -1,9 +1,6 @@
-namespace Std;
+namespace Std.Uri;
 
 // add-z42-uri (2026-05-15)：URI 解析 / 编解码错误。
-//
-// 放 `Std` namespace 让 `: Exception` 同 namespace 解析（同 TomlException /
-// JsonException pattern）。
 public class UriException : Exception {
     public UriException(string message) : base(message) {}
 

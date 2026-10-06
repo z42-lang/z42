@@ -1,6 +1,6 @@
 # z42.io —— 二进制读写器
 
-> 包路径 `src/libraries/z42.io/`；命名空间 `Std.IO.Binary`（异常类型 `BinaryException` 在 `Std`）
+> 包路径 `src/libraries/z42.io/`；命名空间 `Std.IO.Binary`（含异常类型 `BinaryException`）
 
 `BinaryReader` / `BinaryWriter` 在 [`Std.IO.Stream`](io-stream.md) 之上提供定长整数、
 IEEE-754 浮点、varint 与 UTF-8 字符串的**显式字节序**读写。用于自定义二进制协议、
@@ -58,7 +58,7 @@ public class BinaryReader {
 | `Seek(pos)` | 绝对定位。`pos` 落在 `[0, Length]` 之外抛 `BinaryException` |
 | `Skip(count)` | 等价 `Seek(GetPosition() + count)`，`count` 可为负 |
 | `ReadByte()` | EOF 时抛 `BinaryException` |
-| `ReadBytes(count)` | `count < 0` 抛 `BinaryException`，`count == 0` 返回空数组；字节不够抛 `Std.EndOfStreamException` |
+| `ReadBytes(count)` | `count < 0` 抛 `BinaryException`，`count == 0` 返回空数组；字节不够抛 `Std.IO.EndOfStreamException` |
 | `ReadInt16*` | 从第 16 位符号扩展，所以 `0xFFFE` 读回 `-2` 而不是 65534 |
 | `ReadSingle*` | 线上是 4 字节 f32，返回时加宽成 `double` |
 | `ReadVarInt64()` | 7 位一组的 protobuf 式 varint；超过 10 字节仍未结束抛 `BinaryException` |
@@ -125,7 +125,7 @@ public class BinaryException : Exception {
 `OverStream` 能力不符、`ToArray` / `Clear` 无所有权、varint 过长、`ReadByte` 撞上 EOF）
 使用这个类型。
 
-**但是多字节读取撞上 EOF 时抛的是 `Std.EndOfStreamException` 而不是
+**但是多字节读取撞上 EOF 时抛的是 `Std.IO.EndOfStreamException` 而不是
 `BinaryException`**——`ReadBytes` / `ReadInt16*` / `ReadInt32*` / `ReadInt64*` /
 `ReadSingle*` / `ReadDouble*` / `ReadString` 都走 `Stream.ReadExactly`，异常直接透出来。
 想一网打尽就 `catch (Exception)`，或者两种都单独 catch。

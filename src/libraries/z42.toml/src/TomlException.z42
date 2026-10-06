@@ -1,11 +1,6 @@
-namespace Std;
+namespace Std.Toml;
 
 // add-z42-toml (2026-05-14)：TOML 解析 / 序列化错误。
-//
-// Placed in `Std` (not `Std.Toml`) so the `: Exception` base reference
-// resolves to `Std.Exception` via same-namespace lookup — matching the
-// existing stdlib exception pattern (ProcessStartException etc.). Lazy
-// loader still loads via Std.Toml namespace (parser code triggers it).
 //
 // 携带 1-based 行 / 列号，方便定位 manifest 中的语法错误。
 // `Line == 0` 表示位置不可用（如 stringify 阶段错误）。

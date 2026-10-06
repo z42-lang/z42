@@ -8,7 +8,7 @@
 //!   id as `Value::I64`.
 //! - `__thread_join(slot_id)` removes the handle from the registry, joins, and
 //!   returns a discriminated result array the z42 facade converts to either a
-//!   normal return or a `Std.ThreadException`.
+//!   normal return or a `Std.Threading.ThreadException`.
 //!
 //! The spawned worker constructs `VmContext::new_with_core(Arc::clone(core))`
 //! so it shares `static_fields` / `heap` / `lazy_loader` / `native_libs` with

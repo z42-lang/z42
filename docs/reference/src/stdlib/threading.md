@@ -1,7 +1,7 @@
 # z42.threading —— OS 线程与同步原语
 
 > 包路径 `src/libraries/z42.threading/`；命名空间 `Std.Threading`
-> （`ThreadException` / `ChannelDisconnectedException` 在 `Std`）
+> （含 `ThreadException` / `ChannelDisconnectedException`）
 
 真 OS 线程的并发原语：`Thread` 起停、`Channel<T>` 传值、`Mutex<T>` / `RwLock<T>` 护住共享
 状态、`Timer` 跑后台周期任务。线程之间**共享 GC 堆与静态字段**，但 lambda 捕获的是**值快照**
@@ -35,7 +35,7 @@ public class Thread {
 | 成员 | 说明 |
 |---|---|
 | `Start` | 立刻开一条 OS 线程跑 `action` 并返回句柄。`action` 只能是无参无返回的 `Action`——**不能带参数、不能返回值** |
-| `Join` | 阻塞直到 worker 结束。worker 正常结束则返回；worker 抛过异常则在这里抛 `Std.ThreadException`；**第二次 `Join` 抛 `ThreadException("thread already joined")`** |
+| `Join` | 阻塞直到 worker 结束。worker 正常结束则返回；worker 抛过异常则在这里抛 `Std.Threading.ThreadException`；**第二次 `Join` 抛 `ThreadException("thread already joined")`** |
 | `SlotId` | 进程内单调递增的诊断用编号（第一条线程是 `1`）。不要依赖具体数值 |
 | `Sleep` | 阻塞**当前**线程 `millis` 毫秒。毫秒精度；负数按 `0` 处理（`Sleep(-100)` 立即返回） |
 

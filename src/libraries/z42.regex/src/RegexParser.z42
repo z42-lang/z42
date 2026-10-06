@@ -11,7 +11,7 @@ namespace Std.Regex;
 //   atom    := '(' alt ')' | '[' charset ']' | '.' | '^' | '$' | escape | literal
 //   escape  := '\' (metachar | 'n' | 't' | 'r' | 'd' | 'D' | 'w' | 'W' | 's' | 'S')
 //
-// 失败抛 `Std.RegexException`。capturing group 编号从 1 开始，按 '(' 出现顺序分配。
+// 失败抛 `Std.Regex.RegexException`。capturing group 编号从 1 开始，按 '(' 出现顺序分配。
 public class RegexParser {
     private string _src;
     private int _pos;

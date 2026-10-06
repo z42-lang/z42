@@ -1,6 +1,6 @@
 # z42.uri —— URI 解析与 percent 编解码
 
-> 包路径 `src/libraries/z42.uri/`；命名空间 `Std.Uri`（`UriException` 在 `Std`）
+> 包路径 `src/libraries/z42.uri/`；命名空间 `Std.Uri`（含 `UriException`）
 
 把 URI / URL 字符串拆成结构化组件（scheme / userInfo / host / port / path / query /
 fragment），并提供 percent-encoding 编解码与 RFC 3986 §5 相对引用解析。解析遵循

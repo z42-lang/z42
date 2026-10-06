@@ -1,0 +1,8 @@
+namespace Std.Compression;
+
+// `Std.Compression.*` 门面抛出的用户可见异常。继承 z42.core 的 `Exception`，
+// 只关心「压缩出了错」的 catch 点可按基类型匹配。
+
+public class CompressionException : Exception {
+    public CompressionException(string message) : base(message) { }
+}

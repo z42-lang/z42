@@ -1,4 +1,4 @@
-namespace Std;
+namespace Std.Threading;
 
 // 2026-05-20 add-sync-primitives: raised by `Std.Threading.Channel<T>.Recv()`
 // when all senders have closed AND the queue is empty (i.e., no more
