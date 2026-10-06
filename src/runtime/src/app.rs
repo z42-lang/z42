@@ -364,7 +364,7 @@ pub(crate) fn report_on_exit(ctx: &crate::vm_context::VmContext) {
 // GC minor/major/reclaimed) into one ProfileSnapshot so the profile picture
 // is complete in a single line/block.
 if report.print_stats {
-    let counters = ctx.counters().snapshot();
+    let counters = ctx.counters_snapshot();
     let h = ctx.heap().stats();
     // add-concurrency-probes (P1b): safepoint-park distribution (always-on)
     // + user-lock contention counters (0 unless the `profile-contention`

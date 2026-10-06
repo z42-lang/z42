@@ -17,7 +17,7 @@
 |---|---|---|
 | **RuntimeObserver** 事件流 | 事件：`ModuleLoaded`/`JitModuleCompiled`/`ExceptionThrown`/`ExceptionCaught`/`NativeCallEntered` + `Custom{source,payload}` 逃逸口；`Mutex<Vec<Arc<dyn RuntimeObserver>>>` on VmCore；对标 CoreCLR EventPipe | [observer.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/observer.rs) |
 | **GcObserver** | 独立 `GcEvent` 流（与 Runtime 那套**分离**，两套 trait） | [gc/types.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/gc/types.rs) |
-| **RuntimeCounters** | `AtomicU64`：`builtin_calls`/`native_calls`/`jit_methods_compiled`/**`jit_compile_us_total`**/`exceptions_thrown`/`exceptions_caught`；`snapshot()` + `--print-counters`；对标 dotnet EventCounters | [counters.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/counters.rs) |
+| **RuntimeCounters** | `AtomicU64`：`builtin_calls`/`native_calls`/`jit_methods_compiled`/**`jit_compile_us_total`**/`exceptions_thrown`/`exceptions_caught`；**每个 `VmContext`（线程）一份**，各写各的 cache line，`VmContext::counters_snapshot()` 汇总全部存活线程 + 已退出线程（退出时并入 `VmCore.counters`）；`--print-counters`；对标 dotnet EventCounters | [counters.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/counters.rs) |
 | **tracing** crate | 日志（`tracing::warn!` 等） | Cargo.toml |
 
 **三方面真实状态**：事件=有但薄；计数=已有且有快照（**有必要、且已在**）；时间=仅 `jit_compile_us_total` 一个粗聚合，**per-函数/分位/span 缺失**。

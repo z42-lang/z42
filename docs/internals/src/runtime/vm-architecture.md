@@ -53,7 +53,7 @@ vm.run(&ctx, hint)?;
 - `context_registry: Mutex<ContextRegistry>` — load context / assembly 注册表（见 [load-context.md](load-context.md)）
 - GC safepoint 协议：`gc_phase` / `gc_phase_cv` / `parked_count` / `collector_active` / `needs_auto_collect`（见 [safepoint-design.md](safepoint-design.md)）
 - `program_args: Mutex<Vec<String>>` — `--` 之后的程序参数（`Std.IO.Environment.GetCommandLineArgs()`）
-- 观测：`counters`（`RuntimeCounters`）/ `runtime_observers` / `park_histogram`（safepoint park 时长分布）/ `lock_contentions` + `lock_wait_us`（仅 `profile-contention` feature 写入）/ `sampler`（`Z42_SAMPLE_HZ` 开启的采样 profiler）
+- 观测：`counters`（`RuntimeCounters`，只累计已销毁 `VmContext` 的计数；各线程在自己的 `VmContext.counters` 上计，`counters_snapshot()` 汇总）/ `runtime_observers` / `park_histogram`（safepoint park 时长分布）/ `lock_contentions` + `lock_wait_us`（仅 `profile-contention` feature 写入）/ `sampler`（`Z42_SAMPLE_HZ` 开启的采样 profiler）
 
 > **`ResourceRegistry<T>`**：slot table 统一为 `ResourceRegistry<T>`（内嵌锁 + 表 + 单调 id 计数器），
 > 避免每类资源各写「表 + `next_*_id`」两个字段，「新增一类资源」只需加一个字段。API：`insert_new(v)->id`（分配+插入）/

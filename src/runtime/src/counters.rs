@@ -25,8 +25,11 @@
 //!
 //! All counters are `AtomicU64` with `Ordering::Relaxed`. Counters never
 //! drive control flow — they're observation-only — so weak ordering is
-//! fine. Single `RuntimeCounters` instance per `VmCore`, shared across
-//! all threads on that core via the `Arc<VmCore>` they all hold.
+//! fine. **One `RuntimeCounters` per `VmContext`** (per thread), so threads
+//! increment their own cache line instead of contending on one shared line
+//! (runtime-audit P0-15). `VmCore.counters` holds what contexts that have
+//! already been dropped counted; `VmContext::counters_snapshot` adds that to
+//! every live context's counts.
 //!
 //! # Snapshot semantics
 //!
@@ -79,6 +82,19 @@ impl RuntimeCounters {
         Self::default()
     }
 
+    /// Add `other`'s current counts into `self` (a dropped context's counts
+    /// moving into the core's total).
+    pub fn absorb(&self, other: &RuntimeCounters) {
+        let s = other.snapshot();
+        self.builtin_calls.fetch_add(s.builtin_calls, Ordering::Relaxed);
+        self.native_calls.fetch_add(s.native_calls, Ordering::Relaxed);
+        self.jit_methods_compiled.fetch_add(s.jit_methods_compiled, Ordering::Relaxed);
+        self.jit_compile_us_total.fetch_add(s.jit_compile_us_total, Ordering::Relaxed);
+        self.jit_native_from_interp.fetch_add(s.jit_native_from_interp, Ordering::Relaxed);
+        self.exceptions_thrown.fetch_add(s.exceptions_thrown, Ordering::Relaxed);
+        self.exceptions_caught.fetch_add(s.exceptions_caught, Ordering::Relaxed);
+    }
+
     /// Capture a frozen snapshot of all counters. See module doc for note
     /// about per-counter skew (not a consistent tuple).
     pub fn snapshot(&self) -> Snapshot {
@@ -109,6 +125,19 @@ pub struct Snapshot {
 }
 
 impl Snapshot {
+    /// Field-wise sum (aggregating per-thread snapshots).
+    pub fn add(self, o: Snapshot) -> Snapshot {
+        Snapshot {
+            builtin_calls:          self.builtin_calls + o.builtin_calls,
+            native_calls:           self.native_calls + o.native_calls,
+            jit_methods_compiled:   self.jit_methods_compiled + o.jit_methods_compiled,
+            jit_compile_us_total:   self.jit_compile_us_total + o.jit_compile_us_total,
+            jit_native_from_interp: self.jit_native_from_interp + o.jit_native_from_interp,
+            exceptions_thrown:      self.exceptions_thrown + o.exceptions_thrown,
+            exceptions_caught:      self.exceptions_caught + o.exceptions_caught,
+        }
+    }
+
     /// Render this snapshot as a single-line JSON object for machine consumption
     /// (`--print-stats-on-exit --stats-format=json`; `xtask profile` scrapes it).
     /// Hand-rolled (no serde) — a flat map of the same u64 fields `Display` lists;

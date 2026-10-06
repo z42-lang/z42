@@ -93,7 +93,7 @@ pub fn builtin_heap_retaining_roots(ctx: &VmContext, args: &[Value]) -> Result<V
 /// skew). `allocations` reuses `HeapStats.allocations` (the SoT) — never
 /// re-counted on the hot path.
 pub fn builtin_diag_counters(ctx: &VmContext, _args: &[Value]) -> Result<Value> {
-    let c = ctx.counters().snapshot();
+    let c = ctx.counters_snapshot();
     let h = ctx.heap().stats();
     alloc_named(
         ctx,

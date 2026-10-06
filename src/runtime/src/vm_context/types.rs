@@ -240,6 +240,10 @@ pub struct VmCore {
     /// (future) scripted `Std.Diagnostics.RuntimeStats.Snapshot()`.
     /// `Arc` wrapper enables cheap cloning into Phase 2 increment sites
     /// that don't already have `&VmCore` access. docs/review.md Part 4 D6.
+    ///
+    /// runtime-audit P0-15: threads count on their own `VmContext::counters`;
+    /// this one only accumulates the counts of contexts already dropped.
+    /// Read the total with `VmContext::counters_snapshot`.
     pub counters: Arc<crate::counters::RuntimeCounters>,
 
     /// **add-runtime-observer (2026-05-26)**: push-based event stream
@@ -312,6 +316,9 @@ pub struct VmContext {
     /// to a builtin failing on another) and a GC root (the value can sit here
     /// across an allocation before the caller takes it).
     pub(crate) pending_thrown:    Mutex<Option<Value>>,
+    /// runtime-audit P0-15: this thread's runtime counters (its own cache line,
+    /// no cross-thread contention). Totals: `VmContext::counters_snapshot`.
+    pub(crate) counters: crate::counters::RuntimeCounters,
     /// 2026-05-10 unify-frame-chain: single source of truth for active
     /// script frames. Each [`crate::exception::VmFrame`] carries the
     /// `(name, file, line, column)` trace metadata **and** raw pointers
