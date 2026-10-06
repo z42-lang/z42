@@ -239,7 +239,7 @@ pub unsafe extern "C" fn z42_host_load_zbc(
         };
 
         let idx = match state::with_state_write(|s| {
-            s.modules.push(host_module);
+            s.modules.push(std::sync::Arc::new(host_module));
             s.modules.len() - 1
         }) {
             Some(i) => i,
@@ -398,16 +398,22 @@ pub unsafe extern "C" fn z42_host_invoke(
             }
         };
 
-        // Resolve module + entry and run; keep the read guard for the
-        // execution because interp::run_returning only needs `&` access.
-        let outcome = state::with_state_read(|s| {
-            let entry = s.entries.get(entry_idx).ok_or_else(|| {
+        // Resolve module + entry under the read guard, then run with the guard
+        // released: user code can call back into the host (a sink or resolver
+        // callback calling load / shutdown), and those take the write lock.
+        // The `Arc` keeps the module alive even if such a callback shuts the
+        // host down mid-call.
+        let resolved = state::with_state_read(|s| {
+            let entry = *s.entries.get(entry_idx).ok_or_else(|| {
                 anyhow::anyhow!("entry handle is stale or out of range")
             })?;
             let host_module = s.modules.get(entry.module_idx).ok_or_else(|| {
                 anyhow::anyhow!("module backing this entry is missing")
             })?;
-            ops::invoke_impl(host_module, entry, &runtime_args)
+            Ok::<_, anyhow::Error>((std::sync::Arc::clone(host_module), entry))
+        });
+        let outcome = resolved.map(|r| {
+            r.and_then(|(host_module, entry)| ops::invoke_impl(&host_module, &entry, &runtime_args))
         });
 
         match outcome {
@@ -607,6 +613,10 @@ fn classify_config_error(e: config::ConfigError) -> Z42HostStatus {
         CE::AbiVersionMismatch { expected, got } => set_error(
             Z42HostStatus::BadConfig,
             format!("z42_host_initialize: abi_version mismatch (expected {expected}, got {got})"),
+        ),
+        CE::StructTooSmall { min, got } => set_error(
+            Z42HostStatus::BadConfig,
+            format!("z42_host_initialize: struct_size {got} is smaller than the v2 config ({min} bytes); set it to sizeof(Z42HostConfig)"),
         ),
         CE::UnknownExecMode { raw } => set_error(
             Z42HostStatus::BadConfig,

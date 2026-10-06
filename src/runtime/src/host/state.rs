@@ -39,6 +39,7 @@ impl HostModule {
 }
 
 /// Resolved entry handle. Indexes into `HostModule::module().functions`.
+#[derive(Clone, Copy)]
 pub(crate) struct HostEntry {
     pub module_idx: usize,
     pub fn_idx: usize,
@@ -73,7 +74,9 @@ pub(crate) struct HostState {
     /// originally-supplied options.
     #[allow(dead_code)]
     pub config: ResolvedConfig,
-    pub modules: Vec<HostModule>,
+    /// `Arc` so `z42_host_invoke` can take its module out from under the
+    /// `HOST` lock and run user code without holding it.
+    pub modules: Vec<std::sync::Arc<HostModule>>,
     pub entries: Vec<HostEntry>,
     pub corelib: Option<HostCorelib>,
 }

@@ -45,7 +45,7 @@ fn reset_host() {
 fn default_config() -> Z42HostConfig {
     Z42HostConfig {
         abi_version: Z42_HOST_ABI_VERSION,
-        reserved: 0,
+        struct_size: config::MIN_CONFIG_SIZE as u32,
         exec_mode: config::Z42ExecMode::Interp as i32,
         heap_initial_bytes: 0,
         heap_max_bytes: 0,
@@ -167,6 +167,23 @@ fn bad_abi_version_returns_bad_config() {
         msg.contains("abi_version"),
         "expected abi_version detail, got {msg}"
     );
+}
+
+#[test]
+fn struct_size_smaller_than_v2_returns_bad_config() {
+    let _g = test_lock();
+    reset_host();
+
+    // A caller built against a header without the trailing resolver fields.
+    let mut cfg = default_config();
+    cfg.struct_size = std::mem::offset_of!(Z42HostConfig, zpkg_resolver) as u32;
+
+    let mut handle: *mut Z42Host = ptr::null_mut();
+    let status = unsafe { z42_host_initialize(&cfg, &mut handle) };
+    assert_eq!(status, Z42HostStatus::BadConfig);
+    assert!(handle.is_null());
+    let msg = unsafe { CStr::from_ptr(z42_host_last_error(ptr::null_mut()).message) }.to_string_lossy();
+    assert!(msg.contains("struct_size"), "expected struct_size detail, got {msg}");
 }
 
 #[test]
@@ -355,7 +372,7 @@ fn load_invoke_hello_world() {
 
     let cfg = Z42HostConfig {
         abi_version: Z42_HOST_ABI_VERSION,
-        reserved: 0,
+        struct_size: config::MIN_CONFIG_SIZE as u32,
         exec_mode: config::Z42ExecMode::Interp as i32,
         heap_initial_bytes: 0,
         heap_max_bytes: 0,
@@ -443,7 +460,7 @@ fn with_hello_session<R>(
     let search_paths: [*const c_char; 2] = [libs_path.as_ptr(), ptr::null()];
     let cfg = Z42HostConfig {
         abi_version: Z42_HOST_ABI_VERSION,
-        reserved: 0,
+        struct_size: config::MIN_CONFIG_SIZE as u32,
         exec_mode: config::Z42ExecMode::Interp as i32,
         heap_initial_bytes: 0,
         heap_max_bytes: 0,
@@ -795,7 +812,7 @@ fn resolver_via_map_resolver_loads_corelib_without_search_paths() {
     // No search_paths — relies entirely on the resolver.
     let cfg = Z42HostConfig {
         abi_version: Z42_HOST_ABI_VERSION,
-        reserved: 0,
+        struct_size: config::MIN_CONFIG_SIZE as u32,
         exec_mode: config::Z42ExecMode::Interp as i32,
         heap_initial_bytes: 0,
         heap_max_bytes: 0,
@@ -901,7 +918,7 @@ fn resolver_via_c_hook_loads_corelib() {
 
     let cfg = Z42HostConfig {
         abi_version: Z42_HOST_ABI_VERSION,
-        reserved: 0,
+        struct_size: config::MIN_CONFIG_SIZE as u32,
         exec_mode: config::Z42ExecMode::Interp as i32,
         heap_initial_bytes: 0,
         heap_max_bytes: 0,
@@ -967,7 +984,7 @@ fn resolver_miss_falls_back_to_search_paths() {
 
     let cfg = Z42HostConfig {
         abi_version: Z42_HOST_ABI_VERSION,
-        reserved: 0,
+        struct_size: config::MIN_CONFIG_SIZE as u32,
         exec_mode: config::Z42ExecMode::Interp as i32,
         heap_initial_bytes: 0,
         heap_max_bytes: 0,
@@ -1034,7 +1051,7 @@ fn resolver_both_unset_load_zbc_succeeds_if_zbc_self_contained() {
     // when user code actually references a missing symbol at invoke.
     let cfg = Z42HostConfig {
         abi_version: Z42_HOST_ABI_VERSION,
-        reserved: 0,
+        struct_size: config::MIN_CONFIG_SIZE as u32,
         exec_mode: config::Z42ExecMode::Interp as i32,
         heap_initial_bytes: 0,
         heap_max_bytes: 0,
@@ -1082,7 +1099,7 @@ fn resolver_corelib_miss_then_console_writeline_fails_at_invoke() {
 
     let cfg = Z42HostConfig {
         abi_version: Z42_HOST_ABI_VERSION,
-        reserved: 0,
+        struct_size: config::MIN_CONFIG_SIZE as u32,
         exec_mode: config::Z42ExecMode::Interp as i32,
         heap_initial_bytes: 0,
         heap_max_bytes: 0,
@@ -1174,4 +1191,57 @@ fn invoke_sees_initialized_static_fields() {
         let again = invoke_hello_fn(host, module, "CoreStatic");
         assert_eq!(again.payload, 6, "second invoke keeps the initialized value");
     });
+}
+
+/// Sink that shuts the host down from inside the callback — a host reacting
+/// to program output by tearing the VM down.
+#[cfg(z42_have_embedding_hello)]
+unsafe extern "C" fn host_shutdown_sink(_bytes: *const c_char, _length: usize, _user_data: *mut c_void) {
+    let _ = unsafe { z42_host_shutdown(state::HOST_SENTINEL as *mut Z42Host) };
+}
+
+/// `z42_host_invoke` used to run user code under the `HOST` read lock and the
+/// sink callback under the sink slot's read lock; a callback calling back into
+/// an API that takes either write lock (`shutdown` takes both) deadlocked.
+#[test]
+#[cfg(z42_have_embedding_hello)]
+fn sink_callback_can_shut_down_the_host_mid_invoke() {
+    let _g = test_lock();
+    reset_host();
+    if !project_root().join("artifacts/build/libraries/dist/release/z42.core.zpkg").is_file() {
+        eprintln!("skipping: corelib zpkg not available");
+        return;
+    }
+
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let libs_path = libs_dir_cstring();
+        let search_paths: [*const c_char; 2] = [libs_path.as_ptr(), ptr::null()];
+        let mut cfg = default_config();
+        cfg.stdout_sink = Some(host_shutdown_sink);
+        cfg.search_paths = search_paths.as_ptr();
+        let mut host: *mut Z42Host = ptr::null_mut();
+        assert_eq!(unsafe { z42_host_initialize(&cfg, &mut host) }, Z42HostStatus::Ok);
+        let zbc_bytes: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/embedding_hello.zbc"));
+        let mut module: *mut Z42Module = ptr::null_mut();
+        assert_eq!(
+            unsafe { z42_host_load_zbc(host, zbc_bytes.as_ptr(), zbc_bytes.len(), &mut module) },
+            Z42HostStatus::Ok
+        );
+        let fqn = CString::new("Embedding.Hello.MultiLine").unwrap();
+        let mut entry: *mut Z42Entry = ptr::null_mut();
+        assert_eq!(
+            unsafe { z42_host_resolve_entry(host, module, fqn.as_ptr(), &mut entry) },
+            Z42HostStatus::Ok
+        );
+        let mut result = z42_abi::Z42Value { tag: u32::MAX, reserved: 0, payload: 0 };
+        let status = unsafe { z42_host_invoke(entry, ptr::null(), 0, &mut result) };
+        let _ = tx.send(status);
+    });
+    let status = rx
+        .recv_timeout(std::time::Duration::from_secs(60))
+        .expect("invoke deadlocked: a sink callback re-entering the host API never returned");
+    // The module stays alive for the rest of the call; the host is gone after it.
+    assert_eq!(status, Z42HostStatus::Ok);
+    assert_eq!(unsafe { z42_host_shutdown(state::HOST_SENTINEL as *mut Z42Host) }, Z42HostStatus::NotInit);
 }

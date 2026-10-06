@@ -16,6 +16,9 @@
  * ABI evolution rules (mirror z42_abi.h):
  *   - `abi_version` MUST stay at offset 0 across all versions.
  *   - New struct fields are appended only; layout never reordered.
+ *   - Callers set `Z42HostConfig.struct_size = sizeof(Z42HostConfig)`; the
+ *     runtime reads an appended field only when struct_size covers it, so a
+ *     caller built against an older header is never read past its struct.
  *   - All access is through z42_host_* functions, not direct struct manipulation.
  *   - Major version bumps are explicit semver-major breaks.
  *
@@ -37,7 +40,7 @@ extern "C" {
 
 /* ── Version ─────────────────────────────────────────────────────────────── */
 
-#define Z42_HOST_ABI_VERSION 1
+#define Z42_HOST_ABI_VERSION 2
 
 /* ── Opaque handles ──────────────────────────────────────────────────────── */
 
@@ -113,7 +116,7 @@ typedef void (*Z42NamespaceVisitor)(const char* ns, size_t len, void* user_data)
 
 typedef struct Z42HostConfig {
     uint32_t      abi_version;        /* MUST equal Z42_HOST_ABI_VERSION */
-    uint32_t      reserved;
+    uint32_t      struct_size;        /* MUST be sizeof(Z42HostConfig) */
 
     Z42ExecMode   exec_mode;
     size_t        heap_initial_bytes; /* 0 = VM default */
@@ -131,9 +134,8 @@ typedef struct Z42HostConfig {
      * for every namespace lookup during load_zbc; falls back to
      * search_paths on miss. NULL = "no resolver; scan search_paths only".
      *
-     * APPENDED to v1 layout (2026-05-11). ABI version stays at 1 since
-     * adding trailing fields is forward-compatible (callers built against
-     * older headers leave the field NULL when zero-initialising cfg).
+     * Part of the v2 layout. Fields appended after these are gated by
+     * struct_size.
      */
     Z42ZpkgResolverFn  zpkg_resolver;
     void*              zpkg_resolver_user_data;
@@ -172,6 +174,7 @@ typedef enum Z42HostStatus {
  *
  * Preconditions:
  *   - cfg != NULL and cfg->abi_version == Z42_HOST_ABI_VERSION
+ *   - cfg->struct_size == sizeof(Z42HostConfig)
  *   - The process has no live VM (otherwise returns ERR_ALREADY_INIT).
  *
  * On success, *out_host is set to a non-NULL handle.

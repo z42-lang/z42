@@ -102,7 +102,7 @@ typedef int (*Z42ZpkgResolverFn)(
     size_t*      out_length,
     void*        user_data);
 
-/* Appended at end of Z42HostConfig (ABI version unchanged): */
+/* Last fields of the v2 Z42HostConfig layout: */
 Z42ZpkgResolverFn  zpkg_resolver;
 void*              zpkg_resolver_user_data;
 ```

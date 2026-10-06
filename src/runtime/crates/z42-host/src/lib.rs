@@ -340,7 +340,7 @@ impl Host {
 
         let raw_cfg = Z42HostConfig {
             abi_version: Z42_HOST_ABI_VERSION,
-            reserved: 0,
+            struct_size: std::mem::size_of::<Z42HostConfig>() as u32,
             exec_mode: cfg.exec_mode.as_raw(),
             heap_initial_bytes: cfg.heap_initial.unwrap_or(0),
             heap_max_bytes: cfg.heap_max.unwrap_or(0),

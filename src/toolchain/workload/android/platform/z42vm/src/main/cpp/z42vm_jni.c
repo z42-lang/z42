@@ -181,6 +181,7 @@ Java_io_z42_vm_Z42VM_nativeInitialize(
 
     Z42HostConfig cfg = {0};
     cfg.abi_version = Z42_HOST_ABI_VERSION;
+    cfg.struct_size = sizeof cfg;
     cfg.exec_mode = Z42_EXEC_MODE_INTERP;
     cfg.zpkg_resolver = zpkg_resolver_trampoline;
     cfg.zpkg_resolver_user_data = ctx;
