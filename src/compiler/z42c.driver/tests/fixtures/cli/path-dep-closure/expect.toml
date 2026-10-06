@@ -1,0 +1,8 @@
+desc = "两层 path 依赖：闭包自动建、全体（含 bar 没声明的 baz）colocate 进 bar/dist、bar.zpkg 直跑（见 README）"
+args = ["build", "bar/pathdep.bar.z42.toml", "--release"]
+exit = 0
+exists = ["bar/dist/pathdep.foo.zpkg", "bar/dist/pathdep.baz.zpkg"]
+
+[run]
+target = "bar/dist/pathdep.bar.zpkg"
+exit = 0

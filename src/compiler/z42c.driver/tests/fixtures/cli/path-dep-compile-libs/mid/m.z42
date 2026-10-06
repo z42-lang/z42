@@ -1,0 +1,5 @@
+namespace PdMid;
+
+using PdBase;
+
+public static class M { public static int V() { return B.V() + 1; } }

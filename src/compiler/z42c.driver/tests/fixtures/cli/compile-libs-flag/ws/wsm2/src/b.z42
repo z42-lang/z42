@@ -1,0 +1,5 @@
+namespace WsM2;
+
+using ClDep;
+
+public class Bx { public int G() { return new Thing().V(); } }

@@ -1,0 +1,11 @@
+[project]
+name    = "e2e.pathapp"
+version = "0.1.0"
+kind    = "exe"
+entry   = "E2ePathApp.Main"
+
+[sources]
+include = ["*.z42"]
+
+[dependencies]
+"e2e.pathgen" = { path = "../pathgen" }

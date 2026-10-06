@@ -1,0 +1,10 @@
+[project]
+name    = "pathdep.foo"
+version = "0.1.0"
+kind    = "lib"
+
+[sources]
+include = ["*.z42"]
+
+[dependencies]
+"pathdep.baz" = { path = "../baz" }

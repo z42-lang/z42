@@ -1,0 +1,6 @@
+desc = "单工程 --output-dir <dir>：产物进 <dir>，工程目录旁零写入（这条路径从不读 cache，所以也不写）"
+cwd = "odproj"
+args = ["build", "cache.od.z42.toml", "--release", "--output-dir", "../odout"]
+exit = 0
+exists = ["odout/cache.od.zpkg"]
+absent = ["odproj/artifacts", "odproj/dist"]

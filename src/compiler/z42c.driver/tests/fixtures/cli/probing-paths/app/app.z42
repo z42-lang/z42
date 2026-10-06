@@ -1,0 +1,6 @@
+namespace ProbeApp;
+
+using Std.IO;
+using ProbeFx;
+
+void Main() { Console.WriteLine(new Helper().V().ToString()); }

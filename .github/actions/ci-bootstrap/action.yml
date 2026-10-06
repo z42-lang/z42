@@ -137,7 +137,7 @@ runs:
           ( cd "$ROOT/src/libraries" && Z42_LIBS="$g1runw" "$OLDVM" "$(winpath "$G1RUN/z42c.driver.zpkg")" --mode interp -- build --workspace --release --no-incremental )
           echo "   ✓ gen1 stdlib: fresh z42.core minor=$(od -An -tu2 -j6 -N2 "$ROOT/artifacts/build/libraries/z42.core/release/dist/z42.core.zpkg" | tr -d ' ')"
           # 新格式 stdlib flat 视图
-          FLAT="$ROOT/artifacts/build/libraries/dist/release"; mkdir -p "$FLAT"
+          FLAT="$ROOT/artifacts/intermediate/libraries/flat/release"; mkdir -p "$FLAT"
           for f in "$ROOT/artifacts/build/libraries/"*/release/dist/*.zpkg; do cp -f "$f" "$FLAT/"; done
           flatw="$(winpath "$FLAT")"
           # Gen2 z42c: 旧VM + gen1 z42c(entry-dir=旧 stdlib 供运行时)+ Z42_LIBS=新 stdlib(编译期 TSIG)
@@ -195,7 +195,7 @@ runs:
         echo "── [5/5] verify toolchain ──"
         [ -f "$ROOT/artifacts/build/compiler/z42c.driver/release/dist/z42c.driver.zpkg" ] \
           || { echo "::error::current z42c.driver.zpkg missing after build compiler"; exit 1; }
-        [ -f "$ROOT/artifacts/build/libraries/dist/release/z42.core.zpkg" ] \
+        [ -f "$ROOT/artifacts/intermediate/libraries/flat/release/z42.core.zpkg" ] \
           || { echo "::error::stdlib flat dist missing"; exit 1; }
         echo "✅ CI bootstrap OK ($RID) — z42c + stdlib + xtask in standard locations"
 

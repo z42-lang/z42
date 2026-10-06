@@ -1,0 +1,9 @@
+desc = "workspace 成员依赖 workspace 外（ext/ 必须在 ws/ 之外，否则 members=[\"*\"] 把它吞成成员）的 path 工程：代建并能跑"
+cwd = "ws"
+args = ["build", "--workspace"]
+exit = 0
+
+[run]
+target = "ws/artifacts/pdapp/debug/dist/pdapp.zpkg"
+exit = 0
+stdout_equals = "7"

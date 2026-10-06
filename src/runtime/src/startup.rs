@@ -15,9 +15,8 @@ use z42::config::KNOWN_KNOBS;
 /// Search order (redesign-artifact-layout, 2026-05-12):
 ///   1. `$Z42_LIBS`                                         — env override
 ///   2. `<binary-dir>/../libs/`                             — packages/<pkg>/libs/ adjacent
-///   3. `<cwd>/artifacts/build/libraries/dist/release/`               — dev flat view (xtask build stdlib)
-///   4. `<cwd>/artifacts/build/libraries/dist/debug/`                 — dev flat view (debug profile)
-///   5. `<cwd>/artifacts/z42/libs/`                         — legacy fallback (pre-2026-05-12)
+///   3. `<cwd>/artifacts/intermediate/libraries/flat/release/` — dev flat view (xtask build stdlib)
+///   4. `<cwd>/artifacts/intermediate/libraries/flat/debug/`   — dev flat view (debug profile)
 pub fn resolve_libs_dir() -> Option<PathBuf> {
     // 1. the `libs` knob (Z42_LIBS / --set libs= / [runtime].libs)
     //
@@ -43,9 +42,8 @@ pub fn resolve_libs_dir() -> Option<PathBuf> {
     // 3-4. dev flat view（xtask build stdlib 产出）
     if let Ok(cwd) = std::env::current_dir() {
         for p in [
-            cwd.join("artifacts/build/libraries/dist/release"),
-            cwd.join("artifacts/build/libraries/dist/debug"),
-            cwd.join("artifacts/z42/libs"), // legacy fallback
+            cwd.join("artifacts/intermediate/libraries/flat/release"),
+            cwd.join("artifacts/intermediate/libraries/flat/debug"),
         ] {
             if p.is_dir() {
                 return Some(p);

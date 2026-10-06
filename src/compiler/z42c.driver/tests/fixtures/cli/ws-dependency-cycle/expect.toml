@@ -1,0 +1,4 @@
+desc = "成员依赖成环 → 干净的错误，不是带栈帧的 uncaught exception"
+args = ["build", "--workspace"]
+exit = "nonzero"
+output_not_contains = ["uncaught exception"]

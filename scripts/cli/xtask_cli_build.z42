@@ -15,7 +15,7 @@ SubcommandRouter _buildRouter() {
         new ArgParser("xtask build compiler", "build z42 self-host compiler"));
     ArgParser stdlib = new ArgParser("xtask build stdlib", "build stdlib (all)");
     stdlib.AddOptionalPositional("lib", "(currently builds all)");
-    b.Add("stdlib", "build stdlib -> build/libraries/dist", stdlib);
+    b.Add("stdlib", "build stdlib -> build/libraries/<lib> + flat view", stdlib);
     ArgParser sdk = new ArgParser("xtask build sdk", "assemble current toolchain into a .z42 layout (--toolchain consumable)");
     sdk.AddOption("out", "", "output dir (default: artifacts/.z42)", "");
     sdk.AddFlag("no-build", "", "assemble from existing artifacts (skip rebuild; for CI warm)");

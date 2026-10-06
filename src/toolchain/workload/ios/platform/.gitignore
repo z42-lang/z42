@@ -15,7 +15,7 @@ DerivedData/
 Z42VM.xcframework/
 
 # stdlib zpkg bundles + namespace index copied in by build.sh from
-# artifacts/build/libraries/dist/release/.
+# artifacts/intermediate/libraries/flat/release/.
 Resources/stdlib/*.zpkg
 Resources/stdlib/index.json
 
@@ -23,7 +23,7 @@ Resources/stdlib/index.json
 demo/fixtures/*.zbc
 
 # Test bundle resources (produced by build.sh from src/toolchain/workload/fixtures/*
-# and artifacts/build/libraries/dist/release/). Re-generated on every build.
+# and artifacts/intermediate/libraries/flat/release/). Re-generated on every build.
 Tests/Z42VMTests/Resources/test-fixtures/*.zbc
 Tests/Z42VMTests/Resources/stdlib/*.zpkg
 Tests/Z42VMTests/Resources/stdlib/index.json

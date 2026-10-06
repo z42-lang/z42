@@ -1,0 +1,11 @@
+[project]
+name    = "pdapp"
+version = "0.1.0"
+kind    = "exe"
+entry   = "Main"
+
+[sources]
+include = ["*.z42"]
+
+[dependencies]
+"pdext" = { path = "../../ext" }

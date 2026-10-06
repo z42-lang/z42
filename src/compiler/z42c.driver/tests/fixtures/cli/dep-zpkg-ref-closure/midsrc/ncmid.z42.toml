@@ -1,0 +1,10 @@
+[project]
+name    = "ncmid"
+version = "0.1.0"
+kind    = "lib"
+
+[sources]
+include = ["src/*.z42"]
+
+[dependencies]
+"ncleaf" = "0.1.0"

@@ -1,0 +1,8 @@
+[project]
+name    = "wsfa"
+version = "0.1.0"
+kind    = "exe"
+entry   = "Main"
+
+[sources]
+include = ["*.z42"]

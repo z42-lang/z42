@@ -147,11 +147,11 @@ string _buildDir(string root) { return Path.Join(_artifactsDir(root), "build"); 
 string _libsBuildRoot(string root) { return _wsBuildRoot(_libsWsToml(root)); }
 string _compilerBuildRoot(string root) { return _wsBuildRoot(_compilerWsToml(root)); }
 
-// artifacts/build/libraries/dist/<profile> — the FLAT stdlib dist (all members
-// hard-linked into one dir = the Z42_LIBS the compiler + VM load from). An xtask
-// aggregation, not a workspace.toml field.
+// artifacts/intermediate/libraries/flat/<profile> — the FLAT stdlib view: every member's dist
+// hard-linked into one dir = the Z42_LIBS the compiler + VM load from (VM 的 Z42_LIBS 只能是一个目录).
+// An xtask aggregation over the members' compile outputs, not a compile output itself ⇒ intermediate/.
 string _libsFlatDist(string root, string profile) {
-    return Path.Join(_libsBuildRoot(root), "dist/" + profile);
+    return _workOut(root, "src/libraries", "flat/" + profile);
 }
 
 // artifacts/build/runtime — cargo's target-dir for every Rust crate: the runtime workspace
@@ -370,14 +370,12 @@ LayoutEntriesZ _layoutEntries(string root) {
             string vrel = _layoutRel(root, vm, false);
             e.Add(vrel, _layoutName(rel, vrel), 2, "VM 二进制", vm);
         }
-        if (d == "libraries") {
-            string flat = _libsDir(root);
-            string frel = _layoutRel(root, flat, true);
-            e.Add(frel, _layoutName(rel, frel), 2, "扁平 stdlib = Z42_LIBS", flat);
-        }
     }
     string im = _layoutRel(root, _intermediateDir(root), true);
     e.Add(im, im, 0, "中间物：夹具暂存拷贝、harness 工作目录、设备测试 bundle / 宿主副本 …，逐路径镜像 src/", _intermediateDir(root));
+    string flat = _libsDir(root);
+    string frel = _layoutRel(root, flat, true);
+    e.Add(frel, _layoutName(im, frel), 1, "扁平 stdlib 视图 = Z42_LIBS（各成员 dist 硬链汇聚）", flat);
     string ic = _layoutRel(root, _workMirror(root, "src/compiler"), true);
     e.Add(ic, _layoutName(im, ic), 1, "编译器 workspace 级自举中间物（selfhost-gen1 / seed-run-libs / stdlib-run）", _workMirror(root, "src/compiler"));
     string ix = _layoutRel(root, Path.GetDirectoryName(_xtaskWork(root, "x")), true);
@@ -406,7 +404,7 @@ LayoutEntriesZ _layoutEntries(string root) {
 }
 
 // `xtask layout [path]`：无参 = 打印 artifacts/ 的目录树（首行是 artifacts/ 的绝对路径，其余相对它、按层级缩进）；
-// 带参 = 该条目的绝对路径（给 CI / 脚本：`libs=$(xtask layout build/libraries/dist/release)`）。
+// 带参 = 该条目的绝对路径（给 CI / 脚本：`libs=$(xtask layout intermediate/libraries/flat/release)`）。
 // 参数就是树里显示的相对路径，尾 / 可有可无。未知 → exit 2 并列出全部路径。
 int _layoutCmd(ParseResult r) {
     string root = _root();

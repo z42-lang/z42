@@ -8,11 +8,11 @@ using Std.Cli;   // ParseResult
 
 // ── clean ─────────────────────────────────────────────────────────────────────
 //
-//   clean         生产 cache/dist：各 stdlib 成员的 <lib>/<profile>/{cache,dist} + 扁平 libraries/dist/
+//   clean         生产 cache/dist：各 stdlib 成员的 <lib>/<profile>/{cache,dist} + 扁平视图 intermediate/libraries/flat/
 //   clean tests   测试的编译产物：build/ 下所有 tests/（golden .zbc、z42b 的 `<m>/<profile>/tests`；规则见
 //                 test-layout.md §5）+ 旧位置 <工程目录>/artifacts/test-targets
 //   clean bench   z42b 的 bench 目标输出（`<m>/<profile>/bench`；旧位置 <工程目录>/artifacts/bench-targets）
-//   clean intermediate  整个 intermediate/（夹具暂存拷贝、harness 工作目录、平台测试 bundle / 宿主、编译器
+//   clean intermediate  整个 intermediate/（stdlib 扁平视图、夹具暂存拷贝、harness 工作目录、平台测试 bundle / 宿主、编译器
 //                 自举快照、xtask 自检目录 —— 全部可再生）
 //   clean all     build/ + intermediate/ + 旧工作树残留（tmp/、.scratch/、publish/、release/、顶层 test-reports/
 //                 bench/ profile/）+ 源码树里各 z42 工程旁的 artifacts/、dist/
@@ -43,19 +43,15 @@ int _clean(ParseResult r) {
             + "'  (empty=production cache/dist | tests | bench | intermediate | all)");
         return 2;
     }
+    // 扁平视图由成员 dist 汇聚而来，成员 dist 删了它就是陈旧的 ⇒ 一起删。
+    int n = 0;
+    foreach (var prof in _cleanProfiles()) { n = n + _rmIfExists(_libsFlatDist(root, prof)); }
     string libsRoot = _libsBuildRoot(root);   // workspace.toml output_dir 模板前缀
     if (!Directory.Exists(libsRoot)) {
-        Console.WriteLine("clean: nothing under " + libsRoot);
+        Console.WriteLine("✅ clean: removed " + n.ToString() + " dir(s) [production cache/dist]");
         return 0;
     }
-    int n = 0;
     foreach (var entry in _sortedStrings(Directory.Enumerate(libsRoot))) {
-        string entryDir = Path.Join(libsRoot, entry);
-        if (entry == "dist") {
-            // The aggregate libraries/dist/<profile>/ — production only.
-            n = n + _rmIfExists(entryDir);
-            continue;
-        }
         foreach (var prof in _cleanProfiles()) {
             // cache / dist 位置按 workspace.toml 的 cache_dir / output_dir 模板解析，不写死目录名。
             n = n + _rmIfExists(_memberCache(_libsWsToml(root), entry, prof));

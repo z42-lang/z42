@@ -1,0 +1,5 @@
+desc = "清单值类型错 → 点名是哪个键、exit 1"
+args = ["build", "check.knob.z42.toml"]
+exit = 1
+stderr_contains = ["`version`: expected string"]
+stderr_not_contains = ["uncaught exception"]

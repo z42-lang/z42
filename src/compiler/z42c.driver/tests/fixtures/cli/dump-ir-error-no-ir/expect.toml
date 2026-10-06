@@ -1,0 +1,5 @@
+desc = "有错的源 --dump-ir：报诊断、非零退出、不打 IR（与 --emit-zbc 同一条单文件编译路径）"
+args = ["--dump-ir", "bad.z42"]
+exit = "nonzero"
+stderr_contains = ["NoSuchTypeAtAll"]
+stdout_empty = true

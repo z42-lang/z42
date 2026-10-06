@@ -1,0 +1,33 @@
+desc = "repo 外：躺在框架目录（Z42_LIBS）里、名字却不以 z42. 开头的包，不得被复制进 exe 的 dist，且产物运行期从框架目录解析得到（见 README）"
+outside_repo = true
+
+# libs/ = 私有框架目录：stdlib 副本 + 下面建出的 deployfx
+[[step]]
+tool = "copy"
+from = "{stdlib}/*.zpkg"
+to = "libs/"
+
+[[step]]
+args = ["build", "fx/deployfx.z42.toml", "--release"]
+libs = "libs"
+exit = 0
+
+[[step]]
+tool = "copy"
+from = "fx/dist/deployfx.zpkg"
+to = "libs/"
+
+# exe 按名依赖它 —— 它此刻确实在框架目录里 ⇒ 不复制
+[[step]]
+args = ["build", "app/deployapp.z42.toml", "--release"]
+libs = "libs"
+exit = 0
+absent = ["app/dist/deployfx.zpkg"]
+
+# 对照：产物必须真能跑 —— 否则「没复制」可能只是整个构建没做事
+[[step]]
+tool = "run"
+target = "app/dist/deployapp.zpkg"
+libs = "libs"
+exit = 0
+stdout_equals = "7"

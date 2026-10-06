@@ -1,0 +1,68 @@
+desc = "用户工程显式引用编译器域库：不声明看不见；按名声明可用、被拷进产物且不拖入 stdlib；已删除的 ${compiler_libs} 写法当场报错并给出按名写法（见 README）"
+
+# shipped/ = stdlib flat 减去编译器域包（用户看到的 libs）
+[[step]]
+tool = "copy"
+from = "{stdlib}/*.zpkg"
+to = "shipped/"
+
+[[step]]
+tool = "copy"
+from = "{stdlib}/*.zsym"
+to = "shipped/"
+
+[[step]]
+tool = "remove"
+paths = ["shipped/z42c.*", "shipped/z42.package.*", "shipped/z42.project.*", "shipped/z42.build.*", "shipped/z42.scripting.*"]
+
+# cdomain/ = 编译器域包（镜像 <sdk>/programs/z42c/），经 Z42_COMPILER_LIBS 交给 z42c
+[[step]]
+tool = "copy"
+from = "{compiler}/z42c.*.zpkg"
+to = "cdomain/"
+
+[[step]]
+tool = "copy"
+from = "{compiler}/z42.package.zpkg"
+to = "cdomain/"
+
+[[step]]
+tool = "copy"
+from = "{compiler}/z42.project.zpkg"
+to = "cdomain/"
+
+[[step]]
+tool = "copy"
+from = "{compiler}/z42.build.zpkg"
+to = "cdomain/"
+
+[[step]]
+tool = "copy"
+from = "{compiler}/z42.scripting.zpkg"
+to = "cdomain/"
+exists = ["cdomain/z42c.syntax.zpkg"]
+
+# ① 不声明 + using Z42.Syntax ⇒ 编不过，且错误与 Z42.Syntax 的类型有关
+[[step]]
+args = ["build", "nodecl/e2euserlinter.z42.toml", "--release"]
+libs = "shipped"
+env = { Z42_COMPILER_LIBS = "{case}/cdomain" }
+exit = "nonzero"
+stderr_contains = ["Lexer"]
+
+# ② 按名声明 ⇒ 编过、z42c.syntax 拷进产物、stdlib 不被拖进来
+[[step]]
+args = ["build", "decl/e2euserlinter.z42.toml", "--release"]
+libs = "shipped"
+env = { Z42_COMPILER_LIBS = "{case}/cdomain" }
+exit = 0
+exists = ["decl/dist/z42c.syntax.zpkg"]
+absent = ["decl/dist/z42.core.zpkg"]
+
+# ③ 已删除的 ${compiler_libs} 路径宏 ⇒ 当场报「已删除」并给出按名写法
+[[step]]
+args = ["build", "oldmacro/e2euserlinter.z42.toml", "--release"]
+libs = "shipped"
+env = { Z42_COMPILER_LIBS = "{case}/cdomain" }
+exit = "nonzero"
+stderr_contains = ["已删除", "\"z42c.syntax\" = \"*\""]

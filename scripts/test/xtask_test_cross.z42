@@ -541,7 +541,7 @@ void _copyZpkgs(string srcDir, string dstDir) {
 }
 
 // Stdlib artifacts live in the FLAT dist view at
-// artifacts/build/libraries/dist/release (the same layout Z42_LIBS / _z42vm
+// artifacts/intermediate/libraries/flat/release (the same layout Z42_LIBS / _z42vm
 // consume). Copy *.zpkg + *.zsym from there.
 // stdlib 进每个 fixture 的临时 Z42_LIBS 目录：**硬链接**而非拷贝。
 //

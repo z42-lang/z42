@@ -1,0 +1,6 @@
+// 只改注释
+namespace DepId.Foo;
+
+public static class Foo {
+    public static int Answer() { return 42; }
+}

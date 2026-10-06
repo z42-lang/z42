@@ -402,7 +402,7 @@ var x = 2 ** 10;   // 展开为 Math.Pow(2, 10)
 5. `tests/parse_table.z42` 的一致性守门会自动校验名字拼写。
 
 > ⚠️ **别拿编译器自身大量使用的构造做「假特性名」实验**：那会让产出的编译器连自己都编不了，
-> 且毒化产物会落进 `artifacts/build/libraries/dist/` 让后续每次构建都用它 = 自举死锁。
+> 且毒化产物会落进 `artifacts/intermediate/libraries/flat/` 让后续每次构建都用它 = 自举死锁。
 > 选一个全仓零出现的构造（如已移除的 `??`）；真踩了的话，恢复要用种子：
 > `cd src/libraries && ../../.z42/bin/z42c build --workspace --release`。
 

@@ -1,0 +1,11 @@
+[project]
+name    = "deployuse"
+version = "0.1.0"
+kind    = "exe"
+entry   = "DeployUseApp.Main"
+
+[sources]
+include = ["*.z42"]
+
+[dependencies]
+"z42.io" = { path = "../vendor/z42.io.zpkg", deploy = "shared" }

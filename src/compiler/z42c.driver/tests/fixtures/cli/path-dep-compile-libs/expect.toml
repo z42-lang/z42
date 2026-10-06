@@ -1,0 +1,22 @@
+desc = "path 依赖（mid）自己依赖一个只在 --compile-libs 里的包（pdbase）：代建与消费方都要认 --compile-libs，不能只拿 Z42_LIBS 当基础解析域"
+
+# libs/ = Z42_LIBS（只有 stdlib）；only/ = 只有 pdbase
+[[step]]
+tool = "copy"
+from = "{stdlib}/*.zpkg"
+to = "libs/"
+
+[[step]]
+args = ["build", "base/pdbase.z42.toml", "--release"]
+libs = "libs"
+exit = 0
+
+[[step]]
+tool = "copy"
+from = "base/dist/pdbase.zpkg"
+to = "only/"
+
+[[step]]
+args = ["build", "top/pdtop.z42.toml", "--release", "--compile-libs", "{case}/libs{sep}{case}/only"]
+libs = "libs"
+exit = 0

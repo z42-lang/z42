@@ -1,0 +1,11 @@
+[project]
+name    = "deployapp"
+version = "0.1.0"
+kind    = "exe"
+entry   = "DeployApp.Main"
+
+[sources]
+include = ["*.z42"]
+
+[dependencies]
+"deployfx" = "0.1.0"

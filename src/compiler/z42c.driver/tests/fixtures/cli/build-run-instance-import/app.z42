@@ -1,0 +1,11 @@
+using Std.IO;
+using Std.Text;
+
+void Main() {
+    var sb = new StringBuilder();
+    sb.Append("ab");
+    sb.Append("cd");
+    string s = sb.ToString();
+    string sub = s.Substring(0, 2);
+    Console.WriteLine(sub);
+}

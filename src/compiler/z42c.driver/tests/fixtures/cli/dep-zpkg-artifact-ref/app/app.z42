@@ -1,0 +1,6 @@
+namespace ZrefApp;
+
+using Std.IO;
+using ZrefVendor;
+
+void Main() { Console.WriteLine(new Greeter().Hello()); }

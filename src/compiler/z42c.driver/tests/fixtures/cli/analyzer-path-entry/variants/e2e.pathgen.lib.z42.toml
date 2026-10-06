@@ -1,0 +1,10 @@
+[project]
+name    = "e2e.pathgen"
+version = "0.1.0"
+kind    = "lib"
+
+[sources]
+include = ["*.z42"]
+
+[dependencies]
+"z42c.semantics" = "0.1.0"

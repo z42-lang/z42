@@ -1,0 +1,4 @@
+using Std.IO;
+using BcLib;
+
+void Main() { Console.WriteLine(L.V()); }

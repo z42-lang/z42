@@ -36,7 +36,6 @@
 |---|---|---|
 | `src/runtime/` 与 `src/toolchain/` 的全部 Rust crate | `build/runtime/<profile>/`、`build/runtime/<triple>/<profile>/` | 唯一的 cargo target-dir：`z42vm`、`libz42.*`、`z42` trampoline，以及 apphost stub、wasm / ios / android 平台 crate（产物名互不重名，依赖按 hash 区分） |
 | `src/libraries/<lib>/` | `build/libraries/<lib>/<profile>/{dist,cache}/` | **per-lib** 编译，构建私有 |
-| （聚合拷出）| `build/libraries/dist/<profile>/` | 全部 stdlib `.zpkg` 的**扁平单目录视图** = `Z42_LIBS` 查找点 |
 | `src/compiler/<member>/` | `build/compiler/<member>/<profile>/{dist,cache}/` | 编译器后端各成员 |
 | `src/toolchain/<comp>/` | `build/toolchain/<comp>/{dist,.cache,publish}/` | launcher / builder / devtools / interactive 等：清单只配 `output_dir`，三个子目录走级联默认。`<comp>/core` 的输出就是 `<comp>/`，其余子工程镜像自己的路径（`interactive/repl` → `toolchain/interactive/repl/`，`workload/test/agent` → `toolchain/workload/test/`）|
 | `src/<组件>/` 的测试 | `build/<组件>/<profile>/tests/…`、`build/tests/<rel>` | 测试的**编译产物**（见 §3）。成员内一律 **profile 在外、`tests` 在内**，与 `build/runtime/<profile>/` 同形；`src/tests` 不属于任何包，没有 profile 层 |
@@ -61,13 +60,13 @@ xtask 自己发明、没有 toml 归属的路径，**全部在 `xtask_layout.z42
 `_toolsDir` / `_devSdkDir` / `_packagesDir` / `_archivesDir` / `_testReportsDir` / `_benchDir` / `_profileDir`）。
 使用点只写「桶 + 自己的子目录名」或「owner 组件 + 名字」，不写 `"artifacts/…"` 字面量——挪一个位置只改一处。
 `xtask check layout` 守着镜像：`build/` 的一级目录、`build/{compiler,libraries,toolchain}/` 的二级目录、
-`intermediate/` 的一级目录，出现 `src/` 里没有的即红（例外：`libraries/dist`、`intermediate/xtask`）。
+`intermediate/` 的一级目录，出现 `src/` 里没有的即红（例外：`intermediate/xtask`）。
 
 ### 查询：`xtask layout`
 
 ```bash
 xtask layout                                # artifacts/ 的目录树：首行是 artifacts/ 的绝对路径，其余相对它、按层级缩进
-xtask layout build/libraries/dist/release   # 只打印一条的绝对路径，给脚本用
+xtask layout intermediate/libraries/flat/release   # 只打印一条的绝对路径，给脚本用
 ```
 
 树里的名字就是磁盘上的目录名（`build/` 下的子目录直接枚举 `src/` 的一级目录），查询参数就是树里显示的
@@ -76,11 +75,11 @@ xtask layout build/libraries/dist/release   # 只打印一条的绝对路径，�
 `scripts/hooks/hooks.z42`（z42b publish 时单独编译的 hooks 工程，调不到 xtask 的函数）、
 Rust 测试里的若干 cwd 相对路径。
 
-### `build/libraries/dist/<profile>` 为什么必须存在
+### `intermediate/libraries/flat/<profile>` 为什么必须存在
 
 每个 stdlib 库私有地编进 `build/libraries/<lib>/<profile>/`，但 **z42vm 与打包不能依赖那些 per-lib
-子目录**——它们需要一个扁平单目录。所以编完之后把每个库的 `.zpkg` / `.zsym` **hard-link**
-（零拷贝）汇聚到聚合目录。它是：
+子目录**——VM 的 `Z42_LIBS` 只能是一个目录。所以编完之后把每个库的 `.zpkg` / `.zsym` **hard-link**
+（零拷贝）汇聚到聚合目录。它是汇聚出来的视图、不是编译产物，所以在 `intermediate/` 而不在 `build/`。它是：
 
 - z42vm 的 dev-mode `Z42_LIBS` 回落点；
 - `xtask package` 整体拷进包内 `libs/` 的来源；
@@ -132,10 +131,11 @@ z42c 写产物同样是就地写 ⇒ 穿透到 `libraries/z42.core/release/dist/
 
 | 位置 | 谁写 | 是什么 |
 |---|---|---|
+| `intermediate/libraries/flat/<profile>` | `build stdlib`（成员 dist 硬链汇聚）| 全部 stdlib `.zpkg` 的**扁平单目录视图** = 开发树的 `Z42_LIBS`（见 §2 末「为什么必须存在」）|
 | `intermediate/compiler/{selfhost-gen1,stdlib-run/<profile>,seed-run-libs/<profile>,bootstrap-check}` | 编译器构建与自举、`test compiler bootstrap` | 不属于某个成员的 workspace 级自举中间物 |
 | `intermediate/compiler/z42c.pipeline/tests/fixtures/{cross-zpkg,multi-exe}` | `test e2e` | 夹具的**暂存拷贝**（`_stageFixtureTree`），每轮重建，在这里编 / 跑，源码树零写入 |
 | `intermediate/compiler/z42c.pipeline/{incremental,fingerprint}` | `test compiler incremental` / `test compiler fingerprint` | 增量 vs 全量对账；base 与本树编译器的对比场地 |
-| `intermediate/compiler/z42c.driver/e2e` | `test compiler` | 编译器 e2e 用例工作区 |
+| `intermediate/compiler/z42c.driver/tests/fixtures/cli` | `test compiler` | z42c 命令行夹具的暂存拷贝（在拷贝里逐例以用例目录为 cwd 跑 `z42c`）；`outside_repo` 用例另拷到 repo 外的 `/tmp/z42c-e2e-<树名>-cli-<用例>` 再跑 |
 | `intermediate/toolchain/builder/tests/fixtures/{manifest-targets,z42b}` | `test toolchain builder` | z42b 夹具的暂存拷贝；它们的目标产物在组件工作根下的 `targets/`、`dev-targets/` |
 | `intermediate/toolchain/workload/test/` | `test app desktop` / `test toolchain builder` | golden → `[Test]` 归一的 bundle、语料 bundle、bundle-host smoke |
 | `intermediate/toolchain/workload/desktop/` | `test app desktop` | C ABI R1–R7 的夹具 zbc 与链接出的 `r1_r7` |
@@ -147,7 +147,7 @@ z42c 写产物同样是就地写 ⇒ 穿透到 `libraries/z42.core/release/dist/
 
 ### 开发树里编译器包从哪来：没有 alllibs
 
-开发树的 `Z42_LIBS` 只是 **stdlib flat**（`build/libraries/dist/release`）。编译器域的包（`z42c.*` / `z42.project` /
+开发树的 `Z42_LIBS` 只是 **stdlib flat**（`intermediate/libraries/flat/release`）。编译器域的包（`z42c.*` / `z42.project` /
 `z42.build` / `z42.package` / `z42.scripting`）分两种场合：
 
 | 场合 | 从哪解析 |
@@ -176,7 +176,7 @@ z42c 写产物同样是就地写 ⇒ 穿透到 `libraries/z42.core/release/dist/
 
 | 命令 | 删什么 |
 |---|---|
-| `xtask clean` | 生产 cache/dist：各 stdlib 成员的 `<lib>/<profile>/{cache,dist}` + 扁平 `libraries/dist/` |
+| `xtask clean` | 生产 cache/dist：各 stdlib 成员的 `<lib>/<profile>/{cache,dist}` + 扁平视图 `intermediate/libraries/flat/` |
 | `xtask clean tests` | `build/` 下所有 `tests/`（§3 里测试的编译产物；不进入 `dist` / `cache` 与 cargo target）+ 旧位置 `<工程目录>/artifacts/test-targets` |
 | `xtask clean bench` | z42b 的 bench 目标输出（`<m>/<profile>/bench`；旧位置 `<工程目录>/artifacts/bench-targets`）|
 | `xtask clean intermediate` | 整个 `intermediate/` |

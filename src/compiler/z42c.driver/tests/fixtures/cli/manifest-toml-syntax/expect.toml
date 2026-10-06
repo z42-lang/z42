@@ -1,0 +1,5 @@
+desc = "清单 TOML 语法错 → 一行带「用户给的路径:行:列」的错误、exit 1，不是带 z42c 内部栈帧的 uncaught exception"
+args = ["build", "check.knob.z42.toml"]
+exit = 1
+stderr_contains = ["invalid manifest: check.knob.z42.toml:9:"]
+stderr_not_contains = ["uncaught exception"]

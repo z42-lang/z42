@@ -135,8 +135,8 @@ public static class PathDepPlan {
     // `ManifestLocator.FindIn` 恰恰把裸名当**首选**形态（先查 `z42.toml`，再 glob `*.z42.toml`，
     // 多份则 Ambiguous）。同一个「工程清单在哪」的问题不该有第二份、还更严的判据。
     //
-    // ⭐ 它藏住的原因：全部 e2e fixture 都写 `<name>.z42.toml`（`xtask_compiler_e2e_deploy.z42`
-    // 的四处、cross-zpkg 语料同理），恰好都落在两份判据的交集里。而报错文本
+    // ⭐ 它藏住的原因：e2e 工程几乎都写 `<name>.z42.toml`（部署类 CLI 夹具、cross-zpkg 语料同理），
+    // 恰好都落在两份判据的交集里（CLI 夹具 `path-dep-closure` 的 baz 故意用裸 `z42.toml` 守这一格）。而报错文本
     // 「期望恰 1 份 *.z42.toml，实得 0」离真正的原因（你的清单叫 z42.toml）很远。
     //
     // 只接受 `Project`：`FindIn` 也会认 `z42.workspace.toml`，但闭包算法要的是单包清单，

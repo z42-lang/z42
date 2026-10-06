@@ -1,0 +1,7 @@
+using PathDep.Foo;
+
+int Main() {
+    int ok = 0;
+    if (Foo.Answer() == 42) { ok = 1; }
+    return 100 / ok;
+}

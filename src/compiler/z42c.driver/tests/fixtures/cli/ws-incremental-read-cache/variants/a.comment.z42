@@ -1,0 +1,6 @@
+// 只改注释
+namespace WsiA;
+
+public static class K {
+    public static int One() { return 1; }
+}

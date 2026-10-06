@@ -1,0 +1,4 @@
+using Std.IO;
+using Z42.Pipeline;
+
+void Main() { WsTier t = new WsTier(); Console.WriteLine(t != null ? "sdkexe ok" : "sdkexe null"); }

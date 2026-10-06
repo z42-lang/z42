@@ -1,0 +1,12 @@
+int Apply(Func<int, int> f, int v) {
+    return f(v);
+}
+
+int Main() {
+    Func<int, int> dbl = x => x * 2;
+    int k = 3;
+    Func<int, int> mul = x => x * k;
+    int ok = 0;
+    if (dbl(21) == 42) { if (Apply(mul, 14) == 42) { ok = 1; } }
+    return 100 / ok;
+}

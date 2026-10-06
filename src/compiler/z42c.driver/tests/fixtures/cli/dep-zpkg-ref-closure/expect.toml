@@ -1,0 +1,53 @@
+desc = "按名 / 产物引用的传递闭包：app 只引用 vendor/ncmid.zpkg，mid 按名依赖的 leaf 也必须随产物进 dist，且产物只能从 dist 解析到 leaf 时照样能跑（见 README）"
+outside_repo = true
+
+# leaf 建好后临时放进 libs/（mid 编译期按名解析它）
+[[step]]
+tool = "copy"
+from = "{stdlib}/*.zpkg"
+to = "libs/"
+
+[[step]]
+args = ["build", "leafsrc/ncleaf.z42.toml", "--release"]
+libs = "libs"
+exit = 0
+
+[[step]]
+tool = "copy"
+from = "leafsrc/dist/ncleaf.zpkg"
+to = "libs/"
+
+[[step]]
+args = ["build", "midsrc/ncmid.z42.toml", "--release"]
+libs = "libs"
+exit = 0
+
+# 两个都挪进 vendor/（离开 libs/）⇒ 它们是非框架依赖，该随产物走
+[[step]]
+tool = "copy"
+from = "midsrc/dist/ncmid.zpkg"
+to = "vendor/"
+
+[[step]]
+tool = "copy"
+from = "libs/ncleaf.zpkg"
+to = "vendor/"
+
+[[step]]
+tool = "remove"
+paths = ["libs/ncleaf.zpkg"]
+
+# app 只声明 mid —— leaf 是间接依赖，用户不该被要求声明它
+[[step]]
+args = ["build", "app/ncapp.z42.toml", "--release"]
+libs = "libs"
+exit = 0
+exists = ["app/dist/ncmid.zpkg", "app/dist/ncleaf.zpkg"]
+
+# 对照：产物真能跑（leaf 已不在 libs/，只能从 dist 解析到）
+[[step]]
+tool = "run"
+target = "app/dist/ncapp.zpkg"
+libs = "libs"
+exit = 0
+stdout_equals = "leaf"

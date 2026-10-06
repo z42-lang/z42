@@ -1,0 +1,10 @@
+[project]
+name    = "pdmid"
+version = "0.1.0"
+kind    = "lib"
+
+[sources]
+include = ["*.z42"]
+
+[dependencies]
+"pdbase" = "0.1.0"

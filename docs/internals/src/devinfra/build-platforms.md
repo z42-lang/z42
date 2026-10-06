@@ -30,7 +30,7 @@ Rust crate 仍从源码位置编，产物输出到副本（见[产物布局 §3]
 ```
 
 产出 `artifacts/build/compiler/z42c.driver/release/dist/z42c.driver.zpkg` +
-`artifacts/build/libraries/dist/release/*.zpkg`。报 `error: z42c not built` 就是这一步没做。
+`artifacts/intermediate/libraries/flat/release/*.zpkg`。报 `error: z42c not built` 就是这一步没做。
 
 统一入口是三段式的：
 

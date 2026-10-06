@@ -1,0 +1,10 @@
+[project]
+name    = "wscb"
+version = "0.1.0"
+kind    = "lib"
+
+[sources]
+include = ["*.z42"]
+
+[dependencies]
+"wsca" = "0.1.0"

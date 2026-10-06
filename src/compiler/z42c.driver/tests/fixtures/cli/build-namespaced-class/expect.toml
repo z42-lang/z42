@@ -1,0 +1,4 @@
+desc = "namespaced 单类工程可建"
+args = ["build", "demo.minimal.z42.toml"]
+exit = 0
+exists = ["dist/demo.minimal.zpkg"]

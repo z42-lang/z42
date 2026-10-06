@@ -1,0 +1,10 @@
+namespace Demo.Minimal;
+
+class Greeter {
+    public string Hello() { return "hi"; }
+}
+
+void Main() {
+    var g = new Greeter();
+    g.Hello();
+}

@@ -1,0 +1,4 @@
+using Std.IO;
+using PdExt;
+
+void Main() { Console.WriteLine(E.V()); }

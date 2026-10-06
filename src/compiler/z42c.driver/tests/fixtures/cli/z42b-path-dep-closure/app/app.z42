@@ -1,0 +1,6 @@
+namespace NcApp;
+
+using Std.IO;
+using NcMid;
+
+void Main() { Console.WriteLine(new Mid().Call()); }

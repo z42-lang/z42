@@ -1,0 +1,20 @@
+desc = "可复现 build_id：同一份源 + 同一 z42c ⇒ release packed 主 zpkg 逐字节一致。换目录（b/deeper）、只改注释 / 空白（c）都不能变；真改代码（d）必须变"
+same_bytes = [["a/dist/repro.lib.zpkg", "b/deeper/dist/repro.lib.zpkg"], ["a/dist/repro.lib.zpkg", "c/dist/repro.lib.zpkg"]]
+diff_bytes = [["a/dist/repro.lib.zpkg", "d/dist/repro.lib.zpkg"]]
+
+[[step]]
+args = ["build", "a/repro.lib.z42.toml", "--release", "--no-incremental"]
+exit = 0
+
+[[step]]
+args = ["build", "b/deeper/repro.lib.z42.toml", "--release", "--no-incremental"]
+exit = 0
+
+[[step]]
+args = ["build", "c/repro.lib.z42.toml", "--release", "--no-incremental"]
+exit = 0
+
+[[step]]
+args = ["build", "d/repro.lib.z42.toml", "--release", "--no-incremental"]
+exit = 0
+

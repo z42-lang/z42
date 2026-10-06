@@ -1,0 +1,27 @@
+desc = "依赖身份进缓存键：path 依赖 foo 只改注释（产物不变）→ 消费方 bar 命中缓存；foo 删掉 bar 调用的方法 → bar 重编并编译期报错，而不是 preserved 旧产物"
+
+[[step]]
+args = ["build", "depid.bar.z42.toml", "--release"]
+cwd = "bar"
+exit = 0
+
+[[step]]
+tool = "copy"
+from = "variants/foo.comment.z42"
+to = "foo/foo.z42"
+
+[[step]]
+args = ["build", "depid.bar.z42.toml", "--release"]
+cwd = "bar"
+exit = 0
+stdout_contains = ["no changes"]
+
+[[step]]
+tool = "copy"
+from = "variants/foo.renamed.z42"
+to = "foo/foo.z42"
+
+[[step]]
+args = ["build", "depid.bar.z42.toml", "--release"]
+cwd = "bar"
+exit = "nonzero"

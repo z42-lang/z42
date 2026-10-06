@@ -1,0 +1,83 @@
+desc = "[profile.<n>.runtime] probing-paths：依赖只在 shared/ 时，不配必须跑不起来、配上就跑得起来；只改旋钮值（源码不动）侧车必须跟着变（见 README）"
+outside_repo = true
+
+# 依赖先建好、放进 libs/（编译期要解析得到它 —— probing-paths 只管运行期），另放一份进 shared/
+[[step]]
+tool = "copy"
+from = "{stdlib}/*.zpkg"
+to = "libs/"
+
+[[step]]
+args = ["build", "fx/probefx.z42.toml", "--release"]
+libs = "libs"
+exit = 0
+
+[[step]]
+tool = "copy"
+from = "fx/dist/probefx.zpkg"
+to = "libs/"
+
+[[step]]
+tool = "copy"
+from = "fx/dist/probefx.zpkg"
+to = "shared/"
+
+# ① 不配 probing-paths；目标机的 libs/ 里没有该依赖 ⇒ 必须跑不起来（对照：证明 ② 是 probing-paths 起的作用）
+[[step]]
+args = ["build", "app/probeapp.z42.toml", "--release"]
+libs = "libs"
+exit = 0
+
+[[step]]
+tool = "remove"
+paths = ["libs/probefx.zpkg"]
+
+[[step]]
+tool = "run"
+target = "app/dist/probeapp.zpkg"
+libs = "libs"
+exit = "nonzero"
+
+# ② 配上（相对 entry zpkg 所在目录 app/dist/）⇒ 跑得起来
+[[step]]
+tool = "copy"
+from = "variants/probeapp.shared.z42.toml"
+to = "app/probeapp.z42.toml"
+
+[[step]]
+tool = "copy"
+from = "shared/probefx.zpkg"
+to = "libs/"
+
+[[step]]
+args = ["build", "app/probeapp.z42.toml", "--release"]
+libs = "libs"
+exit = 0
+
+[[step]]
+tool = "remove"
+paths = ["libs/probefx.zpkg"]
+
+[[step]]
+tool = "run"
+target = "app/dist/probeapp.zpkg"
+libs = "libs"
+exit = 0
+stdout_equals = "99"
+
+# ③ 只改旋钮值、源码不动 ⇒ 侧车必须跟着变
+[[step]]
+tool = "copy"
+from = "shared/probefx.zpkg"
+to = "libs/"
+
+[[step]]
+tool = "copy"
+from = "variants/probeapp.changed.z42.toml"
+to = "app/probeapp.z42.toml"
+
+[[step]]
+args = ["build", "app/probeapp.z42.toml", "--release"]
+libs = "libs"
+exit = 0
+file_contains = [["app/dist/probeapp.runtimeconfig.toml", "CHANGED"]]

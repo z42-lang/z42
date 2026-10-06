@@ -1,0 +1,284 @@
+// z42c 命令行与构建行为夹具（`src/compiler/z42c.driver/tests/fixtures/cli/<case>/`）的通用 harness。
+//
+// 用例 = 一个目录：最小工程（或 workspace / 几个互相依赖的工程）+ `expect.toml`（格式见该目录的 README）。
+// harness 只编排：整棵目录暂存到 intermediate/（`_stageFixtureTree`，源码树零写入、每轮从零开始），逐个用例
+// 按 expect.toml 跑一步或多步（`[[step]]`：z42c / z42b / 跑产物 / 拷贝 / 删除），每步按同一组键判定。用例本身
+// 不在 xtask 里 —— 加一条用例 = 加一个目录。
+namespace Z42Xtask;
+
+using Std.IO;
+using Std.Toml;
+
+string _cliFixturesSrc() { return "src/compiler/z42c.driver/tests/fixtures/cli"; }
+
+// 跑一个用例要用到的工具链与路径（每个用例一份，step 之间共享）。
+public sealed class CliFixtureEnv {
+    public string Vm;
+    public string DriverZpkg;
+    public string BuilderZpkg;   // z42b（tool = "z42b"）
+    public string Stdlib;    // stdlib flat：z42c 的默认 Z42_LIBS、z42vm 跑产物的 Z42_LIBS、占位符 {stdlib}
+    public string Dir;       // 用例目录（暂存拷贝）
+    public CliFixtureEnv(string vm, string driverZpkg, string builderZpkg, string stdlib, string dir) {
+        Vm = vm; DriverZpkg = driverZpkg; BuilderZpkg = builderZpkg; Stdlib = stdlib; Dir = dir;
+    }
+}
+
+// repo 外的临时根：`/tmp/z42c-e2e-<树名>-<name>`（`outside_repo` 用例在这里跑）。
+//
+// 🔴 **必须按树区分**：用例每轮先整个重置这个目录；若是 `/tmp` 下的固定名字，同一台机器上并行跑两棵 worktree
+// 的 `xtask test compiler` 会互相抹掉对方的中间产物 —— 红得像被测对象的 bug，实际是测试基建的共享状态。
+// 树名取 `_root()` 的最后一段（`wt-xxx` / `z42`）：短、可读，会出现在诊断文本里。
+string _e2eTmpRoot(string root, string name) {
+    string tag = Path.GetFileName(root);
+    if (tag.Length == 0) { tag = "z42"; }
+    return Path.Join("/tmp", "z42c-e2e-" + tag + "-" + name);
+}
+
+int _testCompilerCliFixtures(string root, string vm, string driverZpkg, string builderZpkg, string flat) {
+    Console.WriteLine("");
+    Console.WriteLine("── z42c 命令行与构建夹具（" + _cliFixturesSrc() + "）──");
+    string staged = _stageFixtureTree(root, _cliFixturesSrc());
+    int ran = 0;
+    int failed = 0;
+    foreach (var name in _sortedStrings(Directory.Enumerate(staged))) {
+        string dir = Path.Join(staged, name);
+        string expectPath = Path.Join(dir, "expect.toml");
+        if (!Directory.Exists(dir) || !File.Exists(expectPath)) { continue; }
+        ran = ran + 1;
+        TomlValue exp = TomlValue.Parse(File.ReadAllText(expectPath));
+        // outside_repo = true：用例守的是「repo 外的消费方」那条路（`_srcRoot` 上溯找不到仓库根），
+        // 放在仓库里就测不到 ⇒ 拷到 /tmp 下按树区分的目录再跑（_e2eTmpRoot）。
+        if (exp.ContainsKey("outside_repo") && exp.Get("outside_repo").AsBool()) {
+            string outside = _e2eTmpRoot(root, "cli-" + name);
+            _resetDir(outside);
+            _copySourceTree(dir, outside);
+            dir = outside;
+        }
+        CliFixtureEnv env = new CliFixtureEnv(vm, driverZpkg, builderZpkg, flat, dir);
+        string why = _runCliFixture(env, exp);
+        if (why.Length > 0) {
+            Console.WriteLine("  ✗ " + name + ": " + why);
+            failed = failed + 1;
+        } else {
+            Console.WriteLine("  ✓ " + name);
+        }
+    }
+    if (ran == 0) {
+        Console.WriteLine("  ✗ 没有找到任何用例（" + _cliFixturesSrc() + "/<case>/expect.toml）");
+        return 1;
+    }
+    return failed == 0 ? 0 : 1;
+}
+
+// 跑一个用例；通过返回 ""，否则返回第一条不符的说明（带上实际输出，便于直接定位）。
+//   多步：`[[step]]` 依次执行，任一步不符即停；顶层的文件类断言（exists / absent / same_bytes / diff_bytes /
+//         file_contains）在全部步骤之后再判。
+//   单步（简写）：顶层就是一个 z42c 步，可选的 `[run]` 段是它之后的一个 run 步。
+string _runCliFixture(CliFixtureEnv env, TomlValue exp) {
+    if (exp.ContainsKey("step")) {
+        TomlValue steps = exp.Get("step");
+        int i = 0;
+        while (i < steps.Length()) {
+            string why = _cliStep(env, steps.At(i));
+            if (why.Length > 0) { return "step " + (i + 1).ToString() + ": " + why; }
+            i = i + 1;
+        }
+        return _cliFileChecks(exp, env, "");
+    }
+    string w = _cliStep(env, exp);
+    if (w.Length > 0 || !exp.ContainsKey("run")) { return w; }
+    TomlValue run = exp.Get("run");
+    w = _cliToolRun(env, run, run.Get("target").AsString());
+    return w.Length > 0 ? "[run] " + w : "";
+}
+
+// 一步。`tool` = z42c（默认）| z42b | run | copy | remove。
+string _cliStep(CliFixtureEnv env, TomlValue st) {
+    string tool = st.ContainsKey("tool") ? st.Get("tool").AsString() : "z42c";
+    if (tool == "copy")   { return _cliToolCopy(env, st); }
+    if (tool == "remove") {
+        foreach (var f in _cliStrings(st, "paths", env)) {
+            foreach (var pa in _cliMatches(env, f)) {
+                if (Directory.Exists(pa)) { Directory.Delete(pa, true); } else if (File.Exists(pa)) { File.Delete(pa); }
+            }
+        }
+        return _cliFileChecks(st, env, "");
+    }
+    if (tool == "run")    { return _cliToolRun(env, st, _cliStr(st, "target", env)); }
+    if (tool != "z42c" && tool != "z42b") { return "未知 tool `" + tool + "`（z42c | z42b | run | copy | remove）"; }
+    // 先清掉期望不存在的产物：判据是「有没有」时，不能让上一步 / 别的用例的残留冒充结果。
+    foreach (var f in _cliStrings(st, "absent", env)) {
+        string stale = Path.Join(env.Dir, f);
+        if (File.Exists(stale)) { File.Delete(stale); }
+    }
+    if (tool == "z42b" && !File.Exists(env.BuilderZpkg)) { return "z42b 不在（" + env.BuilderZpkg + "）"; }
+    Process p = tool == "z42b" ? _z42bProc(env.Vm, _cliLibs(env, st)).Arg(env.BuilderZpkg)
+                               : _z42Proc(env.Vm, _cliLibs(env, st)).Arg(env.DriverZpkg);
+    p = _cliEnv(env, st, p.Arg("--").WorkingDirectory(_cliCwd(env, st)).Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()));
+    foreach (var a in _cliStrings(st, "args", env)) { p = p.Arg(a); }
+    return _cliCheck(st, p.Run(), env);
+}
+
+// 用 z42vm 跑一个产物（target 相对用例目录）。
+string _cliToolRun(CliFixtureEnv env, TomlValue st, string target) {
+    Process rp = _z42Proc(env.Vm, _cliLibs(env, st)).Arg(Path.Join(env.Dir, target)).WorkingDirectory(_cliCwd(env, st))
+        .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe());
+    rp = _cliEnv(env, st, rp);
+    foreach (var a in _cliStrings(st, "args", env)) { rp = rp.Arg(a); }
+    return _cliCheck(st, rp.Run(), env);
+}
+
+// 这一步的额外环境变量：`env`（表，设值；值可为 ""）与 `env_remove`（删掉从 xtask 继承来的）。
+Process _cliEnv(CliFixtureEnv env, TomlValue st, Process p) {
+    if (st.ContainsKey("env")) {
+        TomlValue t = st.Get("env");
+        foreach (var k in t.Keys()) { p = p.Env(k, _cliExpand(t.Get(k).AsString(), env)); }
+    }
+    foreach (var k in _cliStrings(st, "env_remove", env)) { p = p.EnvRemove(k); }
+    return p;
+}
+
+// 拷贝：`from` 是一个文件，或 `<目录>/<通配>`（如 `{stdlib}/*.zpkg`）；`to` 以 `/` 结尾 = 拷进该目录。
+string _cliToolCopy(CliFixtureEnv env, TomlValue st) {
+    string from = _cliStr(st, "from", env);
+    string to = _cliStr(st, "to", env);
+    bool intoDir = to.EndsWith("/") || Path.GetFileName(from).Contains("*");
+    string toAbs = _cliAbs(env, to);
+    string[] srcs = _cliMatches(env, from);
+    if (!Path.GetFileName(from).Contains("*") && !File.Exists(srcs[0])) { return "copy：源文件不存在 " + srcs[0]; }
+    foreach (var f in srcs) {
+        string dst = intoDir ? Path.Join(toAbs, Path.GetFileName(f)) : toAbs;
+        Directory.Create(Path.GetDirectoryName(dst));
+        if (File.Exists(dst)) { File.Delete(dst); }
+        File.Copy(f, dst);
+    }
+    return _cliFileChecks(st, env, "");
+}
+
+// 按一步的键判定进程运行结果：退出码、输出，再加文件类断言。
+string _cliCheck(TomlValue exp, ProcessResult r, CliFixtureEnv env) {
+    string got = "（exit " + r.ExitCode.ToString() + "）stderr: " + r.Stderr.Trim() + " | stdout: " + r.Stdout.Trim();
+
+    if (exp.ContainsKey("exit")) {
+        TomlValue e = exp.Get("exit");
+        if (e.IsString()) {
+            if (e.AsString() == "nonzero" && r.ExitCode == 0) { return "期望非零退出 " + got; }
+        } else if (r.ExitCode != (int)e.AsLong()) {
+            return "期望 exit " + e.AsLong().ToString() + " " + got;
+        }
+    }
+    foreach (var s in _cliStrings(exp, "stderr_contains", env)) {
+        if (r.Stderr.IndexOf(s) < 0) { return "stderr 缺少 `" + s + "` " + got; }
+    }
+    foreach (var s in _cliStrings(exp, "stderr_not_contains", env)) {
+        if (r.Stderr.IndexOf(s) >= 0) { return "stderr 不该出现 `" + s + "` " + got; }
+    }
+    foreach (var s in _cliStrings(exp, "stdout_contains", env)) {
+        if (r.Stdout.IndexOf(s) < 0) { return "stdout 缺少 `" + s + "` " + got; }
+    }
+    if (exp.ContainsKey("stdout_equals") && r.Stdout.Trim() != _cliStr(exp, "stdout_equals", env)) {
+        return "stdout 应为 `" + _cliStr(exp, "stdout_equals", env) + "` " + got;
+    }
+    if (exp.ContainsKey("stdout_empty") && exp.Get("stdout_empty").AsBool() && r.Stdout.Trim().Length > 0) {
+        return "stdout 应为空 " + got;
+    }
+    // stdout_count = [["子串", "次数"]]：子串在 stdout 里恰好出现这么多次（如增量构建里命中缓存的成员数）。
+    foreach (var pr in _cliPairs(exp, "stdout_count", env)) {
+        int n = r.Stdout.Split(pr.A).Length - 1;
+        if (n.ToString() != pr.B) { return "stdout 里 `" + pr.A + "` 应出现 " + pr.B + " 次，实际 " + n.ToString() + " " + got; }
+    }
+    // output_*：stdout + stderr 合起来查（判据不关心那行打在哪个流上时用）。
+    string all = r.Stdout + r.Stderr;
+    foreach (var s in _cliStrings(exp, "output_contains", env)) {
+        if (all.IndexOf(s) < 0) { return "输出缺少 `" + s + "` " + got; }
+    }
+    foreach (var s in _cliStrings(exp, "output_not_contains", env)) {
+        if (all.IndexOf(s) >= 0) { return "输出不该出现 `" + s + "` " + got; }
+    }
+    return _cliFileChecks(exp, env, got);
+}
+
+// 文件类断言（路径都相对用例目录）：exists（文件）、absent（文件或目录）、same_bytes / diff_bytes（成对路径）、
+// file_contains / file_not_contains（[路径, 子串]）。
+string _cliFileChecks(TomlValue exp, CliFixtureEnv env, string got) {
+    foreach (var f in _cliStrings(exp, "exists", env)) {
+        if (!File.Exists(Path.Join(env.Dir, f))) { return "缺少产物 " + f + " " + got; }
+    }
+    foreach (var f in _cliStrings(exp, "absent", env)) {
+        string pa = Path.Join(env.Dir, f);
+        if (File.Exists(pa) || Directory.Exists(pa)) { return "不该写出 " + f + " " + got; }
+    }
+    foreach (var pr in _cliPairs(exp, "same_bytes", env)) {
+        if (!_filesEqual(Path.Join(env.Dir, pr.A), Path.Join(env.Dir, pr.B))) { return pr.A + " 与 " + pr.B + " 应逐字节相同"; }
+    }
+    foreach (var pr in _cliPairs(exp, "diff_bytes", env)) {
+        if (_filesEqual(Path.Join(env.Dir, pr.A), Path.Join(env.Dir, pr.B))) { return pr.A + " 与 " + pr.B + " 应不同"; }
+    }
+    foreach (var pr in _cliPairs(exp, "file_contains", env)) {
+        string fp = Path.Join(env.Dir, pr.A);
+        if (!File.Exists(fp)) { return "缺少文件 " + pr.A + " " + got; }
+        if (File.ReadAllText(fp).IndexOf(pr.B) < 0) { return pr.A + " 缺少 `" + pr.B + "`：" + File.ReadAllText(fp); }
+    }
+    foreach (var pr in _cliPairs(exp, "file_not_contains", env)) {
+        string fp = Path.Join(env.Dir, pr.A);
+        if (!File.Exists(fp)) { return "缺少文件 " + pr.A + " " + got; }
+        if (File.ReadAllText(fp).IndexOf(pr.B) >= 0) { return pr.A + " 不该出现 `" + pr.B + "`：" + File.ReadAllText(fp); }
+    }
+    return "";
+}
+
+// ── 小工具 ───────────────────────────────────────────────────────────────────
+
+// 占位符：{stdlib} = stdlib flat 目录、{compiler} = 开发树的编译器目录（driver 自包含 dist，发布态
+// `<sdk>/programs/z42c/` 的对应物）、{sep} = 路径列表分隔符（; 或 :）、{case} = 用例目录。
+string _cliExpand(string s, CliFixtureEnv env) {
+    return s.Replace("{stdlib}", env.Stdlib).Replace("{compiler}", Path.GetDirectoryName(env.DriverZpkg))
+        .Replace("{sep}", Platform.IsWindows() ? ";" : ":").Replace("{case}", env.Dir);
+}
+
+string _cliStr(TomlValue t, string key, CliFixtureEnv env) { return _cliExpand(t.Get(key).AsString(), env); }
+
+// expect.toml 里的字符串数组（占位符已展开）；键不存在 = 空。
+string[] _cliStrings(TomlValue t, string key, CliFixtureEnv env) {
+    if (!t.ContainsKey(key)) { return new string[0]; }
+    TomlValue a = t.Get(key);
+    string[] r = new string[a.Length()];
+    int i = 0;
+    while (i < r.Length) { r[i] = _cliExpand(a.At(i).AsString(), env); i = i + 1; }
+    return r;
+}
+
+// 成对数组：[["a", "b"], …]。
+public sealed class CliPair {
+    public string A;
+    public string B;
+    public CliPair(string a, string b) { A = a; B = b; }
+}
+
+CliPair[] _cliPairs(TomlValue t, string key, CliFixtureEnv env) {
+    if (!t.ContainsKey(key)) { return new CliPair[0]; }
+    TomlValue a = t.Get(key);
+    CliPair[] r = new CliPair[a.Length()];
+    int i = 0;
+    while (i < r.Length) {
+        r[i] = new CliPair(_cliExpand(a.At(i).At(0).AsString(), env), _cliExpand(a.At(i).At(1).AsString(), env));
+        i = i + 1;
+    }
+    return r;
+}
+
+// 一个路径（相对用例目录，或展开后的绝对路径）→ 它指的文件；文件名带 `*` 时按通配匹配该目录下的条目
+// （可能为空）。
+string[] _cliMatches(CliFixtureEnv env, string p) {
+    string abs = _cliAbs(env, p);
+    if (!Path.GetFileName(abs).Contains("*")) { return new string[]{ abs }; }
+    return Path.Glob(Path.GetDirectoryName(abs), Path.GetFileName(abs));
+}
+
+// 相对用例目录的路径 → 绝对路径（已是绝对的原样返回，如展开后的 {stdlib}）。
+string _cliAbs(CliFixtureEnv env, string p) { return Path.IsRooted(p) ? p : Path.Join(env.Dir, p); }
+
+string _cliCwd(CliFixtureEnv env, TomlValue st) { return st.ContainsKey("cwd") ? _cliAbs(env, _cliStr(st, "cwd", env)) : env.Dir; }
+
+// 这一步的 Z42_LIBS：`libs` 给了就用它（相对用例目录），否则 stdlib flat。
+string _cliLibs(CliFixtureEnv env, TomlValue st) { return st.ContainsKey("libs") ? _cliAbs(env, _cliStr(st, "libs", env)) : env.Stdlib; }

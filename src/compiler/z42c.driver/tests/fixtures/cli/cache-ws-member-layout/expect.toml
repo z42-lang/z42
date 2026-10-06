@@ -1,0 +1,19 @@
+desc = "workspace 成员继承 [workspace.build]：被单独构建、被 workspace 外的工程当 path 依赖代建时，产物都落成员布局（与 --workspace 同一处），成员目录旁零写入"
+
+[[step]]
+cwd = "ws2/lib.a"
+args = ["build", "cache.ws2.a.z42.toml", "--release"]
+exit = 0
+exists = ["ws2/out/cache.ws2.a/release/dist/cache.ws2.a.zpkg", "ws2/out/cache.ws2.a/release/.cache/package.meta"]
+absent = ["ws2/lib.a/dist", "ws2/lib.a/artifacts"]
+
+[[step]]
+tool = "remove"
+paths = ["ws2/out"]
+
+[[step]]
+cwd = "consumer"
+args = ["build", "cache.cons.z42.toml", "--release"]
+exit = 0
+exists = ["ws2/out/cache.ws2.a/release/dist/cache.ws2.a.zpkg"]
+absent = ["ws2/lib.a/dist", "ws2/lib.a/artifacts"]

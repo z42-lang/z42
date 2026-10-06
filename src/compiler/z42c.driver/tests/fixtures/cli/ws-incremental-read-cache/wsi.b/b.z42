@@ -1,0 +1,7 @@
+namespace WsiB;
+
+using WsiA;
+
+public static class L {
+    public static int Two() { return K.One() + 1; }
+}

@@ -1,0 +1,8 @@
+desc = "workspace 里 exe 成员依赖 lib 成员的 debug 构建：lib 是 indexed，散装 zbc 要随行装配进 exe 的 dist，exe 才跑得起来"
+args = ["build", "--workspace"]
+exit = 0
+
+[run]
+target = "artifacts/biapp/debug/dist/biapp.zpkg"
+exit = 0
+stdout_equals = "11"

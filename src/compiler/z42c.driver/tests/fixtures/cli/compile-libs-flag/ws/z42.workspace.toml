@@ -1,0 +1,6 @@
+[workspace]
+members = ["*"]
+default-members = ["wsm2"]
+
+[workspace.build]
+output_dir = "../wsout/${project_name}"

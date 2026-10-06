@@ -109,7 +109,7 @@
 |---|---|---|---|
 | **unit** | 带 `[Test]` 的 `.z42`（文件或目录） | `Assert.*` 抛异常即失败 | `z42b test` |
 | **golden** | flat：`<name>.z42`；dir：`<name>/source.z42` + sidecar | 程序跑完；有 `expected_output.txt` 时 stdout 必须相等 | VM 直接跑 |
-| **fixture** | `tests/fixtures/<suite>/<case>/`：含 `z42.toml` 的工程目录 + `expected_output.txt` 或 `expected_build_error.txt` | 先构建再比对；期望报错时 stderr 必须包含给定子串 | xtask 按所属组件的 harness |
+| **fixture** | `tests/fixtures/<suite>/<case>/`：含 `z42.toml` 的工程目录 + `expected_output.txt` 或 `expected_build_error.txt`；命令行行为类用 `expect.toml`（参数、退出码、stderr / stdout 必含 / 不得含、产物有无） | 先构建再比对；期望报错时 stderr 必须包含给定子串 | xtask 按所属组件的 harness |
 
 Rust 侧的 `*_tests.rs` 与 `tests/*.rs` 按 cargo 惯例，不在此列。
 
@@ -122,6 +122,7 @@ Rust 侧的 `*_tests.rs` 与 `tests/*.rs` 按 cargo 惯例，不在此列。
 | 一工程产多个 exe | `src/compiler/z42c.pipeline/tests/fixtures/multi-exe/` | `xtask test e2e --dir multi-exe` |
 | `[[test]]` / `[[example]]` / `[[bench]]` target | `src/toolchain/builder/tests/fixtures/manifest-targets/` | `xtask test toolchain builder` |
 | z42b 自身的清单 / hook / 发现规则 | `src/toolchain/builder/tests/fixtures/z42b/` | `xtask test toolchain builder` |
+| z42c 命令行与构建行为（清单 / 旋钮校验、`--emit-zbc` / `--dump-ir` 的诊断可见性、打包直跑、可复现 build_id、cache 布局与依赖身份、增量、path 依赖闭包、workspace 成员发现与装配、部署判据（复制 / `deploy` / probing-paths / zpkg 产物引用）、SDK 库与 analyzer 的解析域） | `src/compiler/z42c.driver/tests/fixtures/cli/`（`expect.toml`：单步或 `[[step]]` 多步 z42c / z42b 构建 / 跑产物 / 拷贝，断言输出、产物有无、文件内容与字节对照；格式见该目录 README） | `xtask test compiler` |
 | `.zbc` 字节基线 | `src/compiler/z42.package/tests/fixtures/zbc-format/` | `xtask build test` 就地重生；`xtask test runtime`（`zbc_compat`、`format_fixture_versions`）读取 |
 | `.zpkg` 字节基线 | `src/compiler/z42.package/tests/fixtures/zpkg-format/` | 按该目录 README 的配方重生；`xtask test runtime` 读取 |
 
@@ -294,7 +295,7 @@ stdlib、`bundle` 组嵌入语料并放进宿主、`run` 在宿主 / 设备上�
 | ④ | `build/` 的一级目录、`build/{compiler,libraries,toolchain}/` 的二级目录、`intermediate/` 的一级目录，在 `src/` 下都有同名目录（不存在的跳过） | 编译产物改到 `build/` 镜像（`_buildMirror`），其余改到 `intermediate/` 镜像（`_workOut` 等）；旧布局残留按报错给的 `rm -rf` 删掉 |
 
 ③ 豁免两类故意写未知能力名的 fixture（`_tlCapFixtures()`）：`src/runtime/tests/data/`（TIDX 解码）与
-`z42.test` 的 `skip_platform_demo.z42`（deny-by-default 演示）。④ 的例外只有两个：库的扁平 dist（`build/libraries/dist`，正式产物）与 `intermediate/xtask`（xtask 不在 `src/` 下）。
+`z42.test` 的 `skip_platform_demo.z42`（deny-by-default 演示）。④ 的例外只有 `intermediate/xtask`（xtask 不在 `src/` 下）。
 
 | 组件 | 位置 |
 |---|---|

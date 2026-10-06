@@ -431,7 +431,7 @@ jobs:
           # with "will not overwrite just-created". The copies are byte-identical, so
           # a per-file loop (last-wins) is safe. (Same for every dist-glob copy below.)
           PRALL="$ROOT/.ab-pr-alllibs"; rm -rf "$PRALL"; mkdir -p "$PRALL"
-          cp -f "$ROOT/artifacts/build/libraries/dist/release/"*.zpkg "$PRALL/"
+          cp -f "$ROOT/artifacts/intermediate/libraries/flat/release/"*.zpkg "$PRALL/"
           for f in "$ROOT/artifacts/build/compiler/"*/release/dist/*.zpkg; do cp -f "$f" "$PRALL/"; done
 
           # base z42vm: reuse PR's unless src/runtime differs base..pr.
@@ -488,7 +488,7 @@ jobs:
           # `undefined function …$N` (regressed once #295's parser changed mangling).
           # This mirrors PRALL (which stages stdlib + compiler); base stdlib built
           # below then overwrites these for the actual measurement.
-          for f in "$ROOT/artifacts/build/libraries/dist/release/"*.zpkg; do cp -f "$f" "$BASEALL/"; done
+          for f in "$ROOT/artifacts/intermediate/libraries/flat/release/"*.zpkg; do cp -f "$f" "$BASEALL/"; done
           BASEDRIVER="$BASEALL/z42c.driver.zpkg"
           echo "driver sha (base) $(sha256sum "$BASEDRIVER" | cut -c1-16)  $BASEDRIVER"
           # ⚠ 这一步用 **PR 的 VM** 跑，不是 BASEVM。上面刚把 PR stdlib 塞进 BASEALL（理由见

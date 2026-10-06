@@ -52,7 +52,7 @@ graph TD
     G -->|是| P1[阶段一：种子 z42c 自建编译器后端<br/>z42c build --workspace]
     P1 --> P2[阶段二：直跑自建的自包含 driver<br/>编 src/libraries 全部成员<br/>Z42_LIBS = .stdlib-run 快照]
     P2 --> P3[阶段三：各成员 dist 被自建产物覆盖<br/>hard-link 汇成扁平视图]
-    P3 --> OUT[artifacts/build/libraries/dist/release/<br/>= Z42_LIBS]
+    P3 --> OUT[artifacts/intermediate/libraries/flat/release/<br/>= Z42_LIBS]
 ```
 
 阶段一用 `z42c build --workspace`：拓扑序编各成员，兄弟依赖由 workspace 内部解析。

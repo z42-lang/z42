@@ -1,0 +1,4 @@
+desc = "[profile.*.runtime] 里未知的旋钮名 → warning + 最近邻建议，build 不红（不传 --release：校验扫全部 profile）"
+args = ["build", "check.knob.z42.toml"]
+exit = 0
+stderr_contains = ["gc-mdoe", "gc-mode"]

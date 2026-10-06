@@ -1,0 +1,75 @@
+desc = "probing-paths 的数组写法：侧车里保持 TOML 数组（不摊成带平台分隔符的字符串）、两个共享目录都解析得到；与 ${Z42_HOME} 占位符混用也成立（不设 Z42_HOME 必须跑不起来）（见 README）"
+outside_repo = true
+
+# 两个库，产物分别放进两个不同的共享目录 sh_pparr_a/、sh_pparr_b/
+[[step]]
+tool = "copy"
+from = "{stdlib}/*.zpkg"
+to = "libs/"
+
+[[step]]
+args = ["build", "build_pparr_a/pparr_a.z42.toml", "--release"]
+libs = "libs"
+exit = 0
+
+[[step]]
+tool = "copy"
+from = "build_pparr_a/dist/pparr_a.zpkg"
+to = "sh_pparr_a/"
+
+[[step]]
+args = ["build", "build_pparr_b/pparr_b.z42.toml", "--release"]
+libs = "libs"
+exit = 0
+
+[[step]]
+tool = "copy"
+from = "build_pparr_b/dist/pparr_b.zpkg"
+to = "sh_pparr_b/"
+
+# ① 侧车里是 TOML 数组；② 两条都解析得到（probing-paths 相对 entry zpkg 所在目录 app/dist/）
+[[step]]
+args = ["build", "app/pparr_app.z42.toml", "--release"]
+libs = "libs"
+exit = 0
+file_contains = [["app/dist/pparr_app.runtimeconfig.toml", "probing-paths = ["]]
+
+[[step]]
+tool = "run"
+target = "app/dist/pparr_app.zpkg"
+libs = "libs"
+exit = 0
+output_contains = ["pparr_a+pparr_b"]
+
+# ③ 数组与 ${Z42_HOME} 混用：第一条指回「SDK」
+[[step]]
+tool = "copy"
+from = "sh_pparr_a/pparr_a.zpkg"
+to = "sdkroot/shared_a/"
+
+[[step]]
+tool = "copy"
+from = "variants/pparr_app.z42-home.z42.toml"
+to = "app/pparr_app.z42.toml"
+
+[[step]]
+args = ["build", "app/pparr_app.z42.toml", "--release"]
+libs = "libs"
+exit = 0
+file_contains = [["app/dist/pparr_app.runtimeconfig.toml", "probing-paths = ["], ["app/dist/pparr_app.runtimeconfig.toml", "${Z42_HOME}"]]
+
+# 负对照：不设 Z42_HOME ⇒ 第一条解析不到 ⇒ 必须失败
+[[step]]
+tool = "run"
+target = "app/dist/pparr_app.zpkg"
+libs = "libs"
+env = { Z42_HOME = "" }
+exit = "nonzero"
+
+[[step]]
+tool = "run"
+target = "app/dist/pparr_app.zpkg"
+libs = "libs"
+env = { Z42_HOME = "{case}/sdkroot" }
+exit = 0
+output_contains = ["pparr_a+pparr_b"]

@@ -115,7 +115,7 @@ file .../native/libz42.dylib          # ② native 库架构（关键 invariant�
 |---|---|
 | `rid '<x>' not in supported whitelist` | RID 不在 §2 的 9 个里 |
 | `cross-compiling to '<x>' from host '<y>' not supported` | 换 host 或走 CI matrix |
-| `error: stdlib not built at artifacts/build/libraries/dist/release` | 先 `./xtask build stdlib` |
+| `error: stdlib not built at artifacts/intermediate/libraries/flat/release` | 先 `./xtask build stdlib` |
 | `error: z42c not built ...` | 先 `./scripts/install-z42.sh` 或 `./xtask build compiler` |
 | `cargo-ndk not found` | `cargo install cargo-ndk --locked` |
 | `$ANDROID_NDK_HOME unset and NDK not found locally` | `./xtask deps install --os android` |

@@ -72,7 +72,7 @@ pub fn expand_probing_paths_with(
 // 什么就逐字写出（`ManifestLoader` 只把数组用 `\n` 连起来），全仓构建输出里今天一个绝对路径
 // 都没有。所以没有「具体路径」需要被替换，也就没有 use 侧要等 nightly：作者今天写
 // `${Z42_HOME}/programs/z42c`，这里就展开它。
-// 端到端覆盖在 `xtask_compiler_e2e_deploy.z42` 的 probing-paths 第 ④ 格（清单 → 侧车仍是占位符
+// 端到端覆盖在 z42c.driver 的 CLI 夹具 `probing-paths-z42-home`（清单 → 侧车仍是占位符
 // → VM 展开到 SDK 根；不设 `Z42_HOME` 必须跑不起来，否则那格失去判别力）。
 //
 // **大小写不是随手写的**，两层各有各的约定：

@@ -1,0 +1,23 @@
+desc = "analyzer 诊断与 [lints] 决策活过整包缓存命中：冷构建报 Z9002（阳性对照）；不改再构建仍报；只加 [lints] warnings-as-errors（源码不动）构建必须失败且错因是 Z9002（见 README）"
+
+[[step]]
+args = ["build", "lintapp/e2e.lintapp.z42.toml", "--release"]
+exit = 0
+stderr_contains = ["Z9002"]
+
+# 什么都不改再构建：整包全命中，analyzer 警告必须仍在
+[[step]]
+args = ["build", "lintapp/e2e.lintapp.z42.toml", "--release"]
+exit = 0
+stderr_contains = ["Z9002"]
+
+# 只改 [lints]：warnings-as-errors ⇒ Z9002 升级为 error ⇒ 构建必须失败
+[[step]]
+tool = "copy"
+from = "variants/e2e.lintapp.werror.z42.toml"
+to = "lintapp/e2e.lintapp.z42.toml"
+
+[[step]]
+args = ["build", "lintapp/e2e.lintapp.z42.toml", "--release"]
+exit = "nonzero"
+stderr_contains = ["Z9002"]

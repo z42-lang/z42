@@ -201,8 +201,8 @@ walker 文件里找 `is <类名>`；全集里既不被匹配、又不在该 walk
 
 「被断言」判据刻意宽——码值或常量名出现在**测试面**任一处即算；测试面 = `src/**/tests/**` ∪
 `src/tests/**`（任意文本扩展名，含 `expected_build_error.txt`）∪ `examples/**` ∪ `scripts/test/**`
-∪ `docs/learn/**` ∪ `scripts/build/xtask_compiler_e2e*.z42`（编译器 e2e harness：清单层诊断如 W0609 只能在这里
-按码断言；`scripts/build/` 的其余文件是构建脚本，不算）。要答的是「有没有被任何一处钉住」，不是「钉得够不够好」。
+∪ `docs/learn/**`（z42c 命令行夹具在 `src/compiler/z42c.driver/tests/fixtures/cli/`，已在 `src/**/tests/**` 里：
+清单层诊断就在那里按码断言）。要答的是「有没有被任何一处钉住」，不是「钉得够不够好」。
 
 > ⚠️ 两个坑都是实测踩出来的，别改回去：**注释里提到一个码不算钉住它**（`.z42` 测试面要先剥行
 > 注释——不剥的话 `E0493` 会被一句对比性注释算成已覆盖）；**本门自己的文件不算测试面**——
@@ -253,7 +253,7 @@ walker 文件里找 `is <类名>`；全集里既不被匹配、又不在该 walk
 
 > ⚠️ **判据为什么是「挂账天数」而不是「去种子里查这个常量在不在」**：后者更精确，但**在 CI 里拿不到
 > 种子**。`xtask check diagcodes` 跑的时候 `Z42_LIBS` 指的是**自建** stdlib
-> （`artifacts/build/libraries/dist/release`，里面的 `z42c.core` 含全部常量 ⇒ 每条欠账都判红，假红
+> （`artifacts/intermediate/libraries/flat/release`，里面的 `z42c.core` 含全部常量 ⇒ 每条欠账都判红，假红
 > 挡人）；而 `Z42_HOME` 在整个 `test-host` job 里**一次都没设**，nightly 种子解在 ci-bootstrap 自己的
 > `$(mktemp -d)/sdkpkg` 里、test 步骤看不见 ⇒ 只认种子就是**恒跳过的假门**。两条路都不成立。
 >

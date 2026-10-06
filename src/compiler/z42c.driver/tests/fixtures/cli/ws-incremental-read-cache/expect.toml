@@ -1,0 +1,34 @@
+desc = "workspace 读 cache（b 依赖 a）：无改动再建两个成员都命中；a 只改注释 → 只有 b 命中；--no-incremental 一个都不命中；a 删掉 b 调用的方法 → b 重编报错"
+
+[[step]]
+args = ["build", "--workspace", "--release"]
+exit = 0
+
+[[step]]
+args = ["build", "--workspace", "--release"]
+exit = 0
+stdout_count = [["no changes", "2"]]
+
+[[step]]
+tool = "copy"
+from = "variants/a.comment.z42"
+to = "wsi.a/a.z42"
+
+[[step]]
+args = ["build", "--workspace", "--release"]
+exit = 0
+stdout_count = [["no changes", "1"]]
+
+[[step]]
+args = ["build", "--workspace", "--release", "--no-incremental"]
+exit = 0
+stdout_count = [["no changes", "0"]]
+
+[[step]]
+tool = "copy"
+from = "variants/a.renamed.z42"
+to = "wsi.a/a.z42"
+
+[[step]]
+args = ["build", "--workspace", "--release"]
+exit = "nonzero"

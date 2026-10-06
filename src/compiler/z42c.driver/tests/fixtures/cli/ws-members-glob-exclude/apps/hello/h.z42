@@ -1,0 +1,5 @@
+namespace WsmHello;
+
+using WsmCore;
+
+public static class H { public static int V() { return C.V() + 1; } }

@@ -1,0 +1,13 @@
+namespace E2eUserLinter;
+
+using Std;
+using Std.IO;
+using Z42.Syntax;
+
+public static class Program {
+    public static void Main() {
+        Lexer lx = new Lexer("var x = 1;", "demo.z42");
+        lx.Tokenize();
+        Console.WriteLine("tokens=" + lx.Tokens().Length.ToString());
+    }
+}

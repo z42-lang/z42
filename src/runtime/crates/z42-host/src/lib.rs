@@ -15,7 +15,7 @@
 //!     stdout: Some(Box::new(|bytes| {
 //!         std::io::Write::write_all(&mut std::io::stdout(), bytes).unwrap();
 //!     })),
-//!     search_paths: vec!["artifacts/z42/libs".into()],
+//!     search_paths: vec!["artifacts/intermediate/libraries/flat/release".into()],
 //!     ..Default::default()
 //! };
 //! let host  = Host::new(cfg)?;

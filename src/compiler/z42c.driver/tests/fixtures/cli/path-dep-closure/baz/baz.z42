@@ -1,0 +1,5 @@
+namespace PathDep.Baz;
+
+public static class Baz {
+    public static int Two() { return 2; }
+}

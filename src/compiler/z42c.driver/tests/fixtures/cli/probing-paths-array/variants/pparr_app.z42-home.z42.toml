@@ -1,0 +1,18 @@
+[project]
+name    = "pparr_app"
+version = "0.1.0"
+kind    = "exe"
+entry   = "PparrApp.Main"
+pack    = true
+
+[sources]
+include = ["app.z42"]
+
+[dependencies]
+"z42.core" = "0.1.0"
+"z42.io" = "0.1.0"
+"pparr_a" = { path = "../sh_pparr_a/pparr_a.zpkg", deploy = "shared" }
+"pparr_b" = { path = "../sh_pparr_b/pparr_b.zpkg", deploy = "shared" }
+
+[profile.release.runtime]
+probing-paths = ["${Z42_HOME}/shared_a", "../../sh_pparr_b"]

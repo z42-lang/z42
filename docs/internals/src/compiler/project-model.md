@@ -80,12 +80,12 @@ path 依赖与名字依赖的关键差异：名字依赖假定其 zpkg **已在*
 >   个必须仍是成员 dist（`WsTier.Admits` 按下标分档），外部包归外部档。
 > - **基础解析域是已决议的 libsDirs**（`--compile-libs` > `Z42_LIBS`），不重读 `Z42_LIBS`（否则代建与消费方都会绕过 `--compile-libs`）。
 > - **闭包代建默认 packed**（调用约定 `tier == null && libsDirsCount > 0`；显式 `pack` 优先）。否则 debug 构建的 exe
->   只要有 path 依赖就运行期 `undefined function`：indexed 主文件被拷进 dist，它的散装 zbc 没跟过去。门：`xtask test compiler` 的 `_e2ePathDepScopeChecks`。
+>   只要有 path 依赖就运行期 `undefined function`：indexed 主文件被拷进 dist，它的散装 zbc 没跟过去。门：z42c.driver 的 CLI 夹具 `path-dep-closure` / `path-dep-compile-libs`。
 > - **其余来源的 indexed 依赖（workspace lib 成员等）连散装 zbc 一起装配**：`ZpkgReader.ReadIndexedZbcRels` 列出依赖 FILE 目录里的散装 zbc，按原相对布局
 >   拷进 exe 的 dist（加载器按「主文件所在目录 + rel」找）。与**本包自己的**散装 zbc、或**本轮另一个依赖**拷入的
 >   同路径文件撞名 ⇒ 构建期报错（上一轮拷来的旧副本直接覆盖）。exe 的孤儿清理会先删掉这些副本、装配再拷回，
->   fresh 构建的终态一致；preserved 路径只装配不清理。门：`_e2eBundleIndexedChecks`（workspace exe + lib 成员
->   debug 能跑 / 同名 `x.z42` 撞车报错）。
+>   fresh 构建的终态一致；preserved 路径只装配不清理。门：z42c.driver 的 CLI 夹具 `bundle-indexed-deps` /
+>   `bundle-indexed-name-clash`（workspace exe + lib 成员 debug 能跑 / 同名 `x.z42` 撞车报错）。
 
 #### 按名/产物引用的依赖也建闭包
 
@@ -136,8 +136,9 @@ path 依赖与名字依赖的关键差异：名字依赖假定其 zpkg **已在*
 `libs/`**，而在**编译器目录**：SDK 的 `programs/z42c/`（z42c.driver 的自包含闭包）。
 
 编译器目录由 `CompilerDomain.Dirs()`（`z42c.pipeline/src/BuildSession.z42`）按序探测，存在者都收：① `Z42_COMPILER_LIBS`；
-② `Z42_HOME/programs/z42c/`；③ 由 `Z42_PORTABLE_VM` 反推 SDK 根 → `programs/z42c/`；④ 开发树——自 `Z42_LIBS` 上溯到
-`artifacts/build/` → `compiler/z42c.driver/release/dist/`（与 `programs/z42c/` 同形）。
+② `Z42_HOME/programs/z42c/`；③ 由 `Z42_PORTABLE_VM` 反推 SDK 根 → `programs/z42c/`；④ 开发树——自 `Z42_LIBS` 逐级上溯
+（至多 4 级），第一个含 `build/compiler/z42c.driver/release/dist/` 的祖先命中（与 `programs/z42c/` 同形）。不按固定层数：
+stdlib flat 在 `artifacts/` 下的深度属于 xtask 的布局，挪位置时编译器不必跟着改。
 
 **可见性规则**（实现在 `z42c.pipeline/src/SdkLibs.z42`，driver 与 BuildSession 共用）：
 
@@ -314,7 +315,7 @@ preserved 早退**（`fix-analyzer-diags-preserved`）。早退路径只能回�
 什么都不改再构建一次，analyzer 警告消失；只改 `[lints]` 把规则升成 error，源码没动 ⇒ 全命中 ⇒
 构建仍 exit 0。`[lints]` 也**不**进 `depsId`：它不改任何 CU 的产物，扩键会换来一次无谓的全量重编
 （上面那条「呈现问题 ≠ 失效问题」）。这类工程全命中时的代价是多一次装配 + analyzer 遍历
-（cached CU 不重做 typecheck）。门禁在 `xtask test compiler` 的 `_e2eAnalyzerDiagCacheChecks`：
+（cached CU 不重做 typecheck）。门禁是 z42c.driver 的 CLI 夹具 `analyzer-diag-survives-cache`（`xtask test compiler`）：
 冷构建报 / 全命中仍报 / 只改 `[lints]` 立即生效。
 
 ### 缓存条目的完整性（meta v8）
