@@ -1,5 +1,5 @@
 // IR 指令基类 + 统一操作数接口（unify-ir-operand-access）。
-// 镜像 C# z42.IR/IrModule.cs 的 IrInstr record 层次；受限写法：class 继承 + virtual（z42 无 record/abstract）。
+// 镜像 C# z42.IR/IrModule.cs 的 IrInstr record 层次；class 继承 + virtual（基类给安全默认，不用 abstract）。
 // class-per-instruction（User 裁决 D2）：每条指令一个 class。指令类按类别分文件：
 //   IrInstrConst.z42  ── 常量 / 类型参数物化 / 静态读 / load_fn / typeof（仅定义 Dst，无读操作数）
 //   IrInstrArith.z42  ── copy / 二元算术·比较·位·移位·串拼接 / 一元
@@ -20,7 +20,16 @@
 //   - StrCount / StrAt：入 STRS 池的字符串操作数，顺序 = 池化序（ZbcInstr.InternStrings 的既有序）。
 //   - Clone：浅克隆——操作数数组复制（克隆体可独立 SetReadAt），TypedReg 实例共享（只读传递），
 //     字符串数组/标量原样。
+//   - Write：编码成 zbc 字节（布局跟着指令类走；ZbcEncoder 提供头部 / 操作数 / 串池 / token 写法）。
+//   - TagReg：指令头 tag 字节取自哪个寄存器的类型。默认 = 定义寄存器；纯写入类取被写的值，
+//     const.i32/i64 的 tag 是字面常量 → null。读端按它区分「解码带类型」与「只有 id」的寄存器。
+//   - IsPure：可删性（temp-DCE / LICM / 纯函数推断用）。**白名单**：仅明确不抛、不调用户码、不写内存、
+//     不分配的指令覆写为 true；Div/Rem（除零）、ArrayLen/FieldGet/ArrayGet（NPE / 越界）、ToStr（调
+//     ToString）、调用族 / ObjNew / 各种 set（副作用）、StaticGet（可能触发静态初始化）、数组 / 闭包 /
+//     串拼接 / LoadFn（分配）一律 false。新指令默认 false（保留），安全。
 namespace Z42.IR;
+
+using Z42.IR.BinaryFormat;   // ZbcEncoder（Write 编码）
 
 public class IrInstr {
     public virtual string Dump() { return "?instr"; }
@@ -38,6 +47,14 @@ public class IrInstr {
     public virtual string StrAt(int i) { return null; }
     // 浅克隆（见文件头）。基类不可实例化 → null。
     public virtual IrInstr Clone() { return null; }
+    // zbc 编码（见文件头）。未覆写 = 新增指令忘了接编码 → 当场抛，指名是哪一条（不静默少写一条指令）。
+    public virtual void Write(ZbcEncoder e) {
+        throw new Exception("zbc writer: no encoding for IR instruction `" + this.Dump() + "`");
+    }
+    // 指令头 tag 的来源寄存器（见文件头）。
+    public virtual TypedReg TagReg() { return this.DefReg(); }
+    // 可删性白名单（见文件头）。
+    public virtual bool IsPure() { return false; }
 
     // 克隆助手：复制 TypedReg 数组（元素共享）。
     public static TypedReg[] CloneRegs(TypedReg[] a) {

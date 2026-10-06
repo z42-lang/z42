@@ -2,11 +2,17 @@
 // 拆自 IrInstr.z42（unify-ir-operand-access）；接口约定见 IrInstr.z42 文件头。
 namespace Z42.IR;
 
+using Z42.IR.BinaryFormat;   // ZbcEncoder / Op / Tag（Write 编码）
+
 // ── 数据移动 ──────────────────────────────────────────────────────────────────────
 public sealed class CopyInstr : IrUnInstr {
     public CopyInstr(TypedReg dst, TypedReg src) { this.Dst = dst; this.Src = src; }
     public override string Dump() { return this.Dst.Dump() + " = copy " + this.Src.Dump(); }
     public override IrInstr Clone() { return new CopyInstr(this.Dst, this.Src); }
+    public override bool IsPure() { return true; }
+    public override void Write(ZbcEncoder e) {
+        e.Un(Op.Copy, this.Dst, this.Src);
+    }
 }
 
 // ── 算术（二元，三操作数）──────────────────────────────────────────────────────────
@@ -17,6 +23,12 @@ public sealed class AddInstr : IrBinInstr {
         return this.Dst.Dump() + " = add " + IrType.Name(this.Dst.Type) + " " + this.A.Dump() + ", " + this.B.Dump();
     }
     public override IrInstr Clone() { return new AddInstr(this.Dst, this.A, this.B); }
+    // `add` 也承载串拼接（`"a" + obj`，dst 为 str）：运行期对非串操作数调用户 `ToString`，可能抛 ⇒ 不可删。
+    // 只有数值结果的加法才纯；类型未知同样保守保留。
+    public override bool IsPure() { int t = this.Dst.Type; return t >= IrType.I8 && t <= IrType.F64; }
+    public override void Write(ZbcEncoder e) {
+        e.Bin(Op.Add, this.Dst, this.A, this.B);
+    }
 }
 
 public sealed class SubInstr : IrBinInstr {
@@ -25,6 +37,10 @@ public sealed class SubInstr : IrBinInstr {
         return this.Dst.Dump() + " = sub " + IrType.Name(this.Dst.Type) + " " + this.A.Dump() + ", " + this.B.Dump();
     }
     public override IrInstr Clone() { return new SubInstr(this.Dst, this.A, this.B); }
+    public override bool IsPure() { return true; }
+    public override void Write(ZbcEncoder e) {
+        e.Bin(Op.Sub, this.Dst, this.A, this.B);
+    }
 }
 
 public sealed class MulInstr : IrBinInstr {
@@ -33,6 +49,10 @@ public sealed class MulInstr : IrBinInstr {
         return this.Dst.Dump() + " = mul " + IrType.Name(this.Dst.Type) + " " + this.A.Dump() + ", " + this.B.Dump();
     }
     public override IrInstr Clone() { return new MulInstr(this.Dst, this.A, this.B); }
+    public override bool IsPure() { return true; }
+    public override void Write(ZbcEncoder e) {
+        e.Bin(Op.Mul, this.Dst, this.A, this.B);
+    }
 }
 
 public sealed class DivInstr : IrBinInstr {
@@ -41,6 +61,9 @@ public sealed class DivInstr : IrBinInstr {
         return this.Dst.Dump() + " = div " + IrType.Name(this.Dst.Type) + " " + this.A.Dump() + ", " + this.B.Dump();
     }
     public override IrInstr Clone() { return new DivInstr(this.Dst, this.A, this.B); }
+    public override void Write(ZbcEncoder e) {
+        e.Bin(Op.Div, this.Dst, this.A, this.B);
+    }
 }
 
 public sealed class RemInstr : IrBinInstr {
@@ -49,6 +72,9 @@ public sealed class RemInstr : IrBinInstr {
         return this.Dst.Dump() + " = rem " + IrType.Name(this.Dst.Type) + " " + this.A.Dump() + ", " + this.B.Dump();
     }
     public override IrInstr Clone() { return new RemInstr(this.Dst, this.A, this.B); }
+    public override void Write(ZbcEncoder e) {
+        e.Bin(Op.Rem, this.Dst, this.A, this.B);
+    }
 }
 
 // ── 比较（CG-1E）：→ bool。类型名取操作数（A）的标签（结果恒 bool）。──────────────────
@@ -56,31 +82,55 @@ public sealed class EqInstr : IrBinInstr {
     public EqInstr(TypedReg dst, TypedReg a, TypedReg b) { this.Dst = dst; this.A = a; this.B = b; }
     public override string Dump() { return this.Dst.Dump() + " = eq " + IrType.Name(this.A.Type) + " " + this.A.Dump() + ", " + this.B.Dump(); }
     public override IrInstr Clone() { return new EqInstr(this.Dst, this.A, this.B); }
+    public override bool IsPure() { return true; }
+    public override void Write(ZbcEncoder e) {
+        e.Bin(Op.Eq, this.Dst, this.A, this.B);
+    }
 }
 public sealed class NeInstr : IrBinInstr {
     public NeInstr(TypedReg dst, TypedReg a, TypedReg b) { this.Dst = dst; this.A = a; this.B = b; }
     public override string Dump() { return this.Dst.Dump() + " = ne " + IrType.Name(this.A.Type) + " " + this.A.Dump() + ", " + this.B.Dump(); }
     public override IrInstr Clone() { return new NeInstr(this.Dst, this.A, this.B); }
+    public override bool IsPure() { return true; }
+    public override void Write(ZbcEncoder e) {
+        e.Bin(Op.Ne, this.Dst, this.A, this.B);
+    }
 }
 public sealed class LtInstr : IrBinInstr {
     public LtInstr(TypedReg dst, TypedReg a, TypedReg b) { this.Dst = dst; this.A = a; this.B = b; }
     public override string Dump() { return this.Dst.Dump() + " = lt " + IrType.Name(this.A.Type) + " " + this.A.Dump() + ", " + this.B.Dump(); }
     public override IrInstr Clone() { return new LtInstr(this.Dst, this.A, this.B); }
+    public override bool IsPure() { return true; }
+    public override void Write(ZbcEncoder e) {
+        e.Bin(Op.Lt, this.Dst, this.A, this.B);
+    }
 }
 public sealed class LeInstr : IrBinInstr {
     public LeInstr(TypedReg dst, TypedReg a, TypedReg b) { this.Dst = dst; this.A = a; this.B = b; }
     public override string Dump() { return this.Dst.Dump() + " = le " + IrType.Name(this.A.Type) + " " + this.A.Dump() + ", " + this.B.Dump(); }
     public override IrInstr Clone() { return new LeInstr(this.Dst, this.A, this.B); }
+    public override bool IsPure() { return true; }
+    public override void Write(ZbcEncoder e) {
+        e.Bin(Op.Le, this.Dst, this.A, this.B);
+    }
 }
 public sealed class GtInstr : IrBinInstr {
     public GtInstr(TypedReg dst, TypedReg a, TypedReg b) { this.Dst = dst; this.A = a; this.B = b; }
     public override string Dump() { return this.Dst.Dump() + " = gt " + IrType.Name(this.A.Type) + " " + this.A.Dump() + ", " + this.B.Dump(); }
     public override IrInstr Clone() { return new GtInstr(this.Dst, this.A, this.B); }
+    public override bool IsPure() { return true; }
+    public override void Write(ZbcEncoder e) {
+        e.Bin(Op.Gt, this.Dst, this.A, this.B);
+    }
 }
 public sealed class GeInstr : IrBinInstr {
     public GeInstr(TypedReg dst, TypedReg a, TypedReg b) { this.Dst = dst; this.A = a; this.B = b; }
     public override string Dump() { return this.Dst.Dump() + " = ge " + IrType.Name(this.A.Type) + " " + this.A.Dump() + ", " + this.B.Dump(); }
     public override IrInstr Clone() { return new GeInstr(this.Dst, this.A, this.B); }
+    public override bool IsPure() { return true; }
+    public override void Write(ZbcEncoder e) {
+        e.Bin(Op.Ge, this.Dst, this.A, this.B);
+    }
 }
 
 // ── 位运算（CG-1E）：结果类型 = 操作数（Dst 标签）。─────────────────────────────────
@@ -88,26 +138,46 @@ public sealed class BitAndInstr : IrBinInstr {
     public BitAndInstr(TypedReg dst, TypedReg a, TypedReg b) { this.Dst = dst; this.A = a; this.B = b; }
     public override string Dump() { return this.Dst.Dump() + " = bit_and " + IrType.Name(this.Dst.Type) + " " + this.A.Dump() + ", " + this.B.Dump(); }
     public override IrInstr Clone() { return new BitAndInstr(this.Dst, this.A, this.B); }
+    public override bool IsPure() { return true; }
+    public override void Write(ZbcEncoder e) {
+        e.Bin(Op.BitAnd, this.Dst, this.A, this.B);
+    }
 }
 public sealed class BitOrInstr : IrBinInstr {
     public BitOrInstr(TypedReg dst, TypedReg a, TypedReg b) { this.Dst = dst; this.A = a; this.B = b; }
     public override string Dump() { return this.Dst.Dump() + " = bit_or " + IrType.Name(this.Dst.Type) + " " + this.A.Dump() + ", " + this.B.Dump(); }
     public override IrInstr Clone() { return new BitOrInstr(this.Dst, this.A, this.B); }
+    public override bool IsPure() { return true; }
+    public override void Write(ZbcEncoder e) {
+        e.Bin(Op.BitOr, this.Dst, this.A, this.B);
+    }
 }
 public sealed class BitXorInstr : IrBinInstr {
     public BitXorInstr(TypedReg dst, TypedReg a, TypedReg b) { this.Dst = dst; this.A = a; this.B = b; }
     public override string Dump() { return this.Dst.Dump() + " = bit_xor " + IrType.Name(this.Dst.Type) + " " + this.A.Dump() + ", " + this.B.Dump(); }
     public override IrInstr Clone() { return new BitXorInstr(this.Dst, this.A, this.B); }
+    public override bool IsPure() { return true; }
+    public override void Write(ZbcEncoder e) {
+        e.Bin(Op.BitXor, this.Dst, this.A, this.B);
+    }
 }
 public sealed class ShlInstr : IrBinInstr {
     public ShlInstr(TypedReg dst, TypedReg a, TypedReg b) { this.Dst = dst; this.A = a; this.B = b; }
     public override string Dump() { return this.Dst.Dump() + " = shl " + IrType.Name(this.Dst.Type) + " " + this.A.Dump() + ", " + this.B.Dump(); }
     public override IrInstr Clone() { return new ShlInstr(this.Dst, this.A, this.B); }
+    public override bool IsPure() { return true; }
+    public override void Write(ZbcEncoder e) {
+        e.Bin(Op.Shl, this.Dst, this.A, this.B);
+    }
 }
 public sealed class ShrInstr : IrBinInstr {
     public ShrInstr(TypedReg dst, TypedReg a, TypedReg b) { this.Dst = dst; this.A = a; this.B = b; }
     public override string Dump() { return this.Dst.Dump() + " = shr " + IrType.Name(this.Dst.Type) + " " + this.A.Dump() + ", " + this.B.Dump(); }
     public override IrInstr Clone() { return new ShrInstr(this.Dst, this.A, this.B); }
+    public override bool IsPure() { return true; }
+    public override void Write(ZbcEncoder e) {
+        e.Bin(Op.Shr, this.Dst, this.A, this.B);
+    }
 }
 
 // ── 字符串拼接（CG-1E）：a + b（string）。──────────────────────────────────────────
@@ -115,6 +185,9 @@ public sealed class StrConcatInstr : IrBinInstr {
     public StrConcatInstr(TypedReg dst, TypedReg a, TypedReg b) { this.Dst = dst; this.A = a; this.B = b; }
     public override string Dump() { return this.Dst.Dump() + " = str_concat " + this.A.Dump() + ", " + this.B.Dump(); }
     public override IrInstr Clone() { return new StrConcatInstr(this.Dst, this.A, this.B); }
+    public override void Write(ZbcEncoder e) {
+        e.Bin(Op.StrConcat, this.Dst, this.A, this.B);
+    }
 }
 
 // ── 一元（CG-1E）─────────────────────────────────────────────────────────────────
@@ -122,22 +195,38 @@ public sealed class NotInstr : IrUnInstr {
     public NotInstr(TypedReg dst, TypedReg src) { this.Dst = dst; this.Src = src; }
     public override string Dump() { return this.Dst.Dump() + " = not " + this.Src.Dump(); }
     public override IrInstr Clone() { return new NotInstr(this.Dst, this.Src); }
+    public override bool IsPure() { return true; }
+    public override void Write(ZbcEncoder e) {
+        e.Un(Op.Not, this.Dst, this.Src);
+    }
 }
 public sealed class NegInstr : IrUnInstr {
     public NegInstr(TypedReg dst, TypedReg src) { this.Dst = dst; this.Src = src; }
     public override string Dump() { return this.Dst.Dump() + " = neg " + IrType.Name(this.Dst.Type) + " " + this.Src.Dump(); }
     public override IrInstr Clone() { return new NegInstr(this.Dst, this.Src); }
+    public override bool IsPure() { return true; }
+    public override void Write(ZbcEncoder e) {
+        e.Un(Op.Neg, this.Dst, this.Src);
+    }
 }
 public sealed class BitNotInstr : IrUnInstr {
     public BitNotInstr(TypedReg dst, TypedReg src) { this.Dst = dst; this.Src = src; }
     public override string Dump() { return this.Dst.Dump() + " = bit_not " + IrType.Name(this.Dst.Type) + " " + this.Src.Dump(); }
     public override IrInstr Clone() { return new BitNotInstr(this.Dst, this.Src); }
+    public override bool IsPure() { return true; }
+    public override void Write(ZbcEncoder e) {
+        e.Un(Op.BitNot, this.Dst, this.Src);
+    }
 }
 // (T)expr 数值转换（G3；目标 tag 在 Dst.Type）。镜像 C# ConvertInstr。
 public sealed class ConvertInstr : IrUnInstr {
     public ConvertInstr(TypedReg dst, TypedReg src) { this.Dst = dst; this.Src = src; }
     public override string Dump() { return this.Dst.Dump() + " = convert " + IrType.Name(this.Dst.Type) + " " + this.Src.Dump(); }
     public override IrInstr Clone() { return new ConvertInstr(this.Dst, this.Src); }
+    public override bool IsPure() { return true; }
+    public override void Write(ZbcEncoder e) {
+        e.Un(Op.Convert, this.Dst, this.Src);
+    }
 }
 
 // ToStr（GS4 interpolation）：dst = src.ToString()；镜像 C# ToStrInstr opcode 0x1F。
@@ -145,4 +234,7 @@ public sealed class ToStrInstr : IrUnInstr {
     public ToStrInstr(TypedReg dst, TypedReg src) { this.Dst = dst; this.Src = src; }
     public override string Dump() { return this.Dst.Dump() + " = to_str " + this.Src.Dump(); }
     public override IrInstr Clone() { return new ToStrInstr(this.Dst, this.Src); }
+    public override void Write(ZbcEncoder e) {
+        e.Un(Op.ToStr, this.Dst, this.Src);
+    }
 }

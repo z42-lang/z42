@@ -172,7 +172,7 @@ public sealed class IrPureFunctionTable {
     //    ObjNew/ArrayNew*/MkClos/StrConcat/ToStr 分配、Div/Rem 陷阱、Builtin/CallNative IO、
     //    VCall/CallIndirect 动态派发、调非纯 CallInstr）。
     private static bool _isInstrPure(IrInstr ins, StrMap pure) {
-        if (IrOptInfo.IsPure(ins)) { return true; }
+        if (ins.IsPure()) { return true; }
         if (ins is FieldGetInstr) { return (ins as FieldGetInstr).Readonly; }   // readonly 字段读确定
         if (ins is CallInstr) { return pure.ContainsKey((ins as CallInstr).Func); }
         return false;

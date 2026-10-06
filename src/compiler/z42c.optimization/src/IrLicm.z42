@@ -75,7 +75,7 @@ public sealed class IrLicm {
                     IrInstr ins = blk.Instrs[ii];
                     int d = IrOptInfo.DstId(ins);
                     if (d >= 0 && d < rc && defsGlobal[d] == 1
-                        && ((IrOptInfo.IsPure(ins) && IrLicm._operandsExternal(ins, defInLoop, rc))
+                        && ((ins.IsPure() && IrLicm._operandsExternal(ins, defInLoop, rc))
                             || IrLicm._isHoistableReadonlyFget(ins, f, optSet, defInLoop, rc, loopWrittenFields)
                             || IrLicm._isHoistablePureCall(ins, optSet, pureTable, defInLoop, rc))) {
                         invariantReg[d] = true;

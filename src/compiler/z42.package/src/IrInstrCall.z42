@@ -3,6 +3,8 @@
 // 读操作数序：接收者/被调（Obj / Callee）先、再 Args（= REGT 访问序）。
 namespace Z42.IR;
 
+using Z42.IR.BinaryFormat;   // ZbcEncoder / Op / Tag（Write 编码）
+
 // ── 调用（CG-1C）──────────────────────────────────────────────────────────────────
 // 直接调用（自由函数 / 静态方法，按限定名）。void 结果 dst 未读（镜像 C#，恒带 dst）。
 public sealed class CallInstr : IrInstr {
@@ -48,6 +50,17 @@ public sealed class CallInstr : IrInstr {
         c.MethodTypeArgs = this.MethodTypeArgs; c.MethodTypeArgCount = this.MethodTypeArgCount;
         return c;
     }
+    public override void Write(ZbcEncoder e) {
+        // add-generic-methods：携方法类型实参 → CallGeneric（非泛型仍走 Op.Call，byte-identical）。
+        if (this.MethodTypeArgCount > 0) {
+            e.Head(Op.CallGeneric, this.Dst); e.MethodTok(this.Func);
+            e.Mta(this.MethodTypeArgs, this.MethodTypeArgCount);
+            e.Args(this.Args, this.ArgCount);
+            return;
+        }
+        e.Head(Op.Call, this.Dst); e.MethodTok(this.Func);
+        e.Args(this.Args, this.ArgCount);
+    }
 }
 
 // builtin 调用（legacy `[Native("__name")]` extern 桩函数体；镜像 C# BuiltinInstr，opcode 0x51）。
@@ -73,6 +86,11 @@ public sealed class BuiltinInstr : IrInstr {
     public override int StrCount() { return 1; }
     public override string StrAt(int i) { if (i == 0) { return this.Name; } return null; }
     public override IrInstr Clone() { return new BuiltinInstr(this.Dst, this.Name, IrInstr.CloneRegs(this.Args), this.ArgCount); }
+    public override void Write(ZbcEncoder e) {
+        e.Head(Op.Builtin, this.Dst);
+        e.Str(this.Name);   // builtin 名直接 pool idx（非 method token）
+        e.Args(this.Args, this.ArgCount);
+    }
 }
 
 // typed native call（`[Native(lib,type,entry)]` extern 桩函数体；镜像 VM Instruction::CallNative，
@@ -109,6 +127,12 @@ public sealed class CallNativeInstr : IrInstr {
     }
     public override IrInstr Clone() {
         return new CallNativeInstr(this.Dst, this.Module, this.Type, this.Symbol, IrInstr.CloneRegs(this.Args), this.ArgCount);
+    }
+    public override void Write(ZbcEncoder e) {
+        // OP_CALL_NATIVE(0x53)：dst + module/type/symbol（3× pool idx u32）+ args；镜像 VM zbc_reader.rs 解码。
+        e.Head(Op.CallNative, this.Dst);
+        e.Str(this.Module); e.Str(this.Type); e.Str(this.Symbol);
+        e.Args(this.Args, this.ArgCount);
     }
 }
 
@@ -164,6 +188,16 @@ public sealed class VCallInstr : IrInstr {
         c.MethodTypeArgs = this.MethodTypeArgs; c.MethodTypeArgCount = this.MethodTypeArgCount;
         return c;
     }
+    public override void Write(ZbcEncoder e) {
+        if (this.MethodTypeArgCount > 0) {
+            e.Head(Op.VCallGeneric, this.Dst); e.Str(this.Method); e.Reg(this.Obj);
+            e.Mta(this.MethodTypeArgs, this.MethodTypeArgCount);
+            e.Args(this.Args, this.ArgCount);
+            return;
+        }
+        e.Head(Op.VCall, this.Dst); e.Str(this.Method); e.Reg(this.Obj);
+        e.Args(this.Args, this.ArgCount);
+    }
 }
 
 // 闭包三指令（port-z42c-closures）：间接调用 + 构造闭包（load_fn 见 IrInstrConst.z42）。
@@ -197,6 +231,10 @@ public sealed class CallIndirectInstr : IrInstr {
         if (i >= 1 && i <= this.ArgCount) { this.Args[i - 1] = r; }
     }
     public override IrInstr Clone() { return new CallIndirectInstr(this.Dst, this.Callee, IrInstr.CloneRegs(this.Args), this.ArgCount); }
+    public override void Write(ZbcEncoder e) {
+        e.Head(Op.CallIndirect, this.Dst); e.Reg(this.Callee);
+        e.Args(this.Args, this.ArgCount);
+    }
 }
 
 public sealed class MkClosInstr : IrInstr {
@@ -227,6 +265,11 @@ public sealed class MkClosInstr : IrInstr {
     public override IrInstr Clone() {
         return new MkClosInstr(this.Dst, this.Func, IrInstr.CloneRegs(this.Captures), this.CaptureCount, this.StackAlloc);
     }
+    public override void Write(ZbcEncoder e) {
+        e.Head(Op.MkClos, this.Dst); e.MethodTok(this.Func);
+        e.Flag(this.StackAlloc);
+        e.Args(this.Captures, this.CaptureCount);
+    }
 }
 
 // ref 参数调用：load_local_addr %slot → addr 寄存器（传 callee；opcode 0xA0；镜像 C# LoadLocalAddrInstr）。
@@ -242,6 +285,9 @@ public sealed class LoadLocalAddrInstr : IrInstr {
     public override TypedReg ReadAt(int i) { if (i == 0) { return this.Slot; } return null; }
     public override void SetReadAt(int i, TypedReg r) { if (i == 0) { this.Slot = r; } }
     public override IrInstr Clone() { return new LoadLocalAddrInstr(this.Dst, this.Slot); }
+    public override void Write(ZbcEncoder e) {
+        e.Head(Op.LoadLocalAddr, this.Dst); e.Reg(this.Slot);
+    }
 }
 
 // fix-ref-lvalue-addressing：`ref arr[i]` → load_elem_addr（opcode 0xA1）。
@@ -273,6 +319,10 @@ public sealed class LoadElemAddrInstr : IrInstr {
         if (i == 1) { this.Idx = r; }
     }
     public override IrInstr Clone() { return new LoadElemAddrInstr(this.Dst, this.Arr, this.Idx); }
+    public override void Write(ZbcEncoder e) {
+        // 与二元算术同形（dst + arr u16 + idx u16）；布局由 VM 解码器钉死（instr_decode.rs）。
+        e.Head(Op.LoadElemAddr, this.Dst); e.Reg(this.Arr); e.Reg(this.Idx);
+    }
 }
 
 // fix-ref-lvalue-addressing：`ref obj.f` → load_field_addr（opcode 0xA2）。同上，补生产方。
@@ -295,6 +345,10 @@ public sealed class LoadFieldAddrInstr : IrInstr {
     public override int StrCount() { return 1; }
     public override string StrAt(int i) { if (i == 0) { return this.Field; } return null; }
     public override IrInstr Clone() { return new LoadFieldAddrInstr(this.Dst, this.Obj, this.Field); }
+    public override void Write(ZbcEncoder e) {
+        // 与 FieldGet 同形（dst + obj u16 + field u32 池索引）。
+        e.Head(Op.LoadFieldAddr, this.Dst); e.Reg(this.Obj); e.Str(this.Field);
+    }
 }
 
 // 静态字段写：无定义寄存器，读 Val。
@@ -308,4 +362,9 @@ public sealed class StaticSetInstr : IrInstr {
     public override int StrCount() { return 1; }
     public override string StrAt(int i) { if (i == 0) { return this.Field; } return null; }
     public override IrInstr Clone() { return new StaticSetInstr(this.Field, this.Val); }
+    public override TypedReg TagReg() { return this.Val; }
+    public override void Write(ZbcEncoder e) {
+        e.HeadNoDst(Op.StaticSet, this.Val);
+        e.Str(this.Field); e.Reg(this.Val);
+    }
 }

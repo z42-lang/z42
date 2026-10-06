@@ -1,0 +1,81 @@
+// 指令编码上下文：一条 IR 指令编码成字节时要用到的全部状态（字节缓冲 / 串池 / ConstStr 池号重映射 /
+// token 分配器）打成一个对象，交给各指令类的 `IrInstr.Write` 自己写——指令布局跟着指令类走，
+// 编码端不再维护逐指令的 `is` 链。ZbcWriter 每个函数建一个，复用于该函数的全部指令。
+//
+// 指令头恒 = op u8 + type_tag u8 + dst u16（0xFFFF = 无 dst）。tag 取自「头部带类型的寄存器」——
+// 多数指令是 dst，纯写入类（field_set / static_set / array_set / struct_fset_prim）是被写的值，
+// 见 `IrInstr.TagReg`。读端 `ZbcReaderInstr.Retype` 按同一约定回填 REGT。
+namespace Z42.IR.BinaryFormat;
+
+public sealed class ZbcEncoder {
+    public ByteWriter     W;
+    public ZbcStringPool  Pool;
+    public int[]          StrRemap;   // z42c 1-based 池 idx → 最终 STRS idx（ConstStr 用）
+    public TokenAllocator Alloc;      // Call / ObjNew / IsInstance / AsCast / LoadFn / MkClos 的 token
+
+    public ZbcEncoder(ByteWriter w, ZbcStringPool pool, int[] strRemap, TokenAllocator alloc) {
+        this.W = w; this.Pool = pool; this.StrRemap = strRemap; this.Alloc = alloc;
+    }
+
+    // 带 dst 的指令头：op + dst 的 tag + dst id。
+    public void Head(int op, TypedReg dst) {
+        this.W.WriteU8(op); this.W.WriteU8(Tag.FromIrType(dst.Type)); this.W.WriteU16(dst.Id);
+    }
+    // 无 dst 的指令头：op + 被写值的 tag + NoReg。
+    public void HeadNoDst(int op, TypedReg tagged) {
+        this.W.WriteU8(op); this.W.WriteU8(Tag.FromIrType(tagged.Type)); this.W.WriteU16(ZbcInstr.NoReg);
+    }
+    // tag 是字面常量（const.i32 / const.i64：tag 由 opcode 语义定，不看 dst 类型）。
+    public void HeadTag(int op, int tag, TypedReg dst) {
+        this.W.WriteU8(op); this.W.WriteU8(tag); this.W.WriteU16(dst.Id);
+    }
+
+    public void Reg(TypedReg r) { this.W.WriteU16(r.Id); }
+    public void U8(int v)   { this.W.WriteU8(v); }
+    public void U16(int v)  { this.W.WriteU16(v); }
+    public void U32(int v)  { this.W.WriteU32(v); }
+    public void I64(long v) { this.W.WriteI64(v); }
+    public void Flag(bool b) { if (b) { this.W.WriteU8(1); } else { this.W.WriteU8(0); } }
+
+    // 串池下标（字段名 / builtin 名 / 类型名等不 token 化的串）。
+    public void Str(string s) { this.W.WriteU32(this.Pool.Idx(s)); }
+    // ConstStr：z42c 池号经重映射后的 STRS 下标。
+    public void ConstStrIdx(int idx) { this.W.WriteU32(this.StrRemap[idx]); }
+    public void MethodTok(string name) { this.W.WriteU32(this.Alloc.ResolveMethod(name, this.Pool)); }
+    public void TypeTok(string name) { this.W.WriteU32(this.Alloc.ResolveType(name, this.Pool)); }
+
+    // 二元：op + dst-tag + dst + a + b。
+    public void Bin(int op, TypedReg dst, TypedReg a, TypedReg b) {
+        this.Head(op, dst); this.W.WriteU16(a.Id); this.W.WriteU16(b.Id);
+    }
+    // 一元：op + dst-tag + dst + src。
+    public void Un(int op, TypedReg dst, TypedReg src) {
+        this.Head(op, dst); this.W.WriteU16(src.Id);
+    }
+    // 实参表：count u8 + count× reg u16。
+    public void Args(TypedReg[] args, int argCount) {
+        this.W.WriteU8(argCount);
+        int i = 0;
+        while (i < argCount) { this.W.WriteU16(args[i].Id); i = i + 1; }
+    }
+    // 方法类型实参串：count u16 + count× pool idx u32。
+    public void Mta(string[] names, int count) {
+        this.W.WriteU16(count);
+        int i = 0;
+        while (i < count) { this.W.WriteU32(this.Pool.Idx(names[i])); i = i + 1; }
+    }
+    // 类型实参串：count u8 + count× pool idx u32（ObjNew / Typeof）。
+    public void TypeArgs(string[] names, int count) {
+        this.W.WriteU8(count);
+        int i = 0;
+        while (i < count) { this.W.WriteU32(this.Pool.Idx(names[i])); i = i + 1; }
+    }
+    // 字段序号路径 `depth:u8 + idx:u16 × depth`。**depth 0 不是合法编码** —— 一条字段访问至少走一级
+    // （扁平 `a.x` 就是 depth 1）；空路径在读端会静默解析到偏移 0（blob 头部），所以读端（Rust
+    // `read_field_path` 与 `ZbcReaderInstr._readFieldPath`）也显式拒 0。
+    public void FieldPath(int[] path) {
+        this.W.WriteU8(path.Length);
+        int k = 0;
+        while (k < path.Length) { this.W.WriteU16(path[k]); k = k + 1; }
+    }
+}
