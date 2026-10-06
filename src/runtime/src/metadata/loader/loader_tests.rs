@@ -214,7 +214,6 @@ fn module_with_one_class(
         functions: vec![],
         type_registry: rustc_hash::FxHashMap::default(),
         func_index: rustc_hash::FxHashMap::default(),
-        func_ref_cache_slots: 0,
     }
 }
 
@@ -422,7 +421,6 @@ fn make_stub_module(func_count: usize, str_count: usize) -> Module {
         functions,
         type_registry: rustc_hash::FxHashMap::default(),
         func_index: rustc_hash::FxHashMap::default(),
-        func_ref_cache_slots: 0,
     }
 }
 
@@ -804,7 +802,6 @@ fn module_with_class_names(name: &str, names: &[&str]) -> crate::metadata::bytec
         functions: vec![],
         type_registry: rustc_hash::FxHashMap::default(),
         func_index: rustc_hash::FxHashMap::default(),
-        func_ref_cache_slots: 0,
     }
 }
 

@@ -76,7 +76,6 @@ impl Instruction {
             Instruction::PinPtr           { dst, .. } => Some(*dst),
             Instruction::UnpinPtr         { .. }      => None,
             Instruction::LoadFn(insn)             => Some(insn.dst),
-            Instruction::LoadFnCached(insn)       => Some(insn.dst),
             Instruction::CallIndirect { dst, .. } => Some(*dst),
             Instruction::MkClos(insn)             => Some(insn.dst),
             Instruction::Convert      { dst, .. } => Some(*dst),
@@ -296,11 +295,6 @@ pub enum Instruction {
     /// `func` at call site (current usage: L2 no-capture lambda lifted as a
     /// module-level function). See docs/internals/src/runtime/escape-analysis.md.
     LoadFn(Box<LoadFnInsn>),
-    /// 2026-05-02 add-method-group-conversion (D1b): cached method group
-    /// conversion. First execution stores `Value::FuncRef(func)` into VmContext
-    /// `func_ref_slots[slot_id]`; subsequent hits read from slot. Same fully-
-    /// qualified `func` shares a `slot_id` across all call sites in a module.
-    LoadFnCached(Box<LoadFnCachedInsn>),
     /// Indirect call via a register holding a `FuncRef` value. See
     /// docs/internals/src/runtime/escape-analysis.md.
     CallIndirect {

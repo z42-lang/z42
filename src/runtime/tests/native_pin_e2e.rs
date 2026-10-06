@@ -39,7 +39,6 @@ fn build_module(name: &str, instructions: Vec<Instruction>, terminator: Terminat
         functions: vec![func],
         type_registry: rustc_hash::FxHashMap::default(),
         func_index: rustc_hash::FxHashMap::default(),
-        func_ref_cache_slots: 0,
     }
 }
 

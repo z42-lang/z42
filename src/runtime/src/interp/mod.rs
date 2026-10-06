@@ -7,7 +7,7 @@
 /// • exec_instr.rs — thin per-Instruction dispatcher (exhaustive match → helpers)
 /// • exec_value.rs — constants / copy / arith / cmp / logical / unary / bitwise / string
 /// • exec_address.rs — LoadLocalAddr / LoadElemAddr / LoadFieldAddr / DefaultOf
-/// • exec_call.rs    — Call / Builtin / LoadFn / LoadFnCached / CallIndirect / MkClos
+/// • exec_call.rs    — Call / Builtin / LoadFn / CallIndirect / MkClos
 /// • exec_array.rs   — ArrayNew / ArrayNewLit / ArrayGet / ArraySet / ArrayLen
 /// • exec_object.rs  — ObjNew / FieldGet / FieldSet / IsInstance / AsCast / Static*
 /// • vcall_resolve.rs — VCall target resolution (shared with jit/helpers/vcall.rs)

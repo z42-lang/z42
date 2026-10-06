@@ -286,7 +286,6 @@ fn ll_empty_module(name: &str) -> crate::metadata::bytecode::Module {
         functions: vec![],
         type_registry: rustc_hash::FxHashMap::default(),
         func_index: rustc_hash::FxHashMap::default(),
-        func_ref_cache_slots: 0,
     }
 }
 

@@ -2,7 +2,7 @@
 // ZW-1A：trivial 函数（无类/无调用/无 debug）→ 恒 8 section NSPC/STRS/TYPE/SIGS/IMPT/EXPT/FUNC/REGT。
 // byte-identical 铁律：section 顺序 + 编码原语 + 字符串池插入序每处与 C# 完全一致（对 golden fixture 逐字节）。
 // 延后（ZW-1B+）：控制流/比较/位/一元 opcode；调用 + TokenAllocator + 真 IMPT 扫描；TYPE 类描述；
-//   ConstStr strRemap；可选 DBUG/TIDX/FRCS；f64/char 字面量（BitConverter）。
+//   ConstStr strRemap；可选 DBUG/TIDX；f64/char 字面量（BitConverter）。
 namespace Z42.IR.BinaryFormat;
 
 

@@ -91,7 +91,7 @@ tidx_len  u32 + tidx 体      （无测试则 0）
 
 `hash` 是**源码哈希**，形如 `mmh3:<32 hex>`（`Z42.Package.ZpkgBuilder.SourceHashHex`，MurmurHash3
 x86_128）。它只服务增量构建的**变更检测**——「这个 `.z42` 与上次编译时是否一字不差」，纯相等性比较，
-不参与信任决策；Rust 侧 `formats.rs` 只把它当不透明字段存取，从不重算或校验。理由与 [BLID](#blid--build-id)
+不参与信任决策；Rust 侧（`zbc_reader/zpkg_index.rs` 的 `src_hash`）只把它当不透明字段存取，从不重算或校验。理由与 [BLID](#blid--build-id)
 同（解释执行下 SHA-256 需 6.38 G 指令 / 800 KB，Murmur3 只需 0.41 G）。算法前缀带在值里：`mmh3:` 与
 旧的 `sha256:` 天然不等 ⇒ 跨版本混用的缓存一次全量失效，正是想要的语义。
 

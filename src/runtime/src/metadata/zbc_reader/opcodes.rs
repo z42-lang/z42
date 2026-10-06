@@ -54,7 +54,6 @@ pub(super) const OP_CALL_NATIVE_VTABLE: u8  = 0x54;
 pub(super) const OP_LOAD_FN: u8             = 0x55;
 pub(super) const OP_CALL_INDIRECT: u8       = 0x56;
 pub(super) const OP_MK_CLOS: u8             = 0x57;
-pub(super) const OP_LOAD_FN_CACHED: u8      = 0x58;  // D1b add-method-group-conversion
 
 pub(super) const OP_FIELD_GET: u8   = 0x60;
 pub(super) const OP_FIELD_SET: u8   = 0x61;

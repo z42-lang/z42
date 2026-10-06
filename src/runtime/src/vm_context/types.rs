@@ -111,7 +111,7 @@ pub struct VmCore {
     /// captures `Weak<VmCore>` (not `Arc<VmCore>`) for static_fields access
     /// — otherwise `VmCore` → heap → scanner → Arc<VmCore> forms a cycle
     /// and the core never drops. Per-thread roots (call_stack /
-    /// pending_exception / func_ref_slots) stay captured via `Rc<RefCell>`
+    /// pending_exception) stay captured via `Rc<RefCell>`
     /// clones from the unique VmContext.
     pub(crate) heap:               Box<dyn MagrGC>,
     /// **add-vmcontext-registry (2026-05-20)**: registry of all live
@@ -371,10 +371,6 @@ pub struct VmContext {
     /// Lets an interp frame (running as a JIT cold-tier / fallback) route an
     /// already-compiled callee to its native code instead of re-interpreting.
     pub(crate) jit_ctx:           std::sync::atomic::AtomicUsize,
-    /// 2026-05-02 add-method-group-conversion (D1b): module-level FuncRef cache
-    /// slots. `LoadFnCached { slot_id }` 首次执行时把 `Value::FuncRef(name)`
-    /// 写入 `func_ref_slots[slot_id]`；后续命中直接 load。
-    pub(crate) func_ref_slots:    Arc<Mutex<Vec<Value>>>,
     /// **unify-gc-heap PR-4**: per-context lazy interning cache for `ConstStr` pool
     /// literals. The `Str` bytes moved into the GC heap, but the interned pool is
     /// built at module *load* time when no heap exists — so instead of an eager

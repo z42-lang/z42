@@ -58,7 +58,7 @@ pub trait JitVm {
     fn functions(&self) -> &[Function];
 
     /// String pool — shared across the module. Indexed by
-    /// `Instruction::ConstStr.idx` and other `StringId(u32)` references.
+    /// `Instruction::ConstStr.idx`.
     fn string_pool(&self) -> &[String];
 
     /// Fully-qualified module name (e.g. `"Demo.App"`). Used by JIT

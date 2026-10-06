@@ -12,7 +12,7 @@
 | `multi-method/`       | 多方法 + 同类内 cross-method 调用 — 更密集的 line table |
 | `with-tidx/`          | `[Test]` 注解触发 TIDX 段 |
 | `cross-import-token/` | `Std.IO.Console` 调用触发 IMPT 段 + IMPORT_BASE 0x8000_0000 token |
-| `with-frcs/`          | Method-group conversion 触发 FRCS（FuncRef cache slot）段 |
+| `with-frcs/`          | 方法组转换（发 `LoadFn`；目录名沿用历史，writer 不发射 FRCS 段） |
 
 BLID section 只在 stripped mode 出现（`--emit zbc` 默认不 strip），fixture 集合不覆盖。
 

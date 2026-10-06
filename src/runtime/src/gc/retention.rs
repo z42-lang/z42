@@ -18,8 +18,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 pub enum RootKind {
     StaticField = 0,
     StackFrame = 1,
-    FuncRefSlot = 2,
-    Pinned = 3,
+    Pinned = 2,
 }
 
 /// Whether a heap referrer is a script object or an array.

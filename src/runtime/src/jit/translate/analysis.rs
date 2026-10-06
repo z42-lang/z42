@@ -223,7 +223,6 @@ pub(super) fn compute_promotable_regs(func: &Function, enable: bool) -> Vec<bool
                 I::ArrayNew(bx) => { disq.push(bx.dst); disq.push(bx.size); }
                 I::ArrayNewLit(bx) => { disq.push(bx.dst); disq.extend(bx.elems.iter().copied()); }
                 I::LoadFn(bx) => disq.push(bx.dst),
-                I::LoadFnCached(bx) => disq.push(bx.dst),
                 I::FieldGet(bx) => { disq.push(bx.dst); disq.push(bx.obj); }
                 I::FieldSet(bx) => { disq.push(bx.obj); disq.push(bx.val); }
                 I::IsInstance(bx) => { disq.push(bx.dst); disq.push(bx.obj); }

@@ -12,8 +12,8 @@
 //!
 //! The spawned worker constructs `VmContext::new_with_core(Arc::clone(core))`
 //! so it shares `static_fields` / `heap` / `lazy_loader` / `native_libs` with
-//! the parent thread. Its per-thread state (`pending_exception` / `call_stack`
-//! / `func_ref_slots`) is private — the worker is registered in
+//! the parent thread. Its per-thread state (`pending_exception` / `call_stack`)
+//! is private — the worker is registered in
 //! `VmCore.vm_contexts` so the GC scanner walks both threads' roots.
 //!
 //! Cross-thread error semantics (Decision 5 + 6 in design.md):

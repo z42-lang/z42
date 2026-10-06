@@ -21,10 +21,7 @@ pub fn merge_modules(modules: Vec<Module>) -> Result<Module> {
     }
     if modules.len() == 1 {
         // Fast path: nothing to merge.
-        let mut m = modules.into_iter().next().unwrap();
-        // Canonicalise: ensure no stale indices (no-op remap with offset 0)
-        remap_functions(&mut m.functions, 0, 0);
-        return Ok(m);
+        return Ok(modules.into_iter().next().unwrap());
     }
 
     let name = modules[0].name.clone();
@@ -33,15 +30,9 @@ pub fn merge_modules(modules: Vec<Module>) -> Result<Module> {
     let mut classes = Vec::new();
     let mut seen_functions: HashSet<String> = HashSet::new();
     let mut functions = Vec::new();
-    // 2026-05-02 add-method-group-conversion (D1b): cumulative FuncRef cache
-    // slot count across merged modules; LoadFnCached.slot_id 在每个 module 内
-    // 局部分配，merge 时按 cumulative offset 重映射到全局 index space。
-    let mut func_ref_slot_total: u32 = 0;
 
     for mut module in modules {
         let str_offset = string_pool.len() as u32;
-        let slot_offset = func_ref_slot_total;
-        func_ref_slot_total += module.func_ref_cache_slots;
         string_pool.extend(module.string_pool);
 
         // Idempotent class merge: keep first occurrence by name.
@@ -51,7 +42,7 @@ pub fn merge_modules(modules: Vec<Module>) -> Result<Module> {
             }
         }
 
-        remap_functions(&mut module.functions, str_offset, slot_offset);
+        remap_functions(&mut module.functions, str_offset);
 
         // Idempotent function merge: keep first occurrence by name.
         for func in module.functions {
@@ -65,33 +56,27 @@ pub fn merge_modules(modules: Vec<Module>) -> Result<Module> {
         name, string_pool, classes, functions,
         type_registry: rustc_hash::FxHashMap::default(),
         func_index: rustc_hash::FxHashMap::default(),
-        func_ref_cache_slots: func_ref_slot_total,
     };
     Ok(merged)
 }
 
-/// Shift every `ConstStr.idx` and `LoadFnCached.slot_id` by their respective
-/// offsets so cross-module merge produces a flat global index space.
-fn remap_functions(
-    functions: &mut Vec<super::bytecode::Function>,
-    str_offset: u32, slot_offset: u32)
-{
-    if str_offset == 0 && slot_offset == 0 {
+/// Shift every `ConstStr.idx` by `str_offset` so cross-module merge produces
+/// a flat global string index space.
+fn remap_functions(functions: &mut Vec<super::bytecode::Function>, str_offset: u32) {
+    if str_offset == 0 {
         return; // nothing to do
     }
     for func in functions.iter_mut() {
         for block in func.blocks.iter_mut() {
-            remap_block(block, str_offset, slot_offset);
+            remap_block(block, str_offset);
         }
     }
 }
 
-fn remap_block(block: &mut BasicBlock, str_offset: u32, slot_offset: u32) {
+fn remap_block(block: &mut BasicBlock, str_offset: u32) {
     for instr in block.instructions.iter_mut() {
-        match instr {
-            Instruction::ConstStr { idx, .. } if str_offset != 0 => *idx += str_offset,
-            Instruction::LoadFnCached(insn) if slot_offset != 0 => insn.slot_id += slot_offset,
-            _ => {}
+        if let Instruction::ConstStr { idx, .. } = instr {
+            *idx += str_offset;
         }
     }
 }

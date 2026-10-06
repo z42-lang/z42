@@ -88,7 +88,6 @@ fn build_module(name: &str, instructions: Vec<Instruction>, terminator: Terminat
         functions: vec![build_function(&format!("{name}.Main"), instructions, terminator)],
         type_registry: rustc_hash::FxHashMap::default(),
         func_index: rustc_hash::FxHashMap::default(),
-        func_ref_cache_slots: 0,
     }
 }
 
@@ -398,7 +397,6 @@ fn module_with_str(name: &str, s: &str, instructions: Vec<Instruction>, terminat
         functions: vec![func],
         type_registry: rustc_hash::FxHashMap::default(),
         func_index: rustc_hash::FxHashMap::default(),
-        func_ref_cache_slots: 0,
     }
 }
 
@@ -489,7 +487,6 @@ fn z42_byte_array_pins_and_calls_native_buflen() {
         functions: vec![func],
         type_registry: rustc_hash::FxHashMap::default(),
         func_index: rustc_hash::FxHashMap::default(),
-        func_ref_cache_slots: 0,
     };
     let func = &m.functions[0];
     let result = z42::interp::run_returning(&ctx, &m, func, &[] as &[Value])
@@ -545,7 +542,6 @@ fn z42_str_with_interior_nul_traps_marshal() {
         functions: vec![func],
         type_registry: rustc_hash::FxHashMap::default(),
         func_index: rustc_hash::FxHashMap::default(),
-        func_ref_cache_slots: 0,
     };
     let func = &m.functions[0];
     let err = z42::interp::run_returning(&ctx, &m, func, &[] as &[Value])

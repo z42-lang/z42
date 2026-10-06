@@ -537,7 +537,7 @@ VM 的 `metadata::Instruction` 是一个枚举。`Function.blocks: Vec<BasicBloc
 `<Variant>Insn` struct，变体改为 newtype `Variant(Box<XxxInsn>)`；纯寄存器/小标量的
 **热变体保持 inline**，dispatch 热路径不增一次指针解引用。
 
-- **装箱的 21 个冷变体**：`Call` `Builtin` `LoadFn` `LoadFnCached` `MkClos` `ObjNew`
+- **装箱的 20 个冷变体**：`Call` `Builtin` `LoadFn` `MkClos` `ObjNew`
   `Typeof` `FieldGet` `FieldSet` `VCall` `IsInstance` `AsCast` `StaticGet` `StaticSet`
   `CallNative` `LoadFieldAddr` `ArrayNew` `ArrayNewLit` `StructAlloc` `StructFieldGetPrim`
   `StructFieldSetPrim`（payload struct 见 `metadata/bytecode/insn.rs`）。

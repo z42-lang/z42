@@ -75,7 +75,6 @@ fn module_of(name: &str, functions: Vec<Function>) -> Module {
         functions,
         type_registry: rustc_hash::FxHashMap::default(),
         func_index,
-        func_ref_cache_slots: 0,
     }
 }
 

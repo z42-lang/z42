@@ -24,7 +24,7 @@
 | `array.rs` | 数组分配、元素访问、长度 |
 | `object.rs` | 对象分配、类型检查、静态字段、`default(T)` |
 | `vcall.rs` | 虚调用的 JIT **调用侧**：PIC 命中 → by-id tiered `FnEntry`；miss → `interp::vcall_resolve::resolve_vcall`（与 interp 共用的**唯一**目标解析：装箱基元 / 装箱 struct / primitive-as-struct / vtable·层级 walk + PIC 安装）→ 编译入口或 interp 回退 |
-| `closure.rs` | L3 闭包：`load_fn` / `mk_clos` / `call_indirect` / `load_fn_cached` |
+| `closure.rs` | L3 闭包：`load_fn` / `mk_clos` / `call_indirect` |
 | `object_field.rs` | 字段访问 helper：提升出循环的无抛出 field-slot 解析（`jit_obj_field_slot` / `jit_obj_ref_field_slot`）及其回退的 `jit_field_get` / `jit_field_set` |
 | `struct_ops.rs` | struct 值类型指令（`struct_alloc`/`copy`/`field_get_prim`/`field_set_prim`）——桥接到共享 `struct_arena`，复用 interp `exec_struct` 的 `*_val` 核心 |
 

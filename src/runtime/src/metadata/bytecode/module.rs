@@ -28,9 +28,4 @@ pub struct Module {
     /// Populated by the loader after deserialisation.
     #[serde(skip)]
     pub func_index: FxHashMap<String, usize>,
-    /// 2026-05-02 add-method-group-conversion (D1b): number of FuncRef cache
-    /// slots required by `LoadFnCached` instructions. VM allocates a parallel
-    /// `Vec<Value>` of this size on `VmContext` at module load.
-    #[serde(default)]
-    pub func_ref_cache_slots: u32,
 }

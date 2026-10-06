@@ -31,7 +31,7 @@ public class Thread {
 
     // Spawn a worker thread running `action`. Returns a Thread handle whose
     // `Join()` waits for the worker to finish. The Action runs with a
-    // fresh per-thread `pending_exception` / `call_stack` / `func_ref_slots`
+    // fresh per-thread `pending_exception` / `call_stack`
     // but shares the parent's static fields, GC heap, lazy-loaded zpkgs,
     // and native libraries (`VmCore`).
     public static Thread Start(Action action) {

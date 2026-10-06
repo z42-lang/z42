@@ -47,7 +47,6 @@ fn br_cond_on_non_bool_throws_instead_of_branching() {
         func_index: [(f.name.clone(), 0)].into_iter().collect(),
         functions: vec![f],
         type_registry: rustc_hash::FxHashMap::default(),
-        func_ref_cache_slots: 0,
     };
     let vm = VmContext::new();
     let mut jm = JitModule::setup(&module).expect("setup");

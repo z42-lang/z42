@@ -77,7 +77,6 @@ vm.run(&ctx, hint)?;
 - `pending_exception: Arc<Mutex<Option<Value>>>` — JIT extern "C" 边界异常槽位
 - `pending_thrown: Mutex<Option<Value>>` — callback 型 builtin（反射 `MethodInfo.Invoke`）把原异常值带出 builtin 边界的槽位；每线程一份，GC 根
 - `call_stack: Arc<Mutex<Vec<VmFrame>>>` — 当前线程帧栈
-- `func_ref_slots: Arc<Mutex<Vec<Value>>>` — method-group-conversion FuncRef cache 槽位
 - `stack_arena` / `struct_arena` / `transient_arena`（及其发布长度原子，见下一节）、`next_frame_id`、`safepoint_skip`（safepoint 节流计数，JIT 内联读写）、`jit_ctx`（混合模式下指向当前 `JitModuleCtx`）
 - `interned_cache`（`ConstStr` 字面量的 per-context 驻留缓存，GC root）、`subclass_memo` + `isa_cache`（`is`/`as`/`catch` 子类判定缓存）、`type_lookup_cache` + `fn_lookup_cache`（`try_lookup_type/function` 命中的前置缓存，免去共享 `lazy_loader` 锁）
 
@@ -948,7 +947,7 @@ jit/helpers/
 ├── object_field.rs — FieldGet / FieldSet
 ├── struct_ops.rs — struct 值类型指令（桥接共享 struct_arena）
 ├── vcall.rs      — 虚调用调用侧（PIC 命中 → 编译入口；miss → 共享 resolve_vcall → 编译入口或 interp 回退）
-└── closure.rs    — load_fn / load_fn_cached / mk_clos / call_indirect
+└── closure.rs    — load_fn / mk_clos / call_indirect
 ```
 
 **与 `interp/exec_*.rs` 命名对称**: 加新 IR 指令时，interp 与 JIT 改的文件名一一对应（`exec_value.rs` ↔ `helpers/value.rs`），认知负担最小。
@@ -1169,10 +1168,6 @@ pub struct ResolvedTokens {
   `String`，token 化只在 wire 边界发生。
 - **待办**：JIT 机器码 inline IC check（跳过 helper 调用本身，需要 cranelift 端的复杂 control-flow）；
   compiler 端 token-aware emit perf。
-
-### 与 `func_ref_cache_slots` 的关系
-
-`func_ref_cache_slots` 是 method group 转换的 module-level 缓存，与 `method_tokens` 是两套独立的运行时 cache；JIT 端若做 method-token 整合，可考虑统一到一套 token 系统。
 
 ---
 

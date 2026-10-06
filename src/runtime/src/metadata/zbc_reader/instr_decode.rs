@@ -102,11 +102,6 @@ pub(super) fn decode_instr(op: u8, typ: u8, dst: u32, c: &mut Cursor, pool: &[St
             let func = id_map.resolve_method(c.read_u32()?)?;
             Instruction::LoadFn(Box::new(LoadFnInsn { dst, func }))
         }
-        OP_LOAD_FN_CACHED => {
-            let func    = id_map.resolve_method(c.read_u32()?)?;
-            let slot_id = c.read_u32()?;
-            Instruction::LoadFnCached(Box::new(LoadFnCachedInsn { dst, func, slot_id }))
-        }
         OP_CALL_INDIRECT => {
             let callee = c.read_u16()? as u32;
             let args   = read_args(c)?;

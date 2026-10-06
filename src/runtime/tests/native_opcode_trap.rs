@@ -41,7 +41,6 @@ fn module_with_single_instr(name: &str, instr: Instruction) -> Module {
         functions: vec![func],
         type_registry: rustc_hash::FxHashMap::default(),
         func_index: rustc_hash::FxHashMap::default(),
-        func_ref_cache_slots: 0,
     }
 }
 

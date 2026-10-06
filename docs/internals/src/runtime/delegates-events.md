@@ -58,7 +58,7 @@
 | 用途 | 实际指令 |
 |---|---|
 | lambda / 实例方法组 → delegate 值 | `MkClos`（`OP_MK_CLOS = 0x57`）|
-| 静态方法组 → delegate 值 | `LoadFn` / `LoadFnCached`（`0x55` / `0x58`）|
+| 静态方法组 → delegate 值 | `LoadFn`（`0x55`）|
 | delegate 调用 | `CallIndirect`（`0x56`）|
 
 delegate 类型自身在 IR 里由 `StubEmitter._emitDelegateInvoke`
@@ -89,9 +89,9 @@ TypeDesc**（`interp/vcall_resolve.rs` 直接 bail）。所以桩永远派发不
 
 ### 2.2 方法组转换
 
-**自由函数** `Action<int> a = SomeFreeFn;` → `LoadFnCached`，函数引用缓存到**模块级 slot**
-（slot 表在 `boot.rs` 的 `alloc_func_ref_slots` 分配）。反复进入同一作用域不重复分配，消除
-C# 高频 callback 路径的 GC 压力。
+**自由函数** `Action<int> a = SomeFreeFn;` → `LoadFn @<限定名>`（与 free-call 同一个
+注册键），在寄存器里放一个 `Value::FuncRef`——不分配 GC 堆对象，C# 高频 callback 路径
+反复执行也没有 GC 压力。
 
 > ⚠️ **这条只覆盖自由函数，不覆盖类的静态方法**：
 > `Func<int,int> f = C.F;` 报 `E0401: undefined: C`，类内不限定写 `F` 报 `undefined: F`
@@ -281,4 +281,4 @@ per-arity 特殊路径，加 5–16 是纯机械重复。
 
 - [对象与值表示 ABI](object-abi.md) —— `Value::Closure` / `FuncRef` / `StackClosure` 的表示
 - [源代码编译流程](../compiler/source-compile.md) —— 嵌套类型展平与命名键纪律
-- [IR 格式](../formats/ir.md) —— `MkClos` / `LoadFnCached` / `CallIndirect` 指令
+- [IR 格式](../formats/ir.md) —— `MkClos` / `LoadFn` / `CallIndirect` 指令
