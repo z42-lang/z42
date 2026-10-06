@@ -17,7 +17,7 @@ public static class ConstEval {
         if (e is IntLitExpr)   { return ConstValue.Int(ZbcInstr._parseIntLit((e as IntLitExpr).Value)); }
         if (e is BoolLitExpr)  { return ConstValue.Bool((e as BoolLitExpr).Value); }
         if (e is CharLitExpr)  { return ConstValue.Char((long)(int)(e as CharLitExpr).Value); }
-        if (e is FloatLitExpr) { return ConstValue.Float(ZbcInstr.DoubleToBits(Convert.ToDouble(IrGenFacts._stripFloatSuffix((e as FloatLitExpr).Value)))); }
+        if (e is FloatLitExpr) { return ConstValue.Float(ZbcInstr.DoubleToBits(Convert.ToDouble(DeclFacts._stripFloatSuffix((e as FloatLitExpr).Value)))); }
         if (e is StringLitExpr){ return ConstValue.Str(Lexer.DecodeString((e as StringLitExpr).Raw)); }
         if (e is NullLitExpr)  { return ConstValue.Null(); }
         if (e is IdentExpr)    { return ConstEval._lookup(env, (e as IdentExpr).Name); }

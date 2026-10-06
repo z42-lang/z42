@@ -1,6 +1,6 @@
 # attribute 管线（store-meta 一支）
 
-> 代码：`z42c.semantics/src/Lowering/AttributeSynth.z42`、`HandlerRegistry.z42`、
+> 代码：`z42c.semantics/src/Generators/AttributeSynth.z42`、`Symbols/HandlerRegistry.z42`、
 > `MacroRegistry.z42`、`AnalyzerDriver.z42`
 
 用户面的写法（后缀约定、五个反射载体、`#suppress`、caller 宏）见 reference 的
@@ -111,7 +111,7 @@ is_static / ptypes` 五条平行数组）——那个块**没有任何 attr 槽*
 
 
 > **「顶层函数」这一格的写端要单独走一条路径**：`IrGenMemberEmitter` 给类方法填 `irf.Attrs`，而自由函数走的是另一条发射路径
-> `IrGenAuxEmitter.EmitFreeFunctions`，它一进循环就 `IrGenFacts._unwrap` 剥掉 `AttributedDecl` 外壳
+> `IrGenAuxEmitter.EmitFreeFunctions`，它一进循环就 `DeclFacts._unwrap` 剥掉 `AttributedDecl` 外壳
 > ——attribute 列表只挂在外壳上，剥了就再也取不回。于是自由函数的 attr 块恒为空，
 > 与「这个函数没写 attribute」**字节全等**，无错无警。教训与 `ParamAttrs` 那半同源：
 > **两条发射路径各写各的，漏一条不会有任何东西喊疼**。

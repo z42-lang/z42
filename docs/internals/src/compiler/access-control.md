@@ -83,7 +83,7 @@ ContainingTypeName`（`SymbolCollector` 从 `c.Name` 设）**均为短名**，�
 **不改字节布局**——Rust reader 只原样携带 `u8`（无穷举 match 拒 3），反射 `IsPublic=(vis==0)` /
 `IsPrivate=(vis==1)` 对 3 仍正确。故只改两个编码函数即让跨包 internal 生效，**零格式常量改动**：
 
-- `IrGenFacts._visCode`：无修饰符 / 显式 `internal` → `3`；`override`（无显式修饰符）→ `0`。
+- `DeclFacts._visCode`：无修饰符 / 显式 `internal` → `3`；`override`（无显式修饰符）→ `0`。
 - `TsigReconcile._visStr`：`3` → `"internal"`（跨包 TSIG 恢复 internal，供 `ImportedSymbolLoader` 还原
   成员 `Visibility`，AccessChecker 据此对 imported 声明类判 internal）。
 
@@ -112,7 +112,7 @@ split 辅助类（Parser/DeclParser/MemberParser/TypeParser 等）的**同包互
 | `internal` 类（含无修饰符顶层默认） | 同包放行；跨包 → E0404 | 被引类 `IsImported==false`（本包）→ OK |
 
 嵌套类经 `NestedFlatten` 命名为扁平键 `Outer+Inner`；外层名由 `_nestedOuter`（剥 `+` 末段）得出，
-无需结构标记。类可见性**位置默认**（`IrGenFacts.classVisCode/classVis`）：嵌套类→`private`、顶层类→
+无需结构标记。类可见性**位置默认**（`DeclFacts.classVisCode/classVis`）：嵌套类→`private`、顶层类→
 `internal`，显式修饰符优先（与成员级 `_vis` 同款「最小封闭作用域」）。可见性存内存态 `Z42ClassType.Visibility`
 （本地类由 `SymbolCollector` 从 `Mods` 设，imported 类由 `ImportedSymbolLoader` 从 zbc 可见性字节还原）。
 **跨包 internal 类强制**：可见性经 zbc 1.33/zpkg 0.38 TYPE 记录可见性字节序列化（链路

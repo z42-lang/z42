@@ -30,7 +30,7 @@ public sealed partial class ClassDescBuilder {
     private ClassDecl _genericDeclOf(string bareName) {
         object rd = this._genericRawOf(bareName);
         if (!(rd is Decl)) { return null; }
-        Decl dd = IrGenFacts._unwrap(rd as Decl);
+        Decl dd = DeclFacts._unwrap(rd as Decl);
         if (!(dd is ClassDecl)) { return null; }   // `dd is ClassDecl ? … : …` 解析不了（`ClassDecl ?` 被当成可空类型）
         return dd as ClassDecl;
     }

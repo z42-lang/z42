@@ -736,6 +736,6 @@ public sealed class SymbolCollector {
     }
 
     // mods 空格分隔；逐 token 比较（不依赖 String.Contains，避免子串误命中）。
-    // 转发到规范实现（IrGenFacts._hasWord）——原本是本文件自己的逐字符 CharAt + Substring 版。
-    internal bool _hasWord(string s, string word) { return IrGenFacts._hasWord(s, word); }
+    // 转发到规范实现（DeclFacts._hasWord）——原本是本文件自己的逐字符 CharAt + Substring 版。
+    internal bool _hasWord(string s, string word) { return DeclFacts._hasWord(s, word); }
 }

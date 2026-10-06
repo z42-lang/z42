@@ -178,12 +178,6 @@ public static class CuPreprocess {
     // 只读 cm.UsedDepNs（已算好，DEPS 用同一份）+ 追加诊断，不改任何 emit 字节 → 自举字节不动。
     // using-csharp-rules PR-2：判据集 = `UsedNs`（类型检查期记录的全部引用，含同包跨 ns、纯类型注解）∪ `UsedDepNs`
     // （代码生成期的依赖 ns —— cached 文件只有这一份，从 cache meta 回填）。去重后逐个判。
-    // E0436 的消息正文（唯一一份）：文件级检查（本文件下方）与引用点（`ExprTyper` 未定义标识符 /
-    // `AccessChecker` 未定义类型 —— 类型在、只是没 `using`，见 `SymbolTable.MissingUsingNs`）共用。
-    public static string MissingUsingMsg(string ns) {
-        return "namespace `" + ns + "` is used but not imported in this file; add `using " + ns + ";`";
-    }
-
     internal static void _enforceFileScope(CompilationUnit cu, string file, CompiledModuleZ cm) {
         string[] all = new string[cm.UsedNs.Length + cm.UsedDepNsCount];
         int an = 0;
@@ -218,7 +212,7 @@ public static class CuPreprocess {
                 // 文件级诊断指向第 1 行与 C# 同口径 —— 那不是缺陷。
                 string dfile = file;
                 if (cu.Span != null && cu.Span.File != "") { dfile = cu.Span.File; }
-                string pmsg = dfile + "(1,1): " + DiagnosticCodes.MissingUsing + ": " + CuPreprocess.MissingUsingMsg(ns);
+                string pmsg = dfile + "(1,1): " + DiagnosticCodes.MissingUsing + ": " + SymbolTable.MissingUsingMsg(ns);
                 int oldn = cm.DiagCount;
                 string[] nw = new string[oldn + 1];
                 int q = 0; while (q < oldn) { nw[q] = cm.DiagMsgs[q]; q = q + 1; }
