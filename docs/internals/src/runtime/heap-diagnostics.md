@@ -45,6 +45,9 @@ mark 阶段的 `external_root_scanner` 只吐**匿名** Value，报不出根类�
 
 ### 准确性
 先 `force_collect()` → `iterate_alive` 只见可达对象 → 反向图不含浮动垃圾。诊断非热路径，一次额外 GC 可接受。
+整个查询（回收 + 建反向图 + 扫根）在 `request_gc_pause` 的停世界窗口里执行（`corelib/diagnostics.rs` 的
+`with_world_stopped`）：扫根要读**每个线程**的帧栈，别的 mutator 必须先 park。拿不到 collector 角色时，
+`request_gc_pause` 已经让本线程停到那个回收结束，重试即可。
 
 ## 边界 / 后续
 
