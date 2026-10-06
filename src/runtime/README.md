@@ -51,7 +51,9 @@
 | `merge.rs` | 多模块合并：字符串池重映射 + 函数拼接 |
 | `resolver.rs` + `resolver/` | 加载期 token 解析（预填每函数 `ResolvedTokens`）+ 内联缓存（`ic.rs`） |
 | `context.rs` | 加载上下文模型（`AssemblyLoadContext` 对等的代码边界抽象） |
-| `tokens.rs` / `name_index.rs` / `namespace_index.rs` / `vstr.rs` | 热路径 token 新类型 / 字段·vtable 名称索引 / namespace→zpkg 索引 / GC 堆内不可变字符串句柄 |
+| `tokens.rs` / `name_index.rs` / `namespace_index.rs` / `vstr.rs` | 热路径 token 新类型（含运行期 `FnId` / `FnIdCell`） / 字段·vtable 名称索引 / namespace→zpkg 索引 / GC 堆内不可变字符串句柄 |
+| `func_table.rs` | `FuncTable`：VM 级函数身份（`FnId` → `Function`，读无锁）；入口模块函数 + 惰性包函数统一编号 |
+| `seg_vec.rs` | `SegVec`（只追加、读无锁的分段向量）/ `SparseSegTable`（按 id 索引、段首次触达才分配的侧表） |
 | `superinstr.rs` | 超级指令融合框架 |
 | `test_index.rs` / `build_id.rs` / `well_known_names.rs` / `ir_type.rs` | 编译期测试发现 TIDX 段 / 分离调试符号的 build id / 常用限定名常量 / 寄存器类型 tag |
 

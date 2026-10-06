@@ -363,6 +363,7 @@ fn make_void_action_module(fn_name: &str) -> Module {
         frame_meta: None,
         resolved:               std::sync::OnceLock::new(),
         owner_init:               Default::default(),
+        id: Default::default(),
     };
     let mut func_index = rustc_hash::FxHashMap::default();
     func_index.insert(fn_name.to_string(), 0);

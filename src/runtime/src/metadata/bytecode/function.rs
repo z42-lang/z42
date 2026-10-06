@@ -176,6 +176,10 @@ pub struct Function {
     /// good. Filled on the first barrier check (`VmContext::ensure_callee_owner_init`).
     /// `Arc` so the JIT's `FnEntry` shares the cell instead of re-deriving it.
     pub owner_init: OwnerInitCell,
+    /// This function's id in the owning VM's `FuncTable` (`metadata::func_table`),
+    /// set when the function is registered there. Runtime-only — not part of any
+    /// file format.
+    pub id: crate::metadata::tokens::FnIdCell,
 }
 
 /// See [`Function::owner_init`].
