@@ -1,0 +1,8 @@
+desc = "导入类的实例调用（StringBuilder）+ 基元收者方法（string.Substring）跨包链编得出、跑得起来"
+args = ["build", "text.app.z42.toml"]
+exit = 0
+exists = ["dist/text.app.zpkg"]
+
+[run]
+target = "dist/text.app.zpkg"
+exit = 0

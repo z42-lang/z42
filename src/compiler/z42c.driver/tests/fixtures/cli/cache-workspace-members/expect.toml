@@ -1,0 +1,4 @@
+desc = "workspace 的 output_dir 模板不含成员名、未配 cache_dir ⇒ cache 落 ${output_dir}/.cache/<成员名>（防碰撞子目录）"
+args = ["build", "--workspace", "--release"]
+exit = 0
+exists = ["out/release/.cache/cache.ws.a/package.meta", "out/release/.cache/cache.ws.b/package.meta"]

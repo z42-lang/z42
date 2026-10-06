@@ -1,0 +1,5 @@
+namespace DepId.Foo;
+
+public static class Foo {
+    public static int Renamed() { return 42; }
+}

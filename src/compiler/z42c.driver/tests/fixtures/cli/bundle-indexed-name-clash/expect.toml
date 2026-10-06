@@ -1,0 +1,4 @@
+desc = "exe 与它依赖的 indexed lib 都有 x.z42 → 散装 zbc 撞名在构建期报出，而不是运行期加载到别人的代码"
+args = ["build", "--workspace"]
+exit = "nonzero"
+output_contains = ["collides"]

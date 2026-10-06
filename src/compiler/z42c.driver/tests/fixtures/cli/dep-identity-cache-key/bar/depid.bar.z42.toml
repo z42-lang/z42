@@ -1,0 +1,11 @@
+[project]
+name    = "depid.bar"
+version = "0.1.0"
+kind    = "exe"
+pack    = true
+
+[sources]
+include = ["*.z42"]
+
+[dependencies]
+"depid.foo" = { path = "../foo" }

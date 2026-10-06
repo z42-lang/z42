@@ -1,0 +1,6 @@
+desc = "members glob / exclude / 裸名 z42.toml 都按声明发现：恰 2 个成员、按依赖序建出，被 exclude 的没有产物（见 README）"
+args = ["build", "--workspace"]
+exit = 0
+output_contains = ["2 members"]
+exists = ["artifacts/wsmhello/debug/dist/wsmhello.zpkg", "artifacts/wsmcore/debug/dist/wsmcore.zpkg"]
+absent = ["artifacts/wsmsandbox"]

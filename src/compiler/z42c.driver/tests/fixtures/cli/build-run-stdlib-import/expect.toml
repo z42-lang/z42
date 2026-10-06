@@ -1,0 +1,8 @@
+desc = "using Std + Console.WriteLine：跨包 Call 链编得出、跑得起来"
+args = ["build", "hello.app.z42.toml"]
+exit = 0
+exists = ["dist/hello.app.zpkg"]
+
+[run]
+target = "dist/hello.app.zpkg"
+exit = 0

@@ -1,0 +1,5 @@
+namespace WsiA;
+
+public static class K {
+    public static int Uno() { return 1; }
+}

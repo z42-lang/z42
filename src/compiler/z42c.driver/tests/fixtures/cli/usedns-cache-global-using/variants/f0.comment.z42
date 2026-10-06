@@ -1,0 +1,6 @@
+// 只改注释
+namespace UnA;
+
+global using UnA;
+
+public class W { public int V; }

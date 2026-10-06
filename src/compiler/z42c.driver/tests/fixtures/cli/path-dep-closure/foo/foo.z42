@@ -1,0 +1,7 @@
+namespace PathDep.Foo;
+
+using PathDep.Baz;
+
+public static class Foo {
+    public static int Answer() { return 40 + Baz.Two(); }
+}

@@ -1,0 +1,5 @@
+desc = "显式列出的成员不存在 → 干净的一行错误，不是带栈帧的 uncaught exception"
+args = ["build", "--workspace"]
+exit = "nonzero"
+output_contains = ["`nope` does not exist"]
+output_not_contains = ["uncaught exception"]

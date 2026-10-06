@@ -1,0 +1,4 @@
+desc = "多 [[exe]] 的工程也落同一份 cache"
+args = ["build", "cache.multi.z42.toml"]
+exit = 0
+exists = ["artifacts/debug/.cache/package.meta"]

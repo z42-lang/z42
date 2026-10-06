@@ -1,0 +1,5 @@
+namespace UnB;
+
+public static class U {
+    public static int F() { W w = new W(); return w.V; }
+}

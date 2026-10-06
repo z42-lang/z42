@@ -1,0 +1,8 @@
+desc = "无捕获 / 捕获 lambda + Func 形参 + 间接调用：编得出、跑得对（算错会除零）"
+args = ["build", "clos.app.z42.toml"]
+exit = 0
+exists = ["dist/clos.app.zpkg"]
+
+[run]
+target = "dist/clos.app.zpkg"
+exit = 0

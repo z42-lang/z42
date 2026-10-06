@@ -1,0 +1,6 @@
+[workspace]
+members = ["libs/*", "apps/*"]
+exclude = ["libs/sandbox-*"]
+
+[workspace.build]
+output_dir = "artifacts/${project_name}/${profile}"

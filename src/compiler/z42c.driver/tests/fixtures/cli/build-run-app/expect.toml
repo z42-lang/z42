@@ -1,0 +1,8 @@
+desc = "z42c build 产 packed exe zpkg（entry 烤入）→ z42vm 直接跑"
+args = ["build", "check.app.z42.toml"]
+exit = 0
+exists = ["dist/check.app.zpkg"]
+
+[run]
+target = "dist/check.app.zpkg"
+exit = 0

@@ -1,0 +1,3 @@
+namespace BiLib;
+
+public static class L { public static int V() { return 11; } }

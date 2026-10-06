@@ -1,0 +1,8 @@
+desc = "同包跨文件互引"
+args = ["build", "multi.app.z42.toml"]
+exit = 0
+exists = ["dist/multi.app.zpkg"]
+
+[run]
+target = "dist/multi.app.zpkg"
+exit = 0

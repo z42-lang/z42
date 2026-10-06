@@ -1,0 +1,10 @@
+[project]
+name    = "wsmhello"
+version = "0.1.0"
+kind    = "lib"
+
+[sources]
+include = ["*.z42"]
+
+[dependencies]
+"wsmcore" = "0.1.0"

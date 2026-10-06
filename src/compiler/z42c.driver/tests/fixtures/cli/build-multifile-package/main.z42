@@ -1,0 +1,10 @@
+namespace App;
+
+int Main() {
+    var p = new Pair();
+    p.A = 40;
+    p.B = 2;
+    int ok = 0;
+    if (p.Sum() == 42) { ok = 1; }
+    return 100 / ok;
+}

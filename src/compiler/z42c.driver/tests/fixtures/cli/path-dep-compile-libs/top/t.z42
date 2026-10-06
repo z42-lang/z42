@@ -1,0 +1,5 @@
+namespace PdTop;
+
+using PdMid;
+
+public static class T { public static int V() { return M.V(); } }

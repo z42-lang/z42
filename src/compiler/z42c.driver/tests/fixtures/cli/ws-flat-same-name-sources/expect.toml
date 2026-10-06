@@ -1,0 +1,26 @@
+desc = "flat workspace（--workspace --output-dir，全部成员共用一个 dist）：两个成员各有同名的 x.z42，debug 构建后两个产物都能跑、各自打印自己的数（flat 成员一律 packed，散装 zbc 不再互相覆盖）"
+
+# flat 布局只从 --output-dir 这一个目录解析依赖 ⇒ 预置 stdlib（同自举的用法）
+[[step]]
+tool = "copy"
+from = "{stdlib}/*.zpkg"
+to = "out/"
+
+# debug（不带 --release）：修前走 indexed，正是会撞的那条路
+[[step]]
+args = ["build", "--workspace", "--output-dir", "out"]
+exit = 0
+
+[[step]]
+tool = "run"
+target = "out/wsfa.zpkg"
+libs = "out"
+exit = 0
+stdout_equals = "111"
+
+[[step]]
+tool = "run"
+target = "out/wsfb.zpkg"
+libs = "out"
+exit = 0
+stdout_equals = "222"

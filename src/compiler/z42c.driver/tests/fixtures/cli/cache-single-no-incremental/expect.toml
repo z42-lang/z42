@@ -1,0 +1,4 @@
+desc = "单工程、无 [build]、--no-incremental 也落 cache，默认 <工程>/artifacts/<profile>/.cache"
+args = ["build", "cache.single.z42.toml", "--release", "--no-incremental"]
+exit = 0
+exists = ["artifacts/release/.cache/package.meta"]

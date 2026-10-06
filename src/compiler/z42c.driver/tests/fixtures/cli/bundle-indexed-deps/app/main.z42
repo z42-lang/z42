@@ -1,0 +1,4 @@
+using Std.IO;
+using BiLib;
+
+void Main() { Console.WriteLine(L.V()); }

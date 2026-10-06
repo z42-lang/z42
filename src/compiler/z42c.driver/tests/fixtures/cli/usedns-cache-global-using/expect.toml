@@ -1,0 +1,17 @@
+desc = "cached 文件的 UsedNs 随 meta 回来：f0 声明 global using UnA、只有 f1 用到；只改 f0 的注释 ⇒ f1 命中缓存，包级「global using 全包没用到」必须看到 f1 的用法，不能报 W0607"
+
+[[step]]
+args = ["build", "unc.z42.toml"]
+exit = 0
+output_not_contains = ["W0607"]
+
+[[step]]
+tool = "copy"
+from = "variants/f0.comment.z42"
+to = "f0.z42"
+
+[[step]]
+args = ["build", "unc.z42.toml"]
+exit = 0
+output_contains = ["cached: 1/2"]
+output_not_contains = ["W0607"]

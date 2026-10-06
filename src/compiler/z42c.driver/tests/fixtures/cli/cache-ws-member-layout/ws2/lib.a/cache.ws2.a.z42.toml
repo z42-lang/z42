@@ -1,0 +1,7 @@
+[project]
+name    = "cache.ws2.a"
+version = "0.1.0"
+kind    = "lib"
+
+[sources]
+include = ["*.z42"]

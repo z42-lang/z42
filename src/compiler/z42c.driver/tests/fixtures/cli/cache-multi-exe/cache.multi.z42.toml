@@ -1,0 +1,14 @@
+[project]
+name    = "cache.multi"
+version = "0.1.0"
+
+[sources]
+include = ["*.z42"]
+
+[[exe]]
+name  = "a"
+entry = "CacheMulti.A.Main"
+
+[[exe]]
+name  = "b"
+entry = "CacheMulti.B.Main"

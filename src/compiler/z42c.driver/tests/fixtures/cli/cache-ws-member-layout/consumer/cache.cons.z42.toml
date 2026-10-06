@@ -1,0 +1,10 @@
+[project]
+name    = "cache.cons"
+version = "0.1.0"
+kind    = "lib"
+
+[sources]
+include = ["*.z42"]
+
+[dependencies]
+"cache.ws2.a" = { path = "../ws2/lib.a" }

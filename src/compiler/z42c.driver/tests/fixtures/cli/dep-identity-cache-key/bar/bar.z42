@@ -1,0 +1,3 @@
+using DepId.Foo;
+
+int Main() { return Foo.Answer() - 42; }
