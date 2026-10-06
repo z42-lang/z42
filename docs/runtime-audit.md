@@ -497,7 +497,7 @@ z42vm-cli/   clap / tracing-subscriber（不再是 lib 依赖）
 | P0-4 | vm | 栈溢出 = 致命错误（见裁决）：<br>• interp 与 JIT 的帧入口检查剩余栈<br>• 内部错误不被转成 z42 异常（builtin 错误转换的两处跳过）<br>• z42vm 打印 z42 栈并以固定非零码退出；host 返回错误码<br>• VM 创建的线程栈可配置，默认 16 MB<br>• `SA_ONSTACK` + `sigaltstack` | 附录 A.4：深递归输出致命报告和 z42 栈、退出码稳定；try/catch 不拦截；host 测试拿到错误码 | ⬜ |
 | P0-5 | fix | cctor 屏障按 Function 预计算属主：<br>• 自由函数、无 cctor 的类型永久免检；静态字段站点同理<br>• JIT 不生成屏障，或内联代际检查<br>• 派生名不再送进 `try_lookup_type` | 附录 A.5：hello + 自由函数不再惰性加载额外包；cctor 系列 golden 全绿；z42c 剖面里 `ensure_*_owner_init` 消失 | ⬜ |
 | P0-6 | fix | `obj_to_string` 传播 ToString 抛出的异常；`run_returning` 的调用方保留异常类型 | golden：ToString 抛出的异常能被 catch | ⬜ |
-| P0-7 | fix | `jit_get_bool` 出错时不再被当成 true（返回状态码 + 值） | 测试：非 Bool 条件在 JIT 下抛异常 | ⬜ |
+| P0-7 | fix | `jit_get_bool` 出错时不再被当成 true（返回状态码 + 值） | 测试：非 Bool 条件在 JIT 下抛异常 | ✅ (#1092) |
 | P0-8 | fix | `pending_thrown` 移到 VmContext，并加入 GC 根扫描 | 测试：跨线程不串扰 | ⬜ |
 | P0-9 | fix | 异常表 `try_end` 哨兵：`find_handler` 里的 `?` 改成 `continue`，与 JIT 行为一致 | golden：try 区间覆盖到函数末尾、后面还有 catch 条目 | ⬜ |
 | P0-10 | fix | host：<br>• `invoke` 前先 clone 出 `Arc`，再释放全局 `HOST` 锁<br>• `z42_host.h` 配置结构加 `struct_size`，并同步 reference 的嵌入契约 | host 测试：回调里重入不死锁；旧尺寸结构不越界读 | ⬜ |
