@@ -6,7 +6,7 @@ use super::*;
 /// instances for this type's user attributes, in application order.
 ///
 /// Each attribute is built by invoking its compiler-synthesized factory
-/// `() => new T(args)` (a normal z42 function) via `run_returning`. Attribute
+/// `() => new T(args)` (a normal z42 function) via `run_outcome`. Attribute
 /// construction is thus fully statically known (known class, known constructor,
 /// constant args baked into the factory body) — no runtime `Activator`/`Invoke`
 /// and no generic instantiation. Re-entering the interpreter here is safe:
@@ -172,7 +172,7 @@ pub fn builtin_param_custom_attributes(ctx: &VmContext, args: &[Value]) -> Resul
 }
 
 /// Build live attribute instances by invoking each synthesized factory function
-/// (`() => new T(args)`) via `run_returning`. Shared by the class
+/// (`() => new T(args)`) via `run_outcome`. Shared by the class
 /// (`__type_custom_attributes`) and method (`__method_custom_attributes`) paths.
 /// Cross-zpkg factories resolve via the lazy loader. Re-entering the interpreter
 /// here is safe — `exec_function` keeps per-call state in a stack-local `Frame`.
@@ -197,12 +197,23 @@ pub(super) fn call_attribute_factories(
         if a.type_name.starts_with('$') {
             continue;
         }
-        let instance = if let Some(&idx) = module.func_index.get(a.factory_func.as_str()) {
-            crate::interp::run_returning(ctx, &module, &module.functions[idx], &[])?
+        let outcome = if let Some(&idx) = module.func_index.get(a.factory_func.as_str()) {
+            Some(crate::interp::run_outcome(ctx, &module, &module.functions[idx], &[])?)
         } else if let Some(func) = ctx.try_lookup_function(&a.factory_func) {
-            crate::interp::run_returning(ctx, &module, func.as_ref(), &[])?
+            Some(crate::interp::run_outcome(ctx, &module, func.as_ref(), &[])?)
         } else {
             None
+        };
+        let instance = match outcome {
+            Some(crate::interp::ExecOutcome::Returned(v)) => v,
+            // An attribute constructor threw: propagate it with its own type
+            // through the builtin error channel (`exec_call::builtin` takes it),
+            // instead of flattening it into a `Std.Exception` message.
+            Some(crate::interp::ExecOutcome::Thrown(v)) => {
+                ctx.set_pending_thrown(v);
+                anyhow::bail!("attribute constructor threw an exception");
+            }
+            None => None,
         };
         out.push(instance.unwrap_or(Value::Null));
     }

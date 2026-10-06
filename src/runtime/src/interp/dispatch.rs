@@ -248,7 +248,7 @@ pub fn obj_to_string(ctx: &VmContext, module: &Module, val: &Value) -> Result<St
                     super::ExecOutcome::Returned(Some(Value::Str(s))) => Ok(s.to_string()),
                     super::ExecOutcome::Returned(Some(other))         => Ok(value_to_str(&other)),
                     super::ExecOutcome::Returned(None)                => Ok(String::new()),
-                    super::ExecOutcome::Thrown(v)                     => Ok(format!("<exception: {}>", value_to_str(&v))),
+                    super::ExecOutcome::Thrown(v)                     => Err(tostring_threw(ctx, v)),
                 };
             }
         }
@@ -269,7 +269,7 @@ pub fn obj_to_string(ctx: &VmContext, module: &Module, val: &Value) -> Result<St
         let imm = |v: Value| match v { Value::Str(s) => s.to_string(), other => value_to_str(&other) };
         return match r.target {
             super::vcall_resolve::VCallTarget::Immediate(v) => Ok(imm(v)),
-            super::vcall_resolve::VCallTarget::Thrown(v) => Ok(format!("<exception: {}>", value_to_str(&v))),
+            super::vcall_resolve::VCallTarget::Thrown(v) => Err(tostring_threw(ctx, v)),
             super::vcall_resolve::VCallTarget::Local(idx) => match module.functions.get(idx) {
                 Some(f) => exec_to_string(ctx, module, f, &r.this),
                 None => Ok(value_to_str(val)),
@@ -281,8 +281,7 @@ pub fn obj_to_string(ctx: &VmContext, module: &Module, val: &Value) -> Result<St
 }
 
 /// dispatch-tostring-in-native-stringify: 跑一个已解析出的 `ToString` 目标并把结果化成串。
-/// 与 `obj_to_string` 的 object 分支同款结果映射（抛出 → `<exception: …>`，不往外传）——
-/// 字符串化是展示路径，让 `WriteLine` 变成可抛点是独立取舍（登记 Deferred）。
+/// 与 `obj_to_string` 的 object 分支同款结果映射。
 fn exec_to_string(
     ctx: &VmContext, module: &Module, callee: &crate::metadata::Function, this: &Value,
 ) -> Result<String> {
@@ -290,8 +289,23 @@ fn exec_to_string(
         super::ExecOutcome::Returned(Some(Value::Str(s))) => Ok(s.to_string()),
         super::ExecOutcome::Returned(Some(other))         => Ok(value_to_str(&other)),
         super::ExecOutcome::Returned(None)                => Ok(String::new()),
-        super::ExecOutcome::Thrown(v)                     => Ok(format!("<exception: {}>", value_to_str(&v))),
+        super::ExecOutcome::Thrown(v)                     => Err(tostring_threw(ctx, v)),
     }
+}
+
+/// A user `ToString` threw while stringifying (concatenation, interpolation,
+/// `Console.WriteLine(obj)`). The exception propagates with its own type, like
+/// any other call's: the value goes into `pending_thrown` — the same channel
+/// callback builtins use — and the returned error tells the caller to take it.
+/// Every caller of [`obj_to_string`] / [`stringify_dispatch`] must therefore
+/// check `take_pending_thrown()` on `Err` (interp `Add` / `ToStr`, JIT
+/// `jit_add` / `jit_to_str`; builtins get it from `exec_call::builtin`).
+///
+/// Earlier the exception was swallowed into an `<exception: …>` string and the
+/// program carried on.
+fn tostring_threw(ctx: &VmContext, thrown: Value) -> anyhow::Error {
+    ctx.set_pending_thrown(thrown);
+    anyhow::anyhow!("ToString threw an exception")
 }
 
 /// dispatch-tostring-in-native-stringify: `obj_to_string` 的 **ctx-only** 包装 —— 给手里只有

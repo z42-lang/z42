@@ -83,7 +83,13 @@ pub fn exec_instr(
         Instruction::Copy      { dst, src } => exec_value::copy(frame, *dst, *src)?,
 
         // ── Arithmetic ───────────────────────────────────────────────────────
-        Instruction::Add { dst, a, b } => exec_value::add(ctx, module, frame, *dst, *a, *b)?,
+        // A user `ToString` that throws during string concatenation comes back as
+        // `Err` + the exception in `pending_thrown` (see `dispatch::tostring_threw`).
+        Instruction::Add { dst, a, b } => {
+            if let Err(e) = exec_value::add(ctx, module, frame, *dst, *a, *b) {
+                return ctx.take_pending_thrown().map(Some).ok_or(e);
+            }
+        }
         Instruction::Sub { dst, a, b } => exec_value::sub(frame, *dst, *a, *b)?,
         Instruction::Mul { dst, a, b } => exec_value::mul(frame, *dst, *a, *b)?,
         Instruction::Div { dst, a, b } => {
@@ -126,7 +132,11 @@ pub fn exec_instr(
 
         // ── String formation ─────────────────────────────────────────────────
         Instruction::StrConcat { dst, a, b } => exec_value::str_concat(ctx, frame, *dst, *a, *b)?,
-        Instruction::ToStr     { dst, src }  => exec_value::to_str(ctx, module, frame, *dst, *src)?,
+        Instruction::ToStr     { dst, src }  => {
+            if let Err(e) = exec_value::to_str(ctx, module, frame, *dst, *src) {
+                return ctx.take_pending_thrown().map(Some).ok_or(e);
+            }
+        }
 
         // ── Address-load (spec impl-ref-out-in-runtime) ─────────────────────
         Instruction::LoadLocalAddr { dst, slot } => exec_address::load_local_addr(ctx, frame, *dst, *slot),

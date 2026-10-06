@@ -1,0 +1,52 @@
+// A `ToString` that throws while the VM stringifies a value — concatenation,
+// interpolation, `Console.WriteLine(obj)` — propagates its exception with its own
+// type. It used to be swallowed into an "<exception: …>" string, and the program
+// carried on. An attribute constructor that throws inside `GetCustomAttributes`
+// likewise keeps its type instead of turning into a plain `Std.Exception`.
+namespace ExceptionsTest.ToStringThrows;
+
+using Std.IO;
+using Std.Reflection;
+
+class Grumpy {
+    public override string ToString() { throw new InvalidOperationException("no text"); }
+}
+
+struct GrumpyPoint {
+    public int X;
+    public override string ToString() { throw new InvalidOperationException("no point"); }
+}
+
+class BrokenAttribute : Attribute {
+    public BrokenAttribute() { throw new NotSupportedException("broken attribute"); }
+}
+
+[Broken]
+class Tagged { }
+
+string Caught(int kind) {
+    Grumpy g = new Grumpy();
+    string s = "";
+    try {
+        if (kind == 0) { s = "a" + g; }
+        else if (kind == 1) { s = g + "b"; }
+        else if (kind == 2) { s = $"<{g}>"; }
+        else if (kind == 3) { Console.WriteLine(g); }
+        else if (kind == 4) { object o = new GrumpyPoint(); s = $"<{o}>"; }
+        else if (kind == 5) { s = typeof(Tagged).GetCustomAttributes().Length.ToString(); }
+    } catch (InvalidOperationException e) {
+        return e.Message;
+    } catch (NotSupportedException e) {
+        return e.Message;
+    }
+    return "not thrown: " + s;
+}
+
+void Main() {
+    Assert.Equal("no text", Caught(0));
+    Assert.Equal("no text", Caught(1));
+    Assert.Equal("no text", Caught(2));
+    Assert.Equal("no text", Caught(3));
+    Assert.Equal("no point", Caught(4));
+    Assert.Equal("broken attribute", Caught(5));
+}

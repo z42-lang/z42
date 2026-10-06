@@ -42,8 +42,11 @@ reference 的[类](https://z42-lang.github.io/z42/reference/language/classes.htm
    - `Returned(Some(Value::Str(s)))` → `s`
    - `Returned(Some(other))` → 退回 `value_to_str(&other)`（防御；返回类型已是 `string`，不该发生）
    - `Returned(None)` → 空串（同上，防御）
-   - `Thrown(v)` → 渲染成 `<exception: {value_to_str(v)}>`。**不重新抛** —— 从 IR 的视角
-     `ToStr` 是不会失败的指令，把异常变成字符串是刻意的：插值洞里抛异常会让诊断路径自己炸掉。
+   - `Thrown(v)` → **按原类型传播**：异常值放进 `pending_thrown`（callback builtin 的同一条通道），
+     返回 `Err`。每个调用方都要在 `Err` 时取走它：interp 的 `Add` / `ToStr`、JIT 的 `jit_add` /
+     `jit_to_str` 把它当 z42 异常抛出，`Console.WriteLine` 一族 builtin 由 `exec_call::builtin` /
+     `jit_builtin` 取走。于是拼接、插值、`WriteLine(obj)` 都是可抛点，与直接调 `ToString()` 一致。
+     （此前渲染成 `<exception: …>` 字符串、程序照常往下跑。）golden：`exceptions/tostring_throws`。
 3. 未命中 vtable（类没覆写 `ToString`，继承 `Std.Object` 的那个）→ 调 `__obj_to_str` builtin，
    返回不含命名空间的短类名。
 

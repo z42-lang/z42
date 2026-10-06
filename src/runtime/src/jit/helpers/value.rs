@@ -166,15 +166,15 @@ pub unsafe extern "C" fn jit_to_str(
                 return 0;
             }
         }
-        match crate::corelib::exec_builtin_value(
-                vm_ctx_ref(ctx),
-                crate::metadata::well_known_names::BUILTIN_OBJ_TO_STR,
-                &[val.clone()]) {
-            Ok(v) => { (*frame).regs[dst as usize] = Value::Str(match v { Value::Str(s) => s, ref o => value_to_str(o).into() }); }
-            Err(e) => {
-                set_exception(vm_ctx_ref(ctx), Value::Str(e.to_string().into()));
-                return 1;
-            }
+    }
+    // Not natively callable (no `ToString` override, or one the JIT can't run)
+    // or a boxed struct: the interpreter's stringification, same as `ToStr` /
+    // `+` under interp. A throwing `ToString` surfaces as its own exception.
+    if matches!(val, Value::Object(_) | Value::BoxedStruct(_)) {
+        let v = *val;
+        match crate::interp::dispatch::stringify_dispatch(vm_ctx_ref(ctx), &v) {
+            Ok(s) => (*frame).regs[dst as usize] = Value::Str(s.into()),
+            Err(e) => return super::arith::stringify_failed(ctx, e),
         }
     } else {
         (*frame).regs[dst as usize] = Value::Str(value_to_str(val).into());
