@@ -1,8 +1,8 @@
 # Native ext loader
 
 Infrastructure that lets a stdlib package's native code live **outside**
-the `z42vm` binary, in a separate `cdylib` that z42vm `dlopen`s at
-startup. First user: [`z42.compression`](https://z42-lang.github.io/z42/reference/stdlib/compression.html).
+the `z42vm` binary, in a separate `cdylib` that z42vm `dlopen`s the
+first time one of its builtins is needed. First user: [`z42.compression`](https://z42-lang.github.io/z42/reference/stdlib/compression.html).
 Designed so future heavy native stdlibs
 (`z42.net`, `z42.numerics`, second-wave `z42.crypto` algorithms) follow
 the same template.
@@ -39,13 +39,13 @@ compiler short-circuit                │                          │
        ↓                              │   ├ by_name: HashMap     │
 BuiltinInstr("__deflate_compress")    │   └ by_idx: Vec<NativeFn>│
        ↓ resolver                     │                          │
-ext_builtin_id_of(ctx, name)          │ native::ext::load_all()  │
-       ↓ returns id with              │   1. native_search_paths │
-BUILTIN_ID_EXT_BIT (0x8000_0000) set  │      ├ Z42_NATIVE_PATH env
-       ↓                              │      ├ <exe>/../native/
-exec_builtin_by_id checks high bit:   │      └ <exe>/native/
-  id & EXT_BIT → ext_builtins.dispatch│   2. dlopen each lib*.so/.dylib/.dll
-  else         → BUILTINS[idx]        │   3. resolve known symbols
+ext_builtin_id_of(ctx, name)          │ miss → ensure_lib_for()  │
+       ↓ returns id with              │   1. builtin name → lib  │
+BUILTIN_ID_EXT_BIT (0x8000_0000) set  │      (KNOWN_EXT_LIBS)    │
+       ↓                              │   2. probe each search   │
+exec_builtin_by_id checks high bit:   │      path for that file  │
+  id & EXT_BIT → ext_builtins.dispatch│   3. dlopen it, resolve  │
+  else         → BUILTINS[idx]        │      known symbols       │
        ↓                              │   4. register VM-side wrappers
 NativeFn wrapper                      │      into ext_builtins
 (Vec<u8> ↔ Value::Array<I64>)         └──────────────────────────┘
@@ -97,16 +97,28 @@ returns a `Vec<PathBuf>` in priority order:
 
 First match wins per file name — later directories don't override.
 
-### `parse_z42_lib_name`
+### Lazy loading
 
-Filters `dlopen` candidates to `libz42_*.{so,dylib,dll}` (or
-`z42_*.dll` on Windows without `lib` prefix). Files that don't match
-are silently skipped — third-party libs in the same directory don't
-interfere.
+Nothing is loaded at VM startup (the bundled wasm build registers its
+statically linked entries in `load_all`, which involves no I/O). When the
+resolver or `exec_builtin` misses a name in `ext_builtins`,
+[`ensure_lib_for`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/native/ext.rs)
+maps the builtin name to its library through `KNOWN_EXT_LIBS`
+(`[("compression", COMPRESSION_BUILTINS)]`), probes each search path for
+exactly `{DLL_PREFIX}z42_<lib>{DLL_SUFFIX}` — no directory listing — and
+loads the first one found. Each library is looked for once per VM (the
+table records attempts), so a missing library costs one probe, not one per
+call. Names not in the map never trigger a probe; a `libz42_*` file in a
+search directory is only ever opened when one of its builtins is asked for
+(the cargo-target directory, one of the search paths, holds every cdylib of
+the workspace).
+
+Before this, every VM listed every search directory and dlopened
+`libz42_compression` at startup, whether or not the program used it.
 
 ### dlopen + registration
 
-For each matched file, [`load_one`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/native/ext.rs)
+For the library found, [`load_one`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/native/ext.rs)
 runs:
 
 1. `libloading::Library::new(path)` — opens the cdylib
@@ -132,14 +144,14 @@ runs:
    wrappers are static Rust functions with `NativeFn` signature
    (`fn(&VmContext, &[Value]) -> Result<Value>`) that marshal Value ↔
    raw bytes and dispatch into the `LoadedCompression` fn ptrs.
-4. Push the `libloading::Library` into `VmCore.native_libs` (existing
-   field, was added for Tier 1) so the fn ptrs stay valid for the VM's
-   lifetime.
+4. The `libloading::Library` moves into the process-static
+   `LoadedCompression` table (a `OnceLock`, set by the first VM that loads
+   it) next to the fn ptrs, so they stay valid for the whole process. The
+   wrappers read the table without a lock; a later VM reuses it.
 
-Failures (lib not found, symbol missing, etc.) are logged via
-`tracing::warn!` but **never abort VM startup** — apps that don't
-import the missing ext namespace boot fine and only see the error at
-the runtime call site as `unknown builtin '__deflate_compress'`.
+Failures (lib not found, symbol missing, etc.) are logged, and the
+builtin stays unresolved — the call site sees
+`unknown builtin '__deflate_compress'`.
 
 ### ext_builtins table
 
@@ -147,8 +159,9 @@ the runtime call site as `unknown builtin '__deflate_compress'`.
 
 ```rust
 pub struct ExtBuiltinTable {
-    by_name: HashMap<String, u32>,
-    by_idx:  Vec<NativeFn>,
+    by_name:   HashMap<String, u32>,
+    by_idx:    Vec<NativeFn>,
+    attempted: HashSet<&'static str>,   // libraries already looked for
 }
 ```
 

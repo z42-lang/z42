@@ -235,8 +235,8 @@ pub fn resolve_function_tokens(
 
         let builtin_tokens: Vec<u32> = builtin_site_names.iter()
             .map(|name| {
-                // Static `BUILTINS[]` first, then per-VM ext registry (populated by
-                // `native::ext::load_all` at VM startup). add-z42-compression
+                // Static `BUILTINS[]` first, then per-VM ext registry (a miss loads
+                // the providing library, `native::ext::ensure_lib_for`). add-z42-compression
                 // (2026-05-22): facade `[Native(lib="z42_compression", entry=...)]`
                 // names resolve through the ext path.
                 {

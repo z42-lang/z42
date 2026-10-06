@@ -478,11 +478,10 @@ impl VmContext {
         let ptr = VmContextPtr(&*boxed as *const VmContext);
         boxed.core.vm_contexts.lock().push(ptr);
 
-        // add-z42-compression (2026-05-22): scan native search paths +
-        // dlopen each lib*.{so,dylib,dll}, populating `ext_builtins`. Run
-        // once at primary-VM init only (workers via `new_with_core` reuse
-        // the parent's populated table). Failures are logged but never
-        // abort startup — apps that don't need any ext lib still boot.
+        // add-z42-compression (2026-05-22): register ext builtins that need no
+        // I/O (the bundled wasm build). The dlopen build loads a library on the
+        // first lookup miss for one of its builtins (`ext::ensure_lib_for`).
+        // Workers via `new_with_core` share the core's table.
         #[cfg(feature = "native-interop")]
         if let Err(e) = crate::native::ext::load_all(&boxed) {
             tracing::warn!("native ext loader: {:#}", e);
