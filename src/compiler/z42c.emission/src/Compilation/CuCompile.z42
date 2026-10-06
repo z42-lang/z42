@@ -165,7 +165,7 @@ public static class CuCompile {
         gen.Diags = diags;   // diag-recursive-generic：单态化不收敛报 E0503
         IrModule irm = CuCompile.GenerateIfClean(gen, cu, model, optSet);
         string[] depRefs = CuCompile.DepRefsOf(tc, model);
-        UsingLint.Check(cu, tc.UsedNs.ToArray(), depRefs, depRefs.Length, diags);   // using-csharp-rules PR-3：W0607 / W0608
+        UsingLint.Check(cu, tc.UsedNs.ToArray(), diags);   // using-csharp-rules PR-3：W0607 / W0608
         string[] usings = new string[8];
         int uc = 0;
         int i = 0;

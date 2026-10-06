@@ -48,7 +48,7 @@ using Row = Dictionary<string,int>; // 类型别名
 - 类型别名的判别条件是 `using` 后面紧跟 `标识符 =`。别名与目标类型完全互通
   （`using UserId = int;` 之后 `UserId` 就是 `int`）。
 
-三者的完整语义（包级激活、file-scope 强制导入、`E0436` / `E0601` / `E0602`）见
+三者的完整语义（可见性、file-scope 强制导入、`E0436` / `E0601` / `E0602`）见
 [Namespace 与 Using](namespaces.md)。
 
 ## ③ 顶层声明
@@ -123,6 +123,6 @@ void Main() {
 
 ## 关联页面
 
-- [Namespace 与 Using](namespaces.md) — 导入解析、包激活、`global using`、类型别名
+- [Namespace 与 Using](namespaces.md) — 导入解析、可见性、`global using`、类型别名
 - [访问控制](access-control.md) — `public` / `internal` / `private` / `protected` 的适用位置
 - [基本类型](types.md) — 顶层声明里能用的类型

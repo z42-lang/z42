@@ -3,7 +3,6 @@
 // 自由函数 → lifted；TYPE 序 = 类/struct → 接口 → enum → delegate）。
 namespace Z42.Emission;
 
-using Z42.Semantics;
 
 using Z42.IR;
 

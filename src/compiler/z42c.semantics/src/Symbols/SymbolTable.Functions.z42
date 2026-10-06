@@ -111,4 +111,19 @@ public sealed partial class SymbolTable {
         i = 0; while (i < vn) { r[i] = vis[i]; i = i + 1; }
         return r;
     }
+
+    // 裸名自由函数**只**在不可见 ns 里有（`_funcCandidates` 的 ③ 回落）：此时它只是「补 using 就能用」的指路
+    // 对象，不该压过类体内同名的方法，也不构成歧义（候选里没有一份是本文件看得见的）。
+    public bool FuncOnlyInvisible(string name) {
+        string[] c = this._funcCandidates(name);
+        return c.Length > 0 && !this._funcNsVisible(c[0]);
+    }
+
+    // ns 对本文件可见：全局 ns、外围链、using（含 prelude）。与 `_funcCandidates` ①② 同一判据。
+    internal bool _funcNsVisible(string ns) {
+        if (ns == "") { return true; }
+        int ci = 0;
+        while (ci < this.ScopeChain.Length) { if (this.ScopeChain[ci] == ns) { return true; } ci = ci + 1; }
+        return this.IsScopeVisibleNs(ns);
+    }
 }

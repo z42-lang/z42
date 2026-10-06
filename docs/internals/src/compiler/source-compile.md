@@ -302,7 +302,7 @@ ns 与 pkg 一起存：三种形状恰好由「ns 同不同」×「pkg 同不同
 > （实测）。所以 `MemberResolver` 的静态调用分支也调一次 `_chkTypeRefPkg`，与它旁边的
 > `ChkAmbiguousBareName`（E0456）并列。
 
-> **可见性过滤是必须的**：只登记**激活**的包（`using` 命中其某个 ns，整包粒度）。同名但没
+> **可见性过滤是必须的**：依赖包全体都参与名字查找，但歧义判定只算**本文件可见**的命名空间。同名但没
 > `using` 进来的那份不参与判定——否则「同名但我根本没用到」会变成假红，而那在真实工程里极常见。
 
 #### 本包自由函数按命名空间解析
@@ -343,8 +343,8 @@ resolve = candidates[0]；|candidates| ≥ 2 ⇒ E0456（调用点另报）
 
 **① 外围链（`NsScope`）**。文件 `namespace A.B` 的外围链 = `[A.B, A]`（由内到外，按段），全局 ns 是最外层。
 所有「是否可见 / 谁胜出」的判断都走它：解析器第一步（`_resolveClass` / `ResolveTypeP` 的接口与类两段，链缓存在
-视图的 `ScopeChain`）、E0456 歧义判据、自由函数候选、E0436、`_activeNamespaces`（static call 消歧）、包激活
-（`IrDump.ActivationNsOf` = using ∪ 外围链 —— 不并进去的话依赖包压根不加载，报的是 E0401）。
+视图的 `ScopeChain`）、E0456 歧义判据、自由函数候选、E0436、`_activeNamespaces`（static call 消歧）、导入建表的
+第 0 档（`IrDump.ActivationNsOf` = using ∪ 外围链，决定 first-wins 顺序与 impl 合并，见[项目模型](project-model.md)）。
 
 **② 每文件「用到的 ns」**（`NsUseRecorder`）。`TypeChecker.Infer` 为每个文件新建一份记录器，挂在本文件的
 符号表视图上（`SymbolTable.UseRecorder`，视图链继承），`Infer` 结束即停用。三类记录点：
@@ -352,20 +352,21 @@ resolve = candidates[0]；|candidates| ≥ 2 ⇒ E0456（调用点另报）
 | 位置 | 记录方式 |
 |---|---|
 | 类型位（局部 / cast / `new` / 泛型实参 / 数组元素……） | `ResolveTypeP` 外壳按解析结果记声明 ns；核心递归走回外壳，嵌套引用一并记到 |
-| 表达式位 | 显式 `NoteUse`：静态成员读、静态调用、ns 限定静态调用、enum 常量、自由函数调用、函数引用 |
+| 表达式位 | 显式 `NoteUse`：静态成员读、静态调用、enum 常量、自由函数调用、函数引用 |
 | 声明位 | `DeclTypeUses` 在 `Infer` 末尾把本文件全部声明的 TypeExpr 在挂了记录器的视图上再解析一遍 |
 
 为什么记录器**不能**常挂在视图上、门也**不能**挂在解析器里：很多 pass 在带作用域的视图上遍历整张类表、按名字
 查（实测在解析器里判「落到裸名回落且 ns 不可见」，会在 stdlib 全量构建里报几千条，几乎全是这类内部查找）。
 
-**不计入**：编译器合成的类型（`NamedType.Synth`：集合字面量的 `List<T>`、元组、`_typeToTypeExpr`、Bencher、
-`typeof` / methodof 的结果类型、AttributeSynth 的返回类型、ConstBlob）；`using Id = …;` 别名的目标（解析时
-`UseRecorder.Suspend`）。新加合成 TypeExpr 的地方**必须**用 `NamedType.Synth`，否则用户会被要求 `using` 一个他没写过的 ns。
+**不计入**：写成全限定名的引用（`_noteNamedUse` / `_chkStaticOwnerQualified`：只记依赖 `NoteDepUse`，不记 ns——全限定名不需要 `using`）；编译器合成的类型（`NamedType.Synth`：集合字面量的 `List<T>`、元组、`_typeToTypeExpr`、Bencher、
+`typeof` / methodof 的结果类型、AttributeSynth 的返回类型、ConstBlob）。`using Id = …;` 别名的目标在别名被用到时照常记录：
+全限定写法不记，短名写法记（它确实靠本文件的 using 解析）。新加合成 TypeExpr 的地方**必须**用 `NamedType.Synth`，否则用户会被要求 `using` 一个他没写过的 ns。
 
 **判定**：`CuPreprocess._enforceFileScope`（经 `IrDump.EnforceFileScopeAll`，在 cached 元数据回填之后）对
-`UsedNs ∪ UsedDepNs` 逐个判：prelude / 外围链（含全局 ns）/ 本文件 using（含注入的 global using）之外 ⇒ E0436。
-`UsedDepNs` 是依赖引用（绑定期记录 ∪ 绑定树 walker `DepUseCollector`，不经代码生成，见 [zpkg 格式 DEPS 段](../formats/zpkg.md)；条目可带归属包 `ns#pkg`，判 E0436 时只看 ns 部分），DEPS 段由它算出；cached 文件跳过类型检查，眼下只有它
-（待办：`UsedNs` 持久化进 cache meta，要改 driver，晚一个 nightly）。
+`UsedNs` 逐个判：prelude / 外围链（含全局 ns）/ 本文件 using（含注入的 global using）之外 ⇒ E0436。`W0607`
+（`UsingLint` / `GlobalUsingLint`）用同一份集合。cached 文件的 `UsedNs` 存在 cache meta（`usedns` 行）里回填。
+依赖引用 `UsedDepNs`（绑定期记录 ∪ 绑定树 walker `DepUseCollector`，含编译器推导出的接收者 / 返回类型，见
+[zpkg 格式 DEPS 段](../formats/zpkg.md)）只喂 DEPS 段，**不**参与 E0436 / W0607——那些名字源码里没写。
 
 **发射**：解析出的 ns 随 `BoundCall.FreeNs` / `BoundFuncRef.FuncNs` 带到发射端，`CallEmitter` / `ExprEmitter`
 直接发 `QualOf(ns, name)`——发射端**不按名字猜**（导入函数的依赖由绑定期记录）。对原本就正确的代码，产物字节不受影响；

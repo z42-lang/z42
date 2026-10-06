@@ -10,7 +10,6 @@ namespace Z42.Pipeline;
 
 using Std.Collections;
 using Z42.Syntax;           // CompilationUnit
-using Z42.Semantics;        // IrDump.ParseAll
 using Z42.IR;               // Exported* 世界枚举
 using Z42.IR.BinaryFormat;  // ZpkgWriterZ.WritePacked（packed zpkg 字节）
 using Z42.Package;          // ZpkgBuilder.SourceHashHex
@@ -58,12 +57,15 @@ public class Z42cReplCompiler : IReplCompiler {
         }
         CompileArtifacts art = Z42cReplCompiler._compileOnce(w, name, src);
         if (art.ErrorCount > 0) {
+            // 全限定写法（`Std.Toml.TomlValue.Parse(…)`）不需要 using：源码里点分链的各级前缀也当候选 ns
+            // （不是 ns 的前缀在下面两步里是 no-op）。
+            string[] nss = Z42cReplCompiler._withDottedPrefixes(src, usings, usingsCount);
             // repl-per-symbol-reconcile：先只 reconcile 源里引用的**类型**（per-type，比整包快），仍
             // 失败 → 回退整包 _loadUsingsPackages（保正确性）。见 repl.md T2 节。
-            if (Z42cReplCompiler._loadReferencedTypes(w.Scan, src, usings, usingsCount)) {
+            if (Z42cReplCompiler._loadReferencedTypes(w.Scan, src, nss, nss.Length)) {
                 art = Z42cReplCompiler._compileOnce(w, name, src);
             }
-            if (art.ErrorCount > 0 && Z42cReplCompiler._loadUsingsPackages(w.Scan, usings, usingsCount)) {
+            if (art.ErrorCount > 0 && Z42cReplCompiler._loadUsingsPackages(w.Scan, nss, nss.Length)) {
                 art = Z42cReplCompiler._compileOnce(w, name, src);
             }
         }
@@ -122,6 +124,46 @@ public class Z42cReplCompiler : IReplCompiler {
         while (i < usingsCount) { DepScan.EnsurePackageLoaded(scan, usings[i]); i = i + 1; }
         return scan.ExportedCount > before;
     }
+
+    // usings ∪ 源里每条点分链（`A.B.C`）的真前缀（`A`、`A.B`），去重。字符扫描，不依赖 Lexer。
+    private static string[] _withDottedPrefixes(string src, string[] usings, int usingsCount) {
+        string[] outp = new string[usingsCount + 8];
+        int n = 0;
+        int u = 0;
+        while (u < usingsCount) { outp[n] = usings[u]; n = n + 1; u = u + 1; }
+        int i = 0;
+        while (i < src.Length) {
+            if (Z42cReplCompiler._identStart(src.CharAt(i)) && (i == 0 || !Z42cReplCompiler._identPart(src.CharAt(i - 1)))) {
+                int j = i;
+                while (j < src.Length && Z42cReplCompiler._identPart(src.CharAt(j))) { j = j + 1; }
+                // 沿 `.ident` 延伸，每到一个 `.` 就记下它左边的前缀。
+                while (j + 1 < src.Length && src.CharAt(j) == '.' && Z42cReplCompiler._identStart(src.CharAt(j + 1))) {
+                    string pre = src.Substring(i, j - i);
+                    bool seen = false;
+                    int k = 0; while (k < n) { if (outp[k] == pre) { seen = true; } k = k + 1; }
+                    if (!seen) {
+                        if (n == outp.Length) {
+                            string[] b = new string[outp.Length * 2];
+                            int m = 0; while (m < n) { b[m] = outp[m]; m = m + 1; }
+                            outp = b;
+                        }
+                        outp[n] = pre; n = n + 1;
+                    }
+                    j = j + 1;
+                    while (j < src.Length && Z42cReplCompiler._identPart(src.CharAt(j))) { j = j + 1; }
+                }
+                i = j;
+            } else {
+                i = i + 1;
+            }
+        }
+        string[] r = new string[n];
+        int q = 0; while (q < n) { r[q] = outp[q]; q = q + 1; }
+        return r;
+    }
+
+    private static bool _identStart(char c) { return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c == '_'; }
+    private static bool _identPart(char c) { return Z42cReplCompiler._identStart(c) || (c >= '0' && c <= '9'); }
 
     // 首字母大写的标识符（类型名候选；PascalCase 约定）。去重。字符扫描（不依赖 Lexer，够用且快）。
     private static string[] _typeCandidates(string src) {

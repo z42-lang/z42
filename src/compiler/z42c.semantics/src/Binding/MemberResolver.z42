@@ -608,6 +608,12 @@ public sealed partial class MemberResolver {
                 return BoundCall.Marked(new BoundCall("free", false, null, "", id.Name, args, call.ArgCount, lfsig.Ret, call.Span), lfsig);
             }
             string fnNs = env.Symbols.ResolveFuncNs(id.Name);   // resolve-free-functions-by-namespace：按引用方 ns + usings 解析
+            // 只在没 using 的 ns 里有同名自由函数 ⇒ 先认类体内的同名方法（成员先于外部名字）；都不是才落到下面
+            // 按自由函数绑定（随后由文件级 using 检查报 E0436 指路）。
+            if (fnNs != null && env.Symbols.FuncOnlyInvisible(id.Name)) {
+                BoundExpr own = this.BindBareClassCall(id, call, args, env);
+                if (own != null) { return own; }
+            }
             if (fnNs != null) {
                 this._tc.ChkFreeFuncOrigins(env.Symbols, id.Name, call.Span);   // report-crosspkg-duplicate-function：E0601/E0606/E0456
                 // free-function-overloads：候选集 + 与类方法同一套重载决议；唯一函数 → 候选 1 份 → RegKey=裸名 → 零漂移。
@@ -670,14 +676,17 @@ public sealed partial class MemberResolver {
     }
 
     private BoundExpr _bindMemberCall(MemberExpr mem, BoundExpr[] args, int argCount, Expr[] rawArgs, TypeEnv env, Span sp, CallExpr call) {
-        // fix-namespace-qualified-free-call：`ns.func()` 当 ns=当前命名空间且 func 是自由函数
-        // → 自由调用（否则被误当类 ns 的静态调用 → 双限定 ns.ns.func → 运行期 undefined）。
-        if (mem.Target is IdentExpr) {
-            IdentExpr nsId = mem.Target as IdentExpr;
-            if (this._tc._currentNs != "" && nsId.Name == this._tc._currentNs
-                && env.LookupVar(nsId.Name) == null && env.Symbols.GetFuncCandidates(nsId.Name, mem.Name).Length > 0) {
+        // fix-namespace-qualified-free-call：`ns.func()`（ns 可多段，`A.B.func()`）且 func 是 ns 里的自由函数
+        // → 自由调用（否则被误当类 ns 的静态调用 → 双限定 ns.ns.func → 运行期 undefined）。全限定名不需要
+        // using（decouple-pkg-activation）。根标识符是局部变量 / 本作用域看得见的类名时不是 ns，交给下面。
+        string fnsPath = MemberResolver._dottedPath(mem.Target);
+        if (fnsPath != "") {
+            string fnsRoot = MemberResolver._rootIdent(mem.Target);
+            bool nsLike = env.LookupVar(fnsRoot) == null
+                && (fnsPath == this._tc._currentNs || !env.Symbols.HasClass(fnsRoot));
+            if (nsLike && env.Symbols.GetFuncCandidates(fnsPath, mem.Name).Length > 0) {
                 // 限定写法 = ns 已消歧：在该 ns 的候选集内做重载决议（free-function-overloads）；唯一函数字节零漂移。
-                MethodSymbol[] ncands = env.Symbols.GetFuncCandidates(nsId.Name, mem.Name);
+                MethodSymbol[] ncands = env.Symbols.GetFuncCandidates(fnsPath, mem.Name);
                 MethodSymbol nfs = this._tc._overload._resolveFreeOverload(env.Symbols, ncands, mem.Name, args,
                     argCount, call.TypeArgCount, sp, rawArgs, env);
                 if (nfs == null) {
@@ -694,7 +703,8 @@ public sealed partial class MemberResolver {
                 this._tc._access.CheckDeprecatedM(nfs, mem.Name, sp);
                 BoundExpr[] nfa = this._tc._overload._withDefaults(nfs, args, rawArgs, argCount, env, sp, false);   // add-call-arity-diagnostics：同自由函数汇聚点
                 BoundCall nbc = BoundCall.Marked(new BoundCall("free", false, null, "", nfs.RegKey, nfa, nfa.Length, nfs.Signature.Ret, sp), nfs.Signature);
-                nbc.FreeNs = nsId.Name; nbc.FreeImported = !nfs.HasDecl;
+                nbc.FreeNs = fnsPath; nbc.FreeImported = !nfs.HasDecl;
+                env.Symbols.NoteDepUse(fnsPath, env.Symbols.ImportedFuncPkgOf(mem.Name, fnsPath));   // DEPS（全限定写法不记 using）
                 return nbc;
             }
         }
@@ -762,23 +772,21 @@ public sealed partial class MemberResolver {
         // （`Std.IO.Console`）⇒ 全部落空 → 直冲下方实例路径 → 递归到最里层把 `Std` 当变量查
         // → `E0401: undefined: Std`（裸名 `Console.WriteLine` 一直正常，故全仓无人这么写、长期没暴露）。
         //
-        // 判别：点串拍平成 `<prefix>.<Short>`，prefix 须是本 CU 可见的 ns（using 集 ∪ 本 ns），
-        // 且根标识符不能是局部变量（否则 `a.b.M()` 这类真实例链会被劫持）。命中就按短名走
-        // 与裸名**完全同一条**静态决议路径 —— 即不改变歧义语义（同短名跨 ns 仍 first-wins，
-        // 消歧要等 imported 类补上 Namespace，见 tasks.md「后续」）。
+        // 判别：点串 `<prefix>.<Short>` 按**全限定名**查类（外围 ns 相对写法亦可，同类型位置的解析）——
+        // 全限定名不需要 using（C# 同）。根标识符不能是局部变量，也不能是本作用域看得见的类名（否则
+        // `a.b.M()` 这类真实例链 / `Outer.Inner.M()` 嵌套类型会被劫持）。
         string qpath = MemberResolver._dottedPath(mem.Target);
         if (qpath != "") {
             int lastDot = qpath.LastIndexOf(".");
-            if (lastDot > 0) {
-                string qns = qpath.Substring(0, lastDot);
+            string qroot = MemberResolver._rootIdent(mem.Target);
+            if (lastDot > 0 && env.LookupVar(qroot) == null && !env.Symbols.HasClass(qroot)) {
                 string qcls = qpath.Substring(lastDot + 1);
-                if (this._tc._isVisibleNs(qns) && env.Symbols.HasClass(qcls)
-                    && env.LookupVar(MemberResolver._rootIdent(mem.Target)) == null) {
-                    Z42ClassType qct = env.Symbols.GetClass(qcls);
+                Z42ClassType qct = env.Symbols.HasClass(qpath) ? env.Symbols.GetClass(qpath) : null;
+                if (qct != null) {
                     // report-crosspkg-duplicate-*：**ns 限定**的静态调用（`A.B.Util.go()`）走的是
                     // 这条独立分支，不经上面裸类名那条 ⇒ 此前零诊断（实测）。同 FQN 跨包时限定名
                     // 也分不开两份（FQN 逐字相同），故与裸名一视同仁。
-                    this._tc._chkStaticOwner(env.Symbols, qct, sp);
+                    this._tc._chkStaticOwnerQualified(env.Symbols, qct, qpath, sp);
                     MethodSymbol qms = this._tc._overload._resolveOverload(env.Symbols, qct, mem.Name, args, argCount, call.TypeArgCount, sp, rawArgs, env);
                     if (MemberResolver.IsBaseStaticMethod(qct, qms)) { return this.ErrBaseStaticCall(qcls, qms, mem.Name, args, argCount, rawArgs, env, sp); }   // reject-derived-static-access
                     if (qms != null) {

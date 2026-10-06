@@ -23,7 +23,7 @@ void test_crosspkg_nullable_array_param_accepts_array() {
     string[] usings = new string[1]; usings[0] = "Dep";
     ImportedSymbols imp = dupImports(srcs, nss, pkgs, usings);
 
-    string main = "using Dep; void Main() { byte[] b = new byte[3]; Dep.Sink.Take(b); }";
+    string main = "void Main() { byte[] b = new byte[3]; Dep.Sink.Take(b); }";   // 全限定名不需要 using
     string[] diags = dupDiags(main, imp);
 
     Assert.Equal(0, diags.Length);

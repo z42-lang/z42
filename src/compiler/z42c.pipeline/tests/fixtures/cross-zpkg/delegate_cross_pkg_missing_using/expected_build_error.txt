@@ -1,1 +1,1 @@
-E0443: undefined type: IntOp
+E0436: namespace `Demo.DgLib` is used but not imported in this file; add `using Demo.DgLib;`

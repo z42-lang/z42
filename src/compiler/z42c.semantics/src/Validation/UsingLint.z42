@@ -2,7 +2,8 @@
 //
 //   W0607 不必要（C# CS8019 / IDE0005）：
 //     · 指向 prelude（`Std` / `Std.Runtime`）或本文件 ns 及其外围 —— 本来就可见；
-//     · 本文件没有任何地方用到它（判据与 E0436 同一份集合：`UsedNs` ∪ `UsedDepNs`）。
+//     · 本文件没有任何地方用到它（判据与 E0436 同一份集合：`UsedNs` = 源码里**写出来**、靠这条 using 才解析得到的
+//       名字；全限定写法与编译器推导出的类型不算，C# 同口径）。
 //   W0608 重复（C# CS0105）：同一文件写了两次；或包里已有同名 `global using`（注入时打的 `CoveredByGlobal`）。
 //
 // 不判：编译器注入的 global using 副本（`Injected`）；`global using` 声明本身「全包都没用到」—— 那要全包每个文件的
@@ -16,7 +17,7 @@ using Z42.Core;
 
 public static class UsingLint {
 
-    public static void Check(CompilationUnit cu, string[] used, string[] dep, int depCount, DiagnosticBag diags) {
+    public static void Check(CompilationUnit cu, string[] used, DiagnosticBag diags) {
         if (diags.ErrorCount() > 0) { return; }
         string fileNs = cu.HasNamespace ? cu.Namespace : "";
         string[] seen = new string[cu.DeclCount];
@@ -44,17 +45,10 @@ public static class UsingLint {
                 //   （`namespace A;` 的文件里写 `global using A;` 是常见写法）。全包没人用到另由 CheckGlobalUsings 判。
                 diags.Warning(DiagnosticCodes.UnnecessaryUsing, "unnecessary `using " + u.Name + ";` — `" + u.Name
                     + "` is this file's namespace or encloses it, so it is visible without `using`", u.Span);
-            } else if (!u.IsGlobal && !UsingLint._has(used, used.Length, u.Name) && !UsingLint._hasDep(dep, depCount, u.Name)) {
+            } else if (!u.IsGlobal && !UsingLint._has(used, used.Length, u.Name)) {
                 diags.Warning(DiagnosticCodes.UnnecessaryUsing, "unnecessary `using " + u.Name + ";` — nothing in this file uses it", u.Span);
             }
         }
-    }
-
-    // `UsedDepNs` 的条目可能带归属包（`ns#pkg`，deterministic-zpkg-deps / DepRef）—— 只比 ns 部分。
-    public static bool _hasDep(string[] a, int n, string s) {
-        int i = 0;
-        while (i < n) { if (DepRef.NsOf(a[i]) == s) { return true; } i = i + 1; }
-        return false;
     }
 
     public static bool _has(string[] a, int n, string s) {

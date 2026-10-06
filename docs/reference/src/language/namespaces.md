@@ -48,8 +48,10 @@ using Std.Collections;
 1. `z42.core` 是唯一隐式 prelude，它提供的 `Std` 与 `Std.Runtime` 两个命名空间无需 `using`。
 2. **其它一切都必须显式 `using`**——包括 `Std.IO`、`Std.Collections`、`Std.Text`、`Std.Math`、`Std.Test` 等
    同样以 `Std.` 打头的 stdlib 命名空间。
-3. `using X;` 激活所有声明了命名空间 `X` 的包。
-4. **没有全限定名逃生口**：`Std.IO.Console.WriteLine("hi")` 不写 `using` 也不行，报 `E0401: undefined: Std`。
+3. `using` 只管**可见性**（短名能不能直接写），不管加载哪些包：依赖包（stdlib 与清单里声明的依赖）里的
+   名字随时可以被找到，名字查找第一次落到哪个包，就用哪个包。
+4. **全限定名不需要 `using`**（与 C# 相同）：`Std.IO.Console.WriteLine("hi")`、`Std.Toml.TomlDocument doc;`
+   不写 `using Std.IO;` / `using Std.Toml;` 也能用。
 5. **外围命名空间隐式可见**（与 C# 相同）：写在 `namespace A.B` 里的代码，不写 `using` 就能用 `A.B` 与 `A`
    里的类型和函数。名字查找由内向外：`A.B` → `A` → `using` 进来的命名空间（含 prelude）。外围命名空间里的
    那一份**胜过** `using` 进来的同名者，不算歧义；多层外围都有时**最内层**胜出。外围按段算：`AB` 不是
@@ -73,10 +75,11 @@ E0436: namespace `Std.Collections` is used but not imported in this file; add `u
 源码里写出的类型名（如 `Console`、`List<int>`）报在**引用处**；按 C# 规则，这样的名字在本文件根本解析不到，
 编译器只是认出它在哪个命名空间、替你指路。
 
-「用到」按 C# 的口径算：源码里**写出**的类型名（局部变量 / 字段 / 形参 / 返回 / 基类与接口列表 / 约束 /
+「用到」按 C# 的口径算：源码里**写出**的短名——类型名（局部变量 / 字段 / 形参 / 返回 / 基类与接口列表 / 约束 /
 `new` / 转换 / `is` / `as` / `typeof` / 泛型实参 / delegate 类型）、静态成员与静态调用的类名、enum 常量、自由函数调用与
-函数引用。限定写法 `A.W` 同样算用到 `A`（规则 4）。编译器**合成**的类型不算：`[1, 2]` 生成 `List<int>`、`(1, 2)` 生成
-元组类型，都不要求 `using Std.Collections;`。`using Id = 全限定名;` 别名的目标也不算。
+函数引用。全限定写法 `A.W` **不算**用到 `A`（规则 4：它不靠 `using` 解析）。编译器**推导或合成**的类型也不算：
+`[1, 2]` 生成 `List<int>`、`(1, 2)` 生成元组类型、`var x = f();` 推出的类型，都不要求 `using`。`using Id = 全限定名;`
+别名的目标也不算。
 
 同包内的跨命名空间引用同样要 `using`。
 
@@ -86,6 +89,8 @@ E0436: namespace `Std.Collections` is used but not imported in this file; add `u
 ### 多余的 `using` 会告警
 
 与 C# 一样，多余的 `using` 报 warning（不阻断编译）：
+
+「没用到」与上一节的「用到」同一口径：只被全限定写法引用到的命名空间，它的 `using` 也是多余的。
 
 ```
 W0607: unnecessary `using Std.Text;` — nothing in this file uses it
@@ -138,11 +143,11 @@ Row r = new Row();                        // 泛型别名可作 new 的类型
 包编译器把每个源文件当一个编译单元（CU）处理，分三步：
 
 1. **全量解析**——所有 CU 解析成 AST，收集各自的 `using`。
-2. **符号收集**——用「激活包过滤后的导入符号」收集每个 CU 的类 / 接口 / 函数形状。
-3. **类型检查 + 代码生成**——绑定函数体；用到未激活包的类型即报错。
+2. **符号收集**——依赖包的导入符号与本包各 CU 的类 / 接口 / 函数形状一起进符号表。
+3. **类型检查 + 代码生成**——绑定函数体；名字按命名空间规则判可见性（`using` / 全限定名 / 外围命名空间）。
 
-**激活包的计算**：prelude（`z42.core`）恒激活；用户每条 `using <ns>;` 激活声明了该命名空间的所有包；
-同包内多个 CU 互相可见，无需彼此 `using`。
+**参与名字查找的包**：stdlib 与清单 `[dependencies]` 声明的包全体，与 `using` 无关。依赖了却没声明的包，
+写了它的 `using` 时同样能被找到，用到它的符号报 `E0497`（补声明）。同包内多个 CU 互相可见，无需彼此 `using`。
 
 ## 入口函数
 
@@ -177,7 +182,7 @@ z42c build: kind=exe but no Main() found
 | `E0436` | 本文件用到某命名空间（依赖包或同包）却没 `using` 它 | 生效 |
 | `W0607` | 不必要的 `using`：没用到，或指向 prelude / 本文件 namespace 及其外围；`global using` 全包没有文件用到 | 生效 |
 | `W0608` | 重复的 `using`：同文件写了两次，或已有同名 `global using` | 生效 |
-| `E0401` | 用到未激活包里的符号，或写了没有 `using` 的全限定名 | 生效 |
+| `E0401` | 名字在任何依赖包里都找不到 | 生效 |
 | `E0601` | 同一个**全限定名**被两个以上的**依赖包**声明——限定名也分不开它们，谁都选不中 | 生效 |
 | `E0606` | 本包声明的类型**遮蔽**了某个导入包的同全限定名类型——被遮的那份无论怎么写都指不到 | 生效 |
 | `E0494` | `using <ns>;` 指向的命名空间不存在（依赖的包里没有它，本包也没声明） | 生效（`using Z42.Totally.Bogus;` → E0494）|

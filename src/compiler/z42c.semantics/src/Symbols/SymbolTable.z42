@@ -463,6 +463,17 @@ public sealed partial class SymbolTable {
         if (this.UseRecorder != null) { this.UseRecorder.Note(ns); }
     }
 
+    // 源码里写的名字 `written` 解析到 ns 里的符号：写成 `ns.X…` 的全限定形态不算「用到 ns」（不需要 using）。
+    public void _noteNamedUse(string written, string ns) {
+        if (SymbolTable.IsQualifiedBy(written, ns)) { return; }
+        this.NoteUse(ns);
+    }
+
+    // `written` 是不是以 `ns.` 开头的全限定写法（ns 为空 = 全局 ns，无从限定）。
+    public static bool IsQualifiedBy(string written, string ns) {
+        return ns != "" && written.Length > ns.Length && written.StartsWith(ns) && written.CharAt(ns.Length) == '.';
+    }
+
     // deterministic-zpkg-deps：同时记「这个导入符号来自哪个包」（pkg 为空 = 本包 / 归属不明，不记）。
     public void NoteDepUse(string ns, string pkg) {
         if (this.UseRecorder != null && pkg != "") { this.UseRecorder.NoteDep(DepRef.Encode(ns, pkg)); }
@@ -479,22 +490,24 @@ public sealed partial class SymbolTable {
 
     // 只看**用户写的**具名类型：合成的跳过；别名跳过（C#：`using Id = 全限定名;` 的目标不需要另写 using，
     // 解析目标时 `_resolveTypePCore` 已暂停记录）。
+    // 写成全限定名（`Std.Toml.TomlDocument`）的引用只记依赖（DEPS），不记「本文件用到了 ns」——全限定名不需要
+    // using（C# 同），所以它既不触发 E0436，也不能让一条 `using Std.Toml;` 免于 W0607。
     private void _noteTypeUse(NamedType nt, Z42Type r) {
         if (nt.Synthetic) { return; }
         if (this.CurrentAliases != null && nt.ArgCount == 0 && this.CurrentAliases.Find(nt.Name) >= 0) { return; }
         if (r is Z42InstantiatedType) {
             Z42ClassType d = (r as Z42InstantiatedType).Def;
-            if (d != null) { this.NoteUse(d.Namespace); this.NoteDepUse(d.Namespace, this.ImportedPkgOf(d.Fqn())); }
+            if (d != null) { this._noteNamedUse(nt.Name, d.Namespace); this.NoteDepUse(d.Namespace, this.ImportedPkgOf(d.Fqn())); }
             return;
         }
         if (r is Z42ClassType) {
             Z42ClassType rc = r as Z42ClassType;
-            this.NoteUse(rc.Namespace); this.NoteDepUse(rc.Namespace, this.ImportedPkgOf(rc.Fqn()));
+            this._noteNamedUse(nt.Name, rc.Namespace); this.NoteDepUse(rc.Namespace, this.ImportedPkgOf(rc.Fqn()));
             return;
         }
         if (r is Z42InterfaceType) {
             Z42InterfaceType ri = r as Z42InterfaceType;
-            this.NoteUse(ri.Namespace); this.NoteDepUse(ri.Namespace, this.ImportedPkgOf(ri.Fqn()));
+            this._noteNamedUse(nt.Name, ri.Namespace); this.NoteDepUse(ri.Namespace, this.ImportedPkgOf(ri.Fqn()));
             return;
         }
         if (r is Z42FuncType) {
@@ -522,11 +535,10 @@ public sealed partial class SymbolTable {
                 if (_as >= 0) {
                     TypeExpr target = this.CurrentAliases.ValAt(_as) as TypeExpr;
                     if (target != null) {
-                        // using-csharp-rules PR-2：别名目标是全限定写法，不计入「用到的 ns」（C# 同款）。
-                        if (this.UseRecorder != null) { this.UseRecorder.Suspend = this.UseRecorder.Suspend + 1; }
-                        Z42Type ar = this.ResolveTypeP(target, paramNames, paramCount);
-                        if (this.UseRecorder != null) { this.UseRecorder.Suspend = this.UseRecorder.Suspend - 1; }
-                        return ar;
+                        // 别名目标照常记用量：写成全限定名的目标由 `_noteNamedUse` 自然跳过（不需要 using）；
+                        // 写成短名的（`using Scores = Dictionary<string, int>;`）确实靠本文件的 using 解析，必须计入，
+                        // 否则那条 using 会被 W0607 误报成多余。
+                        return this.ResolveTypeP(target, paramNames, paramCount);
                     }
                 }
             }

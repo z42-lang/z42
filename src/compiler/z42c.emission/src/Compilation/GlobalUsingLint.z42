@@ -1,6 +1,6 @@
 // 包级 `global using` 告警：全包没有任何文件用到的 `global using X;` ⇒ W0607。
 // 跑在**整包编译之后**、作用于编译产物（`CompiledModuleZ` 的用法集合与诊断列表），与 `CuPreprocess._enforceFileScope`
-// 同属编排层；单文件那半（多余 / 重复 `using`）是声明期规则，住 Validation 的 `UsingLint`，两者共用其 `_has` / `_hasDep`。
+// 同属编排层；单文件那半（多余 / 重复 `using`）是声明期规则，住 Validation 的 `UsingLint`，两者共用其 `_has`。
 namespace Z42.Emission;
 
 using Z42.Semantics;
@@ -10,8 +10,8 @@ using Z42.Core;
 
 public static class GlobalUsingLint {
     // using-csharp-rules 3.6：`global using X;` **全包**没有任何文件用到 X ⇒ W0607（报在声明它的那一行）。
-    // 判据：每个文件的 `UsedNs` ∪ `UsedDepNs`（与 E0436 同一份集合）。cached 文件的这两项由 meta 回填（2.9）——
-    // 少了 `UsedNs` 就会把只被 cached 文件用到的 global using 误报成没用。
+    // 判据：每个文件的 `UsedNs`（与 E0436 同一份集合）。cached 文件的这一项由 meta 回填（2.9）——
+    // 少了它就会把只被 cached 文件用到的 global using 误报成没用。
     // 不判：包里有错误（同 `Check`：用法集合不可信）；编译器注入的副本（`Injected`）；prelude（`Check` 已在声明处报过）。
     public static void Check(CompilationUnit[] cus, CompiledModuleZ[] cms, int n) {
         int e = 0;
@@ -42,7 +42,6 @@ public static class GlobalUsingLint {
         while (i < n) {
             if (cms[i] != null) {
                 if (cms[i].UsedNs != null && UsingLint._has(cms[i].UsedNs, cms[i].UsedNs.Length, ns)) { return true; }
-                if (cms[i].UsedDepNs != null && UsingLint._hasDep(cms[i].UsedDepNs, cms[i].UsedDepNsCount, ns)) { return true; }
             }
             i = i + 1;
         }

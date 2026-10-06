@@ -11,14 +11,13 @@ public sealed class NsUseRecorder {
     public string[] Items;
     public int      Count;
     public bool     Active;
-    public int      Suspend;   // >0 时不记（别名目标等）
 
     public NsUseRecorder() {
-        this.Items = new string[8]; this.Count = 0; this.Active = true; this.Suspend = 0;
+        this.Items = new string[8]; this.Count = 0; this.Active = true;
     }
 
     public void Note(string ns) {
-        if (!this.Active || this.Suspend > 0) { return; }
+        if (!this.Active) { return; }
         if (ns == null || ns == "") { return; }   // 全局 ns 恒可见，不记
         int i = 0;
         while (i < this.Count) { if (this.Items[i] == ns) { return; } i = i + 1; }
@@ -37,7 +36,7 @@ public sealed class NsUseRecorder {
     public int      DepCount;
 
     public void NoteDep(string entry) {
-        if (!this.Active || this.Suspend > 0) { return; }
+        if (!this.Active) { return; }
         if (this.DepItems == null) { this.DepItems = new string[4]; this.DepCount = 0; }
         int i = 0;
         while (i < this.DepCount) { if (this.DepItems[i] == entry) { return; } i = i + 1; }
