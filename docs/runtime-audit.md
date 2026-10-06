@@ -491,7 +491,7 @@ z42vm-cli/   clap / tracing-subscriber（不再是 lib 依赖）
 
 | ID | 类型 | 内容 | 验证要点 | 状态 |
 |---|---|---|---|---|
-| P0-1 | fix | OSR 遇 ref 回写时拒绝 OSR（`try_osr` 检查 `frame.ref_writebacks`） | golden：附录 A.1，在较小的 `Z42_OSR_THRESHOLD` 下 interp 与 JIT 输出一致 | ⬜ |
+| P0-1 | fix | OSR 遇 ref 回写时拒绝 OSR（`try_osr` 检查 `frame.ref_writebacks`） | golden：附录 A.1，在较小的 `Z42_OSR_THRESHOLD` 下 interp 与 JIT 输出一致 | ✅ (#1089) |
 | P0-2 | vm | 整数 MIN/-1 wrapping：`semantics.rs` 提供 `int_div` / `int_rem`，三路共用；`interp-jit-semantics.md` 语义表补行 | golden：附录 A.2（div、rem 两路，interp 与 JIT 一致） | ⬜ |
 | P0-3 | fix | compression 包装器自死锁：`LOADED_COMPRESSION` 改 `OnceLock`，调用时不持锁，顺带去掉全进程串行 | 恢复错误路径测试（附录 A.3：损坏数据抛异常而非挂起） | ⬜ |
 | P0-4 | vm | 栈溢出 = 致命错误（见裁决）：<br>• interp 与 JIT 的帧入口检查剩余栈<br>• 内部错误不被转成 z42 异常（builtin 错误转换的两处跳过）<br>• z42vm 打印 z42 栈并以固定非零码退出；host 返回错误码<br>• VM 创建的线程栈可配置，默认 16 MB<br>• `SA_ONSTACK` + `sigaltstack` | 附录 A.4：深递归输出致命报告和 z42 栈、退出码稳定；try/catch 不拦截；host 测试拿到错误码 | ⬜ |

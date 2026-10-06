@@ -1,0 +1,25 @@
+// A `ref` parameter is copied back to the caller when the callee returns.
+// The callee below is called once and runs a hot loop, so under --mode jit it would
+// be taken native by OSR; the native frame returns without the copy-back, so the
+// caller used to see the value from before the call (0). OSR now leaves such
+// functions on the interpreter, and both modes must print the same result.
+namespace OsrTest.RefParam;
+
+void Acc(ref long t, long n) {
+    long i = 0L;
+    while (i < n) {
+        t = t + i;
+        i = i + 1L;
+    }
+}
+
+long Wrapper(long n) {
+    long s = 0L;
+    Acc(ref s, n);
+    return s;
+}
+
+void Main() {
+    // 50000 iterations crosses the default OSR threshold (10000).
+    Assert.Equal(1249975000L, Wrapper(50000L));   // 49999 * 50000 / 2
+}

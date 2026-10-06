@@ -292,8 +292,9 @@ flowchart TD
   正常 prologue（safepoint + `regs_base` + 数组指针 hoist——都是需支配全函数的 SSA 值），然后
   `jump cl_blocks[K]`。block `0..K` 变不可达，`seal_all_blocks` 时被 DCE。**非 OSR 路径（`None`）
   字节不变**——专用入口块只在 `Some` 时创建。
-- **跳过 prologue 的正确性**：OSR 只作用**可翻译**函数（带 `ref`/`out` 的函数含 `LoadLocalAddr`
-  → 不可翻译 → 不 OSR），故无入口 ref copy-in、无出口 copy-out 要补；safepoint 刚在回边点查过。
+- **跳过 prologue 的正确性**：带 `ref` 形参的帧（`Frame.ref_writebacks` 非空）**不 OSR**——解释器在
+  出口跑 `run_ref_writebacks` 把形参终值写回调用方，OSR 原生帧直接返回会越过它，调用方就看到调用前的旧值。
+  其余帧无入口 ref copy-in、无出口 copy-out 要补；safepoint 刚在回边点查过。golden：`osr/ref_param_writeback`。
 - **缓存**：`JitModuleCtx.osr_entries: Mutex<HashMap<(id, K), FnEntry>>`——按 `(函数 id, 循环头 K)`
   键（一函数两循环可在不同 K OSR）。OSR 是稀有事件，用普通 Mutex（非热路径 lock-free 槽表）够。
 - **v1 简化**：交接时解释器自身的 VmFrame 仍在栈上，OSR 原生帧再 push 一个——GC 双扫（interp regs
