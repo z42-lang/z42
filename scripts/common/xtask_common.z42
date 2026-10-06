@@ -100,7 +100,7 @@ int _z42cWorkspaceBuild(string vm, string driver, string cwd, string libs, bool 
 // `docs/spec/archive/2026-09-27-rename-project-namespaces/design.md` §3。
 int _z42cWorkspaceBuild(string vm, string driver, string cwd, string libs, bool noIncremental,
                         string compileLibs) {
-    Process p = _z42Proc(vm, libs).Arg(driver).Arg("--mode").Arg(_z42cMode()).Arg("--")
+    Process p = _z42cProc(vm, libs, driver)
         .Arg("build").Arg("--workspace").Arg("--release");
     if (noIncremental) { p = p.Arg("--no-incremental"); }
     if (compileLibs.Length > 0) { p = p.Arg("--compile-libs").Arg(compileLibs); }
@@ -120,7 +120,7 @@ int _z42cBuildPackage(string vm, string driver, string tomlPath, string libs, st
 // `compileLibs` 非空 ⇒ 额外传 `--compile-libs`（同上：编译期面与 driver 运行期面分开）。
 int _z42cBuildPackage(string vm, string driver, string tomlPath, string libs, string outputDir,
                       string compileLibs) {
-    Process p = _z42Proc(vm, libs).Arg(driver).Arg("--mode").Arg(_z42cMode()).Arg("--")
+    Process p = _z42cProc(vm, libs, driver)
         .Arg("build").Arg(tomlPath).Arg("--release").Arg("--output-dir").Arg(outputDir);
     if (compileLibs.Length > 0) { p = p.Arg("--compile-libs").Arg(compileLibs); }
     return p

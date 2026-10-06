@@ -188,8 +188,7 @@ string _compileTarget(string root, string vm, string driverZpkg, string projDir,
     string synth = Path.Join(projDir, ".xtask-" + projName + ".z42.toml");
     bool wantEntry = (kindStr == "exe") && tHasEntry;
     File.WriteAllText(synth, _renderTargetManifest(projName, kindStr, tEntry, wantEntry, inc, inc.Length, outDir, deps));
-    ProcessResult br = _z42Proc(vm, libs).Arg(driverZpkg).Arg("--mode").Arg(_z42cMode())
-        .Arg("--").Arg("build").Arg(synth).Run();
+    ProcessResult br = _z42cProc(vm, libs, driverZpkg).Arg("build").Arg(synth).Run();
     try { File.Delete(synth); } catch (Exception e) {}
     if (br.ExitCode != 0) {
         ConsoleError.WriteLine("✗ COMPILE ERROR: " + label);

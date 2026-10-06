@@ -117,7 +117,7 @@ string _vscodeDumpKeywords(string root) {
     }
     string stdlibFlat = _libsFlatDist(root, profile);
     try {
-        ProcessResult pr = _z42Proc(vm, stdlibFlat).Arg(driver).Arg("--mode").Arg(_z42cMode()).Arg("--")
+        ProcessResult pr = _z42cProc(vm, stdlibFlat, driver)
             .Arg("--dump-keywords")
             .Stderr(Stdio.Inherit()).Run();
         if (pr.ExitCode != 0) {

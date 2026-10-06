@@ -467,13 +467,8 @@ int _testCompilerUnits(string root, string profile, string[] members) {
                 Console.WriteLine("── z42c test: " + members[i] + " / " + unit + " ──");
                 // compile (release/packed) with z42c；stdlib 从 flat、单元声明的编译器包从编译器目录解析；
                 // 输出落单元 toml 的 [build] output_dir 镜像。
-                // 编译器目录**显式**指向本树刚建的 driver dist（`Z42_COMPILER_LIBS`，CompilerDomain 的最高档）：
-                // xtask 经 SDK apphost 启动，`Z42_PORTABLE_VM` 会被子进程继承，CompilerDomain 的 SDK 档排在开发树档
-                // 之前 ⇒ 不显式指定时单元是对着**种子 SDK 里的旧编译器包**编译的——测的不是当前源码，
-                // 且编译器包的符号一挪包 / 改命名空间，单元就编不过（拆出 z42c.optimization 时实测）。
-                ProcessResult br = _z42Proc(vm, flat)
-                    .Env("Z42_COMPILER_LIBS", _driverDist(root, profile))
-                    .Arg(driverZpkg).Arg("--mode").Arg(_z42cMode()).Arg("--")
+                // 编译器目录由 _z42cProc 显式指向本树刚建的 driver dist（不指时单元会对着种子 SDK 里的旧编译器包编）。
+                ProcessResult br = _z42cProc(vm, flat, driverZpkg)
                     .Arg("build").Arg(tomls[0]).Arg("--release")
                     .Stdout(Stdio.Inherit()).Stderr(Stdio.Inherit()).Run();
                 if (br.ExitCode != 0) {

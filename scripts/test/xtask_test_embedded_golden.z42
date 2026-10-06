@@ -19,7 +19,7 @@ string _ensureTestAgent(string root) {
     string driver = _driverZpkg(root, "release");
     string flat = _libsDir(root);   // 纯 stdlib flat：被编的东西只用 stdlib，driver 自包含（不需要 alllibs）
     Console.WriteLine("  build test-agent → z42.testagent.zpkg");
-    int c = _exec(_z42Proc(vm, flat).Arg(driver).Arg("--mode").Arg(_z42cMode()).Arg("--")
+    int c = _exec(_z42cProc(vm, flat, driver)
         .Arg("build").Arg(toml).Arg("--release"));
     if (c != 0) { return ""; }
     return zpkg;
@@ -99,7 +99,7 @@ string _buildGoldenCase(string root, string caseDir) {
     string vm = _builtVm(root, "release");
     string driver = _driverZpkg(root, "release");
     string flat = _libsDir(root);   // 纯 stdlib flat：被编的东西只用 stdlib，driver 自包含（不需要 alllibs）
-    int c = _exec(_z42Proc(vm, flat).Arg(driver).Arg("--mode").Arg(_z42cMode()).Arg("--")
+    int c = _exec(_z42cProc(vm, flat, driver)
         .Arg("--emit-zbc").Arg(wrappedSrc).Arg(zbc));
     if (c != 0) { return ""; }
     return zbc;
@@ -122,7 +122,7 @@ string _emitUnitZbc(string root, string unitSrc, string safe, string bundleDir) 
     string driver = _driverZpkg(root, "release");
     string flat = _libsDir(root);   // 纯 stdlib flat：被编的东西只用 stdlib，driver 自包含（不需要 alllibs）
     string zbc = Path.Join(bundleDir, safe + ".zbc");
-    int c = _exec(_z42Proc(vm, flat).Arg(driver).Arg("--mode").Arg(_z42cMode()).Arg("--")
+    int c = _exec(_z42cProc(vm, flat, driver)
         .Arg("--emit-zbc").Arg(unitSrc).Arg(zbc));
     if (c != 0) { return ""; }
     return zbc;
@@ -144,7 +144,7 @@ string _emitDirUnit(string root, string lib, string name, string dirPath, string
     string vm = _builtVm(root, "release");
     string driver = _driverZpkg(root, "release");
     string flat = _libsDir(root);   // 纯 stdlib flat：被编的东西只用 stdlib，driver 自包含（不需要 alllibs）
-    int c = _exec(_z42Proc(vm, flat).Arg(driver).Arg("--mode").Arg(_z42cMode()).Arg("--")
+    int c = _exec(_z42cProc(vm, flat, driver)
         .Arg("build").Arg(toml).Arg("--release"));
     File.Delete(toml);   // clean up the synthetic manifest regardless of outcome
     if (c != 0) { return ""; }

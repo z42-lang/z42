@@ -48,7 +48,7 @@ gate 里还串着若干**静态检查** stage（纯文本扫描 / 生成物比�
 | `xtask check stage2 [--update]` | 阶段-1 过渡形态必须挂账且不超期 |
 | `xtask check vscode-syntax` | VSCode 语法文件 ↔ Lexer 关键字表同步 |
 | `xtask check ci-shell` | CI composite action 的 `run:` 块没有先用后赋的变量 |
-| `xtask check proc-env` | `Z42_LIBS` / `Z42_PROBING_PATHS` 只经 `_z42Proc` / `_z42bProc` 设置 |
+| `xtask check proc-env` | `Z42_LIBS` / `Z42_PROBING_PATHS` / `Z42_COMPILER_LIBS` 只经 `_z42Proc` / `_z42bProc` / `_z42cProc` 设置 |
 | `xtask check layout` | 测试布局规范里能机械判定的部分（[test-layout](test-layout.md) 的「实现」节） |
 
 打包相关：`xtask check packages` 自检 `packages.toml` 的解析 / 组件安装 / 发布归档（不需要包）；

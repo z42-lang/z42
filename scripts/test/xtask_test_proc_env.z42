@@ -2,15 +2,17 @@
 //
 // ## 守的是什么
 //
-// xtask 起的「跑 z42 代码」的子进程，stdlib 世界（`Z42_LIBS`）与编译器包 probing（`Z42_PROBING_PATHS`）
-// 只能经 `_z42Proc` / `_z42bProc`（scripts/build/xtask_stdlib.z42）设置。调用点直接写
-// `.Env("Z42_LIBS", …)` / `.Env("Z42_PROBING_PATHS", …)` ⇒ 红。
+// xtask 起的「跑 z42 代码」的子进程，stdlib 世界（`Z42_LIBS`）、编译器包 probing（`Z42_PROBING_PATHS`）
+// 与 driver 的编译器目录（`Z42_COMPILER_LIBS`）只能经 `_z42Proc` / `_z42bProc` / `_z42cProc`
+// （scripts/build/xtask_stdlib.z42）设置。调用点直接写 `.Env("<这三个之一>", …)` ⇒ 红。
 //
-// 为什么：两种漏法都**不在漏的地方报错**——
+// 为什么：三种漏法都**不在漏的地方报错**——
 //   · 漏 `Z42_LIBS`：子进程继承 xtask 自身的（`.z42/libs`，上一版 SDK），静默跑在旧 stdlib 上；
 //   · 漏 probing：只在 z42b 真去加载编译器包时才 `MissingSymbolException`。drop-alllibs（#1019）那轮，
-//     rebase 带进来一个新 smoke，照邻居手抄却少抄了 probing，就是这么红的。
-// 集中到工厂之后，新调用点照邻居抄到的是 `_z42bProc(vm, libs)`，没有可漏的那一行。
+//     rebase 带进来一个新 smoke，照邻居手抄却少抄了 probing，就是这么红的；
+//   · 漏编译器目录：按名声明的编译器包静默对着种子 SDK 里的上一版解析，直到某次挪包才编不过
+//     （编译器 units、gc-modes 各踩过一次，各自打了补丁）。
+// 集中到工厂之后，新调用点照邻居抄到的是 `_z42cProc(vm, libs, driver)`，没有可漏的那一行。
 //
 // ## 不判的
 //
@@ -21,12 +23,12 @@ namespace Z42Xtask;
 
 using Std.IO;
 
-// 允许直接设这两个变量的唯一文件（工厂所在）。
+// 允许直接设这些变量的唯一文件（工厂所在）。
 string _peFactoryFile() { return "scripts/build/xtask_stdlib.z42"; }
 
 int _testProcEnv() {
     string root = _root();
-    Console.WriteLine("① 子进程的 Z42_LIBS / Z42_PROBING_PATHS 只经 _z42Proc / _z42bProc 设置");
+    Console.WriteLine("① 子进程的 Z42_LIBS / Z42_PROBING_PATHS / Z42_COMPILER_LIBS 只经 _z42Proc / _z42bProc / _z42cProc 设置");
     string dir = Path.Join(root, "scripts");
     string[] rel = Directory.EnumerateRecursive(dir);
     int files = 0;
@@ -43,7 +45,8 @@ int _testProcEnv() {
             string t = lines[i].Trim();
             i = i + 1;
             if (t.StartsWith("//")) { continue; }
-            if (t.Contains(".Env(\"Z42_LIBS\"") || t.Contains(".Env(\"Z42_PROBING_PATHS\"")) {
+            if (t.Contains(".Env(\"Z42_LIBS\"") || t.Contains(".Env(\"Z42_PROBING_PATHS\"")
+                || t.Contains(".Env(\"Z42_COMPILER_LIBS\"")) {
                 ConsoleError.WriteLine("  ✗ " + relp + ":" + i.ToString() + ": " + t);
                 bad = bad + 1;
             }
@@ -55,7 +58,8 @@ int _testProcEnv() {
         return 1;
     }
     if (bad > 0) {
-        ConsoleError.WriteLine("  " + bad.ToString() + " 处直接设置；改用 _z42Proc(exe, libs)（z42b 用 _z42bProc(vm, libs)），见 "
+        ConsoleError.WriteLine("  " + bad.ToString() + " 处直接设置；改用 _z42Proc(exe, libs)（z42b 用 _z42bProc(vm, libs)，"
+            + "跑 z42c driver 用 _z42cProc(vm, libs, driver)），见 "
             + _peFactoryFile());
         return 1;
     }

@@ -460,9 +460,7 @@ XpkgJobZ _spawnBuildPkgE(string vmBin, string driverZpkg, string stdlibDist, str
     _copyZpkgs(Path.Join(pkgDir, "libs"), libs);
     j.Libs = libs;
     try {
-        j.H = _z42Proc(vmBin, libs)
-            .Arg(driverZpkg).Arg("--mode").Arg(_z42cMode())
-            .Arg("--").Arg("build").Arg(toml)
+        j.H = _z42cProc(vmBin, libs, driverZpkg).Arg("build").Arg(toml)
             .Arg("--output-dir").Arg(outDir).Arg("--release")
             .WorkingDirectory(pkgDir)
             .Stdout(capture ? Stdio.Pipe() : Stdio.Null())
