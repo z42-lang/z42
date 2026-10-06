@@ -34,6 +34,7 @@ string Caught(int kind) {
         else if (kind == 3) { Console.WriteLine(g); }
         else if (kind == 4) { object o = new GrumpyPoint(); s = $"<{o}>"; }
         else if (kind == 5) { s = typeof(Tagged).GetCustomAttributes().Length.ToString(); }
+        else if (kind == 6) { string unused = "a" + g; }   // 结果没用到：拼接也不能被当成死代码删掉
     } catch (InvalidOperationException e) {
         return e.Message;
     } catch (NotSupportedException e) {
@@ -48,5 +49,6 @@ void Main() {
     Assert.Equal("no text", Caught(2));
     Assert.Equal("no text", Caught(3));
     Assert.Equal("no point", Caught(4));
+    Assert.Equal("no text", Caught(6));
     Assert.Equal("broken attribute", Caught(5));
 }

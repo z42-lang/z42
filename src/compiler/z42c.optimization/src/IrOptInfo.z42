@@ -213,7 +213,8 @@ public sealed class IrOptInfo {
     // 可删性白名单：仅明确无副作用（不抛/不调用户码/不写内存/不分配）→ true。
     // 排除：Div/Rem（除零陷阱）、ArrayLen/FieldGet/ArrayGet（NPE/越界）、ToStr（调 ToString）、
     //       Call*/VCall/ObjNew/*Set（副作用）、StaticGet（可能触发静态初始化）、ArrayNew*/MkClos/
-    //       StrConcat/LoadFn（分配，v1 保守不删）。未列出者默认 false（保留）。
+    //       StrConcat/LoadFn（分配，v1 保守不删）、串拼接 `add str`（对象操作数会调 ToString，可能抛）。
+    //       未列出者默认 false（保留）。
     public static bool IsPure(IrInstr ins) {
         if (ins is ConstI32Instr)  { return true; }
         if (ins is ConstI64Instr)  { return true; }
@@ -224,7 +225,7 @@ public sealed class IrOptInfo {
         if (ins is ConstNullInstr) { return true; }
         if (ins is DefaultOfInstr) { return true; }
         if (ins is CopyInstr)      { return true; }
-        if (ins is AddInstr)       { return true; }
+        if (ins is AddInstr)       { return (ins as AddInstr).Dst.Type != IrType.Str; }
         if (ins is SubInstr)       { return true; }
         if (ins is MulInstr)       { return true; }
         if (ins is NegInstr)       { return true; }
