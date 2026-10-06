@@ -5,7 +5,8 @@
 use crate::corelib::convert::value_to_str;
 use crate::metadata::Value;
 use super::super::frame::{JitFrame, JitModuleCtx};
-use super::{set_exception, vm_ctx_ref, JitFn};
+use super::super::invoke::{call_entry, NativeOutcome};
+use super::{set_exception, vm_ctx_ref};
 
 // ── Raw frame access (review.md C2 P1 step 1, 2026-05-28) ────────────────────
 //
@@ -147,21 +148,16 @@ pub unsafe extern "C" fn jit_to_str(
         if let Some(func_name) = func_name_opt {
             let ctx_ref = &*ctx;
             if let Some(entry) = ctx_ref.resolve_fn_by_name(func_name.as_str()) {
-                let mut callee = JitFrame::new(entry.max_reg, &[val.clone()]);
-                let jit_fn: JitFn = std::mem::transmute(entry.ptr);
-                let vm_ctx = vm_ctx_ref(ctx);
-                vm_ctx.push_frame(crate::exception::VmFrame::new(
-                    entry.name.clone(), entry.file.clone(),
-                    &callee.regs as *const _, &callee.env_arena as *const _));
-                let r = jit_fn(&mut callee, ctx);
-                vm_ctx.pop_frame();
-                if r != 0 { callee.recycle(); return 1; }
-                let s: crate::metadata::vstr::Str = match callee.ret.take() {
+                let callee = JitFrame::new(entry.max_reg, &[val.clone()]);
+                let ret = match call_entry(vm_ctx_ref(ctx), ctx, entry, callee) {
+                    NativeOutcome::Returned(ret) => ret,
+                    NativeOutcome::Threw => return 1,
+                };
+                let s: crate::metadata::vstr::Str = match ret {
                     Some(Value::Str(s)) => s,
                     Some(ref other)     => value_to_str(other).into(),
                     None                => crate::metadata::vstr::Str::from(""),
                 };
-                callee.recycle();
                 (*frame).regs[dst as usize] = Value::Str(s);
                 return 0;
             }

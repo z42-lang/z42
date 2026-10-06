@@ -13,7 +13,8 @@
 use crate::metadata::Value;
 
 use super::super::frame::{FnEntry, JitFrame, JitModuleCtx};
-use super::{set_exception, vm_ctx_ref, JitFn};
+use super::super::invoke::call_entry;
+use super::{set_exception, vm_ctx_ref};
 
 // ── LoadFn ────────────────────────────────────────────────────────────────────
 
@@ -196,24 +197,8 @@ pub unsafe extern "C" fn jit_call_indirect(
         }
     };
 
-    // 4) Build callee frame, register for GC root scanning, invoke, unregister.
-    let mut callee_frame = JitFrame::new(entry.max_reg, &args);
-    let jit_fn: JitFn = std::mem::transmute(entry.ptr);
-
+    // 4) Build the callee frame and run it (GC-root enrolment + trace row in `call_native`).
+    let callee_frame = JitFrame::new(entry.max_reg, &args);
     vm_ctx.update_top_frame_pos(caller_line, caller_col, caller_offset);
-    vm_ctx.push_frame(crate::exception::VmFrame::new(
-        entry.name.clone(),
-        entry.file.clone(),
-        &callee_frame.regs as *const _,
-        &callee_frame.env_arena as *const _,
-    ));
-    let result = jit_fn(&mut callee_frame, ctx);
-    vm_ctx.pop_frame();
-    if result != 0 {
-        callee_frame.recycle();
-        return 1;
-    }
-    frame_ref.regs[dst as usize] = callee_frame.ret.take().unwrap_or(Value::Null);
-    callee_frame.recycle();
-    0
+    call_entry(vm_ctx, ctx, entry, callee_frame).store_into(&mut frame_ref.regs, dst)
 }

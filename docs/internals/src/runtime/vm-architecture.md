@@ -82,6 +82,20 @@ vm.run(&ctx, hint)?;
 
 每个 `VmFrame` 同时承载 `(regs ptr, env_arena ptr, func_name, file, line, column, offset)` 及三个 arena 的截断 base：GC root scanner 扫 regs+env_arena，stack-trace 读 name/file/line/col，interp `RefKind::Stack` 跨帧 deref 通过 `frame.regs`。
 
+**帧的登记只有两处**，改帧布局 / 登记方式只动这两处：
+
+- **interp 帧**：`interp::exec_support::enter_frame`（由 `exec_function_body` 调用）——戳 `frame_id`、
+  `push_frame`、建 `FrameGuard`（任何退出路径都 pop），再做栈深检查。
+- **原生帧**：`jit::invoke::call_native`——`push_frame` → 运行编译码 → `pop_frame` → 回收 `JitFrame`，
+  返回 `NativeOutcome`（`Returned(ret)` / `Threw`，异常仍挂在 `VmContext` 上）。JIT 入口 `run_fn`、
+  各调用 helper（`jit_call` / `jit_vcall` / `jit_call_indirect` / `jit_obj_new` / `jit_to_str`）与 interp 的
+  混合模式分流（`try_native_exec` / OSR / `try_native_static_call` / `try_native_method_call`）都经它；
+  各处只保留自己不同的部分：怎么填 callee 帧、返回值写到哪、异常留在上下文（JIT helper 返回 `1`）
+  还是取走（interp 侧转成 `ExecOutcome::Thrown`）。
+
+两处共同的约束：建好 callee 帧到 `push_frame` 之间不能有可能触发回收的代码（此前参数只被 callee 帧持有，
+它还不是根，见 [gc-tuning.md](gc-tuning.md)）；栈深检查在 push 之后（致命报告含当前帧）。
+
 ### Send-safety 与 GC scanner 设计
 
 `MagrGC` trait 要求 `Send + Sync`。GC scanner closure（mark 阶段被调用）也要求 `Send + Sync`，进而所有 closure 捕获都必须 Send + Sync —— 这是 per-thread 字段用 `Arc<Mutex<>>` 而非 `Rc<RefCell<>>` 的根因。
@@ -137,7 +151,7 @@ blob）、`transient_arena`（`Ref`/`PinnedView`/`StackClosure`/`StructRefHeap` 
 
 - 下限 = 栈底 + 余量，余量为栈大小的 1/8、夹在 256 KiB–1 MiB（给两次检查之间的原生工作：builtin、
   一次惰性 JIT 编译、生成报告）。栈边界来自 `pal::stack`，线程首次进入时算一次，存 TLS。
-- interp：`exec_function_body` 在 `push_frame` 之后检查（报告里含这一帧），越界返回内部错误。
+- interp：`enter_frame` 在 `push_frame` 之后检查（报告里含这一帧），越界返回内部错误。
 - JIT：函数 prologue 内联 `get_stack_pointer` 与 `JitModuleCtx::stack_limit` 比较（`run_fn` 按当前
   线程设置；JIT 代码只在该线程上跑），越界调 `jit_stack_overflow` 后返回「已抛出」。
 

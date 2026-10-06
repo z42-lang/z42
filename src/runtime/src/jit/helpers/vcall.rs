@@ -12,7 +12,8 @@ use crate::metadata::{Function, Value};
 use crate::interp::vcall_resolve::{resolve_vcall, vcall_ic_hit, VCallTarget};
 
 use super::super::frame::{FnEntry, JitFrame, JitModuleCtx};
-use super::{set_exception, vm_ctx_ref, JitFn};
+use super::super::invoke::call_entry;
+use super::{set_exception, vm_ctx_ref};
 
 /// `jit_vcall` after formalize-jit-method-token Phase 2.E (2026-05-08):
 /// the per-site `VCallIC` is threaded in (stable raw pointer baked into
@@ -102,18 +103,8 @@ unsafe fn invoke_entry(
     frame_ref: &mut JitFrame, ctx: *const JitModuleCtx, dst: u32,
     entry: &FnEntry, this: Value, arg_regs: &[u32],
 ) -> u8 {
-    let mut callee = JitFrame::new_method_args_from(entry.max_reg, this, &frame_ref.regs, arg_regs);
-    let jit_fn: JitFn = std::mem::transmute(entry.ptr);
-    let vm_ctx = vm_ctx_ref(ctx);
-    vm_ctx.push_frame(crate::exception::VmFrame::new(
-        entry.name.clone(), entry.file.clone(),
-        &callee.regs as *const _, &callee.env_arena as *const _));
-    let r = jit_fn(&mut callee, ctx);
-    vm_ctx.pop_frame();
-    if r != 0 { callee.recycle(); return 1; }
-    frame_ref.regs[dst as usize] = callee.ret.take().unwrap_or(Value::Null);
-    callee.recycle();
-    0
+    let callee = JitFrame::new_method_args_from(entry.max_reg, this, &frame_ref.regs, arg_regs);
+    call_entry(vm_ctx_ref(ctx), ctx, entry, callee).store_into(&mut frame_ref.regs, dst)
 }
 
 /// Run a function on the interpreter with `this` in reg 0 and args filled from the

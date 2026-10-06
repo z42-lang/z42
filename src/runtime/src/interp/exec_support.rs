@@ -24,6 +24,52 @@ impl Drop for FrameGuard<'_> {
     }
 }
 
+/// The interpreter's frame entry: stamp `frame.frame_id`, push one `VmFrame`
+/// enrolling `frame` as GC root + stack-trace row, then check the native stack
+/// budget. The returned guard pops the frame on every exit path (`?`
+/// propagation, panic unwind, normal return) — including this function's own
+/// stack-overflow `Err`, which is reported with the frame already on the stack.
+///
+/// Must not reach a safepoint before the push: until then the callee's
+/// arguments are reachable only from `frame` (see `exec_function_body`).
+///
+/// SAFETY of the raw pointers: `frame.regs` / `frame.env_arena` live in the
+/// caller's `Frame` on the Rust call stack, which outlives the guard.
+pub(super) fn enter_frame<'a>(ctx: &'a VmContext, func: &Function, frame: &mut Frame) -> Result<FrameGuard<'a>> {
+    // perf-frame-name-precompute: clone the load-time precomputed (name, file)
+    // Arc<str> pair — O(1) refcount bumps — instead of re-formatting the frame
+    // name (String alloc + format) + cloning the file string on every call
+    // (was 40–60% of call-heavy interp time). Hand-built test functions have no
+    // precomputed meta (`None`) → fall back to formatting on the fly; file is
+    // taken from the line_table's first entry, empty when the emitter omits it.
+    let (frame_name, frame_file) = match &func.frame_meta {
+        Some((name, file)) => (name.clone(), file.clone()),
+        None => {
+            let file = func.line_table().first()
+                .and_then(|e| e.file.clone())
+                .unwrap_or_default();
+            (
+                std::sync::Arc::from(crate::metadata::bytecode::format_frame_name(func)),
+                std::sync::Arc::from(file),
+            )
+        }
+    };
+    // add-escape-analysis-stack-alloc: stamp this frame's monotonic id (keys any
+    // stack-allocated objects/arrays it creates, for stale-handle diagnostics).
+    frame.frame_id = ctx.next_frame_id();
+    ctx.push_frame(crate::exception::VmFrame::new(
+        frame_name,
+        frame_file,
+        &frame.regs as *const Vec<Value>,
+        &frame.env_arena as *const Vec<Vec<Value>>,
+    ));
+    let guard = FrameGuard { ctx };
+    // runtime-audit P0-4: stack overflow is fatal — checked once the frame is
+    // on the call stack, so the report includes it.
+    crate::stack_guard::check(ctx)?;
+    Ok(guard)
+}
+
 pub(crate) fn exec_function(ctx: &VmContext, module: &Module, func: &Function, args: &[Value]) -> Result<ExecOutcome> {
     // fix-callee-entry-safepoint-drops-args (2026-09-10): the callee-entry safepoint used
     // to be **here**, before the frame exists. `args` is a caller-side temporary — for the
@@ -134,19 +180,9 @@ pub(super) fn try_native_exec(ctx: &VmContext, func: &Function, args: &[Value]) 
         (entry.max_reg, entry.ptr, entry.name.clone(), entry.file.clone())
     };
     ctx.counters().jit_native_from_interp.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let mut callee = crate::jit::frame::JitFrame::new(max_reg, args);
-    let jit_fn: crate::jit::helpers::JitFn = unsafe { std::mem::transmute(ptr) };
-    ctx.push_frame(crate::exception::VmFrame::new(
-        name, file, &callee.regs as *const _, &callee.env_arena as *const _));
-    let r = unsafe { jit_fn(&mut callee, jit_ctx) };
-    ctx.pop_frame();
-    if r != 0 {
-        callee.recycle();
-        return Some(Ok(ExecOutcome::Thrown(ctx.take_exception().unwrap_or(Value::Null))));
-    }
-    let ret = callee.ret.take();
-    callee.recycle();
-    Some(Ok(ExecOutcome::Returned(ret)))
+    let callee = crate::jit::frame::JitFrame::new(max_reg, args);
+    let outcome = unsafe { crate::jit::invoke::call_native(ctx, jit_ctx, ptr, name, file, callee) };
+    Some(Ok(outcome.into_exec(ctx)))
 }
 
 #[cfg(not(feature = "jit"))]
@@ -206,23 +242,16 @@ fn osr_hand_off(
     // already allocated (frame_id = interp's) must still deref after hand-off, and
     // new struct allocs in OSR code stay consistent with them.
     osr.frame_id = frame.frame_id;
-    let jit_fn: crate::jit::helpers::JitFn = unsafe { std::mem::transmute(entry.ptr) };
     // NB v1 simplification: the interpreter's own VmFrame for this activation is
-    // still on the stack; we push a second one for the OSR native frame. GC scans
-    // both — the interp regs are clones of the OSR regs (same heap refs), so the
-    // double-scan is conservatively correct. A crash trace shows the frame twice
-    // (cosmetic). Popped here; the interp frame's guard pops on the `return` below.
-    ctx.push_frame(crate::exception::VmFrame::new(
-        entry.name, entry.file, &osr.regs as *const _, &osr.env_arena as *const _));
-    let r = unsafe { jit_fn(&mut osr, jit_ctx) };
-    ctx.pop_frame();
-    if r != 0 {
-        osr.recycle();
-        return Some(Ok(ExecOutcome::Thrown(ctx.take_exception().unwrap_or(Value::Null))));
-    }
-    let ret = osr.ret.take();
-    osr.recycle();
-    Some(Ok(ExecOutcome::Returned(ret)))
+    // still on the stack; `call_native` pushes a second one for the OSR native frame.
+    // GC scans both — the interp regs are clones of the OSR regs (same heap refs), so
+    // the double-scan is conservatively correct. A crash trace shows the frame twice
+    // (cosmetic). Popped in `call_native`; the interp frame's guard pops on the
+    // caller's `return`.
+    let outcome = unsafe {
+        crate::jit::invoke::call_native(ctx, jit_ctx, entry.ptr, entry.name, entry.file, osr)
+    };
+    Some(Ok(outcome.into_exec(ctx)))
 }
 
 #[cfg(not(feature = "jit"))]

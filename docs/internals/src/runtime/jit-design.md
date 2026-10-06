@@ -55,7 +55,7 @@ JIT 只在执行 `run_fn` 的那个线程上运行。VM 创建的其他线程用
 | `env_arena` | 不逃逸闭包的帧内环境 |
 | `frame_id` | 帧 id，供 struct 值的悬垂检查；OSR 时继承 interp 帧的 id |
 
-每次进入原生函数前，调用方把 `regs` / `env_arena` 登记成一个 `VmFrame` 压进 `VmContext` 的调用栈，GC 从那里扫描根。
+每次进入原生函数都经 `invoke::call_native`：把 `regs` / `env_arena` 登记成一个 `VmFrame` 压进 `VmContext` 的调用栈（GC 从那里扫描根），运行后弹出并回收 `JitFrame`。
 
 ## 原生函数 ABI
 

@@ -4,7 +4,8 @@
 use crate::metadata::Value;
 
 use super::super::frame::{FnEntry, JitFrame, JitModuleCtx};
-use super::{set_exception, vm_ctx_ref, JitFn};
+use super::super::invoke::call_entry;
+use super::{set_exception, vm_ctx_ref};
 
 /// `jit_call` after formalize-jit-method-token Phase 2.C (2026-05-08):
 /// hot path takes pre-resolved `MethodId` and indexes `fn_entries_by_id`
@@ -143,25 +144,12 @@ pub unsafe extern "C" fn jit_call(
     // Fill the callee frame directly from the caller's registers — no
     // intermediate `Vec<Value>` alloc, args cloned once instead of twice.
     let arg_regs = std::slice::from_raw_parts(args_ptr, argc);
-    let mut callee_frame = JitFrame::new_args_from(entry.max_reg, &frame_ref.regs, arg_regs);
-    let jit_fn: JitFn = std::mem::transmute(entry.ptr);
+    let callee_frame = JitFrame::new_args_from(entry.max_reg, &frame_ref.regs, arg_regs);
     let vm_ctx = vm_ctx_ref(ctx);
 
     // jit-stack-trace + span-column-propagate: stamp caller's site pos + offset.
     vm_ctx.update_top_frame_pos(caller_line, caller_col, caller_offset);
-    // 2026-05-10 unify-frame-chain: one push covering GC roots + trace.
-    vm_ctx.push_frame(crate::exception::VmFrame::new(
-        entry.name.clone(),
-        entry.file.clone(),
-        &callee_frame.regs as *const _,
-        &callee_frame.env_arena as *const _,
-    ));
-    let result = jit_fn(&mut callee_frame, ctx);
-    vm_ctx.pop_frame();
-    if result != 0 { callee_frame.recycle(); return 1; }
-    frame_ref.regs[dst as usize] = callee_frame.ret.take().unwrap_or(Value::Null);
-    callee_frame.recycle();
-    0
+    call_entry(vm_ctx, ctx, entry, callee_frame).store_into(&mut frame_ref.regs, dst)
 }
 
 /// Direct-call fallback when the target has no JIT machine-code `FnEntry`.
