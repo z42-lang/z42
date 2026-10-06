@@ -643,7 +643,6 @@ jobs:
           echo "Package: $pkg_dir"
           test -f "$pkg_dir/manifest.toml"        || { echo "missing manifest.toml"; exit 1; }
           test -d "$pkg_dir/libs"                 || { echo "missing libs/"; exit 1; }
-          test -d "$pkg_dir/native/include"       || { echo "missing native/include/"; exit 1; }
           if [ -f "$pkg_dir/bin/z42c.exe" ]; then
               echo "✓ bin/z42c.exe ($(du -h "$pkg_dir/bin/z42c.exe" | cut -f1))"
           elif [ -f "$pkg_dir/bin/z42c" ]; then
@@ -659,22 +658,55 @@ jobs:
               echo "error: native/libz42_compression.{dylib,so,dll} missing — z42.compression facade will fail with 'unknown builtin' at runtime"
               ls -la "$pkg_dir/native/"; exit 1
           fi
-          # `A && echo` 在 set -e 下**永不失败**（非末位命令），于是这条断言此前缺件时
-          # 既不打印也不报错——邻近每条都是 `|| { exit 1; }`，只有它写反了
-          # （fix-more-silent-gates, 2026-09-06）。
-          #
-          # ⚠️ 静态库名按平台分叉，必须像上面 dlopen 那条一样写成 or：Windows 上 MSVC
-          # 产的是 `z42_compression.lib`，没有 `lib` 前缀也不是 `.a`。改硬断言的那一版
-          # 只写了 Unix 名 → Windows 立刻红。**这条断言写反的那天起就一直在掩盖这个
-          # 平台差异**：它当初若生效，Windows 早就红了。（`z42_compression.dll.lib` 是
-          # import lib、不是静态库，故精确匹配而非通配。）
-          if [ -f "$pkg_dir/native/libz42_compression.a" ] \
-             || [ -f "$pkg_dir/native/z42_compression.lib" ]; then
-              echo "✓ native/libz42_compression.{a,lib} (staticlib for mobile / future bundled link)"
-          else
-              echo "error: native/libz42_compression.{a,lib} missing — mobile / bundled-link consumers lose the staticlib"
-              ls -la "$pkg_dir/native/"; exit 1
-          fi
+          # P0-17：SDK 的 native/ **只**有 z42vm 要 dlopen 的 ext 动态库。嵌入件（libz42.* + C 头）只在 runtime 包；
+          # compression 的静态库哪儿都不发（desktop 没有静态注册路径，移动 preset 已把它编进 libz42.a）。
+          # 名字按平台分叉（MSVC：`z42.lib` 是静态库、`z42.dll.lib` 是 import lib），逐个列出。
+          for f in include libz42.a libz42.dylib libz42.so z42.lib z42.dll z42.dll.lib \
+                   libz42_compression.a z42_compression.lib z42_compression.dll.lib; do
+              test ! -e "$pkg_dir/native/$f" \
+                  || { echo "error: SDK native/$f must not ship (embedding libs live in the runtime package)"; ls -la "$pkg_dir/native/"; exit 1; }
+          done
+          echo "✓ SDK native/ holds only the ext dylib(s): $(ls "$pkg_dir/native/" | tr '\n' ' ')"
+          # runtime 包 = 嵌入者拿 libz42 的唯一来源：静态 + 动态（Windows 另有 import lib）+ C 头。
+          rt_dir=$(ls -d artifacts/packages/z42-runtime-*-"${{ matrix.platform }}" | head -1)
+          [ -d "$rt_dir" ] || { echo "error: no runtime package produced"; exit 1; }
+          test -f "$rt_dir/native/include/z42_host.h" || { echo "error: runtime native/include/ missing"; exit 1; }
+          case "${{ matrix.platform }}" in
+            macos-*)
+              test -f "$rt_dir/native/libz42.a" || { echo "error: runtime native/libz42.a missing"; exit 1; }
+              # install name 必须是 @rpath/…，不能是 CI 机器上的绝对构建路径（嵌入者运行期会去那儿找）。
+              for lib in libz42 libz42_compression; do
+                  id=$(otool -D "$rt_dir/native/$lib.dylib" | tail -1)
+                  [ "$id" = "@rpath/$lib.dylib" ] || { echo "error: $lib.dylib install name is '$id', want @rpath/$lib.dylib"; exit 1; }
+              done
+              echo "✓ runtime native/: libz42.a + libz42.dylib (@rpath install names)" ;;
+            linux-*)
+              test -f "$rt_dir/native/libz42.a" || { echo "error: runtime native/libz42.a missing"; exit 1; }
+              for lib in libz42 libz42_compression; do
+                  so=$(readelf -d "$rt_dir/native/$lib.so" | sed -n 's/.*(SONAME).*\[\(.*\)\].*/\1/p')
+                  [ "$so" = "$lib.so" ] || { echo "error: $lib.so SONAME is '$so', want $lib.so"; exit 1; }
+              done
+              # glibc 下限对账：产物的**硬**版本需求（verneed flag 0x00；0x02 是 Rust std 的弱引用，旧 glibc 照样加载）
+              # 不得高于 scripts/versions.toml [platform.linux] 的声明（x64：min_glibc，arm64：min_glibc_arm64）。
+              key=min_glibc
+              [ "${{ matrix.platform }}" = "linux-arm64" ] && key=min_glibc_arm64
+              want=$(sed -n "s/^$key *= *\"\([0-9.]*\)\".*/\1/p" scripts/versions.toml)
+              [ -n "$want" ] || { echo "error: $key missing in scripts/versions.toml"; exit 1; }
+              for bin in "$pkg_dir/bin/z42vm" "$rt_dir/native/libz42.so" "$rt_dir/native/libz42_compression.so"; do
+                  need=$(objdump -p "$bin" | awk '$2 == "0x00" && $4 ~ /^GLIBC_[0-9.]+$/ { sub("GLIBC_", "", $4); print $4 }' | sort -V | tail -1)
+                  [ -n "$need" ] || { echo "error: could not read glibc version needs of $bin"; exit 1; }
+                  [ "$(printf '%s\n%s\n' "$need" "$want" | sort -V | tail -1)" = "$want" ] \
+                      || { echo "error: $bin needs GLIBC_$need > declared $key $want (scripts/versions.toml)"; exit 1; }
+                  echo "✓ $(basename "$bin"): hard glibc need $need ≤ declared $want"
+              done
+              echo "✓ runtime native/: libz42.a + libz42.so (SONAMEs set)" ;;
+            windows-*)
+              # MSVC 宿主链接 z42.dll 只能经 import lib；z42.lib 是**静态**库（staticlib 在 MSVC 上的名字）。
+              for f in z42.lib z42.dll z42.dll.lib; do
+                  test -f "$rt_dir/native/$f" || { echo "error: runtime native/$f missing"; ls -la "$rt_dir/native/"; exit 1; }
+              done
+              echo "✓ runtime native/: z42.lib + z42.dll + z42.dll.lib" ;;
+          esac
           test -f "$pkg_dir/libs/z42.compression.zpkg" \
               || { echo "error: libs/z42.compression.zpkg missing"; exit 1; }
           echo "✓ libs/z42.compression.zpkg"
@@ -688,6 +720,17 @@ jobs:
           echo "✓ desktop workload: $dt_dir"
           echo "--- manifest.toml ---"
           cat "$pkg_dir/manifest.toml"
+
+      - name: C host links the packaged runtime (static + dynamic)
+        # P0-17：同一套 R1–R7 C 宿主（test-desktop-cabi 用的那份 r1_r7.c）改链**打出来的 runtime 包**，
+        # 静态一遍、动态一遍（经 rpath 找 libz42.{dylib,so}）——install name / SONAME 坏了，动态那遍就加载不了。
+        # Windows 没有 `cc`，上一步按文件检查 import lib。
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          rt_dir=$(ls -d "$PWD"/artifacts/packages/z42-runtime-*-"${{ matrix.platform }}" | head -1)
+          Z42_RUNTIME_DIR="$rt_dir" xtask test app desktop
 
       - name: Upload host archives
         if: github.event_name != 'pull_request'

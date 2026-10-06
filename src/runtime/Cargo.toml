@@ -175,9 +175,8 @@ bundled-compression  = ["dep:z42-compression"]
 wasm                 = ["interp-only", "bundled-compression"]
 # Mobile presets bundle compression too — these platforms either disallow
 # dlopen (iOS App Store) or strongly prefer single-binary integration
-# (Android JNI side-load convention). The separately-shipped
-# libz42_compression.a in SDK packages is left as a belt-and-suspenders
-# option for integrators who want manual linking control.
+# (Android JNI side-load convention). No separate libz42_compression.a is
+# built or shipped: it would duplicate what libz42.a already contains.
 ios                  = ["interp-only", "aot", "native-interop", "bundled-compression"]
 android              = ["interp-only", "aot", "native-interop", "bundled-compression"]
 

@@ -210,6 +210,23 @@ int _cargo(bool rel, string verb, string manifest, string target, string pkg) {
 // 列表**，否则它们与打包交替时还是互相作废。iOS / wasm / android 是别的 target，各管各的。
 string _embedCrateTypes() { return "staticlib,cdylib"; }
 
+// The cdylib's identity, passed to the final rustc of that same `cargo rustc` (`-- -C link-arg=…`; the staticlib
+// ignores it). `target` = cargo triple, "" = host; "" result ⇒ nothing to add (Windows: the linker writes z42.dll.lib).
+//   · macOS: rustc leaves the install name at the absolute output path (`@rpath/…` only under `-C rpath`) — published
+//     dylibs said `/Users/runner/work/…/deps/libz42.dylib`. `@rpath/` lets the host pick the dir (`-Wl,-rpath,<dir>`).
+//   · Linux: rustc sets no SONAME (a host linked by path recorded that path in DT_NEEDED). SONAME = the shipped file
+//     name, unversioned (the C ABI is versioned by the `abi_version` the host passes in).
+// Not build.rs `cargo:rustc-cdylib-link-arg`: the z42 package has no cdylib target (only `--crate-type` makes one), so
+// cargo warns on every plain build that this may become an error (cargo#9562).
+// ⚠️ Same fingerprint rule as `_embedCrateTypes`: xtask test desktop and scripts/hooks/hooks.z42 pass the same args.
+string _embedLinkArg(string target) {
+    bool mac = (target.Length == 0) ? Platform.IsMacOS() : target.Contains("apple-darwin");
+    bool linux = (target.Length == 0) ? Platform.IsLinux() : target.Contains("linux-gnu");
+    if (mac)   { return "link-arg=-Wl,-install_name,@rpath/libz42.dylib"; }
+    if (linux) { return "link-arg=-Wl,-soname,libz42.so"; }
+    return "";
+}
+
 // cargo rustc --crate-type=X[,Y] (best-effort: rlib already exists; ignore failure like the .sh).
 void _cargoRustc(bool rel, string target, string crateType) {
     Process p = _cargoCmd("rustc", _runtimeCargoConfig());
@@ -218,6 +235,8 @@ void _cargoRustc(bool rel, string target, string crateType) {
         .Arg("--manifest-path").Arg(_runtimeManifest());
     if (target.Length > 0) { p = p.Arg("--target").Arg(target); }
     p = p.Arg("--quiet");
+    string linkArg = _embedLinkArg(target);
+    if (linkArg.Length > 0) { p = p.Arg("--").Arg("-C").Arg(linkArg); }
     _exec(p);
 }
 
@@ -255,28 +274,44 @@ void _pkgEmitBinReadmePlaceholder(string pkgDir, string targetLabel) {
     File.WriteAllText(Path.Join(pkgDir, "bin/README.md"), content);
 }
 
-// Copy the desktop VM native libs present in cargoOut into native/. Excludes
-// mobile platform facades (libz42_platform_ios/android.*): they can linger stale
-// in the shared cargo target dir and do NOT belong in a desktop SDK — they ship
-// only in their own mobile runtime packs.
-void _copyNativeLibs(string cargoOut, string pkgDir) {
-    if (!Directory.Exists(cargoOut)) { return; }
+// Desktop native libs, by exact file name (an allow-list, not a `libz42*` glob: the shared cargoOut also
+// holds things that must NOT ship from here — the mobile facades libz42_platform_{ios,android}.* that linger
+// from cross builds, the host-only REPL cdylib libz42_repl / z42_repl.dll that z42.repl's ProvideNative hook
+// colocates into programs/z42i/ instead (add-native-dep-config), ...).
+//
+// Embedding libs: libz42 as staticlib + cdylib, and on Windows the cdylib's import library `z42.dll.lib` —
+// without it a C host cannot link z42.dll at all (MSVC links against the import lib, never the .dll).
+// `z42.lib` is the *static* library (staticlib naming on MSVC), not an import lib.
+bool _isEmbedLib(string f) {
+    return f == "libz42.a" || f == "libz42.dylib" || f == "libz42.so"
+        || f == "z42.lib" || f == "z42.dll" || f == "z42.dll.lib";
+}
+
+// stdlib native extensions: the cdylibs z42vm dlopens from `<sdk>/native/` at start-up (native/ext.rs
+// KNOWN_EXT_LIBS). Only the dynamic library — no libz42_compression.a / z42_compression.lib: desktop has no
+// static registration path, and the iOS / Android / wasm presets already link compression into libz42
+// (bundled-compression), so a separate staticlib was unusable everywhere (P0-17). Nor the import lib
+// `z42_compression.dll.lib`: nothing links against an ext lib, it is only ever dlopened.
+bool _isNativeExtLib(string f) {
+    return f == "libz42_compression.dylib" || f == "libz42_compression.so" || f == "z42_compression.dll";
+}
+
+// Copy the desktop native libs present in cargoOut into native/: the stdlib ext dylibs always, the libz42
+// embedding libs only when `withEmbed` (runtime package — the SDK's z42vm links the VM statically and
+// nothing in the SDK uses libz42, so the SDK ships only the ext dylibs; P0-17). Returns how many ext dylibs
+// were copied.
+int _copyNativeLibs(string cargoOut, string pkgDir, bool withEmbed) {
+    if (!Directory.Exists(cargoOut)) { return 0; }
     Directory.Create(Path.Join(pkgDir, "native"));   // 谁写谁建（见 _pkgSetupDir 注释）
+    int ext = 0;
     foreach (var f in Directory.Enumerate(cargoOut)) {
-        if (f.StartsWith("libz42_platform")) { continue; }   // mobile facade — not desktop SDK
-        // libz42_repl / z42_repl.dll — host-only REPL editor cdylib. Ships in
-        // programs/z42i/ (beside the interactive payload), colocated by z42.repl's
-        // ProvideNative build hook during publish; found by the repl-specific probe, NOT
-        // <sdk>/native/. The hook `cargo build -p z42-repl` lands it in this SHARED
-        // cargoOut, so this exclusion still guards against it leaking into <sdk>/native/
-        // (where the eager ext scanner would warn `ignoring unknown lib repl`).
-        // (add-native-dep-config)
-        if (f.StartsWith("libz42_repl") || f.StartsWith("z42_repl")) { continue; }
-        bool isLib = f.StartsWith("libz42") || f == "z42.lib" || f == "z42.dll" || f.StartsWith("z42_compression");
-        if (isLib && (f.EndsWith(".a") || f.EndsWith(".dylib") || f.EndsWith(".so") || f.EndsWith(".lib") || f.EndsWith(".dll"))) {
+        bool isExt = _isNativeExtLib(f);
+        if (isExt || (withEmbed && _isEmbedLib(f))) {
             File.Copy(Path.Join(cargoOut, f), Path.Join(pkgDir, "native/" + f));
+            if (isExt) { ext = ext + 1; }
         }
     }
+    return ext;
 }
 
 // 🔴 **按 stdlib 成员清单拷，而不是把 flat 整目录拷走**（2026-09-28）。

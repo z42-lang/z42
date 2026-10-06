@@ -133,7 +133,14 @@ browser_baseline = "chromium-stable, firefox-stable, safari>=15"
 tier             = "tier2"
 
 [platform.linux]
-min_glibc    = "2.31"
+# 实测值，不是愿望值：Linux 包在 ubuntu-latest（glibc 2.39）上构建，产物的**硬**版本需求是 GLIBC_2.34
+# （__libc_start_main / pthread_* / dl* 在 2.34 换了符号版本）。还会出现 GLIBC_2.39（pidfd_spawnp /
+# pidfd_getpid），但那是 Rust std 的弱引用（verneed flag 0x02 WEAK），旧 glibc 上照样加载。
+# 原先写的 2.31 从未成立。→ ci.yml host-package「Verify package manifest + native artifacts」对账。
+# 要真降到 2.31，得换更老的构建环境（容器 / cargo-zigbuild 指定 glibc），不是改这一行。
+# 按架构分开：linux-arm64 的产物在 CI（ubuntu-24.04-arm）上实测对 GLIBC_2.39 有**硬**需求。
+min_glibc       = "2.34"   # linux-x64
+min_glibc_arm64 = "2.39"   # linux-arm64
 rust_targets = ["x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu"]
 tier         = "tier1"
 

@@ -213,7 +213,7 @@ consumers).
 | Platform | dlopen available? | Compression delivery |
 |----------|-------------------|----------------------|
 | linux-x64 / linux-arm64 / macos-arm64 / windows-x64 | yes | `libz42_compression.{so,dylib,dll}` dlopened from `<sdk>/native/` |
-| ios-arm64 / iossim-arm64 | **no** (App Store bans dlopen of arbitrary dylibs) | `bundled-compression` Cargo feature: z42 main crate links the `z42-compression` rlib at compile time; `ext::load_all` calls `register_bundled_compression` instead of dlopen. Side product: `libz42_compression.a` shipped in the SDK package for integrators who want to manually link. |
+| ios-arm64 / iossim-arm64 | **no** (App Store bans dlopen of arbitrary dylibs) | `bundled-compression` Cargo feature: z42 main crate links the `z42-compression` rlib at compile time; `ext::load_all` calls `register_bundled_compression` instead of dlopen. No separate `libz42_compression.a` is built or shipped (it would duplicate what libz42.a already contains). |
 | android-arm64 / android-x64 | yes (JNI side-load convention) | Same as iOS — `bundled-compression` feature on. JNI integrators can additionally `System.loadLibrary("z42_compression")` to use the .so. |
 | browser-wasm | **no** | `bundled-compression` static link; `flate2` uses `miniz_oxide` (pure Rust) instead of zlib-ng (which has no SIMD on wasm and is bigger). |
 

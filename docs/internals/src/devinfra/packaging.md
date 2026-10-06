@@ -23,6 +23,7 @@
 | 组件间依赖 | **不设依赖段**：组件独立产出；include 顺序只影响拷贝顺序 | 组件内部依赖（如 z42c.driver 的兄弟包）由 `z42 publish` 自行解析拷贝，包层无需知道 |
 | per-package 落点覆盖 | 不支持（dest 固定在组件注册表）| 当前无组件在两个包里需要不同落点；真需要再加，不预先设计 |
 | runtime 包内容 | 仅 native + stdlib（不含 z42c / z42vm CLI）| runtime 包会跨 host 安装（如 android runtime 装在 macOS host），host 专属工具放进去无意义；自举种子由 SDK 包提供 |
+| 嵌入件（libz42.* + C 头）放哪 | **只在 runtime 包**；SDK 的 `native/` 只有 z42vm 要 dlopen 的 stdlib 扩展动态库 | z42vm 静态链接 VM，SDK 里没有任何东西用 libz42；嵌入者本来就该拿 runtime 包。compression 的静态库哪个包都不发：desktop 没有静态注册路径，移动 preset 已把它编进 libz42.a |
 
 ## 2. 构建 → 安装
 
@@ -33,7 +34,7 @@ graph LR
         T[z42c 编工具链 zpkg<br/>launcher / z42b / z42d / z42i / workloads]
         L[build stdlib] --> F[stdlib flat]
     end
-    CO -->|cargo-bin / cargo-native| P[artifacts/packages/&lt;artifact&gt;/]
+    CO -->|cargo-bin / cargo-native / cargo-native-ext| P[artifacts/packages/&lt;artifact&gt;/]
     F -->|stdlib-glob（按成员清单）| P
     T -->|apphost：z42b publish --output 包目录| P
     P --> M[manifest 生成<br/>+ source-identity 门]
@@ -45,7 +46,7 @@ graph LR
 > 🔴 **没有暂存根**：组件不先产出到 `artifacts/publish/<comp>/` 再整目录拷进包，而是直接发布进包目录。理由：
 > ① 固定形态组件本来就是从构建产物拷出来的，暂存只是多拷一遍；apphost 组件的 publish **不清空** `--output`，
 > 各落各的 `bin/<名>` + `programs/<名>/`，可以直接发布进包目录；② ios / wasm / android 打包与 `build sdk` 都直接往包目录写，两套做法并存没有必要；③ apphost 组件的工程路径
-> 若在清单与打包代码里各写一份会漂移，所以只读清单的 `project`。runtime 包与 sdk 共享 native + stdlib，
+> 若在清单与打包代码里各写一份会漂移，所以只读清单的 `project`。runtime 包与 sdk 共享 stdlib 与 ext 动态库，
 > 各自从同一份构建产物装，字节一致。
 
 ## 3. 清单的三层结构
@@ -54,14 +55,14 @@ graph LR
 |---|---|---|
 | 包定义 | `[package.<name>]` | `artifact` 命名模板 + `include` 组件清单 + `manifest` 策略 |
 | 组件注册表 | `[component.<name>]` | `kind`（产出方式）+ `project` + `dest`（包内落点）|
-| 产出方式 | `kind` 枚举 | `apphost`（`z42 publish`）/ `cargo-bin` / `cargo-native` / `stdlib-glob` |
+| 产出方式 | `kind` 枚举 | `apphost`（`z42 publish`）/ `cargo-bin` / `cargo-native` / `cargo-native-ext` / `stdlib-glob` / `editor-assets` |
 
 三个包：
 
 | 包 | include | 用途 |
 |---|---|---|
-| `sdk` | `z42vm`、`native`、`stdlib`、`z42c`、`launcher`、`z42b`、`z42d`、`z42i` | 完整开发包 |
-| `runtime` | `native`、`stdlib` | 嵌入场景；跨 host 安装 |
+| `sdk` | `z42vm`、`native-ext`、`stdlib`、`z42c`、`launcher`、`z42b`、`z42d`、`z42i`、`editor-assets` | 完整开发包 |
+| `runtime` | `native`、`stdlib` | 嵌入场景（唯一带 libz42 + C 头的桌面包）；跨 host 安装 |
 | `workload-desktop` | `apphost-stub` | 仅 apphost stub，per-RID 产出，CI 合并四 RID |
 
 组件分两类，**纯按「谁控制它的构建」区分**：
@@ -73,8 +74,11 @@ graph LR
   一次 `"z42c"`（编译器域的其它包同样随 publish 落进 `programs/z42c/`，不进 `libs/`）。
 - **② 固定形态组件**不经 publish，由 `scripts/package/xtask_package_install.z42` 按 kind 从构建产物
   拷进包，但**同样逐个登记**，不留「隐形」组件：`z42vm` / `apphost-stub` 是 `cargo-bin`；
-  `native` 是 `cargo-native`（`libz42.*` + 头文件，多文件但来源单一：同一个 cargo 工作区一次 build
-  产出）；`stdlib` 是 `stdlib-glob`（加库会变，需要显式声明落点）。
+  `native` 是 `cargo-native`（嵌入件 `libz42.{a,dylib,so}` / `z42.{lib,dll,dll.lib}` + 头文件 + ext 动态库，
+  多文件但来源单一：同一个 cargo 工作区一次 build 产出）；`native-ext` 是 `cargo-native-ext`（只有 stdlib
+  扩展动态库 `libz42_compression.*`）；两者都按**精确文件名白名单**从共享 cargoOut 拷（`_isEmbedLib` /
+  `_isNativeExtLib`），残留的移动 facade、repl cdylib、compression 静态库因此进不来；`stdlib` 是
+  `stdlib-glob`（加库会变，需要显式声明落点）。
 
 `dest` 与 `artifact` 一样支持 `{version}` / `{rid}` 展开——`apphost-stub` 需要它（落点按 RID 变化）。
 
@@ -149,7 +153,7 @@ graph LR
 |---|---|---|
 | 顶层分发（按 RID）| `scripts/package/xtask_package.z42` | desktop / ios / android / wasm 四管道；`_pkgFinish` = manifest + identity 门 |
 | 清单解析 | `xtask_packages_config.z42` | `[package.*]` + `[component.*]` 读取、include 名解析 |
-| 组件安装 | `xtask_package_install.z42` | `_pkgInstallPackage`：按 include 逐组件、按 kind 分派直接装进包目录（cargo-bin / cargo-native / stdlib-glob / editor-assets 拷贝；apphost `z42b publish --output`）|
+| 组件安装 | `xtask_package_install.z42` | `_pkgInstallPackage`：按 include 逐组件、按 kind 分派直接装进包目录（cargo-bin / cargo-native / cargo-native-ext / stdlib-glob / editor-assets 拷贝；apphost `z42b publish --output`）|
 | desktop 管道 | `xtask_package_desktop.z42` | SDK 分段组装 |
 | 移动 / 浏览器管道 | `xtask_package_{ios,android,wasm}.z42` | native 产物 + 平台 facade（SwiftPM / Gradle / npm）|
 | 能力 workload | `xtask_package_test.z42` | 见 §4 |

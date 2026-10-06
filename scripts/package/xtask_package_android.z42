@@ -70,8 +70,9 @@ int _buildRuntimePackageAndroid(string root, string rid, string version, string 
     if (Directory.Exists(ndkOut)) { Directory.Delete(ndkOut, true); }
     Console.WriteLine("        ✓ native/libz42_platform_android.a (" + _getFileSize(Path.Join(nativeOut, "libz42_platform_android.a")) + ")");
 
-    // [3/5] libz42_compression.{so,a}
-    Console.WriteLine("  [3/5] libz42_compression.{so,a} (cargo ndk -p z42-compression)");
+    // [3/5] libz42_compression.so (no .a: the `android` preset already links compression into libz42 —
+    // bundled-compression — so a separate staticlib was unusable; P0-17)
+    Console.WriteLine("  [3/5] libz42_compression.so (cargo ndk -p z42-compression)");
     string ndkOut2 = Path.Join(nativeOut, ".ndk-out2");
     Process p3 = new Process("cargo").Arg("ndk").Arg("-t").Arg(abi).Arg("-o").Arg(ndkOut2)
         .Arg("build").Arg("--config").Arg(Path.Join(_root(), _runtimeCargoConfig())).Arg("-p").Arg("z42-compression").Arg("--quiet").Stdout(Stdio.Null()).Stderr(Stdio.Null());
@@ -79,11 +80,8 @@ int _buildRuntimePackageAndroid(string root, string rid, string version, string 
     _execIn(p3, androidCrate);
     string compSo = Path.Join(ndkOut2, abi + "/libz42_compression.so");
     if (File.Exists(compSo)) { File.Copy(compSo, Path.Join(nativeOut, "libz42_compression.so")); }
-    string compA = Path.Join(_cargoTargetDir(root), cargoTarget + "/" + profile + "/libz42_compression.a");
-    if (!File.Exists(compA)) { compA = Path.Join(androidCrate, "target/" + cargoTarget + "/" + profile + "/libz42_compression.a"); }
-    if (File.Exists(compA)) { File.Copy(compA, Path.Join(nativeOut, "libz42_compression.a")); }
     if (Directory.Exists(ndkOut2)) { Directory.Delete(ndkOut2, true); }
-    Console.WriteLine("        ✓ native/libz42_compression.{so,a}");
+    Console.WriteLine("        ✓ native/libz42_compression.so");
 
     // [4/5] C ABI headers
     Console.WriteLine("  [4/5] C ABI headers");

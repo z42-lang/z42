@@ -47,7 +47,8 @@ int _packageDesktop(string root, string pkgDir, string rid, string version, stri
     }
     Console.WriteLine("      ✓ programs/z42c/ (z42c.* seed zpkgs)");
 
-    // [2/5] z42vm + libz42.* + z42-compression —— 只构建；[install] 从 cargoOut 装进包。
+    // [2/5] z42vm + libz42.* + z42-compression —— 只构建；[install] 从 cargoOut 装进包。SDK 自己不装 libz42
+    // （P0-17），但随后的 `package runtime`（desktop 分支不构建）从同一个 cargoOut 装它，所以这里照建。
     Console.WriteLine("[2/5] z42vm + libz42 + z42-compression (cargo " + cargoTarget + ", " + profile + ")");
     c = _pkgBuildRuntime(rid, profile); if (c != 0) { return c; }
     string cargoOut = _cargoOutFor(root, rid, profile);
@@ -178,7 +179,7 @@ int _buildDesktopWorkload(string root, string rid, string version, string profil
 
 // ── launcher artifact ────────────────────────────────────────────────────────
 // ── runtime artifact ─────────────────────────────────────────────────────────
-// Pure embeddable runtime: native/ (embed libs + C ABI headers) + libs/ (stdlib
+// Pure embeddable runtime: native/ (embed libs + C ABI headers + stdlib ext dylibs) + libs/ (stdlib
 // zpkg) — NO z42c, NO z42vm CLI (2026-07-01 revision). Both are host-platform
 // tooling, not part of "runtime": a runtime pack may run on a DIFFERENT host
 // than it targets (e.g. the android runtime pack is installed from a Windows or
@@ -187,7 +188,9 @@ int _buildDesktopWorkload(string root, string rid, string version, string profil
 // z42c/z42vm either. The self-host bootstrap seed moved to the SDK package's
 // programs/z42c/ (see docs/internals/src/compiler/self-hosting.md). libs/ + native/
 // are installed from the same build outputs the SDK package uses (stdlib flat +
-// cargoOut) ⇒ SDK and runtime pack stay byte-identical.
+// cargoOut) ⇒ what both packs carry (libs/, the ext dylibs) stays byte-identical.
+// This is the only desktop package with the embedding libs (libz42.* + headers):
+// the SDK's native/ holds just the ext dylibs z42vm dlopens (P0-17).
 int _buildRuntimePackage(string root, string rid, string version, string profile) {
     string pkgName = "z42-runtime-" + version + "-" + rid + (profile == "release" ? "" : "-" + profile);
     string pkgDir = Path.Join(_packagesDir(root), pkgName);
@@ -217,8 +220,10 @@ void _pkgEmitManifest(string pkgDir, string rid, string version, string profile,
     string buildDate = _utcNow();
     string binList = _quotedDirList(Path.Join(pkgDir, "bin"), "");
     string libsList = _quotedDirList(Path.Join(pkgDir, "libs"), ".zpkg");
+    // SDK 的 native/ 只有 stdlib ext 动态库（P0-17：嵌入件在 runtime 包）⇒ 下面三项按实际文件取，SDK 里为空。
     string staticList = _quotedExisting(Path.Join(pkgDir, "native"), "libz42.a", "z42.lib");
     string dynamicList = _quotedExisting(Path.Join(pkgDir, "native"), "libz42.dylib", "libz42.so");
+    string includeList = _quotedExisting(Path.Join(pkgDir, "native/include"), "z42_abi.h", "z42_host.h");
     string m = "";
     m = m + "[package]\n";
     m = m + "name        = \"z42-" + rid + "\"\n";
@@ -235,9 +240,9 @@ void _pkgEmitManifest(string pkgDir, string rid, string version, string profile,
     m = m + "static      = [" + staticList + "]\n";
     m = m + "dynamic     = [" + dynamicList + "]\n";
     m = m + "containers  = []\n";
-    m = m + "includes    = [\"z42_abi.h\", \"z42_host.h\"]\n\n";
+    m = m + "includes    = [" + includeList + "]\n\n";
     m = m + "[contents.platform]\n";
-    m = m + "# desktop package: no platform-native facade (C consumers use native/include/)\n\n";
+    m = m + "# desktop package: no platform-native facade (C embedders use the runtime package's native/)\n\n";
     m = m + "[compat]\n";
     m = m + "host-min-version = \"" + version + "\"\n";
     File.WriteAllText(Path.Join(pkgDir, "manifest.toml"), m);

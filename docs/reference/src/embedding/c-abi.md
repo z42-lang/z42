@@ -15,7 +15,8 @@ VM 内部怎么实现这套 ABI 不在本页。
 #include "z42_host.h"   /* 自带 #include "z42_abi.h" */
 ```
 
-头文件随 SDK 包分发在 `native/include/`；仓内在 `src/runtime/include/`。
+头文件随 **runtime 包**（`z42-runtime-<版本>-<rid>`）分发在 `native/include/`；仓内在 `src/runtime/include/`。
+SDK 包不带嵌入件——它的 `native/` 只放 z42vm 自己加载的扩展库。
 iOS / Android 的 facade 目录下各有一个同名**转发头**，内容只是 `#include` 上面那一份。
 
 ---
@@ -404,7 +405,15 @@ int main(void) {
 }
 ```
 
-链接时带上 `libz42`（静态 `libz42.a` 或动态 `libz42.{dylib,so,dll}`），以及它依赖的平台库。
+链接时带上 runtime 包 `native/` 里的 `libz42`，以及它依赖的平台库：
+
+| 平台 | 静态 | 动态 |
+|---|---|---|
+| macOS | `libz42.a`（另加 `-liconv -lc -lm`） | `libz42.dylib`：install name 是 `@rpath/libz42.dylib`，宿主加 `-Wl,-rpath,<放 dylib 的目录>`（如 `@executable_path`） |
+| Linux | `libz42.a`（另加 `-lc -lm -lpthread -ldl -lrt -lgcc_s`） | `libz42.so`：SONAME 是 `libz42.so`，宿主加 `-Wl,-rpath,<目录>`（如 `$ORIGIN`）或走 `LD_LIBRARY_PATH` |
+| Windows | `z42.lib` | 链 import lib `z42.dll.lib`，运行时 `z42.dll` 放在 exe 旁 |
+
+Linux 包要求 glibc ≥ 2.34（x64）、≥ 2.39（arm64）。
 
 ---
 

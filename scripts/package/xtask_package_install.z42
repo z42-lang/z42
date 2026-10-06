@@ -1,7 +1,7 @@
 // xtask — 把 packages.toml 的组件**直接装进包目录**（drop-package-staging，2026-10-01）。
 //
 // 一个包（sdk / runtime）= 按 `[package.<name>].include` 的顺序，把每个组件装到它在包里的落点：
-//   · cargo-bin（z42vm）/ cargo-native / stdlib-glob / editor-assets —— 从构建产物拷到 `dest`；
+//   · cargo-bin（z42vm）/ cargo-native / cargo-native-ext / stdlib-glob / editor-assets —— 从构建产物拷到 `dest`；
 //   · apphost（launcher / z42c / z42b / z42d / z42i）—— `z42b publish --output <包目录>`，组件自带的
 //     `[platform.desktop] bin/payload` 决定落点（`bin/<名>` + `programs/<名>/`），工程路径取 packages.toml 的 `project`。
 //
@@ -52,6 +52,7 @@ int _pkgInstallPackage(_PackagesConfig cfg, string root, string packageName, str
 int _pkgInstallComponent(string root, _PkgComponent comp, string pkgDir, _PkgInstallCtx ctx) {
     if (comp.kind == "cargo-bin" && comp.name == "z42vm") { return _pkgInstallZ42vm(ctx.CargoOut, pkgDir); }
     if (comp.kind == "cargo-native")  { return _pkgInstallNative(root, ctx.CargoOut, pkgDir); }
+    if (comp.kind == "cargo-native-ext") { return _pkgInstallNativeExt(ctx.CargoOut, pkgDir); }
     if (comp.kind == "stdlib-glob")   { return _pkgCopyLibs(_libsDir(root), pkgDir); }
     if (comp.kind == "editor-assets") { return _pkgInstallEditorAssets(root, pkgDir) > 0 ? 0 : 1; }
     if (comp.kind == "apphost")       { return _pkgInstallApphost(comp, pkgDir, ctx); }
@@ -80,11 +81,24 @@ int _pkgInstallZ42vm(string cargoOut, string pkgDir) {
     return 0;
 }
 
-// [component.native] kind=cargo-native, dest="native/" — libz42.* / libz42_compression.* + the C ABI headers.
+// [component.native] kind=cargo-native, dest="native/" — the libz42 embedding libs + the C ABI headers
+// + the stdlib ext dylibs (an embedded VM dlopens them too). Runtime package only.
 int _pkgInstallNative(string root, string cargoOut, string pkgDir) {
     if (cargoOut.Length == 0) { ConsoleError.WriteLine("error: native: no cargo output dir"); return 1; }
-    _copyNativeLibs(cargoOut, pkgDir);
+    _copyNativeLibs(cargoOut, pkgDir, true);
     _copyAbiHeaders(root, Path.Join(pkgDir, "native/include"));
+    return 0;
+}
+
+// [component.native-ext] kind=cargo-native-ext, dest="native/" — only the stdlib ext dylibs z42vm dlopens
+// (libz42_compression.{dylib,so} / z42_compression.dll). SDK package: no embedding libs, no headers (P0-17).
+int _pkgInstallNativeExt(string cargoOut, string pkgDir) {
+    if (cargoOut.Length == 0) { ConsoleError.WriteLine("error: native-ext: no cargo output dir"); return 1; }
+    if (_copyNativeLibs(cargoOut, pkgDir, false) == 0) {
+        // 这是 native-ext 组件的全部内容：一个都没有 ⇒ Std.Compression 运行期报 unknown builtin，不能当成功。
+        ConsoleError.WriteLine("error: native-ext: no stdlib ext dylib (libz42_compression.*) in " + cargoOut);
+        return 1;
+    }
     return 0;
 }
 

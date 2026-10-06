@@ -1,9 +1,11 @@
 //! Build script: compiles the `numz42-c` PoC native library used by spec
-//! C2's end-to-end integration test.
+//! C2's end-to-end integration test, plus the opt-in `.zbc` test fixtures.
 //!
-//! The library is built as a static archive and linked into any cargo test
-//! binary that consumes z42_vm. Tests call `numz42_register_static()`
-//! directly, so the dlopen path is exercised separately when present.
+//! The PoC is built as a static archive in OUT_DIR but is **not** linked into the
+//! `z42` library: only `tests/native_interop_e2e.rs` links it, via its own
+//! `#[link(name = "numz42_c", kind = "static")]`. Tests call
+//! `numz42_register_static()` directly, so the dlopen path is exercised
+//! separately when present.
 //!
 //! Set `Z42_SKIP_NATIVE_POC=1` to opt out (e.g. on CI agents without a C
 //! toolchain); `tests/native_interop_e2e.rs` will then skip its scenarios.
@@ -51,15 +53,20 @@ fn main() {
     println!("cargo:rerun-if-changed={}", src.display());
     println!("cargo:rerun-if-changed={}/z42_abi.h", inc.display());
 
+    // `cargo_metadata(false)`: by default cc prints `cargo:rustc-link-lib=static=numz42_c`,
+    // which makes the archive a native dependency of the `z42` library itself —
+    // rustc then bundled numz42.o into every staticlib built from it, i.e. the
+    // released libz42.a. The test that needs it links it with `#[link]` instead.
     cc::Build::new()
         .file(&src)
         .include(&inc)
         .flag_if_supported("-Wall")
         .flag_if_supported("-Wextra")
         .flag_if_supported("-Wno-unused-function")
+        .cargo_metadata(false)
         .compile("numz42_c"); // emits libnumz42_c.a in OUT_DIR
 
-    // Tests that link against this archive opt-in via #[link] in source —
+    // Tests that link against this archive opt in via #[link] in source —
     // we only set the static-lib search path here.
     let out_dir = env::var("OUT_DIR").unwrap();
     println!("cargo:rustc-link-search=native={out_dir}");

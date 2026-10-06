@@ -23,8 +23,10 @@ int _buildRuntimePackageIos(string root, string rid, string version, string prof
     string iosMin = _vReadOr(root, "platform.ios.min_ios", "16.0");
     string pkgDir = _runtimePkgScaffold(root, rid, version, profile);
 
-    // libz42.a (iOS slice staticlib)
-    Console.WriteLine("  [1/4] libz42.a (cargo " + cargoTarget + ", " + profile + ")");
+    // libz42.a (iOS slice staticlib). Compression is already inside it (the `ios` preset's
+    // bundled-compression) — no separate libz42_compression.a (P0-17: it could not be linked
+    // next to libz42.a anyway, being a second Rust staticlib with its own copy of std).
+    Console.WriteLine("  [1/3] libz42.a (cargo " + cargoTarget + ", " + profile + ")");
     int c = _exec(_iosRustc(root, rel, cargoTarget, "staticlib", iosMin));
     if (c != 0) { ConsoleError.WriteLine("error: cargo rustc staticlib for " + cargoTarget + " failed"); return 1; }
     string cargoOut = Path.Join(_cargoTargetDir(root), cargoTarget + "/" + profile);
@@ -32,22 +34,11 @@ int _buildRuntimePackageIos(string root, string rid, string version, string prof
     if (!File.Exists(lib)) { ConsoleError.WriteLine("error: " + lib + " not produced"); return 1; }
     File.Copy(lib, Path.Join(pkgDir, "native/libz42.a"));
 
-    // libz42_compression.a
-    Console.WriteLine("  [2/4] libz42_compression.a");
-    Process pc = _cargoCmd("build", _runtimeCargoConfig());
-    if (rel) { pc = pc.Arg("--release"); }
-    pc = pc.Arg("-p").Arg("z42-compression").Arg("--manifest-path").Arg(Path.Join(root, _runtimeManifest()))
-        .Arg("--target").Arg(cargoTarget).Arg("--quiet").Env("IPHONEOS_DEPLOYMENT_TARGET", iosMin);
-    c = _exec(pc);
-    if (c != 0) { return c; }
-    string compLib = Path.Join(cargoOut, "libz42_compression.a");
-    if (File.Exists(compLib)) { File.Copy(compLib, Path.Join(pkgDir, "native/libz42_compression.a")); }
-
     // C ABI headers
     _copyAbiHeaders(root, Path.Join(pkgDir, "native/include"));
 
     // Z42VM.xcframework (single slice wrapping libz42.a)
-    Console.WriteLine("  [3/4] Z42VM.xcframework");
+    Console.WriteLine("  [2/3] Z42VM.xcframework");
     string xcf = Path.Join(pkgDir, "native/Z42VM.xcframework");
     if (Directory.Exists(xcf)) { Directory.Delete(xcf, true); }
     c = _exec(new Process("xcodebuild").Arg("-create-xcframework")
@@ -59,7 +50,7 @@ int _buildRuntimePackageIos(string root, string rid, string version, string prof
     if (!Directory.Exists(xcf)) { ConsoleError.WriteLine("error: xcframework not created at " + xcf); return 1; }
 
     // stdlib libs (loaded by the embedded VM at runtime)
-    Console.WriteLine("  [4/4] libs/");
+    Console.WriteLine("  [3/3] libs/");
     c = _pkgCopyLibs(_libsDir(root), pkgDir); if (c != 0) { return c; }
     Console.WriteLine("  ✓ runtime package: " + pkgDir);
     // runtime pack 才是 libs/ + native/include/ 的真正落点 —— 门必须跑在这里

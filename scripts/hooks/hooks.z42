@@ -60,15 +60,30 @@ public class ProjectHooks : BuildHooks {
     void _embedArtifacts(IPipelineContext ctx, string repo) {
         string libA = Path.Join(repo, "artifacts/build/runtime/release/libz42.a");
         if (!ctx.Exists(libA)) {
-            // crate-type 列表与 xtask 打包的 `_embedCrateTypes()` 保持一致（staticlib,cdylib）：参数不同会让
-            // 两边交替时互相作废 cargo 指纹、每次全编。hooks 是独立工程，调不到 xtask 的函数，故此处照抄。
+            // crate-type 列表与 xtask 打包的 `_embedCrateTypes()` 保持一致（staticlib,cdylib），`-- -C link-arg=…`
+            // 与 `_embedLinkArg("")` 一致：参数不同会让两边交替时互相作废 cargo 指纹、每次全编。hooks 是独立工程，
+            // 调不到 xtask 的函数，故此处照抄。
             ctx.Log("xtask hooks: cargo rustc --crate-type=staticlib,cdylib (libz42.a)…");
             // --config：cargo 只从 cwd 向上找 .cargo/config.toml，配置在 src/runtime/.cargo 下（不在仓根），
             // 不显式指定 target-dir 就会落到 src/runtime/target，下面 libA 永远找不到。
-            ExecResult rc = ctx.Exec("cargo", new string[]{ "rustc", "--release",
+            string[] rustcArgs = new string[]{ "rustc", "--release",
                 "--config", Path.Join(repo, "src/runtime/.cargo/config.toml"),
                 "--manifest-path", Path.Join(repo, "src/runtime/Cargo.toml"),
-                "--lib", "--crate-type=staticlib,cdylib" });
+                "--lib", "--crate-type=staticlib,cdylib" };
+            if (Platform.IsMacOS()) {
+                rustcArgs = new string[]{ "rustc", "--release",
+                    "--config", Path.Join(repo, "src/runtime/.cargo/config.toml"),
+                    "--manifest-path", Path.Join(repo, "src/runtime/Cargo.toml"),
+                    "--lib", "--crate-type=staticlib,cdylib",
+                    "--", "-C", "link-arg=-Wl,-install_name,@rpath/libz42.dylib" };
+            } else if (Platform.IsLinux()) {
+                rustcArgs = new string[]{ "rustc", "--release",
+                    "--config", Path.Join(repo, "src/runtime/.cargo/config.toml"),
+                    "--manifest-path", Path.Join(repo, "src/runtime/Cargo.toml"),
+                    "--lib", "--crate-type=staticlib,cdylib",
+                    "--", "-C", "link-arg=-Wl,-soname,libz42.so" };
+            }
+            ExecResult rc = ctx.Exec("cargo", rustcArgs);
             if (rc.ExitCode != 0 || !ctx.Exists(libA)) {
                 ctx.Warn("xtask hooks: libz42.a build failed; --self-contained needs Z42_EMBED_*");
                 return;

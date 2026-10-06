@@ -2,16 +2,20 @@
 name        = "z42-compression"
 version     = "0.1.0"
 edition     = "2024"
-description = "z42 stdlib native extension — compression (gzip / zlib / deflate / zstd). Built as cdylib + staticlib + rlib. z42vm loads via dlopen on desktop/mobile, statically links via the bundled-compression feature on wasm. Pure C ABI surface — no z42-type dependency, so this crate has no cycle with the z42 main crate."
+description = "z42 stdlib native extension — compression (gzip / zlib / deflate / zstd). Built as cdylib + rlib. z42vm loads the cdylib via dlopen on desktop; wasm / iOS / Android statically link the rlib via the bundled-compression feature. Pure C ABI surface — no z42-type dependency, so this crate has no cycle with the z42 main crate."
 publish     = false
 
 [lib]
 # - cdylib:    libz42_compression.{so,dylib,dll} — dlopened by z42vm
-# - staticlib: libz42_compression.a — mobile integrators can statically link
-# - rlib:      z42 main crate `path =` deps for wasm bundled feature
+# - rlib:      z42 main crate `path =` dep for the bundled-compression feature
+#              (wasm / ios / android presets link it into libz42 itself)
+# No staticlib: nothing could use one. Desktop z42vm has no static registration
+# path (it only dlopens), and the mobile presets already carry compression inside
+# libz42.a — a second Rust staticlib next to it would also bring a second copy of
+# std (duplicate symbols). It used to be built and shipped anyway (P0-17).
 name       = "z42_compression"
 path       = "src/lib.rs"
-crate-type = ["cdylib", "staticlib", "rlib"]
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 # Default = miniz_oxide (pure Rust) — works on every target including wasm;
