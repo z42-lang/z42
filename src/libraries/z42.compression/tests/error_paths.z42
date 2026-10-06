@@ -18,8 +18,7 @@ byte[] DeadBeef() {
     return b;
 }
 
-// Not a frame of any algorithm, and longer than every frame header (lz4 reads
-// a too-short input as an empty stream — runtime-audit P0-20).
+// Not a frame of any algorithm, and longer than every frame header.
 byte[] Junk() {
     byte[] b = new byte[16];
     int i = 0;
@@ -33,6 +32,7 @@ string FailureOf(string kind) {
         if (kind == "gzip")       { Gzip.Decompress(DeadBeef()); }
         else if (kind == "zstd")  { Zstd.Decompress(DeadBeef()); }
         else if (kind == "lz4")   { Lz4.Decompress(Junk()); }
+        else if (kind == "lz4-short") { Lz4.Decompress(DeadBeef()); }
         else if (kind == "level") { Zstd.Compress(Utf8.GetBytes("x"), 23); }
     } catch (Exception e) {
         return e.Message;
@@ -53,6 +53,12 @@ void test_zstd_garbage_throws() {
 [Test]
 void test_lz4_garbage_throws() {
     Assert.True(FailureOf("lz4").Contains("__lz4_decompress"));
+}
+
+// Shorter than an LZ4 frame header: used to decode to an empty array.
+[Test]
+void test_lz4_short_garbage_throws() {
+    Assert.True(FailureOf("lz4-short").Contains("__lz4_decompress"));
 }
 
 [Test]
