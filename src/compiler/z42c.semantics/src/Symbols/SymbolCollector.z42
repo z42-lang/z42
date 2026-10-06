@@ -632,22 +632,10 @@ public sealed class SymbolCollector {
         if (msg != "") { this.Diags.Error(DiagnosticCodes.AmbiguousBareTypeName, msg, sp); }
     }
 
-    // report-crosspkg-duplicate-type：同 FQN 跨包（E0601）/ 本地遮蔽导入（E0606）的**声明位**判定。
-    // 与 `TypeChecker._chkTypeRefPkg` 是同一对判据的两个消费端，判据与消息都在 SymbolTable，此处不重写。
-    //
-    // 与 E0456 的差别：那条只看**源码写法**（限定名即已消歧，早返回）；这条只看**解析结果的 FQN**——
-    // 重复的是 FQN 本身，写全限定名一样分不开，所以必须用 resolved 的 `Z42Type` 而不是 TypeExpr。
+    // 声明位的类型引用来源判定（E0601 / E0606 / E0497）；判据与消息在 SymbolTable.ReportTypeOrigin。
+    // 只看**解析结果的 FQN**（重复的是 FQN 本身，写全限定名一样分不开）；与 E0456（看源码写法）不同。
     internal void _chkTypeRefPkg(Z42Type t, SymbolTable table, Span sp) {
-        string fqn = SymbolCollector.PkgCheckFqn(t);
-        if (fqn == "") { return; }
-        string emsg = table.CrossPkgDuplicateMsg(fqn);
-        if (emsg != "") { this.Diags.Error(DiagnosticCodes.NamespaceCollision, emsg, sp); return; }
-        string wmsg = table.ShadowedImportMsg(fqn);
-        if (wmsg != "") { this.Diags.Error(DiagnosticCodes.LocalTypeShadowsImport, wmsg, sp); }
-        // fix-crosspkg-ns-reachability：用了未声明的依赖包（E0497）。挂在这个既有的 choke point 上
-        // ——它已经是「一次类型引用」的唯一汇聚处，判据也已经在 SymbolTable 里，不必另起一条通路。
-        string umsg = table.UndeclaredDepMsg(fqn);
-        if (umsg != "") { this.Diags.Error(DiagnosticCodes.UndeclaredDependency, umsg, sp); }
+        table.ReportTypeOrigin(SymbolCollector.PkgCheckFqn(t), this.Diags, sp);
     }
 
     // 取一个类型引用的 FQN（类 / 泛型实例化的定义类 / 接口）；其余（型参、基元、数组…）返回 ""。
@@ -663,15 +651,9 @@ public sealed class SymbolCollector {
         return "";
     }
 
+    // 字符串形态的成员可见性（符号表存字符串）；判定表在 DeclFacts._visCode（含 override → public）。
     internal string _vis(int mods, string dflt) {
-        if (Mod.Has(mods, Mod.Public))    { return "public"; }
-        if (Mod.Has(mods, Mod.Private))   { return "private"; }
-        if (Mod.Has(mods, Mod.Protected)) { return "protected"; }
-        if (Mod.Has(mods, Mod.Internal))  { return "internal"; }
-        // enforce-access-control：override 继承被覆写基方法的可见性；只能覆写 virtual/abstract 成员
-        // （基类契约，通常 public），故无显式修饰符的 override 视为 public（镜像 C# override 须匹配基类可见性）。
-        if (Mod.Has(mods, Mod.Override))  { return "public"; }
-        return dflt;
+        return DeclFacts.classVisStr(DeclFacts._visCode(mods, DeclFacts.visCodeOf(dflt)));
     }
 
 }

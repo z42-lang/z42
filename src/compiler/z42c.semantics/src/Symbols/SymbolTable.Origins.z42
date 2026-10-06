@@ -17,6 +17,7 @@
 // ⚠️ 这次拆分是**纯代码搬运**：方法体逐字未改，只是换了文件。判据、消息措辞、调用关系全不动。
 namespace Z42.Semantics;
 using Z42.IR;
+using Z42.Core;   // ReportTypeOrigin：DiagnosticBag / DiagnosticCodes / Span
 
 
 public sealed partial class SymbolTable {
@@ -244,6 +245,19 @@ public sealed partial class SymbolTable {
     private StrBox _pkgBoxOf(string fqn) {
         int at = this.ClassPkgAll.Find(fqn);
         return (at < 0) ? null : (this.ClassPkgAll.ValAt(at) as StrBox);
+    }
+
+    // 一次**类型引用**（FQN）的来源判定 —— 唯一实现，声明位（SymbolCollector）、使用位（TypeChecker 类型引用 /
+    // 静态成员）、enum 常量读三处共用：同 FQN 跨包 E0601（报了就停：谁也选不了，再报别的是噪音）→ 本包遮蔽导入
+    // E0606 → 用了未声明的第三方包 E0497。fqn 为 "" 时不判。
+    public void ReportTypeOrigin(string fqn, DiagnosticBag diags, Span sp) {
+        if (fqn == "") { return; }
+        string emsg = this.CrossPkgDuplicateMsg(fqn);
+        if (emsg != "") { diags.Error(DiagnosticCodes.NamespaceCollision, emsg, sp); return; }
+        string wmsg = this.ShadowedImportMsg(fqn);
+        if (wmsg != "") { diags.Error(DiagnosticCodes.LocalTypeShadowsImport, wmsg, sp); }
+        string umsg = this.UndeclaredDepMsg(fqn);
+        if (umsg != "") { diags.Error(DiagnosticCodes.UndeclaredDependency, umsg, sp); }
     }
 
     // ── fix-crosspkg-ns-reachability：用了未声明的依赖包 → E0497 消息；否则 "" ──────────

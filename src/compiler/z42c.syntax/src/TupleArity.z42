@@ -1,0 +1,16 @@
+// 元组元数上下界（2..8，stdlib 只声明到 `ValueTuple8`）与越界消息的唯一定义。
+// 类型位（`TypeParser`：`(int, …)` 类型）与表达式位（`ConstructTyper._bindTuple`：元组字面量）各查一次 ——
+// 两处位置都要查，但界与消息只此一份：同一个用户错误不该因写在类型位还是表达式位拿到不同措辞（同码 E0402）。
+namespace Z42.Syntax;
+
+public static class TupleArity {
+    public static int Min = 2;
+    public static int Max = 8;
+
+    public static bool InRange(int n) { return n >= TupleArity.Min && n <= TupleArity.Max; }
+
+    public static string Message(int n) {
+        return "tuples support between " + TupleArity.Min.ToString() + " and " + TupleArity.Max.ToString()
+            + " elements, got " + n.ToString();
+    }
+}

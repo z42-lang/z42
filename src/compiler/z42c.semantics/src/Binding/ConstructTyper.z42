@@ -97,9 +97,8 @@ public sealed class ConstructTyper {
     // Z42InstantiatedType(ValueTupleN, [t0..tn])）。arity 2..8；越界报错。复用 _bindNew 的全部构造/校验路径。
     internal BoundExpr _bindTuple(TupleExpr te, TypeEnv env) {
         int n = te.Count;
-        if (n < 2 || n > 8) {
-            this._tc._diags.Error(DiagnosticCodes.TypeMismatch,
-                "tuples support between 2 and 8 elements, got " + n.ToString(), te.Span);
+        if (!TupleArity.InRange(n)) {
+            this._tc._diags.Error(DiagnosticCodes.TypeMismatch, TupleArity.Message(n), te.Span);
             return new BoundError("tuple arity out of range", new Z42ErrorType(), te.Span);
         }
         // 🔴 类型实参必须**写出来**，不能留裸名让 ctor 实参去推 —— `new` 不做类级型参推断，

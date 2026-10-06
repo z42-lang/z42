@@ -217,9 +217,8 @@ public sealed class TypeParser {
             // 一直写着「元数 2..8；更大元组报错」—— 文档是对的，类型侧漏了这一半。
             // 码取 E0402（**与字面量侧同一个码**）：同一个用户错误不该因为写在类型位还是表达式位
             // 就拿到两个不同的码。语法层报 E04xx 有先例（E0442 / E0457 / E0462）。
-            if (pc > 8) {
-                this._p._diags.Error(DiagnosticCodes.TypeMismatch,
-                    "tuples support between 2 and 8 elements, got " + pc.ToString(), sp);
+            if (pc > TupleArity.Max) {
+                this._p._diags.Error(DiagnosticCodes.TypeMismatch, TupleArity.Message(pc), sp);
                 return this._emptyType();
             }
             // 元组类型 → 合成 ValueTupleN 泛型实例化（z42.core prelude 恒加载，短名恒可解析；
