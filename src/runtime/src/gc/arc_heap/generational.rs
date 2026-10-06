@@ -530,8 +530,10 @@ grey {grey_n} (skipped old {grey_old})"));
         let configured = self.configured_promotion_age();
         let threshold = self.promotion_age();
         let observed_age = self.promotion_policy.observed_age(configured);
-        // add-incremental-major-gc M2b: what the open cycle has already marked outlives this minor.
-        let keep_major = self.major_cycle_active().then(|| self.major_mark());
+        // The young generation is the minor's: only what it reached survives, whatever epoch an
+        // entry carries (P1-7). While the cycle sweeps, everything it promotes must carry the
+        // epoch — checked in debug builds (`promote_black`).
+        let promote_black = self.doomed_unless_marked();
 
         // Object region — **one-pass-minor-sweep (2026-09-12)**: scan, promote and tombstone
         // in a single walk of the young list. See `Region::sweep_young_in_one_pass`; what
@@ -541,7 +543,7 @@ grey {grey_n} (skipped old {grey_old})"));
             let mut region = self.region_object.lock();
             region.sweep_young_in_one_pass(
                 observed_age,
-                keep_major,
+                promote_black,
                 |marked| self.promotion_policy.observe(marked),
                 |entry| {
                     let mut o = entry.value.lock();
@@ -581,7 +583,7 @@ grey {grey_n} (skipped old {grey_old})"));
             let mut region = self.region_array.lock();
             region.sweep_young_in_one_pass(
                 observed_age,
-                keep_major,
+                promote_black,
                 |marked| self.promotion_policy.observe(marked),
                 |entry| {
                     let size = Self::array_size_estimate(&entry.value.lock());
@@ -615,7 +617,7 @@ grey {grey_n} (skipped old {grey_old})"));
         // minor and wait for a major. It sweeps here with the other two now.
         {
             let t = PhaseTimer::start("minor/var sweep");
-            let (reclaimed, credited) = self.region_var.lock().sweep_young(keep_major);
+            let (reclaimed, credited) = self.region_var.lock().sweep_young(promote_black);
             t.count(reclaimed);
             freed_bytes += credited;
             reclaimed_entries += reclaimed;

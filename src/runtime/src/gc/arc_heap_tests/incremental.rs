@@ -637,14 +637,11 @@ fn a_minor_during_the_sweep_does_not_trace_through_a_doomed_card_entry() {
     drop((keepers, refill));
 }
 
-/// A minor that runs inside an open cycle must not reclaim what the marker has already marked.
-///
-/// The marker commits to everything reachable at its snapshot, and the mutator may hold a value
-/// it read out of the heap before the edge leading to it was cut (that is what the SATB barrier
-/// is for). A minor's own reachability view is narrower — it sees roots, dirty cards and the two
-/// queues — so without this rule it frees objects the cycle still owns, and the mutator is left
-/// with a handle into a recycled slot. Found by the `Z42_GC_SLICE_MS=0.05` stress run of
-/// `z42.net`: with the rule off the suite wedges after ~6 tests, with it on all 50 files pass.
+/// **P1-7**: the young generation belongs to the minor. A young object the open cycle has marked
+/// but that nothing a minor can see refers to — roots, dirty cards, the grey queue, SATB records —
+/// is reclaimed by a minor inside the cycle, exactly as if it were unmarked. The test holds `x`
+/// only in a Rust local, which no root set covers: the runtime has no such place (a mutator's
+/// registers are minor roots), which is why the epoch need not keep it.
 fn run_minor_inside_cycle(mark_it: bool) -> bool {
     let heap = generational_heap();
     let _bound = Bound::to(&heap);
@@ -667,9 +664,8 @@ fn run_minor_inside_cycle(mark_it: bool) -> bool {
     alive
 }
 
-/// **trim-minor-cycle-roots (2026-09-18)**: what seeding the grey queue into a minor actually
-/// buys is the grey entry's **untraced children**. The entry itself is already safe — M2b's
-/// `keep_major` keeps anything the cycle has marked — but a grey entry is *marked and not yet
+/// **trim-minor-cycle-roots (2026-09-18)**: seeding the grey queue into a minor carries the grey
+/// entry's **untraced children**, not just the entry. A grey entry is *marked and not yet
 /// traced*, so a child reachable only through it is still white, and a minor would take it.
 ///
 /// The grey state is the natural one, not a faked queue: a budget-1 slice snapshots the pinned
@@ -727,8 +723,8 @@ fn a_child_of_an_unseeded_grey_entry_is_reclaimed() {
 /// and the card scan re-traced that very entry on every minor (measured: 118 690 old entries
 /// re-copied per minor on `13_gc_large_heap --large`, 68% of all grey roots).
 ///
-/// `y` is born **before** the cycle opens on purpose: an object allocated during marking is
-/// allocate-black, and `keep_major` would then carry it whatever the root set says.
+/// `y` is born **before** the cycle opens on purpose: that makes it a white child behind the grey
+/// holder, the shape the rule is about (an object allocated during marking is born black).
 fn run_old_grey_entry_child(dirty_card: bool) -> bool {
     let heap = generational_heap();
     let _bound = Bound::to(&heap);
@@ -786,29 +782,26 @@ fn without_the_card_an_old_grey_entry_no_longer_carries_its_child() {
 }
 
 #[test]
-fn a_minor_inside_a_cycle_keeps_what_the_marker_already_marked() {
-    assert!(run_minor_inside_cycle(true));
+fn a_minor_inside_a_cycle_reclaims_what_it_cannot_reach_even_if_the_marker_marked_it() {
+    assert!(!run_minor_inside_cycle(true), "the cycle's mark must not keep a young entry");
 }
 
 #[test]
-fn a_minor_inside_a_cycle_still_reclaims_what_the_marker_never_marked() {
-    assert!(!run_minor_inside_cycle(false), "control: the rule must not keep everything alive");
+fn a_minor_inside_a_cycle_reclaims_what_the_marker_never_marked() {
+    assert!(!run_minor_inside_cycle(false));
 }
 
-/// **P0-16 (gc-strategy-stopgap)**: what survives a minor **only** because the open cycle has
-/// marked it (`keep_major` — in practice allocate-black: everything born while a cycle is open)
-/// is kept, but it does **not** age.
+/// **P1-7**: an object born **dead** during an open cycle is reclaimed by the next minor inside
+/// that cycle. It is born black (allocate-black), but the epoch only labels it "born during the
+/// cycle" for the major sweep; the minor judges young entries by its own reachability alone.
 ///
-/// Aging it was the first link of the strategy loop the runtime audit measured: every in-cycle
-/// newborn survived every in-cycle minor whether anything referenced it or not, crossed the
-/// promotion line after three of them, and became old garbage that only the *next* major could
-/// reclaim — the minor count collapsed and the heap overshot. Kept young, the first minor after
-/// the cycle closes takes it, as it would any other young garbage.
+/// The old rule kept every in-cycle newborn through every in-cycle minor; the minors reclaimed
+/// nothing, were judged futile, and their backoff climbed to ×64 on `13_gc_large_heap`.
 ///
-/// One unreferenced newborn per region (object, array, string), plus a rooted control that must
-/// keep aging normally — the rule is about *why* an entry survived, not about the cycle.
+/// One unreferenced newborn per region (object, array, string), plus a rooted control born in the
+/// same cycle that must survive and age as usual.
 #[test]
-fn a_minor_inside_a_cycle_keeps_but_does_not_age_what_only_the_cycle_holds() {
+fn a_minor_inside_a_cycle_reclaims_what_was_born_dead_in_it() {
     let heap = generational_heap();
     let _bound = Bound::to(&heap);
     let root = obj(&heap, "Root");
@@ -818,27 +811,26 @@ fn a_minor_inside_a_cycle_keeps_but_does_not_age_what_only_the_cycle_holds() {
     // Born black, referenced by nothing a minor can see.
     let x = obj(&heap, "X");
     let arr = heap.alloc_array(vec![Value::I64(0); 4]);
-    let s = Value::Str(heap.alloc_str("only the cycle holds me"));
+    let s = heap.alloc_str("born dead in the cycle");
     let (weak_x, weak_arr) = (heap.make_weak(&x).unwrap(), heap.make_weak(&arr).unwrap());
+    let kind = heap.major_mark_for_test();
+    assert!(ArcMagrGC::is_marked_value(&x, kind) && s.is_marked(kind), "born black");
     // The control: born in the same cycle, but rooted — a minor finds it on its own.
     let kept = obj(&heap, "Kept");
     let _kept_pin = heap.pin_root(kept.clone());
 
-    for _ in 0..heap.promotion_age() {
+    heap.run_cycle_collection_minor();
+    assert!(heap.major_cycle_active(), "still inside the cycle");
+    assert!(!raw_alive(&weak_x), "an in-cycle newborn object nothing refers to is reclaimed");
+    assert!(!raw_alive(&weak_arr), "an in-cycle newborn array nothing refers to is reclaimed");
+    assert!(!s.var_ref().is_live(), "an in-cycle newborn var block nothing refers to is reclaimed");
+    assert_eq!(ArcMagrGC::gen_age_of(&kept), 1, "control: the rooted newborn survives and ages");
+
+    for _ in 1..heap.promotion_age() {
         heap.run_cycle_collection_minor();
     }
-    assert!(raw_alive(&weak_x) && raw_alive(&weak_arr), "keep_major still keeps them");
-    assert_eq!(ArcMagrGC::gen_age_of(&x), 0, "an object kept only by the cycle must not age");
-    assert_eq!(ArcMagrGC::gen_age_of(&arr), 0, "an array kept only by the cycle must not age");
-    assert_eq!(ArcMagrGC::gen_age_of(&s), 0, "a var block kept only by the cycle must not age");
     assert!(ArcMagrGC::gen_age_of(&kept) >= heap.promotion_age(),
-        "control: a minor-reachable newborn ages and is promoted as usual");
-
-    // Cycle closed: they are ordinary young garbage now, and the next minor takes them.
-    let held = (x, arr, s);
+        "control: a minor-reachable newborn is promoted as usual");
+    std::mem::forget((x, arr));
     heap.finish_major_cycle_for_test();
-    heap.run_cycle_collection_minor();
-    assert!(!raw_alive(&weak_x) && !raw_alive(&weak_arr),
-        "the first minor after the cycle must reclaim what only the cycle held");
-    std::mem::forget(held);
 }

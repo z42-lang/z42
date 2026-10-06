@@ -236,23 +236,21 @@ impl<T> Region<T> {
     /// `prepare_dead` is the caller's business with a dying entry — its size estimate,
     /// breaking its reference edges, taking its finalizer — and runs with the entry still
     /// readable, before the tombstone. The finalizer runs after it, as before.
-    /// `keep_major`: while an incremental major cycle is open, the entries it has already
-    /// marked are **live for the rest of that cycle** — the marker has committed to them (its
-    /// grey set and SATB records are minor roots for the same reason), and the mutator may be
-    /// holding one it read before the edge that led to it was cut. A minor's own reachability
-    /// view is narrower than the cycle's snapshot, so without this it reclaims them and the
-    /// cycle is left handing out freed slots (add-incremental-major-gc M2b).
+    /// **The young generation belongs to the minor** (P1-7): an entry survives only if this minor
+    /// reached it. The open cycle's epoch on a young entry does not keep it — that stamp means
+    /// "born during the cycle" (the major sweep spares it, it is never doomed, SATB does not
+    /// record it), not "the minor must keep it". Why reclaiming an unreached one is safe while a
+    /// cycle is open — the grey queue and SATB records are minor roots, old→young edges have dirty
+    /// cards, newborns carry the epoch — is in `gc-incremental-major.md`.
     ///
-    /// An entry kept **only** by `keep_major` — not minor-marked — survives but does **not**
-    /// age (P0-16). Nothing a minor can see refers to it; the cycle keeps it because its
-    /// snapshot promised to (in practice: allocate-black, everything born while the cycle is
-    /// open). Aging it promoted the cycle's floating garbage into the old generation after
-    /// `promotion_age` in-cycle minors, where only the next major could reclaim it. Left young,
-    /// the first minor after the cycle closes takes it like any other young garbage.
+    /// `promote_black`: the open cycle's epoch **while it is sweeping**, for a debug check only.
+    /// Marking is complete by then, so every entry a minor can reach carries it — in particular
+    /// every entry this pass promotes. An unmarked promotion would be an old entry the sweep is
+    /// about to reclaim under a live reference.
     pub fn sweep_young_in_one_pass(
         &mut self,
         observed_age: u8,
-        keep_major: Option<crate::gc::refs::MarkKind>,
+        promote_black: Option<crate::gc::refs::MarkKind>,
         mut observe: impl FnMut(bool),
         mut prepare_dead: impl FnMut(&RegionEntry<T>) -> (Option<crate::gc::types::FinalizerFn>, u64),
     ) -> MinorRegionSweep {
@@ -277,15 +275,7 @@ impl<T> Region<T> {
             if age == observed_age {
                 observe(entry.is_marked(crate::gc::refs::MarkKind::Minor));
             }
-            if !entry.is_marked(crate::gc::refs::MarkKind::Minor)
-                && keep_major.is_some_and(|k| entry.is_marked(k))
-            {
-                // Kept by the cycle alone: stays listed young, at the age it had.
-                entry.set_young_idx(w);
-                young[w] = (ci, ei);
-                w += 1;
-                out.survivors += 1;
-            } else if entry.is_marked(crate::gc::refs::MarkKind::Minor) {
+            if entry.is_marked(crate::gc::refs::MarkKind::Minor) {
                 entry.clear_minor_mark();
                 let new_age = age.saturating_add(1);
                 entry.gen_age.store(new_age, Ordering::Release);
@@ -295,6 +285,10 @@ impl<T> Region<T> {
                     generation: entry.generation.load(Ordering::Acquire),
                 };
                 if new_age >= threshold {
+                    debug_assert!(
+                        promote_black.is_none_or(|k| entry.is_marked(k)),
+                        "promoted while the cycle sweeps, without its epoch: ({ci}, {ei})"
+                    );
                     // Crosses the line: leaves the young list, and its card is what keeps
                     // whatever it points at reachable from now on (the caller dirties it).
                     entry.clear_young_idx();

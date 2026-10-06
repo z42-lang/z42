@@ -88,10 +88,9 @@ impl VarRegion {
     ///
     /// Old blocks are never visited — that is the definition of a minor collection. They are
     /// reachable as minor roots only through the dirty-card set.
-    /// `keep_major`: see `Region::sweep_young_in_one_pass` — blocks the open cycle has marked
-    /// stay alive until it finishes (add-incremental-major-gc M2b), **without aging** unless the
-    /// minor marked them too (P0-16).
-    pub fn sweep_young(&mut self, keep_major: Option<crate::gc::refs::MarkKind>) -> (usize, u64) {
+    /// Only what this minor marked survives, whatever epoch a block carries; `promote_black` is
+    /// the debug check of `Region::sweep_young_in_one_pass`.
+    pub fn sweep_young(&mut self, promote_black: Option<crate::gc::refs::MarkKind>) -> (usize, u64) {
         let threshold = self.promotion_age;
         let mut reclaimed = 0usize;
         let mut credited: u64 = 0;
@@ -131,15 +130,13 @@ impl VarRegion {
                 header.set_in_young(false);
                 continue;
             }
-            if !header.is_marked(crate::gc::refs::MarkKind::Minor)
-                && keep_major.is_some_and(|k| header.is_marked(k))
-            {
-                // Kept by the cycle alone: stays young, unaged (see `Region::sweep_young_in_one_pass`).
-                young[w] = ptr;
-                w += 1;
-            } else if header.is_marked(crate::gc::refs::MarkKind::Minor) {
+            if header.is_marked(crate::gc::refs::MarkKind::Minor) {
                 header.clear_minor_mark();
                 if header.bump_gen_age() >= threshold {
+                    debug_assert!(
+                        promote_black.is_none_or(|k| header.is_marked(k)),
+                        "var block promoted while the cycle sweeps, without its epoch"
+                    );
                     header.set_in_young(false);
                 } else {
                     young[w] = ptr;
