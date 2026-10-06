@@ -257,7 +257,18 @@ major 的停顿与堆大小脱钩之后，剩余的最大停顿**全部来自 mi
 - 死的老对象在脏卡里、子对象先被清扫并复用、再跑 minor（关掉 doomed 跳过即 `use-after-finalize`）
 - 调度表逐行；随机写 / 寄存器移动 / minor / 微小切片交错 6000 步后全图可解引用 + 不变量
 
-**模型 D**（`src/runtime/tests/gc_incremental_model.rs`）：6 个对象的抽象堆，collector / minor / 两个 mutator 四条脚本，
+**模型 D**（`src/runtime/tests/gc_incremental_model.rs`）：9 个槽的抽象堆（含一个只经年轻对象可达的老对象、
+逐对象的卡表），collector / minor / 两个 mutator 四条脚本，
 **穷举全部交错**（状态记忆化）。每个切片和每个 mutator 步都是整体原子的（切片停世界，mutator 只在 safepoint 之间），
-所以「有没有一种顺序能打破不变量」就是枚举顺序 —— 不需要 loom，而且跑在默认测试集里。完整策略全绿；
-逐个关掉 SATB / allocate-black / 队列作 minor 根 / 弱读拒绝 doomed / minor 跳过 doomed 卡，**每一个都给出反例**。
+所以「有没有一种顺序能打破不变量」就是枚举顺序 —— 不需要 loom，而且跑在默认测试集里。每一步之后检查：
+清扫期间从根和寄存器可达的老对象必须已标记。
+
+模型用开关 `minor_honors_cycle_marks` 同时判定两种 minor 策略：
+
+- **年轻代归 minor 管**（完整策略）：年轻条目只有被 minor 自己到达才活过 minor，epoch 戳只当「周期内出生」的标签。
+  安全性全绿，并且满足活性断言「出生即垃圾的对象被周期内的 minor 收掉」。
+- **`keep_major`**（运行时当前的策略）：安全性全绿，活性断言给出反例 —— 周期内出生即垃圾的对象活过周期内的 minor。
+
+在完整策略上逐个关掉 SATB / allocate-black / 队列作 minor 根 / 弱读拒绝 doomed / minor 跳过 doomed 卡 /
+老←年轻写的卡屏障，或者让晋升「只置标记位、不入灰」，**每一个都给出反例**；最后一种的反例是：
+年轻 X 被提前涂黑后不再被追踪，它的老子对象 O 仍可达却被清掉。

@@ -16,50 +16,71 @@
 //! ```text
 //! slot 0  R  old, pinned root      R.f → H
 //! slot 1  Y  young, garbage        (reachable only from D)
-//! slot 2  H  old                   H.f → X
+//! slot 2  H  old                   H.f → X     (dirty card)
 //! slot 3  D  old, garbage          D.f → Y     (a dead old object in a dirty card)
-//! slot 4  X  young
-//! slot 5..7  free
+//! slot 4  X  young                 X.f → O
+//! slot 5  O  old                   (reachable only through the young X)
+//! slot 6..8  free
 //! ```
+//!
+//! Every old object has its own card (the real table is chunk-granular, so this is the finest —
+//! most adversarial — table the card invariant allows): the write barrier dirties it when a young
+//! reference is stored into the object, promotion dirties it when the promoted object still refers to
+//! something young, and a minor cleans it when seeding finds no young child (or the owner doomed).
 //!
 //! Threads (each a fixed script of atomic steps):
 //!
 //! - **collector**: open a cycle, then mark / sweep steps (each a slice of one unit of work);
-//! - **minor**: two minor collections, each at any point. A minor promotes what it found reachable
-//!   (the model's promotion age is 1), and keeps — **without** promoting — a young object the open
-//!   cycle has marked but the minor itself did not reach (`keep_major`);
-//! - **mutator A** (the SATB case): `r0 = R.f; r1 = r0.f; r0.f = null; use r1; r1 = null`;
-//! - **mutator B** (newborns, weak reads, slot reuse): `r0 = new; r1 = weak(D); use r0; use r1;
-//!   r0 = new; use r0; new` — the last one garbage from birth.
+//! - **minor**: two minor collections, each at any point. A minor promotes what it reached from
+//!   the roots, registers, dirty cards and (while a cycle is open) the grey set and SATB records
+//!   (the model's promotion age is 1). What it did not reach it reclaims — unless the policy
+//!   `minor_honors_cycle_marks` (`keep_major`) keeps a young object the open cycle has marked;
+//! - **mutator A** (the SATB case): `r0 = R.f; r1 = r0.f; r0.f = null; use r1, r1.f; r1 = null`;
+//! - **mutator B** (newborns, weak reads, slot reuse, the card path): `r0 = new; r1 = weak(D);
+//!   use r0; use r1; r0 = new; use r0; R.f.f = r0, r0 = null; new` — the newborn stored into H is
+//!   then reachable only through H's card, and the last one is garbage from birth.
 //!
 //! Every dereference — by a mutator, by the marker popping its grey set, by a minor tracing — checks
-//! the slot is alive with the handle's generation. At the end the collector finishes, and everything
-//! still reachable from the roots and registers must be alive. Then one more minor runs, and B's
-//! garbage-from-birth must be gone: a cycle may keep its floating garbage for **its own** duration,
-//! not hand it to the old generation (P0-16).
+//! the slot is alive with the handle's generation. After every step, while the cycle is sweeping,
+//! every old object reachable from the roots and registers must be marked (the sweep judges it by
+//! that bit alone). At the end the collector finishes, and everything still reachable from the
+//! roots and registers must be alive. Then one more minor runs, and B's garbage-from-birth must be
+//! gone: a cycle may keep its floating garbage for **its own** duration, not hand it to the old
+//! generation (P0-16).
+//!
+//! [`Props::SafetyAndReclaim`] adds a liveness property on top: **every** minor after B's
+//! garbage-from-birth was allocated must reclaim it — including a minor inside the open cycle that
+//! allocated it black.
 //!
 //! ## What it discriminates
 //!
-//! Each invariant the implementation relies on is a policy flag; the full policy is green and
-//! turning **any one** off produces a counterexample:
+//! [`FULL`] — the young generation belongs to the minor: a young entry survives a minor only if
+//! the minor itself reaches it, and the cycle epoch a newborn carries is only a "born in this
+//! cycle" label — is green on both safety and reclaim. [`KEEP_MAJOR`] (a minor keeps whatever the
+//! open cycle has marked) is green on safety and fails reclaim. Turning **any one** invariant off
+//! produces a counterexample:
 //!
-//! | off | counterexample |
+//! | off / on | counterexample |
 //! |---|---|
 //! | SATB barrier | A's `r1` swept while held |
 //! | allocate-black | B's newborn swept while held |
 //! | grey set + SATB records as minor roots | the marker pops a handle a minor reclaimed |
 //! | weak reads refuse doomed objects | B's weak read revives D, then D is swept |
 //! | minor card seeding skips doomed entries | the minor traces D → Y after Y's slot was reused |
-//! | `keep_major` survivors do not age | B's garbage, born black, is promoted and outlives its cycle |
+//! | card barrier on old ← young writes | the newborn B stored into H is reclaimed by a minor |
+//! | promotion sets the mark bit without greying | the promoted X is never traced, O is swept while reachable |
+//! | (`KEEP_MAJOR`) reclaim | B's garbage, born black, survives a minor inside its cycle |
+//! | (`KEEP_MAJOR`) `keep_major` survivors age | B's garbage, born black, is promoted and outlives its cycle |
 
 use std::collections::HashSet;
 
-const N: usize = 8;
+const N: usize = 9;
 const R: usize = 0;
 const Y: usize = 1;
 const H: usize = 2;
 const D: usize = 3;
 const X: usize = 4;
+const O: usize = 5;
 
 type Ref = (usize, u32); // (slot, generation)
 
@@ -70,6 +91,8 @@ struct Obj {
     field: Option<Ref>,
     marked: bool,
     old: bool,
+    /// The object's card (meaningful only while old).
+    dirty: bool,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -86,8 +109,17 @@ struct Policy {
     minor_roots_queues: bool,
     weak_refuses_doomed: bool,
     minor_skips_doomed: bool,
-    /// Whether a minor ages (here: promotes) an entry kept **only** by `keep_major`.
+    /// The write barrier dirties an old owner's card when it stores a young reference.
+    card_barrier: bool,
+    /// Whether a minor keeps — without promoting — a young object the open cycle has marked but the
+    /// minor itself did not reach (`keep_major`). Off: the young generation belongs to the minor.
+    minor_honors_cycle_marks: bool,
+    /// Only with `minor_honors_cycle_marks`: whether a minor ages (here: promotes) an entry kept
+    /// **only** by `keep_major`.
     keep_major_ages: bool,
+    /// Control: a minor inside an open cycle "promotes black" by setting the mark bit of what it
+    /// promotes without greying it — so the marker never traces it.
+    promote_marks_without_grey: bool,
 }
 
 const FULL: Policy = Policy {
@@ -96,8 +128,23 @@ const FULL: Policy = Policy {
     minor_roots_queues: true,
     weak_refuses_doomed: true,
     minor_skips_doomed: true,
+    card_barrier: true,
+    minor_honors_cycle_marks: false,
     keep_major_ages: false,
+    promote_marks_without_grey: false,
 };
+
+/// The runtime's policy today: a minor inside an open cycle keeps every young entry carrying the
+/// cycle epoch.
+const KEEP_MAJOR: Policy = Policy { minor_honors_cycle_marks: true, ..FULL };
+
+/// What `explore` asserts. Safety is always checked.
+#[derive(Clone, Copy, PartialEq)]
+enum Props {
+    Safety,
+    /// Plus: every minor after B's garbage-from-birth was allocated reclaims it.
+    SafetyAndReclaim,
+}
 
 #[derive(Clone, PartialEq, Eq, Hash)]
 struct State {
@@ -113,23 +160,31 @@ struct State {
     pc: [usize; 4], // collector, minor, A, B
 }
 
-const COLLECTOR_STEPS: usize = 1 + 6 + N; // open, mark ×6, sweep ×N
-const SCRIPT_LEN: [usize; 4] = [COLLECTOR_STEPS, 2, 5, 7];
+const MARK_STEPS: usize = 6;
+const COLLECTOR_STEPS: usize = 1 + MARK_STEPS + N; // open, mark ×6, sweep ×N
+const SCRIPT_LEN: [usize; 4] = [COLLECTOR_STEPS, 2, 5, 8];
 
 type Check = Result<(), String>;
 
 fn obj(old: bool, field: Option<Ref>) -> Obj {
-    Obj { alive: true, gen: 0, field, marked: false, old }
+    Obj { alive: true, gen: 0, field, marked: false, old, dirty: false }
 }
 
 impl State {
     fn initial() -> Self {
-        let mut objs = [Obj { alive: false, gen: 0, field: None, marked: false, old: false }; N];
+        let mut objs = [Obj { alive: false, gen: 0, field: None, marked: false, old: false, dirty: false }; N];
         objs[R] = obj(true, Some((H, 0)));
         objs[Y] = obj(false, None);
         objs[H] = obj(true, Some((X, 0)));
         objs[D] = obj(true, Some((Y, 0)));
-        objs[X] = obj(false, None);
+        objs[X] = obj(false, Some((O, 0)));
+        objs[O] = obj(true, None);
+        // The card invariant holds going in: every old object with a young child is dirty.
+        for i in 0..N {
+            if let Some(c) = objs[i].field {
+                objs[i].dirty = objs[i].old && !objs[c.0].old;
+            }
+        }
         State {
             objs,
             phase: Phase::Idle,
@@ -158,7 +213,7 @@ impl State {
         }
     }
 
-    /// A heap write `slot.field = new`, through the SATB barrier.
+    /// A heap write `slot.field = new`, through the SATB barrier and the card barrier.
     fn write(&mut self, p: &Policy, owner: Ref, new: Option<Ref>, who: &str) -> Check {
         let o = self.deref(owner, who)?;
         if p.satb && self.phase == Phase::Marking {
@@ -168,6 +223,9 @@ impl State {
                 }
             }
         }
+        if p.card_barrier && o.old && new.is_some_and(|n| !self.objs[n.0].old) {
+            self.objs[owner.0].dirty = true;
+        }
         self.objs[owner.0].field = new;
         Ok(())
     }
@@ -176,7 +234,7 @@ impl State {
         let slot = (0..N).find(|&i| !self.objs[i].alive).expect("model heap full");
         let gen = self.objs[slot].gen + 1;
         let black = p.alloc_black && self.phase != Phase::Idle;
-        self.objs[slot] = Obj { alive: true, gen, field: None, marked: black, old: false };
+        self.objs[slot] = Obj { alive: true, gen, field: None, marked: black, old: false, dirty: false };
         (slot, gen)
     }
 
@@ -184,6 +242,14 @@ impl State {
         self.objs[slot].alive = false;
         self.objs[slot].gen += 1;
         self.objs[slot].field = None;
+        self.objs[slot].dirty = false;
+    }
+
+    /// The roots and every register.
+    fn roots(&self) -> Vec<Ref> {
+        let mut roots: Vec<Ref> = vec![(R, 0)];
+        roots.extend(self.reg.iter().flatten().flatten().copied());
+        roots
     }
 
     // ── collector ────────────────────────────────────────────────────────────
@@ -195,8 +261,7 @@ impl State {
                 o.marked = false;
             }
             self.phase = Phase::Marking;
-            self.mark((R, 0));
-            for r in self.reg.iter().flatten().flatten().copied().collect::<Vec<_>>() {
+            for r in self.roots() {
                 if self.live(r) {
                     self.mark(r);
                 }
@@ -260,25 +325,25 @@ impl State {
     // ── minor ────────────────────────────────────────────────────────────────
 
     fn minor(&mut self, p: &Policy) -> Check {
-        let mut roots: Vec<Ref> = vec![(R, 0)];
-        roots.extend(self.reg.iter().flatten().flatten().copied());
+        let mut roots = self.roots();
         if p.minor_roots_queues {
             roots.extend(self.grey.iter().copied());
             roots.extend(self.satb.iter().copied());
         }
-        // Card seeding: every alive old object is treated as dirty (a superset of the real card
-        // table), its young child a root — except a doomed one while sweeping.
+        // Card seeding: a dirty old object's young child is a root; a card whose object has no
+        // young child — or is doomed while sweeping — is cleaned.
         for i in 0..N {
             let o = self.objs[i];
-            if !o.alive || !o.old {
+            if !o.alive || !o.old || !o.dirty {
                 continue;
             }
             if p.minor_skips_doomed && self.phase == Phase::Sweeping && !o.marked {
+                self.objs[i].dirty = false;
                 continue;
             }
-            if let Some(c) = o.field {
-                self.deref(c, "minor card seeding")?;
-                roots.push(c);
+            match o.field {
+                Some(c) if !self.deref(c, "minor card seeding")?.old => roots.push(c),
+                _ => self.objs[i].dirty = false,
             }
         }
         let mut kept = [false; N];
@@ -297,6 +362,7 @@ impl State {
             }
         }
         let open = self.phase != Phase::Idle;
+        let mut promoted = Vec::new();
         for i in 0..N {
             let o = self.objs[i];
             if !o.alive || o.old {
@@ -304,13 +370,26 @@ impl State {
             }
             if kept[i] {
                 self.objs[i].old = true; // survived a minor: promoted (promotion age 1)
-            } else if open && o.marked {
+                promoted.push(i);
+                if p.promote_marks_without_grey && open {
+                    self.objs[i].marked = true;
+                }
+            } else if p.minor_honors_cycle_marks && open && o.marked {
                 // keep_major: the open cycle holds it. It survives; whether it ages is the policy.
                 if p.keep_major_ages {
                     self.objs[i].old = true;
+                    promoted.push(i);
                 }
             } else {
                 self.kill(i);
+            }
+        }
+        // Promotion does the barrier's job for the old → young edges it creates.
+        for i in promoted {
+            if let Some(c) = self.objs[i].field {
+                if self.live(c) && !self.objs[c.0].old {
+                    self.objs[i].dirty = true;
+                }
             }
         }
         Ok(())
@@ -338,7 +417,14 @@ impl State {
                     self.write(p, h, None, "A")?;
                 }
             }
-            3 => self.use_reg(0, 1)?,
+            3 => {
+                // use r1 and r1.f — X's old child O is held only through X.
+                if let Some(x) = self.reg[0][1] {
+                    if let Some(c) = self.deref(x, "mutator A r1")?.field {
+                        self.deref(c, "mutator A r1.f")?;
+                    }
+                }
+            }
             _ => self.reg[0][1] = None,
         }
         Ok(())
@@ -362,7 +448,14 @@ impl State {
                 };
             }
             2 | 5 => self.use_reg(1, 0)?,
-            6 => self.garbage = Some(self.alloc(p)),
+            6 => {
+                // R.f.f = r0; r0 = null — the newborn is now held only by an old object (the card path).
+                if let (Some(h), Some(n)) = (self.deref((R, 0), "B")?.field, self.reg[1][0]) {
+                    self.write(p, h, Some(n), "B")?;
+                }
+                self.reg[1][0] = None;
+            }
+            7 => self.garbage = Some(self.alloc(p)),
             _ => self.use_reg(1, 1)?,
         }
         Ok(())
@@ -379,6 +472,34 @@ impl State {
         }
     }
 
+    /// After every step. While sweeping, every old object reachable from the roots and registers
+    /// is marked — the sweep judges it by that bit alone. With `Props::SafetyAndReclaim`, a minor
+    /// leaves nothing of B's garbage-from-birth.
+    fn check_step(&self, t: usize, props: Props) -> Check {
+        if self.phase == Phase::Sweeping {
+            let mut stack = self.roots();
+            let mut seen = [false; N];
+            while let Some(r) = stack.pop() {
+                let o = self.deref(r, "sweeping invariant")?;
+                if seen[r.0] {
+                    continue;
+                }
+                seen[r.0] = true;
+                if o.old && !o.marked {
+                    let cursor = self.cursor;
+                    return Err(format!("{r:?} is old, reachable and unmarked while sweeping (cursor {cursor})"));
+                }
+                stack.extend(o.field);
+            }
+        }
+        if t == 1 && props == Props::SafetyAndReclaim {
+            if let Some(g) = self.garbage.filter(|&g| self.live(g)) {
+                return Err(format!("a minor ({:?}) left garbage-from-birth {g:?} alive", self.phase));
+            }
+        }
+        Ok(())
+    }
+
     /// All scripts done: finish the cycle, then everything reachable must be alive. One more minor,
     /// and B's garbage-from-birth must be gone.
     fn final_check(mut self, p: &Policy) -> Check {
@@ -389,8 +510,7 @@ impl State {
                 return Err(format!("garbage-from-birth {g:?} outlived its cycle and the minor after it"));
             }
         }
-        let mut stack: Vec<Ref> = vec![(R, 0)];
-        stack.extend(self.reg.iter().flatten().flatten().copied());
+        let mut stack = self.roots();
         let mut seen = HashSet::new();
         while let Some(r) = stack.pop() {
             let o = self.deref(r, "final reachability")?;
@@ -403,7 +523,7 @@ impl State {
 }
 
 /// Depth-first over every interleaving, memoising visited states. Returns the first counterexample.
-fn explore(p: Policy) -> Result<usize, String> {
+fn explore(p: Policy, props: Props) -> Result<usize, String> {
     let mut seen: HashSet<State> = HashSet::new();
     let mut stack = vec![State::initial()];
     while let Some(s) = stack.pop() {
@@ -417,7 +537,9 @@ fn explore(p: Policy) -> Result<usize, String> {
             }
             any = true;
             let mut next = s.clone();
-            next.step(t, &p).map_err(|e| format!("{e} (after pcs {:?})", s.pc))?;
+            next.step(t, &p)
+                .and_then(|()| next.check_step(t, props))
+                .map_err(|e| format!("{e} (after pcs {:?})", s.pc))?;
             stack.push(next);
         }
         if !any {
@@ -428,44 +550,68 @@ fn explore(p: Policy) -> Result<usize, String> {
 }
 
 #[test]
-fn every_interleaving_is_safe_with_the_full_policy() {
-    let states = explore(FULL).unwrap();
+fn every_interleaving_is_safe_and_reclaims_with_the_full_policy() {
+    let states = explore(FULL, Props::SafetyAndReclaim).unwrap();
     assert!(states > 10_000, "the model must actually branch ({states} states)");
 }
 
-fn expect_counterexample(p: Policy, what: &str) {
-    match explore(p) {
+#[test]
+fn every_interleaving_is_safe_when_the_minor_keeps_what_the_cycle_marked() {
+    explore(KEEP_MAJOR, Props::Safety).unwrap();
+}
+
+fn expect_counterexample(p: Policy, props: Props, what: &str) {
+    match explore(p, props) {
         Ok(states) => panic!("control ({what}): expected a counterexample, none in {states} states"),
         Err(e) => eprintln!("control ({what}): {e}"),
     }
 }
 
 #[test]
+fn when_the_minor_keeps_what_the_cycle_marked_a_minor_in_the_cycle_keeps_garbage_from_birth() {
+    expect_counterexample(KEEP_MAJOR, Props::SafetyAndReclaim, "keep_major: reclaim");
+}
+
+#[test]
 fn without_satb_some_interleaving_loses_a_held_object() {
-    expect_counterexample(Policy { satb: false, ..FULL }, "no SATB");
+    expect_counterexample(Policy { satb: false, ..FULL }, Props::Safety, "no SATB");
 }
 
 #[test]
 fn without_allocate_black_some_interleaving_loses_a_newborn() {
-    expect_counterexample(Policy { alloc_black: false, ..FULL }, "no allocate-black");
+    expect_counterexample(Policy { alloc_black: false, ..FULL }, Props::Safety, "no allocate-black");
 }
 
 #[test]
 fn without_queues_as_minor_roots_the_marker_meets_a_reclaimed_handle() {
-    expect_counterexample(Policy { minor_roots_queues: false, ..FULL }, "queues not minor roots");
+    let p = Policy { minor_roots_queues: false, ..FULL };
+    expect_counterexample(p, Props::Safety, "queues not minor roots");
 }
 
 #[test]
 fn without_refusing_doomed_weak_reads_a_revived_object_is_swept() {
-    expect_counterexample(Policy { weak_refuses_doomed: false, ..FULL }, "weak read revives doomed");
+    let p = Policy { weak_refuses_doomed: false, ..FULL };
+    expect_counterexample(p, Props::Safety, "weak read revives doomed");
 }
 
 #[test]
 fn without_skipping_doomed_card_entries_a_minor_follows_a_dangling_edge() {
-    expect_counterexample(Policy { minor_skips_doomed: false, ..FULL }, "minor traces doomed");
+    expect_counterexample(Policy { minor_skips_doomed: false, ..FULL }, Props::Safety, "minor traces doomed");
+}
+
+#[test]
+fn without_the_card_barrier_a_newborn_stored_in_an_old_object_is_reclaimed() {
+    expect_counterexample(Policy { card_barrier: false, ..FULL }, Props::Safety, "no card barrier");
+}
+
+#[test]
+fn when_promotion_marks_without_greying_an_old_child_of_a_young_object_is_swept() {
+    let p = Policy { promote_marks_without_grey: true, ..FULL };
+    expect_counterexample(p, Props::Safety, "promote-black without grey");
 }
 
 #[test]
 fn when_keep_major_survivors_age_the_cycles_floating_garbage_is_promoted() {
-    expect_counterexample(Policy { keep_major_ages: true, ..FULL }, "keep_major survivors age");
+    let p = Policy { keep_major_ages: true, ..KEEP_MAJOR };
+    expect_counterexample(p, Props::Safety, "keep_major survivors age");
 }
