@@ -112,6 +112,15 @@ xtask / build 基础设施驱动；stdlib 又被两者依赖。任何「从源�
 2. **阶段 2 —— 落「使用」**：新 nightly 发布后，**才**在 z42c / stdlib / xtask / 用例里**使用**新语法、
    或让构建**产出**新格式。→ 刚发布的 z42c（阶段 1 能力）能编。
 
+**「新 nightly 发布了」怎么确认**：nightly 必须**包含**阶段 1 的提交，不是「发布时间晚于合并时间」——
+`gh api repos/z42-lang/z42/compare/<阶段1 的 main 提交>...$(gh api repos/z42-lang/z42/git/ref/tags/nightly -q .object.sha) -q .status`
+为 `ahead` 或 `identical` 才算。阶段 1 合并后不必盯着它的 main 运行：改到 SDK 路径的 main 运行不会被后来的
+合并取消，一定跑完发布（机制见 [ci.md](../../internals/src/devinfra/ci.md)「main 上的运行不互相打断」）。
+
+> 🔴 那条保护按路径判「影响 SDK」：文档、`*.md`、`tests/` / `bench/` 下的测试源码与夹具、`examples/`、
+> `scripts/test/` 等算**不影响**，会被后来的运行替换。**决定 SDK 内容的逻辑不要放进这些路径**；新增一类
+> 不进 SDK 的路径时，同步改 `.github/ci/main-supersede.sh` 的 `non_sdk_re` 与 ci.md 的那张表。
+
 ### 边界的第二根轴：stdlib API 面
 
 种子约束不止语法/格式——CI 冷启动（`.github/actions/ci-bootstrap` step 2/3）用**种子 z42c +

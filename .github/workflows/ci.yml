@@ -42,9 +42,14 @@ on:
 # event_name in the group keeps push / schedule / workflow_dispatch independent:
 # the daily `schedule` nightly and a `push` near 07:00 UTC no longer cancel each
 # other (that produced spurious "cancelled" reds + a wasted re-run). Within one
-# event type, a newer run still supersedes the older (new push cancels old push).
+# event type, a newer run supersedes the older (new PR push cancels old PR push).
+#
+# **push to main 例外**：每个 commit 单独一个 group，GitHub 不自动取消。连续合并时「新的取消旧的」
+# 会让 main 一个运行都跑不完、nightly 发不出来，而「support 先行、晚一个 nightly 再 use」的提交
+# 等的正是那份 nightly。改由 detect-changes 的 `main-supersede.sh` 取消较早的、**不影响 SDK** 的运行；
+# 影响 SDK 的留着跑完发布（ci.md §2「main 上的运行不互相打断」）。
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}${{ github.event_name == 'push' && format('-{0}', github.sha) || '' }}
   cancel-in-progress: true
 
 jobs:
@@ -57,6 +62,10 @@ jobs:
     name: detect-changes
     timeout-minutes: 15
     runs-on: ubuntu-latest
+    permissions:
+      actions: write        # main-supersede：取消被替换的 main push 运行
+      contents: read
+      pull-requests: read   # Docs-only PR?：读 PR 文件列表
     outputs:
       platform: ${{ steps.filter.outputs.platform }}
       examples: ${{ steps.filter.outputs.examples }}
@@ -64,8 +73,22 @@ jobs:
       vm: ${{ steps.filter.outputs.vm }}
       stdlib: ${{ steps.filter.outputs.stdlib }}
       docs_only: ${{ steps.docsonly.outputs.docs_only }}
+      # 当前 nightly → 本 commit 的累计改动是否影响 SDK；只在 push to main 上判，其余事件为空（= 照常发布）。
+      sdk: ${{ steps.supersede.outputs.sdk }}
     steps:
       - uses: actions/checkout@v7
+
+      # main 上的运行不互相打断（见顶部 concurrency 注释）：取消较早的、不影响 SDK 的 main push 运行，
+      # 并判出本运行是否需要发布 nightly。
+      - name: Supersede older main runs
+        id: supersede
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        # 这一步出错不该拖垮 main：失败时 sdk 输出为空 ⇒ publish-nightly 照常（安全的默认），只是没取消旧运行。
+        continue-on-error: true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: .github/ci/main-supersede.sh supersede
       - uses: dorny/paths-filter@v4
         id: filter
         with:
@@ -1369,7 +1392,7 @@ jobs:
   publish-nightly:
     name: publish-nightly
     timeout-minutes: 40
-    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' && needs.changes.outputs.sdk != 'false'
     # NIGHTLY-SEED DEADLOCK POSTURE: EVERY bootstrap path (build-and-test, host-package,
     # package-*, all via the ci-bootstrap action / toolchain-bootstrap) seeds from the
     # PREVIOUS nightly's z42c and builds current source with it — every bootstrap depends
@@ -1387,6 +1410,7 @@ jobs:
     # would add a needless deadlock edge. JIT correctness is gated by the dedicated
     # vm-jit-consistency job (build-and-test's `xtask test` is interp-only).
     needs:
+      - changes               # sdk == false（nightly 之后只改了文档 / 测试）⇒ 没有新东西可发
       - build-and-test
       - host-package
       - package-ios
@@ -1409,7 +1433,26 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # 防回退：main 的运行不再互相取消，较早的运行可能在较新的之后才排到发布（本 job 的 group 串行）。
+      # nightly 已指向本 commit 的后代 ⇒ 跳过，不拿旧 commit 覆盖新 nightly。
+      - name: Skip if nightly is already newer
+        id: stale
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          cur=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/nightly" -q .object.sha 2>/dev/null || true)
+          stale=false
+          if [ -n "$cur" ] && [ "$cur" != "$GITHUB_SHA" ]; then
+            rel=$(gh api "repos/${GITHUB_REPOSITORY}/compare/${GITHUB_SHA}...${cur}" -q .status 2>/dev/null || true)
+            if [ "$rel" = "ahead" ]; then stale=true; fi
+          fi
+          echo "nightly @ ${cur:-<none>}, this run @ $GITHUB_SHA ⇒ stale=$stale"
+          echo "stale=$stale" >> "$GITHUB_OUTPUT"
+
       - name: Provision z42vm + xtask (consume toolchain artifact)
+        if: steps.stale.outputs.stale != 'true'
         uses: ./.github/actions/xtask-bootstrap-artifact
         with:
           prebuilt-vm: "true"   # 后续只跑 xtask、不调 cargo（ci-prebuilt-vm；非 linux-x64 腿照常自建）
@@ -1418,6 +1461,7 @@ jobs:
       # 出好归档（可执行位原样进 tar、Windows 出真 zip）。此前这里下载**原始包目录**再集中打包 ——
       # upload-artifact 不保留可执行位，nightly tar 里的 z42vm 等都不可执行；还要从目录名反推 RID。
       - name: Download all release archives
+        if: steps.stale.outputs.stale != 'true'
         uses: actions/download-artifact@v8
         with:
           path: artifacts/packages/archives
@@ -1426,6 +1470,7 @@ jobs:
 
       # 合并 4 份逐 RID 桌面 workload → SHA256SUMS → release-index.json（与 release.yml 同一条命令）。
       - name: Finalize release assets (nightly)
+        if: steps.stale.outputs.stale != 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -1445,6 +1490,7 @@ jobs:
       # existing. (During an upload a downloader may still get the previous build's copy
       # of that asset — a complete archive either way.)
       - name: Update nightly release in place
+        if: steps.stale.outputs.stale != 'true'
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
