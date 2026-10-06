@@ -25,7 +25,7 @@ public static class ClassExtractor {
                     int x = 0;
                     while (x < sig.ParamCount) { pts[x] = TypeNameResolver._hybridTypeName(md.Params[x].Type, sig.ParamTypes[x]); x = x + 1; }
                     string iret = TypeNameResolver._hybridTypeName(md.RetType, sig.Ret);
-                    ms[mc] = ExportedTypeExtractor._im(md.Name, iret, pts, sig.ParamCount);   // 接口方法无重载，bare Name
+                    ms[mc] = BuiltinTypeDefs._im(md.Name, iret, pts, sig.ParamCount);   // 接口方法无重载，bare Name
                     mc = mc + 1;
                 }
             } else if (mem is PropertyDecl) {
@@ -38,7 +38,7 @@ public static class ClassExtractor {
                     if (gsym != null) {
                         Z42FuncType gsig = gsym.Signature;
                         string gret = TypeNameResolver._resolvedTypeName(gsig.Ret);
-                        ms[mc] = ExportedTypeExtractor._im(gkey, gret, new string[0], 0);
+                        ms[mc] = BuiltinTypeDefs._im(gkey, gret, new string[0], 0);
                         mc = mc + 1;
                     }
                 }
@@ -46,7 +46,7 @@ public static class ClassExtractor {
             j = j + 1;
         }
         ExportedInterfaceZ eiz = new ExportedInterfaceZ(c.Name, ms, mc, c.TypeParams.Names, c.TypeParams.Count);
-        eiz.Visibility = IrGenFacts.classVis(c.Mods, c.Name.IndexOf("+") >= 0);   // complete-class-access-control ④：同包导出模型一致携带接口可见性（跨包走 TsigReconcile；此处防未来消费者读默认误判）
+        eiz.Visibility = DeclFacts.classVis(c.Mods, c.Name.IndexOf("+") >= 0);   // complete-class-access-control ④：同包导出模型一致携带接口可见性（跨包走 TsigReconcile；此处防未来消费者读默认误判）
         return eiz;
     }
 

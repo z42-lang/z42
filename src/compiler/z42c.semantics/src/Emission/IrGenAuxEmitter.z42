@@ -18,7 +18,7 @@ public sealed class IrGenAuxEmitter {
         IrGen g = this._g;
         int i = 0;
         while (i < cu.DeclCount) {
-            Decl di = IrGenFacts._unwrap(cu.Decls[i]);
+            Decl di = DeclFacts._unwrap(cu.Decls[i]);
             if (di is ClassDecl) {
                 ClassDecl ic = di as ClassDecl;
                 if (ic.Kind == "interface") {
@@ -45,7 +45,7 @@ public sealed class IrGenAuxEmitter {
     public void EmitEnums(CompilationUnit cu) {
         int i = 0;
         while (i < cu.DeclCount) {
-            Decl de = IrGenFacts._unwrap(cu.Decls[i]);
+            Decl de = DeclFacts._unwrap(cu.Decls[i]);
             if (de is EnumDecl) {
                 EnumDecl ed = de as EnumDecl;
                 IrClassDesc edesc = new IrClassDesc(this._g._q(ed.Name), false, "", new IrFieldDesc[0], 0);
@@ -56,7 +56,7 @@ public sealed class IrGenAuxEmitter {
                 int mi = 0;
                 while (mi < ed.MemberCount) {
                     EnumMember em = ed.Members[mi];
-                    if (em.HasValue) { cur = IrGenFacts._parseEnumVal(em.Value); }
+                    if (em.HasValue) { cur = DeclFacts._parseEnumVal(em.Value); }
                     mn[mi] = em.Name; mv[mi] = cur;
                     cur = cur + 1;
                     mi = mi + 1;
@@ -73,7 +73,7 @@ public sealed class IrGenAuxEmitter {
     public void EmitDelegates(CompilationUnit cu) {
         int i = 0;
         while (i < cu.DeclCount) {
-            Decl dg = IrGenFacts._unwrap(cu.Decls[i]);
+            Decl dg = DeclFacts._unwrap(cu.Decls[i]);
             if (dg is DelegateDecl) {
                 DelegateDecl dd = dg as DelegateDecl;
                 string dfq = this._g._q(dd.Name);
@@ -96,7 +96,7 @@ public sealed class IrGenAuxEmitter {
         int i = 0;
         while (i < cu.DeclCount) {
             Decl rawD = cu.Decls[i];                       // fix-free-function-attrs：attribute 列表只在未剥壳的这份上
-            Decl d = IrGenFacts._unwrap(rawD);
+            Decl d = DeclFacts._unwrap(rawD);
             if (d is MethodDecl) {
                 MethodDecl md = d as MethodDecl;
                 if (md.HasBody && model.HasBody(md.RegKey)) {
@@ -104,7 +104,7 @@ public sealed class IrGenAuxEmitter {
                     // free-function-overloads：IR 名 + 体查找键按 RegKey（primary=裸名→字节稳定；重载带签名后缀）。
                     IrFunction irf = fe.EmitFunction(this._g._q(md.RegKey), md, model.GetBody(md.RegKey), false, false,
                                                      null, new string[0], 0);
-                    irf.Visibility = IrGenFacts._visCode(md.Mods, 3);
+                    irf.Visibility = DeclFacts._visCode(md.Mods, 3);
                     irf.MethodFlags = irf.MethodFlags | IrGenFacts._methodFlags(md.Mods);   // 或：保住 FunctionEmitter 置的 sret 位   // add-method-modifiers
                     // fix-crosspkg-named-args：形参 attr-ref（含 `$Default` / `$Caller:*` 哨兵）与成员方法同一条
                     // （IrGenMemberEmitter）。此前自由函数从不填 ⇒ 跨包调用拿不到默认值：`Label("a")` 对

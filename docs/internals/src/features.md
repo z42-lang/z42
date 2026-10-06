@@ -1,7 +1,7 @@
 # 语言特性的决策台账
 
 > 代码：`src/compiler/z42c.syntax/src/Lexer.z42`（关键字表）、
-> `src/compiler/z42c.semantics/src/Lowering/HandlerRegistry.z42`（内建 attribute 集）
+> `src/compiler/z42c.semantics/src/Symbols/HandlerRegistry.z42`（内建 attribute 集）
 >
 > 规则面（怎么写、报什么错、有哪些形态）**一律在**[语言参考](https://z42-lang.github.io/z42/reference/language/index.html)，
 > 本页不重复。这里只回答一个问题：**为什么是这个形状，而不是另一个。**

@@ -20,17 +20,21 @@
 
 | 目录 | 内容 |
 |------|------|
-| `src/Symbols/` | 符号表与收集：`SymbolTable`（4 碎片）、`SymbolCollector` 及各簇 pass、继承解析、导入符号加载、命名空间作用域 |
+| `src/Symbols/` | 符号表与收集：`SymbolTable`（4 碎片）、`SymbolCollector` 及各簇 pass、继承解析、导入符号加载、命名空间作用域、attribute handler 注册表、声明修饰符助手 `DeclFacts` |
 | `src/Types/` | 类型模型：`Z42Type`、类型代换、转换分类、基元模型、泛型约束、类型实参推断、struct 布局 |
-| `src/BoundTree/` | Bound 树节点（表达式 / 语句 / 模式）、`SemanticModel`、bound dump |
-| `src/Binding/` | 绑定 + 类型检查：`TypeChecker`、各 `*Typer`、`MemberResolver`（7 碎片）、重载决议、语句 / 声明 / 模式绑定、访问检查、穷尽检查、常量求值、编译期宏 |
-| `src/Validation/` | 声明期约束（`DeclEnforcer`）、流分析（`FlowAnalyzer`）、声明位类型引用补录、多余 `using` 告警 |
-| `src/Emission/` | Bound → IR：`IrGen*`、`EmitContext`、各 `*Emitter`、`ClassDescBuilder`、常量 blob |
-| `src/Lowering/` | 合成与脱糖：attribute 合成 / handler 注册表、record / 模块初始化 / 接口桥合成、benchmark 脱糖、测试索引 |
+| `src/BoundTree/` | Bound 树节点（表达式 / 语句 / 模式）、`SemanticModel` |
+| `src/Binding/` | 绑定 + 类型检查：`TypeChecker`、各 `*Typer`、`MemberResolver`（7 碎片）、重载决议、语句 / 声明 / 模式绑定、访问检查、穷尽检查、常量求值与常量 blob、编译期宏 |
+| `src/Validation/` | 声明期约束（`DeclEnforcer`）、流分析（`FlowAnalyzer`）、声明位类型引用补录、多余 `using` 告警、`[ModuleInit]` 校验 |
+| `src/Emission/` | Bound → IR：`IrGen*`、`EmitContext`、各 `*Emitter`、`ClassDescBuilder` |
+| `src/Lowering/` | IR 级合成：record / 模块初始化 / 接口桥合成、测试索引 |
 | `src/Exports/` | 导出签名（TSIG）提取、编译产物束 `CompiledModuleZ` |
-| `src/Generators/` | 源码生成器：契约、驱动、多轮拓扑、内建 `[Forward]` |
+| `src/Generators/` | 源码生成器与 AST 级脱糖：契约、驱动、多轮拓扑、生成上下文、内建 `[Forward]`、attribute 工厂合成、benchmark 脱糖 |
 | `src/Analyzers/` | 分析器：驱动、加载、`[lints]` 决策、局部抑制 |
-| `src/Compilation/` | 单 CU / 包编译编排：`CuCompile`、`CuPreprocess`、`IrDump` 门面、`ParallelFor` |
+| `src/Compilation/` | 单 CU / 包编译编排：`CuCompile`、`CuPreprocess`、`IrDump` / `SemanticDump` 门面、包级 `global using` 告警、`ParallelFor` |
+
+**分层**：语义层（Types / Symbols / BoundTree / Binding / Validation / Analyzers / Generators）**不引用**
+emission 层（Lowering / Emission / Exports）与编排层（Compilation）；反方向随意。代码生成用到的声明 / 常量判定
+放在语义层（如 `DeclFacts`、`ConstBlob`），由代码生成反过来引用。这是把 emission 层拆成独立包的前提。
 
 ## 如何测试验证
 ```bash
@@ -76,7 +80,7 @@
 | `src/Types/GenericConstraint.z42` | 泛型约束模型：ConstraintBundle（单型参）+ ConstraintSet（一类全型参，按声明序对齐 TypeArgs） |
 | `src/Types/ConstraintChecker.z42` | 泛型 where 约束：Resolve（声明期 where→ConstraintSet）+ Check（call-site `new Box<int>()` 校验）。隔离自 TypeChecker |
 | `src/BoundTree/SemanticModel.z42` | 类型检查产物：符号表 + 各方法/函数体 Bound 树（key="Class.Method"/func 名） |
-| `src/BoundTree/SemanticDump.z42` | 纯函数工具：源 → bound s-expr / 诊断计数（[Test] + driver `--dump-bound`） |
+| `src/Compilation/SemanticDump.z42` | 纯函数工具：源 → bound s-expr / 诊断计数（[Test] + driver `--dump-bound`） |
 | `src/Emission/EmitContext.z42` | **codegen 共享状态 + 低层助手**：寄存器分配 Alloc / Emit / 基本块 StartBlock·EndBlock / Fresh 标签 / 循环标签栈 PushLoop·PopLoop / Z42Type→IrType 映射（`z42.package` 的 IR 层不引用 Z42Type，映射在此）。FunctionEmitter 与 ExprEmitter 共用一个 ctx（z42 无 partial class，用拆 helper 代替） |
 | `src/Emission/ExprEmitter.z42` | **表达式 lowering**：集中 if-is Emit(BoundExpr)→TypedReg。字面量 / ident·字段 / 二元（算术·比较·位·拼接）/ 一元（!·-·~）/ 赋值 / 成员 / 调用 / new / 数组索引 / is·as / **块化：短路 &&·‖、三目 ?:、??**（中途分块 + 结果寄存器 copy 汇合）。**sealed 去虚化**（`_emitCall` instance 分支，receiver 静态类型是**本地或 imported** 类（`DevirtReceiverClass`，含泛型——解包 `Z42InstantiatedType.Def`、短名走 `_classShortName` 的 `$N` 条件 arity-mangle）+ `EmitContext.ResolveSealedTarget(…, classSealed)` 在 declClass 处门控 `classSealed ‖ ms.IsSealed`（整类 sealed **或** sealed override 方法）解出目标 → `VCall` 降级直接 `Call`，`Opt.Devirt` 门控 → 解锁 `IrInline`。imported 定义类经 `Deps.Statics` 校验 FQ 真实发射，排除 TSIG 展平的继承方法）|
 | `src/Emission/FunctionEmitter.z42` | **codegen 函数入口 + 语句 + 控制流**：EmitFunction（建 ctx + 形参/this/字段绑定 → 出 IrFunction）+ 集中 if-is EmitStmt；if/while/break/continue → 多块 + Br/BrCond（委托 _ctx 块管理 + _expr 表达式） |
@@ -108,9 +112,15 @@
 | `src/Symbols/CtorInheritance.z42` / `NestedFlatten.z42` / `PreludeNs.z42` | 构造器继承 / 嵌套类型展平 / prelude 命名空间集 |
 | `src/Validation/FlowAnalyzer.z42`（+ `.Reachability`） / `DeclEnforcer.AttrArgs.z42` | 流分析（可达性 / definite assignment）/ attribute 实参校验 |
 | `src/Emission/CallEmitter.z42` / `AccessEmitter.z42` / `StmtEmitter.z42` / `OperatorEmitter.z42` / `TypeOpEmitter.z42` / `StubEmitter.z42` | 调用 / 成员访问 / 语句 / 运算符（含 record `==` 拦截脱糖）/ is·as·cast / 桩函数 的 IR 发射 |
-| `src/Emission/ClassDescBuilder.z42`（+ `.GenericInst`）/ `ExprEmitter.GenericInst.z42` / `GenericBodySrc.z42` / `GenContext.z42` / `ConstBlob.z42` / `IrGenFacts.z42` | 类描述构建 / 泛型实例化发射 / 泛型体源 / 生成上下文 / 常量 blob / 发射期事实与常量折叠 |
+| `src/Emission/ClassDescBuilder.z42`（+ `.GenericInst`）/ `ExprEmitter.GenericInst.z42` / `GenericBodySrc.z42` / `IrGenFacts.z42` | 类描述构建 / 泛型实例化发射 / 泛型体源 / 发射期 IR 助手（类型标签、方法标志、形参元数据）|
+| `src/Binding/ConstBlob.z42` | 常量 blob 编解码（`ConstBlobReader`，重载决议 / 构造器继承读默认值）|
 | `src/Generators/ForwardGenerator.z42` / `GenTopo.z42` | 内建 `[Forward]` 生成器 / 多轮 generator 拓扑序 |
-| `src/Lowering/AttributeSynth.z42` / `HandlerRegistry.z42` / `IfaceBridgeSynth.z42` / `ModuleInitSynth.z42` / `ModuleInitScan.z42` / `BenchmarkDesugar.z42` / `TestIndexBuilder.z42` | attribute 合成与 handler 注册表 / 接口桥合成 / 模块初始化合成与扫描 / benchmark 脱糖 / 测试索引（TIDX）|
+| `src/Lowering/IfaceBridgeSynth.z42` / `ModuleInitSynth.z42` / `RecordSynth.z42` / `TestIndexBuilder.z42` | 接口桥合成 / 模块初始化合成 / record 值语义合成 / 测试索引（TIDX）|
+| `src/Generators/AttributeSynth.z42` / `BenchmarkDesugar.z42` / `GenContext.z42` | parse 后、typecheck 前的 AST 级脱糖：attribute 工厂合成 / benchmark 脱糖；generator 上下文 |
+| `src/Symbols/HandlerRegistry.z42` | attribute handler 注册表（`AttrKind` 三路判定、`DeclId`、内建 generator 先于 store-meta 合成） |
+| `src/Symbols/DeclFacts.z42` | 声明修饰符 / 可见性（`_hasWord` / `_visCode` / `classVis*`）/ 字面量文本助手——只看 AST 与字符串，语义层与代码生成共用 |
+| `src/Validation/ModuleInitScan.z42` | `[ModuleInit]` 合法性校验（E0485 包内第二个 / E0486 标注目标非法）与站点扫描 |
+| `src/Compilation/GlobalUsingLint.z42` | 包级告警：全包没有文件用到的 `global using X;` ⇒ W0607（作用于编译产物，与 `CuPreprocess._enforceFileScope` 同层）|
 | `src/Compilation/ParallelFor.z42` | 包内文件级并行编译的 `ParallelFor` 机件 |
 
 ### 导出面提取（ExportedTypeExtractor）

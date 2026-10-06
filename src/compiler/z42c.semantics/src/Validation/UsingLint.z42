@@ -50,58 +50,14 @@ public static class UsingLint {
         }
     }
 
-    // using-csharp-rules 3.6：`global using X;` **全包**没有任何文件用到 X ⇒ W0607（报在声明它的那一行）。
-    // 判据：每个文件的 `UsedNs` ∪ `UsedDepNs`（与 E0436 同一份集合）。cached 文件的这两项由 meta 回填（2.9）——
-    // 少了 `UsedNs` 就会把只被 cached 文件用到的 global using 误报成没用。
-    // 不判：包里有错误（同 `Check`：用法集合不可信）；编译器注入的副本（`Injected`）；prelude（`Check` 已在声明处报过）。
-    public static void CheckGlobalUsings(CompilationUnit[] cus, CompiledModuleZ[] cms, int n) {
-        int e = 0;
-        while (e < n) { if (cms[e] != null && cms[e].ErrorCount > 0) { return; } e = e + 1; }
-        int i = 0;
-        while (i < n) {
-            if (cus[i] != null && cms[i] != null) {
-                int di = 0;
-                while (di < cus[i].DeclCount) {
-                    Decl d = cus[i].Decls[di];
-                    di = di + 1;
-                    if (!(d is UsingDecl)) { continue; }
-                    UsingDecl u = d as UsingDecl;
-                    if (!u.IsGlobal || u.Injected || PreludeNs.Contains(u.Name)) { continue; }
-                    if (UsingLint._usedAnywhere(cms, n, u.Name)) { continue; }
-                    string file = u.Span != null && u.Span.File != "" ? u.Span.File : (cus[i].Span != null ? cus[i].Span.File : "");
-                    string msg = file + "(" + u.Span.Line.ToString() + "," + u.Span.Column.ToString() + "): " + DiagnosticCodes.UnnecessaryUsing
-                        + ": unnecessary `global using " + u.Name + ";` — no file in the package uses it";
-                    int oldn = cms[i].DiagCount;
-                    string[] nw = new string[oldn + 1];
-                    int q = 0; while (q < oldn) { nw[q] = cms[i].DiagMsgs[q]; q = q + 1; }
-                    nw[oldn] = msg;
-                    cms[i].DiagMsgs = nw; cms[i].DiagCount = oldn + 1;
-                }
-            }
-            i = i + 1;
-        }
-    }
-
-    private static bool _usedAnywhere(CompiledModuleZ[] cms, int n, string ns) {
-        int i = 0;
-        while (i < n) {
-            if (cms[i] != null) {
-                if (cms[i].UsedNs != null && UsingLint._has(cms[i].UsedNs, cms[i].UsedNs.Length, ns)) { return true; }
-                if (cms[i].UsedDepNs != null && UsingLint._hasDep(cms[i].UsedDepNs, cms[i].UsedDepNsCount, ns)) { return true; }
-            }
-            i = i + 1;
-        }
-        return false;
-    }
-
     // `UsedDepNs` 的条目可能带归属包（`ns#pkg`，deterministic-zpkg-deps / DepRef）—— 只比 ns 部分。
-    private static bool _hasDep(string[] a, int n, string s) {
+    internal static bool _hasDep(string[] a, int n, string s) {
         int i = 0;
         while (i < n) { if (DepRef.NsOf(a[i]) == s) { return true; } i = i + 1; }
         return false;
     }
 
-    private static bool _has(string[] a, int n, string s) {
+    internal static bool _has(string[] a, int n, string s) {
         int i = 0;
         while (i < n) { if (a[i] == s) { return true; } i = i + 1; }
         return false;

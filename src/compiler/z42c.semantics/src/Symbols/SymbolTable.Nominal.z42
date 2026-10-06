@@ -216,8 +216,14 @@ public sealed partial class SymbolTable {
         return null;
     }
 
+    // E0436 的消息正文（唯一一份）：文件级检查（`CuPreprocess._enforceFileScope`）与引用点（`ExprTyper` 未定义标识符 /
+    // `AccessChecker` 未定义类型 —— 类型在、只是没 `using`，见下方 `MissingUsingNs`）共用。
+    public static string MissingUsingMsg(string ns) {
+        return "namespace `" + ns + "` is used but not imported in this file; add `using " + ns + ";`";
+    }
+
     // 名字解析失败时：短名表里有同名类 / 接口（类型确实在、所在包也激活了，只是本文件没 `using` 它的 ns）⇒
-    // 返回它的声明 ns，否则 ""。调用点据此报 E0436（与文件级那条同码同文，见 `CuPreprocess.MissingUsingMsg`）。
+    // 返回它的声明 ns，否则 ""。调用点据此报 E0436（与文件级那条同码同文，见上方 `MissingUsingMsg`）。
     // A5b-2c 之前这类引用被裸名回落**静默解析**、事后由文件级检查补报 E0436 @ (1,1)；回落删掉后改在引用点报。
     // 只做诊断、不参与解析（短名表赢家是 first-wins，同短名多份时只点名其中一个，足够指路）。
     public string MissingUsingNs(string name) {

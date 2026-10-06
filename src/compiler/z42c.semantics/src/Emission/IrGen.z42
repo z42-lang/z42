@@ -265,7 +265,7 @@ public sealed class IrGen {
         this.MgThunks = new StrMap();
         int ifd = 0;
         while (ifd < cu.DeclCount) {
-            Decl dfd = IrGenFacts._unwrap(cu.Decls[ifd]);
+            Decl dfd = DeclFacts._unwrap(cu.Decls[ifd]);
             if (dfd is ClassDecl) {
                 ClassDecl cfd = dfd as ClassDecl;
                 if (cfd.Kind == "interface") { this.IfaceDecls.Put(cfd.Name, cfd); }
@@ -296,7 +296,7 @@ public sealed class IrGen {
         if (model.SiCount > 0) {
             int sidx = 0;
             while (sidx < cu.DeclCount) {
-                Decl sd = IrGenFacts._unwrap(cu.Decls[sidx]);
+                Decl sd = DeclFacts._unwrap(cu.Decls[sidx]);
                 if (sd is ClassDecl) {
                     ClassDecl sc = sd as ClassDecl;
                     if ((sc.Kind == "class" || sc.Kind == "struct")
@@ -321,7 +321,7 @@ public sealed class IrGen {
         // 两遍（byte-identical：module.Functions 序 = 类方法（声明序）→ 自由函数（声明序），SIGS 字节实证）。
         int i = 0;
         while (i < cu.DeclCount) {
-            Decl d = IrGenFacts._unwrap(cu.Decls[i]);
+            Decl d = DeclFacts._unwrap(cu.Decls[i]);
             if (d is ClassDecl) {
                 ClassDecl c = d as ClassDecl;
                 if (c.Kind == "class" || c.Kind == "struct") { types.EmitClass(cu.Decls[i], c, emittedPartial); }
@@ -462,7 +462,7 @@ public sealed class IrGen {
             SemanticModel mdl = models == null ? null : models[ci];
             int gi = 0;
             while (gi < cu.DeclCount) {
-                Decl gd = IrGenFacts._unwrap(cu.Decls[gi]);
+                Decl gd = DeclFacts._unwrap(cu.Decls[gi]);
                 if (gd is MethodDecl) {
                     MethodDecl gmd = gd as MethodDecl;
                     if (gmd.TypeParams.Count > 0 && gmd.HasBody && !bodies.ContainsKey(gmd.RegKey)) {
@@ -487,7 +487,7 @@ public sealed class IrGen {
                     }
                     int gmi = 0;
                     while (gmi < gc.MemberCount) {
-                        Decl gmem = IrGenFacts._unwrap(gc.Members[gmi]);
+                        Decl gmem = DeclFacts._unwrap(gc.Members[gmi]);
                         if (gmem is MethodDecl) {
                             MethodDecl gm = gmem as MethodDecl;
                             // S1-d：**虚/override 也登记**。安全性靠两条：① 运行期「特化名不沿基类链
@@ -495,7 +495,7 @@ public sealed class IrGen {
                             if (gm.TypeParams.Count > 0 && gm.HasBody) {
                                 string lk = gownerKey + "." + gm.RegKey;
                                 if (!bodies.ContainsKey(lk)) {
-                                    string rk = IrGenFacts._hasWord(gm.Mods, "static") ? "" : gm.RegKey;
+                                    string rk = DeclFacts._hasWord(gm.Mods, "static") ? "" : gm.RegKey;
                                     bodies.Put(lk, new GenericBodySrc(gc.Members[gmi], mdl, gownerKey, rk));
                                 }
                             }
@@ -539,7 +539,7 @@ public sealed class IrGen {
         if (rk == null) { return; }
         GenericBodySrc src = this.GenericBodies.Get(rk.Value) as GenericBodySrc;
         if (src == null) { return; }
-        Decl dd = IrGenFacts._unwrap(src.Raw);
+        Decl dd = DeclFacts._unwrap(src.Raw);
         if (!(dd is MethodDecl)) { return; }
         MethodDecl md = dd as MethodDecl;
         // S1-f：体查找必须用**声明所属 CU** 的 model —— 泛型常声明在别的文件里，用当前 CU 的
@@ -559,11 +559,11 @@ public sealed class IrGen {
         var fe = new FunctionEmitter(model.Symbols, this);
         // 三种形态：自由函数（无 owner、无 this）/ 静态方法（有 owner、无 this）/ 实例方法（两者皆有）。
         bool isMember = src.OwnerKey != "";
-        bool isStaticMethod = isMember && IrGenFacts._hasWord(md.Mods, "static");
+        bool isStaticMethod = isMember && DeclFacts._hasWord(md.Mods, "static");
         bool isInstance = isMember && !isStaticMethod;
         IrFunction irf = fe.EmitFunction(specName, md, bm.GetBody(rk.Value), isInstance, isStaticMethod,
                                          owner, new string[0], 0);
-        irf.Visibility = IrGenFacts._visCode(md.Mods, isMember ? 1 : 3);
+        irf.Visibility = DeclFacts._visCode(md.Mods, isMember ? 1 : 3);
         irf.MethodFlags = irf.MethodFlags | IrGenFacts._methodFlags(md.Mods);
         irf.ParamAttrs = this._classDescB._paramAttrRefs(md, isInstance); irf.ParamAttrsLen = irf.ParamAttrs.Length;
         IrGenFacts._fillParamMeta(irf, md, isInstance);

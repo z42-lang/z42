@@ -117,7 +117,7 @@ public sealed partial class ExprTyper {
                 // 再报一条 `undefined: <error>` 纯属级联（fix-parser-error-cascade）。
                 if (id.Name != "<error>") {
                     string mns = env.Symbols == null ? "" : env.Symbols.MissingUsingNs(id.Name);
-                    if (mns != "") { this._tc._diags.Error(DiagnosticCodes.MissingUsing, CuPreprocess.MissingUsingMsg(mns), id.Span); }   // A5b-2c：类型在、只是没 using
+                    if (mns != "") { this._tc._diags.Error(DiagnosticCodes.MissingUsing, SymbolTable.MissingUsingMsg(mns), id.Span); }   // A5b-2c：类型在、只是没 using
                     else { this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol, "undefined: " + id.Name, id.Span); }
                 }
                 return new BoundError("undefined " + id.Name, new Z42ErrorType(), id.Span);

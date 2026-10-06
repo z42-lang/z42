@@ -52,7 +52,7 @@ public sealed class IrGenTypeEmitter {
         int j = 0;
         while (j < c.MemberCount) {
             Decl rawMem = c.Members[j];
-            Decl mem = IrGenFacts._unwrap(rawMem);
+            Decl mem = DeclFacts._unwrap(rawMem);
             if (mem is MethodDecl) { this._members.EmitMethod(c, owner, ownerKey, rawMem, mem as MethodDecl); }
             else if (mem is PropertyDecl) { this._members.EmitProperty(c, owner, ownerKey, rawMem, mem as PropertyDecl); }
             else if (mem is IndexerDecl) { this._members.EmitIndexer(c, owner, ownerKey, mem as IndexerDecl); }
@@ -87,7 +87,7 @@ public sealed class IrGenTypeEmitter {
         }
         if (!(rd is Decl)) { return; }
         Decl rawDecl = rd as Decl;
-        Decl dd = IrGenFacts._unwrap(rawDecl);
+        Decl dd = DeclFacts._unwrap(rawDecl);
         if (!(dd is ClassDecl)) { return; }
         ClassDecl c = dd as ClassDecl;
         string ownerKey = c.Name;
@@ -117,7 +117,7 @@ public sealed class IrGenTypeEmitter {
         int j = 0;
         while (j < c.MemberCount) {
             Decl rawMem = c.Members[j];
-            Decl mem = IrGenFacts._unwrap(rawMem);
+            Decl mem = DeclFacts._unwrap(rawMem);
             if (mem is MethodDecl) { this._members.EmitMethod(c, owner, ownerKey, rawMem, mem as MethodDecl); }
             else if (mem is PropertyDecl) { this._members.EmitProperty(c, owner, ownerKey, rawMem, mem as PropertyDecl); }
             else if (mem is IndexerDecl) { this._members.EmitIndexer(c, owner, ownerKey, mem as IndexerDecl); }
@@ -151,10 +151,10 @@ public sealed class IrGenTypeEmitter {
     private bool _declaresExplicitCctor(ClassDecl c) {
         int i = 0;
         while (i < c.MemberCount) {
-            Decl m = IrGenFacts._unwrap(c.Members[i]);
+            Decl m = DeclFacts._unwrap(c.Members[i]);
             if (m is MethodDecl) {
                 MethodDecl md = m as MethodDecl;
-                if (md.IsCtor && IrGenFacts._hasWord(md.Mods, "static") && md.HasBody) { return true; }
+                if (md.IsCtor && DeclFacts._hasWord(md.Mods, "static") && md.HasBody) { return true; }
             }
             i = i + 1;
         }
@@ -221,11 +221,11 @@ public sealed class IrGenTypeEmitter {
                         string imk = OverloadResolver.MethodKeyOf(imd);   // unify-regkey-source-of-truth：与 DeclBinder._bindImpl 成对，必须同键
                         string ikey = itn + "." + imk;
                         if (model.HasBody(ikey)) {
-                            bool ist = IrGenFacts._hasWord(imd.Mods, "static");
+                            bool ist = DeclFacts._hasWord(imd.Mods, "static");
                             var ife = new FunctionEmitter(model.Symbols, g);
                             IrFunction iirf = ife.EmitFunction(g._qClass(itn) + "." + imk, imd,
                                                                model.GetBody(ikey), !ist, ist, iowner, new string[0], 0);
-                            iirf.Visibility = IrGenFacts._visCode(imd.Mods, 1);   // add-member-visibility
+                            iirf.Visibility = DeclFacts._visCode(imd.Mods, 1);   // add-member-visibility
                             iirf.MethodFlags = iirf.MethodFlags | IrGenFacts._methodFlags(imd.Mods);   // 或：保住 FunctionEmitter 置的 sret 位   // add-method-modifiers
                             IrGenFacts._fillParamMeta(iirf, imd, !ist);   // add-param-metadata
                             this._out.AddFunc(iirf);

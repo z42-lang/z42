@@ -416,7 +416,7 @@ public sealed class EmitContext {
                 MethodSymbol ms = ct.Methods.Get(methodKey) as MethodSymbol;
                 if (ms == null) { return ""; }
                 // abstract 无 body 不可直呼（sealed 具体类应已 override，防御性）。
-                if (ms.HasDecl && ms.Decl != null && IrGenFacts._hasWord(ms.Decl.Mods, "abstract")) { return ""; }
+                if (ms.HasDecl && ms.Decl != null && DeclFacts._hasWord(ms.Decl.Mods, "abstract")) { return ""; }
                 // sealed override 门控：非整类 sealed 时，只有方法本身 sealed 才目标唯一（见上判据）。
                 bool sealedHere = classSealed || ms.IsSealed;
                 // 目标名用 _classShortName（泛型条件 $N mangle）逐字节匹配 IrGen `_q(_classIrShortName)`。
