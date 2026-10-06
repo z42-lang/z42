@@ -27,6 +27,8 @@ public static class ZpkgIndexedWriter {
             pool.Intern(zpkg.Deps[i].File);
             int j = 0;
             while (j < zpkg.Deps[i].NsCount) { pool.Intern(zpkg.Deps[i].Namespaces[j]); j = j + 1; }
+            j = 0;
+            while (j < zpkg.Deps[i].SymCount) { pool.Intern(zpkg.Deps[i].Symbols[j]); j = j + 1; }
             i = i + 1;
         }
         i = 0;

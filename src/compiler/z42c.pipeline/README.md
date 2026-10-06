@@ -42,7 +42,7 @@
 | `src/GeneratorLoader.z42` | source generator 加载 + 运行 |
 | `src/ManifestKnobs.z42` | `[optimize]` / `[syntax]` / `[lints]` / pack / strip 决议为 `KnobResult`（错误行收集、不打印）。**唯一实现**：driver 与 BuildSession 共用 |
 | `src/SdkLibs.z42` | **SDK 库的可见性**：`Plan` 算放行集（exe / lib = 按名声明的 SDK 库 + DEPS 传递闭包；analyzer = 编译器目录里基础解析域中没有的全部包），不放行的经 `MergeTier` 并入扫描 tier 的 `Hidden`；`ExtendDeclared` 把放行集并进声明白名单；`HiddenProviderOf` 给 E0494 点名未声明的 SDK 库。driver 与 BuildSession 共用；放行集为空 ⇒ 什么都不动 |
-| `src/ZpkgDeps.z42` | zpkg **DEPS 段**计算：每个模块 `UsedDepNs` 里带归属包的条目只记那个包，归属不明的按 ns 保守回落为全部提供包（`Z42C_TRACE_DEPS=1` 打印）；`using` 本身不贡献依赖；测试 / bench 目标加父包。规则见 internals `formats/zpkg.md` 的 DEPS 小节 |
+| `src/ZpkgDeps.z42` | zpkg **DEPS 段**计算（含每个依赖的符号表，供运行期精确路由）：每个模块 `UsedDepNs` 里带归属包的条目只记那个包，归属不明的按 ns 保守回落为全部提供包（`Z42C_TRACE_DEPS=1` 打印）；`using` 本身不贡献依赖；测试 / bench 目标加父包。规则见 internals `formats/zpkg.md` 的 DEPS 小节 |
 
 ### 依赖扫描
 | 文件 | 职责 |

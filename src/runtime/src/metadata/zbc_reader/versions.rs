@@ -329,7 +329,9 @@ pub const ZPKG_VERSION_MAJOR: u16 = 0;
 // 2026-09-27 type-section-flags2-and-struct-fields: bumped to 0.50 — embeds zbc 1.45
 // (TYPE record: always-present class_flags2 + gated per-field struct layout table).
 // Outer layout unchanged.
-pub const ZPKG_VERSION_MINOR: u16 = 51;
+// 2026-10-06 precise-pkg-refs: bumped to 0.52 — DEPS entries gain `u32 symCount; u32×symIdx`
+// (referenced type / free-function full names defined by that dependency) for precise lazy routing.
+pub const ZPKG_VERSION_MINOR: u16 = 52;
 
 // ── Strict-pin header verification ────────────────────────────────────────────
 //

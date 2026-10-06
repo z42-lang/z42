@@ -35,7 +35,21 @@ impl LazyLoader {
         if self.is_known_unresolved_function(func_name) {
             return None;
         }
-        // Strategy C: precise routing by namespace prefix
+        // precise-pkg-refs: the referencing package recorded which package defines this name.
+        if let Some(route) = self.symbol_route(func_name) {
+            if self.load_routed(&route) {
+                if let Some(f) = self.function_table.get(func_name) {
+                    return Some(Arc::clone(f));
+                }
+                // An exactly-recorded free function missing from its own package is a genuinely
+                // missing symbol (.NET: MissingMethodException) — no point loading anything else.
+                if route.exact {
+                    self.note_unresolved_function(func_name);
+                    return None;
+                }
+            }
+        }
+        // Strategy C: routing by namespace prefix
         if let Some(ns) = namespace_prefix(func_name) {
             for zpkg_file in self.candidates_for_namespace(&ns) {
                 let _ = self.load_zpkg_file(&zpkg_file);
@@ -150,8 +164,19 @@ impl LazyLoader {
         if let Some(td) = self.type_registry.get(class_name) {
             return Some(Arc::clone(td));
         }
-        // Strategy C: use the class's enclosing namespace (strip last segment)
-        if let Some((ns, _)) = class_name.rsplit_once('.') {
+        // precise-pkg-refs: see `resolve_function`.
+        if let Some(route) = self.symbol_route(class_name) {
+            if self.load_routed(&route) {
+                if let Some(td) = self.type_registry.get(class_name) {
+                    return Some(Arc::clone(td));
+                }
+                if route.exact { return None; }
+            }
+        }
+        // Strategy C: use the class's enclosing namespace (strip last segment). Generic
+        // arguments are cut first — `Std.List<Std.Int32>` must route by `Std`, not split
+        // inside the brackets.
+        if let Some((ns, _)) = symbol_key(class_name).rsplit_once('.') {
             for zpkg_file in self.candidates_for_namespace(ns) {
                 let _ = self.load_zpkg_file(&zpkg_file);
                 if let Some(td) = self.type_registry.get(class_name) {
@@ -203,6 +228,8 @@ pub(crate) fn namespace_prefix(func_name: &str) -> Option<String> {
     // A qualified function name has the form: <ns>.<Class>.<method>
     //                                         or <ns>.<func>
     // Strategy: strip the last two segments (Class.method), keep the rest.
+    // Signature suffixes (`$1$Std.List<int>`) carry dots of their own — cut them first.
+    let func_name = symbol_key(func_name);
     let dots: Vec<usize> = func_name.match_indices('.').map(|(i, _)| i).collect();
     if dots.len() < 2 {
         // "Class.method" — no explicit namespace. Use first segment as candidate.

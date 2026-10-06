@@ -1,4 +1,8 @@
-// 依赖引用条目的编码（deterministic-zpkg-deps）：`UsedDepNs` 的每一项是 `ns` 或 `ns#pkg`。
+// 依赖引用条目的编码（deterministic-zpkg-deps）：`UsedDepNs` 的每一项是 `ns`、`ns#pkg` 或 `ns#pkg#sym`。
+//
+// `sym`（precise-pkg-refs）= 被引用的导入**类型或自由函数**的全名（去掉泛型实参 / 签名后缀，见 `SymKey`）。
+// 它进 zpkg DEPS 段的符号表，运行期据此「这个名字在哪个包」精确加载那一个包（.NET TypeRef 的
+// ResolutionScope 同理），不再按命名空间前缀猜。
 //
 // zpkg 的 DEPS 段由这些条目算出：带 `#pkg` 的只记那一个包（符号**实际**来自哪个包）；不带的是归属不明，
 // 保守地记下该 ns 在本次扫描里的**全部**提供包。后者会随「本次构建能看到哪些包」变化，前者不会 ——
@@ -15,6 +19,24 @@ public static class DepRef {
         return ns + "#" + pkg;
     }
 
+    // 带符号：归属不明（pkg 空）时符号没有意义，退回只记 ns。
+    public static string EncodeSym(string ns, string pkg, string sym) {
+        if (pkg == null || pkg == "") { return ns; }
+        if (sym == null || sym == "") { return ns + "#" + pkg; }
+        return ns + "#" + pkg + "#" + DepRef.SymKey(sym);
+    }
+
+    // 运行期与编译期共用的符号键：去掉泛型实参（`<…>`）与重载 / arity 后缀（`$…`）。
+    // 运行期 `LazyLoader` 对查找名做同样的归一（见 runtime `symbol_key`）。
+    public static string SymKey(string name) {
+        int cut = name.Length;
+        int lt = name.IndexOf("<");
+        if (lt >= 0 && lt < cut) { cut = lt; }
+        int ds = name.IndexOf("$");
+        if (ds >= 0 && ds < cut) { cut = ds; }
+        return cut == name.Length ? name : name.Substring(0, cut);
+    }
+
     public static string NsOf(string entry) {
         int h = entry.IndexOf("#");
         return h < 0 ? entry : entry.Substring(0, h);
@@ -23,6 +45,18 @@ public static class DepRef {
     // "" = 归属不明。
     public static string PkgOf(string entry) {
         int h = entry.IndexOf("#");
-        return h < 0 ? "" : entry.Substring(h + 1, entry.Length - h - 1);
+        if (h < 0) { return ""; }
+        string rest = entry.Substring(h + 1, entry.Length - h - 1);
+        int h2 = rest.IndexOf("#");
+        return h2 < 0 ? rest : rest.Substring(0, h2);
+    }
+
+    // "" = 条目不带符号（只到 ns / 包）。
+    public static string SymOf(string entry) {
+        int h = entry.IndexOf("#");
+        if (h < 0) { return ""; }
+        string rest = entry.Substring(h + 1, entry.Length - h - 1);
+        int h2 = rest.IndexOf("#");
+        return h2 < 0 ? "" : rest.Substring(h2 + 1, rest.Length - h2 - 1);
     }
 }

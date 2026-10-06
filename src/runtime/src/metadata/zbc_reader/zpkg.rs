@@ -136,9 +136,15 @@ pub(super) fn read_deps_section(sec: &[u8], pool: &[String]) -> Result<Vec<ZpkgD
         for _ in 0..ns_count {
             namespaces.push(pool_str_owned(pool, c.read_u32()?)?);
         }
+        let sym_count = c.read_u32()? as usize;
+        let mut symbols = Vec::with_capacity(sym_count);
+        for _ in 0..sym_count {
+            symbols.push(pool_str_owned(pool, c.read_u32()?)?);
+        }
         deps.push(ZpkgDep {
             file: pool_str_owned(pool, file_idx)?,
             namespaces,
+            symbols,
         });
     }
     Ok(deps)

@@ -692,7 +692,7 @@ public sealed partial class MemberResolver {
                 BoundExpr[] nfa = this._tc._overload._withDefaults(nfs, args, rawArgs, argCount, env, sp, false);   // add-call-arity-diagnostics：同自由函数汇聚点
                 BoundCall nbc = BoundCall.Marked(new BoundCall("free", false, null, "", nfs.RegKey, nfa, nfa.Length, nfs.Signature.Ret, sp), nfs.Signature);
                 nbc.FreeNs = fnsPath; nbc.FreeImported = !nfs.HasDecl;
-                env.Symbols.NoteDepUse(fnsPath, env.Symbols.ImportedFuncPkgOf(mem.Name, fnsPath));   // DEPS（全限定写法不记 using）
+                env.Symbols.NoteDepUse(fnsPath, env.Symbols.ImportedFuncPkgOf(mem.Name, fnsPath), SymbolTable.QualOf(fnsPath, mem.Name));   // DEPS（全限定写法不记 using）
                 return nbc;
             }
         }

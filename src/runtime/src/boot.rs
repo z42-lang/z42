@@ -41,6 +41,9 @@ pub(crate) struct BootPlan {
     pub initially_loaded: Vec<String>,
     /// `impl` pairs contributed by the eagerly merged artifacts (user module included).
     pub eager_impl_pairs: Vec<(String, String)>,
+    /// precise-pkg-refs: DEPS lists of the eagerly merged artifacts (user module included) —
+    /// their symbol lists seed the lazy loader's "which package defines this name" table.
+    pub eager_deps: Vec<crate::metadata::formats::ZpkgDep>,
 }
 
 /// Build the context for a fully merged module (type registry / indices already built).
@@ -86,6 +89,7 @@ pub(crate) fn boot_context(mut module: Module, plan: BootPlan) -> Pin<Box<VmCont
         ctx.seed_lazy_loader_types(&m.type_registry, &func_names);
     }
     ctx.seed_lazy_loader_impls(&plan.eager_impl_pairs);
+    ctx.seed_lazy_loader_symbol_owners(&plan.eager_deps);
     ctx
 }
 
