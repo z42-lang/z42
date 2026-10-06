@@ -122,7 +122,7 @@ fn resolve_fn_by_id(&self, idx) -> Option<&FnEntry> {
 
 ## 效果佐证
 
-`Z42_JIT_PROFILE=1` 运行单个 golden，打印的「lazy-compile <fn>」行数 = 实际编译函数数，
+`Z42_JIT_PROFILE=1` 运行单个 golden，打印的「`lazy-compile <fn>`」行数 = 实际编译函数数，
 应从「整套 stdlib（数千）」降到「该用例实际调用（数十）」。CI `test-vm-jit` shard 墙钟随之
 从 ~55 分钟大幅回落。
 

@@ -106,7 +106,7 @@ class Deep : DInt      { public Deep() { } }   // Deep().V 也是 int
 
 > ⚠️ **限制：基类来自别的包时，这条路只通到编译期。** `class DInt : GBox<int>` 其中 `GBox`
 > 由另一个 zpkg 提供 —— 能编过，但运行期抛
-> `MissingSymbolException: base type \`…GBox<int>\` … could not be resolved`。
+> ``MissingSymbolException: base type `…GBox<int>` … could not be resolved``。
 > 同包内不受影响。⇒ 跨包场景暂时改用**组合**（把 `GBox<int>` 作为字段持有）而不是继承。
 
 ## 与 C# 的对照

@@ -176,7 +176,7 @@ src/runtime/src/
 | 操作 | 解释器 | JIT |
 |------|--------|-----|
 | 控制流（跳转） | HashMap 标签查找 + Rust 循环 | 原生 jump 指令 |
-| 寄存器读写 | HashMap<u32, Value> | Vec<Value> 数组索引 |
+| 寄存器读写 | `HashMap<u32, Value>` | `Vec<Value>` 数组索引 |
 | 函数调用 | 线性扫描函数名 | 直接函数指针调用 |
 | Value 运算 | 同解释器 match | 调用 helper（同等开销）|
 
