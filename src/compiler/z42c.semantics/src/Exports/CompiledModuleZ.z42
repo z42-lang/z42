@@ -1,6 +1,7 @@
 namespace Z42.Semantics;
 
 using Z42.IR;
+using Z42.Core;
 
 // 带依赖编译的产物束（CI-4）。
 public sealed class CompiledModuleZ {
@@ -19,5 +20,24 @@ public sealed class CompiledModuleZ {
         this.Module = irm; this.Namespace = ns; this.Usings = usings; this.UsingCount = usingCount;
         this.UsedDepNs = usedDepNs; this.UsedDepNsCount = usedDepNsCount; this.ErrorCount = errorCount;
         this.UsedNs = new string[0];
+        this.DiagMsgs = new string[0]; this.DiagCount = 0;
+    }
+
+    // 诊断进束的**唯一**入口：按 `Diagnostic.Format` 渲染，**只有 Error 级**计入 `ErrorCount`。
+    // 此前六处各自手拼一行、各自决定计不计错：收集期诊断的分发点把每条都算成错误（收集期今天恰好
+    // 只发 error，一旦有 warning 就会让构建失败），E0436 / 全包 W0607 / analyzer 各写一份格式。
+    // `DiagMsgs.Length == DiagCount` 恒成立（cache meta / REPL 等消费方有按数组长度读的）。
+    public void Add(Diagnostic d) {
+        string[] g = new string[this.DiagCount + 1];
+        int k = 0; while (k < this.DiagCount) { g[k] = this.DiagMsgs[k]; k = k + 1; }
+        g[this.DiagCount] = d.Format();
+        this.DiagMsgs = g;
+        this.DiagCount = this.DiagCount + 1;
+        if (d.IsError()) { this.ErrorCount = this.ErrorCount + 1; }
+    }
+
+    public void AddAll(DiagnosticBag bag) {
+        int i = 0;
+        while (i < bag.Count()) { this.Add(bag.Get(i)); i = i + 1; }
     }
 }

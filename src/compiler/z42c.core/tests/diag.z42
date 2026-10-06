@@ -35,7 +35,7 @@ void test_diagnostic_warning_factory() {
 [Test]
 void test_diagnostic_format() {
     var d = Diagnostic.Error("E0001", "msg", new Span(0, 0, 7, 4, "f.z42"));
-    Assert.Equal("f.z42(7,4): error E0001: msg", d.Format());
+    Assert.Equal("f.z42(7,4): E0001: msg", d.Format());
 }
 
 [Test]

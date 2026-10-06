@@ -658,20 +658,5 @@ public static class PackageCompile {
 
     // 把 analyzer 诊断 append 进 CompiledModuleZ（格式镜像 IrDump BuildModule*）。仅 Error 级增 ErrorCount
     // （analyzer 默认 Warning → 不 fail 编译，仅可见）。
-    private static void _mergeDiags(CompiledModuleZ cm, DiagnosticBag bag) {
-        int add = bag.Count();
-        int oldn = cm.DiagCount;
-        string[] nw = new string[oldn + add];
-        int q = 0;
-        while (q < oldn) { nw[q] = cm.DiagMsgs[q]; q = q + 1; }
-        int b = 0;
-        while (b < add) {
-            Diagnostic dg = bag.Get(b);
-            nw[oldn + b] = dg.Span.File + "(" + dg.Span.Line.ToString() + "," + dg.Span.Column.ToString()
-                         + "): " + dg.Code + ": " + dg.Message;
-            if (dg.Severity == DiagnosticSeverity.Error) { cm.ErrorCount = cm.ErrorCount + 1; }
-            b = b + 1;
-        }
-        cm.DiagMsgs = nw; cm.DiagCount = oldn + add;
-    }
+    private static void _mergeDiags(CompiledModuleZ cm, DiagnosticBag bag) { cm.AddAll(bag); }
 }

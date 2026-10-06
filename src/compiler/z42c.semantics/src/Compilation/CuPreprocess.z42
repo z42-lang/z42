@@ -203,8 +203,8 @@ public static class CuPreprocess {
             }
             if (!allowed) {
                 // 路径取 `cu.Span.File`（parser 拿到的那个），**不是**传进来的 `file` ——
-                // 本诊断是手工拼串、不走 `DiagnosticBag`，而正常诊断在 `IrDump` 汇点用
-                // `dg.Span.File` 渲染。两者在包编译路径下不同源：`file` 是绝对路径，于是
+                // 本诊断的 span 是这里造的（没有源码位置），而正常诊断的 span 来自 parser。
+                // 两者在包编译路径下不同源：`file` 是绝对路径，于是
                 // 同一个文件里 `E0401` 打 `cmp.z42(1,15)`、`E0436` 打
                 // `/Users/.../cmp.z42(1,1)`（实测对照）。对用户是输出不一致，对学习手册的
                 // transcript 则是**根本钉不住**（沙箱路径每次都变）。
@@ -212,13 +212,7 @@ public static class CuPreprocess {
                 // 文件级诊断指向第 1 行与 C# 同口径 —— 那不是缺陷。
                 string dfile = file;
                 if (cu.Span != null && cu.Span.File != "") { dfile = cu.Span.File; }
-                string pmsg = dfile + "(1,1): " + DiagnosticCodes.MissingUsing + ": " + SymbolTable.MissingUsingMsg(ns);
-                int oldn = cm.DiagCount;
-                string[] nw = new string[oldn + 1];
-                int q = 0; while (q < oldn) { nw[q] = cm.DiagMsgs[q]; q = q + 1; }
-                nw[oldn] = pmsg;
-                cm.DiagMsgs = nw; cm.DiagCount = oldn + 1;
-                cm.ErrorCount = cm.ErrorCount + 1;
+                cm.Add(Diagnostic.Error(DiagnosticCodes.MissingUsing, SymbolTable.MissingUsingMsg(ns), new Span(0, 0, 1, 1, dfile)));
             }
             u = u + 1;
         }

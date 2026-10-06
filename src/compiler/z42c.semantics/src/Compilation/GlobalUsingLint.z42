@@ -26,13 +26,9 @@ public static class GlobalUsingLint {
                     if (!u.IsGlobal || u.Injected || PreludeNs.Contains(u.Name)) { continue; }
                     if (GlobalUsingLint._usedAnywhere(cms, n, u.Name)) { continue; }
                     string file = u.Span != null && u.Span.File != "" ? u.Span.File : (cus[i].Span != null ? cus[i].Span.File : "");
-                    string msg = file + "(" + u.Span.Line.ToString() + "," + u.Span.Column.ToString() + "): " + DiagnosticCodes.UnnecessaryUsing
-                        + ": unnecessary `global using " + u.Name + ";` — no file in the package uses it";
-                    int oldn = cms[i].DiagCount;
-                    string[] nw = new string[oldn + 1];
-                    int q = 0; while (q < oldn) { nw[q] = cms[i].DiagMsgs[q]; q = q + 1; }
-                    nw[oldn] = msg;
-                    cms[i].DiagMsgs = nw; cms[i].DiagCount = oldn + 1;
+                    cms[i].Add(Diagnostic.Warning(DiagnosticCodes.UnnecessaryUsing,
+                        "unnecessary `global using " + u.Name + ";` — no file in the package uses it",
+                        new Span(u.Span.Start, u.Span.End, u.Span.Line, u.Span.Column, file)));
                 }
             }
             i = i + 1;

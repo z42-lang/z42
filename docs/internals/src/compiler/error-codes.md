@@ -20,6 +20,11 @@
 
 级别与码相互独立：码本身以 `E` / `W` 前缀区分错误与警告，`Severity` 决定是否阻断编译。
 
+诊断行只有一种格式：`Diagnostic.Format()` = `file(line,col): CODE: message`（严重级别由码的前缀表达）。
+每个文件的编译结果 `CompiledModuleZ` 只经 `Add(Diagnostic)` / `AddAll(bag)` 收诊断——它按 `Format()` 渲染、
+**只有 Error 级**计入 `ErrorCount`。文件级 `E0436`、全包 `W0607`、收集期诊断的按文件分发、analyzer 诊断都走这一个入口；
+没有源码位置的诊断（如 `E0436` 指向 `(1,1)`）也是先造一个 `Span` 再进来，不手拼字符串。
+
 ## 错误码分段
 
 码号按产生它的 pipeline 阶段分段：
