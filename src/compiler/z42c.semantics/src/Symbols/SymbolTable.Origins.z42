@@ -185,11 +185,12 @@ public sealed partial class SymbolTable {
     }
 
     // ③ 裸名解析候选不止一个 ns → E0456 消息；否则 ""。
-    // 候选集与 `ResolveFuncNs` **同一份**（`_funcCandidates`）：外围 ns 声明了它 → 不算歧义；否则可见 ns
-    // 里 ≥2 份，或可见集为空时全部声明里 ≥2 份（resolve-free-functions-by-namespace：此前后者按裸名撞赢家、不报）。
+    // 候选集与 `ResolveFuncNs` **同一份**（`_funcCandidates`）：外围 ns 声明了它 → 不算歧义；可见 ns 里 ≥2 份才算。
+    // 可见集为空（全部声明都在没 using 的 ns 里）不算歧义 —— 那是 E0436「补 using」的事：依赖包全体都参与名字
+    // 查找后，「别的包里恰好也有两个同名函数」极常见，报歧义会把真正该说的「没 using」盖掉。
     public string AmbiguousFuncNameMsg(string name) {
         string[] c = this._funcCandidates(name);
-        if (c.Length < 2) { return ""; }
+        if (c.Length < 2 || !this._funcNsVisible(c[0])) { return ""; }
         return "`" + name + "` is an ambiguous reference between `" + SymbolTable.QualOf(c[0], name)
              + "` and `" + SymbolTable.QualOf(c[1], name) + "`";
     }

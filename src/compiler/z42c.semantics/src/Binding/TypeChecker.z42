@@ -73,6 +73,13 @@ public sealed class TypeChecker {
         symbols.NoteDepUse(ct.Namespace, symbols.ImportedPkgOf(ct.Fqn()));   // deterministic-zpkg-deps
     }
 
+    // 同上，类名在源码里写作 `written`：写成全限定名时不记「用到 ns」（不需要 using），只记依赖。
+    public void _chkStaticOwnerQualified(SymbolTable symbols, Z42ClassType ct, string written, Span sp) {
+        this._chkTypeRefPkg(symbols, ct, sp);
+        symbols._noteNamedUse(written, ct.Namespace);
+        symbols.NoteDepUse(ct.Namespace, symbols.ImportedPkgOf(ct.Fqn()));
+    }
+
     public void _chkTypeRefPkg(SymbolTable symbols, Z42Type t, Span sp) {
         symbols.ReportTypeOrigin(SymbolCollector.PkgCheckFqn(t), this._diags, sp);   // 使用位（E0601 / E0606 / E0497）
     }
@@ -110,16 +117,6 @@ public sealed class TypeChecker {
         this._currentUsings = buf; this._currentUsingCount = n;
     }
 
-    // p 是否为本 CU 可见的命名空间前缀：`using` 进来的任一 ns，或本 CU 自己的 ns。
-    // 只做「是不是 ns」的判别，不做歧义消解——限定名命中后仍按短名查类（与写裸名同语义）。
-    public bool _isVisibleNs(string p) {
-        if (p == "") { return false; }
-        if (NsScope.IsEnclosing(this._currentNs, p)) { return true; }   // using-csharp-rules：外围链隐式可见
-        int i = 0;
-        while (i < this._currentUsingCount) { if (this._currentUsings[i] == p) { return true; } i = i + 1; }
-        return false;
-    }
-
     // add-bare-name-ambiguity-diagnostic（E0456）：**非限定**短名同时匹配多个可见 ns 里的类型 → 报歧义。
     //
     // 为什么需要：`SymbolTable.Classes` 按裸名单赢家（本地 last-wins / 导入 first-wins），同短名跨 ns
@@ -133,8 +130,7 @@ public sealed class TypeChecker {
     //   ③ **当前 ns 里的那一份直接胜出**，不算歧义（C# 的「近者优先」）；
     //   ④ 剩余可见候选 ≥ 2 → 报 E0456。
     //
-    // 🔴 全局 ns（`""`）必须当作可见：`_isVisibleNs("")` 恒 false（它服务的是 ns **前缀**匹配，
-    // 空前缀无意义），直接复用会漏掉「一份在全局 ns、一份在 using 进来的 ns」这种真歧义。
+    // 🔴 全局 ns（`""`）必须当作可见，否则漏掉「一份在全局 ns、一份在 using 进来的 ns」这种真歧义。
     // ⚠️ 判据本身已上移到 `SymbolTable.IsBareNameAmbiguous`（发射端也要用同一口径，见
     // unify-type-identity-fqn）。此处只在判定为歧义后挑两个 ns 拼消息 —— **别把判据抄回来**。
     // report-crosspkg-duplicate-function：自由函数调用点的同名判定（三种形状共一个入口）。

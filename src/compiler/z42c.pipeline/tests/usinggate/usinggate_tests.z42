@@ -68,10 +68,52 @@ void test_same_package_bare_type_without_using_reports_E0436() {
 }
 
 [Test]
-void test_same_package_qualified_type_without_using_reports_E0436() {
-    // 规则 4「没有全限定名逃生口」：写成 `A.W` 也得 using。
+void test_same_package_qualified_type_without_using_is_fine() {
+    // 规则 4：全限定名不需要 using（C# 同）。
     if (!ugHasLibs()) { return; }
-    Assert.True(ugCount(ugCompile(ug2(ugLibA(), "namespace B;\nvoid F() { A.W w = null; }\n")), "E0436") >= 1);
+    CompileArtifacts d = ugCompile(ug2(ugLibA(), "namespace B;\nvoid F() { A.W w = null; }\n"));
+    Assert.Equal(0, ugCount(d, "E0436"));
+    Assert.Equal(0, ugCount(d, "E0"));   // 任何错误码都不该有
+}
+
+[Test]
+void test_using_only_needed_by_qualified_names_is_unnecessary() {
+    // 只被全限定写法「用到」的 using 是多余的：`A.W` 不靠它解析（C# IDE0005 同口径）。
+    if (!ugHasLibs()) { return; }
+    Assert.True(ugCount(ugCompile(ug2(ugLibA(), "namespace B;\nusing A;\nvoid F() { A.W w = null; }\n")), "W0607") >= 1);
+}
+
+[Test]
+void test_qualified_static_and_free_calls_need_no_using() {
+    // 全限定的静态调用与自由函数调用（`A.Helper.Who()` / `A.g()`）同样不需要 using。
+    if (!ugHasLibs()) { return; }
+    CompileArtifacts d = ugCompile(ug2(ugLibA(), "namespace B;\nvoid F() { int a = A.Helper.Who(); int b = A.g(); }\n"));
+    Assert.Equal(0, ugCount(d, "E0"));
+}
+
+[Test]
+void test_qualified_stdlib_name_needs_no_using() {
+    // 跨包：依赖包里的名字不靠 using「激活」，全限定名直接找得到（decouple-pkg-activation）。
+    if (!ugHasLibs()) { return; }
+    CompileArtifacts d = ugCompile(ug2(ugLibA(),
+        "namespace B;\nvoid F() { Std.Toml.TomlValue v = Std.Toml.TomlValue.Parse(\"a = 1\"); }\n"));
+    Assert.Equal(0, ugCount(d, "E0"));
+}
+
+[Test]
+void test_bare_stdlib_name_without_using_points_at_the_namespace() {
+    // 短名仍要 using；包不再因为没 using 而「不存在」——报的是点名命名空间的 E0436，而不是 undefined type。
+    if (!ugHasLibs()) { return; }
+    CompileArtifacts d = ugCompile(ug2(ugLibA(), "namespace B;\nvoid F() { TomlValue v = null; }\n"));
+    Assert.True(ugCount(d, "namespace `Std.Toml` is used but not imported") >= 1);
+}
+
+[Test]
+void test_invisible_free_function_does_not_hijack_own_method() {
+    // 只在没 using 的 ns 里有的同名自由函数（`A.g`）不压过本类的方法 `g()`。
+    if (!ugHasLibs()) { return; }
+    CompileArtifacts d = ugCompile(ug2(ugLibA(), "namespace B;\nclass C { int g() { return 5; } int H() { return g(); } }\n"));
+    Assert.Equal(0, ugCount(d, "E0"));
 }
 
 [Test]

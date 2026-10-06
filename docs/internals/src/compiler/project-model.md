@@ -195,22 +195,18 @@ stdlib flat 在 `artifacts/` 下的深度属于 xtask 的布局，挪位置时�
 - **nsMap** — 命名空间到 zpkg 文件名的映射。DEPS 段对查不到归属包的引用用它保守回落（规则见 [zpkg DEPS](../formats/zpkg.md#deps--依赖表)）；
 - **TSIG 池** — 各依赖包导出的类型签名（`ExportedModuleZ`）。
 
-类型检查阶段由 `ImportedSymbolLoader` 消费 TSIG 池：先按导出签名还原出短名类型骨架，再填入方法、字段与自由函数。为避免把不相关的包全部拉进符号表，激活范围限定为 **prelude 包 ∪ 被当前编译单元 `using` 到的包**。
+类型检查阶段由 `ImportedSymbolLoader` 消费 TSIG 池：先按导出签名还原出类型骨架，再填入方法、字段与自由函数，最后合并 impl 块。
 
-#### 激活是「整包」粒度，不是「按命名空间」粒度
+#### 包参与名字查找，与命名空间解耦
 
-判定在 `ImportedSymbolLoader._pkgProvidesUsing`：遍历包 `P` 的**每个**导出模块，只要**任一**模块的 `Namespace` 等于本 CU 的**任一** `using` 名，`P` 就整包激活——随后 `P` 的**全部**类都按短名进符号表，**不管它们各自在哪个命名空间**。
+**候选包全体**进符号表：prelude ∪ stdlib（`z42.` 前缀）∪ 本包声明的依赖 ∪ 提供本包某个 `using` / 外围命名空间的包（未声明依赖时仍要它，好报 `E0497` 指路）。名字查找落到哪个包就用哪个包；**能不能用短名**另由命名空间规则判（`SymbolTable._resolveClass` 的外围链 → 全限定 → using → prelude，未命中即不可见），与包是否「激活」无关。于是：
 
-```
-P 激活  ⟺  ∃ m ∈ modules(P), ∃ u ∈ usings(CU) : m.Namespace == u
-P 激活  ⟹  P 的所有类（含 ns 未被 using 到的那些）短名可见
-```
+- 全限定名不需要 `using`：`Std.Toml.TomlDocument` 在 FQN 视图里直接命中。
+- `using` 只决定短名可见性，`W0607` 只按「本文件写出来的短名用到了它没有」判（`UsedNs`），不会再把「激活这个包的那条 using」误报成多余。
 
-这是有意的简化（激活是「拉不拉这个包」的开关，不是逐 ns 过滤），但有个**反直觉后果**：一个类可能仅仅因为**同包某个不相干的文件**恰好声明在你 `using` 到的命名空间里，才对你可见。这种可见性是**搭便车**，不是契约——同包任何一次文件搬迁都可能抽走它。
+建表分两档，保证既有产物逐字节不变：**第 0 档** = prelude ∪ 提供 using / 外围 ns 的包（旧口径），**第 1 档** = 其余候选。Phase 1/2 先走第 0 档再走第 1 档，短名表的 first-wins 赢家与 arity-mangle 判定对第 0 档不受新增包影响；第 1 档的类只按全体候选判 arity-mangle。impl 合并（Phase 3）只认第 0 档——它改写被合并的导入类，等同 C# 扩展方法，必须 `using` 才生效。
 
-> **现场案例**：14 个 stdlib bench 文件只写了 `using Std;`，却用着 `Std.Test.Bencher`。它们能编过，是因为 `z42.test` 里的 `Failure.z42` 声明为 `namespace Std;` ⇒ `using Std;` 命中它 ⇒ 整个 `z42.test` 激活 ⇒ `Bencher` 短名可见。当 `Failure.z42` 被搬进 `z42.core` 后，`z42.test` 只剩 `Std.Test` / `Std.Test.Contracts` 两个 ns，便车没了：`Bencher` 解析成 `Z42UnknownType`（`Name()` = `"<unknown>"`），而**发射端照发** `newobj Z42XxxBench.<unknown>` ⇒ 运行期合成空 TypeDesc ⇒ `VCall: function 'Z42XxxBench.<unknown>.get_WarmupIters' not found`。编译期若静默 exit 0，是 `--emit-zbc` 吞了诊断。
->
-> 两条教训：① **用哪个 ns 的类型就 `using` 哪个 ns**，别依赖同包搭便车；② 「binder 解析失败 → Unknown → emitter 照发占位名」这条不对称是本仓的系统性形状，诊断被吞时它一律推迟到运行期才爆。
+短名同名跨命名空间时，短名表只留一份（first-wins），其余每一份都在 FQN 视图里建型并填好成员（`ClassesByFqn` / `InterfacesByFqn`）；歧义判据（`IsBareNameAmbiguous`、自由函数的 `AmbiguousFuncNameMsg`）只算本文件可见的命名空间。自由函数裸名若只在不可见命名空间里有，先让类体内同名方法绑定，都不是才按自由函数绑定并由文件级检查报 `E0436`。
 
 #### 加载顺序确定性
 

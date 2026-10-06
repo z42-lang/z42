@@ -193,7 +193,7 @@ public static class PackageCompile {
             // z42b-owns-test-targets：inp.ParentPkg 非空 → 本次是该包的测试/bench 目标，
             // 加载父包时按同包待遇（其 internal 可见）。普通包为 "" → 行为与此前逐字节一致。
             imported = ImportedSymbolLoader.Load(scan.Exported, scan.ExportedPkg, scan.ExportedCount,
-                                                 allUsings, auc, inp.ParentPkg);
+                                                 allUsings, auc, inp.ParentPkg, inp.DeclaredDeps, inp.DepCount);
             // fix-crosspkg-ns-reachability：依赖契约搭车进符号表（由 `SymbolCollector._mergeImports` 并入）。
             imported.SelfPkg = inp.Name;
             imported.EnforceDeclaredDeps = inp.EnforceDeclaredDeps;

@@ -1,7 +1,6 @@
 // IrGen 无状态低层助手（compiler-review P1-3 收官）——纯谓词/数组增长/元数据填充集中 static class。
 namespace Z42.Emission;
 
-using Z42.Semantics;
 
 using Z42.Syntax;
 using Z42.IR;

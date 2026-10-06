@@ -1,6 +1,7 @@
 // 跨包符号加载（port-z42c-import CI-3）。镜像 C# ImportedSymbolLoader 的 Phase1/2 子集：
 // TSIG ExportedModuleZ → 短名 Z42ClassType 骨架（Phase1）→ 成员填充（Phase2：实例+静态方法、
-// 字段、自由函数）。激活过滤 = prelude 包 ∪ {提供 cu.Usings 中 ns 的包}（strict-using-resolution）。
+// 字段、自由函数）→ impl 合并（Phase3）。激活 = 全部候选包（prelude ∪ stdlib ∪ 声明依赖 ∪ 提供 using 的包），
+// 与命名空间解耦：名字查找落到哪个包就用哪个包，可见性由命名空间规则另判（decouple-pkg-activation，见 Load）。
 // 延后：Phase3 impl 合并 / 接口·委托·枚举 / 泛型实例化串解析 / E0601 冲突诊断。
 namespace Z42.Semantics;
 
@@ -140,51 +141,57 @@ public static partial class ImportedSymbolLoader {
 
     public static ImportedSymbols Load(ExportedModuleZ[] exported, string[] pkgNames, int exportedCount,
                                        string[] usings, int usingCount, string parentPkg) {
+        return ImportedSymbolLoader.Load(exported, pkgNames, exportedCount, usings, usingCount, parentPkg, new string[0], 0);
+    }
+
+    // allowedDeps：本包声明的依赖名。stdlib（`z42.` 前缀）恒为候选，不必列。
+    public static ImportedSymbols Load(ExportedModuleZ[] exported, string[] pkgNames, int exportedCount,
+                                       string[] usings, int usingCount, string parentPkg,
+                                       string[] allowedDeps, int allowedCount) {
         var r = new ImportedSymbols();
-        // ── 激活集：prelude 包恒激活；非 prelude 须有 using 命中其某模块 ns ──
+        // ── 激活集（decouple-pkg-activation）：**候选包全体**参与名字查找；可见性另由命名空间规则判（using /
+        // 全限定名 / 外围 ns，见 SymbolTable.Nominal）。候选 = prelude ∪ 允许的依赖（stdlib + 声明依赖，
+        // `allowedDeps`）∪ 提供本包某 using / 外围 ns 的包（后者保留，未声明依赖时仍走 E0497 指路）。
+        // 分两档：第 0 档 = 旧口径（prelude ∪ 提供 using 的包），第 1 档 = 其余候选。建表按「先第 0 档、后第 1 档」，
+        // 于是短名表的 first-wins 赢家与 arity-mangle 判定对第 0 档逐字节不变；第 1 档只补进新名字。
+        // impl 合并（Phase3）只认第 0 档：它会改写被合并的导入类，等同 C# 扩展方法，须 using 才生效。
         bool[] active = new bool[exportedCount];
+        bool[] tier0 = new bool[exportedCount];
         int i = 0;
         while (i < exportedCount) {
-            if (ImportedSymbolLoader._isPrelude(pkgNames[i])) { active[i] = true; }
-            else { active[i] = ImportedSymbolLoader._pkgProvidesUsing(exported, pkgNames, exportedCount, pkgNames[i], usings, usingCount); }
+            if (ImportedSymbolLoader._isPrelude(pkgNames[i])) { tier0[i] = true; }
+            else { tier0[i] = ImportedSymbolLoader._pkgProvidesUsing(exported, pkgNames, exportedCount, pkgNames[i], usings, usingCount); }
+            active[i] = tier0[i] || ImportedSymbolLoader._allowedDep(pkgNames[i], allowedDeps, allowedCount);
             i = i + 1;
         }
+        int[] order = new int[exportedCount];
+        int orderN = 0;
+        i = 0;
+        while (i < exportedCount) { if (tier0[i]) { order[orderN] = i; orderN = orderN + 1; } i = i + 1; }
+        i = 0;
+        while (i < exportedCount) { if (active[i] && !tier0[i]) { order[orderN] = i; orderN = orderN + 1; } i = i + 1; }
+        int oi = 0;
         // ── Pre-scan：检测 imported 同名不同 arity 的类，泛型版需 arity-mangle（镜像 local
         // SymbolCollector pre-scan + C# NeedsMangle）。否则 arity-0 base 与 arity-N 泛型
         // （如 MulticastException / MulticastException<TResult>）撞键 → first-wins 丢泛型 →
         // new/throw/catch `C<int>` 误取 base → 运行期类型失配。
-        StrMap impFirstArity = new StrMap();
-        StrMap impMultiArity = new StrMap();
-        i = 0;
-        while (i < exportedCount) {
-            if (active[i]) {
-                ExportedModuleZ pem = exported[i];
-                int pc = 0;
-                while (pc < pem.ClassCount) {
-                    ExportedClassZ pcl = pem.Classes[pc];
-                    string arStr = pcl.TpCount.ToString();
-                    if (impFirstArity.ContainsKey(pcl.Name)) {
-                        StrBox fa = impFirstArity.Get(pcl.Name) as StrBox;
-                        if (fa.Value != arStr) { impMultiArity.Put(pcl.Name, "1"); }
-                    } else { impFirstArity.Put(pcl.Name, new StrBox(arStr)); }
-                    pc = pc + 1;
-                }
-            }
-            i = i + 1;
-        }
+        // 两张表：第 0 档只看第 0 档（其判定与旧口径逐字节一致），第 1 档的类看全体。
+        StrMap impMultiArity = ImportedSymbolLoader._multiArity(exported, exportedCount, tier0);
+        StrMap impMultiAll   = ImportedSymbolLoader._multiArity(exported, exportedCount, active);
         // ── Phase1：骨架（短名 → 空成员 Z42ClassType + 接口名表）──
-        i = 0;
-        while (i < exportedCount) {
-            if (active[i]) {
+        oi = 0;
+        while (oi < orderN) {
+            i = order[oi];
+            {
                 ExportedModuleZ em = exported[i];
                 int c = 0;
                 while (c < em.ClassCount) {
                     ExportedClassZ cl = em.Classes[c];
-                    bool needsMangle = cl.TpCount > 0 && impMultiArity.ContainsKey(cl.Name);
+                    bool needsMangle = cl.TpCount > 0 && (tier0[i] ? impMultiArity : impMultiAll).ContainsKey(cl.Name);
                     string clKey = needsMangle ? (cl.Name + "$" + cl.TpCount.ToString()) : cl.Name;
                     // add-bare-name-ambiguity-diagnostic：**在 first-wins 守卫之外**累积声明 ns ——
-                    // 守卫之内只有赢家能进，那正是「同短名跨 ns 被塌掉」的地方。`active[i]` 已把模块
-                    // 限制在本 CU 可见的那些，所以这里记下的 ns 天然是可见集的子集。
+                    // 守卫之内只有赢家能进，那正是「同短名跨 ns 被塌掉」的地方。记的是**全部**候选包的 ns，
+                    // 歧义判据（`IsBareNameAmbiguous`）自己再按本文件可见性过滤。
                     SymbolTable.NoteNsInto(r.ClassNsAll, clKey, em.Namespace);
                     // unify-type-identity-fqn：**first-wins 只能管裸名表**。此前整个建型都被这道守卫罩着 ⇒
                     // 同短名的第二份（`Demo.FqnBeta.Widget`）压根不建型，FQN 视图自然也拿不到它 ⇒
@@ -290,7 +297,12 @@ public static partial class ImportedSymbolLoader {
                         SymbolTable.NoteNsInto(r.ClassPkgAll,
                             em.Namespace == "" ? iz.Name : em.Namespace + "." + iz.Name, pkgNames[i]);
                     }
-                    if (!r.Interfaces.ContainsKey(iz.Name)) {
+                    string ifqnKey = em.Namespace == "" ? iz.Name : em.Namespace + "." + iz.Name;
+                    // 短名表 first-wins，FQN 视图每一份都留（与上面类的守卫同形）：此前整段都在短名守卫里，
+                    // 同短名不同 ns 的第二个接口连 FQN 视图都进不去 ⇒ 限定名引用它解析不到。
+                    bool ifBareFree = !r.Interfaces.ContainsKey(iz.Name);
+                    SymbolTable.NoteNsInto(r.IfaceNsAll, iz.Name, em.Namespace);
+                    if (ifBareFree || !r.InterfacesByFqn.ContainsKey(ifqnKey)) {
                         Z42InterfaceType nift = new Z42InterfaceType(iz.Name);
                         nift.Namespace = em.Namespace;   // unify-type-identity-fqn：导入接口的声明 ns（与 nct.Namespace 对称）
                         // complete-class-access-control ④：跨包 → internal 接口不可引用。
@@ -319,16 +331,14 @@ public static partial class ImportedSymbolLoader {
                             nift.AddBase(ImportedSymbolLoader._fqTrimTypeArgs(iz.BaseNames[ibn]));
                             ibn = ibn + 1;
                         }
-                        r.Interfaces.Put(iz.Name, nift);
-                        r.InterfacesByFqn.Put(nift.Fqn(), nift);   // unify-type-identity-fqn
-                        // enforce-fqn-name-identity 阶段 2：累积「该接口短名在哪些 ns 里被声明过」。
-                        // ⚠️ `r.Interfaces.Put` 上面那行是**无守卫**的 last-wins ⇒ 短名表只留得下一份；
-                        // 本表要的恰恰是被它塌掉的那个信息，故与 `ClassNsAll` 同手法、记每一份。
-                        SymbolTable.NoteNsInto(r.IfaceNsAll, iz.Name, em.Namespace);
-                        // fix-crosspkg-interface-impl：记 imported 接口声明 ns，使 QualifyClass 把
-                        // `: IFace` / `as IFace` 正确 FQ 化为「声明包.IFace」（否则退化当前包 ns →
-                        // 实现类与 cast 目标名各自错限定、跨包 is/as/接口派发失配）。
-                        r.ClassNamespaces.Put(iz.Name, new StrBox(em.Namespace));
+                        r.InterfacesByFqn.Put(ifqnKey, nift);   // unify-type-identity-fqn
+                        if (ifBareFree) {
+                            r.Interfaces.Put(iz.Name, nift);
+                            // fix-crosspkg-interface-impl：记 imported 接口声明 ns，使 QualifyClass 把
+                            // `: IFace` / `as IFace` 正确 FQ 化为「声明包.IFace」（否则退化当前包 ns →
+                            // 实现类与 cast 目标名各自错限定、跨包 is/as/接口派发失配）。
+                            r.ClassNamespaces.Put(iz.Name, new StrBox(em.Namespace));
+                        }
                     }
                     ic = ic + 1;
                 }
@@ -370,22 +380,33 @@ public static partial class ImportedSymbolLoader {
                     ec = ec + 1;
                 }
             }
-            i = i + 1;
+            oi = oi + 1;
         }
         // ── Phase2：成员填充（骨架齐备后解析类型可互指）──
-        i = 0;
-        while (i < exportedCount) {
-            if (active[i]) {
+        StrMap filledByFqn = new StrMap();
+        oi = 0;
+        while (oi < orderN) {
+            i = order[oi];
+            {
                 ExportedModuleZ em = exported[i];
                 int c = 0;
                 while (c < em.ClassCount) {
                     ExportedClassZ cl = em.Classes[c];
-                    bool needsMangle = cl.TpCount > 0 && impMultiArity.ContainsKey(cl.Name);
+                    bool needsMangle = cl.TpCount > 0 && (tier0[i] ? impMultiArity : impMultiAll).ContainsKey(cl.Name);
                     string clKey = needsMangle ? (cl.Name + "$" + cl.TpCount.ToString()) : cl.Name;
                     Z42ClassType ct = r.Classes.Get(clKey) as Z42ClassType;
                     StrBox owner = r.ClassNamespaces.Get(clKey) as StrBox;
                     if (ct != null && owner != null && owner.Value == em.Namespace) {
                         ImportedSymbolLoader._fillClass(r, ct, cl);
+                    } else {
+                        // 短名被别的 ns 占了的类只活在 FQN 视图里 —— 此前从不填成员，限定名引用到它是个空壳
+                        // （「no method」/「no field」）。同 FQN 多份时只填 Phase1 建型的那一份（first-wins）。
+                        string fqnKey = em.Namespace == "" ? clKey : em.Namespace + "." + clKey;
+                        Z42ClassType fct = r.ClassesByFqn.Get(fqnKey) as Z42ClassType;
+                        if (fct != null && fct != ct && !filledByFqn.ContainsKey(fqnKey)) {
+                            filledByFqn.Put(fqnKey, "1");
+                            ImportedSymbolLoader._fillClass(r, fct, cl);
+                        }
                     }
                     c = c + 1;
                 }
@@ -452,7 +473,8 @@ public static partial class ImportedSymbolLoader {
                 int ifi2 = 0;
                 while (ifi2 < em.InterfaceCount) {
                     ExportedInterfaceZ iz2 = em.Interfaces[ifi2];
-                    Z42InterfaceType it2 = r.Interfaces.Get(iz2.Name) as Z42InterfaceType;
+                    // 按 FQN 取（短名表只有赢家 —— 按短名取会把同短名别 ns 接口的方法灌进赢家）。
+                    Z42InterfaceType it2 = r.InterfacesByFqn.Get(em.Namespace == "" ? iz2.Name : em.Namespace + "." + iz2.Name) as Z42InterfaceType;
                     if (it2 != null) {
                         // add-associated-types PR-2：接口方法签名的型参上下文 = 接口 TypeParams ∪ {"Self"}。
                         // **顺带修既有缺口**：此前这里走 `_resolve(r, name)` 单参版（无型参上下文）⇒ 跨包
@@ -503,12 +525,12 @@ public static partial class ImportedSymbolLoader {
                     ifi2 = ifi2 + 1;
                 }
             }
-            i = i + 1;
+            oi = oi + 1;
         }
         // ── Phase3：impl 合并（L3-Impl2；镜像 C# MergeImpls）——方法并入 imported target，trait 入其接口集 ──
         i = 0;
         while (i < exportedCount) {
-            if (active[i]) {
+            if (tier0[i]) {
                 ExportedModuleZ em = exported[i];
                 int c = 0;
                 while (c < em.ImplCount) {
@@ -758,6 +780,40 @@ public static partial class ImportedSymbolLoader {
     }
 
     private static bool _isPrelude(string pkg) { return pkg == "z42.core"; }
+
+    // 依赖候选：stdlib（`z42.` 前缀；`z42c.*` 不算）或本包声明的依赖（与 DepIndex 准入 `_allowedForIndex` 同口径）。
+    private static bool _allowedDep(string pkg, string[] allowed, int count) {
+        if (pkg.StartsWith("z42.")) { return true; }
+        int i = 0;
+        while (i < count) { if (allowed[i] == pkg) { return true; } i = i + 1; }
+        return false;
+    }
+
+    // 同短名不同 arity 的导入类名集（泛型版需 arity-mangle，镜像本地 SymbolCollector pre-scan + C# NeedsMangle）。
+    // 否则 arity-0 base 与 arity-N 泛型（如 MulticastException / MulticastException<TResult>）撞键 → first-wins
+    // 丢泛型 → new/throw/catch `C<int>` 误取 base → 运行期类型失配。只统计 `on[i]` 的模块。
+    private static StrMap _multiArity(ExportedModuleZ[] exported, int count, bool[] on) {
+        StrMap first = new StrMap();
+        StrMap multi = new StrMap();
+        int i = 0;
+        while (i < count) {
+            if (on[i]) {
+                ExportedModuleZ pem = exported[i];
+                int pc = 0;
+                while (pc < pem.ClassCount) {
+                    ExportedClassZ pcl = pem.Classes[pc];
+                    string arStr = pcl.TpCount.ToString();
+                    if (first.ContainsKey(pcl.Name)) {
+                        StrBox fa = first.Get(pcl.Name) as StrBox;
+                        if (fa.Value != arStr) { multi.Put(pcl.Name, "1"); }
+                    } else { first.Put(pcl.Name, new StrBox(arStr)); }
+                    pc = pc + 1;
+                }
+            }
+            i = i + 1;
+        }
+        return multi;
+    }
 
     // 包是否提供 usings 中任一 ns（按该包全部 TSIG 模块的 ns 判断）。
     private static bool _pkgProvidesUsing(ExportedModuleZ[] exported, string[] pkgNames, int count,

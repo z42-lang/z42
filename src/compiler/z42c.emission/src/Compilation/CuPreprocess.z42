@@ -175,24 +175,15 @@ public static class CuPreprocess {
             ci = ci + 1;
         }
     }
-    // add-file-scoped-usings：强制 file-scoped usings——本文件用到的跨包依赖 ns（cm.UsedDepNs）
+    // add-file-scoped-usings：强制 file-scoped usings——本文件用到的 ns（cm.UsedNs）
     // 必须被本文件的 using（含 global using 注入）∪ {Std, Std.Runtime} ∪ 本 ns 的外围链覆盖，否则 E0436。
-    // 只读 cm.UsedDepNs（已算好，DEPS 用同一份）+ 追加诊断，不改任何 emit 字节 → 自举字节不动。
-    // using-csharp-rules PR-2：判据集 = `UsedNs`（类型检查期记录的全部引用，含同包跨 ns、纯类型注解）∪ `UsedDepNs`
-    // （代码生成期的依赖 ns —— cached 文件只有这一份，从 cache meta 回填）。去重后逐个判。
+    // 只读 + 追加诊断，不改任何 emit 字节 → 自举字节不动。
+    // 判据集 = `UsedNs`（类型检查期记下的、源码里**写出来**的引用，含同包跨 ns、纯类型注解；全限定写法不记）。
+    // 依赖集 `UsedDepNs`（DEPS 用，含编译器推导出的接收者 / 返回类型）**不**参与：那些名字源码里没写，
+    // 不需要 using（C# 同）。cached 文件的 `UsedNs` 由 cache meta 回填。
     internal static void _enforceFileScope(CompilationUnit cu, string file, CompiledModuleZ cm) {
-        string[] all = new string[cm.UsedNs.Length + cm.UsedDepNsCount];
-        int an = 0;
-        int a = 0;
-        while (a < cm.UsedNs.Length) { all[an] = cm.UsedNs[a]; an = an + 1; a = a + 1; }
-        a = 0;
-        while (a < cm.UsedDepNsCount) {
-            string dns = DepRef.NsOf(cm.UsedDepNs[a]);   // deterministic-zpkg-deps：条目可能带 `#pkg`
-            bool dup = false;
-            int q0 = 0; while (q0 < an) { if (all[q0] == dns) { dup = true; } q0 = q0 + 1; }
-            if (!dup) { all[an] = dns; an = an + 1; }
-            a = a + 1;
-        }
+        string[] all = cm.UsedNs;
+        int an = all.Length;
         int u = 0;
         while (u < an) {
             string ns = all[u];

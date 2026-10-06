@@ -419,6 +419,21 @@ void same_short_name_in_different_namespaces_is_not_duplicate() {
 }
 
 [Test]
+void same_short_name_second_namespace_has_members() {
+    // 短名表只留第一份（Alpha.Widget）；第二份（Beta.Widget）只活在 FQN 视图里 —— 它也得填好成员，
+    // 否则 `using Demo.Beta;` 后 `w.B()` 报 no method（此前 Phase2 只填短名表的赢家）。
+    string[] srcs = new string[2];
+    srcs[0] = "namespace Demo.Alpha;\npublic class Widget { public int A() { return 1; } }";
+    srcs[1] = "namespace Demo.Beta;\npublic class Widget { public int B() { return 2; } }";
+    string[] nss  = new string[2]; nss[0] = "Demo.Alpha";  nss[1] = "Demo.Beta";
+    string[] pkgs = new string[2]; pkgs[0] = "demo.alpha"; pkgs[1] = "demo.beta";
+    string[] us   = new string[2]; us[0] = "Demo.Alpha";   us[1] = "Demo.Beta";
+    string[] d = dupDiags("namespace App;\nusing Demo.Beta;\nclass C { public int go() { Widget w = new Widget(); return w.B(); } }",
+                          dupImports(srcs, nss, pkgs, us));
+    Assert.Equal(0, d.Length);
+}
+
+[Test]
 void same_fqn_from_one_package_is_not_duplicate() {
     // 同一个包的**两个模块**（真实形态：partial 类拆两个文件）⇒ 来源包只有一个 ⇒ 不报。
     // 包内重复由 E0458 在**生产方**管，消费方不该跟着报第二遍。

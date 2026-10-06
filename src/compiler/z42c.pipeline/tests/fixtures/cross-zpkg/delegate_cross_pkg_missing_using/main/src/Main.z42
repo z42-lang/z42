@@ -2,7 +2,7 @@ namespace Demo.DgApp2;
 
 using Std.IO;
 
-// 没写 `using Demo.DgLib;` ⇒ 依赖包不激活，它的 delegate 名不可见（报 E0443；与引用该包的类同样是「未定义」）。
+// 没写 `using Demo.DgLib;` ⇒ 它的 delegate 短名不可见：在引用处报 E0436，点名要补的 using（与引用该包的类同口径）。
 void Main() {
     IntOp a = (int x) => x + 10;
     Console.WriteLine(a(1).ToString());

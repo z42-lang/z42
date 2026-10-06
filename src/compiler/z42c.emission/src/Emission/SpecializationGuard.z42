@@ -15,7 +15,6 @@
 // `Diags` 由两个 `Generate` 调用点（包构建 / `IrDump.BuildModuleDOpt`）注入；为 null 时退回抛异常（防御用）。
 namespace Z42.Emission;
 
-using Z42.Semantics;
 
 using Z42.Syntax;
 using Z42.IR;
