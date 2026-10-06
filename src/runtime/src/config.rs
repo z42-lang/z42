@@ -127,6 +127,9 @@ pub struct RuntimeConfig {
     /// size (64 KB), which is also the hard ceiling. Process-global: applied once at VM
     /// construction because the TLAB fast path has no heap reference.
     pub gc_loh_bytes: Option<u64>,
+    /// `Z42_THREAD_STACK_BYTES` — stack size of VM-created threads; `None` = 16 MiB.
+    /// Read through [`RuntimeConfig::vm_thread_stack_size`].
+    pub thread_stack_bytes: Option<u64>,
     /// `Z42_GC_ADAPTIVE_PROMOTION` — whether the minor sweep may lower the promotion age by
     /// one tier when that tier is measured to reclaim nothing (adaptive-promotion,
     /// 2026-09-12). Default on; `0` pins the configured age. See
@@ -288,6 +291,7 @@ impl Default for RuntimeConfig {
             gc_nursery_bytes: None,
             gc_promotion_age: None,
             gc_loh_bytes: None,
+            thread_stack_bytes: None,
             gc_adaptive_promotion: true,
             gc_backoff_cap: false,
             gc_incremental: true,
@@ -321,6 +325,13 @@ impl Default for RuntimeConfig {
 }
 
 impl RuntimeConfig {
+    /// Stack size for a thread the VM creates: `Z42_THREAD_STACK_BYTES`, or 16 MiB —
+    /// 2× the desktop main-thread default, which the test corpus runs within.
+    pub fn vm_thread_stack_size(&self) -> usize {
+        const DEFAULT: usize = 16 * 1024 * 1024;
+        self.thread_stack_bytes.map_or(DEFAULT, |b| b as usize)
+    }
+
     /// Build from the process environment: env vars **plus** the two config-file
     /// layers the environment names (`Z42_CONFIG` → user, `Z42_APP_CONFIG` → app
     /// sidecar). Empty strings are treated as unset.
@@ -423,6 +434,7 @@ impl RuntimeConfig {
             gc_nursery_bytes:    parse_gc_nursery_bytes(&get),
             gc_promotion_age:    parse_gc_promotion_age(&get),
             gc_loh_bytes:        parse_gc_loh_bytes(&get),
+            thread_stack_bytes:  parse_thread_stack_bytes(&get),
             gc_near_limit_ratio: parse_gc_ratio(&get, "Z42_GC_NEAR_LIMIT_RATIO", 0.90),
             gc_pressure_ratio:   parse_gc_ratio(&get, "Z42_GC_PRESSURE_RATIO",   0.75),
             gc_throttle_ratio:   parse_gc_ratio(&get, "Z42_GC_THROTTLE_RATIO",   0.10),

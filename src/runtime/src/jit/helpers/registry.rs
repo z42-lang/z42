@@ -62,6 +62,10 @@ pub struct HelperIds {
     /// safepoint fast path (counter reset + Mutex/phase/auto-collect drain).
     /// Called from native code only when the inlined decrement hits 0.
     pub check_safepoint_slow: FuncId,
+    /// Prologue slow branch when the native stack is used up (`stack_guard`).
+    pub stack_overflow: FuncId,
+    /// Catch-dispatch guard: non-zero while a fatal VM error unwinds.
+    pub fatal_pending: FuncId,
     // arith
     pub add:            FuncId,
     pub sub:            FuncId,
@@ -155,6 +159,8 @@ pub fn register_symbols(builder: &mut JITBuilder) {
     reg!("jit_match_catch_type", control::jit_match_catch_type);
     reg!("jit_check_safepoint",  control::jit_check_safepoint);
     reg!("jit_check_safepoint_slow", control::jit_check_safepoint_slow);
+    reg!("jit_stack_overflow",       control::jit_stack_overflow);
+    reg!("jit_fatal_pending",        control::jit_fatal_pending);
     // arith
     reg!("jit_add",           arith::jit_add);
     reg!("jit_sub",           arith::jit_sub);
@@ -335,6 +341,9 @@ pub fn declare_imports(jit: &mut JITModule) -> Result<HelperIds> {
         check_safepoint:  decl!("jit_check_safepoint",  [ptr, ptr],                       []),
         // inline-jit-safepoint-check (2026-08-01): jit_check_safepoint_slow(frame, ctx) -> void
         check_safepoint_slow: decl!("jit_check_safepoint_slow", [ptr, ptr],               []),
+        // jit_stack_overflow(frame, ctx) -> void ; jit_fatal_pending(frame, ctx) -> i8
+        stack_overflow:   decl!("jit_stack_overflow",   [ptr, ptr],                       []),
+        fatal_pending:    decl!("jit_fatal_pending",    [ptr, ptr],                       [i8t]),
         // jit_load_fn(frame, ctx, dst, name_ptr, name_len) -> u8
         load_fn:        decl!("jit_load_fn",       [ptr, ptr, i32t, ptr, i64t],                  [i8t]),
         // jit_mk_clos(frame, ctx, dst, name_ptr, name_len, caps_ptr, caps_len, stack_alloc:u8) -> u8

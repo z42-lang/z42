@@ -332,6 +332,8 @@ pub(super) fn find_handler(
     type_registry: &rustc_hash::FxHashMap<String, std::sync::Arc<crate::metadata::TypeDesc>>,
     thrown: &Value,
 ) -> Option<usize> {
+    // A fatal VM error (stack overflow) unwinds past every handler.
+    if crate::stack_guard::is_fatal(ctx) { return None; }
     // perf-vm-isa-cache: match on the thrown object's descriptor (identity-cached), no
     // per-throw `String` clone of its class name.
     let thrown_td: Option<&crate::metadata::TypeDesc> = match thrown {

@@ -114,6 +114,8 @@ impl JitModule {
             jit_threshold,
             osr_entries: Mutex::new(std::collections::HashMap::new()),
             osr_threshold,
+            // Set by `run_fn` from the running thread (stack_guard).
+            stack_limit: 0,
         });
         Ok(JitModule { _lazy: lazy_box, ctx })
     }
@@ -140,6 +142,9 @@ impl JitModule {
         // entry so the entry's own lazy compile is counted (resolve reaches the
         // counters through `vm_ctx`).
         self.ctx.vm_ctx = (ctx as *const VmContext) as *mut VmContext;
+        // runtime-audit P0-4: JIT code runs on this thread only (see `vm_ctx`),
+        // so its prologue checks against this thread's stack limit.
+        self.ctx.stack_limit = crate::stack_guard::limit();
         // runtime-jit-tiering Phase 1.5 (mixed-mode): publish the JitModuleCtx
         // forward pointer (type-erased) so interp frames spawned under this run
         // (cold-tier callees / fallbacks) can route an already-compiled callee back

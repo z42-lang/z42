@@ -150,7 +150,10 @@ pub fn run_app(
         print_stats: false,
         stats_json: false,
     };
-    z42::app::run(file, entry, opts).map_err(|e| HostError::VmException(format!("{e:#}")))
+    z42::app::run(file, entry, opts).map_err(|e| match z42::stack_guard::take_report() {
+        Some(report) => HostError::Fatal(report),
+        None => HostError::VmException(format!("{e:#}")),
+    })
 }
 
 /// Errors surfaced by every `z42-host` API. `message` carries the
@@ -166,6 +169,8 @@ pub enum HostError {
     EntryNotFound(String),
     ArgMismatch(String),
     VmException(String),
+    /// Fatal VM error (stack overflow); the VM must be shut down.
+    Fatal(String),
     Internal(String),
 }
 
@@ -181,6 +186,7 @@ impl std::fmt::Display for HostError {
             Self::EntryNotFound(m) => ("EntryNotFound", m),
             Self::ArgMismatch(m) => ("ArgMismatch", m),
             Self::VmException(m) => ("VmException", m),
+            Self::Fatal(m) => ("Fatal", m),
             Self::Internal(m) => ("Internal", m),
         };
         write!(f, "{tag}: {msg}")
@@ -492,6 +498,7 @@ fn translate_status(status: Z42HostStatus, ctx: &'static str) -> HostError {
         Z42HostStatus::EntryNotFound => HostError::EntryNotFound(detail),
         Z42HostStatus::ArgMismatch => HostError::ArgMismatch(detail),
         Z42HostStatus::VmException => HostError::VmException(detail),
+        Z42HostStatus::Fatal => HostError::Fatal(detail),
         Z42HostStatus::Internal => HostError::Internal(detail),
     }
 }

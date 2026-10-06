@@ -255,6 +255,13 @@ where F: Fn(&str) -> Option<String> {
     parse_byte_size(get, "Z42_GC_NURSERY_BYTES")
 }
 
+/// `Z42_THREAD_STACK_BYTES` — native stack size of VM-created threads (runtime-audit
+/// P0-4). Same syntax as `Z42_GC_MAX_BYTES`; `None` = the 16 MiB default.
+pub(super) fn parse_thread_stack_bytes<F>(get: &F) -> Option<u64>
+where F: Fn(&str) -> Option<String> {
+    parse_byte_size(get, "Z42_THREAD_STACK_BYTES")
+}
+
 /// `Z42_GC_LOH_BYTES` — block-footprint threshold for the dedicated-chunk (large object) path
 /// (add-loh-bytes-knob, 2026-09-08). `None` = the bump-chunk size, which is also the ceiling.
 /// Same syntax as `Z42_GC_MAX_BYTES`.

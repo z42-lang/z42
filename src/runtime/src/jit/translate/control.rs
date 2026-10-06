@@ -43,6 +43,34 @@ pub(super) fn find_handler_entries(func: &Function, block_idx: usize) -> Vec<usi
 /// The current block ends with a `brif`; emission continues in the created
 /// `fast` block, which the caller keeps building into. Blocks are sealed later
 /// by `seal_all_blocks()` (per this file's convention).
+/// runtime-audit P0-4: stack overflow is fatal. Compare the stack pointer with
+/// `JitModuleCtx::stack_limit` (the running thread's limit, set by
+/// `JitModule::run_fn`); below it, record the overflow and return the
+/// "thrown" code. Two loads and a compare on the hot path.
+pub(super) fn emit_stack_check(
+    builder:   &mut FunctionBuilder,
+    ptr:       cranelift_codegen::ir::Type,
+    ctx_val:   cranelift_codegen::ir::Value,
+    frame_val: cranelift_codegen::ir::Value,
+    hr_overflow: cranelift_codegen::ir::FuncRef,
+) {
+    let flags = MemFlagsData::trusted();
+    let sp = builder.ins().get_stack_pointer(ptr);
+    let limit = builder.ins().load(
+        ptr, flags, ctx_val,
+        crate::jit::frame::JIT_MODULE_CTX_STACK_LIMIT_OFFSET as i32,
+    );
+    let over = builder.ins().icmp(IntCC::UnsignedLessThan, sp, limit);
+    let ok_blk = builder.create_block();
+    let over_blk = builder.create_block();
+    builder.ins().brif(over, over_blk, &[], ok_blk, &[]);
+    builder.switch_to_block(over_blk);
+    builder.ins().call(hr_overflow, &[frame_val, ctx_val]);
+    let one = builder.ins().iconst(types::I8, 1);
+    builder.ins().return_(&[one]);
+    builder.switch_to_block(ok_blk);
+}
+
 pub(super) fn emit_safepoint_check(
     builder:   &mut FunctionBuilder,
     ptr:       cranelift_codegen::ir::Type,

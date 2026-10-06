@@ -123,6 +123,24 @@ pub unsafe extern "C" fn jit_check_safepoint_slow(
     crate::gc::safepoint::check_safepoint_slow(vm_ctx);
 }
 
+/// Prologue slow branch: the stack pointer is below `JitModuleCtx::stack_limit`.
+/// Records the fatal stack overflow (`stack_guard`) and leaves a pending
+/// exception so the native caller returns the "thrown" code; the catch
+/// dispatch then declines every handler while the fatal flag is set.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn jit_stack_overflow(_frame: *mut JitFrame, ctx: *const JitModuleCtx) {
+    let vm_ctx = vm_ctx_ref(ctx);
+    let err = crate::stack_guard::overflow(vm_ctx);
+    super::set_exception(vm_ctx, Value::Str(err.to_string().into()));
+}
+
+/// Non-zero while a fatal VM error unwinds — the JIT catch dispatch then
+/// propagates instead of entering a handler (see `stack_guard`).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn jit_fatal_pending(_frame: *mut JitFrame, ctx: *const JitModuleCtx) -> i8 {
+    crate::stack_guard::is_fatal(vm_ctx_ref(ctx)) as i8
+}
+
 #[cfg(test)]
 mod check_safepoint_tests {
     //! add-gc-safepoint-jit (2026-05-21): inline tests for the
@@ -150,6 +168,7 @@ mod check_safepoint_tests {
             jit_threshold:    1,
             osr_entries:      std::sync::Mutex::new(std::collections::HashMap::new()),
             osr_threshold:    10_000,
+            stack_limit: 0,
         };
         (jit_ctx, JitFrame::new(0, &[]))
     }

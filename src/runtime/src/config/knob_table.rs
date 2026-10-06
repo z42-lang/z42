@@ -487,6 +487,17 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         ..PUBLIC
     },
     KnobSpec {
+        name: "Z42_THREAD_STACK_BYTES",
+        toml_key: "thread-stack-bytes",
+        // 同 Z42_GC_MAX_BYTES：接受带单位后缀的写法。
+        value: ValueKind::Str,
+        platforms: NOT_WASM,
+        description: "native stack size of every thread the VM creates (Std.Threading.Thread, the embedded app-run thread). z42 calls recurse on the native stack and running out is a fatal error, so this bounds how deep a program may recurse. Accepts a byte count or a K/KB/M/MB/G/GB suffix (64M)",
+        default_hint: "unset; 16M",
+        consumed_by: "corelib/threading.rs + host/mod.rs (z42_host_run_app)",
+        ..PUBLIC
+    },
+    KnobSpec {
         name: "Z42_TRACE_OUT",
         toml_key: "trace-out",
         value: ValueKind::Path,

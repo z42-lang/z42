@@ -109,6 +109,7 @@ pub(super) struct TxCtx<'a, 'b> {
     pub(super) hr_default_of: FuncRef,
     pub(super) hr_convert: FuncRef,
     pub(super) hr_check_safepoint_slow: FuncRef,
+    pub(super) hr_fatal_pending: FuncRef,
 }
 
 impl<'a, 'b> TxCtx<'a, 'b> {
@@ -172,6 +173,19 @@ impl<'a, 'b> TxCtx<'a, 'b> {
     /// probe chain, or return-1 propagation (former
     /// `emit_dispatch_to_catch_or_return!`). catch-by-generic-type (2026-05-06).
     pub(super) fn dispatch_to_catch_or_return(&mut self) {
+        if self.catch_info.is_some() || !self.catch_chain.is_empty() {
+            // A fatal VM error (stack overflow) unwinds past every handler,
+            // `finally` included — see `stack_guard`.
+            let inst = self.builder.ins().call(self.hr_fatal_pending, &[self.frame_val, self.ctx_val]);
+            let fatal = self.builder.inst_results(inst)[0];
+            let out_blk = self.builder.create_block();
+            let go_blk = self.builder.create_block();
+            self.builder.ins().brif(fatal, out_blk, &[], go_blk, &[]);
+            self.builder.switch_to_block(out_blk);
+            let one = self.builder.ins().iconst(types::I8, 1);
+            self.builder.ins().return_(&[one]);
+            self.builder.switch_to_block(go_blk);
+        }
         if let Some((catch_cl, catch_reg)) = self.catch_info {
             let creg = self.ri(catch_reg);
             self.builder.ins().call(self.hr_install_catch, &[self.frame_val, self.ctx_val, creg]);

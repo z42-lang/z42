@@ -90,6 +90,10 @@ pub struct VmCore {
     /// Spec C10 — owned byte buffers backing `Value::PinnedView` instances.
     /// Keyed by buffer data pointer so `UnpinPtr` can drop the entry.
     pub(crate) pinned_owned_buffers: Mutex<HashMap<u64, Box<[u8]>>>,
+    /// runtime-audit P0-4: a fatal VM error (stack overflow) is unwinding —
+    /// no z42 handler runs and no error becomes a z42 exception (`stack_guard`).
+    /// Per VM: every thread of this VM, no other VM in the process.
+    pub(crate) fatal: std::sync::atomic::AtomicBool,
     /// add-std-process (2026-05-13) — live `Std.IO.Process` children
     /// spawned via `__process_spawn`. Keyed by monotonic u64 slot id
     /// that z42 `ProcessHandle` carries; removed (`take_*`) on `wait` /

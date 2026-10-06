@@ -11,6 +11,8 @@
 //   Boom       — H3 VmException (z42 throw escapes the entry)
 //   CoreStatic — static field initialised in a merged stdlib package (z42.core `OSKind.Wasm`)
 //   UserStatic — static field initialised in the user module itself
+//   Deep       — unbounded recursion: stack overflow is a fatal error (host: Z42_HOST_ERR_FATAL)
+//   DeepMain   — the same as a z42vm entry point (tests/stack_overflow_e2e.rs)
 //
 // Output goes through Console.WriteLine, which routes through corelib
 // io and lands in the host's stdout sink.
@@ -47,4 +49,26 @@ int CoreStatic() {
 
 int UserStatic() {
     return Counter.Start;
+}
+
+long Down(long n) {
+    if (n == 0L) { return 0L; }
+    return 1L + Down(n - 1L);
+}
+
+// runtime-audit P0-4: running out of native stack is fatal — neither the catch nor
+// the finally below may run.
+long Deep() {
+    try {
+        return Down(1000000000L);
+    } catch (Exception e) {
+        Console.WriteLine("caught");
+        return -1L;
+    } finally {
+        Console.WriteLine("finally");
+    }
+}
+
+void DeepMain() {
+    Console.WriteLine(Deep().ToString());
 }

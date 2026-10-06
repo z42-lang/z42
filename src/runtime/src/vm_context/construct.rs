@@ -180,6 +180,7 @@ impl VmContext {
             #[cfg(feature = "native-interop")]
             native_libs:        Mutex::new(Vec::new()),
             pinned_owned_buffers: Mutex::new(HashMap::new()),
+            fatal:                std::sync::atomic::AtomicBool::new(false),
             processes:            ResourceRegistry::new(),
             heap:                 Box::new(ArcMagrGC::new()),
             vm_contexts:          Mutex::new(Vec::new()),

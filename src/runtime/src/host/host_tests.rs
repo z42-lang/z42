@@ -1245,3 +1245,37 @@ fn sink_callback_can_shut_down_the_host_mid_invoke() {
     assert_eq!(status, Z42HostStatus::Ok);
     assert_eq!(unsafe { z42_host_shutdown(state::HOST_SENTINEL as *mut Z42Host) }, Z42HostStatus::NotInit);
 }
+
+/// runtime-audit P0-4: unbounded recursion is a fatal VM error. `z42_host_invoke`
+/// returns `Z42_HOST_ERR_FATAL` with the report; the z42 `catch` / `finally` around
+/// the recursion never run.
+#[test]
+#[cfg(z42_have_embedding_hello)]
+fn invoke_deep_recursion_is_fatal() {
+    let _g = test_lock();
+    reset_host();
+    if !project_root().join("artifacts/build/libraries/dist/release/z42.core.zpkg").is_file() {
+        eprintln!("skipping: corelib zpkg not available");
+        return;
+    }
+
+    let capture: Mutex<Vec<u8>> = Mutex::new(Vec::new());
+    with_hello_session(&capture, |host, module| {
+        let fqn = CString::new("Embedding.Hello.Deep").unwrap();
+        let mut entry: *mut Z42Entry = ptr::null_mut();
+        assert_eq!(
+            unsafe { z42_host_resolve_entry(host, module, fqn.as_ptr(), &mut entry) },
+            Z42HostStatus::Ok
+        );
+        let mut result = z42_abi::Z42Value { tag: u32::MAX, reserved: 0, payload: 0 };
+        let status = unsafe { z42_host_invoke(entry, ptr::null(), 0, &mut result) };
+        assert_eq!(status, Z42HostStatus::Fatal);
+        let msg = unsafe { CStr::from_ptr(z42_host_last_error(ptr::null_mut()).message) }
+            .to_string_lossy()
+            .into_owned();
+        assert!(msg.contains("stack overflow"), "unexpected message: {msg}");
+        assert!(msg.contains("Embedding.Hello.Down"), "no z42 frames in: {msg}");
+    });
+    let out = String::from_utf8_lossy(&capture.lock().unwrap()).into_owned();
+    assert!(!out.contains("caught") && !out.contains("finally"), "a handler ran: {out}");
+}

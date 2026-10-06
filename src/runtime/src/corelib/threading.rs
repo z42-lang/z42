@@ -112,7 +112,10 @@ pub fn builtin_thread_spawn(ctx: &VmContext, args: &[Value]) -> Result<Value> {
         handle: ctx.heap().pin_root(ctx.heap().alloc_array(env.clone())),
     });
 
-    let handle = std::thread::spawn(move || -> Result<()> {
+    // runtime-audit P0-4: z42 calls recurse on the native stack and running out
+    // is fatal, so worker threads get the configured size, not std's 2 MiB.
+    let stack = crate::config::runtime_config().vm_thread_stack_size();
+    let handle = std::thread::Builder::new().stack_size(stack).spawn(move || -> Result<()> {
         let _env_root = env_root;
         // **测试钩子**：`Z42_SPAWN_ENV_DELAY_MS` 把上面那个窗口人为撑大，
         // 让 `gc_spawn_env_root` 这条竞态在门禁里变成确定性用例。
@@ -135,7 +138,7 @@ pub fn builtin_thread_spawn(ctx: &VmContext, args: &[Value]) -> Result<Value> {
             Ok(r)    => r,
             Err(_)   => Err(anyhow!("thread panicked (Rust panic; not user throw)")),
         }
-    });
+    }).map_err(|e| anyhow!("__thread_spawn: cannot create thread: {e}"))?;
 
     ctx.core.threads.lock().insert(id, handle);
     Ok(Value::I64(id as i64))

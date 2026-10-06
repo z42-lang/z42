@@ -109,6 +109,7 @@ typedef enum Z42HostStatus {
     Z42_HOST_ERR_ENTRY_NOT_FOUND = 20,
     Z42_HOST_ERR_ARG_MISMATCH    = 21,
     Z42_HOST_ERR_VM_EXCEPTION    = 30,
+    Z42_HOST_ERR_FATAL           = 31,
     Z42_HOST_ERR_INTERNAL        = 99
 } Z42HostStatus;
 ```
@@ -125,6 +126,7 @@ typedef enum Z42HostStatus {
 | `ERR_ENTRY_NOT_FOUND` (20) | FQN 不在模块的函数表里；`module` 句柄为 NULL；`invoke` 的 `entry` 句柄为 NULL |
 | `ERR_ARG_MISMATCH` (21) | 实参个数与入口签名不符；`args == NULL` 而 `n != 0`；实参或返回值的 `Z42Value` tag 不受支持 |
 | `ERR_VM_EXCEPTION` (30) | z42 侧 `throw` 跨出入口顶层；静态初始化抛异常；调用到未解析的符号（stdlib 没找到时的典型表现） |
+| `ERR_FATAL` (31) | 致命 VM 错误：目前只有栈溢出。z42 代码拦不住它，`last_error` 里是带 z42 调用栈的报告。这个 VM 不能再用，先 `shutdown` |
 | `ERR_INTERNAL` (99) | Rust panic 被兜住、内部锁中毒，以及其他未归类失败 |
 
 ### 详细错误信息

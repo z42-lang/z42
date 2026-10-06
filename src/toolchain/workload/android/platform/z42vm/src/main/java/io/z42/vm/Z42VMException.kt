@@ -22,6 +22,7 @@ class Z42VMException(
         const val ENTRY_NOT_FOUND = 20
         const val ARG_MISMATCH    = 21
         const val VM_EXCEPTION    = 30
+        const val FATAL           = 31   // fatal VM error (stack overflow); shut the VM down
         const val INTERNAL        = 99
     }
 }

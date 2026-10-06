@@ -29,6 +29,9 @@ pub enum Z42HostStatus {
     ArgMismatch = 21,
 
     VmException = 30,
+    /// Fatal VM error (stack overflow): not catchable by z42 code; the VM must
+    /// be shut down. Message = the fatal report with the z42 call stack.
+    Fatal = 31,
 
     Internal = 99,
 }

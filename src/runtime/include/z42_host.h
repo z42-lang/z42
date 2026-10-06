@@ -162,6 +162,7 @@ typedef enum Z42HostStatus {
 
     /* Execution */
     Z42_HOST_ERR_VM_EXCEPTION    = 30,  /* z42 throw escaped the entry */
+    Z42_HOST_ERR_FATAL           = 31,  /* fatal VM error (stack overflow) — shut the VM down */
 
     /* Catch-all */
     Z42_HOST_ERR_INTERNAL        = 99

@@ -133,6 +133,18 @@ outer.InnerException.Message;      // "cause"
 > `Exception.ToString()` 用 `this.GetType().Name` 取类名，所以**用户自定义的异常子类**
 > （`class NotFoundException : Exception`）自动得到 `"NotFoundException: …"`，不必自己重写 `ToString`。
 
+## 栈溢出是致命错误
+
+递归太深、原生栈用完时，VM **不抛异常**，而是终止：`catch` 拦不住，`finally` 也不会执行。
+`z42vm` 在 stderr 打印 `fatal error: stack overflow` 和 z42 调用栈（太深时保留最内层和最外层两段），
+以退出码 **3** 结束；嵌入 API 返回 `Z42_HOST_ERR_FATAL`（见 [C ABI](../embedding/c-abi.md)）。
+
+能递归多深取决于线程的原生栈：主线程由操作系统决定（桌面一般 8 MB），VM 创建的线程用运行时设置
+[`thread-stack-bytes`](../toolchain/runtime-settings.md)（默认 16 MB）。
+
+不做成可 catch 的原因：两次栈检查之间有些原生代码的栈用量没有上界，运行时在那里用完栈就只能崩溃，
+无法保证每一次溢出都变成异常。与其提供一个有时能 catch、有时直接崩的异常，不如一律按致命错误处理。
+
 ## 当前限制
 
 | 限制 | 说明 |

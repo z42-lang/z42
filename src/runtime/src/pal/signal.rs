@@ -29,7 +29,28 @@ pub fn register_fatal_handlers(handler: extern "C" fn(i32)) {
             if let Err(e) = signal_hook_registry::register_signal_unchecked(sig, move || handler(sig)) {
                 tracing::warn!("failed to register signal handler for {}: {e}",
                     std::str::from_utf8(signal_name(sig)).unwrap_or("?"));
+                continue;
             }
+            run_on_alternate_stack(sig);
+        }
+    }
+}
+
+/// Add `SA_ONSTACK` to `sig`'s installed action. `signal-hook-registry` installs
+/// without it, so a SIGSEGV from running into a thread's guard page (native
+/// stack overflow) ran the handler on the exhausted stack and the process died
+/// silently. With it the handler runs on the thread's alternate signal stack,
+/// which the Rust runtime sets up for the main thread and for every
+/// `std::thread`.
+unsafe fn run_on_alternate_stack(sig: i32) {
+    unsafe {
+        let mut act: libc::sigaction = std::mem::zeroed();
+        if libc::sigaction(sig, std::ptr::null(), &mut act) != 0 {
+            return;
+        }
+        if act.sa_flags & libc::SA_ONSTACK == 0 {
+            act.sa_flags |= libc::SA_ONSTACK;
+            libc::sigaction(sig, &act, std::ptr::null_mut());
         }
     }
 }

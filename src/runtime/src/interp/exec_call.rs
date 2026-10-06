@@ -303,6 +303,9 @@ pub(super) fn builtin(
             if let Some(thrown) = ctx.take_pending_thrown() {
                 return Ok(Some(thrown));
             }
+            // A fatal VM error inside a re-entering builtin stays an internal
+            // error — it must not become a catchable `Std.Exception`.
+            if crate::stack_guard::is_fatal(ctx) { return Err(e); }
             let msg = e.to_string();
             match crate::exception::make_stdlib_exception(
                 ctx, module, "Std.Exception", msg,
