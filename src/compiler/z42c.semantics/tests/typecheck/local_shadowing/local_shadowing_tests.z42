@@ -9,6 +9,7 @@
 namespace Z42cSemanticsLocalShadowingTests;
 
 using Z42.Semantics;
+using Z42.Emission;
 
 string[] lsDiags(string src) {
     string[] srcs = new string[1]; srcs[0] = src;

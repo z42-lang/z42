@@ -11,6 +11,7 @@ namespace Z42.Semantics;
 
 using Z42.Syntax;
 using Z42.Core;
+using Z42.IR;   // ExportedModuleZ
 
 public sealed class FrontEndResult {
     public CompilationUnit Cu;
@@ -32,6 +33,12 @@ public static class FrontEnd {
     // 只到符号表（导出提取用：TSIG 只看声明，不需要体）。
     public static FrontEndResult Collect(string src, string file) {
         return FrontEnd._run(src, file, null, false);
+    }
+
+    // 源 → 导出类型签名（TSIG；port-z42c-tsig）。只看声明，与代码生成无关。
+    public static ExportedModuleZ ExtractExports(string src, string file, string ns) {
+        FrontEndResult fe = FrontEnd.Collect(src, file);
+        return ExportedTypeExtractor.Extract(fe.Cu, fe.Symbols, ns);
     }
 
     private static FrontEndResult _run(string src, string file, ImportedSymbols imported, bool typecheck) {

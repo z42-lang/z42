@@ -185,7 +185,7 @@ flowchart LR
 |----|------------|------|
 | AST | `z42c.syntax/Pattern.z42` + `PatternParser.z42` | 模式节点族 + 名字形状分流解析 |
 | Bound | `z42c.semantics/BoundPattern.z42` + `PatternBinder.z42` | 绑定后模式树（携 resolved 类型/字段索引/绑定名）+ 类型解析·歧义消解·校验·绑定注册 |
-| Emit | `z42c.semantics/PatternEmitter.z42` | 递归 test+bind lowering，短路 `BrCond` |
+| Emit | `z42c.emission/PatternEmitter.z42` | 递归 test+bind lowering，短路 `BrCond` |
 
 **lowering（`PatternEmitter.EmitMatch(subj, pat, matchL, failL)`）** 递归下降，匹配成功（绑定完成）跳
 `matchL`、失败跳 `failL`：

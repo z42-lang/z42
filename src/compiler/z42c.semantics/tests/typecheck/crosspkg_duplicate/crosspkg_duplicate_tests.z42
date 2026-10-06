@@ -13,6 +13,7 @@ namespace Z42cSemanticsCrossPkgDuplicateTests;
 
 using Z42.Semantics;
 using Z42.IR;
+using Z42.Emission;
 
 // ⚠️ 辅助函数一律带 `dup` 前缀：同一测试单元（`typecheck` 工程 `include = ["**/*.z42"]`）里所有
 // 文件的自由函数共享一个平坦命名空间，且 z42 自由函数**不按参数类型重载**（见 bare_name 那组的注）。
@@ -24,7 +25,7 @@ ImportedSymbols dupImports(string[] srcs, string[] nss, string[] pkgs, string[] 
     ExportedModuleZ[] ems = new ExportedModuleZ[srcs.Length];
     int i = 0;
     while (i < srcs.Length) {
-        ems[i] = IrDump.ExtractExports(srcs[i], "dep" + i.ToString() + ".z42", nss[i]);
+        ems[i] = FrontEnd.ExtractExports(srcs[i], "dep" + i.ToString() + ".z42", nss[i]);
         i = i + 1;
     }
     return ImportedSymbolLoader.Load(ems, pkgs, srcs.Length, usings, usings.Length);

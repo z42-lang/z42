@@ -2,19 +2,19 @@
 
 ## 职责
 编译栈**基础库**：IR 内存模型 + zbc 单模块字节码格式 + zpkg 包格式后端 + 类型导出/依赖索引。
-z42c / z42b / REPL·分析工具经本库**共享**「emit IR → zbc/zpkg 读写」实现。无编译器逻辑（IrGen 在 `z42c.semantics`）。
+z42c / z42b / REPL·分析工具经本库**共享**「emit IR → zbc/zpkg 读写」实现。无编译器逻辑（IrGen 在 `z42c.emission`）。
 
 包名 `z42.package`、命名空间 `Z42.Package`：它装的是「整个 package 文件的读写」——IR 内存模型是包文件的
 **内容模型**，zbc 是它的编码，zpkg 是容器。工程清单模型在 `z42.project`（命名空间 `Z42.Project`）。
 
 ## 功能索引
 命名空间：`Z42.IR`（IR 模型）/ `Z42.IR.BinaryFormat`（zbc 编解码）/ `Z42.Package`（zpkg 后端）。
-IR 由 `z42c.semantics` 的 IrGen 构建；本库只提供模型 + 序列化。
+IR 由 `z42c.emission` 的 IrGen 构建；本库只提供模型 + 序列化。
 
 ## 如何测试验证
 `tests/` 下为 flat 单文件单元（`tests/<name>.z42`；stdlib 的 dir 单元发现要求目录里有 `source.z42`，
 否则会被静默跳过，报「all 0 file(s) passed」），均不依赖 IrGen。完整 IR→zbc 往返（需 IrGen）在
-`z42c.semantics/tests/zbcreader`。
+`z42c.emission/tests/zbcreader`。
 
 ```bash
 ./xtask test stdlib z42.package          # 本库全部单元

@@ -14,6 +14,7 @@ using Z42.Syntax;
 using Z42.Semantics;
 using Z42.Package;
 using Z42.Project;
+using Z42.Emission;
 
 // 调用方角色。本 change 只实现 HostTarget / AnalyzerChild；其余在第二步随 driver 迁移补齐。
 public static class BuildRole {

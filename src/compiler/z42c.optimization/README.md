@@ -5,19 +5,19 @@
 死分支消除 / 纯函数推断，以及决定开哪些优化的具名位集 `Opt`。只依赖 IR 模型（`z42.package`），不碰语法树、
 符号表或 Bound 树——输入输出都是 `IrModule`。
 
-**不做**：Bound 树 → IR 的代码生成（[`z42c.semantics`](../z42c.semantics/README.md) 的 `IrGen`）；
+**不做**：Bound 树 → IR 的代码生成（[`z42c.emission`](../z42c.emission/README.md) 的 `IrGen`）；
 清单 / 命令行开关的解析编排（`z42c.pipeline` 的 `ManifestKnobs`、`z42c.driver`，它们只调本包的 `Opt.*`）。
 
 ## 功能索引
 | 能力 | 入口 |
 |---|---|
-| 跑优化管线 | `IrOptPipeline.Run(m, optSet)`（`z42c.semantics` 的 `IrGen.Generate` 末尾调用；`Opt.None` = -O0 整体跳过） |
+| 跑优化管线 | `IrOptPipeline.Run(m, optSet)`（`z42c.emission` 的 `IrGen.Generate` 末尾调用；`Opt.None` = -O0 整体跳过） |
 | 优化开关 | `Opt.ConstFold` / `CopyProp` / `Inline` / … / `All`、`Opt.Has` / `ByName` / `ProfileDefault` / `Resolve` / `FromToml` |
 | IR 读写分析 | `IrOptInfo`（定义 / 读操作数 / 改写 / 纯度 / 常量折叠）、`IrRegCounts` |
 
 ## 如何测试验证
 本包无独立 `tests/`：优化的正确性靠「源码 → IrGen → 优化」整条链断言，住
-[`z42c.semantics/tests/codegen`](../z42c.semantics/tests/codegen/)（按 `Opt.*` 逐位开关对拍）与 golden
+[`z42c.emission/tests/codegen`](../z42c.emission/tests/codegen/)（按 `Opt.*` 逐位开关对拍）与 golden
 `src/tests/optimization/`（必须带 `opt_all` 侧车）。
 ```bash
 ./xtask test compiler        # 自举不动点 + 编译器各包单测（含 codegen）
@@ -46,5 +46,5 @@
 
 ## 依赖关系
 `z42.package`（IR 模型 `Z42.IR`；常量折叠复用 `ZbcInstr._parseIntLit` 的权威字面量解析）。
-被依赖：`z42c.semantics`（`IrGen` 调管线、`Opt` 供 devirt 门控）、`z42c.pipeline`（`ManifestKnobs` / `PackageCompile` 解析开关）、
+被依赖：`z42c.emission`（`IrGen` 调管线、`Opt` 供 devirt 门控）、`z42c.pipeline`（`ManifestKnobs` / `PackageCompile` 解析开关）、
 `z42c.driver`（`--opt` / `--no-opt` / `--opt-all`）。

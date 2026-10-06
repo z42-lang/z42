@@ -1,7 +1,7 @@
 # z42c.pipeline
 
 ## 职责
-编译管线编排（单文件 + 包级 Lexer→Parser→Sem→IR→Emit）+ 依赖扫描 + workspace 构建 + 文件级增量。后端三包的编排层，向下调 `z42c.semantics` 编译、`z42.package` 产 zpkg。
+编译管线编排（单文件 + 包级 Lexer→Parser→Sem→IR→Emit）+ 依赖扫描 + workspace 构建 + 文件级增量。编译器后端的编排层，向下调 `z42c.emission` 编译（包编译门面 `IrDump`）、`z42.package` 产 zpkg。
 
 ## 功能索引
 命名空间 `Z42.Pipeline`。
@@ -65,4 +65,4 @@
 | `src/CompilerFingerprint.z42` | 编译器语义指纹：`Entries` 列表的内容哈希；每条语义变更追加一行 slug。规则见 [compiler-fingerprint.md](../../../docs/internals/src/compiler/compiler-fingerprint.md) |
 
 ## 依赖关系
-`z42c.core`、`z42c.syntax`、`z42c.semantics`、`z42.package`、`z42.project`、`z42.build`（`ICompiler` / `IReplCompiler` 接口，无环）、`z42.io` + `z42.encoding`（CacheStore）。stdlib 自动可用。
+`z42c.core`、`z42c.syntax`、`z42c.semantics`、`z42c.emission`（`IrDump` / `CompiledModuleZ`）、`z42c.optimization`（`Opt` 开关解析）、`z42.package`、`z42.project`、`z42.build`（`ICompiler` / `IReplCompiler` 接口，无环）、`z42.io` + `z42.encoding`（CacheStore）。stdlib 自动可用。

@@ -11,6 +11,7 @@ using Z42.Package;
 using Z42.Semantics;
 using Z42.IR;   // Murmur3（v8 zbchash）
 using Z42.IR.BinaryFormat;
+using Z42.Emission;
 
 string _src() { return "namespace T;\nint Add(int a, int b) { return a + b; }\n"; }
 string _src2() { return "namespace T;\nint Mul(int a, int b) { return a * b; }\n"; }
@@ -342,7 +343,7 @@ void test_read_source_hashes() {
     mods[0] = new ZbcFileZ("t.z42", ZpkgBuilder.SourceHashHex(_src()), ns, exports, cm.Module.FuncCount, cm.Module);
     ZpkgFileZ z = ZpkgBuilder.BuildPackedD("incrpkg", "0.1.0", false, false, "", mods, 1, new ZpkgDepZ[0], 0);
     ExportedModuleZ[] ex = new ExportedModuleZ[1];
-    ex[0] = IrDump.ExtractExports(_src(), "t.z42", ns);
+    ex[0] = FrontEnd.ExtractExports(_src(), "t.z42", ns);
     z.Exported = ex; z.ExportedCount = 1;
     ZpkgWriteResult w = ZpkgWriterZ.WritePackedWithSidecar(z, false);
     File.WriteAllBytes(Path.Join(proj, "dist/incrpkg.zpkg"), w.Main);
@@ -369,7 +370,7 @@ void test_indexed_main_roundtrip() {
     ZpkgFileZ z = ZpkgBuilder.BuildPackedD("idxpkg", "0.1.0", false, false, "",
                                            mods, 1, new ZpkgDepZ[0], 0);
     ExportedModuleZ[] ex = new ExportedModuleZ[1];
-    ex[0] = IrDump.ExtractExports(_src(), "t.z42", "T");
+    ex[0] = FrontEnd.ExtractExports(_src(), "t.z42", "T");
     z.Exported = ex;
     z.ExportedCount = 1;
     string[] hashes = new string[1]; hashes[0] = "deadbeefdeadbeefdeadbeefdeadbeef";

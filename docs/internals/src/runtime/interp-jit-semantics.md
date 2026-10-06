@@ -74,8 +74,8 @@ receiver 误命中先到者的条目：
 
 ```
 site: body.Run(i)            // IParallelBody 接口调用，z42c.semantics
-  第一次: receiver = SrcReadHashTask (z42c.driver,    TypeId 139) → 装 PIC
-  第二次: receiver = CompileCuTask   (z42c.semantics, TypeId 139) → 误命中
+  第一次: receiver = SrcReadHashTask (z42c.driver,   TypeId 139) → 装 PIC
+  第二次: receiver = CompileCuTask   (z42c.emission, TypeId 139) → 误命中
       ⇒ 跑 SrcReadHashTask.Run，其 this._srcs[i] 读到 CompileCuTask 槽 0 的 _cus[i]
       ⇒ File.ReadAllText(<CompilationUnit>)，自举链当场崩
 ```

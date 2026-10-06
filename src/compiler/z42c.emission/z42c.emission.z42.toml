@@ -1,0 +1,14 @@
+# z42c.emission —— 代码生成：绑定树 → IR（IrGen / 各 Emitter / 降级合成），以及把「前端 + 代码生成」
+# 串成单文件 / 包编译的编排（IrDump / CuCompile）。只处理通过检查的程序：有错误就不进代码生成。
+# 分层：z42.package ← z42c.optimization ← z42c.semantics ← z42c.emission ← z42c.pipeline。
+[project]
+name    = "z42c.emission"
+version = "0.1.0"
+kind    = "lib"
+
+[dependencies]
+"z42c.core"         = "0.1.0"
+"z42c.syntax"       = "0.1.0"
+"z42.package"       = "0.1.0"   # IR 模型 + zbc/zpkg 格式（Z42.IR）
+"z42c.optimization" = "0.1.0"   # IR 优化管线 + Opt/OptSet（Z42.Optimization）
+"z42c.semantics"    = "0.1.0"   # 符号表 / 绑定树 / 前端（Z42.Semantics）

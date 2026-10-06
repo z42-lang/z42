@@ -81,7 +81,7 @@ The `lib + entry` form (no `type=`) tells the compiler to:
    `lib=` annotation is preserved as metadata for future tooling (SDK
    dependency manifests) but doesn't affect IR.
 
-See `src/compiler/z42c.semantics/src/Emission/StubEmitter.z42` (`_emitNativeStub`).
+See `src/compiler/z42c.emission/src/Emission/StubEmitter.z42` (`_emitNativeStub`).
 
 ### Native search path
 

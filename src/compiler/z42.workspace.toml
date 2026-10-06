@@ -1,7 +1,7 @@
 # z42c — z42 自举编译器 workspace（scaffold-z42c-selfhost, 2026-06-07）
 #
 # 本 workspace = **整个编译器域**（relocate-compiler-domain-libs，2026-09-27）：
-#   后端 4 包    z42c.optimization / z42c.semantics / z42c.pipeline / z42c.driver
+#   后端 5 包    z42c.optimization / z42c.semantics / z42c.emission / z42c.pipeline / z42c.driver
 #   可移植前端    z42c.core / z42c.syntax（Lexer/Parser/AST/Span/Diagnostic）
 #   格式与模型    z42.package（IR + zbc/zpkg 后端）/ z42.project（工程清单）/ z42.build（构建管线）
 #   eval 内核     z42.scripting（Std.Scripting；命名空间待后续改名批次归位）
@@ -34,9 +34,10 @@ members = ["*"]
 #   z42.project           → z42.core / io / toml（stdlib）
 #   z42.build             → z42.core / io（stdlib）, z42.project
 #   z42c.optimization     → z42.package（IR → IR 优化管线，与语义分析无关）
-#   z42c.semantics        → z42c.core, z42c.syntax, z42.package, z42c.optimization
-#   z42c.pipeline         → z42c.core, z42c.syntax, semantics, optimization, z42.package, z42.project
-#   z42c.driver           → pipeline, optimization, z42.package, z42c.core
+#   z42c.semantics        → z42c.core, z42c.syntax, z42.package（符号 / 绑定 / 检查，不依赖代码生成）
+#   z42c.emission         → z42c.core, z42c.syntax, z42.package, z42c.optimization, z42c.semantics（代码生成 + 编译编排）
+#   z42c.pipeline         → z42c.core, z42c.syntax, semantics, emission, optimization, z42.package, z42.project
+#   z42c.driver           → pipeline, emission, semantics, optimization, z42.package, z42c.core
 #   z42.scripting         → z42c.core, z42c.syntax, z42.build + stdlib(core/io/test/threading)
 #                            置于末尾：依赖面最宽
 # 注：z42c.ir + z42c.project 早先收敛为单库 z42.package（converge-z42c-ir-metadata-onto-stdlib）；
@@ -51,6 +52,7 @@ default-members = [
     "z42.build",
     "z42c.optimization",
     "z42c.semantics",
+    "z42c.emission",
     "z42c.pipeline",
     "z42c.driver",
     "z42.scripting",

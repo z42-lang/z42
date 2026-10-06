@@ -100,10 +100,10 @@ AttributedDecl([Record], ClassDecl{ Kind="class"/"struct", Members=[X,Y,ctor,...
       ClassDescBuilder._classDesc(c, hasRecord) → bit3 → 运行时 __type_is_record
 ```
 
-**为什么 parser 就地展开、bit3 走 attr 而非新字段**：这是**自举硬约束**。z42c 自建时，`z42c.semantics`
+**为什么 parser 就地展开、bit3 走 attr 而非新字段**：这是**自举硬约束**。z42c 自建时，`z42c.semantics` / `z42c.emission`
 是对着**上一个 nightly 的 `z42c.syntax`**（种子）编译的——若给 `ClassDecl` 加新字段（如 `PrimaryParams`/
-`IsRecord`）并从 semantics 读，种子 syntax 没有该字段 → `E0401 no field`（须两-nightly 预种）。把位置参数
-展开收进 parser（syntax 内自足）、bit3 由 semantics 读**既有的** `AttributedDecl.Attrs`，即可单-PR 落地。
+`IsRecord`）并从 semantics / emission 读，种子 syntax 没有该字段 → `E0401 no field`（须两-nightly 预种）。把位置参数
+展开收进 parser（syntax 内自足）、bit3 由 emission（`IrGen`）读**既有的** `AttributedDecl.Attrs`，即可单-PR 落地。
 parser 能判 `[Record]` 是因为把已解析的 `attrs` 作参传进了 `_parseTypeDecl`（顶层 + 嵌套两处调用点）。
 
 **为什么裸字段访问免 binder 改动**：`DeclBinder` 绑定方法体时把类的**全部字段**（含继承）播种进

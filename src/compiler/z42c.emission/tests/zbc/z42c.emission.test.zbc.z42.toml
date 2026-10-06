@@ -1,0 +1,21 @@
+# z42c byte-identical .zbc writer 单测（port-z42c-zbc-writer ZW-1A）。
+# 源 → IrGen → ZbcWriter → 小写 hex，对 src/compiler/z42.package/tests/fixtures/zbc-format/ ground-truth golden 逐字节。
+[project]
+name    = "z42c.emission.test.zbc"
+version = "0.1.0"
+kind    = "lib"
+
+[sources]
+include = ["**/*.z42"]
+
+[dependencies]
+"z42c.semantics" = "0.1.0"
+"z42c.emission"  = "0.1.0"
+"z42c.syntax"    = "0.1.0"
+"z42c.core"      = "0.1.0"
+"z42.package"        = "0.1.0"
+
+[build]
+# Build output → artifacts mirror (mirror-build-output-per-component, 2026-06-16):
+# src/compiler/z42c.emission/tests/zbc → artifacts/build/compiler/z42c.emission/${profile}/tests/zbc (no src pollution).
+output_dir = "../../../../../artifacts/build/compiler/z42c.emission/${profile}/tests/zbc"

@@ -8,6 +8,7 @@ kind    = "lib"
 include = ["**/*.z42"]
 
 [dependencies]
+"z42c.emission"  = "0.1.0"   # IrDump / CompiledModuleZ（整包编译取诊断）
 "z42c.pipeline"  = "0.1.0"
 "z42.package"    = "0.1.0"
 "z42c.semantics" = "0.1.0"

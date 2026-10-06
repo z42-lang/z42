@@ -9,6 +9,7 @@ using Std.IO;
 using Z42.Pipeline;
 using Z42.Package;
 using Z42.Semantics;
+using Z42.Emission;
 
 ZpkgFileZ zdCompile(string src) {
     string libs = Environment.GetEnvironmentVariable("Z42_LIBS", "");

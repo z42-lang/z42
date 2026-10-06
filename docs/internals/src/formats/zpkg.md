@@ -197,7 +197,7 @@ Phase 3 — impl merge
 
 ### IrGen — QualifyClassName 对齐 imported target
 
-`src/compiler/z42c.semantics/src/Emission/IrGen.z42` 用 `QualifyClassName` 给 impl 方法注册 funcParams
+`src/compiler/z42c.emission/src/Emission/IrGen.z42` 用 `QualifyClassName` 给 impl 方法注册 funcParams
 和生成方法 body 的 IR 函数符号：imported target（如 z42.numerics 给
 z42.core `int` 加方法）走 source namespace，生成 `Std.Int32.op_Add`
 而非 `numerics.int.op_Add`，与消费者 VCall 期望的 `func_index` 符号一致；local target 等同 QualifyName。

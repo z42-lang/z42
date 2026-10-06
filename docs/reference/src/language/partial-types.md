@@ -1,7 +1,7 @@
 # partial 类型
 
 > 代码：`src/compiler/z42c.syntax`（词法/语法）、
-> `src/compiler/z42c.semantics/{SymbolCollector,IrGen,IrDump}.z42`（合并/codegen）、
+> `src/compiler/z42c.semantics/…/SymbolCollector.z42`（合并）、`src/compiler/z42c.emission/…/{IrGen,IrDump,CuCompile}.z42`（codegen）、
 > `src/compiler/z42c.pipeline/src/IncrementalBuild.z42`（增量联动）。
 
 一个类型（`class` / `struct` / `record` / `interface`）可由多个 `partial` 声明碎片拼成，

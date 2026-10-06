@@ -9,6 +9,7 @@
 - **Flat 模式** — `<category>/<name>.z42` 单文件（仅 assert-only 用例：用 `Std.Assert` 抛异常表达失败，期望空 stdout，无 sidecar）
 
 不放在这里：
+- 编译器单元测试（代码生成 / zbc）→ [src/compiler/z42c.emission/tests/](../compiler/z42c.emission/tests/)
 - 编译器单元测试（语义层）→ [src/compiler/z42c.semantics/tests/](../compiler/z42c.semantics/tests/)
 - 编译器单元测试（语法层）→ [src/compiler/z42c.syntax/tests/](../compiler/z42c.syntax/tests/)
 - **期望编译报错的用例** → 同上（`[Test]` + `SemanticDump`，见下文）

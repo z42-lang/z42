@@ -62,7 +62,7 @@
 | delegate 调用 | `CallIndirect`（`0x56`）|
 
 delegate 类型自身在 IR 里由 `StubEmitter._emitDelegateInvoke`
-（`src/compiler/z42c.semantics/src/Emission/StubEmitter.z42`）合成一个 `Invoke` 桩函数，
+（`src/compiler/z42c.emission/src/Emission/StubEmitter.z42`）合成一个 `Invoke` 桩函数，
 由 `IrGenAuxEmitter` 挂进模块；跨 zpkg 导出走通用类型元数据通道。
 
 ### 2.1a `.Invoke(args)` 为什么不派发到那个桩

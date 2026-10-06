@@ -1,0 +1,953 @@
+// z42c.semantics codegen 单测（port-z42c-codegen CG-1A）：源 → typecheck → IrGen → .zasm-like IR 文本断言。
+namespace Z42cSemanticsCodegenTests;
+
+using Z42.Semantics;
+using Z42.IR;        // StrMap / StrBox
+using Z42.Optimization;
+using Z42.Emission;
+
+[Test]
+void test_return_int_literal() {
+    string src = "int F() { return 5; }";
+    Assert.Equal("fn @F(0) -> int {\nentry:\n  %0 = const.i64 5\n  ret %0\n}",
+                 IrDump.DumpFunc(src, "F"));
+}
+
+[Test]
+void test_binary_add_instance_method() {
+    // 实例方法：this=%0，a=%1，b=%2；ParamCount 含 this = 3
+    string src = "class C { int Add(int a, int b) { return a + b; } }";
+    Assert.Equal("fn @C.Add(3) -> int {\nentry:\n  %3 = add i32 %1, %2\n  ret %3\n}",
+                 IrDump.DumpFunc(src, "C.Add"));
+}
+
+[Test]
+void test_multidim_indexer_dispatch() {
+    // 多维索引器使用侧：this[r,c]=v → set_Item(r,c,v)；this[r,c] → get_Item(r,c)。
+    string src = "class M { int this[int r, int c] { get { return r; } set { } } int Use() { this[0, 1] = 9; return this[2, 3]; } }";
+    Assert.Equal("fn @M.Use(1) -> int {\nentry:\n  %1 = const.i64 0\n  %2 = const.i64 1\n  %3 = const.i64 9\n  %4 = vcall %0.set_Item(%1, %2, %3)\n  %5 = const.i64 2\n  %6 = const.i64 3\n  %7 = vcall %0.get_Item(%5, %6)\n  ret %7\n}",
+                 IrDump.DumpFunc(src, "M.Use"));
+}
+
+[Test]
+void test_var_decl_and_assign() {
+    // var x = 1; x = x + 2; return x; —— SSA-lite 拷回被 copy-prop 折叠（optimization-pipeline）：
+    // const/add 直接写 x 的寄存器 %1，冗余 copy 消除。
+    string src = "int F() { var x = 1; x = x + 2; return x; }";
+    Assert.Equal("fn @F(0) -> int {\nentry:\n  %1 = const.i64 1\n  %2 = const.i64 2\n  %1 = add i32 %1, %2\n  ret %1\n}",
+                 IrDump.DumpFunc(src, "F"));
+}
+
+[Test]
+void test_double_literal() {
+    string src = "double F() { return 1.5; }";
+    Assert.Equal("fn @F(0) -> double {\nentry:\n  %0 = const.f64 1.5\n  ret %0\n}",
+                 IrDump.DumpFunc(src, "F"));
+}
+
+[Test]
+void test_bool_literal() {
+    string src = "bool F() { return true; }";
+    Assert.Equal("fn @F(0) -> bool {\nentry:\n  %0 = const.bool true\n  ret %0\n}",
+                 IrDump.DumpFunc(src, "F"));
+}
+
+[Test]
+void test_string_literal() {
+    // 字符串入池（1-based）；const.str 引用池索引
+    string src = "string F() { return \"hi\"; }";
+    Assert.Equal("fn @F(0) -> string {\nentry:\n  %0 = const.str #1\n  ret %0\n}",
+                 IrDump.DumpFunc(src, "F"));
+}
+
+[Test]
+void test_void_implicit_ret() {
+    // void 方法无显式 return → entry 块以隐式 ret 终结
+    string src = "void F() { }";
+    Assert.Equal("fn @F(0) -> void {\nentry:\n  ret\n}",
+                 IrDump.DumpFunc(src, "F"));
+}
+
+[Test]
+void test_module_dump() {
+    // 模块名 = 根命名空间（无 → "main"，对齐 C# `cu.Namespace ?? "main"`）
+    string src = "int F() { return 5; }";
+    Assert.Equal("module \"main\"\n\nfn @F(0) -> int {\nentry:\n  %0 = const.i64 5\n  ret %0\n}",
+                 IrDump.DumpModule(src));
+}
+
+// ── CG-1B：控制流 if/while/break/continue → 多基本块 ──────────────────────────────
+
+[Test]
+void test_if_then_return() {
+    // if 无 else：cond 块 br.cond → then / 汇合 end（end 可达，承接后续 return）
+    string src = "int F(bool c) { if (c) { return 1; } return 2; }";
+    Assert.Equal("fn @F(1) -> int {\nentry:\n  br.cond %0, then_0, end_1\nthen_0:\n  %1 = const.i64 1\n  ret %1\nend_1:\n  %2 = const.i64 2\n  ret %2\n}",
+                 IrDump.DumpFunc(src, "F"));
+}
+
+[Test]
+void test_if_else_merge() {
+    // if/else 两分支写 x，汇合 end 块读 x
+    string src = "int F(bool c) { int x = 0; if (c) { x = 1; } else { x = 2; } return x; }";
+    Assert.Equal("fn @F(1) -> int {\nentry:\n  %2 = const.i64 0\n  br.cond %0, then_0, else_1\nthen_0:\n  %2 = const.i64 1\n  br end_2\nelse_1:\n  %2 = const.i64 2\n  br end_2\nend_2:\n  ret %2\n}",
+                 IrDump.DumpFunc(src, "F"));
+}
+
+[Test]
+void test_while_break() {
+    // while：entry→cond，cond br.cond→body/end；break→end
+    string src = "void F(bool c) { while (c) { break; } }";
+    Assert.Equal("fn @F(1) -> void {\nentry:\n  br cond_0\ncond_0:\n  br.cond %0, body_1, end_2\nbody_1:\n  br end_2\nend_2:\n  ret\n}",
+                 IrDump.DumpFunc(src, "F"));
+}
+
+[Test]
+void test_while_continue() {
+    // continue→cond（回边）
+    string src = "void F(bool c) { while (c) { continue; } }";
+    Assert.Equal("fn @F(1) -> void {\nentry:\n  br cond_0\ncond_0:\n  br.cond %0, body_1, end_2\nbody_1:\n  br cond_0\nend_2:\n  ret\n}",
+                 IrDump.DumpFunc(src, "F"));
+}
+
+[Test]
+void test_body_assign() {
+    // body 非空，末尾回边 br cond。循环不变常量 `1`（单赋值 temp %3）被 LICM 提到 pre-header（entry），
+    // body 剩 `%2 = copy %3`（LICM 后 producer 不再相邻 → copy-prop 不折，add-licm-pass）。
+    string src = "int F(bool c) { int x = 0; while (c) { x = 1; } return x; }";
+    Assert.Equal("fn @F(1) -> int {\nentry:\n  %2 = const.i64 0\n  %3 = const.i64 1\n  br cond_0\ncond_0:\n  br.cond %0, body_1, end_2\nbody_1:\n  %2 = copy %3\n  br cond_0\nend_2:\n  ret %2\n}",
+                 IrDump.DumpFunc(src, "F"));
+}
+
+// ── CG-1C：方法调用 + 字段 get/set + this + 继承分派 ──────────────────────────────
+
+[Test]
+void test_field_read_this() {
+    // this.v → field_get on reg0
+    string src = "class C { int v; int Get() { return this.v; } }";
+    Assert.Equal("fn @C.Get(1) -> int {\nentry:\n  %1 = field_get %0.v\n  ret %1\n}",
+                 IrDump.DumpFunc(src, "C.Get"));
+}
+
+[Test]
+void test_field_read_bare() {
+    // 裸字段 ident（typechecker 把自身字段入 scope）→ 同 field_get on reg0
+    string src = "class C { int v; int Get() { return v; } }";
+    Assert.Equal("fn @C.Get(1) -> int {\nentry:\n  %1 = field_get %0.v\n  ret %1\n}",
+                 IrDump.DumpFunc(src, "C.Get"));
+}
+
+[Test]
+void test_field_write() {
+    // 裸字段赋值 → field_set on reg0
+    string src = "class C { int v; void Set(int x) { v = x; } }";
+    Assert.Equal("fn @C.Set(2) -> void {\nentry:\n  field_set %0.v, %1\n  ret\n}",
+                 IrDump.DumpFunc(src, "C.Set"));
+}
+
+[Test]
+void test_free_call() {
+    string src = "int Helper() { return 7; } int Main() { return Helper(); }";
+    Assert.Equal("fn @Main(0) -> int {\nentry:\n  %0 = call @Helper()\n  ret %0\n}",
+                 IrDump.DumpFunc(src, "Main"));
+}
+
+[Test]
+void test_free_call_args() {
+    string src = "int Add(int a, int b) { return a + b; } int Main() { return Add(1, 2); }";
+    Assert.Equal("fn @Main(0) -> int {\nentry:\n  %0 = const.i64 1\n  %1 = const.i64 2\n  %2 = call @Add(%0, %1)\n  ret %2\n}",
+                 IrDump.DumpFunc(src, "Main"));
+}
+
+[Test]
+void test_instance_call() {
+    // this.Compute() → vcall（虚分派）
+    string src = "class C { int Compute() { return 1; } int Get() { return this.Compute(); } }";
+    Assert.Equal("fn @C.Get(1) -> int {\nentry:\n  %1 = vcall %0.Compute()\n  ret %1\n}",
+                 IrDump.DumpFunc(src, "C.Get"));
+}
+
+[Test]
+void test_static_call() {
+    // C.Make() 静态 → 直接 call @C.Make$0（方案A 静态-only：静态方法全签名 mangle）
+    string src = "class C { static int Make() { return 5; } int Use() { return C.Make(); } }";
+    Assert.Equal("fn @C.Use(1) -> int {\nentry:\n  %1 = call @C.Make$0()\n  ret %1\n}",
+                 IrDump.DumpFunc(src, "C.Use"));
+}
+
+// ── CG-1D：new / 数组索引 / is / as ──────────────────────────────────────────────
+
+[Test]
+void test_new() {
+    string src = "class C { } class D { C Make() { return new C(); } }";
+    Assert.Equal("fn @D.Make(1) -> C {\nentry:\n  %1 = obj_new C C.C()\n  ret %1\n}",
+                 IrDump.DumpFunc(src, "D.Make"));
+}
+
+[Test]
+void test_new_args() {
+    string src = "class P { } class D { P Make() { return new P(1, 2); } }";
+    Assert.Equal("fn @D.Make(1) -> P {\nentry:\n  %1 = const.i64 1\n  %2 = const.i64 2\n  %3 = obj_new P P.P(%1, %2)\n  ret %3\n}",
+                 IrDump.DumpFunc(src, "D.Make"));
+}
+
+// ── target-typed new（add-target-typed-new）：`new()` 省略类名，从目标类型推断，产出与显式 new 逐字节相同 IR ──
+
+[Test]
+void test_target_typed_new_return() {
+    // return new()（目标 = 返回类型）与 return new C() 等价
+    string expl = "class C { } class D { C Make() { return new C(); } }";
+    string tt   = "class C { } class D { C Make() { return new(); } }";
+    Assert.Equal(IrDump.DumpFunc(expl, "D.Make"), IrDump.DumpFunc(tt, "D.Make"));
+    Assert.Equal("fn @D.Make(1) -> C {\nentry:\n  %1 = obj_new C C.C()\n  ret %1\n}",
+                 IrDump.DumpFunc(tt, "D.Make"));
+}
+
+[Test]
+void test_target_typed_new_args() {
+    // return new(1, 2)（目标 = 返回类型）与 return new P(1, 2) 等价
+    string expl = "class P { } class D { P Make() { return new P(1, 2); } }";
+    string tt   = "class P { } class D { P Make() { return new(1, 2); } }";
+    Assert.Equal(IrDump.DumpFunc(expl, "D.Make"), IrDump.DumpFunc(tt, "D.Make"));
+}
+
+[Test]
+void test_target_typed_new_var_decl() {
+    // A a = new()（目标 = 声明类型）与 A a = new A() 等价
+    string expl = "class C { } class D { C Make() { C c = new C(); return c; } }";
+    string tt   = "class C { } class D { C Make() { C c = new(); return c; } }";
+    Assert.Equal(IrDump.DumpFunc(expl, "D.Make"), IrDump.DumpFunc(tt, "D.Make"));
+}
+
+[Test]
+void test_target_typed_new_assign() {
+    // a = new()（目标 = LHS 类型）与 a = new C() 等价
+    string expl = "class C { } class D { C M(C c) { c = new C(); return c; } }";
+    string tt   = "class C { } class D { C M(C c) { c = new(); return c; } }";
+    Assert.Equal(IrDump.DumpFunc(expl, "D.M"), IrDump.DumpFunc(tt, "D.M"));
+}
+
+[Test]
+void test_target_typed_new_arg_passing() {
+    // f(new())（目标 = 形参类型，唯一 arity）与 f(new A()) 等价
+    string expl = "class A { } class C { A keep; void Take(A a) { this.keep = a; } void M() { this.Take(new A()); } }";
+    string tt   = "class A { } class C { A keep; void Take(A a) { this.keep = a; } void M() { this.Take(new()); } }";
+    Assert.Equal(IrDump.DumpFunc(expl, "C.M"), IrDump.DumpFunc(tt, "C.M"));
+}
+
+[Test]
+void test_target_typed_new_obj_init() {
+    // new() { X = 1 }（目标 = 声明类型 + 对象初始化器）与 new C() { X = 1 } 等价
+    string expl = "class C { int X; } class D { C Make() { C c = new C() { X = 1 }; return c; } }";
+    string tt   = "class C { int X; } class D { C Make() { C c = new() { X = 1 }; return c; } }";
+    Assert.Equal(IrDump.DumpFunc(expl, "D.Make"), IrDump.DumpFunc(tt, "D.Make"));
+}
+
+[Test]
+void test_array_get() {
+    string src = "class C { int First(int[] xs) { return xs[0]; } }";
+    Assert.Equal("fn @C.First(2) -> int {\nentry:\n  %2 = const.i64 0\n  %3 = array_get %1[%2]\n  ret %3\n}",
+                 IrDump.DumpFunc(src, "C.First"));
+}
+
+[Test]
+void test_array_set() {
+    string src = "class C { void Set(int[] xs, int v) { xs[0] = v; } }";
+    Assert.Equal("fn @C.Set(3) -> void {\nentry:\n  %3 = const.i64 0\n  array_set %1[%3], %2\n  ret\n}",
+                 IrDump.DumpFunc(src, "C.Set"));
+}
+
+[Test]
+void test_is_instance() {
+    string src = "class A { } class C { bool Check(A a) { return a is A; } }";
+    Assert.Equal("fn @C.Check(2) -> bool {\nentry:\n  %2 = is_instance %1, A\n  ret %2\n}",
+                 IrDump.DumpFunc(src, "C.Check"));
+}
+
+[Test]
+void test_as_cast() {
+    string src = "class A { } class B : A { } class C { B Down(A a) { return a as B; } }";
+    Assert.Equal("fn @C.Down(2) -> B {\nentry:\n  %2 = as_cast %1, B\n  ret %2\n}",
+                 IrDump.DumpFunc(src, "C.Down"));
+}
+
+// ── CG-1E：比较 / 位 / 一元 / 字符串拼接（逻辑短路 && || 三目 ?? → CG-1E-2）─────────────
+
+[Test]
+void test_comparison() {
+    // a < b → lt（结果 bool；操作数类型 i32）
+    string src = "bool F(int a, int b) { return a < b; }";
+    Assert.Equal("fn @F(2) -> bool {\nentry:\n  %2 = lt i32 %0, %1\n  ret %2\n}",
+                 IrDump.DumpFunc(src, "F"));
+}
+
+[Test]
+void test_bitwise_and() {
+    string src = "int F(int a, int b) { return a & b; }";
+    Assert.Equal("fn @F(2) -> int {\nentry:\n  %2 = bit_and i32 %0, %1\n  ret %2\n}",
+                 IrDump.DumpFunc(src, "F"));
+}
+
+[Test]
+void test_unary_neg() {
+    string src = "int F(int a) { return -a; }";
+    Assert.Equal("fn @F(1) -> int {\nentry:\n  %1 = neg i32 %0\n  ret %1\n}",
+                 IrDump.DumpFunc(src, "F"));
+}
+
+[Test]
+void test_unary_not() {
+    string src = "bool F(bool b) { return !b; }";
+    Assert.Equal("fn @F(1) -> bool {\nentry:\n  %1 = not %0\n  ret %1\n}",
+                 IrDump.DumpFunc(src, "F"));
+}
+
+[Test]
+void test_string_concat() {
+    // a + b（string）→ add tag=str（C# 字节实证）
+    string src = "string F(string a, string b) { return a + b; }";
+    Assert.Equal("fn @F(2) -> string {\nentry:\n  %2 = add str %0, %1\n  ret %2\n}",
+                 IrDump.DumpFunc(src, "F"));
+}
+
+[Test]
+void test_loop_with_comparison() {
+    // 真实循环：while (i < n) { i = i + 1; } —— 比较条件 + 回边。循环不变增量常量 `1`（单赋值 temp %4）
+    // 被 LICM 提到 pre-header（entry）；body 的 add 直接用 %4（add-licm-pass）。
+    string src = "int F(int n) { int i = 0; while (i < n) { i = i + 1; } return i; }";
+    Assert.Equal("fn @F(1) -> int {\nentry:\n  %2 = const.i64 0\n  %4 = const.i64 1\n  br cond_0\ncond_0:\n  %3 = lt i32 %2, %0\n  br.cond %3, body_1, end_2\nbody_1:\n  %2 = add i32 %2, %4\n  br cond_0\nend_2:\n  ret %2\n}",
+                 IrDump.DumpFunc(src, "F"));
+}
+
+// ── CG-1E-2：块化表达式（短路 && || / 三目 ?: / ??）──────────────────────────────
+
+[Test]
+void test_ternary() {
+    // c ? a : b → 结果寄存器两分支各 copy
+    string src = "int F(bool c, int a, int b) { return c ? a : b; }";
+    Assert.Equal("fn @F(3) -> int {\nentry:\n  br.cond %0, tern_then_0, tern_else_1\ntern_then_0:\n  %3 = copy %1\n  br tern_end_2\ntern_else_1:\n  %3 = copy %2\n  br tern_end_2\ntern_end_2:\n  ret %3\n}",
+                 IrDump.DumpFunc(src, "F"));
+}
+
+[Test]
+void test_logical_and() {
+    // a && b：a 假 → false（不求 b）
+    string src = "bool F(bool a, bool b) { return a && b; }";
+    Assert.Equal("fn @F(2) -> bool {\nentry:\n  br.cond %0, and_rhs_0, and_short_1\nand_rhs_0:\n  %2 = copy %1\n  br and_end_2\nand_short_1:\n  %2 = const.bool false\n  br and_end_2\nand_end_2:\n  ret %2\n}",
+                 IrDump.DumpFunc(src, "F"));
+}
+
+[Test]
+void test_logical_or() {
+    // a || b：a 真 → true（不求 b）
+    string src = "bool F(bool a, bool b) { return a || b; }";
+    Assert.Equal("fn @F(2) -> bool {\nentry:\n  br.cond %0, or_short_1, or_rhs_0\nor_rhs_0:\n  %2 = copy %1\n  br or_end_2\nor_short_1:\n  %2 = const.bool true\n  br or_end_2\nor_end_2:\n  ret %2\n}",
+                 IrDump.DumpFunc(src, "F"));
+}
+
+// ── CG-2：泛型（obj_new 携 resolved type-args + 泛型方法签名类型解析）─────────────────
+
+[Test]
+void test_new_generic() {
+    // new Box<int>() → obj_new Box<int>（class "Box" + type-args ["int"]）
+    string src = "class Box<T> { } class C { Box<int> Make() { return new Box<int>(); } }";
+    Assert.Equal("fn @C.Make(1) -> Box<int> {\nentry:\n  %1 = obj_new Box<int> Box.Box()\n  ret %1\n}",
+                 IrDump.DumpFunc(src, "C.Make"));
+}
+
+[Test]
+void test_new_generic_multi() {
+    string src = "class Pair<K, V> { } class C { Pair<int, string> Make() { return new Pair<int, string>(); } }";
+    // complete-generic-class-identity P1：ObjNew 的类名现在是**实例化身份名** `Pair<int,string>`
+    // （`StructLayout.InstName`，**无空格**），不再是「裸名 + 另一份 TypeArgs 渲染」的
+    // `Pair<int, string>`。签名位仍是源码拼写（`Z42Type.Name()`），故那半保留空格。
+    Assert.Equal("fn @C.Make(1) -> Pair<int, string> {\nentry:\n  %1 = obj_new Pair<int,string> Pair.Pair()\n  ret %1\n}",
+                 IrDump.DumpFunc(src, "C.Make"));
+}
+
+[Test]
+void test_generic_method_return() {
+    // 泛型类方法返回 T：签名 -> T（ResolveTypeP 带类型参 scope），体 field_get（T → ref）
+    string src = "class Box<T> { T v; T Get() { return this.v; } }";
+    Assert.Equal("fn @Box.Get(1) -> T {\nentry:\n  %1 = field_get %0.v\n  ret %1\n}",
+                 IrDump.DumpFunc(src, "Box.Get"));
+}
+
+[Test]
+void test_generic_method_param() {
+    // T 形参 + T 返回 → 签名两处皆 T；T 形参寄存器为 ref
+    string src = "class Box<T> { T Echo(T x) { return x; } }";
+    Assert.Equal("fn @Box.Echo(2) -> T {\nentry:\n  ret %1\n}",
+                 IrDump.DumpFunc(src, "Box.Echo"));
+}
+
+// ── char（port-z42c-char）────────────────────────────────────────────────────
+[Test]
+void test_char_const() {
+    string src = "char F() { return 'x'; }";
+    Assert.Equal("fn @F(0) -> char {\nentry:\n  %0 = const.char x\n  ret %0\n}",
+                 IrDump.DumpFunc(src, "F"));
+}
+
+// ── try/throw（port-z42c-try）────────────────────────────────────────────────
+[Test]
+void test_throw_lowering() {
+    string src = "class E { } class C { void M() { throw new E(); } }";
+    Assert.Equal("fn @C.M(1) -> void {\nentry:\n  %1 = obj_new E E.E()\n  throw %1\n}",
+                 IrDump.DumpFunc(src, "C.M"));
+}
+
+// ── lambda（port-z42c-closures）─────────────────────────────────────────────
+[Test]
+void test_lambda_lift_loadfn() {
+    // 无捕获 → lift + load_fn；lift 函数追加在模块尾
+    string src = "int Use() { Func<int, int> f = x => x + 1; return f(1); }";
+    Assert.Equal("fn @Use(0) -> int {\nentry:\n  %1 = load_fn @Use__lambda_0\n  %2 = const.i64 1\n  %3 = call_ind %1(%2)\n  ret %3\n}",
+                 IrDump.DumpFunc(src, "Use"));
+}
+
+// ── arr.Length（port-z42c-package-symbols PS-2）──────────────────────────────
+[Test]
+void test_array_len_lowering() {
+    string src = "class C { int M(int[] xs) { return xs.Length; } }";
+    Assert.Equal("fn @C.M(2) -> int {\nentry:\n  %2 = field_get %1.Length\n  ret %2\n}",
+                 IrDump.DumpFunc(src, "C.M"));
+}
+
+// ── C 风格强制转换 (T)x → ConvertInstr（port-z42c-self-compile G3）──────────────
+[Test]
+void test_cstyle_cast_convert() {
+    // (int)v：long→int 跨类型 → convert i32（identity/Unknown/Ref no-op，镜像 C# VisitCast）
+    string src = "int F() { long v = 255; return (int)v; }";
+    Assert.Equal("fn @F(0) -> int {\nentry:\n  %1 = const.i64 255\n  %2 = convert i32 %1\n  ret %2\n}",
+                 IrDump.DumpFunc(src, "F"));
+}
+
+// ── 无初始化器局部声明（port-z42c-self-compile G8）─────────────────────────────
+[Test]
+void test_var_decl_no_init() {
+    // `int x;` 不发 IR；`x = 5` 首次赋值**分配专用寄存器 + copy**（镜像 C# WriteBackName：
+    // 首赋值 `new TypedReg(_nextReg++, valReg.Type)` + copy，非直接绑 rhs 寄存器——
+    // z42c.semantics `ExportedMethodZ[] m; m = new[3]` dual-build 实证 C# 发 copy）。
+    string src = "int F() { int x; x = 5; return x; }";
+    Assert.Equal("fn @F(0) -> int {\nentry:\n  %1 = const.i64 5\n  ret %1\n}",
+                 IrDump.DumpFunc(src, "F"));
+}
+
+// ── 构造器 lowering（port-z42c-self-compile G11）→ `<qualClass>.<Class>` 实例函数 ret void ──
+[Test]
+void test_ctor_lowering() {
+    // ctor 发为实例方法（this=%0, 参数 %1+），ret void，体=字段赋值（镜像 C# EmitMethod ctor）
+    string src = "public sealed class C { public int X; public C(int x) { this.X = x; } }";
+    Assert.Equal("fn @C.C(2) -> void {\nentry:\n  field_set %0.X, %1\n  ret\n}",
+                 IrDump.DumpFunc(src, "C.C"));
+}
+
+// ── ctor 委托 `: this(args)`（fix-z42c-ctor-this-delegation）──────────────────────
+// `: this(args)` 委托同类的另一 ctor（curCls，按 argCount 解析到其 RegKey），区别于 `: base(args)`
+// 调用基类 ctor。回归 bug：parser 丢弃 base/this 区分 → this 误编为 base ctor 调用
+// （curCls 无显式基类 → 调 Std.Object 2-arg ctor → 运行期 VCall null / 字段保持默认）。
+// stabilize-instance-dispatch-keys：ctor 同走 primary/非-primary 键——声明序首个 `C()` = primary → 裸
+// `C.C`（单 ctor 类因此零漂移，见 test_ctor_field_assign）；`C(int)` = 非-primary → 全签名 `C.C$1$int`。
+[Test]
+void test_ctor_this_delegation() {
+    string src = "class C { public int X; public C() : this(5) {} public C(int x) { this.X = x; } }";
+    Assert.Equal("fn @C.C(1) -> void {\nentry:\n  %1 = const.i64 5\n  %2 = call @C.C$1$int(%0, %1)\n  ret\n}",
+                 IrDump.DumpFunc(src, "C.C"));
+}
+
+// ── new T[n] 元素类型名 FQ 化（port-z42c-self-compile G16）─────────────────────────
+// 用户类元素名须经 QualifyClass → FQ（镜像 C# Z42TypeName）；prim 元素名保留短名。
+// 默认 gate 语料只含 prim 数组（new int[n]），故此处显式覆盖用户类数组回归。
+[Test]
+void test_array_new_user_class_fq() {
+    string src = "namespace Foo; class C { } class D { C[] Make(int n) { return new C[n]; } }";
+    // unify-type-identity-fqn：签名类型名改用 FQN（`C[]` → `Foo.C[]`）。此前签名写短名、
+    // 而同一函数体里的 `array_new` 早已是 `Foo.C` —— 本用例名字里的 `_fq` 指的就是后者，
+    // 两者不一致正是本 change 要消除的。断言更新为一致后的形态。
+    Assert.Equal("fn @Foo.D.Make(2) -> Foo.C[] {\nentry:\n  %2 = array_new Foo.C[%1]\n  ret %2\n}",
+                 IrDump.DumpFunc(src, "Foo.D.Make"));
+}
+
+[Test]
+void test_array_new_prim_short() {
+    string src = "class C { int[] Make(int n) { return new int[n]; } }";
+    Assert.Equal("fn @C.Make(2) -> int[] {\nentry:\n  %2 = array_new int[%1]\n  ret %2\n}",
+                 IrDump.DumpFunc(src, "C.Make"));
+}
+
+// ── 数组字面量初始化 new T[]{v,...}（SA-2）──────────────────────────────────────────
+// 镜像 C# BoundArrayLit → ArrayNewLitInstr（opcode 0x81）；Dump = arr.new.lit  %e0, %e1, ...。
+[Test]
+void test_array_init_prim() {
+    string src = "int[] Make() { return new int[]{1, 2, 3}; }";
+    Assert.Equal("fn @Make(0) -> int[] {\nentry:\n  %0 = const.i64 1\n  %1 = const.i64 2\n  %2 = const.i64 3\n  %3 = arr.new.lit  %0, %1, %2\n  ret %3\n}",
+                 IrDump.DumpFunc(src, "Make"));
+}
+
+[Test]
+void test_array_init_empty() {
+    string src = "int[] Make() { return new int[]{}; }";
+    Assert.Equal("fn @Make(0) -> int[] {\nentry:\n  %0 = arr.new.lit\n  ret %0\n}",
+                 IrDump.DumpFunc(src, "Make"));
+}
+
+// ── ref 参数 load_local_addr（SA-3 ref）────────────────────────────────────────────
+// 调用方 ref arg → load_local_addr slot → 传 call 实参（镜像 C# AddressOf.cs Alloc(Unknown)）。
+[Test]
+void test_ref_arg_emits_load_local_addr() {
+    string src = "void Inc(ref int x) { } void Main() { int c = 0; Inc(ref c); }";
+    string ir = IrDump.DumpFunc(src, "Main");
+    Assert.Equal("fn @Main(0) -> void {\nentry:\n  %1 = const.i64 0\n  %2 = load_local_addr %1\n  %3 = call @Inc(%2)\n  ret\n}",
+                 ir);
+}
+
+// ── var-decl 寄存器复用（port-z42c-self-compile G17c-4）────────────────────────────
+// 同名局部在兄弟作用域重声明（if/else 各分支 `int x = ...`）复用首次分配的寄存器
+// （镜像 C# WriteBackName 平表 locals）；否则寄存器数随分支膨胀（z42c.ir WriteInstr +73B REGT）。
+[Test]
+void test_var_decl_reuses_register_across_branches() {
+    string src = "class C { int Pick(bool b) { if (b) { int x = 10; return x; } else { int x = 20; return x; } } }";
+    Assert.Equal("fn @C.Pick(2) -> int {\nentry:\n  br.cond %1, then_0, else_1\nthen_0:\n  %3 = const.i64 10\n  ret %3\nelse_1:\n  %3 = const.i64 20\n  ret %3\nend_2:\n  ret\n}",
+                 IrDump.DumpFunc(src, "C.Pick"));
+}
+
+// ── const-fold（optimization-pipeline）：折叠两 int 常量的运算/比较 ──────────────────
+// 规则可扩展（后续加常量字符串长度 / 数组长度 / x*1→x 等）；每条规则配「折叠生效」+「安全不折」用例。
+// 折叠后源常量变死码 → temp-DCE 顺带清掉，故只剩折叠结果 + ret。
+
+[Test]
+void test_constfold_add() {
+    // %0 常量留存：_seedParams 对无参函数保守把 reg0 标活（this/env 上界+1），故 reg0 的死常量不被
+    // temp-DCE 清掉——安全的过近似（只多留一条），不影响正确性。
+    string src = "int F() { return 1 + 2; }";
+    Assert.Equal("fn @F(0) -> int {\nentry:\n  %0 = const.i64 1\n  %2 = const.i64 3\n  ret %2\n}",
+                 IrDump.DumpFunc(src, "F"));
+}
+
+[Test]
+void test_constfold_mul() {
+    string src = "int F() { return 2 * 3; }";
+    Assert.Equal("fn @F(0) -> int {\nentry:\n  %0 = const.i64 2\n  %2 = const.i64 6\n  ret %2\n}",
+                 IrDump.DumpFunc(src, "F"));
+}
+
+[Test]
+void test_constfold_chain() {
+    // 链式：(1+2)→3 登记回常量表，再 (3+3)→6（前向传播）
+    string src = "int F() { return 1 + 2 + 3; }";
+    Assert.Equal("fn @F(0) -> int {\nentry:\n  %0 = const.i64 1\n  %4 = const.i64 6\n  ret %4\n}",
+                 IrDump.DumpFunc(src, "F"));
+}
+
+[Test]
+void test_constfold_div() {
+    string src = "int F() { return 6 / 2; }";
+    Assert.Equal("fn @F(0) -> int {\nentry:\n  %0 = const.i64 6\n  %2 = const.i64 3\n  ret %2\n}",
+                 IrDump.DumpFunc(src, "F"));
+}
+
+[Test]
+void test_constfold_compare() {
+    string src = "bool F() { return 1 < 2; }";
+    Assert.Equal("fn @F(0) -> bool {\nentry:\n  %0 = const.i64 1\n  %2 = const.bool true\n  ret %2\n}",
+                 IrDump.DumpFunc(src, "F"));
+}
+
+// 安全边界（防未来规则回归）：以下**不折**
+[Test]
+void test_constfold_skip_negative() {
+    // 1 - 2 = -1 < 0：_parseIntLit 编码不了负数 → 保守不折，sub 原样保留
+    string src = "int F() { return 1 - 2; }";
+    Assert.Equal("fn @F(0) -> int {\nentry:\n  %0 = const.i64 1\n  %1 = const.i64 2\n  %2 = sub i32 %0, %1\n  ret %2\n}",
+                 IrDump.DumpFunc(src, "F"));
+}
+
+[Test]
+void test_constfold_skip_nonconst() {
+    // a 非常量 → 不折
+    string src = "int F(int a) { return a + 1; }";
+    Assert.Equal("fn @F(1) -> int {\nentry:\n  %1 = const.i64 1\n  %2 = add i32 %0, %1\n  ret %2\n}",
+                 IrDump.DumpFunc(src, "F"));
+}
+
+// ── 代数恒等式（optimization-pipeline，单操作数常量）──────────────────────
+// x+0/x*1 → copy（另一操作数）；x*0 → const 0。折出的 copy 再被 use-site 级联传播消掉（ret 直接用 %0）。
+[Test]
+void test_identity_add_zero() {
+    // a + 0 → copy a → use-site 级联把 `%2=copy %0` 传播掉、ret 直接用 %0（improve-copy-prop-cascade）。
+    // 死常量 %1 因 _seedParams 1-param 上界+1 被保守标活，留存无害。
+    string src = "int F(int a) { return a + 0; }";
+    Assert.Equal("fn @F(1) -> int {\nentry:\n  %1 = const.i64 0\n  ret %0\n}",
+                 IrDump.DumpFunc(src, "F"));
+}
+[Test]
+void test_identity_mul_one() {
+    // a * 1 → copy a → use-site 级联传播 → ret %0
+    string src = "int F(int a) { return a * 1; }";
+    Assert.Equal("fn @F(1) -> int {\nentry:\n  %1 = const.i64 1\n  ret %0\n}",
+                 IrDump.DumpFunc(src, "F"));
+}
+
+// ── use-site copy 级联传播（improve-copy-prop-cascade）─────────────────────
+[Test]
+void test_copyprop_cascade_removes_param_copy() {
+    // `int b = a` → `copy b, a`（src=形参，无 producer → 相邻 retarget 够不着）；-O0 保留，
+    // 仅 CopyProp（含 use-site 级联）时 dst 使用点改写为 %0、copy 删除。
+    string src = "int F(int a) { int b = a; return b; }";
+    Assert.Contains("copy", IrDump.DumpFuncOpt(src, "F", Opt.None));
+    Assert.False(IrDump.DumpFuncOpt(src, "F", Opt.CopyProp).Contains("copy"));
+}
+
+// ── LICM 循环不变量外提（add-licm-pass）───────────────────────────────────
+[Test]
+void test_licm_hoists_invariant() {
+    // a*b 循环不变（a,b 形参、循环外定义）→ LICM 提到 pre-header。Opt.Licm 的 IR 应与 -O0 不同（提了）。
+    string src = "int F(int a, int b) { int s = 0; int i = 0; while (i < 10) { s = s + a * b; i = i + 1; } return s; }";
+    string raw = IrDump.DumpFuncOpt(src, "F", Opt.None);
+    string opt = IrDump.DumpFuncOpt(src, "F", Opt.Licm);
+    Assert.NotEqual(raw, opt);   // LICM 外提改变了块结构（mul 移到 pre-header）
+    Assert.Contains("mul", opt);   // a*b 计算仍在（只是移出循环体）
+}
+
+// ── CSE 公共子表达式消除（add-cse-pass）───────────────────────────────────
+[Test]
+void test_cse_dedups_repeated_add() {
+    // (a+b)*(a+b)：两个 `a+b`（操作数皆稳定形参）→ CSE 复用首个 → mul 两操作数皆 %2。
+    string src = "int F(int a, int b) { return (a + b) * (a + b); }";
+    Assert.Contains("mul i32 %2, %3", IrDump.DumpFuncOpt(src, "F", Opt.None));   // -O0：两个独立 add
+    Assert.Contains("mul i32 %2, %2", IrDump.DumpFuncOpt(src, "F", Opt.Cse));    // CSE：复用首个 add 结果
+}
+[Test]
+void test_identity_mul_zero() {
+    // a * 0 → const 0（a 变死；若 a 有副作用其 producer 仍由 temp-DCE 的 IsPure 守护保留）
+    string src = "int F(int a) { return a * 0; }";
+    Assert.Equal("fn @F(1) -> int {\nentry:\n  %1 = const.i64 0\n  %2 = const.i64 0\n  ret %2\n}",
+                 IrDump.DumpFunc(src, "F"));
+}
+
+// ── readonly 字段读优化（add-readonly-fields-opt；Opt.ReadonlyLoad 位）─────────────
+[Test]
+void test_readonly_cse_dedups_field_read() {
+    // readonly 字段同 this 两读 → ReadonlyLoad 消重（第二条 field_get 删、复用首个 %1）；-O0 保留两条。
+    string src = "class C { readonly int x; C(int a) { this.x = a; } int f() { return this.x + this.x; } }";
+    Assert.Contains("add i32 %1, %2", IrDump.DumpFuncOpt(src, "C.f", Opt.None));         // -O0：两条独立 field_get
+    Assert.Contains("add i32 %1, %1", IrDump.DumpFuncOpt(src, "C.f", Opt.ReadonlyLoad)); // 消重：复用首个
+}
+[Test]
+void test_nonreadonly_field_not_cse() {
+    // 非 readonly 字段：即便 ReadonlyLoad 开也不消重（字段可变，保守正确）→ 仍两条 field_get。
+    string src = "class C { int x; C(int a) { this.x = a; } int f() { return this.x + this.x; } }";
+    Assert.Contains("add i32 %1, %2", IrDump.DumpFuncOpt(src, "C.f", Opt.ReadonlyLoad));
+}
+[Test]
+void test_readonly_licm_hoists_this_field() {
+    // 循环内 this.readonly 字段读 → LICM 提到 pre-header（块结构变化、每次进循环只读一次）；读仍保留。
+    string src = "class C { readonly int x; C(int a){ this.x=a; } int sum(int n){ int s=0; int i=0; while(i<n){ s=s+this.x; i=i+1; } return s; } }";
+    string raw = IrDump.DumpFuncOpt(src, "C.sum", Opt.None);
+    string opt = IrDump.DumpFuncOpt(src, "C.sum", Opt.ReadonlyLoad);
+    Assert.NotEqual(raw, opt);                 // 外提改变块结构（field_get 移出循环体）
+    Assert.Contains("field_get %0.x", opt);    // 读仍在（只是移到 pre-header）
+}
+
+// ── 纯函数调用优化（add-pure-call-opt；Opt.PureCall 位）───────────────────────────
+[Test]
+void test_pure_call_cse_dedups() {
+    // 纯标量自由函数同参重复调用 → PureCall 消重（第二次复用首个 %1）；-O0 保留两条。
+    string src = "int square(int x) { return x * x; } int F(int a) { return square(a) + square(a); }";
+    Assert.Contains("add i32 %1, %2", IrDump.DumpFuncOpt(src, "F", Opt.None));       // 两次独立 call
+    Assert.Contains("add i32 %1, %1", IrDump.DumpFuncOpt(src, "F", Opt.PureCall));   // 消重：复用首个
+}
+[Test]
+void test_pure_call_reads_readonly_field() {
+    // 自由函数读**参数对象的 readonly 字段** → 仍判纯（readonly 值不变）→ 同参调用消重。
+    string src = "class C { public readonly int x; public C(int a){this.x=a;} } int rd(C c) { return c.x; } int F(C c) { return rd(c) + rd(c); }";
+    Assert.Contains("add i32 %1, %1", IrDump.DumpFuncOpt(src, "F", Opt.PureCall));   // rd 纯 → 消重
+}
+[Test]
+void test_impure_call_not_cse() {
+    // 读**非** readonly 字段 → 非纯（字段可变）→ 不消重（保守正确）。
+    string src = "class C { public int x; public C(int a){this.x=a;} } int rd(C c) { return c.x; } int F(C c) { return rd(c) + rd(c); }";
+    Assert.Contains("add i32 %1, %2", IrDump.DumpFuncOpt(src, "F", Opt.PureCall));   // rd 非纯 → 两条 call
+}
+[Test]
+void test_pure_call_licm_hoists() {
+    // 循环不变纯调用 → LICM 提到 pre-header（块结构变化）；调用仍保留。
+    string src = "int square(int x){return x*x;} int G(int n,int k){int s=0;int i=0;while(i<n){s=s+square(k);i=i+1;}return s;}";
+    string raw = IrDump.DumpFuncOpt(src, "G", Opt.None);
+    string opt = IrDump.DumpFuncOpt(src, "G", Opt.PureCall);
+    Assert.NotEqual(raw, opt);                 // 外提改变块结构（call 移出循环体）
+    Assert.Contains("call @square", opt);      // 调用仍在（移到 pre-header）
+}
+
+// ── 函数内联（add-compiler-inlining Phase 2；IrInline，Opt.Inline 位）───────────────
+// 默认 dump 路径不含内联（见 IrDump._buildF 注）；内联单测显式用 DumpFuncOpt/DumpModuleOpt 传 optSet。
+
+[Test]
+void test_inline_free_call() {
+    // Opt.All（含内联）：小 curated callee Helper 被内联到 Main，`call @Helper` 消失、常量值 7 传入。
+    string src = "int Helper() { return 7; } int Main() { return Helper(); }";
+    string dump = IrDump.DumpFuncOpt(src, "Main", Opt.All);
+    Assert.False(dump.Contains("call @Helper"));   // 调用被内联消除
+    Assert.Contains("const.i64 7", dump);           // 被内联的返回值出现在调用方
+}
+
+[Test]
+void test_inline_only_pass_standalone() {
+    // 独立性（design D2）：**仅** Opt.Inline（不开 const-fold/copy-prop/dce）也正确内联——
+    // offset=Main.MaxReg(=1) → callee body reg +1；ret 绑定 `%0 = copy %1`。不依赖其它 pass。
+    string src = "int Helper() { return 7; } int Main() { return Helper(); }";
+    Assert.Equal("fn @Main(0) -> int {\nentry:\n  %1 = const.i64 7\n  %0 = copy %1\n  ret %0\n}",
+                 IrDump.DumpFuncOpt(src, "Main", Opt.Inline));
+}
+
+[Test]
+void test_inline_const_args_fold() {
+    // 常量实参内联：只读形参直代入 → add 操作数就是常量 → const-fold 折成 const 5，call/add 全消失。
+    string src = "int Add(int a, int b) { return a + b; } int Main() { return Add(2, 3); }";
+    string dump = IrDump.DumpFuncOpt(src, "Main", Opt.All);
+    Assert.False(dump.Contains("call @Add"));
+    Assert.Contains("const.i64 5", dump);   // 2+3 折叠
+}
+
+[Test]
+void test_inline_readonly_param_no_copy() {
+    // 只读形参**直代入**实参寄存器（clean-inline-copies）：内联体 add 直接读调用方形参 %0，
+    // 不再 emit `copy paramReg, arg`。用 Opt.Inline 单独看原始展开形态（无清理 pass 干扰）。
+    string src = "int Add(int a, int b) { return a + b; } int F(int x) { return Add(x, x); }";
+    string dump = IrDump.DumpFuncOpt(src, "F", Opt.Inline);
+    Assert.False(dump.Contains("call @Add"));
+    Assert.Contains("add i32 %0, %0", dump);   // 两操作数皆调用方形参 %0（直代入，无 param copy）
+}
+
+[Test]
+void test_inline_disabled_keeps_call() {
+    // OptSet 门控：Opt.None(-O0) → 内联不跑，`call @Helper` 保留（可调试忠实）。
+    string src = "int Helper() { return 7; } int Main() { return Helper(); }";
+    Assert.Contains("call @Helper", IrDump.DumpFuncOpt(src, "Main", Opt.None));
+}
+
+[Test]
+void test_inline_recursion_refused() {
+    // 递归（callee.Name==caller.Name）+ 体含 Call（非 curated）双重阻断 → 自调用保留。
+    string src = "int R(int n) { return R(n); }";
+    Assert.Contains("call @R", IrDump.DumpFuncOpt(src, "R", Opt.All));
+}
+
+[Test]
+void test_inline_multiblock_callee() {
+    // 多块 callee（abs 含 if → br.cond + 两 Ret）内联到 F（inline-multiblock）：call 消失，
+    // 控制流（br.cond）+ then-块 neg 被拆块内联进来。用 Opt.Inline 看原始展开。
+    string src = "int abs(int x) { if (x < 0) { return -x; } return x; } int F(int a) { return abs(a); }";
+    string dump = IrDump.DumpFuncOpt(src, "F", Opt.Inline);
+    Assert.False(dump.Contains("call @abs"));   // 多块内联消除调用
+    Assert.Contains("neg", dump);                // callee then-块的 neg 内联进来
+    Assert.Contains("br.cond", dump);            // callee 控制流内联进来
+}
+
+[Test]
+void test_inline_skips_vcall() {
+    // 实例方法经 vcall 分派 → 不入内联 pass（仅直接 CallInstr 才内联）。
+    string src = "class C { int Compute() { return 1; } int Get() { return this.Compute(); } }";
+    Assert.Contains("vcall", IrDump.DumpFuncOpt(src, "C.Get", Opt.All));
+}
+
+[Test]
+void test_inline_skips_noncurated_callee() {
+    // callee A 体含 obj_new（分配对象，永久非 curated，不会被任何 pass 消除）→ A 不可内联，`call @A` 保留。
+    // （注：curated 集含 AddInstr——字符串 `+` 也 lower 成 `add str`，属可内联；故这里用 obj_new 作
+    //  稳定非 curated 指令。反例：若 A 体全 curated，模块内按声明序的传导内联会使 A 可内联——见
+    //  IrInline 头注「传导内联」。）
+    string src = "class K { } K A() { return new K(); } K Main2() { return A(); }";
+    Assert.Contains("call @A", IrDump.DumpFuncOpt(src, "Main2", Opt.All));
+}
+
+// ── const 编译期常量替换 + 死分支消除（add-const-keyword）──────────────────────────
+// const 引用在 emit 阶段替换为字面量指令（不发 static_get / 局部加载）→ 喂现有 ConstFold。
+[Test]
+void test_const_field_substituted_and_folded() {
+    // C.K（const 字段）替换为 const.i64 10，与 5 折叠成 50；绝不发 static_get。
+    string src = "class C { public const int K = 10; } int F() { return C.K * 5; }";
+    string dump = IrDump.DumpFunc(src, "F");
+    Assert.False(dump.Contains("static_get"));   // const 无静态存储 → 不读
+    Assert.Contains("const.i64 50", dump);        // 10*5 折叠证明 const 值参与 ConstFold
+}
+[Test]
+void test_const_field_expr_initializer() {
+    // const 字段引用已定义 const（Two = Max*2 = 200）；引用 C.Two → const.i64 200。
+    string src = "class C { public const int Max = 100; public const int Two = Max * 2; } int F() { return C.Two; }";
+    string dump = IrDump.DumpFunc(src, "F");
+    Assert.False(dump.Contains("static_get"));
+    Assert.Contains("const.i64 200", dump);
+}
+[Test]
+void test_const_local_substituted() {
+    // 局部 const n=6 替换为字面量 → n*7 折叠成 42（若 n 未替换、作变量则不会折出 42）。
+    string src = "int F() { const int n = 6; return n * 7; }";
+    Assert.Contains("const.i64 42", IrDump.DumpFunc(src, "F"));
+}
+
+// dead-branch：br.cond(常量 bool)→br 折叠（Opt.DeadBranch 单独门控；默认 dump 路径不含它）。
+[Test]
+void test_dead_branch_folds_const_condition() {
+    // const bool 条件 → 替换为 const.bool；-O0 保留 br.cond；DeadBranch 折成无条件 br + 移死块。
+    string src = "class F { public const bool Off = false; } int G() { if (F.Off) { return 1; } return 2; }";
+    Assert.Contains("br.cond", IrDump.DumpFuncOpt(src, "G", Opt.None));           // -O0：条件跳转在
+    Assert.False(IrDump.DumpFuncOpt(src, "G", Opt.DeadBranch).Contains("br.cond")); // 折成无条件 br
+}
+[Test]
+void test_dead_branch_removes_unreachable_block() {
+    // 恒假条件 → then 块（return 1）不可达 → 移除；only return 2 存活。
+    string src = "class F { public const bool Off = false; } int G() { if (F.Off) { return 1; } return 2; }";
+    string db = IrDump.DumpFuncOpt(src, "G", Opt.DeadBranch);
+    Assert.False(db.Contains("const.i64 1"));   // 死块（return 1）连其常量一并移除
+    Assert.Contains("const.i64 2", db);          // 活路径保留
+}
+
+// ── add-sealed-devirt：基于 sealed 的去虚化（Opt.Devirt 门控） ────────────────
+
+[Test]
+void test_sealed_devirt_declared() {
+    // sealed 类自身声明 virtual 方法 → devirt 为直接 call @A.<M>（非 vcall）
+    string src = "sealed class A { public virtual int M() { return 7; } }"
+               + " int Main() { A a = new A(); return a.M(); }";
+    string on  = IrDump.DumpFuncOpt(src, "Main", Opt.Devirt);
+    string off = IrDump.DumpFuncOpt(src, "Main", Opt.None);
+    Assert.Contains("call @A.", on);   // 去虚化为直接 call 到 A 的方法
+    Assert.False(on.Contains("vcall"));
+    Assert.Contains("vcall", off);      // devirt 关 → 虚派发
+}
+
+[Test]
+void test_sealed_devirt_inherited() {
+    // sealed 类继承基类方法（不 override）→ 目标解析到基类实现 call @B.<M>
+    string src = "class B { public virtual int M() { return 1; } }"
+               + " sealed class A : B {}"
+               + " int Main() { A a = new A(); return a.M(); }";
+    string on = IrDump.DumpFuncOpt(src, "Main", Opt.Devirt);
+    Assert.Contains("call @B.", on);    // 目标是基类 B 的实现
+    Assert.False(on.Contains("vcall"));
+}
+
+[Test]
+void test_nonsealed_stays_vcall() {
+    // 非 sealed receiver → 仍 vcall（即使 Opt.Devirt 开），证明未误去虚化
+    string src = "class B { public virtual int M() { return 1; } }"
+               + " int Main() { B b = new B(); return b.M(); }";
+    string on = IrDump.DumpFuncOpt(src, "Main", Opt.Devirt);
+    Assert.Contains("vcall", on);
+}
+
+// ── extend-sealed-devirt-more：sealed override 去虚化（非 sealed 类上的 sealed 方法） ──
+
+[Test]
+void test_sealed_override_devirt() {
+    // 非 sealed 类 Mid 上 sealed override 方法 → 目标唯一（其下无人能 override）→ 直接 call @Mid.M
+    string src = "class Base { public virtual int M() { return 1; } }"
+               + " class Mid : Base { public sealed override int M() { return 2; } }"
+               + " int Main() { Mid m = new Mid(); return m.M(); }";
+    string on  = IrDump.DumpFuncOpt(src, "Main", Opt.Devirt);
+    string off = IrDump.DumpFuncOpt(src, "Main", Opt.None);
+    Assert.Contains("call @Mid.", on);   // sealed override → 直接 call 到 Mid 的实现
+    Assert.False(on.Contains("vcall"));
+    Assert.Contains("vcall", off);        // devirt 关 → 虚派发
+}
+
+[Test]
+void test_nonsealed_override_stays_vcall() {
+    // 非 sealed 类 Mid 上**非 sealed** override → 子类仍可再 override → 目标不唯一 → 仍 vcall
+    string src = "class Base { public virtual int M() { return 1; } }"
+               + " class Mid : Base { public override int M() { return 2; } }"
+               + " int Main() { Mid m = new Mid(); return m.M(); }";
+    string on = IrDump.DumpFuncOpt(src, "Main", Opt.Devirt);
+    Assert.Contains("vcall", on);         // 未误去虚化
+}
+
+// ── extend-sealed-devirt-more：泛型 sealed 去虚化（$N 条件 arity-mangle） ──
+
+[Test]
+void test_generic_sealed_devirt() {
+    // 单 arity 泛型 sealed 类 → 未 arity 重载 → 短名裸 Box（无 $N）→ 直接 call @Box.Tag
+    string src = "sealed class Box<T> { public virtual int Tag() { return 7; } }"
+               + " int Main() { Box<int> b = new Box<int>(); return b.Tag(); }";
+    string on  = IrDump.DumpFuncOpt(src, "Main", Opt.Devirt);
+    string off = IrDump.DumpFuncOpt(src, "Main", Opt.None);
+    Assert.Contains("call @Box.", on);   // 泛型 sealed 去虚化（单 arity → 裸名）
+    Assert.False(on.Contains("vcall"));
+    Assert.Contains("vcall", off);        // devirt 关 → 虚派发
+}
+
+[Test]
+void test_generic_sealed_multiarity_devirt() {
+    // 同名多 arity（Box + Box<T>）→ 泛型版以 Box$1 键注册 → 短名 Box$1 → call @Box$1.Tag
+    string src = "class Box { } sealed class Box<T> { public virtual int Tag() { return 7; } }"
+               + " int Main() { Box<int> b = new Box<int>(); return b.Tag(); }";
+    string on = IrDump.DumpFuncOpt(src, "Main", Opt.Devirt);
+    Assert.Contains("call @Box$1.", on);  // arity-mangle 短名逐字节匹配 IrGen
+    Assert.False(on.Contains("vcall"));
+}
+
+[Test]
+void test_generic_nonsealed_stays_vcall() {
+    // 非 sealed 泛型类 → 可继承 → 目标不唯一 → 仍 vcall
+    string src = "class Bag<T> { public virtual int Tag() { return 1; } }"
+               + " int Main() { Bag<int> g = new Bag<int>(); return g.Tag(); }";
+    string on = IrDump.DumpFuncOpt(src, "Main", Opt.Devirt);
+    Assert.Contains("vcall", on);         // 未误去虚化
+}
+
+// ── UsedDepNs 的语义：只记**跨包**依赖（fix-selfns-tracked-as-dep）─────────────────
+//
+// `UsedDepNs` 驱动 DEPS 与 `add-file-scoped-usings` 的 E0436，语义是**跨包**。把本包另一个 ns 记进去
+// ⇒ 同一个包里跨 ns 引用被要求写 `using` ⇒ **单包构建多命名空间的库直接编不过**（实测 z42.package：
+// `Z42.IR.BinaryFormat` 引用 `Z42.IR` 的 StrMap/TypedReg → E0436）。依赖集由绑定期 + `DepUseCollector`
+// 产出（`CuCompile.DepRefsOf`），下面两条在那条路上锁住这个语义。
+
+// 本包另一个 ns 的类，经成员链拿到（接收者类型没写出来）再调实例方法 —— 不是依赖。
+[Test]
+void test_local_cross_ns_class_is_not_a_dep() {
+    string[] srcs = new string[2];
+    srcs[0] = "namespace P.A; public class Box { public int V() { return 1; } } public class Holder { public Box B = new Box(); }";
+    srcs[1] = "namespace P.B; using P.A; int Main() { Holder h = new Holder(); return h.B.V(); }";
+    string[] files = new string[2]; files[0] = "a.z42"; files[1] = "b.z42";
+    CompiledModuleZ[] cms = IrDump.BuildPackage(srcs, files, 2, null, null, false);
+    Assert.Equal(0, cms[1].ErrorCount);
+    Assert.Equal(0, cms[1].UsedDepNsCount);
+}
+
+// 正面用例（导入包的接收者照记）在 z42c.pipeline 的 zpkgdeps 单测：要真实的跨包签名，这里的 ExtractExports 造不出来。
+
+// ── fix-ctor-arity-skew：obj_new 的 ctor 键必须在 dump 里现形 ──────────────────────────
+//
+// 这个键是运行期真正拿去解析的东西，此前 `ObjNewInstr.Dump()` **根本不打印它** —— 于是
+// 「这条 obj_new 会去调哪个构造器、还是压根不调」在所有 IR 断言里都看不见。
+
+[Test]
+void test_objnew_ctor_key_visible() {
+    // 显式构造器：单 ctor ⇒ primary 裸键，obj_new 带着它。
+    string src = "class C { int V; public C(int v) { this.V = v; } } class D { C Make() { return new C(1); } }";
+    Assert.Equal("fn @D.Make(1) -> C {\nentry:\n  %1 = const.i64 1\n  %2 = obj_new C C.C(%1)\n  ret %2\n}",
+                 IrDump.DumpFunc(src, "D.Make"));
+}
+
+[Test]
+void test_objnew_bare_key_is_ambiguous_between_ctor_and_ctorless() {
+    // 🔴 **把这条歧义钉住**：完全没有构造器的类，与只有一个构造器的类，发的是**同一个裸键**。
+    // 运行期因此分不出「这个类本来就没有构造器」和「构造器本该在、却随旧版依赖不见了」——
+    // 这正是站点 ③ 只能放行 `argc == 0` 的原因（见 `vm_context/symres.rs`）。
+    // 谁把这条歧义解开了（给零构造器一个可区分的编码），这条断言就会变红，提醒同步收紧运行期判据。
+    string ctorless = "class C { int V; } class D { C Make() { return new C(); } }";
+    string oneCtor  = "class C { int V; public C() { this.V = 1; } } class D { C Make() { return new C(); } }";
+    Assert.Equal("  %1 = obj_new C C.C()", IrDump.DumpFunc(ctorless, "D.Make").Split("\n")[2]);
+    Assert.Equal("  %1 = obj_new C C.C()", IrDump.DumpFunc(oneCtor,  "D.Make").Split("\n")[2]);
+}
+
+[Test]
+void test_objnew_field_init_keeps_synth_ctor_key() {
+    // 有**字段初始化器**但无显式 ctor：z42c 合成一个默认 ctor。add-implicit-base-ctor-call 起它在收集期
+    // 就注册为普通 MethodSymbol（`CtorInheritance`）；此前它只在 IR 期发射、不是符号 —— 任何「这个类有没有
+    // 构造器」的判据若只看符号表就会误判成「零构造器」，把字段初始化整个跳过。本用例守住调用侧键不变。
+    string src = "class C { int V = 7; } class D { C Make() { return new C(); } }";
+    Assert.Equal("fn @D.Make(1) -> C {\nentry:\n  %1 = obj_new C C.C()\n  ret %1\n}",
+                 IrDump.DumpFunc(src, "D.Make"));
+}

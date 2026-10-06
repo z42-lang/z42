@@ -29,13 +29,11 @@
 
 | workspace | 成员 |
 |---|---|
-| `src/compiler/` | 编译器**后端四包**：`z42c.optimization` / `z42c.semantics` / `z42c.pipeline` / `z42c.driver`（exe）|
-| `src/libraries/` | stdlib 全部成员，外加三个工具链库 `z42.package`、`z42c.core`、`z42c.syntax` |
+| `src/compiler/` | 整个编译器域：后端五包 `z42c.optimization` / `z42c.semantics` / `z42c.emission` / `z42c.pipeline` / `z42c.driver`（exe），可移植前端 `z42c.core` / `z42c.syntax`，`z42.package` / `z42.project` / `z42.build`，`z42.scripting` |
+| `src/libraries/` | 只放用户 stdlib（`Std.*`）全部成员 |
 
-可移植前端（`z42c.core` = Span/Diagnostic、`z42c.syntax` = Lexer/Parser/AST）与 IR·后端库
-`z42.package` 住在 `src/libraries/`，**随 stdlib 一起建、一起进扁平视图**，后端三包经跨-workspace
-dist 发现来解析它们。所以「编译器有几个包」这个数是算出来的，别在文档或代码里写死——
-以 `default-members` 为准。
+编译器域各包之间经同 workspace 拓扑序 + 兄弟 dist 发现解析。「编译器有几个包」这个数是算出来的，
+别在文档或代码里写死——以 `default-members` 为准。
 
 产物路径同理不是硬编码：`scripts/common/xtask_layout.z42` 读 `[workspace.build].output_dir`
 模板（正是 z42c 的 `WorkspaceBuild.PlanLayout` 消费的那一份）再展开，改 toml 模板 xtask 自动跟上。

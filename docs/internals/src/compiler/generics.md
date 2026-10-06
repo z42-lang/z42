@@ -1,7 +1,7 @@
 # 泛型的实现
 
 > **页型**: 机制页
-> **代码**: `src/compiler/z42c.semantics/`（TypeChecker / IrGen / SymbolCollector）·
+> **代码**: `src/compiler/z42c.semantics/`（TypeChecker / SymbolCollector）· `src/compiler/z42c.emission/`（IrGen）·
 > `src/compiler/z42.package/`（zbc TYPE/SIGS 约束布局）· `src/runtime/src/corelib/reflection/generics.rs`
 > **相关**: [泛型类型实参推断](generic-inference.md) · [架构总览](architecture.md) ·
 > [源代码编译流程](source-compile.md)
