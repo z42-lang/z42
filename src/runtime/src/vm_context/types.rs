@@ -90,12 +90,6 @@ pub struct VmCore {
     /// Spec C10 — owned byte buffers backing `Value::PinnedView` instances.
     /// Keyed by buffer data pointer so `UnpinPtr` can drop the entry.
     pub(crate) pinned_owned_buffers: Mutex<HashMap<u64, Box<[u8]>>>,
-    /// add-method-invoke-non-generic — carries a z42 exception VALUE out of a
-    /// callback builtin (reflection `MethodInfo.Invoke`) so the ORIGINAL thrown
-    /// exception (preserving its type) propagates to z42 `try/catch`, instead of
-    /// being wrapped into a generic `Std.Exception`. Set right before the builtin
-    /// returns `Err`; `exec_call::builtin` takes it in its error handler.
-    pub(crate) pending_thrown: Mutex<Option<Value>>,
     /// add-std-process (2026-05-13) — live `Std.IO.Process` children
     /// spawned via `__process_spawn`. Keyed by monotonic u64 slot id
     /// that z42 `ProcessHandle` carries; removed (`take_*`) on `wait` /
@@ -304,6 +298,16 @@ pub struct VmContext {
     /// is small (~few ns per lock vs RefCell borrow), worth the architectural
     /// consistency. Tracked in design.md Decision 2 amendment.
     pub(crate) pending_exception: Arc<Mutex<Option<Value>>>,
+    /// add-method-invoke-non-generic — carries a z42 exception VALUE out of a
+    /// callback builtin (reflection `MethodInfo.Invoke`) so the ORIGINAL thrown
+    /// exception (preserving its type) propagates to z42 `try/catch`, instead of
+    /// being wrapped into a generic `Std.Exception`. Set right before the builtin
+    /// returns `Err`; `exec_call::builtin` takes it in its error handler.
+    ///
+    /// Per thread (a builtin running on one thread must not hand its exception
+    /// to a builtin failing on another) and a GC root (the value can sit here
+    /// across an allocation before the caller takes it).
+    pub(crate) pending_thrown:    Mutex<Option<Value>>,
     /// 2026-05-10 unify-frame-chain: single source of truth for active
     /// script frames. Each [`crate::exception::VmFrame`] carries the
     /// `(name, file, line, column)` trace metadata **and** raw pointers

@@ -64,6 +64,33 @@ fn two_contexts_exception_isolated() {
     assert!(matches!(v, Some(Value::Str(ref s)) if **s == *"ctx1"));
 }
 
+// ── pending_thrown ────────────────────────────────────────────────────────────
+
+#[test]
+fn pending_thrown_is_per_thread() {
+    // Two threads of one VM share a `VmCore`; a builtin's thrown value must
+    // reach only the thread whose builtin set it.
+    let ctx1 = VmContext::new();
+    let ctx2 = VmContext::new_with_core(std::sync::Arc::clone(&ctx1.core));
+    ctx1.set_pending_thrown(Value::Str("ctx1".into()));
+    assert!(ctx2.take_pending_thrown().is_none());
+    let v = ctx1.take_pending_thrown();
+    assert!(matches!(v, Some(Value::Str(ref s)) if **s == *"ctx1"));
+}
+
+#[test]
+fn pending_thrown_is_a_gc_root() {
+    let ctx = VmContext::new();
+    let heap = ctx.heap();
+    heap.set_mode(crate::gc::GcMode::StwMarkSweep);
+    let exc = heap.alloc_array(vec![Value::I64(1)]);
+    let weak = heap.make_weak(&exc).expect("heap object");
+    ctx.set_pending_thrown(exc);
+    heap.force_collect();
+    assert!(heap.upgrade_weak(&weak).is_some(), "value held only by pending_thrown was swept");
+    assert!(ctx.take_pending_thrown().is_some());
+}
+
 // ── GC heap ───────────────────────────────────────────────────────────────────
 
 #[test]
