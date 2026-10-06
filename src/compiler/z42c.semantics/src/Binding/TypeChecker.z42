@@ -77,7 +77,7 @@ public sealed class TypeChecker {
     public void _chkStaticOwnerQualified(SymbolTable symbols, Z42ClassType ct, string written, Span sp) {
         this._chkTypeRefPkg(symbols, ct, sp);
         symbols._noteNamedUse(written, ct.Namespace);
-        symbols.NoteDepUse(ct.Namespace, symbols.ImportedPkgOf(ct.Fqn()));
+        symbols.NoteDepUse(ct.Namespace, symbols.ImportedPkgOf(ct.Fqn()), ct.Fqn());
     }
 
     public void _chkTypeRefPkg(SymbolTable symbols, Z42Type t, Span sp) {
