@@ -1,0 +1,5 @@
+namespace MfIdentity;
+
+public static class Lib {
+    public static int Answer() { return 42; }
+}

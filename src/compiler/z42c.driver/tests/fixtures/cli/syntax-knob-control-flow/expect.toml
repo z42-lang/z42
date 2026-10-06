@@ -1,0 +1,43 @@
+desc = "[syntax] 特性门：不写照常编过（阳性对照）；control_flow = false ⇒ foreach 与 while 都报 E0301；未知特性名报错退出；显式 control_flow = true 让缓存失效而产物与不写逐字节相同（见 README）"
+
+[[step]]
+args = ["build", "syntax.cf.z42.toml", "--no-incremental"]
+exit = 0
+
+[[step]]
+tool = "copy"
+from = "dist/*"
+to = "snap/base/"
+exists = ["snap/base/syntax.cf.zpkg", "snap/base/m.zbc"]
+
+[[step]]
+tool = "copy"
+from = "variants/syntax.cf.off.z42.toml"
+to = "syntax.cf.z42.toml"
+
+[[step]]
+args = ["build", "syntax.cf.z42.toml"]
+exit = "nonzero"
+stderr_contains = ["m.z42(6,9): E0301", "m.z42(8,9): E0301"]
+
+[[step]]
+tool = "copy"
+from = "variants/syntax.cf.unknown.z42.toml"
+to = "syntax.cf.z42.toml"
+
+[[step]]
+args = ["build", "syntax.cf.z42.toml"]
+exit = "nonzero"
+stderr_contains = ["unknown syntax feature", "no_such_feature"]
+
+# 与「不写」语义等价、但进 depsId：probe 必须不命中，产物必须相同
+[[step]]
+tool = "copy"
+from = "variants/syntax.cf.on.z42.toml"
+to = "syntax.cf.z42.toml"
+
+[[step]]
+args = ["build", "syntax.cf.z42.toml"]
+exit = 0
+stderr_contains = ["cached: 0/"]
+same_bytes = [["dist/m.zbc", "snap/base/m.zbc"], ["dist/syntax.cf.zpkg", "snap/base/syntax.cf.zpkg"]]

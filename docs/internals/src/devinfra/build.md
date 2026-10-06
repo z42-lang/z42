@@ -192,6 +192,8 @@ windows-x64 / macos-arm64 四平台）确认 z42c `--workspace` 编译在 **inte
 （`[name-changed]` / `[name-removed]` / `[invalidated] … uses-changed-name X` / `[spread]`）；
 硬验收是 `xtask test compiler incremental` 的暴力对账器——逐文件 touch、逐文件追加一个新自由函数、
 dist 清空后全命中重装配三轮，每轮都要求增量 dist 与 `--no-incremental` 全量**逐字节相等**。
+固定剧本的缓存行为（`[build] incremental` / `[optimize]` / `[syntax]` 旋钮生效、清单身份进缓存键、改泛型体失效消费方、警告活过缓存命中）
+由 z42c.driver 的 CLI 夹具守（`src/compiler/z42c.driver/tests/fixtures/cli/`，`xtask test compiler`）。
 **workspace / flat 构建（§3 的阶段一/二）不落 cache、不 probe**，gen1/gen2 字节对比路径零扰动。
 
 ### 5.x cached 文件的**诊断**重放边界（易错，务必读）
@@ -207,9 +209,9 @@ dist 清空后全命中重装配三轮，每轮都要求增量 dist 与 `--no-in
   `PackageCompile` 从 cache meta 补 —— 比检查原本所在的调用点（`IrDump` 的 per-file 并行体）**晚**。
   于是 cached 文件**永远不可能报 E0436**。检查因此放在回填之后
   （`IrDump.EnforceFileScopeAll`）。
-- 🔴 **cached 文件的 warning 仍会静默消失**：per-file 并行体在 cached 分支把 `DiagMsgs`
-  整体清空。带 error 的构建不落 cache，所以丢的只有 warning。
-  候选后续 `replay-cached-file-warnings`。
+- **cached 文件的 warning**：per-file 并行体在 cached 分支把 `DiagMsgs` 整体清空，诊断改由 cache meta 的
+  `diag` 行回放（[project-model.md「诊断也是缓存内容」](../compiler/project-model.md)）。门禁是 z42c.driver 的
+  CLI 夹具 `warnings-survive-cache`（冷构建 / 全命中 / 部分命中三格都要报）。
 
 ⚠️ **`xtask test compiler incremental` 照不到这一类**，三个独立原因：
 ① 三个变异算子（追加注释 / 追加自由函数 / 删 dist）都不改任何文件的 `using` 集合；

@@ -1,0 +1,11 @@
+namespace SyntaxCf;
+
+public static class M {
+    public static int SumArr(int[] xs) {
+        int s = 0;
+        foreach (int v in xs) { s = s + v; }
+        int i = 0;
+        while (i < 3) { s = s + i; i = i + 1; }
+        return s;
+    }
+}

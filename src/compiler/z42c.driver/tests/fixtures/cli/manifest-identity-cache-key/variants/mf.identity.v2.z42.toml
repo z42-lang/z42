@@ -1,0 +1,7 @@
+[project]
+name    = "mf.identity"
+version = "0.2.0"
+kind    = "lib"
+
+[sources]
+include = ["*.z42"]

@@ -3,7 +3,7 @@
 // 批 1 只让 `control_flow` 与 `exceptions` 真的关得掉东西（其余 13 个名字是死旋钮）。
 // 本批把 `bitwise` / `ternary` / `pattern_match` 接上，并补齐 `break`/`continue`/`throw`
 // 那三个洞。每条都要**两遍**：关掉必须报 E0301（负例）+ 全开必须编得过（阳性对照）——
-// 只验后者等于没测门（批 1 的 `_syntaxKnobTakesEffect` 就是这个形态）。
+// 只验后者等于没测门（端到端的 CLI 夹具 `syntax-knob-control-flow` 也是这个形态）。
 namespace Z42cSyntaxFeatureGateTests;
 
 using Z42.Syntax;

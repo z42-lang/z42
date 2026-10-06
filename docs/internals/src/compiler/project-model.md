@@ -273,7 +273,7 @@ p→m→t 升序 first-wins）与 `SigsClassIndex`（每 `ZpkgModuleSigs` 按"�
 `DepIdentity` 同理不按 `declaredDeps` 过滤（`Z42_LIBS` 里任何包重建都让全部消费方失效）。
 两处都是刻意的——漏失效产出错产物，过度失效只是慢。
 
-门禁在 `xtask test compiler incremental` 的 `_manifestIdentityTakesEffect`：**两格判据**，① 改
+门禁是 z42c.driver 的 CLI 夹具 `manifest-identity-cache-key`（`xtask test compiler`）：**两格判据**，① 改
 `[project].version` ⇒ 产物字节必须变；② 加一条不存在的 `[dependencies]` ⇒ 构建必须判红。
 ②不是①换得来的 —— 把依赖名单从键里去掉，①照样绿。
 
@@ -305,7 +305,7 @@ p→m→t 升序 first-wins）与 `SigsClassIndex`（每 `ZpkgModuleSigs` 按"�
 又因为 `ErrorCount > 0` 的编译**根本不写 cache**，存下来的实际只会是 warning；哪天这个前提
 变了，回填处的「不回填 ErrorCount」也必须跟着改（否则命中会把错误降级成警告）。
 
-门禁在 `xtask test compiler incremental` 的 `_warningsSurviveCache`，**判据看 stderr 而不是产物字节** ——
+门禁是 z42c.driver 的 CLI 夹具 `warnings-survive-cache`（`xtask test compiler`），**判据看 stderr 而不是产物字节** ——
 这个缺陷不动产物一个字节，「对账全绿」与「警告一条看不见」可以同时成立。三格：冷构建
 （阳性对照，修前也对）/ 全命中 / 部分命中。
 

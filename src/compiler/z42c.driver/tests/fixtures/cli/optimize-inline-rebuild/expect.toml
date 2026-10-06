@@ -1,0 +1,34 @@
+desc = "[optimize] 真的生效且进包级缓存键：只改 toml（inline = true → false，源码不动）增量构建产物必须变；改回 true 必须回到原字节（见 README）"
+
+[[step]]
+args = ["build", "opt.inline.z42.toml", "--no-incremental"]
+exit = 0
+
+[[step]]
+tool = "copy"
+from = "dist/*"
+to = "snap/on/"
+exists = ["snap/on/opt.inline.zpkg", "snap/on/m.zbc"]
+
+[[step]]
+tool = "copy"
+from = "variants/opt.inline.off.z42.toml"
+to = "opt.inline.z42.toml"
+
+# 增量构建（不带 --no-incremental）：只在全量生效、增量被忽略也算红
+[[step]]
+args = ["build", "opt.inline.z42.toml"]
+exit = 0
+exists = ["dist/opt.inline.zpkg", "dist/m.zbc"]
+diff_bytes = [["dist/m.zbc", "snap/on/m.zbc"], ["dist/opt.inline.zpkg", "snap/on/opt.inline.zpkg"]]
+
+# 改回去必须回到原字节 —— 否则「生效」可能只是某种不确定性
+[[step]]
+tool = "copy"
+from = "variants/opt.inline.on.z42.toml"
+to = "opt.inline.z42.toml"
+
+[[step]]
+args = ["build", "opt.inline.z42.toml"]
+exit = 0
+same_bytes = [["dist/m.zbc", "snap/on/m.zbc"], ["dist/opt.inline.zpkg", "snap/on/opt.inline.zpkg"]]

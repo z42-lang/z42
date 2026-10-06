@@ -1,0 +1,22 @@
+desc = "typecheck 警告活过缓存命中（判 stderr，不判字节）：冷构建报 W0700（阳性对照）；整包全命中（preserved 早退）仍报；只改 b.z42 的部分命中（a cached）仍报 a 的 W0700（见 README）"
+
+[[step]]
+args = ["build", "warn.cache.z42.toml"]
+exit = 0
+stderr_contains = ["W0700"]
+
+[[step]]
+args = ["build", "warn.cache.z42.toml"]
+exit = 0
+stdout_contains = ["preserved"]
+stderr_contains = ["W0700"]
+
+[[step]]
+tool = "copy"
+from = "variants/b.touched.z42"
+to = "b.z42"
+
+[[step]]
+args = ["build", "warn.cache.z42.toml"]
+exit = 0
+stderr_contains = ["cached: 1/2", "W0700"]

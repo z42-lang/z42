@@ -1,0 +1,8 @@
+namespace WarnCache;
+
+public enum Color { Red, Green, Blue }
+
+public static class A {
+    // 对 enum 不穷尽的 switch 表达式 → W0700。不能加 `_` 兜底，那会让警告消失
+    public static int Rank(Color c) { return c switch { Color.Red => 1, Color.Green => 2 }; }
+}

@@ -1,0 +1,7 @@
+[project]
+name    = "generic.body"
+version = "0.1.0"
+kind    = "lib"
+
+[sources]
+include = ["*.z42"]

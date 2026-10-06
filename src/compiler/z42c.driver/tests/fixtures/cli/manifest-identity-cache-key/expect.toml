@@ -1,0 +1,44 @@
+desc = "清单身份进包级缓存键（只改 toml、源码不动）：改 [project].version 产物必须变、改回必须回到原字节；加一条不存在的 [dependencies] 构建必须判红且错因是那条依赖（见 README）"
+
+[[step]]
+args = ["build", "mf.identity.z42.toml", "--no-incremental"]
+exit = 0
+
+[[step]]
+tool = "copy"
+from = "dist/*"
+to = "snap/v1/"
+exists = ["snap/v1/mf.identity.zpkg"]
+
+# ① version 进 zpkg 的 META 段：漏失效时是 `no changes; preserved`，构建成功而 zpkg 里还是旧版本号
+[[step]]
+tool = "copy"
+from = "variants/mf.identity.v2.z42.toml"
+to = "mf.identity.z42.toml"
+
+[[step]]
+args = ["build", "mf.identity.z42.toml"]
+exit = 0
+exists = ["dist/mf.identity.zpkg"]
+diff_bytes = [["dist/mf.identity.zpkg", "snap/v1/mf.identity.zpkg"]]
+
+[[step]]
+tool = "copy"
+from = "variants/mf.identity.v1.z42.toml"
+to = "mf.identity.z42.toml"
+
+[[step]]
+args = ["build", "mf.identity.z42.toml"]
+exit = 0
+same_bytes = [["dist/mf.identity.zpkg", "snap/v1/mf.identity.zpkg"]]
+
+# ② 声明依赖名单：判的是红没红，不是字节
+[[step]]
+tool = "copy"
+from = "variants/mf.identity.baddep.z42.toml"
+to = "mf.identity.z42.toml"
+
+[[step]]
+args = ["build", "mf.identity.z42.toml"]
+exit = "nonzero"
+stderr_contains = ["[dependencies]", "z42-no-such-dep"]

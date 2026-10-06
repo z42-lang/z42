@@ -1,0 +1,7 @@
+namespace WarnCache;
+
+public static class B {
+    public static int One() { return 1; }
+}
+
+// touched
