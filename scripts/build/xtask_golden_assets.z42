@@ -311,9 +311,7 @@ bool _isNonRegenCat(string cat) {
 // Spawn (don't wait) the z42c compile of one golden case; caller batches the
 // Wait() across `jobs` concurrent handles. Output .zbc paths are unique per case.
 ProcessHandle _compileCaseSpawn(string vmBin, string driverZpkg, string stdlibDist, string source, string output, bool optAll) {
-    Process p = _z42Proc(vmBin, stdlibDist)
-        .Arg(driverZpkg).Arg("--mode").Arg(_z42cMode())
-        .Arg("--").Arg("--emit-zbc").Arg(source).Arg(output);
+    Process p = _z42cProc(vmBin, stdlibDist, driverZpkg).Arg("--emit-zbc").Arg(source).Arg(output);
     // opt_all sidecar：这条用例要按**真实 release 全优化**编。默认 emit-zbc 优化集关掉了
     // 逃逸分析 / 内联 / loop-alloc-reuse（会改 golden 字节，见 IrDump.EmitZbcDefaultOpt），
     // 于是那几个 pass 在整个 golden 语料里一次也跑不到——fix-ref-param-escape 的悬垂栈句柄

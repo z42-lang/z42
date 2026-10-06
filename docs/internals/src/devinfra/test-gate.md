@@ -117,7 +117,7 @@ fixture、debug VM 跑 `main.zpkg`——跨包 dispatch 的 debug 断言覆盖�
 | `diagcodes` | 诊断码**一码一义**：每个发得出去的码在登记表里登记恰好一次，见下 | 纯文本扫描 < 1 s |
 | `stage2` | 阶段-1 过渡形态必须挂账且不超期（双向棘轮 + 到期），见 `scripts/test/xtask_test_stage2.z42` 头注 | 纯文本扫描 < 1 s |
 | `ci-shell` | `.github/**` 的多行 `run:` 块里**没有先用后赋**的变量（立门时 7 个 yml / 76 块），见下 | 纯文本扫描 < 1 s |
-| `proc-env` | xtask 子进程的 `Z42_LIBS` / `Z42_PROBING_PATHS` **只经** `_z42Proc` / `_z42bProc` 设置，调用点不得直接 `.Env(...)`，见下 | 纯文本扫描 < 1 s |
+| `proc-env` | xtask 子进程的 `Z42_LIBS` / `Z42_PROBING_PATHS` / `Z42_COMPILER_LIBS` **只经** `_z42Proc` / `_z42bProc` / `_z42cProc` 设置，调用点不得直接 `.Env(...)`，见下 | 纯文本扫描 < 1 s |
 | `layout` | [测试用例组织规范](test-layout.md)里能机械判定的部分：`src/tests` 类别登记、能力词表 ↔ 运行期、能力声明只用已生效的名字 | 纯文本扫描，秒级 |
 | `versions` | `scripts/versions.toml` 与它的投影文件一致：`src/runtime/Cargo.toml` 的 workspace 版本、Android `build.gradle.kts` 的 minSdk / compileSdk、iOS harness `Package.swift` 的平台下限。只比文本、不看本机装了什么（那是 `xtask setup check`） | 纯文本扫描 < 1 s |
 
@@ -144,11 +144,14 @@ fixture、debug VM 跑 `main.zpkg`——跨包 dispatch 的 debug 断言覆盖�
 
 **`proc-env`（`scripts/test/xtask_test_proc_env.z42`）守的是「xtask 子进程环境的单一入口」**：
 xtask 起的每个跑 z42 代码的子进程都经 `_z42Proc(exe, libs)` 建（z42b 及其 fork 的子 VM 用 `_z42bProc(vm, libs)`，
-另挂编译器成员 dist 的 probing），工厂在 `scripts/build/xtask_stdlib.z42`。两种漏设都**不在漏的地方报错**：漏
+另挂编译器成员 dist 的 probing 与本树 driver 的编译器目录；跑 z42c driver 用 `_z42cProc(vm, libs, driver)`，另把编译器目录 `Z42_COMPILER_LIBS`
+设成 driver 所在的自包含 dist；`_z42bProc` 的编译器目录同样指向本树 driver 的 dist），工厂在 `scripts/build/xtask_stdlib.z42`。三种漏设都**不在漏的地方报错**：漏
 `Z42_LIBS` 时子进程继承 xtask 自身的 `.z42/libs`（上一版 SDK），静默跑在旧 stdlib 上；漏 probing 只在 z42b 真去
 加载编译器包时才 `MissingSymbolException`——实例（#1019）：rebase 带进一个照邻居手抄、少抄了 probing
-的新 smoke，就是这么红的。收口前这两个变量在调用点手写了 159 + 25 处。`.EnvRemove("Z42_LIBS")`（dist 测试刻意模拟
-用户机器）不判。
+的新 smoke，就是这么红的；漏编译器目录时，xtask 经 SDK apphost 启动、`Z42_PORTABLE_VM` 被子进程继承，按名声明的
+编译器包（`deploy = "sdk"` / `"shared"`）静默对着**种子 SDK 里的上一版**解析，直到某次挪包 / 改命名空间才编不过
+（编译器 units、gc-modes 各踩过一次）。`.EnvRemove(...)`（dist 测试刻意模拟用户机器）不判；夹具 `expect.toml`
+里的 `env` / `env_remove` 是夹具自己的输入，也不在扫描面内。
 
 **`lines` 是两档**（`_lineLimitHard()` / `_lineLimitSoft()`，`scripts/test/xtask_test_lines.z42`）：
 

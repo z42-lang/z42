@@ -85,7 +85,7 @@ int _profile(ParseResult r) {
     Directory.Create(outDir);
     string zbc = Path.Join(outDir, baseName + ".zbc");
     Console.WriteLine("→ compiling " + script + " → " + zbc);
-    int cc = _exec(_z42Proc(vm, flat).Arg(driverZpkg).Arg("--mode").Arg(_z42cMode()).Arg("--")
+    int cc = _exec(_z42cProc(vm, flat, driverZpkg)
         .Arg("--emit-zbc").Arg(srcAbs).Arg(zbc));
     if (cc != 0) { ConsoleError.WriteLine("error: compile failed"); return cc; }
 

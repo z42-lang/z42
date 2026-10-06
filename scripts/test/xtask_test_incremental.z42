@@ -151,7 +151,7 @@ int _reconcileDistWiped(string vm, string driver, string libs, string projDir, s
 }
 
 int _incrBuild(string vm, string driver, string libs, string toml, bool noIncremental) {
-    Process p = _z42Proc(vm, libs).Arg(driver).Arg("--mode").Arg(_z42cMode()).Arg("--").Arg("build").Arg(toml);
+    Process p = _z42cProc(vm, libs, driver).Arg("build").Arg(toml);
     if (noIncremental) { p = p.Arg("--no-incremental"); }
     return p.Stdout(Stdio.Null()).Stderr(Stdio.Null()).Run().ExitCode;
 }

@@ -117,7 +117,7 @@ int _bench(ParseResult r) {
         }
         // Compile once — the .zbc is mode-agnostic; only the measured run differs.
         string zbc = Path.Join(work, name + ".zbc");
-        int cc = _exec(_z42Proc(vm, flat).Arg(driverZpkg).Arg("--mode").Arg(_z42cMode()).Arg("--")
+        int cc = _exec(_z42cProc(vm, flat, driverZpkg)
             .Arg("--emit-zbc").Arg(src).Arg(zbc));
         if (cc != 0) { return cc; }
         for (int mi = 0; mi < modes.Length; mi = mi + 1) {
@@ -307,7 +307,7 @@ class AbOutcome {
 
 // Compile `src` to a .zbc with the given toolchain (vm+driver, Z42_LIBS=libs).
 int _abEmitZbc(string vm, string driver, string libs, string src, string zbc) {
-    return _exec(_z42Proc(vm, libs).Arg(driver).Arg("--mode").Arg(_z42cMode()).Arg("--")
+    return _exec(_z42cProc(vm, libs, driver)
         .Arg("--emit-zbc").Arg(src).Arg(zbc));
 }
 

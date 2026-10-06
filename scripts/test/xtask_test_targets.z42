@@ -538,8 +538,7 @@ int _smokeBundleHost(string root, TargetTooling tt) {
     string outDir = Path.Join(_workOut(root, "src/toolchain/workload/test", ""), "smoke-bundle-host");
     Directory.Create(outDir);
     string zbc = Path.Join(outDir, "pass_unit.zbc");
-    int ec = _exec(_z42Proc(tt.Vm, tt.Libs).Arg(tt.DriverZpkg).Arg("--mode").Arg(_z42cMode())
-        .Arg("--").Arg("--emit-zbc").Arg(src).Arg(zbc)
+    int ec = _exec(_z42cProc(tt.Vm, tt.Libs, tt.DriverZpkg).Arg("--emit-zbc").Arg(src).Arg(zbc)
         .WorkingDirectory(root));
     if (ec != 0) { Console.WriteLine("  ❌ bundle-host: compile fixture failed"); return 1; }
     string manifest = Path.Join(outDir, "manifest.json");
