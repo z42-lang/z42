@@ -7,7 +7,6 @@ namespace Z42.Driver;
 using Std.IO;
 using Z42.Semantics;
 using Z42.Project;
-using Std.Toml;
 
 // 清单写错（TOML 语法 / 值类型；`ManifestLoader.Load` 已在消息前缀 `<路径>:行:列`）⇒ 一行错误 + 退出码 1，
 // 不把 z42c 内部栈帧当成未捕获异常甩给用户。只接 `TomlException`：别的异常是编译器自己的 bug，照常带栈。
