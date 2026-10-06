@@ -34,7 +34,8 @@ typedef struct Z42Entry*  Z42EntryRef;    /* 解析后的入口 */
 `z42_host_shutdown` 之后，该 VM 发出的所有 Module / Entry 句柄立即失效；拿失效句柄再调任何 API 返回 `ERR_NOT_INIT`。
 
 **ABI 演进规则**：`abi_version` 永远在偏移 0；新字段只往结构体尾部追加，不重排；主版本号变更 = 显式 break。
-用老头文件编译的调用方把 `Z42HostConfig` 整体清零即可安全地在新运行时上跑——新字段读到 0/NULL 就是「没配置」。
+调用方必须把 `struct_size` 设为 `sizeof(Z42HostConfig)`：运行时只读 `struct_size` 覆盖到的尾部字段，用老头文件编译的调用方不会被越界读，新字段对它们等于「没配置」。
+v1 没有这个字段（同一位置是 `reserved`），旧调用方在 v2 运行时上拿到 `ERR_BAD_CONFIG`（`abi_version` 不匹配），需要按新头文件重新编译。
 
 ---
 
@@ -58,7 +59,7 @@ typedef int (*Z42ZpkgResolverFn)(
 
 typedef struct Z42HostConfig {
     uint32_t      abi_version;        /* 必须 == Z42_HOST_ABI_VERSION */
-    uint32_t      reserved;
+    uint32_t      struct_size;        /* 必须 == sizeof(Z42HostConfig) */
 
     Z42ExecMode   exec_mode;
     size_t        heap_initial_bytes;
@@ -78,6 +79,7 @@ typedef struct Z42HostConfig {
 | 字段 | 语义 |
 |---|---|
 | `abi_version` | 不等于 `Z42_HOST_ABI_VERSION` → `ERR_BAD_CONFIG` |
+| `struct_size` | 调用方编译时的 `sizeof(Z42HostConfig)`；小于 v2 布局 → `ERR_BAD_CONFIG` |
 | `exec_mode` | 只做合法性校验：值不在 0–3 → `ERR_BAD_CONFIG`；`JIT` / `AOT` 而运行时编译时没开对应 feature → `ERR_FEATURE_OFF`。**校验通过后，句柄式 `invoke` 一律走解释器**（见[当前不支持](#当前不支持)） |
 | `heap_initial_bytes` / `heap_max_bytes` | **当前被忽略**，填 0 即可 |
 | `stdout_sink` / `stderr_sink` | 见 [stdout / stderr 重定向](#stdout--stderr-重定向) |
@@ -116,7 +118,7 @@ typedef enum Z42HostStatus {
 | `OK` (0) | 成功。副作用：清空本线程的 last_error（`code` 归 0、`message` 变空串） |
 | `ERR_ALREADY_INIT` (1) | 进程内已有活着的 VM 时再次 `initialize` |
 | `ERR_NOT_INIT` (2) | 未初始化（或已 shutdown）时调用任何需要 VM 的 API，含拿失效句柄调用 |
-| `ERR_BAD_CONFIG` (3) | `cfg == NULL`、`out_host == NULL`、`abi_version` 不匹配、`exec_mode` 越界、`search_paths` 非法（含非 UTF-8 路径、数组超 4096 项）、`search_paths` 里的 `z42.core.zpkg` 解析不了；另外 `resolve_entry` 的 `fqn == NULL` 或非 UTF-8、`shutdown` 的 `host == NULL`、`z42_zpkg_read_namespaces` 的 `visit == NULL` 也归这一档 |
+| `ERR_BAD_CONFIG` (3) | `cfg == NULL`、`out_host == NULL`、`abi_version` 不匹配、`struct_size` 过小、`exec_mode` 越界、`search_paths` 非法（含非 UTF-8 路径、数组超 4096 项）、`search_paths` 里的 `z42.core.zpkg` 解析不了；另外 `resolve_entry` 的 `fqn == NULL` 或非 UTF-8、`shutdown` 的 `host == NULL`、`z42_zpkg_read_namespaces` 的 `visit == NULL` 也归这一档 |
 | `ERR_FEATURE_OFF` (4) | 请求 `JIT` / `AOT`，但该运行时编译时没开对应 feature |
 | `ERR_BAD_ZBC` (10) | 字节不是可解析的 `.zbc` / `.zpkg`；`bytes == NULL` 而 `length != 0`；依赖 zpkg 解析失败；**IR 约束校验失败也走这一档** |
 | `ERR_VERIFICATION` (11) | **当前运行时从不返回**。枚举值保留，宿主不必为它写分支 |
@@ -368,8 +370,9 @@ int main(void) {
     const char* paths[2] = { "/path/to/libs", NULL };   /* 放着 z42.core.zpkg 的目录 */
 
     Z42HostConfig cfg;
-    memset(&cfg, 0, sizeof cfg);                        /* 向前兼容的前提 */
+    memset(&cfg, 0, sizeof cfg);
     cfg.abi_version  = Z42_HOST_ABI_VERSION;
+    cfg.struct_size  = sizeof cfg;
     cfg.exec_mode    = Z42_EXEC_MODE_INTERP;
     cfg.stdout_sink  = sink;
     cfg.search_paths = paths;

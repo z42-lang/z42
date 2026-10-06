@@ -84,7 +84,7 @@ mobile 端拿到的是 host 端 `z42c` 编出来的 `.zbc` / `.zpkg`，由平台
 ```rust
 pub(crate) struct HostState {
     pub config:  ResolvedConfig,
-    pub modules: Vec<HostModule>,   // 每个已 load 的产物 + 它自己的 VmContext
+    pub modules: Vec<Arc<HostModule>>,   // 每个已 load 的产物 + 它自己的 VmContext
     pub entries: Vec<HostEntry>,    // { module_idx, fn_idx }
     pub corelib: Option<HostCorelib>,
 }
@@ -99,6 +99,10 @@ pub(crate) struct HostState {
 **没有代龄（generation）**：shutdown 抹掉整个单例，之后任何 host API 调用都返回 `ERR_NOT_INIT`，
 所以陈旧句柄不会被误当成有效句柄用——但也仅此而已，同一进程内 shutdown→initialize 之后
 拿老句柄会命中新 VM 的同下标条目。多实例落地时这里要换成带代龄的句柄。
+
+**用户代码不在锁内跑**：`z42_host_invoke` 在读锁下把 `Arc<HostModule>` 和 `HostEntry` 拷出来就放锁，
+再执行。宿主回调（sink、resolver）里重入 `load_zbc` / `shutdown` 要拿写锁，若 invoke 还持着读锁就会自锁。
+回调里 `shutdown` 掉 VM 时，这次调用手里的 `Arc` 让模块活到调用结束。
 
 `HostState` 手工 `unsafe impl Send + Sync`：`ResolvedConfig` 里带函数指针和宿主的 `user_data`；
 函数指针本身是 `Send`/`Sync`，`user_data` 被存成 `usize` 而非裸指针，运行时从不解引用它。
@@ -210,6 +214,9 @@ thread_local! { static HOST_SINK_ACTIVE: Cell<bool> = const { Cell::new(false) }
 **为什么要这个线程局部标志**：sink 槽是进程全局的，但只有正在执行 `z42_host_invoke` 的那条线程
 应该把输出交给宿主。没有这个标志，另一条线程上并发跑的 `TestIO.captureStdout` 会被劫持到宿主 sink 去。
 代价是 z42 程序自己 spawn 出来的线程的输出不进宿主 sink——这条限制写进了契约。
+
+`dispatch_host_sink` 先在读锁下把 `HostSink`（函数指针 + user_data，`Copy`）拷出、放锁，再调回调，
+理由同上：回调里 `shutdown` 会拿 sink 槽的写锁。
 
 `WriteLine` 的换行拼在 `dispatch_host_sink` 内部同一个 buffer 里一次交付，所以「一次写出 = 一次回调」，
 顺序天然等于 z42 程序的写出顺序。
@@ -356,7 +363,8 @@ wasm 是单线程、且经 `z42_wasm` 而不是这个 C 符号进来，所以那
 ## 改 ABI 时的检查清单
 
 1. `src/runtime/include/z42_host.h` 与 `src/runtime/src/host/`（`config.rs` 的 `#[repr(C)]` 镜像、
-   `error.rs` 的 `#[repr(i32)]` 枚举）必须同步，**字段只追加不重排**。
+   `error.rs` 的 `#[repr(i32)]` 枚举）必须同步，**字段只追加不重排**。追加到 `Z42HostConfig` 的字段
+   只在 `struct_size` 覆盖到时才读（`config::validate`），`MIN_CONFIG_SIZE` 保持 v2 布局大小不变。
 2. `src/runtime/include/README.md` 的类型 / 函数清单。
 3. Tier 2：`z42-host` 的 `HostConfig` / `HostError` / `translate_status`。
 4. Tier 3 三家 facade 的桥接层（Swift `Z42VM.swift` 的 `cfg` 填充、

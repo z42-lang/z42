@@ -36,6 +36,7 @@ thread_local! {
 /// `None` → no host sink configured (the default).
 ///
 /// Spec: docs/internals/src/runtime/embedding.md §8 (stdout / stderr 重定向).
+#[derive(Clone, Copy)]
 pub struct HostSink {
     pub callback: unsafe extern "C" fn(bytes: *const c_char, length: usize, user_data: *mut c_void),
     pub user_data: *mut c_void,
@@ -84,13 +85,15 @@ fn dispatch_host_sink(
     append_newline: bool,
     slot: &RwLock<Option<HostSink>>,
 ) -> bool {
-    let guard = match slot.read() {
-        Ok(g) => g,
+    // Copy the sink out and drop the guard before calling it: the callback
+    // may re-enter the host API (`shutdown` reinstalls the slot under the
+    // write lock).
+    let host = match slot.read() {
+        Ok(g) => match *g {
+            Some(h) => h,
+            None => return false,
+        },
         Err(_) => return false,
-    };
-    let host = match guard.as_ref() {
-        Some(h) => h,
-        None => return false,
     };
     if append_newline {
         let mut combined = String::with_capacity(text.len() + 1);

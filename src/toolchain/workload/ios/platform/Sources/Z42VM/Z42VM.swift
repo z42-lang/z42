@@ -41,6 +41,7 @@ public final class Z42VM {
 
         var cfg = Z42HostConfig()
         cfg.abi_version = UInt32(Z42_HOST_ABI_VERSION)
+        cfg.struct_size = UInt32(MemoryLayout<Z42HostConfig>.size)
         cfg.exec_mode = Z42_EXEC_MODE_INTERP
         cfg.zpkg_resolver = zpkgResolverTrampoline
         cfg.zpkg_resolver_user_data = UnsafeMutableRawPointer(

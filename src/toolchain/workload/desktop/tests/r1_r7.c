@@ -52,6 +52,7 @@ static unsigned char* read_file(const char* path, long* out_len) {
 static Z42HostConfig mkcfg(const char* const* paths) {
     Z42HostConfig c; memset(&c, 0, sizeof c);
     c.abi_version  = Z42_HOST_ABI_VERSION;
+    c.struct_size  = sizeof c;
     c.exec_mode    = Z42_EXEC_MODE_INTERP;
     c.stdout_sink  = sink;
     c.search_paths = paths;

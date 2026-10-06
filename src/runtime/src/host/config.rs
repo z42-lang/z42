@@ -9,7 +9,7 @@ use std::sync::Arc;
 use super::resolver::ZpkgResolver;
 
 /// Wire-compatible version of `Z42_HOST_ABI_VERSION` from the C header.
-pub const Z42_HOST_ABI_VERSION: u32 = 1;
+pub const Z42_HOST_ABI_VERSION: u32 = 2;
 
 /// `Z42WriteSink` callback. `Option` so a null function pointer maps to
 /// "use the configured default" (real stdout / accumulating sink / etc.).
@@ -62,14 +62,15 @@ impl Z42ExecMode {
 /// C ABI layout of `Z42HostConfig`. `#[repr(C)]` keeps field order +
 /// alignment compatible with the C struct in `z42_host.h`.
 ///
-/// Fields after `search_paths` are appended in the order they were
-/// introduced and never reordered (see ABI evolution note in the
-/// header). Callers built against older headers leave the new fields
-/// zero-initialised, which the runtime treats as "not configured".
+/// `struct_size` is `sizeof(Z42HostConfig)` as the caller compiled it.
+/// Fields appended after v2 are read only when `struct_size` covers them,
+/// so a caller built against an older v2 header is never read past the end
+/// of its struct. Every field below exists since v2, so v2 requires at
+/// least [`MIN_CONFIG_SIZE`].
 #[repr(C)]
 pub struct Z42HostConfig {
     pub abi_version: u32,
-    pub reserved: u32,
+    pub struct_size: u32,
 
     pub exec_mode: i32, // Z42ExecMode wire form (avoid Rust enum UB on bad input)
     pub heap_initial_bytes: usize,
@@ -85,6 +86,10 @@ pub struct Z42HostConfig {
     pub zpkg_resolver: Z42ZpkgResolverFn,
     pub zpkg_resolver_user_data: *mut c_void,
 }
+
+/// Smallest `struct_size` a v2 caller can pass: the v2 layout in full.
+/// Stays fixed when fields are appended later.
+pub const MIN_CONFIG_SIZE: usize = std::mem::size_of::<Z42HostConfig>();
 
 /// Rust-side resolved configuration after validation. The thread-safety
 /// requirement comes from holding this inside the global `RwLock` —
@@ -125,6 +130,7 @@ impl std::fmt::Debug for ResolvedConfig {
 pub enum ConfigError {
     NullConfig,
     AbiVersionMismatch { expected: u32, got: u32 },
+    StructTooSmall { min: usize, got: u32 },
     UnknownExecMode { raw: i32 },
     FeatureOff { mode: Z42ExecMode },
     BadSearchPath { reason: &'static str },
@@ -140,14 +146,21 @@ pub(crate) unsafe fn validate(cfg: *const Z42HostConfig) -> Result<ResolvedConfi
     if cfg.is_null() {
         return Err(ConfigError::NullConfig);
     }
-    let cfg = unsafe { &*cfg };
-
-    if cfg.abi_version != Z42_HOST_ABI_VERSION {
+    // Only the two leading u32s are known to exist until both are checked —
+    // read them through the raw pointer before forming a reference to the
+    // whole struct.
+    let abi_version = unsafe { std::ptr::addr_of!((*cfg).abi_version).read() };
+    if abi_version != Z42_HOST_ABI_VERSION {
         return Err(ConfigError::AbiVersionMismatch {
             expected: Z42_HOST_ABI_VERSION,
-            got: cfg.abi_version,
+            got: abi_version,
         });
     }
+    let struct_size = unsafe { std::ptr::addr_of!((*cfg).struct_size).read() };
+    if (struct_size as usize) < MIN_CONFIG_SIZE {
+        return Err(ConfigError::StructTooSmall { min: MIN_CONFIG_SIZE, got: struct_size });
+    }
+    let cfg = unsafe { &*cfg };
 
     let exec_mode = Z42ExecMode::from_raw(cfg.exec_mode)
         .ok_or(ConfigError::UnknownExecMode { raw: cfg.exec_mode })?;
