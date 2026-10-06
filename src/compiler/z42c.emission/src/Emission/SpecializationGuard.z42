@@ -62,7 +62,7 @@ public static class SpecializationGuard {
             + " Value-type instantiations each get their own code, so a generic whose body uses itself with"
             + " a nested type argument (`Rec<T>` using `Rec<Rec<T>>`) has no finite expansion";
         if (g.Diags == null) { throw new Exception("z42c: " + msg); }
-        g.Diags.Error("E0503", msg, SpecializationGuard._spanOf(g, cu, owner));
+        g.Diags.Error(DiagnosticCodes.RecursiveGenericInstantiation, msg, SpecializationGuard._spanOf(g, cu, owner));
         return true;
     }
 
