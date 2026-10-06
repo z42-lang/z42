@@ -1,0 +1,27 @@
+desc = "[build] incremental 真的生效：默认（不写）再构建命中缓存打印 preserved（阳性对照）；改成 incremental = false 后连建两次都不得命中（见 README）"
+
+[[step]]
+args = ["build", "knob.incr.z42.toml"]
+exit = 0
+
+# 默认 = 增量开：什么都不改再构建，整包全命中
+[[step]]
+args = ["build", "knob.incr.z42.toml"]
+exit = 0
+stdout_contains = ["preserved"]
+
+[[step]]
+tool = "copy"
+from = "variants/knob.incr.off.z42.toml"
+to = "knob.incr.z42.toml"
+
+[[step]]
+args = ["build", "knob.incr.z42.toml"]
+exit = 0
+output_not_contains = ["preserved"]
+
+# 判据落在这一步：上一步改了 toml，本来就可能不命中；这一次 toml 也没动，命中就是旋钮没生效
+[[step]]
+args = ["build", "knob.incr.z42.toml"]
+exit = 0
+output_not_contains = ["preserved"]

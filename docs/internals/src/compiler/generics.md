@@ -179,8 +179,9 @@ var r = Max<int>(3, 5);
 > `cached: 1/2 files` ⇒ 仍打印 **7**，而同源全量重建打印 **107**。消费方的 cached `.zbc`
 > 里留着旧体的特化 —— **静默错答案，不是崩**。
 >
-> ⭐ 触发特化的唯一条件是「跨文件泛型实例化且带 blob struct 实参」；门禁 `_reconcileGenericBodyTouch`
-> 自带夹具覆盖这一格（逐文件 touch 轮只追加注释、decl-touch 轮只追加**新**函数，抓不到它）。
+> ⭐ 触发特化的唯一条件是「跨文件泛型实例化且带 blob struct 实参」；门禁是 z42c.driver 的 CLI 夹具
+> `generic-body-invalidates-consumer`（`xtask test compiler`），自带满足这一条件的工程（`test compiler incremental`
+> 的逐文件 touch 轮只追加注释、decl-touch 轮只追加**新**函数，抓不到它）。
 
 #### 布局层的代换必须与语义层同口径
 

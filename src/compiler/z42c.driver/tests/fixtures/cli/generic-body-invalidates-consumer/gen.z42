@@ -1,0 +1,8 @@
+namespace GenericBody;
+
+public struct P2 { public int X; public long Y; }
+public struct Loc<A, B> { public A a; public B b; }
+
+public static class G {
+    public static long Second<T>(Loc<T, long> p) { return p.b; }
+}

@@ -1,0 +1,12 @@
+namespace OptInline;
+
+public static class M {
+    // 小函数 + 循环里调用：内联 pass 的靶子（见 README）
+    static int Add(int a, int b) { return a + b; }
+
+    public static int Sum(int n) {
+        int s = 0; int i = 0;
+        while (i < n) { s = Add(s, i); i = i + 1; }
+        return s;
+    }
+}

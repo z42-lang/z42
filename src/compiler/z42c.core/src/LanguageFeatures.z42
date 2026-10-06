@@ -21,7 +21,7 @@
 // 前三个的表项在 `z42c.syntax/src/ParseTable.z42`（`FeatureNames` + `Feature(kind)`），
 // 语句那两个在同文件的 `StmtRules.Feature`。
 // 后续接线：在各构造的解析入口加一句 `_requireFeature`，然后**为它加一条会红的门**
-// （`scripts/test/xtask_test_incremental.z42` 的 `_syntaxKnobTakesEffect` 是模板：
+// （CLI 夹具 `src/compiler/z42c.driver/tests/fixtures/cli/syntax-knob-control-flow/` 是模板：
 // 负例必须报 E0301、且要验「红的理由对不对」）。
 //
 // 🔴 **名字必须对应真实存在的语法构造**。这张表曾长期宣告 4 个**不存在**的特性

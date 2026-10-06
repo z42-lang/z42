@@ -1,0 +1,32 @@
+desc = "只改泛型体（签名不动）必须失效它的消费方：消费方 use.zbc 必须变（阳性对照：特化真的发生了），且增量 dist 与同源全量 dist 逐文件字节相同（见 README）"
+
+[[step]]
+args = ["build", "generic.body.z42.toml", "--no-incremental"]
+exit = 0
+
+[[step]]
+tool = "copy"
+from = "dist/*"
+to = "snap/before/"
+exists = ["snap/before/use.zbc"]
+
+[[step]]
+tool = "copy"
+from = "variants/gen.body-changed.z42"
+to = "gen.z42"
+
+[[step]]
+args = ["build", "generic.body.z42.toml"]
+exit = 0
+exists = ["dist/use.zbc"]
+diff_bytes = [["dist/use.zbc", "snap/before/use.zbc"]]
+
+[[step]]
+tool = "copy"
+from = "dist/*"
+to = "snap/incr/"
+
+[[step]]
+args = ["build", "generic.body.z42.toml", "--no-incremental"]
+exit = 0
+same_bytes = [["dist/generic.body.zpkg", "snap/incr/generic.body.zpkg"], ["dist/gen.zbc", "snap/incr/gen.zbc"], ["dist/use.zbc", "snap/incr/use.zbc"]]

@@ -1,0 +1,10 @@
+[project]
+name    = "opt.inline"
+version = "0.1.0"
+kind    = "lib"
+
+[sources]
+include = ["*.z42"]
+
+[optimize]
+inline = false

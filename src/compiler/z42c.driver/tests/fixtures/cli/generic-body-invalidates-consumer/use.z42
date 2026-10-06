@@ -1,0 +1,9 @@
+namespace GenericBody;
+
+public static class Use {
+    public static long Run() {
+        Loc<P2, long> t = new Loc<P2, long>();
+        t.b = 7;
+        return G.Second<P2>(t);
+    }
+}

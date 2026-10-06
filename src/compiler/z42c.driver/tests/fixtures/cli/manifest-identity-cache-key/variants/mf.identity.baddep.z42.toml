@@ -1,0 +1,10 @@
+[project]
+name    = "mf.identity"
+version = "0.1.0"
+kind    = "lib"
+
+[sources]
+include = ["*.z42"]
+
+[dependencies]
+z42-no-such-dep = "1.0"

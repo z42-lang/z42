@@ -1,0 +1,10 @@
+[project]
+name    = "syntax.cf"
+version = "0.1.0"
+kind    = "lib"
+
+[sources]
+include = ["*.z42"]
+
+[syntax]
+control_flow = true

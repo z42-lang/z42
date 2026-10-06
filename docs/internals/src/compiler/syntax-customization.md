@@ -369,7 +369,7 @@ var x = 2 ** 10;   // 展开为 Math.Pow(2, 10)
 > `ManifestLoader._parseSyntax`（只搬中性 name/value）→ `Main._build` **唯一一次** resolve
 > （未知特性名报错退出）→ `CompileInput.Features` → `IncrementalDriver` 的**两处** `new Parser`
 > → `Parser._requireFeature` 发 **E0301**。特性集折进 `depsId`，
-> 否则旋钮「全量生效、增量被忽略」。门：`xtask test compiler incremental` 的 `_syntaxKnobTakesEffect`。
+> 否则旋钮「全量生效、增量被忽略」。门：z42c.driver 的 CLI 夹具 `syntax-knob-control-flow`（`xtask test compiler`）。
 >
 > ⚠️ **粒度 = 整个语法构造，裁不到协议内的某一步。** 门挂在 `Parser` 里那**一处**语句关键字
 > 派发上（批 3 要表化的正是这块）⇒ `control_flow = false` 关掉的是 if/while/for/foreach/do/switch
