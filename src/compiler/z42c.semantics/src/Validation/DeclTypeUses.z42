@@ -30,11 +30,14 @@ public static class DeclTypeUses {
             ClassDecl c = d as ClassDecl;
             string[] ctp = DeclTypeUses._concat(tps, tpc, c.TypeParams);
             int cn = tpc + (c.TypeParams == null ? 0 : c.TypeParams.Count);
+            string savedEncl = view.EnclosingClass;
+            view.EnclosingClass = c.Name;   // 签名里的裸嵌套类型名按本类上溯（同 MemberCollector）
             int b = 0;
             while (b < c.BaseCount) { DeclTypeUses._type(c.Bases[b], view, ctp, cn, diags); b = b + 1; }
             DeclTypeUses._wheres(c.Wheres, c.WhereCount, view, ctp, cn, diags);
             int m = 0;
             while (m < c.MemberCount) { DeclTypeUses._decl(c.Members[m], view, ctp, cn, diags); m = m + 1; }
+            view.EnclosingClass = savedEncl;
         } else if (d is MethodDecl) {
             MethodDecl md = d as MethodDecl;
             string[] mtp = DeclTypeUses._concat(tps, tpc, md.TypeParams);

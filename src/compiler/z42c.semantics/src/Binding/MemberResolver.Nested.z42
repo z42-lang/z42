@@ -1,0 +1,110 @@
+// 嵌套类型的静态成员访问（nested-and-base-name-lookup）与两段共用的类名接收者绑定。
+// 与 MemberResolver 主文件同一个类（partial 拆分只为守 code-organization 行数上限），共享 `_tc`。
+//
+// 「类型名表达式」→ 符号表键：`Outer` / `Outer.Inner` / `Outer.Inner.Deep` → `Outer+Inner+Deep`；
+// 外层类体内的短名 `Inner` 沿外层链上溯（`Outer+Inner` 体内的 `X` → `Outer+Inner+X` → `Outer+X`）。
+// 局部变量 / 形参同名时按变量处理（名字查找顺序：局部 > 成员 > 类型）。
+namespace Z42.Semantics;
+
+using Z42.IR;
+using Z42.Syntax;
+using Z42.Core;
+
+public sealed partial class MemberResolver {
+
+    // `e` 若是**嵌套**类型名（或外层体内的短名）→ 其符号表键（类 / 接口 / 枚举）；否则 ""。
+    // 顶层类名（`Outer` 本身）不归这里：主路径已按裸类名处理。
+    internal string _nestedTypeKey(Expr e, TypeEnv env) {
+        if (e is IdentExpr) {
+            string n = (e as IdentExpr).Name;
+            if (env.LookupVar(n) != null) { return ""; }
+            if (env.Symbols.HasClass(n) || env.Symbols.EnumKey(n) != null) { return ""; }   // 顶层类型：主路径
+            if (!env.HasClass()) { return ""; }
+            string scope = env.CurrentClass();
+            while (scope != "") {
+                if (MemberResolver._isTypeKey(scope + "+" + n, env)) { return scope + "+" + n; }
+                scope = MemberResolver._outerOf(scope);
+            }
+            return "";
+        }
+        if (e is MemberExpr) {
+            MemberExpr me = e as MemberExpr;
+            string baseKey = "";
+            if (me.Target is IdentExpr) {
+                string tn = (me.Target as IdentExpr).Name;
+                if (env.LookupVar(tn) == null && env.Symbols.HasClass(tn)) { baseKey = tn; }
+            }
+            if (baseKey == "") { baseKey = this._nestedTypeKey(me.Target, env); }
+            if (baseKey == "") { return ""; }
+            string k = baseKey + "+" + me.Name;
+            return MemberResolver._isTypeKey(k, env) ? k : "";
+        }
+        return "";
+    }
+
+    private static bool _isTypeKey(string k, TypeEnv env) {
+        return env.Symbols.HasClass(k) || env.Symbols.HasInterface(k) || env.Symbols.EnumKey(k) != null;
+    }
+
+    // 成员读的目标是嵌套类型名：`Outer.Inner.X`（静态字段 / 属性 / const）、`Outer.Kind.B`（嵌套枚举成员）。
+    // 目标不是嵌套类型名 → null（调用方继续按实例成员绑定）。
+    internal BoundExpr _bindNestedStaticMember(MemberExpr m, TypeEnv env) {
+        string nk = this._nestedTypeKey(m.Target, env);
+        if (nk == "") { return null; }
+        string ek = env.Symbols.EnumKey(nk);
+        if (ek != null) { return this._bindEnumMember(ek, nk, m, env); }
+        if (!env.Symbols.HasClass(nk)) { return null; }
+        Z42ClassType sct = env.Symbols.GetClass(nk);
+        BoundExpr sm = this.BindStaticMember(sct, nk, m.Name, m.Span, env);
+        if (sm != null) { return sm; }
+        return this.StaticMemberMiss(sct, nk, m, env);
+    }
+
+    // 枚举常量访问 `EnumType.Member` → BoundLitInt，**静态类型 = 该 enum 类型**
+    // （make-enum-distinct-type；此前是 `long`，即 enum-as-int 模型）。
+    //
+    // 载体仍是 BoundLitInt：enum 成员在运行期就是编译期已知的 i64 常量，发射端照发立即数、
+    // **表示一个字节没变**——变的只是静态类型，于是它终于能赋给 enum 变量 / 传给 enum 形参 /
+    // 从 enum 函数 return。反过来当整数用则须显式 `(long)`：转换格里 enum ↔ 整数是 ExplicitEnum。
+    //
+    // `EnumTypeName` 标记**保留不动**：`CallEmitter` 靠它把 `E.Red.GetType()` 折叠回 typeof(E)。
+    // `shownName` = 诊断里展示的枚举名（源码写法）。
+    internal BoundExpr _bindEnumMember(string etk, string shownName, MemberExpr m, TypeEnv env) {
+        string ekey = etk + "." + m.Name;
+        if (env.Symbols.EnumConsts.ContainsKey(ekey)) {
+            // harden-crosspkg-gates：同 FQN 跨包 ⇒ 常量键 first-wins、两包成员顺序可不同 ⇒ 折之前先判来源。
+            this._tc.ChkEnumOrigins(env.Symbols, etk, m.Span);
+            StrBox evalBox = env.Symbols.EnumConsts.Get(ekey) as StrBox;
+            BoundLitInt eb = new BoundLitInt(evalBox.Value, env.Symbols.EnumType(etk), m.Span);
+            eb.EnumTypeName = etk;   // FQN（CallEmitter 的 GetType 折叠直接用它）
+            return eb;
+        }
+        // enum 类型名后只能跟它的成员（此前落到实例成员路径：类型名绑成 Unknown，`Color.Nope` 零诊断）。
+        this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol, "enum `" + shownName + "` has no member `" + m.Name + "`", m.NameSpan);
+        return new BoundError("enum member " + m.Name, new Z42ErrorType(), m.Span);
+    }
+
+    // 类名接收者的静态调用 `C.M(args)`（裸类名 / 嵌套类型名两条入口共用）。`recvName` = 源码里的接收者写法
+    // （诊断用）与发射端的类键。
+    internal BoundExpr _bindClassStaticCall(Z42ClassType ct, string recvName, MemberExpr mem, BoundExpr[] args, int argCount,
+                                            Expr[] rawArgs, TypeEnv env, Span sp, CallExpr call) {
+        // report-crosspkg-duplicate-type 的**覆盖漏洞**（本 change 补）：E0601/E0606 挂在
+        // `_chkTypeRef` 上，而**静态调用根本不走它** —— `Util.go()` 里的 `Util` 只经
+        // `GetClass` 取类、不作类型引用检查。实测两个包各声明 `Demo.FnNs.Util` 时
+        // `Util.go()` 零诊断、字母序靠前的包赢。
+        this._tc._chkStaticOwner(env.Symbols, ct, sp);
+        MethodSymbol ms = this._tc._overload._resolveOverload(env.Symbols, ct, mem.Name, args, argCount, call.TypeArgCount, sp, rawArgs, env);   // 限定名静态调用（Array.Sort<int>）→ 传显式类型实参个数启用 arity 过滤
+        if (MemberResolver.IsBaseStaticMethod(ct, ms)) { return this.ErrBaseStaticCall(recvName, ms, mem.Name, args, argCount, rawArgs, env, sp); }   // reject-derived-static-access
+        if (ms != null) {
+            ms = MethodTypeArgSubst.ForExplicitTypeArgs(ms, call, env);   // 显式 `<T>` → 先代换签名再绑实参
+            this._tc._access.CheckAccess(ms.Visibility, ms.ContainingTypeName, env, env.Symbols, "method", mem.Name, sp);   // enforce-access-control
+            this._tc._access.CheckDeprecatedM(ms, mem.Name, sp);   // add-deprecated-directive
+            BoundExpr[] fa = this._tc._overload._withDefaults(ms, args, rawArgs, argCount, env, sp, true);
+            BoundCall bc = BoundCall.Marked(new BoundCall("static", false, null, ct.Name(), ms.CallKey(), fa, fa.Length, ms.Signature.Ret, sp), ms.Signature);
+            this._applyMethodTypeArgs(bc, call, ms, env);   // add-generic-methods：静态泛型方法（serde 招牌路径）
+            return bc;
+        }
+        BoundExpr dsc = this.TryBindDelegateMemberCall(mem, ct, true, args, argCount, rawArgs, env, sp); if (dsc != null) { return dsc; }   // 委托静态字段 / 属性
+        return this.NoStaticMethod(ct, recvName, mem.Name, args, argCount, rawArgs, env, sp);
+    }
+}
