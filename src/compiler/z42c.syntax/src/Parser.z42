@@ -595,7 +595,7 @@ public sealed class Parser {
             if (dk == TokenKind.Class || dk == TokenKind.Struct || dk == TokenKind.Interface
                 || dk == TokenKind.Enum || dk == TokenKind.Delegate
                 || this._isTypeKeyword(dk) || dk == TokenKind.Identifier || dk == TokenKind.LParen) {
-                if (this._declP._modsHas(mods, "private") || this._declP._modsHas(mods, "protected")) {
+                if (Mod.Has(Mod.Parse(mods), Mod.Private) || Mod.Has(Mod.Parse(mods), Mod.Protected)) {
                     this._diags.Error(DiagnosticCodes.TopLevelAccessModifier,
                         "top-level declaration cannot be private or protected (use internal or public)", this._peek().Span);
                 }

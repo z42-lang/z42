@@ -1,0 +1,61 @@
+// 声明修饰符的位标志（AST 构造时从 `Mods` 字符串解析一次，存进各声明的 `ModFlags`）。
+//
+// 修饰符在 AST 里一直是空格分隔的字符串（`"public static"`），下游用 `Mod.Has(x.ModFlags, Mod.Static)` 逐词扫：
+// 散在三个包的四份实现、一百多个调用点，拼错一个词（`"satic"`）就静默恒假。改成标志位后拼错即编译错误，
+// 判断也不再每次扫字符串。`Mods` 字符串原样保留（dump / 诊断消息 / 重新拼装用）。
+namespace Z42.Syntax;
+
+public static class Mod {
+    public static int Public    = 1;
+    public static int Private   = 2;
+    public static int Protected = 4;
+    public static int Internal  = 8;
+    public static int Static    = 16;
+    public static int Abstract  = 32;
+    public static int Sealed    = 64;
+    public static int Override  = 128;
+    public static int Virtual   = 256;
+    public static int Extern    = 512;
+    public static int Async     = 1024;
+    public static int New       = 2048;
+    public static int Event     = 4096;
+    public static int Partial   = 8192;
+    public static int Readonly  = 16384;
+    public static int Const     = 32768;
+
+    // 访问修饰符的并集（「写了哪个访问级别」用）。
+    public static int AnyAccess = 15;
+
+    public static bool Has(int flags, int m) { return (flags & m) != 0; }
+
+    // `DeclParser._parseModifiers` 产出的空格分隔串 → 位标志。合成声明（编译器拼的 `"public virtual"`）同样经此。
+    public static int Parse(string mods) {
+        if (mods == null || mods == "") { return 0; }
+        int r = 0;
+        string[] ws = mods.Split(" ");
+        int i = 0;
+        while (i < ws.Length) { r = r | Mod.Of(ws[i]); i = i + 1; }
+        return r;
+    }
+
+    // 单个修饰符词 → 标志；不认识的词 0。
+    public static int Of(string w) {
+        if (w == "public") { return Mod.Public; }
+        if (w == "private") { return Mod.Private; }
+        if (w == "protected") { return Mod.Protected; }
+        if (w == "internal") { return Mod.Internal; }
+        if (w == "static") { return Mod.Static; }
+        if (w == "abstract") { return Mod.Abstract; }
+        if (w == "sealed") { return Mod.Sealed; }
+        if (w == "override") { return Mod.Override; }
+        if (w == "virtual") { return Mod.Virtual; }
+        if (w == "extern") { return Mod.Extern; }
+        if (w == "async") { return Mod.Async; }
+        if (w == "new") { return Mod.New; }
+        if (w == "event") { return Mod.Event; }
+        if (w == "partial") { return Mod.Partial; }
+        if (w == "readonly") { return Mod.Readonly; }
+        if (w == "const") { return Mod.Const; }
+        return 0;
+    }
+}

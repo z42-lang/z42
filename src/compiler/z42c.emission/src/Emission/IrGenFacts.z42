@@ -51,13 +51,13 @@ public static class IrGenFacts {
     public static int MethodFlagSret = 8;
 
 
-    public static int _methodFlags(string mods) {
+    public static int _methodFlags(int mods) {
         int f = 0;
         // impl-sealed-semantics-devirt：sealed 方法必是 override（简写 `sealed` == `sealed override`）→ 亦置
         // virtual 位（bit0），确保裸 `sealed` 无 override 词时虚派发位仍正确。
-        if (DeclFacts._hasWord(mods, "virtual") || DeclFacts._hasWord(mods, "override") || DeclFacts._hasWord(mods, "abstract") || DeclFacts._hasWord(mods, "sealed")) { f = f | 1; }
-        if (DeclFacts._hasWord(mods, "abstract")) { f = f | 2; }
-        if (DeclFacts._hasWord(mods, "sealed"))   { f = f | 4; }   // bit2=sealed（METHOD_FLAG_SEALED，zbc 1.30）
+        if (Mod.Has(mods, Mod.Virtual) || Mod.Has(mods, Mod.Override) || Mod.Has(mods, Mod.Abstract) || Mod.Has(mods, Mod.Sealed)) { f = f | 1; }
+        if (Mod.Has(mods, Mod.Abstract)) { f = f | 2; }
+        if (Mod.Has(mods, Mod.Sealed))   { f = f | 4; }   // bit2=sealed（METHOD_FLAG_SEALED，zbc 1.30）
         return f;
     }
 

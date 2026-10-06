@@ -39,7 +39,7 @@ public sealed class IrGenMemberEmitter {
         // （body 是按 RegKey 存的）。两者一起改会让 model.HasBody 落空 → 函数根本不发射
         // （实测：报 `static ctor C.$cctor not found`）。
         string emitKey = methKey;
-        if (md.IsCtor && DeclFacts._hasWord(md.Mods, "static")) { emitKey = IrStaticCtor.MethodKey; }
+        if (md.IsCtor && Mod.Has(md.ModFlags, Mod.Static)) { emitKey = IrStaticCtor.MethodKey; }
         // add-iface-return-bridge：实现了接口成员、但返回 **blob struct** 而接口声明返回引用型 ⇒
         // 两侧 ABI 不一致（sret 多一个隐藏物理参）。让**桥接**占裸名 vtable 槽（接口派发按方法名
         // 索引，见 CallEmitter「VCall 按 vtable slot(方法名)派发」），具体实现挪到 `<m>$struct`。
@@ -52,15 +52,15 @@ public sealed class IrGenMemberEmitter {
             // S1-f：特化跨文件声明的泛型时，体只存在于**声明所属 CU** 的 model 里。
             SemanticModel bodyM = g.SpecBodyModel != null ? g.SpecBodyModel : model;
             if (bodyM.HasBody(key)) {
-                bool isStaticMethod = DeclFacts._hasWord(md.Mods, "static");
+                bool isStaticMethod = Mod.Has(md.ModFlags, Mod.Static);
                 bool isInstance = !isStaticMethod;   // 实例方法有 this；静态方法无
                 var fe = new FunctionEmitter(model.Symbols, g);
                 IrFunction irf = fe.EmitFunction(irName, md, bodyM.GetBody(key), isInstance, isStaticMethod,
                                                  owner, c.TypeParams.Names, c.TypeParams.Count);
                 irf.Attrs = g._classDescB._attrRefs(rawMem); irf.AttrCount = irf.Attrs.Length;   // add-attribute-reflection
                 irf.ParamAttrs = g._classDescB._paramAttrRefs(md, isInstance); irf.ParamAttrsLen = irf.ParamAttrs.Length;
-                irf.Visibility = DeclFacts._visCode(md.Mods, 1);   // add-member-visibility（成员默认 private）
-                irf.MethodFlags = irf.MethodFlags | IrGenFacts._methodFlags(md.Mods);   // 或：保住 FunctionEmitter 置的 sret 位   // add-method-modifiers
+                irf.Visibility = DeclFacts._visCode(md.ModFlags, 1);   // add-member-visibility（成员默认 private）
+                irf.MethodFlags = irf.MethodFlags | IrGenFacts._methodFlags(md.ModFlags);   // 或：保住 FunctionEmitter 置的 sret 位   // add-method-modifiers
                 IrGenFacts._fillParamMeta(irf, md, isInstance);       // add-param-metadata
                 this._out.AddFunc(irf);
                 // add-iface-return-bridge：具体实现已挪到 `<m>$struct`（irName），裸名槽腾出来了 ⇒
@@ -101,11 +101,11 @@ public sealed class IrGenMemberEmitter {
                     + " (arity-mangle → `Name$N`; static ctor → IrStaticCtor.MethodKey; iface bridge →"
                     + " `<m>$struct`). Silently skipping would drop the whole method with no diagnostic.");
             }
-        } else if (DeclFacts._hasWord(md.Mods, "extern")) {
+        } else if (Mod.Has(md.ModFlags, Mod.Extern)) {
             // legacy [Native("__name")] extern → 发 builtin 桩函数（镜像 C# EmitNativeStub）。
             string nat = g._stubE._nativeIntrinsic(rawMem);
             if (nat != "") {
-                bool natStatic = DeclFacts._hasWord(md.Mods, "static");
+                bool natStatic = Mod.Has(md.ModFlags, Mod.Static);
                 IrFunction stub = g._stubE._emitNativeStub(irName, md, nat, natStatic, rawMem);
                 // carry-null-marks-through-native-stubs：extern 桩此前**不写 attr-ref 块** ⇒ 源码里
                 // 已经标了的 `?`（`Environment.GetEnvironmentVariable` 等 9 处）过了包边界就静默消失：
@@ -116,18 +116,18 @@ public sealed class IrGenMemberEmitter {
                 // 哨兵均为空转；`[Native(…)]` 无 FactoryFunc，被 `_attrRefsFromList` 滤掉，不进产物。
                 stub.Attrs = g._classDescB._attrRefs(rawMem); stub.AttrCount = stub.Attrs.Length;
                 stub.ParamAttrs = g._classDescB._paramAttrRefs(md, !natStatic); stub.ParamAttrsLen = stub.ParamAttrs.Length;
-                stub.Visibility = DeclFacts._visCode(md.Mods, 1);      // add-member-visibility：extern 桩此前漏设
-                stub.MethodFlags = stub.MethodFlags | IrGenFacts._methodFlags(md.Mods); // add-method-modifiers：virtual extern（按位或——MethodFlagSret 的注释已把「不得互相覆盖」定为不变式，这里此前是 `=`）
+                stub.Visibility = DeclFacts._visCode(md.ModFlags, 1);      // add-member-visibility：extern 桩此前漏设
+                stub.MethodFlags = stub.MethodFlags | IrGenFacts._methodFlags(md.ModFlags); // add-method-modifiers：virtual extern（按位或——MethodFlagSret 的注释已把「不得互相覆盖」定为不变式，这里此前是 `=`）
                 IrGenFacts._fillParamMeta(stub, md, !natStatic);   // add-param-metadata
                 this._out.AddFunc(stub);
             }
-        } else if (DeclFacts._hasWord(md.Mods, "abstract") && !DeclFacts._hasWord(md.Mods, "static")) {
+        } else if (Mod.Has(md.ModFlags, Mod.Abstract) && !Mod.Has(md.ModFlags, Mod.Static)) {
             // add-method-modifiers（unify P1-c）：实例 abstract 方法无 body → signature-only 死体桩，进 SIGS/FUNC 使反射可见。
             IrFunction astub = g._stubE._emitAbstractStub(irName, md);
             astub.Attrs = g._classDescB._attrRefs(rawMem); astub.AttrCount = astub.Attrs.Length;
             astub.ParamAttrs = g._classDescB._paramAttrRefs(md, true); astub.ParamAttrsLen = astub.ParamAttrs.Length;
-            astub.Visibility = DeclFacts._visCode(md.Mods, 1);
-            astub.MethodFlags = astub.MethodFlags | IrGenFacts._methodFlags(md.Mods);   // 同上：按位或，守住不变式
+            astub.Visibility = DeclFacts._visCode(md.ModFlags, 1);
+            astub.MethodFlags = astub.MethodFlags | IrGenFacts._methodFlags(md.ModFlags);   // 同上：按位或，守住不变式
             IrGenFacts._fillParamMeta(astub, md, true);   // add-param-metadata：abstract 恒实例
             this._out.AddFunc(astub);
         }
@@ -141,14 +141,14 @@ public sealed class IrGenMemberEmitter {
         // 此前拼 `c.Name + ".get_X"` 且只查本 CU model、查不到就静默跳过 ⇒ `class Box` 与 `class Box<T>`
         // 同包时，`Box<T>` 的计算属性 / 索引器一个字节都不发，运行期才 `function Box$1<int>.get_X not found`。
         SemanticModel bodyM = g.SpecBodyModel != null ? g.SpecBodyModel : model;
-        bool pdExtern = DeclFacts._hasWord(pd.Mods, "extern");
-        bool pdStatic = DeclFacts._hasWord(pd.Mods, "static");
+        bool pdExtern = Mod.Has(pd.ModFlags, Mod.Extern);
+        bool pdStatic = Mod.Has(pd.ModFlags, Mod.Static);
         // add-accessor-visibility：访问器可见性进 IR（供反射 + 跨包访问控制）。此前 auto-prop / 计算体
         // accessor 一律不设 .Visibility → 默认 0=public，连属性级 private/protected 都丢、`private set` 更丢。
         // 访问器级修饰符（GetMods/SetMods）覆盖属性级，空则回落属性级（_visCode 对空 mods 回落 dflt）。
-        int pdPropVis = DeclFacts._visCode(pd.Mods, 1);
-        int pdGetVis = DeclFacts._visCode(pd.GetMods, pdPropVis);
-        int pdSetVis = DeclFacts._visCode(pd.SetMods, pdPropVis);
+        int pdPropVis = DeclFacts._visCode(pd.ModFlags, 1);
+        int pdGetVis = DeclFacts._visCode(pd.GetModFlags, pdPropVis);
+        int pdSetVis = DeclFacts._visCode(pd.SetModFlags, pdPropVis);
         if (pd.HasGetBody) {
             string pgKey = ownerKey + ".get_" + pd.Name;
             string pgIrName = this._irOwner(c) + ".get_" + pd.Name;

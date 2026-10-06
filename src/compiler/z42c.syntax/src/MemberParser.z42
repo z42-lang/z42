@@ -237,7 +237,7 @@ public sealed class MemberParser {
         this._p._expectSemi();
         // multicast event 字段无显式 init → 合成 `new MulticastXxx<...>()`。
         // 单播 event（Action/Func/Predicate）backing 默认 null（OptionType 语义），不 auto-init。
-        if (!hasInit && this._p._declP._modsHas(mods, "event") && this._isMulticastEventType(type)) {
+        if (!hasInit && Mod.Has(Mod.Parse(mods), Mod.Event) && this._isMulticastEventType(type)) {
             init = new ObjNewExpr(type, new Expr[0], 0, sp); hasInit = true;
         }
         return new FieldDecl(mods, type, name, hasInit, init, sp);
@@ -531,7 +531,7 @@ public sealed class MemberParser {
         else { this._p._expectSemi(); }
         MethodDecl md = new MethodDecl(mods, isFree, isCtor, retType, name, typeParams, wl.Items, wl.Count, pl.Items, pl.Count, hasBody, body, baseArgs, baseArgCount, isThisInit, sp);
         md.HasCtorInit = hasCtorInit;
-        md.IsPartial = this._p._declP._modsHas(mods, "partial");   // add-partial-types：声明侧 HasBody=false / 实现侧 HasBody=true
+        md.IsPartial = Mod.Has(Mod.Parse(mods), Mod.Partial);   // add-partial-types：声明侧 HasBody=false / 实现侧 HasBody=true
         return md;
     }
 

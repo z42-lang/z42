@@ -287,7 +287,7 @@ public sealed partial class DeclEnforcer {
         string use = "`[" + kind.Name + "]`";
 
         // R1 —— 位置错了就**只报这一条并返回**：贴错地方时再说「还得返回 void」只会刷屏。
-        if (!md.IsFree && !this._sc._hasWord(md.Mods, "static")) {
+        if (!md.IsFree && !Mod.Has(md.ModFlags, Mod.Static)) {
             this._sc.Diags.Error(code,
                 use + " must be applied to a free function or a `static` method (got: "
                     + this._teShape(md, owner) + "); add `static`, or move it to a top-level function",

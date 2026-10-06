@@ -156,7 +156,7 @@ public sealed class IrGenTypeEmitter {
             Decl m = DeclFacts._unwrap(c.Members[i]);
             if (m is MethodDecl) {
                 MethodDecl md = m as MethodDecl;
-                if (md.IsCtor && DeclFacts._hasWord(md.Mods, "static") && md.HasBody) { return true; }
+                if (md.IsCtor && Mod.Has(md.ModFlags, Mod.Static) && md.HasBody) { return true; }
             }
             i = i + 1;
         }
@@ -216,12 +216,12 @@ public sealed class IrGenTypeEmitter {
                         string imk = OverloadResolver.MethodKeyOf(imd);   // unify-regkey-source-of-truth：与 DeclBinder._bindImpl 成对，必须同键
                         string ikey = itn + "." + imk;
                         if (model.HasBody(ikey)) {
-                            bool ist = DeclFacts._hasWord(imd.Mods, "static");
+                            bool ist = Mod.Has(imd.ModFlags, Mod.Static);
                             var ife = new FunctionEmitter(model.Symbols, g);
                             IrFunction iirf = ife.EmitFunction(g._qClass(itn) + "." + imk, imd,
                                                                model.GetBody(ikey), !ist, ist, iowner, new string[0], 0);
-                            iirf.Visibility = DeclFacts._visCode(imd.Mods, 1);   // add-member-visibility
-                            iirf.MethodFlags = iirf.MethodFlags | IrGenFacts._methodFlags(imd.Mods);   // 或：保住 FunctionEmitter 置的 sret 位   // add-method-modifiers
+                            iirf.Visibility = DeclFacts._visCode(imd.ModFlags, 1);   // add-member-visibility
+                            iirf.MethodFlags = iirf.MethodFlags | IrGenFacts._methodFlags(imd.ModFlags);   // 或：保住 FunctionEmitter 置的 sret 位   // add-method-modifiers
                             IrGenFacts._fillParamMeta(iirf, imd, !ist);   // add-param-metadata
                             this._out.AddFunc(iirf);
                         }

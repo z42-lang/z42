@@ -44,6 +44,7 @@
 | `src/Stmt.z42` | 语句 AST（expr/var-decl/return/if/while/block/break/continue/throw/foreach/for/do-while/switch/try-catch-finally；SwitchCase/SwitchArm 持 Pattern + 守卫）|
 | `src/Pattern.z42` | 模式 AST（Wildcard/Constant/Name/Positional/Property）——switch / is 结构化共用 |
 | `src/Decl.z42` | 声明 AST（CompilationUnit 含 `SuppressRegions` 局部抑制区间 / Using / Class·Struct·Interface / Enum / Delegate / Field / Method（`IsFree` = 顶层 func）/ Property / Param / Attr；类型用法位均为 TypeExpr）|
+| `src/Modifiers.z42` | 声明修饰符位标志 `Mod.*` + `Mod.Parse` / `Mod.Has`：各声明构造时把 `Mods` 串解析进 `ModFlags`（属性另有 `GetModFlags` / `SetModFlags`），下游一律按标志判断 |
 
 ### 解析器
 | 文件 | 职责 |

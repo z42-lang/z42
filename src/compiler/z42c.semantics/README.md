@@ -61,7 +61,7 @@
 | `src/Binding/CallParams.z42` | **按名字找形参的唯一出处**：`CanName` / `Count` / `IndexOf`——本地看 `MethodDecl`、导入看 `Z42FuncType.ParamNames`。`OverloadResolver.Map`（重载决议）与 `OverloadBinder._adaptArgs`（实参归位）共用。机制见 [book 命名实参](../../../docs/reference/src/language/named-arguments.md) |
 | `src/Symbols/TypeIntern.z42` | **名义身份 intern 表**：稠密 id ↔ `Z42Type`。目的不是加速查表，是让 B3/B4 把 `InterfaceNames`/`BaseNames`/`BaseName` 从**字符串**换成句柄后，「往符号表塞一个裸名」**写不出来**。id 从 1 起、0=未登记；状态按引用共享（per-file 视图各拷计数会撞 id） |
 | `src/Symbols/SymbolTable.z42` | 类名→Z42ClassType / 顶层函数表 + `ResolveType`（TypeExpr→Z42Type 桥） |
-| `src/Symbols/SymbolCollector.z42` | Pass 0 **hub**：3 编排入口（Collect / CollectWithImports / CollectAll）顺序调各簇 pass + imported 种子 + 共享辅助（_unwrap/_vis/_hasWord/_chkTypeRef/_methodSymbol + 静态 IsProtocolExempt/_isConvOp）+ partial 状态。实际 pass 分入下列 4 簇。机制见 [book sealed](../../../docs/reference/src/language/sealed.md) |
+| `src/Symbols/SymbolCollector.z42` | Pass 0 **hub**：唯一编排序列 `CollectAll`（`Collect` / `CollectWithImports` 是它的单 CU 包装）顺序调各簇 pass + imported 种子 + 共享辅助（_unwrap/_vis/_chkTypeRef/_methodSymbol + 静态 IsProtocolExempt/_isConvOp）+ partial 状态。实际 pass 分入下列 4 簇。机制见 [book sealed](../../../docs/reference/src/language/sealed.md) |
 | `src/Symbols/StubCollector.z42` | Pass A 骨架簇：interface / enum(+常量) / class stub（arity-mangle + partial 碎片合并）/ delegate 注册——建符号表骨架使成员类型可解析兄弟类 |
 | `src/Symbols/MemberCollector.z42` | Pass B 成员填充簇：字段/方法/属性/索引器签名 + regKey mangle+ **const 收集** + **转换运算符**（op_Implicit/op_Explicit RegKey 附 `$to$<ret>` 消歧 + 声明期冲突 E0440） |
 | `src/Symbols/InheritanceResolver.z42` | 基链解析簇（成员填充后）：override regKey 对齐+ **sealed 语义强制**（继承 sealed 类 E0427 / override sealed E0428 / 无基 virtual E0429，`sealed`==`sealed override` 简写）+ 继承字段合并 + impl-block 合并 |
@@ -103,7 +103,7 @@
 | `src/Generators/ForwardGenerator.z42` / `GenTopo.z42` | 内建 `[Forward]` 生成器 / 多轮 generator 拓扑序 |
 | `src/Generators/AttributeSynth.z42` / `BenchmarkDesugar.z42` / `GenContext.z42` | parse 后、typecheck 前的 AST 级脱糖：attribute 工厂合成 / benchmark 脱糖；generator 上下文 |
 | `src/Symbols/HandlerRegistry.z42` | attribute handler 注册表（`AttrKind` 三路判定、`DeclId`、内建 generator 先于 store-meta 合成） |
-| `src/Symbols/DeclFacts.z42` | 声明修饰符 / 可见性（`_hasWord` / `_visCode` / `classVis*`）/ 字面量文本助手——只看 AST 与字符串，语义层与代码生成共用 |
+| `src/Symbols/DeclFacts.z42` | 可见性（`_visCode` / `classVis*`，入参是 `ModFlags`）/ 字面量文本助手——只看 AST 与字符串，语义层与代码生成共用 |
 | `src/Validation/ModuleInitScan.z42` | `[ModuleInit]` 合法性校验（E0485 包内第二个 / E0486 标注目标非法）与站点扫描 |
 | `src/Compilation/ParallelFor.z42` | 包内文件级并行编译的 `ParallelFor` 机件 |
 
@@ -115,7 +115,7 @@ TSIG 导出面提取：用户类/函数按 **CU 声明序**（hashed StrMap 不�
 
 | 文件 | 职责 |
 |------|------|
-| `src/Exports/ExportedTypeExtractor.z42` | **hub**：提取编排入口 Extract*/ExtractFuncs + `_extractCore`（遍历 CU 声明序调各簇）+ 共享叶子 `_unwrap`/`_hasWord`/`_requiredCount`/`_im`（被 ≥2 簇用 → 留 hub） |
+| `src/Exports/ExportedTypeExtractor.z42` | **hub**：提取编排入口 Extract*/ExtractFuncs + `_extractCore`（遍历 CU 声明序调各簇）+ 共享叶子 `_unwrap`/`_requiredCount`/`_im`（被 ≥2 簇用 → 留 hub） |
 | `src/Exports/ClassExtractor.z42` | 类/结构/接口提取：`_extractClass`（base 链字段·方法合并、override 保留祖先位）/ `_extractInterface` / `_fromSymbol`·`_fromImportedMethod`（method→ExportedMethodZ）/ `_indexOf` |
 | `src/Exports/FuncImplExtractor.z42` | 自由函数 + trait impl 提取：`_extractFunc` / `_extractImpls` + `_fqOf`/`_typeShortName`/`_visFromMods` |
 | `src/Types/TypeNameResolver.z42` | 类型名解析（纯叶子）：`TsigTypeName`（TypeExpr→TSIG）/ `SurfaceTypeName`·`_resolvedTypeName`（Z42Type→表面拼写）/ `_hybridTypeName`/`_canonName`。**公开面**供 ClassExtractor/FuncImplExtractor 及 `MemberCollector` 调用 |
