@@ -415,6 +415,11 @@ pub struct VmContext {
     /// explicit module (re)load (REPL redefinition).
     pub(crate) type_lookup_cache: Mutex<FxHashMap<Box<str>, std::sync::Arc<crate::metadata::TypeDesc>>>,
     pub(crate) fn_lookup_cache:   Mutex<FxHashMap<Box<str>, std::sync::Arc<crate::metadata::Function>>>,
+    /// The cctor-owner answer per static field id (`ensure_static_owner_init`):
+    /// `None` = not looked up yet, `Some(None)` = exempt (no owner type, or one
+    /// without a static constructor), `Some(Some(t))` = check `t`. Per thread,
+    /// so the lock is uncontended. Cleared with `type_lookup_cache`.
+    pub(crate) static_owner_cache: Mutex<Vec<Option<Option<std::sync::Arc<crate::metadata::TypeDesc>>>>>,
     /// **add-vmcontext-registry (2026-05-20)**: marks `VmContext: !Unpin`,
     /// so callers cannot `mem::swap` / move out of the `Pin<Box<VmContext>>`
     /// returned by [`new`]. Required so the raw pointer registered in

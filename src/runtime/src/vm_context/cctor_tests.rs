@@ -167,3 +167,16 @@ fn owner_class_split() {
     assert_eq!(owner_class_of_static_field("Field"), None);
     assert_eq!(owner_class_of_static_func("A.C.M$2"), Some("A.C"));
 }
+
+/// The static-field barrier remembers its owner answer per field id, so a hot
+/// static access does not re-derive the owner from the name each time.
+#[test]
+fn static_barrier_caches_the_owner_answer_per_field_id() {
+    let ctx = crate::vm_context::VmContext::new();
+    // Some type with a pending static constructor keeps the global gate open.
+    ctx.core.cctors.register("Other.C", "Other.C.$cctor");
+    assert!(ctx.ensure_static_owner_init("Demo.Holder.Count", Some(3)).is_ok());
+    let cache = ctx.static_owner_cache.lock();
+    assert!(matches!(cache.get(3), Some(Some(None))), "owner without a cctor is cached as exempt");
+    assert!(matches!(cache.get(2), Some(None)), "other ids stay unknown");
+}

@@ -447,7 +447,7 @@ pub unsafe extern "C" fn jit_static_get(
     let vm = vm_ctx_ref(_ctx);
     // add-static-constructors：cctor 屏障。与 interp 共用 `ensure_static_owner_init`。
     // 字段名恒可用（field_ptr/len 两条路径都传），故 id 已解析时也能取到属主类。
-    if let Some(code) = cctor_barrier(vm, _ctx, field_ptr, field_len) { return code; }
+    if let Some(code) = cctor_barrier(vm, _ctx, field_id, field_ptr, field_len) { return code; }
     let v = if field_id != crate::metadata::tokens::UNRESOLVED {
         vm.static_get_by_id(crate::metadata::tokens::StaticFieldId(field_id))
     } else {
@@ -485,11 +485,12 @@ pub unsafe extern "C" fn jit_static_get(
 /// 裸字符串只能被无类型 `catch {}` 捕获，永远匹配不上 `catch (Exception e)`。
 unsafe fn cctor_barrier(
     vm: &crate::vm_context::VmContext, ctx: *const JitModuleCtx,
-    field_ptr: *const u8, field_len: usize,
+    field_id: u32, field_ptr: *const u8, field_len: usize,
 ) -> Option<i32> {
     if !vm.any_cctor_pending() { return None; }
-    let field = std::str::from_utf8(std::slice::from_raw_parts(field_ptr, field_len)).ok()?;
-    let msg = vm.ensure_static_owner_init(field).err()?;
+    let field = super::baked_str(field_ptr, field_len);
+    let id = (field_id != crate::metadata::tokens::UNRESOLVED).then_some(field_id);
+    let msg = vm.ensure_static_owner_init(field, id).err()?;
     let module = &*(*ctx).module;
     let exc = crate::vm_context::cctor::make_type_init_exception(vm, module, &msg);
     set_exception(vm, exc);
@@ -503,7 +504,7 @@ pub unsafe extern "C" fn jit_static_set(
     field_ptr: *const u8, field_len: usize,
 ) -> i32 {
     let vm = vm_ctx_ref(ctx);
-    if let Some(code) = cctor_barrier(vm, ctx, field_ptr, field_len) { return code; }
+    if let Some(code) = cctor_barrier(vm, ctx, field_id, field_ptr, field_len) { return code; }
     let v = (*frame).regs[val as usize].clone();
     if field_id != crate::metadata::tokens::UNRESOLVED {
         vm.static_set_by_id(crate::metadata::tokens::StaticFieldId(field_id), v);

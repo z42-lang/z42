@@ -497,20 +497,54 @@ impl crate::vm_context::VmContext {
     ///
     /// 热路径代价 = 一次 relaxed load：`any_cctor_pending()` 在「程序里没有静态构造器」
     /// 和「所有静态构造器都已跑完」两种情况下都为假，也就是绝大多数时间。
-    pub fn ensure_static_owner_init(&self, field: &str) -> Result<(), String> {
+    ///
+    /// `field_id`（已解析的静态字段槽号）可用时，属主判定按槽号缓存在本线程的
+    /// `static_owner_cache` 里：第一次照旧按名推属主（可能加载属主所在的包——跨包读静态
+    /// 字段时它确实可能还没加载），之后命中缓存；无 cctor 的属主记为免检，已初始化的类型
+    /// 在锁内判定后直接返回。
+    pub fn ensure_static_owner_init(&self, field: &str, field_id: Option<u32>) -> Result<(), String> {
         if !self.core.cctors.any_pending() { return Ok(()); }
-        let Some(owner) = owner_class_of_static_field(field) else { return Ok(()) };
-        // 先查主模块 registry、再回落惰性加载器：`try_lookup_type` 只问惰性加载器，
-        // 主合并模块里的类型不在它的索引里（同 ensure_type_init 里函数查找那条注释）。
-        if let Some(m) = self.module() {
-            if let Some(td) = m.type_registry.get(owner) {
-                return self.ensure_type_init(td);
+        if let Some(id) = field_id {
+            let gen = self.core.cctors.generation();
+            let cached = {
+                let cache = self.static_owner_cache.lock();
+                match cache.get(id as usize) {
+                    Some(Some(None)) => return Ok(()),
+                    Some(Some(Some(td))) if td.init_done_in(gen) => return Ok(()),
+                    Some(Some(Some(td))) => Some(Arc::clone(td)),
+                    _ => None,
+                }
+            };
+            if let Some(td) = cached {
+                return self.ensure_type_init(&td);
             }
         }
-        match self.try_lookup_type(owner) {
+        let owner = self.static_field_owner(field);
+        if let Some(id) = field_id {
+            // 基类链未合并的类型不缓存（加载器要 `Arc::get_mut` 原地补布局）。
+            if !owner.as_ref().is_some_and(|td| td.base_unmerged()) {
+                let mut cache = self.static_owner_cache.lock();
+                let i = id as usize;
+                if cache.len() <= i { cache.resize(i + 1, None); }
+                cache[i] = Some(owner.clone());
+            }
+        }
+        match owner {
             Some(td) => self.ensure_type_init(&td),
             None => Ok(()),
         }
+    }
+
+    /// 静态字段 `field` 的属主类型——只在它有静态构造器时返回。先查主模块 registry、
+    /// 再回落惰性加载器：`try_lookup_type` 只问惰性加载器，主合并模块里的类型不在它的
+    /// 索引里（同 ensure_type_init 里函数查找那条注释）。
+    fn static_field_owner(&self, field: &str) -> Option<Arc<crate::metadata::TypeDesc>> {
+        let owner = owner_class_of_static_field(field)?;
+        let td = match self.module().and_then(|m| m.type_registry.get(owner)) {
+            Some(td) => Arc::clone(td),
+            None => self.try_lookup_type(owner)?,
+        };
+        td.cctor_func().is_some().then_some(td)
     }
 
     /// **静态方法调用的 cctor 屏障**（interp 与 JIT 共用）。

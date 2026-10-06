@@ -504,7 +504,7 @@ pub(super) fn static_get(
     ctx: &VmContext, module: &Module, frame: &mut Frame, dst: u32, field: &str,
     field_id: Option<u32>,
 ) -> Result<Option<Value>> {
-    if let Some(exc) = ensure_owner_type_init(ctx, module, field) { return Ok(Some(exc)); }
+    if let Some(exc) = ensure_owner_type_init(ctx, module, field, field_id) { return Ok(Some(exc)); }
     let v = match field_id {
         Some(id) => ctx.static_get_by_id(crate::metadata::tokens::StaticFieldId(id)),
         None     => ctx.static_get(field),
@@ -538,14 +538,14 @@ pub(super) fn static_get(
 /// 失败时返回**可 catch 的**类型化异常值（`Ok(Some(exc))` 是 interp 的 throw 通道）。
 /// 用 `bail!` 会变成 anyhow Err —— 那条路不经 find_handler，用户 `catch` 抓不到。
 fn ensure_owner_type_init(
-    ctx: &VmContext, module: &Module, field: &str,
+    ctx: &VmContext, module: &Module, field: &str, field_id: Option<u32>,
 ) -> Option<Value> {
     // add-module-init-hook：读/写一个跨包静态字段同样可能刚把那个包拉进来 —— 包初始化器
     // 先于类型初始化器。这一处同时覆盖 static_get 与 static_set（两者共用本入口）。
     if let Err(msg) = ctx.ensure_module_inits(Some(field)) {
         return Some(crate::vm_context::cctor::make_type_init_exception(ctx, module, &msg));
     }
-    match ctx.ensure_static_owner_init(field) {
+    match ctx.ensure_static_owner_init(field, field_id) {
         Ok(()) => None,
         Err(msg) => Some(crate::vm_context::cctor::make_type_init_exception(ctx, module, &msg)),
     }
@@ -555,7 +555,7 @@ pub(super) fn static_set(
     ctx: &VmContext, module: &Module, frame: &Frame, field: &str, val: u32,
     field_id: Option<u32>,
 ) -> Result<Option<Value>> {
-    if let Some(exc) = ensure_owner_type_init(ctx, module, field) { return Ok(Some(exc)); }
+    if let Some(exc) = ensure_owner_type_init(ctx, module, field, field_id) { return Ok(Some(exc)); }
     let v = frame.get(val)?.clone();
     // add-escape-analysis-stack-alloc (diagnostic #2): StaticSet.val is an escape
     // sink — a stack handle stored into a static would outlive its frame.
