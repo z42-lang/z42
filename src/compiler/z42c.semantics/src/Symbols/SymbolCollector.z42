@@ -87,6 +87,7 @@ public sealed class SymbolCollector {
         //    脱糖成零参 wrapper；在它之前查「无参数」会让全仓 66 处 benchmark 全红）。本挂载点在 collect 内，
         //    RunAst 已在 IncrementalDriver 解析阶段跑过 → 天然满足。移动前先读 design §3.2。
         this._enforce._passTestAttrEnforce(cu);
+        this._enforce._passNativeEnforce(cu);   // validate-extern-native：extern ↔ [Native] 配对 + 形态（E0903/E0904/E0907）
         // complete-test-attr-arg-checks：E0913（[ShouldThrow<E>] 的 E 须派生 Exception）——
         // 需符号表走基类链，故与上面的纯语法 pass 分开（design §1）。
         this._enforce._passTestAttrSemantic(t, cu);
@@ -388,6 +389,8 @@ public sealed class SymbolCollector {
         // ⚠️ 相位同上：须在 RunAst（BenchmarkDesugar）之后。
         while (c < cuCount) { this._enforce._passTestAttrEnforce(cus[c]); c = c + 1; }
         c = 0;
+        while (c < cuCount) { this._enforce._passNativeEnforce(cus[c]); c = c + 1; }   // validate-extern-native（E0903/E0904/E0907）
+        c = 0;
         // complete-test-attr-arg-checks：E0913（[ShouldThrow<E>] 的 E 须派生 Exception）——
         // 需符号表走基类链，故与上面的纯语法 pass 分开（design §1）。
         while (c < cuCount) { this._enforce._passTestAttrSemantic(table, cus[c]); c = c + 1; }
@@ -449,6 +452,7 @@ public sealed class SymbolCollector {
         //    脱糖成零参 wrapper；在它之前查「无参数」会让全仓 66 处 benchmark 全红）。本挂载点在 collect 内，
         //    RunAst 已在 IncrementalDriver 解析阶段跑过 → 天然满足。移动前先读 design §3.2。
         this._enforce._passTestAttrEnforce(cu);
+        this._enforce._passNativeEnforce(cu);   // validate-extern-native：extern ↔ [Native] 配对 + 形态（E0903/E0904/E0907）
         // complete-test-attr-arg-checks：E0913（[ShouldThrow<E>] 的 E 须派生 Exception）——
         // 需符号表走基类链，故与上面的纯语法 pass 分开（design §1）。
         this._enforce._passTestAttrSemantic(table, cu);

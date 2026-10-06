@@ -76,10 +76,10 @@ public static class Console {
 - 实例方法的接收者以**第一个参数**出现在 ABI 签名里；上例把句柄显式写成 `long ptr`，是今天唯一可用的形状
   （native 类型还不能合成为脚本可见的 class，见 §5.5）。
 
-> ⚠️ **编译期不校验这些规则**。`extern` 缺 `[Native]`、`[Native]` 用在非 `extern` 上、参数不 blittable
-> ——这几条在诊断码表里都有编号（`E0903` / `E0904` / `E0907`），但**整组当前零发射点**，见
-> [诊断码全表 E0901–E0916](../appendix/error-codes.md)。写错只会在运行时以 marshal 错误或
-> `unknown native type` 的形式暴露。
+> 编译期会拦下配对和形态错误：`extern` 缺 `[Native]` 报 `E0903`，`[Native]` 贴在非 `extern` 声明上报
+> `E0904`，`[Native(...)]` 没有入口名、键拼错、值不是字符串字面量、有 `type` 没 `lib` 报 `E0907`。
+> ⚠️ **参数是否 blittable 仍不校验**，入口名是否真的注册过也只能到运行时才知道——写错会以 marshal 错误或
+> `unknown native type` / `unknown method` 的形式暴露。见[诊断码全表 E0901–E0916](../appendix/error-codes.md)。
 
 ---
 

@@ -1,0 +1,175 @@
+// `extern` ↔ `[Native]` 配对 + `[Native(...)]` 形态（DeclEnforcer._passNativeEnforce）。
+//
+// 补回的是三条登记已久、全仓零发射点的码：E0903 / E0904 / E0907。此前三种写错都**编得过**——
+// `extern` 缺 `[Native]` 时发射期静默不出桩，跑到调用点才 `MissingSymbolException`。
+namespace Z42cSemanticsNativeEnforceTests;
+
+using Z42.Syntax;
+using Z42.Semantics;
+using Z42.Core;
+
+DiagnosticBag nvDiags(string src) {
+    var p = new Parser(src, "t.z42");
+    var cu = p.ParseCompilationUnit();
+    var coll = new SymbolCollector();
+    coll.Collect(cu);
+    return coll.Diags;
+}
+
+int nvCount(DiagnosticBag d, string code) {
+    int n = 0; int i = 0;
+    while (i < d.Count()) { if (d.Get(i).Code == code) { n = n + 1; } i = i + 1; }
+    return n;
+}
+
+string nvMsg(DiagnosticBag d, string code) {
+    int i = 0;
+    while (i < d.Count()) { if (d.Get(i).Code == code) { return d.Get(i).Message; } i = i + 1; }
+    return "";
+}
+
+// 三码都没报（合法写法用）。
+bool nvClean(DiagnosticBag d) {
+    return nvCount(d, "E0903") == 0 && nvCount(d, "E0904") == 0 && nvCount(d, "E0907") == 0;
+}
+
+// ── 合法形态（native-interop.md §2.1 的三种）──────────────────────────────────
+
+[Test]
+void test_positional_ok() {
+    Assert.Equal(true, nvClean(nvDiags("class C { [Native(\"__x\")] public static extern int X(); }")));
+}
+
+[Test]
+void test_named_entry_ok() {
+    Assert.Equal(true, nvClean(nvDiags("class C { [Native(entry = \"__x\")] public static extern int X(); }")));
+}
+
+[Test]
+void test_lib_entry_ok() {
+    Assert.Equal(true, nvClean(nvDiags("class C { [Native(lib = \"z42_x\", entry = \"__x\")] public static extern int X(); }")));
+}
+
+[Test]
+void test_tier1_ok() {
+    Assert.Equal(true, nvClean(nvDiags(
+        "class C { [Native(lib = \"m\", type = \"Counter\", entry = \"inc\")] public static extern void Inc(long p); }")));
+}
+
+[Test]
+void test_colon_named_ok() {
+    Assert.Equal(true, nvClean(nvDiags("class C { [Native(entry: \"__x\")] public static extern int X(); }")));
+}
+
+[Test]
+void test_extern_instance_and_property_ok() {
+    Assert.Equal(true, nvClean(nvDiags(
+        "class C { [Native(\"__s\")] public extern string ToS(); [Native(\"__len\")] public extern int Len { get; } }")));
+}
+
+[Test]
+void test_free_function_ok() {
+    Assert.Equal(true, nvClean(nvDiags("[Native(\"__x\")] extern int X();")));
+}
+
+// ── E0903：extern 缺 [Native] ───────────────────────────────────────────────
+
+[Test]
+void test_extern_without_native() {
+    var d = nvDiags("class Foo { public static extern int N(int a); }");
+    Assert.Equal(1, nvCount(d, "E0903"));
+    Assert.Equal(true, nvMsg(d, "E0903").Contains("`Foo.N`"));
+}
+
+[Test]
+void test_extern_property_without_native() {
+    var d = nvDiags("class Foo { public extern int Len { get; } }");
+    Assert.Equal(1, nvCount(d, "E0903"));
+}
+
+[Test]
+void test_extern_free_function_without_native() {
+    Assert.Equal(1, nvCount(nvDiags("extern int N();"), "E0903"));
+}
+
+// 别的 attribute 不算数。
+[Test]
+void test_extern_with_other_attr_only() {
+    Assert.Equal(1, nvCount(nvDiags("class Foo { [Obsolete(\"x\")] public static extern int N(); }"), "E0903"));
+}
+
+// 嵌套类型只报一次（NestedFlatten 把它提升为顶层但仍留在外层 Members）。
+[Test]
+void test_nested_reported_once() {
+    Assert.Equal(1, nvCount(nvDiags("class O { class I { public static extern int N(); } }"), "E0903"));
+}
+
+// ── E0904：[Native] 用在非 extern 上 ─────────────────────────────────────────
+
+[Test]
+void test_native_on_body_method() {
+    var d = nvDiags("class Foo { [Native(\"__x\")] public static int N() { return 1; } }");
+    Assert.Equal(1, nvCount(d, "E0904"));
+    Assert.Equal(0, nvCount(d, "E0907"));   // 位置错了只报位置
+}
+
+[Test]
+void test_native_on_class() {
+    Assert.Equal(1, nvCount(nvDiags("[Native(lib = \"m\")] class C { }"), "E0904"));
+}
+
+[Test]
+void test_native_on_field() {
+    Assert.Equal(1, nvCount(nvDiags("class C { [Native(\"__x\")] public int F; }"), "E0904"));
+}
+
+// ── E0907：[Native(...)] 形态 ───────────────────────────────────────────────
+
+[Test]
+void test_native_no_args() {
+    Assert.Equal(1, nvCount(nvDiags("class C { [Native] public static extern int X(); }"), "E0907"));
+}
+
+[Test]
+void test_native_empty_entry() {
+    Assert.Equal(1, nvCount(nvDiags("class C { [Native(\"\")] public static extern int X(); }"), "E0907"));
+}
+
+[Test]
+void test_native_unknown_key() {
+    var d = nvDiags("class C { [Native(lib = \"m\", name = \"__x\")] public static extern int X(); }");
+    Assert.Equal(1, nvCount(d, "E0907"));
+    Assert.Equal(true, nvMsg(d, "E0907").Contains("`name`"));
+}
+
+[Test]
+void test_native_non_literal_value() {
+    Assert.Equal(1, nvCount(nvDiags("class C { [Native(entry = K.N)] public static extern int X(); }"), "E0907"));
+}
+
+[Test]
+void test_native_positional_not_string() {
+    Assert.Equal(1, nvCount(nvDiags("class C { [Native(42)] public static extern int X(); }"), "E0907"));
+}
+
+[Test]
+void test_native_missing_entry() {
+    Assert.Equal(1, nvCount(nvDiags("class C { [Native(lib = \"m\")] public static extern int X(); }"), "E0907"));
+}
+
+[Test]
+void test_native_entry_twice() {
+    Assert.Equal(1, nvCount(nvDiags("class C { [Native(\"__a\", entry = \"__b\")] public static extern int X(); }"), "E0907"));
+}
+
+[Test]
+void test_native_type_without_lib() {
+    var d = nvDiags("class C { [Native(type = \"T\", entry = \"e\")] public static extern int X(); }");
+    Assert.Equal(1, nvCount(d, "E0907"));
+    Assert.Equal(true, nvMsg(d, "E0907").Contains("`lib`"));
+}
+
+[Test]
+void test_native_twice() {
+    Assert.Equal(1, nvCount(nvDiags("class C { [Native(\"__a\")] [Native(\"__b\")] public static extern int X(); }"), "E0907"));
+}
