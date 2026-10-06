@@ -242,7 +242,7 @@ Suppose `z42.net` wants to follow this pattern. Steps:
    `bundled-compression`) for wasm / mobile static link
 5. Update the `./xtask package` desktop / iOS / Android
    paths to build + ship `libz42_net.*`
-6. CI `Verify package manifest` step asserts the new lib is present
+6. Extend the package layout gate (`scripts/package/xtask_package_layout.z42`) to assert the new lib ships
 7. z42 facade uses `[Native(lib="z42_net", entry="__socket_connect")]`
    (etc.)
 

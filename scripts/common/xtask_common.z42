@@ -733,3 +733,12 @@ bool _have(string bin) {
         return true;
     } catch (Exception e) { return false; }
 }
+
+// stdout of a command, trimmed; "" on failure.
+string _cmdOut(string bin, string[] args) {
+    try {
+        ProcessResult r = new Process(bin).Args(args).Stderr(Stdio.Null()).Run();
+        if (r.ExitCode != 0) { return ""; }
+        return r.Stdout.Trim();
+    } catch (Exception e) { return ""; }
+}

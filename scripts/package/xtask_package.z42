@@ -28,12 +28,15 @@ string _pkgSetupDir(string root, string rid, string version, string profile, str
     // 拷贝点脱钩」，三个平台的 package job 全红。空目录消失后该判据重新成立。
     return pkgDir;
 }
-// source-identity check + success message on an assembled pkgDir.
-int _pkgFinish(string root, string pkgDir) {
+// 组装完的包过两道门：source-identity（包内拷贝 == 仓库源）+ 包结构（xtask_package_layout.z42）。
+// kind / rid 选结构断言：sdk | runtime | tooling（见 _pkgLayoutCheck）。
+int _pkgFinish(string root, string pkgDir, string kind, string rid) {
     Console.WriteLine("");
     Console.WriteLine("source-identity check (package copies vs repo source):");
     int c = _pkgSourceIdentityCheck(root, pkgDir);
     if (c != 0) { ConsoleError.WriteLine("  ✗ source-identity check FAILED"); return c; }
+    c = _pkgLayoutCheck(root, pkgDir, kind, rid);
+    if (c != 0) { return c; }
     Console.WriteLine("");
     Console.WriteLine("✅ Package assembled: " + pkgDir);
     PackageOutputs.Note(pkgDir);
@@ -52,7 +55,7 @@ int _packageSdk(string profile, string variant, bool noBuild) {
     if (version.Length == 0) { ConsoleError.WriteLine("error: versions.toml [project].version missing"); return 1; }
     string pkgDir = _pkgSetupDir(root, rid, version, profile, variant);
     int c = _packageDesktop(root, pkgDir, rid, version, profile, rid, noBuild); if (c != 0) { return c; }
-    c = _pkgFinish(root, pkgDir); if (c != 0) { return c; }
+    c = _pkgFinish(root, pkgDir, "sdk", rid); if (c != 0) { return c; }
     _procEnd("package sdk", sw); return 0;
 }
 
@@ -80,7 +83,7 @@ int _packageRuntime(string rid, string profile, string variant, bool noBuild) {
     else if (category == "wasm")    { c = _packageWasm(root, pkgDir, rid, version, profile, hostRid); }
     else { ConsoleError.WriteLine("package runtime: unknown category '" + category + "' for rid " + rid); return 2; }
     if (c != 0) { return c; }
-    c = _pkgFinish(root, pkgDir); if (c != 0) { return c; }
+    c = _pkgFinish(root, pkgDir, "tooling", rid); if (c != 0) { return c; }
     _procEnd("package runtime", sw); return 0;
 }
 
@@ -126,7 +129,7 @@ int _buildPackageCore(string profile, string rid, string variant, bool noBuild) 
         return 2;
     }
     if (c != 0) { return c; }
-    return _pkgFinish(root, pkgDir);
+    return _pkgFinish(root, pkgDir, category == "desktop" ? "sdk" : "tooling", rid);
 }
 
 // ── RID + version helpers ───────────────────────────────────────────────────

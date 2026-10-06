@@ -65,7 +65,7 @@ int _buildRuntimePackageWasm(string root, string rid, string version, string pro
     // （fix-package-gates-false-red, 2026-09-06）。desktop 的 runtime pack 已于 #508
     // 接上，ios/android/wasm 当时漏了：它们的 workload pack 跑了门却一个
     // source-derived 文件都没装，真装了的这个包反而从未被检查。
-    return _pkgFinish(root, pkgDir);
+    return _pkgFinish(root, pkgDir, "runtime", rid);
 }
 
 // ── workload tooling: js/ facade + package.json (runtime pkg-* symlinked at install) ──

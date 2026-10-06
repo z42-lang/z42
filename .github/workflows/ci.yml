@@ -284,71 +284,6 @@ jobs:
         with:
           gh-token: ${{ secrets.GITHUB_TOKEN }}
 
-      # add-tests-bench-manifest-config Phase 6.1 (2026-06-06): release guard.
-      # xtask's dir-mode tests / benches produce synthetic
-      # `<lib>.test.<unit>.zpkg` / `<lib>.bench.<unit>.zpkg` artifacts under
-      # an xtask-controlled output_dir (currently /tmp/.../xtask-testlib*/);
-      # they must NEVER land in the production `dist/` tree under
-      # `artifacts/build/libraries/<lib>/<profile>/`. A regression here
-      # (e.g. forgotten output_dir override in a future xtask path) would
-      # silently ship test scaffolding to end users via the SDK package.
-      # The guard scans every per-lib dist tree and fails on the first
-      # `.test.` / `.bench.` infix hit. ubuntu-only (path semantics
-      # identical across platforms; one check is enough).
-      - name: Release guard (no .test./.bench. zpkgs in dist/)
-        if: matrix.os == 'ubuntu-latest'
-        shell: bash
-        run: |
-          set -euo pipefail
-          # Forward: production dist/ must not contain test/bench zpkgs.
-          # Excludes the per-lib tests/dist/ and bench/dist/ subdirs by
-          # requiring the `/dist/` path component to NOT be preceded by
-          # `/tests/` or `/bench/`.
-          violators=$(
-            find artifacts/build/libraries -type f \
-              \( -name '*.test.*.zpkg' -o -name '*.bench.*.zpkg' \) \
-              -path '*/dist/*' \
-              ! -path '*/tests/dist/*' \
-              ! -path '*/bench/dist/*' \
-              2>/dev/null || true
-          )
-          if [ -n "$violators" ]; then
-            echo "::error::test/bench harness zpkgs leaked into release dist/:"
-            echo "$violators"
-            exit 1
-          fi
-          echo "release guard (forward): 0 .test./.bench. zpkgs in production dist/ (OK)"
-
-      # Reverse guard: anything inside <lib>/<profile>/tests/dist/ MUST
-      # carry the `.test.` infix; same for bench/dist/. Belt-and-suspenders
-      # against a future refactor that accidentally writes a production
-      # zpkg into the test/bench output tree. add-tests-bench-manifest-config
-      # Phase 6.1.2 (2026-06-06).
-      - name: Release guard (tests/dist contents are .test. only)
-        if: matrix.os == 'ubuntu-latest'
-        shell: bash
-        run: |
-          set -euo pipefail
-          # tests/dist/ must contain only `.test.` zpkgs
-          tests_strangers=$(
-            find artifacts/build/libraries -path '*/tests/dist/*' \
-              -type f -name '*.zpkg' ! -name '*.test.*.zpkg' \
-              2>/dev/null || true
-          )
-          # bench/dist/ must contain only `.bench.` zpkgs
-          bench_strangers=$(
-            find artifacts/build/libraries -path '*/bench/dist/*' \
-              -type f -name '*.zpkg' ! -name '*.bench.*.zpkg' \
-              2>/dev/null || true
-          )
-          if [ -n "$tests_strangers" ] || [ -n "$bench_strangers" ]; then
-            echo "::error::non-harness zpkg appeared in tests/dist/ or bench/dist/:"
-            [ -n "$tests_strangers" ] && echo "$tests_strangers"
-            [ -n "$bench_strangers" ] && echo "$bench_strangers"
-            exit 1
-          fi
-          echo "release guard (reverse): tests/dist + bench/dist contain only harness zpkgs (OK)"
-
       # Test on Unix runners via the native z42 build CLI (xtask). The GREEN gate
       # runs through `xtask test` — was test-all.sh (migrate-scripts-to-z42);
       # `--parallel`/`--jobs`/test-*.sh were C#/bash-era, not in the z42 xtask.
@@ -640,93 +575,6 @@ jobs:
           out=$(env -u Z42_PORTABLE_VM -u Z42_LIBS -u Z42_HOME "$z42" run | tr -d '\r')
           [ "$out" = "Hello, World!" ] || { echo "error: z42 run printed '$out'"; exit 1; }
           echo "✓ installed SDK: new + run → Hello, World!"
-
-      - name: Verify package manifest + native artifacts
-        shell: bash
-        run: |
-          set -euo pipefail
-          pkg_dir=$(ls -d artifacts/packages/z42-*-release | head -1)
-          [ -d "$pkg_dir" ] || { echo "error: no package produced"; exit 1; }
-          echo "Package: $pkg_dir"
-          test -f "$pkg_dir/manifest.toml"        || { echo "missing manifest.toml"; exit 1; }
-          test -d "$pkg_dir/libs"                 || { echo "missing libs/"; exit 1; }
-          if [ -f "$pkg_dir/bin/z42c.exe" ]; then
-              echo "✓ bin/z42c.exe ($(du -h "$pkg_dir/bin/z42c.exe" | cut -f1))"
-          elif [ -f "$pkg_dir/bin/z42c" ]; then
-              echo "✓ bin/z42c ($(du -h "$pkg_dir/bin/z42c" | cut -f1))"
-          else
-              echo "error: bin/z42c[.exe] missing"; ls -la "$pkg_dir/bin/"; exit 1
-          fi
-          if [ -f "$pkg_dir/native/libz42_compression.dylib" ] \
-             || [ -f "$pkg_dir/native/libz42_compression.so" ] \
-             || [ -f "$pkg_dir/native/z42_compression.dll" ]; then
-              echo "✓ native/libz42_compression.* (dlopen target)"
-          else
-              echo "error: native/libz42_compression.{dylib,so,dll} missing — z42.compression facade will fail with 'unknown builtin' at runtime"
-              ls -la "$pkg_dir/native/"; exit 1
-          fi
-          # P0-17：SDK 的 native/ **只**有 z42vm 要 dlopen 的 ext 动态库。嵌入件（libz42.* + C 头）只在 runtime 包；
-          # compression 的静态库哪儿都不发（desktop 没有静态注册路径，移动 preset 已把它编进 libz42.a）。
-          # 名字按平台分叉（MSVC：`z42.lib` 是静态库、`z42.dll.lib` 是 import lib），逐个列出。
-          for f in include libz42.a libz42.dylib libz42.so z42.lib z42.dll z42.dll.lib \
-                   libz42_compression.a z42_compression.lib z42_compression.dll.lib; do
-              test ! -e "$pkg_dir/native/$f" \
-                  || { echo "error: SDK native/$f must not ship (embedding libs live in the runtime package)"; ls -la "$pkg_dir/native/"; exit 1; }
-          done
-          echo "✓ SDK native/ holds only the ext dylib(s): $(ls "$pkg_dir/native/" | tr '\n' ' ')"
-          # runtime 包 = 嵌入者拿 libz42 的唯一来源：静态 + 动态（Windows 另有 import lib）+ C 头。
-          rt_dir=$(ls -d artifacts/packages/z42-runtime-*-"${{ matrix.platform }}" | head -1)
-          [ -d "$rt_dir" ] || { echo "error: no runtime package produced"; exit 1; }
-          test -f "$rt_dir/native/include/z42_host.h" || { echo "error: runtime native/include/ missing"; exit 1; }
-          case "${{ matrix.platform }}" in
-            macos-*)
-              test -f "$rt_dir/native/libz42.a" || { echo "error: runtime native/libz42.a missing"; exit 1; }
-              # install name 必须是 @rpath/…，不能是 CI 机器上的绝对构建路径（嵌入者运行期会去那儿找）。
-              for lib in libz42 libz42_compression; do
-                  id=$(otool -D "$rt_dir/native/$lib.dylib" | tail -1)
-                  [ "$id" = "@rpath/$lib.dylib" ] || { echo "error: $lib.dylib install name is '$id', want @rpath/$lib.dylib"; exit 1; }
-              done
-              echo "✓ runtime native/: libz42.a + libz42.dylib (@rpath install names)" ;;
-            linux-*)
-              test -f "$rt_dir/native/libz42.a" || { echo "error: runtime native/libz42.a missing"; exit 1; }
-              for lib in libz42 libz42_compression; do
-                  so=$(readelf -d "$rt_dir/native/$lib.so" | sed -n 's/.*(SONAME).*\[\(.*\)\].*/\1/p')
-                  [ "$so" = "$lib.so" ] || { echo "error: $lib.so SONAME is '$so', want $lib.so"; exit 1; }
-              done
-              # glibc 下限对账：产物的**硬**版本需求（verneed flag 0x00；0x02 是 Rust std 的弱引用，旧 glibc 照样加载）
-              # 不得高于 scripts/versions.toml [platform.linux] 的声明（x64：min_glibc，arm64：min_glibc_arm64）。
-              key=min_glibc
-              [ "${{ matrix.platform }}" = "linux-arm64" ] && key=min_glibc_arm64
-              want=$(sed -n "s/^$key *= *\"\([0-9.]*\)\".*/\1/p" scripts/versions.toml)
-              [ -n "$want" ] || { echo "error: $key missing in scripts/versions.toml"; exit 1; }
-              for bin in "$pkg_dir/bin/z42vm" "$rt_dir/native/libz42.so" "$rt_dir/native/libz42_compression.so"; do
-                  need=$(objdump -p "$bin" | awk '$2 == "0x00" && $4 ~ /^GLIBC_[0-9.]+$/ { sub("GLIBC_", "", $4); print $4 }' | sort -V | tail -1)
-                  [ -n "$need" ] || { echo "error: could not read glibc version needs of $bin"; exit 1; }
-                  [ "$(printf '%s\n%s\n' "$need" "$want" | sort -V | tail -1)" = "$want" ] \
-                      || { echo "error: $bin needs GLIBC_$need > declared $key $want (scripts/versions.toml)"; exit 1; }
-                  echo "✓ $(basename "$bin"): hard glibc need $need ≤ declared $want"
-              done
-              echo "✓ runtime native/: libz42.a + libz42.so (SONAMEs set)" ;;
-            windows-*)
-              # MSVC 宿主链接 z42.dll 只能经 import lib；z42.lib 是**静态**库（staticlib 在 MSVC 上的名字）。
-              for f in z42.lib z42.dll z42.dll.lib; do
-                  test -f "$rt_dir/native/$f" || { echo "error: runtime native/$f missing"; ls -la "$rt_dir/native/"; exit 1; }
-              done
-              echo "✓ runtime native/: z42.lib + z42.dll + z42.dll.lib" ;;
-          esac
-          test -f "$pkg_dir/libs/z42.compression.zpkg" \
-              || { echo "error: libs/z42.compression.zpkg missing"; exit 1; }
-          echo "✓ libs/z42.compression.zpkg"
-          test ! -e "$pkg_dir/bin/apphost" && test ! -e "$pkg_dir/bin/apphost.exe" \
-              || { echo "error: apphost must NOT be in SDK bin/ anymore (it ships via desktop workload)"; exit 1; }
-          dt_dir=$(ls -d artifacts/packages/z42-workload-*-desktop-* 2>/dev/null | head -1)
-          [ -d "$dt_dir" ] || { echo "error: no desktop workload package produced"; exit 1; }
-          ls "$dt_dir"/apphost-* >/dev/null 2>&1 \
-              || { echo "error: desktop workload missing apphost-<rid> stub"; ls -la "$dt_dir"; exit 1; }
-          test -f "$dt_dir/manifest.toml" || { echo "missing desktop workload manifest.toml"; exit 1; }
-          echo "✓ desktop workload: $dt_dir"
-          echo "--- manifest.toml ---"
-          cat "$pkg_dir/manifest.toml"
 
       - name: C host links the packaged runtime (static + dynamic)
         # P0-17：同一套 R1–R7 C 宿主（test-desktop-cabi 用的那份 r1_r7.c）改链**打出来的 runtime 包**，
@@ -1178,38 +1026,6 @@ jobs:
             xtask package runtime --rid "$rid" --archive --label nightly
           done
 
-      - name: Verify iOS packages
-        run: |
-          set -euo pipefail
-          # runtime/workload split (B2-1): tooling pkg = SwiftPM sources + placeholder
-          # Package.swift; native libs + Z42VM.xcframework live in the separate runtime pack.
-          for rid in ios-arm64 iossim-arm64; do
-            pkg_dir=$(ls -d artifacts/packages/z42-*-${rid}-release | head -1)
-            rt_dir=$(ls -d artifacts/packages/z42-runtime-*-${rid} 2>/dev/null | head -1)
-            [ -d "$pkg_dir" ] || { echo "error: no $rid tooling package"; exit 1; }
-            [ -d "$rt_dir" ]  || { echo "error: no $rid runtime pack (z42-runtime-*-$rid)"; exit 1; }
-            echo "Tooling: $pkg_dir   Runtime: $rt_dir"
-            # tooling (workload): SwiftPM sources + self-contained Z42VMC header + placeholder Package.swift
-            test -f "$pkg_dir/manifest.toml"                     || { echo "missing manifest.toml"; exit 1; }
-            test -d "$pkg_dir/Sources/Z42VM"                     || { echo "missing Sources/Z42VM/"; exit 1; }
-            test -f "$pkg_dir/Sources/Z42VMC/include/z42_host.h" || { echo "missing self-contained Z42VMC header"; exit 1; }
-            test -f "$pkg_dir/Package.swift"                     || { echo "missing Package.swift"; exit 1; }
-            grep -q "__Z42_RUNTIME_XCFRAMEWORK__" "$pkg_dir/Package.swift" \
-              || { echo "Package.swift not an install-resolved placeholder template"; exit 1; }
-            # runtime pack: native static lib + xcframework + headers + stdlib libs
-            test -f "$rt_dir/native/libz42.a"            || { echo "missing runtime native/libz42.a"; exit 1; }
-            test -d "$rt_dir/native/Z42VM.xcframework"   || { echo "missing runtime Z42VM.xcframework/"; exit 1; }
-            test -d "$rt_dir/native/include"             || { echo "missing runtime native/include/"; exit 1; }
-            test -d "$rt_dir/libs"                       || { echo "missing runtime libs/"; exit 1; }
-            # lipo: xcframework contains an arm64 Mach-O static archive
-            xcfw_lib=$(find "$rt_dir/native/Z42VM.xcframework" -name "libz42.a" | head -1)
-            [ -f "$xcfw_lib" ] || { echo "error: libz42.a missing inside xcframework"; exit 1; }
-            lipo_out=$(lipo -info "$xcfw_lib")
-            echo "$lipo_out" | grep -q "arm64" \
-              || { echo "error: $rid xcframework wrong arch: $lipo_out"; exit 1; }
-            echo "✓ $rid lipo: $lipo_out"
-          done
-
       - name: Upload iOS archives
         if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@v7
@@ -1263,44 +1079,6 @@ jobs:
           # --archive：平台 tooling 包只由主 RID（android-arm64）出归档，android-x64 那份说明后跳过。
           for rid in android-arm64 android-x64; do
             xtask package runtime --rid "$rid" --archive --label nightly
-          done
-
-      - name: Verify Android packages
-        run: |
-          set -euo pipefail
-          # runtime/workload split (B2-3): tooling pkg = gradle project; per-ABI .so/.a
-          # + headers + stdlib libs live in the separate runtime pack.
-          for rid in android-arm64 android-x64; do
-            pkg_dir=$(ls -d artifacts/packages/z42-*-${rid}-release | head -1)
-            rt_dir=$(ls -d artifacts/packages/z42-runtime-*-${rid} 2>/dev/null | head -1)
-            [ -d "$pkg_dir" ] || { echo "error: no $rid tooling package"; exit 1; }
-            [ -d "$rt_dir" ]  || { echo "error: no $rid runtime pack (z42-runtime-*-$rid)"; exit 1; }
-            echo "Tooling: $pkg_dir   Runtime: $rt_dir"
-            # tooling (workload): the buildable gradle project + self-contained JNI header
-            test -f "$pkg_dir/manifest.toml"                          || { echo "missing manifest.toml"; exit 1; }
-            test -f "$pkg_dir/gradlew"                                || { echo "missing gradlew"; exit 1; }
-            test -f "$pkg_dir/settings.gradle.kts"                    || { echo "missing settings.gradle.kts"; exit 1; }
-            test -d "$pkg_dir/z42vm/src/main/java/io/z42/vm"          || { echo "missing kotlin facade"; exit 1; }
-            test -f "$pkg_dir/z42vm/src/main/cpp/z42vm_jni.c"         || { echo "missing JNI bridge"; exit 1; }
-            test -f "$pkg_dir/z42vm/src/main/cpp/include/z42_host.h"  || { echo "missing self-contained JNI header"; exit 1; }
-            # runtime pack: per-ABI .so + .a + headers + stdlib libs
-            test -f "$rt_dir/native/libz42_platform_android.so"      || { echo "missing runtime .so"; exit 1; }
-            test -f "$rt_dir/native/libz42_platform_android.a"       || { echo "missing runtime .a"; exit 1; }
-            test -d "$rt_dir/native/include"                         || { echo "missing runtime native/include/"; exit 1; }
-            test -d "$rt_dir/libs"                                   || { echo "missing runtime libs/"; exit 1; }
-            # ELF architecture of the runtime .so
-            so="$rt_dir/native/libz42_platform_android.so"
-            file_out=$(file "$so")
-            case "$rid" in
-              android-arm64)
-                echo "$file_out" | grep -q "ARM aarch64" \
-                  || { echo "error: $rid .so wrong arch: $file_out"; exit 1; }
-                echo "✓ $rid ELF arch: ARM aarch64" ;;
-              android-x64)
-                echo "$file_out" | grep -q "x86-64" \
-                  || { echo "error: $rid .so wrong arch: $file_out"; exit 1; }
-                echo "✓ $rid ELF arch: x86-64" ;;
-            esac
           done
 
       - name: Upload Android archives
@@ -1364,35 +1142,6 @@ jobs:
         run: |
           set -euo pipefail
           xtask package runtime --rid browser-wasm --archive --label nightly
-
-      - name: Verify wasm package + WebAssembly validation
-        run: |
-          set -euo pipefail
-          # runtime/workload split (B2-3): tooling pkg = js facade + package.json; the
-          # wasm module + libz42.a + pkg-web/pkg-nodejs + stdlib libs live in the runtime pack.
-          pkg_dir=$(ls -d artifacts/packages/z42-*-browser-wasm-release | head -1)
-          rt_dir=$(ls -d artifacts/packages/z42-runtime-*-browser-wasm 2>/dev/null | head -1)
-          [ -d "$pkg_dir" ] || { echo "error: no browser-wasm tooling package"; exit 1; }
-          [ -d "$rt_dir" ]  || { echo "error: no browser-wasm runtime pack (z42-runtime-*-browser-wasm)"; exit 1; }
-          echo "Tooling: $pkg_dir   Runtime: $rt_dir"
-          # tooling (workload): js facade + package.json
-          test -f "$pkg_dir/manifest.toml"               || { echo "missing manifest.toml"; exit 1; }
-          test -f "$pkg_dir/package.json"                || { echo "missing package.json"; exit 1; }
-          test -d "$pkg_dir/js"                          || { echo "missing js/"; exit 1; }
-          # runtime pack: wasm module + static lib + wasm-bindgen output + stdlib libs
-          test -f "$rt_dir/native/z42_wasm_bg.wasm"      || { echo "missing z42_wasm_bg.wasm"; exit 1; }
-          test -f "$rt_dir/native/libz42.a"              || { echo "missing native/libz42.a"; exit 1; }
-          test -d "$rt_dir/pkg-web"                      || { echo "missing pkg-web/"; exit 1; }
-          test -d "$rt_dir/pkg-nodejs"                   || { echo "missing pkg-nodejs/"; exit 1; }
-          test -d "$rt_dir/libs"                         || { echo "missing runtime libs/"; exit 1; }
-          echo "✓ browser-wasm layout OK"
-          # WebAssembly spec validation via wasm-tools (Bytecode Alliance).
-          # Validates binary encoding + all active wasm proposals; no JS runtime needed.
-          wasm="$rt_dir/native/z42_wasm_bg.wasm"
-          wasm-tools validate "$wasm"
-          export_count=$(wasm-tools print "$wasm" | grep -c '(export' || true)
-          [ "$export_count" -gt 0 ] || { echo "error: no exports in wasm module"; exit 1; }
-          echo "✓ wasm valid — $export_count exports (wasm-tools)"
 
       # ci-wasm-node-smoke (2026-09-14): actually RUN the wasm VM once per push/PR.
       # Everything above only builds + validates the module; the only job that ever

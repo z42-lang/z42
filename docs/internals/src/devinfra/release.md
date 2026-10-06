@@ -113,6 +113,8 @@ Z42_RUNTIME_DIR=artifacts/packages/z42-runtime-<version>-<rid> ./xtask test app 
 的目标路径存在却没有文件可比，都直接 exit 1。规则表与设计取舍见[打包引擎 §5](packaging.md)。
 **跨包 byte-identical 是它的推论**：`libs/` 与 `native/include/` 在每个包里都拷自同一份仓库源，
 `A==源 ∧ B==源 ⟹ A==B`——所以不需要（也做不到，各包在独立进程 / 独立 CI job 里打）两两比对。
+紧接着是**包结构门**：该有的文件在、不该发的不在、原生库的 install name / SONAME / 架构 / glibc 下限对
+（逐类断言见[打包引擎 §5.1](packaging.md)）。两道门本地打包与 CI 跑的是同一份。
 
 装好的包还可以整包验：`./xtask test package [interp|jit]` 在打包出的发行版上跑发行包夹具 + golden。
 

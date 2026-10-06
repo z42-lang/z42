@@ -177,11 +177,29 @@ graph LR
 门跑在 SDK pack、desktop runtime pack，以及 ios/android/wasm 的 **runtime pack 与 workload pack** 上。
 移动端/wasm 的 runtime pack 才是 `libs/` + `native/include/` 的真正落点。
 
+### 5.1 包结构门：该有的在、不该有的不在、原生产物形态对
+
+source-identity 只比「拷进来的东西和源一不一致」，管不到「该拷的拷没拷、不该发的发没发、编出来的原生库
+形态对不对」。这些由 `_pkgLayoutCheck`（`scripts/package/xtask_package_layout.z42`）在同一个 `_pkgFinish` 里
+接着判，桌面 workload 在生成处判；逐项打印 ✓ / ✗，一次报全。按包种类：
+
+| 包 | 断言 |
+|---|---|
+| 桌面 SDK | `manifest.toml`、`libs/`、`bin/z42c[.exe]`、ext 动态库 `libz42_compression.*` 与 `libs/z42.compression.zpkg` 在；嵌入件（`libz42.*`、`z42*.lib/dll`、C 头）与 apphost **不在**（只随 runtime 包 / 桌面 workload 发）；Linux 上 `bin/z42vm` 的硬 glibc 需求 ≤ `versions.toml` 声明 |
+| 桌面 runtime | C 头在；macOS `libz42.a` + 两个 dylib 的 install name 是 `@rpath/…`（`otool -D`）；Linux `libz42.a` + 两个 `.so` 的 SONAME 正确（`readelf -d`）且硬 glibc 需求不超声明（`objdump -p`，只看 verneed flag `0x00`，`0x02` 是 Rust std 的弱引用）；Windows `z42.lib` / `z42.dll` / `z42.dll.lib` |
+| 桌面 workload | `manifest.toml` + `apphost-<rid>` |
+| iOS | tooling：SwiftPM 源码、自包含 Z42VMC 头、带 `__Z42_RUNTIME_XCFRAMEWORK__` 占位的 `Package.swift`；runtime：`libz42.a`、`Z42VM.xcframework`（内含的 `libz42.a` 是 arm64，`lipo -info`）、头、`libs/` |
+| Android | tooling：gradle 工程（`gradlew`、`settings.gradle.kts`、Kotlin 门面、JNI 桥与头）；runtime：`libz42_platform_android.{so,a}`（`.so` 架构对，`file`）、头、`libs/` |
+| wasm | tooling：`package.json`、`js/`；runtime：`z42_wasm_bg.wasm`（`wasm-tools validate` 通过且有导出）、`libz42.a`、`pkg-web/`、`pkg-nodejs/`、`libs/` |
+
+读外部工具输出失败即判红并提示该装什么——「没装就跳过」等于没有门。
+
 ## 6. 实现分布
 
 | 组件 | 位置 | 要点 |
 |---|---|---|
-| 顶层分发（按 RID）| `scripts/package/xtask_package.z42` | desktop / ios / android / wasm 四管道；`_pkgFinish` = manifest + identity 门 |
+| 顶层分发（按 RID）| `scripts/package/xtask_package.z42` | desktop / ios / android / wasm 四管道；`_pkgFinish` = identity 门 + 结构门 |
+| 包结构门 | `xtask_package_layout.z42` | `_pkgLayoutCheck(root, pkgDir, kind, rid)`，见 §5.1 |
 | 清单解析 | `xtask_packages_config.z42` | `[package.*]` + `[component.*]` 读取、include 名解析 |
 | 组件安装 | `xtask_package_install.z42` | `_pkgInstallPackage`：按 include 逐组件、按 kind 分派直接装进包目录（cargo-bin / cargo-native / cargo-native-ext / stdlib-glob / editor-assets 拷贝；apphost `z42b publish --output`）|
 | desktop 管道 | `xtask_package_desktop.z42` | SDK 分段组装 |
