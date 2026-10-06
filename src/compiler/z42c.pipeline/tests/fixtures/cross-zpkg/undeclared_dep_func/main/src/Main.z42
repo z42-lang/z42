@@ -1,0 +1,9 @@
+namespace Demo.UndeclaredApp;
+
+using Demo.Undeclared;
+
+// 只调用第三方包的自由函数 —— 自由函数没有 FQN 视图，不进 ClassPkgAll。
+void Main() {
+    int x = Helper();
+    if (x != 7) { }
+}

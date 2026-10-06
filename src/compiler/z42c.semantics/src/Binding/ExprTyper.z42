@@ -99,7 +99,7 @@ public sealed partial class ExprTyper {
                 // 方法组转换：自由函数名作值（`IntFn0 a = Helper`）→ func 引用（LoadFn）。
                 string mfns = env.Symbols.ResolveFuncNs(id.Name);   // resolve-free-functions-by-namespace
                 if (mfns != null) {
-                    env.Symbols.NoteUse(mfns); env.Symbols.NoteDepUse(mfns, env.Symbols.ImportedFuncPkgOf(id.Name, mfns));   // 函数引用（方法组）：用到的 ns + 归属包
+                    this._tc.NoteFuncRef(env.Symbols, id.Name, mfns, id.Span);   // 函数引用（方法组）：用到的 ns + 归属包 + E0497
                     // add-target-typed-funcref-resolution：此路径**无目标委托类型**（`var f = Overloaded;` /
                     // 表达式语句 / 非委托目标）。多重载在此无从消解 → E0425；有目标位（赋值/声明/return/字段初始化/实参）
                     // 走 `BindWithTarget` 的 `_bindFuncRefTargeted` 按委托签名精确选中。恰一份时直接取用。
