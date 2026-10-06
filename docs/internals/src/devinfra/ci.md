@@ -85,16 +85,18 @@ PR 的 xtask，而 xtask 的 `_root()` 取 cwd 的仓库根 = base-src（base �
 
 | 事件 | 行为 |
 |---|---|
-| `pull_request` / `push` to main | `paths-ignore` 只有 `.claude/**`——**纯文档改动照样跑 CI**，但 PR 上走快速通道（见下） |
+| `pull_request` / `push` to main | `paths-ignore` 只有 `.claude/**`——**纯文档改动照样跑 CI**，但走快速通道（见下） |
 | `schedule`（每日 16:00 UTC） | 无条件全跑，外加只在这里跑的 Tier-2 平台测试 |
 | `workflow_dispatch` | 无条件全跑；格式 bump 后手动重发 nightly 的逃生口 |
 
-**纯文档快速通道**：PR 的改动**全部**是 `docs/**` 或 `*.md`（`docs/learn/**`、`examples/**` 除外——学习手册的
-示例会被重放）时，`detect-changes` 输出 `docs_only=true`，只跑 `docs-check`：ci-bootstrap 的 `xtask-only`
+**纯文档快速通道**：改动**全部**是 `docs/**` 或 `*.md`（`docs/learn/**`、`examples/**` 除外——学习手册的
+示例会被重放）时，`detect-changes` 输出 `docs_only=true`，只跑 `docs-check`。改动集合：PR 取 PR 的文件列表，
+main push 取 `before...sha` 的 compare（新分支的全零 `before`、API 失败、到 compare 的 300 文件上限 ⇒ 当作非纯文档）。
+`docs-check` 的内容：ci-bootstrap 的 `xtask-only`
 模式（种子 z42c 只编出 xtask，省掉 build compiler / stdlib）+ `xtask test docs links`（相对链接 + gate stage 清单
 ↔ `test-gate.md`）+ `xtask check diagcodes`（诊断码 ↔ `error-codes.md`）。读文档的门禁就这几道。
-`test-host` ×4 与 toolchain 链（`compile-toolchain` → `compile-test-assets` / `test-consume`）随之 skip。
-push / schedule / dispatch 不走快速通道。
+`test-host` ×4 与 toolchain 链（`compile-toolchain` → `compile-test-assets` / `test-consume`）随之 skip；
+main push 上 `publish-nightly` 也随之不跑（纯文档本来就不影响 SDK，见下节的 `sdk` 判定）。schedule / dispatch 不走快速通道。
 
 ### main 上的运行不互相打断
 
@@ -160,9 +162,9 @@ job 的 **key**（`needs:` 用的）与 **display 名**（分支保护的 requir
 | display 名 | job key | 门控 | 矩阵 |
 |---|---|---|---|
 | `detect-changes` | `changes` | 总跑 | — |
-| `docs-check(linux-x64)` | `docs-check` | **仅**纯文档 PR | — |
-| `test-host(<plat>)` | `build-and-test` | 非纯文档 PR | linux-x64 / linux-arm64 / macos-arm64 / windows-x64 |
-| `compile-toolchain(linux-x64)` | `toolchain-bootstrap` | 非纯文档 PR | — |
+| `docs-check(linux-x64)` | `docs-check` | **仅**纯文档改动（PR / main push） | — |
+| `test-host(<plat>)` | `build-and-test` | 非纯文档改动 | linux-x64 / linux-arm64 / macos-arm64 / windows-x64 |
+| `compile-toolchain(linux-x64)` | `toolchain-bootstrap` | 非纯文档改动 | — |
 | `compile-test-assets(linux-x64)` | `assemble-current-sdk` | 随 `compile-toolchain` | — |
 | `test-consume(linux-x64)` | `consume-current-sdk` | 随 `compile-test-assets` | — |
 | `test-vm-jit(linux-x64) shard k` | `vm-jit-consistency` | `vm ‖ compiler` | 2 shard |
