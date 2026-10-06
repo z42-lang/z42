@@ -28,7 +28,7 @@ use std::sync::atomic::AtomicU32;
 use std::sync::{Arc, OnceLock};
 
 /// Per-function lazy-init cache populated by `resolve_module`. Stored on
-/// `Function.resolved: OnceLock<ResolvedTokens>` (`#[serde(skip)]`).
+/// `Function.resolved: OnceLock<ResolvedTokens>`.
 ///
 /// Layout: each token-kind has its own `Vec` indexed by **per-kind site
 /// index** (Call sites are numbered 0..N independently of Builtin sites).

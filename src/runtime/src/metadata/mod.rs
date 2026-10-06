@@ -24,7 +24,6 @@ pub mod name_index;
 /// upcoming REGT zbc section.
 pub mod ir_type;
 pub mod bytecode;
-mod bytecode_serde;
 pub mod superinstr;
 pub mod context;
 pub mod formats;

@@ -119,8 +119,8 @@ nightly `test-wasm-browser` 能照出来。典型场景：time builtins、GC `no
 
 ## 序列化
 
-- `Module`、`Function`、`Instruction` 等持久化类型必须 `#[derive(Serialize, Deserialize)]`
-- `.zbc` / `.zpkg` 由 `metadata/zbc_reader` 手写解码（规格见 internals 的 formats 部分），不经 serde
+- `.zbc` / `.zpkg` 由 `metadata/zbc_reader` 手写解码（规格见 internals 的 formats 部分）；
+  `Module` / `Function` / `Instruction` 等 IR 类型不 derive serde——它们只从 zbc 解码而来，没有文本往返
 
 ## 资源加载顺序
 

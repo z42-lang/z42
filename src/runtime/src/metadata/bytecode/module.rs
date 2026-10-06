@@ -5,27 +5,22 @@
 use super::*;
 use crate::metadata::tokens::TypeId;
 use crate::metadata::types::{ExecMode, TypeDesc};
-use crate::metadata::bytecode_serde::{typed_reg_serde, typed_reg_vec_serde, typed_reg_opt_serde};
-use serde::{Deserialize, Serialize};
 use rustc_hash::FxHashMap;
 use std::sync::Arc;
 
 /// Top-level bytecode module.
 /// Loaded from `.zbc` binary (or legacy `.z42ir.json`).
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug)]
 pub struct Module {
     pub name: String,
     pub string_pool: Vec<String>,
-    #[serde(default)]
     pub classes: Vec<ClassDesc>,
     pub functions: Vec<Function>,
     /// Pre-built type descriptor registry — populated by the loader after
     /// deserialisation, not stored on disk.  Maps fully-qualified class name
     /// to the corresponding `TypeDesc` (field layout + vtable).
-    #[serde(skip)]
     pub type_registry: FxHashMap<String, Arc<TypeDesc>>,
     /// Pre-built function name → index mapping for O(1) call dispatch.
     /// Populated by the loader after deserialisation.
-    #[serde(skip)]
     pub func_index: FxHashMap<String, usize>,
 }

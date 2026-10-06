@@ -5,8 +5,6 @@
 use super::*;
 use crate::metadata::tokens::TypeId;
 use crate::metadata::types::{ExecMode, TypeDesc};
-use crate::metadata::bytecode_serde::{typed_reg_serde, typed_reg_vec_serde, typed_reg_opt_serde};
-use serde::{Deserialize, Serialize};
 use rustc_hash::FxHashMap;
 use std::sync::Arc;
 
@@ -93,155 +91,154 @@ impl Instruction {
 /// Register fields accept both plain integers (`42`) and TypedReg objects
 /// (`{"id": 42, "type": "i32"}`) during JSON deserialization for backward
 /// compatibility with both old and new compiler output.
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(tag = "op", rename_all = "snake_case")]
+#[derive(Debug)]
 pub enum Instruction {
     // Constants
-    ConstStr  { #[serde(with = "typed_reg_serde")] dst: Reg, idx: u32 },
-    ConstI32  { #[serde(with = "typed_reg_serde")] dst: Reg, val: i32 },
-    ConstI64  { #[serde(with = "typed_reg_serde")] dst: Reg, val: i64 },
-    ConstF64  { #[serde(with = "typed_reg_serde")] dst: Reg, val: f64 },
-    ConstBool { #[serde(with = "typed_reg_serde")] dst: Reg, val: bool },
-    ConstChar { #[serde(with = "typed_reg_serde")] dst: Reg, val: char },
-    ConstNull { #[serde(with = "typed_reg_serde")] dst: Reg },
+    ConstStr  { dst: Reg, idx: u32 },
+    ConstI32  { dst: Reg, val: i32 },
+    ConstI64  { dst: Reg, val: i64 },
+    ConstF64  { dst: Reg, val: f64 },
+    ConstBool { dst: Reg, val: bool },
+    ConstChar { dst: Reg, val: char },
+    ConstNull { dst: Reg },
     Copy {
-        #[serde(with = "typed_reg_serde")] dst: Reg,
-        #[serde(with = "typed_reg_serde")] src: Reg,
+        dst: Reg,
+        src: Reg,
     },
     // Arithmetic
     Add {
-        #[serde(with = "typed_reg_serde")] dst: Reg,
-        #[serde(with = "typed_reg_serde")] a: Reg,
-        #[serde(with = "typed_reg_serde")] b: Reg,
+        dst: Reg,
+        a: Reg,
+        b: Reg,
     },
     Sub {
-        #[serde(with = "typed_reg_serde")] dst: Reg,
-        #[serde(with = "typed_reg_serde")] a: Reg,
-        #[serde(with = "typed_reg_serde")] b: Reg,
+        dst: Reg,
+        a: Reg,
+        b: Reg,
     },
     Mul {
-        #[serde(with = "typed_reg_serde")] dst: Reg,
-        #[serde(with = "typed_reg_serde")] a: Reg,
-        #[serde(with = "typed_reg_serde")] b: Reg,
+        dst: Reg,
+        a: Reg,
+        b: Reg,
     },
     Div {
-        #[serde(with = "typed_reg_serde")] dst: Reg,
-        #[serde(with = "typed_reg_serde")] a: Reg,
-        #[serde(with = "typed_reg_serde")] b: Reg,
+        dst: Reg,
+        a: Reg,
+        b: Reg,
     },
     Rem {
-        #[serde(with = "typed_reg_serde")] dst: Reg,
-        #[serde(with = "typed_reg_serde")] a: Reg,
-        #[serde(with = "typed_reg_serde")] b: Reg,
+        dst: Reg,
+        a: Reg,
+        b: Reg,
     },
     // Comparison
     Eq {
-        #[serde(with = "typed_reg_serde")] dst: Reg,
-        #[serde(with = "typed_reg_serde")] a: Reg,
-        #[serde(with = "typed_reg_serde")] b: Reg,
+        dst: Reg,
+        a: Reg,
+        b: Reg,
     },
     Ne {
-        #[serde(with = "typed_reg_serde")] dst: Reg,
-        #[serde(with = "typed_reg_serde")] a: Reg,
-        #[serde(with = "typed_reg_serde")] b: Reg,
+        dst: Reg,
+        a: Reg,
+        b: Reg,
     },
     Lt {
-        #[serde(with = "typed_reg_serde")] dst: Reg,
-        #[serde(with = "typed_reg_serde")] a: Reg,
-        #[serde(with = "typed_reg_serde")] b: Reg,
+        dst: Reg,
+        a: Reg,
+        b: Reg,
     },
     Le {
-        #[serde(with = "typed_reg_serde")] dst: Reg,
-        #[serde(with = "typed_reg_serde")] a: Reg,
-        #[serde(with = "typed_reg_serde")] b: Reg,
+        dst: Reg,
+        a: Reg,
+        b: Reg,
     },
     Gt {
-        #[serde(with = "typed_reg_serde")] dst: Reg,
-        #[serde(with = "typed_reg_serde")] a: Reg,
-        #[serde(with = "typed_reg_serde")] b: Reg,
+        dst: Reg,
+        a: Reg,
+        b: Reg,
     },
     Ge {
-        #[serde(with = "typed_reg_serde")] dst: Reg,
-        #[serde(with = "typed_reg_serde")] a: Reg,
-        #[serde(with = "typed_reg_serde")] b: Reg,
+        dst: Reg,
+        a: Reg,
+        b: Reg,
     },
     // Logical
     And {
-        #[serde(with = "typed_reg_serde")] dst: Reg,
-        #[serde(with = "typed_reg_serde")] a: Reg,
-        #[serde(with = "typed_reg_serde")] b: Reg,
+        dst: Reg,
+        a: Reg,
+        b: Reg,
     },
     Or {
-        #[serde(with = "typed_reg_serde")] dst: Reg,
-        #[serde(with = "typed_reg_serde")] a: Reg,
-        #[serde(with = "typed_reg_serde")] b: Reg,
+        dst: Reg,
+        a: Reg,
+        b: Reg,
     },
     Not {
-        #[serde(with = "typed_reg_serde")] dst: Reg,
-        #[serde(with = "typed_reg_serde")] src: Reg,
+        dst: Reg,
+        src: Reg,
     },
     // Unary arithmetic
     Neg {
-        #[serde(with = "typed_reg_serde")] dst: Reg,
-        #[serde(with = "typed_reg_serde")] src: Reg,
+        dst: Reg,
+        src: Reg,
     },
     // Bitwise
     BitAnd {
-        #[serde(with = "typed_reg_serde")] dst: Reg,
-        #[serde(with = "typed_reg_serde")] a: Reg,
-        #[serde(with = "typed_reg_serde")] b: Reg,
+        dst: Reg,
+        a: Reg,
+        b: Reg,
     },
     BitOr {
-        #[serde(with = "typed_reg_serde")] dst: Reg,
-        #[serde(with = "typed_reg_serde")] a: Reg,
-        #[serde(with = "typed_reg_serde")] b: Reg,
+        dst: Reg,
+        a: Reg,
+        b: Reg,
     },
     BitXor {
-        #[serde(with = "typed_reg_serde")] dst: Reg,
-        #[serde(with = "typed_reg_serde")] a: Reg,
-        #[serde(with = "typed_reg_serde")] b: Reg,
+        dst: Reg,
+        a: Reg,
+        b: Reg,
     },
     BitNot {
-        #[serde(with = "typed_reg_serde")] dst: Reg,
-        #[serde(with = "typed_reg_serde")] src: Reg,
+        dst: Reg,
+        src: Reg,
     },
     Shl {
-        #[serde(with = "typed_reg_serde")] dst: Reg,
-        #[serde(with = "typed_reg_serde")] a: Reg,
-        #[serde(with = "typed_reg_serde")] b: Reg,
+        dst: Reg,
+        a: Reg,
+        b: Reg,
     },
     Shr {
-        #[serde(with = "typed_reg_serde")] dst: Reg,
-        #[serde(with = "typed_reg_serde")] a: Reg,
-        #[serde(with = "typed_reg_serde")] b: Reg,
+        dst: Reg,
+        a: Reg,
+        b: Reg,
     },
     // String
     StrConcat {
-        #[serde(with = "typed_reg_serde")] dst: Reg,
-        #[serde(with = "typed_reg_serde")] a: Reg,
-        #[serde(with = "typed_reg_serde")] b: Reg,
+        dst: Reg,
+        a: Reg,
+        b: Reg,
     },
     ToStr {
-        #[serde(with = "typed_reg_serde")] dst: Reg,
-        #[serde(with = "typed_reg_serde")] src: Reg,
+        dst: Reg,
+        src: Reg,
     },
     // Spec impl-ref-out-in-runtime: Address-load instructions producing
     // Value::Ref values. Caller emits these for `ref`/`out`/`in` arguments
     // before the Call; the Ref is passed through Call's args; callee's
     // frame.get/set transparently derefs (single dispatch point).
     LoadLocalAddr {
-        #[serde(with = "typed_reg_serde")] dst: Reg,
+        dst: Reg,
         /// Slot in the *current* frame to point at. Codegen guarantees this
         /// is a real local register (not virtual). At runtime produces
         /// `Value::Ref { kind: RefKind::Stack { frame_idx: depth-1, slot } }`.
-        #[serde(with = "typed_reg_serde")] slot: Reg,
+        slot: Reg,
     },
     LoadElemAddr {
-        #[serde(with = "typed_reg_serde")] dst: Reg,
+        dst: Reg,
         /// Reg holding the array (must be `Value::Array(GcRef<...>)`).
-        #[serde(with = "typed_reg_serde")] arr: Reg,
+        arr: Reg,
         /// Reg holding the index (must be `Value::I64`).
-        #[serde(with = "typed_reg_serde")] idx: Reg,
+        idx: Reg,
     },
     LoadFieldAddr(Box<LoadFieldAddrInsn>),
     /// 2026-05-07 add-default-generic-typeparam (D-8b-3 Phase 2): runtime
@@ -250,7 +247,7 @@ pub enum Instruction {
     /// looks up the resolved type via `default_value_for(tag)`, writes Value to dst.
     /// Non-Object reg 0 / OOB index → graceful-degrade to `Value::Null`.
     DefaultOf {
-        #[serde(with = "typed_reg_serde")] dst: Reg,
+        dst: Reg,
         param_index: u8,
     },
     /// add-generic-methods: materialize a **method-level** type parameter into a
@@ -259,14 +256,14 @@ pub enum Instruction {
     /// directly) and `new T()` (via `__activator_create`). OOB/empty → placeholder
     /// constructed type (graceful, mirrors class-level Typeof placeholder).
     MethodTypeArg {
-        #[serde(with = "typed_reg_serde")] dst: Reg,
+        dst: Reg,
         param_index: u8,
     },
     /// add-generic-methods: method-level `default(T)` zero value — mirrors
     /// `DefaultOf` but reads `frame.method_type_args[param_index]` instead of the
     /// receiver's instance type_args. OOB/empty → `Value::Null`.
     MethodDefault {
-        #[serde(with = "typed_reg_serde")] dst: Reg,
+        dst: Reg,
         param_index: u8,
     },
     /// spec fix-numeric-cast-lowering (2026-05-13): explicit numeric type
@@ -282,8 +279,8 @@ pub enum Instruction {
     /// Identity casts (fromIr == toIr) are not emitted — codegen returns the
     /// source register directly.
     Convert {
-        #[serde(with = "typed_reg_serde")] dst: Reg,
-        #[serde(with = "typed_reg_serde")] src: Reg,
+        dst: Reg,
+        src: Reg,
         /// Target type tag (TypeTags constants — I8/I16/.../F64/Char etc.).
         /// Source type is determined at runtime from `src`'s Value variant.
         to_tag: u8,
@@ -298,9 +295,9 @@ pub enum Instruction {
     /// Indirect call via a register holding a `FuncRef` value. See
     /// docs/internals/src/runtime/escape-analysis.md.
     CallIndirect {
-        #[serde(with = "typed_reg_serde")] dst: Reg,
-        #[serde(with = "typed_reg_serde")] callee: Reg,
-        #[serde(with = "typed_reg_vec_serde")] args: Box<[Reg]>,
+        dst: Reg,
+        callee: Reg,
+        args: Box<[Reg]>,
     },
     /// L3 closure tier-C: allocate an env from `captures`, build a closure
     /// value and write it to `dst`. See docs/internals/src/runtime/escape-analysis.md.
@@ -321,20 +318,20 @@ pub enum Instruction {
     ArrayNewLit(Box<ArrayNewLitInsn>),
     /// Load element at `idx` from array `arr` into `dst`. Panics on out-of-bounds.
     ArrayGet {
-        #[serde(with = "typed_reg_serde")] dst: Reg,
-        #[serde(with = "typed_reg_serde")] arr: Reg,
-        #[serde(with = "typed_reg_serde")] idx: Reg,
+        dst: Reg,
+        arr: Reg,
+        idx: Reg,
     },
     /// Store `val` into array `arr` at `idx`. Panics on out-of-bounds.
     ArraySet {
-        #[serde(with = "typed_reg_serde")] arr: Reg,
-        #[serde(with = "typed_reg_serde")] idx: Reg,
-        #[serde(with = "typed_reg_serde")] val: Reg,
+        arr: Reg,
+        idx: Reg,
+        val: Reg,
     },
     /// Load the length of array `arr` as i32 into `dst`.
     ArrayLen {
-        #[serde(with = "typed_reg_serde")] dst: Reg,
-        #[serde(with = "typed_reg_serde")] arr: Reg,
+        dst: Reg,
+        arr: Reg,
     },
     // Objects
     /// Allocate a new object of `class_name`, calling overload-resolved
@@ -366,20 +363,20 @@ pub enum Instruction {
     /// Native-type vtable indirect call. `vtable_slot` is filled by the C5
     /// source generator at compile time so no name lookup happens at runtime.
     CallNativeVtable {
-        #[serde(with = "typed_reg_serde")] dst: Reg,
-        #[serde(with = "typed_reg_serde")] recv: Reg,
+        dst: Reg,
+        recv: Reg,
         vtable_slot: u16,
-        #[serde(with = "typed_reg_vec_serde")] args: Box<[Reg]>,
+        args: Box<[Reg]>,
     },
     /// Pin a String/Array buffer for FFI borrow. Pinned-view layout and
     /// lifetime semantics land in spec C4.
     PinPtr {
-        #[serde(with = "typed_reg_serde")] dst: Reg,
-        #[serde(with = "typed_reg_serde")] src: Reg,
+        dst: Reg,
+        src: Reg,
     },
     /// Release a pinned view created by `PinPtr`.
     UnpinPtr {
-        #[serde(with = "typed_reg_serde")] pinned: Reg,
+        pinned: Reg,
     },
 
     // ── blob value types (add-struct-value-semantics Phase A) ────────────────
@@ -389,8 +386,8 @@ pub enum Instruction {
     /// Copy a struct blob (`size` bytes) from `src` to `dst`. Pure-primitive
     /// blobs memcpy; blobs with reference leaves clone per the type's ref-bitmap.
     StructCopy {
-        #[serde(with = "typed_reg_serde")] dst: Reg,
-        #[serde(with = "typed_reg_serde")] src: Reg,
+        dst: Reg,
+        src: Reg,
         size: u32,
     },
     /// Read the primitive leaf named by `(root_type, path)` out of `base` into `dst`
@@ -403,22 +400,20 @@ pub enum Instruction {
 }
 
 /// Block terminator.
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(tag = "op", rename_all = "snake_case")]
+#[derive(Debug)]
 pub enum Terminator {
     Ret {
-        #[serde(with = "typed_reg_opt_serde")]
         reg: Option<Reg>,
     },
     Br { label: String },
     BrCond {
-        #[serde(with = "typed_reg_serde")] cond: Reg,
+        cond: Reg,
         true_label: String,
         false_label: String,
     },
     /// Throw the value in `reg` as an exception.
     Throw {
-        #[serde(with = "typed_reg_serde")] reg: Reg,
+        reg: Reg,
     },
 }
 

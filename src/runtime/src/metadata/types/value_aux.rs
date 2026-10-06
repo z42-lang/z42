@@ -100,7 +100,7 @@ pub fn closure_data_of(vref: &VarGcRef) -> &ClosureData {
     unsafe { &*vref.payload_as_ptr::<ClosureData>() }
 }
 /// Execution mode for a module or function.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExecMode {
     /// Tree-walking / bytecode interpreter — fast startup, no warmup cost.
     Interp,

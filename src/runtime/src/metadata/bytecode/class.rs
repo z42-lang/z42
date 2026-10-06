@@ -5,8 +5,6 @@
 use super::*;
 use crate::metadata::tokens::TypeId;
 use crate::metadata::types::{ExecMode, TypeDesc};
-use crate::metadata::bytecode_serde::{typed_reg_serde, typed_reg_vec_serde, typed_reg_opt_serde};
-use serde::{Deserialize, Serialize};
 use rustc_hash::FxHashMap;
 use std::sync::Arc;
 
@@ -64,33 +62,27 @@ pub const METHOD_FLAG_SEALED: u8 = 1 << 2;
 /// argument count exactly instead of guessing — see `symres::call_arity`.
 pub const METHOD_FLAG_SRET: u8 = 1 << 3;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug)]
 pub struct ClassDesc {
     pub name: String,
-    #[serde(default)]
     pub base_class: Option<String>,
     pub fields: Box<[FieldDesc]>,
     /// Generic type parameter names: ["T"], ["K", "V"]. Empty for non-generic classes.
-    #[serde(default)]
     pub type_params: Box<[String]>,
     /// L3-G3a: constraint bundle per type parameter. When non-empty must align with
     /// `type_params` by index. Absent entries in old zbc deserialise as empty box.
-    #[serde(default)]
     pub type_param_constraints: Box<[ConstraintBundle]>,
     /// C3 add-attribute-reflection: user attributes applied to this class.
     /// Each points at a synthesized factory function the runtime calls (lazily,
     /// cached) to build the attribute instance for `Type.GetCustomAttributes()`.
-    #[serde(default)]
     pub attributes: Box<[AttributeRef]>,
     /// add-reflection-type-flags (zbc 1.12): class-shape flags (see
     /// CLASS_FLAG_* above). Threaded into `TypeDesc::class_flags` for
     /// `Type.IsAbstract` / `Type.IsSealed` reflection.
-    #[serde(default)]
     pub class_flags: u8,
     /// complete-class-access-control (zbc 1.33 visibility byte): class-declaration
     /// visibility (0=public / 1=private / 2=protected / 3=internal). Threaded into
     /// `TypeDesc::visibility` for `Type.IsPublic` / `IsNestedPrivate` etc. reflection.
-    #[serde(default)]
     pub visibility: u8,
     /// type-section-flags2-and-struct-fields (zbc 1.45): the **second** class-flags
     /// word (u16), always present, immediately after `visibility`.
@@ -104,7 +96,6 @@ pub struct ClassDesc {
     /// duplicated-criterion pattern the 2026-09 structural audit calls R2.
     ///
     /// bit0 = `CLASS_FLAGS2_HAS_STRUCT_FIELD_TABLE`. Other bits reserved.
-    #[serde(default)]
     pub class_flags2: u16,
     /// type-section-flags2-and-struct-fields (zbc 1.45): per-field byte layout of a
     /// **value struct** — parallel to `fields` (same order, same length), each entry
@@ -124,39 +115,33 @@ pub struct ClassDesc {
     /// ⚠️ **Dormant in this change**: parsed and stored, consumed by nobody yet — same
     /// discipline as `object_layout_desc` ("PR-1 dormant metadata"): support first, use one
     /// nightly later (`bootstrap-seed.md`).
-    #[serde(default)]
     pub struct_field_table: Box<[StructFieldEntry]>,
     /// add-reflection-static-fields (zbc 1.13): the class's static fields
     /// (separate from `fields`, which is the instance layout). Threaded into
     /// `TypeDescCold::static_fields`; surfaced by `Type.GetFields()` with
     /// `FieldInfo.IsStatic = true`.
-    #[serde(default)]
     pub static_fields: Box<[FieldDesc]>,
     /// add-reflection-get-interfaces (zbc 1.17): the interface names this class
     /// directly declares (bare; e.g. "IFoo"). Threaded into
     /// `TypeDescCold::interfaces`; surfaced by `Type.GetInterfaces()` (which
     /// base-walks for inherited interfaces).
-    #[serde(default)]
     pub interfaces: Box<[String]>,
     /// add-enum-type-metadata (zbc 1.22): enum member (name, i64 value) pairs,
     /// present only when `class_flags & CLASS_FLAG_ENUM`. Threaded into
     /// `TypeDesc::enum_members`; surfaced by `Type.IsEnum` / `Enum.GetNames` /
     /// `Enum.GetValues` / `Enum.GetName`. Empty for non-enum classes.
-    #[serde(default)]
     pub enum_members: Box<[(String, i64)]>,
     /// add-interface-member-reflection (surfaces the zbc 1.28 interface method
     /// block, previously parsed-and-discarded): the interface's directly-declared
     /// method signatures, present only when `class_flags & CLASS_FLAG_INTERFACE`.
     /// Threaded into `TypeDesc::iface_methods`; surfaced by `Type.GetMethods()`.
     /// Empty for non-interface classes.
-    #[serde(default)]
     pub iface_methods: Box<[IfaceMethodSig]>,
     /// add-struct-value-semantics (A-use): the value-struct byte + reference
     /// layout, present only when `class_flags & CLASS_FLAG_STRUCT` (parsed from
     /// the zbc TYPE-section struct block). Threaded into
     /// `TypeDescCold::struct_layout`; consumed by `StructAlloc` to size + scan
     /// blobs. `None` for non-struct classes and old zbc without the block.
-    #[serde(default)]
     pub struct_layout: Option<StructLayoutDesc>,
     /// add-struct-heap-inline (P3b): the class's **composed inline-struct layout**
     /// (object-relative byte region size + reference bitmap of all inline struct
@@ -164,7 +149,6 @@ pub struct ClassDesc {
     /// 1.32 inline block). Threaded into `TypeDescCold::inline_layout`; consumed by
     /// `ScriptObject` alloc + inline field access. `None` for classes with no inline
     /// struct fields. Reuses `StructLayoutDesc` (identical byte-blob + ref-bitmap shape).
-    #[serde(default)]
     pub inline_layout: Option<StructLayoutDesc>,
     /// unify-object-byte-layout (PR-1): the class's **full object field layout** —
     /// every direct field's (byte offset, size, kind) at 8-byte reference width (the
@@ -174,7 +158,6 @@ pub struct ClassDesc {
     /// PR-1**: threaded into `TypeDescCold::object_layout` but not consumed (runtime
     /// still uses `slots`); PR-2 switches field storage to this byte layout. `None` for
     /// value/interface/enum/delegate types and old zbc without the block.
-    #[serde(default)]
     pub object_layout: Option<ObjectLayoutDesc>,
 }
 
@@ -186,18 +169,13 @@ pub struct ClassDesc {
 /// (includes inline-struct interior ref leaves), parallel arrays. Own fields only —
 /// inheritance base-offset composition happens at consume time (PR-2), mirroring
 /// `fields = base.fields ++ own_fields`.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default)]
 pub struct ObjectLayoutDesc {
     pub size: u32,
-    #[serde(default)]
     pub field_offsets: Box<[u32]>,
-    #[serde(default)]
     pub field_sizes: Box<[u32]>,
-    #[serde(default)]
     pub field_kinds: Box<[u8]>,
-    #[serde(default)]
     pub ref_offsets: Box<[u32]>,
-    #[serde(default)]
     pub ref_kinds: Box<[u8]>,
 }
 
@@ -207,7 +185,7 @@ pub struct ObjectLayoutDesc {
 /// (`STRUCT_REF_*`), parallel arrays. Pure-primitive structs have empty ref arrays.
 /// type-section-flags2-and-struct-fields (zbc 1.45): one direct field's byte layout
 /// inside a value-struct blob. Parallel to `ClassDesc::fields` by index.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct StructFieldEntry {
     pub offset: u32,
     pub size: u32,
@@ -215,12 +193,10 @@ pub struct StructFieldEntry {
     pub kind: u8,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default)]
 pub struct StructLayoutDesc {
     pub size: u32,
-    #[serde(default)]
     pub ref_offsets: Box<[u32]>,
-    #[serde(default)]
     pub ref_kinds: Box<[u8]>,
 }
 
@@ -228,7 +204,7 @@ pub struct StructLayoutDesc {
 /// recovered from the zbc 1.28 interface method block. Interface methods have no
 /// backing `Function` (no body), so reflection builds their `MethodInfo` straight
 /// from this signature (name / return type / parameter types).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct IfaceMethodSig {
     /// Source-level method name (may carry a `$N$types` dispatch-mangle suffix;
     /// reflection strips it for the user-facing `MethodInfo.Name`).
@@ -248,7 +224,7 @@ pub struct IfaceMethodSig {
 /// C3 add-attribute-reflection: one applied attribute — the attribute class's
 /// qualified name plus the qualified name of the compiler-synthesized
 /// `() => new T(args)` factory function (resolved against the func index).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct AttributeRef {
     pub type_name: String,
     pub factory_func: String,
@@ -256,37 +232,29 @@ pub struct AttributeRef {
 
 /// Resolved constraint bundle for one generic type parameter. (L3-G3a, L3-G2.5 bare-tp)
 /// Mirrors the C# `GenericConstraintBundle` on the semantic layer.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct ConstraintBundle {
-    #[serde(default)]
     pub requires_class: bool,
-    #[serde(default)]
     pub requires_struct: bool,
-    #[serde(default)]
     pub base_class: Option<String>,
-    #[serde(default)]
     pub interfaces: Vec<String>,
     /// L3-G2.5 bare-typeparam: name of another type parameter in the same decl
     /// that this parameter must be a subtype of. None when no such constraint.
-    #[serde(default)]
     pub type_param_constraint: Option<String>,
     /// L3-G2.5 ctor: `where T: new()` — type arg must have a no-arg constructor.
-    #[serde(default)]
     pub requires_constructor: bool,
     /// L3-G2.5 enum: `where T: enum` — type arg must be an enum type.
-    #[serde(default)]
     pub requires_enum: bool,
     /// add-generic-func-constraint (2026-05-11): function-type signature.
     /// `params` are IR type-name strings (e.g. "int", "string", "Cat"); `ret` is
     /// likewise a type name ("void" / "int" / etc.). None when no func constraint.
-    #[serde(default)]
     pub func_signature: Option<FuncSigDescriptor>,
 }
 
 /// add-generic-func-constraint (2026-05-11): per-tp function signature spelled
 /// as type-name strings (so zbc serialization is uniform with other constraint
 /// fields that hold class/interface names).
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct FuncSigDescriptor {
     pub params: Vec<String>,
     pub ret: String,
@@ -304,18 +272,15 @@ impl ConstraintBundle {
 }
 
 /// A single field in a class descriptor.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct FieldDesc {
     pub name: String,
-    #[serde(rename = "type")]
     pub type_tag: String,
     /// add-field-attribute-reflection (zbc 1.14): user attributes applied to
     /// this field. Surfaced by `FieldInfo.GetCustomAttributes()` (the loader
     /// indexes these into `TypeDescCold::field_attributes`).
-    #[serde(default)]
     pub attributes: Box<[AttributeRef]>,
     /// add-member-visibility (zbc 1.23): 0=public / 1=private / 2=protected.
     /// Surfaced by `FieldInfo.IsPublic` / `IsPrivate`. Default 0 (public).
-    #[serde(default)]
     pub visibility: u8,
 }

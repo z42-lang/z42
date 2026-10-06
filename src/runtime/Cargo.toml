@@ -52,7 +52,6 @@ mimalloc = { version = "0.1", optional = true }
 # builds it on demand into a throwaway target-dir — never the shipped binary.
 dhat = { version = "0.3", optional = true }
 # Serialization
-serde = { version = "1", features = ["derive"] }
 serde_json = "1"   # --list-knobs / --show-config JSON output (config/render.rs)
 toml = "1"         # runtime config files: `[runtime]` tables, app sidecars (config/)
 
