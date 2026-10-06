@@ -29,7 +29,7 @@
 //!
 //! # API 契约
 //!
-//! - `clone()` 是 cheap operation（12 字节 memcpy；零 atomic op）
+//! - `clone()` 是 cheap operation（8 字节 memcpy；零 atomic op）
 //! - `borrow()` / `borrow_mut()` 走 RegionEntry 内置 `Mutex<T>`，
 //!   **blocking lock**（同 Phase 3 / mutator contention 行为）
 //! - `ptr_eq(a, b)` 比较 NonNull 是否指向同一 RegionEntry

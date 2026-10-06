@@ -192,7 +192,7 @@ void _cmdRun(string[] rest) {
 
     // <app>.runtimeconfig.toml（z42c 按 [profile.*] 烤出的运行时设置侧车）**不经 env 传递**：
     // z42vm 自己按约定从 app 文件推导它旁边的那份（app-config-follows-the-app，config/source.rs
-    // 的 `sidecar_for`），apphost / wasm / iOS / Android 早就走这条路。
+    // 的 `sidecar_for`）。
     //
     // 🔴 曾经在这里 `.Env("Z42_APP_CONFIG", rcPath)`：env **会被子孙进程继承**，于是这个
     // z42 程序 spawn 出的每个子 app 都带着**父 app** 的侧车路径；而它是相对路径，子进程换个
