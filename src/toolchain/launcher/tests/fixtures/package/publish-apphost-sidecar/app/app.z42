@@ -1,0 +1,9 @@
+namespace AhSmoke;
+using Std;
+using Std.IO;
+using Std.Runtime;
+void Main() {
+    Console.WriteLine("APPHOST_OK");
+    Console.WriteLine("MODE_SRC=" + RuntimeConfig.Source("mode"));
+    Environment.Exit(0);
+}

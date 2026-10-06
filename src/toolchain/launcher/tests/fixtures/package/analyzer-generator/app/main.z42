@@ -1,0 +1,5 @@
+using Std;
+using Std.IO;
+using DistOut;
+
+void Main() { Console.WriteLine(O.V().ToString()); }

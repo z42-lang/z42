@@ -1,0 +1,8 @@
+desc = "装好的 SDK 上 z42b build 编译并执行 [build] hooks（hook 继承 Z42.Build.BuildHooks，z42.build 在 SDK 的编译器目录而不在 libs/；见 README）"
+
+[[step]]
+tool = "z42b"
+cwd = "app"
+args = ["build", "{case}/app/z42.toml"]
+exit = 0
+output_contains = ["DIST-HOOKS-SMOKE: BeforeAssets ran"]

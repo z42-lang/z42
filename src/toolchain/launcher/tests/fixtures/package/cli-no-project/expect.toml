@@ -1,0 +1,12 @@
+desc = "不在工程里：z42 run / z42 build → 退出码 2 + could not find z42.toml（run 还提示 z42 new；build 不得打印 usage 后返回 0）"
+tags = ["launcher"]
+
+[[step]]
+args = ["run"]
+exit = 2
+stderr_contains = ["could not find z42.toml", "z42 new"]
+
+[[step]]
+args = ["build"]
+exit = 2
+stderr_contains = ["could not find z42.toml"]

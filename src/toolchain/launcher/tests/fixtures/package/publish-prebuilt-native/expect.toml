@@ -1,0 +1,13 @@
+desc = "预编译 native 随 lib 分发：lib 声明 [native.<名>].dir（无 [build] hooks），z42 publish 按目标 rid 把 <dir>/<rid>/<派生文件名> 拷到 app zpkg 旁并带进 payload/（只验放置，假字节不 dlopen）"
+
+# 提交进 lib 的「预编译产物」：<dir>/<rid>/<前缀>pnfoo<后缀>（随 rid 派生，所以由 copy 现场摆放）
+[[step]]
+tool = "copy"
+from = "fake-native"
+to = "pnlib/prebuilt/{rid}/{native_prefix}pnfoo{native_suffix}"
+
+[[step]]
+args = ["publish", "{case}/pnapp/pnapp.z42.toml"]
+env = { Z42_APPHOST_TEMPLATE = "{apphost_template}" }
+exit = 0
+exists = ["pnapp/payload/{native_prefix}pnfoo{native_suffix}"]

@@ -1,0 +1,36 @@
+desc = "单文件运行：z42 run x.z42 / z42 x.z42 简写 / -- 传参 / 诊断路径是用户敲的相对路径 / 源文件不存在 → 2；源文件旁不留任何产物"
+tags = ["launcher"]
+
+# 源文件旁必须干干净净 —— 产物全部落缓存目录（学习手册第 2 章「就一个文件」的卖点靠这条）
+[[step]]
+args = ["run", "hello.z42"]
+cwd = "single"
+exit = 0
+stdout_equals = "Hello, World!"
+dir_entries = [["single", "greet.z42 hello.z42 typo.z42"]]
+
+[[step]]
+args = ["hello.z42"]
+cwd = "single"
+exit = 0
+stdout_equals = "Hello, World!"
+
+[[step]]
+args = ["run", "greet.z42", "--", "Ada"]
+cwd = "single"
+exit = 0
+stdout_equals = "Hello, Ada!"
+
+# 诊断位置必须是用户敲的路径（typo.z42），不是缓存目录、也不是绝对路径 —— 否则学习手册的会话脚本跨机器不可复现
+[[step]]
+args = ["run", "typo.z42"]
+cwd = "single"
+exit = 1
+stderr_contains = ["typo.z42(4,5): E0401"]
+stderr_not_contains = ["{case}"]
+
+[[step]]
+args = ["run", "nope.z42"]
+cwd = "single"
+exit = 2
+stderr_contains = ["file not found"]

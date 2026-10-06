@@ -381,8 +381,8 @@ int _testCrossZpkgCore(string mode, bool noBuild) {
 
 // `package verify [interp|jit]` — native port of the former scripts/test-dist.sh.
 // Ensure a host release package exists, then run the in-process dist e2e
-// (_testDistRun, xtask_test_dist.z42) which drives the PACKAGED z42c/z42vm
-// against the goldens + a launcher smoke — no separate compile + zpkg spawn.
+// (_testDistRun, xtask_test_dist.z42): the package fixtures
+// (src/toolchain/launcher/tests/fixtures/package/) + the goldens on the PACKAGED z42c/z42vm.
 // Not in the default GREEN gate (run on demand).
 int _testDist(ParseResult r) {
     Stopwatch sw = _procStart("package verify");

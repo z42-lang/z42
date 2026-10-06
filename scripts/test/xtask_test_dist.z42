@@ -1,46 +1,33 @@
-// xtask — packaged-distribution e2e (unify-scripts-into-xtask; folded from the
-// former standalone scripts/test-dist.z42). Same Z42Xtask namespace.
+// xtask — `package verify`：打出来的 z42 发行包的端到端检查。两段：
 //
-// End-to-end test of the PACKAGED z42 distribution: compile each golden
-// source.z42 with the packaged z42c, run the result with the packaged z42vm
-// (no dotnet/cargo) in interp/jit, and diff stdout against expected_output.txt.
-// Also launcher smokes: the beginner CLI path (xtask_test_dist_cli.z42) and `z42 run --bin/--set` / `repl`.
+//   ① 发行包夹具（src/toolchain/launcher/tests/fixtures/package/，格式见该目录 README）：新手命令行路径、
+//      `z42 run --bin/--set`、`repl`、单文件运行、桌面发布（apphost / 多 exe / 预编译 native）、发布态 analyzer
+//      与 build hooks。这里只定义套件（打包 SDK 的工具表 + 占位符），执行与判定由通用引擎
+//      common/xtask_fixture_harness.z42 负责；
+//   ② golden 腿：用包里的 z42c 编每个 golden 的源码、包里的 z42vm 按 interp / jit 跑，stdout 对 expected_output。
+//      golden 布局同 test-vm（src/tests/<cat>/<name>/source.z42、src/libraries/<lib>/tests/<name>/source.z42、
+//      flat 的 src/tests/<cat>/<name>.z42）。
 //
-// Golden layout (same as test-vm):
-//   src/tests/<cat>/<name>/source.z42         (dir mode) + expected_output.txt
-//   src/libraries/<lib>/tests/<name>/source.z42
-//   src/tests/<cat>/<name>.z42                (flat mode) + <name>.expected_output.txt
+// 由 `_testDist`（xtask_test.z42）在进程内驱动。包目录取最新的 artifacts/packages/z42-*-release（或 env DIST_DIR）；
+// mode 列表是 argv 里可选的 `interp|jit`（缺省 "interp jit"）。
 //
-// Driven in-process by `_testDist` (xtask_test.z42). The package dir is the
-// latest artifacts/packages/z42-*-release (or env DIST_DIR); the mode list is
-// the optional `interp|jit` positional from argv (index 2; default "interp jit").
-//
-// Shared golden-walk / entry-derivation / string helpers (_enumDirsSorted,
-// _sortStrings, _append, _deriveEntry, _extractNamespace,
-// _isWordEnd, _isIdentChar, _hasMain, _indexOfFrom, _firstLine, _splitWords,
-// _stripTrailingNewlines) live ONCE in xtask_golden.z42 (same namespace) and are
-// not redefined here. _latestReleasePkg lives in xtask_test.z42 next to
-// _hasReleasePkg.
+// golden 遍历 / 入口推导 / 字符串小工具（_deriveEntry、_splitWords、_firstLine、_stripTrailingNewlines 等）只在
+// common/xtask_golden.z42 定义一次；_latestReleasePkg 在 xtask_test.z42，挨着 _hasReleasePkg。
 namespace Z42Xtask;
 
 using Std.IO;
 
-// `package verify [interp|jit]` body — run in-process. Returns 0 on pass, 1 on any
-// failure (compile error / mismatch / launcher-smoke fail / missing package).
-// `modeArg` is the optional mode positional (interp|jit). Empty → both
-// modes ("interp jit").
+string _distFixturesSrc() { return "src/toolchain/launcher/tests/fixtures/package"; }
+
+// `package verify [interp|jit]` 的本体。全部通过返回 0，否则 1（缺包 / 夹具不符 / golden 编译失败或不符）。
+// `modeArg` 是可选的 mode 位置参数（interp|jit），空 = 两种都跑。
 int _testDistRun(string modeArg) {
     string root = _root();
-    // DIST_SMOKE_ONLY=launcher → run only the launcher smokes (beginner CLI path +
-    // `z42 run <dir> --bin`), skipping the heavier desktop-publish + golden legs.
-    // 保留作本地快跑的开关；**CI 不再用它**（fix-package-gates-false-red, 2026-09-06）——
-    // 它曾是 CI 唯一的 `package verify` 调用形态，于是另两条腿永远没人跑，双双烂掉而无人知：
-    // apphost 腿的模板判据停在 apphost 迁进 workload 之前（恒 SKIP，见
-    // _distApphostTemplate），golden 腿调 z42c 的 CLI 根本不存在（`--emit zbc -o`，
-    // 282 个 case 全 compile fail）。
-    string smokeOnly = _envOpt("DIST_SMOKE_ONLY", "");
+    // DIST_SMOKE_ONLY=<tag> → 只跑 `tags` 含 <tag> 的发行包夹具（如 `launcher`：命令行路径那几例），
+    // 跳过 golden 腿。本地快跑的开关；CI 不用它 —— CI 那一处 `package verify` 必须把每条腿都跑到。
+    string onlyTag = _envOpt("DIST_SMOKE_ONLY", "");
 
-    // ── Resolve the packaged distribution dir ────────────────────────────
+    // ── 包目录 ──────────────────────────────────────────────────────────
     string distDir = _envOpt("DIST_DIR", "");
     if (distDir.Length == 0) { distDir = _latestReleasePkg(root); }
     if (distDir.Length == 0 || !Directory.Exists(distDir)) {
@@ -48,35 +35,24 @@ int _testDistRun(string modeArg) {
         ConsoleError.WriteLine("       Run: xtask package sdk");
         return 1;
     }
-    string z42c    = Path.Join(distDir, "bin/z42c");
-    if (!File.Exists(z42c)) { z42c = z42c + ".exe"; }     // Windows: bin/z42c.exe
-    string z42vm   = Path.Join(distDir, "bin/z42vm");
-    if (!File.Exists(z42vm)) { z42vm = z42vm + ".exe"; }  // Windows: bin/z42vm.exe
-    string libsDir = Path.Join(distDir, "libs");
+    string z42c     = _distExe(Path.Join(distDir, "bin/z42c"));
+    string z42vm    = _distExe(Path.Join(distDir, "bin/z42vm"));
+    string launcher = _distExe(Path.Join(distDir, "z42"));
+    string libsDir  = Path.Join(distDir, "libs");
 
-    // ── Preflight ────────────────────────────────────────────────────────
+    // ── Preflight ───────────────────────────────────────────────────────
+    // 被测对象缺件必须红在这里：缺件时退化成「静默 SKIP」的门，全部 SKIP 也会报绿，而缺件恰恰是这个检查存在的理由。
+    // 只断言**本次真要跑的**那几条腿的被测对象：只跑 launcher 夹具时不需要 apphost 模板。
     bool bad = false;
-    if (!File.Exists(z42c))      { ConsoleError.WriteLine("error: z42c not found at " + z42c); bad = true; }
-    if (!File.Exists(z42vm))     { ConsoleError.WriteLine("error: z42vm not found at " + z42vm); bad = true; }
+    if (!File.Exists(z42c))         { ConsoleError.WriteLine("error: z42c not found at " + z42c); bad = true; }
+    if (!File.Exists(z42vm))        { ConsoleError.WriteLine("error: z42vm not found at " + z42vm); bad = true; }
     if (!Directory.Exists(libsDir)) { ConsoleError.WriteLine("error: libs not found at " + libsDir); bad = true; }
-    // 三个 smoke 套件各自的被测对象也必须 preflight（fix-silent-gates, 2026-09-06）。
-    // 此前它们缺件时是「静默 SKIP + 返回 [0,0]」，而终判只看 overallFail>0 ——
-    // 于是**全部 SKIP 也返回绿**。而 SKIP 的条件字面上就是「被测对象从包里消失了」，
-    // 那恰恰是这个 job 存在的理由。缺件必须红在这里，不能退化成 no-op。
-    //
-    // ⚠️ preflight 只断言**本次真要跑的那几条腿**的被测对象
-    // （fix-package-gates-false-red, 2026-09-06）：DIST_SMOKE_ONLY=launcher 时
-    // apphost 腿根本不跑，为它的模板报错是纯误报（CI package-host 正是这么红的）。
-    string pfLauncher = Path.Join(distDir, "z42");
-    if (!File.Exists(pfLauncher)) { pfLauncher = pfLauncher + ".exe"; }
-    if (!File.Exists(pfLauncher)) {
-        ConsoleError.WriteLine("error: launcher (z42) not in package at " + distDir); bad = true;
-    }
+    if (!File.Exists(launcher))     { ConsoleError.WriteLine("error: launcher (z42) not in package at " + distDir); bad = true; }
     if (!File.Exists(Path.Join(distDir, "programs/launcher/launcher.zpkg"))) {
         ConsoleError.WriteLine("error: programs/launcher/launcher.zpkg not in package at " + distDir); bad = true;
     }
     string apphostTmpl = "";
-    if (smokeOnly != "launcher") {
+    if (onlyTag != "launcher") {
         apphostTmpl = _distApphostTemplate(root);
         if (apphostTmpl.Length == 0) {
             ConsoleError.WriteLine("error: desktop workload apphost stub not built at "
@@ -87,44 +63,27 @@ int _testDistRun(string modeArg) {
     if (bad) { return 1; }
 
     Console.WriteLine("z42 Distribution Test Runner");
+    Console.WriteLine("  package:  " + distDir);
     Console.WriteLine("  compiler: " + z42c);
     Console.WriteLine("  vm:       " + z42vm);
     Console.WriteLine("  libs:     " + libsDir);
-    Console.WriteLine("");
 
     string work = Directory.CreateTempDir("xtask-testdist");
-
     int overallPass = 0;
     int overallFail = 0;
 
-    // ── Launcher smoke (portable + installed) ────────────────────────────
-    int[] smoke = _launcherSmoke(distDir, work);
-    overallPass = overallPass + smoke[0];
-    overallFail = overallFail + smoke[1];
+    // ── ① 发行包夹具 ─────────────────────────────────────────────────────
+    FixtureSuite suite = _distFixtureSuite(root, distDir, apphostTmpl, Path.Join(work, "fixtures"));
+    suite.OnlyTag = onlyTag;
+    int[] fx = _runFixtureSuite(root, suite);
+    overallPass = overallPass + fx[0];
+    overallFail = overallFail + fx[1];
+    Console.WriteLine("");
 
-    if (smokeOnly != "launcher") {
-        // ── 编译期扩展冒烟（发布态 analyzer/generator 整条链）─────────────────────
-        //    见 xtask_test_dist_analyzer.z42 头注：开发树那格证明不了发布态，而这条链
-        //    正因为没有发布态的门，断了几个月没人知道。
-        int[] az = _analyzerDistSmoke(distDir, work);
-        overallPass = overallPass + az[0];
-        overallFail = overallFail + az[1];
-
-        // ── 发布态 build hooks（add-sdk-libs；见 xtask_test_dist_hooks.z42 头注）────────
-        int[] hk = _hooksDistSmoke(distDir, work);
-        overallPass = overallPass + hk[0];
-        overallFail = overallFail + hk[1];
-
-        // ── desktop-publish smoke (build app → z42 publish → run produced exe) ──────
-        int[] ah = _apphostSmoke(distDir, work, apphostTmpl);
-        overallPass = overallPass + ah[0];
-        overallFail = overallFail + ah[1];
-
-        // ── Golden cases per mode ────────────────────────────────────────────
-        // The optional mode positional (formerly Z42_DIST_MODES); empty → both.
+    // ── ② golden 腿 ──────────────────────────────────────────────────────
+    if (onlyTag.Length == 0) {
         if (modeArg.Length == 0) { modeArg = "interp jit"; }
-        string[] modes = _splitWords(modeArg);
-        int[] gres = _runDistGoldens(modes, root, z42c, z42vm, libsDir, work);
+        int[] gres = _runDistGoldens(_splitWords(modeArg), root, z42c, z42vm, libsDir, work);
         overallPass = overallPass + gres[0];
         overallFail = overallFail + gres[1];
     }
@@ -132,8 +91,86 @@ int _testDistRun(string modeArg) {
     Console.WriteLine("══════════════════════════════════════");
     Console.WriteLine(" Total: " + overallPass.ToString() + " passed, " + overallFail.ToString() + " failed");
     Console.WriteLine("══════════════════════════════════════");
-    if (overallFail > 0) { return 1; }
+    if (overallFail > 0) {
+        Console.WriteLine("（工作目录保留以便排查：" + work + "）");
+        return 1;
+    }
+    Directory.Delete(work, true);   // 含一份整包拷贝（publish-apphost-sidecar 的 ahome/），通过就不留
     return 0;
+}
+
+// 发行包夹具套件：工具全部取自包内，环境按「用户机器」清理（不继承 xtask / CI 注入的 z42 变量）。
+//   z42   包根的 launcher（缺省工具）。清掉 Z42_HOME 等 ⇒ 便携形态：launcher 由自己的位置找到所在的 SDK。
+//   z42c  bin/z42c。Z42_HOME = 包根 ⇒ 安装形态（编译器域的 SDK 库从 Z42_HOME/programs/z42c 解析）。
+//   z42b  bin/z42b。清掉 Z42_HOME 等（便携形态）。
+//   run   bin/z42vm 跑 `target`。Z42_HOME = 包根。
+//   exec  直接跑 `target`（如 `z42 publish` 发布出的 apphost）。清掉 Z42_HOME 等，用例按需用 `env` 指定。
+// 占位符：{sdk} = 包根；{apphost_template} = desktop workload 的 apphost stub（只跑 launcher 夹具时为空）；
+// {rid} = 包的 rid；{native_prefix} / {native_suffix} = 该 rid 的 native 库文件名前后缀（lib…so / lib…dylib / ….dll）。
+FixtureSuite _distFixtureSuite(string root, string distDir, string apphostTmpl, string stageDir) {
+    string[] userEnv = new string[]{ "Z42_HOME", "Z42_PORTABLE_VM", "Z42_PORTABLE_LIBS", "Z42_LIBS", "Z42_CONFIG", "Z42_MODE" };
+
+    FixtureTool z42 = new FixtureTool("z42", _distExe(Path.Join(distDir, "z42")));
+    z42.Requires = z42.Exe;
+    z42.EnvRemove = userEnv;
+
+    FixtureTool z42c = new FixtureTool("z42c", _distExe(Path.Join(distDir, "bin/z42c")));
+    z42c.Requires = z42c.Exe;
+    z42c.ClearAbsent = true;
+    z42c.EnvSet = new string[]{ "Z42_HOME", "{sdk}" };
+    z42c.EnvRemove = new string[]{ "Z42_LIBS", "Z42_PORTABLE_VM", "Z42_COMPILER_LIBS" };
+
+    FixtureTool z42b = new FixtureTool("z42b", _distExe(Path.Join(distDir, "bin/z42b")));
+    z42b.Requires = z42b.Exe;
+    z42b.ClearAbsent = true;
+    z42b.EnvRemove = new string[]{ "Z42_HOME", "Z42_PORTABLE_VM", "Z42_LIBS", "Z42_COMPILER_LIBS" };
+
+    FixtureTool run = new FixtureTool("run", _distExe(Path.Join(distDir, "bin/z42vm")));
+    run.Requires = run.Exe;
+    run.Target = true;
+    run.EnvSet = new string[]{ "Z42_HOME", "{sdk}" };
+    run.EnvRemove = new string[]{ "Z42_LIBS", "Z42_PORTABLE_VM" };
+
+    FixtureTool exec = new FixtureTool("exec", "");
+    exec.EnvRemove = userEnv;
+
+    string rid = _distPkgRid(distDir);
+    string pfx = "lib";
+    string sfx = ".so";
+    if (rid.StartsWith("windows-")) { pfx = ""; sfx = ".dll"; }
+    else if (rid.StartsWith("macos-") || rid.StartsWith("ios-") || rid.StartsWith("iossim-")) { sfx = ".dylib"; }
+
+    FixtureSuite s = new FixtureSuite("发行包夹具", _distFixturesSrc());
+    s.StageDir = stageDir;
+    s.TmpTag = "dist";
+    s.DefaultTool = "z42";
+    s.Tools = new FixtureTool[]{ z42, z42c, z42b, run, exec };
+    s.Vars = new FixturePair[]{
+        new FixturePair("sdk", distDir),
+        new FixturePair("apphost_template", apphostTmpl),
+        new FixturePair("rid", rid),
+        new FixturePair("native_prefix", pfx),
+        new FixturePair("native_suffix", sfx)
+    };
+    return s;
+}
+
+// 包内程序的路径：Windows 上带 `.exe`。
+string _distExe(string p) { return File.Exists(p) ? p : p + ".exe"; }
+
+// 包的 rid：取自包目录名（z42-<version>-<rid>-release；version 可缺）—— 找已知的 OS 前缀，取到 `-release` 为止。
+// 认不出时退回本机 rid。
+string _distPkgRid(string distDir) {
+    string pkgName = Path.GetFileName(distDir);
+    foreach (var os in new string[]{ "macos-", "linux-", "windows-", "iossim-", "ios-", "android-" }) {
+        int idx = pkgName.IndexOf(os);
+        if (idx >= 0) {
+            string rest = pkgName.Substring(idx);
+            int rel = rest.IndexOf("-release");
+            return rel >= 0 ? rest.Substring(0, rel) : rest;
+        }
+    }
+    return _detectHostRid();
 }
 
 // Golden legs: compile every dist case ONCE with the packaged z42c, then run the
@@ -290,137 +327,11 @@ int _distRunJobs() {
     return cpu < 8 ? cpu : 8;
 }
 
-// ── Launcher smoke: returns [pass, fail] ───────────────────────────────────
-int[] _launcherSmoke(string distDir, string work) {
-    int pass = 0;
-    int fail = 0;
-    string launcher = Path.Join(distDir, "z42");
-    if (!File.Exists(launcher)) { launcher = launcher + ".exe"; }   // Windows: z42.exe
-    // unify-launcher-apphost (2026-06-21): z42 is an apphost; its launcher.zpkg
-    // payload lives at programs/launcher/ (was the package root).
-    if (!File.Exists(launcher) || !File.Exists(Path.Join(distDir, "programs/launcher/launcher.zpkg"))) {
-        Console.WriteLine("Launcher smoke: SKIP (z42 or programs/launcher/launcher.zpkg not in package)");
-        Console.WriteLine("");
-        int[] r0 = new int[2]; r0[0] = 0; r0[1] = 0; return r0;
-    }
-    // 新手路径（new → run → build → clean / 版本 / 帮助）：见 xtask_test_dist_cli.z42。
-    int[] cli = _launcherCliSmoke(launcher, work);
-    pass = pass + cli[0];
-    fail = fail + cli[1];
-    Console.WriteLine("Launcher smoke (run / repl): " + launcher);
-    // (unify-run-modes P4) `z42 run <dir> --bin`: build a source project with the
-    // packaged z42c and run the selected [[exe]] target — real end-to-end of the
-    // run front door + multi-exe selection. Copy the multi-exe fixture into a
-    // writable temp first (build writes dist/ there). Skips if bin/z42c or the
-    // fixture is absent.
-    string z42cBin = Path.Join(distDir, "bin/z42c");
-    if (!File.Exists(z42cBin)) { z42cBin = z42cBin + ".exe"; }
-    string mexeSrc = Path.Join(_root(), "src/compiler/z42c.pipeline/tests/fixtures/multi-exe/two_mains");
-    if (File.Exists(z42cBin) && Directory.Exists(mexeSrc)) {
-        string mexeWork = Path.Join(work, "mexe-run");
-        Directory.Copy(mexeSrc, mexeWork, true);
-        try {
-            ProcessResult rr = new Process(launcher).Arg("run").Arg(mexeWork).Arg("--bin").Arg("greet")
-                .EnvRemove("Z42_HOME").EnvRemove("Z42_PORTABLE_VM")
-                .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
-            string got = rr.Stdout.Trim();
-            if (got == "greet-main") {
-                Console.WriteLine("  ✓ z42 run <dir> --bin greet → greet-main");
-                pass = pass + 1;
-            } else {
-                Console.WriteLine("  FAIL: z42 run <dir> --bin greet → '" + got + "' (stderr: " + rr.Stderr.Trim() + ")");
-                fail = fail + 1;
-            }
-            // launcher-forwards-set: `--set` 是优先级链最高层，但主前门 `z42 run`
-            // 此前根本传不进去（放 app 前会被当成 app 路径，放 app 后被静默丢弃）。
-            // 这条断言盯住转发链；同时 `--bogus` 一条盯住"未识别 flag 不再当路径"。
-            ProcessResult rs = new Process(launcher).Arg("run").Arg(mexeWork)
-                .Arg("--bin").Arg("greet").Arg("--set").Arg("gc-mode=concurrent")
-                .EnvRemove("Z42_HOME").EnvRemove("Z42_PORTABLE_VM")
-                .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
-            if (rs.Stdout.Trim() == "greet-main" && rs.ExitCode == 0) {
-                Console.WriteLine("  ✓ z42 run --set <knob> 转发给 z42vm");
-                pass = pass + 1;
-            } else {
-                Console.WriteLine("  FAIL: z42 run --set → rc=" + rs.ExitCode.ToString()
-                    + " out='" + rs.Stdout.Trim() + "' err='" + rs.Stderr.Trim() + "'");
-                fail = fail + 1;
-            }
-            ProcessResult rb = new Process(launcher).Arg("run").Arg("--bogus").Arg(mexeWork)
-                .EnvRemove("Z42_HOME").EnvRemove("Z42_PORTABLE_VM")
-                .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
-            if (rb.ExitCode != 0 && rb.Stderr.IndexOf("unknown option") >= 0) {
-                Console.WriteLine("  ✓ z42 run 未识别 flag 明确报错（不再当成 app 路径）");
-                pass = pass + 1;
-            } else {
-                Console.WriteLine("  FAIL: z42 run --bogus → rc=" + rb.ExitCode.ToString()
-                    + " err='" + rb.Stderr.Trim() + "'");
-                fail = fail + 1;
-            }
-        } catch (Exception e) {
-            Console.WriteLine("  FAIL: z42 run --bin smoke: " + e.Message);
-            fail = fail + 1;
-        }
-    } else {
-        Console.WriteLine("  SKIP: z42 run <dir> --bin (bin/z42c or multi-exe fixture missing)");
-    }
-    // (repl-run-config) `z42 repl --config <file> -c <expr>`: verify the launcher
-    // consumes `--config` (sets Z42_CONFIG on the REPL's z42vm) and passes `-c`
-    // through to z42i, which evals. Needs the interactive host in the package.
-    string z42i = Path.Join(distDir, "programs/z42i/z42.interactive.zpkg");
-    if (File.Exists(z42i)) {
-        string rcfg = Path.Join(work, "repl-cfg.toml");
-        File.WriteAllText(rcfg, "[runtime]\ngc-mode = \"stw\"\n");
-        try {
-            string replCache = Path.Join(work, "repl-cache");
-            string staleIdx = Path.Join(distDir, "libs/.z42-nsindex");   // 旧版 z42i 留下的，先清掉再断言
-            if (File.Exists(staleIdx)) { File.Delete(staleIdx); }
-            ProcessResult rp = new Process(launcher).Arg("repl").Arg("--config").Arg(rcfg).Arg("-c").Arg("1 + 2")
-                .EnvRemove("Z42_HOME").EnvRemove("Z42_PORTABLE_VM").Env("Z42_CACHE_DIR", replCache)
-                .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
-            // REPL 的 ns 索引缓存落用户缓存目录，不写进 SDK 的 libs/（只读安装位 / 分发目录不被污染）。
-            if (File.Exists(staleIdx)) {
-                Console.WriteLine("  FAIL: z42 repl wrote .z42-nsindex into the SDK's libs/");
-                fail = fail + 1;
-            } else if (!Directory.Exists(Path.Join(replCache, "nsindex"))) {
-                Console.WriteLine("  FAIL: z42 repl did not write its ns index under Z42_CACHE_DIR/nsindex");
-                fail = fail + 1;
-            } else {
-                Console.WriteLine("  ✓ z42 repl ns index → Z42_CACHE_DIR/nsindex (SDK libs/ untouched)");
-                pass = pass + 1;
-            }
-            string got = rp.Stdout.Trim();
-            // mode/gc effect isn't observable in stdout; assert eval works with the
-            // flag present (proves --config didn't leak to z42i as a bad arg).
-            if (got.Contains("3")) {
-                Console.WriteLine("  ✓ z42 repl --config <file> -c '1 + 2' → 3");
-                pass = pass + 1;
-            } else {
-                Console.WriteLine("  FAIL: z42 repl --config -c → '" + got + "' (stderr: " + rp.Stderr.Trim() + ")");
-                fail = fail + 1;
-            }
-        } catch (Exception e) {
-            Console.WriteLine("  FAIL: z42 repl --config smoke: " + e.Message);
-            fail = fail + 1;
-        }
-    } else {
-        Console.WriteLine("  SKIP: z42 repl --config (programs/z42i not in package)");
-    }
-    Console.WriteLine("");
-    int[] res = new int[2]; res[0] = pass; res[1] = fail; return res;
-}
-
-// ── apphost stub 模板的真实位置 ──────────────────────────────────────────────
-// Decision 9（add-desktop-workload）：stub 随 **desktop workload** 发布，SDK 包里
-// **没有** bin/apphost —— 生产端见 `_buildDesktopWorkload`（"lands here, not in SDK
-// bin/"），消费端见 launcher 的 `_desktopApphostStub`（读 installed workload 或
-// Z42_APPHOST_TEMPLATE 覆盖）。
-//
-// ⚠️ 这条曾是本文件里一个「不会红的门」：`_apphostSmoke` 一直拿 `<pkg>/bin/apphost`
-// 当模板，而 apphost 早已迁到 workload —— 判据恒不满足 ⇒ desktop-publish smoke
-// 自迁移起**一次都没跑过**（静默 SKIP + 返回 [0,0]）。fix-silent-gates 把它升成硬
-// preflight，却照抄了那条过时路径，于是变成「为包里本就不该有的东西报错」。
-// 这里改回真实位置，让这条 smoke 真的跑起来。
+// ── apphost stub 模板的真实位置（夹具占位符 {apphost_template}）────────────────
+// stub 随 **desktop workload** 发布，SDK 包里**没有** bin/apphost —— 生产端见 `_buildDesktopWorkload`，
+// 消费端见 launcher 的 `_desktopApphostStub`（读 installed workload 或 Z42_APPHOST_TEMPLATE 覆盖）。
+// ⚠️ 别改成去包里找：那里恒找不到，发布类夹具就成了「永远缺件」—— preflight 会把它报成缺件，
+// 而一旦有人把缺件降成 SKIP，这几条腿就变回从不运行、从不失败的门。
 string _distWorkloadDir(string root) {
     string rid = _detectHostRid();
     return Path.Join(_packagesDir(root), "z42-workload-" + _versionsGet(root) + "-desktop-" + rid);
@@ -433,243 +344,6 @@ string _distApphostTemplate(string root) {
     string p = Path.Join(_distWorkloadDir(root), name);
     if (File.Exists(p)) { return p; }
     return "";
-}
-
-// ── desktop-publish smoke: returns [pass, fail] ────────────────────────────────────
-// Build a tiny app.zpkg with the packaged z42c, `z42 publish` it (with
-// Z42_APPHOST_TEMPLATE pointing at the desktop workload's apphost-<rid>, which is
-// exactly what an installed workload would hand the launcher), then run the
-// produced native exe against a Z42_HOME pointing at the package and assert it
-// runs the app. Exercises patch + macOS re-sign + local-first resolution.
-// `tmpl` is preflight-verified non-empty by the caller — no SKIP path here.
-int[] _apphostSmoke(string distDir, string work, string tmpl) {
-    int pass = 0;
-    int fail = 0;
-    string launcher = Path.Join(distDir, "z42");
-    if (!File.Exists(launcher)) { launcher = launcher + ".exe"; }   // Windows
-    string z42c = Path.Join(distDir, "bin/z42c");
-    if (!File.Exists(z42c)) { z42c = z42c + ".exe"; }               // Windows
-    string libs = Path.Join(distDir, "libs");
-    Console.WriteLine("desktop-publish smoke: " + tmpl);
-
-    // The app prints where its `mode` knob came from. `[profile.release] mode` below
-    // is baked by `z42c build` into `app.runtimeconfig.toml`; `z42 publish` must carry
-    // that sidecar into the deploy layout and the apphost must hand it to z42vm as
-    // Z42_APP_CONFIG. Asserting `app-config` here fails if ANY link in that chain
-    // breaks — which is exactly how the chain was dead before
-    // sidecar-reaches-published-apps (2026-09-05): the settings a project declares
-    // were silently inert in the shape users actually ship.
-    string appSrc =
-        "namespace AhSmoke;\n" +
-        "using Std;\n" +
-        "using Std.IO;\n" +
-        "using Std.Runtime;\n" +
-        "void Main() {\n" +
-        "    Console.WriteLine(\"APPHOST_OK\");\n" +
-        "    Console.WriteLine(\"MODE_SRC=\" + RuntimeConfig.Source(\"mode\"));\n" +
-        "    Environment.Exit(0);\n" +
-        "}\n";
-    string appToml =
-        "[project]\n" +
-        "name = \"app\"\n" +
-        "version = \"0.1.0\"\n" +
-        "kind = \"exe\"\n" +
-        "entry = \"AhSmoke.Main\"\n" +
-        "[sources]\n" +
-        "include = [\"*.z42\"]\n" +
-        "[dependencies]\n" +
-        "\"z42.core\" = \"0.1.0\"\n" +
-        "\"z42.io\" = \"0.1.0\"\n" +
-        "[build]\n" +
-        "dist_dir = \".\"\n" +
-        // apphost = true 是 gate-apphost-on-config 之后 publish 的准入条件（缺它 z42b
-        // 直接 rc=2）。这条 fixture 停在门加上之前的写法 —— 因为 smoke 自己也从没跑过，
-        // 没有任何东西会因为它过时而变红（fix-package-gates-false-red, 2026-09-06）。
-        "[platform.desktop]\n" +
-        "apphost = true\n" +
-        "publish_dir = \".\"\n" +
-        "[profile.release.runtime]\n" +
-        "mode = \"interp\"\n";
-
-    string ad = Path.Join(work, "ahsmoke");
-    Directory.Create(ad);
-    File.WriteAllText(Path.Join(ad, "app.z42"), appSrc);
-    File.WriteAllText(Path.Join(ad, "app.z42.toml"), appToml);
-    string appZpkg = Path.Join(ad, "app.zpkg");
-    string producedExe = Path.Join(ad, (distDir.IndexOf("windows-") >= 0) ? "app.exe" : "app");  // Windows apphost .exe
-
-    try {
-        // 1. build app.zpkg with the packaged z42c (deps from package libs).
-        int bc = _z42Proc(z42c, libs).Arg("build").Arg(Path.Join(ad, "app.z42.toml")).Arg("--release")
-            .Stdout(Stdio.Null()).Stderr(Stdio.Null()).Run().ExitCode;
-        if (bc != 0 || !File.Exists(appZpkg)) {
-            Console.WriteLine("  FAIL: build app.zpkg (rc=" + bc.ToString() + ")");
-            Console.WriteLine("");
-            int[] rf = new int[2]; rf[0] = pass; rf[1] = fail + 1; return rf;
-        }
-        // 2. z42 publish — portable trampoline (drop Z42_HOME / Z42_PORTABLE_VM
-        //    so it resolves the package itself). Z42_APPHOST_TEMPLATE stands in for
-        //    an installed desktop workload (same env the launcher itself forwards to
-        //    z42b after resolving `runtimes/<ver>/workloads/desktop/apphost-<rid>`).
-        //    apphost-as-config: desktop publish is `publish <toml>` (--rid defaults
-        //    to host) reading [platform.desktop].publish_dir (= "." → exe beside the
-        //    built zpkg). unify-platform-deploy-rid removed the `desktop` subcommand.
-        int pc = new Process(launcher).Arg("publish").Arg(Path.Join(ad, "app.z42.toml"))
-            .EnvRemove("Z42_HOME").EnvRemove("Z42_PORTABLE_VM").Env("Z42_APPHOST_TEMPLATE", tmpl)
-            .Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run().ExitCode;
-        if (pc != 0 || !File.Exists(producedExe)) {
-            Console.WriteLine("  FAIL: z42 publish (rc=" + pc.ToString() + ")");
-            Console.WriteLine("");
-            int[] rf = new int[2]; rf[0] = pass; rf[1] = fail + 1; return rf;
-        }
-        Console.WriteLine("  ✓ z42 publish → " + producedExe);
-
-        // 3. run the produced exe with Z42_HOME → <ahome> 是包的一份**真拷贝**（SDK 根布局：
-        //    bin/z42vm + libs/，与安装脚本装出的 ~/.z42 同形），验证发布出的应用能找到已安装的 SDK。
-        //    这里曾用 File.SymLink，而它**在 Windows 上未实现**（pal/fs.rs 的 non-unix
-        //    分支直接 bail "not implemented on this platform"）⇒ 这条 smoke 一接通就在
-        //    Windows 上抛（fix-more-silent-gates 续，2026-09-06）。改用目录拷贝：跨平台
-        //    行为一致、无需 symlink 特权，而且更贴近真实安装形态（用户的 Z42_HOME 下是
-        //    真目录不是链接）。代价是每次拷 ~56MB，CI 上几秒。
-        //    （`File.SymLink` 缺 Windows 实现本身是独立的 stdlib 缺口，不在本轮射程。）
-        string ahome = Path.Join(work, "ahome");
-        if (!Directory.Exists(ahome)) { Directory.Copy(distDir, ahome, true); }
-        ProcessResult r = new Process(producedExe).Arg("x")
-            .Env("Z42_HOME", ahome).EnvRemove("Z42_PORTABLE_VM").EnvRemove("Z42_PORTABLE_LIBS").EnvRemove("Z42_LIBS")
-            .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
-        if (r.Stdout.IndexOf("APPHOST_OK") >= 0) {
-            Console.WriteLine("  ✓ produced apphost runs the app");
-            pass = pass + 1;
-            // The project's [profile.release] must reach the published binary.
-            if (r.Stdout.IndexOf("MODE_SRC=app-config") >= 0) {
-                Console.WriteLine("  ✓ published app reads its runtimeconfig sidecar");
-                pass = pass + 1;
-            } else {
-                Console.WriteLine("  FAIL: sidecar did not reach the published app; got '"
-                    + r.Stdout.Trim() + "' (expected MODE_SRC=app-config)");
-                fail = fail + 1;
-            }
-        } else {
-            Console.WriteLine("  FAIL: produced apphost stdout='" + r.Stdout.Trim() + "' stderr='" + r.Stderr.Trim() + "'");
-            fail = fail + 1;
-        }
-    } catch (Exception e) {
-        Console.WriteLine("  FAIL: desktop-publish smoke: " + e.Message);
-        fail = fail + 1;
-    }
-    // (unify-run-modes P5) multi-exe publish: a 2-[[exe]] project → 2 apphosts.
-    // Reuses the same packaged launcher/z42c/apphost-stub as the single-app smoke;
-    // asserts both `aexe` and `bexe` apphosts are produced (one per [[exe]]).
-    try {
-        string mpd = Path.Join(work, "mexe-pub");
-        Directory.Create(mpd);
-        File.WriteAllText(Path.Join(mpd, "a.z42"),
-            "namespace App.A;\nusing Std;\nusing Std.IO;\nvoid Main() { Console.WriteLine(\"A_OK\"); Environment.Exit(0); }\n");
-        File.WriteAllText(Path.Join(mpd, "b.z42"),
-            "namespace App.B;\nusing Std;\nusing Std.IO;\nvoid Main() { Console.WriteLine(\"B_OK\"); Environment.Exit(0); }\n");
-        File.WriteAllText(Path.Join(mpd, "app.z42.toml"),
-            "[project]\nname = \"mexeapp\"\nversion = \"0.1.0\"\npack = true\n" +
-            "[sources]\ninclude = [\"*.z42\"]\n" +
-            "[dependencies]\n\"z42.core\" = \"0.1.0\"\n\"z42.io\" = \"0.1.0\"\n" +
-            "[build]\ndist_dir = \"dist\"\n" +
-            "[platform.desktop]\napphost = true\npublish_dir = \".\"\n" +
-            "[[exe]]\nname = \"aexe\"\nentry = \"App.A.Main\"\n" +
-            "[[exe]]\nname = \"bexe\"\nentry = \"App.B.Main\"\n");
-        int pcm = new Process(launcher).Arg("publish").Arg(Path.Join(mpd, "app.z42.toml"))
-            .EnvRemove("Z42_HOME").EnvRemove("Z42_PORTABLE_VM").Env("Z42_APPHOST_TEMPLATE", tmpl)
-            .Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run().ExitCode;
-        bool winPkg = distDir.IndexOf("windows-") >= 0;
-        string aexe = Path.Join(mpd, winPkg ? "aexe.exe" : "aexe");
-        string bexe = Path.Join(mpd, winPkg ? "bexe.exe" : "bexe");
-        if (pcm == 0 && File.Exists(aexe) && File.Exists(bexe)) {
-            Console.WriteLine("  ✓ z42 publish multi-exe → aexe + bexe apphosts");
-            pass = pass + 1;
-        } else {
-            Console.WriteLine("  FAIL: z42 publish multi-exe (rc=" + pcm.ToString()
-                + " aexe=" + (File.Exists(aexe) ? "y" : "n") + " bexe=" + (File.Exists(bexe) ? "y" : "n") + ")");
-            fail = fail + 1;
-        }
-    } catch (Exception e) {
-        Console.WriteLine("  FAIL: multi-exe publish smoke: " + e.Message);
-        fail = fail + 1;
-    }
-    // (add-precompiled-native) prebuilt native colocation: a lib declaring [native.<name>].dir
-    // (no [build] hooks) + a committed fake prebuilt at <dir>/<rid>/<derived> + a path-dep exe →
-    // z42 publish copies the prebuilt native by target rid beside the app zpkg (dist/) and into
-    // the payload. Asserts file placement (fake bytes are not dlopen-loadable → we do not run).
-    try {
-        // host rid from the package dir name (format z42-<version>-<rid>-release; version optional):
-        // locate a known os-family prefix and take through the arch up to "-release" (robust to the
-        // version segment, matching the existing `IndexOf("windows-")` style above).
-        string pkgName = Path.GetFileName(distDir);
-        string prid = "";
-        string[] osPfx = new string[]{ "macos-", "linux-", "windows-", "iossim-", "ios-", "android-" };
-        int oi = 0;
-        while (oi < osPfx.Length && prid.Length == 0) {
-            int idx = pkgName.IndexOf(osPfx[oi]);
-            if (idx >= 0) {
-                string rest = pkgName.Substring(idx);        // e.g. "macos-arm64-release"
-                int rel = rest.IndexOf("-release");
-                prid = (rel >= 0) ? rest.Substring(0, rel) : rest;   // "macos-arm64"
-            }
-            oi = oi + 1;
-        }
-        // rid-derived <prefix><name><suffix> (mirrors z42b _pubNativeFileName).
-        string pfx = "lib"; string sfx = ".so";
-        if (prid.StartsWith("windows-")) { pfx = ""; sfx = ".dll"; }
-        else if (prid.StartsWith("macos-") || prid.StartsWith("ios-") || prid.StartsWith("iossim-")) { pfx = "lib"; sfx = ".dylib"; }
-        string nfname = pfx + "pnfoo" + sfx;
-
-        string pnRoot = Path.Join(work, "prebuilt-native");
-        string pnlibDir = Path.Join(pnRoot, "pnlib");
-        string pnappDir = Path.Join(pnRoot, "pnapp");
-        Directory.Create(pnlibDir);
-        Directory.Create(pnappDir);
-        // lib pnlib: trivial z42 source + [native.pnfoo] dir="prebuilt" (no [build] hooks).
-        File.WriteAllText(Path.Join(pnlibDir, "pnlib.z42"),
-            "namespace Pn.Lib;\n\npublic static class Pnlib {\n    public static int Answer() { return 42; }\n}\n");
-        File.WriteAllText(Path.Join(pnlibDir, "pnlib.z42.toml"),
-            "[project]\nname = \"pnlib\"\nversion = \"0.1.0\"\nkind = \"lib\"\n" +
-            "[sources]\ninclude = [\"*.z42\"]\n" +
-            "[dependencies]\n\"z42.core\" = \"0.1.0\"\n" +
-            "[native.pnfoo]\ndir = \"prebuilt\"\n");
-        // committed fake prebuilt at prebuilt/<rid>/<derived> (fake bytes — placement only).
-        string pdir = Path.Join(Path.Join(pnlibDir, "prebuilt"), prid);
-        Directory.Create(pdir);
-        File.WriteAllText(Path.Join(pdir, nfname), "FAKE_PREBUILT_NATIVE\n");
-        // exe pnapp path-deps pnlib + payload layout.
-        File.WriteAllText(Path.Join(pnappDir, "pnapp.z42"),
-            "namespace Pn.App;\nusing Std;\nusing Std.IO;\nusing Pn.Lib;\n" +
-            "void Main() { Console.WriteLine(\"PN_\" + Pnlib.Answer().ToString()); Environment.Exit(0); }\n");
-        File.WriteAllText(Path.Join(pnappDir, "pnapp.z42.toml"),
-            "[project]\nname = \"pnapp\"\nversion = \"0.1.0\"\nkind = \"exe\"\nentry = \"Pn.App.Main\"\npack = true\n" +
-            "[sources]\ninclude = [\"*.z42\"]\n" +
-            "[dependencies]\n\"z42.core\" = \"0.1.0\"\n\"z42.io\" = \"0.1.0\"\n\"pnlib\" = { path = \"../pnlib\" }\n" +
-            "[build]\ndist_dir = \"dist\"\n" +
-            "[platform.desktop]\napphost = true\npublish_dir = \".\"\npayload = \"payload/pnapp.zpkg\"\n" +
-            "[profile.release.runtime]\nmode = \"interp\"\n");
-        int pcn = new Process(launcher).Arg("publish").Arg(Path.Join(pnappDir, "pnapp.z42.toml"))
-            .EnvRemove("Z42_HOME").EnvRemove("Z42_PORTABLE_VM").Env("Z42_APPHOST_TEMPLATE", tmpl)
-            .Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run().ExitCode;
-        // native colocated beside the built zpkg (dist/) by _pubCopyPrebuiltNative, then carried
-        // into the payload dir by _pubCopyDistDeps.
-        string distNative    = Path.Join(Path.Join(pnappDir, "dist"), nfname);
-        string payloadNative = Path.Join(Path.Join(pnappDir, "payload"), nfname);
-        if (pcn == 0 && File.Exists(payloadNative)) {
-            Console.WriteLine("  ✓ prebuilt native colocated by rid → payload/" + nfname);
-            pass = pass + 1;
-        } else {
-            Console.WriteLine("  FAIL: prebuilt native (rc=" + pcn.ToString()
-                + " dist=" + (File.Exists(distNative) ? "y" : "n")
-                + " payload=" + (File.Exists(payloadNative) ? "y" : "n") + ")");
-            fail = fail + 1;
-        }
-    } catch (Exception e) {
-        Console.WriteLine("  FAIL: prebuilt-native smoke: " + e.Message);
-        fail = fail + 1;
-    }
-    Console.WriteLine("");
-    int[] res = new int[2]; res[0] = pass; res[1] = fail; return res;
 }
 
 // ── Case shape + enumeration ───────────────────────────────────────────────

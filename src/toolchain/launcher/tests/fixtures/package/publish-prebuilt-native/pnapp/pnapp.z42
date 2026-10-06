@@ -1,0 +1,5 @@
+namespace Pn.App;
+using Std;
+using Std.IO;
+using Pn.Lib;
+void Main() { Console.WriteLine("PN_" + Pnlib.Answer().ToString()); Environment.Exit(0); }

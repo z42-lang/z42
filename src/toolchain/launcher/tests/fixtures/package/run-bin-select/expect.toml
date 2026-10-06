@@ -1,0 +1,17 @@
+desc = "z42 run <dir> --bin：用包里的 z42c 构建多 [[exe]] 工程并跑选中的那个；--set 转发给 z42vm；未识别的 flag 明确报错而不是被当成 app 路径"
+tags = ["launcher"]
+
+[[step]]
+args = ["run", "{case}/app", "--bin", "greet"]
+stdout_equals = "greet-main"
+
+# --set 是运行时设置优先级链的最高层：放在 app 之后也必须转发给 z42vm，不能被静默丢弃
+[[step]]
+args = ["run", "{case}/app", "--bin", "greet", "--set", "gc-mode=concurrent"]
+exit = 0
+stdout_equals = "greet-main"
+
+[[step]]
+args = ["run", "--bogus", "{case}/app"]
+exit = "nonzero"
+stderr_contains = ["unknown option"]

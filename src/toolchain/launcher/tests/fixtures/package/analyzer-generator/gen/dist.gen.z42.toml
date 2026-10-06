@@ -1,0 +1,7 @@
+[project]
+name    = "dist.gen"
+version = "0.1.0"
+kind    = "analyzer"
+
+[sources]
+include = ["*.z42"]

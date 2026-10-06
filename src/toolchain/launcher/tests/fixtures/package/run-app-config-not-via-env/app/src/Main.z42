@@ -1,0 +1,10 @@
+namespace AppCfg;
+
+using Std;
+using Std.IO;
+using Std.Runtime;
+
+void Main() {
+    Console.WriteLine("MODE_SRC=" + RuntimeConfig.Source("mode"));
+    Console.WriteLine("APPCFG_ENV=[" + Environment.GetEnvironmentVariable("Z42_APP_CONFIG", "") + "]");
+}

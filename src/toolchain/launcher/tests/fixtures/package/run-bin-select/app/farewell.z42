@@ -1,0 +1,7 @@
+namespace App.Farewell;
+
+using Std.IO;
+
+void Main() {
+    Console.WriteLine("farewell-main");
+}

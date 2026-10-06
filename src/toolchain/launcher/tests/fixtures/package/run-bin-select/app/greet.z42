@@ -1,0 +1,7 @@
+namespace App.Greet;
+
+using Std.IO;
+
+void Main() {
+    Console.WriteLine("greet-main");
+}

@@ -1,0 +1,47 @@
+desc = "发布态 analyzer/generator 整条链：analyzer 工程不声明契约包也编得过；[analyzers] 挂上后生成的代码真能跑；kind=lib 不声明必须编不过（判别力），按名声明才编得过（见 README）"
+
+# ① kind = "analyzer"，不声明契约包 ⇒ 用包里的 z42c 编得过（SDK 库从 <sdk>/programs/z42c/ 自动可见）
+[[step]]
+tool = "z42c"
+cwd = "gen"
+args = ["build", "dist.gen.z42.toml", "--release"]
+exit = 0
+
+# ② 普通工程 [analyzers] 挂上它 ⇒ 编得过，且 generator 生成的代码真能跑
+[[step]]
+tool = "z42c"
+cwd = "app"
+args = ["build", "app.z42.toml", "--release"]
+exit = 0
+
+[[step]]
+tool = "run"
+cwd = "app"
+target = "app/dist/anlzapp.zpkg"
+exit = 0
+stdout_equals = "42"
+
+# ③ 判别力：同一份源码写 kind = "lib"、不声明 ⇒ 必须编不过，且报错点名契约包、给出声明写法
+[[step]]
+tool = "copy"
+from = "gen/gen.z42"
+to = "aslib/"
+
+[[step]]
+tool = "z42c"
+cwd = "aslib"
+args = ["build", "dist.gen.z42.toml", "--release"]
+exit = "nonzero"
+stderr_contains = ["z42c.semantics", "按名声明"]
+
+# ④ kind = "lib" 按名声明 "z42c.semantics" ⇒ 编得过（SDK 库对普通工程按需开启）
+[[step]]
+tool = "copy"
+from = "gen/gen.z42"
+to = "aslibdecl/"
+
+[[step]]
+tool = "z42c"
+cwd = "aslibdecl"
+args = ["build", "dist.gen.z42.toml", "--release"]
+exit = 0

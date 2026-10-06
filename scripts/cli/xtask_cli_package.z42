@@ -58,10 +58,10 @@ SubcommandRouter _packageRouter() {
     pkg.Add("finalize", "merge desktop workloads, write SHA256SUMS + release-index.json", fin);
 
     // 打包自己的验证：check = packages.toml 的解析 / 暂存 / 组装自检（不需要包）；verify = 拿打包出的发行版
-    // （bin/z42c、bin/z42vm、libs/、launcher）跑 golden + launcher smoke + desktop publish（没有 release 包先打一个）。
+    // （bin/z42c、bin/z42vm、libs/、launcher）跑发行包夹具 + golden（没有 release 包先打一个）。
     pkg.Add("check", "packages.toml self-checks (parse + staging + assembly; no package needed)",
         new ArgParser("xtask package check", "packages.toml parse + staging + assembly self-checks"));
-    ArgParser verify = new ArgParser("xtask package verify", "drive the PACKAGED distribution: goldens + launcher smoke + desktop publish");
+    ArgParser verify = new ArgParser("xtask package verify", "drive the PACKAGED distribution: package fixtures (launcher / publish / analyzer / hooks) + goldens");
     verify.AddOptionalPositional("mode", "interp|jit (default: both)");
     pkg.Add("verify", "end-to-end check of the packaged distribution (packs a host release package first if none)", verify);
 

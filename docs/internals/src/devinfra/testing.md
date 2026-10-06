@@ -52,8 +52,8 @@ gate 里还串着若干**静态检查** stage（纯文本扫描 / 生成物比�
 | `xtask check layout` | 测试布局规范里能机械判定的部分（[test-layout](test-layout.md) 的「实现」节） |
 
 打包相关：`xtask package check` 自检 `packages.toml` 的解析 / 组件安装 / 发布归档（不需要包）；
-`xtask package verify [interp|jit]` 拿打包出的发行版（`bin/z42c`、`bin/z42vm`、`libs/`、launcher）跑 golden、
-launcher smoke 与 desktop publish（没有 release 包先打一个）。
+`xtask package verify [interp|jit]` 拿打包出的发行版（`bin/z42c`、`bin/z42vm`、`libs/`、launcher）跑[发行包夹具](fixture-harness.md)
+（命令行路径 / 桌面发布 / 发布态 analyzer 与 hooks）与 golden（没有 release 包先打一个）。
 
 ## 2. 各层的单跑姿势
 

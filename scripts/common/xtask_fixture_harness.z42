@@ -1,0 +1,442 @@
+// 声明式夹具 harness 的通用引擎：用例 = 一个目录（最小工程 + `expect.toml`），引擎按 expect.toml 跑一步或多步、
+// 每步按同一组键判定。键的完整说明见 docs/internals/src/devinfra/fixture-harness.md（各套件 README 只写自己的工具与占位符）。
+//
+// 引擎不认识任何具体工具：**套件**（`FixtureSuite`）提供工具表（`tool = "<名>"` 怎么起进程、带什么环境）、
+// 占位符与缺省值；引擎只负责暂存、逐例逐步执行、判定、汇总。两个套件：
+//   · z42c 命令行与构建夹具（build/xtask_compiler_e2e.z42 的 `_testCompilerCliFixtures`，开发树工具链）；
+//   · 发行包夹具（test/xtask_test_dist.z42 的 `_distFixtureSuite`，打出来的 SDK 包）。
+// 加用例 = 加一个目录；断言写不进现有的键时，在这里加一个通用的键（并补进 fixture-harness.md），不在 xtask 里写专项检查。
+namespace Z42Xtask;
+
+using Std.IO;
+using Std.Toml;
+
+// 工具表的一项：`tool = "<Name>"` 的一步怎么起进程。
+public class FixtureTool {
+    public string Name;
+    public string Exe;           // 要跑的程序；"" = 这一步的 `target`（相对用例目录）本身就是程序（如发布出的 apphost）
+    public string[] Pre;         // 程序之后、这一步 `args` 之前的固定参数（如 driver zpkg、`--`）
+    public bool Target;          // 固定参数之后接这一步的 `target`（相对用例目录；如 z42vm 跑的 zpkg）
+    public bool Libs;            // 这一步有 `Z42_LIBS`（`libs` 键，缺省为套件的 DefaultLibs）；false 时写 `libs` 是错
+    public bool ClearAbsent;     // 跑前先删掉 `absent` 里列的文件：判据是「有没有」时，不让残留冒充结果
+    public string Requires;      // 跑前必须存在的文件（"" = 不查）；缺了这一步直接判失败
+    public string[] EnvSet;      // ["K", "V", …]：这个工具的缺省环境（值可带占位符），这一步的 `env` / `env_remove` 在它之上覆盖
+    public string[] EnvRemove;   // 缺省删掉的、从 xtask 继承来的变量
+    public FixtureTool(string name, string exe) {
+        Name = name; Exe = exe; Pre = new string[0]; Target = false; Libs = false; ClearAbsent = false;
+        Requires = ""; EnvSet = new string[0]; EnvRemove = new string[0];
+    }
+    // 起进程的第一步。`libs` 是这一步的 Z42_LIBS（Libs = false 时为 ""）。基类不碰任何 z42 变量；
+    // 开发树套件覆盖成 `_z42Proc` / `_z42bProc`（子进程 Z42_LIBS / probing 的唯一工厂）。
+    public virtual Process Begin(string exe, string libs) { return new Process(exe); }
+}
+
+// 一个套件：夹具目录 + 工具表 + 占位符。
+public sealed class FixtureSuite {
+    public string Title;         // 段标题
+    public string Src;           // 夹具目录（相对仓库根）
+    public string StageDir;      // 暂存到哪；"" = 仓库内的 intermediate 镜像（`_stageFixtureTree`）
+    public string TmpTag;        // `outside_repo` 用例的 /tmp 目录名中段（`_e2eTmpRoot`）
+    public string DefaultTool;   // 步骤不写 `tool` 时用哪个
+    public string DefaultLibs;   // `libs` 缺省时的 Z42_LIBS（只对 Libs = true 的工具有意义）
+    public string OnlyTag;       // 非空：只跑 `tags` 含它的用例
+    public FixtureTool[] Tools;
+    public FixturePair[] Vars;   // 套件占位符：A = 名（不带花括号），B = 值
+    public FixtureSuite(string title, string src) {
+        Title = title; Src = src; StageDir = ""; TmpTag = "fx"; DefaultTool = ""; DefaultLibs = ""; OnlyTag = "";
+        Tools = new FixtureTool[0]; Vars = new FixturePair[0];
+    }
+}
+
+// 成对值：占位符表、expect.toml 里的 [["a", "b"], …]。
+public sealed class FixturePair {
+    public string A;
+    public string B;
+    public FixturePair(string a, string b) { A = a; B = b; }
+}
+
+// 一个用例的运行上下文（step 之间共享）。
+public sealed class FixtureCtx {
+    public FixtureSuite Suite;
+    public string Dir;           // 用例目录（暂存拷贝，或 outside_repo 时 /tmp 下的拷贝）
+    public FixtureCtx(FixtureSuite suite, string dir) { Suite = suite; Dir = dir; }
+}
+
+// 一步的环境：工具缺省 + 这一步的 `env` / `env_remove`，后写的覆盖先写的。
+// 合并后再交给 Process —— Process 对同一个变量「删」恒胜过「设」，不能直接把两层叠上去。
+public sealed class FixtureEnv {
+    public string[] Keys;
+    public string[] Vals;
+    public bool[] Del;
+    public int N;
+    public FixtureEnv() { Keys = new string[16]; Vals = new string[16]; Del = new bool[16]; N = 0; }
+    public void Put(string k, string v, bool del) {
+        int i = 0;
+        while (i < N && Keys[i] != k) { i = i + 1; }
+        if (i == N) {
+            if (N == Keys.Length) { Grow(); }
+            N = N + 1;
+        }
+        Keys[i] = k; Vals[i] = v; Del[i] = del;
+    }
+    void Grow() {
+        string[] k2 = new string[Keys.Length * 2];
+        string[] v2 = new string[Keys.Length * 2];
+        bool[] d2 = new bool[Keys.Length * 2];
+        int i = 0;
+        while (i < N) { k2[i] = Keys[i]; v2[i] = Vals[i]; d2[i] = Del[i]; i = i + 1; }
+        Keys = k2; Vals = v2; Del = d2;
+    }
+}
+
+// repo 外的临时根：`/tmp/z42c-e2e-<树名>-<name>`（`outside_repo` 用例在这里跑）。
+//
+// 🔴 **必须按树区分**：用例每轮先整个重置这个目录；若是 `/tmp` 下的固定名字，同一台机器上并行跑两棵 worktree
+// 的同一个套件会互相抹掉对方的中间产物 —— 红得像被测对象的 bug，实际是测试基建的共享状态。
+// 树名取 `_root()` 的最后一段（`wt-xxx` / `z42`）：短、可读，会出现在诊断文本里。
+string _e2eTmpRoot(string root, string name) {
+    string tag = Path.GetFileName(root);
+    if (tag.Length == 0) { tag = "z42"; }
+    return Path.Join("/tmp", "z42c-e2e-" + tag + "-" + name);
+}
+
+// 跑一个套件：暂存整棵夹具目录（源码树零写入、每轮从零开始），逐个用例执行、打印 ✓ / ✗。返回 [通过, 失败]；
+// 一个用例都没找到算一次失败（扫描面没了不能报绿）。
+int[] _runFixtureSuite(string root, FixtureSuite suite) {
+    Console.WriteLine("");
+    Console.WriteLine("── " + suite.Title + "（" + suite.Src + "）──");
+    string staged = suite.StageDir;
+    if (staged.Length == 0) {
+        staged = _stageFixtureTree(root, suite.Src);
+    } else {
+        _resetDir(staged);
+        _copySourceTree(Path.Join(root, suite.Src), staged);
+    }
+    int ran = 0;
+    int failed = 0;
+    foreach (var name in _sortedStrings(Directory.Enumerate(staged))) {
+        string dir = Path.Join(staged, name);
+        string expectPath = Path.Join(dir, "expect.toml");
+        if (!Directory.Exists(dir) || !File.Exists(expectPath)) { continue; }
+        TomlValue exp;
+        try {
+            exp = TomlValue.Parse(File.ReadAllText(expectPath));
+        } catch (Exception e) {
+            Console.WriteLine("  ✗ " + name + ": expect.toml 解析失败：" + e.Message);
+            ran = ran + 1;
+            failed = failed + 1;
+            continue;
+        }
+        if (suite.OnlyTag.Length > 0 && !_fxHasTag(exp, suite.OnlyTag)) { continue; }
+        ran = ran + 1;
+        // outside_repo = true：用例守的是「repo 外的消费方」那条路（`_srcRoot` 上溯找不到仓库根），
+        // 放在仓库里就测不到 ⇒ 拷到 /tmp 下按树区分的目录再跑（_e2eTmpRoot）。
+        if (exp.ContainsKey("outside_repo") && exp.Get("outside_repo").AsBool()) {
+            string outside = _e2eTmpRoot(root, suite.TmpTag + "-" + name);
+            _resetDir(outside);
+            _copySourceTree(dir, outside);
+            dir = outside;
+        }
+        string why = "";
+        try {
+            why = _runFixtureCase(new FixtureCtx(suite, dir), exp);
+        } catch (Exception e) {
+            why = "异常：" + e.Message;
+        }
+        if (why.Length > 0) {
+            Console.WriteLine("  ✗ " + name + ": " + why);
+            failed = failed + 1;
+        } else {
+            Console.WriteLine("  ✓ " + name);
+        }
+    }
+    if (ran == 0) {
+        Console.WriteLine("  ✗ 没有找到任何用例（" + suite.Src + "/<case>/expect.toml）");
+        return new int[]{ 0, 1 };
+    }
+    return new int[]{ ran - failed, failed };
+}
+
+bool _fxHasTag(TomlValue exp, string tag) {
+    if (!exp.ContainsKey("tags")) { return false; }
+    TomlValue a = exp.Get("tags");
+    int i = 0;
+    while (i < a.Length()) { if (a.At(i).AsString() == tag) { return true; } i = i + 1; }
+    return false;
+}
+
+// 跑一个用例；通过返回 ""，否则返回第一条不符的说明（带上实际输出，便于直接定位）。
+//   多步：`[[step]]` 依次执行，任一步不符即停；顶层的文件类断言在全部步骤之后再判。
+//   单步（简写）：顶层就是一步（缺省工具），可选的 `[run]` 段是它之后的一个 `run` 步。
+string _runFixtureCase(FixtureCtx cx, TomlValue exp) {
+    if (exp.ContainsKey("step")) {
+        TomlValue steps = exp.Get("step");
+        int i = 0;
+        while (i < steps.Length()) {
+            string why = _fxStep(cx, steps.At(i));
+            if (why.Length > 0) { return "step " + (i + 1).ToString() + ": " + why; }
+            i = i + 1;
+        }
+        return _fxFileChecks(exp, cx, "");
+    }
+    string w = _fxStep(cx, exp);
+    if (w.Length > 0 || !exp.ContainsKey("run")) { return w; }
+    int ti = _fxToolIndex(cx.Suite, "run");
+    if (ti < 0) { return "[run]：本套件没有 run 工具"; }
+    w = _fxExec(cx, cx.Suite.Tools[ti], exp.Get("run"));
+    return w.Length > 0 ? "[run] " + w : "";
+}
+
+// 一步。`tool` = 套件工具表里的名字 | copy | remove | check。`os` 限定这一步只在哪些 OS 上执行。
+string _fxStep(FixtureCtx cx, TomlValue st) {
+    if (!_fxOsMatches(st, cx)) { return ""; }
+    string tool = st.ContainsKey("tool") ? st.Get("tool").AsString() : cx.Suite.DefaultTool;
+    if (tool == "copy")  { return _fxCopy(cx, st); }
+    if (tool == "check") { return _fxFileChecks(st, cx, ""); }
+    if (tool == "remove") {
+        foreach (var f in _fxStrings(st, "paths", cx)) {
+            foreach (var pa in _fxMatches(cx, f)) {
+                if (Directory.Exists(pa)) { Directory.Delete(pa, true); } else if (File.Exists(pa)) { File.Delete(pa); }
+            }
+        }
+        return _fxFileChecks(st, cx, "");
+    }
+    int ti = _fxToolIndex(cx.Suite, tool);
+    if (ti < 0) {
+        string names = "";
+        foreach (var t in cx.Suite.Tools) { names = names + t.Name + " | "; }
+        return "未知 tool `" + tool + "`（" + names + "copy | remove | check）";
+    }
+    return _fxExec(cx, cx.Suite.Tools[ti], st);
+}
+
+int _fxToolIndex(FixtureSuite s, string name) {
+    int i = 0;
+    while (i < s.Tools.Length) { if (s.Tools[i].Name == name) { return i; } i = i + 1; }
+    return -1;
+}
+
+// `os = ["windows", …]`：只在列出的 OS 上执行这一步（windows | macos | linux）；不写 = 都执行。
+bool _fxOsMatches(TomlValue st, FixtureCtx cx) {
+    if (!st.ContainsKey("os")) { return true; }
+    string host = Platform.IsWindows() ? "windows" : (Platform.IsMacOS() ? "macos" : "linux");
+    foreach (var o in _fxStrings(st, "os", cx)) { if (o == host) { return true; } }
+    return false;
+}
+
+// 按工具表起一个进程并判定。
+string _fxExec(FixtureCtx cx, FixtureTool t, TomlValue st) {
+    if (t.ClearAbsent) {
+        foreach (var f in _fxStrings(st, "absent", cx)) {
+            string stale = _fxAbs(cx, f);
+            if (File.Exists(stale)) { File.Delete(stale); }
+        }
+    }
+    if (t.Requires.Length > 0 && !File.Exists(t.Requires)) { return t.Name + " 不在（" + t.Requires + "）"; }
+    if (!t.Libs && st.ContainsKey("libs")) { return "tool `" + t.Name + "` 不接受 libs"; }
+    string exe = t.Exe;
+    if (exe.Length == 0) { exe = _fxAbs(cx, _fxStr(st, "target", cx)); }
+    Process p = t.Begin(exe, t.Libs ? _fxLibs(cx, st) : "");
+    foreach (var a in t.Pre) { p = p.Arg(a); }
+    if (t.Target) { p = p.Arg(_fxAbs(cx, _fxStr(st, "target", cx))); }
+    p = _fxEnv(cx, t, st, p.WorkingDirectory(_fxCwd(cx, st)).Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()));
+    foreach (var a in _fxStrings(st, "args", cx)) { p = p.Arg(a); }
+    return _fxCheck(st, p.Run(), cx);
+}
+
+// 这一步的环境：工具缺省（EnvSet / EnvRemove）之上叠这一步的 `env`（表，设值；值可为 ""）与
+// `env_remove`（删掉从 xtask 继承来的）。
+Process _fxEnv(FixtureCtx cx, FixtureTool t, TomlValue st, Process p) {
+    FixtureEnv e = new FixtureEnv();
+    int i = 0;
+    while (i + 1 < t.EnvSet.Length) { e.Put(t.EnvSet[i], _fxExpand(t.EnvSet[i + 1], cx), false); i = i + 2; }
+    foreach (var k in t.EnvRemove) { e.Put(k, "", true); }
+    if (st.ContainsKey("env")) {
+        TomlValue tb = st.Get("env");
+        foreach (var k in tb.Keys()) { e.Put(k, _fxExpand(tb.Get(k).AsString(), cx), false); }
+    }
+    foreach (var k in _fxStrings(st, "env_remove", cx)) { e.Put(k, "", true); }
+    i = 0;
+    while (i < e.N) {
+        if (e.Del[i]) { p = p.EnvRemove(e.Keys[i]); } else { p = p.Env(e.Keys[i], e.Vals[i]); }
+        i = i + 1;
+    }
+    return p;
+}
+
+// 拷贝：`from` 是一个文件、一个目录（整棵拷成 `to`），或 `<目录>/<通配>`（如 `{stdlib}/*.zpkg`）；
+// `to` 以 `/` 结尾 = 拷进该目录。
+string _fxCopy(FixtureCtx cx, TomlValue st) {
+    string from = _fxStr(st, "from", cx);
+    string to = _fxStr(st, "to", cx);
+    string toAbs = _fxAbs(cx, to);
+    string fromAbs = _fxAbs(cx, from);
+    if (!Path.GetFileName(from).Contains("*") && Directory.Exists(fromAbs)) {
+        if (Directory.Exists(toAbs)) { Directory.Delete(toAbs, true); }
+        Directory.Copy(fromAbs, toAbs, true);
+        return _fxFileChecks(st, cx, "");
+    }
+    bool intoDir = to.EndsWith("/") || Path.GetFileName(from).Contains("*");
+    string[] srcs = _fxMatches(cx, from);
+    if (!Path.GetFileName(from).Contains("*") && !File.Exists(srcs[0])) { return "copy：源文件不存在 " + srcs[0]; }
+    foreach (var f in srcs) {
+        string dst = intoDir ? Path.Join(toAbs, Path.GetFileName(f)) : toAbs;
+        Directory.Create(Path.GetDirectoryName(dst));
+        if (File.Exists(dst)) { File.Delete(dst); }
+        File.Copy(f, dst);
+    }
+    return _fxFileChecks(st, cx, "");
+}
+
+// 按一步的键判定进程运行结果：退出码、输出，再加文件类断言。
+string _fxCheck(TomlValue exp, ProcessResult r, FixtureCtx cx) {
+    string got = "（exit " + r.ExitCode.ToString() + "）stderr: " + r.Stderr.Trim() + " | stdout: " + r.Stdout.Trim();
+
+    if (exp.ContainsKey("exit")) {
+        TomlValue e = exp.Get("exit");
+        if (e.IsString()) {
+            if (e.AsString() == "nonzero" && r.ExitCode == 0) { return "期望非零退出 " + got; }
+        } else if (r.ExitCode != (int)e.AsLong()) {
+            return "期望 exit " + e.AsLong().ToString() + " " + got;
+        }
+    }
+    foreach (var s in _fxStrings(exp, "stderr_contains", cx)) {
+        if (r.Stderr.IndexOf(s) < 0) { return "stderr 缺少 `" + s + "` " + got; }
+    }
+    foreach (var s in _fxStrings(exp, "stderr_not_contains", cx)) {
+        if (r.Stderr.IndexOf(s) >= 0) { return "stderr 不该出现 `" + s + "` " + got; }
+    }
+    if (exp.ContainsKey("stderr_empty") && exp.Get("stderr_empty").AsBool() && r.Stderr.Trim().Length > 0) {
+        return "stderr 应为空 " + got;
+    }
+    foreach (var s in _fxStrings(exp, "stdout_contains", cx)) {
+        if (r.Stdout.IndexOf(s) < 0) { return "stdout 缺少 `" + s + "` " + got; }
+    }
+    foreach (var s in _fxStrings(exp, "stdout_not_contains", cx)) {
+        if (r.Stdout.IndexOf(s) >= 0) { return "stdout 不该出现 `" + s + "` " + got; }
+    }
+    if (exp.ContainsKey("stdout_equals") && r.Stdout.Trim() != _fxStr(exp, "stdout_equals", cx)) {
+        return "stdout 应为 `" + _fxStr(exp, "stdout_equals", cx) + "` " + got;
+    }
+    if (exp.ContainsKey("stdout_starts_with") && !r.Stdout.StartsWith(_fxStr(exp, "stdout_starts_with", cx))) {
+        return "stdout 应以 `" + _fxStr(exp, "stdout_starts_with", cx) + "` 开头 " + got;
+    }
+    if (exp.ContainsKey("stdout_empty") && exp.Get("stdout_empty").AsBool() && r.Stdout.Trim().Length > 0) {
+        return "stdout 应为空 " + got;
+    }
+    // stdout_count = [["子串", "次数"]]：子串在 stdout 里恰好出现这么多次（如增量构建里命中缓存的成员数）。
+    foreach (var pr in _fxPairs(exp, "stdout_count", cx)) {
+        int n = r.Stdout.Split(pr.A).Length - 1;
+        if (n.ToString() != pr.B) { return "stdout 里 `" + pr.A + "` 应出现 " + pr.B + " 次，实际 " + n.ToString() + " " + got; }
+    }
+    // output_*：stdout + stderr 合起来查（判据不关心那行打在哪个流上时用）。
+    string all = r.Stdout + r.Stderr;
+    foreach (var s in _fxStrings(exp, "output_contains", cx)) {
+        if (all.IndexOf(s) < 0) { return "输出缺少 `" + s + "` " + got; }
+    }
+    foreach (var s in _fxStrings(exp, "output_not_contains", cx)) {
+        if (all.IndexOf(s) >= 0) { return "输出不该出现 `" + s + "` " + got; }
+    }
+    return _fxFileChecks(exp, cx, got);
+}
+
+// 文件类断言（相对路径都相对用例目录；展开后已是绝对路径的原样用）：exists / absent（文件或目录）、
+// same_bytes / diff_bytes（成对路径）、file_contains / file_not_contains（[路径, 子串]）、
+// dir_entries（[目录, "名字 名字 …"]：目录的条目恰好是这些）。
+string _fxFileChecks(TomlValue exp, FixtureCtx cx, string got) {
+    foreach (var f in _fxStrings(exp, "exists", cx)) {
+        string pa = _fxAbs(cx, f);
+        if (!File.Exists(pa) && !Directory.Exists(pa)) { return "缺少产物 " + f + " " + got; }
+    }
+    foreach (var f in _fxStrings(exp, "absent", cx)) {
+        string pa = _fxAbs(cx, f);
+        if (File.Exists(pa) || Directory.Exists(pa)) { return "不该写出 " + f + " " + got; }
+    }
+    foreach (var pr in _fxPairs(exp, "same_bytes", cx)) {
+        if (!_fxFilesEqual(_fxAbs(cx, pr.A), _fxAbs(cx, pr.B))) { return pr.A + " 与 " + pr.B + " 应逐字节相同"; }
+    }
+    foreach (var pr in _fxPairs(exp, "diff_bytes", cx)) {
+        if (_fxFilesEqual(_fxAbs(cx, pr.A), _fxAbs(cx, pr.B))) { return pr.A + " 与 " + pr.B + " 应不同"; }
+    }
+    foreach (var pr in _fxPairs(exp, "file_contains", cx)) {
+        string fp = _fxAbs(cx, pr.A);
+        if (!File.Exists(fp)) { return "缺少文件 " + pr.A + " " + got; }
+        if (File.ReadAllText(fp).IndexOf(pr.B) < 0) { return pr.A + " 缺少 `" + pr.B + "`：" + File.ReadAllText(fp); }
+    }
+    foreach (var pr in _fxPairs(exp, "file_not_contains", cx)) {
+        string fp = _fxAbs(cx, pr.A);
+        if (!File.Exists(fp)) { return "缺少文件 " + pr.A + " " + got; }
+        if (File.ReadAllText(fp).IndexOf(pr.B) >= 0) { return pr.A + " 不该出现 `" + pr.B + "`：" + File.ReadAllText(fp); }
+    }
+    foreach (var pr in _fxPairs(exp, "dir_entries", cx)) {
+        string dp = _fxAbs(cx, pr.A);
+        if (!Directory.Exists(dp)) { return "缺少目录 " + pr.A + " " + got; }
+        string want = _fxJoinSorted(_splitWords(pr.B));
+        string have = _fxJoinSorted(Directory.Enumerate(dp));
+        if (have != want) { return pr.A + " 的条目应恰好是 [" + want + "]，实际 [" + have + "] " + got; }
+    }
+    return "";
+}
+
+bool _fxFilesEqual(string a, string b) {
+    if (!File.Exists(a) || !File.Exists(b)) { return false; }
+    return _bytesEqual(File.ReadAllBytes(a), File.ReadAllBytes(b));
+}
+
+string _fxJoinSorted(string[] names) {
+    string s = "";
+    foreach (var n in _sortedStrings(names)) { s = s.Length == 0 ? n : s + " " + n; }
+    return s;
+}
+
+// ── 小工具 ───────────────────────────────────────────────────────────────────
+
+// 占位符：通用的 {case}（用例目录，实际运行处的绝对路径）、{sep}（路径列表分隔符 ; 或 :）、
+// {exe}（可执行文件后缀：Windows 上 `.exe`，其余为空），再加套件自己的（FixtureSuite.Vars）。
+string _fxExpand(string s, FixtureCtx cx) {
+    string r = s.Replace("{case}", cx.Dir).Replace("{sep}", Platform.IsWindows() ? ";" : ":")
+        .Replace("{exe}", Platform.IsWindows() ? ".exe" : "");
+    foreach (var v in cx.Suite.Vars) { r = r.Replace("{" + v.A + "}", v.B); }
+    return r;
+}
+
+string _fxStr(TomlValue t, string key, FixtureCtx cx) { return _fxExpand(t.Get(key).AsString(), cx); }
+
+// expect.toml 里的字符串数组（占位符已展开）；键不存在 = 空。
+string[] _fxStrings(TomlValue t, string key, FixtureCtx cx) {
+    if (!t.ContainsKey(key)) { return new string[0]; }
+    TomlValue a = t.Get(key);
+    string[] r = new string[a.Length()];
+    int i = 0;
+    while (i < r.Length) { r[i] = _fxExpand(a.At(i).AsString(), cx); i = i + 1; }
+    return r;
+}
+
+// 成对数组：[["a", "b"], …]。
+FixturePair[] _fxPairs(TomlValue t, string key, FixtureCtx cx) {
+    if (!t.ContainsKey(key)) { return new FixturePair[0]; }
+    TomlValue a = t.Get(key);
+    FixturePair[] r = new FixturePair[a.Length()];
+    int i = 0;
+    while (i < r.Length) {
+        r[i] = new FixturePair(_fxExpand(a.At(i).At(0).AsString(), cx), _fxExpand(a.At(i).At(1).AsString(), cx));
+        i = i + 1;
+    }
+    return r;
+}
+
+// 一个路径（相对用例目录，或展开后的绝对路径）→ 它指的文件；文件名带 `*` 时按通配匹配该目录下的条目
+// （可能为空）。
+string[] _fxMatches(FixtureCtx cx, string p) {
+    string abs = _fxAbs(cx, p);
+    if (!Path.GetFileName(abs).Contains("*")) { return new string[]{ abs }; }
+    return Path.Glob(Path.GetDirectoryName(abs), Path.GetFileName(abs));
+}
+
+// 相对用例目录的路径 → 绝对路径（已是绝对的原样返回，如展开后的 {stdlib} / {sdk}）。
+string _fxAbs(FixtureCtx cx, string p) { return Path.IsRooted(p) ? p : Path.Join(cx.Dir, p); }
+
+string _fxCwd(FixtureCtx cx, TomlValue st) { return st.ContainsKey("cwd") ? _fxAbs(cx, _fxStr(st, "cwd", cx)) : cx.Dir; }
+
+// 这一步的 Z42_LIBS：`libs` 给了就用它（相对用例目录），否则套件的 DefaultLibs。
+string _fxLibs(FixtureCtx cx, TomlValue st) { return st.ContainsKey("libs") ? _fxAbs(cx, _fxStr(st, "libs", cx)) : cx.Suite.DefaultLibs; }
