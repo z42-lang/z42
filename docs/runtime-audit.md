@@ -492,7 +492,7 @@ z42vm-cli/   clap / tracing-subscriber（不再是 lib 依赖）
 | ID | 类型 | 内容 | 验证要点 | 状态 |
 |---|---|---|---|---|
 | P0-1 | fix | OSR 遇 ref 回写时拒绝 OSR（`try_osr` 检查 `frame.ref_writebacks`） | golden：附录 A.1，在较小的 `Z42_OSR_THRESHOLD` 下 interp 与 JIT 输出一致 | ✅ (#1089) |
-| P0-2 | vm | 整数 MIN/-1 wrapping：`semantics.rs` 提供 `int_div` / `int_rem`，三路共用；`interp-jit-semantics.md` 语义表补行 | golden：附录 A.2（div、rem 两路，interp 与 JIT 一致） | ⬜ |
+| P0-2 | vm | 整数 MIN/-1 wrapping：`semantics.rs` 提供 `int_div` / `int_rem`，三路共用；`interp-jit-semantics.md` 语义表补行 | golden：附录 A.2（div、rem 两路，interp 与 JIT 一致） | ✅ (#1096) |
 | P0-3 | fix | compression 包装器自死锁：`LOADED_COMPRESSION` 改 `OnceLock`，调用时不持锁，顺带去掉全进程串行 | 恢复错误路径测试（附录 A.3：损坏数据抛异常而非挂起） | ⬜ |
 | P0-4 | vm | 栈溢出 = 致命错误（见裁决）：<br>• interp 与 JIT 的帧入口检查剩余栈<br>• 内部错误不被转成 z42 异常（builtin 错误转换的两处跳过）<br>• z42vm 打印 z42 栈并以固定非零码退出；host 返回错误码<br>• VM 创建的线程栈可配置，默认 16 MB<br>• `SA_ONSTACK` + `sigaltstack` | 附录 A.4：深递归输出致命报告和 z42 栈、退出码稳定；try/catch 不拦截；host 测试拿到错误码 | ⬜ |
 | P0-5 | fix | cctor 屏障按 Function 预计算属主：<br>• 自由函数、无 cctor 的类型永久免检；静态字段站点同理<br>• JIT 不生成屏障，或内联代际检查<br>• 派生名不再送进 `try_lookup_type` | 附录 A.5：hello + 自由函数不再惰性加载额外包；cctor 系列 golden 全绿；z42c 剖面里 `ensure_*_owner_init` 消失 | ⬜ |
@@ -515,6 +515,7 @@ z42vm-cli/   clap / tracing-subscriber（不再是 lib 依赖）
 - 删除 ConcurrentMarkSweep：会去掉 `gc-mode=concurrent` 这个用户可见取值；
 - 去掉每对象 Mutex：涉及字段访问的内存模型；
 - 可 catch 的栈溢出。
+- `int` 等窄整数的算术溢出不回绕到本宽度（P0-2 实施时发现）：`int.MaxValue + 1`、`int.MinValue / -1` 两路都得 `2147483648`，值仍按 i64 存、运算后不截断。要不要按声明宽度回绕、在哪一层截断（编译器插 Convert，还是 VM 按类型运算），属于语言语义决策。
 
 **阶段 0 预期**【推断】：z42c 构建快约 1.3–1.4 倍；hello 启动回到约 10 ms；SDK 下载减少约 2/3；不再有已知的崩溃或挂起路径。
 

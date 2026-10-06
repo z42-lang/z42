@@ -99,20 +99,23 @@ PIC 的命中点各设一道常驻断言（`vcall_resolve::assert_pic_target` �
 （`src/tests/operators/arith_semantics_edge.z42`，在 interp 与 `--mode jit` 下各跑一遍、
 断言 byte-identical）把「注释担保」升级为「测试担保」。
 
-`semantics.rs` 模块文档以一张表钉住**六个易漂移的载重决策**，三路共同引用：
+`semantics.rs` 模块文档以一张表钉住**七个易漂移的载重决策**，三路共同引用：
 
 | 决策 | 规则 | 内联镜像 |
 |------|------|---------|
 | 整数 add/sub/mul 溢出 | wrapping | `emit_i64_binop`：`iadd`/`isub`/`imul` |
 | 整数 div/rem 除零 | 抛 `Std.DivideByZeroException` | `emit_int_divrem`：冷路由 `b∈{0,-1}` |
+| 整数 `MIN/-1`、`MIN%-1` | wrapping：得 `MIN`、`0`（`int_div` / `int_rem`） | `emit_int_divrem`：`b=-1` 冷路由到 helper |
 | float→int | 饱和 + NaN→0；`U64` 按 signed i64 饱和 | `emit_f64_to_int`：`fcvt_to_sint_sat` |
 | int→float | 全 f64 精度（F32 目标也走 f64） | `emit_int_to_f64`：`fcvt_from_sint` |
 | 数值比较 | signed ordered；`Ne` unordered（`NaN!=NaN→true`） | `emit_i64_cmp`/`emit_f64_cmp` |
 | 整数移位量 | mask 到低 6 位（`& SHIFT_MASK`） | `emit_i64_binop`：`Shl`/`Shr` 前 `band 63` |
 
 > **为何 `MIN/-1` 守卫只在内联路径**：native `idiv` 在 x86-64 对 `i64::MIN / -1` 会 SIGFPE-trap，
-> 故内联用 `(b as u64).wrapping_add(1) <= 1` 判 `b∈{0,-1}` 冷路由到 helper（与 interp 的 i64
-> `x/y` 语义一致）。这是唯一的守卫点，差分测试专门钉住 `MIN/-1`、`/0`、`%0`。
+> 故内联用 `(b as u64).wrapping_add(1) <= 1` 判 `b∈{0,-1}` 冷路由到 helper；helper 与 interp
+> 都调 `semantics::int_div` / `int_rem`（`wrapping_div` / `wrapping_rem`），得 `MIN` 与 `0`。
+> Rust 的裸 `x / y` 在这里会 panic（debug 与 release 都会），所以三路都不能写裸运算符。
+> 边界 golden `arith_semantics_edge` 钉住 `MIN/-1`、`MIN%-1`，`exceptions/int_divide_by_zero` 钉住 `/0`、`%0`。
 
 ## 配套：JIT 不支持指令单表
 

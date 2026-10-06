@@ -105,7 +105,7 @@ pub(super) fn div(
     if let Some(thrown) = check_int_div_by_zero(ctx, module, &frame.regs, b, "/")? {
         return Ok(Some(thrown));
     }
-    frame.set(dst, int_binop(&frame.regs, a, b, |x, y| x / y, |x, y| x / y)?);
+    frame.set(dst, int_binop(&frame.regs, a, b, crate::semantics::int_div, |x, y| x / y)?);
     Ok(None)
 }
 
@@ -115,7 +115,7 @@ pub(super) fn rem(
     if let Some(thrown) = check_int_div_by_zero(ctx, module, &frame.regs, b, "%")? {
         return Ok(Some(thrown));
     }
-    frame.set(dst, int_binop(&frame.regs, a, b, |x, y| x % y, |x, y| x % y)?);
+    frame.set(dst, int_binop(&frame.regs, a, b, crate::semantics::int_rem, |x, y| x % y)?);
     Ok(None)
 }
 

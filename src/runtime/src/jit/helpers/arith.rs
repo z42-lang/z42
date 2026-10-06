@@ -114,7 +114,7 @@ pub unsafe extern "C" fn jit_div(
         if *y == 0 {
             return throw_int_div_by_zero(ctx, "/");
         }
-        (*frame).regs[dst as usize] = Value::I64(x / y);
+        (*frame).regs[dst as usize] = Value::I64(semantics::int_div(*x, *y));
         return 0;
     }
     let va = regs[a as usize].clone();
@@ -122,7 +122,7 @@ pub unsafe extern "C" fn jit_div(
     if semantics::is_int_div_by_zero(&vb) {
         return throw_int_div_by_zero(ctx, "/");
     }
-    match semantics::int_binop(&va, &vb, |x, y| x / y, |x, y| x / y) {
+    match semantics::int_binop(&va, &vb, semantics::int_div, |x, y| x / y) {
         Ok(r)  => { (*frame).regs[dst as usize] = r; 0 }
         Err(e) => { set_exception(vm_ctx_ref(ctx), Value::Str(e.to_string().into())); 1 }
     }
@@ -138,7 +138,7 @@ pub unsafe extern "C" fn jit_rem(
         if *y == 0 {
             return throw_int_div_by_zero(ctx, "%");
         }
-        (*frame).regs[dst as usize] = Value::I64(x % y);
+        (*frame).regs[dst as usize] = Value::I64(semantics::int_rem(*x, *y));
         return 0;
     }
     let va = regs[a as usize].clone();
@@ -146,7 +146,7 @@ pub unsafe extern "C" fn jit_rem(
     if semantics::is_int_div_by_zero(&vb) {
         return throw_int_div_by_zero(ctx, "%");
     }
-    match semantics::int_binop(&va, &vb, |x, y| x % y, |x, y| x % y) {
+    match semantics::int_binop(&va, &vb, semantics::int_rem, |x, y| x % y) {
         Ok(r)  => { (*frame).regs[dst as usize] = r; 0 }
         Err(e) => { set_exception(vm_ctx_ref(ctx), Value::Str(e.to_string().into())); 1 }
     }

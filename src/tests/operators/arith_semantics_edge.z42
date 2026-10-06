@@ -17,6 +17,14 @@ void Main() {
     long min = max + 1;                   // = i64::MIN
     Assert.Equal(min, min * 1);           // identity through the I64 path
 
+    // ── MIN / -1 and MIN % -1 WRAP (semantics::int_div / int_rem) ──
+    // The JIT inline path routes divisor -1 to the helper; all paths must give
+    // MIN and 0 instead of panicking (interp) or trapping (native idiv).
+    long negOne = -1;
+    Assert.Equal(min, min / negOne);
+    Assert.Equal(0, min % negOne);
+    Assert.Equal(max * -1, max / negOne); // ordinary -1 divisor is unaffected
+
     // ── Shift amount masks to low 6 bits (semantics::SHIFT_MASK = 63) ──
     long one = 1;
     Assert.Equal(1, one << 64);           // 64 & 63 == 0 → identity
