@@ -70,8 +70,8 @@ fn histogram_persists_across_mode_switches() {
 
 #[test]
 fn histogram_records_force_collect() {
-    // force_collect uses GcKind::Full path, which is separate from
-    // the cycle-collector path; make sure both wire `record`.
+    // force_collect is a separate entry point from collect_cycles;
+    // make sure both wire `record`.
     let heap = ArcMagrGC::default();
     heap.set_mode(GcMode::StwMarkSweep);
 

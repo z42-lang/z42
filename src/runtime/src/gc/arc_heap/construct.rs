@@ -27,6 +27,7 @@ impl Default for ArcMagrGC {
             context_reclaimer: Mutex::new(None),
             categorized_root_scanner: Mutex::new(None),
             external_needs_collect: Mutex::new(None),
+            safepoint_poke: Mutex::new(None),
             mode: std::sync::atomic::AtomicU8::new(mode as u8),
             // fix-young-list-only-when-generational: the young list is minor GC's
             // private index, so only a generational heap pays to maintain it.

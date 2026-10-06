@@ -203,6 +203,10 @@ pub struct ProfileSnapshot {
     pub major_collections: u64,
     /// Cumulative reclaimed bytes (from `HeapStats.reclaimed_bytes`).
     pub reclaimed_bytes:   u64,
+    /// Live-byte estimate at exit (from `HeapStats.used_bytes`) — what the GC policy runs on.
+    pub used_bytes:        u64,
+    /// Region memory held at exit (from `HeapStats.committed_bytes`) — the footprint view.
+    pub committed_bytes:   u64,
 
     // ── add-concurrency-probes (2026-08-23, script-profiling P1b) ──
     /// Number of times a mutator parked at a GC safepoint (STW stalls).
@@ -229,9 +233,17 @@ impl ProfileSnapshot {
     ) -> Self {
         Self {
             counters, allocations, minor_collections, major_collections, reclaimed_bytes,
+            used_bytes: 0, committed_bytes: 0,
             park_count: 0, park_us_total: 0, park_max_us: 0,
             lock_contentions: 0, lock_wait_us: 0,
         }
+    }
+
+    /// Attach the heap's two size views at exit: the live estimate and the committed footprint.
+    pub fn with_footprint(mut self, used_bytes: u64, committed_bytes: u64) -> Self {
+        self.used_bytes = used_bytes;
+        self.committed_bytes = committed_bytes;
+        self
     }
 
     /// add-concurrency-probes (P1b): attach safepoint-park + user-lock-contention
@@ -262,10 +274,12 @@ impl ProfileSnapshot {
         format!(
             "{head},\"allocations\":{},\"minor_collections\":{},\
 \"major_collections\":{},\"reclaimed_bytes\":{},\
+\"used_bytes\":{},\"committed_bytes\":{},\
 \"park_count\":{},\"park_us_total\":{},\"park_max_us\":{},\
 \"lock_contentions\":{},\"lock_wait_us\":{}}}",
             self.allocations, self.minor_collections,
             self.major_collections, self.reclaimed_bytes,
+            self.used_bytes, self.committed_bytes,
             self.park_count, self.park_us_total, self.park_max_us,
             self.lock_contentions, self.lock_wait_us,
         )
@@ -280,6 +294,8 @@ impl std::fmt::Display for ProfileSnapshot {
         writeln!(f, "gc_minor_collections: {}", self.minor_collections)?;
         writeln!(f, "gc_major_collections: {}", self.major_collections)?;
         writeln!(f, "gc_reclaimed_bytes:   {}", self.reclaimed_bytes)?;
+        writeln!(f, "gc_used_bytes:        {}", self.used_bytes)?;
+        writeln!(f, "gc_committed_bytes:   {}", self.committed_bytes)?;
         writeln!(f, "park_count:           {}", self.park_count)?;
         writeln!(f, "park_us_total:        {}", self.park_us_total)?;
         writeln!(f, "park_max_us:          {}", self.park_max_us)?;

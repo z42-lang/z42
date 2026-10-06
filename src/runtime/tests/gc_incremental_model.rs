@@ -25,14 +25,18 @@
 //! Threads (each a fixed script of atomic steps):
 //!
 //! - **collector**: open a cycle, then mark / sweep steps (each a slice of one unit of work);
-//! - **minor**: one minor collection, at any point;
+//! - **minor**: two minor collections, each at any point. A minor promotes what it found reachable
+//!   (the model's promotion age is 1), and keeps — **without** promoting — a young object the open
+//!   cycle has marked but the minor itself did not reach (`keep_major`);
 //! - **mutator A** (the SATB case): `r0 = R.f; r1 = r0.f; r0.f = null; use r1; r1 = null`;
 //! - **mutator B** (newborns, weak reads, slot reuse): `r0 = new; r1 = weak(D); use r0; use r1;
-//!   r0 = new; use r0`.
+//!   r0 = new; use r0; new` — the last one garbage from birth.
 //!
 //! Every dereference — by a mutator, by the marker popping its grey set, by a minor tracing — checks
 //! the slot is alive with the handle's generation. At the end the collector finishes, and everything
-//! still reachable from the roots and registers must be alive.
+//! still reachable from the roots and registers must be alive. Then one more minor runs, and B's
+//! garbage-from-birth must be gone: a cycle may keep its floating garbage for **its own** duration,
+//! not hand it to the old generation (P0-16).
 //!
 //! ## What it discriminates
 //!
@@ -46,6 +50,7 @@
 //! | grey set + SATB records as minor roots | the marker pops a handle a minor reclaimed |
 //! | weak reads refuse doomed objects | B's weak read revives D, then D is swept |
 //! | minor card seeding skips doomed entries | the minor traces D → Y after Y's slot was reused |
+//! | `keep_major` survivors do not age | B's garbage, born black, is promoted and outlives its cycle |
 
 use std::collections::HashSet;
 
@@ -81,6 +86,8 @@ struct Policy {
     minor_roots_queues: bool,
     weak_refuses_doomed: bool,
     minor_skips_doomed: bool,
+    /// Whether a minor ages (here: promotes) an entry kept **only** by `keep_major`.
+    keep_major_ages: bool,
 }
 
 const FULL: Policy = Policy {
@@ -89,6 +96,7 @@ const FULL: Policy = Policy {
     minor_roots_queues: true,
     weak_refuses_doomed: true,
     minor_skips_doomed: true,
+    keep_major_ages: false,
 };
 
 #[derive(Clone, PartialEq, Eq, Hash)]
@@ -100,11 +108,13 @@ struct State {
     cursor: usize,
     reg: [[Option<Ref>; 2]; 2],
     weak_d: Ref,
+    /// B's last allocation, dropped at birth.
+    garbage: Option<Ref>,
     pc: [usize; 4], // collector, minor, A, B
 }
 
 const COLLECTOR_STEPS: usize = 1 + 6 + N; // open, mark ×6, sweep ×N
-const SCRIPT_LEN: [usize; 4] = [COLLECTOR_STEPS, 1, 5, 6];
+const SCRIPT_LEN: [usize; 4] = [COLLECTOR_STEPS, 2, 5, 7];
 
 type Check = Result<(), String>;
 
@@ -128,6 +138,7 @@ impl State {
             cursor: 0,
             reg: [[None; 2]; 2],
             weak_d: (D, 0),
+            garbage: None,
             pc: [0; 4],
         }
     }
@@ -285,8 +296,20 @@ impl State {
                 stack.push(c);
             }
         }
+        let open = self.phase != Phase::Idle;
         for i in 0..N {
-            if self.objs[i].alive && !self.objs[i].old && !kept[i] {
+            let o = self.objs[i];
+            if !o.alive || o.old {
+                continue;
+            }
+            if kept[i] {
+                self.objs[i].old = true; // survived a minor: promoted (promotion age 1)
+            } else if open && o.marked {
+                // keep_major: the open cycle holds it. It survives; whether it ages is the policy.
+                if p.keep_major_ages {
+                    self.objs[i].old = true;
+                }
+            } else {
                 self.kill(i);
             }
         }
@@ -339,6 +362,7 @@ impl State {
                 };
             }
             2 | 5 => self.use_reg(1, 0)?,
+            6 => self.garbage = Some(self.alloc(p)),
             _ => self.use_reg(1, 1)?,
         }
         Ok(())
@@ -355,9 +379,16 @@ impl State {
         }
     }
 
-    /// All scripts done: finish the cycle, then everything reachable must be alive.
+    /// All scripts done: finish the cycle, then everything reachable must be alive. One more minor,
+    /// and B's garbage-from-birth must be gone.
     fn final_check(mut self, p: &Policy) -> Check {
         self.finish_cycle(p)?;
+        self.minor(p)?;
+        if let Some(g) = self.garbage {
+            if self.live(g) {
+                return Err(format!("garbage-from-birth {g:?} outlived its cycle and the minor after it"));
+            }
+        }
         let mut stack: Vec<Ref> = vec![(R, 0)];
         stack.extend(self.reg.iter().flatten().flatten().copied());
         let mut seen = HashSet::new();
@@ -432,4 +463,9 @@ fn without_refusing_doomed_weak_reads_a_revived_object_is_swept() {
 #[test]
 fn without_skipping_doomed_card_entries_a_minor_follows_a_dangling_edge() {
     expect_counterexample(Policy { minor_skips_doomed: false, ..FULL }, "minor traces doomed");
+}
+
+#[test]
+fn when_keep_major_survivors_age_the_cycles_floating_garbage_is_promoted() {
+    expect_counterexample(Policy { keep_major_ages: true, ..FULL }, "keep_major survivors age");
 }

@@ -794,3 +794,51 @@ fn a_minor_inside_a_cycle_keeps_what_the_marker_already_marked() {
 fn a_minor_inside_a_cycle_still_reclaims_what_the_marker_never_marked() {
     assert!(!run_minor_inside_cycle(false), "control: the rule must not keep everything alive");
 }
+
+/// **P0-16 (gc-strategy-stopgap)**: what survives a minor **only** because the open cycle has
+/// marked it (`keep_major` — in practice allocate-black: everything born while a cycle is open)
+/// is kept, but it does **not** age.
+///
+/// Aging it was the first link of the strategy loop the runtime audit measured: every in-cycle
+/// newborn survived every in-cycle minor whether anything referenced it or not, crossed the
+/// promotion line after three of them, and became old garbage that only the *next* major could
+/// reclaim — the minor count collapsed and the heap overshot. Kept young, the first minor after
+/// the cycle closes takes it, as it would any other young garbage.
+///
+/// One unreferenced newborn per region (object, array, string), plus a rooted control that must
+/// keep aging normally — the rule is about *why* an entry survived, not about the cycle.
+#[test]
+fn a_minor_inside_a_cycle_keeps_but_does_not_age_what_only_the_cycle_holds() {
+    let heap = generational_heap();
+    let _bound = Bound::to(&heap);
+    let root = obj(&heap, "Root");
+    let _pin = heap.pin_root(root.clone());
+    assert!(!heap.run_major_slice_for_test(1), "cycle open");
+
+    // Born black, referenced by nothing a minor can see.
+    let x = obj(&heap, "X");
+    let arr = heap.alloc_array(vec![Value::I64(0); 4]);
+    let s = Value::Str(heap.alloc_str("only the cycle holds me"));
+    let (weak_x, weak_arr) = (heap.make_weak(&x).unwrap(), heap.make_weak(&arr).unwrap());
+    // The control: born in the same cycle, but rooted — a minor finds it on its own.
+    let kept = obj(&heap, "Kept");
+    let _kept_pin = heap.pin_root(kept.clone());
+
+    for _ in 0..heap.promotion_age() {
+        heap.run_cycle_collection_minor();
+    }
+    assert!(raw_alive(&weak_x) && raw_alive(&weak_arr), "keep_major still keeps them");
+    assert_eq!(ArcMagrGC::gen_age_of(&x), 0, "an object kept only by the cycle must not age");
+    assert_eq!(ArcMagrGC::gen_age_of(&arr), 0, "an array kept only by the cycle must not age");
+    assert_eq!(ArcMagrGC::gen_age_of(&s), 0, "a var block kept only by the cycle must not age");
+    assert!(ArcMagrGC::gen_age_of(&kept) >= heap.promotion_age(),
+        "control: a minor-reachable newborn ages and is promoted as usual");
+
+    // Cycle closed: they are ordinary young garbage now, and the next minor takes them.
+    let held = (x, arr, s);
+    heap.finish_major_cycle_for_test();
+    heap.run_cycle_collection_minor();
+    assert!(!raw_alive(&weak_x) && !raw_alive(&weak_arr),
+        "the first minor after the cycle must reclaim what only the cycle held");
+    std::mem::forget(held);
+}

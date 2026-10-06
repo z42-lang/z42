@@ -543,6 +543,11 @@ impl<T> Region<T> {
         self.chunks.len()
     }
 
+    /// Slot storage held from the allocator (entry arrays + `initialized` rows; pooled, never freed).
+    pub fn committed_bytes(&self) -> u64 {
+        (self.chunks.len() * (std::mem::size_of::<[MaybeUninit<RegionEntry<T>>; CHUNK_SIZE]>() + CHUNK_SIZE)) as u64
+    }
+
     /// **add-incremental-major-gc M2b**: the major sweep over at most `max_chunks` chunks starting at
     /// chunk `from`. Returns `(freed bytes, reclaimed entries, next chunk)`; `next ==
     /// self.chunk_count()` means the region is done. Resumable across STW slices: between two calls

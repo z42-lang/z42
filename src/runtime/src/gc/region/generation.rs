@@ -242,6 +242,13 @@ impl<T> Region<T> {
     /// holding one it read before the edge that led to it was cut. A minor's own reachability
     /// view is narrower than the cycle's snapshot, so without this it reclaims them and the
     /// cycle is left handing out freed slots (add-incremental-major-gc M2b).
+    ///
+    /// An entry kept **only** by `keep_major` — not minor-marked — survives but does **not**
+    /// age (P0-16). Nothing a minor can see refers to it; the cycle keeps it because its
+    /// snapshot promised to (in practice: allocate-black, everything born while the cycle is
+    /// open). Aging it promoted the cycle's floating garbage into the old generation after
+    /// `promotion_age` in-cycle minors, where only the next major could reclaim it. Left young,
+    /// the first minor after the cycle closes takes it like any other young garbage.
     pub fn sweep_young_in_one_pass(
         &mut self,
         observed_age: u8,
@@ -270,9 +277,15 @@ impl<T> Region<T> {
             if age == observed_age {
                 observe(entry.is_marked(crate::gc::refs::MarkKind::Minor));
             }
-            if entry.is_marked(crate::gc::refs::MarkKind::Minor)
-                || keep_major.is_some_and(|k| entry.is_marked(k))
+            if !entry.is_marked(crate::gc::refs::MarkKind::Minor)
+                && keep_major.is_some_and(|k| entry.is_marked(k))
             {
+                // Kept by the cycle alone: stays listed young, at the age it had.
+                entry.set_young_idx(w);
+                young[w] = (ci, ei);
+                w += 1;
+                out.survivors += 1;
+            } else if entry.is_marked(crate::gc::refs::MarkKind::Minor) {
                 entry.clear_minor_mark();
                 let new_age = age.saturating_add(1);
                 entry.gen_age.store(new_age, Ordering::Release);

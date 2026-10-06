@@ -378,6 +378,7 @@ if report.print_stats {
         counters, h.allocations,
         h.minor_collections, h.major_collections, h.reclaimed_bytes,
     )
+    .with_footprint(h.used_bytes, h.committed_bytes)
     .with_concurrency(
         park_count, park_us_total, park_max_us,
         ctx.core.lock_contentions.load(Relaxed),

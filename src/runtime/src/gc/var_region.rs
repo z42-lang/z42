@@ -716,6 +716,13 @@ impl VarRegion {
         self.live_count
     }
 
+    /// Bytes of chunk memory this region currently holds from the allocator — bump chunks
+    /// (pooled ones included: they are never handed back) and dedicated oversized chunks not yet
+    /// freed. The committed view of `HeapStats::committed_bytes`; O(chunks).
+    pub fn committed_bytes(&self) -> u64 {
+        self.chunks.iter().map(|c| c.cap as u64).sum()
+    }
+
     /// Count of chunks that currently own memory (tests / diagnostics). Slots tombstoned by
     /// `Chunk::free_in_place` are excluded — they are bookkeeping, not footprint.
     #[cfg(test)]

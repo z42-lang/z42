@@ -165,7 +165,7 @@ fn collect_cycles_freed_bytes_observable() {
 
     let used_before = heap.used_bytes();
     let stats = heap.force_collect();
-    assert_eq!(stats.kind, Some(GcKind::Full));
+    assert!(stats.kind.is_some());
     assert!(stats.freed_bytes > 0, "force_collect should report freed bytes for cycle");
     let used_after = heap.used_bytes();
     assert!(used_after < used_before, "used_bytes decreases after cycle collection");

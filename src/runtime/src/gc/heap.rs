@@ -216,13 +216,15 @@ pub trait MagrGC: std::fmt::Debug + Send + Sync {
     ///    no cross-thread coordination keeps the default no-op and stays in
     ///    state 3 permanently.
     /// 2. **Defer** (flag wired, the production path) — `maybe_auto_collect`
-    ///    only does `flag.store(true, Release)` and returns; it does **not**
-    ///    collect on the allocating thread. The flag is drained by the next
+    ///    only does `flag.store(true, Release)` (and pokes every mutator's
+    ///    safepoint, see [`Self::set_safepoint_poke`]) and returns; it does **not**
+    ///    collect on the allocating thread. The next
     ///    [`check_safepoint`](crate::gc::safepoint::check_safepoint) on any
-    ///    mutator: the slow path claims the round via `swap(false, AcqRel)`
-    ///    (first claimer wins; others skip) and runs a stop-the-world collect
-    ///    under [`request_gc_pause`](crate::gc::safepoint::request_gc_pause),
-    ///    so the scanner never races a mutator's live registers.
+    ///    mutator that sees the flag runs a stop-the-world collect under
+    ///    [`request_gc_pause`](crate::gc::safepoint::request_gc_pause), so the
+    ///    scanner never races a mutator's live registers. The flag is **sticky**:
+    ///    only the thread that wins the collector role clears it, once it holds
+    ///    the pause — a thread that loses the race leaves it for the next safepoint.
     /// 3. **Fallback** (flag unwired) — `maybe_auto_collect` collects inline
     ///    via `collect_cycles()`. This preserves single-threaded behaviour for
     ///    GC unit tests that construct `ArcMagrGC::new()` without a VmCore.
@@ -233,6 +235,12 @@ pub trait MagrGC: std::fmt::Debug + Send + Sync {
     /// A set flag never blocks the allocator — collection latency is bounded
     /// by the safepoint throttle, not by allocation.
     fn set_external_needs_collect_flag(&self, _flag: std::sync::Arc<std::sync::atomic::AtomicBool>) {}
+
+    /// Wire the callback that sends every mutator's **next** safepoint check down the slow path
+    /// (`VmCore::poke_safepoints`). Called alongside [`Self::set_external_needs_collect_flag`];
+    /// the heap runs it whenever it raises that flag, so the collection starts within one check
+    /// of the request instead of up to `Z42_SAFEPOINT_THROTTLE` of them. Default: no-op.
+    fn set_safepoint_poke(&self, _poke: std::sync::Arc<dyn Fn() + Send + Sync>) {}
 
     /// 把一个 value 加入 root set，host 持有返回的 `RootHandle` 期间该值
     /// 不会被 GC 回收。等价于 V8 `Persistent<T>` / .NET `GCHandle.Alloc(Normal)`。
