@@ -449,7 +449,7 @@ public sealed class SymbolCollector {
         } else {
             return false;
         }
-        this.Diags.Error("E0504", msg, c.Span);
+        this.Diags.Error(DiagnosticCodes.StructInheritance, msg, c.Span);
         ct.HasBase = false; ct.BaseName = ""; ct.Base = 0;
         return true;
     }
