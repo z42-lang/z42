@@ -14,11 +14,32 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 /// Runtime stack frame for a JIT-compiled function.
 /// Pure register machine — all variables use integer register IDs, no named slots.
+///
+/// `#[repr(C)]` because compiled code reads and writes two fields at fixed
+/// offsets: the prologue loads `regs_ptr` ([`JIT_FRAME_REGS_PTR_OFFSET`], pinned
+/// to 0) and `Ret %r` stores into `ret` / `has_ret` ([`JIT_FRAME_RET_OFFSET`],
+/// [`JIT_FRAME_HAS_RET_OFFSET`]). Neither goes through a helper call.
+#[repr(C)]
 pub struct JitFrame {
+    /// `regs.as_mut_ptr()`, set by every constructor once `regs` is sized. The
+    /// register file is never resized while the frame exists (sized to the
+    /// function's `max_reg + 1` up front; JIT code and helpers only index it —
+    /// and the one cross-frame resize, `interp::frame::store_thru_ref`, can't
+    /// reach a JIT frame: `LoadLocalAddr` is JIT-unsupported, and a slot index
+    /// is always `<= max_reg` anyway), so the buffer never moves and this stays
+    /// valid until [`JitFrame::recycle`] hands `regs` back to the pool. Moving the
+    /// `JitFrame` itself doesn't move the heap buffer.
+    pub regs_ptr: *mut Value,
+    /// Return value, written by compiled code at `Ret %r` (a 16-byte copy of the
+    /// register slot — `Value` is `Copy`, no refcount / barrier). Meaningful only
+    /// when `has_ret != 0`. Not a GC root: nothing reaches a safepoint between
+    /// the store and `call_native` taking it out.
+    pub ret: Value,
+    /// `1` once `Ret %r` stored `ret`; stays `0` for a void `Ret` — the
+    /// `Returned(None)` vs `Returned(Some(Null))` distinction.
+    pub has_ret: u8,
     /// Register file indexed by SSA register number.
     pub regs: Vec<Value>,
-    /// Return value written by `jit_set_ret` before the function returns.
-    pub ret:  Option<Value>,
     /// 2026-05-02 impl-closure-l3-escape-stack: frame-local arena for
     /// non-escaping closure envs. `Value::StackClosure { env_idx }` indexes
     /// here. Released as part of `JitFrame::recycle` (envs hold normal Drop
@@ -45,7 +66,7 @@ impl JitFrame {
                 regs[i] = v.clone();
             }
         }
-        JitFrame { regs, ret: None, env_arena: Vec::new(), frame_id: 0 }
+        Self::with_regs(regs)
     }
 
     /// add-osr-loop-tiering: build a JitFrame from an interpreter frame's live
@@ -61,7 +82,7 @@ impl JitFrame {
         for (i, v) in interp_regs.iter().enumerate() {
             if i < size { regs[i] = v.clone(); }
         }
-        JitFrame { regs, ret: None, env_arena: Vec::new(), frame_id: 0 }
+        Self::with_regs(regs)
     }
 
     /// Allocate a frame and fill its first registers directly from the caller's
@@ -80,7 +101,7 @@ impl JitFrame {
                 regs[i] = caller_regs[r as usize].clone();
             }
         }
-        JitFrame { regs, ret: None, env_arena: Vec::new(), frame_id: 0 }
+        Self::with_regs(regs)
     }
 
     /// Like `new_args_from`, but for a method call: register 0 is the receiver
@@ -100,7 +121,23 @@ impl JitFrame {
                 regs[slot] = caller_regs[r as usize].clone();
             }
         }
-        JitFrame { regs, ret: None, env_arena: Vec::new(), frame_id: 0 }
+        Self::with_regs(regs)
+    }
+
+    /// Wrap an already-sized, already-filled register file. `regs` must not be
+    /// resized afterwards (see [`JitFrame::regs_ptr`]).
+    #[inline]
+    fn with_regs(mut regs: Vec<Value>) -> Self {
+        JitFrame {
+            regs_ptr: regs.as_mut_ptr(), ret: Value::Null, has_ret: 0,
+            regs, env_arena: Vec::new(), frame_id: 0,
+        }
+    }
+
+    /// The value `Ret %r` stored, or `None` after a void `Ret`.
+    #[inline]
+    pub fn take_ret(&self) -> Option<Value> {
+        if self.has_ret != 0 { Some(self.ret) } else { None }
     }
 
     /// Hand the register file back to `vm`'s pool once the frame is popped.
@@ -109,6 +146,16 @@ impl JitFrame {
         vm.reg_pool.give(self.regs);
     }
 }
+
+/// Byte offset of [`JitFrame::regs_ptr`] (loaded by every compiled prologue).
+pub const JIT_FRAME_REGS_PTR_OFFSET: usize = std::mem::offset_of!(JitFrame, regs_ptr);
+/// Byte offset of [`JitFrame::ret`] (stored by compiled `Ret %r`).
+pub const JIT_FRAME_RET_OFFSET: usize = std::mem::offset_of!(JitFrame, ret);
+/// Byte offset of [`JitFrame::has_ret`] (set to 1 by compiled `Ret %r`).
+pub const JIT_FRAME_HAS_RET_OFFSET: usize = std::mem::offset_of!(JitFrame, has_ret);
+const _: () = assert!(JIT_FRAME_REGS_PTR_OFFSET == 0, "regs_ptr must be JitFrame's first field");
+const _: () = assert!(std::mem::size_of::<Value>() == 16 && JIT_FRAME_RET_OFFSET % 8 == 0,
+    "Ret copies a Value as two aligned 8-byte words");
 
 // ── FnEntry ──────────────────────────────────────────────────────────────────
 

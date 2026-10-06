@@ -44,10 +44,6 @@ pub struct HelperIds {
     pub str_concat:     FuncId,
     pub to_str:         FuncId,
     pub get_bool:       FuncId,
-    pub set_ret:        FuncId,
-    /// review.md C2 P1 step 1 (2026-05-28): return `frame.regs.as_mut_ptr()`.
-    /// Called once at function entry; result cached for native slot access.
-    pub regs_ptr:       FuncId,
     // control
     pub throw:          FuncId,
     pub install_catch:  FuncId,
@@ -150,8 +146,6 @@ pub fn register_symbols(builder: &mut JITBuilder) {
     reg!("jit_str_concat",    value::jit_str_concat);
     reg!("jit_to_str",        value::jit_to_str);
     reg!("jit_get_bool",      value::jit_get_bool);
-    reg!("jit_set_ret",       value::jit_set_ret);
-    reg!("jit_regs_ptr",      value::jit_regs_ptr);
     // control
     reg!("jit_throw",         control::jit_throw);
     reg!("jit_install_catch", control::jit_install_catch);
@@ -325,9 +319,6 @@ pub fn declare_imports(jit: &mut JITModule) -> Result<HelperIds> {
         static_get:    decl!("jit_static_get", [ptr, ptr, i32t, i32t, ptr, i64t],       [i32t]),
         static_set:    decl!("jit_static_set", [ptr, ptr, i32t, i32t, ptr, i64t],       [i32t]),
         get_bool:      decl!("jit_get_bool",      [ptr, ptr, i32t],                       [i8t]),
-        set_ret:       decl!("jit_set_ret",       [ptr, ptr, i32t],                       []),
-        // C2 P1 step 1: jit_regs_ptr(frame) -> *mut Value. Note: NO ctx param.
-        regs_ptr:      decl!("jit_regs_ptr",      [ptr],                                  [ptr]),
         // jit_throw(frame, ctx, reg, throw_offset)
         throw:         decl!("jit_throw",         [ptr, ptr, i32t, i32t],                 []),
         install_catch: decl!("jit_install_catch", [ptr, ptr, i32t],                       []),

@@ -5,6 +5,7 @@
 use super::*;
 use super::ctx::TxCtx;
 use crate::jit::helpers::value::JIT_GET_BOOL_ERR;
+use crate::jit::reg_access::{PAYLOAD_OFFSET, TAG_OFFSET};
 
 impl<'a, 'b> TxCtx<'a, 'b> {
     pub(super) fn tr_terminator(&mut self, term: &Terminator, block_instr_count: usize) -> Result<()> {
@@ -16,22 +17,36 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                 self.builder.ins().return_(&[zero]);
             }
             Terminator::Ret { reg: Some(r) } => {
-                // 2C: a resident Variable's value lives in SSA, not memory —
-                // spill it to `frame.regs[r]` so `self.hr_set_ret` (reads by index)
-                // sees the current value. F64 residents carry the TAG_F64
-                // discriminant; integer residents TAG_I64.
+                // Inline return: copy the 16-byte `Value` into `frame.ret` and set
+                // `frame.has_ret = 1` (`call_native` turns that into
+                // `Returned(Some(_))`; a void `Ret` leaves it 0). `Value` is `Copy`,
+                // so a raw two-word copy is exactly what a clone does.
+                let flags = MemFlagsData::trusted();
+                let ret_off = crate::jit::frame::JIT_FRAME_RET_OFFSET as i32;
                 if self.promoted.get(*r as usize).copied().unwrap_or(false) {
+                    // 2C: a resident Variable's value lives in SSA, not memory —
+                    // write tag + payload straight into `frame.ret`. F64 residents
+                    // carry the TAG_F64 discriminant; integer residents TAG_I64.
                     let v = self.builder.use_var(Variable::from_u32(*r));
-                    let addr = reg_addr(self.builder, self.regs_base, *r);
                     let tag = if self.func.reg_types.get(*r as usize).copied() == Some(IrType::F64) {
                         TAG_F64
                     } else {
                         TAG_I64
                     };
-                    store_const_tag(self.builder, addr, tag, v);
+                    let tag = self.builder.ins().iconst(types::I8, tag as i64);
+                    self.builder.ins().store(flags, tag, self.frame_val, ret_off + TAG_OFFSET);
+                    self.builder.ins().store(flags, v, self.frame_val, ret_off + PAYLOAD_OFFSET);
+                } else {
+                    // The block-end flush above made the slot current in memory.
+                    let addr = reg_addr(self.builder, self.regs_base, *r);
+                    let lo = self.builder.ins().load(types::I64, flags, addr, 0);
+                    let hi = self.builder.ins().load(types::I64, flags, addr, 8);
+                    self.builder.ins().store(flags, lo, self.frame_val, ret_off);
+                    self.builder.ins().store(flags, hi, self.frame_val, ret_off + 8);
                 }
-                let rv   = self.ri(*r);
-                self.builder.ins().call(self.hr_set_ret, &[self.frame_val, self.ctx_val, rv]);
+                let one = self.builder.ins().iconst(types::I8, 1);
+                self.builder.ins().store(flags, one, self.frame_val,
+                    crate::jit::frame::JIT_FRAME_HAS_RET_OFFSET as i32);
                 let zero = self.builder.ins().iconst(types::I8, 0);
                 self.builder.ins().return_(&[zero]);
             }

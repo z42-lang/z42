@@ -98,7 +98,6 @@ pub(super) struct TxCtx<'a, 'b> {
     pub(super) hr_struct_field_get_prim: FuncRef,
     pub(super) hr_struct_field_set_prim: FuncRef,
     pub(super) hr_get_bool: FuncRef,
-    pub(super) hr_set_ret: FuncRef,
     pub(super) hr_throw: FuncRef,
     pub(super) hr_install_catch: FuncRef,
     pub(super) hr_match_catch_type: FuncRef,

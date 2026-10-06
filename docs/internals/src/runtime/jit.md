@@ -578,7 +578,7 @@ promoted reg 与 `frame.regs` 的同步只在两处：
    垃圾（Null payload），被其首个真正 def 支配覆盖（dead seed 无害）。**OSR 变体**同样在 OSR 入口块种——
    此时 `frame.regs` 正是 interp 拷入的 live 状态（`from_interp_regs`），Cranelift 用它作循环头 phi 的
    OSR-incoming 值。
-2. **`Ret` 前 spill**：`store frame.regs[r] = use_var(var)`，供 `hr_set_ret`（按 index 读）看到当前值。
+2. **`Ret` 直写**：`use_var(var)` 连同常量 tag（`TAG_I64` / `TAG_F64`）直接写进 `frame.ret`，不经 `frame.regs[r]`。
 
 **safepoint 不 spill**：回边每迭代有 safepoint（可能转 slow helper 触发 GC），但 GC 是**非移动**的、root
 扫描**跳过整数槽**，无 JIT→interp deopt 读整数寄存器 → resident 整数跨 safepoint 无需 spill。**这正是跨迭代驻留

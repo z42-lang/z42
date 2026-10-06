@@ -1053,7 +1053,7 @@ jit/helpers/
 │                   ├── register_symbols(builder) ← 给 JITBuilder 绑名→指针
 │                   └── declare_imports(jit) -> HelperIds
 │                                                 ← 给 JITModule 声明签名
-├── value.rs      — Const* / Copy / 字符串 / get_bool / set_ret
+├── value.rs      — Const* / Copy / 字符串 / get_bool
 ├── arith.rs      — 算术 / 比较 / 逻辑 / 一元 / 位运算
 ├── control.rs    — throw / install_catch / match_catch_type
 ├── call.rs       — jit_call / jit_builtin
@@ -1134,8 +1134,8 @@ jit/helpers/
 
 - `frame.regs` 是 `Vec<Value>`；data pointer 在 JitFrame 构造时分配
   并稳定到函数结束（`reg_pool.take(max_reg + 1)` 一次定长，不会再 grow）。
-  `jit_regs_ptr(frame)` helper（`jit/helpers/value.rs`）在 translate 入口调一次，缓存 SSA
-  `regs_base`。
+  `JitFrame` 是 `#[repr(C)]`，首字段 `regs_ptr` 即 `regs.as_mut_ptr()`（构造时设好）；
+  函数序言按偏移 `JIT_FRAME_REGS_PTR_OFFSET`（= 0）load 一次，缓存为 SSA `regs_base`，不调 helper。
 - Slot 地址 `= regs_base + idx * 16`（`VALUE_STRIDE = size_of::<Value>()`，`jit/reg_access.rs`；
   pinned by `value_size_observed` test）。
 - 写时只写 1 B discriminant + 8 B payload；不调 `drop` 因为前任 slot

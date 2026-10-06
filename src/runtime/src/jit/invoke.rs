@@ -16,7 +16,8 @@ use super::helpers::JitFn;
 /// How a native call ended.
 #[must_use]
 pub(crate) enum NativeOutcome {
-    /// Normal return; the value `jit_set_ret` stored (`None` for a void body).
+    /// Normal return; the value compiled `Ret %r` stored into the frame (`None`
+    /// for a void `Ret`).
     Returned(Option<Value>),
     /// The callee threw. The exception is still **pending** on the `VmContext`
     /// (`set_exception`) — JIT callers propagate it by returning `1`, interp
@@ -75,7 +76,7 @@ pub(crate) unsafe fn call_native(
         frame.recycle(vm);
         return NativeOutcome::Threw;
     }
-    let ret = frame.ret.take();
+    let ret = frame.take_ret();
     frame.recycle(vm);
     NativeOutcome::Returned(ret)
 }
