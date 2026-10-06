@@ -5,8 +5,6 @@
 use super::*;
 use crate::metadata::tokens::TypeId;
 use crate::metadata::types::{ExecMode, TypeDesc};
-use crate::metadata::bytecode_serde::{typed_reg_serde, typed_reg_vec_serde, typed_reg_opt_serde};
-use serde::{Deserialize, Serialize};
 use rustc_hash::FxHashMap;
 use std::sync::Arc;
 
@@ -23,98 +21,96 @@ pub type Reg = u32;
 // See docs/internals/src/formats/ir.md (hot/cold boxing strategy).
 
 /// Payload for [`Instruction::Call`].
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug)]
 pub struct CallInsn {
-    #[serde(with = "typed_reg_serde")] pub dst: Reg,
+    pub dst: Reg,
     pub func: String,
-    #[serde(with = "typed_reg_vec_serde")] pub args: Box<[Reg]>,
+    pub args: Box<[Reg]>,
     /// add-generic-methods: resolved FQ type-argument names for a generic method
     /// call `Foo<A,B>()`. Empty for non-generic calls. Copied into the callee's
     /// `Frame.method_type_args` at frame construction; read by `MethodTypeArg` /
     /// `MethodDefault` in the callee body.
-    #[serde(default)] pub method_type_args: Box<[String]>,
+    pub method_type_args: Box<[String]>,
 }
 
 /// Payload for [`Instruction::ArrayNew`] (add-reflection-array-element-type).
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug)]
 pub struct ArrayNewInsn {
-    #[serde(with = "typed_reg_serde")] pub dst: Reg,
-    #[serde(with = "typed_reg_serde")] pub size: Reg,
-    #[serde(default)] pub elem_tag: u8,
+    pub dst: Reg,
+    pub size: Reg,
+    pub elem_tag: u8,
     /// Element type's FQ name (e.g. "int" / "geometry.Point"), resolved from the
     /// string pool at decode. Stored on the array's `ArrayObj` so
     /// `arr.GetType().GetElementType()` is non-erased. Empty = absent (legacy).
-    #[serde(default)] pub element_type: String,
+    pub element_type: String,
     /// add-escape-analysis-stack-alloc (zbc 1.29): escape analysis proved this
     /// array does not escape its creating frame → interp allocates it in the
     /// frame arena (GC-skipped). JIT ignores this flag (heap-allocates) in v1.
-    #[serde(default)] pub stack_alloc: bool,
+    pub stack_alloc: bool,
     /// fix-generic-array-value-zero-init (zbc 1.37, 方案 C): when the element is a
     /// generic type parameter, `type_param_kind` is 1 (method-level) or 2 (class-level)
     /// and `type_param_index` is its param index; the VM resolves it to a concrete type
     /// at runtime (frame.method_type_args / receiver.type_args) so value-type slots get
     /// the type's zero, not Null. `kind == 0` / `index == -1` for non-generic elements.
-    #[serde(default)] pub type_param_kind: u8,
-    #[serde(default = "neg_one_i32")] pub type_param_index: i32,
+    pub type_param_kind: u8,
+    pub type_param_index: i32,
 }
 
-fn neg_one_i32() -> i32 { -1 }
-
 /// Payload for [`Instruction::ArrayNewLit`] (add-reflection-array-element-type).
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug)]
 pub struct ArrayNewLitInsn {
-    #[serde(with = "typed_reg_serde")] pub dst: Reg,
-    #[serde(with = "typed_reg_vec_serde")] pub elems: Box<[Reg]>,
-    #[serde(default)] pub element_type: String,
+    pub dst: Reg,
+    pub elems: Box<[Reg]>,
+    pub element_type: String,
     /// add-escape-analysis-stack-alloc (zbc 1.29): non-escaping → frame arena (interp).
-    #[serde(default)] pub stack_alloc: bool,
+    pub stack_alloc: bool,
 }
 
 /// Payload for [`Instruction::Builtin`].
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug)]
 pub struct BuiltinInsn {
-    #[serde(with = "typed_reg_serde")] pub dst: Reg,
+    pub dst: Reg,
     pub name: String,
-    #[serde(with = "typed_reg_vec_serde")] pub args: Box<[Reg]>,
+    pub args: Box<[Reg]>,
 }
 
 /// Payload for [`Instruction::LoadFn`].
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug)]
 pub struct LoadFnInsn {
-    #[serde(with = "typed_reg_serde")] pub dst: Reg,
+    pub dst: Reg,
     pub func: String,
 }
 
 /// Payload for [`Instruction::MkClos`].
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug)]
 pub struct MkClosInsn {
-    #[serde(with = "typed_reg_serde")] pub dst: Reg,
+    pub dst: Reg,
     pub fn_name: String,
-    #[serde(with = "typed_reg_vec_serde")] pub captures: Box<[Reg]>,
-    #[serde(default)] pub stack_alloc: bool,
+    pub captures: Box<[Reg]>,
+    pub stack_alloc: bool,
 }
 
 /// Payload for [`Instruction::ObjNew`].
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug)]
 pub struct ObjNewInsn {
-    #[serde(with = "typed_reg_serde")] pub dst: Reg,
+    pub dst: Reg,
     pub class_name: String,
     pub ctor_name: String,
-    #[serde(with = "typed_reg_vec_serde")] pub args: Box<[Reg]>,
+    pub args: Box<[Reg]>,
     /// Resolved generic type-arguments for this allocation (e.g. `["int"]` for
     /// `new Foo<int>()`); empty for non-generic. `Box<[String]>` (immutable IR).
-    #[serde(default)] pub type_args: Box<[String]>,
+    pub type_args: Box<[String]>,
     /// add-escape-analysis-stack-alloc (zbc 1.29): escape analysis proved this
     /// object does not escape AND its ctor does not leak `this` → interp allocates
     /// it in the frame arena (GC-skipped). JIT ignores this flag (heap) in v1.
-    #[serde(default)] pub stack_alloc: bool,
+    pub stack_alloc: bool,
     /// encode-ctorless-objnew (zbc 1.39): **positive** marker — the compiler saw
     /// `ctor_name` among (every function this package emitted) ∪ `DependencyIndex`
     /// when it assembled the package. Lets the runtime tell "the constructor should
     /// be here but resolves nowhere" (dependency version skew) apart from "this
     /// class simply has no constructor". Absence is the conservative state: an
     /// unset bit reproduces the pre-1.39 behaviour exactly.
-    #[serde(default)] pub ctor_known: bool,
+    pub ctor_known: bool,
 }
 
 /// Payload for [`Instruction::Typeof`].
@@ -124,85 +120,85 @@ pub struct ObjNewInsn {
 /// instantiation type arguments (`typeof(Box<int>)` → `["int"]`; empty for
 /// non-generic / open). A non-empty list marks a *constructed* generic type.
 /// add-reflection-generic-type-definition (zbc 1.18).
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug)]
 pub struct TypeofInsn {
-    #[serde(with = "typed_reg_serde")] pub dst: Reg,
+    pub dst: Reg,
     pub type_name: String,
-    #[serde(default)] pub type_args: Box<[String]>,
+    pub type_args: Box<[String]>,
 }
 
 /// Payload for [`Instruction::FieldGet`].
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug)]
 pub struct FieldGetInsn {
-    #[serde(with = "typed_reg_serde")] pub dst: Reg,
-    #[serde(with = "typed_reg_serde")] pub obj: Reg,
+    pub dst: Reg,
+    pub obj: Reg,
     pub field_name: String,
 }
 
 /// Payload for [`Instruction::FieldSet`].
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug)]
 pub struct FieldSetInsn {
-    #[serde(with = "typed_reg_serde")] pub obj: Reg,
+    pub obj: Reg,
     pub field_name: String,
-    #[serde(with = "typed_reg_serde")] pub val: Reg,
+    pub val: Reg,
 }
 
 /// Payload for [`Instruction::VCall`].
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug)]
 pub struct VCallInsn {
-    #[serde(with = "typed_reg_serde")] pub dst: Reg,
-    #[serde(with = "typed_reg_serde")] pub obj: Reg,
+    pub dst: Reg,
+    pub obj: Reg,
     pub method: String,
-    #[serde(with = "typed_reg_vec_serde")] pub args: Box<[Reg]>,
+    pub args: Box<[Reg]>,
     /// add-generic-methods: resolved FQ type-argument names for a generic instance
     /// method call. Empty for non-generic. See `CallInsn::method_type_args`.
-    #[serde(default)] pub method_type_args: Box<[String]>,
+    pub method_type_args: Box<[String]>,
 }
 
 /// Payload for [`Instruction::IsInstance`].
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug)]
 pub struct IsInstanceInsn {
-    #[serde(with = "typed_reg_serde")] pub dst: Reg,
-    #[serde(with = "typed_reg_serde")] pub obj: Reg,
+    pub dst: Reg,
+    pub obj: Reg,
     pub class_name: String,
 }
 
 /// Payload for [`Instruction::AsCast`].
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug)]
 pub struct AsCastInsn {
-    #[serde(with = "typed_reg_serde")] pub dst: Reg,
-    #[serde(with = "typed_reg_serde")] pub obj: Reg,
+    pub dst: Reg,
+    pub obj: Reg,
     pub class_name: String,
 }
 
 /// Payload for [`Instruction::StaticGet`].
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug)]
 pub struct StaticGetInsn {
-    #[serde(with = "typed_reg_serde")] pub dst: Reg,
+    pub dst: Reg,
     pub field: String,
 }
 
 /// Payload for [`Instruction::StaticSet`].
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug)]
 pub struct StaticSetInsn {
     pub field: String,
-    #[serde(with = "typed_reg_serde")] pub val: Reg,
+    pub val: Reg,
 }
 
 /// Payload for [`Instruction::CallNative`].
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug)]
 pub struct CallNativeInsn {
-    #[serde(with = "typed_reg_serde")] pub dst: Reg,
+    pub dst: Reg,
     pub module: String,
     pub type_name: String,
     pub symbol: String,
-    #[serde(with = "typed_reg_vec_serde")] pub args: Box<[Reg]>,
+    pub args: Box<[Reg]>,
 }
 
 /// Payload for [`Instruction::StructAlloc`] (add-struct-value-semantics Phase A).
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug)]
 pub struct StructAllocInsn {
-    #[serde(with = "typed_reg_serde")] pub dst: Reg,
+    pub dst: Reg,
     /// FQ value-type name — the arena records it so GC can scan blob reference
     /// leaves by the type's ref-bitmap, and boxing can recover the precise type.
     pub type_name: String,
@@ -227,10 +223,10 @@ pub struct StructAllocInsn {
 /// 偏移才变**（`Pair<A,B>` 的 First/Second 永远 0/1）⇒ 解析是 O(1) 下标，无哈希、无字符串、
 /// 不需要 IC。嵌套链（`line.a.x`）此前被编译器**求和展平**成一个立即数，现在保留为路径。
 /// 实测分布：深度 1 占 85.1%，最大深度 4（见提案）。
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug)]
 pub struct StructFieldGetInsn {
-    #[serde(with = "typed_reg_serde")] pub dst: Reg,
-    #[serde(with = "typed_reg_serde")] pub base: Reg,
+    pub dst: Reg,
+    pub base: Reg,
     pub root_type: String,
     pub path: Box<[u16]>,
     pub kind: u8,
@@ -238,20 +234,20 @@ pub struct StructFieldGetInsn {
 
 /// Payload for [`Instruction::StructFieldSetPrim`] — 写侧镜像，语义见
 /// [`StructFieldGetInsn`]。
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug)]
 pub struct StructFieldSetInsn {
-    #[serde(with = "typed_reg_serde")] pub base: Reg,
+    pub base: Reg,
     pub root_type: String,
     pub path: Box<[u16]>,
     pub kind: u8,
-    #[serde(with = "typed_reg_serde")] pub val: Reg,
+    pub val: Reg,
 }
 
 /// Payload for [`Instruction::LoadFieldAddr`].
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug)]
 pub struct LoadFieldAddrInsn {
-    #[serde(with = "typed_reg_serde")] pub dst: Reg,
+    pub dst: Reg,
     /// Reg holding the object (must be `Value::Object(GcRef<...>)`).
-    #[serde(with = "typed_reg_serde")] pub obj: Reg,
+    pub obj: Reg,
     pub field_name: String,
 }

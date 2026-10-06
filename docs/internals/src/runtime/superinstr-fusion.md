@@ -25,7 +25,7 @@ metadata/superinstr.rs
 ```
 
 - **识别一次，热路径零成本**：`compute_fused_tails` 在 load 期（`loader.rs`，紧挨 `branch_targets`
-  之后）算好，存进 `Function.fused_tails`（`#[serde(skip)]` 运行期缓存，**无 zbc/格式影响**）。exec
+  之后）算好，存进 `Function.fused_tails`（运行期缓存，**无 zbc/格式影响**）。exec
   循环只读 `fused_tails[block_idx]`（O(1)），不做 per-iteration 识别。
 - **加新规则** = ① 加一个 `SuperInstr` variant；② `recognize` 加一条 arm；③ 后端加一个 handler。
   框架、缓存、load 接线都不动。候选：`load+arith`、`arith+store`、`cmp+cmp&&` 等。

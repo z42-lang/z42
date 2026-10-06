@@ -5,8 +5,6 @@
 use super::*;
 use crate::metadata::tokens::TypeId;
 use crate::metadata::types::{ExecMode, TypeDesc};
-use crate::metadata::bytecode_serde::{typed_reg_serde, typed_reg_vec_serde, typed_reg_opt_serde};
-use serde::{Deserialize, Serialize};
 use rustc_hash::FxHashMap;
 use std::sync::Arc;
 
@@ -43,52 +41,42 @@ pub fn format_frame_name(func: &Function) -> String {
 /// review.md E2.P5 (2026-05-27). Mirror of CoreCLR's split between
 /// `MethodDesc` (hot, 32 B base) and `MethodDescChunk` / cold side
 /// tables.
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Default)]
 pub struct FunctionCold {
     /// 1.3 split-debug-symbols: per-parameter type names for stack-trace
     /// signature decoration. Length always equals `param_count` (zbc writer
     /// pads unknowns with "?"). Empty when param_count == 0.
-    #[serde(default)]
     pub param_types: Box<[String]>,
     /// Exception handler ranges. Populated only when the function body
     /// contains `try` / `catch` / `finally`.
-    #[serde(default)]
     pub exception_table: Box<[ExceptionEntry]>,
     /// Source-line mapping table (run-length encoded). Populated only when
     /// the module is built with debug symbols (DBUG section / sidecar).
-    #[serde(default)]
     pub line_table: Box<[LineEntry]>,
     /// Debug info: maps register IDs to source-level variable names.
     /// Populated only with debug symbols.
-    #[serde(default)]
     pub local_vars: Box<[LocalVar]>,
     /// Generic type parameter names: ["T"], ["K", "V"]. Empty for non-generic functions.
-    #[serde(default)]
     pub type_params: Box<[String]>,
     /// L3-G3a: constraint bundle per type parameter (aligned by index with `type_params`).
-    #[serde(default)]
     pub type_param_constraints: Box<[ConstraintBundle]>,
     /// C3b add-attribute-reflection-methods: user attributes applied to this
     /// method / top-level function (from the zbc SIGS section). Each points at a
     /// synthesized factory the runtime calls for `MethodInfo.GetCustomAttributes()`.
-    #[serde(default)]
     pub custom_attributes: Box<[AttributeRef]>,
     /// add-parameter-attribute-reflection (zbc 1.15): per-parameter user
     /// attributes, aligned by index with the SIGS parameter array (length ==
     /// `param_count`, including the implicit `this` slot at index 0 for instance
     /// methods, which is empty). `loader` re-indexes these by source position
     /// (excluding `this`) for `ParameterInfo.GetCustomAttributes()`.
-    #[serde(default)]
     pub param_attributes: Box<[Box<[AttributeRef]>]>,
     /// add-param-metadata (unify P1-d): per-param source name (SIGS
     /// `name_str_idx`), aligned by index with the SIGS parameter array (this-slot
     /// = "this"). Backs `ParameterInfo.Name` (authoritative over DBUG guess).
-    #[serde(default)]
     pub param_names: Box<[String]>,
     /// add-param-metadata (unify P1-d): per-param default value `(kind, i64, str)`
     /// (kind 0=none/1=null/2=i64/3=f64bits/4=bool/5=str). Backs
     /// `ParameterInfo.DefaultValue`. Aligned by SIGS param index.
-    #[serde(default)]
     pub param_defaults: Box<[(u8, i64, String)]>,
 }
 
@@ -99,10 +87,7 @@ pub struct FunctionCold {
 /// methods that return `&[T]` (empty slice when cold is absent). Sidecar
 /// mutations (`loader.rs` debug-symbol overlay) lazy-init via
 /// [`Function::cold_mut`].
-/// serde default for `Function::params_from` (add-param-metadata): 0xFF = no varargs.
-fn default_params_from() -> u8 { 0xFF }
-
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug)]
 pub struct Function {
     pub name: String,
     /// Number of parameters — they occupy registers 0..param_count-1 on entry.
@@ -114,37 +99,30 @@ pub struct Function {
     /// True for static class methods (no implicit `this` receiver).
     /// Instance methods have `this` as reg 0 and should not be treated as
     /// static-only entries in the StdlibCallIndex.
-    #[serde(default)]
     pub is_static: bool,
     /// Member visibility (add-member-visibility, unify P1-b): 0=public /
     /// 1=private / 2=protected. Populated from the SIGS entry's `visibility:u8`
     /// at module load (mirrors `is_static`), so `MethodInfo.IsPublic` can
     /// report it via reflection. Defaults to 0 (public) for synthesized funcs.
-    #[serde(default)]
     pub visibility: u8,
     /// Method modifiers (add-method-modifiers, unify P1-c): bit0=virtual /
     /// bit1=abstract. Populated from the SIGS entry's `method_flags:u8` at
     /// module load (mirrors `visibility`), so `MethodInfo.IsVirtual`
     /// (authoritative) / `IsAbstract` can report it via reflection.
     /// Defaults to 0 (non-virtual) for synthesized funcs.
-    #[serde(default)]
     pub method_flags: u8,
     /// Required (logical) param count (add-param-metadata, unify P1-d): from the
     /// SIGS `min_arg:u16`. `ParameterInfo.IsOptional` = (logical pos >= min_arg).
-    #[serde(default)]
     pub min_arg: u16,
     /// Params-varargs logical index (add-param-metadata): SIGS `params_from:u8`,
     /// 0xFF = none. `ParameterInfo.IsParams` = (logical pos == params_from).
-    #[serde(default = "default_params_from")]
     pub params_from: u8,
     /// Total number of registers used (0 = unknown; VM falls back to dynamic sizing).
-    #[serde(default)]
     pub max_reg: u32,
     /// Cold side-table (param_types / exception_table / line_table /
     /// local_vars / type_params / type_param_constraints). `None` for
     /// the common case of a non-generic function with no try/catch and
     /// no debug symbols. Reads go through accessor methods on `Function`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cold: Option<Box<FunctionCold>>,
     /// review.md C2 step 0.2 (2026-05-27): per-register static type
     /// from the C# IR's `TypedReg.Type`. Indexed by register ID;
@@ -153,17 +131,14 @@ pub struct Function {
     /// path). JIT translate.rs reads this to specialize arithmetic /
     /// comparison / logical ops on known primitives (`I64` → emit
     /// Cranelift `iadd` instead of `jit_add` helper call).
-    #[serde(default, skip)]
     pub reg_types: Box<[crate::metadata::ir_type::IrType]>,
     /// Precomputed block label → index mapping. Not serialized; populated after module load.
-    #[serde(skip)]
     pub block_index: std::collections::HashMap<String, usize>,
     /// perf-vm-iteration: per-block pre-resolved branch targets (indices),
     /// parallel to `blocks`. Lets `Br`/`BrCond` jump by index instead of
     /// SipHashing the label string every back-edge (~25% of interp loop time).
     /// Not serialized; populated by `loader::build_block_indices`. Empty ⇒
     /// runtime falls back to `block_index` (hand-built test functions).
-    #[serde(skip)]
     pub branch_targets: Vec<BranchTargets>,
     /// interp-superinstr-fusion (2026-08-01): per-block fused-tail super-instruction
     /// (e.g. `cmp`+`BrCond` → `CmpBr`), parallel to `blocks`. Recognized once at
@@ -171,7 +146,6 @@ pub struct Function {
     /// `fused_tails[block_idx]` (O(1)) to run the fused step and skip a dispatch on
     /// hot loops. `None`/empty ⇒ no fusion for that block (normal execution).
     /// Not serialized (pure runtime optimization; no zbc/format impact).
-    #[serde(skip)]
     pub fused_tails: Vec<Option<crate::metadata::superinstr::SuperInstr>>,
     /// perf-frame-name-precompute: the stack-frame display name (`"Fn(params)"`)
     /// + source file as `Arc<str>`, precomputed once at load (like
@@ -180,20 +154,17 @@ pub struct Function {
     /// on **every** call — that was 40–60% of call-heavy interp time (measured).
     /// `None` for hand-built test functions the loader never post-processes → the
     /// interp falls back to formatting on the fly.
-    #[serde(skip)]
     pub frame_meta: Option<(std::sync::Arc<str>, std::sync::Arc<str>)>,
     /// Per-function token cache (introduce-method-token, 2026-05-08).
     /// Lazy-init by `metadata::resolver::resolve_module` after module load.
     /// `OnceLock` so `Function: Sync` is preserved (single-thread today,
     /// future multi-thread ready). Not serialized — purely runtime metadata.
-    #[serde(skip)]
     pub resolved: std::sync::OnceLock<crate::metadata::resolver::ResolvedTokens>,
     /// The type whose static constructor must run before this function is
     /// called — `Some` only for a method of a type that has one; free functions
     /// and methods of cctor-less types cache `None` and skip the barrier for
     /// good. Filled on the first barrier check (`VmContext::ensure_callee_owner_init`).
     /// `Arc` so the JIT's `FnEntry` shares the cell instead of re-deriving it.
-    #[serde(skip)]
     pub owner_init: OwnerInitCell,
 }
 
@@ -302,7 +273,7 @@ impl Function {
     }
 }
 /// An entry in a function's local variable table: register `reg` holds variable `name`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct LocalVar {
     pub name: String,
     pub reg:  u16,
@@ -313,30 +284,27 @@ pub struct LocalVar {
 /// 2026-05-10 span-column-propagate (zbc 1.1): `column` carries 1-based
 /// source column from `Span.Column`. Value `0` means unknown (legacy
 /// hand-rolled IR or pre-1.1 zbc never reach here — reader rejects).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct LineEntry {
     pub block:  u32,
     pub instr:  u32,
     pub line:   u32,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub file:   Option<String>,
-    #[serde(default)]
     pub column: u32,
 }
 
 /// One row in a function's exception table.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug)]
 pub struct ExceptionEntry {
     pub try_start:   String,
     pub try_end:     String,
     pub catch_label: String,
     pub catch_type:  Option<String>,
-    #[serde(with = "typed_reg_serde")]
     pub catch_reg:   u32,
 }
 
 /// A basic block — straight-line instructions ending in exactly one terminator.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug)]
 pub struct BasicBlock {
     pub label: String,
     pub instructions: Vec<Instruction>,

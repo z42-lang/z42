@@ -23,8 +23,6 @@
 //! full design rationale, including the Decision 6 flip that brought
 //! Field/Static into Phase 1 alongside method dispatch.
 
-use serde::{Deserialize, Serialize};
-
 /// Sentinel value indicating an unresolved cache slot. Encoded as `u32::MAX`
 /// because legitimate IDs are bounded by metadata size (≪ 2^32 entries in
 /// practice); a sentinel cannot collide with a real id without overflowing.
@@ -69,7 +67,7 @@ pub const PRIM_TYPE_ARRAY:  u32 = 0xFFFE_0006;
 macro_rules! define_token {
     ($(#[$meta:meta])* $name:ident) => {
         $(#[$meta])*
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
         #[repr(transparent)]
         pub struct $name(pub u32);
 

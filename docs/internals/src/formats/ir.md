@@ -548,11 +548,6 @@ VM 的 `metadata::Instruction` 是一个枚举。`Function.blocks: Vec<BasicBloc
   String 但带 `Box<[Reg]>` 的变体决定）。`metadata::bytecode_tests::instruction_size_is_slim`
   静态断言 ≤ 32 B 守门。
 
-**JSON wire format 不变**：枚举是 internally-tagged（`#[serde(tag = "op")]`），
-newtype 变体的内层 struct 字段会被 serde **摊平进 tag 对象**，故
-`Call(Box<CallInsn>)` 仍序列化为 `{"op":"call", dst, func, args}`——与装箱前逐字符
-相同（`bytecode_tests` 的 round-trip 单测守门）。
-
 ### Deferred / Future Work
 
 #### slim-terminator-future: 装箱 `Terminator` 的 String label
