@@ -73,8 +73,8 @@ pub fn builtin_file_write_bytes(_ctx: &VmContext, args: &[Value]) -> Result<()> 
     Ok(())
 }
 
-// add-file-atomic-write (2026-05-27): tmp sibling + fsync + rename（crash-safe）。
-// 原子保证是 native 后端职责（fsync）；memory 后端降级为普通写。
+// add-file-atomic-write (2026-05-27): tmp sibling + 落盘排序 + rename（crash-safe）。
+// 原子保证是 native 后端职责（`sync_before_rename`）；memory 后端降级为普通写。
 
 pub fn builtin_file_write_text_atomic(_ctx: &VmContext, args: &[Value]) -> Result<()> {
     let path = arg_str(args, 0, "__file_write_text_atomic")?;

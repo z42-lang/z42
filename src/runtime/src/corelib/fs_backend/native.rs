@@ -98,7 +98,40 @@ pub fn glob(dir: &str, pattern: &str) -> Result<Vec<String>> {
     hits.sort();
     Ok(hits)
 }
-/// Atomic write — tmp sibling + fsync + rename (crash-safe). Native-only guarantee.
+/// Make the tmp file's contents reach the disk no later than the rename that
+/// publishes it — the whole crash-safety argument of [`write_atomic`]: after a
+/// crash a reader sees the old file or the complete new one.
+///
+/// That needs ordering, not a full flush of the drive cache. `File::sync_all`
+/// is `F_FULLFSYNC` on Apple (drains the device cache; it was 6–12 % of a
+/// z42c build, which writes every compile-cache file through here) and
+/// `fsync` elsewhere (also flushes metadata the rename rewrites anyway).
+/// - Apple: `F_BARRIERFSYNC` — writes issued before it hit the media before
+///   writes issued after it (the rename). Falls back to `sync_data` if the
+///   file system rejects the command.
+/// - Linux / Android: `fdatasync` (`sync_data`).
+/// - Elsewhere: `sync_all`.
+fn sync_before_rename(file: &std::fs::File) -> std::io::Result<()> {
+    #[cfg(target_vendor = "apple")]
+    {
+        use std::os::fd::AsRawFd;
+        // SAFETY: plain fcntl on a file descriptor `file` owns for the call.
+        if unsafe { libc::fcntl(file.as_raw_fd(), libc::F_BARRIERFSYNC) } == 0 {
+            return Ok(());
+        }
+        file.sync_data()
+    }
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    {
+        file.sync_data()
+    }
+    #[cfg(not(any(target_vendor = "apple", target_os = "linux", target_os = "android")))]
+    {
+        file.sync_all()
+    }
+}
+
+/// Atomic write — tmp sibling + ordered sync + rename (crash-safe). Native-only guarantee.
 pub fn write_atomic(target: &str, bytes: &[u8]) -> Result<()> {
     use std::io::Write;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -120,7 +153,7 @@ pub fn write_atomic(target: &str, bytes: &[u8]) -> Result<()> {
             .create_new(true)
             .open(&tmp)?;
         file.write_all(bytes)?;
-        file.sync_all()?;
+        sync_before_rename(&file)?;
         drop(file);
         std::fs::rename(&tmp, target_path)?;
         Ok(())

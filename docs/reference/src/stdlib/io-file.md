@@ -105,7 +105,7 @@ public static class File {
 | `ReadAllText(path)` | 整读为 `string`（`path` 是目录时抛 `Is a directory`），**严格 UTF-8**：内容不是合法 UTF-8 时抛 `Std.Exception`，message `stream did not contain valid UTF-8`（不做 lossy 替换） |
 | `WriteAllText(path, content)` | 覆盖写；文件不存在则创建。UTF-8 编码。⚠ **不会创建父目录**（父目录缺失时抛 `No such file or directory`）——先 `Directory.Create`。`path` 已是目录时抛 `Is a directory` |
 | `AppendAllText(path, content)` | 追加写；文件不存在则创建 |
-| `WriteAllTextAtomic` / `WriteAllBytesAtomic` | 崩溃安全写：外部观察到的要么是旧内容要么是新内容，不会是半截。代价是每次多一次 `fsync`，只对关键文件用 |
+| `WriteAllTextAtomic` / `WriteAllBytesAtomic` | 崩溃安全写：外部观察到的要么是旧内容要么是新内容，不会是半截。代价是每次多一次同步落盘（Apple 上是只保证先后顺序的 `F_BARRIERFSYNC`，Linux 上是 `fdatasync`），比普通写慢，只对关键文件用 |
 | `ReadAllBytes` / `WriteAllBytes` | 字节版，不做任何编码校验 |
 | `Exists(path)` | ⚠ **目录也返回 `true`**（见下） |
 | `Delete(path)` | 删文件。⚠ **目标不存在时抛** `Std.Exception`（`No such file or directory`）——与 C# 的静默成功不同，「有就删」要自己先 `Exists` |
