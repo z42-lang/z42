@@ -1,0 +1,104 @@
+// 单态化工作表不收敛 → E0503（diag-recursive-generic）。
+//
+// 值类型实例化各有一份代码，所以 `struct Rec<T>` 里用到 `Rec<Rec<T>>` 时，编 `Rec<int>` 就得先编
+// `Rec<Rec<int>>`，再编下一层……类型实参逐层加深、没有尽头。这在类型检查层面完全合法，只有展开时才看得出来
+// —— Rust 同样在单态化阶段报这一类（E0275 / recursion limit while instantiating）。故这是 emission 层
+// **唯一**报用户诊断的地方：不是「检查漏到了后端」，而是这个事实只在这里才存在。
+//
+// 两道判据，先到先报：① 某一项的类型实参**嵌套深度**超过 `DepthCap`（对齐 Rust 实例化递归上限的思路；
+// 真实程序的嵌套不过个位数）—— 无限链靠它在百来项内失败；② 工作表总量超过 `IrGen.SpecializationCap`
+// —— 兜「不加深却无限变宽」的情形。只有 ② 时实测要 85 秒才报：实例化名随深度线性变长，总开销近平方。
+// 引用类型实例化共用一份代码、不进工作表，所以同形状的 `class Rec<T>` 展开有界、照常编过 ——
+// 不能改成一条静态的「禁止递归泛型」规则。
+//
+// 诊断报在**泛型的声明处**：拿工作表里最长的那一项（嵌套最深的就是在无限加深的那条链），取它的定义名。
+// 没有 `Diags` 的入口（`IrDump.DumpModule` 一类只要 IR 的测试路径）仍抛异常 —— 那里没有地方放诊断。
+namespace Z42.Semantics;
+
+using Z42.Syntax;
+using Z42.IR;
+using Z42.Core;
+
+public static class SpecializationGuard {
+
+    public static int DepthCap = 100;
+
+    // 工作项入表时调用：记下第一个嵌套超深的项（O(键长)，不扫全表）。
+    public static void Note(IrGen g, string key) {
+        if (g.SpecDeepKey != "") { return; }
+        int depth = 0;
+        int max = 0;
+        int i = 0;
+        while (i < key.Length) {
+            char c = key.CharAt(i);
+            if (c == '<') { depth = depth + 1; if (depth > max) { max = depth; } }
+            else if (c == '>') { depth = depth - 1; }
+            i = i + 1;
+        }
+        if (max > SpecializationGuard.DepthCap) { g.SpecDeepKey = key; }
+    }
+
+    // 超深或超量 ⇒ 报 E0503（每个 IrGen 只报一次）并返回 true，调用方据此跳出不动点循环。
+    public static bool Exceeded(IrGen g, CompilationUnit cu, StrMap done) {
+        bool deep = g.SpecDeepKey != "";
+        if (!deep && done.Count() <= IrGen.SpecializationCap) { return false; }
+        if (g.SpecDiverged) { return true; }
+        g.SpecDiverged = true;
+        string worst = g.SpecDeepKey;
+        if (!deep) {
+            string[] keys = done.Keys();
+            int i = 0;
+            while (i < keys.Length) { if (keys[i].Length > worst.Length) { worst = keys[i]; } i = i + 1; }
+        }
+        string owner = SpecializationGuard._ownerOf(worst);
+        string shown = worst.Length > 120 ? worst.Substring(0, 120) + "…" : worst;
+        string why = deep
+            ? "type arguments nested more than " + SpecializationGuard.DepthCap.ToString() + " levels deep"
+            : "gave up after " + IrGen.SpecializationCap.ToString() + " instantiations";
+        string msg = "generic instantiation of `" + owner + "` never terminates: compiling it needs a copy with a"
+            + " deeper type argument, which needs a deeper one again (" + why + ", e.g. `" + shown + "`)."
+            + " Value-type instantiations each get their own code, so a generic whose body uses itself with"
+            + " a nested type argument (`Rec<T>` using `Rec<Rec<T>>`) has no finite expansion";
+        if (g.Diags == null) { throw new Exception("z42c: " + msg); }
+        g.Diags.Error("E0503", msg, SpecializationGuard._spanOf(g, cu, owner));
+        return true;
+    }
+
+    // 工作项键 → 定义名：实例化 `D.Rec<D.Rec<int>>` 取 `<` 前；泛型体 `D.F$1:int` 取 `:` 前；
+    // 再去掉命名空间前缀与 arity-mangle 的 `$N`，只留源码里写的名字。
+    private static string _ownerOf(string key) {
+        int end = 0;
+        while (end < key.Length && key.CharAt(end) != '<' && key.CharAt(end) != ':') { end = end + 1; }
+        string s = key.Substring(0, end);
+        int dot = s.LastIndexOf(".");
+        if (dot >= 0) { s = s.Substring(dot + 1); }
+        int dollar = s.IndexOf("$");
+        if (dollar > 0) { s = s.Substring(0, dollar); }
+        return s;
+    }
+
+    // 定义处的 span：本包泛型类型表（裸名 / arity-mangle 名）→ 泛型体表（键以该名结尾）→ 退回本 CU 开头。
+    private static Span _spanOf(IrGen g, CompilationUnit cu, string owner) {
+        if (g.GenericTypeDecls != null) {
+            string[] tk = g.GenericTypeDecls.Keys();
+            int i = 0;
+            while (i < tk.Length) {
+                if (tk[i] == owner || tk[i].StartsWith(owner + "$")) {
+                    return (g.GenericTypeDecls.Get(tk[i]) as GenericBodySrc).Raw.Span;
+                }
+                i = i + 1;
+            }
+        }
+        if (g.GenericBodies != null) {
+            string[] bk = g.GenericBodies.Keys();
+            int j = 0;
+            while (j < bk.Length) {
+                if (SpecializationGuard._ownerOf(bk[j]) == owner) {
+                    return (g.GenericBodies.Get(bk[j]) as GenericBodySrc).Raw.Span;
+                }
+                j = j + 1;
+            }
+        }
+        return cu.Span;
+    }
+}

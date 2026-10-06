@@ -128,6 +128,7 @@ public static class CuCompile {
         gen.ActiveNs = actNs; gen.ActiveNsCount = actNs.Length;
         // complete-generic-instantiation S1：类型错误下不做特化（见 IrGen.HasTypeErrors）。
         gen.HasTypeErrors = diags.ErrorCount() > 0;
+        gen.Diags = diags;   // diag-recursive-generic：单态化不收敛报 E0503
         IrModule irm = gen.Generate(cu, model, optSet);
         UsingLint.Check(cu, tc.UsedNs.ToArray(), gen.UsedDepNs, gen.UsedDepNsCount, diags);   // using-csharp-rules PR-3：W0607 / W0608
         string[] usings = new string[8];

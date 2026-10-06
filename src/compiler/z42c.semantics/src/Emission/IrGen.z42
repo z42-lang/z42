@@ -7,6 +7,7 @@ namespace Z42.Semantics;
 using Z42.Syntax;
 using Z42.IR;
 using Z42.Optimization;
+using Z42.Core;
 
 public sealed class IrGen {
     private string[]    _pool;       // 字符串池（1-based；[0]=""占位）
@@ -54,9 +55,15 @@ public sealed class IrGen {
     // 本就无意义，跳过特化让诊断正常输出。（良型代码今天够不到无限加深 —— 类型检查器不把
     // 方法级实参代换进形参类型，那种递归一律 E0402 —— 但不能依赖这个偶然，故另有上限兜底。）
     public bool HasTypeErrors;
-    // 单调化工作表的防御性上限（见不动点循环处的注释）。
+    // 单调化工作表的上限（见不动点循环处的注释）。超限 = 递归泛型展不完 ⇒ E0503（SpecializationGuard）。
     // 每个特化都要发一整个函数体，故上限取得保守：够任何真实程序用，又能在秒级内失败。
     public static int SpecializationCap = 2000;
+    // 单态化期诊断（E0503）的去处；null = 只要 IR 的测试 / dump 入口，超限时抛异常。
+    public DiagnosticBag Diags;
+    // 已报过 E0503 ⇒ 后续两个不动点都直接停（同一条无限链不重复报）。
+    public bool SpecDiverged;
+    // 工作表里第一个类型实参嵌套超过 `SpecializationGuard.DepthCap` 的项；"" = 尚无。
+    public string SpecDeepKey;
     // 本包**泛型体**的登记表：体查找键 → `GenericBodySrc`（AST + **其所属 CU 的 model** + ownerKey）。
     // 自由函数键 = `RegKey`；方法键 = `OwnerKey.RegKey`（与 `SemanticModel.HasBody` 同一口径）。
     public StrMap GenericBodies;
@@ -105,6 +112,9 @@ public sealed class IrGen {
         this.GenericFnInsts = new StrMap();
         this.SpecInstName = "";
         this.SpecOwnerName = "";
+        this.Diags = null;
+        this.SpecDiverged = false;
+        this.SpecDeepKey = "";
     }
 
     // 字符串字面量 intern → 1-based 池索引（去重）。
@@ -350,7 +360,7 @@ public sealed class IrGen {
             int pi = 0;
             while (pi < pend.Length) {
                 if (!specDone.ContainsKey(pend[pi])) {
-                    specDone.Put(pend[pi], "1");
+                    specDone.Put(pend[pi], "1"); SpecializationGuard.Note(this, pend[pi]);
                     // 身份与布局解耦：**描述符**对所有实例化都投送（见下方 InstLayouts 循环），
                     // 但**成员特化**只对「需要自己一份体」的做 —— 判据与派发侧共用
                     // `InstNeedsOwnBody`（布局不同 或 定义有静态状态），见其注释。
@@ -368,20 +378,15 @@ public sealed class IrGen {
             int fi2 = 0;
             while (fi2 < fpend.Length) {
                 if (!specDone.ContainsKey(fpend[fi2])) {
-                    specDone.Put(fpend[fi2], "1");
+                    specDone.Put(fpend[fi2], "1"); SpecializationGuard.Note(this, fpend[fi2]);
                     this._emitSpecializedFreeFn(fpend[fi2], model, sink);
                     specMore = true;
                 }
                 fi2 = fi2 + 1;
             }
-            // 防御性上限：工作项理应有限（来自源码中出现的调用×实参组合），但递归泛型能让
-            // 类型实参逐层加深而无限产生新项。宁可大声失败，也不让编译器 100% CPU 不返回
-            // ——同 `try_fixup_inheritance` 的 `fixup_cap` 先例。
-            if (specDone.Count() > IrGen.SpecializationCap) {
-                throw new Exception("generic specialization did not converge after "
-                    + IrGen.SpecializationCap.ToString() + " instantiations — 疑似递归泛型"
-                    + "（形如 `Rec<T>` 调 `Rec<G<T>>`，类型实参逐层加深）。");
-            }
+            // 上限：工作项理应有限（来自源码中出现的调用×实参组合），但递归泛型能让类型实参
+            // 逐层加深而无限产生新项 ⇒ 报 E0503 并停下，不让编译器 100% CPU 不返回。
+            if (SpecializationGuard.Exceeded(this, cu, specDone)) { break; }
         }
         IrFunction[] funcs = sink.Funcs; int fc = sink.Fc;
         IrClassDesc[] classes = sink.Classes; int cc = sink.Cc;
@@ -402,18 +407,15 @@ public sealed class IrGen {
             int ilI = 0;
             while (ilI < ilKeys.Length) {
                 if (!ilDone.ContainsKey(ilKeys[ilI])) {
-                    ilDone.Put(ilKeys[ilI], "1");
+                    ilDone.Put(ilKeys[ilI], "1"); SpecializationGuard.Note(this, ilKeys[ilI]);
                     ilMore = true;
                     IrClassDesc sd = this._classDescB._instLayoutDesc(ilKeys[ilI]);
                     if (sd != null) { classes = IrGenFacts._pushClass(classes, cc, sd); cc = cc + 1; ilAdded = ilAdded + 1; }
                 }
                 ilI = ilI + 1;
             }
-            if (ilDone.Count() > IrGen.SpecializationCap) {
-                throw new Exception("generic instantiation descriptors did not converge after "
-                    + IrGen.SpecializationCap.ToString() + " instantiations — 疑似递归泛型基"
-                    + "（形如 `class Rec<T> : Base<Rec<T>>`，基链逐层加深）。");
-            }
+            // 同上：基表逐层加深（`class Rec<T> : Base<Rec<Rec<T>>>`）时描述符也展不完。
+            if (SpecializationGuard.Exceeded(this, cu, ilDone)) { break; }
         }
         // lift 函数末尾追加（port-z42c-closures；镜像 C# _liftedFunctions AddRange）
         int li2 = 0;
