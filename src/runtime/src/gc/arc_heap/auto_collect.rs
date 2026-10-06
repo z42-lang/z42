@@ -59,6 +59,15 @@
 //! the *previous* trip asked for, which leaves the very first trip with nothing to judge:
 //! reading 0 reclaimed there penalised a heap that had never been collected at all, so
 //! `gc_cycles == 0` means "neutral", not "futile".
+//!
+//! ## The request is sticky
+//!
+//! A trip asks for its collection through the `needs_auto_collect` flag, and the flag stays set
+//! until a collector actually holds the pause (`take_collect_request`) — a thread that sees it but
+//! loses the collector role does not consume it. The trip point is re-armed one gate ahead rather
+//! than parked at `u64::MAX`, so even a request that is somehow dropped is asked for again; and the
+//! trip sends every mutator's next safepoint check down the slow path (`poke_safepoints`), so the
+//! collection starts within one check of the trip rather than up to `Z42_SAFEPOINT_THROTTLE` later.
 
 use std::sync::atomic::Ordering;
 
@@ -193,7 +202,9 @@ impl crate::gc::arc_heap::ArcMagrGC {
         }
         // Hold off re-entry until the collection lands: `sub_used_bytes` re-arms from the
         // post-collection live set, which is the only reading that gives the right next gate.
-        self.next_collect_at.store(u64::MAX, Ordering::Relaxed);
+        // One gate ahead, not `u64::MAX` (P0-16): should the collection never land, the policy is
+        // consulted again rather than switched off for good — and finds the request still pending.
+        self.arm_next_collect(baseline, used, next_backoff, soft_limit, false);
 
         if !slice {
             // Mark the pre-collect watermarks so we don't re-trip on every
@@ -231,13 +242,37 @@ impl crate::gc::arc_heap::ArcMagrGC {
         }
 
         // Defer to safepoint when wired (multi-thread safe path).
-        if let Some(flag) = pending {
-            flag.store(true, Ordering::Release);
+        if self.request_collect_at_safepoint() {
             return;
         }
         // Fallback: legacy inline collect — preserves GC unit-test behaviour
         // (those tests construct ArcMagrGC::new() without VmCore wiring).
         self.collect_cycles();
+    }
+}
+
+impl crate::gc::arc_heap::ArcMagrGC {
+    /// Ask for a collection at the next safepoint: raise the sticky request flag and send every
+    /// mutator's next safepoint check down the slow path. Returns `false` when no flag is wired
+    /// (standalone heaps in unit tests) — the caller then collects inline.
+    pub(super) fn request_collect_at_safepoint(&self) -> bool {
+        let Some(flag) = self.external_needs_collect.lock().clone() else { return false };
+        flag.store(true, Ordering::Release);
+        let poke = self.safepoint_poke.lock().clone();
+        if let Some(poke) = poke {
+            poke();
+        }
+        true
+    }
+
+    /// The collector holds the pause: the request it is serving is no longer pending. Clearing
+    /// here — not where a safepoint first *sees* the flag — is what makes the request sticky: a
+    /// thread that sees it and then loses the collector role leaves it for the next safepoint.
+    /// Anything that asks again from inside this pause (`after_minor_in_cycle`) sets it anew.
+    pub(super) fn take_collect_request(&self) {
+        if let Some(flag) = self.external_needs_collect.lock().as_ref() {
+            flag.store(false, Ordering::Release);
+        }
     }
 }
 

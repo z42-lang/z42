@@ -47,7 +47,7 @@ GC 的「何时自动回收」由几个**比率魔数**决定（near-limit 90%�
 
 | Knob | 语义 | 消费点 |
 |------|------|--------|
-| `Z42_GC_TRACE` | 每次回收一行：种类、堆 used 前后、回收字节、停顿 ms、第几个周期；外加近上限 / 超预算两条边沿。关掉时连 observer 都不装 | `gc/trace.rs` |
+| `Z42_GC_TRACE` | 每次回收一行：种类（这次停顿**实际做的工作**：`Minor` / `Slice`（增量 major 的一个切片）/ `Major`（整堆回收做完：STW、一次性 major、或同步做完的增量周期）——不按入口命名，分代下的 `GC.Collect()` 通常就是 `Minor`）、堆 used 前后、回收字节、停顿 ms、第几个周期；外加近上限 / 超预算两条边沿。关掉时连 observer 都不装 | `gc/trace.rs` |
 | `Z42_GC_PHASES` | 把那一行停顿**拆开**：每个阶段一行耗时 + 处理条目数，外加一行「这次回收是被哪个闸门触发的」 | `gc/phase_timer.rs` |
 
 `Z42_GC_PHASES=1` 的一次 minor 长这样（`z42c.semantics --release --no-incremental`）：
@@ -64,7 +64,7 @@ z42-gc:   minor/tomb arrays              7.051 ms  (552806)
 z42-gc:   minor/var sweep               11.772 ms  (803767)
 z42-gc:   minor/chunk reclaim            6.373 ms
 z42-gc:   minor sweep                   53.625 ms
-z42-gc: Cycle used 261.6M -> 115.4M  freed 146.2M  pause 64.6ms  (cycle 8)
+z42-gc: Minor used 261.6M -> 115.4M  freed 146.2M  pause 64.6ms  (cycle 8)
 ```
 
 major 打的是另一组名字：`full mark` / `sweep` 的四个半程 +
@@ -77,6 +77,11 @@ major 打的是另一组名字：`full mark` / `sweep` 的四个半程 +
   99.996% 是基元」的形状）。
 - `trip` 行说的不是「花在哪」而是「**为什么是现在**」，它决定了后面所有阶段要啃多大一片年轻代。
   `gate 32.0M x4  grown 160.0M` 里的 `x4` 是徒劳退避的倍数（见下「「回收得少」不等于「徒劳」」）。
+
+`--stats` 退出时的统计块里并排给出两种堆大小：`gc_used_bytes` 是逐对象估算的活字节（自动回收策略
+就按它算闸门），`gc_committed_bytes` 是各 region 从分配器拿着的 chunk 内存（含死槽、尺寸级取整、
+池里没还的 chunk）——后者才贴近 RSS 里 GC 的那一份。两者差多少，就是「空洞复用 / 还内存」那条线
+能拿回多少的上界。`committed` 尚未计入对象的字段向量等 region 外的逐对象分配和 GC 侧表。
 
 这套打点常驻，是因为**它每次都是定位的第一步**，而临时手打一遍的成本远高于让它常驻——
 常驻的代价只有「关掉时每阶段一个 `Option` 判断」。
@@ -265,18 +270,22 @@ allocator 判定「该回收了」后**不在分配线程就地回收**（那会
             （mock heap / 无跨线程需求的 backing 保持默认 no-op → 永远停在 ③）
 
 ② Defer     alloc 时 maybe_auto_collect 判定触发（near-limit ∧ throttle）：
-            仅 flag.store(true, Release) 后返回，不在本线程回收。
+            flag.store(true, Release)，并把每个 mutator 的 safepoint 计数器置 1
+            （poke_safepoints），然后返回，不在本线程回收。闸门重新武装在一个
+            闸门之后（不是 u64::MAX）——请求若因故没落地，策略还会再被问到。
             ↓ 下一次任意 mutator 的 check_safepoint（函数入口 / 回边 / Call 返回）
-            slow-path 用 swap(false, AcqRel) 抢占本轮（首个抢到者赢，其余跳过）
-            → request_gc_pause 下做 stop-the-world 回收（scanner 不与 mutator 竞争）
+            slow-path 看到 flag（只读）→ request_gc_pause 抢 collector 角色
+            → 抢到者在暂停内清 flag（take_collect_request）并做 stop-the-world 回收；
+              抢输者照常 park，flag 留给下一个 safepoint（粘性）
 
 ③ Fallback  flag 未注册 → maybe_auto_collect 直接 collect_cycles() 就地回收。
             保留 GC 单测（直接 ArcMagrGC::new() 无 VmCore）的单线程行为。
 ```
 
-**谁检查 / 何时**：flag 在**分配线程**、alloc 时**置位**；在**mutator 线程**、其节流后的 safepoint 轮询时
-**检查并清除**。置位的 flag **从不阻塞 allocator**——回收延迟由 safepoint 节流上界（`Z42_SAFEPOINT_THROTTLE`
-× per-iter 成本，默认 ≈50µs）决定，而非分配。该三态协议集中文档在 `MagrGC::set_external_needs_collect_flag`
+**谁检查 / 何时**：flag 在**分配线程**、alloc 时**置位**；在**mutator 线程**的 safepoint 轮询时**检查**，
+由拿到暂停的 collector **清除**。置位的 flag **从不阻塞 allocator**；因为置位时顺手戳了每个 mutator 的计数器，
+回收在下一次 check 就开始，不必等满节流（`Z42_SAFEPOINT_THROTTLE`）。戳是跨线程普通 store、可能被 mutator 自己的
+递减覆盖——那时退回到节流上界，flag 仍在。该三态协议集中文档在 `MagrGC::set_external_needs_collect_flag`
 的 doc（`gc/heap.rs`）。
 
 safepoint 本身的相位状态机（`Idle → Requested → Marking`，concurrent 模式多一个 `ConcurrentMarking`）

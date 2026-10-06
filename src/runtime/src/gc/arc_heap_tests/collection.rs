@@ -3,10 +3,11 @@ use super::*;
 // ── 5. Collection control ────────────────────────────────────────────────────
 
 #[test]
-fn force_collect_returns_full_kind() {
+fn force_collect_returns_a_kind() {
     let heap = ArcMagrGC::new();
     let stats = heap.force_collect();
-    assert_eq!(stats.kind, Some(GcKind::Full));
+    // Which kind depends on the mode (see `force_collect_reports_*` below).
+    assert!(stats.kind.is_some());
     assert_eq!(stats.freed_bytes, 0);
     assert_eq!(heap.stats().gc_cycles, 1);
 }
@@ -26,7 +27,7 @@ fn resume_after_pause_re_enables_collect() {
     heap.pause();
     heap.resume();
     let stats = heap.force_collect();
-    assert_eq!(stats.kind, Some(GcKind::Full));
+    assert!(stats.kind.is_some());
 }
 
 #[test]
@@ -39,7 +40,7 @@ fn nested_pause_requires_matching_resume() {
     assert_eq!(heap.force_collect().kind, None);
     heap.resume();
     // Now unpaused
-    assert_eq!(heap.force_collect().kind, Some(GcKind::Full));
+    assert!(heap.force_collect().kind.is_some());
 }
 
 #[test]
@@ -98,3 +99,61 @@ fn auto_collect_throttled_by_growth_delta() {
     assert_eq!(gc1, gc2, "small alloc within the growth gate does not retrigger");
 }
 
+
+// ── P0-16 (gc-strategy-stopgap): a report names the collection that actually ran ─────────────
+
+#[derive(Debug, Default)]
+struct KindRecorder(parking_lot::Mutex<Vec<GcKind>>);
+impl GcObserver for KindRecorder {
+    fn on_event(&self, event: &GcEvent) {
+        if let GcEvent::AfterCollect { kind, .. } = event {
+            self.0.lock().push(*kind);
+        }
+    }
+}
+
+fn minor_major(heap: &ArcMagrGC) -> (u64, u64) {
+    let s = heap.stats();
+    (s.minor_collections, s.major_collections)
+}
+
+/// Under STW there is one generation, so every collection is a major.
+#[test]
+fn an_stw_collection_reports_major() {
+    let heap = ArcMagrGC::new();
+    heap.set_mode(crate::gc::GcMode::StwMarkSweep);
+    let rec = Arc::new(KindRecorder::default());
+    heap.add_observer(rec.clone());
+    assert_eq!(heap.force_collect().kind, Some(GcKind::Major));
+    heap.collect_cycles();
+    assert_eq!(*rec.0.lock(), vec![GcKind::Major, GcKind::Major]);
+    assert_eq!(minor_major(&heap), (0, 2));
+}
+
+/// Under the generational collector, `force_collect` with no cycle open runs a **minor** — and must
+/// say so, in its return value, in the event and in the counters. It used to report `Full` and count
+/// a major that never ran.
+#[test]
+fn a_generational_force_collect_reports_the_minor_it_ran() {
+    let heap = ArcMagrGC::new();
+    heap.set_mode(crate::gc::GcMode::GenerationalMarkSweep);
+    let rec = Arc::new(KindRecorder::default());
+    heap.add_observer(rec.clone());
+    assert_eq!(heap.force_collect().kind, Some(GcKind::Minor));
+    heap.collect_cycles();
+    assert_eq!(*rec.0.lock(), vec![GcKind::Minor, GcKind::Minor]);
+    assert_eq!(minor_major(&heap), (2, 0));
+}
+
+/// With an incremental cycle open, `force_collect` finishes it (a major completes) before its minor.
+#[test]
+fn a_generational_force_collect_that_finishes_a_cycle_reports_major() {
+    let heap = ArcMagrGC::new();
+    heap.set_mode(crate::gc::GcMode::GenerationalMarkSweep);
+    heap.set_nursery_bytes_for_test(1 << 40);
+    let root = heap.alloc_object(dummy_type_desc("Root"), vec![Value::Null], NativeData::None);
+    let _pin = heap.pin_root(root);
+    assert!(!heap.run_major_slice_for_test(1), "cycle open");
+    assert_eq!(heap.force_collect().kind, Some(GcKind::Major));
+    assert_eq!(minor_major(&heap), (1, 1));
+}

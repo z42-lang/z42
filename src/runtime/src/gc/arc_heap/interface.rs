@@ -63,6 +63,10 @@ impl MagrGC for ArcMagrGC {
         *self.external_needs_collect.lock() = Some(flag);
     }
 
+    fn set_safepoint_poke(&self, poke: std::sync::Arc<dyn Fn() + Send + Sync>) {
+        *self.safepoint_poke.lock() = Some(poke);
+    }
+
     // ── 1. Allocation ────────────────────────────────────────────────────────
 
     fn alloc_object(

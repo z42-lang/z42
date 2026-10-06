@@ -121,18 +121,36 @@ impl crate::gc::arc_heap::ArcMagrGC {
         freed
     }
 
+    /// What [`Self::run_cycle_collection`] runs in the current mode: a generational heap's
+    /// one-shot entry runs a **minor** (see there), every other mode a whole-heap collection.
+    fn one_shot_kind(&self) -> GcKind {
+        if self.mode() == crate::gc::GcMode::GenerationalMarkSweep { GcKind::Minor } else { GcKind::Major }
+    }
+
+    /// Count one completed pause of `kind` (plus, for a generational `force_collect`, the cycle it
+    /// finished on the way).
+    fn count_collection(stats: &mut crate::gc::types::HeapStats, kind: GcKind, finished_cycle: bool) {
+        stats.gc_cycles += 1;
+        match kind {
+            GcKind::Minor => stats.minor_collections += 1,
+            GcKind::Major => stats.major_collections += 1,
+            GcKind::Slice => {}
+        }
+        if finished_cycle && kind != GcKind::Major {
+            stats.major_collections += 1;
+        }
+    }
+
     pub(super) fn collect_cycles(&self) {
         if self.inner.lock().pause_count > 0 { return; }
         let start = Self::now_us();
         let used_before = self.used_bytes_atomic(); // add-gc-tlab (option B)
-        self.fire_event(GcEvent::BeforeCollect {
-            kind: GcKind::CycleCollector, used_bytes: used_before,
-        });
+        let kind = self.one_shot_kind();
+        self.fire_event(GcEvent::BeforeCollect { kind, used_bytes: used_before });
         let freed_bytes = self.run_cycle_collection();
         {
             let mut i = self.inner.lock();
-            i.stats.gc_cycles += 1;
-            i.stats.major_collections += 1;
+            Self::count_collection(&mut i.stats, kind, false);
             i.stats.reclaimed_bytes = i.stats.reclaimed_bytes.saturating_add(freed_bytes);
             self.sub_used_bytes(freed_bytes); // add-gc-tlab (option B): atomic used_bytes
         }
@@ -140,9 +158,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         self.maybe_reset_near_limit_warned();
         let pause_us = Self::now_us().saturating_sub(start);
         self.pause_histogram.lock().record(pause_us);
-        self.fire_event(GcEvent::AfterCollect {
-            kind: GcKind::CycleCollector, freed_bytes, pause_us,
-        });
+        self.fire_event(GcEvent::AfterCollect { kind, freed_bytes, pause_us });
         // **add-gc-debug-invariants P1 (2026-05-22)**: post-collect
         // invariant check. Release builds compile this out entirely.
         #[cfg(debug_assertions)]
@@ -155,35 +171,33 @@ impl crate::gc::arc_heap::ArcMagrGC {
         }
         let start = Self::now_us();
         let used_before = self.used_bytes_atomic(); // add-gc-tlab (option B)
-        self.fire_event(GcEvent::BeforeCollect {
-            kind: GcKind::Full, used_bytes: used_before,
-        });
+        // P0-16: report what runs. Under the generational collector that is a minor, plus — when an
+        // incremental cycle is open — the rest of that cycle, which completes a major.
+        let finishing = self.major_cycle_active();
+        let kind = if finishing { GcKind::Major } else { self.one_shot_kind() };
+        self.fire_event(GcEvent::BeforeCollect { kind, used_bytes: used_before });
         // add-incremental-major-gc M2b: a forced collection promises everything unreachable is
         // gone when it returns — which an open incremental cycle would otherwise leave for later.
-        let freed_bytes = self.finish_major_cycle("force_collect").freed_bytes
-            + self.run_cycle_collection();
+        let finish = self.finish_major_cycle("force_collect");
+        let freed_bytes = finish.freed_bytes + self.run_cycle_collection();
         {
             let mut i = self.inner.lock();
-            i.stats.gc_cycles += 1;
-            i.stats.major_collections += 1;
+            Self::count_collection(&mut i.stats, self.one_shot_kind(), finish.finished);
             i.stats.reclaimed_bytes = i.stats.reclaimed_bytes.saturating_add(freed_bytes);
             self.sub_used_bytes(freed_bytes); // add-gc-tlab (option B): atomic used_bytes
         }
         self.maybe_reset_near_limit_warned();
         let pause_us = Self::now_us().saturating_sub(start);
         self.pause_histogram.lock().record(pause_us);
-        self.fire_event(GcEvent::AfterCollect {
-            kind: GcKind::Full, freed_bytes, pause_us,
-        });
-        CollectStats {
-            freed_bytes, pause_us, kind: Some(GcKind::Full),
-        }
+        self.fire_event(GcEvent::AfterCollect { kind, freed_bytes, pause_us });
+        CollectStats { freed_bytes, pause_us, kind: Some(kind) }
     }
 
     pub(super) fn collect_cycles_with_context(&self, ctx: &crate::vm_context::VmContext) {
         match self.mode() {
             crate::gc::GcMode::StwMarkSweep => {
                 if let Some(_pause) = crate::gc::safepoint::request_gc_pause(ctx) {
+                    self.take_collect_request();
                     self.collect_cycles();
                 }
             }
@@ -192,11 +206,12 @@ impl crate::gc::arc_heap::ArcMagrGC {
                     Some(p) => p,
                     None => return, // another collector active; park-as-mutator done
                 };
+                self.take_collect_request();
                 if self.inner.lock().pause_count > 0 { return; }
                 let start = Self::now_us();
                 let used_before = self.used_bytes_atomic(); // add-gc-tlab (option B)
                 self.fire_event(GcEvent::BeforeCollect {
-                    kind: GcKind::CycleCollector, used_bytes: used_before,
+                    kind: GcKind::Major, used_bytes: used_before,
                 });
 
                 // investigate-concurrent-gc-stale-mark-race 3.2: open the
@@ -254,8 +269,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
                 }
                 {
                     let mut i = self.inner.lock();
-                    i.stats.gc_cycles += 1;
-                    i.stats.major_collections += 1;
+                    Self::count_collection(&mut i.stats, GcKind::Major, false);
                     i.stats.reclaimed_bytes = i.stats.reclaimed_bytes.saturating_add(freed_bytes);
                     self.sub_used_bytes(freed_bytes); // add-gc-tlab (option B): atomic used_bytes
                 }
@@ -263,7 +277,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
                 let pause_us = Self::now_us().saturating_sub(start);
                 self.pause_histogram.lock().record(pause_us);
                 self.fire_event(GcEvent::AfterCollect {
-                    kind: GcKind::CycleCollector, freed_bytes, pause_us,
+                    kind: GcKind::Major, freed_bytes, pause_us,
                 });
                 #[cfg(debug_assertions)]
                 {
@@ -289,13 +303,11 @@ impl crate::gc::arc_heap::ArcMagrGC {
                     Some(p) => p,
                     None => return,
                 };
+                self.take_collect_request();
                 if self.inner.lock().pause_count > 0 { return; }
 
                 let start = Self::now_us();
                 let used_before = self.used_bytes_atomic(); // add-gc-tlab (option B)
-                self.fire_event(GcEvent::BeforeCollect {
-                    kind: GcKind::CycleCollector, used_bytes: used_before,
-                });
 
                 // Measure young population pre-minor for escalation calc.
                 let young_before = {
@@ -341,6 +353,13 @@ impl crate::gc::arc_heap::ArcMagrGC {
                 let freed_bytes: u64;
                 let (mut did_major, mut did_minor) = (false, false);
                 let work = self.choose_generational_work(want_major);
+                // P0-16: the events name the work this pause does, not the entry point.
+                let kind = match work {
+                    GenWork::Minor => GcKind::Minor,
+                    GenWork::Slice => GcKind::Slice,
+                    GenWork::Major | GenWork::Finish => GcKind::Major,
+                };
+                self.fire_event(GcEvent::BeforeCollect { kind, used_bytes: used_before });
                 if work == GenWork::Major {
                     freed_bytes = self.run_cycle_collection_major();
                     did_major = true;
@@ -415,9 +434,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
                     });
                 }
                 self.pause_histogram.lock().record(pause_us);
-                self.fire_event(GcEvent::AfterCollect {
-                    kind: GcKind::CycleCollector, freed_bytes, pause_us,
-                });
+                self.fire_event(GcEvent::AfterCollect { kind, freed_bytes, pause_us });
                 #[cfg(debug_assertions)]
                 self.debug_validate_invariants();
             }

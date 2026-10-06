@@ -405,6 +405,9 @@ pub struct ArcMagrGC {
     /// then falls back to the legacy inline `collect_cycles()` call,
     /// preserving the pre-2026-05-20 single-threaded behaviour.
     external_needs_collect: Mutex<Option<std::sync::Arc<std::sync::atomic::AtomicBool>>>,
+    /// Sends every mutator's next safepoint check to the slow path; run whenever
+    /// `external_needs_collect` is raised (`request_collect_at_safepoint`). `None` when unwired.
+    safepoint_poke: Mutex<Option<std::sync::Arc<dyn Fn() + Send + Sync>>>,
     /// **add-write-barriers (2026-05-21)**: test-only sink for barrier
     /// dispatch events. Production builds (no `cfg(test)`) compile this
     /// field out entirely, so the override on `write_barrier_field` /

@@ -267,6 +267,16 @@ impl VmContext {
         // inline (the inline path has no &VmContext and would race with
         // concurrent mutators' frame.regs writes).
         core.heap.set_external_needs_collect_flag(Arc::clone(&core.needs_auto_collect));
+        // P0-16: and let it send every mutator to the slow path when it raises that flag, so the
+        // collection does not wait out the safepoint throttle. `Weak`, like the root scanner.
+        {
+            let core_weak = Arc::downgrade(&core);
+            core.heap.set_safepoint_poke(Arc::new(move || {
+                if let Some(c) = core_weak.upgrade() {
+                    crate::gc::safepoint::poke_safepoints(&c);
+                }
+            }));
+        }
 
         // add-gc-runtime-knobs (2026-09-05): apply the process-wide GC knobs.
         //

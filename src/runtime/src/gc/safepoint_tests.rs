@@ -590,3 +590,95 @@ fn a_new_context_may_join_while_a_pause_is_only_requested() {
     .expect("registration during Requested must not block");
     *primary.core.gc_phase.lock() = GcPhase::Idle;
 }
+
+// ── P0-16 (gc-strategy-stopgap): a GC request is sticky and reaches every thread ─────────────
+
+/// A thread that sees the auto-collect request but loses the collector role (someone else is
+/// collecting) must not consume it: it parks as a mutator, and the request is still there for the
+/// next safepoint. Swapping it to `false` on sight lost it — and with the trip point parked at
+/// `u64::MAX` until a collection landed, nothing would have asked again.
+#[test]
+fn an_auto_collect_request_survives_a_lost_collector_race() {
+    let ctx = VmContext::new();
+    let cycles_before = ctx.heap().stats().gc_cycles;
+    ctx.core.needs_auto_collect.store(true, Ordering::Release);
+
+    // Another collector holds the role (phase stays Idle, so the loser's park returns at once).
+    ctx.core.collector_active.store(true, Ordering::Release);
+    ctx.force_safepoint();
+    check_safepoint(&ctx);
+    assert!(ctx.core.needs_auto_collect.load(Ordering::Acquire),
+        "the request must survive a safepoint that could not act on it");
+    assert_eq!(ctx.heap().stats().gc_cycles, cycles_before);
+
+    // The role is free again: the next slow path collects, and only then is the request cleared.
+    ctx.core.collector_active.store(false, Ordering::Release);
+    ctx.force_safepoint();
+    check_safepoint(&ctx);
+    assert!(!ctx.core.needs_auto_collect.load(Ordering::Acquire));
+    assert_eq!(ctx.heap().stats().gc_cycles, cycles_before + 1);
+}
+
+/// When a collector requests the pause, every other mutator's **next** safepoint check must take
+/// the slow path — not the one up to `throttle_n()` checks later.
+///
+/// `mutator` is registered but idle; the collector runs on its own thread. A single
+/// `check_safepoint` on `mutator` has to park it, which only happens if the request reset its
+/// throttle counter.
+#[test]
+fn a_pause_request_sends_every_mutator_to_the_slow_path_at_its_next_check() {
+    let mutator = VmContext::new();
+    let core = mutator.core_arc();
+    let collector = std::thread::spawn(move || {
+        let c = VmContext::new_with_core(core);
+        drop(request_gc_pause(&c).expect("uncontested"));
+    });
+    // Wait for the request (the collector is then blocked on `mutator` parking).
+    let start = std::time::Instant::now();
+    while *mutator.core.gc_phase.lock() != GcPhase::Requested {
+        assert!(start.elapsed() < std::time::Duration::from_secs(5), "collector never requested");
+        std::thread::yield_now();
+    }
+    let poked = loop {
+        if mutator.safepoint_skip.load(Ordering::Relaxed) == 1 {
+            break true;
+        }
+        if start.elapsed() > std::time::Duration::from_secs(2) {
+            break false;
+        }
+        std::thread::yield_now();
+    };
+    // Park regardless, so the collector is released even when the assertion below fails.
+    if !poked {
+        mutator.force_safepoint();
+    }
+    check_safepoint(&mutator);
+    collector.join().expect("collector panicked");
+    assert!(poked, "the pause request must reset every mutator's throttle counter");
+}
+
+/// The same at the trip: the allocation that asks for a collection sends every mutator — itself
+/// included — to the slow path at its next check, so the collection starts within one check rather
+/// than up to `throttle_n()` of them.
+#[test]
+fn an_auto_collect_trip_sends_every_mutator_to_the_slow_path() {
+    let ctx = VmContext::new();
+    let other = VmContext::new_with_core(ctx.core_arc());
+    ctx.heap().set_max_heap_bytes(Some(64 * 1024));
+    let n = throttle_n();
+    ctx.safepoint_skip.store(n, Ordering::Relaxed);
+    other.safepoint_skip.store(n, Ordering::Relaxed);
+    let mut keep = Vec::new();
+    for _ in 0..10_000 {
+        keep.push(ctx.heap().alloc_array(vec![crate::metadata::Value::I64(0); 16]));
+        if ctx.core.needs_auto_collect.load(Ordering::Acquire) {
+            break;
+        }
+    }
+    assert!(ctx.core.needs_auto_collect.load(Ordering::Acquire), "test setup: the cap must trip");
+    if n > 1 {
+        assert_eq!(ctx.safepoint_skip.load(Ordering::Relaxed), 1, "the tripping thread");
+        assert_eq!(other.safepoint_skip.load(Ordering::Relaxed), 1, "every other thread");
+    }
+    drop(keep);
+}

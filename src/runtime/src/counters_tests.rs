@@ -124,7 +124,7 @@ fn sample_counters() -> Snapshot {
 
 #[test]
 fn profile_snapshot_json_is_superset_of_counters_json() {
-    let p = ProfileSnapshot::new(sample_counters(), 7777, 4, 1, 65536);
+    let p = ProfileSnapshot::new(sample_counters(), 7777, 4, 1, 65536).with_footprint(1000, 4096);
     let j = p.to_json();
 
     // Single line + sentinel preserved.
@@ -150,6 +150,8 @@ fn profile_snapshot_json_is_superset_of_counters_json() {
         "\"minor_collections\":4",
         "\"major_collections\":1",
         "\"reclaimed_bytes\":65536",
+        "\"used_bytes\":1000",
+        "\"committed_bytes\":4096",
     ] {
         assert!(j.contains(needle), "profile JSON missing heap key `{needle}`; got:\n{j}");
     }
@@ -161,7 +163,7 @@ fn profile_snapshot_json_is_superset_of_counters_json() {
 
 #[test]
 fn profile_snapshot_display_lists_counter_and_heap_fields() {
-    let p = ProfileSnapshot::new(sample_counters(), 7777, 4, 1, 65536);
+    let p = ProfileSnapshot::new(sample_counters(), 7777, 4, 1, 65536).with_footprint(1000, 4096);
     let out = format!("{p}");
     for needle in [
         "builtin_calls:        100",
@@ -170,6 +172,8 @@ fn profile_snapshot_display_lists_counter_and_heap_fields() {
         "gc_minor_collections: 4",
         "gc_major_collections: 1",
         "gc_reclaimed_bytes:   65536",
+        "gc_used_bytes:        1000",
+        "gc_committed_bytes:   4096",
     ] {
         assert!(out.contains(needle), "profile display missing `{needle}`; got:\n{out}");
     }

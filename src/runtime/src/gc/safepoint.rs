@@ -25,8 +25,33 @@
 //! point — covered by follow-up `add-gc-safepoint-jit` (see Decision 5 in
 //! `docs/spec/archive/2026-05-20-add-gc-safepoint/design.md`).
 
-use crate::vm_context::VmContext;
+use crate::vm_context::{VmContext, VmCore};
 use std::sync::atomic::Ordering;
+
+/// How long a collector waits for stragglers before poking every unparked mutator again
+/// (see [`poke_safepoints`]).
+const REPOKE_INTERVAL: std::time::Duration = std::time::Duration::from_millis(1);
+
+/// **P0-16 (gc-strategy-stopgap)**: send every registered mutator's **next** `check_safepoint`
+/// down the slow path, by resetting its throttle counter to 1 — the cross-thread twin of
+/// [`VmContext::force_safepoint`].
+///
+/// Called when a collection is requested (the auto-collect trip raises `needs_auto_collect`) and
+/// when a collector asks for the pause. Without it each mutator only looks at either after its
+/// throttle counter runs out — up to `Z42_SAFEPOINT_THROTTLE` checks later, per thread, on top of
+/// each other.
+///
+/// The counter is single-writer by design (the fast path is a plain load + store, see
+/// [`check_safepoint`]), so a poke can be overwritten by a mutator that loaded the counter just
+/// before it. That is why the collector re-pokes while it waits ([`REPOKE_INTERVAL`]); a lost poke
+/// at the trip costs at most the throttle, as before, because the request itself is sticky.
+pub(crate) fn poke_safepoints(core: &VmCore) {
+    // SAFETY: see `VmContextPtr` — an entry is live while it is registered, and we hold the
+    // registry lock for the walk. The counter is an atomic.
+    for p in core.vm_contexts.lock().iter() {
+        unsafe { &*p.0 }.safepoint_skip.store(1, Ordering::Relaxed);
+    }
+}
 
 /// add-gc-safepoint-counter-throttling (2026-05-21): default throttle
 /// constant lives in `RuntimeConfig::safepoint_throttle` (defaults 1024
@@ -130,11 +155,10 @@ pub fn check_safepoint(ctx: &VmContext) {
 ///
 /// **add-gc-safepoint-auto-threshold (2026-05-20)**: when phase is Idle
 /// but the heap's pressure-trip path has set `needs_auto_collect = true`,
-/// the calling thread atomically claims the collect round via `swap(false,
-/// AcqRel)` and runs a stop-the-world collect under [`request_gc_pause`].
-/// If multiple threads see the flag, only the first swap-true claims;
-/// the rest see false and skip (subsequent allocs that still trip pressure
-/// re-set the flag).
+/// the calling thread runs a stop-the-world collect under [`request_gc_pause`].
+/// If multiple threads see the flag, the collector-role CAS in
+/// `request_gc_pause` picks one; the rest park as mutators. The flag stays set
+/// until the winner holds the pause (P0-16: sticky — see `take_collect_request`).
 ///
 /// **inline-jit-safepoint-check (2026-08-01)**: `pub(crate)` so the JIT's
 /// `jit_check_safepoint_slow` helper (the rare slow branch of the inlined
@@ -150,12 +174,11 @@ pub(crate) fn check_safepoint_slow(ctx: &VmContext) {
         park_until_idle(ctx);
         return;
     }
-    // Idle phase — drain pending auto-collect if any. Load before swapping: the
-    // flag is shared by every thread and almost always false, and an
-    // unconditional `swap` would take the cache line exclusive each time.
-    if ctx.core.needs_auto_collect.load(Ordering::Relaxed)
-        && ctx.core.needs_auto_collect.swap(false, Ordering::AcqRel)
-    {
+    // Idle phase — serve a pending auto-collect request if any. **Sticky** (P0-16): it is only
+    // *read* here; the collector clears it once it holds the pause (`take_collect_request`), so a
+    // thread that loses the collector role below leaves it set for the next safepoint instead of
+    // consuming it.
+    if ctx.core.needs_auto_collect.load(Ordering::Acquire) {
         // add-concurrent-gc P4b (2026-05-22): use collect_cycles_with_context
         // so the heap can pick STW vs concurrent path internally. The STW
         // default impl does the same `request_gc_pause` + `collect_cycles`
@@ -415,6 +438,10 @@ pub fn request_gc_pause(ctx: &VmContext) -> Option<GcPauseGuard<'_>> {
     // each wakeup so a freshly-registered VmContext (which will see
     // Requested at its first safepoint check and park itself) doesn't
     // strand us with a stale threshold.
+    //
+    // P0-16: every mutator is poked into its slow path first, and again each
+    // `REPOKE_INTERVAL` the wait goes on — a poke can be lost to a racing
+    // decrement, and a newcomer registers with a full throttle counter.
     let mut phase = ctx.core.gc_phase.lock();
     loop {
         let total = ctx.core.vm_contexts.lock().len();
@@ -422,7 +449,8 @@ pub fn request_gc_pause(ctx: &VmContext) -> Option<GcPauseGuard<'_>> {
         if ctx.core.parked_count.load(Ordering::Acquire) >= need {
             break;
         }
-        ctx.core.gc_phase_cv.wait(&mut phase);
+        poke_safepoints(&ctx.core);
+        ctx.core.gc_phase_cv.wait_for(&mut phase, REPOKE_INTERVAL);
     }
     *phase = GcPhase::Marking;
     drop(phase);
@@ -496,7 +524,8 @@ impl GcPauseGuard<'_> {
             if self.ctx.core.parked_count.load(Ordering::Acquire) >= need {
                 break;
             }
-            self.ctx.core.gc_phase_cv.wait(&mut phase);
+            poke_safepoints(&self.ctx.core); // see `request_gc_pause`
+            self.ctx.core.gc_phase_cv.wait_for(&mut phase, REPOKE_INTERVAL);
         }
     }
 }

@@ -374,9 +374,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
             // A cycle deferred behind this minor (see `choose_generational_work`) opens at the
             // next safepoint.
             if self.incremental.pending_open.load(Ordering::Acquire) {
-                if let Some(flag) = self.external_needs_collect.lock().as_ref() {
-                    flag.store(true, Ordering::Release);
-                }
+                self.request_collect_at_safepoint();
             }
             return;
         }

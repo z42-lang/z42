@@ -40,15 +40,21 @@ pub struct ObserverId(pub u64);
 
 // ── GC events / observer ─────────────────────────────────────────────────────
 
-/// GC kind discriminator carried in [`GcEvent`].
+/// What one collection pause actually did — carried in [`GcEvent`] and [`CollectStats`].
+///
+/// One kind per pause, named after the work that ran, never after the entry point that asked for
+/// it: `GC.Collect()` / `force_collect` under the generational collector usually run a **minor**,
+/// and say so.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GcKind {
-    /// Generational minor collection (Phase 4+).
+    /// Generational minor collection: the young generation only.
     Minor,
-    /// Stop-the-world full collection (Phase 3+).
-    Full,
-    /// Reference cycle collector (Phase 2+).
-    CycleCollector,
+    /// One bounded slice of an incremental major cycle (`Z42_GC_SLICE_MS`) — including the slice
+    /// that opens the cycle and the one that completes it.
+    Slice,
+    /// A whole-heap collection completed in this pause: STW / concurrent mark-sweep, a one-shot
+    /// generational major, or an open incremental cycle finished synchronously.
+    Major,
 }
 
 /// Lifecycle / pressure events emitted by the heap to registered observers.
@@ -291,19 +297,27 @@ pub struct HeapStats {
     /// Number of `collect_cycles` / `force_collect` invocations (all-modes
     /// total, unchanged semantics).
     pub gc_cycles:          u64,
-    /// Generational **minor** (young-gen) collections. Bumped once per
-    /// `run_cycle_collection_minor`. `minor + major` need NOT equal
-    /// `gc_cycles`: an escalated generational cycle bumps `gc_cycles` once but
-    /// both `minor` and `major`; non-generational paths bump only `major`.
+    /// Generational **minor** (young-gen) collections — every pause that ran
+    /// `run_cycle_collection_minor`, including the minor a generational
+    /// `force_collect` / `collect_cycles` runs. `minor + major` need NOT equal
+    /// `gc_cycles`: a slice that does not complete its cycle counts as neither,
+    /// and a generational `force_collect` that finishes an open cycle counts as both.
     pub minor_collections:  u64,
-    /// **Major** (whole-heap) collections: generational escalation +
-    /// concurrent mark-sweep + STW full cycle + `force_collect`.
+    /// **Major** (whole-heap) collections *completed*: STW / concurrent
+    /// mark-sweep, a one-shot generational major, an incremental cycle's last
+    /// slice or synchronous finish.
     pub major_collections:  u64,
     /// Cumulative bytes reclaimed across all collection cycles (saturating).
     pub reclaimed_bytes:    u64,
     /// Approximate live bytes. **RC mode caveat**: monotonically increases
     /// (`Rc<T>` drop is not observable); Phase 3 tracing GC will be precise.
     pub used_bytes:         u64,
+    /// Bytes the heap's regions hold from the allocator: fixed-region chunk storage plus
+    /// variable-region chunks. Unlike `used_bytes` (a per-object estimate that the auto-collect
+    /// policy runs on) this counts dead slots, size-class rounding and pooled chunks — the
+    /// region part of RSS. It does not count per-object payloads allocated outside the regions
+    /// (an object's field vectors) or GC side tables.
+    pub committed_bytes:    u64,
     /// Heap upper bound (`None` = unlimited).
     pub max_bytes:          Option<u64>,
     /// Currently pinned roots (host-side `pin_root` count, includes frame pins).

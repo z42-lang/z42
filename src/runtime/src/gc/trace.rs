@@ -9,7 +9,7 @@
 //! One line per cycle, on stderr so it never mixes into program stdout:
 //!
 //! ```text
-//! z42-gc: Full  used 412.3M -> 118.7M  freed 293.6M  pause 41.2ms  (cycle 7)
+//! z42-gc: Major used 412.3M -> 118.7M  freed 293.6M  pause 41.2ms  (cycle 7)
 //! z42-gc: near heap limit: used 968.1M / 1.0G
 //! ```
 //!
@@ -35,9 +35,9 @@ pub(crate) fn human(bytes: u64) -> String {
 
 fn kind_str(k: &GcKind) -> &'static str {
     match k {
-        GcKind::Full => "Full",
         GcKind::Minor => "Minor",
-        GcKind::CycleCollector => "Cycle",
+        GcKind::Slice => "Slice",
+        GcKind::Major => "Major",
     }
 }
 
