@@ -336,7 +336,7 @@ public static class IrDump {
         gen.HasTypeErrors = diags.ErrorCount() > 0;   // S1：类型错误下不做特化（见 IrGen.HasTypeErrors）
         gen.Diags = diags;   // diag-recursive-generic：单态化不收敛报 E0503
         // optSet 由调用方给（默认见 `EmitZbcDefaultOpt`，golden 的 `opt_all` sidecar 传 Opt.All）。
-        IrModule irm = gen.Generate(cu, model, optSet);
+        IrModule irm = CuCompile.GenerateGuarded(gen, cu, model, optSet);
         // usings 抽取（DEPS 用）
         string[] usings = new string[4];
         int uc = 0;

@@ -120,6 +120,11 @@ public static class DiagnosticCodes {
     // `class` 不触发。此前撞工作表上限后抛未捕获异常、编译器打出整段栈退出。
     public static string RecursiveGenericInstantiation = "E0503";
 
+    // reject-struct-inheritance：struct 不参与继承——`struct B : A`（A 是类或 struct）或 `class C : S`（S 是 struct）。
+    // 对齐 C# CS0527 / CS0509。此前零诊断：前者一写基类字段编译器就崩，后者**静默编错**（字段偏移按错布局烘焙）。
+    // 报在派生类型的声明处；报错后清掉基类断开，下游不再级联。struct 实现接口不受影响。
+    public static string StructInheritance = "E0504";
+
     // IrGen
     public static string UnsupportedSyntax   = "E0501";
 

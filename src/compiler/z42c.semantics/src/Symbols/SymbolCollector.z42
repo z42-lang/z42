@@ -512,9 +512,35 @@ public sealed class SymbolCollector {
             i = i + 1;
             if (!(d is ClassDecl)) { continue; }
             ClassDecl c = d as ClassDecl;
-            if (c.Kind == "class") { this._rejectClassCycle(table, sv, c); }
+            if (c.Kind == "struct") { this._rejectStructBase(table, sv, c); }
+            else if (c.Kind == "class") { if (!this._rejectStructBase(table, sv, c)) { this._rejectClassCycle(table, sv, c); } }
             else if (c.Kind == "interface") { this._rejectIfaceCycle(table, sv, c); }
         }
+    }
+
+    // reject-struct-inheritance（E0504）：struct 不参与继承 —— 不能有基类，也不能被类继承。对齐 C# CS0527 / CS0509。
+    // 此前零诊断：`struct B : A` 在写 `b.X` 时编译器崩（`struct field path: layout lookup failed`），
+    // `class C : A`（A 是 struct）**静默编错**（实测 `c.Y + c.X` 应得 7、打出 16384005）。
+    // 与断环同一相位、同一手法：报错后清掉基类，下游一律按「无基类」处理，不再级联。
+    private bool _rejectStructBase(SymbolTable table, SymbolTable sv, ClassDecl c) {
+        string key = c.Name;
+        if (c.TypeParams.Count > 0) { string mk = c.Name + "$" + c.TypeParams.Count.ToString(); if (sv.Classes.ContainsKey(mk)) { key = mk; } }
+        Z42ClassType ct = sv.GetClass(key);
+        if (ct == null) { return false; }
+        Z42ClassType b = table.BaseOf(ct);
+        if (b == null) { return false; }
+        string msg = "";
+        if (c.Kind == "struct") {
+            msg = "struct `" + c.Name + "` cannot have base type `" + b.Name()
+                + "` — structs do not take part in inheritance; only interfaces may follow `:`";
+        } else if (b.IsStruct) {
+            msg = "class `" + c.Name + "` cannot derive from struct `" + b.Name() + "` — structs cannot be inherited";
+        } else {
+            return false;
+        }
+        this.Diags.Error("E0504", msg, c.Span);
+        ct.HasBase = false; ct.BaseName = ""; ct.Base = 0;
+        return true;
     }
 
     private void _rejectClassCycle(SymbolTable table, SymbolTable sv, ClassDecl c) {
