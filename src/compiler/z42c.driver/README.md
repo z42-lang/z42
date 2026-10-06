@@ -41,7 +41,7 @@ z42vm <out.zbc> Main        # 执行产物
 ## 核心文件
 | 文件 | 职责 |
 |------|------|
-| `src/Main.z42` | `void Main()`：读 `Environment.GetCommandLineArgs()`，路由 `--dump-keywords` → `DumpTool.DumpKeywords`、`--dump-tokens`/`--dump-ast` → `DumpTool`、`--dump-bound` → `SemanticDump`、`--dump-ir` → `IrDump.DumpModule`、`--emit-zbc <src> <out>` → `IrDump.ZbcBytes` + `File.WriteAllBytes`、`build` → `_cmdBuild`（`namespace Z42.Driver`）|
+| `src/Main.z42` | `void Main()`：读 `Environment.GetCommandLineArgs()`，路由 `--dump-keywords` → `DumpTool.DumpKeywords`、`--dump-tokens`/`--dump-ast` → `DumpTool`、`--dump-bound` → `SemanticDump`、`--emit-zbc <src> <out>` / `--dump-ir <src>` → `_cmdSingleFile`（同一条单文件编译：Z42_LIBS 解析依赖 → `IrDump.BuildModuleDOpt` → 有错打诊断并非零退出，否则写 `.zbc` / 打 IR 文本）、`build` → `_cmdBuild`（`namespace Z42.Driver`）|
 | `src/BuildCommand.z42` | `z42c build` 参数解析：未知选项报错、`-h`、`--quiet`；不给清单时 `ManifestLocator.FindUp` 定位（工作区 → `--workspace`）→ `_build` / `_buildWorkspace` |
 | `src/WorkspaceBuild.z42` | workspace 构建编排（`_buildWorkspace*` / `_findWorkspaceToml`）：按 `[workspace.build].output_dir` 展开成员布局，成员产物落各自 dist，兄弟解析扫全成员 dist + Z42_LIBS |
 | `src/ExeDeps.z42` | exe 产物的兄弟包依赖 bundling（`_bundleExeDeps`）：非框架依赖的已构建 zpkg（+ `.zsym`）复制进 exe dist |

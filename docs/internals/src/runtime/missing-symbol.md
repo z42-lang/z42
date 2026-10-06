@@ -227,9 +227,9 @@ params 变长 ⇒ phys ≥ want；否则 phys == want
 （`GCHandle`/`Guid` 各 1 字段 + 12 个零字段基元 wrapper）⇒ 这条路在 stdlib 上走不到。
 守门的 fixture：`src/compiler/z42c.pipeline/tests/fixtures/cross-zpkg/single_field_struct_cross_pkg/`。
 
-⚠️ **调查工具的陷阱**：`z42c --dump-ir` / `--dump-bound` **不加载 stdlib/依赖**（带 `Z42_LIBS`
-也一样）⇒ 用它们看「跨包调用点发了什么」会得到假象（容易据此误判成 loose VCall）。
-可靠办法：在编译器里打点，或只信运行期措辞。
+⚠️ **调查工具的陷阱**：`z42c --dump-bound` **不加载 stdlib/依赖**（带 `Z42_LIBS` 也一样）⇒
+用它看「跨包调用点绑成了什么」会得到假象（容易据此误判成 loose VCall）。`--dump-ir` 与 `--emit-zbc`
+走同一条单文件编译，带 `Z42_LIBS` 时会加载依赖，打出的就是 `.zbc` 里那份 IR。
 
 ⚠️ **为什么不让 VM 按目标 flags 自适应**：那会把每方法固定的 ABI 变成**派发时协商**，
 与本页判定「精确相等」的立场反向，且 JIT 要发条件化调用序列 ⇒ 接口/泛型调用整体降级回解释执行。

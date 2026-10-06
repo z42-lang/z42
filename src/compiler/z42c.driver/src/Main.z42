@@ -63,61 +63,10 @@ void Main() {
     }
     string cmd  = argv[0];
     string file = argv[1];
-    if (cmd == "--emit-zbc") {
-        if (argv.Length < 3) {
-            ConsoleError.WriteLine("z42c: --emit-zbc requires <file.z42> <out.zbc>");
-            Environment.Exit(ExitCode.UsageError);
-            return;
-        }
-        string ezText = File.ReadAllText(file);
-        // replace-csharp Phase C：跨包 dep 解析（Z42_LIBS）→ 调 stdlib 的源（golden 等）emit 正确 FQ
-        // 函数名（否则 `<error>` → 运行期 undefined function）。无 Z42_LIBS → 回落无依赖单文件 emit。
-        string ezEnv = Environment.GetEnvironmentVariable("Z42_LIBS", "");
-        DependencyIndex ezIndex = null;
-        ImportedSymbols ezImported = null;
-        if (ezEnv.Length > 0) {
-            string[] ezDirs = new string[1]; ezDirs[0] = ezEnv;
-            DepScanResult ezScan = DepScan.ScanDirs(ezDirs, 1, "", new string[0], 0, null);
-            // using-csharp-rules 1.7：激活集 = using ∪ 本文件 ns 的外围链（与包编译 `PackageCompile` 同一出口
-            // `ActivationNsOf`）。此前只看 using ⇒ `namespace Std.Collections.X;` 里不写 using 用 `Stack<T>`
-            // 时 z42.collections 根本不加载。借 `ParseAll` 解析：driver 自己的 `new Parser` 只许两处（见 IncrementalDriver）。
-            string[] ezSrc1 = new string[1]; ezSrc1[0] = ezText;
-            string[] ezFile1 = new string[1]; ezFile1[0] = file;
-            string[] ezUsings = IrDump.ActivationNsOf(IrDump.ParseAll(ezSrc1, ezFile1, 1)[0]);
-            ezImported = ImportedSymbolLoader.Load(
-                ezScan.Exported, ezScan.ExportedPkg, ezScan.ExportedCount, ezUsings, ezUsings.Length);
-            ezIndex = ezScan.Index;
-        }
-        // `--opt-all`（fix-ref-param-escape）：本例按**真实 release 全优化**编（Opt.All）。
-        // golden 的 `opt_all` sidecar 用它——逃逸分析 / 内联 / loop-alloc-reuse 这几个 pass 在
-        // emit-zbc 默认集里是关的（会改 golden 字节，见 IrDump.EmitZbcDefaultOpt），不给这条路
-        // 就没有任何 golden 能跑到它们。
-        int ezOpt = IrDump.EmitZbcDefaultOpt();
-        int ezAi = 3;
-        while (ezAi < argv.Length) {
-            if (argv[ezAi] == "--opt-all") { ezOpt = Opt.All; }
-            else {
-                ConsoleError.WriteLine("z42c: --emit-zbc: unknown option '" + argv[ezAi] + "'");
-                Environment.Exit(ExitCode.UsageError);
-                return;
-            }
-            ezAi = ezAi + 1;
-        }
-        CompiledModuleZ ezCm = IrDump.BuildModuleDOpt(ezText, file, ezIndex, ezImported, ezOpt);
-        if (ezCm.ErrorCount > 0) {
-            ConsoleError.WriteLine("z42c: " + ezCm.ErrorCount.ToString() + " error(s) in " + file);
-            int ezDi = 0;
-            while (ezDi < ezCm.DiagCount) { ConsoleError.WriteLine("  " + ezCm.DiagMsgs[ezDi]); ezDi = ezDi + 1; }
-            Environment.Exit(ExitCode.BuildError);
-            return;
-        }
-        // 同上：无错但有 warning 时也要说话（此前同样被 ErrorCount 罩住）。
-        int ezWi = 0;
-        while (ezWi < ezCm.DiagCount) { ConsoleError.WriteLine("  " + ezCm.DiagMsgs[ezWi]); ezWi = ezWi + 1; }
-        File.WriteAllBytes(argv[2], IrDump.ZbcBytesOf(ezCm));
+    if (cmd == "--emit-zbc" || cmd == "--dump-ir") {
+        Environment.Exit(_cmdSingleFile(argv, cmd == "--emit-zbc"));
         return;
     }
-    if (cmd == "--dump-ir") { Console.WriteLine(IrDump.DumpModule(File.ReadAllText(file))); return; }
     if (cmd != "--dump-tokens" && cmd != "--dump-ast" && cmd != "--dump-bound") {
         ConsoleError.WriteLine("z42c: unknown command '" + cmd + "'");
         _usage();
@@ -128,6 +77,64 @@ void Main() {
     if (cmd == "--dump-tokens")     { Console.WriteLine(DumpTool.DumpTokens(src)); }
     else if (cmd == "--dump-ast")   { Console.WriteLine(DumpTool.DumpAst(src)); }
     else                            { Console.WriteLine(SemanticDump.DumpAll(src)); }
+}
+
+// 单文件编译：`--emit-zbc <file> <out.zbc>` 写产物，`--dump-ir <file>` 打 IR 文本。两者同一条路 ——
+// 依赖经 Z42_LIBS 解析、诊断先报、有错不出产物 ⇒ dump 出来的就是 emit 会写的那份 IR。
+// （`--dump-ir` 曾走只回 IR 的测试入口：不加载导入符号、所有诊断丢弃，错误程序也照打一份 IR。）
+int _cmdSingleFile(string[] argv, bool emit) {
+    string file = argv[1];
+    string verb = emit ? "--emit-zbc" : "--dump-ir";
+    if (emit && argv.Length < 3) {
+        ConsoleError.WriteLine("z42c: --emit-zbc requires <file.z42> <out.zbc>");
+        return ExitCode.UsageError;
+    }
+    string ezText = File.ReadAllText(file);
+    // replace-csharp Phase C：跨包 dep 解析（Z42_LIBS）→ 调 stdlib 的源（golden 等）emit 正确 FQ
+    // 函数名（否则 `<error>` → 运行期 undefined function）。无 Z42_LIBS → 回落无依赖单文件 emit。
+    string ezEnv = Environment.GetEnvironmentVariable("Z42_LIBS", "");
+    DependencyIndex ezIndex = null;
+    ImportedSymbols ezImported = null;
+    if (ezEnv.Length > 0) {
+        string[] ezDirs = new string[1]; ezDirs[0] = ezEnv;
+        DepScanResult ezScan = DepScan.ScanDirs(ezDirs, 1, "", new string[0], 0, null);
+        // using-csharp-rules 1.7：激活集 = using ∪ 本文件 ns 的外围链（与包编译 `PackageCompile` 同一出口
+        // `ActivationNsOf`）。此前只看 using ⇒ `namespace Std.Collections.X;` 里不写 using 用 `Stack<T>`
+        // 时 z42.collections 根本不加载。借 `ParseAll` 解析：driver 自己的 `new Parser` 只许两处（见 IncrementalDriver）。
+        string[] ezSrc1 = new string[1]; ezSrc1[0] = ezText;
+        string[] ezFile1 = new string[1]; ezFile1[0] = file;
+        string[] ezUsings = IrDump.ActivationNsOf(IrDump.ParseAll(ezSrc1, ezFile1, 1)[0]);
+        ezImported = ImportedSymbolLoader.Load(
+            ezScan.Exported, ezScan.ExportedPkg, ezScan.ExportedCount, ezUsings, ezUsings.Length);
+        ezIndex = ezScan.Index;
+    }
+    // `--opt-all`（fix-ref-param-escape）：本例按**真实 release 全优化**编（Opt.All）。
+    // golden 的 `opt_all` sidecar 用它——逃逸分析 / 内联 / loop-alloc-reuse 这几个 pass 在
+    // emit-zbc 默认集里是关的（会改 golden 字节，见 IrDump.EmitZbcDefaultOpt），不给这条路
+    // 就没有任何 golden 能跑到它们。
+    int ezOpt = IrDump.EmitZbcDefaultOpt();
+    int ezAi = emit ? 3 : 2;
+    while (ezAi < argv.Length) {
+        if (argv[ezAi] == "--opt-all") { ezOpt = Opt.All; }
+        else {
+            ConsoleError.WriteLine("z42c: " + verb + ": unknown option '" + argv[ezAi] + "'");
+            return ExitCode.UsageError;
+        }
+        ezAi = ezAi + 1;
+    }
+    CompiledModuleZ ezCm = IrDump.BuildModuleDOpt(ezText, file, ezIndex, ezImported, ezOpt);
+    if (ezCm.ErrorCount > 0) {
+        ConsoleError.WriteLine("z42c: " + ezCm.ErrorCount.ToString() + " error(s) in " + file);
+        int ezDi = 0;
+        while (ezDi < ezCm.DiagCount) { ConsoleError.WriteLine("  " + ezCm.DiagMsgs[ezDi]); ezDi = ezDi + 1; }
+        return ExitCode.BuildError;
+    }
+    // 同上：无错但有 warning 时也要说话（此前同样被 ErrorCount 罩住）。
+    int ezWi = 0;
+    while (ezWi < ezCm.DiagCount) { ConsoleError.WriteLine("  " + ezCm.DiagMsgs[ezWi]); ezWi = ezWi + 1; }
+    if (emit) { File.WriteAllBytes(argv[2], IrDump.ZbcBytesOf(ezCm)); }
+    else { Console.WriteLine(ezCm.Module.Dump()); }
+    return ExitCode.Ok;
 }
 
 // 诊断/警告里呈现的源文件名——与**读取**用的路径分离（CompileInputs 本就是 Files / Texts 两个字段）。
@@ -814,7 +821,7 @@ void _usage() {
     Console.WriteLine("  z42c --dump-tokens <file.z42>          token stream");
     Console.WriteLine("  z42c --dump-ast    <file.z42>          AST s-expression");
     Console.WriteLine("  z42c --dump-bound  <file.z42>          type-checked Bound tree");
-    Console.WriteLine("  z42c --dump-ir     <file.z42>          .zasm-like IR text");
+    Console.WriteLine("  z42c --dump-ir     <file.z42> [--opt-all]         .zasm-like IR text (what --emit-zbc writes)");
     Console.WriteLine("  z42c --emit-zbc    <file.z42> <out> [--opt-all]   compile to .zbc (subset)");
     Console.WriteLine("  z42c build         [<manifest>]        build a project (see `z42c build --help`)");
     Console.WriteLine("  (clean / test / bench are run by z42b, not z42c — the compiler only compiles)");

@@ -95,8 +95,8 @@ Dce=4/Inline=8/Cse=16/Licm=32/StackAlloc=64/LoopAllocReuse=128/ReadonlyLoad=256/
 reads/defs + 单测逐 pass 单独开跑 golden。**顺序**只影响效果不影响正确性：inline 靠前（产更多下游
 机会）、清理类（const-fold/copy-prop/dce）靠后。
 
-> **dump / golden 路径特例**：`IrDump._buildF` / `BuildModuleD`（codegen 单测、`--dump-ir`、golden .zbc
-> regen）用 `Opt.All - Opt.Inline`——单函数 dump 断言的是「单函数本地优化后」IR，内联是跨函数变换、会
+> **dump / golden 路径特例**：`IrDump._buildF` / `BuildModuleD`（codegen 单测、`--dump-ir` / `--emit-zbc`、golden .zbc
+> regen）用 `IrDump.EmitZbcDefaultOpt()`（`Opt.All` 去掉内联等跨函数 pass；`--opt-all` 开全集）——单函数 dump 断言的是「单函数本地优化后」IR，内联是跨函数变换、会
 > 折叠含直接调用的 golden 且脆弱，故排除；该值 = 引入内联前 `Opt.All` 的等价输出，既有 golden 逐字节
 > 不变。内联行为由真实 release 自建（D7）+ `DumpFuncOpt(src,key,optSet)` 专项单测覆盖。
 
