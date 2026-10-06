@@ -1,0 +1,4 @@
+desc = "干净的源 --emit-zbc：exit 0 且写出产物（防「一律报错」把门焊死）"
+args = ["--emit-zbc", "ok.z42", "ok.zbc"]
+exit = 0
+exists = ["ok.zbc"]

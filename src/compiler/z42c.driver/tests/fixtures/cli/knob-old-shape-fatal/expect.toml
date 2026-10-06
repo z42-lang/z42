@@ -1,0 +1,4 @@
+desc = "旧形状 [profile.X] 直接写键 → 致命，库工程也管"
+args = ["build", "check.knob.z42.toml"]
+exit = "nonzero"
+stderr_contains = ["不接受直接写键"]

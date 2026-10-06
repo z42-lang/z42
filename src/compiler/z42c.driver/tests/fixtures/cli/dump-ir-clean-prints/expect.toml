@@ -1,0 +1,4 @@
+desc = "干净的源 --dump-ir：打出 IR"
+args = ["--dump-ir", "ok.z42"]
+exit = 0
+stdout_contains = ["Main"]

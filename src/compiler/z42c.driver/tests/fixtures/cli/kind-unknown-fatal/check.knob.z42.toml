@@ -1,0 +1,8 @@
+[project]
+name    = "check.knob"
+version = "0.1.0"
+kind    = "exx"
+
+[sources]
+include = ["*.z42"]
+

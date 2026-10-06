@@ -1,0 +1,4 @@
+desc = "合法的旋钮名一声不吭（防每次构建都刷一行的误报）"
+args = ["build", "check.knob.z42.toml"]
+exit = 0
+stderr_not_contains = ["未知运行时旋钮"]

@@ -1,0 +1,4 @@
+desc = "[project] kind 不是 exe / lib / analyzer → 致命"
+args = ["build", "check.knob.z42.toml"]
+exit = "nonzero"
+stderr_contains = ["unknown kind \"exx\""]

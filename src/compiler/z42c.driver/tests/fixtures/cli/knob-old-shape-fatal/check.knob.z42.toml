@@ -1,0 +1,10 @@
+[project]
+name    = "check.knob"
+version = "0.1.0"
+kind    = "lib"
+
+[sources]
+include = ["*.z42"]
+
+[profile.release]
+mode = "interp"

@@ -1,0 +1,90 @@
+// z42c 命令行行为夹具（`src/compiler/z42c.driver/tests/fixtures/cli/<case>/`）的通用 harness。
+//
+// 用例 = 一个目录：最小工程（或几个源文件）+ `expect.toml`（格式见该目录的 README）。harness 只编排：
+// 整棵目录暂存到 intermediate/（`_stageFixtureTree`，源码树零写入、每轮从零开始），逐个用例以用例目录为
+// cwd 跑 `z42c <args>`，按 expect.toml 判定。用例本身不在 xtask 里 —— 加一条用例 = 加一个目录。
+//
+// 断言写不进 expect.toml 的（字节比对、多次构建对照、cache 结构……）仍是 xtask_compiler_e2e*.z42 里的专项检查。
+namespace Z42Xtask;
+
+using Std.IO;
+using Std.Toml;
+
+string _cliFixturesSrc() { return "src/compiler/z42c.driver/tests/fixtures/cli"; }
+
+int _testCompilerCliFixtures(string root, string vm, string driverZpkg, string flat) {
+    Console.WriteLine("");
+    Console.WriteLine("── z42c 命令行夹具（" + _cliFixturesSrc() + "）──");
+    string staged = _stageFixtureTree(root, _cliFixturesSrc());
+    int ran = 0;
+    int failed = 0;
+    foreach (var name in _sortedStrings(Directory.Enumerate(staged))) {
+        string dir = Path.Join(staged, name);
+        string expectPath = Path.Join(dir, "expect.toml");
+        if (!Directory.Exists(dir) || !File.Exists(expectPath)) { continue; }
+        ran = ran + 1;
+        string why = _runCliFixture(vm, driverZpkg, flat, dir, TomlValue.Parse(File.ReadAllText(expectPath)));
+        if (why.Length > 0) {
+            Console.WriteLine("  ✗ " + name + ": " + why);
+            failed = failed + 1;
+        } else {
+            Console.WriteLine("  ✓ " + name);
+        }
+    }
+    if (ran == 0) {
+        Console.WriteLine("  ✗ 没有找到任何用例（" + _cliFixturesSrc() + "/<case>/expect.toml）");
+        return 1;
+    }
+    return failed == 0 ? 0 : 1;
+}
+
+// 跑一个用例；通过返回 ""，否则返回第一条不符的说明（带上实际输出，便于直接定位）。
+string _runCliFixture(string vm, string driverZpkg, string flat, string dir, TomlValue exp) {
+    Process p = _z42Proc(vm, flat).Arg(driverZpkg).Arg("--").WorkingDirectory(dir)
+        .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe());
+    foreach (var a in _cliStrings(exp, "args")) { p = p.Arg(a); }
+    foreach (var f in _cliStrings(exp, "absent")) {
+        string stale = Path.Join(dir, f);
+        if (File.Exists(stale)) { File.Delete(stale); }
+    }
+    ProcessResult r = p.Run();
+    string got = "（exit " + r.ExitCode.ToString() + "）stderr: " + r.Stderr.Trim() + " | stdout: " + r.Stdout.Trim();
+
+    if (exp.ContainsKey("exit")) {
+        TomlValue e = exp.Get("exit");
+        if (e.IsString()) {
+            if (e.AsString() == "nonzero" && r.ExitCode == 0) { return "期望非零退出 " + got; }
+        } else if (r.ExitCode != (int)e.AsLong()) {
+            return "期望 exit " + e.AsLong().ToString() + " " + got;
+        }
+    }
+    foreach (var s in _cliStrings(exp, "stderr_contains")) {
+        if (r.Stderr.IndexOf(s) < 0) { return "stderr 缺少 `" + s + "` " + got; }
+    }
+    foreach (var s in _cliStrings(exp, "stderr_not_contains")) {
+        if (r.Stderr.IndexOf(s) >= 0) { return "stderr 不该出现 `" + s + "` " + got; }
+    }
+    foreach (var s in _cliStrings(exp, "stdout_contains")) {
+        if (r.Stdout.IndexOf(s) < 0) { return "stdout 缺少 `" + s + "` " + got; }
+    }
+    if (exp.ContainsKey("stdout_empty") && exp.Get("stdout_empty").AsBool() && r.Stdout.Trim().Length > 0) {
+        return "stdout 应为空 " + got;
+    }
+    foreach (var f in _cliStrings(exp, "exists")) {
+        if (!File.Exists(Path.Join(dir, f))) { return "缺少产物 " + f + " " + got; }
+    }
+    foreach (var f in _cliStrings(exp, "absent")) {
+        if (File.Exists(Path.Join(dir, f))) { return "不该写出 " + f + " " + got; }
+    }
+    return "";
+}
+
+// expect.toml 里的字符串数组；键不存在 = 空。
+string[] _cliStrings(TomlValue exp, string key) {
+    if (!exp.ContainsKey(key)) { return new string[0]; }
+    TomlValue a = exp.Get(key);
+    string[] r = new string[a.Length()];
+    int i = 0;
+    while (i < r.Length) { r[i] = a.At(i).AsString(); i = i + 1; }
+    return r;
+}

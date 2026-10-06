@@ -1,0 +1,8 @@
+[project]
+name    = "check.knob"
+version = 1
+kind    = "lib"
+
+[sources]
+include = ["*.z42"]
+

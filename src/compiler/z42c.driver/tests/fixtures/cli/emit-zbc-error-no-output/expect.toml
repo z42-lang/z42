@@ -1,0 +1,4 @@
+desc = "有错的源 --emit-zbc：非零退出，且不写产物（只判退出码不够：写了半个产物照样是错的）"
+args = ["--emit-zbc", "bad.z42", "bad.zbc"]
+exit = "nonzero"
+absent = ["bad.zbc"]

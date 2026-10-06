@@ -109,7 +109,7 @@
 |---|---|---|---|
 | **unit** | 带 `[Test]` 的 `.z42`（文件或目录） | `Assert.*` 抛异常即失败 | `z42b test` |
 | **golden** | flat：`<name>.z42`；dir：`<name>/source.z42` + sidecar | 程序跑完；有 `expected_output.txt` 时 stdout 必须相等 | VM 直接跑 |
-| **fixture** | `tests/fixtures/<suite>/<case>/`：含 `z42.toml` 的工程目录 + `expected_output.txt` 或 `expected_build_error.txt` | 先构建再比对；期望报错时 stderr 必须包含给定子串 | xtask 按所属组件的 harness |
+| **fixture** | `tests/fixtures/<suite>/<case>/`：含 `z42.toml` 的工程目录 + `expected_output.txt` 或 `expected_build_error.txt`；命令行行为类用 `expect.toml`（参数、退出码、stderr / stdout 必含 / 不得含、产物有无） | 先构建再比对；期望报错时 stderr 必须包含给定子串 | xtask 按所属组件的 harness |
 
 Rust 侧的 `*_tests.rs` 与 `tests/*.rs` 按 cargo 惯例，不在此列。
 
@@ -122,6 +122,7 @@ Rust 侧的 `*_tests.rs` 与 `tests/*.rs` 按 cargo 惯例，不在此列。
 | 一工程产多个 exe | `src/compiler/z42c.pipeline/tests/fixtures/multi-exe/` | `xtask test e2e --dir multi-exe` |
 | `[[test]]` / `[[example]]` / `[[bench]]` target | `src/toolchain/builder/tests/fixtures/manifest-targets/` | `xtask test toolchain builder` |
 | z42b 自身的清单 / hook / 发现规则 | `src/toolchain/builder/tests/fixtures/z42b/` | `xtask test toolchain builder` |
+| z42c 命令行行为（清单 / 旋钮校验、`--emit-zbc` / `--dump-ir` 的诊断可见性） | `src/compiler/z42c.driver/tests/fixtures/cli/`（`expect.toml`，格式见该目录 README） | `xtask test compiler` |
 | `.zbc` 字节基线 | `src/compiler/z42.package/tests/fixtures/zbc-format/` | `xtask build test` 就地重生；`xtask test runtime`（`zbc_compat`、`format_fixture_versions`）读取 |
 | `.zpkg` 字节基线 | `src/compiler/z42.package/tests/fixtures/zpkg-format/` | 按该目录 README 的配方重生；`xtask test runtime` 读取 |
 

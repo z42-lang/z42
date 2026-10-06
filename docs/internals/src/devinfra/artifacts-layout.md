@@ -135,7 +135,8 @@ z42c 写产物同样是就地写 ⇒ 穿透到 `libraries/z42.core/release/dist/
 | `intermediate/compiler/{selfhost-gen1,stdlib-run/<profile>,seed-run-libs/<profile>,bootstrap-check}` | 编译器构建与自举、`test compiler bootstrap` | 不属于某个成员的 workspace 级自举中间物 |
 | `intermediate/compiler/z42c.pipeline/tests/fixtures/{cross-zpkg,multi-exe}` | `test e2e` | 夹具的**暂存拷贝**（`_stageFixtureTree`），每轮重建，在这里编 / 跑，源码树零写入 |
 | `intermediate/compiler/z42c.pipeline/{incremental,fingerprint}` | `test compiler incremental` / `test compiler fingerprint` | 增量 vs 全量对账；base 与本树编译器的对比场地 |
-| `intermediate/compiler/z42c.driver/e2e` | `test compiler` | 编译器 e2e 用例工作区 |
+| `intermediate/compiler/z42c.driver/tests/fixtures/cli` | `test compiler` | z42c 命令行夹具的暂存拷贝（在拷贝里逐例以用例目录为 cwd 跑 `z42c`） |
+| `intermediate/compiler/z42c.driver/e2e` | `test compiler` | 编译器 e2e 专项检查的工作区（现场写的工程，迁移到夹具前） |
 | `intermediate/toolchain/builder/tests/fixtures/{manifest-targets,z42b}` | `test toolchain builder` | z42b 夹具的暂存拷贝；它们的目标产物在组件工作根下的 `targets/`、`dev-targets/` |
 | `intermediate/toolchain/workload/test/` | `test app desktop` / `test toolchain builder` | golden → `[Test]` 归一的 bundle、语料 bundle、bundle-host smoke |
 | `intermediate/toolchain/workload/desktop/` | `test app desktop` | C ABI R1–R7 的夹具 zbc 与链接出的 `r1_r7` |
