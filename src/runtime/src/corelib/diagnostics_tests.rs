@@ -29,3 +29,47 @@ fn diag_counters_appended_last_preserves_ids() {
     let pos = BUILTINS.iter().position(|(n, _)| *n == "__diag_counters").unwrap();
     assert_eq!(id.0 as usize, pos, "BuiltinId must equal BUILTINS array position");
 }
+
+/// The retention queries force a collection and walk every thread's frames for
+/// roots, so they must stop the world first: while another mutator is running
+/// (not parked, not at a safepoint) the query waits for it to park.
+#[test]
+fn retention_query_waits_for_running_mutators_to_park() {
+    use crate::metadata::Value;
+    use crate::vm_context::VmContext;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{mpsc, Arc};
+    use std::time::{Duration, Instant};
+
+    let ctx = VmContext::new();
+    let target = ctx.heap().alloc_array(vec![Value::I64(1)]);
+    ctx.core.static_fields.lock().push(target.clone());   // keep it reachable
+
+    let stop = Arc::new(AtomicBool::new(false));
+    let (registered_tx, registered_rx) = mpsc::channel();
+    let worker = {
+        let (core, stop) = (ctx.core_arc(), Arc::clone(&stop));
+        std::thread::spawn(move || {
+            let w = VmContext::new_with_core(core);
+            registered_tx.send(()).unwrap();
+            // Running z42 code: no safepoint for a while.
+            std::thread::sleep(Duration::from_millis(200));
+            while !stop.load(Ordering::Acquire) {
+                w.safepoint_skip.store(1, Ordering::Relaxed);
+                crate::gc::safepoint::check_safepoint(&w);
+                std::thread::yield_now();
+            }
+        })
+    };
+    registered_rx.recv().unwrap();
+
+    let start = Instant::now();
+    // The result projection needs stdlib types a bare VmContext lacks; only the
+    // timing matters here.
+    let _ = super::builtin_heap_retaining_roots(&ctx, &[target]);
+    assert!(start.elapsed() >= Duration::from_millis(150),
+        "the query ran while another mutator was still running");
+
+    stop.store(true, Ordering::Release);
+    worker.join().unwrap();
+}

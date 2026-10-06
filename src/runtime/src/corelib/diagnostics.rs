@@ -30,6 +30,18 @@ fn target_ptr(v: &Value) -> Option<usize> {
     }
 }
 
+/// Run a retention query with the world stopped. The query forces a collection and
+/// then walks every thread's frames for roots, so the other mutators must be parked
+/// first — the same `request_gc_pause` that `GC.ForceCollect()` uses. If another
+/// collector is active, `request_gc_pause` parks us until it is done; retry.
+fn with_world_stopped<R>(ctx: &VmContext, query: impl FnOnce() -> R) -> R {
+    loop {
+        if let Some(_pause) = crate::gc::safepoint::request_gc_pause(ctx) {
+            return query();
+        }
+    }
+}
+
 /// Allocate a z42 class instance, writing named slots by `field_index`.
 fn alloc_named(ctx: &VmContext, type_name: &str, named: &[(&str, Value)]) -> Result<Value> {
     let td = ctx
@@ -49,7 +61,7 @@ pub fn builtin_heap_direct_referrers(ctx: &VmContext, args: &[Value]) -> Result<
     let Some(ptr) = args.first().and_then(target_ptr) else {
         return Ok(ctx.heap().alloc_array(Vec::new()));
     };
-    let referrers = ctx.heap().retention_direct_referrers(ptr);
+    let referrers = with_world_stopped(ctx, || ctx.heap().retention_direct_referrers(ptr));
     let mut out = Vec::with_capacity(referrers.len());
     for r in referrers {
         out.push(alloc_named(
@@ -69,7 +81,7 @@ pub fn builtin_heap_retaining_roots(ctx: &VmContext, args: &[Value]) -> Result<V
     let Some(ptr) = args.first().and_then(target_ptr) else {
         return Ok(ctx.heap().alloc_array(Vec::new()));
     };
-    let roots = ctx.heap().retention_roots(ptr);
+    let roots = with_world_stopped(ctx, || ctx.heap().retention_roots(ptr));
     let mut out = Vec::with_capacity(roots.len());
     for r in roots {
         // `RootRef.Kind` is a z42 `RootKind` enum, i64-backed; the discriminant
