@@ -1,0 +1,9 @@
+namespace Demo.UndeclaredApp;
+
+using Demo.Undeclared;
+
+// 只在表达式里读 enum 常量，不写任何类型标注 —— 这条路不经过类型引用的 choke point。
+void Main() {
+    int x = Color.Red == Color.Green ? 1 : 0;
+    if (x != 0) { }
+}

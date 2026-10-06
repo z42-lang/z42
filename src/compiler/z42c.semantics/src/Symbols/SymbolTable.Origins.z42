@@ -266,8 +266,14 @@ public sealed partial class SymbolTable {
         StrBox box = this._pkgBoxOf(fqn);
         if (box == null) { return ""; }          // 本包类型 / 未登记来源 → 不是跨包引用
         if (box.Count >= 2) { return ""; }       // 同 FQN 多包：E0601 的地盘
-        string pkg = box.Value;
-        if (pkg == "") { return ""; }            // 空 = 本包声明的那份
+        return this.UndeclaredDepPkgMsg(fqn, box.Value);
+    }
+
+    // 同上，归属包已知：自由函数没有 FQN 视图，归属包由 `ImportedFuncPkgOf` 给出（多包时给 ""，
+    // 那是 E0601 的地盘）。`what` 只进消息。
+    public string UndeclaredDepPkgMsg(string what, string pkg) {
+        if (!this.EnforceDeclaredDeps) { return ""; }
+        if (pkg == "") { return ""; }            // 空 = 本包声明的那份 / 来源不唯一
         if (pkg == this.SelfPkg) { return ""; }
         // 🔴 **标准库（`z42.` 前缀）自动可用，不要求声明** —— 这是已归档的设计裁决
         // `simplify-stdlib-auto-import`（2026-06-06，Rust-std 模型：`[dependencies]` 只写第三方）。
@@ -282,7 +288,7 @@ public sealed partial class SymbolTable {
         // ⚠️ 去重键是**包名**而非 FQN：同一个包里用了三个类也只需要加一行。
         if (this._undeclaredSeen.ContainsKey(pkg)) { return ""; }
         this._undeclaredSeen.Put(pkg, "1");
-        return "`" + fqn + "` comes from package `" + pkg
+        return "`" + what + "` comes from package `" + pkg
              + "`, which this project does not declare — add it under `[dependencies]` in z42.toml:"
              + "  \"" + pkg + "\" = \"*\"";
     }

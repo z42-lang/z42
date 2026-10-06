@@ -1,0 +1,3 @@
+namespace Demo.Undeclared;
+
+public int Helper() { return 7; }
