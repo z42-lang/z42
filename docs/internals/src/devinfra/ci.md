@@ -96,6 +96,36 @@ PR 的 xtask，而 xtask 的 `_root()` 取 cwd 的仓库根 = base-src（base �
 `test-host` ×4 与 toolchain 链（`compile-toolchain` → `compile-test-assets` / `test-consume`）随之 skip。
 push / schedule / dispatch 不走快速通道。
 
+### main 上的运行不互相打断
+
+PR 上新 push 照常取消旧运行；**push to main 每个 commit 单独一个 concurrency group**，GitHub 不自动取消。
+否则连续合并时每个 main 运行都被下一个取消，一个都跑不完 ⇒ nightly 发不出来，而「support 先行、晚一个
+nightly 再 use」（[bootstrap-seed.md](../../../agent/rules/bootstrap-seed.md)）的后续提交等的正是那份 nightly。
+
+取消改由每个 main 运行在 `detect-changes` 里自己做（`.github/ci/main-supersede.sh supersede`）：
+
+1. 找出比自己早、还没结束的 main push 运行（带过滤的运行列表是最终一致的，只用来找候选；取消前逐个再查状态）；
+2. 对每一个，看**当前 nightly → 它的 commit** 的累计改动是否影响 SDK：**不影响就取消，影响就留着跑完发布**；
+3. 同样判出本运行自己的 `sdk`，作为 `detect-changes` 的输出；`sdk == false` 时 `publish-nightly` skip（没有新东西可发）。
+
+按**累计**改动判、而不是只看那一个 commit：nightly 还没收进的 SDK 改动，后面每个运行都带着，它们也得能发布。
+
+「不影响 SDK」= 改动的文件**全部**落在下面这些路径里；其余一律算影响（含 xtask 的 build / package / common /
+install、`ci.yml`、`.github/actions/`——它们决定 SDK 里装什么或怎么装）。拿不到 nightly、compare 结果被截断
+（≥300 个文件）也算影响。
+
+| 不影响 SDK 的路径 | 理由 |
+|---|---|
+| `docs/`、`*.md`、`.claude/` | 文档 |
+| `**/tests/**`、`**/bench/**`、`**/benches/**`、`examples/` | 测试 / bench 源码与夹具、学习手册示例，不进包 |
+| `scripts/test/`、`scripts/cli/xtask_cli_{test,check}.z42`、`scripts/xtask_{bench,profile}.z42` | xtask 只做测试 / 检查 / 性能编排的部分 |
+| `.github/workflows/{bench-pr,deploy-book,jit-fixpoint-check}.yml` | 不参与发布的 workflow |
+
+SoT 是脚本里的 `non_sdk_re`，这张表随它改。
+
+`publish-nightly` 自身仍是全局串行（job 级 `cancel-in-progress: false`）。main 运行不再互相取消后，较早的运行
+可能排在较新的之后才发布，所以它先查一次：**nightly 已指向本 commit 的后代** ⇒ 跳过，不拿旧 commit 覆盖新 nightly。
+
 `detect-changes` 用 `dorny/paths-filter` 输出 flag，下游 job `needs: changes` + `if:` 门控：
 
 | flag | 命中路径（节选） |
@@ -147,7 +177,7 @@ job 的 **key**（`needs:` 用的）与 **display 名**（分支保护的 requir
 | `test-wasm-browser(linux-x64) shard k` | `test-wasm` | **仅** schedule ‖ dispatch | 3 shard |
 | `test-ios-sim(macos-arm64) shard k` | `test-ios` | **仅** schedule ‖ dispatch | 3 shard |
 | `test-android-emu(linux-x64) shard k` | `test-android` | **仅** schedule ‖ dispatch | 3 shard |
-| `publish-nightly` | `publish-nightly` | push to main ‖ dispatch | — |
+| `publish-nightly` | `publish-nightly` | （push to main 且 `sdk` 非 false）‖ dispatch | — |
 | `ci-ok` | `ci-ok` | 总跑（`if: always()`） | — |
 
 **`ci-ok` 是本 workflow 的单一结论**：`needs` 全部其它 job，任一 failure / cancelled 即红，success / skipped
