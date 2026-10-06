@@ -652,7 +652,7 @@ overhead 内）。
 
 `builtin_gc_write_heap_snapshot` 通过 `serialize_v8_heapsnapshot_to<W:
 Write>` 流式直写 `BufWriter<File>`，无中间 `String` 内存分配。
-`serialize_v8_heapsnapshot(&snap) -> String` 作为薄包装（Vec<u8>
+`serialize_v8_heapsnapshot(&snap) -> String` 作为薄包装（`Vec<u8>`
 驱动流式路径）供测试和内存场景使用，输出字节完全相同。
 
 **局限**：

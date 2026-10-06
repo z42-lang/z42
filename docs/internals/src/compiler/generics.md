@@ -391,7 +391,7 @@ per-instance `type_args` 只覆盖「实例自己那一层泛型」，两种形�
 [类型转换的实现](conversions.md)的步 6e。
 
 🔴 **跨包只通了编译期**：`class DInt : GBox<int>` 其中 `GBox` 来自别的 zpkg，现在**编得过**，
-但运行期抛 `MissingSymbolException: base type \`...GBox<int>\` ... could not be resolved`。
+但运行期抛 ``MissingSymbolException: base type `...GBox<int>` ... could not be resolved``。
 那是泛型实例化线的缺口，与本页的符号层代换无关。
 
 ---
@@ -784,7 +784,7 @@ VM interp:  ObjNew 时创建实例化 TypeDesc（填充 type_args）
 | 共存 `class Foo<R>` | `Foo$1` | `Foo$1` | **true** |
 | 共存 `class Pair<A, B>` | `Pair$2` | `Pair$2` | **true** |
 
-**关键性质**：仅冲突时才走 mangling 路径。stdlib 现有泛型类（List<T> / Dictionary<K,V> / MulticastAction<T> ...）无非泛型同名兄弟 → 全部保持 bare key → **零 zpkg 改动**、零 VM 改动。
+**关键性质**：仅冲突时才走 mangling 路径。stdlib 现有泛型类（`List<T>` / `Dictionary<K,V>` / `MulticastAction<T>` ...）无非泛型同名兄弟 → 全部保持 bare key → **零 zpkg 改动**、零 VM 改动。
 
 ### Pre-pass 检测
 
