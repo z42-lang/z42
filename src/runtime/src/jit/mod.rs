@@ -196,7 +196,7 @@ impl JitModule {
             }
         };
         // One `VmFrame` push enrolling the entry frame's regs / env_arena (GC roots)
-        // + name / file (trace); inner calls go through the same `invoke::call_native`.
+        // + function (trace); inner calls go through the same `invoke::call_native`.
         let outcome = unsafe {
             invoke::call_entry(ctx, &*self.ctx as *const JitModuleCtx, &entry, JitFrame::new(entry.max_reg, &[]))
         };

@@ -298,18 +298,11 @@ fn exec_function_body(ctx: &VmContext, module: &Module, func: &Function, mut fra
             Terminator::Throw { reg } => {
                 let val = frame.get(*reg)?.clone();
                 // 2026-05-10 exception-stack-trace: stamp the throwing
-                // frame's current line so the snapshot's top entry shows
+                // frame's current site so the snapshot's top entry shows
                 // the throw site (not whatever the previous Call left).
                 // Throw is a block terminator; instr_idx isn't a meaningful
                 // intra-block offset, so use end-of-block (block.instructions.len()).
-                let (throw_line, throw_col) = resolve_line(
-                    func.line_table(),
-                    block_idx as u32,
-                    block.instructions.len() as u32,
-                );
-                // add-offline-symbolication: stamp line/col + throw-site offset
-                // (end-of-block terminator slot) in one lock so stripped traces resolve.
-                ctx.update_top_frame_pos(throw_line, throw_col,
+                ctx.set_top_frame_pc(
                     func.linear_offset(block_idx as u32, block.instructions.len() as u32));
                 crate::exception::populate_stack_trace(&val, ctx, module);
 

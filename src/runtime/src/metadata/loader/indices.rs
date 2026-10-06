@@ -44,16 +44,13 @@ pub fn build_block_indices(module: &mut Module) {
         // branch_targets (needs the index-resolved targets above).
         func.fused_tails = crate::metadata::superinstr::compute_fused_tails(&func.blocks, &func.branch_targets, &func.reg_types);
         // perf-frame-name-precompute: build the stack-frame (name, file) Arc<str>
-        // pair once here so `exec_function_body` clones it O(1) per call instead
-        // of re-formatting + allocating on every call (40–60% of call-heavy
-        // interp time). `format_frame_name` needs `param_types` (in the cold box)
+        // pair once here so building a stack trace clones it instead of
+        // re-formatting. `format_frame_name` needs `param_types` (in the cold box)
         // + the display name; the file comes from the line table's first entry.
-        let file: std::sync::Arc<str> = func.line_table().first()
-            .and_then(|e| e.file.clone())
-            .map(std::sync::Arc::from)
-            .unwrap_or_else(|| std::sync::Arc::from(""));
-        let name = std::sync::Arc::from(crate::metadata::bytecode::format_frame_name(func));
-        func.frame_meta = Some((name, file));
+        func.frame_meta = Some((
+            std::sync::Arc::from(crate::metadata::bytecode::format_frame_name(func)),
+            std::sync::Arc::from(crate::metadata::bytecode::frame_file(func)),
+        ));
         // interp-frame-presize: backfill the register-file length so the interp
         // `Frame::new*` pre-sizes the register file in one `resize` instead of
         // growing one slot at a time through the cold `set_grow` path. The zbc

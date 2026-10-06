@@ -219,18 +219,40 @@ fn write_call_stacks(fd: i32) {
                 sigsafe::write_str(fd, b"    #");
                 sigsafe::write_dec_u32(fd, i as u32);
                 sigsafe::write_str(fd, b"  ");
-                sigsafe::write_str(fd, frame.func_name.as_bytes());
-                sigsafe::write_str(fd, b" at ");
-                sigsafe::write_str(fd, frame.file.as_bytes());
-                sigsafe::write_str(fd, b":");
-                sigsafe::write_dec_u32(fd, frame.line.get());
-                sigsafe::write_str(fd, b":");
-                sigsafe::write_dec_u32(fd, frame.column.get());
-                sigsafe::write_str(fd, b"\n");
+                write_frame(fd, frame);
             }
         }
     }
     sigsafe::write_str(fd, b"===\n");
+}
+
+/// `<name> at <file>:<line>:<col>\n` for one frame — the same text
+/// `VmFrame::snapshot` would produce, computed from `func` + `pc` without
+/// allocating: the precomputed `frame_meta` strings are written in place, and
+/// a function without them has its name written piece by piece; `line_col`
+/// is a binary search over the line table.
+fn write_frame(fd: i32, frame: &crate::exception::VmFrame) {
+    let func = frame.func();
+    match &func.frame_meta {
+        Some((name, file)) => {
+            sigsafe::write_str(fd, name.as_bytes());
+            sigsafe::write_str(fd, b" at ");
+            sigsafe::write_str(fd, file.as_bytes());
+        }
+        None => {
+            crate::metadata::bytecode::for_each_frame_name_piece(func, |piece| {
+                sigsafe::write_str(fd, piece.as_bytes());
+            });
+            sigsafe::write_str(fd, b" at ");
+            sigsafe::write_str(fd, crate::metadata::bytecode::frame_file(func).as_bytes());
+        }
+    }
+    let (line, column) = frame.line_col();
+    sigsafe::write_str(fd, b":");
+    sigsafe::write_dec_u32(fd, line);
+    sigsafe::write_str(fd, b":");
+    sigsafe::write_dec_u32(fd, column);
+    sigsafe::write_str(fd, b"\n");
 }
 
 // signal_name + the `sigsafe` write primitives moved to `pal::signal`

@@ -23,15 +23,10 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                     // once then hits the lock-free by-id fast path thereafter.
                     let ic_ptr = call_jit_ic_ptr_at(self.func, self.block_idx, self.instr_idx);
                     let ic_val = self.builder.ins().iconst(self.ptr, ic_ptr as i64);
-                    // 2026-05-10 jit-stack-trace + span-column-propagate: pass
-                    // current source (line, col) so jit_call can stamp the
-                    // caller's frame info before descending into the callee.
-                    let (line, col) = crate::interp::resolve_line(self.func.line_table(), self.block_idx as u32, self.instr_idx as u32);
-                    let line_val = self.builder.ins().iconst(types::I32, line as i64);
-                    let col_val  = self.builder.ins().iconst(types::I32, col as i64);
-                    // add-offline-symbolication: bake linearized code offset (caller frame).
+                    // jit-stack-trace: pass this site's code offset so jit_call can
+                    // stamp the caller's frame before descending into the callee.
                     let off_val = self.builder.ins().iconst(types::I32, self.func.linear_offset(self.block_idx as u32, self.instr_idx as u32) as i64);
-                    let inst = self.builder.ins().call(self.hr_call, &[self.frame_val, self.ctx_val, d, mid_val, np, nl, ap, al, ic_val, line_val, col_val, off_val]);
+                    let inst = self.builder.ins().call(self.hr_call, &[self.frame_val, self.ctx_val, d, mid_val, np, nl, ap, al, ic_val, off_val]);
                     let ret  = self.builder.inst_results(inst)[0]; self.check(ret);
                     // add-gc-safepoint-jit (2026-05-21): post-Call safepoint
                     // — long callees may yield to a GC request that arrived
@@ -87,13 +82,10 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                     let d = self.ri(*dst);
                     let c = self.ri(*callee);
                     let (ap, al) = self.regs_val(args);
-                    // 2026-05-10 jit-stack-trace + span-column-propagate.
-                    let (line, col) = crate::interp::resolve_line(self.func.line_table(), self.block_idx as u32, self.instr_idx as u32);
-                    let line_val = self.builder.ins().iconst(types::I32, line as i64);
-                    let col_val  = self.builder.ins().iconst(types::I32, col as i64);
+                    // jit-stack-trace: call-site code offset.
                     let off_val = self.builder.ins().iconst(types::I32, self.func.linear_offset(self.block_idx as u32, self.instr_idx as u32) as i64);
                     let inst = self.builder.ins().call(self.hr_call_indirect,
-                        &[self.frame_val, self.ctx_val, d, c, ap, al, line_val, col_val, off_val]);
+                        &[self.frame_val, self.ctx_val, d, c, ap, al, off_val]);
                     let ret  = self.builder.inst_results(inst)[0]; self.check(ret);
                     // add-gc-safepoint-jit (2026-05-21): post-CallIndirect
                     // safepoint, see Instruction::Call for rationale.

@@ -111,6 +111,10 @@ impl LazyCompiler {
     /// merged module (`compile_one`) and — make-vm-loading-lazy — for functions
     /// materialized by the lazy loader (`resolve_fn_by_id` compiles a not-yet-merged
     /// stdlib function here instead of falling back to the interpreter).
+    ///
+    /// The returned entry's `func` points at `func`: the caller keeps `func` alive
+    /// as long as the entry (the module owns merged functions; `resolve_lazy_slot`
+    /// stores the lazily-loaded `Arc<Function>` in the slot).
     pub fn compile_fn(&mut self, func: &Function) -> Result<FnEntry> {
         let ptr = self.jit.target_config().pointer_type();
         let mut sig = self.jit.make_signature();
@@ -131,19 +135,10 @@ impl LazyCompiler {
         self.jit.finalize_definitions()?;
 
         let ptr_raw = self.jit.get_finalized_function(func_id);
-        // Precompute name + file Arcs so jit_call / jit_vcall can push FrameInfo
-        // without a reverse lookup (mirrors the former eager path).
-        let file_str: std::sync::Arc<str> = func.line_table().first()
-            .and_then(|e| e.file.as_deref())
-            .unwrap_or("")
-            .into();
-        let frame_name: std::sync::Arc<str> =
-            std::sync::Arc::from(crate::metadata::bytecode::format_frame_name(func).as_str());
         Ok(FnEntry {
             ptr:     ptr_raw as *const u8,
             max_reg: max_r,
-            name:    frame_name,
-            file:    file_str,
+            func:    func as *const Function,
             arity:   crate::vm_context::symres::call_arity(func),
             owner_init: std::sync::Arc::clone(&func.owner_init),
         })
@@ -173,17 +168,10 @@ impl LazyCompiler {
         self.jit.finalize_definitions()?;
 
         let ptr_raw = self.jit.get_finalized_function(func_id);
-        let file_str: std::sync::Arc<str> = func.line_table().first()
-            .and_then(|e| e.file.as_deref())
-            .unwrap_or("")
-            .into();
-        let frame_name: std::sync::Arc<str> =
-            std::sync::Arc::from(crate::metadata::bytecode::format_frame_name(func).as_str());
         Ok(FnEntry {
             ptr:     ptr_raw as *const u8,
             max_reg: max_r,
-            name:    frame_name,
-            file:    file_str,
+            func:    func as *const Function,
             arity:   crate::vm_context::symres::call_arity(func),
             owner_init: std::sync::Arc::clone(&func.owner_init),
         })

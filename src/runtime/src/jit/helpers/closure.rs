@@ -99,9 +99,7 @@ pub unsafe extern "C" fn jit_call_indirect(
     frame: *mut JitFrame, ctx: *const JitModuleCtx,
     dst: u32, callee: u32,
     args_ptr: *const u32, args_len: usize,
-    caller_line: u32,   // 2026-05-10 jit-stack-trace
-    caller_col:  u32,   // 2026-05-10 span-column-propagate
-    caller_offset: u32, // add-offline-symbolication: linearized code offset
+    caller_offset: u32, // packed code offset of the call site (jit-stack-trace)
 ) -> u8 {
     let frame_ref = &mut *frame;
     let ctx_ref   = &*ctx;
@@ -174,7 +172,7 @@ pub unsafe extern "C" fn jit_call_indirect(
     let entry: &FnEntry = match ctx_ref.resolve_fn_by_name_tiered(fn_name.as_str()) {
         Some(e) => e,
         None => {
-            vm_ctx.update_top_frame_pos(caller_line, caller_col, caller_offset);
+            vm_ctx.set_top_frame_pc(caller_offset);
             let module = &*ctx_ref.module;
             let outcome = if let Some(callee) = module.func_index.get(fn_name.as_str())
                 .and_then(|&idx| module.functions.get(idx))
@@ -199,6 +197,6 @@ pub unsafe extern "C" fn jit_call_indirect(
 
     // 4) Build the callee frame and run it (GC-root enrolment + trace row in `call_native`).
     let callee_frame = JitFrame::new(entry.max_reg, &args);
-    vm_ctx.update_top_frame_pos(caller_line, caller_col, caller_offset);
+    vm_ctx.set_top_frame_pc(caller_offset);
     call_entry(vm_ctx, ctx, entry, callee_frame).store_into(&mut frame_ref.regs, dst)
 }

@@ -1,17 +1,88 @@
 use super::*;
 
+use crate::metadata::bytecode::{FunctionCold, LineEntry};
+
+fn line(block: u32, instr: u32, line: u32, column: u32, file: Option<&str>) -> LineEntry {
+    LineEntry { block, instr, line, column, file: file.map(str::to_string) }
+}
+
+/// A hand-built function (no loader post-processing → `frame_meta: None`)
+/// with the given parameter types and line table. Shared with other tests
+/// that need a function for a `VmFrame` to point at.
+pub(crate) fn test_function(name: &str, param_types: &[&str], line_table: Vec<LineEntry>) -> Function {
+    Function {
+        name: name.to_string(),
+        param_count: param_types.len(),
+        ret_type: "void".to_string(),
+        exec_mode: crate::metadata::types::ExecMode::Interp,
+        blocks: Vec::new(),
+        is_static: true,
+        visibility: 0,
+        method_flags: 0, min_arg: 0, params_from: 0xFF,
+        max_reg: 0,
+        cold: Some(Box::new(FunctionCold {
+            param_types: param_types.iter().map(|t| t.to_string()).collect(),
+            line_table: line_table.into_boxed_slice(),
+            ..Default::default()
+        })),
+        reg_types: Box::new([]),
+        block_index: std::collections::HashMap::new(),
+        branch_targets: Vec::new(),
+        fused_tails: Vec::new(),
+        frame_meta: None,
+        resolved: std::sync::OnceLock::new(),
+        owner_init: Default::default(),
+    }
+}
+
 #[test]
-fn snapshot_freezes_line_and_column() {
-    let f = FrameInfo::new("Foo".into(), "f.z42".into(), std::ptr::null(), std::ptr::null());
-    f.line.set(7);
-    f.column.set(13);
+fn vm_frame_stays_thin() {
+    // One VmFrame is pushed per call: func + regs + env_arena + pc + 4 u32 bases.
+    assert!(std::mem::size_of::<VmFrame>() <= 48, "VmFrame is {} B", std::mem::size_of::<VmFrame>());
+}
+
+#[test]
+fn snapshot_resolves_position_from_pc() {
+    let func = test_function("Foo", &["int", "string"], vec![
+        line(0, 0, 3, 5, Some("f.z42")),
+        line(0, 4, 7, 13, Some("f.z42")),
+        line(1, 0, 9, 2, Some("f.z42")),
+    ]);
+    let f = VmFrame::new(&func, std::ptr::null(), std::ptr::null());
+    f.pc.set(func.linear_offset(0, 6)); // inside the entry starting at (0, 4)
     let snap = f.snapshot();
-    f.line.set(99);     // mutates after snapshot
-    f.column.set(40);
-    assert_eq!(snap.line,   7);
-    assert_eq!(snap.column, 13);
-    assert_eq!(&*snap.func_name, "Foo");
+    f.pc.set(func.linear_offset(1, 0)); // mutates after snapshot
+    assert_eq!((snap.line, snap.column), (7, 13));
+    assert_eq!(snap.offset, 6);
+    assert_eq!(&*snap.func_name, "Foo(int,string)");
     assert_eq!(&*snap.file, "f.z42");
+    assert_eq!(f.line_col(), (9, 2));
+}
+
+#[test]
+fn snapshot_of_unstamped_frame_has_no_position() {
+    let func = test_function("Init", &[], vec![line(0, 0, 3, 5, Some("f.z42"))]);
+    let snap = VmFrame::new(&func, std::ptr::null(), std::ptr::null()).snapshot();
+    assert_eq!((snap.line, snap.column, snap.offset), (0, 0, PC_UNSET));
+    assert_eq!(format_stack_trace(&[snap]), "  at Init() (f.z42)");
+}
+
+#[test]
+fn snapshot_of_stripped_frame_keeps_offset() {
+    // No line table (release-stripped): only the offset survives → `+0x<offset>`.
+    let func = test_function("Std.List.Add", &["?"], Vec::new());
+    let f = VmFrame::new(&func, std::ptr::null(), std::ptr::null());
+    f.pc.set(func.linear_offset(0, 0x2c));
+    assert_eq!(format_stack_trace(&[f.snapshot()]), "  at Std.List.Add(?) +0x2c");
+}
+
+#[test]
+fn snapshot_prefers_precomputed_frame_meta() {
+    let mut func = test_function("Foo", &["int"], vec![line(0, 0, 3, 5, Some("f.z42"))]);
+    func.frame_meta = Some(("Foo(int)".into(), "f.z42".into()));
+    let (name, file) = func.frame_name_file();
+    assert!(std::sync::Arc::ptr_eq(&name, &func.frame_meta.as_ref().unwrap().0));
+    assert_eq!((&*name, &*file), ("Foo(int)", "f.z42"));
 }
 
 #[test]

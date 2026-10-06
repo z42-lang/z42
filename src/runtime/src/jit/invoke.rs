@@ -7,9 +7,7 @@
 //! them (how the callee frame is filled, where the return value goes, whether the
 //! exception stays pending or is taken) stays at the call site.
 
-use std::sync::Arc;
-
-use crate::metadata::Value;
+use crate::metadata::{Function, Value};
 use crate::vm_context::VmContext;
 
 use super::frame::{FnEntry, JitFrame, JitModuleCtx};
@@ -48,27 +46,29 @@ impl NativeOutcome {
 
 /// Run compiled code `code` on the already-filled `frame`.
 ///
-/// The frame is enrolled as a GC root + stack-trace row (one `VmFrame` named
-/// `name` / `file`) for exactly the duration of the native call, then recycled.
+/// The frame is enrolled as a GC root + stack-trace row (one `VmFrame` for
+/// `func`, the function `code` was compiled from) for exactly the duration of
+/// the native call, then recycled.
 /// Nothing between the caller building `frame` and the `push_frame` here may
 /// reach a safepoint: until the push, the callee's arguments are reachable only
 /// from `frame`. The stack-overflow check runs in the callee's prologue, i.e.
 /// after the push, so a fatal report includes this frame.
 ///
-/// `name` / `file` are taken by value so interp callers can copy them out of the
-/// `FnEntry` before the call (no borrow of the `JitModuleCtx` slot held across it).
+/// `func` is a plain pointer so interp callers can copy it out of the `FnEntry`
+/// before the call (no borrow of the `JitModuleCtx` slot held across it).
 ///
 /// # Safety
 /// `code` must be a compiled `JitFn` from the module `jit_ctx` points at, and
 /// `jit_ctx` must be valid with its `vm_ctx` set to `vm` (true for the whole of
-/// `JitModule::run_fn`).
+/// `JitModule::run_fn`). `func` must stay alive for the call (an `FnEntry`'s
+/// `func` always does — see [`FnEntry::func`]).
 pub(crate) unsafe fn call_native(
     vm: &VmContext, jit_ctx: *const JitModuleCtx,
-    code: *const u8, name: Arc<str>, file: Arc<str>, mut frame: JitFrame,
+    code: *const u8, func: *const Function, mut frame: JitFrame,
 ) -> NativeOutcome {
     let jit_fn: JitFn = unsafe { std::mem::transmute(code) };
     vm.push_frame(crate::exception::VmFrame::new(
-        name, file, &frame.regs as *const _, &frame.env_arena as *const _));
+        func, &frame.regs as *const _, &frame.env_arena as *const _));
     let r = unsafe { jit_fn(&mut frame, jit_ctx) };
     vm.pop_frame();
     if r != 0 {
@@ -88,5 +88,5 @@ pub(crate) unsafe fn call_native(
 pub(crate) unsafe fn call_entry(
     vm: &VmContext, jit_ctx: *const JitModuleCtx, entry: &FnEntry, frame: JitFrame,
 ) -> NativeOutcome {
-    unsafe { call_native(vm, jit_ctx, entry.ptr, entry.name.clone(), entry.file.clone(), frame) }
+    unsafe { call_native(vm, jit_ctx, entry.ptr, entry.func, frame) }
 }

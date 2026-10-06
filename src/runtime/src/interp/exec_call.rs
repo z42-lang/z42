@@ -42,13 +42,13 @@ fn try_native_static_call(
     // borrow of `*jit_ctx` is held across the native call. `resolve_fn_by_id_tiered`
     // uses interior mutability (OnceLock/Mutex) and may compile-on-threshold — same
     // as `jit_call`.
-    let (max_reg, ptr, name, file) = {
+    let (max_reg, ptr, callee_fn) = {
         let entry = unsafe { (*jit_ctx).resolve_fn_by_id_tiered(idx) }?;
-        (entry.max_reg, entry.ptr, entry.name.clone(), entry.file.clone())
+        (entry.max_reg, entry.ptr, entry.func)
     };
     ctx.counters().jit_native_from_interp.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let callee = crate::jit::frame::JitFrame::new_args_from(max_reg, &frame.regs, args);
-    let outcome = unsafe { crate::jit::invoke::call_native(ctx, jit_ctx, ptr, name, file, callee) };
+    let outcome = unsafe { crate::jit::invoke::call_native(ctx, jit_ctx, ptr, callee_fn, callee) };
     Some(Ok(native_result_to_dst(ctx, frame, dst, outcome)))
 }
 

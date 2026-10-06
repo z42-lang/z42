@@ -67,10 +67,10 @@ impl VmContext {
         // the three arenas. This is the mutator thread (the sole writer of these
         // atomics), so the load observes its own latest publish; `pop_frame`
         // LIFO-truncates each arena back to the base captured here.
-        frame.stack_obj_base = self.stack_obj_len.load(Relaxed);
-        frame.stack_arr_base = self.stack_arr_len.load(Relaxed);
-        frame.struct_base = self.struct_len.load(Relaxed);
-        frame.transient_base = self.transient_len.load(Relaxed);
+        frame.stack_obj_base = arena_base(self.stack_obj_len.load(Relaxed));
+        frame.stack_arr_base = arena_base(self.stack_arr_len.load(Relaxed));
+        frame.struct_base = arena_base(self.struct_len.load(Relaxed));
+        frame.transient_base = arena_base(self.transient_len.load(Relaxed));
         self.call_stack.lock().push(frame);
     }
 
@@ -80,28 +80,30 @@ impl VmContext {
         // Pop the call_stack first (release its lock) before touching the arenas.
         let popped = self.call_stack.lock().pop();
         if let Some(f) = popped {
+            let (obj_base, arr_base) = (f.stack_obj_base as usize, f.stack_arr_base as usize);
+            let (struct_base, transient_base) = (f.struct_base as usize, f.transient_base as usize);
             // perf interp-frame-lock-slim: for each arena, lock + truncate ONLY when
             // this frame actually grew it (published len ≠ stamped base). The
             // call-heavy common case allocates nothing on these arenas, so all three
             // comparisons short-circuit and pop_frame takes just the one call_stack
             // lock above. Re-publish the post-truncate length under the arena lock.
-            if self.stack_obj_len.load(Relaxed) != f.stack_obj_base
-                || self.stack_arr_len.load(Relaxed) != f.stack_arr_base
+            if self.stack_obj_len.load(Relaxed) != obj_base
+                || self.stack_arr_len.load(Relaxed) != arr_base
             {
                 let mut a = self.stack_arena.lock();
-                a.truncate(f.stack_obj_base, f.stack_arr_base);
+                a.truncate(obj_base, arr_base);
                 let (o, r) = a.bases();
                 self.stack_obj_len.store(o, Relaxed);
                 self.stack_arr_len.store(r, Relaxed);
             }
-            if self.struct_len.load(Relaxed) != f.struct_base {
+            if self.struct_len.load(Relaxed) != struct_base {
                 let mut a = self.struct_arena.lock();
-                a.truncate(f.struct_base);
+                a.truncate(struct_base);
                 self.struct_len.store(a.base(), Relaxed);
             }
-            if self.transient_len.load(Relaxed) != f.transient_base {
+            if self.transient_len.load(Relaxed) != transient_base {
                 let mut a = self.transient_arena.lock();
-                a.truncate(f.transient_base);
+                a.truncate(transient_base);
                 self.transient_len.store(a.base(), Relaxed);
             }
         }
@@ -113,28 +115,21 @@ impl VmContext {
         self.next_frame_id.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
     }
 
-    /// Update the *top* (currently executing) frame's source position.
-    /// Called by callers right before they invoke a callee, so the snapshot
-    /// at a downstream `throw` shows the call site, not 0.
-    ///
-    /// `column = 0` means unknown — the snapshot formats as `(file:line)`
-    /// rather than `(file:line:col)`.
-    /// add-offline-symbolication: `offset` = the frame's linearized code offset
-    /// (`Function::linear_offset`), stamped in the **same** lock as line/column
-    /// so a stripped-release trace (no line info) can print `+0x<offset>` — an
-    /// offline-resolvable key for `z42d symbolicate` — at zero extra locking
-    /// cost. Pass `u32::MAX` when a caller has no offset to record.
-    pub(crate) fn update_top_frame_pos(&self, line: u32, column: u32, offset: u32) {
+    /// Stamp the *top* (currently executing) frame's code offset — the packed
+    /// `Function::linear_offset(block, instr)` of the call / throw site. Called
+    /// right before invoking a callee (and at a throw), so a downstream
+    /// snapshot shows that site rather than an earlier one. Line / column are
+    /// resolved from it only when a stack trace is built.
+    #[inline]
+    pub(crate) fn set_top_frame_pc(&self, pc: u32) {
         if let Some(top) = self.call_stack.lock().last() {
-            top.line.set(line);
-            top.column.set(column);
-            top.offset.set(offset);
+            top.pc.set(pc);
         }
     }
 
     /// Snapshot the entire call stack for stack-trace formatting at a
-    /// `throw` site. Cheap clone (small-string + u32 per frame); only
-    /// invoked on the throw path so per-instruction overhead is zero.
+    /// `throw` site — names, files and line/column are resolved here.
+    /// Only invoked on the throw / fatal-report path.
     pub(crate) fn snapshot_call_stack(&self) -> Vec<crate::exception::FrameSnapshot> {
         self.call_stack.lock().iter().map(|f| f.snapshot()).collect()
     }
@@ -170,4 +165,12 @@ impl VmContext {
     pub(crate) fn frame_stack_depth(&self) -> usize {
         self.call_stack.lock().len()
     }
+}
+
+/// An arena length as a frame's `u32` truncation base. Arena slot indices are
+/// `u32` (`stack_alloc_obj` & co. return one), so a published length always fits.
+#[inline]
+fn arena_base(len: usize) -> u32 {
+    debug_assert!(len <= u32::MAX as usize, "arena length {len} exceeds u32");
+    len as u32
 }

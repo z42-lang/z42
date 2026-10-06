@@ -12,12 +12,10 @@ use super::{set_exception, vm_ctx_ref};
 /// directly. On `UNRESOLVED` (cross-zpkg), falls back to name-based
 /// HashMap lookup. Name pointer kept for diagnostics + fallback.
 ///
-/// `caller_line` / `caller_col` (jit-stack-trace + span-column-propagate,
-/// 2026-05-10) are the source position of this call site — codegen passes
-/// both as constants. Stamped onto the caller's FrameInfo before descending
-/// so a downstream throw's snapshot shows the precise call site.
-/// `caller_col == 0` means unknown (zbc < 1.1) — formatter degrades to
-/// `(file:line)`.
+/// `caller_offset` is this call site's packed code offset
+/// (`Function::linear_offset`, a codegen constant). Stamped onto the caller's
+/// `VmFrame::pc` before descending so a downstream throw's snapshot shows the
+/// call site.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_call(
     frame: *mut JitFrame, ctx: *const JitModuleCtx,
@@ -26,9 +24,7 @@ pub unsafe extern "C" fn jit_call(
     fn_name_ptr: *const u8, fn_name_len: usize,
     args_ptr: *const u32, argc: usize,
     ic_ptr: *const std::sync::atomic::AtomicU32,
-    caller_line: u32,
-    caller_col:  u32,
-    caller_offset: u32, // add-offline-symbolication: linearized code offset
+    caller_offset: u32, // packed code offset of the call site
 ) -> u8 {
     use crate::metadata::tokens::UNRESOLVED;
     let ctx_ref   = &*ctx;
@@ -105,7 +101,7 @@ pub unsafe extern "C" fn jit_call(
             let func_name = std::str::from_utf8(std::slice::from_raw_parts(fn_name_ptr, fn_name_len))
                 .unwrap_or("<invalid>");
             return cross_zpkg_via_interp(
-                frame_ref, ctx, dst, func_name, args_ptr, argc, caller_line, caller_col, caller_offset);
+                frame_ref, ctx, dst, func_name, args_ptr, argc, caller_offset);
         }
     };
 
@@ -147,8 +143,8 @@ pub unsafe extern "C" fn jit_call(
     let callee_frame = JitFrame::new_args_from(entry.max_reg, &frame_ref.regs, arg_regs);
     let vm_ctx = vm_ctx_ref(ctx);
 
-    // jit-stack-trace + span-column-propagate: stamp caller's site pos + offset.
-    vm_ctx.update_top_frame_pos(caller_line, caller_col, caller_offset);
+    // jit-stack-trace: stamp the caller's call-site offset.
+    vm_ctx.set_top_frame_pc(caller_offset);
     call_entry(vm_ctx, ctx, entry, callee_frame).store_into(&mut frame_ref.regs, dst)
 }
 
@@ -168,15 +164,15 @@ unsafe fn cross_zpkg_via_interp(
     frame_ref: &mut JitFrame, ctx: *const JitModuleCtx,
     dst: u32, func_name: &str,
     args_ptr: *const u32, argc: usize,
-    caller_line: u32, caller_col: u32, caller_offset: u32,
+    caller_offset: u32,
 ) -> u8 {
     let vm_ctx = vm_ctx_ref(ctx);
     let module = &*(*ctx).module;
 
     let arg_regs = std::slice::from_raw_parts(args_ptr, argc);
     let args: Vec<Value> = arg_regs.iter().map(|&r| frame_ref.regs[r as usize].clone()).collect();
-    // jit-stack-trace: stamp the caller's site + offset before descending.
-    vm_ctx.update_top_frame_pos(caller_line, caller_col, caller_offset);
+    // jit-stack-trace: stamp the caller's call-site offset before descending.
+    vm_ctx.set_top_frame_pc(caller_offset);
 
     // runtime-ambiguous-use-site：与 interp `exec_call` 对称（两后端同判据）。
     // 常态 = 一次 relaxed 原子读，进程内没发生过碰撞时恒 false。

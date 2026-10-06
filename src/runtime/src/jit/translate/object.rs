@@ -211,12 +211,9 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                     let (ap, al) = self.regs_val(args);
                     let ic_ptr = vcall_ic_ptr_at(self.func, self.block_idx, self.instr_idx);
                     let ic_val = self.builder.ins().iconst(self.ptr, ic_ptr as i64);
-                    // 2026-05-10 jit-stack-trace + span-column-propagate.
-                    let (line, col) = crate::interp::resolve_line(self.func.line_table(), self.block_idx as u32, self.instr_idx as u32);
-                    let line_val = self.builder.ins().iconst(types::I32, line as i64);
-                    let col_val  = self.builder.ins().iconst(types::I32, col as i64);
+                    // jit-stack-trace: call-site code offset.
                     let off_val = self.builder.ins().iconst(types::I32, self.func.linear_offset(self.block_idx as u32, self.instr_idx as u32) as i64);
-                    let inst = self.builder.ins().call(self.hr_vcall, &[self.frame_val, self.ctx_val, d, o, mp, ml, ap, al, ic_val, line_val, col_val, off_val]);
+                    let inst = self.builder.ins().call(self.hr_vcall, &[self.frame_val, self.ctx_val, d, o, mp, ml, ap, al, ic_val, off_val]);
                     let ret  = self.builder.inst_results(inst)[0]; self.check(ret);
                 }
                 Instruction::IsInstance(insn) => {

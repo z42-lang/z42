@@ -283,10 +283,9 @@ ObjectHeader {
 - 代价:纳入 GC → 多点 GC 压力(换掉 Arc 确定性释放，string-heavy 的 z42c 自编译最敏感);收益:统一一套堆 + 为可移动/压缩/去重铺路。架构统一优先于短期性能。
 - **闭包与访问器**：`ClosureData.fn_name` 是 GC `Str`（8B），闭包块全 POD（region_var 仅 `ArrayValue` 需 finalizer）；
   mark 与枚举共用单一访问器 `Value::visit_gc_children(for_marking, …)`。
-- **不迁移的 `Arc<str>`**：frame 栈帧名/文件名（`VmFrame.func_name`/`file`、
-  `Function.frame_meta`）**保留 `Arc<str>`**——它们是**诊断/栈回溯元数据、非 `Value::Str` GC payload**，
-  且刻意 `Arc<str>` 以与 JIT `FnEntry` 共享、每次调用 O(1) clone；
-  迁进 GC 堆会**回退**该热路径、增加分配，故保持 `Arc<str>`。`ArrayObj.element_type: Arc<str>`
+- **不迁移的 `Arc<str>`**：栈帧名/文件名（`Function.frame_meta`）**保留 `Arc<str>`**——它们是
+  **诊断/栈回溯元数据、非 `Value::Str` GC payload**，加载时算一次，生成栈回溯时 O(1) clone
+  （`VmFrame` 只存 `*const Function`，调用路径不碰它们）。`ArrayObj.element_type: Arc<str>`
   触及 heap-less/leaked/test 构造点，暂保留 `Arc<str>`。
 - (Deferred)小字符串内联优化(SSO)；`ArrayObj.element_type` 迁 GC string / type-id。
 
