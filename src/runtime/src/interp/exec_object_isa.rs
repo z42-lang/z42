@@ -58,7 +58,7 @@ pub(crate) fn as_cast(
         let out = if &*b.type_desc().name == class_name {
             match prim_scalar {
                 Some(n) => Value::I64(n), // 基元盒精确命中 → 拆回裸标量
-                None => super::super::exec_struct::unbox_struct(ctx, frame.frame_id, b)?, // struct 盒 → arena StructRef
+                None => super::super::exec_struct::unbox_struct(ctx, frame.frame_id(ctx), b)?, // struct 盒 → arena StructRef
             }
         } else if is_obj || isa_td(ctx, &module.type_registry, b.type_desc(), class_name) {
             val.clone()
@@ -73,7 +73,7 @@ pub(crate) fn as_cast(
     // arena `StructRef` (value-semantics snapshot; the loop var must not alias the array).
     if let Value::StructRefHeap { idx, frame_id } = &val {
         let e = ctx.transient_arena.lock().struct_elem(*idx, *frame_id)?;
-        let out = super::super::exec_struct::copy_array_elem_out(ctx, frame.frame_id, &e)?;
+        let out = super::super::exec_struct::copy_array_elem_out(ctx, frame.frame_id(ctx), &e)?;
         frame.set(dst, out);
         return Ok(());
     }

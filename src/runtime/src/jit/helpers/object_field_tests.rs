@@ -96,7 +96,7 @@ fn set(frame: &mut JitFrame, ctx: &JitModuleCtx, name: &str) -> u8 {
 fn null_into_primitive_field_raises_instead_of_silently_doing_nothing() {
     let vm = VmContext::new();
     let ctx = make_jit_ctx(&vm);
-    let mut frame = JitFrame::new(4, &[]);
+    let mut frame = JitFrame::new(&vm, 4, &[]);
     let h = holder();
     frame.regs[0] = h.clone();
 
@@ -121,7 +121,7 @@ fn null_into_primitive_field_raises_instead_of_silently_doing_nothing() {
 fn null_into_reference_field_stays_legal() {
     let vm = VmContext::new();
     let ctx = make_jit_ctx(&vm);
-    let mut frame = JitFrame::new(4, &[]);
+    let mut frame = JitFrame::new(&vm, 4, &[]);
     frame.regs[0] = holder();
 
     frame.regs[1] = Value::Str("hi".into());
@@ -138,7 +138,7 @@ fn null_into_reference_field_stays_legal() {
 fn type_mismatch_into_primitive_field_also_raises() {
     let vm = VmContext::new();
     let ctx = make_jit_ctx(&vm);
-    let mut frame = JitFrame::new(4, &[]);
+    let mut frame = JitFrame::new(&vm, 4, &[]);
     frame.regs[0] = holder();
 
     frame.regs[1] = Value::Str("not a number".into());

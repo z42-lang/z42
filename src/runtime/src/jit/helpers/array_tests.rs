@@ -49,7 +49,7 @@ fn stack_int_array(vm: &VmContext, frame_id: u32, elems: Vec<i64>) -> Value {
 fn array_data_on_stack_array_reports_no_fastpath_instead_of_throwing() {
     let vm = VmContext::new();
     let ctx = make_jit_ctx(&vm);
-    let mut frame = JitFrame::new(4, &[]);
+    let mut frame = JitFrame::new(&vm, 4, &[]);
     frame.regs[0] = stack_int_array(&vm, 7, vec![10, 20, 30]);
 
     let mut ptr: *const Value = 1usize as *const Value;   // 预置非 null，确保 helper 确实写了
@@ -67,7 +67,7 @@ fn array_data_on_stack_array_reports_no_fastpath_instead_of_throwing() {
 fn array_data_on_non_array_still_throws() {
     let vm = VmContext::new();
     let ctx = make_jit_ctx(&vm);
-    let mut frame = JitFrame::new(4, &[]);
+    let mut frame = JitFrame::new(&vm, 4, &[]);
     frame.regs[0] = Value::I64(42);
 
     let mut ptr: *const Value = std::ptr::null();
@@ -83,7 +83,7 @@ fn array_data_on_non_array_still_throws() {
 fn array_data_opt_on_stack_array_reports_null_ptr() {
     let vm = VmContext::new();
     let ctx = make_jit_ctx(&vm);
-    let mut frame = JitFrame::new(4, &[]);
+    let mut frame = JitFrame::new(&vm, 4, &[]);
     frame.regs[0] = stack_int_array(&vm, 9, vec![1, 2]);
 
     let mut ptr: *const Value = 1usize as *const Value;

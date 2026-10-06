@@ -10,25 +10,33 @@ use anyhow::{bail, Context, Result};
 use std::collections::HashMap;
 
 /// RAII guard ensuring push_frame / pop_frame stay strictly paired even
-/// across `?` early-return or panic unwind from `exec_function`.
-///
-/// 2026-05-10 unify-frame-chain collapsed the previous trio of pops
-/// (regs / env_arena / call_frame) into a single `pop_frame()` matching
-/// the new single-row VmFrame model.
+/// across `?` early-return or panic unwind from `exec_function`. After the pop
+/// it hands the frame's register file back to the context's register pool — the
+/// popped `VmFrame` no longer roots it, so the pool's `clear()` is safe.
 pub(super) struct FrameGuard<'a> {
     pub(super) ctx: &'a VmContext,
+    /// `&mut frame.regs` of the entered `Frame`, which outlives the guard (the
+    /// guard is declared after it in `exec_function_body`).
+    regs: *mut Vec<Value>,
 }
 impl Drop for FrameGuard<'_> {
     fn drop(&mut self) {
         self.ctx.pop_frame();
+        // SAFETY: `regs` points into the live `Frame` (see the field); nothing
+        // else borrows it while the guard drops. The frame keeps an empty Vec.
+        let regs = std::mem::take(unsafe { &mut *self.regs });
+        self.ctx.reg_pool.give(regs);
     }
 }
 
-/// The interpreter's frame entry: stamp `frame.frame_id`, push one `VmFrame`
-/// enrolling `frame` as GC root + stack-trace row, then check the native stack
-/// budget. The returned guard pops the frame on every exit path (`?`
-/// propagation, panic unwind, normal return) — including this function's own
-/// stack-overflow `Err`, which is reported with the frame already on the stack.
+/// The interpreter's frame entry: push one `VmFrame` enrolling `frame` as GC
+/// root + stack-trace row, then check the native stack budget. The returned
+/// guard pops the frame on every exit path (`?` propagation, panic unwind,
+/// normal return) — including this function's own stack-overflow `Err`, which
+/// is reported with the frame already on the stack — and recycles its registers.
+/// The frame's arena id is taken lazily (`Frame::frame_id`), not here; the
+/// bottom frame's push also installs the context's engine guards
+/// (`VmContext::push_frame`).
 ///
 /// Must not reach a safepoint before the push: until then the callee's
 /// arguments are reachable only from `frame` (see `exec_function_body`).
@@ -37,15 +45,12 @@ impl Drop for FrameGuard<'_> {
 /// caller's `Frame` on the Rust call stack, and `func` is borrowed by the
 /// caller for the whole activation — both outlive the guard.
 pub(super) fn enter_frame<'a>(ctx: &'a VmContext, func: &Function, frame: &mut Frame) -> Result<FrameGuard<'a>> {
-    // add-escape-analysis-stack-alloc: stamp this frame's monotonic id (keys any
-    // stack-allocated objects/arrays it creates, for stale-handle diagnostics).
-    frame.frame_id = ctx.next_frame_id();
     ctx.push_frame(crate::exception::VmFrame::new(
         func as *const Function,
         &frame.regs as *const Vec<Value>,
         &frame.env_arena as *const Vec<Vec<Value>>,
     ));
-    let guard = FrameGuard { ctx };
+    let guard = FrameGuard { ctx, regs: &mut frame.regs as *mut Vec<Value> };
     // runtime-audit P0-4: stack overflow is fatal — checked once the frame is
     // on the call stack, so the report includes it.
     crate::stack_guard::check(ctx)?;
@@ -73,7 +78,7 @@ pub(crate) fn exec_function(ctx: &VmContext, module: &Module, func: &Function, a
     if let Some(outcome) = try_native_exec(ctx, func, args) {
         return outcome;
     }
-    let frame = Frame::new(args, func.max_reg);
+    let frame = Frame::new(ctx, args, func.max_reg);
     exec_function_body(ctx, module, func, frame)
 }
 
@@ -122,7 +127,7 @@ pub(crate) fn exec_function_with_type_args(
             return outcome;
         }
     }
-    let mut frame = Frame::new(args, func.max_reg);
+    let mut frame = Frame::new(ctx, args, func.max_reg);
     if !method_type_args.is_empty() {
         frame.method_type_args = method_type_args.into();
     }
@@ -162,7 +167,7 @@ pub(super) fn try_native_exec(ctx: &VmContext, func: &Function, args: &[Value]) 
         (entry.max_reg, entry.ptr, entry.func)
     };
     ctx.counters().jit_native_from_interp.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let callee = crate::jit::frame::JitFrame::new(max_reg, args);
+    let callee = crate::jit::frame::JitFrame::new(ctx, max_reg, args);
     let outcome = unsafe { crate::jit::invoke::call_native(ctx, jit_ctx, ptr, callee_fn, callee) };
     Some(Ok(outcome.into_exec(ctx)))
 }
@@ -218,12 +223,12 @@ fn osr_hand_off(
     let id = unsafe { (*(*jit_ctx).module).func_index.get(&func.name).copied() }?;
     let entry = unsafe { (*jit_ctx).resolve_osr_entry(id, loop_header) }?; // owned FnEntry
     ctx.counters().jit_native_from_interp.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let mut osr = crate::jit::frame::JitFrame::from_interp_regs(&frame.regs, entry.max_reg);
-    // add-struct-jit-value-path (P5): OSR continues the SAME logical activation, so
-    // the native frame must inherit the interp frame's id — any StructRef the loop
-    // already allocated (frame_id = interp's) must still deref after hand-off, and
-    // new struct allocs in OSR code stay consistent with them.
-    osr.frame_id = frame.frame_id;
+    let mut osr = crate::jit::frame::JitFrame::from_interp_regs(ctx, &frame.regs, entry.max_reg);
+    // OSR continues the SAME logical activation, so the native frame inherits the
+    // interp frame's id — any StructRef the loop already allocated must still deref
+    // after hand-off. `0` (none taken yet) is inherited as is; the native frame
+    // then takes one on its first allocation.
+    osr.frame_id = frame.frame_id_if_taken();
     // NB v1 simplification: the interpreter's own VmFrame for this activation is
     // still on the stack; `call_native` pushes a second one for the OSR native frame.
     // GC scans both — the interp regs are clones of the OSR regs (same heap refs), so
@@ -256,7 +261,7 @@ pub(crate) fn exec_function_from_regs(
     method_type_args: &[String],
 ) -> Result<ExecOutcome> {
     // fix-callee-entry-safepoint-drops-args: safepoint moved into `exec_function_body`.
-    let mut frame = Frame::new_from_regs(caller_regs, arg_indices, func.max_reg)?;
+    let mut frame = Frame::new_from_regs(ctx, caller_regs, arg_indices, func.max_reg)?;
     if !method_type_args.is_empty() { frame.method_type_args = method_type_args.into(); }
     exec_function_body(ctx, module, func, frame)
 }
@@ -271,7 +276,7 @@ pub(crate) fn exec_function_from_receiver_regs(
     method_type_args: &[String],   // add-generic-methods: see exec_function_from_regs
 ) -> Result<ExecOutcome> {
     // fix-callee-entry-safepoint-drops-args: safepoint moved into `exec_function_body`.
-    let mut frame = Frame::new_from_receiver_regs(receiver, caller_regs, arg_indices, func.max_reg)?;
+    let mut frame = Frame::new_from_receiver_regs(ctx, receiver, caller_regs, arg_indices, func.max_reg)?;
     if !method_type_args.is_empty() { frame.method_type_args = method_type_args.into(); }
     exec_function_body(ctx, module, func, frame)
 }

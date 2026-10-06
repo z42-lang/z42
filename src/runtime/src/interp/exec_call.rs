@@ -47,7 +47,7 @@ fn try_native_static_call(
         (entry.max_reg, entry.ptr, entry.func)
     };
     ctx.counters().jit_native_from_interp.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let callee = crate::jit::frame::JitFrame::new_args_from(max_reg, &frame.regs, args);
+    let callee = crate::jit::frame::JitFrame::new_args_from(ctx, max_reg, &frame.regs, args);
     let outcome = unsafe { crate::jit::invoke::call_native(ctx, jit_ctx, ptr, callee_fn, callee) };
     Some(Ok(native_result_to_dst(ctx, frame, dst, outcome)))
 }
@@ -418,7 +418,7 @@ pub(super) fn mk_clos(
         let env_idx = frame.env_arena.len() as u32;
         frame.env_arena.push(env_vec);
         // make-value-copy: StackClosure payload → transient arena; Value holds an 8B handle.
-        let fid = frame.frame_id;
+        let fid = frame.frame_id(ctx);
         let hidx = ctx.transient_alloc(
             fid,
             crate::interp::transient_arena::TransientPayload::StackClos(

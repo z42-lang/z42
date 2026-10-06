@@ -11,9 +11,6 @@
 //! same thread now run in genuine isolation (no cross-pollination through
 //! shared thread-local store).
 //!
-//! Only `jit/frame.rs::FRAME_POOL` (allocator cache, not state) remains
-//! `thread_local!` — by design per-thread.
-//!
 //! **Future work** (L3+): introduce coroutine / OS-thread primitives backing
 //! the `async` / `await` syntax already accepted by the parser. Implementation
 //! awaits the GC (`super::gc`) so cross-thread reachability is sound.

@@ -26,7 +26,7 @@ const TAG_UNKNOWN: u8 = 0x00;
 fn method_level_generic_int_array_zero_inits() {
     let ctx = VmContext::new();
     let module = empty_module();
-    let mut frame = Frame::new(&[], 8);
+    let mut frame = Frame::new(&ctx, &[], 8);
     frame.set(0, Value::I64(3)); // reg0 = size
     frame.method_type_args = vec!["int".to_string()].into_boxed_slice();
 
@@ -48,7 +48,7 @@ fn method_level_generic_int_array_zero_inits() {
 fn method_level_generic_ref_array_stays_null() {
     let ctx = VmContext::new();
     let module = empty_module();
-    let mut frame = Frame::new(&[], 8);
+    let mut frame = Frame::new(&ctx, &[], 8);
     frame.set(0, Value::I64(2));
     frame.method_type_args = vec!["string".to_string()].into_boxed_slice();
 
@@ -64,7 +64,7 @@ fn method_level_generic_ref_array_stays_null() {
 fn non_generic_unknown_tag_unchanged() {
     let ctx = VmContext::new();
     let module = empty_module();
-    let mut frame = Frame::new(&[], 8);
+    let mut frame = Frame::new(&ctx, &[], 8);
     frame.set(0, Value::I64(2));
     // kind=0, index=-1: no generic resolution, no method_type_args consulted.
     array_new(&ctx, &module, &mut frame, 1, 0, TAG_UNKNOWN, "T", false, 0, -1).unwrap();
@@ -78,7 +78,7 @@ fn non_generic_unknown_tag_unchanged() {
 fn method_level_oob_index_graceful_null() {
     let ctx = VmContext::new();
     let module = empty_module();
-    let mut frame = Frame::new(&[], 8);
+    let mut frame = Frame::new(&ctx, &[], 8);
     frame.set(0, Value::I64(1));
     // method_type_args empty, but kind=1 index=0 → get(0) is None → falls back to tag.
     array_new(&ctx, &module, &mut frame, 1, 0, TAG_UNKNOWN, "T", false, 1, 0).unwrap();

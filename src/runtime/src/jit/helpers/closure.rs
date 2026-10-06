@@ -196,7 +196,7 @@ pub unsafe extern "C" fn jit_call_indirect(
     };
 
     // 4) Build the callee frame and run it (GC-root enrolment + trace row in `call_native`).
-    let callee_frame = JitFrame::new(entry.max_reg, &args);
+    let callee_frame = JitFrame::new(vm_ctx, entry.max_reg, &args);
     vm_ctx.set_top_frame_pc(caller_offset);
     call_entry(vm_ctx, ctx, entry, callee_frame).store_into(&mut frame_ref.regs, dst)
 }

@@ -77,7 +77,8 @@ vm.run(&ctx, hint)?;
 - `pending_exception: Arc<Mutex<Option<Value>>>` — JIT extern "C" 边界异常槽位
 - `pending_thrown: Mutex<Option<Value>>` — callback 型 builtin（反射 `MethodInfo.Invoke`）把原异常值带出 builtin 边界的槽位；每线程一份，GC 根
 - `call_stack: FrameStack` — 当前线程帧栈，只由所属线程无锁读写（见下「帧栈的归属」）
-- `stack_arena` / `struct_arena` / `transient_arena`（及其发布长度原子，见下一节）、`next_frame_id`、`safepoint_skip`（safepoint 节流计数，JIT 内联读写）、`jit_ctx`（混合模式下指向当前 `JitModuleCtx`）
+- `reg_pool: RegPool` — interp `Frame` 与 `JitFrame` 共用的寄存器文件 free-list；`engine_guards` — 栈非空期间装好的 VM / 堆 thread-local（见下「寄存器池、引擎入口 guard、frame_id」）。两者都只由所属线程无锁访问
+- `stack_arena` / `struct_arena` / `transient_arena`（及其发布长度原子，见下一节）、`next_frame_id`（frame id 来源，帧惰性取号）、`safepoint_skip`（safepoint 节流计数，JIT 内联读写）、`jit_ctx`（混合模式下指向当前 `JitModuleCtx`）
 - `interned_cache`（`ConstStr` 字面量的 per-context 驻留缓存，GC root）、`subclass_memo` + `isa_cache`（`is`/`as`/`catch` 子类判定缓存）、`type_lookup_cache` + `fn_lookup_cache`（`try_lookup_type/function` 命中的前置缓存，免去共享 `lazy_loader` 锁）
 
 每个 `VmFrame` 只有 48 B：`func`（`*const Function`）、`regs` / `env_arena` 指针、`pc: Cell<u32>`，
@@ -133,9 +134,9 @@ regs+env_arena，interp `RefKind::Stack` 跨帧 deref 通过 `frame.regs`。
 
 **帧的登记只有两处**，改帧布局 / 登记方式只动这两处：
 
-- **interp 帧**：`interp::exec_support::enter_frame`（由 `exec_function_body` 调用）——戳 `frame_id`、
-  `push_frame`、建 `FrameGuard`（任何退出路径都 pop），再做栈深检查。
-- **原生帧**：`jit::invoke::call_native`——`push_frame` → 运行编译码 → `pop_frame` → 回收 `JitFrame`，
+- **interp 帧**：`interp::exec_support::enter_frame`（由 `exec_function_body` 调用）——`push_frame`、
+  建 `FrameGuard`（任何退出路径都先 pop，再把寄存器文件还给 `reg_pool`），再做栈深检查。
+- **原生帧**：`jit::invoke::call_native`——`push_frame` → 运行编译码 → `pop_frame` → 回收 `JitFrame`（寄存器文件还给 `reg_pool`），
   返回 `NativeOutcome`（`Returned(ret)` / `Threw`，异常仍挂在 `VmContext` 上）。JIT 入口 `run_fn`、
   各调用 helper（`jit_call` / `jit_vcall` / `jit_call_indirect` / `jit_obj_new` / `jit_to_str`）与 interp 的
   混合模式分流（`try_native_exec` / OSR / `try_native_static_call` / `try_native_method_call`）都经它；
@@ -144,6 +145,32 @@ regs+env_arena，interp `RefKind::Stack` 跨帧 deref 通过 `frame.regs`。
 
 两处共同的约束：建好 callee 帧到 `push_frame` 之间不能有可能触发回收的代码（此前参数只被 callee 帧持有，
 它还不是根，见 [gc-tuning.md](gc-tuning.md)）；栈深检查在 push 之后（致命报告含当前帧）。
+
+### 寄存器池、引擎入口 guard、frame_id
+
+一次调用除了 push / pop 之外的固定开销都收在 `VmContext` 上，调用路径上不碰 thread-local、不做 RMW：
+
+- **寄存器池**（`vm_context/reg_pool.rs`）：interp `Frame::new*` 与 `JitFrame::new*` 都从 `reg_pool.take(need)`
+  取寄存器文件，`FrameGuard` / `call_native` 在 pop **之后**用 `give` 还回。不变量：池里的 `Vec` 长度为 0；
+  `take` 用 `resize(need, Null)` 把每个槽写一遍 `Null`（每次调用恰好一遍，不能省——帧一 push，GC 就扫
+  `regs[0..len)`，此前每个槽都必须是合法值）；`give` 只 `clear()`（`Value` 是 `Copy`，只改长度），容量以外的
+  旧位无人读取——池里的 `Vec` 不是根。上限 512 个。没进入过 `enter_frame` 的 `Frame`（入口拷参失败）直接释放。
+- **引擎入口 guard**（`vm_context/engine_guards.rs`）：两个 thread-local 要在 z42 代码运行期间指向当前 VM——
+  `gc::ambient` 的堆（`Str::new` / `.into()` 从它分配，`str_meta` 缓存按它的 epoch 作用域）和
+  `native-interop` 下 `native::exports` 的 `CURRENT_VM`（`z42_*` 导出函数经 `current_vm()` 找 VM）。
+  它们在一条活动链内不变，所以只在**栈底帧** push 时安装（`push_frame` 里 `FrameStack::push` 报告深度 0→1，
+  一次 load 一次分支），栈再次变空时（`pop_frame` 后深度为 0）恢复原值。嵌套帧不碰 thread-local。
+  - 同一 ctx 上的嵌套引擎入口——反射 invoke、静态构造器、`ToString` 分派、REPL、JIT ↔ interp 分流、OSR——
+    都跑在栈底帧之上，沿用已装好的 guard。
+  - VM 线程有自己的 ctx，worker 入口 push 的就是它的栈底帧。
+  - 同一线程上**别的 VM 的代码**插进来的唯一途径是宿主重入（native 回调里 `z42_host_invoke`）：A → native →
+    B → native → A 时，A 的栈非空、thread-local 却指着 B。所以 `host::ops::invoke_impl` **无条件**安装两者；
+    每个 guard 恢复它进来时看到的值（已是同一 VM 时为 no-op），嵌套按序退栈。
+  - `JitModule::run_fn` 在入口 push 之前另装一个堆 guard，覆盖入口函数的惰性编译。
+- **frame_id 惰性分配**：帧的 id 只用来给它在 arena 里分配的槽打标签（栈分配对象 / 数组、`Ref`、`PinnedView`、
+  值 struct、栈闭包），句柄带着它，帧 truncate 后的悬垂访问由 id 不符拦下。interp `Frame::frame_id(ctx)` 与 JIT
+  `struct_ops::frame_id_of` 都在**第一次用到**时取号，`0` 表示尚未取；大多数帧从不取。`next_frame_id` 只由所属
+  线程读写（load + store，不是 RMW），跳过 `0`。OSR 原样继承 interp 帧的 id（含 `0`）。
 
 ### Send-safety 与 GC scanner 设计
 
@@ -187,9 +214,9 @@ blob）、`transient_arena`（`Ref`/`PinnedView`/`StackClosure`/`StructRefHeap` 
 **Native interop 入口**：`VmContext::register_native_type(Arc<RegisteredType>)` /
 `resolve_native_type(module, name)` / `load_native_library(path)`；后者打开 `.dylib`
 /`.so`/`.dll` 并调用其 `<basename>_register` 入口（约定）让 native 库通过
-`z42_register_type` 把类型推入 `native_types`。Interp 入口设置 thread-local
-`CURRENT_VM` 让 native callback 能找回 VM；详见 `src/runtime/src/native/exports.rs`
-的 `VmGuard` RAII。
+`z42_register_type` 把类型推入 `native_types`。栈底帧 push 时安装 thread-local
+`CURRENT_VM`（见上「寄存器池、引擎入口 guard、frame_id」）让 native callback 能找回 VM；详见
+`src/runtime/src/native/exports.rs` 的 `VmGuard`。
 
 ---
 
@@ -1104,7 +1131,7 @@ jit/helpers/
 **Raw memory access invariants**:
 
 - `frame.regs` 是 `Vec<Value>`；data pointer 在 JitFrame 构造时分配
-  并稳定到函数结束（`take_pooled_regs(max_reg + 1)` 不会再 grow）。
+  并稳定到函数结束（`reg_pool.take(max_reg + 1)` 一次定长，不会再 grow）。
   `jit_regs_ptr(frame)` helper（`jit/helpers/value.rs`）在 translate 入口调一次，缓存 SSA
   `regs_base`。
 - Slot 地址 `= regs_base + idx * 16`（`VALUE_STRIDE = size_of::<Value>()`，`jit/reg_access.rs`；
@@ -1310,8 +1337,9 @@ builtin 按功能分 submodule：`string.rs` / `io.rs` / `math.rs` / `fs.rs` 等
 > 第 2 参，Cranelift translate.rs 在调用点插入 `ctx_val`。helper 内部通过 `vm_ctx_ref(ctx)` → `(*ctx).vm_ctx`
 > 两层间接拿到 `VmContext`。
 >
-> Runtime 内仅余 `jit/frame.rs::FRAME_POOL`（pure allocator cache，每线程
-> 独立池子合理）。`VmContext` 是所有 runtime-mutable 状态的唯一规范来源。
+> 寄存器池也在 `VmContext` 上（`reg_pool`）。`VmContext` 是所有 runtime-mutable 状态的唯一规范来源；
+> 仍是 thread-local 的只有引擎入口 guard 维护的 `CURRENT_VM` 与 ambient 堆指针（供拿不到 ctx 的
+> `z42_*` 导出函数与 `Str::new` 使用）。
 
 ### 为什么不预加载所有 stdlib
 

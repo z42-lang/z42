@@ -47,9 +47,10 @@ impl Default for FrameStack {
 }
 
 impl FrameStack {
-    /// Owner only. Push one frame.
+    /// Owner only. Push one frame; `true` when it is the bottom frame (the
+    /// stack was empty).
     #[inline]
-    pub(crate) fn push(&self, frame: VmFrame) {
+    pub(crate) fn push(&self, frame: VmFrame) -> bool {
         crate::gc::safepoint::debug_assert_frame_change_not_parked();
         // SAFETY: owner-thread access (module docs); no reference into
         // `frames` outlives this call.
@@ -61,9 +62,11 @@ impl FrameStack {
             // until it is empty again.
             self.owner.store(thread_token(), Ordering::Relaxed);
             self.depth.store(len, Ordering::Release);
+            true
         } else {
             self.debug_assert_owner();
             self.depth.store(len, Ordering::Relaxed);
+            false
         }
     }
 

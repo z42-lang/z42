@@ -78,6 +78,9 @@ fn exec_function_body(ctx: &VmContext, module: &Module, func: &Function, mut fra
 
     // Enrol `frame` as GC root + stack-trace row; the guard pops it on every exit
     // path. `enter_frame` also runs the (fatal) stack-overflow check, after the push.
+    // The VM / heap thread-locals (`CURRENT_VM`, the ambient heap) are scoped by the
+    // context while its stack is non-empty — the bottom frame's push installs them
+    // (`vm_context/engine_guards.rs`), so a nested frame touches no thread-local.
     let _frame_guard = enter_frame(ctx, func, &mut frame)?;
 
     // add-gc-safepoint (2026-05-20): every newly-entered z42 function immediately respects a
@@ -115,23 +118,6 @@ fn exec_function_body(ctx: &VmContext, module: &Module, func: &Function, mut fra
         // 所以这里不需要再排空一次（放在那里才对并发安全，见 resolver.rs 的注释）。
         crate::metadata::resolver::resolve_function_tokens(func, module, ctx);
     }
-
-    // Spec C2: scope `CURRENT_VM` to this z42 frame so `z42_*` extern
-    // entry points fired by native callbacks can locate the active VM.
-    // The guard nests safely if a native callback re-enters z42 through
-    // `exec_function`; on exit the previous pointer is restored.
-    //
-    // 2026-05-12 add-platform-wasm Stage 0: only relevant when
-    // `native-interop` is enabled — wasm builds have no native callbacks
-    // to dispatch into z42, so the guard is omitted.
-    #[cfg(feature = "native-interop")]
-    let _vm_guard = crate::native::exports::VmGuard::enter(ctx);
-
-    // unify-gc-heap PR-4 (D11): scope this frame's heap as the ambient GC heap so
-    // heap-less `Str::new` / `.into()` sites can allocate GC string blocks. Nests
-    // safely (restored on exit); covers nested JIT calls, which run under this
-    // guard without re-installing one.
-    let _heap_guard = crate::gc::ambient::HeapGuard::enter(ctx.heap());
 
     let block_map = &func.block_index;
     let mut block_idx = 0usize;

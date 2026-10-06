@@ -10,17 +10,20 @@
 //! `From<&str>` sites — must allocate from the GC heap. Those sites do **not**
 //! carry a `&VmContext`/`&dyn MagrGC` (the whole point of `.into()` is to be
 //! context-free), so rather than rewrite all of them we expose the active heap as
-//! an ambient thread-local. Every z42 frame entry (interp `exec_function`, JIT
-//! `run_fn`) scopes the heap in via [`HeapGuard`]; `Str::new` reads it via
-//! [`current_heap`].
+//! an ambient thread-local. Every engine entry scopes the heap in via
+//! [`HeapGuard`]; `Str::new` reads it via [`current_heap`].
 //!
 //! # Coverage
 //!
-//! - **Interp**: `interp::exec_function` installs a guard per frame. Nested JIT
-//!   calls (direct native calls, no `run_fn`) run under the enclosing interp
-//!   guard, which stays set across the call.
-//! - **JIT-at-top**: `jit::JitModule::run_fn` installs a guard so a JIT-first
-//!   entry (and any interp it re-enters) is covered.
+//! - **Bottom frame**: `VmContext::push_frame` installs a guard when a context's
+//!   frame stack goes 0 → 1 and drops it when the stack is empty again
+//!   (`vm_context/engine_guards.rs`). Every nested interp / JIT frame on that
+//!   context runs under it and touches no thread-local.
+//! - **Host re-entry**: `host::ops::invoke_impl` installs one unconditionally —
+//!   the one way another VM's code can run on a thread whose stack already
+//!   holds this context's frames.
+//! - **JIT entry**: `jit::JitModule::run_fn` installs one before its first push,
+//!   so the entry's lazy compile is covered too.
 //! - **Heap-less contexts** (unit tests without a VM, and — before lazy interning
 //!   — module load): [`current_heap`] returns `None`; `Str::new` falls back to a
 //!   standalone leaked block. Production execution always has an active guard, so
@@ -53,14 +56,14 @@ thread_local! {
 
 /// RAII guard scoping `heap` into [`CURRENT_HEAP`] for the guard's lifetime.
 /// Nests safely: `enter` saves the previous heap, `drop` restores it, so a nested
-/// frame (interp → JIT → interp) leaves the outer heap in place on exit.
+/// entry (VM A → native → VM B) leaves the outer heap in place on exit.
 pub struct HeapGuard {
     prev: Option<NonNull<dyn MagrGC>>,
     /// **fix-wasm-string-ops**: the epoch to restore on drop (saved alongside `prev`).
     prev_epoch: u64,
     /// `false` when `enter` found the ambient heap already set to this same heap
-    /// (a nested frame under the same VM/thread): the store was skipped, so drop
-    /// must NOT restore and skips its own TLS access. Only the outermost frame per
+    /// (a nested entry under the same VM/thread): the store was skipped, so drop
+    /// must NOT restore and skips its own TLS access. Only the outermost entry per
     /// heap has `active == true`.
     active: bool,
 }
@@ -72,17 +75,15 @@ impl HeapGuard {
         // `NonNull::from(&dyn)` keeps the fat pointer (data + vtable). Erase the
         // borrow's lifetime to `'static` for storage: every read via `current_heap`
         // is transient and completes before this guard drops (the guard lives for
-        // the whole frame), and the heap outlives the guard (it lives in `VmCore`).
+        // the whole activation), and the heap outlives the guard (it lives in `VmCore`).
         let ptr: NonNull<dyn MagrGC> = NonNull::from(heap);
         // SAFETY: the transmute only widens the trait object's lifetime (identical
         // fat-pointer representation); soundness rests on the transient-use contract.
         let ptr: NonNull<dyn MagrGC + 'static> = unsafe { std::mem::transmute(ptr) };
-        // perf: interp/JIT install a guard PER FRAME, but the ambient heap is
-        // constant across a call tree (same `VmCore` heap). When a nested frame
-        // re-enters with the SAME heap, skip both the store and the drop-time
-        // restore — halving per-frame TLS traffic (macOS resolves each `.with()`
-        // through a `_tlv_get_addr` call). A genuinely different heap (cross-VM
-        // native re-entry on the same thread) still saves+installs+restores.
+        // Engine entries nest (host invoke → bottom frame, `run_fn` → bottom
+        // frame). When the SAME heap is already installed, skip both the store
+        // and the drop-time restore. A genuinely different heap (cross-VM
+        // re-entry on the same thread) saves + installs + restores.
         CURRENT_HEAP.with(|c| {
             let cur = c.get();
             if cur == Some(ptr) {

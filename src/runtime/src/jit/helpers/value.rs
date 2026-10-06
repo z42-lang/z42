@@ -18,7 +18,7 @@ use super::{set_exception, vm_ctx_ref};
 //
 // SAFETY: the returned pointer is valid for the lifetime of `frame.regs`,
 // which is the JIT function's invocation duration. `JitFrame::new`
-// pre-allocates with `take_pooled_regs(max_reg + 1)` and never grows the
+// pre-sizes `regs` to `max_reg + 1` (from the register pool) and never grows the
 // vector during execution → the data pointer never moves.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_regs_ptr(frame: *mut JitFrame) -> *mut Value {
@@ -148,7 +148,7 @@ pub unsafe extern "C" fn jit_to_str(
         if let Some(func_name) = func_name_opt {
             let ctx_ref = &*ctx;
             if let Some(entry) = ctx_ref.resolve_fn_by_name(func_name.as_str()) {
-                let callee = JitFrame::new(entry.max_reg, &[val.clone()]);
+                let callee = JitFrame::new(vm_ctx_ref(ctx), entry.max_reg, &[val.clone()]);
                 let ret = match call_entry(vm_ctx_ref(ctx), ctx, entry, callee) {
                     NativeOutcome::Returned(ret) => ret,
                     NativeOutcome::Threw => return 1,

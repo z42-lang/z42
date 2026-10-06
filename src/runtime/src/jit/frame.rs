@@ -5,7 +5,7 @@
 /// that is shared across all calls within a single module execution.
 
 use crate::metadata::{Function, Value};
-use std::cell::RefCell;
+use crate::vm_context::VmContext;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -24,23 +24,22 @@ pub struct JitFrame {
     /// here. Released as part of `JitFrame::recycle` (envs hold normal Drop
     /// semantics — GcRef contents inside env Vec follow their own RC chains).
     pub env_arena: Vec<Vec<Value>>,
-    /// add-struct-jit-value-path (P5): monotonic id of this JIT frame, assigned
-    /// from `VmContext::next_frame_id()` at each body-running frame-creation site
-    /// (entry / nested `jit_call` / vcall / ctor / closure) and **inherited** from
-    /// the interp frame at an OSR hand-off. The struct helpers stamp it into
-    /// `Value::StructRef { frame_id }` so the shared per-context struct arena's
-    /// staleness guard works exactly like an interp frame. `0` on frames that
-    /// never allocate a struct value is harmless — no StructRef is produced, and
-    /// the arena LIFO base is driven by `struct_base` (push/pop_frame), not by id.
+    /// This activation's id for arena slots it allocates (struct values, stack
+    /// closures), `0` until taken: `struct_ops::frame_id_of` takes one from
+    /// `VmContext::next_frame_id()` on first use, and an OSR hand-off inherits
+    /// the interp frame's (taken or `0`). The id keys the arena staleness guard
+    /// exactly like an interp frame's; the arena's LIFO truncation is driven by
+    /// the `VmFrame` bases (push/pop_frame), not by the id.
     pub frame_id: u32,
 }
 
 impl JitFrame {
-    /// Allocate a new frame with `max_reg + 1` register slots.
-    /// The first `args.len()` registers are initialised with the call arguments.
-    pub fn new(max_reg: usize, args: &[Value]) -> Self {
+    /// Allocate a new frame with `max_reg + 1` register slots from `vm`'s register
+    /// pool (all `Null`). The first `args.len()` registers are initialised with
+    /// the call arguments.
+    pub fn new(vm: &VmContext, max_reg: usize, args: &[Value]) -> Self {
         let size = max_reg + 1;
-        let mut regs = take_pooled_regs(size);
+        let mut regs = vm.reg_pool.take(size);
         for (i, v) in args.iter().enumerate() {
             if i < size {
                 regs[i] = v.clone();
@@ -56,9 +55,9 @@ impl JitFrame {
     /// these values back through `regs_base`. Sized to the JIT function's
     /// `max_reg + 1`; interp slots beyond that are dropped (same function → same
     /// max_reg), missing ones stay `Null`.
-    pub fn from_interp_regs(interp_regs: &[Value], max_reg: usize) -> Self {
+    pub fn from_interp_regs(vm: &VmContext, interp_regs: &[Value], max_reg: usize) -> Self {
         let size = max_reg + 1;
-        let mut regs = take_pooled_regs(size);
+        let mut regs = vm.reg_pool.take(size);
         for (i, v) in interp_regs.iter().enumerate() {
             if i < size { regs[i] = v.clone(); }
         }
@@ -71,9 +70,11 @@ impl JitFrame {
     /// incurs on the hot `jit_call` path (perf: per-call malloc/free + one of
     /// two arg clones eliminated; reg Vec still pooled). Each argument is cloned
     /// exactly once (caller reg → callee reg).
-    pub fn new_args_from(max_reg: usize, caller_regs: &[Value], arg_indices: &[u32]) -> Self {
+    pub fn new_args_from(
+        vm: &VmContext, max_reg: usize, caller_regs: &[Value], arg_indices: &[u32],
+    ) -> Self {
         let size = max_reg + 1;
-        let mut regs = take_pooled_regs(size);
+        let mut regs = vm.reg_pool.take(size);
         for (i, &r) in arg_indices.iter().enumerate() {
             if i < size {
                 regs[i] = caller_regs[r as usize].clone();
@@ -88,10 +89,10 @@ impl JitFrame {
     /// `vec![obj]` + `append(extra_args)` two-Vec dance on the hot `jit_vcall`
     /// path. The receiver is moved in (already cloned by the caller).
     pub fn new_method_args_from(
-        max_reg: usize, receiver: Value, caller_regs: &[Value], arg_indices: &[u32],
+        vm: &VmContext, max_reg: usize, receiver: Value, caller_regs: &[Value], arg_indices: &[u32],
     ) -> Self {
         let size = max_reg + 1;
-        let mut regs = take_pooled_regs(size);
+        let mut regs = vm.reg_pool.take(size);
         if size > 0 { regs[0] = receiver; }
         for (i, &r) in arg_indices.iter().enumerate() {
             let slot = i + 1;
@@ -102,56 +103,11 @@ impl JitFrame {
         JitFrame { regs, ret: None, env_arena: Vec::new(), frame_id: 0 }
     }
 
-    /// Return the register Vec to the pool for reuse.
-    pub fn recycle(self) {
-        return_pooled_regs(self.regs);
-        // env_arena drops naturally with `self`; no explicit recycle (pool
-        // dimension is reg vector only — env arenas are infrequent and
-        // small enough to skip pooling for v1).
+    /// Hand the register file back to `vm`'s pool once the frame is popped.
+    /// `env_arena` just drops (closure envs are rare; not pooled).
+    pub fn recycle(self, vm: &VmContext) {
+        vm.reg_pool.give(self.regs);
     }
-}
-
-// ── Frame pool ──────────────────────────────────────────────────────────────
-
-const POOL_MAX: usize = 32;
-
-thread_local! {
-    static FRAME_POOL: RefCell<Vec<Vec<Value>>> = const { RefCell::new(Vec::new()) };
-}
-
-/// Take a Vec<Value> from the pool (or allocate a new one), sized to `size`.
-///
-/// INVARIANT: every Vec in the pool is already all-`Value::Null` (see
-/// `return_pooled_regs`, which nulls before pooling; fresh Vecs start Null).
-/// So we only `resize` to the requested length — no redundant per-element
-/// reset on take (that reset already happened on the matching recycle, and
-/// doing it twice is pure per-call overhead on every register slot).
-fn take_pooled_regs(size: usize) -> Vec<Value> {
-    FRAME_POOL.with(|pool| {
-        let mut pool = pool.borrow_mut();
-        if let Some(mut regs) = pool.pop() {
-            // `regs` is all-Null by the pool invariant; resize keeps it Null
-            // (truncated tail is Null → no-op drops; growth fills with Null).
-            regs.resize(size, Value::Null);
-            regs
-        } else {
-            vec![Value::Null; size]
-        }
-    })
-}
-
-/// Return a Vec<Value> to the pool for future reuse. Nulls every slot first to
-/// release Arc/Rc references promptly AND uphold the all-Null pool invariant
-/// relied on by `take_pooled_regs`.
-fn return_pooled_regs(mut regs: Vec<Value>) {
-    for v in regs.iter_mut() { *v = Value::Null; }
-    FRAME_POOL.with(|pool| {
-        let mut pool = pool.borrow_mut();
-        if pool.len() < POOL_MAX {
-            pool.push(regs);
-        }
-        // else: drop regs (pool is full)
-    });
 }
 
 // ── FnEntry ──────────────────────────────────────────────────────────────────

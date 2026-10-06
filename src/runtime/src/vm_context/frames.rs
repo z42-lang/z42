@@ -71,7 +71,12 @@ impl VmContext {
         frame.stack_arr_base = arena_base(self.stack_arr_len.load(Relaxed));
         frame.struct_base = arena_base(self.struct_len.load(Relaxed));
         frame.transient_base = arena_base(self.transient_len.load(Relaxed));
-        self.call_stack.push(frame);
+        if self.call_stack.push(frame) {
+            // Bottom frame: a new activation chain on this thread. Scope this
+            // context's VM / heap into the thread-locals until the stack is empty
+            // again; nested frames run under them (see `engine_guards`).
+            self.engine_guards.install(self);
+        }
     }
 
     /// Pop the most recently pushed frame. No-op when empty (defensive).
@@ -105,13 +110,22 @@ impl VmContext {
                 a.truncate(transient_base);
                 self.transient_len.store(a.base(), Relaxed);
             }
+            if self.call_stack.depth() == 0 {
+                self.engine_guards.release();
+            }
         }
     }
 
-    /// add-escape-analysis-stack-alloc: allocate a fresh monotonic frame id
-    /// (stamped onto each interp `Frame` at entry; keys stack-arena slots).
+    /// A fresh frame id, never `0` (`0` = "this frame has not taken one yet").
+    /// Called the first time a frame allocates an arena slot (interp
+    /// `Frame::frame_id`, JIT `struct_ops::frame_id_of`). Owner thread only, so a
+    /// plain load + store, no read-modify-write.
     pub(crate) fn next_frame_id(&self) -> u32 {
-        self.next_frame_id.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        use std::sync::atomic::Ordering::Relaxed;
+        let id = self.next_frame_id.load(Relaxed);
+        let next = id.wrapping_add(1);
+        self.next_frame_id.store(if next == 0 { 1 } else { next }, Relaxed);
+        id
     }
 
     /// Stamp the *top* (currently executing) frame's code offset — the packed

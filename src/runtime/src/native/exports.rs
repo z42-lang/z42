@@ -31,20 +31,21 @@ const ABI_VERSION_MISMATCH:      u32 = 906;
 // ── thread_local current-VM pointer ──────────────────────────────────────
 
 thread_local! {
-    /// `*const VmContext` for the currently executing z42 interpreter on
-    /// this thread. Set on entry to `interp::exec_function` via
-    /// [`VmGuard`], cleared on exit (including unwind).
+    /// `*const VmContext` for the VM currently running z42 code on this
+    /// thread. Set via [`VmGuard`] when a context pushes its bottom frame
+    /// (`vm_context/engine_guards.rs`) and on host invoke; restored when that
+    /// activation ends.
     static CURRENT_VM: Cell<*const VmContext> = const { Cell::new(ptr::null()) };
 }
 
 /// RAII guard that scopes a `VmContext` reference into `CURRENT_VM` for
-/// the lifetime of `'a`. Used by `interp::exec_function` so any native
-/// callback fired during interpretation can locate the VM.
+/// the lifetime of `'a`, so any native callback fired while the VM runs can
+/// locate it. Installed at engine entry only (see `CURRENT_VM`).
 pub struct VmGuard<'a> {
     prev: *const VmContext,
     /// `false` when `enter` found `CURRENT_VM` already this same ctx (a nested
-    /// interp frame under the same VM/thread): store skipped, drop skips its TLS
-    /// restore. Only the outermost frame per ctx has `active == true`.
+    /// entry under the same VM/thread): store skipped, drop skips its TLS
+    /// restore. Only the outermost entry per ctx has `active == true`.
     active: bool,
     _phantom: PhantomData<&'a VmContext>,
 }
@@ -52,11 +53,10 @@ pub struct VmGuard<'a> {
 impl<'a> VmGuard<'a> {
     #[inline]
     pub fn enter(ctx: &'a VmContext) -> Self {
-        // Per-frame guard, but the active VM is constant across a call tree. When a
-        // nested frame re-enters with the SAME ctx, skip both the store and the
-        // drop-time restore — saving a TLS (`_tlv_get_addr` on macOS) access per
-        // nested frame. A different ctx (cross-VM native re-entry) still saves+sets+
-        // restores as before, so callback location stays correct.
+        // Engine entries nest (host invoke → bottom frame). When the SAME ctx is
+        // already installed, skip both the store and the drop-time restore. A
+        // different ctx (cross-VM re-entry) saves + sets + restores, so callback
+        // location stays correct.
         let p = ctx as *const _;
         CURRENT_VM.with(|c| {
             let cur = c.get();
@@ -82,7 +82,7 @@ impl Drop for VmGuard<'_> {
 
 /// Borrow the VM pointed to by `CURRENT_VM`. Returns `None` if no VM is
 /// currently active on this thread.
-fn current_vm<'a>() -> Option<&'a VmContext> {
+pub(crate) fn current_vm<'a>() -> Option<&'a VmContext> {
     CURRENT_VM.with(|c| {
         let p = c.get();
         if p.is_null() { None } else { Some(unsafe { &*p }) }

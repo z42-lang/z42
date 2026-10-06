@@ -153,7 +153,7 @@ fn heap_object_inline_struct_field_roundtrips() {
     let obj = ctx.heap().alloc_object(td, Vec::new(), NativeData::None);
     assert!(matches!(obj, Value::Object(_)), "alloc_object must yield a heap object");
 
-    let mut frame = Frame::new(&[], 8);
+    let mut frame = Frame::new(&ctx, &[], 8);
     frame.set(0, obj);                 // reg0 = the object (base)
     frame.set(1, Value::I64(42));      // reg1 = value to store into pt.x
     frame.set(2, Value::I64(7));       // reg2 = value to store into pt.y
@@ -203,7 +203,7 @@ fn struct_array_element_leaf_access_via_handle() {
     let arr_gc = GcRef::new(ArrayObj::struct_backed_leaked("Demo.P", 2, layout));
 
     let ctx = VmContext::new();
-    let mut frame = Frame::new(&[], 8);
+    let mut frame = Frame::new(&ctx, &[], 8);
     // make-value-copy: StructRefHeap payload lives in the per-context transient arena; the
     // register holds an 8B handle. Alloc both element handles into `ctx`'s arena (frame_id 7).
     let mk_sr = |idx: u32| {
@@ -308,11 +308,11 @@ fn stack_object_inline_struct_field_roundtrips() {
     });
 
     let ctx = VmContext::new();
-    let mut frame = Frame::new(&[], 8);
+    let mut frame = Frame::new(&ctx, &[], 8);
     let storage = td.object_storage();
     let obj = ScriptObject::new(td, storage);
-    let idx = ctx.stack_alloc_obj(frame.frame_id, obj);
-    let base = Value::StackObject { idx, frame_id: frame.frame_id };
+    let idx = ctx.stack_alloc_obj(frame.frame_id(&ctx), obj);
+    let base = Value::StackObject { idx, frame_id: frame.frame_id(&ctx) };
 
     frame.set(0, base);
     frame.set(1, Value::I64(42));
