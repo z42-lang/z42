@@ -116,7 +116,7 @@ git clone https://github.com/z42-lang/z42 && cd z42
 | `z42c --dump-tokens <f.z42>` | token 流 |
 | `z42c --dump-ast <f.z42>` | AST s-表达式 |
 | `z42c --dump-bound <f.z42>` | 类型检查后的 Bound 树（含类型注解 + 诊断计数） |
-| `z42c --dump-ir <f.z42>` | `.zasm` 风格的 IR 文本 |
+| `z42c --dump-ir <f.z42> [--opt-all]` | `.zasm` 风格的 IR 文本：与 `--emit-zbc` 同一条编译（`Z42_LIBS` 解析依赖、有错只报诊断不出 IR） |
 | `z42c --emit-zbc <f.z42> <out.zbc> [--opt-all]` | 单文件编到 `.zbc` |
 
 `--emit-zbc` 的默认优化集**关掉了** StackAlloc / Inline / PureCall / DeadBranch / Devirt

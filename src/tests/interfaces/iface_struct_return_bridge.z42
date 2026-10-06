@@ -88,7 +88,7 @@ void Main() {
     // 泛型档 + **具体静态类型直接调**：这条与上面 foreach 走的是不同绑定路径
     // （`MemberResolver` 的泛型实例化收者分支），此前它用 `itms.RegKey`（裸名）而调用点按具体
     // 返回类型传了 sret ⇒ `MyColl.GetEnumerator … takes 1 physical argument(s), the call passes 2`。
-    // ⭐ 判别靠**值语义**而不是看 IR：`--dump-ir` 在这条路上不加载导入符号，读它会被误导。
+    // ⭐ 判别靠**值语义**而不是看 IR：`--dump-ir` 不带 `Z42_LIBS` 时不加载导入符号，读它会被误导。
     // struct 是值类型 ⇒ 拷贝后两者独立；若错走桥接拿到装箱别名，两者同体、下面就会读出 9。
     MyColl<int> mc = new MyColl<int>(new int[] { 7, 8 });
     MyIter<int> ia = mc.GetEnumerator();

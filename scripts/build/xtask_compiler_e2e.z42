@@ -431,7 +431,7 @@ int _e2eKnobChecks(string vm, string driverZpkg, string e2eDir, string flat) {
 // 两半缺一不可 —— 只有阳性会被「无条件失败」骗过，只有阴性会被「无条件成功」骗过。
 int _e2eEmitDiagChecks(string vm, string driverZpkg, string e2eDir, string flat) {
     Console.WriteLine("");
-    Console.WriteLine("── --emit-zbc 诊断可见性（restore-emit-zbc-diagnostics）──");
+    Console.WriteLine("── --emit-zbc / --dump-ir 诊断可见性（restore-emit-zbc-diagnostics）──");
     string badSrc = Path.Join(e2eDir, "emitdiag_bad.z42");
     string badOut = Path.Join(e2eDir, "emitdiag_bad.zbc");
     File.WriteAllText(badSrc, "namespace EmitDiag.Bad;\n\nvoid Main() { NoSuchTypeAtAll x = null; }\n");
@@ -463,6 +463,23 @@ int _e2eEmitDiagChecks(string vm, string driverZpkg, string e2eDir, string flat)
         return 1;
     }
     Console.WriteLine("  ✓ 干净的源：exit 0 且写出产物");
+
+    // `--dump-ir` 与 `--emit-zbc` 同一条路（`_cmdSingleFile`）：有错的源报诊断、非零退出、**不打 IR**；
+    // 干净的源打出 IR。它曾走只回 IR 的测试入口，诊断全丢、错误程序也照打一份 IR。
+    ProcessResult d1 = _z42Proc(vm, flat).Arg(driverZpkg).Arg("--").Arg("--dump-ir").Arg(badSrc)
+        .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
+    if (d1.ExitCode == 0 || d1.Stderr.IndexOf("NoSuchTypeAtAll") < 0 || d1.Stdout.Trim() != "") {
+        Console.WriteLine("  ✗ 有错的源 --dump-ir 没有报诊断并拒绝输出（rc=" + d1.ExitCode.ToString() + "）: "
+            + d1.Stderr.Trim());
+        return 1;
+    }
+    ProcessResult d2 = _z42Proc(vm, flat).Arg(driverZpkg).Arg("--").Arg("--dump-ir").Arg(okSrc)
+        .Stdout(Stdio.Pipe()).Stderr(Stdio.Inherit()).Run();
+    if (d2.ExitCode != 0 || d2.Stdout.IndexOf("Main") < 0) {
+        Console.WriteLine("  ✗ 干净的源 --dump-ir 没打出 IR（rc=" + d2.ExitCode.ToString() + "）");
+        return 1;
+    }
+    Console.WriteLine("  ✓ --dump-ir：有错的源报诊断且不打 IR；干净的源打出 IR");
     return 0;
 }
 
