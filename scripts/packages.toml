@@ -40,7 +40,7 @@
 # ── 桌面 SDK：完整开发包 ─────────────────────────────────────────────
 #    native/ 只装 z42vm 自己要 dlopen 的 stdlib 扩展（native-ext），**不装嵌入件**
 #    （libz42.* + C 头）：z42vm 静态链接 VM，SDK 里没有任何东西用 libz42；嵌入者用
-#    runtime 包（P0-17，docs/runtime-audit.md §6.4）。
+#    runtime 包（docs/internals/src/devinfra/packaging.md §1）。
 [package.sdk]
 artifact = "z42-sdk-{version}-{rid}"
 include  = ["z42vm", "native-ext", "stdlib", "z42c", "launcher", "z42b", "z42d", "z42i", "editor-assets"]

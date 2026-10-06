@@ -25,6 +25,36 @@
 | runtime 包内容 | 仅 native + stdlib（不含 z42c / z42vm CLI）| runtime 包会跨 host 安装（如 android runtime 装在 macOS host），host 专属工具放进去无意义；自举种子由 SDK 包提供 |
 | 嵌入件（libz42.* + C 头）放哪 | **只在 runtime 包**；SDK 的 `native/` 只有 z42vm 要 dlopen 的 stdlib 扩展动态库 | z42vm 静态链接 VM，SDK 里没有任何东西用 libz42；嵌入者本来就该拿 runtime 包。compression 的静态库哪个包都不发：desktop 没有静态注册路径，移动 preset 已把它编进 libz42.a |
 
+### z42vm 静态链接 VM，不改为动态链接 `native/libz42`
+
+**动态化没有性能 / 内存收益**（实测）：同一份 libz42、同一个 C 宿主，hello 动态 / 静态都是 13.2 ms，
+z42c 编译 526.5 / 531.2 ms，指令数只多 1.3%。所有跑 z42 代码的进程（launcher、z42c、z42b、xtask
+及其子进程）映射的都是同一个 z42vm 文件，`__TEXT` 已经在进程间共享，动态化不会多出任何页共享。
+嵌入件移出 SDK 之后，动态化反而要把 dylib 加回去。
+
+**Rust 下的代价是真实的**：
+
+1. **全局状态分裂**：每个 cdylib 各带一份 std、tracing-core 和 z42 的 static，exe 里装的 panic hook、
+   tracing subscriber、运行时配置对 dylib 内部都不生效。要修就得把整个 main 搬进 lib。
+2. **mimalloc 丢失**：`#[global_allocator]` 只在 `main.rs`，管不到 dylib 内部的分配（实测 z42c 慢 14–20%）。
+3. **Linux TLS 变慢**：.so 里的 `thread_local!` 走 general-dynamic 模型，热路径大量用 TLS（TLAB、SATB、safepoint、帧池）。
+4. **不再是单文件**：`build sdk`、CI 产物、`Z42_PORTABLE_VM`、apphost、`build.rs` 的 `find_z42vm` 都假设单个 z42vm。
+5. **平台细节**：Windows 加载器不搜 `native\`；Linux 要 rpath `$ORIGIN/../native`。
+6. **版本耦合**：`bin/` 与 `native/` 可以被分别替换，需要 build-id 握手。
+
+「静态 core + `-rdynamic` + dlopen JIT」在 Rust 下不可行，见 [componentized-runtime.md §7.1](../runtime/componentized-runtime.md)。
+
+**重新考虑的触发条件**（满足任一条）：
+
+- Tier-1 native 扩展的 dlopen 落地，并且坚持用全局符号 ABI（改用函数表 ABI 就不会触发）；
+- 产品要求 SDK 本体必须带动态 libz42，并且下载体积成了瓶颈；
+- 出现多个不同的宿主进程常驻、共用同一个 SDK libz42 的形态（IDE / LSP 宿主等）；
+- JIT 可选成为硬需求——即使这样，也优先出「静态 interp-only」和「静态 full」两种 z42vm。
+
+若触发，顺序是：dylib 元数据 + build-id 握手 + lib 内 mimalloc + 嵌入路径性能门禁 → `main.rs` 整体搬进
+`z42_vm_main`、z42vm 成为薄 stub → 改造所有「只拷 z42vm」的路径（保留静态 z42vm 用于自举）→ Linux
+bench 验证 TLS 回退，超过 2% 就让 Linux 保持静态。
+
 ## 2. 构建 → 安装
 
 ```mermaid
