@@ -8,7 +8,7 @@ pkg-nodejs/
 pkg-bundler/
 
 # stdlib zpkg bundles + namespace index/fetch-list — copied/derived at build
-# time (build.sh or `xtask test platform wasm assets`); not tracked.
+# time (build.sh or `xtask test app wasm assets`); not tracked.
 js/stdlib/*.zpkg
 js/stdlib/index.json
 js/stdlib/files.json

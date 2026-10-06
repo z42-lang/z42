@@ -4,7 +4,7 @@
 // wasm do: Z42TestHost.runApp → z42_host_run_app → z42::app::run → the shared
 // z42 test-agent → a JSON report file. Proves the SAME agent + bundle run on
 // iOS with a real filesystem (no VFS): the agent + stdlib + bundle are copied
-// into the test bundle under Resources/embedded/ by `xtask test embedded
+// into the test bundle under Resources/embedded/ by `xtask test app desktop
 // --platform ios`.
 //
 //   Resources/embedded/app/z42.testagent.zpkg

@@ -38,8 +38,8 @@
 
 ```bash
 xtask build toolchain      # 各组件 publish 成功即编译通过
-xtask test dist            # 打包后 launcher / apphost 冒烟
-xtask test targets         # z42b 夹具
+xtask package verify            # 打包后 launcher / apphost 冒烟
+xtask test toolchain builder         # z42b 夹具
 ```
 
 各组件专项验证见其 README。

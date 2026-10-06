@@ -132,13 +132,13 @@ xtask / build 基础设施驱动；stdlib 又被两者依赖。任何「从源�
 
 > 🔴 **阶段 2 最容易被忘掉——因为忘了不会红。** 阶段 1 的过渡形态（字面量 / 旧 API 并存）能一直跑下去，
 > 没有任何东西提醒你回来收尾，于是过渡形态**沉淀成常态**（例：诊断码用字面量发码绕开 `DiagnosticCodes`
-> 登记表，长出一码两义）。`xtask test diagcodes` 的**规则 ⑥**给每条过渡项挂了到期日（挂账超
+> 登记表，长出一码两义）。`xtask check diagcodes` 的**规则 ⑥**给每条过渡项挂了到期日（挂账超
 > 3 天即红），把「阶段 2 该做了」变成一个会自己响的信号，而不是靠谁记得
 > （见 [test-gate.md](../../internals/src/devinfra/test-gate.md)）。
 > **新开一个分阶段引入时，先想好阶段 2 由什么来提醒你**——没有提醒就等于没打算做。
 >
 > ✅ 在过渡形态所在文件写一行
-> `// STAGE2-DEBT(<tag>): <阶段 2 要做的那件事>`，`xtask test stage2 --update` 记进
+> `// STAGE2-DEBT(<tag>): <阶段 2 要做的那件事>`，`xtask check stage2 --update` 记进
 > `scripts/test/stage2-debt.txt`；门做双向棘轮（源里多一条/清单多一条都红）+ 挂账超 7 天即红。
 > ⚠️ **它只看得见带标记的债** —— 这个边界写在门的头注里。
 >
@@ -158,7 +158,7 @@ z42c *自己运行期就要用* 的 stdlib 库**（如把 `z42c.ir`+`z42c.projec
 收敛成 stdlib 单库 `z42.package`），就出现**自依赖环**：z42c 建任何 zpkg 都要调 `z42.package` 的
 `ZpkgBuilder`，而 `z42.package` 本身由 z42c 构建。冷启动 flat dist 里还没有它，且上一 nightly 种子只把
 等价代码作**旧包名**（`z42c.ir`/`z42c.project`）携带 → fresh z42c 被编成钉在种子旧包上的调用，
-运行期加载真库时 `undefined function`（**这类漏网正因 `xtask test bootstrap` 只「编」不「跑」
+运行期加载真库时 `undefined function`（**这类漏网正因 `xtask test compiler bootstrap` 只「编」不「跑」
 新建出来的 z42c**——它验语法/格式/非自依赖库的 API 越界，但从不执行产物，故运行期自依赖问题看不见；
 这条只能靠 CI 冷启动全栈重建暴露——每个跑 `ci-bootstrap` 的 job
 都用刚建出的 gen1 z42c 编 stdlib 与 golden，即真的**运行**了它；`compiler-checks` 再在同一份冷启动产物上跑 gen1→gen2）。
@@ -240,7 +240,7 @@ z42c *自己运行期就要用* 的 stdlib 库**（如把 `z42c.ir`+`z42c.projec
 两件齐了，改名就能**一步落**，不必拆成跨 nightly 的三步。
 
 ⚠️ 验这类接线的对照实验，**命令必须真的会触碰那个符号**：懒加载没走到就撤掉兼容物也照样绿，
-那是空门（实测踩过：`xtask test stage2` 不读清单 ⇒ 对照无效，换 `build stage-toolchain` 才红）。
+那是空门（实测踩过：`xtask check stage2` 不读清单 ⇒ 对照无效，换 `build stage-toolchain` 才红）。
 
 **铁律**：当前 main 的源码，**任何时刻都不得使用比「上一个已发布 nightly 的 z42c」更新的语法 / 格式**。
 违反 = 跨版本自举断链。
@@ -255,7 +255,7 @@ z42c *自己运行期就要用* 的 stdlib 库**（如把 `z42c.ir`+`z42c.projec
 
 ### 边界检查（每次改完编译器/语言/格式相关代码必跑）
 
-**`xtask test bootstrap [rid]`**：用**已发布 nightly 的 z42c**（下载）和**仓库当前 z42c** 分别编译当前
+**`xtask test compiler bootstrap [rid]`**：用**已发布 nightly 的 z42c**（下载）和**仓库当前 z42c** 分别编译当前
 z42c 源码，确认上一个 nightly 仍能编当前源 → 没有「用了比已发布 nightly 更新的语法/格式」的越界。
 （gh/tar 作外部子进程，逻辑在 `scripts/build/xtask_bootstrap_check.z42`；需 `gh` 已登录。）
 

@@ -6,7 +6,7 @@
 //   ① 什么都不改再构建一次：analyzer 的警告从终端上消失；
 //   ② 只改 `[lints]`（比如把规则升成 error / 开 warnings-as-errors）：源码没动 ⇒ 全命中 ⇒
 //      构建仍 exit 0，本该判红的诊断被吞掉。
-// 与 warnings-survive-cache（`test incremental` 那道门）同族：那道守 typecheck 警告（进 meta
+// 与 warnings-survive-cache（`test compiler incremental` 那道门）同族：那道守 typecheck 警告（进 meta
 // 回放），这道守 analyzer 这一层（不进 meta，只能靠「不早退」）。
 //
 // 三格：① 冷构建出 Z9002（阳性对照）→ ② 不改再构建仍出 Z9002 → ③ 只加

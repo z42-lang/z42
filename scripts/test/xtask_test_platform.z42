@@ -8,7 +8,7 @@
 // part most prone to drift. Backends only declare WHERE assets land (AssetLayout).
 //
 // Backends live in xtask_test_{wasm,ios,android,desktop}.z42; CLI wiring in
-// xtask_cli.z42 (`test platform <p> [stage|build|assets|run]`). The device
+// xtask_cli.z42 (`test app <p> [stage|build|assets|run]`). The device
 // backends' `run` goes through z42b's device drivers (builder_device*.z42).
 namespace Z42Xtask;
 
@@ -43,7 +43,7 @@ public class AssetLayout {
 
 // name ∈ wasm|ios|android ; step ∈ ""(=all)|stage|build|assets|run.
 int _platformDispatch(string name, string step, string root) {
-    Stopwatch sw = _procStart("test platform");
+    Stopwatch sw = _procStart("test app (platform pipeline)");
     int __rc;
     if (name == "desktop") { __rc = _platformStep(new DesktopBackend(), step, root); }
     else if (name == "wasm")    { __rc = _platformStep(new WasmBackend(), step, root); }
@@ -54,7 +54,7 @@ int _platformDispatch(string name, string step, string root) {
         ConsoleError.WriteLine("error: unknown platform '" + name + "' (desktop|wasm|ios|android|all)");
         return 2;
     }
-    if (__rc == 0) { _procEnd("test platform", sw); }
+    if (__rc == 0) { _procEnd("test app (platform pipeline)", sw); }
     return __rc;
 }
 
@@ -71,7 +71,7 @@ int _platformStep(IPlatformBackend b, string step, string root) {
     return 2;
 }
 
-// `test platform all <step>` — run the step on every backend; first failure wins.
+// `test app all <step>` — run the step on every backend; first failure wins.
 int _platformAllPlatforms(string step, string root) {
     int c = _platformStep(new DesktopBackend(), step, root); if (c != 0) { return c; }
     c = _platformStep(new WasmBackend(), step, root);        if (c != 0) { return c; }

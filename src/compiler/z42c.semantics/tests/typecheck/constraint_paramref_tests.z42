@@ -1,6 +1,6 @@
 // `where U : T`（型参引用约束）的满足性判定 —— fix-paramref-constraint-iface。
 //
-// 为什么单独一个文件：`constraint_tests.z42` 已 782 行、逼近 `xtask test lines` 的 886 硬限，
+// 为什么单独一个文件：`constraint_tests.z42` 已 782 行、逼近 `xtask check lines` 的 886 硬限，
 // 且那里的主题是「约束**被校验**了吗」；本文件的主题是「**上界是接口**时判据对不对」，
 // 是另一个关注点。
 //

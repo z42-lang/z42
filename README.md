@@ -92,7 +92,7 @@ z42/
 ├── .github/               # CI workflows and composite actions
 ├── docs/                  # learn/ + reference/ + internals/ books, book/ site root,
 │                          # roadmap.md, agent/ rules
-├── examples/              # Companion projects for the learn book, run by `xtask test examples`
+├── examples/              # Companion projects for the learn book, run by `xtask test docs examples`
 └── .claude/               # Claude Code entry: thin pointer to docs/agent/ + shared permissions
 ```
 

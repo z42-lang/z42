@@ -1,7 +1,7 @@
 name: ci-bootstrap
 description: >
   Self-hosted CI bootstrap into the STANDARD artifact locations that later steps
-  (test all / package release / upload) expect. Seeds from the PREVIOUS published
+  (xtask test / package release / upload) expect. Seeds from the PREVIOUS published
   nightly SDK's z42c compiler (programs/z42c/, host tooling — the runtime package
   no longer carries a z42c seed, 2026-07-01): prev-nightly z42c seed → builds
   current xtask → xtask builds current z42c (warm self-build) + stdlib (flat dist

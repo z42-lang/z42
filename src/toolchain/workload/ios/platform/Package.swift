@@ -65,7 +65,7 @@ let package = Package(
                 .copy("Resources/stdlib"),
                 // add-wasm-testhost G6: embedded test-host corpus (agent app.zpkg
                 // + flat stdlib zpkgs + test bundle), populated by
-                // `xtask test embedded --platform ios`.
+                // `xtask test app desktop --platform ios`.
                 .copy("Resources/embedded"),
             ]
         ),

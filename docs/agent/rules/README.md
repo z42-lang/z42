@@ -32,7 +32,7 @@ AI 与协作者干活的**行为约束**。这里不写任何系统知识——�
 
 | 文件 | 管什么 |
 |------|--------|
-| [code-organization.md](code-organization.md) | 哪层目录要 README + 文件/函数/类型的行数限制（`xtask test lines` 棘轮） |
+| [code-organization.md](code-organization.md) | 哪层目录要 README + 文件/函数/类型的行数限制（`xtask check lines` 棘轮） |
 | [common-pitfalls.md](common-pitfalls.md) | 跨语言共同陷阱：加载顺序非确定性、id 作用域 |
 | [compiler-z42c.md](compiler-z42c.md) | z42c（编译器，用 z42 写）：子包结构、Lexer / Parser / AST 约定 |
 | [runtime-rust.md](runtime-rust.md) | Rust VM 代码约定 |

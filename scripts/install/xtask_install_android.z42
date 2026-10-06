@@ -8,7 +8,7 @@
 //                platform-tools + NDK. Driven by `deps install --os android`.
 //   "emulator" — 用到才装（零命令面，simplify-xtask-deps 2026-07-07）: the build
 //                set PLUS emulator + system-image + AVD + Gradle. ~4 GB /
-//                ~10-15 min. Auto-installed by `test platform android run`
+//                ~10-15 min. Auto-installed by `test app android run`
 //                (AndroidBackend.RunTests) — no user command exposes it.
 //
 // POSIX-only (downloads mac/linux tarballs); Windows → Android Studio. Prereqs:
@@ -191,7 +191,7 @@ int _androidNdk(string sdkmanager, string sdkRoot, string ndkVer, string sdkDir,
 // [5/6] AVD + [6/6] Gradle — emulator tier only (build tier prints a skip line).
 int _androidEmulatorExtras(bool wantEmu, bool force, string avdmanager, string avdName, string avdDevice, string sysImage, string gradleDir, string gradleVer, string gradleSha, string hostOs, string javaHome) {
     if (!wantEmu) {
-        Console.WriteLine("[5-6/6] AVD + Gradle skipped (build tier; emulator tier auto-installs on `test platform android run`)");
+        Console.WriteLine("[5-6/6] AVD + Gradle skipped (build tier; emulator tier auto-installs on `test app android run`)");
         return 0;
     }
     // (5) AVD

@@ -1,4 +1,4 @@
-// xtask — `test fingerprint`：编译器输出变了，版本号必须累加（guard-compiler-fingerprint）。
+// xtask — `test compiler fingerprint`：编译器输出变了，版本号必须累加（guard-compiler-fingerprint）。
 //
 // 增量缓存的键里，编译器身份 = `CacheStore.CompilerFingerprint` + zbc/zpkg 格式 Minor（见
 // version-bumping.md「编译器语义指纹」）。规则是「凡是影响输出的编译器改动都要累加」，此前全靠自觉。
@@ -192,11 +192,11 @@ bool _compilerSetsEqual(string baseDir, string root) {
 }
 
 int _testFingerprint(ParseResult r) {
-    Stopwatch sw = _procStart("test fingerprint");
+    Stopwatch sw = _procStart("test compiler fingerprint");
     string root = _root();
     string baseTree = r.GetOption("base");
     if (baseTree.Length == 0) {
-        ConsoleError.WriteLine("usage: xtask test fingerprint --base <base 源码树根（其 stdlib 已由 base 编译器建好）>");
+        ConsoleError.WriteLine("usage: xtask test compiler fingerprint --base <base 源码树根（其 stdlib 已由 base 编译器建好）>");
         return 2;
     }
     // enforce-fqn-name-identity 之外的独立修复（2026-09-28）：**两侧 driver 是不是同一个二进制**。
@@ -218,7 +218,7 @@ int _testFingerprint(ParseResult r) {
         Console.WriteLine("  base 与本树的 src/compiler + src/libraries **逐字节相同** ⇒ 跳过字节对比。");
         Console.WriteLine("  （本门只管「编译器变了却没累加身份」；源码没变时无 slug 可加，而两侧 driver");
         Console.WriteLine("    的自举代不同本就会让一两个包字节不同 —— 那是代际漂移，不是身份问题。）");
-        _procEnd("test fingerprint", sw);
+        _procEnd("test compiler fingerprint", sw);
         return 0;
     }
     if (!sameCompiler) { Console.WriteLine("  src/compiler 与 base 不同 ⇒ 照常对比字节"); }
@@ -250,8 +250,8 @@ int _testFingerprint(ParseResult r) {
     int bc = _z42cWorkspaceBuild(_builtVm(root, "release"), _driverZpkg(root, "release"), srcLibs, _libsDir(root), true);
     if (bc != 0) {
         // 本树编译器编不过 base 源码（如新增诊断、PR 同时改了 stdlib）⇒ 无从对比。不判红，但明示没测。
-        Console.WriteLine("::warning::test fingerprint: 本树编译器编不过 base 的 stdlib 源码，本次未检查编译器输出是否变化");
-        _procEnd("test fingerprint", sw);
+        Console.WriteLine("::warning::test compiler fingerprint: 本树编译器编不过 base 的 stdlib 源码，本次未检查编译器输出是否变化");
+        _procEnd("test compiler fingerprint", sw);
         return 0;
     }
 
@@ -302,7 +302,7 @@ int _testFingerprint(ParseResult r) {
     }
     if (nChanged == 0) {
         Console.WriteLine("  ✓ 编译器输出未变（" + nSame.ToString() + " 个包逐字节一致）");
-        _procEnd("test fingerprint", sw);
+        _procEnd("test compiler fingerprint", sw);
         return 0;
     }
     Console.WriteLine("  编译器输出变了：" + nChanged.ToString() + " 个包（" + changed + "）");
@@ -340,8 +340,8 @@ int _testFingerprint(ParseResult r) {
         Console.WriteLine("    本门分辨不了，因此**不判红**，也请不要据此 bump 指纹。");
         Console.WriteLine("    要确认是不是自己的改动：让 base 树与本树处在同一代，再跑一次本门");
         Console.WriteLine("    （base 树多跑/少跑一遍 `build stdlib` 就会改变结论 —— 这本身就是漂移的证据）。");
-        Console.WriteLine("::warning::test fingerprint: 两侧编译器非同一套包，本次未能判定编译器输出是否变化");
-        _procEnd("test fingerprint", sw);
+        Console.WriteLine("::warning::test compiler fingerprint: 两侧编译器非同一套包，本次未能判定编译器输出是否变化");
+        _procEnd("test compiler fingerprint", sw);
         return 0;
     }
     if (baseDriver.Length == 0) {
@@ -353,7 +353,7 @@ int _testFingerprint(ParseResult r) {
     bool fpSrcChanged = _fingerprintSourceOf(baseTree) != _fingerprintSourceOf(root);
     if (baseId != headId || fpSrcChanged) {
         Console.WriteLine("  ✓ 编译器身份已变（" + baseId + " → " + headId + "），旧缓存会作废");
-        _procEnd("test fingerprint", sw);
+        _procEnd("test compiler fingerprint", sw);
         return 0;
     }
     ConsoleError.WriteLine("  ✗ 编译器输出变了，但编译器身份没变 —— 增量缓存会把旧编译器的产物当成新的。");

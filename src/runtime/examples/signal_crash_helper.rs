@@ -22,7 +22,7 @@
 /// parent's `Command::output()` waits for the pipe to close, which never happens,
 /// and the whole `cargo test` wedges — historically for 1h51m before someone
 /// killed it. See `.github/workflows/ci.yml` (why `test runtime` is not part of
-/// `test all`) and `docs/spec/archive/2026-07-07-redesign-xtask-test/design.md`.
+/// `test`) and `docs/spec/archive/2026-07-07-redesign-xtask-test/design.md`.
 ///
 /// Zeroing `EXC_MASK_CRASH` / `EXC_MASK_CORPSE_NOTIFY` cuts exactly one edge:
 /// "kernel → crash reporter". Everything the tests assert is untouched — the

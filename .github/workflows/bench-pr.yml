@@ -522,7 +522,7 @@ jobs:
         if: steps.fmtgap.outputs.gap != '1'
         shell: bash
         run: |
-          xtask test fingerprint --base "$PWD/base-src" \
+          xtask test compiler fingerprint --base "$PWD/base-src" \
               --base-driver "${{ steps.base.outputs.base_driver }}"
 
       - name: Same-runner A/B regression gate (>15% time fails)

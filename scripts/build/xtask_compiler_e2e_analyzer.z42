@@ -373,7 +373,7 @@ int _e2eUserDomainRefChecks(string root, string vm, string driverZpkg, string e2
 // ⚠️ 为什么选 z42c.pipeline 而不是 z42.build：`_ensureBootstrapSelfDepLibs` 会把 z42.build / z42.project /
 // z42.package / z42c.core / z42c.syntax 预建进开发树的 stdlib flat（`Z42_LIBS`），在那段时间里它们是「框架」，
 // 按规则不复制（2026-10-01 起 `build compiler` 自建完即清走，但本格不赌命令顺序）。z42c.pipeline /
-// z42c.semantics 从不进 flat，才稳定地代表发布态 SDK 里「不在 libs/ 的 SDK 库」。发布态全量形态由 `xtask test dist` 覆盖。
+// z42c.semantics 从不进 flat，才稳定地代表发布态 SDK 里「不在 libs/ 的 SDK 库」。发布态全量形态由 `xtask package verify` 覆盖。
 int _e2eSdkLibExeCopy(string root, string vm, string driverZpkg, string e2eDir) {
     string flat = _libsFlatDist(root, "release");   // 纯 stdlib：模拟「只有 runtime」
     string d = Path.Join(e2eDir, "sdklibexe");

@@ -43,7 +43,7 @@ z42 build / z42 publish / z42 test     # 经 launcher 转发到 z42b
 ## 如何测试验证
 
 ```bash
-xtask test targets      # tests/fixtures/{manifest-targets,z42b}/ 夹具：[[test]] / [[example]] / [[bench]] target、清单段、build hook、孤儿源守卫
+xtask test toolchain builder      # tests/fixtures/{manifest-targets,z42b}/ 夹具：[[test]] / [[example]] / [[bench]] target、清单段、build hook、孤儿源守卫
 xtask test stdlib       # z42b 作为 [Test] 运行器跑全部 stdlib 单元
 ```
 
@@ -69,7 +69,7 @@ xtask test stdlib       # z42b 作为 [Test] 运行器跑全部 stdlib 单元
 | `core/builder_publish_build.z42` | publish 前每次经 z42c 增量编一遍；`--no-build` 保留「就用现成字节」供 xtask 的 SDK 组装 / 自举不动点路径 |
 | `core/builder_publish_sidecar.z42` | publish 时把 `<name>.runtimeconfig.toml` 侧车随 zpkg 一起搬进部署布局 |
 | `core/builder_apphost.z42` | **apphost patcher 的唯一实现**（`_pubProduceApphost`）；xtask 打包经 `z42b publish` 复用。MAGIC 须与 Rust stub 同步 |
-| `core/builder_device{,_ios,_android}.z42` | 设备 RID 的 build + deploy + run 驱动（wasm / iOS 模拟器 / Android 模拟器），`xtask test platform` 委托于此 |
+| `core/builder_device{,_ios,_android}.z42` | 设备 RID 的 build + deploy + run 驱动（wasm / iOS 模拟器 / Android 模拟器），`xtask test app` 委托于此 |
 | `core/builder_pins.z42` | 由 `scripts/versions.toml` 生成的平台版本常量（xtask 生成、不入库）|
 | `core/hooks/hooks.z42` | z42b 自身的 build hook：编译前把 `versions.toml` 常量渲染成 `builder_pins.z42` |
 | `tests/fixtures/` | harness 驱动的夹具工程（`manifest-targets/`、`z42b/`）|

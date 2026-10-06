@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # CI 专用 xtask 入口：`xtask <cmd> [args]` ≡ 本地 `./xtask`（apphost）的行为 —— 用仓库根 `.z42/` 这份 SDK 的
 # z42vm + libs 跑 artifacts/xtask/xtask.zpkg。由 ci-bootstrap / xtask-bootstrap-artifact 两个 action 在末尾加进
-# $GITHUB_PATH，此后 workflow 的步骤里直接写 `xtask test all ...`。
+# $GITHUB_PATH，此后 workflow 的步骤里直接写 `xtask test ...`。
 #
 # `.z42/` 由 setup-z42-sdk 装（上一版 nightly，与本地 `scripts/install-z42.sh` 同位置同形态），xtask.zpkg 也是用
 # 这份 SDK 的 z42c 编的 ⇒ **编 xtask 与跑 xtask 是同一个工具链**，与本地一致（add-sdk-libs D7）。此前 CI 用

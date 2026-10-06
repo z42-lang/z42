@@ -30,7 +30,7 @@
 | | R1–R7 平台冒烟 | 嵌入语料 |
 |---|---|---|
 | 测什么 | **嵌入 API 契约**：错误码、句柄生命周期、stdout 保序 | **语言/stdlib 语料**在该平台的执行结果 |
-| 驱动 | `xtask test platform <plat> [build\|assets\|run]`（§3） | `xtask test embedded --rid <rid> [--shard k/n]` |
+| 驱动 | `xtask test app <plat> [build\|assets\|run]`（§3） | `xtask test app <platform> bundle [--shard k/n]` |
 | 语料 | 固定 7 个场景，与仓库语料无关 | `src/tests/**` + stdlib `[Test]`，经 bundle manifest |
 | 详见 | 本页 §3 | [嵌入式运行与测试 agent](embedded-app-run.md) |
 
@@ -38,7 +38,7 @@ R1–R7 与嵌入语料**不冗余**——前者测的是原生壳与 C ABI 的�
 
 ## 3. 三阶段平台管线
 
-`xtask test platform <desktop|wasm|ios|android|all> [build|assets|run]`
+`xtask test app <desktop|wasm|ios|android|all> [build|assets|run]`
 （省略 step = 全流程）。框架在 `xtask_test_platform.z42`，平台差异全在 backend：
 
 ```z42
@@ -123,7 +123,7 @@ xtask 装 bundle 时**不排除任何用例**，也没有按 rid 写的能力表
 mobile 那一档的 `fs` 是一个**能力假设**，靠 tier-2 CI 分片验证：app 沙箱有可写 tmp，
 所以 `file_temp` / `directory_temp` / 各种 stream 假定可跑。某例实际需要沙箱拒绝的东西时，
 CI dispatch 会把它显成红，**按证据**处理：是能力缺口，就让它声明对应能力（词表里没有就新增一个：
-`platform.rs` 上报 + 规范页登记，`xtask test layout` 对账两边）；是用例自身的可移植性缺陷，就改用例。
+`platform.rs` 上报 + 规范页登记，`xtask check layout` 对账两边）；是用例自身的可移植性缺陷，就改用例。
 
 > 全覆盖的原则是「揭真实平台差异、按证据收敛」，不是「先排干净求绿」。
 > 反例：曾有 4 个 `z42.io` 用例硬编码 `/tmp/...` 写盘路径——iOS-sim（跑在 macOS）与
@@ -137,7 +137,7 @@ CI dispatch 会把它显成红，**按证据**处理：是能力缺口，就让�
 
 | job | 显示名 | tier | 触发 | 跑什么 |
 |---|---|---|---|---|
-| `test-desktop` | `test-desktop-cabi(linux-x64)` | 1 | `platform` 变更 / schedule / dispatch | `test platform desktop`（R1–R7） |
+| `test-desktop` | `test-desktop-cabi(linux-x64)` | 1 | `platform` 变更 / schedule / dispatch | `test app desktop`（R1–R7） |
 | `test-wasm` | `test-wasm-browser(linux-x64) shard k` | 2 | **仅** schedule / dispatch | `xtask test app wasm --shard k/3`（R1–R7 只在 shard 1；每片跑 1/3 嵌入语料） |
 | `test-ios` | `test-ios-sim(macos-arm64) shard k` | 2 | **仅** schedule / dispatch | `xtask test app ios --shard k/3`：每片单次 `xcodebuild test -scheme Z42VM` 同时跑 R1–R7 与嵌入语料 |
 | `test-android` | `test-android-emu(linux-x64) shard k` | 2 | **仅** schedule / dispatch | `xtask test app android --shard k/3`（在 emulator action 里跑；z42b 复用它起的模拟器）：每片单次 `connectedAndroidTest` 同时跑 R1–R7 与嵌入语料 |

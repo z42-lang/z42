@@ -1,4 +1,4 @@
-// xtask — `test bootstrap`: staged-bootstrap boundary check.
+// xtask — `test compiler bootstrap`: staged-bootstrap boundary check.
 //
 // Script-zero port of the former scripts/check-bootstrap-compat.sh. Enforces the
 // staged-bootstrap discipline (docs/agent/rules/bootstrap-seed.md): the LAST PUBLISHED
@@ -44,7 +44,7 @@ using Std.IO;
 using Std.Time;
 
 int _bootstrapCheck(string ridArg) {
-    Stopwatch sw = _procStart("test bootstrap");
+    Stopwatch sw = _procStart("test compiler bootstrap");
     string root = _root();
     string[] members = _compilerMembers(root);
 
@@ -149,7 +149,7 @@ int _bootstrapCheck(string ridArg) {
     // `b == 2`（repo z42c 未构建，非失败）不计入。
     int __rc = a;
     if (__rc == 0 && b != 0 && b != 2) { __rc = b; }
-    if (__rc == 0) { _procEnd("test bootstrap", sw); }
+    if (__rc == 0) { _procEnd("test compiler bootstrap", sw); }
     return __rc;
 }
 

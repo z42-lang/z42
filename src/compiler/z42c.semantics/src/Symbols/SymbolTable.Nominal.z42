@@ -1,6 +1,6 @@
 // SymbolTable 的「名义关系判定」那一簇（A5，从 SymbolTable.z42 拆出）。
 //
-// 为什么单独成文件：`SymbolTable.z42` 顶到了 886 行硬限（`xtask test lines` 判红），
+// 为什么单独成文件：`SymbolTable.z42` 顶到了 886 行硬限（`xtask check lines` 判红），
 // 而这一簇在职责上本来就自成一块 —— 它回答的全是同一个问题族：
 //
 //   「这两个**名义类型**是不是同一个 / 有没有继承关系？」

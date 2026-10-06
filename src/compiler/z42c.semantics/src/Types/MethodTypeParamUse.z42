@@ -15,7 +15,7 @@
 //   ① 表达式 / 语句 / 模式 / 类型 四个层面**逐节点类**覆盖，不留 fallthrough 猜测；
 //   ② 判定方向刻意**过近似**（宁可多判「消费」）——多判只会要求用户显式写 `<T>`（响亮、可改），
 //      漏判会产生静默错值（安静、难查）。同 #530「守禁令的一侧必须比替换的一侧更宽」。
-//   ③ 完备性由 `xtask test walkers` gate 兜底（ast-walker-completeness-gate，登记在
+//   ③ 完备性由 `xtask check walkers` gate 兜底（ast-walker-completeness-gate，登记在
 //      `scripts/test/xtask_test_walkers.z42` 的 `_walkerRegistry()`）：本文件被登记为「穷举
 //      Expr/Stmt/Pattern/TypeExpr 四族」，只有 8 个 Expr 叶子在白名单里 fall-through；给任一族
 //      加新节点子类而这里漏 `is` 分支 → gate 变红。（2026-09-09 前此处曾自称有门实为没有——那时

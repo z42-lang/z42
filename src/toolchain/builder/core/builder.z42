@@ -151,7 +151,7 @@ string _findCompilerZpkg() {
     // 反推 SDK 根 → 开发树 artifacts 路径 → Z42_LIBS），且 `ReplCompilerHost` 里还有**第二份**
     // 几乎相同的实现（注释自陈「探测序同 builder.z42」）。位置改成由清单的 `probing-paths`
     // 声明后全部删除——**代码里不再出现 `programs/z42c/`**。
-    // 实证：把那三档全部断掉、只留上面这一档，`xtask test targets` 的 compile-then-test 照常通过。
+    // 实证：把那三档全部断掉、只留上面这一档，`xtask test toolchain builder` 的 compile-then-test 照常通过。
     return "";
 }
 

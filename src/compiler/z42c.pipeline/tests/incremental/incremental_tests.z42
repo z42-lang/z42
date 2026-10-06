@@ -2,7 +2,7 @@
 // 覆盖：ProbeFiles 种子四态（全命中/hash 漂移/缺条目/源清单不一致）、Close 传递闭包
 // （链式/无边/**声明面闸门**）、CacheStore meta 往返（含 D5a 残留 pool/labels + surface）
 // 与版本 pin 失效、ZpkgReader.ReadSourceHashes wire 消费面（保留——zpkg MODS 头仍携带源 hash）。
-// 闸门的端到端硬验收在 `xtask test incremental`（逐文件注释 touch → dist 逐字节对账全量）。
+// 闸门的端到端硬验收在 `xtask test compiler incremental`（逐文件注释 touch → dist 逐字节对账全量）。
 namespace Z42cPipelineIncrementalTests;
 
 using Std.IO;

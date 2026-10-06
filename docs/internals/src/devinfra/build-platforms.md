@@ -35,7 +35,7 @@ Rust crate 仍从源码位置编，产物输出到副本（见[产物布局 §3]
 统一入口是三段式的：
 
 ```bash
-./xtask test platform <desktop|wasm|ios|android|all> [stage|build|assets|run]
+./xtask test app <desktop|wasm|ios|android|all> [stage|build|assets|run]
 ```
 
 | step | 做什么 |
@@ -45,7 +45,7 @@ Rust crate 仍从源码位置编，产物输出到副本（见[产物布局 §3]
 | `assets` | 编 R1–R7 fixture → `.zbc`，收 stdlib zpkg 进平台 bundle（wasm 还写 `files.json`） |
 | `run` | 跑测试（C ABI harness / Playwright / `xcodebuild test` / emulator） |
 
-省略 step = `build → assets → run` 全跑。`test platform all` 按 desktop → wasm → ios → android
+省略 step = `build → assets → run` 全跑。`test app all` 按 desktop → wasm → ios → android
 顺序跑，首失败即停——只有本机四套工具链齐备时才有意义。
 
 ## 1. wasm
@@ -54,7 +54,7 @@ Rust crate 仍从源码位置编，产物输出到副本（见[产物布局 §3]
 
 ```bash
 ./xtask deps install --os wasm     # wasm-pack + wasm32-unknown-unknown + 本地 Node LTS
-./xtask test platform wasm         # 三段全跑
+./xtask test app wasm         # 三段全跑
 ```
 
 `deps install --os wasm` 把 Node 装到 `artifacts/tools/node`（版本由 `versions.toml`
@@ -64,8 +64,8 @@ Rust crate 仍从源码位置编，产物输出到副本（见[产物布局 §3]
 分段跑：
 
 ```bash
-./xtask test platform wasm build     # wasm-pack web + nodejs → pkg-web/ pkg-nodejs/
-./xtask test platform wasm assets    # fixtures + stdlib + files.json
+./xtask test app wasm build     # wasm-pack web + nodejs → pkg-web/ pkg-nodejs/
+./xtask test app wasm assets    # fixtures + stdlib + files.json
 ```
 
 `run` 段做 `npm install` + `playwright install chromium`（首次约 280 MB）再跑 R1–R7，
@@ -92,7 +92,7 @@ JUnit 落 `artifacts/reports/tests/wasm/junit.xml`。
 sudo xcodebuild -license accept && xcode-select --install
 xcode-select -p                    # 应输出 .../Xcode.app/Contents/Developer
 ./xtask deps install --os ios      # aarch64-apple-ios{,-sim} + aarch64-apple-darwin
-./xtask test platform ios
+./xtask test app ios
 ```
 
 `build` 段串接三个 target 的 `cargo build` + `xcodebuild -create-xcframework`，产出
@@ -139,7 +139,7 @@ cargo install cargo-ndk
 
 ./xtask deps install --os android   # SDK + NDK → artifacts/tools/android-sdk，不污染系统
 eval "$(./xtask deps env)"          # 导出 ANDROID_NDK_HOME 等
-./xtask test platform android
+./xtask test app android
 ```
 
 32 位 ABI（armv7 / x86）不在支持面内。SDK / NDK 的版本由 `versions.toml` `[build.android]`
@@ -194,7 +194,7 @@ Z42VM(zpkgResolver = AssetZpkgResolver(assets)).use { vm ->
 
 ## 4. desktop
 
-`test platform desktop` 走同一套三段接口，跑的是 Tier-1 C ABI 的 R1–R7：用
+`test app desktop` 走同一套三段接口，跑的是 Tier-1 C ABI 的 R1–R7：用
 `native/include/` 的两个头 + `libz42` 编一个 C 宿主，加载 `.zbc` 执行。它是三个移动/浏览器
 平台的**对照组**——同一组契约在没有沙箱限制的 host 上应当全过。
 

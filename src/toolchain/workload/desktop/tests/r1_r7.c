@@ -3,7 +3,7 @@
  * The desktop peer of the wasm Playwright / iOS XCTest / Android JUnit R1–R7
  * suites: a real external C consumer links libz42.a and exercises the same
  * 7 embedding-contract scenarios. Driven by DesktopBackend
- * (scripts/xtask_test_desktop.z42) via `z42 xtask.zpkg test platform desktop`.
+ * (scripts/xtask_test_desktop.z42) via `z42 xtask.zpkg test app desktop`.
  *
  * Usage:   r1_r7 <hello.zbc> <multi_line.zbc> <libs_dir>
  * Output:  one `[Rn] PASS` / `[Rn] FAIL: <msg>` line per scenario.

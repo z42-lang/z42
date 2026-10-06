@@ -34,9 +34,20 @@ int _runCli(string[] argvIn) {
     string c0 = argv.Length > 0 ? argv[0] : "";
     string c1 = argv.Length > 1 ? argv[1] : "";
 
-    // default-action shim: `test` (empty / leading non-help flag) → full gate.
+    // default-action shim: `test` (empty / leading non-help flag) → full GREEN gate. SubcommandRouter has no
+    // default action, so the gate's own flags are parsed here (previously they were silently dropped here, which
+    // is why CI had to spell `test --no-build`).
     if (c0 == "test" && (c1 == "" || (_isFlag(c1) && !_isHelpFlag(c1)))) {
-        return _testAll(false, "");
+        ArgParser gate = new ArgParser("xtask test", "full GREEN gate");
+        gate.AddFlag("no-build", "", "skip z42c+stdlib rebuild — consume what the bootstrap/toolchain already built");
+        gate.AddOption("skip", "", "skip named stages (csv; see test-gate.md §5) — CI offloads stages to parallel jobs", "");
+        try {
+            ParseResult gr = gate.Parse(_sliceFrom(argv, 1));
+            return _testAll(gr.GetFlag("no-build"), gr.GetOption("skip"));
+        } catch (CliException e) {
+            ConsoleError.WriteLine("xtask: " + e.Message);
+            return 2;
+        }
     }
     // default-action shim: `bench` (anything but the `stdlib`/`targets` subcommands) → e2e.
     if (c0 == "bench" && c1 != "stdlib" && c1 != "targets") {
@@ -168,7 +179,8 @@ SubcommandRouter _cliRoot() {
     root.AddRouter("package", "assemble release packages (sdk / runtime / workload / index)", _packageRouter());
 
 
-    root.AddRouter("test", "run tests", _testRouter());
+    root.AddRouter("test", "run tests (no subcommand = full GREEN gate)", _testRouter());
+    root.Add("check", "static checks — no build, no test run (lines / walkers / diagcodes / layout …; no name = all)", _checkParser());
     root.AddRouter("deps", "toolchain deps", _depsRouter());
     root.AddRouter("bench", "benchmarks (no subcommand = e2e; see `bench -h`)", _benchRouter());
 
@@ -212,6 +224,7 @@ int _dispatch(CommandResolution res) {
     if (top == "build")          { return _dispatchBuild(p, r); }
     if (top == "package")        { return _dispatchPackage(p, r); }
     if (top == "test")           { return _dispatchTest(p, r); }
+    if (top == "check")          { return _check(r); }
     if (top == "deps")           { return _dispatchDeps(p, r); }
     if (top == "bench")          { return _dispatchBench(p, r); }
     if (top == "profile")        { return _profile(r); }

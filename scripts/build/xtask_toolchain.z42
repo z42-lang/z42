@@ -131,7 +131,7 @@ string _z42bToml() { return "src/toolchain/builder/core/z42.builder.z42.toml"; }
 // 为什么参数化而不是让本函数自己解析：四个调用点的 vm/driver/libs 来源**各不相同**——
 //   test stdlib   ：支持 `--toolchain` override（ovVm/ovDriver/ovLibs）
 //   test compiler ：按 profile 取（_driverZpkg(root, profile)）
-//   test targets  ：固定 release
+//   test toolchain builder（manifest 目标夹具）：固定 release
 //   stage-toolchain：release + `_toolchainCompileLibs`
 // **能统一的只有「怎么编 + 怎么校验」，输入不能统一** —— 强行统一就会把 override / profile 语义弄丢。
 // 工具链程序（launcher / z42b / z42d / z42i / workload libs）的**编译期解析面**。

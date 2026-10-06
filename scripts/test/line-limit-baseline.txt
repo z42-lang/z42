@@ -1,4 +1,4 @@
-# line-limit ratchet baseline (xtask test lines --update): path<TAB>lines; hard limit 886
+# line-limit ratchet baseline (xtask check lines --update): path<TAB>lines; hard limit 886
 src/libraries/z42.crypto/src/Aes.z42	1094
 src/libraries/z42.net/src/Http/HttpClient.z42	1411
 src/libraries/z42.numerics/src/BigInt.z42	1498

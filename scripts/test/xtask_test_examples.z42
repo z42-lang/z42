@@ -1,4 +1,4 @@
-// xtask — `test examples`：学习手册配套示例的门禁（GREEN stage「examples」）。
+// xtask — `test docs examples`：学习手册配套示例的门禁（GREEN stage「examples」）。
 //
 // 两步：① 书 ↔ examples 引用校验（xtask_examples_book.z42，不需要 SDK）；
 //      ② 用当前源码构建的 SDK 里真实的 `z42` 重放每个 `examples/**/*.console`（xtask_examples_run.z42）。
@@ -56,7 +56,7 @@ int _testExamples(ExamplesOptions o) {
     }
     if (failed > 0) {
         ConsoleError.WriteLine("  ❌ examples: " + failed.ToString() + " of " + consoles.Length.ToString() + " transcript(s) failed");
-        ConsoleError.WriteLine("     update the expected output with: xtask test examples <path> --bless");
+        ConsoleError.WriteLine("     update the expected output with: xtask test docs examples <path> --bless");
         return 1;
     }
     Console.WriteLine("  ✅ examples: " + consoles.Length.ToString() + " transcript(s), " + steps.ToString() + " step(s)"

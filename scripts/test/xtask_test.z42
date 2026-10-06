@@ -346,7 +346,7 @@ int _testGcModes() {
 
 // ── cross-zpkg harness (invoked by `test e2e`) ──────────────────────────────
 
-// noBuild=true: skip the debug-vm/stdlib/z42c rebuild — `test all` already prepared
+// noBuild=true: skip the debug-vm/stdlib/z42c rebuild — `test` already prepared
 // them in its build wave (z42c was being self-built a 2nd time here). `test e2e`
 // passes noBuild per its --no-rebuild/--no-build flags (or true after a golden run).
 // cross-zpkg 与 multi-exe 两个 fixture harness 的**共用**构建前置：确保 debug z42vm
@@ -377,15 +377,15 @@ int _testCrossZpkgCore(string mode, bool noBuild) {
     return _testCrossZpkgImpl(mode);
 }
 
-// ── test dist (packaged-distribution e2e) ────────────────────────────────────
+// ── package verify (packaged-distribution e2e) ────────────────────────────────────
 
-// `test dist [interp|jit]` — native port of the former scripts/test-dist.sh.
+// `package verify [interp|jit]` — native port of the former scripts/test-dist.sh.
 // Ensure a host release package exists, then run the in-process dist e2e
 // (_testDistRun, xtask_test_dist.z42) which drives the PACKAGED z42c/z42vm
 // against the goldens + a launcher smoke — no separate compile + zpkg spawn.
 // Not in the default GREEN gate (run on demand).
 int _testDist(ParseResult r) {
-    Stopwatch sw = _procStart("test dist");
+    Stopwatch sw = _procStart("package verify");
     string root = _root();
     // Ensure a host release package exists — its internal build (_packageDesktop)
     // produces z42c + z42vm + stdlib itself. _testDistRun consumes ONLY the package
@@ -396,7 +396,7 @@ int _testDist(ParseResult r) {
         int c = _buildPackageCore("release", "", "", false); if (c != 0) { return c; }
     }
     int __rc = _testDistRun(r.GetPositional(0));
-    if (__rc == 0) { _procEnd("test dist", sw); }
+    if (__rc == 0) { _procEnd("package verify", sw); }
     return __rc;
 }
 
@@ -427,14 +427,14 @@ string _latestReleasePkg(string root) {
     return best;
 }
 
-// ── test all (unified GREEN gate) ───────────────────────────────────────────
+// ── xtask test (unified GREEN gate) ───────────────────────────────────────────
 
 // `test` (no target) — the full GREEN gate, sequential: build once, then run
 // compiler + VM goldens + cross-zpkg + stdlib, short-circuiting on first
 // failure. Mirrors the former scripts/test-all.sh's stage set (the --parallel wave +
 // --scope auto-narrow optimizations are a later increment).
 // True if the comma/space-separated `skip` list names `stage`. Lets CI decompose
-// the monolithic gate: test-host legs run `test all --skip stdlib,cross-zpkg` while
+// the monolithic gate: test-host legs run `test --skip stdlib,cross-zpkg` while
 // dedicated parallel jobs (stdlib-interp shards / cross-zpkg-interp) cover those
 // stages — cutting the per-leg critical path. Local `xtask test` passes skip="" →
 // full gate, unchanged.
@@ -453,7 +453,7 @@ bool _skipHas(string skip, string stage) {
 // 还是烂了：multi-exe（unify-run-modes P3）、manifest targets（add-tests-bench-manifest-
 // config P4）、examples（设计 D4）三次加 stage 都没同步该页，文档停在 6 个而 gate 实跑 9 个。
 // **纯纪律守不住一份没有测试盯着的清单**（同 format-fixture 那次的教训），所以把「gate 跑
-// 哪些 stage」变成数据 + 开跑前与文档对账。形态照 `test vscode-syntax`（生成产物 ↔ 源表）。
+// 哪些 stage」变成数据 + 开跑前与文档对账。形态照 `check vscode-syntax`（生成产物 ↔ 源表）。
 //
 // 加/删/改名一个 stage 的正确姿势：改 _gateStageNames() + test-gate.md 的
 // gate-stages 区，两处一致才绿；只改一处 → 本门变红并打印差异。
@@ -565,7 +565,7 @@ int _testAll(bool noBuild, string skip) {
     // --no-build is passed (the CI bootstrap step already built the canonical
     // z42c+stdlib). In both cases only regen the goldens (the bootstrap doesn't
     // produce them); the stages below already run --no-build. This removes the CI
-    // build-wave redundancy (~12-15 min/leg) — `xtask test all` locally still does
+    // build-wave redundancy (~12-15 min/leg) — `xtask test` locally still does
     // the full build by default (noBuild=false).
     bool haveTc = _toolchainDir(_root()).Length > 0;
     // Build the debug z42vm + compression cdylib BEFORE regen. golden regen
@@ -631,7 +631,7 @@ int _testAll(bool noBuild, string skip) {
     // 又多是 host 相关（REPL 终端键位），就留在每条 host 腿上跑。
     if (!_skipHas(skip, "toolchain")) {
         swStage = _stageStart("toolchain [Test]");
-        c = _testToolchainCore("", true, ""); if (c != 0) { return c; }
+        c = _testToolchainCore("", true, "", false); if (c != 0) { return c; }
         _stageEnd(slog, "toolchain [Test]", swStage);
     }
     // stage 4a2: stdlib [Benchmark] —— 只验**语料能不能跑**，不看快慢。

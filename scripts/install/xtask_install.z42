@@ -11,7 +11,7 @@
 //     wasm    = rust targets + wasm-pack + hermetic node（wasm 测试面必备）
 //   用到才装 — 重型/兜底依赖，消费步骤检测缺失后自动装，零命令面：
 //     android emulator tier（emulator + system-image + AVD + Gradle，~4GB）
-//       → `test platform android run`（AndroidBackend.RunTests）自动装
+//       → `test app android run`（AndroidBackend.RunTests）自动装
 //     node 兜底 → wasm RunTests hermetic+PATH 均缺时自动装
 //
 // 只读校验（presence + drift）统一在 `deps check`（xtask_deps.z42）；
@@ -65,7 +65,7 @@ int _depsInstall(ParseResult r) {
         if (platform == "android") {
             Console.WriteLine("   For ANDROID_NDK_HOME export, run:");
             Console.WriteLine("     eval \"$(xtask deps env)\"");
-            Console.WriteLine("   Android emulator tier (instrumentation tests) auto-installs on `test platform android run`.");
+            Console.WriteLine("   Android emulator tier (instrumentation tests) auto-installs on `test app android run`.");
         }
     }
     return rc;

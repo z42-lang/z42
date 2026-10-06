@@ -145,9 +145,9 @@ pub trait ZpkgResolver: Send + Sync {
 
 | 平台 | 产物 | 构建命令 |
 |------|------|--------------|
-| iOS | `Z42VM.xcframework`（含 ios-arm64 + ios-arm64_x86_64-simulator slices） | `./xtask test platform ios build`（IosBackend）|
-| Android | `z42vm-<version>.aar`（含 arm64-v8a / x86_64 jniLibs；32-bit ABI 已退场） | `./xtask test platform android build`（AndroidBackend）|
-| WASM | npm package（`pkg-web/` + `pkg-nodejs/`） | `./xtask test platform wasm build`（WasmBackend）|
+| iOS | `Z42VM.xcframework`（含 ios-arm64 + ios-arm64_x86_64-simulator slices） | `./xtask test app ios build`（IosBackend）|
+| Android | `z42vm-<version>.aar`（含 arm64-v8a / x86_64 jniLibs；32-bit ABI 已退场） | `./xtask test app android build`（AndroidBackend）|
+| WASM | npm package（`pkg-web/` + `pkg-nodejs/`） | `./xtask test app wasm build`（WasmBackend）|
 
 > 构建逻辑已从各 `build.sh` 迁入 `scripts/xtask_test_{ios,android,wasm,desktop}.z42` 的 `IPlatformBackend` 后端（统一三阶段管线）。Android 的 `test.sh`（emulator 编排）暂留，由 `AndroidBackend.RunTests` 桥接。
 
@@ -216,4 +216,4 @@ zpkg 文件本身**由 `dotnet build src/compiler/z42.slnx` 编译标准库产�
 - xcframework / AAR / npm 发布流程 → 各平台 spec
 - Demo app 设计 → 各平台 spec
 - 测试体系（XCTest / JUnit / playwright）→ 各平台 spec
-- 桌面 hello_c desktop build + R1–R7 端到端 → 已落地为 `desktop` 平台后端（`./xtask test platform desktop`；R1–R7 共用夹具在 `src/toolchain/workload/fixtures/`）
+- 桌面 hello_c desktop build + R1–R7 端到端 → 已落地为 `desktop` 平台后端（`./xtask test app desktop`；R1–R7 共用夹具在 `src/toolchain/workload/fixtures/`）

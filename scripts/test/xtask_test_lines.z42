@@ -1,4 +1,4 @@
-// xtask — `test lines` gate stage（add-line-count-lint，三面评审 L-10 / C-10 文本结构阶段）。
+// xtask — `check lines` gate stage（add-line-count-lint，三面评审 L-10 / C-10 文本结构阶段）。
 // 文件行数 lint：src/ 下非测试 .z42 / .rs 文件（code-organization.md）。
 //   > 886 行（硬限）→ 越界，走下面的棘轮判定（新越界/继续膨胀 = 红）
 //   > 500 行（软限）→ 只 warn，不参与棘轮、永不变红
@@ -17,9 +17,9 @@ int _lineLimitHard() { return 886; }
 // （同 format-fixture 那次）。这里给它一个最弱的牙：出 warn，不进棘轮、不阻断。
 int _lineLimitSoft() { return 500; }
 
-// `xtask test lines [--update]`
+// `xtask check lines [--update]`
 int _testLines(bool update) {
-    Stopwatch sw = _procStart("test lines");
+    Stopwatch sw = _procStart("check lines");
     string root = _root();
     string basePath = Path.Join(root, "scripts/test/line-limit-baseline.txt");
     string[] files = _lineLintFiles(root);
@@ -43,7 +43,7 @@ int _testLines(bool update) {
     if (update) {
         _writeLineBaseline(basePath, over, overN, oc);
         Console.WriteLine("  ✓ baseline rewritten: " + oc.ToString() + " file(s) over " + _lineLimitHard().ToString() + " lines");
-        _procEnd("test lines", sw);
+        _procEnd("check lines", sw);
         return 0;
     }
     string[] bPath = new string[64]; int[] bN = new int[64];
@@ -82,7 +82,7 @@ int _testLines(bool update) {
     i = 0;
     while (i < bc) {
         if (_indexOfStr(over, oc, bPath[i]) < 0) {
-            Console.WriteLine("  ℹ " + bPath[i] + " is no longer over the limit — run `xtask test lines --update` to drop it from the baseline");
+            Console.WriteLine("  ℹ " + bPath[i] + " is no longer over the limit — run `xtask check lines --update` to drop it from the baseline");
         }
         i = i + 1;
     }
@@ -90,7 +90,7 @@ int _testLines(bool update) {
         + " lines (" + warns.ToString() + " known, " + fails.ToString() + " new/grown)");
     if (fails > 0) { return 1; }
     Console.WriteLine("  ✓ no new or grown over-limit files");
-    _procEnd("test lines", sw);
+    _procEnd("check lines", sw);
     return 0;
 }
 
@@ -176,7 +176,7 @@ int _readLineBaseline(string path, string[] outPath, int[] outN) {
 }
 
 void _writeLineBaseline(string path, string[] a, int[] n, int c) {
-    string s = "# line-limit ratchet baseline (xtask test lines --update): path<TAB>lines; hard limit " + _lineLimitHard().ToString() + "\n";
+    string s = "# line-limit ratchet baseline (xtask check lines --update): path<TAB>lines; hard limit " + _lineLimitHard().ToString() + "\n";
     int i = 0;
     while (i < c) { s = s + a[i] + "\t" + n[i].ToString() + "\n"; i = i + 1; }
     File.WriteAllTextAtomic(path, s);

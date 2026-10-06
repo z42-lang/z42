@@ -1,7 +1,7 @@
 # workload/desktop — 桌面平台（apphost stub + Tier-1 C ABI 测试）
 
 > 与 [`../wasm`](../wasm/) / [`../ios`](../ios/) /
-> [`../android`](../android/) 平级：desktop 作为统一 `test platform` 框架的第 4 个平台。
+> [`../android`](../android/) 平级：desktop 作为统一 `test app` 框架的第 4 个平台。
 
 ## 职责
 
@@ -16,9 +16,9 @@ facade **同一套 7 场景**。覆盖桌面 C-ABI 这条路径的「链接 libz
 ## 如何测试验证
 
 ```bash
-./xtask test platform desktop          # ①libz42.a ②fixtures ③cc+跑+junit
-./xtask test platform desktop build    # 只 ① cargo rustc staticlib
-./xtask test platform desktop run      # 只 ③ cc r1_r7.c + 跑
+./xtask test app desktop          # ①libz42.a ②fixtures ③cc+跑+junit
+./xtask test app desktop build    # 只 ① cargo rustc staticlib
+./xtask test app desktop run      # 只 ③ cc r1_r7.c + 跑
 ```
 
 后端实现 [`scripts/test/xtask_test_desktop.z42`](../../../../scripts/test/xtask_test_desktop.z42)

@@ -78,9 +78,9 @@ src/compiler/z42c.semantics/src/  ← 第 4 层 ✗ 不自动加 README
 
 ### 执行方式
 
-- **机械门禁**：`xtask test lines` 是 GREEN gate 的一个 stage——扫 `src/` 下非测试
+- **机械门禁**：`xtask check lines` 是 GREEN gate 的一个 stage——扫 `src/` 下非测试
   `.z42` / `.rs` 文件，**新的越界文件（>886 行）或比 `scripts/test/line-limit-baseline.txt` 基线更长的已知越界文件 → 红**；软限（>500 行）只出一条 advisory 提示、不进棘轮、永不变红；
-  基线内未增长的只 warn。基线是**棘轮**：拆分后降到上限以下 → `xtask test lines --update` 剔除；禁止用 `--update` 把新越界 /
+  基线内未增长的只 warn。基线是**棘轮**：拆分后降到上限以下 → `xtask check lines --update` 剔除；禁止用 `--update` 把新越界 /
   增长写进基线（那等于关掉门禁）。
 - Claude 每次新增代码时，**主动检查**所在文件是否超出软限制
 - 超出软限制时，**建议**拆分方案但不强制打断当前任务

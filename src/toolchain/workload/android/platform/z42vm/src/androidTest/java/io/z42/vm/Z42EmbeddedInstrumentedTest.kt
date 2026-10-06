@@ -7,7 +7,7 @@
 // the test apk's assets to cacheDir, referenced by path, and the report read
 // back.
 //
-// Assets (produced by `xtask test embedded --platform android`, exposed via the
+// Assets (produced by `xtask test app desktop --platform android`, exposed via the
 // test Context.assets):
 //   embedded/app/z42.testagent.zpkg
 //   embedded/libs/*.zpkg

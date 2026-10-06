@@ -57,7 +57,7 @@
 | `user-conversions/` | 用户定义 `implicit` / `explicit` 转换 |
 | `strings/` | **语言侧**的字符串字面量：raw string `"""…"""` / 插值 / 拼接。String 的**库行为**（Length·Trim·Split·Join·Format…）归 [z42.core](../libraries/z42.core/tests/string_methods.z42) |
 
-> **仓库根 `examples/`** 不是测试语料：它是学习手册的配套工程，由 `./xtask test examples`
+> **仓库根 `examples/`** 不是测试语料：它是学习手册的配套工程，由 `./xtask test docs examples`
 > 按会话脚本逐条运行校验（见 [test-gate](https://github.com/z42-lang/z42/blob/main/docs/internals/src/devinfra/test-gate.md)）。
 > 语言 / VM 特性的覆盖一律写在本目录。
 
@@ -108,7 +108,7 @@
 
 **先判归属**：用例该不该放这里、不放这里该放哪，以
 [测试用例组织规范](https://github.com/z42-lang/z42/blob/main/docs/internals/src/devinfra/test-layout.md) 为准（唯一权威）。
-本目录只收语言 / VM 特性；**新增类别要登记**进该页的「语言类别」清单，否则 `./xtask test layout` 判红。
+本目录只收语言 / VM 特性；**新增类别要登记**进该页的「语言类别」清单，否则 `./xtask check layout` 判红。
 
 确定放这里之后：
 - 用 `Console.WriteLine` 测打印行为 / 需要 sidecar → `src/tests/<category>/<name>/source.z42` + sidecars（dir 模式）
@@ -125,4 +125,4 @@ runner 怎么发现、执行用例见 [测试框架与 runner](https://github.co
 ./xtask test compiler             # z42c 自举 + 编译器 [Test] 单测（含期望报错的负例）
 ```
 
-或一把跑全 GREEN：`./xtask test all`。
+或一把跑全 GREEN：`./xtask test`。

@@ -228,7 +228,7 @@ int _testPkgsCore(string kind, string suite, string[] dirs, string[] names, bool
     int libsTested = 0;
     // parallelize-and-jit-stdlib-tests A: `jobs` now means unit-level batch
     // width (how many units compile+run concurrently), not the runner's
-    // within-unit --jobs. Default 1 = serial. `test all` passes 4.
+    // within-unit --jobs. Default 1 = serial. `test` passes 4.
     int jobsN = 1;
     try { jobsN = int.Parse(jobs); } catch (Exception e) { jobsN = 1; }
     if (jobsN < 1) { jobsN = 1; }

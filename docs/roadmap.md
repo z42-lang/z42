@@ -389,7 +389,7 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 | 委托形参默认值生效（honor-delegate-param-defaults）| `delegate void D(int a, int b = 5)` 声明能过、零诊断，`d(1)` 运行期得 `b=null` 而非 5 ⇒ 默认值被**静默忽略**；而**局部函数同形状报 E1005**，两条路口径不一致。add-delegate-invoke-syntax 的 arity 校验已让这种调用报 E1005（静默错值 → 编译错误）；真要让默认值生效需把 `ParamDefaults` 接到间接调用的实参补齐路上。摸底：全仓 81 个 delegate 声明里带默认值的 **0 个** | 同上 |
 | 委托类型支持 `params`（support-params-in-delegate-types）| `delegate void P(params int[] xs); P p = Impl; p(1,2,3)` 报 `E0402: cannot assign int to Int32[]` ⇒ 调用点**不做 params 展开**，且 `ParamsFrom` 不随 delegate 声明填充（于是 `_checkFuncValueArity` 的 params 守卫对它不生效，会多报一条 E1006）。**非回归**：种子编译器实测改动前就编不过。⚠️ 另记：**lambda 形参不支持数组类型**（`(int[] xs) => …` 报 E0202 系列） | 同上 |
 | cached 文件的警告重放（replay-cached-file-warnings）| 增量构建里 cached 文件的 `DiagMsgs` 被整体清空（per-file 并行体的 cached 分支）⇒ **warning 静默消失**；带 error 的构建不落 cache，所以只丢 warning。与 `fix-incremental-file-scope-diagnostics` 修的 E0436 同一处代码、另一半后果 | — |
-| 增量门禁加 using 变异算子（incremental-gate-using-mutation）| `xtask test incremental` 的三个变异算子（追加注释 / 追加自由函数 / 删 dist）都不改 `using` 集合，判据又只比 dist 字节（诊断被 `Stdio.Null()` 丢掉），三份语料还都没有 `global using` ⇒ **结构性照不到「增量下诊断丢失」这一类**。要抓得加「删/加一行 `using` / `global using`」的算子 + 让判据也比诊断 + 语料里放一个 `global using` | 同上「为什么照不到」段 |
+| 增量门禁加 using 变异算子（incremental-gate-using-mutation）| `xtask test compiler incremental` 的三个变异算子（追加注释 / 追加自由函数 / 删 dist）都不改 `using` 集合，判据又只比 dist 字节（诊断被 `Stdio.Null()` 丢掉），三份语料还都没有 `global using` ⇒ **结构性照不到「增量下诊断丢失」这一类**。要抓得加「删/加一行 `using` / `global using`」的算子 + 让判据也比诊断 + 语料里放一个 `global using` | 同上「为什么照不到」段 |
 | 包内 global using 集纳入缓存身份（incr-global-using-cache-identity）| `global using` 变化会改变**未修改文件**的名字解析（短名可能解析到另一个包），那些文件的 cached zbc 字节因此可能已过期 —— `fix-incremental-file-scope-diagnostics` 只把诊断补回来，补不了这个。正解＝把包内 `global using` 集并进包级缓存身份（照抄 `depsId` 的 `\|opt` / `\|syn:` 范式）或在 parse 后比对并整包标 Fresh；需 `MetaVersion` bump（仅 z42c 内部 meta，不涉及 zbc/zpkg） | 同上 |
 | 协议方法一等重载（protocol-overload-first-class）| 对象协议方法（`Equals`/`ToString`/`GetHashCode`/`GetType`/索引器）恒裸名注册（VM/DepIndex 裸名 vtable 单槽派发）→ 同名重载 RegKey 塌缩、只一个可派发，无法承载「行为发散」的协议重载（`Std.String` 两 `Equals` 同 native 故可用）。正解=C# 模型：解耦运行时规范协议槽 vs 调用点完整重载集（VM+编译器工程，可能连带 vtable/DepIndex/格式）。触发：出现真实发散用例（罕见，契约本要求 Equals(object)/Equals(T) 一致）。暴露于 fix-partial-protocol-overload-e0433 | [book: source-compile.md](internals/src/compiler/source-compile.md) Deferred 段 |
 | TLAB slot 级复用（gc-tlab-slot-reuse）| chunk 独占 TLAB 绕过 region slot 级 free_list；partial-live chunk 的零散死槽暂不被 TLAB 复用（chunk 级回收已做）。触发：live set 稳定但堆随 GC 轮次单调涨 → per-thread free-slot cache | [book: GC TLAB](internals/src/runtime/gc-tlab.md) Deferred 段 |
@@ -547,7 +547,7 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 | 方向 | 描述 | 触发条件 |
 |------|------|---------|
 | `infra-slim-git-history` | **真正的克隆成本在历史**：`.git` ≈ 604 MB 而 HEAD 跟踪内容仅 ~25 MB → 历史含曾提交又删的大二进制（旧 zpkg/artifacts blob）。用 `git filter-repo` 清历史大 blob（预计降到几十 MB）+ 收紧 `.gitignore`（如 `examples/*.zbc/.zlib/.zmod` 类构建产物；注：`src/toolchain/host/examples/` 重复树连带其 466MB cargo target cruft 已于 dedup-examples 删除）。**与拆库正交,收益最大。** | clone 成本成痛点时 |
-| `infra-extract-user-docs` | 本仓收敛为「核心（编译器/VM）+ 测试流程」仓；**仅外迁纯用户面 docs**（语言教程/指南/官网内容）到独立 `z42-docs`/官网仓。**现状（2026-09-15 User 裁决）**：学习手册 `docs/learn/` 与其配套 `examples/` 先在本仓起步、由 `xtask test examples` 绑定校验；外迁时两者须一起走，并带走该门禁。**留仓不外迁**（它们是开发/测试流程本体）：`docs/internals/`（实现内幕 + 开发基础设施）。注意：拆当前文件到新仓**不会**缩小本仓 `.git`，须配合 `infra-slim-git-history`。 | 用户面文档成规模时 |
+| `infra-extract-user-docs` | 本仓收敛为「核心（编译器/VM）+ 测试流程」仓；**仅外迁纯用户面 docs**（语言教程/指南/官网内容）到独立 `z42-docs`/官网仓。**现状（2026-09-15 User 裁决）**：学习手册 `docs/learn/` 与其配套 `examples/` 先在本仓起步、由 `xtask test docs examples` 绑定校验；外迁时两者须一起走，并带走该门禁。**留仓不外迁**（它们是开发/测试流程本体）：`docs/internals/`（实现内幕 + 开发基础设施）。注意：拆当前文件到新仓**不会**缩小本仓 `.git`，须配合 `infra-slim-git-history`。 | 用户面文档成规模时 |
 
 ### 未排期心愿单（2026-09-26 并入，源 `docs/todo-list.md`，该文件同日删除）
 
@@ -562,7 +562,7 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 | `zaia` | todo#15，User 只留了名字、尚无定义 | 待 User 补充意图 |
 | `triage-test-corpus-by-tier` | 测试语料按「runtime / 运行模式（interp·JIT）/ 层级」分档，toolchain 档全在 host 平台 ⇒ 削掉 CI 里不必要的流程。todo#16 —— 与 [test-gate.md](internals/src/devinfra/test-gate.md) 的 stage 分档、`xtask test --skip` 的 per-leg 卸载部分重叠，本条是「把分档变成语料属性而非 CI 参数」 | CI 关键路径再成瓶颈时 |
 
-> todo#14（examples 配合 book 重整）已大部分落地：`docs/learn/` + `examples/` 由 `xtask test examples` 绑定校验；余下「配合 playground」并入 in-flight `add-z42-wasm-playground`。
+> todo#14（examples 配合 book 重整）已大部分落地：`docs/learn/` + `examples/` 由 `xtask test docs examples` 绑定校验；余下「配合 playground」并入 in-flight `add-z42-wasm-playground`。
 
 ### 平台测试 CI / 后续（add-platform-test-pipeline 之后）
 
@@ -572,14 +572,14 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 > `workload/test/`（取消独立 testhost 目录）。**②a（2026-08-29 PR #331）**：`z42b test <toml>`
 > compile-then-test。**②b（wire-z42b-embedded-test，2026-08-29）**：`z42b test <manifest> --rid host`
 > in-process 跑 bundle（共享核 `Std.Test.BundleRunner`，agent 与 z42b 共用）+ `--rid <device>` 组装
-> `{app,libs,bundle}` deployable；`xtask test embedded` 委托 z42b。机制 SoT =
+> `{app,libs,bundle}` deployable；`xtask test app desktop` 委托 z42b。机制 SoT =
 > [test-pipeline.md](internals/src/devinfra/test-pipeline.md)。剩余：
 
 | 方向 | 描述 | 触发 |
 |------|------|------|
 | ~~`package-test-workload`~~ ✅ | **Change C（已落地，2026-08-29）**：test workload 打包发布（payload-only，复用 `kind=workload-tooling` + 新 `[contents.payload]`，design D6；不进 packages.toml、无 merge）+ `workload install` 描述泛化为「平台 tooling 或能力」。CI 在 macos-arm64 单 host 建 + 归档 + 纳入 index。| — |
 | ~~`z42b-test-take-over-device-run`~~ ✅ | **②b Slice 3（已落地，2026-08-30）**：`z42b-device-run` — z42b 接管设备端 build+deploy+**实际 RUN**（wasm PR-1 #338 / ios PR-2 #339 / android PR-3 #340；驱动 Playwright / xcodebuild-sim / gradle）+ PR-4 test-agent 从 z42b 自己 SDK 解析已装 `test` workload（删 in-tree `--agent`）。| — |
-| `infra-ci-platform-test-dashboard` | CI job 跑 wasm(ubuntu+Playwright) / iOS(macos runner + Simulator `xcodebuild test`) / Android(`reactivecircus/android-emulator-runner` + KVM) 三平台 `test platform`，各产 JUnit → **GitHub Checks**（test-reporter action）聚合成 PR check runs = 跨平台测试 dashboard。GitHub 即远程同步层，无需自建服务 | 下一步（User 2026-06-16 要求）|
+| `infra-ci-platform-test-dashboard` | CI job 跑 wasm(ubuntu+Playwright) / iOS(macos runner + Simulator `xcodebuild test`) / Android(`reactivecircus/android-emulator-runner` + KVM) 三平台 `test app`，各产 JUnit → **GitHub Checks**（test-reporter action）聚合成 PR check runs = 跨平台测试 dashboard。GitHub 即远程同步层，无需自建服务 | 下一步（User 2026-06-16 要求）|
 | `port-android-emulator-run-to-z42` | AndroidBackend.RunTests 当前桥接 `test.sh`（emulator AVD boot/poll/kill）；完整 z42 化 + JUnit 转换 | CI 稳定后 |
 | `ios-simulator-test` | IosBackend.RunTests 当前 `swift test`（macOS host slice）；加 iOS Simulator `xcodebuild test -destination` 执行 + JUnit | CI 接入时 |
 | `retire-platform-build-test-sh` | 三平台 z42 管线 CI-proven 后，删 `platforms/*/{build,test}.sh`（migrate-scripts-to-z42 节奏）| CI-proven 后 |

@@ -1,6 +1,6 @@
 // SymbolTable 的「名字来源 / 歧义 / 跨包重名」那一簇（split-symbol-origins，从 SymbolTable.z42 拆出）。
 //
-// 为什么单独成文件：`SymbolTable.z42` 已经顶到 886 行硬限（`xtask test lines` 判红过一次），
+// 为什么单独成文件：`SymbolTable.z42` 已经顶到 886 行硬限（`xtask check lines` 判红过一次），
 // 而这一簇在职责上本来就自成一块 —— 它回答的全是同一个问题族：
 //
 //   「这个名字是**谁**声明的？有几份？其中哪些在本 CU 可见？该报哪条诊断？」

@@ -21,7 +21,7 @@
 | job（显示名） | 何时跑 | 职责 |
 |------|------|------|
 | `changes`（detect-changes） | 总是 | 按路径过滤出 platform / examples / compiler / vm / stdlib / docs_only，给下游 `if:` 用 |
-| `docs-check` | 仅文档改动 | `xtask test docs` 死链门禁 |
+| `docs-check` | 仅文档改动 | `xtask test docs links` 死链门禁 + `xtask check diagcodes` |
 | `build-and-test`（test-host） | 非纯文档 | 多平台 `xtask build` + `xtask test` |
 | `host-package`（package-host） | platform / examples 改动或非 PR | 各 host RID 的 package 产物 |
 | `toolchain-bootstrap`（compile-toolchain） | 非纯文档 | 编译 toolchain（z42c / stdlib / xtask zpkg）供下游 job 消费 |
@@ -43,7 +43,7 @@
 
 ## 如何测试验证
 
-CI 只能在 GitHub 上跑；本地对应的门禁是 `xtask test docs`（文档）与 `xtask test`（全量）。改动 workflow 后以 PR 上 `ci-ok` 为绿为准。
+CI 只能在 GitHub 上跑；本地对应的门禁是 `xtask test docs links`（文档）与 `xtask test`（全量）。改动 workflow 后以 PR 上 `ci-ok` 为绿为准。
 
 ## 关联文档
 

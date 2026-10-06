@@ -63,7 +63,7 @@ impl LazyCompiler {
         //
         // 它检查的是**我们生成的 CLIF 是否格式良好**，属于翻译层的自检，不是运行期安全网。
         // 所以按 `debug_assertions` 门控：debug 构建继续验（写翻译层时立刻报错），release
-        // 关掉。真出翻译 bug 时，release 侧由产物逐字节门 + self-host 不动点 + `test all` 兜。
+        // 关掉。真出翻译 bug 时，release 侧由产物逐字节门 + self-host 不动点 + `test` 兜。
         use cranelift_codegen::settings::Configurable as _;
         let mut flags = cranelift_codegen::settings::builder();
         flags.set("enable_verifier", if cfg!(debug_assertions) { "true" } else { "false" })

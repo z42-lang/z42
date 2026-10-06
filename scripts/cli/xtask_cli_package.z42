@@ -57,6 +57,14 @@ SubcommandRouter _packageRouter() {
     fin.AddOption("version", "", "version (default: <LABEL>)", "");
     pkg.Add("finalize", "merge desktop workloads, write SHA256SUMS + release-index.json", fin);
 
+    // 打包自己的验证：check = packages.toml 的解析 / 暂存 / 组装自检（不需要包）；verify = 拿打包出的发行版
+    // （bin/z42c、bin/z42vm、libs/、launcher）跑 golden + launcher smoke + desktop publish（没有 release 包先打一个）。
+    pkg.Add("check", "packages.toml self-checks (parse + staging + assembly; no package needed)",
+        new ArgParser("xtask package check", "packages.toml parse + staging + assembly self-checks"));
+    ArgParser verify = new ArgParser("xtask package verify", "drive the PACKAGED distribution: goldens + launcher smoke + desktop publish");
+    verify.AddOptionalPositional("mode", "interp|jit (default: both)");
+    pkg.Add("verify", "end-to-end check of the packaged distribution (packs a host release package first if none)", verify);
+
     return pkg;
 }
 
@@ -85,6 +93,8 @@ int _dispatchPackage(string[] p, ParseResult r) {
         return _releaseFinalize(r.GetPositional(0), r.GetOption("dir"), r.GetOption("channel"),
             r.GetOption("tag"), r.GetOption("version"));
     }
-    ConsoleError.WriteLine("usage: xtask package {sdk|runtime|workload|index|archive|finalize}");
+    if (sub == "check")    { return _testPackages(); }
+    if (sub == "verify")   { return _testDist(r); }
+    ConsoleError.WriteLine("usage: xtask package {sdk|runtime|workload|index|archive|finalize|check|verify}");
     return 2;
 }

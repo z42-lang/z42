@@ -96,7 +96,7 @@ xtask 是独立的 z42 应用——它不是通用 `z42` launcher 的一部分�
 | `test e2e [--dir <cat>] [--file <p>] [--mode interp\|jit]` | 跑 `src/tests/` 端到端（golden + cross-zpkg；最常用） | `cargo build` + golden 产物 | 默认全跑；`--dir`/`--file` narrow |
 | `test stdlib [lib]` | stdlib 源 / 编译器变动 | `build stdlib` + z42b（z42.builder.zpkg） | 各 stdlib lib 的 `[Test]` 通过率 |
 | `test compiler` | z42c 编译器变动 | z42c 自建 | 全成员自举不动点（gen1==gen2）+ [Test] units + e2e |
-| `test dist` | 验证打包后发行版能独立工作 | `package sdk` 产物 | packaged z42c+z42vm 跑 golden 通过率 |
+| `package verify` | 验证打包后发行版能独立工作 | `package sdk` 产物 | packaged z42c+z42vm 跑 golden 通过率 |
 | `test changed [base]` | 增量自测（按改动文件挑 stage） | 上述各命令（in-process 调度） | 仅跑受影响的 stage |
 | `test docs` / `examples` / `targets` / `embedded` / `platform` / `packages` / `bootstrap` 等 | 各专项门（完整清单 `xtask test -h`） | 视 stage | 文档死链、学习手册示例、manifest target、设备嵌入测试、平台 3 段测试…… |
 | `clean [tests\|bench\|all]` / `layout [entry]` / `run <zpkg\|.z42>` | 清产物 / 打印 `artifacts/` 树或某项绝对路径 / 经 launcher 直跑 | — | — |
@@ -189,7 +189,7 @@ deps install [--os P] [--force] [vscode] ──► _depsInstall   纯安装
 deps env [--os android] ──► _depsEnv         可 eval 的 export（ANDROID_NDK_HOME）
 ```
 
-用到才装（零命令面）：android emulator tier（~4GB）由 `test platform android run`
+用到才装（零命令面）：android emulator tier（~4GB）由 `test app android run`
 自动装；node 兜底由 wasm 测试自动装。
 
 ## 典型流程
@@ -225,7 +225,7 @@ xtask test e2e
 **完整发行验证**：
 ```bash
 xtask package sdk             # 打 host-RID 发行包
-xtask test dist               # 端到端验证发行包（packaged z42c/z42vm 跑 golden + launcher smoke）
+xtask package verify               # 端到端验证发行包（packaged z42c/z42vm 跑 golden + launcher smoke）
 ```
 
 ## 源码结构（按命令分子目录）
@@ -245,7 +245,7 @@ scripts/
 │   │                   ——两者成对出现、族间零耦合，故按族分文件，而非「router 一段 / dispatch 一段」
 │   ├── xtask_cli_build.z42    `build` 族
 │   ├── xtask_cli_package.z42  `package` 族
-│   ├── xtask_cli_test.z42     `test` 族（含嵌套的 `test platform` 子 router）
+│   ├── xtask_cli_test.z42     `test` 族（含嵌套的 `test app` 子 router）
 │   ├── xtask_cli_deps.z42     `deps` 族
 │   └── xtask_cli_bench.z42    `bench` 族 + default-action（`bench` 不带子命令 = e2e）的 parser 与入口
 ├── common/             共享基建（非某个命令专属）
@@ -278,21 +278,21 @@ scripts/
 │   ├── xtask_test_lib_units.z42 unit 级机制（发现 / 批量编译运行 / 合成 manifest）
 │   ├── xtask_manifest_targets.z42  manifest [[test]]/[[bench]]/[[example]] target **引擎**
 │   │                            （被 lib / targets / example 三个 flow 共用，不对应任何命令）
-│   ├── xtask_test_targets.z42   `test targets` / `bench targets` 入口（_testTargetsCore）
+│   ├── xtask_test_targets.z42   `test toolchain builder` / `bench targets` 入口（_testTargetsCore）
 │   │                            + fixture 工程与 tooling 准备（_prepFixtureTooling）
 │   ├── xtask_test_example.z42   工程清单 `[[example]]` 目标的编译 / 运行
-│   ├── xtask_test_examples.z42  `test examples`：学习手册配套示例门（+ `xtask_examples_{book,run,transcript}.z42`：书↔examples 引用校验、`*.console` 会话重放）
-│   ├── xtask_test_embedded.z42  `test embedded`：嵌入式 test-host 调度（desktop/wasm/ios/android）
-│   ├── xtask_test_embedded_corpus.z42  语料枚举 SoT（`test embedded` 与 `test list` 共用）
+│   ├── xtask_test_examples.z42  `test docs examples`：学习手册配套示例门（+ `xtask_examples_{book,run,transcript}.z42`：书↔examples 引用校验、`*.console` 会话重放）
+│   ├── xtask_test_embedded.z42  `test app desktop`：嵌入式 test-host 调度（desktop/wasm/ios/android）
+│   ├── xtask_test_embedded_corpus.z42  语料枚举 SoT（`test app desktop` 与 `test list` 共用）
 │   ├── xtask_test_embedded_golden.z42  golden → [Test] 归一 + zbc/zpkg emit
 │   ├── xtask_test_list.z42      `test list`：只读语料目录（pretty / json）
 │   ├── xtask_test_dist.z42      发行包 e2e（golden + launcher/apphost 冒烟）
 │   ├── xtask_test_incremental{,_ws}.z42 增量编译暴力对账（逐文件 touch：增量产物 == 全量，逐字节；`_ws` 为 stdlib 整体读回）
 │   ├── xtask_test_docs.z42      `test docs`：相对链接死链 + stage 清单对账
 │   ├── xtask_test_app.z42       `test app`：设备测试一条命令（+ `xtask_test_device_host.z42` 宿主工程暂存）
-│   ├── xtask_test_dist_{cli,analyzer,hooks}.z42  `test dist` 在打出的包上的 CLI / analyzer / hooks 冒烟
+│   ├── xtask_test_dist_{cli,analyzer,hooks}.z42  `package verify` 在打出的包上的 CLI / analyzer / hooks 冒烟
 │   ├── xtask_test_{diagcodes,walkers,layout,stage2,fingerprint,ci_shell,proc_env}.z42  各机械门（诊断码唯一 / AST walker 完备 / 测试布局 / 阶段-2 欠账 / 编译器指纹 / CI shell / 子进程环境）；账本 `*.txt` 同目录
-│   ├── xtask_test_lines.z42     `test lines`：src/ 非测试 .z42/.rs 500 行硬上限，对照 line-limit-baseline.txt 棘轮（新越界/增长 → 红）
+│   ├── xtask_test_lines.z42     `check lines`：src/ 非测试 .z42/.rs 500 行硬上限，对照 line-limit-baseline.txt 棘轮（新越界/增长 → 红）
 │   ├── xtask_test_changed.z42   按改动文件挑 stage
 │   └── xtask_test_{platform,wasm,ios,android,desktop}.z42  平台 3 段测试（build/assets/run）
 │                                platform 是 dispatcher + 共享 phase②；其余四个是 backend 类
@@ -302,13 +302,13 @@ scripts/
 │   ├── xtask_package_install.z42     组件安装：按 packages.toml include + kind 直接装进包目录（无暂存）
 │   ├── xtask_package_test.z42        **`package workload test`**：打 payload-only 的 test workload
 │   │                                 （与 _desktop/_ios/_android/_wasm 同族：`test` 是 workload 名）
-│   ├── xtask_test_packages.z42       `test packages` 聚合入口（opt-in，不在 GREEN gate 内）
+│   ├── xtask_test_packages.z42       `package check` 聚合入口（opt-in，不在 GREEN gate 内）
 │   ├── xtask_selfcheck_{packages_config,package_install,release}.z42
 │   │                                 清单解析 / 组件安装 / 发布归档各自的 throw-on-mismatch 自检层
 │   └── xtask_release.z42             package workload(merge) / index 发行档组装
 ├── install/            deps install 各平台 / 编辑器资产
 │   ├── xtask_install{,_android}.z42  deps install / env + Android SDK·NDK·模拟器
-│   └── xtask_install_vscode.z42      生成 z42.tmLanguage.json + **`test vscode-syntax` 门**
+│   └── xtask_install_vscode.z42      生成 z42.tmLanguage.json + **`check vscode-syntax` 门**
 └── hooks/
     └── hooks.z42       z42b build hook（`namespace Build`，非 Z42Xtask）：publish 前现场
                         cargo 编 apphost stub，免装 desktop workload
@@ -358,7 +358,7 @@ scripts/
   （lexer/parser/codegen/格式 writer）或引入新语法后**必跑**边界检查：
 
   ```bash
-  xtask test bootstrap      # 下载 nightly z42c 编当前源，验证无越界
+  xtask test compiler bootstrap      # 下载 nightly z42c 编当前源，验证无越界
   ```
 
 - **删种子/兜底路径**：必须与"为所有 cold-start 入口供种"作为**同一原子变更**；本地只能验
@@ -376,9 +376,9 @@ xtask test                # 完整 gate（stage 组成见 internals/devinfra/tes
 
 iteration 期可用 `test changed`（按改动挑 stage）或单跑某 stage（`test e2e --dir/--file` /
 `test stdlib <lib>` / `--no-build`）缩窄加速，但 **commit 前必须完整 gate**。改打包系统时
-另跑 `test packages`（parse + 组件安装 + 发布归档自检合一）；改增量编译
+另跑 `package check`（parse + 组件安装 + 发布归档自检合一）；改增量编译
 （IncrementalBuild / CacheStore / ZbcReader / IncrementalDriver）时另跑
-`test incremental`（暴力对账器：语料逐文件 touch，断言增量产物 == 全量产物逐字节 + 计时）。
+`test compiler incremental`（暴力对账器：语料逐文件 touch，断言增量产物 == 全量产物逐字节 + 计时）。
 
 ## 关联文档
 

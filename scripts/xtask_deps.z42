@@ -140,13 +140,13 @@ int _checkWasmToolMins(TomlValue toml) {
 }
 
 // emulator tier 状态行——纯信息性。emulator 零命令面（User 裁决 2026-07-07）：
-// 由 `test platform android run` 用到时自动安装，deps check 只报告不装。
+// 由 `test app android run` 用到时自动安装，deps check 只报告不装。
 void _emulatorStatus(string root, TomlValue toml) {
     string sdkDir = Path.Join(root, _vget(toml, "build.android.install_root"));
     if (File.Exists(Path.Join(sdkDir, "emulator/emulator"))) {
         Console.WriteLine("  ✓ emulator tier (auto-managed)");
     } else {
-        Console.WriteLine("  - emulator tier not installed (auto-installs on `test platform android run`; ~4GB)");
+        Console.WriteLine("  - emulator tier not installed (auto-installs on `test app android run`; ~4GB)");
     }
 }
 

@@ -15,7 +15,7 @@ grammar）+ 括号匹配/注释切换/自动缩进（language-configuration）�
 | grammar 模板（高亮规则的编辑处） | `syntaxes/z42.tmLanguage.tpl.json` |
 | 注释/括号/缩进/包围对 | `language-configuration.json` |
 | 生成 + 安装 | `xtask deps install vscode`（`scripts/install/xtask_install_vscode.z42`） |
-| 防漂移检查（GREEN gate） | `xtask test vscode-syntax` |
+| 防漂移检查（GREEN gate） | `xtask check vscode-syntax` |
 
 ## 基础用法
 
@@ -31,7 +31,7 @@ Windows：不支持自动 symlink，把本目录复制到 `<repo>\.vscode\extens
 ## 如何测试验证
 
 ```bash
-xtask test vscode-syntax    # 生成器一致性：关键字分类穷尽 + 入库 grammar 与重新生成字节一致
+xtask check vscode-syntax    # 生成器一致性：关键字分类穷尽 + 入库 grammar 与重新生成字节一致
 ```
 
 视觉验收：安装后打开任意 `.z42`（如 `examples/getting-started/hello-world/greet/src/Main.z42` 或 `src/tests/` 下的用例），核对注释/字符串（普通、raw `"""`、插值 `$"{}"`、
