@@ -175,7 +175,7 @@ pub fn ext_builtin_id_of(ctx: &VmContext, name: &str) -> Option<BuiltinId> {
 pub fn exec_builtin_by_id(ctx: &VmContext, id: BuiltinId, args: &[Value]) -> Result<Option<Value>> {
     // add-runtime-counters (2026-05-26): observation-only fetch_add on
     // the hot path — single atomic Relaxed op, no control-flow impact.
-    ctx.core.counters.builtin_calls.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    ctx.counters().builtin_calls.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
     #[cfg(feature = "native-interop")]
     if id.0 & BUILTIN_ID_EXT_BIT != 0 {
@@ -199,7 +199,7 @@ pub fn exec_builtin_by_id(ctx: &VmContext, id: BuiltinId, args: &[Value]) -> Res
 pub fn exec_builtin(ctx: &VmContext, name: &str, args: &[Value]) -> Result<Option<Value>> {
     // add-runtime-counters (2026-05-26): name-keyed slow path also increments
     // for consistency with exec_builtin_by_id (callers may hit either).
-    ctx.core.counters.builtin_calls.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    ctx.counters().builtin_calls.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
     if let Some(&id) = builtin_index().get(name) {
         return BUILTINS[id as usize].1.call(ctx, args);

@@ -20,8 +20,24 @@ impl VmContext {
     /// `--print-stats-on-exit` flag and embedders that want to observe
     /// JIT compiles / builtin calls / exception traffic.
     /// docs/review.md Part 4 D6 Phase 1 (2026-05-26).
+    /// This thread's counters — increment sites use these. For a total across
+    /// the VM's threads use [`Self::counters_snapshot`].
     pub fn counters(&self) -> &crate::counters::RuntimeCounters {
-        &self.core.counters
+        &self.counters
+    }
+
+    /// The VM-wide totals: every live context plus those already dropped.
+    /// The registry lock makes it exact with respect to a context dropping
+    /// concurrently (its counts move to the core under the same lock).
+    pub fn counters_snapshot(&self) -> crate::counters::Snapshot {
+        let registry = self.core.vm_contexts.lock();
+        let mut total = self.core.counters.snapshot();
+        for p in registry.iter() {
+            // SAFETY: registered contexts are alive while the registry lock is
+            // held (`Drop` deregisters under it before the storage goes away).
+            total = total.add(unsafe { &*p.0 }.counters.snapshot());
+        }
+        total
     }
 
     /// Register a [`crate::observer::RuntimeObserver`]. The observer
@@ -101,6 +117,7 @@ impl VmContext {
             core,
             pending_exception,
             pending_thrown: Mutex::new(None),
+            counters: Default::default(),
             call_stack,
             stack_arena: Arc::new(Mutex::new(Default::default())),
             struct_arena: Arc::new(Mutex::new(Default::default())),
@@ -426,6 +443,7 @@ impl VmContext {
             core,
             pending_exception,
             pending_thrown: Mutex::new(None),
+            counters: Default::default(),
             call_stack,
             stack_arena: Arc::new(Mutex::new(Default::default())),
             struct_arena: Arc::new(Mutex::new(Default::default())),
@@ -496,7 +514,14 @@ impl Drop for VmContext {
         // add-incremental-major-gc M2a: the retire above handed this thread's SATB buffer over.
         crate::gc::satb::unbind_thread();
         let ptr = self as *const Self;
-        self.core.vm_contexts.lock().retain(|p| p.0 != ptr);
+        {
+            // runtime-audit P0-15: move this thread's counts into the core's
+            // total under the registry lock, so `counters_snapshot` never sees
+            // them twice or not at all.
+            let mut registry = self.core.vm_contexts.lock();
+            self.core.counters.absorb(&self.counters);
+            registry.retain(|p| p.0 != ptr);
+        }
         // Wake any collector sleeping in request_handshake_pause so it
         // re-evaluates the required park count. Our removal from vm_contexts
         // may lower vm_contexts.len()-1 below the current parked_count,

@@ -91,6 +91,21 @@ fn pending_thrown_is_a_gc_root() {
     assert!(ctx.take_pending_thrown().is_some());
 }
 
+// ── runtime counters (per thread, summed on snapshot) ───────────────────────
+
+#[test]
+fn counters_snapshot_sums_live_and_dropped_contexts() {
+    use std::sync::atomic::Ordering;
+    let ctx1 = VmContext::new();
+    let ctx2 = VmContext::new_with_core(std::sync::Arc::clone(&ctx1.core));
+    ctx1.counters().builtin_calls.fetch_add(3, Ordering::Relaxed);
+    ctx2.counters().builtin_calls.fetch_add(4, Ordering::Relaxed);
+    assert_eq!(ctx1.counters().builtin_calls.load(Ordering::Relaxed), 3, "each thread counts on its own");
+    assert_eq!(ctx1.counters_snapshot().builtin_calls, 7);
+    drop(ctx2);
+    assert_eq!(ctx1.counters_snapshot().builtin_calls, 7, "a dropped context's counts are kept");
+}
+
 // ── GC heap ───────────────────────────────────────────────────────────────────
 
 #[test]
