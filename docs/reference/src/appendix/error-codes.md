@@ -239,6 +239,7 @@ E0442 / E0457 / E0462 除外（见上一节）。**E0402 另有一处语法层�
 | E0500 | store-meta attribute 的实参不是**编译期常量**。允许：字面量 / 常量表达式 / enum 成员 / `const` 字段 / `typeof(..)` / `methodof(..)`，以及由这些构成的数组。attribute 工厂在**首次反射查询**时才执行，依赖运行期状态会让读回的元数据取决于谁先查 | ✅ `DeclEnforcer.AttrArgs.z42:97` | `[Tag(K.Make())]`、`[Num(K.Mutable)]` |
 | E0502 | 基类型**成环**：类直接或经若干层基类派生自己，或接口经父接口继承自己。对齐 C# CS0146 / CS0529。每个环只报一次（报在环上最先被检查的那个类型），报错后清掉它的基类型断环 | ✅ `SymbolCollector._passRejectBaseCycles` | `class A : B { }  class B : A { }`、`class A : A { }`、`interface I : J { }  interface J : I { }` |
 | E0503 | 泛型实例化**展不完**：值类型的每个实例化各有一份代码，泛型体里用到自身、且类型实参更深一层（`struct Rec<T>` 里用 `Rec<Rec<T>>`）时，编译 `Rec<int>` 需要 `Rec<Rec<int>>`，如此无穷。报在该泛型的声明处。引用类型（`class`）实例化共用代码，同样的写法不触发 | ✅ `SpecializationGuard.z42:63` | `struct Rec<T> { public T V; public Rec<Rec<T>> Next() { return new Rec<Rec<T>>(); } }` |
+| E0504 | struct 不参与继承：struct 的 `:` 后只能写接口，类也不能派生自 struct。对齐 C# CS0527 / CS0509。报在派生类型的声明处，报错后按「无基类」继续检查 | ✅ `SymbolCollector._rejectStructBase` | `struct B : A { }`、`class C : SomeStruct { }` |
 
 ### `[Forward]` 转发生成（⚠️ 常量名与实际发射不符，以本表为准）
 

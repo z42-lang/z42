@@ -108,3 +108,54 @@ void test_diamond_interfaces_are_not_a_cycle() {
         + "class K : IC { }\nvoid F() { IBase b = new K(); }\n";
     Assert.Equal(0, icErrors(icOne(src)));
 }
+
+// ── struct 不参与继承（reject-struct-inheritance，对齐 C# CS0527 / CS0509）：E0504 ─────────
+//
+// 此前零诊断：`struct B : A` 一写 `b.X` 编译器就崩（`struct field path: layout lookup failed`）；
+// `class C : A`（A 是 struct）**静默编错**——`c.Y + c.X` 应得 7，实测打出 16384005。
+
+[Test]
+void test_struct_with_struct_base_is_rejected() {
+    string src = "namespace D; struct A { public int X; } struct B : A { public int Y; }\n"
+               + "void Main() { B b = new B(); b.X = 5; }";
+    Assert.Equal(1, icCount(icOne(src), "E0504"));
+}
+
+[Test]
+void test_struct_with_class_base_is_rejected() {
+    Assert.Equal(1, icCount(icOne("namespace D; class K { public int X; } struct B : K { public int Y; }"), "E0504"));
+}
+
+[Test]
+void test_class_deriving_from_struct_is_rejected() {
+    string src = "namespace D; struct A { public int X; } class C : A { public int Y; }\n"
+               + "void Main() { C c = new C(); c.X = 5; }";
+    Assert.Equal(1, icCount(icOne(src), "E0504"));
+}
+
+// 跨文件：基类型声明在另一个文件里也要拦。
+[Test]
+void test_class_deriving_from_struct_cross_file() {
+    string[] s = new string[2];
+    s[0] = "namespace D; public struct A { public int X; }";
+    s[1] = "namespace D; class C : A { }";
+    Assert.Equal(1, icCount(s, "E0504"));
+}
+
+// 阴性对照：struct 实现接口、类继承类都合法。
+[Test]
+void test_struct_implementing_interface_is_fine() {
+    string src = "namespace D; interface IShape { int Area(); }\n"
+               + "struct Sq : IShape { public int S; public int Area() { return this.S * this.S; } }\n"
+               + "class Base { } class Derived : Base { }";
+    Assert.Equal(0, icCount(icOne(src), "E0504"));
+    Assert.Equal(0, icErrors(icOne(src)));
+}
+
+// 有类型错误时 emission 的内部异常不再让编译器崩溃（CuCompile.GenerateGuarded）：struct 上拼错字段名
+// 此前抛 `struct field path: layout lookup failed`、崩栈退出，那条 E0401 反倒打不出来。
+[Test]
+void test_struct_field_typo_reports_e0401_not_crash() {
+    string src = "namespace D; struct S { public int X; }\nvoid Main() { S s = new S(); s.Nope = 5; int z = s.Nope2; }";
+    Assert.Equal(true, icCount(icOne(src), "E0401") >= 1);
+}

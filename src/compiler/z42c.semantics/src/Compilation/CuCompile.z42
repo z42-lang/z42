@@ -99,6 +99,22 @@ public static class CuCompile {
         }
         return new ClassDecl(head.Kind, head.Mods, head.Name, head.TypeParams, bases, bc, head.Wheres, head.WhereCount, mems, mc, head.Span);
     }
+    // 有类型错误时 emission 只是「尽力而为」：诊断已经报过、产物不会落盘（`ErrorCount > 0`），而绑定器为
+    // 错误恢复留下的节点（查不到的 struct 字段、没绑的体……）随时会撞上 emitter 的内部不变式 —— 实测
+    // `s.Nope = 5`（S 是 struct）抛 `struct field path: layout lookup failed`，编译器崩栈退出，那条
+    // 「no field `Nope`」反倒一个字都没打出来。故此时内部异常吞掉、回空模块，让已报的诊断照常输出。
+    // **无类型错误时原样抛**：那才是真正的内部错误，必须大声失败。
+    // 治本是「有错不进代码生成」（诊断收敛 B），这里先把崩溃面收住。
+    public static IrModule GenerateGuarded(IrGen gen, CompilationUnit cu, SemanticModel model, int optSet) {
+        if (!gen.HasTypeErrors) { return gen.Generate(cu, model, optSet); }
+        try {
+            return gen.Generate(cu, model, optSet);
+        } catch (Exception e) {
+            string[] pool = new string[1]; pool[0] = "";
+            return new IrModule("main", pool, 1, new IrClassDesc[0], 0, new IrFunction[0], 0);
+        }
+    }
+
     // perf-layouts-once：`layouts` = 包级预计算的 StructLayout（BuildPackageCus 算一次；此前每 CU
     // 各建一份 = 整包符号表重建 count 次）。预计算后只读 → 跨 CU / 跨 worker 共享安全。null=自行计算。
     internal static CompiledModuleZ _compileCu(CompilationUnit cu, string file, SymbolTable symbols, DependencyIndex deps, ImportedSymbols imported, StrMap classNs, StrMap localClasses, bool isRelease, StrMap partialMerged, int optSet, StructLayout layouts, StrMap pkgGenerics, StrMap pkgGenericTypes) {
@@ -129,7 +145,7 @@ public static class CuCompile {
         // complete-generic-instantiation S1：类型错误下不做特化（见 IrGen.HasTypeErrors）。
         gen.HasTypeErrors = diags.ErrorCount() > 0;
         gen.Diags = diags;   // diag-recursive-generic：单态化不收敛报 E0503
-        IrModule irm = gen.Generate(cu, model, optSet);
+        IrModule irm = CuCompile.GenerateGuarded(gen, cu, model, optSet);
         UsingLint.Check(cu, tc.UsedNs.ToArray(), gen.UsedDepNs, gen.UsedDepNsCount, diags);   // using-csharp-rules PR-3：W0607 / W0608
         string[] usings = new string[8];
         int uc = 0;

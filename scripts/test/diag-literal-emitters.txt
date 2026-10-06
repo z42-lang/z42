@@ -5,3 +5,4 @@
 # 每条都是**欠账**：等它的常量随 nightly 进了种子，就该把发射点切回 DiagnosticCodes.<Name> 并重跑 --update。
 # 重生成：`xtask test diagcodes --update`（改之前先想清楚你是不是在给一个已有码挂第二个含义）。
 E0503 src/compiler/z42c.semantics/src/Emission/SpecializationGuard.z42 2026-10-06
+E0504 src/compiler/z42c.semantics/src/Symbols/SymbolCollector.z42 2026-10-06

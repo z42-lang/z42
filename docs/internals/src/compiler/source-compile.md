@@ -815,6 +815,9 @@ primary = **声明序第一个**同名成员（跨 partial 碎片按碎片加载
 1. **无环**：`SymbolCollector._passRejectBaseCycles` 跑在 `BindTypeRefs` 之后（基类句柄已绑）、任何沿
    继承链走的 pass 之前，挂在唯一的收集序列 `CollectAll` 上（`Collect` / `CollectWithImports` 只是它的单 CU 包装）。类沿
    `BaseOf` 走、接口沿父接口图做可达性，走回起点即报 E0502，并**清掉起点的基类型**断环。每个环只报一次。
+   同一个 pass 先判 **struct 不参与继承**（`_rejectStructBase`，E0504）：struct 有基类、或类的基类是 struct，
+   同样报错并清掉基类。不拦的后果是布局错位——struct 的字段布局不含基类字段（写基类字段时 emitter 崩），
+   类按引用布局读 struct 基类的字段会**静默读错偏移**。
 2. **无层数上限**：环断开后链必然有限，所以走查循环**不设层数上限**，只经 `SymbolTable.NextBaseHop`
    计跳——超过 10 万跳只可能是不变量被破坏（某条环没断 / 名字回落绕回自身），此时**抛内部错误**。
 
