@@ -297,7 +297,7 @@ fn ll_inmem_artifact(
         entry_hint: None,
         dependencies: deps
             .iter()
-            .map(|f| crate::metadata::formats::ZpkgDep { file: (*f).to_string(), namespaces: vec![] })
+            .map(|f| crate::metadata::formats::ZpkgDep { file: (*f).to_string(), namespaces: vec![], symbols: vec![] })
             .collect(),
         import_namespaces: vec![],
         test_index: vec![],

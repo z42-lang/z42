@@ -188,6 +188,7 @@ pub(crate) fn build_host_module(
         declared_candidates: Vec::new(),
         initially_loaded,
         eager_impl_pairs,
+        eager_deps: Vec::new(),
     });
     if let Some(m) = ctx.module() {
         crate::boot::prepare_execution(&ctx, m);

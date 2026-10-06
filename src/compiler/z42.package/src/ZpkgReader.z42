@@ -138,7 +138,7 @@ public static class ZpkgReader {
     // DEPS 段 → 本包声明的依赖 **zpkg 文件名**（如 `z42.core.zpkg`）。
     //
     // 段布局（`ZpkgWriterZ._buildDeps`）：`u32 depCount` + 每项 `u32 fileIdx` / `u16 nsCount`
-    // / `u32[] nsIdx`。这里只要文件名，命名空间按 count 跳过。
+    // / `u32[] nsIdx` / `u32 symCount` / `u32[] symIdx`（zpkg 0.52）。这里只要文件名，其余按 count 跳过。
     //
     // **为什么需要它**（add-deployment-model 批 2 support）：给 exe 装配**传递闭包**要知道
     // 「某个依赖自己依赖了谁」。这份信息一直在 zpkg 里，但**只有 Rust 侧解码**
@@ -161,6 +161,9 @@ public static class ZpkgReader {
             int ns = c.U16();
             int j = 0;
             while (j < ns) { c.U32(); j = j + 1; }
+            int sc = c.U32();
+            j = 0;
+            while (j < sc) { c.U32(); j = j + 1; }
             i = i + 1;
         }
         return r;

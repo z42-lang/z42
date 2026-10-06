@@ -7,6 +7,9 @@
 //!
 //! ## Triggering (Decision 1: strategy C + fallback B)
 //!
+//!   0. **precise-pkg-refs**: the consumers' DEPS symbol lists say which package defines a
+//!      referenced type / free function — load exactly that one (`lazy_loader/symbols.rs`).
+//!      Steps 1–3 remain for names nobody referenced statically (reflection, runtime-built names).
 //!   1. Extract namespace prefix from `func_name` / `class_name`
 //!   2. Route to candidate zpkgs whose exported `namespaces` metadata
 //!      contains that prefix (precise routing, like C# CLR AssemblyRef →
@@ -137,6 +140,14 @@ pub struct LazyLoader {
     /// Set by `VmContext::install_lazy_loader_with_deps` (the only production construction
     /// path); `None` only for loaders built directly in unit tests.
     cctors: Option<Arc<crate::vm_context::cctor::CctorRegistry>>,
+
+    /// **precise-pkg-refs**: symbol key (type / free-function full name) → zpkg file that defines
+    /// it, from the DEPS symbol lists of the entry artifact and of every loaded package. See
+    /// `lazy_loader/symbols.rs`.
+    symbol_owners: FxHashMap<String, String>,
+    /// Simple name → the unique recorded full name with that short name (`None` once two
+    /// differ). Lets reflection resolve a dotless type name without force-loading everything.
+    short_symbols: FxHashMap<String, Option<String>>,
 }
 
 /// runtime-ambiguous-use-site: the two ambiguity sets, behind one `Box` so
@@ -286,6 +297,8 @@ impl LazyLoader {
             negative: None,
             ambiguous: None,   // runtime-ambiguous-use-site：碰撞时才分配
             cctors: None,
+            symbol_owners: FxHashMap::default(),
+            short_symbols: FxHashMap::default(),
         }
     }
 
@@ -461,6 +474,8 @@ impl LazyLoader {
 
 mod registry;
 mod resolve;
+mod symbols;
+pub(crate) use symbols::symbol_key;
 pub(crate) use resolve::namespace_prefix;
 #[cfg(test)]
 use resolve::is_primitive_keyword_name;

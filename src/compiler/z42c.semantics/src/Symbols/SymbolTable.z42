@@ -483,6 +483,11 @@ public sealed partial class SymbolTable {
         if (this.UseRecorder != null && pkg != "") { this.UseRecorder.NoteDep(DepRef.Encode(ns, pkg)); }
     }
 
+    // precise-pkg-refs：同上，并带被引用符号（类型 / 自由函数）的全名 → DEPS 符号表（运行期精确路由）。
+    public void NoteDepUse(string ns, string pkg, string sym) {
+        if (this.UseRecorder != null && pkg != "") { this.UseRecorder.NoteDep(DepRef.EncodeSym(ns, pkg, sym)); }
+    }
+
     // 带活跃类型形参（泛型类/方法 scope）：名字命中 paramNames → Z42GenericParamType。
     // using-csharp-rules PR-2：外壳 —— 解析交给 `_resolveTypePCore`，再按结果记「用到的 ns」。核心里递归解析
     // 泛型实参 / 数组元素 / 可空内层时走回本外壳，所以嵌套的类型引用也都记到。
@@ -523,17 +528,17 @@ public sealed partial class SymbolTable {
         if (this.CurrentAliases != null && nt.ArgCount == 0 && this.CurrentAliases.Find(nt.Name) >= 0) { return; }
         if (r is Z42InstantiatedType) {
             Z42ClassType d = (r as Z42InstantiatedType).Def;
-            if (d != null) { this._noteNamedUse(nt.Name, d.Namespace); this.NoteDepUse(d.Namespace, this.ImportedPkgOf(d.Fqn())); }
+            if (d != null) { this._noteNamedUse(nt.Name, d.Namespace); this.NoteDepUse(d.Namespace, this.ImportedPkgOf(d.Fqn()), d.Fqn()); }
             return;
         }
         if (r is Z42ClassType) {
             Z42ClassType rc = r as Z42ClassType;
-            this._noteNamedUse(nt.Name, rc.Namespace); this.NoteDepUse(rc.Namespace, this.ImportedPkgOf(rc.Fqn()));
+            this._noteNamedUse(nt.Name, rc.Namespace); this.NoteDepUse(rc.Namespace, this.ImportedPkgOf(rc.Fqn()), rc.Fqn());
             return;
         }
         if (r is Z42InterfaceType) {
             Z42InterfaceType ri = r as Z42InterfaceType;
-            this._noteNamedUse(nt.Name, ri.Namespace); this.NoteDepUse(ri.Namespace, this.ImportedPkgOf(ri.Fqn()));
+            this._noteNamedUse(nt.Name, ri.Namespace); this.NoteDepUse(ri.Namespace, this.ImportedPkgOf(ri.Fqn()), ri.Fqn());
             return;
         }
         if (r is Z42FuncType) {

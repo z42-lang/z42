@@ -70,8 +70,13 @@ public sealed class ZpkgDepZ {
     public string   File;
     public string[] Namespaces;
     public int      NsCount;
+    // precise-pkg-refs（zpkg 0.52）：本包引用到的、由该依赖包定义的类型 / 自由函数全名（符号键，见
+    // Semantics.DepRef.SymKey）。运行期据此精确路由。**body 字段、不进 ctor**（种子 ABI）：构造后赋值。
+    public string[] Symbols;
+    public int      SymCount;
     public ZpkgDepZ(string file, string[] namespaces, int nsCount) {
         this.File = file; this.Namespaces = namespaces; this.NsCount = nsCount;
+        this.Symbols = new string[0]; this.SymCount = 0;
     }
 }
 

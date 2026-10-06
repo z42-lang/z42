@@ -385,6 +385,8 @@ struct LazyLoader {
     function_table: FxHashMap<String, Arc<Function>>, // FQ name → Function
     type_registry: FxHashMap<String, Arc<TypeDesc>>,  // FQ name → TypeDesc
     impls: FxHashMap<String, Vec<String>>,            // target FQ → [trait FQ]（各包 IMPL 段汇总）
+    symbol_owners: FxHashMap<String, String>,         // 符号键 → 定义它的 zpkg 文件（各包 DEPS 符号表汇总）
+    short_symbols: FxHashMap<String, Option<String>>, // 短名 → 唯一全名（反射短名查找用）
     // …另有 newly_loaded 暂存区、「确定解析不出」的负缓存、歧义名登记
 }
 
@@ -402,14 +404,23 @@ struct ZpkgCandidate {
 > **lazy_loader** 把候选**留存**进 `declared_zpkgs`、配 `loaded_zpkgs` 管加载/释放
 > 生命周期（retaining）。生命周期不进原语——「何时加载/加载什么/何时释放」只在 lazy_loader。
 
-### Call miss 触发策略（策略 C + 回退 B）
+### Call miss 触发策略（引用表精确路由 → 策略 C → 回退 B）
 
 ```
 try_lookup_function(func_name):        # VmContext 先查 per-context fn_lookup_cache，再取 lazy_loader 读锁探测
   if function_table has func_name → return hit
   if 负缓存命中 → return None
 
-  # 策略 C：精确路由 —— 按 namespace 前缀筛选候选 zpkg
+  # 引用表精确路由（lazy_loader/symbols.rs）：引用方的 DEPS 记着「这个名字由哪个包定义」
+  key = symbol_key(func_name)          // 剪掉 `<…>` 泛型实参与 `$…` 签名后缀
+  owner = symbol_owners[key]（精确：类型 / 自由函数）
+       或 symbol_owners[key 去掉末段]、[再去一段]（成员名 → 所属类型，非精确）
+  if owner:
+    load_zpkg_file(owner)
+    if function_table has func_name → return hit
+    if 精确: 记负缓存; return None     # 定义包里没有 = 真缺符号，不再加载别的包
+
+  # 策略 C：按 namespace 前缀筛选候选 zpkg（静态引用之外的名字：反射、运行期拼出的名字）
   ns = namespace_prefix(func_name)   // e.g. "Std.Collections.Stack.Push" → "Std.Collections"
   for zpkg_file in declared_zpkgs:
     if zpkg_file not in loaded_zpkgs
@@ -426,8 +437,20 @@ try_lookup_function(func_name):        # VmContext 先查 per-context fn_lookup_
   记入「确定解析不出」负缓存; return None  # 真正 undefined
 ```
 
-策略 C 的精确路由等价于 C# CLR 的 TypeRef → TypeDef 查找：按 namespace
-（assembly 的 public type 的父 namespace）作为高效过滤器。
+引用表路由对应 .NET 的 TypeRef ResolutionScope：引用方元数据直接写明定义所在的程序集（AssemblyRef），
+运行期从不按命名空间猜。z42 的「引用方元数据」是每个包的 DEPS 符号表（编译器在绑定期按符号归属包记录，
+见 [zpkg DEPS](../formats/zpkg.md#deps--依赖表)）；入口包的在 boot 时播种（`BootPlan.eager_deps`），其余包的在
+它被加载时并入，所以「当前能执行的代码」引用到的名字总能精确路由。
+
+- **精确 / 非精确**：名字本身（去泛型实参 / 签名后缀后）就是登记的类型或自由函数 ⇒ 精确，定义包里找不到即判缺
+  （.NET 的 MissingMethodException / TypeLoadException）。只命中所属类型的成员名不判缺：方法可能来自别的包的
+  `impl` 块或基类，交给后面的策略。
+- **同名多主**：先登记者胜（两个包定义同一个全名是编译期 E0601 的地盘）。
+- **反射短名**（`Type.GetType("Foo")` 一类不带点的名字）：`short_symbols` 里唯一对应的全名先精确加载；
+  查不到才走全量加载兜底。
+
+策略 C 按 namespace 前缀筛选候选 zpkg，只服务没有静态引用的名字。前缀先剪掉泛型实参与签名后缀
+（`Std.List<Std.Int32>`、`F$1$Std.List<int>` 里的点不算命名空间分隔）。
 
 策略 B 是安全网，处理 zpkg 元数据不完整 / 用户 zbc 的 import_namespaces
 不全等边界情况。

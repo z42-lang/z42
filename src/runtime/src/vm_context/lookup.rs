@@ -72,6 +72,22 @@ impl VmContext {
         }
     }
 
+    /// precise-pkg-refs: seed the loader's "which package defines this name" table from the
+    /// eagerly merged artifacts' DEPS symbol lists. Companion of `seed_lazy_loader_impls`.
+    pub fn seed_lazy_loader_symbol_owners(&self, deps: &[crate::metadata::formats::ZpkgDep]) {
+        if deps.is_empty() { return; }
+        let mut state = self.core.lazy_loader.write();
+        if let Some(loader) = state.as_mut() {
+            loader.note_symbol_owners(deps);
+        }
+    }
+
+    /// precise-pkg-refs: the unique referenced full name for a simple type name, if any
+    /// (reflection's dotless lookups — see `make_type_from_name`).
+    pub fn referenced_full_name(&self, short: &str) -> Option<String> {
+        self.core.lazy_loader.read().as_ref().and_then(|l| l.full_name_for_short(short))
+    }
+
     /// Look up a function by FQ name; triggers lazy load if needed.
     ///
     /// review.md D3 Phase 2 (2026-05-27): emits `RuntimeEvent::ModuleLoaded`

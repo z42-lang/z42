@@ -67,6 +67,8 @@ impl LazyLoader {
         // add-crosspkg-impl-reflection: register this package's
         // `impl Trait for Type` pairs (backs GetInterfaces cross-pkg traits).
         self.seed_impls(&artifact.impl_pairs);
+        // precise-pkg-refs: this package's references now route precisely too.
+        self.note_symbol_owners(&artifact.dependencies);
 
         let offset = self.main_pool_len + self.string_pool.len();
         self.string_pool.extend(artifact.module.string_pool.iter().cloned());
@@ -299,6 +301,7 @@ impl LazyLoader {
         // Mirrors the dedicated test-runner bootstrap's `build_declared_candidates`
         // (which covered both); without the namespace path a test calling
         // `SortedSet.Add` (a dep's instance method) hits "VCall not found".
+        self.note_symbol_owners(&artifact.dependencies);   // precise-pkg-refs
         if !self.search_dirs.is_empty() {
             let dirs = self.search_dirs.clone();
             for dep in &artifact.dependencies {

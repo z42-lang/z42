@@ -15,6 +15,7 @@ namespace Z42.Pipeline;
 
 using Std.IO;
 using Z42.Package;
+using Z42.IR;   // StrMap
 using Z42.Semantics;
 
 public static class ZpkgDeps {
@@ -24,6 +25,11 @@ public static class ZpkgDeps {
         string selfFile = selfPkg + ".zpkg";
         bool trace = Environment.GetEnvironmentVariable("Z42C_TRACE_DEPS", "") == "1";
         ZpkgDepPairs buf = new ZpkgDepPairs();
+        // precise-pkg-refs：每个依赖文件 → 本包引用到的、由它定义的符号（首现序去重）。
+        StrMap symSeen = new StrMap();
+        string[] symFiles = new string[16];
+        string[] symNames = new string[16];
+        int symCount = 0;
         int mi = 0;
         while (mi < moduleCount) {
             ZbcFileZ m = modules[mi];
@@ -34,7 +40,21 @@ public static class ZpkgDeps {
                 string pkg = DepRef.PkgOf(e);
                 if (pkg != "") {
                     string file = pkg + ".zpkg";
-                    if (file != selfFile) { buf.Add(file, ns); }
+                    if (file != selfFile) {
+                        buf.Add(file, ns);
+                        string sym = DepRef.SymOf(e);
+                        string sk = file + "|" + sym;
+                        if (sym != "" && !symSeen.ContainsKey(sk)) {
+                            symSeen.Put(sk, "1");
+                            if (symCount == symFiles.Length) {
+                                string[] g1 = new string[symCount * 2];
+                                string[] g2 = new string[symCount * 2];
+                                int q = 0; while (q < symCount) { g1[q] = symFiles[q]; g2[q] = symNames[q]; q = q + 1; }
+                                symFiles = g1; symNames = g2;
+                            }
+                            symFiles[symCount] = file; symNames[symCount] = sym; symCount = symCount + 1;
+                        }
+                    }
                 } else {
                     if (trace) { ConsoleError.WriteLine("deps-unattributed " + selfPkg + " " + m.SourceFile + " " + ns); }
                     int i = 0;
@@ -49,7 +69,26 @@ public static class ZpkgDeps {
         }
         // 测试 / bench 目标：父包按同包待遇编译（其符号不进来源表 ⇒ 永远归属不明），而运行期必须能加载它。
         if (parentPkg != "" && parentPkg != selfPkg) { buf.Add(parentPkg + ".zpkg", ""); }
-        return ZpkgDeps._group(buf);
+        ZpkgDepList list = ZpkgDeps._group(buf);
+        ZpkgDeps._attachSymbols(list, symFiles, symNames, symCount);
+        return list;
+    }
+
+    // 把 (file, sym) 对挂到各 DEPS 条目上（条目的文件集合一定覆盖 symFiles：带符号的条目必带 pkg，已进 buf）。
+    private static void _attachSymbols(ZpkgDepList list, string[] symFiles, string[] symNames, int symCount) {
+        int d = 0;
+        while (d < list.Count) {
+            ZpkgDepZ dep = list.Items[d];
+            int n = 0;
+            int i = 0;
+            while (i < symCount) { if (symFiles[i] == dep.File) { n = n + 1; } i = i + 1; }
+            string[] syms = new string[n];
+            int k = 0;
+            i = 0;
+            while (i < symCount) { if (symFiles[i] == dep.File) { syms[k] = symNames[i]; k = k + 1; } i = i + 1; }
+            dep.Symbols = syms; dep.SymCount = n;
+            d = d + 1;
+        }
     }
 
     // (file, ns) 对 → 按 file 首现序聚合成 DEPS 条目（ns 列表保首现序；空 ns 不进列表）。

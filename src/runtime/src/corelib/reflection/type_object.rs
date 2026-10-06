@@ -130,6 +130,13 @@ pub fn make_type_from_name(ctx: &VmContext, name: &str) -> Value {
         if let Some(td) = resolve_dotless_simple(ctx, name) {
             return make_type_object(ctx, td);
         }
+        // precise-pkg-refs: a statically referenced type's short name maps to its full name
+        // (and thus its defining package) through the DEPS symbol lists — load just that.
+        if let Some(full) = ctx.referenced_full_name(name) {
+            if let Some(td) = ctx.try_lookup_type(&full) {
+                return make_type_object(ctx, td);
+            }
+        }
         // Miss: a class-like name (uppercase, not a primitive alias) may live in a
         // not-yet-loaded package whose FQN we can't derive (the loader indexes
         // namespaces, not type names — no simple→FQN map). Force-load all remaining

@@ -1,4 +1,4 @@
-// 绑定树上的「用到的导入包」收集（诊断收敛 D1）。产出 DepRef 编码（`ns#pkg`），与绑定期
+// 绑定树上的「用到的导入包」收集（诊断收敛 D1）。产出 DepRef 编码（`ns#pkg#sym`），与绑定期
 // `SymbolTable.NoteDepUse` 的记录合并后就是本文件的跨包依赖集（DEPS / E0436 的判据）。
 //
 // 为什么要单独一遍：绑定期的记录挂在「源码里写出的符号」上（类型引用、静态成员、自由函数），
@@ -49,9 +49,9 @@ public sealed class DepUseCollector {
         return c.Items();
     }
 
-    private void _note(string ns, string pkg) {
+    private void _note(string ns, string pkg, string sym) {
         if (pkg == "") { return; }
-        string e = DepRef.Encode(ns, pkg);
+        string e = DepRef.EncodeSym(ns, pkg, sym);
         int i = 0;
         while (i < this._count) { if (this._items[i] == e) { return; } i = i + 1; }
         if (this._count == this._items.Length) {
@@ -70,7 +70,7 @@ public sealed class DepUseCollector {
         string pkg = this._symbols.ImportedPkgOf(fqn);
         if (pkg == "") { return; }
         int dot = fqn.LastIndexOf(".");
-        this._note(dot < 0 ? "" : fqn.Substring(0, dot), pkg);
+        this._note(dot < 0 ? "" : fqn.Substring(0, dot), pkg, fqn);
     }
 
     private void _exprs(BoundExpr[] es, int n) {
@@ -89,13 +89,13 @@ public sealed class DepUseCollector {
             BoundCall c = e as BoundCall;
             if (c.Kind == "instance" && c.HasReceiver && c.Receiver != null) { this._noteType(c.Receiver.Type()); }
             if (c.Kind == "free" && c.FreeImported && c.FreeNs != null) {
-                this._note(c.FreeNs, this._symbols.ImportedFuncPkgOf(c.MethodName, c.FreeNs));
+                this._note(c.FreeNs, this._symbols.ImportedFuncPkgOf(c.MethodName, c.FreeNs), SymbolTable.QualOf(c.FreeNs, c.MethodName));
             }
             this._expr(c.Receiver);
             this._exprs(c.Args, c.ArgCount);
         } else if (e is BoundFuncRef) {
             BoundFuncRef fr = e as BoundFuncRef;
-            if (fr.FuncImported && fr.FuncNs != null) { this._note(fr.FuncNs, this._symbols.ImportedFuncPkgOf(fr.FuncName, fr.FuncNs)); }
+            if (fr.FuncImported && fr.FuncNs != null) { this._note(fr.FuncNs, this._symbols.ImportedFuncPkgOf(fr.FuncName, fr.FuncNs), SymbolTable.QualOf(fr.FuncNs, fr.FuncName)); }
         } else if (e is BoundMethodGroup) {
             BoundMethodGroup mg = e as BoundMethodGroup;
             if (mg.Receiver != null) { this._noteType(mg.Receiver.Type()); }

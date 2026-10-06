@@ -33,7 +33,8 @@ public sealed class ZpkgSectionList {
 public static class ZpkgWriterZ {
     // 版本（须与 C# ZpkgWriter.VersionMajor/Minor 一致；strict-pin。bump 同步见 version-bumping.md 第 5 步）。
     public static int Major = 0;
-    public static int Minor = 51;   // 2026-09-28 symbolic-struct-field-access P2：内嵌 zbc 1.46
+    public static int Minor = 52;   // 2026-10-06 precise-pkg-refs：DEPS 条目加符号表（u32 symCount + u32×symIdx）
+    // 0.51 2026-09-28 symbolic-struct-field-access P2：内嵌 zbc 1.46
     // （struct 叶子访问从烘焙 byte_off 改为 root_type + 字段序号路径）。outer 布局不变。
     // 前史 0.50 type-section-flags2-and-struct-fields：内嵌 zbc 1.45
     // （TYPE 记录加 always-present `class_flags2:u16` + Flags2 bit0 gated 的 struct 逐字段布局表）。
@@ -182,6 +183,8 @@ public static class ZpkgWriterZ {
             pool.Intern(zpkg.Deps[i].File);
             int j = 0;
             while (j < zpkg.Deps[i].NsCount) { pool.Intern(zpkg.Deps[i].Namespaces[j]); j = j + 1; }
+            j = 0;
+            while (j < zpkg.Deps[i].SymCount) { pool.Intern(zpkg.Deps[i].Symbols[j]); j = j + 1; }
             i = i + 1;
         }
         // ── intern：IMPL 串（drop-tsig-expt P3：TSIG 段已删；仅保 IMPL 需要的 target/trait/method 串）──
@@ -256,6 +259,10 @@ public static class ZpkgWriterZ {
             w.WriteU16(d.NsCount);
             int j = 0;
             while (j < d.NsCount) { w.WriteU32(pool.Idx(d.Namespaces[j])); j = j + 1; }
+            // precise-pkg-refs（0.52）：本包引用到的、由该依赖定义的类型 / 自由函数全名。
+            w.WriteU32(d.SymCount);
+            j = 0;
+            while (j < d.SymCount) { w.WriteU32(pool.Idx(d.Symbols[j])); j = j + 1; }
             i = i + 1;
         }
         return w;

@@ -262,6 +262,8 @@ pub fn run(file: &str, entry: Option<&str>, opts: RunOpts) -> Result<()> {
         }
     }
 
+    // precise-pkg-refs: the user artifact's DEPS symbol lists seed the loader's routing table.
+    let eager_deps = user_artifact.dependencies.clone();
     // Build declared-but-not-loaded zpkg candidate set for the lazy loader,
     // BEFORE moving `user_artifact.module` into `modules` (partial-move).
     let declared_candidates = build_declared_candidates(
@@ -298,6 +300,7 @@ pub fn run(file: &str, entry: Option<&str>, opts: RunOpts) -> Result<()> {
         declared_candidates,
         initially_loaded: initially_loaded_zpkgs,
         eager_impl_pairs,
+        eager_deps,
     });
     // Forward `-- <args>` to the program's GetCommandLineArgs() before vm.run.
     ctx.set_program_args(opts.program_args.clone());

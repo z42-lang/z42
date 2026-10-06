@@ -5,7 +5,7 @@
 
 ## 概述
 
-`.zpkg` 是 z42c 把一个包的多个模块打成的分发单元：包级元数据 + 各模块的 zbc 内容。当前版本 **0.51**，与 zbc 1.46 强耦合（两者同步 bump）。
+`.zpkg` 是 z42c 把一个包的多个模块打成的分发单元：包级元数据 + 各模块的 zbc 内容。当前版本 **0.52**，内嵌 zbc 1.46（zbc 变则两者同步 bump）。
 
 它有两种布局：**packed**（模块 zbc 字节内嵌，用于分发与测试）与 **indexed**（模块 zbc 外挂为散装 `.zbc` 文件，用于开发态增量）。字节原语与 section 目录结构与 [zbc](zbc.md) 一致，本页只列 zpkg 特有部分。
 
@@ -54,12 +54,14 @@ packed 与 indexed 只在"模块体段"不同（`MODS` ↔ `FILE`），其余段
 
 ### DEPS — 依赖表
 
-`u32 dep_count`，每条 `{ file pool idx; u16 ns_count; u32 × ns_count }`——依赖 zpkg 文件名 + 本包在它里面用到的命名空间，供 VM lazy 路由。
+`u32 dep_count`，每条 `{ file pool idx; u16 ns_count; u32 × ns_count; u32 sym_count; u32 × sym_count }`——依赖 zpkg 文件名 + 本包在它里面用到的命名空间 + 本包引用到的、**由它定义**的类型 / 自由函数全名（符号键：去掉泛型实参 `<…>` 与签名后缀 `$…`，`Semantics.DepRef.SymKey`）。
+
+符号表是 VM 惰性加载的精确路由依据：缺一个名字时直接加载定义它的那个包（.NET TypeRef 的 ResolutionScope 同理），见 [VM 架构](../runtime/vm-architecture.md)。命名空间列表留给没有静态引用的名字按前缀兜底。
 
 **记哪些包**（`z42c.pipeline/src/ZpkgDeps.z42`）：本包**实际引用到的符号**来自哪个包，就记哪个包；再并上 `[dependencies]` 声明的包，测试 / bench 目标另加父包。`using` 本身不贡献依赖。
 
 - 引用来源有两路，汇进每个模块的 `UsedDepNs`（`CuCompile.DepRefsOf`），**都不经代码生成**：类型检查期源码里写出的导入类型、枚举、静态成员、自由函数 / 方法组（`SymbolTable.NoteDepUse`），以及绑定树 walker `DepUseCollector` 补的「接收者类型没写出来」的实例调用（按接收者静态类型的归属包）。代码生成只读不写依赖集：去虚化到**别的包里的基类**方法会让直接 Call 指向依赖集之外的包，故该形状回落 VCall。
-- 归属包取自符号表的来源表：类 / 接口 / enum 查 `ClassPkgAll`（FQN → 包），自由函数查 `FuncOriginAll`。条目编码为 `ns#pkg`（`Semantics.DepRef`）。编进字符串而不加字段，是因为 `UsedDepNs` 随增量 meta 由 driver 原样搬运。
+- 归属包取自符号表的来源表：类 / 接口 / enum 查 `ClassPkgAll`（FQN → 包），自由函数查 `FuncOriginAll`。条目编码为 `ns#pkg#sym`（`Semantics.DepRef`；sym 是被引用的类型 / 自由函数全名，成员访问记其所属类型）。编进字符串而不加字段，是因为 `UsedDepNs` 随增量 meta 由 driver 原样搬运。
 - 查不到归属（来源表里没有、或多包同 FQN）的条目保守回落：记该 ns 在本次扫描里的**全部**提供包。本包自己声明的类型直接跳过。`Z42C_TRACE_DEPS=1` 打印走了回落的条目；stdlib 全量构建为 0 条。
 
 只有回落那一支依赖「本次构建能看到哪些包」，所以 DEPS 与构建方式（workspace 拓扑分档 / 单包 / flat 目录里已有什么）无关。
@@ -283,7 +285,7 @@ trace 里每帧的函数名携带参数类型签名（`at MyApp.Greeter.greet(Gr
 
 ## 版本
 
-Strict-pin，与 zbc 同政策；zpkg 版本与 zbc 版本强耦合（当前 0.51 ↔ 1.46），bump 联动。同步 checklist 见开发基础设施部分的 version-bumping 规范。
+Strict-pin，与 zbc 同政策；zpkg 版本与 zbc 版本强耦合（当前 0.52 ↔ 1.46），bump 联动。同步 checklist 见开发基础设施部分的 version-bumping 规范。
 
 > 📌 **本页不维护逐 minor 的 changelog 表**（zbc 那边有一张）。zpkg 的 minor 历史写在写端常量旁 ——
 > `src/compiler/z42.package/src/ZpkgWriter.z42` 的 `ZpkgWriterZ.Minor` 注释，那里逐条记着

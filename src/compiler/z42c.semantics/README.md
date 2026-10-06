@@ -83,7 +83,7 @@
 | `src/Compilation/SemanticDump.z42` | 纯函数工具：源 → bound s-expr / 诊断计数（[Test] + driver `--dump-bound`） |
 | `src/Symbols/NsScope.z42` | **外围命名空间规则的唯一 SoT**：`Chain`（`A.B.C` → 由内到外的外围链）/ `IsEnclosing`（按段判外围）。解析器 ①、E0456 歧义、自由函数候选、E0436、包激活、static call 消歧都走它 |
 | `src/Symbols/NsUseRecorder.z42` | 每文件「用到的命名空间」集合：`TypeChecker.Infer` 新建并挂在本文件视图（`SymbolTable.UseRecorder`），`ResolveTypeP` 外壳与表达式位绑定点往里记声明 ns；E0436 的判据 |
-| `src/Symbols/DepRef.z42` | 依赖引用条目编码 `ns` / `ns#pkg`：`UsedDepNs` 的每一项；带 `#pkg` = 符号实际来自的包，DEPS 只记它。编进字符串是为了让增量 meta 经 driver 原样搬运、driver 零改动 |
+| `src/Symbols/DepRef.z42` | 依赖引用条目编码 `ns` / `ns#pkg` / `ns#pkg#sym`：`UsedDepNs` 的每一项；带 `#pkg` = 符号实际来自的包，DEPS 只记它；`#sym` = 被引用的类型 / 自由函数全名（`SymKey` 归一），进 DEPS 符号表供运行期精确路由。编进字符串是为了让增量 meta 经 driver 原样搬运、driver 零改动 |
 | `src/Validation/DeclTypeUses.z42` | 声明位类型引用的补录：`Infer` 末尾把本文件全部声明里的 TypeExpr 在挂了记录器的视图上再解析一遍（成员签名 / 基类列表 / 接口 / delegate / 约束 / impl），只记录、不发诊断 |
 | `src/Validation/NullableValueTypes.z42` | E0476 的语义半边：类型写法里 `X?` 的 X 解析成 struct / enum ⇒ 报错（基元关键字由解析器报）；挂在 `ChkAmbiguousBareNameT`（方法体类型位）与 `DeclTypeUses`（声明位） |
 | `src/Validation/DepUseCollector.z42` | 绑定树上的跨包依赖收集（穷举 walker，登记在 walkers 门）：补「接收者类型没写出来」的导入实例调用；与绑定期 `NoteDepUse` 合并成文件依赖集（`CuCompile.DepRefsOf`，DEPS / E0436 / W0607 的判据），不经代码生成 |
