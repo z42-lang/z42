@@ -259,13 +259,13 @@ _GoldenEntry[] _walkGoldenCorpus(string root) {
 // ── golden-zbc artifact mirror (mirror-build-output-per-component, 2026-06-16) ─
 //
 // Run-golden compiled `.zbc` is build output, not source — it lives under
-// `artifacts/build/` mirroring the src layout *per component* (same convention
-// stdlib/z42c package builds already use: `artifacts/build/libraries/<lib>`,
-// `artifacts/build/compiler/<member>`), NOT beside `source.z42`:
-//   src/tests/<rel>            → artifacts/build/tests/<rel>
-//   src/libraries/<lib>/<rel>  → artifacts/build/libraries/<lib>/<rel>
-// i.e. strip the leading `src/` and re-root under `artifacts/build/`. regen
-// writes here; the `test e2e` golden runner + Rust `zbc_compat` read here.
+// `artifacts/build/` mirroring the src layout, NOT beside `source.z42`:
+//   src/tests/<rel>                  → artifacts/build/tests/<rel>
+//   src/libraries/<lib>/<rel>        → artifacts/build/libraries/<lib>/release/<rel>
+// A workspace member's goldens sit under its `release/` profile dir, next to its `dist/` / `cache/`
+// (artifacts-layout.md §2: inside a member, everything is per profile, like `build/runtime/<profile>/`;
+// goldens are compiled by the release driver). `src/tests` has no owner package, so no profile layer.
+// regen writes here; the `test e2e` golden runner + Rust `zbc_compat` read here.
 //
 // Not routed through here: the wire-format byte baselines under
 // `src/compiler/z42.package/tests/fixtures/zbc-format/` are checked in and regen
@@ -275,6 +275,13 @@ _GoldenEntry[] _walkGoldenCorpus(string root) {
 // `relUnderSrc` is the case dir relative to `src/` (e.g. `"tests/basic/hello"`
 // or `"libraries/z42.math/tests/math"`); returns the absolute mirror dir.
 string _goldenArtifactDir(string root, string relUnderSrc) {
+    string[] segs = relUnderSrc.Replace("\\", "/").Split("/");
+    if (segs.Length > 2 && (segs[0] == "libraries" || segs[0] == "compiler")) {
+        string rest = "";
+        int i = 2;
+        while (i < segs.Length) { rest = rest.Length == 0 ? segs[i] : rest + "/" + segs[i]; i = i + 1; }
+        return Path.Join(Path.Join(Path.Join(Path.Join(_buildDir(root), segs[0]), segs[1]), "release"), rest);
+    }
     return Path.Join(_buildDir(root), relUnderSrc);
 }
 

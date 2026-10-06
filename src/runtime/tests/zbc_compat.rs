@@ -63,7 +63,7 @@ fn collect_source_zbc(dir: &std::path::Path, out: &mut Vec<(String, PathBuf)>) {
 ///      into git, regen overwrites them in place; still read from src.
 ///   2. Run-goldens — regen-generated, now mirrored per component under
 ///      `artifacts/build/tests/` (from `src/tests/`) and
-///      `artifacts/build/libraries/<lib>/tests/` (from `src/libraries/`).
+///      `artifacts/build/libraries/<lib>/release/tests/` (from `src/libraries/`).
 ///      Recurse both roots and collect every `source.zbc` (the per-lib stdlib
 ///      build cache under artifacts/build/libraries uses other filenames, so the
 ///      `source.zbc` filter picks up only golden cases).

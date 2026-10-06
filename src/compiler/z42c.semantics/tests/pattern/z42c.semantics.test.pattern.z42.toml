@@ -12,5 +12,5 @@ include = ["**/*.z42"]
 "z42c.core"      = "0.1.0"
 
 [build]
-# src/compiler/z42c.semantics/tests/pattern → artifacts/build/compiler/z42c.semantics/tests/pattern
-output_dir = "../../../../../artifacts/build/compiler/z42c.semantics/tests/pattern"
+# src/compiler/z42c.semantics/tests/pattern → artifacts/build/compiler/z42c.semantics/${profile}/tests/pattern
+output_dir = "../../../../../artifacts/build/compiler/z42c.semantics/${profile}/tests/pattern"

@@ -39,7 +39,7 @@ Z42VM(zpkgResolver = AssetZpkgResolver(assets)).use { vm ->
 ./xtask test platform android assets     # fixtures + stdlib 进 assets
 ```
 
-产物在宿主工程副本 `artifacts/build/toolchain/workload/android/tests/host/`（不写本目录）：
+产物在宿主工程副本 `artifacts/intermediate/toolchain/workload/android/host/`（不写本目录）：
 `z42vm/build/outputs/aar/z42vm-release.aar`、`jniLibs/{arm64-v8a,x86_64}/libz42_platform_android.so`、
 `assets/stdlib/*.zpkg`（`AssetZpkgResolver` 读各 zpkg 的 NSPC 建索引）。
 

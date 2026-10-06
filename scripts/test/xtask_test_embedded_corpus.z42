@@ -223,7 +223,7 @@ _CorpusCase[] _shardCorpus(_CorpusCase[] cases, int k, int n) {
 //     wall (>20min; android hit 60min). tidy-test-system spread the cap per
 //     category (round-robin) so late-sorted categories still get representation.
 string _buildTestBundle(string root, string filter, string rid, int shardK, int shardN) {
-    string bundleDir = Path.Join(_testOut(root, "src/toolchain/workload/test", ""), "bundle");
+    string bundleDir = Path.Join(_workOut(root, "src/toolchain/workload/test", ""), "bundle");
     Directory.Create(bundleDir);
     _cleanGlob(bundleDir, "*.zbc");
     int embedCap = (rid.Contains("wasm") || rid.Contains("ios") || rid.Contains("android")) ? 60 : 0;

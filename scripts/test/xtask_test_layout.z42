@@ -12,10 +12,12 @@
 //   ③ `// requires-caps:` 与 `[Skip(feature: "…")]` 只能用「已生效」的能力名。
 //      两处都是 deny-by-default：VM 不报告的名字一律视为「缺」⇒ 用例在**所有平台**上静默跳过——
 //      不红、不报，只是从此没人跑它。typo 和「规划中、运行期还没报」的能力名都是这个下场。
-//   ④ artifacts/build/ 的每个一级目录都在 src/ 下有同名目录（build/ 逐路径镜像 src/）。
-//      谁再往 build/ 下随手建一个 `build/<name>` 工作目录，当场红 —— 输出要跟着 owner 走。
-//      只查一级：编译器 workspace 级中间物（driver-home、自举快照…）与库的扁平 dist 合法地与成员并列。
-//      build/ 不存在（新克隆、只跑本门）时跳过这一条。
+//   ④ build/ 只放编译产物、逐路径镜像 src/；其余中间物在 intermediate/，同样镜像 src/
+//      （artifacts-layout.md §1）。机械可判的部分：
+//        · build/ 的一级目录、以及 build/{compiler,libraries,toolchain}/ 的二级目录，都在 src/ 下有同名目录
+//          —— 谁再往 build/ 下随手建一个工作目录或快照目录，当场红。唯一例外：库的扁平 dist（libraries/dist）。
+//        · intermediate/ 的一级目录 ⊆ src/ 一级目录 ∪ {xtask}。
+//      不存在的目录（新克隆、只跑本门）跳过。
 //
 // ## 不判的
 //
@@ -229,24 +231,41 @@ int _tlCheckCapUses(string root, string[] active) {
     return bad;
 }
 
-// ④ artifacts/build/ 一级目录 ⊆ src/ 一级目录。
+// ④ build/ 与 intermediate/ 都镜像 src/（见头注）。
 int _tlCheckBuildMirror(string root) {
-    Console.WriteLine("④ artifacts/build/ 的一级目录都镜像 src/");
+    Console.WriteLine("④ artifacts/build/ 与 artifacts/intermediate/ 都镜像 src/");
+    string src = Path.Join(root, "src");
     string build = _buildDir(root);
-    if (!Directory.Exists(build)) {
-        Console.WriteLine("  - artifacts/build/ 不存在，跳过");
-        return 0;
-    }
-    string[] srcDirs = _enumDirsSorted(Path.Join(root, "src"));
-    string[] got = _enumDirsSorted(build);
     int bad = 0;
-    foreach (var d in got) {
-        if (!_tlHas(srcDirs, d)) {
-            ConsoleError.WriteLine("  ✗ artifacts/build/" + d + "/ 在 src/ 下没有对应目录 —— 输出要落在 owner 组件的镜像里"
-                + "（测试类用 _testOut / _testOutRootOf，见 scripts/common/xtask_layout.z42）；旧布局的残留用 `xtask clean all` 清掉");
-            bad = bad + 1;
+    int checkedDirs = 0;
+    if (Directory.Exists(build)) {
+        foreach (var d in _enumDirsSorted(build)) {
+            checkedDirs = checkedDirs + 1;
+            if (!Directory.Exists(Path.Join(src, d))) { bad = bad + _tlMirrorBad(root, Path.Join(build, d)); continue; }
+            if (d != "compiler" && d != "libraries" && d != "toolchain") { continue; }
+            foreach (var e in _enumDirsSorted(Path.Join(build, d))) {
+                checkedDirs = checkedDirs + 1;
+                if (d == "libraries" && e == "dist") { continue; }   // 扁平 stdlib = Z42_LIBS，正式产物
+                if (!Directory.Exists(Path.Join(Path.Join(src, d), e))) { bad = bad + _tlMirrorBad(root, Path.Join(Path.Join(build, d), e)); }
+            }
         }
     }
-    if (bad == 0) { Console.WriteLine("  ✓ " + got.Length.ToString() + " 个一级目录"); }
+    string im = _intermediateDir(root);
+    if (Directory.Exists(im)) {
+        foreach (var d in _enumDirsSorted(im)) {
+            checkedDirs = checkedDirs + 1;
+            if (d == "xtask") { continue; }
+            if (!Directory.Exists(Path.Join(src, d))) { bad = bad + _tlMirrorBad(root, Path.Join(im, d)); }
+        }
+    }
+    if (bad == 0) { Console.WriteLine("  ✓ " + checkedDirs.ToString() + " 个目录"); }
     return bad;
+}
+
+int _tlMirrorBad(string root, string dir) {
+    string rel = _layoutRel(root, dir, true);
+    ConsoleError.WriteLine("  ✗ artifacts/" + rel + " 在 src/ 下没有对应目录 —— build/ 只放编译产物，其余放 intermediate/，"
+        + "都镜像 owner 在 src/ 下的位置（_buildMirror / _workOut / _compilerWsWork，见 scripts/common/xtask_layout.z42）。"
+        + "旧布局的残留直接删掉：rm -rf artifacts/" + rel);
+    return 1;
 }

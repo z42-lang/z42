@@ -13,5 +13,5 @@ include = ["**/*.z42"]
 
 [build]
 # Build output → artifacts mirror (mirror-build-output-per-component):
-# src/compiler/z42c.semantics/tests/overload → artifacts/build/compiler/z42c.semantics/tests/overload (no src pollution).
-output_dir = "../../../../../artifacts/build/compiler/z42c.semantics/tests/overload"
+# src/compiler/z42c.semantics/tests/overload → artifacts/build/compiler/z42c.semantics/${profile}/tests/overload (no src pollution).
+output_dir = "../../../../../artifacts/build/compiler/z42c.semantics/${profile}/tests/overload"

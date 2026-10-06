@@ -49,7 +49,7 @@ node src/toolchain/workload/wasm/platform/demo/node/run.js     # 期望 [host] h
 浏览器 demo：`platform/demo/web/index.html`，配任一静态服务器。
 
 限制：仅 interp；同步 invoke；marshal 仅 null / boolean / number / bigint；单实例；
-`pkg-*/`、`js/stdlib/` 等生成物落宿主工程副本 `artifacts/build/toolchain/workload/wasm/tests/host/`，不写本目录。
+`pkg-*/`、`js/stdlib/` 等生成物落宿主工程副本 `artifacts/intermediate/toolchain/workload/wasm/host/`，不写本目录。
 
 ## 如何测试验证
 

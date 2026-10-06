@@ -35,7 +35,7 @@ int _testIncremental(ParseResult r) {
         if (bc != 0) { return bc; }
     }
     string libs = _libsDir(root);
-    string scratch = _testOut(root, "src/compiler/z42c.pipeline", "incremental");
+    string scratch = _workOut(root, "src/compiler/z42c.pipeline", "incremental");
     if (Directory.Exists(scratch)) { Directory.Delete(scratch, true); }
 
     int rc = _reconcileProject(vm, driver, libs, _incrDemoDir(scratch), "demo");

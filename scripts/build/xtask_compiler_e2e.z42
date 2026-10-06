@@ -516,7 +516,7 @@ int _testCompilerE2e(string root, string vm, string flat) {
     Console.WriteLine("");
     Console.WriteLine("── z42c e2e: self-compiled .zbc runs on z42vm ──");
     string driverZpkg = _driverZpkg(root, "release");
-    string e2eDir = _testOut(root, "src/compiler/z42c.driver", "e2e");
+    string e2eDir = _workOut(root, "src/compiler/z42c.driver", "e2e");
     Directory.Create(e2eDir);
 
     string libsRel = _libsDir(root);

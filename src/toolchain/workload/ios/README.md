@@ -38,7 +38,7 @@ rustup target add aarch64-apple-ios aarch64-apple-ios-sim aarch64-apple-darwin
 ./xtask test platform ios assets         # fixtures + stdlib
 ```
 
-产物在宿主工程副本 `artifacts/build/toolchain/workload/ios/tests/host/`（不写本目录）：
+产物在宿主工程副本 `artifacts/intermediate/toolchain/workload/ios/host/`（不写本目录）：
 `Z42VM.xcframework/`、`Resources/stdlib/*.zpkg`。
 
 限制：仅 interp；单实例；同步 invoke；marshal 仅 null + `i64` / `f64` / `bool`。

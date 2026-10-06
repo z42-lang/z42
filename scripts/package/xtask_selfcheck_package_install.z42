@@ -41,7 +41,7 @@ _PackagesConfig _instConfig(string pkgName, string[] include, _PkgComponent[] co
 
 int _testPackagesInstall() {
     string root = _root();
-    string fakeCargoOut = _xtaskTestOut(root, "install-test-cargo");
+    string fakeCargoOut = _xtaskWork(root, "install-test-cargo");
     if (Directory.Exists(fakeCargoOut)) { Directory.Delete(fakeCargoOut, true); }
     Directory.Create(fakeCargoOut);
     File.WriteAllText(Path.Join(fakeCargoOut, "z42vm"), "fake-z42vm-binary");
@@ -51,7 +51,7 @@ int _testPackagesInstall() {
     File.WriteAllText(Path.Join(fakeCargoOut, "libz42_repl.dylib"), "fake-repl-cdylib");
 
     // 一个假包：四种固定 kind 各一个组件（真 kind，假 cargoOut），按 include 顺序装进临时包目录。
-    string pkgDir = _xtaskTestOut(root, "install-test-pkg");
+    string pkgDir = _xtaskWork(root, "install-test-pkg");
     _resetDir(pkgDir);
     _PkgComponent[] comps = new _PkgComponent[]{
         _instComp("z42vm", "cargo-bin", ""), _instComp("native", "cargo-native", ""),
@@ -97,7 +97,7 @@ int _testPackagesInstall() {
     //
     // 这一格改成**密闭**的：自己造一个「被污染的 libs」，看安装会不会把入侵者带进去。
     // 与命令顺序无关 ⇒ 它守的是**构造**，不是当下这一刻的目录内容。
-    string fakeLibs = _xtaskTestOut(root, "install-test-fake-libs");
+    string fakeLibs = _xtaskWork(root, "install-test-fake-libs");
     _resetDir(fakeLibs);
     string[] mem = _stdlibList(root);
     int mi = 0;
@@ -109,7 +109,7 @@ int _testPackagesInstall() {
     File.WriteAllText(Path.Join(fakeLibs, "z42c.core.zpkg"), "INTRUDER");          // 编译器域
     File.WriteAllText(Path.Join(fakeLibs, "z42.workload.ios.zpkg"), "INTRUDER");   // workload
     File.WriteAllText(Path.Join(fakeLibs, "totally.random.zpkg"), "INTRUDER");     // 随便什么
-    string hermetic = _xtaskTestOut(root, "install-test-hermetic");
+    string hermetic = _xtaskWork(root, "install-test-hermetic");
     _resetDir(hermetic);
     _stgAssert("污染过的 libs 也能装成功", _pkgCopyLibsOf(root, fakeLibs, hermetic) == 0);
     foreach (var f in Directory.Enumerate(Path.Join(hermetic, "libs"))) {
@@ -157,7 +157,7 @@ int _testPackagesInstall() {
         !File.Exists(Path.Join(edDir, "syntaxes/z42.tmLanguage.tpl.json")));
 
     // 失败要响亮（不留半个包当成功）：① kind 装不了（apphost-stub 归 desktop workload）；② apphost 组件缺 z42b 上下文。
-    string badDir = _xtaskTestOut(root, "install-test-bad");
+    string badDir = _xtaskWork(root, "install-test-bad");
     _resetDir(badDir);
     _PackagesConfig stubCfg = _instConfig("install-test-stub", new string[]{ "apphost-stub" },
         new _PkgComponent[]{ _instComp("apphost-stub", "cargo-bin", "") });

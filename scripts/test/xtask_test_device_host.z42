@@ -30,9 +30,9 @@ namespace Z42Xtask;
 
 using Std.IO;
 
-// <p> 的宿主工程副本：artifacts/build/toolchain/workload/<p>/tests/host。
+// <p> 的宿主工程副本：artifacts/intermediate/toolchain/workload/<p>/host。
 string _deviceHost(string root, string platform) {
-    return _testOut(root, "src/toolchain/workload/" + platform, "host");
+    return _workOut(root, "src/toolchain/workload/" + platform, "host");
 }
 
 // 宿主工程的源码位置（只读；Rust crate 从这里编）。

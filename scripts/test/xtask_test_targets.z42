@@ -173,7 +173,7 @@ int _smokeFallbackOutRoot(string root, TargetTooling tt) {
     int bi = 0;
     // 上一个 smoke（不带 --out-root）在拷贝旁留下的产物先清掉，否则 ② 判不出来。
     while (bi < beside.Length) { if (Directory.Exists(beside[bi])) { Directory.Delete(beside[bi], true); } bi = bi + 1; }
-    string outRoot = _testOut(root, "src/toolchain/builder", "z42b-fallback-out-root");
+    string outRoot = _workOut(root, "src/toolchain/builder", "z42b-fallback-out-root");
     if (Directory.Exists(outRoot)) { Directory.Delete(outRoot, true); }
     int rc = _exec(_z42bProc(tt.Vm, tt.Libs).Arg(tt.BuilderZpkg).Arg("--mode").Arg(_z42cMode())
         .Arg("--").Arg("test").Arg(toml).Arg("--out-root").Arg(outRoot)
@@ -535,7 +535,7 @@ int _smokeBundleHost(string root, TargetTooling tt) {
     if (!File.Exists(src)) { return 0; }
     Console.WriteLine("");
     Console.WriteLine("── bundle-host (z42b test <manifest.json> --rid host) ──");
-    string outDir = Path.Join(_testOut(root, "src/toolchain/workload/test", ""), "smoke-bundle-host");
+    string outDir = Path.Join(_workOut(root, "src/toolchain/workload/test", ""), "smoke-bundle-host");
     Directory.Create(outDir);
     string zbc = Path.Join(outDir, "pass_unit.zbc");
     int ec = _exec(_z42Proc(tt.Vm, tt.Libs).Arg(tt.DriverZpkg).Arg("--mode").Arg(_z42cMode())

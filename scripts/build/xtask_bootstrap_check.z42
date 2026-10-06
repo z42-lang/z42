@@ -59,7 +59,7 @@ int _bootstrapCheck(string ridArg) {
         return 2;
     }
 
-    string work = Path.Join(_compilerBuildRoot(root), "bootstrap-check");
+    string work = _compilerWsWork(root, "bootstrap-check");
     _resetDir(work);
 
     // ── fetch the latest nightly SDK package (z42vm + libs/ + programs/z42c/ seed) ──

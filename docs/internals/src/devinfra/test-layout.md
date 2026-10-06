@@ -196,23 +196,23 @@ Rust 侧的 `*_tests.rs` 与 `tests/*.rs` 按 cargo 惯例，不在此列。
 
 ### 5. 测试输出
 
-**`artifacts/build/` 逐路径镜像 `src/`；组件 `src/<rel>` 的测试输出落 `artifacts/build/<rel>/tests/`**，
-与它的 `<profile>/` 构建产物并列。golden `.zbc`、夹具的暂存拷贝、harness 的工作目录、平台测试的
-bundle 与宿主都是测试输出，各自落在 owner 的 `tests/` 下：
+**测试的编译产物在 `build/`，其余测试输出在 `intermediate/`，两边都逐路径镜像 `src/`**（判据见
+[产物目录布局 §1](artifacts-layout.md)）。包（库、编译器成员、工具链工程）里的编译产物一律
+**profile 在外、`tests` 在内**，与运行时的 `build/runtime/<profile>/` 同形：
 
 | 测试输出 | 位置 |
 |---|---|
-| golden `.zbc` | `build/tests/<rel>`、`build/libraries/<lib>/tests/<rel>` |
-| 夹具暂存拷贝（在拷贝上编 / 跑，源码树零写入） | 与源码同路径：`build/<组件>/tests/fixtures/<suite>/` |
-| harness 工作目录 | `build/<组件>/tests/<name>`，如 `build/compiler/z42c.pipeline/tests/incremental` |
-| 平台测试（bundle、宿主、R1–R7） | `build/toolchain/workload/<platform>/tests/`；共享的 agent 与语料 bundle 在 `workload/test/tests/` |
-| z42b 的 `[Test]` / `[Benchmark]` 目标（库与编译器成员） | 成员输出目录下的 `debug/tests`、`debug/bench` |
+| golden `.zbc` | `build/tests/<rel>`；库的在 `build/libraries/<lib>/release/tests/<rel>` |
+| z42b 的 `[Test]` / `[Benchmark]` 目标（库、编译器成员、工具链工程） | `build/<rel>/debug/tests`、`build/<rel>/debug/bench` |
+| 编译器测试单元（`tests/<unit>/*.z42.toml`） | `build/compiler/<member>/release/tests/<unit>` |
+| 夹具暂存拷贝（在拷贝上编 / 跑，源码树零写入） | 与源码同路径：`intermediate/<组件>/tests/fixtures/<suite>/` |
+| harness 工作目录 | `intermediate/<组件>/<name>`，如 `intermediate/compiler/z42c.pipeline/incremental` |
+| 平台测试（bundle、宿主、R1–R7） | `intermediate/toolchain/workload/<platform>/`；共享的 agent 与语料 bundle 在 `intermediate/toolchain/workload/test/` |
 
-没有共享的 scratch 目录：不属于测试、也不属于某个成员的中间物（编译器自举快照等）落所属 workspace 的
-`build/<area>/<name>`；xtask 自检的工作目录在 xtask 自己的输出目录 `artifacts/xtask/tests/`。
-给 CI 消费的报告不进 `build/`：`artifacts/reports/tests/<platform>/` 与 `artifacts/reports/bench/`。完整清单见
-[产物目录布局 §3](artifacts-layout.md)；路径只在 `scripts/common/xtask_layout.z42` 里定义
-（`_buildMirror` / `_testOut` / `_testOutRootOf`）。
+没有共享的 scratch 目录：不属于某个成员的中间物（编译器自举快照等）落 `intermediate/<area>/<name>`；
+xtask 自检的工作目录在 `intermediate/xtask/`。给 CI 消费的报告不进 `build/`：`artifacts/reports/tests/<platform>/`
+与 `artifacts/reports/bench/`。完整清单见[产物目录布局 §3](artifacts-layout.md)；路径只在
+`scripts/common/xtask_layout.z42` 里定义（`_buildMirror` / `_workOut` / `_workRootOf` / `_devTargetOutRoot`）。
 
 ### 6. 在 app 里跑
 
@@ -222,22 +222,22 @@ bundle 与宿主都是测试输出，各自落在 owner 的 `tests/` 下：
 flowchart LR
   S[src/**/tests 用例] -->|① 收集：目录 + 能力| C[用例清单]
   C -->|② 编译一次| Z[组件 tests 输出里的 .zbc<br/>host 直接跑]
-  Z -->|③ 组 bundle：manifest + .zbc + agent + stdlib| B[workload/&lt;p&gt;/tests/bundle]
-  B -->|④ 放进暂存的宿主工程副本| H[workload/&lt;p&gt;/tests/host]
+  Z -->|③ 组 bundle：manifest + .zbc + agent + stdlib| B[workload/test/bundle]
+  B -->|④ 放进暂存的宿主工程副本| H[workload/&lt;p&gt;/host]
   H -->|构建 · 起设备 · 运行 · 取报告| R[reports/tests/&lt;p&gt;/]
 ```
 
-图里各步的产物都在 `artifacts/build/toolchain/workload/<platform>/tests/` 下，报告落 `artifacts/reports/tests/`。
+图里各步的产物都在 `artifacts/intermediate/toolchain/workload/<platform>/` 下，报告落 `artifacts/reports/tests/`。
 
 1. **收集**：只扫 §4 ① 的语料根；能力匹配在设备上做（§4）；分片 `--shard k/n` 与采样规则不变。
 2. ⏳ **编译**：`.zbc` 与平台无关，应直接引用用例自己的测试输出；目前 bundle 构建仍为每个用例单独编一份。
 3. ⏳ **组 bundle**：bundle 内部按用例 ID 镜像 `src/` 路径；目前是扁平的安全文件名。
 4. **放进包体**：平台宿主工程（Playwright 页面 / SwiftPM 包 / Gradle 工程）里**被 git 跟踪的文件**增量同步到
-   `build/toolchain/workload/<p>/tests/host/`（`_stageDeviceHost`），R1–R7 夹具、stdlib、嵌入 bundle、
+   `intermediate/toolchain/workload/<p>/host/`（`_stageDeviceHost`），R1–R7 夹具、stdlib、嵌入 bundle、
    native 产物（pkg-web / xcframework / jniLibs 里的 .so）都放进这份副本，构建与运行也在副本里做，
    源码树零写入。增量是为了让 Gradle / Xcode / npm 的缓存继续生效；路径固定是为了能直接用
    Android Studio / Xcode 打开副本调试。Rust crate 不进副本：它们的 `Cargo.toml` 相对依赖 `src/runtime`，
-   仍从源码位置编，只把产物输出到副本。wasm 的嵌入 deployable 在副本旁边的 `tests/deploy/`。
+   仍从源码位置编，只把产物输出到副本。wasm 的嵌入 deployable 在副本旁边的 `deploy/`。
 
 一条命令完成全部步骤，本地与 CI 相同（`scripts/test/xtask_test_app.z42`）：
 
@@ -284,10 +284,10 @@ R1–R7（分片时只在第 1 片）→ 嵌入 bundle → 宿主构建 → 设�
 | ① | `src/tests/` 的顶层目录 = §2「语言类别」∪「待搬迁」，两张清单不重叠 | 新类别：是语言特性就登记，否则放进所属组件；搬走的：从「待搬迁」删掉 |
 | ② | §4「已生效」能力 = `platform.rs` 里 `builtin_platform_caps` 实际 `push` 的能力 | 运行期加了能力就登记，删了就移除 |
 | ③ | `src/**/*.z42` 里的 `// requires-caps:` 与 `[Skip(feature: "…")]` 只用「已生效」的名字 | 改成已生效的名字；需要新能力就先让运行期报告它 |
-| ④ | `artifacts/build/` 的每个一级目录在 `src/` 下都有同名目录（`build/` 不存在时跳过） | 输出改到 owner 的镜像里（`_testOut` 等）；旧布局残留用 `xtask clean all` 清掉 |
+| ④ | `build/` 的一级目录、`build/{compiler,libraries,toolchain}/` 的二级目录、`intermediate/` 的一级目录，在 `src/` 下都有同名目录（不存在的跳过） | 编译产物改到 `build/` 镜像（`_buildMirror`），其余改到 `intermediate/` 镜像（`_workOut` 等）；旧布局残留按报错给的 `rm -rf` 删掉 |
 
 ③ 豁免两类故意写未知能力名的 fixture（`_tlCapFixtures()`）：`src/runtime/tests/data/`（TIDX 解码）与
-`z42.test` 的 `skip_platform_demo.z42`（deny-by-default 演示）。④ 只查一级：编译器 workspace 级中间物与库的扁平 dist 合法地与成员目录并列。
+`z42.test` 的 `skip_platform_demo.z42`（deny-by-default 演示）。④ 的例外只有两个：库的扁平 dist（`build/libraries/dist`，正式产物）与 `intermediate/xtask`（xtask 不在 `src/` 下）。
 
 | 组件 | 位置 |
 |---|---|

@@ -53,7 +53,7 @@ rc=$?
 # installed (seen: `Requested internal only, but not enough space`), so a zero exit
 # code alone proves nothing. No JUnit XML ⇒ no test ran ⇒ fail here, with the cause
 # still visible above, instead of only at the reporter step.
-results="$GITHUB_WORKSPACE/artifacts/build/toolchain/workload/android/tests/host/z42vm/build/outputs/androidTest-results/connected"
+results="$GITHUB_WORKSPACE/artifacts/intermediate/toolchain/workload/android/host/z42vm/build/outputs/androidTest-results/connected"
 if [ "$rc" -eq 0 ] && [ -z "$(find "$results" -name '*.xml' 2>/dev/null | head -1)" ]; then
     echo "error: connectedAndroidTest produced no JUnit XML under $results — no instrumented test ran" >&2
     rc=1

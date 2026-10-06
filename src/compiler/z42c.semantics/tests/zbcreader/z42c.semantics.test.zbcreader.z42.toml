@@ -11,4 +11,4 @@ include = ["**/*.z42"]
 "z42c.core"      = "0.1.0"
 "z42.package"         = "0.1.0"
 [build]
-output_dir = "../../../../../artifacts/build/compiler/z42c.semantics/tests/zbcreader"
+output_dir = "../../../../../artifacts/build/compiler/z42c.semantics/${profile}/tests/zbcreader"

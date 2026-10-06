@@ -199,7 +199,7 @@ string _profileCpuZ42(ProfileCtx c) {
 // allocator writes dhat-heap.json in cwd on exit. Also captures the counter摘要.
 string _profileHeap(ProfileCtx c) {
     Console.WriteLine("── heap (dhat) ──");
-    string tdir = Path.Join(c.outDir, "dhat-target");
+    string tdir = _workOut(_root(), "src/runtime", "dhat-target");   // 中间物：跨脚本复用 cargo 缓存
     Console.WriteLine("  building dhat-heap z42vm (isolated target-dir)…");
     int bc = _exec(_cargoRelease(_runtimeCargoConfig())
         .Arg("--manifest-path").Arg(_runtimeManifest())
@@ -247,7 +247,7 @@ string _profileThreads(ProfileCtx c) {
     Console.WriteLine("  counters (park always-on): " + stats);
 
     // 2) Contention VM: isolated `profile-contention` build → real lock_* data.
-    string tdir = Path.Join(c.outDir, "contention-target");
+    string tdir = _workOut(_root(), "src/runtime", "contention-target");   // 中间物：跨脚本复用 cargo 缓存
     Console.WriteLine("  building profile-contention z42vm (isolated target-dir)…");
     int bc = _exec(_cargoRelease(_runtimeCargoConfig())
         .Arg("--manifest-path").Arg(_runtimeManifest())

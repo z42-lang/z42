@@ -129,6 +129,13 @@ string _compilerMemberZpkg(string root, string member, string profile) {
 string _driverDist(string root, string profile) { return _compilerMemberDist(root, "z42c.driver", profile); }
 string _driverZpkg(string root, string profile) { return _compilerMemberZpkg(root, "z42c.driver", profile); }
 
+// z42c driver 的「home」= 它自己 release dist 的目录：自包含（z42c.driver.zpkg + z42c.* 兄弟 + 它那一代的
+// stdlib 闭包），z42vm 从入口 zpkg 所在目录解析依赖，被编译代码的 stdlib 另走 Z42_LIBS。driver 未构建返回 ""。
+string _driverHome(string root) {
+    string d = _driverZpkg(root, "release");
+    return File.Exists(d) ? Path.GetDirectoryName(d) : "";
+}
+
 // ── build-tree roots + conventions (single definitions; no toml home) ─────────
 
 // artifacts/build — the root under which everything xtask BUILDS is written
@@ -158,66 +165,76 @@ string _runtimeOut(string root, string profile) {
     return Path.Join(_cargoTargetDir(root), profile);
 }
 
-// ── 测试输出：artifacts/build/ 逐路径镜像 src/ ──────────────────────────────────
+// ── build/ 与 intermediate/：都逐路径镜像 src/ ──────────────────────────────────
 //
-// 规则（docs/internals/src/devinfra/test-layout.md §5）：组件 `src/<rel>` 的测试产物——golden `.zbc`、
-// 夹具的暂存拷贝、harness 的工作目录、平台测试的 bundle / 宿主——一律落 `artifacts/build/<rel>/tests/`，
-// 与该组件的 `<profile>/` 构建产物并列。于是「某个东西写到哪去了」只有一个答案：它的 owner 在 src
-// 下哪里，它就在 build 下哪里。没有共享的 scratch 桶，也就没有按名字撞车。
+// 规则（docs/internals/src/devinfra/artifacts-layout.md §1）：**build/ 只放编译产物**——各包的
+// `<profile>/{dist,cache}`、z42b 测试 / bench 目标（`<profile>/{tests,bench}`）、golden `.zbc`、cargo 的 target
+// 目录；**intermediate/ 放其余一切**——夹具的暂存拷贝、harness 工作目录、平台测试的 bundle / 宿主工程副本、
+// 编译器自举快照、xtask 自检目录。两边都按 owner 在 src 下的位置镜像，于是「某个东西写到哪去了」只有一个
+// 答案；没有共享的 scratch 桶，也就没有按名字撞车。
 
-// `src/<rel>` → `artifacts/build/<rel>`。已经在 artifacts/build/ 下的路径（夹具的暂存拷贝）原样返回，
-// 这样「对一个工程目录求它的输出位置」不必关心这个工程是源码还是拷贝。其它位置是调用方的 bug。
+// `src/<rel>` → `artifacts/build/<rel>`。已经在 artifacts/build/ 下的路径原样返回。其它位置是调用方的 bug。
 string _buildMirror(string root, string path) {
-    string p = _cleanPath(path.Replace("\\", "/"));
-    string buildRoot = _cleanPath(_buildDir(root));
-    if (p == buildRoot || p.StartsWith(buildRoot + "/")) { return p; }
-    string srcRoot = _cleanPath(Path.Join(root, "src"));
-    if (p.StartsWith(srcRoot + "/")) { return Path.Join(buildRoot, p.Substring(srcRoot.Length + 1)); }
-    if (p.StartsWith("src/")) { return Path.Join(buildRoot, p.Substring(4)); }
-    throw new Exception("_buildMirror: path is under neither src/ nor artifacts/build/: " + path);
+    return _mirrorUnder(root, path, _buildDir(root), "_buildMirror");
 }
 
-// 组件 `componentSrc`（`src/...`）的测试输出 `artifacts/build/<rel>/tests/<name>`；name 为空 = tests/ 本身。
-string _testOut(string root, string componentSrc, string name) {
-    string t = Path.Join(_buildMirror(root, componentSrc), "tests");
+// `src/<rel>` → `artifacts/intermediate/<rel>`。已经在 intermediate/ 下的路径（夹具的暂存拷贝）原样返回，
+// 这样「对一个工程目录求它的工作位置」不必关心这个工程是源码还是拷贝。
+string _workMirror(string root, string path) {
+    return _mirrorUnder(root, path, _intermediateDir(root), "_workMirror");
+}
+
+string _mirrorUnder(string root, string path, string base, string who) {
+    string p = _cleanPath(path.Replace("\\", "/"));
+    string b = _cleanPath(base);
+    if (p == b || p.StartsWith(b + "/")) { return p; }
+    string srcRoot = _cleanPath(Path.Join(root, "src"));
+    if (p.StartsWith(srcRoot + "/")) { return Path.Join(b, p.Substring(srcRoot.Length + 1)); }
+    if (p.StartsWith("src/")) { return Path.Join(b, p.Substring(4)); }
+    throw new Exception(who + ": path is under neither src/ nor " + b + ": " + path);
+}
+
+// 组件 `componentSrc`（`src/...`）的工作目录 `artifacts/intermediate/<rel>/<name>`；name 为空 = 组件根。
+string _workOut(string root, string componentSrc, string name) {
+    string t = _workMirror(root, componentSrc);
     return name.Length == 0 ? t : Path.Join(t, name);
 }
 
-// 一个工程目录（源码或它在 build 下的暂存拷贝）所属的 tests/ 输出根：镜像路径里已有 `tests` 段
-// （夹具拷贝住在 `<组件>/tests/fixtures/…`）就截到那一段，否则是 `<镜像>/tests`。
-string _testOutRootOf(string root, string path) {
-    string m = _buildMirror(root, path);
-    string buildRoot = _cleanPath(_buildDir(root));
-    string rel = m.Length > buildRoot.Length ? m.Substring(buildRoot.Length + 1) : "";
-    string[] segs = rel.Split("/");
-    string acc = buildRoot;
-    foreach (var seg in segs) {
+// 一个工程目录（源码，或它在 intermediate/ 下的暂存拷贝）所属组件的工作根：镜像路径里有 `tests` 段
+// （夹具拷贝住在 `<组件>/tests/fixtures/…`）就截到它之前，即组件本身；否则就是该工程的镜像。
+string _workRootOf(string root, string path) {
+    string m = _workMirror(root, path);
+    string base = _cleanPath(_intermediateDir(root));
+    string rel = m.Length > base.Length ? m.Substring(base.Length + 1) : "";
+    string acc = base;
+    foreach (var seg in rel.Split("/")) {
         if (seg.Length == 0) { continue; }
-        acc = Path.Join(acc, seg);
         if (seg == "tests") { return acc; }
+        acc = Path.Join(acc, seg);
     }
-    return Path.Join(m, "tests");
+    return m;
 }
 
-// xtask 自身的自检工作目录：xtask 的输出目录（`artifacts/xtask`，由 scripts/xtask.z42.toml 决定）下的
-// `tests/<name>`。xtask 不在 src/ 里，它的输出也不在 build/ 里，规则照旧：跟着 owner 走。
-string _xtaskTestOut(string root, string name) {
-    return Path.Join(Path.Join(Path.GetDirectoryName(_xtaskZpkg(root)), "tests"), name);
+// xtask 自身的自检工作目录 `artifacts/intermediate/xtask/<name>`。xtask 不在 src/ 里，它的编译产物也不在
+// build/ 里（`artifacts/xtask/`），工作目录照规则归 intermediate/。
+string _xtaskWork(string root, string name) {
+    return Path.Join(Path.Join(_intermediateDir(root), "xtask"), name);
 }
 
-// 编译器 workspace 级（不属于某个成员）的构建中间物：`artifacts/build/compiler/<name>`
-// （自举快照、种子 driver 的运行期 stdlib、driver 的稳定 stdlib 副本）。与成员目录并列，
-// 名字不与任何成员重名。
-string _compilerWsWork(string root, string name) { return Path.Join(_compilerBuildRoot(root), name); }
+// 编译器 workspace 级（不属于某个成员）的中间物 `artifacts/intermediate/compiler/<name>`：自举快照
+// （selfhost-gen1）、种子 driver 的运行期 stdlib（seed-run-libs）、driver 重编 stdlib 时的稳定副本（stdlib-run）。
+string _compilerWsWork(string root, string name) { return Path.Join(_workMirror(root, "src/compiler"), name); }
 
 // xtask's own product — resolved from scripts/xtask.z42.toml [build] (dist_dir/output_dir).
 string _xtaskZpkg(string root) { return _toolchainZpkg(root, "scripts/xtask.z42.toml"); }
 
 // z42b dev 目标（test / bench）的产物根 —— 传给 `z42b test|bench --out-root`（fix-z42b-source-tree-outputs）。
 // 不传时 z42b 写 `<清单目录>/artifacts/…`，而 stdlib / 编译器成员的清单没有 [build] ⇒ 落进源码树。
-//   stdlib / 编译器 workspace 成员 → 成员输出目录下的 tests/ | bench/（profile = debug：xtask 调 z42b 不带
-//     --release），即 z42-toml.md 描述的 `<output_dir>/tests|bench`；`clean tests|bench` 按同一位置删；
-//   其它工程（实际只有 z42b 自身夹具的暂存拷贝）→ 所属组件 tests/ 输出根下的 dev-targets/<name>/<tests|bench>。
+// 它们是编译产物，落 build/，形状与运行时一致：`<镜像>/<profile>/{tests,bench}`（profile = debug：xtask 调
+// z42b 不带 --release）。
+//   stdlib / 编译器 workspace 成员 → 成员输出目录 `<m>/debug/{tests,bench}`；`clean tests|bench` 按同一位置删；
+//   src/toolchain 下的工程 → `build/<rel>/debug/{tests,bench}`；
+//   其它工程（实际只有 z42b 自身夹具的暂存拷贝，住在 intermediate/）→ 所属组件工作根下的 dev-targets/<name>/<tests|bench>。
 // ⚠️ 必须是成员输出目录下的**子目录**，不能是输出目录本身：z42b 会在 out-root 下建父包，放在
 //    `<output_dir>/dist` 就会覆盖 z42c 建的正式成员产物。
 string _devTargetOutRoot(string root, string toml, string kind) {
@@ -230,7 +247,10 @@ string _devTargetOutRoot(string root, string toml, string kind) {
     if (tu.StartsWith(_cleanPath(Path.Join(root, "src/compiler")) + "/")) {
         return Path.Join(Path.GetDirectoryName(_memberDist(_compilerWsToml(root), name, "debug")), sub);
     }
-    return Path.Join(Path.Join(_testOutRootOf(root, Path.GetDirectoryName(toml)), "dev-targets/" + name), sub);
+    if (tu.StartsWith(_cleanPath(Path.Join(root, "src/toolchain")) + "/")) {
+        return Path.Join(Path.Join(_buildMirror(root, Path.GetDirectoryName(toml)), "debug"), sub);
+    }
+    return Path.Join(Path.Join(_workRootOf(root, Path.GetDirectoryName(toml)), "dev-targets/" + name), sub);
 }
 
 // ── ③ top-level artifacts/ buckets (single definitions) ────────────────────────
@@ -240,8 +260,11 @@ string _devTargetOutRoot(string root, string toml, string kind) {
 // artifacts/ — the single output root.
 string _artifactsDir(string root) { return Path.Join(root, "artifacts"); }
 
+// artifacts/intermediate/ — 不是编译产物、也不是发布资产的一切（见上方「build/ 与 intermediate/」）。
+string _intermediateDir(string root) { return Path.Join(_artifactsDir(root), "intermediate"); }
+
 // 旧的共享工作目录桶 artifacts/tmp 与更早的 artifacts/.scratch —— 只供 `xtask clean all` 清理旧工作树
-// 里的残留。不要往这里写：工作目录归 owner（见上方「测试输出」）。
+// 里的残留。不要往这里写：工作目录归 intermediate/ 下的 owner（见上方「build/ 与 intermediate/」）。
 string _legacyTmpDir(string root) { return Path.Join(_artifactsDir(root), "tmp"); }
 string _legacyScratchDir(string root) { return Path.Join(_artifactsDir(root), ".scratch"); }
 
@@ -327,17 +350,17 @@ string _layoutName(string parentRel, string rel) {
 string _layoutBuildDesc(string d) {
     if (d == "runtime")   { return "cargo target-dir"; }
     if (d == "libraries") { return "stdlib 各成员 <lib>/<profile>/"; }
-    if (d == "compiler")  { return "编译器各成员 + workspace 级自举中间物"; }
-    if (d == "toolchain") { return "工具链各组件；设备测试的宿主副本（host/）、bundle 与工作目录"; }
+    if (d == "compiler")  { return "编译器各成员 <member>/<profile>/"; }
+    if (d == "toolchain") { return "工具链各组件（含 workload 的 appbuilder 与 test agent）"; }
     if (d == "tests")     { return "src/tests golden 的 .zbc"; }
-    if (d == "bench")     { return "性能场景的探针输出"; }
+    if (d == "bench")     { return "性能场景探针的 .zbc"; }
     return "";
 }
 
 LayoutEntriesZ _layoutEntries(string root) {
     LayoutEntriesZ e = new LayoutEntriesZ();
     string build = _layoutRel(root, _buildDir(root), true);
-    e.Add(build, build, 0, "编译产物与测试输出，逐路径镜像 src/", _buildDir(root));
+    e.Add(build, build, 0, "编译产物（含测试的 .zbc / z42b 测试目标），逐路径镜像 src/", _buildDir(root));
     foreach (var d in _enumDirsSorted(Path.Join(root, "src"))) {
         string abs = Path.Join(_buildDir(root), d);
         string rel = _layoutRel(root, abs, true);
@@ -353,10 +376,16 @@ LayoutEntriesZ _layoutEntries(string root) {
             e.Add(frel, _layoutName(rel, frel), 2, "扁平 stdlib = Z42_LIBS", flat);
         }
     }
+    string im = _layoutRel(root, _intermediateDir(root), true);
+    e.Add(im, im, 0, "中间物：夹具暂存拷贝、harness 工作目录、设备测试 bundle / 宿主副本 …，逐路径镜像 src/", _intermediateDir(root));
+    string ic = _layoutRel(root, _workMirror(root, "src/compiler"), true);
+    e.Add(ic, _layoutName(im, ic), 1, "编译器 workspace 级自举中间物（selfhost-gen1 / seed-run-libs / stdlib-run）", _workMirror(root, "src/compiler"));
+    string ix = _layoutRel(root, Path.GetDirectoryName(_xtaskWork(root, "x")), true);
+    e.Add(ix, _layoutName(im, ix), 1, "xtask 自检的工作目录", Path.GetDirectoryName(_xtaskWork(root, "x")));
     string xz = _xtaskZpkg(root);
     string xdir = Path.GetDirectoryName(xz);
     string xrel = _layoutRel(root, xdir, true);
-    e.Add(xrel, xrel, 0, "xtask 自身（xtask.zpkg）与它的自检目录 tests/", xdir);
+    e.Add(xrel, xrel, 0, "xtask 自身（xtask.zpkg）", xdir);
     string sdk = _layoutRel(root, _devSdkDir(root), true);
     e.Add(sdk, sdk, 0, "dev SDK（build sdk）", _devSdkDir(root));
     string pk = _layoutRel(root, _packagesDir(root), true);

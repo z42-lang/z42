@@ -98,8 +98,8 @@ int _platformRun(IPlatformBackend b, string root)   { return b.RunTests(root); }
 // (and the optional browser fetch-list), captured by AssetLayout.
 int _platformAssets(IPlatformBackend b, string root) {
     // replace-csharp Phase C：fixtures 用 z42c 编（z42vm + z42c.driver.zpkg），不再 dotnet。
-    // driverHome = 含 z42c.driver.zpkg + 全部编译器成员（colocated 解析）；Std.IO 依赖走 Z42_LIBS。
-    string driverHome = _assembleDriverHome(root);
+    // driverHome = driver 自己的 release dist（自包含，colocated 解析）；Std.IO 依赖走 Z42_LIBS。
+    string driverHome = _driverHome(root);
     if (driverHome.Length == 0) {
         ConsoleError.WriteLine("error: z42c driver not built (artifacts/build/compiler/z42c.*/release/dist); run build compiler");
         return 1;

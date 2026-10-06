@@ -191,7 +191,7 @@ SubcommandRouter _cliRoot() {
     root.Add("layout", "print the artifacts/ tree (no path) or one entry's absolute path", layout);
 
     ArgParser clean = new ArgParser("xtask clean", "remove build artifacts");
-    clean.AddOptionalPositional("target", "tests|bench|all (default: production cache/dist)");
+    clean.AddOptionalPositional("target", "tests|bench|intermediate|all (default: production cache/dist)");
     root.Add("clean", "remove build artifacts", clean);
 
     ArgParser run = new ArgParser("xtask run", "run a zpkg / .z42 via the launcher");
