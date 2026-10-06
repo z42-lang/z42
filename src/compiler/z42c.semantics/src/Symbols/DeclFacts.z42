@@ -6,8 +6,10 @@ namespace Z42.Semantics;
 using Z42.Syntax;
 
 public static class DeclFacts {
-    // 可见性 int 编码：0=public / 1=private / 2=protected / 3=internal。dflt = 无修饰符默认，按位置传入
-    // （default-member-private：成员 1=private / 顶层自由函数 3=internal，镜像 access-control.md 最小封闭作用域）。
+    // 可见性的**唯一判定表**。int 编码：0=public / 1=private / 2=protected / 3=internal。dflt = 无修饰符默认，
+    // 按位置传入（default-member-private：成员 1=private / 顶层自由函数 3=internal / 嵌套类 1 / 顶层类 3，
+    // 镜像 access-control.md 最小封闭作用域）。成员、类、导出面、IR 元数据全部经此（字符串形态经 visName）。
+    // 访问修饰符互斥（解析期 E0405 拒绝组合），故判断次序无关紧要。
     public static int _visCode(int mods, int dflt) {
         if (Mod.Has(mods, Mod.Private))   { return 1; }
         if (Mod.Has(mods, Mod.Protected)) { return 2; }
@@ -25,15 +27,17 @@ public static class DeclFacts {
     // 「最小封闭作用域」：嵌套类（isNested）→ private、顶层类 → internal；显式修饰符优先。SymbolCollector /
     // ClassDescBuilder / ExportedTypeExtractor 三处共用此单一真相，避免默认逻辑漂移。类不参与 override 继承。
     public static int classVisCode(int mods, bool isNested) {
-        if (Mod.Has(mods, Mod.Public))    { return 0; }
-        if (Mod.Has(mods, Mod.Private))   { return 1; }
-        if (Mod.Has(mods, Mod.Protected)) { return 2; }
-        if (Mod.Has(mods, Mod.Internal))  { return 3; }
-        if (isNested) { return 1; }   // 嵌套类默认 private
-        return 3;                     // 顶层类默认 internal
+        return DeclFacts._visCode(mods, isNested ? 1 : 3);   // 嵌套类默认 private、顶层类默认 internal；类没有 override
     }
 
-    // 类可见性 int → string（与 TsigReconcile._visStr 对齐；semantics 侧本地字符串化）。
+    // 可见性 int ↔ string（与 TsigReconcile._visStr 对齐）。符号表 / 导出面存字符串形态。
+    public static int visCodeOf(string vis) {
+        if (vis == "private") { return 1; }
+        if (vis == "protected") { return 2; }
+        if (vis == "internal") { return 3; }
+        return 0;
+    }
+
     public static string classVisStr(int code) {
         if (code == 1) { return "private"; }
         if (code == 2) { return "protected"; }

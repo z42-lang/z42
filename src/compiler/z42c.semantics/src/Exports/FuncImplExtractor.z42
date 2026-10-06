@@ -42,7 +42,7 @@ public static class FuncImplExtractor {
                             while (pi < md.ParamCount) { ps[pi] = new ExportedParamZ(md.Params[pi].Name, TypeNameResolver.TsigTypeName(md.Params[pi].Type)); pi = pi + 1; }
                             string ret = "void";
                             if (!md.IsCtor) { ret = TypeNameResolver.TsigTypeName(md.RetType); }
-                            string vis = FuncImplExtractor._visFromMods(md.ModFlags);
+                            string vis = DeclFacts.classVisStr(DeclFacts._visCode(md.ModFlags, 0));   // impl 方法无修饰默认 public
                             bool isStatic = Mod.Has(md.ModFlags, Mod.Static);
                             bool isVirtual = Mod.Has(md.ModFlags, Mod.Virtual);
                             bool isAbstract = Mod.Has(md.ModFlags, Mod.Abstract);
@@ -83,14 +83,6 @@ public static class FuncImplExtractor {
         return "";
     }
 
-    // impl 方法可见性：mods 显式声明取之，无修饰默认 "public"（镜像 C# AST Visibility 默认）。
-    private static string _visFromMods(int mods) {
-        if (Mod.Has(mods, Mod.Public))    { return "public"; }
-        if (Mod.Has(mods, Mod.Private))   { return "private"; }
-        if (Mod.Has(mods, Mod.Protected)) { return "protected"; }
-        if (Mod.Has(mods, Mod.Internal))  { return "internal"; }
-        return "public";
-    }
 
     internal static ExportedFuncZ _extractFunc(MethodDecl md, string declNs, SymbolTable symbols) {
         // free-function-overloads：按 **RegKey** 精确取 THIS 重载（FunctionsByFqn 键 = QualOf(ns, RegKey)；
