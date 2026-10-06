@@ -81,4 +81,38 @@ public sealed partial class MemberResolver {
         BoundExpr[] fa = this._tc._overload.BindArgsToSignature(args, rawArgs, argCount, null, env);   // 错误路径清 null 占位
         return new BoundCall("instance", true, recv, PrimModel.Canon(rt.Name()), mem.Name, fa, argCount, new Z42ErrorType(), sp);
     }
+
+    // 数组收者（`T[]`）的实例方法调用。运行期 `T[]` 先派发到 `Std.Array` 的实例方法，查不到再落
+    // `Std.Object`（exec_vcall.rs `primitive_class_name`），这里镜像同一条链：
+    //   ① Object 的继承方法（GetType / ToString / Equals / GetHashCode）→ 取**真实返回类型**（否则松绑
+    //      Unknown → 链式 `xs.GetType().FullName` 退化成 FieldGet "FullName" → null）；
+    //   ② Std.Array 的实例方法（Clone / GetValue / SetValue）→ 返回 null，调用方照旧松绑定（字节不变）；
+    //   ③ 两处都没有这个**实例**方法 ⇒ E0401。此前这里一律松绑定，`vers.Sort()` 编译期零诊断、运行期
+    //      才崩（`Sort` 是 `Array` 的**静态**方法）—— z42b 的 `_findInstalledAgent` 就这样合进过 main。
+    //      名字是 Array 的静态方法时，提示改写成 `Array.Sort(…)`。
+    // Array 缺席或是成员表为空的 stub（懒加载）时候选集不完整，判「不存在」会误报 ⇒ 返回 null 松绑定
+    // （同 prim 路径 `BindPrimNoApplicableOverload` 的逃生口）。返回 null = 调用方继续原路径。
+    internal BoundExpr BindArrayInstanceCall(MemberExpr mem, BoundExpr recv, Z42Type rt, BoundExpr[] args,
+                                            int argCount, Expr[] rawArgs, TypeEnv env, Span sp) {
+        if (env.Symbols.HasClass("Object")) {
+            Z42ClassType objCt = env.Symbols.GetClass("Object");
+            string aMkey = this._tc._overload._overloadKey(env.Symbols, objCt, mem.Name, argCount);
+            MethodSymbol aMs = this._tc._overload._findMethod(env.Symbols, objCt, aMkey);
+            if (aMs != null) {
+                args = this._tc._overload.BindArgsToSignature(args, rawArgs, argCount, aMs.Signature, env);
+                return BoundCall.Marked(new BoundCall("instance", true, recv, PrimModel.Canon(rt.Name()), aMkey, args, argCount, aMs.Signature.Ret, sp), aMs.Signature);
+            }
+        }
+        if (!env.Symbols.HasClass("Array")) { return null; }
+        Z42ClassType act = env.Symbols.GetClass("Array");
+        if (act.Methods.Count() == 0) { return null; }
+        if (this._tc._overload._hasOverloadOfKind(env.Symbols, act, mem.Name, false)) { return null; }
+        string msg = "no method `" + mem.Name + "` on `" + rt.Name() + "`";
+        if (this._tc._overload._hasOverloadOfKind(env.Symbols, act, mem.Name, true)) {
+            msg = msg + " — `" + mem.Name + "` is a static method: call `Array." + mem.Name + "(…)` with the array as an argument";
+        }
+        this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol, msg, mem.NameSpan);
+        BoundExpr[] fa = this._tc._overload.BindArgsToSignature(args, rawArgs, argCount, null, env);   // 错误路径清 null 占位
+        return new BoundCall("instance", true, recv, PrimModel.Canon(rt.Name()), mem.Name, fa, argCount, new Z42ErrorType(), sp);
+    }
 }
