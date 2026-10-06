@@ -111,6 +111,10 @@ pub trait RuntimeObserver: std::fmt::Debug + Send + Sync {
 #[derive(Debug, Default)]
 pub struct RuntimeObserverRegistry {
     inner: parking_lot::Mutex<Vec<Arc<dyn RuntimeObserver>>>,
+    /// Mirror of `inner.len()`, readable without the lock. Nearly every run has
+    /// no observer; this lets `fire` — and callers that would allocate to build
+    /// an event — return after one relaxed load.
+    count: std::sync::atomic::AtomicUsize,
 }
 
 impl RuntimeObserverRegistry {
@@ -120,12 +124,22 @@ impl RuntimeObserverRegistry {
 
     /// Append an observer. Subsequent `fire(...)` calls will deliver to it.
     pub fn add(&self, obs: Arc<dyn RuntimeObserver>) {
-        self.inner.lock().push(obs);
+        let mut g = self.inner.lock();
+        g.push(obs);
+        self.count.store(g.len(), std::sync::atomic::Ordering::Release);
+    }
+
+    /// Whether any observer is registered. Check it before building an event
+    /// that costs something (strings, allocations).
+    #[inline]
+    pub fn has_observers(&self) -> bool {
+        self.count.load(std::sync::atomic::Ordering::Relaxed) != 0
     }
 
     /// Snapshot + dispatch. Returns the count of observers that received
     /// the event — useful for unit tests; non-test callers ignore.
     pub fn fire(&self, event: &RuntimeEvent) -> usize {
+        if !self.has_observers() { return 0; }
         let snapshot: Vec<Arc<dyn RuntimeObserver>> = {
             let g = self.inner.lock();
             g.iter().cloned().collect()

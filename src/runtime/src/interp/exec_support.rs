@@ -162,11 +162,15 @@ pub(super) fn try_native_exec(_ctx: &VmContext, _func: &Function, _args: &[Value
 /// resumes there with the live register state. Returns `Some(outcome)` if OSR took
 /// over (the function ran to completion natively), `None` to keep interpreting.
 ///
-/// OSR only applies to translatable functions (guaranteed no `ref`/`out` params →
-/// no `LoadLocalAddr` → no exit copy-out to skip), so returning here without the
-/// interpreter's normal exit path is correct. `frame.regs` is cloned into the OSR
-/// frame; block `0..K` results the interpreter already computed live there.
+/// A frame with `ref` params is never handed off (its exit copy-out would be
+/// skipped), so returning here without the interpreter's normal exit path is
+/// correct. `frame.regs` is cloned into the OSR frame; block `0..K` results the
+/// interpreter already computed live there.
+///
+/// Runs on every loop back-edge, so the counting is inlined into the
+/// interpreter loop and only the hand-off itself stays out of line.
 #[cfg(feature = "jit")]
+#[inline(always)]
 pub(super) fn try_osr(ctx: &VmContext, frame: &mut Frame, func: &Function, loop_header: usize)
     -> Option<Result<ExecOutcome>>
 {
@@ -178,6 +182,16 @@ pub(super) fn try_osr(ctx: &VmContext, frame: &mut Frame, func: &Function, loop_
     // lockstep with vm_ctx). Only touched through &-methods / Copy field reads.
     let threshold = unsafe { (*jit_ctx).osr_threshold };
     if frame.back_edge_count != threshold { return None; }   // fire exactly once
+    osr_hand_off(ctx, frame, func, loop_header, jit_ctx)
+}
+
+#[cfg(feature = "jit")]
+#[cold]
+#[inline(never)]
+fn osr_hand_off(
+    ctx: &VmContext, frame: &mut Frame, func: &Function, loop_header: usize,
+    jit_ctx: *const crate::jit::frame::JitModuleCtx,
+) -> Option<Result<ExecOutcome>> {
     // `ref` / `out` params are copied back to the caller by `run_ref_writebacks`
     // on the interp frame's exit paths. The OSR native frame returns straight
     // past them, so its final values would be lost — stay on the interpreter.
@@ -263,6 +277,7 @@ pub(crate) fn exec_function_from_receiver_regs(
 pub(super) fn fire_exception_thrown(ctx: &VmContext, module: &crate::metadata::Module, val: &crate::metadata::Value) {
     use std::sync::atomic::Ordering;
     ctx.counters().exceptions_thrown.fetch_add(1, Ordering::Relaxed);
+    if !ctx.has_runtime_observers() { return; }
     let (class, mut message) = exception_class_and_message(val, module);
     if message.len() > 256 {
         message.truncate(256);
@@ -280,6 +295,7 @@ pub(super) fn fire_exception_caught(
 ) {
     use std::sync::atomic::Ordering;
     ctx.counters().exceptions_caught.fetch_add(1, Ordering::Relaxed);
+    if !ctx.has_runtime_observers() { return; }
     let (class, _) = exception_class_and_message(val, module);
     ctx.fire_runtime_event(&crate::observer::RuntimeEvent::ExceptionCaught { class, frames_unwound });
 }
@@ -296,7 +312,16 @@ pub(super) fn exception_class_and_message(
     (class, message)
 }
 
+/// Runs on every function exit; almost no frame has `ref` params, so the check
+/// is inlined and the loop stays out of line.
+#[inline(always)]
 pub(super) fn run_ref_writebacks(frame: &Frame, ctx: &VmContext) -> Result<()> {
+    if frame.ref_writebacks.is_empty() { return Ok(()); }
+    run_ref_writebacks_slow(frame, ctx)
+}
+
+#[inline(never)]
+fn run_ref_writebacks_slow(frame: &Frame, ctx: &VmContext) -> Result<()> {
     for (reg, kind) in &frame.ref_writebacks {
         let final_val = frame.regs.get(*reg as usize)
             .cloned()

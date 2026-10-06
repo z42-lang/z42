@@ -215,7 +215,7 @@ impl ScriptObject {
     /// Rust-constructed). `FieldAccess` is `Copy`, so no borrow of the layout escapes.
     #[inline]
     fn field_access_of(&self, slot: usize) -> Option<FieldAccess> {
-        if let Some(col) = self.type_desc.composed_object_layout() {
+        if let Some(col) = self.type_desc.composed_object_layout_ref() {
             return col.field_access.get(slot).copied();
         }
         if self.type_desc.fields.is_empty() { return None; }
@@ -378,7 +378,7 @@ impl ScriptObject {
     /// (value structs use `struct_layout`; synthesized layouts inline nothing).
     #[inline]
     pub fn trace_inline_refs(&self, visit: &mut dyn FnMut(&Value)) {
-        if let Some(col) = self.type_desc.composed_object_layout() {
+        if let Some(col) = self.type_desc.composed_object_layout_ref() {
             for ir in col.inline_refs.iter() {
                 let v = read_inline_ref(&self.bytes(), ir.offset as usize, ir.is_array);
                 if !matches!(v, Value::Null) {

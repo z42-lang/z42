@@ -49,6 +49,9 @@ pub unsafe extern "C" fn jit_vcall(
     // A cold / untranslatable cached target yields `None` and falls through to the slow
     // path, whose Local arm interps it.
     if let Some(idx) = vcall_ic_hit(ic, &obj_val) {
+        // The check is debug-only; keep its argument (a UTF-8 validation of the
+        // method name) out of release builds, where it ran on every IC hit.
+        #[cfg(debug_assertions)]
         crate::interp::vcall_resolve::assert_pic_target(
             vm_ctx, module, &obj_val,
             std::str::from_utf8(std::slice::from_raw_parts(method_ptr, method_len)).unwrap_or("?"),

@@ -97,3 +97,16 @@ pub type JitFn = unsafe extern "C" fn(frame: *mut JitFrame, ctx: *const JitModul
 // (`int_binop_helper` / `int_bitop_helper` / `numeric_lt_helper` were verbatim
 // copies of `interp/ops.rs`) now live once in `crate::semantics`. Call sites in
 // `arith.rs` use `crate::semantics::{int_binop, int_bitop, numeric_lt}` directly.
+
+/// A name the translator baked into the code as `(ptr, len)` (`TxCtx::str_val`).
+/// It points into a Rust `str` owned by the module's IR, which outlives the
+/// compiled code — so it is valid UTF-8 by construction, and re-validating it
+/// on every helper call (`from_utf8`) was measurable on field and type-test
+/// hot paths.
+///
+/// # Safety
+/// `(ptr, len)` must come from `TxCtx::str_val`.
+#[inline(always)]
+pub(crate) unsafe fn baked_str<'a>(ptr: *const u8, len: usize) -> &'a str {
+    unsafe { std::str::from_utf8_unchecked(std::slice::from_raw_parts(ptr, len)) }
+}

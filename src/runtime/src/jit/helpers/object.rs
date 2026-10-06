@@ -353,8 +353,7 @@ pub unsafe extern "C" fn jit_is_instance(
     frame: *mut JitFrame, ctx: *const JitModuleCtx,
     dst: u32, obj: u32, cls_ptr: *const u8, cls_len: usize,
 ) {
-    let class_name = std::str::from_utf8(std::slice::from_raw_parts(cls_ptr, cls_len))
-        .unwrap_or("<invalid>");
+    let class_name = super::baked_str(cls_ptr, cls_len);
     let module = &*(*ctx).module;
     let result = match &(*frame).regs[obj as usize] {
         Value::Object(rc) => isa_td(vm_ctx_ref(ctx), &module.type_registry, rc.type_desc(), class_name),
@@ -375,8 +374,7 @@ pub unsafe extern "C" fn jit_as_cast(
     frame: *mut JitFrame, ctx: *const JitModuleCtx,
     dst: u32, obj: u32, cls_ptr: *const u8, cls_len: usize,
 ) {
-    let class_name = std::str::from_utf8(std::slice::from_raw_parts(cls_ptr, cls_len))
-        .unwrap_or("<invalid>");
+    let class_name = super::baked_str(cls_ptr, cls_len);
     let module = &*(*ctx).module;
     let val    = (*frame).regs[obj as usize].clone();
     // add-struct-object-boxing → unify Phase 2 R3: BoxedStruct 特判（struct 或基元装箱统一，镜像

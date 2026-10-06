@@ -2292,6 +2292,7 @@ dependencies = [
  "serde",
  "serde_json",
  "signal-hook-registry",
+ "smallvec",
  "socket2",
  "thiserror",
  "toml",

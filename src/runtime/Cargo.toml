@@ -57,6 +57,10 @@ serde_json = "1"   # JSON interchange format (legacy .z42ir.json)
 toml = "1"         # z42.toml project manifest format
 bincode = "2"      # compact binary format (.zbc)
 
+# Inline small argument lists (`interp::ops::collect_args`); already in the
+# dependency graph through cranelift. All targets (wasm too).
+smallvec = "1"
+
 # Error handling
 anyhow = "1"
 thiserror = "2"
