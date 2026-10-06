@@ -5,6 +5,13 @@
 //   ① BuildProject : cargo rustc --crate-type=staticlib → libz42.a
 //   ② Assets       : compile hello/multi_line fixtures (stdlib read from _libsDir at run)
 //   ③ RunTests     : cc r1_r7.c + link libz42.a → run → parse [Rn] PASS/FAIL → JUnit
+//
+// Packaged mode — env `Z42_RUNTIME_DIR=<desktop runtime package>` (the same variable the device backends
+// use for a prebuilt runtime pack): ① builds nothing; ③ links the PACKAGE's native/ instead of the build
+// tree — r1_r7 statically against native/libz42.a, and again dynamically against native/libz42.{dylib,so}
+// found through an rpath — and runs both against the package's libs/. This is the per-RID "C host links
+// the published artifact" smoke (P0-17): a bad install name (absolute CI path) makes the dynamic leg fail
+// to load. Windows has no `cc`; CI checks the import lib there by presence.
 namespace Z42Xtask;
 
 using Std.IO;
@@ -21,6 +28,16 @@ public class DesktopBackend : IPlatformBackend {
 
     // ① runtime staticlib → artifacts/build/runtime/release/libz42.a
     public int BuildProject(string root) {
+        string rt = _desktopRuntimeDir();
+        if (rt.Length > 0) {
+            // packaged mode: nothing to build — the package under test already holds the libs.
+            if (!File.Exists(Path.Join(rt, "native/libz42.a"))) {
+                ConsoleError.WriteLine("error: Z42_RUNTIME_DIR=" + rt + " has no native/libz42.a (not a desktop runtime package?)");
+                return 1;
+            }
+            Console.WriteLine("  packaged runtime: " + rt + " (no build)");
+            return 0;
+        }
         if (Process.Which("cargo") == null) {
             ConsoleError.WriteLine("error: cargo not found (https://rustup.rs)");
             return 1;
@@ -29,42 +46,84 @@ public class DesktopBackend : IPlatformBackend {
             ConsoleError.WriteLine("error: cc not found (C compiler required for desktop embedding test)");
             return 1;
         }
-        // 与打包同一个 crate-type 列表（_embedCrateTypes）：参数不同会让两边交替时互相作废 cargo 指纹。
+        // 与打包同一个 crate-type 列表（_embedCrateTypes）与 link-arg（_embedLinkArg）：参数不同会让两边交替时
+        // 互相作废 cargo 指纹。
         Console.WriteLine("  cargo rustc --release --lib --crate-type=" + _embedCrateTypes() + " (libz42.a)");
-        return _exec(_cargoCmd("rustc", _runtimeCargoConfig()).Arg("--release").Arg("--lib")
+        Process p = _cargoCmd("rustc", _runtimeCargoConfig()).Arg("--release").Arg("--lib")
             .Arg("--crate-type=" + _embedCrateTypes())
-            .Arg("--manifest-path").Arg(Path.Join(root, "src/runtime/Cargo.toml")));
+            .Arg("--manifest-path").Arg(Path.Join(root, "src/runtime/Cargo.toml"));
+        string linkArg = _embedLinkArg("");
+        if (linkArg.Length > 0) { p = p.Arg("--").Arg("-C").Arg(linkArg); }
+        return _exec(p);
     }
 
     // ③ compile r1_r7.c against libz42.a, run it, parse output → JUnit.
     public int RunTests(string root) {
-        string libDir  = _runtimeOut(root, "release");
-        string libA    = Path.Join(libDir, "libz42.a");
-        if (!File.Exists(libA)) {
-            ConsoleError.WriteLine("error: libz42.a not found at " + libA + "; run `test app desktop build` first");
+        if (Process.Which("cc") == null) {
+            ConsoleError.WriteLine("error: cc not found (C compiler required for desktop embedding test)");
             return 1;
         }
         string outDir  = _workOut(root, "src/toolchain/workload/desktop", "");
         Directory.Create(outDir);
-        string bin     = Path.Join(outDir, "r1_r7");
-        string src     = Path.Join(root, "src/toolchain/workload/desktop/tests/r1_r7.c");
-        string include = Path.Join(root, "src/runtime/include");
+        string fixtures = Path.Join(outDir, "fixtures");
+        string rt = _desktopRuntimeDir();
+        if (rt.Length == 0) {
+            string libA = Path.Join(_runtimeOut(root, "release"), "libz42.a");
+            if (!File.Exists(libA)) {
+                ConsoleError.WriteLine("error: libz42.a not found at " + libA + "; run `test app desktop build` first");
+                return 1;
+            }
+            _DesktopLeg leg = this._runLeg(root, outDir, fixtures, "r1_r7", "",
+                Path.Join(root, "src/runtime/include"), libA, "", _libsDir(root));
+            this._writeJUnit(root, leg.cases);
+            return leg.rc;
+        }
 
-        // cc r1_r7.c -I include -o bin <libDir>/libz42.a <platform native libs>
-        // 🔴 显式给 `.a` 路径，不用 `-L libDir -lz42`：同目录里有 libz42.{so,dylib}（打包 / 本测试的 build 步都会
-        // 产出 cdylib，见 _embedCrateTypes）时，Linux 与 macOS 的链接器都**优先挑动态库** ⇒ 这里测的就不再是静态
-        // 嵌入；Linux 上还会因运行期找不到 libz42.so 直接 exit 127。
-        Console.WriteLine("  cc r1_r7.c libz42.a");
+        // packaged mode: the same harness against the package's static and dynamic lib.
+        string nat = Path.Join(rt, "native");
+        string inc = Path.Join(nat, "include");
+        string libs = Path.Join(rt, "libs");
+        _DesktopLeg st = this._runLeg(root, outDir, fixtures, "r1_r7_pkg_static", "static.",
+            inc, Path.Join(nat, "libz42.a"), "", libs);
+        string dylib = Path.Join(nat, Platform.IsMacOS() ? "libz42.dylib" : "libz42.so");
+        if (!File.Exists(dylib)) {
+            ConsoleError.WriteLine("error: packaged runtime has no " + dylib);
+            this._writeJUnit(root, st.cases);
+            return 1;
+        }
+        _DesktopLeg dy = this._runLeg(root, outDir, fixtures, "r1_r7_pkg_dynamic", "dynamic.",
+            inc, dylib, nat, libs);
+        JUnitCase[] all = new JUnitCase[st.cases.Length + dy.cases.Length];
+        int i = 0;
+        while (i < st.cases.Length) { all[i] = st.cases[i]; i = i + 1; }
+        int j = 0;
+        while (j < dy.cases.Length) { all[i + j] = dy.cases[j]; j = j + 1; }
+        this._writeJUnit(root, all);
+        return (st.rc != 0) ? st.rc : dy.rc;
+    }
+
+    // One build+run of r1_r7: `cc r1_r7.c -I <include> -o <bin> <lib> [-Wl,-rpath,<rpath>] <platform libs>`,
+    // then `<bin> <hello.zbc> <multi_line.zbc> <libs_dir>`. `lib` is a path, never `-L dir -lz42`: with both
+    // libz42.a and libz42.{so,dylib} in one dir the linkers pick the dynamic one, so the static leg would
+    // silently test dynamic linking (and on Linux exit 127 at run time). A non-empty `rpath` marks the
+    // dynamic leg: the platform static-link libs are not needed (the shared lib carries its own deps).
+    _DesktopLeg _runLeg(string root, string outDir, string fixtures, string binName, string casePrefix,
+                        string include, string lib, string rpath, string libs) {
+        _DesktopLeg leg = new _DesktopLeg();
+        string bin = Path.Join(outDir, binName);
+        string src = Path.Join(root, "src/toolchain/workload/desktop/tests/r1_r7.c");
+        Console.WriteLine("  cc r1_r7.c " + lib);
         Process cc = new Process("cc").Arg("-O2").Arg("-I").Arg(include)
             .Arg("-o").Arg(bin).Arg(src)
-            .Arg(libA);
-        foreach (var l in this._nativeLibs()) { cc = cc.Arg(l); }
-        int c = _exec(cc);
-        if (c != 0) { ConsoleError.WriteLine("error: cc link failed"); return 1; }
-
-        // run: r1_r7 <hello.zbc> <multi_line.zbc> <libs_dir>
-        string fixtures = Path.Join(outDir, "fixtures");
-        string libs = _libsDir(root);
+            .Arg(lib);
+        if (rpath.Length > 0) { cc = cc.Arg("-Wl,-rpath," + rpath); }
+        else { foreach (var l in this._nativeLibs()) { cc = cc.Arg(l); } }
+        if (_exec(cc) != 0) {
+            ConsoleError.WriteLine("error: cc link failed (" + binName + ")");
+            leg.rc = 1;
+            leg.cases = new JUnitCase[] { new JUnitCase(casePrefix + "link", false, "cc link failed: " + lib) };
+            return leg;
+        }
         ProcessResult r = new Process(bin)
             .Arg(Path.Join(fixtures, "hello.zbc"))
             .Arg(Path.Join(fixtures, "multi_line.zbc"))
@@ -72,9 +131,14 @@ public class DesktopBackend : IPlatformBackend {
             .Run();
         Console.WriteLine(r.Stdout);
         if (r.Stderr.Length > 0) { ConsoleError.WriteLine(r.Stderr); }
-
-        this._writeJUnit(root, r.Stdout);
-        return r.ExitCode;
+        leg.rc = r.ExitCode;
+        leg.cases = this._parseCases(r.Stdout, casePrefix);
+        if (leg.rc != 0 && leg.cases.Length == 0) {
+            // e.g. dyld "Library not loaded" — the process never reached R1; record it instead of 0 cases.
+            leg.cases = new JUnitCase[] { new JUnitCase(casePrefix + "load", false,
+                "exit " + leg.rc.ToString() + ": " + r.Stderr) };
+        }
+        return leg;
     }
 
     // macOS / Linux native libs a Rust staticlib needs at link time (mirrors the
@@ -92,9 +156,8 @@ public class DesktopBackend : IPlatformBackend {
         return new string[0];
     }
 
-    // Parse `[Rn] PASS` / `[Rn] FAIL: msg` lines into JUnitCase[] → shared
-    // _writeJUnitReport, so the future CI desktop job publishes it like the others.
-    void _writeJUnit(string root, string stdout) {
+    // Parse `[Rn] PASS` / `[Rn] FAIL: msg` lines into JUnitCase[] (names prefixed with `prefix`).
+    JUnitCase[] _parseCases(string stdout, string prefix) {
         int n = 0;
         foreach (var line in _stdoutLines(stdout)) {
             string t = line.Trim();
@@ -114,9 +177,25 @@ public class DesktopBackend : IPlatformBackend {
             bool passed = rest.StartsWith("PASS");
             string msg = "";
             if (!passed) { msg = rest.StartsWith("FAIL:") ? rest.Substring(5).Trim() : rest; }
-            cases[idx] = new JUnitCase(name, passed, msg);
+            cases[idx] = new JUnitCase(prefix + name, passed, msg);
             idx = idx + 1;
         }
+        return cases;
+    }
+
+    // → shared _writeJUnitReport, so the CI desktop job publishes it like the others.
+    void _writeJUnit(string root, JUnitCase[] cases) {
         _writeJUnitReport(root, "desktop", "desktop.r1_r7", cases);
     }
+}
+
+class _DesktopLeg {
+    public int rc;
+    public JUnitCase[] cases;
+    public _DesktopLeg() { this.rc = 0; this.cases = new JUnitCase[0]; }
+}
+
+// Packaged mode switch (see the file header): "" = test the build tree.
+string _desktopRuntimeDir() {
+    return Environment.GetEnvironmentVariable("Z42_RUNTIME_DIR", "");
 }

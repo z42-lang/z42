@@ -18,6 +18,10 @@ use z42::metadata::{
 };
 use z42::vm_context::VmContext;
 
+// build.rs compiles the archive into OUT_DIR but does not link it into the `z42`
+// library (that would ship the PoC inside the released libz42.a) — this test
+// links it itself.
+#[link(name = "numz42_c", kind = "static")]
 extern "C" {
     /// Linked statically from `libnumz42_c.a`. Calls `z42_register_type`
     /// for the Counter type. Must run with a `VmGuard` active so the

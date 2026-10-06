@@ -41,7 +41,7 @@ patch 机制与 macOS 重签名见[部署模型](deployment-model.md)。
 │   └── z42i                # apphost → programs/z42i/z42.interactive.zpkg
 ├── libs/                   # stdlib + 工具链库 zpkg
 ├── programs/<tool>/        # 各工具的 zpkg 与其同址兄弟包
-├── native/                 # 嵌入件：libz42.{a,dylib} + libz42_compression.* + include/
+├── native/                 # stdlib native 扩展动态库（libz42_compression.*，z42vm 启动时 dlopen）；嵌入件在 runtime 包
 ├── manifest.toml           # [package] version / rid / build-date + [contents] 清单
 ├── install.toml            # 安装脚本写的 version / rid / sha256
 ├── cache/                  # 单文件运行等的缓存根

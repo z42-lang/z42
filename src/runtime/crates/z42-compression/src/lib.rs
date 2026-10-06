@@ -2,17 +2,14 @@
 //!
 //! # Build outputs
 //!
-//! `crate-type = ["cdylib", "staticlib", "rlib"]` produces three artifacts
-//! per `cargo build` invocation:
+//! `crate-type = ["cdylib", "rlib"]` produces two artifacts per
+//! `cargo build` invocation:
 //!
-//! - `libz42_compression.{so,dylib,dll}` — dlopened by z42vm on desktop /
-//!   mobile platforms, located via `Z42_NATIVE_PATH` env or the SDK's
-//!   `<sdk>/native/` directory
-//! - `libz42_compression.a` — staticlib for iOS xcframework / Android NDK
-//!   integrators who prefer compile-time linking over runtime dlopen
+//! - `libz42_compression.{so,dylib,dll}` — dlopened by z42vm on desktop,
+//!   located via `Z42_NATIVE_PATH` env or the SDK's `<sdk>/native/` directory
 //! - `libz42_compression.rlib` — used by the z42 main crate's
-//!   `bundled-compression` Cargo feature so wasm builds (no dlopen) can
-//!   statically link
+//!   `bundled-compression` Cargo feature so wasm / iOS / Android builds
+//!   link it into libz42 itself (no dlopen)
 //!
 //! # ABI
 //!

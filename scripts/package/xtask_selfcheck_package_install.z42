@@ -46,7 +46,11 @@ int _testPackagesInstall() {
     Directory.Create(fakeCargoOut);
     File.WriteAllText(Path.Join(fakeCargoOut, "z42vm"), "fake-z42vm-binary");
     File.WriteAllText(Path.Join(fakeCargoOut, "libz42.a"), "fake-static-lib");
-    File.WriteAllText(Path.Join(fakeCargoOut, "libz42_compression.a"), "fake-compression-lib");
+    File.WriteAllText(Path.Join(fakeCargoOut, "libz42.dylib"), "fake-cdylib");
+    File.WriteAllText(Path.Join(fakeCargoOut, "z42.dll.lib"), "fake-import-lib");
+    File.WriteAllText(Path.Join(fakeCargoOut, "libz42_compression.dylib"), "fake-compression-cdylib");
+    File.WriteAllText(Path.Join(fakeCargoOut, "libz42_compression.a"), "must-be-excluded");
+    File.WriteAllText(Path.Join(fakeCargoOut, "z42_compression.dll.lib"), "must-be-excluded");
     File.WriteAllText(Path.Join(fakeCargoOut, "libz42_platform_ios.a"), "must-be-excluded");
     File.WriteAllText(Path.Join(fakeCargoOut, "libz42_repl.dylib"), "fake-repl-cdylib");
 
@@ -71,14 +75,30 @@ int _testPackagesInstall() {
     // ProvideNative build hook during `z42b publish` — covered by the publish e2e.
     _stgAssert("bin/libz42_repl absent", !File.Exists(Path.Join(pkgDir, "bin/libz42_repl.dylib")));
 
-    // native: native/libz42.a + native/libz42_compression.a, mobile facade excluded
-    // (_copyNativeLibs' filter), headers copied from the real src/runtime/include/.
+    // native (runtime package): the libz42 embedding libs incl. the Windows import lib + the ext dylib,
+    // headers copied from the real src/runtime/include/. Excluded by _copyNativeLibs' allow-list: the
+    // compression staticlib / import lib (P0-17), the mobile facade, the repl cdylib.
     _stgAssert("native/libz42.a exists", File.Exists(Path.Join(pkgDir, "native/libz42.a")));
-    _stgAssert("native/libz42_compression.a exists", File.Exists(Path.Join(pkgDir, "native/libz42_compression.a")));
+    _stgAssert("native/libz42.dylib exists", File.Exists(Path.Join(pkgDir, "native/libz42.dylib")));
+    _stgAssert("native/z42.dll.lib (import lib) exists", File.Exists(Path.Join(pkgDir, "native/z42.dll.lib")));
+    _stgAssert("native/libz42_compression.dylib exists", File.Exists(Path.Join(pkgDir, "native/libz42_compression.dylib")));
+    _stgAssert("compression staticlib excluded", !File.Exists(Path.Join(pkgDir, "native/libz42_compression.a")));
+    _stgAssert("compression import lib excluded", !File.Exists(Path.Join(pkgDir, "native/z42_compression.dll.lib")));
     _stgAssert("mobile facade excluded", !File.Exists(Path.Join(pkgDir, "native/libz42_platform_ios.a")));
     _stgAssert("native/libz42_repl absent", !File.Exists(Path.Join(pkgDir, "native/libz42_repl.dylib")));
     _stgAssert("native/include/z42_abi.h exists", File.Exists(Path.Join(pkgDir, "native/include/z42_abi.h")));
     _stgAssert("native/include/z42_host.h exists", File.Exists(Path.Join(pkgDir, "native/include/z42_host.h")));
+
+    // native-ext (SDK package): only the ext dylib z42vm dlopens — no embedding libs, no headers (P0-17).
+    string extDir = _xtaskWork(root, "install-test-ext");
+    _resetDir(extDir);
+    _PackagesConfig extCfg = _instConfig("install-test-ext", new string[]{ "native-ext" },
+        new _PkgComponent[]{ _instComp("native-ext", "cargo-native-ext", "") });
+    _stgAssert("native-ext install ok", _pkgInstallPackage(extCfg, root, "install-test-ext", extDir, ctx) == 0);
+    int extFiles = 0;
+    foreach (var f in Directory.Enumerate(Path.Join(extDir, "native"))) { extFiles = extFiles + 1; }
+    _stgAssert("native-ext: exactly the compression dylib", extFiles == 1
+        && File.Exists(Path.Join(extDir, "native/libz42_compression.dylib")));
 
     // stdlib: reuses the repo's real built dist — at least one zpkg lands at the declared libs/ dest.
     bool anyZpkg = false;
@@ -165,10 +185,18 @@ int _testPackagesInstall() {
     _PackagesConfig appCfg = _instConfig("install-test-app", new string[]{ "z42b" },
         new _PkgComponent[]{ _instComp("z42b", "apphost", "src/toolchain/builder/core/z42.builder.z42.toml") });
     _stgAssert("apphost 组件缺 z42b 上下文必须报错", _pkgInstallPackage(appCfg, root, "install-test-app", badDir, ctx) != 0);
+    // ③ native-ext 一个 ext 动态库都没有（compression 没建出来）⇒ 报错，而不是装出一个空 native/。
+    string emptyCargoOut = _xtaskWork(root, "install-test-empty-cargo");
+    _resetDir(emptyCargoOut);
+    _PkgInstallCtx emptyCtx = new _PkgInstallCtx();
+    emptyCtx.CargoOut = emptyCargoOut;
+    _stgAssert("native-ext 缺 ext 动态库必须报错", _pkgInstallPackage(extCfg, root, "install-test-ext", badDir, emptyCtx) != 0);
 
     Directory.Delete(fakeCargoOut, true);
+    Directory.Delete(emptyCargoOut, true);
     Directory.Delete(pkgDir, true);
+    Directory.Delete(extDir, true);
     Directory.Delete(badDir, true);
-    Console.WriteLine("packages-install: PASS (z42vm/native/stdlib/editor-assets installers + hermetic libs + failure paths)");
+    Console.WriteLine("packages-install: PASS (z42vm/native/native-ext/stdlib/editor-assets installers + hermetic libs + failure paths)");
     return 0;
 }

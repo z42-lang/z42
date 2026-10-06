@@ -168,7 +168,8 @@ build test ──► _buildTest
 package sdk [--profile P]            ──► host SDK 包（桌面 RID，含 host）
 package runtime [--rid R] [--profile P] ──► 按 RID 分类 dispatch
   ├─ desktop  → package/xtask_package_desktop.z42
-  │     z42c 种子 + z42vm + libz42 + C-ABI headers + stdlib zpkg + manifest + 原生 apphost
+  │     sdk：z42c 种子 + z42vm + ext 动态库 + stdlib zpkg + manifest + 原生 apphost
+  │     runtime：libz42（静态 + 动态）+ C-ABI headers + ext 动态库 + stdlib zpkg
   ├─ ios      → package/xtask_package_ios.z42      cargo rustc (staticlib) + SwiftPM facade
   ├─ android  → package/xtask_package_android.z42  cargo-ndk rustc (cdylib) + Gradle facade
   └─ wasm     → package/xtask_package_wasm.z42     cargo rustc (wasm) + npm facade

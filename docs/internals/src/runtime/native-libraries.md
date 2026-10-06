@@ -70,8 +70,8 @@ pub(crate) fn resolve_native_beside(zpkg_dir: &Path, lib_name: &str) -> Option<P
 - **产出 + 打包**：`libz42_repl` 由 **z42.repl 自己的 build hook**
   （`repl/hooks/hooks.z42` 的 `ProvideNative`）在 `z42b publish z42.interactive` 时现场
   `cargo build -p z42-repl` 产出，经 `_pubBundleProjectNativeDeps` 沿 path-dep 闭包平铺进
-  `programs/z42i/`——packaging 只整目录拷 publish 输出，无 repl 特殊处理。`_pkgInstallZ42vm` **不**往 `bin/` 放 repl 库；`_copyNativeLibs` 的 `libz42*` glob 仍
-  显式排除 repl（hook 把它建进共享 cargoOut，排除防其漏进 `<sdk>/native/`）。
+  `programs/z42i/`——packaging 只整目录拷 publish 输出，无 repl 特殊处理。`_pkgInstallZ42vm` **不**往 `bin/` 放 repl 库；`_copyNativeLibs` 按精确文件名
+  白名单拷（`_isEmbedLib` / `_isNativeExtLib`），repl 不在名单里（hook 把它建进共享 cargoOut，白名单防其漏进 `<sdk>/native/`）。
 - **发现**（`corelib::repl_native::candidates()`）：`Z42_REPL_NATIVE` 覆盖 → dev cargo-target
   目录（z42vm 旁）→ 从运行 `<sdk>/bin/<app>` 派生 `<sdk>/programs/z42i/`，经共享的
   `resolve_native_beside` 解析。

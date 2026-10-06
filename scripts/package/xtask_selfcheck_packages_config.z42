@@ -43,7 +43,7 @@ int _testPackagesConfig() {
     _PackagesConfig cfg = _pkgcfgLoad(root);
 
     _pkgAssertLen("package count", 3, cfg.packages.Length);
-    _pkgAssertLen("component count", 10, cfg.components.Length);   // relocate-compiler-domain-libs：删掉 compiler-libs 组件 ⇒ 11 → 10
+    _pkgAssertLen("component count", 11, cfg.components.Length);   // relocate-compiler-domain-libs：删掉 compiler-libs ⇒ 10；P0-17 加 native-ext ⇒ 11
 
     _PkgPackage sdk = _pkgcfgFindPackage(cfg, "sdk");
     _pkgAssertEq("sdk.artifact", "z42-sdk-{version}-{rid}", sdk.artifact);
@@ -54,6 +54,9 @@ int _testPackagesConfig() {
     _pkgAssertLen("sdk resolved components", 9, sdkComps.Length);
     _pkgAssertEq("sdk.include[0].name", "z42vm", sdkComps[0].name);
     _pkgAssertEq("sdk.include[0].kind", "cargo-bin", sdkComps[0].kind);
+    // P0-17：SDK 的 native/ 只装 z42vm 要 dlopen 的 ext 动态库；嵌入件（native 组件）只进 runtime 包。
+    _pkgAssertEq("sdk.include[1].name", "native-ext", sdkComps[1].name);
+    _pkgAssertEq("sdk.include[1].kind", "cargo-native-ext", sdkComps[1].kind);
     // relocate-compiler-domain-libs（2026-09-27）：`compiler-libs` 组件已删（编译期扩展的解析域
     // 就是 `programs/z42c/`）⇒ 批 1 那次的「其后各项索引 +1」**又减回来了**。
     // ⚠️ 改 `[package.sdk].include` 的顺序/条数就必须同步这些下标 —— 这正是本自检存在的理由。
@@ -79,6 +82,7 @@ int _testPackagesConfig() {
     _pkgAssertLen("runtime.include", 2, runtime.include.Length);
     _PkgComponent[] runtimeComps = _pkgcfgResolveInclude(cfg, "runtime");
     _pkgAssertEq("runtime.include[0]", "native", runtimeComps[0].name);
+    _pkgAssertEq("runtime.include[0].kind", "cargo-native", runtimeComps[0].kind);
     _pkgAssertEq("runtime.include[1]", "stdlib", runtimeComps[1].name);
     int i = 0;
     while (i < runtimeComps.Length) {
@@ -89,6 +93,14 @@ int _testPackagesConfig() {
             throw new Exception("packages-config: runtime package must not include " + runtimeComps[i].name);
         }
         i = i + 1;
+    }
+    // …and the reverse (P0-17): the embedding libs stay out of the SDK.
+    int si = 0;
+    while (si < sdkComps.Length) {
+        if (sdkComps[si].kind == "cargo-native") {
+            throw new Exception("packages-config: sdk package must not include the embedding libs (" + sdkComps[si].name + ")");
+        }
+        si = si + 1;
     }
 
     // Component kind-dependent optional fields: apphost carries no `dest`;

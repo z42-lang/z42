@@ -66,12 +66,17 @@ release.yml、nightly 与本地共用。`finalize` 要求 9 个 RID 的归档齐
 包是**扁平的**：一个 arch 一个自包含目录，解开即用，没有嵌套的 per-arch 子树。
 
 ```
-desktop SDK:  z42  bin/  programs/  libs/  native/  manifest.toml
-runtime:      libs/  native/{libz42.*, include/{z42_abi.h,z42_host.h}}  manifest.toml
+desktop SDK:  z42  bin/  programs/  libs/  native/libz42_compression.<dyn>  manifest.toml
+runtime:      libs/  native/{libz42.{a,dylib,so} | z42.{lib,dll,dll.lib}, libz42_compression.<dyn>, include/{z42_abi.h,z42_host.h}}
 ios:          libs/  native/{libz42.a, Z42VM.xcframework/}  Sources/{Z42VM,Z42VMC}/  Package.swift  manifest.toml
 android:      libs/  native/libz42_platform_android.{a,so}  z42vm/src/main/{java,cpp}/  manifest.toml
 wasm:         libs/  native/{libz42.a, z42_wasm_bg.wasm}  pkg-web/  pkg-nodejs/  js/  package.json  manifest.toml
 ```
+
+嵌入件（libz42 + C 头）**只在 runtime 包**：SDK 里的 z42vm 静态链接 VM，SDK 的 `native/` 只放它启动时 dlopen 的
+stdlib 扩展动态库。compression 的静态库哪个包都不发（desktop 没有静态注册路径，iOS / Android / wasm 的
+preset 已把 compression 编进 libz42）。发布的动态库都是可重定位的：macOS install name 是 `@rpath/<名>`，
+Linux 带 SONAME（= 文件名），Windows 带 import lib `z42.dll.lib`（`z42.lib` 是静态库）。
 
 C ABI 头文件统一落 `native/include/`（`z42_abi.h` + `z42_host.h`，源是
 `src/runtime/include/`）；iOS 与 Android 的平台目录下还各有一份同名 include，装的也是这两个
@@ -92,13 +97,16 @@ C ABI 头文件统一落 `native/include/`（`z42_abi.h` + `z42_host.h`，源是
 ```bash
 ls artifacts/packages/z42-<version>-<rid>-release/       # ① 目录结构对照上表
 
-file .../native/libz42.dylib          # ② native 库架构（关键 invariant）
+file .../native/libz42.dylib          # ② native 库架构（关键 invariant；desktop 看 runtime 包）
 #   macos-arm64   → Mach-O 64-bit ... arm64
 #   ios-arm64     → current ar archive（内部 arm64 Mach-O .o）
 #   android-arm64 → ELF 64-bit LSB shared object, ARM aarch64
 #   browser-wasm  → WebAssembly (wasm) binary module
 
 ./xtask package check                 # ③ packages.toml 的解析 / 组件安装 / 发布归档自检
+
+# ④ desktop：C 宿主链接打出来的 runtime 包（静态 + 动态各一遍 R1–R7；CI host-package 每个 RID 都跑）
+Z42_RUNTIME_DIR=artifacts/packages/z42-runtime-<version>-<rid> ./xtask test app desktop
 ```
 
 `xtask package` 末尾还自动跑一道 **source-identity 门**：逐字节比对包内每一份从仓库拷进去的

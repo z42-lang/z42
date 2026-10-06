@@ -152,9 +152,9 @@ SDK 打包（`scripts/package/`）：`libz42_repl` 由 **z42.repl 的 build hook
 `z42b publish z42.interactive` 时 `cargo build -p z42-repl` 产出，经 `_pubBundleProjectNativeDeps`
 平铺进 **z42i 组件的 `programs/z42i/`**（`[assemble]` 自动并入 `pkgDir`，与 2.4 的 `<sdk>/programs/z42i/`
 发现对齐）——无 xtask 针对 repl 的特殊拷贝逻辑。两条**关键排除**：
-① `_pkgInstallZ42vm` **不**往 `bin/` 放 repl 库；② `_copyNativeLibs` 的 `libz42*` glob **显式排除**
-`libz42_repl`/`z42_repl`（hook 把它建进共享 cargoOut），否则会误拷进
-`<sdk>/native/`。repl 不放共享 `bin/`，否则 §1 急切扫描器会对它喷 `ignoring unknown lib repl`
+① `_pkgInstallZ42vm` **不**往 `bin/` 放 repl 库；② `_copyNativeLibs` 按**精确文件名白名单**
+（`_isEmbedLib` / `_isNativeExtLib`）拷，`libz42_repl`/`z42_repl` 不在名单里（hook 把它建进共享 cargoOut），
+所以不会误拷进 `<sdk>/native/`。repl 不放共享 `bin/`，否则 §1 急切扫描器会对它喷 `ignoring unknown lib repl`
 ——它是**组件私有 native**（跟随 z42i），不是 `<sdk>/native/` 里的跨平台 stdlib 扩展，也不是
 `bin/` 的通用可执行件。布局/解析全轴见 [Native 库的布局与解析](native-libraries.md)。dev 流不建
 cdylib（与 compression 一致，靠开发者 `cargo build -p`）。
@@ -170,9 +170,9 @@ cdylib（与 compression 一致，靠开发者 `cargo build -p`）。
 3. z42vm 侧加加载臂：单向在 `native/ext.rs` 的 `match name`；双向另起一个 `corelib::<name>_native`
    懒加载模块。**符号名两侧手抄，务必逐字节对齐**（版本锁同树构建 → 打包期暴露不匹配）。
 4. 打包接线（`scripts/package/`）：`cargo build -p z42-<name>` + 拷到正确位置——跨平台 stdlib 扩展
-   进 `<sdk>/native/`；**组件私有 native**（host-only / 跟随某组件）平铺进该组件 payload 旁
-   （如 repl 的 `programs/z42i/`，见 [Native 库的布局与解析](native-libraries.md)）。后者记得在
-   `_copyNativeLibs` 里把它从 `<sdk>/native/` glob 排除。
+   进 `<sdk>/native/`：把它的动态库文件名加进 `_isNativeExtLib` 白名单（SDK 的 `native-ext` 与 runtime 包的
+   `native` 组件都按它拷；只拷动态库，不发静态库）；**组件私有 native**（host-only / 跟随某组件）平铺进该组件
+   payload 旁（如 repl 的 `programs/z42i/`，见 [Native 库的布局与解析](native-libraries.md)），不进白名单即可。
 5. 缺库 fallback：想清楚库不存在时的降级行为（抛 NotSupported / plain 兜底 / bundled 静态链）。
 6. **边界铁律自查**：有没有让任何 z42 类型跨了 C 边界？`VmContext` 只 opaque 透传、只在 trampoline
    cast 回？回调返回的串谁分配、谁 free（用哪侧的 `free_str`）？
