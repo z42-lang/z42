@@ -58,7 +58,6 @@ public sealed class RecordSynthEmitter {
         int[] regTypes = new int[this._ctx.RegTagCount];
         int rt = 0;
         while (rt < this._ctx.RegTagCount) { regTypes[rt] = this._ctx.RegTags[rt]; rt = rt + 1; }
-        this._gen._mergeUsedNsPub(this._ctx);
         IrLineEntry[] lines = new IrLineEntry[0];
         IrLocalVarEntry[] localVars = new IrLocalVarEntry[0];
         IrFunction irf = new IrFunction(name, totalParams, retName, false,

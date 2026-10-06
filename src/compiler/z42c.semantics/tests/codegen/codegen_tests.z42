@@ -660,13 +660,13 @@ void test_pure_call_cse_dedups() {
 [Test]
 void test_pure_call_reads_readonly_field() {
     // 自由函数读**参数对象的 readonly 字段** → 仍判纯（readonly 值不变）→ 同参调用消重。
-    string src = "class C { readonly int x; public C(int a){this.x=a;} } int rd(C c) { return c.x; } int F(C c) { return rd(c) + rd(c); }";
+    string src = "class C { public readonly int x; public C(int a){this.x=a;} } int rd(C c) { return c.x; } int F(C c) { return rd(c) + rd(c); }";
     Assert.Contains("add i32 %1, %1", IrDump.DumpFuncOpt(src, "F", Opt.PureCall));   // rd 纯 → 消重
 }
 [Test]
 void test_impure_call_not_cse() {
     // 读**非** readonly 字段 → 非纯（字段可变）→ 不消重（保守正确）。
-    string src = "class C { int x; public C(int a){this.x=a;} } int rd(C c) { return c.x; } int F(C c) { return rd(c) + rd(c); }";
+    string src = "class C { public int x; public C(int a){this.x=a;} } int rd(C c) { return c.x; } int F(C c) { return rd(c) + rd(c); }";
     Assert.Contains("add i32 %1, %2", IrDump.DumpFuncOpt(src, "F", Opt.PureCall));   // rd 非纯 → 两条 call
 }
 [Test]
@@ -766,7 +766,7 @@ void test_inline_skips_noncurated_callee() {
 [Test]
 void test_const_field_substituted_and_folded() {
     // C.K（const 字段）替换为 const.i64 10，与 5 折叠成 50；绝不发 static_get。
-    string src = "class C { const int K = 10; } int F() { return C.K * 5; }";
+    string src = "class C { public const int K = 10; } int F() { return C.K * 5; }";
     string dump = IrDump.DumpFunc(src, "F");
     Assert.False(dump.Contains("static_get"));   // const 无静态存储 → 不读
     Assert.Contains("const.i64 50", dump);        // 10*5 折叠证明 const 值参与 ConstFold
@@ -774,7 +774,7 @@ void test_const_field_substituted_and_folded() {
 [Test]
 void test_const_field_expr_initializer() {
     // const 字段引用已定义 const（Two = Max*2 = 200）；引用 C.Two → const.i64 200。
-    string src = "class C { const int Max = 100; const int Two = Max * 2; } int F() { return C.Two; }";
+    string src = "class C { public const int Max = 100; public const int Two = Max * 2; } int F() { return C.Two; }";
     string dump = IrDump.DumpFunc(src, "F");
     Assert.False(dump.Contains("static_get"));
     Assert.Contains("const.i64 200", dump);
@@ -790,14 +790,14 @@ void test_const_local_substituted() {
 [Test]
 void test_dead_branch_folds_const_condition() {
     // const bool 条件 → 替换为 const.bool；-O0 保留 br.cond；DeadBranch 折成无条件 br + 移死块。
-    string src = "class F { const bool Off = false; } int G() { if (F.Off) { return 1; } return 2; }";
+    string src = "class F { public const bool Off = false; } int G() { if (F.Off) { return 1; } return 2; }";
     Assert.Contains("br.cond", IrDump.DumpFuncOpt(src, "G", Opt.None));           // -O0：条件跳转在
     Assert.False(IrDump.DumpFuncOpt(src, "G", Opt.DeadBranch).Contains("br.cond")); // 折成无条件 br
 }
 [Test]
 void test_dead_branch_removes_unreachable_block() {
     // 恒假条件 → then 块（return 1）不可达 → 移除；only return 2 存活。
-    string src = "class F { const bool Off = false; } int G() { if (F.Off) { return 1; } return 2; }";
+    string src = "class F { public const bool Off = false; } int G() { if (F.Off) { return 1; } return 2; }";
     string db = IrDump.DumpFuncOpt(src, "G", Opt.DeadBranch);
     Assert.False(db.Contains("const.i64 1"));   // 死块（return 1）连其常量一并移除
     Assert.Contains("const.i64 2", db);          // 活路径保留
@@ -897,35 +897,24 @@ void test_generic_nonsealed_stays_vcall() {
 
 // ── UsedDepNs 的语义：只记**跨包**依赖（fix-selfns-tracked-as-dep）─────────────────
 //
-// `ImportedClassNs` **有意含本包跨-ns 自有类**（G17b：好让 `A.Sub` 里能把 `A` 的类限定成
-// `A.X`）。但 `UsedDepNs` 驱动的是 DEPS 与 `add-file-scoped-usings` 的 E0436，语义是**跨包**。
-// 把本包另一个 ns 记进去 ⇒ 同一个包里跨 ns 引用被要求写 `using` ⇒ **单包构建多命名空间的库
-// 直接编不过**（实测 z42.package：`Z42.IR.BinaryFormat` 引用 `Z42.IR` 的 StrMap/TypedReg → E0436）。
-//
-// 只在「多命名空间的包」+「该包自己的 zpkg 躺在扁平 Z42_LIBS 里」两条同时成立时触发，
-// 所以长期隐形（`xtask build stdlib` 走 --workspace，那时 libs 里还没有自己）。
+// `UsedDepNs` 驱动 DEPS 与 `add-file-scoped-usings` 的 E0436，语义是**跨包**。把本包另一个 ns 记进去
+// ⇒ 同一个包里跨 ns 引用被要求写 `using` ⇒ **单包构建多命名空间的库直接编不过**（实测 z42.package：
+// `Z42.IR.BinaryFormat` 引用 `Z42.IR` 的 StrMap/TypedReg → E0436）。依赖集由绑定期 + `DepUseCollector`
+// 产出（`CuCompile.DepRefsOf`），下面两条在那条路上锁住这个语义。
+
+// 本包另一个 ns 的类，经成员链拿到（接收者类型没写出来）再调实例方法 —— 不是依赖。
 [Test]
 void test_local_cross_ns_class_is_not_a_dep() {
-    var ctx = new EmitContext(new SymbolTable(), null);
-    ctx.ImportedClassNs = new StrMap();
-    ctx.ImportedClassNs.Put("StrMap", new StrBox("Z42.IR"));      // 本包另一个 ns 的自有类
-    ctx.LocalClasses = new StrMap();
-    ctx.LocalClasses.Put("StrMap", "1");                          // 本包声明 ⇒ 不是依赖
-    ctx.TrackImportedClass("StrMap");
-    Assert.Equal(0, ctx.UsedDepNsCount);
+    string[] srcs = new string[2];
+    srcs[0] = "namespace P.A; public class Box { public int V() { return 1; } } public class Holder { public Box B = new Box(); }";
+    srcs[1] = "namespace P.B; using P.A; int Main() { Holder h = new Holder(); return h.B.V(); }";
+    string[] files = new string[2]; files[0] = "a.z42"; files[1] = "b.z42";
+    CompiledModuleZ[] cms = IrDump.BuildPackage(srcs, files, 2, null, null, false);
+    Assert.Equal(0, cms[1].ErrorCount);
+    Assert.Equal(0, cms[1].UsedDepNsCount);
 }
 
-// 对称的正面用例：真·跨包类照记不误（修复不得把依赖追踪修哑）。
-[Test]
-void test_genuinely_imported_class_is_tracked() {
-    var ctx = new EmitContext(new SymbolTable(), null);
-    ctx.ImportedClassNs = new StrMap();
-    ctx.ImportedClassNs.Put("HttpClient", new StrBox("Std.Net.Http"));
-    ctx.LocalClasses = new StrMap();                              // 本包没声明它
-    ctx.TrackImportedClass("HttpClient");
-    Assert.Equal(1, ctx.UsedDepNsCount);
-    Assert.Equal("Std.Net.Http", ctx.UsedDepNs[0]);
-}
+// 正面用例（导入包的接收者照记）在 z42c.pipeline 的 zpkgdeps 单测：要真实的跨包签名，这里的 ExtractExports 造不出来。
 
 // ── fix-ctor-arity-skew：obj_new 的 ctor 键必须在 dump 里现形 ──────────────────────────
 //
@@ -935,7 +924,7 @@ void test_genuinely_imported_class_is_tracked() {
 [Test]
 void test_objnew_ctor_key_visible() {
     // 显式构造器：单 ctor ⇒ primary 裸键，obj_new 带着它。
-    string src = "class C { int V; C(int v) { this.V = v; } } class D { C Make() { return new C(1); } }";
+    string src = "class C { int V; public C(int v) { this.V = v; } } class D { C Make() { return new C(1); } }";
     Assert.Equal("fn @D.Make(1) -> C {\nentry:\n  %1 = const.i64 1\n  %2 = obj_new C C.C(%1)\n  ret %2\n}",
                  IrDump.DumpFunc(src, "D.Make"));
 }
@@ -947,7 +936,7 @@ void test_objnew_bare_key_is_ambiguous_between_ctor_and_ctorless() {
     // 这正是站点 ③ 只能放行 `argc == 0` 的原因（见 `vm_context/symres.rs`）。
     // 谁把这条歧义解开了（给零构造器一个可区分的编码），这条断言就会变红，提醒同步收紧运行期判据。
     string ctorless = "class C { int V; } class D { C Make() { return new C(); } }";
-    string oneCtor  = "class C { int V; C() { this.V = 1; } } class D { C Make() { return new C(); } }";
+    string oneCtor  = "class C { int V; public C() { this.V = 1; } } class D { C Make() { return new C(); } }";
     Assert.Equal("  %1 = obj_new C C.C()", IrDump.DumpFunc(ctorless, "D.Make").Split("\n")[2]);
     Assert.Equal("  %1 = obj_new C C.C()", IrDump.DumpFunc(oneCtor,  "D.Make").Split("\n")[2]);
 }

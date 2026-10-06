@@ -137,7 +137,7 @@ imported 类的符号 `Methods` 由 `ImportedSymbolLoader` 从 TSIG 重建，而
   拿到泛型定义类。
 - **$N 条件 mangle**：泛型是**类型擦除**，方法一份发射；短名由 `_classShortName` 镜像 `IrGen._classIrShortName`
   ——泛型类**仅当同名多 arity 重载**（`Symbols.HasClass("Name$N")`）才用 `Name$N`，否则裸 `Name`。目标名
-  `QualifyClass(_classShortName(ct))+"."+RegKey`、`ImportedClassNs` 查键、`TrackImportedClass` 都用它，逐字节匹配
+  `QualifyClass(_classShortName(ct))+"."+RegKey`、`ImportedClassNs` 查键都用它，逐字节匹配
   IrGen 发射。非泛型下 `_classShortName==Name` → 与 v1 逐字节等价（零回归）。
 - **单测**：`test_generic_sealed_devirt`（单 arity → `call @Box.`）/ `test_generic_sealed_multiarity_devirt`
   （`Box`+`Box<T>` → `call @Box$1.`）/ `test_generic_nonsealed_stays_vcall`；e2e `sealed_generic_devirt.z42`

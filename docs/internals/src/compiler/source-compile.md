@@ -364,11 +364,11 @@ resolve = candidates[0]；|candidates| ≥ 2 ⇒ E0456（调用点另报）
 
 **判定**：`CuPreprocess._enforceFileScope`（经 `IrDump.EnforceFileScopeAll`，在 cached 元数据回填之后）对
 `UsedNs ∪ UsedDepNs` 逐个判：prelude / 外围链（含全局 ns）/ 本文件 using（含注入的 global using）之外 ⇒ E0436。
-`UsedDepNs` 是依赖引用（代码生成命中 ∪ 源码写出的导入符号；条目可带归属包 `ns#pkg`，判 E0436 时只看 ns 部分），DEPS 段由它算出；cached 文件跳过类型检查，眼下只有它
+`UsedDepNs` 是依赖引用（绑定期记录 ∪ 绑定树 walker `DepUseCollector`，不经代码生成，见 [zpkg 格式 DEPS 段](../formats/zpkg.md)；条目可带归属包 `ns#pkg`，判 E0436 时只看 ns 部分），DEPS 段由它算出；cached 文件跳过类型检查，眼下只有它
 （待办：`UsedNs` 持久化进 cache meta，要改 driver，晚一个 nightly）。
 
 **发射**：解析出的 ns 随 `BoundCall.FreeNs` / `BoundFuncRef.FuncNs` 带到发射端，`CallEmitter` / `ExprEmitter`
-直接发 `QualOf(ns, name)`（导入的顺带 `TrackDepNamespace`）——发射端**不按名字猜**。对原本就正确的代码，产物字节不受影响；
+直接发 `QualOf(ns, name)`——发射端**不按名字猜**（导入函数的依赖由绑定期记录）。对原本就正确的代码，产物字节不受影响；
 只有上表三种形态（及「本包另一文件声明的函数遮蔽导入同名函数」）发码不同。
 
 #### 自由函数按签名重载
@@ -856,21 +856,18 @@ Bound 树 + `SemanticModel` → `IrModule`。逐个类方法与顶层函数交�
 > 编译成功，直到运行期才以 `undefined function …` / `MissingSymbolException` 现形 ——
 > 位置离原因很远，而原因是**编译器自己的键构造 bug**，不是用户的错。
 >
-> 所以那里 `throw` 一条内部不变式（同 `OverloadResolver.MethodKeyOf` 的不变量），消息里同时打出两个键。⚠️ 守卫 `!g.HasTypeErrors` 是必须的：有类型错误时
-> 绑定器本来就可能没绑这个体（**IrGen 在 `ErrorCount > 0` 时照常全量跑**），那时落空是预期的、
-> 诊断已经报过 —— 不加守卫会把「一堆诊断」变成「编译器崩」。
+> 所以那里 `throw` 一条内部不变式（同 `OverloadResolver.MethodKeyOf` 的不变量），消息里同时打出两个键。
 
-> 🔴 **这是一族守卫，不是一处特例**：「IrGen 在 `ErrorCount > 0` 时照常全量跑」这一条，
-> 让**任何从类型的字段布局派生出来的合成**都必须守 `HasTypeErrors` ——
-> 已经有错时那份布局可能压根没被算出来。第三处是 `IrGenTypeEmitter._emitRecordSynth`
-> （`[Record]` 的 `Equals` / `GetHashCode` / `ToString` 合成）：实测
-> `[Record] struct Single(int X, int Y)` —— `Single` 撞内建基元拼写（**E0499**）⇒
-> `StructLayout` 判它是标量、根本不建布局 ⇒ 合成崩在 `AccessEmitter._pathAppend` 的布局守卫上
-> （`layout lookup failed (index -1)`），于是**诊断已经记在 `DiagnosticBag` 里、却因为进程先崩
-> 而一个字都没打印出来**。⇒ 新增「从布局派生的合成」时，先问这道闸。
+> 🔴 **有错误就不进代码生成**（`CuCompile.GenerateIfClean`）：本文件有 parse / 类型检查错误，或包里有收集期
+> 错误（收集期诊断要到并行段之后才分发到各文件，故由 `CompileCuTask.PkgHasErrors` 单独带进来）⇒ 不调
+> `IrGen.Generate`，回空模块（产物本就不落盘）。于是 emission 只处理通过检查的程序，内部**不为绑定器的错误
+> 恢复节点设守卫**：没绑的体、没建的布局（如撞内建基元拼写的 `[Record] struct Single`，E0499 ⇒ `StructLayout`
+> 判它是标量、根本不建布局）都到不了 emitter。曾经的形态是 emitter 里一族 `!HasTypeErrors` 守卫，漏一处就把
+> 「一条诊断」变成「编译器崩栈、诊断一个字都没打出来」（实测：struct 上拼错字段名）。
+> 代码生成在有错时也没有别的产出要交：依赖集来自绑定期 + `DepUseCollector`，using 告警在有错时本就跳过。
 
 > 🔴 **访问器与方法同源**：属性 get/set、索引器 get/set 四处读端也必须用 `ownerKey` 拼键、体从
-> `SpecBodyModel ?? model` 取、落空走同一个带 `!HasTypeErrors` 守卫的 throw（`_requireBody`）。
+> `SpecBodyModel ?? model` 取、落空走同一个 throw（`_requireBody`）。
 > 若读端拼 `c.Name + ".get_X"`、只查本 CU 的 `model`、查不到静默跳过，而写端（`DeclBinder`）用的是 `ctKey`
 > （arity-mangle 时是 `Name$N`），那么同包里既有 `class Box` 又有 `class Box<T>` ⇒ `Box<T>` 的计算属性 / 索引器
 > 一个字节都不发，运行期才 `VCall: function Box$1<int>.get_X not found`。
@@ -1034,9 +1031,9 @@ z42 的 IR 把**字节偏移烘焙进指令**（`struct_fget_prim %0 @8`）。�
 
 ### 两条防挂死
 
-1. **本 CU 有类型错误 ⇒ 完全不做特化**（`IrGen.HasTypeErrors`）。递归泛型让类型实参逐层加深、
-   工作项无限增长 ⇒ 编译器不返回。`Generate` 只有两个调用点：包构建 `CuCompile._compileCu` 与单文件
-   `IrDump.BuildModuleDOpt`（`--emit-zbc` / `--dump-ir` / IR dump 单测都走它），两处都设。
+1. **有错误就不进代码生成**（`CuCompile.GenerateIfClean`，见上）。病态源码的类型实参可以无限加深，
+   有错误时连特化都不会开始。`Generate` 只有两个调用点：包构建 `CuCompile._compileCu` 与单文件
+   `IrDump.BuildModuleDOpt`（`--emit-zbc` / `--dump-ir` / IR dump 单测都走它），都经 `GenerateIfClean`。
 2. **工作表上限** `IrGen.SpecializationCap`。每个特化要发一整个函数体，上限取 2000 而非两万 ——
    取太高等于还是挂死。**良型**代码也能撞上：值类型实例化各有一份代码，`struct Rec<T>` 的体里用到
    `Rec<Rec<T>>` 就展不完。`SpecializationGuard` 另设**嵌套深度上限** `DepthCap = 100`（工作项入表时

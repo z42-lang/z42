@@ -152,7 +152,6 @@ public sealed class FunctionEmitter {
         int li = 0;
         while (li < this._ctx.LineCount) { lines[li] = this._ctx.Lines[li]; li = li + 1; }
         IrLocalVarEntry[] localVars = this._ctx.SnapshotLocals();
-        this._gen._mergeUsedNsPub(this._ctx);
         IrFunction irf = new IrFunction(name, totalParams, retName, isStaticMethod,
                               this._ctx.Blocks, this._ctx.BlockCount, this._ctx.MaxReg,
                               "Interp", paramTypes, totalParams, regTypes, this._ctx.RegTagCount,
@@ -213,7 +212,6 @@ public sealed class FunctionEmitter {
         int li = 0;
         while (li < this._ctx.LineCount) { lines[li] = this._ctx.Lines[li]; li = li + 1; }
         IrLocalVarEntry[] localVars = this._ctx.SnapshotLocals();
-        this._gen._mergeUsedNsPub(this._ctx);
         IrFunction irf = new IrFunction(name, 2, "bool", false,
                               this._ctx.Blocks, this._ctx.BlockCount, this._ctx.MaxReg,
                               "Interp", paramTypes, 2, regTypes, this._ctx.RegTagCount,
@@ -369,7 +367,6 @@ public sealed class FunctionEmitter {
         // 否则每个静态字段 init 表达式各记一条行，与 C# 字节漂移）。
         IrLineEntry[] lines = new IrLineEntry[0];
         IrLocalVarEntry[] localVars = new IrLocalVarEntry[0];
-        this._gen._mergeUsedNsPub(this._ctx);
         return new IrFunction(name, 0, "void", false,
                               this._ctx.Blocks, this._ctx.BlockCount, this._ctx.MaxReg,
                               "Interp", new string[0], 0, regTypes, this._ctx.RegTagCount,
@@ -434,7 +431,6 @@ public sealed class FunctionEmitter {
         int li = 0;
         while (li < this._ctx.LineCount) { lines[li] = this._ctx.Lines[li]; li = li + 1; }
         IrLocalVarEntry[] localVars = this._ctx.SnapshotLocals();
-        this._gen._mergeUsedNsPub(this._ctx);
         // IsStatic=false（SIGS 字节实证——survey 报告与字节相左，以字节为准）
         IrFunction lifted = new IrFunction(name, totalParams, retName, false,
                               this._ctx.Blocks, this._ctx.BlockCount, this._ctx.MaxReg,

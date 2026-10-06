@@ -147,7 +147,10 @@ public static class CompilerFingerprint {
         // 类名接收者上找不到静态成员报 E0401 而非 E0436 —— 诊断变化。
         "reject-derived-static-access",
         // reject-inheritance-cycle：基类型成环新报 E0502；继承链走查去掉 32 层上限（深链不再误报 E0402 / E0401）—— 诊断与输出变化。
-        "reject-inheritance-cycle"
+        "reject-inheritance-cycle",
+        // deps-from-bound-tree：文件依赖集改由绑定期 + 绑定树 walker 产出、不再取代码生成的记录（DEPS 条目顺序变化）；
+        // 声明类在别的包里的跨包 devirt 回落 VCall —— 输出变化。
+        "deps-from-bound-tree"
     };
 
     // 指纹值：`Entries` 逐条以 `\n` 连接后取内容哈希（`mmh3:` 前缀，同 SourceHash）。
