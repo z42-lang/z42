@@ -41,9 +41,16 @@ int _runCli(string[] argvIn) {
         ArgParser gate = new ArgParser("xtask test", "full GREEN gate");
         gate.AddFlag("no-build", "", "skip z42c+stdlib rebuild — consume what the bootstrap/toolchain already built");
         gate.AddOption("skip", "", "skip named stages (csv; see test-gate.md §5) — CI offloads stages to parallel jobs", "");
+        gate.AddOption("changed", "", "only run the heavy stages affected by changes since <base> (test-changed mapping; static checks always run)", "");
         try {
             ParseResult gr = gate.Parse(_sliceFrom(argv, 1));
-            return _testAll(gr.GetFlag("no-build"), gr.GetOption("skip"));
+            string skip = gr.GetOption("skip");
+            string changedBase = gr.GetOption("changed");
+            if (changedBase.Length > 0) {
+                string extra = _changedGateSkips(changedBase);
+                if (extra.Length > 0) { skip = skip.Length == 0 ? extra : skip + "," + extra; }
+            }
+            return _testAll(gr.GetFlag("no-build"), skip);
         } catch (CliException e) {
             ConsoleError.WriteLine("xtask: " + e.Message);
             return 2;

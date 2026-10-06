@@ -209,7 +209,9 @@ required check 视同通过。新增 job 时记得加进它的 `needs`。
   cranelift」断言在 `package-wasm` 里。`.cargo/**` 并入 `platform` 过滤器（配置只有 `src/runtime/.cargo` 一份，由 `src/runtime/**` 覆盖）。
 
 `test-host` 各腿用 `--skip` 把 stage 卸给并行 job：linux-x64 跳 `stdlib,compiler,vscode`，
-其余 OS 再多跳 `cross-zpkg,bench`（这两者 host 无关，一条腿够了）。Windows 腿不跑
+其余 OS 再多跳 `cross-zpkg,bench`（这两者 host 无关，一条腿够了）。PR 上另加 `--changed <PR base sha>`
+按路径分流：改动用不到的重 stage 也跳过（规则与映射表见[测试门禁](test-gate.md) §5、§7）；main push /
+schedule / dispatch 不分流。Windows 腿不跑
 `test`，只跑 `build test` + `xtask test runtime`。三条非 Windows 腿在 `test` 之后
 跑 **zbc-format 字节基线门**（`git diff --quiet -- src/compiler/z42.package/tests/fixtures/zbc-format`；regen 就地重写了基线，
 有 diff = 提交的基线过期）——一次覆盖三个架构，且挂在 required check 上。

@@ -393,7 +393,19 @@ jobs:
           if [ "${{ matrix.platform }}" != "linux-x64" ]; then
             SKIP="stdlib,cross-zpkg,bench,compiler,vscode"
           fi
-          xtask test --no-build --skip "$SKIP" 2>&1 | tee artifacts/ci-logs/test-all.log
+          # 按路径分流（只在 PR 上）：`--changed <base>` 用 `test changed` 的映射表只跑受影响的重 stage；
+          # build wave、e2e goldens 与静态检查恒跑，scripts/ / ci.yml / 未知文件 / 拿不到 base ⇒ 全跑。
+          # main push / schedule / dispatch 不分流（全跑）。判定打印在日志开头（[test --changed] …）。
+          base=""
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base="${{ github.event.pull_request.base.sha }}"
+            git fetch --no-tags --depth=1 origin "$base" || base=""
+          fi
+          if [ -n "$base" ]; then
+            xtask test --no-build --skip "$SKIP" --changed "$base" 2>&1 | tee artifacts/ci-logs/test-all.log
+          else
+            xtask test --no-build --skip "$SKIP" 2>&1 | tee artifacts/ci-logs/test-all.log
+          fi
           exit "${PIPESTATUS[0]}"
 
       # refresh-format-fixtures: committed zbc-format byte baselines must be up to date.

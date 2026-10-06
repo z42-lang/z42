@@ -305,6 +305,12 @@ walker 文件里找 `is <类名>`；全集里既不被匹配、又不在该 walk
 skip 只影响**在哪跑**，不改变 gate 的 stage 组成，所以 §1 的清单不随 `--skip` 变化，
 `_checkGateStageDoc` 也照常对全量清单对账。
 
+`--changed <base>` 是 `--skip` 的自动版：按 §7 映射表的「gate stage」列，把相对 `<base>` 的改动**用不到**的
+重 stage（`rust-units` / `cross-zpkg` / `multi-exe` / `stdlib` / `toolchain` / `bench` / `targets` / `examples` /
+`compiler` / `gcgen`）追加进 skip。build wave、`e2e goldens` 与全部静态检查恒跑（后者守全仓不变量，秒级）；
+任一文件判成 full、或 base 不可解析 ⇒ 一个都不跳。判定打印在开头（`[test --changed] …`）。CI 只在 PR 的
+`test-host` 上用它（`--changed <PR base sha>`），main push / schedule / dispatch 全跑。
+
 `--no-build`（或 `--toolchain <sdk>`）跳过构建波、直接消费既有产物——CI 正是先集中构建一次、
 再多 job `test --no-build` 消费的形态；本地缓存后反复迭代同理。
 **这些都不构成 GREEN**：提交判定只认完整 `xtask test`。
@@ -331,28 +337,32 @@ verbosity ≥ 4 才输出，而 CI 跑的是默认 verbosity——于是 `xtask 
 实现：`StageLogZ` + `_stageStart` / `_stageEnd` / `_stageSummary`，时长格式化 `_fmtDur`
 （`scripts/common/xtask_common.z42`）。
 
-## 7. `test changed`：命令级按需计划
+## 7. `test changed`：按改动挑测试（命令计划 + gate 分流共用一张表）
 
-对未提交改动（相对 `BASE`，默认 `HEAD`；含 untracked）逐文件分类，产出**去重后的命令并集**，
-依序执行、首败短路。`--dry-run` 只打印计划。映射表（`_mapFile`，
-`scripts/test/xtask_test_changed.z42`）：
+对未提交改动（相对 `BASE`，默认 `HEAD`；含 untracked）逐文件分类。映射表（`_mapFile`，
+`scripts/test/xtask_test_changed.z42`）每条规则给两列：本地 `test changed` 执行的**窄命令**（去重后的并集，
+依序执行、首败短路；`--dry-run` 只打印计划，并顺带打印下一列的分流结果），与 `xtask test --changed <base>`
+（§5）用的**受影响 gate stage**。「全集」= 所有编译 / 执行 z42 代码的重 stage（`rust-units` 除外）。
 
-| 改动路径 | 映射命令 |
-|---|---|
-| `src/libraries/<lib>/src/` | `test stdlib <lib>` + `test e2e` |
-| `src/libraries/<lib>/tests/` 或该库 `.toml` | `test stdlib <lib>` |
-| `src/libraries/<lib>/bench/` | `bench stdlib <lib>` |
-| `src/runtime/src/`、`Cargo.toml/lock`、`build.rs` | `test runtime` + `test e2e` |
-| `src/runtime/tests/` | `test runtime` |
-| `src/compiler/z42c.pipeline/tests/fixtures/cross-zpkg/` | `test e2e --dir cross-zpkg` |
-| 其余 `src/tests/` | `test e2e` |
-| `src/compiler/` | `test compiler` + `test e2e` |
-| `src/toolchain/` | `test stdlib`（工具链影响 `[Test]` 的执行方式，全库扫）+ `test toolchain`（组件自己的 unit）|
-| `examples/<part>/<chapter>/…` | `test docs examples <part>/<chapter>` |
-| `docs/learn/` | `test docs examples --book-only` |
-| `src/toolchain/launcher/`、`src/toolchain/builder/` | 追加 `test docs examples`（命令行输出一变，手册里的会话脚本就失配）|
-| `scripts/xtask*`、`*.workspace.toml`、未识别路径 | **full**（坍缩为 `test`）|
-| 其余文档 / `.claude/` / artifacts | 跳过 |
+| 改动路径 | 窄命令 | gate stage |
+|---|---|---|
+| `src/libraries/<lib>/src/`、该库 `.toml` | `test stdlib <lib>`（`src/` 另加 `test e2e`）| 全集 |
+| `src/libraries/<lib>/tests/` | `test stdlib <lib>` | `stdlib` |
+| `src/libraries/<lib>/bench/` | `bench stdlib <lib>` | `bench` |
+| `src/runtime/src/`、`Cargo.toml/lock`、`build.rs` | `test runtime` + `test e2e` | 全集 + `rust-units` |
+| `src/runtime/tests/` | `test runtime` | `rust-units` |
+| `src/compiler/z42c.pipeline/tests/fixtures/cross-zpkg/` | `test e2e --dir cross-zpkg` | `cross-zpkg` |
+| `src/compiler/z42c.pipeline/tests/fixtures/multi-exe/` | `test e2e --dir multi-exe` | `multi-exe` |
+| `src/toolchain/builder/tests/fixtures/` | `test toolchain builder` | `toolchain`、`targets` |
+| 其余 `src/tests/` | `test e2e` + `check layout` | —（goldens 与 layout 恒跑）|
+| `src/bench/` | `bench --quick` | —（gate 里没有它）|
+| `src/compiler/` | `test compiler` + `test e2e` | 全集 |
+| `src/toolchain/launcher/`、`src/toolchain/builder/` | `test stdlib` + `test toolchain` + `test docs examples`（命令行输出一变，手册里的会话脚本就失配）| `stdlib`、`toolchain`、`bench`、`targets`、`examples`（z42b 是这几种用例的执行器）|
+| 其余 `src/toolchain/` | `test stdlib`（工具链影响 `[Test]` 的执行方式，全库扫）+ `test toolchain` | `stdlib`、`toolchain` |
+| `examples/<part>/<chapter>/…` | `test docs examples <part>/<chapter>` | `examples` |
+| `docs/learn/` | `test docs examples --book-only` | `examples` |
+| `scripts/`、`*.workspace.toml`、其余 `src/`、未识别路径 | **full**（坍缩为 `test`）| **full**（不跳）|
+| 其余文档 / `.claude/` / artifacts | 跳过 | — |
 
 设计取向是**宁可多跑不可漏跑**：任一未识别路径即保守坍缩为完整 `test`。
 计划里的逻辑命令**在进程内重入 CLI 路由**（不 shell out），免去每命令一次进程启动；cargo 命令例外
