@@ -340,8 +340,12 @@ pub(super) fn find_handler(
     };
 
     for (i, entry) in func.exception_table().iter().enumerate() {
-        let start_idx = *block_map.get(&entry.try_start)?;
-        let end_idx   = *block_map.get(&entry.try_end)?;
+        // An entry whose labels don't resolve (the zbc reader names an
+        // out-of-range `try_end` `block_{len}`) is skipped, not the end of the
+        // search — later entries may still cover `block_idx`. Same as the JIT's
+        // `find_handler_entries`.
+        let Some(&start_idx) = block_map.get(&entry.try_start) else { continue };
+        let Some(&end_idx)   = block_map.get(&entry.try_end)   else { continue };
         if !(block_idx >= start_idx && block_idx < end_idx) { continue; }
 
         match entry.catch_type.as_deref() {
@@ -359,3 +363,7 @@ pub(super) fn find_handler(
     }
     None
 }
+
+#[cfg(test)]
+#[path = "exec_support_tests.rs"]
+mod exec_support_tests;
