@@ -1,63 +1,31 @@
 name: CI
 
 on:
-  # change-detect rule (a): 只改 `.claude/**` 不触发 CI（那里没有门禁覆盖的内容）。
-  # **`docs/**` 与 `**/*.md` 已从 paths-ignore 移出**（restructure-docs-three-books 批 0）：
-  # 纯文档改动也要跑 `xtask test docs links` 的死链门禁——此前它们被整体忽略，文档 PR 完全不跑 CI，
-  # 死链可以一路漏到线上。改一处代码 + 一处文档的 push 照旧触发
-  # （paths-ignore 只在**全部**改动路径都命中时才跳过）。
+  # 只改 `.claude/**` 不触发 CI。纯文档改动照样触发（要跑死链门禁），走 docs-only 快速通道（见 detect-changes）。
   pull_request:
     branches: [main]
     paths-ignore:
-      # docs/** 与 **/*.md 已不在此列：纯文档改动也要跑 `xtask test docs links`（死链门禁）。
-      # 此前它们被整体忽略 ⇒ 文档 PR 完全不跑 CI，死链能一路漏到线上。
       - '.claude/**'
   push:
     branches: [main]
     paths-ignore:
-      # docs/** 与 **/*.md 已不在此列：纯文档改动也要跑 `xtask test docs links`（死链门禁）。
-      # 此前它们被整体忽略 ⇒ 文档 PR 完全不跑 CI，死链能一路漏到线上。
       - '.claude/**'
-  # Manual trigger: force a nightly republish from the latest main WITHOUT a new
-  # push. Useful after a zbc/zpkg bump, when the download-bootstrap gates
-  # (vm-jit/bench) transiently fail on the OLD nightly — those are NOT in
-  # publish-nightly's `needs`, so a republish fixes the next run.
-  # Run via the Actions "Run workflow" button or: gh workflow run CI --ref main
-  #
-  # ⚠️ 这个逃生口**救不了 nightly 本身损坏**的情形：publish-nightly 的 `needs`
-  # 全是从 nightly 自举的 job（build-and-test / host-package / package-* /
-  # toolchain-bootstrap），nightly 坏了它们全挂 → publish 被 skip → 发不出新
-  # nightly。2026-09-17 实测过一次（run 35287940676 照样全红）。
-  # 破环靠的是 ci-bootstrap 的**种子回退链**（nightly → 最近正式 release），
-  # 见 fix-nightly-seed-deadlock。
+  # 手动全量运行 / 重发 nightly（格式 bump 后旧 nightly 让下载自举的门暂时红时用）：gh workflow run CI --ref main。
+  # 救不了 nightly 本身损坏（publish 的 needs 全靠 nightly 自举）——那靠 ci-bootstrap 的种子回退链（ci.md §3.1）。
   workflow_dispatch:
-  # Nightly full platform-test sweep — covers commits the per-push paths filter
-  # skipped (z42c-only, stdlib-only, etc.) AND the slow Tier-2 platform tests
-  # (wasm/iOS-sim/Android-emu), which are nightly-only to keep per-PR iteration
-  # fast (see their `if:` gates). 16:00 UTC = 00:00 UTC+8 (daily, local midnight).
+  # 每日全量：补上 push 时被路径过滤跳过的 job，并跑只在这里跑的 Tier-2 平台测试。16:00 UTC = 00:00 UTC+8。
   schedule:
     - cron: '0 16 * * *'
 
-# Cancel superseded in-progress runs of the SAME event on the same ref. The
-# event_name in the group keeps push / schedule / workflow_dispatch independent:
-# the daily `schedule` nightly and a `push` near 07:00 UTC no longer cancel each
-# other (that produced spurious "cancelled" reds + a wasted re-run). Within one
-# event type, a newer run supersedes the older (new PR push cancels old PR push).
-#
-# **push to main 例外**：每个 commit 单独一个 group，GitHub 不自动取消。连续合并时「新的取消旧的」
-# 会让 main 一个运行都跑不完、nightly 发不出来，而「support 先行、晚一个 nightly 再 use」的提交
-# 等的正是那份 nightly。改由 detect-changes 的 `main-supersede.sh` 取消较早的、**不影响 SDK** 的运行；
-# 影响 SDK 的留着跑完发布（ci.md §2「main 上的运行不互相打断」）。
+# 同一 ref、同一事件里新的运行取消旧的；事件名进 group，schedule 与 push 不互相取消。
+# main 的 push 每个 commit 单独一组（不自动取消），改由 detect-changes 的 main-supersede.sh 只取消
+# 不影响 SDK 的旧运行——否则连续合并时 nightly 一个也发不出来（ci.md §2「main 上的运行不互相打断」）。
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}${{ github.event_name == 'push' && format('-{0}', github.sha) || '' }}
   cancel-in-progress: true
 
 jobs:
-  # Detect whether platform-relevant files changed, to gate the heavy
-  # wasm/iOS/Android/desktop test jobs (15-25 min each). On schedule /
-  # workflow_dispatch they always run (full sweep); on push/PR only when
-  # platform-relevant paths change — stops the per-commit churn + the
-  # cancel-in-progress storm from frequent unrelated pushes.
+  # 按改动路径给重 job 开关；schedule / dispatch 下各 filter 恒 false，相应 job 的 if: 另有放行。
   changes:
     name: detect-changes
     timeout-minutes: 15
@@ -96,15 +64,8 @@ jobs:
             platform:
               - 'src/runtime/**'
               - 'src/toolchain/workload/**'
-              # 打包管道自身 + 消费包的 e2e（fix-package-gates-false-red, 2026-09-06）：
-              # 此前 package-* 只由上面几项触发，只改 scripts/package/ 或 dist e2e 的 PR
-              # **根本不跑 package job** —— 打包坏了 PR 照样绿，要等合并进 main 才炸。
-              # 补充（fix-more-silent-gates，同日）：上一轮补 `scripts/package/**` 时**自己
-              # 又漏了同一形状的两处** —— packages.toml 是打包的注册表 SoT 却在 scripts/ 根
-              # （不在 scripts/package/ 下，一字之差），以及 package 子命令的 CLI 面；
-              # 而 launcher/devtools/interactive 三个 toolchain 组件**只在 package sdk 的
-              # desktop 管线里被编译**，不进这张表就等于「改了 z42 launcher 本体，没有任何
-              # job 编译过它」。
+              # 打包管道自身、它的注册表 / CLI 面、消费包的 e2e，以及只在 package sdk 里被编译的工具链组件
+              # （launcher / devtools / interactive）——不在这里就等于没有任何 PR job 编过它们。
               - 'scripts/package/**'
               - 'scripts/packages.toml'
               - 'scripts/cli/xtask_cli_package.z42'
@@ -113,11 +74,7 @@ jobs:
               - 'src/toolchain/launcher/**'
               - 'src/toolchain/devtools/**'
               - 'src/toolchain/interactive/**'
-              # z42b：`publish` 的 apphost / iOS / Android 导出**只在 package-* 里被执行**
-              # （desktop-publish smoke 等）。它此前只在 `stdlib`（[Test] 执行器）里 ⇒ 改 z42b
-              # publish 的 PR 一个 package job 都不跑 —— #978 把 Windows apphost 的嵌入路径
-              # 改坏（`../../C:/...`），PR 全绿，合入 main 才在 package-host(windows-x64) 炸
-              # （#981 修）。与上面 launcher/devtools/interactive 同形。
+              # z42b 的 publish（apphost / iOS / Android 导出）只在 package-* 里被执行。
               - 'src/toolchain/builder/**'
               - 'scripts/test/xtask_test_dist.z42'
               - 'scripts/common/xtask_fixture_harness.z42'
@@ -129,25 +86,16 @@ jobs:
               - 'scripts/test/xtask_test_embedded.z42'
               - 'scripts/versions.toml'
               - '.github/workflows/ci.yml'
-            # 学习手册示例：只有 package-host 用打包出的 SDK（含 Windows）重放会话脚本
-            # （test-host 的 examples stage 无条件跑，不看这个 flag）。单独成 flag 而不是并进
-            # `platform`：否则改一页 learn 就会拉起 package-{ios,android,wasm} + test-desktop，
-            # 而它们一个示例都不跑（speed-up-ci-quick-wins）。
+            # 学习手册示例：只有 package-host 用打包出的 SDK（含 Windows）重放。单独成 flag：并进 platform 会让改一页
+            # learn 就拉起 package-{ios,android,wasm} + test-desktop。
             examples:
               - 'examples/**'
               - 'docs/learn/**'
               - '.github/workflows/ci.yml'
-            # change-detect rule (b): gates compiler-checks (self-host fixpoint + vscode).
-            # Only a z42c change can change the self-host fixpoint / vscode grammar.
-            # 编译器域（z42c.* 前后端 + z42.project / z42.build / z42.package）已全部
-            # 在 src/compiler/ 下（relocate-compiler-domain-libs），一条通配即可。
-            # ci.yml fallback = 保底全跑.
+            # compiler-checks（自举不动点 + vscode 语法）。编译器域全在 src/compiler/ 下。
             compiler:
               - 'src/compiler/**'
-              # vscode 语法门（compiler-checks 的 `check vscode-syntax`）比对的是
-              # 「入库的生成产物 ↔ 模板 + Lexer 关键字表」。产物与模板都在这个目录下，
-              # 却不在本 filter 里 ⇒ 只手改模板/产物的 PR，唯一守它的门静默 skip
-              # （fix-more-silent-gates, 2026-09-06）。
+              # vscode 语法门比对「入库生成产物 ↔ 模板 + Lexer 关键字表」，产物与模板都在这里。
               - 'src/toolchain/devtools/vscode/**'
               - '.github/workflows/ci.yml'
             # change-detect rule (c): gates the Rust VM unit harness (cargo test)
@@ -157,26 +105,16 @@ jobs:
               # （含 src/runtime/.cargo/config.toml：target-dir 与 wasm rustflags）
               - 'src/runtime/**'
               - '.github/workflows/ci.yml'
-            # change-detect rule (d): gates stdlib [Test] consistency (interp+jit).
-            # stdlib 源码之外，[Test] 的**执行器**也算：z42b（反射 test-runner）与 xtask 的
-            # test-lib 编排。此前不在这里 ⇒ 只改它们的 PR 一个 stdlib [Test] job 都不跑。
+            # stdlib [Test]（interp + jit）：stdlib 源码，加上 [Test] 的执行器（z42b、xtask 的 test-lib 编排）。
             stdlib:
               - 'src/libraries/**'
               - 'src/toolchain/builder/**'
               - 'scripts/test/xtask_test_lib*.z42'
               - '.github/workflows/ci.yml'
-            # NOTE: 曾有一个 `tests:` filter（src/tests + scripts），但它的 output
-            # 从未被任何 job 的 `if:` 引用 —— 注释描述的门控从来没实现过。留着只会让
-            # 人以为 e2e golden 有内容级门控。2026-09-04 删除；真要门控 e2e 时重新加，
-            # 并在同一提交里接上消费方。
 
-      # 纯文档快速通道（ci-docs-fast-path）：改动**全部**是文档 ⇒ 只跑 docs-check，
-      # test-host ×4 与 toolchain 链（compile-toolchain → assemble/consume current-sdk）一律 skip。
-      # 逐个文件判，不用 paths-filter：「每一个都是文档」是全称判断，而 filter 的默认语义是「任一命中」。
-      # 例外：docs/learn/** 与 examples/** **不算**文档 —— 学习手册的示例会被 test-host 的 examples stage
-      # 与 package-host 重放。PR 看 PR 的文件列表；push（main）看 before...sha 的 compare —— 拿不到
-      # （新分支的 before 全零、API 失败）或到了 compare 的 300 文件上限一律不走快速通道。
-      # schedule / dispatch 恒为空（= 全跑）。
+      # 纯文档快速通道：改动**全部**是文档（docs/learn、examples 除外——示例会被重放）⇒ 只跑 docs-check。
+      # 逐个文件判（全称判断，paths-filter 是「任一命中」）。PR 看文件列表；main push 看 before...sha 的 compare，
+      # 拿不到或满 300 文件就全跑。schedule / dispatch 恒为空（全跑）。
       - name: Docs-only change?
         id: docsonly
         if: github.event_name == 'pull_request' || github.event_name == 'push'
@@ -202,10 +140,7 @@ jobs:
           echo "docs_only=$docs_only"
           echo "docs_only=$docs_only" >> "$GITHUB_OUTPUT"
 
-  # ── 纯文档改动（PR / main push）的全部门禁（ci-docs-fast-path）──────────────────
-  # 读文档的门禁只有这几道，全是纯源码 / 文档扫描、不需要 SDK：相对链接 + gate-stage 清单对账
-  # （`test docs links`）、诊断码文档对账（`check diagcodes`）。xtask 用种子 z42c 编出来就够
-  # （ci-bootstrap 的 xtask-only：省掉 build compiler / stdlib）。
+  # ── 纯文档改动的全部门禁：死链 + gate 清单对账、诊断码文档对账。不需要 SDK，xtask 用种子 z42c 编出即可。
   docs-check:
     name: docs-check(linux-x64)
     timeout-minutes: 20
@@ -231,11 +166,7 @@ jobs:
 
   build-and-test:
     name: test-host(${{ matrix.platform }})
-    # 60→75 (2026-07-21): `xtask test` (full rebuild + all gates) sits at the
-    # 60m cap on linux-x64 since the 0.4.x bench-suite additions inflated wall-time
-    # (test-vm-jit likewise flaps at its cap — see vm-jit-consistency). Not a
-    # functional regression; give headroom. Sharding is the longer-term fix if it
-    # keeps growing.
+    # 全量 gate 在 linux-x64 上接近 60 分钟，留余量。
     timeout-minutes: 75
     # needs: changes so the Windows cargo-test step can gate on the `vm` filter
     # (rule c). The job itself still runs on every non-docs push (changes always
@@ -261,43 +192,21 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
-      # 独立 key，**不与 compile-toolchain 共用 host-v2**（speed-up-ci-quick-wins）：
-      # compile-toolchain 只编 release、又最先结束，总是它先写入 host-v2；本 job 命中后
-      # post 步骤恒为 "Cache up-to-date"、从不回存 ⇒ 这里额外编的 debug / test profile
-      # 依赖（`test` 的 debug z42vm + rust units）每轮冷编。实测 rust units 在
-      # linux-x64 1m56、macOS 2m51，而恰好没有 compile-toolchain 抢先写的 arm64 腿只要 1m12。
+      # 独立 cache key：compile-toolchain 只编 release 且先结束，共用 key 时本 job 额外编的 debug / test 依赖从不回存。
       - name: Cache Rust deps (Swatinem)
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: src/runtime -> ../../artifacts/build/runtime
           shared-key: test-host-v1
 
-      # ALL legs bootstrap from the prev nightly seed — download the prev published
-      # nightly's z42c compiler seed, then build current z42c + stdlib + xtask from
-      # source with it. The staged-bootstrap discipline (docs/agent/rules/bootstrap-seed.md)
-      # guarantees the prev nightly compiles current source; `xtask test compiler bootstrap`
-      # is the local boundary check. Logic lives in the ci-bootstrap composite action
-      # (Windows adds .zip/.exe handling — same seed contract). After this, every later
-      # step drives work through `z42vm xtask.zpkg …`.
+      # 每条腿都用上一版 nightly 的 z42c 种子从源码自举（bootstrap-seed 纪律保证能编过），之后一切经 xtask。
       - name: Bootstrap toolchain (nightly z42c seed → current source)
         uses: ./.github/actions/ci-bootstrap
         with:
           gh-token: ${{ secrets.GITHUB_TOKEN }}
 
-      # Test on Unix runners via the native z42 build CLI (xtask). The GREEN gate
-      # runs through `xtask test` — was test-all.sh (migrate-scripts-to-z42);
-      # `--parallel`/`--jobs`/test-*.sh were C#/bash-era, not in the z42 xtask.
-      # Bootstrap = release z42vm (to run xtask.zpkg) + compile xtask.zpkg; then
-      # `xtask test` (which itself rebuilds stdlib/compiler/zbc + runs
-      # compiler+vm+cross-zpkg+stdlib). z42c/stdlib from the prior steps are reused.
-      # --no-build: the Bootstrap step already built z42c+stdlib+xtask, so `test
-      # all` skips its redundant build-wave rebuild (_regenCore) and only regens
-      # the goldens against those canonical artifacts (~12-15 min/leg saved). The
-      # consume path (_regenGolden + --no-build stages) is the same one the
-      # test-consume job already exercises green.
-      # examples stage（学习手册示例）用 SDK 里真实的 `z42` 重放会话脚本，需要一个带 launcher 的
-      # 完整 SDK（artifacts/.z42）。bootstrap 已建好 z42c / stdlib，`build toolchain` 的实际工作量是
-      # apphost stub 的 cargo 构建 + 各工具 publish；`package dev-sdk` 只组装。
+      # examples stage 要一个带 launcher 的完整 SDK（artifacts/.z42）：bootstrap 已建好 z42c / stdlib，
+      # 这里补 apphost 发布再组装。
       - name: Build SDK for the examples stage
         if: matrix.os != 'windows-latest'
         shell: bash
@@ -312,18 +221,9 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p artifacts/ci-logs
-          # Stages offloaded to dedicated parallel jobs:
-          #   stdlib   → stdlib-interp-consistency (per OS)
-          #   compiler → compiler-checks (linux, 1×; host-independent fixpoint)
-          #   vscode   → compiler-checks (linux, 1×; host-independent keyword sync)
-          # cross-zpkg: runs on linux-x64 only (host-independent, bytecode-level
-          # zpkg linking — one OS is sufficient). Other legs skip it.
-          # bench: same treatment (fix-bench-corpus-using-stdtest, 2026-09-08).
-          # The stage only asks "does the [Benchmark] corpus still RUN" — that is
-          # host-independent, so one leg suffices; and test-host(linux-x64) IS a
-          # required check, which is the whole point (bench-regression is not,
-          # and cannot be — it is path-filtered, so requiring it would leave
-          # doc-only PRs pending forever). Perf verdicts stay in bench-pr.yml.
+          # --no-build：bootstrap 已建好 z42c + stdlib + xtask，gate 只重生 goldens。
+          # 下放到并行 job 的 stage：stdlib → test-stdlib-interp；compiler / vscode → compiler-checks（host 无关，1 次）。
+          # cross-zpkg、bench 也 host 无关，只在 linux-x64（required）上跑；性能判定在 bench-pr.yml。
           SKIP="stdlib,compiler,vscode"
           if [ "${{ matrix.platform }}" != "linux-x64" ]; then
             SKIP="stdlib,cross-zpkg,bench,compiler,vscode"
@@ -343,17 +243,8 @@ jobs:
           fi
           exit "${PIPESTATUS[0]}"
 
-      # refresh-format-fixtures: committed zbc-format byte baselines must be up to date.
-      # `test` 的 build wave（_regenGolden）**就地**重写 src/compiler/z42.package/tests/fixtures/zbc-format/*/source.zbc，
-      # 所以这里 diff 非空 = 提交的字节过期了（某次格式变更漏了 version-bumping.md 第 4 步）。
-      # 为什么需要这道门：regen 总在消费方之前跑，`zbc_compat` 校验的永远是**刚重写**的字节、
-      # 从不是提交的那份 ⇒ 过期基线一直绿、却弄脏每个贡献者的工作树（曾在 1.37 停留到 1.38 bump 之后）。
-      # 与 `cargo fmt --check` 同形：regen，然后改了任何东西就红。
-      #
-      # speed-up-ci-quick-wins：此门原在 compile-test-assets 的两条腿（linux + 专为它保留的 macOS 腿）。
-      # 挪到这里：三个架构（x64 / arm64 / macOS）的 test-host 都跑、零额外构建，而且 test-host 是
-      # required check —— 原来那个 job 不是，红了也挡不住合并。
-      # 前提「regen 刚跑过」由 `set -e` 保证：上一步失败本步不会执行。
+      # build wave 就地重写 zbc-format 字节基线；diff 非空 = 提交的基线过期（格式变更漏了 version-bumping.md 第 4 步）。
+      # 消费方校验的永远是刚重写的字节，不靠这道门过期基线会一直绿。挂在 required 的 test-host 上，零额外构建。
       - name: Golden byte baselines are up to date (regen produced no diff)
         if: matrix.os != 'windows-latest'
         shell: bash
@@ -369,11 +260,7 @@ jobs:
           fi
           echo "OK: zbc-format baselines match the current writer"
 
-      # diag-ci-test-log-upload (2026-05-30): the wave-failed stage prints
-      # `stage outputs preserved at: /tmp/...` paths that disappear when
-      # the runner is recycled. Capture them as an artifact so we can
-      # inspect failure mode without admin-only log access (the public
-      # actions/jobs API only surfaces "exit code 1" annotations).
+      # 失败时把 stage 保留的临时输出传上来（runner 回收后就没了）。
       - name: Upload test logs on failure
         if: failure() && matrix.os != 'windows-latest'
         uses: actions/upload-artifact@v7
@@ -386,19 +273,8 @@ jobs:
           retention-days: 7
           if-no-files-found: warn
 
-      # The Rust VM unit harness = `xtask test runtime` (cargo test --test-threads=1).
-      # It is NOT part of `test` (its signal_handler_e2e tests spawn crash-helpers
-      # that hang in signal-restricted sandboxes → would wedge the always-run gate).
-      # It runs here as its own per-leg step so every OS gets Rust-unit coverage —
-      # including the #[cfg(unix)] tests that Windows skips (cargo test used to be
-      # Windows-only, so those unix tests never ran on CI; enabling all-legs surfaced +
-      # got fixed a real run-timeout bug — see fix-process-run-timeout-orphan).
-      #
-      # Windows doesn't run `test` (goldens run on linux/macos), so it first needs
-      # `build test` to populate artifacts/build/tests so zbc_compat sees ≥50 goldens.
-      # non-Windows already regen'd them in `test` above.
-      # schedule/dispatch 逃生口同其余 changes 门控 job：paths-filter 在这两个事件下恒 false，
-      # 否则 nightly 全量 sweep 上 windows 腿几乎什么都不做。
+      # Rust 单测不在 `xtask test` 里（signal 测试在受限沙箱会挂），每条腿单独一步。Windows 不跑 gate，
+      # 先 `build test` 备好 zbc_compat 要的 goldens。schedule / dispatch 下 filter 恒 false，故显式放行。
       - name: Build golden test assets (Windows — zbc_compat inputs)
         if: matrix.os == 'windows-latest' && (needs.changes.outputs.vm == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
         shell: bash
@@ -406,11 +282,7 @@ jobs:
           set -euo pipefail
           xtask build test
 
-      # --test-threads=1 + RUST_MIN_STACK are set inside _testRuntime. Serialized
-      # because the --lib tests have a pre-existing cross-thread memory-corruption race
-      # (SIGSEGVs under parallel scheduling on macOS too; --test-threads=1 passes).
-      # cargo test builds debug binaries — never relinks the running release z42vm, so
-      # no Windows file-lock. Gated on the vm change filter (rule c).
+      # 串行（--test-threads=1，_testRuntime 内设）：--lib 测试有跨线程内存竞争。按 vm filter 门控。
       - name: Rust VM unit tests (xtask test runtime)
         if: needs.changes.outputs.vm == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
         shell: bash
@@ -418,21 +290,9 @@ jobs:
           set -euo pipefail
           xtask test runtime
 
-      # ── 抢号预检（enforce-diagnostic-code-uniqueness）──────────────────────────
-      # **PR 的绿是「过期快照」**：checkout 拿的是 merge ref —— head 与**那次 run 触发时**的 base
-      # 的合并结果；base 后来前进**不会**自动重跑。实测 2026-09-22：#747 13:43:15 合入 main，
-      # #759 13:46:00 合入而它的 baseRefOid 还停在 #761 —— 两边的绿都不含对方，于是同一个诊断码号
-      # 被各自拿走、双双全绿合入、main 才红（#762 收拾残局，#764 的规则 ⑤ 又是同一形状的另一半）。
-      #
-      # 根治是分支保护的 `require branches to be up to date`，但那要求每个 PR 合并前 rebase +
-      # 重跑**整套**自举/多平台 CI，对这条 CI 太贵（2026-09-22 裁决：不开，strict 保持 false）。
-      # 这一步是便宜的替代：GREEN 已经跑完、树可以随便动 —— 把**最新** main 并进来，重跑一次纯文本
-      # 扫描的 diagcodes 门（秒级）。窗口从「PR 的整个生命周期」缩到「最后一次 CI 到合并之间」；
-      # 按下 merge 前重跑一次本 job 就能把窗口压到近零。
-      #
-      # ⭐ 为什么挂在**既有的** required job 末尾而不是新开一个 job：新增 job 默认**不是** required
-      # check ⇒ 不挡合并 ⇒ 又是一个「会红但不挡人的门」（见 fake-gate-lets-compiler-bug-into-main）。
-      # test-host(linux-x64) 已经是 required，且无路径过滤、必跑。
+      # ── 抢号预检：PR 的绿基于触发那一刻的 base，两个 PR 能各自拿走同一个诊断码号、双双全绿合入。
+      # 不开「必须基于最新 main」（要每个 PR 重跑整套 CI），改为在 GREEN 之后并入最新 main 重跑一次秒级的
+      # diagcodes。挂在已是 required 的 test-host(linux-x64) 末尾——新开的 job 默认不是 required，红了也挡不住。
       - name: Code-number preflight (merge LATEST main, rerun diagcodes)
         if: github.event_name == 'pull_request' && matrix.platform == 'linux-x64'
         shell: bash
@@ -452,27 +312,11 @@ jobs:
           fi
           xtask check diagcodes
 
-  # ── parallelize-host-package: SDK packaging, parallel to host tests (all 4 OS) ──
-  # The host package (`xtask package release`) used to run sequentially after
-  # `test` on each build-and-test leg, adding ~10 min to the critical path. It's
-  # independent of the tests, so it now runs as its own job off the shared toolchain-
-  # bootstrap artifact — ready well before the tests finish. All 4 OS, incl.
-  # windows-latest (consumes the platform-independent toolchain-ubuntu-latest zpkgs +
-  # cargo-builds its own z42vm). build-and-test is now pure test. publish-nightly
-  # consumes these uploads.
+  # ── 宿主 RID 打包（4 个 OS），与 host 测试并行，吃共享的 toolchain artifact；publish-nightly 消费其上传。
   host-package:
     name: package-host(${{ matrix.platform }})
     timeout-minutes: 45
-    # gate-pr-package: package-* artifacts are consumed ONLY by publish-nightly
-    # (push-to-main / dispatch). On a PR they are pure "does packaging still build"
-    # validation, and packaging is affected only by `platform`-scope changes
-    # (runtime cross-compile / workload / packaging scripts) — NOT compiler/stdlib/
-    # tests source, which just change which zpkg bytes get bundled. So on a PR run
-    # them only when platform changed; push/schedule/dispatch always run (publish-
-    # nightly needs the artifacts). Cuts host-package×4 + package-{ios,android,wasm}
-    # = 7 jobs from every non-platform PR → frees runner-pool headroom (full runs
-    # sit at the ~20 concurrent-job cap). None of package-* are required checks, and
-    # a required check skipped via `if:` does not block merge here anyway.
+    # package-* 的产物只给 publish-nightly 用；PR 上它们只是「还能不能打包」，只在 platform 改动时跑。
     needs: [changes, toolchain-bootstrap]
     # `examples`：学习手册示例只在这里用打包出的 SDK 重放（含 Windows 的唯一覆盖），
     # 所以 learn / examples 改动只拉起本 job，不拉起其余 package-* / test-desktop。
@@ -489,11 +333,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # OWN cache key (not the default artifact-host-v1): the package step below
-      # builds z42 as cdylib + staticlib + z42-compression + apphost on top of what
-      # the action itself builds. A dedicated key caches the FULL package build →
-      # warm reuse (sharing a narrower key meant those extra crate-types recompiled
-      # cold every run, ~6-8 min on Windows).
+      # 独立 cache key：打包另编 cdylib / staticlib / compression / apphost，共用窄 key 会每次冷编（Windows 6~8 分钟）。
       - uses: ./.github/actions/xtask-bootstrap-artifact
         with:
           cache-key: package-host-v2
@@ -502,17 +342,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # Windows: `package` cargo-relinks the build-tree z42vm.exe —— 不冲突：`xtask` 垫片跑的是 `.z42` SDK 的 VM（见 .github/ci/xtask）。
-          # --no-build: xtask-bootstrap-artifact already restored z42c + stdlib (the
-          # toolchain artifact); skip rebuilding them (~10 min on Windows: the [1/5]
-          # z42c self-build + the former 2nd self-build in the runtime pack). The
-          # package's own cargo native libs (z42vm/cdylib/staticlib/apphost) + launcher
-          # still build. Verified locally byte-identical to a full build (mod build-date).
-          # merge-package-release: the former combined `package release` split into
-          # name-driven subcommands — host produces SDK + runtime + desktop workload.
-          # --archive：在本 runner 上随打包出发布归档（可执行位原样进 tar；Windows 出 zip），放在包目录旁
-          # （artifacts/packages/）。PR 上也做（几秒）—— 下面的 Installer smoke 装的就是它，于是 4 个桌面平台
-          # 每个 PR 都真装一遍真归档；只有上传限非 PR。
+          # --no-build：z42c / stdlib 用 artifact 里还原的；包自己的原生库照编。
+          # --archive：在本 runner 上出归档（保留可执行位；Windows 出 zip）。PR 上也出——下面的 Installer smoke 装的就是它。
           xtask package sdk --no-build --archive --label nightly
           xtask package runtime --no-build --archive --label nightly
           xtask package workload --archive --label nightly
@@ -523,16 +354,7 @@ jobs:
           fi
 
       - name: Dist test (launcher + desktop-publish + golden legs)
-        # Runs on all RIDs incl. Windows (P5 cleanup fixed the dist-test preflight +
-        # launcher-smoke `.exe`-suffix gaps: bin/z42c[.exe] / z42[.exe] / z42vm[.exe]).
-        #
-        # fix-package-gates-false-red (2026-09-06): 此前这一步带 DIST_SMOKE_ONLY=launcher，
-        # 注释说是「跳过更 flaky 的 desktop-publish/golden 腿」。但全仓**只有这一处**调
-        # `test package` —— 所谓「跳过」的实际效果不是换个地方覆盖，而是那两条腿**永远没人跑**：
-        #   · desktop-publish smoke 自 apphost 迁进 desktop workload 后判据恒不满足 → 静默 SKIP；
-        #   · golden 腿调 z42c 的 CLI 根本不存在（`--emit zbc -o`）→ 282 个 case 全 compile fail。
-        # 两条都是「从不打印、从不失败的门」。判据修好后在这里接通，让它真的会红。
-        # Consumes the SDK package + desktop workload produced above.
+        # 全仓唯一调用 `test package` 的地方：每条腿都必须跑到（发行包夹具 + golden）。
         shell: bash
         run: |
           set -euo pipefail
@@ -598,18 +420,8 @@ jobs:
           retention-days: 14
           if-no-files-found: error
 
-  # ── toolchain artifact (parallelization keystone + option-B seed handoff) ──
-  # Bootstrap the compiler ONCE (z42c + stdlib + xtask via the prev nightly seed) and
-  # publish the .zpkg products as `toolchain-ubuntu-latest`. The package / platform-test
-  # jobs consume it (xtask-bootstrap-artifact action) + cargo-build their own z42vm —
-  # and run in parallel instead of each re-bootstrapping. Fast: bootstrap only, no test.
-  #
-  # **只有 linux 一条腿**（speed-up-ci-quick-wins）：产物全是 zpkg / zsym / runtimeconfig，
-  # 与宿主无关 —— Windows 消费方一直用的就是这份 linux 产物。原先的 macOS 腿产出一份
-  # 等价的 `toolchain-macos-26`，代价是：① 占一个稀缺的 macOS runner 5~6 min；
-  # ② 下游 `needs: toolchain-bootstrap` 等的是**整个 matrix**，只用 linux 产物的 job
-  # 也要陪 macOS 腿（实测每个下游白等 0.5~2.6 min）。「种子能在 macOS 上编当前源」这条
-  # 边界由 test-host(macos-arm64) 的 ci-bootstrap 覆盖（required），不靠这里。
+  # ── toolchain artifact：只自举一次（种子 z42c → 当前 z42c + stdlib + xtask），把 zpkg 快照上传为
+  # toolchain-ubuntu-latest，打包 / 平台测试 job 下载后各自 cargo 编 z42vm，并行跑。产物与宿主无关，只要 linux 一条腿。
   toolchain-bootstrap:
     name: compile-toolchain(linux-x64)
     timeout-minutes: 30
@@ -644,9 +456,8 @@ jobs:
           xtask build toolchain z42b
           xtask package ci "$RUNNER_TEMP/tc"
 
-      # ci-prebuilt-vm：只跑 xtask、不再调 cargo 的 linux-x64 消费方（xtask-bootstrap-artifact 的
-      # `prebuilt-vm`）直接用这份 z42vm —— 与它们自己 `cargo build --release` 出来的是同一条命令的产物。
-      # cdylib（libz42_compression.so 等）一起带上：VM 在**自己旁边**解析 `[Native(lib = …)]`。
+      # 只跑 xtask、不调 cargo 的 linux-x64 消费方（xtask-bootstrap-artifact 的 `prebuilt-vm`）直接用这份 z42vm。
+      # cdylib（libz42_compression.so 等）一起带上：VM 在自己旁边解析 `[Native(lib = …)]`。
       - name: Upload z42vm-linux-x64
         uses: actions/upload-artifact@v7
         with:
@@ -666,40 +477,20 @@ jobs:
           retention-days: 3
           if-no-files-found: error
 
-  # ── compile-once P2 (additive): assemble current-sdk in a SEPARATE job ──────
-  # Builds the `.z42` current-sdk layout (programs/z42c + libs + bin) + bundles
-  # the golden .zbc, consumable by `xtask --toolchain <dir>`. SPLIT OUT of
-  # toolchain-bootstrap on purpose: the golden regen takes ~9 min and used to run
-  # AFTER the toolchain-<os> upload but INSIDE toolchain-bootstrap — so every
-  # `needs: toolchain-bootstrap` job (host-package → publish-nightly critical
-  # path) waited those ~9 min for an artifact it doesn't use. As its own job
-  # (consuming the toolchain artifact via xtask-bootstrap-artifact + a host cargo
-  # z42vm) it runs fully in PARALLEL, off the critical path, and packages start as
-  # soon as the toolchain zpkgs are up. Nothing gating publish needs current-sdk.
-  # 不再逐步 continue-on-error（speed-up-ci-quick-wins）：regen 失败原本就会被紧跟的
-  # 基线门打红；package dev-sdk / upload 失败则下游 test-vm-jit / test-consume 在下载处才红，
-  # 离真正出错的地方隔了一个 job。直接在这里失败更好定位。
+  # ── current-sdk：组装 `.z42` 布局 + 打包 golden .zbc，给 test-consume / test-vm-jit。单独成 job，不拖关键路径。
   assemble-current-sdk:
     name: compile-test-assets(linux-x64)
     timeout-minutes: 30
     needs: toolchain-bootstrap
-    # **只有 linux 一条腿**（speed-up-ci-quick-wins）：current-sdk 的两个消费方
-    # （consume-current-sdk / vm-jit-consistency）只下载 current-sdk-ubuntu-latest。
-    # 原 macOS 腿唯一剩下的作用是 zbc-format 字节基线门，该门已挪到 test-host 的三条
-    # 非 Windows 腿末尾（零额外构建，且 test-host 是 required check）。
+    # 消费方只下载 linux 这一份。
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
 
-      # cargo build z42vm + restore z42c/stdlib/xtask zpkgs at canonical paths。
-      # rust toolchain + rust-cache 由该 action 自带 —— 缓存 key 的选择理由（为什么
-      # 不能共用 ci-bootstrap 的 host-v2）现在写在 action 的 cache-key input 上，
-      # 单点维护，不再逐 job 复制。
+      # cargo 编 z42vm + 原地还原 z42c / stdlib / xtask（缓存 key 的取舍写在 action 的 cache-key input 上）。
       - uses: ./.github/actions/xtask-bootstrap-artifact
 
-      # compile-once P2.4 (shared compiled assets): build the golden .zbc ONCE here
-      # so downstream interp + jit consumers run the SAME prebuilt bytecode
-      # (.zbc is execution-mode-agnostic) via `test e2e --no-build`.
+      # golden .zbc 只在这里编一次，下游 interp / jit 跑同一份字节（.zbc 与执行模式无关）。
       - name: Build golden .zbc test assets (compile shared assets once)
         shell: bash
         run: |
@@ -724,13 +515,7 @@ jobs:
           retention-days: 3
           if-no-files-found: error
 
-  # ── compile-once P3 (additive): consume current-sdk cross-job ───────────────
-  # Proves the current-sdk `.z42` artifact, downloaded fresh in a SEPARATE job, is
-  # a working self-contained toolchain: its own bin/z42vm + programs/z42c/driver +
-  # libs/ compile a real project (xtask) with no rebuild/bootstrap. This is the
-  # downstream-consume model (test jobs will adopt it instead of each re-
-  # bootstrapping) + the seed of cross-bootstrap (Decision 7). continue-on-error
-  # while we validate — promote to a gate once proven.
+  # ── 证明下载来的 current-sdk 是自包含工具链：只用它自己的 z42vm / z42c / libs 编并跑一个真实工程（xtask）。
   consume-current-sdk:
     name: test-consume(linux-x64)
     timeout-minutes: 30
@@ -750,10 +535,8 @@ jobs:
           TC="$PWD/.z42-dl"
           chmod +x "$TC/bin/z42vm"
           ls "$TC/programs/z42c/" "$TC/libs/" >/dev/null
-          # compile a real project (xtask) with the downloaded toolchain's z42c。xtask 把 z42.project / z42.build 声明为
-          # SDK 库（`deploy = "sdk"`，add-sdk-libs）—— 编译期直接调 driver 时由 Z42_COMPILER_LIBS 指给它编译器目录
-          # （经 launcher 时由 Z42_HOME / Z42_PORTABLE_VM 推出同一个 programs/z42c）；运行期侧车的
-          # `${Z42_HOME}/programs/z42c` 由 VM 从自己的位置（$TC/bin/z42vm ⇒ $TC）展开 —— 下面那句 `build -h` 就是实测。
+          # 直接调 driver 时由 Z42_COMPILER_LIBS 给出编译器目录（xtask 的 z42.project / z42.build 是 deploy = "sdk"）；
+          # 运行期侧车的 ${Z42_HOME}/programs/z42c 由 VM 从自己的位置展开——下面的 `build -h` 就是实测。
           Z42_COMPILER_LIBS="$TC/programs/z42c" Z42_LIBS="$TC/libs" "$TC/bin/z42vm" "$TC/programs/z42c/z42c.driver.zpkg" --mode interp -- \
             build scripts/xtask.z42.toml --release --output-dir "$RUNNER_TEMP/consume-out"
           test -f "$RUNNER_TEMP/consume-out/xtask.zpkg" \
@@ -772,10 +555,7 @@ jobs:
           # downloaded toolchain (z42c + stdlib + z42vm), no bootstrap/rebuild.
           Z42_LIBS="$TC/libs" "$TC/bin/z42vm" "$RUNNER_TEMP/consume-out/xtask.zpkg" -- \
             --toolchain "$TC" test e2e --dir cross-zpkg
-      # compile-once P2.4: the SHARED compiled asset. current-sdk bundles the
-      # prebuilt golden .zbc (built once in the compile job). Extract them to the
-      # canonical mirror so `test e2e --no-rebuild` runs them with NO regen — interp
-      # and jit below execute the SAME .zbc, differing only by --mode.
+      # current-sdk 里带着只编一次的 golden .zbc；解到规范镜像位置，`--no-rebuild` 直接跑（interp / jit 跑同一份字节）。
       - name: Extract bundled goldens (shared compiled asset)
         shell: bash
         run: |
@@ -796,30 +576,14 @@ jobs:
           Z42_LIBS="$TC/libs" "$TC/bin/z42vm" "$RUNNER_TEMP/consume-out/xtask.zpkg" -- \
             --toolchain "$TC" test e2e --mode interp --no-rebuild
 
-  # ── VM cross-mode consistency (0.3.0 退出标准) ───────────────────────────
-  # split-interp-jit: `xtask test` in build-and-test runs the golden suites in
-  # INTERP only (on every host OS). This job is the SOLE JIT gate — it runs the VM
-  # goldens under JIT here, catching interp/JIT divergence (opcode handling, codegen
-  # bugs) before main. Single linux-x64 lane is enough — cranelift JIT behaviour is
-  # host-independent, so running jit on every build-and-test OS leg was redundant
-  # (5× the slow per-case cranelift compile) and is now removed from the
-  # host legs' critical path.
+  # ── VM goldens 的 JIT 门（唯一的一道）：test-host 只跑 interp。cranelift 行为与宿主无关，linux-x64 一条足够。
   vm-jit-consistency:
     name: test-vm-jit(linux-x64) shard ${{ matrix.shard }}
-    # 2026-07-25 (share-goldens-no-regen): shards download golden .zbc compiled
-    # ONCE by assemble-current-sdk and run their slice with --no-rebuild — no
-    # per-shard golden regen. 2026-07-26: 4→2 shards (each ~5-6 min); 4-way
-    # over-split flooded the runner pool while each shard was only ~3 min.
+    # 2 个分片，各跑一段共享的 golden .zbc（不再各自重生）。
     timeout-minutes: 55
     runs-on: ubuntu-latest
     needs: [changes, toolchain-bootstrap, assemble-current-sdk]
-    # change-detect rule (c): JIT execution behaviour changes when the Rust VM changes
-    # (JIT codegen) OR when a z42c change alters the .zbc the JIT lowers — codegen /
-    # optimization passes (inline/LICM/CSE/…) restructure the IR, so the JIT's INPUT
-    # differs and its lowering of that new IR is exercised. test-host's interp goldens
-    # cover interp of the new .zbc, NOT its JIT lowering. So gate on vm OR compiler.
-    # (2026-08-04: #103's opt-pipeline changes skipped this leg → optimized IR was
-    # never JIT-tested; added `compiler` to close that gap.) Schedule/dispatch = 全跑.
+    # vm 或 compiler 改动都要跑：编译器的优化 pass 会重排 IR，JIT 的输入变了（test-host 只覆盖 interp）。
     if: ${{ needs.changes.outputs.vm == 'true' || needs.changes.outputs.compiler == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
     strategy:
       fail-fast: false
@@ -829,18 +593,10 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # Consume the toolchain artifact built ONCE by toolchain-bootstrap (z42c +
-      # stdlib + xtask.zpkg) instead of re-bootstrapping per shard — removes 4×
-      # redundant z42c/stdlib builds + the per-shard nightly-download drift flake
-      # (xtask-review §3.1). Same consume path as host-package / assemble-current-sdk.
-      # rust toolchain + rust-cache 由该 action 自带（见其 cache-key input）。
+      # 吃 toolchain artifact，不在每个分片重新自举（rust toolchain + cache 由 action 自带）。
       - uses: ./.github/actions/xtask-bootstrap-artifact
 
-      # Golden .zbc are compiled ONCE by assemble-current-sdk (build test) and bundled
-      # into current-sdk. Extract them to the canonical mirror so the run below uses
-      # --no-rebuild (NO per-shard regen). Mirrors consume-current-sdk's "Extract
-      # bundled goldens" — .zbc are execution-mode-agnostic and z42c output is
-      # deterministic, so the shared asset is byte-equivalent to a local regen.
+      # 共享 golden .zbc 解到规范镜像位置（.zbc 与执行模式无关、z42c 输出确定，等价于本地重生）。
       - name: Download shared golden .zbc (compiled once)
         uses: actions/download-artifact@v8
         with:
@@ -861,20 +617,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # warm toolchain; xtask runs this shard of the JIT goldens on z42vm.
-          # --no-rebuild: run the shared .zbc as-is (no golden regen, no toolchain
-          # rebuild). cranelift JIT per-case compile still happens at RUN time
-          # (that's what this gate measures), split across 2 shards.
+          # --no-rebuild：直接跑共享 .zbc；JIT 的逐 case 编译发生在运行时（这正是本门要测的）。
           xtask test e2e --mode jit --no-rebuild --shard ${{ matrix.shard }}/2 --jobs=4
 
-  # ── stdlib [Test] JIT consistency (parallelize-and-jit-stdlib-tests) ──────
-  # build-and-test runs the 272 stdlib [Test] files under interp (in-process
-  # runner). This job re-runs them under JIT (`--mode jit` forks z42vm --mode
-  # jit per unit) to catch interp/JIT divergence in stdlib — the in-process
-  # runner can't drive the JIT, so subprocess is the proven jit path. Separate
-  # parallel lane (not folded into vm-jit-consistency) so it overlaps build-and-
-  # test instead of extending the critical path. linux-x64 only — cranelift
-  # behaviour is host-independent (same rationale as vm-jit-consistency).
+  # ── stdlib [Test] 的 JIT 门：每个单元 fork `z42vm --mode jit`（进程内 runner 驱动不了 JIT）。独立并行 job，
+  # 不拉长关键路径；linux-x64 一条（cranelift 与宿主无关）。
   stdlib-jit-consistency:
     name: test-stdlib-jit(linux-x64) shard ${{ matrix.shard }}
     timeout-minutes: 45
@@ -892,9 +639,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # Consume the toolchain artifact built ONCE by toolchain-bootstrap (z42c +
-      # stdlib + xtask.zpkg) instead of re-bootstrapping per shard.
-      # rust toolchain + rust-cache 由该 action 自带（见其 cache-key input）。
+      # 吃 toolchain artifact，不在每个分片重新自举（rust toolchain + cache 由 action 自带）。
       - uses: ./.github/actions/xtask-bootstrap-artifact
         with:
           prebuilt-vm: "true"   # 后续只跑 xtask、不调 cargo（ci-prebuilt-vm；非 linux-x64 腿照常自建）
@@ -908,12 +653,7 @@ jobs:
           # across 2 machines; --jobs 4 parallelizes within the shard.
           xtask test stdlib --mode jit --no-build --shard ${{ matrix.shard }}/2 --jobs 4
 
-  # ── stdlib [Test] INTERP consistency — one job per OS ─────────────────────────
-  # The build-and-test (test-host) legs skip stdlib [Test] (`--skip stdlib`); this
-  # job runs the full suite under interp on each OS so per-OS host-dependent stdlib
-  # (io/net/process/fs/threading) keeps its own-platform coverage. INTERP only —
-  # jit is covered by stdlib-jit-consistency (linux). Consumes the toolchain
-  # artifact (arch-independent .zpkg) + cargo-builds the native z42vm.
+  # ── stdlib [Test] interp，每个 OS 一个 job（io / net / process / fs / threading 依赖宿主）；test-host 跳过它。
   stdlib-interp-consistency:
     name: test-stdlib-interp(${{ matrix.platform }})
     timeout-minutes: 45
@@ -924,10 +664,7 @@ jobs:
     if: ${{ needs.changes.outputs.vm == 'true' || needs.changes.outputs.stdlib == 'true' || needs.changes.outputs.compiler == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
     strategy:
       fail-fast: false
-      # No sharding: each OS runs the full stdlib [Test] suite (~12-14 min). The
-      # prior 2-shard/OS split (6 jobs) flooded the ~20-slot runner pool — the queue
-      # delay dwarfed the per-shard savings. Unsharded (3 jobs) frees 3 slots and
-      # each job still finishes well within the 45m cap.
+      # 不分片：每个 OS 全量约 12~14 分钟；分片会挤爆约 20 个并发的 runner 池，排队比省下的还多。
       matrix:
         include:
           - { os: ubuntu-latest,    platform: linux-x64 }
@@ -937,10 +674,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # Consume the toolchain artifact (z42c+stdlib+xtask.zpkg — arch-independent
-      # bytecode) + cargo-build the native z42vm. Every OS resolves the same
-      # toolchain-ubuntu-latest (zpkg is host-neutral).
-      # rust toolchain + rust-cache 由该 action 自带（见其 cache-key input）。
+      # 吃与架构无关的 toolchain artifact，本机 cargo 编 z42vm（rust toolchain + cache 由 action 自带）。
       - uses: ./.github/actions/xtask-bootstrap-artifact
         with:
           prebuilt-vm: "true"   # 后续只跑 xtask、不调 cargo（ci-prebuilt-vm；非 linux-x64 腿照常自建）
@@ -951,28 +685,11 @@ jobs:
           set -euo pipefail
           xtask test stdlib --mode interp --no-build --jobs 4
 
-  # ── cross-zpkg coverage ─────────────────────────────────────────────────────
-  # cross-zpkg (zpkg linking + cross-package dispatch) is folded back into
-  # test-host(linux-x64): that leg's `_testAll` runs the cross-zpkg stage under
-  # interp (only linux-x64 — other legs skip it; host-independent). Fixtures are
-  # COMPILED on the release z42vm (the 3-stage-per-fixture compile was the ~18min
-  # pole on debug) and RUN on the debug z42vm (keeps debug-assertions + overflow-
-  # checks coverage on real cross-package execution) — speed-up-cross-zpkg-compile-vm.
-  # Both z42vm builds come from _testAll's build wave. JIT cross-zpkg is dropped:
-  # zpkg linking is bytecode-level,
-  # and JIT execution correctness is already covered by vm-jit goldens (~222 cases).
+  # ── cross-zpkg 在 test-host(linux-x64) 的 gate 里跑：夹具用 release z42vm 编、debug z42vm 跑（保留 debug 断言）。
+  # 不跑 JIT 版：zpkg 链接是字节码层的，JIT 执行正确性由 vm-jit goldens 覆盖。
 
-  # ── compiler checks (host-independent, 1× linux) ──────────────────────────
-  # z42c self-host fixpoint (gen1==gen2 byte-identical) + z42c [Test] units +
-  # vscode-syntax keyword consistency. These are HOST-INDEPENDENT: z42c output
-  # is deterministic regardless of OS → running on all 4 test-host legs was 4×
-  # redundant (~5 min/leg wasted). Offloaded here as a single linux job; test-host
-  # skips them (`--skip compiler,vscode`). Gated on compiler changes (rule b) —
-  # only z42c source can change the fixpoint or the keyword table.
-  # 自举的另一维——「上一版 nightly 种子能编当前源」——由每个跑 ci-bootstrap 的 job
-  # 顺带实测（test-host ×4 OS + compile-toolchain），不需要专门的 job。原先的
-  # verify-selfhost 就是「ci-bootstrap + 本 job 的 test compiler」，两半都与别处重复，
-  # 已删（speed-up-ci-quick-wins）。它独有的 no-dotnet 桩守的是 2026-06-26 已删的 C# 路径。
+  # ── 编译器检查（与宿主无关，linux 一次）：自举不动点 gen1 == gen2 + z42c [Test] units + vscode 语法同步；
+  # test-host 跳过它们。「上一版 nightly 能编当前源」由每个跑 ci-bootstrap 的 job 顺带实测。
   compiler-checks:
     name: compiler-checks(linux-x64)
     timeout-minutes: 30
@@ -1004,7 +721,7 @@ jobs:
   package-ios:
     name: package-ios(macos-arm64)
     timeout-minutes: 45
-    # gate-pr-package (see host-package): PR-skip unless platform changed.
+    # PR 上只在 platform 改动时跑（同 host-package）。
     needs: [changes, toolchain-bootstrap]
     if: ${{ needs.changes.outputs.platform == 'true' || github.event_name != 'pull_request' }}
     runs-on: macos-26
@@ -1042,7 +759,7 @@ jobs:
   package-android:
     name: package-android(linux-x64)
     timeout-minutes: 45
-    # gate-pr-package (see host-package): PR-skip unless platform changed.
+    # PR 上只在 platform 改动时跑（同 host-package）。
     needs: [changes, toolchain-bootstrap]
     if: ${{ needs.changes.outputs.platform == 'true' || github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
@@ -1092,15 +809,11 @@ jobs:
           retention-days: 14
           if-no-files-found: error
 
-  # ── wasm packaging ──────────────────────────────────────────────────────
-  # Packages browser-wasm via wasm-pack (no Node.js needed — wasm-pack build
-  # only generates JS glue, it doesn't execute it).
-  # `xtask test app wasm build` (WasmBackend) produces pkg-web/ +
-  # pkg-nodejs/ before `xtask package` can assemble the wasm SDK package.
+  # ── wasm 打包：先 `test app wasm build` 产出 pkg-web/ + pkg-nodejs/，打包才能组装（wasm-pack 不需要 Node）。
   package-wasm:
     name: package-wasm(linux-x64)
     timeout-minutes: 40
-    # gate-pr-package (see host-package): PR-skip unless platform changed.
+    # PR 上只在 platform 改动时跑（同 host-package）。
     needs: [changes, toolchain-bootstrap]
     if: ${{ needs.changes.outputs.platform == 'true' || github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
@@ -1118,9 +831,8 @@ jobs:
           cache-key: wasm-v2
           rust-targets: wasm32-unknown-unknown
 
-      # 从已删的 verify-features job 接过来的唯一一条独有检查（drop-feature-matrix，2026-10-02）：
-      # interp-only 的依赖图里不许混进 cranelift（jit 依赖）。其余「各 feature 组合编不编得过」由
-      # package-{wasm,ios,android} 在真实目标平台上的完整构建覆盖。`cargo tree` 只解析依赖图、不编译。
+      # interp-only 的依赖图里不许混进 cranelift（jit 依赖）；各 feature 组合编不编得过由 package-{wasm,ios,android}
+      # 的真实构建覆盖。`cargo tree` 只解析依赖图、不编译。
       - name: Verify cranelift excluded under interp-only
         shell: bash
         run: |
@@ -1143,16 +855,8 @@ jobs:
           set -euo pipefail
           xtask package runtime --rid browser-wasm --archive --label nightly
 
-      # ci-wasm-node-smoke (2026-09-14): actually RUN the wasm VM once per push/PR.
-      # Everything above only builds + validates the module; the only job that ever
-      # executed it was the nightly-only test-wasm-browser. So a VM that traps on its
-      # first `loadZbc` (#644: a disabled sampler called `Instant::now()`, and wasm32
-      # has no std::time) compiled, validated and packaged fine here — and nightly
-      # stayed red for three weeks (2026-08-24 → 09-14) without anyone noticing.
-      # `src/runtime/**` is in the `platform` filter, so runtime PRs run this too.
-      # The pkg-nodejs it loads is built into the staged host copy (`test app wasm
-      # build`, artifacts/intermediate/…/wasm/host); `assets` puts js/fixtures + js/stdlib
-      # beside it — nothing is written into the source platform dir.
+      # 每个 push / PR 真跑一次 wasm VM（上面只编译、校验、打包；真执行的 test-wasm-browser 只在 nightly）——
+      # 第一次 loadZbc 就 trap 的 VM 能一路打包通过。pkg-nodejs 在暂存的 host 副本里构建，不写源码目录。
       - uses: actions/setup-node@v7
         with:
           node-version: '24'
@@ -1175,34 +879,15 @@ jobs:
           retention-days: 14
           if-no-files-found: error
 
-  # ── Nightly rolling pre-release ────────────────────────────────────────
-  # On every push to main, repackage all 9 RID artifacts (host ×4 + ios ×2 +
-  # android ×2 + wasm) into archives and force-replace a single `nightly`
-  # GitHub Release. The tag URL stays stable so downstream consumers can pin to:
-  #
-  #   https://github.com/<owner>/z42/releases/download/nightly/z42-sdk-nightly-<rid>.{tar.gz,zip}
-  #
-  # Not signed. Marked --prerelease. Skipped on PRs (token + fork-PR limitations).
+  # ── nightly 滚动预发布：main 的每次 push 把 9 个 RID 的归档原地更新到同一个 `nightly` Release（URL 稳定：
+  #   https://github.com/<owner>/z42/releases/download/nightly/z42-sdk-nightly-<rid>.{tar.gz,zip}）。不签名，--prerelease。
   publish-nightly:
     name: publish-nightly
     timeout-minutes: 40
     if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' && needs.changes.outputs.sdk != 'false'
-    # NIGHTLY-SEED DEADLOCK POSTURE: EVERY bootstrap path (build-and-test, host-package,
-    # package-*, all via the ci-bootstrap action / toolchain-bootstrap) seeds from the
-    # PREVIOUS nightly's z42c and builds current source with it — every bootstrap depends
-    # on a prior nightly. The self-heal invariant rests entirely
-    # on the staged-bootstrap discipline (docs/agent/rules/bootstrap-seed.md): the prev
-    # nightly's z42c MUST always be able to compile current source (new syntax / zbc
-    # bump lands "support" one release before "use"; `xtask test compiler bootstrap`
-    # is the boundary check). If that discipline is ever violated, the prev nightly
-    # can't build current source → these deps fail → publish can't republish a fixed
-    # nightly → manual recovery. Keep `needs` to the jobs that
-    # build + test + package CURRENT source (build-and-test test + windows pkg,
-    # host-package unix pkgs, package-* mobile); do NOT add the pure download-bootstrap
-    # gates (vm-jit / stdlib-jit) — they transiently fail on a bump until a
-    # compatible nightly exists and self-heal next run, and gating publish on them
-    # would add a needless deadlock edge. JIT correctness is gated by the dedicated
-    # vm-jit-consistency job (build-and-test's `xtask test` is interp-only).
+    # needs 只列编 / 测 / 打包**当前源码**的 job。所有自举都从上一版 nightly 起步，自愈靠 bootstrap-seed 纪律
+    # （上一版 nightly 必须能编当前源）。不要加纯下载自举的门（vm-jit / stdlib-jit）：格式 bump 时它们会暂时红、
+    # 下次自愈，把 publish 挂在它们身上只会多一条死锁边。
     needs:
       - changes               # sdk == false（nightly 之后只改了文档 / 测试）⇒ 没有新东西可发
       - build-and-test
@@ -1212,12 +897,7 @@ jobs:
       - package-wasm
       - toolchain-bootstrap   # provides the toolchain-<os> artifact for `xtask release`
     runs-on: ubuntu-latest
-    # Serialize publish-nightly across ALL events/runs: two concurrent runs (e.g. a push
-    # and the daily schedule, in separate top-level concurrency groups) would interleave
-    # their asset uploads / tag moves on the one `nightly` release. cancel-in-progress:
-    # false queues the newer run so the in-flight publish finishes cleanly, then the
-    # newer SHA republishes. Job-level group, so only publish-nightly is serialized —
-    # build/test stay decoupled per event.
+    # 所有事件的 publish-nightly 串行（job 级 group）：并发的两次会交错改同一个 nightly Release；不取消，排队等前一个发完。
     concurrency:
       group: publish-nightly-${{ github.ref }}
       cancel-in-progress: false
@@ -1251,9 +931,8 @@ jobs:
         with:
           prebuilt-vm: "true"   # 后续只跑 xtask、不调 cargo（ci-prebuilt-vm；非 linux-x64 腿照常自建）
 
-      # unify-release-archive：各 package job 已在**自己的 runner** 上用 `--archive --label nightly`
-      # 出好归档（可执行位原样进 tar、Windows 出真 zip）。此前这里下载**原始包目录**再集中打包 ——
-      # upload-artifact 不保留可执行位，nightly tar 里的 z42vm 等都不可执行；还要从目录名反推 RID。
+      # 各 package job 已在自己的 runner 上用 `--archive` 出好归档——upload-artifact 不保留可执行位，
+      # 所以不能下载包目录到这里再打。
       - name: Download all release archives
         if: steps.stale.outputs.stale != 'true'
         uses: actions/download-artifact@v8
@@ -1271,18 +950,9 @@ jobs:
           ls -la artifacts/packages/
           xtask package finalize nightly --channel nightly --tag nightly --version nightly
 
-      # Update the `nightly` release IN PLACE — never delete → recreate.
-      #
-      # Deleting and recreating the same tag name is racy on GitHub's side: a delayed
-      # deletion of the old `nightly` tag can land minutes AFTER the new tag was created,
-      # and a release whose tag vanishes silently turns back into a DRAFT — invisible to
-      # other runs' GITHUB_TOKEN, so every seed download fails and CI deadlocks (this
-      # step's own "not a draft" check had already passed by then). So the release object
-      # and its tag are kept forever; each publish only (1) uploads assets with --clobber,
-      # (2) drops assets this build no longer ships, (3) moves the tag with a ref PATCH,
-      # (4) edits title / notes / target. At no point does the release or its tag stop
-      # existing. (During an upload a downloader may still get the previous build's copy
-      # of that asset — a complete archive either way.)
+      # 原地更新 nightly，绝不删了重建：GitHub 上旧 tag 的延迟删除可能落在新 tag 之后，Release 失去 tag 会静默变回
+      # draft——其它运行的 GITHUB_TOKEN 看不见它，所有种子下载失败、CI 死锁。所以只做：上传（--clobber）→ 删掉本次
+      # 不再发的资产 → PATCH 移动 tag → 改标题 / 说明。
       - name: Update nightly release in place
         if: steps.stale.outputs.stale != 'true'
         shell: bash
@@ -1375,36 +1045,15 @@ jobs:
           done
           echo "✓ nightly @ ${short_sha} published in place (non-draft, tag moved, assets complete)"
 
-  # ── Platform test pipeline → cross-platform CI dashboard ─────────────────
-  # `z42 xtask.zpkg test app <p>` (add-platform-test-pipeline) on real
-  # runners: wasm (Playwright/Chromium), iOS Simulator (xcodebuild test),
-  # Android emulator (reactivecircus). Each publishes its JUnit as a GitHub
-  # Check via dorny/test-reporter — the 3 checks on the PR ARE the dashboard.
-  # (infra-ci-platform-test-dashboard, 2026-06-16)
+  # ── Tier-2 平台测试（nightly）：wasm（Playwright）、iOS 模拟器、Android 模拟器，各自把 JUnit 发成 Check。
   test-wasm:
     name: test-wasm-browser(linux-x64) shard ${{ matrix.shard }}
-    # ci-perf-tier2: 30→60. Cold "build deployable" (wasm-pack LTO + z42c compiling
-    # the whole corpus) runs ~27min and was hitting the 30min cap → the job was
-    # cancelled at that step and the in-browser test never ran (repeatedly). The
-    # rust-cache above cuts the wasm-pack part; the higher cap absorbs the rest.
-    # fix-wasm-shard-timeout: 60→75. The corpus keeps growing (each shard's
-    # in-browser Playwright run passed 10min → hit the old 620s test-timeout), so
-    # the raised Playwright timeout (playwright.embedded.config.ts) needs more room
-    # under the job wall alongside a cold ~27min build; 75 matches toolchain-bootstrap.
+    # 冷构建（wasm-pack LTO + 全语料编译）约 27 分钟，加上分片的浏览器内运行。
     timeout-minutes: 75
     needs: toolchain-bootstrap   # `changes` 不在 needs：本 job 的 if: 只看 event_name，从不读 needs.changes.outputs.*
-    # Tier-2 (slow: browser/emulator/simulator) — nightly-only (16:00 UTC = 00:00
-    # UTC+8) + manual, NOT per-PR, to keep daily iteration fast (reduce-tier2-ci-cadence).
+    # Tier-2（浏览器 / 模拟器，慢）：只在 nightly 与手动触发时跑。
     if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
-    # tier2-shard-full-coverage: fan out the embedded corpus into N parallel shards
-    # so nightly runs the FULL runnable corpus (`test app desktop --shard k/N`, no cap)
-    # instead of the 60-case smoke sample. R1–R7 (`test app wasm`) is NOT
-    # per-corpus, so it runs only on shard 1 (gated below) to avoid N× redundancy;
-    # the embedded slice + its Playwright run happen on every shard. wasm = n=3:
-    # measured per-shard runtime is small (~5-7 min build-cached) with big wall
-    # headroom, and z42.compression is capability-excluded — 3 shards over the ~340
-    # runnable wasm cases keeps each well under the job wall without over-flooding
-    # the runner pool.
+    # 嵌入语料全量分 3 片（`--shard k/3`）；R1–R7 与语料无关，只在第 1 片跑。
     strategy:
       fail-fast: false
       matrix:
@@ -1425,13 +1074,9 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: '24'
-          # ci-perf-tier2: cache ~/.npm keyed on the tests lockfile.
           cache: npm
           cache-dependency-path: src/toolchain/workload/wasm/platform/tests/package-lock.json
-      # ci-perf-tier2: cache the Playwright browser binaries (Chromium ~150MB) keyed
-      # on the pinned playwright version in the lockfile — the Prime step's
-      # `npx playwright install` then skips the download on a hit (apt --with-deps
-      # OS libs still run, but they're fast/idempotent).
+      # 按 lockfile 里钉住的 playwright 版本缓存浏览器二进制（Chromium 约 150MB）。
       - name: Cache Playwright browsers
         uses: actions/cache@v6
         with:
@@ -1450,10 +1095,7 @@ jobs:
           cd artifacts/intermediate/toolchain/workload/wasm/host/tests
           npm install --no-audit --no-fund
           npx playwright install --with-deps chromium
-      # test-layout §6: the whole device pipeline is ONE command, same as local —
-      # provision the test agent into z42b's SDK home → R1–R7 (shard 1 only: it is
-      # corpus-independent) → this shard's embedded bundle → host build in the staged
-      # copy → Playwright in-browser run. `xtask test app` owns the step order.
+      # 整条设备流水线就是一条命令，与本地相同（test-layout §6）；步骤顺序归 `xtask test app`。
       - name: xtask test app wasm (shard ${{ matrix.shard }}/3)
         shell: bash
         run: |
@@ -1479,23 +1121,12 @@ jobs:
 
   test-ios:
     name: test-ios-sim(macos-arm64) shard ${{ matrix.shard }}
-    # ci-perf-tier2: 45→60. Same cold-build + simulator-boot pressure repeatedly
-    # cancelled this job before it could report.
+    # 冷构建 + 模拟器冷启动。
     timeout-minutes: 60
     needs: toolchain-bootstrap   # `changes` 不在 needs：本 job 的 if: 只看 event_name，从不读 needs.changes.outputs.*
-    # Tier-2 (slow: browser/emulator/simulator) — nightly-only (16:00 UTC = 00:00
-    # UTC+8) + manual, NOT per-PR, to keep daily iteration fast (reduce-tier2-ci-cadence).
+    # Tier-2（浏览器 / 模拟器，慢）：只在 nightly 与手动触发时跑。
     if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
-    # tier2-mobile-coverage: fan the embedded corpus into N shards for FULL
-    # coverage (`test app desktop --shard k/N`, no 60-cap), mirroring test-wasm.
-    # Mobile's runnable corpus (~465 cases; only net + process/console/env + OS
-    # identity lack a cap there — their `requires-caps` make BundleRunner skip them
-    # on-device without loading, ~0 cost) is much larger than
-    # wasm's, so the uncapped full corpus blew the 60min emulator/sim wall (why
-    # the 60-smoke cap existed). n=3 keeps each shard's ~155-case slice under the
-    # wall. Each shard boots its own simulator and runs its 1/N slice + R1–R7
-    # (R1–R7 is corpus-independent → redundant across shards, but cheap vs the
-    # boot+corpus; folding into the single Z42VM scheme run avoids a 2nd sim boot).
+    # 嵌入语料全量分 3 片，每片约 155 个用例，压在模拟器 60 分钟墙内；每片自己起模拟器，R1–R7 并进同一次运行。
     strategy:
       fail-fast: false
       matrix:
@@ -1511,10 +1142,7 @@ jobs:
         with:
           cache-key: tier2-ios
           rust-targets: aarch64-apple-ios,aarch64-apple-ios-sim,aarch64-apple-darwin
-      # test-layout §6: one command, same as local — provision the test agent → this
-      # shard's embedded slice + xcframework (into the staged host copy) → R1–R7
-      # fixtures → ONE `xcodebuild test` simulator run for both Z42VMTests (R1–R7)
-      # and Z42EmbeddedTests; z42b resolves the sim UDID and writes the JUnit below.
+      # 一条命令，与本地相同：这一片的嵌入语料 + R1–R7 走一次 `xcodebuild test`，z42b 解析模拟器并写 JUnit。
       - name: xtask test app ios (shard ${{ matrix.shard }}/3, one simulator run)
         shell: bash
         run: |
@@ -1538,27 +1166,17 @@ jobs:
 
   test-android:
     name: test-android-emu(linux-x64) shard ${{ matrix.shard }}
-    # ci-perf-tier2: 45→60. Cold NDK/cargo-ndk build + cold emulator boot headroom.
+    # 冷 NDK / cargo-ndk 构建 + 模拟器冷启动。
     timeout-minutes: 60
     needs: toolchain-bootstrap   # `changes` 不在 needs：本 job 的 if: 只看 event_name，从不读 needs.changes.outputs.*
-    # Tier-2 (slow: browser/emulator/simulator) — nightly-only (16:00 UTC = 00:00
-    # UTC+8) + manual, NOT per-PR, to keep daily iteration fast (reduce-tier2-ci-cadence).
+    # Tier-2（浏览器 / 模拟器，慢）：只在 nightly 与手动触发时跑。
     if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
-    # tier2-mobile-coverage: fan the embedded corpus into N shards for FULL
-    # coverage (`test app desktop --shard k/N`, no 60-cap), mirroring test-wasm/ios.
-    # The uncapped full corpus (~465 runnable) blew the 60min emulator wall (why
-    # the 60-smoke cap existed); n=3 keeps each ~155-case slice under it. Every
-    # shard boots its own emulator and runs its 1/N slice + R1–R7 (R1–R7 is
-    # corpus-independent → redundant across shards; folding into the single
-    # connectedAndroidTest run avoids a 2nd emulator boot).
+    # 嵌入语料全量分 3 片，每片压在模拟器墙内；每片自己起模拟器，R1–R7 并进同一次 connectedAndroidTest。
     strategy:
       fail-fast: false
       matrix:
         shard: [1, 2, 3]
-    # ubuntu-26.04, not ubuntu-latest: on the older host stack the API 37 emulator's
-    # surfaceflinger aborts ~1 min after boot (`Assertion failed:
-    # !rcEnc->featureInfo()->hasReadColorBufferDma`, issuetracker 557246813), which
-    # restarts system_server mid-install/mid-test (Broken pipe / ENOENT).
+    # ubuntu-26.04：旧宿主栈上 API 37 模拟器的 surfaceflinger 开机约 1 分钟后 abort（issuetracker 557246813）。
     runs-on: ubuntu-26.04
     permissions:
       actions: read     # setup-z42-sdk 回退（gh run download）
@@ -1590,16 +1208,7 @@ jobs:
         with:
           cache-key: tier2-android
           rust-targets: aarch64-linux-android,x86_64-linux-android
-      # No AVD snapshot cache (ci-perf-tier2 #4 had one): every boot is cold. It was
-      # dropped while chasing system_server restarts mid-test on API 37, which turned
-      # out to be the surfaceflinger renderer abort fixed by `runs-on: ubuntu-26.04`
-      # above — not the snapshot. Cold boot costs a few minutes per shard (nightly
-      # only); restoring the cache is a separate, optional speed-up.
-      # test-layout §6: the whole pipeline is ONE command, same as local — `xtask test app
-      # android` provisions the test agent, builds the .so + AAR into the staged host copy,
-      # stages this shard's embedded slice, and runs ONE connectedAndroidTest (R1–R7 +
-      # embedded). The action only supplies the emulator (KVM, image, cold boot); z42b sees
-      # it attached and reuses it (it boots an AVD itself only when none is attached).
+      # 冷启动、不缓存 AVD 快照（可选的后续提速）。一条命令跑完整条流水线；action 只提供模拟器，z42b 复用已连上的设备。
       - name: xtask test app android on emulator (shard ${{ matrix.shard }}/3)
         uses: reactivecircus/android-emulator-runner@v2
         env:
@@ -1614,8 +1223,7 @@ jobs:
           # The default userdata partition is too small for the androidTest APK with the
           # embedded corpus: `Requested internal only, but not enough space` on install.
           disk-size: 8G
-          # fix-android-embed-oom: -memory 4096 (default ~2GB was OOM'd by the embedded
-          # corpus). -no-snapshot: cold boot, never load or save a snapshot (see above).
+          # -memory 4096：默认约 2GB 跑嵌入语料会 OOM。-no-snapshot：冷启动，不读写快照。
           emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -memory 4096
           disable-animations: true
           # Must stay ONE line: the runner executes each `script:` line in a separate
@@ -1661,8 +1269,7 @@ jobs:
       checks: write
     steps:
       - uses: actions/checkout@v7
-      # consume the toolchain-ubuntu-latest artifact (z42c + stdlib + xtask)
-      # + cargo-build z42vm。rust toolchain + rust-cache 由该 action 自带。
+      # 吃 toolchain artifact + 本机 cargo 编 z42vm（rust toolchain + cache 由 action 自带）。
       - uses: ./.github/actions/xtask-bootstrap-artifact
       - name: test app desktop (Tier-1 C ABI R1–R7 + embedded corpus)
         shell: bash
@@ -1685,14 +1292,8 @@ jobs:
           path: artifacts/reports/tests/desktop/junit.xml
           if-no-files-found: warn
 
-  # ── 单一结论 job（ci-ok）──────────────────────────────────────────────────────
-  # 汇总本 workflow 的**所有** job：任何一个 failure / cancelled ⇒ 红；success / skipped ⇒ 绿。
-  # 用途：分支保护只需要求这一个 check。⚠️ 截至 2026-10-02 实际的保护设置**仍**逐个列着
-  # test-host ×4 + verify-features + compiler-checks（没有 ci-ok）—— 新增 / 改名 job 时容易漏
-  # （verify-selfhost 删掉后保护里还挂着它，曾让 PR 永远等不到这个 check；drop-feature-matrix
-  # 删 verify-features 时又撞上一次）。`if: always()`：上游失败时本 job 也要跑出「红」，而不是被 skip
-  # （被 skip 的 required check 视同通过 —— 那正是要避免的）。
-  # 新增 job 时把它加进下面的 needs（漏加只是少汇总一个，不会误红）。
+  # ── 单一结论 job：任一 job failure / cancelled ⇒ 红，success / skipped ⇒ 绿；分支保护只需要它一个。
+  # `if: always()`：上游失败时本 job 也要跑出红（被 skip 的 required check 视同通过）。新增 job 时加进 needs。
   ci-ok:
     name: ci-ok
     if: always()
