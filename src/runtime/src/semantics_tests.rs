@@ -5,6 +5,22 @@
 use super::*;
 use crate::metadata::Value;
 
+// ── integer div / rem ───────────────────────────────────────────────────────
+
+#[test]
+fn int_div_min_by_minus_one_wraps() {
+    assert_eq!(int_div(i64::MIN, -1), i64::MIN);
+    assert_eq!(int_rem(i64::MIN, -1), 0);
+}
+
+#[test]
+fn int_div_rem_truncate_toward_zero() {
+    assert_eq!(int_div(-7, 2), -3);
+    assert_eq!(int_rem(-7, 2), -1);
+    assert_eq!(int_div(7, -2), -3);
+    assert_eq!(int_rem(7, -2), 1);
+}
+
 // ── f64 → integer ───────────────────────────────────────────────────────────
 
 #[test]

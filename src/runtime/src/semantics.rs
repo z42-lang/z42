@@ -21,6 +21,7 @@
 //! |------|------|---------------------|
 //! | 整数 add/sub/mul 溢出 | wrapping（同 Rust release / C# unchecked / Java int） | `emit_i64_binop`：`iadd`/`isub`/`imul` |
 //! | 整数 div/rem 除零 | 抛 `Std.DivideByZeroException`（可 catch），非 panic / 非 Infinity | `emit_int_divrem`：冷路由 `b ∈ {0,-1}` 到 helper |
+//! | 整数 `MIN / -1`、`MIN % -1` | wrapping：商为 `MIN`、余数为 `0`（[`int_div`] / [`int_rem`]），不 panic、不 trap | `emit_int_divrem`：`b = -1` 同样冷路由到 helper |
 //! | float→int | 饱和 + NaN→0（Rust `as`）；`U64` 目标按 signed i64 饱和 | `emit_f64_to_int`：`fcvt_to_sint_sat` |
 //! | int→float | 全 f64 精度（F32 目标也走 f64，无 f32 舍入） | `emit_int_to_f64`：`fcvt_from_sint` |
 //! | 数值比较 | signed ordered；`Ne` 用 unordered `NotEqual`（`NaN != NaN → true`） | `emit_i64_cmp` / `emit_f64_cmp` |
@@ -136,7 +137,7 @@ pub fn eval_cmp(op: CmpOp, va: &Value, vb: &Value) -> Result<bool> {
     })
 }
 
-// ── 整数除零（三路共用决策；异常对象构造留调用点，因其需 VmContext/Module）──────────
+// ── 整数除法（三路共用决策；异常对象构造留调用点，因其需 VmContext/Module）──────────
 
 /// 整数除零判定：`divisor` 为 `I64(0)` 时为真 → 应抛 [`DIV_BY_ZERO_EXC`]。
 /// 浮点 / 混合 I64-F64 除零走 IEEE 754（Infinity / NaN），返回 `false` 由 `float_op` 处理。
@@ -148,6 +149,19 @@ pub fn is_int_div_by_zero(divisor: &Value) -> bool {
 /// 整数除零异常消息（三路共用文案）。`op` 为 `"/"` 或 `"%"`。
 pub fn div_by_zero_msg(op: &str) -> String {
     format!("integer {op} by zero")
+}
+
+/// 整数除法。调用方已排除除数为 0（见 [`is_int_div_by_zero`]）。
+/// `i64::MIN / -1` 按 wrapping 得 `i64::MIN`，与 add/sub/mul 的溢出规则一致。
+#[inline]
+pub fn int_div(x: i64, y: i64) -> i64 {
+    x.wrapping_div(y)
+}
+
+/// 整数取余。调用方已排除除数为 0。`i64::MIN % -1` 按 wrapping 得 `0`。
+#[inline]
+pub fn int_rem(x: i64, y: i64) -> i64 {
+    x.wrapping_rem(y)
 }
 
 // ── 数值转换（cast）───────────────────────────────────────────────────────────
