@@ -12,7 +12,7 @@
 // 不能改成一条静态的「禁止递归泛型」规则。
 //
 // 诊断报在**泛型的声明处**：拿工作表里最长的那一项（嵌套最深的就是在无限加深的那条链），取它的定义名。
-// 没有 `Diags` 的入口（`IrDump.DumpModule` 一类只要 IR 的测试路径）仍抛异常 —— 那里没有地方放诊断。
+// `Diags` 由两个 `Generate` 调用点（包构建 / `IrDump.BuildModuleDOpt`）注入；为 null 时退回抛异常（防御用）。
 namespace Z42.Semantics;
 
 using Z42.Syntax;

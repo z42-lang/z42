@@ -302,28 +302,12 @@ public static class IrDump {
         return IrDump.BuildModuleDOpt(src, file, deps, imported, IrDump.EmitZbcDefaultOpt());
     }
     public static CompiledModuleZ BuildModuleDOpt(string src, string file, DependencyIndex deps, ImportedSymbols imported, int optSet) {
-        var p = new Parser(src, file);
-        var cu = HandlerRegistry.RunAst(p.ParseCompilationUnit());   // attribute-handler-registry：AST-phase 单一入口
-        // add-partial-types：单文件路径（--emit-zbc / golden）也须走 file-threading 的 CollectAll（非
-        // CollectWithImports），否则同文件多 partial 碎片的 PartialMainFile 为 ""、SourceFile 为 null →
-        // 主碎片判定失败 → 合并 TYPE record 不发 → new T() 得 <unknown> 类型（无字段/方法）。
+        FrontEndResult fe = FrontEnd.Check(src, file, imported);   // 诊断收敛 B2：单文件前端的唯一口径
+        CompilationUnit cu = fe.Cu;
+        SymbolTable symbols = fe.Symbols;
+        DiagnosticBag diags = fe.Diags;
+        SemanticModel model = fe.Model;
         CompilationUnit[] one = new CompilationUnit[1]; one[0] = cu;
-        string[] oneFile = new string[1]; oneFile[0] = file;
-        var coll = new SymbolCollector();
-        var symbols = coll.CollectAll(one, oneFile, 1, imported);
-        var diags = new DiagnosticBag();
-        cu.MergeParseDiags(diags);   // fix-parse-diags-dropped：parse 错误计入编译错误
-        diags.MergeFrom(coll.Diags); // restore-emit-zbc-diagnostics：collector 相位诊断（形参/字段/返回
-                                     // 类型的类型引用校验等）此前在单文件路径整类丢失；包路径
-                                     // BuildPackageCus 本就并入，此处补齐对称。
-        // add-associated-types PR-1：单文件路径也必须跑约束 Resolve（包路径在 BuildPackageCus 里做，
-        // 包级 hoist、早于 per-file 并行段）。
-        // 🔴 resolve-method-where-at-decl：**这里此前有一次显式 `Resolve`，是重复的** ——
-        // `Infer(cu, symbols)` 的 `resolveConstraints` 默认就是 true，进去第一件事就是同一个
-        // `_constraints.Resolve(cu, view)`。于是单文件路径每条**声明级**约束诊断都报两遍
-        // （`where T : class + struct` 实测 2 条）。删掉这一次，改由 Infer 那次负责；
-        // 包并行路径传 false、由 BuildPackageCus 负责，两条路各有且只有一个 Resolve。
-        var model = new TypeChecker(diags).Infer(cu, symbols);
         var gen = new IrGen();
         gen.Deps = deps;
         gen.SourceStem = CuPreprocess._stem(cu);
@@ -427,10 +411,8 @@ public static class IrDump {
     // 公开：源→导出类型签名（TSIG；port-z42c-tsig）。独立 parse+collect（与 BuildModule 分离，
     // 形态简单；增量编译期再合并为单趟）。
     public static ExportedModuleZ ExtractExports(string src, string file, string ns) {
-        var p = new Parser(src, file);
-        var cu = p.ParseCompilationUnit();
-        var symbols = new SymbolCollector().Collect(cu);
-        return ExportedTypeExtractor.Extract(cu, symbols, ns);
+        FrontEndResult fe = FrontEnd.Collect(src, file);
+        return ExportedTypeExtractor.Extract(fe.Cu, fe.Symbols, ns);
     }
     private static IrModule _buildF(string src, string file) {
         // dump / codegen-golden 默认 optSet = Opt.All **减去 Inline**（add-compiler-inlining Phase 2）：
@@ -442,20 +424,9 @@ public static class IrDump {
         return IrDump._buildFOpt(src, file, Opt.All - Opt.Inline - Opt.StackAlloc - Opt.LoopAllocReuse - Opt.PureCall - Opt.DeadBranch - Opt.Devirt);
     }
     // 带显式 optSet 的 dump 构建（内联 / 独立性单测：传 Opt.All 开内联、传 Opt.Inline 单独验内联）。
+    // 只要 IR 的 dump / codegen 单测入口 = `BuildModuleDOpt` 的无依赖情形：前端（FrontEnd）与 IrGen 的
+    // 配置（主碎片 / partial 合并 / using 作用域……）与 `--emit-zbc` 完全同一份，dump 的就是会写出去的 IR。
     private static IrModule _buildFOpt(string src, string file, int optSet) {
-        var p = new Parser(src, file);
-        var cu = HandlerRegistry.RunAst(p.ParseCompilationUnit());   // attribute-handler-registry：AST-phase 单一入口
-        var symbols = new SymbolCollector().Collect(cu);
-        var diags = new DiagnosticBag();
-        cu.MergeParseDiags(diags);   // fix-parse-diags-dropped：parse 错误计入编译错误
-        // 约束 Resolve 由下面的 `Infer`（resolveConstraints 默认 true）负责，见上面同名说明：
-        // 此处原有的显式 `Resolve` 与之重复，会让声明级诊断报两遍（resolve-method-where-at-decl 删除）。
-        var model = new TypeChecker(diags).Infer(cu, symbols);
-        var gen = new IrGen();
-        gen.SourceStem = CuPreprocess._stem(cu);   // SA-3：__static_init__ 名前缀须用文件 stem（镜像 _compileCu / C# _cuStem），否则回落 "main" → 与 C# `<stem>.__static_init__` 字节不一致
-        CompilationUnit[] one = new CompilationUnit[1]; one[0] = cu;
-        gen.LocalClasses = CuPreprocess._pkgLocalClasses(one, 1);   // G18：反劫持守卫仅认本地类
-        gen.HasTypeErrors = diags.ErrorCount() > 0;   // S1：同上
-        return gen.Generate(cu, model, optSet);
+        return IrDump.BuildModuleDOpt(src, file, null, null, optSet).Module;
     }
 }

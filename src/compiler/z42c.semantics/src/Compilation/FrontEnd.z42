@@ -1,0 +1,55 @@
+// 单文件前端的唯一口径（诊断收敛 B2）：parse → AST 相位 handler（`HandlerRegistry.RunAst`）→
+// `SymbolCollector.CollectAll` → 诊断按相位合并（parse → 收集 → 类型检查）→ `TypeChecker.Infer`。
+//
+// 单文件入口此前各写一份前端，各缺一块：
+//   · `--dump-bound` / `SemanticDump`（大批单测取诊断的口径）与导出提取 `ExtractExports` 不跑 `RunAst`
+//     ⇒ attribute 工厂合成、`[Benchmark]` 脱糖都不发生，看到的 AST 与真实构建不同；
+//   · IR dump 单测入口 `_buildFOpt` 丢掉收集期诊断；
+//   · 只有 `--emit-zbc` / `--dump-ir`（`BuildModuleDOpt`）四步齐全。
+// 包构建（`IrDump.BuildPackageCus`）是多 CU + 并行类型检查的形状，另走一条，但步骤与相位序同此。
+namespace Z42.Semantics;
+
+using Z42.Syntax;
+using Z42.Core;
+
+public sealed class FrontEndResult {
+    public CompilationUnit Cu;
+    public SymbolTable Symbols;
+    public SemanticModel Model;      // `typecheck = false` 时为 null
+    public DiagnosticBag Diags;      // parse + 收集 (+ 类型检查) 的全部诊断，按相位序
+    public TypeChecker Tc;           // `UsedNs` 等类型检查副产物；`typecheck = false` 时为 null
+    public FrontEndResult(CompilationUnit cu, SymbolTable symbols, SemanticModel model, DiagnosticBag diags, TypeChecker tc) {
+        this.Cu = cu; this.Symbols = symbols; this.Model = model; this.Diags = diags; this.Tc = tc;
+    }
+}
+
+public static class FrontEnd {
+
+    public static FrontEndResult Check(string src, string file, ImportedSymbols imported) {
+        return FrontEnd._run(src, file, imported, true);
+    }
+
+    // 只到符号表（导出提取用：TSIG 只看声明，不需要体）。
+    public static FrontEndResult Collect(string src, string file) {
+        return FrontEnd._run(src, file, null, false);
+    }
+
+    private static FrontEndResult _run(string src, string file, ImportedSymbols imported, bool typecheck) {
+        var p = new Parser(src, file);
+        CompilationUnit cu = HandlerRegistry.RunAst(p.ParseCompilationUnit());
+        // 带真实文件名走 CollectAll：同文件多 partial 碎片的主碎片判定要它（`PartialMainFile`）。
+        CompilationUnit[] one = new CompilationUnit[1]; one[0] = cu;
+        string[] oneFile = new string[1]; oneFile[0] = file;
+        var coll = new SymbolCollector();
+        SymbolTable symbols = coll.CollectAll(one, oneFile, 1, imported);
+        var diags = new DiagnosticBag();
+        cu.MergeParseDiags(diags);
+        diags.MergeFrom(coll.Diags);
+        if (!typecheck) { return new FrontEndResult(cu, symbols, null, diags, null); }
+        // `Infer` 的 `resolveConstraints` 默认 true：单文件路径的约束 Resolve 由它负责（包路径在
+        // BuildPackageCus 里 hoist 一次、传 false）。不要在这里再显式 Resolve —— 声明级约束诊断会报两遍。
+        var tc = new TypeChecker(diags);
+        SemanticModel model = tc.Infer(cu, symbols);
+        return new FrontEndResult(cu, symbols, model, diags, tc);
+    }
+}
