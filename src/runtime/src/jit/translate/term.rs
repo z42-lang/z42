@@ -4,6 +4,7 @@
 
 use super::*;
 use super::ctx::TxCtx;
+use crate::jit::helpers::value::JIT_GET_BOOL_ERR;
 
 impl<'a, 'b> TxCtx<'a, 'b> {
     pub(super) fn tr_terminator(&mut self, term: &Terminator, block_instr_count: usize) -> Result<()> {
@@ -75,6 +76,11 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                     let cv   = self.ri(*cond);
                     let inst = self.builder.ins().call(self.hr_get_bool, &[self.frame_val, self.ctx_val, cv]);
                     let b    = self.builder.inst_results(inst)[0];
+                    // `jit_get_bool` returns 255 for a non-Bool condition, with the
+                    // exception already set. Propagate it rather than letting the
+                    // non-zero byte take the true branch.
+                    let is_err = self.builder.ins().icmp_imm(IntCC::Equal, b, JIT_GET_BOOL_ERR as i64);
+                    self.check(is_err);
                     self.builder.ins().brif(b, self.cl_blocks[true_idx], &[], self.cl_blocks[false_idx], &[]);
                 }
             }
@@ -102,3 +108,7 @@ impl<'a, 'b> TxCtx<'a, 'b> {
         Ok(())
     }
 }
+
+#[cfg(test)]
+#[path = "term_tests.rs"]
+mod term_tests;

@@ -184,6 +184,10 @@ pub unsafe extern "C" fn jit_to_str(
 
 // ── Branch / return glue ─────────────────────────────────────────────────────
 
+/// `jit_get_bool`'s return value for a non-Bool condition (exception set).
+/// The BrCond translation tests for it before branching.
+pub(crate) const JIT_GET_BOOL_ERR: u8 = 255;
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_get_bool(
     frame: *mut JitFrame, ctx: *const JitModuleCtx,
@@ -193,7 +197,7 @@ pub unsafe extern "C" fn jit_get_bool(
         Value::Bool(b) => if *b { 1 } else { 0 },
         other => {
             set_exception(vm_ctx_ref(ctx), Value::Str(format!("BrCond: expected bool, got {:?}", other).into()));
-            255
+            JIT_GET_BOOL_ERR
         }
     }
 }
