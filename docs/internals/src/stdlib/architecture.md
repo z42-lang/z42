@@ -185,8 +185,7 @@ VM 找 stdlib zpkg 的顺序（`src/runtime/src/startup.rs::resolve_libs_dir`）
 
 1. `libs` 旋钮（`Z42_LIBS` / `--set libs=` / `[runtime].libs`）
 2. `<binary-dir>/../libs/`（packages 布局）
-3. `<cwd>/artifacts/build/libraries/dist/{release,debug}/`（`xtask build stdlib` 的扁平产出）
-4. `<cwd>/artifacts/z42/libs/`
+3. `<cwd>/artifacts/intermediate/libraries/flat/{release,debug}/`（`xtask build stdlib` 的扁平视图）
 
 每个目录都是**扁平视图**：`<包名>.zpkg`（或 `.zbc`）平铺，无 namespace 索引——VM 与嵌入宿主读每个
 zpkg 的 `NSPC` 段自行建映射。

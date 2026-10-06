@@ -945,7 +945,7 @@ artifacts/build/libraries/<lib>/<profile>/
 | `./xtask test stdlib [lib]`  | `<lib>/<profile>/tests/{cache/<unit>,dist}/` | `[dependencies]` + `[tests.dependencies]` |
 | `./xtask bench stdlib [lib]` | `<lib>/<profile>/bench/{cache/<unit>,dist}/` | `[dependencies]` + `[benches.dependencies]` |
 | `./xtask test toolchain builder <name>` / `bench targets <name>` / `example <name>` | 同上（具名单目标）| 三层合并 |
-| `./xtask clean`              | 删每个 `<lib>/<profile>/{cache,dist}` + 聚合 `libraries/dist/`（**保留** tests/bench） | — |
+| `./xtask clean`              | 删每个 `<lib>/<profile>/{cache,dist}` + 扁平视图 `intermediate/libraries/flat/`（**保留** tests/bench） | — |
 | `./xtask clean tests`        | 删每个 `<lib>/<profile>/tests/` | — |
 | `./xtask clean bench`        | 删每个 `<lib>/<profile>/bench/` | — |
 | `./xtask clean all`          | 删整个 `artifacts/build/`（全量重置） | — |

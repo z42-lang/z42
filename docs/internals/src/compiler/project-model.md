@@ -136,8 +136,9 @@ path 依赖与名字依赖的关键差异：名字依赖假定其 zpkg **已在*
 `libs/`**，而在**编译器目录**：SDK 的 `programs/z42c/`（z42c.driver 的自包含闭包）。
 
 编译器目录由 `CompilerDomain.Dirs()`（`z42c.pipeline/src/BuildSession.z42`）按序探测，存在者都收：① `Z42_COMPILER_LIBS`；
-② `Z42_HOME/programs/z42c/`；③ 由 `Z42_PORTABLE_VM` 反推 SDK 根 → `programs/z42c/`；④ 开发树——自 `Z42_LIBS` 上溯到
-`artifacts/build/` → `compiler/z42c.driver/release/dist/`（与 `programs/z42c/` 同形）。
+② `Z42_HOME/programs/z42c/`；③ 由 `Z42_PORTABLE_VM` 反推 SDK 根 → `programs/z42c/`；④ 开发树——自 `Z42_LIBS` 逐级上溯
+（至多 4 级），第一个含 `build/compiler/z42c.driver/release/dist/` 的祖先命中（与 `programs/z42c/` 同形）。不按固定层数：
+stdlib flat 在 `artifacts/` 下的深度属于 xtask 的布局，挪位置时编译器不必跟着改。
 
 **可见性规则**（实现在 `z42c.pipeline/src/SdkLibs.z42`，driver 与 BuildSession 共用）：
 

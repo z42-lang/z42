@@ -83,10 +83,10 @@ public class ProjectHooks : BuildHooks {
         } else {
             ctx.Warn("xtask hooks: embed apphost (static) cc failed (rc=" + r2.ExitCode.ToString() + ")");
         }
-        // embed-libs = **只有 stdlib** 的 flat（`xtask layout build/libraries/dist/release`）。此前指向 alllibs（stdlib + 全部编译器包）：
+        // embed-libs = **只有 stdlib** 的 flat（`xtask layout intermediate/libraries/flat/release`）。此前指向 alllibs（stdlib + 全部编译器包）：
         // ① self-contained app 会把整套 z42c 一起嵌进去；② alllibs 只在测试时才拼，平时多半不存在 ⇒
         // publish 报「stdlib libs dir not available」。flat 在任何 build 之后都在，且只有 stdlib。
-        string flat = Path.Join(repo, "artifacts/build/libraries/dist/release");
+        string flat = Path.Join(repo, "artifacts/intermediate/libraries/flat/release");
         if (ctx.Exists(flat)) { ctx.AddOutput("embed-libs", flat); }
 
         // dynamic bonus: only if libz42.dylib exists. It does whenever libz42.a was built by the

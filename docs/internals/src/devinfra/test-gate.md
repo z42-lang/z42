@@ -253,7 +253,7 @@ walker 文件里找 `is <类名>`；全集里既不被匹配、又不在该 walk
 
 > ⚠️ **判据为什么是「挂账天数」而不是「去种子里查这个常量在不在」**：后者更精确，但**在 CI 里拿不到
 > 种子**。`xtask check diagcodes` 跑的时候 `Z42_LIBS` 指的是**自建** stdlib
-> （`artifacts/build/libraries/dist/release`，里面的 `z42c.core` 含全部常量 ⇒ 每条欠账都判红，假红
+> （`artifacts/intermediate/libraries/flat/release`，里面的 `z42c.core` 含全部常量 ⇒ 每条欠账都判红，假红
 > 挡人）；而 `Z42_HOME` 在整个 `test-host` job 里**一次都没设**，nightly 种子解在 ci-bootstrap 自己的
 > `$(mktemp -d)/sdkpkg` 里、test 步骤看不见 ⇒ 只认种子就是**恒跳过的假门**。两条路都不成立。
 >

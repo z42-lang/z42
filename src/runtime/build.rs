@@ -101,7 +101,7 @@ fn main() {
         // entry-zpkg dir + libs search). Both produced by `xtask build stdlib`.
         let driver = root
             .join("artifacts/build/compiler/z42c.driver/release/dist/z42c.driver.zpkg");
-        let home = root.join("artifacts/build/libraries/dist/release");
+        let home = root.join("artifacts/intermediate/libraries/flat/release");
         let vm = find_z42vm(root);
         let ready = driver.is_file() && vm.as_ref().is_some_and(|v| v.is_file());
         println!("cargo:rerun-if-changed={}", driver.display());

@@ -76,9 +76,9 @@ xtask 是独立的 z42 应用——它不是通用 `z42` launcher 的一部分�
 |------|---------|---------|---------|
 | `deps install` | **首次 clone / 平台版本变动** | `versions.toml` | rust targets + cargo-ndk + wasm-pack；按平台装 NDK / 构建 SDK |
 | `deps check` | 改 `versions.toml` 后对账 | `versions.toml` + 投影文件 | versions.toml ↔ Cargo.toml / build.gradle.kts / Package.swift 一致性 |
-| `build stdlib` | 改了 stdlib `.z42` 源 | warm z42c 种子 | `artifacts/build/libraries/dist/release/<lib>.zpkg`（扁平视图，无 namespace 索引） |
+| `build stdlib` | 改了 stdlib `.z42` 源 | warm z42c 种子 | `artifacts/intermediate/libraries/flat/release/<lib>.zpkg`（扁平视图，无 namespace 索引） |
 | `build compiler` | 改了 z42c 编译器源 | warm z42c 种子 | `artifacts/build/compiler/<member>/release/dist/*.zpkg`（编译器域全部成员，见 `src/compiler/z42.workspace.toml`） |
-| `build workload` | 改了 `src/toolchain/workload` 源 | z42c/stdlib（缺则自建） | 4 个 workload lib → `artifacts/build/libraries/dist/release/z42.workload.*.zpkg`（launcher 依赖） |
+| `build workload` | 改了 `src/toolchain/workload` 源 | z42c/stdlib（缺则自建） | 4 个 workload lib → `artifacts/intermediate/libraries/flat/release/z42.workload.*.zpkg`（launcher 依赖） |
 | `build toolchain` | 改了 launcher/z42b/z42d/z42i 源 | 同上 + 自动 `build workload` | 4 个 apphost `publish <toml>` → **各 toml 的 `[platform.desktop].publish_dir`**（路径从 toml 读，不硬编码） |
 | `build runtime` / `build all` | 改了 Rust VM / 一次构建 runtime + compiler + stdlib | `cargo` | `z42vm` + libz42；`all` 另含 compiler、stdlib |
 | `build test` | 改了 golden 测试源 | z42c/stdlib（缺则自建） | `src/tests/**` → `.zbc` 镜像到 `artifacts/build/tests/`（golden 编译，不重建工具链） |
@@ -144,7 +144,7 @@ build stdlib ──► _buildStdlib
   ③ 快照 stdlib → .stdlib-run (只 stdlib；driver 运行期 Std.* 需稳定副本)   _copyAll(flatDir, .stdlib-run)
   ④ 直跑自包含 z42c.driver build --workspace --release    CWD=src/libraries, interp, Z42_LIBS=.stdlib-run
        └ per-member dist 覆盖 canonical 布局
-  ⑤ verify 产物 + flat view (hard-link)    _assembleStdlibFlatView → libraries/dist/release
+  ⑤ verify 产物 + flat view (hard-link)    _assembleStdlibFlatView → intermediate/libraries/flat/release
 ```
 
 ### `build test`（`build/xtask_golden_assets.z42 :: _buildTest → _regenGolden`）

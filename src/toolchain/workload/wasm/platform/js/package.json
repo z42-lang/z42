@@ -29,5 +29,5 @@
   },
   "license": "TBD",
   "private": true,
-  "_comment": "Built artifacts in pkg-web/ and pkg-nodejs/ are produced by build.sh via wasm-pack. stdlib/*.zpkg is copied in from artifacts/z42/libs/."
+  "_comment": "Built artifacts in pkg-web/ and pkg-nodejs/ are produced by build.sh via wasm-pack. stdlib/*.zpkg is copied in from the stdlib flat view (artifacts/intermediate/libraries/flat/release/)."
 }

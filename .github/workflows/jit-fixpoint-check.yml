@@ -56,7 +56,7 @@ jobs:
           set -euo pipefail
           vm="$PWD/artifacts/build/runtime/release/z42vm"; [ -f "$vm.exe" ] && vm="$vm.exe"
           driver="$PWD/artifacts/build/compiler/z42c.driver/release/dist/z42c.driver.zpkg"
-          libs="$PWD/artifacts/build/libraries/dist/release"
+          libs="$PWD/artifacts/intermediate/libraries/flat/release"
           # converge-z42-syntax-lib：z42c.core + z42c.syntax（可移植前端）已挪进 src/libraries/，
           # 由 stdlib workspace 构建（不再是 src/compiler 的 member）。故本 workspace self-build
           # 只比 optimization/semantics/pipeline/driver 四个后端包；前端 lexer/parser 的 jit 安全性归 stdlib jit 覆盖
