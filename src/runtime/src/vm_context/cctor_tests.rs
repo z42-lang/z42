@@ -180,3 +180,54 @@ fn static_barrier_caches_the_owner_answer_per_field_id() {
     assert!(matches!(cache.get(3), Some(Some(None))), "owner without a cctor is cached as exempt");
     assert!(matches!(cache.get(2), Some(None)), "other ids stay unknown");
 }
+
+/// 他线程在跑 cctor 时，`claim_with` 阻塞到 `finish`，被唤醒而不是轮询；每轮等待前都调了 `park`。
+#[test]
+fn waiting_claim_parks_and_wakes_on_finish() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let r = Arc::new(CctorRegistry::default());
+    r.register("A.C", "A.C.$cctor");
+    assert!(r.claim("A.C").unwrap().is_some(), "本线程认领");
+
+    let parks = Arc::new(AtomicUsize::new(0));
+    let waiter = {
+        let (r, parks) = (Arc::clone(&r), Arc::clone(&parks));
+        std::thread::spawn(move || r.claim_with("A.C", || { parks.fetch_add(1, Ordering::SeqCst); }))
+    };
+    let start = std::time::Instant::now();
+    while parks.load(Ordering::SeqCst) == 0 {
+        assert!(start.elapsed() < std::time::Duration::from_secs(5), "等待者没进入等待");
+        std::thread::yield_now();
+    }
+    r.finish("A.C", None);
+    assert_eq!(waiter.join().unwrap(), Ok(None), "终态 Done ⇒ 等待者无事可做");
+    assert!(start.elapsed() < std::time::Duration::from_secs(5), "finish 必须唤醒等待者");
+}
+
+/// 一个线程等着另一个线程跑 cctor 时，GC 暂停请求不必等它：等待期间它算作已 park。
+#[test]
+fn gc_pause_does_not_wait_for_a_thread_waiting_on_a_cctor() {
+    use std::sync::atomic::Ordering;
+    use crate::vm_context::VmContext;
+    let collector = VmContext::new();
+    let core = collector.core_arc();
+    core.cctors.register("A.C", "A.C.$cctor");
+    assert!(core.cctors.claim("A.C").unwrap().is_some(), "收集者线程正在跑 A.C 的 cctor");
+
+    let waiter = {
+        let core = Arc::clone(&core);
+        std::thread::spawn(move || {
+            let w = VmContext::new_with_core(Arc::clone(&core));
+            core.cctors.claim_with("A.C", || crate::gc::safepoint::NativeParkGuard::enter(&w))
+        })
+    };
+    let start = std::time::Instant::now();
+    while collector.core.parked_count.load(Ordering::Acquire) < 1 {
+        assert!(start.elapsed() < std::time::Duration::from_secs(5), "等待者没有 park");
+        std::thread::yield_now();
+    }
+    let pause = crate::gc::safepoint::request_gc_pause(&collector).expect("uncontended");
+    drop(pause);
+    collector.core.cctors.finish("A.C", None);
+    assert_eq!(waiter.join().unwrap(), Ok(None));
+}

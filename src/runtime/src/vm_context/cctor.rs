@@ -155,6 +155,8 @@ struct ModuleInitEntry {
 pub struct CctorRegistry {
     /// 类 FQ → 登记项。
     map: Mutex<FxHashMap<String, CctorEntry>>,
+    /// 与 `map` 配对：`finish` 把某个类型推到终态时唤醒在 `claim` 里等它的线程。
+    done_cv: std::sync::Condvar,
     /// 还没到达终态（Done / Failed）的类型数。**热路径唯一要读的东西**。
     ///
     /// 只在 `== 0` 方向被信任（「可证无事可做」）；非 0 时一律走慢路复核，
@@ -192,6 +194,7 @@ impl Default for CctorRegistry {
     fn default() -> Self {
         Self {
             map: Mutex::default(),
+            done_cv: std::sync::Condvar::new(),
             pending: AtomicUsize::new(0),
             generation: AtomicU32::new(1),
             module_inits: Mutex::default(),
@@ -383,7 +386,21 @@ impl CctorRegistry {
     /// 3. **有界等待**：超时后返回 `Err` 而不是继续放行。跨线程的循环类型初始化
     ///    （T1 初始化 A 要 B、T2 初始化 B 要 A）在 C# 里同样会死锁；这里把它变成一条
     ///    **会响的错误**而不是挂死，也不是静默读到半成品——两害相权取其轻。
+    ///
+    /// 等待不 park：只给不涉及 GC 的调用方（单元测试）用。VM 里一律走 [`Self::claim_with`]。
     pub fn claim(&self, class_fq: &str) -> Result<Option<String>, String> {
+        self.claim_with(class_fq, || ())
+    }
+
+    /// 同 [`Self::claim`]，但每次阻塞等待前先调 `park`，持有它的返回值直到这一轮等待结束。
+    ///
+    /// VM 传入 `NativeParkGuard::enter`：等待期间本线程算作已 park，GC 握手不必等它。
+    /// 否则跑 cctor 的那个线程一旦触发 GC，GC 就要等这个既不 park、也不过 safepoint 的
+    /// 等待者，直到它满 30 s 超时、报出一条伪造的「循环初始化」错误。
+    ///
+    /// 等待用 `done_cv`（`finish` 时唤醒），不轮询。park 守卫在释放 `map` 锁之后才 drop：
+    /// 它的 drop 可能要等一个进行中的 STW 结束，不能持着锁等。
+    pub fn claim_with<G>(&self, class_fq: &str, park: impl Fn() -> G) -> Result<Option<String>, String> {
         let me = std::thread::current().id();
         // 截止时间**到真要等待时才取时钟**（fix-device-tests，2026-10-02）：此前在入口就
         // `Instant::now()`，每次认领都读一次时钟——而 `wasm32-unknown-unknown` 上它直接 panic
@@ -391,25 +408,22 @@ impl CctorRegistry {
         // 类型初始化器的类型就崩，nightly 的 test-wasm-browser 自那天起全红。只有「他线程
         // 正在跑」才需要等待，而单线程的 wasm 永远走不到那一支。
         let mut deadline: Option<std::time::Instant> = None;
-        let mut spins: u32 = 0;
         loop {
-            // 判定与认领在同一把锁里完成；**出作用域即释放**，等待绝不持锁。
-            {
-                let mut m = self.map.lock().unwrap_or_else(|e| e.into_inner());
-                match m.get_mut(class_fq) {
-                    None => return Ok(None),
-                    Some(e) => match &e.state {
-                        CctorState::Done => return Ok(None),
-                        CctorState::Failed(msg) => return Err(msg.clone()),
-                        CctorState::Running(tid) if *tid == me => return Ok(None),
-                        CctorState::Running(_) => {}   // 他线程在跑 → 落到下面等待
-                        CctorState::NotRun => {
-                            let f = e.func.clone();
-                            e.state = CctorState::Running(me);
-                            return Ok(Some(f));
-                        }
-                    },
-                }
+            // 判定与认领在同一把锁里完成；等待时由 `done_cv` 释放这把锁。
+            let mut m = self.map.lock().unwrap_or_else(|e| e.into_inner());
+            match m.get_mut(class_fq) {
+                None => return Ok(None),
+                Some(e) => match &e.state {
+                    CctorState::Done => return Ok(None),
+                    CctorState::Failed(msg) => return Err(msg.clone()),
+                    CctorState::Running(tid) if *tid == me => return Ok(None),
+                    CctorState::Running(_) => {}   // 他线程在跑 → 落到下面等待
+                    CctorState::NotRun => {
+                        let f = e.func.clone();
+                        e.state = CctorState::Running(me);
+                        return Ok(Some(f));
+                    }
+                },
             }
             let now = std::time::Instant::now();
             let deadline = *deadline.get_or_insert(now + WAIT_TIMEOUT);
@@ -419,13 +433,12 @@ impl CctorRegistry {
                      another thread (possible circular type initialization across threads)"
                 ));
             }
-            // 前若干轮纯 yield（初始化器通常很短），之后退避到 sleep 免得空转烧 CPU。
-            spins = spins.saturating_add(1);
-            if spins < 64 {
-                std::thread::yield_now();
-            } else {
-                std::thread::sleep(std::time::Duration::from_micros(200));
-            }
+            let parked = park();
+            let (m, _) = self.done_cv
+                .wait_timeout(m, deadline - now)
+                .unwrap_or_else(|e| e.into_inner());
+            drop(m);
+            drop(parked);
         }
     }
 
@@ -451,6 +464,8 @@ impl CctorRegistry {
                 self.pending.fetch_sub(1, Ordering::Release);
             }
         }
+        drop(m);
+        self.done_cv.notify_all();
     }
 
     /// 该类型是否已进入终态（测试用）。
@@ -676,7 +691,9 @@ impl crate::vm_context::VmContext {
         let class_fq = td.name.clone();
         self.core.cctors.register(&class_fq, func);
 
-        let claimed = match self.core.cctors.claim(&class_fq) {
+        let claimed = match self.core.cctors
+            .claim_with(&class_fq, || crate::gc::safepoint::NativeParkGuard::enter(self))
+        {
             Ok(None) => return Ok(()),           // 已完成 / 本线程重入 / 他线程在跑
             Ok(Some(f)) => f,
             // C# 语义：cctor 抛过异常的类型此后不可用，**每次**访问都失败且不重试。

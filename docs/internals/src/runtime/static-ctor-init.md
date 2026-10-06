@@ -93,6 +93,16 @@ stateDiagram-v2
     Failed --> Failed: 后续访问一律抛 TypeInitializationException
 ```
 
+**他线程正在跑（`Running(别的线程)`）时，本线程阻塞到终态**，与 C# 一致：每个类型恰好初始化一次，
+其他线程看到的一定是初始化完成后的状态。实现要点（`CctorRegistry::claim_with`）：
+
+- 等在与 `map` 配对的 Condvar 上，`finish` 推到终态时唤醒；不轮询。
+- 等待期间持有 `NativeParkGuard`，本线程算作已 park。否则跑 cctor 的线程一旦触发 GC，GC 握手就要等
+  这个既不 park、也不过 safepoint 的等待者。park 守卫在释放 `map` 锁之后才 drop：它的 drop 可能要等
+  进行中的 STW 结束，不能持着锁等。
+- 有界等待（30 s）：跨线程的循环类型初始化（T1 初始化 A 要 B、T2 初始化 B 要 A）在 C# 里会死锁，这里
+  变成一条报错，而不是挂死或静默读到半成品。
+
 ## 触发点与共用实现
 
 | 触发 | interp | JIT |
@@ -337,9 +347,3 @@ C# 不会这样：它只在 `Main` 体**直接**引用依赖模块的类型时�
 
 > 新增启动步骤时，加进 `boot.rs`，两条路径自动都有；别再只改 `app::run`。
 > 回归测试：`host::host_tests::invoke_sees_initialized_static_fields`（stdlib 包与用户模块各一个带初始化器的静态字段）。
-
-## 已知差距
-
-跨线程等待未实现：他线程正在跑某类型的 cctor 时，本线程直接放行而非阻塞，可能看到部分
-初始化状态。C# 保证阻塞到完成。不做的原因是在持有解释器帧时阻塞极易与既有静态初始化排空
-逻辑（`DRAINING` / `init_batch_inflight` 那套）互相死锁。
