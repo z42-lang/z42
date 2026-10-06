@@ -1,0 +1,27 @@
+// An exception whose base class lives in a lazily loaded package (here
+// `Std.EndOfStreamException`, from z42.io) is still recognised as an
+// Exception: its `StackTrace` is populated at the throw site.
+namespace Demo;
+
+using Std.IO;
+
+class DrainedError : EndOfStreamException {
+    public DrainedError(string message) : base(message) { }
+}
+
+void Main() {
+    string captured = "";
+    try {
+        Thrower();
+    } catch (Exception e) {
+        captured = e.StackTrace;
+        Assert.Equal("drained", e.Message);
+    }
+    Assert.NotNull(captured);
+    Assert.True(captured.Contains("Demo.Thrower"));
+    Assert.True(captured.Contains("Demo.Main"));
+}
+
+void Thrower() {
+    throw new DrainedError("drained");
+}

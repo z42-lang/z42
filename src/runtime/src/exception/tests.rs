@@ -156,8 +156,8 @@ mod make_stdlib_exception_tests {
 
         // Helper paths (read_message / read_stack_trace) drive the assertion
         // so the test exercises the same surface a real throw site would.
-        assert_eq!(read_message(&val, &module).as_deref(), Some("boom"));
-        assert!(read_stack_trace(&val, &module).is_none(),
+        assert_eq!(read_message(&val, &ctx, &module).as_deref(), Some("boom"));
+        assert!(read_stack_trace(&val, &ctx, &module).is_none(),
             "StackTrace must stay null until populate_stack_trace runs at throw site");
 
         // populate_stack_trace fills the field given the current (empty) call
@@ -165,7 +165,7 @@ mod make_stdlib_exception_tests {
         // important: the field becomes a non-null Str so re-throws don't
         // overwrite it.
         populate_stack_trace(&val, &ctx, &module);
-        let trace = read_stack_trace(&val, &module);
+        let trace = read_stack_trace(&val, &ctx, &module);
         assert!(trace.is_some() || matches!(&val, Value::Object(rc)
             if matches!(rc.borrow().field_value(1), Value::Str(_))),
             "StackTrace populated as Value::Str (even if empty for an empty call stack)");

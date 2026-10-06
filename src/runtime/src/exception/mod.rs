@@ -228,20 +228,12 @@ pub fn format_stack_trace(frames: &[FrameSnapshot]) -> String {
     out.trim_end().to_string()
 }
 
-/// Walk the runtime base-class chain and decide whether `desc` is
-/// `Std.Exception` or a subclass thereof. Used to gate StackTrace
-/// population — only Exception-derived classes have the field.
-pub fn is_exception_subclass(desc: &TypeDesc, module: &Module) -> bool {
-    if desc.name == "Std.Exception" { return true; }
-    let mut cur = desc.base_name.as_deref();
-    while let Some(name) = cur {
-        if name == "Std.Exception" { return true; }
-        match module.type_registry.get(name) {
-            Some(parent) => cur = parent.base_name.as_deref(),
-            None => return false,
-        }
-    }
-    false
+/// Decide whether `desc` is `Std.Exception` or a subclass thereof. Used to
+/// gate StackTrace / Message access — only Exception-derived classes have
+/// the fields. Goes through the shared type test (`isa_td`), so a base class
+/// that lives in a lazily loaded package is found too.
+pub fn is_exception_subclass(desc: &TypeDesc, ctx: &VmContext, module: &Module) -> bool {
+    crate::interp::dispatch::isa_td(ctx, &module.type_registry, desc, "Std.Exception")
 }
 
 /// Populate `value.StackTrace` with a snapshot of the current call stack
@@ -260,7 +252,7 @@ pub fn populate_stack_trace(value: &Value, ctx: &VmContext, module: &Module) {
     // Step 1: read-only borrow to check shape + decide whether to populate.
     let (is_exc, slot_opt, is_null) = {
         let borrowed = rc.borrow();
-        let is_exc = is_exception_subclass(&borrowed.type_desc, module);
+        let is_exc = is_exception_subclass(&borrowed.type_desc, ctx, module);
         let slot   = borrowed.type_desc.field_index.get("StackTrace").copied();
         let is_null = match (is_exc, slot) {
             (true, Some(s)) => matches!(borrowed.field_value(s), Value::Null),
@@ -284,13 +276,13 @@ pub fn populate_stack_trace(value: &Value, ctx: &VmContext, module: &Module) {
 
 /// Read `Std.Exception.StackTrace` from a thrown value, if present and non-null.
 /// Used by uncaught-exception output formatting.
-pub fn read_stack_trace(value: &Value, module: &Module) -> Option<String> {
+pub fn read_stack_trace(value: &Value, ctx: &VmContext, module: &Module) -> Option<String> {
     let rc = match value {
         Value::Object(rc) => rc,
         _ => return None,
     };
     let borrowed = rc.borrow();
-    if !is_exception_subclass(&borrowed.type_desc, module) { return None; }
+    if !is_exception_subclass(&borrowed.type_desc, ctx, module) { return None; }
     let slot = borrowed.type_desc.field_index.get("StackTrace").copied()?;
     match borrowed.field_value(slot) {
         Value::Str(s) if !s.is_empty() => Some(s.to_string()),
@@ -305,8 +297,8 @@ pub fn read_stack_trace(value: &Value, module: &Module) -> Option<String> {
 /// Used by [`crate::interp::run`] / [`crate::interp::run_returning`] /
 /// [`crate::interp::run_with_static_init`] in their `Thrown` arm so all
 /// three entry points produce consistent uncaught output.
-pub fn format_uncaught(value: &Value, module: &Module) -> String {
-    let header = match read_message(value, module) {
+pub fn format_uncaught(value: &Value, ctx: &VmContext, module: &Module) -> String {
+    let header = match read_message(value, ctx, module) {
         // Prefix with the FQ type name: "<FQ_TYPE>: <msg>". Tooling
         // (the test-runner's `[ShouldThrow<E>]` matcher) extracts the
         // thrown type from this line — without the type prefix it would
@@ -321,7 +313,7 @@ pub fn format_uncaught(value: &Value, module: &Module) -> String {
         },
         None      => format!("uncaught exception: {}", crate::corelib::convert::value_to_str(value)),
     };
-    match read_stack_trace(value, module) {
+    match read_stack_trace(value, ctx, module) {
         Some(trace) => format!("{header}\n{trace}"),
         None        => header,
     }
@@ -329,13 +321,13 @@ pub fn format_uncaught(value: &Value, module: &Module) -> String {
 
 /// Read `Std.Exception.Message` from a thrown value, falling back to a
 /// generic representation if the value isn't an Exception subclass.
-pub fn read_message(value: &Value, module: &Module) -> Option<String> {
+pub fn read_message(value: &Value, ctx: &VmContext, module: &Module) -> Option<String> {
     let rc = match value {
         Value::Object(rc) => rc,
         _ => return None,
     };
     let borrowed = rc.borrow();
-    if !is_exception_subclass(&borrowed.type_desc, module) { return None; }
+    if !is_exception_subclass(&borrowed.type_desc, ctx, module) { return None; }
     let slot = borrowed.type_desc.field_index.get("Message").copied()?;
     match borrowed.field_value(slot) {
         Value::Str(s) => Some(s.to_string()),

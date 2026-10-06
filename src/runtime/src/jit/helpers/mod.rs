@@ -82,7 +82,7 @@ pub(super) fn take_exception(ctx: &VmContext) -> Option<Value> {
 pub fn take_exception_error(ctx: &VmContext, module: &crate::metadata::Module) -> anyhow::Error {
     let msg = take_exception(ctx)
         .as_ref()
-        .map(|v| crate::exception::format_uncaught(v, module))
+        .map(|v| crate::exception::format_uncaught(v, ctx, module))
         .unwrap_or_else(|| "uncaught exception".to_owned());
     anyhow::anyhow!("{}", msg)
 }

@@ -179,7 +179,7 @@ impl JitModule {
                     return match crate::interp::exec_function(ctx, module, func, &[])? {
                         crate::interp::ExecOutcome::Returned(_) => Ok(()),
                         crate::interp::ExecOutcome::Thrown(val) =>
-                            Err(anyhow::anyhow!("{}", crate::exception::format_uncaught(&val, module))),
+                            Err(anyhow::anyhow!("{}", crate::exception::format_uncaught(&val, ctx, module))),
                     };
                 }
                 let func = ctx.try_lookup_function(entry_name)
@@ -187,7 +187,7 @@ impl JitModule {
                 return match crate::interp::exec_function(ctx, module, func.as_ref(), &[])? {
                     crate::interp::ExecOutcome::Returned(_) => Ok(()),
                     crate::interp::ExecOutcome::Thrown(val) =>
-                        Err(anyhow::anyhow!("{}", crate::exception::format_uncaught(&val, module))),
+                        Err(anyhow::anyhow!("{}", crate::exception::format_uncaught(&val, ctx, module))),
                 };
             }
         };

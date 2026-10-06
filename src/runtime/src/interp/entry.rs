@@ -30,7 +30,7 @@ pub enum ExecOutcome {
 pub fn run(ctx: &VmContext, module: &Module, func: &Function, args: &[Value]) -> Result<()> {
     match exec_function(ctx, module, func, args)? {
         ExecOutcome::Returned(_) => Ok(()),
-        ExecOutcome::Thrown(val) => bail!("{}", crate::exception::format_uncaught(&val, module)),
+        ExecOutcome::Thrown(val) => bail!("{}", crate::exception::format_uncaught(&val, ctx, module)),
     }
 }
 
@@ -46,7 +46,7 @@ pub fn run_returning(
 ) -> Result<Option<Value>> {
     match exec_function(ctx, module, func, args)? {
         ExecOutcome::Returned(v) => Ok(v),
-        ExecOutcome::Thrown(val) => bail!("{}", crate::exception::format_uncaught(&val, module)),
+        ExecOutcome::Thrown(val) => bail!("{}", crate::exception::format_uncaught(&val, ctx, module)),
     }
 }
 
@@ -101,7 +101,7 @@ pub fn run_with_static_init(ctx: &VmContext, module: &Module, func: &Function) -
     init_static_fields(ctx, module)?;
     match exec_function(ctx, module, func, &[])? {
         ExecOutcome::Returned(_) => Ok(()),
-        ExecOutcome::Thrown(val) => bail!("{}", crate::exception::format_uncaught(&val, module)),
+        ExecOutcome::Thrown(val) => bail!("{}", crate::exception::format_uncaught(&val, ctx, module)),
     }
 }
 

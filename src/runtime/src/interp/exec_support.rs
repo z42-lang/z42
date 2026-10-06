@@ -278,7 +278,7 @@ pub(super) fn fire_exception_thrown(ctx: &VmContext, module: &crate::metadata::M
     use std::sync::atomic::Ordering;
     ctx.counters().exceptions_thrown.fetch_add(1, Ordering::Relaxed);
     if !ctx.has_runtime_observers() { return; }
-    let (class, mut message) = exception_class_and_message(val, module);
+    let (class, mut message) = exception_class_and_message(ctx, val, module);
     if message.len() > 256 {
         message.truncate(256);
         message.push_str("…");
@@ -296,19 +296,19 @@ pub(super) fn fire_exception_caught(
     use std::sync::atomic::Ordering;
     ctx.counters().exceptions_caught.fetch_add(1, Ordering::Relaxed);
     if !ctx.has_runtime_observers() { return; }
-    let (class, _) = exception_class_and_message(val, module);
+    let (class, _) = exception_class_and_message(ctx, val, module);
     ctx.fire_runtime_event(&crate::observer::RuntimeEvent::ExceptionCaught { class, frames_unwound });
 }
 
 pub(super) fn exception_class_and_message(
-    val: &crate::metadata::Value, module: &crate::metadata::Module,
+    ctx: &VmContext, val: &crate::metadata::Value, module: &crate::metadata::Module,
 ) -> (String, String) {
     use crate::metadata::Value;
     let class = match val {
         Value::Object(rc) => rc.type_desc().name.clone(),
         _ => "<non-exception-value>".to_string(),
     };
-    let message = crate::exception::read_message(val, module).unwrap_or_default();
+    let message = crate::exception::read_message(val, ctx, module).unwrap_or_default();
     (class, message)
 }
 
