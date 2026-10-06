@@ -271,13 +271,7 @@ public static class IrDump {
             int tgt = 0;
             int fj = 0;
             while (fj < count) { if (files[fj] == dg.Span.File) { tgt = fj; } fj = fj + 1; }
-            string pmsg = dg.Span.File + "(" + dg.Span.Line.ToString() + "," + dg.Span.Column.ToString() + "): " + dg.Code + ": " + dg.Message;
-            int oldn = r[tgt].DiagCount;
-            string[] nw = new string[oldn + 1];
-            int q = 0; while (q < oldn) { nw[q] = r[tgt].DiagMsgs[q]; q = q + 1; }
-            nw[oldn] = pmsg;
-            r[tgt].DiagMsgs = nw; r[tgt].DiagCount = oldn + 1;
-            r[tgt].ErrorCount = r[tgt].ErrorCount + 1;   // partial 诊断均为 error（this.Diags.Error）
+            r[tgt].Add(dg);   // 按严重级别计错（收集期 bag 里不止 partial 诊断）
             pdi = pdi + 1;
         }
         return r;
@@ -339,15 +333,8 @@ public static class IrDump {
         }
         string ns = "";
         if (cu.HasNamespace) { ns = cu.Namespace; }
-        var cm2 = new CompiledModuleZ(irm, ns, usings, uc, gen.UsedDepNs, gen.UsedDepNsCount, diags.ErrorCount());
-        string[] dm = new string[diags.Count()];
-        int di = 0;
-        while (di < diags.Count()) {
-            Diagnostic dg = diags.Get(di);
-            dm[di] = dg.Span.File + "(" + dg.Span.Line.ToString() + "," + dg.Span.Column.ToString() + "): " + dg.Code + ": " + dg.Message;
-            di = di + 1;
-        }
-        cm2.DiagMsgs = dm; cm2.DiagCount = diags.Count();
+        var cm2 = new CompiledModuleZ(irm, ns, usings, uc, gen.UsedDepNs, gen.UsedDepNsCount, 0);
+        cm2.AddAll(diags);
         return cm2;
     }
     // 公开：文件级 using 强制（E0436）。**必须在 `UsedDepNs` 回填之后调**——

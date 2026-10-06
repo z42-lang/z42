@@ -182,16 +182,9 @@ public static class CuCompile {
                 t = t + 1;
             }
         }
-        var cm2 = new CompiledModuleZ(irm, ns, usings, uc, depRefs, depN, diags.ErrorCount());
+        var cm2 = new CompiledModuleZ(irm, ns, usings, uc, depRefs, depN, 0);
         cm2.UsedNs = tc.UsedNs.ToArray();   // using-csharp-rules PR-2
-        string[] dm = new string[diags.Count()];
-        int di = 0;
-        while (di < diags.Count()) {
-            Diagnostic dg = diags.Get(di);
-            dm[di] = dg.Span.File + "(" + dg.Span.Line.ToString() + "," + dg.Span.Column.ToString() + "): " + dg.Code + ": " + dg.Message;
-            di = di + 1;
-        }
-        cm2.DiagMsgs = dm; cm2.DiagCount = diags.Count();
+        cm2.AddAll(diags);
         return cm2;
     }
 }

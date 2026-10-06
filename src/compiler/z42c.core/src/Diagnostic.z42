@@ -19,13 +19,11 @@ public sealed class Diagnostic {
     public bool IsError() { return this.Severity == DiagnosticSeverity.Error; }
     public bool IsWarning() { return this.Severity == DiagnosticSeverity.Warning; }
 
-    // 镜像 C# ToString(): "file(line,col): severity code: message"
+    // 诊断行的**唯一**格式："file(line,col): CODE: message"（z42c / z42b / REPL 打印的就是它；
+    // 严重级别由码的前缀 E / W 表达，不另写）。`CompiledModuleZ.Add` 经它渲染 —— 别处不要再手拼。
     public string Format() {
-        string sev = "info";
-        if (this.Severity == DiagnosticSeverity.Error) { sev = "error"; }
-        else if (this.Severity == DiagnosticSeverity.Warning) { sev = "warning"; }
         return this.Span.File + "(" + this.Span.Line.ToString() + ","
-            + this.Span.Column.ToString() + "): " + sev + " " + this.Code + ": " + this.Message;
+            + this.Span.Column.ToString() + "): " + this.Code + ": " + this.Message;
     }
 
     // ── 工厂 ────────────────────────────────────────────────────────────────
