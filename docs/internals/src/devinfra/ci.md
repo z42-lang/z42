@@ -274,12 +274,9 @@ nightly 再 use。成功 CI 运行的产物顶多落后一两个 commit，牢牢
 
 ### 为什么必须有回退
 
-若 nightly 是**唯一**种子来源，`publish-nightly` 的
-`gh release delete nightly` → `gh release create nightly` 跑到一半，整个 workflow 被
-下一个 push 取消，留下一个**残缺的 draft nightly**（有 4 个资产，但没有任何 SDK 包）。
-
-于是：所有 bootstrap job 拿不到种子 → 全红 → `package-*` / `publish-nightly` 被 skip
-→ **发不出新 nightly 自救**。
+若 nightly 是**唯一**种子来源，它一旦不可用——卡成 **draft**（draft 对别的运行的
+`GITHUB_TOKEN` 不可见，下载一律 "release not found"）或缺 SDK 包——所有 bootstrap job
+拿不到种子 → 全红 → `package-*` / `publish-nightly` 被 skip → **发不出新 nightly 自救**。
 
 而 `workflow_dispatch` 那个逃生口**在同一个环里**——`publish-nightly` 的 `needs` 全是
 bootstrap job。实测（run 35287940676）照样全红。
@@ -288,24 +285,37 @@ bootstrap job。实测（run 35287940676）照样全红。
 
 **回退链失效时的人工破环流程**（也是错误信息里指的那条）：
 
-1. `gh run list --workflow CI --branch main --status success --limit 5` 找最近一次全绿的 run
+0. 先看 `gh release view nightly`：若只是卡成 draft、资产齐全，核对 SDK 包（见下）后
+   `gh release edit nightly --draft=false --prerelease` 即可，不必走后面几步
+1. `gh api 'repos/z42-lang/z42/actions/artifacts?name=release-host-linux-x64'` 找最新、未过期、
+   `head_branch == main` 且所属运行 `conclusion == success` 的那次 run（别用带过滤的 `gh run list`，理由见上）
 2. `gh run download <run> -p 'release-*' -D artifacts/packages/archives` 取它的归档（各 package job 已用
    `xtask package archive --label nightly` 在自己的 runner 上出好）
 3. `xtask package finalize nightly --channel nightly --tag nightly --version nightly`
    （合并 desktop workload → `SHA256SUMS` → `release-index.json`，与 `publish-nightly` 同一条命令）
-4. `gh release delete nightly --cleanup-tag` → `gh release create nightly --prerelease`
-   → `gh release edit nightly --draft=false` 并校验非 draft
+4. 按 `publish-nightly` 的原地更新顺序发布：`gh release upload nightly <归档…> --clobber` →
+   `gh api -X PATCH repos/z42-lang/z42/git/refs/tags/nightly -f sha=<run 的 head sha> -F force=true` →
+   `gh release edit nightly --title … --target <sha> --prerelease --draft=false`，再校验非 draft
 
 发布前务必逐个核对 SDK 包**真的带种子**：解包后 `programs/z42c/*.zpkg` 非空、
 `bin/z42vm` 在、`z42c.driver.zpkg` 的 zpkg minor 与当前源码一致
 （`od -An -tu2 -j6 -N2` 读，源码侧看 `z42.package/src/ZpkgWriter.z42` 的 `Minor`）。
 minor 不一致就会把所有 job 推进两代自举那条已知会挂的路。
 
-### 残留缺口：publish-nightly 仍可能被取消打断
+### 发布方式：原地更新，从不删除重建
 
-`publish-nightly` 的 `concurrency.cancel-in-progress: false` 只序列化**该 job 自身**的
-并发，**挡不住新 push 取消整个 run**。delete→create 之间被砍，仍会留下 stuck-draft。
-回退链让这件事并不致命（CI 能继续跑、并自动重发健康 nightly），但根因未除。
+`publish-nightly` 对 `nightly` release **只做原地更新**：① `gh release upload --clobber` 逐个覆盖资产 →
+② 删掉本次不再产出的旧资产 → ③ `PATCH git/refs/tags/nightly` 把 tag 移到本次 commit →
+④ `gh release edit` 改标题 / 说明 / target。release 对象与 tag 从不消失；只有仓库里一个 nightly 都没有时才
+`gh release create`。发布后校验三件事：非 draft、tag 指向本次 commit、资产齐全。
+
+不能「先删后建」：删掉再立刻重建**同名 tag**，在 GitHub 一侧是有竞态的——旧 tag 的删除可能在新 tag
+建好**之后**几分钟才生效，把新 tag 一起删掉；tag 一没，release 就自动退回 draft，此时发布步骤自己的
+「非 draft」校验早已通过。原地更新没有「不存在」的窗口，这条竞态无从发生。
+
+剩余的小窗口：某个资产正在 `--clobber` 上传的那几秒，下载方可能拿不到它（或拿到上一版的完整归档）；
+`setup-z42-sdk` 的 10 次重试覆盖它。整个 run 被新 push 取消时，最坏情况是资产已换新、tag 尚未移动——
+release 仍是可用的已发布状态，下一次发布会补齐。
 
 ## 4. 其它 workflow
 

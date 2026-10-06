@@ -525,7 +525,7 @@ public sealed class SymbolCollector {
         while (cur != null) {
             int id = table.Intern.Of(cur);
             if (id == self) {
-                this.Diags.Error("E0502",
+                this.Diags.Error(DiagnosticCodes.CircularBaseType,
                     "circular base type dependency: class `" + c.Name + "` derives from itself through its base class chain", c.Span);
                 ct.HasBase = false; ct.BaseName = ""; ct.Base = 0;
                 return;
@@ -556,7 +556,7 @@ public sealed class SymbolCollector {
                 if (bi == null) { continue; }
                 int id = table.Intern.Of(bi);
                 if (id == self) {
-                    this.Diags.Error("E0502",
+                    this.Diags.Error(DiagnosticCodes.CircularBaseType,
                         "circular base type dependency: interface `" + c.Name + "` inherits from itself through its base interfaces", c.Span);
                     it.BaseCount = 0;
                     return;

@@ -59,17 +59,16 @@ runs:
           ls "$DEST/programs/z42c/"*.zpkg >/dev/null 2>&1
         }
 
-        # Retry the download: publish-nightly republishes the `nightly` release with a
-        # `gh release delete` → `gh release create` (a brief window where the release does
-        # NOT exist → "release not found"). Concurrent runs (run N's publish-nightly vs
-        # run N+1's download) can hit that window. Retry to ride it out.
+        # Retry the download: publish-nightly updates the `nightly` release in place
+        # (upload --clobber per asset), so a download racing an upload can briefly miss
+        # that one asset; transient API / network errors look the same. Retry to ride it out.
         echo "── setup-z42-sdk: nightly SDK ($RID) → $DEST ──"
         dl_ok=0
         for attempt in 1 2 3 4 5 6 7 8 9 10; do
           if gh release download nightly -p "z42-sdk-nightly-${RID}.${EXT}" -O "$work/sdk.${EXT}" 2>"$work/dlerr"; then
             dl_ok=1; break
           fi
-          echo "   download attempt $attempt failed ($(head -1 "$work/dlerr")) — likely a publish-nightly delete→recreate window; retry in 15s…"
+          echo "   download attempt $attempt failed ($(head -1 "$work/dlerr")) — likely a publish-nightly upload in progress or a transient error; retry in 15s…"
           rm -f "$work/sdk.${EXT}"
           sleep 15
         done
@@ -85,8 +84,8 @@ runs:
 
         # ── 回退：nightly 不可用时，用最近一次成功 CI 运行的 host-package 归档 ──
         #
-        # 为什么必须有这条：nightly 是**唯一**种子来源时，它一旦损坏（如 publish-nightly
-        # 的 delete→create 被整 workflow 取消打断，留下 stuck-draft），所有 bootstrap job
+        # 为什么必须有这条：nightly 是**唯一**种子来源时，它一旦不可用（卡成 draft —— draft 对别的
+        # 运行的 GITHUB_TOKEN 不可见 —— 或缺 SDK 包），所有 bootstrap job
         # 全挂 → package/publish-nightly 被 skip → **发不出新 nightly 自救**。2026-09-17 实际发生过一次，
         # 全仓卡了约 5 小时，最后靠人工从 CI artifact 重打包重发 nightly 才解开。这条就是把那次人工操作自动化。
         #
@@ -132,7 +131,7 @@ runs:
 
         if [ "$dl_ok" != 1 ]; then
           echo "::error::no usable z42 SDK seed: nightly failed after 10 attempts AND no successful CI run's host package worked."
-          echo "::error::check 'gh release view nightly' — a stuck *draft* nightly (publish-nightly cancelled mid delete-recreate) looks present but carries no SDK packages."
+          echo "::error::check 'gh release view nightly' — a *draft* nightly is invisible to GITHUB_TOKEN; if it still carries all assets, 'gh release edit nightly --draft=false --prerelease' is enough."
           echo "::error::manual recovery: download the newest successful CI run's release-* artifacts, run 'xtask package finalize nightly' and republish the nightly release (see internals/devinfra/ci.md §3.1)."
           cat "$work/dlerr" 2>/dev/null || true
           exit 1
