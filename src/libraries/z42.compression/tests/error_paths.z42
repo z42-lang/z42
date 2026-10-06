@@ -1,0 +1,69 @@
+// requires-caps: native-interop
+// Error paths of the native compression entries. A non-zero return code from
+// the library used to hang the VM: the wrapper held the process-wide table lock
+// across the call and re-took it to read the error message. Each case must now
+// surface as a catchable exception, and the library must still work afterwards.
+namespace Z42CompressionErrorPathTests;
+
+using Std.Text;
+using Std.Compression;
+using Std.Encoding;
+
+byte[] DeadBeef() {
+    byte[] b = new byte[4];
+    b[0] = (byte)0xde;
+    b[1] = (byte)0xad;
+    b[2] = (byte)0xbe;
+    b[3] = (byte)0xef;
+    return b;
+}
+
+// Not a frame of any algorithm, and longer than every frame header (lz4 reads
+// a too-short input as an empty stream — runtime-audit P0-20).
+byte[] Junk() {
+    byte[] b = new byte[16];
+    int i = 0;
+    while (i < 16) { b[i] = (byte)(i * 37 + 11); i = i + 1; }
+    return b;
+}
+
+// Returns the message of the exception `kind` threw, or "" if it did not throw.
+string FailureOf(string kind) {
+    try {
+        if (kind == "gzip")       { Gzip.Decompress(DeadBeef()); }
+        else if (kind == "zstd")  { Zstd.Decompress(DeadBeef()); }
+        else if (kind == "lz4")   { Lz4.Decompress(Junk()); }
+        else if (kind == "level") { Zstd.Compress(Utf8.GetBytes("x"), 23); }
+    } catch (Exception e) {
+        return e.Message;
+    }
+    return "";
+}
+
+[Test]
+void test_gzip_garbage_throws() {
+    Assert.True(FailureOf("gzip").Contains("__deflate_decompress"));
+}
+
+[Test]
+void test_zstd_garbage_throws() {
+    Assert.True(FailureOf("zstd").Contains("__zstd_decompress"));
+}
+
+[Test]
+void test_lz4_garbage_throws() {
+    Assert.True(FailureOf("lz4").Contains("__lz4_decompress"));
+}
+
+[Test]
+void test_invalid_level_throws() {
+    Assert.True(FailureOf("level").Contains("__zstd_compress"));
+}
+
+[Test]
+void test_library_still_works_after_errors() {
+    FailureOf("gzip");
+    FailureOf("zstd");
+    byte[] decoded = Gzip.Decompress(Gzip.Compress(Utf8.GetBytes("still alive")));
+    Assert.Equal("still alive", Utf8.GetString(decoded));
+}

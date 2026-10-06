@@ -31,8 +31,9 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+use std::sync::OnceLock;
+
 use anyhow::Result;
-use parking_lot::Mutex;
 
 use crate::corelib::NativeFn;
 use crate::metadata::Value;
@@ -245,24 +246,26 @@ fn load_one(ctx: &VmContext, path: &std::path::Path, name: &str) -> Result<()> {
 
     match name {
         "compression" => {
-            let symbols = unsafe { compression_symbols_via_dlopen(&lib)? };
+            // The library handle moves into the process-static table (see
+            // `LoadedCompression::_lib`), not into this VM's `native_libs`.
+            let symbols = unsafe { compression_symbols_via_dlopen(lib)? };
             let mut table = ctx.core.ext_builtins.lock();
             for (sym_name, fn_ptr) in symbols {
                 table.register(sym_name, *fn_ptr);
             }
             tracing::debug!("ext: registered compression builtins from {}", path.display());
+            Ok(())
         }
         // Unreachable while the caller filters on `KNOWN_EXT_LIBS`; kept as the
         // signal for "name added to the allowlist, wiring not written yet".
         other => {
             tracing::warn!("ext: no symbol wiring for ext lib `{}`", other);
+            // Keep the library alive for the VM lifetime. Lifetime parking
+            // pattern mirrors `loader.rs`.
+            ctx.core.native_libs.lock().push(lib);
+            Ok(())
         }
     }
-
-    // Keep the library alive for the VM lifetime so its function pointers
-    // stay valid. Lifetime parking pattern mirrors `loader.rs`.
-    ctx.core.native_libs.lock().push(lib);
-    Ok(())
 }
 
 // ── compression symbol table (dlopen path) ───────────────────────────────────
@@ -358,13 +361,29 @@ struct LoadedCompression {
     compressor_dispose:  CCompressorDisposeFn,
     free:                CFreeFn,
     last_error:          CLastErrorFn,
+    /// The dlopen'd library the fn ptrs above point into. Owned by the
+    /// process-static table, so it stays loaded for as long as the pointers can
+    /// be called — not just for the VM that happened to load it first.
+    #[cfg(not(feature = "bundled-compression"))]
+    _lib:                libloading::Library,
 }
 
-static LOADED_COMPRESSION: Mutex<Option<LoadedCompression>> = Mutex::new(None);
+/// Set once per process by the first VM that loads the library. Read without a
+/// lock: the wrappers call into the library and then, on failure, read
+/// `last_error` (thread-local on the library side). The former
+/// `Mutex<Option<_>>` was held across that call and re-locked inside
+/// `last_error_string`, so every error path deadlocked, and every compression
+/// call in the process ran one at a time.
+static LOADED_COMPRESSION: OnceLock<LoadedCompression> = OnceLock::new();
+
+/// The loaded fn ptr table, or an error naming the builtin that needed it.
+fn loaded(name: &str) -> Result<&'static LoadedCompression> {
+    LOADED_COMPRESSION.get().ok_or_else(|| anyhow::anyhow!("{}: z42-compression not loaded", name))
+}
 
 #[cfg(not(feature = "bundled-compression"))]
 unsafe fn compression_symbols_via_dlopen(
-    lib: &libloading::Library,
+    lib: libloading::Library,
 ) -> Result<&'static [(&'static str, NativeFn)]> {
     // ABI handshake — resolve the version symbol FIRST and refuse to bind the
     // rest unless it matches what these signatures were written against. The
@@ -383,9 +402,15 @@ unsafe fn compression_symbols_via_dlopen(
         );
     }
 
+    // A later VM in the same process (or a second copy of the library) keeps
+    // using the table the first load installed; this handle is just dropped.
+    if LOADED_COMPRESSION.get().is_some() {
+        return Ok(COMPRESSION_BUILTINS);
+    }
+
     // libloading::Symbol::* deref to the underlying fn ptr. We copy the
-    // fn ptrs out (Copy) and keep the Library alive separately via
-    // VmCore.native_libs so the symbols stay resident.
+    // fn ptrs out (Copy) and move the Library into the table next to them
+    // so the symbols stay resident.
     let deflate_compress: CDeflateCompressFn = *(lib.get(b"z42_compression_deflate_compress")?);
     let deflate_decompress: CDeflateDecompressFn = *(lib.get(b"z42_compression_deflate_decompress")?);
     let zstd_compress: CZstdCompressFn = *(lib.get(b"z42_compression_zstd_compress")?);
@@ -401,13 +426,16 @@ unsafe fn compression_symbols_via_dlopen(
     let free: CFreeFn = *(lib.get(b"z42_compression_free")?);
     let last_error: CLastErrorFn = *(lib.get(b"z42_compression_last_error")?);
 
-    *LOADED_COMPRESSION.lock() = Some(LoadedCompression {
+    // Losing a race with another thread's load is fine: the winner's table is
+    // equivalent, and this handle is dropped with the rejected value.
+    let _ = LOADED_COMPRESSION.set(LoadedCompression {
         deflate_compress, deflate_decompress,
         zstd_compress, zstd_decompress,
         brotli_compress, brotli_decompress,
         lz4_compress, lz4_decompress,
         compressor_begin, compressor_feed, compressor_finish, compressor_dispose,
         free, last_error,
+        _lib: lib,
     });
 
     Ok(COMPRESSION_BUILTINS)
@@ -417,7 +445,7 @@ unsafe fn compression_symbols_via_dlopen(
 fn compression_symbols_bundled() -> &'static [(&'static str, NativeFn)] {
     // Stash the rlib's `extern "C"` fn ptrs into LOADED_COMPRESSION so the
     // wrapper functions below can use the same path as the dlopen case.
-    *LOADED_COMPRESSION.lock() = Some(LoadedCompression {
+    let _ = LOADED_COMPRESSION.get_or_init(|| LoadedCompression {
         deflate_compress:   z42_compression::z42_compression_deflate_compress,
         deflate_decompress: z42_compression::z42_compression_deflate_decompress,
         zstd_compress:      z42_compression::z42_compression_zstd_compress,
@@ -526,8 +554,7 @@ fn take_owned_buffer(free: CFreeFn, out_ptr: *mut u8, out_len: usize) -> Vec<u8>
 }
 
 fn last_error_string() -> String {
-    let guard = LOADED_COMPRESSION.lock();
-    if let Some(lc) = guard.as_ref() {
+    if let Some(lc) = LOADED_COMPRESSION.get() {
         let ptr = unsafe { (lc.last_error)() };
         if !ptr.is_null() {
             unsafe { std::ffi::CStr::from_ptr(ptr) }
@@ -549,8 +576,7 @@ fn wrap_deflate_compress(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let level = arg_i64(args, 1, NAME)? as i32;
     let mode  = arg_i64(args, 2, NAME)? as i32;
 
-    let guard = LOADED_COMPRESSION.lock();
-    let lc = guard.as_ref().ok_or_else(|| anyhow::anyhow!("{}: z42-compression not loaded", NAME))?;
+    let lc = loaded(NAME)?;
 
     let mut out_ptr: *mut u8 = std::ptr::null_mut();
     let mut out_len: usize = 0;
@@ -571,8 +597,7 @@ fn wrap_deflate_decompress(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let input = require_byte_array(args, 0, NAME)?;
     let mode  = arg_i64(args, 1, NAME)? as i32;
 
-    let guard = LOADED_COMPRESSION.lock();
-    let lc = guard.as_ref().ok_or_else(|| anyhow::anyhow!("{}: z42-compression not loaded", NAME))?;
+    let lc = loaded(NAME)?;
 
     let mut out_ptr: *mut u8 = std::ptr::null_mut();
     let mut out_len: usize = 0;
@@ -593,8 +618,7 @@ fn wrap_zstd_compress(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let input = require_byte_array(args, 0, NAME)?;
     let level = arg_i64(args, 1, NAME)? as i32;
 
-    let guard = LOADED_COMPRESSION.lock();
-    let lc = guard.as_ref().ok_or_else(|| anyhow::anyhow!("{}: z42-compression not loaded", NAME))?;
+    let lc = loaded(NAME)?;
 
     let mut out_ptr: *mut u8 = std::ptr::null_mut();
     let mut out_len: usize = 0;
@@ -613,8 +637,7 @@ fn wrap_zstd_decompress(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     const NAME: &str = "__zstd_decompress";
     let input = require_byte_array(args, 0, NAME)?;
 
-    let guard = LOADED_COMPRESSION.lock();
-    let lc = guard.as_ref().ok_or_else(|| anyhow::anyhow!("{}: z42-compression not loaded", NAME))?;
+    let lc = loaded(NAME)?;
 
     let mut out_ptr: *mut u8 = std::ptr::null_mut();
     let mut out_len: usize = 0;
@@ -634,8 +657,7 @@ fn wrap_brotli_compress(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let input = require_byte_array(args, 0, NAME)?;
     let level = arg_i64(args, 1, NAME)? as i32;
 
-    let guard = LOADED_COMPRESSION.lock();
-    let lc = guard.as_ref().ok_or_else(|| anyhow::anyhow!("{}: z42-compression not loaded", NAME))?;
+    let lc = loaded(NAME)?;
 
     let mut out_ptr: *mut u8 = std::ptr::null_mut();
     let mut out_len: usize = 0;
@@ -654,8 +676,7 @@ fn wrap_brotli_decompress(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     const NAME: &str = "__brotli_decompress";
     let input = require_byte_array(args, 0, NAME)?;
 
-    let guard = LOADED_COMPRESSION.lock();
-    let lc = guard.as_ref().ok_or_else(|| anyhow::anyhow!("{}: z42-compression not loaded", NAME))?;
+    let lc = loaded(NAME)?;
 
     let mut out_ptr: *mut u8 = std::ptr::null_mut();
     let mut out_len: usize = 0;
@@ -675,8 +696,7 @@ fn wrap_lz4_compress(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let input = require_byte_array(args, 0, NAME)?;
     let level = arg_i64(args, 1, NAME)? as i32;
 
-    let guard = LOADED_COMPRESSION.lock();
-    let lc = guard.as_ref().ok_or_else(|| anyhow::anyhow!("{}: z42-compression not loaded", NAME))?;
+    let lc = loaded(NAME)?;
 
     let mut out_ptr: *mut u8 = std::ptr::null_mut();
     let mut out_len: usize = 0;
@@ -695,8 +715,7 @@ fn wrap_lz4_decompress(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     const NAME: &str = "__lz4_decompress";
     let input = require_byte_array(args, 0, NAME)?;
 
-    let guard = LOADED_COMPRESSION.lock();
-    let lc = guard.as_ref().ok_or_else(|| anyhow::anyhow!("{}: z42-compression not loaded", NAME))?;
+    let lc = loaded(NAME)?;
 
     let mut out_ptr: *mut u8 = std::ptr::null_mut();
     let mut out_len: usize = 0;
@@ -717,8 +736,7 @@ fn wrap_compressor_begin(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let level = arg_i64(args, 1, NAME)? as i32;
     let is_decompress = arg_bool(args, 2, NAME)?;
 
-    let guard = LOADED_COMPRESSION.lock();
-    let lc = guard.as_ref().ok_or_else(|| anyhow::anyhow!("{}: z42-compression not loaded", NAME))?;
+    let lc = loaded(NAME)?;
 
     let mut slot_id: u64 = 0;
     let rc = unsafe {
@@ -736,8 +754,7 @@ fn wrap_compressor_feed(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let slot_id = arg_i64(args, 0, NAME)? as u64;
     let chunk   = require_byte_array(args, 1, NAME)?;
 
-    let guard = LOADED_COMPRESSION.lock();
-    let lc = guard.as_ref().ok_or_else(|| anyhow::anyhow!("{}: z42-compression not loaded", NAME))?;
+    let lc = loaded(NAME)?;
 
     let mut out_ptr: *mut u8 = std::ptr::null_mut();
     let mut out_len: usize = 0;
@@ -757,8 +774,7 @@ fn wrap_compressor_finish(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     const NAME: &str = "__compressor_finish";
     let slot_id = arg_i64(args, 0, NAME)? as u64;
 
-    let guard = LOADED_COMPRESSION.lock();
-    let lc = guard.as_ref().ok_or_else(|| anyhow::anyhow!("{}: z42-compression not loaded", NAME))?;
+    let lc = loaded(NAME)?;
 
     let mut out_ptr: *mut u8 = std::ptr::null_mut();
     let mut out_len: usize = 0;
@@ -775,8 +791,7 @@ fn wrap_compressor_dispose(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
     const NAME: &str = "__compressor_dispose";
     let slot_id = arg_i64(args, 0, NAME)? as u64;
 
-    let guard = LOADED_COMPRESSION.lock();
-    if let Some(lc) = guard.as_ref() {
+    if let Some(lc) = LOADED_COMPRESSION.get() {
         let _ = unsafe { (lc.compressor_dispose)(slot_id) };
     }
     Ok(Value::Null)

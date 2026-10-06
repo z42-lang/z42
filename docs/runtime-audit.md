@@ -510,6 +510,7 @@ z42vm-cli/   clap / tracing-subscriber（不再是 lib 依赖）
 | P0-17 | build | 打包：<br>• 停发不可用的 compression `.a`；SDK `native/` 去掉嵌入件<br>• install_name 改 `@rpath`、加 SONAME、补 `z42.dll.lib`<br>• glibc 下限对齐<br>• `build.rs` 不再把 PoC 链进 libz42 | `package sdk` 内容核对 + C 宿主链接冒烟 | ⬜ |
 | P0-18 | refactor | 删死依赖、死代码：bincode、thiserror、IR 上的 serde、`project.rs`、formats.rs 的 JSON 类型、`string_id.rs`、LoadFnCached 链路、孤儿 `sync_tests.rs` | GREEN | ⬜ |
 | P0-19 | docs | §5.5 的文档漂移修正（能随对应 PR 顺带的先顺带） | `xtask test docs` | ⬜ |
+| P0-20 | fix | lz4 解压短于帧头的输入（如 4 字节垃圾）时静默返回空数组，不报错（P0-3 补错误路径测试时发现；16 字节垃圾能正确报 `WrongMagicNumber`） | 测试：短输入抛 `__lz4_decompress` 异常 | ⬜ |
 
 **不在授权内、需 User 决策**（⏸）：
 - 删除 ConcurrentMarkSweep：会去掉 `gc-mode=concurrent` 这个用户可见取值；
