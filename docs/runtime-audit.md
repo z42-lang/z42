@@ -90,7 +90,51 @@ GC 模式对比：STW 21 次回收、25.1 s、844 MB；分代 193 次、26.2 s�
 
 ### 1.5 阶段 0 之后重测（P1-0）
 
-待测。
+当前代码 = origin/main `b8470b191` + #1128（静态字段屏障缓存），release z42vm，macOS arm64。测量时机器 load average 10–14，绝对值偏高，相对比例可信。
+
+**z42c 构建编译器工作区**：工作区现为 11 个包（比 §1.2 多 2 个），墙钟不能与 §1.2 直接比。jobs=1 墙钟 16.8–17.3 s，RSS 0.88–0.92 GB；默认并行 12.4 s（user 26 s），RSS 0.96 GB。
+
+`sample` 14 s 共 11655 个样本，按包含时间统计：
+
+| 开销项 | 当前 | §1.4 | 说明 |
+|---|---|---|---|
+| 帧管理（`push_frame` / `pop_frame` / `take_pooled_regs` / `JitFrame::recycle`） | **13.5%** | ≈10.4% | 几乎全是 self 时间；其他项降下来后成了最大单项（§4.2） |
+| GC（其中 minor 4.0%） | **9.9%** | 6.7% | |
+| 解释器 `exec_function_body`（self） | **9.5%** | — | 惰性包函数大多没被路由到 native（§4.5 第 2 条） |
+| JIT 字段 helper（`jit_obj_field_slot` / `jit_obj_ref_field_slot` / `jit_field_get` / `jit_field_set`） | **8.7%** | ≈10.5% | 按名解析（§4.3） |
+| `resolve_lazy_slot`（其中持锁 `compile_fn` 6.5%） | **8.0%** | 6.5% | |
+| Cranelift 编译 | 6.3% | 5.2% | |
+| `jit_call`（self，按名调用，含 `from_utf8`） | 5.8% | — | §4.1 |
+| `jit_array_*` | 3.9% | — | |
+| `write_atomic`（`F_BARRIERFSYNC`） | 3.2% | 12.0% | |
+| `memcmp`（self，名字比较） | 2.8% | — | |
+| cctor 屏障合计（调用 0.5%、静态字段 0.5%、模块初始化 0.9%） | 2.5% | ≈10.7% | |
+| is / as（`isa_td`、`jit_is_instance`） | 2.0% | — | |
+
+**微基准**（5 次中位数；12_gc_churn 为 9 次）：
+
+| 场景 | 基线 JIT / interp | 当前 JIT / interp |
+|---|---|---|
+| 01_fibonacci | 45.7 / 52.7 ms | 40.0 / 45.1 ms |
+| 04_arith_loop | 52 / 175 ms | 52.7 / 158.9 ms |
+| 05_polymorphic_dispatch | 570 / 1130 ms | 577 / 1077 ms |
+| 09_alloc_ctorless | 473 / 500 ms | 456 / 503 ms |
+| 10_mono_vcall | 1045 / 1902 ms | 990 / 1818 ms |
+| 11_type_test_chain | 574 / 1031 ms | 415 / 1008 ms |
+| 12_gc_churn | 533 / 726 ms | 515 / 796 ms |
+| 13_gc_large_heap | 3.0 / 3.0 s | 2.97 / 3.30 s |
+| hello | 10.2–11.6 ms | 12.0 ms，RSS 12 MB |
+| hello + 1 次自由函数调用 | 24.4 ms，RSS 23 MB，惰性加载 16 个包 | 11.9 ms，RSS 12 MB，不再惰性加载 |
+
+**13_gc_large_heap 各 GC 模式**（3 次取中位）：
+
+| 模式 | 基线 | 当前 |
+|---|---|---|
+| STW | 2.20 s / 803 MB / 9 次 / 最大停顿 79 ms | 2.16 s / 799 MB / 9 次 / 80 ms |
+| concurrent | 2.51 s / 842 MB / 最大停顿 99 ms | 2.39 s / 837 MB |
+| generational | 4.05 s / 1097 MB / 214 次 / 最大停顿 193 ms | 3.11 s / 995 MB / 75 次 / 最大停顿 95 ms，p99 74 ms |
+
+**结论**：阶段 0 拿掉了 cctor 屏障（≈10.7% → 2.5%）和整盘刷写（12% → 3.2%）。当前的头部是帧管理、GC、惰性包函数留在解释器、按名字的字段访问和调用、持锁的惰性编译，分别对应 P1-5、P1-7、P1-2、P1-4。分代模式在大堆场景下仍比 STW 慢约 45%、RSS 多约 25%。
 
 ---
 
@@ -393,7 +437,7 @@ z42vm 继续静态链接 VM，不改为动态链接 `native/libz42`（结论与�
 | P1-7 | fix | **GC 内存复用与年轻代根治**（§4.4，先过模型 D）：TLAB 复用半活 chunk 的死槽、sweep 时就地释放 payload；年轻代归 minor 管、晋升时 promote-black | `tests/gc_incremental_model.rs` 模型 D 穷举；13_gc_large_heap 分代不劣于 STW；RSS 下降 | ⬜ |
 | P1-8 | vm | **Builtin ABI v2**（§5.3，先出方案）：`#[builtin]` 宏 + manifest、类型化 `BuiltinError`（`Int32.Parse` 抛 FormatException）、`blocking` 标志自动 park、实参不经 Vec、`[Native]` 桩折叠 | 编译器用 manifest 校验 `[Native]` 声明；错误类型测试 | ⬜ |
 
-**依赖与顺序**：P1-0、P1-1 先做；P1-2 是 P1-4、P1-5、P1-6 的前置；P1-3 在 P1-4 之前（字段语义先收成一份再改载荷）；P1-7、P1-8 与其余项独立。
+**依赖与顺序**：P1-0、P1-1 先做；P1-2 是 P1-4、P1-6 的前置；P1-3 在 P1-4 之前（字段语义先收成一份再改载荷）；P1-5 不依赖 FnId（帧里存 `*const Function` 即可），帧管理是当前最大单项（§1.5），可与 P1-2 并行；P1-7、P1-8 与其余项独立。
 
 **需 User 决策**（⏸）：
 - 删除 ConcurrentMarkSweep：会去掉 `gc-mode=concurrent` 这个用户可见取值。
