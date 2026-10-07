@@ -48,6 +48,7 @@ vm.run(&ctx, hint)?;
 - `module: Option<Arc<Module>>` — 用户编译后的 Module，跨线程共享；测试路径 `None`，生产路径 `Some(Arc::new(module))`
 - `funcs: Arc<FuncTable>` — VM 级函数身份表（`metadata/func_table.rs`）：每个函数一个 `FnId`（u32，本 VmCore 内稠密、永不复用、只存在于运行期），`get(id)` 无锁。入口模块的函数在构造 VmCore 时整块登记为 `0..n`，**等于 `module.functions` 下标**（槽位借用 `module`，表里持有同一个 `Arc`）；惰性包的函数在 `LazyLoader::insert_function` 入表时逐个追加（槽位持有 `Arc<Function>`），重名 first-wins、不分配新 id。`Function.id` 记录登记得到的 id。名字反查 `id_of` 是冷路径：先查入口模块的 `func_index`，再查惰性函数的 `by_name`。`by_name` 同时就是 lazy loader 的函数名表（加载器自己不另存一份，`probe_function` / `resolve_function` 都经 `FuncTable::lazy_fn` 读它）；惰性函数与入口函数同名时仍各有 id，`id_of` 答入口那个。再次安装 lazy loader（只有测试会）用 `reset_lazy_names` 清空名字空间，槽位与 id 保留。底层是 `metadata/seg_vec.rs` 的 `SegVec`：倍增分段（首段 1024 项）、段永不移动，追加持写者锁并以 Release 发布长度，读侧 Acquire 读长度。消费方：interp `Call` 站点 token（见下文「Call 站点 token：FnId」）；VCall / ObjNew / CallIndirect 与 JIT 的槽位仍按名字或各自的 id。
 - `types: Arc<TypeTable>` — VM 级类型身份表（`metadata/type_table.rs`）：`TypeId` → 该类型**最新版本**的描述符，`get(id)` 无锁（Acquire 读槽指针）。`TypeId` 是**进程级**的（`tokens::alloc_type_id_block` 在构建模块类型注册表时整块分配，见下「TypeId 的作用域」），一个 VM 只看到其中稀疏的一部分，所以底层是按裸 id 下标的 `SparseSegTable`（段在首次触碰时分配）。登记：入口模块的 `type_registry` 在构造 VmCore 时整体登记；lazy loader 在每个改动自己类型表的步骤之后调 `LazyLoader::publish_types` 把整张表发布一遍——包加载（继承 fixup 跑完之后，此时新描述符仍独占，fixup 原地改）、`seed_types_for_lookup`、`ensure_base_chain_loaded` 的 fixup。fixup 写时复制出的合并副本与原描述符同 id 同名，发布时槽位改指新副本；发布过的每个版本都留在表里直到表析构，借出的 `&TypeDesc` 不会悬空。同一 id 下名字不同的描述符被拒（first-wins，记 error 日志；只有发号器不变量被破坏才会发生）。重名类型由加载器 first-wins，输家从不发布。**不登记**：按对象现建的回落描述符、corelib 原生句柄单例（两者 `id == UNRESOLVED`）、只由 load context 持有的模块的类型。名字查找仍走 `Module.type_registry` 与加载器的 `type_registry`（两张名字表尚未并入本表）。另外为**类型判定的目标名**保留键（`name_key`，见 [interp-jit-semantics.md](interp-jit-semantics.md)「类型判定的缓存键」）。消费方：`isa_cache` 的键；字段 IC 载荷改 `TypeId | offset | kind`（P1-4）时按 id 取描述符。
+- `strings: Arc<StrTable>` — VM 级字符串字面量身份表（`metadata/str_table.rs`）：每个 `ConstStr` 操作数都是本 VM 一个稠密、只追加、永不复用的**字符串 id**，槽位存字面量文本与驻留的 GC 字符串。入口模块的 `string_pool` 在构造 VmCore 时整块登记为 `0..n`（槽位不复制文本，从 `module` 读）；惰性包注册时加载器把它的整个池追加进来（`StrTable::append` 返回首个 id，`remap_const_str` 把包内 `ConstStr.idx` 加上它）。再次安装 lazy loader（只有测试会）接着往后编号，旧加载器的函数仍读得到自己的字面量；加载器的 `main_pool_len` 以下、表里没有文本的 id 用空槽占位（`reserve`）。驻留与 GC 根见下「ConstStr：每 VM 的字符串表」。
 - `threads: ResourceRegistry<JoinHandle<Result<()>>>` — `Std.Threading.Thread` 的 JoinHandle slot table；`__thread_spawn` 插入，`__thread_join` take-out 后 join
 - `file_handles: ResourceRegistry<FileHandleSlot>` + `tcp_sockets` / `tcp_listeners` / `tls_sockets` / `udp_sockets`（后四者 `#[cfg(not(target_arch="wasm32"))]`）— `Std.IO.FileStream` 句柄 + `Std.Net.Sockets` 各类 socket slot table
 - `vm_contexts: Mutex<Vec<VmContextPtr>>` — 本 core 上所有存活 `VmContext` 的注册表（见下「Send-safety 与 GC scanner 设计」）
@@ -81,7 +82,7 @@ vm.run(&ctx, hint)?;
 - `call_stack: FrameStack` — 当前线程帧栈，只由所属线程无锁读写（见下「帧栈的归属」）
 - `reg_pool: RegPool` — interp `Frame` 与 `JitFrame` 共用的寄存器文件 free-list；`engine_guards` — 栈非空期间装好的 VM / 堆 thread-local（见下「寄存器池、引擎入口 guard、frame_id」）。两者都只由所属线程无锁访问
 - `stack_arena` / `struct_arena` / `transient_arena`（及其发布长度原子，见下一节）、`next_frame_id`（frame id 来源，帧惰性取号）、`safepoint_skip`（safepoint 节流计数，JIT 内联读写）、`jit_ctx`（混合模式下指向当前 `JitModuleCtx`）
-- `interned_cache`（`ConstStr` 字面量的 per-context 驻留缓存，GC root）、`subclass_memo` + `isa_cache`（`is`/`as`/`catch` 子类判定缓存，键 `(接收者 TypeId, 目标键)`，见 [interp-jit-semantics.md](interp-jit-semantics.md)）、`type_lookup_cache` + `fn_lookup_cache`（`try_lookup_type/function` 命中的前置缓存，免去共享 `lazy_loader` 锁）
+- `fn_name_cache`（`MkClos` 站点函数名串的每线程驻留，GC root；闭包改为创建时绑定函数 id 后删除）、`subclass_memo` + `isa_cache`（`is`/`as`/`catch` 子类判定缓存，键 `(接收者 TypeId, 目标键)`，见 [interp-jit-semantics.md](interp-jit-semantics.md)）、`type_lookup_cache` + `fn_lookup_cache`（`try_lookup_type/function` 命中的前置缓存，免去共享 `lazy_loader` 锁）
 
 每个 `VmFrame` 只有 40 B：`func`（`*const Function`）、`regs` 指针、`pc: Cell<u32>`，
 以及四个 arena（stack 对象 / stack 数组 / struct / transient）的截断 base（`u32`）。GC root scanner 扫
@@ -454,9 +455,6 @@ zpkg。若 ≥2 个 zpkg 共享同 namespace → `bail!("AmbiguousNamespaceError
 ```rust
 struct LazyLoader {
     search_dirs: Vec<PathBuf>,     // 按序解析依赖 zpkg 文件名的目录列表
-    main_pool_len: usize,          // 主模块 string pool 长度（索引偏移基准）
-    string_pool: Vec<String>,       // 聚合懒加载 string pool
-
     loaded_zpkgs: FxHashSet<String>,                  // 已加载 zpkg 文件名
     declared_zpkgs: FxHashMap<String, ZpkgCandidate>, // 声明但未加载
 
@@ -465,8 +463,9 @@ struct LazyLoader {
     symbol_owners: FxHashMap<String, String>,         // 符号键 → 定义它的 zpkg 文件（各包 DEPS 符号表汇总）
     short_symbols: FxHashMap<String, Option<String>>, // 短名 → 唯一全名（反射短名查找用）
     // …另有 newly_loaded 暂存区、「确定解析不出」的负缓存、歧义名登记，
-    //   以及 VmCore 的 cctor registry 与 FuncTable 的 Arc —— 后者就是函数注册表
-    //   （FQ name → FnId → Function，见上文 `funcs`），类型入表时顺带登记 cctor
+    //   以及 VmCore 的 cctor registry 与 FuncTable / TypeTable / StrTable 的 Arc ——
+    //   FuncTable 就是函数注册表（FQ name → FnId → Function，见上文 `funcs`），
+    //   各包的字符串池追加进 StrTable（见上文 `strings`），类型入表时顺带登记 cctor
 }
 
 struct ZpkgCandidate {
@@ -682,18 +681,16 @@ load_zpkg_file(file_name):
 
 ### ConstStr 索引重映射
 
-主模块 string pool 的索引域是 `[0, main_pool_len)`；懒加载 zpkg 的
-ConstStr 原始索引是相对自己 pool 的。为统一，合并时：
+主模块 string pool 占字符串 id `[0, n)`；懒加载 zpkg 的 ConstStr 原始索引是相对
+自己 pool 的。注册包时：
 
 ```rust
-offset = main_pool_len + self.string_pool.len()
+offset = vm.strings.append(take(artifact.module.string_pool))   // 首个 id
 // 新加载 zpkg 的每个 Function 的 ConstStr.idx += offset
-self.string_pool.extend(artifact.module.string_pool)
 ```
 
-运行时 `try_lookup_string(absolute_idx)` 返回：
-- `idx < main_pool_len` → 主模块 pool
-- `idx ≥ main_pool_len` → 懒加载 pool[idx - main_pool_len]
+之后每个 `ConstStr.idx` 都是本 VM `StrTable` 里的 id，运行时按 id 直接取，不再分段查
+（见「ConstStr：每 VM 的字符串表」）。
 
 ### `z42.core` 永不经过懒加载
 
@@ -781,6 +778,38 @@ needs_fixup = td.fields.len() != expected || td.vtable.len() != expected_v
 更通用。
 
 ---
+
+## ConstStr：每 VM 的字符串表
+
+`ConstStr { dst, idx }` 的 `idx` 是本 VM `StrTable`（`VmCore.strings`，`metadata/str_table.rs`）里的
+字符串 id（编号见上文 `strings` 与「ConstStr 索引重映射」）。interp `exec_value::const_str` 与 JIT
+helper `jit_const_str` 都调同一个 `VmContext::const_str(module, idx)`：
+
+```text
+const_str(module, idx):
+  if strings.is_entry(module):        # 生产路径恒成立：惰性函数也对着入口模块跑
+    slot = strings.slots[idx]         # SegVec：Acquire 读长度 + 定位段，无锁
+    if slot.gc 已设 → 返回它           # OnceLock 的 Acquire 读：不拿锁、不哈希
+    s = heap.alloc_str(slot 的文本)    # 文本：包的槽位自带；入口 id 读 entry.string_pool[idx]
+    lock roots:                       # 先分配再拿锁：分配器可能拿堆锁，根扫描在回收中拿 roots
+      slot.gc 已被别的线程设 → 返回赢家的（s 成为垃圾）
+      slot.gc = s; roots.push(s)
+    return s
+  else:                               # 非入口模块：裸 VmContext 上跑手搭模块的单测
+    idx 落在模块自己的池里 → 每次现分配、不缓存；超出 → 按表 id 驻留
+```
+
+- **每 VM 一张，线程共享**。GC 字符串属于某一个堆，所以表挂在 VmCore 上，不放进多个 VM 可能共享的
+  元数据。同一 VM 的各线程对同一 id 拿到同一个字符串，两个 VM 永不共享。字符串身份对 z42 程序不可见
+  （`ReferenceEquals` 对字符串恒为假，字符串也取不了身份哈希、做不了弱引用），所以线程间共享不改变
+  任何可观察行为。
+- **按 id 的稠密表，不做站点 cell**。`idx` 本来就是 VM 内稠密的整数，一张表覆盖全部站点（z42c 里
+  6000 多个），同一字面量出现在多个站点也只驻留一次。站点 cell 只能放在共享的指令上，要么把某个
+  VM 的堆句柄写进共享元数据，要么每次命中先校验 VM。
+- **GC 根**：驻留串在指令执行完之后只活在表里，`roots` 列表由 external root scanner 扫描（紧跟 static
+  fields；retention 分类扫描器记作 `StaticField`），驻留串与 VM 同寿。分配与发布在同一条指令内完成，
+  中间没有 safepoint，回收插不进来；增量 major 期间新分配的对象是 allocate-black。
+- **id 永不复用**：包的池整块追加，再次安装 lazy loader 也接着编号，所以槽位不需要失效。
 
 ## VCall 分发与 TypeDesc
 
@@ -1374,9 +1403,8 @@ builtin 按功能分 submodule：`string.rs` / `io.rs` / `math.rs` / `fs.rs` 等
 
 主模块的 IR 在编译期生成时已经基于其 string pool；懒加载的 Function 的
 ConstStr 索引相对自己 pool。合并时若不重映射，懒加载函数里的 `ConstStr(3)`
-会引用主模块 pool[3] 而不是它自己的 pool[3]。`remap_const_str` 加一个
-`offset` 把懒加载索引推到 `main_pool_len + 相对偏移`，`try_lookup_string`
-在运行时分段查找。
+会引用主模块 pool[3] 而不是它自己的 pool[3]。`remap_const_str` 加上包在
+`StrTable` 里的首个 id，把懒加载索引变成 VM 级字符串 id。
 
 ---
 

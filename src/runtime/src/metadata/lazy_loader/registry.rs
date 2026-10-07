@@ -70,8 +70,7 @@ impl LazyLoader {
         // precise-pkg-refs: this package's references now route precisely too.
         self.note_symbol_owners(&artifact.dependencies);
 
-        let offset = self.main_pool_len + self.string_pool.len();
-        self.string_pool.extend(artifact.module.string_pool.iter().cloned());
+        let offset = self.append_strings(&mut artifact.module.string_pool)?;
 
         // Decision 6: first-wins on function / type name collisions.
         //
@@ -370,8 +369,7 @@ impl LazyLoader {
             self.mark_zpkg_loaded(format!("{pkg}.zpkg"));
         }
 
-        let offset = self.main_pool_len + self.string_pool.len();
-        self.string_pool.extend(artifact.module.string_pool.iter().cloned());
+        let offset = self.append_strings(&mut artifact.module.string_pool)?;
 
         let mut owned = OwnedSyms::default();
         for mut fn_ in artifact.module.functions {
@@ -472,13 +470,24 @@ pub(super) fn same_function_shape(a: &Function, b: &Function) -> bool {
             == b.blocks.iter().map(|x| x.instructions.len()).sum::<usize>()
 }
 
+impl LazyLoader {
+    /// Move a package's string pool into the VM's string table; the returned first id is the
+    /// offset its `ConstStr` operands are shifted by.
+    fn append_strings(&self, pool: &mut Vec<String>) -> Result<u32> {
+        self.strings
+            .append(std::mem::take(pool))
+            .ok_or_else(|| anyhow::anyhow!("string id space exhausted"))
+    }
+}
+
 /// Rewrite all ConstStr `idx` values in a function's blocks by adding
-/// `offset`, so the resulting indices point into the merged main+lazy pool.
-fn remap_const_str(fn_: &mut Function, offset: usize) {
+/// `offset` (the package's first id in the VM's `StrTable`), so they become ids
+/// in the VM's one string id space.
+fn remap_const_str(fn_: &mut Function, offset: u32) {
     for block in fn_.blocks.iter_mut() {
         for instr in block.instructions.iter_mut() {
             if let Instruction::ConstStr { idx, .. } = instr {
-                *idx += offset as u32;
+                *idx += offset;
             }
         }
     }

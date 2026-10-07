@@ -146,7 +146,7 @@ impl VmContext {
             transient_len: std::sync::atomic::AtomicUsize::new(0),
             next_frame_id: std::sync::atomic::AtomicU32::new(1),
             jit_ctx: std::sync::atomic::AtomicUsize::new(0),
-            interned_cache: Arc::new(Mutex::new(FxHashMap::default())),
+            fn_name_cache: Mutex::new(FxHashMap::default()),
             subclass_memo: Mutex::new(FxHashMap::default()),
             type_lookup_cache: Mutex::new(FxHashMap::default()),
             fn_lookup_cache: Mutex::new(FxHashMap::default()),
@@ -217,6 +217,7 @@ impl VmContext {
             vm_contexts:          Mutex::new(Vec::new()),
             funcs:                Arc::new(crate::metadata::func_table::FuncTable::new(module.clone())),
             types:                Arc::new(crate::metadata::type_table::TypeTable::new(module.as_deref())),
+            strings:              Arc::new(crate::metadata::str_table::StrTable::new(module.clone())),
             module,
             threads:              ResourceRegistry::new(),
             gc_phase:             Mutex::new(crate::gc::safepoint::GcPhase::Idle),
@@ -330,6 +331,9 @@ impl VmContext {
                 for v in c.static_fields.lock().iter() {
                     visit(v);
                 }
+                // Interned `ConstStr` literals: after their instruction they live only in
+                // the VM's string table (`metadata::str_table`), which keeps them alive.
+                c.strings.scan_roots(|s| visit(&Value::Str(s)));
                 // 2-4. Per-thread roots, one VmContext per OS thread.
                 //
                 // SAFETY: each VmContextPtr was registered via
@@ -366,11 +370,8 @@ impl VmContext {
                             }
                         });
                     }
-                    // unify-gc-heap PR-4: per-context interned string cache — the GC
-                    // strings lazily allocated for ConstStr pool literals live only
-                    // here (not in any frame reg after their instruction), so they
-                    // are roots: visit each so the interned block stays marked.
-                    for s in ctx.interned_cache.lock().values() {
+                    // `MkClos` names interned by this context (`intern_fn_name`).
+                    for s in ctx.fn_name_cache.lock().values() {
                         visit(&Value::Str(*s));
                     }
                     // add-escape-analysis-stack-alloc: stack-alloc arena roots.
@@ -415,6 +416,8 @@ impl VmContext {
                 for v in c.static_fields.lock().iter() {
                     visit(v, RootKind::StaticField);
                 }
+                // Interned `ConstStr` literals (VM-wide, like static fields).
+                c.strings.scan_roots(|s| visit(&Value::Str(s), RootKind::StaticField));
                 let registry = c.vm_contexts.lock();
                 for ctx_ptr in registry.iter() {
                     // SAFETY: same invariant as the anonymous root scanner —
@@ -437,6 +440,9 @@ impl VmContext {
                                 }
                             }
                         });
+                    }
+                    for s in ctx.fn_name_cache.lock().values() {
+                        visit(&Value::Str(*s), RootKind::StackFrame);
                     }
                     ctx.stack_arena
                         .lock()
@@ -470,7 +476,7 @@ impl VmContext {
             transient_len: std::sync::atomic::AtomicUsize::new(0),
             next_frame_id: std::sync::atomic::AtomicU32::new(1),
             jit_ctx: std::sync::atomic::AtomicUsize::new(0),
-            interned_cache: Arc::new(Mutex::new(FxHashMap::default())),
+            fn_name_cache: Mutex::new(FxHashMap::default()),
             subclass_memo: Mutex::new(FxHashMap::default()),
             type_lookup_cache: Mutex::new(FxHashMap::default()),
             fn_lookup_cache: Mutex::new(FxHashMap::default()),

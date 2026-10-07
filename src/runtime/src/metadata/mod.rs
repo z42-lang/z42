@@ -36,6 +36,8 @@ pub mod seg_vec;
 pub mod func_table;
 /// Process-level type identity: `TypeTable` (TypeId → TypeDesc) + type-test name keys.
 pub mod type_table;
+/// VM-level string-literal identity: `StrTable` (ConstStr id → text + interned GC string).
+pub mod str_table;
 pub mod lazy_loader;
 pub mod merge;
 pub mod resolver;

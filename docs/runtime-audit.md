@@ -504,7 +504,7 @@ z42vm 继续静态链接 VM，不改为动态链接 `native/libz42`（结论与�
   - 4：VCall PIC 改存 FnId。
   - 5：ObjNew 站点缓存。🟡 已实现、待合并（分支 `vm/objnew-site-cache`）：站点存类描述符 `Arc<TypeDesc>` + ctor 的 FnId，interp 与 JIT 共用 `interp/obj_new_resolve.rs`；命中不哈希、不拿锁。仍按名：回落描述符的本地类（每次现建描述符）。
   - 6：TypeTable 与 `isa_cache` 改 key（顺带修 D5）。🟡 已实现、待合并（分支 `vm/type-table`）：VmCore 上 `TypeTable`（进程级 TypeId → 最新版本描述符，稀疏分段、读无锁；入口模块构造时登记，惰性包在加载 / fixup 后发布）；`isa_cache` / `subclass_memo` 改按 `(接收者 TypeId, 目标键)` 做键，目标键缓存在指令 / 异常表行的 `TypeKeyCell`（已登记类型取其 TypeId，否则为名字保留一个 id）。未做：两张类型名字表（`Module.type_registry` / 加载器 `type_registry`）并入 TypeTable；回落描述符与 corelib 原生句柄单例仍无 id、不缓存。
-  - 7：ConstStr 改为每 ctx 一张无锁表。
+  - 7：ConstStr 改为每 ctx 一张无锁表。🟡 已实现、待合并（分支 `vm/conststr-per-ctx`）：落在每 VM（VmCore）一张 `StrTable`，不是每线程——GC 字符串属于 VM 的堆，字符串身份对程序不可见，读侧无锁后每线程一份已无收益。`ConstStr.idx` 即 VM 内稠密的字符串 id（入口池 `0..n`，惰性包的池注册时整块追加，id 永不复用；加载器的 `string_pool` 并入此表），槽位存文本 + `OnceLock<Str>`；interp 与 JIT 共用 `VmContext::const_str`，首执后命中不拿锁、不哈希、惰性包也只查一次。驻留串由表的 `roots` 列表作 GC 根。
   - 8：FuncRef / Closure 改存 FnId。
   - 9：清理。
 - 不改 `.zbc` / `.zpkg` 格式。

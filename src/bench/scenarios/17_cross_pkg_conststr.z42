@@ -1,0 +1,40 @@
+// tier: full — 跨包字符串字面量：惰性加载包里的 ConstStr，隔离 StrTable 的命中路径
+//
+// `JsonValue.KindName()` lives in `z42.json`, a package loaded lazily on first use (not
+// merged into the entry module like `z42.core`): each call executes one `ConstStr` in package
+// code ("null" / "bool" / "long" / "double" / "string" / "array" / "object"), so the loop is
+// the call, a short compare chain and that literal load. Counterpart of 07_string_heavy
+// (entry-module literals) for package code. Values are built once outside the loop.
+// Run in both modes: interp and JIT each execute the ConstStr through their own path.
+//
+// Expected output (deterministic): 17500000
+
+namespace Bench.CrossPkgConstStr;
+
+using Std.IO;
+using Std.Json;
+
+long Drive(JsonValue[] vals, long n) {
+    long total = 0L;
+    long i = 0L;
+    while (i < n) {
+        JsonValue v = vals[(int)(i % 7L)];
+        total = total + (long)v.KindName().Length;
+        i = i + 1L;
+    }
+    return total;
+}
+
+void Main() {
+    JsonValue[] vals = new JsonValue[7];
+    vals[0] = JsonValue.OfNull();
+    vals[1] = JsonValue.OfBool(true);
+    vals[2] = JsonValue.OfLong(1L);
+    vals[3] = JsonValue.OfDouble(1.5);
+    vals[4] = JsonValue.OfString("s");
+    vals[5] = JsonValue.OfArray();
+    vals[6] = JsonValue.OfObject();
+    // per 7 values: 4 + 4 + 4 + 6 + 6 + 5 + 6 = 35
+    long result = Drive(vals, 3500000L);
+    Console.WriteLine(result.ToString());
+}

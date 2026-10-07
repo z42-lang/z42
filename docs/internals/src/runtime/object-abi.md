@@ -367,16 +367,16 @@ ObjectHeader {
   mark/sweep（string 是**不可变叶子**，trace 无出边）。字段存储：string 字段落对象 `refs` 侧表
   （`STRUCT_LEAF_ARCSTRING` → `TAG_STR`），被 `trace_children` / `scan_object_refs` 扫描 →
   string-in-object 正确可达；`is_heap_ref(Str)=true` → 存进堆槽触发写屏障（分代 card）。
-- **驻留/字面量串**：**lazy per-context interning**——加载期**不**物化（无堆），首次 `ConstStr(idx)`
-  用活堆分配 GC string + 缓存进 `VmContext.interned_cache`（`(module ptr, idx)` 键），缓存项经
-  external root scanner 注册为 **GC root**；后续命中拷 8B 句柄（运行期全走 `intern_const_str`）。
+- **驻留/字面量串**：**每 VM 惰性驻留**——加载期**不**物化（无堆），某个字符串 id 首次 `ConstStr(idx)`
+  用活堆分配 GC string，发布进 `VmCore.strings`（`StrTable`，按 id 的稠密表）并记为 **GC root**；
+  后续命中（任一线程）无锁读出 8B 句柄（运行期全走 `VmContext::const_str`）。
 - **safepoint 安全**：GC 只在显式 safepoint（interp 回边/调用边界）/`ForceCollect` 运行，从不在单条
   指令/builtin 的 Rust 执行中途 → 临时 string（表达式中间值）落寄存器前天然安全，与既有
   Object/Array 临时值同一不变式（分配器 `maybe_auto_collect` 只置标志、延到 safepoint）。
 - 代价:纳入 GC → 多点 GC 压力(换掉 Arc 确定性释放，string-heavy 的 z42c 自编译最敏感);收益:统一一套堆 + 为可移动/压缩/去重铺路。架构统一优先于短期性能。
 - **闭包与访问器**：`ClosureData.fn_name` 是 GC `Str`（8B），闭包块全 POD（region_var 仅 `ArrayValue` 需 finalizer）；
-  这个名字串按 `MkClos` 站点在每个 `VmContext` 里驻留一次（`VmContext::intern_fn_name`，复用 `interned_cache` 这个 GC 根，
-  命中按内容复核），循环里建闭包不再每次新分配一个名字块；闭包改为在创建时绑定函数 id 之后，这层驻留随之删除；
+  这个名字串按 `MkClos` 站点在每个 `VmContext` 里驻留一次（`VmContext::intern_fn_name`：每线程一张 `fn_name_cache`，
+  键是名字的地址 + 长度、命中按内容复核，表项是 GC 根），循环里建闭包不再每次新分配一个名字块；闭包改为在创建时绑定函数 id 之后，这层驻留随之删除；
   mark 与枚举共用单一访问器 `Value::visit_gc_children(for_marking, …)`。
 - **不迁移的 `Arc<str>`**：栈帧名/文件名（`Function.frame_meta`）**保留 `Arc<str>`**——它们是
   **诊断/栈回溯元数据、非 `Value::Str` GC payload**，加载时算一次，生成栈回溯时 O(1) clone

@@ -55,6 +55,7 @@
 | `tokens.rs` / `name_index.rs` / `namespace_index.rs` / `vstr.rs` | 热路径 token 新类型（含运行期 `FnId` / `FnIdCell` / 类型判定目标键 `TypeKeyCell`） / 字段·vtable 名称索引 / namespace→zpkg 索引 / GC 堆内不可变字符串句柄 |
 | `func_table.rs` | `FuncTable`：VM 级函数身份（`FnId` → `Function`，读无锁）；入口模块函数 + 惰性包函数统一编号 |
 | `type_table.rs` | `TypeTable`：VM 级类型身份（进程级 `TypeId` → 最新版本 `TypeDesc`，读无锁，稀疏分段）；入口模块类型 + 惰性包发布的类型；类型判定目标名的保留键 |
+| `str_table.rs` | `StrTable`：VM 级字符串字面量身份（`ConstStr` 操作数 = 字符串 id → 文本 + 驻留的 GC 字符串，驻留后读无锁）；入口模块字符串池 + 惰性包追加的池统一编号，驻留串是 GC 根 |
 | `seg_vec.rs` | `SegVec`（只追加、读无锁的分段向量）/ `SparseSegTable`（按 id 索引、段首次触达才分配的侧表） |
 | `superinstr.rs` | 超级指令融合框架 |
 | `test_index.rs` / `build_id.rs` / `well_known_names.rs` / `ir_type.rs` | 编译期测试发现 TIDX 段 / 分离调试符号的 build id / 常用限定名常量 / 寄存器类型 tag |

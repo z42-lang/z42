@@ -139,6 +139,11 @@ pub struct VmCore {
     /// registry after every change. Also reserves type-test keys for target names that
     /// name no registered type. See `metadata::type_table`.
     pub(crate) types:              Arc<crate::metadata::type_table::TypeTable>,
+    /// String-literal identity (`ConstStr` id → text + interned GC string, lock-free reads
+    /// once interned). Entry-module pool = ids `0..n`; the lazy loader appends each package's
+    /// pool. Per VM because the strings live in this VM's heap; its interned strings are GC
+    /// roots. See `metadata::str_table`.
+    pub(crate) strings:            Arc<crate::metadata::str_table::StrTable>,
     /// **add-threading-stdlib (2026-05-20)**: live `Std.Threading.Thread`
     /// instances keyed by monotonic u64 slot id. `__thread_spawn` inserts;
     /// `__thread_join` takes-out + joins. Pattern mirrors
@@ -397,17 +402,11 @@ pub struct VmContext {
     /// Lets an interp frame (running as a JIT cold-tier / fallback) route an
     /// already-compiled callee to its native code instead of re-interpreting.
     pub(crate) jit_ctx:           std::sync::atomic::AtomicUsize,
-    /// **unify-gc-heap PR-4**: per-context lazy interning cache for `ConstStr` pool
-    /// literals. The `Str` bytes moved into the GC heap, but the interned pool is
-    /// built at module *load* time when no heap exists — so instead of an eager
-    /// load-time interned pool, the first `ConstStr(idx)` allocates a GC
-    /// string from the live heap and caches it here (keyed by `(module ptr, idx)`).
-    /// Cached entries are **GC roots** (scanned by the external root scanner), so the
-    /// interned strings survive collection while this context is alive; subsequent
-    /// hits copy the 8-byte handle (no re-alloc). Per-context (not shared) so no
-    /// module mutation / cross-thread interning — a thread re-interns its own literals
-    /// (negligible for z42's 1–2 threads). See `interp::exec_value::const_str`.
-    pub(crate) interned_cache:    Arc<Mutex<FxHashMap<(usize, u32), crate::metadata::vstr::Str>>>,
+    /// `MkClos` function-name strings, interned per site (`intern_fn_name`): key = the
+    /// instruction's name `(address, length)`, hit confirmed by content. GC roots (scanned
+    /// with this context's other roots). Per thread, so the lock is uncontended. Goes away
+    /// once closures bind their function id at creation.
+    pub(crate) fn_name_cache:     Mutex<FxHashMap<(usize, usize), crate::metadata::vstr::Str>>,
     /// **optimize-subclass-check**: memoizes the type-test verdict, keyed by
     /// `(receiver TypeId, target key)` packed into a `u64` (`dispatch::isa_key`). Backs the
     /// direct-mapped `isa_cache` (its misses and collisions) and the name-only callers
