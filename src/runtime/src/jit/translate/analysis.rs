@@ -73,7 +73,7 @@ pub(super) fn instr_uses_int_cache(func: &Function, instr: &Instruction) -> bool
 ///   * compare (`Eq`..`Ge`) a+b (integer OR F64; dst is Bool → never a candidate),
 ///   * integer→integer / float→integer `Convert` dst (to_tag 0x02..=0x09; the
 ///     int→int form also routes src, float→int reads its F64 src from memory),
-///   * `Ret` operand (spilled to memory before `hr_set_ret`).
+///   * `Ret` operand (written straight from SSA into `frame.ret`).
 /// ANY appearance in a memory-backed op (copy, field, array, call/helper,
 /// struct, static, throw, int→f64 / helper convert, …) DISQUALIFIES the reg:
 /// promoting it would desync its `frame.regs` slot from the resident SSA value —
@@ -233,7 +233,7 @@ pub(super) fn compute_promotable_regs(func: &Function, enable: bool) -> Vec<bool
                 I::LoadFieldAddr(bx) => { disq.push(bx.dst); disq.push(bx.obj); }
             }
         }
-        // Terminators: `Ret` operand is routed (spilled before hr_set_ret);
+        // Terminators: `Ret` operand is routed (stored from SSA into frame.ret);
         // `Throw` reg is a heap exception object (never integer) — disqualify.
         if let Terminator::Throw { reg } = &block.terminator {
             disq.push(*reg);

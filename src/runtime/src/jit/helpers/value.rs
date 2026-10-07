@@ -1,29 +1,13 @@
 #![allow(dangerous_implicit_autorefs)]
 //! Value-shuffling helpers: constants, copy, string formation, and the small
-//! glue ops `get_bool` / `set_ret`.
+//! glue op `get_bool`. (`Ret` and the prologue's register-file pointer are
+//! inline loads/stores on `JitFrame` — see `JIT_FRAME_*_OFFSET`.)
 
 use crate::corelib::convert::value_to_str;
 use crate::metadata::Value;
 use super::super::frame::{JitFrame, JitModuleCtx};
 use super::super::invoke::{call_entry, NativeOutcome};
 use super::{set_exception, vm_ctx_ref};
-
-// ── Raw frame access (review.md C2 P1 step 1, 2026-05-28) ────────────────────
-//
-// `jit_regs_ptr` exposes `frame.regs.as_mut_ptr()` to JIT code. translate.rs
-// calls this ONCE at function entry and caches the result; subsequent typed
-// arithmetic ops compute `regs_base + reg_idx * size_of::<Value>()` inline
-// and emit native Cranelift `load`/`store` against the slot, skipping the
-// per-op helper call ABI.
-//
-// SAFETY: the returned pointer is valid for the lifetime of `frame.regs`,
-// which is the JIT function's invocation duration. `JitFrame::new`
-// pre-sizes `regs` to `max_reg + 1` (from the register pool) and never grows the
-// vector during execution → the data pointer never moves.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn jit_regs_ptr(frame: *mut JitFrame) -> *mut Value {
-    (*frame).regs.as_mut_ptr()
-}
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -196,13 +180,4 @@ pub unsafe extern "C" fn jit_get_bool(
             JIT_GET_BOOL_ERR
         }
     }
-}
-
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn jit_set_ret(
-    frame: *mut JitFrame, _ctx: *const JitModuleCtx,
-    reg: u32,
-) {
-    let v = (*frame).regs[reg as usize].clone();
-    (*frame).ret = Some(v);
 }

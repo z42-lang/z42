@@ -18,7 +18,7 @@
 |------|------|
 | `mod.rs` | 共享工具（`vm_ctx_ref` / `set_exception` / 数值 helper / `JitFn`）+ `VM_JIT_INTERFACE_VERSION` |
 | `registry.rs` | **中央 helper 注册表**：`HelperIds` 结构、`register_symbols`（→ JITBuilder）、`declare_imports`（→ JITModule） |
-| `value.rs` | 常量加载、Copy、字符串、`get_bool` / `set_ret` |
+| `value.rs` | 常量加载、Copy、字符串、`get_bool` |
 | `arith.rs` | 算术、比较、逻辑、一元、位运算 |
 | `control.rs` | `throw` / `install_catch` / `match_catch_type` |
 | `call.rs` | `jit_call`、`jit_builtin` |

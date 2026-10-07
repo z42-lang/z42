@@ -46,14 +46,21 @@ JIT 只在执行 `run_fn` 的那个线程上运行。VM 创建的其他线程用
 
 `vm_ctx` 和 `stack_limit` 的偏移由 `offset_of!` 导出给生成码，内联 safepoint 检查和栈检查直接 load。
 
-**`JitFrame`**：一次调用一份。
+**`JitFrame`**：一次调用一份，`#[repr(C)]`——生成码按 `offset_of!` 导出的偏移直接读写其中三个字段。
 
 | 字段 | 作用 |
 |---|---|
+| `regs_ptr: *mut Value` | 首字段（偏移 0），即 `regs.as_mut_ptr()`。函数序言 load 一次作为 `regs_base`，之后所有内联寄存器访问都按 `regs_base + idx * 16` 算地址 |
+| `ret: Value` | 返回值。`Ret %r` 把寄存器槽的 16 B 原样拷进来（`Value` 是 `Copy`，无引用计数、无写屏障）；寄存器驻留在 SSA 里时直接写 tag + payload |
+| `has_ret: u8` | `Ret %r` 置 1；无值的 `Ret` 不碰它，保持 0。`call_native` 据此给出 `Returned(Some(ret))` 或 `Returned(None)`，void 与返回 `null` 由此区分 |
 | `regs: Vec<Value>` | 寄存器文件，按 SSA 寄存器号索引，长度 `max_reg + 1` |
-| `ret: Option<Value>` | 返回值，由 `jit_set_ret` 写入 |
 | `env_arena` | 不逃逸闭包的帧内环境 |
 | `frame_id` | 帧 id，供 struct 值的悬垂检查；OSR 时继承 interp 帧的 id |
+
+`regs_ptr` 能一直有效，靠的是寄存器文件在帧存活期间从不改变长度：构造时从寄存器池取定长 `max_reg + 1`，
+生成码与 helper 只按下标读写；唯一会给别的帧 `resize` 的 `store_thru_ref` 碰不到 JIT 帧（`LoadLocalAddr`
+不进 JIT，且槽号总 `<= max_reg`）。`JitFrame` 本身被 move 不影响堆上的缓冲区。`ret` 不是 GC 根：
+从写入到 `call_native` 取走之间没有 safepoint。
 
 每次进入原生函数都经 `invoke::call_native`：把 `FnEntry.func` 与 `regs` / `env_arena` 登记成一个 `VmFrame` 压进 `VmContext` 的调用栈（GC 从那里扫描根，栈回溯从 `func` 现算名字与行号），运行后弹出并回收 `JitFrame`。调用类 helper 与 `jit_throw` 只收位点的代码偏移（`linear_offset` 常量），戳到调用方帧的 `pc` 上。
 
@@ -62,7 +69,7 @@ JIT 只在执行 `run_fn` 的那个线程上运行。VM 创建的其他线程用
 ```rust
 // helpers/mod.rs
 pub type JitFn = unsafe extern "C" fn(frame: *mut JitFrame, ctx: *const JitModuleCtx) -> u8;
-// 0 = 正常返回（返回值在 frame.ret）；1 = 抛出异常（异常值挂在 VmContext 上）
+// 0 = 正常返回（frame.has_ret != 0 时返回值在 frame.ret）；1 = 抛出异常（异常值挂在 VmContext 上）
 ```
 
 调用方先把实参写进被调方 `frame.regs[0..argc]`。z42 函数之间**从不**生成 Cranelift 直接调用，
@@ -71,6 +78,7 @@ pub type JitFn = unsafe extern "C" fn(frame: *mut JitFrame, ctx: *const JitModul
 ## 指令翻译（`translate/`）
 
 - 每个 z42 基本块对应一个 Cranelift 块；`Br` / `BrCond` / `Ret` / `Throw` 译成原生跳转与返回。
+  `Ret %r` 内联把返回值写进 `frame.ret` 并置 `frame.has_ret = 1`（偏移见 `JIT_FRAME_RET_OFFSET` / `JIT_FRAME_HAS_RET_OFFSET`），不调 helper。
   `BrCond` 先调 `jit_get_bool`（返回 0 / 1，非 Bool 时返回 `JIT_GET_BOOL_ERR` 并挂异常）。
 - 回边和 `BrCond` 前内联 safepoint 快路（两次 load/store + 分支），慢路调 `jit_check_safepoint_slow`；函数序言内联栈深检查，越界调 `jit_stack_overflow`。
 - 类型已知的整数 / 浮点标量运算、比较、转换、除余，以及部分字段读写，直接生成原生指令（寄存器缓存、loop-carried 驻留等见 [jit.md](jit.md)）。
