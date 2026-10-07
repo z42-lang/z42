@@ -207,9 +207,9 @@ jobs:
 
       # 合并 4 份逐 RID 桌面 workload → SHA256SUMS → release-index.json（channel stable / tag v<v>）。
       # 与 ci.yml publish-nightly 同一条命令。
-      - name: Finalize release assets
+      - name: Release aggregate
         shell: bash
-        run: xtask package finalize "${{ needs.verify.outputs.version }}" --dir dist
+        run: xtask package release "${{ needs.verify.outputs.version }}" --dir dist
 
       - name: Create GitHub Release
         shell: bash

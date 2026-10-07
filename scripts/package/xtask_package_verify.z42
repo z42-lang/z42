@@ -1,4 +1,4 @@
-// xtask — `test package`：打出来的 z42 发行包的端到端检查。两段：
+// xtask — `package sdk --verify` 的端到端腿：在刚组装出的 SDK 上跑。两段：
 //
 //   ① 发行包夹具（src/toolchain/launcher/tests/fixtures/package/，格式见该目录 README）：新手命令行路径、
 //      `z42 run --bin/--set`、`repl`、单文件运行、桌面发布（apphost / 多 exe / 预编译 native）、发布态 analyzer
@@ -8,28 +8,40 @@
 //      golden 布局同 test-vm（src/tests/<cat>/<name>/source.z42、src/libraries/<lib>/tests/<name>/source.z42、
 //      flat 的 src/tests/<cat>/<name>.z42）。
 //
-// 由 `_testDist`（xtask_test.z42）在进程内驱动。包目录取最新的 artifacts/packages/z42-*-release（或 env DIST_DIR）；
-// mode 列表是 argv 里可选的 `interp|jit`（缺省 "interp jit"）。
+// 由 `_packageVerify`（本文件）在进程内驱动：先跑 packages.toml 自检（xtask_package_selfcheck.z42），备好本机桌面
+// workload（apphost 腿要它的 stub），再跑这里的两段。golden 腿 interp / jit 都跑。
 //
 // golden 遍历 / 入口推导 / 字符串小工具（_deriveEntry、_splitWords、_firstLine、_stripTrailingNewlines 等）只在
-// common/xtask_golden.z42 定义一次；_latestReleasePkg 在 xtask_test.z42，挨着 _hasReleasePkg。
+// common/xtask_golden.z42 定义一次。
 namespace Z42Xtask;
 
 using Std.IO;
 
 string _distFixturesSrc() { return "src/toolchain/launcher/tests/fixtures/package"; }
 
-// `test package [interp|jit]` 的本体。全部通过返回 0，否则 1（缺包 / 夹具不符 / golden 编译失败或不符）。
-// `modeArg` 是可选的 mode 位置参数（interp|jit），空 = 两种都跑。
-int _testDistRun(string modeArg) {
+// `package sdk --verify`：packages.toml 自检 → 备好本机桌面 workload → 在 `sdkDir`（本次刚组装出的 SDK）上跑
+// 发行包夹具与 golden。全部通过返回 0。
+int _packageVerify(string sdkDir) {
+    Console.WriteLine("");
+    Console.WriteLine("── verify: packages.toml 自检 ──");
+    int c = _pkgSelfCheck(); if (c != 0) { return c; }
+    string root = _root();
+    if (_distApphostTemplate(root).Length == 0) {
+        Console.WriteLine("── verify: 本机桌面 workload 不在，先打一份（apphost 腿要它的 stub）──");
+        c = _packageWorkloadBuild("", "release"); if (c != 0) { return c; }
+    }
+    Console.WriteLine("── verify: 打包出的 SDK 端到端 ──");
+    return _verifyDist(sdkDir);
+}
+
+// 发行包夹具 + golden 腿（interp / jit）。全部通过返回 0，否则 1（缺包 / 夹具不符 / golden 编译失败或不符）。
+int _verifyDist(string distDir) {
     string root = _root();
     // DIST_SMOKE_ONLY=<tag> → 只跑 `tags` 含 <tag> 的发行包夹具（如 `launcher`：命令行路径那几例），
-    // 跳过 golden 腿。本地快跑的开关；CI 不用它 —— CI 那一处 `test package` 必须把每条腿都跑到。
+    // 跳过 golden 腿。本地快跑的开关；CI 不用它 —— CI 必须把每条腿都跑到。
     string onlyTag = _envOpt("DIST_SMOKE_ONLY", "");
 
     // ── 包目录 ──────────────────────────────────────────────────────────
-    string distDir = _envOpt("DIST_DIR", "");
-    if (distDir.Length == 0) { distDir = _latestReleasePkg(root); }
     if (distDir.Length == 0 || !Directory.Exists(distDir)) {
         ConsoleError.WriteLine("error: no packaged distribution found at artifacts/packages/z42-*-release");
         ConsoleError.WriteLine("       Run: xtask package sdk");
@@ -82,8 +94,7 @@ int _testDistRun(string modeArg) {
 
     // ── ② golden 腿 ──────────────────────────────────────────────────────
     if (onlyTag.Length == 0) {
-        if (modeArg.Length == 0) { modeArg = "interp jit"; }
-        int[] gres = _runDistGoldens(_splitWords(modeArg), root, z42c, z42vm, libsDir, work);
+        int[] gres = _runDistGoldens(new string[]{ "interp", "jit" }, root, z42c, z42vm, libsDir, work);
         overallPass = overallPass + gres[0];
         overallFail = overallFail + gres[1];
     }

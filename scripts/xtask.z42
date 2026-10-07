@@ -9,7 +9,7 @@
 // 概览，不是清单；具体 flag/positional 一律看各层 `-h`，别在这里复列以免又漂）：
 //
 //   build   runtime | compiler | stdlib | workload | toolchain [z42b] | test | all
-//   package sdk | runtime | workload [--archive] | dev-sdk | ci | finalize
+//   package sdk [--verify] | runtime | workload [--archive] | dev-sdk | ci | release
 //   test    (empty=GREEN gate) | changed | e2e | list | stdlib | compiler | toolchain | runtime
 //           | app <platform> | docs | package
 //   check   (empty=all) | <name> …（静态检查）

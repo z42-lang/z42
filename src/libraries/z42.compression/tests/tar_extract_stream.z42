@@ -135,3 +135,122 @@ void test_extract_stream_rejects_truncated() {
         Directory.Delete(tmp, true);
     }
 }
+
+// ── pax / GNU 元数据条目 ─────────────────────────────────────────────
+// macOS bsdtar 与新版 GNU tar 默认就写 pax 扩展头（目录 xattr、长路径）。测试手工拼出这些头：
+// 读取方不校验 checksum，只需 name / size（11 位八进制 + NUL）/ typeflag 三个字段。
+
+byte[] _hdr(string name, long size, byte typeflag) {
+    byte[] h = new byte[512];
+    byte[] nb = Utf8.GetBytes(name);
+    int i = 0;
+    while (i < nb.Length && i < 100) { h[i] = nb[i]; i = i + 1; }
+    byte[] mode = Utf8.GetBytes("0000644");
+    i = 0;
+    while (i < mode.Length) { h[100 + i] = mode[i]; i = i + 1; }
+    string oct = "";
+    long v = size;
+    while (oct.Length < 11) { oct = ((char)(48 + (int)(v % 8L))).ToString() + oct; v = v / 8L; }
+    byte[] ob = Utf8.GetBytes(oct);
+    i = 0;
+    while (i < 11) { h[124 + i] = ob[i]; i = i + 1; }
+    h[156] = typeflag;
+    return h;
+}
+
+// 数据块：payload 补 NUL 到 512 的整数倍。
+byte[] _blocks(byte[] payload) {
+    int n = ((payload.Length + 511) / 512) * 512;
+    byte[] b = new byte[n];
+    int i = 0;
+    while (i < payload.Length) { b[i] = payload[i]; i = i + 1; }
+    return b;
+}
+
+// 一条 pax 记录 "LEN key=value\n"，LEN 计入它自己的位数。
+string _paxRecord(string key, string value) {
+    string body = " " + key + "=" + value + "\n";
+    int len = body.Length + 1;
+    while ((len.ToString() + body).Length != len) { len = len + 1; }
+    return len.ToString() + body;
+}
+
+byte[] _concat(byte[][] parts) {
+    int total = 0;
+    foreach (var p in parts) { total = total + p.Length; }
+    byte[] r = new byte[total + 1024];   // + 两个零块的结尾标记
+    int at = 0;
+    foreach (var p in parts) {
+        int i = 0;
+        while (i < p.Length) { r[at + i] = p[i]; i = i + 1; }
+        at = at + p.Length;
+    }
+    return r;
+}
+
+// pax 'x' 的 path 覆盖下一个条目的名字（超过 100 字节的长路径就靠它）；xattr 这类键忽略；'g' 全局头跳过。
+byte[] _paxArchive(string longPath) {
+    byte[] content = Utf8.GetBytes("payload");
+    byte[] g = Utf8.GetBytes(_paxRecord("comment", "global"));
+    byte[] dirX = Utf8.GetBytes(_paxRecord("LIBARCHIVE.xattr.com.apple.provenance", "AQAA"));
+    byte[] fileX = Utf8.GetBytes(_paxRecord("path", longPath) + _paxRecord("mtime", "1"));
+    return _concat(new byte[][] {
+        _hdr("pax_global_header", (long)g.Length, (byte)103), _blocks(g),
+        _hdr("./PaxHeader/currentdir", (long)dirX.Length, (byte)120), _blocks(dirX),
+        _hdr("./", 0L, (byte)53),
+        _hdr("PaxHeader/truncated", (long)fileX.Length, (byte)120), _blocks(fileX),
+        _hdr("truncated-name.txt", (long)content.Length, (byte)48), _blocks(content)
+    });
+}
+
+string _longPath() {
+    string seg = "abcdefghij";
+    return "deep/" + seg + "/" + seg + "/" + seg + "/" + seg + "/" + seg + "/" + seg + "/" + seg + "/" + seg + "/" + seg + "/" + seg + "/file.txt";
+}
+
+[Test]
+void test_extract_stream_honors_pax_headers() {
+    string tmp = File.CreateTempDir("z42-tar-pax-");
+    try {
+        int n = Tar.ExtractStream(new MemoryStream(_paxArchive(_longPath())), tmp);
+        Assert.Equal(2, n);   // "./" + 那个文件；元数据条目不计、不落盘
+        Assert.Equal("payload", File.ReadAllText(Path.Join(tmp, _longPath())));
+        Assert.False(File.Exists(Path.Join(tmp, "truncated-name.txt")));
+        Assert.False(Directory.Exists(Path.Join(tmp, "PaxHeader")));
+    } finally {
+        Directory.Delete(tmp, true);
+    }
+}
+
+[Test]
+void test_read_honors_pax_path() {
+    // 整块读取的 Read 只收普通文件：目录条目会被拒，所以这里只拼 'g' + 'x' + 文件。
+    byte[] content = Utf8.GetBytes("payload");
+    byte[] g = Utf8.GetBytes(_paxRecord("comment", "global"));
+    byte[] fileX = Utf8.GetBytes(_paxRecord("path", _longPath()));
+    byte[] tarBytes = _concat(new byte[][] {
+        _hdr("pax_global_header", (long)g.Length, (byte)103), _blocks(g),
+        _hdr("PaxHeader/truncated", (long)fileX.Length, (byte)120), _blocks(fileX),
+        _hdr("truncated-name.txt", (long)content.Length, (byte)48), _blocks(content)
+    });
+    TarEntry[] es = Tar.Read(tarBytes);
+    Assert.Equal(1, es.Length);
+    Assert.Equal(_longPath(), es[0].Name);
+}
+
+[Test]
+void test_extract_stream_honors_gnu_long_name() {
+    byte[] content = Utf8.GetBytes("gnu");
+    byte[] longName = Utf8.GetBytes(_longPath());
+    byte[] tarBytes = _concat(new byte[][] {
+        _hdr("././@LongLink", (long)longName.Length, (byte)76), _blocks(longName),
+        _hdr("truncated-name.txt", (long)content.Length, (byte)48), _blocks(content)
+    });
+    string tmp = File.CreateTempDir("z42-tar-gnu-");
+    try {
+        Assert.Equal(1, Tar.ExtractStream(new MemoryStream(tarBytes), tmp));
+        Assert.Equal("gnu", File.ReadAllText(Path.Join(tmp, _longPath())));
+    } finally {
+        Directory.Delete(tmp, true);
+    }
+}

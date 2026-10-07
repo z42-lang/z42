@@ -138,7 +138,9 @@ public static class Tar {
 }
 ```
 
-格式是 ustar（POSIX 1003.1-1988）：512 字节块、八进制字段、两个全零块表示结束。
+格式是 ustar（POSIX 1003.1-1988）：512 字节块、八进制字段、两个全零块表示结束。读取时还认 pax 扩展头
+（typeflag `x`：其中的 `path` 作为下一个条目的名字，长路径靠它；xattr 等其余键忽略。`g` 全局头跳过）与 GNU 长名
+（typeflag `L`）——macOS 的 bsdtar、新版 GNU tar 默认就写这些，它们只修饰下一个条目，自身不落盘、不计数。
 
 | 成员 | 说明 |
 |---|---|
@@ -261,7 +263,8 @@ void Main() {
 - **wasm32 上没有 Zstd**：其余五种算法可用。
 - **没有 xz / LZMA**，没有 Zstd 预置字典。
 - **tar 只支持普通文件**：`Tar.Read` 碰到目录 / 符号链接 / 硬链接 / 设备条目即抛
-  `ArchiveException`（`Tar.ExtractStream` 额外接受目录条目）；pax 扩展头、稀疏文件不支持。
+  `ArchiveException`（`Tar.ExtractStream` 额外接受目录条目）；稀疏文件不支持。pax / GNU 长名头只在**读取**时认，
+  `Tar.Write` 不写它们。
 - **tar 条目名限 100 字节以内的 ASCII**：`Tar.Write` 对更长的名字**静默截断**，
   非 ASCII 字符也会被静默破坏（写入路径不使用 ustar 的 155 字节 prefix 字段）。
 - **zip 条目名同样限 ASCII**：`Zip.Write` 按 UTF-8 写出，但 `Zip.Read` 按单字节解码，

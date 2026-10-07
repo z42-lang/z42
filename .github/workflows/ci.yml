@@ -77,7 +77,6 @@ jobs:
               - 'src/toolchain/interactive/**'
               # z42b 的 publish（apphost / iOS / Android 导出）只在 package-* 里被执行。
               - 'src/toolchain/builder/**'
-              - 'scripts/test/xtask_test_dist.z42'
               - 'scripts/common/xtask_fixture_harness.z42'
               - 'scripts/test/xtask_test_platform.z42'
               - 'scripts/test/xtask_test_wasm.z42'
@@ -349,13 +348,14 @@ jobs:
         with:
           cache-key: package-host-v2
 
-      - name: Package host RID (xtask package)
+      - name: Package host RID + verify (xtask package)
         shell: bash
         run: |
           set -euo pipefail
           # --no-build：z42c / stdlib 用 artifact 里还原的；包自己的原生库照编。
           # --archive：在本 runner 上出归档（保留可执行位；Windows 出 zip）。PR 上也出——下面的 Installer smoke 装的就是它。
-          xtask package sdk --no-build --archive --label nightly
+          # --verify：在这份 SDK 上跑 packages.toml 自检 + 发行包夹具 + golden（每条腿都必须跑到）。
+          xtask package sdk --no-build --archive --label nightly --verify
           xtask package runtime --no-build --archive --label nightly
           xtask package workload --archive --label nightly
           # test workload = payload-only, platform-agnostic → build once on macos-arm64
@@ -363,13 +363,6 @@ jobs:
           if [ "${{ matrix.platform }}" = "macos-arm64" ]; then
             xtask package workload test --archive --label nightly
           fi
-
-      - name: Dist test (launcher + desktop-publish + golden legs)
-        # 全仓唯一调用 `test package` 的地方：每条腿都必须跑到（发行包夹具 + golden）。
-        shell: bash
-        run: |
-          set -euo pipefail
-          xtask test package
 
       - name: Learn-book examples (packaged SDK)
         # 与 test-host 的 examples stage 同一套会话脚本，这里用打包出的 SDK 跑——最贴近用户安装形态，
@@ -953,13 +946,13 @@ jobs:
           merge-multiple: true
 
       # 合并 4 份逐 RID 桌面 workload → SHA256SUMS → release-index.json（与 release.yml 同一条命令）。
-      - name: Finalize release assets (nightly)
+      - name: Release aggregate (nightly)
         if: steps.stale.outputs.stale != 'true'
         shell: bash
         run: |
           set -euo pipefail
           ls -la artifacts/packages/
-          xtask package finalize nightly --channel nightly --tag nightly --version nightly
+          xtask package release nightly --channel nightly --tag nightly --version nightly
 
       # 原地更新 nightly，绝不删了重建：GitHub 上旧 tag 的延迟删除可能落在新 tag 之后，Release 失去 tag 会静默变回
       # draft——其它运行的 GITHUB_TOKEN 看不见它，所有种子下载失败、CI 死锁。所以只做：上传（--clobber）→ 删掉本次

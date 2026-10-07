@@ -314,7 +314,7 @@ xtask test docs examples                 # 学习手册 ↔ examples 重放
 > **不要漏跑 cross-zpkg / lib / compiler**：它们不在默认 GREEN 路径之外，漏跑会让对应层的回归长期不被发现。
 > 编译器正确性由 z42c 自举 stage 保证。
 
-发行版变更（xtask package / 跨平台 / 嵌入接口）追加跑 `xtask test package`（先 `xtask package sdk` 产 host-RID 包）。
+发行版变更（xtask package / 跨平台 / 嵌入接口）追加跑 `xtask package sdk --verify`（先 `xtask package sdk` 产 host-RID 包）。
 
 **测试失败处理：**
 

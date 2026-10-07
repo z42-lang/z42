@@ -193,7 +193,7 @@ SubcommandRouter _cliRoot() {
 
     root.AddRouter("build", "build components", _buildRouter());
 
-    root.AddRouter("package", "assemble from built artifacts (sdk / runtime / workload [--archive] · dev-sdk · ci · finalize)", _packageRouter());
+    root.AddRouter("package", "assemble from built artifacts (sdk / runtime / workload [--archive] · dev-sdk · ci · release)", _packageRouter());
 
     root.AddRouter("test", "run tests (no subcommand = full GREEN gate)", _testRouter());
     root.Add("check", "static checks — no build, no test run (lines / walkers / diagcodes / versions …; no name = all)", _checkParser());

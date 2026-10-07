@@ -282,7 +282,7 @@ string _devSdkDir(string root) { return Path.Join(_artifactsDir(root), ".z42"); 
 string _legacyPubStagingDir(string root) { return Path.Join(_artifactsDir(root), "publish"); }
 
 // artifacts/packages — assembled package dirs (z42-<ver>-<rid>-<profile>…) + 打包命令 `--archive` 出的
-// 发布归档（z42-{sdk,runtime,workload}-<label>-….{tar.gz,zip}，名字自带平台 / 架构）+ `package finalize`
+// 发布归档（z42-{sdk,runtime,workload}-<label>-….{tar.gz,zip}，名字自带平台 / 架构）+ `package release`
 // 写的 SHA256SUMS / release-index.json。归档与包目录并排：一个是目录、一个是文件，不会相撞。
 string _packagesDir(string root) { return Path.Join(_artifactsDir(root), "packages"); }
 

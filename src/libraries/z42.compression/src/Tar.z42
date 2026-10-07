@@ -10,14 +10,15 @@ using Std.IO;
 // v0 scope: ustar format (the modern GNU tar / bsdtar default).
 //   - regular files (typeflag '0' or '\0')
 //   - 100-byte name + 155-byte prefix (long-name handling via prefix
-//     concatenation; pax extended headers are deferred)
+//     concatenation)
+//   - pax extended headers（'x' 逐条目：`path` 覆盖下一个条目的名字，其余键如 xattr 忽略；'g' 全局头跳过）
+//     与 GNU 长名（'L'：payload 即下一个条目的名字）——macOS bsdtar、新版 GNU tar 默认就会写它们
 //   - octal sizes / modes
 //   - 512-byte blocks with NUL padding
 //   - 2 × 512 NUL trailer marks EOF
 //
-// Out of scope (deferred): pax extended headers, sparse files, symlinks
-// with content, hard links, device files. Bytes of an unsupported entry
-// type produce an `ArchiveException`.
+// Out of scope (deferred): sparse files, symlinks with content, hard links, device files. Bytes of
+// an unsupported entry type produce an `ArchiveException`.
 
 public class TarEntry {
     public string Name;
@@ -47,6 +48,7 @@ public static class Tar {
         TarEntry[] buf = new TarEntry[16];
         int count = 0;
         int offset = 0;
+        string pendingName = "";   // 前一个 pax 'x' / GNU 'L' 元数据条目给出的名字
 
         while (offset + 512 <= tarBytes.Length) {
             // EOF marker: two consecutive zero blocks → stop.
@@ -72,6 +74,17 @@ public static class Tar {
             }
 
             offset = offset + 512;
+
+            if (_IsMetaEntry(typeflag)) {
+                byte[] meta = new byte[(int)size];
+                int mi = 0;
+                while (mi < (int)size) { meta[mi] = tarBytes[offset + mi]; mi = mi + 1; }
+                string named = _MetaName(typeflag, meta);
+                if (named.Length > 0) { pendingName = named; }
+                offset = offset + (int)(((size + 511) / 512) * 512);
+                continue;
+            }
+            if (pendingName.Length > 0) { fullName = pendingName; pendingName = ""; }
 
             // Only regular files supported in v0.
             byte zero = 48;  // ASCII '0'
@@ -267,6 +280,7 @@ public static class Tar {
         byte[] header = new byte[512];
         byte[] dataBuf = new byte[512];
         int written = 0;
+        string pendingName = "";   // 前一个 pax 'x' / GNU 'L' 元数据条目给出的名字
         while (true) {
             int n = _ReadFull(src, header, 0, 512);
             if (n == 0) {
@@ -293,6 +307,21 @@ public static class Tar {
             string fullName;
             if (prefix.Length > 0) { fullName = prefix + "/" + name; }
             else { fullName = name; }
+
+            if (_IsMetaEntry(typeflag)) {
+                long metaPadded = ((size + 511L) / 512L) * 512L;
+                byte[] meta = new byte[(int)metaPadded];
+                if (_ReadFull(src, meta, 0, (int)metaPadded) < (int)metaPadded) {
+                    throw new ArchiveException("tar: truncated extended header for " + fullName);
+                }
+                byte[] payload = new byte[(int)size];
+                int mi = 0;
+                while (mi < (int)size) { payload[mi] = meta[mi]; mi = mi + 1; }
+                string named = _MetaName(typeflag, payload);
+                if (named.Length > 0) { pendingName = named; }
+                continue;
+            }
+            if (pendingName.Length > 0) { fullName = pendingName; pendingName = ""; }
 
             byte zero    = 48;  // '0' regular file
             byte nul     = 0;   // '\0' regular file (old-style)
@@ -349,6 +378,33 @@ public static class Tar {
             }
         }
         return written;
+    }
+
+    // 元数据条目：pax 逐条目扩展头 'x'(120)、pax 全局头 'g'(103)、GNU 长名 'L'(76)。它们不落盘，只修饰下一个条目。
+    private static bool _IsMetaEntry(byte typeflag) {
+        return typeflag == 120 || typeflag == 103 || typeflag == 76;
+    }
+
+    // 元数据条目给下一个条目的名字："" = 不改名。'x'：记录 `LEN key=value\n` 里的 `path`；'L'：payload 去掉尾部 NUL；
+    // 'g'（全局头）不影响单个条目的名字。
+    private static string _MetaName(byte typeflag, byte[] payload) {
+        if (typeflag == 76) { return _ReadStr(payload, 0, payload.Length); }
+        if (typeflag != 120) { return ""; }
+        string text = _ReadStr(payload, 0, payload.Length);   // 与头里的名字同一种按字节解码
+        string found = "";
+        int pos = 0;
+        while (pos < text.Length) {
+            string rest = text.Substring(pos);
+            int sp = rest.IndexOf(" ");
+            if (sp <= 0) { break; }
+            int len = int.Parse(rest.Substring(0, sp));
+            if (len <= sp + 1 || len > rest.Length) { break; }
+            string rec = rest.Substring(sp + 1, len - sp - 2);   // 去掉 "LEN " 与末尾 "\n"
+            int eq = rec.IndexOf("=");
+            if (eq > 0 && rec.Substring(0, eq) == "path") { found = rec.Substring(eq + 1); }
+            pos = pos + len;
+        }
+        return found;
     }
 
     /// Read exactly `count` bytes from `s` into `buf[offset..]`, looping

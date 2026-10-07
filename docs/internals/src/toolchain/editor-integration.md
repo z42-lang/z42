@@ -90,7 +90,7 @@ CI 的分腿 job 用 `xtask test --skip vscode` 把它挪到别的腿上。
 在打包时把 `src/toolchain/devtools/vscode/` 拷进 SDK 的 `editors/vscode/`。
 
 ⚠️ **`*.tpl.json` 不进包**——它是生成器的输入，出现在用户扩展目录里只会造成困惑。
-这条由 `xtask check packages` 的组件安装自检守着（`generator template NOT packaged`）。
+这条由 `xtask package sdk --verify` 里 packages.toml 自检的组件安装一层守着（`generator template NOT packaged`）。
 
 `z42d install` 定位 SDK 根用的是与 launcher 同一套优先级：
 `Z42_HOME` > apphost 注入的 `Z42_PORTABLE_VM` 反推 > `~/.z42`。

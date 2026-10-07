@@ -132,7 +132,7 @@ runs:
         if [ "$dl_ok" != 1 ]; then
           echo "::error::no usable z42 SDK seed: nightly failed after 10 attempts AND no successful CI run's host package worked."
           echo "::error::check 'gh release view nightly' — a *draft* nightly is invisible to GITHUB_TOKEN; if it still carries all assets, 'gh release edit nightly --draft=false --prerelease' is enough."
-          echo "::error::manual recovery: download the newest successful CI run's release-* artifacts, run 'xtask package finalize nightly' and republish the nightly release (see internals/devinfra/ci.md §3.1)."
+          echo "::error::manual recovery: download the newest successful CI run's release-* artifacts, run 'xtask package release nightly' and republish the nightly release (see internals/devinfra/ci.md §3.1)."
           cat "$work/dlerr" 2>/dev/null || true
           exit 1
         fi

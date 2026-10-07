@@ -11,8 +11,7 @@ using Std.Cli;
 //   app         嵌入宿主里跑（desktop / wasm / ios / android）
 //   docs        文档链接 + 学习手册示例
 //   list        用例目录（只读）
-//   package     打包出的发行版端到端（发行包夹具 + golden；没有 release 包先打一个）
-// 不跑用例的静态检查在 `xtask check`（xtask_cli_check.z42；packages.toml 自检是其中的 `check packages`）。
+// 不跑用例的静态检查在 `xtask check`（xtask_cli_check.z42）；打包的验证在 `xtask package sdk --verify`。
 SubcommandRouter _testRouter() {
     SubcommandRouter t = new SubcommandRouter("xtask test",
         "run tests (no subcommand = the full GREEN gate: xtask test [--no-build] [--skip <csv>] [--changed <base>])");
@@ -74,9 +73,6 @@ SubcommandRouter _testRouter() {
     app.AddOption("format", "", "desktop run report: json | pretty | tap (default: json)", "");
     app.AddOption("zbc", "", "desktop: run one .zbc or one golden case dir instead of a corpus bundle", "");
     t.Add("app", "embedding hosts: desktop / wasm / ios / android / all (unsupported hosts are skipped)", app);
-    ArgParser pkg = new ArgParser("xtask test package", "drive the PACKAGED distribution: package fixtures (launcher / publish / analyzer / hooks) + goldens");
-    pkg.AddOptionalPositional("mode", "interp|jit (default: both)");
-    t.Add("package", "packaged distribution end-to-end (packs a host release package first if none)", pkg);
     // 文档（三本书）：不带 kind = 两样都跑。
     ArgParser docs = new ArgParser("xtask test docs", "documentation: relative links resolve + learn-book examples replay");
     docs.AddOptionalPositional("kind", "links | examples (default: both)");
@@ -102,7 +98,6 @@ int _dispatchTest(string[] p, ParseResult r) {
     if (sub == "runtime")      { return _testRuntime(); }
     if (sub == "app")          { return _testApp(r); }        // 嵌入宿主（test-layout §6）
     if (sub == "docs")         { return _testDocsCmd(r); }
-    if (sub == "package")      { return _testDist(r); }       // 打包出的发行版（发行包夹具 + golden）
     return 2;
 }
 

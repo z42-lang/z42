@@ -44,14 +44,15 @@
 ./xtask package runtime --rid ios-arm64               # 平台 RID 的 runtime 包
 ./xtask package workload --rid linux-x64              # 单 RID 的 desktop workload
 ./xtask package sdk --archive [--label L]             # 同时出发布归档（sdk / runtime / workload 都可带）
-./xtask package finalize <LABEL> [--dir D] [--channel C] [--tag T] [--version V]
-                                                      # 合并四个 per-RID desktop workload → SHA256SUMS → release-index.json
+./xtask package sdk --verify                          # 再验这份 SDK：packages.toml 自检 + 发行包夹具 + golden
+./xtask package release <LABEL> [--dir D] [--channel C] [--tag T] [--version V]
+                                                      # 汇总：合并四个 per-RID desktop workload → SHA256SUMS → release-index.json
 ```
 
 **本地出发布归档**：打包命令带 `--archive`，本次产出的包目录旁边（`artifacts/packages/`）就多出与 CI 同名、
 同格式的归档（label 缺省取 `versions.toml` 的版本；只有 release profile 的包会发布）。归档名自带平台 / 架构，
 与包目录并排放不会撞。命名规则（下表）只在 `xtask_release.z42` 里写一次，release.yml、nightly 与本地共用。
-`finalize` 默认就在 `artifacts/packages/` 上做，要求 9 个 RID 的归档齐全（单机凑不齐，它是汇总 job 的步骤）。
+`release` 默认就在 `artifacts/packages/` 上做，要求 9 个 RID 的归档齐全（单机凑不齐，它是汇总 job 的步骤）。
 
 `--no-build` 让它消费已有的 z42c + stdlib 产物（CI warm 路径用）。
 `--variant <suffix>` 给包名加后缀。产物落 `artifacts/packages/z42-<version>-<rid>-<profile>/`。
@@ -102,7 +103,7 @@ file .../native/libz42.dylib          # ② native 库架构（关键 invariant�
 #   android-arm64 → ELF 64-bit LSB shared object, ARM aarch64
 #   browser-wasm  → WebAssembly (wasm) binary module
 
-./xtask check packages                # ③ packages.toml 的解析 / 组件安装 / 发布归档自检
+./xtask package sdk --verify          # ③ packages.toml 自检 + 这份 SDK 的发行包夹具 + golden
 
 # ④ desktop：C 宿主链接打出来的 runtime 包（静态 + 动态各一遍 R1–R7；CI host-package 每个 RID 都跑）
 Z42_RUNTIME_DIR=artifacts/packages/z42-runtime-<version>-<rid> ./xtask test app desktop
@@ -116,7 +117,8 @@ Z42_RUNTIME_DIR=artifacts/packages/z42-runtime-<version>-<rid> ./xtask test app 
 紧接着是**包结构门**：该有的文件在、不该发的不在、原生库的 install name / SONAME / 架构 / glibc 下限对
 （逐类断言见[打包引擎 §5.1](packaging.md)）。两道门本地打包与 CI 跑的是同一份。
 
-装好的包还可以整包验：`./xtask test package [interp|jit]` 在打包出的发行版上跑发行包夹具 + golden。
+打包时带 `--verify`（只对 `package sdk`）就整包验：先跑 packages.toml 自检（解析 / 组件安装 / 发布归档三层），再在
+这份 SDK 上跑发行包夹具 + golden（interp / jit；本机桌面 workload 不在会先打一份，apphost 腿要它的 stub）。
 
 ### 常见失败
 
@@ -155,7 +157,7 @@ git tag vY && git push origin vY           # ⑤ 触发 .github/workflows/releas
 |---|---|
 | `verify-version(linux-x64)` | 校验 `tag` 去掉 `v` 后等于 `versions.toml [project].version`，不等就 fail-fast |
 | `package-<rid>`（9 个 RID matrix） | 每 RID 一台 runner，先从上一 nightly 种子自举，再打包：desktop RID 跑 `package sdk` + `package runtime` + `package workload`（外加在一台 host 上 `package workload test`），平台 RID 跑 `package runtime --rid <rid>`；各打包命令带 `--archive --label <version>`，在本 runner 上随打包出归档（保留可执行位；Windows 出 zip） |
-| `publish-release(linux-x64)` | 汇总归档，`xtask package finalize <version> --dir dist`（合并 desktop workload → `SHA256SUMS` → `release-index.json`），`gh release create v<version>` 上传 |
+| `publish-release(linux-x64)` | 汇总归档，`xtask package release <version> --dir dist`（合并 desktop workload → `SHA256SUMS` → `release-index.json`），`gh release create v<version>` 上传 |
 
 **artifact 命名**（`<v>` 在 nightly 里是字面量 `nightly`）：
 
@@ -164,7 +166,7 @@ git tag vY && git push origin vY           # ⑤ 触发 .github/workflows/releas
 | SDK（linux-x64 / linux-arm64 / macos-arm64） | `z42-sdk-<v>-<rid>.tar.gz` |
 | SDK（windows-x64） | `z42-sdk-<v>-windows-x64.zip` |
 | runtime（9 个 RID） | `z42-runtime-<v>-<rid>.tar.gz`（Windows `.zip`） |
-| workload（5 个） | `z42-workload-<v>-<wl>.tar.gz` |
+| workload（5 个；desktop 是 4 个 RID 合成的一份） | `z42-workload-<v>-<wl>.tar.gz` |
 | 安装脚本 | `install.sh` / `install.ps1`（同时发到 Pages 站点根） |
 | 校验和 / 清单 | `SHA256SUMS`（coreutils 格式）/ `release-index.json` |
 

@@ -378,56 +378,6 @@ int _testCrossZpkgCore(string mode, bool noBuild) {
     return _testCrossZpkgImpl(mode);
 }
 
-// ── test package (packaged-distribution e2e) ────────────────────────────────────
-
-// `test package [interp|jit]` — native port of the former scripts/test-dist.sh.
-// Ensure a host release package exists, then run the in-process dist e2e
-// (_testDistRun, xtask_test_dist.z42): the package fixtures
-// (src/toolchain/launcher/tests/fixtures/package/) + the goldens on the PACKAGED z42c/z42vm.
-// Not in the default GREEN gate (run on demand).
-int _testDist(ParseResult r) {
-    Stopwatch sw = _procStart("test package");
-    string root = _root();
-    // Ensure a host release package exists — its internal build (_packageDesktop)
-    // produces z42c + z42vm + stdlib itself. _testDistRun consumes ONLY the package
-    // (bin/z42c, bin/z42vm, libs/), so the former source-tree prebuild wave
-    // (_buildCompiler + cargo + _buildStdlib) was redundant with _buildPackageCore
-    // and unused by the runner (review §2.4 — removed).
-    if (!_hasReleasePkg(root)) {
-        int c = _buildPackageCore("release", "", "", false); if (c != 0) { return c; }
-    }
-    int __rc = _testDistRun(r.GetPositional(0));
-    if (__rc == 0) { _procEnd("test package", sw); }
-    return __rc;
-}
-
-bool _hasReleasePkg(string root) {
-    string pkgs = _packagesDir(root);
-    if (!Directory.Exists(pkgs)) { return false; }
-    foreach (var name in Directory.Enumerate(pkgs)) {
-        if (name.StartsWith("z42-") && name.EndsWith("-release")) { return true; }
-    }
-    return false;
-}
-
-// latest artifacts/packages/z42-*-release dir (absolute path), or "" if none.
-// Lives here alongside _hasReleasePkg; called by _testDistRun (xtask_test_dist.z42).
-string _latestReleasePkg(string root) {
-    string pkgs = _packagesDir(root);
-    if (!Directory.Exists(pkgs)) { return ""; }
-    string best = "";
-    foreach (var name in Directory.Enumerate(pkgs)) {
-        if (name.StartsWith("z42-") && name.EndsWith("-release")) {
-            string full = Path.Join(pkgs, name);
-            if (Directory.Exists(full)) {
-                // Prefer the lexicographically-greatest (stable; usually one host pkg).
-                if (best.Length == 0 || name.CompareTo(Path.GetFileName(best)) > 0) { best = full; }
-            }
-        }
-    }
-    return best;
-}
-
 // ── xtask test (unified GREEN gate) ───────────────────────────────────────────
 
 // `test` (no target) — the full GREEN gate, sequential: build once, then run
