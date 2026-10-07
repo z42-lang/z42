@@ -6,7 +6,8 @@ use crate::metadata::{Module, Value};
 use crate::vm_context::VmContext;
 use anyhow::{bail, Result};
 
-use super::dispatch::{obj_to_string, value_to_str};
+use super::dispatch::{obj_to_gc_str, with_obj_str};
+use crate::corelib::convert::with_value_str;
 use super::ops::{bool_val, int_binop, int_bitop};
 use super::Frame;
 
@@ -52,24 +53,22 @@ pub(super) fn copy(frame: &mut Frame, dst: u32, src: u32) -> Result<()> {
 pub(super) fn add(
     ctx: &VmContext, module: &Module, frame: &mut Frame, dst: u32, a: u32, b: u32,
 ) -> Result<()> {
-    // dispatch-tostring-in-native-stringify: 混合臂（一侧是字符串）此前用无 ctx 的
-    // `value_to_str` ⇒ `"" + obj` 打 `类型名{...}`，而 `$"{obj}"`（`ToStr` 指令 →
-    // `obj_to_string`）是对的。fix-struct-tostring-paths 在**编译期**补过这条路，但只补了
-    // `_isBlobStruct`（字段数 ≥ 2）那一支 ⇒ class / record / **单字段** struct 全漏。
-    // 这里接上同一个 `obj_to_string`，四条路收敛。两条快路（Str+Str 融合分配 / 整数）不动。
-    let concat_str = |v: &Value| -> Result<String> {
-        match v {
-            Value::Object(_) | Value::BoxedStruct(_) => super::dispatch::obj_to_string(ctx, module, v),
-            other => Ok(value_to_str(other)),
-        }
-    };
+    // dispatch-tostring-in-native-stringify: 混合臂（一侧是字符串）的非串操作数走与
+    // `$"{obj}"`（`ToStr` 指令）同一个 `ToString` 协议（`with_obj_str`）——class / record /
+    // struct 的用户 `ToString` 都被调用，抛出的异常照常传播。
+    // perf-str-concat-direct: 非串操作数**不落地**成中间串——标量格式化进栈缓冲、用户
+    // `ToString` 返回的 GC 串原样借用——直接和另一侧一起拷进结果块（一次 GC 分配，零 malloc）。
     let result = match (frame.get(a)?, frame.get(b)?) {
-        // fuse-str-concat-alloc: allocate the concatenation as one fused GC block,
-        // skipping the intermediate `format!` String (mixed arms still build one
-        // `String` for the non-string operand via `value_to_str`).
+        // fuse-str-concat-alloc: allocate the concatenation as one fused GC block.
         (Value::Str(sa), Value::Str(sb)) => Value::Str(ctx.heap().alloc_str_concat2(sa, sb)),
-        (Value::Str(sa), vb)             => { let sa = sa.clone(); let t = concat_str(vb)?; Value::Str(ctx.heap().alloc_str_concat2(&sa, &t)) }
-        (va, Value::Str(sb))             => { let sb = sb.clone(); let t = concat_str(va)?; Value::Str(ctx.heap().alloc_str_concat2(&t, &sb)) }
+        (Value::Str(sa), vb) => {
+            let sa = *sa;
+            Value::Str(with_obj_str(ctx, module, vb, |t| ctx.heap().alloc_str_concat2(&sa, t))?)
+        }
+        (va, Value::Str(sb)) => {
+            let sb = *sb;
+            Value::Str(with_obj_str(ctx, module, va, |t| ctx.heap().alloc_str_concat2(t, &sb))?)
+        }
         // 2026-04-28 vm-wrapping-int-arith: wrapping_add（与 Rust release build /
         // C# unchecked int / Java int 一致），解锁 hash / PRNG / 校验和算法
         _ => int_binop(&frame.regs, a, b, i64::wrapping_add, |x, y| x + y)?,
@@ -258,8 +257,14 @@ pub(super) fn str_concat(ctx: &VmContext, frame: &mut Frame, dst: u32, a: u32, b
 pub(super) fn to_str(
     ctx: &VmContext, module: &Module, frame: &mut Frame, dst: u32, src: u32,
 ) -> Result<()> {
-    let s = obj_to_string(ctx, module, frame.get(src)?)?;
-    frame.set(dst, Value::Str(s.into()));
+    // perf-str-concat-direct: format straight into the GC string — no intermediate
+    // `String`. A user `ToString`'s result string is used as-is (the JIT `jit_to_str`
+    // native path does the same), so `$"{obj}"` allocates nothing beyond what `ToString` did.
+    let s = match frame.get(src)? {
+        v @ (Value::Object(_) | Value::BoxedStruct(_)) => { let v = *v; obj_to_gc_str(ctx, module, &v)? }
+        v => with_value_str(v, |t| ctx.heap().alloc_str(t)),
+    };
+    frame.set(dst, Value::Str(s));
     Ok(())
 }
 

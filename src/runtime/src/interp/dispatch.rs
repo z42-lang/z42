@@ -7,8 +7,6 @@ use crate::metadata::{ClassDesc, FieldSlot, Function, Module, TypeDesc, Value};
 use crate::vm_context::VmContext;
 use anyhow::{bail, Result};
 
-pub use crate::corelib::convert::value_to_str;
-
 // ── Subclass check ───────────────────────────────────────────────────────────
 
 /// Returns true if `derived` equals `target`, is a subclass, or (when `target`
@@ -228,12 +226,62 @@ fn iface_reaches_td(
 
 // ── ToString protocol ────────────────────────────────────────────────────────
 
-/// Convert a value to its string representation, respecting `ToString()` overrides on objects.
+/// The `ToString` protocol: stringify `val`, respecting `ToString()` overrides, and hand
+/// the text to `f` as a `&str` (perf-str-concat-direct: nothing is materialised).
 ///
 /// For `Value::Object` we try to dispatch `ToString` via the vtable. If the class has no
 /// `ToString` method (e.g. it inherits the default from `Std.Object`) we fall back to the
-/// `__obj_to_str` builtin (simple name). All other value types use `value_to_str` directly.
-pub fn obj_to_string(ctx: &VmContext, module: &Module, val: &Value) -> Result<String> {
+/// `__obj_to_str` builtin (simple name). Boxed receivers go through `resolve_vcall`. All
+/// other value types use `value_to_str` rules. A user `ToString`'s returned GC string is passed
+/// through as-is (no copy); scalars are formatted into a stack buffer
+/// ([`with_value_str`](crate::corelib::convert::with_value_str)) — no heap allocation.
+/// `"k" + i` / `$"{x}"` build their result straight from this view. Same dispatch, same
+/// result text and exception propagation for every caller (concat, interpolation, `WriteLine`).
+pub fn with_obj_str<R>(
+    ctx: &VmContext, module: &Module, val: &Value, f: impl FnOnce(&str) -> R,
+) -> Result<R> {
+    use crate::corelib::convert::with_value_str;
+    let out = match tostring_result(ctx, module, val)? {
+        ToStringResult::Value(Value::Str(s)) => f(&s),
+        ToStringResult::Value(other) => with_value_str(&other, f),
+        ToStringResult::Empty => f(""),
+        ToStringResult::NotDispatched => with_value_str(val, f),
+    };
+    Ok(out)
+}
+
+/// perf-str-concat-direct: [`with_obj_str`] as a GC string (`ToStr` / `$"{x}"`). A user
+/// `ToString`'s returned string is used as-is — no copy (the JIT's native `jit_to_str` path
+/// does the same); everything else is formatted straight into one fresh GC block.
+pub fn obj_to_gc_str(ctx: &VmContext, module: &Module, val: &Value) -> Result<crate::metadata::vstr::Str> {
+    use crate::corelib::convert::with_value_str;
+    let heap = ctx.heap();
+    Ok(match tostring_result(ctx, module, val)? {
+        ToStringResult::Value(Value::Str(s)) => s,
+        ToStringResult::Value(other) => with_value_str(&other, |t| heap.alloc_str(t)),
+        ToStringResult::Empty => heap.alloc_str(""),
+        ToStringResult::NotDispatched => with_value_str(val, |t| heap.alloc_str(t)),
+    })
+}
+
+/// The raw outcome of the `ToString` protocol for one receiver (see [`with_obj_str`]).
+enum ToStringResult {
+    /// What the dispatched `ToString` (or the `__obj_to_str` / boxed fallback) returned.
+    Value(Value),
+    /// A `ToString` that returned nothing.
+    Empty,
+    /// No dispatch applies — stringify the receiver itself (`value_to_str` rules).
+    NotDispatched,
+}
+
+fn tostring_result(ctx: &VmContext, module: &Module, val: &Value) -> Result<ToStringResult> {
+    fn outcome(ctx: &VmContext, o: super::ExecOutcome) -> Result<ToStringResult> {
+        match o {
+            super::ExecOutcome::Returned(Some(v)) => Ok(ToStringResult::Value(v)),
+            super::ExecOutcome::Returned(None)    => Ok(ToStringResult::Empty),
+            super::ExecOutcome::Thrown(v)         => Err(tostring_threw(ctx, v)),
+        }
+    }
     if let Value::Object(rc) = val {
         let type_desc = rc.type_desc_arc().clone();
         // Try vtable first (O(1))
@@ -243,13 +291,7 @@ pub fn obj_to_string(ctx: &VmContext, module: &Module, val: &Value) -> Result<St
             let callee = module.func_index.get(func_name.as_str())
                 .and_then(|&idx| module.functions.get(idx));
             if let Some(callee) = callee {
-                let outcome = super::exec_function(ctx, module, callee, &[val.clone()])?;
-                return match outcome {
-                    super::ExecOutcome::Returned(Some(Value::Str(s))) => Ok(s.to_string()),
-                    super::ExecOutcome::Returned(Some(other))         => Ok(value_to_str(&other)),
-                    super::ExecOutcome::Returned(None)                => Ok(String::new()),
-                    super::ExecOutcome::Thrown(v)                     => Err(tostring_threw(ctx, v)),
-                };
+                return outcome(ctx, super::exec_function(ctx, module, callee, &[val.clone()])?);
             }
         }
         // Fallback: builtin obj_to_str (unqualified type name)
@@ -257,7 +299,7 @@ pub fn obj_to_string(ctx: &VmContext, module: &Module, val: &Value) -> Result<St
                 ctx,
                 crate::metadata::well_known_names::BUILTIN_OBJ_TO_STR,
                 &[val.clone()])
-            .map(|v| match v { Value::Str(s) => s.to_string(), other => value_to_str(&other) });
+            .map(ToStringResult::Value);
     }
     // dispatch-tostring-in-native-stringify: **装箱**接收者（值 struct 装箱 / 基元装箱 / enum 盒）。
     // 复用 `resolve_vcall` 的整套判据 —— 它已经把三种盒各自的正确答案都定好了：
@@ -266,38 +308,25 @@ pub fn obj_to_string(ctx: &VmContext, module: &Module, val: &Value) -> Result<St
     // `__obj_to_str: expected an object`）。自己再写一份判据必然与它漂移。
     if matches!(val, Value::BoxedStruct(_)) {
         let r = super::vcall_resolve::resolve_vcall(ctx, module, val, "ToString", 0, None)?;
-        let imm = |v: Value| match v { Value::Str(s) => s.to_string(), other => value_to_str(&other) };
         return match r.target {
-            super::vcall_resolve::VCallTarget::Immediate(v) => Ok(imm(v)),
+            super::vcall_resolve::VCallTarget::Immediate(v) => Ok(ToStringResult::Value(v)),
             super::vcall_resolve::VCallTarget::Thrown(v) => Err(tostring_threw(ctx, v)),
             super::vcall_resolve::VCallTarget::Local(idx) => match module.functions.get(idx) {
-                Some(f) => exec_to_string(ctx, module, f, &r.this),
-                None => Ok(value_to_str(val)),
+                Some(f) => outcome(ctx, super::exec_function(ctx, module, f, &[r.this.clone()])?),
+                None => Ok(ToStringResult::NotDispatched),
             },
-            super::vcall_resolve::VCallTarget::Lazy(f) => exec_to_string(ctx, module, f.as_ref(), &r.this),
+            super::vcall_resolve::VCallTarget::Lazy(f) =>
+                outcome(ctx, super::exec_function(ctx, module, f.as_ref(), &[r.this.clone()])?),
         };
     }
-    Ok(value_to_str(val))
-}
-
-/// dispatch-tostring-in-native-stringify: 跑一个已解析出的 `ToString` 目标并把结果化成串。
-/// 与 `obj_to_string` 的 object 分支同款结果映射。
-fn exec_to_string(
-    ctx: &VmContext, module: &Module, callee: &crate::metadata::Function, this: &Value,
-) -> Result<String> {
-    match super::exec_function(ctx, module, callee, &[this.clone()])? {
-        super::ExecOutcome::Returned(Some(Value::Str(s))) => Ok(s.to_string()),
-        super::ExecOutcome::Returned(Some(other))         => Ok(value_to_str(&other)),
-        super::ExecOutcome::Returned(None)                => Ok(String::new()),
-        super::ExecOutcome::Thrown(v)                     => Err(tostring_threw(ctx, v)),
-    }
+    Ok(ToStringResult::NotDispatched)
 }
 
 /// A user `ToString` threw while stringifying (concatenation, interpolation,
 /// `Console.WriteLine(obj)`). The exception propagates with its own type, like
 /// any other call's: the value goes into `pending_thrown` — the same channel
 /// callback builtins use — and the returned error tells the caller to take it.
-/// Every caller of [`obj_to_string`] / [`stringify_dispatch`] must therefore
+/// Every caller of [`with_obj_str`] / [`obj_to_gc_str`] / [`stringify_dispatch`] must therefore
 /// check `take_pending_thrown()` on `Err` (interp `Add` / `ToStr`, JIT
 /// `jit_add` / `jit_to_str`; builtins get it from `exec_call::builtin`).
 ///
@@ -308,19 +337,35 @@ fn tostring_threw(ctx: &VmContext, thrown: Value) -> anyhow::Error {
     anyhow::anyhow!("ToString threw an exception")
 }
 
-/// dispatch-tostring-in-native-stringify: `obj_to_string` 的 **ctx-only** 包装 —— 给手里只有
+/// dispatch-tostring-in-native-stringify: `with_obj_str` 的 **ctx-only** 包装 —— 给手里只有
 /// `&VmContext` 的 native 落点用（`Console.WriteLine` 一族 builtin、字符串拼接的混合臂）。
 ///
 /// 此前这些落点直接用无 ctx 的 `value_to_str` ⇒ 对象一律打 `类型名{...}`，于是同一个对象
 /// 「插值对、`WriteLine` 错」。`module` 从 `ctx.core.module` 取（与 `reflection/invoke.rs`
 /// 的取法同源）；取不到（未装载模块的宿主场景）就回落 `value_to_str`，不为展示路径制造失败。
 pub fn stringify_dispatch(ctx: &VmContext, val: &Value) -> Result<String> {
+    with_stringify_dispatch(ctx, val, |s| s.to_string())
+}
+
+/// perf-str-concat-direct: [`stringify_dispatch`] as a GC string (see [`obj_to_gc_str`]).
+pub fn stringify_dispatch_gc(ctx: &VmContext, val: &Value) -> Result<crate::metadata::vstr::Str> {
     match ctx.core.module.as_ref() {
         Some(m) => {
             let m = m.clone();
-            obj_to_string(ctx, m.as_ref(), val)
+            obj_to_gc_str(ctx, m.as_ref(), val)
         }
-        None => Ok(value_to_str(val)),
+        None => Ok(crate::corelib::convert::with_value_str(val, |t| ctx.heap().alloc_str(t))),
+    }
+}
+
+/// perf-str-concat-direct: [`stringify_dispatch`] as a `&str` view (see [`with_obj_str`]).
+pub fn with_stringify_dispatch<R>(ctx: &VmContext, val: &Value, f: impl FnOnce(&str) -> R) -> Result<R> {
+    match ctx.core.module.as_ref() {
+        Some(m) => {
+            let m = m.clone();
+            with_obj_str(ctx, m.as_ref(), val, f)
+        }
+        None => Ok(crate::corelib::convert::with_value_str(val, f)),
     }
 }
 

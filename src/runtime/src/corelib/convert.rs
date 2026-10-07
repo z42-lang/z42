@@ -256,6 +256,72 @@ pub fn arg_usize(args: &[Value], idx: usize, ctx: &str) -> Result<usize> {
     }
 }
 
+/// perf-str-concat-direct: a stack-first `fmt::Write` sink. Up to 64 bytes stay in the
+/// inline buffer (every `i64` / `bool` / `char` and the common `f64` texts); longer
+/// output (e.g. `1e300` prints 301 digits) spills to a `String`.
+pub struct FmtBuf {
+    buf: [u8; 64],
+    len: usize,
+    spill: String,
+}
+
+impl FmtBuf {
+    #[inline]
+    pub fn new() -> Self {
+        Self { buf: [0; 64], len: 0, spill: String::new() }
+    }
+    #[inline]
+    pub fn as_str(&self) -> &str {
+        if self.spill.is_empty() {
+            // SAFETY: only whole `&str` fragments are ever copied into `buf[..len]`.
+            unsafe { std::str::from_utf8_unchecked(&self.buf[..self.len]) }
+        } else {
+            &self.spill
+        }
+    }
+}
+
+impl Default for FmtBuf {
+    fn default() -> Self { Self::new() }
+}
+
+impl std::fmt::Write for FmtBuf {
+    fn write_str(&mut self, s: &str) -> std::fmt::Result {
+        if self.spill.is_empty() && self.len + s.len() <= self.buf.len() {
+            self.buf[self.len..self.len + s.len()].copy_from_slice(s.as_bytes());
+            self.len += s.len();
+        } else {
+            if self.spill.is_empty() {
+                // SAFETY: as in `as_str`.
+                self.spill.push_str(unsafe { std::str::from_utf8_unchecked(&self.buf[..self.len]) });
+            }
+            self.spill.push_str(s);
+        }
+        Ok(())
+    }
+}
+
+/// perf-str-concat-direct: [`value_to_str`] as a borrowed view — the text is handed to `f`
+/// instead of being returned as an owned `String`. Strings pass through, scalars
+/// (`I64` / `F64` / `Bool` / `Char` / `Null`) are formatted into a stack [`FmtBuf`]
+/// (no heap allocation); every other variant falls back to `value_to_str`. The text is
+/// byte-identical to `value_to_str(v)` (same `Display` impls).
+#[inline]
+pub fn with_value_str<R>(v: &Value, f: impl FnOnce(&str) -> R) -> R {
+    use std::fmt::Write;
+    let mut b = FmtBuf::new();
+    match v {
+        Value::Str(s) => return f(s),
+        Value::I64(n) => { let _ = write!(b, "{n}"); }
+        Value::F64(x) => { let _ = write!(b, "{x}"); }
+        Value::Bool(x) => return f(if *x { "true" } else { "false" }),
+        Value::Char(c) => { let mut t = [0u8; 4]; return f(c.encode_utf8(&mut t)); }
+        Value::Null => return f("null"),
+        other => return f(&value_to_str(other)),
+    }
+    f(b.as_str())
+}
+
 /// Convert a Value to its string representation.
 ///
 /// Exhaustive match: 加新 `Value` variant 时编译期强制覆盖（防止再次出现
