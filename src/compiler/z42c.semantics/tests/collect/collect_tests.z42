@@ -579,8 +579,7 @@ void test_duplicate_type_across_compilation_units_is_reported() {
 
 [Test]
 void test_same_name_in_different_namespaces_is_not_duplicate() {
-    // `Classes` 是**裸名**键，同短名跨 ns 也撞它 —— 但那是**使用点**的歧义（E0456 管），
-    // 不是重复声明。这条守「别拿裸名键当判据」。
+    // 同短名跨 ns 是**使用点**的歧义（E0456 管），不是重复声明。这条守「别拿裸名当判据」。
     Assert.Equal(false, hasCode(pmergeDiags(
         "namespace A;\nclass Dup { int a; }",
         "namespace B;\nclass Dup { int b; }"), "E0458"));
@@ -612,7 +611,7 @@ void test_single_declaration_reports_nothing() {
 
 // ── fix-arity-mangle-package-wide：arity-mangle 判据必须是**包级**的 ────────────────
 //
-// `table.Classes` 是 per-package，而 mangle 预扫此前在 `StubCollector._passClassStubs`
+// 类表是 per-package，而 mangle 预扫此前在 `StubCollector._passClassStubs`
 // 与 `ExportedTypeExtractor._extractCore` 各做一份 **per-CU** 的 ⇒「a.z42 的 `class Foo` +
 // b.z42 的 `class Foo<T>`」两边都判「本 CU 只有一个 arity」⇒ 都不 mangle ⇒ 撞同一个裸键
 // ⇒ last-wins，一个类型连同它的成员一起消失。
@@ -630,8 +629,8 @@ void test_single_declaration_reports_nothing() {
 void test_cross_cu_different_arity_get_distinct_keys() {
     var t = pmergeTable("namespace R;\nclass Foo { int a; }",
                         "namespace R;\nclass Foo<T> { int b; }");
-    Assert.Equal(true, t.Classes.ContainsKey("Foo"));     // 非泛型 → 裸名键（断言的是短名表的键结构）
-    Assert.Equal(true, t.Classes.ContainsKey("Foo$1"));   // 泛型 → arity-mangle 键
+    Assert.Equal(true, t.ClassesByFqn.ContainsKey("R.Foo"));     // 非泛型 → 裸名键（断言的是表的键结构）
+    Assert.Equal(true, t.ClassesByFqn.ContainsKey("R.Foo$1"));   // 泛型 → arity-mangle 键
 }
 
 [Test]
@@ -642,8 +641,8 @@ void test_cross_cu_different_arity_generic_first_get_distinct_keys() {
     // 我第一版只写了上面那一种顺序，退回对照**没变红**，才发现门是弱的。
     var t = pmergeTable("namespace R;\nclass Foo<T> { int b; }",
                         "namespace R;\nclass Foo { int a; }");
-    Assert.Equal(true, t.Classes.ContainsKey("Foo"));
-    Assert.Equal(true, t.Classes.ContainsKey("Foo$1"));
+    Assert.Equal(true, t.ClassesByFqn.ContainsKey("R.Foo"));
+    Assert.Equal(true, t.ClassesByFqn.ContainsKey("R.Foo$1"));
 }
 
 [Test]
@@ -671,8 +670,8 @@ void test_cross_cu_different_arity_both_keep_members() {
 void test_same_cu_different_arity_unchanged() {
     // 同一 CU 的既有行为不变（回归守卫：修前这条就是绿的，修后也必须绿）。
     var t = collect("class Foo { int a; } class Foo<T> { int b; }");
-    Assert.Equal(true, t.Classes.ContainsKey("Foo"));
-    Assert.Equal(true, t.Classes.ContainsKey("Foo$1"));
+    Assert.Equal(true, t.ClassesByFqn.ContainsKey("Foo"));     // 全局 ns：FQN 键即裸键
+    Assert.Equal(true, t.ClassesByFqn.ContainsKey("Foo$1"));
 }
 
 [Test]
@@ -681,8 +680,8 @@ void test_single_arity_across_cus_stays_unmangled() {
     // 那是确定性的字节漂移与跨包 ABI 断裂。
     var t = pmergeTable("namespace R;\nclass Solo<T> { int a; }",
                         "namespace R;\nclass Other { int b; }");
-    Assert.Equal(true, t.Classes.ContainsKey("Solo"));
-    Assert.Equal(false, t.Classes.ContainsKey("Solo$1"));
+    Assert.Equal(true, t.ClassesByFqn.ContainsKey("R.Solo"));
+    Assert.Equal(false, t.ClassesByFqn.ContainsKey("R.Solo$1"));
 }
 
 // ── E0456 声明位（type-identity-followups）────────────────────────────────────────
@@ -830,14 +829,12 @@ void test_all_registered_types_are_interned() {
     Assert.Equal("", t.FirstUninternedKey());
 }
 
-// fqn-tables：全表扫描的 pass（intern / 句柄绑定 / 接口名限定）只走 FQN 视图，靠的是这条不变量 ——
-// 短名表的每个值都在 FQN 视图里。同短名跨 ns（短名表只留一份）与泛型 arity mangle 两种形状都要成立。
+// fqn-tables：同短名跨 ns 与泛型 arity mangle 两种形状下，FQN 表里每个类型都拿到 id、接口句柄都绑上。
 [Test]
-void test_short_name_tables_are_subsets_of_fqn_views() {
+void test_fqn_tables_interned_and_bound_across_ns() {
     var t = pmergeTable(
         "namespace A;\npublic interface IFoo { }\npublic class Foo { }\npublic class Box<T> { }\npublic class Box { }",
         "namespace B;\npublic interface IFoo { }\npublic class Foo : A.Foo { }");
-    Assert.Equal("", t.FirstShortOnlyKey());
     Assert.Equal("", t.FirstUninternedKey());
     Assert.Equal("", t.FirstUnboundIfaceRef());
 }

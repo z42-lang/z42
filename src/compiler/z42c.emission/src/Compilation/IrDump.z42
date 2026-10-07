@@ -159,7 +159,7 @@ public static class IrDump {
         // F4+F12：符号收集后的 4 趟独立全 CU 扫融成一趟——classNs（G17b 跨-ns 类名解析图）/
         // localClasses（G18 本地类集）/ pkgClassMap（跨文件基类 map）/ allFuncs（全包自由函数聚合）
         // 彼此无数据依赖，同序遍历 cus[]，每张 map 的写序不变 → 字节不动。单文件 emit 路径仍用
-        // _pkgClassNs / _pkgLocalClasses 辅助（1-CU 场景），故辅助函数保留。
+        // _pkgLocalClasses 辅助（1-CU 场景），故辅助函数保留。
         // classNs 预置跨-zpkg imported（镜像 C# ImportedClassNamespaces）。
         StrMap classNs = new StrMap();
         if (imported != null && imported.ClassNamespaces != null) {

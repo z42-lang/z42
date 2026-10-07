@@ -399,46 +399,11 @@ public sealed partial class SymbolTable {
         }
     }
 
-    // 门（fqn-tables）：短名表 `Classes` / `Interfaces` 里的每个值都必须也在 FQN 视图里（同一个对象）。
-    // 返回第一个违反者的短名键；全部合规返回 ""。全表扫描类的 pass（intern / 句柄绑定）只扫 FQN 视图，
-    // 正是靠这条不变量 —— 只活在短名表里的类型会漏 id、漏绑定。
-    public string FirstShortOnlyKey() {
-        string k = SymbolTable._firstNotInFqn(this.Classes, this.ClassesByFqn);
-        if (k != "") { return k; }
-        return SymbolTable._firstNotInFqn(this.Interfaces, this.InterfacesByFqn);
-    }
-
-    private static string _firstNotInFqn(StrMap shortTbl, StrMap fqnTbl) {
-        int cap = shortTbl.Capacity();   // 🔴 按槽位扫，见 `_internAllIn` 抬头
-        int i = 0;
-        while (i < cap) {
-            if (shortTbl.UsedAt(i)) {
-                Z42Type t = shortTbl.ValAt(i) as Z42Type;
-                string fk = SymbolTable._fqnKeyOf(shortTbl.KeyAt(i), t);
-                if (t != null && fqnTbl.Get(fk) != t) { return shortTbl.KeyAt(i); }
-            }
-            i = i + 1;
-        }
-        return "";
-    }
-
-    // 短名表键 + 值 → 它在 FQN 视图里的键（`<ns>.<短名键>`；全局 ns 即短名键本身）。
-    private static string _fqnKeyOf(string shortKey, Z42Type t) {
-        string ns = "";
-        if (t is Z42ClassType) { ns = (t as Z42ClassType).Namespace; }
-        else if (t is Z42InterfaceType) { ns = (t as Z42InterfaceType).Namespace; }
-        return ns == "" ? shortKey : ns + "." + shortKey;
-    }
-
-    // 门：四张表里是否还有没拿到 id 的类型。返回第一个漏网的键；全部合规返回 ""。
+    // 门：两张 FQN 表里是否还有没拿到 id 的类型。返回第一个漏网的键；全部合规返回 ""。
     // 🔴 存在的理由：`InternAllTypes` 是一次性扫，**扫之后**才登记的类型会静默留一个
     // `TypeId == 0`，而 0 在 B3/B4 之后会被当成"未登记"——静默失配。这道门让它变响。
     public string FirstUninternedKey() {
-        string k = SymbolTable._firstUninterned(this.Classes);
-        if (k != "") { return k; }
-        k = SymbolTable._firstUninterned(this.ClassesByFqn);
-        if (k != "") { return k; }
-        k = SymbolTable._firstUninterned(this.Interfaces);
+        string k = SymbolTable._firstUninterned(this.ClassesByFqn);
         if (k != "") { return k; }
         return SymbolTable._firstUninterned(this.InterfacesByFqn);
     }
@@ -607,17 +572,11 @@ public sealed partial class SymbolTable {
     // 查得到、句柄却仍是 0 ⇒ 只可能是绑定没跑到（漏挂载点 / 相位早于 intern）。
     // ⚠️ 查不到的（合法的"看不见"）**不算**，否则门会对正常工程狂叫。
     public string FirstUnboundIfaceRef() {
-        string r = this._firstUnboundIn(this.Classes, true);
-        if (r != "") { return r; }
-        r = this._firstUnboundIn(this.ClassesByFqn, true);
-        if (r != "") { return r; }
-        r = this._firstUnboundIn(this.Interfaces, false);
+        string r = this._firstUnboundIn(this.ClassesByFqn, true);
         if (r != "") { return r; }
         r = this._firstUnboundIn(this.InterfacesByFqn, false);
         if (r != "") { return r; }
         // B4：基类那根轴同样要守 —— 漏绑在这里同样是静默的（查不着 = 当作不是子类）。
-        r = this._firstUnboundBaseIn(this.Classes);
-        if (r != "") { return r; }
         return this._firstUnboundBaseIn(this.ClassesByFqn);
     }
 
