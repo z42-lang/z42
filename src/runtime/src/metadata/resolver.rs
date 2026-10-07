@@ -64,7 +64,8 @@ pub struct ResolvedTokens {
     /// allocation. Valid while the mark is unchanged: the loader's function registry only grows,
     /// and an absent ctor can only appear by being inserted there.
     pub ctorless_marks: Vec<std::sync::atomic::AtomicUsize>,
-    /// `VCall` sites: monomorphic inline cache (TypeId, vtable slot, MethodId).
+    /// `VCall` sites: polymorphic inline cache, `TypeId` → callee `FnId` (same id space
+    /// as `method_tokens`; lazily loaded callees included, P1-2 PR 4).
     pub vcall_ic: Vec<VCallIC>,
     /// `FieldGet` / `FieldSet` sites: monomorphic inline cache (TypeId, field slot).
     pub field_ic: Vec<FieldIC>,

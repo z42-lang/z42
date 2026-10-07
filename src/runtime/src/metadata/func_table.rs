@@ -25,12 +25,17 @@
 //! functions, as before the two maps were merged. The old slots stay (ids are
 //! never reused), so ids cached against them keep pointing at the old functions.
 //!
-//! Consumers: interp `Call` site tokens (`ResolvedTokens.method_tokens` hold
-//! `FnId`s, see `metadata::resolver`). VCall / JIT lookups still go by name.
+//! Consumers: `Call` site tokens (`ResolvedTokens.method_tokens` hold `FnId`s,
+//! see `metadata::resolver`), the JIT slot table (`JitModuleCtx`, indexed by
+//! `FnId`), and the `VCall` PIC payload (`metadata::resolver::ic`) — all three
+//! read a lazily loaded callee back through [`FuncTable::get`].
 //!
 //! Memory ordering: a slot is published by [`SegVec`]'s Release store of its
 //! length; `Function.id` is set before that, inside the append. `FnSlot.func`
-//! is loaded with Acquire.
+//! is loaded with Acquire. Keep both Acquire: the site caches that store `FnId`s
+//! (`Call` tokens, the `VCall` PIC) are read `Relaxed` and rely on this pairing
+//! to order the slot's contents — an id seen before its registration is visible
+//! reads as `None` here, never as a half-built slot.
 
 use std::sync::atomic::{AtomicPtr, Ordering};
 use std::sync::Arc;

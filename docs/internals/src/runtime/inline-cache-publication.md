@@ -10,7 +10,7 @@
 | 缓存 | 键 | 载荷 |
 |---|---|---|
 | `FieldIC` | 接收者 `TypeId` | 字段槽位 `slot` |
-| `VCallIC` | 接收者 `TypeId` | 目标函数下标 `fn_idx` |
+| `VCallIC` | 接收者 `TypeId` | 被调函数的 `FnId`（入口函数 = 下标，惰性函数是其后的 id） |
 
 查找是 4 槽线性扫描，遇到 `UNRESOLVED` 提前退出；未命中就走权威查表再 install；
 槽位满了按 `round_robin` 驱逐。解释器与 JIT **共用**同一组 `*_ic_lookup` / `*_ic_install`。
@@ -64,7 +64,7 @@ seqlock 协议。**打包成一个原子量让这些协议全都不必要**，�
 
 ## 不存死载荷
 
-`VCallICEntry` 只存 `(type_id, fn_idx)`。虚表槽位 `slot` **没有任何消费者**，存它就得凑够 96 位、没法单原子发布，所以不存。
+`VCallICEntry` 只存 `(type_id, FnId)`。虚表槽位 `slot` **没有任何消费者**，存它就得凑够 96 位、没法单原子发布，所以不存。
 
 ## 守这条不变量的东西
 

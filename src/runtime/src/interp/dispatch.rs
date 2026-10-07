@@ -311,12 +311,8 @@ fn tostring_result(ctx: &VmContext, module: &Module, val: &Value) -> Result<ToSt
         return match r.target {
             super::vcall_resolve::VCallTarget::Immediate(v) => Ok(ToStringResult::Value(v)),
             super::vcall_resolve::VCallTarget::Thrown(v) => Err(tostring_threw(ctx, v)),
-            super::vcall_resolve::VCallTarget::Local(idx) => match module.functions.get(idx) {
-                Some(f) => outcome(ctx, super::exec_function(ctx, module, f, &[r.this.clone()])?),
-                None => Ok(ToStringResult::NotDispatched),
-            },
-            super::vcall_resolve::VCallTarget::Lazy(f) =>
-                outcome(ctx, super::exec_function(ctx, module, f.as_ref(), &[r.this.clone()])?),
+            super::vcall_resolve::VCallTarget::Local { func, .. } =>
+                outcome(ctx, super::exec_function(ctx, module, func, &[r.this.clone()])?),
         };
     }
     Ok(ToStringResult::NotDispatched)

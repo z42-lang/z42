@@ -95,9 +95,12 @@ i64），先查 enum 名才能让 `Console.WriteLine(Color.Blue)` 与 `((object)
 | 3 | **裸基元 / 数组**（`primitive_class_name`）| 解析 `{Std.Int32\|Std.String\|Std.Array…}.{m}` / `Std.Object.{m}`，`this` = 值本身；全落空则落到第 4 级由它报「非对象接收者」 |
 | 4 | **对象** | `vtable_index` → `dispatch::resolve_virtual`（模块内类链）→ 经 `ctx.try_lookup_type` 的惰性基类链走（跨 zpkg 基类）|
 
-解析结果是 `VCallTarget` 四态：`Immediate(Value)`（第 1/2 级的原生拦截，一个 z42 函数都没跑）、
-`Local(idx)`、`Lazy(Arc<Function>)`、`Thrown(Value)`（按站点键找到了定义
+解析结果是 `VCallTarget` 三态：`Immediate(Value)`（第 1/2 级的原生拦截，一个 z42 函数都没跑）、
+`Local { func, id }`（本模块与惰性加载的函数同一形态：`func` 是函数本身，`id` 是它在 `module` 下的
+`FnId`——只有非入口模块的单测里惰性目标没有 id）、`Thrown(Value)`（按站点键找到了定义
 但其签名吃不下这次调用的实参，携带 `MissingSymbolException`，**绝不进 PIC**）。
+每个候选名都经 `target_by_name` 绑定：先本模块 `func_index`，再惰性加载器（`try_lookup_function`，
+可能加载定义包），惰性函数从 `FuncTable` 借出，不持有 `Arc`。
 
 第 4 级里 `vtable_index` 必须排在 `resolve_virtual` **前面**：
 vtable 把「可能重载的方法名」映射到编译器为该站点绑定的那个覆写槽，而 `resolve_virtual` 的
@@ -119,9 +122,11 @@ vtable 把「可能重载的方法名」映射到编译器为该站点绑定的�
 
 ### PIC 安装
 
-凡是解析到的 callee 属于本模块、且接收者有类型 id（对象用真 `TypeDesc.id`，基元用合成
-`PRIM_TYPE_*`；**盒没有** id），就把 `(type_id, slot, fn_idx)` 写进站点的 `VCallIC`，下一次同类型
-接收者走 `vcall_ic_hit`、根本进不到本模块。安装前还要校验目标签名吃得下这次的实参
+凡是解析到的 callee 有 `FnId`（本模块的与惰性包的都有）、且接收者有类型 id（对象用真 `TypeDesc.id`，
+基元用合成 `PRIM_TYPE_*`；**盒没有** id），就把 `(type_id, FnId)` 写进站点的 `VCallIC`，下一次同类型
+接收者走 `vcall_ic_hit`、根本进不到本模块——跨包虚调用也一样，命中路径不查名字、不碰加载器。
+安装点与阶梯的四处首选命中一致（4a vtable、4b 模块类链、4c 基类链逐层、候选名带合成 id 时）；
+擦除名回退（`try_erased_level`）和 struct 自身槽位探测（`resolve_own_slot`）不安装。安装前还要校验目标签名吃得下这次的实参
 （`install_ic`）——缓存一个 arity 不匹配的目标，等于让之后**每一次**调用
 都从 PIC 直接派发到错的函数、绕过 `resolve_vcall` 里的检查。
 

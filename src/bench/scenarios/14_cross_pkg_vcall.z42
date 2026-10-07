@@ -1,0 +1,33 @@
+// tier: full — 跨包虚调用：接收者类型在惰性加载的包里，隔离 VCall PIC 对惰性目标的命中路径
+//
+// Monomorphic interface call whose receiver type (`Std.Collections.Stack<int>`) and
+// target method live in `z42.collections`, a package loaded lazily on first use — not
+// merged into the entry module like `z42.core`. Same shape as 10_mono_vcall (the body
+// is trivial: returns a field), so per-call dispatch cost dominates; the difference is
+// that the callee has no index in the entry module, only a runtime `FnId`. Run in both
+// modes: interp and JIT each dispatch it through their own VCall path.
+//
+// Expected output (deterministic): 10000000
+
+namespace Bench.CrossPkgVcall;
+
+using Std.IO;
+using Std.Collections;
+
+long Drive(IBasicCollection<int> c, long n) {
+    long total = 0L;
+    long i = 0L;
+    while (i < n) {
+        total = total + (long)c.Count();
+        i = i + 1L;
+    }
+    return total;
+}
+
+void Main() {
+    Stack<int> s = new Stack<int>();
+    s.Push(1);
+    s.Push(2);
+    long result = Drive(s, 5000000L);
+    Console.WriteLine(result.ToString());
+}

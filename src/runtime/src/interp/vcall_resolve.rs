@@ -21,12 +21,16 @@
 //!   4. **Object**: `vtable_index` → `dispatch::resolve_virtual` (module classes) → lazy
 //!      hierarchy walk through `ctx.try_lookup_type` (cross-zpkg bases).
 //!
-//! PIC install: whenever the resolved callee is module-local and the receiver has a type id
-//! (real `TypeDesc.id` for objects, synthetic `PRIM_TYPE_*` for primitives; boxes have none),
-//! the `(type_id, fn_idx)` pair is written to the site's `VCallIC` so the next call
-//! with that receiver type takes `vcall_ic_hit` and never reaches this module.
-
-use std::sync::Arc;
+//! PIC install: whenever the resolved callee has a `FnId` under `module` and the receiver has a
+//! type id (real `TypeDesc.id` for objects, synthetic `PRIM_TYPE_*` for primitives; boxes have
+//! none), the `(type_id, FnId)` pair is written to the site's `VCallIC` so the next call with
+//! that receiver type takes `vcall_ic_hit` and never reaches this module.
+//!
+//! P1-2 PR 4: the PIC payload is the callee's `FnId` — entry-module functions `0..n` (= their
+//! `module.functions` index, so merged behaviour is unchanged), functions of lazily loaded
+//! packages the ids after that. A cross-package virtual call therefore caches exactly like a
+//! module-local one; before, its target (`VCallTarget::Lazy`) never entered the PIC and every
+//! call re-walked the vtable by string, missed `func_index` and hit `try_lookup_function`.
 
 use anyhow::{bail, Result};
 
@@ -39,22 +43,24 @@ use super::dispatch::resolve_virtual;
 use super::exec_vcall::{primitive_class_name, value_synthetic_type_id};
 
 /// What a virtual call resolved to. The engine decides how to run it.
-pub(crate) enum VCallTarget {
+pub(crate) enum VCallTarget<'a> {
     /// Result computed natively without invoking any z42 function (protocol intercepts on
     /// boxed receivers: `GetType` / `GetHashCode` / default struct `ToString`).
     Immediate(Value),
-    /// `module.functions[idx]` of the entry module (the JIT may hold a compiled entry for it).
-    Local(usize),
-    /// A lazily-loaded / cross-zpkg function that is not in the entry module's table.
-    Lazy(Arc<Function>),
+    /// A z42 function — module-local or lazily loaded alike (P1-2 PR 4). `id` is its `FnId`
+    /// under `module` (`exec_call::fn_by_id` reads it back; it is also the JIT slot id and the
+    /// PIC payload). It is `None` only for a lazily loaded callee when `module` is not the VM's
+    /// entry module (unit tests on a bare `VmContext`): such a target runs on the interpreter
+    /// and is never cached.
+    Local { func: &'a Function, id: Option<usize> },
     /// fix-call-arity-skew: resolution found a definition under the site's key, but its
     /// signature cannot take this call's arguments (primary bare key hit by a version skew).
     /// Carries the `MissingSymbolException` to throw; never installed into the PIC.
     Thrown(Value),
 }
 
-pub(crate) struct ResolvedVCall {
-    pub target: VCallTarget,
+pub(crate) struct ResolvedVCall<'a> {
+    pub target: VCallTarget<'a>,
     /// The `this` the callee receives: the unboxed scalar for a boxed primitive, otherwise the
     /// receiver value itself.
     pub this: Value,
@@ -70,15 +76,22 @@ pub(crate) fn receiver_type_id(obj_val: &Value) -> Option<u32> {
     }
 }
 
-/// PIC fast path shared by both engines: hit → module-local function index. `None` on miss,
-/// on a non-cacheable receiver, or when the cached target is `UNRESOLVED`.
+/// PIC fast path shared by both engines: hit → the callee's `FnId` under the site's module
+/// (resolve it with `exec_call::fn_by_id` / `JitModuleCtx::fn_of`, both lock-free). `None` on
+/// miss, on a non-cacheable receiver, or when the cached target is `UNRESOLVED`.
+///
+/// Publication: the PIC entry is read `Relaxed`. A lazily loaded `FnId` is only usable through
+/// `FuncTable::get`, whose Acquire loads (published length, then the slot's function pointer)
+/// pair with the registration's Release stores — that, not the IC, orders the slot contents.
+/// A reader that sees the id before the registration is visible gets `None` from the table and
+/// takes the slow path; it can never read a half-built slot.
 #[inline]
 pub(crate) fn vcall_ic_hit(ic: Option<&VCallIC>, obj_val: &Value) -> Option<usize> {
     let ic = ic?;
     let recv_type = receiver_type_id(obj_val)?;
-    let fn_idx = vcall_ic_lookup(ic, recv_type)?;
-    if fn_idx == UNRESOLVED { return None; }
-    Some(fn_idx as usize)
+    let fn_id = vcall_ic_lookup(ic, recv_type)?;
+    if fn_id == UNRESOLVED { return None; }
+    Some(fn_id as usize)
 }
 
 /// fix-crosspkg-typeid-collision (2026-09-08): tripwire for "the PIC handed back a callee
@@ -94,14 +107,14 @@ pub(crate) fn vcall_ic_hit(ic: Option<&VCallIC>, obj_val: &Value) -> Option<usiz
 /// is unchanged.
 #[cfg(debug_assertions)]
 pub(crate) fn assert_pic_target(
-    ctx: &VmContext, module: &Module, obj_val: &Value, method: &str, idx: usize,
+    ctx: &VmContext, module: &Module, obj_val: &Value, method: &str, callee: &Function,
 ) {
     // Only object receivers key the PIC on a real `TypeDesc.id`; primitives / boxes use
     // synthetic ids and resolve through `Std.Object` fallbacks, which this check would
     // wrongly flag.
     let Value::Object(rc) = obj_val else { return };
     let td = rc.type_desc();
-    let Some(callee) = module.functions.get(idx).map(|f| f.name.as_str()) else { return };
+    let callee = callee.name.as_str();
     let Some(declaring) = callee.rfind('.').map(|p| &callee[..p]) else { return };
     if super::dispatch::is_subclass_or_eq_td(ctx, &module.type_registry, &td.name, declaring) {
         return;
@@ -117,7 +130,7 @@ pub(crate) fn assert_pic_target(
 #[cfg(not(debug_assertions))]
 #[inline(always)]
 pub(crate) fn assert_pic_target(
-    _ctx: &VmContext, _module: &Module, _obj_val: &Value, _method: &str, _idx: usize,
+    _ctx: &VmContext, _module: &Module, _obj_val: &Value, _method: &str, _callee: &Function,
 ) {}
 
 /// Slow path (PIC miss): walk the receiver-kind ladder and resolve the callee. `arity` is the
@@ -126,22 +139,18 @@ pub(crate) fn assert_pic_target(
 ///
 /// fix-call-arity-skew: the single choke point for **both** backends (`jit_vcall` shares it).
 /// The check runs on every resolution, but resolution itself only happens on a PIC miss
-/// (module-local targets) or on the cross-zpkg `Lazy` path that re-resolves by name each call
-/// anyway — a PIC hit never reaches here, so the steady-state hot path is unchanged. A
-/// mismatching module-local target is also refused by `install_ic`, so it can never be
-/// cached and bypass this check next time.
-pub(crate) fn resolve_vcall(
-    ctx: &VmContext, module: &Module, obj_val: &Value, method: &str, arity: usize,
+/// (or for a target that cannot be cached: no receiver type id, or no `FnId`) — a PIC hit
+/// never reaches here, so the steady-state hot path is unchanged. A mismatching target is
+/// also refused by `install_ic`, so it can never be cached and bypass this check next time.
+pub(crate) fn resolve_vcall<'a>(
+    ctx: &'a VmContext, module: &'a Module, obj_val: &Value, method: &str, arity: usize,
     ic: Option<&VCallIC>,
-) -> Result<ResolvedVCall> {
+) -> Result<ResolvedVCall<'a>> {
     let resolved = resolve_vcall_unchecked(ctx, module, obj_val, method, arity, ic)?;
     let phys = arity + 1;   // + receiver
     let (name, sig) = match &resolved.target {
-        VCallTarget::Local(idx) => match module.functions.get(*idx) {
-            Some(f) => (f.name.as_str(), crate::vm_context::symres::call_arity(f)),
-            None => return Ok(resolved),
-        },
-        VCallTarget::Lazy(f) => (f.name.as_str(), crate::vm_context::symres::call_arity(f.as_ref())),
+        VCallTarget::Local { func, .. } =>
+            (func.name.as_str(), crate::vm_context::symres::call_arity(func)),
         VCallTarget::Immediate(_) | VCallTarget::Thrown(_) => return Ok(resolved),
     };
     if let Some(exc) = crate::vm_context::symres::wrong_arity_exception(ctx, module, name, sig, phys) {
@@ -150,10 +159,10 @@ pub(crate) fn resolve_vcall(
     Ok(resolved)
 }
 
-fn resolve_vcall_unchecked(
-    ctx: &VmContext, module: &Module, obj_val: &Value, method: &str, arity: usize,
+fn resolve_vcall_unchecked<'a>(
+    ctx: &'a VmContext, module: &'a Module, obj_val: &Value, method: &str, arity: usize,
     ic: Option<&VCallIC>,
-) -> Result<ResolvedVCall> {
+) -> Result<ResolvedVCall<'a>> {
     // ── 1. boxed primitive (add-primitive-value-boxing → unify Phase 2 R3) ────────────────
     // `boxed_prim_i64` splits the scalar back out; methods run against the primitive struct
     // body with `this = scalar` (same source as the unboxed primitive). GetType must keep the
@@ -270,22 +279,16 @@ fn resolve_vcall_unchecked(
     //     string walk would pick whichever same-named function it hits first.
     if let Some(&slot) = type_desc.vtable_index.get(method) {
         let n = type_desc.vtable[slot].1.as_str();
-        if let Some(&idx) = module.func_index.get(n) {
-            install_ic(ic, module, arity, recv_type, idx);
-            return Ok(ResolvedVCall { target: VCallTarget::Local(idx), this: obj_val.clone() });
-        }
-        if let Some(f) = ctx.try_lookup_function(n) {
-            return Ok(ResolvedVCall { target: VCallTarget::Lazy(f), this: obj_val.clone() });
+        if let Some(target) = target_by_name(ctx, module, n) {
+            install_ic(ic, arity, recv_type, &target);
+            return Ok(ResolvedVCall { target, this: obj_val.clone() });
         }
     }
     // 4b. module class hierarchy (`<class>.<method>` at each level, intra-zpkg).
     if let Ok(f) = resolve_virtual(module, &type_desc.name, method) {
-        if let Some(&idx) = module.func_index.get(f.name.as_str()) {
-            install_ic(ic, module, arity, recv_type, idx);
-            return Ok(ResolvedVCall { target: VCallTarget::Local(idx), this: obj_val.clone() });
-        }
-        if let Some(lazy) = ctx.try_lookup_function(&f.name) {
-            return Ok(ResolvedVCall { target: VCallTarget::Lazy(lazy), this: obj_val.clone() });
+        if let Some(target) = target_by_name(ctx, module, &f.name) {
+            install_ic(ic, arity, recv_type, &target);
+            return Ok(ResolvedVCall { target, this: obj_val.clone() });
         }
     }
     // 4c. lazy hierarchy walk: base chain via `module.classes` first, then the global type
@@ -305,12 +308,9 @@ fn resolve_vcall_unchecked(
     let mut cur = type_desc.name.clone();
     loop {
         let candidate = format!("{}.{}", cur, method);
-        if let Some(&idx) = module.func_index.get(candidate.as_str()) {
-            install_ic(ic, module, arity, recv_type, idx);
-            return Ok(ResolvedVCall { target: VCallTarget::Local(idx), this: obj_val.clone() });
-        }
-        if let Some(lazy) = ctx.try_lookup_function(&candidate) {
-            return Ok(ResolvedVCall { target: VCallTarget::Lazy(lazy), this: obj_val.clone() });
+        if let Some(target) = target_by_name(ctx, module, &candidate) {
+            install_ic(ic, arity, recv_type, &target);
+            return Ok(ResolvedVCall { target, this: obj_val.clone() });
         }
         // complete-generic-class-identity P1: the erased-name retry must happen at **every** level
         // of the chain, not only at the receiver's own. "Identity is per-instantiation, code is
@@ -353,31 +353,23 @@ fn resolve_vcall_unchecked(
 /// erased second" — and it only runs on the miss path, so hot dispatch is untouched.
 ///
 /// Returns `None` for a non-instantiated name (no `<`), which is the common case.
-fn try_erased_level(
-    ctx: &VmContext,
-    module: &Module,
+fn try_erased_level<'a>(
+    ctx: &'a VmContext,
+    module: &'a Module,
     cur: &str,
     method: &str,
     obj_val: &Value,
-) -> Option<ResolvedVCall> {
+) -> Option<ResolvedVCall<'a>> {
     let lt = cur.find('<')?;
     let erased = &cur[..lt];
     if let Ok(f) = resolve_virtual(module, erased, method) {
-        if let Some(&idx) = module.func_index.get(f.name.as_str()) {
-            return Some(ResolvedVCall { target: VCallTarget::Local(idx), this: obj_val.clone() });
-        }
-        if let Some(lazy) = ctx.try_lookup_function(&f.name) {
-            return Some(ResolvedVCall { target: VCallTarget::Lazy(lazy), this: obj_val.clone() });
+        if let Some(target) = target_by_name(ctx, module, &f.name) {
+            return Some(ResolvedVCall { target, this: obj_val.clone() });
         }
     }
     let direct = format!("{}.{}", erased, method);
-    if let Some(&idx) = module.func_index.get(direct.as_str()) {
-        return Some(ResolvedVCall { target: VCallTarget::Local(idx), this: obj_val.clone() });
-    }
-    if let Some(lazy) = ctx.try_lookup_function(&direct) {
-        return Some(ResolvedVCall { target: VCallTarget::Lazy(lazy), this: obj_val.clone() });
-    }
-    None
+    let target = target_by_name(ctx, module, &direct)?;
+    Some(ResolvedVCall { target, this: obj_val.clone() })
 }
 
 /// Probe the `{class}.{method}` candidate spellings for a non-object receiver, in order:
@@ -386,10 +378,10 @@ fn try_erased_level(
 /// (`Name$arity$types`, stabilize-instance-dispatch-keys PR-1 — inert while operands carry no
 /// `$`), then the same three against `Std.Object`. Module-local hits install the PIC when
 /// `ic_key` (synthetic receiver id) is given; cross-zpkg hits resolve through the lazy loader.
-fn resolve_by_candidates(
-    ctx: &VmContext, module: &Module, class_name: &str, method: &str, arity: usize,
+fn resolve_by_candidates<'a>(
+    ctx: &'a VmContext, module: &'a Module, class_name: &str, method: &str, arity: usize,
     arity_first: bool, ic_key: Option<u32>, ic: Option<&VCallIC>,
-) -> Option<VCallTarget> {
+) -> Option<VCallTarget<'a>> {
     let bare = method.split_once('$').map(|(b, _)| b);
     let mut candidates: Vec<String> = Vec::with_capacity(6);
     let mut push_pair = |cls: &str| {
@@ -402,14 +394,9 @@ fn resolve_by_candidates(
     push_pair(class_name);
     push_pair("Std.Object");
     for name in &candidates {
-        if let Some(&idx) = module.func_index.get(name.as_str()) {
-            if module.functions.get(idx).is_some() {
-                if let Some(key) = ic_key { install_ic(ic, module, arity, key, idx); }
-                return Some(VCallTarget::Local(idx));
-            }
-        }
-        if let Some(f) = ctx.try_lookup_function(name) {
-            return Some(VCallTarget::Lazy(f));
+        if let Some(target) = target_by_name(ctx, module, name) {
+            if let Some(key) = ic_key { install_ic(ic, arity, key, &target); }
+            return Some(target);
         }
     }
     None
@@ -424,29 +411,46 @@ fn resolve_by_candidates(
 /// (`__obj_to_str: expected an object`). Used by the boxed-struct `ToString` arm to pick the
 /// user's / record's own implementation when there is one, and fall back to the short type
 /// name when there is not.
-fn resolve_own_slot(
-    ctx: &VmContext, module: &Module, class_name: &str, method: &str, arity: usize,
-) -> Option<VCallTarget> {
+fn resolve_own_slot<'a>(
+    ctx: &'a VmContext, module: &'a Module, class_name: &str, method: &str, arity: usize,
+) -> Option<VCallTarget<'a>> {
     let names = [format!("{}.{}${}", class_name, method, arity), format!("{}.{}", class_name, method)];
-    for name in &names {
-        if let Some(&idx) = module.func_index.get(name.as_str()) {
-            if module.functions.get(idx).is_some() { return Some(VCallTarget::Local(idx)); }
-        }
-        if let Some(f) = ctx.try_lookup_function(name) { return Some(VCallTarget::Lazy(f)); }
-    }
-    None
+    names.iter().find_map(|name| target_by_name(ctx, module, name))
 }
 
-/// Install a module-local PIC entry — **only** for a target whose signature takes this call's
-/// arguments (fix-call-arity-skew): a cached mismatch would be dispatched straight from the PIC
-/// on every later call, bypassing the check in [`resolve_vcall`].
-#[inline]
-fn install_ic(ic: Option<&VCallIC>, module: &Module, arity: usize, recv_type: u32, fn_idx: usize) {
-    if let Some(ic) = ic {
-        let ok = module.functions.get(fn_idx)
-            .map_or(false, |f| crate::vm_context::symres::call_arity(f).accepts(arity + 1));
-        if ok {
-            vcall_ic_install(ic, recv_type, fn_idx as u32);
+/// Bind one candidate name: this module's `func_index` first, then the lazy loader (which may
+/// load the defining package) — the precedence every rung has always used. The result carries
+/// the callee's `FnId` under `module` (P1-2 PR 4), so a lazily loaded target is cached and
+/// dispatched exactly like a module-local one.
+fn target_by_name<'a>(ctx: &'a VmContext, module: &'a Module, name: &str) -> Option<VCallTarget<'a>> {
+    if let Some(&idx) = module.func_index.get(name) {
+        if let Some(func) = module.functions.get(idx) {
+            return Some(VCallTarget::Local { func, id: Some(idx) });
         }
     }
+    let lazy = ctx.try_lookup_function(name)?;
+    // Every function the loader hands out is registered in the VM's `FuncTable` (it is the
+    // loader's registry), whose slot keeps it alive for the VM's lifetime — so borrow it from
+    // there instead of carrying the `Arc`.
+    let id = lazy.id.get();
+    let func = id.and_then(|id| ctx.funcs().get(id)).filter(|g| std::ptr::eq(*g, &*lazy));
+    debug_assert!(func.is_some(), "VCall: lazily loaded `{name}` is not registered in the FuncTable");
+    let func = func?;
+    Some(VCallTarget::Local { func, id: super::exec_call::lazy_call_id(ctx, module, func) })
 }
+
+/// Install a PIC entry — **only** for a target with a `FnId` under the site's module and whose
+/// signature takes this call's arguments (fix-call-arity-skew): a cached mismatch would be
+/// dispatched straight from the PIC on every later call, bypassing the check in
+/// [`resolve_vcall`].
+#[inline]
+fn install_ic(ic: Option<&VCallIC>, arity: usize, recv_type: u32, target: &VCallTarget<'_>) {
+    let (Some(ic), VCallTarget::Local { func, id: Some(id) }) = (ic, target) else { return };
+    if crate::vm_context::symres::call_arity(func).accepts(arity + 1) {
+        vcall_ic_install(ic, recv_type, *id as u32);
+    }
+}
+
+#[cfg(test)]
+#[path = "vcall_resolve_tests.rs"]
+mod vcall_resolve_tests;
