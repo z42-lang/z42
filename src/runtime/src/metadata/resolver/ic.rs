@@ -184,7 +184,7 @@ pub fn vcall_ic_install(ic: &VCallIC, recv_type: u32, fn_idx: u32) {
     ic.entries[victim].packed.store(pack(recv_type, fn_idx), Relaxed);
 }
 /// Monotonic count of functions ever registered into a lazy loader's
-/// `function_table`, plus loader install/uninstall. **Process-global on
+/// function registry, plus loader install/uninstall. **Process-global on
 /// purpose**: it is only ever compared for equality against a value a site
 /// recorded earlier, so sharing it across `VmContext`s can only make a cached
 /// answer look stale (→ re-resolve), never make a stale answer look fresh.
@@ -201,7 +201,7 @@ pub fn fn_registration_mark() -> usize {
     FN_REGISTRATIONS.load(std::sync::atomic::Ordering::Acquire)
 }
 
-/// Bump the mark — every insert into a loader `function_table`, and every loader
+/// Bump the mark — every insert into a loader's function registry, and every loader
 /// install/uninstall, calls this. An absent ctor can only become present through
 /// one of those, so equality of the mark proves the negative answer still holds.
 #[inline]
@@ -210,7 +210,7 @@ pub fn note_fn_registration() {
 }
 
 /// `true` when this `ObjNew` site already proved its class has **no constructor**
-/// and nothing has been registered into the loader's `function_table` since.
+/// and nothing has been registered into the loader's function registry since.
 ///
 /// `live` is `VmContext::fn_registration_mark()`. `0` is the never-proved
 /// sentinel (the live counter starts at 1), so a fresh slot never hits.

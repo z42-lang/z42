@@ -402,3 +402,63 @@ fn prim_backing_accepts_agrees_with_set_boxed() {
         }
     }
 }
+
+// ── perf-array-alloc-direct (2026-10-07) ────────────────────────────────────
+//
+// 数组直接在 GC 块里构造（不再先建 `vec![default; n]`）。`typed_filled` 对「默认值恰是
+// 该 backing 的分配器零」走零写入快路，其余逐槽原地写；`typed_iter` 从迭代器直写块。
+// 钉住：每种 backing 的每个槽读回来都是请求的填充值（含快路判别的边界：`-0.0` 不是零、
+// Boxed 的 `Null` 不是零、Boxed 的 `I64(0)` 是零）。
+
+#[test]
+fn typed_filled_every_slot_reads_back_the_fill() {
+    use crate::metadata::types::ArrayObj;
+    let ctx = ctx();
+    let cases: Vec<(&str, Value)> = vec![
+        ("int", Value::I64(0)), ("long", Value::I64(0)), ("byte", Value::I64(0)),
+        ("char", Value::Char('\0')), ("bool", Value::Bool(false)),
+        ("double", Value::F64(0.0)), ("double", Value::F64(-0.0)), ("double", Value::F64(2.5)),
+        ("int", Value::I64(7)), ("bool", Value::Bool(true)), ("char", Value::Char('z')),
+        ("string", Value::Null), ("T", Value::I64(0)), ("T", Value::F64(0.0)), ("T", Value::Bool(false)),
+    ];
+    for (ty, fill) in cases {
+        for n in [0usize, 1, 5, 1000] {
+            let heap = ctx.heap();
+            let arr = heap.alloc_array_obj(ArrayObj::typed_filled(heap, ty, n, fill.clone()));
+            let Value::Array(gc) = arr else { panic!("expected an array") };
+            let a = gc.borrow();
+            assert_eq!(a.len(), n);
+            for i in 0..n {
+                let got = a.get_boxed(i);
+                let same = match (&fill, &got) {
+                    (Value::I64(x), Value::I64(y)) => x == y,
+                    (Value::F64(x), Value::F64(y)) => x.to_bits() == y.to_bits(),
+                    (Value::Bool(x), Value::Bool(y)) => x == y,
+                    (Value::Char(x), Value::Char(y)) => x == y,
+                    (Value::Null, Value::Null) => true,
+                    _ => false,
+                };
+                assert!(same, "{ty}[{n}] slot {i}: filled with {fill:?}, read back {got:?}");
+            }
+        }
+    }
+}
+
+#[test]
+fn typed_iter_packs_each_element_in_place() {
+    use crate::metadata::types::ArrayObj;
+    let ctx = ctx();
+    let heap = ctx.heap();
+    let src = [3i64, -1, 70000, 0];
+    let arr = heap.alloc_array_obj(ArrayObj::typed_iter(heap, "int", src.len(), src.iter().map(|&n| Value::I64(n))));
+    let Value::Array(gc) = arr else { panic!("expected an array") };
+    assert_eq!(gc.borrow().prim_backing_kind(), Some("int[]"));
+    for (i, &n) in src.iter().enumerate() {
+        assert!(matches!(gc.borrow().get_boxed(i), Value::I64(v) if v == n));
+    }
+    let strs = heap.alloc_array_obj(ArrayObj::typed_iter(heap, "string", 2,
+        [Value::Str("a".into()), Value::Null].into_iter()));
+    let Value::Array(gc) = strs else { panic!("expected an array") };
+    assert!(matches!(gc.borrow().get_boxed(0), Value::Str(s) if s.as_str() == "a"));
+    assert!(matches!(gc.borrow().get_boxed(1), Value::Null));
+}

@@ -13,10 +13,12 @@ use super::convert::{arg_str, arg_usize};
 /// call) — the C# "string ops in managed code over a char buffer" model.
 pub fn builtin_str_to_chars(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let s = arg_str(args, 0, "__str_to_chars")?;
-    let elems: Vec<Value> = s.chars().map(Value::Char).collect();
     // unify-gc-heap PR-3: region-alloc the `char[]` (packed `Chars` block in the GC heap)
-    // via the heap, not the leaking `GcRef::new` path.
-    Ok(ctx.heap().alloc_array_typed("char", elems))
+    // via the heap, not the leaking `GcRef::new` path. perf-array-alloc-direct: decode
+    // straight into the packed block (no staging `Vec<Value>`).
+    let n = s.chars().count();
+    let heap = ctx.heap();
+    Ok(heap.alloc_array_obj(crate::metadata::types::ArrayObj::typed_iter(heap, "char", n, s.chars().map(Value::Char))))
 }
 
 /// Returns the number of Unicode scalar values (characters) in the string.

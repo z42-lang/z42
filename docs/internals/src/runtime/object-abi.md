@@ -195,7 +195,7 @@ ObjectHeader {
 |---|---|---|
 | 基元值字段（int/bool/char/double/long…） | 字节零 ⇒ `0` / `false` / `'\0'` / `0.0` | 值落在 bytes 区 |
 | 引用字段 | `Value::Null` | `null` 本就是引用类型的零值 |
-| 数组元素 | `default_value_for_tag(elem_tag)` | `ArrayNew`（interp + JIT 两份）按元素 tag 取 |
+| 数组元素 | `default_value_for_tag(elem_tag)` | `ArrayNew`（interp + JIT 两份）按元素 tag 取；`ArrayObj::typed_filled` 直接写进 GC 块（是该 backing 的零就不逐元素写）|
 | **型参字段**（`class GBox<T> { T V; }`） | 按**实例化**取：`default_value_for(type_args[i])` | 见下 |
 
 **型参字段要单独一条**，因为布局是**按声明**算的：声明里 `T` 不是基元 ⇒ 该槽被分类成

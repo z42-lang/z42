@@ -12,7 +12,7 @@ impl LazyLoader {
     /// 且 registry 只增不减；负缓存以 registry 指纹为条件失效，所以「当前指纹下是负」
     /// 蕴含「当前 registry 里没有」——两者不可能同时成立。
     pub fn probe_function(&self, func_name: &str) -> Option<Arc<Function>> {
-        self.function_table.get(func_name).map(Arc::clone)
+        self.registered_function(func_name)
     }
 
     /// 同上，类型版。额外要求基类链已完整 —— 这正是 `resolve_type` 的快路径条件；
@@ -24,8 +24,8 @@ impl LazyLoader {
 
     /// Look up a function by FQ name; triggers lazy load if needed.
     pub fn resolve_function(&mut self, func_name: &str) -> Option<Arc<Function>> {
-        if let Some(f) = self.function_table.get(func_name) {
-            return Some(Arc::clone(f));
+        if let Some(f) = self.registered_function(func_name) {
+            return Some(f);
         }
         // cache-failed-name-resolution: a name that already lost the full walk
         // under this registry state loses it again — answer from the set instead
@@ -38,8 +38,8 @@ impl LazyLoader {
         // precise-pkg-refs: the referencing package recorded which package defines this name.
         if let Some(route) = self.symbol_route(func_name) {
             if self.load_routed(&route) {
-                if let Some(f) = self.function_table.get(func_name) {
-                    return Some(Arc::clone(f));
+                if let Some(f) = self.registered_function(func_name) {
+                    return Some(f);
                 }
                 // An exactly-recorded free function missing from its own package is a genuinely
                 // missing symbol (.NET: MissingMethodException) — no point loading anything else.
@@ -53,8 +53,8 @@ impl LazyLoader {
         if let Some(ns) = namespace_prefix(func_name) {
             for zpkg_file in self.candidates_for_namespace(&ns) {
                 let _ = self.load_zpkg_file(&zpkg_file);
-                if let Some(f) = self.function_table.get(func_name) {
-                    return Some(Arc::clone(f));
+                if let Some(f) = self.registered_function(func_name) {
+                    return Some(f);
                 }
             }
         }
@@ -71,8 +71,8 @@ impl LazyLoader {
             let mut progressed = false;
             for zpkg_file in remaining {
                 if self.load_zpkg_file(&zpkg_file).is_ok() { progressed = true; }
-                if let Some(f) = self.function_table.get(func_name) {
-                    return Some(Arc::clone(f));
+                if let Some(f) = self.registered_function(func_name) {
+                    return Some(f);
                 }
             }
             // 无进展就停：加载失败的包会一直留在 `remaining_declared()` 里

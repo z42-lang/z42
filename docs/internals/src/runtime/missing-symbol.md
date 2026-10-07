@@ -158,9 +158,8 @@ params 变长 ⇒ phys ≥ want；否则 phys == want
 
 | 路径 | 首次绑定点 | 命中缓存后 |
 |---|---|---|
-| 合并模块内 `Call`（**含急切合并的 `z42.core`**） | resolver Pass 2 预填 `method_tokens`：对不上就**不预填** | token 直取 |
-| 同上，未预填的站点 | `exec_call::call` 未命中后写回 token 之前 | — |
-| 跨包 `Call`（interp） | 填 `cross_module_targets` 的 `OnceLock` 之前 | 借用 cell |
+| `Call`：解析时已登记的目标（合并模块内，**含急切合并的 `z42.core`**；惰性包内及已加载的包） | resolver Pass 2 预填 `method_tokens`：对不上就**不预填** | token 直取 |
+| 同上，未预填的站点（interp；含跨包首次调用） | `exec_call::bind_callee` 写回 token 之前 | token 直取 |
 | 跨包 `Call`（JIT） | tier 3 写 `call_jit_ic` 之前（按名取 `Function` 判，**不用** `FnEntry`：被调方未到 JIT 阈值时拿不到它，IC 却照写） | IC 直取 |
 | `VCall`（两后端共用 `resolve_vcall`） | 出口统一判 → `VCallTarget::Thrown`；`install_ic` 对不上**不装 PIC** | PIC 直取 |
 | `ObjNew` | 解析到构造器后（interp / JIT 各 native 与惰性分支） | — |
@@ -170,7 +169,7 @@ params 变长 ⇒ phys ≥ want；否则 phys == want
 - **resolver 预填必须拦**。`z42.core` 被急切加载并**合并进主模块**，用户代码调 stdlib 走的是加载期预填的
   模块内下标——只查跨包分支会漏掉**对 stdlib 的 skew**，而那恰是最常见的形态。JIT tier 1 读的就是这组
   token，所以拦一处两个后端都退到冷路径。
-- **缓存写入必须晚于判定**。被拒的绑定若进了 PIC / cell / IC，下一次命中缓存就直接派发、再不经过判定。
+- **缓存写入必须晚于判定**。被拒的绑定若进了 PIC / token / IC，下一次命中缓存就直接派发、再不经过判定。
 
 复用 `MissingSymbolException` 而不新增异常类：新类要先进 stdlib，而冷启动种子的 stdlib 里没有它
 ⇒ 得走两-nightly。语义上也说得通：调用点指名的那个签名**确实不在**，撞上的是同键下的另一个。
