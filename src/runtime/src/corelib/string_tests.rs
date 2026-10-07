@@ -100,3 +100,11 @@ fn null_string_receiver_is_a_null_reference() {
     assert_eq!(nre(builtin_str_equals(&ctx, &[Value::Null, Value::Str("a".into())]).unwrap_err()),
         "cannot call method `Equals` on a null reference");
 }
+
+/// `__str_split` 的接收者同样报 `null_call`（不是「第 0 个实参」）。
+#[test]
+fn null_split_receiver_names_the_method() {
+    let ctx = VmContext::new();
+    let e = builtin_str_split(&ctx, &[Value::Null, Value::Str(",".into())]).unwrap_err();
+    assert_eq!(e.to_string(), "Std.NullReferenceException: cannot call method `Split` on a null reference");
+}

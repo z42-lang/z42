@@ -1,7 +1,7 @@
 use crate::metadata::Value;
 use crate::vm_context::VmContext;
 use anyhow::{anyhow, bail, Result};
-use super::convert::{arg_usize, this_str};
+use super::convert::{arg_str, arg_usize, this_str};
 
 /// string.ToCharArray() — bulk materialise the whole `char[]` in ONE native
 /// call (vs the per-char `CharAt` loop, which pays a builtin dispatch per
@@ -145,7 +145,7 @@ pub fn builtin_str_concat_parts(ctx: &VmContext, args: &[Value]) -> Result<Value
 /// (none inside a builtin) and blocks allocated during marking are born marked.
 /// args: [this: str, sep: str (non-empty — the script side rejects "")]
 pub fn builtin_str_split(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let s = arg_str(args, 0, "__str_split")?;
+    let s = this_str(args, "Split")?;
     let sep = arg_str(args, 1, "__str_split")?;
     if sep.is_empty() {
         bail!("__str_split: separator must not be empty");
