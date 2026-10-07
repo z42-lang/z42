@@ -15,7 +15,7 @@
 // **跨包约束（add-associated-types PR-1）**：此前「跨包 100% 不校验」——`ClassConstraints` 的唯一
 // 写入点只遍历本包 CU 的 ClassDecl，导入类型全程不碰，`Check` 第一行 `HasConstraints` 即返回。
 // 现已接通：zbc TYPE 段的约束 bundle → ZbcReader → TsigReconcile → ExportedClassZ →
-// ImportedSymbolLoader._constraintSetOf → SymbolTable.ClassConstraints（键统一走 ConstraintKey）。
+// ImportedSymbolLoader._constraintSetOf → SymbolTable.ClassConstraints（键 = 类的 FQN，见 SymbolTable.ClassConstraintKey）。
 // 本包与导入走**同一个** _checkBundle，判定口径完全一致。
 //
 // 落地强度：complete-where-constraints 那轮定的「先 warning 探针再翻 error」在本项目**收不到数据**——
@@ -52,10 +52,11 @@ public sealed class ConstraintChecker {
                 if (c.TypeParams.Count > 0 && c.WhereCount > 0) {
                     ConstraintSet cs = this._buildSet(symbols, c);
                     if (cs.AnyNonEmpty()) {
+                        string ns = cu.HasNamespace ? cu.Namespace : "";
                         if (c.Kind == "interface") {
-                            symbols.InterfaceConstraints.Put(c.Name, cs);
+                            symbols.InterfaceConstraints.Put(SymbolTable.IfaceConstraintKey(ns, c.Name), cs);
                         } else {
-                            symbols.ClassConstraints.Put(symbols.ConstraintKey(c.Name, c.TypeParams.Count), cs);
+                            symbols.ClassConstraints.Put(symbols.ClassConstraintKey(ns, c.Name, c.TypeParams.Count), cs);
                         }
                     }
                 }
@@ -384,11 +385,11 @@ public sealed class ConstraintChecker {
             if (inst.TypeArgs[r] is Z42InstantiatedType) { this.Check(symbols, inst.TypeArgs[r] as Z42InstantiatedType, sp); }
             r = r + 1;
         }
-        // 查询键必须经 ConstraintKey（与写入侧同一函数）——裸名查询会让同短名多 arity 的泛型类
-        // 互相串味（`Foo<T>` 的实例化被拿去校验 `Foo<T,U>` 的约束）。见 SymbolTable.ConstraintKey。
+        // 查询键 = 实例化所指那个类的 FQN 键（`Fqn()`，与写入侧 `ClassConstraintKey` 同形）——按短名查会让
+        // 同短名的泛型类互相串味（不同 arity 的 `Foo<T>` / `Foo<T,U>`，或不同 ns 的 `A.Box<T>` / `B.Box<T>`）。
         // `cname` 仍用**裸名**：它只流进诊断文案，用户不该看到 `Foo$2` 这种内部键。
         string cname = inst.Def.Name();
-        string ckey = symbols.ConstraintKey(cname, inst.ArgCount);
+        string ckey = inst.Def.Fqn();
         if (!symbols.HasConstraints(ckey)) { return; }
         ConstraintSet cs = symbols.GetConstraints(ckey);
         int n = inst.ArgCount;

@@ -5,7 +5,7 @@ namespace Z42.Semantics;
 
 using Z42.Syntax;
 using Z42.Core;
-using Z42.IR;   // add-user-conversions：StrMap（syms.Classes.Keys 遍历，_suggestVia）
+using Z42.IR;   // add-user-conversions：StrMap
 using Z42.IR.BinaryFormat;
 
 public sealed class TypeChecker {
@@ -352,48 +352,24 @@ public sealed class TypeChecker {
     }
 
     // add-user-conversions ③：A→C 无用户/内建转换，但存在 A→B 与 B→C 两跳用户转换时，返回中间类名 B（否则 ""）。
-    // 诊断专用，稳定 Ordinal 序遍历（common-pitfalls §1）。仅在存在用户转换时才可能非空 → 无用户转换代码零影响。
+    // 诊断专用，按 FQN 排序遍历全部类（`SortedClasses`：确定序，含被同短名遮住的类）。
+    // 仅在存在用户转换时才可能非空 → 无用户转换代码零影响。
     public string _suggestVia(Z42Type from, Z42Type to, SymbolTable syms) {
         if (from == null || to == null || syms == null) { return ""; }
-        string[] names = syms.Classes.Keys();
-        TypeChecker._sortOrdinal(names);
+        string r = "";
+        Z42ClassType[] all = syms.SortedClasses();
         int i = 0;
-        while (i < names.Length) {
-            // 键就是本表的键 ⇒ 直接取值，不走 `GetClass`（作用域解析：别的 ns 的导入类在这里查不到 → 落裸名回落；
-            // 每次 cast 分类为 None 都会扫一遍整表，z42.io 实测 3614 次回落全出自这里）。
-            Z42ClassType b = syms.Classes.Get(names[i]) as Z42ClassType;
+        while (i < all.Length && r == "") {
+            Z42ClassType b = all[i];
             if (b != null && b.Name() != from.Name() && b.Name() != to.Name()) {
                 if (Conversion._classifyUserToCt(from, b, syms).Kind != ConvKind.None
                     && Conversion._classifyUserFromCt(b, to, syms).Kind != ConvKind.None) {
-                    return b.Name();
+                    r = b.Name();
                 }
             }
             i = i + 1;
         }
-        return "";
-    }
-
-    private static void _sortOrdinal(string[] a) {
-        int i = 1;
-        while (i < a.Length) {
-            string key = a[i];
-            int j = i - 1;
-            while (j >= 0 && TypeChecker._ordLess(key, a[j])) { a[j + 1] = a[j]; j = j - 1; }
-            a[j + 1] = key;
-            i = i + 1;
-        }
-    }
-    private static bool _ordLess(string x, string y) {
-        int n = x.Length;
-        if (y.Length < n) { n = y.Length; }
-        int i = 0;
-        while (i < n) {
-            int cx = (int)x.CharAt(i);
-            int cy = (int)y.CharAt(i);
-            if (cx != cy) { return cx < cy; }
-            i = i + 1;
-        }
-        return x.Length < y.Length;
+        return r;
     }
 
     // 运行期表示类：float/double → 1(FLOAT，运行期同 F64)；char → 2(CHAR，Value::Char)；其余整数族 → 0(INT，运行期同 I64)。

@@ -36,11 +36,11 @@ public sealed partial class SymbolTable {
     // 裸键 ⇒ 存量字节零漂移；第二个同名起才带签名后缀，纯增量。
     public StrMap FuncOverloadsByFqn;
     public StrMap FuncNsAll;        // 短名 → 声明过它的全部 ns（StrBox，"|" 连接；与 ClassNsAll 同构）= 裸名解析的候选集
-    public StrMap ClassConstraints; // ConstraintKey() → ConstraintSet（2B；仅有 where 子句的泛型类/结构登记）
+    public StrMap ClassConstraints; // 类的 FQN 键（`ClassConstraintKey` / `Fqn()`）→ ConstraintSet（仅有 where 子句的泛型类/结构登记）
     // add-associated-types PR-1：泛型**接口**的 where 约束。与 ClassConstraints 分开存，因为类与接口
-    // 同名（`Foo` 类 + `Foo` 接口）在各自的 Classes/Interfaces 里合法共存，混进一张表会互相遮蔽——
+    // 同名（`Foo` 类 + `Foo` 接口）可以合法共存，混进一张表会互相遮蔽——
     // 而 Check 的查询侧只认类（`Z42InstantiatedType.Def` 是 Z42ClassType），被接口条目遮蔽会静默错检。
-    // 接口从不 arity-mangle（ImportedSymbolLoader/StubCollector 都按裸名登记），故此表键恒为裸名。
+    // 键是接口的 FQN（`IfaceConstraintKey`；接口从不 arity-mangle）。
     public StrMap InterfaceConstraints;
     // enum / delegate 这几张表（含 `DelegateNs`）的键是 **FQN**（`SymbolTable.DeclKey`：全局 ns 为裸名，嵌套的是
     // `ns.Outer+Inner`）；按名字查走 `EnumKey` / `DelegateKey`（作用域解析，同 `_resolveClass`）。
@@ -123,6 +123,8 @@ public sealed partial class SymbolTable {
     // 正在收集成员的类（展平名，嵌套为 `Outer+Inner`；"" = 不在类里）。裸类型名主解析落空时沿它的 `+` 链上溯找
     // 嵌套类型（`Outer` 的成员签名里写 `Inner`）。**每个视图自己的**上下文，不随 WithAliases / WithScopeOf 复制。
     public string EnclosingClass;
+    // `SortedClasses()` 的缓存。**每个视图自己的**（不随 WithAliases 复制），见该函数。
+    private Z42ClassType[] _sortedClasses;
     public SymbolTable() {
         this.Classes = new StrMap();
         this.ClassesByFqn = new StrMap();   // fix-type-ref-ns-collision
@@ -150,6 +152,7 @@ public sealed partial class SymbolTable {
         this._firstArity = new StrMap();
         this.CurrentAliases = null;
         this.EnclosingClass = "";
+        this._sortedClasses = null;
         this.ScopeNs = "";
         this.ScopeUsings = new string[0];
         this.ScopeUsingCount = 0;

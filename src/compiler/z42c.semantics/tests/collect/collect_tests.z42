@@ -892,6 +892,19 @@ void test_local_int32_does_not_hijack_int() {
     Assert.Equal(true, t.BuiltinType("int") != mine);
 }
 
+// fqn-tables 4：构造器继承 / 默认构造器按类的 FQN 处理。A、B 两个 ns 各有一个 `Base`：A.Base 只有初始化器
+// （该合成默认构造器），B.Base 写了构造器。此前按短名键处理，A.Base 取到的是短名表里的 B.Base（已有构造器 ⇒
+// 直接返回），A.Base 一个构造器都没合成，派生的 A.D 也就继承不到 ⇒ 初始化器静默不执行。
+[Test]
+void test_ctor_synthesis_per_fqn_for_same_short_name_classes() {
+    var t = pmergeTable(
+        "namespace A;\npublic class Base { public int V = 1; }\npublic class D : Base { }",
+        "namespace B;\npublic class Base { public int W = 2; public Base(int w) { this.W = w; } }");
+    Assert.Equal(1, t.GetClass("A.Base").InstanceCtors().Length);
+    Assert.Equal(1, t.GetClass("A.D").InstanceCtors().Length);
+    Assert.Equal(1, t.GetClass("B.Base").InstanceCtors().Length);
+}
+
 // id 稠密且从 1 开始（0 保留给「未登记」—— z42 字段默认 0，让 0 当合法 id 的话
 // 任何漏登记都会静默地"看起来像 id 0 那个类型"）。
 [Test]

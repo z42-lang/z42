@@ -346,41 +346,80 @@ public sealed partial class SymbolTable {
     public bool          HasIfaceConstraints(string name) { return this.InterfaceConstraints.ContainsKey(name); }
     public ConstraintSet GetIfaceConstraints(string name) { return this.InterfaceConstraints.Get(name) as ConstraintSet; }
 
-    // ClassConstraints 的**唯一**键推导（add-associated-types PR-1）。写入侧（ConstraintChecker.Resolve）、
-    // 查询侧（ConstraintChecker.Check）、导入侧（ImportedSymbolLoader seed）三处都必须经过这里。
-    //
-    // 规则与 `Classes` 完全一致（条件 arity-mangle：同短名多 arity 才带 `$N`）。实现方式是**探测
-    // `Classes` 里实际存的是哪一种键**——StubCollector（本地）/ ImportedSymbolLoader（导入）已二选一
-    // 地登记过，探测即复现其判定，无需把 multiArityMap 传进来，也就不会与它们漂移。
-    //
-    // 修前三套规则并存：`Classes` 条件 mangle、`ClassConstraints` 恒裸名、查询侧恒裸名（`inst.Def.Name()`）。
-    // 写入与查询恰好都用裸名，故本包能跑；但同短名多 arity 的泛型类（`Foo<T>` / `Foo<T,U>`）其约束在
-    // ClassConstraints 里**last-wins 互相覆盖** —— `Foo<Widget>` 可能被拿去校验 `Foo<T,U>` 的约束。
-    // 且导入侧一旦接进来，`Name$N` 与裸名直接对不上，跨包约束全部落空。
     // fqn-tables：**本 CU 声明的**类 `c`（声明在命名空间 `ns`）在 FQN 视图里的键 / 对象。
     // 泛型类若被 arity-mangle（同包里同短名还有别的 arity）就是 `Name$N`，否则是裸名 —— 判据只看**本命名空间**
     // 的 FQN 视图。旧写法拿全局短名表 `Classes.ContainsKey("Name$N")` 判，导入包里恰好有同名 `Name$N`
     // 时本地的 `Name<T>`（未 mangle）会取到导入那份。
-    public string LocalClassKey(string ns, ClassDecl c) {
-        if (c.TypeParams.Count > 0) {
-            string mk = c.Name + "$" + c.TypeParams.Count.ToString();
+    public string LocalClassKey(string ns, ClassDecl c) { return this.LocalClassKeyOf(ns, c.Name, c.TypeParams.Count); }
+
+    // 同上，手里只有名字和类级型参数时用（`TypeEnv` 只记当前类名，`CtorInheritance` 拿到的是声明）。
+    public string LocalClassKeyOf(string ns, string name, int tpCount) {
+        if (tpCount > 0) {
+            string mk = name + "$" + tpCount.ToString();
             if (this.ClassesByFqn.ContainsKey(SymbolTable.QualOf(ns, mk))) { return mk; }
         }
-        return c.Name;
+        return name;
     }
 
     public Z42ClassType LocalClassOf(string ns, ClassDecl c) {
         return this.ClassesByFqn.Get(SymbolTable.QualOf(ns, this.LocalClassKey(ns, c))) as Z42ClassType;
     }
 
-    public string ConstraintKey(string bareName, int tpCount) {
-        if (tpCount > 0) {
-            string mangled = bareName + "$" + tpCount.ToString();
-            // `ClassNsAll` 与短名表同一个键域（条件 mangle 后的短名），且本地 / 导入每份都登记 —— 不依赖短名表的赢家。
-            if (this.ClassNsAll.ContainsKey(mangled)) { return mangled; }
-        }
-        return bareName;
+    // fqn-tables 4：**全部类**（FQN 视图的每一份，含被同短名遮住的那些）按 FQN 键升序（序数比较）。
+    // 要遍历「所有类」的地方都用它，不遍历短名表：短名表同短名只留一份，被遮住的类永远轮不到；
+    // 且 `StrMap.Keys()` 是哈希槽序，诊断文本里的先后会随表的历史漂移。
+    // 结果按视图缓存（表只增不删 ⇒ 条目数没变就是同一份）；调用方只读，不得改数组。
+    public Z42ClassType[] SortedClasses() {
+        Z42ClassType[] cached = this._sortedClasses;   // 单次读引用：并行视图下也不会读到半新半旧
+        if (cached != null && cached.Length == this.ClassesByFqn.Count()) { return cached; }
+        string[] keys = this.ClassesByFqn.Keys();
+        SymbolTable.SortOrdinal(keys);
+        Z42ClassType[] r = new Z42ClassType[keys.Length];
+        int i = 0;
+        while (i < keys.Length) { r[i] = this.ClassesByFqn.Get(keys[i]) as Z42ClassType; i = i + 1; }
+        this._sortedClasses = r;
+        return r;
     }
+
+    // 字符串数组就地升序（序数比较，自底向上归并：稳定、O(n log n)）。
+    public static void SortOrdinal(string[] a) {
+        int n = a.Length;
+        if (n < 2) { return; }
+        string[] src = a;
+        string[] dst = new string[n];
+        int width = 1;
+        while (width < n) {
+            int lo = 0;
+            while (lo < n) {
+                int mid = lo + width; if (mid > n) { mid = n; }
+                int hi = lo + 2 * width; if (hi > n) { hi = n; }
+                int x = lo; int y = mid; int k = lo;
+                while (k < hi) {
+                    if (x < mid && (y >= hi || src[x].CompareTo(src[y]) <= 0)) { dst[k] = src[x]; x = x + 1; }
+                    else { dst[k] = src[y]; y = y + 1; }
+                    k = k + 1;
+                }
+                lo = hi;
+            }
+            string[] t = src; src = dst; dst = t;
+            width = width * 2;
+        }
+        if (src != a) { int c = 0; while (c < n) { a[c] = src[c]; c = c + 1; } }
+    }
+
+    // 类级 where 约束表 `ClassConstraints` 的**唯一**键推导：类在 FQN 视图里的键（`ns.Name` / `ns.Name$N`），
+    // 与 `Z42ClassType.Fqn()` 同形。写入侧（`ConstraintChecker.Resolve`）、查询侧（`Check` / `ExprTyper` /
+    // 发射端 `ClassDescBuilder`）、导入侧（`ImportedSymbolLoader` → `_mergeImports`）都走这里或 `Fqn()`。
+    // 手里有类型对象时直接用 `ct.Fqn()`；只有声明（本 CU 的类）时用本函数。
+    //
+    // 键里必须带 ns：此前键是短名（条件 mangle），不同 ns 的同名泛型类（`A.Box<T>` / `B.Box<T>`）共用一个
+    // 条目，后写的覆盖先写的 ⇒ `A.Box<X>` 被拿去校验 `B.Box` 的约束；导入侧也只能挂短名赢家那一份。
+    public string ClassConstraintKey(string ns, string name, int tpCount) {
+        return SymbolTable.QualOf(ns, this.LocalClassKeyOf(ns, name, tpCount));
+    }
+
+    // 接口 where 约束表 `InterfaceConstraints` 的键：接口的 FQN（接口从不 arity-mangle）。理由同上。
+    public static string IfaceConstraintKey(string ns, string name) { return SymbolTable.QualOf(ns, name); }
 
     // sub 是否为 baseName 的子类（含自身）。走 base 链（迭代——self-type 字段不可递归调本类方法）。
     // enforce-fqn-name-identity **B4**：沿 base 链的相等判定走**名义身份句柄**（`_sameRef`）。
