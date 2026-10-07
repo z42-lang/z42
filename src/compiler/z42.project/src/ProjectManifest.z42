@@ -47,7 +47,7 @@ public sealed class ProjectManifest {
     // ── [lints] 诊断规则开关 / severity 覆盖（attribute-handler-registry PR3b）─────
     // 中性 key/severity 字符串对（如 `Z9002="warning"` / `"webgen.*"="none"`）——z42.project **不**
     // 认识规则 Id / severity 语义，只搬运；消费方（z42c 的 LintConfig）解释成每规则最终 severity
-    // （EnabledByDefault + 覆盖 + 通配 + warnings-as-errors）。`warnings-as-errors` 布尔单独拎出。
+    // （EnabledByDefault + 覆盖 + 通配 + warnings_as_errors）。`warnings_as_errors` 布尔单独拎出。
     // 可变公字段（默认空，ManifestLoader 构造后填），同 OptimizeNames 模式。
     public string[] LintNames; public string[] LintSeverities; public int LintCount;
     public bool LintWarningsAsErrors;
@@ -62,6 +62,12 @@ public sealed class ProjectManifest {
     // `[properties]` 段，运行时经 `Std.Runtime.AppProperties` 只读。原样保留 TomlValue
     // 以支持完整 TOML 类型（数组 / 嵌套表）。可变公字段（默认空表，ManifestLoader 填）。
     public TomlValue Properties;
+    // ── 未知键 / 旧名键（ManifestKeys.AuditProject）─────────────────────────────
+    // 每项一行现成的文本（不含清单路径）。z42.project 只收集，消费方（ManifestKnobs.Resolve）呈现：
+    // UnknownKeys 报错；DeprecatedKeys（改过名、旧名仍生效的键）报警告。
+    // 可变公字段（默认空，ManifestLoader 构造后填）。
+    public string[] UnknownKeys;
+    public string[] DeprecatedKeys;
     public ProjectManifest(ProjectInfo project, Sources sources, BuildConfig build,
                            Profile[] profiles, int profileCount,
                            DepEntry[] deps, int depCount,
@@ -89,5 +95,7 @@ public sealed class ProjectManifest {
         this.LintWarningsAsErrors = false;
         this.Natives = new NativeSpec[0]; this.NativeCount = 0;
         this.Properties = TomlValue.OfTable();
+        this.UnknownKeys = new string[0];
+        this.DeprecatedKeys = new string[0];
     }
 }

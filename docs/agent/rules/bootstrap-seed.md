@@ -121,6 +121,19 @@ xtask / build 基础设施驱动；stdlib 又被两者依赖。任何「从源�
 > `scripts/test/` 等算**不影响**，会被后来的运行替换。**决定 SDK 内容的逻辑不要放进这些路径**；新增一类
 > 不进 SDK 的路径时，同步改 `.github/ci/main-supersede.sh` 的 `non_sdk_re` 与 ci.md 的那张表。
 
+### 清单键同样 support-then-use（`z42.toml` / `z42.workspace.toml`）
+
+清单里不认识的键是**错误**（`Z42.Project.ManifestKeys` 是合法键的唯一真相源）。但仓内清单由**种子**
+z42c / xtask 读，而它们跑的是**种子那一代**的 z42.project——不认识的键在审计前的种子里被**静默忽略**
+（配了不生效），在审计后的种子里被**拒掉**。两种结局都是错的，所以：
+
+- **加一个清单键**：阶段 1 只给 z42.project 加解析 + 进 `ManifestKeys` 键表，仓内清单**不写**它
+  → nightly 发布 → 阶段 2 才在仓内清单（`src/compiler/`、`src/libraries/`、`scripts/` 下的工程与 workspace
+  清单，以及种子会构建的任何清单）里用它。只由**刚建出的**编译器构建的测试夹具不受此限，但拿不准就按种子算。
+- **改一个键名**：阶段 1 新旧两个都认（新名优先），旧名进 `DeprecatedKeys` 只报**警告**、仓内清单保持旧名；
+  阶段 2（nightly 之后）仓内清单切新名 + 删掉旧名支持（旧名回落成未知键 = 错误）。挂一条 `STAGE2-DEBT` 提醒。
+- xtask 直接按原始 TOML 读的键（如 `_stdlibList` 读 `workspace.default-members`）与仓内清单**同一个提交**一起切。
+
 ### 边界的第二根轴：stdlib API 面
 
 种子约束不止语法/格式——CI 冷启动（`.github/actions/ci-bootstrap` step 2/3）用**种子 z42c +

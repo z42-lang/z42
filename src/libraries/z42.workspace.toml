@@ -51,10 +51,6 @@ default-members = [
     "z42.test",
 ]
 
-[workspace.project]
-version = "0.1.0"
-license = "MIT"
-
 [workspace.build]
 # 产物按 build profile 分级：
 # 例：artifacts/build/libraries/z42.core/release/dist/z42.core.zpkg

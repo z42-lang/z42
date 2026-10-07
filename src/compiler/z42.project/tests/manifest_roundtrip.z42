@@ -30,7 +30,7 @@ void test_project_manifest_roundtrip() {
 
 [Test]
 void test_workspace_manifest_roundtrip() {
-    string toml = "[workspace]\nmembers = [\"*\"]\ndefault-members = [\"a\", \"b\"]\n\n[workspace.build]\noutput_dir = \"out/${member_name}\"\ncache_dir = \"${output_dir}/cache\"\n";
+    string toml = "[workspace]\nmembers = [\"*\"]\ndefault_members = [\"a\", \"b\"]\n\n[workspace.build]\noutput_dir = \"out/${member_name}\"\ncache_dir = \"${output_dir}/cache\"\n";
     WorkspaceManifest w = ManifestLoader.ParseWorkspaceText(toml);
     Assert.Equal(1, w.MemberCount);
     Assert.Equal("*", w.Members[0]);
@@ -91,10 +91,10 @@ void test_analyzers_section_absent_empty() {
 // ── [lints] 诊断规则开关 / severity 覆盖（attribute-handler-registry PR3b）──────
 [Test]
 void test_lints_section_parsed() {
-    // 逐规则 severity 串搬为中性 name/severity 对；warnings-as-errors 拎成独立 bool。
-    string toml = "[project]\nname = \"l\"\nversion = \"0.1.0\"\n\n[lints]\nZ9002 = \"warning\"\nZ9100 = \"error\"\n\"webgen.*\" = \"none\"\nwarnings-as-errors = true\n";
+    // 逐规则 severity 串搬为中性 name/severity 对；warnings_as_errors 拎成独立 bool。
+    string toml = "[project]\nname = \"l\"\nversion = \"0.1.0\"\n\n[lints]\nZ9002 = \"warning\"\nZ9100 = \"error\"\n\"webgen.*\" = \"none\"\nwarnings_as_errors = true\n";
     ProjectManifest m = ManifestLoader.ParseText(toml);
-    Assert.Equal(3, m.LintCount);   // warnings-as-errors 不计入逐规则表
+    Assert.Equal(3, m.LintCount);   // warnings_as_errors 不计入逐规则表
     Assert.True(m.LintWarningsAsErrors);
     bool sawW = false; bool sawE = false; bool sawWild = false;
     int i = 0;
@@ -119,8 +119,8 @@ void test_lints_section_absent_empty() {
 
 [Test]
 void test_lints_warnings_as_errors_only() {
-    // 仅 warnings-as-errors、无逐规则条目 → LintCount 0、WAE true。
-    string toml = "[project]\nname = \"l\"\nversion = \"0.1.0\"\n\n[lints]\nwarnings-as-errors = true\n";
+    // 仅 warnings_as_errors、无逐规则条目 → LintCount 0、WAE true。
+    string toml = "[project]\nname = \"l\"\nversion = \"0.1.0\"\n\n[lints]\nwarnings_as_errors = true\n";
     ProjectManifest m = ManifestLoader.ParseText(toml);
     Assert.Equal(0, m.LintCount);
     Assert.True(m.LintWarningsAsErrors);
@@ -152,4 +152,103 @@ void test_build_generated_dir_explicit_empty_means_off() {
     ProjectManifest m = ManifestLoader.ParseText(toml);
     Assert.Equal(true, m.Build.HasGeneratedDir);    // 配了
     Assert.Equal("", m.Build.GeneratedDir);         // 且是空 ⇒ 不落盘
+}
+
+// ── 未知键审计（ManifestKeys）：写错的键收集成错误行，不再静默忽略 ─────────────
+[Test]
+void test_known_keys_audit_clean() {
+    string toml = "[project]\nname = \"k\"\nversion = \"0.1.0\"\nkind = \"exe\"\nentry = \"Main\"\npack = true\n"
+                + "description = \"d\"\nauthors = [\"a\", \"b\"]\nlicense = \"MIT\"\n"
+                + "[sources]\ninclude = [\"src/**/*.z42\"]\nexclude = []\n"
+                + "[build]\noutput_dir = \"o\"\ncache_dir = \"c\"\ndist_dir = \"d\"\nincremental = false\nhooks = \"h\"\ngenerated_dir = \"g\"\n"
+                + "[dependencies]\n\"z42.core\" = \"0.1.0\"\n\"x\" = { version = \"1\", path = \"../x\", deploy = \"sdk\" }\n"
+                + "[tests]\ninclude = [\"tests/*.z42\"]\nauto = false\n[tests.dependencies]\n\"z42.test\" = \"0.1.0\"\n"
+                + "[[test]]\nname = \"t\"\nharness = false\nentry = \"M\"\ninclude = [\"t.z42\"]\ntest = true\n"
+                + "[[exe]]\nname = \"e\"\nentry = \"M\"\ninclude = [\"e.z42\"]\n"
+                + "[platform.desktop]\napphost = true\npublish_dir = \"p\"\nbin = \"bin/k\"\npayload = \"k.zpkg\"\nlink = \"dynamic\"\n"
+                + "[platform.wasm]\ntitle = \"w\"\n"
+                + "[native.foo]\ndir = \"prebuilt\"\n"
+                + "[lints]\nZ9002 = \"error\"\nwarnings_as_errors = true\n"
+                + "[optimize]\ninline = false\n[syntax]\ncontrol_flow = true\n"
+                + "[profile.release.runtime]\ngc-mode = \"x\"\n[properties]\nanything = 1\n";
+    ProjectManifest m = ManifestLoader.ParseText(toml);
+    Assert.Equal(0, m.UnknownKeys.Length);
+    Assert.Equal(0, m.DeprecatedKeys.Length);
+    Assert.Equal("d", m.Project.Description);
+    Assert.Equal(2, m.Project.Authors.Length);
+    Assert.Equal("MIT", m.Project.License);
+    Assert.Equal("dynamic", m.Platform.Desktop.Link);
+    Assert.True(m.LintWarningsAsErrors);
+}
+
+[Test]
+void test_unknown_keys_collected_per_section() {
+    string toml = "[project]\nname = \"k\"\nversion = \"0.1.0\"\nentyr = \"Main\"\n"
+                + "[build]\noutput-dir = \"o\"\n"
+                + "[dependencies]\n\"x\" = { version = \"1\", paht = \"../x\" }\n"
+                + "[[exe]]\nname = \"e\"\nsrc = [\"e.z42\"]\n"
+                + "[platform.desktop]\nicno = \"i\"\n"
+                + "[packge]\nname = \"p\"\n";
+    ProjectManifest m = ManifestLoader.ParseText(toml);
+    Assert.Equal(6, m.UnknownKeys.Length);
+    string all = "";
+    int i = 0;
+    while (i < m.UnknownKeys.Length) { all = all + m.UnknownKeys[i] + "\n"; i = i + 1; }
+    Assert.True(all.Contains("unknown key `packge` in top level"));
+    Assert.True(all.Contains("unknown key `entyr` in [project]"));
+    Assert.True(all.Contains("unknown key `output-dir` in [build] (known: output_dir, "));
+    Assert.True(all.Contains("unknown key `paht` in [dependencies.x]"));
+    Assert.True(all.Contains("unknown key `src` in [[exe]]"));
+    Assert.True(all.Contains("unknown key `icno` in [platform.desktop]"));
+}
+
+// 改过名的键（阶段 1）：旧名仍生效，只进 DeprecatedKeys（警告），不进 UnknownKeys（错误）。
+[Test]
+void test_renamed_keys_still_honored_and_deprecated() {
+    string toml = "[project]\nname = \"k\"\nversion = \"0.1.0\"\n[lints]\nwarnings-as-errors = true\n";
+    ProjectManifest m = ManifestLoader.ParseText(toml);
+    Assert.Equal(0, m.UnknownKeys.Length);
+    Assert.Equal(1, m.DeprecatedKeys.Length);
+    Assert.Equal("key `warnings-as-errors` in [lints] is deprecated, rename it to `warnings_as_errors`"
+        + " (the old spelling will be rejected in a future release)", m.DeprecatedKeys[0]);
+    Assert.Equal(0, m.LintCount);   // 旧键不被当成规则名
+    Assert.True(m.LintWarningsAsErrors);
+    WorkspaceManifest w = ManifestLoader.ParseWorkspaceText("[workspace]\nmembers = [\"*\"]\ndefault-members = [\"a\"]\n");
+    Assert.Equal(0, w.UnknownKeys.Length);
+    Assert.Equal(1, w.DeprecatedKeys.Length);
+    Assert.Equal("key `default-members` in [workspace] is deprecated, rename it to `default_members`"
+        + " (the old spelling will be rejected in a future release)", w.DeprecatedKeys[0]);
+    Assert.Equal(1, w.DefaultCount);
+    Assert.Equal("a", w.DefaultMembers[0]);
+}
+
+[Test]
+void test_renamed_keys_new_spelling_wins() {
+    // 新旧两个都写 → 新名的值生效（与键的先后无关），旧名仍报警告。
+    string toml = "[project]\nname = \"k\"\nversion = \"0.1.0\"\n[lints]\nwarnings_as_errors = false\nwarnings-as-errors = true\n";
+    ProjectManifest m = ManifestLoader.ParseText(toml);
+    Assert.Equal(false, m.LintWarningsAsErrors);
+    Assert.Equal(0, m.UnknownKeys.Length);
+    Assert.Equal(1, m.DeprecatedKeys.Length);
+    WorkspaceManifest w = ManifestLoader.ParseWorkspaceText(
+        "[workspace]\nmembers = [\"*\"]\ndefault-members = [\"old\"]\ndefault_members = [\"new1\", \"new2\"]\n");
+    Assert.Equal(2, w.DefaultCount);
+    Assert.Equal("new1", w.DefaultMembers[0]);
+    Assert.Equal(1, w.DeprecatedKeys.Length);
+    // 只写新名：不警告。
+    ProjectManifest n = ManifestLoader.ParseText("[project]\nname = \"k\"\nversion = \"0.1.0\"\n[lints]\nwarnings_as_errors = true\n");
+    Assert.Equal(0, n.DeprecatedKeys.Length);
+    Assert.True(n.LintWarningsAsErrors);
+}
+
+[Test]
+void test_workspace_unknown_keys_collected() {
+    string toml = "[workspace]\nmembers = [\"*\"]\n[workspace.project]\nversion = \"0.1.0\"\n"
+                + "[workspace.build]\noutput_dir = \"o\"\ndist_dir = \"d\"\n"
+                + "[workspace.dependencies]\n\"x\" = { path = \"x\", features = [] }\n";
+    WorkspaceManifest w = ManifestLoader.ParseWorkspaceText(toml);
+    Assert.Equal(3, w.UnknownKeys.Length);
+    Assert.Equal("unknown key `project` in [workspace] (known: members, exclude, default_members, build, dependencies)", w.UnknownKeys[0]);
+    Assert.Equal("unknown key `dist_dir` in [workspace.build] (known: output_dir, cache_dir)", w.UnknownKeys[1]);
+    Assert.Equal("unknown key `features` in [workspace.dependencies.x] (known: version, path, deploy)", w.UnknownKeys[2]);
 }

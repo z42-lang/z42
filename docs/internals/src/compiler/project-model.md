@@ -20,6 +20,26 @@ graph LR
 
 `z42.toml` 描述单个包，核心三段：`[project]`（name / version / kind / entry / pack）、`[sources]`（include / exclude）、`[dependencies]`（依赖包名与版本）。`z42.workspace.toml` 用 `members` 声明工作区成员。
 
+#### 未知键审计：收集在 z42.project，呈现在消费方
+
+清单里能写哪些键只有一张表：`z42.project/src/ManifestKeys.z42`（各段 `/` 分隔的合法键 + 改名表
+`RenamedTo`）。`ManifestLoader` 解析完后跑 `ManifestKeys.AuditProject` / `AuditWorkspace`，把结果挂到
+清单对象上，**不抛异常**——有的调用方（xtask `_loadManifestOr`）会吞异常回落默认，抛了反而把错误藏起来：
+
+| 字段 | 含义 | 谁呈现 | 怎么呈现 |
+|---|---|---|---|
+| `ProjectManifest.UnknownKeys` | 不认识的键（错误行） | `ManifestKnobs.Resolve`（`z42c build` 与 z42b 共用） | 进 `KnobResult.Errors` → 用法错误 |
+| `ProjectManifest.DeprecatedKeys` | 改过名、旧名仍生效的键（警告行） | 同上 | 进 `KnobResult.Warnings` → driver 打印 / z42b 经 reporter |
+| `WorkspaceManifest.UnknownKeys` | 同上，workspace 清单 | `WorkspaceBuild.Plan` / `PlanLayout` | 抛出，driver 原样呈现，一个成员都不建 |
+| `WorkspaceManifest.DeprecatedKeys` | 同上 | driver `_warnDeprecatedWsKeys` | 规划前打印警告 |
+
+不审计的位置是「键名本身就是用户数据」的段：依赖 / analyzer / native 的子表名、`[optimize]` / `[syntax]`
+（消费方按名表校验）、`[lints]` 规则名、`[properties]`、`[profile.<n>.runtime|properties]`；`[profile.<n>]`
+下直接写的键另走 `Profile.BadKeys`。
+
+改名分两阶段跨 nightly（种子读仓内清单，见自举种子纪律）：阶段 1 loader 新旧两个键都读、新名优先，旧名进
+`DeprecatedKeys`；阶段 2 删掉 `RenamedTo` 里的条目，旧名回落成未知键。
+
 `SourceDiscovery` 按 `[sources]` 的 include/exclude 规则展开出参与编译的源文件清单，交给源代码编译流程。
 `DiscoverWithExclude(projectDir, includes, excludes)` 是纯 glob 原语：先按 include 展开（`**/*.z42` 递归 /
 `<prefix>/**/<suffix>` / 单层），去重 + Ordinal 排序，再逐条按 exclude glob（`<dir>/**` 前缀 / `**/<suffix>`
@@ -307,7 +327,7 @@ p→m→t 升序 first-wins）与 `SigsClassIndex`（每 `ZpkgModuleSigs` 按"�
 
 **「每次都重发」那两层靠的是「一定会进 `PackageCompile`」——所以带 `[analyzers]` 的工程不走
 preserved 早退**（`fix-analyzer-diags-preserved`）。早退路径只能回放 meta 里有的东西，而 analyzer
-诊断与 `[lints]` 决策（severity 覆盖 / `warnings-as-errors`）**刻意不进 meta**。修前两个症状：
+诊断与 `[lints]` 决策（severity 覆盖 / `warnings_as_errors`）**刻意不进 meta**。修前两个症状：
 什么都不改再构建一次，analyzer 警告消失；只改 `[lints]` 把规则升成 error，源码没动 ⇒ 全命中 ⇒
 构建仍 exit 0。`[lints]` 也**不**进 `depsId`：它不改任何 CU 的产物，扩键会换来一次无谓的全量重编
 （上面那条「呈现问题 ≠ 失效问题」）。这类工程全命中时的代价是多一次装配 + analyzer 遍历
@@ -333,6 +353,7 @@ preserved 早退**（`fix-analyzer-diags-preserved`）。早退路径只能回�
 | 关注点 | 关键文件 |
 |--------|---------|
 | 工程模型 | `z42.project/src/ManifestLoader.z42`、`ProjectManifest.z42`、`SourceDiscovery.z42`；`z42.package/src/PackageTypes.z42` |
+| 清单键审计 | `z42.project/src/ManifestKeys.z42`；呈现：`z42c.pipeline/src/ManifestKnobs.z42`、`WorkspaceBuild.z42`、`z42c.driver/src/WorkspaceBuild.z42` |
 | 包级缓存身份 | `z42c.driver/src/Main.z42`（拼 `depsId`）、`z42c.pipeline/src/DepIdentity.z42`、`IncrementalDriver.z42`、`CacheStore.z42` |
 | 依赖扫描 | `z42c.pipeline/src/DepScan.z42`；跨成员 memo：`DepScanCache.z42`（F2） |
 | 依赖索引 | `z42.package/src/DependencyIndex.z42` |

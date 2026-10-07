@@ -14,6 +14,9 @@ public sealed class DesktopConfig {
     // 的 payload 路径 = 从 Bin 所在目录到 Payload 的相对路径，由 publish 计算（用户不手算）。
     public string Bin;          // apphost 二进制路径，如 "bin/z42d" / "z42"（落根）
     public string Payload;      // payload zpkg 路径，如 "programs/z42d/z42.devtools.zpkg"
+    // `z42 publish --self-contained` 选哪种内嵌宿主："static"（默认）/ "dynamic"（旁带 libz42 动态库）。
+    // 合法性由消费方（z42b publish）判。构造后赋值：ctor 签名是种子 ABI，不动。
+    public string Link;
     public DesktopConfig(bool apphost, string publishDir, bool hasIcon, string icon,
                          bool hasBundleId, string bundleId, string bin, string payload) {
         this.Apphost = apphost;
@@ -21,5 +24,6 @@ public sealed class DesktopConfig {
         this.HasIcon = hasIcon; this.Icon = icon;
         this.HasBundleId = hasBundleId; this.BundleId = bundleId;
         this.Bin = bin; this.Payload = payload;
+        this.Link = "static";
     }
 }

@@ -384,6 +384,8 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
     // pack 用上面 driver 自己的判断（有 flat workspace / 闭包子建两种角色，且已先行拦截）⇒ 这里 forcePacked=false，
     // Resolve 的 pack 报错不会再触发。⚠️ 必须解在 `depsId` **之前** —— 优化集要并进包级缓存身份，见下。
     KnobResult kn = ManifestKnobs.Resolve(pm, tomlPath, isRelease, cliAdd, cliRemove, false);
+    int kw = 0;
+    while (kw < kn.Warnings.Length) { ConsoleError.WriteLine("z42c: " + kn.Warnings[kw]); kw = kw + 1; }
     if (kn.ErrorCount > 0) {
         int ke = 0;
         while (ke < kn.ErrorCount) { ConsoleError.WriteLine("z42c: " + kn.Errors[ke]); ke = ke + 1; }
@@ -618,7 +620,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
         // 独立字段**：避免 driver 引用 CompileInputs 新字段成新跨成员符号、撞 F2 冷启动 stale-cache。
     }
     // attribute-handler-registry PR3b：[lints] 中性字段 → LintConfig 决策器（severity 覆盖 +
-    // EnabledByDefault 门 + warnings-as-errors）。仅 analyzer 运行时消费；z42c 自建无 [lints] →
+    // EnabledByDefault 门 + warnings_as_errors）。仅 analyzer 运行时消费；z42c 自建无 [lints] →
     // LintCount==0 && !WAE → 空配置（等价 null）→ 逐字节不动。
     cin.Lints = kn.Lints;   // null = 无 [lints]（等价空配置）
     CompileArtifacts art = PackageCompile.Compile(cin);

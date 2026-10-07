@@ -1,0 +1,11 @@
+[project]
+name    = "check.knob"
+version = "0.1.0"
+kind    = "lib"
+
+[sources]
+include = ["k.z42"]
+
+# 旧名（阶段 1 仍生效）：只警告，不拦构建。
+[lints]
+warnings-as-errors = true

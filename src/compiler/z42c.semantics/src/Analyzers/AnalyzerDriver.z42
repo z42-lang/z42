@@ -17,7 +17,7 @@ using Z42.Syntax;   // Analyzer / DiagSink / DiagRule / SyntaxKind / AST / FixSi
 using Std.IO;       // File —— PR7-wire `--fix` 就地重写源（z42.io 已在 semantics 传递闭包：→z42.package→z42.io）
 
 // DiagSink 具体实现：analyzer 报告 → 编译器 DiagnosticBag。severity 决策经 LintConfig（PR3b）：
-// EnabledByDefault + [lints] 覆盖 + 通配 + warnings-as-errors → 最终级别；抑制（规则禁用 / "none"）
+// EnabledByDefault + [lints] 覆盖 + 通配 + warnings_as_errors → 最终级别；抑制（规则禁用 / "none"）
 // 则整条丢弃、不进 bag。Hidden 暂并入 Info（--fix 消费留后续）。
 //
 // PR7-wire：同时实现 FixSink——analyzer 命中问题时经 `diags as FixSink` 下转、调 ReportFix 报诊断 +

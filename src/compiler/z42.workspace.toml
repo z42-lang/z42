@@ -58,10 +58,6 @@ default-members = [
     "z42.scripting",
 ]
 
-[workspace.project]
-version = "0.1.0"
-license = "MIT"
-
 [workspace.build]
 # output_dir 是 workspace-root-relative（src/compiler/ → ../../ = repo root）；
 # cache_dir 由 CentralizedBuildLayout 相对 output_dir 解析，故用 ${output_dir} 模板。
