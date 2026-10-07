@@ -124,7 +124,7 @@ public sealed class StubEmitter {
         int totalParams = md.ParamCount + 1;   // 实例 → +this
         // RetType 是 TypeExpr（非 string）→ 必须解析为类型名字符串（同 EmitFunction），否则
         // NamedType 对象被当串塞进 SIGS/池 → STRS 池污染崩溃。
-        string retName = this._g._symbols.ResolveType(md.RetType).Name();
+        string retName = this._resolvedSpell(this._g._symbols.ResolveType(md.RetType));
         bool isVoid = retName == "void";
         TypedReg dst = new TypedReg(totalParams, isVoid ? IrType.Void : IrType.Ref);
         IrInstr[] instrs;
@@ -177,8 +177,9 @@ public sealed class StubEmitter {
         string[] ptypes = new string[declaredParams];
         int pk = 0;
         while (pk < declaredParams) { ptypes[pk] = "?"; pk = pk + 1; }
-        // retName 仍是**声明**的返回类型（反射/跨包签名保真；sret 由 MethodFlags 承载，不污染签名）
-        IrFunction irf = new IrFunction(name, declaredParams, retStructName, false, blocks, 1, totalPhys + 2,
+        // retName 仍是**声明**的返回类型（反射/跨包签名保真；sret 由 MethodFlags 承载，不污染签名）。
+        // `retStructName` 是布局键（短名），签名里写 FQN（fqn-tables 5b）。
+        IrFunction irf = new IrFunction(name, declaredParams, this._typeSpell(md.RetType), false, blocks, 1, totalPhys + 2,
                               "Interp", ptypes, declaredParams, new int[0], 0,
                               new IrLineEntry[0], 0, new IrLocalVarEntry[0], 0);
         irf.MethodFlags = irf.MethodFlags | IrGenFacts.MethodFlagSret;
@@ -220,11 +221,15 @@ public sealed class StubEmitter {
         return inv;
     }
 
+    // 桩签名（SIGS）里的类型拼写：源码结构（`?` / `[]` / 关键字基元 / 型参名照写），**类型名成分写 FQN**
+    // （fqn-tables 5b，同 `FunctionEmitter._sigTypeName` / `ClassDescBuilder._fqnOf` 的口径）。此前整串照抄源码 ⇒
+    // `extern Type BaseType`、`extern TypeVisibility Visibility` 这类成员在 SIGS 里是裸名，消费端只能按短名回落猜。
     private string _typeSpell(TypeExpr t) {
         if (t is NamedType) {
             NamedType nt = t as NamedType;
-            if (nt.ArgCount == 0) { return nt.Name; }
-            string s = nt.Name + "<";
+            string head = this._fqnHead(nt);
+            if (nt.ArgCount == 0) { return head; }
+            string s = head + "<";
             int a = 0;
             while (a < nt.ArgCount) {
                 if (a > 0) { s = s + ", "; }
@@ -236,6 +241,39 @@ public sealed class StubEmitter {
         if (t is ArrayType) { return this._typeSpell((t as ArrayType).Elem) + "[]"; }
         if (t is NullableType) { return this._typeSpell((t as NullableType).Inner) + "?"; }
         return "?";
+    }
+
+    // 名字成分 → 解析得到的用户声明类 / 接口 / enum 的 FQN；基元、型参、委托、全局 ns 类型与解析不出来的名字
+    // 照源码写。歧义裸名不写 FQN（理由同 `ClassDescBuilder._fqnOf`）。
+    private string _fqnHead(NamedType nt) {
+        SymbolTable st = this._g._symbols;
+        if (st.IsBareNameAmbiguous(nt.Name)) { return nt.Name; }
+        Z42Type rt = st.ResolveType(nt);
+        if (rt is Z42InstantiatedType) {
+            Z42ClassType d = (rt as Z42InstantiatedType).Def;
+            if (d != null && d.PrimCode() < 0 && d.Namespace != "") { return d.Fqn(); }
+            return nt.Name;
+        }
+        string fq = this._fqnOf(rt);
+        return fq != "" ? fq : nt.Name;
+    }
+
+    // 已解析类型 → 签名拼写：用户声明类 / 接口取 FQN，其余（基元包装名、void、型参…）照 `Name()`。
+    private string _resolvedSpell(Z42Type rt) {
+        string fq = this._fqnOf(rt);
+        return fq != "" ? fq : rt.Name();
+    }
+
+    private string _fqnOf(Z42Type rt) {
+        if (rt is Z42ClassType) {
+            Z42ClassType ct = rt as Z42ClassType;
+            if (ct.PrimCode() < 0 && ct.Namespace != "") { return ct.Fqn(); }
+        }
+        if (rt is Z42InterfaceType) {
+            Z42InterfaceType it = rt as Z42InterfaceType;
+            if (it.Namespace != "") { return it.Fqn(); }
+        }
+        return "";
     }
 
     internal IrFunction _emitAutoPropGetter(string name, string backingField, string retTypeName, int retTag,

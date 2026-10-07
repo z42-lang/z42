@@ -253,6 +253,12 @@ public sealed class FunctionEmitter {
                 Z42ClassType rct = resolved as Z42ClassType;
                 if (rct.PrimCode() < 0 && rct.Namespace != "") { return rct.Fqn(); }
             }
+            // 实例化接口（`ISubscription<Action<T>>`）：基名 FQ + 实参（须在下面的接口分支之前——它也是接口，
+            // 走那条会只剩基名、丢实参）。
+            if (resolved is Z42InstantiatedInterfaceType) {
+                Z42InstantiatedInterfaceType rii = resolved as Z42InstantiatedInterfaceType;
+                if (rii.Namespace != "") { return this._sigInstIface(rii); }
+            }
             if (resolved is Z42InterfaceType) {
                 Z42InterfaceType rit = resolved as Z42InterfaceType;
                 if (rit.Namespace != "") { return rit.Fqn(); }
@@ -291,6 +297,10 @@ public sealed class FunctionEmitter {
             Z42ClassType ct = t as Z42ClassType;
             if (ct.PrimCode() < 0 && ct.Namespace != "") { return ct.Fqn(); }
         }
+        if (t is Z42InstantiatedInterfaceType) {   // 同 _sigTypeName：先于接口分支
+            Z42InstantiatedInterfaceType tii = t as Z42InstantiatedInterfaceType;
+            if (tii.Namespace != "") { return this._sigInstIface(tii); }
+        }
         if (t is Z42InterfaceType) {
             Z42InterfaceType it = t as Z42InterfaceType;
             if (it.Namespace != "") { return it.Fqn(); }
@@ -316,6 +326,18 @@ public sealed class FunctionEmitter {
         // （实测破坏：ext 导出签名 `Kv<String, Int32>[]` 变成 `Kv<string, int>[]` ⇒
         //  generic_struct_array_cross_pkg 的 main 整个导入失效。）
         return t.Name();
+    }
+
+    // 实例化接口 → `<基名 FQN><实参…>`（实参同 _sigArgTypeName 文法）。
+    private string _sigInstIface(Z42InstantiatedInterfaceType ii) {
+        string acc = ii.Fqn() + "<";
+        int ai = 0;
+        while (ai < ii.ArgCount) {
+            if (ai > 0) { acc = acc + ", "; }
+            acc = acc + this._sigArgTypeName(ii.TypeArgs[ai]);
+            ai = ai + 1;
+        }
+        return acc + ">";
     }
 
     // drop-short-primitive-aliases：`_isAliasPrim` 守卫已删 —— 它存在的唯一理由是「这些次要别名
