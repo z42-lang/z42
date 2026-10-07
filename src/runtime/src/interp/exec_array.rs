@@ -1,80 +1,24 @@
-/// Array instructions: allocation, element access, length.
-/// add-gc-oom-exception: array_new / array_new_lit return Option<Value>
-/// to propagate Std.OutOfMemoryException when alloc returns Null under
-/// strict OOM mode. Other helpers remain Result<()>.
+/// Array instructions: allocation, element access, length — thin adapters over
+/// [`crate::objops::array`] (the single implementation shared with the JIT).
 ///
-/// add-escape-analysis-stack-alloc: when the compiler proves an array does not
-/// escape its frame, `stack_alloc` routes allocation to the per-context stack
-/// arena (no GC). `Value::StackArray { idx, frame_id }` handles are resolved by
-/// array_get / array_set / array_len through `ctx.stack_arena` (validated: idx in
-/// range + frame_id matches, else a clear stale-handle diagnostic).
+/// Each adapter reads registers, calls objops, writes `dst`, and maps an
+/// [`OpError`](crate::objops::OpError) to the interp throw channel via [`raise`]:
+/// `Ok(Some(exc))` = a catchable exception (`NullReferenceException` /
+/// `IndexOutOfRangeException` / `OverflowException` / `OutOfMemoryException`),
+/// `Err` = internal VM error.
 
-use crate::metadata::types::{default_value_for, default_value_for_tag, ElemType};
+use crate::metadata::types::{default_value_for, ElemType};
 use crate::metadata::{Module, Value};
+use crate::objops;
 use crate::vm_context::VmContext;
-use anyhow::{bail, Result};
+use anyhow::Result;
 
-use super::ops::to_usize;
+use super::ops::raise;
 use super::Frame;
 
-/// add-struct-array-codegen (P3b follow-up): if `element_type` is a **blob value struct**
-/// (a value type with ≥2 fields + a delivered byte layout — the same `IsBlobStruct`
-/// criterion the compiler uses to emit inline-struct access), build a `StructBytes`-backed
-/// array of `len` zero-initialized elements (C# inline `struct[]`). `None` for primitives /
-/// reference types / single-field structs (they keep `Boxed` / packed backings).
-pub(crate) fn try_struct_backed(ctx: &VmContext, element_type: ElemType, len: usize) -> Option<crate::metadata::types::ArrayObj> {
-    // Generic value structs are type-erased: a single TypeDesc is registered under the
-    // *erased* base name (`Kv`), while `array_new` deliberately carries the non-erased
-    // element name (`Kv<string, int>`) for element reflection. Look the TypeDesc up by the
-    // erased base name (strip the first `<…`) so a `KeyValuePair<K,V>[]` still resolves to
-    // its struct layout and gets a StructBytes backing instead of degrading to a reference
-    // array of Nulls. The full `element_type` is still passed to `struct_backed` below so
-    // `arr.GetType().GetElementType()` keeps returning the real instantiated element type.
-    //
-    // generic-struct-erased-slot-value-copy: try the **full instantiated name first**. When the
-    // compiler specialised a gated instantiation it delivers a synthetic TypeDesc under that exact
-    // name, whose layout inlines the struct type argument's bytes. Falling straight through to the
-    // erased base name would hand back the *definition* layout (type-parameter fields are 8-byte
-    // reference leaves) while the elements are instantiation-shaped — mismatched size and reference
-    // bitmap. Non-specialised generics still miss on the full name and take the erased path below,
-    // so this is strictly backward compatible.
-    let td = match ctx.try_lookup_type(&element_type) {
-        Some(td) => td,
-        None => {
-            let name: &str = &element_type;
-            let erased = name.split('<').next().unwrap_or(name);
-            ctx.try_lookup_type(erased)?
-        }
-    };
-    // single-field-struct-value-semantics（坑点 ⑤）：闸门与编译器 `StructLayout.IsBlobStruct` **必须逐字一致**
-    // —— 它翻成 `FieldCount >= 1` 之后这里没跟上的话，`S[]`（单字段）会退化成引用数组、元素全 Null，
-    // 首次 `arr[0].X = v` 就抛 `StructFieldSetPrim base: expected a struct value (StructRef), got Null`。
-    // 这是全 VM **唯一**一份该判据的镜像（其余地方问 `struct_layout()` 有没有交付）。
-    if td.fields.is_empty() { return None; }   // FieldCount >= 1 (matches IsBlobStruct)
-    let layout = td.struct_layout()?;         // value struct with a delivered byte layout
-    if layout.size == 0 { return None; }      // self-referential / empty guard
-    // unify-gc-heap PR-3: the constructor allocates the struct[] byte + ref blocks in the GC heap.
-    Some(crate::metadata::types::ArrayObj::struct_backed(ctx.heap(), element_type, len, layout))
-}
-
-/// add-struct-array-codegen (P3b follow-up): pack one struct value `v` into element `i` of
-/// a `StructBytes`-backed array (for `new Point[]{ p1, p2 }`). `v` is a `StructRef` (arena
-/// blob — resolved via `ctx.struct_arena`) or a `BoxedStruct` (owned snapshot); its bytes +
-/// reference leaves are copied into the element's byte window + ref side-table slots.
-/// `Null` = default (leave the zero-initialized element untouched).
-pub(crate) fn pack_struct_elem(ctx: &VmContext, arr: &mut crate::metadata::types::ArrayObj, i: usize, v: &Value) -> Result<()> {
-    let (src_bytes, src_refs): (Vec<u8>, Vec<Value>) = match v {
-        // add-boxed-struct-identity (P4b): read the source box's blob out of its shared object.
-        Value::BoxedStruct(b) => { let o = b.borrow(); (o.bytes().to_vec(), o.refs().to_vec()) }
-        Value::StructRef { idx, frame_id } =>
-            ctx.struct_arena.lock().with(*idx, *frame_id, |s| (s.bytes.to_vec(), s.refs.to_vec()))?,
-        Value::Null => return Ok(()),
-        other => bail!("struct array literal element must be a struct value, got {other:?}"),
-    };
-    // unify-gc-heap PR-3: struct[] element bytes + ref side-table live in GC blocks now;
-    // write through the heap-aware accessor (block payloads are private to ArrayObj).
-    arr.write_struct_elem(i, &src_bytes, &src_refs);
-    Ok(())
+/// 编译器证明不逃逸、且运行期允许栈分配时，返回取帧号的闭包（帧号惰性分配）。
+fn stack_frame<'f>(ctx: &'f VmContext, frame: &'f Frame, stack_alloc: bool) -> Option<impl FnOnce() -> u32 + 'f> {
+    (stack_alloc && crate::interp::stack_alloc::stack_alloc_enabled()).then(|| move || frame.frame_id(ctx))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -83,78 +27,36 @@ pub(super) fn array_new(
     dst: u32, size: u32, elem_tag: u8, element_type: ElemType, stack_alloc: bool,
     type_param_kind: u8, type_param_index: i32,
 ) -> Result<Option<Value>> {
-    let n = to_usize(frame.get(size)?, "ArrayNew size")?;
-    // fix-generic-array-value-zero-init (方案 C): if the element is a generic type
-    // parameter, resolve it to a concrete type name at runtime (mirrors default(T):
-    // method-level → frame.method_type_args, class-level → receiver.type_args), and if
-    // that concrete type is a **primitive value type** (int/bool/char/double/...), use
-    // its zero as the per-slot default instead of Null. This reproduces the proven
-    // `default(T)`-assignment behavior (a reference-backed array whose slots are the
-    // value-type zero), fixing the `__box_prim: got Null` read of an unwritten slot.
-    //
-    // Deliberately narrow: only PRIMITIVE value params are affected. The array's
-    // backing + element_type are left ERASED (unchanged) — struct / reference type
-    // params keep the exact pre-change path. Forcing a resolved *struct* type through
-    // struct-backing here breaks generic containers that store structs by reference
-    // (struct_generic_container: `VCall: expected object, got StructRefHeap`). kind==0
-    // (non-generic) is untouched: `resolved` is None → default_value_for_tag path.
-    let resolved: Option<String> = if type_param_kind != 0 && type_param_index >= 0 {
-        let idx = type_param_index as usize;
-        match type_param_kind {
-            1 => frame.method_type_args.get(idx).cloned(),
-            2 => match frame.get(0) {
-                Ok(Value::Object(rc)) => rc.borrow().type_args().get(idx).cloned(),
-                _ => None,
-            },
-            _ => None,
+    let len = *frame.get(size)?;
+    let prim_zero = generic_prim_zero(frame, type_param_kind, type_param_index);
+    let r = objops::array::array_new(
+        ctx, &len, elem_tag, element_type, prim_zero, stack_frame(ctx, frame, stack_alloc));
+    match r {
+        Ok(arr) => { frame.set(dst, arr); Ok(None) }
+        Err(e) => raise(ctx, module, e),
+    }
+}
+
+/// fix-generic-array-value-zero-init (方案 C): `new T[n]` with `T` a generic type
+/// parameter — resolve `T` at runtime (method-level → `frame.method_type_args`,
+/// class-level → receiver `type_args`, same as `default(T)`); if it is a **primitive
+/// value type**, its zero is the per-slot default instead of `Null`.
+///
+/// Deliberately narrow: struct / reference params keep the erased reference-backed array
+/// (generic containers store structs by reference). The class-level resolution is shared
+/// with the JIT (`objops::array::class_type_param_zero`); a method-level site never JITs
+/// (`unsupported_reason`: the JIT frame has no `method_type_args`).
+fn generic_prim_zero(frame: &Frame, kind: u8, index: i32) -> Option<Value> {
+    if index < 0 { return None; }
+    let idx = index as usize;
+    match kind {
+        1 => {
+            let d = default_value_for(frame.method_type_args.get(idx)?);
+            (!matches!(d, Value::Null)).then_some(d)
         }
-    } else {
-        None
-    };
-    // Primitive value-type zero for a resolved generic param, else None (struct/ref/no-op).
-    let prim_zero: Option<Value> = resolved.as_deref().and_then(|c| {
-        let d = default_value_for(c);
-        if matches!(d, Value::Null) { None } else { Some(d) }
-    });
-    // add-struct-array-codegen: blob value-struct element → StructBytes heap backing
-    // (skips stack-alloc + packed paths; element access via StructRefHeap handle).
-    // element_type is the erased/original name — generic struct params do NOT reach here
-    // as a concrete struct, preserving reference-backed generic-container semantics.
-    if let Some(sb) = try_struct_backed(ctx, element_type, n) {
-        let arr = ctx.heap().alloc_array_obj(sb);
-        if matches!(arr, Value::Null) {
-            return Ok(Some(crate::exception::make_oom_exception(
-                ctx, module,
-                format!("cannot allocate struct array[{n}]: heap limit exceeded"),
-            )));
-        }
-        frame.set(dst, arr);
-        return Ok(None);
+        2 => objops::array::class_type_param_zero(frame.get(0).ok(), idx),
+        _ => None,
     }
-    // Primitive generic param → its zero; else the erased-tag default (unchanged).
-    let default = prim_zero.unwrap_or_else(|| default_value_for_tag(elem_tag));
-    // add-escape-analysis-stack-alloc: non-escaping array → frame arena (no GC).
-    if stack_alloc && crate::interp::stack_alloc::stack_alloc_enabled() {
-        let arr = crate::metadata::types::ArrayObj::stack_typed(element_type, vec![default; n]);
-        let frame_id = frame.frame_id(ctx);
-        let idx = ctx.stack_alloc_arr(frame_id, arr);
-        frame.set(dst, Value::StackArray { idx, frame_id });
-        return Ok(None);
-    }
-    // add-reflection-array-element-type: carry the element type for non-erased
-    // `arr.GetType().GetElementType()`.
-    // perf-array-alloc-direct: zero/default-fill straight into the GC block — no
-    // `vec![default; n]` (16 B × n) staging buffer.
-    let heap = ctx.heap();
-    let arr = heap.alloc_array_obj(crate::metadata::types::ArrayObj::typed_filled(heap, element_type, n, default));
-    if matches!(arr, Value::Null) {
-        return Ok(Some(crate::exception::make_oom_exception(
-            ctx, module,
-            format!("cannot allocate array[{n}]: heap limit exceeded"),
-        )));
-    }
-    frame.set(dst, arr);
-    Ok(None)
 }
 
 pub(super) fn array_new_lit(
@@ -166,159 +68,55 @@ pub(super) fn array_new_lit(
     for r in elems {
         let v = frame.get(*r)?;
         // add-escape-analysis-stack-alloc (diagnostic #2): ArrayNewLit.Elems is an
-        // escape sink — a stored element must never be a stack handle (would outlive
-        // its frame). Assert the analysis kept that invariant.
+        // escape sink — a stored element must never be a stack handle.
         debug_assert!(
             !matches!(v, Value::StackObject { .. } | Value::StackArray { .. }),
             "stack-alloc handle stored into an array literal — escape analysis unsound"
         );
     }
-    let n = elems.len();
-    let elem = |r: &u32| frame.get(*r).map(|v| v.clone()).unwrap_or(Value::Null);
-    // add-struct-array-codegen: blob value-struct literal → StructBytes backing, packing
-    // each element's bytes + reference leaves (skips stack-alloc; heap-only for v1).
-    if let Some(mut sb) = try_struct_backed(ctx, element_type, n) {
-        for (i, r) in elems.iter().enumerate() { pack_struct_elem(ctx, &mut sb, i, &elem(r))?; }
-        let arr = ctx.heap().alloc_array_obj(sb);
-        if matches!(arr, Value::Null) {
-            return Ok(Some(crate::exception::make_oom_exception(
-                ctx, module,
-                format!("cannot allocate struct array literal[{n}]: heap limit exceeded"),
-            )));
-        }
-        frame.set(dst, arr);
-        return Ok(None);
+    let vals = elems.iter().map(|r| frame.get(*r).copied().unwrap_or(Value::Null));
+    let r = objops::array::array_new_lit(ctx, vals, element_type, stack_frame(ctx, frame, stack_alloc));
+    match r {
+        Ok(arr) => { frame.set(dst, arr); Ok(None) }
+        Err(e) => raise(ctx, module, e),
     }
-    if stack_alloc && crate::interp::stack_alloc::stack_alloc_enabled() {
-        let arr = crate::metadata::types::ArrayObj::stack_typed(element_type, elems.iter().map(elem).collect());
-        let frame_id = frame.frame_id(ctx);
-        let idx = ctx.stack_alloc_arr(frame_id, arr);
-        frame.set(dst, Value::StackArray { idx, frame_id });
-        return Ok(None);
-    }
-    // perf-array-alloc-direct: pack the source registers straight into the GC block —
-    // no staging `Vec<Value>`.
-    let heap = ctx.heap();
-    let arr = heap.alloc_array_obj(crate::metadata::types::ArrayObj::typed_iter(heap, element_type, n, elems.iter().map(elem)));
-    if matches!(arr, Value::Null) {
-        return Ok(Some(crate::exception::make_oom_exception(
-            ctx, module,
-            format!("cannot allocate array literal[{n}]: heap limit exceeded"),
-        )));
-    }
-    frame.set(dst, arr);
-    Ok(None)
 }
 
-pub(super) fn array_get(ctx: &VmContext, frame: &mut Frame, dst: u32, arr: u32, idx: u32) -> Result<()> {
-    // Read the index first so its `frame.get` borrow ends before we borrow the
-    // array — this lets us borrow the `GcRef` through `frame.get(arr)` directly
-    // instead of `rc.clone()`-ing it (saves one Arc refcount atomic per access,
-    // the hot path of interp array-scan loops).
-    let i = to_usize(frame.get(idx)?, "ArrayGet index")?;
-    let result = match frame.get(arr)? {
-        // add-escape-analysis-stack-alloc: stack array — resolve via arena.
-        Value::StackArray { idx: aidx, frame_id } => {
-            let (aidx, frame_id) = (*aidx, *frame_id);
-            ctx.stack_arena.lock().with_arr(aidx, frame_id, |a| {
-                if i >= a.len() {
-                    bail!("array index {} out of bounds (len={})", i, a.len());
-                }
-                Ok(a.get_boxed(i))
-            })??
-        }
-        Value::Array(rc) => {
-            let borrowed = rc.borrow();
-            if i >= borrowed.len() {
-                bail!("array index {} out of bounds (len={})", i, borrowed.len());
-            }
-            // add-struct-array-codegen (P3b follow-up): a value-struct array element is
-            // returned as a `StructRefHeap` handle into the array's byte backing (route
-            // α — in-place `arr[i].x` / value-copy at consumers), not a boxed snapshot.
-            // The array `GcRef` is only reachable here (not in `get_boxed`), so the
-            // handle must be built at the exec layer.
-            if matches!(&borrowed.backing, crate::metadata::types::ArrayBacking::StructBytes { .. }) {
-                let arr_gc = *rc;
-                drop(borrowed);
-                // make-value-copy: StructRefHeap payload → transient arena; Value holds an 8B handle.
-                let fid = frame.frame_id(ctx);
-                let hidx = ctx.transient_alloc(
-                    fid,
-                    crate::interp::transient_arena::TransientPayload::StructElem(
-                        crate::metadata::types::StructArrayElem { arr: arr_gc, index: i as u32 },
-                    ),
-                );
-                Value::StructRefHeap { idx: hidx, frame_id: fid }
-            } else {
-                borrowed.get_boxed(i)   // typed accessor: boxes packed primitives
-            }
-        }
-        other => bail!("ArrayGet: expected array, got {:?}", other),
-    };
-    frame.set(dst, result);
-    Ok(())
+#[inline]
+pub(super) fn array_get(
+    ctx: &VmContext, module: &Module, frame: &mut Frame, dst: u32, arr: u32, idx: u32,
+) -> Result<Option<Value>> {
+    // `Value: Copy` — copy the operands out so the lazy frame-id closure can borrow `frame`.
+    let (a, i) = (*frame.get(arr)?, *frame.get(idx)?);
+    match objops::array::array_get(ctx, &a, &i, || frame.frame_id(ctx)) {
+        Ok(v) => { frame.set(dst, v); Ok(None) }
+        Err(e) => raise(ctx, module, e),
+    }
 }
 
-/// `ArraySet` dispatch.
-///
-/// **add-write-barriers (2026-05-21)**: dispatches `write_barrier_array_elem`
-/// after a successful element write *iff* the new value is a heap
-/// reference (`v.is_heap_ref()`). Primitive writes skip the dispatch
-/// per Decision 1.
-pub(super) fn array_set(ctx: &VmContext, frame: &mut Frame, arr: u32, idx: u32, val: u32) -> Result<()> {
-    let v = frame.get(val)?.clone();
-    // add-escape-analysis-stack-alloc (diagnostic #2): ArraySet.val is an escape
-    // sink — a stored element must never be a stack handle.
+#[inline]
+pub(super) fn array_set(
+    ctx: &VmContext, module: &Module, frame: &mut Frame, arr: u32, idx: u32, val: u32,
+) -> Result<Option<Value>> {
+    let v = frame.get(val)?;
+    // add-escape-analysis-stack-alloc (diagnostic #2): ArraySet.val is an escape sink.
     debug_assert!(
         !matches!(v, Value::StackObject { .. } | Value::StackArray { .. }),
         "stack-alloc handle stored into an array element — escape analysis unsound (ArraySet.val)"
     );
-    // Read the index first so its borrow ends before we borrow the array; then
-    // borrow the array `Value` through `frame.get(arr)` directly — no
-    // `arr_value.clone()` (Arc atomic) on the hot path. The write barrier (rare,
-    // heap-ref values only) uses the match-bound `&Value` reference in place.
-    let i = to_usize(frame.get(idx)?, "ArraySet index")?;
-    match frame.get(arr)? {
-        // add-escape-analysis-stack-alloc: stack array — write via arena. No GC
-        // write barrier: not a heap slot (heap-ref elems kept live by root scan).
-        Value::StackArray { idx: aidx, frame_id } => {
-            let (aidx, frame_id) = (*aidx, *frame_id);
-            ctx.stack_arena.lock().with_arr_mut(aidx, frame_id, |a| {
-                if i >= a.len() {
-                    bail!("array index {} out of bounds (len={})", i, a.len());
-                }
-                a.set_boxed(i, v.clone());
-                Ok(())
-            })??;
-            Ok(())
-        }
-        arr_val @ Value::Array(rc) => {
-            let mut borrowed = rc.borrow_mut();
-            if i >= borrowed.len() {
-                bail!("array index {} out of bounds (len={})", i, borrowed.len());
-            }
-            borrowed.set_boxed(i, v.clone());   // typed accessor: unboxes into packed
-            drop(borrowed);
-            if v.is_heap_ref() {
-                ctx.heap().write_barrier_array_elem(arr_val, i, &v);
-            }
-            Ok(())
-        }
-        other => bail!("ArraySet: expected array, got {:?}", other),
+    match objops::array::array_set(ctx, frame.get(arr)?, frame.get(idx)?, v) {
+        Ok(()) => Ok(None),
+        Err(e) => raise(ctx, module, e),
     }
 }
 
-pub(super) fn array_len(ctx: &VmContext, frame: &mut Frame, dst: u32, arr: u32) -> Result<()> {
-    let len = match frame.get(arr)? {
-        Value::StackArray { idx, frame_id } => {
-            let (idx, frame_id) = (*idx, *frame_id);
-            ctx.stack_arena.lock().with_arr(idx, frame_id, |a| a.len() as i32)?
-        }
-        Value::Array(rc) => rc.borrow().len() as i32,
-        other => bail!("ArrayLen: expected array, got {:?}", other),
-    };
-    frame.set(dst, Value::I64(len as i64));
-    Ok(())
+pub(super) fn array_len(
+    ctx: &VmContext, module: &Module, frame: &mut Frame, dst: u32, arr: u32,
+) -> Result<Option<Value>> {
+    match objops::array::array_len(ctx, frame.get(arr)?) {
+        Ok(n) => { frame.set(dst, Value::I64(n)); Ok(None) }
+        Err(e) => raise(ctx, module, e),
+    }
 }
 
 #[cfg(test)]

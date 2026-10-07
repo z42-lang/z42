@@ -28,6 +28,7 @@
 | 目录 | 职责 |
 |------|------|
 | `src/metadata/` | IR 元数据与加载层（见下） |
+| `src/objops/` | 引擎无关的对象操作（字段 / 数组 / 静态字段 / struct 叶子的读写与错误通道），interp 与 JIT 共用，见 [`src/objops/README.md`](src/objops/README.md) |
 | `src/interp/` | 字节码解释器，见 [`src/interp/README.md`](src/interp/README.md) |
 | `src/jit/` | Cranelift JIT 后端，见 [`src/jit/README.md`](src/jit/README.md) |
 | `src/corelib/` | 内置函数（builtin）实现，统一入口 `exec_builtin_by_id` 供 interp / JIT 调用，见 [`src/corelib/README.md`](src/corelib/README.md) |

@@ -12,12 +12,12 @@
 | `exec_support.rs` | `exec_function` 族入口、`enter_frame` + `FrameGuard`（interp 帧登记 / RAII 弹出并归还寄存器文件）、OSR / 原生分流（`try_osr` / `try_native_exec`）、异常事件、`find_handler`、ref 写回 |
 | `exec_instr.rs` | 薄分发器：穷尽 match 把 `Instruction` 分派到下面各 `exec_<category>.rs` |
 | `exec_value.rs` | 常量 / Copy / 算术 / 比较 / 逻辑 / 一元 / 位运算 / 字符串构造 |
-| `exec_address.rs` | `LoadLocalAddr` / `LoadElemAddr` / `LoadFieldAddr` / `DefaultOf`（类级泛型零值）/ `MethodTypeArg`·`MethodDefault`（方法级泛型：读 `Frame.method_type_args`，见 book「泛型方法」页）|
+| `exec_address.rs` | `LoadLocalAddr` / `LoadElemAddr` / `LoadFieldAddr`（检查走 objops）/ `DefaultOf`（类级泛型零值）/ `MethodTypeArg`·`MethodDefault`（方法级泛型：读 `Frame.method_type_args`，见 book「泛型方法」页）|
 | `exec_call.rs` | `Call` / `Builtin` / `LoadFn` / `CallIndirect` / `MkClos` |
-| `exec_array.rs` | `ArrayNew` / `ArrayNewLit` / `ArrayGet` / `ArraySet` / `ArrayLen` |
-| `exec_object.rs` | `ObjNew` / `FieldGet` / `FieldSet` / `Static*` |
+| `exec_array.rs` | `ArrayNew` / `ArrayNewLit` / `ArrayGet` / `ArraySet` / `ArrayLen`：`objops::array` 的薄适配（另解析泛型型参的基元零值） |
+| `exec_object.rs` | `ObjNew`；`FieldGet` / `FieldSet` / `Static*` 是 `objops::field` / `objops::statics` 的薄适配 |
 | `exec_object_isa.rs` | `IsInstance` / `AsCast` 类型判定（`exec_object` 再导出） |
-| `exec_struct.rs` | 值 struct blob 指令：`StructAlloc` / `StructCopy` / `StructFieldGetPrim` / `StructFieldSetPrim`（作用于 `struct_arena`，寄存器持 `Value::StructRef` 句柄） |
+| `exec_struct.rs` | 值 struct blob 指令：`StructAlloc` / `StructCopy` / `StructFieldGetPrim` / `StructFieldSetPrim`（作用于 `struct_arena`，寄存器持 `Value::StructRef` 句柄）；叶子读写核心在 `objops::struct_leaf` |
 | `vcall_resolve.rs` | **虚调用目标解析单一实现**（装箱基元 / 装箱 struct / 基元 / 对象 vtable·层级 walk + 候选名 + PIC 安装），interp `exec_vcall` 与 JIT `helpers/vcall.rs` 共用|
 | `exec_vcall.rs` | `VCall` 的 interp 调用侧（PIC 命中 / 解析结果 → 帧执行、mixed-mode 原生分流）+ `primitive_class_name` + `is_array_isa` |
 | `exec_native.rs` | `CallNative` / `CallNativeVtable` / `PinPtr` / `UnpinPtr` |

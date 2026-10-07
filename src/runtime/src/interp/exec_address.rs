@@ -14,9 +14,8 @@ use crate::metadata::Value;
 use crate::metadata::types::RefKind;
 use crate::vm_context::VmContext;
 use crate::interp::transient_arena::TransientPayload;
-use anyhow::{bail, Result};
+use anyhow::Result;
 
-use super::ops::to_usize;
 use super::Frame;
 
 /// make-value-copy: allocate a `RefKind` into the per-context transient arena and
@@ -35,30 +34,34 @@ pub(super) fn load_local_addr(ctx: &VmContext, frame: &mut Frame, dst: u32, slot
     frame.set(dst, r);
 }
 
-pub(super) fn load_elem_addr(ctx: &VmContext, frame: &mut Frame, dst: u32, arr: u32, idx: u32) -> Result<()> {
-    let arr_val = frame.get(arr)?;
-    let idx_val = to_usize(frame.get(idx)?, "LoadElemAddr index")?;
-    match arr_val {
-        Value::Array(rc) => {
-            let r = mk_ref(ctx, frame.frame_id(ctx), RefKind::Array { gc_ref: *rc, idx: idx_val });
+/// `LoadElemAddr`: `ref arr[i]`. Null array → `NullReferenceException`; the index
+/// is bounds-checked here (`IndexOutOfRangeException`), same rule as `ArrayGet`.
+pub(super) fn load_elem_addr(
+    ctx: &VmContext, module: &crate::metadata::Module, frame: &mut Frame, dst: u32, arr: u32, idx: u32,
+) -> Result<Option<Value>> {
+    match crate::objops::array::check_elem_addr(frame.get(arr)?, frame.get(idx)?) {
+        Ok((gc_ref, idx)) => {
+            let r = mk_ref(ctx, frame.frame_id(ctx), RefKind::Array { gc_ref, idx });
             frame.set(dst, r);
-            Ok(())
+            Ok(None)
         }
-        other => bail!("LoadElemAddr: expected array, got {:?}", other),
+        Err(e) => super::ops::raise(ctx, module, e),
     }
 }
 
-pub(super) fn load_field_addr(ctx: &VmContext, frame: &mut Frame, dst: u32, obj: u32, field_name: &str) -> Result<()> {
-    let obj_val = frame.get(obj)?;
-    match obj_val {
-        Value::Object(rc) => {
+/// `LoadFieldAddr`: `ref obj.f`. Null receiver → `NullReferenceException`.
+pub(super) fn load_field_addr(
+    ctx: &VmContext, module: &crate::metadata::Module, frame: &mut Frame, dst: u32, obj: u32, field_name: &str,
+) -> Result<Option<Value>> {
+    match crate::objops::field::check_field_addr(frame.get(obj)?, field_name) {
+        Ok(gc_ref) => {
             let r = mk_ref(ctx, frame.frame_id(ctx), RefKind::Field {
-                gc_ref: *rc, field_name: field_name.to_string(),
+                gc_ref, field_name: field_name.to_string(),
             });
             frame.set(dst, r);
-            Ok(())
+            Ok(None)
         }
-        other => bail!("LoadFieldAddr: expected object, got {:?}", other),
+        Err(e) => super::ops::raise(ctx, module, e),
     }
 }
 

@@ -140,8 +140,16 @@ pub fn exec_instr(
 
         // ── Address-load (spec impl-ref-out-in-runtime) ─────────────────────
         Instruction::LoadLocalAddr { dst, slot } => exec_address::load_local_addr(ctx, frame, *dst, *slot),
-        Instruction::LoadElemAddr  { dst, arr, idx } => exec_address::load_elem_addr(ctx, frame, *dst, *arr, *idx)?,
-        Instruction::LoadFieldAddr(insn) => exec_address::load_field_addr(ctx, frame, insn.dst, insn.obj, &insn.field_name)?,
+        Instruction::LoadElemAddr { dst, arr, idx } => {
+            if let Some(thrown) = exec_address::load_elem_addr(ctx, module, frame, *dst, *arr, *idx)? {
+                return Ok(Some(thrown));
+            }
+        }
+        Instruction::LoadFieldAddr(insn) => {
+            if let Some(thrown) = exec_address::load_field_addr(ctx, module, frame, insn.dst, insn.obj, &insn.field_name)? {
+                return Ok(Some(thrown));
+            }
+        }
 
         // ── Generic default(T) at runtime (D-8b-3 Phase 2) ──────────────────
         Instruction::DefaultOf { dst, param_index } => exec_address::default_of(frame, *dst, *param_index),
@@ -218,9 +226,21 @@ pub fn exec_instr(
                 return Ok(Some(thrown));
             }
         }
-        Instruction::ArrayGet    { dst, arr, idx }  => exec_array::array_get(ctx, frame, *dst, *arr, *idx)?,
-        Instruction::ArraySet    { arr, idx, val }  => exec_array::array_set(ctx, frame, *arr, *idx, *val)?,
-        Instruction::ArrayLen    { dst, arr }       => exec_array::array_len(ctx, frame, *dst, *arr)?,
+        Instruction::ArrayGet { dst, arr, idx } => {
+            if let Some(thrown) = exec_array::array_get(ctx, module, frame, *dst, *arr, *idx)? {
+                return Ok(Some(thrown));
+            }
+        }
+        Instruction::ArraySet { arr, idx, val } => {
+            if let Some(thrown) = exec_array::array_set(ctx, module, frame, *arr, *idx, *val)? {
+                return Ok(Some(thrown));
+            }
+        }
+        Instruction::ArrayLen { dst, arr } => {
+            if let Some(thrown) = exec_array::array_len(ctx, module, frame, *dst, *arr)? {
+                return Ok(Some(thrown));
+            }
+        }
 
         // ── Objects ──────────────────────────────────────────────────────────
         Instruction::ObjNew(insn) => {
@@ -255,13 +275,17 @@ pub fn exec_instr(
             let FieldGetInsn { dst, obj, field_name } = &**insn;
             let _site_idx = site_idx!();
             let field_ic = cached_token!(_site_idx, field_ic);
-            exec_object::field_get(ctx, frame, *dst, *obj, field_name, field_ic)?;
+            if let Some(thrown) = exec_object::field_get(ctx, module, frame, *dst, *obj, field_name, field_ic)? {
+                return Ok(Some(thrown));
+            }
         }
         Instruction::FieldSet(insn) => {
             let FieldSetInsn { obj, field_name, val } = &**insn;
             let _site_idx = site_idx!();
             let field_ic = cached_token!(_site_idx, field_ic);
-            exec_object::field_set(ctx, frame, *obj, field_name, *val, field_ic)?;
+            if let Some(thrown) = exec_object::field_set(ctx, module, frame, *obj, field_name, *val, field_ic)? {
+                return Ok(Some(thrown));
+            }
         }
         Instruction::VCall(insn) => {
             let VCallInsn { dst, obj, method, args, method_type_args } = &**insn;

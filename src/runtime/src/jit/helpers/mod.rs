@@ -49,7 +49,7 @@ use super::frame::{JitFrame, JitModuleCtx};
 // fail the JIT init if its compiled-against version doesn't match.
 
 #[allow(dead_code)] // hook for future tier-up / multiple JIT backend version-mismatch detection
-pub const VM_JIT_INTERFACE_VERSION: u32 = 1;
+pub const VM_JIT_INTERFACE_VERSION: u32 = 2;
 
 // ─── VmContext access via JitModuleCtx ──────────────────────────────────────
 //
@@ -73,6 +73,25 @@ pub(super) unsafe fn vm_ctx_ref<'a>(jit_ctx: *const JitModuleCtx) -> &'a VmConte
 
 pub(super) fn set_exception(ctx: &VmContext, v: Value) {
     ctx.set_exception(v);
+}
+
+/// objops 错误 → JIT 的异常通道：物化成异常值塞进 pending 槽，返回 1（translate 端 `check`
+/// 据此跳异常分支）。与 interp 的 `interp::ops::raise` 共用 `OpError::into_exception`，异常类与
+/// 消息逐字一致；内部错误退化为字符串异常（JIT helper 没有别的出口）。
+///
+/// # Safety
+/// `ctx` 是 helper 收到的 `JitModuleCtx` 指针（`module` 可为空——单测的最小 ctx）。
+#[cold]
+#[inline(never)]
+pub(super) unsafe fn raise(ctx: *const JitModuleCtx, e: crate::objops::OpError) -> u8 {
+    let vm = vm_ctx_ref(ctx);
+    let module = if (*ctx).module.is_null() { vm.module().map(|m| &**m) } else { Some(&*(*ctx).module) };
+    let exc = match e.into_exception(vm, module) {
+        Ok(v) => v,
+        Err(err) => Value::Str(err.to_string().into()),
+    };
+    set_exception(vm, exc);
+    1
 }
 
 pub(super) fn take_exception(ctx: &VmContext) -> Option<Value> {

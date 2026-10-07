@@ -1,6 +1,6 @@
 // Test: 类级 `new T[n]`（T 为值类型）在 JIT 编译后的函数里仍按 T 的零值初始化。
-// 构造函数调用越过 JIT 阈值后由编译码执行（`jit_array_zero_class_tp` 读 reg 0 接收者的
-// type_args）；解释器与 JIT 两个后端对未写槽必须给同一个答案（零值 / null）。
+// 构造函数调用越过 JIT 阈值后由编译码执行（`jit_array_new` 经 `objops::array::class_type_param_zero`
+// 读 reg 0 接收者的 type_args）；解释器与 JIT 两个后端对未写槽必须给同一个答案（零值 / null）。
 
 class Box<T> {
     T[] buf;

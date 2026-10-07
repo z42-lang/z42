@@ -35,7 +35,7 @@ fn method_level_generic_int_array_zero_inits() {
     assert!(thrown.is_none(), "no OOM expected");
 
     frame.set(2, Value::I64(0)); // idx reg
-    array_get(&ctx, &mut frame, 3, 1, 2).unwrap();
+    array_get(&ctx, &module, &mut frame, 3, 1, 2).unwrap();
     assert!(
         matches!(frame.get(3).unwrap(), Value::I64(0)),
         "unwritten int slot must be I64(0), got {:?}",
@@ -54,7 +54,7 @@ fn method_level_generic_ref_array_stays_null() {
 
     array_new(&ctx, &module, &mut frame, 1, 0, TAG_UNKNOWN, crate::metadata::types::ElemType::intern("T"), false, 1, 0).unwrap();
     frame.set(2, Value::I64(0));
-    array_get(&ctx, &mut frame, 3, 1, 2).unwrap();
+    array_get(&ctx, &module, &mut frame, 3, 1, 2).unwrap();
     assert!(matches!(frame.get(3).unwrap(), Value::Null), "string element default is Null");
 }
 
@@ -69,7 +69,7 @@ fn non_generic_unknown_tag_unchanged() {
     // kind=0, index=-1: no generic resolution, no method_type_args consulted.
     array_new(&ctx, &module, &mut frame, 1, 0, TAG_UNKNOWN, crate::metadata::types::ElemType::intern("T"), false, 0, -1).unwrap();
     frame.set(2, Value::I64(0));
-    array_get(&ctx, &mut frame, 3, 1, 2).unwrap();
+    array_get(&ctx, &module, &mut frame, 3, 1, 2).unwrap();
     assert!(matches!(frame.get(3).unwrap(), Value::Null), "kind=0 Unknown tag → Null (unchanged)");
 }
 
@@ -83,6 +83,20 @@ fn method_level_oob_index_graceful_null() {
     // method_type_args empty, but kind=1 index=0 → get(0) is None → falls back to tag.
     array_new(&ctx, &module, &mut frame, 1, 0, TAG_UNKNOWN, crate::metadata::types::ElemType::intern("T"), false, 1, 0).unwrap();
     frame.set(2, Value::I64(0));
-    array_get(&ctx, &mut frame, 3, 1, 2).unwrap();
+    array_get(&ctx, &module, &mut frame, 3, 1, 2).unwrap();
     assert!(matches!(frame.get(3).unwrap(), Value::Null), "OOB type-arg → Null, no panic");
+}
+
+/// 适配层映射（P1-3 / objops）：没有 stdlib 时 interp 把可 catch 的异常折成内部错误，文本
+/// = `<类名>: <消息>`——与 JIT 适配层退化出的字符串异常逐字相同（见 `jit/helpers/array_tests.rs`
+/// 的 `array_get_slow_path_handles_null_and_stack_array`）。
+#[test]
+fn null_array_read_maps_to_the_shared_text() {
+    let ctx = VmContext::new();
+    let module = empty_module();
+    let mut frame = Frame::new(&ctx, &[], 8);
+    frame.set(0, Value::Null);
+    frame.set(1, Value::I64(0));
+    let err = array_get(&ctx, &module, &mut frame, 2, 0, 1).unwrap_err();
+    assert_eq!(err.to_string(), "Std.NullReferenceException: cannot read an element of a null array");
 }

@@ -15,15 +15,13 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                     // add-reflection-array-element-type: the interned element-type handle,
                     // baked in as a pointer constant (entries are process-lifetime).
                     let et = self.builder.ins().iconst(self.ptr, insn.element_type.as_raw() as i64);
-                    let inst = self.builder.ins().call(self.hr_array_new, &[self.frame_val, self.ctx_val, d, s, t, et]);
+                    // `new T[n]` on a CLASS-level type param: pass its index so the helper zero-fills
+                    // a primitive T from the receiver's (reg 0) type args — same resolution as interp.
+                    // (Method-level T has no JIT carrier → `unsupported_reason`.)
+                    let class_tp = if insn.type_param_kind == 2 { insn.type_param_index } else { -1 };
+                    let tp = self.builder.ins().iconst(types::I32, class_tp as i64);
+                    let inst = self.builder.ins().call(self.hr_array_new, &[self.frame_val, self.ctx_val, d, s, t, et, tp]);
                     let ret  = self.builder.inst_results(inst)[0]; self.check(ret);
-                    // `new T[n]` on a CLASS-level type param: the receiver (reg 0) carries the
-                    // concrete type args, so a primitive T gets its zero per slot — same as interp
-                    // `array_new`. (Method-level T has no JIT carrier → `unsupported_reason`.)
-                    if insn.type_param_kind == 2 && insn.type_param_index >= 0 {
-                        let pi = self.builder.ins().iconst(types::I32, insn.type_param_index as i64);
-                        self.builder.ins().call(self.hr_array_zero_class_tp, &[self.frame_val, self.ctx_val, d, pi]);
-                    }
                 }
                 Instruction::ArrayNewLit(insn) => {
                     let d = self.ri(insn.dst);
@@ -40,9 +38,9 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                     // `jit_array_get` helper. The array data self.ptr+len come either
                     // from the loop-invariant HOIST (方案 B: never-reassigned array
                     // ⇒ zero per-iteration call, approaching the native ceiling) or
-                    // a per-get `jit_array_data` (方案 A). Cold OOB path reuses
-                    // `jit_array_get` so the exception is identical; for a hoisted
-                    // null/invalid array `len==0` routes every access there too.
+                    // a per-get `jit_array_data_opt` (方案 A). Cold OOB path reuses
+                    // `jit_array_get` so the exception is identical; a null / non-packed
+                    // array reports width 0, routing every access to the helper too.
                     if let (Some((val_tag, arr_width)), true) =
                         (arr_prim_elem(self.func, *dst), idx_int_ok(self.func, *idx))
                     {
@@ -64,10 +62,9 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                             let len_addr = self.builder.ins().stack_addr(self.ptr, ss_len, 0);
                             let width_addr = self.builder.ins().stack_addr(self.ptr, ss_width, 0);
                             let a_c = self.builder.ins().iconst(types::I32, *arr as i64);
-                            let inst = self.builder.ins().call(self.hr_array_data,
+                            // never throws: not-a-packed-array (incl. null) → width 0 → helper.
+                            self.builder.ins().call(self.hr_array_data,
                                 &[self.frame_val, self.ctx_val, a_c, ptr_addr, len_addr, width_addr]);
-                            let ret = self.builder.inst_results(inst)[0];
-                            self.check(ret); // not-an-array → exception exit (方案 A)
                             let dp = self.builder.ins().stack_load(self.ptr, self.ptr, ss_ptr, 0);
                             let dl = self.builder.ins().stack_load(self.ptr, types::I64, ss_len, 0);
                             let dw = self.builder.ins().stack_load(self.ptr, types::I64, ss_width, 0);
@@ -137,7 +134,7 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                     // jit-inline-fastpaths: i64 element store → native bounds-check
                     // + native store (no write barrier needed — i64 is drop-free
                     // and a type-correct `long[]` slot's old value is also i64).
-                    // Data self.ptr+len from the hoist (方案 B) or per-set `jit_array_data`.
+                    // Data self.ptr+len from the hoist (方案 B) or per-set `jit_array_data_opt`.
                     // Cold OOB / null reuses `jit_array_set` (identical exception,
                     // + write barrier for the heap-ref-value case that stays here).
                     if arr_prim_elem(self.func, *val).is_some() && idx_int_ok(self.func, *idx) {
@@ -163,10 +160,9 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                             let len_addr = self.builder.ins().stack_addr(self.ptr, ss_len, 0);
                             let width_addr = self.builder.ins().stack_addr(self.ptr, ss_width, 0);
                             let a_c = self.builder.ins().iconst(types::I32, *arr as i64);
-                            let inst = self.builder.ins().call(self.hr_array_data,
+                            // never throws: not-a-packed-array (incl. null) → width 0 → helper.
+                            self.builder.ins().call(self.hr_array_data,
                                 &[self.frame_val, self.ctx_val, a_c, ptr_addr, len_addr, width_addr]);
-                            let ret = self.builder.inst_results(inst)[0];
-                            self.check(ret);
                             let dp = self.builder.ins().stack_load(self.ptr, self.ptr, ss_ptr, 0);
                             let dl = self.builder.ins().stack_load(self.ptr, types::I64, ss_len, 0);
                             let dw = self.builder.ins().stack_load(self.ptr, types::I64, ss_width, 0);

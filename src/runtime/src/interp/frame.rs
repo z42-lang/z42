@@ -250,20 +250,11 @@ pub(crate) fn deref_ref(
             }
             Ok(v.clone())
         }
-        RefKind::Array { gc_ref, idx } => {
-            let arr = gc_ref.borrow();
-            arr.get(*idx)
-                .ok_or_else(|| anyhow::anyhow!(
-                    "ref array index {idx} out of bounds (len={})", arr.len()))
-        }
-        RefKind::Field { gc_ref, field_name } => {
-            let obj = gc_ref.borrow();
-            let slot = *obj.type_desc.field_index.get(field_name)
-                .ok_or_else(|| anyhow::anyhow!(
-                    "ref field `{field_name}` not found on type `{}`",
-                    obj.type_desc.name))?;
-            Ok(obj.field_value(slot))
-        }
+        // 元素 / 字段的读取走 objops（与 ArrayGet / FieldGet 同一份存储访问）。
+        RefKind::Array { gc_ref, idx } =>
+            crate::objops::array::elem_load(gc_ref, *idx).map_err(crate::objops::OpError::into_anyhow),
+        RefKind::Field { gc_ref, field_name } =>
+            crate::objops::field::load_named(gc_ref, field_name).map_err(crate::objops::OpError::into_anyhow),
     }
 }
 
@@ -291,53 +282,12 @@ pub(crate) fn store_thru_ref(
             regs[slot_idx] = val;
             Ok(())
         }
-        RefKind::Array { gc_ref, idx } => {
-            {
-                let mut arr = gc_ref.borrow_mut();
-                if *idx >= arr.len() {
-                    anyhow::bail!(
-                        "ref array index {idx} out of bounds (len={})", arr.len());
-                }
-                arr.set_boxed(*idx, val.clone());
-            }
-            // fix-missing-array-write-barriers (2026-09-10): writing through a `ref` to an
-            // array element is an array store like any other — `ArraySet` fires the barrier,
-            // this path never did.
-            if val.is_heap_ref() {
-                ctx.heap().write_barrier_array_elem(
-                    &Value::Array(gc_ref.clone()), *idx, &val,
-                );
-            }
-            Ok(())
-        }
-        RefKind::Field { gc_ref, field_name } => {
-            let mut obj = gc_ref.borrow_mut();
-            let slot_opt = obj.type_desc.field_index.get(field_name).copied();
-            match slot_opt {
-                // unify-object-byte-layout (PR-2): encode into bytes / refs.
-                //
-                // fix-ref-field-write-barrier: writing through a `ref` to an object field is a
-                // field store like any other — `FieldSet` fires the barrier (exec_object.rs),
-                // this path never did. Latent until z42c starts emitting `LoadFieldAddr`
-                // (0xA2); with generational GC on by default, storing a young ref into an old
-                // object without recording it in the remembered set collects it prematurely.
-                // Mirrors the `RefKind::Array` arm above and the three `FieldSet` call sites:
-                // filter at the call site, fire post-write, release the borrow first.
-                Some(slot) => {
-                    let wrote_ref = obj.set_field_value(slot, &val);
-                    drop(obj);
-                    if wrote_ref && val.is_heap_ref() {
-                        ctx.heap().write_barrier_field(
-                            &Value::Object(gc_ref.clone()), slot, &val,
-                        );
-                    }
-                    Ok(())
-                }
-                None => anyhow::bail!(
-                    "ref field `{field_name}` not found on type `{}`",
-                    obj.type_desc.name),
-            }
-        }
+        // 经 ref 写元素 / 字段与 ArraySet / FieldSet 是同一种写入：同一份 objops 原语，
+        // 写屏障与基元槽类型检查都在里面（fix-missing-array-write-barriers / fix-ref-field-write-barrier）。
+        RefKind::Array { gc_ref, idx } =>
+            crate::objops::array::elem_store(ctx, gc_ref, *idx, &val).map_err(crate::objops::OpError::into_anyhow),
+        RefKind::Field { gc_ref, field_name } =>
+            crate::objops::field::store_named(ctx, gc_ref, field_name, &val).map_err(crate::objops::OpError::into_anyhow),
     }
 }
 

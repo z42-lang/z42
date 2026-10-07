@@ -50,10 +50,20 @@ catch          { /* 落到这里 */ }
 `throw "some string"` / `throw 42` 仍然合法。这类抛出物**只能被 `catch { }` 接住**，
 typed `catch (Exception e)` 不会捕获它们。新代码请一律 `throw new <某个 Exception 子类>(...)`。
 
-> **数组越界不是可 typed-catch 的异常。** `a[5]` 越界时 VM 直接抛出
-> `array index 5 out of bounds (len=1)`，它不是 `IndexOutOfRangeException` 实例，
-> `catch (Exception e)` **接不住**，只有 `catch { }` 能接。名字相同的
-> `IndexOutOfRangeException` 类存在，但要由库或用户代码自己 `throw`。
+### 运行期自动抛出的异常
+
+下面这些错误由运行期直接抛出标准异常，可以按类型 `catch`：
+
+| 情形 | 异常 | `Message` 示例 |
+|---|---|---|
+| 读 / 写 null 引用的字段（含 `.Length`） | `NullReferenceException` | ``cannot read field `N` of a null reference`` |
+| 读 / 写 null 数组的元素 | `NullReferenceException` | `cannot read an element of a null array` |
+| 数组下标越界（含负数） | `IndexOutOfRangeException` | `index 5 is out of range for an array of length 1` |
+| `new T[n]` 的 `n` 为负 | `OverflowException` | `array size cannot be negative (got -2)` |
+| 整数除 / 取模的除数为 0 | `DivideByZeroException` | |
+| 硬转换失败 | `InvalidCastException` / `NullReferenceException` | 见[类型转换](conversions.md) |
+
+null 检查先于下标检查：`a[-1]` 在 `a` 为 null 时抛 `NullReferenceException`。
 
 ## `Exception` 基类
 
@@ -109,13 +119,13 @@ outer.InnerException.Message;      // "cause"
 | `ArgumentException` | `Exception` | 参数非法（值或组合不符合契约） |
 | `ArgumentNullException` | `ArgumentException` | 参数为 null 但要求非空 |
 | `InvalidOperationException` | `Exception` | 对象当前状态不允许此操作（如空 Queue 出队） |
-| `NullReferenceException` | `Exception` | 解引用 null |
-| `IndexOutOfRangeException` | `Exception` | 索引越界（**由库/用户代码抛**，VM 的数组越界不走它） |
+| `NullReferenceException` | `Exception` | 解引用 null（字段 / 数组访问由运行期自动抛） |
+| `IndexOutOfRangeException` | `Exception` | 索引越界（数组下标越界由运行期自动抛） |
 | `KeyNotFoundException` | `Exception` | 字典 / Map 找不到键 |
 | `FormatException` | `Exception` | 字符串解析 / 格式化失败 |
 | `NotImplementedException` | `Exception` | 方法已声明但未实现 |
 | `NotSupportedException` | `Exception` | 方法不支持当前场景（如对只读集合 `Add`） |
-| `OverflowException` | `Exception` | 数值运算超出目标类型容量（`Int32.Parse` 溢出、checked 溢出） |
+| `OverflowException` | `Exception` | 数值运算超出目标类型容量（`Int32.Parse` 溢出、checked 溢出）；数组长度为负 |
 | `DivideByZeroException` | `Exception` | 整数除 / 取模的除数为 0（浮点除 0 按 IEEE 754 返回 ±∞ / NaN，不抛） |
 | `InvalidCastException` | `Exception` | 硬转换 `(T)x` 失败：`x` 非 null 但不是 `T`（`as` 失配返 null、不抛） |
 | `SwitchExpressionException` | `Exception` | `switch` **表达式**求值时无任何臂被采纳（没匹配上，或匹配了但守卫为假）。消息含落空的值；`switch` **语句**不抛。见 [模式匹配](pattern-matching.md) |

@@ -102,7 +102,7 @@ pub unsafe extern "C" fn jit_struct_field_get_prim(
     let base_val = (*frame).regs[base as usize].clone();
     let vm = vm_ctx_ref(ctx);
     let r = exec_struct::resolve_for_access(vm, root, path, &base_val, "StructFieldGetPrim")
-        .and_then(|off| exec_struct::struct_field_get_val(vm, &base_val, off, kind));
+        .and_then(|off| crate::objops::struct_leaf::struct_field_get_val(vm, &base_val, off, kind));
     match r {
         Ok(v)  => { (*frame).regs[dst as usize] = v; 0 }
         Err(e) => { set_exception(vm, Value::Str(format!("{e}").into())); 1 }
@@ -124,7 +124,7 @@ pub unsafe extern "C" fn jit_struct_field_set_prim(
     let v        = (*frame).regs[val as usize].clone();
     let vm = vm_ctx_ref(ctx);
     let r = exec_struct::resolve_for_access(vm, root, path, &base_val, "StructFieldSetPrim")
-        .and_then(|off| exec_struct::struct_field_set_val(vm, &base_val, off, kind, &v));
+        .and_then(|off| crate::objops::struct_leaf::struct_field_set_val(vm, &base_val, off, kind, &v));
     match r {
         Ok(())  => 0,
         Err(e)  => { set_exception(vm, Value::Str(format!("{e}").into())); 1 }

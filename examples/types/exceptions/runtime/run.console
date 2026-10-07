@@ -1,0 +1,5 @@
+# ANCHOR: runtime
+$ z42 run runtime.z42
+越界：index 5 is out of range for an array of length 3
+空引用：cannot read field `Value` of a null reference
+# ANCHOR_END: runtime
