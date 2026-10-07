@@ -183,6 +183,10 @@ pub struct FnEntry {
     /// The function's `owner_init` cell (shared, see `Function::owner_init`),
     /// so `jit_call`'s cctor barrier needs no name-based owner lookup.
     pub owner_init: crate::metadata::bytecode::OwnerInitCell,
+    /// `Some(builtin id)` when the function is a pure `[Native]` extern wrapper;
+    /// the call helpers then skip the activation and dispatch the builtin
+    /// directly (see [`super::forward`]).
+    pub forward: Option<u32>,
 }
 
 // Raw pointer — the JITModule that owns the code lives alongside this entry.
@@ -199,6 +203,7 @@ impl FnEntry {
             // rejected 项永远不会被当作可调用体，区间取全放行。
             arity: crate::vm_context::symres::CallArity { min: 0, max: u16::MAX },
             owner_init: Default::default(),
+            forward: None,
         }
     }
     #[inline]
@@ -449,7 +454,11 @@ impl JitModuleCtx {
             if slot.state.load(Ordering::Relaxed) == SLOT_REJECTED { return None; }
             let t0 = std::time::Instant::now();
             match guard.compile_fn(func) {
-                Ok(entry) => { let _ = slot.entry.set(entry); self.bump_compile_counters(t0); }
+                Ok(mut entry) => {
+                    if entry.forward.is_none() { entry.forward = self.chained_forward(func); }
+                    let _ = slot.entry.set(entry);
+                    self.bump_compile_counters(t0);
+                }
                 // Compilation is deterministic → never re-attempt.
                 Err(_) => { slot.state.store(SLOT_REJECTED, Ordering::Relaxed); return None; }
             }
@@ -464,6 +473,20 @@ impl JitModuleCtx {
     pub(crate) fn slot_probe(&self, id: usize) -> (u32, bool) {
         self.slots.get(id).map_or((0, false), |s| {
             (s.count.load(Ordering::Relaxed), s.state.load(Ordering::Relaxed) == SLOT_REJECTED)
+        })
+    }
+
+    /// [`super::forward::chained_forward`] with the callee looked up in the merged
+    /// module, then through the lazy loader.
+    unsafe fn chained_forward(&self, func: &Function) -> Option<u32> {
+        super::forward::chained_forward(func, |name| {
+            let module = unsafe { &*self.module };
+            if let Some(&i) = module.func_index.get(name) {
+                return module.functions.get(i).and_then(super::forward::builtin_forward);
+            }
+            if self.vm_ctx.is_null() { return None; }
+            unsafe { (*self.vm_ctx).try_lookup_function(name) }
+                .and_then(|f| super::forward::builtin_forward(&f))
         })
     }
 

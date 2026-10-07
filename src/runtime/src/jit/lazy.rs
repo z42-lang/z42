@@ -120,6 +120,7 @@ impl LazyCompiler {
             func:    func as *const Function,
             arity:   crate::vm_context::symres::call_arity(func),
             owner_init: std::sync::Arc::clone(&func.owner_init),
+            forward: super::forward::builtin_forward(func),
         })
     }
 
@@ -153,6 +154,7 @@ impl LazyCompiler {
             func:    func as *const Function,
             arity:   crate::vm_context::symres::call_arity(func),
             owner_init: std::sync::Arc::clone(&func.owner_init),
+            forward: None,
         })
     }
 }

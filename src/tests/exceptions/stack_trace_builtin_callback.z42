@@ -1,0 +1,51 @@
+// An exception thrown by z42 code that a builtin called back into
+// (`MethodInfo.Invoke` → `__method_invoke` → the invoked method) keeps the user
+// frames on both sides of the builtin in its `StackTrace`, and the caller's row
+// points at the call site. Under JIT the `[Native]` wrapper itself (`Invoke`)
+// has no row — the call goes straight to the builtin — so only the user frames
+// are asserted. The warm-up loop makes `Call` hot enough to be JIT-compiled.
+namespace Demo;
+
+using Std.Reflection;
+
+class Calc {
+    static int Boom(int x) {
+        if (x > 0) { throw new InvalidOperationException("boom"); }
+        return x;
+    }
+}
+
+MethodInfo Find(Type t, string name) {
+    MethodInfo[] ms = t.GetMethods();
+    for (int i = 0; i < ms.Length; i = i + 1) {
+        if (ms[i].Name == name) { return ms[i]; }
+    }
+    return null;
+}
+
+int Call(MethodInfo m, int x) {
+    object[] a = new object[1];
+    a[0] = x;
+    return (int)m.Invoke(null, a);
+}
+
+void Main() {
+    MethodInfo m = Find(Type.GetType("Demo.Calc"), "Boom");
+    int acc = 0;
+    for (int k = 0; k < 20000; k = k + 1) { acc = acc + Call(m, 0); }
+    Assert.Equal(0, acc);
+
+    string captured = "";
+    try {
+        Call(m, 1);
+    } catch (InvalidOperationException e) {
+        captured = e.StackTrace;
+        Assert.Equal("boom", e.Message);
+    }
+    Assert.NotNull(captured);
+    Assert.True(captured.Contains("Demo.Calc.Boom"));
+    Assert.True(captured.Contains("Demo.Call"));
+    Assert.True(captured.Contains("Demo.Main"));
+    // The caller's row cites the `m.Invoke(...)` line, not a stale earlier one.
+    Assert.True(captured.Contains("stack_trace_builtin_callback.z42:29:"));
+}

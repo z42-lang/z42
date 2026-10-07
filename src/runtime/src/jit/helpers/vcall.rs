@@ -101,6 +101,12 @@ unsafe fn invoke_entry(
     frame_ref: &mut JitFrame, ctx: *const JitModuleCtx, dst: u32,
     entry: &FnEntry, this: Value, arg_regs: &[u32],
 ) -> u8 {
+    // `[Native]` extern wrapper (e.g. `string.Length`): run its builtin directly (`jit::forward`).
+    if let Some(id) = entry.forward {
+        if arg_regs.len() + 1 == unsafe { (*entry.func).param_count } {
+            return unsafe { super::super::forward::call_forward(frame_ref, ctx, dst, id, Some(this), arg_regs) };
+        }
+    }
     let vm = vm_ctx_ref(ctx);
     let callee = JitFrame::new_method_args_from(vm, entry.max_reg, this, &frame_ref.regs, arg_regs);
     call_entry(vm, ctx, entry, callee).store_into(&mut frame_ref.regs, dst)

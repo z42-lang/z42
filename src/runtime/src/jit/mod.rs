@@ -13,6 +13,8 @@
 /// * `vm_interface.rs` — read-only metadata contract between JIT and VM
 /// * `mod.rs`          — JitModule::setup / run_fn / run (lazy: setup compiles nothing)
 
+/// `[Native]` extern-wrapper short-circuit: call helpers dispatch the builtin directly.
+mod forward;
 pub(crate) mod frame; // runtime-jit-tiering Phase 1.5: interp dispatch reaches JitFrame/JitModuleCtx
 pub(crate) mod helpers;
 /// The single native-call sequence (push_frame → compiled code → pop_frame), shared by
