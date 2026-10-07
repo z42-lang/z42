@@ -101,8 +101,10 @@ public sealed class BoundCatchClause {
     public int      ExArity;      // 泛型异常实参数（0=非泛型）；codegen 据此补 `$N` 后缀
     public bool     HasVar;
     public string   VarName;
+    public Z42Type  ExType;       // fqn-tables 5d：解析后的异常类型（发射端按其声明 ns 限定 ExTypeName）；解析失败为 null
     public BoundStmt Body;
     public BoundCatchClause(bool hasType, string exTypeName, int exArity, bool hasVar, string varName, BoundStmt body, Span span) {
+        this.ExType = null;
         this.Span = span; this.HasType = hasType; this.ExTypeName = exTypeName; this.ExArity = exArity;
         this.HasVar = hasVar; this.VarName = varName; this.Body = body;
     }

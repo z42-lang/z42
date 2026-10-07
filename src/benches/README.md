@@ -1,10 +1,10 @@
-# src/bench/ — 整程序性能场景
+# src/benches/ — 整程序性能场景
 
 ## 职责
 
 `xtask bench` 测量的整程序场景（VM 启动 + stdlib 加载 + 执行的 wall-clock），以及它的能力探针、
 结果 schema 与判红逻辑自检 fixture。只计时、不判对错——正确性用例在 [src/tests/](../tests/)；
-单函数微基准跟着被测代码走（各库的 `bench/`、[src/runtime/benches/](../runtime/benches/)）。
+单函数微基准跟着被测代码走（各库的 `benches/`、[src/runtime/benches/](../runtime/benches/)）。
 
 ## 功能索引
 

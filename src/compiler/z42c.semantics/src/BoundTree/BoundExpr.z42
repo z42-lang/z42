@@ -163,10 +163,12 @@ public sealed class BoundStaticGet : BoundExpr {
     // 只有发射端（`Gen.SpecInstName`）知道，故不在这里记。
     // post-construction 写入（同 `MethodTypeArgs` / `RetIsNullable` 的先例）。
     public Z42Type OwnerType;
+    // fqn-tables 5d：所属类的类型对象（`ClassName` 是它的 IR 短名）——发射端按它的声明 ns 限定。null ⇒ 回落按短名。
+    public Z42ClassType OwnerCt;
     private Z42Type _t;
     public BoundStaticGet(string className, string fieldName, Z42Type t, Span span) {
         this.Span = span; this.ClassName = className; this.FieldName = fieldName; this._t = t;
-        this.IsProp = false; this.PropSetter = ""; this.PropBacking = ""; this.OwnerType = null;
+        this.IsProp = false; this.PropSetter = ""; this.PropBacking = ""; this.OwnerType = null; this.OwnerCt = null;
     }
     public override Z42Type Type() { return this._t; }
     public override string Dump() { return "(static-get " + this.ClassName + "." + this.FieldName + " :" + this._t.Name() + ")"; }

@@ -263,7 +263,7 @@ Assert.Equal("hello\nworld\n", s);
 
 ## `[Benchmark]` 与 `Bencher`
 
-基准文件默认放 `bench/`，用 `z42 bench` 跑（`bench/*.z42`，一文件一目标，与 `tests/` 同构）。
+基准文件默认放 `benches/`，用 `z42 bench` 跑（`benches/*.z42`，一文件一目标，与 `tests/` 同构）。
 `[Benchmark]` 写在 `tests/` 里也会被 `z42 test` 一并跑掉。
 
 ### 两种签名

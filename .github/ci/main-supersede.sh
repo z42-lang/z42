@@ -21,7 +21,7 @@ repo="${GITHUB_REPOSITORY:-z42-lang/z42}"
 # 不进 SDK 的路径（逐个文件判；**全部**命中才算不影响）：文档、测试源码与夹具、bench、示例、
 # xtask 里只做测试编排的部分、不参与发布的 workflow。其余一律算影响 —— 包括 xtask 的
 # build / package / common / install（它们决定 SDK 里装什么）、ci.yml、.github/actions。
-non_sdk_re='^(docs/|examples/|\.claude/)|\.md$|(^|/)(tests|bench|benches)/|^scripts/test/|^scripts/cli/xtask_cli_(test|check)\.z42$|^scripts/xtask_(bench|profile)\.z42$|^\.github/workflows/(bench-pr|deploy-book|jit-fixpoint-check)\.yml$'
+non_sdk_re='^(docs/|examples/|\.claude/)|\.md$|(^|/)(tests|benches)/|^scripts/test/|^scripts/cli/xtask_cli_(test|check)\.z42$|^scripts/xtask_(bench|profile)\.z42$|^\.github/workflows/(bench-pr|deploy-book|jit-fixpoint-check)\.yml$'
 
 # 一组文件里有没有影响 SDK 的（stdin 每行一个路径）。
 touches_sdk() {

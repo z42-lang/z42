@@ -218,7 +218,7 @@ public sealed class IrGenTypeEmitter {
                         if (model.HasBody(ikey)) {
                             bool ist = Mod.Has(imd.ModFlags, Mod.Static);
                             var ife = new FunctionEmitter(model.Symbols, g);
-                            IrFunction iirf = ife.EmitFunction(g._qClass(itn) + "." + imk, imd,
+                            IrFunction iirf = ife.EmitFunction(g._qType(iowner, itn) + "." + imk, imd,
                                                                model.GetBody(ikey), !ist, ist, iowner, new string[0], 0);
                             iirf.Visibility = DeclFacts._visCode(imd.ModFlags, 1);   // add-member-visibility
                             iirf.MethodFlags = iirf.MethodFlags | IrGenFacts._methodFlags(imd.ModFlags);   // 或：保住 FunctionEmitter 置的 sret 位   // add-method-modifiers

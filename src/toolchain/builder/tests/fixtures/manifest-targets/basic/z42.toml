@@ -34,7 +34,7 @@ include = ["tests/exit_ok.z42"]
 
 [[bench]]
 name    = "micro"
-include = ["bench/micro.z42"]
+include = ["benches/micro.z42"]
 
 [[example]]
 name    = "hello"

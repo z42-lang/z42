@@ -282,11 +282,11 @@ public sealed class PatternEmitter {
             int[] fpath = AccessEmitter._pathAppend(new int[0], this._ctx.Gen.Layouts.FieldIndexOf(sname, fieldName));
             if (this._ctx.Gen.Layouts.FieldIsStruct(sname, fieldName)) {
                 string fs = this._ctx.Gen.Layouts.FieldTypeName(sname, fieldName);
-                return this._ee._copyStructOut(subj, this._ctx.QualifyClass(sname), fpath, fs);   // 嵌套 struct 字段：复制出值副本子 blob
+                return this._ee._copyStructOut(subj, this._ctx.QualifyLayout(sname), fpath, fs);   // 嵌套 struct 字段：复制出值副本子 blob
             }
             int tag = Tag.FromName(this._ctx.Gen.Layouts.FieldTypeName(sname, fieldName));
             TypedReg dst = this._ctx.Alloc(this._ctx.ToIrType(fieldType));
-            this._ctx.Emit(new StructFieldGetPrimInstr(dst, subj, this._ctx.QualifyClass(sname), fpath, tag));
+            this._ctx.Emit(new StructFieldGetPrimInstr(dst, subj, this._ctx.QualifyLayout(sname), fpath, tag));
             return dst;
         }
         TypedReg fReg = this._ctx.Alloc(this._ctx.ToIrType(fieldType));

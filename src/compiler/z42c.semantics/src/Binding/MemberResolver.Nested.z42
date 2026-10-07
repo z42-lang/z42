@@ -109,7 +109,7 @@ public sealed partial class MemberResolver {
             this._tc._access.CheckAccess(ms.Visibility, ms.ContainingTypeName, env, env.Symbols, "method", mem.Name, sp);   // enforce-access-control
             this._tc._access.CheckDeprecatedM(ms, mem.Name, sp);   // add-deprecated-directive
             BoundExpr[] fa = this._tc._overload._withDefaults(ms, args, rawArgs, argCount, env, sp, true);
-            BoundCall bc = BoundCall.Marked(new BoundCall("static", false, null, ct.Name(), ms.CallKey(), fa, fa.Length, ms.Signature.Ret, sp), ms.Signature);
+            BoundCall bc = BoundCall.WithOwner(BoundCall.Marked(new BoundCall("static", false, null, ct.Name(), ms.CallKey(), fa, fa.Length, ms.Signature.Ret, sp), ms.Signature), ct);
             this._applyMethodTypeArgs(bc, call, ms, env);   // add-generic-methods：静态泛型方法（serde 招牌路径）
             return bc;
         }

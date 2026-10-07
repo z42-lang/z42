@@ -332,7 +332,7 @@ public sealed class TypeChecker {
         if (syms != null) {
             ConvResult ur = Conversion.Classify(value.Type(), target, syms);
             if (ur.Kind == ConvKind.UserImplicit && ur.Method != null) {
-                return TypeChecker._lowerUserConv(value, ur.Method);
+                return TypeChecker._lowerUserConv(value, ur);
             }
         }
         Z42Type vt = value.Type();
@@ -345,10 +345,11 @@ public sealed class TypeChecker {
 
     // add-user-conversions：用户转换 lower 成静态 op_Implicit/op_Explicit 调用（复用运算符重载 op_Add 脱糖路径）。
     // 返回类型取 ms.Signature.Ret（= 转换目标）；类名取声明所在类 ms.ContainingTypeName；实参 = 被转值。
-    public static BoundExpr _lowerUserConv(BoundExpr value, MethodSymbol ms) {
+    public static BoundExpr _lowerUserConv(BoundExpr value, ConvResult ur) {
+        MethodSymbol ms = ur.Method;
         BoundExpr[] a = new BoundExpr[1];
         a[0] = value;
-        return BoundCall.Marked(new BoundCall("static", false, null, ms.ContainingTypeName, ms.RegKey, a, 1, ms.Signature.Ret, value.Span), ms.Signature);
+        return BoundCall.WithOwner(BoundCall.Marked(new BoundCall("static", false, null, ms.ContainingTypeName, ms.RegKey, a, 1, ms.Signature.Ret, value.Span), ms.Signature), ur.OwnerCt);
     }
 
     // add-user-conversions ③：A→C 无用户/内建转换，但存在 A→B 与 B→C 两跳用户转换时，返回中间类名 B（否则 ""）。
