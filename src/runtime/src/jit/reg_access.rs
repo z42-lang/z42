@@ -44,7 +44,6 @@ pub const TAG_I64: u8 = 0;
 pub const TAG_F64: u8 = 1;
 pub const TAG_BOOL: u8 = 2;
 pub const TAG_CHAR: u8 = 3;
-#[allow(dead_code)]
 pub const TAG_STR: u8 = 4;
 pub const TAG_NULL: u8 = 5;
 /// `Value::FuncRef(FnId)` — payload is the id (P1-2 PR 8: a native `LoadFn` store).

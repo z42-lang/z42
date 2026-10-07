@@ -162,6 +162,14 @@ impl VmContext {
         r
     }
 
+    /// An already-registered function, or `None` — **never loads a package and never
+    /// runs initializers** (unlike [`Self::try_lookup_function`]). For callers that
+    /// must not re-enter the VM, such as the JIT translator recognising intrinsics.
+    #[cfg(feature = "jit")]
+    pub(crate) fn probe_loaded_function(&self, func_name: &str) -> Option<Arc<Function>> {
+        self.core.lazy_loader.read().as_ref()?.probe_function(func_name)
+    }
+
     pub fn try_lookup_function(&self, func_name: &str) -> Option<Arc<Function>> {
         // parallel-parse-and-cache：线程本地前置缓存，命中不碰共享锁（见 `fn_lookup_cache`）。
         if let Some(f) = self.fn_lookup_cache.lock().get(func_name).cloned() {

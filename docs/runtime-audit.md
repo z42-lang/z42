@@ -589,7 +589,7 @@ z42vm 继续静态链接 VM，不改为动态链接 `native/libz42`（结论与�
 | ID | 负载 | z42 / Python | z42 / Node | 初步判断 | 状态 |
 |---|---|---|---|---|---|
 | T1 | json | 28× | 40× | 待剖析 | 🟡 |
-| T2 | str_builder / str_split_join | 7.9× / 13× | 11× / 10× | StringBuilder 是纯脚本实现，每次 Append 生成一个 GC 字符串 | 🟡 |
+| T2 | str_builder / str_split_join | 7.9× / 13× | 11× / 10× | StringBuilder 是纯脚本实现，每次 Append 生成一个 GC 字符串。JIT 已内联 `s.Length` / `s[i]` / `CharAt`（全 ASCII 串直接 load，[jit.md](internals/src/runtime/jit.md#字符串原语内联)）：`char` 比较也已原生：str_builder 1012 → 547 ms（Python 242，≈ 2.3×），逐字符扫描段 493 → 63 ms；剩余在 `Append` 的方法调用帧 / 入口字段 hoist / `string[]` 写屏障与扩容，以及 GC | 🟡 |
 | T3 | dict_ops / sort | 4.8× / 3.7× | 7.3× / 7.4× | 待剖析（泛型装箱、比较器调用、哈希路径）。**Dictionary / HashSet 按插入顺序遍历（User 2026-10-07）**：改为 CPython 式插入有序紧凑哈希表（稠密 entries + `int[]` 索引表，首槽取 hash 低位、冲突后 perturb 探测）；dict_ops n=2M 2.02 → 1.75 s、RSS 286 → 165 MB，n=5M 超过 240 s → 4.7 s；sort 未动 | 🟡 |
 | T4 | large_heap | 1.6× | 5.9× | GC 策略与内存复用（P1-7 / M 系列） | 🟡 |
 | T5 | closures | 1.3× | 8.3× | 闭包调用按名（P1-2 PR 8）。**PR 8 后重测**（2026-10-08，n=2M，jit，7 次交错中位，负载 12–37）：z42 365 → 330 ms（−9%），Python 392 ms、Node 61 ms ⇒ 约 **0.84× Python / 5.4× Node**（同机同轮的 PR 8 之前：0.93× / 6.0×）。调用路径上已无名字哈希；剩下的大头是每次迭代的 env 数组 + 闭包块分配与 minor GC、以及原生调用的建帧 | 🟡 |

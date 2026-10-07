@@ -108,6 +108,7 @@ impl JitModule {
         // entry so the entry's own lazy compile is counted (resolve reaches the
         // counters through `vm_ctx`).
         self.ctx.vm_ctx = (ctx as *const VmContext) as *mut VmContext;
+        self.ctx.cctors = ctx.cctor_registry_ptr();
         // runtime-audit P0-4: JIT code runs on this thread only (see `vm_ctx`),
         // so its prologue checks against this thread's stack limit.
         self.ctx.stack_limit = crate::stack_guard::limit();
@@ -130,6 +131,7 @@ impl JitModule {
                 // re-enters JIT code, so the whole call subtree runs
                 // interpreted. SAFETY: `module` outlives the JitModule.
                 self.ctx.vm_ctx = std::ptr::null_mut();
+                self.ctx.cctors = std::ptr::null();
                 ctx.set_jit_ctx(0); // keep jit_ctx in lockstep with vm_ctx
                 let module = unsafe { &*self.ctx.module };
                 // make-vm-loading-lazy: the entry may be an untranslatable
@@ -160,6 +162,7 @@ impl JitModule {
             invoke::call_entry(ctx, &*self.ctx as *const JitModuleCtx, &entry, JitFrame::new(ctx, entry.max_reg, &[]))
         };
         self.ctx.vm_ctx = std::ptr::null_mut();
+        self.ctx.cctors = std::ptr::null();
         ctx.set_jit_ctx(0); // keep jit_ctx in lockstep with vm_ctx
         if let invoke::NativeOutcome::Threw = outcome {
             // SAFETY: ctx.module set in compile_module from a &Module that
