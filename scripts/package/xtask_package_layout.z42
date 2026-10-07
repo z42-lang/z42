@@ -1,0 +1,208 @@
+// xtask — 包结构门：打出来的包「该有的在、不该有的不在、原生产物的形态对」。
+//
+// 由 `_pkgFinish`（与 source-identity 门同处）在每个包组装完后调用，桌面 workload 在生成处调用 ——
+// 本地打包与 CI 跑的是同一组断言（此前它们是 ci.yml 各 package job 里的内联 bash，本地打包从不检查）。
+// 逐项报告、不在第一处就停：一次看全哪些不对。
+//
+// 用到的外部工具按平台：macOS `otool` / `lipo`，Linux `readelf` / `objdump`，Android 的 `file`，
+// wasm 的 `wasm-tools`。读不到工具输出即判红（并提示装哪个）——「没装就跳过」是假门。
+namespace Z42Xtask;
+
+using Std.IO;
+using Std.Toml;
+
+// kind：sdk（桌面 SDK）| runtime（嵌入用 runtime 包，桌面或平台）| tooling（ios / android / wasm 的 workload
+// tooling 包）| workload-desktop（per-RID 桌面 workload）。返回 0 = 全过，1 = 有不符。
+int _pkgLayoutCheck(string root, string pkgDir, string kind, string rid) {
+    Console.WriteLine("");
+    Console.WriteLine("layout check (" + kind + ", " + rid + "):");
+    _PkgLayout L = new _PkgLayout(pkgDir);
+    string cat = _ridCategory(rid);
+    if (kind != "runtime") { L.HasFile("manifest.toml"); }   // runtime 包不带 manifest（嵌入者直接取 native/ + libs/）
+    if (kind == "sdk")                   { _plSdk(root, L, rid); }
+    else if (kind == "workload-desktop") { L.HasGlob("apphost-" + rid + "*", "apphost-<rid> stub"); }
+    else if (kind == "runtime") {
+        if (cat == "desktop")      { _plRuntimeDesktop(root, L, rid); }
+        else if (cat == "ios")     { _plRuntimeIos(L); }
+        else if (cat == "android") { _plRuntimeAndroid(L, rid); }
+        else if (cat == "wasm")    { _plRuntimeWasm(L); }
+    } else if (kind == "tooling") {
+        if (cat == "ios")          { _plToolingIos(L); }
+        else if (cat == "android") { _plToolingAndroid(L); }
+        else if (cat == "wasm")    { _plToolingWasm(L); }
+    }
+    if (L.Fail > 0) {
+        ConsoleError.WriteLine("  ✗ layout check: " + L.Fail.ToString() + " 处不符 —— " + pkgDir);
+        return 1;
+    }
+    return 0;
+}
+
+// 桌面 SDK：z42c 入口 + ext 动态库 + compression 的 zpkg；嵌入件（libz42.* + C 头）只在 runtime 包，
+// compression 的静态库哪儿都不发（desktop 没有静态注册路径，移动 preset 已把它编进 libz42.a）；
+// apphost 只随桌面 workload 发。
+void _plSdk(string root, _PkgLayout L, string rid) {
+    L.HasDir("libs");
+    L.AnyOf(new string[]{ "bin/z42c", "bin/z42c.exe" }, "z42c 入口");
+    L.AnyOf(new string[]{ "native/libz42_compression.dylib", "native/libz42_compression.so", "native/z42_compression.dll" },
+        "ext 动态库 libz42_compression.*（z42.compression 门面运行期 dlopen 它，缺了报 unknown builtin）");
+    L.HasFile("libs/z42.compression.zpkg");
+    // 名字按平台分叉（MSVC：`z42.lib` 是静态库、`z42.dll.lib` 是 import lib），逐个列出。
+    foreach (var f in new string[]{ "include", "libz42.a", "libz42.dylib", "libz42.so", "z42.lib", "z42.dll", "z42.dll.lib",
+                                    "libz42_compression.a", "z42_compression.lib", "z42_compression.dll.lib" }) {
+        L.Absent("native/" + f, "嵌入件只在 runtime 包");
+    }
+    L.Absent("bin/apphost", "apphost 随桌面 workload 发");
+    L.Absent("bin/apphost.exe", "apphost 随桌面 workload 发");
+    if (rid.StartsWith("linux-")) { _plGlibc(root, L, rid, "bin/z42vm"); }
+}
+
+// 桌面 runtime 包 = 嵌入者拿 libz42 的唯一来源：静态 + 动态（Windows 另有 import lib）+ C 头。
+void _plRuntimeDesktop(string root, _PkgLayout L, string rid) {
+    L.HasFile("native/include/z42_host.h");
+    if (rid.StartsWith("macos-")) {
+        L.HasFile("native/libz42.a");
+        // install name 必须是 @rpath/…，不能是 CI 机器上的绝对构建路径（嵌入者运行期会去那儿找）。
+        foreach (var lib in new string[]{ "libz42", "libz42_compression" }) {
+            string[] lines = _cmdOut("otool", new string[]{ "-D", L.P("native/" + lib + ".dylib") }).Split("\n");
+            string id = lines[lines.Length - 1].Trim();
+            L.Expect(id == "@rpath/" + lib + ".dylib", lib + ".dylib install name = @rpath/" + lib + ".dylib",
+                "实际 '" + id + "'（读不到则检查 otool）");
+        }
+    } else if (rid.StartsWith("linux-")) {
+        L.HasFile("native/libz42.a");
+        foreach (var lib in new string[]{ "libz42", "libz42_compression" }) {
+            string so = _plSoname(_cmdOut("readelf", new string[]{ "-d", L.P("native/" + lib + ".so") }));
+            L.Expect(so == lib + ".so", lib + ".so SONAME = " + lib + ".so", "实际 '" + so + "'（读不到则检查 readelf）");
+        }
+        _plGlibc(root, L, rid, "native/libz42.so");
+        _plGlibc(root, L, rid, "native/libz42_compression.so");
+    } else if (rid.StartsWith("windows-")) {
+        // MSVC 宿主链接 z42.dll 只能经 import lib；z42.lib 是**静态**库（staticlib 在 MSVC 上的名字）。
+        foreach (var f in new string[]{ "z42.lib", "z42.dll", "z42.dll.lib" }) { L.HasFile("native/" + f); }
+    }
+}
+
+void _plRuntimeIos(_PkgLayout L) {
+    L.HasFile("native/libz42.a");
+    L.HasDir("native/Z42VM.xcframework");
+    L.HasDir("native/include");
+    L.HasDir("libs");
+    string xcf = L.P("native/Z42VM.xcframework");
+    string lib = "";
+    if (Directory.Exists(xcf)) {
+        foreach (var rel in Directory.EnumerateRecursive(xcf)) {
+            if (lib.Length == 0 && rel.Replace("\\", "/").EndsWith("libz42.a")) { lib = Path.Join(xcf, rel); }
+        }
+    }
+    string info = lib.Length > 0 ? _cmdOut("lipo", new string[]{ "-info", lib }) : "";
+    L.Expect(info.Contains("arm64"), "xcframework 内的 libz42.a 是 arm64", "lipo -info: '" + info + "'");
+}
+
+void _plRuntimeAndroid(_PkgLayout L, string rid) {
+    L.HasFile("native/libz42_platform_android.so");
+    L.HasFile("native/libz42_platform_android.a");
+    L.HasDir("native/include");
+    L.HasDir("libs");
+    string want = rid == "android-arm64" ? "ARM aarch64" : "x86-64";
+    string got = _cmdOut("file", new string[]{ L.P("native/libz42_platform_android.so") });
+    L.Expect(got.Contains(want), "libz42_platform_android.so 架构 " + want, "file: '" + got + "'");
+}
+
+void _plRuntimeWasm(_PkgLayout L) {
+    L.HasFile("native/z42_wasm_bg.wasm");
+    L.HasFile("native/libz42.a");
+    L.HasDir("pkg-web");
+    L.HasDir("pkg-nodejs");
+    L.HasDir("libs");
+    // WebAssembly 规范校验（编码 + 已启用的提案），不需要 JS 运行时。
+    string wasm = L.P("native/z42_wasm_bg.wasm");
+    int vc = 1;
+    try { vc = new Process("wasm-tools").Arg("validate").Arg(wasm).Run().ExitCode; } catch (Exception e) { vc = 127; }
+    L.Expect(vc == 0, "z42_wasm_bg.wasm 通过 wasm-tools validate",
+        vc == 127 ? "wasm-tools 未安装（cargo install wasm-tools --locked）" : "exit " + vc.ToString());
+    int exports = 0;
+    foreach (var line in _cmdOut("wasm-tools", new string[]{ "print", wasm }).Split("\n")) {
+        if (line.Contains("(export")) { exports = exports + 1; }
+    }
+    L.Expect(exports > 0, "wasm 模块有导出（" + exports.ToString() + " 个）", "没有 (export");
+}
+
+// tooling 包 = SwiftPM 源码 + 自包含的 Z42VMC 头 + 安装期才解析的 Package.swift 占位模板。
+void _plToolingIos(_PkgLayout L) {
+    L.HasDir("Sources/Z42VM");
+    L.HasFile("Sources/Z42VMC/include/z42_host.h");
+    L.HasFile("Package.swift");
+    string ps = File.Exists(L.P("Package.swift")) ? File.ReadAllText(L.P("Package.swift")) : "";
+    L.Expect(ps.Contains("__Z42_RUNTIME_XCFRAMEWORK__"), "Package.swift 是安装期解析的占位模板", "缺占位符 __Z42_RUNTIME_XCFRAMEWORK__");
+}
+
+// tooling 包 = 可构建的 gradle 工程 + 自包含的 JNI 头。
+void _plToolingAndroid(_PkgLayout L) {
+    L.HasFile("gradlew");
+    L.HasFile("settings.gradle.kts");
+    L.HasDir("z42vm/src/main/java/io/z42/vm");
+    L.HasFile("z42vm/src/main/cpp/z42vm_jni.c");
+    L.HasFile("z42vm/src/main/cpp/include/z42_host.h");
+}
+
+void _plToolingWasm(_PkgLayout L) {
+    L.HasFile("package.json");
+    L.HasDir("js");
+}
+
+// readelf -d 输出里 `(SONAME) … Library soname: [libz42.so]` 的方括号内容；没有 → ""。
+string _plSoname(string readelf) {
+    foreach (var line in readelf.Split("\n")) {
+        if (!line.Contains("(SONAME)")) { continue; }
+        int a = line.IndexOf("[");
+        int b = line.IndexOf("]");
+        if (a >= 0 && b > a) { return line.Substring(a + 1, b - a - 1); }
+    }
+    return "";
+}
+
+// glibc 下限对账：产物的**硬**版本需求（objdump -p 的 verneed flag 0x00；0x02 是 Rust std 的弱引用，旧 glibc
+// 照样加载）不得高于 versions.toml [platform.linux] 的声明（x64：min_glibc，arm64：min_glibc_arm64）。
+void _plGlibc(string root, _PkgLayout L, string rid, string rel) {
+    string key = rid == "linux-arm64" ? "min_glibc_arm64" : "min_glibc";
+    string want = _vget(TomlValue.Parse(File.ReadAllText(_versionsPath(root))), "platform.linux." + key);
+    string need = "";
+    foreach (var line in _cmdOut("objdump", new string[]{ "-p", L.P(rel) }).Split("\n")) {
+        string[] w = _splitWords(line.Trim());
+        if (w.Length >= 4 && w[1] == "0x00" && w[3].StartsWith("GLIBC_")) {
+            string v = w[3].Substring(6);
+            if (need.Length == 0 || _verKey(v) > _verKey(need)) { need = v; }
+        }
+    }
+    if (need.Length == 0) { L.Expect(false, rel + " 的 glibc 需求", "读不到（检查 objdump）"); return; }
+    L.Expect(_verKey(need) <= _verKey(want), rel + ": 硬 glibc 需求 " + need + " ≤ 声明的 " + key + " " + want,
+        "超出 scripts/versions.toml 的声明");
+}
+
+// 断言收集器：每条打印 ✓ / ✗，累计不符数。
+class _PkgLayout {
+    public string Root;
+    public int Fail;
+    public _PkgLayout(string dir) { this.Root = dir; this.Fail = 0; }
+    public string P(string rel) { return Path.Join(this.Root, rel); }
+    public void Expect(bool ok, string what, string whyNot) {
+        if (ok) { Console.WriteLine("  ✓ " + what); return; }
+        ConsoleError.WriteLine("  ✗ " + what + " —— " + whyNot);
+        this.Fail = this.Fail + 1;
+    }
+    public void HasFile(string rel) { this.Expect(File.Exists(this.P(rel)), rel, "缺失"); }
+    public void HasDir(string rel) { this.Expect(Directory.Exists(this.P(rel)), rel + "/", "缺失"); }
+    public void Absent(string rel, string why) {
+        string p = this.P(rel);
+        this.Expect(!File.Exists(p) && !Directory.Exists(p), "无 " + rel, "不该发（" + why + "）");
+    }
+    public void AnyOf(string[] rels, string what) {
+        bool any = false;
+        foreach (var r in rels) { if (File.Exists(this.P(r))) { any = true; } }
+        this.Expect(any, what, "缺失（" + rels[0] + " 等）");
+    }
+    public void HasGlob(string pattern, string what) {
+        this.Expect(Path.Glob(this.Root, pattern).Length > 0, what, "缺失（" + pattern + "）");
+    }
+}

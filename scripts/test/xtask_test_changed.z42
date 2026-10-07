@@ -2,7 +2,11 @@
 // standalone scripts/test-changed.z42). Same Z42Xtask namespace.
 //
 // Inspect uncommitted git changes, map each file to a coarse test command,
-// dedupe, and run the union in order. Mirrors docs/design/testing/testing.md
+// dedupe, and run the union in order.
+//
+// 同一张映射表（_mapFile）每条规则给两样东西：本地用的**窄命令**（`test stdlib <lib>` 这类，`test changed` 执行）
+// 与受影响的 **gate stage**（`--skip` 的短名，`xtask test --changed <base>` 用来只跑相关的重 stage；CI 的 PR
+// test-host 腿就是这么分流的）。分类只写一次，两种消费方各取一列。 Mirrors docs/design/testing/testing.md
 // "增量测试" mapping. Driven in-process by `_testChanged` (xtask.z42), which
 // parses the legacy CLI (base ref positional + --dry-run) and calls
 // `_testChangedRun(base_, dryRun)` directly.
@@ -34,10 +38,7 @@ int _testChangedRun(string base_, bool dryRun) {
     }
     Console.WriteLine("[test-changed] base = " + base_);
 
-    // ── Collect changed files ────────────────────────────────────────────
-    string tracked   = _gitOutput(new string[]{ "diff", "--name-only", base_, "--" });
-    string untracked = _gitOutput(new string[]{ "ls-files", "--others", "--exclude-standard" });
-    string[] changed = _dedupeNonEmpty(_splitLines(tracked + "\n" + untracked));
+    string[] changed = _changedFiles(base_);
 
     if (changed.Length == 0) {
         Console.WriteLine("[test-changed] no changed files; nothing to run");
@@ -53,6 +54,7 @@ int _testChangedRun(string base_, bool dryRun) {
 
     // ── Map → de-duped plan ──────────────────────────────────────────────
     _ChangedPlan plan = _buildChangedPlan(changed);
+    if (dryRun) { _changedGateSkips(base_); }   // 同一张表的另一列：`xtask test --changed` 会怎么分流
     if (plan.cmds.Length == 0) {
         if (!plan.touchedAny) {
             Console.WriteLine(
@@ -80,6 +82,64 @@ int _testChangedRun(string base_, bool dryRun) {
     int __rc = _executeChangedPlan(plan.cmds);
     if (__rc == 0) { _procEnd("test changed", sw); }
     return __rc;
+}
+
+// 相对 base 的改动文件（已跟踪的 diff + 未跟踪的新文件），去重排序。
+string[] _changedFiles(string base_) {
+    string tracked   = _gitOutput(new string[]{ "diff", "--name-only", base_, "--" });
+    string untracked = _gitOutput(new string[]{ "ls-files", "--others", "--exclude-standard" });
+    return _dedupeNonEmpty(_splitLines(tracked + "\n" + untracked));
+}
+
+// gate 里按改动分流的「重」stage（skip 短名）。其余 stage 恒跑：build wave 与 e2e goldens（不可 skip，
+// 其它 stage 的前提）、纯文本扫描的静态检查（秒级，且它们守的是全仓不变量，不该看改了哪）。
+string[] _changedScopedStages() {
+    return new string[]{ "rust-units", "cross-zpkg", "multi-exe", "stdlib", "toolchain", "bench",
+                         "targets", "examples", "compiler", "gcgen" };
+}
+
+// 「跑 z42 代码的 stage」全集：编译器 / stdlib / 运行时的改动会改变一切被编译、被执行的东西。
+string[] _stagesAllZ42() {
+    return new string[]{ "cross-zpkg", "multi-exe", "stdlib", "toolchain", "bench", "targets", "examples",
+                         "compiler", "gcgen" };
+}
+
+string[] _withStage(string[] xs, string extra) {
+    string[] r = new string[xs.Length + 1];
+    int i = 0;
+    while (i < xs.Length) { r[i] = xs[i]; i = i + 1; }
+    r[xs.Length] = extra;
+    return r;
+}
+
+// `xtask test --changed <base>` 的分流：返回要追加进 --skip 的重 stage（csv；"" = 一个都不跳）。
+// 任一文件判成「全跑」（scripts/、未知文件、编译器、运行时源码……）⇒ 不跳。打印判定，CI 日志里看得见为什么跳了。
+// 拿不到改动（不是 git 仓库 / base 不存在）⇒ 不跳（保守）。
+string _changedGateSkips(string base_) {
+    Console.WriteLine("[test --changed] base = " + base_);
+    if (!_isInGitRepo() || _gitOutput(new string[]{ "rev-parse", "--verify", "--quiet", base_ + "^{commit}" }).Length == 0) {
+        Console.WriteLine("[test --changed] base 不可解析 —— 全跑");
+        return "";
+    }
+    string[] changed = _changedFiles(base_);
+    string need = "";
+    foreach (var f in changed) {
+        _MapResult m = _mapFile(f);
+        if (m.needsFull) {
+            Console.WriteLine("[test --changed] " + f + " ⇒ 全跑");
+            return "";
+        }
+        foreach (var st in m.stages) {
+            if (!_skipHas(need, st)) { need = need.Length == 0 ? st : need + "," + st; }
+        }
+    }
+    string skip = "";
+    foreach (var st in _changedScopedStages()) {
+        if (!_skipHas(need, st)) { skip = skip.Length == 0 ? st : skip + "," + st; }
+    }
+    Console.WriteLine("[test --changed] " + changed.Length.ToString() + " 个改动文件；需要的重 stage: "
+        + (need.Length == 0 ? "（无）" : need) + "；跳过: " + (skip.Length == 0 ? "（无）" : skip));
+    return skip;
 }
 
 // Plan derived from the changed-file set: the de-duped command list to run
@@ -190,21 +250,24 @@ int _runPlanCmd(string cmd) {
 
 class _MapResult {
     public string[] commands;
+    public string[] stages;   // 受影响的 gate stage（skip 短名；见 _changedScopedStages）
     public bool needsFull;
     public bool touchedAny;
 
     public _MapResult() {
         this.commands = new string[0];
+        this.stages = new string[0];
         this.needsFull = false;
         this.touchedAny = false;
     }
 }
 
-// _MapResult shorthands: _mapCmds = run this command list; _mapFull = full sweep;
-// _mapSkip = no test impact. (touchedAny tracks "this file was classified at all".)
-_MapResult _mapCmds(string[] cmds) {
+// _MapResult shorthands: _mapCmds = run this command list (local) + these gate stages (--changed);
+// _mapFull = full sweep; _mapSkip = no test impact. (touchedAny tracks "this file was classified at all".)
+_MapResult _mapCmds(string[] cmds, string[] stages) {
     var r = new _MapResult();
     r.commands = cmds;
+    r.stages = stages;
     r.touchedAny = true;
     return r;
 }
@@ -225,10 +288,11 @@ _MapResult _mapSkip() { return new _MapResult(); }
 // `bench stdlib <lib>`（与 gate 的 `stdlib [Benchmark]` stage 同一条流水，只是收窄到本库）。
 _MapResult _mapLibraryFile(string f) {
     string lib = _segment(f, 2);
-    if (f.Contains("/src/"))   { return _mapCmds(new string[]{ "xtask test stdlib " + lib, "xtask test e2e" }); }
-    if (f.Contains("/tests/")) { return _mapCmds(new string[]{ "xtask test stdlib " + lib }); }
-    if (f.Contains("/bench/")) { return _mapCmds(new string[]{ "xtask bench stdlib " + lib }); }
-    if (f.EndsWith(".toml"))   { return _mapCmds(new string[]{ "xtask test stdlib " + lib }); }
+    // 库源码 / 清单一变，所有编译、执行 z42 代码的 stage 都可能受影响（编译器自身也链 stdlib）。
+    if (f.Contains("/src/"))   { return _mapCmds(new string[]{ "xtask test stdlib " + lib, "xtask test e2e" }, _stagesAllZ42()); }
+    if (f.Contains("/tests/")) { return _mapCmds(new string[]{ "xtask test stdlib " + lib }, new string[]{ "stdlib" }); }
+    if (f.Contains("/bench/")) { return _mapCmds(new string[]{ "xtask bench stdlib " + lib }, new string[]{ "bench" }); }
+    if (f.EndsWith(".toml"))   { return _mapCmds(new string[]{ "xtask test stdlib " + lib }, _stagesAllZ42()); }
     return _mapSkip();
 }
 
@@ -237,11 +301,11 @@ _MapResult _mapFile(string f) {
     // 否则 examples 里的 README / 手册页改动会被当成纯文档跳过。
     if (f.StartsWith("examples/")) {
         string chapter = _segment(f, 1) + "/" + _segment(f, 2);
-        return _mapCmds(new string[]{ "xtask test docs examples " + chapter });
+        return _mapCmds(new string[]{ "xtask test docs examples " + chapter }, new string[]{ "examples" });
     }
-    if (f.StartsWith("docs/learn/")) { return _mapCmds(new string[]{ "xtask test docs examples --book-only" }); }
+    if (f.StartsWith("docs/learn/")) { return _mapCmds(new string[]{ "xtask test docs examples --book-only" }, new string[]{ "examples" }); }
     // 测试布局规范页带机器可读清单（类别 / 能力词表），`check layout` 拿它对账 —— 同样排在「docs 一律跳过」之前。
-    if (f == "docs/internals/src/devinfra/test-layout.md") { return _mapCmds(new string[]{ "xtask check layout" }); }
+    if (f == "docs/internals/src/devinfra/test-layout.md") { return _mapCmds(new string[]{ "xtask check layout" }, new string[0]); }
     // Docs / spec / claude state — no tests.
     if (f.EndsWith(".md") || f.StartsWith("docs/") || f.StartsWith(".claude/")
         || f == ".gitignore" || f == ".gitattributes"
@@ -252,16 +316,17 @@ _MapResult _mapFile(string f) {
     // Runtime (Rust VM).
     if (f.StartsWith("src/runtime/src/") || f == "src/runtime/Cargo.toml"
         || f == "src/runtime/Cargo.lock" || f == "src/runtime/build.rs") {
-        return _mapCmds(new string[]{ "xtask test runtime", "xtask test e2e" });
+        // VM 一变，每个执行 z42 代码的 stage 都受影响（gate 侧全集 + Rust 单测；本地仍是两条窄命令）。
+        return _mapCmds(new string[]{ "xtask test runtime", "xtask test e2e" }, _withStage(_stagesAllZ42(), "rust-units"));
     }
     if (f.StartsWith("src/runtime/tests/")) {
-        return _mapCmds(new string[]{ "xtask test runtime" });
+        return _mapCmds(new string[]{ "xtask test runtime" }, new string[]{ "rust-units" });
     }
     // harness 驱动的夹具（`<component>/tests/fixtures/<suite>/`，见 test-layout.md）只喂自己的 harness，
     // 必须排在下面 src/compiler/ 与 src/toolchain/ 的整组件映射之前。
-    if (f.StartsWith("src/compiler/z42c.pipeline/tests/fixtures/cross-zpkg/")) { return _mapCmds(new string[]{ "xtask test e2e --dir cross-zpkg" }); }
-    if (f.StartsWith("src/compiler/z42c.pipeline/tests/fixtures/multi-exe/"))  { return _mapCmds(new string[]{ "xtask test e2e --dir multi-exe" }); }
-    if (f.StartsWith("src/toolchain/builder/tests/fixtures/"))                 { return _mapCmds(new string[]{ "xtask test toolchain builder" }); }
+    if (f.StartsWith("src/compiler/z42c.pipeline/tests/fixtures/cross-zpkg/")) { return _mapCmds(new string[]{ "xtask test e2e --dir cross-zpkg" }, new string[]{ "cross-zpkg" }); }
+    if (f.StartsWith("src/compiler/z42c.pipeline/tests/fixtures/multi-exe/"))  { return _mapCmds(new string[]{ "xtask test e2e --dir multi-exe" }, new string[]{ "multi-exe" }); }
+    if (f.StartsWith("src/toolchain/builder/tests/fixtures/"))                 { return _mapCmds(new string[]{ "xtask test toolchain builder" }, new string[]{ "toolchain", "targets" }); }
     // src/bench/ — whole-program timing scenarios, probe, schema, verdict fixtures.
     // Not `test e2e` (they're not goldens) and not _mapSkip: a scenario broken by an
     // edit (won't compile, Main moved) would otherwise stay invisible until bench-pr.yml
@@ -269,22 +334,26 @@ _MapResult _mapFile(string f) {
     // warmup=1) answers "does it still compile and run" in under a minute. Whole
     // subtree: probe/ and the schema feed the same pipeline, and over-matching only
     // costs one quick run.
-    if (f.StartsWith("src/bench/"))            { return _mapCmds(new string[]{ "xtask bench --quick" }); }
-    if (f.StartsWith("src/tests/"))            { return _mapCmds(new string[]{ "xtask test e2e", "xtask check layout" }); }
+    // gate 里没有 src/bench 的 stage（bench 场景归 bench-pr.yml）；e2e goldens 与 layout 恒跑。
+    if (f.StartsWith("src/bench/"))            { return _mapCmds(new string[]{ "xtask bench --quick" }, new string[0]); }
+    if (f.StartsWith("src/tests/"))            { return _mapCmds(new string[]{ "xtask test e2e", "xtask check layout" }, new string[0]); }
 
     // z42c self-host compiler (src/compiler).
+    // 编译器一变，一切被编译的东西都可能变 ⇒ gate 侧是全集（本地仍只跑编译器 + e2e 两条窄命令）。
     if (f.StartsWith("src/compiler/")) {
-        return _mapCmds(new string[]{ "xtask test compiler", "xtask test e2e" });
+        return _mapCmds(new string[]{ "xtask test compiler", "xtask test e2e" }, _stagesAllZ42());
     }
     // Toolchain (incl. z42b — the z42.builder test/bench host). A toolchain change
     // can affect how [Test]/[Benchmark] units run, so sweep the stdlib suite.
     // launcher / z42b 的命令行输出直接出现在学习手册的会话脚本里 → 追加 examples。
     // 工具链组件自己的 [Test] unit（test-layout §1）由 `test toolchain` 跑，一并带上。
+    // z42b 是 [Test] / [Benchmark] / manifest target 的执行器 ⇒ 这几个 stage 都带上。
     if (f.StartsWith("src/toolchain/launcher/") || f.StartsWith("src/toolchain/builder/")) {
-        return _mapCmds(new string[]{ "xtask test stdlib", "xtask test toolchain", "xtask test docs examples" });
+        return _mapCmds(new string[]{ "xtask test stdlib", "xtask test toolchain", "xtask test docs examples" },
+            new string[]{ "stdlib", "toolchain", "bench", "targets", "examples" });
     }
     if (f.StartsWith("src/toolchain/")) {
-        return _mapCmds(new string[]{ "xtask test stdlib", "xtask test toolchain" });
+        return _mapCmds(new string[]{ "xtask test stdlib", "xtask test toolchain" }, new string[]{ "stdlib", "toolchain" });
     }
 
     // All xtask CLI source is now ONE compiled xtask.zpkg (the command logic is

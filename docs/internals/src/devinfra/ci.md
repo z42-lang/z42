@@ -85,16 +85,18 @@ PR 的 xtask，而 xtask 的 `_root()` 取 cwd 的仓库根 = base-src（base �
 
 | 事件 | 行为 |
 |---|---|
-| `pull_request` / `push` to main | `paths-ignore` 只有 `.claude/**`——**纯文档改动照样跑 CI**，但 PR 上走快速通道（见下） |
+| `pull_request` / `push` to main | `paths-ignore` 只有 `.claude/**`——**纯文档改动照样跑 CI**，但走快速通道（见下） |
 | `schedule`（每日 16:00 UTC） | 无条件全跑，外加只在这里跑的 Tier-2 平台测试 |
 | `workflow_dispatch` | 无条件全跑；格式 bump 后手动重发 nightly 的逃生口 |
 
-**纯文档快速通道**：PR 的改动**全部**是 `docs/**` 或 `*.md`（`docs/learn/**`、`examples/**` 除外——学习手册的
-示例会被重放）时，`detect-changes` 输出 `docs_only=true`，只跑 `docs-check`：ci-bootstrap 的 `xtask-only`
+**纯文档快速通道**：改动**全部**是 `docs/**` 或 `*.md`（`docs/learn/**`、`examples/**` 除外——学习手册的
+示例会被重放）时，`detect-changes` 输出 `docs_only=true`，只跑 `docs-check`。改动集合：PR 取 PR 的文件列表，
+main push 取 `before...sha` 的 compare（新分支的全零 `before`、API 失败、到 compare 的 300 文件上限 ⇒ 当作非纯文档）。
+`docs-check` 的内容：ci-bootstrap 的 `xtask-only`
 模式（种子 z42c 只编出 xtask，省掉 build compiler / stdlib）+ `xtask test docs links`（相对链接 + gate stage 清单
 ↔ `test-gate.md`）+ `xtask check diagcodes`（诊断码 ↔ `error-codes.md`）。读文档的门禁就这几道。
-`test-host` ×4 与 toolchain 链（`compile-toolchain` → `compile-test-assets` / `test-consume`）随之 skip。
-push / schedule / dispatch 不走快速通道。
+`test-host` ×4 与 toolchain 链（`compile-toolchain` → `compile-test-assets` / `test-consume`）随之 skip；
+main push 上 `publish-nightly` 也随之不跑（纯文档本来就不影响 SDK，见下节的 `sdk` 判定）。schedule / dispatch 不走快速通道。
 
 ### main 上的运行不互相打断
 
@@ -125,6 +127,25 @@ SoT 是脚本里的 `non_sdk_re`，这张表随它改。
 
 `publish-nightly` 自身仍是全局串行（job 级 `cancel-in-progress: false`）。main 运行不再互相取消后，较早的运行
 可能排在较新的之后才发布，所以它先查一次：**nightly 已指向本 commit 的后代** ⇒ 跳过，不拿旧 commit 覆盖新 nightly。
+
+串行靠 job 级 concurrency group，而 GitHub 每个 group **只保留一个等待者**：连续合并时，排队中的较早发布会被
+更新运行的发布顶掉（`Canceling since a higher priority waiting request …`）。这是想要的结局——顶替者已过全部
+前置 job、发布的是超集——所以 `ci-ok` 把 `publish-nightly = cancelled` 视为可接受（打印一行说明），main 上的
+commit 不因此挂红。publish 真失败照样红。
+
+### PR 运行的并发上限
+
+账号的 runner 池约 20 个并发 job，一次 PR 运行扇出 10~15 个；几个 PR 同时推就互相挤占、个个都慢。
+`detect-changes` 末尾的闸门（`.github/ci/pr-gate.sh`，上限 `CAP` 在 ci.yml 该步骤的 `env` 里，当前 3）让同时
+「在跑重 job」的 PR 运行不超过 `CAP` 个，其余在闸门里先来先过地排队（按 `run_number`；下游 job 都 `needs: changes`，
+所以整次运行一起等）：
+
+- 「在跑」= 运行里已出现 detect-changes / docs-check 以外的 job；「在排队」= detect-changes 还没结束；只有
+  detect-changes / docs-check 的轻量运行（纯文档 PR）不占名额。
+- 放行条件：比我早的「在跑」+「在排队」< `CAP`。只看比自己早的运行，API 调用随排队位置而非 PR 总数增长；
+  两个运行同时判定可能短暂超出 1 个。
+- 等满 90 分钟一律放行（防卡死）；`detect-changes` 的超时随之放宽到 100 分钟。
+- 纯文档 PR、main push、schedule、dispatch 不经过闸门。同一 PR 的新 push 照旧取消旧运行（连同它在闸门里的等待）。
 
 `detect-changes` 用 `dorny/paths-filter` 输出 flag，下游 job `needs: changes` + `if:` 门控：
 
@@ -160,9 +181,9 @@ job 的 **key**（`needs:` 用的）与 **display 名**（分支保护的 requir
 | display 名 | job key | 门控 | 矩阵 |
 |---|---|---|---|
 | `detect-changes` | `changes` | 总跑 | — |
-| `docs-check(linux-x64)` | `docs-check` | **仅**纯文档 PR | — |
-| `test-host(<plat>)` | `build-and-test` | 非纯文档 PR | linux-x64 / linux-arm64 / macos-arm64 / windows-x64 |
-| `compile-toolchain(linux-x64)` | `toolchain-bootstrap` | 非纯文档 PR | — |
+| `docs-check(linux-x64)` | `docs-check` | **仅**纯文档改动（PR / main push） | — |
+| `test-host(<plat>)` | `build-and-test` | 非纯文档改动 | linux-x64 / linux-arm64 / macos-arm64 / windows-x64 |
+| `compile-toolchain(linux-x64)` | `toolchain-bootstrap` | 非纯文档改动 | — |
 | `compile-test-assets(linux-x64)` | `assemble-current-sdk` | 随 `compile-toolchain` | — |
 | `test-consume(linux-x64)` | `consume-current-sdk` | 随 `compile-test-assets` | — |
 | `test-vm-jit(linux-x64) shard k` | `vm-jit-consistency` | `vm ‖ compiler` | 2 shard |
@@ -207,7 +228,9 @@ required check 视同通过。新增 job 时记得加进它的 `needs`。
   cranelift」断言在 `package-wasm` 里。`.cargo/**` 并入 `platform` 过滤器（配置只有 `src/runtime/.cargo` 一份，由 `src/runtime/**` 覆盖）。
 
 `test-host` 各腿用 `--skip` 把 stage 卸给并行 job：linux-x64 跳 `stdlib,compiler,vscode`，
-其余 OS 再多跳 `cross-zpkg,bench`（这两者 host 无关，一条腿够了）。Windows 腿不跑
+其余 OS 再多跳 `cross-zpkg,bench`（这两者 host 无关，一条腿够了）。PR 上另加 `--changed <PR base sha>`
+按路径分流：改动用不到的重 stage 也跳过（规则与映射表见[测试门禁](test-gate.md) §5、§7）；main push /
+schedule / dispatch 不分流。Windows 腿不跑
 `test`，只跑 `build test` + `xtask test runtime`。三条非 Windows 腿在 `test` 之后
 跑 **zbc-format 字节基线门**（`git diff --quiet -- src/compiler/z42.package/tests/fixtures/zbc-format`；regen 就地重写了基线，
 有 diff = 提交的基线过期）——一次覆盖三个架构，且挂在 required check 上。

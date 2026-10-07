@@ -98,8 +98,50 @@ int _buildStdlib() {
     // ── 6. Flat view (hard-link, z42c-built; overwrites step-1 C# seed view) ──
     _assembleStdlibFlatView(root, profile);
     _vNormal("  flat view: " + flatDir + "/   (VM single-dir lookup target)");
+    if (_releaseGuard(root) != 0) { return 1; }
     _procEnd("build stdlib (z42c self-build + libs)", swAll);
     return 0;
+}
+
+// release guard：测试 / 基准的合成包（`<lib>.test.<unit>.zpkg` / `<lib>.bench.<unit>.zpkg`）绝不能进生产产物——
+// 各库的 `<lib>/<profile>/dist/` 与 SDK 真正取库的 flat 视图（`_libsDir`）；那里的东西会随 SDK 发给用户。
+// 测试 / 基准自己的输出在 `<lib>/<profile>/{tests,bench}/…` 下（其中按设计也有被测库的拷贝），不在判定面内。
+// 漏改某处 output_dir 时这是唯一会响的地方，所以每次 build stdlib 都扫一遍（两层目录列举，毫秒级）。
+int _releaseGuard(string root) {
+    int bad = 0;
+    string base_ = _libsBuildRoot(root);
+    if (Directory.Exists(base_)) {
+        foreach (var lib in _enumDirsSorted(base_)) {
+            foreach (var prof in _enumDirsSorted(Path.Join(base_, lib))) {
+                bad = bad + _releaseGuardDir(Path.Join(Path.Join(Path.Join(base_, lib), prof), "dist"));
+            }
+        }
+    }
+    bad = bad + _releaseGuardDir(_libsDir(root));
+    return bad == 0 ? 0 : 1;
+}
+
+int _releaseGuardDir(string dir) {
+    if (!Directory.Exists(dir)) { return 0; }
+    int bad = 0;
+    foreach (var f in Path.Glob(dir, "*.zpkg")) {
+        if (_isHarnessZpkg(Path.GetFileName(f))) {
+            ConsoleError.WriteLine("  ✗ release guard: 测试 / 基准包漏进了生产产物 " + f);
+            bad = bad + 1;
+        }
+    }
+    return bad;
+}
+
+// `<lib>.test.<unit>.zpkg` / `<lib>.bench.<unit>.zpkg`：`test` / `bench` 段后面还有段。库 `z42.test.zpkg` 本身不算。
+bool _isHarnessZpkg(string name) {
+    string[] seg = name.Substring(0, name.Length - 5).Split(".");
+    int i = 0;
+    while (i < seg.Length - 1) {
+        if (seg[i] == "test" || seg[i] == "bench") { return true; }
+        i = i + 1;
+    }
+    return false;
 }
 
 // Stdlib member list — derived from the workspace manifest's `default-members`

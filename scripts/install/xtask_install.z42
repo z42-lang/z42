@@ -136,15 +136,6 @@ string _detectOs() {
     return "linux";
 }
 
-// stdout of a command, trimmed; "" on failure.
-string _cmdOut(string bin, string[] args) {
-    try {
-        ProcessResult r = new Process(bin).Args(args).Stderr(Stdio.Null()).Run();
-        if (r.ExitCode != 0) { return ""; }
-        return r.Stdout.Trim();
-    } catch (Exception e) { return ""; }
-}
-
 // major.minor → comparable int (1.79 → 1079); only the first two components.
 int _verKey(string ver) {
     string[] parts = ver.Split(".");

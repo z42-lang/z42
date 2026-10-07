@@ -5,7 +5,7 @@ using Std.IO;
 using Std.Cli;
 
 // `xtask test` 按「契约属于谁」归类（test-layout.md §1 的 owner 表）：
-//   (无子命令)  完整 GREEN gate [--no-build] [--skip <csv>]（在 xtask_cli.z42 的 shim 里解析，router 不支持默认动作）
+//   (无子命令)  完整 GREEN gate [--no-build] [--skip <csv>] [--changed <base>]（在 xtask_cli.z42 的 shim 里解析，router 不支持默认动作）
 //   changed     按改动推导该跑的命令
 //   e2e / stdlib / compiler / toolchain / runtime   各 owner 的用例
 //   app         嵌入宿主里跑（desktop / wasm / ios / android）
@@ -15,7 +15,7 @@ using Std.Cli;
 // 不跑用例的静态检查在 `xtask check`（xtask_cli_check.z42；packages.toml 自检是其中的 `check packages`）。
 SubcommandRouter _testRouter() {
     SubcommandRouter t = new SubcommandRouter("xtask test",
-        "run tests (no subcommand = the full GREEN gate: xtask test [--no-build] [--skip <csv>])");
+        "run tests (no subcommand = the full GREEN gate: xtask test [--no-build] [--skip <csv>] [--changed <base>])");
     ArgParser changed = new ArgParser("xtask test changed", "only changed-area tests");
     changed.AddFlag("dry-run", "", "print the plan, don't run");
     changed.AddOptionalPositional("base", "git base ref (default: HEAD)");

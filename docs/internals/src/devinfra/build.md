@@ -58,6 +58,10 @@ graph TD
 的快照，因为 stdlib 正在被重建，运行中的 driver 需要一份稳定的 `Std.*` 副本。
 阶段三用 hard-link（零拷贝）把各成员 dist 汇聚成单目录。
 
+收尾是 **release guard**（`_releaseGuard`）：各库的 `<lib>/<profile>/dist/` 与扁平视图里不得出现测试 / 基准的
+合成包（`<lib>.test.<unit>.zpkg` / `<lib>.bench.<unit>.zpkg`）——它们只该在 `<lib>/<profile>/{tests,bench}/…`
+下，生产目录里的东西会随 SDK 发给用户。某处 output_dir 漏改时这是唯一会响的地方，所以每次 `build stdlib` 都扫。
+
 ### warm 判据带代际校验（「在不在」不等于「能用」）
 
 `_ensureSeed` 判断 in-tree 产物能不能当种子，**不能只看文件在不在**——还要看它是哪一代：
