@@ -143,10 +143,25 @@ public sealed class StructLayout {
     public static StructLayout BuildFromSymbols(SymbolTable table) {
         StrMap defs = new StrMap();
         StrMap classDefs = new StrMap();   // add-struct-heap-inline (P3b)：非-struct class 字段定义
-        string[] keys = table.Classes.Keys();
+        // 布局表按**短名键**组织（发射端全部按短名查，布局键改 FQN 是另一件事）。遍历 FQN 表的每一份；
+        // 同短名跨 ns 时本地胜导入，其余按 FQN 序先到者胜（此前短名表是本地 last-wins / 导入加载序 first-wins，
+        // 两者只在「同包或同依赖集里两个同短名的 struct/class」时可能不同）。
+        Z42ClassType[] all = table.SortedClasses();
+        StrMap owner = new StrMap();   // 短名键 → 胜出的 Z42ClassType
+        int oi = 0;
+        while (oi < all.Length) {
+            Z42ClassType oc = all[oi];
+            if (oc != null) {
+                string ok = SymbolTable.ClassKeyOf(oc);
+                Z42ClassType prev = owner.Get(ok) as Z42ClassType;
+                if (prev == null || (prev.IsImported && !oc.IsImported)) { owner.Put(ok, oc); }
+            }
+            oi = oi + 1;
+        }
+        string[] keys = owner.Keys();
         int i = 0;
         while (i < keys.Length) {
-            Z42ClassType ct = table.Classes.Get(keys[i]) as Z42ClassType;   // 遍历表本身：键即所指，不走名字解析（A5b-2b-3）
+            Z42ClassType ct = owner.Get(keys[i]) as Z42ClassType;
             if (ct != null) {
                 StructFieldsDef def = new StructFieldsDef();
                 int j = 0;
@@ -173,10 +188,11 @@ public sealed class StructLayout {
         // `_isObjectSpelling` 直接识别）。`_computeObjectLayout`(下) 的 `_refineDirectRefKind` 据此把
         // object/interface 字段归 GcRefClosure（侧表），只让具体类字段内联。
         StrMap erasure = new StrMap();
-        string[] ikeys = table.Interfaces.Keys();
+        string[] ikeys = table.InterfacesByFqn.Keys();
         int ii = 0;
         while (ii < ikeys.Length) {
-            erasure.Put(StructLayout._baseName(PrimModel.Canon(ikeys[ii])), "1");
+            Z42InterfaceType it = table.InterfacesByFqn.Get(ikeys[ii]) as Z42InterfaceType;
+            if (it != null) { erasure.Put(StructLayout._baseName(PrimModel.Canon(it.Name())), "1"); }
             ii = ii + 1;
         }
         sl._erasureNames = erasure;

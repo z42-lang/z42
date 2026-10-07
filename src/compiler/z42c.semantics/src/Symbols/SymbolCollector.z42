@@ -66,20 +66,13 @@ public sealed class SymbolCollector {
     // 单 CU 入口没有文件名（partial 主碎片跟踪按 "" 处理，与此前的单 CU 序列一致）。
     private static string[] _noFile() { string[] f = new string[1]; f[0] = ""; return f; }
 
-    // imported 接口骨架 seed（_passClassStubs 前调用；local 同名接口已由 _passInterfaces 注册，local-wins）。
-    // G18-import：IBasicCollection 等跨包接口须在 _passClassStubs 前进 table.Interfaces，否则被误当 class base。
+    // imported 接口骨架 seed（_passClassStubs 前调用；local 同 FQN 接口已由 _passInterfaces 注册，local-wins）。
+    // G18-import：`_passClassStubs` 按作用域判「基类列表里的名字是不是接口」（`InterfaceKeyOf` → `GetInterface`，
+    // 走 FQN），IBasicCollection 等跨包接口此时必须已在 FQN 表里，否则被误当 class base。
     private void _mergeImportedInterfaces(SymbolTable table, ImportedSymbols imported) {
         if (imported == null) { return; }
-        string[] ifs = imported.Interfaces.Keys();
-        int i = 0;
-        while (i < ifs.Length) {
-            if (!table.Interfaces.ContainsKey(ifs[i])) { table.Interfaces.Put(ifs[i], imported.Interfaces.Get(ifs[i])); }
-            i = i + 1;
-        }
-        // FQN 视图同步提前并入：`_passClassStubs` 按作用域判「基类列表里的名字是不是接口」（`InterfaceKeyOf` →
-        // `GetInterface`，走 FQN），导入接口此时必须已在 FQN 视图里。本地同 FQN 已由 `_passInterfaces` 登记 ⇒ local-wins。
         string[] ifq = imported.InterfacesByFqn.Keys();
-        i = 0;
+        int i = 0;
         while (i < ifq.Length) {
             if (!table.InterfacesByFqn.ContainsKey(ifq[i])) { table.InterfacesByFqn.Put(ifq[i], imported.InterfacesByFqn.Get(ifq[i])); }
             i = i + 1;
@@ -127,8 +120,6 @@ public sealed class SymbolCollector {
             new Z42FuncType(noParams, 0, Z42ClassType.Builtin("int")), false, "Object", false, null));
         obj.Methods.Put("GetType", new MethodSymbol("GetType", "public",
             new Z42FuncType(noParams, 0, getTypeRet), false, "Object", false, null));
-        table.Classes.Put("Object", obj);
-        // FQN 视图也要有它 —— 否则「身份是 FQN」这句话对它不成立（查不到 = 没有身份）。
         table.ClassesByFqn.Put(obj.Fqn(), obj);
     }
 
@@ -206,19 +197,9 @@ public sealed class SymbolCollector {
         table.DeclaredDeps = imported.DeclaredDeps;
         table.SelfPkg = imported.SelfPkg;
         table.EnforceDeclaredDeps = imported.EnforceDeclaredDeps;
-        string[] cls = imported.Classes.Keys();
-        int i = 0;
-        while (i < cls.Length) {
-            if (!table.Classes.ContainsKey(cls[i])) { table.Classes.Put(cls[i], imported.Classes.Get(cls[i])); }
-            i = i + 1;
-        }
-        // unify-type-identity-fqn：**导入类/接口也进 FQN 视图**。此前 `SymbolTable.ClassesByFqn`
-        // 只装本地类 ⇒ 源码里写**限定的导入类型**（`Std.Type x;`）时，ResolveTypeP 的 FQN 精确分支
-        // 恒 miss，只能落到「末段剥短名」的有损回退 —— 又绕回短名竞争。
-        // ⚠️ 这一步此前**做不到**：导入类的 Namespace 恒为空（本 change 才补上），算不出 FQN。
-        // 键天然唯一（FQN 不会撞），不需要 local-wins 守卫；本地类由 StubCollector 自己登记。
+        // 导入类 / 接口并进 FQN 表（本地同 FQN 已由 StubCollector 登记 ⇒ local-wins）。
         string[] fqk = imported.ClassesByFqn.Keys();
-        i = 0;
+        int i = 0;
         while (i < fqk.Length) {
             if (!table.ClassesByFqn.ContainsKey(fqk[i])) { table.ClassesByFqn.Put(fqk[i], imported.ClassesByFqn.Get(fqk[i])); }
             i = i + 1;

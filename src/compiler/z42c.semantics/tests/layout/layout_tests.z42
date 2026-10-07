@@ -112,9 +112,9 @@ void test_build_from_symbols_struct_vs_class() {
     p.IsStruct = true;
     p.AddOwnField("x", "int", "public");
     p.AddOwnField("y", "int", "public");
-    table.Classes.Put("P", p);
+    table.ClassesByFqn.Put("P", p);
     var w = new Z42ClassType("Widget", false, "");   // 非 struct（默认 IsStruct=false）
-    table.Classes.Put("Widget", w);
+    table.ClassesByFqn.Put("Widget", w);
     var sl = StructLayout.BuildFromSymbols(table);
     Assert.Equal(true,  sl.IsStructType("P"));
     Assert.Equal(false, sl.IsStructType("Widget"));
@@ -132,8 +132,8 @@ void test_build_from_symbols_ref_field() {
     box.IsStruct = true;
     box.AddOwnField("n", "int", "public");
     box.AddOwnField("w", "Widget", "public");
-    table.Classes.Put("Box", box);
-    table.Classes.Put("Widget", new Z42ClassType("Widget", false, ""));
+    table.ClassesByFqn.Put("Box", box);
+    table.ClassesByFqn.Put("Widget", new Z42ClassType("Widget", false, ""));
     var sl = StructLayout.BuildFromSymbols(table);
     var lb = sl.LayoutOf("Box");
     Assert.Equal(0,  _fieldOff(lb, "n"));    // int @0
@@ -153,7 +153,7 @@ void test_object_layout_prims() {
     var w = new Z42ClassType("W", false, "");   // 非 struct → 进 classDefs → 有对象布局
     w.AddOwnField("x", "int", "public");
     w.AddOwnField("y", "int", "public");
-    table.Classes.Put("W", w);
+    table.ClassesByFqn.Put("W", w);
     var sl = StructLayout.BuildFromSymbols(table);
     Assert.Equal(true, sl.HasObjectLayout("W"));
     var ol = sl.ObjectLayoutOf("W");
@@ -174,8 +174,8 @@ void test_object_layout_8byte_reference() {
     b.AddOwnField("n", "int", "public");
     b.AddOwnField("s", "string", "public");
     b.AddOwnField("obj", "W", "public");
-    table.Classes.Put("B", b);
-    table.Classes.Put("W", new Z42ClassType("W", false, ""));   // 非 struct → GcRef 8B
+    table.ClassesByFqn.Put("B", b);
+    table.ClassesByFqn.Put("W", new Z42ClassType("W", false, ""));   // 非 struct → GcRef 8B
     var sl = StructLayout.BuildFromSymbols(table);
     var ol = sl.ObjectLayoutOf("B");
     Assert.Equal(0,  _fieldOff(ol, "n"));    // int @0
@@ -203,11 +203,11 @@ void test_object_layout_inline_struct_flattened() {
     p.IsStruct = true;
     p.AddOwnField("name", "string", "public");
     p.AddOwnField("k", "int", "public");
-    table.Classes.Put("P", p);
+    table.ClassesByFqn.Put("P", p);
     var c = new Z42ClassType("C", false, "");
     c.AddOwnField("tag", "int", "public");
     c.AddOwnField("pt", "P", "public");   // 内联 struct 字段（16B struct 布局）
-    table.Classes.Put("C", c);
+    table.ClassesByFqn.Put("C", c);
     var sl = StructLayout.BuildFromSymbols(table);
     var ol = sl.ObjectLayoutOf("C");
     Assert.Equal(0, _fieldOff(ol, "tag"));   // int @0
@@ -227,7 +227,7 @@ void test_object_layout_struct_has_none() {
     p.IsStruct = true;
     p.AddOwnField("x", "int", "public");
     p.AddOwnField("y", "int", "public");
-    table.Classes.Put("P", p);
+    table.ClassesByFqn.Put("P", p);
     var sl = StructLayout.BuildFromSymbols(table);
     Assert.Equal(false, sl.HasObjectLayout("P"));   // struct → 无对象布局
     Assert.Equal(0, sl.ObjectLayoutOf("P").FieldCount);

@@ -23,20 +23,18 @@ public sealed class StrBox {
 
 // 加载产物（镜像 C# ImportedSymbols 子集）。
 public sealed class ImportedSymbols {
-    public StrMap Classes;          // 短名 → Z42ClassType（成员已填）
     public StrMap FunctionsByFqn;   // `ns.name` → MethodSymbol（自由函数；resolve-free-functions-by-namespace：此前按裸名、同名跨 ns 塌成一份）
-    public StrMap ClassNamespaces;  // 短名 → 原 ns（QualifyClassName / 诊断用；值存 StrBox）
-    // add-bare-name-ambiguity-diagnostic：短名 → **全部**声明 ns（"|" 连接）。`ClassNamespaces` 是
-    // 单值、且被 first-wins 守卫盖住，判不了歧义；本表在守卫**之外**累积，每个 active 模块都记一笔。
+    // 短名 → 原 ns（StrBox；类 / 接口 / enum 首见者，接口覆盖同短名的类）。只剩发射端 QualifyClass 一个读者
+    // （CuPreprocess / IrDump 叠进 classNs 图），发射端改按类型取 ns 后删。
+    public StrMap ClassNamespaces;
+    // add-bare-name-ambiguity-diagnostic：短名 → **全部**声明 ns（"|" 连接，**加载序**）。每个 active 模块都记一笔，
+    // 于是第一段就是加载序上最先声明它的那个 ns —— 裸名回落（`_bareClass`）据此取 first-wins 的那一份。
     public StrMap ClassNsAll;
     // enforce-fqn-name-identity 阶段 2：接口短名 → **全部**声明 ns（对称 ClassNsAll，同样在
     // first-wins/last-wins 之外累积）。见 SymbolTable.IfaceNsAll 抬头。
     public StrMap IfaceNsAll;
-    public StrMap Interfaces;       // 短名 → Z42InterfaceType（接口骨架；供 _passClassStubs 基表判别）
-    // unify-type-identity-fqn：**FQN 视图**（对称 SymbolTable.ClassesByFqn）。`Classes` / `Interfaces`
-    // 按短名键，同短名跨 ns 只活一份（first-wins）⇒ 无法承载 FQ 名的精确解析。发射端已改发 FQN，
-    // 消费端必须有对应的 FQ 查找，否则 `Std.Type` 在短名表里恒 miss、落到末尾 Builtin 兜底成
-    // 「名叫 Std.Type 的垃圾类」。键 = `<ns>.<clKey>`（clKey 已含条件 arity-mangle）。
+    // 导入类的唯一登记表（对称 SymbolTable.ClassesByFqn）：键 = `<ns>.<clKey>`（clKey 已含条件 arity-mangle；
+    // 全局 ns 即 clKey）。同 FQN 跨模块 first-wins。fqn-tables 5 起不再有按短名键的 `Classes` / `Interfaces`。
     public StrMap ClassesByFqn;
     // report-crosspkg-duplicate-type：**FQN → 声明它的全部包名**（值 StrBox，"|" 连接）。
     // 与 ClassNsAll 同一手法——在 first-wins 守卫**之外**累积，因为守卫之内只有赢家能进，
@@ -49,7 +47,7 @@ public sealed class ImportedSymbols {
     public StrMap FuncOriginAll;
     public StrMap InterfacesByFqn;
     public StrMap EnumTypeNamesByFqn;   // FQN → "enum"
-    public StrMap EnumTypeNames;    // 枚举类型短名 → "enum"（镜像 SymbolTable.EnumTypes；imported 枚举常量解析用）
+    public StrMap EnumNsAll;        // enum 短名 → 全部声明 ns（"|" 连接，加载序；同 ClassNsAll）
     public StrMap EnumConsts;       // "EnumFqn.Member" → StrBox(long 值)（镜像 SymbolTable.EnumConsts，键同为 FQN）
     public StrMap DelegatesByFqn;   // FQN → Z42FuncType（导入的用户 delegate；SymbolCollector 并进 SymbolTable.Delegates）
     // add-associated-types PR-1：导入类的 where 约束（键 = 类的 FQN 键，即 ClassesByFqn 的键，
@@ -62,13 +60,11 @@ public sealed class ImportedSymbols {
     public string SelfPkg;
     public bool   EnforceDeclaredDeps;
     public ImportedSymbols() {
-        this.Classes = new StrMap();
         this.Constraints = new StrMap();
         this.FunctionsByFqn = new StrMap();
         this.ClassNamespaces = new StrMap();
         this.ClassNsAll = new StrMap();
         this.IfaceNsAll = new StrMap();   // enforce-fqn-name-identity 阶段 2
-        this.Interfaces = new StrMap();
         this.ClassesByFqn = new StrMap();          // unify-type-identity-fqn
         this.ClassPkgAll = new StrMap();           // report-crosspkg-duplicate-type
         this.DeclaredDeps = new StrMap();          // fix-crosspkg-ns-reachability
@@ -77,7 +73,7 @@ public sealed class ImportedSymbols {
         this.FuncOriginAll = new StrMap();         // report-crosspkg-duplicate-function
         this.InterfacesByFqn = new StrMap();       // unify-type-identity-fqn
         this.EnumTypeNamesByFqn = new StrMap();    // unify-type-identity-fqn
-        this.EnumTypeNames = new StrMap();
+        this.EnumNsAll = new StrMap();
         this.EnumConsts = new StrMap();
         this.DelegatesByFqn = new StrMap();
     }
@@ -192,6 +188,7 @@ public static partial class ImportedSymbolLoader {
                     // add-bare-name-ambiguity-diagnostic：**在 first-wins 守卫之外**累积声明 ns ——
                     // 守卫之内只有赢家能进，那正是「同短名跨 ns 被塌掉」的地方。记的是**全部**候选包的 ns，
                     // 歧义判据（`IsBareNameAmbiguous`）自己再按本文件可见性过滤。
+                    bool bareFree = r.ClassNsAll.Find(clKey) < 0;   // 短名首见（加载序 first-wins；输入已 prelude-first）
                     SymbolTable.NoteNsInto(r.ClassNsAll, clKey, em.Namespace);
                     // unify-type-identity-fqn：**first-wins 只能管裸名表**。此前整个建型都被这道守卫罩着 ⇒
                     // 同短名的第二份（`Demo.FqnBeta.Widget`）压根不建型，FQN 视图自然也拿不到它 ⇒
@@ -210,8 +207,7 @@ public static partial class ImportedSymbolLoader {
                     if (!(parentPkg != "" && pkgNames[i] == parentPkg)) {
                         SymbolTable.NoteNsInto(r.ClassPkgAll, fqnKey, pkgNames[i]);
                     }
-                    bool bareFree = !r.Classes.ContainsKey(clKey);   // first-wins（输入已 prelude-first 排序）
-                    if (bareFree || !r.ClassesByFqn.ContainsKey(fqnKey)) {
+                    if (!r.ClassesByFqn.ContainsKey(fqnKey)) {
                         string baseName = "";
                         bool hasBase = cl.HasBase && cl.BaseName != "Object";
                         // enforce-fqn-name-identity：有 FQ 就用 FQ —— 基类句柄绑定（`_bindClassBase`）按 FQN 直接命中，
@@ -270,11 +266,7 @@ public static partial class ImportedSymbolLoader {
                             nct.InterfaceNames = cl.Interfaces;
                             nct.InterfaceCount = cl.InterfaceCount;
                         }
-                        // 短名表保留 first-wins（型参 / 无 ns 的东西仍走它）；FQN 视图每一份都留。
-                        if (bareFree) {
-                            r.Classes.Put(clKey, nct);
-                            r.ClassNamespaces.Put(clKey, new StrBox(em.Namespace));
-                        }
+                        if (bareFree) { r.ClassNamespaces.Put(clKey, new StrBox(em.Namespace)); }
                         r.ClassesByFqn.Put(fqnKey, nct);
                         // add-associated-types PR-1：跨包 where 约束，键与 FQN 视图同为 fqnKey —— 每个 FQN 各挂各的，
                         // 同短名不同 ns 的类不再互相覆盖、也不再只有短名赢家才有约束。
@@ -294,11 +286,10 @@ public static partial class ImportedSymbolLoader {
                             em.Namespace == "" ? iz.Name : em.Namespace + "." + iz.Name, pkgNames[i]);
                     }
                     string ifqnKey = em.Namespace == "" ? iz.Name : em.Namespace + "." + iz.Name;
-                    // 短名表 first-wins，FQN 视图每一份都留（与上面类的守卫同形）：此前整段都在短名守卫里，
-                    // 同短名不同 ns 的第二个接口连 FQN 视图都进不去 ⇒ 限定名引用它解析不到。
-                    bool ifBareFree = !r.Interfaces.ContainsKey(iz.Name);
+                    // FQN 表每一份都留（同 FQN first-wins）；短名首见只决定 ClassNamespaces（与上面类的守卫同形）。
+                    bool ifBareFree = r.IfaceNsAll.Find(iz.Name) < 0;
                     SymbolTable.NoteNsInto(r.IfaceNsAll, iz.Name, em.Namespace);
-                    if (ifBareFree || !r.InterfacesByFqn.ContainsKey(ifqnKey)) {
+                    if (!r.InterfacesByFqn.ContainsKey(ifqnKey)) {
                         Z42InterfaceType nift = new Z42InterfaceType(iz.Name);
                         nift.Namespace = em.Namespace;   // unify-type-identity-fqn：导入接口的声明 ns（与 nct.Namespace 对称）
                         // complete-class-access-control ④：跨包 → internal 接口不可引用。
@@ -329,7 +320,6 @@ public static partial class ImportedSymbolLoader {
                         }
                         r.InterfacesByFqn.Put(ifqnKey, nift);   // unify-type-identity-fqn
                         if (ifBareFree) {
-                            r.Interfaces.Put(iz.Name, nift);
                             // fix-crosspkg-interface-impl：记 imported 接口声明 ns，使 QualifyClass 把
                             // `: IFace` / `as IFace` 正确 FQ 化为「声明包.IFace」（否则退化当前包 ns →
                             // 实现类与 cast 目标名各自错限定、跨包 is/as/接口派发失配）。
@@ -359,10 +349,11 @@ public static partial class ImportedSymbolLoader {
                             emi = emi + 1;
                         }
                     }
-                    if (!r.EnumTypeNames.ContainsKey(ez.Name)) {
-                        r.EnumTypeNames.Put(ez.Name, "enum");
+                    bool enumFirst = r.EnumNsAll.Find(ez.Name) < 0;
+                    SymbolTable.NoteNsInto(r.EnumNsAll, ez.Name, em.Namespace);
+                    if (enumFirst) {
                         // make-enum-distinct-type 1.5：imported enum 也要记源 ns。此前只填
-                        // EnumTypeNames/EnumConsts（够把 `Color.Green` 折成常量），但**类名限定**
+                        // enum 表 / EnumConsts（够把 `Color.Green` 折成常量），但**类名限定**
                         // 查的是 ClassNamespaces —— 缺了它，消费方的 `QualifyClass("Color")` 落回
                         // **当前** ns，发出 `Demo.EnumApp.Color` 这种根本不存在的 FQ 名。
                         // 以前不炸，只因没人拿这个名字去运行期查类型（imported enum 的 typeof /

@@ -141,24 +141,34 @@ public sealed class TestIndexBuilder {
     private string _buildShouldThrowChain(string typeArg) {
         string chain = typeArg;
         if (this._g._symbols == null) { return typeArg; }
-        // 确定序：StrMap.Keys() 是 hash-bucket 序（非确定）→ 先按 Ordinal 排序再迭代（common-pitfalls §1）。
-        string[] names = this._g._symbols.Classes.Keys();
-        this._sortOrdinal(names);
+        // 链里记的是**短名键**（runner 按短名比对）：遍历全部类（FQN 表），同短名跨 ns 去重，
+        // 再按 Ordinal 排序（确定序，common-pitfalls §1）。
+        Z42ClassType[] all = this._g._symbols.SortedClasses();
+        StrMap seen = new StrMap();
+        string[] names = new string[all.Length];
+        int n = 0;
         int i = 0;
-        while (i < names.Length) {
-            string name = names[i];
-            if (name != typeArg && this._isDescendantOf(name, typeArg)) {
-                chain = chain + ";" + name;
+        while (i < all.Length) {
+            string name = SymbolTable.ClassKeyOf(all[i]);
+            if (name != typeArg && !seen.ContainsKey(name) && this._isDescendantOf(all[i], typeArg)) {
+                seen.Put(name, "1");
+                names[n] = name; n = n + 1;
             }
             i = i + 1;
         }
+        string[] hit = new string[n];
+        i = 0;
+        while (i < n) { hit[i] = names[i]; i = i + 1; }
+        this._sortOrdinal(hit);
+        i = 0;
+        while (i < n) { chain = chain + ";" + hit[i]; i = i + 1; }
         return chain;
     }
 
-    // 入口按名字查一次，之后每跳走句柄（`BaseOf`）；祖先按**短名**比较（`[ShouldThrow<E>]` 的 E 是源码短名）。
-    private bool _isDescendantOf(string clsName, string ancestorShortName) {
+    // 每跳走句柄（`BaseOf`）；祖先按**短名**比较（`[ShouldThrow<E>]` 的 E 是源码短名）。
+    private bool _isDescendantOf(Z42ClassType start, string ancestorShortName) {
         SymbolTable st = this._g._symbols;
-        Z42ClassType ct = st.Classes.Get(clsName) as Z42ClassType;
+        Z42ClassType ct = start;
         int hops = 0;
         while (ct != null) {
             Z42ClassType b = st.BaseOf(ct);

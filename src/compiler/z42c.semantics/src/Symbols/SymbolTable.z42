@@ -20,12 +20,10 @@ using Z42.IR;   // StrMap 统一到 z42c.ir（compiler-review §4.1）
 using Z42.Syntax;
 
 public sealed partial class SymbolTable {
-    public StrMap Classes;          // name → Z42ClassType（裸名键；同短名跨 ns 碰撞 first/last-wins）
-    // fix-type-ref-ns-collision：FQN 键（`ns.Name` / `ns.Name$N`）→ Z42ClassType。裸名 `Classes` 在同短名
-    // 跨 ns（`A.Foo`/`B.Foo`）时只能留一份；此 map 保留全部，供 ResolveTypeP 的限定名路径按 FQN 精确解析，
-    // 不再靠剥短名撞 first/last-wins 赢家。与 Classes 并存：非限定引用仍走 Classes，限定引用优先走此。
+    // 类 / 接口的**唯一**登记表：FQN 键（`ns.Name` / `ns.Name$N`；全局 ns 即裸键）→ 类型对象。
+    // fqn-tables 5 起不再有按短名键的 `Classes` / `Interfaces`（同短名跨 ns 只活一份、first/last-wins）：
+    // 按名查走作用域解析（`GetClass` / `GetInterface`），遍历走 `SortedClasses()`，「同短名有几个 ns」走 `ClassNsAll`。
     public StrMap ClassesByFqn;
-    public StrMap Interfaces;       // name → Z42InterfaceType（port-z42c-interface）
     // resolve-free-functions-by-namespace：自由函数 **FQN**（`ns.name`；全局 ns 即 `name`）→ MethodSymbol（本包 + 导入）。
     // 解析与登记见 SymbolTable.Functions.z42。此前是裸名键 `Functions`（后写覆盖、不认 ns）。
     public StrMap FunctionsByFqn;
@@ -51,10 +49,8 @@ public sealed partial class SymbolTable {
     public StrMap EnumTypeNs;
     public StrMap EnumConsts;       // "EnumFqn.MemberName" → 整数值字符串
     public StrMap Delegates;        // FQN → Z42FuncType（用户 delegate，非泛型；委托类型即函数类型）
-    // add-bare-name-ambiguity-diagnostic：**短名 → 声明过它的全部命名空间**（值 StrBox，"|" 连接）。
-    // 为什么必须单独存：`Classes` 是裸名单赢家（同短名跨 ns 只活一份）、
-    // `ImportedSymbols.ClassNamespaces` 是裸名 → **单个** ns —— 两个生产点都把
-    // 「同一短名有几份」这个信息塌掉了。不重建它就无从判歧义（C# CS0104 的判据）。
+    // add-bare-name-ambiguity-diagnostic：**短名 → 声明过它的全部命名空间**（值 StrBox，"|" 连接，登记序）。
+    // 为什么必须单独存：FQN 键表答不了「同一短名有几份」的 O(1) 反查（C# CS0104 的判据）。
     // ⚠️ 2026-09-27 更正：这段原本还写着「`ClassesByFqn` 只登记**本地**类（imported 从不进）」——
     // **已经不成立**。`ImportedSymbolLoader` 在 first-wins 守卫**之外** `ClassesByFqn.Put(fqnKey, nct)`
     // （每一份都留），`SymbolCollector._mergeImports` 再并进主表。那句话大概是守卫收窄之前写的，
@@ -66,7 +62,7 @@ public sealed partial class SymbolTable {
     // 🔴 为什么接口需要而此前没有：`ClassNsAll` 的两个生产点都只覆盖类（`StubCollector` 的类分支
     // `NoteClassNs`、`ImportedSymbolLoader` 的**类**循环）⇒ **接口的歧义此前完全判不出来**。
     // 而「短名 → FQN」的归一要把「多解」变成响亮错误，就得先有这份数据，
-    // 否则只能靠 `Interfaces` 表的 first/last-wins 撞一个赢家出来。
+    // 否则只能靠短名表的 first/last-wins 撞一个赢家出来。
     //
     // ⚠️ **暂不并进 `ClassNsAll`**（并表才合「判据只此一份」的既定纪律）：并表会让
     // `IsBareNameAmbiguous` 立刻对 11 个 prelude 协议名全仓开火。两表合一是阶段 3 的事；
@@ -113,7 +109,7 @@ public sealed partial class SymbolTable {
     // ⚠️ 与上三个字段一起走 `WithAliases` 共享，否则每个文件视图各报一遍。
     internal StrMap _undeclaredSeen;
     // fix-arity-mangle-package-wide：**包级**「同短名有多个 arity」集合（name → "1"）。
-    // arity-mangle 的判据必须与符号表同尺度：`Classes` 是 per-package 的，而预扫此前在
+    // arity-mangle 的判据必须与符号表同尺度：类表是 per-package 的，而预扫此前在
     // `StubCollector._passClassStubs`（per-CU）与 `ExportedTypeExtractor._extractCore`（per-CU）
     // 各算一份 ⇒ 「a.z42 的 `Foo` + b.z42 的 `Foo<T>`」两边都不 mangle、撞同一个裸键。
     // 由 SymbolCollector 在**任何** stub 注册之前一次算好，两个生产点都读这里。
@@ -126,9 +122,7 @@ public sealed partial class SymbolTable {
     // `SortedClasses()` 的缓存。**每个视图自己的**（不随 WithAliases 复制），见该函数。
     private Z42ClassType[] _sortedClasses;
     public SymbolTable() {
-        this.Classes = new StrMap();
         this.ClassesByFqn = new StrMap();   // fix-type-ref-ns-collision
-        this.Interfaces = new StrMap();
         this.FunctionsByFqn = new StrMap();
         this.FuncOverloadsByFqn = new StrMap();   // free-function-overloads
         this.FuncNsAll = new StrMap();
@@ -189,9 +183,7 @@ public sealed partial class SymbolTable {
     // 段内零共享可变（旧代码 `symbols.CurrentAliases = ...` 覆写共享表在并行下会数据竞争）。
     public SymbolTable WithAliases(StrMap aliases) {
         SymbolTable t = new SymbolTable();
-        t.Classes = this.Classes;
         t.ClassesByFqn = this.ClassesByFqn;   // fix-type-ref-ns-collision：共享 FQN 视图（并行段内只读）
-        t.Interfaces = this.Interfaces;
         t.FunctionsByFqn = this.FunctionsByFqn;   // 共享（并行段内只读）
         t.FuncOverloadsByFqn = this.FuncOverloadsByFqn;   // free-function-overloads：共享（并行段内只读）
         t.FuncNsAll = this.FuncNsAll;
@@ -358,7 +350,7 @@ public sealed partial class SymbolTable {
     }
 
     // ── 基表分流的**唯一判定**（qualified-base-name）──────────────────────────────────
-    // 「源码里写下的这个基类型名，指的是接口吗？」是则返回 `Interfaces` 表的查找键（裸短名），
+    // 「源码里写下的这个基类型名，指的是接口吗？」是则返回接口的短名，
     // 不是则返回 ""（调用方按类处理）。
     //
     // 🔴 **必须只有这一份**。此前判据有两处各写一遍 —— `StubCollector._passClassStubs`（符号层）
@@ -390,8 +382,7 @@ public sealed partial class SymbolTable {
     // ── 类型查找的四个访问器（`GetClass` / `HasClass` / `GetInterface` / `HasInterface`）──────────────
     // fqn-symbol-key 绞杀者三步走完：步 1 双键（FQN 优先、短名回落）→ 步 2 名字数组与声明键翻 FQN →
     // 步 3 探针清掉残留短名调用方、删回落支（A5b-2c）。现在四个都走作用域感知的解析
-    // （外围 ns 链 → FQN → using → prelude），**不再查短名表**。`Classes` / `Interfaces` 这两张短名表
-    // 仍在（遍历、arity-mangle 探测、诊断里的「同短名几份」等直接读它们的用途），只是不再参与按名解析。
+    // （外围 ns 链 → FQN → using → prelude），**不再查短名表**（短名表本身已于 fqn-tables 5 删除）。
     // 接口名 → 它的 **FQN**（interface-names-fqn 的唯一归一出口）。查不到就原样返回 ——
     // 型参名 / 未解析名 / 还没进表的东西都走这条，交给别处报错，这里不猜。
     // 双键 `GetInterface` 让本函数**幂等**：喂 FQN 进来仍得同一个 FQN。
