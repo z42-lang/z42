@@ -830,6 +830,18 @@ void test_all_registered_types_are_interned() {
     Assert.Equal("", t.FirstUninternedKey());
 }
 
+// fqn-tables：全表扫描的 pass（intern / 句柄绑定 / 接口名限定）只走 FQN 视图，靠的是这条不变量 ——
+// 短名表的每个值都在 FQN 视图里。同短名跨 ns（短名表只留一份）与泛型 arity mangle 两种形状都要成立。
+[Test]
+void test_short_name_tables_are_subsets_of_fqn_views() {
+    var t = pmergeTable(
+        "namespace A;\npublic interface IFoo { }\npublic class Foo { }\npublic class Box<T> { }\npublic class Box { }",
+        "namespace B;\npublic interface IFoo { }\npublic class Foo : A.Foo { }");
+    Assert.Equal("", t.FirstShortOnlyKey());
+    Assert.Equal("", t.FirstUninternedKey());
+    Assert.Equal("", t.FirstUnboundIfaceRef());
+}
+
 // id 稠密且从 1 开始（0 保留给「未登记」—— z42 字段默认 0，让 0 当合法 id 的话
 // 任何漏登记都会静默地"看起来像 id 0 那个类型"）。
 [Test]

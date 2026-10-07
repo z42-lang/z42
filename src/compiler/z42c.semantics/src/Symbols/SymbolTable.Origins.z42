@@ -373,10 +373,10 @@ public sealed partial class SymbolTable {
     // 登记点今天有 5 处（本地 class stub / 本地 interface 两分支 / Object stub / imported 合并），
     // 将来必然还会加 —— 逐点挂钩正是本仓反复失手的形状（[[parallel-pass-sequences-miss-new-hook]]）。
     // 扫在**全部登记之后**跑，新加的登记点自动被覆盖；漏在扫之后登记的由下面那道门抓。
+    // 只扫 FQN 视图：短名表 `Classes` / `Interfaces` 的每个值都在 FQN 视图里（`FirstShortOnlyKey` 守着这条），
+    // 再扫一遍短名表只是重复。门 `FirstUninternedKey` 仍查四张表 —— 不变量一旦破了就在那里变响。
     public void InternAllTypes() {
-        SymbolTable._internAllIn(this.Intern, this.Classes);
         SymbolTable._internAllIn(this.Intern, this.ClassesByFqn);
-        SymbolTable._internAllIn(this.Intern, this.Interfaces);
         SymbolTable._internAllIn(this.Intern, this.InterfacesByFqn);
     }
 
@@ -397,6 +397,37 @@ public sealed partial class SymbolTable {
             }
             i = i + 1;
         }
+    }
+
+    // 门（fqn-tables）：短名表 `Classes` / `Interfaces` 里的每个值都必须也在 FQN 视图里（同一个对象）。
+    // 返回第一个违反者的短名键；全部合规返回 ""。全表扫描类的 pass（intern / 句柄绑定）只扫 FQN 视图，
+    // 正是靠这条不变量 —— 只活在短名表里的类型会漏 id、漏绑定。
+    public string FirstShortOnlyKey() {
+        string k = SymbolTable._firstNotInFqn(this.Classes, this.ClassesByFqn);
+        if (k != "") { return k; }
+        return SymbolTable._firstNotInFqn(this.Interfaces, this.InterfacesByFqn);
+    }
+
+    private static string _firstNotInFqn(StrMap shortTbl, StrMap fqnTbl) {
+        int cap = shortTbl.Capacity();   // 🔴 按槽位扫，见 `_internAllIn` 抬头
+        int i = 0;
+        while (i < cap) {
+            if (shortTbl.UsedAt(i)) {
+                Z42Type t = shortTbl.ValAt(i) as Z42Type;
+                string fk = SymbolTable._fqnKeyOf(shortTbl.KeyAt(i), t);
+                if (t != null && fqnTbl.Get(fk) != t) { return shortTbl.KeyAt(i); }
+            }
+            i = i + 1;
+        }
+        return "";
+    }
+
+    // 短名表键 + 值 → 它在 FQN 视图里的键（`<ns>.<短名键>`；全局 ns 即短名键本身）。
+    private static string _fqnKeyOf(string shortKey, Z42Type t) {
+        string ns = "";
+        if (t is Z42ClassType) { ns = (t as Z42ClassType).Namespace; }
+        else if (t is Z42InterfaceType) { ns = (t as Z42InterfaceType).Namespace; }
+        return ns == "" ? shortKey : ns + "." + shortKey;
     }
 
     // 门：四张表里是否还有没拿到 id 的类型。返回第一个漏网的键；全部合规返回 ""。
@@ -449,13 +480,11 @@ public sealed partial class SymbolTable {
     //
     // 🔴 **鲁棒性**：本 pass 跑在 `CollectAll` = 自举必经路径上，它崩就编不出修好它的编译器。
     // 故边界、null、空表全部先判，宁可少绑也不崩（同 [[self-poisoned-bootstrap-via-feature-gate]]）。
+    // 只扫 FQN 视图（理由同 `InternAllTypes`）；门 `FirstUnboundIfaceRef` 仍查四张表。
     public void BindTypeRefs() {
-        this._bindClassIfaces(this.Classes);
         this._bindClassIfaces(this.ClassesByFqn);
-        this._bindIfaceBases(this.Interfaces);
         this._bindIfaceBases(this.InterfacesByFqn);
         // B4：类的基类那根轴（`BaseName` → `Base`）。与接口两根同一套约定。
-        this._bindClassBase(this.Classes);
         this._bindClassBase(this.ClassesByFqn);
     }
 
