@@ -69,7 +69,7 @@ public sealed partial class MemberResolver {
 
     // 嵌套类型的外层（展平名剥掉最后一个 `+` 段）；顶层 → ""。
     internal static string _outerOf(string cls) {
-        int lp = cls.LastIndexOf("+");
+        int lp = cls.LastIndexOf('+');
         return lp < 0 ? "" : cls.Substring(0, lp);
     }
 }

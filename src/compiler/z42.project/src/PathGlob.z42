@@ -11,7 +11,7 @@ public static class PathGlob {
     }
 
     // 段里有没有通配字符（`*` / `?`）。
-    public static bool HasWildcard(string seg) { return seg.IndexOf("*") >= 0 || seg.IndexOf("?") >= 0; }
+    public static bool HasWildcard(string seg) { return seg.IndexOf('*') >= 0 || seg.IndexOf('?') >= 0; }
 
     public static bool MatchSegs(string[] rel, int ri, string[] pat, int pi) {
         if (pi == pat.Length) { return ri == rel.Length; }

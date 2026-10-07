@@ -748,7 +748,7 @@ public sealed partial class MemberResolver {
         // `a.b.M()` 这类真实例链 / `Outer.Inner.M()` 嵌套类型会被劫持）。
         string qpath = MemberResolver._dottedPath(mem.Target);
         if (qpath != "") {
-            int lastDot = qpath.LastIndexOf(".");
+            int lastDot = qpath.LastIndexOf('.');
             string qroot = MemberResolver._rootIdent(mem.Target);
             if (lastDot > 0 && env.LookupVar(qroot) == null && !env.Symbols.HasClass(qroot)) {
                 string qcls = qpath.Substring(lastDot + 1);

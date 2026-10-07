@@ -117,7 +117,7 @@ public static class TypeFactsTc {
     public static bool IsTupleTypeName(string name) {
         if (name == "") { return false; }
         string bare = name;
-        int lt = bare.IndexOf("<");
+        int lt = bare.IndexOf('<');
         if (lt >= 0) { bare = bare.Substring(0, lt); }
         int dot = 0 - 1;
         int i = 0;

@@ -68,7 +68,7 @@ public sealed class DepUseCollector {
         if (fqn == "") { return; }
         string pkg = this._symbols.ImportedPkgOf(fqn);
         if (pkg == "") { return; }
-        int dot = fqn.LastIndexOf(".");
+        int dot = fqn.LastIndexOf('.');
         this._note(dot < 0 ? "" : fqn.Substring(0, dot), pkg, fqn);
     }
 

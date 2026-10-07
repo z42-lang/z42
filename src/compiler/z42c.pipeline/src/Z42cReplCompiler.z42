@@ -298,7 +298,7 @@ public class Z42cReplCompiler : IReplCompiler {
 
     // 去派发 mangle：导出方法/自由函数名带 `$arity$type…` 重载后缀；补全展示源名——截到首个 `$`。
     private static string _cleanName(string name) {
-        int d = name.IndexOf("$");
+        int d = name.IndexOf('$');
         if (d < 0) { return name; }
         return name.Substring(0, d);
     }

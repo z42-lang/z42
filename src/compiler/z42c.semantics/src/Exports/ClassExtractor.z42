@@ -46,7 +46,7 @@ public static class ClassExtractor {
             j = j + 1;
         }
         ExportedInterfaceZ eiz = new ExportedInterfaceZ(c.Name, ms, mc, c.TypeParams.Names, c.TypeParams.Count);
-        eiz.Visibility = DeclFacts.classVis(c.ModFlags, c.Name.IndexOf("+") >= 0);   // complete-class-access-control ④：同包导出模型一致携带接口可见性（跨包走 TsigReconcile；此处防未来消费者读默认误判）
+        eiz.Visibility = DeclFacts.classVis(c.ModFlags, c.Name.IndexOf('+') >= 0);   // complete-class-access-control ④：同包导出模型一致携带接口可见性（跨包走 TsigReconcile；此处防未来消费者读默认误判）
         return eiz;
     }
 

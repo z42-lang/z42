@@ -159,7 +159,7 @@ public sealed class IrGen {
     // 两者写的是**同一张表**，所以「有身份 ⇒ 有描述符」这条不变式不会因为多一个入口而破。
     // 嵌套实参（`GBox<Pair<int,long>>` 的内层）一并登记：运行期解析基链/字段时要查它们。
     public void NoteInstName(string instName) {
-        if (instName.IndexOf("<") < 0) { return; }           // 非实例化名
+        if (instName.IndexOf('<') < 0) { return; }           // 非实例化名
         if (this.InstLayouts.ContainsKey(instName)) { return; }   // 兼作递归终止
         if (this.LocalClasses != null && !this.LocalClasses.ContainsKey(StructLayout.BaseNameOf(instName))) {
             return;   // 闸门之二：只登记**本包**泛型（跨包拿不到体，两侧都不特化才自洽）

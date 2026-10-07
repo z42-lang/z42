@@ -119,7 +119,7 @@ public sealed class StubCollector {
                         } else {
                             Z42InterfaceType itw = new Z42InterfaceType(c.Name);   // 均非 partial：维持既有 last-wins
                             itw.Namespace = cu.Namespace;   // unify-type-identity-fqn：声明 ns（供 Fqn()）
-                            itw.Visibility = DeclFacts.classVis(c.ModFlags, c.Name.IndexOf("+") >= 0);   // complete-class-access-control ④
+                            itw.Visibility = DeclFacts.classVis(c.ModFlags, c.Name.IndexOf('+') >= 0);   // complete-class-access-control ④
                             StubCollector._setIfaceTypeParams(itw, c);   // add-associated-types PR-3
                             this._addIfaceBases(itw, c);
                             table.Interfaces.Put(c.Name, itw);
@@ -130,7 +130,7 @@ public sealed class StubCollector {
                         Z42InterfaceType it = new Z42InterfaceType(c.Name);
                         it.Namespace = cu.Namespace;   // unify-type-identity-fqn：声明 ns（供 Fqn()）
                         if (c.IsPartial) { it.IsPartial = true; it.PartialMainFile = file; }
-                        it.Visibility = DeclFacts.classVis(c.ModFlags, c.Name.IndexOf("+") >= 0);   // complete-class-access-control ④
+                        it.Visibility = DeclFacts.classVis(c.ModFlags, c.Name.IndexOf('+') >= 0);   // complete-class-access-control ④
                         StubCollector._setIfaceTypeParams(it, c);   // add-associated-types PR-3
                         this._addIfaceBases(it, c);
                         table.Interfaces.Put(c.Name, it);
@@ -274,7 +274,7 @@ public sealed class StubCollector {
         int b = 0;
         while (b < c.BaseCount) {
             string bn = c.Bases[b].Dump();
-            int ltIdx = bn.IndexOf("<");
+            int ltIdx = bn.IndexOf('<');
             if (ltIdx >= 0) { bn = bn.Substring(0, ltIdx); }
             // 🔴 **必须剥 ns**：`BaseNames` 是 `Interfaces` 表的**查找键**（`BaseAt` / `InterfaceDerivesFrom`
             // 都拿它去查），而那张表的键是**裸短名**。此前这里存的是源码原样串 ⇒ 写
@@ -323,7 +323,7 @@ public sealed class StubCollector {
                         // 泛型接口查表用裸名（"IComparable<char>" → "IComparable"），
                         // 存储也用裸名（镜像 C# ExportedTypeExtractor ifaceList.Select(i => i.Name)）。
                         string bnLookup = bn;
-                        int ltIdx = bn.IndexOf("<");
+                        int ltIdx = bn.IndexOf('<');
                         if (ltIdx >= 0) { bnLookup = bn.Substring(0, ltIdx); }
                         // 🔴 **基表分流必须认限定名**。此前这里直接拿源码原样串查 `Interfaces`
                         // （键是裸短名）⇒ 写 `class A : Std.IDisposable` 查不中，落进下面的
@@ -443,7 +443,7 @@ public sealed class StubCollector {
         ct.IsStruct = c.Kind == "struct";   // add-struct-value-semantics：值类型标志（`[Record] class` 仍是引用类型，IsStruct=false）
         ct.IsSealed = Mod.Has(c.ModFlags, Mod.Sealed);   // impl-sealed-semantics-devirt：本地 sealed class
         ct.IsAbstract = Mod.Has(c.ModFlags, Mod.Abstract);   // add-internal-hierarchy-exhaustiveness：本地 abstract class（封闭层次穷尽性排除不可实例化类）
-        ct.Visibility = DeclFacts.classVis(c.ModFlags, c.Name.IndexOf("+") >= 0);   // enforce-class-access：位置默认（嵌套→private / 顶层→internal，显式优先）
+        ct.Visibility = DeclFacts.classVis(c.ModFlags, c.Name.IndexOf('+') >= 0);   // enforce-class-access：位置默认（嵌套→private / 顶层→internal，显式优先）
         ct.InterfaceNames = ifaces;
         ct.InterfaceCount = ifc;
         if (c.TypeParams.Count > 0) { ct.GenericParamNames = c.TypeParams.Names; ct.GenericParamCount = c.TypeParams.Count; }

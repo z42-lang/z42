@@ -190,7 +190,7 @@ public sealed class PatternBinder {
             return new BoundTypePattern(tn, "", resolved, np.Span);
         }
         // 非类型：点分名 → 常量（枚举/限定常量）；单裸名 → 新绑定
-        if (tn.IndexOf(".") >= 0) {
+        if (tn.IndexOf('.') >= 0) {
             Expr ce = PatternBinder._dottedToExpr(tn, np.Span);
             BoundExpr bv = this._tc._expr._bindExpr(ce, env);
             return new BoundConstantPattern(bv, np.Span);

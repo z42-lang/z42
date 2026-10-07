@@ -229,9 +229,9 @@ public sealed partial class SymbolTable {
     public string MissingUsingNs(string name) {
         if (name == null || name == "") { return ""; }
         string n = name;
-        int lt = n.IndexOf("<");
+        int lt = n.IndexOf('<');
         if (lt >= 0) { n = n.Substring(0, lt); }
-        if (n.IndexOf(".") >= 0) { return ""; }
+        if (n.IndexOf('.') >= 0) { return ""; }
         // 本作用域解析得到 ⇒ 不是「缺 using」（调用方在别的原因上失败了，比如把类名当值用）——别指路去 using 本来就可见的 ns。
         if (this.HasClass(n) || this.HasInterface(n)) { return ""; }
         string ns = "";
@@ -275,7 +275,7 @@ public sealed partial class SymbolTable {
     public void NoteDelegateKey(string key) { this.DelegateShortNames.Put(SymbolTable._lastSeg(key), "1"); }
 
     private static string _lastSeg(string s) {
-        int dot = s.LastIndexOf(".");
+        int dot = s.LastIndexOf('.');
         return dot < 0 ? s : s.Substring(dot + 1, s.Length - dot - 1);
     }
 

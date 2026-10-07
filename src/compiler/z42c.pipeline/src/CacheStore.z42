@@ -161,7 +161,7 @@ public static class CacheStore {
             i = i + 1;
             if (line.Length == 0) { continue; }
             if (ended) { return null; }   // 哨兵之后还有内容 = 坏条目
-            int sp = line.IndexOf(" ");
+            int sp = line.IndexOf(' ');
             if (sp < 0) { return null; }
             string key = line.Substring(0, sp);
             string val = line.Substring(sp + 1);
@@ -174,7 +174,7 @@ public static class CacheStore {
             else if (key == "hash")    { m.SourceHash = val; }
             else if (key == "nsurf") {
                 // `nsurf <name> <hash>`：名字是标识符（无空格），hash 是 hex（无空格）→ 首个空格即分界。
-                int gap = val.IndexOf(" ");
+                int gap = val.IndexOf(' ');
                 if (gap <= 0) { return null; }
                 m.NsNames = CacheStore._append(m.NsNames, m.NsCount, val.Substring(0, gap));
                 m.NsHashes = CacheStore._append(m.NsHashes, m.NsCount, val.Substring(gap + 1));
@@ -312,7 +312,7 @@ public static class CacheStore {
             string line = lines[i];
             i = i + 1;
             if (line.Length == 0) { continue; }
-            int sp = line.IndexOf(" ");
+            int sp = line.IndexOf(' ');
             if (sp < 0) { return null; }
             string key = line.Substring(0, sp);
             string val = line.Substring(sp + 1);

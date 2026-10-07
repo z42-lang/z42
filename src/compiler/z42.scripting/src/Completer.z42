@@ -95,7 +95,7 @@ string[] _namespaceComplete(ScriptState s, string line, int pos) {
         string ns = nsNames[i];
         if (ns.Length > prefixNs.Length && ns.StartsWith(prefixNs)) {
             string rest = ns.Substring(prefixNs.Length, ns.Length - prefixNs.Length);
-            int nd = rest.IndexOf(".");
+            int nd = rest.IndexOf('.');
             string seg = nd < 0 ? rest : rest.Substring(0, nd);
             _addCand(cands, seg, lastSeg);
         }

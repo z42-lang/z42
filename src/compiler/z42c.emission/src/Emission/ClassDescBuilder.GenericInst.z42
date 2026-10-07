@@ -88,7 +88,7 @@ public sealed partial class ClassDescBuilder {
 
     // 短名 → FQ，实例化名只限定基名（与 `ExprEmitter._qualifyInstName` / 本文件 `fqInst` 同约定）。
     private string _qInst(string name) {
-        int lt = name.IndexOf("<");
+        int lt = name.IndexOf('<');
         if (lt < 0) { return this._g._qClass(name); }
         return this._g._qClass(name.Substring(0, lt)) + name.Substring(lt, name.Length - lt);
     }
@@ -122,7 +122,7 @@ public sealed partial class ClassDescBuilder {
         if (cdef == null) { return null; }              // 非本包泛型（闸门已拦，这里兜底）
         StructLayoutInfo ol = ly.ObjectLayoutOf(instName);
         StructLayoutInfo il = ly.InlineLayoutOf(instName);
-        int ltq = instName.IndexOf("<");
+        int ltq = instName.IndexOf('<');
         string fqInst = ltq < 0 ? this._g._q(instName)
                                 : this._g._q(instName.Substring(0, ltq)) + instName.Substring(ltq, instName.Length - ltq);
         StrMap subst = ClassDescBuilder._instSubstOf(cdef, instName);
@@ -174,7 +174,7 @@ public sealed partial class ClassDescBuilder {
         while (bi < cdef.BaseCount) {
             string sn = ClassDescBuilder._substTypeName(cdef.Bases[bi], subst);
             string bare = sn;
-            int lt2 = sn.IndexOf("<");
+            int lt2 = sn.IndexOf('<');
             if (lt2 >= 0) { bare = sn.Substring(0, lt2); }
             if (this._g._symbols.HasInterface(bare)) {
                 if (ifc == ifs.Length) {

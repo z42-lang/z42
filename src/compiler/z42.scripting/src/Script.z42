@@ -104,10 +104,10 @@ public static class Script {
     // （Rewriter 会改写用户输入、移动列位置）。用户行 ≤ 1（单行输入 / 落在 prelude）→ 只留 <rest>，
     // 不加噪声。格式不符（无 `(`/`,`/`): `）→ 原样返回（稳健兜底）。
     private static string _remapDiag(string msg, int preludeLines) {
-        int lp = msg.IndexOf("(");
+        int lp = msg.IndexOf('(');
         if (lp < 0) { return msg; }
         string afterLp = msg.Substring(lp + 1, msg.Length - lp - 1);
-        int comma = afterLp.IndexOf(",");
+        int comma = afterLp.IndexOf(',');
         if (comma < 0) { return msg; }
         int endSeq = msg.IndexOf("): ");
         if (endSeq < 0 || endSeq < lp) { return msg; }

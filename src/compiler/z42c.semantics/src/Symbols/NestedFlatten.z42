@@ -105,12 +105,12 @@ public sealed class NestedFlatten {
     // name（base/接口引用）在 encl 的 `+` 链上溯限定到某已展平嵌套类型名；否则 ""（不改写，留原名）。
     // 限定 `Outer.Base` → `Outer+Base`（若为嵌套）；裸 `Base` → 沿 encl 链试 `<p>+Base`；已含 `+` 跳过。
     private string _qualifyBaseName(string name, string encl) {
-        if (name.IndexOf(".") >= 0) {
+        if (name.IndexOf('.') >= 0) {
             string plus = name.Replace(".", "+");
             if (this._isNested(plus)) { return plus; }
             return "";
         }
-        if (name.IndexOf("+") >= 0) { return ""; }   // 已限定
+        if (name.IndexOf('+') >= 0) { return ""; }   // 已限定
         string p = encl;
         while (p != "") {
             string cand = p + "+" + name;

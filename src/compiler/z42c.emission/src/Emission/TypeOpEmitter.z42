@@ -62,7 +62,7 @@ public sealed class TypeOpEmitter {
     private string _classOwnerFq() {
         string on = this._ctx.OwnerClassName;
         if (on == "") { return ""; }
-        int lt = on.IndexOf("<");
+        int lt = on.IndexOf('<');
         if (lt < 0) { return this._ctx.QualifyClass(on); }
         return this._ctx.QualifyClass(on.Substring(0, lt)) + on.Substring(lt, on.Length - lt);
     }

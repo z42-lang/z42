@@ -437,7 +437,7 @@ public sealed partial class SymbolTable {
         if (te == null) { return ""; }
         if (te is NamedType) {
             NamedType nt = te as NamedType;
-            if (!nt.Synthetic && nt.Name.IndexOf(".") < 0 && this.IsBareNameAmbiguous(nt.Name)) { return nt.Name; }
+            if (!nt.Synthetic && nt.Name.IndexOf('.') < 0 && this.IsBareNameAmbiguous(nt.Name)) { return nt.Name; }
             int i = 0;
             while (i < nt.ArgCount) {
                 string a = this.FirstAmbiguousBareName(nt.Args[i]);
@@ -507,13 +507,13 @@ public sealed partial class SymbolTable {
     public Z42Type ResolveNested(TypeExpr te, string[] paramNames, int paramCount, string encl) {
         if (!(te is NamedType) || encl == "") { return null; }
         NamedType nt = te as NamedType;
-        if (nt.Name.IndexOf(".") >= 0 || nt.Name.IndexOf("+") >= 0) { return null; }
+        if (nt.Name.IndexOf('.') >= 0 || nt.Name.IndexOf('+') >= 0) { return null; }
         string e = encl;
         while (e != "") {
             NamedType cand = new NamedType(e + "+" + nt.Name, nt.Args, nt.ArgCount, nt.Span);
             Z42Type ct = this._resolveTypePCore(cand, paramNames, paramCount);
             if (!(ct is Z42UnknownType)) { return ct; }
-            int lp = e.LastIndexOf("+");
+            int lp = e.LastIndexOf('+');
             e = lp < 0 ? "" : e.Substring(0, lp);
         }
         return null;
@@ -685,7 +685,7 @@ public sealed partial class SymbolTable {
             // add-nested-types：嵌套类型 `Outer.Inner`（点串）→ `+` 键（展平已按 `Outer+Inner` 短键注册）。
             // 只命中真注册的嵌套键；namespace-qualified（`Std.Console`→`Std+Console` 未注册）自然跳过、
             // 落到下方限定名回退。任意深度（`A.B.C`→`A+B+C`）。
-            if (n.IndexOf(".") >= 0) {
+            if (n.IndexOf('.') >= 0) {
                 // fix-type-ref-ns-collision：限定名优先按 FQN 精确解析（`A.Foo` → 声明 ns==A 的那份 Foo），
                 // 不再剥短名撞裸名 Classes 的 first/last-wins 赢家（曾致 `new A.Foo` 绑到 B.Foo）。泛型
                 // `A.Foo<T>` 用 FQN$N 键。只命中显式注册的 ns 限定顶层类；嵌套类型（`+` 键）自然不匹配、下落。

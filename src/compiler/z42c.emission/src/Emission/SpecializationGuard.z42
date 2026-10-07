@@ -71,9 +71,9 @@ public static class SpecializationGuard {
         int end = 0;
         while (end < key.Length && key.CharAt(end) != '<' && key.CharAt(end) != ':') { end = end + 1; }
         string s = key.Substring(0, end);
-        int dot = s.LastIndexOf(".");
+        int dot = s.LastIndexOf('.');
         if (dot >= 0) { s = s.Substring(dot + 1); }
-        int dollar = s.IndexOf("$");
+        int dollar = s.IndexOf('$');
         if (dollar > 0) { s = s.Substring(0, dollar); }
         return s;
     }

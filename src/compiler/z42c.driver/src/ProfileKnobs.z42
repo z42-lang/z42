@@ -46,7 +46,7 @@ int _validateProfileKnobs(ProjectManifest pm) {
         int k = 0;
         while (k < pr.Knobs.Length) {
             string entry = pr.Knobs[k];
-            int eq = entry.IndexOf("=");
+            int eq = entry.IndexOf('=');
             string key = eq > 0 ? entry.Substring(0, eq) : entry;
             if (!_isKnownKnob(known, key)) {
                 string near = _nearestKnob(key, known);
