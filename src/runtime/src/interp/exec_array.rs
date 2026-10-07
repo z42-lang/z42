@@ -9,7 +9,7 @@
 /// array_get / array_set / array_len through `ctx.stack_arena` (validated: idx in
 /// range + frame_id matches, else a clear stale-handle diagnostic).
 
-use crate::metadata::types::{default_value_for, default_value_for_tag};
+use crate::metadata::types::{default_value_for, default_value_for_tag, ElemType};
 use crate::metadata::{Module, Value};
 use crate::vm_context::VmContext;
 use anyhow::{bail, Result};
@@ -22,7 +22,7 @@ use super::Frame;
 /// criterion the compiler uses to emit inline-struct access), build a `StructBytes`-backed
 /// array of `len` zero-initialized elements (C# inline `struct[]`). `None` for primitives /
 /// reference types / single-field structs (they keep `Boxed` / packed backings).
-pub(crate) fn try_struct_backed(ctx: &VmContext, element_type: &str, len: usize) -> Option<crate::metadata::types::ArrayObj> {
+pub(crate) fn try_struct_backed(ctx: &VmContext, element_type: ElemType, len: usize) -> Option<crate::metadata::types::ArrayObj> {
     // Generic value structs are type-erased: a single TypeDesc is registered under the
     // *erased* base name (`Kv`), while `array_new` deliberately carries the non-erased
     // element name (`Kv<string, int>`) for element reflection. Look the TypeDesc up by the
@@ -38,10 +38,11 @@ pub(crate) fn try_struct_backed(ctx: &VmContext, element_type: &str, len: usize)
     // reference leaves) while the elements are instantiation-shaped — mismatched size and reference
     // bitmap. Non-specialised generics still miss on the full name and take the erased path below,
     // so this is strictly backward compatible.
-    let td = match ctx.try_lookup_type(element_type) {
+    let td = match ctx.try_lookup_type(&element_type) {
         Some(td) => td,
         None => {
-            let erased = element_type.split('<').next().unwrap_or(element_type);
+            let name: &str = &element_type;
+            let erased = name.split('<').next().unwrap_or(name);
             ctx.try_lookup_type(erased)?
         }
     };
@@ -79,7 +80,7 @@ pub(crate) fn pack_struct_elem(ctx: &VmContext, arr: &mut crate::metadata::types
 #[allow(clippy::too_many_arguments)]
 pub(super) fn array_new(
     ctx: &VmContext, module: &Module, frame: &mut Frame,
-    dst: u32, size: u32, elem_tag: u8, element_type: &str, stack_alloc: bool,
+    dst: u32, size: u32, elem_tag: u8, element_type: ElemType, stack_alloc: bool,
     type_param_kind: u8, type_param_index: i32,
 ) -> Result<Option<Value>> {
     let n = to_usize(frame.get(size)?, "ArrayNew size")?;
@@ -158,7 +159,7 @@ pub(super) fn array_new(
 
 pub(super) fn array_new_lit(
     ctx: &VmContext, module: &Module, frame: &mut Frame,
-    dst: u32, elems: &[u32], element_type: &str, stack_alloc: bool,
+    dst: u32, elems: &[u32], element_type: ElemType, stack_alloc: bool,
 ) -> Result<Option<Value>> {
     // Validate every source register up front (the error a bad register raises), so
     // the build below can read them infallibly.

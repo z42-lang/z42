@@ -78,7 +78,8 @@ pub fn builtin_array_create(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let default = default_value_for(tag);
     // perf-array-alloc-direct: default-fill straight into the GC block.
     let heap = ctx.heap();
-    Ok(heap.alloc_array_obj(ArrayObj::typed_filled(heap, tag, n, default)))
+    let et = crate::metadata::types::ElemType::intern(tag);
+    Ok(heap.alloc_array_obj(ArrayObj::typed_filled(heap, et, n, default)))
 }
 
 /// `__array_get(arr: object, i: int) -> object` — read element `i` as an object.

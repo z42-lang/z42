@@ -31,7 +31,7 @@ fn method_level_generic_int_array_zero_inits() {
     frame.method_type_args = vec!["int".to_string()].into_boxed_slice();
 
     // new T[3] where T is method-level type param #0 (kind=1).
-    let thrown = array_new(&ctx, &module, &mut frame, 1, 0, TAG_UNKNOWN, "T", false, 1, 0).unwrap();
+    let thrown = array_new(&ctx, &module, &mut frame, 1, 0, TAG_UNKNOWN, crate::metadata::types::ElemType::intern("T"), false, 1, 0).unwrap();
     assert!(thrown.is_none(), "no OOM expected");
 
     frame.set(2, Value::I64(0)); // idx reg
@@ -52,7 +52,7 @@ fn method_level_generic_ref_array_stays_null() {
     frame.set(0, Value::I64(2));
     frame.method_type_args = vec!["string".to_string()].into_boxed_slice();
 
-    array_new(&ctx, &module, &mut frame, 1, 0, TAG_UNKNOWN, "T", false, 1, 0).unwrap();
+    array_new(&ctx, &module, &mut frame, 1, 0, TAG_UNKNOWN, crate::metadata::types::ElemType::intern("T"), false, 1, 0).unwrap();
     frame.set(2, Value::I64(0));
     array_get(&ctx, &mut frame, 3, 1, 2).unwrap();
     assert!(matches!(frame.get(3).unwrap(), Value::Null), "string element default is Null");
@@ -67,7 +67,7 @@ fn non_generic_unknown_tag_unchanged() {
     let mut frame = Frame::new(&ctx, &[], 8);
     frame.set(0, Value::I64(2));
     // kind=0, index=-1: no generic resolution, no method_type_args consulted.
-    array_new(&ctx, &module, &mut frame, 1, 0, TAG_UNKNOWN, "T", false, 0, -1).unwrap();
+    array_new(&ctx, &module, &mut frame, 1, 0, TAG_UNKNOWN, crate::metadata::types::ElemType::intern("T"), false, 0, -1).unwrap();
     frame.set(2, Value::I64(0));
     array_get(&ctx, &mut frame, 3, 1, 2).unwrap();
     assert!(matches!(frame.get(3).unwrap(), Value::Null), "kind=0 Unknown tag → Null (unchanged)");
@@ -81,7 +81,7 @@ fn method_level_oob_index_graceful_null() {
     let mut frame = Frame::new(&ctx, &[], 8);
     frame.set(0, Value::I64(1));
     // method_type_args empty, but kind=1 index=0 → get(0) is None → falls back to tag.
-    array_new(&ctx, &module, &mut frame, 1, 0, TAG_UNKNOWN, "T", false, 1, 0).unwrap();
+    array_new(&ctx, &module, &mut frame, 1, 0, TAG_UNKNOWN, crate::metadata::types::ElemType::intern("T"), false, 1, 0).unwrap();
     frame.set(2, Value::I64(0));
     array_get(&ctx, &mut frame, 3, 1, 2).unwrap();
     assert!(matches!(frame.get(3).unwrap(), Value::Null), "OOB type-arg → Null, no panic");

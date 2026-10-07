@@ -287,9 +287,18 @@ ObjectHeader {
   mark 与枚举共用单一访问器 `Value::visit_gc_children(for_marking, …)`。
 - **不迁移的 `Arc<str>`**：栈帧名/文件名（`Function.frame_meta`）**保留 `Arc<str>`**——它们是
   **诊断/栈回溯元数据、非 `Value::Str` GC payload**，加载时算一次，生成栈回溯时 O(1) clone
-  （`VmFrame` 只存 `*const Function`，调用路径不碰它们）。`ArrayObj.element_type: Arc<str>`
-  触及 heap-less/leaked/test 构造点，暂保留 `Arc<str>`。
-- (Deferred)小字符串内联优化(SSO)；`ArrayObj.element_type` 迁 GC string / type-id。
+  （`VmFrame` 只存 `*const Function`，调用路径不碰它们）。
+- **数组元素类型名 = 驻留句柄**：`ArrayObj.element_type: ElemType`
+  （[`metadata/types/elem_type.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/types/elem_type.rs)）
+  是指向进程级驻留条目 `ElemTypeInfo{name: Arc<str>, kind: ElemKind}` 的 **8 B 细指针**（`Copy`，
+  `Deref<Target=str>`）。条目按名字驻留一次、永不释放（元素类型名是已加载代码里的有限集），所以建数组
+  不分配字符串、不做原子计数；条目缓存的 `ElemKind` 直接决定 backing。驻留发生在**指令解码**
+  （`ArrayNewInsn` / `ArrayNewLitInsn` 的 `element_type` 已是句柄）：interp 直接传句柄，JIT 把
+  `as_raw()` 作为指针常量烤进代码、helper 用 `from_raw` 还原。其余 Rust 侧构造点（`Array.CreateInstance`、
+  `alloc_array_typed`）走 `ElemType::intern`（读锁 + FxHash）。需要 `Arc<str>` 的旁路（struct[] 元素拷出
+  到 arena）用 `arc()`，只 +1 引用计数。配合 `StructBytes` 去掉冗余的 `elem_size`（= `layout.size`），
+  `ArrayObj` 48 B、`RegionEntry<ArrayObj>` 88 B。
+- (Deferred)小字符串内联优化(SSO)。
 
 ### 5.1 Finalizer
 不透明 native(FileHandle/Stream)被收集时释放底层资源 → 需 **finalizer 队列**。经典坑(非确定/顺序/resurrection)→ **首选显式 close/dispose,finalizer 仅兜底**。

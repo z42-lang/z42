@@ -121,7 +121,7 @@ pub(crate) fn copy_array_elem_out(ctx: &VmContext, frame_id: u32, e: &ty::Struct
         (bytes[bstart..bstart + elem_size].to_vec(),
          refs[i * rc..i * rc + rc].to_vec(),
          layout,
-         arr.element_type.clone())
+         arr.element_type.arc())
     };
     let idx = ctx.struct_alloc(frame_id, tname, layout);
     ctx.struct_arena.lock().with_mut(idx, frame_id, |s| {

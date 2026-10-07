@@ -33,7 +33,7 @@ fn make_jit_ctx(vm_ctx: &VmContext) -> JitModuleCtx {
 
 /// 在 ctx 的栈 arena 里放一个 `int[]`，返回对应的 `Value::StackArray` 句柄。
 fn stack_int_array(vm: &VmContext, frame_id: u32, elems: Vec<i64>) -> Value {
-    let arr = ArrayObj::stack_typed("int", elems.into_iter().map(Value::I64).collect());
+    let arr = ArrayObj::stack_typed(crate::metadata::types::ElemType::intern("int"), elems.into_iter().map(Value::I64).collect());
     let idx = vm.stack_alloc_arr(frame_id, arr);
     Value::StackArray { idx, frame_id }
 }

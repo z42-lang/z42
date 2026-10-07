@@ -494,8 +494,8 @@ writer 侧 `ClassDescBuilder` 用 `StructLayout.InlineLayoutOf`（`BuildFromSymb
 
 ### `struct[]` 字节 backing
 
-`ArrayBacking::StructBytes{elem_size, bytes, refs, layout}`（C# inline `struct[]`：元素基元紧凑
-`bytes[len*elem_size]` + 引用叶子并行 `refs[len*ref_count]`）。`arr[i]` 元素 offset 运行期定 → 需**堆 base 句柄**
+`ArrayBacking::StructBytes{len, bytes, refs, layout}`（C# inline `struct[]`：元素基元紧凑
+`bytes[len*layout.size]` + 引用叶子并行 `refs[len*ref_count]`）。`arr[i]` 元素 offset 运行期定 → 需**堆 base 句柄**
 `Value::StructRefHeap{idx, frame_id}`（指向 `VmContext::transient_arena` 里的 `StructArrayElem{arr, index}`；arena `StructRef` 热路径不动；仅数组需句柄）。GC：
 `ArrayObj::gc_refs()` 统一 `Boxed ∪ StructBytes.refs` 供扫描；元素引用叶子写触发 `write_barrier_array_elem`。
 

@@ -167,7 +167,8 @@ impl ArrayObj {
             // **boxed** source copies its bytes + reference leaves into the element slot.
             // A frame-scoped `StructRef` source needs `ctx.struct_arena` → handled at the
             // exec-layer `ArraySet` (this generic setter only sees `&mut self`).
-            ArrayBacking::StructBytes { elem_size, len, bytes, refs, layout } => {
+            ArrayBacking::StructBytes { len, bytes, refs, layout } => {
+                let elem_size = &layout.size;
                 if let Value::BoxedStruct(b) = &val {
                     // add-boxed-struct-identity (P4b): read the source box's blob out of
                     // its shared `ScriptObject` (borrow needs no `ctx`).
@@ -197,7 +198,8 @@ impl ArrayObj {
     /// `(bytes, refs)` first (it can't reach the private block accessors). No-op on other
     /// backings. Caller holds `&mut self` = exclusive block access.
     pub fn write_struct_elem(&mut self, i: usize, src_bytes: &[u8], src_refs: &[Value]) {
-        if let ArrayBacking::StructBytes { elem_size, len, bytes, refs, layout } = &mut self.backing {
+        if let ArrayBacking::StructBytes { len, bytes, refs, layout } = &mut self.backing {
+            let elem_size = &layout.size;
             let rc = layout.ref_count();
             let bstart = i * *elem_size;
             let n = src_bytes.len().min(*elem_size);
@@ -228,8 +230,8 @@ impl ArrayObj {
     pub fn struct_bytes(&self) -> Option<&[u8]> {
         match &self.backing {
             // SAFETY: shared borrow of a live ArrayStruct block of `len*elem_size` bytes.
-            ArrayBacking::StructBytes { bytes, len, elem_size, .. } =>
-                Some(unsafe { Self::slice_of::<u8>(bytes, *len * *elem_size) }),
+            ArrayBacking::StructBytes { bytes, len, layout, .. } =>
+                Some(unsafe { Self::slice_of::<u8>(bytes, *len * layout.size) }),
             _ => None,
         }
     }
@@ -238,8 +240,8 @@ impl ArrayObj {
     pub fn struct_bytes_mut(&mut self) -> Option<&mut [u8]> {
         match &mut self.backing {
             // SAFETY: exclusive borrow of a live ArrayStruct block of `len*elem_size` bytes.
-            ArrayBacking::StructBytes { bytes, len, elem_size, .. } =>
-                Some(unsafe { Self::slice_of_mut::<u8>(bytes, *len * *elem_size) }),
+            ArrayBacking::StructBytes { bytes, len, layout, .. } =>
+                Some(unsafe { Self::slice_of_mut::<u8>(bytes, *len * layout.size) }),
             _ => None,
         }
     }
@@ -474,12 +476,12 @@ impl ArrayObj {
                 ArrayBacking::Chars { block: Self::alloc_packed(heap, unsafe { Self::slice_of::<char>(block, *len) }), len: *len },
             ArrayBacking::F64 { block, len } =>
                 ArrayBacking::F64 { block: Self::alloc_packed(heap, unsafe { Self::slice_of::<f64>(block, *len) }), len: *len },
-            ArrayBacking::StructBytes { elem_size, len, bytes, refs, layout } => {
+            ArrayBacking::StructBytes { len, bytes, refs, layout } => {
+                let elem_size = &layout.size;
                 let rc = layout.ref_count();
                 let bsrc = unsafe { Self::slice_of::<u8>(bytes, *len * *elem_size) };
                 let rsrc = unsafe { Self::slice_of::<Value>(refs, *len * rc) };
                 ArrayBacking::StructBytes {
-                    elem_size: *elem_size,
                     len: *len,
                     bytes: Self::alloc_packed(heap, bsrc),
                     refs: Self::alloc_values_clone(heap, rsrc),
@@ -494,7 +496,7 @@ impl ArrayObj {
                 ArrayBacking::Boxed { block, len }
             }
         };
-        Self { element_type: self.element_type.clone(), backing }
+        Self { element_type: self.element_type, backing }
     }
 
     /// Zero-copy packed byte slice for FFI (`Some` iff `byte[]`). Step 3 uses
@@ -573,8 +575,8 @@ impl ArrayObj {
             ArrayBacking::Chars { len, .. } => len * 4,
             ArrayBacking::F64 { len, .. }   => len * 8,
             // Packed struct bytes + the reference side-table (16B/handle in a Value).
-            ArrayBacking::StructBytes { elem_size, len, layout, .. } =>
-                len * elem_size + len * layout.ref_count() * size_of::<Value>(),
+            ArrayBacking::StructBytes { len, layout, .. } =>
+                len * layout.size + len * layout.ref_count() * size_of::<Value>(),
             ArrayBacking::StackVec(v) => v.len() * size_of::<Value>(),
         }
     }
@@ -592,7 +594,7 @@ impl ArrayObj {
         // SAFETY: fresh leaked block sized for `len` Values; move each in over the POD zero.
         let base = unsafe { block.payload_as_ptr::<Value>() };
         for (i, v) in elems.into_iter().enumerate() { unsafe { base.add(i).write(v); } }
-        Self { element_type: Arc::from(""), backing: ArrayBacking::Boxed { block, len } }
+        Self { element_type: ElemType::empty(), backing: ArrayBacking::Boxed { block, len } }
     }
 
     /// Test-only: a zero-/`Null`-initialized `StructBytes` array with **leaked** byte + ref
@@ -605,6 +607,6 @@ impl ArrayObj {
         // SAFETY: fresh leaked ref block sized for `len*rc` Values; Null-init each slot.
         let rbase = unsafe { refs.payload_as_ptr::<Value>() };
         for i in 0..len * rc { unsafe { rbase.add(i).write(Value::Null); } }
-        Self { element_type: Arc::from(element_type), backing: ArrayBacking::StructBytes { elem_size, len, bytes, refs, layout } }
+        Self { element_type: ElemType::intern(element_type), backing: ArrayBacking::StructBytes { len, bytes, refs, layout } }
     }
 }

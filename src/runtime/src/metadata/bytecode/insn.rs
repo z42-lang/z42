@@ -40,9 +40,10 @@ pub struct ArrayNewInsn {
     pub size: Reg,
     pub elem_tag: u8,
     /// Element type's FQ name (e.g. "int" / "geometry.Point"), resolved from the
-    /// string pool at decode. Stored on the array's `ArrayObj` so
-    /// `arr.GetType().GetElementType()` is non-erased. Empty = absent (legacy).
-    pub element_type: String,
+    /// string pool at decode and **interned** there ([`ElemType`](crate::metadata::types::ElemType)), so creating the
+    /// array copies an 8 B handle instead of allocating a name. Stored on the array's
+    /// `ArrayObj` so `arr.GetType().GetElementType()` is non-erased. Empty = absent (legacy).
+    pub element_type: crate::metadata::types::ElemType,
     /// add-escape-analysis-stack-alloc (zbc 1.29): escape analysis proved this
     /// array does not escape its creating frame → interp allocates it in the
     /// frame arena (GC-skipped). JIT ignores this flag (heap-allocates) in v1.
@@ -61,7 +62,8 @@ pub struct ArrayNewInsn {
 pub struct ArrayNewLitInsn {
     pub dst: Reg,
     pub elems: Box<[Reg]>,
-    pub element_type: String,
+    /// Interned element type FQ name (see [`ArrayNewInsn::element_type`]).
+    pub element_type: crate::metadata::types::ElemType,
     /// add-escape-analysis-stack-alloc (zbc 1.29): non-escaping → frame arena (interp).
     pub stack_alloc: bool,
 }

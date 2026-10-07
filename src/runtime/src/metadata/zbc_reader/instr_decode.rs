@@ -224,7 +224,7 @@ pub(super) fn decode_instr(op: u8, typ: u8, dst: u32, c: &mut Cursor, pool: &[St
             let elem_tag = c.read_u8()?;
             // add-reflection-array-element-type (zbc 1.16): element type FQ name.
             let et_idx = c.read_u32()?;
-            let element_type = c.pool_str(pool, et_idx)?.to_owned();
+            let element_type = crate::metadata::types::ElemType::intern(c.pool_str(pool, et_idx)?);
             // add-escape-analysis-stack-alloc (zbc 1.29): trailing stack-alloc flag.
             let stack_alloc = c.read_u8()? != 0;
             // fix-generic-array-value-zero-init (zbc 1.37): trailing type-param ref.
@@ -235,7 +235,7 @@ pub(super) fn decode_instr(op: u8, typ: u8, dst: u32, c: &mut Cursor, pool: &[St
         OP_ARRAY_NEW_LIT => {
             let elems = read_args(c)?;
             let et_idx = c.read_u32()?;
-            let element_type = c.pool_str(pool, et_idx)?.to_owned();
+            let element_type = crate::metadata::types::ElemType::intern(c.pool_str(pool, et_idx)?);
             // add-escape-analysis-stack-alloc (zbc 1.29): trailing stack-alloc flag.
             let stack_alloc = c.read_u8()? != 0;
             Instruction::ArrayNewLit(Box::new(crate::metadata::bytecode::ArrayNewLitInsn { dst, elems, element_type, stack_alloc }))
