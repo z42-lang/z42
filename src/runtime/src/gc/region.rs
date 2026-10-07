@@ -648,8 +648,7 @@ impl<T> Region<T> {
     /// `GcRef::new` Box::leak) skips the free-list push — those
     /// entries aren't in any Region, just leaked.
     ///
-    /// **add-generational-gc P0 (2026-05-22)**: also removes from
-    /// `young_list` if the entry was young.
+    /// Also removes the entry from `young_list` if it was young.
     pub fn tombstone_via_entry(&mut self, entry: &RegionEntry<T>) -> bool {
         if !entry.alive.swap(false, Ordering::Release) {
             return false;
@@ -658,6 +657,7 @@ impl<T> Region<T> {
         entry.generation.fetch_add(1, Ordering::AcqRel);
         let (ci, ei) = entry.location;
         if ci != u32::MAX {
+            self.live_per_chunk[ci as usize] -= 1;
             self.push_free_slot(ci, ei);
             if was_young {
                 self.remove_from_young_list(ci, ei);

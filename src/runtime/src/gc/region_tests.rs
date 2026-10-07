@@ -565,6 +565,21 @@ fn tombstone_via_entry_removes_from_young_list() {
         "tombstone_via_entry removes the entry from young_list");
 }
 
+/// A chunk whose objects all die through `tombstone_via_entry` (the finalizer path) is fully
+/// dead and must be pooled — the per-chunk live census has to count those deaths too.
+#[test]
+fn tombstone_via_entry_keeps_the_chunk_census() {
+    let mut r: Region<u64> = Region::new();
+    let hs: Vec<_> = (0..CHUNK_SIZE as u64).map(|i| r.alloc(i)).collect();
+    assert_eq!(hs[0].chunk_idx, hs[CHUNK_SIZE - 1].chunk_idx, "one full chunk");
+    let _next = r.alloc(0); // move the ambient cursor off the full chunk
+    for h in &hs {
+        let entry: *const RegionEntry<u64> = r.resolve(*h);
+        assert!(r.tombstone_via_entry(unsafe { &*entry }));
+    }
+    assert_eq!(r.reclaim_dead_chunks(), 1, "the fully dead chunk is pooled");
+}
+
 // ── add-gc-debug-invariants P0 (2026-05-22) ────────────────────────────────
 
 use crate::gc::region::Violation;
