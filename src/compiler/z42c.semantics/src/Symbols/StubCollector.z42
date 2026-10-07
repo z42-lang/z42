@@ -168,12 +168,11 @@ public sealed class StubCollector {
     // 幂等：FQN 再查一次（`GetInterface` 双键）仍得同一个 FQN ⇒ 同一个对象被多个键指到、
     // 或本 pass 被重复调用都安全。查不到就原样留着（型参 / 未解析名，交给别处报错）。
     //
-    // ⚠️ 四张表都要走：`Classes`/`Interfaces` 是短名单赢家，同短名的第二份**只在** FQN 视图里
-    //（`ImportedSymbolLoader` 的 first-wins 守卫之外每份都 Put）—— 只遍历短名表会漏掉它们。
+    // ⚠️ 走 FQN 视图：`Classes`/`Interfaces` 是短名单赢家，同短名的第二份**只在** FQN 视图里
+    //（`ImportedSymbolLoader` 的 first-wins 守卫之外每份都 Put）；短名表的每个值也都在 FQN 视图里
+    //（`SymbolTable.FirstShortOnlyKey` 守着），所以只走 FQN 视图就覆盖全部。
     internal void _passQualifyIfaceNames(SymbolTable table) {
-        this._qualifyClassIfaces(table, table.Classes);
         this._qualifyClassIfaces(table, table.ClassesByFqn);
-        this._qualifyIfaceBases(table, table.Interfaces);
         this._qualifyIfaceBases(table, table.InterfacesByFqn);
     }
 
