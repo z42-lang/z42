@@ -12,7 +12,6 @@
 // 故此处留一个会变红的东西。
 namespace Z42cSemanticsNoStaticInitTests;
 
-using Z42.Semantics;
 using Z42.Emission;
 
 // ── 有静态字段初始化器的类 → 只发类型初始化器，不发 __static_init__ ──

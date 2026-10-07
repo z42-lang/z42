@@ -9,7 +9,6 @@
 // ⚠️ 穷举遍历：新增 Bound 节点类时 walkers 门（`xtask test walkers`）会要求这里也处理它。
 namespace Z42.Semantics;
 
-using Z42.IR;
 
 public sealed class DepUseCollector {
     private SymbolTable _symbols;

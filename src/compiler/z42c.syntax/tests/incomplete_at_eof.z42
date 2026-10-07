@@ -2,7 +2,6 @@
 // 「期待 token 但当前已是 EOF」= 可恢复不完整（REPL 续读信号），区别于「当前 token 非 EOF」的真语法错。
 namespace Z42cSyntaxIncompleteTests;
 
-using Z42.Core;
 using Z42.Syntax;
 
 // 走顶层声明入口 parse（Completeness 声明语义）：缺闭合符 或 缺 `;` 都算没写完。

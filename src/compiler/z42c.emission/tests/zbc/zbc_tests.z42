@@ -4,7 +4,6 @@
 // 指令级编码 = spec-derived hex（DBUG 阻塞使 C# 全文件 golden 限于 empty；端到端正确性由 xtask e2e 验证）。
 namespace Z42cSemanticsZbcTests;
 
-using Z42.Semantics;
 using Z42.IR;
 using Z42.IR.BinaryFormat;
 using Z42.Emission;

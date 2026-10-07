@@ -8,7 +8,6 @@
 // 三 PR 路线：PR1 立分类器（本文件，byte-identical）→ PR2 收紧门（去掉 ExplicitNumeric
 // + 插 ConvertInstr + 迁移调用点）→ PR3 加 UserImplicit/UserExplicit 两种类 + 方法查找。
 namespace Z42.Semantics;
-using Z42.IR;   // add-user-conversions：StrMap（枚举类方法查找 op_Implicit/op_Explicit）
 
 // 转换种类常量（z42c 受限写法：static class + int，不用 enum；同 TokenKind / DiagnosticCodes）。
 public static class ConvKind {

@@ -8,7 +8,6 @@
 // 全部用多 CU：同一个包、两个 ns 各声明一个 `Base`（单文件只有一个 ns，造不出这个形状）。
 namespace Z42cSemanticsClassIdentityNsTests;
 
-using Z42.Semantics;
 using Z42.Emission;
 
 string[] cidDiags(string[] srcs) {

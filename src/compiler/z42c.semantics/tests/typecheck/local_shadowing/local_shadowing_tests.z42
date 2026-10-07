@@ -8,7 +8,6 @@
 // 并列作用域各自声明同名、lambda / 局部函数遮蔽外层名字（C# 8 起允许）、局部遮蔽字段 —— 都合法。
 namespace Z42cSemanticsLocalShadowingTests;
 
-using Z42.Semantics;
 using Z42.Emission;
 
 string[] lsDiags(string src) {
