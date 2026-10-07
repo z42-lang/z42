@@ -286,6 +286,7 @@ public sealed class FunctionEmitter {
         // SIGS 泄漏 wrapper 名（`int[]`→`Int32[]`）→ 重建 stdlib 类型名不一致 → z42c 自编译误编。alias-prim
         // （byte/short…）已在上方按源名返回、不到此，故 SurfaceName 对 int/long/float/double/bool/char/string/
         // object 逐字复刻 baseline Prim.Name()，非内建原样。
+        if (resolved is Z42FuncType) { return SigTypeNames.Func(resolved as Z42FuncType); }   // 委托：成分写 FQN（5b-2）
         return PrimModel.SurfaceName(resolved.Name());
     }
     // drop-short-primitive-aliases：`_isAliasPrim` 守卫已删 —— 它存在的唯一理由是「这些次要别名

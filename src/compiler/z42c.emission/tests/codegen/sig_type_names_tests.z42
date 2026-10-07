@@ -1,0 +1,38 @@
+// fqn-tables 5b / 5b-2：SIGS（函数签名）里的类型名成分写 FQN —— 消费端（ImportedSymbolLoader._resolve）按 FQN
+// 精确解析，不靠「加载序上最先声明这个短名的 ns」回落去猜。断言走 `IrDump.DumpFunc` 头行的返回类型拼写。
+namespace Z42cEmissionSigTypeNameTests;
+
+using Z42.Emission;
+
+string _hdr(string src, string fn) {
+    string d = IrDump.DumpFunc(src, fn);
+    int nl = d.IndexOf('\n');
+    return nl < 0 ? d : d.Substring(0, nl);
+}
+
+[Test]
+void test_instantiated_interface_ret_is_fqn_with_args() {
+    // 5b 之前：实例化接口漏拷 Namespace ⇒ `IBox`（连实参都丢了）。
+    string src = "namespace Demo.Sig;\npublic interface IBox<T> { }\npublic class H { public IBox<int> Get() { return null; } }";
+    Assert.Equal("fn @Demo.Sig.H.Get(1) -> Demo.Sig.IBox<Int32> {", _hdr(src, "Demo.Sig.H.Get"));
+}
+
+[Test]
+void test_delegate_ret_args_are_fqn() {
+    // 5b-2 之前：委托成分是短名 ⇒ `Action<Ctx>`。
+    string src = "namespace Demo.Sig;\npublic class Ctx { }\npublic class H { public Action<Ctx> Get() { return null; } }";
+    Assert.Equal("fn @Demo.Sig.H.Get(1) -> Action<Demo.Sig.Ctx> {", _hdr(src, "Demo.Sig.H.Get"));
+}
+
+[Test]
+void test_func_delegate_keeps_prim_wrapper_spelling() {
+    // 基元成分保持包装类名（裁决 D2，与构造泛型实参一致）；返回位在最后。
+    string src = "namespace Demo.Sig;\npublic class Ctx { }\npublic class H { public Func<Ctx, int> Get() { return null; } }";
+    Assert.Equal("fn @Demo.Sig.H.Get(1) -> Func<Demo.Sig.Ctx, Int32> {", _hdr(src, "Demo.Sig.H.Get"));
+}
+
+[Test]
+void test_abstract_stub_ret_is_fqn_with_args() {
+    string src = "namespace Demo.Sig;\npublic interface IBox<T> { }\npublic abstract class A { public abstract IBox<string> Make(); }";
+    Assert.Equal("fn @Demo.Sig.A.Make(1) -> Demo.Sig.IBox<String> {", _hdr(src, "Demo.Sig.A.Make"));
+}
