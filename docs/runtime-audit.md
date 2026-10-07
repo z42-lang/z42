@@ -138,6 +138,43 @@ GC 模式对比：STW 21 次回收、25.1 s、844 MB；分代 193 次、26.2 s�
 
 ---
 
+### 1.6 跨语言内存 / GC 对照（2026-10-07）
+
+origin/main `bcf9fa25`，release z42vm（JIT，mimalloc）。对照：Python 3.9、Node 26、Ruby 2.6、.NET 10（workstation GC）、Java 21（G1 / Serial）。每组 3 次中位，峰值 RSS 用 `/usr/bin/time -l`（**不带 `--stats`**：它会把全部活对象收进一个 Vec，每对象多 16–32 B）。密度 = (RSS(N) − RSS(0)) / N。测量时机器负载偏高，墙钟只看量级，内存数字基本不受影响。脚本：scratchpad `memcmp/run_all.sh`（会话内）。
+
+| 负载 | z42 分代 | z42 STW | 最优 | Python | Node | z42 分代 / 最优 |
+|---|---|---|---|---|---|---|
+| 小对象（int + 引用），B/个 | 107.9 | 99.8 | 24.5（Java） | 81.0（slots）/ 194.9 | 70.0 | 4.4× |
+| `long[8]`，B/个 | 267.7 | 247.7 | 83.8（.NET） | 203.9 | 197.9 | 3.2× |
+| 短字符串，B/个 | 134.8 | 102.6 | 56.6（Java Serial） | 73.2 | 63.5 | 2.4× |
+| `List<int>`，B/元素 | 77.6 | 117.7 | 8.9（Ruby）/ 10.4（.NET） | 46.1 | 31.5 | 8.7× |
+| `Dictionary<string,int>`，B/条 | 291.7 | 368.3 | 99.5（Node） | 181.2 | 99.5 | 2.9× |
+| binary-trees 18：墙钟 / 峰值 RSS | 14.0 s / 760 MB | 14.0 s / 699 MB | 0.30 s（Java）/ 59 MB（Python） | 28.0 s / 59 MB | 0.50 s / 185 MB | — |
+| 大活堆流失（13 的移植）：墙钟 / RSS | 3.60 s / 1029 MB | 2.10 s / 837 MB | 0.25 s（Java G1）/ 113 MB（Python） | 2.35 s / 113 MB | 0.63 s / 461 MB | — |
+
+**z42 的字节去向**（已与实测对账）：
+
+- **小对象 ≈ 100 B**：
+  - `RegionEntry<ScriptObject>` 72 B，其中每对象一把 Mutex 8 B、GC 元数据 32 B（`gc/region/entry.rs`）。
+  - chunk 18432 B 被 mimalloc 取整到 20480 B 档，每对象多 8 B。
+  - 字段 payload 单独 `alloc_zeroed` 16 B（`metadata/types/obj_storage.rs`）。
+  - 分代模式下 `young_list` 再加 8 B。
+- **`long[8]` ≈ 250 B**：
+  - `RegionEntry<ArrayObj>` 104 B，chunk 取整后 112 B。
+  - 每个数组都 `Arc::from(element_type)` 一次，24 B。
+  - 元素块是 16 B 头加 64 B。
+  - 侧表约 9 B。
+- **`List<int>` 77.6 B**：
+  - 泛型 `T[]` 一律装箱，每元素 16 B。
+  - 每次新建数组都先建 `vec![Value; n]` 临时 Vec 再拷进 GC 块。单独 `new int[16M]` 就是 RSS 415 MB，而 used 只有 67 MB。
+- **流失场景 RSS / used 达 8×**：
+  - TLAB 不复用空洞。
+  - 死对象的 payload 要等槽被覆写才释放。
+  - 没有任何 decommit。
+  - 退避让年轻集合膨胀。
+  - 因此 `Z42_GC_MAX_BYTES` 约束不住 RSS。
+- **吞吐**：binary-trees 比 Java 慢 46×，GC 只占约 13%，主要在分配和调用路径。
+
 ## 2. z42vm 二进制构成
 
 z42vm `__text` 构成（macOS arm64，共 4.97 MB），是拆 crate（阶段 2）与可选依赖的依据：
@@ -497,6 +534,28 @@ z42vm 继续静态链接 VM，不改为动态链接 `native/libz42`（结论与�
 - GC 退避上限与「周期内的 minor 不判徒劳」（B1 落地后先重测，可能不再需要）：吞吐换停顿。13_gc_large_heap 分代模式下最大停顿 73.5→50 ms、p99 58.5→24 ms、不再出现 x64，代价是墙钟慢约 30%（`--large` 2.4 倍）。
 
 **阶段 1 预期**【推断】：z42c 构建再快 1.3–1.5 倍（字段约 10%、帧约 10%、跨包 VCall，加上并行阶段吃到 JIT）。
+
+### 内存 / GC 持续优化（User，2026-10-07：内存占用和 GC 离其他脚本语言差距还很大，持续发掘）
+
+依据 §1.6，按收益排序。M 前缀与 P1-7 的 GC 方案互补。
+
+| ID | 杠杆 | 预期 | 依赖 | 状态 |
+|---|---|---|---|---|
+| M1 | 数组直接在 GC 块里零初始化，去掉临时 `vec![Value; n]` | 每元素峰值 −16 B；`List<int>` 77.6 → 约 50 B | — | 🟡 |
+| M2 | 数组元素类型名不再每个数组一份 `Arc<str>`；压缩 ArrayBacking | 每数组 −24~−40 B | — | 🟡 |
+| M3 | `"k" + i` 直接格式化，不产生 ToStr 临时串 | 每次拼接少 40 B 垃圾 | — | 🟡 |
+| M4 | `stats()` 不再收集全部活对象 | 观测不再额外占用 16–32 B/对象 | — | 🟡 |
+| M5 | chunk 大小贴合分配器档位 | 每对象、每数组 −8 B | — | 🟡 |
+| M6 | 按真实占用记账，软上限 / `Z42_GC_MAX_BYTES` 按真实占用判定（即 P1-7 A5） | 上限真正约束 RSS | — | 🟡 |
+| M7 | 池中空 chunk 超阈值 decommit（即 P1-7 A4） | 稳态 RSS 下降 | — | 🟡 |
+| M8 | 用位图 / 区间替代 young_list、all_blocks、var young 等侧表 | 分代模式每对象 −8 B、每串 −16 B | — | ⬜ |
+| M9 | 年轻集合增长加上限（futility 时提前晋升或转 major，而非放大 nursery） | 流失场景 RSS −13%，最大停顿 94 → 18 ms | 09_alloc_ctorless 吞吐退化（⏸） | ⏸ |
+| M10 | 字段 payload 内联进 GC 槽 | 每对象 −16~−24 B；死 payload 随槽一起释放 | — | ⬜ |
+| M11 | 对象头 72 → 约 24 B：去掉每对象 Mutex，标记 / 存活 / 年龄 / 代号合成一个字，稀有字段移到侧表 | 每对象 −40~−48 B | 每对象 Mutex 的内存模型（⏸） | ⏸ |
+| M12 | 空洞复用（TLAB 认领半活 chunk） | 流失场景 RSS 降 2–4× | M10 | ⬜ |
+| M13 | 泛型 `T[]` 的实参为原始类型时按类型打包 | `List<int>` / Dictionary 值每元素 16 → 4 B | 编译器配合（⏸） | ⏸ |
+
+预期：M1–M8 落地后，对象约 85 B、数组约 190 B、`List<int>` 约 50 B；M10 + M11 之后，对象约 35–40 B（约 .NET 的 1.3×）；再加 M12，流失场景的 RSS / 活集从约 8× 降到 2–3×。
 
 ### 阶段 2：紧凑执行与对象模型（1–2 个月，需另行确认）
 
