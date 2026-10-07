@@ -5,14 +5,13 @@ namespace Z42Xtask;
 using Std.IO;
 using Std.Cli;
 
-// merge-package-release: `package` 收成 name 驱动 router（对齐 build compiler|stdlib|
-// toolchain），`release` 删除。profile 降为 --profile 选项（旧 `package release` 的
-// "release" 是 profile 位置参数，与子命令名冲突）。
-//
-// tidy-xtask-cli（2026-10-06）：package = **组装**（把已编好的产物摆成某种布局）。开发态的两种组装
-// （dev-sdk / ci）从 build 挪来；发布归档从独立的 `package archive` 收成各打包命令的
-// `--archive`（归档与包目录并排放在 artifacts/packages/）；`package index` 与 `workload <label>` 合并
-// 模式由 finalize 覆盖后删除；打包的自检 / 端到端验证分别去了 `xtask check packages` / `xtask test package`。
+// package = **组装**（把已编好的产物摆成某种布局），按产物命名：
+//   sdk / runtime / workload   发行包；都可带 `--archive [--label]` 在包目录旁出发布归档（本地即可），
+//                              `sdk --verify` 再在这份 SDK 上跑 packages.toml 自检 + 发行包夹具 + golden
+//   dev-sdk / ci               开发态布局（`.z42` SDK / CI 的构建树 zpkg 快照）
+//   release <label>            CI 汇总 job 专用：合并 4 份逐 RID 桌面 workload → SHA256SUMS → release-index.json
+//                              （要 9 个 RID 的全部归档，单机凑不齐）
+// profile 是 --profile 选项（release|debug），不是位置参数。
 SubcommandRouter _packageRouter() {
     SubcommandRouter pkg = new SubcommandRouter("xtask package", "assemble packages / layouts from built artifacts");
 
@@ -20,6 +19,7 @@ SubcommandRouter _packageRouter() {
     sdk.AddOption("profile", "", "release|debug (default release)", "release");
     sdk.AddOption("variant", "", "package variant suffix", "");
     sdk.AddFlag("no-build", "", "assemble from existing z42c+stdlib artifacts (CI warm)");
+    sdk.AddFlag("verify", "", "then verify: packages.toml self-checks + package fixtures + goldens on THIS SDK (builds the host desktop workload if missing)");
     _addArchiveOpts(sdk);
     pkg.Add("sdk", "assemble the host SDK package", sdk);
 
@@ -46,13 +46,13 @@ SubcommandRouter _packageRouter() {
     ci.AddOptionalPositional("dest", "destination dir (required)");
     pkg.Add("ci", "built-tree zpkg snapshot → <dest> (CI toolchain-<os> artifact; downstream jobs restore it in place)", ci);
 
-    ArgParser fin = new ArgParser("xtask package finalize", "merge desktop workloads + SHA256SUMS + release-index.json");
-    fin.AddOptionalPositional("label", "<LABEL> (e.g. 0.3.0 or nightly)");
-    fin.AddOption("dir", "", "archive dir (default: artifacts/packages)", "");
-    fin.AddOption("channel", "", "channel (default: stable)", "");
-    fin.AddOption("tag", "", "tag (default: v<LABEL>)", "");
-    fin.AddOption("version", "", "version (default: <LABEL>)", "");
-    pkg.Add("finalize", "merge desktop workloads, write SHA256SUMS + release-index.json", fin);
+    ArgParser rel = new ArgParser("xtask package release", "merge the per-RID desktop workloads, then SHA256SUMS + release-index.json over every RID's release archives");
+    rel.AddOptionalPositional("label", "<LABEL> (e.g. 0.3.0 or nightly)");
+    rel.AddOption("dir", "", "archive dir (default: artifacts/packages)", "");
+    rel.AddOption("channel", "", "channel (default: stable)", "");
+    rel.AddOption("tag", "", "tag (default: v<LABEL>)", "");
+    rel.AddOption("version", "", "version (default: <LABEL>)", "");
+    pkg.Add("release", "CI release aggregate over all RIDs' archives: merge desktop workloads → SHA256SUMS → release-index.json", rel);
 
     return pkg;
 }
@@ -66,8 +66,8 @@ int _dispatchPackage(string[] p, ParseResult r) {
     string sub = p.Length > 1 ? p[1] : "";
     if (sub == "dev-sdk")         { return _packageDevSdk(r.GetOption("out")); }
     if (sub == "ci")              { return _packageCi(r.GetPositional(0)); }
-    if (sub == "finalize") {
-        return _releaseFinalize(r.GetPositional(0), r.GetOption("dir"), r.GetOption("channel"),
+    if (sub == "release") {
+        return _packageRelease(r.GetPositional(0), r.GetOption("dir"), r.GetOption("channel"),
             r.GetOption("tag"), r.GetOption("version"));
     }
     bool archive = r.GetFlag("archive");
@@ -87,6 +87,9 @@ int _dispatchPackage(string[] p, ParseResult r) {
             return 2;
         }
     }
-    if (c != 0 || !archive) { return c; }
-    return _pkgArchiveOutputs(r.GetOption("label"));
+    if (c != 0) { return c; }
+    // 先出归档、再验证：--verify 可能顺带打一份桌面 workload，它不属于本次要出归档的产出。
+    if (archive) { c = _pkgArchiveOutputs(r.GetOption("label")); if (c != 0) { return c; } }
+    if (sub == "sdk" && r.GetFlag("verify")) { return _packageVerify(PackageOutputs.All()[0]); }
+    return 0;
 }

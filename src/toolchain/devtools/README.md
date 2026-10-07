@@ -38,7 +38,7 @@ language-configuration，**无 `main`、无需编译**。
 | **仓库开发者** | `xtask setup vscode` | `<repo>/.vscode/extensions/`（工作区） | **symlink 回源码树**，且先经 `z42c --dump-keywords` 重新生成 grammar——改 Lexer 关键字即时生效 |
 
 资产随 SDK 分发靠 `packages.toml` 的 `[component.editor-assets]`
-（`*.tpl.json` 生成器模板**不进包**，由 `xtask check packages` 的 staging 自检守着）。
+（`*.tpl.json` 生成器模板**不进包**，由 `xtask package sdk --verify` 里 packages.toml 自检的组件安装一层守着）。
 grammar 防漂移 = `xtask check vscode-syntax`（GREEN gate）。
 
 ## 基础用法

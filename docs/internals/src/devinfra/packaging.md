@@ -93,7 +93,7 @@ graph LR
 |---|---|---|
 | `sdk` | `z42vm`、`native-ext`、`stdlib`、`z42c`、`launcher`、`z42b`、`z42d`、`z42i`、`editor-assets` | 完整开发包 |
 | `runtime` | `native`、`stdlib` | 嵌入场景（唯一带 libz42 + C 头的桌面包）；跨 host 安装 |
-| `workload-desktop` | `apphost-stub` | 仅 apphost stub，per-RID 产出，CI 合并四 RID |
+| `workload-desktop` | `apphost-stub` | 仅 apphost stub，per-RID 产出，`package release` 合并四 RID |
 
 组件分两类，**纯按「谁控制它的构建」区分**：
 
@@ -205,12 +205,13 @@ source-identity 只比「拷进来的东西和源一不一致」，管不到「�
 | desktop 管道 | `xtask_package_desktop.z42` | SDK 分段组装 |
 | 移动 / 浏览器管道 | `xtask_package_{ios,android,wasm}.z42` | native 产物 + 平台 facade（SwiftPM / Gradle / npm）|
 | 能力 workload | `xtask_package_test.z42` | 见 §4 |
-| 发布归档 / 索引 | `xtask_release.z42` | 打包命令的 `--archive`（本次产出的包目录 → 同目录下的归档，命名规则唯一出处）、`package finalize`（合并 desktop workload → `SHA256SUMS` → `release-index.json`，launcher 的供给契约）|
-| 自检 | `xtask_selfcheck_*.z42`，入口 `xtask check packages` | 解析 / 组件安装 / 发布归档三层各一个 harness，一条命令顺序跑完 |
+| 发布归档 / 索引 | `xtask_release.z42` | 打包命令的 `--archive`（本次产出的包目录 → 同目录下的归档，命名规则唯一出处）、`package release`（合并 desktop workload → `SHA256SUMS` → `release-index.json`，launcher 的供给契约）|
+| 自检 + 端到端 | `xtask_selfcheck_*.z42`（聚合 `xtask_package_selfcheck.z42`）、`xtask_package_verify.z42`，入口 `package sdk --verify` | 解析 / 组件安装 / 发布归档三层自检，再在这份 SDK 上跑发行包夹具 + golden |
 
 ## 7. 边界与限制
 
 - 组件落点全局唯一，无 per-package dest override（真需要时再引入）。
-- `workload-desktop` 单机只产 host RID，四 RID 的合并发生在 CI（`package finalize <label>` 的第一步）。
-- 发行包正确性的端到端验证依赖 `xtask test package`，它需要先打 host-RID 包**加 desktop workload**——
-  apphost 那条腿的 stub 模板来自 workload 包的 `apphost-<rid>`，SDK 包按设计不带它。
+- `workload-desktop` 单机只产 host RID（每个 `apphost-<rid>` 只能在本平台编），四 RID 的合并发生在 CI 的汇总
+  job（`package release <label>` 的第一步）。合成一份发布、一次装齐，任何宿主都能 `publish --rid` 到其它桌面平台。
+- `package sdk --verify` 的 apphost 腿要本机的 desktop workload（stub 模板来自 workload 包的 `apphost-<rid>`，
+  SDK 包按设计不带它），不在就先打一份。

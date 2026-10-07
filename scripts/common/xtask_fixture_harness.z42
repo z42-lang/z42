@@ -4,7 +4,7 @@
 // 引擎不认识任何具体工具：**套件**（`FixtureSuite`）提供工具表（`tool = "<名>"` 怎么起进程、带什么环境）、
 // 占位符与缺省值；引擎只负责暂存、逐例逐步执行、判定、汇总。两个套件：
 //   · z42c 命令行与构建夹具（build/xtask_compiler_e2e.z42 的 `_testCompilerCliFixtures`，开发树工具链）；
-//   · 发行包夹具（test/xtask_test_dist.z42 的 `_distFixtureSuite`，打出来的 SDK 包）。
+//   · 发行包夹具（package/xtask_package_verify.z42 的 `_distFixtureSuite`，打出来的 SDK 包）。
 // 加用例 = 加一个目录；断言写不进现有的键时，在这里加一个通用的键（并补进 fixture-harness.md），不在 xtask 里写专项检查。
 namespace Z42Xtask;
 

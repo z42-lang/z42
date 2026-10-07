@@ -81,7 +81,7 @@ z42 workload install test                 # 用户按需下载安装（release-i
 manifest 复用 `kind="workload-tooling"`（`host=["*"]`、无 runtime pack），单 zpkg 由新
 `[contents.payload]` 段描述（install 侧 `runtimes=[]` → 天然跳过 bedding，同 desktop）。CI（release /
 publish-nightly）在 macos-arm64 单 host 建一次 + `--archive` 出 `z42-workload-<label>-test.tar.gz`，由
-`package finalize` 纳入 `release-index.json`。
+`package release` 纳入 `release-index.json`。
 
 ## 关联文档
 

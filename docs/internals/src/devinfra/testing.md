@@ -14,7 +14,7 @@
 ## 1. 命令怎么分
 
 `xtask test` 的子命令按**契约属于谁**划分，与[测试用例组织规范 §1](test-layout.md) 的 owner 表一一对应；
-不跑用例的静态检查在 `xtask check`，打包自己的验证在 `xtask check packages|verify`。
+不跑用例的静态检查在 `xtask check`，打包自己的验证在 `xtask package sdk --verify`。
 
 | 类别 | 命令 | 测什么 |
 |---|---|---|
@@ -51,9 +51,9 @@ gate 里还串着若干**静态检查** stage（纯文本扫描 / 生成物比�
 | `xtask check proc-env` | `Z42_LIBS` / `Z42_PROBING_PATHS` / `Z42_COMPILER_LIBS` 只经 `_z42Proc` / `_z42bProc` / `_z42cProc` 设置 |
 | `xtask check layout` | 测试布局规范里能机械判定的部分（[test-layout](test-layout.md) 的「实现」节） |
 
-打包相关：`xtask check packages` 自检 `packages.toml` 的解析 / 组件安装 / 发布归档（不需要包）；
-`xtask test package [interp|jit]` 拿打包出的发行版（`bin/z42c`、`bin/z42vm`、`libs/`、launcher）跑[发行包夹具](fixture-harness.md)
-（命令行路径 / 桌面发布 / 发布态 analyzer 与 hooks）与 golden（没有 release 包先打一个）。
+打包相关：`xtask package sdk --verify` 组装完 SDK 后先自检 `packages.toml` 的解析 / 组件安装 / 发布归档，再拿这份
+发行版（`bin/z42c`、`bin/z42vm`、`libs/`、launcher）跑[发行包夹具](fixture-harness.md)（命令行路径 / 桌面发布 /
+发布态 analyzer 与 hooks）与 golden（interp / jit；本机桌面 workload 不在会先打一份）。
 
 ## 2. 各层的单跑姿势
 
@@ -273,7 +273,7 @@ base 默认 `HEAD`，也可以给 ref 或用 `Z42_TEST_CHANGED_BASE`；收集范
 | **只改用例 `src/tests/`** | `test e2e` | — | `test-host`（`test-vm-jit` / `stdlib-*` 不跑） |
 | **xtask 源 `scripts/`** | `z42 publish scripts/xtask.z42.toml` 重建后随便跑条命令冒烟 | changed 映射对 `scripts/**` = 全套 | 每腿 `ci-bootstrap` 的种子编 xtask 步 |
 | **新语法 / zbc·zpkg 格式** | 阶段一只落 support（仓库源码不用）→ `test compiler bootstrap` | 格式 bump 另跑 `docs/agent/rules/version-bumping.md` 的清单；等 nightly 发布后才 use | 全腿 `ci-bootstrap`（种子编当前源）+ `compiler-checks` |
-| **打包 `scripts/package/` / `packages.toml`** | `check packages` | `xtask package sdk` + `xtask test package` | `package-host` + `package-{ios,android,wasm}` |
+| **打包 `scripts/package/` / `packages.toml`** | `xtask package sdk --verify` | 同左 | `package-host` + `package-{ios,android,wasm}` |
 | **codegen / 优化 / typecheck / IR writer（会改产物字节）** | `test compiler` | 同步 `CacheStore.CompilerFingerprint` +1；自查 `test compiler fingerprint` | `bench-regression` 的 fingerprint guard |
 | **增量编译（IncrementalBuild / CacheStore / ZbcReader）** | `test compiler` | `test compiler incremental`（逐文件 touch 对账，增量 == 全量逐字节） | `compiler-checks` |
 | **学习手册 / `examples/`** | `test docs examples <part>/<chapter>`（只改页面加 `--book-only`）；输出确实该变则 `--bless` 后审 diff | `xtask package dev-sdk` + `test docs examples` | `test-host` 的 examples stage、`package-host`（用打包 SDK 重放，含 Windows）、`deploy-book` |

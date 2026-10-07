@@ -5,8 +5,8 @@
 // [Test]-attribute reflection runner can't see it — this is a plain
 // throw-on-mismatch self-check, not [Test]-discovered.
 //
-// 运行方式：`xtask check packages`（经 _testPackages 聚合）。**它是 opt-in 的，
-// 不在 `xtask test` 的 GREEN gate stage 里**——改打包系统时手动跑（见 scripts/README.md）。
+// 运行方式：`xtask package sdk --verify` 的第一步（经 _pkgSelfCheck 聚合）。不在 `xtask test` 的 GREEN gate
+// stage 里——改打包系统时跑（见 scripts/README.md）。
 //
 // 用一个手搭的 _PackagesConfig（真 kind、假 cargoOut）走 `_pkgInstallPackage`，装进临时包目录：
 // installers only copy — they never invoke cargo themselves, so no real build is needed —

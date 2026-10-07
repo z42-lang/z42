@@ -30,7 +30,7 @@ public static class NsIndexCache {
     //
     // 🔴 曾经写在**第一个 libsDir 下的 `.z42-nsindex`**，2026-10-01 改掉——那就是已安装 SDK 的
     // `libs/`：只读安装位（Program Files、/usr/local、容器镜像层）上写不进去 ⇒ 缓存永远不命中；
-    // 写得进去时则把运行期状态混进分发目录（打出的 SDK 跑一遍 `test package` 就多出这个文件，
+    // 写得进去时则把运行期状态混进分发目录（打出的 SDK 跑一遍 `package sdk --verify` 就多出这个文件，
     // 与 nightly 归档 diff 不再干净）。与 launcher `_cacheRoot` 当初改掉 `<SDK>/cache` 同一理由，
     // 落点规则也与之一致：`Z42_CACHE_DIR` 覆盖；Windows `%LOCALAPPDATA%\z42\cache`；
     // 其他 `$XDG_CACHE_HOME/z42`，否则 `$HOME/.cache/z42`。取不到任何根 ⇒ 不缓存。

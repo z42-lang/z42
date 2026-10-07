@@ -143,7 +143,7 @@ C 入口 `z42_host_run_app`（`src/runtime/src/host/mod.rs`）与 wasm 入口
 
 > 为什么由 app 文件推导而不是等别人指路：若 app-config 层只在别人主动指路时才存在，
 > `z42vm <app>` 直跑与一切嵌入形态（wasm / iOS / Android / 桌面自包含）都拿不到，
-> 因为那些环境里根本没有"用户设环境变量"这回事。`xtask test package` 的 apphost smoke 断言
+> 因为那些环境里根本没有"用户设环境变量"这回事。`xtask package sdk --verify` 的 apphost smoke 断言
 > `RuntimeConfig.Source("mode") == "app-config"`，链上任何一环断掉都会红。
 
 ## 旋钮 vs 应用属性

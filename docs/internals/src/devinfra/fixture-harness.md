@@ -1,7 +1,7 @@
 # 声明式夹具（expect.toml）
 
 > 代码：`scripts/common/xtask_fixture_harness.z42`（引擎）、`scripts/build/xtask_compiler_e2e.z42`（z42c 套件）、
-> `scripts/test/xtask_test_dist.z42`（发行包套件）
+> `scripts/package/xtask_package_verify.z42`（发行包套件）
 > 相关：[测试用例组织规范](test-layout.md) · [GREEN gate](test-gate.md) · [产物目录布局](artifacts-layout.md)
 
 ## 概述
@@ -34,7 +34,7 @@
 | 套件 | 夹具目录 | 命令 | 暂存位置 | 套件 README |
 |---|---|---|---|---|
 | z42c 命令行与构建行为 | `src/compiler/z42c.driver/tests/fixtures/cli/` | `xtask test compiler` | `artifacts/intermediate/` 下的镜像 | [cli/README.md](../../../../src/compiler/z42c.driver/tests/fixtures/cli/README.md) |
-| 发行包（打包出的 SDK） | `src/toolchain/launcher/tests/fixtures/package/` | `xtask test package` | 系统临时目录（仓库外），全部通过后删除 | [package/README.md](../../../../src/toolchain/launcher/tests/fixtures/package/README.md) |
+| 发行包（打包出的 SDK） | `src/toolchain/launcher/tests/fixtures/package/` | `xtask package sdk --verify` | 系统临时目录（仓库外），全部通过后删除 | [package/README.md](../../../../src/toolchain/launcher/tests/fixtures/package/README.md) |
 
 每个子目录是一个用例（有 `expect.toml` 才算），按目录名排序依次跑。套件 README 写本套件的工具表、占位符和环境约定；
 本页写所有套件共用的格式。
@@ -119,7 +119,7 @@
 |------|------|
 | 引擎：`FixtureSuite` / `FixtureTool` / 环境合并 / 判定 | `scripts/common/xtask_fixture_harness.z42` |
 | z42c 套件（开发树 z42c / z42b / z42vm） | `scripts/build/xtask_compiler_e2e.z42` 的 `_testCompilerCliFixtures` |
-| 发行包套件（包内 z42 / z42c / z42b / z42vm / 发布出的程序） | `scripts/test/xtask_test_dist.z42` 的 `_distFixtureSuite` |
+| 发行包套件（包内 z42 / z42c / z42b / z42vm / 发布出的程序） | `scripts/package/xtask_package_verify.z42` 的 `_distFixtureSuite` |
 | 暂存（拷整棵夹具树，跳过 `artifacts/` / `dist/`） | `scripts/common/xtask_fs.z42` 的 `_stageFixtureTree` / `_copySourceTree` |
 
 ## 边界与限制
