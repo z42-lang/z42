@@ -226,7 +226,7 @@ public sealed partial class SymbolTable {
     // 名字解析失败时：短名表里有同名类 / 接口（类型确实在、所在包也激活了，只是本文件没 `using` 它的 ns）⇒
     // 返回它的声明 ns，否则 ""。调用点据此报 E0436（与文件级那条同码同文，见上方 `MissingUsingMsg`）。
     // A5b-2c 之前这类引用被裸名回落**静默解析**、事后由文件级检查补报 E0436 @ (1,1)；回落删掉后改在引用点报。
-    // 只做诊断、不参与解析（短名表赢家是 first-wins，同短名多份时只点名其中一个，足够指路）。
+    // 只做诊断、不参与解析（同短名多份时点名字典序最小的那个 ns，足够指路）。
     public string MissingUsingNs(string name) {
         if (name == null || name == "") { return ""; }
         string n = name;
@@ -235,17 +235,22 @@ public sealed partial class SymbolTable {
         if (n.IndexOf('.') >= 0) { return ""; }
         // 本作用域解析得到 ⇒ 不是「缺 using」（调用方在别的原因上失败了，比如把类名当值用）——别指路去 using 本来就可见的 ns。
         if (this.HasClass(n) || this.HasInterface(n)) { return ""; }
-        string ns = "";
-        Z42ClassType c = this.Classes.Get(n) as Z42ClassType;
-        if (c != null) { ns = c.Namespace; }
-        else {
-            Z42InterfaceType it = this.Interfaces.Get(n) as Z42InterfaceType;
-            if (it != null) { ns = it.Namespace; }
-        }
-        if (ns == null) { return ""; }
+        // 同短名多份时取字典序最小的声明 ns（与下面 enum / delegate 同一口径）——诊断文本要确定，不随登记序变。
+        string ns = SymbolTable._minNs(this.ClassNsOf(n));
+        if (ns == "") { ns = SymbolTable._minNs(this.IfaceNsOf(n)); }
         if (ns == "") { ns = SymbolTable._declNsOf(this.EnumTypeNs, n); }
         if (ns == "") { ns = SymbolTable._declNsOf(this.DelegateNs, n); }
         return ns;
+    }
+
+    private static string _minNs(string[] nss) {
+        string best = "";
+        int i = 0;
+        while (i < nss.Length) {
+            if (nss[i] != "" && (best == "" || nss[i].CompareTo(best) < 0)) { best = nss[i]; }
+            i = i + 1;
+        }
+        return best;
     }
 
     // FQN 键的表（值 = 声明 ns 的 StrBox）里，短名为 n 的那一项的声明 ns；没有则 ""。只供诊断指路。

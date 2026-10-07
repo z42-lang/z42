@@ -444,7 +444,8 @@ public sealed partial class DeclEnforcer {
     // ⚠️ **刻意保守**：TypeArg 在符号表里**解析不到就不报**。符号表在若干场景下不完整
     //    （Collect(cu) 单 CU 无 imports、跨包类型取决于依赖是否已建），报「类型不存在」会误伤
     //    真实代码。宁可漏报也不误报 —— 已登记为已知缺口（design §2）。
-    internal void _passTestAttrSemantic(SymbolTable t, CompilationUnit cu) {
+    internal void _passTestAttrSemantic(SymbolTable table, CompilationUnit cu) {
+        SymbolTable t = table.WithScopeOf(cu);   // `[ShouldThrow<X>]` 的 X 按本 CU 作用域解析
         int i = 0;
         while (i < cu.DeclCount) {
             this._tsWalk(t, cu.Decls[i]);
@@ -483,7 +484,7 @@ public sealed partial class DeclEnforcer {
                     this._sc.Diags.Error(DiagnosticCodes.ShouldThrowTypeInvalid,
                         "`[ShouldThrow]` requires a type argument (e.g. `[ShouldThrow<TestFailure>]`)",
                         at.Span);
-                } else if (t != null && t.Classes.ContainsKey(at.TypeArg)
+                } else if (t != null && t.HasClass(at.TypeArg)
                            && !this._tsDerivesFromException(t, at.TypeArg)) {
                     this._sc.Diags.Error(DiagnosticCodes.ShouldThrowTypeInvalid,
                         "`[ShouldThrow<" + at.TypeArg + ">]` requires a type deriving from `Exception` (got: `"
@@ -499,7 +500,7 @@ public sealed partial class DeclEnforcer {
     // 无法复用，属刻意重复）。
     private bool _tsDerivesFromException(SymbolTable t, string clsName) {
         if (clsName == "Exception") { return true; }
-        Z42ClassType ct = t.Classes.Get(clsName) as Z42ClassType;
+        Z42ClassType ct = t.GetClass(clsName);
         int hops = 0;
         while (ct != null) {
             Z42ClassType b = t.BaseOf(ct);

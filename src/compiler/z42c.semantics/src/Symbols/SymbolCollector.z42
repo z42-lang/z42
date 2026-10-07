@@ -76,6 +76,14 @@ public sealed class SymbolCollector {
             if (!table.Interfaces.ContainsKey(ifs[i])) { table.Interfaces.Put(ifs[i], imported.Interfaces.Get(ifs[i])); }
             i = i + 1;
         }
+        // FQN 视图同步提前并入：`_passClassStubs` 按作用域判「基类列表里的名字是不是接口」（`InterfaceKeyOf` →
+        // `GetInterface`，走 FQN），导入接口此时必须已在 FQN 视图里。本地同 FQN 已由 `_passInterfaces` 登记 ⇒ local-wins。
+        string[] ifq = imported.InterfacesByFqn.Keys();
+        i = 0;
+        while (i < ifq.Length) {
+            if (!table.InterfacesByFqn.ContainsKey(ifq[i])) { table.InterfacesByFqn.Put(ifq[i], imported.InterfacesByFqn.Get(ifq[i])); }
+            i = i + 1;
+        }
     }
 
     // Object stub seed（镜像 C# SymbolCollector.CollectClasses）：CU 未自声明 Object 时，
