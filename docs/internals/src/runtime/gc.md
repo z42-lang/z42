@@ -255,8 +255,9 @@ VarRegion 变长块（16B 对齐原始 chunk + 四分之一八度 size-class fre
 分配器本就把 payload 清零，所以默认值恰为该 backing 的零（packed `0`/`'\0'`/`false`/`+0.0`，或 Boxed 块里的
 `I64(0)`——`Value` 是 `#[repr(C, u8)]`、判别式 0 = `I64`）时**新块即数组**，零逐元素写；否则（引用数组的
 `Null` 等）逐槽原地写一次。GC 安全：块在 `alloc_array_obj` 分配数组头（第一个可能触发回收的点）之前就已写完，
-新块在头指向它之前不可达。同类 backing 之间的 `__array_copy` 是块到块 `memcpy`；packed 目的数组不持引用，
-跳过写屏障的逐元素扫描。
+新块在头指向它之前不可达。同类 backing 之间的 `__array_copy` 是块到块 `memcpy`（同一 struct 的 struct[] 是字节块 +
+引用侧表各拷一段）；拷完对写入区间的每个引用槽发写屏障（`objops::array_bulk::barrier_after_range_store`：引用数组
+是元素本身，struct[] 是元素的每个引用叶子），packed 目的数组不持引用、没有可扫的槽。
 
 **分配落地 = ambient 堆**（[`gc/ambient.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/gc/ambient.rs)）：`current_heap()` +
 `HeapGuard` 在引擎入口设 thread-local（ctx 栈底帧 push 时、宿主 invoke、`jit::run_fn`；见

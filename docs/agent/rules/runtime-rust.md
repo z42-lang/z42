@@ -85,7 +85,7 @@ fn test_something() { ... }
 ### 堆引用写入必须走带 SATB 屏障的原语
 
 **任何把引用写进堆对象 / 数组的代码，一律走 `ScriptObject::set_field_value` / `set_ref_slot`、
-`ArrayObj::set_boxed` / `write_struct_elem` / `set_struct_ref` / `copy_elems_from`。** 这些原语在覆盖前把旧值交给 SATB 删除屏障
+`ArrayObj::set_boxed` / `write_struct_elem` / `set_struct_ref` / `copy_elems_from` / `copy_elems_within`。** 这些原语在覆盖前把旧值交给 SATB 删除屏障
 （`gc::satb::record_overwrite`）；绕过它们 = major 标记进行中可能漏标一个仍被使用的对象（从未扫描的对象里读出
 引用放进寄存器、再清掉字段，该对象就会被扫掉）。
 

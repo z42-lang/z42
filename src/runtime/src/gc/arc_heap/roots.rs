@@ -120,8 +120,9 @@ impl crate::gc::arc_heap::ArcMagrGC {
                 let self_ptr = entry.value.data_ptr() as usize;
                 let arr = entry.value.lock();
                 let type_name = format!("{}[]", &*arr.element_type);
-                for elem in arr.iter_boxed() {
-                    if let Some(child) = value_heap_ptr(&elem) {
+                // `gc_refs`: the array's reference slots (elements / struct[] reference leaves).
+                for elem in arr.gc_refs() {
+                    if let Some(child) = value_heap_ptr(elem) {
                         g.add_edge(
                             child,
                             RetainerInfo { kind: RetainerKind::Array, type_name: type_name.clone(), id: self_ptr },

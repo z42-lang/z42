@@ -335,7 +335,12 @@ pub fn value_to_str(v: &Value) -> String {
         Value::Str(s)  => s.to_string(),
         Value::Null    => "null".to_string(),
         Value::Array(rc) => {
-            let inner: Vec<String> = rc.borrow().iter_boxed().map(|v| value_to_str(&v)).collect();
+            let a = rc.borrow();
+            // 值 struct 数组的元素没有 ctx 装不了箱：与装箱 struct 同一个类型名占位。
+            let inner: Vec<String> = match a.struct_layout() {
+                Some(_) => vec![format!("{}{{...}}", &*a.element_type); a.len()],
+                None => a.iter_boxed().map(|v| value_to_str(&v)).collect(),
+            };
             format!("[{}]", inner.join(", "))
         }
         Value::Object(rc) => format!("{}{{...}}", rc.type_desc().name),

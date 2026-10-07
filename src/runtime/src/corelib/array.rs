@@ -5,9 +5,11 @@
 // T[]（元素类型只以运行期 Type 已知，无法静态 `new T[n]`）。System.Array parity。
 
 use crate::corelib::convert::box_prim_to_heap;
+use crate::corelib::raise_op;
 use crate::corelib::reflection::read_obj_slot;
 use crate::metadata::types::{default_value_for, ArrayObj};
 use crate::metadata::Value;
+use crate::objops;
 use crate::vm_context::VmContext;
 use anyhow::{bail, Result};
 
@@ -76,9 +78,13 @@ pub fn builtin_array_create(ctx: &VmContext, args: &[Value]) -> Result<Value> {
         .ok_or_else(|| anyhow::anyhow!("Array.CreateInstance: element type has no name"))?;
     let tag = elem_tag(&name);
     let default = default_value_for(tag);
-    // perf-array-alloc-direct: default-fill straight into the GC block.
     let heap = ctx.heap();
     let et = crate::metadata::types::ElemType::intern(tag);
+    // 值 struct 元素类型 → 真正的 struct[]（`StructBytes`，元素零初始化），与 `new P[n]` 同一个闸门。
+    if let Some(sb) = objops::array::try_struct_backed(ctx, et, n) {
+        return Ok(heap.alloc_array_obj(sb));
+    }
+    // perf-array-alloc-direct: default-fill straight into the GC block.
     Ok(heap.alloc_array_obj(ArrayObj::typed_filled(heap, et, n, default)))
 }
 
@@ -95,13 +101,15 @@ pub fn builtin_array_get(ctx: &VmContext, args: &[Value]) -> Result<Value> {
         Some(Value::I64(n)) if *n >= 0 => *n as usize,
         _ => bail!("Array.GetValue: expected a non-negative index"),
     };
-    let (raw, tag) = {
+    let tag = {
         let a = rc.borrow();
         if i >= a.len() {
             bail!("Array.GetValue: index {i} out of bounds (len {})", a.len());
         }
-        (a.get_boxed(i), elem_tag(&a.element_type).to_string())
+        elem_tag(&a.element_type).to_string()
     };
+    // 值 struct 数组的元素装箱成快照（`get_boxed` 没有堆，装不了箱）。
+    let raw = objops::array_bulk::elem_get_boxed(ctx, &rc, i).map_err(|e| raise_op(ctx, e))?;
     match (int_wrapper_fqn(&tag), &raw) {
         (Some(fqn), Value::I64(n)) => box_prim_to_heap(ctx, fqn, *n),
         _ => Ok(raw),
@@ -140,6 +148,12 @@ pub fn builtin_array_set(ctx: &VmContext, args: &[Value]) -> Result<()> {
         if i >= a.len() {
             bail!("Array.SetValue: index {i} out of bounds (len {})", a.len());
         }
+        // 值不是元素类型（基元不同种 / 值 struct 数组收到别的东西）→ InvalidCastException（同 C#），
+        // 数组不动。异常对象要分配 ⇒ 先放锁再抛。
+        if let Err(e) = objops::array_bulk::check_untyped_store(&a, &raw) {
+            drop(a);
+            return Err(raise_op(ctx, e));
+        }
         // fix-silent-array-elem-zero：走会报错的那版。此前是 `set_boxed`（release 静默存 0）
         // ⇒ `a.SetValue(objNull, 0)` 把 `int[0]` 从 9 变成 0、不抛、报成功。
         // 形参声明是 `Object` ⇒ 没有编译器站点能先转换，值是**用户**给的
@@ -164,10 +178,9 @@ pub fn builtin_array_set(ctx: &VmContext, args: &[Value]) -> Result<()> {
 /// "one bulk primitive, the algorithm stays in script" shape as `__str_to_chars`
 /// / `__str_substring`: it copies a range and nothing else.
 ///
-/// Overlapping ranges within one array get `memmove` semantics (see
-/// `ArrayObj::copy_elems_within`). Element conversion is exactly what the
-/// single-element `get_boxed`/`set_boxed` pair already defines, so a copy is
-/// indistinguishable from the loop it replaces.
+/// The element semantics — every backing incl. value-struct arrays, boxing / unboxing,
+/// type checks (`ArrayTypeMismatchException` / `InvalidCastException`), overlap, write
+/// barrier — live in `objops::array_bulk::copy_range`; this only parses the arguments.
 pub fn builtin_array_copy(ctx: &VmContext, args: &[Value]) -> Result<()> {
     fn arr(v: Option<&Value>, what: &str) -> Result<crate::gc::GcRef<ArrayObj>> {
         match v {
@@ -187,59 +200,7 @@ pub fn builtin_array_copy(ctx: &VmContext, args: &[Value]) -> Result<()> {
     let dst = arr(args.get(2), "destination")?;
     let di = idx(args.get(3), "destinationIndex")?;
     let n = idx(args.get(4), "length")?;
-    if n == 0 {
-        return Ok(());
-    }
-    // Same array → one lock (borrow + borrow_mut on the same GcRef would deadlock:
-    // both take the entry's blocking Mutex).
-    if crate::gc::GcRef::ptr_eq(&src, &dst) {
-        {
-            let mut a = dst.borrow_mut();
-            let len = a.len();
-            if si + n > len || di + n > len {
-                bail!("__array_copy: range out of bounds (len {len}, src {si}+{n}, dst {di}+{n})");
-            }
-            a.copy_elems_within(si, di, n);
-        }
-        barrier_copied_range(ctx, &dst, di, n);
-        return Ok(());
-    }
-    let s = src.borrow();
-    let mut d = dst.borrow_mut();
-    if si + n > s.len() || di + n > d.len() {
-        bail!(
-            "__array_copy: range out of bounds (src len {}, dst len {}, src {si}+{n}, dst {di}+{n})",
-            s.len(),
-            d.len()
-        );
-    }
-    // fix-silent-array-elem-zero：`copy_elems_from` 的元素转换「exactly what get_boxed/
-    // set_boxed already defines」（本函数头注原话）⇒ 它也继承了那个静默存 0。实测
-    // `Array.CopyRange(string[], 0, int[], 0, 1)` 静默成功并把目的地清零。
-    //
-    // 两侧 backing **同种** ⇒ 不可能不符，零成本跳过（真实用法几乎全在这条，
-    // 本函数存在的理由 `perf-bulk-array-copy` 不受影响）。否则逐元素严格校验。
-    let same_kind = s.prim_backing_kind() == d.prim_backing_kind();
-    if !same_kind {
-        if let Some(kind) = d.prim_backing_kind() {
-            for k in 0..n {
-                let elem = s.get_boxed(si + k);
-                if !d.prim_backing_accepts(&elem) {
-                    anyhow::bail!(
-                        "__array_copy: source element {} is {} — cannot store it into a {kind} \
-                         element (a silent zero would be indistinguishable from a legitimate write)",
-                        si + k,
-                        crate::semantics::value_kind_name(&elem)
-                    );
-                }
-            }
-        }
-    }
-    d.copy_elems_from(&s, si, di, n);
-    drop(d);
-    drop(s);
-    barrier_copied_range(ctx, &dst, di, n);
-    Ok(())
+    objops::array_bulk::copy_range(ctx, &src, si, &dst, di, n).map_err(|e| raise_op(ctx, e))
 }
 
 /// `__array_sort_prims(array, count) -> bool` — stable-sort `array[0, count)` natively
@@ -257,47 +218,6 @@ pub fn builtin_array_sort_prims(_ctx: &VmContext, args: &[Value]) -> Result<Valu
         Some(Value::Array(rc)) => Ok(Value::Bool(rc.borrow_mut().sort_prims_prefix(n))),
         Some(Value::Null) => bail!("__array_sort_prims: null array reference"),
         other => bail!("__array_sort_prims: expected an array, got {other:?}"),
-    }
-}
-
-/// **fix-missing-array-write-barriers (2026-09-10)**: fire the array write barrier over the
-/// range a bulk copy just wrote.
-///
-/// `perf-bulk-array-copy` replaced a script-side `for` loop of `ArraySet` with this one
-/// primitive — and every one of those interpreted `ArraySet`s **fired the write barrier**.
-/// The bulk version fired none, so an old destination array that received young references
-/// (a `List` compacting in place, a map rehashing into a retained buffer) never marked its
-/// card and the next minor swept the elements out from under it. Its own doc comment claims
-/// "a copy is indistinguishable from the loop it replaces" — this is what made that true.
-///
-/// The barrier keys its card on the **owning array's** entry, not the element index, so the
-/// first young element is all it takes; the scan stops there.
-fn barrier_copied_range(
-    ctx: &VmContext,
-    dst: &crate::gc::GcRef<ArrayObj>,
-    di: usize,
-    n: usize,
-) {
-    let refs: Vec<(usize, Value)> = {
-        let a = dst.borrow();
-        // perf-array-alloc-direct: a packed primitive array holds no references —
-        // skip the per-element `get_boxed` scan (List<int>/byte[] growth copies).
-        if a.prim_backing_kind().is_some() {
-            return;
-        }
-        (0..n)
-            .filter_map(|k| {
-                let v = a.get_boxed(di + k);
-                v.is_heap_ref().then_some((di + k, v))
-            })
-            .collect()
-    };
-    if refs.is_empty() {
-        return;
-    }
-    let owner = Value::Array(dst.clone());
-    for (idx, v) in refs {
-        ctx.heap().write_barrier_array_elem(&owner, idx, &v);
     }
 }
 

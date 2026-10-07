@@ -487,6 +487,10 @@ a.SetValue(10, 0);                 // 注意实参序是 (value, index)，与 C#
 object v = a.GetValue(0);          // 基元元素装箱返回
 ```
 
+元素类型是值 struct 时，`CreateInstance` 建的是真正的 `Point[]`，`GetValue` 返回元素的装箱副本，
+`SetValue` 只收该 struct 的装箱；值存不进元素类型时抛 `InvalidCastException`，见
+[数组](../language/arrays.md)。
+
 ## 不支持
 
 - **没有按名取单个成员的方法**：`GetField(name)` / `GetMethod(name)` /
