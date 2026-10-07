@@ -142,7 +142,8 @@ fn inline_object_field_roundtrips_and_is_traced() {
         ref_offsets:   Box::new([]),   // inlined → NOT in the side-table
         ref_kinds:     Box::new([]),
         ref_cells:     Box::new([0]),
-        field_access:  Box::new([FieldAccess { offset: 0, width: 8, tag: TAG_OBJECT, ref_slot: -1 }]),
+        tparam_cells:  Box::new([]),
+        field_access:  Box::new([FieldAccess::ref_word(0, TAG_OBJECT)]),
     });
     let holder_td = Arc::new(TypeDesc {
         class_flags: 0,
@@ -205,7 +206,8 @@ fn clear_refs_for_sweep_erases_every_reference_word() {
         ref_offsets:   Box::new([]),
         ref_kinds:     Box::new([]),
         ref_cells:     Box::new([0]),
-        field_access:  Box::new([FieldAccess { offset: 0, width: 8, tag: TAG_OBJECT, ref_slot: -1 }]),
+        tparam_cells:  Box::new([]),
+        field_access:  Box::new([FieldAccess::ref_word(0, TAG_OBJECT)]),
     });
     let holder_td = Arc::new(TypeDesc {
         class_flags: 0,
@@ -254,7 +256,8 @@ fn clear_refs_for_sweep_skips_an_offset_past_the_payload() {
         ref_kinds:     Box::new([]),
         // Offset 64 against a 8-byte payload: out of range on purpose.
         ref_cells:     Box::new([64]),
-        field_access:  Box::new([FieldAccess { offset: 0, width: 8, tag: TAG_OBJECT, ref_slot: -1 }]),
+        tparam_cells:  Box::new([]),
+        field_access:  Box::new([FieldAccess::ref_word(0, TAG_OBJECT)]),
     });
     let td = Arc::new(TypeDesc {
         class_flags: 0,
@@ -551,12 +554,12 @@ fn compose_object_layout_root_is_identity() {
     assert_eq!(&*composed.ref_cells, &[8, 16]);
 }
 
-/// Which direct reference fields stay in the 16 B side table: exactly the type-parameter
-/// fields (`T`, `T?`) — any `Value`, a raw `I64` under erasure. `object` / string / delegate
-/// fields of the same compiler kind get 8 B reference words. Inline-struct interior leaves
-/// (not a direct field's offset) stay in the side table too.
+/// Cell assignment: type-parameter fields (`T`, `T?`) — any `Value`, a raw `I64` under erasure —
+/// get 16 B type-parameter cells (tag word at their own slot, payload word past the compiler
+/// layout); `object` / string / delegate fields of the same compiler kind get 8 B reference
+/// words. Only inline-struct interior leaves (not a direct field's offset) stay in the side table.
 #[test]
-fn compose_object_layout_keeps_type_parameter_fields_in_the_side_table() {
+fn compose_object_layout_gives_type_parameter_fields_their_own_cells() {
     let own = crate::metadata::bytecode::ObjectLayoutDesc {
         size: 48,
         field_offsets: Box::new([0, 8, 16, 24, 32]),
@@ -570,10 +573,14 @@ fn compose_object_layout_keeps_type_parameter_fields_in_the_side_table() {
         .iter().map(|(n, t)| FieldSlot { name: (*n).into(), type_tag: (*t).into(), visibility: 0 }).collect();
     let composed = compose_object_layout(None, &own, &fields, &["T".to_string()]);
     assert_eq!(&*composed.ref_cells, &[8, 24], "object + string fields are reference words");
-    assert_eq!(&*composed.ref_offsets, &[0, 16, 40], "T, T? and the struct's interior leaf stay 16 B");
+    assert_eq!(&*composed.tparam_cells, &[0, 16], "T and T? are type-parameter cells");
+    assert_eq!(&*composed.ref_offsets, &[40], "only the struct's interior leaf stays 16 B");
     let cells: Vec<FieldCell> = composed.field_access.iter().map(|f| f.cell()).collect();
-    assert_eq!(cells, [FieldCell::Value, FieldCell::Ref, FieldCell::Value, FieldCell::Ref, FieldCell::Struct]);
-    assert_eq!(composed.field_access[2].ref_slot, 1, "T? → side-table slot 1");
+    assert_eq!(cells, [FieldCell::TypeParam, FieldCell::Ref, FieldCell::TypeParam, FieldCell::Ref, FieldCell::Struct]);
+    assert_eq!((composed.field_access[2].offset, composed.field_access[2].aux), (16, 56),
+        "T?: tag word at its slot, payload word after the 48 B compiler layout");
+    assert_eq!(composed.size, 48, "the compiler's size is unchanged");
+    assert_eq!(composed.bytes_len(), 64);
 }
 
 #[test]
@@ -588,6 +595,7 @@ fn compose_object_layout_pads_base_to_8() {
         ref_offsets:   Box::new([]),
         ref_kinds:     Box::new([]),
         ref_cells:     Box::new([]),
+        tparam_cells:  Box::new([]),
         field_access: Box::new([]),
     };
     let own = crate::metadata::bytecode::ObjectLayoutDesc {
@@ -618,6 +626,7 @@ fn compose_object_layout_already_aligned_base_no_extra_pad() {
         ref_offsets:   Box::new([]),
         ref_kinds:     Box::new([]),
         ref_cells:     Box::new([]),
+        tparam_cells:  Box::new([]),
         field_access: Box::new([]),
     };
     let own = crate::metadata::bytecode::ObjectLayoutDesc {

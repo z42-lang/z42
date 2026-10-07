@@ -700,18 +700,18 @@ fn object_layout_composed_local_inheritance() {
     assert_eq!(sub.field_index.get("other"), Some(&3));
 
     // D12: per-field access table resolves exact tags + refs slots from type_tag.
-    use crate::metadata::types::{TAG_I64, TAG_STR, TAG_OBJECT};
+    use crate::metadata::types::{FieldCell, TAG_I64, TAG_STR, TAG_OBJECT};
     let fa = &sl.field_access;
     assert_eq!(fa.len(), 4, "one FieldAccess per merged field");
     // age: i64 primitive @ 0, not a ref.
-    assert_eq!((fa[0].offset, fa[0].tag, fa[0].ref_slot), (0, TAG_I64, -1));
+    assert_eq!((fa[0].offset, fa[0].tag, fa[0].cell()), (0, TAG_I64, FieldCell::Prim));
     // name: str ref @ 8 → an 8 B reference word (no side-table slot).
-    assert_eq!((fa[1].offset, fa[1].tag, fa[1].ref_slot), (8, TAG_STR, -1));
+    assert_eq!((fa[1].offset, fa[1].tag, fa[1].cell()), (8, TAG_STR, FieldCell::Ref));
     // flag: bool primitive @ 16 (shifted), not a ref.
     assert_eq!(fa[2].offset, 16);
-    assert_eq!(fa[2].ref_slot, -1);
+    assert_eq!(fa[2].cell(), FieldCell::Prim);
     // other: object ref @ 24 → an 8 B reference word too.
-    assert_eq!((fa[3].offset, fa[3].tag, fa[3].ref_slot), (24, TAG_OBJECT, -1));
+    assert_eq!((fa[3].offset, fa[3].tag, fa[3].cell()), (24, TAG_OBJECT, FieldCell::Ref));
 }
 
 /// Cross-zpkg base→derived: the base is unresolvable at the derived module's

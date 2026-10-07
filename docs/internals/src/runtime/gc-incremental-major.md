@@ -36,7 +36,7 @@ sweep  ：X 被回收，而 r 还攥着它
 
 | 原语 | 覆盖的写入 |
 |---|---|
-| `ScriptObject::set_field_value` / `try_set_field_value` | 8 B 引用字（标记期间写是 `swap`，旧字交给屏障）；侧表引用叶子 |
+| `ScriptObject::set_field_value` / `try_set_field_value` | 8 B 引用字（标记期间写是 `swap`，旧字交给屏障）；型参单元的标签字（CAS 或标记期 `swap`，旧字是引用就交给屏障）；侧表引用叶子 |
 | `ScriptObject::set_ref_slot` | 直接写侧表引用叶子（`StructFieldSetPrim`、反射 `SetValue`） |
 | `ArrayObj::set_boxed` | 引用数组元素；struct[] 元素的引用叶子 |
 | `ArrayObj::write_struct_elem` / `set_struct_ref` | struct[] 元素整体 / 单个引用叶子 |

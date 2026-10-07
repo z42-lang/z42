@@ -90,7 +90,7 @@ fn test_something() { ... }
 引用放进寄存器、再清掉字段，该对象就会被扫掉）。
 
 - **批量写（`clone_from_slice` / `copy_from_slice` / `copy_within` 作用于 `Value` 切片）同样是覆盖**：先对被覆盖区间 `record_overwrite_all`（参照 `copy_elems_from`）。
-- **对象字段只经单元方法读写**（`metadata/types/object_fields.rs`：`field_value` / `try_set_field_value` / `visit_refs`，引擎侧经 `objops`）：基元是同宽 relaxed 原子、引用是 8 B 自描述字（release / acquire，标记期 swap），直接对 `bytes_mut()` 写会绕过内存序、种类编码与屏障。
+- **对象字段只经单元方法读写**（`metadata/types/object_fields.rs`：`field_value` / `try_set_field_value` / `visit_refs`，引擎侧经 `objops`）：基元是同宽 relaxed 原子、引用是 8 B 自描述字（release / acquire，标记期 swap）、型参字段是标签字 + 负载字的 16 B 单元（`tparam_cell`，负载字一生只装一种基元），直接对 `bytes_mut()` 写会绕过内存序、种类编码与屏障。
 - `refs_mut_raw()` 只给两种场景：**刚分配出来的对象**（旧值全是 `Null`，没有可漏的）和 **GC 自己**（给死对象断边，
   记录死对象只会把悬空句柄塞进标记队列）。新增调用点时在旁边写清是哪一种。
 - 新增一种「在堆里存引用」的布局（新的 backing / 内联引用形态）时，读旧值 + `record_overwrite` 必须随写入原语一起加，

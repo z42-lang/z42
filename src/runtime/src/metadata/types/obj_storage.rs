@@ -214,6 +214,94 @@ impl ObjStorage {
         0
     }
 
+    /// The two words of a type-parameter cell: tag word at `w0`, payload word at `w1`. The
+    /// payload word always lies past the tag word (it is appended after the compiler's
+    /// layout), so one bounds check covers both.
+    #[inline(always)]
+    fn tparam_words(&self, w0: usize, w1: usize) -> Option<(*mut u8, *mut u8)> {
+        if w0 >= w1 || w1 + 8 > self.n_bytes as usize {
+            return None;
+        }
+        debug_assert!(w0 % 8 == 0 && w1 % 8 == 0, "type-parameter cell at {w0}/{w1} is not 8-aligned");
+        let base = self.bytes_ptr();
+        // SAFETY: both words are in bounds of the byte region (checked above).
+        Some(unsafe { (base.add(w0), base.add(w1)) })
+    }
+
+    /// Load a type-parameter cell: the tag word (acquire), then the payload word (relaxed) —
+    /// the payload is only meaningful when the tag word says so (`tparam_cell`). `(0, 0)` =
+    /// `null` when out of bounds.
+    #[inline(always)]
+    pub fn load_tparam(&self, w0: usize, w1: usize) -> (u64, u64) {
+        match self.tparam_words(w0, w1) {
+            // SAFETY: aligned, in bounds, only ever accessed atomically or under the owner's
+            // exclusive borrow.
+            Some((p0, p1)) => unsafe {
+                let tag = AtomicU64::from_ptr(p0.cast()).load(Ordering::Acquire);
+                (tag, AtomicU64::from_ptr(p1.cast()).load(Ordering::Relaxed))
+            },
+            None => (0, 0),
+        }
+    }
+
+    /// Fast-path store into a type-parameter cell: when the tag word is `tag`, relaxed-store
+    /// `bits` into the payload word and return `true`; otherwise touch nothing.
+    #[inline(always)]
+    pub fn store_tparam_payload_if(&mut self, w0: usize, w1: usize, tag: u64, bits: u64) -> bool {
+        let Some((p0, p1)) = self.tparam_words(w0, w1) else { return false };
+        // SAFETY: see `load_tparam`.
+        unsafe {
+            if AtomicU64::from_ptr(p0.cast()).load(Ordering::Relaxed) != tag {
+                return false;
+            }
+            AtomicU64::from_ptr(p1.cast()).store(bits, Ordering::Relaxed);
+        }
+        true
+    }
+
+    /// Load the 8 B word at `off` with ordering `ord` (`0` when out of bounds). The raw form
+    /// behind the type-parameter cells (`tparam_cell`), whose tag word is acquire-loaded and
+    /// whose payload word is relaxed.
+    #[inline(always)]
+    pub fn load_word(&self, off: usize, ord: Ordering) -> u64 {
+        match self.cell(off, 8) {
+            // SAFETY: see `load_ref_word`.
+            Some(p) => unsafe { AtomicU64::from_ptr(p.cast()) }.load(ord),
+            None => 0,
+        }
+    }
+
+    /// Store the 8 B word at `off` with ordering `ord` (no-op when out of bounds).
+    #[inline(always)]
+    pub fn store_word(&mut self, off: usize, w: u64, ord: Ordering) {
+        if let Some(p) = self.cell(off, 8) {
+            // SAFETY: see `load_ref_word`.
+            unsafe { AtomicU64::from_ptr(p.cast()) }.store(w, ord);
+        }
+    }
+
+    /// Swap the 8 B word at `off` (`AcqRel`), returning the word it replaced (`0` when out of
+    /// bounds).
+    #[inline(always)]
+    pub fn swap_word(&mut self, off: usize, w: u64) -> u64 {
+        match self.cell(off, 8) {
+            // SAFETY: see `load_ref_word`.
+            Some(p) => unsafe { AtomicU64::from_ptr(p.cast()) }.swap(w, Ordering::AcqRel),
+            None => 0,
+        }
+    }
+
+    /// Compare-and-swap the 8 B word at `off` from `cur` to `new` (`AcqRel` / `Acquire`):
+    /// `Err(actual)` when the word was not `cur`. Out of bounds it is a no-op that reports
+    /// success, so a caller's retry loop always terminates.
+    #[inline(always)]
+    pub fn cas_word(&mut self, off: usize, cur: u64, new: u64) -> Result<u64, u64> {
+        let Some(p) = self.cell(off, 8) else { return Ok(cur) };
+        // SAFETY: see `load_ref_word`.
+        unsafe { AtomicU64::from_ptr(p.cast()) }
+            .compare_exchange(cur, new, Ordering::AcqRel, Ordering::Acquire)
+    }
+
     /// Zero the reference word at `off` (GC breaking a dead object's edges — no barrier).
     #[inline]
     pub fn clear_ref_word(&mut self, off: usize) {

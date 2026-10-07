@@ -128,7 +128,8 @@ fn scan_roots_visits_object_inlined_refs() {
         ref_offsets:   Box::new([]),
         ref_kinds:     Box::new([]),
         ref_cells:     Box::new([0]),
-        field_access:  Box::new([FieldAccess { offset: 0, width: 8, tag: TAG_OBJECT, ref_slot: -1 }]),
+        tparam_cells:  Box::new([]),
+        field_access:  Box::new([FieldAccess::ref_word(0, TAG_OBJECT)]),
     });
     let holder_td = Arc::new(TypeDesc {
         class_flags: 0,

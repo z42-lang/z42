@@ -57,7 +57,8 @@ fn build_cycle_heavy(heap: &dyn MagrGC, num_cycles: usize) {
             ref_offsets:   Box::new([0]),
             ref_kinds:     Box::new([STRUCT_REF_GCREF]),
             ref_cells:     Box::new([]),
-            field_access:  Box::new([FieldAccess { offset: 0, width: 8, tag: TAG_OBJECT, ref_slot: 0 }]),
+            tparam_cells:  Box::new([]),
+            field_access:  Box::new([FieldAccess::side(0, TAG_OBJECT, 0)]),
         });
         Arc::new(TypeDesc {
             name: "Cycle".to_string(),
