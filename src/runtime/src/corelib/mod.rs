@@ -219,6 +219,39 @@ pub fn exec_builtin(ctx: &VmContext, name: &str, args: &[Value]) -> Result<Optio
     Err(anyhow::anyhow!("unknown builtin `{name}`"))
 }
 
+/// builtin 返回 `Err` 时抛给用户代码的异常值 —— interp `exec_call::builtin` 与 JIT `jit_builtin`
+/// 共用这一份（两侧先各自处理 `pending_thrown` / 致命错误）。
+///
+/// - `OpError::into_builtin_error` 装进来的 `objops::Throw`（null 接收者 / null 实参……）按它自己的
+///   异常类构造，类与消息都只在 `objops/error.rs` 定义；
+/// - 其余错误包成 `Std.Exception`，消息是错误文本（make-corelib-errors-catchable）。
+///
+/// `Err` = 异常类没加载（裸模块的 Rust 单测）：调用方原样报内部错误（JIT 退化成字符串异常）。
+#[cold]
+pub fn builtin_error_exception(
+    ctx: &VmContext, module: &crate::metadata::Module, e: anyhow::Error,
+) -> Result<Value> {
+    match e.downcast::<crate::objops::Throw>() {
+        Ok(t) => crate::objops::OpError::Throw(Box::new(t)).into_exception(ctx, Some(module)),
+        Err(e) => crate::exception::make_stdlib_exception(ctx, module, "Std.Exception", e.to_string())
+            .map_err(|_| e),
+    }
+}
+
+/// objops 的 [`OpError`](crate::objops::OpError) → builtin 的错误通道。用户可 `catch` 的异常走
+/// [`OpError::into_builtin_error`](crate::objops::OpError::into_builtin_error)，由两个引擎的出口
+/// [`builtin_error_exception`] 以**原异常类**构造；已建好的异常值（`Thrown`）经 `pending_thrown` 以原值抛出
+/// （interp `exec_call::builtin` 与 JIT `jit_builtin` 都先取它）；内部错误原样返回（照常包成 `Std.Exception`）。
+pub(crate) fn raise_op(ctx: &VmContext, e: crate::objops::OpError) -> anyhow::Error {
+    match e {
+        crate::objops::OpError::Thrown(v) => {
+            ctx.set_pending_thrown(v);
+            anyhow::anyhow!("exception")
+        }
+        other => other.into_builtin_error(),
+    }
+}
+
 /// 校验 builtin 收到的实参个数 —— **split-null-sentinel-channels ⑥**。
 ///
 /// 🔴 **为什么需要它**：此前这些 builtin 用 `args.get(N).cloned().unwrap_or(Value::Null)`
@@ -232,24 +265,6 @@ pub fn exec_builtin(ctx: &VmContext, name: &str, args: &[Value]) -> Result<Optio
 /// Rust 侧从不声明 arity，而 307 个 builtin 里**只有 80 个**的函数体真的字面索引 `args`
 /// （其余用 helper / 解构 / 切片）⇒ 从源码提取会**假红**，而本仓的教训是假红比没门更坏。
 /// 局部校验零假红风险，且仓里本就有先例（`__array_clone` 一直这么做）。
-/// objops 的 [`OpError`](crate::objops::OpError) → builtin 的错误通道。用户可 `catch` 的异常建成 stdlib
-/// 异常对象、经 `pending_thrown` 以**原类型**抛出（interp `exec_call::builtin` 与 JIT `jit_builtin` 都先取它），
-/// 返回的 `Err` 只是占位；内部错误原样返回（照常包成 `Std.Exception`）。
-pub(crate) fn raise_op(ctx: &VmContext, e: crate::objops::OpError) -> anyhow::Error {
-    let text = match &e {
-        crate::objops::OpError::Internal(_) => return e.into_anyhow(),
-        crate::objops::OpError::Throw(t) => format!("{}: {}", t.class, t.msg),
-        crate::objops::OpError::Thrown(_) => "exception".to_string(),
-    };
-    match e.into_exception(ctx, ctx.module().map(|m| &**m)) {
-        Ok(exc) => {
-            ctx.set_pending_thrown(exc);
-            anyhow::anyhow!(text)
-        }
-        Err(e) => e,
-    }
-}
-
 #[inline]
 pub(crate) fn expect_args(who: &str, args: &[Value], want: usize) -> Result<()> {
     if args.len() != want {

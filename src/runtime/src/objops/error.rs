@@ -86,6 +86,29 @@ impl OpError {
         Self::throw(NULL_REF_EXC, format!("cannot take the address of field `{field}` of a null reference"))
     }
 
+    /// 调用方法 / 访问属性时接收者为 null（`VCall` 的解析路径、收到 null `string` 的 builtin）。
+    ///
+    /// `method` 是指令里的方法名：去掉编译器附加的重载键（`$arity$types`）与特化后缀（`:P2`），
+    /// 属性访问器（`get_X` / `set_X`）报成属性读写。
+    #[cold]
+    pub fn null_call(method: &str) -> Self {
+        let name = method.split(['$', ':']).next().unwrap_or(method);
+        let msg = if let Some(p) = name.strip_prefix("get_") {
+            format!("cannot read property `{p}` of a null reference")
+        } else if let Some(p) = name.strip_prefix("set_") {
+            format!("cannot write property `{p}` of a null reference")
+        } else {
+            format!("cannot call method `{name}` on a null reference")
+        };
+        Self::throw(NULL_REF_EXC, msg)
+    }
+
+    /// builtin 收到 null，而该位置要的是一个对象（非接收者实参；接收者用 [`OpError::null_call`]）。
+    #[cold]
+    pub fn null_arg(builtin: &str, index: usize) -> Self {
+        Self::throw(NULL_REF_EXC, format!("cannot pass null as argument {index} of `{builtin}`"))
+    }
+
     /// 数组操作的数组为 null。
     #[cold]
     pub fn null_array(op: ArrayOp) -> Self {
@@ -174,6 +197,17 @@ impl OpError {
         }
     }
 
+    /// builtin（签名返回 `anyhow::Result`）里抛用户异常：`Throw` 原样装进 `anyhow::Error`，
+    /// 两个引擎的 builtin 错误出口（`corelib::builtin_error_exception`）把它取回来按类构造。
+    /// 其余变体同 [`OpError::into_anyhow`]。
+    #[cold]
+    pub fn into_builtin_error(self) -> anyhow::Error {
+        match self {
+            OpError::Throw(t) => anyhow::Error::new(*t),
+            other => other.into_anyhow(),
+        }
+    }
+
     /// 只能报内部错误的调用点（ref 解引用写回等）用：异常折成同一条 `<类名>: <消息>` 文本。
     #[cold]
     pub fn into_anyhow(self) -> anyhow::Error {
@@ -189,6 +223,15 @@ impl OpError {
 fn elem_label(elem: &str) -> &str {
     if elem.is_empty() { "object" } else { elem }
 }
+
+/// 文本与 [`OpError::into_anyhow`] 相同：`<类名>: <消息>`（builtin 错误被折成字符串的出口看到的就是它）。
+impl std::fmt::Display for Throw {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}: {}", self.class, self.msg)
+    }
+}
+
+impl std::error::Error for Throw {}
 
 impl From<anyhow::Error> for OpError {
     #[cold]

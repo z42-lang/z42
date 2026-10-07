@@ -131,6 +131,8 @@ JIT helpers/* (extern C) ┘                       └ Err(OpError) → 引擎�
   | 情形 | 异常类 | 消息 |
   |------|-------|------|
   | 字段读 / 写的接收者为 null | `Std.NullReferenceException` | ``cannot read field `N` of a null reference`` / ``cannot write field …`` |
+  | 方法调用 / 属性访问的接收者为 null（`null_call`） | `Std.NullReferenceException` | ``cannot call method `Speak` on a null reference`` / ``cannot read property `Length` of a null reference`` |
+  | builtin 收到 null 字符串实参（`null_arg`） | `Std.NullReferenceException` | ``cannot pass null as argument 1 of `String.CompareTo` `` |
   | 数组读 / 写 / 取长的数组为 null | `Std.NullReferenceException` | `cannot read an element of a null array` 等 |
   | 下标越界（含负数） | `Std.IndexOutOfRangeException` | `index 3 is out of range for an array of length 3` |
   | 数组长度为负 | `Std.OverflowException` | `array size cannot be negative (got -2)` |
@@ -161,11 +163,33 @@ JIT helpers/* (extern C) ┘                       └ Err(OpError) → 引擎�
 > 用 `corelib::raise_op` 把 `OpError` 以原异常类抛出。
 >
 > 尚未进入本层的：对象分配（`interp/obj_new_resolve.rs`）、闭包环境数组、反射 builtin
-> （`FieldInfo.GetValue` / `SetValue` 等），以及 `VCall` 的 null 接收者（仍是
-> `VCall: expected object, got Null` 内部错误）。
+> （`FieldInfo.GetValue` / `SetValue` 等）。
 
-端到端对照：`src/tests/exceptions/objops_errors.z42` 在 interp 与 `--mode jit` 下各跑一遍，逐条断言异常类与
-`Message`；每个出错的访问放在独立函数里，保证 JIT 档的异常确实出自 JIT helper。
+#### 调用的 null 接收者
+
+同一个 `OpError::null_call(方法名)` 从三处出口发出，两个引擎拿到同一个异常类与同一条消息
+（方法名去掉编译器附加的 `$arity$types` / `:特化` 后缀；`get_X` / `set_X` 报成属性读写）：
+
+| 调用形态（编译器发什么） | 判空落在哪 | 热路径代价 |
+|------|-----------|-----------|
+| `VCall`（虚 / 接口 / 本包非虚方法、属性访问器、`s.Length`） | `vcall_resolve::resolve_vcall` 开头，产出 `VCallTarget::Thrown`，两个引擎沿用既有的 `Thrown` 臂 | 零：PIC 键 `receiver_type_id(Null)` 本就是 `None`，null 只会走到未命中的慢路 |
+| 直接 `Call` 到 `[Native]` 转发桩（`s.CharAt(i)`、`s.ToCharArray()`……） | builtin 的接收者取值 `corelib::convert::this_str(args, 成员名)`；非接收者实参走 `arg_str` → `null_arg` | 零：只在既有 tag match 的失配臂里构造 |
+| `CallIndirect`（null 委托） | `semantics::null_invoke_msg`（不经 objops，见 [委托与事件](delegates-events.md)） | — |
+
+builtin 签名返回 `anyhow::Result`，所以用户异常经 `OpError::into_builtin_error` 把 `objops::Throw`
+**原样装进** `anyhow::Error`；interp `exec_call::builtin` 与 JIT `jit_builtin` 的错误出口共用
+`corelib::builtin_error_exception`：能 downcast 回 `Throw` 就按它的类构造，否则照旧包成 `Std.Exception`。
+`Throw` 的 `Display` 与 `into_anyhow` 同为 `<类名>: <消息>`，被别的路径折成字符串时文本也一致。
+
+**已知边界：直接 `Call` 的实例方法不在调用点判空。** 编译器静态绑定的实例调用（其他包里的非虚方法、
+sealed 类去虚化后的调用）发的是 `Call`，接收者只是第 0 个实参；在调用点判空要给每个 `Call` 加一次取 tag
+比较，故不做。null 从被调方法**第一次用到 `this`** 的地方抛出，消息指向那一步（`s.Substring(1)` 的方法体先读
+`this.Length`，报 ``cannot read property `Length` ``）；方法体完全不碰 `this` 时不抛。要对齐 C# `callvirt`
+的调用点语义，可由编译器对这类调用改发 `VCall`（代价是每次经 PIC，且失去 `IrInline` 内联），尚未做。
+
+端到端对照：`src/tests/exceptions/objops_errors.z42`（字段 / 数组）与 `null_receiver_call.z42`（调用的 null
+接收者）在 interp 与 `--mode jit` 下各跑一遍，逐条断言异常类与 `Message`；每个出错的访问放在独立函数里，
+保证 JIT 档的异常确实出自 JIT helper。
 
 ### 路径 3：注释锚定 + 差分测试（无法运行期调 Rust）
 
