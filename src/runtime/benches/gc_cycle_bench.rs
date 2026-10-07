@@ -56,7 +56,7 @@ fn build_cycle_heavy(heap: &dyn MagrGC, num_cycles: usize) {
             field_kinds:   Box::new([2]), // StructLeafKind::GcRef
             ref_offsets:   Box::new([0]),
             ref_kinds:     Box::new([STRUCT_REF_GCREF]),
-            inline_refs:   Box::new([]),
+            ref_cells:     Box::new([]),
             field_access:  Box::new([FieldAccess { offset: 0, width: 8, tag: TAG_OBJECT, ref_slot: 0 }]),
         });
         Arc::new(TypeDesc {
