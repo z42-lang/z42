@@ -594,6 +594,9 @@ public sealed class Z42InstantiatedInterfaceType : Z42InterfaceType {
         this.Bases = def.Bases;
         this.TypeParamNames = def.TypeParamNames; this.TypeParamCount = def.TypeParamCount;
         this.Visibility = def.Visibility; this.IsImported = def.IsImported;
+        // fqn-tables 5b：声明 ns 同样随定义走。此前漏拷 ⇒ 实例化接口的 `Fqn()` 退化成裸名 ⇒ TYPE / SIGS 把
+        // `ISubscription<Action<T>>` 这类引用写成裸名（SIGS 侧还丢了实参），消费端只能靠短名回落猜。
+        this.Namespace = def.Namespace;
     }
     // 带实参的拼写（诊断 / 关联类型绑定匹配用；**不要**拿它去写元数据，见上）。
     public string NameWithArgs() {
