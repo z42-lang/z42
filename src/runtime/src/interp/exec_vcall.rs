@@ -39,7 +39,7 @@ fn try_native_method_call(
     };
     ctx.counters().jit_native_from_interp.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let callee = crate::jit::frame::JitFrame::new_method_args_from(
-        max_reg, receiver.clone(), &frame.regs, args);
+        ctx, max_reg, receiver.clone(), &frame.regs, args);
     let outcome = unsafe { crate::jit::invoke::call_native(ctx, jit_ctx, ptr, callee_fn, callee) };
     Some(Ok(super::exec_call::native_result_to_dst(ctx, frame, dst, outcome)))
 }

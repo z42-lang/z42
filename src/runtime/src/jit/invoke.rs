@@ -72,11 +72,11 @@ pub(crate) unsafe fn call_native(
     let r = unsafe { jit_fn(&mut frame, jit_ctx) };
     vm.pop_frame();
     if r != 0 {
-        frame.recycle();
+        frame.recycle(vm);
         return NativeOutcome::Threw;
     }
     let ret = frame.ret.take();
-    frame.recycle();
+    frame.recycle(vm);
     NativeOutcome::Returned(ret)
 }
 

@@ -272,6 +272,16 @@ pub(crate) fn invoke_impl(
 
     let _sink_guard = HostSinkGuard::enter();
     let ctx = &*host_module.ctx;
+    // Engine entry from the host. A context installs its VM / heap thread-locals
+    // only when its frame stack goes 0 → 1 (`vm_context/engine_guards.rs`); a host
+    // re-entering this module from a native callback of *another* VM on this
+    // thread finds this context's stack already non-empty (it called out to that
+    // VM) while the thread-locals name the other VM. Install them here, every
+    // time; each guard restores what it found, and is a no-op when they already
+    // name this VM.
+    #[cfg(feature = "native-interop")]
+    let _vm_guard = crate::native::exports::VmGuard::enter(ctx);
+    let _heap_guard = crate::gc::ambient::HeapGuard::enter(ctx.heap());
     // fix-host-static-init: run the merged packages' `__static_init__` once per module,
     // before the first entry — `Vm::run` does the same right before `Main`. Inside the
     // sink guard so initializer output reaches the host. `init_static_fields` clears all

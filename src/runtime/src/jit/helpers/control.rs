@@ -165,7 +165,7 @@ mod check_safepoint_tests {
             osr_threshold:    10_000,
             stack_limit: 0,
         };
-        (jit_ctx, JitFrame::new(0, &[]))
+        (jit_ctx, JitFrame::new(vm_ctx, 0, &[]))
     }
 
     #[test]

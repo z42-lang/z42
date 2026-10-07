@@ -27,7 +27,7 @@ pub(crate) use crate::metadata::types::{decode_prim, encode_prim, prim_width, is
 pub(super) fn struct_alloc(
     ctx: &VmContext, frame: &mut Frame, dst: u32, type_name: &str, size: u32,
 ) -> Result<()> {
-    let v = struct_alloc_val(ctx, frame.frame_id, type_name, size);
+    let v = struct_alloc_val(ctx, frame.frame_id(ctx), type_name, size);
     frame.set(dst, v);
     Ok(())
 }

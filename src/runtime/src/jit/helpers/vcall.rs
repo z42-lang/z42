@@ -101,8 +101,9 @@ unsafe fn invoke_entry(
     frame_ref: &mut JitFrame, ctx: *const JitModuleCtx, dst: u32,
     entry: &FnEntry, this: Value, arg_regs: &[u32],
 ) -> u8 {
-    let callee = JitFrame::new_method_args_from(entry.max_reg, this, &frame_ref.regs, arg_regs);
-    call_entry(vm_ctx_ref(ctx), ctx, entry, callee).store_into(&mut frame_ref.regs, dst)
+    let vm = vm_ctx_ref(ctx);
+    let callee = JitFrame::new_method_args_from(vm, entry.max_reg, this, &frame_ref.regs, arg_regs);
+    call_entry(vm, ctx, entry, callee).store_into(&mut frame_ref.regs, dst)
 }
 
 /// Run a function on the interpreter with `this` in reg 0 and args filled from the

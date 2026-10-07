@@ -32,13 +32,13 @@ pub(crate) struct Frame {
     /// `Frame::new*`) so "called once, loops a lot" upgrades while "called a lot,
     /// loops a little" does not (that's the call-count path's job).
     pub back_edge_count: u32,
-    /// add-escape-analysis-stack-alloc: this frame's monotonic id, stamped at
-    /// entry (`exec_function_body`) from `ctx.next_frame_id()`. `ObjNew`/`ArrayNew`
-    /// with `stack_alloc` tag their arena slots with it; a `Value::StackObject`/
-    /// `StackArray` handle carries it so a stale access (after this frame
-    /// truncated the arena) is caught by the frame_id mismatch. 0 = unstamped
-    /// (frames that never stack-allocate; the arena is never keyed on 0).
-    pub frame_id: u32,
+    /// This activation's id, taken lazily (see [`Frame::frame_id`]); `0` until
+    /// then. `ObjNew`/`ArrayNew` with `stack_alloc`, `Ref`s, `PinnedView`s,
+    /// struct values and stack closures tag their arena slots with it, and the
+    /// handle carries it, so a stale access (after this frame truncated the
+    /// arena) is caught by the id mismatch. Most frames never allocate there and
+    /// never take one.
+    id: std::cell::Cell<u32>,
     /// add-generic-methods: resolved concrete FQ type-argument names for the
     /// generic method call that created this frame (from `CallInsn::method_type_args`).
     /// Empty for non-generic calls. Read by `MethodTypeArg` / `MethodDefault` in the
@@ -48,55 +48,15 @@ pub(crate) struct Frame {
     pub method_type_args: Box<[String]>,
 }
 
-thread_local! {
-    /// Per-thread free-list of register-file Vecs (perf-vm-iteration Phase 1).
-    /// LIFO reuse across `Frame::new` / `Drop for Frame`. Bounded so deep-then-
-    /// shallow recursion doesn't pin memory forever. Thread-local ⇒ no lock, no
-    /// GC-root visibility (returned Vecs are cleared before parking, and are
-    /// never registered as roots — only a *live* frame's regs are scanned).
-    static REGS_POOL: std::cell::RefCell<Vec<Vec<Value>>> =
-        const { std::cell::RefCell::new(Vec::new()) };
-}
-
-/// Max Vecs retained in the per-thread pool. Caps idle memory; excess frees
-/// normally.
-pub(super) const REGS_POOL_CAP: usize = 512;
-
-impl Drop for Frame {
-    fn drop(&mut self) {
-        // Return the register-file allocation to the per-thread pool for reuse.
-        // `clear()` drops every held `Value` (Arc<str> refcount dec, GcRef drop
-        // is a no-op) BEFORE parking the Vec, so no stale heap ref lingers in an
-        // unscanned location. Runs only after `FrameGuard` popped the VmFrame
-        // (drop order), so the regs pointer is no longer a GC root here.
-        let mut regs = std::mem::take(&mut self.regs);
-        regs.clear();
-        if regs.capacity() > 0 {
-            REGS_POOL.with(|p| {
-                let mut pool = p.borrow_mut();
-                if pool.len() < REGS_POOL_CAP {
-                    pool.push(regs);
-                }
-            });
-        }
-    }
-}
-
 impl Frame {
-    pub fn new(args: &[Value], max_reg: u32) -> Self {
+    /// A frame whose first registers are `args`. The register file comes from
+    /// the context's register pool (`VmContext::reg_pool`, all `Null`); the
+    /// frame's [`FrameGuard`] hands it back after popping the frame. A `Frame`
+    /// dropped without ever being entered just frees it.
+    pub fn new(ctx: &VmContext, args: &[Value], max_reg: u32) -> Self {
         let size = if max_reg > 0 { max_reg as usize } else { args.len() };
         let need = size.max(args.len());
-        // perf-vm-iteration Phase 1 (Decision 3): reuse a register-file Vec from
-        // a per-thread free-list instead of `vec![Null; need]` every call. The
-        // pool is thread-local (one mutator thread per VmContext today), so it
-        // has no GC / cross-thread coupling — unlike the call_stack Mutex. The
-        // matching `Drop for Frame` returns the (cleared) Vec to the pool AFTER
-        // `FrameGuard` has already popped this frame's VmFrame root (drop order:
-        // `_frame_guard`/`_vm_guard` are declared after `frame` in exec_function,
-        // so they drop first). Saves one malloc+free per call on call-heavy code.
-        let mut regs = REGS_POOL.with(|p| p.borrow_mut().pop()).unwrap_or_default();
-        regs.clear();
-        regs.resize(need, Value::Null);
+        let mut regs = ctx.reg_pool.take(need);
         for (i, v) in args.iter().enumerate() {
             regs[i] = v.clone();
         }
@@ -105,7 +65,7 @@ impl Frame {
             env_arena: Vec::new(),
             ref_writebacks: Vec::new(),
             back_edge_count: 0,
-            frame_id: 0,
+            id: std::cell::Cell::new(0),
             method_type_args: Box::default(),
         }
     }
@@ -114,13 +74,13 @@ impl Frame {
     /// register file directly from `caller_regs[arg_indices[i]]` — one clone per
     /// arg, no intermediate args `Vec`. Same pooling as `new`. Returns an error
     /// (not a panic) on an out-of-range register index, matching `collect_args`.
-    pub fn new_from_regs(caller_regs: &[Value], arg_indices: &[u32], max_reg: u32) -> Result<Self> {
+    pub fn new_from_regs(
+        ctx: &VmContext, caller_regs: &[Value], arg_indices: &[u32], max_reg: u32,
+    ) -> Result<Self> {
         let argc = arg_indices.len();
         let size = if max_reg > 0 { max_reg as usize } else { argc };
         let need = size.max(argc);
-        let mut regs = REGS_POOL.with(|p| p.borrow_mut().pop()).unwrap_or_default();
-        regs.clear();
-        regs.resize(need, Value::Null);
+        let mut regs = ctx.reg_pool.take(need);
         for (i, &r) in arg_indices.iter().enumerate() {
             let v = caller_regs.get(r as usize)
                 .ok_or_else(|| anyhow::anyhow!("undefined register %{r}"))?;
@@ -131,7 +91,7 @@ impl Frame {
             env_arena: Vec::new(),
             ref_writebacks: Vec::new(),
             back_edge_count: 0,
-            frame_id: 0,
+            id: std::cell::Cell::new(0),
             method_type_args: Box::default(),
         })
     }
@@ -142,15 +102,13 @@ impl Frame {
     /// Eliminates the vcall path's `vec![receiver]` + `collect_args` Vecs and the
     /// arg double-clone; receiver + each arg cloned exactly once.
     pub fn new_from_receiver_regs(
-        receiver: &Value, caller_regs: &[Value], arg_indices: &[u32], max_reg: u32,
+        ctx: &VmContext, receiver: &Value, caller_regs: &[Value], arg_indices: &[u32], max_reg: u32,
     ) -> Result<Self> {
         let argc = arg_indices.len();
         let total = argc + 1; // + receiver in slot 0
         let size = if max_reg > 0 { max_reg as usize } else { total };
         let need = size.max(total);
-        let mut regs = REGS_POOL.with(|p| p.borrow_mut().pop()).unwrap_or_default();
-        regs.clear();
-        regs.resize(need, Value::Null);
+        let mut regs = ctx.reg_pool.take(need);
         regs[0] = receiver.clone();
         for (i, &r) in arg_indices.iter().enumerate() {
             let v = caller_regs.get(r as usize)
@@ -162,9 +120,28 @@ impl Frame {
             env_arena: Vec::new(),
             ref_writebacks: Vec::new(),
             back_edge_count: 0,
-            frame_id: 0,
+            id: std::cell::Cell::new(0),
             method_type_args: Box::default(),
         })
+    }
+
+    /// This frame's id, taken from `ctx` the first time it is asked for. Ask
+    /// only when tagging a new arena slot / handle with it.
+    #[inline]
+    pub fn frame_id(&self, ctx: &VmContext) -> u32 {
+        let id = self.id.get();
+        if id != 0 {
+            return id;
+        }
+        let id = ctx.next_frame_id();
+        self.id.set(id);
+        id
+    }
+
+    /// The id as it stands, `0` if none was taken yet (OSR hands it on as is).
+    #[inline]
+    pub fn frame_id_if_taken(&self) -> u32 {
+        self.id.get()
     }
 
     /// Set a register's raw value (no deref). For ref-aware store-through
@@ -386,3 +363,7 @@ pub(crate) fn resolve_line(table: &[crate::metadata::bytecode::LineEntry], block
 }
 
 // ── Core execution loop ──────────────────────────────────────────────────────
+
+#[cfg(test)]
+#[path = "frame_tests.rs"]
+mod frame_tests;

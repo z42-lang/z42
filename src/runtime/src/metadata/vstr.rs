@@ -30,7 +30,7 @@
 //! # Allocation & the ambient heap
 //!
 //! `Str::new`/`From<&str>` carry no `&heap`, so they allocate from the **ambient
-//! heap** ([`crate::gc::ambient::current_heap`], scoped per frame). In the rare
+//! heap** ([`crate::gc::ambient::current_heap`], scoped per engine entry). In the rare
 //! heap-less context (unit tests without a VM), they fall back to a standalone
 //! **leaked** block — never taken on a production hot path (see [`Self::new`]).
 //!

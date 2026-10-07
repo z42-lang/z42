@@ -140,8 +140,8 @@ pub unsafe extern "C" fn jit_call(
     // Fill the callee frame directly from the caller's registers — no
     // intermediate `Vec<Value>` alloc, args cloned once instead of twice.
     let arg_regs = std::slice::from_raw_parts(args_ptr, argc);
-    let callee_frame = JitFrame::new_args_from(entry.max_reg, &frame_ref.regs, arg_regs);
     let vm_ctx = vm_ctx_ref(ctx);
+    let callee_frame = JitFrame::new_args_from(vm_ctx, entry.max_reg, &frame_ref.regs, arg_regs);
 
     // jit-stack-trace: stamp the caller's call-site offset.
     vm_ctx.set_top_frame_pc(caller_offset);

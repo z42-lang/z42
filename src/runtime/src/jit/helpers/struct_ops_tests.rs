@@ -96,7 +96,7 @@ fn alloc_stamps_nonzero_frame_id_and_struct_ref() {
     let vm = VmContext::new();
     register_pair(&vm);
     let ctx = make_jit_ctx(&vm);
-    let mut frame = JitFrame::new(4, &[]);
+    let mut frame = JitFrame::new(&vm, 4, &[]);
     assert_eq!(frame.frame_id, 0, "fresh frame starts unassigned");
     unsafe { alloc_pair(&mut frame, &ctx, 0) };
     assert_ne!(frame.frame_id, 0, "allocating a struct lazily assigns a real id");
@@ -112,7 +112,7 @@ fn field_set_get_prim_round_trips() {
     let vm = VmContext::new();
     register_pair(&vm);
     let ctx = make_jit_ctx(&vm);
-    let mut frame = JitFrame::new(8, &[]);
+    let mut frame = JitFrame::new(&vm, 8, &[]);
     unsafe {
         alloc_pair(&mut frame, &ctx, 0);
         // regs[5] = 42 → write leaf@0; regs[6] = -7 → write leaf@4.
@@ -133,7 +133,7 @@ fn copy_is_value_independent() {
     let vm = VmContext::new();
     register_pair(&vm);
     let ctx = make_jit_ctx(&vm);
-    let mut frame = JitFrame::new(8, &[]);
+    let mut frame = JitFrame::new(&vm, 8, &[]);
     unsafe {
         alloc_pair(&mut frame, &ctx, 0); // src
         alloc_pair(&mut frame, &ctx, 1); // dst
@@ -155,7 +155,7 @@ fn field_op_on_non_struct_base_raises() {
     let vm = VmContext::new();
     register_pair(&vm);
     let ctx = make_jit_ctx(&vm);
-    let mut frame = JitFrame::new(4, &[]);
+    let mut frame = JitFrame::new(&vm, 4, &[]);
     frame.regs[0] = Value::I64(5); // not a struct handle
     frame.regs[1] = Value::I64(1);
     unsafe {
@@ -170,7 +170,7 @@ fn stale_struct_ref_is_caught() {
     let vm = VmContext::new();
     register_pair(&vm);
     let ctx = make_jit_ctx(&vm);
-    let mut frame = JitFrame::new(4, &[]);
+    let mut frame = JitFrame::new(&vm, 4, &[]);
     // A handle into an arena slot that was never allocated for this id → the
     // staleness guard must reject it (return 1), not silently read garbage.
     frame.regs[0] = Value::StructRef { idx: 999, frame_id: 424242 };

@@ -653,7 +653,7 @@ realloc 健全性风险，**待办**：待 benchmark 证明某热路径卡在 he
 `StructRef{idx, frame_id}` 的 `frame_id` 供共享 arena 的悬垂 guard（LIFO base 已由现有
 `push_frame`/`pop_frame` stamp `struct_base` 管理）。`JitFrame` 加 `frame_id: u32`（默认 `0`），采用
 **纯惰性**——只在**分配型** helper（`jit_struct_alloc` / `jit_as_cast` 拆箱 / `copy_array_elem_out`）里，
-若 `frame_id==0` 则从 `next_frame_id()`（与 interp 帧共用的单调 `AtomicU32`）取真值。deref（`FieldGet`/
+若 `frame_id==0` 则从 `next_frame_id()`（与 interp 帧共用的 id 来源；interp 帧同样惰性取号）取真值。deref（`FieldGet`/
 `Copy`）用的是句柄里**内嵌**的 frame_id（非当前帧），故只有 alloc 路径需要——一处惰性覆盖入口 + 所有嵌套
 callee，零 per-site 改动。**OSR 例外**：`from_interp_regs` 续接同一逻辑活动记录，须 eager **继承** interp
 帧 frame_id（OSR 前已分配的 struct 局部交接后仍要能 deref）。

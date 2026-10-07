@@ -341,6 +341,12 @@ pub struct VmContext {
     /// interp and `jit::invoke::call_native` for JIT pop before the owner
     /// returns.
     pub(crate) call_stack:        super::frame_stack::FrameStack,
+    /// Free-list of register files for interp `Frame`s and `JitFrame`s.
+    /// Owner-thread only, see [`super::reg_pool`].
+    pub(crate) reg_pool:          super::reg_pool::RegPool,
+    /// VM / heap thread-locals installed at the bottom frame's push and
+    /// restored at the last pop. Owner-thread only, see [`super::engine_guards`].
+    pub(crate) engine_guards:     super::engine_guards::EngineGuards,
     /// add-escape-analysis-stack-alloc: per-thread arena holding escape-analysis
     /// stack-allocated objects/arrays (`Value::StackObject`/`StackArray` index it).
     /// LIFO-truncated by `pop_frame` to each frame's stamped base. Scanned as GC
@@ -372,8 +378,11 @@ pub struct VmContext {
     pub(crate) stack_arr_len:     std::sync::atomic::AtomicUsize,
     pub(crate) struct_len:        std::sync::atomic::AtomicUsize,
     pub(crate) transient_len:     std::sync::atomic::AtomicUsize,
-    /// add-escape-analysis-stack-alloc: monotonic per-frame id source (stamped onto
-    /// each interp `Frame` at entry; keys arena slots for stale-handle diagnostics).
+    /// Frame-id source: a frame takes an id the first time it allocates in one of
+    /// the arenas above (interp `Frame::frame_id`, JIT `struct_ops::frame_id_of`);
+    /// arena slots are keyed by it for stale-handle diagnostics. Written only by
+    /// the owner thread (load + store, no RMW); an atomic only to keep the
+    /// context `Sync`.
     pub(crate) next_frame_id:     std::sync::atomic::AtomicU32,
     /// runtime-jit-tiering Phase 1.5 (mixed-mode): forward pointer to the active
     /// `JitModuleCtx`, mirroring the existing `JitModuleCtx.vm_ctx` back-pointer.

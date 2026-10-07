@@ -296,7 +296,8 @@ VarRegion 变长块（16B 对齐原始 chunk + 四分之一八度 size-class fre
 | `ArrayValue` | inline `[Value;n]`（Boxed 数组 / struct[] refs 侧表）| `ArrayObj` backing | **唯一需 finalizer**：drop 每个 `Value` |
 
 **分配落地 = ambient 堆**（[`gc/ambient.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/gc/ambient.rs)）：`current_heap()` +
-`HeapGuard` 在 `exec_function`（interp 每帧）/ `jit::run_fn`（JIT 顶层）设 thread-local，
+`HeapGuard` 在引擎入口设 thread-local（ctx 栈底帧 push 时、宿主 invoke、`jit::run_fn`；见
+[vm-architecture.md](vm-architecture.md#寄存器池引擎入口-guardframe_id)），
 `Str::new`/`.into()` 走活堆分配 → **~189 处 `.into()` 站点零改动**；无堆上下文（无 VM 的单测）
 回退 `alloc_leaked`。避免了「188 处线程穿透 `&heap`」的侵入式改造（D11）。
 

@@ -45,7 +45,7 @@ fn obj_with_field_f(ctx: &VmContext, init: Value) -> Value {
 #[test]
 fn load_elem_addr_produces_array_ref_kind() {
     let ctx = VmContext::new();
-    let mut frame = Frame::new(&[], 8);
+    let mut frame = Frame::new(&ctx, &[], 8);
     let arr = ctx.heap().alloc_array(vec![Value::I64(10), Value::I64(20)]);
     frame.set(0, arr);
     frame.set(1, Value::I64(1)); // index
@@ -54,7 +54,7 @@ fn load_elem_addr_produces_array_ref_kind() {
 
     match frame.get(2).unwrap() {
         Value::Ref { idx, frame_id } => {
-            assert_eq!(*frame_id, frame.frame_id, "ref is stamped with the creating frame");
+            assert_eq!(*frame_id, frame.frame_id(&ctx), "ref is stamped with the creating frame");
             let kind = ctx.transient_arena.lock().ref_kind(*idx, *frame_id).unwrap();
             match kind {
                 RefKind::Array { idx: elem, .. } => assert_eq!(elem, 1),
@@ -70,7 +70,7 @@ fn load_elem_addr_produces_array_ref_kind() {
 #[test]
 fn store_through_elem_ref_writes_back_to_the_array() {
     let ctx = VmContext::new();
-    let mut frame = Frame::new(&[], 8);
+    let mut frame = Frame::new(&ctx, &[], 8);
     let arr = ctx.heap().alloc_array(vec![Value::I64(10), Value::I64(20)]);
     frame.set(0, arr.clone());
     frame.set(1, Value::I64(0));
@@ -92,7 +92,7 @@ fn store_through_elem_ref_writes_back_to_the_array() {
 #[test]
 fn load_elem_addr_rejects_non_array() {
     let ctx = VmContext::new();
-    let mut frame = Frame::new(&[], 8);
+    let mut frame = Frame::new(&ctx, &[], 8);
     frame.set(0, Value::I64(7)); // not an array
     frame.set(1, Value::I64(0));
 
@@ -108,8 +108,8 @@ fn load_elem_addr_rejects_non_array() {
 #[test]
 fn load_elem_addr_rejects_stack_array() {
     let ctx = VmContext::new();
-    let mut frame = Frame::new(&[], 8);
-    frame.set(0, Value::StackArray { idx: 0, frame_id: frame.frame_id });
+    let mut frame = Frame::new(&ctx, &[], 8);
+    frame.set(0, Value::StackArray { idx: 0, frame_id: frame.frame_id(&ctx) });
     frame.set(1, Value::I64(0));
 
     assert!(load_elem_addr(&ctx, &mut frame, 2, 0, 1).is_err());
@@ -119,7 +119,7 @@ fn load_elem_addr_rejects_stack_array() {
 #[test]
 fn load_field_addr_produces_field_ref_kind() {
     let ctx = VmContext::new();
-    let mut frame = Frame::new(&[], 8);
+    let mut frame = Frame::new(&ctx, &[], 8);
     frame.set(0, obj_with_field_f(&ctx, Value::I64(20)));
 
     load_field_addr(&ctx, &mut frame, 1, 0, "f").unwrap();
@@ -140,7 +140,7 @@ fn load_field_addr_produces_field_ref_kind() {
 #[test]
 fn store_through_field_ref_writes_back_to_the_object() {
     let ctx = VmContext::new();
-    let mut frame = Frame::new(&[], 8);
+    let mut frame = Frame::new(&ctx, &[], 8);
     let obj = obj_with_field_f(&ctx, Value::I64(20));
     frame.set(0, obj.clone());
 
@@ -162,7 +162,7 @@ fn store_through_field_ref_writes_back_to_the_object() {
 #[test]
 fn store_through_unknown_field_bails() {
     let ctx = VmContext::new();
-    let mut frame = Frame::new(&[], 8);
+    let mut frame = Frame::new(&ctx, &[], 8);
     frame.set(0, obj_with_field_f(&ctx, Value::I64(1)));
 
     load_field_addr(&ctx, &mut frame, 1, 0, "nope").unwrap();
@@ -178,7 +178,7 @@ fn store_through_unknown_field_bails() {
 #[test]
 fn load_field_addr_rejects_non_object() {
     let ctx = VmContext::new();
-    let mut frame = Frame::new(&[], 8);
+    let mut frame = Frame::new(&ctx, &[], 8);
     frame.set(0, Value::I64(7));
 
     let err = load_field_addr(&ctx, &mut frame, 1, 0, "f").unwrap_err();

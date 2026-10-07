@@ -84,8 +84,9 @@ pub(super) fn call_native(
 
     // SAFETY: cif was built from `params`/`return_type` matching the
     // native function pointer at registration time; native lib keeps
-    // the function alive via `VmContext.native_libs`. CURRENT_VM is
-    // set by VmGuard so a re-entrant z42_* call finds the right ctx.
+    // the function alive via `VmContext.native_libs`. CURRENT_VM names
+    // this ctx (engine guards, installed at the bottom frame) so a
+    // re-entrant z42_* call finds the right ctx.
     let z_ret = unsafe {
         ndisp::call(
             &method.cif,
@@ -121,7 +122,7 @@ pub(super) fn call_native_vtable(vtable_slot: u16) -> Result<()> {
 pub(super) fn pin_ptr(
     ctx: &VmContext, module: &Module, frame: &mut Frame, dst: u32, src: u32,
 ) -> Result<Option<Value>> {
-    let fid = frame.frame_id;
+    let fid = frame.frame_id(ctx);
     // make-value-copy: PinnedView payload lives in the per-context transient arena;
     // the register holds only an 8B `{idx, frame_id}` handle.
     let mk_view = |ctx: &VmContext, data: crate::metadata::PinnedViewData| {

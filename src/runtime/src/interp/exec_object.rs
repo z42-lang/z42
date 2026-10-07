@@ -143,8 +143,9 @@ pub(super) fn obj_new(
         ) {
             obj.set_field_value(slot, &zero);
         }
-        let idx = ctx.stack_alloc_obj(frame.frame_id, obj);
-        Value::StackObject { idx, frame_id: frame.frame_id }
+        let frame_id = frame.frame_id(ctx);
+        let idx = ctx.stack_alloc_obj(frame_id, obj);
+        Value::StackObject { idx, frame_id }
     } else {
         let obj_val = ctx.heap().alloc_object(type_desc, Vec::new(), NativeData::None);
 

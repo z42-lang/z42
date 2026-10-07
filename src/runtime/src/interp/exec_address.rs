@@ -31,7 +31,7 @@ pub(super) fn load_local_addr(ctx: &VmContext, frame: &mut Frame, dst: u32, slot
     let depth = ctx.frame_stack_depth();
     // Current frame is the most recent push (depth - 1).
     let frame_idx = (depth.saturating_sub(1)) as u32;
-    let r = mk_ref(ctx, frame.frame_id, RefKind::Stack { frame_idx, slot });
+    let r = mk_ref(ctx, frame.frame_id(ctx), RefKind::Stack { frame_idx, slot });
     frame.set(dst, r);
 }
 
@@ -40,7 +40,7 @@ pub(super) fn load_elem_addr(ctx: &VmContext, frame: &mut Frame, dst: u32, arr: 
     let idx_val = to_usize(frame.get(idx)?, "LoadElemAddr index")?;
     match arr_val {
         Value::Array(rc) => {
-            let r = mk_ref(ctx, frame.frame_id, RefKind::Array { gc_ref: *rc, idx: idx_val });
+            let r = mk_ref(ctx, frame.frame_id(ctx), RefKind::Array { gc_ref: *rc, idx: idx_val });
             frame.set(dst, r);
             Ok(())
         }
@@ -52,7 +52,7 @@ pub(super) fn load_field_addr(ctx: &VmContext, frame: &mut Frame, dst: u32, obj:
     let obj_val = frame.get(obj)?;
     match obj_val {
         Value::Object(rc) => {
-            let r = mk_ref(ctx, frame.frame_id, RefKind::Field {
+            let r = mk_ref(ctx, frame.frame_id(ctx), RefKind::Field {
                 gc_ref: *rc, field_name: field_name.to_string(),
             });
             frame.set(dst, r);

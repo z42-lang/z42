@@ -189,7 +189,7 @@ pub unsafe extern "C" fn jit_obj_new(
             set_exception(vm_ctx_ref(ctx), exc);
             return 1;
         }
-        let callee = JitFrame::new(entry.max_reg, &ctor_args);
+        let callee = JitFrame::new(vm_ctx_ref(ctx), entry.max_reg, &ctor_args);
         // The ctor mutates `this` in place; its (void) return value is discarded.
         if let NativeOutcome::Threw = call_entry(vm_ctx_ref(ctx), ctx, entry, callee) { return 1; }
     } else {
