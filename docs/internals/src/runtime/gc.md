@@ -287,9 +287,10 @@ chunk 内存还给系统 malloc，新堆可能在**同一地址**重分配块，
 （见[对象协议派发](object-protocol-dispatch.md)）。产出字节相同。热字符串 workload 实测 mimalloc 压力
 减半、拼接密集环 ~1.3× interp。
 
-**驻留串 = lazy per-context interning**（D-lazy）：加载期无堆 → 不物化；首次 `ConstStr(idx)`
-经 `VmContext::intern_const_str(module, idx)` 用活堆分配 + 缓存进 `interned_cache`
-（`(module ptr, idx)` 键），缓存项经 external root scanner 注册为 **GC root**。
+**驻留串 = 每 VM 惰性驻留**（D-lazy）：加载期无堆 → 不物化；某个字符串 id 首次执行 `ConstStr(idx)`
+时经 `VmContext::const_str` 用活堆分配，发布进 VmCore 的 `StrTable` 槽位并记入它的 `roots`，
+`roots` 经 external root scanner 注册为 **GC root**；之后各线程命中都是无锁读。机制见
+[vm-architecture.md「ConstStr：每 VM 的字符串表」](vm-architecture.md#conststr每-vm-的字符串表)。
 
 **mark/trace 统一到单一访问器**：`Value::visit_gc_children(for_marking, visit)` 是
 mark 阶段与 heapsnapshot/retention 枚举的**单一来源**，二者仅在两条 mark 副作用轴上不同

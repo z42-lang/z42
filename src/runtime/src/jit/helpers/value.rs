@@ -66,22 +66,10 @@ pub unsafe extern "C" fn jit_const_str(
     dst:   u32,
     idx:   u32,
 ) -> u8 {
-    let ctx_ref = &*ctx;
     let vm = vm_ctx_ref(ctx);
-    // unify-gc-heap PR-4: string bytes live in the GC heap; intern the ConstStr pool
-    // literal lazily from the live heap + per-context cache (main pool), mirroring
-    // interp's `const_str`. First hit allocs a GC string; later hits copy the 8-byte
-    // handle (the old pre-interned `Vec<Str>` amortization, but heap-safe).
-    let module = &*ctx_ref.module;
-    if let Some(s) = vm.intern_const_str(module, idx as usize) {
+    // Same lookup as interp `const_str`: the VM's string table, lock-free once interned.
+    if let Some(s) = vm.const_str(&*(*ctx).module, idx) {
         (*frame).regs[dst as usize] = Value::Str(s);
-        return 0;
-    }
-    // make-vm-loading-lazy: an idx past the merged pool belongs to a lazily-loaded
-    // zpkg — its ConstStr indices were remapped to absolute (main_pool_len + offset).
-    // Resolve against the lazy loader's overflow pool (mirrors interp's overflow path).
-    if let Some(arc) = vm.try_lookup_string(idx as usize) {
-        (*frame).regs[dst as usize] = Value::Str(arc);
         return 0;
     }
     set_exception(vm, Value::Str(format!("string pool index {} out of range", idx).into()));

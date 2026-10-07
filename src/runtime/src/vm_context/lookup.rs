@@ -27,6 +27,8 @@ impl VmContext {
         loader.set_func_table(Arc::clone(&self.core.funcs));
         // 惰性包的类型描述符发布到 VmCore 的 TypeTable（TypeId → 描述符）。
         loader.set_type_table(Arc::clone(&self.core.types));
+        // 惰性包的字符串池追加到 VmCore 的 StrTable（ConstStr 操作数即其中的 id，永不复用）。
+        loader.set_str_table(Arc::clone(&self.core.strings));
         let mut state = self.core.lazy_loader.write();
         // 再次安装（只有测试会）= 新的名字空间：旧加载器登记的名字不再可见，与两张表合并前一致。
         // 旧槽位与 id 保留（id 永不复用），已缓存的 id 仍指向旧函数。
@@ -455,87 +457,51 @@ impl VmContext {
         set.into_iter().collect()
     }
 
-    /// **unify-gc-heap PR-4**: lazily intern `module`'s string-pool literal `idx`
-    /// into a GC string, cached per-context. Returns `None` if `idx` is out of the
-    /// main pool (caller falls back to [`try_lookup_string`](Self::try_lookup_string)
-    /// for the lazy-overflow pool).
+    /// The string a `ConstStr idx` in a function running against `module` loads: the
+    /// interned GC string of string id `idx` (P1-2 PR 7). `None` = out of range.
     ///
-    /// The pool cannot be materialized at module *load* time (no heap exists then),
-    /// so the first reference to each literal allocates a GC string from the live
-    /// heap and caches it here keyed by `(module ptr, idx)`; the cache is a GC root
-    /// (scanned by the external root scanner), so the interned string survives
-    /// collection while this context lives, and subsequent hits copy the 8-byte
-    /// handle (no re-alloc — the same amortization the old pre-interned `Vec<Str>`
-    /// gave, but heap-safe).
+    /// Against the VM's entry module (every production run — lazily loaded functions
+    /// run against it too, their operands already shifted into the VM's id space) this
+    /// is the [`StrTable`](crate::metadata::str_table::StrTable): after the first
+    /// execution of an id on any thread, a lock-free load, no hashing. Shared by the
+    /// interpreter and the JIT helper.
     #[inline]
-    pub fn intern_const_str(&self, module: &crate::metadata::Module, idx: usize) -> Option<crate::metadata::vstr::Str> {
-        let key = (module as *const crate::metadata::Module as usize, idx as u32);
-        // Fast path: already interned in this context.
-        if let Some(s) = self.interned_cache.lock().get(&key) {
-            return Some(*s);
+    pub fn const_str(&self, module: &crate::metadata::Module, idx: u32) -> Option<crate::metadata::vstr::Str> {
+        let strings = &self.core.strings;
+        if strings.is_entry(module) {
+            return strings.get_or_intern(idx, |text| self.heap().alloc_str(text));
         }
-        // Slow path: allocate from the live heap + cache. The heap is the ambient
-        // heap for this frame; a fresh block is immediately reachable (returned into
-        // a register) and, once cached, kept alive as a root.
-        let raw = module.string_pool.get(idx)?;
-        let s = self.heap().alloc_str(raw);
-        self.interned_cache.lock().insert(key, s);
-        Some(s)
+        self.const_str_foreign(module, idx)
     }
 
     /// The GC string for a `MkClos` site's function name, interned per context so a
     /// closure created in a loop does not allocate (and later collect) a fresh name
     /// block every time. Keyed by the name's address + length — the name is the
-    /// instruction's module-lifetime `String` — with the high bit of the second key
-    /// half set, a range the string-pool keys above (`idx: u32` pool index) never use.
-    /// A hit is confirmed by content, so a reused address can never hand back a stale
-    /// name. The cache is a GC root (see `intern_const_str`).
+    /// instruction's module-lifetime `String` — and confirmed by content, so a reused
+    /// address can never hand back a stale name. The cache (`fn_name_cache`) is
+    /// per thread, so its lock is uncontended, and a GC root.
     #[inline]
     pub fn intern_fn_name(&self, name: &str) -> crate::metadata::vstr::Str {
-        let key = (name.as_ptr() as usize, (name.len() as u32) | 0x8000_0000);
-        if let Some(s) = self.interned_cache.lock().get(&key) {
+        let key = (name.as_ptr() as usize, name.len());
+        if let Some(s) = self.fn_name_cache.lock().get(&key) {
             if &**s == name { return *s; }
         }
+        // Allocate outside the lock: the root scanner takes it from inside a collection.
         let s = self.heap().alloc_str(name);
-        self.interned_cache.lock().insert(key, s);
+        self.fn_name_cache.lock().insert(key, s);
         s
     }
 
-    /// Resolve an "overflow" ConstStr index past the main module's pool.
-    /// Returns `Arc<str>` (review.md C3 Phase 1, 2026-06-03) so callers can
-    /// wrap directly into `Value::Str` without a second allocation.
-    pub fn try_lookup_string(&self, absolute_idx: usize) -> Option<crate::metadata::vstr::Str> {
-        // intern-overflow-const-str：溢出池的 ConstStr **也走 per-context intern 缓存**，
-        // 与主池（`intern_const_str`）对称。此前这条路完全没有缓存 —— 每命中一次就
-        // ① 拿一次 `lazy_loader` 读锁、② 重新 `alloc_str` 一个新的 GC 串块。
-        //
-        // 两者都很贵：默认从不 GC ⇒ **RSS ≈ 总分配量**，重复分配直接变成常驻内存；
-        // 而 z42c 自编时执行的代码几乎全来自惰性加载的 zpkg，所以走的全是这条路
-        // （`--jobs 16` 采样：`lock_shared_slow` 占 30.3% 线程时间，`try_lookup_string`
-        // 自身另占 7.5%）。
-        //
-        // 复用 `interned_cache` 而不是新起一张表，正好一次解决三件事：
-        //   · **GC 根**——它已经在根扫描里（`construct.rs` 的 `interned_cache.lock().values()`）；
-        //   · **作用域**——它 per-VmContext，而每个线程都是 `new_with_core` 各持一个；
-        //   · **锁争用**——同理，这把 Mutex 每线程各一把，天然不争。
-        //
-        // 键的安全性：主池条目的键是 `module as *const Module as usize`，恒非 0；
-        // 这里用 0 当哨兵，不可能撞。索引装不下 u32 时（实际不会，ConstStr 的 idx 本就是 u32）
-        // 直接绕过缓存，语义不变。
-        let key = u32::try_from(absolute_idx).ok().map(|i| (0usize, i));
-        if let Some(k) = key {
-            if let Some(s) = self.interned_cache.lock().get(&k) {
-                return Some(*s);
-            }
+    /// `const_str` against a module that is not the VM's entry module (unit tests running
+    /// a hand-built module on a bare `VmContext`): an index inside the module's own pool
+    /// names that literal and allocates a fresh string each time (nothing to key a cache
+    /// on); past it, the id is a lazily loaded package's, interned in the table.
+    #[cold]
+    fn const_str_foreign(&self, module: &crate::metadata::Module, idx: u32) -> Option<crate::metadata::vstr::Str> {
+        if let Some(text) = module.string_pool.get(idx as usize) {
+            return Some(self.heap().alloc_str(text));
         }
-        let s = {
-            let state = self.core.lazy_loader.read();
-            state.as_ref()?.try_lookup_string(absolute_idx)
-        }?;
-        if let Some(k) = key {
-            self.interned_cache.lock().insert(k, s);
-        }
-        Some(s)
+        self.core.strings.get_or_intern(idx, |text| self.heap().alloc_str(text))
     }
 
     /// All namespaces declared by lazy-loadable zpkgs (for static-init scan).

@@ -16,19 +16,9 @@ use super::Frame;
 pub(super) fn const_str(
     ctx: &VmContext, module: &Module, frame: &mut Frame, dst: u32, idx: u32,
 ) -> Result<()> {
-    let i = idx as usize;
-    // unify-gc-heap PR-4: string bytes live in the GC heap now, so the interned
-    // pool can't be materialized at module-load time (no heap exists then). Intern
-    // lazily from the live heap + cache per-context (`intern_const_str`, main pool),
-    // falling back to the lazy-overflow pool for indices past it. This preserves the
-    // amortization the old pre-interned `Vec<Str>` gave (first hit allocs, later hits
-    // copy the 8-byte handle), but heap-safe.
-    let s = if let Some(s) = ctx.intern_const_str(module, i) {
-        s
-    } else if let Some(arc) = ctx.try_lookup_string(i) {
-        // ConstStr from a lazily-loaded function — idx is offset past main pool.
-        arc
-    } else {
+    // Interned per VM by string id (`VmContext::const_str`): after the first execution a
+    // lock-free load, entry-module and lazily loaded code alike.
+    let Some(s) = ctx.const_str(module, idx) else {
         bail!("string pool index {idx} out of range");
     };
     frame.set(dst, Value::Str(s));

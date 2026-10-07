@@ -15,7 +15,7 @@
 //!   payloads behind `{idx, frame_id}` handles
 //! - **`counters`** — this thread's `RuntimeCounters` shard
 //! - **`jit_ctx`** — the active `JitModuleCtx` (0 when this thread runs no JIT)
-//! - lookup / isa / interning caches, the safepoint throttle counter
+//! - lookup / isa caches, the safepoint throttle counter
 //!
 //! # Lifecycle
 //!
