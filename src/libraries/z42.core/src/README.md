@@ -16,7 +16,7 @@ z42 隐式 prelude 的源码。VM 启动时无条件加载；用户项目**不�
 | `SplitOptions.z42` | `String.Split` 的 bitwise 选项常量 |
 | `Primitives/` | 数值 / 布尔 / 字符 primitive（`Boolean` / `Char` / `Byte` / `SByte` / `Int16/32/64` / `UInt16/32/64` / `Single` / `Double`）的成员方法 |
 | `Protocols/` | 接口契约：`IEquatable` / `IComparable` / `IDisposable` / `IFormattable` / `INumber` / `IEnumerable` / `IEnumerator` / `IComparer` / `IEqualityComparer` / `IBasicCollection` |
-| `Collections/` | 基础泛型集合：`List<T>`（`List.z42` + `List.Query.z42`）/ `Dictionary<K,V>` / `HashSet<T>` / `ReadOnlyCollection<T>` / `KeyValuePair<K,V>` + 对应 Enumerator |
+| `Collections/` | 基础泛型集合：`List<T>`（`List.z42` + `List.Query.z42`）/ `Dictionary<K,V>` / `HashSet<T>` / `ReadOnlyCollection<T>` / `KeyValuePair<K,V>` + 对应 Enumerator；`HashIndex.z42` 是 `Dictionary` / `HashSet` 共用的插入有序紧凑哈希表骨架（布局见其头注释） |
 | `Exceptions/` | `Exception` 基类 + 标准子类（`ArgumentException` / `InvalidOperationException` / `AggregateException` / `MulticastException` 等） |
 | `Delegates/` | callable + multicast + 订阅策略（详见 `docs/reference/src/language/delegates-events.md`）：`Delegates.z42` / `DelegateOps.z42`（Action / Func / Predicate + `==`）、`Multicast*.z42`、`ISubscription.z42` + `SubscriptionRefs.z42` |
 | `Reflection/` | 反射成员对象：`MemberInfo` / `FieldInfo` / `MethodInfo` / `PropertyInfo` / `ConstructorInfo` / `MethodBase` / `ParameterInfo` / `Activator` / `Assembly`（详见 `docs/reference/src/stdlib/reflection.md`）；`Attribute.z42` / `ForwardAttribute.z42` / `Enum.z42` 在顶层 |
@@ -47,7 +47,7 @@ z42 隐式 prelude 的源码。VM 启动时无条件加载；用户项目**不�
 | Delegates | Object + Protocols (IDisposable for Subscribe token) + Exceptions (MulticastException) + GC (WeakHandle) |
 | Protocols | Object（接口的"被实现者"）|
 | Exceptions | Object + Collections (MulticastException.Failures) |
-| Collections | Object + Protocols (IEnumerable / IEqualityComparer) |
+| Collections | Object + Protocols (IEnumerable / IEqualityComparer) + Array（`CopyRange` 批量拷贝）+ Exceptions（枚举期间修改字典抛 InvalidOperationException） |
 | Convert / Assert | Object + Exceptions（抛 ArgumentException 等）|
 | BitConverter / Clock | 无（纯 VM extern 门面，无同包内依赖）|
 | Math | 无（libm extern + 纯脚本派生，仅用 double primitive 算子）|

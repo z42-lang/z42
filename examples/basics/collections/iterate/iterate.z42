@@ -5,7 +5,7 @@ void Main() {
     // ANCHOR: code
     int[] arr = [1, 2, 3];
     List<string> names = { "小明", "小红" };
-    Dictionary<string, int> ages = { "小明": 7 };
+    Dictionary<string, int> ages = { "小明": 7, "小红": 8 };
 
     foreach (int v in arr)      { Console.WriteLine(v); }
     foreach (string n in names) { Console.WriteLine(n); }

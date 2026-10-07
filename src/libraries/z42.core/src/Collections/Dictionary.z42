@@ -1,65 +1,94 @@
 namespace Std.Collections;
 
-// `Dictionary<TKey, TValue>` — 开放寻址哈希表（L3-G4h step 3：取代 pseudo-class 实现）。
+// `Dictionary<TKey, TValue>` — 插入有序的紧凑哈希表（布局与共用操作见 `HashIndex.z42`）。
 //
-// 线性探测，负载因子 > 0.75 时 2 倍扩容；摊还 O(1) 平均操作。
+// 遍历（`foreach` / `GetEnumerator` / `Keys()` / `Values()` / `Entries()`）按**插入顺序**：
+// 覆盖已有键不改变其位置；`Remove` 后再插入同一键，它排到末尾。摊还 O(1) 平均操作。
+// 枚举期间新增键 / `Clear` ⇒ 下一次 `MoveNext` 抛 `InvalidOperationException`；
+// 覆盖已有键与 `Remove` 不影响进行中的枚举。
 // 约束：TKey 必须 hashable + equatable。primitive TKey 通过 VM builtin 路由 GetHashCode / Equals；
 // 用户自定义 TKey 必须实现 IEquatable —— GetHashCode 走 Object 协议。
 public class Dictionary<TKey, TValue> where TKey: IEquatable {
-    TKey[] keys;
-    TValue[] values;
-    bool[] occupied;
-    // 每个 occupied 槽存放其 key 的掩码 hash（`GetHashCode() & 0x7FFFFFFF`）。
-    // 探测比较时先比 int hash，不等直接跳过 `.Equals()`——对 string key
-    // （GetHashCode/Equals 均 O(len)）省下绝大多数 Equals 派发；Grow 也复用
-    // 存好的 hash 免去重算。
-    int[] hashes;
+    internal int[] _index;      // 索引表：0 = 空，-1 = 已删，否则 entry 下标 + 1；长度 = entries 容量 × 2
+    internal int[] _hashes;     // entries：规整后的 hash（≥ 0）；-1 = tombstone
+    internal TKey[] _keys;
+    internal TValue[] _values;
+    internal int _used;         // entries 已用槽数（含 tombstone）
+    internal int _version;      // 新增键 / Clear / 压实时递增，枚举器据此检测修改
     public int Count;
-    int capacity;
 
-    public Dictionary() {
-        this.capacity = 8;
-        this.keys = new TKey[8];
-        this.values = new TValue[8];
-        this.occupied = new bool[8];
-        this.hashes = new int[8];
+    public Dictionary() { this._alloc(8); }
+
+    void _alloc(int cap) {
+        this._index = new int[cap * 2];
+        this._hashes = new int[cap];
+        this._keys = new TKey[cap];
+        this._values = new TValue[cap];
+        this._used = 0;
         this.Count = 0;
     }
 
     public bool IsEmpty() { return this.Count == 0; }
 
     public DictionaryEnumerator<TKey, TValue> GetEnumerator() { return new DictionaryEnumerator<TKey, TValue>(this); }
-    internal int _slotCount() { return this.capacity; }
-    internal bool _slotOccupied(int i) { return this.occupied[i]; }
-    internal TKey _slotKey(int i) { return this.keys[i]; }
-    internal TValue _slotValue(int i) { return this.values[i]; }
 
-    // 热路径（索引器读写、ContainsKey）把探测循环就地展开，不再经 Get → FindSlot →
-    // _findSlotH 层层调用：每层调用的建帧 / 回收成本比探测本身还贵。探测语义与
-    // `_findSlotH` 逐字相同（掩码 hash、存储 hash 短路、线性探测）。
+    // 热路径（索引器读写、ContainsKey）把 hash 规整（= `HashIndex.Mix`）与探测循环就地展开，
+    // 不经 `_slotOf`：每层调用的建帧 / 回收成本比探测本身还贵。探测跳过 dummy（e < 0），
+    // 先比存储的 hash，不等即跳过 `.Equals()` 派发。
     public TValue this[TKey key] {
         get {
             // 不存在时返回 default (null)；调用方应先 ContainsKey。
-            int h = key.GetHashCode() & 0x7FFFFFFF;
-            int mask = this.capacity - 1;
-            int slot = h & mask;
-            while (this.occupied[slot] && (this.hashes[slot] != h || !this.keys[slot].Equals(key))) slot = (slot + 1) & mask;
-            return this.values[slot];
+            long hl = (long)key.GetHashCode();
+            int h = (int)((hl ^ (hl >> 31)) & 0x7FFFFFFFL);
+            int[] index = this._index;
+            int[] hs = this._hashes;
+            int mask = index.Length - 1;
+            int s = h & mask;
+            int perturb = h;
+            int e = index[s];
+            while (e != 0) {
+                if (e > 0 && hs[e - 1] == h && this._keys[e - 1].Equals(key)) return this._values[e - 1];
+                perturb = perturb >> 5;
+                s = (s * 5 + perturb + 1) & mask;
+                e = index[s];
+            }
+            return default(TValue);
         }
         set {
-            // 负载因子 > 0.75 即扩容（count * 4 > capacity * 3）
-            if (this.Count * 4 > this.capacity * 3) this.Grow();
-            int h = key.GetHashCode() & 0x7FFFFFFF;
-            int mask = this.capacity - 1;
-            int slot = h & mask;
-            while (this.occupied[slot] && (this.hashes[slot] != h || !this.keys[slot].Equals(key))) slot = (slot + 1) & mask;
-            if (!this.occupied[slot]) {
-                this.occupied[slot] = true;
-                this.Count = this.Count + 1;
+            long hl = (long)key.GetHashCode();
+            int h = (int)((hl ^ (hl >> 31)) & 0x7FFFFFFFL);
+            int[] index = this._index;
+            int[] hs = this._hashes;
+            int mask = index.Length - 1;
+            int s = h & mask;
+            int perturb = h;
+            int e = index[s];
+            while (e != 0) {
+                if (e > 0 && hs[e - 1] == h && this._keys[e - 1].Equals(key)) {
+                    this._values[e - 1] = value;    // 覆盖：位置不变
+                    return;
+                }
+                perturb = perturb >> 5;
+                s = (s * 5 + perturb + 1) & mask;
+                e = index[s];
             }
-            this.keys[slot] = key;
-            this.values[slot] = value;
-            this.hashes[slot] = h;
+            // 新键追加到 entries 末尾（同 `_append`；就地展开省一次调用，插入热路径上这次调用的
+            // 开销约占两成）。
+            int i = this._used;
+            if (i == hs.Length) {
+                this._resize(HashIndex.NextCapacity(this.Count, i));
+                index = this._index;
+                hs = this._hashes;
+                i = this._used;
+                s = HashIndex.FreeSlot(index, h);
+            }
+            hs[i] = h;
+            this._keys[i] = key;
+            this._values[i] = value;
+            index[s] = i + 1;
+            this._used = i + 1;
+            this.Count = this.Count + 1;
+            this._version = this._version + 1;
         }
     }
 
@@ -67,193 +96,212 @@ public class Dictionary<TKey, TValue> where TKey: IEquatable {
 
     public TValue Get(TKey key) { return this[key]; }
 
-    // add-list-dict-lookup-family (2026-09-02): C#-parity 查找族。
     // 注：TryGetValue 依赖 `out`，而 out→tuple 迁移正在进行（ref-borrow 程序），
-    // 故本次不引入；GetValueOrDefault 覆盖其绝大多数无异常查找场景。
+    // 故暂不引入；GetValueOrDefault 覆盖其绝大多数无异常查找场景。
 
-    // 仅当 key 不存在时插入，返回是否成功插入（已存在则不覆盖、返回 false）。
-    // 对标 C# `Dictionary.TryAdd`。复用 Set 的探测/扩容路径，但命中即短路。
+    // 仅当 key 不存在时插入（追加到末尾），返回是否成功插入（已存在则不覆盖、返回 false）。
+    // 对标 C# `Dictionary.TryAdd`。
     public bool TryAdd(TKey key, TValue value) {
-        if (this.Count * 4 > this.capacity * 3) this.Grow();
-        int h = key.GetHashCode() & 0x7FFFFFFF;
-        int slot = this._findSlotH(key, h);
-        if (this.occupied[slot]) return false;
-        this.occupied[slot] = true;
-        this.Count = this.Count + 1;
-        this.keys[slot] = key;
-        this.values[slot] = value;
-        this.hashes[slot] = h;
+        int h = HashIndex.Mix(key.GetHashCode());
+        int s = this._slotOf(key, h);
+        if (this._index[s] != 0) return false;
+        this._append(s, h, key, value);
         return true;
     }
 
     // 返回 key 对应的值，不存在则返回 default(TValue)。对标 C#
     // `Dictionary.GetValueOrDefault(key)` —— 一次探测，无异常。
-    public TValue GetValueOrDefault(TKey key) {
-        int slot = this.FindSlot(key);
-        if (this.occupied[slot]) return this.values[slot];
-        return default(TValue);
-    }
+    public TValue GetValueOrDefault(TKey key) { return this.GetValueOrDefault(key, default(TValue)); }
 
     // 返回 key 对应的值，不存在则返回调用方给定的 `defaultValue`。对标 C#
     // `Dictionary.GetValueOrDefault(key, defaultValue)`。
     public TValue GetValueOrDefault(TKey key, TValue defaultValue) {
-        int slot = this.FindSlot(key);
-        if (this.occupied[slot]) return this.values[slot];
+        int e = this._index[this.FindSlot(key)];
+        if (e > 0) return this._values[e - 1];
         return defaultValue;
     }
 
     public bool ContainsKey(TKey key) {
-        int h = key.GetHashCode() & 0x7FFFFFFF;
-        int mask = this.capacity - 1;
-        int slot = h & mask;
-        while (this.occupied[slot] && (this.hashes[slot] != h || !this.keys[slot].Equals(key))) slot = (slot + 1) & mask;
-        return this.occupied[slot];
+        long hl = (long)key.GetHashCode();
+        int h = (int)((hl ^ (hl >> 31)) & 0x7FFFFFFFL);
+        int[] index = this._index;
+        int[] hs = this._hashes;
+        int mask = index.Length - 1;
+        int s = h & mask;
+        int perturb = h;
+        int e = index[s];
+        while (e != 0) {
+            if (e > 0 && hs[e - 1] == h && this._keys[e - 1].Equals(key)) return true;
+            perturb = perturb >> 5;
+            s = (s * 5 + perturb + 1) & mask;
+            e = index[s];
+        }
+        return false;
     }
 
+    // 删除：索引槽改成 dummy（-1），entry 置 tombstone 并清掉 key/value 引用（被删对象不再被 GC
+    // 视为可达）；其余 entries 原位不动，故相对顺序不变。槽位到下次压实时回收。
     public bool Remove(TKey key) {
-        int slot = this.FindSlot(key);
-        if (!this.occupied[slot]) return false;
-        this.occupied[slot] = false;
-        // perf-stdlib-hot-paths：清掉被移除槽的 key/value 引用，否则被删对象在槽被覆盖前一直被 GC 视为可达
-        //（镜像 C# Dictionary.Remove 的 entry 清零）。下方回填探测链时腾空的槽同样清。
-        this.keys[slot] = default(TKey);
-        this.values[slot] = default(TValue);
+        int s = this.FindSlot(key);
+        int e = this._index[s];
+        if (e == 0) return false;
+        int i = e - 1;
+        this._index[s] = -1;
+        this._hashes[i] = -1;
+        this._keys[i] = default(TKey);
+        this._values[i] = default(TValue);
         this.Count = this.Count - 1;
-        // 重新插入探测链剩余项以避免空洞。复用已存 hashes[j] inline 再插
-        // （照抄 Grow 的思路）：免去 Set() 重算 GetHashCode（对 string key 为
-        // O(len)）与多余的负载因子检查；item 仍在表内故 Count 不变。
-        int mask = this.capacity - 1;
-        int j = (slot + 1) & mask;
-        while (this.occupied[j]) {
-            int h = this.hashes[j];
-            TKey k = this.keys[j];
-            TValue v = this.values[j];
-            this.occupied[j] = false;
-            this.keys[j] = default(TKey);
-            this.values[j] = default(TValue);
-            int s = h & mask;
-            while (this.occupied[s]) s = (s + 1) & mask;
-            this.occupied[s] = true;
-            this.keys[s] = k;
-            this.values[s] = v;
-            this.hashes[s] = h;
-            j = (j + 1) & mask;
-        }
         return true;
     }
 
+    // 保留容量：换一组同容量的新数组（VM 原生零初始化，免逐槽清引用）。
     public void Clear() {
-        int i = 0;
-        while (i < this.capacity) {
-            if (this.occupied[i]) {
-                this.occupied[i] = false;
-                this.keys[i] = default(TKey);      // perf-stdlib-hot-paths：释放引用（镜像 C# Array.Clear）
-                this.values[i] = default(TValue);
-            }
-            i = i + 1;
-        }
-        this.Count = 0;
+        this._alloc(this._hashes.Length);
+        this._version = this._version + 1;
     }
 
-    // 2026-04-27 add-keyvaluepair-and-dict-entries：返回所有 key/value/entry
-    // 的快照数组，供用户 `foreach (var k in dict.Keys()) { ... }` 等使用。
-    // 顺序由 capacity 扫描顺序决定，**不保证稳定**（hash 分布相关）。
+    // ── 遍历面：全部按 entries 顺序（= 插入顺序）产出，跳过 tombstone ──
+
+    // 返回长度为 Count 的快照数组（每次调用新建）。无 tombstone 时整段原生拷贝。
     public TKey[] Keys() {
         TKey[] result = new TKey[this.Count];
-        int idx = 0;
-        int i = 0;
-        while (i < this.capacity) {
-            if (this.occupied[i]) {
-                result[idx] = this.keys[i];
-                idx = idx + 1;
+        int[] hs = this._hashes;
+        int used = this._used;
+        if (this.Count == used) {
+            Array.CopyRange(this._keys, 0, result, 0, used);
+            return result;
+        }
+        int w = 0;
+        for (int i = 0; i < used; i++) {
+            if (hs[i] >= 0) {
+                result[w] = this._keys[i];
+                w++;
             }
-            i = i + 1;
         }
         return result;
     }
 
     public TValue[] Values() {
         TValue[] result = new TValue[this.Count];
-        int idx = 0;
-        int i = 0;
-        while (i < this.capacity) {
-            if (this.occupied[i]) {
-                result[idx] = this.values[i];
-                idx = idx + 1;
+        int[] hs = this._hashes;
+        int used = this._used;
+        if (this.Count == used) {
+            Array.CopyRange(this._values, 0, result, 0, used);
+            return result;
+        }
+        int w = 0;
+        for (int i = 0; i < used; i++) {
+            if (hs[i] >= 0) {
+                result[w] = this._values[i];
+                w++;
             }
-            i = i + 1;
         }
         return result;
     }
 
-    // 2026-04-27 fix-generic-array-type-parsing 解锁后引入 Entries()。
     public KeyValuePair<TKey, TValue>[] Entries() {
         KeyValuePair<TKey, TValue>[] result = new KeyValuePair<TKey, TValue>[this.Count];
-        int idx = 0;
-        int i = 0;
-        while (i < this.capacity) {
-            if (this.occupied[i]) {
-                result[idx] = new KeyValuePair<TKey, TValue>(this.keys[i], this.values[i]);
-                idx = idx + 1;
+        int[] hs = this._hashes;
+        int used = this._used;
+        int w = 0;
+        for (int i = 0; i < used; i++) {
+            if (hs[i] >= 0) {
+                result[w] = new KeyValuePair<TKey, TValue>(this._keys[i], this._values[i]);
+                w++;
             }
-            i = i + 1;
         }
         return result;
     }
 
-    // 线性探测：返回 key 所在槽（若 occupied）或应放入的空槽。
+    // 返回 key 在索引表中的槽：若 key 存在，该槽指向它的 entry；否则是探测序列上的第一个空槽
+    //（即新键应放入的槽）。
     public int FindSlot(TKey key) {
-        // Mask off the sign bit rather than negating: `-h` overflows back to a
-        // negative for h == int.MinValue (GetHashCode()==int.MinValue) → negative
-        // slot → trap. `& 0x7FFFFFFF` is always non-negative.
-        return this._findSlotH(key, key.GetHashCode() & 0x7FFFFFFF);
+        return this._slotOf(key, HashIndex.Mix(key.GetHashCode()));
     }
 
-    // 掩码探测 + 存储 hash 短路：h 为掩码后的 hash。capacity 恒为 2 的幂，
-    // 故 `slot & (capacity-1)` 等价 `slot % capacity` 但免去取模。命中要求
-    // 存储 hash 相等 *且* key.Equals——hash 不等即跳过 Equals 派发。
-    int _findSlotH(TKey key, int h) {
-        int mask = this.capacity - 1;
-        int slot = h & mask;
-        while (this.occupied[slot] && (this.hashes[slot] != h || !this.keys[slot].Equals(key))) {
-            slot = (slot + 1) & mask;
+    int _slotOf(TKey key, int h) {
+        int[] index = this._index;
+        int[] hs = this._hashes;
+        int mask = index.Length - 1;
+        int s = h & mask;
+        int perturb = h;
+        int e = index[s];
+        while (e != 0 && (e < 0 || hs[e - 1] != h || !this._keys[e - 1].Equals(key))) {
+            perturb = perturb >> 5;
+            s = (s * 5 + perturb + 1) & mask;
+            e = index[s];
         }
-        return slot;
+        return s;
     }
 
-    public void Grow() {
-        int newCap = this.capacity * 2;
-        TKey[] newKeys = new TKey[newCap];
-        TValue[] newValues = new TValue[newCap];
-        bool[] newOccupied = new bool[newCap];
-        int[] newHashes = new int[newCap];
-        TKey[] oldKeys = this.keys;
-        TValue[] oldValues = this.values;
-        bool[] oldOccupied = this.occupied;
-        int[] oldHashes = this.hashes;
-        int oldCap = this.capacity;
-        this.keys = newKeys;
-        this.values = newValues;
-        this.occupied = newOccupied;
-        this.hashes = newHashes;
-        this.capacity = newCap;
-        this.Count = 0;
-        int mask = newCap - 1;
-        int i = 0;
-        while (i < oldCap) {
-            if (oldOccupied[i]) {
-                // 复用存储 hash：Grow 中 key 必唯一且新表全空，直接线性探测到
-                // 首个空槽即可，无需 Equals 比较、无需重算 hash。
-                int h = oldHashes[i];
-                int slot = h & mask;
-                while (this.occupied[slot]) slot = (slot + 1) & mask;
-                this.occupied[slot] = true;
-                this.keys[slot] = oldKeys[i];
-                this.values[slot] = oldValues[i];
-                this.hashes[slot] = h;
-                this.Count = this.Count + 1;
+    // entries 容量翻倍（索引表随之翻倍）。
+    public void Grow() { this._resize(this._hashes.Length * 2); }
+
+    // 新键追加到 entries 末尾；s 为探测得到的空索引槽。entries 满则先扩容 / 压实再重新找槽。
+    void _append(int s, int h, TKey key, TValue value) {
+        int slot = s;
+        int i = this._used;
+        if (i == this._hashes.Length) {
+            this._resize(HashIndex.NextCapacity(this.Count, i));
+            i = this._used;
+            slot = HashIndex.FreeSlot(this._index, h);
+        }
+        this._hashes[i] = h;
+        this._keys[i] = key;
+        this._values[i] = value;
+        this._index[slot] = i + 1;
+        this._used = i + 1;
+        this.Count = this.Count + 1;
+        this._version = this._version + 1;
+    }
+
+    // 把 entries 换到容量 newCap 并压实（去 tombstone、保留相对顺序），重建索引表。
+    // newCap 等于当前容量时就地压实。
+    void _resize(int newCap) {
+        int used = this._used;
+        int[] oh = this._hashes;
+        TKey[] ok = this._keys;
+        TValue[] ov = this._values;
+        bool inPlace = newCap == oh.Length;
+        int[] nh = oh;
+        TKey[] nk = ok;
+        TValue[] nv = ov;
+        if (!inPlace) {
+            nh = new int[newCap];
+            nk = new TKey[newCap];
+            nv = new TValue[newCap];
+        }
+        int live = used;
+        if (this.Count == used && !inPlace) {
+            // 无 tombstone：原生批量拷贝。
+            Array.CopyRange(oh, 0, nh, 0, used);
+            Array.CopyRange(ok, 0, nk, 0, used);
+            Array.CopyRange(ov, 0, nv, 0, used);
+        } else {
+            // 存活项按原顺序前移（就地时写位置 ≤ 读位置，不会覆盖未读项）。
+            live = 0;
+            for (int i = 0; i < used; i++) {
+                int h = oh[i];
+                if (h >= 0) {
+                    nh[live] = h;
+                    nk[live] = ok[i];
+                    nv[live] = ov[i];
+                    live++;
+                }
             }
-            i = i + 1;
+            if (inPlace) {
+                // 清掉腾出的尾部，释放引用。
+                for (int j = live; j < used; j++) {
+                    nk[j] = default(TKey);
+                    nv[j] = default(TValue);
+                }
+            }
         }
+        this._hashes = nh;
+        this._keys = nk;
+        this._values = nv;
+        this._used = live;
+        this._index = HashIndex.Build(nh, live, newCap * 2);
+        this._version = this._version + 1;
     }
 }

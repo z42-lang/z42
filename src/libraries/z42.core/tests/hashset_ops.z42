@@ -1,8 +1,8 @@
 // augment-corelib-parity (backlog #4): dogfood coverage for the new O(1)
 // HashSet<T> — Add dedup / Contains / Remove / Count / Clear / ToArray and the
-// UnionWith / IntersectWith / ExceptWith set operations. ToArray() order is NOT
-// guaranteed (capacity scan, hash dependent), so assertions are order-independent
-// (membership / sums / counts).
+// UnionWith / IntersectWith / ExceptWith set operations. Assertions are
+// order-independent (membership / sums / counts); ToArray()'s insertion order is
+// covered by the hashset_order golden.
 namespace Z42CoreHashSetTests;
 
 using Std.Collections;

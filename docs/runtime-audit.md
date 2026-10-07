@@ -565,7 +565,7 @@ z42vm 继续静态链接 VM，不改为动态链接 `native/libz42`（结论与�
 |---|---|---|---|---|---|
 | T1 | json | 28× | 40× | 待剖析 | 🟡 |
 | T2 | str_builder / str_split_join | 7.9× / 13× | 11× / 10× | StringBuilder 是纯脚本实现，每次 Append 生成一个 GC 字符串 | 🟡 |
-| T3 | dict_ops / sort | 4.8× / 3.7× | 7.3× / 7.4× | 待剖析（泛型装箱、比较器调用、哈希路径） | 🟡 |
+| T3 | dict_ops / sort | 4.8× / 3.7× | 7.3× / 7.4× | 待剖析（泛型装箱、比较器调用、哈希路径）。**Dictionary / HashSet 按插入顺序遍历（User 2026-10-07）**：改为 CPython 式插入有序紧凑哈希表（稠密 entries + `int[]` 索引表，首槽取 hash 低位、冲突后 perturb 探测）；dict_ops n=2M 2.02 → 1.75 s、RSS 286 → 165 MB，n=5M 超过 240 s → 4.7 s；sort 未动 | 🟡 |
 | T4 | large_heap | 1.6× | 5.9× | GC 策略与内存复用（P1-7 / M 系列） | 🟡 |
 | T5 | closures | 1.3× | 8.3× | 闭包调用按名（P1-2 PR 8） | ⬜ |
 

@@ -1,0 +1,11 @@
+add:       pear apple zebra mango 
+re-add:    pear apple zebra mango 
+remove:    pear zebra mango 
+reinsert:  pear zebra mango apple 
+union:     pear zebra mango apple kiwi fig 
+intersect: pear zebra apple fig 
+except:    pear apple fig 
+grown:     0 7 14 21 28 4 11 18 25 1 8 15 22 29 5 12 19 26 2 9 16 23 30 6 13 20 27 3 10 17 
+thinned:   7 21 4 18 1 15 29 12 26 9 23 6 20 3 17 
+churn:     7 21 4 18 1 15 29 12 26 9 23 6 20 3 17 -1 count=16
+cleared:   3 1 

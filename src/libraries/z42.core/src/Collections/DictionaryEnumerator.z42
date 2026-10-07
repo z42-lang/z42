@@ -1,17 +1,40 @@
 namespace Std.Collections;
+
+// `DictionaryEnumerator<TKey, TValue>` — 按 entries 顺序（= 插入顺序）遍历，跳过 tombstone。
+//
+// 首次 `MoveNext` 记下字典的 `_version`；此后字典新增键 / `Clear` / 压实会改变它，下一次
+// `MoveNext` 即抛 `InvalidOperationException`（对齐 C# 的 "Collection was modified"）。
+// 覆盖已有键与 `Remove` 不改 `_version`：entry 原位不动，枚举照常继续（被删项不再产出）。
 [Record] public struct DictionaryEnumerator<TKey, TValue>(Dictionary<TKey, TValue> _dict) where TKey: IEquatable {
     int _scan;
     int _cur;
+    int _ver;
+    bool _started;
+
     public bool MoveNext() {
-        int cap = this._dict._slotCount();
-        while (this._scan < cap) {
-            if (this._dict._slotOccupied(this._scan)) { this._cur = this._scan; this._scan = this._scan + 1; return true; }
-            this._scan = this._scan + 1;
+        Dictionary<TKey, TValue> d = this._dict;
+        if (!this._started) {
+            this._started = true;
+            this._ver = d._version;
+        } else if (this._ver != d._version) {
+            throw new InvalidOperationException("Collection was modified; enumeration operation may not execute.");
+        }
+        int used = d._used;
+        int[] hs = d._hashes;
+        while (this._scan < used) {
+            int i = this._scan;
+            this._scan = i + 1;
+            if (hs[i] >= 0) {
+                this._cur = i;
+                return true;
+            }
         }
         return false;
     }
+
     public KeyValuePair<TKey, TValue> Current {
-        get { return new KeyValuePair<TKey, TValue>(this._dict._slotKey(this._cur), this._dict._slotValue(this._cur)); }
+        get { return new KeyValuePair<TKey, TValue>(this._dict._keys[this._cur], this._dict._values[this._cur]); }
     }
+
     public void Dispose() { }
 }
