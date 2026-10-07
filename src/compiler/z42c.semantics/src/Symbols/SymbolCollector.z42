@@ -102,11 +102,12 @@ public sealed class SymbolCollector {
     // 它同时是 A5b「删短名回落」的**唯一**阻塞：那 4975 次查找的对象连 FQN 都没有，
     // 任何按 FQN 的解析都够不着它。
     private void _seedObjectStub(SymbolTable table) {
-        if (table.Classes.ContainsKey("Object")) { return; }   // 本地自声明 Object（z42.core）→ local-wins
+        if (table.ClassesByFqn.ContainsKey(PreludeNs.Root() + ".Object")) { return; }   // 本地自声明 Object（z42.core）→ local-wins
         Z42ClassType obj = new Z42ClassType("Object", false, "");   // ⚠️ 第三个参数是 baseName，不是 ns
         obj.Namespace = PreludeNs.Root();   // ⇒ Fqn() = "Std.Object"，与真正的那份同一身份
         Z42Type getTypeRet = new Z42UnknownType();
-        if (table.Classes.ContainsKey("Type")) { getTypeRet = table.GetClass("Type"); }
+        Z42ClassType stdType = table.ClassesByFqn.Get(PreludeNs.Root() + ".Type") as Z42ClassType;
+        if (stdType != null) { getTypeRet = stdType; }
         Z42Type objParam = Z42ClassType.Builtin("object");
         Z42Type[] noParams = new Z42Type[0];
         Z42Type[] eqParams = new Z42Type[1]; eqParams[0] = objParam;
@@ -399,9 +400,7 @@ public sealed class SymbolCollector {
             if (d is ClassDecl) {
                 ClassDecl c = d as ClassDecl;
                 if (c.Kind == "class" || c.Kind == "struct") {
-                    string key = c.Name;
-                    if (c.TypeParams.Count > 0) { string mk = c.Name + "$" + c.TypeParams.Count.ToString(); if (sv.Classes.ContainsKey(mk)) { key = mk; } }
-                    sv.BindBaseInScope(sv.GetClass(key));
+                    sv.BindBaseInScope(sv.LocalClassOf(sv.ScopeNs, c));
                 }
             }
             i = i + 1;
@@ -434,9 +433,7 @@ public sealed class SymbolCollector {
     // `class C : A`（A 是 struct）**静默编错**（实测 `c.Y + c.X` 应得 7、打出 16384005）。
     // 与断环同一相位、同一手法：报错后清掉基类，下游一律按「无基类」处理，不再级联。
     private bool _rejectStructBase(SymbolTable table, SymbolTable sv, ClassDecl c) {
-        string key = c.Name;
-        if (c.TypeParams.Count > 0) { string mk = c.Name + "$" + c.TypeParams.Count.ToString(); if (sv.Classes.ContainsKey(mk)) { key = mk; } }
-        Z42ClassType ct = sv.GetClass(key);
+        Z42ClassType ct = sv.LocalClassOf(sv.ScopeNs, c);
         if (ct == null) { return false; }
         Z42ClassType b = table.BaseOf(ct);
         if (b == null) { return false; }
@@ -455,9 +452,7 @@ public sealed class SymbolCollector {
     }
 
     private void _rejectClassCycle(SymbolTable table, SymbolTable sv, ClassDecl c) {
-        string key = c.Name;
-        if (c.TypeParams.Count > 0) { string mk = c.Name + "$" + c.TypeParams.Count.ToString(); if (sv.Classes.ContainsKey(mk)) { key = mk; } }
-        Z42ClassType ct = sv.GetClass(key);
+        Z42ClassType ct = sv.LocalClassOf(sv.ScopeNs, c);
         if (ct == null) { return; }
         int self = table.Intern.Of(ct);
         int[] seen = new int[16];

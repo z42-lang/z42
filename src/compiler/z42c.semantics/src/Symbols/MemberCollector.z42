@@ -78,7 +78,8 @@ public sealed class MemberCollector {
 
     // 接口方法签名（体可无；签名同类方法解析）（port-z42c-interface）。
     private void _fillInterface(SymbolTable table, ClassDecl c) {
-        Z42InterfaceType it = table.Interfaces.Get(c.Name) as Z42InterfaceType;
+        // 按本命名空间的 FQN 取：短名表只留同名接口里的一份，别的 ns 的同名接口会一个方法都填不进去。
+        Z42InterfaceType it = table.InterfacesByFqn.Get(SymbolTable.QualOf(table.ScopeNs, c.Name)) as Z42InterfaceType;
         // add-associated-types PR-2（`Self`）：接口内 `Self` 指代**实现类型**，实现方式是把它当成一个
         // 隐式类型形参塞进 paramNames —— ResolveTypeP 的形参命中分支随即把 `Self` 解析成
         // Z42GenericParamType("Self")，与真型参 `T` 走**完全同一条路**：不新造类型、约束位/成员签名
@@ -196,9 +197,7 @@ public sealed class MemberCollector {
     }
 
     private void _fillClass(SymbolTable table, ClassDecl c) {
-        // Arity-mangle：泛型类若已以 Name$N 键注册，优先取该 CT（镜像 C# TryGetClassFor）。
-        string ctKey = c.Name;
-        if (c.TypeParams.Count > 0) { string mk = c.Name + "$" + c.TypeParams.Count.ToString(); if (table.Classes.ContainsKey(mk)) { ctKey = mk; } }
+        // 本 CU 声明的这个类（`table` 已是 `WithScopeOf(cu)` 视图）：arity-mangle 键与对象都按本命名空间的 FQN 取。
         // 🔴 **必须走 `GetClass` 访问器，不能直接摸 `Classes`**（A5b-2）。
         // `Classes` 是**裸名键、同短名跨 ns 后来者覆盖**；而 `DeclBinder._bindClass` 取同一个类
         // 走的是 `symbols.GetClass(...)`。两边口径一旦不同，成员就填进了**另一个**对象：
@@ -212,7 +211,7 @@ public sealed class MemberCollector {
         // 同一形状本文件家族已记过一次：`_anyInterfaceDerivesFrom` 那句「此前是
         // `this.Interfaces.Find(name)` —— **绕过了 `GetInterface` 访问器**」。
         // ⇒ 取类型对象只走访问器这一个出口，键形态与作用域规则才会随它一起演进。
-        Z42ClassType ct = table.GetClass(ctKey);
+        Z42ClassType ct = table.LocalClassOf(table.ScopeNs, c);
         string[] tp = c.TypeParams.Names;     // 类型形参（泛型类；非泛型 Count=0）
         int tpc = c.TypeParams.Count;
         // enforce-class-access：基类 / 接口列表类型引用（声明签名位置）。逐 base 解析后校验（含泛型基

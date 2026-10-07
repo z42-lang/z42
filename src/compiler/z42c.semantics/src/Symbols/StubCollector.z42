@@ -110,8 +110,10 @@ public sealed class StubCollector {
                 ClassDecl c = d as ClassDecl;
                 if (c.Kind == "interface") {
                     // add-partial-types：同名接口碎片合并（方法经 _fillInterface 并入首碎片；主碎片=首=min-path）。
-                    if (table.Interfaces.ContainsKey(c.Name)) {
-                        Z42InterfaceType prev = table.Interfaces.Get(c.Name) as Z42InterfaceType;
+                    // 碰撞只看**本命名空间**的同名接口（FQN 视图）：短名表里别的 ns 的同名接口不是本接口的碎片。
+                    string ifq = SymbolTable.QualOf(cu.HasNamespace ? cu.Namespace : "", c.Name);
+                    if (table.InterfacesByFqn.ContainsKey(ifq)) {
+                        Z42InterfaceType prev = table.InterfacesByFqn.Get(ifq) as Z42InterfaceType;
                         if (c.IsPartial || prev.IsPartial) {
                             if (c.IsPartial && !prev.IsPartial) { prev.IsPartial = true; prev.PartialMainFile = file; }
                             // 保留 prev（首碎片），不覆盖 → _fillInterface 各碎片方法并入同一接口。
@@ -196,9 +198,7 @@ public sealed class StubCollector {
                         it.BaseNames = StubCollector._qualifiedCopy(sv, it.BaseNames, n);
                     }
                 } else {
-                    string key = c.Name;
-                    if (c.TypeParams.Count > 0) { string mk = c.Name + "$" + c.TypeParams.Count.ToString(); if (sv.Classes.ContainsKey(mk)) { key = mk; } }
-                    Z42ClassType ct = sv.GetClass(key);
+                    Z42ClassType ct = sv.LocalClassOf(sv.ScopeNs, c);
                     if (ct != null && ct.InterfaceNames != null) {
                         int n2 = ct.InterfaceCount; if (ct.InterfaceNames.Length < n2) { n2 = ct.InterfaceNames.Length; }
                         ct.InterfaceNames = StubCollector._qualifiedCopy(sv, ct.InterfaceNames, n2);
@@ -350,10 +350,13 @@ public sealed class StubCollector {
                     string key = needsMangle ? c.Name + "$" + c.TypeParams.Count.ToString() : c.Name;
                     // add-partial-types：同名碎片合并。保留首碎片（发现序=Ordinal 序，首=主碎片 min-path），
                     // 并入本碎片的 base/接口；均非 partial 时维持既有 last-wins 覆盖（无回归）。
-                    bool collides = table.Classes.ContainsKey(key);
-                    bool mergePartial = collides && (c.IsPartial || (table.Classes.Get(key) as Z42ClassType).IsPartial);
+                    // 碰撞只看**本命名空间**的同名类（FQN 视图）：短名表会把别的 ns（含导入包）里的同名类也算进来，
+                    // 任一方是 partial 时就把两个不相干的类并成一个。
+                    string declFqn = SymbolTable.QualOf(cu.HasNamespace ? cu.Namespace : "", key);
+                    Z42ClassType prevSame = table.ClassesByFqn.Get(declFqn) as Z42ClassType;
+                    bool mergePartial = prevSame != null && (c.IsPartial || prevSame.IsPartial);
                     if (mergePartial) {
-                        Z42ClassType prev = table.Classes.Get(key) as Z42ClassType;
+                        Z42ClassType prev = prevSame;
                         if (hasBase) {
                             if (prev.HasBase && prev.BaseName != baseName) {
                                 this._sc.Diags.Error(DiagnosticCodes.PartialBaseConflict,
@@ -405,13 +408,13 @@ public sealed class StubCollector {
                     }
                     // add-deprecated-directive：本地类级 `[Deprecated]`（任一碎片带即标记）。stub 已注册 → 回查设位。
                     if (HandlerRegistry.HasDeprecated(cu.Decls[i])) {
-                        Z42ClassType ctd = table.Classes.Get(key) as Z42ClassType;
+                        Z42ClassType ctd = table.ClassesByFqn.Get(declFqn) as Z42ClassType;
                         if (ctd != null) { ctd.IsDeprecated = true; ctd.DeprecationMsg = HandlerRegistry.DeprecatedMsg(cu.Decls[i]); }
                     }
                     // add-record-value-semantics：本地类级 `[Record]`（class/struct）。stub 已注册 → 回查设位，
                     // 供 OperatorEmitter 判定 record-class `==`/`!=` 脱糖成值 Equals。
                     if (HandlerRegistry.HasRecord(cu.Decls[i])) {
-                        Z42ClassType ctr = table.Classes.Get(key) as Z42ClassType;
+                        Z42ClassType ctr = table.ClassesByFqn.Get(declFqn) as Z42ClassType;
                         if (ctr != null) { ctr.IsRecord = true; }
                     }
                 }
