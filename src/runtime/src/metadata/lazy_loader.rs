@@ -153,6 +153,12 @@ pub struct LazyLoader {
     /// `VmContext::install_lazy_loader_with_deps`; a loader built directly (unit tests) starts
     /// with a private empty table.
     funcs: Arc<crate::metadata::func_table::FuncTable>,
+    /// The VM's [`TypeTable`](crate::metadata::type_table::TypeTable) (`TypeId` → descriptor).
+    /// `type_registry` stays the loader's name map; every step that changes it ends with
+    /// [`Self::publish_types`], which registers new descriptors there and repoints fixed-up
+    /// ones. Attached by `VmContext::install_lazy_loader_with_deps`; a loader built directly
+    /// (unit tests) starts with a private empty table.
+    types: Arc<crate::metadata::type_table::TypeTable>,
 }
 
 /// runtime-ambiguous-use-site: the two ambiguity sets, behind one `Box` so
@@ -245,6 +251,7 @@ impl LazyLoader {
                 self.type_registry.insert(name.clone(), Arc::clone(td));
             }
         }
+        self.publish_types();
         if !module_descs.is_empty() {
             if let Some(reg) = self.cctors.as_ref() {
                 let owned: rustc_hash::FxHashSet<String> = types
@@ -304,6 +311,7 @@ impl LazyLoader {
             symbol_owners: FxHashMap::default(),
             short_symbols: FxHashMap::default(),
             funcs: Arc::new(crate::metadata::func_table::FuncTable::new(None)),
+            types: Arc::new(crate::metadata::type_table::TypeTable::default()),
         }
     }
 
@@ -347,6 +355,23 @@ impl LazyLoader {
     pub(crate) fn set_func_table(&mut self, table: Arc<crate::metadata::func_table::FuncTable>) {
         debug_assert_eq!(self.funcs.lazy_name_count(), 0, "set_func_table after registration");
         self.funcs = table;
+    }
+
+    /// Attach the VM's type table (see the `types` field doc).
+    pub(crate) fn set_type_table(&mut self, table: Arc<crate::metadata::type_table::TypeTable>) {
+        self.types = table;
+        self.publish_types();
+    }
+
+    /// Publish the whole type registry to the `TypeTable`: new descriptors get registered,
+    /// ones the inheritance fixup replaced (clone-on-write, same id) get their slot repointed;
+    /// unchanged entries cost one pointer compare. Call after every step that changes
+    /// `type_registry` — after the fixup pass, so a fresh descriptor is still uniquely owned
+    /// while the fixup mutates it.
+    pub(crate) fn publish_types(&self) {
+        for td in self.type_registry.values() {
+            self.types.publish(td);
+        }
     }
 
     /// fix-crosspkg-static-call-cctor: attach the context's cctor registry (see the field doc).
@@ -611,3 +636,7 @@ impl LazyLoader {
 #[cfg(test)]
 #[path = "lazy_loader_tests.rs"]
 mod lazy_loader_tests;
+
+#[cfg(test)]
+#[path = "lazy_loader_types_tests.rs"]
+mod lazy_loader_types_tests;

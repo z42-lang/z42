@@ -326,6 +326,9 @@ pub struct ExceptionEntry {
     pub catch_label: String,
     pub catch_type:  Option<String>,
     pub catch_reg:   u32,
+    /// Runtime-only: `catch_type`'s type-test key, resolved on first match
+    /// (see [`TypeKeyCell`](crate::metadata::tokens::TypeKeyCell)).
+    pub catch_key:   crate::metadata::tokens::TypeKeyCell,
 }
 
 /// A basic block — straight-line instructions ending in exactly one terminator.

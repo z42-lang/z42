@@ -4,6 +4,7 @@
 //! `exec_object.rs` when it crossed the 500-line hard limit; the parent
 //! re-exports so `exec_object::is_instance` / `as_cast` paths are unchanged.
 
+use crate::metadata::tokens::TypeKeyCell;
 use crate::metadata::{Module, Value};
 use crate::vm_context::VmContext;
 use anyhow::Result;
@@ -23,9 +24,10 @@ pub(crate) fn is_integer_class(cn: &str) -> bool {
 
 pub(crate) fn is_instance(
     ctx: &VmContext, module: &Module, frame: &mut Frame, dst: u32, obj: u32, class_name: &str,
+    key: &TypeKeyCell,
 ) -> Result<()> {
     let result = match frame.get(obj)? {
-        Value::Object(rc) => isa_td(ctx, &module.type_registry, rc.type_desc(), class_name),
+        Value::Object(rc) => isa_td(ctx, &module.type_registry, rc.type_desc(), class_name, key),
         // 2026-05-07 add-array-base-class: T[] is-a Std.Array is-a Std.Object.
         // VM hardcodes the chain since Value::Array doesn't carry a TypeDesc.
         Value::Array(_) => is_array_isa(class_name),
@@ -36,7 +38,7 @@ pub(crate) fn is_instance(
         Value::BoxedStruct(b) => {
             class_name == "Std.Object" || class_name == "Object"
                 || &*b.type_desc().name == class_name
-                || isa_td(ctx, &module.type_registry, b.type_desc(), class_name)
+                || isa_td(ctx, &module.type_registry, b.type_desc(), class_name, key)
         }
         // fix-boxed-primitive-is-as: 未装箱裸基元（未经 object 边界）→ stdlib 类名松匹配兜底。
         other => prim_isa(other, class_name),
@@ -47,6 +49,7 @@ pub(crate) fn is_instance(
 
 pub(crate) fn as_cast(
     ctx: &VmContext, module: &Module, frame: &mut Frame, dst: u32, obj: u32, class_name: &str,
+    key: &TypeKeyCell,
 ) -> Result<()> {
     let val = frame.get(obj)?.clone();
     // add-struct-object-boxing → unify Phase 2 R3: BoxedStruct 特判（struct 或基元装箱统一）——
@@ -60,7 +63,7 @@ pub(crate) fn as_cast(
                 Some(n) => Value::I64(n), // 基元盒精确命中 → 拆回裸标量
                 None => super::super::exec_struct::unbox_struct(ctx, frame.frame_id(ctx), b)?, // struct 盒 → arena StructRef
             }
-        } else if is_obj || isa_td(ctx, &module.type_registry, b.type_desc(), class_name) {
+        } else if is_obj || isa_td(ctx, &module.type_registry, b.type_desc(), class_name, key) {
             val.clone()
         } else {
             Value::Null
@@ -85,7 +88,7 @@ pub(crate) fn as_cast(
         return Ok(());
     }
     let is_match = match &val {
-        Value::Object(rc) => isa_td(ctx, &module.type_registry, rc.type_desc(), class_name),
+        Value::Object(rc) => isa_td(ctx, &module.type_registry, rc.type_desc(), class_name, key),
         Value::Array(_) => is_array_isa(class_name),
         Value::Null => true,
         // fix-boxed-primitive-is-as: 未装箱裸基元按其 stdlib 类名松匹配兜底。

@@ -36,7 +36,7 @@ pub(super) struct TxCtx<'a, 'b> {
     /// Wildcard single-covering-entry shortcut (unconditional jump on throw).
     pub(super) catch_info: Option<(Block, u32)>,
     /// All covering exception-table entries for this block, in source order.
-    pub(super) catch_chain: &'a [(Block, u32, Option<&'a str>)],
+    pub(super) catch_chain: &'a [(Block, u32, Option<(&'a str, &'a TypeKeyCell)>)],
     /// jit-inline-fastpaths: loop-invariant array (data_ptr, len, width).
     pub(super) hoisted_arrays: &'a std::collections::HashMap<u32, (Value, Value, Value)>,
     /// FieldGet/Set P5-B: loop-invariant primitive field (bytes_ptr, offset).
@@ -192,7 +192,7 @@ impl<'a, 'b> TxCtx<'a, 'b> {
             let mut closed_by_wildcard = false;
             // Clone the (Copy) entries out first so the loop doesn't hold a borrow
             // of `self.catch_chain` while calling `&mut self` methods.
-            let chain: Vec<(Block, u32, Option<&str>)> = self.catch_chain.to_vec();
+            let chain: Vec<(Block, u32, Option<(&str, &TypeKeyCell)>)> = self.catch_chain.to_vec();
             for (catch_cl, catch_reg, ty) in chain {
                 match ty {
                     None => {
@@ -202,9 +202,11 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                         closed_by_wildcard = true;
                         break;
                     }
-                    Some(t) => {
+                    Some((t, key)) => {
                         let (tptr, tlen) = self.str_val(t);
-                        let inst = self.builder.ins().call(self.hr_match_catch_type, &[self.frame_val, self.ctx_val, tptr, tlen]);
+                        // The row's key cell lives in the function's exception table, as long as the code.
+                        let kp = self.builder.ins().iconst(self.ptr, key as *const TypeKeyCell as i64);
+                        let inst = self.builder.ins().call(self.hr_match_catch_type, &[self.frame_val, self.ctx_val, tptr, tlen, kp]);
                         let m = self.builder.inst_results(inst)[0];
                         let take_blk = self.builder.create_block();
                         let next_blk = self.builder.create_block();

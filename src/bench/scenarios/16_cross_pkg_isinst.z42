@@ -1,0 +1,47 @@
+// tier: full — 跨包类型判定：接收者是惰性加载包里的泛型实例化，隔离 IsaCache（TypeId 键）的命中路径
+//
+// `is` / `as` against generic instantiations whose classes live in `z42.collections`, a
+// package loaded lazily on first use (not merged into the entry module like `z42.core`):
+// a 5-way `is`-chain over `Stack<long>` / `Queue<long>` / `LinkedList<long>` /
+// `PriorityQueue<long>` / `SortedSet<long>`, an erased-name test (`is Stack`, matched through
+// the instantiation's erased name) and an interface test + downcast (`IBasicCollection<long>`, from
+// z42.core). Counterpart of 11_type_test_chain (entry-module classes) for cross-package
+// receivers. Objects are allocated once outside the loop so the type tests dominate.
+// Run in both modes: interp and JIT each test through their own IsInstance / AsCast path.
+//
+// Expected output (deterministic): 19000000
+
+namespace Bench.CrossPkgIsInst;
+
+using Std.IO;
+using Std.Collections;
+
+long Drive(object[] arr, long n) {
+    long total = 0L;
+    long i = 0L;
+    while (i < n) {
+        object o = arr[(int)(i % 5L)];
+        if (o is Stack<long>) { total = total + 1L; }
+        else if (o is Queue<long>) { total = total + 2L; }
+        else if (o is LinkedList<long>) { total = total + 3L; }
+        else if (o is PriorityQueue<long>) { total = total + 4L; }
+        else if (o is SortedSet<long>) { total = total + 5L; }
+        if (o is Stack) { total = total - 1L; }
+        IBasicCollection<long> c = o as IBasicCollection<long>;
+        if (c != null) { total = total + 1L; }
+        i = i + 1L;
+    }
+    return total;
+}
+
+void Main() {
+    object[] arr = new object[5];
+    arr[0] = new Stack<long>();
+    arr[1] = new Queue<long>();
+    arr[2] = new LinkedList<long>();
+    arr[3] = new PriorityQueue<long>();
+    arr[4] = new SortedSet<long>();
+    // per 5 elements: chain 1+2+3+4+5 = 15, erased `is Stack` −1, interface +5 → 19
+    long result = Drive(arr, 5000000L);
+    Console.WriteLine(result.ToString());
+}

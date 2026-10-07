@@ -217,16 +217,18 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                     let ret  = self.builder.inst_results(inst)[0]; self.check(ret);
                 }
                 Instruction::IsInstance(insn) => {
-                    let IsInstanceInsn { dst, obj, class_name } = &**insn;
+                    let IsInstanceInsn { dst, obj, class_name, target } = &**insn;
                     let d = self.ri(*dst); let o = self.ri(*obj);
                     let (cp, cl) = self.str_val(class_name);
-                    self.builder.ins().call(self.hr_is_instance, &[self.frame_val, self.ctx_val, d, o, cp, cl]);
+                    let kp = self.builder.ins().iconst(self.ptr, target as *const _ as i64);
+                    self.builder.ins().call(self.hr_is_instance, &[self.frame_val, self.ctx_val, d, o, cp, cl, kp]);
                 }
                 Instruction::AsCast(insn) => {
-                    let AsCastInsn { dst, obj, class_name } = &**insn;
+                    let AsCastInsn { dst, obj, class_name, target } = &**insn;
                     let d = self.ri(*dst); let o = self.ri(*obj);
                     let (cp, cl) = self.str_val(class_name);
-                    self.builder.ins().call(self.hr_as_cast, &[self.frame_val, self.ctx_val, d, o, cp, cl]);
+                    let kp = self.builder.ins().iconst(self.ptr, target as *const _ as i64);
+                    self.builder.ins().call(self.hr_as_cast, &[self.frame_val, self.ctx_val, d, o, cp, cl, kp]);
                 }
 
                 // Static fields

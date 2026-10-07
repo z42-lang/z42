@@ -28,8 +28,8 @@ e2e 捕获全管线回归（启动开销 / dispatch / 整体吞吐）；micro �
 ## 2. 场景分层：`// tier:` 在源码头部声明
 
 `src/bench/scenarios/<NN>_<name>.z42` 的头部注释声明 `// tier: gate` 或 `// tier: full`
-（解析只取声明行的第一个词，见 `_benchScenarioTier`；没声明即 `full`）。当前 15 条场景里
-**8 条 gate、7 条 full**。`xtask bench` 默认 `--tier all`，CI 传 `--tier gate`。
+（解析只取声明行的第一个词，见 `_benchScenarioTier`；没声明即 `full`）。当前 16 条场景里
+**8 条 gate、8 条 full**。`xtask bench` 默认 `--tier all`，CI 传 `--tier gate`。
 
 分层不只是省时间：**它把每个 PR 的 e2e 比较次数从 22 降到 6~12**，多重比较导致的假红概率随之
 降一个量级（见 §6 缺陷 ③）。选 gate 的判据写在各场景自己的声明行末尾（「为什么它代表某条热路径」
