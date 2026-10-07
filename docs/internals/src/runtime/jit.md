@@ -144,6 +144,28 @@ fn resolve_fn_by_id_thr(&self, id, thr) -> Option<&FnEntry> {
 应从「整套 stdlib（数千）」降到「该用例实际调用（数十）」。CI `test-vm-jit` shard 墙钟随之
 从 ~55 分钟大幅回落。
 
+## `[Native]` 包装函数短路（`jit/forward.rs`）
+
+每个 `[Native("__x")] extern` 方法都编译成一条转发：`%d = builtin __x(%0, …); ret %d`。
+走普通调用协议，这一层包装要付一整个活动记录——池化寄存器文件、`push_frame` / `pop_frame`、
+包装函数自己的序言——只为把参数原样交给 `jit_builtin`。`s.Length` / `s[i]` / `Substring`
+这类字符串原语在循环里调用时，这个帧就是调用成本的大头（`s[i]` 还要再多一层：脚本索引器
+`get_Item` 调 `CharAt`）。
+
+- **识别**：编译出 `FnEntry` 时（`LazyCompiler::compile_fn` 判形状 1，`JitModuleCtx::resolve_slot_slow` 补判形状 2）判定两种形状，
+  把 builtin id 记进 `FnEntry::forward`：
+  1. `builtin_forward`：单块、唯一一条 `builtin`，实参恰是全部形参按序，`ret` 它的结果（或 void），
+     无异常表、非泛型，且 builtin 名能解析到 id；
+  2. `chained_forward`：单块、唯一一条对**同一类型**方法的 `call`（实参同上），而被调方是形状 1。
+     限定同一类型，是因为调用方已经为本类型过了静态构造器屏障，被跳过的那次调用不需要另一道。
+- **派发**：`jit_call` 的 `call_compiled`（模块初始化 / cctor 屏障之后）与 `jit_vcall` 的 `invoke_entry` 见到
+  `forward` 且实参个数等于形参个数（不靠默认值补位）时，直接从调用者寄存器收集实参、
+  `exec_builtin_by_id`，结果写 `dst`（void 写 `Null`，与包装函数 `ret` 的效果一致）；
+  builtin 报错按 `jit_builtin` 同一条路径包成 `Std.Exception`。调用点偏移在短路**之前**就盖到
+  调用者帧上（`set_top_frame_pc`）——包装函数那一行没了，调用者那一行就是栈顶，行号必须指向这次调用。
+- **可观察差异只有一处**：builtin 内抛出的异常，栈轨迹里少了 extern 包装函数自己那一行。
+  只有 JIT 走这条路；解释器仍按普通调用执行包装函数。
+
 ## 分层：热度阈值 + 三态负缓存（准则 2）
 
 惰性逐函数编译是「首次调用即编译」；分层把它推进为「**热函数才编译**」——冷函数（调用次数

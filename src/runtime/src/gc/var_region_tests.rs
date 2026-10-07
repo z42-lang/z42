@@ -487,6 +487,24 @@ fn gen_age_and_block_type_share_a_byte_without_interference() {
     assert_eq!(std::mem::size_of::<GcBlockHeader>(), 16);
 }
 
+/// The string all-ASCII bit lives in the same byte; the STW age updates must carry it
+/// (a lost bit only costs speed, but a *spurious* one would make `CharAt` index bytes of
+/// a non-ASCII string), and a fresh block must start without it.
+#[test]
+fn ascii_str_bit_survives_aging_and_starts_clear() {
+    let mut region = VarRegion::new();
+    let h = region.alloc(16, BlockType::Str);
+    // SAFETY: freshly allocated, region alive.
+    let header = unsafe { h.header_ptr().as_ref() };
+    assert!(!header.is_ascii_str(), "fresh block carries no ASCII claim");
+    header.set_ascii_str();
+    for _ in 0..PROMOTION_THRESHOLD { header.bump_gen_age(); }
+    header.raise_gen_age_to(PROMOTION_THRESHOLD);
+    assert!(header.is_ascii_str(), "aging keeps the bit");
+    assert_eq!(header.block_type(), BlockType::Str);
+    assert_eq!(header.gen_age(), PROMOTION_THRESHOLD);
+}
+
 #[test]
 fn fresh_blocks_are_young_and_listed() {
     let mut region = VarRegion::new();

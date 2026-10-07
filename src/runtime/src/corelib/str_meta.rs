@@ -43,6 +43,12 @@
 //!
 //! The cache only changes *speed*, never the returned value — byte-identical
 //! output is preserved.
+//!
+//! Strings marked all-ASCII when their block was written (`Str::is_known_ascii`, a
+//! header bit set by the heap's string allocators) skip the cache entirely: char
+//! index == byte index and the char count is the byte length. The cache is only
+//! consulted for non-ASCII strings and for strings created by a path that does not
+//! set the bit.
 
 use std::cell::{Cell, RefCell};
 use crate::metadata::vstr::Str;
@@ -126,6 +132,7 @@ fn with_meta<R>(s: &Str, f: impl FnOnce(&StrMeta) -> R) -> R {
 
 /// O(1) (amortised) Unicode scalar count — backs `Std.String.Length`.
 pub fn char_len(s: &Str) -> usize {
+    if s.is_known_ascii() { return s.len(); }
     with_meta(s, |m| m.char_len)
 }
 
@@ -136,6 +143,10 @@ pub fn char_len(s: &Str) -> usize {
 /// perf-stdlib-hot-paths: backs `Std.String.Substring` (one slice copy instead of a
 /// per-character `CharAt` loop).
 pub fn byte_range(s: &Str, start: usize, len: usize) -> Option<(usize, usize)> {
+    if s.is_known_ascii() {
+        let end = start.checked_add(len)?;
+        return (end <= s.len()).then_some((start, end));
+    }
     with_meta(s, |m| {
         let end = start.checked_add(len)?;
         if end > m.char_len { return None; }
@@ -148,6 +159,7 @@ pub fn byte_range(s: &Str, start: usize, len: usize) -> Option<(usize, usize)> {
 }
 
 pub fn char_at(s: &Str, i: usize) -> Option<char> {
+    if s.is_known_ascii() { return s.as_bytes().get(i).map(|&b| b as char); }
     with_meta(s, |m| {
         if m.ascii {
             m.s.as_bytes().get(i).map(|&b| b as char)

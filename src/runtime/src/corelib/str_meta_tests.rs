@@ -99,3 +99,14 @@ fn cross_heap_recycled_address_no_false_hit() {
     assert_eq!(char_at(&s, 1), Some('Y'));
     assert_eq!(char_at(&s, 2), None);
 }
+
+#[test]
+fn ascii_bit_is_set_only_for_ascii_strings() {
+    assert!(Str::from("hello").is_known_ascii());
+    assert!(Str::from("").is_known_ascii());
+    assert!(!Str::from("a你b").is_known_ascii());
+    // The flag path and the cache path agree on ranges.
+    let s = Str::from("hello");
+    assert_eq!(byte_range(&s, 1, 3), Some((1, 4)));
+    assert_eq!(byte_range(&s, 3, 3), None);
+}

@@ -448,6 +448,8 @@ impl crate::gc::arc_heap::ArcMagrGC {
         unsafe {
             std::ptr::copy_nonoverlapping(s.as_ptr(), vref.payload_as_ptr::<u8>(), s.len());
         }
+        // `Length` / `CharAt` / `Substring` then index bytes directly (corelib::str_meta).
+        if s.is_ascii() { vref.set_ascii_str(); }
         let size = GcBlockHeader::DATA_OFFSET + s.len();
         // `record_alloc`'s `_value` is unused (only the sampler's lazy `kind_fn` matters), so
         // pass `Null` rather than materialize a throwaway `Value::Str`.
@@ -477,6 +479,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
             std::ptr::copy_nonoverlapping(a.as_ptr(), dst, a.len());
             std::ptr::copy_nonoverlapping(b.as_ptr(), dst.add(a.len()), b.len());
         }
+        if a.is_ascii() && b.is_ascii() { vref.set_ascii_str(); }
         let size = GcBlockHeader::DATA_OFFSET + total;
         if fast {
             self.record_alloc_fast(|| AllocKind::Object { class: "<string>".to_string() }, size);

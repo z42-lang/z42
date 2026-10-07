@@ -47,7 +47,7 @@ xtask test e2e --file std_assert                # 本库的 Main-based golden �
 - **`Dictionary<K,V>` 尺寸例外**：类型整体约 250 行（不计注释），超类型尺寸限，属有意的记录在案的例外——索引器读写 / `ContainsKey` 把 hash 规整、探测与追加就地展开（z42 的每层调用都要建帧，抽成方法插入路径慢约两成），扩容 / 压实要搬 `TKey` / `TValue` 数组也只能留在类里（抽成泛型方法会让调用方整函数退回解释器执行）。
 - **`Dictionary` / `HashSet` 按插入顺序遍历**：CPython 式紧凑布局——稠密 entries 数组按插入顺序追加、删除留 tombstone，另有 `int[]` 索引表做开放寻址（首槽取 hash 低位、冲突后 perturb 探测）；布局、不变量与探测序列见 `src/Collections/HashIndex.z42` 头注释。
 - **primitive 是 struct**：`int` / `long` / `double` / `float` / `bool` / `char` 等以 `struct <小写名>` 声明，运行时仍是 unboxed `Value::I64` / `Value::F64`；`string` 为 `class String`。`INumber` 的 `op_*` 为纯脚本 static abstract 实现，零 VM builtin（Script-First）。
-- **String 只保留最小 extern 核**（`Length` / `ByteLength` / `CharAt` / `FromChars` / `Equals` / `CompareTo` / `GetHashCode` / `ToCharArray` / `Substring` / `ConcatParts`），其余方法为纯脚本；`Split` / `Join` / `Concat` / `Format` 在 `String.Split.z42`，`Insert` / `Remove` / `Pad*` 在 `String.Edit.z42`。
+- **String 只保留最小 extern 核**（`Length` / `ByteLength` / `CharAt` / `FromChars` / `Equals` / `CompareTo` / `GetHashCode` / `ToCharArray` / `Substring` / `ConcatParts`，以及 `Split(string)` / `Join` 的私有原语 `_splitRaw` / `_joinRaw`），其余方法为纯脚本；`Split` / `Join` / `Concat` / `Format` 在 `String.Split.z42`，`Insert` / `Remove` / `Pad*` 在 `String.Edit.z42`。
 - **索引与 casing**：索引 / 长度 / 切片按 Unicode scalar（char）计数，UTF-8 byte 视图不对外暴露；`ToLower` / `ToUpper` 为 ASCII 规则，locale-sensitive 待 `CultureInfo`。
 
 ## 依赖关系

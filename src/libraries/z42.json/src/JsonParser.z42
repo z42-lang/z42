@@ -1,33 +1,33 @@
 namespace Std.Json;
 using Std.Text;
 
-// add-z42-json (2026-05-14)：RFC 8259 JSON parser (recursive descent).
+// RFC 8259 JSON parser (recursive descent).
 //
-// 与 TomlParser 同款 cursor + 行列追踪。JSON 语法比 TOML 简单很多 ——
-// 只有 7 种 value 类型，无 section / dotted-key / array-of-tables 概念。
+// Hot-path shape: the cursor scans the bulk-materialised `_chars` with **local**
+// loops (`char[] cs = this._chars; int p = this._pos; … this._pos = p;`) instead of a
+// `Peek()` / `Advance()` / `Eof()` call per character — each of those was a method
+// call plus a `_src.Length` call, i.e. several calls per input character. Line /
+// column are not tracked while scanning; `Err` derives them from `_pos` (count the
+// `\n` before it) only when an error is actually raised.
 public sealed class JsonParser {
     private string _src;
-    // Bulk-materialised source chars (one `ToCharArray()`) so per-char cursor
-    // reads are O(1) array indexing instead of a `CharAt` builtin call each.
-    // `_src` is kept for `.Length` / `.Substring`.
+    // Bulk-materialised source chars (one `ToCharArray()`): per-char reads are array
+    // indexing. `_src` is kept for `Substring`.
     private char[] _chars;
+    private int _len;
     private int _pos;
-    private int _line;
-    private int _col;
-    // add-json-relaxed (2026-05-25): when true, parser also accepts JSON5
-    // niceties (`//` + `/* */` comments, trailing commas in arrays/objects).
-    // Strict mode keeps RFC 8259 behaviour unchanged.
+    // When true, also accept JSON5 niceties (`//` + `/* */` comments, trailing commas
+    // in arrays/objects, NaN / Infinity). Strict mode is RFC 8259.
     private bool _relaxed;
-    // Recursion-depth guard: malicious deeply-nested input (e.g. thousands of
-    // `[`) would otherwise blow the VM stack. Capped in ParseValue.
+    // Recursion-depth guard: malicious deeply-nested input (e.g. thousands of `[`)
+    // would otherwise blow the VM stack. Capped in ParseValue.
     private int _depth;
 
     public JsonParser(string src) {
         this._src = src;
         this._chars = src.ToCharArray();
+        this._len = this._chars.Length;
         this._pos = 0;
-        this._line = 1;
-        this._col = 1;
         this._relaxed = false;
         this._depth = 0;
     }
@@ -35,7 +35,6 @@ public sealed class JsonParser {
     /// Relaxed-mode parser — JSON5-style `//` / `/* */` comments and
     /// trailing commas in arrays and objects accepted. Unquoted keys /
     /// hex literals / single-quoted strings stay deferred.
-    /// add-json-relaxed (2026-05-25).
     public static JsonParser Relaxed(string src) {
         JsonParser p = new JsonParser(src);
         p._relaxed = true;
@@ -44,101 +43,90 @@ public sealed class JsonParser {
 
     public JsonValue ParseDocument() {
         this.SkipWhitespace();
-        if (this.Eof()) {
+        if (this._pos >= this._len) {
             throw this.Err("empty input (RFC 8259 requires at least one JSON value)");
         }
         JsonValue v = this.ParseValue();
         this.SkipWhitespace();
-        if (!this.Eof()) {
+        if (this._pos < this._len) {
             throw this.Err("unexpected trailing characters after root value");
         }
         return v;
     }
 
-    // ── Cursor / whitespace helpers ──────────────────────────────────────
+    // ── Cursor helpers (cold paths; hot loops index `_chars` directly) ────
 
     private char Peek() {
-        if (this._pos >= this._src.Length) { return '\0'; }
+        if (this._pos >= this._len) { return '\0'; }
         return this._chars[this._pos];
     }
 
-    private char Advance() {
-        char c = this.Peek();
-        this._pos = this._pos + 1;
-        if (c == '\n') {
-            this._line = this._line + 1;
-            this._col = 1;
-        } else {
-            this._col = this._col + 1;
-        }
-        return c;
-    }
-
-    private bool Eof() { return this._pos >= this._src.Length; }
-
+    /// Error at the current position. Line / column (1-based) are derived from
+    /// `_pos`: line = 1 + newlines before it, column = chars since the last one.
     private JsonException Err(string msg) {
-        return new JsonException(msg, this._line, this._col);
+        char[] cs = this._chars;
+        int end = this._pos;
+        if (end > this._len) { end = this._len; }
+        int line = 1;
+        int lastNl = -1;
+        for (int i = 0; i < end; i++) {
+            if (cs[i] == '\n') { line = line + 1; lastNl = i; }
+        }
+        return new JsonException(msg, line, this._pos - lastNl);
     }
 
     private void SkipWhitespace() {
-        while (!this.Eof()) {
-            char c = this.Peek();
-            if (c == ' ' || c == '\t' || c == '\n' || c == '\r') {
-                this.Advance();
+        char[] cs = this._chars;
+        int n = this._len;
+        int p = this._pos;
+        while (p < n) {
+            char c = cs[p];
+            if (c == ' ' || c == '\n' || c == '\r' || c == '\t') {
+                p = p + 1;
                 continue;
             }
-            // Relaxed mode: consume `//` line and `/* */` block comments.
+            // Relaxed mode: consume `//` line and `/* */` block comments. A `/` that
+            // starts no comment is left for the caller to reject.
             if (this._relaxed && c == '/') {
+                this._pos = p;
                 this.SkipCommentOrBail();
-                // SkipCommentOrBail consumed a comment iff it returned true via
-                // pos advancement — re-loop to keep skipping whitespace.
+                if (this._pos == p) { break; }
+                p = this._pos;
                 continue;
             }
             break;
         }
+        this._pos = p;
     }
 
-    /// Skip a `//` or `/* */` comment if one starts at `_pos`. Caller has
-    /// already peeked the leading `/`. Throws on `/` not followed by `/` or
-    /// `*` (relaxed mode reserves `/` for comments only).
-    /// add-json-relaxed (2026-05-25).
+    /// Skip a `//` or `/* */` comment if one starts at `_pos` (the caller has
+    /// peeked the leading `/`); otherwise leave `_pos` unchanged. Throws on an
+    /// unterminated block comment.
     private void SkipCommentOrBail() {
-        // Save state in case it's not actually a comment — then we'd bail
-        // out of SkipWhitespace and let downstream see the `/`.
-        int savedPos  = this._pos;
-        int savedLine = this._line;
-        int savedCol  = this._col;
-        this.Advance();    // consume first `/`
-        if (this.Eof()) {
-            this._pos = savedPos; this._line = savedLine; this._col = savedCol;
-            return;
-        }
-        char nx = this.Peek();
-        if (nx == '/') {
+        char[] cs = this._chars;
+        int n = this._len;
+        int p = this._pos + 1;
+        if (p >= n) { return; }
+        if (cs[p] == '/') {
             // Line comment — consume until EOL or EOF.
-            this.Advance();
-            while (!this.Eof()) {
-                char c = this.Peek();
-                if (c == '\n' || c == '\r') { break; }
-                this.Advance();
-            }
+            p = p + 1;
+            while (p < n && cs[p] != '\n' && cs[p] != '\r') { p = p + 1; }
+            this._pos = p;
             return;
         }
-        if (nx == '*') {
+        if (cs[p] == '*') {
             // Block comment — consume until `*/`.
-            this.Advance();
-            while (!this.Eof()) {
-                char c = this.Peek();
-                this.Advance();
-                if (c == '*' && !this.Eof() && this.Peek() == '/') {
-                    this.Advance();
+            p = p + 1;
+            while (p < n) {
+                if (cs[p] == '*' && p + 1 < n && cs[p + 1] == '/') {
+                    this._pos = p + 2;
                     return;
                 }
+                p = p + 1;
             }
+            this._pos = n;
             throw this.Err("unterminated block comment");
         }
-        // Not a comment — rewind so the caller sees the `/`.
-        this._pos = savedPos; this._line = savedLine; this._col = savedCol;
     }
 
     private string CharToString(char c) {
@@ -151,44 +139,38 @@ public sealed class JsonParser {
 
     private JsonValue ParseValue() {
         // Depth guard: every nested container recurses through ParseValue, so
-        // bounding it here caps total nesting (256) and prevents a stack blowout
-        // from pathological input. try/finally decrements on every return path.
+        // bounding it here caps total nesting (256). A throw abandons the whole
+        // parse, so only the normal return path needs to restore the depth.
         this._depth = this._depth + 1;
         if (this._depth > 256) {
-            this._depth = this._depth - 1;
             throw this.Err("nesting too deep (max 256)");
         }
-        try {
-            this.SkipWhitespace();
-            if (this.Eof()) { throw this.Err("unexpected end of input"); }
-            char c = this.Peek();
-            if (c == '{') { return this.ParseObject(); }
-            if (c == '[') { return this.ParseArray(); }
-            if (c == '"') { return JsonValue.OfString(this.ParseString()); }
-            if (c == 't' || c == 'f') { return this.ParseBool(); }
-            if (c == 'n') { return this.ParseNull(); }
+        this.SkipWhitespace();
+        if (this._pos >= this._len) { throw this.Err("unexpected end of input"); }
+        char c = this._chars[this._pos];
+        JsonValue v = null;
+        if (c == '"') { v = JsonValue.OfString(this.ParseString()); }
+        else if (c == '{') { v = this.ParseObject(); }
+        else if (c == '[') { v = this.ParseArray(); }
+        else if (c == 't' || c == 'f') { v = this.ParseBool(); }
+        else if (c == 'n') { v = this.ParseNull(); }
+        else {
             // Relaxed-only: NaN / Infinity / -Infinity / -NaN / +Infinity.
-            if (this._relaxed) {
-                JsonValue special = this.TryParseSpecialFloat();
-                if (special != null) { return special; }
-            }
-            return this.ParseNumber();
-        } finally {
-            this._depth = this._depth - 1;
+            if (this._relaxed) { v = this.TryParseSpecialFloat(); }
+            if (v == null) { v = this.ParseNumber(); }
         }
+        this._depth = this._depth - 1;
+        return v;
     }
 
     /// JSON5-style special float literals (`NaN`, `Infinity`, signed forms).
-    /// Returns null when current position is not one of those tokens — caller
-    /// falls through to standard `ParseNumber`. add-json-relaxed-naninf
-    /// (2026-05-25).
+    /// Returns null when the current position is not one of those tokens — the
+    /// caller falls through to standard `ParseNumber`.
     private JsonValue TryParseSpecialFloat() {
         bool neg = false;
-        int savedPos  = this._pos;
-        int savedLine = this._line;
-        int savedCol  = this._col;
-        if (this.Peek() == '-') { neg = true; this.Advance(); }
-        else if (this.Peek() == '+') {       this.Advance(); }
+        int savedPos = this._pos;
+        if (this.Peek() == '-') { neg = true; this._pos = this._pos + 1; }
+        else if (this.Peek() == '+') { this._pos = this._pos + 1; }
         if (this.TryLiteral("Infinity")) {
             double d = double.Parse("inf");
             if (neg) { d = 0.0 - d; }
@@ -198,9 +180,7 @@ public sealed class JsonParser {
             return JsonValue.OfDouble(double.Parse("nan"));
         }
         // Not a special float — rewind so `ParseNumber` sees the original sign.
-        this._pos  = savedPos;
-        this._line = savedLine;
-        this._col  = savedCol;
+        this._pos = savedPos;
         return null;
     }
 
@@ -217,14 +197,13 @@ public sealed class JsonParser {
 
     private bool TryLiteral(string lit) {
         int len = lit.Length;
-        if (this._pos + len > this._src.Length) { return false; }
-        int i = 0;
-        while (i < len) {
-            if (this._chars[this._pos + i] != lit.CharAt(i)) { return false; }
-            i = i + 1;
+        int p = this._pos;
+        if (p + len > this._len) { return false; }
+        char[] cs = this._chars;
+        for (int i = 0; i < len; i++) {
+            if (cs[p + i] != lit.CharAt(i)) { return false; }
         }
-        int j = 0;
-        while (j < len) { this.Advance(); j = j + 1; }
+        this._pos = p + len;
         return true;
     }
 
@@ -234,28 +213,41 @@ public sealed class JsonParser {
         if (this.Peek() != '"') {
             throw this.Err("expected '\"'");
         }
-        this.Advance();
+        // Fast path: no escapes before the closing quote → one Substring.
+        char[] cs = this._chars;
+        int n = this._len;
+        int start = this._pos + 1;
+        int p = start;
+        while (p < n) {
+            char c = cs[p];
+            if (c == '"') {
+                this._pos = p + 1;
+                return this._src.Substring(start, p - start);
+            }
+            if (c == '\\' || (int)c < 32) { break; }
+            p = p + 1;
+        }
+        // Slow path (escape / control char / unterminated): run-flush the ordinary
+        // spans as Substrings into a builder, decode escapes in between.
         StringBuilder sb = new StringBuilder();
-        // Run-flush: accumulate spans of ordinary chars and flush them as one
-        // Substring (O(escapes) allocations instead of O(chars)). `runStart` is
-        // the source index where the current unescaped run began.
-        int runStart = this._pos;
-        while (!this.Eof()) {
-            char c = this.Peek();
+        int runStart = start;
+        this._pos = p;
+        while (this._pos < n) {
+            char c = cs[this._pos];
             if (c == '"') {
                 if (this._pos > runStart) { sb.Append(this._src.Substring(runStart, this._pos - runStart)); }
-                this.Advance();
+                this._pos = this._pos + 1;
                 return sb.ToString();
             }
-            int code = (int)c;
-            if (code < 32) {
+            if ((int)c < 32) {
                 throw this.Err("unescaped control character in string");
             }
             if (c == '\\') {
                 if (this._pos > runStart) { sb.Append(this._src.Substring(runStart, this._pos - runStart)); }
-                this.Advance();
-                if (this.Eof()) { throw this.Err("unterminated escape"); }
-                char esc = this.Advance();
+                this._pos = this._pos + 1;
+                if (this._pos >= n) { throw this.Err("unterminated escape"); }
+                char esc = cs[this._pos];
+                this._pos = this._pos + 1;
                 if (esc == '"')       { sb.Append("\""); }
                 else if (esc == '\\') { sb.Append("\\"); }
                 else if (esc == '/')  { sb.Append("/"); }
@@ -268,23 +260,22 @@ public sealed class JsonParser {
                 else { throw this.Err("unknown escape: \\" + this.CharToString(esc)); }
                 runStart = this._pos;
             } else {
-                this.Advance();
+                this._pos = this._pos + 1;
             }
         }
         throw this.Err("unterminated string");
     }
 
     /// Parse 4-digit hex, return a 1-char string. Handles surrogate pairs
-    /// (\uD83D\uDE00 → single supplementary codepoint).
+    /// (😀 → single supplementary codepoint).
     private string ParseUnicodeEscape() {
         int v = this.ReadHex4();
         // High surrogate? Look for low surrogate \uDxxx pair.
         if (v >= 0xD800 && v <= 0xDBFF) {
-            if (this._pos + 1 < this._src.Length
+            if (this._pos + 1 < this._len
                 && this._chars[this._pos] == '\\'
                 && this._chars[this._pos + 1] == 'u') {
-                this.Advance();
-                this.Advance();
+                this._pos = this._pos + 2;
                 int low = this.ReadHex4();
                 if (low >= 0xDC00 && low <= 0xDFFF) {
                     int codepoint = 0x10000 + (v - 0xD800) * 0x400 + (low - 0xDC00);
@@ -308,11 +299,10 @@ public sealed class JsonParser {
         int v = 0;
         int i = 0;
         while (i < 4) {
-            char c = this.Peek();
-            int d = this.HexDigit(c);
+            int d = this.HexDigit(this.Peek());
             if (d < 0) { throw this.Err("invalid hex digit in \\u escape"); }
             v = v * 16 + d;
-            this.Advance();
+            this._pos = this._pos + 1;
             i = i + 1;
         }
         return v;
@@ -329,72 +319,74 @@ public sealed class JsonParser {
     // ── Number ───────────────────────────────────────────────────────────
 
     private JsonValue ParseNumber() {
+        char[] cs = this._chars;
+        int n = this._len;
         int start = this._pos;
-        bool isFloat = false;
+        int p = start;
+        bool neg = false;
+        if (p < n && cs[p] == '-') { neg = true; p = p + 1; }
 
-        if (this.Peek() == '-') { this.Advance(); }
-
-        // Integer part: 0 or [1-9][0-9]*
-        char first = this.Peek();
-        if (first == '0') {
-            this.Advance();
+        // Integer part: 0 or [1-9][0-9]*. Accumulate it as we go — an integer of
+        // ≤ 18 digits with no fraction / exponent is the common case and needs no
+        // Substring + long.Parse.
+        if (p >= n) {
+            this._pos = p;
+            throw this.Err("invalid number (expected digit)");
+        }
+        int fc = (int)cs[p];
+        long acc = 0L;
+        int digits = 0;
+        if (fc == 48) {
+            p = p + 1;
+            digits = 1;
         } else {
-            int fc = (int)first;
             if (fc < 49 || fc > 57) {   // not 1..9
+                this._pos = p;
                 throw this.Err("invalid number (expected digit)");
             }
-            while (!this.Eof()) {
-                int cc = (int)this.Peek();
+            while (p < n) {
+                int cc = (int)cs[p];
                 if (cc < 48 || cc > 57) { break; }
-                this.Advance();
+                acc = acc * 10L + (long)(cc - 48);
+                digits = digits + 1;
+                p = p + 1;
             }
+        }
+        bool isFloat = p < n && (cs[p] == '.' || cs[p] == 'e' || cs[p] == 'E');
+        if (!isFloat && digits <= 18) {
+            this._pos = p;
+            return JsonValue.OfLong(neg ? 0L - acc : acc);
         }
 
         // Fraction
-        if (!this.Eof() && this.Peek() == '.') {
-            isFloat = true;
-            this.Advance();
+        if (p < n && cs[p] == '.') {
+            p = p + 1;
             // Need at least one digit
-            int fdc = (int)this.Peek();
-            if (fdc < 48 || fdc > 57) {
+            if (p >= n || (int)cs[p] < 48 || (int)cs[p] > 57) {
+                this._pos = p;
                 throw this.Err("invalid number (expected digit after '.')");
             }
-            while (!this.Eof()) {
-                int cc = (int)this.Peek();
-                if (cc < 48 || cc > 57) { break; }
-                this.Advance();
-            }
+            while (p < n && (int)cs[p] >= 48 && (int)cs[p] <= 57) { p = p + 1; }
         }
 
         // Exponent
-        if (!this.Eof()) {
-            char ec = this.Peek();
-            if (ec == 'e' || ec == 'E') {
-                isFloat = true;
-                this.Advance();
-                if (!this.Eof() && (this.Peek() == '+' || this.Peek() == '-')) {
-                    this.Advance();
-                }
-                int edc = (int)this.Peek();
-                if (edc < 48 || edc > 57) {
-                    throw this.Err("invalid number (expected digit in exponent)");
-                }
-                while (!this.Eof()) {
-                    int cc = (int)this.Peek();
-                    if (cc < 48 || cc > 57) { break; }
-                    this.Advance();
-                }
+        if (p < n && (cs[p] == 'e' || cs[p] == 'E')) {
+            p = p + 1;
+            if (p < n && (cs[p] == '+' || cs[p] == '-')) { p = p + 1; }
+            if (p >= n || (int)cs[p] < 48 || (int)cs[p] > 57) {
+                this._pos = p;
+                throw this.Err("invalid number (expected digit in exponent)");
             }
+            while (p < n && (int)cs[p] >= 48 && (int)cs[p] <= 57) { p = p + 1; }
         }
 
-        string raw = this._src.Substring(start, this._pos - start);
+        this._pos = p;
+        string raw = this._src.Substring(start, p - start);
         if (isFloat) {
             return JsonValue.OfDouble(double.Parse(raw));
         }
-        // Try i64; on overflow fall back to f64 (lossy — matches serde_json).
-        // long.Parse throws on overflow, so a valid-but-huge JSON integer must
-        // be caught here and re-parsed as double rather than escaping as a bare
-        // exception. `raw` is already validated as an integer, so the only way
+        // ≥ 19 digits: try i64; on overflow fall back to f64 (lossy — matches
+        // serde_json). `raw` is already validated as an integer, so the only way
         // long.Parse fails is overflow → double.Parse always succeeds.
         try {
             return JsonValue.OfLong(long.Parse(raw));
@@ -407,18 +399,18 @@ public sealed class JsonParser {
 
     private JsonValue ParseObject() {
         if (this.Peek() != '{') { throw this.Err("expected '{'"); }
-        this.Advance();
+        this._pos = this._pos + 1;
         JsonValue obj = JsonValue.OfObject();
         this.SkipWhitespace();
         if (this.Peek() == '}') {
-            this.Advance();
+            this._pos = this._pos + 1;
             return obj;
         }
         while (true) {
             this.SkipWhitespace();
             // Relaxed mode: trailing `,` before `}` is allowed.
             if (this._relaxed && this.Peek() == '}') {
-                this.Advance();
+                this._pos = this._pos + 1;
                 return obj;
             }
             if (this.Peek() != '"') {
@@ -429,17 +421,17 @@ public sealed class JsonParser {
             if (this.Peek() != ':') {
                 throw this.Err("expected ':' after object key");
             }
-            this.Advance();
+            this._pos = this._pos + 1;
             JsonValue val = this.ParseValue();
             obj.Set(key, val);
             this.SkipWhitespace();
             char c = this.Peek();
             if (c == ',') {
-                this.Advance();
+                this._pos = this._pos + 1;
                 continue;
             }
             if (c == '}') {
-                this.Advance();
+                this._pos = this._pos + 1;
                 return obj;
             }
             throw this.Err("expected ',' or '}' in object");
@@ -451,11 +443,11 @@ public sealed class JsonParser {
 
     private JsonValue ParseArray() {
         if (this.Peek() != '[') { throw this.Err("expected '['"); }
-        this.Advance();
+        this._pos = this._pos + 1;
         JsonValue arr = JsonValue.OfArray();
         this.SkipWhitespace();
         if (this.Peek() == ']') {
-            this.Advance();
+            this._pos = this._pos + 1;
             return arr;
         }
         while (true) {
@@ -463,7 +455,7 @@ public sealed class JsonParser {
             if (this._relaxed) {
                 this.SkipWhitespace();
                 if (this.Peek() == ']') {
-                    this.Advance();
+                    this._pos = this._pos + 1;
                     return arr;
                 }
             }
@@ -472,11 +464,11 @@ public sealed class JsonParser {
             this.SkipWhitespace();
             char c = this.Peek();
             if (c == ',') {
-                this.Advance();
+                this._pos = this._pos + 1;
                 continue;
             }
             if (c == ']') {
-                this.Advance();
+                this._pos = this._pos + 1;
                 return arr;
             }
             throw this.Err("expected ',' or ']' in array");

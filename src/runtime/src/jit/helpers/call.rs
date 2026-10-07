@@ -92,9 +92,18 @@ unsafe fn call_compiled(
             return 1;
         }
     }
-    let callee_frame = JitFrame::new_args_from(vm, entry.max_reg, &frame_ref.regs, arg_regs);
-    // jit-stack-trace: stamp the caller's call-site offset.
+    // jit-stack-trace: stamp the caller's call-site offset. Before the forwarder
+    // short-circuit too: with the wrapper's row gone, the caller's row is the top
+    // of a trace captured inside the builtin.
     vm.set_top_frame_pc(caller_offset);
+    // `[Native]` extern wrapper: dispatch its builtin straight from our registers
+    // instead of building the wrapper's activation (see `jit::forward`).
+    if let Some(id) = entry.forward {
+        if arg_regs.len() == (*entry.func).param_count {
+            return super::super::forward::call_forward(frame_ref, ctx, dst, id, None, arg_regs);
+        }
+    }
+    let callee_frame = JitFrame::new_args_from(vm, entry.max_reg, &frame_ref.regs, arg_regs);
     call_entry(vm, ctx, entry, callee_frame).store_into(&mut frame_ref.regs, dst)
 }
 
@@ -162,7 +171,8 @@ pub unsafe extern "C" fn jit_builtin(
 ) -> u8 {
     let frame_ref = &mut *frame;
     let arg_regs  = std::slice::from_raw_parts(args_ptr, argc);
-    let args: Vec<Value> = arg_regs.iter().map(|&r| frame_ref.regs[r as usize].clone()).collect();
+    // Inline storage: builtins take ≤ 4 args almost always — no heap Vec per call.
+    let args: smallvec::SmallVec<[Value; 4]> = arg_regs.iter().map(|&r| frame_ref.regs[r as usize].clone()).collect();
 
     let vm = vm_ctx_ref(ctx);
     // fix-jit-builtin-ext-fallback: `UNRESOLVED` means the resolver could not bind this
@@ -182,29 +192,38 @@ pub unsafe extern "C" fn jit_builtin(
         // 「两个后端只有一个错」那种最难发现的形态）。
         Ok(Some(v)) => { frame_ref.regs[dst as usize] = v; 0 }
         Ok(None)    => 0,
-        Err(e) => {
-            // A callback builtin (reflection `MethodInfo.Invoke`) that ran z42
-            // code which threw stashed the ORIGINAL exception value — propagate
-            // it with its real type, not wrapped into Std.Exception (parity with
-            // interp `exec_call::builtin`).
-            if let Some(thrown) = vm.take_pending_thrown() {
-                set_exception(vm, thrown);
-                return 1;
-            }
-            // make-corelib-errors-catchable parity (this path was interp-only;
-            // jit_builtin previously set a raw `Value::Str`). Wrap the builtin
-            // error in a `Std.Exception` so JIT-compiled code can catch it with
-            // `catch (Exception e)` — a raw string never matches the catch type.
-            // Falls back to the raw string if `Std.Exception` isn't loaded.
-            let module = &*(*ctx).module;
-            let exc = match crate::exception::make_stdlib_exception(
-                vm, module, "Std.Exception", e.to_string(),
-            ) {
-                Ok(exc) => exc,
-                Err(_)  => Value::Str(e.to_string().into()),
-            };
-            set_exception(vm, exc);
-            1
-        }
+        Err(e) => builtin_error_into_exception(vm, ctx, e),
     }
+}
+
+/// Turn a builtin's `Err` into the pending JIT exception and report `1`. Shared
+/// by `jit_builtin` and the forwarder short-circuit (`jit::forward`).
+///
+/// # Safety
+/// `ctx` must be a valid `JitModuleCtx` (as for every JIT helper).
+pub(crate) unsafe fn builtin_error_into_exception(
+    vm: &crate::vm_context::VmContext, ctx: *const JitModuleCtx, e: anyhow::Error,
+) -> u8 {
+    // A callback builtin (reflection `MethodInfo.Invoke`) that ran z42
+    // code which threw stashed the ORIGINAL exception value — propagate
+    // it with its real type, not wrapped into Std.Exception (parity with
+    // interp `exec_call::builtin`).
+    if let Some(thrown) = vm.take_pending_thrown() {
+        set_exception(vm, thrown);
+        return 1;
+    }
+    // make-corelib-errors-catchable parity (this path was interp-only;
+    // jit_builtin previously set a raw `Value::Str`). Wrap the builtin
+    // error in a `Std.Exception` so JIT-compiled code can catch it with
+    // `catch (Exception e)` — a raw string never matches the catch type.
+    // Falls back to the raw string if `Std.Exception` isn't loaded.
+    let module = unsafe { &*(*ctx).module };
+    let exc = match crate::exception::make_stdlib_exception(
+        vm, module, "Std.Exception", e.to_string(),
+    ) {
+        Ok(exc) => exc,
+        Err(_)  => Value::Str(e.to_string().into()),
+    };
+    set_exception(vm, exc);
+    1
 }

@@ -9,6 +9,7 @@
 | `mod.rs` | 公开 API（`JitModule::setup` 建基础设施不编译、`JitModule::run` 先编入口再执行、`jit::run` 入口）；委托 helper 注册到 `helpers::registry` |
 | `lazy.rs` | `LazyCompiler`：持 cranelift `JITModule` + helper ids；`setup`（建基础设施）+ `compile_fn` / `compile_fn_osr`（按需编译单函数 / OSR 变体）。Mutex 守护，`Z42_JIT_PROFILE` 逐函数打印 |
 | `invoke.rs` | `call_native` / `call_entry`：唯一的原生调用序列（`push_frame` → 编译码 → `pop_frame` → 回收 `JitFrame`），返回 `NativeOutcome`。`run_fn`、调用类 helper 与 interp 的混合模式分流都经它 |
+| `forward.rs` | `[Native]` extern 包装函数的短路：识别「一条 `builtin` 原样转发全部参数再 `ret`」的函数（及同类型内再包一层的 `get_Item` → `CharAt` 这种），编译时记进 `FnEntry::forward`；`jit_call` / `jit_vcall` 命中时直接从调用者寄存器派发 builtin，不建包装函数的帧 |
 | `frame.rs` | `JitFrame`（寄存器文件 + 变量槽）、`JitModuleCtx`（按 `FnId` 索引的 `JitSlot` 表：编译槽 + tier-up 计数 + Rejected 负缓存；集中解析器 `resolve_fn_by_id`/`resolve_fn_by_name`，热路径零锁、只有编译拿锁；OSR 入口缓存） |
 | `translate/` | z42 指令 → Cranelift IR（`translate_function` 取单 `FuncId`）；`HelperIds` 重导出自 `helpers`。按职责拆为 20 个子模块：`mod.rs`（驱动：函数序言 + 逐块循环 + `TxCtx` 构造 + 按类别分发）、`ctx.rs`（`TxCtx` 每块上下文 + 6 个前置局部宏转成的方法 `ri`/`str_val`/`regs_val`/`check`/`dispatch_to_catch_or_return`/`emit_int_divrem`）、`hoist.rs`（循环不变量提升）、指令 handler `value`/`arith`/`compare`/`convert`/`call`/`array`/`object`/`structs`/`term`（各 `impl TxCtx { fn tr_* }`）、Cranelift 发射 `emit_int`/`emit_fc`、谓词 `predicates`、分析 `analysis`、寄存器变量 `reg_var`、站点缓存 `ic`、控制流 `control`、不支持指令表 `unsupported`。语义锚：`emit_*` 以 `// SEMANTICS: semantics::<fn>` 引用 `crate::semantics` |
 | `helpers/` | `extern "C"` helper 集合（按指令类别拆分；与 `interp/exec_*.rs` 命名对称）。查表统一经 `resolve_fn_*`（含惰性 hook） |

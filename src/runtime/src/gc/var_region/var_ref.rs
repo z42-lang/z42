@@ -156,6 +156,20 @@ impl VarGcRef {
         unsafe { self.header_ptr().as_ref().gen_age() }
     }
 
+    /// Mark this (freshly written, not yet shared) string block as all-ASCII.
+    #[inline]
+    pub(crate) fn set_ascii_str(&self) {
+        // SAFETY: the caller holds a live handle; the header address is valid.
+        unsafe { self.header_ptr().as_ref().set_ascii_str() }
+    }
+
+    /// Whether this string block was marked all-ASCII at creation.
+    #[inline]
+    pub(crate) fn is_ascii_str(&self) -> bool {
+        // SAFETY: the caller holds a live handle; the header address is valid.
+        unsafe { self.header_ptr().as_ref().is_ascii_str() }
+    }
+
     /// Identity equality: two handles are equal iff they name the same block *and* generation
     /// (the tagged word covers both on 64-bit).
     #[cfg(target_pointer_width = "64")]
