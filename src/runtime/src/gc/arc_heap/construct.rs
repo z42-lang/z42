@@ -21,6 +21,13 @@ impl Default for ArcMagrGC {
         // done". A construction-time read costs nothing and keeps the value immutable for the
         // heap's lifetime, which is also what makes the three copies below safe to cache.
         let promotion_age = crate::gc::promotion_age_from_config();
+        let footprint = std::sync::Arc::new(crate::gc::footprint::Footprint::default());
+        let mut region_object = crate::gc::region::Region::new_for_mode(generational, promotion_age);
+        region_object.attach_footprint(footprint.clone(), super::footprint::object_payload);
+        let mut region_array = crate::gc::region::Region::new_for_mode(generational, promotion_age);
+        region_array.attach_footprint(footprint.clone(), super::footprint::array_payload);
+        let mut region_var = VarRegion::with_drop_glue_for_mode(var_payload_drop_glue(), generational, promotion_age);
+        region_var.attach_footprint(footprint.clone());
         Self {
             inner: Mutex::new(RcHeapInner::default()),
             external_root_scanner: Mutex::new(None),
@@ -32,9 +39,9 @@ impl Default for ArcMagrGC {
             // fix-young-list-only-when-generational: the young list is minor GC's
             // private index, so only a generational heap pays to maintain it.
             // `set_mode` keeps this in step if the mode changes later.
-            region_object: Mutex::new(crate::gc::region::Region::new_for_mode(generational, promotion_age)),
-            region_array:  Mutex::new(crate::gc::region::Region::new_for_mode(generational, promotion_age)),
-            region_var:    Mutex::new(VarRegion::with_drop_glue_for_mode(var_payload_drop_glue(), generational, promotion_age)),
+            region_object: Mutex::new(region_object),
+            region_array:  Mutex::new(region_array),
+            region_var:    Mutex::new(region_var),
             promotion_policy: Default::default(),
             mark_queue: Mutex::new(Vec::new()),
             alloc_black: std::sync::atomic::AtomicBool::new(false),
@@ -52,6 +59,7 @@ impl Default for ArcMagrGC {
             epoch: NEXT_HEAP_EPOCH.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
             // add-gc-tlab (option B): live counters start at 0 (no allocations yet).
             used_bytes: std::sync::atomic::AtomicU64::new(0),
+            footprint,
             allocations: std::sync::atomic::AtomicU64::new(0),
             // add-gc-tlab (stage 2): mirrors of inner config, defaults match
             // `RcHeapInner::default` (strict_oom=false, no limit, no sampler).

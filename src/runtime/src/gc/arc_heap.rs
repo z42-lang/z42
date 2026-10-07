@@ -183,6 +183,11 @@ struct RcHeapInner {
     /// collection (capped), resets to 1 on a productive one, so an over-budget
     /// live set stops re-collecting forever.
     auto_collect_backoff: u32,
+    /// The occupied footprint (`gc::footprint`) at the last auto-collect trip, and whether that
+    /// trip was the soft cap's (near-limit). A collection the cap asked for is judged by whether
+    /// it held the footprint, not by the live bytes it reclaimed — see `auto_collect.rs`.
+    last_auto_collect_occupied: u64,
+    last_trip_for_cap: bool,
     /// **Phase 3-OOM**: strict OOM 模式开关。true 时 alloc 越界返回 Value::Null
     /// 不入 registry / 不 bump used_bytes（撤销分配）；false（默认）兼容历史
     /// 行为：alloc 仍成功，只 fire 事件。
@@ -429,6 +434,9 @@ pub struct ArcMagrGC {
     /// paths `sub_used_bytes` the reclaimed bytes. `Relaxed` suffices — these are monotone
     /// counters / heuristic pressure thresholds, not synchronization for other heap state.
     used_bytes: std::sync::atomic::AtomicU64,
+    /// What the heap really holds (`gc::footprint`), shared with the three regions — the
+    /// figure `HeapStats::committed_bytes` reports and the soft cap is judged against.
+    footprint: std::sync::Arc<crate::gc::footprint::Footprint>,
     allocations: std::sync::atomic::AtomicU64,
     /// **add-gc-tlab (stage 2, 2026-08-29)**: lock-free mirrors of three
     /// `inner`-locked config fields, read on the TLAB allocation fast path so it
@@ -601,6 +609,7 @@ mod observe;
 mod interface;
 #[cfg(any(test, debug_assertions))]
 mod debug;
+mod footprint;
 
 impl ArcMagrGC {
     /// 新建默认 GC backend（`Default` 从 `Z42_GC_MODE` 选 mode + 领取 epoch）。

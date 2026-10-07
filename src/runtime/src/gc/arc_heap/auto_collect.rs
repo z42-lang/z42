@@ -71,6 +71,8 @@
 
 use std::sync::atomic::Ordering;
 
+use super::footprint::SoftCap;
+
 /// Cap on the growth-gate multiplier. With the 0.10 default throttle ratio this
 /// means a hopeless heap re-collects at most a handful more times as it grows,
 /// instead of every 10% of the budget forever.
@@ -153,9 +155,9 @@ impl crate::gc::arc_heap::ArcMagrGC {
         if used < self.next_collect_at.load(Ordering::Relaxed) {
             return;
         }
-        let (soft_limit, last, paused, reclaimed_mark, backoff, total_reclaimed, cycles) = {
+        let (last, paused, reclaimed_mark, backoff, total_reclaimed, cycles, last_occupied, last_for_cap) = {
             let i = self.inner.lock();
-            (i.stats.max_bytes, i.last_auto_collect_used, i.pause_count > 0,
+            (i.last_auto_collect_used, i.pause_count > 0,
              i.last_auto_collect_reclaimed,
              // `RcHeapInner` derives Default, so the multiplier starts at 0;
              // treat that as the neutral 1 rather than hand-writing a Default
@@ -163,10 +165,13 @@ impl crate::gc::arc_heap::ArcMagrGC {
              // trip a collect on every allocation).
              i.auto_collect_backoff.max(1),
              i.stats.reclaimed_bytes,
-             i.stats.gc_cycles)
+             i.stats.gc_cycles,
+             i.last_auto_collect_occupied,
+             i.last_trip_for_cap)
         };
         if paused { return; }
         let cfg = crate::config::runtime_config();
+        let soft_limit = self.soft_cap();
 
         // How much did the *previous* trip's collection actually reclaim?
         let reclaimed_since = total_reclaimed.saturating_sub(reclaimed_mark);
@@ -187,7 +192,18 @@ impl crate::gc::arc_heap::ArcMagrGC {
         // slice reclaims nothing by design), and it must not move the minor gate's watermarks —
         // slices every quarter nursery would otherwise keep resetting "grown" and starve minors.
         let slice = trip.kind == TripKind::Slice;
-        let next_backoff = if slice { backoff } else { Self::next_backoff(backoff, reclaimed_since, trip.gate, cycles) };
+        // A major trip while a cycle is open only finishes that cycle (a heap at its soft cap):
+        // what the previous trip asked for was the cycle's opening slice, which reclaims nothing
+        // by design — judging it futile would back the cap's own collections off.
+        let finishing = trip.kind == TripKind::Major && self.major_cycle_active();
+        let occupied = self.occupied_bytes();
+        let next_backoff = if slice || finishing {
+            backoff
+        } else if last_for_cap {
+            Self::next_backoff_for_cap(backoff, occupied, last_occupied, trip.gate, cycles)
+        } else {
+            Self::next_backoff(backoff, reclaimed_since, trip.gate, cycles)
+        };
 
         // A collect this path already asked for may still be pending at the
         // safepoint. Re-tripping would overwrite the watermarks with readings
@@ -213,6 +229,8 @@ impl crate::gc::arc_heap::ArcMagrGC {
             i.last_auto_collect_used = used;
             i.last_auto_collect_reclaimed = total_reclaimed;
             i.auto_collect_backoff = next_backoff;
+            i.last_auto_collect_occupied = occupied;
+            i.last_trip_for_cap = trip.for_cap;
         }
 
         // `Z42_GC_PHASES`: why this collection is happening at all. The phase lines that
@@ -281,6 +299,8 @@ impl crate::gc::arc_heap::ArcMagrGC {
 struct Trip {
     kind: TripKind,
     gate: u64,
+    /// The soft cap asked for it (near-limit), so the next trip judges it by footprint.
+    for_cap: bool,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -353,25 +373,52 @@ impl crate::gc::arc_heap::ArcMagrGC {
         }
     }
 
+    /// [`Self::next_backoff`] for a collection the **soft cap** asked for. Its job was to keep
+    /// the footprint from growing past the cap, so that is what it is judged by: it was futile
+    /// if the occupied footprint still grew (by more than `gate / FUTILE_DIVISOR`) between its
+    /// trip and this one. Live bytes reclaimed say nothing here — a fragmented heap reclaims
+    /// plenty at every major and still cannot get under a cap below its footprint, and without
+    /// this a cap it can never meet costs a major every allowance, forever (measured 3x wall on
+    /// `13_gc_large_heap` under a 256 MB cap). A collection that held the line resets it.
+    fn next_backoff_for_cap(backoff: u32, occupied: u64, last_occupied: u64, gate: u64, cycles: u64) -> u32 {
+        if cycles == 0 {
+            1
+        } else if occupied > last_occupied.saturating_add(gate / FUTILE_DIVISOR) {
+            backoff.saturating_mul(4).min(MAX_BACKOFF)
+        } else {
+            1
+        }
+    }
+
     fn decide_trip(
         &self,
         used: u64,
         baseline: u64,
         backoff: u32,
-        soft_limit: Option<u64>,
+        soft_limit: Option<SoftCap>,
         cfg: &crate::config::RuntimeConfig,
     ) -> Option<Trip> {
         let allowance = Self::collection_allowance(baseline, self.allowance_unit(), soft_limit);
         let grown = used.saturating_sub(baseline);
         // A heap already past its soft cap is under real pressure: collect regardless of how
-        // little it has grown since last time (the backoff still keeps this from spinning).
-        let near_cap = soft_limit.is_some_and(|l| used >= (l as f64 * cfg.gc_near_limit_ratio) as u64);
+        // little it has grown since last time. Judged by the true footprint (`gc::footprint`),
+        // not the `used` estimate.
+        //
+        // Unless the last collections were futile: then the near-cap trip waits for the same
+        // backed-off growth as any other. It used to fire on every consult, and every
+        // collection re-arms the consult one *un*-multiplied gate ahead (`rearm_auto_collect`),
+        // so the backoff never reached it — a live set over its cap collected once a gate,
+        // forever. Judging the cap by footprint makes that case common (a heap's footprint is
+        // well above its live bytes), so it has to back off for real.
+        let near_cap = self.near_soft_cap(soft_limit, cfg.gc_near_limit_ratio)
+            && (backoff <= 1 || grown >= allowance.saturating_mul(backoff as u64));
 
         if crate::gc::MagrGC::mode(self) != crate::gc::GcMode::GenerationalMarkSweep {
             // One generation: every collection is a full one, and the allowance is read off
             // total live bytes rather than promoted bytes.
             let gate = allowance.saturating_mul(backoff as u64);
-            return (grown >= gate || near_cap).then_some(Trip { kind: TripKind::Major, gate: allowance });
+            return (grown >= gate || near_cap)
+                .then_some(Trip { kind: TripKind::Major, gate: allowance, for_cap: near_cap && grown < gate });
         }
 
         // Old generation first — a minor cannot sweep it at all, so if it is full, that is
@@ -383,7 +430,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         let active = self.major_cycle_active();
         let promoted = self.promoted_bytes_since_major.load(Ordering::Relaxed);
         if near_cap || (!active && promoted >= allowance) {
-            return Some(Trip { kind: TripKind::Major, gate: allowance });
+            return Some(Trip { kind: TripKind::Major, gate: allowance, for_cap: near_cap });
         }
         let minor_gate = self.minor_gate(baseline, soft_limit);
         // **add-pause-budget-nursery D4** (`Z42_GC_BACKOFF_CAP`, **off** by default): let the
@@ -402,10 +449,10 @@ impl crate::gc::arc_heap::ArcMagrGC {
         // −0.8% wall, which is the default worth shipping.
         let gate = Self::backed_off_gate(minor_gate, backoff, self.pause_budget_cap(cfg));
         if grown >= gate {
-            return Some(Trip { kind: TripKind::Minor, gate: minor_gate });
+            return Some(Trip { kind: TripKind::Minor, gate: minor_gate, for_cap: false });
         }
         (active && used >= self.incremental.next_slice_at.load(Ordering::Relaxed))
-            .then(|| Trip { kind: TripKind::Slice, gate: self.slice_interval() })
+            .then(|| Trip { kind: TripKind::Slice, gate: self.slice_interval(), for_cap: false })
     }
 
     /// Mono SGen's allowance rule (`sgen_memgov_calculate_minor_collection_allowance`):
@@ -417,16 +464,21 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// cap, the allowance shrinks to whatever headroom is left (floored at the minimum, so a
     /// heap whose live set already exceeds its cap degrades to "collect every minimum" rather
     /// than "collect on every allocation").
-    fn collection_allowance(live: u64, nursery: u64, soft_limit: Option<u64>) -> u64 {
+    ///
+    /// Everything here is in `used_bytes` units. The cap is configured in footprint bytes, so
+    /// the squeeze reads its `used` restatement ([`SoftCap::used`]); the floor stays a third of
+    /// the cap as configured, so a heap whose footprint-per-byte is high does not degrade into
+    /// collecting after every few allocations.
+    fn collection_allowance(live: u64, nursery: u64, soft_limit: Option<SoftCap>) -> u64 {
         let mut min_allowance = nursery.saturating_mul(ALLOWANCE_NURSERY_RATIO);
         if let Some(cap) = soft_limit {
-            min_allowance = min_allowance.min(((cap as f64) * ALLOWANCE_HEAP_RATIO) as u64);
+            min_allowance = min_allowance.min(((cap.footprint as f64) * ALLOWANCE_HEAP_RATIO) as u64);
         }
         let min_allowance = min_allowance.max(1);
         let mut allowance = (((live as f64) * ALLOWANCE_HEAP_RATIO) as u64).max(min_allowance);
         if let Some(cap) = soft_limit {
-            if live.saturating_add(allowance) > cap {
-                allowance = cap.saturating_sub(live).max(min_allowance);
+            if live.saturating_add(allowance) > cap.used {
+                allowance = cap.used.saturating_sub(live).max(min_allowance);
             }
         }
         allowance
@@ -446,7 +498,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// any budget — was the only generational gate, so a small `Z42_GC_MAX_BYTES` was not
     /// enforced until the heap had allocated a whole nursery past it. Invisible while STW was
     /// the default; the default path now.
-    fn minor_gate(&self, baseline: u64, soft_limit: Option<u64>) -> u64 {
+    fn minor_gate(&self, baseline: u64, soft_limit: Option<SoftCap>) -> u64 {
         self.nursery_bytes()
             .min(Self::collection_allowance(baseline, self.allowance_unit(), soft_limit))
     }
@@ -498,7 +550,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         baseline: u64,
         floor: u64,
         backoff: u32,
-        soft_limit: Option<u64>,
+        soft_limit: Option<SoftCap>,
         declined: bool,
     ) {
         let gate = if crate::gc::MagrGC::mode(self) == crate::gc::GcMode::GenerationalMarkSweep {
@@ -546,11 +598,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// cycle's floating garbage (everything that dies after its snapshot) lands on top of that, so
     /// the cycle is paced to finish within half of it again.
     pub(super) fn cycle_target_growth(&self, used: u64) -> u64 {
-        let soft_limit = match self.max_bytes_atomic.load(Ordering::Relaxed) {
-            u64::MAX => None,
-            n => Some(n),
-        };
-        Self::collection_allowance(used, self.allowance_unit(), soft_limit) / 2
+        Self::collection_allowance(used, self.allowance_unit(), self.soft_cap()) / 2
     }
 
     /// **arm-gc-by-default (2026-09-09)**: recompute the trip point from the live set a
@@ -562,10 +610,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// path re-arms with it the next time it runs, which is at worst one gate later.
     pub(super) fn rearm_auto_collect(&self) {
         let live = self.used_bytes_atomic();
-        let soft_limit = match self.max_bytes_atomic.load(Ordering::Relaxed) {
-            u64::MAX => None,
-            n => Some(n),
-        };
+        let soft_limit = self.soft_cap();
         let allowance = Self::collection_allowance(live, self.allowance_unit(), soft_limit);
         if crate::gc::MagrGC::mode(self) != crate::gc::GcMode::GenerationalMarkSweep {
             self.next_collect_at

@@ -110,6 +110,13 @@ impl ObjStorage {
         self.ptr.as_ptr().cast::<Value>().add(i)
     }
 
+    /// Bytes this payload asked the allocator for (`0` for a field-less object, which
+    /// allocates nothing) — the GC's footprint accounting rounds it to a size class.
+    #[inline]
+    pub fn alloc_bytes(&self) -> usize {
+        self.n_refs as usize * std::mem::size_of::<Value>() + self.n_bytes as usize
+    }
+
     /// The object's reference leaves, in composed reference-bitmap order.
     #[inline]
     pub fn refs(&self) -> &[Value] {

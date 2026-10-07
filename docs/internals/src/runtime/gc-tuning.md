@@ -24,15 +24,15 @@ GC 的「何时自动回收」由几个**比率魔数**决定（near-limit 90%�
 
 | Knob | 默认 | 语义 | 消费点 |
 |------|------|------|--------|
-| `Z42_GC_NEAR_LIMIT_RATIO` | 0.90 | heap-used 达 max-bytes 上限的此比率 → 触发自动回收 + 发 `NearHeapLimit` 事件 | `arc_heap/auto_collect.rs`、`arc_heap/alloc.rs` |
-| `Z42_GC_PRESSURE_RATIO` | 0.75 | heap-used 落在 `[pressure, near)` 区间 → 发 `AllocationPressure` 事件（应低于 near-limit 比率） | `arc_heap/alloc.rs` |
+| `Z42_GC_NEAR_LIMIT_RATIO` | 0.90 | 堆**真实占用**（occupied，见「真实占用记账与软上限」）达 max-bytes 上限的此比率 → 触发自动回收 + 发 `NearHeapLimit` 事件 | `arc_heap/auto_collect.rs`、`arc_heap/alloc.rs` |
+| `Z42_GC_PRESSURE_RATIO` | 0.75 | 真实占用落在 `[pressure, near)` 区间 → 发 `AllocationPressure` 事件（应低于 near-limit 比率） | `arc_heap/alloc.rs` |
 | `Z42_GC_THROTTLE_RATIO` | 0.10 | ⚠️ **不参与自动回收的触发**（闸门是相对余量）；保留供未来的去抖策略使用 | — |
 | `Z42_GC_PROMOTION_AGE` | **3** | **分代专用**：熬过几次 minor 才晋升到老年代；范围 1–3（年龄只有两位）。默认值就是上界 ⇒ **只能调低、不能调高**。**建堆时读一次**，写屏障读的是字段 | `gc/mod.rs` |
 | `Z42_GC_LOH_BYTES` | 64K | 变长块走 dedicated chunk 的尺寸门槛（死后内存直接还给分配器）；上界 = 64K bump chunk。**进程级** | `var_region/chunk.rs` |
 | `Z42_GC_NURSERY_BYTES` | **16M** | **整套策略的计量单位**：自上次回收以来分配这么多就触发 minor（分代）；×4 是 major 余量的下界（两种模式）。买停顿上界的那个旋钮，**调它必须连 `Z42_GC_PROMOTION_AGE` 一起想**（见下「过早晋升」） | `arc_heap/auto_collect` |
 | `Z42_GC_PAUSE_TARGET_MS` | **10** | **分代专用**：minor 停顿的目标上限（ms），nursery 按实测代价反推而非常量；`0` 关掉自适应，显式设 `Z42_GC_NURSERY_BYTES` 也会关掉它（手动挡优先）。clamp 到 `[0.5, 1000]`。见下「按停顿预算自适应 nursery」 | `arc_heap/pause_budget.rs` |
 | `Z42_GC_BACKOFF_CAP` | **off** | **分代专用**：禁止徒劳退避放大年轻代规模 —— 退避仍让回收变稀疏，但一次 minor 最多扫一个 nursery。把最坏停顿压死（`13_gc_large_heap --large` 301 ms → 25 ms），代价是「什么都不死」的负载上墙钟最多 +94%。**默认关**，见下「退避封顶为什么默认关」 | `arc_heap/auto_collect.rs` |
-| `Z42_GC_MAX_BYTES` | **unset = 无上限** | **软上限，不是武装开关**：设了只压回收余量并加一个近上限触发 | `arc_heap/auto_collect` |
+| `Z42_GC_MAX_BYTES` | **unset = 无上限** | **软上限，不是武装开关**：设了只压回收余量并加一个近上限触发；**按真实占用判定**（不是 `used`），见「真实占用记账与软上限」 | `arc_heap/auto_collect`、`arc_heap/footprint.rs` |
 | `Z42_GC_MINOR_THRESHOLD` | 0.75 | minor GC 后年轻代存活比率高于此 → 下次回收立即升级 major | `arc_heap` |
 | `Z42_GC_SOFT_THRESHOLD` | 0.80 | 堆压力比率高于此 → `SoftHandle` 弱引用变为可回收 | `gc/soft_registry.rs` |
 | `Z42_GC_PAUSE_WINDOW` | 1024 | per-heap 滚动 pause-time 队列容量（entries），clamp 到 `[1, 65536]` | `gc/types.rs` |
@@ -79,9 +79,9 @@ major 打的是另一组名字：`full mark` / `sweep` 的四个半程 +
   `gate 32.0M x4  grown 160.0M` 里的 `x4` 是徒劳退避的倍数（见下「「回收得少」不等于「徒劳」」）。
 
 `--stats` 退出时的统计块里并排给出两种堆大小：`gc_used_bytes` 是逐对象估算的活字节（自动回收策略
-就按它算闸门），`gc_committed_bytes` 是各 region 从分配器拿着的 chunk 内存（含死槽、尺寸级取整、
-池里没还的 chunk）——后者才贴近 RSS 里 GC 的那一份。两者差多少，就是「空洞复用 / 还内存」那条线
-能拿回多少的上界。`committed` 尚未计入对象的字段向量等 region 外的逐对象分配和 GC 侧表。
+的增长闸门按它算），`gc_committed_bytes` 是堆的**真实占用**（见「真实占用记账与软上限」）——
+chunk、region 外的逐对象分配、侧表都在内，贴近 RSS 里 GC 的那一份。两者差多少，就是「空洞复用 /
+还内存」那条线能拿回多少的上界。
 
 这套打点常驻，是因为**它每次都是定位的第一步**，而临时手打一遍的成本远高于让它常驻——
 常驻的代价只有「关掉时每阶段一个 `Option` 判断」。
@@ -495,7 +495,8 @@ helper 发；下面三处也必须发：
 
 **没有任何一处需要「一个字节预算先存在」** —— 这就是 GC 能默认武装的前提。
 `Z42_GC_MAX_BYTES` 因此是**软上限**而非「武装开关」：不设 = 无上限
-（和 Mono 的 `soft_heap_limit` 一样），设了只压 allowance 并额外给一个近上限触发。
+（和 Mono 的 `soft_heap_limit` 一样），设了只压 allowance 并额外给一个近上限触发
+（两者都按堆的真实占用判，见下「真实占用记账与软上限」）。
 
 两个比例直接取自 Mono SGen（`mono/sgen/sgen-conf.h`）：
 `SGEN_DEFAULT_ALLOWANCE_HEAP_SIZE_RATIO = 0.33`（让老年代吃进上次全量回收后活集的
@@ -536,6 +537,53 @@ helper 发；下面三处也必须发：
 **+2.8% 的墙钟换 −26.4% 的 RSS** —— 未武装时，不设 `Z42_GC_MAX_BYTES` 的程序
 **一次都不回收**。设了软上限时相对策略也更好（墙钟 −8.1%）：allowance 随活集自适应，
 不像固定的 `throttle_ratio × limit` 那样在活集变大后仍按同一格触发。
+
+## 真实占用记账与软上限
+
+`used_bytes` 是逐对象的**活字节估算**：不含每个对象外面那层 `RegionEntry`（对象 72 B、数组头
+104 B）、分配器的尺寸级取整、等着槽位被复用的死对象 payload、整块空出的 chunk、以及 GC 自己的侧表。
+实测稠密负载 RSS 是它的 1.7–2 倍，流失负载 8 倍 —— 拿它判软上限，`gc-max-bytes=256M` 根本框不住
+RSS。所以软上限按 `gc::footprint::Footprint` 判，这是一份**随变随记**的真实占用（读一次 = 一次原子
+load，`HeapStats::committed_bytes` / `--stats` 的 `gc_committed_bytes` 就是它）：
+
+| 记什么 | 何时记入 | 何时扣除 |
+|---|---|---|
+| region chunk（槽数组 + `initialized` 行 + 逐 chunk 表头，`Region::CHUNK_FOOTPRINT`） | chunk 增长 | 不扣（chunk 不释放） |
+| 变长 chunk（bump 64K / dedicated 按分配器取整） | `push_chunk` | dedicated chunk `free_in_place` |
+| 槽外 payload（`ObjStorage` 字段块、extras、数组的元素类型名 `Arc<str>`，按分配器取整） | 槽被填（`Region::alloc` / TLAB `fill`） | **死对象的槽被复用时**（旧 entry 被 drop 那一刻） |
+| 变长侧表（`young_list`、free-slot 桶、`all_blocks`、size-class free list） | 每次 sweep 尾部重量（`refresh_side_tables`，O(chunks)） | 同左 |
+| 池中 chunk 被 decommit（[GC TLAB · 池中空 chunk 的 decommit](gc-tlab.md#池中空-chunk-的-decommit)） | 复用时重新记入 | decommit 时扣除（定长区连同 drop 掉的死 payload） |
+
+三个 region 共用同一个 `Arc<Footprint>`（建堆时 `attach_footprint` 挂上）。TLAB `fill` 不碰共享
+状态：payload 增减先攒在 `ChunkClaim::payload_delta`，`retire_chunk` 时一次记入，所以读数最多落后
+每线程一个 chunk 的 payload。
+
+⚠️ **payload 在 sweep 时不扣**：死对象的 `ObjStorage` 要到它的槽被下一个对象复用、旧 entry 被 drop
+时才真正 free，账就记到那一刻。整块死掉进池的 chunk 也一样 —— 池里的死 entry 还拿着各自的 payload，
+直到 chunk 被重新借出、逐槽覆盖。
+
+**`occupied` 与 `pooled`**：`pooled` 是 `committed` 里躺在 chunk 池（整块死透、可直接复用）的那部分。
+软上限判的是 `occupied = committed − pooled`：池里的 chunk 下一次分配就能直接用、不会让占用增长，
+回收也缩不了它；只有扑空池子的分配会让占用上涨。
+
+软上限在策略里有两种读法（`arc_heap/footprint.rs` 的 `SoftCap`）：
+
+- **近上限跳闸 / 压力事件 / strict OOM / 软引用压力**：直接拿 `occupied` 比上限。
+- **回收余量**（allowance）整套是按 `used` 单位写的，于是上限要**换算到 `used` 单位**再去压：
+  `cap_used = cap × used / occupied`（当前每个活字节背着多少占用，上限就按这个比例折算）；不往上放大。
+  余量的下界仍是「上限的三分之一」按**原值**算 —— 否则占用/活字节比高的堆会退化成每分配几 KB 就回收一次。
+
+⚠️ **上限低于实际所需占用时必须真能退避**（两处，缺一就会无休止地每个余量做一次 major）：
+
+1. **近上限跳闸受退避约束**：倍数 > 1 时，近上限跳闸也得等 `grown ≥ allowance × backoff`。
+   否则它每次询问都跳，而每次回收后 `rearm_auto_collect` 把下次询问放在**不乘倍数**的一个闸门之后
+   —— 退避根本够不着它。实测 `09_alloc_ctorless` 配 64MB 上限：2.5 s（不受约束）vs 0.6 s。
+2. **上限要的回收按占用判产出**（`next_backoff_for_cap`）：从它的 trip 到下一次 trip 之间，占用还涨了
+   超过 `gate / FUTILE_DIVISOR` → 徒劳。碎片化的堆每次 major 都能回收大量活字节，却永远降不到上限之下；
+   按活字节判，它每次都「有产出」，于是一直回收（`13_gc_large_heap` 配 256MB 上限测得墙钟 ×3）。
+   一次守住了占用的回收复位倍数。
+3. 顺带：**结束一个已开周期的 major trip 不评判**（`finishing`）—— 它上一个 trip 要的是周期的开场切片，
+   标记切片按设计回收 0，判成徒劳会让上限自己的回收被退避掉。
 
 ## 为什么分代是默认
 

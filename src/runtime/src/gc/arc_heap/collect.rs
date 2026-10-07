@@ -201,10 +201,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         // free_list reuse). Runs under STW at the sweep tail, after tombstoning.
         {
             let _t = PhaseTimer::start("sweep/chunk reclaim");
-            self.region_object.lock().reclaim_dead_chunks();
-            self.region_array.lock().reclaim_dead_chunks();
-            // stage 3: variable-length region chunk reclaim (fully-dead bump chunks → pool).
-            self.region_var.lock().reclaim_dead_var_chunks();
+            self.reclaim_dead_chunks_and_measure(true);
         }
 
         #[cfg(debug_assertions)]
@@ -251,7 +248,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// `revive_if_unmarked` outside the lock (only touches RegionEntry
     /// atomics — no heap lock required).
     pub(super) fn revive_soft_refs(&self) {
-        let used_bytes = self.used_bytes_atomic(); // add-gc-tlab (option B)
+        let used_bytes = self.occupied_bytes(); // pressure against the cap: true footprint
         let (entries, max_bytes) = {
             let inner = self.inner.lock();
             let entries = inner.soft_registry.snapshot_entries();
