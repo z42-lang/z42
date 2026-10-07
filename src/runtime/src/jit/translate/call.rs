@@ -16,12 +16,12 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                     let d = self.ri(*dst);
                     let (np, nl) = self.str_val(fname);
                     let (ap, al) = self.regs_val(args);
-                    let mid = method_id_at(self.func, self.block_idx, self.instr_idx, self.merged_len);
+                    let mid = method_id_at(self.func, self.block_idx, self.instr_idx);
                     let mid_val = self.builder.ins().iconst(types::I32, mid as i64);
-                    // make-vm-loading-lazy: per-site IC caching the resolved
-                    // lazy/merged fn id, so a cross-zpkg call resolves the name
-                    // once then hits the lock-free by-id fast path thereafter.
-                    let ic_ptr = call_jit_ic_ptr_at(self.func, self.block_idx, self.instr_idx);
+                    // The site's `method_tokens` cell: a callee bound after this
+                    // translation (first dispatch, by either backend) is read from
+                    // here, so the name is resolved once per site.
+                    let ic_ptr = method_token_ptr_at(self.func, self.block_idx, self.instr_idx);
                     let ic_val = self.builder.ins().iconst(self.ptr, ic_ptr as i64);
                     // jit-stack-trace: pass this site's code offset so jit_call can
                     // stamp the caller's frame before descending into the callee.

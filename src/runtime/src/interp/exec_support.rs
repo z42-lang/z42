@@ -134,12 +134,12 @@ pub(crate) fn exec_function_with_type_args(
     exec_function_body(ctx, module, func, frame)
 }
 
-/// runtime-jit-tiering Phase 1.5.2: name-based mixed-mode divert used as the
-/// universal backstop at `exec_function`. Returns `None` (→ interpret) when no JIT
+/// runtime-jit-tiering Phase 1.5.2: mixed-mode divert used as the universal
+/// backstop at `exec_function`, keyed by the function's JIT id (no hashing). Returns `None` (→ interpret) when no JIT
 /// ctx is published (interp-only run), when an argument is a `Ref` (a stack address
 /// can't cross into native code — see `super::exec_call::try_native_static_call`; a
 /// compiled fn never has ref params anyway, so this is defensive), or when the
-/// function is cold / untranslatable (`resolve_fn_by_name_tiered` → None). On a
+/// function is not compiled yet (or has no JIT id). On a
 /// compiled hit it runs the native code and marshals the result into an
 /// `ExecOutcome`, mirroring `try_native_static_call`.
 #[cfg(feature = "jit")]
@@ -159,10 +159,11 @@ pub(super) fn try_native_exec(ctx: &VmContext, func: &Function, args: &[Value]) 
         // Z42_JIT_INTERP_TIERUP：0（默认）= 只 peek，与历史行为逐字一致；N ≥ 1 = 本路径
         // 也参与 tier-up 计数，第 N 次进入即编译。默认关的理由见 config.rs 的字段文档。
         let dthr = crate::config::runtime_config().jit_interp_tierup;
+        let id = unsafe { (*jit_ctx).id_of_func(func) }?;
         let entry = if dthr == 0 {
-            unsafe { (*jit_ctx).resolve_fn_by_name_peek(&func.name) }?
+            unsafe { (*jit_ctx).peek_fn_by_id(id) }?
         } else {
-            unsafe { (*jit_ctx).resolve_fn_by_name_tiered_thr(&func.name, dthr) }?
+            unsafe { (*jit_ctx).resolve_fn_by_id_thr(id, dthr) }?
         };
         (entry.max_reg, entry.ptr, entry.func)
     };
@@ -219,8 +220,8 @@ fn osr_hand_off(
     // on the interp frame's exit paths. The OSR native frame returns straight
     // past them, so its final values would be lost — stay on the interpreter.
     if !frame.ref_writebacks.is_empty() { return None; }
-    // v1: OSR only merged functions — resolve this function's merged id by name.
-    let id = unsafe { (*(*jit_ctx).module).func_index.get(&func.name).copied() }?;
+    // Entry-module and lazily loaded functions alike, keyed by JIT id (no hashing).
+    let id = unsafe { (*jit_ctx).id_of_func(func) }?;
     let entry = unsafe { (*jit_ctx).resolve_osr_entry(id, loop_header) }?; // owned FnEntry
     ctx.counters().jit_native_from_interp.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let mut osr = crate::jit::frame::JitFrame::from_interp_regs(ctx, &frame.regs, entry.max_reg);

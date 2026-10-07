@@ -553,7 +553,7 @@ token = UNRESOLVED（bind_callee，冷路径）:
   module.func_index 命中 → 签名判定 → 写回下标
   否则 try_lookup_function（可能加载包）→ 签名判定 → 写回 Function.id
   都没有 → MissingSymbolException
-然后：包初始化屏障 → cctor 屏障 → （入口函数且已编译时）转 JIT 原生码 → 歧义判定 → 执行
+然后：包初始化屏障 → cctor 屏障 → （JIT 运行中）计数 / 已编译则转 JIT 原生码 → 歧义判定 → 执行
 ```
 
 - **对非入口模块**（单元测试里 `VmContext::new()` 配一个手搭模块）：token 只会是该模块自己的下标——
@@ -563,11 +563,11 @@ token = UNRESOLVED（bind_callee，冷路径）:
 - **静态初始化排空**：命中 token 不经过 `try_lookup_function`，也就不顺带排空待加载类型队列。
   这与已绑定的入口函数调用一样：队列只由函数解析（resolver 在发布 `resolved` 前排空）和包加载（加载它的
   `try_lookup_*` 在释放锁后排空）填入，到执行调用时已排空。golden `static_init_concurrent`（cross-zpkg）守这一点。
-- **JIT** 读同一组 token 烘焙 `Call` 的 `method_id`，但只认 `< merged_len` 的值（`translate/ic.rs`
-  `method_id_at`）：惰性函数的 `FnId` 会与 JIT 自己的合成惰性槽 id（`merged_len + i`）撞号，所以按
-  `UNRESOLVED` 烘焙，交给 `jit_call` 按名解析（见下文「JIT cross-zpkg 调用解析」）。
-- **待办**：惰性目标还不能从解释器转到 JIT 原生码、也不计调用次数（JIT 槽位改按 FnId 之后）；
-  `CallIndirect` / `LoadFn` / `MkClos` 仍按名字。
+- **JIT 共用这组 token**：JIT 的槽位按 `FnId` 索引，所以已绑定的 token 直接烘焙成 `Call` 的 `method_id`
+  （`translate/ic.rs` `method_id_at`，惰性目标也一样），未绑定的站点在运行时读同一个 token 单元，首次按名绑定也走
+  同一个 `bind_callee`（见下文「JIT cross-zpkg 调用解析」）。解释器按 token 调用时也计数，惰性函数与入口函数一样
+  到阈值升层、编译后转原生码。
+- **待办**：`CallIndirect` / `LoadFn` / `MkClos` 仍按名字。
 
 ### 惰性加载函数的 token 首执解析
 
@@ -613,21 +613,19 @@ dispatch 所对的 Module**——始终是 entry module（惰性 callee 由调�
 
 ### JIT cross-zpkg 调用解析
 
-JIT 按函数**惰性**编译（首次或达调用阈值才编，机制见 [jit.md](jit.md)），`jit_call` 经
-`JitModuleCtx::resolve_fn_by_id_tiered` 取已编译入口。依赖 zpkg 在 interp / JIT 下都是惰性加载
-（AOT 才在 `app::run` 里 eager 做 transitive BFS 并整体 merge），跨 zpkg 的 callee 因此不在 entry module
-的 `functions` 里，由两条机制配合：
+JIT 按函数**惰性**编译（首次或达调用阈值才编，机制见 [jit.md](jit.md)），槽位按 JIT id（= `FnId`）索引，
+入口模块函数与惰性加载包的函数同一张表。依赖 zpkg 在 interp / JIT 下都是惰性加载（AOT 才在 `app::run` 里
+eager 做 transitive BFS 并整体 merge），跨 zpkg 的 callee 不在 entry module 的 `functions` 里，但都有 `FnId`。
+`jit_call`（[jit/helpers/call.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/jit/helpers/call.rs)）：
 
-1. **惰性槽**（[jit/frame.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/jit/frame.rs)
-   `resolve_id_by_name`）：站点 `method_id` 为 `UNRESOLVED` 时，`jit_call` 按名解析，经 lazy loader
-   取到函数后在 `JitModuleCtx.lazy_table` 登记一个合成 id（≥ `merged_len`），之后与 merged 函数同样按需编译；
-   解析出的 id 缓存在该站点的 `ResolvedTokens.call_jit_ic`，下次免去按名哈希。
-
-2. **`jit_call` 的 interp 兜底**（[jit/helpers/call.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/jit/helpers/call.rs)
-   `cross_zpkg_via_interp`）。入口取不到（不可翻译 / 未达阈值 / 编译失败）时镜像 interp `exec_call::call` 的解析
-   顺序：① `module.func_index` → `module.functions`（已 merge 但未编译的函数）；
-   ② `try_lookup_function`（仅懒加载可达的 zpkg）——两者都在**解释器**上执行 callee，
-   结果回填 JIT caller 帧；随后依次过签名 arity 校验与 cctor 屏障，与 interp 同序。
+1. **取 id**：烘焙的 `method_id` → 站点 `method_tokens` 单元 → 都没有时按名绑定：解码名字、调 interp 的
+   `bind_callee`（`func_index` → `try_lookup_function`（可能加载包）→ 签名判定 → 写回 token），找不到抛
+   `MissingSymbolException`。之后这个站点再不碰名字。
+2. **取入口**：`resolve_fn_by_id_tiered(id)`。已编译 → 包初始化 / cctor 屏障（用被调函数自己的名字，门关着时
+   不读）→ 原生调用。
+3. **interp 兜底**：取不到入口（未达阈值 / 不可翻译 / 编译失败）时按 id 取 `&Function`，过歧义判定、
+   包初始化与 cctor 屏障，直接从调用方寄存器填帧在**解释器**上执行，结果回填 JIT caller 帧。
+   各路顺序都是「解析 → 签名判定 → 包初始化 → cctor → 执行」，与 interp `exec_call::call` 同序。
 
 ### 单函数 interp 降级：不可 JIT 翻译的 opcode
 
@@ -638,13 +636,13 @@ stdlib 里必然含有 JIT 尚未支持的 opcode —— `out`/`ref`/`in` 参数
 **逐函数降级**而非「整模块要么全编译要么全失败」。
 
 1. **首编前判定**（`jit_unsupported_reason`，[jit/translate/unsupported.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/jit/translate/unsupported.rs)；
-   调用点 `JitModuleCtx::resolve_merged_slot` / `resolve_lazy_slot`）：函数达到编译条件时先扫描一次，含不可翻译 opcode 的
-   **不编译**：merged 函数的槽位记为 Rejected（`FnEntry.ptr == null` 的负缓存，此后不再重扫），lazy 函数在 `resolve_id_by_name` 登记槽位前判定、不登记。名单由 `unsupported_reason(instr)`
+   调用点 `JitModuleCtx::resolve_fn_by_id_thr`）：函数达到编译条件时先扫描一次，含不可翻译 opcode 的
+   **不编译**：槽位记为 Rejected（`JitSlot.state` 负缓存，此后不再重扫；编译失败同样记 Rejected、不重编），
+   入口函数与惰性函数一样。名单由 `unsupported_reason(instr)`
    单一来源给出，`translate_function` 里的 `bail!` 分支也取自它，两处不会漂移。
 
 2. **调用点自动走 interp 兜底**：`Call` 永远经 `jit_call` helper 跳转，**从不**
-   emit cranelift 直接调用，所以被拒绝的 callee 取不到入口 → `cross_zpkg_via_interp`
-   Case 1（`module.func_index` 命中已 merge 但未编译的函数）→ 解释器执行。`VCall` 的目标解析由与 interp 共用的
+   emit cranelift 直接调用，所以被拒绝的 callee 取不到入口 → `jit_call` 按 id 取到函数 → 解释器执行。`VCall` 的目标解析由与 interp 共用的
    `interp::vcall_resolve::resolve_vcall` 完成，[jit/helpers/vcall.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/jit/helpers/vcall.rs)
    只决定怎么调：有编译入口走原生，否则在解释器上以填好接收者的帧执行。
 
@@ -1202,8 +1200,7 @@ pub struct VTableSlot(pub u32);   // → TypeDesc.vtable[id]
 
 // metadata/resolver.rs — Function.resolved 内容
 pub struct ResolvedTokens {
-    pub method_tokens:        Vec<AtomicU32>,   // Call 站点：被调函数的 FnId（未加载的包留 UNRESOLVED）
-    pub call_jit_ic:          Vec<AtomicU32>,   // Call 站点的 lazy 目标函数 id 缓存（JIT）
+    pub method_tokens:        Vec<AtomicU32>,   // Call 站点：被调函数的 FnId（未加载的包留 UNRESOLVED；JIT 共用）
     pub builtin_tokens:       Vec<u32>,         // Builtin 站点（100% 命中）
     pub type_tokens:          Vec<AtomicU32>,   // ObjNew 站点
     pub ctorless_marks:       Vec<AtomicUsize>, // ObjNew 站点「该类无 ctor」的已证明标记
@@ -1278,7 +1275,7 @@ pub struct ResolvedTokens {
 ### JIT 与 wire 形态
 
 - **JIT**：JIT helper 走 token / IC 形态，但 dispatch 仍走 helper-call 一次（helper carries IC）。IC hit 时直接通过
-  `JitModuleCtx.fn_entries_by_id[cached_fn_idx]` 跳到目标 native 代码，无 HashMap 哈希、无 vtable 解析，
+  被缓存目标的 JIT 槽位（`JitModuleCtx.slots[id]`）跳到目标 native 代码，无 HashMap 哈希、无 vtable 解析，
   hot path 与 interp 行为对齐。
 - **wire**：zbc 中 IR 字段 token 化——本地 = `module.Functions/Classes` 索引；cross-zpkg = `IMPORT_BASE + STRS idx`
   （STRS 池复用 + IMPORT_BASE bit 编码，无需单独 IMPT 格式）；token id 按源序分配；IR enum 字段在内存里保持

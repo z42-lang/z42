@@ -3,7 +3,7 @@
 //! Holds the cranelift `JITModule` plus helper import ids, and compiles a single
 //! z42 function to native code on demand. A `LazyCompiler` is owned (behind a
 //! `Mutex`) by the `JitModule`; `JitModuleCtx.lazy` points at that mutex.
-//! `JitModuleCtx::resolve_fn_by_id` calls [`LazyCompiler::compile_one`] under the
+//! `JitModuleCtx::resolve_fn_by_id` calls [`LazyCompiler::compile_fn`] under the
 //! lock, with a `OnceLock` double-check so each function compiles exactly once
 //! even under concurrent first-calls.
 //!
@@ -19,32 +19,27 @@ use cranelift_module::{Linkage, Module as CraneliftModule};
 use super::frame::FnEntry;
 use super::helpers::{self, HelperIds};
 use super::translate;
-use crate::metadata::{bytecode::Function, Module};
+use crate::metadata::bytecode::Function;
 
 /// Mutable JIT compilation state: compiles z42 functions to native code lazily.
 pub struct LazyCompiler {
     jit:        JITModule,
     helper_ids: HelperIds,
-    /// Back-pointer to the bytecode module (function bodies to translate).
-    /// SAFETY: the Module outlives the `JitModule` that owns this compiler.
-    module:     *const Module,
     /// `Z42_JIT_PROFILE` set → print one line per lazily-compiled function.
-    /// Read once at setup so `compile_one` avoids a per-call env lookup; the
+    /// Read once at setup so `compile_fn` avoids a per-call env lookup; the
     /// line count is the "compiled N functions" tally the design cites.
     profile:    bool,
 }
 
-// SAFETY: the `*const Module` is read-only; the `JITModule` (which is not `Sync`)
-// is only ever touched while the wrapping `Mutex<LazyCompiler>` is held, so
+// SAFETY: the `JITModule` (which is not `Sync`) is only ever touched while the wrapping `Mutex<LazyCompiler>` is held, so
 // access is serialized. See design.md Decision 5.
 unsafe impl Send for LazyCompiler {}
 
 impl LazyCompiler {
     /// Build the JIT infrastructure (JITModule + helper symbols) **without**
-    /// translating any user function. The caller pre-sizes `fn_entries_by_id`
-    /// to `module.functions.len()`; functions are translated later, on first
-    /// call, by [`compile_one`](Self::compile_one).
-    pub fn setup(module: &Module) -> Result<Self> {
+    /// translating any user function; functions are translated later, on
+    /// demand, by [`compile_fn`](Self::compile_fn).
+    pub fn setup() -> Result<Self> {
         // NB(perf-vm-iteration Phase 4)：实测 `opt_level=speed` 对本 VM 无收益——
         // 紧循环/派发的成本在 opaque helper call + 每 op 一次 Value（16B）load/store，
         // Cranelift 无法跨 op 去箱来消除,故 speed 档零计算提升却多 ~4-5ms 冷编译
@@ -80,14 +75,14 @@ impl LazyCompiler {
         Ok(LazyCompiler {
             jit,
             helper_ids,
-            module: module as *const Module,
             // `Z42_JIT_PROFILE` now flows through the central RuntimeConfig
             // (de-straggler) so it appears in `--info` and the [runtime] layer.
             profile: crate::config::runtime_config().jit_profile,
         })
     }
 
-    /// Compile `module.functions[idx]` to native code and return its `FnEntry`.
+    /// Compile `func` — an entry-module or lazily loaded function — to native code
+    /// and return its `FnEntry`.
     ///
     /// z42 `Call`s route through the `jit_call` / `jit_vcall` runtime helpers
     /// (never a direct cranelift call to a sibling z42 function — see
@@ -95,26 +90,10 @@ impl LazyCompiler {
     /// `hr_*` helper symbols. That is what lets us declare + define + finalize
     /// each function independently, on demand.
     ///
-    /// Caller (`resolve_fn_by_id`) holds the mutex and has already verified the
-    /// function is JIT-translatable and its slot is empty.
-    pub fn compile_one(&mut self, idx: usize) -> Result<FnEntry> {
-        // SAFETY: module outlives this compiler (see field docs). The `&Function`
-        // comes from a raw-pointer deref (not a borrow of `self`), so passing it to
-        // `compile_fn(&mut self, ...)` is sound.
-        let module = unsafe { &*self.module };
-        let func = module.functions.get(idx)
-            .ok_or_else(|| anyhow::anyhow!("lazy JIT: function index {} out of range", idx))?;
-        self.compile_fn(func)
-    }
-
-    /// Compile an arbitrary `&Function` to native code. Used for functions in the
-    /// merged module (`compile_one`) and — make-vm-loading-lazy — for functions
-    /// materialized by the lazy loader (`resolve_fn_by_id` compiles a not-yet-merged
-    /// stdlib function here instead of falling back to the interpreter).
-    ///
-    /// The returned entry's `func` points at `func`: the caller keeps `func` alive
-    /// as long as the entry (the module owns merged functions; `resolve_lazy_slot`
-    /// stores the lazily-loaded `Arc<Function>` in the slot).
+    /// Caller (`JitModuleCtx::resolve_fn_by_id`) holds the mutex and has already
+    /// verified the function is JIT-translatable and its slot is empty. The
+    /// returned entry's `func` points at `func`, which outlives the entry (the
+    /// module owns entry functions, the `FuncTable` slot lazily loaded ones).
     pub fn compile_fn(&mut self, func: &Function) -> Result<FnEntry> {
         let ptr = self.jit.target_config().pointer_type();
         let mut sig = self.jit.make_signature();
@@ -128,8 +107,7 @@ impl LazyCompiler {
         }
 
         let max_r = translate::max_reg(func);
-        let merged_len = unsafe { &*self.module }.functions.len();
-        translate::translate_function(&mut self.jit, &self.helper_ids, func, max_r, func_id, merged_len, None)?;
+        translate::translate_function(&mut self.jit, &self.helper_ids, func, max_r, func_id, None)?;
         // Finalize just this function's definition (relocations + mprotect).
         // Earlier finalized functions keep their code pages — cranelift-jit
         // allocates each function separately, so their pointers stay valid.
@@ -165,8 +143,7 @@ impl LazyCompiler {
         }
 
         let max_r = translate::max_reg(func);
-        let merged_len = unsafe { &*self.module }.functions.len();
-        translate::translate_function(&mut self.jit, &self.helper_ids, func, max_r, func_id, merged_len, Some(k))?;
+        translate::translate_function(&mut self.jit, &self.helper_ids, func, max_r, func_id, Some(k))?;
         self.jit.finalize_definitions()?;
 
         let ptr_raw = self.jit.get_finalized_function(func_id);

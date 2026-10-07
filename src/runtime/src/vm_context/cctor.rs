@@ -503,6 +503,14 @@ impl crate::vm_context::VmContext {
     #[inline(always)]
     pub fn any_cctor_pending(&self) -> bool { self.core.cctors.any_pending() }
 
+    /// 包级初始化屏障的门：`false` ⇒ 没有待跑的包初始化器、也没有失败终态的包，
+    /// [`Self::ensure_module_inits`] 必然 `Ok`，调用方可整个跳过（JIT `jit_call` 的热路径）。
+    #[inline(always)]
+    pub fn module_init_gate_open(&self) -> bool {
+        let cc = &self.core.cctors;
+        cc.any_module_init_pending() || cc.any_module_init_failed()
+    }
+
     /// **静态字段访问的 cctor 屏障**（interp 与 JIT **共用同一实现**）。
     ///
     /// 两个后端共用一份，是因为「两后端语义一致」正是这个特性最容易出错的地方——

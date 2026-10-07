@@ -160,7 +160,7 @@ params 变长 ⇒ phys ≥ want；否则 phys == want
 |---|---|---|
 | `Call`：解析时已登记的目标（合并模块内，**含急切合并的 `z42.core`**；惰性包内及已加载的包） | resolver Pass 2 预填 `method_tokens`：对不上就**不预填** | token 直取 |
 | 同上，未预填的站点（interp；含跨包首次调用） | `exec_call::bind_callee` 写回 token 之前 | token 直取 |
-| 跨包 `Call`（JIT） | tier 3 写 `call_jit_ic` 之前（按名取 `Function` 判，**不用** `FnEntry`：被调方未到 JIT 阈值时拿不到它，IC 却照写） | IC 直取 |
+| 未绑定的 `Call`（JIT） | `jit_call` 按名绑定，与 interp 同一个 `bind_callee`（按 `Function` 判，**不用** `FnEntry`：被调方未到 JIT 阈值时拿不到它，token 却照写） | 烘焙常量 / token 直取 |
 | `VCall`（两后端共用 `resolve_vcall`） | 出口统一判 → `VCallTarget::Thrown`；`install_ic` 对不上**不装 PIC** | PIC 直取 |
 | `ObjNew` | 解析到构造器后（interp / JIT 各 native 与惰性分支） | — |
 
