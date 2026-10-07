@@ -335,7 +335,7 @@ throttle 去抖比 near-limit 触发更容易写错，且错了不会报错、�
 ## 徒劳回收的退避
 
 去抖只看**增长**，这在存活集真的超过预算时不够用：每次回收都收不出东西，堆照涨，增长闸门
-无限复位。实测 `src/bench/scenarios/09_alloc_ctorless.z42`（150 万对象全存活）配 64MB 预算，
+无限复位。实测 `src/benches/scenarios/09_alloc_ctorless.z42`（150 万对象全存活）配 64MB 预算，
 每涨 6MB 就来一次 75ms 的零收益 mark-sweep，0.29s 的程序 9 分钟没跑完。
 
 所以每次**无产出**的回收把闸门要求的增长量翻倍（上限 `MAX_BACKOFF = 64`），一次有产出的回收
@@ -800,7 +800,7 @@ if Self::gen_age_of(child) < threshold { … }   // Value::Null 也满足！
       minor 发现存活率高 → 把 major 排到下一个周期（pending_major）
 ```
 
-实测 `src/bench/scenarios/09_alloc_ctorless.z42`（存活率 100% 的分配循环，升级**每个周期**都
+实测 `src/benches/scenarios/09_alloc_ctorless.z42`（存活率 100% 的分配循环，升级**每个周期**都
 触发）：每周期 `minor 156.7 ms + major 188.5 ms` = 370 ms 停顿，`freed` 0 字节。
 
 ⚠️ **代价是 major 必须自己升龄**（下一节）—— 没有 minor 替它做。

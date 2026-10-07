@@ -766,7 +766,7 @@ mode = "interp"
 │       ├── source.z42                ← 入口（约定名，不可改）
 │       ├── _helpers.z42              ← 同 dir 内任意 *.z42 递归 include
 │       └── data/                     ← 非 .z42 数据文件；运行时相对路径读取
-├── bench/                            ← 与 tests/ 同构
+├── benches/                            ← 与 tests/ 同构
 │   └── lexer_throughput.z42
 └── examples/                          ← 与 tests/ 同构（默认只编不跑，见下）
     └── hello.z42
@@ -776,12 +776,12 @@ mode = "interp"
 
 1. `tests/*.z42` 顶层文件 → 各自独立目标（auto 名 = 文件 stem）
 2. `tests/<name>/source.z42` 入口 + 同目录递归 `*.z42` → 合成一个多文件目标（auto 名 = 目录名）
-3. `bench/*` 与 `examples/*` → 同 1/2 规则（默认发现 dir 分别为 `bench/` `examples/`）
+3. `benches/*` 与 `examples/*` → 同 1/2 规则（默认发现 dir 分别为 `benches/` `examples/`）
 4. 子目录内非 `.z42` 文件（fixture / data）随产物打包，运行时 cwd 切到 `<dir>`，相对路径读取
 5. `_` 前缀的 `.z42` 文件是 dir-mode 内的辅助；不是目标入口
 6. **发现循环必须先按稳定键 sort** 再注册（[common-pitfalls §1](https://github.com/z42-lang/z42/blob/main/docs/agent/rules/common-pitfalls.md)——
    first-wins 禁止依赖 FS 枚举序）
-7. `tests/fixtures/`（`bench/`、`examples/` 下同名目录同理）是**保留目录**：约定发现不从里面认领目标，
+7. `tests/fixtures/`（`benches/`、`examples/` 下同名目录同理）是**保留目录**：约定发现不从里面认领目标，
    「目录里有 `.z42` 源却一个目标都没解析出来」的检查也跳过它。放由外部脚本驱动、先构建再比对的
    夹具工程（自带 `z42.toml` 的多包工程、字节基线等）
 
@@ -849,7 +849,7 @@ test = true                       # 破例纳入 xtask test 执行（默认 exam
 `xtask test toolchain builder <name>` / `xtask bench targets <name>` 只跑一个
 （裸 `test`/`bench` 是全量 gate / e2e 默认动作，故 test/bench 走 `targets <name>` 子动作）。名不存在
 → 报错列出可用目标名，非零退出（不静默）。**注**：自定义段 `include` glob 运行期暂只扫约定目录
-（`tests/`·`bench/`·`examples/`）。
+（`tests/`·`benches/`·`examples/`）。
 
 ### 三层依赖合并
 
@@ -879,7 +879,7 @@ artifacts/build/libraries/<lib>/<profile>/
 │   └── dist/                       ← 测试可执行
 │       ├── <lib>.test.<name>.zbc               ← 单文件（emit-zbc 路径；runner 直接吃 .zbc）
 │       └── <lib>.test.<dir_name>.zpkg          ← dir-mode（合成 manifest → z42c build → packed zpkg）
-└── bench/                          ← bench 子树（与 tests 同构）
+└── benches/                         ← bench 子树（与 tests 同构）
     ├── cache/<bench_name>/
     └── dist/
         ├── <lib>.bench.<name>.zbc              ← 单文件
@@ -888,18 +888,18 @@ artifacts/build/libraries/<lib>/<profile>/
 
 > 单文件单元走轻量 `z42c --emit zbc` 产 `.zbc`；dir-mode 单元(多文件)合成 mini-manifest 跑 `z42c build` 产 packed `.zpkg`。两者都由 z42b（z42.builder.zpkg）经 TIDX 发现 + 调度，落同一 `<subtree>/dist/`。
 
-**zpkg 命名硬约束**：`.test.` / `.bench.` infix 是文件名硬规则（也是 CI 守门正则的 anchor）。`tests_dir` / `bench_dir` 字段**不暴露** — 强制 `<output_dir>/tests/` 和 `<output_dir>/bench/`；改路径走 `output_dir`，两子树一并变。
+**zpkg 命名硬约束**：`.test.` / `.bench.` infix 是文件名硬规则（也是 CI 守门正则的 anchor）。`tests_dir` / `bench_dir` 字段**不暴露** — 强制 `<output_dir>/tests/` 和 `<output_dir>/benches/`；改路径走 `output_dir`，两子树一并变。
 
 ### xtask 命令 ↔ 目录
 
 | 命令 | 写入 | 读取 deps |
 |------|------|----------|
 | `./xtask test stdlib [lib]`  | `<lib>/<profile>/tests/{cache/<unit>,dist}/` | `[dependencies]` + `[tests.dependencies]` |
-| `./xtask bench stdlib [lib]` | `<lib>/<profile>/bench/{cache/<unit>,dist}/` | `[dependencies]` + `[benches.dependencies]` |
+| `./xtask bench stdlib [lib]` | `<lib>/<profile>/benches/{cache/<unit>,dist}/` | `[dependencies]` + `[benches.dependencies]` |
 | `./xtask test toolchain builder <name>` / `bench targets <name>` / `example <name>` | 同上（具名单目标）| 三层合并 |
-| `./xtask clean`              | 删每个 `<lib>/<profile>/{cache,dist}` + 扁平视图 `intermediate/libraries/flat/`（**保留** tests/bench） | — |
+| `./xtask clean`              | 删每个 `<lib>/<profile>/{cache,dist}` + 扁平视图 `intermediate/libraries/flat/`（**保留** tests/benches） | — |
 | `./xtask clean tests`        | 删每个 `<lib>/<profile>/tests/` | — |
-| `./xtask clean bench`        | 删每个 `<lib>/<profile>/bench/` | — |
+| `./xtask clean bench`        | 删每个 `<lib>/<profile>/benches/` | — |
 | `./xtask clean all`          | 删整个 `artifacts/build/`（全量重置） | — |
 
 `bench`（无 `stdlib` 子参）仍是 e2e hyperfine 场景跑器，与 per-lib micro-bench 分流。[Benchmark] 单元由 z42b 与 [Test] 同调度（zero-arg 调用 + Bencher 采样）。

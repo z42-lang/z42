@@ -1,6 +1,6 @@
 # 性能基准与回归门禁
 
-> 代码：`scripts/xtask_bench.z42`、`scripts/common/xtask_bench_pause.z42`、`src/bench/`、`src/runtime/benches/`、`.github/workflows/bench-pr.yml`
+> 代码：`scripts/xtask_bench.z42`、`scripts/common/xtask_bench_pause.z42`、`src/benches/`、`src/runtime/benches/`、`.github/workflows/bench-pr.yml`
 >
 > 命令与旗标以 `xtask bench -h` / `xtask bench stdlib -h` 为准。
 
@@ -12,8 +12,8 @@ benchmark 基础设施回答一个问题：**这次改动让 z42 变慢了吗？
 
 | tier | 工具 | 位置 | 粒度 | 进 CI 门禁 |
 |---|---|---|---|---|
-| **z42 e2e** | hyperfine + 自建 harness | `src/bench/scenarios/` + `xtask bench` | 整程序 wall-clock（VM 启动 + stdlib 加载 + 执行），ms 级 | ✅ 硬门禁（只测 `--tier gate`）|
-| **z42 micro** | `[Benchmark]` + `Std.Test.Bencher`（z42b 派发）| 各 lib 的 `bench/*_bench.z42` | 单操作（`String.Replace` / `SortedSet.Add` …），ns 级 | ✅ 硬门禁（`bench --micro-diff` + 可疑即复测）|
+| **z42 e2e** | hyperfine + 自建 harness | `src/benches/scenarios/` + `xtask bench` | 整程序 wall-clock（VM 启动 + stdlib 加载 + 执行），ms 级 | ✅ 硬门禁（只测 `--tier gate`）|
+| **z42 micro** | `[Benchmark]` + `Std.Test.Bencher`（z42b 派发）| 各 lib 的 `benches/*_bench.z42` | 单操作（`String.Replace` / `SortedSet.Add` …），ns 级 | ✅ 硬门禁（`bench --micro-diff` + 可疑即复测）|
 | **Rust micro** | criterion | `src/runtime/benches/gc_cycle_bench.rs` | VM 内部热路径（GC cycle / minor / sweep / alloc）| ⚠️ **只打印、不判红**（仅 `src/runtime` 有非文档改动时才测）|
 
 e2e 捕获全管线回归（启动开销 / dispatch / 整体吞吐）；micro 把回归定位到具体函数、守 stdlib 热路径。
@@ -27,7 +27,7 @@ e2e 捕获全管线回归（启动开销 / dispatch / 整体吞吐）；micro �
 
 ## 2. 场景分层：`// tier:` 在源码头部声明
 
-`src/bench/scenarios/<NN>_<name>.z42` 的头部注释声明 `// tier: gate` 或 `// tier: full`
+`src/benches/scenarios/<NN>_<name>.z42` 的头部注释声明 `// tier: gate` 或 `// tier: full`
 （解析只取声明行的第一个词，见 `_benchScenarioTier`；没声明即 `full`）。当前 15 条场景里
 **8 条 gate、7 条 full**。`xtask bench` 默认 `--tier all`，CI 传 `--tier gate`。
 
@@ -87,7 +87,7 @@ R_upper < 1 - thr   → ↓ faster       (informational)
 
 `thr` 的**代码默认是 0.10**（`bench --ab` 与 `bench --micro-diff` 同；`bench --diff` 另有一套
 默认 0.05 时间 / 0.10 内存）。**CI 显式传 0.15**——见 §6。
-结果落 `artifacts/reports/bench/ab.json`（`ab-v1` schema：每 scenario 的 base/pr mean·stddev、ratio、
+结果落 `artifacts/reports/benches/ab.json`（`ab-v1` schema：每 scenario 的 base/pr mean·stddev、ratio、
 r_lower/r_upper、verdict、每轮比值 `round_ratios`）。
 
 同机抵消让 within-run SEM 在此统计有效——这是跨-runner 比法下不成立、A/B 下才成立的关键。
@@ -126,7 +126,7 @@ regression ⟺ pr_max > --pause-cap-ms(默认 16)  且  pr_max > base_max × (1 
   预编 AOT 的 zpkg 子集（今天恒空）。派生出 `mode_label`：`interp` / `jit`。
 - **platform**：`{os, arch}`（arch 归一化为 `x64` / `arm64` / `wasm`）。
 - **caps**：由 `Std.Platform.Capabilities()` 在**被测 VM 二进制**下探测
-  （`src/bench/probe/capabilities.z42`）——`jit` / `native-interop` / `threads` 等真实能力。
+  （`src/benches/probe/capabilities.z42`）——`jit` / `native-interop` / `threads` 等真实能力。
   场景可声明 `// requires-caps: <cap>`，VM 不具备时显式跳过而不是崩。
 
 **画像隔离是硬规则**：interp 与 jit、不同 os/arch 的数字**从不互比**。diff 按
@@ -291,7 +291,7 @@ criterion 层噪声底的实测（同一个 PR 的四次跑，**每次 base 与 
 
 ## 9. CI 门禁接线（`bench-pr.yml`）
 
-触发路径刻意收窄（`src/runtime` / `src/libraries` / `src/compiler` / `src/bench/` /
+触发路径刻意收窄（`src/runtime` / `src/libraries` / `src/compiler` / `src/benches/` /
 `scripts/**/*.z42` / 本 workflow），末尾再加一条负向模式 `!**/*.md`（负向在后 ⇒ 覆盖前面的匹配），
 使**纯文档 PR 一个文件都不命中、整个 workflow 不触发**；`.md` 与代码同改则照旧跑。步骤：
 
@@ -426,7 +426,7 @@ hello 启动只有约 6.5 ms、以**冷代码**为主，对二进制布局极其
 
 ## 13. 加一条 scenario
 
-1. 在 `src/bench/scenarios/` 加 `<NN>_<name>.z42`；
+1. 在 `src/benches/scenarios/` 加 `<NN>_<name>.z42`；
 2. **首行注释声明 tier**（`// tier: gate` 或 `// tier: full`）并写一句选择理由；
 3. 顶部注释说明 workload 与预期输出；
 4. 用 `Console.WriteLine` 打印一个稳定结果（便于验证编译器输出未漂移）；
@@ -434,7 +434,7 @@ hello 启动只有约 6.5 ms、以**冷代码**为主，对二进制布局极其
 6. 需要特定能力的加 `// requires-caps: <cap>`（如 `threads`）。
 
 设计约定：场景里不做文件 IO / 网络；时间统一 ms、内存统一 KB；场景是**性能载体不是 correctness
-测试**——它们住在 `src/bench/`，不在 golden 发现遍历的 `src/tests/` 之下。
+测试**——它们住在 `src/benches/`，不在 golden 发现遍历的 `src/tests/` 之下。
 
 ## 14. 已知局限
 

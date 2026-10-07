@@ -168,7 +168,7 @@ string _runtimeOut(string root, string profile) {
 // ── build/ 与 intermediate/：都逐路径镜像 src/ ──────────────────────────────────
 //
 // 规则（docs/internals/src/devinfra/artifacts-layout.md §1）：**build/ 只放编译产物**——各包的
-// `<profile>/{dist,cache}`、z42b 测试 / bench 目标（`<profile>/{tests,bench}`）、golden `.zbc`、cargo 的 target
+// `<profile>/{dist,cache}`、z42b 测试 / bench 目标（`<profile>/{tests,benches}`）、golden `.zbc`、cargo 的 target
 // 目录；**intermediate/ 放其余一切**——夹具的暂存拷贝、harness 工作目录、平台测试的 bundle / 宿主工程副本、
 // 编译器自举快照、xtask 自检目录。两边都按 owner 在 src 下的位置镜像，于是「某个东西写到哪去了」只有一个
 // 答案；没有共享的 scratch 桶，也就没有按名字撞车。
@@ -230,15 +230,15 @@ string _xtaskZpkg(string root) { return _toolchainZpkg(root, "scripts/xtask.z42.
 
 // z42b dev 目标（test / bench）的产物根 —— 传给 `z42b test|bench --out-root`（fix-z42b-source-tree-outputs）。
 // 不传时 z42b 写 `<清单目录>/artifacts/…`，而 stdlib / 编译器成员的清单没有 [build] ⇒ 落进源码树。
-// 它们是编译产物，落 build/，形状与运行时一致：`<镜像>/<profile>/{tests,bench}`（profile = debug：xtask 调
+// 它们是编译产物，落 build/，形状与运行时一致：`<镜像>/<profile>/{tests,benches}`（profile = debug：xtask 调
 // z42b 不带 --release）。
-//   stdlib / 编译器 workspace 成员 → 成员输出目录 `<m>/debug/{tests,bench}`；`clean tests|bench` 按同一位置删；
-//   src/toolchain 下的工程 → `build/<rel>/debug/{tests,bench}`；
-//   其它工程（实际只有 z42b 自身夹具的暂存拷贝，住在 intermediate/）→ 所属组件工作根下的 dev-targets/<name>/<tests|bench>。
+//   stdlib / 编译器 workspace 成员 → 成员输出目录 `<m>/debug/{tests,benches}`；`clean tests|bench` 按同一位置删；
+//   src/toolchain 下的工程 → `build/<rel>/debug/{tests,benches}`；
+//   其它工程（实际只有 z42b 自身夹具的暂存拷贝，住在 intermediate/）→ 所属组件工作根下的 dev-targets/<name>/<tests|benches>。
 // ⚠️ 必须是成员输出目录下的**子目录**，不能是输出目录本身：z42b 会在 out-root 下建父包，放在
 //    `<output_dir>/dist` 就会覆盖 z42c 建的正式成员产物。
 string _devTargetOutRoot(string root, string toml, string kind) {
-    string sub = (kind == "bench") ? "bench" : "tests";
+    string sub = (kind == "bench") ? "benches" : "tests";
     string name = ManifestLoader.Load(toml).Project.Name;
     string tu = _cleanPath(toml.Replace("\\", "/"));
     if (tu.StartsWith(_cleanPath(Path.Join(root, "src/libraries")) + "/")) {
@@ -296,8 +296,8 @@ string _reportsDir(string root) { return Path.Join(_artifactsDir(root), "reports
 // artifacts/reports/tests — 平台测试的 junit（每个平台一个子目录：<platform>/junit.xml）。
 string _testReportsDir(string root) { return Path.Join(_reportsDir(root), "tests"); }
 
-// artifacts/reports/bench — benchmark 结果 JSON（e2e.json / ab.json / micro-*.json）。
-string _benchDir(string root) { return Path.Join(_reportsDir(root), "bench"); }
+// artifacts/reports/benches — benchmark 结果 JSON（e2e.json / ab.json / micro-*.json）。
+string _benchDir(string root) { return Path.Join(_reportsDir(root), "benches"); }
 
 // artifacts/reports/profile — `xtask profile` 报告（每个被测脚本一个子目录）。
 string _profileDir(string root) { return Path.Join(_reportsDir(root), "profile"); }
@@ -351,7 +351,7 @@ string _layoutBuildDesc(string d) {
     if (d == "compiler")  { return "编译器各成员 <member>/<profile>/"; }
     if (d == "toolchain") { return "工具链各组件（含 workload 的 appbuilder 与 test agent）"; }
     if (d == "tests")     { return "src/tests golden 的 .zbc"; }
-    if (d == "bench")     { return "性能场景探针的 .zbc"; }
+    if (d == "benches")   { return "性能场景探针的 .zbc"; }
     return "";
 }
 

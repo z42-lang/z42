@@ -620,7 +620,7 @@ z42vm 继续静态链接 VM，不改为动态链接 `native/libz42`（结论与�
 
 ## 附录：测量方法
 
-- **微基准**：先 `z42c --emit-zbc src/bench/scenarios/<n>.z42 <n>.zbc --opt-all`，再 `z42vm --mode jit|interp <n>.zbc <Namespace>.Main`，取 5 次中位数。
+- **微基准**：先 `z42c --emit-zbc src/benches/scenarios/<n>.z42 <n>.zbc --opt-all`，再 `z42vm --mode jit|interp <n>.zbc <Namespace>.Main`，取 5 次中位数。
 - **真实负载剖面**：
   1. 在 `src/compiler` 下执行 `z42c build --workspace --release --output-dir <tmp> -q`，事先把 stdlib 的 zpkg 拷进 `<tmp>`；
   2. 运行期间用 macOS 的 `sample <z42vm pid> 18 -file out.sample` 采样；

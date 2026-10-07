@@ -39,7 +39,7 @@ public static class ManifestLoader {
         PlatformSet platform = ManifestLoader._parsePlatform(root);
         // dev 目标段（复数名，避免与单数 [[test]]/[[bench]]/[[example]] array key 撞）
         TargetSection testsSec = ManifestLoader._parseTargetSection(root, "tests",    ManifestLoader._defaultInclude("tests"));
-        TargetSection benchSec = ManifestLoader._parseTargetSection(root, "benches",  ManifestLoader._defaultInclude("bench"));
+        TargetSection benchSec = ManifestLoader._parseTargetSection(root, "benches",  ManifestLoader._defaultInclude("benches"));
         TargetSection exSec    = ManifestLoader._parseTargetSection(root, "examples", ManifestLoader._defaultInclude("examples"));
         RunTarget[] tests    = ManifestLoader._parseRunTargets(root, "test");
         RunTarget[] benches  = ManifestLoader._parseRunTargets(root, "bench");
