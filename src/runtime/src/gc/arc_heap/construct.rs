@@ -7,7 +7,7 @@
 
 use super::*;
 
-/// **add-concurrent-gc P0 (2026-05-22)**: manual `Default` impl so the
+/// Manual `Default` impl so the
 /// `mode` field is initialized from `GcMode::from_env()` (reads
 /// `Z42_GC_MODE`). Other fields fall back to their own `Default`.
 impl Default for ArcMagrGC {
@@ -46,15 +46,13 @@ impl Default for ArcMagrGC {
             mark_queue: Mutex::new(Vec::new()),
             alloc_black: std::sync::atomic::AtomicBool::new(false),
             // 1, not 0: 0 means "never major-marked", and marks placed before the first cycle
-            // (the concurrent barrier marks outside cycles) must not collide with the first
-            // cycle's epoch — `begin_major_mark` moves on to 2. See `ArcMagrGC::major_mark`.
+            // must not collide with the first cycle's epoch — `begin_major_mark` moves on to 2.
+            // See `ArcMagrGC::major_mark`.
             mark_epoch: std::sync::atomic::AtomicU8::new(1),
             satb_queue: parking_lot::Mutex::new(Vec::new()),
             pause_histogram: Mutex::new(crate::gc::types::PauseHistogram::default()),
             #[cfg(test)]
             barrier_observer: Mutex::new(None),
-            #[cfg(debug_assertions)]
-            debug_stw_no_push: std::sync::atomic::AtomicBool::new(false),
             // fix-wasm-string-ops: claim a fresh, never-reused epoch for this heap.
             epoch: NEXT_HEAP_EPOCH.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
             // add-gc-tlab (option B): live counters start at 0 (no allocations yet).

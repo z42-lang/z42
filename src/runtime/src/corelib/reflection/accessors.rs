@@ -308,7 +308,7 @@ pub(super) fn object_inline_struct_field_set(
 /// Copy a boxed value-struct `src` into a heap object's nested/inline struct field region
 /// (`parent` layout, struct `leaf`). Primitive bytes copy verbatim; each reference leaf is
 /// written into the object's `struct_refs` side-table **with a write barrier** (a reference
-/// stored into a heap node must be tracked for cross-gen / concurrent GC). Shared by the
+/// stored into a heap node must be tracked for cross-gen GC). Shared by the
 /// boxed-struct nested-field write (P4b) and the object-inline struct-field write (P4b-B).
 pub(super) fn write_struct_leaf(
     ctx: &VmContext, base_val: &Value,

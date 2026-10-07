@@ -26,8 +26,7 @@ marker ：扫描 H，字段已是 null，永远见不到 X
 sweep  ：X 被回收，而 r 还攥着它
 ```
 
-插入式屏障（Dijkstra，染被写入的新值）堵不住它，除非收尾时重扫全部根 —— 现有 `Z42_GC_MODE=concurrent`
-正是这样漏的。SATB 走另一头：**覆盖一个堆引用槽之前，把旧值记下来**，标记收尾前把记下的值全部染灰。
+插入式屏障（Dijkstra，染被写入的新值）堵不住它，除非收尾时重扫全部根。SATB 走另一头：**覆盖一个堆引用槽之前，把旧值记下来**，标记收尾前把记下的值全部染灰。
 配合 allocate-black（周期内出生的对象直接是黑的），就是 Yuasa 论证：快照时可达的每个对象，要么沿原图被走到，
 要么它路径上第一条被剪的边的旧值被记录。**根不需要屏障** —— 快照时已整体染灰。
 
@@ -61,9 +60,9 @@ close_major_marking ── loop { retire 自己；取 satb_queue；标记入 mar
                        satb::end_marking(heap_id)
 ```
 
-`open_major_cycle`（开 epoch + `begin_marking`）与 `close_major_marking` 接在 STW 周期和并发周期（Phase 1 / Phase 5）上。
-在一次性 STW 周期里屏障实际不起作用（标记期没有 mutator 在写），但并发模式的 Phase 3 有 —— **并发模式的
-上述漏洞由屏障堵上**。
+`open_major_cycle`（开 epoch + `begin_marking`）与 `close_major_marking` 接在一次性 STW 周期和增量周期上。
+在一次性 STW 周期里屏障实际不起作用（标记期没有 mutator 在写）；增量周期的切片之间 mutator 照常写，
+上述漏洞靠它堵上。
 
 ### 弱 / 软引用读取
 

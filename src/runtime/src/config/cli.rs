@@ -34,7 +34,7 @@ pub fn parse_set_args(args: &[String]) -> Result<BTreeMap<&'static str, String>,
         let Some((key, value)) = arg.split_once('=') else {
             return Err(format!(
                 "z42: --set expects KEY=VALUE, got {arg:?}.\n     \
-                 e.g. --set gc-mode=concurrent   (run `z42vm --list-knobs` for the key list)"
+                 e.g. --set gc-mode=stw   (run `z42vm --list-knobs` for the key list)"
             ));
         };
         let key = key.trim();

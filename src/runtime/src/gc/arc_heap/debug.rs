@@ -7,17 +7,15 @@ use crate::metadata::types::{ArrayObj};
 use crate::gc::refs::{GcRef};
 
 impl crate::gc::arc_heap::ArcMagrGC {
-    /// **add-concurrent-gc P2 (2026-05-22)**: test-only entry point to
-    /// `snapshot_roots_into_mark_queue`. The production caller will be
-    /// `run_cycle_collection_concurrent` (P4) under STW; tests need to
+    /// Test-only entry point to `snapshot_roots_into_mark_queue` (whose
+    /// production caller is the incremental cycle's opening slice); tests
     /// drive the snapshot directly without setting up a real collect.
     #[cfg(test)]
     pub(crate) fn snapshot_roots_into_mark_queue_for_test(&self) -> usize {
         self.snapshot_roots_into_mark_queue()
     }
 
-    /// **add-concurrent-gc P2 (2026-05-22)**: test-only entry to read
-    /// the mark queue contents.
+    /// Test-only entry to read the mark queue contents.
     #[cfg(test)]
     pub(crate) fn mark_queue_for_test(&self) -> Vec<Value> {
         self.mark_queue.lock().clone()
@@ -31,8 +29,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         self.mark_queue.lock()
     }
 
-    /// **add-concurrent-gc P2 (2026-05-22)**: test-only entry to the
-    /// `mark_if_unmarked` static helper.
+    /// Test-only entry to the `mark_if_unmarked` static helper.
     #[cfg(test)]
     pub(crate) fn mark_if_unmarked_for_test(&self, v: &Value) -> bool {
         Self::mark_if_unmarked(v, self.major_mark())
@@ -81,9 +78,8 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// Invariants checked:
     /// - `region_object` + `region_array`: see
     ///   [`crate::gc::region::Region::validate`]
-    /// - `mark_queue` is empty post-collect (concurrent mark must
-    ///   drain to empty before sweep; STW + generational never use
-    ///   the queue)
+    /// - `mark_queue` is empty post-collect (a major's mark drains it
+    ///   to empty before sweep)
     /// - No alive entry has `marked == 1` (sweep clears marks on
     ///   survivors; orphaned mark bit = bug)
     #[cfg(debug_assertions)]
@@ -107,13 +103,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         //
         // diag-mark-queue-stale (2026-05-30): on failure, dump each
         // stale entry's kind + (for heap refs) the GcRef pointer + the
-        // marked bit. This is the only way to tell whether the entry
-        // was pushed by a still-running mutator (write_barrier_field
-        // pushes pre-marked refs) vs. a buggy collector-internal push
-        // (would push unmarked, which would also indicate a different
-        // class of bug). Without the dump the assertion is opaque —
-        // we couldn't diagnose the windows-only flake (concurrent_gc_
-        // mode_stress_no_race_no_leak) before this commit.
+        // marked bit — without the dump the assertion is opaque.
         let stale: Vec<Value> = self.mark_queue.lock().clone();
         if !stale.is_empty() {
             let summary: Vec<String> = stale.iter().take(8).map(|v| {
@@ -191,43 +181,6 @@ impl crate::gc::arc_heap::ArcMagrGC {
                 "stale mark bit in region_array after sweep: chunk={c}, entry={i}, array_len={len}"
             );
         }
-    }
-
-    /// **add-concurrent-gc P4a (2026-05-22)**: end-to-end concurrent
-    /// collect minus the safepoint phase transitions (P4b wires those
-    /// in). Runs the steps that DON'T require a real VmContext: root
-    /// snapshot → drain → sweep. Test-callable on a standalone
-    /// `ArcMagrGC::new()` so we can verify algorithmic correctness
-    /// (reachable chains preserved, unreachable cycles freed, barrier
-    /// integration) before integrating with safepoint protocol.
-    ///
-    /// **NOT a production path**: production goes through P4b which
-    /// adds STW pause coordination + handshake. Calling this without
-    /// the surrounding pause is racy under real concurrent mutators —
-    /// safe only for single-threaded test contexts that simulate
-    /// mutator writes inline.
-    #[cfg(test)]
-    pub(crate) fn run_cycle_collection_concurrent_inline_for_test(&self) -> u64 {
-        // add-gc-tlab (stage 2): merge this thread's borrowed chunk before mark.
-        self.retire_thread_tlab();
-        // Step 1: STW-equivalent root snapshot (no mutators in test).
-        self.open_major_cycle();
-        self.snapshot_roots_into_mark_queue();
-
-        // Step 2: Drain queue (simulates "ConcurrentMarking" but
-        // single-threaded — no real concurrency).
-        let _traced = self.drain_mark_queue();
-
-        // Step 3: Final residual drain (post-handshake equivalent —
-        // catches anything pushed by barrier between roots snapshot
-        // and now; in single-thread test no concurrent writes happen,
-        // so this should be a no-op, but the loop is still here for
-        // structural parity with P4b production flow).
-        let _residual = self.drain_mark_queue();
-
-        self.close_major_marking();
-        // Step 4: Sweep (STW; identical to STW path's sweep).
-        self.sweep_phase()
     }
 
     /// **add-mark-sweep-collector P3 (2026-05-21)**: test-only entry

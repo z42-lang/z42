@@ -647,7 +647,7 @@ int _testAll(bool noBuild, string skip) {
     // fire hundreds of times. Skippable: host-independent, CI runs it 1x.
     //
     // add-ci-generational-coverage (2026-09-10): nothing in CI had ever run
-    // `Z42_GC_MODE=generational` — `grep Z42_GC_MODE` found only a concurrent-mode smoke —
+    // `Z42_GC_MODE=generational` — `grep Z42_GC_MODE` found only a smoke of another mode —
     // and that is the direct reason **three** premature-collection defects survived for
     // months (#537 stale marks on old roots; #539 promotion and major card-clear each
     // creating uncarded old→young edges). All three surfaced the same way: the compiler

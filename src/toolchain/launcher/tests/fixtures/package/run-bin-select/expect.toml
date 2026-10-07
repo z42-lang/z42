@@ -7,7 +7,7 @@ stdout_equals = "greet-main"
 
 # --set 是运行时设置优先级链的最高层：放在 app 之后也必须转发给 z42vm，不能被静默丢弃
 [[step]]
-args = ["run", "{case}/app", "--bin", "greet", "--set", "gc-mode=concurrent"]
+args = ["run", "{case}/app", "--bin", "greet", "--set", "gc-mode=stw"]
 exit = 0
 stdout_equals = "greet-main"
 

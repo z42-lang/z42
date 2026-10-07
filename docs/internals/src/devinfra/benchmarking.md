@@ -269,12 +269,6 @@ criterion 层噪声底的实测（同一个 PR 的四次跑，**每次 base 与 
 跑内区间的规则都拦不住它**，只有把阈值抬到跑间漂移之上，或者拿到跑间离散度。
 **要重新硬门禁，前提是先把它的跑间漂移量出来，不是调阈值。**
 
-**`concurrent_*`（多线程）基准连测都不测**：它们在共享 runner 上的跑间线程调度噪声很大
-（一个 perf-中立的纯注释 PR 上摆动 +6~33%，单线程基准却居 0 附近），而既然从不判红，
-每个碰 VM 的 PR 为它们花的 75 s 就是纯开销。workflow 设 `Z42_BENCH_SKIP_INFORMATIONAL=1`，
-`gc_cycle_bench.rs` 的 `skip_informational()` 据此跳过并**打印一行**（不静默）；
-本地 `cargo bench` 不设这个变量，照常全跑。**这是排除法不是白名单**：新加的 bench 默认进测量，
-只有在源码里显式标成 informational 的才可能被跳过。
 `smoke_bench.rs` 是纯 Rust sanity（不碰 VM），保留作「criterion 装置能跑」自检，不纳入门禁。
 
 ## 8. 改动面守卫：为什么是排除文档而不是列白名单

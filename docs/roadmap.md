@@ -533,11 +533,10 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 
 ### 代码内临时绕过（in-code stopgaps，待正解）
 
-> 2026-06-01/02 修 CI 时落地的过渡手段 —— **代码里有临时绕过，正解在对应的进行中变更里排期**。这两项不是 design-doc 延后；列在此处供集中复查。
+> 2026-06-01/02 修 CI 时落地的过渡手段 —— **代码里有临时绕过，正解在对应的进行中变更里排期**。这些项不是 design-doc 延后；列在此处供集中复查。
 
 | 绕过点（代码） | 正解 spec | 状态 |
 |------|------|------|
-| `src/runtime/tests/cross_thread_smoke.rs::concurrent_gc_mode_stress_no_race_no_leak` 在 **windows `#[ignore]`**（并发 GC stale-mark race；windows-only、本地不可复现）| `investigate-concurrent-gc-stale-mark-race` 阶段 3：loom/shuttle 验证 + 协议修复 | ⏳ 待排期 |
 | ~~`src/libraries/z42.crypto/tests/ecdsa_secp256k1_vectors.z42` 的 `[Timeout]` 600s stopgap~~ | ✅ 已修复 2026-06-05 by `optimize-ecdsa-jacobian-coords`：secp256k1 + P-256 都迁到 Jacobian 坐标（一次 ModInverse / scalar mult），round-trip 本地 ~60s → ~5.5s。`[Timeout]` 收紧到 60s | ✅ 完成 |
 
 ### 仓库结构 / 维护方向（infra，未排期）

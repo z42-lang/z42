@@ -219,11 +219,10 @@ z42-rs     = { path = "crates/z42-rs" }
 # jobs read the numeric output, never the HTML — drop it to lighten bench builds.
 criterion  = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
 
-# loom: deterministic interleaving model checker for the concurrent-GC handshake.
-# Only compiled under `--cfg loom` (RUSTFLAGS='--cfg loom' cargo test --test
-# gc_registration_race_loom). Used by investigate-concurrent-gc-stale-mark-race
-# phase 3 to reproduce + verify a fix for a race that hardware can't reproduce
-# locally (see docs/spec/changes/investigate-concurrent-gc-stale-mark-race).
+# loom: deterministic interleaving model checker for the GC pause / registration
+# protocol and IC publication. Only compiled under `--cfg loom`
+# (RUSTFLAGS='--cfg loom' cargo test --test gc_registration_race_loom) — it
+# reproduces races that hardware can't reproduce locally.
 [target.'cfg(loom)'.dev-dependencies]
 loom = "0.7"
 

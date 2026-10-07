@@ -20,7 +20,6 @@ use super::knobs::*;
 /// `config/parse.rs::parse_gc_mode` 的 match 臂一一对应。
 const GC_MODES: &[&str] = &[
     "stw", "stw-mark-sweep",
-    "concurrent", "concurrent-mark-sweep",
     "generational", "generational-mark-sweep",
 ];
 
@@ -128,7 +127,7 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         name: "Z42_GC_MODE",
         toml_key: "gc-mode",
         value: ValueKind::Enum(GC_MODES),
-        description: "GC algorithm: `stw` / `concurrent` / `generational` (with `-mark-sweep` aliases)",
+        description: "GC algorithm: `stw` / `generational` (with `-mark-sweep` aliases)",
         default_hint: "unset; defaults to `generational-mark-sweep`",
         consumed_by: "gc/mode.rs",
         ..PUBLIC

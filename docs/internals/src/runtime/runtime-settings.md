@@ -282,8 +282,8 @@ z42c build: warning: [profile.release.runtime] 未知运行时旋钮 `gc-mdoe`�
 | `z42vm --info` | 构建信息 + 完整旋钮快照（bug report 用；旋钮块与 `--show-config` 共用渲染器）|
 
 ```
-$ Z42_GC_MODE=stw z42vm --set gc-mode=concurrent --show-config
-gc-mode = concurrent  [cli]
+$ Z42_GC_MODE=stw z42vm --set gc-mode=generational --show-config
+gc-mode = generational  [cli]
   ignored [env] "stw"  (overridden by a higher layer)
 jit-profile = (默认: unset; JIT profiling off)  [default]
   ignored [env] "1"  (unavailable in this build)

@@ -273,7 +273,7 @@ ObjectHeader {
 - `Value::Str(VarGcRef)` = **GC 字符串对象**：8B 细指针指变长块，与 Object/Array 同一堆的
   mark/sweep（string 是**不可变叶子**，trace 无出边）。字段存储：string 字段落对象 `refs` 侧表
   （`STRUCT_LEAF_ARCSTRING` → `TAG_STR`），被 `trace_children` / `scan_object_refs` 扫描 →
-  string-in-object 正确可达；`is_heap_ref(Str)=true` → 存进堆槽触发写屏障（分代 card / 并发 mark-queue）。
+  string-in-object 正确可达；`is_heap_ref(Str)=true` → 存进堆槽触发写屏障（分代 card）。
 - **驻留/字面量串**：**lazy per-context interning**——加载期**不**物化（无堆），首次 `ConstStr(idx)`
   用活堆分配 GC string + 缓存进 `VmContext.interned_cache`（`(module ptr, idx)` 键），缓存项经
   external root scanner 注册为 **GC root**；后续命中拷 8B 句柄（运行期全走 `intern_const_str`）。
@@ -311,7 +311,7 @@ ObjectHeader {
 - **对象头 `gc_word`**:mark/color + age/gen 位;**复制期复用为 forwarding pointer**。
 - **精确 GC 是移动前提**(回扣 [safepoint.md §7](safepoint-design.md)):移动须找到并更新所有 ref;per-slot tag 自描述 + 按 kind 扫 → 可精确 fixup。
 - **GcRef 可重定位**(§4)。
-- **写屏障 → card table / remembered set**:分代追 old→young,minor GC 不必扫整个 old。z42 已有写屏障(并发模式)→ 复用/扩。
+- **写屏障 → card table / remembered set**:分代追 old→young,minor GC 不必扫整个 old。z42 已有写屏障(分代 card table)→ 复用/扩。
 - **pinned 与移动冲突**(回扣 [safepoint.md §4](safepoint-design.md) InNative):native/FFI 期 pinned 不可移 → pin set 跳过,或 pinned 分配在**非移动 pin 区**。
 - **per-generation 不同策略**(目标):young = 复制/evacuate(移动、bump 分配)、old = mark-sweep 或 mark-compact;`gc_word` 的 age/gen 位指明所在代。**具体算法 = 未来 GC 设计文档。**
 

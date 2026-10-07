@@ -153,7 +153,6 @@ fn concurrent_threads_independent_heaps_generational() {
 fn multi_heaps_mixed_modes() {
     let modes = [
         GcMode::StwMarkSweep,
-        GcMode::ConcurrentMarkSweep,
         GcMode::GenerationalMarkSweep,
     ];
 

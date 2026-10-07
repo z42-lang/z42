@@ -88,7 +88,7 @@ pub struct RuntimeConfig {
 
     // ── Phase 2: subsystem knobs (read via [`runtime_config()`]) ─────────
     /// `Z42_GC_MODE` — algorithm selector. Default `generational`
-    /// (flip-gc-default-to-generational, 2026-09-10); `stw` / `concurrent` are opt-in.
+    /// (flip-gc-default-to-generational, 2026-09-10); `stw` is opt-in.
     pub gc_mode: GcMode,
     /// `Z42_GC_MINOR_THRESHOLD` (0.0–1.0) — fraction of young entries
     /// surviving minor GC above which the next collect escalates to

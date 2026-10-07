@@ -1,10 +1,8 @@
-//! loom models of the ConcurrentMarkSweep registration/handshake hazards.
+//! loom models of the GC pause protocol's registration / arbitration hazards.
 //!
-//! Tracked by docs/spec/changes/investigate-concurrent-gc-stale-mark-race
-//! (phase 3). Neither hazard reproduces on local hardware — the design
-//! amplified `concurrent_gc_mode_stress_no_race_no_leak` to 8×2000×4000 and it
-//! still passed on Apple Silicon; it only fires on some CI runners (windows-x86,
-//! and — 2026-07-08 — macos-arm64). loom explores thread interleavings
+//! Neither hazard reproduces on local hardware — a multi-mutator stress amplified
+//! to 8×2000×4000 still passed on Apple Silicon; it only fired on some CI runners
+//! (windows-x86, macos-arm64). loom explores thread interleavings
 //! deterministically, so both hazards reproduce here, locally, every run.
 //!
 //! There are TWO models, because the fix has to survive both at once:
@@ -30,8 +28,8 @@
 //! - `collector_active`: the add-multi-collector-arbitration (2026-05-21) CAS
 //!               claim (safepoint.rs:353). A thread losing the CAS parks *as a
 //!               mutator* and skips its own collect (real code: returns `None`).
-//! - `obj_mark`: one *alive* object's mark bit. The write barrier shades it gray
-//!               (marked=1); sweep clears survivor marks back to white; the
+//! - `obj_mark`: one *alive* object's mark bit. A barrier run by the mutator shades
+//!               it (marked=1); sweep clears survivor marks back to white; the
 //!               post-sweep invariant `debug_validate_invariants` asserts no alive
 //!               object is still marked (arc_heap.rs "stale mark bit … after sweep").
 //!
@@ -88,12 +86,9 @@
 //!
 //! ## Scope
 //!
-//! The third hazard — the *new-object* sweep hazard that marking-period
-//! allocate-black fixes, separate from this stale-mark-on-an-*existing*-object
-//! race — lives in the sibling file `gc_alloc_black_loom.rs` (model C). A fix
-//! that closes the registration window but keeps `alloc_object` birthing
-//! objects white is still unsound, so a candidate fix has to keep all three
-//! files green.
+//! The *new-object* sweep hazard that marking-period allocate-black fixes —
+//! separate from this stale-mark-on-an-*existing*-object race — is covered for
+//! the incremental major by `gc_incremental_model.rs` (model D).
 //!
 //! Run: `cd src/runtime && RUSTFLAGS="--cfg loom" cargo test \
 //!       --test gc_registration_race_loom --release`

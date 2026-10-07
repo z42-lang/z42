@@ -46,7 +46,7 @@ pub fn load_config_tables(
         let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("app");
         return Err(format!(
             "{var}={} — z42 runtime config is TOML, not JSON.\n     \
-             Use {stem}.toml with a `[runtime]` table (e.g. `[runtime]\\ngc-mode = \"concurrent\"`); \
+             Use {stem}.toml with a `[runtime]` table (e.g. `[runtime]\\ngc-mode = \"stw\"`); \
              see docs/internals/src/runtime/runtime-settings.md.",
             path.display()
         ));

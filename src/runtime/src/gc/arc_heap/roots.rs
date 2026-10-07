@@ -5,23 +5,21 @@ use super::*;
 use crate::metadata::Value;
 
 impl crate::gc::arc_heap::ArcMagrGC {
-    /// **add-concurrent-gc P2 (2026-05-22)**: STW-phase root snapshot for
-    /// the concurrent mark loop. Walks pinned roots + external root
-    /// scanner output, marks each as gray (via `mark_if_unmarked`), and
-    /// pushes newly-marked roots into `mark_queue`. The mark thread (P4)
-    /// then drains the queue concurrently with mutators.
+    /// Root snapshot for an incremental major. Walks pinned roots +
+    /// external root scanner output, marks each as gray (via
+    /// `mark_if_unmarked`), and pushes newly-marked roots into
+    /// `mark_queue`; the cycle's mark slices then drain the queue.
     ///
-    /// Must be called under STW (during `GcPhase::Marking` between
-    /// `request_gc_pause` and `set phase ConcurrentMarking`) so the
-    /// snapshot is consistent — no mutator can add/remove roots between
-    /// `pinned_roots` traversal and external scanner traversal.
+    /// Must be called inside a pause (`GcPhase::Marking`) so the snapshot is
+    /// consistent — no mutator can add/remove roots between `pinned_roots`
+    /// traversal and external scanner traversal.
     ///
     /// Returns the count of newly-marked root objects (for tests +
     /// diagnostics).
     pub(super) fn snapshot_roots_into_mark_queue(&self) -> usize {
         let mut queue = self.mark_queue.lock();
         queue.clear();
-        // add-incremental-major-gc M1: the cycle's epoch, opened by the caller (Phase 1).
+        // add-incremental-major-gc M1: the cycle's epoch, opened by the caller.
         let kind = self.major_mark();
         let mut count = 0usize;
         // Pinned roots — cloned under inner.lock() to release the lock

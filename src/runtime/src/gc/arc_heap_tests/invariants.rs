@@ -24,20 +24,6 @@ fn healthy_heap_validates_after_stw_collect() {
 }
 
 #[test]
-fn healthy_heap_validates_after_concurrent_mode_collect() {
-    use crate::vm_context::VmContext;
-    let ctx = VmContext::new();
-    ctx.heap().set_mode(GcMode::ConcurrentMarkSweep);
-    let heap_dyn = ctx.heap();
-    let v = heap_dyn.alloc_object(dummy_type_desc("Foo"), vec![], NativeData::None);
-    let _pin = heap_dyn.pin_root(v);
-
-    heap_dyn.collect_cycles_with_context(&ctx);
-    // Validation runs at end of concurrent dispatch; if any invariant
-    // were violated we'd have panicked.
-}
-
-#[test]
 fn healthy_heap_validates_after_generational_mode_minor() {
     use crate::vm_context::VmContext;
     let ctx = VmContext::new();
@@ -88,14 +74,13 @@ fn healthy_heap_validates_with_cross_gen_writes_under_generational() {
 #[should_panic(expected = "mark_queue stale post-collect")]
 fn validation_detects_stale_mark_queue() {
     let heap = ArcMagrGC::new();
-    // Manually populate mark_queue (simulate a bug where concurrent
+    // Manually populate mark_queue (simulate a bug where a major's
     // mark didn't drain). The next debug_validate_invariants call
     // should panic.
     let v = heap.alloc_object(dummy_type_desc("Phantom"), vec![], NativeData::None);
     let _pin = heap.pin_root(v.clone());
     heap.mark_queue_for_test();  // touch the API
-    // Push directly via internal access — same as concurrent barrier
-    // would do but we leave it un-drained.
+    // Push directly via internal access and leave it un-drained.
     {
         let mut q = heap.mark_queue_for_test_mut();
         q.push(v);

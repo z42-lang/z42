@@ -17,7 +17,7 @@ namespace Std.Runtime;
 // 期被消费一次（决定建哪种堆、要不要起采样线程），运行中改要么无效要么要重建子
 // 系统——"能设但不生效"比"不能设"更坏。需要运行期可调的能力走专门 API（Std.GC）。
 public static class RuntimeConfig {
-    // 旋钮的生效值（如 "concurrent"）。未知 key，或该旋钮取内置默认时返回 null。
+    // 旋钮的生效值（如 "stw"）。未知 key，或该旋钮取内置默认时返回 null。
     // key 用旋钮的配置键（`gc-mode`），也接受环境变量名（`Z42_GC_MODE`）。
     [Native("__cfg_get")]
     public static extern string? Get(string key);
@@ -31,7 +31,7 @@ public static class RuntimeConfig {
     [Native("__cfg_names")]
     public static extern string[] Names();
 
-    // 扁平转储，每项形如 `"gc-mode=concurrent|env"`；取默认时 value 段为空。
+    // 扁平转储，每项形如 `"gc-mode=stw|env"`；取默认时 value 段为空。
     // 按**第一个** `=` 和**最后一个** `|` 切分（值本身可能含 `=`，如 log 指令）。
     // 形状沿用 `Environment.GetEnvironmentVariables()` 的扁平数组约定。
     [Native("__cfg_dump")]

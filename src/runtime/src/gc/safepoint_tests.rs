@@ -351,36 +351,10 @@ fn second_collector_falls_back_to_mutator_park_returns_none() {
     assert_eq!(collector.core.parked_count.load(Ordering::Acquire), 0);
 }
 
-// ── add-concurrent-gc P1 (2026-05-22) ────────────────────────────────────
-
 #[test]
-fn concurrent_marking_phase_does_not_park_mutators() {
-    // Set phase to ConcurrentMarking and run check_safepoint repeatedly.
-    // Mutators must NOT park — that's the entire point of the concurrent
-    // path. Only Requested / Marking park.
-    let ctx = VmContext::new();
-    *ctx.core.gc_phase.lock() = GcPhase::ConcurrentMarking;
-
-    // Force the slow path on every call.
-    for _ in 0..100 {
-        ctx.safepoint_skip.store(1, Ordering::Relaxed);
-        check_safepoint(&ctx);
-    }
-
-    assert_eq!(ctx.core.parked_count.load(Ordering::Acquire), 0,
-        "mutator must NOT park during ConcurrentMarking phase");
-    assert_eq!(*ctx.core.gc_phase.lock(), GcPhase::ConcurrentMarking,
-        "phase unchanged after safepoint checks");
-
-    // Reset so the VmContext drop is clean.
-    *ctx.core.gc_phase.lock() = GcPhase::Idle;
-}
-
-#[test]
-fn requested_phase_still_parks_mutators_after_concurrent_added() {
-    // Sanity: adding ConcurrentMarking variant must not regress the STW
-    // path. Requested + Marking still park mutators (handled by spawn-
-    // and-wait pattern from pause_guard_drop_notifies_waiters).
+fn requested_phase_parks_mutators() {
+    // Requested parks mutators just like Marking (spawn-and-wait pattern
+    // from pause_guard_drop_notifies_waiters).
     let collector = VmContext::new();
     let _mutator = VmContext::new_with_core(collector.core_arc());
 

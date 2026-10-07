@@ -50,7 +50,7 @@ name: Bench PR Regression
 # pr 测量 151s ⇒ 编译 233s(44%) / 测量 297s(56%)，测量里 concurrent_* 占 75s(14%) 却从不判红。
 # 落地两刀（只动成本、不动判红语义）：① 本 job 用自己的 cache key（原先与 CI 共用 host-v2 ⇒ 每次
 # exact hit、从不回存，bench profile 的依赖产物和 base-src 的 target 从来没进过缓存）；② concurrent_*
-# 用 Z42_BENCH_SKIP_INFORMATIONAL 排除在测量之外（实测 pr 侧 151s→103s）。
+# 排除在测量之外（实测 pr 侧 151s→103s；这三条后随 gc-mode=concurrent 一并删除）。
 # **试过并回退**：把 [profile.bench] 从继承 release 的 fat-LTO 改成 thin-LTO+cgu16——本机重链
 # 68s→20s，但 CI 上 base(fat) 116s vs pr(thin) 132s **更慢**（4 vCPU 吃不满并行，且换 profile 多编
 # 82 个依赖 crate），同时把 gc_alloc/array_throughput_10k 的测值挪了 +16.8%。教训：**编译耗时的
@@ -658,14 +658,6 @@ jobs:
       # detection + bootstrap CI. A shared CRITERION_HOME lets the two trees' runs meet.
       # gc_cycle_bench is a real VM benchmark (gated); smoke_bench is a pure-Rust
       # sanity harness (NOT gated). Gate: any bench mean change >10% AND CI-separated.
-      # EXCEPTION: `concurrent_*` (multi-threaded) benchmarks are INFORMATIONAL only —
-      # criterion's --baseline compares two SEPARATE runs (base saved, then pr), and
-      # for threaded GC the between-run thread-scheduling noise on a shared CI runner
-      # is large (validated: a perf-neutral comment-only PR saw the concurrent benches
-      # swing +6–33% while single-threaded ones centred on 0). criterion's tight
-      # within-run CI does not capture that drift, so gating them false-reds.
-      # demote-criterion-to-informational (2026-09-06): 这个理由后来被推广到**整层** ——
-      # 单线程 GC 基准同样只是跑内 CI 对上跑间漂移，如今也只打印不判红（见下面那步的注释）。
       # demote-criterion-to-informational (2026-09-06)：criterion 层**不再 fail job**。
       #
       # 依据是它自己的战绩：至今 **0 次真阳性、3 次假红**（#423 一次、#457 两次 —— 后两次
@@ -692,11 +684,6 @@ jobs:
             echo "→ src/runtime unchanged base..pr → skip criterion A/B (VM byte-identical)"
             exit 0
           fi
-          # lighten-criterion-ab: `concurrent_*` 三条本就是 informational（下面的判红
-          # 脚本对它们只打印不 fail），却占掉本步骤 75s / 531s = 14%。用 bench 源码里的
-          # 排除开关把它们排除在**测量**之外（见 gc_cycle_bench.rs `skip_informational`：
-          # 排除法而非白名单，跳过时打印不静默）。
-          export Z42_BENCH_SKIP_INFORMATIONAL=1
           export CRITERION_HOME="$PWD/.criterion-ab"
           rm -rf "$CRITERION_HOME"; mkdir -p "$CRITERION_HOME"
           echo "── base: save criterion baseline 'ab-base' (base tree) ──"
@@ -743,12 +730,8 @@ jobs:
               bench = est.split(os.sep)[-3]
               # 区间宽度是这层的关键信息（旧输出只打下界，看不出 [+0.5%, +60%] 有多没用）
               tag = f"{pe*100:+.1f}% (CI [{lo*100:+.1f}%, {hi*100:+.1f}%], 宽 {(hi-lo)*100:.1f}pp)"
-              noisy = "concurrent" in bench   # threaded → between-run scheduling noise; informational only
               if lo > thr:
-                  if noisy:
-                      print(f"  ~ {bench}: {tag} (concurrent — informational, not gated)")
-                  else:
-                      regr.append(bench); print(f"  ↑ REGRESSION {bench}: {tag}")
+                  regr.append(bench); print(f"  ↑ REGRESSION {bench}: {tag}")
               elif pe > thr:
                   # 点估计过阈值但区间没整体过 —— 正是「可疑」，也正是「可疑即复测」该接手的地方
                   print(f"  ? {bench}: {tag} — 点估计过阈值但区间未分离，判为噪声（见 book「可疑即复测」）")

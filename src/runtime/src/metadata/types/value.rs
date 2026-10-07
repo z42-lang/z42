@@ -225,7 +225,7 @@ impl Value {
             Value::Object(_) | Value::Array(_) | Value::Closure(_) => true,
             // unify-gc-heap PR-4: strings are GC blocks now — storing one into a heap
             // slot (object ref field / array element / struct ref leaf) is a heap edge
-            // that needs a write barrier (generational card / concurrent mark-queue),
+            // that needs a write barrier (generational card),
             // so the string block is found + kept marked. `FuncRef` carries a `Str`.
             Value::Str(_) | Value::FuncRef(_) => true,
             // add-boxed-struct-identity (P4b, 路 B2): 装箱 struct 现是共享 `ScriptObject` 句柄 →

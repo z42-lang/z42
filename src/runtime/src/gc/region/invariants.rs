@@ -11,7 +11,7 @@ use super::{Region, CHUNK_SIZE};
 
 /// Per-region invariant violation. Returned by [`Region::validate`].
 /// Variants 来自 add-write-barriers / add-custom-allocator /
-/// add-concurrent-gc / add-generational-gc design 段的 invariants。
+/// add-generational-gc design 段的 invariants。
 #[cfg(debug_assertions)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Violation {

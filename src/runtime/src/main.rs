@@ -47,7 +47,7 @@ struct Cli {
     verbose: bool,
 
     // ── 运行时配置 ──────────────────────────────────────────────────────
-    /// 为本次运行设置一个运行时旋钮，可重复：`--set gc-mode=concurrent`。
+    /// 为本次运行设置一个运行时旋钮，可重复：`--set gc-mode=stw`。
     ///
     /// 优先级最高（压过 `Z42_*` 环境变量与配置文件）。旋钮名见 `--list-knobs`。
     #[arg(long = "set", value_name = "KEY=VALUE", help_heading = "运行时配置")]

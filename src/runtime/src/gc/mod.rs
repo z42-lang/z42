@@ -31,7 +31,7 @@
 //! 后续可选迭代轨道见
 //! [`docs/internals/src/runtime/gc.md`](../../../docs/internals/src/runtime/gc.md)
 //! "GC 后续迭代规划" 段：A 性能（自定义 allocator / mark-sweep / generational
-//! / concurrent）、B 嵌入式工具（OOM 异常 / 软引用 / heap snapshot 导出 /
+//! / 增量 major）、B 嵌入式工具（OOM 异常 / 软引用 / heap snapshot 导出 /
 //! alloc 站点追踪 / pause 直方图）、C 测试质量（debug invariants / stress 压测）、
 //! D MMTk 集成（终极方向）。
 

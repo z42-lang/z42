@@ -289,7 +289,7 @@ JIT 的每次调用 = 4 次 native→Rust helper（vcall/call、`jit_regs_ptr`�
 - 每次 `new` 约 7–9 次原子 RMW + 1 对锁 + 1 次 malloc。
 - `stats()` 和 `PauseStatsRaw` 每次调用都遍历全堆。
 - 报告的停顿不含 TTSP。
-- ConcurrentMarkSweep 全面劣于 STW，又与增量 major 功能重叠，应删除。
+- ConcurrentMarkSweep 全面劣于 STW，又与增量 major 功能重叠，已删除（User 2026-10-07 决定）：`gc-mode` 只剩 `stw` / `generational`。
 
 **改法**：
 - **根治**：年轻代归 minor 管，晋升时 promote-black，年轻对象不再 allocate-black；先在 `tests/gc_incremental_model.rs` 模型 D 里穷举验证。
@@ -410,7 +410,7 @@ helpers 里有 59 处"镜像/对称"注释，多处记录的是已修过的分�
 ### 5.4 死代码与遗留（【确认】0 个生产引用）
 
 - `Function.exec_mode`（解码了但从不读取）。
-- ConcurrentMarkSweep 模式（删除会去掉用户可见的 `gc-mode=concurrent`，⏸）、finalizer 机制（零注册）、`collect()` 默认 no-op、死旋钮 `Z42_GC_THROTTLE_RATIO`。
+- ConcurrentMarkSweep 模式（已删除，见下「需 User 决策」）、finalizer 机制（零注册）、`collect()` 默认 no-op、死旋钮 `Z42_GC_THROTTLE_RATIO`。
 - `thread/mod.rs` 空桩；z42-macros 的 `compile_error!` 桩仍从 z42-rs prelude 导出。
 - `versions.rs` 大部分是 changelog 注释，而且已经漂移。
 - AOT：`app.rs` 先做急切 BFS，`vm.rs` 再报错退出，两处报错文本还互相矛盾（LLVM vs cranelift）。
@@ -464,7 +464,7 @@ z42vm 继续静态链接 VM，不改为动态链接 `native/libz42`（结论与�
 
 | ID | 类型 | 内容 | 验证要点 | 状态 |
 |---|---|---|---|---|
-| P1-0 | docs | 当前代码重测基线：z42c 构建剖面、§1.1 微基准、13_gc_large_heap 三种模式、hello 启动；写进 §1.5，据此复核下面的排序 | — | ⬜ |
+| P1-0 | docs | 当前代码重测基线：z42c 构建剖面、§1.1 微基准、13_gc_large_heap 两种模式、hello 启动；写进 §1.5，据此复核下面的排序 | — | ⬜ |
 | P1-1 | fix | 缺陷批（§3 D1、D2、D3、D6，各一个 PR）：<br>• D1 cctor 等待改 Condvar + park<br>• D2 socket 改 `Arc<TcpStream>` + closed 标志（UDP / TLS 同构）<br>• D3 `is_exception_subclass` 改调 `isa_td`<br>• D6 先写出复现，再修 | 每项先写失败测试 | ⬜ |
 | P1-2 | vm | **进程级函数 / 类型身份**（§4.1，先出方案）：<br>• VmCore 上 append-only `FuncTable` / `TypeTable`，读无锁；惰性加载的函数逐个追加 FnId<br>• PIC、`method_tokens`、ObjNew / CallIndirect / FuncRef / ConstStr 站点缓存改存 FnId / TypeId，IC 能缓存 Lazy 目标<br>• 三套函数注册表、两套类型注册表合一<br>• D5：`isa_cache` 按 TypeId 做 key | 跨包 VCall 微基准；z42c 剖面里 `try_lookup_function` / `LazyTable` 消失；lazy 与 merged 函数行为一致 | ⬜ |
 | P1-3 | refactor | **引擎无关的 `objops` 层**（§5.2）：field get/set、array、obj_new 先行；两引擎只做寄存器适配与异常通道映射；统一错误通道，空引用抛 `NullReferenceException` | interp 与 JIT 对同一组用例逐条一致（含错误文本）；删掉对应的双写实现 | ⬜ |
@@ -547,7 +547,7 @@ z42vm 继续静态链接 VM，不改为动态链接 `native/libz42`（结论与�
   - R9：数组头与元素合成一块（`long[8]` 250 → 约 96 B）。
 
 **需 User 决策**（⏸）：
-- 删除 ConcurrentMarkSweep：会去掉 `gc-mode=concurrent` 这个用户可见取值。
+- ~~删除 ConcurrentMarkSweep~~ —— 已定（User 2026-10-07：删）并已删除。`gc-mode` 只剩 `stw` / `generational`（及 `-mark-sweep` 别名）；传 `concurrent` 按非法枚举值处理：`--set` 致命（退出码 2），环境变量 / 配置文件警告并回落默认 `generational`，错误信息列出合法取值。
 - 可 catch 的栈溢出（当前是致命错误；前置条件见 vm-architecture.md「原生栈预算」）。
 - `int` 等窄整数的算术溢出不回绕到本宽度：`int.MaxValue + 1`、`int.MinValue / -1` 两路都得 `2147483648`，值仍按 i64 存、运算后不截断。要不要按声明宽度回绕、在哪一层截断（编译器插 Convert，还是 VM 按类型运算），属于语言语义决策。
 - 栈闭包（D6）——**已决（User，2026-10-07）：删除运行时支持**。z42c 的逃逸分析从不给 `MkClos` 标栈分配，栈闭包路径整条不可达；`Value` 的栈闭包变体、帧 `env_arena`、GC 对它的扫描、`CallIndirect` 分支都已删除，闭包恒堆分配。以后要消掉不逃逸闭包的分配，走 JIT 标量替换，不再加值变体。
@@ -626,6 +626,6 @@ z42vm 继续静态链接 VM，不改为动态链接 `native/libz42`（结论与�
   2. 运行期间用 macOS 的 `sample <z42vm pid> 18 -file out.sample` 采样；
   3. 按函数名统计包含时间（对每条调用链只计最外层匹配）。
   - `Z42_PORTABLE_VM=<z42vm>` 可以让同一个 z42c 跑在指定的 VM 上，便于新旧对比。
-- **GC**：`Z42_GC_TRACE=1`（每次回收一行）、`Z42_GC_PHASES=1`（trip 行带退避倍数 `xN`），`--set gc-mode=stw|concurrent|generational`。
+- **GC**：`Z42_GC_TRACE=1`（每次回收一行）、`Z42_GC_PHASES=1`（trip 行带退避倍数 `xN`），`--set gc-mode=stw|generational`。
 - **惰性加载**：`Z42_LOG=z42::metadata::lazy_loader=debug`，统计 `lazy-loaded zpkg` 行数。
 - **启动**：`/usr/bin/time -l`（RSS），用 Python `subprocess` 循环计时取中位数。
