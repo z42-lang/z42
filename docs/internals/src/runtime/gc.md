@@ -328,7 +328,9 @@ chunk 内存还给系统 malloc，新堆可能在**同一地址**重分配块，
 `MagrGC::alloc_str_concat2`（[`gc/heap.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/gc/heap.rs)，`ArcMagrGC` 覆写
 `alloc_str_concat2_in_region`）按 `a.len()+b.len()` **一次性**分配 `BlockType::Str` 块、直接拷入两段，
 **降到 1 次分配 / 1 次拷贝**（两段皆合法 UTF-8 → 拼接合法）。interp `str_concat`/`Add` 字符串臂借
-`&str` 直传、JIT `jit_str_concat` helper 同步。产出字节相同。热字符串 workload 实测 mimalloc 压力
+`&str` 直传、JIT `jit_str_concat` / `jit_add` helper 同步。`Add` 的混合臂（`"k" + i`）把非串操作数
+经 `dispatch::with_obj_str` 以 `&str` 视图直接拷进同一个块（标量在栈缓冲里格式化），同样 1 次分配、零中间串
+（见[对象协议派发](object-protocol-dispatch.md)）。产出字节相同。热字符串 workload 实测 mimalloc 压力
 减半、拼接密集环 ~1.3× interp。
 
 **驻留串 = lazy per-context interning**（D-lazy）：加载期无堆 → 不物化；首次 `ConstStr(idx)`

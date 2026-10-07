@@ -1,7 +1,7 @@
 #![allow(dangerous_implicit_autorefs)]
 //! Arithmetic, comparison, logical, unary, and bitwise helpers.
 
-use crate::corelib::convert::value_to_str;
+use crate::corelib::convert::with_value_str;
 use crate::metadata::Value;
 // converge-vm-arith-semantics (H3): scalar rules come from the single source of
 // truth `crate::semantics` (shared with interp), not a JIT-local copy.
@@ -16,14 +16,15 @@ use super::{set_exception, vm_ctx_ref};
 // on /0 是不同语义）。
 
 /// dispatch-tostring-in-native-stringify: JIT 侧的字符串化 —— 对象/装箱 struct 走
-/// `stringify_dispatch`（派发用户 `ToString`），其余走裸 `value_to_str`。
-/// 与 interp `exec_value::add` 的 `concat_str` 闭包一一对应。
+/// `with_stringify_dispatch`（派发用户 `ToString`），其余走 `with_value_str`。
+/// 与 interp `exec_value::add` 的 `with_obj_str` 一一对应。perf-str-concat-direct：文本以
+/// `&str` 借给 `f`（标量在栈缓冲里格式化、用户 `ToString` 的 GC 串原样借用），不落地中间串。
 #[inline]
-unsafe fn jit_stringify(ctx: *const JitModuleCtx, v: &Value) -> anyhow::Result<String> {
+unsafe fn jit_with_str<R>(ctx: *const JitModuleCtx, v: &Value, f: impl FnOnce(&str) -> R) -> anyhow::Result<R> {
     match v {
         Value::Object(_) | Value::BoxedStruct(_) =>
-            crate::interp::dispatch::stringify_dispatch(vm_ctx_ref(ctx), v),
-        other => Ok(value_to_str(other)),
+            crate::interp::dispatch::with_stringify_dispatch(vm_ctx_ref(ctx), v, f),
+        other => Ok(with_value_str(other, f)),
     }
 }
 
@@ -48,25 +49,32 @@ pub unsafe extern "C" fn jit_add(
         (*frame).regs[dst as usize] = Value::I64(x.wrapping_add(*y));
         return 0;
     }
-    // Build the owned result under a scoped borrow — no operand clones. The
-    // string-concat path (common in z42c name mangling / message building)
-    // previously cloned both operands just to drop the regs borrow before the
-    // write; `format!` already produces a fresh owned String.
+    // Build the result under a scoped borrow — no operand clones. String concat
+    // (common in z42c name mangling / message building) allocates the result as ONE
+    // fused GC block (`alloc_str_concat2`), same as the interp `Add` / `StrConcat`.
     let result = {
         let va = &regs[a as usize];
         let vb = &regs[b as usize];
+        let heap = vm_ctx_ref(ctx).heap();
         match (va, vb) {
-            (Value::Str(sa), Value::Str(sb)) => Value::Str(format!("{}{}", sa, sb).into()),
+            (Value::Str(sa), Value::Str(sb)) => Value::Str(heap.alloc_str_concat2(sa, sb)),
             // dispatch-tostring-in-native-stringify: interp `exec_value::add` 混合臂的 JIT 对称件
             // —— 对象/装箱 struct 操作数派发用户 `ToString`（只补一侧的话热代码与解释器不一致）。
-            (Value::Str(sa), vb) => match jit_stringify(ctx, vb) {
-                Ok(t)  => Value::Str(format!("{}{}", sa, t).into()),
-                Err(e) => return stringify_failed(ctx, e),
-            },
-            (va, Value::Str(sb)) => match jit_stringify(ctx, va) {
-                Ok(t)  => Value::Str(format!("{}{}", t, sb).into()),
-                Err(e) => return stringify_failed(ctx, e),
-            },
+            // perf-str-concat-direct: 非串操作数直接格式化进结果块，不落地中间串。
+            (Value::Str(sa), vb) => {
+                let sa = *sa;
+                match jit_with_str(ctx, vb, |t| heap.alloc_str_concat2(&sa, t)) {
+                    Ok(s)  => Value::Str(s),
+                    Err(e) => return stringify_failed(ctx, e),
+                }
+            }
+            (va, Value::Str(sb)) => {
+                let sb = *sb;
+                match jit_with_str(ctx, va, |t| heap.alloc_str_concat2(t, &sb)) {
+                    Ok(s)  => Value::Str(s),
+                    Err(e) => return stringify_failed(ctx, e),
+                }
+            }
             _ => match semantics::int_binop(va, vb, i64::wrapping_add, |x, y| x + y) {
                 Ok(r)  => r,
                 Err(e) => { set_exception(vm_ctx_ref(ctx), Value::Str(e.to_string().into())); return 1; }

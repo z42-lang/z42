@@ -159,7 +159,7 @@ fn route_stderr(text: &str, append_newline: bool) {
 /// dispatch-tostring-in-native-stringify: `Console.Write/WriteLine` 一族的实参字符串化。
 ///
 /// 此前四个 builtin 都签着 `_ctx` **却用无 ctx 的 `value_to_str`** ⇒ 对象一律打 `类型名{...}`，
-/// 而同一个对象经插值（`ToStr` 指令 → `obj_to_string`）是对的 —— 四条字符串化路四个说法。
+/// 而同一个对象经插值（`ToStr` 指令 → `obj_to_gc_str`）是对的 —— 四条字符串化路四个说法。
 /// 改走 `stringify_dispatch`：有用户 `ToString` 就派发（含装箱 struct / record 合成 / enum 成员名），
 /// 没有才回落短类型名，与插值、拼接、显式 `x.ToString()` 收敛为同一个答案。
 fn stringify_arg(ctx: &VmContext, args: &[Value]) -> Result<String> {
