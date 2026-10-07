@@ -290,6 +290,7 @@ public sealed class StubCollector {
 
     // Pass A：类 stub（基表判别：接口入 InterfaceNames，类→base）
     internal void _passClassStubs(SymbolTable table, CompilationUnit cu, string file) {
+        SymbolTable scoped = table.WithScopeOf(cu);   // 基类列表里的名字按本 CU 作用域判接口 / 类
         // arity-mangle 判据（镜像 C# NeedsMangle）：同短名有多个 arity 时，泛型版键带 `$N`。
         //
         // fix-arity-mangle-package-wide：**判据来自包级集合** `table.MultiArityNames`
@@ -332,7 +333,7 @@ public sealed class StubCollector {
                         //      （`e.Tag()` 报 E0401，因为接口先占了 `hasBase`）
                         //   ③ `class G : Demo.Base` ⇒ `BaseName` 存成查不到的串，整条基类关系丢失
                         // 同包限定名（`Demo.ILocal`）一样中招 —— 这不是跨包问题，是拼写问题。
-                        string ifaceKey = SymbolTable.InterfaceKeyOf(table, bnLookup);
+                        string ifaceKey = SymbolTable.InterfaceKeyOf(scoped, bnLookup);   // 按本 CU 作用域判（同发射端）
                         if (ifaceKey != "") { ifaces[ifc] = ifaceKey; ifc = ifc + 1; }
                         // fix-generic-base-name（欠债表 bug B 真根因）：**基类**也必须存裸名。
                         // `BaseName` 的每一个消费方都拿它当 `Classes` 的键用（IsSubclassOf /

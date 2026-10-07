@@ -365,19 +365,14 @@ public sealed partial class SymbolTable {
     // 编译通过而运行期 `VCall: Demo.E.Tag not found`（实测踩过）。同一形状仓里记过多次 ——
     // `_constraintDescs` 抬头那条「writer 与 checker 从此共用同一个判定」就是上一次。
     //
-    // 三步回落，顺序有意义：
-    //   ① **原样**（调用方已剥 `<...>`）—— 短名写法走这步，与改动前逐字等价、零风险。
-    //   ② **限定名 → FQN 视图**（`InterfacesByFqn`；本地由 `_passInterfaces` 写、导入由
-    //      `_mergeImportedInterfaces` 并入，**两者都在 `_passClassStubs` 之前完成** ⇒ 可靠）。
-    //   ③ 退回裸短名 —— FQN 视图里没有的情形（ns 拼写与 `Fqn()` 不一致等）。
-    // ⚠️ 第 ③ 步在「跨 ns 同短名」时可能认错 —— 与全仓短名键同病，不更坏；根治见「推进 FQN 键」。
+    // 判据（fqn-tables 3）：写法按**作用域**解析得到接口 ⇒ 是接口（外围 ns → FQN → using → prelude，即
+    // `GetInterface` 那一个出口）；返回其短名（存进 `InterfaceNames` 的形态，随后由 `_passQualifyIfaceNames*`
+    // 限定成 FQN）。`table` 必须是声明方 CU 的作用域视图（`_passClassStubs` 与发射端 `model.Symbols` 都是）。
+    // 此前按全局短名表判：任何 ns（含没 using 的导入包）里有个同名接口，`class X : Foo` 就把 `Foo` 当成接口，
+    // 哪怕本作用域看得见的 `Foo` 是个类。
     public static string InterfaceKeyOf(SymbolTable table, string written) {
-        if (table.Interfaces.ContainsKey(written)) { return written; }
-        string s = SymbolTable.ShortNameOf(written);
-        if (s == written) { return ""; }                       // 非限定名且 ① 未命中 ⇒ 不是接口
-        if (table.InterfacesByFqn.ContainsKey(written)) { return s; }
-        if (table.Interfaces.ContainsKey(s)) { return s; }
-        return "";
+        if (table.GetInterface(written) == null) { return ""; }
+        return SymbolTable.ShortNameOf(written);
     }
 
     // 取最后一段（`Std.IDisposable` → `IDisposable`）。无点则恒等。

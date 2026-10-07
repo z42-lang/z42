@@ -870,6 +870,19 @@ void test_same_short_name_interfaces_each_get_their_methods() {
     Assert.Equal(true, b.Methods.ContainsKey("Mb"));
 }
 
+// fqn-tables 3：基类列表里的名字按**作用域**判接口 / 类。别的 ns 里有个同名接口，不该让本作用域的
+// 类基类被当成接口（此前按全局短名表判 ⇒ `X` 丢了基类、多了个不存在的接口）。
+[Test]
+void test_base_name_is_classified_by_scope_not_short_table() {
+    var t = pmergeTable(
+        "namespace A;\npublic interface Foo { }",
+        "namespace B;\npublic class Foo { public int V; }\npublic class X : Foo { }");
+    var x = t.GetClass("B.X");
+    Assert.Equal(true, x.HasBase);
+    Assert.Equal(0, x.InterfaceCount);
+    Assert.Equal(true, t.BaseOf(x) == t.GetClass("B.Foo"));
+}
+
 // ③ 用户自己的 `Int32` 劫持不了基元关键字 `int`（`BuiltinType` 按 prelude FQN 取包装类型）。
 [Test]
 void test_local_int32_does_not_hijack_int() {

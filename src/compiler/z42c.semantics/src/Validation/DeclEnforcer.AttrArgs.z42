@@ -170,8 +170,9 @@ public sealed partial class DeclEnforcer {
     // `owner` 类上名为 `field` 的字段是否是 `const`（IsConst 由 MemberCollector._collectConstField
     // 置位，同时存下 ConstVal）。类/字段查不到 → false。
     private static bool _acIsConstField(SymbolTable t, string owner, string field) {
-        if (!t.Classes.ContainsKey(owner)) { return false; }
-        Z42ClassType ct = t.Classes.Get(owner) as Z42ClassType;
+        // `t` 是本 CU 作用域的视图：类名按作用域解析（外围 ns → FQN → using → prelude），不撞短名表的赢家。
+        if (!t.HasClass(owner)) { return false; }
+        Z42ClassType ct = t.GetClass(owner);
         if (ct == null) { return false; }
         object fo = ct.Fields.Get(field);
         if (!(fo is FieldSymbol)) { return false; }
