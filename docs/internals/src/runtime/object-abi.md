@@ -282,6 +282,8 @@ ObjectHeader {
   Object/Array 临时值同一不变式（分配器 `maybe_auto_collect` 只置标志、延到 safepoint）。
 - 代价:纳入 GC → 多点 GC 压力(换掉 Arc 确定性释放，string-heavy 的 z42c 自编译最敏感);收益:统一一套堆 + 为可移动/压缩/去重铺路。架构统一优先于短期性能。
 - **闭包与访问器**：`ClosureData.fn_name` 是 GC `Str`（8B），闭包块全 POD（region_var 仅 `ArrayValue` 需 finalizer）；
+  这个名字串按 `MkClos` 站点在每个 `VmContext` 里驻留一次（`VmContext::intern_fn_name`，复用 `interned_cache` 这个 GC 根，
+  命中按内容复核），循环里建闭包不再每次新分配一个名字块；闭包改为在创建时绑定函数 id 之后，这层驻留随之删除；
   mark 与枚举共用单一访问器 `Value::visit_gc_children(for_marking, …)`。
 - **不迁移的 `Arc<str>`**：栈帧名/文件名（`Function.frame_meta`）**保留 `Arc<str>`**——它们是
   **诊断/栈回溯元数据、非 `Value::Str` GC payload**，加载时算一次，生成栈回溯时 O(1) clone

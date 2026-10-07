@@ -440,8 +440,8 @@ pub(super) fn mk_clos(
             _ => bail!("mk_clos: alloc_array returned unexpected value"),
         };
         // unify-gc-heap PR-2: ClosureData into the GC variable-length region.
-        // PR-5: fn_name is a GC `Str`, allocated from the same heap as `env`.
-        let fn_name = ctx.heap().alloc_str(fn_name);
+        // PR-5: fn_name is a GC `Str` from the same heap as `env` — interned per site.
+        let fn_name = ctx.intern_fn_name(fn_name);
         ctx.heap().alloc_closure(crate::metadata::ClosureData {
             env,
             fn_name,

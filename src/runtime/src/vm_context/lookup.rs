@@ -464,6 +464,24 @@ impl VmContext {
         Some(s)
     }
 
+    /// The GC string for a `MkClos` site's function name, interned per context so a
+    /// closure created in a loop does not allocate (and later collect) a fresh name
+    /// block every time. Keyed by the name's address + length — the name is the
+    /// instruction's module-lifetime `String` — with the high bit of the second key
+    /// half set, a range the string-pool keys above (`idx: u32` pool index) never use.
+    /// A hit is confirmed by content, so a reused address can never hand back a stale
+    /// name. The cache is a GC root (see `intern_const_str`).
+    #[inline]
+    pub fn intern_fn_name(&self, name: &str) -> crate::metadata::vstr::Str {
+        let key = (name.as_ptr() as usize, (name.len() as u32) | 0x8000_0000);
+        if let Some(s) = self.interned_cache.lock().get(&key) {
+            if &**s == name { return *s; }
+        }
+        let s = self.heap().alloc_str(name);
+        self.interned_cache.lock().insert(key, s);
+        s
+    }
+
     /// Resolve an "overflow" ConstStr index past the main module's pool.
     /// Returns `Arc<str>` (review.md C3 Phase 1, 2026-06-03) so callers can
     /// wrap directly into `Value::Str` without a second allocation.

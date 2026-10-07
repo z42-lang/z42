@@ -26,8 +26,7 @@ pub unsafe extern "C" fn jit_load_fn(
     dst: u32,
     name_ptr: *const u8, name_len: usize,
 ) -> u8 {
-    let name = std::str::from_utf8(std::slice::from_raw_parts(name_ptr, name_len))
-        .unwrap_or("<invalid>");
+    let name = super::baked_str(name_ptr, name_len);
     (*frame).regs[dst as usize] = Value::FuncRef(name.into());
     0
 }
@@ -46,9 +45,9 @@ pub unsafe extern "C" fn jit_mk_clos(
     caps_ptr: *const u32, caps_len: usize,
     stack_alloc: u8,
 ) -> u8 {
-    let name = std::str::from_utf8(std::slice::from_raw_parts(name_ptr, name_len))
-        .unwrap_or("<invalid>")
-        .to_string();
+    // Codegen-baked module string (`TxCtx::str_val`): no per-closure UTF-8 re-check,
+    // and no intermediate `String` — the heap path copies it straight into a GC `Str`.
+    let name = super::baked_str(name_ptr, name_len);
     // make-value-copy: stamp this JIT frame's id for a transient-arena StackClosure handle
     // *before* taking the `&mut *frame` borrow below (frame_id_of writes `(*frame).frame_id`).
     let stack_fid = if stack_alloc != 0 { super::struct_ops::frame_id_of(frame, ctx) } else { 0 };
@@ -65,7 +64,7 @@ pub unsafe extern "C" fn jit_mk_clos(
         let hidx = vm_ctx_ref(ctx).transient_alloc(
             stack_fid,
             crate::interp::transient_arena::TransientPayload::StackClos(
-                crate::metadata::StackClosureData { env_idx, fn_name: name },
+                crate::metadata::StackClosureData { env_idx, fn_name: name.to_string() },
             ),
         );
         Value::StackClosure { idx: hidx, frame_id: stack_fid }
@@ -78,7 +77,7 @@ pub unsafe extern "C" fn jit_mk_clos(
         };
         // unify-gc-heap PR-2: ClosureData into the GC variable-length region.
         // PR-5: fn_name is a GC `Str`, allocated from the same heap as `env`.
-        let fn_name = vm_ctx_ref(ctx).heap().alloc_str(&name);
+        let fn_name = vm_ctx_ref(ctx).intern_fn_name(name);
         vm_ctx_ref(ctx).heap().alloc_closure(crate::metadata::ClosureData {
             env,
             fn_name,
@@ -113,11 +112,14 @@ pub unsafe extern "C" fn jit_call_indirect(
     // 安全性同 interp S3：env 数组 MkClos 时写一次、体内只 array_get 读（编译器
     // _emitAssign 无 BoundCapturedIdent 写回分支）→ 跨调用共享 GcRef 字节等价。
     // StackClosure 仍需物化（arena 持裸 Vec，callee lifetime 需独立）。
-    let (fn_name, env_val_opt): (String, Option<Value>) = match &frame_ref.regs[callee as usize] {
-        Value::FuncRef(n) => (n.to_string(), None),
+    // The name is borrowed from the callee value (a `Str` handle copy, no `String`
+    // alloc per call): the closure stays rooted in the caller's `callee` register for
+    // the whole call, so its name block outlives every use below.
+    let (fn_name, env_val_opt): (CalleeName, Option<Value>) = match &frame_ref.regs[callee as usize] {
+        Value::FuncRef(n) => (CalleeName::Gc(*n), None),
         Value::Closure(c) => {
             let data = crate::metadata::types::closure_data_of(c);
-            (data.fn_name.to_string(), Some(Value::Array(data.env.clone())))
+            (CalleeName::Gc(data.fn_name), Some(Value::Array(data.env.clone())))
         }
         &Value::StackClosure { idx: hidx, frame_id } => {
             // make-value-copy: resolve the StackClosure handle → StackClosureData via arena.
@@ -132,7 +134,7 @@ pub unsafe extern "C" fn jit_call_indirect(
                     idx, frame_ref.env_arena.len()).into()));
                 return 1;
             }
-            (sc.fn_name.clone(), Some(vm_ctx.heap().alloc_array(frame_ref.env_arena[idx].clone())))
+            (CalleeName::Owned(sc.fn_name.clone()), Some(vm_ctx.heap().alloc_array(frame_ref.env_arena[idx].clone())))
         }
         // fix-null-delegate-invoke: same as interp's `call_indirect` — a null callee is
         // reachable from ordinary code (an unassigned single-cast `event` field), so it
@@ -154,31 +156,28 @@ pub unsafe extern "C" fn jit_call_indirect(
         }
     };
 
-    // 2) Gather args, prepending env when a closure was invoked.
+    let fn_name: &str = fn_name.as_str();
     let user_regs = std::slice::from_raw_parts(args_ptr, args_len);
-    let mut args: Vec<Value> = Vec::with_capacity(args_len + env_val_opt.is_some() as usize);
-    if let Some(env_val) = env_val_opt {
-        args.push(env_val);
-    }
-    for &r in user_regs {
-        args.push(frame_ref.regs[r as usize].clone());
-    }
 
-    // 3) Resolve the callee. runtime-jit-tiering Phase 1b: tiered — a cold
+    // 2) Resolve the callee. runtime-jit-tiering Phase 1b: tiered — a cold
     //    (below-threshold) or interp-only lambda resolves to None and is run on the
     //    interpreter with the already-assembled `args` (env prepended for closures,
     //    exactly as the native path receives it). At the threshold it compiles and
     //    subsequent indirect calls take the native path.
-    let entry: &FnEntry = match ctx_ref.resolve_fn_by_name_tiered(fn_name.as_str()) {
+    let entry: &FnEntry = match ctx_ref.resolve_fn_by_name_tiered(fn_name) {
         Some(e) => e,
         None => {
+            // Cold path only: the interpreter takes the args as one `Vec` (env first).
+            let mut args: Vec<Value> = Vec::with_capacity(args_len + env_val_opt.is_some() as usize);
+            args.extend(env_val_opt);
+            args.extend(user_regs.iter().map(|&r| frame_ref.regs[r as usize].clone()));
             vm_ctx.set_top_frame_pc(caller_offset);
             let module = &*ctx_ref.module;
-            let outcome = if let Some(callee) = module.func_index.get(fn_name.as_str())
+            let outcome = if let Some(callee) = module.func_index.get(fn_name)
                 .and_then(|&idx| module.functions.get(idx))
             {
                 crate::interp::exec_function(vm_ctx, module, callee, &args)
-            } else if let Some(lazy_fn) = vm_ctx.try_lookup_function(fn_name.as_str()) {
+            } else if let Some(lazy_fn) = vm_ctx.try_lookup_function(fn_name) {
                 crate::interp::exec_function(vm_ctx, module, lazy_fn.as_ref(), &args)
             } else {
                 set_exception(vm_ctx,
@@ -195,8 +194,30 @@ pub unsafe extern "C" fn jit_call_indirect(
         }
     };
 
-    // 4) Build the callee frame and run it (GC-root enrolment + trace row in `call_native`).
-    let callee_frame = JitFrame::new(vm_ctx, entry.max_reg, &args);
+    // 3) Build the callee frame straight from the caller's registers (env, when a
+    //    closure was invoked, is the implicit first parameter — reg 0 like a receiver)
+    //    and run it (GC-root enrolment + trace row in `call_native`).
+    let callee_frame = match env_val_opt {
+        Some(env) => JitFrame::new_method_args_from(vm_ctx, entry.max_reg, env, &frame_ref.regs, user_regs),
+        None => JitFrame::new_args_from(vm_ctx, entry.max_reg, &frame_ref.regs, user_regs),
+    };
     vm_ctx.set_top_frame_pc(caller_offset);
     call_entry(vm_ctx, ctx, entry, callee_frame).store_into(&mut frame_ref.regs, dst)
+}
+
+/// A `CallIndirect` target name: borrowed from the callee's GC `Str` (FuncRef /
+/// heap closure — the hot case, no allocation) or owned (stack closure, whose arena
+/// payload hands out a clone).
+enum CalleeName {
+    Gc(crate::metadata::vstr::Str),
+    Owned(String),
+}
+
+impl CalleeName {
+    fn as_str(&self) -> &str {
+        match self {
+            CalleeName::Gc(s) => s,
+            CalleeName::Owned(s) => s.as_str(),
+        }
+    }
 }
