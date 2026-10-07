@@ -61,6 +61,7 @@ mod pause_histogram;
 mod roots;
 mod send_sync;
 mod stress;
+mod tenure;
 mod tlab;
 mod weak_refs;
 mod write_barriers;

@@ -87,6 +87,8 @@ impl Default for ArcMagrGC {
                     .max(1),
             ),
             incremental: Default::default(),
+            // M9: wasm32's `now_us` counts ticks, so pauses are not comparable as time there.
+            young_policy: young_policy::YoungPolicy::new(!cfg!(target_arch = "wasm32")),
             // add-pause-budget-nursery: an explicit nursery is a manual override — it turns the
             // adaptation off rather than seeding it, so "I set the nursery and it did not stick"
             // cannot happen. wasm32 has no microsecond clock (`now_us` counts ticks), so the cost

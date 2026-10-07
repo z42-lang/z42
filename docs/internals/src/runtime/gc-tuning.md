@@ -31,9 +31,8 @@ GC 的「何时自动回收」由几个**比率魔数**决定（near-limit 90%�
 | `Z42_GC_LOH_BYTES` | 64K | 变长块走 dedicated chunk 的尺寸门槛（死后内存直接还给分配器）；上界 = 64K bump chunk。**进程级** | `var_region/chunk.rs` |
 | `Z42_GC_NURSERY_BYTES` | **16M** | **整套策略的计量单位**：自上次回收以来分配这么多就触发 minor（分代）；×4 是 major 余量的下界（两种模式）。买停顿上界的那个旋钮，**调它必须连 `Z42_GC_PROMOTION_AGE` 一起想**（见下「过早晋升」） | `arc_heap/auto_collect` |
 | `Z42_GC_PAUSE_TARGET_MS` | **10** | **分代专用**：minor 停顿的目标上限（ms），nursery 按实测代价反推而非常量；`0` 关掉自适应，显式设 `Z42_GC_NURSERY_BYTES` 也会关掉它（手动挡优先）。clamp 到 `[0.5, 1000]`。见下「按停顿预算自适应 nursery」 | `arc_heap/pause_budget.rs` |
-| `Z42_GC_BACKOFF_CAP` | **off** | **分代专用**：禁止徒劳退避放大年轻代规模 —— 退避仍让回收变稀疏，但一次 minor 最多扫一个 nursery。把最坏停顿压死（`13_gc_large_heap --large` 301 ms → 25 ms），代价是「什么都不死」的负载上墙钟最多 +94%。**默认关**，见下「退避封顶为什么默认关」 | `arc_heap/auto_collect.rs` |
 | `Z42_GC_MAX_BYTES` | **unset = 无上限** | **软上限，不是武装开关**：设了只压回收余量并加一个近上限触发；**按真实占用判定**（不是 `used`），见「真实占用记账与软上限」 | `arc_heap/auto_collect`、`arc_heap/footprint.rs` |
-| `Z42_GC_MINOR_THRESHOLD` | 0.75 | minor GC 后年轻代存活比率高于此 → 下次回收立即升级 major | `arc_heap` |
+| `Z42_GC_MINOR_THRESHOLD` | 0.75 | minor GC 后年轻代存活比率高于此 → 下次回收立即升级 major（上一次 major 徒劳时不升级，见「年轻代策略」） | `arc_heap` |
 | `Z42_GC_SOFT_THRESHOLD` | 0.80 | 堆压力比率高于此 → `SoftHandle` 弱引用变为可回收 | `gc/soft_registry.rs` |
 | `Z42_GC_PAUSE_WINDOW` | 1024 | per-heap 滚动 pause-time 队列容量（entries），clamp 到 `[1, 65536]` | `gc/types.rs` |
 | `Z42_SAFEPOINT_THROTTLE` | 1024 | 每线程 safepoint 快路径计数；每 N 次才走真 Mutex 轮询。`1` = 禁节流 | `gc/safepoint.rs` |
@@ -50,21 +49,26 @@ GC 的「何时自动回收」由几个**比率魔数**决定（near-limit 90%�
 | `Z42_GC_TRACE` | 每次回收一行：种类（这次停顿**实际做的工作**：`Minor` / `Slice`（增量 major 的一个切片）/ `Major`（整堆回收做完：STW、一次性 major、或同步做完的增量周期）——不按入口命名，分代下的 `GC.Collect()` 通常就是 `Minor`）、堆 used 前后、回收字节、停顿 ms、第几个周期；外加近上限 / 超预算两条边沿。关掉时连 observer 都不装 | `gc/trace.rs` |
 | `Z42_GC_PHASES` | 把那一行停顿**拆开**：每个阶段一行耗时 + 处理条目数，外加一行「这次回收是被哪个闸门触发的」 | `gc/phase_timer.rs` |
 
-`Z42_GC_PHASES=1` 的一次 minor 长这样（`z42c.semantics --release --no-incremental`）：
+`Z42_GC_PHASES=1` 的一次 minor、和随后被年轻代策略换成的一次 tenure，长这样（`z42c` 工作区构建）：
 
 ```text
-z42-gc:   trip minor  gate 32.0M x4  grown 160.0M  (last freed 84.2M)
-z42-gc:   minor mark                    10.912 ms  (290373)
-z42-gc:   minor/scan objects             3.538 ms  (350051)
-z42-gc:   minor/promote objects          3.536 ms  (166724)
-z42-gc:   minor/tomb objects             8.526 ms  (183327)
-z42-gc:   minor/scan arrays              9.463 ms  (624228)
-z42-gc:   minor/promote arrays           3.228 ms  (71422)
-z42-gc:   minor/tomb arrays              7.051 ms  (552806)
-z42-gc:   minor/var sweep               11.772 ms  (803767)
-z42-gc:   minor/chunk reclaim            6.373 ms
-z42-gc:   minor sweep                   53.625 ms
-z42-gc: Minor used 261.6M -> 115.4M  freed 146.2M  pause 64.6ms  (cycle 8)
+z42-gc:   trip minor  gate 10.6M  grown 10.6M  (last freed 13.7M)
+z42-gc:     minor roots  pinned+handles 0, satb 0 (skipped old 0), grey 0 (skipped old 0)
+z42-gc:     card seed  25495 old entries, 4696 cards cleaned
+z42-gc:     minor bfs  popped 248865 (old 2397), children 580083, marked 231140
+z42-gc:   minor mark                     9.730 ms  (231140)
+z42-gc:   minor/sweep objects            1.706 ms  (64865)
+z42-gc:   minor/sweep arrays             3.103 ms  (183723)
+z42-gc:   minor/var sweep                0.487 ms  (21854)
+z42-gc:   minor/chunk reclaim            0.143 ms
+z42-gc:   promotion  age 2  tier 2 survived 0/0  lowered true
+z42-gc:   minor sweep                    5.486 ms
+z42-gc:   yield  minor 2.1M in 15223 us  Outyielded (major 51.2M in 38200 us)  -> tenure x1
+z42-gc: Minor used 136.9M -> 134.9M  freed 2.1M  pause 15.2ms  (cycle 107)
+…
+z42-gc:   trip minor  gate 12.7M  grown 12.7M  (last freed 3.0M)
+z42-gc:   tenure  objects 53858  arrays 155512  var blocks 180349  -> old 23.4M  (run 1)
+z42-gc: Minor used 99.1M -> 99.1M  freed 0B  pause 1.6ms  (cycle 64)
 ```
 
 major 打的是另一组名字：`full mark` / `sweep` 的四个半程 +
@@ -76,7 +80,10 @@ major 打的是另一组名字：`full mark` / `sweep` 的四个半程 +
   却走了 12 ms，说明根集合里塞满了不该在那儿的东西（这正是「推进标记队列的 125 万个值里
   99.996% 是基元」的形状）。
 - `trip` 行说的不是「花在哪」而是「**为什么是现在**」，它决定了后面所有阶段要啃多大一片年轻代。
-  `gate 32.0M x4  grown 160.0M` 里的 `x4` 是徒劳退避的倍数（见下「「回收得少」不等于「徒劳」」）。
+  行尾若有 `xN`，是徒劳退避的倍数（见「「回收得少」不等于「徒劳」」）—— 分代下它只作用于软上限
+  自己的触发，所以只在设了 `Z42_GC_MAX_BYTES` 时出现。
+- `yield` 行是年轻代策略对这次 minor 的判定（`Futile` / `Outyielded`，以及接下来几次 trip 做 tenure）；
+  `tenure` 行是被换下来的那次：多少条目进了老年代、计入晋升字节闸门多少。见「年轻代策略」。
 
 `--stats` 退出时的统计块里并排给出两种堆大小：`gc_used_bytes` 是逐对象估算的活字节（自动回收策略
 的增长闸门按它算），`gc_committed_bytes` 是堆的**真实占用**（见「真实占用记账与软上限」）——
@@ -130,26 +137,6 @@ nursery 是**测出来的量**、不是常量：每次 minor 结束时
 `13_gc_large_heap --large` 上把 nursery 压到 4M 下限，**总停顿反而涨了 224%**。
 要真的做到 10 ms，得把 minor 本身也切片化（尚未做）。
 
-### 退避封顶为什么默认关
-
-徒劳退避的乘数是直接乘在 minor 闸门上的，于是它同时也在放大**一次 minor 要扫多少年轻代**。
-实测 `13_gc_large_heap --large`：退避到 ×64、闸门 16M ⇒ 一次 minor 被塞了 **1.0 GB** 年轻代，
-停顿 **301 ms** —— 全线最坏的那个数字。`Z42_GC_BACKOFF_CAP=1` 给它封顶后变成 25 ms。
-
-**默认仍然关**，因为这笔钱花得很贵，而且正好花在退避当初被写出来要保护的那类负载上
-（3 轮取中位，同一个二进制开关对比）：
-
-| | 最大停顿 | 墙钟 | 峰值 RSS |
-|---|---|---|---|
-| `z42c.semantics` | 23.5 → **15.1 ms** | −0.8% | ≈ 持平 |
-| `09_alloc_ctorless` | −31%（封顶后 −76%） | **+94%**（不封顶 −8.5%） | ≈ 持平 |
-| `13_gc_large_heap --large` | −42%（封顶后 −92%） | **+81%**（不封顶 +15.7%） | −15%（不封顶 −4%） |
-| `12_gc_churn` | ≈ 持平 | ≈ 持平 | **+20%**（不封顶 +11%） |
-
-这些负载的共同点是「几乎什么都不死」，所以封顶逼回来的每一次回收都是纯浪费。
-**只留自适应 nursery（默认）本身几乎白送**：真实负载 `z42c.semantics` 最大停顿 −36% 而墙钟 −0.8%，
-`09_alloc_ctorless` 甚至墙钟 −8.5%。需要低延迟、且知道自己负载存活率不高的，再开 `Z42_GC_BACKOFF_CAP=1`。
-
 > 注意**堆能长多大不归这里管**：那是 `collection_allowance`，它的计量单位是**配置的** nursery
 > （`allowance_unit`），刻意不跟着自适应值走。若不拆开，nursery 自适应缩到 4M 让 major 余量的
 > 下界（`nursery × 4`）跟着缩了 4 倍 ⇒ major 周期从 **4 次涨到 29 次**、墙钟 2.41 s → 4.40 s。
@@ -174,18 +161,118 @@ nursery 是**测出来的量**、不是常量：每次 minor 结束时
 > `minor/promote objects` 的条目数：如果调小 nursery 之后它明显变大，你买到的停顿是拿
 > 老年代的内存换的 —— 那就该把 `Z42_GC_PROMOTION_AGE` 一起调上去（上界 3）。
 
+## 年轻代策略：按收益判定 minor，不划算就 tenure
+
+> 代码：`gc/arc_heap/young_policy.rs`（判定 + `run_tenure`）、`region/generation.rs` /
+> `var_region/generation.rs`（`tenure_young`）、`incremental.rs`（`GenWork::Tenure`）。
+
+一次 minor 的代价是它标记的年轻代 + 一块固定成本（卡表扫描是 O(老年代)），只有年轻代**大部分是垃圾**
+时才值。两种形状打破它：
+
+| 形状 | 实测 | 一次 minor |
+|---|---|---|
+| **什么都不死**（`09_alloc_ctorless`、正在搭建的数据结构） | 每次回收 0 B | 纯成本；幸存者还要在每个闸门被重标，直到够晋升年龄 |
+| **死得少**（`13_gc_large_heap` 开着 major 周期时，每个 nursery ~90% 存活） | minor 0.02~0.06 MB/ms | 同期 major 的切片 0.6~1.2 MB/ms，**差 20 倍** |
+
+### 判定：每单位停顿回收多少，对比上一次 major
+
+```text
+每次真 minor 之后：unproductive = freed < gate / 16                                   (Futile)
+                              || freed/pause < (上次 major freed / 其切片停顿和) / 4      (Outyielded)
+                   unproductive → run = clamp(2·run, 1, 8)，接下来 run 次 minor trip 做 tenure
+                   productive   → run = 0
+minor trip：       还有 tenure 名额 → tenure；否则真 minor（它同时是探针）
+```
+
+**为什么对比 major。** 一字节年轻垃圾，要么现在由 minor 收，要么 tenure 进老年代、由下一次 major 收。
+tenure 让它计入晋升字节闸门（老年代增长），所以它的价钱是 major 每回收一字节的成本 `1 / major 收益`；
+minor 的价钱是 `1 / minor 收益`。两者同单位（字节 / 微秒停顿）、同机器、同一次运行里测，**不需要任何
+绝对阈值**。系数 4 让比较只往一边倒：tenure 的垃圾在下一次 major 之前还占着内存，所以 minor 只要
+不比 major 差 4 倍以上就照跑。实测 `13_gc_large_heap` 差 ~20 倍、`z42c` minor 0.5~1.4 vs major 1.1~1.5
+（≤ 2.5 倍），4 落在两者之间。wasm32 没有微秒时钟，只用 1/16 那一档。
+
+还没有 major 可比时（程序刚开始），只有 `Futile`（1/16 闸门，与单代退避同一条线）起作用。
+
+### tenure：整个年轻代晋升，不标记
+
+`run_tenure` 把三个 region 的 young 表各走一遍，每个条目的年龄设成晋升年龄、清空 young 表：
+**不追踪、不扫卡、不清扫** —— 实测是它替下的那次 minor 的约十分之一（`z42c` 15 ms → 1.6 ms），
+且不随这个阶段持续多久而变大。闸门仍是停顿预算算出的 nursery，所以年轻代永远不超过一个 nursery，
+下一次真 minor 的代价与平常一样。tenure 不喂停顿预算模型（它不是 minor 代价的样本），只把模型的
+增长基线挪到当前水位。
+
+**正确性**（模型 D 覆盖，见 [增量 major](gc-incremental-major.md#周期期间的-minor年轻代归-minor-管)）：
+
+- **不需要任何卡**：卡表不变量是「老条目指着年轻的就必须有脏卡」，tenure 之后没有年轻条目了 ——
+  除了下一条那种，而它们是垃圾、没有活对象指着。之后的老→年轻写照常走写屏障。
+- **周期在清扫期**：标记已完成，不带本周期 epoch 的年轻条目是清扫游标还没走到的垃圾（已走过的
+  chunk 里的早被回收了），它们**留在 young 表**、由清扫回收；于是 tenure 晋升的每个条目都带 epoch，
+  与 minor 的 `promote_black` 保证相同。
+- **周期在标记期**：被 tenure 的周期前出生的白条目若在快照里可达，Yuasa 论证保证标记结束前会被标到
+  —— 与 minor 在标记期晋升同一个论证。tenure **不能**给它晋升的东西置标记位（模型 D 反例：被 tenure
+  的 X 不再被追踪，它的老子对象 O 被清掉）。
+- **只有策略要的 minor 才会变成 tenure**（`pending_minor`）：显式 `GC.Collect()` 仍是真 minor，
+  守住「返回时不可达的年轻对象已回收」的承诺。
+
+### 老年代那一侧
+
+tenure 把「什么都不死」阶段分配的每个字节都送进老年代，于是这类堆会走到晋升字节闸门 —— 以前它们靠
+「幸存者一直留在年轻代」躲开了。两条规则让老年代不为此白干：
+
+- **上一次 major 什么都没收到（`< allowance 下界 / 16`）**：minor 的高存活率不再升级成 major
+  （`Z42_GC_MINOR_THRESHOLD` 那条）——上一次看过了，老年代里没有垃圾。
+- **而且**最近一次真 minor 也是 `Futile`（两代都不产垃圾）：下一次 major 的晋升闸门多等一个
+  allowance 下界（4 个配置 nursery）。**加一个固定量、不乘倍数**：allowance 本身相对活集，
+  乘倍数会复利 —— 老年代的垃圾抬高基线、基线又放大要去收它的闸门（实测 binary-trees ×4：
+  峰值 RSS 588 → 1369 MB）。只看 major 不看 minor 也不行：`z42c` 启动时第一次 major 徒劳、
+  之后 minor 都在回收，推迟它的第一次真 major 实测把峰值 RSS 抬了 3%。
+- 软上限把 allowance 挤小时，晋升闸门触发的 major 也算「软上限要的」：按真实占用判、徒劳就退避
+  （与近上限触发同一套）。否则活集超过上限的堆每晋升一个被挤小的 allowance 就 major 一次。
+
+### 实测
+
+同机交错、取中位（负载 load average 7~19；`/usr/bin/time` 的墙钟 / 峰值 RSS / 最大停顿，
+`09` / `12` 的墙钟取 hyperfine 25 次均值）：
+
+| | 墙钟 | 峰值 RSS | 最大停顿 |
+|---|---|---|---|
+| `13_gc_large_heap`（interp） | 3.31 → **2.52 s** | 917 → 846 MB | 74.9 → **18.2 ms** |
+| `13_gc_large_heap`（jit） | 3.55 → **2.70 s** | 896 → 854 MB | 75.6 → **18.8 ms** |
+| `13_gc_large_heap --large` | 17.7 → **10.2 s** | 2361 → 2297 MB | 205 → **31 ms** |
+| binary-trees（depth 18） | 13.74 → **13.12 s** | 582 → **519 MB** | 94 → **25 ms** |
+| `12_gc_churn` | 持平 | 持平 | 持平 |
+| `09_alloc_ctorless`（interp / jit） | 406 → **299 ms** / 425 → **298 ms** | 223 → 212 MB | 85 → **18 ms** |
+| `09_alloc_ctorless` + `Z42_GC_MAX_BYTES=64MB` | 585 → **325 ms** | 222 → 212 MB | 112 → **17 ms** |
+| `z42c` 工作区构建（`--jobs 1`） | ≈ 持平（17.70 → 17.82 s） | ≈ 持平（870 → 876 MB） | 停顿合计 −11%、p99 21.3 → 16.2 ms |
+
+`13_gc_large_heap` 省下的几乎全是 minor：基线 104 次 minor 合计 1657 ms（墙钟的四成多）、只收回 196 MB；
+现在每 9 次 trip 只有 1 次真 minor，其余 tenure 合计 ~0.3 s。
+
+**被否掉的做法**：
+
+- **给退避乘数封顶**：年轻代不再膨胀，但「不划算」时照样每个 nursery
+  标记一遍 —— `09_alloc_ctorless` 墙钟 +94%、`13_gc_large_heap` 实测 3.4 → 4.1 s。省不下工作，只把它摊开。
+- **周期打开时提早到年龄 1 晋升**：minor 照样标记整个 nursery，`13_gc_large_heap` 3.42 → 3.38 s。
+- **major 徒劳就把晋升闸门 ×4**：上面的复利，binary-trees 峰值 RSS 翻倍还多。
+
 ## 「回收得少」不等于「徒劳」
 
 自动回收的增长闸门上挂着一个**徒劳退避**倍数：判定为「几乎没回收到东西」的回收会把下次触发
 所需的增长量乘 4（上限 `MAX_BACKOFF = 64`），一次有效回收清零。它防的是一种真实病理——活集合
 本身就超过了预算，于是每次回收都回收不到东西、堆却还在长，只看增长的闸门会永远重新武装。
 
-**关键在于「徒劳」的判据必须窄**，因为这个倍数乘的是 **nursery**，而——
+**这个倍数乘在哪。** 单代：乘在 allowance 上（那里每次回收都是全堆）。分代：**只乘软上限自己的
+触发**（近上限触发、被软上限挤小的晋升闸门），**绝不乘 minor 闸门** ——
 
 > nursery 不是内存闸门，它是「一次 minor 要啃多大一片年轻代」的上界，也就是**停顿上界**。
 
-判据一宽，「这个程序存活率高」得到的回应就成了「那下次多扫四倍」，**方向正好反**。要分开的
-是两种形状，它们都「回收量远不到半个闸门」：
+乘在 nursery 上，「这个程序什么都不死」得到的回应就是「那下次扫 4 / 16 / 64 倍」，而任何一个「不死」
+阶段之后跟着「有垃圾」阶段的程序，都要在一次超长 minor 里还这笔账（`13_gc_large_heap` 67~144 ms、
+`--large` 301 ms、binary-trees 101~137 ms）。分代下 minor 不划算时改为 tenure，见「年轻代策略」。
+tenure 本身回收 0 字节是设计使然，不参与这个倍数的判定（同切片）。
+
+**判据仍然必须窄**：判据一宽，「这个程序存活率高」也会被当成徒劳、把软上限的回收推迟。要分开的
+是两种形状，它们都「回收量远不到半个闸门」（下表是倍数还乘在 nursery 上时测的）：
 
 | 形状 | 实测（同为 32 MB 闸门） | 该怎么办 |
 |---|---|---|
@@ -199,8 +286,8 @@ nursery 是**测出来的量**、不是常量：每次 minor 结束时
 只保留一档判据：**`FUTILE_DIVISOR`（闸门的 1/16）**。它两边都留足了余量——2 MB 远低于任何
 正常回收的回收量，又远高于 100% 存活负载吐出来的那几百字节。
 
-「minor 不管用了」本来也有专门的机制：`minor_escalation_threshold` 会**升级成 major**，而不是
-把 nursery 养大——major 才是真能对老年代做点什么的那种回收。
+「minor 不管用了」另有两个机制：`minor_escalation_threshold` 会**升级成 major**（上一次 major
+徒劳时不升级），年轻代策略会把不划算的 minor **换成 tenure** —— 都不是把 nursery 养大。
 
 `z42c.semantics --release --no-incremental`，两个二进制各三跑：
 
@@ -733,11 +820,11 @@ if Self::gen_age_of(child) < threshold { … }   // Value::Null 也满足！
 
 ### 徒劳退避：「白干一场」比「回收得不够」退得更狠
 
-两者不能都 ×2，它们性质不同：白干一场说明活集根本不产生垃圾，而下一次回收要多标记整整一个
-闸门的对象、回报仍是零 —— **每多退一格，下一次白干就更贵**。所以
-`reclaimed < gate/16` → ×4，`< gate/2` → ×2，其余重置为 1。
-1/16 远低于健康回收的回报（健康 minor 能收回大半个 nursery），也远高于 100% 存活时还回来的
-那几百字节，两种情形不会重叠。
+白干一场说明活集根本不产生垃圾，而下一次回收要多标记整整一个闸门的对象、回报仍是零 ——
+**每多退一格，下一次白干就更贵**。所以 `reclaimed < gate/16` → ×4，其余重置为 1（只剩一档，
+见「「回收得少」不等于「徒劳」」）。1/16 远低于健康回收的回报（健康 minor 能收回大半个 nursery），
+也远高于 100% 存活时还回来的那几百字节，两种情形不会重叠。分代下这个倍数只作用于软上限的触发；
+白干的 minor 改由年轻代策略换成 tenure。
 
 **三条合起来**（本地双二进制 A/B，对照 = 未做这三条）：`09_alloc_ctorless` 从
 **1.93× 回到 0.885×**（比 STW 还快），其余场景全在 ±3.3% 内，而编译器负载的

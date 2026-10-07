@@ -54,8 +54,8 @@
 //! - **How large the heap may grow.** That is `auto_collect::collection_allowance`, denominated in
 //!   the *configured* nursery (`allowance_unit`), which deliberately does not move with the
 //!   adaptive one — see the note there for the 4 → 29 major cycles that cost.
-//! - **Whether the futility backoff may grow the young set.** That is D4, `Z42_GC_BACKOFF_CAP`,
-//!   **off** by default — see [`super::ArcMagrGC::pause_budget_cap`].
+//! - **What a minor trip does when minors stop paying.** The gate this module sizes is never
+//!   multiplied; unproductive minors are tenured instead — see `young_policy.rs`.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -161,6 +161,14 @@ impl PauseBudget {
         Some(Self::next_nursery(want, nursery))
     }
 
+    /// M9: a tenure emptied the young lists at `used` without being a sample of what a minor
+    /// costs. Re-anchor the growth reading there and drop the inherited survivors, or the next
+    /// real minor would price every nursery since the last observed one into its bytes-per-entry.
+    pub(crate) fn note_tenure(&self, used: u64) {
+        self.last_post_used.store(used, Ordering::Relaxed);
+        self.survivors.store(0, Ordering::Relaxed);
+    }
+
     /// Asymmetric limiting: **shrink fast, grow slowly**. Overshooting upwards costs a long pause
     /// (the thing being bounded); overshooting downwards costs only throughput, which the fixed
     /// allowance unit already protects. Measured before this was asymmetric: a cheap startup phase
@@ -237,18 +245,6 @@ impl crate::gc::arc_heap::ArcMagrGC {
                 sample.scanned, sample.survivors,
                 self.pause_budget.target_us_for_diag(), self.promotion_age()));
         }
-    }
-
-    /// The nursery a minor may grow to — the cap the futility backoff may not exceed when
-    /// `Z42_GC_BACKOFF_CAP` is on. `None` (the default) leaves the backoff's gate multiplier
-    /// alone; see the decision note at its one call site in `auto_collect::decide_trip`.
-    ///
-    /// Deliberately **not** tied to whether the pause budget is adapting: with the adaptation off
-    /// the cap is the configured nursery, which is the plain reading of "one minor scans at most
-    /// one nursery".
-    #[inline]
-    pub(super) fn pause_budget_cap(&self, cfg: &crate::config::RuntimeConfig) -> Option<u64> {
-        cfg.gc_backoff_cap.then(|| self.nursery_bytes.load(Ordering::Relaxed))
     }
 }
 

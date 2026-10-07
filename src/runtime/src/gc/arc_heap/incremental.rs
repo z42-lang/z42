@@ -128,6 +128,8 @@ enum SweepStage {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum GenWork {
     Minor,
+    /// M9: the policy's minor, served as a tenure (`young_policy.rs`) — minors are not paying.
+    Tenure,
     /// One-shot major (`Z42_GC_INCREMENTAL=0`).
     Major,
     /// Open a cycle, or advance the open one by one slice.
@@ -255,8 +257,15 @@ impl crate::gc::arc_heap::ArcMagrGC {
         let want_slice = s.pending_slice.swap(false, Ordering::AcqRel);
         let want_finish = s.pending_finish.swap(false, Ordering::AcqRel);
         let want_open = s.pending_open.swap(false, Ordering::AcqRel);
+        // M9: only a minor the policy asked for may become a tenure — an explicit collection
+        // keeps its promise to reclaim young garbage.
+        let policy_minor = || if want_minor && self.young_policy.take_tenure_turn() {
+            GenWork::Tenure
+        } else {
+            GenWork::Minor
+        };
         if !crate::config::runtime_config().gc_incremental && !self.major_cycle_active() {
-            return if want_major { GenWork::Major } else { GenWork::Minor };
+            return if want_major { GenWork::Major } else { policy_minor() };
         }
         if !self.major_cycle_active() {
             if want_major && want_minor {
@@ -265,18 +274,18 @@ impl crate::gc::arc_heap::ArcMagrGC {
                 // (the one-shot major needs one for exactly this reason). Run the minor; the cycle
                 // opens at the next safepoint.
                 s.pending_open.store(true, Ordering::Release);
-                return GenWork::Minor;
+                return policy_minor();
             }
             // A slice request with no cycle open is stale (something finished the cycle after the
             // policy asked) — it must not open a new one.
-            return if want_major || want_open { GenWork::Slice } else { GenWork::Minor };
+            return if want_major || want_open { GenWork::Slice } else { policy_minor() };
         }
         if want_finish || !(want_minor || want_slice || want_major) {
             // Nothing the policy asked for: an explicit `GC.Collect()`, which promises that
             // everything unreachable is gone when it returns.
             return GenWork::Finish;
         }
-        if want_minor { GenWork::Minor } else { GenWork::Slice }
+        if want_minor { policy_minor() } else { GenWork::Slice }
     }
 
     /// One slice of the incremental major — opens a cycle if none is open. The caller holds the
