@@ -74,16 +74,17 @@ fn try_native_static_call(
     None
 }
 
-/// P1-2: the callee a bound `Call` token names. In range of `module.functions` it is
-/// that index (for the entry module that *is* the `FnId`); past it, a lazily loaded
-/// function's `FnId` (only ever stored when `module` is the `FuncTable`'s entry module,
-/// see `ResolvedTokens::method_tokens`). Lock-free either way. `None` cannot happen
-/// for a token the call path stored; the caller then re-binds by name.
+/// P1-2: the callee a bound `Call` token or a `VCall` PIC payload names. In range of
+/// `module.functions` it is that index (for the entry module that *is* the `FnId`); past
+/// it, a lazily loaded function's `FnId` (only ever stored when `module` is the
+/// `FuncTable`'s entry module, see `ResolvedTokens::method_tokens`). Lock-free either
+/// way. `None` cannot happen for an id a call path stored once the storing thread's
+/// registration is visible; callers then fall back to binding by name.
 #[inline]
-fn token_target<'m>(ctx: &'m VmContext, module: &'m Module, token: u32) -> Option<&'m Function> {
-    match module.functions.get(token as usize) {
+pub(crate) fn fn_by_id<'m>(ctx: &'m VmContext, module: &'m Module, id: u32) -> Option<&'m Function> {
+    match module.functions.get(id as usize) {
         Some(f) => Some(f),
-        None => ctx.funcs().get(crate::metadata::tokens::FnId(token)),
+        None => ctx.funcs().get(crate::metadata::tokens::FnId(id)),
     }
 }
 
@@ -147,7 +148,7 @@ pub(super) fn call(
     ctx: &VmContext, module: &Module, frame: &mut Frame,
     dst: u32, fname: &str, args: &[u32],
     // method_token: this site's `ResolvedTokens.method_tokens` slot. Bound ⇒ the callee
-    // directly (`token_target`, no hashing — merged and lazily loaded callees alike);
+    // directly (`fn_by_id`, no hashing — merged and lazily loaded callees alike);
     // `UNRESOLVED` ⇒ bind by name and store it (`bind_callee`). None: pure name lookup
     // (back-compat, nothing cached).
     method_token: Option<&std::sync::atomic::AtomicU32>,
@@ -177,7 +178,7 @@ pub(super) fn call(
     // which routes it to native code when compiled.
     let token = method_token.map_or(crate::metadata::tokens::UNRESOLVED, |s| s.load(Ordering::Relaxed));
     let mut lazy_holder: Option<Arc<Function>> = None;
-    let hit = if token != crate::metadata::tokens::UNRESOLVED { token_target(ctx, module, token) } else { None };
+    let hit = if token != crate::metadata::tokens::UNRESOLVED { fn_by_id(ctx, module, token) } else { None };
     let (target, callee_id): (&Function, Option<usize>) = match hit {
         Some(f) => (f, Some(token as usize)),
         None => match bind_callee(ctx, module, fname, args.len(), method_token, &mut lazy_holder) {

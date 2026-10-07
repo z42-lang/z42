@@ -7,9 +7,9 @@
 /// the mixed-mode divert to an already-compiled native method, and running the
 /// resolved target on an interpreter frame.
 
-use crate::metadata::{Module, Value};
+use crate::metadata::{Function, Module, Value};
 use crate::vm_context::VmContext;
-use anyhow::{bail, Result};
+use anyhow::Result;
 
 use super::vcall_resolve::{resolve_vcall, vcall_ic_hit, VCallTarget};
 use super::{ExecOutcome, Frame};
@@ -125,8 +125,8 @@ pub(super) fn is_array_isa(class_name: &str) -> bool {
 pub(super) fn vcall(
     ctx: &VmContext, module: &Module, frame: &mut Frame,
     dst: u32, obj: u32, method: &str, args: &[u32],
-    // vcall_ic: per-site polymorphic inline cache (TypeId, vtable slot, MethodId),
-    // populated by `resolve_vcall` on a miss; hits go straight to the callee.
+    // vcall_ic: per-site polymorphic inline cache (TypeId → callee FnId), populated by
+    // `resolve_vcall` on a miss; hits go straight to the callee.
     vcall_ic: Option<&crate::metadata::resolver::VCallIC>,
     // add-generic-methods: resolved FQ type-arg names for a generic instance-method
     // call (empty for non-generic). Threaded into the callee frame's method_type_args.
@@ -145,10 +145,15 @@ pub(super) fn vcall(
 
     let obj_val = frame.get(obj)?.clone();
 
-    // ── PIC hit: straight to the module-local callee (no name work at all) ──────────
-    if let Some(idx) = vcall_ic_hit(vcall_ic, &obj_val) {
-        super::vcall_resolve::assert_pic_target(ctx, module, &obj_val, method, idx);
-        return invoke_local(ctx, module, frame, dst, idx, &obj_val, args, method_type_args);
+    // ── PIC hit: straight to the callee by `FnId` (no name work at all) ─────────────
+    // Module-local and lazily loaded callees alike (P1-2 PR 4). `fn_by_id` is `None` only
+    // while another thread's registration of the cached id is not yet visible here (see
+    // `vcall_ic_hit`) — then the slow path below resolves by name, as on a miss.
+    if let Some(id) = vcall_ic_hit(vcall_ic, &obj_val) {
+        if let Some(func) = super::exec_call::fn_by_id(ctx, module, id as u32) {
+            super::vcall_resolve::assert_pic_target(ctx, module, &obj_val, method, func);
+            return invoke(ctx, module, frame, dst, func, Some(id), &obj_val, args, method_type_args);
+        }
     }
 
     // ── PIC miss: shared resolution ladder (installs the PIC for next time) ─────────
@@ -160,43 +165,30 @@ pub(super) fn vcall(
         VCallTarget::Immediate(v) => { frame.set(dst, v); Ok(None) }
         // fix-call-arity-skew: signature mismatch under the site's key → catchable throw.
         VCallTarget::Thrown(exc) => Ok(Some(exc)),
-        VCallTarget::Local(idx) =>
-            invoke_local(ctx, module, frame, dst, idx, &resolved.this, args, method_type_args),
-        VCallTarget::Lazy(f) => {
-            // A lazily loaded method tiers up like a module-local one (counted, then
-            // native once compiled) — through its `FnId`.
-            if method_type_args.is_empty() {
-                if let Some(id) = super::exec_call::lazy_call_id(ctx, module, &f) {
-                    if let Some(res) = try_native_method_call(ctx, frame, dst, id, &resolved.this, args) {
-                        return res;
-                    }
-                }
-            }
-            let outcome = super::exec_function_from_receiver_regs(
-                ctx, module, f.as_ref(), &resolved.this, &frame.regs, args, method_type_args)?;
-            finish(frame, dst, outcome)
-        }
+        VCallTarget::Local { func, id } =>
+            invoke(ctx, module, frame, dst, func, id, &resolved.this, args, method_type_args),
     }
 }
 
-/// Run `module.functions[idx]` with `this` in reg 0: an already-compiled method goes
-/// native (mixed-mode divert; generic instance calls stay on interp because the native
-/// path does not thread `method_type_args` yet), otherwise interp.
-fn invoke_local(
-    ctx: &VmContext, module: &Module, frame: &mut Frame, dst: u32, idx: usize,
+/// Run `func` with `this` in reg 0. With a `FnId` (module-local and lazily loaded callees
+/// alike) it counts toward its tier-up and goes native once compiled (mixed-mode divert;
+/// generic instance calls stay on interp because the native path does not thread
+/// `method_type_args` yet); otherwise, or while cold / untranslatable, interp.
+#[allow(clippy::too_many_arguments)]
+fn invoke(
+    ctx: &VmContext, module: &Module, frame: &mut Frame, dst: u32,
+    func: &Function, id: Option<usize>,
     this: &Value, args: &[u32], method_type_args: &[String],
 ) -> Result<Option<Value>> {
     if method_type_args.is_empty() {
-        if let Some(res) = try_native_method_call(ctx, frame, dst, idx, this, args) {
-            return res;
+        if let Some(id) = id {
+            if let Some(res) = try_native_method_call(ctx, frame, dst, id, this, args) {
+                return res;
+            }
         }
     }
-    let callee = match module.functions.get(idx) {
-        Some(f) => f,
-        None => bail!("VCall: resolved function index {} out of range", idx),
-    };
     let outcome = super::exec_function_from_receiver_regs(
-        ctx, module, callee, this, &frame.regs, args, method_type_args)?;
+        ctx, module, func, this, &frame.regs, args, method_type_args)?;
     finish(frame, dst, outcome)
 }
 

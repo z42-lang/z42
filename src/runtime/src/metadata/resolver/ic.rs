@@ -15,11 +15,16 @@ use crate::metadata::tokens::UNRESOLVED;
 /// on each install, modulo 4 picks the slot to overwrite.
 pub const IC_SLOTS: usize = 4;
 
-/// Single VCall PIC entry — (TypeId, target MethodId) packed into **one** atomic.
+/// Single VCall PIC entry — (TypeId, callee `FnId`) packed into **one** atomic.
+///
+/// P1-2 PR 4: the payload is the callee's `FnId` under the site's module — entry-module
+/// functions `0..n` (numerically their `module.functions` index, so merged dispatch is
+/// unchanged), lazily loaded functions the ids after that. Read it back with
+/// `interp::exec_call::fn_by_id` / `JitModuleCtx::fn_of`; it is also the JIT slot id.
 ///
 /// fix-field-ic-publication-race (2026-09-17): 拆成两个独立原子量会撕裂，见
 /// [`pack`] 上方的说明。承载的 vtable slot 已删——它是死载荷：唯一的消费点
-/// `interp::vcall_resolve::vcall_ic_hit` 写的是 `let (_slot, fn_idx) = …`，
+/// `interp::vcall_resolve::vcall_ic_hit` 写的是 `let (_slot, fn_id) = …`，
 /// JIT 侧共用同一个 `vcall_ic_hit`。留着它就得凑 96 位、没法单原子发布。
 #[derive(Debug)]
 pub struct VCallICEntry {
@@ -33,7 +38,7 @@ impl Default for VCallICEntry {
 }
 
 /// Polymorphic inline cache for `VCall` sites. Linear scan through up to
-/// `IC_SLOTS` (TypeId, slot, fn_idx) entries; first matching `type_id`
+/// `IC_SLOTS` (TypeId, FnId) entries; first matching `type_id`
 /// returns the cached dispatch. Sites that see < `IC_SLOTS` types skip
 /// remaining slots via the `UNRESOLVED` early-exit sentinel.
 ///
@@ -96,7 +101,7 @@ impl Default for FieldIC {
 // ── PIC lookup + install helpers (shared interp + JIT) ──────────────────────
 //
 // **发布协议（fix-field-ic-publication-race，2026-09-17）**：每条 entry 是**一个**
-// `AtomicU64` —— 高 32 位 TypeId、低 32 位载荷（field slot / fn_idx）。安装写一次、
+// `AtomicU64` —— 高 32 位 TypeId、低 32 位载荷（field slot / FnId）。安装写一次、
 // 查找读一次，(TypeId, 载荷) 永远配对，**撕裂在结构上不可能**，因此 `Relaxed` 足够：
 // 我们要的不是跨线程的先后顺序，而是"这一对不许拆开"。
 //
@@ -155,14 +160,20 @@ pub fn field_ic_install(ic: &FieldIC, recv_type: u32, slot: u32) {
     ic.entries[victim].packed.store(pack(recv_type, slot), Relaxed);
 }
 
-/// PIC lookup for `VCallIC`. Returns `Some(fn_idx)` on hit.
+/// PIC lookup for `VCallIC`. Returns `Some(fn_id)` on hit.
+///
+/// P1-2 PR 4: `Relaxed` is enough for a lazily loaded `FnId` too. The id is only ever
+/// dereferenced through `FuncTable::get`, whose Acquire loads (published length, slot
+/// pointer) pair with the registration's Release — that is what orders the slot's
+/// contents. A reader that sees the id before the registration is visible gets `None`
+/// from the table and takes the slow path. Keep `FuncTable::get` Acquire.
 #[inline]
 pub fn vcall_ic_lookup(ic: &VCallIC, recv_type: u32) -> Option<u32> {
     use std::sync::atomic::Ordering::Relaxed;
     if recv_type == UNRESOLVED { return None; }
     for entry in &ic.entries {
-        let (tid, fn_idx) = unpack(entry.packed.load(Relaxed));
-        if tid == recv_type { return Some(fn_idx); }
+        let (tid, fn_id) = unpack(entry.packed.load(Relaxed));
+        if tid == recv_type { return Some(fn_id); }
         if tid == UNRESOLVED { return None; }
     }
     None
@@ -170,18 +181,18 @@ pub fn vcall_ic_lookup(ic: &VCallIC, recv_type: u32) -> Option<u32> {
 
 /// PIC install for `VCallIC`. Same protocol as [`field_ic_install`].
 #[inline]
-pub fn vcall_ic_install(ic: &VCallIC, recv_type: u32, fn_idx: u32) {
+pub fn vcall_ic_install(ic: &VCallIC, recv_type: u32, fn_id: u32) {
     use std::sync::atomic::Ordering::Relaxed;
     if recv_type == UNRESOLVED { return; }
     for entry in &ic.entries {
         let (tid, _) = unpack(entry.packed.load(Relaxed));
         if tid == UNRESOLVED || tid == recv_type {
-            entry.packed.store(pack(recv_type, fn_idx), Relaxed);
+            entry.packed.store(pack(recv_type, fn_id), Relaxed);
             return;
         }
     }
     let victim = (ic.round_robin.fetch_add(1, Relaxed) as usize) % IC_SLOTS;
-    ic.entries[victim].packed.store(pack(recv_type, fn_idx), Relaxed);
+    ic.entries[victim].packed.store(pack(recv_type, fn_id), Relaxed);
 }
 /// Monotonic count of functions ever registered into a lazy loader's
 /// function registry, plus loader install/uninstall. **Process-global on

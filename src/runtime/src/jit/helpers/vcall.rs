@@ -17,9 +17,10 @@ use super::{set_exception, vm_ctx_ref};
 
 /// `jit_vcall` after formalize-jit-method-token Phase 2.E (2026-05-08):
 /// the per-site `VCallIC` is threaded in (stable raw pointer baked into
-/// machine code by codegen). IC hit goes straight to the
-/// cached method's JIT slot (tiered); miss runs the shared resolver, which
-/// writes the resolved (TypeId, vtable slot, MethodId) triple back to the IC.
+/// machine code by codegen). IC hit goes straight to the cached callee's
+/// JIT slot by `FnId` (tiered) — module-local and lazily loaded callees alike
+/// (P1-2 PR 4); miss runs the shared resolver, which writes the resolved
+/// (TypeId, FnId) pair back to the IC.
 ///
 /// `ic_ptr` may be null when the resolver hasn't run (only happens in
 /// tests bypassing `Vm::run`); helper degrades gracefully to slow path.
@@ -45,19 +46,25 @@ pub unsafe extern "C" fn jit_vcall(
     let ic: Option<&VCallIC> = if ic_ptr.is_null() { None } else { Some(&*ic_ptr) };
 
     // ── PIC hit: by-id tiered entry, no name decode (lean-jit-vcall-hit-path) ─────────
-    // A cold / untranslatable cached target yields `None` and falls through to the slow
-    // path, whose Local arm interps it.
-    if let Some(idx) = vcall_ic_hit(ic, &obj_val) {
-        // The check is debug-only; keep its argument (a UTF-8 validation of the
-        // method name) out of release builds, where it ran on every IC hit.
-        #[cfg(debug_assertions)]
-        crate::interp::vcall_resolve::assert_pic_target(
-            vm_ctx, module, &obj_val,
-            std::str::from_utf8(std::slice::from_raw_parts(method_ptr, method_len)).unwrap_or("?"),
-            idx);
-        if let Some(entry) = ctx_ref.resolve_fn_by_id_tiered(idx) {
+    // The payload is the callee's `FnId` = its JIT slot id (P1-2 PR 4). Compiled (or
+    // compiling at the tier threshold) → native; cold / untranslatable → interp the same
+    // function by id (`fn_of`, lock-free) — no re-resolution, and the call is counted
+    // once. `fn_of` is `None` only while the id's registration is not yet visible to this
+    // thread (see `vcall_ic_hit`); the slow path then binds by name.
+    if let Some(id) = vcall_ic_hit(ic, &obj_val) {
+        if let Some(func) = ctx_ref.fn_of(id) {
+            // The check is debug-only; keep its argument (a UTF-8 validation of the
+            // method name) out of release builds, where it ran on every IC hit.
+            #[cfg(debug_assertions)]
+            crate::interp::vcall_resolve::assert_pic_target(
+                vm_ctx, module, &obj_val,
+                std::str::from_utf8(std::slice::from_raw_parts(method_ptr, method_len)).unwrap_or("?"),
+                func);
             // Move `obj_val` in — this branch always returns.
-            return invoke_entry(frame_ref, ctx, dst, entry, obj_val, arg_regs);
+            return match ctx_ref.resolve_fn_by_id_tiered(id) {
+                Some(entry) => invoke_entry(frame_ref, ctx, dst, entry, obj_val, arg_regs),
+                None => invoke_interp(frame_ref, ctx, dst, func, obj_val, arg_regs),
+            };
         }
     }
 
@@ -72,25 +79,12 @@ pub unsafe extern "C" fn jit_vcall(
         VCallTarget::Immediate(v) => { frame_ref.regs[dst as usize] = v; 0 }
         // fix-call-arity-skew: signature mismatch under the site's key → catchable throw.
         VCallTarget::Thrown(exc) => { set_exception(vm_ctx, exc); 1 }
-        // Module-local: compiled (or compiles at the tier threshold) → native; cold /
-        // untranslatable (interp-only opcode such as `LoadLocalAddr`) → interp, mirroring
-        // `jit_call`'s cross-zpkg-via-interp fallback.
-        VCallTarget::Local(idx) => match ctx_ref.resolve_fn_by_id_tiered(idx) {
+        // Module-local or lazily loaded: compiled (or compiles at the tier threshold) →
+        // native; cold / untranslatable (interp-only opcode such as `LoadLocalAddr`) / no
+        // `FnId` → interp, mirroring `jit_call`'s cross-zpkg-via-interp fallback.
+        VCallTarget::Local { func, id } => match id.and_then(|id| ctx_ref.resolve_fn_by_id_tiered(id)) {
             Some(entry) => invoke_entry(frame_ref, ctx, dst, entry, resolved.this, arg_regs),
-            None => match module.functions.get(idx) {
-                Some(f) => invoke_interp(frame_ref, ctx, dst, f, resolved.this, arg_regs),
-                None => {
-                    set_exception(vm_ctx, Value::Str(
-                        format!("VCall: resolved function index {} out of range", idx).into()));
-                    1
-                }
-            },
-        },
-        // Lazily loaded: tiered by its `FnId` exactly like a module-local target;
-        // cold / untranslatable / no id → interp the loaded function.
-        VCallTarget::Lazy(f) => match ctx_ref.id_of_func(&f).and_then(|id| ctx_ref.resolve_fn_by_id_tiered(id)) {
-            Some(entry) => invoke_entry(frame_ref, ctx, dst, entry, resolved.this, arg_regs),
-            None => invoke_interp(frame_ref, ctx, dst, f.as_ref(), resolved.this, arg_regs),
+            None => invoke_interp(frame_ref, ctx, dst, func, resolved.this, arg_regs),
         },
     }
 }

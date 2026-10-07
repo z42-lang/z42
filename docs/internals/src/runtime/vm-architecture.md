@@ -600,9 +600,9 @@ dispatch 所对的 Module**——始终是 entry module（惰性 callee 由调�
 `module.type_registry` 的 id；对**别的** module 解析会铸出错目标。尚未加载的包里的目标
 在此解析为 `UNRESOLVED`，首次调用时绑定（见上一节）。**`field_ic`（运行期首派填充，载荷是类内字段下标）、
 `builtin_tokens`（全局闭集）、`static_field_tokens`（全局 `ctx.resolve_static_field_id`，
-锁保护幂等）** 与 module 下标无关；**`vcall_ic`** 的载荷 `fn_idx` 是 `module.functions` 的下标，
-但它在运行期首派时才按实际 dispatch 的 `module` 填写，且只缓存 module-local 目标（跨 zpkg 的惰性目标不进 PIC），
-同样满足上面的身份不变式 → 这几条是首执解析的主要收益来源。
+锁保护幂等）** 与 module 下标无关；**`vcall_ic`** 的载荷是被调函数的 `FnId`（与 `method_tokens`
+同一套解读：入口函数 = `module.functions` 下标，惰性函数是其后的 id），它在运行期首派时才按实际
+dispatch 的 `module` 填写，同样满足上面的身份不变式 → 这几条是首执解析的主要收益来源。
 
 - **只填被执行的函数**：比"加载时对整个惰性 module 跑 `resolve_module`"更省
   （加载但从不调用的函数零解析开销），且天然拿到正确的 entry-module 身份。
@@ -882,7 +882,9 @@ if let Some(&slot) = type_desc.vtable_index.get(method) {
 // 全部 miss → bail!("VCall: function `{}.{}` not found")
 ```
 
-命中 module-local 函数（且实参个数匹配）时把 `(type_id, fn_idx)` 写回该站点的 `VCallIC`（见下「Method token system」）。
+解析到的函数（本模块的或惰性加载的）有 `FnId`、且实参个数匹配时，把 `(type_id, FnId)` 写回该站点的
+`VCallIC`（见下「Method token system」）。命中时 `exec_call::fn_by_id` 按 id 无锁取回函数（入口函数直接
+下标，惰性函数经 `FuncTable::get`），整条命中路径不碰名字。
 
 **关键不变量**：`type_desc.name` 必须是 FQ 名（否则 4b/4c 生成的候选名是 bare 名 → miss）。
 `build_type_registry` 从 `Module.classes[].name`
@@ -1233,10 +1235,10 @@ pub struct ResolvedTokens {
 - **Builtin**: 命中 → `exec_builtin_by_id`（`BUILTINS[id]` 或 ext 表）；`UNRESOLVED` → 按名 `corelib::exec_builtin`（调用时重查 ext 注册表）
 - **ObjNew**: 仍走 `type_registry`（HashMap by name）；TypeId cache 用作 cross-zpkg observability
 - **StaticGet/Set**: 命中 → `static_fields[id]`；UNRESOLVED → name lookup + 回填
-- **VCall**: PIC 命中（4-slot 线性扫描；receiver 的 type id 匹配任一槽位的 `type_id`）→ 直调 `module.functions[fn_idx]`；miss → 走 `vcall_resolve` 的完整派发阶梯，目标是 module-local 函数且实参个数匹配时通过 `vcall_ic_install` 填入第一个空槽（或 round-robin 牺牲一个槽）
+- **VCall**: PIC 命中（4-slot 线性扫描；receiver 的 type id 匹配任一槽位的 `type_id`）→ 按载荷 `FnId` 直调（`fn_by_id`：入口函数 = `module.functions` 下标，惰性函数经 `FuncTable::get`）；miss → 走 `vcall_resolve` 的完整派发阶梯，目标有 `FnId`（本模块与惰性包的函数都有；唯一例外是非入口模块单测里的惰性目标）且实参个数匹配时通过 `vcall_ic_install` 填入第一个空槽（或 round-robin 牺牲一个槽）
 - **FieldGet/Set**: PIC 命中（4-slot 线性扫描）→ 字段下标 `slot` → `field_access[slot]` 定位到对象的字节区或 `refs` 侧表读写；miss → `field_index` 查 + 通过 `field_ic_install` 填槽
 
-> **Polymorphic IC**：IC 是 4-slot polymorphic IC（每槽 `(type_id, 载荷)`）。线性扫描使用 `UNRESOLVED` sentinel 提前退出（mono 站点首槽命中即返回，0 额外开销）。超过 4 个 receiver type 的站点用 round-robin counter 牺牲槽位（`ic.round_robin.fetch_add(1, Relaxed) % 4`）。每个槽是**一个** `AtomicU64`（高 32 位 `type_id`、低 32 位载荷：VCall 是 `fn_idx`，Field 是字段下标），安装写一次、查找读一次，`(type_id, 载荷)` 永远成对，撕裂在结构上不可能，所以 `Relaxed` 足够。发布协议的细节见 [inline-cache-publication.md](inline-cache-publication.md)。Helpers `field_ic_lookup` / `field_ic_install` / `vcall_ic_lookup` / `vcall_ic_install` 在 `metadata::resolver` 公开，供 interp + JIT helpers 共用。
+> **Polymorphic IC**：IC 是 4-slot polymorphic IC（每槽 `(type_id, 载荷)`）。线性扫描使用 `UNRESOLVED` sentinel 提前退出（mono 站点首槽命中即返回，0 额外开销）。超过 4 个 receiver type 的站点用 round-robin counter 牺牲槽位（`ic.round_robin.fetch_add(1, Relaxed) % 4`）。每个槽是**一个** `AtomicU64`（高 32 位 `type_id`、低 32 位载荷：VCall 是 `FnId`，Field 是字段下标），安装写一次、查找读一次，`(type_id, 载荷)` 永远成对，撕裂在结构上不可能，所以 `Relaxed` 足够。惰性函数的 `FnId` 只经 `FuncTable::get` 解引用，那里对段长度和槽指针的 Acquire 与登记时的 Release 配对，槽内容的发布顺序由它保证；先看到 id、后看到登记的读者只会拿到 `None` 走慢路径。发布协议的细节见 [inline-cache-publication.md](inline-cache-publication.md)。Helpers `field_ic_lookup` / `field_ic_install` / `vcall_ic_lookup` / `vcall_ic_install` 在 `metadata::resolver` 公开，供 interp + JIT helpers 共用。
 >
 #### TypeId 的作用域：为什么必须进程内全局唯一
 

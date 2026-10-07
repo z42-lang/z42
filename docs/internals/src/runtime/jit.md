@@ -168,12 +168,12 @@ fn resolve_fn_by_id_thr(&self, id, thr) -> Option<&FnEntry> {
 - **`jit_vcall`/`jit_call_indirect`/`jit_obj_new`（方法/闭包/构造）**：把**所有**冷函数→`None`
   要求这三者的兜底健壮。各自如下：
   - `jit_vcall`：vtable 路径 `None`-臂本已健壮 interp（receiver+args）→ PIC + vtable 两 resolve site 切
-    > `jit_vcall` 与 interp `vcall` 的**目标解析**合一为 `interp/vcall_resolve.rs`（接收者阶梯 / 候选名 / PIC 安装），两侧只剩调用侧；上述 tiering 语义不变（Local / Lazy 都按 id tiered——Lazy 取 `id_of_func`，None → interp）。
+    > `jit_vcall` 与 interp `vcall` 的**目标解析**合一为 `interp/vcall_resolve.rs`（接收者阶梯 / 候选名 / PIC 安装），两侧只剩调用侧。PIC 载荷就是 JIT 槽位 id（`FnId`），惰性目标同样进 PIC：命中 → `resolve_fn_by_id_tiered(id)`，冷 / 不可编 → `fn_of(id)` 取函数直接 interp（不重新解析，每次调用只计一次数）；慢路径的 `Local { func, id }` 同理，无 id → interp `func`。
     `resolve_fn_by_id_tiered`。
     - **primitive 接收者也进 IC（镜像 interp）**：
       IC 快路径的 `recv_type` 对 object 取 `TypeDesc.id`、对 primitive（string/int/…）取
       `value_synthetic_type_id` 的合成 `PRIM_TYPE_*`；primitive 慢路径解析成功后按合成 id 安装 PIC
-      （仅 intra-module fn_idx）。否则 primitive 接收者**每次**调用都走 `primitive_class_name` 慢路径的
+      （载荷是 `FnId`，惰性目标同样安装）。否则 primitive 接收者**每次**调用都走 `primitive_class_name` 慢路径的
       `format!`×4 候选名 + `Vec`——string-key `Dictionary` 的 `GetHashCode`/`Equals` 首当其冲（实测
       dict e2e jit 从慢 interp 3.1× 追平；string-heavy 反超）。Boxed / `Null` 仍返回 `None` 落慢路径，
       与 interp 一致。
@@ -208,7 +208,7 @@ fn resolve_fn_by_id_thr(&self, id, thr) -> Option<&FnEntry> {
 经 `(*jit_ctx).vm_ctx` 够到 VmContext）。
 
 **分发 hook**（`interp/exec_call.rs::try_native_static_call` / `exec_vcall.rs::try_native_method_call`）：解析出
-callee 的 JIT id（`Call` 的 token；VCall 的 PIC 下标，或惰性目标的 `FnId`——`lazy_call_id`）后，若 `jit_ctx`
+callee 的 JIT id（`Call` 的 token；VCall 的 PIC 载荷或解析结果里的 `FnId`）后，若 `jit_ctx`
 已发布且 `resolve_fn_by_id_tiered(id)` 返回已编译 entry → 建 `JitFrame`
 （`new_args_from` / `new_method_args_from`）调原生、marshal 结果（照搬 `jit_call`/`jit_vcall`）；否则(冷/不可编)
 返回 None → 原样走 interp。这一步也计数：从解释器调的函数（入口与惰性一样）照样到阈值升层。GC 统一帧链类型无关（interp `Frame` 与 `JitFrame` 都暴露 `regs`/`env_arena`），
