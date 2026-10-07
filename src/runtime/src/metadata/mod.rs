@@ -30,6 +30,10 @@ pub mod formats;
 pub mod zbc_reader;
 pub mod loader;
 pub mod namespace_index;
+/// Append-only, lock-free-read segmented tables (`SegVec` / `SparseSegTable`).
+pub mod seg_vec;
+/// Process-level function identity: `FuncTable` (FnId → Function).
+pub mod func_table;
 pub mod lazy_loader;
 pub mod merge;
 pub mod resolver;

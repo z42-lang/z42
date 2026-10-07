@@ -51,6 +51,7 @@ fn cross_module_target_cell_fill_once_then_borrow() {
             frame_meta: None,
             resolved: OnceLock::new(),
             owner_init: Default::default(),
+            id: Default::default(),
         })
     };
 

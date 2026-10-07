@@ -128,6 +128,12 @@ pub struct VmCore {
     /// `__thread_spawn` requires this to be `Some` (panics in test paths if
     /// missing, which is acceptable since tests don't spawn threads).
     pub(crate) module:             Option<Arc<crate::metadata::Module>>,
+    /// Process-level function identity (`FnId` → `Function`, lock-free reads).
+    /// Entry-module functions are registered at construction as ids `0..n`
+    /// (= `module.functions` index); the lazy loader appends each package's
+    /// functions as they register. Only registers today — no lookup path reads
+    /// it yet. See `metadata::func_table`.
+    pub(crate) funcs:              Arc<crate::metadata::func_table::FuncTable>,
     /// **add-threading-stdlib (2026-05-20)**: live `Std.Threading.Thread`
     /// instances keyed by monotonic u64 slot id. `__thread_spawn` inserts;
     /// `__thread_join` takes-out + joins. Pattern mirrors

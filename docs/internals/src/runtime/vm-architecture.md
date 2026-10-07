@@ -46,6 +46,7 @@ vm.run(&ctx, hint)?;
 - `processes: ResourceRegistry<ProcessSlot>` — `Std.IO.Process` 子进程注册表
 - `heap: Box<dyn MagrGC>` — GC 子系统接口（后端 `ArcMagrGC`）
 - `module: Option<Arc<Module>>` — 用户编译后的 Module，跨线程共享；测试路径 `None`，生产路径 `Some(Arc::new(module))`
+- `funcs: Arc<FuncTable>` — VM 级函数身份表（`metadata/func_table.rs`）：每个函数一个 `FnId`（u32，本 VmCore 内稠密、永不复用、只存在于运行期），`get(id)` 无锁。入口模块的函数在构造 VmCore 时整块登记为 `0..n`，**等于 `module.functions` 下标**（槽位借用 `module`，表里持有同一个 `Arc`）；惰性包的函数在 `LazyLoader::insert_function` 入表时逐个追加（槽位持有 `Arc<Function>`），重名 first-wins、不分配新 id。`Function.id` 记录登记得到的 id。名字反查 `id_of` 是冷路径：先查入口模块的 `func_index`，再查惰性函数的 `by_name`。底层是 `metadata/seg_vec.rs` 的 `SegVec`：倍增分段（首段 1024 项）、段永不移动，追加持写者锁并以 Release 发布长度，读侧 Acquire 读长度。**FuncTable 目前只登记，所有查找仍走 `Module.func_index` / `LazyLoader.function_table` / JIT `LazyTable`。**
 - `threads: ResourceRegistry<JoinHandle<Result<()>>>` — `Std.Threading.Thread` 的 JoinHandle slot table；`__thread_spawn` 插入，`__thread_join` take-out 后 join
 - `file_handles: ResourceRegistry<FileHandleSlot>` + `tcp_sockets` / `tcp_listeners` / `tls_sockets` / `udp_sockets`（后四者 `#[cfg(not(target_arch="wasm32"))]`）— `Std.IO.FileStream` 句柄 + `Std.Net.Sockets` 各类 socket slot table
 - `vm_contexts: Mutex<Vec<VmContextPtr>>` — 本 core 上所有存活 `VmContext` 的注册表（见下「Send-safety 与 GC scanner 设计」）
@@ -436,7 +437,8 @@ struct LazyLoader {
     impls: FxHashMap<String, Vec<String>>,            // target FQ → [trait FQ]（各包 IMPL 段汇总）
     symbol_owners: FxHashMap<String, String>,         // 符号键 → 定义它的 zpkg 文件（各包 DEPS 符号表汇总）
     short_symbols: FxHashMap<String, Option<String>>, // 短名 → 唯一全名（反射短名查找用）
-    // …另有 newly_loaded 暂存区、「确定解析不出」的负缓存、歧义名登记
+    // …另有 newly_loaded 暂存区、「确定解析不出」的负缓存、歧义名登记，
+    //   以及 VmCore 的 cctor registry / FuncTable 的 Arc（类型、函数入表时顺带登记）
 }
 
 struct ZpkgCandidate {

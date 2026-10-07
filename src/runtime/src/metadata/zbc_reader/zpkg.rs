@@ -291,6 +291,7 @@ pub(super) fn read_mods_section(
             frame_meta:     None,
                 resolved:        std::sync::OnceLock::new(),
                 owner_init:        Default::default(),
+                id: Default::default(),
             }
         }).collect();
 

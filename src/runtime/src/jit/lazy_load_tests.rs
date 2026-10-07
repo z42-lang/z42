@@ -43,6 +43,7 @@ fn empty_fn(name: &str) -> Function {
         frame_meta: None,
         resolved: std::sync::OnceLock::new(),
         owner_init: Default::default(),
+        id: Default::default(),
     }
 }
 

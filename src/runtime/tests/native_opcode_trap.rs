@@ -33,6 +33,7 @@ fn module_with_single_instr(name: &str, instr: Instruction) -> Module {
         frame_meta: None,
         resolved: std::sync::OnceLock::new(),
         owner_init: Default::default(),
+        id: Default::default(),
     };
 
     Module {

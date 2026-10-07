@@ -148,6 +148,11 @@ pub struct LazyLoader {
     /// Simple name → the unique recorded full name with that short name (`None` once two
     /// differ). Lets reflection resolve a dotless type name without force-loading everything.
     short_symbols: FxHashMap<String, Option<String>>,
+    /// The VM's [`FuncTable`](crate::metadata::func_table::FuncTable): every function that
+    /// enters `function_table` is also registered there (gets its `FnId`) in
+    /// [`Self::insert_function`]. Attached the same way as `cctors`; `None` only for
+    /// loaders built directly in unit tests.
+    funcs: Option<Arc<crate::metadata::func_table::FuncTable>>,
 }
 
 /// runtime-ambiguous-use-site: the two ambiguity sets, behind one `Box` so
@@ -299,6 +304,7 @@ impl LazyLoader {
             cctors: None,
             symbol_owners: FxHashMap::default(),
             short_symbols: FxHashMap::default(),
+            funcs: None,
         }
     }
 
@@ -341,6 +347,11 @@ impl LazyLoader {
         match &self.ambiguous { None => false, Some(a) => a.types.contains(name) }
     }
 
+    /// Attach the VM's function table (see the `funcs` field doc).
+    pub(crate) fn set_func_table(&mut self, table: Arc<crate::metadata::func_table::FuncTable>) {
+        self.funcs = Some(table);
+    }
+
     /// fix-crosspkg-static-call-cctor: attach the context's cctor registry (see the field doc).
     pub(crate) fn set_cctor_registry(&mut self, reg: Arc<crate::vm_context::cctor::CctorRegistry>) {
         self.cctors = Some(reg);
@@ -378,6 +389,11 @@ impl LazyLoader {
     pub(crate) fn insert_function(&mut self, name: String, f: Arc<Function>) -> bool {
         if self.function_table.contains_key(&name) {
             return false;
+        }
+        // First-wins is decided above, so the table sees each name once; it assigns
+        // the function its `FnId` (lock order: loader write lock → table name lock).
+        if let Some(table) = self.funcs.as_ref() {
+            table.register_lazy(&f);
         }
         self.function_table.insert(name, f);
         crate::metadata::resolver::note_fn_registration();

@@ -201,6 +201,7 @@ impl VmContext {
             processes:            ResourceRegistry::new(),
             heap:                 Box::new(ArcMagrGC::new()),
             vm_contexts:          Mutex::new(Vec::new()),
+            funcs:                Arc::new(crate::metadata::func_table::FuncTable::new(module.clone())),
             module,
             threads:              ResourceRegistry::new(),
             gc_phase:             Mutex::new(crate::gc::safepoint::GcPhase::Idle),

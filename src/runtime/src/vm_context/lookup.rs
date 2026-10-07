@@ -23,6 +23,8 @@ impl VmContext {
         let mut loader = LazyLoader::new(search_dirs, main_pool_len, declared, initially_loaded);
         // fix-crosspkg-static-call-cctor：加载器在类型入表时登记 cctor，须持有同一份 registry。
         loader.set_cctor_registry(Arc::clone(&self.core.cctors));
+        // 惰性包的函数在登记进 `function_table` 时同时在 FuncTable 里分配 FnId。
+        loader.set_func_table(Arc::clone(&self.core.funcs));
         *self.core.lazy_loader.write() = Some(loader);
         // cache-ctorless-objnew: a loader swap can make an absent ctor present.
         crate::metadata::resolver::note_fn_registration();

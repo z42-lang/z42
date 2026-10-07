@@ -32,6 +32,7 @@ pub(crate) fn test_function(name: &str, param_types: &[&str], line_table: Vec<Li
         frame_meta: None,
         resolved: std::sync::OnceLock::new(),
         owner_init: Default::default(),
+        id: Default::default(),
     }
 }
 

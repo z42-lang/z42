@@ -143,6 +143,44 @@ define_token!(
     VTableSlot
 );
 
+define_token!(
+    /// Identifies one `Function` in the VM's [`FuncTable`](crate::metadata::func_table::FuncTable)
+    /// — **dense per `VmCore`, never reused**. Entry-module functions take
+    /// `0..n` equal to their `Module.functions` index (so a resolved `MethodId`
+    /// and the same function's `FnId` are numerically equal); functions of
+    /// lazily loaded packages get the next ids as their package registers.
+    /// Runtime-only: never written to `.zbc` / `.zpkg`. Ids stay below
+    /// [`IMPORT_BASE`]; `is_import` / `import_idx` do not apply.
+    FnId
+);
+
+/// Runtime-only cell on `Function` holding its [`FnId`] (`UNRESOLVED` until the
+/// function is registered in a `FuncTable`). Set once at registration, before
+/// the function's slot is published; readers that reach the function through
+/// the table therefore see it (the slot publication orders it), so the cell
+/// itself only needs `Relaxed`.
+#[derive(Debug)]
+#[repr(transparent)]
+pub struct FnIdCell(std::sync::atomic::AtomicU32);
+
+impl Default for FnIdCell {
+    fn default() -> Self { Self(std::sync::atomic::AtomicU32::new(UNRESOLVED)) }
+}
+
+impl FnIdCell {
+    /// The registered id, or `None` before registration.
+    #[inline]
+    pub fn get(&self) -> Option<FnId> {
+        let v = self.0.load(std::sync::atomic::Ordering::Relaxed);
+        (v != UNRESOLVED).then_some(FnId(v))
+    }
+
+    #[inline]
+    pub(crate) fn set(&self, id: FnId) {
+        self.0.store(id.0, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
 /// fix-crosspkg-typeid-collision (2026-09-08): allocate `n` consecutive
 /// **globally unique** `TypeId`s and return the first.
 ///

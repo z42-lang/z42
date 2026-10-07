@@ -412,6 +412,7 @@ fn make_stub_module(func_count: usize, str_count: usize) -> Module {
             frame_meta: None,
             resolved:     std::sync::OnceLock::new(),
             owner_init:     Default::default(),
+            id: Default::default(),
         })
         .collect();
     let string_pool = (0..str_count).map(|i| format!("s{i}")).collect();

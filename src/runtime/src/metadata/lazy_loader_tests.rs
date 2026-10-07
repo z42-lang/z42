@@ -447,6 +447,7 @@ fn ll_stub_function(name: &str) -> crate::metadata::bytecode::Function {
         frame_meta: None,
         resolved: std::sync::OnceLock::new(),
         owner_init: Default::default(),
+        id: Default::default(),
     }
 }
 
@@ -661,6 +662,7 @@ fn fn_shape(name: &str, param_count: usize, instr_count: usize) -> Function {
         frame_meta: None,
         resolved: std::sync::OnceLock::new(),
         owner_init: Default::default(),
+        id: Default::default(),
     }
 }
 
@@ -702,4 +704,63 @@ fn a_differing_shape_is_still_treated_as_ambiguity() {
     let f = fn_shape("Std.ValueTuple2<Int32,String>.ValueTuple2$2", 3, 2);
     assert!(!same_function_shape(&f, &fn_shape("x", 2, 2)), "形参个数不同");
     assert!(!same_function_shape(&f, &fn_shape("x", 3, 5)), "指令总数不同");
+}
+
+// ── FuncTable registration (P1-2 PR 1) ───────────────────────────────────────
+
+fn ll_artifact_with_functions(
+    module_name: &str, pkg: &str, fns: &[&str],
+) -> crate::metadata::loader::LoadedArtifact {
+    let mut artifact = ll_inmem_artifact(module_name, Some(pkg), &[]);
+    artifact.module.functions.extend(fns.iter().map(|n| ll_stub_function(n)));
+    artifact
+}
+
+#[test]
+fn package_registration_appends_fn_ids_first_wins() {
+    use crate::metadata::func_table::FuncTable;
+    use crate::metadata::tokens::FnId;
+    let table = Arc::new(FuncTable::new(None));
+    let mut loader = LazyLoader::new(Vec::new(), 0, Vec::new(), Vec::new());
+    loader.set_func_table(Arc::clone(&table));
+
+    loader
+        .register_loaded_artifact(ll_artifact_with_functions("P1", "p1", &["P1.A$0", "P1.B$0"]))
+        .expect("register p1");
+    // `P1.A$0` again (a REPL-style redefinition) plus one new name.
+    loader
+        .register_loaded_artifact(ll_artifact_with_functions("P2", "p2", &["P1.A$0", "P2.C$0"]))
+        .expect("register p2");
+
+    assert_eq!(table.len(), 3, "the duplicate name allocated no id");
+    assert_eq!(table.id_of("P1.A$0"), Some(FnId(0)));
+    assert_eq!(table.id_of("P1.B$0"), Some(FnId(1)));
+    assert_eq!(table.id_of("P2.C$0"), Some(FnId(2)));
+    // The loader's table and the FuncTable agree on which function won.
+    let a = loader.probe_function("P1.A$0").expect("registered");
+    assert_eq!(a.id.get(), Some(FnId(0)));
+    assert!(std::ptr::eq(table.get(FnId(0)).unwrap(), Arc::as_ptr(&a)));
+}
+
+#[test]
+fn vm_core_registers_entry_functions_and_the_loader_appends() {
+    use crate::metadata::tokens::FnId;
+    let mut module = ll_empty_module("Entry");
+    for (i, n) in ["Entry.Main$0", "Entry.Helper$0"].iter().enumerate() {
+        module.functions.push(ll_stub_function(n));
+        module.func_index.insert(n.to_string(), i);
+    }
+    let ctx = crate::vm_context::VmContext::with_module(module);
+    let funcs = Arc::clone(&ctx.core.funcs);
+    assert_eq!(funcs.entry_len(), 2);
+    assert_eq!(funcs.id_of("Entry.Helper$0"), Some(FnId(1)));
+    assert_eq!(ctx.module().unwrap().functions[1].id.get(), Some(FnId(1)));
+
+    ctx.install_lazy_loader(None, 0);
+    ctx.core.lazy_loader.write().as_mut().unwrap()
+        .register_loaded_artifact(ll_artifact_with_functions("Lazy", "lazy", &["Lazy.F$0"]))
+        .expect("register lazy pkg");
+    assert_eq!(funcs.len(), 3);
+    assert_eq!(funcs.id_of("Lazy.F$0"), Some(FnId(2)));
+    assert_eq!(funcs.get(FnId(2)).unwrap().name, "Lazy.F$0");
 }

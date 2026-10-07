@@ -39,6 +39,7 @@ fn empty_function(name: &str) -> Function {
         frame_meta: None,
         resolved: std::sync::OnceLock::new(),
         owner_init: Default::default(),
+        id: Default::default(),
     }
 }
 
