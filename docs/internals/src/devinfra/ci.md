@@ -175,7 +175,7 @@ commit 不因此挂红。publish 真失败照样红。
 
 ## 3. job 表
 
-job 的 **key**（`needs:` 用的）与 **display 名**（分支保护的 required check 用的）不同名，
+job 的 **key**（`needs:` 用的）与 **display 名**（PR 检查列表里显示的）不同名，
 下表两列都列出。display 名的约定是 `<动作>-<目标>[-<scope>](<host-arch>)`。
 
 | display 名 | job key | 门控 | 矩阵 |
@@ -201,10 +201,15 @@ job 的 **key**（`needs:` 用的）与 **display 名**（分支保护的 requir
 | `publish-nightly` | `publish-nightly` | （push to main 且 `sdk` 非 false）‖ dispatch | — |
 | `ci-ok` | `ci-ok` | 总跑（`if: always()`） | — |
 
-**`ci-ok` 是本 workflow 的单一结论**：`needs` 全部其它 job，任一 failure / cancelled 即红，success / skipped
-即绿。分支保护只要求它一个就够——逐个列 job 的写法在新增 / 改名 job 时会漏（`verify-selfhost` 删掉后保护里
-还挂着它，PR 一直等不到这个 check）。`if: always()` 是关键：没有它，上游一红它就被 skip，而被 skip 的
-required check 视同通过。新增 job 时记得加进它的 `needs`。
+**`ci-ok` 是本 workflow 的单一结论，也是 main 分支保护唯一的必需检查**（钉在 GitHub Actions app 上，别的应用
+冒充不了同名检查）：`needs` 全部其它 job，任一 failure / cancelled 即红，success / skipped 即绿。所以**凡在它
+`needs` 里的 job，失败都挡合并**；不在里面的（如另一个 workflow 的 `bench-pr.yml`）红了也挡不住人。
+
+不逐个列 job 当必需检查，原因有两条：新增 / 改名 job 时会漏（保护里挂着已删掉的 job，PR 永远等不到它）；而且
+在 job 级被 `if:` 整体跳过的**矩阵** job 只上报一个未展开的名字（如 `test-host(${{ matrix.platform }})`），按平台名
+列的必需检查（`test-host(linux-x64)`……）永远不会出现——纯文档 PR 走快速通道时就是这样卡住的。
+
+`if: always()` 是关键：没有它，上游一红它就被 skip，而被 skip 的必需检查视同通过。新增 job 时记得加进它的 `needs`。
 
 几条不显然的编排理由：
 
@@ -214,7 +219,7 @@ required check 视同通过。新增 job 时记得加进它的 `needs`。
   挂在 per-push 上会把 runner 池打满。
 - **`package-*` 在 PR 上只有 `platform` 改动才跑**：它们的产物只被 `publish-nightly` 消费，
   而打包机制只受 platform 类改动影响。非-platform PR 因此少 7 个 job，给满负荷跑腾并发余量。
-  这些 job 不是 required check，被 `if:` skip 的 required check 在本仓也不阻塞合并。
+  跑了就算数：失败经 `ci-ok` 挡合并；被 `if:` skip 时 `ci-ok` 照样绿。
 - **`publish-nightly` 的 `needs` 故意不含两条 jit 腿**：那些 job 在
   zbc/zpkg 格式 bump 那一轮会暂时红（要等一个兼容的 nightly），gate 上去就是死锁。
   「行为正确」由在 `needs` 里的 `test-host` + `package-*` 保证。
@@ -233,7 +238,7 @@ required check 视同通过。新增 job 时记得加进它的 `needs`。
 schedule / dispatch 不分流。Windows 腿不跑
 `test`，只跑 `build test` + `xtask test runtime`。三条非 Windows 腿在 `test` 之后
 跑 **zbc-format 字节基线门**（`git diff --quiet -- src/compiler/z42.package/tests/fixtures/zbc-format`；regen 就地重写了基线，
-有 diff = 提交的基线过期）——一次覆盖三个架构，且挂在 required check 上。
+有 diff = 提交的基线过期）——一次覆盖三个架构，失败经 `ci-ok` 挡合并。
 
 ### 3.0 PR 的绿是「过期快照」——与抢号预检
 
@@ -255,11 +260,10 @@ schedule / dispatch 不分流。Windows 腿不跑
 就能把窗口压到近零**。挖不到共同祖先（浅克隆）或与 main 有文本冲突时它**放行**——
 前者是环境限制，后者 GitHub 本身已经挡住合并，不重复报警。
 
-> ⭐ **为什么挂在既有的 required job 末尾、而不是新开一个 job**：新增的 job 默认**不是**
-> required check ⇒ 不挡合并 ⇒ 又是一个「会红但不挡人的门」（[测试门禁](test-gate.md)里对
-> 「它真会红吗 / 它真挡得住人吗」的讨论同理）。`test-host(linux-x64)` 已经是 required、且无路径过滤必跑。
-> 同理，这个思路可以推广到**任何「两个 PR 各自合法、合起来才错」的维度**——加判据时想的应该是
-> 「挂到哪个已经在挡人的 job 上」，而不是「新开一个 job」。
+> ⭐ **为什么挂在 `test-host(linux-x64)` 末尾**：它无路径过滤、PR 上必跑，失败经 `ci-ok` 挡合并，零额外 job。
+> 新开 job 也可以，但必须加进 `ci-ok` 的 `needs`——不在里面就是「会红但不挡人的门」（[测试门禁](test-gate.md)里对
+> 「它真会红吗 / 它真挡得住人吗」的讨论同理）。这个思路可以推广到**任何「两个 PR 各自合法、合起来才错」的维度**：
+> 加判据时先问「它红了会不会经 `ci-ok` 挡人」。
 
 ### 3.0.1 Rust 缓存 key
 

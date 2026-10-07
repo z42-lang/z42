@@ -182,7 +182,7 @@ jobs:
     # (rule c). The job itself still runs on every non-docs push (changes always
     # succeeds); only the Rust-unit step is conditionally skipped.
     needs: changes
-    # 纯文档改动（PR 与 main push）走 docs-check（见 changes 的 Docs-only 步骤）。被 `if:` skip 的 required check 视同通过。
+    # 纯文档改动（PR 与 main push）走 docs-check（见 changes 的 Docs-only 步骤）；本 job 被 skip 时 ci-ok 照样绿。
     if: needs.changes.outputs.docs_only != 'true'
     strategy:
       fail-fast: false
@@ -254,7 +254,7 @@ jobs:
           exit "${PIPESTATUS[0]}"
 
       # build wave 就地重写 zbc-format 字节基线；diff 非空 = 提交的基线过期（格式变更漏了 version-bumping.md 第 4 步）。
-      # 消费方校验的永远是刚重写的字节，不靠这道门过期基线会一直绿。挂在 required 的 test-host 上，零额外构建。
+      # 消费方校验的永远是刚重写的字节，不靠这道门过期基线会一直绿。挂在 test-host 上（失败经 ci-ok 挡合并），零额外构建。
       - name: Golden byte baselines are up to date (regen produced no diff)
         if: matrix.os != 'windows-latest'
         shell: bash
@@ -302,7 +302,7 @@ jobs:
 
       # ── 抢号预检：PR 的绿基于触发那一刻的 base，两个 PR 能各自拿走同一个诊断码号、双双全绿合入。
       # 不开「必须基于最新 main」（要每个 PR 重跑整套 CI），改为在 GREEN 之后并入最新 main 重跑一次秒级的
-      # diagcodes。挂在已是 required 的 test-host(linux-x64) 末尾——新开的 job 默认不是 required，红了也挡不住。
+      # diagcodes。挂在 PR 上必跑的 test-host(linux-x64) 末尾，失败经 ci-ok 挡合并，零额外 job。
       - name: Code-number preflight (merge LATEST main, rerun diagcodes)
         if: github.event_name == 'pull_request' && matrix.platform == 'linux-x64'
         shell: bash
@@ -1296,8 +1296,9 @@ jobs:
           path: artifacts/reports/tests/desktop/junit.xml
           if-no-files-found: warn
 
-  # ── 单一结论 job：任一 job failure / cancelled ⇒ 红，success / skipped ⇒ 绿；分支保护只需要它一个。
-  # `if: always()`：上游失败时本 job 也要跑出红（被 skip 的 required check 视同通过）。新增 job 时加进 needs。
+  # ── 单一结论 job，也是 main 分支保护唯一的必需检查：任一 job failure / cancelled ⇒ 红，success / skipped ⇒ 绿。
+  # 不逐个列 job 当必需检查——job 级被 skip 的矩阵 job 只上报未展开的名字，按平台名列的检查永远等不到（ci.md §3）。
+  # `if: always()`：上游失败时本 job 也要跑出红（被 skip 的必需检查视同通过）。新增 job 时加进 needs。
   ci-ok:
     name: ci-ok
     if: always()

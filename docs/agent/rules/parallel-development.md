@@ -80,7 +80,7 @@ GREEN（`xtask test` 全 stage gate），全绿才能合。**
 
 **跳过 rebase-后-GREEN 直接合 = 违规**，等同于 workflow 阶段 5「未全绿即 commit」。
 
-> **这条规则有一个（很薄的）自动兜底**：`test-host(linux-x64)`（required check）末尾会把
+> **这条规则有一个（很薄的）自动兜底**：`test-host(linux-x64)`（失败经 `ci-ok` 挡合并）末尾会把
 > **最新** main 并进来、重跑一次 `xtask check diagcodes`，所以**抢同一个诊断码号**这一种冲突
 > 会在 CI 里红出来——见 [CI 拓扑 §3.0](../../internals/src/devinfra/ci.md)。它只覆盖码号这**一个**
 > 维度、而且有窗口（你最后一次 CI 到按下 merge 之间 main 又前进了），**不能替代本节**：
