@@ -47,6 +47,14 @@ void test_long_equals_and_hash_contract() {
     long small = 7L;
     Assert.True(small.Equals(7L));
     Assert.False(small.Equals(8L));
+    // The hash folds the high word in: keys differing only above bit 32 must not
+    // all collide (they did when the hash was the low 32 bits alone).
+    long hi1 = (long)1 << 32;
+    long hi2 = (long)2 << 32;
+    Assert.NotEqual(hi1.GetHashCode(), 0L.GetHashCode());
+    Assert.NotEqual(hi1.GetHashCode(), hi2.GetHashCode());
+    ulong u1 = (ulong)((long)1 << 32);
+    Assert.NotEqual(u1.GetHashCode(), ((ulong)0).GetHashCode());
 }
 
 // ── Char Equals / GetHashCode / casing ───────────────────────────────────────
