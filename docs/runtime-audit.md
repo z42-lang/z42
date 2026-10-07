@@ -138,19 +138,9 @@ GC 模式对比：STW 21 次回收、25.1 s、844 MB；分代 193 次、26.2 s�
 
 ---
 
-### 1.6 跨语言内存 / GC 对照（2026-10-07）
+### 1.6 跨语言对标
 
-origin/main `bcf9fa25`，release z42vm（JIT，mimalloc）。对照：Python 3.9、Node 26、Ruby 2.6、.NET 10（workstation GC）、Java 21（G1 / Serial）。每组 3 次中位，峰值 RSS 用 `/usr/bin/time -l`（**不带 `--stats`**：它会把全部活对象收进一个 Vec，每对象多 16–32 B）。密度 = (RSS(N) − RSS(0)) / N。测量时机器负载偏高，墙钟只看量级，内存数字基本不受影响。脚本：scratchpad `memcmp/run_all.sh`（会话内）。
-
-| 负载 | z42 分代 | z42 STW | 最优 | Python | Node | z42 分代 / 最优 |
-|---|---|---|---|---|---|---|
-| 小对象（int + 引用），B/个 | 107.9 | 99.8 | 24.5（Java） | 81.0（slots）/ 194.9 | 70.0 | 4.4× |
-| `long[8]`，B/个 | 267.7 | 247.7 | 83.8（.NET） | 203.9 | 197.9 | 3.2× |
-| 短字符串，B/个 | 134.8 | 102.6 | 56.6（Java Serial） | 73.2 | 63.5 | 2.4× |
-| `List<int>`，B/元素 | 77.6 | 117.7 | 8.9（Ruby）/ 10.4（.NET） | 46.1 | 31.5 | 8.7× |
-| `Dictionary<string,int>`，B/条 | 291.7 | 368.3 | 99.5（Node） | 181.2 | 99.5 | 2.9× |
-| binary-trees 18：墙钟 / 峰值 RSS | 14.0 s / 760 MB | 14.0 s / 699 MB | 0.30 s（Java）/ 59 MB（Python） | 28.0 s / 59 MB | 0.50 s / 185 MB | — |
-| 大活堆流失（13 的移植）：墙钟 / RSS | 3.60 s / 1029 MB | 2.10 s / 837 MB | 0.25 s（Java G1）/ 113 MB（Python） | 2.35 s / 113 MB | 0.63 s / 461 MB | — |
+z42 与 Python / Node / Ruby / .NET / Java 的全面对标（24 条负载，含内存密度与 GC）由 `xtask bench compare` 测量，**当前结果以 [跨语言对标](internals/src/devinfra/benchmark-compare.md) 为准**，本节只记录内存差距的归因分析。
 
 **z42 的字节去向**（已与实测对账）：
 
@@ -556,6 +546,23 @@ z42vm 继续静态链接 VM，不改为动态链接 `native/libz42`（结论与�
 | M13 | 泛型 `T[]` 的实参为原始类型时按类型打包 | `List<int>` / Dictionary 值每元素 16 → 4 B | 编译器配合（⏸） | ⏸ |
 
 预期：M1–M8 落地后，对象约 85 B、数组约 190 B、`List<int>` 约 50 B；M10 + M11 之后，对象约 35–40 B（约 .NET 的 1.3×）；再加 M12，流失场景的 RSS / 活集从约 8× 降到 2–3×。
+
+### 对标差距（User，2026-10-07：全面对标，争取各方面都有不错的表现）
+
+依据 [跨语言对标](internals/src/devinfra/benchmark-compare.md)，先处理连 CPython 都不如的几项：
+
+| ID | 负载 | z42 / Python | 初步判断 | 状态 |
+|---|---|---|---|---|
+| T1 | json | 28× | 待剖析 | ⬜ |
+| T2 | str_builder / str_split_join | 7.9× / 13× | StringBuilder 是纯脚本实现，每次 Append 生成一个 GC 字符串 | ⬜ |
+| T3 | dict_ops / sort | 4.8× / 3.7× | 待剖析（泛型装箱、比较器调用、哈希路径） | ⬜ |
+| T4 | large_heap | 1.6× | GC 策略与内存复用（P1-7 / M 系列） | 🟡 |
+| T5 | closures | 1.3× | 闭包调用路径（CallIndirect 按名，P1-2 PR 8） | ⬜ |
+
+写对标程序时撞到的语言 / 库缺口：
+- 局部变量声明 `C[][] x = …`（元素为用户类）解析失败；
+- `new T[n][]` 不支持；
+- double 没有定点 / 格式化输出，插值串没有格式说明符。
 
 ### 阶段 2：紧凑执行与对象模型（1–2 个月，需另行确认）
 
