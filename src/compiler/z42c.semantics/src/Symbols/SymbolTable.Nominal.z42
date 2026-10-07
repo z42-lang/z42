@@ -354,7 +354,8 @@ public sealed partial class SymbolTable {
     public string ConstraintKey(string bareName, int tpCount) {
         if (tpCount > 0) {
             string mangled = bareName + "$" + tpCount.ToString();
-            if (this.Classes.ContainsKey(mangled)) { return mangled; }
+            // `ClassNsAll` 与短名表同一个键域（条件 mangle 后的短名），且本地 / 导入每份都登记 —— 不依赖短名表的赢家。
+            if (this.ClassNsAll.ContainsKey(mangled)) { return mangled; }
         }
         return bareName;
     }

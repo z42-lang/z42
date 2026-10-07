@@ -42,20 +42,20 @@ public sealed partial class MemberResolver {
     // 走的是错误路径（`Object` 成员与约束都没命中之后），所以这趟扫描的成本不在热路径上。
     private static bool _anyKnownTypeHasMember(SymbolTable symbols, string member) {
         if (symbols == null || member == "") { return true; }   // 拿不到符号表 ⇒ 不敢断言，放行
-        string[] cnames = symbols.Classes.Keys();
+        string[] cnames = symbols.ClassesByFqn.Keys();   // FQN 视图：含同短名的每一份（短名表只留赢家）
         int i = 0;
         while (i < cnames.Length) {
-            Z42ClassType ct = symbols.Classes.Get(cnames[i]) as Z42ClassType;
+            Z42ClassType ct = symbols.ClassesByFqn.Get(cnames[i]) as Z42ClassType;
             if (ct != null) {
                 if (ct.Fields.ContainsKey(member)) { return true; }
                 if (MemberResolver._mapHasMemberKey(ct.Methods, member)) { return true; }
             }
             i = i + 1;
         }
-        string[] inames = symbols.Interfaces.Keys();
+        string[] inames = symbols.InterfacesByFqn.Keys();
         int j = 0;
         while (j < inames.Length) {
-            Z42InterfaceType it = symbols.Interfaces.Get(inames[j]) as Z42InterfaceType;
+            Z42InterfaceType it = symbols.InterfacesByFqn.Get(inames[j]) as Z42InterfaceType;
             if (it != null && MemberResolver._mapHasMemberKey(it.Methods, member)) { return true; }
             j = j + 1;
         }
