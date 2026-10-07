@@ -60,6 +60,13 @@ const AGE_MASK: u8 = 0b11;
 /// `alloc` consults the flag and only pushes when it is clear.
 const IN_YOUNG_BIT: u8 = 1 << 5;
 
+/// `BlockType::Str` only: the string's bytes are all ASCII (so char index == byte index
+/// and the char count is the byte length). Set once on a freshly written string block
+/// (`set_ascii_str`) before the handle escapes; clear means *unknown*, never "not ASCII",
+/// so a path that does not set it only loses the fast path. The STW age updates below
+/// preserve it.
+const ASCII_STR_BIT: u8 = 1 << 6;
+
 /// Largest `gen_age` a block header can represent (see [`AGE_MASK`]).
 ///
 /// **retune-gc-nursery-and-promotion-age (2026-09-11)**: `region::PROMOTION_THRESHOLD` is
@@ -88,7 +95,7 @@ pub struct GcBlockHeader {
     pub(super) alive: AtomicBool,
     /// Packed payload kind + generation age + young-list membership. Low [`TAG_BITS`] hold
     /// the [`BlockType`] (tells the tracer how to scan the payload); the next two bits hold
-    /// `gen_age`; bit 5 is [`IN_YOUNG_BIT`]. Bits 6-7 are unused (always 0).
+    /// `gen_age`; bit 5 is [`IN_YOUNG_BIT`]; bit 6 is [`ASCII_STR_BIT`] (string blocks only). Bit 7 is unused (always 0).
     ///
     /// **fix-minor-gc-skips-var-region (2026-09-08)**: the age had to live *inside* an
     /// existing byte — the header is pinned at 16 by the assert below, and growing it to 24
@@ -169,7 +176,7 @@ impl GcBlockHeader {
     pub(super) fn bump_gen_age(&self) -> u8 {
         let cur = self.type_tag.load(Ordering::Relaxed);
         let age = ((cur >> AGE_SHIFT) & AGE_MASK).saturating_add(1).min(MAX_GEN_AGE);
-        let keep = cur & (TAG_MASK | IN_YOUNG_BIT);
+        let keep = cur & (TAG_MASK | IN_YOUNG_BIT | ASCII_STR_BIT);
         self.type_tag.store(keep | (age << AGE_SHIFT), Ordering::Relaxed);
         age
     }
@@ -187,7 +194,7 @@ impl GcBlockHeader {
         if now >= want {
             return;
         }
-        let keep = cur & (TAG_MASK | IN_YOUNG_BIT);
+        let keep = cur & (TAG_MASK | IN_YOUNG_BIT | ASCII_STR_BIT);
         self.type_tag.store(keep | (want << AGE_SHIFT), Ordering::Relaxed);
     }
 
@@ -206,6 +213,20 @@ impl GcBlockHeader {
         let cur = self.type_tag.load(Ordering::Relaxed);
         let next = if yes { cur | IN_YOUNG_BIT } else { cur & !IN_YOUNG_BIT };
         self.type_tag.store(next, Ordering::Relaxed);
+    }
+
+    /// Mark a freshly written string block as all-ASCII (see [`ASCII_STR_BIT`]). An atomic
+    /// OR, so it cannot clobber a concurrent header update; losing the bit to one is
+    /// harmless (the reader falls back to the slow path).
+    #[inline]
+    pub(crate) fn set_ascii_str(&self) {
+        self.type_tag.fetch_or(ASCII_STR_BIT, Ordering::Relaxed);
+    }
+
+    /// Whether [`Self::set_ascii_str`] marked this block.
+    #[inline]
+    pub(crate) fn is_ascii_str(&self) -> bool {
+        self.type_tag.load(Ordering::Relaxed) & ASCII_STR_BIT != 0
     }
 
     /// True while the block is live (not yet swept).

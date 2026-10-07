@@ -133,7 +133,15 @@ impl Str {
             let dst = block.payload_as_ptr::<u8>();
             std::ptr::copy_nonoverlapping(s.as_ptr(), dst, s.len());
         }
+        if s.is_ascii() { block.set_ascii_str(); }
         Str { block }
+    }
+
+    /// True when the string was marked all-ASCII at creation: char index == byte index
+    /// and the char count is [`Self::len`]. `false` means *unknown* (not "has non-ASCII").
+    #[inline]
+    pub fn is_known_ascii(&self) -> bool {
+        self.block.is_ascii_str()
     }
 
     /// Byte length in bytes (O(1) — the block header's `size`).
