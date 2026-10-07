@@ -381,8 +381,13 @@ thread-local `TlabCell { armed: u32, tlab }`（`UnsafeCell`，owner 独占 + all
 
 - **TLAB slot 级复用**（`gc-tlab-slot-reuse`）：整块借用绕过了 region 的 slot 级 free_list（tombstone 单槽
   复用）；partial-live chunk 里的零散死槽暂不被 TLAB 复用（仍可被 ambient 锁路径 / free_list 复用）。
-  非移动 GC 本有碎片，pre-1.0 可接受。触发条件：出现「live set 稳定但堆随 GC 轮次单调涨」的碎片回归 →
-  回来做 per-thread free-slot cache。见 roadmap Deferred Backlog Index。
+  非移动 GC 本有碎片，pre-1.0 可接受。见 roadmap Deferred Backlog Index。
+  **前提：对象 payload 先并入 GC 槽**。实测（13_gc_large_heap，分代模式）：
+  - **TLAB 直接认领半活 chunk 的空洞**：RSS −27%，但墙钟 +50%（3.20 → 4.86 s）。指令只多 7%，周期多 40%，原因有两个：
+    - 填空洞时要当场 free 旧对象单独 malloc 的 payload，约占 0.75 s；
+    - 新对象散落进各个旧 chunk，局部性变差。
+  - **只续用 TLAB 尾巴**（retire 时把半满 chunk 的剩余部分留给下次借用）：13 与 z42c 构建上时间和 RSS 都没有可测变化。
+  - payload 并入 GC 槽之后，填空洞不再需要 free，新对象也和槽一起连续分配，这一步才值得做。
 - **编译器重阶段并行化**：真正的并行加速前置——把 parse/typecheck/codegen 做成 per-file 并行（编译器侧
   change，非本 VM change）。TLAB 已为其铺好零锁地基。
 
