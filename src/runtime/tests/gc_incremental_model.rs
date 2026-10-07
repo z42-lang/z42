@@ -72,6 +72,14 @@
 //! | promotion sets the mark bit without greying | the promoted X is never traced, O is swept while reachable |
 //! | (`KEEP_MAJOR`) reclaim | B's garbage, born black, survives a minor inside its cycle |
 //! | (`KEEP_MAJOR`) `keep_major` survivors age | B's garbage, born black, is promoted and outlives its cycle |
+//! | (tenure) a tenure marks what it promotes | the tenured X is never traced, O is swept while reachable |
+//!
+//! **Tenure** (M9, `Policy::young`): either young-generation collection may instead promote the
+//! whole young set with no trace and no card work. Safety holds for every placement; its garbage
+//! outlives the cycle (it is old now), so the final check gives it one more whole cycle. Whether a
+//! tenure while sweeping also promotes the unmarked (doomed) young objects makes no difference to
+//! safety here — the runtime leaves them young only so that everything it promotes during a sweep
+//! carries the epoch, as a minor's promotions do.
 
 use std::collections::HashSet;
 
@@ -121,6 +129,19 @@ struct Policy {
     /// Control: a minor inside an open cycle "promotes black" by setting the mark bit of what it
     /// promotes without greying it — so the marker never traces it.
     promote_marks_without_grey: bool,
+    /// What each of the two young-generation collections is: a minor, or a **tenure** (M9: the
+    /// whole young set promoted without a mark; while the cycle sweeps, an unmarked young object
+    /// is garbage the sweep has not reached and stays young).
+    young: [Young; 2],
+    /// Control: a tenure inside an open cycle sets the mark bit of what it promotes (without
+    /// greying it).
+    tenure_marks: bool,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum Young {
+    Minor,
+    Tenure,
 }
 
 /// The runtime's policy: the young generation belongs to the minor (P1-7).
@@ -134,6 +155,8 @@ const FULL: Policy = Policy {
     minor_honors_cycle_marks: false,
     keep_major_ages: false,
     promote_marks_without_grey: false,
+    young: [Young::Minor, Young::Minor],
+    tenure_marks: false,
 };
 
 /// Control — the runtime's policy before P1-7: a minor inside an open cycle keeps every young entry
@@ -397,6 +420,23 @@ impl State {
         Ok(())
     }
 
+    /// **Tenure** (M9): every young object becomes old with no trace, no card seeding and no card
+    /// dirtied — nothing young is left for a newly-old object to point at, except while sweeping,
+    /// where an unmarked young object is garbage and stays young for the sweep to take.
+    fn tenure(&mut self, p: &Policy) {
+        let open = self.phase != Phase::Idle;
+        for i in 0..N {
+            let o = self.objs[i];
+            if !o.alive || o.old || (self.phase == Phase::Sweeping && !o.marked) {
+                continue;
+            }
+            self.objs[i].old = true;
+            if p.tenure_marks && open {
+                self.objs[i].marked = true;
+            }
+        }
+    }
+
     // ── mutators ─────────────────────────────────────────────────────────────
 
     fn use_reg(&self, m: usize, k: usize) -> Check {
@@ -468,7 +508,13 @@ impl State {
         self.pc[t] += 1;
         match t {
             0 => self.collector_step(s, p),
-            1 => self.minor(p),
+            1 => match p.young[s] {
+                Young::Minor => self.minor(p),
+                Young::Tenure => {
+                    self.tenure(p);
+                    Ok(())
+                }
+            },
             2 => self.mutator_a(s, p),
             _ => self.mutator_b(s, p),
         }
@@ -507,6 +553,11 @@ impl State {
     fn final_check(mut self, p: &Policy) -> Check {
         self.finish_cycle(p)?;
         self.minor(p)?;
+        if p.young.contains(&Young::Tenure) {
+            // A tenure hands its garbage to the old generation: the next whole cycle takes it.
+            self.collector_step(0, p)?;
+            self.finish_cycle(p)?;
+        }
         if let Some(g) = self.garbage {
             if self.live(g) {
                 return Err(format!("garbage-from-birth {g:?} outlived its cycle and the minor after it"));
@@ -616,4 +667,18 @@ fn when_promotion_marks_without_greying_an_old_child_of_a_young_object_is_swept(
 fn when_keep_major_survivors_age_the_cycles_floating_garbage_is_promoted() {
     let p = Policy { keep_major_ages: true, ..KEEP_MAJOR };
     expect_counterexample(p, Props::Safety, "keep_major survivors age");
+}
+
+/// M9: a tenure in place of either minor, or both — at every point of the cycle.
+#[test]
+fn every_interleaving_is_safe_when_minors_are_served_as_tenures() {
+    for young in [[Young::Tenure, Young::Tenure], [Young::Tenure, Young::Minor], [Young::Minor, Young::Tenure]] {
+        explore(Policy { young, ..FULL }, Props::Safety).unwrap();
+    }
+}
+
+#[test]
+fn when_a_tenure_marks_what_it_promotes_an_old_child_of_a_young_object_is_swept() {
+    let p = Policy { young: [Young::Tenure, Young::Tenure], tenure_marks: true, ..FULL };
+    expect_counterexample(p, Props::Safety, "tenure marks without grey");
 }

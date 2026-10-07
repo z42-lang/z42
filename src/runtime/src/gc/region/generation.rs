@@ -369,6 +369,55 @@ impl<T> Region<T> {
         newly_old
     }
 
+    /// **Tenure**: promote every listed entry **without a mark** — the young-generation policy's
+    /// answer to minors that do not pay (`arc_heap/young_policy.rs`). One walk, no tracing, no
+    /// card work: nothing is left young for a newly-old entry to point at.
+    ///
+    /// `doomed_unless`: the open cycle's epoch **while it sweeps**. Marking is complete then, so
+    /// an entry without the epoch is garbage the sweep has not reached yet (anything in a chunk it
+    /// already passed was reclaimed there). Such an entry stays listed — promoting it would only
+    /// make it an unmarked old entry — and the sweep reclaims it, delisting as it goes. Everything
+    /// that does leave the list therefore carries the epoch, the same `promote_black` guarantee a
+    /// minor gives.
+    ///
+    /// Returns how many entries left the list and the bytes `size_of` puts on them.
+    pub fn tenure_young(
+        &mut self,
+        doomed_unless: Option<crate::gc::refs::MarkKind>,
+        mut size_of: impl FnMut(&RegionEntry<T>) -> u64,
+    ) -> (usize, u64) {
+        let threshold = self.promotion_age;
+        let mut young = std::mem::take(&mut self.young_list);
+        let (mut w, mut tenured, mut bytes) = (0usize, 0usize, 0u64);
+        for i in 0..young.len() {
+            let (ci, ei) = young[i];
+            if !self.initialized[ci as usize][ei as usize] {
+                continue;
+            }
+            // SAFETY: an initialized slot holds a constructed entry.
+            let entry = unsafe { self.chunks[ci as usize][ei as usize].assume_init_ref() };
+            if !entry.alive.load(Ordering::Acquire) {
+                entry.clear_young_idx();
+                continue;
+            }
+            if doomed_unless.is_some_and(|k| !entry.is_marked(k)) {
+                entry.set_young_idx(w);
+                young[w] = (ci, ei);
+                w += 1;
+                continue;
+            }
+            if entry.gen_age() < threshold {
+                entry.gen_age.store(threshold, Ordering::Release);
+            }
+            entry.clear_young_idx();
+            tenured += 1;
+            bytes += size_of(entry);
+        }
+        young.truncate(w);
+        self.young_list = young;
+        (tenured, bytes)
+    }
+
     /// **add-generational-gc P0 (2026-05-22)**: walk every entry in
     /// `young_list`. O(young) iteration cost. Order: insertion order
     /// (last-promoted entries swap-removed; insertion order otherwise).

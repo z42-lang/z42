@@ -355,7 +355,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
                 let work = self.choose_generational_work(want_major);
                 // P0-16: the events name the work this pause does, not the entry point.
                 let kind = match work {
-                    GenWork::Minor => GcKind::Minor,
+                    GenWork::Minor | GenWork::Tenure => GcKind::Minor,
                     GenWork::Slice => GcKind::Slice,
                     GenWork::Major | GenWork::Finish => GcKind::Major,
                 };
@@ -371,6 +371,11 @@ impl crate::gc::arc_heap::ArcMagrGC {
                     };
                     freed_bytes = o.freed_bytes;
                     did_major = o.finished;
+                } else if work == GenWork::Tenure {
+                    // M9: promotes, reclaims nothing — counted as the minor it stands in for.
+                    did_minor = true;
+                    self.run_tenure();
+                    freed_bytes = 0;
                 } else {
                     did_minor = true;
                     let minor = self.run_cycle_collection_minor();
@@ -392,7 +397,10 @@ impl crate::gc::arc_heap::ArcMagrGC {
                     if young_before > 0 {
                         let survival =
                             1.0 - (minor.reclaimed_entries as f32 / young_before as f32);
-                        if survival >= Self::minor_escalation_threshold() {
+                        // M9: unless the last major already looked and found nothing.
+                        if survival >= Self::minor_escalation_threshold()
+                            && !self.young_policy.major_was_futile()
+                        {
                             // The nursery is not producing garbage, so the garbage — if any —
                             // is in the old generation. Ask for a major on the **next** trip
                             // rather than running one on top of the minor just done (see the
@@ -424,7 +432,11 @@ impl crate::gc::arc_heap::ArcMagrGC {
                 let pause_us = Self::now_us().saturating_sub(start);
                 // add-pause-budget-nursery: only a **minor** teaches the cost model — a slice is
                 // bounded by its own budget, and a one-shot major is not what the nursery sizes.
-                if did_minor {
+                if work == GenWork::Tenure {
+                    // Not a sample of what a minor costs; only move the model's growth anchor.
+                    self.pause_budget.note_tenure(used_before);
+                } else if did_minor {
+                    self.observe_minor_yield(freed_bytes, pause_us, used_before.saturating_sub(freed_bytes));
                     self.observe_minor_pause(super::pause_budget::MinorSample {
                         pause_us,
                         scanned: young_before as u64,
@@ -432,6 +444,8 @@ impl crate::gc::arc_heap::ArcMagrGC {
                         used_before,
                         used_after: used_before.saturating_sub(freed_bytes),
                     });
+                } else {
+                    self.observe_major_work(freed_bytes, pause_us, did_major);
                 }
                 self.pause_histogram.lock().record(pause_us);
                 self.fire_event(GcEvent::AfterCollect { kind, freed_bytes, pause_us });

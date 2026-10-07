@@ -87,15 +87,6 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         ..TUNING
     },
     KnobSpec {
-        name: "Z42_GC_BACKOFF_CAP",
-        toml_key: "gc-backoff-cap",
-        value: ValueKind::Bool,
-        description: "generational only: stop the futility backoff from growing the young set — it still makes collections sparser, but one minor never scans more than a nursery's worth. Bounds the worst pause (13_gc_large_heap 301 ms -> 25 ms) at a throughput cost on workloads where nothing ever dies (09_alloc_ctorless wall +94%); off by default",
-        default_hint: "unset; off",
-        consumed_by: "gc/arc_heap/auto_collect.rs, at each trip decision",
-        ..TUNING
-    },
-    KnobSpec {
         name: "Z42_GC_INCREMENTAL",
         toml_key: "gc-incremental",
         value: ValueKind::Bool,

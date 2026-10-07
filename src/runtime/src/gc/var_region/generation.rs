@@ -161,6 +161,36 @@ impl VarRegion {
         (reclaimed, credited)
     }
 
+    /// **Tenure** — the var-region twin of `Region::tenure_young`: every listed block leaves the
+    /// young list at the promotion age, without a mark. While the open cycle sweeps, a block
+    /// without its epoch is garbage the sweep has not reached yet and stays listed. Returns how
+    /// many blocks left.
+    pub fn tenure_young(&mut self, doomed_unless: Option<crate::gc::refs::MarkKind>) -> usize {
+        let threshold = self.promotion_age;
+        let mut young = std::mem::take(&mut self.young_list);
+        let (mut w, mut tenured) = (0usize, 0usize);
+        for i in 0..young.len() {
+            let ptr = young[i];
+            // SAFETY: see `iterate_young`.
+            let header = unsafe { ptr.as_ref() };
+            if !header.is_alive() {
+                header.set_in_young(false);
+                continue;
+            }
+            if doomed_unless.is_some_and(|k| !header.is_marked(k)) {
+                young[w] = ptr;
+                w += 1;
+                continue;
+            }
+            header.raise_gen_age_to(threshold);
+            header.set_in_young(false);
+            tenured += 1;
+        }
+        young.truncate(w);
+        self.young_list = young;
+        tenured
+    }
+
     /// **fix-minor-and-major-in-one-pause (2026-09-10)**: age the young survivors after a
     /// **major**, the way [`Self::sweep_young`] does after a minor.
     ///

@@ -516,6 +516,9 @@ pub struct ArcMagrGC {
     /// minor pause has a bound the way the major's slices do. Disabled (and left at the constant
     /// nursery) when `Z42_GC_PAUSE_TARGET_MS=0` or `Z42_GC_NURSERY_BYTES` is set explicitly.
     pause_budget: pause_budget::PauseBudget,
+    /// **M9**: judges each minor by its yield and schedules tenures when minors stop paying —
+    /// see `arc_heap/young_policy.rs`.
+    young_policy: young_policy::YoungPolicy,
     /// **add-pause-budget-nursery**: the configured nursery, kept fixed while `nursery_bytes`
     /// adapts — the old generation's allowance is denominated in this one. See
     /// `auto_collect::allowance_unit`.
@@ -604,6 +607,7 @@ mod generational;
 mod incremental;
 mod pause_budget;
 mod promotion_policy;
+mod young_policy;
 mod roots;
 mod observe;
 mod interface;

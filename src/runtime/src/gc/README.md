@@ -23,6 +23,7 @@ observers / profiler / weak refs / finalizers / strict OOM / ...）。
 | `arc_heap/control.rs` | 环回收编排与控制 API：`run_cycle_collection(_stw)` + `collect_cycles`/`force_collect` + finalize + soft-ref |
 | `arc_heap/generational.rs` / `barrier.rs` | 分代 GC：minor/major/promotion/card + `gen_age`；分代写屏障 |
 | `arc_heap/promotion_policy.rs` / `pause_budget.rs` | 自适应晋升判定 / 停顿预算化 nursery |
+| `arc_heap/young_policy.rs` | 年轻代策略：按回收收益（对比上一次 major）判定 minor，不划算时把 minor 换成 **tenure**（年轻代整体晋升、不标记）。机制见 [book: GC 调参 · 年轻代策略](../../../../docs/internals/src/runtime/gc-tuning.md#年轻代策略按收益判定-minor不划算就-tenure) |
 | `arc_heap/roots.rs` | roots/retention 扫描：root 快照 + marked-context 扫描 + 反向引用图 |
 | `arc_heap/observe.rs` | 观测：barrier observer(test) + 事件分发 + pause 计时 + snapshot/stats |
 | `arc_heap/footprint.rs` | 真实占用的堆侧：region 的 payload 度量函数、`committed` / `occupied` 读数、软上限的两种单位（`SoftCap`）、sweep 尾部的 chunk 回收 + 侧表重量 |

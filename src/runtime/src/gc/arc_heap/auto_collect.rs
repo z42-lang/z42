@@ -45,14 +45,19 @@
 //! A relative allowance already blunts this — the gate grows with the live set, making the
 //! collection count logarithmic in heap growth rather than linear — so the backoff is now the
 //! belt for the case a soft cap squeezes the allowance down to its floor. Each consecutive
-//! *unproductive* collection doubles the growth required before trying again, capped at
+//! *unproductive* collection multiplies the growth required before trying again, capped at
 //! [`MAX_BACKOFF`]; one productive collection resets it.
 //!
+//! **Where the multiplier lands.** One generation: on the allowance — every collection there is a
+//! full one. Generational: **only on the soft cap's own trips** (near-limit, and a promoted-byte
+//! gate the cap squeezed) — never on the minor gate. The minor gate bounds one minor's pause, so
+//! multiplying it answered "nothing dies" with "scan four, sixteen, sixty-four times as much next
+//! time", and every program whose futile phase was followed by one with garbage paid for it in one
+//! long pause. Minors that do not pay are **tenured** instead — see `young_policy.rs`.
+//!
 //! **What counts as "unproductive" is deliberately narrow** (fix-futile-backoff-is-too-eager,
-//! 2026-09-11): essentially-nothing reclaimed, not merely less than the gate. The multiplier
-//! lands on the **nursery**, which is not a memory gate but the bound on one minor's pause, so
-//! a bar set too high answers "this program has a high survival rate" with "then scan four
-//! times as much next time". See [`ArcMagrGC::next_backoff`] for the 64.6 ms minor that cost.
+//! 2026-09-11): essentially-nothing reclaimed, not merely less than the gate. See
+//! [`ArcMagrGC::next_backoff`].
 //!
 //! Productivity is read back from `stats.reclaimed_bytes` — the total is already maintained by
 //! every collect path, so this needs no hook in any of them. It always describes the collection
@@ -83,7 +88,7 @@ const MAX_BACKOFF: u32 = 64;
 /// merely under-performed. 1/16 of a gate is far below anything a healthy collection returns
 /// (a healthy minor reclaims most of a nursery) and far above the handful of bytes a
 /// 100%-survival workload gives back, so the two cases never overlap in practice.
-const FUTILE_DIVISOR: u64 = 16;
+pub(super) const FUTILE_DIVISOR: u64 = 16;
 
 /// **arm-gc-by-default (2026-09-09)**: the unit the whole policy is denominated in — how much
 /// may be allocated before a **minor**, and (times [`ALLOWANCE_NURSERY_RATIO`]) the floor
@@ -116,7 +121,7 @@ const FUTILE_DIVISOR: u64 = 16;
 ///
 /// **`09_alloc_ctorless` regresses ~18%, deliberately.** It is the 100%-survival pathology:
 /// nothing it allocates ever dies, so every collection is waste, and a smaller nursery fits one
-/// more of them in before [`ArcMagrGC::next_backoff`] saturates (2 collections at 24M, 3 at
+/// more of them in before the (then minor-gate) futility backoff saturates (2 collections at 24M, 3 at
 /// 16M). 24M avoids it and improves every workload a little; 16M costs that one benchmark and
 /// buys roughly twice the pause reduction everywhere else. **The trade was put to the project
 /// owner explicitly and 16M was chosen** — this line is the pause line, and the regression is
@@ -197,7 +202,10 @@ impl crate::gc::arc_heap::ArcMagrGC {
         // by design — judging it futile would back the cap's own collections off.
         let finishing = trip.kind == TripKind::Major && self.major_cycle_active();
         let occupied = self.occupied_bytes();
-        let next_backoff = if slice || finishing {
+        // M9: a tenure reclaims nothing by design — like a slice, it is not a collection the
+        // backoff can judge (reading its 0 bytes as futility would back the soft cap off).
+        let tenured = self.young_policy.last_was_tenure();
+        let next_backoff = if slice || finishing || tenured {
             backoff
         } else if last_for_cap {
             Self::next_backoff_for_cap(backoff, occupied, last_occupied, trip.gate, cycles)
@@ -240,7 +248,14 @@ impl crate::gc::arc_heap::ArcMagrGC {
             "trip {:<5}  gate {}{}  grown {}  (last freed {})",
             match trip.kind { TripKind::Major => "major", TripKind::Minor => "minor", TripKind::Slice => "slice" },
             crate::gc::trace::human(trip.gate),
-            if backoff > 1 { format!(" x{backoff}") } else { String::new() },
+            // Generational: the multiplier only touches the soft cap's trips (see the module note).
+            if backoff > 1 && (soft_limit.is_some()
+                || crate::gc::MagrGC::mode(self) != crate::gc::GcMode::GenerationalMarkSweep)
+            {
+                format!(" x{backoff}")
+            } else {
+                String::new()
+            },
             crate::gc::trace::human(used.saturating_sub(baseline)),
             crate::gc::trace::human(reclaimed_since),
         ));
@@ -348,12 +363,11 @@ impl crate::gc::arc_heap::ArcMagrGC {
     ///   that followed scanned 96 MB and 160 MB of nursery and paused **45.4 ms / 64.6 ms** —
     ///   39% of the whole build's pause, where every honest-gate minor cost 6–22 ms.
     ///
-    /// The second case is the one that hurts, and it hurts **backwards**: the multiplier lands
-    /// on the nursery, which is not a memory gate but the bound on how much young set one minor
-    /// has to chew through — so the answer to "this program has a high survival rate" came out
-    /// as "then scan four times as much next time". `minor_escalation_threshold` is the
-    /// mechanism that already handles "minors are not helping": it escalates to a **major**,
-    /// which is the collection that can actually do something about an old generation.
+    /// Those pauses were the multiplier landing on the minor gate, which it no longer does (see the
+    /// module note); what this judges now is when the soft cap — or, under one generation, a full
+    /// collection — may try again. The bar stays narrow for the same reason: a program that is
+    /// merely surviving must not have its collections postponed. Generational minors are judged
+    /// by yield instead (`young_policy.rs`).
     ///
     /// [`FUTILE_DIVISOR`] separates them with room to spare: 1/16 of a gate is far below
     /// anything a working collection returns and far above the handful of bytes a
@@ -429,27 +443,25 @@ impl crate::gc::arc_heap::ArcMagrGC {
         // cap does, and it finishes the open cycle.
         let active = self.major_cycle_active();
         let promoted = self.promoted_bytes_since_major.load(Ordering::Relaxed);
-        if near_cap || (!active && promoted >= allowance) {
-            return Some(Trip { kind: TripKind::Major, gate: allowance, for_cap: near_cap });
+        // A soft cap that squeezed the allowance below what the live set alone would get is what
+        // asked for this major, so it is judged like the near-cap trip: by footprint, and backed
+        // off when it could not hold the line. Without this a heap whose live set exceeds its cap
+        // majors every squeezed allowance of promotion, forever — invisible while futile minors
+        // never promoted anything, but tenuring (M9) promotes every byte such a heap allocates.
+        let squeezed = soft_limit.is_some()
+            && allowance < Self::collection_allowance(baseline, self.allowance_unit(), None);
+        let major_gate = if squeezed { allowance.saturating_mul(backoff as u64) } else { self.promoted_gate(allowance) };
+        if near_cap || (!active && promoted >= major_gate) {
+            return Some(Trip { kind: TripKind::Major, gate: allowance, for_cap: near_cap || squeezed });
         }
-        let minor_gate = self.minor_gate(baseline, soft_limit);
-        // **add-pause-budget-nursery D4** (`Z42_GC_BACKOFF_CAP`, **off** by default): let the
-        // backoff make collections *rarer* without making a single minor *bigger*. Multiplying the
-        // gate is what produced the worst pauses measured anywhere — `13_gc_large_heap --large`
-        // backed off to ×64, let **1.0 GB** of young set pile up, and spent **301 ms** in one
-        // minor. Capping it takes that to 25 ms.
-        //
-        // It is off by default because the price is real and lands on exactly the workloads the
-        // backoff was written for. Measured (3 rounds, median, against the same binary with the
-        // cap off): `09_alloc_ctorless` wall **+94%**, `13_gc_large_heap --large` **+81%**,
-        // `12_gc_churn` RSS **+20%** — all of them workloads where almost nothing dies, so every
-        // collection the cap forces back on is waste. Deleting the backoff outright is not an
-        // option either: that regressed `09_alloc_ctorless` by 70~160% (add-incremental-major-gc
-        // 1.10). The adaptive nursery alone still buys `z42c.semantics` 23.5 ms → 15.1 ms at
-        // −0.8% wall, which is the default worth shipping.
-        let gate = Self::backed_off_gate(minor_gate, backoff, self.pause_budget_cap(cfg));
+        // M9: the minor gate is never multiplied. A backoff that grew it let a futile phase pile
+        // up a young set one minor then had to chew through in a single pause — the worst pauses
+        // measured anywhere (`13_gc_large_heap --large` ×64: 1.0 GB of young set, 301 ms). Minors
+        // that do not pay are tenured instead (`young_policy.rs`), which keeps the young set at
+        // one nursery.
+        let gate = self.minor_gate(baseline, soft_limit);
         if grown >= gate {
-            return Some(Trip { kind: TripKind::Minor, gate: minor_gate, for_cap: false });
+            return Some(Trip { kind: TripKind::Minor, gate, for_cap: false });
         }
         (active && used >= self.incremental.next_slice_at.load(Ordering::Relaxed))
             .then(|| Trip { kind: TripKind::Slice, gate: self.slice_interval(), for_cap: false })
@@ -469,6 +481,35 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// the squeeze reads its `used` restatement ([`SoftCap::used`]); the floor stays a third of
     /// the cap as configured, so a heap whose footprint-per-byte is high does not degrade into
     /// collecting after every few allocations.
+    /// How much promotion opens the next major: the allowance — plus one more
+    /// [`Self::allowance_floor`] while **nothing is dying anywhere** (the last major and the last
+    /// real minor both freed essentially nothing; M9).
+    ///
+    /// Tenuring promotes everything a no-garbage phase allocates, so a heap that is all live
+    /// (`09_alloc_ctorless`, a structure being built) reaches the promoted-byte gate where it
+    /// used to keep its survivors young; re-marking an old generation the last major found no
+    /// garbage in, while the young generation is not producing any either, is the same waste one
+    /// level up. Both conditions, not just the major's: a program past its start-up (`z42c`: a
+    /// futile first major, then minors that reclaim) is making garbage again, and postponing its
+    /// first real major measurably raised its peak RSS.
+    ///
+    /// One floor, not a multiplier: a multiplier on an allowance that is itself relative to the
+    /// live set compounds — the old generation's garbage raises the baseline that sizes the gate
+    /// meant to collect it (measured on binary-trees with ×4: peak RSS 588 → 1369 MB). A fixed
+    /// floor bounds what a wrong prediction costs at one floor of extra old-generation growth.
+    pub(super) fn promoted_gate(&self, allowance: u64) -> u64 {
+        if self.young_policy.nothing_dies() {
+            allowance.saturating_add(self.allowance_floor())
+        } else {
+            allowance
+        }
+    }
+
+    /// The smallest major allowance — `ALLOWANCE_NURSERY_RATIO` configured nurseries.
+    pub(super) fn allowance_floor(&self) -> u64 {
+        self.allowance_unit().saturating_mul(ALLOWANCE_NURSERY_RATIO)
+    }
+
     fn collection_allowance(live: u64, nursery: u64, soft_limit: Option<SoftCap>) -> u64 {
         let mut min_allowance = nursery.saturating_mul(ALLOWANCE_NURSERY_RATIO);
         if let Some(cap) = soft_limit {
@@ -498,7 +539,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// any budget — was the only generational gate, so a small `Z42_GC_MAX_BYTES` was not
     /// enforced until the heap had allocated a whole nursery past it. Invisible while STW was
     /// the default; the default path now.
-    fn minor_gate(&self, baseline: u64, soft_limit: Option<SoftCap>) -> u64 {
+    pub(super) fn minor_gate(&self, baseline: u64, soft_limit: Option<SoftCap>) -> u64 {
         self.nursery_bytes()
             .min(Self::collection_allowance(baseline, self.allowance_unit(), soft_limit))
     }
@@ -515,20 +556,6 @@ impl crate::gc::arc_heap::ArcMagrGC {
     #[inline]
     fn allowance_unit(&self) -> u64 {
         self.allowance_unit_bytes.load(Ordering::Relaxed)
-    }
-
-    /// How much growth a minor must see before it trips. The backoff multiplies it; `cap`
-    /// (D4, `Z42_GC_BACKOFF_CAP`) is the most young set one minor may be asked to scan.
-    ///
-    /// `cap.max(minor_gate)` rather than `cap`: the gate is already `min(nursery, allowance)`, so
-    /// a squeezed allowance can put it *below* the cap, and capping there would silently undo the
-    /// soft cap's squeeze.
-    pub(super) fn backed_off_gate(minor_gate: u64, backoff: u32, cap: Option<u64>) -> u64 {
-        let gate = minor_gate.saturating_mul(backoff as u64);
-        match cap {
-            Some(cap) => gate.min(cap.max(minor_gate)),
-            None => gate,
-        }
     }
 
     /// Set the next `used_bytes` reading at which the policy wants to be consulted.
@@ -553,12 +580,13 @@ impl crate::gc::arc_heap::ArcMagrGC {
         soft_limit: Option<SoftCap>,
         declined: bool,
     ) {
+        // Generational: the minor gate, never multiplied (see `decide_trip`).
         let gate = if crate::gc::MagrGC::mode(self) == crate::gc::GcMode::GenerationalMarkSweep {
             self.minor_gate(baseline, soft_limit)
         } else {
             Self::collection_allowance(baseline, self.allowance_unit(), soft_limit)
+                .saturating_mul(backoff.max(1) as u64)
         };
-        let gate = gate.saturating_mul(backoff.max(1) as u64);
         let at_gate = baseline.saturating_add(gate);
         let next = if declined && at_gate > floor { at_gate } else { at_gate.max(floor.saturating_add(gate)) };
         self.next_collect_at.store(self.with_slice_gate(next, floor), Ordering::Relaxed);
@@ -619,7 +647,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         }
         // The old generation may already be over its allowance — a minor cannot help with
         // that, so ask to be consulted immediately and let `decide_trip` call for a major.
-        let next = if self.promoted_bytes_since_major.load(Ordering::Relaxed) >= allowance {
+        let next = if self.promoted_bytes_since_major.load(Ordering::Relaxed) >= self.promoted_gate(allowance) {
             live
         } else {
             // Same gate as `decide_trip` / `arm_next_collect` — see [`Self::minor_gate`]. This
