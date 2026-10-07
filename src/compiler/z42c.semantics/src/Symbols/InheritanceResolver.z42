@@ -104,9 +104,7 @@ public sealed class InheritanceResolver {
             if (d is ClassDecl) {
                 ClassDecl c = d as ClassDecl;
                 if (c.Kind == "class" || c.Kind == "struct") {
-                    string ctKey = c.Name;
-                    if (c.TypeParams.Count > 0) { string mk = c.Name + "$" + c.TypeParams.Count.ToString(); if (table.Classes.ContainsKey(mk)) { ctKey = mk; } }
-                    Z42ClassType ct = table.Classes.Get(ctKey) as Z42ClassType;
+                    Z42ClassType ct = table.LocalClassOf(cu.HasNamespace ? cu.Namespace : "", c);
                     if (ct != null) {
                         Z42ClassType cur = ct;
                         // fix-inherited-typeparam-field-type：`curInst` = **把 `cur` 看成从 `ct` 出发
@@ -205,9 +203,7 @@ public sealed class InheritanceResolver {
             if (d is ClassDecl) {
                 ClassDecl c = d as ClassDecl;
                 if (c.Kind == "class" || c.Kind == "struct") {
-                    string ctKey = c.Name;
-                    if (c.TypeParams.Count > 0) { string mk = c.Name + "$" + c.TypeParams.Count.ToString(); if (table.Classes.ContainsKey(mk)) { ctKey = mk; } }
-                    Z42ClassType ct = table.Classes.Get(ctKey) as Z42ClassType;
+                    Z42ClassType ct = table.LocalClassOf(cu.HasNamespace ? cu.Namespace : "", c);
                     if (ct != null && ct.HasBase) {
                         int j = 0;
                         while (j < c.MemberCount) {
@@ -293,9 +289,7 @@ public sealed class InheritanceResolver {
             if (d is ClassDecl) {
                 ClassDecl c = d as ClassDecl;
                 if (c.Kind == "class" || c.Kind == "struct") {
-                    string ctKey = c.Name;
-                    if (c.TypeParams.Count > 0) { string mk = c.Name + "$" + c.TypeParams.Count.ToString(); if (table.Classes.ContainsKey(mk)) { ctKey = mk; } }
-                    Z42ClassType ct = sv.GetClass(ctKey);
+                    Z42ClassType ct = sv.LocalClassOf(cu.HasNamespace ? cu.Namespace : "", c);
                     if (ct != null) {
                         // ⑤ add-associated-types PR-3：实现了带关联类型的接口，就必须把每个关联类型
                         //    绑上。**放在这个 pass 里**是因为它要求「接口的 `type Item;` 已收集完」——

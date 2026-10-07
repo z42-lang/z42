@@ -770,10 +770,10 @@ public sealed partial class SymbolTable {
     // 兜底：phantom 未加载（无 prelude 的独立上下文）→ 退回轻量 Z42PrimType（阶段 3 删类后此兜底移除）。
     public Z42Type BuiltinType(string n) {
         string wrap = PrimModel.Wrapper(n);
-        if (this.Classes.ContainsKey(wrap)) {
-            object c = this.Classes.Get(wrap);
-            if (c is Z42ClassType) { return c as Z42ClassType; }
-        }
+        // 包装类型都声明在 prelude 根命名空间（`Std.Int32` / `Std.String` / `Std.Object` …）—— 按 FQN 取，
+        // 别处同短名的类（用户写的 `Int32`）劫持不了基元关键字。
+        object c = this.ClassesByFqn.Get(PreludeNs.Root() + "." + wrap);
+        if (c is Z42ClassType) { return c as Z42ClassType; }
         return Z42ClassType.Builtin(PrimModel.Canon(n));
     }
 

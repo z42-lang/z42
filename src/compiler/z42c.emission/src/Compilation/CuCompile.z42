@@ -28,7 +28,8 @@ public static class CuCompile {
                             Z42ClassType ct = symbols.WithScopeOf(cus[a]).GetClass(cd.Name) as Z42ClassType;   // A5b-2b-3：按声明方作用域
                             isPart = ct != null && ct.IsPartial;
                         } else if (cd.Kind == "interface") {
-                            Z42InterfaceType it = symbols.Interfaces.Get(cd.Name) as Z42InterfaceType;
+                            Z42InterfaceType it = symbols.InterfacesByFqn.Get(
+                                SymbolTable.QualOf(cus[a].HasNamespace ? cus[a].Namespace : "", cd.Name)) as Z42InterfaceType;
                             isPart = it != null && it.IsPartial;
                         }
                         if (isPart) {
