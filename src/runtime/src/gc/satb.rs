@@ -147,6 +147,13 @@ pub(crate) fn take_thread_buffer(heap: u64) -> Vec<Value> {
     with_thread(|t| if t.heap == heap && !t.buf.is_empty() { std::mem::take(&mut t.buf) } else { Vec::new() })
 }
 
+/// Whether any heap has a major mark in progress — the cheap pre-check a lock-free reference
+/// store uses to decide whether it needs the overwritten value (`ObjStorage::store_ref_word`).
+#[inline(always)]
+pub fn marking_any() -> bool {
+    MARKING_HEAPS.load(Ordering::Relaxed) != 0
+}
+
 /// The barrier: call **before** a heap reference slot holding `old` is overwritten.
 #[inline]
 pub fn record_overwrite(old: &Value) {

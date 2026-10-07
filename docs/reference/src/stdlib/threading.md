@@ -73,6 +73,34 @@ t2.Join();
 // local 仍是 0
 ```
 
+### 不加锁读写共享字段
+
+几条线程不经 `Mutex<T>` / `RwLock<T>` / `Channel<T>`，直接读写同一个对象的字段或同一个数组的元素时，
+z42 只保证这些：
+
+- **单个字段、单个数组元素的一次读或写是完整的**：读到的要么是旧值，要么是某一次写入的完整值，
+  不会是两次写入各拼一半。
+- **写引用字段带「发布」语义**：一条线程先构造好对象、再把引用写进共享字段，另一条线程读到这个引用时，
+  一定看得到构造期间写进去的字段值。所以「造好再挂出去」不用加锁。
+- **此外没有任何保证**：同一对象的读写**不会**按对象排队执行；两个字段之间、「读出—修改—写回」之间
+  都没有原子性；也不保证另一条线程多久之后看到某次写入。要让几个值一起保持一致，或要原子的读改写
+  （比如计数器自增），用 `Mutex<T>` / `RwLock<T>` / `Channel<T>`。
+
+```z42
+class Config { public string Name; public int Port; }
+class Holder { public Config Current; }
+
+var h = new Holder();
+var t = Thread.Start(() => {
+    var c = new Config();
+    c.Name = "prod";
+    c.Port = 443;
+    h.Current = c;                 // 发布：造好之后才挂出去
+});
+t.Join();
+// 任何读到 h.Current 不为 null 的线程，看到的都是 Name == "prod"、Port == 443
+```
+
 ## `Channel<T>`
 
 多生产者 / 多消费者 FIFO 队列。三种容量形态由构造器决定，之后不能改。

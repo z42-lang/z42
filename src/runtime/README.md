@@ -43,7 +43,7 @@
 ### src/metadata/ — IR 元数据与加载层
 | 文件 | 职责 |
 |------|------|
-| `types.rs` + `types/` | 运行时值类型与对象模型：`field`（FieldSlot / TAG_*）、`type_desc`（TypeDesc / Cold）、`layout` / `codec`（字节布局与编解码）、`object` / `obj_storage`（ScriptObject / NativeData）、`array` / `array_access`（ArrayObj）、`value` / `value_aux`（Value / ExecMode / Closure 数据）；hub 全量 `pub use` |
+| `types.rs` + `types/` | 运行时值类型与对象模型：`field`（FieldSlot / TAG_*）、`type_desc`（TypeDesc / Cold）、`layout` / `codec`（字节布局、字段单元归属与编解码）、`ref_word`（对象引用字段的 8 B 自描述字）、`object` / `object_fields` / `obj_storage`（ScriptObject / NativeData；字段单元的原子读写与 GC 遍历）、`array` / `array_access`（ArrayObj）、`value` / `value_aux`（Value / ExecMode / Closure 数据）；hub 全量 `pub use` |
 | `bytecode.rs` + `bytecode/` | zbc IR 数据结构：`module`（Module）、`class`（ClassDesc / FieldDesc / 布局描述 / CLASS_FLAG_*）、`function`（Function / BasicBlock / 异常表）、`insn`（*Insn 载荷）、`instruction`（Instruction / Terminator）；`bytecode_serde.rs` 为 TypedReg 兼容 serde |
 | `formats.rs` | `.zbc` / `.zpkg` magic 常量 + 依赖记录 `ZpkgDep` |
 | `zbc_reader/` | zbc / zpkg 二进制读取：`cursor` / `opcodes` / `instr_decode` / `func_reader` / `type_reader` / `zpkg` / `zpkg_index` / `sidecar` / `versions` |

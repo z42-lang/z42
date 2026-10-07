@@ -76,14 +76,16 @@ fn without_satb_the_same_interleaving_sweeps_a_live_object() {
     assert!(!run_moved_into_register(false), "control: the test must be able to lose the object");
 }
 
-/// The byte-inlined reference path (`write_inline_ref` inside `set_field_value`) records too.
+/// The 8 B reference-word path (`set_field_value` on a composed layout) records too: during a
+/// mark the store is a `swap` whose old word goes to the barrier.
 #[test]
 fn satb_records_through_set_field_value() {
     let heap = ArcMagrGC::new();
     heap.set_mode(GcMode::StwMarkSweep);
     let _bound = Bound::to(&heap);
 
-    let holder = heap.alloc_object(dummy_type_desc("Holder"), vec![Value::Null], NativeData::None);
+    let holder = heap.alloc_object(
+        crate::metadata::types::ref_word::ref_word_tests::ref_cell_td(1), vec![], NativeData::None);
     let x = heap.alloc_object(dummy_type_desc("X"), vec![], NativeData::None);
     let Value::Object(holder_gc) = &holder else { panic!() };
     holder_gc.borrow_mut().set_field_value(0, &x);

@@ -43,7 +43,7 @@ pub(crate) fn struct_field_get_val(
             } else {
                 let off = byte_off as usize;
                 let w = prim_width(kind)?;
-                decode_prim(&obj.bytes(), off, w, kind)?
+                obj.storage.load_prim(off, w, kind)?
             }
         }
         // fix-stackobj-inline-struct-leaf: same as `Value::Object` above, but the object
@@ -64,7 +64,7 @@ pub(crate) fn struct_field_get_val(
                     Ok(obj.refs()[ri].clone())
                 } else {
                     let w = prim_width(kind)?;
-                    decode_prim(&obj.bytes(), byte_off as usize, w, kind)
+                    obj.storage.load_prim(byte_off as usize, w, kind)
                 }
             })??
         }
@@ -86,7 +86,7 @@ pub(crate) fn struct_field_get_val(
             } else {
                 let off = byte_off as usize;
                 let w = prim_width(kind)?;
-                decode_prim(&obj.bytes(), off, w, kind)?
+                obj.storage.load_prim(off, w, kind)?
             }
         }
         // add-struct-heap-inline (P3b, D1-a): leaf of a struct[] element `arr[index]`.
@@ -159,7 +159,7 @@ pub(crate) fn struct_field_set_val(
                 let off = byte_off as usize;
                 let w = prim_width(kind)?;
                 let mut obj = gc.borrow_mut();
-                encode_prim(&mut obj.bytes_mut(), off, w, kind, v)
+                obj.storage.store_prim(off, w, kind, v)
             }
         }
         // fix-stackobj-inline-struct-leaf: same as `Value::Object` above, but the object
@@ -186,7 +186,7 @@ pub(crate) fn struct_field_set_val(
                     Ok(())
                 } else {
                     let w = prim_width(kind)?;
-                    encode_prim(&mut obj.bytes_mut(), byte_off as usize, w, kind, v)
+                    obj.storage.store_prim(byte_off as usize, w, kind, v)
                 }
             })?
         }
@@ -214,7 +214,7 @@ pub(crate) fn struct_field_set_val(
                 let off = byte_off as usize;
                 let w = prim_width(kind)?;
                 let mut obj = gc.borrow_mut();
-                encode_prim(&mut obj.bytes_mut(), off, w, kind, v)
+                obj.storage.store_prim(off, w, kind, v)
             }
         }
         // add-struct-heap-inline (P3b, D1-a): leaf write into a struct[] element.

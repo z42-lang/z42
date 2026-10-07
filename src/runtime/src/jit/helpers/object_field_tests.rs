@@ -39,7 +39,7 @@ fn holder() -> Value {
         field_kinds:   Box::new([STRUCT_LEAF_PRIM, STRUCT_LEAF_PRIM]),
         ref_offsets:   Box::new([0]),
         ref_kinds:     Box::new([TAG_STR]),
-        inline_refs:   Box::new([]),
+        ref_cells:     Box::new([]),
         field_access:  Box::new([
             FieldAccess { offset: 0, width: 4, tag: TAG_I32, ref_slot: -1 },
             FieldAccess { offset: 0, width: 8, tag: TAG_STR, ref_slot: 0 },

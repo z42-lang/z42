@@ -539,6 +539,9 @@ z42vm 继续静态链接 VM，不改为动态链接 `native/libz42`（结论与�
 - 序列（每步单独过 GREEN；小对象现约 104 B）：
   - R0：P1-3 先行，把两个引擎的字段 / 数组 / 静态字段读写收进 `objops`（`src/runtime/src/objops/`）。
   - R1–R3：字段与数组元素改用同宽原子；引用改为 8 B 自描述指针；数组分 REF / PRIM / MIXED 三种模式（每个字符串字段 −16 B，`object[]` 每元素 −8 B）。
+    - R1 🟡：对象字段单元。基元同宽 relaxed；直接引用字段（含 `string` / `object` / 接口 / 委托）一律 8 B 自描述字（低 3 位种类，0 = null，release 写 / acquire 读，标记期写改 swap 供 SATB）；擦除泛型把基元写进 `object` 字段时装进单元素盒子（种类 7）；GC 只经 `visit_refs`；JIT 引用读改为 acquire load + 种类查表，`string` 字段也走内联。型参字段、内联 struct 引用叶子、合成布局仍在 16 B 侧表。实测（100 万个活对象，含 `object[]` 容器）：1 个 string 字段 GC 用量 88 → 72 B/个、RSS 160 → 122 B/个；2 个引用字段 112 → 80 B、168 → 153 B；z42c 工作区构建峰值 RSS 829 → 805 MB，墙钟持平。
+    - R2：型参字段的 16 B 单元在分配时按实例化写死标签（基元实参 → 基元标签；引用 / 未知实参 → 引用字），之后只原子改 8 B 负载；类型不符的写入（如 `T = int` 收到 null）的处置要先定。
+    - R3：数组元素模式 REF（8 B 引用字）/ PRIM（打包基元）/ MIXED（擦除 `T[]`，16 B + 分片锁）；struct blob 的引用叶子同步改 8 B，对象内联 struct 的叶子随之出侧表。
   - R4：删掉每对象 Mutex（88 B），顺带修掉 D4（JIT 绕过锁）与 `Array.Copy` 的 ABBA 死锁面。
   - R5：Monitor 侧表。
   - R6：对象搬进变长区（56 B；最大、风险最高的一步）。

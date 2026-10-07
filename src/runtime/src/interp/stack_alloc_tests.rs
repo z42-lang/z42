@@ -107,15 +107,15 @@ fn reused_slot_rejects_old_handle() {
 /// traversal learned to read both halves, this arena's did not — so a non-escaping object's
 /// array fields were reachable from no GC root and got swept while their owner was live.
 ///
-/// The assertion is deliberately about the **inlined** half only (`refs` is left empty), so
-/// reverting the `trace_inline_refs` call in `scan_roots` turns it red rather than merely
+/// The assertion is deliberately about the **reference-word** half only (`refs` is left
+/// empty), so a `scan_roots` that walks only the side table turns it red rather than merely
 /// weakening the count.
 #[test]
 fn scan_roots_visits_object_inlined_refs() {
     use std::sync::Arc;
     use crate::gc::GcRef;
     use crate::metadata::types::{
-        FieldAccess, InlineRef, ObjStorage, ObjectLayout, ScriptObject, TypeDesc, TypeDescCold,
+        FieldAccess, ObjStorage, ObjectLayout, ScriptObject, TypeDesc, TypeDescCold,
         STRUCT_LEAF_GCREF, TAG_OBJECT,
     };
 
@@ -127,7 +127,7 @@ fn scan_roots_visits_object_inlined_refs() {
         field_kinds:   Box::new([STRUCT_LEAF_GCREF]),
         ref_offsets:   Box::new([]),
         ref_kinds:     Box::new([]),
-        inline_refs:   Box::new([InlineRef { offset: 0, is_array: false }]),
+        ref_cells:     Box::new([0]),
         field_access:  Box::new([FieldAccess { offset: 0, width: 8, tag: TAG_OBJECT, ref_slot: -1 }]),
     });
     let holder_td = Arc::new(TypeDesc {

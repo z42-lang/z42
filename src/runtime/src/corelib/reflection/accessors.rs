@@ -212,7 +212,10 @@ pub fn builtin_field_set_value(ctx: &VmContext, args: &[Value]) -> Result<()> {
                     // ⇒ `SetValue(obj, null)` 打在 `int` 字段上**静默无效还报成功**。兄弟路径
                     // （装箱 struct / 对象内联 struct 叶子，见下方 `encode_prim(..)?`）一直是抛的，
                     // 这里只是把唯一的异类对齐。引用字段写 `null` 仍然合法（走 ref 槽，不到 encode）。
-                    rc.borrow_mut().try_set_field_value(i, &value)?;
+                    // A reference store is a heap edge like `FieldSet`'s: the barrier sees the
+                    // value that landed in the cell (a box when a primitive went into `object`).
+                    let wrote = rc.borrow_mut().try_set_field_value(i, &value)?;
+                    wrote.with_barrier_value(&value, |stored| ctx.heap().write_barrier_field(&target, i, stored));
                     Ok(())
                 }
                 None => bail!("FieldInfo.SetValue: field `{name}` not present on target instance"),
