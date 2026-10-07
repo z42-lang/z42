@@ -248,11 +248,11 @@ impl crate::gc::arc_heap::ArcMagrGC {
         let (objs, obj_bytes) = self
             .region_object
             .lock()
-            .tenure_young(doomed_unless, |e| Self::script_object_size_estimate(&e.value.lock()));
+            .tenure_young(doomed_unless, |e| Self::script_object_size_estimate(&e.value));
         let (arrs, arr_bytes) = self
             .region_array
             .lock()
-            .tenure_young(doomed_unless, |e| Self::array_size_estimate(&e.value.lock()));
+            .tenure_young(doomed_unless, |e| Self::array_size_estimate(&e.value));
         let blocks = self.region_var.lock().tenure_young(doomed_unless);
         let promoted = obj_bytes + arr_bytes;
         self.promoted_bytes_since_major.fetch_add(promoted, Ordering::Relaxed);

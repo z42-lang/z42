@@ -143,14 +143,13 @@ pub fn builtin_array_set(ctx: &VmContext, args: &[Value]) -> Result<()> {
         other => other,
     };
     let wrote = {
-        let mut a = rc.borrow_mut();
+        let a = rc.borrow();
         if i >= a.len() {
             bail!("Array.SetValue: index {i} out of bounds (len {})", a.len());
         }
         // 值不是元素类型（基元不同种 / 值 struct 数组收到别的东西）→ InvalidCastException（同 C#），
-        // 数组不动。异常对象要分配 ⇒ 先放锁再抛。
+        // 数组不动。
         if let Err(e) = objops::array_bulk::check_untyped_store(&a, &raw) {
-            drop(a);
             return Err(raise_op(ctx, e));
         }
         // fix-silent-array-elem-zero：走会报错的那版。此前是 `set_boxed`（release 静默存 0）
@@ -213,7 +212,7 @@ pub fn builtin_array_sort_prims(ctx: &VmContext, args: &[Value]) -> Result<Value
     };
     match args.first() {
         Some(Value::Array(rc)) => {
-            let sorted = rc.borrow_mut().sort_prims_prefix(n);
+            let sorted = rc.borrow().sort_prims_prefix(n);
             let owner = Value::Array(*rc);
             for b in sorted.iter().flatten() {
                 ctx.heap().write_barrier_array_elem(&owner, 0, b);

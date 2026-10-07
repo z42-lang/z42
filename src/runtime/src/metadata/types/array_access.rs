@@ -22,35 +22,26 @@ impl ArrayObj {
     }
 
     /// Bulk element move `src[si..si+n]` → `self[di..di+n]` (`src` is another array). Same
-    /// packed backing → one slice copy; REF → REF → word by word (SATB on each overwritten
+    /// packed backing → element by element at the element width (`Cells::copy_prims`); REF → REF → word by word (SATB on each overwritten
     /// word); two `struct[]` of the same element layout → blob by blob; any other pair →
     /// element-wise through `get_boxed` / `set_boxed`, so conversions stay exactly what the
     /// single-element path defines. A `struct[]` paired with a different backing needs boxing /
     /// unboxing and type checks — the heap-aware bulk path's job (debug-asserted here).
     /// Caller bounds-checks both ranges and fires the write barrier over the written range
     /// (`elem_ref_slots`).
-    pub fn copy_elems_from(&mut self, src: &ArrayObj, si: usize, di: usize, n: usize) {
-        macro_rules! bulk {
-            ($ty:ty, $sb:expr, $sl:expr, $db:expr, $dl:expr) => {{
-                // SAFETY (both): live blocks of exactly `len` `$ty`s; ranges caller-checked;
-                // `src` / `self` are distinct arrays. A plain copy under both array locks (R4:
-                // per-element relaxed atomics).
-                let s = unsafe { Self::slice_of::<$ty>($sb, $sl) };
-                let d = unsafe { Self::slice_of_mut::<$ty>($db, $dl) };
-                d[di..di + n].copy_from_slice(&s[si..si + n]);
-                true
-            }};
+    pub fn copy_elems_from(&self, src: &ArrayObj, si: usize, di: usize, n: usize) {
+        // Same packed backing: element-wise relaxed atomics of exactly the element width (no
+        // plain `memcpy` — another thread may be writing either array).
+        if let (Some(sc), Some(dc), Some(w)) = (Self::prim_cells(&src.backing), Self::prim_cells(&self.backing), super::array_elems::prim_width_of(&self.backing)) {
+            if std::mem::discriminant(&src.backing) == std::mem::discriminant(&self.backing) {
+                dc.copy_prims(di, &sc, si, n, w);
+                return;
+            }
         }
         let done = match (&src.backing, &self.backing) {
-            (ArrayBacking::Bytes { block: sb, len: sl }, ArrayBacking::Bytes { block: db, len: dl }) => bulk!(u8, sb, *sl, db, *dl),
-            (ArrayBacking::I32 { block: sb, len: sl }, ArrayBacking::I32 { block: db, len: dl }) => bulk!(i32, sb, *sl, db, *dl),
-            (ArrayBacking::I64 { block: sb, len: sl }, ArrayBacking::I64 { block: db, len: dl }) => bulk!(i64, sb, *sl, db, *dl),
-            (ArrayBacking::Chars { block: sb, len: sl }, ArrayBacking::Chars { block: db, len: dl }) => bulk!(char, sb, *sl, db, *dl),
-            (ArrayBacking::F64 { block: sb, len: sl }, ArrayBacking::F64 { block: db, len: dl }) => bulk!(f64, sb, *sl, db, *dl),
-            (ArrayBacking::Bool { block: sb, len: sl }, ArrayBacking::Bool { block: db, len: dl }) => bulk!(bool, sb, *sl, db, *dl),
             (ArrayBacking::Refs { block: sb, len: sl }, ArrayBacking::Refs { block: db, len: dl }) => {
                 let s = Self::cells_of(sb, *sl * REF_STRIDE);
-                let d = Self::cells_mut_of(db, *dl * REF_STRIDE);
+                let d = Self::cells_of(db, *dl * REF_STRIDE);
                 for k in 0..n {
                     ref_word::store_word_recorded(&d, (di + k) * REF_STRIDE, s.load_ref_word((si + k) * REF_STRIDE));
                 }
@@ -83,40 +74,30 @@ impl ArrayObj {
 
     /// Same-array bulk move with `memmove` semantics: copies backward when the destination
     /// range starts above the source range. `di == si` is a no-op.
-    pub fn copy_elems_within(&mut self, si: usize, di: usize, n: usize) {
+    pub fn copy_elems_within(&self, si: usize, di: usize, n: usize) {
         if di == si || n == 0 {
             return;
         }
-        macro_rules! within {
-            ($ty:ty, $b:expr, $l:expr) => {{
-                // SAFETY: live block of exactly `len` `$ty`s; range caller-checked. A plain
-                // `memmove` under the array lock (R4: per-element relaxed atomics).
-                let d = unsafe { Self::slice_of_mut::<$ty>($b, $l) };
-                d.copy_within(si..si + n, di);
-                true
-            }};
+        // Packed primitives: element-wise relaxed atomics in `memmove` direction.
+        if let (Some(c), Some(w)) = (Self::prim_cells(&self.backing), super::array_elems::prim_width_of(&self.backing)) {
+            c.copy_prims(di, &c, si, n, w);
+            return;
         }
         let done = match &self.backing {
-            ArrayBacking::Bytes { block, len } => within!(u8, block, *len),
-            ArrayBacking::I32 { block, len } => within!(i32, block, *len),
-            ArrayBacking::I64 { block, len } => within!(i64, block, *len),
-            ArrayBacking::Chars { block, len } => within!(char, block, *len),
-            ArrayBacking::F64 { block, len } => within!(f64, block, *len),
-            ArrayBacking::Bool { block, len } => within!(bool, block, *len),
             ArrayBacking::Refs { block, len } => {
-                let c = Self::cells_mut_of(block, *len * REF_STRIDE);
+                let c = Self::cells_of(block, *len * REF_STRIDE);
                 let mv = |k: usize| ref_word::store_word_recorded(
                     &c, (di + k) * REF_STRIDE, c.load_ref_word((si + k) * REF_STRIDE));
                 if di > si { (0..n).rev().for_each(mv) } else { (0..n).for_each(mv) }
                 true
             }
             ArrayBacking::StructBytes { .. } => {
-                let mut mv = |k: usize| {
+                let mv = |k: usize| {
                     if let Some((b, r)) = self.struct_elem(si + k) {
                         let _ = self.write_struct_elem(di + k, &b, &r, &mut |_| {});
                     }
                 };
-                if di > si { (0..n).rev().for_each(&mut mv) } else { (0..n).for_each(&mut mv) }
+                if di > si { (0..n).rev().for_each(mv) } else { (0..n).for_each(mv) }
                 true
             }
             _ => false,
@@ -124,8 +105,8 @@ impl ArrayObj {
         // MIXED / FROZEN / stack backings walk element-wise in the direction that does not
         // clobber elements yet to be read (`set_boxed` SATB-records each overwrite).
         if !done {
-            let mut mv = |k: usize| { let v = self.get_boxed(si + k); self.set_boxed(di + k, v); };
-            if di > si { (0..n).rev().for_each(&mut mv) } else { (0..n).for_each(&mut mv) }
+            let mv = |k: usize| { let v = self.get_boxed(si + k); self.set_boxed(di + k, v); };
+            if di > si { (0..n).rev().for_each(mv) } else { (0..n).for_each(mv) }
         }
     }
 }
@@ -297,15 +278,27 @@ impl ArrayObj {
         Self { element_type: self.element_type, backing: backing }
     }
 
-    /// Zero-copy packed byte slice for FFI (`Some` iff `byte[]`). A plain view, taken under the
-    /// array lock.
+    /// Snapshot `n` elements of a packed `byte[]` from element `off` on — an atomic chunked copy
+    /// ([`Cells::copy_out`]), never a plain slice over memory another thread may be writing.
+    /// `None` when this is not a `byte[]` or the range is out of bounds (FFI / I/O send paths).
+    pub fn byte_range(&self, off: usize, n: usize) -> Option<Vec<u8>> {
+        let ArrayBacking::Bytes { block, len } = &self.backing else { return None };
+        let mut out = vec![0u8; n];
+        Self::cells_of(block, *len).copy_out(off, &mut out).then_some(out)
+    }
+
+    /// The whole of a packed `byte[]` ([`Self::byte_range`]); `None` for any other backing.
     #[inline]
-    pub fn as_bytes(&self) -> Option<&[u8]> {
-        match &self.backing {
-            // SAFETY: shared borrow of a live ArrayPrim block of `len` bytes.
-            ArrayBacking::Bytes { block, len } => Some(unsafe { Self::slice_of::<u8>(block, *len) }),
-            _ => None,
-        }
+    pub fn byte_snapshot(&self) -> Option<Vec<u8>> {
+        self.byte_range(0, self.len())
+    }
+
+    /// Copy `src` into a packed `byte[]` from element `off` on (relaxed atomic chunked stores,
+    /// [`Cells::copy_in`]). `false` (nothing written) when this is not a `byte[]` or the range is
+    /// out of bounds (I/O receive paths).
+    pub fn write_byte_range(&self, off: usize, src: &[u8]) -> bool {
+        let ArrayBacking::Bytes { block, len } = &self.backing else { return false };
+        Self::cells_of(block, *len).copy_in(off, src)
     }
 
     /// JIT packed-numeric fast path: the element buffer of an `I32` / `I64` / `F64` / `Chars`
@@ -379,7 +372,7 @@ impl ArrayObj {
     pub(crate) fn new_leaked(elems: Vec<Value>) -> Self {
         let len = elems.len();
         let block = VarGcRef::leak_block_for_test(len * CELL_STRIDE, BlockType::ArrayCell);
-        let mut a = Self { element_type: ElemType::empty(), backing: ArrayBacking::Cells { block, len, zero: 0 } };
+        let a = Self { element_type: ElemType::empty(), backing: ArrayBacking::Cells { block, len, zero: 0 } };
         for (i, v) in elems.into_iter().enumerate() { a.set_boxed(i, v); }
         a
     }

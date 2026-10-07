@@ -177,7 +177,7 @@ fn gc_traces_through_reference_words() {
     {
         let child = heap.alloc_object(plain_td("Child"), vec![], NativeData::None);
         let s = Value::Str(heap.alloc_str("kept by a reference word"));
-        let mut o = h.borrow_mut();
+        let o = h.borrow();
         assert!(matches!(o.try_set_field_value(0, &s), Ok(FieldWrite::Ref)));
         assert!(matches!(o.try_set_field_value(1, &child), Ok(FieldWrite::Ref)));
         assert!(matches!(o.try_set_field_value(2, &Value::I64(99)), Ok(FieldWrite::Boxed(_))),
@@ -199,7 +199,7 @@ fn gc_traces_through_reference_words() {
     drop(o);
 
     {
-        let mut o = h.borrow_mut();
+        let o = h.borrow();
         for i in 0..3 {
             assert!(matches!(o.try_set_field_value(i, &Value::Null), Ok(FieldWrite::Ref)));
         }
@@ -214,11 +214,11 @@ fn gc_traces_through_reference_words() {
 fn clear_refs_for_sweep_zeroes_every_word() {
     let leaf = Value::Object(GcRef::new(ScriptObject::new(plain_td("Leaf"), ObjStorage::new(0))));
     let holder = GcRef::new(ScriptObject::new(ref_cell_td(2), ObjStorage::new(16)));
-    holder.borrow_mut().set_field_value(0, &leaf);
-    holder.borrow_mut().set_field_value(1, &leaf);
-    holder.borrow_mut().clear_refs_for_sweep();
+    holder.borrow().set_field_value(0, &leaf);
+    holder.borrow().set_field_value(1, &leaf);
+    holder.borrow().clear_refs_for_sweep();
     let mut edges = 0;
     holder.borrow().visit_refs(&mut |_| edges += 1);
     assert_eq!(edges, 0);
-    assert!(holder.borrow().bytes().iter().all(|&b| b == 0));
+    assert!(holder.borrow().storage.snapshot().iter().all(|&b| b == 0));
 }

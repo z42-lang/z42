@@ -265,10 +265,10 @@ pub type CategorizedRootScanner =
 /// to key the reverse reference graph. Mirrors `mark_if_unmarked`'s variant set.
 fn value_heap_ptr(v: &Value) -> Option<usize> {
     match v {
-        Value::Object(gc) => Some(gc.data_ptr_unlocked() as usize),
+        Value::Object(gc) => Some(gc.borrow() as *const _ as usize),
         // add-boxed-struct-identity (P4b): boxed struct is a heap object (region_object).
-        Value::BoxedStruct(gc) => Some(gc.data_ptr_unlocked() as usize),
-        Value::Array(gc) => Some(gc.data_ptr_unlocked() as usize),
+        Value::BoxedStruct(gc) => Some(gc.borrow() as *const _ as usize),
+        Value::Array(gc) => Some(gc.borrow() as *const _ as usize),
         // unify-gc-heap PR-2: the closure is itself a heap object (region_var block) — its own
         // block address is its identity.
         Value::Closure(c) => Some(c.addr()),

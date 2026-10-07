@@ -1,6 +1,6 @@
 # 对象与值表示 ABI（Object & Value ABI）
 
-> 待办：Value ABI 版本化规范、统一对象头（`gc_word`）、GcRef 可重定位、card table、移动/分代 GC 尚未实施（值/对象表示本身已实现）；去掉每对象 `Mutex` 之前的剩余项见 §3「字段单元的内存序」。
+> 待办：Value ABI 版本化规范、统一对象头（`gc_word`）、GcRef 可重定位、card table、移动/分代 GC 尚未实施（值/对象表示本身已实现）；对象模型 R5 之后的剩余项见 §3「字段单元的内存序」。
 >
 > 把当前**隐式**的跨引擎值/对象表示固化成**显式、版本化的 ABI**（组件化的"共享契约"本体），并为**移动/分代 GC**预留空间、**统一所有堆对象**（含字符串）到一个对象头。
 >
@@ -16,7 +16,7 @@
   - 编码：`0` = 非泛型且无原生底座（绝大多数对象）；偶指针 = 驻留的 `TypeArgs` 条目；奇指针（低位标签）= `Box<ObjExtras>`。
   - 读者（`DefaultOf`、`__class_type_arg` / `__class_default`、`GetType().GetGenericArguments()`、数组 `T` 零值、型参字段零值）拿到的是 `&'static [String]`。擦除代码里的 `new Box<T>()` 以开放实例化名 `Box<T>` 分配，实参是字面 `["T"]`，同样驻留成一个共享条目。
   - 已知边界：擦除分配的实例只知道 `T`，于是 `GetGenericArguments()` 报 `T`、`default(T)` 得 `null`、`is Box<int>` 为 `false`。真实实参要从分配时所在方法的泛型上下文（接收者的 `type_args` 或帧的 `method_type_args`）按型参名解析，目前没有做。
-- **GcRef** = 8B 标记指针（低 48 位 `RegionEntry` 地址、高 16 位窄 generation 快照，见 §2.1）。`RegionEntry` = `{ value: Mutex<T>, marked, alive, gen_age, generation, finalizer, … }`：mark 位和代龄在 entry 上，对象本身没有 GC 字；每个对象带一把 `Mutex`；chunk 是 Box-owned、永不重定位 → **当前非移动堆**。
+- **GcRef** = 8B 标记指针（低 48 位 `RegionEntry` 地址、高 16 位窄 generation 快照，见 §2.1）。`RegionEntry` = `{ value: T, marked, alive, gen_age, generation, finalizer, location, soft_ref_count }`：mark 位和代龄在 entry 上，对象本身没有 GC 字；**没有每对象锁**（`GcRef::borrow()` 直接给 `&T`，见 §3「字段单元的内存序」）；对象槽 56 B（`ScriptObject` 32 B + 24 B 元数据）、数组头槽 64 B；chunk 是 Box-owned、永不重定位 → **当前非移动堆**。
 - **JIT 与 interp 共享内存 Value 表示**：JIT 直接 `store tag`+payload 到帧的 Value 寄存器数组，**硬编码 tag 值 + 偏移**。
 - 内存管理：`Value` 能到达的堆数据全在 GC 堆（`GcRef`：Object / Array / BoxedStruct；`VarGcRef` 变长块：Str / Closure / 数组元素）；`Arc` 只留给内部元数据（`TypeDesc`、帧名等，§5、§7）；瞬态句柄的 payload 在 per-`VmContext` arena（§2.2）。
 
@@ -280,7 +280,7 @@ ObjectHeader {
   这次查表本来就在建数组的路上（判 struct）。
 - **MIXED 复用型参单元协议，不用分片锁**：擦除的 `T[]` 编译期不知道元素种类，16 B 是必须的；型参单元的
   「负载字一生只装一种基元、种类由唯一一次 CAS 认领」保证 16 B 元素读永不撕裂（与型参字段同一个证明），
-  去掉每对象锁之后不需要任何锁。实参是基元时（`new T[n]` 的 `class_type_param_zero`，如 `List<int>` 的 backing），
+  没有每对象锁也不需要任何锁。实参是基元时（`new T[n]` 的 `class_type_param_zero`，如 `List<int>` 的 backing），
   数组记下该基元种类（`Cells::zero`）、不写任何字：从未写过的单元（标签字 `0`）读作这个零值，第一次写才认领——
   预留容量的页面从不被碰。`List<string>` 的单元里引用就是标签字本身，负载字不用。不符的写（同一个单元先后放不同种类的基元）装箱成种类 7，对用户透明。
 - **写屏障**：元素写返回 `FieldWrite`，屏障拿的是真正落进单元的引用（装箱时是盒子）；整元素 `struct[]` 写与批量写
@@ -293,27 +293,50 @@ ObjectHeader {
 
 ### 字段单元的内存序
 
-堆上每个可变单元 ≤ 8 B、用同宽原子访问，这是为去掉每对象 `Mutex` 铺路：16 B `Value` 只留在寄存器，
+堆上每个可变单元 ≤ 8 B、用同宽原子访问，所以对象不需要锁：16 B `Value` 只留在寄存器，
 堆上不会出现「写到一半」的单元，任何时刻读到的都是某次完整写入的值。
 
 - **基元**：relaxed。x86-64 / AArch64 上就是普通对齐 load / store，JIT 内联码直接用普通 load / store。
 - **引用字**：release 写、acquire 读（AArch64 上 `stlr` / `ldar`，JIT 内联读用 Cranelift `atomic_load`）。
   于是「在一个线程里构造对象、经字段交给另一线程」是安全的：读到引用的线程一定看得到构造期写入的字段。
 - **SATB 删除屏障**要的是被覆盖的真旧值：major 标记进行中（`satb::marking_any()`），引用字的写是 `swap`，
-  旧字交给 `record_overwrite`；不在标记期就是普通 release store。这样屏障不依赖对象锁，并发写也不会漏记。
+  旧字交给 `record_overwrite`；不在标记期就是普通 release store。这样屏障不需要锁，并发写也不会漏记。
 - **跨字段没有一致性**：两个字段之间、读改写之间都没有原子性，用户侧需要组合一致时用 `Mutex<T>` / `Channel<T>`
   （参考手册 threading 页「线程之间怎么传值」写了这份契约）。
 
 - **型参单元**：标签字 release 写 / acquire 读，负载字 relaxed；负载字只在标签字为 `PRIM(k)` 时才被读，
   而它一生只装 `k` 种位（见上「型参单元」），所以两个字分开读写也不会读到「一半标签 + 一半负载」。
 
-现状与后续（对象模型 R3 之后）：堆上已经没有 16 B 的可变 `Value` 单元（FROZEN 数组发布后只读）。
+**没有每对象锁**（对象模型 R4）：`RegionEntry` 直接装 `T`，`GcRef::borrow()` 给 `&T`，对象与数组跨线程共享，
+字段 / 元素的读写全部是 `&self` 上的原子单元访问（`metadata/types/cells.rs` 的 `Cells`，读写都经同一个视图）。
+堆上没有 16 B 的可变 `Value` 单元（FROZEN 数组发布前写一次、之后只读，发布后的写入报错）。
 
-- 每对象 `Mutex` 还在（`GcRef::borrow` / `borrow_mut`），解释器与 JIT helper 的字段 / 元素读写仍持锁；JIT 内联快路本来就不持锁。
-  去掉它（R4）之前还要处理：整块快照与批量拷贝里的普通内存拷贝（`bytes()` / `as_bytes()` 切片视图、`struct_blob` 的基元字节段、
-  PRIM 数组的 `copy_from_slice` / `copy_within`）改逐单元原子拷贝；`CellsMut` 的写原语并入 `Cells`（`&self`）；
-  `try_set_field_value` 里的 `BoxedStruct` 拆箱读；`Array.Copy` 同一数组时只取一把锁、两个数组时的取锁顺序（ABBA）。
+- **整块拷贝也是原子的**：没有对象 / 数组载荷的普通切片视图。快照（装箱 struct 的 blob、对象内联 struct 的基元字节段、
+  FFI / I/O 拿走的 `byte[]`，`Cells::copy_out`）与写入（`struct_blob` 的基元段，`Cells::copy_in`）按「当前位置对齐、
+  剩余长度放得下的最宽 8 / 4 / 2 / 1 B」分块，每块一次原子访问；单元都按自身宽度对齐且 ≤ 8 B，所以分块从不劈开一个单元
+  （一块可能盖住几个更窄的单元——混合宽度访问，x86-64 / AArch64 上单拷贝原子，与 JIT 的普通宽度内联访问同一个前提）。
+  8 B 块用 acquire 读：块里可能是引用字，数组克隆把它带进新数组后，读新数组的线程要看得到被引用对象的构造。
+  PRIM 数组之间的批量移动（`Array.Copy`、同一数组内的重叠移动）按元素宽度逐元素 relaxed 读写（`Cells::copy_prims`，
+  memmove 方向），数组克隆（`deep_copy`）读源块用 `copy_out`。
+- **批量操作对别的线程不是原子的**：`Array.Copy` / 排序 / struct 整体读写都是一串单元访问，别的线程可能看到做了一半，
+  但每个单元是完整的值。没有取锁顺序问题：两条线程同时互相 `Array.Copy` 两个数组也只是逐元素竞争。
+- **需要独占的场合各有机制**，都不经 `GcRef`：
+  - 构造：对象 / 数组在分配之前建好。`ObjNew`（interp 堆 / 栈两支、JIT）与 `Activator.CreateInstance` 先用
+    `ScriptObject::new_instance` / `with_native` 在本地设好泛型实参、型参字段零值，再 `MagrGC::alloc_script_object`；
+    `set_native` / `set_type_args` 只在构造期（`&mut self`）。发布之后对象的 `meta` 字（`NativeData`、驻留的泛型实参句柄）不再变。
+  - 栈数组（`StackVec`）由每上下文的 stack arena 持有、在它的锁下访问，写入走 `ArrayObj::set_boxed_exclusive`（`&mut self`）。
+  - GC：清扫死对象（`clear_refs_for_sweep` 也是 `&self` 单元写）、槽位复用 / decommit / region drop 时 drop `T`，
+    此时条目已死、持 region 锁或在停顿里。
+  - 原生数据自带同步：`NativeData::Monitor`（`Std.Threading.Mutex/RwLock/Channel` 的底座）用自己的内部锁，
+    WeakRef / Type / LoadContext / Assembly 句柄发布后只读。
+- **`lock(obj)`**：语言里还没有 `lock` 语句、也没有 `Monitor.Enter(obj)` 这类按对象加锁的 API（z42 代码的锁都是
+  `Std.Threading` 的 `Mutex<T>` / `RwLock<T>`，底座是对象自己的 `NativeData::Monitor`），所以去掉每对象锁不需要过渡机制。
+  对任意对象加锁的语义由 R5 的 Monitor 侧表提供（首次加锁才膨胀，按对象地址索引，GC 停顿时清理）。
+
+后续：
+
 - JIT 的引用字内联读不覆盖型参字段（标记字按引用字查表会读成 `null`），型参字段读写仍走 helper；MIXED 数组的基元元素读也走 helper。
+- 对象仍是「`RegionEntry` 槽 + 单独分配的字段块（`ObjStorage`）」两块；R6 把对象搬进变长区（字段内联进槽），R7 把侧表换成位图。
 
 ### 槽位零初始化
 

@@ -379,8 +379,8 @@ impl PartialEq for Value {
             }
             // add-struct-object-boxing (PR2a, provisional，design D5)：装箱 struct 值相等——同类型 ∧
             // 字节相等 ∧ 引用叶子逐 Value 相等（refs 的 Value::eq 处理 string 内容 / object 引用）。
-            // add-boxed-struct-identity (P4b): 载荷现是共享 `ScriptObject`——先 ptr_eq（同盒必等，且避免
-            // 对同一 GcRef 二次 borrow 死锁），否则 borrow 两盒比 struct_bytes/struct_refs（保持值相等语义）。
+            // add-boxed-struct-identity (P4b): 载荷现是共享 `ScriptObject`——先 ptr_eq（同盒必等），
+            // 否则比两盒的 blob（保持值相等语义）。
             (Value::BoxedStruct(a), Value::BoxedStruct(b)) => {
                 if GcRef::ptr_eq(a, b) {
                     true

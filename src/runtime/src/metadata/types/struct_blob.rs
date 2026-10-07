@@ -13,7 +13,7 @@
 //! [`ref_word::store`] (SATB on the replaced word, a box when the value does not fit 8 B), and the
 //! caller hands each stored reference to its write barrier.
 
-use super::{ref_word, Cells, CellsMut, Value};
+use super::{ref_word, Cells, Value};
 
 /// Copy the blob of `size` bytes at `base` out into the arena form: the bytes (with every
 /// reference slot zeroed — the copy never carries handle bits) and the reference leaves decoded
@@ -37,7 +37,7 @@ pub fn read(c: &Cells, base: usize, size: usize, ref_offsets: &[u32]) -> (Vec<u8
 /// reference word and the reference that landed (the box, for a value that did not fit) goes to
 /// `barrier`. A missing `src_refs` entry stores `null`.
 pub fn write(
-    c: &CellsMut, base: usize, size: usize, src_bytes: &[u8], src_refs: &[Value], ref_offsets: &[u32],
+    c: &Cells, base: usize, size: usize, src_bytes: &[u8], src_refs: &[Value], ref_offsets: &[u32],
     barrier: &mut dyn FnMut(&Value),
 ) -> anyhow::Result<()> {
     let n = size.min(src_bytes.len());

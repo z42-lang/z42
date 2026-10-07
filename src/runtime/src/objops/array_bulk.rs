@@ -29,10 +29,10 @@ pub fn copy_range(
     if n == 0 {
         return Ok(());
     }
-    // 同一数组 ⇒ 只取一把锁（同一 GcRef 上 borrow + borrow_mut 会自锁）；元素类型必然相同。
+    // 同一数组：元素类型必然相同，按 memmove 方向在数组内移动。
     if GcRef::ptr_eq(src, dst) {
         {
-            let mut a = dst.borrow_mut();
+            let a = dst.borrow();
             let len = a.len();
             if si + n > len || di + n > len {
                 return Err(OpError::copy_range_out_of_bounds(len, si, len, di, n));
@@ -46,7 +46,8 @@ pub fn copy_range(
     if si + n > s.len || di + n > d.len {
         return Err(OpError::copy_range_out_of_bounds(s.len, si, d.len, di, n));
     }
-    // 类型判定会查类型表（可能触发惰性加载），放在数组锁之外。
+    // 类型判定会查类型表（可能触发惰性加载）。数组没有锁（对象模型 R4）：两条线程同时互相拷贝
+    // 两个数组只是逐元素竞争，没有取锁顺序问题。
     match plan(ctx, &s, &d)? {
         Plan::Direct => copy_direct(src, si, dst, di, n)?,
         Plan::Box => box_into(ctx, src, &s, si, dst, di, n)?,
@@ -101,7 +102,7 @@ pub fn barrier_after_range_store(ctx: &VmContext, dst: &GcRef<ArrayObj>, di: usi
 
 // ── 拷贝计划 ─────────────────────────────────────────────────────────────────
 
-/// 一侧数组决定拷贝路线的全部信息（取完就放锁）。
+/// 一侧数组决定拷贝路线的全部信息。
 struct Shape {
     len: usize,
     elem: ElemType,
@@ -173,7 +174,7 @@ fn check_struct_box(elem: &str, v: &Value) -> OpResult<()> {
 /// 同种 backing / 同一 struct：`copy_elems_from`。基元 ↔ 引用这种混搭先逐元素校验种类，不符就整段拒绝。
 fn copy_direct(src: &GcRef<ArrayObj>, si: usize, dst: &GcRef<ArrayObj>, di: usize, n: usize) -> OpResult<()> {
     let s = src.borrow();
-    let mut d = dst.borrow_mut();
+    let d = dst.borrow();
     // 两侧 backing 同种 ⇒ 不可能不符，零成本跳过（真实用法几乎全在这条）。
     if s.prim_backing_kind() != d.prim_backing_kind() {
         if let Some(kind) = d.prim_backing_kind() {
@@ -191,7 +192,7 @@ fn copy_direct(src: &GcRef<ArrayObj>, si: usize, dst: &GcRef<ArrayObj>, di: usiz
     Ok(())
 }
 
-/// struct[] → 引用数组：逐元素装箱。装箱要分配，分配期间不持有任何数组锁；
+/// struct[] → 引用数组：逐元素装箱。
 /// 每个盒子一出生就写进目的数组（目的数组在调用方寄存器里，是根）。
 fn box_into(
     ctx: &VmContext, src: &GcRef<ArrayObj>, s: &Shape, si: usize, dst: &GcRef<ArrayObj>, di: usize, n: usize,
@@ -201,7 +202,7 @@ fn box_into(
             .ok_or_else(|| OpError::internal("Array.CopyRange: struct[] source lost its StructBytes backing".into()))?;
         let boxed = box_struct(ctx, s.elem, &bytes, &refs)?;
         // 下一个盒子的分配可能触发回收：这一个先发屏障，不等整段写完。
-        let wrote = dst.borrow_mut().set_boxed(di + k, boxed);
+        let wrote = dst.borrow().set_boxed(di + k, boxed);
         super::array::barrier_elem(ctx, dst, di + k, wrote, &boxed);
     }
     Ok(())
@@ -210,7 +211,7 @@ fn box_into(
 /// 引用数组 → struct[]：先整段校验（不符就抛、目的地不动），再逐元素把装箱的字节与引用叶子拷进去。
 fn unbox_into(src: &GcRef<ArrayObj>, si: usize, dst: &GcRef<ArrayObj>, d: &Shape, di: usize, n: usize) -> OpResult<()> {
     let s = src.borrow();
-    let mut a = dst.borrow_mut();
+    let a = dst.borrow();
     for k in 0..n {
         check_struct_box(&d.elem, &s.get_boxed(si + k))?;
     }

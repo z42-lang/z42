@@ -7,7 +7,7 @@
 //! | `type_desc` | TypeDesc / TypeDescCold（≈ CoreCLR MethodTable，Arc 共享） |
 //! | `layout` | StructTypeLayout / ObjectLayout / FieldAccess、compose / synthesize 布局（对象字段的单元归属） |
 //! | `codec` | 基元字节 / 位编解码 |
-//! | `cells` | 堆上单元的同宽原子访问视图（`Cells` / `CellsMut`），对象与数组块共用 |
+//! | `cells` | 堆上单元的同宽原子访问视图（`Cells`：读写都是 `&self`），对象与数组块共用 |
 //! | `ref_word` | 8 B 自描述引用字（种类 + 句柄）与 `Value` 互转；引用单元的读写 / 遍历 |
 //! | `tparam_cell` | 16 B 型参单元（自描述标签字 + 基元负载字）的读写与 GC 遍历：型参字段、合成布局的引用字段、MIXED 数组元素 |
 //! | `struct_blob` | 堆上的值 struct blob（内联字段 / 装箱 / `struct[]` 元素）：引用叶子是引用字；与帧 arena 形态互转 |
@@ -41,7 +41,7 @@ pub use field::*;
 pub use type_desc::*;
 pub use layout::*;
 pub use codec::*;
-pub use cells::{Cells, CellsMut};
+pub use cells::Cells;
 pub use obj_storage::*;
 pub use object::*;
 pub use object_fields::FieldWrite;

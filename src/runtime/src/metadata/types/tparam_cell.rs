@@ -43,7 +43,7 @@
 use std::sync::atomic::Ordering;
 
 use super::ref_word::{self, KIND_MASK, RK_BOXED_VALUE};
-use super::{ArrayObj, Cells, CellsMut, FieldWrite, Value};
+use super::{ArrayObj, Cells, FieldWrite, Value};
 use crate::gc::GcRef;
 
 const NULL_FLAG: u64 = 8;
@@ -144,7 +144,7 @@ pub fn zero_kind_of(v: &Value) -> u8 {
 
 /// 写单元。返回值交给调用方发写屏障（见模块文档）。
 #[inline]
-pub fn store(st: &CellsMut, w0_off: usize, w1_off: usize, v: &Value) -> anyhow::Result<FieldWrite> {
+pub fn store(st: &Cells, w0_off: usize, w1_off: usize, v: &Value) -> anyhow::Result<FieldWrite> {
     store_or_zero(st, w0_off, w1_off, v, 0)
 }
 
@@ -154,7 +154,7 @@ pub fn store(st: &CellsMut, w0_off: usize, w1_off: usize, v: &Value) -> anyhow::
 /// another kind out of `0` there, a primitive of another kind is boxed instead), so the payload
 /// still only ever holds `zero`-kind bits.
 #[inline]
-pub fn store_or_zero(st: &CellsMut, w0_off: usize, w1_off: usize, v: &Value, zero: u8) -> anyhow::Result<FieldWrite> {
+pub fn store_or_zero(st: &Cells, w0_off: usize, w1_off: usize, v: &Value, zero: u8) -> anyhow::Result<FieldWrite> {
     let prim = prim_parts(v);
     if let Some((k, bits)) = prim {
         // Fast path: the cell already holds a `k` primitive — only the payload changes.
@@ -182,7 +182,7 @@ pub fn store_or_zero(st: &CellsMut, w0_off: usize, w1_off: usize, v: &Value, zer
 /// Every write that changes the tag word.
 #[inline(never)]
 fn store_transition(
-    st: &CellsMut, w0_off: usize, w1_off: usize, v: &Value, prim: Option<(u64, u64)>, mut w0: u64,
+    st: &Cells, w0_off: usize, w1_off: usize, v: &Value, prim: Option<(u64, u64)>, mut w0: u64,
 ) -> anyhow::Result<FieldWrite> {
     let w0 = &mut w0;
     loop {
@@ -266,7 +266,7 @@ pub fn init_words(v: &Value) -> Option<(u64, u64)> {
 
 /// Box `v` into the tag word (kind 7).
 #[cold]
-fn store_boxed(st: &CellsMut, w0_off: usize, v: &Value) -> anyhow::Result<FieldWrite> {
+fn store_boxed(st: &Cells, w0_off: usize, v: &Value) -> anyhow::Result<FieldWrite> {
     let b = box_value(v)?;
     publish(st, w0_off, ref_word::encode_boxed(&b));
     Ok(FieldWrite::Boxed(b))
@@ -283,7 +283,7 @@ fn box_value(v: &Value) -> anyhow::Result<GcRef<ArrayObj>> {
 /// Release-store a tag word. While a major mark is running it is a swap, and a replaced
 /// reference word goes to the SATB deletion barrier.
 #[inline(always)]
-fn publish(st: &CellsMut, w0_off: usize, w: u64) {
+fn publish(st: &Cells, w0_off: usize, w: u64) {
     if crate::gc::satb::marking_any() {
         record(st.swap_word(w0_off, w));
     } else {
@@ -314,7 +314,7 @@ pub fn visit(st: &Cells, w0_off: usize, visit: &mut dyn FnMut(&Value)) {
 
 /// Break the cell's reference edge (GC sweeping a dead object — no barrier).
 #[inline]
-pub fn clear(st: &CellsMut, w0_off: usize) {
+pub fn clear(st: &Cells, w0_off: usize) {
     let w0 = st.load_word(w0_off, Ordering::Relaxed);
     if w0 & KIND_MASK != 0 {
         st.store_word(w0_off, 0, Ordering::Relaxed);

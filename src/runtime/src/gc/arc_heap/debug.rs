@@ -154,9 +154,9 @@ impl crate::gc::arc_heap::ArcMagrGC {
         region_object.iterate_alive(|h, e| {
             if stale_obj.is_some() { return; }
             if stale(e.is_marked(crate::gc::refs::MarkKind::Minor), e.major_epoch()) {
-                let obj = e.value.lock();
+                let obj = &e.value;
                 let ty = obj.type_desc.name.clone();
-                let nslots = obj.bytes().len(); // payload bytes (diagnostic)
+                let nslots = obj.payload_len(); // payload bytes (diagnostic)
                 stale_obj = Some((h.chunk_idx as u32, h.entry_idx as u32, ty, nslots));
             }
         });
@@ -171,7 +171,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         region_array.iterate_alive(|h, e| {
             if stale_arr.is_some() { return; }
             if stale(e.is_marked(crate::gc::refs::MarkKind::Minor), e.major_epoch()) {
-                let arr = e.value.lock();
+                let arr = &e.value;
                 stale_arr = Some((h.chunk_idx as u32, h.entry_idx as u32, arr.len()));
             }
         });

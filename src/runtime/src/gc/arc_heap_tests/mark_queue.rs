@@ -147,8 +147,8 @@ fn collect_cycles_with_context_frees_an_unrooted_cycle_under_stw() {
     {
         let Value::Object(a_gc) = &a else { panic!() };
         let Value::Object(b_gc) = &b else { panic!() };
-        a_gc.borrow_mut().set_ref_raw_for_test(0, &b);
-        b_gc.borrow_mut().set_ref_raw_for_test(0, &a);
+        a_gc.borrow().set_ref_raw_for_test(0, &b);
+        b_gc.borrow().set_ref_raw_for_test(0, &a);
     }
     drop(a); drop(b);
 
