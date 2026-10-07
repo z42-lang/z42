@@ -6,86 +6,35 @@ use crate::metadata::{Module, NativeData, ScriptObject, Value};
 use crate::vm_context::VmContext;
 use anyhow::Result;
 
-use super::dispatch::{isa_td, make_fallback_type_desc};
+use super::dispatch::isa_td;
 use super::exec_vcall::is_array_isa;
 use super::ops::collect_args;
 use super::Frame;
 
-/// `ObjNew` dispatch. Currently still goes through `module.type_registry`
-/// (HashMap by name) since registry isn't a Vec-by-TypeId — the cache
-/// `type_token` enables future fast-path + cross-zpkg observability:
-/// when the slot starts as UNRESOLVED and the lazy loader resolves the
-/// class, we write the resolved id back so subsequent diagnostics /
-/// reflection see it.
+/// `ObjNew` dispatch. Class and ctor come from the site cache (`site`, P1-2 PR 5) once the
+/// first allocation resolved them — no name hashing, no locks; the resolution itself is
+/// shared with the JIT (`obj_new_resolve`).
 ///
-/// Return `Ok(Some(val))` when the ctor `throw`s a user exception, so
-/// the caller's `try`/`catch` can match — mirrors the `Call` / `Builtin`
-/// propagation pattern in `exec_instr.rs`. `Ok(None)` = success.
-/// `Err(...)` = internal anyhow error (separate from user exceptions).
-///
-/// fix-ctor-throw-propagation (2026-05-24): pre-fix, the ctor was
-/// invoked via `exec_function(...)?;` and the `ExecOutcome::Thrown`
-/// branch was silently dropped — `try { new C(badArg) } catch (X) {}`
-/// could never match because the throw never propagated out of
-/// `ObjNew`. The partially-constructed object was even written into
-/// `dst`!
+/// Return `Ok(Some(val))` when the ctor `throw`s a user exception (or a symbol check
+/// throws), so the caller's `try`/`catch` can match — mirrors the `Call` / `Builtin`
+/// propagation pattern in `exec_instr.rs`. `Ok(None)` = success. `Err(...)` = internal
+/// anyhow error (separate from user exceptions). A throwing ctor never writes the
+/// partially constructed object into `dst`.
 pub(super) fn obj_new(
     ctx: &VmContext, module: &Module, frame: &mut Frame,
     dst: u32, class_name: &str, ctor_name: &str, args: &[u32], type_args: &[String],
-    type_token: Option<&std::sync::atomic::AtomicU32>,
-    // cache-ctorless-objnew: per-site mark; see `ResolvedTokens::ctorless_marks`.
-    ctorless_mark: Option<&std::sync::atomic::AtomicUsize>,
+    // This site's `ResolvedTokens::obj_new` cache (None when the resolver hasn't run).
+    site: Option<&crate::metadata::resolver::ObjNewSite>,
     stack_alloc: bool,
     // encode-ctorless-objnew: compile-time positive marker; see `missing_ctor_exception`.
     ctor_known: bool,
 ) -> Result<Option<Value>> {
-    use std::sync::atomic::Ordering;
-    // L3-G4d: for imported classes (e.g. Std.Collections.Stack) the TypeDesc
-    // may only exist in the lazy loader until first use; probe it before
-    // falling back to a blank synthetic descriptor.
-    let resolved = module.type_registry
-        .get(class_name)
-        .cloned()
-        .or_else(|| ctx.try_lookup_type(class_name));
-    let type_desc = match resolved {
-        Some(td) => td,
-        None => {
-            // 站点 ② fix-silent-symbol-resolution：defer-class-initialization (2026-09-04)
-            // 在这里放了一条 `tracing::warn!`——合成空描述符是**静默数据损坏**的温床（没有
-            // 字段槽 ⇒ 构造器的 FieldSet 被丢弃、后续 FieldGet 全读 Null）。判据既然已经
-            // 确定，就不该只是记一行日志：`missing_type_exception` 用同一判据改为抛异常，
-            // 回落描述符只留给它的正当用途（合并模块带 ClassDesc / 编译器合成的本地类）。
-            if let Some(exc) = crate::vm_context::symres::missing_type_exception(
-                ctx, module, class_name,
-            ) {
-                return Ok(Some(exc));
-            }
-            std::sync::Arc::new(make_fallback_type_desc(module, class_name))
-        }
+    use super::obj_new_resolve::{resolve_class, resolve_ctor, site_for};
+    let site = site_for(ctx, module, site);
+    let type_desc = match resolve_class(ctx, module, class_name, site) {
+        Ok(td) => td,
+        Err(exc) => return Ok(Some(exc)),
     };
-    // fix-crosspkg-base-fields-in-eager-module：急切加载的主模块注册表在**构建期**就把
-    // 跨包基类合不进来（那时依赖还没加载），于是 `Derived : CrossPkgBase` 的这份描述符
-    // 「只有自己的字段」。惰性加载器那份被 `try_fixup_inheritance` 补齐过，而
-    // `Arc::make_mut` 的写时复制只让**惰性注册表**拿到修好的副本——主模块那份永远残缺。
-    // ObjNew 又是先查主模块，于是继承字段整体丢失（实测 `Derived` 急切 1 槽 / 惰性 2 槽，
-    // `d.A = 7` 被丢弃、`d.A` 读出 Null，而 VCall 因为另有基类回落路径**看起来是好的**，
-    // 把这个洞盖了很久）。旗子在手，这里换成修好的那份。
-    let type_desc = if type_desc.base_unmerged() {
-        match ctx.try_lookup_type(class_name) {
-            Some(fixed) if !fixed.base_unmerged() => fixed,
-            _ => type_desc,
-        }
-    } else { type_desc };
-    // 站点 ④ fix-silent-symbol-resolution：惰性解析都走完了还是残缺 ⇒ 基类确定不存在。
-    // 继续走下去只会分配一个丢掉整片继承面的对象，错误现场离根因可以隔上任意远。
-    // runtime-ambiguous-use-site：**用**一个被两个包各自声明的类型 → 报错（与上面
-    // missing_type / missing_base 同族，都是派发点的符号完整性判定）。
-    if let Some(exc) = crate::vm_context::symres::ambiguous_type_exception(ctx, module, class_name) {
-        return Ok(Some(exc));
-    }
-    if let Some(exc) = crate::vm_context::symres::missing_base_exception(ctx, module, &type_desc) {
-        return Ok(Some(exc));
-    }
 
     // add-static-constructors：创建实例是 C# 的类型初始化触发点之一。此处 TypeDesc
     // 已在手 → 检查代价就是一次 `Option` 判断（没有 cctor 的类型的冷区多半是 None），
@@ -98,18 +47,16 @@ pub(super) fn obj_new(
         return Ok(Some(crate::vm_context::cctor::make_type_init_exception(ctx, module, &msg)));
     }
 
-    // Refresh the type_token cache if it was UNRESOLVED at load (cross-zpkg
-    // lazy class). Not strictly needed for current dispatch (we still go
-    // through type_registry lookup above) but gives forward observability
-    // and prepares the slot for Phase X where ObjNew may use TypeId-keyed
-    // caches.
-    if let Some(slot) = type_token {
-        if slot.load(Ordering::Relaxed) == crate::metadata::tokens::UNRESOLVED
-            && type_desc.id.is_resolved()
-        {
-            slot.store(type_desc.id.0, Ordering::Relaxed);
-        }
-    }
+    // The ctor is bound before the object exists: binding may load a package (and run its
+    // initializers), and a fresh object held only in a Rust local is not a GC root.
+    let mut lazy_holder = None;
+    let ctor = match resolve_ctor(
+        ctx, module, class_name, ctor_name, args.len() + 1 /* +this */, ctor_known, site,
+        &mut lazy_holder,
+    ) {
+        Ok(c) => c,
+        Err(exc) => return Ok(Some(exc)),
+    };
 
     // unify-object-byte-layout (PR-2): fields default to zero-initialized bytes +
     // `Null` refs (= int→0 / bool→false / '\0' / ref→Null, the old per-field
@@ -188,55 +135,14 @@ pub(super) fn obj_new(
         obj_val
     };
 
-    // 直查 ctor_name (TypeChecker 已 overload-resolve)；无名字推断。
-    // L3-G4d: fall back to lazy loader when the ctor lives in a stdlib zpkg
-    // (imported generic class ctor isn't in the main module's function table).
-    let ctor_fn = module.func_index.get(ctor_name)
-        .and_then(|&i| module.functions.get(i));
-    let outcome = if let Some(ctor) = ctor_fn {
-        // 站点 ⑤ fix-ctor-arity-skew：解析**成功**也要查——裸键在版本 skew 下会命中**错的**
-        // 构造器（单构造器必是 primary、必占裸键），而 `exec_function` 不做 arity 校验。
-        if let Some(exc) = crate::vm_context::symres::wrong_arity_exception(
-            ctx, module, ctor_name,
-            crate::vm_context::symres::call_arity(ctor), args.len() + 1 /* +this */,
-        ) {
-            return Ok(Some(exc));
+    // `None` = a class without a ctor: the object stays default-initialised.
+    let outcome = match ctor {
+        Some((ctor, _id)) => {
+            let mut ctor_args = vec![obj_val.clone()];
+            ctor_args.extend(collect_args(&frame.regs, args)?);
+            Some(super::exec_function(ctx, module, ctor, &ctor_args)?)
         }
-        let mut ctor_args = vec![obj_val.clone()];
-        ctor_args.extend(collect_args(&frame.regs, args)?);
-        Some(super::exec_function(ctx, module, ctor, &ctor_args)?)
-    } else if crate::metadata::resolver::ctorless_hit(ctorless_mark, ctx.fn_registration_mark()) {
-        // cache-ctorless-objnew: the merged module was already probed above, and
-        // this site proved `ctor_name` resolves nowhere in the loader either, with
-        // nothing registered since — skip the lookup.
-        None
-    } else {
-        let mark = ctx.fn_registration_mark();
-        match ctx.try_lookup_function(ctor_name) {
-            Some(lazy_ctor) => {
-                // 站点 ⑤：惰性加载来的构造器同样查（跨包构造器正是 skew 的主战场）。
-                if let Some(exc) = crate::vm_context::symres::wrong_arity_exception(
-            ctx, module, ctor_name,
-                    crate::vm_context::symres::call_arity(lazy_ctor.as_ref()), args.len() + 1 /* +this */,
-                ) {
-                    return Ok(Some(exc));
-                }
-                let mut ctor_args = vec![obj_val.clone()];
-                ctor_args.extend(collect_args(&frame.regs, args)?);
-                Some(super::exec_function(ctx, module, lazy_ctor.as_ref(), &ctor_args)?)
-            }
-            None => {
-                // 站点 ③ fix-silent-symbol-resolution：带实参却解析不到构造器 = 定案缺失，
-                // 不能照常把「未经构造」的对象写进 dst（字段全零值，错误现场离根因十万八千里）。
-                if let Some(exc) = crate::vm_context::symres::missing_ctor_exception(
-                    ctx, module, class_name, ctor_name, args.len(), ctor_known,
-                ) {
-                    return Ok(Some(exc));
-                }
-                crate::metadata::resolver::ctorless_note(ctorless_mark, mark);
-                None
-            }
-        }
+        None => None,
     };
 
     // fix-ctor-throw-propagation (2026-05-24): if the ctor threw a user

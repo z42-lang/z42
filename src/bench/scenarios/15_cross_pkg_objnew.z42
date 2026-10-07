@@ -1,0 +1,36 @@
+// tier: full — 跨包 new：类型与构造器都在惰性加载的包里，隔离 ObjNew 站点缓存的命中路径
+//
+// Allocation loop over `Std.Collections.LinkedListNode<long>` — a generic class whose
+// descriptor and constructor live in `z42.collections`, a package loaded lazily on first
+// use (not merged into the entry module like `z42.core`). The ctor is trivial (three field
+// stores), so per-`new` resolution cost shows next to the allocation itself. Counterpart of
+// 09_alloc_ctorless (entry-module class, no ctor) and 14_cross_pkg_vcall. Run in both
+// modes: interp and JIT each allocate through their own ObjNew path.
+//
+// A rolling live set keeps the objects really allocated and stored; the bulk becomes garbage.
+//
+// Expected output (deterministic): 4499998500000
+
+namespace Bench.CrossPkgObjNew;
+
+using Std.IO;
+using Std.Collections;
+
+long Drive(long n, int keep) {
+    LinkedListNode<long>[] live = new LinkedListNode<long>[keep];
+    long acc = 0L;
+    long i = 0L;
+    while (i < n) {
+        LinkedListNode<long> x = new LinkedListNode<long>(i);
+        int slot = (int)(i % (long)keep);
+        live[slot] = x;
+        acc = acc + x.Value;
+        i = i + 1L;
+    }
+    return acc;
+}
+
+void Main() {
+    long result = Drive(3000000L, 4096);
+    Console.WriteLine(result.ToString());
+}

@@ -66,6 +66,18 @@ seqlock 协议。**打包成一个原子量让这些协议全都不必要**，�
 
 `VCallICEntry` 只存 `(type_id, FnId)`。虚表槽位 `slot` **没有任何消费者**，存它就得凑够 96 位、没法单原子发布，所以不存。
 
+## 同文件里的 `ObjNewSite` 不是 PIC
+
+`ObjNew` 站点缓存（`ObjNewSite`，机制见 [vm-architecture.md](vm-architecture.md)「ObjNew dispatch」）没有接收者
+类型这个键，三个字段各自独立、每个都自成一份答案，所以不需要打包：
+
+- `class` 是 `OnceLock<Arc<TypeDesc>>`：只写一次，读是一次 Acquire load，看到就是完整的描述符。
+- `ctor` 是 `FnId`，读写 `Relaxed`。和 VCall 载荷一样，惰性函数的 id 只经 `FuncTable::get` 解引用，
+  那里的 Acquire 与登记的 Release 配对；先看到 id、后看到登记只会拿到 `None`，走按名绑定。
+- `ctorless` 只与进程级登记计数比较相等，过期只会让站点多解析一次。
+
+两个字段之间没有配对约束：看到 `class` 没看到 `ctor`（或反过来）只是少命中一半，另一半照常按名解析。
+
 ## 守这条不变量的东西
 
 | 门 | 位置 | 说明 |

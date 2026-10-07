@@ -23,7 +23,7 @@
 | `control.rs` | `throw` / `install_catch` / `match_catch_type` |
 | `call.rs` | `jit_call`、`jit_builtin` |
 | `array.rs` | 数组分配、元素访问、长度 |
-| `object.rs` | 对象分配、类型检查、静态字段、`default(T)` |
+| `object.rs` | 对象分配（类 / 构造器解析与站点缓存共用 `interp::obj_new_resolve`，ctor 按 `FnId` 走槽位）、类型检查、静态字段、`default(T)` |
 | `vcall.rs` | 虚调用的 JIT **调用侧**：PIC 命中（载荷 = `FnId`，惰性目标也在内）→ by-id tiered `FnEntry`，冷 → 按 id interp；miss → `interp::vcall_resolve::resolve_vcall`（与 interp 共用的**唯一**目标解析：装箱基元 / 装箱 struct / primitive-as-struct / vtable·层级 walk + PIC 安装）→ 编译入口或 interp 回退 |
 | `closure.rs` | L3 闭包：`load_fn` / `mk_clos` / `call_indirect` |
 | `object_field.rs` | 字段访问 helper（`objops::field` 的薄适配）：提升出循环的无抛出 field-slot 解析（`jit_obj_field_slot` / `jit_obj_ref_field_slot`）及其回退的 `jit_field_get` / `jit_field_set` |
@@ -52,5 +52,5 @@ Z42_JIT_PROFILE=1 <z42vm> <artifact> <entry> --mode jit             # 打印每�
 ## 依赖关系
 - 依赖 `corelib` 的 `exec_builtin` 和 `value_to_str`
 - 依赖 `metadata` 的 `Module`、`Function`、`Instruction`、`Value` 等类型
-- 依赖 `interp::vcall_resolve`（vcall 目标解析单一实现）+ `interp::primitive_class_name`（is/as 共享判定）+ `interp::dispatch::isa_td`（is / as / catch 类型判定单一实现，含 `IsaCache`；helpers/object.rs 与 control.rs 共享，JIT 不自带基链遍历）
+- 依赖 `interp::vcall_resolve`（vcall 目标解析单一实现）+ `interp::obj_new_resolve`（ObjNew 类 / 构造器解析与站点缓存）+ `interp::primitive_class_name`（is/as 共享判定）+ `interp::dispatch::isa_td`（is / as / catch 类型判定单一实现，含 `IsaCache`；helpers/object.rs 与 control.rs 共享，JIT 不自带基链遍历）
 - 外部依赖：`cranelift-codegen`、`cranelift-frontend`、`cranelift-jit`、`cranelift-module`

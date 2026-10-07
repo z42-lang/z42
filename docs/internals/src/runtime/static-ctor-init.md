@@ -117,7 +117,7 @@ stateDiagram-v2
 `__static_init__` 被强制走解释器），于是默认模式下静态构造器根本不跑。
 
 `ObjNew` 手上已有 `TypeDesc`，所以那里**不需要门**——`td.cctor_func()` 一次
-`Option` 判断就结束。
+`Option` 判断就结束。站点缓存（类描述符 + ctor `FnId`）只省掉名字解析，屏障每次分配照做。
 
 ## 包级初始化：`<ns>.$Module`
 

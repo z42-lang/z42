@@ -162,7 +162,7 @@ params 变长 ⇒ phys ≥ want；否则 phys == want
 | 同上，未预填的站点（interp；含跨包首次调用） | `exec_call::bind_callee` 写回 token 之前 | token 直取 |
 | 未绑定的 `Call`（JIT） | `jit_call` 按名绑定，与 interp 同一个 `bind_callee`（按 `Function` 判，**不用** `FnEntry`：被调方未到 JIT 阈值时拿不到它，token 却照写） | 烘焙常量 / token 直取 |
 | `VCall`（两后端共用 `resolve_vcall`） | 出口统一判 → `VCallTarget::Thrown`；`install_ic` 对不上**不装 PIC** | PIC 直取 |
-| `ObjNew` | 解析到构造器后（interp / JIT 各 native 与惰性分支） | — |
+| `ObjNew`（两后端共用 `obj_new_resolve`） | resolver 预填站点缓存的 ctor `FnId`：对不上就**不预填**；否则 `bind_ctor` 写回 `FnId` 之前 | 站点缓存直取 |
 
 两处容易漏的地方，都是真实推导出来的：
 

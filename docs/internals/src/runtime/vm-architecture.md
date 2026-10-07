@@ -572,7 +572,7 @@ token = UNRESOLVED（bind_callee，冷路径）:
 ### 惰性加载函数的 token 首执解析
 
 上面所有 per-site 缓存（`method_tokens` / `vcall_ic` /
-`field_ic` / `builtin_tokens` / `static_field_tokens` / `type_tokens` / `site_index`）
+`field_ic` / `builtin_tokens` / `static_field_tokens` / `obj_new` / `site_index`）
 都挂在 `Function.resolved: OnceLock<ResolvedTokens>`，由
 [`resolver::resolve_module`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/resolver.rs) 一次性填充。
 但 `resolve_module` **只经 `Vm::run` → `boot::prepare_execution` 对 entry module 跑一次**——而
@@ -596,8 +596,8 @@ profile 里 `get_inner`+`memcmp`+`try_lookup_*` 的大头即源于此。
 
 **模块身份不变式（关键正确性约束）**：填充用的 `module` 必须是该函数**运行期实际
 dispatch 所对的 Module**——始终是 entry module（惰性 callee 由调用方的 `module`
-一路透传，根在 entry）。`method_tokens` 按 `module` 解读（见上一节），`type_tokens` 是
-`module.type_registry` 的 id；对**别的** module 解析会铸出错目标。尚未加载的包里的目标
+一路透传，根在 entry）。`method_tokens` 按 `module` 解读（见上一节），`obj_new` 的 ctor 载荷同样是
+`FnId`、只对入口模块预填和使用；对**别的** module 解析会铸出错目标。尚未加载的包里的目标
 在此解析为 `UNRESOLVED`，首次调用时绑定（见上一节）。**`field_ic`（运行期首派填充，载荷是类内字段下标）、
 `builtin_tokens`（全局闭集）、`static_field_tokens`（全局 `ctx.resolve_static_field_id`，
 锁保护幂等）** 与 module 下标无关；**`vcall_ic`** 的载荷是被调函数的 `FnId`（与 `method_tokens`
@@ -785,19 +785,47 @@ needs_fixup = td.fields.len() != expected || td.vtable.len() != expected_v
 
 ### ObjNew dispatch（与 VCall 对称）
 
-`Instruction::ObjNew { dst, class_name, ctor_name, args }`：
+`Instruction::ObjNew { dst, class_name, ctor_name, args }`。类与构造器的解析是 interp 与 JIT 共用的一份
+（[obj_new_resolve.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/interp/obj_new_resolve.rs)），
+两侧只决定怎么跑 ctor：
 
 ```
-1. type_desc = module.type_registry[class_name] | lazy_loader.try_lookup_type(class_name)
-            | make_fallback_type_desc(...)
-2. allocate ScriptObject(type_desc)：TypeDesc::object_storage() 给出零字节区 + Null 引用区；
-   泛型实例再按实参改写型参字段（generic_field_zero_overrides）
-3. ctor_fn = module.func_index[ctor_name] | lazy_loader.try_lookup_function(ctor_name)
-4. if ctor_fn: exec_function(ctor_fn, [obj, ...args])
-   else:       skip ctor call（默认无参 ctor 语义；TypeChecker 已确保
-               有显式 ctor 时 ctor_name 命中）
-5. frame[dst] = obj
+1. 类：站点缓存 class 命中 → 直接用（每次仍做歧义判定）
+       否则 module.type_registry[class_name] | ctx.try_lookup_type(class_name)
+            | 判定缺失（MissingSymbolException） | make_fallback_type_desc(...)
+       → base_unmerged 时换惰性加载器修好的那份 → 歧义判定 → 基类缺失判定
+       → 完整描述符写入站点缓存（回落描述符、基类未合并的不写）
+2. 包初始化屏障 → 类型初始化（cctor）屏障            # 每次分配都做，命中缓存也做
+3. ctor：站点缓存 ctor（FnId）命中 → fn_by_id 无锁取函数
+         ctorless 标记仍有效 → 无 ctor
+         否则 module.func_index[ctor_name] | ctx.try_lookup_function(ctor_name)
+            → 签名判定（不符则抛、不缓存）→ 写回 FnId
+            | 都没有：判定缺失则抛，否则记 ctorless 标记
+4. 分配 ScriptObject(type_desc)：TypeDesc::object_storage() 给出零字节区 + Null 引用区；
+   泛型实例按实参改写型参字段（generic_field_zero_overrides）
+5. if ctor: interp exec_function(ctor, [obj, ...args]) / JIT 已编译 → 原生（按 FnId 计数升层），否则 interp
+   else:    skip ctor call（默认无参 ctor 语义；TypeChecker 已确保有显式 ctor 时 ctor_name 命中）
+6. frame[dst] = obj
 ```
+
+ctor 在分配**之前**绑定：绑定可能加载包、跑包初始化器，而刚分配的对象只在 Rust 局部变量里时不是 GC 根。
+
+**站点缓存**（`ResolvedTokens.obj_new[site]: ObjNewSite`，[resolver/ic.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/resolver/ic.rs)）：
+
+| 字段 | 内容 | 何时写 |
+|---|---|---|
+| `class: OnceLock<Arc<TypeDesc>>` | 类描述符 | 解析期从 `module.type_registry` 预填（基类未合并的除外）；否则首次分配成功后 |
+| `ctor: AtomicU32` | ctor 的 `FnId`（与 `method_tokens` 同一套：入口函数 = 下标，惰性函数其后） | 解析期 `FuncTable::id_of` + 签名判定预填；否则首次绑定成功后 |
+| `ctorless: AtomicUsize` | 「该类无 ctor」已证明时的函数登记计数 | 解析不到且不是定案缺失时；登记计数一变即失效 |
+
+- **只对入口模块用**：`module` 是 FuncTable 的入口模块（`FuncTable::is_entry`，生产路径恒成立）时才读写缓存；
+  单测里裸 `VmContext::new()` 配的模块每次按名解析、什么都不缓存（惰性 ctor 的 `FnId` 可能与模块下标同号）。
+- **命中路径**：不哈希类名 / ctor 名、不拿锁（`OnceLock::get` 是一次 Acquire load，ctor id 读 `Relaxed`，惰性
+  ctor 只经 `FuncTable::get` 解引用，发布顺序同 VCall PIC，见下文「Polymorphic IC」）。JIT 的 `jit_obj_new` 拿
+  烘焙进代码的站点指针（`translate/ic.rs` `obj_new_site_ptr_at`），命中时也不校验名字的 UTF-8。
+- **为什么类描述符只缓存完整的**：基类未合并（`base_unmerged`）的描述符还会被加载器的继承修补原地改
+  （`Arc::get_mut`）或换成修好的副本，攥着克隆会挡住修补；回落描述符每次现建，与之前一致。
+- **仍按名字**：回落描述符的类（编译器合成、不在注册表里的本地类）每次分配都重建描述符。
 
 **与 VCall 对齐的核心**：编译期完整 overload resolution，VM 直查 `ctor_name`，
 不做 `${class}.${simple}` 名字推断。
@@ -807,7 +835,7 @@ needs_fixup = td.fields.len() != expected || td.vtable.len() != expected_v
 字节区（⇒ `0` / `false` / `'\0'` / `0.0`），引用字段为 `Null`（`TypeDesc::object_storage()`，
 `metadata/types/type_desc.rs`）。布局按**声明**算，`T` 型参字段因此被归为引用槽、零值是 `Null`；
 泛型实例由 `metadata/types/field.rs::generic_field_zero_overrides` 按实参把基元型参字段改写成该类型的零值。
-interp（堆 / 栈两支）与 JIT (`jit_obj_new`) 共用这两步。字段分类依赖 `FieldSlot` 携带的
+interp（堆 / 栈两支）与 JIT (`jit_obj_new`) 共用步骤 4。字段分类依赖 `FieldSlot` 携带的
 `type_tag: Box<str>`（从 zbc `FieldDesc.type_tag` 透传），见下文 TypeDesc 结构；
 完整的零初始化不变式见 [object-abi.md](object-abi.md)「槽位零初始化」。
 
@@ -1014,9 +1042,8 @@ import metadata 内部类型；helpers/* 同样走 trait"这一**完整愿景**�
 - **define + impl on Module**：codify "JIT compile-time 需要哪些 module 读"
 - **`jit::run` 走 trait method**：`module.functions()` /
   `module.module_name()` 等替代直接字段访问
-- **一个 helper exemplar**（`jit_obj_new`）：示范 helpers 内部如何调 trait
-  method（`module.type_lookup(name)` 替代 `module.type_registry.get(name)`），
-  raw pointer 不变
+- **helper 暂无 trait 消费者**：`jit_obj_new` 的类 / 构造器解析与 interp 共用
+  `interp::obj_new_resolve`，不经 `type_lookup`；raw pointer 不变
 - **签名保持具体类型**：`JitModule::setup(&Module)`；`JitModuleCtx.module:
   *const Module` 是具体类型
 
@@ -1204,8 +1231,7 @@ pub struct VTableSlot(pub u32);   // → TypeDesc.vtable[id]
 pub struct ResolvedTokens {
     pub method_tokens:        Vec<AtomicU32>,   // Call 站点：被调函数的 FnId（未加载的包留 UNRESOLVED；JIT 共用）
     pub builtin_tokens:       Vec<u32>,         // Builtin 站点（100% 命中）
-    pub type_tokens:          Vec<AtomicU32>,   // ObjNew 站点
-    pub ctorless_marks:       Vec<AtomicUsize>, // ObjNew 站点「该类无 ctor」的已证明标记
+    pub obj_new:              Vec<ObjNewSite>,  // ObjNew 站点：类描述符 + ctor 的 FnId + 「该类无 ctor」标记
     pub vcall_ic:             Vec<VCallIC>,     // VCall 多态 IC（4 槽）
     pub field_ic:             Vec<FieldIC>,     // FieldGet/Set 多态 IC（4 槽）
     pub static_field_tokens:  Vec<AtomicU32>,   // StaticGet/Set 站点
@@ -1222,7 +1248,7 @@ pub struct ResolvedTokens {
    - 解析能解析的 token：
      - `Call.func` → `FuncTable::id_of`（入口模块、再已登记的惰性函数）命中且签名容得下 → `FnId`，否则 `UNRESOLVED`
      - `Builtin.name` → `corelib::builtin_id_of`（再查 per-VM ext 注册表）命中 → `BuiltinId`，否则 `UNRESOLVED`（ext 库此时可能还没加载）
-     - `ObjNew.class_name` → `module.type_registry` → `TypeId`
+     - `ObjNew` → 入口模块时预填站点缓存：`module.type_registry` 的描述符（基类未合并的除外）+ ctor 经 `FuncTable::id_of` 命中且签名容得下的 `FnId`
      - `StaticGet/Set.field` → `ctx.resolve_static_field_id(name)` 懒分配
      - `VCall` / `FieldGet/Set` → 留 IC UNRESOLVED（receiver-type-dependent）
    - `function.resolved.set(...)` (OnceLock idempotent)
@@ -1233,7 +1259,7 @@ pub struct ResolvedTokens {
 
 - **Call**: 命中 → 入口函数 `module.functions[t]` / 惰性函数 `funcs.get(t)`；UNRESOLVED → 按名绑定 + 写回（见上文「Call 站点 token：FnId」）
 - **Builtin**: 命中 → `exec_builtin_by_id`（`BUILTINS[id]` 或 ext 表）；`UNRESOLVED` → 按名 `corelib::exec_builtin`（调用时重查 ext 注册表）
-- **ObjNew**: 仍走 `type_registry`（HashMap by name）；TypeId cache 用作 cross-zpkg observability
+- **ObjNew**: 站点缓存命中 → 缓存的 `Arc<TypeDesc>` + ctor 按 `FnId` 无锁取回；未命中 → 按名解析 + 回填（见上文「ObjNew dispatch」）
 - **StaticGet/Set**: 命中 → `static_fields[id]`；UNRESOLVED → name lookup + 回填
 - **VCall**: PIC 命中（4-slot 线性扫描；receiver 的 type id 匹配任一槽位的 `type_id`）→ 按载荷 `FnId` 直调（`fn_by_id`：入口函数 = `module.functions` 下标，惰性函数经 `FuncTable::get`）；miss → 走 `vcall_resolve` 的完整派发阶梯，目标有 `FnId`（本模块与惰性包的函数都有；唯一例外是非入口模块单测里的惰性目标）且实参个数匹配时通过 `vcall_ic_install` 填入第一个空槽（或 round-robin 牺牲一个槽）
 - **FieldGet/Set**: PIC 命中（4-slot 线性扫描）→ 字段下标 `slot` → `field_access[slot]` 定位到对象的字节区或 `refs` 侧表读写；miss → `field_index` 查 + 通过 `field_ic_install` 填槽

@@ -11,7 +11,7 @@ fn resolved_tokens_default_is_empty() {
     let r = ResolvedTokens::default();
     assert!(r.method_tokens.is_empty());
     assert!(r.builtin_tokens.is_empty());
-    assert!(r.type_tokens.is_empty());
+    assert!(r.obj_new.is_empty());
     assert!(r.vcall_ic.is_empty());
     assert!(r.field_ic.is_empty());
     assert!(r.static_field_tokens.is_empty());

@@ -9,7 +9,8 @@
 //!   • `Call.func`            → `FnId` (every callee already registered in the
 //!                              VM's `FuncTable`; the rest filled on first dispatch)
 //!   • `Builtin.name`         → `BuiltinId` (closed set — panic on miss)
-//!   • `ObjNew.class_name`    → `TypeId` (intra-module; cross-zpkg lazy)
+//!   • `ObjNew` class + ctor  → `ObjNewSite` (class descriptor + ctor `FnId`; whatever is
+//!                              already registered, the rest filled on first dispatch)
 //!   • `StaticGet/Set.field`  → `StaticFieldId` (lazy global ID via
 //!                              `VmContext::resolve_static_field_id`)
 //!
@@ -54,16 +55,12 @@ pub struct ResolvedTokens {
     /// `Builtin` sites: `BuiltinId` resolved at load (closed set —
     /// panic if a builtin name is unknown).
     pub builtin_tokens: Vec<u32>,
-    /// `ObjNew` sites: cached `TypeId` (similar lifecycle to method_tokens).
-    pub type_tokens: Vec<AtomicU32>,
-    /// **cache-ctorless-objnew**: `ObjNew` sites, parallel to `type_tokens` — the
-    /// `VmContext::fn_registration_mark()` at which this site proved its class has
-    /// **no constructor** (`0` = never proved). A class without an explicit ctor
-    /// still makes the compiler emit `<Class>..ctor$N`, a name that resolves
-    /// nowhere; without this the runtime re-ran that failed resolve on **every**
-    /// allocation. Valid while the mark is unchanged: the loader's function registry only grows,
-    /// and an absent ctor can only appear by being inserted there.
-    pub ctorless_marks: Vec<std::sync::atomic::AtomicUsize>,
+    /// `ObjNew` sites (P1-2 PR 5): the resolved class descriptor and ctor `FnId`, plus the
+    /// cache-ctorless-objnew mark — see [`ObjNewSite`]. Used only when the function runs
+    /// against the VM's entry module; pre-filled here from what is already registered
+    /// (the module's type registry, `FuncTable::id_of`), the rest on first dispatch
+    /// (`interp::obj_new_resolve`, which both backends use).
+    pub obj_new: Vec<ObjNewSite>,
     /// `VCall` sites: polymorphic inline cache, `TypeId` → callee `FnId` (same id space
     /// as `method_tokens`; lazily loaded callees included, P1-2 PR 4).
     pub vcall_ic: Vec<VCallIC>,
@@ -83,7 +80,7 @@ pub use ic::{
     assert_field_ic_slot,
     ctorless_hit, ctorless_note, fn_registration_mark, note_fn_registration,
     field_ic_install, field_ic_lookup, vcall_ic_install, vcall_ic_lookup,
-    FieldIC, FieldICEntry, VCallIC, VCallICEntry, IC_SLOTS,
+    FieldIC, FieldICEntry, ObjNewSite, VCallIC, VCallICEntry, IC_SLOTS,
 };
 
 /// Walk every Function in `module` and populate its `resolved`
@@ -114,8 +111,8 @@ pub fn resolve_module(module: &crate::metadata::Module, ctx: &crate::vm_context:
 /// **Module identity invariant**: `module` MUST be the same `Module` the
 /// function will execute against at runtime (always the entry module — lazy
 /// callees are invoked with the caller's `module`, which threads down from the
-/// entry). `type_tokens` are `module.type_registry` ids and `method_tokens` are
-/// read against `module` (see the field doc); resolving against a *different*
+/// entry). `method_tokens` are read against `module` (see the field doc) and `obj_new`
+/// is only pre-filled for the entry module; resolving against a *different*
 /// module would mint wrong targets. Callees in packages not loaded yet resolve
 /// to `UNRESOLVED` here and are bound on first dispatch.
 ///
@@ -141,7 +138,8 @@ pub fn resolve_function_tokens(
         // count each `Call` site passes (receiver + args + sret slot, exactly as emitted).
         let mut method_site_argc:    Vec<usize>  = Vec::new();
         let mut builtin_site_names:  Vec<String> = Vec::new();
-        let mut type_site_names:     Vec<String> = Vec::new();
+        // ObjNew sites: (class name, ctor name, physical argc incl. `this`).
+        let mut obj_new_sites:       Vec<(&str, &str, usize)> = Vec::new();
         let mut static_site_names:   Vec<String> = Vec::new();
         let mut vcall_site_count:    u32 = 0;
         let mut field_site_count:    u32 = 0;
@@ -165,8 +163,8 @@ pub fn resolve_function_tokens(
                         s
                     }
                     Instruction::ObjNew(insn) => {
-                        let s = type_site_names.len() as u32;
-                        type_site_names.push(insn.class_name.clone());
+                        let s = obj_new_sites.len() as u32;
+                        obj_new_sites.push((&insn.class_name, &insn.ctor_name, insn.args.len() + 1));
                         s
                     }
                     Instruction::VCall(_) => {
@@ -252,17 +250,27 @@ pub fn resolve_function_tokens(
             })
             .collect();
 
-        let type_tokens: Vec<AtomicU32> = type_site_names.iter()
-            .map(|name| AtomicU32::new(
-                module.type_registry.get(name)
-                    .map(|td| td.id.0)
-                    .unwrap_or(UNRESOLVED)
-            ))
+        // P1-2 PR 5: ObjNew sites start out bound to whatever the first dispatch would pick
+        // from what is registered now — entry module only (the cache is read only there).
+        // Class: the module registry's descriptor unless its inheritance is still unmerged
+        // (that one goes through the loader on first use). Ctor: `id_of` (entry first, then
+        // lazily loaded) with the same arity check as the first binding. Nothing is loaded.
+        let obj_new: Vec<ObjNewSite> = obj_new_sites.iter()
+            .map(|&(class_name, ctor_name, argc)| {
+                let site = ObjNewSite::default();
+                if by_fn_id {
+                    if let Some(td) = module.type_registry.get(class_name).filter(|td| !td.base_unmerged()) {
+                        let _ = site.class.set(td.clone());
+                    }
+                    let ctor = funcs.id_of(ctor_name).filter(|&id| funcs.get(id)
+                        .is_some_and(|f| crate::vm_context::symres::call_arity(f).accepts(argc)));
+                    if let Some(id) = ctor {
+                        site.ctor.store(id.0, std::sync::atomic::Ordering::Relaxed);
+                    }
+                }
+                site
+            })
             .collect();
-
-        // cache-ctorless-objnew: one slot per ObjNew site, parallel to `type_tokens`.
-        let ctorless_marks: Vec<std::sync::atomic::AtomicUsize> =
-            type_site_names.iter().map(|_| std::sync::atomic::AtomicUsize::new(0)).collect();
         let vcall_ic: Vec<VCallIC> = (0..vcall_site_count).map(|_| VCallIC::default()).collect();
         let field_ic: Vec<FieldIC> = (0..field_site_count).map(|_| FieldIC::default()).collect();
 
@@ -293,8 +301,7 @@ pub fn resolve_function_tokens(
         let resolved = ResolvedTokens {
             method_tokens,
             builtin_tokens,
-            type_tokens,
-            ctorless_marks,
+            obj_new,
             vcall_ic,
             field_ic,
             static_field_tokens,
