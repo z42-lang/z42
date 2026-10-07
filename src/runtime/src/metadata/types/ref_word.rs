@@ -11,7 +11,7 @@
 //! | 2 | `Array` | `GcRef<ArrayObj>` |
 //! | 3 | `Str` | `VarGcRef` |
 //! | 4 | `Closure` | `VarGcRef` |
-//! | 5 | `FuncRef` | `VarGcRef` |
+//! | 5 | `FuncRef` | 不是句柄：`FnId << 3`，JIT 读走慢路径 |
 //! | 6 | `BoxedStruct` | `GcRef<ScriptObject>` |
 //! | 7 | 装箱的任意 `Value`（逃生口） | `GcRef<ArrayObj>`，单元素数组 |
 //!
@@ -41,7 +41,7 @@ pub const RK_BOXED_VALUE: u64 = 7;
 /// JIT 读路径的查表：种类 → 寄存器里 `Value` 的判别值。`null` 的字是 0 ⇒ 种类 0 ⇒ `Null`(5)，
 /// 负载随之为 0。种类 7 是 [`SLOW_PATH_TAG`]：要回落到 helper 取盒子里的值。判别值由
 /// `metadata/types_tests.rs::value_discriminants_pinned` 钉住。
-pub static KIND_TO_VALUE_TAG: [u8; 8] = [5, 7, 6, 4, 10, 9, 17, SLOW_PATH_TAG];
+pub static KIND_TO_VALUE_TAG: [u8; 8] = [5, 7, 6, 4, 10, SLOW_PATH_TAG, 17, SLOW_PATH_TAG];
 pub const SLOW_PATH_TAG: u8 = 0xFF;
 
 // 句柄的低 3 位必须空着。64 位目标上 entry / 块头都含指针宽字段，天然 8 对齐；32 位目标由
@@ -64,7 +64,8 @@ pub fn encode(v: &Value) -> Option<u64> {
         Value::Array(r) => tag(r.to_tagged_bits(), RK_ARRAY),
         Value::Str(s) => tag(s.var_ref().to_bits(), RK_STR),
         Value::Closure(c) => tag(c.to_bits(), RK_CLOSURE),
-        Value::FuncRef(s) => tag(s.var_ref().to_bits(), RK_FUNC_REF),
+        // FuncRef 不是堆引用：字 = `FnId << 3 | 种类`，没有 GC 边。
+        Value::FuncRef(id) => ((id.0 as u64) << 3) | RK_FUNC_REF,
         Value::BoxedStruct(r) => tag(r.to_tagged_bits(), RK_BOXED_STRUCT),
         _ => return None,
     })
@@ -108,7 +109,7 @@ pub unsafe fn decode_for_trace(w: u64) -> Value {
             RK_ARRAY | RK_BOXED_VALUE => GcRef::from_tagged_bits(h).map_or(Value::Null, Value::Array),
             RK_STR => VarGcRef::from_bits(h).map_or(Value::Null, |b| Value::Str(Str::from_var_ref(b))),
             RK_CLOSURE => VarGcRef::from_bits(h).map_or(Value::Null, Value::Closure),
-            RK_FUNC_REF => VarGcRef::from_bits(h).map_or(Value::Null, |b| Value::FuncRef(Str::from_var_ref(b))),
+            RK_FUNC_REF => Value::FuncRef(crate::metadata::tokens::FnId((w >> 3) as u32)),
             RK_BOXED_STRUCT => GcRef::from_tagged_bits(h).map_or(Value::Null, Value::BoxedStruct),
             _ => {
                 debug_assert_eq!(w, 0, "reference word with kind 0 but a non-zero handle");

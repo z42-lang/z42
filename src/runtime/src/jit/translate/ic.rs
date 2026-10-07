@@ -32,6 +32,15 @@ fn method_token_at(func: &Function, block_idx: usize, instr_idx: usize) -> Optio
     r.method_tokens.get(site as usize)
 }
 
+/// P1-2 PR 8: a `LoadFn` / `MkClos` site's token cell (`ResolvedTokens::fn_ref_tokens`) —
+/// the target `FnId` once bound. Null when `Function.resolved` is unset (the helper then
+/// binds by name on every execution). Same lifetime guarantees as `method_token_ptr_at`.
+pub(super) fn fn_ref_token_at(func: &Function, block_idx: usize, instr_idx: usize) -> Option<&std::sync::atomic::AtomicU32> {
+    let r = func.resolved.get()?;
+    let site = *r.site_index.get(block_idx)?.get(instr_idx)?;
+    r.fn_ref_tokens.get(site as usize)
+}
+
 /// formalize-jit-method-token Phase 2.E helper: stable raw pointer to
 /// the `VCallIC` slot for the VCall site at `(block_idx, instr_idx)`.
 /// Returns null when `Function.resolved` is unset (helper degrades to

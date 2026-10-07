@@ -243,8 +243,8 @@ VarRegion 变长块（16B 对齐原始 chunk + 四分之一八度 size-class fre
 
 | BlockType | payload | 消费者 | drop-glue |
 |-----------|---------|--------|-----------|
-| `Str` | inline UTF-8 | `Value::Str` / `FuncRef`（8B 细指针，**不可变叶子**，trace 无出边）| POD，无 |
-| `Closure` | 一个 `ClosureData{env: GcRef, fn_name: Str}` | `Value::Closure` | **POD，无**（fn_name 是 GC Str，闭包全 POD）|
+| `Str` | inline UTF-8 | `Value::Str`（8B 细指针，**不可变叶子**，trace 无出边）| POD，无 |
+| `Closure` | 一个 `ClosureData{env: GcRef, fn_id: FnId}` | `Value::Closure` | **POD，无**（目标是函数 id，闭包全 POD）|
 | `ArrayPrim` / `ArrayStruct` | 紧凑 `[T;n]`（packed 基元 / struct[] 字节区）| `ArrayObj` backing | POD，无 |
 | `ArrayValue` | inline `[Value;n]`（Boxed 数组 / struct[] refs 侧表）| `ArrayObj` backing | **唯一需 finalizer**：drop 每个 `Value` |
 
@@ -294,18 +294,18 @@ chunk 内存还给系统 malloc，新堆可能在**同一地址**重分配块，
 
 **mark/trace 统一到单一访问器**：`Value::visit_gc_children(for_marking, visit)` 是
 mark 阶段与 heapsnapshot/retention 枚举的**单一来源**，二者仅在两条 mark 副作用轴上不同
-（`mark_backing` 标变长元素块 + 闭包是否 surfaced env 头/fn_name），由 `for_marking` 参数统一；
+（`mark_backing` 标变长元素块 + 闭包是否 surfaced env 头），由 `for_marking` 参数统一；
 `trace_children`（`for_marking=true`）/ `scan_object_refs`（`false`）退化为薄委托。
 
 ```mermaid
 flowchart TD
   MARK["mark_phase BFS<br/>(STW / minor / 增量切片同源)"] -->|"mark_if_unmarked(v)"| M{"v 是堆引用?"}
   M -->|"Object/Array"| RO["GcRef::mark → region_object/array 置位"]
-  M -->|"Closure/Str/FuncRef"| RV["VarGcRef::mark → region_var 块置位"]
+  M -->|"Closure/Str"| RV["VarGcRef::mark → region_var 块置位"]
   RO --> TC["v.visit_gc_children(true, push child)"]
   RV --> TC
   TC -->|"Array"| MB["mark_backing() 标元素块 + 推 gc_refs"]
-  TC -->|"Closure"| CE["推 env 数组头 + fn_name 串"]
+  TC -->|"Closure"| CE["推 env 数组头"]
   TC --> Q["子节点入队 → 循环"]
   SWEEP["sweep_phase (mark 后, STW)"] --> S3["region_object/array/var 各自 sweep<br/>未标块 → drop-glue(仅 ArrayValue) → tombstone/回收"]
 ```

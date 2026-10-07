@@ -97,7 +97,7 @@ close_major_marking ── loop { retire 自己；取 satb_queue；标记入 mar
    （`Region::set_promotion_age`）。`VarRegion::sweep_young` 另有**显式**跳过
    （`age_backing_with_owner` 会在不摘出年轻集合的情况下抬高 backing 年龄）。
 2. **`region_var` 没有卡表**（`maybe_mark_cross_gen_card` 的 `_ => {}` 臂），所以上面那条论证对 var 条目
-   要逐个变体核查：`Str` / `FuncRef` 是叶子；闭包的 `env` 在构造时固定、此后与闭包同步升龄
+   要逐个变体核查：`Str` 是叶子（`FuncRef` 只是函数 id，不在堆上）；闭包的 `env` 在构造时固定、此后与闭包同步升龄
    （每次够得着闭包的 minor 都会标记 env 表头）⇒ 老闭包的 env 必老，而 env 是**数组**、有卡；
    数组的元素 backing 由 `age_backing_with_owner` 保证不比属主年轻，且 minor 追老数组时传 `None`、
    本来就不 `mark_backing`。

@@ -20,7 +20,7 @@ pub enum BlockType {
     ArrayPrim = 2,
     /// `struct[]` inline bytes + reference-leaf bitmap (mixed). PR-4.
     ArrayStruct = 3,
-    /// `ClosureData` fields (env edge + fn_name string edge). PR-3.
+    /// `ClosureData` fields (env edge + target `FnId`, P1-2 PR 8). PR-3.
     Closure = 4,
 }
 

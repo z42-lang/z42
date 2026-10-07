@@ -52,7 +52,9 @@ JitModule
   `&FnEntry` 在整个 run 内有效——**热路径读取零锁**。槽随 `JITModule` 存活（代码页的生命周期）；挪到 VmCore
   是 P1-6 的事。
 - **by-name 只在冷路径**：`id_by_name(name)` = `func_index` → `funcs.lazy_id` → `try_lookup_function`（可能加载包）
-  → 同一套 by-id 槽。仍按名字进来的只有入口函数、`ToString` 和闭包（闭包随 P1-2 的 PR 8 改存 id）。构造器取
+  → 同一套 by-id 槽。仍按名字进来的只有入口函数和 `ToString`。闭包 / `FuncRef` 在 `LoadFn` / `MkClos` 时就把目标绑成 `FnId`
+  （P1-2 PR 8），`jit_call_indirect` 直接按 id 查槽；`LoadFn` 的 token 编译时已绑定就内联成一次寄存器写（tag 9 + id），
+  不调 helper，见 [vm-architecture.md「闭包 dispatch」](vm-architecture.md#闭包-dispatchclosure--funcref)。构造器取
   `ObjNew` 站点缓存里的 `FnId`（见 [vm-architecture.md](vm-architecture.md)「ObjNew dispatch」）。
 - **`Mutex<LazyCompiler>`** 只在**真正编译某函数**时加锁。
 
@@ -232,8 +234,9 @@ fn resolve_fn_by_id_thr(&self, id, thr) -> Option<&FnEntry> {
 （`vm_context.rs`），在 `JitModule::run_fn` 里与 `vm_ctx` **同生命周期设置/清零**（二者必须一起有效——原生码
 经 `(*jit_ctx).vm_ctx` 够到 VmContext）。
 
-**分发 hook**（`interp/exec_call.rs::try_native_static_call` / `exec_vcall.rs::try_native_method_call`）：解析出
-callee 的 JIT id（`Call` 的 token；VCall 的 PIC 载荷或解析结果里的 `FnId`）后，若 `jit_ctx`
+**分发 hook**（`interp/exec_call.rs::try_native_static_call` / `try_native_indirect_call` /
+`exec_vcall.rs::try_native_method_call`）：解析出 callee 的 JIT id（`Call` 的 token；VCall 的 PIC 载荷或解析结果里的
+`FnId`；`CallIndirect` 是 `FuncRef` / 闭包值里创建时绑定的 `FnId`，闭包的 env 作 reg 0）后，若 `jit_ctx`
 已发布且 `resolve_fn_by_id_tiered(id)` 返回已编译 entry → 建 `JitFrame`
 （`new_args_from` / `new_method_args_from`）调原生、marshal 结果（照搬 `jit_call`/`jit_vcall`）；否则(冷/不可编)
 返回 None → 原样走 interp。这一步也计数：从解释器调的函数（入口与惰性一样）照样到阈值升层。GC 统一帧链类型无关（interp `Frame` 与 `JitFrame` 都暴露 `regs`），
@@ -252,9 +255,9 @@ push/pop_frame 复制即安全。
 
 ### 集中拦截 backstop（保证「已编译函数永不被 interp 执行」）
 
-上面的 per-site hook（`try_native_static_call` / `try_native_method_call`）只覆盖 interp 的**静态 Call +
-IC 虚 VCall 热路径**。「interp 会执行函数体」的入口里还有多条绕过它们、直接经 `exec_function`
-跑函数体：**构造函数**（`exec_object`）、**闭包/委托**（CallIndirect）、**`ToString` 派发**
+上面的 per-site hook（`try_native_static_call` / `try_native_indirect_call` / `try_native_method_call`）只覆盖
+interp 的**静态 Call、`CallIndirect` 与 IC 虚 VCall 热路径**。「interp 会执行函数体」的入口里还有多条绕过它们、直接经 `exec_function`
+跑函数体：**构造函数**（`exec_object`）、**`ToString` 派发**
 （`interp/dispatch.rs`）、**非 IC / vtable / base-fallback 的虚调用路径**、**跨包静态调用**、以及最隐蔽的
 **builtin 回调**（传给 stdlib 原生方法的比较器/谓词，被调够多次编译后又经 `exec_function` 解释执行）。
 

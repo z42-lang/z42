@@ -5,6 +5,7 @@
 /// `Result<Option<Value>>` (Some = thrown). Pure helpers return `Result<()>`.
 
 use crate::metadata::{Function, Module, Value};
+use crate::metadata::tokens::FnId;
 use crate::vm_context::VmContext;
 use anyhow::{bail, Result};
 use std::sync::Arc;
@@ -296,15 +297,120 @@ pub(super) fn builtin(
     }
 }
 
-/// L2 no-capture lambda lifting: push a function reference value.
-/// See docs/internals/src/runtime/escape-analysis.md (闭包栈分配) + ir.md.
-pub(super) fn load_fn(frame: &mut Frame, dst: u32, func: &str) {
-    frame.set(dst, Value::FuncRef(func.into()));
+// ── Function references (P1-2 PR 8) ─────────────────────────────────────────────
+
+/// The target id a `LoadFn` / `MkClos` site creates its value with: the site's token
+/// (`ResolvedTokens::fn_ref_tokens`) when bound — one relaxed load, no hashing — else
+/// [`bind_fn_ref`]. `Err` carries the exception to throw.
+#[inline]
+pub(crate) fn fn_ref_id(
+    ctx: &VmContext, module: &Module, name: &str, token: Option<&std::sync::atomic::AtomicU32>,
+) -> Result<FnId, Value> {
+    if let Some(t) = token {
+        let id = t.load(std::sync::atomic::Ordering::Relaxed);
+        if id != crate::metadata::tokens::UNRESOLVED { return Ok(FnId(id)); }
+    }
+    bind_fn_ref(ctx, module, name, token)
+}
+
+/// The cold half of [`fn_ref_id`]: resolve a function reference's target by name, once,
+/// when the value is created — this module's `func_index` first, then the lazy loader
+/// (which loads the defining package) — and store the id into the site's token. The same
+/// precedence `CallIndirect` used to apply on every call, and the same id space as `Call`
+/// tokens ([`fn_by_id`] reads it back).
+///
+/// Errors surface here, at creation, instead of at the first invocation (runtime-audit
+/// §7 P1-2 decision): an unknown name throws a catchable `MissingSymbolException`
+/// (`undefined function `…``, the `Call` path's wording) where `CallIndirect` used to
+/// fail with an internal error. A lazily loaded target is only representable when
+/// `module` is the `FuncTable`'s entry module (every production run); against any
+/// other module (unit tests on a bare `VmContext`) it throws instead.
+#[inline(never)]
+pub(crate) fn bind_fn_ref(
+    ctx: &VmContext, module: &Module, name: &str, token: Option<&std::sync::atomic::AtomicU32>,
+) -> Result<FnId, Value> {
+    let id = match module.func_index.get(name) {
+        Some(&idx) if idx < module.functions.len() => idx as u32,
+        _ => {
+            let Some(lazy) = ctx.try_lookup_function(name) else {
+                return Err(crate::exception::make_missing_symbol_exception(
+                    ctx, module, format!("undefined function `{name}`")));
+            };
+            match lazy_call_id(ctx, module, &lazy) {
+                Some(id) => id as u32,
+                None => {
+                    let msg = format!(
+                        "cannot reference `{name}`: a lazily loaded function has no id outside the VM's entry module");
+                    return Err(crate::exception::make_stdlib_exception(ctx, module, "Std.Exception", msg.clone())
+                        .unwrap_or_else(|_| Value::Str(msg.into())));
+                }
+            }
+        }
+    };
+    if let Some(t) = token { t.store(id, std::sync::atomic::Ordering::Relaxed); }
+    Ok(FnId(id))
+}
+
+/// L2 no-capture lambda / free-function method group: `dst = FuncRef(target)`, the target
+/// bound by [`fn_ref_id`]. Returns the exception to throw when the target cannot be bound.
+// Kept out of line: `exec_instr`'s dispatch match stays the same size as before P1-2 PR 8
+// (inlining these bodies into it measurably slowed unrelated hot arms, e.g. VCall).
+#[inline(never)]
+pub(super) fn load_fn(
+    ctx: &VmContext, module: &Module, frame: &mut Frame, dst: u32, func: &str,
+    token: Option<&std::sync::atomic::AtomicU32>,
+) -> Option<Value> {
+    match fn_ref_id(ctx, module, func, token) {
+        Ok(id) => { frame.set(dst, Value::FuncRef(id)); None }
+        Err(exc) => Some(exc),
+    }
+}
+
+/// runtime-jit-tiering Phase 1.5 for `CallIndirect`: like [`try_native_static_call`],
+/// with a closure's env as the callee's implicit first argument (register 0).
+#[cfg(feature = "jit")]
+fn try_native_indirect_call(
+    ctx: &VmContext, frame: &mut Frame, dst: u32, id: usize, env: Option<Value>, args: &[u32],
+) -> Option<Result<Option<Value>>> {
+    let p = ctx.jit_ctx_ptr();
+    if p == 0 { return None; }
+    // Same Ref guard as `try_native_static_call` (an interp frame may hold a `Ref`).
+    if args.iter().any(|&r| matches!(frame.regs.get(r as usize), Some(Value::Ref { .. }))) {
+        return None;
+    }
+    let jit_ctx = p as *const crate::jit::frame::JitModuleCtx;
+    // SAFETY: as in `try_native_static_call`.
+    let (max_reg, ptr, callee_fn) = {
+        let entry = unsafe { (*jit_ctx).resolve_fn_by_id_tiered(id) }?;
+        (entry.max_reg, entry.ptr, entry.func)
+    };
+    ctx.counters().jit_native_from_interp.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let callee = match env {
+        Some(env) => crate::jit::frame::JitFrame::new_method_args_from(ctx, max_reg, env, &frame.regs, args),
+        None => crate::jit::frame::JitFrame::new_args_from(ctx, max_reg, &frame.regs, args),
+    };
+    let outcome = unsafe { crate::jit::invoke::call_native(ctx, jit_ctx, ptr, callee_fn, callee) };
+    Some(Ok(native_result_to_dst(ctx, frame, dst, outcome)))
+}
+
+#[cfg(not(feature = "jit"))]
+#[inline]
+fn try_native_indirect_call(
+    _ctx: &VmContext, _frame: &mut Frame, _dst: u32, _id: usize, _env: Option<Value>, _args: &[u32],
+) -> Option<Result<Option<Value>>> {
+    None
 }
 
 /// Indirect call: dispatch on FuncRef (no-capture) or Closure (capturing).
 /// For Closures, env is prepended to the user args as the lifted body's
 /// implicit first parameter. See closure.md §6.
+///
+/// P1-2 PR 8: the value carries its target's id (bound at creation), so dispatch is
+/// [`fn_by_id`] — no name, no hashing, lazily loaded targets included — and the callee is
+/// counted toward its tier-up and run natively once compiled, like a `Call`.
+// Kept out of line: `exec_instr`'s dispatch match stays the same size as before P1-2 PR 8
+// (inlining these bodies into it measurably slowed unrelated hot arms, e.g. VCall).
+#[inline(never)]
 pub(super) fn call_indirect(
     ctx: &VmContext, module: &Module, frame: &mut Frame,
     dst: u32, callee: u32, args: &[u32],
@@ -316,12 +422,11 @@ pub(super) fn call_indirect(
     // 安全性：env 数组是 MkClos 时**写一次**、体内只 `array_get` **读**（编译器
     // `_emitAssign` 无 BoundCapturedIdent 写回分支 → env 槽永不被 array_set 改写），
     // 故跨调用共享 GcRef 与旧的"每次深拷+新 GcRef"行为字节等价，省 O(env) 拷贝 + 一次 GC 分配。
-    let (fname, env_val_opt): (String, Option<Value>) = match frame.get(callee)? {
-        Value::FuncRef(name) => (name.to_string(), None),
+    let (id, env_val_opt): (FnId, Option<Value>) = match frame.get(callee)? {
+        Value::FuncRef(id) => (*id, None),
         Value::Closure(c)    => {
             let data = crate::metadata::types::closure_data_of(&c);
-            // unify-gc-heap PR-5: fn_name is a GC `Str`; materialize an owned `String` for `fname`.
-            (data.fn_name.to_string(), Some(Value::Array(data.env.clone())))
+            (data.fn_id, Some(Value::Array(data.env.clone())))
         }
         // fix-null-delegate-invoke: a *null* callee is the one case here that ordinary
         // user code reaches — a single-cast `event` field defaults to null, and the
@@ -335,19 +440,17 @@ pub(super) fn call_indirect(
         }
         other => bail!("CallIndirect: expected FuncRef / Closure, got {:?}", other),
     };
+    let Some(cfn) = fn_by_id(ctx, module, id.0) else {
+        bail!("CallIndirect: function id {} is not registered in this VM", id.0);
+    };
+    if let Some(res) = try_native_indirect_call(ctx, frame, dst, id.0 as usize, env_val_opt, args) {
+        return res;
+    }
     let mut arg_vals = collect_args(&frame.regs, args)?;
     if let Some(env_val) = env_val_opt {
         arg_vals.insert(0, env_val);
     }
-    let callee_fn = module.func_index.get(fname.as_str())
-        .and_then(|&idx| module.functions.get(idx));
-    let outcome = if let Some(cfn) = callee_fn {
-        super::exec_function(ctx, module, cfn, &arg_vals)?
-    } else if let Some(lazy_fn) = ctx.try_lookup_function(&fname) {
-        super::exec_function(ctx, module, lazy_fn.as_ref(), &arg_vals)?
-    } else {
-        bail!("CallIndirect: undefined function `{fname}`");
-    };
+    let outcome = super::exec_function(ctx, module, cfn, &arg_vals)?;
     match outcome {
         ExecOutcome::Returned(ret) => {
             frame.set(dst, ret.unwrap_or(Value::Null));
@@ -359,14 +462,23 @@ pub(super) fn call_indirect(
 
 /// L3 closure construction: the env is a heap array, the closure a heap
 /// `Value::Closure` (the zbc stack-alloc byte is decoded and dropped — see
-/// `zbc_reader::instr_decode` `OP_MK_CLOS`).
+/// `zbc_reader::instr_decode` `OP_MK_CLOS`). The target is bound by [`fn_ref_id`]
+/// before anything is allocated.
 ///
 /// add-gc-oom-exception: returns `Ok(Some(exc))` when heap alloc_array fails
 /// under strict OOM mode, propagating Std.OutOfMemoryException to the caller.
+// Kept out of line: `exec_instr`'s dispatch match stays the same size as before P1-2 PR 8
+// (inlining these bodies into it measurably slowed unrelated hot arms, e.g. VCall).
+#[inline(never)]
 pub(super) fn mk_clos(
     ctx: &VmContext, module: &Module, frame: &mut Frame,
     dst: u32, fn_name: &str, captures: &[u32],
+    token: Option<&std::sync::atomic::AtomicU32>,
 ) -> Result<Option<Value>> {
+    let fn_id = match fn_ref_id(ctx, module, fn_name, token) {
+        Ok(id) => id,
+        Err(exc) => return Ok(Some(exc)),
+    };
     let mut env_vec: Vec<Value> = Vec::with_capacity(captures.len());
     for r in captures {
         env_vec.push(frame.get(*r)?.clone());
@@ -384,12 +496,7 @@ pub(super) fn mk_clos(
         _ => bail!("mk_clos: alloc_array returned unexpected value"),
     };
     // unify-gc-heap PR-2: ClosureData into the GC variable-length region.
-    // PR-5: fn_name is a GC `Str` from the same heap as `env` — interned per site.
-    let fn_name = ctx.intern_fn_name(fn_name);
-    let value = ctx.heap().alloc_closure(crate::metadata::ClosureData {
-        env,
-        fn_name,
-    });
+    let value = ctx.heap().alloc_closure(crate::metadata::ClosureData { env, fn_id });
     frame.set(dst, value);
     Ok(None)
 }
@@ -397,3 +504,7 @@ pub(super) fn mk_clos(
 #[cfg(test)]
 #[path = "exec_call_tests.rs"]
 mod exec_call_tests;
+
+#[cfg(test)]
+#[path = "exec_call_fn_ref_tests.rs"]
+mod exec_call_fn_ref_tests;

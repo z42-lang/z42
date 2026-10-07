@@ -113,7 +113,8 @@ fn spawn_via_builtin_then_join_runs_action_on_worker_thread() {
     let module = make_void_action_module("TestVoidAction");
     let ctx = VmContext::with_module(module);
 
-    let action = Value::FuncRef("TestVoidAction".into());
+    // P1-2 PR 8: a `FuncRef` holds its target's `FnId` — the entry module's index 0.
+    let action = Value::FuncRef(z42::metadata::tokens::FnId(0));
     let spawn_result = corelib::threading::builtin_thread_spawn(&ctx, &[action])
         .expect("__thread_spawn should succeed for a valid FuncRef");
     let slot_id = match spawn_result {

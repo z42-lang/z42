@@ -212,7 +212,7 @@ z42vm `__text` 构成（macOS arm64，共 4.97 MB），是拆 crate（阶段 2�
 - **cctor 屏障**：属主判定已缓存在 `Function.owner_init`（调用屏障）和按字段槽号的 `static_owner_cache`（静态字段屏障），自由函数与无 cctor 的类型永久免检。剩下的是 JIT 仍经 helper 判定，没有在生成码里内联代际检查。
 - **惰性包函数没有整数身份**：VCallIC 载荷是入口模块 `functions` 下标，所以 Lazy 目标**永不进 PIC**。每次跨包虚调用都要重走：TypeDesc Arc clone、vtable 线性字符串比较、func_index miss、`try_lookup_function`（锁 + 哈希）；JIT 还要再查一次 `LazyTable`（全局 Mutex + SipHash）。z42c 的分派站点（Call 10252 / VCall 1245 / ObjNew 2116 / FieldGet 19539 / StaticGet 2070 / ConstStr 6231）**全部在惰性包里**。
 - **ObjNew** 每次都哈希类型名和 ctor 名（resolver 算好的 `type_tokens` 没用于派发，`exec_object.rs:13-18` 自己承认）。
-- **CallIndirect / FuncRef / 闭包**：每次 `name.to_string()` 分配 + 哈希；`LoadFn` 每次新分配一个 GC 字符串。
+- **CallIndirect / FuncRef / 闭包**：每次 `name.to_string()` 分配 + 哈希；`LoadFn` 每次新分配一个 GC 字符串。（P1-2 PR 8 已改：创建时绑定 FnId，调用按 id。）
 - **ConstStr**：每次锁 + 哈希，惰性包里要查两遍。
 - **JIT helper** 按名字传参（指针 + 长度），每次在 helper 里重建 `&str` 再去哈希。
 - **三套函数注册表**（`Module.func_index` 键 u32 / `LazyLoader.function_table` 键 String / JIT `LazyTable` 键 String 外加 Mutex），**两套类型注册表**，**每个调用点三套并行缓存**（`method_tokens` / `cross_module_targets` / `call_jit_ic`）。
@@ -505,7 +505,7 @@ z42vm 继续静态链接 VM，不改为动态链接 `native/libz42`（结论与�
   - 5：ObjNew 站点缓存。🟡 已实现、待合并（分支 `vm/objnew-site-cache`）：站点存类描述符 `Arc<TypeDesc>` + ctor 的 FnId，interp 与 JIT 共用 `interp/obj_new_resolve.rs`；命中不哈希、不拿锁。仍按名：回落描述符的本地类（每次现建描述符）。
   - 6：TypeTable 与 `isa_cache` 改 key（顺带修 D5）。🟡 已实现、待合并（分支 `vm/type-table`）：VmCore 上 `TypeTable`（进程级 TypeId → 最新版本描述符，稀疏分段、读无锁；入口模块构造时登记，惰性包在加载 / fixup 后发布）；`isa_cache` / `subclass_memo` 改按 `(接收者 TypeId, 目标键)` 做键，目标键缓存在指令 / 异常表行的 `TypeKeyCell`（已登记类型取其 TypeId，否则为名字保留一个 id）。未做：两张类型名字表（`Module.type_registry` / 加载器 `type_registry`）并入 TypeTable；回落描述符与 corelib 原生句柄单例仍无 id、不缓存。
   - 7：ConstStr 改为每 ctx 一张无锁表。🟡 已实现、待合并（分支 `vm/conststr-per-ctx`）：落在每 VM（VmCore）一张 `StrTable`，不是每线程——GC 字符串属于 VM 的堆，字符串身份对程序不可见，读侧无锁后每线程一份已无收益。`ConstStr.idx` 即 VM 内稠密的字符串 id（入口池 `0..n`，惰性包的池注册时整块追加，id 永不复用；加载器的 `string_pool` 并入此表），槽位存文本 + `OnceLock<Str>`；interp 与 JIT 共用 `VmContext::const_str`，首执后命中不拿锁、不哈希、惰性包也只查一次。驻留串由表的 `roots` 列表作 GC 根。
-  - 8：FuncRef / Closure 改存 FnId。
+  - 8：FuncRef / Closure 改存 FnId。🟡 已实现、待合并（分支 `vm/funcref-closure-fnid`）：`Value::FuncRef(FnId)`（4 B 载荷，`Value` 仍 16 B）、`ClosureData { env, fn_id }`；`LoadFn` / `MkClos` 在创建时经 `exec_call::fn_ref_id` / `bind_fn_ref` 把名字绑成 FnId（本模块 `func_index` → 惰性加载器，含加载目标包），结果存进站点 token `ResolvedTokens::fn_ref_tokens`（resolver 加载期按 `id_of` 预填），之后同一站点只读一次 token。`CallIndirect` 按 id 派发：interp `fn_by_id` + 经 `resolve_fn_by_id_tiered` 计数并转原生码，JIT `jit_call_indirect` 直接查槽位表；JIT 的 `LoadFn` 已绑定时内联成一次寄存器写。目标名解析不到时在 `LoadFn` / `MkClos` 处抛 `MissingSymbolException`（此前在调用时报内部错误）。删除 PR 7 的 `fn_name_cache` / `intern_fn_name`；`FuncRef` 不再是堆引用。`__delegate_eq` 按 id 比较，`__delegate_fn_name` / 显示从 id 取名字，`__make_closure` 走同一条绑定。
   - 9：清理。
 - 不改 `.zbc` / `.zpkg` 格式。
 
@@ -591,7 +591,7 @@ z42vm 继续静态链接 VM，不改为动态链接 `native/libz42`（结论与�
 | T2 | str_builder / str_split_join | 7.9× / 13× | 11× / 10× | StringBuilder 是纯脚本实现，每次 Append 生成一个 GC 字符串 | 🟡 |
 | T3 | dict_ops / sort | 4.8× / 3.7× | 7.3× / 7.4× | 待剖析（泛型装箱、比较器调用、哈希路径）。**Dictionary / HashSet 按插入顺序遍历（User 2026-10-07）**：改为 CPython 式插入有序紧凑哈希表（稠密 entries + `int[]` 索引表，首槽取 hash 低位、冲突后 perturb 探测）；dict_ops n=2M 2.02 → 1.75 s、RSS 286 → 165 MB，n=5M 超过 240 s → 4.7 s；sort 未动 | 🟡 |
 | T4 | large_heap | 1.6× | 5.9× | GC 策略与内存复用（P1-7 / M 系列） | 🟡 |
-| T5 | closures | 1.3× | 8.3× | 闭包调用按名（P1-2 PR 8） | ⬜ |
+| T5 | closures | 1.3× | 8.3× | 闭包调用按名（P1-2 PR 8）。**PR 8 后重测**（2026-10-08，n=2M，jit，7 次交错中位，负载 12–37）：z42 365 → 330 ms（−9%），Python 392 ms、Node 61 ms ⇒ 约 **0.84× Python / 5.4× Node**（同机同轮的 PR 8 之前：0.93× / 6.0×）。调用路径上已无名字哈希；剩下的大头是每次迭代的 env 数组 + 闭包块分配与 minor GC、以及原生调用的建帧 | 🟡 |
 
 其余负载：
 - 启动是所有运行时里最快的（11 ms、12 MB），4 线程能真正并行。

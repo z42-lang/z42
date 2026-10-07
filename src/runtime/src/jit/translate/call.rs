@@ -61,20 +61,41 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                 }
 
                 // Arrays
+                // P1-2 PR 8: a function reference's target is its site's `FnId` token. Bound
+                // at translate time (load-time pre-fill or an earlier execution) ⇒ baked: a
+                // `LoadFn` is then a plain native store of `Value::FuncRef(id)`. Otherwise the
+                // helper binds it on first execution (and stores the token for later ones).
                 Instruction::LoadFn(insn) => {
                     let LoadFnInsn { dst, func } = &**insn;
-                    let d = self.ri(*dst);
-                    let (np, nl) = self.str_val(func);
-                    let inst = self.builder.ins().call(self.hr_load_fn, &[self.frame_val, self.ctx_val, d, np, nl]);
-                    let ret  = self.builder.inst_results(inst)[0]; self.check(ret);
+                    let tok = fn_ref_token_at(self.func, self.block_idx, self.instr_idx);
+                    let baked = tok.map_or(crate::metadata::tokens::UNRESOLVED,
+                        |t| t.load(std::sync::atomic::Ordering::Relaxed));
+                    if baked != crate::metadata::tokens::UNRESOLVED {
+                        let addr = reg_addr(self.builder, self.regs_base, *dst);
+                        let v = self.builder.ins().iconst(types::I64, baked as i64);
+                        store_const_tag(self.builder, addr, TAG_FUNCREF, v);
+                    } else {
+                        let d = self.ri(*dst);
+                        let (np, nl) = self.str_val(func);
+                        let tp = self.builder.ins().iconst(self.ptr,
+                            tok.map_or(std::ptr::null(), |t| t as *const _) as i64);
+                        let inst = self.builder.ins().call(self.hr_load_fn, &[self.frame_val, self.ctx_val, d, np, nl, tp]);
+                        let ret  = self.builder.inst_results(inst)[0]; self.check(ret);
+                    }
                 }
                 Instruction::MkClos(insn) => {
                     let MkClosInsn { dst, fn_name, captures } = &**insn;
                     let d = self.ri(*dst);
+                    let tok = fn_ref_token_at(self.func, self.block_idx, self.instr_idx);
+                    let baked = tok.map_or(crate::metadata::tokens::UNRESOLVED,
+                        |t| t.load(std::sync::atomic::Ordering::Relaxed));
+                    let bv = self.builder.ins().iconst(types::I32, baked as i64);
                     let (np, nl) = self.str_val(fn_name);
+                    let tp = self.builder.ins().iconst(self.ptr,
+                        tok.map_or(std::ptr::null(), |t| t as *const _) as i64);
                     let (cp, cl) = self.regs_val(captures);
                     let inst = self.builder.ins().call(self.hr_mk_clos,
-                        &[self.frame_val, self.ctx_val, d, np, nl, cp, cl]);
+                        &[self.frame_val, self.ctx_val, d, bv, np, nl, tp, cp, cl]);
                     let ret  = self.builder.inst_results(inst)[0]; self.check(ret);
                 }
                 Instruction::CallIndirect { dst, callee, args } => {

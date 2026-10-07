@@ -414,7 +414,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
 
     /// unify-gc-heap PR-2: allocate a capturing closure's [`ClosureData`] into the
     /// variable-length GC region (`region_var`) and return a `Value::Closure` handle. The
-    /// block's drop-glue drops `fn_name` when the closure is swept. Mirrors `finish_alloc`'s
+    /// block is a POD leaf (env `GcRef` + target `FnId`). Mirrors `finish_alloc`'s
     /// record + auto-collect tail (no strict-OOM refund path — closure blocks are tiny and the
     /// env array's own alloc already went through the OOM gate). Exposed via the `MagrGC` trait
     /// (`alloc_closure`) so `ctx.heap()` callers reach it through `&dyn MagrGC`.
@@ -554,18 +554,16 @@ impl crate::gc::arc_heap::ArcMagrGC {
                     + obj.bytes().len()
                     + obj.refs().len() * size_of::<Value>()
             }
-            // impl-lambda-l2: FuncRef holds the function name; no managed heap
-            // allocation beyond the string buffer.
-            Value::FuncRef(name) => size_of::<Value>() + name.len(),
+            // impl-lambda-l2 / P1-2 PR 8: FuncRef holds a `FnId` — no heap allocation.
+            Value::FuncRef(_) => size_of::<Value>(),
             // impl-closure-l3-core: Closure carries a heap-allocated env (Vec<Value>);
-            // its size is the env's storage plus the function-name string.
+            // its size is the env's storage (the target is a `FnId`, P1-2 PR 8).
             Value::Closure(c) => {
                 let data = crate::metadata::types::closure_data_of(c);
                 size_of::<Value>()
                     + size_of::<crate::metadata::ClosureData>()
                     + size_of::<Vec<Value>>()
                     + data.env.borrow().elem_storage_bytes()
-                    + data.fn_name.len()   // unify-gc-heap PR-5: fn_name is a GC `Str` (bytes in its block)
             }
             // make-value-copy: `Ref` / `StructRefHeap` are now
             // transient-arena handles (payload owned by the per-context arena, freed by

@@ -25,7 +25,7 @@ use cranelift_jit::JITModule;
 pub use super::helpers::HelperIds;
 use super::reg_access::{
     load_payload, load_payload_i64, load_tag, reg_addr, store_const_tag, store_tag_const,
-    store_tagged, RegCache, TAG_BOOL, TAG_CHAR, TAG_F64, TAG_I64, TAG_NULL,
+    store_tagged, RegCache, TAG_BOOL, TAG_CHAR, TAG_F64, TAG_FUNCREF, TAG_I64, TAG_NULL,
 };
 
 // refactor-jit-translate-split (H2): TxCtx + per-category instruction handlers

@@ -47,6 +47,8 @@ pub const TAG_CHAR: u8 = 3;
 #[allow(dead_code)]
 pub const TAG_STR: u8 = 4;
 pub const TAG_NULL: u8 = 5;
+/// `Value::FuncRef(FnId)` — payload is the id (P1-2 PR 8: a native `LoadFn` store).
+pub const TAG_FUNCREF: u8 = 9;
 
 /// Address of `frame.regs[reg]` = `regs_base + reg * VALUE_STRIDE`.
 #[inline]

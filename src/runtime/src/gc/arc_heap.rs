@@ -273,9 +273,8 @@ fn value_heap_ptr(v: &Value) -> Option<usize> {
         // block address is its identity.
         Value::Closure(c) => Some(c.addr()),
         // unify-gc-heap PR-4: strings are region_var blocks now — the block header address is
-        // their heap identity. `FuncRef` likewise carries a `Str`.
+        // their heap identity. (`FuncRef` is a `FnId` since P1-2 PR 8 — no heap identity.)
         Value::Str(s) => Some(s.as_ptr() as usize),
-        Value::FuncRef(s) => Some(s.as_ptr() as usize),
         // make-value-copy: a `Ref` handle has no stable heap identity of its own (its
         // payload lives in the transient arena); like `StructRef`/`StackObject` → None.
         _ => None,
@@ -291,9 +290,9 @@ fn value_heap_ptr(v: &Value) -> Option<usize> {
 ///   embedding whose `Value` is not — but in *this* one it never runs, because `Value: Copy`
 ///   makes `needs_drop::<Value>()` false and [`var_payload_drop_glue`] then installs nothing.
 /// - `Str` / `ArrayPrim` / `ArrayStruct` (packed bytes) / `Closure` → POD leaves, nothing to drop.
-///   PR-5 migrated `ClosureData.fn_name` `String` → GC `Str`, so a `ClosureData` now owns no heap
-///   outside the GC (`env: GcRef` + `fn_name: Str` are both no-op/`Copy` drops) → the former
-///   `Closure` drop-glue arm is gone.
+///   PR-5 migrated `ClosureData.fn_name` `String` → GC `Str` (P1-2 PR 8: a `FnId`), so a
+///   `ClosureData` owns no heap outside the GC (`env: GcRef` + the id are no-op/`Copy` drops) →
+///   the former `Closure` drop-glue arm is gone.
 ///
 /// # Safety
 /// Called once per block reclaim with a valid pointer to that block's initialized `size`-byte
@@ -357,7 +356,7 @@ pub struct ArcMagrGC {
     region_array: Mutex<super::region::Region<ArrayObj>>,
     /// **unify-gc-heap PR-2/3/4/5**: variable-length GC block region for the managed payloads that
     /// don't fit the fixed-size `Region<T>` — `ClosureData` (`Value::Closure`), array backings
-    /// (`Value::Array`), and strings (`Value::Str`/`FuncRef`). Constructed with `var_drop_glue`
+    /// (`Value::Array`), and strings (`Value::Str`). Constructed with `var_drop_glue`
     /// (only `ArrayValue` blocks need a finalizer; closures/strings/packed arrays are POD leaves
     /// since PR-5). Swept alongside `region_object` / `region_array`.
     region_var: Mutex<VarRegion>,

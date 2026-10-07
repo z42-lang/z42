@@ -84,11 +84,11 @@ impl crate::gc::arc_heap::ArcMagrGC {
             // children were therefore never traced. A still-young `env` array reachable only
             // through that closure went unmarked and was swept out from under it.
             Value::Closure(c) => c.gen_age(),
-            // Strings / func-refs are var blocks too. They used to fall through to `_ => 0`
+            // Strings are var blocks too. They used to fall through to `_ => 0`
             // (always "young"), so every reachable string was re-marked at every minor and
             // kept a stale mark. They are leaves, so that only cost floating garbage rather
             // than correctness — but there is no reason to pay it now that the age is real.
-            Value::Str(s) | Value::FuncRef(s) => s.gen_age(),
+            Value::Str(s) => s.gen_age(),
             // add-boxed-struct-identity (P4b): gen-age of the boxed struct's shared object.
             Value::BoxedStruct(gc) => GcRef::gen_age(gc),
             // make-value-copy: `Ref` handle carries no direct heap allocation to age
@@ -242,9 +242,10 @@ grey {grey_n} (skipped old {grey_old})"));
     ///    explicitly (`fix-old-block-left-in-young-list`), since `age_backing_with_owner` raises a
     ///    backing's age without delisting it.
     /// 2. *`region_var` has no card table* (`maybe_mark_cross_gen_card`'s `_ => {}` arm), so
-    ///    premise 1 of the argument above is checked per variant instead: `Str` / `FuncRef` are
-    ///    leaves; a closure's `env` is fixed at construction and ages in lockstep with it (every
-    ///    minor that reaches the closure marks the env header), so an old closure's env is old —
+    ///    premise 1 of the argument above is checked per variant instead: `Str` is a leaf
+    ///    (`FuncRef` is not a heap value); a closure's `env` is fixed at construction and ages
+    ///    in lockstep with it (every minor that reaches the closure marks the env header), so
+    ///    an old closure's env is old —
     ///    and the env is an *array*, which does have a card; an array's element backing is kept at
     ///    least as old as its owner by `age_backing_with_owner`, and a minor tracing an old array
     ///    passes `None` so it does not `mark_backing` either way.

@@ -280,21 +280,64 @@ fn obj_hash_code_non_object_errors() {
 
 use crate::gc::GcRef;
 
-fn fn_ref(name: &str) -> Value { Value::FuncRef(name.into()) }
+/// P1-2 PR 8: callables hold their target's `FnId`.
+fn fn_ref(id: u32) -> Value { Value::FuncRef(crate::metadata::tokens::FnId(id)) }
+
+fn closure_of(env: GcRef<crate::metadata::types::ArrayObj>, id: u32) -> Value {
+    Value::Closure(crate::gc::var_region::VarGcRef::leak_for_test(
+        crate::metadata::ClosureData { env, fn_id: crate::metadata::tokens::FnId(id) },
+        crate::gc::var_region::BlockType::Closure,
+    ))
+}
+
+/// A context whose entry module defines empty functions named `names` (ids `0..n`), so
+/// callables can name them (`__delegate_fn_name`, `__make_closure`).
+fn ctx_with_fns(names: &[&str]) -> std::pin::Pin<Box<VmContext>> {
+    use crate::metadata::bytecode::{BasicBlock, Function, Module, Terminator};
+    let functions: Vec<Function> = names.iter().map(|n| Function {
+        name: n.to_string(),
+        param_count: 0,
+        ret_type: "void".to_string(),
+        exec_mode: crate::metadata::types::ExecMode::Interp,
+        blocks: vec![BasicBlock { label: "entry".to_string(), instructions: Vec::new(), terminator: Terminator::Ret { reg: None } }],
+        is_static: true,
+        visibility: 0,
+        method_flags: 0, min_arg: 0, params_from: 0xFF,
+        max_reg: 0,
+        cold: None,
+        reg_types: Box::new([]),
+        block_index: std::collections::HashMap::new(),
+        branch_targets: Vec::new(),
+        fused_tails: Vec::new(),
+        frame_meta: None,
+        resolved: std::sync::OnceLock::new(),
+        owner_init: Default::default(),
+        id: Default::default(),
+    }).collect();
+    let func_index = names.iter().enumerate().map(|(i, n)| (n.to_string(), i)).collect();
+    VmContext::with_module(Module {
+        name: "Demo".to_string(),
+        string_pool: vec![],
+        classes: vec![],
+        functions,
+        type_registry: rustc_hash::FxHashMap::default(),
+        func_index,
+    })
+}
 
 #[test]
 fn delegate_eq_same_funcref_equal() {
     let c = ctx();
-    let a = fn_ref("Demo.Helper");
-    let b = fn_ref("Demo.Helper");
+    let a = fn_ref(4);
+    let b = fn_ref(4);
     assert_eq!(exec_builtin_value(&c, "__delegate_eq", &[a, b]).unwrap(), Value::Bool(true));
 }
 
 #[test]
 fn delegate_eq_diff_funcref_not_equal() {
     let c = ctx();
-    let a = fn_ref("Demo.A");
-    let b = fn_ref("Demo.B");
+    let a = fn_ref(1);
+    let b = fn_ref(2);
     assert_eq!(exec_builtin_value(&c, "__delegate_eq", &[a, b]).unwrap(), Value::Bool(false));
 }
 
@@ -302,24 +345,24 @@ fn delegate_eq_diff_funcref_not_equal() {
 fn delegate_eq_same_closure_equal_via_ptr_eq() {
     let c = ctx();
     let env = GcRef::new(crate::metadata::types::ArrayObj::new_leaked(vec![Value::I64(1)]));
-    let a = Value::Closure(crate::gc::var_region::VarGcRef::leak_for_test(crate::metadata::ClosureData { env: env.clone(), fn_name: "Demo.Lambda".into() }, crate::gc::var_region::BlockType::Closure));
-    let b = Value::Closure(crate::gc::var_region::VarGcRef::leak_for_test(crate::metadata::ClosureData { env: env.clone(), fn_name: "Demo.Lambda".into() }, crate::gc::var_region::BlockType::Closure));
+    let a = closure_of(env.clone(), 3);
+    let b = closure_of(env.clone(), 3);
     assert_eq!(exec_builtin_value(&c, "__delegate_eq", &[a, b]).unwrap(), Value::Bool(true));
 }
 
 #[test]
 fn delegate_eq_diff_closure_env_not_equal() {
     let c = ctx();
-    let a = Value::Closure(crate::gc::var_region::VarGcRef::leak_for_test(crate::metadata::ClosureData { env: GcRef::new(crate::metadata::types::ArrayObj::new_leaked(vec![Value::I64(1)])), fn_name: "Demo.Lambda".into() }, crate::gc::var_region::BlockType::Closure));
-    let b = Value::Closure(crate::gc::var_region::VarGcRef::leak_for_test(crate::metadata::ClosureData { env: GcRef::new(crate::metadata::types::ArrayObj::new_leaked(vec![Value::I64(1)])), fn_name: "Demo.Lambda".into() }, crate::gc::var_region::BlockType::Closure));
+    let a = closure_of(GcRef::new(crate::metadata::types::ArrayObj::new_leaked(vec![Value::I64(1)])), 3);
+    let b = closure_of(GcRef::new(crate::metadata::types::ArrayObj::new_leaked(vec![Value::I64(1)])), 3);
     assert_eq!(exec_builtin_value(&c, "__delegate_eq", &[a, b]).unwrap(), Value::Bool(false));
 }
 
 #[test]
 fn delegate_eq_funcref_vs_closure_not_equal() {
     let c = ctx();
-    let a = fn_ref("Demo.F");
-    let b = Value::Closure(crate::gc::var_region::VarGcRef::leak_for_test(crate::metadata::ClosureData { env: GcRef::new(crate::metadata::types::ArrayObj::new_leaked(vec![])), fn_name: "Demo.F".into() }, crate::gc::var_region::BlockType::Closure));
+    let a = fn_ref(5);
+    let b = closure_of(GcRef::new(crate::metadata::types::ArrayObj::new_leaked(vec![])), 5);
     assert_eq!(exec_builtin_value(&c, "__delegate_eq", &[a, b]).unwrap(), Value::Bool(false));
 }
 
@@ -333,7 +376,7 @@ fn delegate_eq_both_null_equal() {
 fn delegate_eq_null_vs_funcref_not_equal() {
     let c = ctx();
     assert_eq!(
-        exec_builtin_value(&c, "__delegate_eq", &[Value::Null, fn_ref("Demo.F")]).unwrap(),
+        exec_builtin_value(&c, "__delegate_eq", &[Value::Null, fn_ref(5)]).unwrap(),
         Value::Bool(false)
     );
 }
@@ -395,21 +438,15 @@ fn make_weak_then_upgrade_array() {
 
 // ── __delegate_target / __delegate_fn_name / __make_closure (D-1b, 2026-05-04) ──
 
-fn closure(env: Vec<Value>, fn_name: &str) -> Value {
-    Value::Closure(crate::gc::var_region::VarGcRef::leak_for_test(
-        crate::metadata::ClosureData {
-            env: crate::gc::GcRef::new(crate::metadata::types::ArrayObj::new_leaked(env)),
-            fn_name: crate::metadata::vstr::Str::new_leaked(fn_name),
-        },
-        crate::gc::var_region::BlockType::Closure,
-    ))
+fn closure(env: Vec<Value>, id: u32) -> Value {
+    closure_of(crate::gc::GcRef::new(crate::metadata::types::ArrayObj::new_leaked(env)), id)
 }
 
 #[test]
 fn delegate_target_extracts_object_from_closure_env() {
     let c = ctx();
     let receiver = obj(&c, "Listener");
-    let cl = closure(vec![receiver.clone()], "thunk_OnTick");
+    let cl = closure(vec![receiver.clone()], 0);
     let target = exec_builtin_value(&c, "__delegate_target", &[cl]).unwrap();
     // 提取出来的对象与原 receiver 引用相等
     assert_eq!(
@@ -421,37 +458,43 @@ fn delegate_target_extracts_object_from_closure_env() {
 #[test]
 fn delegate_target_returns_null_for_empty_env() {
     let c = ctx();
-    let cl = closure(vec![], "lambda_no_capture");
+    let cl = closure(vec![], 0);
     assert_eq!(exec_builtin_value(&c, "__delegate_target", &[cl]).unwrap(), Value::Null);
 }
 
 #[test]
 fn delegate_target_returns_null_for_non_object_env_first() {
     let c = ctx();
-    let cl = closure(vec![i(42), s("x")], "lambda_int_capture");
+    let cl = closure(vec![i(42), s("x")], 0);
     assert_eq!(exec_builtin_value(&c, "__delegate_target", &[cl]).unwrap(), Value::Null);
 }
 
 #[test]
 fn delegate_target_returns_null_for_funcref() {
     let c = ctx();
-    let f = Value::FuncRef("Helper".into());
+    let f = fn_ref(0);
     assert_eq!(exec_builtin_value(&c, "__delegate_target", &[f]).unwrap(), Value::Null);
 }
 
 #[test]
 fn delegate_fn_name_returns_string() {
-    let c = ctx();
-    let cl = closure(vec![obj(&c, "Foo")], "thunk_Bar");
+    let c = ctx_with_fns(&["Demo.Other", "thunk_Bar"]);
+    let cl = closure(vec![obj(&c, "Foo")], 1);
     assert_eq!(exec_builtin_value(&c, "__delegate_fn_name", &[cl]).unwrap(), s("thunk_Bar"));
 }
 
 #[test]
 fn delegate_fn_name_works_for_funcref() {
-    let c = ctx();
-    assert_eq!(
-        exec_builtin_value(&c, "__delegate_fn_name", &[Value::FuncRef("free_fn".into())]).unwrap(),
-        s("free_fn"));
+    let c = ctx_with_fns(&["free_fn"]);
+    assert_eq!(exec_builtin_value(&c, "__delegate_fn_name", &[fn_ref(0)]).unwrap(), s("free_fn"));
+}
+
+/// P1-2 PR 8: without the VM's entry module an id names nothing this context knows.
+#[test]
+fn delegate_fn_name_unknown_id_errors() {
+    let c = ctx_with_fns(&["free_fn"]);
+    assert!(exec_builtin_value(&c, "__delegate_fn_name", &[fn_ref(9)]).is_err());
+    assert!(exec_builtin_value(&ctx(), "__delegate_fn_name", &[fn_ref(0)]).is_err());
 }
 
 #[test]
@@ -463,14 +506,14 @@ fn delegate_fn_name_returns_null_for_non_delegate() {
 
 #[test]
 fn make_closure_constructs_value_closure() {
-    let c = ctx();
+    let c = ctx_with_fns(&["Demo.Other", "thunk_X"]);
     let receiver = obj(&c, "Listener");
     let env_arr = Value::Array(crate::gc::GcRef::new(crate::metadata::types::ArrayObj::new_leaked(vec![receiver.clone()])));
     let cl = exec_builtin_value(&c, "__make_closure", &[s("thunk_X"), env_arr]).unwrap();
     match cl {
         Value::Closure(cd) => {
             let data = crate::metadata::types::closure_data_of(&cd);
-            assert_eq!(data.fn_name.as_str(), "thunk_X");
+            assert_eq!(data.fn_id, crate::metadata::tokens::FnId(1), "the name binds to its FnId");
             // env[0] 应是同一 receiver
             let env_ref = data.env.borrow();
             assert_eq!(env_ref.len(), 1);

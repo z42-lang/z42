@@ -327,10 +327,10 @@ pub fn declare_imports(jit: &mut JITModule) -> Result<HelperIds> {
         // jit_stack_overflow(frame, ctx) -> void ; jit_fatal_pending(frame, ctx) -> i8
         stack_overflow:   decl!("jit_stack_overflow",   [ptr, ptr],                       []),
         fatal_pending:    decl!("jit_fatal_pending",    [ptr, ptr],                       [i8t]),
-        // jit_load_fn(frame, ctx, dst, name_ptr, name_len) -> u8
-        load_fn:        decl!("jit_load_fn",       [ptr, ptr, i32t, ptr, i64t],                  [i8t]),
-        // jit_mk_clos(frame, ctx, dst, name_ptr, name_len, caps_ptr, caps_len) -> u8
-        mk_clos:        decl!("jit_mk_clos",       [ptr, ptr, i32t, ptr, i64t, ptr, i64t],      [i8t]),
+        // jit_load_fn(frame, ctx, dst, name_ptr, name_len, tok_ptr) -> u8
+        load_fn:        decl!("jit_load_fn",       [ptr, ptr, i32t, ptr, i64t, ptr],            [i8t]),
+        // jit_mk_clos(frame, ctx, dst, baked_id, name_ptr, name_len, tok_ptr, caps_ptr, caps_len) -> u8
+        mk_clos:        decl!("jit_mk_clos",       [ptr, ptr, i32t, i32t, ptr, i64t, ptr, ptr, i64t], [i8t]),
         // jit_call_indirect(frame, ctx, dst, callee, args_ptr, args_len, caller_offset) -> u8
         call_indirect:  decl!("jit_call_indirect", [ptr, ptr, i32t, i32t, ptr, i64t, i32t], [i8t]),
         // jit_default_of(frame, ctx, dst, param_index) -> u8
