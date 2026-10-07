@@ -256,7 +256,7 @@ public sealed class ExportedDelegateZ {
 }
 
 // 跨 zpkg `impl Trait for Type { ... }` 声明（L3-Impl2；镜像 C# ExportedImplDef）。
-// target/trait 为 FQ 名（经 ImportedClassNs 解析），使消费端跨包合并 trait 进 imported target。
+// target/trait 为 FQ 名（按声明方 CU 作用域解析，`FuncImplExtractor._fqOf`），使消费端跨包合并 trait 进 imported target。
 // 方法体不在此（在 MODS 段 func 名 "<TargetFq>.<m>"），此处仅签名供消费端 TypeChecker。
 public sealed class ExportedImplZ {
     public string            TargetFq;

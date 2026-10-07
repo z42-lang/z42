@@ -7,8 +7,10 @@ using Z42.IR;
 public static class FuncImplExtractor {
 
     // 提取 `impl Trait for Target { methods }`（镜像 C# ExtractImpls）。
-    // target/trait 短名经 classNs FQ 化：命中 imported/同包跨-ns 图 → "<declNs>.<name>"，否则 "<currentNs>.<name>"。
-    internal static ExportedImplZ[] _extractImpls(CompilationUnit cu, string currentNs, StrMap classNs) {
+    // target/trait 短名按本 CU 作用域解析出声明 ns → "<declNs>.<name>"，解析不到 → "<currentNs>.<name>"（fqn-tables 5d：
+    // 此前查「短名 → ns」图，同短名本包覆盖导入）。
+    internal static ExportedImplZ[] _extractImpls(CompilationUnit cu, string currentNs, SymbolTable symbols) {
+        SymbolTable view = null;   // 按需建（多数文件没有 impl）
         ExportedImplZ[] result = new ExportedImplZ[4];
         int rc = 0;
         int i = 0;
@@ -19,8 +21,9 @@ public static class FuncImplExtractor {
                 string targetName = FuncImplExtractor._typeShortName(implD.TargetType);
                 string traitName = FuncImplExtractor._typeShortName(implD.TraitType);
                 if (targetName != "" && traitName != "") {
-                    string targetFq = FuncImplExtractor._fqOf(targetName, currentNs, classNs);
-                    string traitFq = FuncImplExtractor._fqOf(traitName, currentNs, classNs);
+                    if (view == null) { view = symbols.WithCu(cu); }
+                    string targetFq = FuncImplExtractor._fqOf(targetName, currentNs, view);
+                    string traitFq = FuncImplExtractor._fqOf(traitName, currentNs, view);
                     // trait 泛型实参（NamedType.Args → TsigTypeName）
                     string[] argStrs = new string[0];
                     int argc = 0;
@@ -68,12 +71,12 @@ public static class FuncImplExtractor {
         return trimmed;
     }
 
-    // 短名 FQ 化：classNs 命中 → "<declNs>.<name>"，否则 "<currentNs>.<name>"（镜像 C# ImportedClassNamespaces 回落）。
-    private static string _fqOf(string name, string currentNs, StrMap classNs) {
-        if (classNs != null && classNs.ContainsKey(name)) {
-            StrBox b = classNs.Get(name) as StrBox;
-            return b.Value + "." + name;
-        }
+    // 短名 FQ 化：本 CU 作用域解析到类 / 接口 → "<declNs>.<name>"，否则 "<currentNs>.<name>"。
+    private static string _fqOf(string name, string currentNs, SymbolTable view) {
+        Z42ClassType ct = view.GetClass(name);
+        if (ct != null && ct.Namespace != "") { return ct.Namespace + "." + name; }
+        Z42InterfaceType it = view.GetInterface(name);
+        if (it != null && it.Namespace != "") { return it.Namespace + "." + name; }
         return currentNs + "." + name;
     }
 

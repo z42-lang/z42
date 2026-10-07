@@ -1,0 +1,36 @@
+namespace Demo.ShadowDecl;
+
+// fqn-tables 5d：类型描述符（TYPE 段）里的接口表按**接口身份（FQN）**展开 / 去重。此前按短名：同时实现
+// `Std.IDisposable` 与本包同短名的 `IDisposable` 时，后者被当成重复项丢掉 ⇒ `is IDisposable` 判 false。
+
+public interface IDisposable { int Close(); }
+
+public class Both : Std.IDisposable, IDisposable {
+    public void Dispose() { }
+    public int Close() { return 7; }
+}
+
+void Main() {
+    object o = new Both();
+    Assert.True(o is Std.IDisposable);
+    Assert.True(o is IDisposable);
+    Assert.Equal(7, (o as IDisposable).Close());
+    CheckBase();
+}
+
+// 基类同理：写的是 `Std.Exception`，本包另有 `Exception` 时基类此前被绑成本包那个（`: base(m)` 报 E0426）。
+public class Exception { public int Local = 1; }
+
+public class MyErr : Std.Exception {
+    public MyErr(string m) : base(m) { }
+}
+
+void CheckBase() {
+    object e = new MyErr("x");
+    Assert.True(e is Std.Exception);
+    Assert.False(e is Exception);
+    bool caught = false;
+    try { throw new MyErr("boom"); }
+    catch (Std.Exception ex) { caught = ex.Message == "boom"; }
+    Assert.True(caught);
+}

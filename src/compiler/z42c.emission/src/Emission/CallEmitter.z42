@@ -317,9 +317,8 @@ public sealed class CallEmitter {
             this._ctx.Emit(new CallIndirectInstr(cidst, callee, args, c.ArgCount));
             return cidst;
         }
-        // 调用目标限定（BP-0）：静态类用 QualifyClass（imported/同包跨-ns aware，查 ImportedClassNs；
-        // 镜像 C# QualifyClassName）——否则同包跨-ns 静态调用（如 Std.Archive.Zip →
-        // Std.Compression.Deflate.Compress）被误限定当前 ns。自由函数用绑定期解析出的 ns（`FreeNs`，
+        // 调用目标限定（BP-0）：静态类按绑定期记下的目标类类型对象的声明 ns（`_qualifyOwner`，fqn-tables 5d）
+        // ——否则同包跨-ns 静态调用（如 Std.Archive.Zip → Std.Compression.Deflate.Compress）被误限定当前 ns。自由函数用绑定期解析出的 ns（`FreeNs`，
         // resolve-free-functions-by-namespace；取代按名猜的 QualifyFreeFunc）——跨包 / 同包跨 ns 都指到声明处。
         // 局部函数（lifted）优先，已 FQ、不再 Qualify。
         string func;
@@ -347,6 +346,19 @@ public sealed class CallEmitter {
         return this._ctx.QualifyClass(c.OwnerClass);
     }
 
+    // 实例调用的**声明类**类型对象：从接收者类型沿基链找 `Name() == OwnerClass` 的那一层；找不到 null。
+    private Z42ClassType _declOwnerOfInstance(BoundCall c) {
+        if (c.Receiver == null || this._ctx.Symbols == null) { return null; }
+        Z42ClassType ct = this._ee._receiverClassType(c.Receiver.Type());
+        int hops = 0;
+        while (ct != null) {
+            if (ct.Name() == c.OwnerClass) { return ct; }
+            ct = this._ctx.Symbols.BaseOf(ct);
+            hops = SymbolTable.NextBaseHop(hops);
+        }
+        return null;
+    }
+
     // complete-generic-instantiation S1-c：实例泛型方法的 vcall 简单名 → 特化简单名。
     // 登记的工作项键是**完整** IR 名（`<OwnerFq>.<简单名>:<实参…>`），与运行期解析拼出的名字一致。
     private string _specializeVCallName(BoundCall c) {
@@ -364,7 +376,9 @@ public sealed class CallEmitter {
             suffix = suffix + ":" + an;
             i = i + 1;
         }
-        string specFq = this._ctx.QualifyClass(c.OwnerClass) + "." + c.MethodName + suffix;
+        Z42ClassType oct = this._declOwnerOfInstance(c);
+        string specFq = (oct != null ? this._ctx.QualifyType(oct, c.OwnerClass) : this._ctx.QualifyClass(c.OwnerClass))
+                        + "." + c.MethodName + suffix;
         if (!g.GenericFnInsts.ContainsKey(specFq)) { g.GenericFnInsts.Put(specFq, new StrBox(lookup)); }
         // S1-d：虚派发可能落到**子类**的 override 上 ⇒ 本 CU 内同名的每个声明都要各特化一份，
         // 否则那些接收者会 miss（运行期不沿基类链继承特化名，故是大声报错而非静默调错）。
@@ -560,9 +574,8 @@ public sealed class CallEmitter {
             while (k < inst.ArgCount) { targs[k] = this._ee._typeofArgName(inst.TypeArgs[k]); k = k + 1; }
             tcount = inst.ArgCount;
         }
-        // fix-type-ref-ns-collision：已解析到的类型（本地类带 Namespace）直接用其 FQN 发射，绕开
-        // QualifyClass 按短名走 ImportedClassNs first-wins 的撞名歧义（曾致 `new A.Foo` emit `B.Foo`）。
-        // Namespace=="" 的类（全局 / imported——本 change 未给 imported 设 ns）走原 QualifyClass 路径，无回归。
+        // fix-type-ref-ns-collision：已解析到的类型直接用其 FQN 发射（曾按短名查图致 `new A.Foo` emit `B.Foo`）。
+        // Namespace=="" 的类（全局 ns / 兜底合成类型）按当前 ns 限定。
         Z42ClassType _rct = null;
         if (n.Type() is Z42ClassType) { _rct = n.Type() as Z42ClassType; }
         else if (n.Type() is Z42InstantiatedType) { _rct = (n.Type() as Z42InstantiatedType).Def; }
