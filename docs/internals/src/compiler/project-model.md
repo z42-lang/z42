@@ -22,23 +22,21 @@ graph LR
 
 #### 未知键审计：收集在 z42.project，呈现在消费方
 
-清单里能写哪些键只有一张表：`z42.project/src/ManifestKeys.z42`（各段 `/` 分隔的合法键 + 改名表
-`RenamedTo`）。`ManifestLoader` 解析完后跑 `ManifestKeys.AuditProject` / `AuditWorkspace`，把结果挂到
+清单里能写哪些键只有一张表：`z42.project/src/ManifestKeys.z42`（各段 `/` 分隔的合法键；`[lints]` 只校验值）。`ManifestLoader` 解析完后跑 `ManifestKeys.AuditProject` / `AuditWorkspace`，把结果挂到
 清单对象上，**不抛异常**——有的调用方（xtask `_loadManifestOr`）会吞异常回落默认，抛了反而把错误藏起来：
 
 | 字段 | 含义 | 谁呈现 | 怎么呈现 |
 |---|---|---|---|
 | `ProjectManifest.UnknownKeys` | 不认识的键（错误行） | `ManifestKnobs.Resolve`（`z42c build` 与 z42b 共用） | 进 `KnobResult.Errors` → 用法错误 |
-| `ProjectManifest.DeprecatedKeys` | 改过名、旧名仍生效的键（警告行） | 同上 | 进 `KnobResult.Warnings` → driver 打印 / z42b 经 reporter |
 | `WorkspaceManifest.UnknownKeys` | 同上，workspace 清单 | `WorkspaceBuild.Plan` / `PlanLayout` | 抛出，driver 原样呈现，一个成员都不建 |
-| `WorkspaceManifest.DeprecatedKeys` | 同上 | driver `_warnDeprecatedWsKeys` | 规划前打印警告 |
 
 不审计的位置是「键名本身就是用户数据」的段：依赖 / analyzer / native 的子表名、`[optimize]` / `[syntax]`
-（消费方按名表校验）、`[lints]` 规则名、`[properties]`、`[profile.<n>.runtime|properties]`；`[profile.<n>]`
+（消费方按名表校验）、`[lints]` 规则名（值仍校验：severity 串 / `warnings_as_errors` 布尔）、`[properties]`、`[profile.<n>.runtime|properties]`；`[profile.<n>]`
 下直接写的键另走 `Profile.BadKeys`。
 
-改名分两阶段跨 nightly（种子读仓内清单，见自举种子纪律）：阶段 1 loader 新旧两个键都读、新名优先，旧名进
-`DeprecatedKeys`；阶段 2 删掉 `RenamedTo` 里的条目，旧名回落成未知键。
+改名分两阶段跨 nightly（种子读仓内清单，见自举种子纪律）：阶段 1 loader 新旧两个键都读、新名优先，旧名只报
+警告；阶段 2 仓内清单切新名并删掉旧名支持，旧名回落成未知键。2026-10 的 `default_members` /
+`warnings_as_errors` 已走完两阶段，警告通道随之删除——下一次改名再按需加回。
 
 `SourceDiscovery` 按 `[sources]` 的 include/exclude 规则展开出参与编译的源文件清单，交给源代码编译流程。
 `DiscoverWithExclude(projectDir, includes, excludes)` 是纯 glob 原语：先按 include 展开（`**/*.z42` 递归 /

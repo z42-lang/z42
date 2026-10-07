@@ -4,7 +4,7 @@
 项目清单 `z42.toml` 的**类型化模型**（全 z42）。作为 z42c（编译器）与 z42.build（发布管线）共同依赖的单一真相：一处定义 schema，多处复用，避免模型重复与漂移。
 
 工程配置是**确定的**——字段固定、不开放任意自定义键（含 `[platform.*]` 也用 typed 固定字段，不用开放 map）。
-合法键表在 `ManifestKeys`；写了不认识的键由 loader 收集进 `UnknownKeys`（改过名的旧键进 `DeprecatedKeys`），消费方报错 / 警告。
+合法键表在 `ManifestKeys`；写了不认识的键（以及 `[lints]` 里不合法的值）由 loader 收集进 `UnknownKeys`，消费方报错。
 受限自举子集写法：sealed class + 构造函数、`bool HasX` 替 nullable、`array + count` 替泛型。
 schema 以 [z42-toml.md](../../../docs/reference/src/toolchain/z42-toml.md) 为准。
 
@@ -36,7 +36,7 @@ schema 以 [z42-toml.md](../../../docs/reference/src/toolchain/z42-toml.md) 为�
 | 文件 | 职责 |
 |------|------|
 | `src/ManifestLoader.z42` | TOML → 模型 加载器；解析全段含 `[profile.*]`/`[[exe]]`/`[platform.*]`/`[optimize]`/`[analyzers]`/`[lints]`/`[native.*]`/`[tests]`·`[benches]`·`[examples]`/`[[test]]`·`[[bench]]`·`[[example]]` |
-| `src/ManifestKeys.z42` | 各段合法键表（清单契约的唯一真相源）+ 改名表 `RenamedTo` + `KeyAudit` 审计；loader 构造后调用，结果挂到 `UnknownKeys` / `DeprecatedKeys` |
+| `src/ManifestKeys.z42` | 各段合法键表（清单契约的唯一真相源）+ `KeyAudit` 审计；loader 构造后调用，结果挂到 `UnknownKeys` |
 | `src/ManifestLocator.z42` | 清单定位：`FindUp`（从目录向上找 `z42.toml` → 唯一 `*.z42.toml` → `z42.workspace.toml`）/ `FindIn`（只看一层）/ `ErrorText`；launcher / z42b / z42c 共用 |
 | `src/SourceDiscovery.z42` | `[sources].include` glob → 绝对路径列表（递归/单层，排除 dist/.cache，去重 + Ordinal 排序；`exclude` 走 `PathGlob`）|
 | `src/PathGlob.z42` | 按路径段的 glob 匹配（`**` 跨段、`*`/`?` 段内），`[sources].exclude` 与 `[workspace] members/exclude` 共用 |

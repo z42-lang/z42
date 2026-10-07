@@ -1,7 +1,7 @@
-// 清单编译旋钮的决议（add-build-session）：未知键 / 旧名键 + `[project] kind` 校验 + `[optimize]` / `[syntax]` / `[lints]` / pack / strip。
+// 清单编译旋钮的决议（add-build-session）：未知键 + `[project] kind` 校验 + `[optimize]` / `[syntax]` / `[lints]` / pack / strip。
 //
 // **唯一实现**：`z42c build`（driver `Main._build`）与 z42b（BuildSession）都调它（unify-driver-knobs 起；此前两份
-// 逐项相同的实现并存）。这里**不打印**：出错时把消息行收进 `KnobResult.Errors`（警告进 `Warnings`），由调用方经自己的呈现通道输出
+// 逐项相同的实现并存）。这里**不打印**：出错时把消息行收进 `KnobResult.Errors`，由调用方经自己的呈现通道输出
 // （driver 前缀 `z42c: `、z42b 经 `ctx.Warn`）。
 //
 // 各段的来龙去脉：
@@ -34,11 +34,9 @@ public sealed class KnobResult {
     public bool             Strip;
     public string[]         Errors;      // 用法错误（未知键 / kind / 旋钮名 / pack 冲突）；非空 ⇒ 不得继续编译
     public int              ErrorCount;
-    public string[]         Warnings;    // 不阻断的提示（改过名的旧键，见 ManifestKeys.RenamedTo）；整行，含清单名
     public KnobResult() {
         this.OptSet = 0; this.Features = null; this.Lints = null; this.Packed = true; this.Strip = false;
         this.Errors = new string[0]; this.ErrorCount = 0;
-        this.Warnings = new string[0];
     }
     public void AddError(string line) {
         if (this.ErrorCount == this.Errors.Length) {
@@ -59,11 +57,6 @@ public static class ManifestKnobs {
         // 不认识的键（ManifestKeys 收集）：写错的键此前被静默忽略、产物按默认走——一律报错。
         int ukk = 0;
         while (ukk < pm.UnknownKeys.Length) { r.AddError(label + ": " + pm.UnknownKeys[ukk]); ukk = ukk + 1; }
-        // 改过名的旧键：阶段 1 仍生效，只警告（告诉用户新名）。
-        string[] warns = new string[pm.DeprecatedKeys.Length];
-        int dk = 0;
-        while (dk < warns.Length) { warns[dk] = label + ": warning: " + pm.DeprecatedKeys[dk]; dk = dk + 1; }
-        r.Warnings = warns;
         string kind = pm.Project.Kind;
         if (kind != "exe" && kind != "lib" && kind != "analyzer") {
             r.AddError(label + ": [project] unknown kind \"" + kind + "\" (known: exe/lib/analyzer)");

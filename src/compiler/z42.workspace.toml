@@ -17,7 +17,7 @@
 # 包间依赖经 `z42c build --workspace` 拓扑序 + 同 workspace dist 自动发现解析
 # （与 stdlib z42.collections → z42.core 同机制）。
 #
-# member 逻辑名 = 各 member manifest 的 [project].name（WS001）；default-members
+# member 逻辑名 = 各 member manifest 的 [project].name（WS001）；default_members
 # 与 ${member_name} 模板均用该名（= zpkg basename），故子目录名（core/ 等）只是
 # 布局，下游一律按 z42c.<sub> 解析。
 #
@@ -44,7 +44,7 @@ members = ["*"]
 #     CacheStore 迁 z42c.pipeline。六个包 2026-09-27 从 src/libraries/ 挪回本 workspace ⇒
 #     它们与 semantics/pipeline/driver 现在**同 workspace**，包间依赖走 workspace 拓扑序 + 同
 #     workspace dist 自动发现（不再需要跨-workspace dist 发现那一层）。
-default-members = [
+default_members = [
     "z42c.core",
     "z42c.syntax",
     "z42.package",

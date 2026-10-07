@@ -63,7 +63,8 @@ public sealed class LintConfig {
         return LintConfig.NoOverride;
     }
 
-    // severity 串 → AnalyzerSeverity（"none"→Suppress；未知→NoOverride，宽松回落默认）。
+    // severity 串 → AnalyzerSeverity（"none"→Suppress；未知→NoOverride 回落默认——清单里的未知串已被
+    // Z42.Project.ManifestKeys 审计拒掉，这里只兜非清单来源）。
     private static int _parseSevToken(string s) {
         if (s == "none")    { return LintConfig.Suppress; }
         if (s == "hidden")  { return AnalyzerSeverity.Hidden; }

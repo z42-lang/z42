@@ -21,24 +21,10 @@ int _buildWorkspace(bool isRelease, string outputDir, int cliAdd, int cliRemove,
         ConsoleError.WriteLine("z42c build --workspace: no z42.workspace.toml from CWD upward (" + cwd + ")");
         return ExitCode.UsageError;
     }
-    _warnDeprecatedWsKeys(wsToml);
     if (outputDir != "") {
         return _buildWorkspaceFlat(wsToml, isRelease, outputDir, cliAdd, cliRemove, noIncremental);
     }
     return _buildWorkspacePerMember(wsToml, isRelease, cliAdd, cliRemove, noIncremental);
-}
-
-// workspace 清单里改过名的旧键（阶段 1 仍生效，见 Z42.Project.ManifestKeys.RenamedTo）→ 只警告、告诉用户新名。
-// 未知键是错误，由随后的 `WorkspaceBuild.Plan` / `PlanLayout` 抛出；清单读不了也留给它们报，这里不重复。
-void _warnDeprecatedWsKeys(string wsToml) {
-    WorkspaceManifest ws;
-    try { ws = ManifestLoader.LoadWorkspace(wsToml); }
-    catch (Exception e) { return; }
-    int i = 0;
-    while (i < ws.DeprecatedKeys.Length) {
-        ConsoleError.WriteLine("z42c: " + wsToml + ": warning: " + ws.DeprecatedKeys[i]);
-        i = i + 1;
-    }
 }
 
 // Milestone 1：flat dist（显式 --output-dir）。
