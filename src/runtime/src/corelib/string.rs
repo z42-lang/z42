@@ -135,6 +135,57 @@ pub fn builtin_str_concat_parts(ctx: &VmContext, args: &[Value]) -> Result<Value
     Ok(Value::Str(ctx.heap().alloc_str(&out)))
 }
 
+/// `Std.String.Split(string)` (perf-strings-json): split `this` on every non-overlapping
+/// occurrence of `sep`, scanning left to right, into a fresh `string[]` — empty pieces
+/// kept, `n` separators ⇒ `n + 1` pieces. One native scan + one allocation per piece,
+/// instead of a two-pass per-character script loop (UTF-8 is self-synchronising, so a
+/// byte-level match of a valid needle is exactly a character-level match). The
+/// pieces live only in this Rust `Vec` until the array holds them; that is safe for
+/// the same reason as every multi-allocation builtin: collections run at safepoints
+/// (none inside a builtin) and blocks allocated during marking are born marked.
+/// args: [this: str, sep: str (non-empty — the script side rejects "")]
+pub fn builtin_str_split(ctx: &VmContext, args: &[Value]) -> Result<Value> {
+    let s = arg_str(args, 0, "__str_split")?;
+    let sep = arg_str(args, 1, "__str_split")?;
+    if sep.is_empty() {
+        bail!("__str_split: separator must not be empty");
+    }
+    let heap = ctx.heap();
+    let parts: Vec<Value> = s.split(sep).map(|p| Value::Str(heap.alloc_str(p))).collect();
+    Ok(heap.alloc_array_typed("string", parts))
+}
+
+/// `Std.String.Join(sep, values)` (perf-strings-json): `values[0] + sep + values[1] + …`
+/// with a single allocation — the interleaving `ConcatParts` already did, minus building
+/// the `2n − 1` interleaved `string[]` in script first. Elements must be strings (same
+/// rule and message shape as `__str_concat_parts`).
+/// args: [sep: str, values: string[]]
+pub fn builtin_str_join(ctx: &VmContext, args: &[Value]) -> Result<Value> {
+    let sep = arg_str(args, 0, "__str_join")?;
+    let arr = match args.get(1) {
+        Some(Value::Array(a)) => a.clone(),
+        Some(other) => bail!("__str_join: expected string[], got {:?}", other),
+        None => bail!("__str_join: missing arg 1"),
+    };
+    let b = arr.borrow();
+    let mut parts: Vec<Value> = Vec::with_capacity(b.len());
+    let mut total = 0usize;
+    for v in b.iter_boxed() {
+        match &v {
+            Value::Str(s) => total += s.len(),
+            other => bail!("__str_join: element must be string, got {:?}", other),
+        }
+        parts.push(v);
+    }
+    total += sep.len() * parts.len().saturating_sub(1);
+    let mut out = String::with_capacity(total);
+    for (i, v) in parts.iter().enumerate() {
+        if i > 0 { out.push_str(sep); }
+        if let Value::Str(s) = v { out.push_str(s); }
+    }
+    Ok(Value::Str(ctx.heap().alloc_str(&out)))
+}
+
 /// Builds a string from a char[] array.
 /// args: [chars: Array<Char>]
 /// New in simplify-string-stdlib (2026-04-24): enables script-side string

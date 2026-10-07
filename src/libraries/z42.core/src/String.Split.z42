@@ -7,54 +7,23 @@ namespace Std;
 // 本碎片持有**整个 Split 家族**（`Split(string)` / `Split(string,int)`）——
 // 同名方法组必须同碎片，见 `String.z42` 头部的碎片归属说明。
 public sealed partial class String {
-    // ── Split / Join (Wave 1.5, 2026-04-27 wave1-string-script) ─────────────
-    // 从 [Native] 迁纯脚本（BCL `string.Split` / Rust `str::split` 都是源码）。
-    // 两遍扫描：先数 split 个数，再分配 string[] 一次性填充。
+    // ── Split / Join ─────────────────────────────────────────────────────────
+    // Split(string) 的扫描与切段走原生 `__str_split`（一次扫描、每段一次分配）；
+    // 其余重载（options / char[] 分隔符集合）与 Join / Concat 是脚本。
 
-    // Split this string by `separator` into segments. Empty separator throws.
+    // Split this string by `separator` into segments (non-overlapping matches, left to
+    // right; empty segments kept). Empty separator throws.
     public string[] Split(string separator) {
-        int sepLen = separator.Length;
-        if (sepLen == 0) {
+        if (separator.Length == 0) {
             throw new Exception("string.Split: separator must not be empty");
         }
-        // char[]-script: bulk-materialise once, scan over ArrayGet (whole-string
-        // two-pass scan → materialisation amortised). Substring extraction unchanged.
-        char[] t = this.ToCharArray();
-        char[] sp = separator.ToCharArray();
-        int n = t.Length;
-        // Pass 1: count parts (matches + 1)
-        int count = 1;
-        int i = 0;
-        while (i <= n - sepLen) {
-            bool hit = true;
-            for (int j = 0; j < sepLen; j++) {
-                if (t[i + j] != sp[j]) { hit = false; break; }
-            }
-            if (hit) { count = count + 1; i = i + sepLen; }
-            else     { i = i + 1; }
-        }
-        // Pass 2: extract parts
-        string[] result = new string[count];
-        int idx = 0;
-        int start = 0;
-        int k = 0;
-        while (k <= n - sepLen) {
-            bool hit = true;
-            for (int j = 0; j < sepLen; j++) {
-                if (t[k + j] != sp[j]) { hit = false; break; }
-            }
-            if (hit) {
-                result[idx] = this.Substring(start, k - start);
-                idx = idx + 1;
-                k = k + sepLen;
-                start = k;
-            } else {
-                k = k + 1;
-            }
-        }
-        result[idx] = this.Substring(start, n - start);
-        return result;
+        return this._splitRaw(separator);
     }
+
+    // Native scan + cut (perf-strings-json): the script version was a two-pass
+    // per-character loop over `ToCharArray()`, i.e. two interpreted/JIT-helper steps per
+    // input character; splitting is the one string operation whose whole cost is the scan.
+    [Native("__str_split")] extern string[] _splitRaw(string separator);
 
     // add-string-split-options (2026-05-27): 带 options 的重载。
     // options 是 `Std.SplitOptions.*` 的 bitwise OR。
@@ -131,24 +100,18 @@ public sealed partial class String {
     // 单一 params 重载同时覆盖 normal form（`Join(sep, arr)` 直传 string[]）与 expanded form
     // （`Join(sep, a, b, c)` 编译期打包 string[]）。取代此前的 `Join(string, string[])` +
     // `Join(string, string, string, string)` 双重载（params string[] 与 string[] 同签名，二者不可并存）。
-    // 历史：曾保留左折叠 `+`——因为当时唯一替代是 char[]+CharAt 重建（每字符一次 builtin 派发，16 段基准
-    // 反慢 4×）。perf-stdlib-hot-paths 后有了 `ConcatParts`（单次原生拼接、无逐字符派发），O(n²) 与
-    // 逐字符两个问题同时消失，故改走它（对比数据见归档 tasks）。
+    // n ≥ 2 走原生 `__str_join`：交错 + 拼接一次分配（无左折叠 `+` 的 O(n²) 拷贝，也不在脚本里
+    // 先搭 2n−1 段的交错数组）。
     public static string Join(string separator, params string[] values) {
         int n = values.Length;
         if (n == 0) return "";
         if (n == 1) return values[0];
-        // perf-stdlib-hot-paths：交错成 [v0, sep, v1, sep, …] 一次 ConcatParts（原左折叠 `+` 为 O(n²) 拷贝）。
-        string[] parts = new string[n * 2 - 1];
-        parts[0] = values[0];
-        int k = 1;
-        for (int i = 1; i < n; i++) {
-            parts[k] = separator;
-            parts[k + 1] = values[i];
-            k = k + 2;
-        }
-        return String.ConcatParts(parts, parts.Length);
+        return String._joinRaw(separator, values);
     }
+
+    // Native interleave + concat in one allocation (perf-strings-json): the script
+    // version first built the `2n − 1` interleaved `string[]` for `ConcatParts`.
+    [Native("__str_join")] static extern string _joinRaw(string separator, string[] values);
 
     // ── Remaining intrinsic-backed methods (perf-sensitive / 协议依赖) ───────
     // 2026-04-27 wave3a-str-concat-script: 脚本实现 —— `+` 编译为 IR

@@ -283,4 +283,9 @@ pub(crate) const PART2: &[(&str, Native)] = &[
     // ── perf-collections-sort — appended to preserve existing BuiltinIds ──
     // `List<T>.Sort()` / `Array.Sort<T>(T[])` 的基元快路径：元素全是同一种基元时原生稳定排序。
     ("__array_sort_prims",  Native::Val(array::builtin_array_sort_prims)),
+    // ── perf-strings-json — appended to preserve existing BuiltinIds ──
+    // `String.Split(string)` 的扫描 + 切段：一次原生扫描，每段一次分配。
+    ("__str_split",         Native::Val(string::builtin_str_split)),
+    // `String.Join(sep, values)`：一次分配拼出交错结果。
+    ("__str_join",          Native::Val(string::builtin_str_join)),
 ];
