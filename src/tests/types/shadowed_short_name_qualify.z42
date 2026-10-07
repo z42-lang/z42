@@ -1,0 +1,29 @@
+namespace Demo.Shadow;
+
+using Std.Collections;
+
+// fqn-tables 5d：本包里有与导入类型**同短名**的类时，发射端对导入类型的引用必须限定到它自己的声明 ns。
+// 此前发射端按「短名 → ns」图限定（本包类覆盖导入类），于是下面三处都被限定成 `Demo.Shadow.*`：
+//   typeof(Std.Collections.List<int>) → 指向不存在的 `Demo.Shadow.List`（与 GetType() 不等）
+//   Std.Math.AbsInt(-3)               → `Demo.Shadow.Math.AbsInt`（运行期找不到函数）
+//   catch (Std.InvalidOperationException) → 匹配不到真正抛出的异常
+// 现在这些点都按**类型对象**的声明 ns 限定。
+
+public class List { public int X; }
+public static class Math { public static int AbsInt(int x) { return 0 - 1; } }
+public class InvalidOperationException : Std.Exception {
+    public InvalidOperationException(string m) : base(m) { }
+}
+
+void Main() {
+    var xs = new Std.Collections.List<int>();
+    Assert.True(typeof(Std.Collections.List<int>) == xs.GetType());
+
+    Assert.Equal(3, Std.Math.AbsInt(-3));
+    Assert.Equal(-1, Math.AbsInt(-3));   // 本包那份照常可用
+
+    bool caught = false;
+    try { throw new Std.InvalidOperationException("boom"); }
+    catch (Std.InvalidOperationException e) { caught = e.Message == "boom"; }
+    Assert.True(caught);
+}

@@ -34,7 +34,8 @@ public static class ConvKind {
 public sealed class ConvResult {
     public int Kind;
     public MethodSymbol Method;
-    public ConvResult(int kind) { this.Kind = kind; this.Method = null; }
+    public Z42ClassType OwnerCt;   // 用户转换声明所在类（lower 成静态调用时限定目标名用）；不确定为 null
+    public ConvResult(int kind) { this.Kind = kind; this.Method = null; this.OwnerCt = null; }
 
     // 是否存在任一转换（隐式或显式）。
     public bool Exists() { return this.Kind != ConvKind.None; }
@@ -129,6 +130,8 @@ public static class Conversion {
                     if (ms.Name == "op_Implicit") { kind = ConvKind.UserImplicit; }
                     ConvResult res = new ConvResult(kind);
                     res.Method = ms;
+                    // 继承来的转换（声明在基类）：ct 不是声明类 ⇒ 不给类型对象，发射端回落按短名限定。
+                    if (ct.Name() == ms.ContainingTypeName) { res.OwnerCt = ct; }
                     return res;
                 }
             }

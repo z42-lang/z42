@@ -394,6 +394,7 @@ public sealed class StmtBinder {
                 }
                 BoundStmt body = this._bindStmt(cc.Body, cenv, ret);
                 catches[ci] = new BoundCatchClause(cc.HasType, exName, exArity, cc.HasVar, cc.VarName, body, cc.Span);
+                if (exType is Z42ClassType || exType is Z42InstantiatedType) { catches[ci].ExType = exType; }
                 ci = ci + 1;
             }
             BoundStmt fin = null;

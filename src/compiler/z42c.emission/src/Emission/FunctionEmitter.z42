@@ -45,6 +45,7 @@ public sealed class FunctionEmitter {
         this._ctx.ImportedClassNs = this._gen.ImportedClassNs;   // IC-1
         this._ctx.ActiveNs = this._gen.ActiveNs; this._ctx.ActiveNsCount = this._gen.ActiveNsCount;  // path C
         this._ctx.LocalClasses = this._gen.LocalClasses;
+        this._ctx.OwnerCt = owner;                                 // fqn-tables 5d：Owner*Name 的限定按它的声明 ns
         this._ctx.CurFnName = name;                               // lift 命名（port-z42c-closures）
         if (this._seedLocalFns != null) {                          // impl-local-fn-l2：继承父函数 local-fn 映射
             string[] sk = this._seedLocalFns.Keys();

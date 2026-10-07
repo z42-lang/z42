@@ -113,7 +113,7 @@ public sealed class RecordSynthEmitter {
     // ═══ class：Equals(object) —— type-exact + 逐字段值相等 ═══════════════════════════════
     public IrFunction EmitRecordEquals(string name, Z42ClassType owner) {
         this._initCtx(name, 1);   // reg0=this、reg1=other(object)（须先建 _ctx 再用 QualifyClass）
-        string fq = this._ctx.QualifyClass(owner.Name());
+        string fq = this._ctx.QualifyType(owner, owner.Name());
         TypedReg self = new TypedReg(0, IrType.Ref);
         TypedReg other = new TypedReg(1, IrType.Ref);
         string failL = this._ctx.Fresh("req_ne");
@@ -267,7 +267,7 @@ public sealed class RecordSynthEmitter {
     public IrFunction EmitRecordToString(string name, Z42ClassType owner, bool isStruct) {
         string simple = owner.Name();   // 符号表存简单名（QualifyClass 补 ns）→ 即 C# ToString 用的简单类名
         this._initCtx(name, 0);          // 须先建 _ctx 再用 QualifyClass
-        string fq = this._ctx.QualifyClass(owner.Name());
+        string fq = this._ctx.QualifyType(owner, owner.Name());
         TypedReg self = new TypedReg(0, IrType.Ref);
         // struct：this 为 boxed → 拆到 StructRef 供 StructFieldGetPrim
         TypedReg baseRef = self;
@@ -319,7 +319,7 @@ public sealed class RecordSynthEmitter {
             int[] fpath = AccessEmitter._pathAppend(new int[0], this._gen.Layouts.FieldIndexOf(ownerName, fname));
             int tag = Tag.FromName(this._gen.Layouts.FieldTypeName(ownerName, fname));
             fv = this._ctx.Alloc(this._ctx.ToIrType(ftype));
-            this._ctx.Emit(new StructFieldGetPrimInstr(fv, baseRef, this._ctx.QualifyClass(ownerName), fpath, tag));
+            this._ctx.Emit(new StructFieldGetPrimInstr(fv, baseRef, this._ctx.QualifyLayout(ownerName), fpath, tag));
         } else {
             fv = this._ctx.Alloc(this._ctx.ToIrType(ftype));
             this._ctx.Emit(new FieldGetInstr(fv, baseRef, fname));

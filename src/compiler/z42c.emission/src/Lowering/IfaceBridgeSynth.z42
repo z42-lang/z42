@@ -78,7 +78,7 @@ public sealed class IfaceBridgeSynth {
         // 预留返回 blob（与 CallEmitter 的 sret 发射序一致：struct_alloc 后作末尾隐藏实参）
         int rsz = this._gen.Layouts.StructSize(retStructName);
         TypedReg sretH = this._ctx.Alloc(IrType.Ref);
-        this._ctx.Emit(new StructAllocInstr(sretH, this._ctx.QualifyClass(retStructName), rsz));
+        this._ctx.Emit(new StructAllocInstr(sretH, this._ctx.QualifyLayout(retStructName), rsz));
         // 调具体实现：(形参原样转发…, sret)，返回 void（值经 sret 槽回传）
         TypedReg callDst = this._ctx.Alloc(IrType.Void);
         TypedReg[] args = new TypedReg[total + 1];

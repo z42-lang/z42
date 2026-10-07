@@ -20,6 +20,8 @@ public sealed class EmitContext {
                                         // 存其短名（供 `this.x`/裸字段 access 翻转到 StructFieldGet/SetPrim）；否则 ""。
     public string      OwnerClassName;  // add-struct-heap-inline (P3b)：当前实例方法所属类短名（含非-struct class；
                                         // 供裸 `pt`/`pt.x` 内联 struct 字段 access 解析对象相对 offset）；静态/无 owner 为 ""。
+    public Z42ClassType OwnerCt;        // fqn-tables 5d：当前方法所属类的**类型对象**（无 owner 为 null）——限定 OwnerStructName /
+                                        // OwnerClassName 用它的声明 ns，不再按短名查图。
     // add-struct-value-semantics A-use：当前函数返回 blob 值 struct 时走 **sret** 约定——caller 预留返回
     // blob 作隐藏末尾参数传入，callee `return s` → StructCopy(SretReg, s)+ret void。RetIsStruct 置位时
     // SretReg=末尾参数寄存器、RetStructSize=blob 字节数。
@@ -66,6 +68,7 @@ public sealed class EmitContext {
         this.InstProps = new StrMap(); this.InstPropHasSet = new StrMap();
         this.OwnerStructName = "";
         this.OwnerClassName = "";
+        this.OwnerCt = null;
         this.RetIsStruct = false; this.RetStructSize = 0; this.SretReg = null;
         this.ConstLocals = new StrMap();
         this.Blocks = new IrBlock[4]; this.BlockCount = 0;
@@ -102,6 +105,64 @@ public sealed class EmitContext {
             if (b != null) { return b.Value + "." + name; }
         }
         return this.Qualify(name);
+    }
+
+    // fqn-tables 5d：按**类型对象**限定 —— `name` 是该类型在 IR 里的名字（短名 / `Name$N` / 实例化布局名，
+    // 由调用方给，原样保留），ns 取类型自己的声明 ns。发射端拿到的短名大多来自已解析类型（导入成员签名里的接收者
+    // 类型等），按短名查「短名 → ns」图会撞同短名的别的类（探针实测：`Std.Scripting.List` 遮住 `Std.Collections.List`、
+    // `Std.Json` 里 `Object` 被限定成 `Std.Json.Object`）。类型没有 ns（全局 ns 类型、兜底合成类型）时回落 QualifyClass。
+    public string QualifyType(Z42Type t, string name) {
+        if (EmitContext.BaseHasDot(name)) { return name; }   // 调用方给的已是限定名（源码写的 `Std.Exception` 等）
+        string ns = EmitContext.DeclNsOf(t);
+        return ns != "" ? ns + "." + name : this.QualifyClass(name);
+    }
+
+    // struct / class **布局名**（StructLayout 的键：短名 / `Name$N` / 实例化名）的限定：ns 取算出该布局的那个类
+    // （`StructLayout.OwnerOf`），与布局同源；布局表不认识的名字回落 QualifyClass。
+    // 只限定基名、实参原样（`Pair<P2,int>` → `Demo.Pair<P2,int>`；实参可能本身是带点的 FQN）。
+    public string QualifyLayout(string layoutName) {
+        int lt = layoutName.IndexOf('<');
+        string baseN = lt < 0 ? layoutName : layoutName.Substring(0, lt);
+        string suffix = lt < 0 ? "" : layoutName.Substring(lt, layoutName.Length - lt);
+        Z42ClassType o = this.Gen != null && this.Gen.Layouts != null ? this.Gen.Layouts.OwnerOf(baseN) : null;
+        if (o == null) { return this.QualifyClass(baseN) + suffix; }
+        return this.QualifyType(o, baseN) + suffix;
+    }
+
+    // **本 CU 源码里写下的**类型名（`[SymAvailable]` 的 owner、属性名等）的限定：按本 CU 作用域解析（外围 ns → FQN →
+    // using → prelude，同 `SymbolTable.GetClass`），ns 取解析到的类型；解析不到回落 QualifyClass。
+    // ⚠️ 只给源码写的名字用——从已解析类型拿到的短名要用 QualifyType（作用域里同短名的可能是别的类）。
+    public string QualifySource(string name) {
+        if (EmitContext.BaseHasDot(name) || this.Symbols == null) { return this.QualifyClass(name); }
+        Z42ClassType ct = this.Symbols.GetClass(name);
+        if (ct != null) { return this.QualifyType(ct, name); }
+        Z42InterfaceType it = this.Symbols.GetInterface(name);
+        if (it != null) { return this.QualifyType(it, name); }
+        string ek = this.Symbols.EnumKey(name);
+        if (ek != null) { return ek; }
+        return this.QualifyClass(name);
+    }
+
+    // 名字的**基名部分**（`<` 之前）是否已带 ns —— 实参里的点不算。
+    public static bool BaseHasDot(string name) {
+        int lt = name.IndexOf('<');
+        int dot = name.IndexOf('.');
+        return dot >= 0 && (lt < 0 || dot < lt);
+    }
+
+    // 类型的声明 ns（类 / 构造泛型的定义 / 接口 / 实例化接口 / enum）；其余（基元、型参、数组、未知）为 ""。
+    public static string DeclNsOf(Z42Type t) {
+        if (t == null) { return ""; }
+        if (t is Z42InstantiatedType) {
+            Z42ClassType d = (t as Z42InstantiatedType).Def;
+            return d == null ? "" : d.Namespace;
+        }
+        if (t is Z42ClassType) {
+            Z42ClassType ct = t as Z42ClassType;
+            return ct.PrimCode() >= 0 ? "" : ct.Namespace;
+        }
+        if (t is Z42InterfaceType) { return (t as Z42InterfaceType).Namespace; }
+        return "";
     }
 
     // is / as / cast 的目标类型名限定（fix-boxed-primitive-is-as）：基元别名（string/int/…）→
@@ -392,7 +453,7 @@ public sealed class EmitContext {
                 // sealed override 门控：非整类 sealed 时，只有方法本身 sealed 才目标唯一（见上判据）。
                 bool sealedHere = classSealed || ms.IsSealed;
                 // 目标名用 _classShortName（泛型条件 $N mangle）逐字节匹配 IrGen `_q(_classIrShortName)`。
-                string fq = this.QualifyClass(this._classShortName(ct)) + "." + methodKey;
+                string fq = this.QualifyType(ct, this._classShortName(ct)) + "." + methodKey;
                 // 本地类：SymbolCollector 只填**声明于本类**的方法 → Methods 命中即「本类声明」=declClass，
                 // 目标就是本类发射的函数（Deps 不含本包函数，不能拿 Deps 校验）。sealed 判据成立才去虚化。
                 if (this.LocalClasses != null && this.LocalClasses.ContainsKey(ct.Name())) {
@@ -644,3 +705,4 @@ public sealed class EmitContext {
         return IrType.Ref;   // object / 未知 → ref
     }
 }
+

@@ -19,6 +19,7 @@ public sealed partial class MemberResolver {
             this._tc._access.CheckAccess(sfs.Visibility, sfs.ContainingTypeName, env, env.Symbols, sfs.IsProp ? "property" : "field", name, sp);   // enforce-access-control
             this._tc._access.CheckDeprecatedF(sfs, name, sp);   // add-deprecated-directive
             BoundStaticGet sg = new BoundStaticGet(clsName, name, sfs.FieldType, sp);
+            sg.OwnerCt = sct;
             if (sfs.IsProp) {
                 sg.IsProp = true;
                 sg.PropBacking = sfs.PropBackingName;
@@ -32,6 +33,7 @@ public sealed partial class MemberResolver {
             this._tc._access.CheckAccess(getter.Visibility, getter.ContainingTypeName, env, env.Symbols, "property", name, sp);   // enforce-access-control
             this._tc._access.CheckDeprecatedM(getter, name, sp);   // add-deprecated-directive
             BoundStaticGet pg = new BoundStaticGet(clsName, name, getter.Signature.Ret, sp);
+            pg.OwnerCt = sct;
             pg.IsProp = true;
             MethodSymbol setter = sct.Methods.Get("set_" + name) as MethodSymbol;
             if (setter != null && setter.IsStatic) { pg.PropSetter = "set_" + name; }

@@ -65,8 +65,10 @@ public sealed class BoundMethodGroup : BoundExpr {
     public string    ClassName;
     public string    MethodName;
     private Z42Type _type;
+    public Z42ClassType OwnerCt;   // fqn-tables 5d：`ClassName` 的类型对象（发射端按其声明 ns 限定）；null ⇒ 回落按短名
     public BoundMethodGroup(BoundExpr receiver, string className, string methodName, Z42Type sig, Span span) {
         this.Span = span; this.Receiver = receiver; this.ClassName = className; this.MethodName = methodName; this._type = sig;
+        this.OwnerCt = null;
     }
     public override Z42Type Type() { return this._type; }
     public override string Dump() { return "(method-group " + this.ClassName + "." + this.MethodName + ")"; }
@@ -114,6 +116,10 @@ public sealed class BoundCall : BoundExpr {
     // `BoundConvert` 拆箱）。`InstRetType` 只在「成员已特化 ⇒ callee 走 sret」时才被发射端采信；
     // 未特化（跨包擦除体）时装箱模型仍然成立，两条路各自自洽。
     public Z42Type     InstRetType;
+    // fqn-tables 5d：static / base_ctor 调用的**目标类类型对象**（`OwnerClass` 是它的 IR 短名）。发射端按它的声明 ns
+    // 限定目标名，不再按短名查「短名 → ns」图（同短名跨 ns 会撞别的类）。默认 null（post-construction 由**手里有
+    // 类型对象**的绑定点经 `WithOwner` 写入，同 `RetIsNullable` 的先例）；null ⇒ 发射端回落按短名限定。
+    public Z42ClassType OwnerCt;
     private Z42Type _retType;
     public BoundCall(string kind, bool hasReceiver, BoundExpr receiver, string ownerClass,
                      string methodName, BoundExpr[] args, int argCount, Z42Type retType, Span span) { this.Span = span;
@@ -125,6 +131,13 @@ public sealed class BoundCall : BoundExpr {
         this.FreeNs = null; this.FreeImported = false;
         this.RetIsNullable = false;
         this.InstRetType = null;
+        this.OwnerCt = null;
+    }
+
+    // 记下目标类类型对象并原样交回 bc（便于 `return` 位直接包一层）。
+    public static BoundCall WithOwner(BoundCall bc, Z42ClassType owner) {
+        if (bc != null) { bc.OwnerCt = owner; }
+        return bc;
     }
 
     // 在已解析签名的调用点给结果打上返回值可空标记，并原样交回 bc（便于 `return` 位直接包一层）。
