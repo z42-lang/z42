@@ -323,6 +323,33 @@ pub unsafe extern "C" fn jit_array_len(
     }
 }
 
+/// `new T[n]` on a **class-level** type param, after `jit_array_new` built the erased
+/// array (Null slots): when the receiver's (reg 0) concrete `type_args[param_index]` is
+/// a primitive value type, give every slot that primitive's zero — the per-slot default
+/// interp `array_new` uses (fix-generic-array-value-zero-init). Reference / struct type
+/// args and a non-object reg 0 leave the array as built. Non-throwing: the array is
+/// fresh, so overwriting its Null/zero slots owes no barrier.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn jit_array_zero_class_tp(
+    frame: *mut JitFrame, _ctx: *const JitModuleCtx,
+    arr: u32, param_index: u32,
+) {
+    let regs = &(*frame).regs;
+    let zero = match regs.first() {
+        Some(Value::Object(rc)) => match rc.borrow().type_args().get(param_index as usize) {
+            Some(name) => crate::metadata::types::default_value_for(name),
+            None => return,
+        },
+        _ => return,
+    };
+    if matches!(zero, Value::Null) { return; }
+    if let Some(Value::Array(rc)) = regs.get(arr as usize) {
+        let mut a = rc.borrow_mut();
+        if !matches!(a.backing, crate::metadata::types::ArrayBacking::Boxed { .. }) { return; }
+        for i in 0..a.len() { a.set_boxed(i, zero.clone()); }
+    }
+}
+
 #[cfg(test)]
 #[path = "array_tests.rs"]
 mod array_tests;

@@ -15,6 +15,13 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                     let (etp, etl) = self.str_val(&insn.element_type);   // add-reflection-array-element-type
                     let inst = self.builder.ins().call(self.hr_array_new, &[self.frame_val, self.ctx_val, d, s, t, etp, etl]);
                     let ret  = self.builder.inst_results(inst)[0]; self.check(ret);
+                    // `new T[n]` on a CLASS-level type param: the receiver (reg 0) carries the
+                    // concrete type args, so a primitive T gets its zero per slot — same as interp
+                    // `array_new`. (Method-level T has no JIT carrier → `unsupported_reason`.)
+                    if insn.type_param_kind == 2 && insn.type_param_index >= 0 {
+                        let pi = self.builder.ins().iconst(types::I32, insn.type_param_index as i64);
+                        self.builder.ins().call(self.hr_array_zero_class_tp, &[self.frame_val, self.ctx_val, d, pi]);
+                    }
                 }
                 Instruction::ArrayNewLit(insn) => {
                     let d = self.ri(insn.dst);
