@@ -52,7 +52,8 @@ JitModule
   `&FnEntry` 在整个 run 内有效——**热路径读取零锁**。槽随 `JITModule` 存活（代码页的生命周期）；挪到 VmCore
   是 P1-6 的事。
 - **by-name 只在冷路径**：`id_by_name(name)` = `func_index` → `funcs.lazy_id` → `try_lookup_function`（可能加载包）
-  → 同一套 by-id 槽。仍按名字进来的只有入口函数、`ToString`、闭包和构造器（后两者随 P1-2 的 PR 5 / 8 改存 id）。
+  → 同一套 by-id 槽。仍按名字进来的只有入口函数、`ToString` 和闭包（闭包随 P1-2 的 PR 8 改存 id）。构造器取
+  `ObjNew` 站点缓存里的 `FnId`（见 [vm-architecture.md](vm-architecture.md)「ObjNew dispatch」）。
 - **`Mutex<LazyCompiler>`** 只在**真正编译某函数**时加锁。
 
 ## 首次调用流程
@@ -200,7 +201,9 @@ fn resolve_fn_by_id_thr(&self, id, thr) -> Option<&FnEntry> {
       dict e2e jit 从慢 interp 3.1× 追平；string-heavy 反超）。Boxed / `Null` 仍返回 `None` 落慢路径，
       与 interp 一致。
   - `jit_call_indirect`：`None`-臂走 interp（env 前置 + args）。
-  - `jit_obj_new`：`None`-臂走 interp 跑 ctor（原地改 `this`），不能静默跳过 ctor（字段未初始化）。
+  - `jit_obj_new`：类与 ctor 的解析与 interp 共用 `interp/obj_new_resolve.rs`，站点缓存（烘焙进代码的
+    `ObjNewSite` 指针）命中即得描述符与 ctor 的 `FnId`。已编译 → 原生（`this` 进 reg 0、实参直接从调用方寄存器取）；
+    冷 / 不可编 / 无 id 的 `None`-臂按 `&Function` 走 interp 跑 ctor（原地改 `this`），不能静默跳过 ctor（字段未初始化）。
   三态负缓存两路径通用。
 
 **验证**：`Z42_JIT_PROFILE=1` 下，冷静态函数不出现在编译列表、热函数出现（阈值为 N 时，调用不足 N 次的

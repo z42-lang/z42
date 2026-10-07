@@ -15,12 +15,12 @@
 //!
 //! Phase 1 (this file): define the trait + implement it on `Module` + use
 //! it from `compile_module` (the JIT build-time path that's call-site,
-//! not raw-pointer-bound) + one helper as exemplar
-//! (`jit_obj_new`). Doesn't change `compile_module(&Module)` signature.
+//! not raw-pointer-bound). Doesn't change `compile_module(&Module)` signature.
+//! No helper reads through the trait at present: `jit_obj_new`'s class / ctor
+//! resolution is shared with the interpreter (`interp::obj_new_resolve`).
 //!
-//! Phase 2 (separate spec, not started): migrate the remaining 9 helpers
-//! to call trait methods through the same raw-pointer-but-typed indirection
-//! pattern that `jit_obj_new` will use here. Phase 3 (likely Phase 2.5)
+//! Phase 2 (separate spec, not started): migrate the helpers to call trait
+//! methods through a raw-pointer-but-typed indirection. Phase 3 (likely Phase 2.5)
 //! would address generic-ifying `compile_module` so AOT can plug in a
 //! different `JitVm` impl.
 //!

@@ -194,6 +194,46 @@ pub fn vcall_ic_install(ic: &VCallIC, recv_type: u32, fn_id: u32) {
     let victim = (ic.round_robin.fetch_add(1, Relaxed) as usize) % IC_SLOTS;
     ic.entries[victim].packed.store(pack(recv_type, fn_id), Relaxed);
 }
+// ── ObjNew 站点缓存（P1-2 PR 5）────────────────────────────────────────────
+
+/// One `ObjNew` site's cache: the class descriptor and the constructor, resolved once.
+///
+/// Both halves are only installed — and only read — when the function runs against the
+/// VM's entry module (`FuncTable::is_entry`, every production run; see
+/// `interp::obj_new_resolve`). That is what lets a lazily loaded class and its ctor cache
+/// exactly like an entry-module one: `ctor` holds a `FnId` (same id space as
+/// `ResolvedTokens::method_tokens`), not a `module.functions` index.
+///
+/// - `class`: set after the first resolution that produced a **complete** descriptor
+///   (from the module registry or the lazy loader, inheritance merged). Never a fallback
+///   descriptor, never one with `base_unmerged` — the loader may still replace those, and
+///   holding a clone would block its in-place fixup. `OnceLock::get` is a lock-free
+///   Acquire load; racing first resolutions are first-wins and agree.
+/// - `ctor`: the constructor's `FnId`, or `UNRESOLVED`. Stored only after the arity check
+///   passed (`symres::wrong_arity_exception`), like a `Call` token. Read `Relaxed`; a lazily
+///   loaded id is only dereferenced through `FuncTable::get` (Acquire, see [`vcall_ic_lookup`]).
+/// - `ctorless`: cache-ctorless-objnew's "no ctor anywhere" mark (see [`ctorless_hit`]).
+///
+/// Per-allocation work that stays on the hit path on purpose: the ambiguous-type check
+/// (one relaxed load while no collision was ever seen), the package / type initializer
+/// barriers (relaxed loads once initialised), allocation and generic type arguments.
+#[derive(Debug)]
+pub struct ObjNewSite {
+    pub class:    std::sync::OnceLock<std::sync::Arc<crate::metadata::TypeDesc>>,
+    pub ctor:     AtomicU32,
+    pub ctorless: std::sync::atomic::AtomicUsize,
+}
+
+impl Default for ObjNewSite {
+    fn default() -> Self {
+        Self {
+            class:    std::sync::OnceLock::new(),
+            ctor:     AtomicU32::new(UNRESOLVED),
+            ctorless: std::sync::atomic::AtomicUsize::new(0),
+        }
+    }
+}
+
 /// Monotonic count of functions ever registered into a lazy loader's
 /// function registry, plus loader install/uninstall. **Process-global on
 /// purpose**: it is only ever compared for equality against a value a site

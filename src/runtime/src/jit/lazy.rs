@@ -118,7 +118,6 @@ impl LazyCompiler {
             ptr:     ptr_raw as *const u8,
             max_reg: max_r,
             func:    func as *const Function,
-            arity:   crate::vm_context::symres::call_arity(func),
             owner_init: std::sync::Arc::clone(&func.owner_init),
             forward: super::forward::builtin_forward(func),
         })
@@ -152,7 +151,6 @@ impl LazyCompiler {
             ptr:     ptr_raw as *const u8,
             max_reg: max_r,
             func:    func as *const Function,
-            arity:   crate::vm_context::symres::call_arity(func),
             owner_init: std::sync::Arc::clone(&func.owner_init),
             forward: None,
         })

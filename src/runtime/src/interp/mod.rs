@@ -11,6 +11,7 @@
 /// • exec_array.rs   — ArrayNew / ArrayNewLit / ArrayGet / ArraySet / ArrayLen
 /// • exec_object.rs  — ObjNew / FieldGet / FieldSet / IsInstance / AsCast / Static*
 /// • vcall_resolve.rs — VCall target resolution (shared with jit/helpers/vcall.rs)
+/// • obj_new_resolve.rs — ObjNew class / ctor resolution + site cache (shared with jit_obj_new)
 /// • exec_vcall.rs   — VCall invoke side + primitive_class_name + is_array_isa
 /// • exec_native.rs  — CallNative / CallNativeVtable / PinPtr / UnpinPtr
 /// • dispatch.rs   — object dispatch helpers (vtable, ToString, static fields)
@@ -28,6 +29,7 @@ pub(crate) mod exec_struct;   // add-struct-value-semantics: blob value-type ins
 pub(crate) mod exec_value;
 mod exec_vcall;
 pub(crate) mod vcall_resolve;   // unify-vcall-resolution: shared with jit/helpers/vcall.rs
+pub(crate) mod obj_new_resolve; // P1-2 PR 5: ObjNew class / ctor + site cache, shared with jit_obj_new
 mod ops;
 pub(crate) mod stack_alloc;   // add-escape-analysis-stack-alloc: per-context stack arena
 pub(crate) mod struct_arena;  // add-struct-value-semantics: per-context byte arena for value structs

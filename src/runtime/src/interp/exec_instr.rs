@@ -248,17 +248,14 @@ pub fn exec_instr(
             // which allocates in the per-context arena when set (+ runtime-enabled).
             let ObjNewInsn { dst, class_name, ctor_name, args, type_args, stack_alloc, ctor_known } = &**insn;
             let _site_idx = site_idx!();
-            // Hot path: pass type_token cache for repopulation. Dispatch via
-            // type_registry / lazy_loader unchanged.
-            let type_token = cached_token!(_site_idx, type_tokens);
-            // cache-ctorless-objnew: per-site "this class has no ctor" mark.
-            let ctorless = cached_token!(_site_idx, ctorless_marks);
+            // P1-2 PR 5: the site cache (class descriptor + ctor FnId) — hit = no hashing.
+            let site = cached_token!(_site_idx, obj_new);
             // fix-ctor-throw-propagation (2026-05-24): mirror Call / Builtin —
             // propagate user `throw` from the ctor body to the enclosing
             // try/catch instead of silently dropping it.
             if let Some(thrown) = exec_object::obj_new(
-                ctx, module, frame, *dst, class_name, ctor_name, args, type_args, type_token,
-                ctorless, *stack_alloc, *ctor_known,
+                ctx, module, frame, *dst, class_name, ctor_name, args, type_args, site,
+                *stack_alloc, *ctor_known,
             )? {
                 return Ok(Some(thrown));
             }

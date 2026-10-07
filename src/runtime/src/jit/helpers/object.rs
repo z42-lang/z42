@@ -3,6 +3,7 @@
 //! generic `default(T)` runtime helper.
 
 use crate::interp::dispatch::isa_td;
+use crate::metadata::resolver::ObjNewSite;
 use crate::metadata::{NativeData, Value};
 
 use super::super::frame::{JitFrame, JitModuleCtx};
@@ -11,6 +12,11 @@ use super::{set_exception, vm_ctx_ref};
 
 // ── Object allocation ────────────────────────────────────────────────────────
 
+/// `ObjNew`. Class and ctor resolution is shared with the interpreter
+/// (`interp::obj_new_resolve`); after the first allocation at a site both come from the
+/// site cache — no name hashing, no locks, a cross-package class / ctor included. The
+/// ctor runs natively once compiled (counted toward its tier-up by `FnId`), else on the
+/// interpreter.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_obj_new(
     frame: *mut JitFrame, ctx: *const JitModuleCtx,
@@ -23,98 +29,50 @@ pub unsafe extern "C" fn jit_obj_new(
     // IR `Instruction::ObjNew { type_args: Vec<String> }` storage, valid for
     // module lifetime. Non-generic ObjNew passes count = 0.
     type_args_ptr: *const String, type_args_count: usize,
-    // cache-ctorless-objnew: per-site "this class has no ctor" mark (may be null
-    // when the function was compiled without a resolved token table).
-    ctorless_mark: *const std::sync::atomic::AtomicUsize,
+    // P1-2 PR 5: this site's `ResolvedTokens::obj_new` cache (null when the function was
+    // compiled without a resolved token table).
+    site_ptr: *const ObjNewSite,
     // encode-ctorless-objnew: compile-time positive ctor marker; see `missing_ctor_exception`.
     ctor_known: u8,
 ) -> u8 {
-    // cache-failed-name-resolution: borrow, don't `to_string()` — 2 allocs per `new`.
-    let class_name = std::str::from_utf8(std::slice::from_raw_parts(cls_name_ptr, cls_name_len))
-        .unwrap_or("<invalid>");
-    let ctor_name = std::str::from_utf8(std::slice::from_raw_parts(ctor_name_ptr, ctor_name_len))
-        .unwrap_or("<invalid>");
+    use crate::interp::obj_new_resolve::{resolve_class, resolve_ctor, site_for};
+    // Baked by `TxCtx::str_val` from the IR: valid UTF-8, no re-validation per `new`.
+    let class_name = super::baked_str(cls_name_ptr, cls_name_len);
+    let ctor_name = super::baked_str(ctor_name_ptr, ctor_name_len);
     let ctx_ref   = &*ctx;
     let module    = &*ctx_ref.module;
     let frame_ref = &mut *frame;
+    let vm        = vm_ctx_ref(ctx);
+    let site = site_for(vm, module, if site_ptr.is_null() { None } else { Some(&*site_ptr) });
 
-    // E1.P2 Phase 1 exemplar (2026-06-02): route metadata access through
-    // the `JitVm` trait instead of `module.type_registry.get(...)` directly.
-    // Other helpers stay on concrete-field access for now; Phase 2 spec
-    // migrates the remaining ~10 sites.
-    use super::super::vm_interface::JitVm;
-    // make-vm-loading-lazy: an imported class (e.g. Std.Cli.SubcommandRouter) is
-    // NOT in the merged module's type registry until first use — it lives in the
-    // lazy loader. Probe it there before the blank-descriptor fallback, mirroring
-    // interp's `exec_object::obj_new`. Without this, `new SubcommandRouter()` gets
-    // a zero-field TypeDesc → zero slots → every field read returns Null (observed:
-    // `this._count` reads Null → `I64(0) vs Null` in SubcommandRouter.Add).
-    let resolved = module.type_lookup(class_name).cloned()
-        .or_else(|| vm_ctx_ref(ctx).try_lookup_type(class_name));
-    let type_desc = match resolved {
-        Some(td) => td,
-        None => {
-            // 站点 ② fix-silent-symbol-resolution：与 interp `exec_object::obj_new` 对称。
-            let vm = vm_ctx_ref(ctx);
-            if let Some(exc) = crate::vm_context::symres::missing_type_exception(
-                vm, module, class_name,
-            ) {
-                set_exception(vm, exc);
-                return 1;
-            }
-            // 此前这里就地合成一个**空**描述符，而 interp 走的是
-            // `make_fallback_type_desc`（按 `module.classes` 的继承链把字段槽建齐）——
-            // 同一个「合并模块不带预建 TypeDesc」的合法回落，JIT 下却丢掉全部字段。
-            // 两后端改用同一份实现。
-            std::sync::Arc::new(crate::interp::dispatch::make_fallback_type_desc(module, class_name))
-        }
+    let type_desc = match resolve_class(vm, module, class_name, site) {
+        Ok(td) => td,
+        Err(exc) => { set_exception(vm, exc); return 1; }
     };
-    // fix-crosspkg-base-fields-in-eager-module：与 interp `exec_object::obj_new` 对称。
-    let type_desc = if type_desc.base_unmerged() {
-        match vm_ctx_ref(ctx).try_lookup_type(class_name) {
-            Some(fixed) if !fixed.base_unmerged() => fixed,
-            _ => type_desc,
-        }
-    } else { type_desc };
-    // runtime-ambiguous-use-site：与 interp `exec_object::obj_new` 对称 —— 两个后端必须
-    // 同判据，否则「解释执行报错、JIT 静默跑错的那份」比不报还糟。
-    {
-        let vm = vm_ctx_ref(ctx);
-        if let Some(exc) = crate::vm_context::symres::ambiguous_type_exception(vm, module, class_name) {
-            set_exception(vm, exc);
-            return 1;
-        }
-    }
-    // 站点 ④ fix-silent-symbol-resolution：与 interp `exec_object::obj_new` 对称。
-    {
-        let vm = vm_ctx_ref(ctx);
-        if let Some(exc) = crate::vm_context::symres::missing_base_exception(vm, module, &type_desc) {
-            set_exception(vm, exc);
-            return 1;
-        }
-    }
     // add-static-constructors：创建实例是 C# 的类型初始化触发点之一。TypeDesc 已在手 →
-    // 一次 `Option` 判断即可，不需要 `pending` 门。与 interp 的 obj_new 屏障对称。
-    {
-        let vm = vm_ctx_ref(ctx);
-        // add-module-init-hook：与 interp 的 obj_new 屏障对称。
-        if let Err(msg) = vm.ensure_module_inits(Some(type_desc.name.as_str())) {
-            let module = &*(*ctx).module;
-            let exc = crate::vm_context::cctor::make_type_init_exception(vm, module, &msg);
-            set_exception(vm, exc);
-            return 1;
-        }
-        if let Err(msg) = vm.ensure_type_init(&type_desc) {
-            let exc = crate::vm_context::cctor::make_type_init_exception(vm, module, &msg);
-            set_exception(vm, exc);
-            return 1;
-        }
+    // 一次 `Option` 判断即可。add-module-init-hook：包级初始化先于类型初始化。与 interp 对称。
+    if let Err(msg) = vm.ensure_module_inits(Some(type_desc.name.as_str())) {
+        set_exception(vm, crate::vm_context::cctor::make_type_init_exception(vm, module, &msg));
+        return 1;
     }
+    if let Err(msg) = vm.ensure_type_init(&type_desc) {
+        set_exception(vm, crate::vm_context::cctor::make_type_init_exception(vm, module, &msg));
+        return 1;
+    }
+    // Bound before the object exists (binding may load a package; see interp `obj_new`).
+    let mut lazy_holder = None;
+    let ctor = match resolve_ctor(
+        vm, module, class_name, ctor_name, argc + 1 /* +this */, ctor_known != 0, site,
+        &mut lazy_holder,
+    ) {
+        Ok(c) => c,
+        Err(exc) => { set_exception(vm, exc); return 1; }
+    };
 
     // unify-object-byte-layout (PR-2): fields default to zero-initialized bytes +
     // `Null` refs (= the old per-field defaults), produced inside `alloc_object` from
     // the composed layout; pass no initial values (mirrors interp `obj_new`).
-    let obj_val = vm_ctx_ref(ctx).heap().alloc_object(type_desc, Vec::new(), NativeData::None);
+    let obj_val = vm.heap().alloc_object(type_desc, Vec::new(), NativeData::None);
 
     // 2026-05-07 expand-jit-type-args: populate per-instance type_args BEFORE
     // ctor call so the ctor body's `default(T)` resolves correctly (mirrors
@@ -153,84 +111,28 @@ pub unsafe extern "C" fn jit_obj_new(
         }
     }
 
-    // cache-ctorless-objnew: a class with no explicit constructor still makes the
-    // compiler emit `<Class>..ctor$N` — a name that resolves nowhere. Once this site
-    // has proved that, skip the lazy-table mutex, the loader lookup, AND the
-    // `ctor_args` Vec below. The merged module is still probed first (a plain hash,
-    // no lock): the mark says "no *lazily-loadable* ctor", and `Function.resolved`
-    // is shared by every module this function may run under, so a module that does
-    // carry the ctor must still win.
-    use crate::metadata::resolver::{ctorless_hit, ctorless_note};
-    let mark = if ctorless_mark.is_null() { None } else { Some(&*ctorless_mark) };
-    let live = vm_ctx_ref(ctx).fn_registration_mark();
-    let in_module = module.func_index.contains_key(ctor_name);
-    if !in_module && ctorless_hit(mark, live) {
-        frame_ref.regs[dst as usize] = obj_val;
-        return 0;
-    }
-
-    let arg_regs = std::slice::from_raw_parts(args_ptr, argc);
-    let mut ctor_args: Vec<Value> = vec![obj_val.clone()];
-    ctor_args.extend(arg_regs.iter().map(|&r| frame_ref.regs[r as usize].clone()));
-
-    // 直查 ctor_name (TypeChecker 已 overload-resolve)；无名字推断。
-    // runtime-jit-tiering Phase 1b: tiered ctor. A cold (below-threshold) or
-    // interp-only ctor resolves to None and is run on the INTERPRETER — it mutates
-    // `this` (== ctor_args[0] == obj_val, a shared GcRef) in place. Without this the
-    // old code silently skipped the ctor for None, leaving fields uninitialized
-    // (observed: `is_pattern_binding` field 5→0). A type with no ctor resolves to
-    // nothing → both paths skip and the already-default-initialised object is used.
-    if let Some(entry) = ctx_ref.resolve_fn_by_name_tiered(ctor_name) {
-        // 站点 ⑤ fix-ctor-arity-skew：与 interp `exec_object::obj_new` 对称。区间在 `FnEntry`
-        // 里预算好（见 `jit/lazy.rs`），native 分支因此不必再查一次函数元数据。
-        if let Some(exc) = crate::vm_context::symres::wrong_arity_exception(
-            vm_ctx_ref(ctx), module, ctor_name, entry.arity, argc + 1 /* +this */,
-        ) {
-            set_exception(vm_ctx_ref(ctx), exc);
-            return 1;
-        }
-        let callee = JitFrame::new(vm_ctx_ref(ctx), entry.max_reg, &ctor_args);
-        // The ctor mutates `this` in place; its (void) return value is discarded.
-        if let NativeOutcome::Threw = call_entry(vm_ctx_ref(ctx), ctx, entry, callee) { return 1; }
-    } else {
-        let vm_ctx = vm_ctx_ref(ctx);
-        let oc = if let Some(callee) = module.func_index.get(ctor_name)
-            .and_then(|&idx| module.functions.get(idx))
-        {
-            if let Some(exc) = crate::vm_context::symres::wrong_arity_exception(
-            vm_ctx, module, ctor_name,
-                crate::vm_context::symres::call_arity(callee), argc + 1 /* +this */,
-            ) {
-                set_exception(vm_ctx, exc);
-                return 1;
+    // runtime-jit-tiering Phase 1b: tiered ctor. Compiled (or compiling at the threshold) →
+    // native, `this` in reg 0 and args straight from the caller's registers; cold /
+    // untranslatable / no `FnId` → the interpreter, which mutates `this` (a shared GcRef)
+    // in place. `None` = a class without a ctor: the object stays default-initialised.
+    if let Some((func, id)) = ctor {
+        let arg_regs = std::slice::from_raw_parts(args_ptr, argc);
+        match id.and_then(|id| ctx_ref.resolve_fn_by_id_tiered(id)) {
+            Some(entry) => {
+                let callee = JitFrame::new_method_args_from(
+                    vm, entry.max_reg, obj_val.clone(), &frame_ref.regs, arg_regs);
+                // The ctor mutates `this` in place; its (void) return value is discarded.
+                if let NativeOutcome::Threw = call_entry(vm, ctx, entry, callee) { return 1; }
             }
-            Some(crate::interp::exec_function(vm_ctx, module, callee, &ctor_args))
-        } else if let Some(lazy_fn) = vm_ctx.try_lookup_function(ctor_name) {
-            if let Some(exc) = crate::vm_context::symres::wrong_arity_exception(
-            vm_ctx, module, ctor_name,
-                crate::vm_context::symres::call_arity(lazy_fn.as_ref()), argc + 1 /* +this */,
-            ) {
-                set_exception(vm_ctx, exc);
-                return 1;
-            }
-            Some(crate::interp::exec_function(vm_ctx, module, lazy_fn.as_ref(), &ctor_args))
-        } else if let Some(exc) = crate::vm_context::symres::missing_ctor_exception(
-            vm_ctx, module, class_name, ctor_name, argc, ctor_known != 0,
-        ) {
-            // 站点 ③ fix-silent-symbol-resolution：与 interp `exec_object::obj_new` 对称——
-            // 带实参却解析不到构造器 = 定案缺失，抛可 catch 的 MissingSymbolException，
-            // 不再把未经构造的对象写进 dst。
-            set_exception(vm_ctx, exc);
-            return 1;
-        } else {
-            ctorless_note(mark, live); // nothing resolves it — remember for this site
-            None // ctor-less type → skip (object already default-initialised)
-        };
-        if let Some(outcome) = oc {
-            match outcome {
-                Ok(crate::interp::ExecOutcome::Returned(_)) => {} // ctor mutated `this` in place
-                Ok(crate::interp::ExecOutcome::Thrown(val)) => { set_exception(vm_ctx, val); return 1; }
-                Err(e) => { set_exception(vm_ctx, Value::Str(e.to_string().into())); return 1; }
+            None => {
+                let mut ctor_args: Vec<Value> = Vec::with_capacity(argc + 1);
+                ctor_args.push(obj_val.clone());
+                ctor_args.extend(arg_regs.iter().map(|&r| frame_ref.regs[r as usize].clone()));
+                match crate::interp::exec_function(vm, module, func, &ctor_args) {
+                    Ok(crate::interp::ExecOutcome::Returned(_)) => {} // ctor mutated `this` in place
+                    Ok(crate::interp::ExecOutcome::Thrown(val)) => { set_exception(vm, val); return 1; }
+                    Err(e) => { set_exception(vm, Value::Str(e.to_string().into())); return 1; }
+                }
             }
         }
     }

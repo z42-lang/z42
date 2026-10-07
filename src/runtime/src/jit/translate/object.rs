@@ -23,9 +23,9 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                     let (ap, al) = self.regs_val(args);
                     let tap = self.builder.ins().iconst(self.ptr, type_args.as_ptr() as i64);
                     let tac = self.builder.ins().iconst(types::I64, type_args.len() as i64);
-                    // cache-ctorless-objnew: bake the per-site mark's address (stable
-                    // through `Function.resolved`, like the FieldIC pointer below).
-                    let cm = ctorless_mark_ptr_at(self.func, self.block_idx, self.instr_idx);
+                    // P1-2 PR 5: bake the site cache's address (class + ctor FnId + ctorless
+                    // mark; stable through `Function.resolved`, like the FieldIC pointer below).
+                    let cm = obj_new_site_ptr_at(self.func, self.block_idx, self.instr_idx);
                     let cmv = self.builder.ins().iconst(self.ptr, cm as i64);
                     // encode-ctorless-objnew: compile-time positive ctor marker (i8).
                     let ckv = self.builder.ins().iconst(types::I8, *ctor_known as i64);

@@ -502,7 +502,7 @@ z42vm 继续静态链接 VM，不改为动态链接 `native/libz42`（结论与�
   - 2：解释器 Call 的 `method_tokens` 改存 FnId。
   - 3：JIT 槽位按 FnId 建、带负缓存；惰性目标也路由到 native；OSR 支持惰性函数。
   - 4：VCall PIC 改存 FnId。
-  - 5：ObjNew 站点缓存。
+  - 5：ObjNew 站点缓存。🟡 已实现、待合并（分支 `vm/objnew-site-cache`）：站点存类描述符 `Arc<TypeDesc>` + ctor 的 FnId，interp 与 JIT 共用 `interp/obj_new_resolve.rs`；命中不哈希、不拿锁。仍按名：回落描述符的本地类（每次现建描述符）。
   - 6：TypeTable 与 `isa_cache` 改 key（顺带修 D5）。
   - 7：ConstStr 改为每 ctx 一张无锁表。
   - 8：FuncRef / Closure 改存 FnId。

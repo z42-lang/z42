@@ -170,10 +170,6 @@ pub struct FnEntry {
     /// function lives in the module, a lazily loaded one is kept alive by its
     /// `FuncTable` slot. Null for [`FnEntry::rejected`].
     pub func:    *const Function,
-    /// fix-ctor-arity-skew: 可接受的**物理**实参数区间，编译时从 `&Function` 算好。
-    /// `jit_obj_new` 的 native 分支只拿得到 `FnEntry`（跨包构造器正是惰性加载、
-    /// 最容易 tier 到 native 的那批），没有它就得为每次构造再查一次函数元数据。
-    pub arity:   crate::vm_context::symres::CallArity,
     /// The function's `owner_init` cell (shared, see `Function::owner_init`),
     /// so `jit_call`'s cctor barrier needs no name-based owner lookup.
     pub owner_init: crate::metadata::bytecode::OwnerInitCell,
@@ -194,8 +190,6 @@ impl FnEntry {
     pub fn rejected() -> Self {
         FnEntry {
             ptr: std::ptr::null(), max_reg: 0, func: std::ptr::null(),
-            // rejected 项永远不会被当作可调用体，区间取全放行。
-            arity: crate::vm_context::symres::CallArity { min: 0, max: u16::MAX },
             owner_init: Default::default(),
             forward: None,
         }
@@ -501,8 +495,8 @@ impl JitModuleCtx {
         self.resolve_fn_by_id(self.id_by_name(name)?)
     }
 
-    /// Name-keyed tiered resolution (closures and constructors, which still carry
-    /// names). SAFETY: see [`Self::resolve_fn_by_id`].
+    /// Name-keyed tiered resolution (closures, which still carry names).
+    /// SAFETY: see [`Self::resolve_fn_by_id`].
     pub unsafe fn resolve_fn_by_name_tiered(&self, name: &str) -> Option<&FnEntry> {
         self.resolve_fn_by_id_tiered(self.id_by_name(name)?)
     }
