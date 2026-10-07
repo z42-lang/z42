@@ -50,7 +50,6 @@ public static class ModuleInitSynth {
         EmitContext ctx = new EmitContext(model.Symbols, g);
         ctx.Ns = g.Ns;
         ctx.Deps = g.Deps;
-        ctx.ImportedClassNs = g.ImportedClassNs;
         ctx.ActiveNs = g.ActiveNs; ctx.ActiveNsCount = g.ActiveNsCount;
         ctx.LocalClasses = g.LocalClasses;
         ctx.CurFnName = name;

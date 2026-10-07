@@ -141,12 +141,11 @@ public sealed class IrGen {
     public int OptSet;  // add-sealed-devirt：本次 Generate 的优化集（Generate 顶设）；EmitContext.Gen.OptSet 读，
                         // 供 emit 时 devirt 门控（Opt.Devirt）。默认 0=None（未走 Generate 的 dump 路径不 devirt，安全）。
     public DependencyIndex Deps;       // 跨包索引（CI-4；调用方 Generate 前设置，null=无）
-    public StrMap ImportedClassNs;     // imported 短类名 → ns（IC-1；含本包跨-ns 自有类，G17b）
     public string[] ActiveNs; public int ActiveNsCount;  // path C：本 CU 活跃命名空间集（usings + 本 ns，prelude-first）→ 静态调用 using-scoped 消歧
     public StrMap LocalClasses;        // 本包自有声明类名集（G18：ChainHasMethod 反劫持守卫仅认本地类）
     public bool IsRelease;   // release 模式：strip debug info（不 emit .locals/.linetable），镜像 C# stripSymbols=true
     public IrFunction[] Lifted; public int LiftedCount;   // lambda lift（port-z42c-closures；模块尾追加）
-    public StrMap IfaceDecls;   // 接口名 → 其 ClassDecl（add-reflection-transitive-interfaces：接口传递闭包展开）
+    public StrMap IfaceDecls;   // 本 CU 接口 FQN → 其 ClassDecl（add-reflection-transitive-interfaces：接口传递闭包展开）
     public StrMap MgThunks;     // 实例方法组 thunk 去重（cacheKey "<qualClass>.<method>$<arity>" → "1"）
     public string SourceFile;   // add-partial-types：当前 CU 源文件全路径（与 Z42ClassType.PartialMainFile 比对判主碎片）
     public StrMap PartialMerged; // add-partial-types：partial 类型名 → 合并后 ClassDecl（成员拼接+基表并集）；仅主碎片发其 TYPE record
@@ -227,19 +226,13 @@ public sealed class IrGen {
         return c.Name;
     }
 
-    // 类名 FQ 限定（镜像 EmitContext.QualifyClass / C# QualifyClassName）：同包跨-ns 类
-    // （含 using 引入的兄弟 ns 类、接口）经 ImportedClassNs 解析到声明 ns，否则回落 _q（当前 ns）。
-    public string _qClass(string name) {
-        if (this.ImportedClassNs != null && this.ImportedClassNs.ContainsKey(name)) {
-            StrBox b = this.ImportedClassNs.Get(name) as StrBox;
-            if (b != null) { return b.Value + "." + name; }
-        }
-        return this._q(name);
-    }
+    // **没有类型对象**时的兜底：按当前模块 ns 限定（同 EmitContext.QualifyClass；「短名 → ns」图已删，fqn-tables 5d）。
+    public string _qClass(string name) { return this._q(name); }
 
     // 按类型对象限定（同 EmitContext.QualifyType）：ns 取类型自己的声明 ns，无 ns 回落 _qClass。
     public string _qType(Z42Type t, string name) {
         if (EmitContext.BaseHasDot(name)) { return name; }   // 已是限定名
+        if (PrimModel.Wrapper(name) != name) { return this._qClass(name); }   // 关键字拼写不是类名
         string ns = EmitContext.DeclNsOf(t);
         return ns != "" ? ns + "." + name : this._qClass(name);
     }
@@ -254,15 +247,17 @@ public sealed class IrGen {
         // （见 CuCompile._compileCu）；此处仅在未注入时（单文件 dump / 测试路径）自行计算。
         if (this.Layouts == null) { this.Layouts = StructLayout.BuildFromSymbols(model.Symbols); }
         NestedFlatten.Flatten(cu);   // add-nested-types：嵌套类型提升为顶层（幂等；Collect 通常已展平过）
-        // 接口名 → ClassDecl 映射（接口传递闭包展开用：IB:IA → Widget:IB 也含 IA）。
+        // 本 CU 声明的接口：**FQN** → ClassDecl（接口传递闭包展开用：IB:IA → Widget:IB 也含 IA）。
+        // fqn-tables 5d：此前按短名键，同短名的导入接口会被当成本 CU 那个展开。
         this.IfaceDecls = new StrMap();
+        string ifdNs = cu.HasNamespace ? cu.Namespace : "";
         this.MgThunks = new StrMap();
         int ifd = 0;
         while (ifd < cu.DeclCount) {
             Decl dfd = DeclFacts._unwrap(cu.Decls[ifd]);
             if (dfd is ClassDecl) {
                 ClassDecl cfd = dfd as ClassDecl;
-                if (cfd.Kind == "interface") { this.IfaceDecls.Put(cfd.Name, cfd); }
+                if (cfd.Kind == "interface") { this.IfaceDecls.Put(SymbolTable.QualOf(ifdNs, cfd.Name), cfd); }
             }
             ifd = ifd + 1;
         }

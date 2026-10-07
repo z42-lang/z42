@@ -85,8 +85,8 @@ sealed 类不可被继承 → 静态类型是 sealed 类 `A` 的 receiver，运�
   （release 全开；`--no-opt devirt` 关，供 before/after 逐字节对拍）。
 - **目标解析**：`EmitContext.ResolveSealedTarget` 沿 sealed 类基链找**最近声明该方法且非 abstract 的可限定非泛型类**
   `C`，产出 `QualifyClass(C) + "." + RegKey`——逐字节匹配 IrGen 的函数命名。`BoundCall.MethodName` 已是
-  MemberResolver 解析后的 `ms.RegKey`（重载已消歧），故无需重解析。「可限定」= `_devirtQualifiable(name)`：
-  在 `LocalClasses`（本地，QualifyClass=当前 ns）**或** `ImportedClassNs`（imported，QualifyClass=源 ns）。
+  MemberResolver 解析后的 `ms.RegKey`（重载已消歧），故无需重解析。「可限定」= `_devirtQualifiable(ct)`：
+  在 `LocalClasses`（本地）**或**是带声明 ns 的导入类；目标名按类型对象的声明 ns 限定（`QualifyType`）。
 
 ### imported sealed 去虚化的坑：TSIG 展平继承方法
 
@@ -137,7 +137,7 @@ imported 类的符号 `Methods` 由 `ImportedSymbolLoader` 从 TSIG 重建，而
   拿到泛型定义类。
 - **$N 条件 mangle**：泛型是**类型擦除**，方法一份发射；短名由 `_classShortName` 镜像 `IrGen._classIrShortName`
   ——泛型类**仅当同名多 arity 重载**（`Symbols.HasClass("Name$N")`）才用 `Name$N`，否则裸 `Name`。目标名
-  `QualifyClass(_classShortName(ct))+"."+RegKey`、`ImportedClassNs` 查键都用它，逐字节匹配
+  `QualifyType(ct, _classShortName(ct))+"."+RegKey` 用它，逐字节匹配
   IrGen 发射。非泛型下 `_classShortName==Name` → 与 v1 逐字节等价（零回归）。
 - **单测**：`test_generic_sealed_devirt`（单 arity → `call @Box.`）/ `test_generic_sealed_multiarity_devirt`
   （`Box`+`Box<T>` → `call @Box$1.`）/ `test_generic_nonsealed_stays_vcall`；e2e `sealed_generic_devirt.z42`

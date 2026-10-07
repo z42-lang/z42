@@ -77,11 +77,12 @@ AST → Bound 树 + `SemanticModel`。分两步：先由 `SymbolCollector` 遍�
 
 - 每个 `Z42ClassType` 带 `Namespace` 字段（本地类由 `StubCollector` 从 `cu.Namespace` 回填，导入类由
   `ImportedSymbolLoader` 从模块 ns 回填），并提供 `Fqn()`（`ns.IrName()`；全局类退回裸名）。
-- `SymbolTable.ClassesByFqn`（FQN 键 → 类型）与裸名 `Classes` **并存**，注册时同时登记，**保留每一份**同短名类。
-- `ResolveTypeP` 的限定名路径**优先**按 FQN 命中 `ClassesByFqn`（`A.Foo` → 声明 ns==A 的那份），不剥短名撞赢家；
-  非限定引用仍走裸名表（沿用其 first/last-wins，另见下「Deferred」）。
-- 发射端（`CallEmitter` 的 `ObjNew`）对已解析到的、`Namespace!=""` 的类型直接发 `Fqn()`，绕开
-  `EmitContext.QualifyClass` 按短名走 `ImportedClassNs` 的同类撞名歧义；`is`/`as` 本就发 AST 源码原始限定名，天然正确。
+- `SymbolTable.ClassesByFqn`（FQN 键 → 类型）**保留每一份**同短名类；按短名键的 `Classes` / `Interfaces` 已于
+  fqn-tables 5（2026-10）删除，非限定引用走作用域解析（外围 ns → FQN → using → prelude）。
+- `ResolveTypeP` 的限定名路径按 FQN 命中 `ClassesByFqn`（`A.Foo` → 声明 ns==A 的那份），不剥短名撞赢家。
+- 发射端限定类名一律取**类型对象**的声明 ns（`EmitContext.QualifyType` / `QualifyLayout` / `QualifySource`）；
+  曾经的「短名 → ns」图（`ImportedClassNs` / `ImportedSymbols.ClassNamespaces`）已删——发射端拿到的短名多来自已解析类型，
+  按短名查图（或按引用方作用域重解析）都会撞同短名的别的类。
 
 > **③ 第三条路：基表（`class C : X` 的那个 `X`）。**
 >

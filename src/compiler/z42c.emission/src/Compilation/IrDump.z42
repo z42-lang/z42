@@ -20,7 +20,7 @@ using Z42.Optimization;
 sealed class CompileCuTask : IParallelBody {
     CompilationUnit[] _cus; string[] _files; SymbolTable _symbols;
     DependencyIndex _deps; ImportedSymbols _imported;
-    StrMap _classNs; StrMap _localClasses; bool _isRelease;
+    StrMap _localClasses; bool _isRelease;
     StrMap _partialMerged; int _optSet; IrModule[] _cached;
     ExportedFuncZ[] _allFuncs; int _afc; StrMap _pkgClassMap;
     StructLayout _layouts;   // perf-layouts-once：包级预计算布局表（并行段只读共享）
@@ -32,14 +32,14 @@ sealed class CompileCuTask : IParallelBody {
     public bool PkgHasErrors;
     public CompileCuTask(CompilationUnit[] cus, string[] files, SymbolTable symbols,
                          DependencyIndex deps, ImportedSymbols imported,
-                         StrMap classNs, StrMap localClasses, bool isRelease,
+                         StrMap localClasses, bool isRelease,
                          StrMap partialMerged, int optSet, IrModule[] cached,
                          ExportedFuncZ[] allFuncs, int afc, StrMap pkgClassMap,
                          StructLayout layouts, StrMap pkgGenerics,
                          StrMap pkgGenericTypes, CompiledModuleZ[] r) {
         this._cus = cus; this._files = files; this._symbols = symbols;
         this._deps = deps; this._imported = imported;
-        this._classNs = classNs; this._localClasses = localClasses; this._isRelease = isRelease;
+        this._localClasses = localClasses; this._isRelease = isRelease;
         this._partialMerged = partialMerged; this._optSet = optSet; this._cached = cached;
         this._allFuncs = allFuncs; this._afc = afc; this._pkgClassMap = pkgClassMap;
         this._layouts = layouts;
@@ -55,13 +55,13 @@ sealed class CompileCuTask : IParallelBody {
             this._r[i].DiagMsgs = new string[0]; this._r[i].DiagCount = 0;
         } else {
             this._r[i] = CuCompile._compileCu(this._cus[i], this._files[i], this._symbols, this._deps,
-                this._imported, this._classNs, this._localClasses, this._isRelease, this._partialMerged,
+                this._imported, this._localClasses, this._isRelease, this._partialMerged,
                 this._optSet, this._layouts, this._pkgGenerics, this._pkgGenericTypes, this.PkgHasErrors);
         }
         string ns2 = "main";                                 // no-ns build 路径缺省（C# 字节实证）
         if (this._cus[i].HasNamespace) { ns2 = this._cus[i].Namespace; }
         this._r[i].Exported = ExportedTypeExtractor.ExtractP(this._cus[i], this._symbols, ns2,
-            this._allFuncs, this._afc, this._pkgClassMap, this._classNs);
+            this._allFuncs, this._afc, this._pkgClassMap);
     }
 }
 
@@ -141,7 +141,7 @@ public static class IrDump {
                                       deps, imported, isRelease, null, Opt.ProfileDefault(isRelease));
     }
     // 增量变体（add-file-level-incremental D2）：cachedModules[i] 非 null → 该文件跳过
-    // typecheck/codegen，IrModule 用 cache 读回件；符号收集 / allFuncs / classNs / classMap /
+    // typecheck/codegen，IrModule 用 cache 读回件；符号收集 / allFuncs / classMap /
     // TSIG（Exported）恒全包重算（每文件 TSIG 全包耦合——自由函数兄弟泄漏 + 全包 AST）。
     // cached 的 UsedDepNs 是 typecheck 产物 → 由调用方从 cache meta 回填。
     public static CompiledModuleZ[] BuildPackageCus(string[] srcs, string[] files, int count,
@@ -156,17 +156,10 @@ public static class IrDump {
         // 字段类型、回写 fs.FieldType（消除「var」降级态，使导出 + 跨包消费得真实类型）。
         VarFieldInfer.Run(cus, count, symbols);
         StrMap partialMerged = CuCompile._buildMergedPartial(cus, count, symbols);   // add-partial-types：partial 类型名 → 合并 ClassDecl
-        // F4+F12：符号收集后的 4 趟独立全 CU 扫融成一趟——classNs（G17b 跨-ns 类名解析图）/
+        // F4+F12：符号收集后的独立全 CU 扫融成一趟——
         // localClasses（G18 本地类集）/ pkgClassMap（跨文件基类 map）/ allFuncs（全包自由函数聚合）
         // 彼此无数据依赖，同序遍历 cus[]，每张 map 的写序不变 → 字节不动。单文件 emit 路径仍用
         // _pkgLocalClasses 辅助（1-CU 场景），故辅助函数保留。
-        // classNs 预置跨-zpkg imported（镜像 C# ImportedClassNamespaces）。
-        StrMap classNs = new StrMap();
-        if (imported != null && imported.ClassNamespaces != null) {
-            string[] icks = imported.ClassNamespaces.Keys();
-            int ick = 0;
-            while (ick < icks.Length) { classNs.Put(icks[ick], imported.ClassNamespaces.Get(icks[ick])); ick = ick + 1; }
-        }
         StrMap localClasses = new StrMap();          // G18：反劫持守卫仅认本地类
         StrMap pkgClassMap = new StrMap();            // 跨文件 base 类方法继承（shortName / Name$N → ClassDecl）
         ExportedFuncZ[] allFuncs = new ExportedFuncZ[4];   // 全包自由函数（文件序+声明序，C# sem.Funcs 兄弟泄漏镜像）
@@ -174,14 +167,12 @@ public static class IrDump {
         i = 0;
         while (i < count) {
             CompilationUnit fcu = cus[i];
-            bool hasNs = fcu.HasNamespace && fcu.Namespace != "";   // classNs 仅收有 ns 的类
             int d = 0;
             while (d < fcu.DeclCount) {
                 Decl dd = fcu.Decls[d];
                 if (dd is AttributedDecl) { dd = (dd as AttributedDecl).Inner; }
                 if (dd is ClassDecl) {
                     ClassDecl cd = dd as ClassDecl;
-                    if (hasNs) { classNs.Put(cd.Name, new StrBox(fcu.Namespace)); }   // 含 interface（任意 Kind）
                     if (cd.Kind == "class" || cd.Kind == "struct") {
                         localClasses.Put(cd.Name, new StrBox(cd.Name));
                         if (!pkgClassMap.ContainsKey(cd.Name)) { pkgClassMap.Put(cd.Name, cd); }
@@ -264,7 +255,7 @@ public static class IrDump {
         }
         IrGen.ScanGenericBodies(cus, count, genModels, symbols, pkgGenerics, pkgGenericTypes);
         CompiledModuleZ[] r = new CompiledModuleZ[count];
-        CompileCuTask _task = new CompileCuTask(cus, files, symbols, deps, imported, classNs,
+        CompileCuTask _task = new CompileCuTask(cus, files, symbols, deps, imported,
             localClasses, isRelease, partialMerged, optSet, cachedModules, allFuncs, afc, pkgClassMap,
             layouts, pkgGenerics, pkgGenericTypes, r);
         _task.PkgHasErrors = coll.Diags.ErrorCount() > 0;
@@ -314,7 +305,6 @@ public static class IrDump {
         gen.SourceFile = file;                                        // add-partial-types：主碎片判定
         gen.PartialMerged = CuCompile._buildMergedPartial(one, 1, symbols);   // add-partial-types：合并 ClassDecl
         gen.LocalClasses = CuPreprocess._pkgLocalClasses(one, 1);   // G18：反劫持守卫仅认本地类
-        if (imported != null) { gen.ImportedClassNs = CuPreprocess._filterShadowed(imported.ClassNamespaces, cu); }
         string[] actNs2 = CuPreprocess._activeNamespaces(cu);   // path C：static call using-scoped 消歧
         gen.ActiveNs = actNs2; gen.ActiveNsCount = actNs2.Length;
         gen.HasTypeErrors = diags.ErrorCount() > 0;   // S1：类型错误下不做特化（见 IrGen.HasTypeErrors）
