@@ -9,7 +9,9 @@ use std::sync::OnceLock;
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::Instant;
 use crate::metadata::{Value};
-use crate::gc::refs::{GcRef};
+#[cfg(test)]
+use crate::gc::refs::GcRef;
+use crate::gc::region::RegionEntry;
 use crate::gc::types::{GcEvent, HeapSnapshot, HeapStats, SnapshotCoverage};
 
 impl crate::gc::arc_heap::ArcMagrGC {
@@ -121,17 +123,27 @@ impl crate::gc::arc_heap::ArcMagrGC {
         snapshot
     }
 
+    /// Alive entries (object + array regions) that still carry a finalizer — the same set
+    /// `snapshot_live_from_registry` would hand out, counted in place. An entry an incremental
+    /// sweep has already judged dead is not counted (as `admit_resurrected` would refuse it);
+    /// nothing escapes, so unlike that gate there is nothing to shade.
+    fn count_alive_with_finalizer(&self) -> u64 {
+        self.retire_thread_tlab();
+        let doomed = self.doomed_unless_marked();
+        fn counts<T>(e: &RegionEntry<T>, doomed: Option<crate::gc::refs::MarkKind>) -> bool {
+            e.has_finalizer() && doomed.map_or(true, |k| e.is_marked(k))
+        }
+        let mut n = 0u64;
+        self.region_object.lock().iterate_alive(|_, e| n += counts(e, doomed) as u64);
+        self.region_array.lock().iterate_alive(|_, e| n += counts(e, doomed) as u64);
+        n
+    }
+
     pub(super) fn stats(&self) -> HeapStats {
-        // Phase 3e: finalizers_pending 即时遍历 heap_registry 重算 —— 因为
-        // finalizer 现在挂在 GcAllocation 上，Drop 时自动 take，没有集中
-        // 计数器；准确值需扫 registry。snapshot_live_from_registry 顺路 prune
-        // 死引用。
-        let alive = self.snapshot_live_from_registry();
-        let pending = alive.iter().filter(|v| match v {
-            Value::Object(gc) => GcRef::has_finalizer(gc),
-            Value::Array(gc)  => GcRef::has_finalizer(gc),
-            _ => false,
-        }).count() as u64;
+        // finalizers_pending 没有集中计数器（finalizer 挂在 entry 上，Drop 时 take），
+        // 准确值要扫一遍 region —— 但只数数，不把活对象收进 Vec（那样观测本身就要
+        // 多付 16–32 B/对象的峰值内存）。
+        let pending = self.count_alive_with_finalizer();
 
         let mut s = self.inner.lock().stats.clone();
         // add-gc-tlab (option B): live counters live on the atomics now, not inner.stats.

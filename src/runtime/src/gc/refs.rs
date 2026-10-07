@@ -564,11 +564,6 @@ impl<T> GcRef<T> {
         this.entry_ref().take_finalizer()
     }
 
-    /// Query whether a finalizer is registered.
-    pub(crate) fn has_finalizer(this: &Self) -> bool {
-        this.entry_ref().has_finalizer()
-    }
-
     /// **add-custom-allocator P1 (2026-05-22)**: expose the underlying
     /// `RegionEntry` pointer + generation for `ArcMagrGC` internal
     /// bookkeeping (sweep walks regions directly; this is the inverse
