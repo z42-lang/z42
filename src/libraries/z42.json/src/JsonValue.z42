@@ -10,25 +10,29 @@ using Std.Collections;
 // kind 0=Null 1=Bool 2=Long 3=Double 4=String 5=Array 6=Object
 //   （注意 Null 在 JSON 中是 first-class value，与 TOML 不同 —— TOML 无 null）
 public class JsonValue {
-    private int _kind;
+    // `internal` (not `private`) so the same-package JsonWriter reads the
+    // representation directly instead of through a method call per value.
+    internal int _kind;
     private bool _bool;
     private long _long;
     private double _double;
-    private string _str;
+    internal string _str;
 
     // Array storage (kind == 5)
-    private JsonValue[] _arrayItems;
-    private int _arrayCount;
+    internal JsonValue[] _arrayItems;
+    internal int _arrayCount;
 
     // Object storage as parallel key/value arrays (kind == 6). The arrays are
     // the source of truth and preserve insertion order (JSON output must be
-    // order-stable). `_objectIndex` maps key → its slot in those arrays so
-    // ContainsKey / Get / Set are O(1) average instead of O(n) linear scans —
-    // building or reading an n-key object drops from O(n²) to O(n).
-    private string[] _objectKeys;
-    private JsonValue[] _objectValues;
-    private int _objectCount;
-    private Dictionary<string, int> _objectIndex;
+    // order-stable). Small objects (≤ 8 keys — the common record shape)
+    // find a key by a linear scan; past that `_objectIndex` maps key → slot so
+    // ContainsKey / Get / Set stay O(1) average and building an n-key object is
+    // O(n) rather than O(n²). The index is built on demand, so a small object
+    // costs two arrays, not a Dictionary per object.
+    internal string[] _objectKeys;
+    internal JsonValue[] _objectValues;
+    internal int _objectCount;
+    private Dictionary<string, int> _objectIndex;   // null until the object exceeds 8 keys
 
     // ── Public entry points ──────────────────────────────────────────────
 
@@ -133,7 +137,7 @@ public class JsonValue {
         v._objectKeys = new string[4];
         v._objectValues = new JsonValue[4];
         v._objectCount = 0;
-        v._objectIndex = new Dictionary<string, int>();
+        v._objectIndex = null;
         return v;
     }
 
@@ -183,17 +187,32 @@ public class JsonValue {
 
     public bool ContainsKey(string key) {
         if (this._kind != 6) { return false; }
-        return this._objectIndex.ContainsKey(key);
+        return this._slotOf(key) >= 0;
     }
 
     public JsonValue Get(string key) {
         if (this._kind != 6) {
             throw new JsonException("JsonGet on non-object value (" + this.KindName() + ")");
         }
-        if (!this._objectIndex.ContainsKey(key)) {
+        int slot = this._slotOf(key);
+        if (slot < 0) {
             throw new JsonException("key not found: " + key);
         }
-        return this._objectValues[this._objectIndex.Get(key)];
+        return this._objectValues[slot];
+    }
+
+    // Slot of `key` in the object arrays, or -1. Linear scan up to 8 keys,
+    // one dictionary probe above.
+    private int _slotOf(string key) {
+        if (this._objectIndex != null) {
+            return this._objectIndex.GetValueOrDefault(key, -1);
+        }
+        string[] keys = this._objectKeys;
+        int n = this._objectCount;
+        for (int i = 0; i < n; i++) {
+            if (keys[i] == key) { return i; }
+        }
+        return -1;
     }
 
     // ── 取即检查（取值与存在性测试合成一次）──────────────────────────
@@ -211,8 +230,9 @@ public class JsonValue {
     /// 本值不是 object 时返回 false 而**不抛** —— 与 `ContainsKey` 一致。
     public bool TryGet(string key, ref JsonValue value) {
         if (this._kind != 6) { return false; }
-        if (!this._objectIndex.ContainsKey(key)) { return false; }
-        value = this._objectValues[this._objectIndex.Get(key)];
+        int slot = this._slotOf(key);
+        if (slot < 0) { return false; }
+        value = this._objectValues[slot];
         return true;
     }
 
@@ -241,28 +261,34 @@ public class JsonValue {
         if (this._kind != 6) {
             throw new JsonException("JsonSet on non-object value (" + this.KindName() + ")");
         }
-        if (this._objectIndex.ContainsKey(key)) {
-            this._objectValues[this._objectIndex.Get(key)] = v;   // overwrite in place, order preserved
+        int slot = this._slotOf(key);
+        if (slot >= 0) {
+            this._objectValues[slot] = v;   // overwrite in place, order preserved
             return;
         }
-        if (this._objectCount == this._objectKeys.Length) {
-            int newCap = this._objectKeys.Length * 2;
+        int n = this._objectCount;
+        if (n == this._objectKeys.Length) {
+            int newCap = n * 2;
             if (newCap < 4) { newCap = 4; }
             string[] nk = new string[newCap];
             JsonValue[] nv = new JsonValue[newCap];
-            int j = 0;
-            while (j < this._objectCount) {
+            for (int j = 0; j < n; j++) {
                 nk[j] = this._objectKeys[j];
                 nv[j] = this._objectValues[j];
-                j = j + 1;
             }
             this._objectKeys = nk;
             this._objectValues = nv;
         }
-        this._objectKeys[this._objectCount] = key;
-        this._objectValues[this._objectCount] = v;
-        this._objectIndex.Set(key, this._objectCount);
-        this._objectCount = this._objectCount + 1;
+        this._objectKeys[n] = key;
+        this._objectValues[n] = v;
+        this._objectCount = n + 1;
+        if (this._objectIndex != null) {
+            this._objectIndex.Set(key, n);
+        } else if (n + 1 > 8) {
+            Dictionary<string, int> index = new Dictionary<string, int>();
+            for (int j = 0; j <= n; j++) { index.Set(this._objectKeys[j], j); }
+            this._objectIndex = index;
+        }
     }
 
     public string[] Keys() {
