@@ -65,7 +65,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
                 let entry_ptr = gc.entry_ptr();
                 // SAFETY: entry pointer valid for GcRef lifetime.
                 let entry = unsafe { entry_ptr.as_ref() };
-                let (ci, ei) = entry.location;
+                let (ci, ei) = entry.location();
                 if ci != u32::MAX {
                     self.region_object.lock().mark_card_dirty(ci, ei);
                 }
@@ -74,7 +74,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
                 if GcRef::gen_age(gc) < self.promotion_age() { return; }
                 let entry_ptr = gc.entry_ptr();
                 let entry = unsafe { entry_ptr.as_ref() };
-                let (ci, ei) = entry.location;
+                let (ci, ei) = entry.location();
                 if ci != u32::MAX {
                     self.region_array.lock().mark_card_dirty(ci, ei);
                 }

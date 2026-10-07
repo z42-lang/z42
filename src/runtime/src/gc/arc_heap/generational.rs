@@ -235,7 +235,7 @@ grey {grey_n} (skipped old {grey_old})"));
     /// never enqueued. Two premises it rests on, both load-bearing:
     ///
     /// 1. *A minor never reclaims an entry that is old by age.* `Region::sweep_young_in_one_pass`
-    ///    walks `young_list` only, and adaptive promotion may lower the line only in the window
+    ///    walks the young set only, and adaptive promotion may lower the line only in the window
     ///    where the following aging pass drains everything the new line makes old
     ///    (`Region::set_promotion_age`). `VarRegion::sweep_young` guards the remaining case
     ///    explicitly (`fix-old-block-left-in-young-list`), since `age_backing_with_owner` raises a
@@ -264,12 +264,11 @@ grey {grey_n} (skipped old {grey_old})"));
 
     /// **add-generational-gc P2 (2026-05-22)**: sweep phase for minor GC.
     ///
-    /// Walks `young_list` in both regions; for each entry:
+    /// Walks the young set of every region; for each entry:
     /// - `is_marked == true` → clear mark, increment gen_age (promote
-    ///   to next age tier); if reaches threshold, region.promote()
-    ///   removes from young_list.
+    ///   to next age tier); if it reaches the threshold it leaves the young set.
     /// - `is_marked == false` → fire finalizer, tombstone (alive=false,
-    ///   generation++, push to free_list AND remove from young_list).
+    ///   generation++, slot freed AND taken out of the young set).
     ///
     /// Old entries are NOT visited — major GC handles them.
     /// card_dirty is NOT cleared by minor (stable old→young refs need

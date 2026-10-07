@@ -1,7 +1,7 @@
 //! Page-granular memory for GC chunk storage, straight from the OS where there is one.
 //!
 //! **perf-gc-chunk-fit (2026-10-07)**: region chunks used to be one `Box` each, and their sizes
-//! (`CHUNK_SIZE` × entry size: 18 432 B for objects, 26 624 B for arrays) fall just past a
+//! (`CHUNK_SIZE` × entry size: then 18 432 B for objects, 26 624 B for arrays) fall just past a
 //! mimalloc size class — 20 480 / 28 672 — so every chunk carried 2 KB of slack, 8 B per
 //! object. Chunks now come out of slabs mapped here (see `region::slab`), whose sizes are whole
 //! pages, so nothing is rounded.

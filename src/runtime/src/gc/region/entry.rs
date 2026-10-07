@@ -11,7 +11,8 @@ use parking_lot::Mutex;
 use super::super::types::FinalizerFn;
 
 /// Per-object slot inside a `Region<T>`. Holds the user data plus GC
-/// metadata. Address stability: once a `RegionEntry` is initialized
+/// metadata — 24 bytes of it besides the value's `Mutex` (M8: young-set membership lives in
+/// the region's per-chunk bitmap, not in the entry). Address stability: once a `RegionEntry` is initialized
 /// inside a chunk, its `&self` reference remains valid until the
 /// owning chunk's Box is dropped (which happens only when the Region
 /// itself drops — never during normal sweep cycles).
@@ -62,18 +63,18 @@ pub struct RegionEntry<T> {
     /// box. Freed by this entry's `Drop`.
     pub(crate) finalizer: AtomicPtr<FinalizerFn>,
 
-    /// **add-custom-allocator P2 (2026-05-22)**: self-location
-    /// (chunk_idx, entry_idx) within the owning Region. Lets the
-    /// `MagrGC::finalize_now` path tombstone + recycle this slot
-    /// given only a `&RegionEntry<T>` (no separate handle needed).
-    /// Set by `Region::alloc`; immutable thereafter for the entry's
-    /// lifetime (a single slot keeps its location across reuse).
-    /// fix-region-chunk-idx-u16-overflow (2026-08-21): chunk_idx widened u16→u32.
-    /// A full 24-lib stdlib build bump-allocates past 65 535 chunks (× CHUNK_SIZE=256
-    /// = 16.7M slots); the old u16 chunk index overflowed at `ci + 1`, wrapping
-    /// `next_bump` to (0,0) → fresh allocations overwrote live chunk-0 objects →
-    /// non-deterministic heap corruption. entry_idx stays u16 (CHUNK_SIZE ≤ 65 536).
-    pub(crate) location: (u32, u16),
+    /// Self-location within the owning Region: chunk index and slot index. Lets the
+    /// `MagrGC::finalize_now` path tombstone + recycle this slot given only a
+    /// `&RegionEntry<T>` (no separate handle needed), and the write barrier find the card.
+    /// Set at construction; immutable for the entry's lifetime (a slot keeps its location
+    /// across reuse). Read through [`Self::location`].
+    ///
+    /// Split into a `u32` and a `u8` rather than kept as a `(u32, u16)` tuple: the tuple pads
+    /// to 8 bytes, and those spare bytes are what pushed the header past 24 (M8). The slot
+    /// index fits a byte because a chunk holds `CHUNK_SIZE` = 256 slots (asserted below).
+    /// `loc_chunk == u32::MAX` marks a standalone (test-only, not in any region) entry.
+    pub(crate) loc_chunk: u32,
+    pub(crate) loc_entry: u8,
 
     /// **add-gc-softref (2026-05-26)**: count of live `SoftGcRef<T>`
     /// handles pointing at this entry. > 0 means the entry is
@@ -84,18 +85,6 @@ pub struct RegionEntry<T> {
     /// (the handles are created and dropped on mutator threads).
     pub(crate) soft_ref_count: AtomicU32,
 
-    /// **fix-young-list-quadratic-sweep (2026-09-06)**: this entry's own index
-    /// inside `Region::young_list`, or [`Self::NOT_IN_YOUNG_LIST`] when it is
-    /// not listed (old, dead, or standalone). Turns `remove_from_young_list`
-    /// from an O(young_list.len()) `position()` scan into an O(1)
-    /// `swap_remove`, which is what made sweep O(dead x young) — a 137 s STW
-    /// pause on a 230 MB heap, the reason automatic GC was never armed.
-    ///
-    /// Maintained **only** under the region lock (`push_young` /
-    /// `remove_from_young_list` / `retire_chunk`), so the atomic is for
-    /// field-through-`&self` mutation, not for cross-thread coordination —
-    /// `Relaxed` throughout.
-    pub(crate) young_idx: AtomicU32,
 }
 
 /// shrink-object-footprint P1: the finalizer slot owns a `Box<FinalizerFn>`
@@ -113,7 +102,7 @@ impl<T> Drop for RegionEntry<T> {
 }
 
 /// **add-generational-gc P0 (2026-05-22)**: the **default** number of minor GCs an entry must
-/// survive before being promoted to the old generation (removed from `young_list`). 2 is the
+/// survive before being promoted to the old generation (leaving the young set). 2 is the
 /// industry-standard Java tenure.
 ///
 /// **add-promotion-age-knob (2026-09-08)**: this is now a default, not the value. Each heap
@@ -163,9 +152,9 @@ impl<T> RegionEntry<T> {
             gen_age:        AtomicU8::new(0),
             generation:     AtomicU32::new(0),
             finalizer:      AtomicPtr::new(std::ptr::null_mut()),
-            location,
+            loc_chunk:      location.0,
+            loc_entry:      location.1 as u8,
             soft_ref_count: AtomicU32::new(0),
-            young_idx:      AtomicU32::new(Self::NOT_IN_YOUNG_LIST),
         }
     }
 
@@ -196,33 +185,11 @@ impl<T> RegionEntry<T> {
         !self.finalizer.load(Ordering::Acquire).is_null()
     }
 
-    /// **fix-young-list-quadratic-sweep**: sentinel for `young_idx` meaning
-    /// "this entry is not in `Region::young_list`". `young_list` can never
-    /// reach `u32::MAX` entries (a chunk index is itself a `u32`).
-    pub(crate) const NOT_IN_YOUNG_LIST: u32 = u32::MAX;
-
-    /// **fix-young-list-quadratic-sweep**: read this entry's `young_list`
-    /// slot, or `None` when it is not listed.
+    /// `(chunk index, slot index)` of this entry in its region; the chunk is `u32::MAX` for a
+    /// standalone entry (see [`Self::loc_chunk`]).
     #[inline]
-    pub(crate) fn young_idx(&self) -> Option<usize> {
-        match self.young_idx.load(Ordering::Relaxed) {
-            Self::NOT_IN_YOUNG_LIST => None,
-            i => Some(i as usize),
-        }
-    }
-
-    /// **fix-young-list-quadratic-sweep**: record this entry's `young_list`
-    /// slot. Callers hold the region lock.
-    #[inline]
-    pub(crate) fn set_young_idx(&self, idx: usize) {
-        self.young_idx.store(idx as u32, Ordering::Relaxed);
-    }
-
-    /// **fix-young-list-quadratic-sweep**: mark this entry as absent from
-    /// `young_list`.
-    #[inline]
-    pub(crate) fn clear_young_idx(&self) {
-        self.young_idx.store(Self::NOT_IN_YOUNG_LIST, Ordering::Relaxed);
+    pub(crate) fn location(&self) -> (u32, u16) {
+        (self.loc_chunk, self.loc_entry as u16)
     }
 
     /// **add-generational-gc P0 (2026-05-22)**: read current gen_age.
@@ -276,3 +243,6 @@ impl<T> RegionEntry<T> {
         self.soft_ref_count.load(Ordering::SeqCst) > 0
     }
 }
+
+// The location's slot byte must be able to name every slot of a chunk.
+const _: () = assert!(super::CHUNK_SIZE <= 256, "RegionEntry::loc_entry is a u8");

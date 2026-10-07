@@ -88,7 +88,7 @@ fn barrier_marks_card_on_old_to_young_field_write() {
     let owner_chunk = match &owner {
         Value::Object(gc) => {
             let e = unsafe { gc.entry_ptr().as_ref() };
-            e.location.0
+            e.location().0
         }
         _ => unreachable!(),
     };
@@ -124,7 +124,7 @@ fn barrier_marks_card_on_old_to_young_string_write() {
     assert!(s.gen_age() < PROMOTION_THRESHOLD, "fresh string is young");
     let young_str = Value::Str(s);
     let owner_chunk = match &owner {
-        Value::Object(gc) => unsafe { gc.entry_ptr().as_ref() }.location.0,
+        Value::Object(gc) => unsafe { gc.entry_ptr().as_ref() }.location().0,
         _ => unreachable!(),
     };
     assert!(!heap.region_object_for_test().lock().is_card_dirty(owner_chunk));
@@ -146,7 +146,7 @@ fn barrier_no_card_on_young_to_young_write() {
     let owner_chunk = match &owner_young {
         Value::Object(gc) => {
             let e = unsafe { gc.entry_ptr().as_ref() };
-            e.location.0
+            e.location().0
         }
         _ => unreachable!(),
     };
@@ -173,7 +173,7 @@ fn barrier_no_card_on_old_to_old_write() {
     let owner_chunk = match &owner_old {
         Value::Object(gc) => {
             let e = unsafe { gc.entry_ptr().as_ref() };
-            e.location.0
+            e.location().0
         }
         _ => unreachable!(),
     };
@@ -202,7 +202,7 @@ fn barrier_no_op_in_stw_mode_even_under_cross_gen_setup() {
     let owner_chunk = match &owner {
         Value::Object(gc) => {
             let e = unsafe { gc.entry_ptr().as_ref() };
-            e.location.0
+            e.location().0
         }
         _ => unreachable!(),
     };
@@ -228,7 +228,7 @@ fn barrier_array_path_marks_card_on_cross_gen() {
     let arr_chunk = match &arr_old {
         Value::Array(gc) => {
             let e = unsafe { gc.entry_ptr().as_ref() };
-            e.location.0
+            e.location().0
         }
         _ => unreachable!(),
     };
@@ -481,7 +481,7 @@ fn minor_gc_does_not_clear_card_dirty_bits() {
     let owner_chunk = match &owner {
         Value::Object(gc) => {
             let e = unsafe { gc.entry_ptr().as_ref() };
-            e.location.0
+            e.location().0
         }
         _ => unreachable!(),
     };
@@ -529,7 +529,7 @@ fn major_collect_via_context_clears_card_dirty() {
     let owner_chunk = match &owner {
         Value::Object(gc) => {
             let e = unsafe { gc.entry_ptr().as_ref() };
-            e.location.0
+            e.location().0
         }
         _ => unreachable!(),
     };
