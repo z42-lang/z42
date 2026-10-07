@@ -15,12 +15,12 @@ use super::vcall_resolve::{resolve_vcall, vcall_ic_hit, VCallTarget};
 use super::{ExecOutcome, Frame};
 
 /// runtime-jit-tiering Phase 1.5 (mixed-mode): receiver-aware analogue of
-/// `exec_call::try_native_static_call`. If method `idx` is already JIT-compiled,
-/// invoke it natively (receiver in reg 0 via `new_method_args_from`) and marshal the
+/// `exec_call::try_native_static_call`. Counts method `id` (its JIT id / `FnId`)
+/// toward its tier-up; once it is JIT-compiled, invoke it natively (receiver in reg 0 via `new_method_args_from`) and marshal the
 /// result. `None` → not published / cold / untranslatable → caller stays interp.
 #[cfg(feature = "jit")]
 fn try_native_method_call(
-    ctx: &VmContext, frame: &mut Frame, dst: u32, idx: usize,
+    ctx: &VmContext, frame: &mut Frame, dst: u32, id: usize,
     receiver: &Value, args: &[u32],
 ) -> Option<Result<Option<Value>>> {
     let p = ctx.jit_ctx_ptr();
@@ -34,7 +34,7 @@ fn try_native_method_call(
     }
     let jit_ctx = p as *const crate::jit::frame::JitModuleCtx;
     let (max_reg, ptr, callee_fn) = {
-        let entry = unsafe { (*jit_ctx).resolve_fn_by_id_tiered(idx) }?;
+        let entry = unsafe { (*jit_ctx).resolve_fn_by_id_tiered(id) }?;
         (entry.max_reg, entry.ptr, entry.func)
     };
     ctx.counters().jit_native_from_interp.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -47,7 +47,7 @@ fn try_native_method_call(
 #[cfg(not(feature = "jit"))]
 #[inline]
 fn try_native_method_call(
-    _ctx: &VmContext, _frame: &mut Frame, _dst: u32, _idx: usize,
+    _ctx: &VmContext, _frame: &mut Frame, _dst: u32, _id: usize,
     _receiver: &Value, _args: &[u32],
 ) -> Option<Result<Option<Value>>> {
     None
@@ -163,6 +163,15 @@ pub(super) fn vcall(
         VCallTarget::Local(idx) =>
             invoke_local(ctx, module, frame, dst, idx, &resolved.this, args, method_type_args),
         VCallTarget::Lazy(f) => {
+            // A lazily loaded method tiers up like a module-local one (counted, then
+            // native once compiled) — through its `FnId`.
+            if method_type_args.is_empty() {
+                if let Some(id) = super::exec_call::lazy_call_id(ctx, module, &f) {
+                    if let Some(res) = try_native_method_call(ctx, frame, dst, id, &resolved.this, args) {
+                        return res;
+                    }
+                }
+            }
             let outcome = super::exec_function_from_receiver_regs(
                 ctx, module, f.as_ref(), &resolved.this, &frame.regs, args, method_type_args)?;
             finish(frame, dst, outcome)

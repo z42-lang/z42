@@ -4,7 +4,8 @@ namespace Std.Collections;
 // `List<T>` — 纯源码级泛型动态数组（L3-G4h step 3：取代 pseudo-class 实现）。
 //
 // 摊还 O(1) Add / indexer，O(n) RemoveAt / Insert / Contains / IndexOf / Remove。
-// Sort 为自顶向下归并排序（stable，O(n log n)，一次性分配 scratch 缓冲）。
+// Sort 为自顶向下归并排序（stable，O(n log n)，一次性分配 scratch 缓冲）；元素全是同一种
+// 基元（int 系 / double / char / string）时 `Sort()` 交给原生稳定排序（`Array.SortPrimitives`，同序）。
 //
 // 无类型约束（stdlib-structure-batch，对齐 C# `System.Collections.Generic.List<T>`）：
 //   Contains / IndexOf / Remove 用 `Equals`（Object 协议，任意 T 可用）；Sort() 用 `CompareTo`，
@@ -133,6 +134,7 @@ public partial class List<T> : IEnumerable<T> {
     // ranges, never allocates).
     public void Sort() where T : IComparable {   // check-bare-type-param-member-access：`CompareTo` 由方法级 where 细化类级 T 提供（此前靠松绑）
         if (this.Count < 2) return;
+        if (Array.SortPrimitives(this.items, this.Count)) return;   // 基元元素：原生稳定排序，同序
         T[] scratch = new T[this.Count];
         this.MergeSort(scratch, 0, this.Count);
     }

@@ -1,7 +1,7 @@
 #![allow(dangerous_implicit_autorefs)]
 //! Array allocation, element access, length.
 
-use crate::metadata::types::default_value_for_tag;
+use crate::metadata::types::{default_value_for_tag, ElemType, ElemTypeInfo};
 use crate::metadata::Value;
 use super::super::frame::{JitFrame, JitModuleCtx};
 use super::{set_exception, vm_ctx_ref};
@@ -10,9 +10,9 @@ use super::{set_exception, vm_ctx_ref};
 pub unsafe extern "C" fn jit_array_new(
     frame: *mut JitFrame, ctx: *const JitModuleCtx,
     dst: u32, size: u32, elem_tag: u8,
-    // add-reflection-array-element-type: element type FQ name (ptr,len) from the
-    // instruction's module-lifetime String — non-erased array reflection.
-    et_ptr: *const u8, et_len: usize,
+    // add-reflection-array-element-type: the instruction's interned element-type
+    // handle (`ElemType::as_raw`) — non-erased array reflection, no name allocation.
+    et: *const ElemTypeInfo,
 ) -> u8 {
     let n = match &(*frame).regs[size as usize] {
         Value::I64(n) if *n >= 0 => *n as usize,
@@ -21,7 +21,7 @@ pub unsafe extern "C" fn jit_array_new(
             return 1;
         }
     };
-    let element_type = std::str::from_utf8(std::slice::from_raw_parts(et_ptr, et_len)).unwrap_or("");
+    let element_type = ElemType::from_raw(et);
     // add-struct-jit-value-path (P5): value-struct element → StructBytes heap backing
     // (mirrors interp `array_new`); otherwise `arr[i]` can't materialize a
     // StructRefHeap and the struct field access on it would see a Null base.
@@ -46,12 +46,12 @@ pub unsafe extern "C" fn jit_array_new(
 pub unsafe extern "C" fn jit_array_new_lit(
     frame: *mut JitFrame, ctx: *const JitModuleCtx,
     dst: u32, elems_ptr: *const u32, elem_cnt: usize,
-    et_ptr: *const u8, et_len: usize,
+    et: *const ElemTypeInfo,
 ) -> u8 {
     let elems = std::slice::from_raw_parts(elems_ptr, elem_cnt);
     let regs = &(*frame).regs;
     let elem = |&r: &u32| regs[r as usize].clone();
-    let element_type = std::str::from_utf8(std::slice::from_raw_parts(et_ptr, et_len)).unwrap_or("");
+    let element_type = ElemType::from_raw(et);
     // add-struct-jit-value-path (P5): value-struct literal → StructBytes backing,
     // packing each element's bytes + reference leaves (mirrors interp array_new_lit).
     if let Some(mut sb) = crate::interp::exec_array::try_struct_backed(vm_ctx_ref(ctx), element_type, elem_cnt) {
@@ -328,6 +328,33 @@ pub unsafe extern "C" fn jit_array_len(
             set_exception(vm_ctx_ref(ctx), Value::Str(format!("ArrayLen: expected array, got {:?}", other).into()));
             1
         }
+    }
+}
+
+/// `new T[n]` on a **class-level** type param, after `jit_array_new` built the erased
+/// array (Null slots): when the receiver's (reg 0) concrete `type_args[param_index]` is
+/// a primitive value type, give every slot that primitive's zero — the per-slot default
+/// interp `array_new` uses (fix-generic-array-value-zero-init). Reference / struct type
+/// args and a non-object reg 0 leave the array as built. Non-throwing: the array is
+/// fresh, so overwriting its Null/zero slots owes no barrier.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn jit_array_zero_class_tp(
+    frame: *mut JitFrame, _ctx: *const JitModuleCtx,
+    arr: u32, param_index: u32,
+) {
+    let regs = &(*frame).regs;
+    let zero = match regs.first() {
+        Some(Value::Object(rc)) => match rc.borrow().type_args().get(param_index as usize) {
+            Some(name) => crate::metadata::types::default_value_for(name),
+            None => return,
+        },
+        _ => return,
+    };
+    if matches!(zero, Value::Null) { return; }
+    if let Some(Value::Array(rc)) = regs.get(arr as usize) {
+        let mut a = rc.borrow_mut();
+        if !matches!(a.backing, crate::metadata::types::ArrayBacking::Boxed { .. }) { return; }
+        for i in 0..a.len() { a.set_boxed(i, zero.clone()); }
     }
 }
 

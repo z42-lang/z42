@@ -243,6 +243,13 @@ pub struct VarRegion {
     blocks_per_chunk: Vec<u32>,
     live_per_chunk: Vec<u32>,
     max_gen_per_chunk: Vec<u32>,
+    /// The owning heap's footprint (`gc::footprint`) and the last side-table reading charged to
+    /// it — see `chunk::VarRegion::refresh_side_tables`.
+    footprint: std::sync::Arc<crate::gc::footprint::Footprint>,
+    side_accounted: u64,
+    /// How many chunks at the bottom of `var_free_chunk_pool` have their pages decommitted
+    /// (`chunk::VarRegion::decommit_pool`); `borrow_chunk` pops from the top.
+    pool_decommitted: usize,
 }
 
 // SAFETY: all state is reached only through a `Mutex<VarRegion>` (the heap wraps it exactly
@@ -275,6 +282,9 @@ impl Default for VarRegion {
             blocks_per_chunk: Vec::new(),
             live_per_chunk: Vec::new(),
             max_gen_per_chunk: Vec::new(),
+            footprint: Default::default(),
+            side_accounted: 0,
+            pool_decommitted: 0,
         }
     }
 }
@@ -333,6 +343,9 @@ impl VarRegion {
             blocks_per_chunk: Vec::new(),
             live_per_chunk: Vec::new(),
             max_gen_per_chunk: Vec::new(),
+            footprint: Default::default(),
+            side_accounted: 0,
+            pool_decommitted: 0,
         }
     }
 
@@ -716,13 +729,6 @@ impl VarRegion {
         self.live_count
     }
 
-    /// Bytes of chunk memory this region currently holds from the allocator — bump chunks
-    /// (pooled ones included: they are never handed back) and dedicated oversized chunks not yet
-    /// freed. The committed view of `HeapStats::committed_bytes`; O(chunks).
-    pub fn committed_bytes(&self) -> u64 {
-        self.chunks.iter().map(|c| c.cap as u64).sum()
-    }
-
     /// Count of chunks that currently own memory (tests / diagnostics). Slots tombstoned by
     /// `Chunk::free_in_place` are excluded — they are bookkeeping, not footprint.
     #[cfg(test)]
@@ -769,6 +775,7 @@ impl Drop for VarRegion {
                 }
             }
         }
+        self.recommit_pool_for_drop();
         for chunk in &self.chunks {
             // fix-loh-never-freed: a tombstoned slot's memory is already back with the
             // allocator (`Chunk::free_in_place`) — freeing it again would be a double free.

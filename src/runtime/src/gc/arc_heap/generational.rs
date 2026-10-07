@@ -641,9 +641,7 @@ grey {grey_n} (skipped old {grey_old})"));
         // next lever — see the change's design notes.
         {
             let _t = PhaseTimer::start("minor/chunk reclaim");
-            self.region_object.lock().reclaim_dead_chunks();
-            self.region_array.lock().reclaim_dead_chunks();
-            self.region_var.lock().reclaim_dead_var_chunks();
+            self.reclaim_dead_chunks_and_measure(false);
         }
         let (live, total, lowered) = self.promotion_policy.snapshot();
         crate::gc::phase_timer::note(format_args!(

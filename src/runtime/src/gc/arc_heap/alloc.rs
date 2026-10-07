@@ -299,8 +299,9 @@ impl crate::gc::arc_heap::ArcMagrGC {
         let (strict, max) = { let i = self.inner.lock(); (i.strict_oom, i.stats.max_bytes) };
         if !strict { return (false, 0); }
         let Some(limit) = max else { return (false, 0); };
-        // add-gc-tlab (option B): used_bytes now lives on the atomic, not inner.stats.
-        let after = self.used_bytes_atomic().saturating_add(size);
+        // The cap is judged by the true footprint (`gc::footprint`); `size` is this object's
+        // estimate, on top of whatever chunk growth its allocation has already charged.
+        let after = self.occupied_bytes().saturating_add(size);
         (after > limit, limit)
     }
 
@@ -318,7 +319,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// 触发 NearHeapLimit 的同一比率——保证「发一次事件」与「重置事件闩」用同一阈值。
     pub(super) fn maybe_reset_near_limit_warned(&self) {
         let near_ratio = crate::config::runtime_config().gc_near_limit_ratio;
-        let used = self.used_bytes_atomic(); // add-gc-tlab (option B)
+        let used = self.occupied_bytes(); // the cap's unit: true footprint
         let mut i = self.inner.lock();
         let Some(limit) = i.stats.max_bytes else { return };
         let near_threshold = (limit as f64 * near_ratio) as u64;
@@ -328,7 +329,9 @@ impl crate::gc::arc_heap::ArcMagrGC {
     }
 
     pub(super) fn check_pressure(&self, requested: u64) {
-        let used = self.used_bytes_atomic(); // add-gc-tlab (option B)
+        // Judged by the true footprint (`gc::footprint`), the unit the cap is configured in;
+        // the events' `used_bytes` carry that reading.
+        let used = self.occupied_bytes();
         let (max, near_warned) = {
             let i = self.inner.lock();
             (i.stats.max_bytes, i.near_limit_warned)

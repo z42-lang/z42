@@ -18,7 +18,7 @@ pub fn builtin_str_to_chars(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     // straight into the packed block (no staging `Vec<Value>`).
     let n = s.chars().count();
     let heap = ctx.heap();
-    Ok(heap.alloc_array_obj(crate::metadata::types::ArrayObj::typed_iter(heap, "char", n, s.chars().map(Value::Char))))
+    Ok(heap.alloc_array_obj(crate::metadata::types::ArrayObj::typed_iter(heap, crate::metadata::types::ElemType::char(), n, s.chars().map(Value::Char))))
 }
 
 /// Returns the number of Unicode scalar values (characters) in the string.

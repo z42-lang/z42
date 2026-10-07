@@ -151,18 +151,25 @@ fn a_reclaiming_collector_keeps_collecting_as_the_heap_refills() {
     //
     // Nothing here is rooted, so every cycle reclaims essentially all of it and
     // the heap refills from near zero — the case the old baseline could not see.
+    //
+    // The budget is judged by the true footprint (`gc::footprint`), so it has to clear the
+    // heap's floor: one array chunk plus one 64 KB var chunk is already ~92 KB, and a cap
+    // below what the heap needs just to exist is one it can only back off from.
     let heap = ArcMagrGC::new();
-    let budget = 64 * 1024;
+    let budget = 512 * 1024;
     heap.set_max_heap_bytes(Some(budget));
     for _ in 0..20_000 {
         heap.alloc_array(vec![crate::metadata::Value::I64(0); 16]);
     }
+    // Asserted on `used`, the unit the trip point is armed in: at this scale the footprint is
+    // dominated by fixed chunk overhead (a third of the budget of live bytes already costs
+    // more than the budget in chunks), so `occupied` says nothing about the ratchet.
     let used = heap.stats().used_bytes;
     assert!(cycles(&heap) > 0, "auto-collect should fire");
     assert!(used <= budget,
         "a reclaimable heap must be held at its budget; ended at {used} bytes over a \
-         {budget}-byte budget (the pre-trip baseline ends at 163392 — 2.5x over, having \
-         ratcheted its own trip point up by one growth gate per cycle)");
+         {budget}-byte budget (a trip point ratcheting up by one growth gate per cycle ends \
+         ~2.5x over)");
 }
 
 // ── add-bounded-nursery (2026-09-08) ─────────────────────────────────────────
@@ -211,9 +218,10 @@ fn generational_enforces_a_soft_cap_far_below_one_nursery() {
     use crate::gc::GcMode;
     let heap = ArcMagrGC::new();
     heap.set_mode(GcMode::GenerationalMarkSweep);
-    // Deliberately does NOT touch the nursery: a 64 KB budget against the 32 MB default is
-    // exactly the shape that went unenforced.
-    let budget = 64 * 1024;
+    // Deliberately does NOT touch the nursery: a budget far below the 16 MB default is exactly
+    // the shape that went unenforced. (512 KB, not less: the budget is judged by the true
+    // footprint, whose floor — one array chunk plus one 64 KB var chunk — is ~92 KB.)
+    let budget = 512 * 1024;
     heap.set_max_heap_bytes(Some(budget));
     for _ in 0..20_000 {
         heap.alloc_array(vec![crate::metadata::Value::I64(0); 16]);
@@ -222,7 +230,8 @@ fn generational_enforces_a_soft_cap_far_below_one_nursery() {
     assert!(cycles(&heap) > 0, "a budget below one nursery must still trip a collection");
     assert!(used <= budget,
         "a reclaimable generational heap must be held at its budget; ended at {used} bytes \
-         over a {budget}-byte budget (before the fix it ran to ~32MB before collecting once)");
+         over a {budget}-byte budget (unenforced, it runs to ~one nursery before collecting \
+         once)");
 }
 
 /// The two modes size their growth gate differently, and that is the whole point of the

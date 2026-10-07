@@ -1,0 +1,4 @@
+[workspace]
+members = ["libs/*"]
+# 旧名（阶段 1 仍生效）：只警告，不拦构建。
+default-members = ["wsrcore"]

@@ -48,9 +48,23 @@ public sealed class WsPlan {
 
 public static class WorkspaceBuild {
 
+    // 不认识的键（ManifestKeys.AuditWorkspace 收集）→ 抛出，消息由调用方原样呈现（同成员缺失 / 环）。
+    public static void RejectUnknownKeys(WorkspaceManifest ws, string wsToml) {
+        if (ws.UnknownKeys.Length == 0) { return; }
+        string msg = "";
+        int i = 0;
+        while (i < ws.UnknownKeys.Length) {
+            if (i > 0) { msg = msg + "\n"; }
+            msg = msg + wsToml + ": " + ws.UnknownKeys[i];
+            i = i + 1;
+        }
+        throw new Exception(msg);
+    }
+
     // wsToml → 拓扑序的成员 manifest 路径数组（叶子在前；环 → 抛 Exception）。
     public static string[] Plan(string wsToml) {
         WorkspaceManifest ws = ManifestLoader.LoadWorkspace(wsToml);
+        WorkspaceBuild.RejectUnknownKeys(ws, wsToml);
         string wsDir = Path.GetDirectoryName(wsToml);
         if (wsDir == "") { wsDir = "."; }
 
@@ -69,6 +83,7 @@ public static class WorkspaceBuild {
     // profile = "release" / "debug"（${profile} 替换）。
     public static WsPlan PlanLayout(string wsToml, string profile) {
         WorkspaceManifest ws = ManifestLoader.LoadWorkspace(wsToml);
+        WorkspaceBuild.RejectUnknownKeys(ws, wsToml);
         // 未声明 [workspace.build].output_dir → 默认模板（WorkspaceLayout.OutputTemplate），不再返回 null。
         string wsDir = Path.GetDirectoryName(wsToml);
         if (wsDir == "") { wsDir = "."; }

@@ -36,15 +36,14 @@ fn with_call_tokens(tokens: &[u32]) -> Function {
     f
 }
 
-/// A `Call` token at or past `merged_len` is a lazily loaded function's `FnId` —
-/// not a JIT merged id (it would alias the JIT's synthetic lazy-slot ids), so it
-/// bakes as `UNRESOLVED` and `jit_call` binds by name.
+/// Every bound `Call` token bakes as is — entry-module indices and lazily loaded
+/// functions' `FnId`s are one id space with the JIT's slots.
 #[test]
-fn method_id_at_bakes_only_merged_ids() {
+fn method_id_at_bakes_every_bound_token() {
     let f = with_call_tokens(&[3, 9, 10, UNRESOLVED]);
-    let merged_len = 10;
-    assert_eq!(method_id_at(&f, 0, 0, merged_len), 3);
-    assert_eq!(method_id_at(&f, 0, 1, merged_len), 9);
-    assert_eq!(method_id_at(&f, 0, 2, merged_len), UNRESOLVED);
-    assert_eq!(method_id_at(&f, 0, 3, merged_len), UNRESOLVED);
+    assert_eq!(method_id_at(&f, 0, 0), 3);
+    assert_eq!(method_id_at(&f, 0, 1), 9);
+    assert_eq!(method_id_at(&f, 0, 2), 10);
+    assert_eq!(method_id_at(&f, 0, 3), UNRESOLVED);
+    assert_eq!(method_id_at(&f, 0, 4), UNRESOLVED, "no such site");
 }

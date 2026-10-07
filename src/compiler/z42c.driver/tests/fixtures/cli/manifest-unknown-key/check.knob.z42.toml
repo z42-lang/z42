@@ -1,0 +1,12 @@
+[project]
+name    = "check.knob"
+version = "0.1.0"
+kind    = "lib"
+entyr   = "Main"
+
+[sources]
+include = ["*.z42"]
+
+[build]
+output-dir = "elsewhere"
+

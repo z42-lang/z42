@@ -78,7 +78,8 @@ pub fn builtin_array_create(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let default = default_value_for(tag);
     // perf-array-alloc-direct: default-fill straight into the GC block.
     let heap = ctx.heap();
-    Ok(heap.alloc_array_obj(ArrayObj::typed_filled(heap, tag, n, default)))
+    let et = crate::metadata::types::ElemType::intern(tag);
+    Ok(heap.alloc_array_obj(ArrayObj::typed_filled(heap, et, n, default)))
 }
 
 /// `__array_get(arr: object, i: int) -> object` — read element `i` as an object.
@@ -239,6 +240,24 @@ pub fn builtin_array_copy(ctx: &VmContext, args: &[Value]) -> Result<()> {
     drop(s);
     barrier_copied_range(ctx, &dst, di, n);
     Ok(())
+}
+
+/// `__array_sort_prims(array, count) -> bool` — stable-sort `array[0, count)` natively
+/// when every element there is one primitive kind (int-like / double / char / string),
+/// in exactly the order the elements' own `CompareTo` gives (see
+/// `ArrayObj::sort_prims_prefix`). `false` = declined, array untouched: the caller's
+/// script merge sort runs instead. Only reorders references already in the array, so
+/// no write barrier is owed (the card belongs to this same array).
+pub fn builtin_array_sort_prims(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
+    let n = match args.get(1) {
+        Some(Value::I64(n)) if *n >= 0 => *n as usize,
+        _ => bail!("__array_sort_prims: count must be a non-negative int"),
+    };
+    match args.first() {
+        Some(Value::Array(rc)) => Ok(Value::Bool(rc.borrow_mut().sort_prims_prefix(n))),
+        Some(Value::Null) => bail!("__array_sort_prims: null array reference"),
+        other => bail!("__array_sort_prims: expected an array, got {other:?}"),
+    }
 }
 
 /// **fix-missing-array-write-barriers (2026-09-10)**: fire the array write barrier over the

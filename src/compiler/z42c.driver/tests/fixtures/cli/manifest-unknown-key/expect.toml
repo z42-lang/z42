@@ -1,0 +1,8 @@
+desc = "清单里不认识的键（拼错）→ 逐条报出、exit 2，不再静默忽略按默认构建"
+args = ["build", "check.knob.z42.toml"]
+exit = 2
+stderr_contains = [
+    "z42c: check.knob.z42.toml: unknown key `entyr` in [project]",
+    "z42c: check.knob.z42.toml: unknown key `output-dir` in [build] (known: output_dir, ",
+]
+absent = ["elsewhere"]

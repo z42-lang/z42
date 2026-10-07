@@ -331,7 +331,7 @@ void test_lints_warnings_as_errors_fails_compile() {
     string libs = Environment.GetEnvironmentVariable("Z42_LIBS", "");
     if (libs == "") { return; }
     string azPath = _writeFixtureZpkg(_depDirs(libs));
-    // warnings-as-errors → Z9002（默认 Warning）升 Error → consumer ErrorCount>0（拦编译）
+    // warnings_as_errors → Z9002（默认 Warning）升 Error → consumer ErrorCount>0（拦编译）
     LintConfig cfg = new LintConfig(new string[0], new string[0], 0, true);
     CompileArtifacts cArt = PackageCompile.Compile(_consumerWithAnalyzer(azPath, cfg));
     Assert.Equal(true, cArt.ErrorCount > 0);

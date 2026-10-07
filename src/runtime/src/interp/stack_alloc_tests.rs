@@ -8,7 +8,7 @@ use super::StackArena;
 use crate::metadata::types::{ArrayObj, Value};
 
 fn arr(vals: &[i64]) -> ArrayObj {
-    ArrayObj::stack_typed("Std.Int64", vals.iter().map(|&n| Value::I64(n)).collect())
+    ArrayObj::stack_typed(crate::metadata::types::ElemType::intern("Std.Int64"), vals.iter().map(|&n| Value::I64(n)).collect())
 }
 
 #[test]

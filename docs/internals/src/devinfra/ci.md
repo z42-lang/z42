@@ -136,7 +136,7 @@ commit 不因此挂红。publish 真失败照样红。
 ### PR 运行的并发上限
 
 账号的 runner 池约 20 个并发 job，一次 PR 运行扇出 10~15 个；几个 PR 同时推就互相挤占、个个都慢。
-`detect-changes` 末尾的闸门（`.github/ci/pr-gate.sh`，上限 `CAP` 在 ci.yml 该步骤的 `env` 里，当前 3）让同时
+`detect-changes` 末尾的闸门（`.github/ci/pr-gate.sh`，上限 `CAP` 在 ci.yml 该步骤的 `env` 里，当前 2）让同时
 「在跑重 job」的 PR 运行不超过 `CAP` 个，其余在闸门里先来先过地排队（按 `run_number`；下游 job 都 `needs: changes`，
 所以整次运行一起等）：
 
@@ -144,7 +144,11 @@ commit 不因此挂红。publish 真失败照样红。
   detect-changes / docs-check 的轻量运行（纯文档 PR）不占名额。
 - 放行条件：比我早的「在跑」+「在排队」< `CAP`。只看比自己早的运行，API 调用随排队位置而非 PR 总数增长；
   两个运行同时判定可能短暂超出 1 个。
-- 等满 90 分钟一律放行（防卡死）；`detect-changes` 的超时随之放宽到 100 分钟。
+- 等满 240 分钟一律放行（防卡死；`MAX_WAIT_MIN`）；`detect-changes` 的超时随之放宽到 250 分钟（GitHub 单 job
+  上限 360）。这个阀必须远大于一次 PR 运行在拥挤时的时长（实测 1 小时以上），否则排队的运行会被它批量放行。
+- 上限按「PR 运行」计，不按 job：一次 PR 运行扇出 10~15 个 job，账号的 runner 池约 20 个并发 job，所以 2 个 PR
+  同时在跑就基本占满。闸门管不到的流量：main 的 push 运行（不排队）、另一个 workflow 的 `bench-pr.yml`、以及
+  每个在闸门里等待的运行本身各占的 1 个 runner。
 - 纯文档 PR、main push、schedule、dispatch 不经过闸门。同一 PR 的新 push 照旧取消旧运行（连同它在闸门里的等待）。
 
 `detect-changes` 用 `dorny/paths-filter` 输出 flag，下游 job `needs: changes` + `if:` 门控：

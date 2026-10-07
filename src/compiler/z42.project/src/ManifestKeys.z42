@@ -1,0 +1,228 @@
+// 清单键审计 —— `z42.toml` / `z42.workspace.toml` 里**不认识的键**一律收集成错误行。
+//
+// 为什么要有：TOML 解析只按名取键，写错的键（`[build] output-dir`、`[project] entyr`）此前被
+// 静默忽略——配了以为生效，产物却按默认走，且零诊断。本文件是「清单里能写哪些键」的唯一真相源：
+// 各段合法键表就在下面，`z42-toml.md` 的字段全表与之对齐。
+//
+// 分工同 `Profile.BadKeys`：z42.project **只收集、不报错**（`ManifestLoader` 构造后把结果挂到
+// `ProjectManifest.UnknownKeys` / `DeprecatedKeys` 与 `WorkspaceManifest` 的同名字段），由消费方决定怎么呈现——
+// 项目清单在 `ManifestKnobs.Resolve`（z42c build 与 z42b 共用入口），workspace 清单在
+// `WorkspaceBuild.Plan` / `PlanLayout`（未知键）与 driver `_buildWorkspace`（旧名警告）。
+// 不抛异常：有的调用方（xtask `_loadManifestOr`）会吞异常回落默认，抛了反而把错误藏起来。
+//
+// 不审计的位置（键名本身就是用户数据）：`[dependencies]` / `[analyzers]` / `[native]` 的子表名、
+// `[optimize]` / `[syntax]`（消费方按名表校验）、`[lints]` 规则名、`[properties]` 与
+// `[profile.<n>.properties]`（应用自定义）、`[profile.<n>.runtime]`（VM 登记表校验）。
+// `[profile.<n>]` 下直接写的键另走 `Profile.BadKeys`（旧形状，报得更具体）。
+//
+// 🔴 自举约束：「新增一个清单键」是 support-then-use、跨两个 nightly——先发布认识该键的
+// z42.project，下一轮才能在仓内清单里写它。种子 driver / xtask 跑的是**种子那一代** z42.project：
+// 本审计之前的种子把新键静默忽略（配了不生效），之后的种子把它当未知键拒掉
+// （见 docs/agent/rules/bootstrap-seed.md）。改名同理：旧名先降为警告、仓内清单晚一个 nightly 再切新名。
+namespace Z42.Project;
+
+using Std.Toml;
+
+public static class ManifestKeys {
+
+    // 各段合法键（`/` 分隔）。改这里 = 改清单契约：同步 docs/reference/src/toolchain/z42-toml.md。
+    public static string RootKeys() {
+        return "project/sources/build/dependencies/profile/exe/platform/tests/benches/examples/test/bench/example"
+            + "/optimize/syntax/analyzers/lints/native/properties";
+    }
+    public static string ProjectKeys()   { return "name/version/kind/entry/pack/description/authors/license"; }
+    public static string SourcesKeys()   { return "include/exclude"; }
+    public static string BuildKeys()     { return "output_dir/cache_dir/dist_dir/incremental/hooks/generated_dir"; }
+    public static string DepKeys()       { return "version/path/deploy"; }
+    public static string ExeKeys()       { return "name/entry/include"; }
+    public static string SectionKeys()   { return "include/exclude/auto/dependencies"; }
+    public static string RunTargetKeys() { return "name/harness/entry/include/test/dependencies"; }
+    public static string NativeKeys()    { return "dir"; }
+    public static string PlatformKeys()  { return "desktop/ios/android/wasm"; }
+    public static string DesktopKeys()   { return "apphost/publish_dir/icon/bundle_id/bin/payload/link"; }
+    public static string IOSKeys()       { return "bundle_id/display_name/version/min_ios/team_id/device_families/capabilities"; }
+    public static string AndroidKeys()   { return "app_id/display_name/version_code/version_name/min_sdk/target_sdk/permissions"; }
+    public static string WasmKeys()      { return "title"; }
+    public static string WsRootKeys()    { return "workspace"; }
+    public static string WorkspaceKeys() { return "members/exclude/default_members/build/dependencies"; }
+    public static string WsBuildKeys()   { return "output_dir/cache_dir"; }
+
+    // 改过名的键：旧名 → 新名（"" = 不是旧名）。阶段 1：旧名仍生效（loader 两个都读，新名优先），
+    // 只收进 DeprecatedKeys 由消费方报**警告**；阶段 2 删掉旧名，它就落回普通未知键（错误）。
+    // STAGE2-DEBT(manifest-key-rename): 含本改名的 nightly 发布后：删 RenamedTo 两条与 ManifestLoader 读旧名的两处（无其他改名则连 DeprecatedKeys / KnobResult.Warnings / driver _warnDeprecatedWsKeys 通道一起删）；仓内两份 z42.workspace.toml 与夹具 analyzer-diag-survives-cache、compile-libs-flag 切新名，xtask _stdlibList / _compilerMembers 同提交改读 default_members；manifest-renamed-key-warns / ws-renamed-key-warns 改断言旧名报未知键
+    public static string RenamedTo(string key) {
+        if (key == "default-members")    { return "default_members"; }
+        if (key == "warnings-as-errors") { return "warnings_as_errors"; }
+        return "";
+    }
+
+    /// 单项目清单：返回审计结果（`Unknown()` 错误行 / `Deprecated()` 旧名警告行，均不含清单路径前缀）。
+    public static KeyAudit AuditProject(TomlValue root) {
+        KeyAudit a = new KeyAudit();
+        a.Check(root, "top level", ManifestKeys.RootKeys());
+        a.CheckSub(root, "project", ManifestKeys.ProjectKeys());
+        a.CheckSub(root, "sources", ManifestKeys.SourcesKeys());
+        a.CheckSub(root, "build",   ManifestKeys.BuildKeys());
+        ManifestKeys._deps(a, root, "dependencies", "dependencies");
+        ManifestKeys._deps(a, root, "analyzers",    "analyzers");
+        ManifestKeys._eachSub(a, root, "native", ManifestKeys.NativeKeys());
+        ManifestKeys._array(a, root, "exe", ManifestKeys.ExeKeys());
+        ManifestKeys._section(a, root, "tests");
+        ManifestKeys._section(a, root, "benches");
+        ManifestKeys._section(a, root, "examples");
+        ManifestKeys._array(a, root, "test",    ManifestKeys.RunTargetKeys());
+        ManifestKeys._array(a, root, "bench",   ManifestKeys.RunTargetKeys());
+        ManifestKeys._array(a, root, "example", ManifestKeys.RunTargetKeys());
+        TomlValue pf = null;
+        if (root.TryGet("platform", ref pf) && pf.IsTable()) {
+            a.Check(pf, "[platform]", ManifestKeys.PlatformKeys());
+            a.CheckSub(pf, "desktop", ManifestKeys.DesktopKeys(), "platform.desktop");
+            a.CheckSub(pf, "ios",     ManifestKeys.IOSKeys(),     "platform.ios");
+            a.CheckSub(pf, "android", ManifestKeys.AndroidKeys(), "platform.android");
+            a.CheckSub(pf, "wasm",    ManifestKeys.WasmKeys(),    "platform.wasm");
+        }
+        // [lints] 的键是规则名（自由），只认出改过名的那个布尔开关。
+        TomlValue li = null;
+        if (root.TryGet("lints", ref li) && li.IsTable()) {
+            string[] ks = li.Keys();
+            int i = 0;
+            while (i < ks.Length) {
+                string nn = ManifestKeys.RenamedTo(ks[i]);
+                if (nn.Length > 0) { a.AddRenamed(ks[i], "[lints]", nn); }
+                i = i + 1;
+            }
+        }
+        return a;
+    }
+
+    /// workspace 清单（`z42.workspace.toml`）：同 AuditProject。
+    public static KeyAudit AuditWorkspace(TomlValue root) {
+        KeyAudit a = new KeyAudit();
+        a.Check(root, "top level", ManifestKeys.WsRootKeys());
+        TomlValue w = null;
+        if (root.TryGet("workspace", ref w) && w.IsTable()) {
+            a.Check(w, "[workspace]", ManifestKeys.WorkspaceKeys());
+            a.CheckSub(w, "build", ManifestKeys.WsBuildKeys(), "workspace.build");
+            ManifestKeys._deps(a, w, "dependencies", "workspace.dependencies");
+        }
+        return a;
+    }
+
+    // `[<key>.<name>]` 依赖子表：字符串简写不审计，表形式只认 version/path/deploy。
+    private static void _deps(KeyAudit a, TomlValue parent, string key, string label) {
+        TomlValue d = null;
+        if (!parent.TryGet(key, ref d) || !d.IsTable()) { return; }
+        string[] names = d.Keys();
+        int i = 0;
+        while (i < names.Length) {
+            TomlValue dv = d.Get(names[i]);
+            if (dv.IsTable()) { a.Check(dv, "[" + label + "." + names[i] + "]", ManifestKeys.DepKeys()); }
+            i = i + 1;
+        }
+    }
+
+    // `[<key>.<name>]` 每个子表同一张键表（名字自由）。
+    private static void _eachSub(KeyAudit a, TomlValue root, string key, string known) {
+        TomlValue t = null;
+        if (!root.TryGet(key, ref t) || !t.IsTable()) { return; }
+        string[] names = t.Keys();
+        int i = 0;
+        while (i < names.Length) {
+            TomlValue sv = t.Get(names[i]);
+            if (sv.IsTable()) { a.Check(sv, "[" + key + "." + names[i] + "]", known); }
+            i = i + 1;
+        }
+    }
+
+    // `[[<key>]]` 每个元素同一张键表，元素内的 dependencies 子表照依赖审计。
+    private static void _array(KeyAudit a, TomlValue root, string key, string known) {
+        TomlValue arr = null;
+        if (!root.TryGet(key, ref arr) || !arr.IsArray()) { return; }
+        int n = arr.Length();
+        int i = 0;
+        while (i < n) {
+            TomlValue e = arr.At(i);
+            if (e.IsTable()) {
+                a.Check(e, "[[" + key + "]]", known);
+                ManifestKeys._deps(a, e, "dependencies", key + ".dependencies");
+            }
+            i = i + 1;
+        }
+    }
+
+    // `[tests]` / `[benches]` / `[examples]` 段。
+    private static void _section(KeyAudit a, TomlValue root, string key) {
+        TomlValue s = null;
+        if (!root.TryGet(key, ref s) || !s.IsTable()) { return; }
+        a.Check(s, "[" + key + "]", ManifestKeys.SectionKeys());
+        ManifestKeys._deps(a, s, "dependencies", key + ".dependencies");
+    }
+}
+
+// 审计结果累加器：未知键（错误行）与改过名的旧键（警告行）分两条（array + count，无泛型子集）。
+public sealed class KeyAudit {
+    private string[] _unk;  private int _unkN;
+    private string[] _dep;  private int _depN;
+    public KeyAudit() {
+        this._unk = new string[4]; this._unkN = 0;
+        this._dep = new string[2]; this._depN = 0;
+    }
+
+    // `parent.<key>` 是表时审计它；label 缺省 = key。
+    public void CheckSub(TomlValue parent, string key, string known) {
+        this.CheckSub(parent, key, known, key);
+    }
+    public void CheckSub(TomlValue parent, string key, string known, string label) {
+        TomlValue t = null;
+        if (parent.TryGet(key, ref t) && t.IsTable()) { this.Check(t, "[" + label + "]", known); }
+    }
+
+    // at：呈现用的段名（`[build]` / `[[exe]]` / `top level`）；known：`/` 分隔的合法键。
+    public void Check(TomlValue t, string at, string known) {
+        string fence = "/" + known + "/";
+        string[] ks = t.Keys();
+        int i = 0;
+        while (i < ks.Length) {
+            string k = ks[i];
+            if (fence.IndexOf("/" + k + "/") < 0) {
+                string nn = ManifestKeys.RenamedTo(k);
+                if (nn.Length > 0 && fence.IndexOf("/" + nn + "/") >= 0) { this.AddRenamed(k, at, nn); }
+                else {
+                    this._unk = KeyAudit._push(this._unk, this._unkN,
+                        "unknown key `" + k + "` in " + at + " (known: " + known.Replace("/", ", ") + ")");
+                    this._unkN = this._unkN + 1;
+                }
+            }
+            i = i + 1;
+        }
+    }
+
+    // 旧名仍生效，只警告（阶段 1，见 ManifestKeys.RenamedTo）。
+    public void AddRenamed(string key, string at, string newName) {
+        this._dep = KeyAudit._push(this._dep, this._depN, "key `" + key + "` in " + at + " is deprecated, rename it to `"
+            + newName + "` (the old spelling will be rejected in a future release)");
+        this._depN = this._depN + 1;
+    }
+
+    public string[] Unknown()    { return KeyAudit._take(this._unk, this._unkN); }
+    public string[] Deprecated() { return KeyAudit._take(this._dep, this._depN); }
+
+    // a[n] = line（满则扩容），返回（可能换过的）数组；计数由调用方 +1。
+    private static string[] _push(string[] a, int n, string line) {
+        string[] b = a;
+        if (n == a.Length) {
+            b = new string[a.Length * 2];
+            int i = 0;
+            while (i < n) { b[i] = a[i]; i = i + 1; }
+        }
+        b[n] = line;
+        return b;
+    }
+
+    private static string[] _take(string[] a, int n) {
+        string[] r = new string[n];
+        int i = 0;
+        while (i < n) { r[i] = a[i]; i = i + 1; }
+        return r;
+    }
+}

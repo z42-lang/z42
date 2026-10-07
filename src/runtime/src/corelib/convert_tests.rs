@@ -133,3 +133,22 @@ fn box_prim_does_not_intercept_a_real_integer() {
     assert!(msg.contains("unknown prim wrapper type"), "msg = {msg}");
     assert!(!msg.contains("received Null"), "真整数被 Null 门拦住了：msg = {msg}");
 }
+
+// ── perf-str-concat-direct ──────────────────────────────────────────────────
+// `with_value_str` 是 `value_to_str` 的零分配视图：拼接 / 插值直接拿它格式化非串操作数，
+// 所以两者文本必须逐字节一致（含 f64 的边界：-0、NaN、inf、超出 64 B 栈缓冲的长输出）。
+#[test]
+fn with_value_str_matches_value_to_str() {
+    let cases = [
+        Value::I64(0), Value::I64(-1), Value::I64(i64::MIN), Value::I64(i64::MAX),
+        Value::F64(0.0), Value::F64(-0.0), Value::F64(2.5), Value::F64(1.0 / 3.0),
+        Value::F64(f64::NAN), Value::F64(f64::INFINITY), Value::F64(f64::NEG_INFINITY),
+        Value::F64(1e300), Value::F64(-1e-300), Value::F64(f64::MAX), Value::F64(f64::MIN_POSITIVE),
+        Value::Bool(true), Value::Bool(false), Value::Char('x'), Value::Char('中'), Value::Char('🦀'),
+        Value::Null, Value::Str("héllo".into()),
+    ];
+    for v in &cases {
+        let got = with_value_str(v, |s| s.to_string());
+        assert_eq!(got, value_to_str(v), "with_value_str diverged for {v:?}");
+    }
+}

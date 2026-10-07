@@ -62,6 +62,10 @@ public static class ManifestLoader {
         // 只搬运、不解释——z42.project 与 VM 都不理解它的含义。
         TomlValue bp = null;
         if (root.TryGet("properties", ref bp) && bp.IsTable()) { pm.Properties = bp; }
+        // 不认识的键 / 改过名的旧键：只收集，消费方报错 / 警告（见 ManifestKeys）。
+        KeyAudit ka = ManifestKeys.AuditProject(root);
+        pm.UnknownKeys = ka.Unknown();
+        pm.DeprecatedKeys = ka.Deprecated();
         return pm;
     }
 
@@ -105,7 +109,7 @@ public static class ManifestLoader {
 
     // ── [lints]（attribute-handler-registry PR3b）─────────────────────────────
     // `[lints]` 段：逐规则 severity 覆盖（`Z9002 = "warning"` / `"webgen.*" = "none"`）+ 特殊布尔
-    // `warnings-as-errors = true`。前者搬为中性 name/severity 串对（z42.project 不解释规则/级别语义），
+    // `warnings_as_errors = true`。前者搬为中性 name/severity 串对（z42.project 不解释规则/级别语义），
     // 后者拎成独立 bool。消费方（z42c 的 LintConfig）做 EnabledByDefault + 覆盖 + 通配 + WAE 决策。
     private static void _parseLints(TomlValue root, ProjectManifest pm) {
         TomlValue o = null;
@@ -114,11 +118,14 @@ public static class ManifestLoader {
         string[] names = new string[keys.Length];   // 逐规则键（可含通配 `pkg.*`）
         string[] sevs  = new string[keys.Length];   // 对应 severity 串（"warning"/"error"/"none"/…）
         int n = 0;
-        bool wae = false;
+        bool hasNew = false; bool waeNew = false;   // `warnings_as_errors`
+        bool hasOld = false; bool waeOld = false;   // 旧名 `warnings-as-errors`（阶段 1 仍生效，ManifestKeys 报警告）
         int i = 0;
         while (i < keys.Length) {
-            if (keys[i] == "warnings-as-errors") {
-                wae = o.Get(keys[i]).AsBool();
+            if (keys[i] == "warnings_as_errors") {
+                hasNew = true; waeNew = o.Get(keys[i]).AsBool();
+            } else if (keys[i] == "warnings-as-errors") {
+                hasOld = true; waeOld = o.Get(keys[i]).AsBool();
             } else {
                 names[n] = keys[i];
                 sevs[n]  = o.Get(keys[i]).AsString();
@@ -127,7 +134,7 @@ public static class ManifestLoader {
             i = i + 1;
         }
         pm.LintNames = names; pm.LintSeverities = sevs; pm.LintCount = n;
-        pm.LintWarningsAsErrors = wae;
+        pm.LintWarningsAsErrors = hasNew ? waeNew : (hasOld && waeOld);   // 两个都写 → 新名优先
     }
 
     // ── [optimize] ───────────────────────────────────────────────────────────
@@ -169,8 +176,14 @@ public static class ManifestLoader {
     }
 
     /// 从文件路径加载 workspace 清单。
+    /// 写错同 `Load`：抛 `TomlException`，消息前缀 `<路径>[:行:列]: `。
     public static WorkspaceManifest LoadWorkspace(string tomlPath) {
-        return ManifestLoader.ParseWorkspaceText(File.ReadAllText(tomlPath));
+        string text = File.ReadAllText(tomlPath);
+        try { return ManifestLoader.ParseWorkspaceText(text); }
+        catch (TomlException e) {
+            string at = e.Line > 0 ? ":" + e.Line.ToString() + ":" + e.Column.ToString() : "";
+            throw new TomlException(tomlPath + at + ": " + e.Message, e.Line, e.Column);
+        }
     }
 
     /// 从 TOML 文本解析 workspace 清单（`[workspace]`）。
@@ -187,9 +200,9 @@ public static class ManifestLoader {
         if (root.TryGet("workspace", ref w)) {
             if (w.TryGet("members", ref tv))         { members = ManifestLoader._strArray(tv); }
             if (w.TryGet("exclude", ref tv))         { exclude = ManifestLoader._strArray(tv); }
-            if (w.TryGet("default-members", ref tv)) { defMembers = ManifestLoader._strArray(tv); }
-            // 注：z42.project 的 WorkspaceManifest 按 converge Decision 2 弃 SharedVersion/License
-            // （z42c 无消费者）；故此处不解析 [workspace.project]。
+            // 新名优先；旧名 `default-members` 阶段 1 仍生效（ManifestKeys 报警告）。
+            if (w.TryGet("default_members", ref tv))      { defMembers = ManifestLoader._strArray(tv); }
+            else if (w.TryGet("default-members", ref tv)) { defMembers = ManifestLoader._strArray(tv); }
             TomlValue wb = null;
             if (w.TryGet("build", ref wb)) {
                 hasOut   = wb.TryGetValue<string>("output_dir", ref outDir);
@@ -197,10 +210,14 @@ public static class ManifestLoader {
             }
             wdeps = ManifestLoader._parseDeps(w, "dependencies");
         }
-        return new WorkspaceManifest(members, members.Length, exclude, exclude.Length,
+        WorkspaceManifest wm = new WorkspaceManifest(members, members.Length, exclude, exclude.Length,
                                      defMembers, defMembers.Length,
                                      hasOut, outDir, hasCache, cacheDir,
                                      wdeps, wdeps.Length);
+        KeyAudit ka = ManifestKeys.AuditWorkspace(root);
+        wm.UnknownKeys = ka.Unknown();
+        wm.DeprecatedKeys = ka.Deprecated();
+        return wm;
     }
 
     // ── [project] ──────────────────────────────────────────────────────────
@@ -216,7 +233,15 @@ public static class ManifestLoader {
             hasEntry = p.TryGetValue<string>("entry", ref entry);
             hasPack  = p.TryGetValue<bool>("pack",    ref pack);
         }
-        return new ProjectInfo(name, version, kind, hasEntry, entry, hasPack, pack);
+        ProjectInfo pi = new ProjectInfo(name, version, kind, hasEntry, entry, hasPack, pack);
+        if (p != null) {
+            string meta = "";
+            if (p.TryGetValue<string>("description", ref meta)) { pi.Description = meta; }
+            if (p.TryGetValue<string>("license",     ref meta)) { pi.License = meta; }
+            TomlValue au = null;
+            if (p.TryGet("authors", ref au)) { pi.Authors = ManifestLoader._strArray(au); }
+        }
+        return pi;
     }
 
     // ── [sources] ──────────────────────────────────────────────────────────
@@ -503,7 +528,10 @@ public static class ManifestLoader {
         hasBundleId = d.TryGetValue<string>("bundle_id", ref bundleId);
         d.TryGetValue<string>("bin",     ref bin);
         d.TryGetValue<string>("payload", ref payload);
-        return new DesktopConfig(apphost, publishDir, hasIcon, icon, hasBundleId, bundleId, bin, payload);
+        DesktopConfig dc = new DesktopConfig(apphost, publishDir, hasIcon, icon, hasBundleId, bundleId, bin, payload);
+        string link = "";
+        if (d.TryGetValue<string>("link", ref link)) { dc.Link = link; }   // 未命中保留默认 "static"
+        return dc;
     }
 
     private static iOSConfig _parseIOS(TomlValue d) {

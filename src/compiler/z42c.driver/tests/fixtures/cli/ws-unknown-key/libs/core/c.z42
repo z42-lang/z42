@@ -1,0 +1,5 @@
+namespace Wsu.Core;
+
+public static class C {
+    public static int One() { return 1; }
+}

@@ -121,6 +121,7 @@ public sealed class BuildSession {
         IBuildReporter rep = o.Reporter;
         // ① 旋钮决议。HostTarget / AnalyzerChild 的产物都要被别人加载 ⇒ packed。
         KnobResult kn = ManifestKnobs.Resolve(pm, o.Label, o.IsRelease, o.CliAdd, o.CliRemove, true);
+        if (kn.Warnings.Length > 0) { rep.Diags(false, o.Label, kn.Warnings, kn.Warnings.Length); }
         if (kn.ErrorCount > 0) {
             int ke = 0;
             while (ke < kn.ErrorCount) { rep.Fail(kn.Errors[ke]); ke = ke + 1; }

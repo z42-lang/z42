@@ -1,7 +1,7 @@
 # 对象协议的运行期派发（ToString / Equals / GetHashCode / GetType）
 
-> 代码：`interp/dispatch.rs`（`obj_to_string`）、`interp/vcall_resolve.rs`
-> （统一接收者阶梯）、`corelib/convert.rs`（`value_to_str`）、`corelib/object.rs`（`__obj_*` builtin）
+> 代码：`interp/dispatch.rs`（`with_obj_str` / `obj_to_gc_str`）、`interp/vcall_resolve.rs`
+> （统一接收者阶梯）、`corelib/convert.rs`（`value_to_str` / `with_value_str`）、`corelib/object.rs`（`__obj_*` builtin）
 
 `Std.Object` 的四个协议方法在**每一种 `Value` 变体**上都必须有答案——对象、裸基元、数组、装箱盒、
 栈句柄。本页写这套「一个方法名 → N 种接收者表示」的派发是怎么落地的，以及为什么有
@@ -14,26 +14,27 @@ reference 的[类](https://z42-lang.github.io/z42/reference/language/classes.htm
 
 | IR 指令 | 发射处 | 走哪条 |
 |---|---|---|
-| `ToStr dst, src` | 字符串插值 `$"..."` 的每个洞（`ExprEmitter.z42:300`） | `dispatch.rs::obj_to_string`（**认 vtable**）|
-| `Add dst, a, b`（操作数之一是 `Str`） | `+` 字符串拼接（`OperatorEmitter.z42:47-56`，**没有**发 `ToStr`）| `exec_value.rs::add` → `value_to_str`（**不认 vtable**）|
+| `ToStr dst, src` | 字符串插值 `$"..."` 的每个洞（`ExprEmitter.z42:300`） | interp `exec_value::to_str` → `dispatch.rs::obj_to_gc_str`；JIT `jit_to_str`（**认 vtable**）|
+| `Add dst, a, b`（操作数之一是 `Str`） | `+` 字符串拼接（`OperatorEmitter.z42:47-56`，**不**发 `ToStr`）| interp `exec_value::add` → `with_obj_str`；JIT `jit_add` → `with_stringify_dispatch`（**认 vtable**）|
 | `VCall dst, recv, method, args` | 每一处 `obj.ToString()` / `.Equals(..)` / `.GetHashCode()` / `.GetType()` | `vcall_resolve.rs::resolve_vcall` 阶梯 |
 
-> ⚠️ **`+` 与插值不等价**，这是一个活着的语义裂缝。`exec_value.rs:58-59` 的 `Add` 混合臂直接调
-> `value_to_str(vb)`，而 `value_to_str` 对 `Value::Object` 只会 `format!("{}{{...}}", 类型名)`——
-> **用户写的 `override ToString()` 在 `+` 路径上被完全绕过**：
->
-> ```
-> class Point { ... override string ToString() { return "(1,2)"; } }
-> $"a = {a}"       →  a = (1,2)        （ToStr → obj_to_string → vtable）
-> "a is " + a      →  a is Point{...}  （Add → value_to_str，不查 vtable）
-> ```
->
-> 修法是让 `Add` 的混合臂走 `obj_to_string`（它已经有 `ctx`/`module`），或让 emitter 在
-> 「`+` 且另一侧是 string」时先发 `ToStr`。两者都会改 golden 字节，未做。
+插值、拼接、`Console.WriteLine(obj)`（`stringify_dispatch`）共用同一个 `ToString` 协议
+（`dispatch.rs::tostring_result`），四条字符串化路对同一个值给同一个答案。
 
-## `ToStr`：`obj_to_string` 的两段
+**不落地中间串**：协议的结果以 `&str` 视图交给调用方（`with_obj_str(ctx, module, val, f)`）——
+用户 `ToString` 返回的 GC 串原样借用，标量（`I64`/`F64`/`Bool`/`Char`/`Null`）由
+`convert::with_value_str` 格式化进 64 B 栈缓冲（`FmtBuf`，超长才溢出到堆）。于是：
 
-`dispatch.rs::obj_to_string(ctx, module, val)` 只分两支，不是三支：
+- `"k" + i`（`Add` 混合臂，interp + JIT）= 一次 `alloc_str_concat2(另一侧, 视图)`，零 malloc、零中间 GC 串；
+  JIT `jit_add` 的 `Str + Str` 臂同样走融合分配。
+- `$"{x}"` 的 `ToStr`：标量直接格式化进**一个**新 GC 块；用户 `ToString` 返回的串**原样**作为结果
+  （不再拷贝；interp 与 JIT 原生路径一致）。插值的每个洞仍各产出一个 `ToStr` 结果串，再由
+  `StrConcat` 链拼起来——洞里的标量串是一次性的中间串（把 `ToStr` + `StrConcat` 融合成一步需要
+  编译器 / 加载期配合，尚未做）。
+
+## `ToString` 协议：`tostring_result` 的分支
+
+`dispatch.rs::tostring_result(ctx, module, val)`：
 
 **`Value::Object`** —— vtable 优先，builtin 兜底：
 
@@ -50,7 +51,10 @@ reference 的[类](https://z42-lang.github.io/z42/reference/language/classes.htm
 3. 未命中 vtable（类没覆写 `ToString`，继承 `Std.Object` 的那个）→ 调 `__obj_to_str` builtin，
    返回不含命名空间的短类名。
 
-**其余全部变体** → `value_to_str`。
+**`Value::BoxedStruct`** → `resolve_vcall(.., "ToString", ..)` 的阶梯（enum 成员名 / 基元标量 /
+struct 自身的 `ToString`），刻意不回落 `Std.Object.ToString`。
+
+**其余全部变体** → `value_to_str` 规则（标量经 `with_value_str` 在栈上格式化，文本逐字节相同）。
 
 ## `value_to_str`：不可失败的 Display
 
@@ -63,7 +67,7 @@ z42 函数才能渲染的变体，它只能给占位符。
 | `Str` | 自身 |
 | `Null` | `null` |
 | `Array` | `[e0, e1, …]`（对元素递归）|
-| `Object` | `类型名{...}`（**不查 vtable**，见上面的裂缝）|
+| `Object` | `类型名{...}`（**不查 vtable**——需要派发的路径走上面的 `ToString` 协议）|
 | `FuncRef(n)` | `<fn n>` |
 | `Closure(c)` | `<closure 被提升函数名>` |
 | `BoxedStruct` | ① `boxed_enum_name()` 命中 → **enum 成员名**；② 否则 `boxed_prim_i64()` 命中 → 裸标量；③ 否则 `类型名{...}` |

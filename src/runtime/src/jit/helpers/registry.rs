@@ -95,6 +95,7 @@ pub struct HelperIds {
     pub array_data_opt: FuncId,
     pub array_set:      FuncId,
     pub array_len:      FuncId,
+    pub array_zero_class_tp: FuncId,
     // object
     pub obj_new:        FuncId,
     pub typeof_op:      FuncId,
@@ -187,6 +188,7 @@ pub fn register_symbols(builder: &mut JITBuilder) {
     reg!("jit_array_data_opt", array::jit_array_data_opt);
     reg!("jit_array_set",     array::jit_array_set);
     reg!("jit_array_len",     array::jit_array_len);
+    reg!("jit_array_zero_class_tp", array::jit_array_zero_class_tp);
     // object
     reg!("jit_obj_new",       object::jit_obj_new);
     reg!("jit_typeof",        object::jit_typeof);
@@ -281,8 +283,8 @@ pub fn declare_imports(jit: &mut JITModule) -> Result<HelperIds> {
         // fix-jit-builtin-ext-fallback: name_ptr/len added so an UNRESOLVED id (native-ext
         // facade unresolved at compile time) can resolve by name at call time.
         builtin:       decl!("jit_builtin",    [ptr, ptr, i32t, i32t, ptr, i64t, ptr, i64t], [i8t]),
-        array_new:     decl!("jit_array_new",     [ptr, ptr, i32t, i32t, i8t, ptr, i64t], [i8t]),
-        array_new_lit: decl!("jit_array_new_lit", [ptr, ptr, i32t, ptr, i64t, ptr, i64t], [i8t]),
+        array_new:     decl!("jit_array_new",     [ptr, ptr, i32t, i32t, i8t, ptr], [i8t]),
+        array_new_lit: decl!("jit_array_new_lit", [ptr, ptr, i32t, ptr, i64t, ptr], [i8t]),
         array_get:     decl!("jit_array_get",     [ptr, ptr, i32t, i32t, i32t],           [i8t]),
         // jit_array_data(frame, ctx, arr, out_ptr, out_len, out_width) -> u8 (0 ok / 1 exc)
         array_data:    decl!("jit_array_data",    [ptr, ptr, i32t, ptr, ptr, ptr],        [i8t]),
@@ -290,6 +292,8 @@ pub fn declare_imports(jit: &mut JITModule) -> Result<HelperIds> {
         array_data_opt: decl!("jit_array_data_opt", [ptr, ptr, i32t, ptr, ptr, ptr],       []),
         array_set:     decl!("jit_array_set",     [ptr, ptr, i32t, i32t, i32t],           [i8t]),
         array_len:     decl!("jit_array_len",     [ptr, ptr, i32t, i32t],                 [i8t]),
+        // jit_array_zero_class_tp(frame, ctx, arr, param_index) -> () — non-throwing
+        array_zero_class_tp: decl!("jit_array_zero_class_tp", [ptr, ptr, i32t, i32t],     []),
         // jit_obj_new(frame, ctx, dst, cls_ptr, cls_len, ctor_ptr, ctor_len, args_ptr, argc,
         //             type_args_ptr, type_args_count, ctorless_mark_ptr)
         //             type_args_ptr, type_args_count) -> u8

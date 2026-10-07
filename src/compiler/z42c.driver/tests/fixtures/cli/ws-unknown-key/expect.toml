@@ -1,0 +1,6 @@
+desc = "workspace 清单里不认识的键 → 规划阶段报错（带清单路径）、不建任何成员"
+args = ["build", "--workspace"]
+exit = 1
+stderr_contains = ["z42c build --workspace: ", "z42.workspace.toml: unknown key `project` in [workspace]"]
+stderr_not_contains = ["uncaught exception"]
+absent = ["artifacts"]

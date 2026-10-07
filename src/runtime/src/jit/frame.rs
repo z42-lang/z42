@@ -4,11 +4,13 @@
 /// JIT-compiled function.  `JitModuleCtx` is the read-only module-level context
 /// that is shared across all calls within a single module execution.
 
+use crate::metadata::seg_vec::SparseSegTable;
+use crate::metadata::tokens::FnId;
 use crate::metadata::{Function, Value};
 use crate::vm_context::VmContext;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::atomic::{AtomicU32, AtomicU8, Ordering};
+use std::sync::{Mutex, OnceLock};
 
 // ── JitFrame ─────────────────────────────────────────────────────────────────
 
@@ -162,9 +164,6 @@ const _: () = assert!(std::mem::size_of::<Value>() == 16 && JIT_FRAME_RET_OFFSET
 /// A compiled native function entry inside the JIT module.
 ///
 /// `Clone` (not `Copy`) because of the shared `owner_init` cell.
-///
-/// (2026-05-10 jit-stack-trace; was `Copy` since introduce-method-token
-/// Phase 2.C / 2026-05-08.)
 #[derive(Clone)]
 pub struct FnEntry {
     /// Pointer to the native machine code of the function.
@@ -172,10 +171,10 @@ pub struct FnEntry {
     /// Size of the register file needed by this function (`max_reg`).
     pub max_reg: usize,
     /// The function this code was compiled from — the `VmFrame` the call
-    /// pushes points at it, and stack traces derive name / file / line from it.
-    /// Valid for the whole run: a merged function lives in the module, a lazily
-    /// loaded one is kept alive by its `LazySlot::func`. Null for
-    /// [`FnEntry::rejected`].
+    /// pushes points at it, stack traces derive name / file / line from it, and
+    /// `jit_call`'s barriers read its name. Valid for the whole run: an entry
+    /// function lives in the module, a lazily loaded one is kept alive by its
+    /// `FuncTable` slot. Null for [`FnEntry::rejected`].
     pub func:    *const Function,
     /// fix-ctor-arity-skew: 可接受的**物理**实参数区间，编译时从 `&Function` 算好。
     /// `jit_obj_new` 的 native 分支只拿得到 `FnEntry`（跨包构造器正是惰性加载、
@@ -191,12 +190,9 @@ unsafe impl Send for FnEntry {}
 unsafe impl Sync for FnEntry {}
 
 impl FnEntry {
-    /// Negative-cache marker (runtime-jit-tiering Phase 1): a null-`ptr` entry
-    /// meaning "this function is not JIT-translatable (or compile failed) — run
-    /// it on the interpreter". Filling the slot with this avoids re-running
-    /// `jit_unsupported_reason` (a full instruction walk) on every subsequent
-    /// call. `resolve_merged_slot` maps it back to `None` so callers fall through
-    /// to `cross_zpkg_via_interp` exactly as they did for an empty slot.
+    /// Negative-cache marker of the OSR entry cache: a null-`ptr` entry meaning
+    /// "no OSR variant (untranslatable or compile failed) — keep interpreting".
+    /// (Per-function slots keep their verdict in [`JitSlot`]'s state instead.)
     pub fn rejected() -> Self {
         FnEntry {
             ptr: std::ptr::null(), max_reg: 0, func: std::ptr::null(),
@@ -209,63 +205,56 @@ impl FnEntry {
     pub fn is_rejected(&self) -> bool { self.ptr.is_null() }
 }
 
-// ── Lazy slot table (make-vm-loading-lazy) ──────────────────────────────────
-//
-// Functions materialized by the lazy loader (`try_lookup_function`) are NOT in
-// the merged `module.functions`, so they have no pre-sized `fn_entries_by_id`
-// slot. They get a **synthetic id** `merged_len + i`; `resolve_fn_by_id` routes
-// ids ≥ `merged_len` here. Boxed slots keep each entry's address stable across
-// `Vec` growth (the pre-sized `fn_entries_by_id` can't grow; this can). Guarded by
-// a `Mutex` — cold path only: the per-Call-site `call_jit_ic` caches the synthetic
-// id so steady-state calls read the slot's lock-free `OnceLock` directly via
-// `resolve_fn_by_id`.
+// ── JitSlot ──────────────────────────────────────────────────────────────────
 
-struct LazySlot {
-    /// FQ name — re-`try_lookup_function`'d to get the `Arc<Function>` to compile.
-    name:  String,
-    /// Compiled native entry, filled on first call to this slot (compile-once).
+/// [`JitSlot::state`]: not decided yet (cold, or never reached the threshold).
+const SLOT_UNTRIED: u8 = 0;
+/// [`JitSlot::state`]: untranslatable or compile failed — stays on the interpreter.
+/// Compilation is deterministic, so the verdict is final.
+const SLOT_REJECTED: u8 = 1;
+
+/// Per-function JIT state, one per JIT id (see [`JitModuleCtx::slots`]).
+///
+/// Lifecycle: `Untried` (counting calls) → `entry` filled (compiled) or
+/// `state = Rejected`. Both outcomes are final; neither re-scans nor recompiles.
+pub struct JitSlot {
+    /// Compiled native entry. Set once, under the compiler lock.
     entry: OnceLock<FnEntry>,
-    /// The function `entry` was compiled from, kept alive for as long as the
-    /// entry (whose `func` pointer — and every frame pushed for it — points here).
-    func:  OnceLock<Arc<Function>>,
-    /// runtime-jit-tiering Phase 1c: per-lazy-function call counter, the lazy-slot
-    /// analogue of `JitModuleCtx.call_counts` (merged path). A lazily-loaded
-    /// dep-zpkg function compiles only once its count reaches `jit_threshold`;
-    /// below that it stays on the interpreter. Without this, `resolve_lazy_slot`
-    /// compiled EVERY reached lazy function on first call, bypassing the threshold
-    /// entirely — so one-shot dep `__static_init__` (force-loaded at startup) and
-    /// any cold dep function always compiled (measured: ~73% of all compiles).
+    /// Tier-up counter: tiered resolves count calls while the slot is untried and
+    /// compile at `jit_threshold`. Frozen once the slot is decided.
     count: AtomicU32,
+    /// `SLOT_UNTRIED` / `SLOT_REJECTED` (negative cache). A racing reader may miss
+    /// a fresh `Rejected` and redo the (deterministic) verdict — harmless.
+    state: AtomicU8,
 }
 
-/// Growable, address-stable table of lazily-loaded functions. `by_name` assigns a
-/// stable index; `slots[i]` (boxed → stable address) holds the compiled entry.
-#[derive(Default)]
-pub struct LazyTable {
-    by_name: HashMap<String, usize>,
-    slots:   Vec<Box<LazySlot>>,
+impl Default for JitSlot {
+    fn default() -> Self {
+        JitSlot { entry: OnceLock::new(), count: AtomicU32::new(0), state: AtomicU8::new(SLOT_UNTRIED) }
+    }
 }
 
 // ── JitModuleCtx ─────────────────────────────────────────────────────────────
 
 /// Module-level context threaded through every JIT call.
 ///
-/// lazy-per-function-jit (2026-07-23): the compiled-function table is now filled
-/// **on first call** rather than eagerly at load. `fn_entries_by_id` holds a
-/// per-function `OnceLock` slot (lock-free read on the hot path); a miss routes
-/// through `resolve_fn_by_id`, which compiles the function under `lazy` (the
-/// Mutex-guarded compiler) exactly once. The former by-name `fn_entries` HashMap
-/// is gone — name lookups go through `module.func_index → resolve_fn_by_id`.
+/// **JIT ids.** Every function the JIT can run is named by one `usize` id, which
+/// is the function's `FnId` (`VmCore.funcs`): entry-module functions are
+/// `0..module.functions.len()` (= their `module.functions` index), lazily loaded
+/// package functions the ids after that. Interp `Call` tokens
+/// (`ResolvedTokens.method_tokens`) hold the same ids, so `jit_call` bakes and
+/// caches them directly. When `module` is not the `FuncTable`'s entry module
+/// (unit tests running a bare `VmContext::new()`), only `module.functions`
+/// indices are ids and lazily loaded functions have none — they run on the
+/// interpreter, exactly as the interp token rule (`FuncTable::is_entry`).
 pub struct JitModuleCtx {
-    /// Compiled function table — slot `i` corresponds to `module.functions[i]`
-    /// (== `MethodId.0` == `module.func_index[name]`). Pre-sized once and never
-    /// resized, so a slot's address is stable and `OnceLock::get()` hands out a
-    /// `&FnEntry` valid for the whole run. An empty slot = "not yet compiled"
-    /// (filled by `resolve_fn_by_id` on first call), and stays empty forever for
-    /// functions that aren't JIT-translatable — those run on the interpreter.
-    pub fn_entries_by_id: Vec<OnceLock<FnEntry>>,
+    /// Per-function compile state indexed by JIT id. Lock-free read (a segment
+    /// is allocated on first touch and never moves), so a compiled call is one
+    /// `get` + one `OnceLock::get`. Slots live as long as the `JITModule` whose
+    /// code they point at.
+    pub slots:       SparseSegTable<JitSlot>,
     /// Back-pointer to the bytecode module for class descriptors, function
-    /// bodies (lazy compile), `func_index`, etc.
+    /// bodies, `func_index`, etc.
     /// SAFETY: the Module must outlive this ctx.
     pub module:      *const crate::metadata::Module,
     /// Lazy per-function compiler (owns the cranelift `JITModule` + helper ids),
@@ -273,39 +262,24 @@ pub struct JitModuleCtx {
     /// once. SAFETY: the `Mutex<LazyCompiler>` is owned by the `JitModule` that
     /// outlives this ctx; never null once constructed.
     pub lazy:        *const Mutex<super::lazy::LazyCompiler>,
-    /// `module.functions.len()` — the boundary between merged-module slot ids
-    /// (`< merged_len` → `fn_entries_by_id`) and synthetic lazy ids
-    /// (`≥ merged_len` → `lazy_table`). make-vm-loading-lazy.
-    pub merged_len:  usize,
-    /// Lazily-loaded functions' compiled entries (see `LazyTable`). Cold-path
-    /// Mutex; steady state hits the per-Call-site `call_jit_ic` → lock-free slot.
-    pub lazy_table:  Mutex<LazyTable>,
     /// Mutable VM state (static fields, pending exception, lazy loader).
     /// Set by `JitModule::run` for the duration of one entry-point invocation;
     /// reset to null on return. JIT helpers reach mutable VM state via this
-    /// pointer — replaces the previous `thread_local!` slots in
-    /// `jit/helpers.rs` (consolidate-vm-state, 2026-04-28).
+    /// pointer.
     /// SAFETY: the VmContext must outlive `JitModule::run` and be unique
     /// (no concurrent JIT entry on the same JitModule).
     pub vm_ctx:      *mut crate::vm_context::VmContext,
-    /// runtime-jit-tiering Phase 1: per-merged-function call counter, parallel to
-    /// `fn_entries_by_id` (pre-sized `merged_len`, zero per-call heap alloc). A
-    /// function compiles only once its count reaches `jit_threshold`; below that
-    /// it runs on the interpreter (cold tier). Frozen once the slot is filled
-    /// (Compiled/Rejected), so it never overflows in practice.
-    pub call_counts: Vec<AtomicU32>,
-    /// Tier-up threshold: compile a merged function on its `jit_threshold`-th call
-    /// (N=1 → compile-on-first-call). From `Z42_JIT_THRESHOLD` (default 2 since
-    /// perf-jit-threshold-2 2026-09-03, was 1 / 1000 before; see `jit/mod.rs`), clamped ≥ 1.
+    /// Tier-up threshold: compile a function on its `jit_threshold`-th tiered
+    /// call (N=1 → compile-on-first-call). From the `jit-threshold` runtime knob
+    /// (default 2; see `jit/mod.rs`), clamped ≥ 1.
     pub jit_threshold: u32,
-    /// add-osr-loop-tiering: cache of compiled OSR entries, keyed by
-    /// `(merged function id, loop-header block K)`. Keyed by K too because a
-    /// function with two loops can OSR at different headers — a K1 entry must not be
-    /// reused for a K2 hand-off. Populated at most once per key (OSR is rare); the
-    /// `FnEntry` is cloned out (owned) so callers don't hold the lock across the
-    /// native call. `rejected()` marks untranslatable / compile-failed.
-    pub osr_entries: Mutex<std::collections::HashMap<(usize, usize), FnEntry>>,
-    /// add-osr-loop-tiering: OSR trigger threshold (loop back-edges in the interp).
+    /// Compiled OSR entries keyed by `(JIT id, loop-header block K)`. Keyed by K
+    /// too because a function with two loops can OSR at different headers — a K1
+    /// entry must not be reused for a K2 hand-off. Populated at most once per key
+    /// (OSR is rare); the `FnEntry` is cloned out (owned) so callers don't hold the
+    /// lock across the native call. `rejected()` marks untranslatable / compile-failed.
+    pub osr_entries: Mutex<HashMap<(usize, usize), FnEntry>>,
+    /// OSR trigger threshold (loop back-edges in the interp).
     /// From `Z42_OSR_THRESHOLD`, clamped ≥ 1.
     pub osr_threshold: u32,
     /// runtime-audit P0-4: lowest stack address a JIT function may start at
@@ -327,160 +301,174 @@ pub const JIT_MODULE_CTX_VM_CTX_OFFSET: usize =
     std::mem::offset_of!(JitModuleCtx, vm_ctx);
 
 impl JitModuleCtx {
-    /// Resolve function slot `idx` to its compiled `FnEntry`, compiling it on
-    /// first demand (compile-on-first-call). Returns `None` when the function
-    /// is not JIT-translatable or compilation fails — the caller then falls back
-    /// to the interpreter (or raises), exactly as it did when the eager table
-    /// simply lacked the entry.
+    /// A ctx with no compiled functions and no running VM (`vm_ctx` null).
+    pub fn new(
+        module: *const crate::metadata::Module,
+        lazy: *const Mutex<super::lazy::LazyCompiler>,
+        jit_threshold: u32,
+        osr_threshold: u32,
+    ) -> Self {
+        JitModuleCtx {
+            slots: SparseSegTable::new(),
+            module,
+            lazy,
+            vm_ctx: std::ptr::null_mut(),
+            jit_threshold,
+            osr_entries: Mutex::new(HashMap::new()),
+            osr_threshold,
+            stack_limit: 0,
+        }
+    }
+
+    // ── ids ──────────────────────────────────────────────────────────────────
+
+    /// The function JIT id `id` names (see the struct doc), or `None` for an id
+    /// nothing is registered under. Lock-free.
+    /// SAFETY: `module` valid; `vm_ctx` valid or null.
+    pub unsafe fn fn_of(&self, id: usize) -> Option<&Function> {
+        let module = &*self.module;
+        if let Some(f) = module.functions.get(id) {
+            return Some(f);
+        }
+        if self.vm_ctx.is_null() { return None; }
+        let funcs = (*self.vm_ctx).funcs();
+        if !funcs.is_entry(module) { return None; }
+        funcs.get(FnId(u32::try_from(id).ok()?))
+    }
+
+    /// The JIT id of `f`, if it has one: an entry-module function by address, a
+    /// lazily loaded one by its `FnId` (only the function the table holds under
+    /// that id). Lock-free, no hashing.
+    /// SAFETY: see [`Self::fn_of`].
+    pub unsafe fn id_of_func(&self, f: &Function) -> Option<usize> {
+        let fns = &(*self.module).functions;
+        let base = fns.as_ptr();
+        let p = f as *const Function;
+        if p >= base && p < base.add(fns.len()) {
+            return Some(p.offset_from(base) as usize);
+        }
+        let id = f.id.get()?.0 as usize;
+        std::ptr::eq(self.fn_of(id)?, f).then_some(id)
+    }
+
+    /// Cold path: the JIT id a call by `name` resolves to — this module's
+    /// `func_index` first, then the lazily loaded functions (which may load the
+    /// defining package). `None` when the name resolves nowhere or to a function
+    /// without a JIT id.
+    /// SAFETY: see [`Self::fn_of`].
+    pub unsafe fn id_by_name(&self, name: &str) -> Option<usize> {
+        let module = &*self.module;
+        if let Some(&i) = module.func_index.get(name) {
+            return Some(i);
+        }
+        if self.vm_ctx.is_null() { return None; }
+        let vm = &*self.vm_ctx;
+        if !vm.funcs().is_entry(module) { return None; }
+        if let Some(id) = vm.funcs().lazy_id(name) {
+            return Some(id.0 as usize);
+        }
+        let f = vm.try_lookup_function(name)?;
+        self.id_of_func(&f)
+    }
+
+    // ── resolve ──────────────────────────────────────────────────────────────
+
+    /// Resolve JIT id `id` to its compiled `FnEntry`, compiling it on first demand
+    /// (no tier threshold — the entry point and `jit_to_str`). `None` when the
+    /// function is not JIT-translatable or compilation failed (cached as
+    /// Rejected) — the caller falls back to the interpreter.
     ///
-    /// The already-compiled hot path is lock-free (a single `OnceLock::get`);
-    /// only the first compile of each slot takes the compiler mutex, with a
-    /// double-check so racing threads compile it exactly once.
+    /// The compiled hot path is lock-free (`slots.get` + `OnceLock::get`); only an
+    /// actual compile takes the compiler mutex, with a double-check so racing
+    /// threads compile each function exactly once.
     ///
     /// SAFETY: `module` and `lazy` must be valid — they are for the lifetime of
     /// a `JitModule::run` (set at construction; `lazy` never null).
+    #[inline]
     pub unsafe fn resolve_fn_by_id(&self, id: usize) -> Option<&FnEntry> {
-        if id < self.merged_len {
-            self.resolve_merged_slot(id, 0)
-        } else {
-            // make-vm-loading-lazy: synthetic id → lazily-loaded function.
-            self.resolve_lazy_slot(id - self.merged_len, 0)
-        }
+        self.resolve_fn_by_id_thr(id, 0)
     }
 
-    /// Tiered variant (runtime-jit-tiering Phase 1): apply the call-count threshold
-    /// so only HOT functions compile; cold ones return `None` → caller runs them on
-    /// the interpreter. Used ONLY by `jit_call` (static/free calls), whose
-    /// `cross_zpkg_via_interp` cold-tier fallback is proven for arbitrary functions.
-    /// The method/closure/ctor helpers keep `resolve_fn_by_id` (compile-on-first-call)
-    /// — their `None`-fallbacks are not yet robust for arbitrary cold callees (Phase 1b).
-    /// The tri-state negative cache applies in BOTH variants.
+    /// Tiered variant: count this call and compile only at `jit_threshold`; below
+    /// it return `None` so the caller runs the function on the interpreter (cold
+    /// tier). Used by every call path that has an interpreter fallback (`jit_call`,
+    /// vcall, closures, ctors, and the interpreter's own per-site native routing).
+    #[inline]
     pub unsafe fn resolve_fn_by_id_tiered(&self, id: usize) -> Option<&FnEntry> {
-        if id < self.merged_len {
-            self.resolve_merged_slot(id, self.jit_threshold)
-        } else {
-            self.resolve_lazy_slot(id - self.merged_len, self.jit_threshold)
-        }
+        self.resolve_fn_by_id_thr(id, self.jit_threshold)
     }
 
-    /// Merged-module path: slot `idx` in the pre-sized `fn_entries_by_id`. Compiles
-    /// `module.functions[idx]` on first call (hot path = lock-free `OnceLock::get`).
-    unsafe fn resolve_merged_slot(&self, idx: usize, thr: u32) -> Option<&FnEntry> {
-        let slot = self.fn_entries_by_id.get(idx)?;
-        if let Some(e) = slot.get() {
-            // runtime-jit-tiering Phase 1 tri-state: filled slot is Compiled or
-            // Rejected (negative cache). Rejected → interp, WITHOUT re-scanning.
-            // Applies in BOTH tier modes.
-            if e.is_rejected() { return None; }
+    /// [`Self::resolve_fn_by_id`] with an explicit threshold (`0` = compile now).
+    #[inline]
+    pub unsafe fn resolve_fn_by_id_thr(&self, id: usize, thr: u32) -> Option<&FnEntry> {
+        if let Some(e) = self.slots.get(id).and_then(|s| s.entry.get()) {
             return Some(e);
         }
-        // Tiered path only: count this call; below threshold → cold tier (interp via
-        // jit_call's fallback), don't compile/scan yet. Non-tiered callers
-        // (vcall/closure/ctor/entry) compile on first call as before.
-        if thr > 0 {
-            if let Some(cnt) = self.call_counts.get(idx) {
-                let n = cnt.fetch_add(1, Ordering::Relaxed) + 1;
-                if n < thr { return None; }
-            }
-        }
-        // Threshold reached: scan translatability ONCE, then compile or cache
-        // Rejected so future calls skip both the scan and the counter.
-        let module = &*self.module;
-        let func = module.functions.get(idx)?;
-        // fix-jit-first-compile-unresolved-builtin: populate the function's token
-        // table before translating — interp does this in `exec_function`
-        // (`resolve_function_tokens`), but at `jit_threshold == 1` a function
-        // compiles on its FIRST call before interp ever ran it, so `resolved`
-        // would be empty and the JIT builtin-resolution fallback
-        // (`translate::call`, static `BUILTINS` only) panics on native-ext
-        // builtins (e.g. z42.compression's `__zstd_compress`). Idempotent
-        // (OnceLock-gated); `module` is the entry module (identity invariant).
-        if !self.vm_ctx.is_null() && func.resolved.get().is_none() {
-            crate::metadata::resolver::resolve_function_tokens(func, module, &*self.vm_ctx);
-        }
-        if super::translate::jit_unsupported_reason(func).is_some() {
-            let _ = slot.set(FnEntry::rejected()); // negative-cache the verdict
-            return None;
-        }
-        let mtx = &*self.lazy;
-        let mut guard = match mtx.lock() {
-            Ok(g) => g,
-            Err(poisoned) => poisoned.into_inner(),
-        };
-        if slot.get().is_none() {
-            let t0 = std::time::Instant::now();
-            match guard.compile_one(idx) {
-                Ok(entry) => { let _ = slot.set(entry); self.bump_compile_counters(t0); }
-                // Compile is deterministic → cache Rejected so we don't re-attempt.
-                Err(_) => { let _ = slot.set(FnEntry::rejected()); return None; }
-            }
-        }
-        drop(guard);
-        slot.get().filter(|e| !e.is_rejected())
+        self.resolve_slot_slow(id, thr)
     }
 
-    /// Lazy path (make-vm-loading-lazy): slot `i` in the growable `lazy_table`, for a
-    /// function materialized by the lazy loader. Compiles it on first call. The slot's
-    /// `OnceLock` (in a boxed `LazySlot` → stable address) hands out a `&FnEntry`
-    /// valid for the run; the compile is deduped under the compiler lock.
-    unsafe fn resolve_lazy_slot(&self, i: usize, thr: u32) -> Option<&FnEntry> {
-        // Stable raw pointers into the boxed slot (survive `Vec` growth), so the
-        // table lock is released before the (slow) compile.
-        let (name_ptr, entry_ptr, count_ptr, func_ptr):
-            (*const String, *const OnceLock<FnEntry>, *const AtomicU32, *const OnceLock<Arc<Function>>) = {
-            let table = match self.lazy_table.lock() { Ok(g) => g, Err(p) => p.into_inner() };
-            let slot = table.slots.get(i)?;
-            (&slot.name as *const String,
-             &slot.entry as *const OnceLock<FnEntry>,
-             &slot.count as *const AtomicU32,
-             &slot.func as *const OnceLock<Arc<Function>>)
-        };
-        let entry_lock = &*entry_ptr;
-        if let Some(e) = entry_lock.get() {
-            return Some(e);
-        }
-        // runtime-jit-tiering Phase 1c: tiered callers count this call; below the
-        // threshold → cold tier (return None → caller interprets via its lazy
-        // `None`-fallback, the SAME arm already taken for untranslatable lazy
-        // funcs). Non-tiered callers (entry / static-init resolve) compile on
-        // first call as before. `resolve_id_by_name` already verified the function
-        // is translatable before registering this slot, so a cold return here just
-        // defers a definitely-compilable function, never hides an error.
+    /// Side-effect-free "is this function ALREADY compiled?" for the interpreter's
+    /// central divert (`try_native_exec`): never counts, never compiles. The divert
+    /// only routes already-hot functions to native; counting belongs to the
+    /// primary call sites (a cold callee's interp fallback must not count it twice).
+    #[inline]
+    pub fn peek_fn_by_id(&self, id: usize) -> Option<&FnEntry> {
+        self.slots.get(id)?.entry.get()
+    }
+
+    /// The not-yet-compiled half of [`Self::resolve_fn_by_id_thr`]: Rejected →
+    /// `None` at once; otherwise count (tiered), then decide once — untranslatable
+    /// or compile-failed ⇒ Rejected, else compile under the compiler lock.
+    #[inline(never)]
+    unsafe fn resolve_slot_slow(&self, id: usize, thr: u32) -> Option<&FnEntry> {
+        // The function first (lock-free): an id nothing is registered under never
+        // allocates a slot segment.
+        let func = self.fn_of(id)?;
+        let slot = self.slots.get_or_init(id)?;
+        if let Some(e) = slot.entry.get() { return Some(e); }
+        if slot.state.load(Ordering::Relaxed) == SLOT_REJECTED { return None; }
         if thr > 0 {
-            let n = (*count_ptr).fetch_add(1, Ordering::Relaxed) + 1;
+            let n = slot.count.fetch_add(1, Ordering::Relaxed) + 1;
             if n < thr { return None; }
         }
-        if self.vm_ctx.is_null() { return None; }
-        let func = (*self.vm_ctx).try_lookup_function(&*name_ptr)?;
-        // fix-jit-first-compile-unresolved-builtin: see `resolve_merged_slot`.
-        // Lazily-loaded functions (z42.compression facades etc.) reach the JIT
-        // via this path; at `jit_threshold == 1` they compile before any interp
-        // run populated `resolved`, so resolve here first. `self.module` is the
-        // entry module the callee executes against (identity invariant).
-        if func.resolved.get().is_none() {
-            crate::metadata::resolver::resolve_function_tokens(&func, &*self.module, &*self.vm_ctx);
+        // fix-jit-first-compile-unresolved-builtin: populate the function's token
+        // table before translating — at `jit_threshold == 1` a function compiles
+        // on its FIRST call, before the interpreter ever resolved it, and the JIT's
+        // builtin-resolution fallback (static `BUILTINS` only) would panic on a
+        // native-ext builtin. Idempotent (OnceLock-gated); `module` is the module
+        // the callee executes against (identity invariant).
+        if !self.vm_ctx.is_null() && func.resolved.get().is_none() {
+            crate::metadata::resolver::resolve_function_tokens(func, &*self.module, &*self.vm_ctx);
         }
-        let mtx = &*self.lazy;
-        let mut guard = match mtx.lock() { Ok(g) => g, Err(p) => p.into_inner() };
-        if entry_lock.get().is_none() {
+        if super::translate::jit_unsupported_reason(func).is_some() {
+            slot.state.store(SLOT_REJECTED, Ordering::Relaxed);
+            return None;
+        }
+        let mut guard = match (*self.lazy).lock() { Ok(g) => g, Err(p) => p.into_inner() };
+        if slot.entry.get().is_none() {
+            if slot.state.load(Ordering::Relaxed) == SLOT_REJECTED { return None; }
             let t0 = std::time::Instant::now();
-            match guard.compile_fn(&func) {
-                Ok(entry) => {
-                    // Keep the compiled-from function alive before publishing the
-                    // entry that points at it (both set once, under the compiler lock).
-                    let _ = (*func_ptr).set(func.clone());
-                    let _ = entry_lock.set(entry);
-                    self.bump_compile_counters(t0);
-                }
-                Err(_) => return None,
+            match guard.compile_fn(func) {
+                Ok(entry) => { let _ = slot.entry.set(entry); self.bump_compile_counters(t0); }
+                // Compilation is deterministic → never re-attempt.
+                Err(_) => { slot.state.store(SLOT_REJECTED, Ordering::Relaxed); return None; }
             }
         }
         drop(guard);
-        entry_lock.get()
+        slot.entry.get()
     }
 
-    /// Counters reflect what was ACTUALLY compiled (vs the former eager whole-module
-    /// count). `vm_ctx` is set for the duration of `JitModule::run`.
+    /// Test probe: `(call count, rejected?)` of JIT id `id`'s slot (`(0, false)`
+    /// when it was never touched).
+    #[cfg(test)]
+    pub(crate) fn slot_probe(&self, id: usize) -> (u32, bool) {
+        self.slots.get(id).map_or((0, false), |s| {
+            (s.count.load(Ordering::Relaxed), s.state.load(Ordering::Relaxed) == SLOT_REJECTED)
+        })
+    }
+
+    /// Counters reflect what was ACTUALLY compiled. `vm_ctx` is set for the
+    /// duration of `JitModule::run`.
     fn bump_compile_counters(&self, t0: std::time::Instant) {
         if !self.vm_ctx.is_null() {
             let c = unsafe { (*self.vm_ctx).counters() };
@@ -490,98 +478,25 @@ impl JitModuleCtx {
         }
     }
 
-    /// Resolve a function NAME to a slot id — merged (`< merged_len`) or synthetic
-    /// lazy (`≥ merged_len`). Registers a new lazy slot on first sight (materializing
-    /// the function via the lazy loader to confirm it's JIT-translatable). The
-    /// per-Call-site `call_jit_ic` caches this id so subsequent calls skip the hash.
-    /// Returns None if the name resolves to nothing or an untranslatable function
-    /// (caller then falls back to `cross_zpkg_via_interp`).
-    /// SAFETY: see [`resolve_fn_by_id`].
-    pub unsafe fn resolve_id_by_name(&self, name: &str) -> Option<u32> {
-        if let Some(&idx) = (*self.module).func_index.get(name) {
-            return Some(idx as u32);
-        }
-        {
-            let table = match self.lazy_table.lock() { Ok(g) => g, Err(p) => p.into_inner() };
-            if let Some(&i) = table.by_name.get(name) {
-                return Some((self.merged_len + i) as u32);
-            }
-        }
-        // Materialize + verify translatable before assigning an id.
-        if self.vm_ctx.is_null() { return None; }
-        let func = (*self.vm_ctx).try_lookup_function(name)?;
-        if super::translate::jit_unsupported_reason(&func).is_some() { return None; }
-        let mut table = match self.lazy_table.lock() { Ok(g) => g, Err(p) => p.into_inner() };
-        if let Some(&i) = table.by_name.get(name) {
-            return Some((self.merged_len + i) as u32); // registered while we materialized
-        }
-        let i = table.slots.len();
-        table.slots.push(Box::new(LazySlot {
-            name: name.to_string(), entry: OnceLock::new(), func: OnceLock::new(),
-            count: AtomicU32::new(0),
-        }));
-        table.by_name.insert(name.to_string(), i);
-        Some((self.merged_len + i) as u32)
-    }
-
-    /// Name-keyed `&FnEntry` resolution: `resolve_id_by_name` → `resolve_fn_by_id`.
-    /// SAFETY: see [`resolve_fn_by_id`].
+    /// Name-keyed resolution (compile now): `id_by_name` → `resolve_fn_by_id`.
+    /// SAFETY: see [`Self::resolve_fn_by_id`].
     pub unsafe fn resolve_fn_by_name(&self, name: &str) -> Option<&FnEntry> {
-        let id = self.resolve_id_by_name(name)?;
-        self.resolve_fn_by_id(id as usize)
+        self.resolve_fn_by_id(self.id_by_name(name)?)
     }
 
-    /// Tiered by-name resolve (runtime-jit-tiering Phase 1b): applies the tier-up
-    /// threshold. Used by `jit_vcall`'s vtable path, whose `None`-arm robustly
-    /// interps the resolved method (receiver + args) for cold callees.
-    pub unsafe fn resolve_fn_by_name_tiered_thr(&self, name: &str, thr: u32) -> Option<&FnEntry> {
-        let id = self.resolve_id_by_name(name)? as usize;
-        if id < self.merged_len { self.resolve_merged_slot(id, thr) }
-        else { self.resolve_lazy_slot(id - self.merged_len, thr) }
-    }
-
+    /// Name-keyed tiered resolution (closures and constructors, which still carry
+    /// names). SAFETY: see [`Self::resolve_fn_by_id`].
     pub unsafe fn resolve_fn_by_name_tiered(&self, name: &str) -> Option<&FnEntry> {
-        let id = self.resolve_id_by_name(name)?;
-        self.resolve_fn_by_id_tiered(id as usize)
+        self.resolve_fn_by_id_tiered(self.id_by_name(name)?)
     }
 
-    /// runtime-jit-tiering Phase 1.5.2: **side-effect-free** "is this function
-    /// ALREADY compiled?" check for the interp central divert (`try_native_exec`).
-    /// Returns `Some(entry)` only when the slot is already filled with a compiled
-    /// (non-rejected) entry — **never increments the tier counter, never compiles,
-    /// never registers a lazy slot**. The divert's job is to ROUTE an already-hot
-    /// function to native, NOT to tier it up (counting belongs to the primary call
-    /// sites: `jit_call` / per-site interp hooks / `jit_obj_new` / vtable). Using
-    /// the *tiered* resolve here double-counted a cold callee — once at `jit_call`,
-    /// again at its interp fallback's `exec_function` — halving the effective
-    /// threshold and prematurely compiling cold functions.
-    pub unsafe fn resolve_fn_by_name_peek(&self, name: &str) -> Option<&FnEntry> {
-        // Merged path: pre-sized OnceLock slot, stable address.
-        if let Some(&idx) = (*self.module).func_index.get(name) {
-            let e = self.fn_entries_by_id.get(idx)?.get()?;
-            return if e.is_rejected() { None } else { Some(e) };
-        }
-        // Lazy path: peek an already-registered slot WITHOUT registering a new one.
-        // Boxed slot → stable heap address, so the borrow outlives the table lock
-        // (same invariant `resolve_lazy_slot` relies on).
-        let entry_ptr: *const OnceLock<FnEntry> = {
-            let table = match self.lazy_table.lock() { Ok(g) => g, Err(p) => p.into_inner() };
-            let &i = table.by_name.get(name)?;
-            &table.slots.get(i)?.entry as *const OnceLock<FnEntry>
-        };
-        let e = (*entry_ptr).get()?;
-        if e.is_rejected() { None } else { Some(e) }
-    }
-
-    /// add-osr-loop-tiering: resolve (compiling on first sight) the **OSR entry** of
-    /// merged function `id` at loop-header block `k`. Returns an OWNED `FnEntry`
-    /// clone (so the caller doesn't hold the cache lock across the native call), or
-    /// `None` if the function is lazy (v1 skips OSR for not-yet-merged funcs),
-    /// untranslatable, or the compile failed. Cached per `(id, k)` — a second hot
-    /// activation of the same loop reuses it. OSR is a rare event, so a plain
-    /// `Mutex<HashMap>` (vs the hot-path lock-free slot tables) is fine.
+    /// Resolve (compiling on first sight) the **OSR entry** of JIT id `id` at
+    /// loop-header block `k` — entry-module and lazily loaded functions alike.
+    /// Returns an OWNED `FnEntry` clone (so the caller doesn't hold the cache lock
+    /// across the native call), or `None` if the function is untranslatable or the
+    /// compile failed. Cached per `(id, k)` — a second hot activation of the same
+    /// loop reuses it. OSR is a rare event, so a plain `Mutex<HashMap>` is fine.
     pub unsafe fn resolve_osr_entry(&self, id: usize, k: usize) -> Option<FnEntry> {
-        if id >= self.merged_len { return None; } // v1: OSR only for merged funcs
         {
             let map = match self.osr_entries.lock() { Ok(g) => g, Err(p) => p.into_inner() };
             if let Some(e) = map.get(&(id, k)) {
@@ -589,8 +504,7 @@ impl JitModuleCtx {
             }
         }
         // Not cached — compile the OSR variant (translatable check first).
-        let module = &*self.module;
-        let func = module.functions.get(id)?;
+        let func = self.fn_of(id)?;
         let compiled: FnEntry = if super::translate::jit_unsupported_reason(func).is_some() {
             FnEntry::rejected()
         } else {

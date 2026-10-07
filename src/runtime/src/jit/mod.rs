@@ -46,8 +46,8 @@ use std::sync::Mutex;
 
 /// A z42 module wired for native execution. lazy-per-function-jit (2026-07-23):
 /// functions are compiled **on first call**, not eagerly at load — `setup` only
-/// builds the JIT infrastructure; `LazyCompiler::compile_one` fills each slot on
-/// demand via `JitModuleCtx::resolve_fn_by_id`.
+/// builds the JIT infrastructure; `JitModuleCtx::resolve_fn_by_id` compiles each
+/// function on demand (`LazyCompiler::compile_fn`).
 pub struct JitModule {
     /// Mutex-guarded lazy compiler; owns the cranelift `JITModule` so the
     /// machine-code pages stay valid for the whole run. Read only through the
@@ -62,68 +62,26 @@ pub struct JitModule {
 
 impl JitModule {
     /// Build the JIT infrastructure for `module` without compiling any user
-    /// function (compile-on-first-call). Pre-sizes the per-function slot table
-    /// to `module.functions.len()` and wires `ctx.lazy` at the owned mutex.
+    /// function (compile-on-first-call) and wire `ctx.lazy` at the owned mutex.
     pub fn setup(module: &Module) -> Result<Self> {
-        let lazy_box: Box<Mutex<LazyCompiler>> = Box::new(Mutex::new(LazyCompiler::setup(module)?));
-        let n = module.functions().len();
-        let mut fn_entries_by_id = Vec::with_capacity(n);
-        fn_entries_by_id.resize_with(n, std::sync::OnceLock::new);
-        // runtime-jit-tiering Phase 1: per-function call counters (pre-sized, zero
-        // per-call alloc) + tier-up threshold from `Z42_JIT_THRESHOLD` (default
-        // 1, clamped ≥ 1; N=1 = compile-on-first-call).
-        //
-        // lower-jit-threshold-default (2026-08-31): default was 1000 (compile only
-        // genuinely hot functions). That is right for hot-LOOP workloads — but OSR
-        // (`osr_threshold`) already upgrades hot loops independently, and a large class
-        // of real programs (the z42c self-compiler above all) spends its time in
-        // functions each called only a HANDFUL of times (`_build` / `PackageCompile`
-        // / `BuildPackageCus` / the whole codegen+serialize pipeline run ONCE per
-        // build). At 1000 those never compiled → the compiler ran fully interpreted
-        // (only ~18 leaf string utils crossed 1000 calls). Profiled: z42c.semantics
-        // full build 34.7s→29.0s (~17%) at N=1, byte-identical, with <1% of samples
-        // in Cranelift (compile overhead negligible — the cold tail is small and JIT
-        // is lazy/per-function, so only REACHED functions ever compile). N≥2 cannot
-        // help once-called functions at all, so 1 is the only value that captures them.
-        let mut call_counts = Vec::with_capacity(n);
-        call_counts.resize_with(n, std::sync::atomic::AtomicU32::default);
-        //
-        // perf-jit-threshold-2 (2026-09-03): default 1 → 2. N=1 also compiles every
-        // function that runs exactly ONCE per process — for the short-lived z42c runs
-        // that dominate GREEN (every golden / stdlib member / test compile) that is
-        // 561 Cranelift compiles ≈ 0.33 s of a 0.80 s hello-world build. Measured same
-        // machine: hello-world 0.80 → 0.46 s at N=2 (35 compiles); the large
-        // z42c.semantics build 12.80 → 12.83 s (no loss — anything worth compiling
-        // is called at least twice). N=2..10 are indistinguishable; 2 keeps the
-        // "compile early" spirit of lower-jit-threshold-default.
-        // adopt-inline-env-knobs (2026-09-05): was a direct `env::var` here, which
-        // meant `--set jit-threshold=` and `[runtime].jit-threshold` could never
-        // reach it. Now it comes off the layered config like every other knob.
+        let lazy_box: Box<Mutex<LazyCompiler>> = Box::new(Mutex::new(LazyCompiler::setup()?));
+        // Tier-up threshold (`jit-threshold` knob, default 2): a function compiles on
+        // its 2nd tiered call. 1 also compiled every run-once function (561 Cranelift
+        // compiles ≈ 0.33 s of a 0.80 s hello-world build); larger values keep the
+        // z42c pipeline — functions called a handful of times per build — on the
+        // interpreter. OSR (`osr_threshold`) upgrades hot loops independently.
         let jit_threshold = crate::config::runtime_config().jit_threshold;
-        // add-osr-loop-tiering: back-edge count that triggers OSR of the running
-        // interp activation. Default 10_000 — high enough that short loops finish in
-        // the interpreter before paying a compile, low enough that a genuinely hot
-        // loop (millions of iterations) upgrades within its first fraction of a %.
+        // Back-edge count that triggers OSR of the running interp activation.
         let osr_threshold = crate::config::runtime_config().osr_threshold;
-        let ctx = Box::new(JitModuleCtx {
-            fn_entries_by_id,
-            module: module as *const Module,
-            lazy: &*lazy_box as *const Mutex<LazyCompiler>,
-            // make-vm-loading-lazy: functions with id < merged_len live in the
-            // pre-sized `fn_entries_by_id`; ids ≥ merged_len are synthetic slots
-            // for lazily-loaded (not-yet-merged) functions in `lazy_table`.
-            merged_len: n,
-            lazy_table: Mutex::new(frame::LazyTable::default()),
-            // Set by JitModule::run for the duration of an entry call; null
-            // outside that window.
-            vm_ctx: std::ptr::null_mut(),
-            call_counts,
+        // Per-function slots are allocated on first touch (`SparseSegTable`), keyed
+        // by JIT id (= `FnId`, see `JitModuleCtx`); `vm_ctx` / `stack_limit` are set
+        // by `run_fn`.
+        let ctx = Box::new(JitModuleCtx::new(
+            module as *const Module,
+            &*lazy_box as *const Mutex<LazyCompiler>,
             jit_threshold,
-            osr_entries: Mutex::new(std::collections::HashMap::new()),
             osr_threshold,
-            // Set by `run_fn` from the running thread (stack_guard).
-            stack_limit: 0,
-        });
+        ));
         Ok(JitModule { _lazy: lazy_box, ctx })
     }
 
@@ -262,7 +220,7 @@ impl JitModule {
 /// without compiling any user function; each function is compiled on its first
 /// call (see [`JitModuleCtx::resolve_fn_by_id`]). The counters therefore report
 /// what was **actually** compiled:
-/// - `jit_methods_compiled` is incremented per `compile_one` (not the module's
+/// - `jit_methods_compiled` is incremented per compiled function (not the module's
 ///   total function count) — see `resolve_fn_by_id`.
 /// - `jit_compile_us_total` accumulates each lazy compile's duration — likewise.
 ///

@@ -3,7 +3,7 @@
 //! glue op `get_bool`. (`Ret` and the prologue's register-file pointer are
 //! inline loads/stores on `JitFrame` — see `JIT_FRAME_*_OFFSET`.)
 
-use crate::corelib::convert::value_to_str;
+use crate::corelib::convert::with_value_str;
 use crate::metadata::Value;
 use super::super::frame::{JitFrame, JitModuleCtx};
 use super::super::invoke::{call_entry, NativeOutcome};
@@ -137,10 +137,11 @@ pub unsafe extern "C" fn jit_to_str(
                     NativeOutcome::Returned(ret) => ret,
                     NativeOutcome::Threw => return 1,
                 };
+                let heap = vm_ctx_ref(ctx).heap();
                 let s: crate::metadata::vstr::Str = match ret {
                     Some(Value::Str(s)) => s,
-                    Some(ref other)     => value_to_str(other).into(),
-                    None                => crate::metadata::vstr::Str::from(""),
+                    Some(ref other)     => with_value_str(other, |t| heap.alloc_str(t)),
+                    None                => heap.alloc_str(""),
                 };
                 (*frame).regs[dst as usize] = Value::Str(s);
                 return 0;
@@ -150,14 +151,16 @@ pub unsafe extern "C" fn jit_to_str(
     // Not natively callable (no `ToString` override, or one the JIT can't run)
     // or a boxed struct: the interpreter's stringification, same as `ToStr` /
     // `+` under interp. A throwing `ToString` surfaces as its own exception.
+    // perf-str-concat-direct: format straight into the GC string (no intermediate `String`).
+    let heap = vm_ctx_ref(ctx).heap();
     if matches!(val, Value::Object(_) | Value::BoxedStruct(_)) {
         let v = *val;
-        match crate::interp::dispatch::stringify_dispatch(vm_ctx_ref(ctx), &v) {
-            Ok(s) => (*frame).regs[dst as usize] = Value::Str(s.into()),
+        match crate::interp::dispatch::stringify_dispatch_gc(vm_ctx_ref(ctx), &v) {
+            Ok(s) => (*frame).regs[dst as usize] = Value::Str(s),
             Err(e) => return super::arith::stringify_failed(ctx, e),
         }
     } else {
-        (*frame).regs[dst as usize] = Value::Str(value_to_str(val).into());
+        (*frame).regs[dst as usize] = Value::Str(with_value_str(val, |t| heap.alloc_str(t)));
     }
     0
 }

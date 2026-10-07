@@ -428,7 +428,7 @@ E0442 / E0457 / E0462 除外（见上一节）。**E0402 另有一处语法层�
 | WS023 | Include 指向的文件不存在 | ⚠️ 零发射点 |
 | WS024 | Include 路径含绝对系统路径 / URL / glob | ⚠️ 零发射点 |
 | WS030 | `[workspace]` 段出现在非 `z42.workspace.toml` 文件 | ⚠️ 零发射点 |
-| WS031 | `default-members` 引用了未匹配的成员 | ⚠️ 零发射点 |
+| WS031 | `default_members` 引用了未匹配的成员 | ⚠️ 零发射点 |
 | WS032 | Member 写 `xxx.workspace = true` 但根 `[workspace.project]` 未声明该字段 | ⚠️ 零发射点 |
 | WS033 | `[workspace.project]` 字段类型错误 / 不可共享字段被声明 | ⚠️ 零发射点 |
 | WS034 | Member 引用未在 `[workspace.dependencies]` 中声明的依赖 | ⚠️ 零发射点 |

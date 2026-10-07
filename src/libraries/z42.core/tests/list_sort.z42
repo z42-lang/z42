@@ -181,3 +181,70 @@ void test_sort_comparison_is_stable() {
     Assert.Equal(1, xs[2].Key); Assert.Equal(0, xs[2].Seq);
     Assert.Equal(1, xs[3].Key); Assert.Equal(2, xs[3].Seq);
 }
+
+// ── perf-collections-sort: Sort() on primitive elements takes the native path ──
+// (Array.SortPrimitives). It must order exactly like the script merge sort under
+// the element's own CompareTo — cross-check against the comparator overload, which
+// always runs the script sort.
+
+[Test]
+void test_sort_native_ints_match_script_order() {
+    var a = new List<long>();
+    var b = new List<long>();
+    long seed = 7L;
+    int i = 0;
+    while (i < 500) {
+        seed = (seed * 1103515245L + 12345L) % 2147483648L;
+        long v = (seed % 2000L - 1000L) * 4000000000L;   // beyond int range, both signs
+        a.Add(v);
+        b.Add(v);
+        i = i + 1;
+    }
+    a.Sort();
+    b.Sort((long x, long y) => x.CompareTo(y));
+    int j = 0;
+    while (j < 500) { Assert.Equal(b[j], a[j]); j = j + 1; }
+}
+
+[Test]
+void test_sort_native_doubles_nan_first() {
+    var xs = new List<double>();
+    xs.Add(2.5); xs.Add(0.0 / 0.0); xs.Add(-1.0); xs.Add(-0.0); xs.Add(0.0 / 0.0);
+    xs.Sort();
+    Assert.True(xs[0] != xs[0]);                 // NaN sorts first (Double.CompareTo)
+    Assert.True(xs[1] != xs[1]);
+    Assert.Equal(-1.0, xs[2]);
+    Assert.Equal(0.0, xs[3]);
+    Assert.Equal(2.5, xs[4]);
+}
+
+[Test]
+void test_sort_native_strings_and_chars() {
+    var ss = new List<string>();
+    ss.Add("pear"); ss.Add("Apple"); ss.Add("apple"); ss.Add("b"); ss.Add("");
+    ss.Sort();
+    Assert.Equal("", ss[0]);
+    Assert.Equal("Apple", ss[1]);
+    Assert.Equal("apple", ss[2]);
+    Assert.Equal("b", ss[3]);
+    Assert.Equal("pear", ss[4]);
+
+    var cs = new List<char>();
+    cs.Add('z'); cs.Add('A'); cs.Add('m');
+    cs.Sort();
+    Assert.Equal('A', cs[0]);
+    Assert.Equal('m', cs[1]);
+    Assert.Equal('z', cs[2]);
+}
+
+[Test]
+void test_sort_native_leaves_spare_capacity_alone() {
+    var xs = new List<int>();            // capacity grows to 8; Count = 5
+    xs.Add(5); xs.Add(3); xs.Add(4); xs.Add(1); xs.Add(2);
+    xs.Sort();
+    xs.Add(0);                           // the slot past Count was not disturbed
+    Assert.Equal(6, xs.Count);
+    Assert.Equal(1, xs[0]);
+    Assert.Equal(5, xs[4]);
+    Assert.Equal(0, xs[5]);
+}

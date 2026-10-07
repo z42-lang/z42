@@ -328,7 +328,9 @@ chunk 内存还给系统 malloc，新堆可能在**同一地址**重分配块，
 `MagrGC::alloc_str_concat2`（[`gc/heap.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/gc/heap.rs)，`ArcMagrGC` 覆写
 `alloc_str_concat2_in_region`）按 `a.len()+b.len()` **一次性**分配 `BlockType::Str` 块、直接拷入两段，
 **降到 1 次分配 / 1 次拷贝**（两段皆合法 UTF-8 → 拼接合法）。interp `str_concat`/`Add` 字符串臂借
-`&str` 直传、JIT `jit_str_concat` helper 同步。产出字节相同。热字符串 workload 实测 mimalloc 压力
+`&str` 直传、JIT `jit_str_concat` / `jit_add` helper 同步。`Add` 的混合臂（`"k" + i`）把非串操作数
+经 `dispatch::with_obj_str` 以 `&str` 视图直接拷进同一个块（标量在栈缓冲里格式化），同样 1 次分配、零中间串
+（见[对象协议派发](object-protocol-dispatch.md)）。产出字节相同。热字符串 workload 实测 mimalloc 压力
 减半、拼接密集环 ~1.3× interp。
 
 **驻留串 = lazy per-context interning**（D-lazy）：加载期无堆 → 不物化；首次 `ConstStr(idx)`
@@ -689,7 +691,7 @@ Write>` 流式直写 `BufWriter<File>`，无中间 `String` 内存分配。
 - 用于缓存场景（"内存够则保留，紧张则丢弃"），无需手动 weak + 重建
 - **实现要点**：
   - `SoftRegistry`（`gc/soft_registry.rs`）：类型擦除的 `Vec<ErasedSoftEntry>`（region entry 指针 + generation 快照）；mark 之后、sweep 之前跑 revive pass
-  - 压力判定：`used_bytes / max_heap_bytes >= soft_threshold` 时不复活、软目标按普通对象被回收；低于阈值则复活。`Z42_GC_SOFT_THRESHOLD` 控制阈值（默认 0.80）；`max_heap_bytes == 0`（无限）时软引用永不清除
+  - 压力判定：`occupied / max_heap_bytes >= soft_threshold` 时不复活（`occupied` = 堆的真实占用，见 [GC 调参 · 真实占用记账](gc-tuning.md#真实占用记账与软上限)）、软目标按普通对象被回收；低于阈值则复活。`Z42_GC_SOFT_THRESHOLD` 控制阈值（默认 0.80）；`max_heap_bytes == 0`（无限）时软引用永不清除
   - 2 个 builtin：`__soft_handle_create(target: object) -> SoftHandle`；`__soft_handle_get(self) -> object`
   - `Std.SoftHandle` 类（`z42.core/GC/SoftHandle.z42`）暴露给 z42 脚本
   - 原子值（int / string / bool）无法被软引用；`Create(atomicVal)` 返回 `Get()` 始终 null 的句柄

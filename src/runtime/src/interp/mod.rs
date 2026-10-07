@@ -35,6 +35,8 @@ pub(crate) mod transient_arena; // make-value-copy: per-context arena for Ref/Pi
 
 // Re-export for cross-module callers (notably jit/helpers_object.rs).
 pub(crate) use exec_vcall::primitive_class_name;
+#[cfg(feature = "jit")]
+pub(crate) use exec_call::bind_callee;   // P1-2: jit_call binds by name through the same path
 // JIT primitive-receiver VCall IC (add-jit-primitive-vcall-ic): jit_vcall keys its
 // inline cache on primitives via the same synthetic PRIM_TYPE_* ids interp uses.
 pub(crate) use exec_object::prim_isa;   // fix-boxed-primitive-is-as: JIT is/as 复用
