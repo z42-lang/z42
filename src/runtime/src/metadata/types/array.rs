@@ -58,8 +58,9 @@ use crate::gc::heap::MagrGC;
 pub struct ArrayObj {
     /// Element type FQ name (e.g. "int" / "geometry.Point"). Empty = unknown
     /// (Rust-synthesized arrays like reflection result sets; user arrays from
-    /// `ArrayNew` always carry it).
-    pub element_type: Arc<str>,
+    /// `ArrayNew` always carry it). An interned 8 B handle ([`ElemType`]) — creating
+    /// an array allocates no string.
+    pub element_type: ElemType,
     /// packed-primitive-arrays: element storage. **Step 1a** introduces this
     /// enum with only `Boxed` (behaviour-identical refactor). **Step 1b** adds
     /// packed primitive backings (Bytes/Chars/I32/I64/F64/Bool) — the C#
@@ -90,14 +91,13 @@ pub enum ArrayBacking {
     F64   { block: VarGcRef, len: usize },  // double / float
     /// add-struct-heap-inline (P3b, D1-a): a **value-struct array** `Point[]` — the
     /// C# inline `struct[]` model. `len` elements' bytes are packed back-to-back in
-    /// the `bytes` block (`len * elem_size`); reference leaves live in the parallel
+    /// the `bytes` block (`len * layout.size`); reference leaves live in the parallel
     /// `refs` block (`len * layout.ref_count()`, element `i`'s refs at
     /// `[i*rc, (i+1)*rc)`). `layout` = the element struct type's byte+reference layout
     /// (shared `Arc` — type metadata, not per-instance data, stays out of GC).
     /// Element access goes through a `Value::StructRefHeap` handle (route α), not
     /// `get_boxed`/`set_boxed` (those have no array `GcRef` to build a handle from).
     StructBytes {
-        elem_size: usize,
         len: usize,
         bytes: VarGcRef,
         refs: VarGcRef,
@@ -249,7 +249,7 @@ impl ArrayObj {
     #[inline]
     pub fn new(heap: &dyn MagrGC, elems: Vec<Value>) -> Self {
         let (block, len) = Self::alloc_boxed(heap, elems);
-        Self { element_type: Arc::from(""), backing: ArrayBacking::Boxed { block, len } }
+        Self { element_type: ElemType::empty(), backing: ArrayBacking::Boxed { block, len } }
     }
     /// Array with a known element type (from `ArrayNew` / `ArrayNewLit`).
     /// **Step 1b-ii**: primitive element types get a packed value-type backing
@@ -257,7 +257,8 @@ impl ArrayObj {
     /// back to `Boxed` (safe — no packing, correct behaviour).
     #[inline]
     pub fn typed(heap: &dyn MagrGC, element_type: &str, elems: Vec<Value>) -> Self {
-        Self { element_type: Arc::from(element_type), backing: Self::pack_backing(heap, element_type, elems) }
+        let et = ElemType::intern(element_type);
+        Self { element_type: et, backing: Self::pack_backing(heap, et.kind(), elems) }
     }
 
     /// add-escape-analysis-stack-alloc / unify-gc-heap PR-3: build a **stack array**
@@ -267,8 +268,8 @@ impl ArrayObj {
     /// [`Self::typed`], this needs no heap and never packs (short-lived frame-local
     /// storage; boxed `Value`s keep the interp read/write path uniform).
     #[inline]
-    pub fn stack_typed(element_type: &str, elems: Vec<Value>) -> Self {
-        Self { element_type: Arc::from(element_type), backing: ArrayBacking::StackVec(elems) }
+    pub fn stack_typed(element_type: ElemType, elems: Vec<Value>) -> Self {
+        Self { element_type, backing: ArrayBacking::StackVec(elems) }
     }
 
     /// FFI return fast-path (packed-primitive-arrays Step 3): build a `byte[]`
@@ -278,25 +279,22 @@ impl ArrayObj {
     pub fn from_bytes(heap: &dyn MagrGC, bytes: Vec<u8>) -> Self {
         let len = bytes.len();
         let block = Self::alloc_packed(heap, &bytes);
-        Self { element_type: Arc::from("byte"), backing: ArrayBacking::Bytes { block, len } }
+        Self { element_type: ElemType::byte(), backing: ArrayBacking::Bytes { block, len } }
     }
 
     /// add-struct-array-codegen (P3b follow-up): build a value-struct array `Point[len]`
-    /// with `StructBytes` backing — `len` elements packed back-to-back (`len*elem_size`
+    /// with `StructBytes` backing — `len` elements packed back-to-back (`len*layout.size`
     /// bytes, zero-initialized = default struct) + a `Null`-filled reference side-table
     /// (`len*ref_count`). `layout` = the element struct type's byte+reference layout.
     /// Element access goes through a `Value::StructRefHeap` handle (see `array_get`).
-    pub fn struct_backed(heap: &dyn MagrGC, element_type: &str, len: usize, layout: std::sync::Arc<StructTypeLayout>) -> Self {
+    pub fn struct_backed(heap: &dyn MagrGC, element_type: ElemType, len: usize, layout: std::sync::Arc<StructTypeLayout>) -> Self {
         let elem_size = layout.size;
         let ref_count = layout.ref_count();
         // bytes: POD packed struct bytes, zero-init = default struct (allocator zeroes).
         let bytes = heap.alloc_var_block(len * elem_size, BlockType::ArrayStruct);
         // refs: reference side-table, Null-initialized (zero-init would be I64(0), wrong default).
         let refs = Self::alloc_values_null(heap, len * ref_count);
-        Self {
-            element_type: Arc::from(element_type),
-            backing: ArrayBacking::StructBytes { elem_size, len, bytes, refs, layout },
-        }
+        Self { element_type, backing: ArrayBacking::StructBytes { len, bytes, refs, layout } }
     }
 
     /// Select a packed value-type backing for a primitive `element_type`,
@@ -305,9 +303,9 @@ impl ArrayObj {
     ///
     /// ⚠️ 每个「类型不符」的回落都先过 [`prim_value_mismatch`]（debug 响一声）——此前这里与
     /// `set_boxed` 一样是**静默存 0**（见那个函数的头注）。
-    pub(super) fn pack_backing(heap: &dyn MagrGC, element_type: &str, elems: Vec<Value>) -> ArrayBacking {
+    pub(super) fn pack_backing(heap: &dyn MagrGC, kind: ElemKind, elems: Vec<Value>) -> ArrayBacking {
         let len = elems.len();
-        Self::pack_backing_iter(heap, element_type, len, elems.into_iter())
+        Self::pack_backing_iter(heap, kind, len, elems.into_iter())
     }
 
     /// perf-array-alloc-direct: build the backing **directly in its GC block** from an
@@ -321,7 +319,7 @@ impl ArrayObj {
     /// trigger a collection). Nothing in between allocates on the GC heap, and a fresh
     /// block is unreachable from any root until the header points at it.
     pub(super) fn pack_backing_iter(
-        heap: &dyn MagrGC, element_type: &str, len: usize, elems: impl Iterator<Item = Value>,
+        heap: &dyn MagrGC, kind: ElemKind, len: usize, elems: impl Iterator<Item = Value>,
     ) -> ArrayBacking {
         macro_rules! packed {
             ($variant:ident, $ty:ty, $conv:expr) => {{
@@ -335,7 +333,7 @@ impl ArrayObj {
                 ArrayBacking::$variant { block, len }
             }};
         }
-        match ElemKind::of(element_type) {
+        match kind {
             // byte[] → contiguous u8: the FFI zero-copy + 24× memory win.
             ElemKind::Bytes => packed!(Bytes, u8, |x: &Value| if let Value::I64(n) = x { *n as u8 } else { prim_value_mismatch(x, "byte[]", "pack_backing"); 0 }),
             ElemKind::Chars => packed!(Chars, char, |x: &Value| if let Value::Char(c) = x { *c } else { prim_value_mismatch(x, "char[]", "pack_backing"); '\0' }),
@@ -367,8 +365,8 @@ impl ArrayObj {
     /// `#[repr(C, u8)]` puts discriminant 0 = `I64` at offset 0) the freshly zeroed block
     /// **is** the array: no per-element pass at all. Otherwise (`Null` for reference
     /// arrays, …) each slot is written once in place. Never materialises `vec![fill; len]`.
-    pub fn typed_filled(heap: &dyn MagrGC, element_type: &str, len: usize, fill: Value) -> Self {
-        let kind = ElemKind::of(element_type);
+    pub fn typed_filled(heap: &dyn MagrGC, element_type: ElemType, len: usize, fill: Value) -> Self {
+        let kind = element_type.kind();
         let zero = match (kind, &fill) {
             (ElemKind::Bytes | ElemKind::I32 | ElemKind::I64 | ElemKind::Boxed, Value::I64(0)) => true,
             (ElemKind::Chars, Value::Char('\0')) => true,
@@ -394,27 +392,28 @@ impl ArrayObj {
                 ElemKind::Boxed => ArrayBacking::Boxed { block, len },
             }
         } else {
-            Self::pack_backing_iter(heap, element_type, len, std::iter::repeat_n(fill, len))
+            Self::pack_backing_iter(heap, kind, len, std::iter::repeat_n(fill, len))
         };
-        Self { element_type: Arc::from(element_type), backing }
+        Self { element_type, backing }
     }
 
     /// perf-array-alloc-direct: [`Self::typed`] over an element iterator of known
     /// length (array literals read straight from their source registers).
-    pub fn typed_iter(heap: &dyn MagrGC, element_type: &str, len: usize, elems: impl Iterator<Item = Value>) -> Self {
-        Self { element_type: Arc::from(element_type), backing: Self::pack_backing_iter(heap, element_type, len, elems) }
+    pub fn typed_iter(heap: &dyn MagrGC, element_type: ElemType, len: usize, elems: impl Iterator<Item = Value>) -> Self {
+        Self { element_type, backing: Self::pack_backing_iter(heap, element_type.kind(), len, elems) }
     }
 }
 
 /// perf-array-alloc-direct: which backing an element-type name selects — the single
-/// key `pack_backing_iter` / `typed_filled` dispatch on. Conservative + sign-safe:
+/// key `pack_backing_iter` / `typed_filled` dispatch on (cached per interned
+/// [`ElemType`], so array creation does not re-match the name). Conservative + sign-safe:
 /// only widths that round-trip losslessly through `get_boxed`/`set_boxed` are packed.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub(crate) enum ElemKind { Bool, Bytes, I32, I64, Chars, F64, Boxed }
+pub enum ElemKind { Bool, Bytes, I32, I64, Chars, F64, Boxed }
 
 impl ElemKind {
     #[inline]
-    pub(crate) fn of(element_type: &str) -> Self {
+    pub fn of(element_type: &str) -> Self {
         match element_type {
             "byte" | "u8" => Self::Bytes,
             "char" => Self::Chars,
