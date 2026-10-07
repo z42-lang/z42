@@ -561,11 +561,9 @@ public static partial class ImportedSymbolLoader {
         if (targetShort == "") { return; }
         // A5b-2c：target / trait 都按 IMPL 段里的 **FQ** 走 —— 剥成短名后，trait 进了 `InterfaceNames` 也只能靠
         // 已删的裸名回落归一（根表上 `IGreet` 查不到 `Demo.Target.IGreet`），`Implements` 便与它失配。
+        // target 不在 FQN 视图 = 不在 import 集 → 跳过（不再剥短名去撞别的 ns 的同名类；fqn-tables 3b：全量 GREEN 0 命中）。
         Z42ClassType ct = r.ClassesByFqn.Get(im.TargetFq) as Z42ClassType;
-        if (ct == null) {
-            if (!r.Classes.ContainsKey(targetShort)) { return; }      // target 不在 import 集 → 跳过
-            ct = r.Classes.Get(targetShort) as Z42ClassType;
-        }
+        if (ct == null) { return; }
         string traitShort = ImportedSymbolLoader._shortName(im.TraitFq);
         if (traitShort == "") { return; }
         string traitName = ImportedSymbolLoader._fqTrimTypeArgs(im.TraitFq);
