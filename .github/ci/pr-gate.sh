@@ -6,16 +6,17 @@
 # 「过了闸」= 该运行里已经出现重 job（闸门在 detect-changes 里，它一结束下游 job 才会被创建）。
 # 排队顺序按 run_number：只看比自己早的、仍未结束的 PR 运行——
 #   放行条件：比我早且已过闸的运行数 + 比我早且还在排队的运行数 < CAP。
-# 两个运行同时判定可能各自放行、短暂超出 1 个，可以接受。等满 $MAX_WAIT_MIN 分钟一律放行（防卡死）。
+# 两个运行同时判定可能各自放行、短暂超出 1 个，可以接受。等满 $MAX_WAIT_MIN 分钟一律放行（防卡死）——
+# 这个阀要远大于一次 PR 运行在拥挤时的时长（实测 1 小时以上），否则排队的运行会被它批量放行，上限形同虚设。
 # 只用到比自己早的运行，API 调用数随排队位置增长而不是随 PR 总数增长。
 #
-# 环境：GH_TOKEN、GITHUB_REPOSITORY、GITHUB_RUN_ID、GITHUB_RUN_NUMBER；CAP（默认 3）、MAX_WAIT_MIN（默认 90）、
+# 环境：GH_TOKEN、GITHUB_REPOSITORY、GITHUB_RUN_ID、GITHUB_RUN_NUMBER；CAP（默认 2）、MAX_WAIT_MIN（默认 240）、
 # POLL_S（默认 60）。
 set -euo pipefail
 
 repo="${GITHUB_REPOSITORY:-z42-lang/z42}"
-cap="${CAP:-3}"
-max_wait_min="${MAX_WAIT_MIN:-90}"
+cap="${CAP:-2}"
+max_wait_min="${MAX_WAIT_MIN:-240}"
 poll_s="${POLL_S:-60}"
 me="${GITHUB_RUN_NUMBER:?}"
 start=$(date +%s)
