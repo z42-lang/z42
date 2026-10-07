@@ -42,7 +42,7 @@ pub(super) struct TxCtx<'a, 'b> {
     /// FieldGet/Set P5-B: loop-invariant primitive field (bytes_ptr, offset).
     pub(super) hoisted_fields: &'a std::collections::HashMap<(u32, String), (Value, Value)>,
     /// FieldGet T1-B: loop-invariant reference field (bytes_ptr, offset, tag).
-    pub(super) hoisted_ref_fields: &'a std::collections::HashMap<(u32, String), (Value, Value, Value)>,
+    pub(super) hoisted_ref_fields: &'a std::collections::HashMap<(u32, String), (Value, Value)>,
     // ── imported helper FuncRefs (per-function; named identically to the
     //    `let hr_x = imp!(..)` locals so mod.rs constructs via field shorthand) ──
     pub(super) hr_const_i32: FuncRef,

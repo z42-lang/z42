@@ -230,8 +230,8 @@ arena 索引在子帧里无意义。**per-thread（per-`VmContext`）arena** 任
 - **GC**：`Value` 的 `trace_children` 视栈句柄为叶；外部根扫描器在 safepoint 扫 `ctx.stack_arena` 每个栈
   对象的字段 / 栈数组的 elems 作根（它们可能持堆 GcRef，必须保活）。arena 锁从不跨 GC 触发持有 → 不死锁。
   > ⚠️ **「栈对象的字段」是两半，缺一即悬垂**：
-  > **直接的 object/array 字段**存在 `bytes` 里的 8B 内联指针（不在引用侧表 `refs`）。堆一侧的 `Value::visit_gc_children` 同时读两半（`refs()` +
-  > `trace_inline_refs`），而 `StackArena::scan_roots` 若只读 `refs`——**一个不逃逸对象的数组字段
+  > **直接的引用字段**存在 `bytes` 里的 8 B 引用字（不在引用侧表 `refs`）。堆一侧与 `StackArena::scan_roots` 都经
+  > `ScriptObject::visit_refs` 同时读两半；若某处只读 `refs`——**一个不逃逸对象的数组字段
   > 就不被任何根覆盖**：minor 在其 owner 还活着时就把它扫了，槽位复用后旧句柄静默解析到新住户
   > （`GcRef::entry_ref` 的 generation/alive 守卫报 `use-after-finalize` panic；该守卫无条件生效，
   > debug 与 release 均 panic）。**新增任何「对象引用存放位置」的表示，必须同时更新堆遍历与每个

@@ -15,6 +15,11 @@ use super::super::types::FinalizerFn;
 /// inside a chunk, its `&self` reference remains valid until the
 /// owning chunk's Box is dropped (which happens only when the Region
 /// itself drops — never during normal sweep cycles).
+///
+/// At least 8-aligned on every target: an object's 8 B reference cell keeps a kind in the
+/// low 3 bits of the entry address (`metadata::types::ref_word`). 64-bit targets get this
+/// from the pointer-sized fields; 32-bit targets need the attribute.
+#[cfg_attr(not(target_pointer_width = "64"), repr(align(8)))]
 pub struct RegionEntry<T> {
     /// User value. `Mutex` provides per-entry locking (preserves the
     /// multi-threading concurrency model). Access via

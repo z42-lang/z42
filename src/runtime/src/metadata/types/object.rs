@@ -72,20 +72,15 @@ impl Default for NativeData {
 pub struct ScriptObject {
     /// Type descriptor shared across all instances of this class.
     pub type_desc: Arc<TypeDesc>,
-    /// shrink-object-footprint P2: the object's field payload — the **byte-packed**
-    /// primitive leaves and the **reference leaves**, in ONE allocation
-    /// (see [`ObjStorage`]).
+    /// The object's field payload — primitive leaves, 8 B reference words and the 16 B
+    /// reference side table — in ONE allocation (see [`ObjStorage`]).
     ///
-    /// Every primitive leaf of every direct field (incl. inline-struct interior
-    /// primitive leaves) lives at its composed byte offset (`ObjectLayout::field_access`
-    /// / `field_offsets`) in `storage.bytes()`; every reference leaf lives in
-    /// `storage.refs()`, ordered by the composed reference bitmap
-    /// (`ObjectLayout::ref_offsets` / `FieldAccess::ref_slot`). GC scans the reference
-    /// side directly (`visitor(&Value)`); a write to one is a plain `Value`-slot store
-    /// routed through `write_barrier_field`.
-    ///
-    /// Was two separate boxed slices (`bytes: Box<[u8]>` + `refs: Box<[Value]>`) =
-    /// two mallocs and 32 bytes of fat pointer per object.
+    /// Every primitive leaf (incl. inline-struct interior primitive leaves) lives at its
+    /// composed byte offset in `storage.bytes()`, and so does every direct reference field,
+    /// as an 8 B self-describing reference word (`ref_word`, `ObjectLayout::ref_cells`).
+    /// Only type-parameter fields and inline-struct interior reference leaves are 16 B
+    /// `Value`s in `storage.refs()`, ordered by `ObjectLayout::ref_offsets`. Field access
+    /// goes through the methods in `object_fields.rs`.
     pub storage: ObjStorage,
     /// shrink-object-footprint P3: the two **cold** per-instance side-fields —
     /// native backing and generic type-arguments — behind one optional box.
@@ -174,16 +169,6 @@ impl ScriptObject {
     /// Reference leaves **without the SATB barrier** — see [`ObjStorage::refs_mut_raw`].
     #[inline] pub fn refs_mut_raw(&mut self) -> &mut [Value] { self.storage.refs_mut_raw() }
 
-    /// Store `v` into reference leaf `ri`, recording the overwritten value for the SATB barrier
-    /// (add-incremental-major-gc M2a). The mutator-side write for side-table reference leaves.
-    #[inline]
-    pub fn set_ref_slot(&mut self, ri: usize, v: &Value) {
-        if let Some(cell) = self.storage.refs_mut_raw().get_mut(ri) {
-            crate::gc::satb::record_overwrite(cell);
-            *cell = v.clone();
-        }
-    }
-
     /// unify Phase 2 R3（装箱统一）：若本对象是**整数基元装箱盒**（`type_desc` 是整数 wrapper、
     /// 标量 LE 字节存 `struct_bytes`，见 `corelib::convert::box_prim_to_heap`），读回其 i64 标量；
     /// 否则（多字段 struct 装箱 / 非整数 wrapper）返 `None`。按 wrapper 宽度 + 有无符号从
@@ -222,215 +207,6 @@ impl ScriptObject {
     /// [`TypeDesc::enum_member_name`], which lock-free callers use directly.
     pub fn boxed_enum_name(&self) -> Option<String> {
         self.type_desc.enum_member_name(self.boxed_prim_i64()?)
-    }
-
-    /// unify-object-byte-layout (PR-2): the resolved `FieldAccess` for a direct field
-    /// `slot` (see `TypeDesc::field_index`). Reads the type's composed object layout;
-    /// falls back to on-the-fly synthesis for a layout-less type (rare — synthetic /
-    /// Rust-constructed). `FieldAccess` is `Copy`, so no borrow of the layout escapes.
-    #[inline]
-    fn field_access_of(&self, slot: usize) -> Option<FieldAccess> {
-        if let Some(col) = self.type_desc.composed_object_layout_ref() {
-            return col.field_access.get(slot).copied();
-        }
-        if self.type_desc.fields.is_empty() { return None; }
-        synthesize_object_layout(&self.type_desc.fields).field_access.get(slot).copied()
-    }
-
-    /// unify-object-byte-layout (PR-2): read direct field `slot` as a `Value`.
-    /// Primitive → `decode_prim` off `bytes`; reference → the `refs` side-table cell.
-    /// `Null` for an out-of-range slot or a struct-typed root (accessed via
-    /// `StructFieldGetPrim`, never `FieldGet`). Replaces `self.slots[slot].clone()`.
-    #[inline]
-    pub fn field_value(&self, slot: usize) -> Value {
-        let fa = match self.field_access_of(slot) { Some(f) => f, None => return Value::Null };
-        if fa.ref_slot >= 0 {
-            return self.refs().get(fa.ref_slot as usize).cloned().unwrap_or(Value::Null);
-        }
-        // PR-3 chunk 2b: an inlined direct object/array reference (`ref_slot == -1` but a
-        // reference tag) — read the 8B tagged pointer straight from `bytes` (0 = `Null`).
-        if fa.tag == TAG_OBJECT || fa.tag == TAG_ARRAY {
-            return read_inline_ref(&self.bytes(), fa.offset as usize, fa.tag == TAG_ARRAY);
-        }
-        if fa.tag == TAG_UNKNOWN {
-            return Value::Null; // struct-typed root — not a FieldGet target
-        }
-        decode_prim(&self.bytes(), fa.offset as usize, fa.width as usize, fa.tag)
-            .unwrap_or(Value::Null)
-    }
-
-    /// post-layout JIT perf (P5-B): if `name` is a direct **inline primitive**
-    /// field — a scalar packed in `bytes`, NOT a `refs` side-table reference, a
-    /// byte-inlined object/array pointer, a struct-typed root, or a string — return
-    /// `(bytes base ptr, byte offset, width, tag)`. The JIT hoists this once per
-    /// never-reassigned object and emits a native width-aware byte load/store
-    /// (mirroring `decode_prim`/`encode_prim`) instead of calling `jit_field_get`/
-    /// `jit_field_set`. `None` (→ keep the helper) for anything else, so reference
-    /// writes still fire the GC `write_barrier_field` and struct/string/polymorphic
-    /// access keeps its full semantics. The returned pointer is valid for the frame:
-    /// non-moving GC + fixed `bytes` allocation + caller holds the object live.
-    #[inline]
-    pub fn inline_prim_field(&self, name: &str) -> Option<(*const u8, u32, u32, u8)> {
-        let slot = *self.type_desc.field_index.get(name)?;
-        let fa = self.field_access_of(slot)?;
-        if fa.ref_slot >= 0 { return None; } // reference in `refs` side-table
-        match fa.tag {
-            // byte-inlined obj/array ref, struct root, or string → not a scalar prim
-            TAG_OBJECT | TAG_ARRAY | TAG_UNKNOWN | TAG_STR => return None,
-            _ => {}
-        }
-        Some((self.bytes().as_ptr(), fa.offset, fa.width, fa.tag))
-    }
-
-    /// post-layout JIT perf (T1-B): if `name` is a direct **byte-inlined reference**
-    /// field — a class-instance (`STRUCT_LEAF_GCREF` → `TAG_OBJECT`) or array
-    /// (`STRUCT_LEAF_GCREF_ARRAY` → `TAG_ARRAY`) whose 8B tagged pointer lives in
-    /// `bytes` (`ref_slot == -1`) — return `(bytes base ptr, byte offset, is_array)`.
-    /// The JIT hoists this once per never-reassigned receiver and emits a native 8B
-    /// load of the tagged pointer + a `Value::Object`/`Value::Array` (or `Value::Null`
-    /// for the `0` sentinel) register store, byte-identical to `read_inline_ref`,
-    /// instead of calling `jit_field_get`. `None` (→ keep the helper) for a primitive,
-    /// a side-table reference (`ref_slot ≥ 0`: closure/func/**string** — the string
-    /// GcRef path stays on the helper), a struct-typed root (`TAG_UNKNOWN`), or an
-    /// out-of-range slot. Reads only (no write barrier); the returned pointer is valid
-    /// for the frame (non-moving GC + fixed `bytes` + caller holds the object live).
-    #[inline]
-    pub fn inline_ref_field(&self, name: &str) -> Option<(*const u8, u32, bool)> {
-        let slot = *self.type_desc.field_index.get(name)?;
-        let fa = self.field_access_of(slot)?;
-        if fa.ref_slot >= 0 { return None; } // side-table reference (closure/func/string)
-        match fa.tag {
-            TAG_OBJECT => Some((self.bytes().as_ptr(), fa.offset, false)),
-            TAG_ARRAY  => Some((self.bytes().as_ptr(), fa.offset, true)),
-            _ => None, // primitive / struct root / string
-        }
-    }
-
-    /// unify-object-byte-layout (PR-2): write direct field `slot` from `v`.
-    /// Primitive → `encode_prim` into `bytes`; reference → the `refs` side-table cell.
-    /// Returns `true` iff the target is a reference slot (so the caller fires a GC
-    /// `write_barrier_field` when `v.is_heap_ref()`). No-op (returns `false`) for an
-    /// out-of-range slot or struct-typed root. Replaces `self.slots[slot] = v`.
-    ///
-    /// **Infallible wrapper** over [`Self::try_set_field_value`]: a rejected primitive
-    /// encode is dropped. Use it ONLY where the value is constructed by the VM itself
-    /// and its type therefore cannot disagree with the slot (zero-init, GC test
-    /// harnesses, stamping a stack trace into an exception object). Any path that can
-    /// receive a value chosen by *user* code — reflection, the interpreter's `FieldSet`,
-    /// the JIT's field-store helper — must call `try_set_field_value` and propagate.
-    /// See `docs/spec/changes/fix-silent-prim-field-write/proposal.md`.
-    #[inline]
-    pub fn set_field_value(&mut self, slot: usize, v: &Value) -> bool {
-        self.try_set_field_value(slot, v).unwrap_or(false)
-    }
-
-    /// Same as [`Self::set_field_value`], but surfaces a rejected primitive encode
-    /// instead of dropping it.
-    ///
-    /// 🔴 **Why this exists** (fix-silent-prim-field-write, 2026-09-27): the primitive
-    /// arm used to be `let _ = encode_prim(…)`. `encode_prim` *does* reject `Value::Null`
-    /// into any primitive slot, but throwing the `Result` away made
-    /// `FieldInfo.SetValue(obj, null)` on an `int` field **silently do nothing and
-    /// report success** — measured, and reachable from ordinary z42 code. The same
-    /// swallow also hid `PropertyInfo.SetValue(obj, null)`, whose value arrives through
-    /// the setter's own (correctly emitted) `FieldSet` — so this was never a
-    /// "the compiler must have mis-emitted" case that a `debug_assert` could cover.
-    ///
-    /// The asymmetry was the tell: of the 7 `encode_prim` call sites in the tree, 6
-    /// propagate with `?` (`exec_struct.rs` ×5, `reflection/accessors.rs`) and only this
-    /// one dropped it. Two sibling reflection paths (boxed-struct field, object-inlined
-    /// struct leaf) already threw, so "throw" was the house rule already — this aligns
-    /// the odd one out.
-    ///
-    /// ⚠️ Writing `Null` into a **reference** field (`string` / object / array) stays
-    /// perfectly legal: those return above, before `encode_prim` is ever reached.
-    pub fn try_set_field_value(&mut self, slot: usize, v: &Value) -> anyhow::Result<bool> {
-        let fa = match self.field_access_of(slot) { Some(f) => f, None => return Ok(false) };
-        if fa.ref_slot >= 0 {
-            self.set_ref_slot(fa.ref_slot as usize, v);
-            return Ok(true);
-        }
-        // PR-3 chunk 2b: an inlined direct object/array reference — write the 8B tagged
-        // pointer into `bytes` (`Null`/non-heap → 0). Returns `true` so the caller still
-        // fires `write_barrier_field` (the target IS a reference slot, just byte-inlined).
-        if fa.tag == TAG_OBJECT || fa.tag == TAG_ARRAY {
-            // add-incremental-major-gc M2a: the SATB barrier sees the reference being replaced.
-            crate::gc::satb::record_overwrite(&read_inline_ref(&self.bytes(), fa.offset as usize, fa.tag == TAG_ARRAY));
-            write_inline_ref(&mut self.bytes_mut(), fa.offset as usize, v);
-            return Ok(true);
-        }
-        if fa.tag == TAG_UNKNOWN { return Ok(false); } // struct-typed root
-        // Reflection (FieldInfo/PropertyInfo SetValue) passes primitives **boxed**
-        // (`int` → a `Std.Int32` `BoxedStruct`); a boxed primitive's bytes ARE its raw
-        // scalar, so decode it with the field's tag/width to recover the plain `Value`
-        // that `encode_prim` needs. Non-boxed values (the common FieldSet path from z42
-        // code) pass through untouched.
-        let unboxed: Value;
-        let src: &Value = match v {
-            Value::BoxedStruct(gc) => {
-                let b = gc.borrow();
-                if b.bytes().len() >= fa.width as usize {
-                    unboxed = decode_prim(&b.bytes(), 0, fa.width as usize, fa.tag)
-                        .unwrap_or(Value::Null);
-                    &unboxed
-                } else {
-                    // Not a same-width primitive box — leave as-is (encode may reject).
-                    v
-                }
-            }
-            _ => v,
-        };
-        encode_prim(&mut self.bytes_mut(), fa.offset as usize, fa.width as usize, fa.tag, src)?;
-        Ok(false)
-    }
-
-    /// unify-object-byte-layout (PR-3 chunk 2b): visit the object's **byte-inlined**
-    /// direct object/array references — the ones pulled out of `refs` into `bytes`.
-    /// Reads each 8B tagged pointer at its `InlineRef::offset`, rebuilds the `Value`
-    /// (`Object`/`Array` by `is_array`), and hands live (non-`Null`) ones to the GC
-    /// visitor. Complements the `for r in &obj.refs` side-table scan; together they
-    /// cover every reference edge. No-op for types without a composed object layout
-    /// (value structs use `struct_layout`; synthesized layouts inline nothing).
-    #[inline]
-    pub fn trace_inline_refs(&self, visit: &mut dyn FnMut(&Value)) {
-        if let Some(col) = self.type_desc.composed_object_layout_ref() {
-            for ir in col.inline_refs.iter() {
-                let v = read_inline_ref(&self.bytes(), ir.offset as usize, ir.is_array);
-                if !matches!(v, Value::Null) {
-                    visit(&v);
-                }
-            }
-        }
-    }
-
-    /// unify-object-byte-layout (PR-3 chunk 2b): zero every byte-inlined object/array
-    /// reference window (→ the `0` `Null` sentinel). The `bytes` twin of nulling the
-    /// `refs` side-table: used when finalizing/tombstoning an object to break strong
-    /// reference edges (both the side-table `refs` and the inlined pointers must be
-    /// cleared, else a cycle stays anchored through `bytes`).
-    #[inline]
-    pub fn clear_inline_refs(&mut self) {
-        // `type_desc` and `storage` are **disjoint fields**, so the layout can stay borrowed
-        // across the write — reading the field directly is what tells the borrow checker so.
-        //
-        // This used to `collect()` the offsets into a `Vec<u32>` first, on the stated grounds
-        // of "releasing the layout borrow". It released nothing that needed releasing, and it
-        // cost a malloc/free **per dead object** on top of the `Arc` clone that
-        // `composed_object_layout()` hands back. The minor sweep calls this once per dead
-        // object — measured on `z42c.semantics`, 710 080 of them per build.
-        let Some(col) = self.type_desc.composed_object_layout_ref() else {
-            return;
-        };
-        if col.inline_refs.is_empty() {
-            return;
-        }
-        let bytes = self.storage.bytes_mut();
-        for ir in &col.inline_refs {
-            let off = ir.offset as usize;
-            if off + 8 <= bytes.len() {
-                bytes[off..off + 8].fill(0);
-            }
-        }
     }
 }
 
