@@ -72,15 +72,17 @@ impl Default for NativeData {
 pub struct ScriptObject {
     /// Type descriptor shared across all instances of this class.
     pub type_desc: Arc<TypeDesc>,
-    /// The object's field payload — primitive leaves, 8 B reference words and the 16 B
-    /// reference side table — in ONE allocation (see [`ObjStorage`]).
+    /// The object's field payload — primitive leaves, 8 B reference words, type-parameter
+    /// cells and the 16 B reference side table — in ONE allocation (see [`ObjStorage`]).
     ///
     /// Every primitive leaf (incl. inline-struct interior primitive leaves) lives at its
     /// composed byte offset in `storage.bytes()`, and so does every direct reference field,
     /// as an 8 B self-describing reference word (`ref_word`, `ObjectLayout::ref_cells`).
-    /// Only type-parameter fields and inline-struct interior reference leaves are 16 B
-    /// `Value`s in `storage.refs()`, ordered by `ObjectLayout::ref_offsets`. Field access
-    /// goes through the methods in `object_fields.rs`.
+    /// A type-parameter field's tag word sits at its own offset too, its payload word past
+    /// the compiler's layout (`tparam_cell`, `ObjectLayout::tparam_cells`). Only
+    /// inline-struct interior reference leaves (and the references of a synthesized layout)
+    /// are 16 B `Value`s in `storage.refs()`, ordered by `ObjectLayout::ref_offsets`. Field
+    /// access goes through the methods in `object_fields.rs`.
     pub storage: ObjStorage,
     /// shrink-object-footprint P3: the two **cold** per-instance side-fields —
     /// native backing and generic type-arguments — behind one optional box.

@@ -107,51 +107,68 @@ impl StructTypeLayout {
 /// `FieldSet`. Precomputed at load time (one array-index per access, no per-access
 /// string match). Parallel by index with `TypeDesc::fields` / `field_index` slot.
 ///
-/// - `offset` / `width` = the field's byte window in `ScriptObject::bytes`.
+/// - `offset` / `width` = the field's byte window in `ScriptObject::bytes` (for a
+///   type-parameter field: its tag word).
 /// - `tag` = the **exact** `ty::TAG_*` recovered from the field's declared
 ///   `type_tag` string (via `tag_from_name`) — `field_kinds` (coarse `StructLeafKind`)
 ///   can't drive `decode_prim`, so the precise tag comes from the type string, the
 ///   same source `default_value_for` uses. `TAG_UNKNOWN` for struct-typed roots
 ///   (never reached by `FieldGet`; accessed via `StructFieldGetPrim`).
-/// - `ref_slot` = index into the 16 B `ScriptObject::refs` side table for a field kept
-///   there (a type-parameter field `T F;`, or every reference of a synthesized layout),
-///   else `-1`.
-///
-/// Which kind of cell the field is follows from `tag` + `ref_slot` ([`FieldAccess::cell`]):
-/// a reference tag with no side-table slot is an 8 B self-describing reference word in
-/// `bytes` (`ref_word`).
-#[derive(Debug, Clone, Copy, Default)]
+/// - `cell` = which kind of cell holds the value ([`FieldCell`]).
+/// - `aux` = the cell's second coordinate: the payload word's byte offset for a
+///   [`FieldCell::TypeParam`] cell, the `refs` side-table index for a [`FieldCell::Value`]
+///   cell (synthesized layouts only), `0` otherwise.
+#[derive(Debug, Clone, Copy)]
 pub struct FieldAccess {
     pub offset: u32,
     pub width: u32,
     pub tag: u8,
-    pub ref_slot: i32,
+    pub cell: FieldCell,
+    pub aux: u32,
 }
 
 /// Where a direct field's value lives (see [`FieldAccess::cell`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
 pub enum FieldCell {
     /// Primitive at its natural width in `bytes` (relaxed atomic).
     Prim,
     /// 8 B self-describing reference word in `bytes` (release store / acquire load).
     Ref,
-    /// 16 B `Value` in the `refs` side table (type-parameter fields).
+    /// Type-parameter field (`T F;`, `T? F;`): a 16 B cell in `bytes` — the self-describing
+    /// tag word at `offset`, the primitive payload word at `aux` (`tparam_cell`).
+    TypeParam,
+    /// 16 B `Value` in the `refs` side table, slot `aux` (synthesized layouts only).
     Value,
     /// An inline value-struct root — not a `FieldGet` target (`StructFieldGetPrim`).
     Struct,
 }
 
 impl FieldAccess {
+    /// A primitive leaf of `width` bytes and exact tag `tag`.
+    pub const fn prim(offset: u32, width: u32, tag: u8) -> Self {
+        Self { offset, width, tag, cell: FieldCell::Prim, aux: 0 }
+    }
+    /// An 8 B reference word.
+    pub const fn ref_word(offset: u32, tag: u8) -> Self {
+        Self { offset, width: 8, tag, cell: FieldCell::Ref, aux: 0 }
+    }
+    /// A type-parameter cell: tag word at `offset`, payload word at `payload`.
+    pub const fn type_param(offset: u32, payload: u32) -> Self {
+        Self { offset, width: 8, tag: TAG_OBJECT, cell: FieldCell::TypeParam, aux: payload }
+    }
+    /// A 16 B side-table `Value` at `refs[slot]`.
+    pub const fn side(offset: u32, tag: u8, slot: u32) -> Self {
+        Self { offset, width: 8, tag, cell: FieldCell::Value, aux: slot }
+    }
+    /// An inline value-struct root.
+    pub const fn struct_root(offset: u32, width: u32) -> Self {
+        Self { offset, width, tag: TAG_UNKNOWN, cell: FieldCell::Struct, aux: 0 }
+    }
+
     #[inline(always)]
     pub fn cell(&self) -> FieldCell {
-        if self.ref_slot >= 0 {
-            return FieldCell::Value;
-        }
-        match self.tag {
-            TAG_OBJECT | TAG_ARRAY | TAG_STR => FieldCell::Ref,
-            TAG_UNKNOWN => FieldCell::Struct,
-            _ => FieldCell::Prim,
-        }
+        self.cell
     }
 }
 
@@ -205,9 +222,8 @@ pub struct ObjectLayout {
     pub field_sizes: Box<[u32]>,
     pub field_kinds: Box<[u8]>,
     /// **Side-table** reference bitmap: byte offsets of the reference leaves that live
-    /// as 16 B `Value`s in `ScriptObject::refs` — type-parameter fields (`T F;`, any
-    /// `Value` incl. raw primitives under erasure) and every inline-struct interior
-    /// reference leaf (struct blobs keep 16 B leaves until arrays move to 8 B cells, R3).
+    /// as 16 B `Value`s in `ScriptObject::refs` — every inline-struct interior reference
+    /// leaf (struct blobs keep 16 B leaves until arrays move to 8 B cells, R3).
     /// Synthesized layouts keep every reference here.
     pub ref_offsets: Box<[u32]>,
     pub ref_kinds: Box<[u8]>,
@@ -216,6 +232,11 @@ pub struct ObjectLayout {
     /// every `string` / class / array / interface / `object` / delegate field. GC reads
     /// each word and decodes it (`ScriptObject::visit_refs`). Empty for synthesized layouts.
     pub ref_cells: Box<[u32]>,
+    /// Byte offsets of the **tag words** of the type-parameter cells (`T F;`, `T? F;`; base
+    /// cells first, then own) — each the field's own 8 B slot of the compiler layout. Cell
+    /// `i`'s payload word sits past the compiler region, at
+    /// [`ObjectLayout::tparam_payload_offset`]`(i)`. See `tparam_cell`.
+    pub tparam_cells: Box<[u32]>,
     /// unify-object-byte-layout (PR-2, D12): resolved per-field access table (offset /
     /// width / exact tag / refs-slot), parallel by index with `TypeDesc::fields`.
     /// Filled at load time from the composed offsets + the merged fields' `type_tag`
@@ -277,6 +298,30 @@ pub fn is_prim_tag(tag: u8) -> bool {
 }
 
 impl ObjectLayout {
+    /// Byte offset of type-parameter cell `i`'s payload word: past the compiler's region
+    /// (`size`, 8-aligned), one 8 B word per cell. Outside `size`, so it never moves a
+    /// field the compiler laid out and a subclass's own region (which starts at
+    /// `align_up(base.size, 8)`) still lines up with the compiler's offsets.
+    #[inline]
+    pub fn tparam_payload_offset(&self, i: usize) -> u32 {
+        Self::payload_base(self.size) + 8 * i as u32
+    }
+
+    #[inline]
+    fn payload_base(size: usize) -> u32 {
+        ((size as u32) + 7) & !7
+    }
+
+    /// Length of an instance's byte region: the compiler's layout plus one payload word
+    /// per type-parameter cell.
+    #[inline]
+    pub fn bytes_len(&self) -> usize {
+        if self.tparam_cells.is_empty() {
+            return self.size;
+        }
+        Self::payload_base(self.size) as usize + 8 * self.tparam_cells.len()
+    }
+
     /// Map a reference-leaf byte offset to its index in the composed reference
     /// bitmap (and thus the object's `refs` side-table slot). Linear scan —
     /// reference leaves per object are few.
@@ -307,7 +352,8 @@ impl ObjectLayout {
 /// - a **direct** reference field → an 8 B reference word in `bytes` (`ref_cells`), unless
 ///   it is a type-parameter field: kind `GCREF_CLOSURE` and a declared type that names one
 ///   of `type_params` (`T`, `T?`). Those can hold any `Value` (a raw `I64` under erasure)
-///   and stay 16 B in the side table;
+///   and get a 16 B type-parameter cell (`tparam_cells`: tag word at the field's slot,
+///   payload word appended past `size`);
 /// - an inline-struct interior leaf → the side table.
 ///
 /// `merged_fields` = the class's full merged field list (`base.fields ++ own`, same order as
@@ -332,6 +378,7 @@ pub fn compose_object_layout(
     let mut ref_offsets   = Vec::new();
     let mut ref_kinds     = Vec::new();
     let mut ref_cells     = Vec::new();
+    let mut tparam_cells  = Vec::new();
     if let Some(b) = base {
         field_offsets.extend_from_slice(&b.field_offsets);
         field_sizes.extend_from_slice(&b.field_sizes);
@@ -339,28 +386,37 @@ pub fn compose_object_layout(
         ref_offsets.extend_from_slice(&b.ref_offsets);
         ref_kinds.extend_from_slice(&b.ref_kinds);
         ref_cells.extend_from_slice(&b.ref_cells);
+        tparam_cells.extend_from_slice(&b.tparam_cells);
     }
     for &off in own.field_offsets.iter() { field_offsets.push(off + base_shift); }
     field_sizes.extend_from_slice(&own.field_sizes);
     field_kinds.extend_from_slice(&own.field_kinds);
 
-    // The own direct field whose reference leaf sits at `off`, if it gets an 8 B cell.
-    let own_ref_cell_at = |off: u32| -> bool {
+    // The cell of the own direct reference field whose leaf sits at `off` (`None` = not a
+    // direct field: an inline-struct interior leaf).
+    let own_direct_cell = |off: u32| -> Option<FieldCell> {
         own.field_offsets.iter().zip(own.field_kinds.iter()).enumerate()
             .find(|(_, (&o, &k))| o == off && is_ref_leaf_kind(k))
-            .is_some_and(|(j, (_, &k))| {
+            .map(|(j, (_, &k))| {
                 let declared = merged_fields.get(base_fields + j).map(|f| &*f.type_tag);
-                !(k == STRUCT_LEAF_GCREF_CLOSURE && declared.is_some_and(|t| names_type_param(t, type_params)))
+                if k == STRUCT_LEAF_GCREF_CLOSURE && declared.is_some_and(|t| names_type_param(t, type_params)) {
+                    FieldCell::TypeParam
+                } else {
+                    FieldCell::Ref
+                }
             })
     };
     for (&off, &rk) in own.ref_offsets.iter().zip(own.ref_kinds.iter()) {
-        if own_ref_cell_at(off) {
-            ref_cells.push(off + base_shift);
-        } else {
-            ref_offsets.push(off + base_shift);
-            ref_kinds.push(rk);
+        match own_direct_cell(off) {
+            Some(FieldCell::TypeParam) => tparam_cells.push(off + base_shift),
+            Some(_) => ref_cells.push(off + base_shift),
+            None => {
+                ref_offsets.push(off + base_shift);
+                ref_kinds.push(rk);
+            }
         }
     }
+    let size = (base_shift + own.size) as usize;
 
     let field_access: Box<[FieldAccess]> = if merged_fields.is_empty() {
         Box::new([])
@@ -373,29 +429,42 @@ pub fn compose_object_layout(
             // the field's `type_tag` string (which may be an unresolved alias).
             let kind = field_kinds.get(i).copied().unwrap_or(STRUCT_LEAF_PRIM);
             let type_tag = merged_fields.get(i).map(|f| f.type_tag.as_ref());
-            // A reference field kept in the side table carries its slot; `-1` = 8 B cell.
-            // (The base part of `ref_offsets` already records the base's own decisions.)
-            let slot = ref_offsets.iter().position(|&o| o == off).map_or(-1, |ri| ri as i32);
-            let (tag, ref_slot) = match kind {
-                STRUCT_LEAF_STRUCT => (TAG_UNKNOWN, -1),
-                STRUCT_LEAF_ARCSTRING => (TAG_STR, slot),
-                STRUCT_LEAF_GCREF_ARRAY => (TAG_ARRAY, slot),
-                STRUCT_LEAF_GCREF | STRUCT_LEAF_GCREF_CLOSURE => (TAG_OBJECT, slot),
-                _ => (resolve_prim_tag(type_tag.unwrap_or(""), width), -1),
+            if kind == STRUCT_LEAF_STRUCT {
+                acc.push(FieldAccess::struct_root(off, width));
+                continue;
+            }
+            if !is_ref_leaf_kind(kind) {
+                acc.push(FieldAccess::prim(off, width, resolve_prim_tag(type_tag.unwrap_or(""), width)));
+                continue;
+            }
+            let tag = match kind {
+                STRUCT_LEAF_ARCSTRING => TAG_STR,
+                STRUCT_LEAF_GCREF_ARRAY => TAG_ARRAY,
+                _ => TAG_OBJECT,
             };
-            acc.push(FieldAccess { offset: off, width, tag, ref_slot });
+            // A reference field is a type-parameter cell, a side-table slot (a base composed
+            // by synthesis keeps its references there) or an 8 B reference word. The base
+            // part of `tparam_cells` / `ref_offsets` records the base's own decisions.
+            acc.push(if let Some(i) = tparam_cells.iter().position(|&o| o == off) {
+                FieldAccess::type_param(off, ObjectLayout::payload_base(size) + 8 * i as u32)
+            } else if let Some(ri) = ref_offsets.iter().position(|&o| o == off) {
+                FieldAccess::side(off, tag, ri as u32)
+            } else {
+                FieldAccess::ref_word(off, tag)
+            });
         }
         acc.into()
     };
 
     ObjectLayout {
-        size: (base_shift + own.size) as usize,
+        size,
         field_offsets: field_offsets.into(),
         field_sizes:   field_sizes.into(),
         field_kinds:   field_kinds.into(),
         ref_offsets:   ref_offsets.into(),
         ref_kinds:     ref_kinds.into(),
         ref_cells:     ref_cells.into(),
+        tparam_cells:  tparam_cells.into(),
         field_access,
     }
 }
@@ -456,18 +525,18 @@ pub fn synthesize_object_layout(fields: &[FieldSlot]) -> ObjectLayout {
         cursor = off + width;
         field_offsets.push(off);
         field_sizes.push(width);
-        let ref_slot = if is_ref {
-            let ri = ref_offsets.len() as i32;
+        let access = if is_ref {
+            let ri = ref_offsets.len() as u32;
             ref_offsets.push(off);
             // Distinguish arc-string vs gcref for GC precision (STRUCT_REF_*).
             ref_kinds.push(if tag == TAG_STR { STRUCT_REF_ARC_STRING } else { STRUCT_REF_GCREF });
             field_kinds.push(if tag == TAG_STR { 1u8 } else { 2u8 }); // StructLeafKind ArcString/GcRef
-            ri
+            FieldAccess::side(off, tag, ri)
         } else {
             field_kinds.push(0u8); // StructLeafKind.Prim
-            -1
+            FieldAccess::prim(off, width, tag)
         };
-        field_access.push(FieldAccess { offset: off, width, tag, ref_slot });
+        field_access.push(access);
     }
     let size = ((cursor + 7) & !7) as usize;
     ObjectLayout {
@@ -481,6 +550,7 @@ pub fn synthesize_object_layout(fields: &[FieldSlot]) -> ObjectLayout {
         // compiler's `field_kinds` a type-parameter field is indistinguishable from a
         // reference field, and only the side table holds any `Value`.
         ref_cells:     Box::new([]),
+        tparam_cells:  Box::new([]),
         field_access:  field_access.into(),
     }
 }

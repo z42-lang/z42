@@ -317,7 +317,8 @@ impl TypeDesc {
     ///   (add-boxed-struct-identity P4b: only boxes hit `alloc_object`; frame-arena
     ///   value structs never do.)
     /// - **Normal reference class**: the composed object layout (`base.composed ++ own`)
-    ///   — `size` bytes + `ref_count` reference slots.
+    ///   — `bytes_len()` bytes (the compiler's `size` plus one payload word per
+    ///   type-parameter cell) + `ref_count` reference slots.
     /// - **No layout** (synthetic / Rust-constructed / fallback): synthesize from
     ///   `fields`; `(0, 0)` for a field-less type.
     #[inline]
@@ -329,7 +330,7 @@ impl TypeDesc {
             };
         }
         if let Some(col) = self.composed_object_layout_ref() {
-            return (col.size, col.ref_count());
+            return (col.bytes_len(), col.ref_count());
         }
         if self.fields.is_empty() { return (0, 0); }
         let l = synthesize_object_layout(&self.fields);

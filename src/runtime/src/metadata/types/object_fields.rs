@@ -1,29 +1,33 @@
-//! 实例字段的单元读写与 GC 遍历（object model R1）。
+//! 实例字段的单元读写与 GC 遍历（object model R1 / R2）。
 //!
-//! 一个直接字段落在三种单元之一（[`FieldCell`]，由加载期的 `ObjectLayout::field_access` 决定）：
+//! 一个直接字段落在下列单元之一（[`FieldCell`]，由加载期的 `ObjectLayout::field_access` 决定）：
 //!
 //! | 单元 | 位置 | 读 / 写 |
 //! |---|---|---|
 //! | 基元 | `bytes` 的组合偏移，原宽度 | relaxed 原子 |
 //! | 引用字 | `bytes` 的组合偏移，8 B（`ref_word`） | acquire 读 / release 写；mark 期间 swap 取旧值给 SATB |
-//! | 侧表 | `refs[ref_slot]`，16 B `Value` | 只有型参字段（`T F;`）与内联 struct 的引用叶子 |
+//! | 型参 | 标签字在组合偏移、负载字追加在编译器布局之后，各 8 B（`tparam_cell`） | 标签字 acquire / release，负载字 relaxed |
+//! | 侧表 | `refs[aux]`，16 B `Value` | 只有合成布局（没有编译器对象块的类型）的引用字段 |
 //!
-//! `Value` 与单元之间的转换只在这里和 `ref_word` 里；两个引擎都经 `objops` 调到这些方法。
+//! 内联 struct 的引用叶子也在侧表（`objops::struct_leaf` 经 `set_ref_slot` 读写）。
+//! `Value` 与单元之间的转换只在这里、`ref_word` 与 `tparam_cell` 里；两个引擎都经 `objops` 调到这些方法。
 
 #![allow(unused_imports)]
 use super::*;
-use super::ref_word;
+use super::{ref_word, tparam_cell};
 use crate::gc::GcRef;
 
 /// What [`ScriptObject::try_set_field_value`] wrote — what the caller's write barrier needs.
 #[derive(Debug, Clone, Copy)]
 pub enum FieldWrite {
-    /// A primitive cell, an inline struct root or a missing slot: no barrier.
+    /// A primitive cell, a primitive or `null` into a type-parameter cell, an inline struct
+    /// root or a missing slot: no new heap edge, no barrier.
     NotRef,
     /// A reference cell now holds the value that was passed in.
     Ref,
-    /// A reference word now holds this one-element box of the value that was passed in
-    /// (a raw primitive reaching an `object` field through erased generics).
+    /// A reference word (or a type-parameter cell's tag word) now holds this one-element box
+    /// of the value that was passed in (a raw primitive reaching an `object` field through
+    /// erased generics; a value of another kind than a type-parameter cell already holds).
     Boxed(GcRef<ArrayObj>),
 }
 
@@ -73,7 +77,8 @@ impl ScriptObject {
             // SAFETY: the word was written by `try_set_field_value` (or is the zero-initialised
             // `null`); its referent is kept alive by this object, which the caller holds.
             FieldCell::Ref => unsafe { ref_word::decode(self.storage.load_ref_word(fa.offset as usize)) },
-            FieldCell::Value => self.refs().get(fa.ref_slot as usize).copied().unwrap_or(Value::Null),
+            FieldCell::TypeParam => tparam_cell::load(&self.storage, fa.offset, fa.aux),
+            FieldCell::Value => self.refs().get(fa.aux as usize).copied().unwrap_or(Value::Null),
             FieldCell::Prim => self.storage
                 .load_prim(fa.offset as usize, fa.width as usize, fa.tag)
                 .unwrap_or(Value::Null),
@@ -149,8 +154,9 @@ impl ScriptObject {
                 }
                 Ok(FieldWrite::NotRef)
             }
+            FieldCell::TypeParam => tparam_cell::store(&mut self.storage, fa.offset, fa.aux, v),
             FieldCell::Value => {
-                self.set_ref_slot(fa.ref_slot as usize, v);
+                self.set_ref_slot(fa.aux as usize, v);
                 Ok(FieldWrite::Ref)
             }
             FieldCell::Struct => Ok(FieldWrite::NotRef),
@@ -202,8 +208,9 @@ impl ScriptObject {
     }
 
     /// Visit every reference edge of this object: the 16 B side table, then each non-null
-    /// 8 B reference word (decoded for tracing — a boxed primitive yields its box). The one
-    /// traversal GC marking, root scanning of stack objects and the retention graph share.
+    /// 8 B reference word and each type-parameter cell's tag word holding a reference (decoded
+    /// for tracing — a boxed value yields its box). The one traversal GC marking, root
+    /// scanning of stack objects and the retention graph share.
     #[inline]
     pub fn visit_refs(&self, visit: &mut dyn FnMut(&Value)) {
         for r in self.refs() {
@@ -217,11 +224,15 @@ impl ScriptObject {
                     visit(&unsafe { ref_word::decode_for_trace(w) });
                 }
             }
+            for &off in col.tparam_cells.iter() {
+                tparam_cell::visit(&self.storage, off, visit);
+            }
         }
     }
 
-    /// Break every strong reference edge of a dead object — side table and reference words —
-    /// so no tombstoned entry keeps a handle into the region. GC-only: no barrier.
+    /// Break every strong reference edge of a dead object — side table, reference words and
+    /// type-parameter cells — so no tombstoned entry keeps a handle into the region. GC-only:
+    /// no barrier.
     pub fn clear_refs_for_sweep(&mut self) {
         for r in self.storage.refs_mut_raw().iter_mut() {
             *r = Value::Null;
@@ -231,6 +242,9 @@ impl ScriptObject {
         let Some(col) = self.type_desc.composed_object_layout_ref() else { return };
         for &off in col.ref_cells.iter() {
             self.storage.clear_ref_word(off as usize);
+        }
+        for &off in col.tparam_cells.iter() {
+            tparam_cell::clear(&mut self.storage, off);
         }
     }
 }

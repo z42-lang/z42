@@ -4,7 +4,7 @@
 
 字段、数组、静态字段、值 struct 叶子的读写语义只在这里实现一次；interp（`interp/exec_*`）与 JIT（`jit/helpers/*`）
 都是薄适配层：从寄存器取 `&Value`、调本模块、写回寄存器，再把 `OpError` 映射到各自的异常通道。
-对象与数组单元格的存储表示（字节布局、8 B 引用字、型参字段侧表、打包基元、写屏障）对引擎不可见；对象字段单元的读写本身在 `metadata/types/object_fields.rs`。
+对象与数组单元格的存储表示（字节布局、8 B 引用字、型参字段的 16 B 单元、打包基元、写屏障）对引擎不可见；对象字段单元的读写本身在 `metadata/types/object_fields.rs`。
 不管对象分配与构造器解析（`interp/obj_new_resolve.rs`）、虚调用解析（`interp/vcall_resolve.rs`）、类型判定（`interp/dispatch.rs::isa_td`）。
 
 ## 功能索引

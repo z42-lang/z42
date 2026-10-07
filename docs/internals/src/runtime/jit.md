@@ -375,7 +375,7 @@ flowchart TD
      字段的 `TAG_*` wire tag——两套 tag 别混。
 2. **入口块 hoist**（每个从不被重赋值的对象寄存器 + 固定字段名，如 `this.f`，一次）：调
    非抛异常的 `jit_obj_field_slot`，它经 `ScriptObject::inline_prim_field` 解析：字段是**纯内联标量**
-   （`ref_slot<0` 且 `tag∉{OBJECT,ARRAY,UNKNOWN,STR}`）且运行时 `(width,tag)` 与编译期期望一致
+   （`FieldAccess::cell() == Prim`）且运行时 `(width,tag)` 与编译期期望一致
    → 写回 `(bytes.as_ptr(), offset)`；否则写 `off=-1`。非移动 GC + `bytes` 定分配 + 对象被持活
    ⇒ 该指针整帧有效。
 3. **每访问 inline**：`brif off<0` → helper 兜底；否则 native——
@@ -435,7 +435,7 @@ interp==jit；且 **z42c 自举 5/5 gen1==gen2 逐字节**（z42c 海量字段�
 ### 边界（必留 helper，回落即等价改前）
 
 `off=-1` 回落 `jit_field_get`：**非 `Value::Object` receiver**（含 OSR 下的 `StackObject`）、
-侧表字段（型参字段 `T F;`）、struct 根、字段未找到/null-throw、`Str.Length`/`Array.Length`；种类 7 回落同一 helper。
+型参字段（`T F;` 的 16 B 型参单元：标签字可能是基元标记，按引用字查表会读成 `null`）、合成布局的侧表字段、struct 根、字段未找到/null-throw、`Str.Length`/`Array.Length`；种类 7 回落同一 helper。
 **无 FieldSet 对偶**——引用 store 要 GC write barrier（与装箱逃生口），故引用 SET 仍走 helper。原语 XOR 引用，故
 本 hoist 与原语字段的 `hoisted_fields` 永不重叠。
 

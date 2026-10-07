@@ -39,7 +39,8 @@ pub(crate) fn ref_cell_td(n: usize) -> Arc<TypeDesc> {
         ref_offsets: Box::new([]),
         ref_kinds: Box::new([]),
         ref_cells: offs.clone().into(),
-        field_access: offs.iter().map(|&o| FieldAccess { offset: o, width: 8, tag: TAG_OBJECT, ref_slot: -1 }).collect(),
+        tparam_cells: Box::new([]),
+        field_access: offs.iter().map(|&o| FieldAccess::ref_word(o, TAG_OBJECT)).collect(),
     });
     let fields: Vec<FieldSlot> = (0..n)
         .map(|i| FieldSlot { name: format!("f{i}").into(), type_tag: "object".into(), visibility: 0 })
