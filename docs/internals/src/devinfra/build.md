@@ -59,7 +59,7 @@ graph TD
 阶段三用 hard-link（零拷贝）把各成员 dist 汇聚成单目录。
 
 收尾是 **release guard**（`_releaseGuard`）：各库的 `<lib>/<profile>/dist/` 与扁平视图里不得出现测试 / 基准的
-合成包（`<lib>.test.<unit>.zpkg` / `<lib>.bench.<unit>.zpkg`）——它们只该在 `<lib>/<profile>/{tests,bench}/…`
+合成包（`<lib>.test.<unit>.zpkg` / `<lib>.bench.<unit>.zpkg`）——它们只该在 `<lib>/<profile>/{tests,benches}/…`
 下，生产目录里的东西会随 SDK 发给用户。某处 output_dir 漏改时这是唯一会响的地方，所以每次 `build stdlib` 都扫。
 
 ### warm 判据带代际校验（「在不在」不等于「能用」）
@@ -288,7 +288,7 @@ golden 语料被 4 条命令消费。遍历只有一次——`_walkGoldenCorpus(
 | `test app desktop` / `test list` | — | `_isExcludedDirName` |
 
 `src/tests/` 的每个类别都是可运行的语言 golden（[测试用例组织规范](test-layout.md)），runner 不需要按类别排除；
-多包 / 多目标夹具、字节基线、性能场景都在各自 owner 的 `tests/fixtures/` 或 `src/bench/`，不在这次遍历里。
+多包 / 多目标夹具、字节基线、性能场景都在各自 owner 的 `tests/fixtures/` 或 `src/benches/`，不在这次遍历里。
 库测试目录里带 `[Test]` / `[Benchmark]` 的没有 `Main`，归 `test stdlib` 跑，四路都跳过。
 
 > `test app desktop` / `test list` 的**发射顺序是 load-bearing 的**（分片切片与 `_sampleCorpus`

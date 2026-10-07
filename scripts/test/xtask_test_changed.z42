@@ -291,7 +291,7 @@ _MapResult _mapLibraryFile(string f) {
     // 库源码 / 清单一变，所有编译、执行 z42 代码的 stage 都可能受影响（编译器自身也链 stdlib）。
     if (f.Contains("/src/"))   { return _mapCmds(new string[]{ "xtask test stdlib " + lib, "xtask test e2e" }, _stagesAllZ42()); }
     if (f.Contains("/tests/")) { return _mapCmds(new string[]{ "xtask test stdlib " + lib }, new string[]{ "stdlib" }); }
-    if (f.Contains("/bench/")) { return _mapCmds(new string[]{ "xtask bench stdlib " + lib }, new string[]{ "bench" }); }
+    if (f.Contains("/benches/")) { return _mapCmds(new string[]{ "xtask bench stdlib " + lib }, new string[]{ "bench" }); }
     if (f.EndsWith(".toml"))   { return _mapCmds(new string[]{ "xtask test stdlib " + lib }, _stagesAllZ42()); }
     return _mapSkip();
 }
@@ -327,15 +327,15 @@ _MapResult _mapFile(string f) {
     if (f.StartsWith("src/compiler/z42c.pipeline/tests/fixtures/cross-zpkg/")) { return _mapCmds(new string[]{ "xtask test e2e --dir cross-zpkg" }, new string[]{ "cross-zpkg" }); }
     if (f.StartsWith("src/compiler/z42c.pipeline/tests/fixtures/multi-exe/"))  { return _mapCmds(new string[]{ "xtask test e2e --dir multi-exe" }, new string[]{ "multi-exe" }); }
     if (f.StartsWith("src/toolchain/builder/tests/fixtures/"))                 { return _mapCmds(new string[]{ "xtask test toolchain builder" }, new string[]{ "toolchain", "targets" }); }
-    // src/bench/ — whole-program timing scenarios, probe, schema, verdict fixtures.
+    // src/benches/ — whole-program timing scenarios, probe, schema, verdict fixtures.
     // Not `test e2e` (they're not goldens) and not _mapSkip: a scenario broken by an
     // edit (won't compile, Main moved) would otherwise stay invisible until bench-pr.yml
     // ran it (~1030s on a VM-touching PR). `bench --quick` (first 2 scenarios, runs=3,
     // warmup=1) answers "does it still compile and run" in under a minute. Whole
     // subtree: probe/ and the schema feed the same pipeline, and over-matching only
     // costs one quick run.
-    // gate 里没有 src/bench 的 stage（bench 场景归 bench-pr.yml）；e2e goldens 与 layout 恒跑。
-    if (f.StartsWith("src/bench/"))            { return _mapCmds(new string[]{ "xtask bench --quick" }, new string[0]); }
+    // gate 里没有 src/benches 的 stage（bench 场景归 bench-pr.yml）；e2e goldens 与 layout 恒跑。
+    if (f.StartsWith("src/benches/"))            { return _mapCmds(new string[]{ "xtask bench --quick" }, new string[0]); }
     if (f.StartsWith("src/tests/"))            { return _mapCmds(new string[]{ "xtask test e2e", "xtask check layout" }, new string[0]); }
 
     // z42c self-host compiler (src/compiler).

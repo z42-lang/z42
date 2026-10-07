@@ -105,7 +105,7 @@ int _buildStdlib() {
 
 // release guard：测试 / 基准的合成包（`<lib>.test.<unit>.zpkg` / `<lib>.bench.<unit>.zpkg`）绝不能进生产产物——
 // 各库的 `<lib>/<profile>/dist/` 与 SDK 真正取库的 flat 视图（`_libsDir`）；那里的东西会随 SDK 发给用户。
-// 测试 / 基准自己的输出在 `<lib>/<profile>/{tests,bench}/…` 下（其中按设计也有被测库的拷贝），不在判定面内。
+// 测试 / 基准自己的输出在 `<lib>/<profile>/{tests,benches}/…` 下（其中按设计也有被测库的拷贝），不在判定面内。
 // 漏改某处 output_dir 时这是唯一会响的地方，所以每次 build stdlib 都扫一遍（两层目录列举，毫秒级）。
 int _releaseGuard(string root) {
     int bad = 0;
