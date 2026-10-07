@@ -241,6 +241,24 @@ pub fn builtin_array_copy(ctx: &VmContext, args: &[Value]) -> Result<()> {
     Ok(())
 }
 
+/// `__array_sort_prims(array, count) -> bool` — stable-sort `array[0, count)` natively
+/// when every element there is one primitive kind (int-like / double / char / string),
+/// in exactly the order the elements' own `CompareTo` gives (see
+/// `ArrayObj::sort_prims_prefix`). `false` = declined, array untouched: the caller's
+/// script merge sort runs instead. Only reorders references already in the array, so
+/// no write barrier is owed (the card belongs to this same array).
+pub fn builtin_array_sort_prims(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
+    let n = match args.get(1) {
+        Some(Value::I64(n)) if *n >= 0 => *n as usize,
+        _ => bail!("__array_sort_prims: count must be a non-negative int"),
+    };
+    match args.first() {
+        Some(Value::Array(rc)) => Ok(Value::Bool(rc.borrow_mut().sort_prims_prefix(n))),
+        Some(Value::Null) => bail!("__array_sort_prims: null array reference"),
+        other => bail!("__array_sort_prims: expected an array, got {other:?}"),
+    }
+}
+
 /// **fix-missing-array-write-barriers (2026-09-10)**: fire the array write barrier over the
 /// range a bulk copy just wrote.
 ///

@@ -58,6 +58,12 @@ public sealed class Array {
     [Native("__array_copy")]
     public static extern void CopyRange(Array source, int sourceIndex, Array destination, int destinationIndex, int length);
 
+    // `Sort()` 的基元快路径：`array[0, count)` 全是同一种基元（int 系 / double / char / string）
+    // 时原生稳定排序并返回 true —— 次序与元素自身 `CompareTo` 逐位一致（基元是 sealed，
+    // 那次虚调用的目标是确定的）；否则原样不动返回 false，调用方照常跑脚本归并排序。
+    [Native("__array_sort_prims")]
+    internal static extern bool SortPrimitives(Array array, int count);
+
     // ── Static algorithms (library-review PR-D, 2026-08-31) ───────────────────
     // 兑现本类顶部注释里预告的「静态算法 Sort/IndexOf/...」。C# `System.Array.*`
     // 对标，纯脚本泛型（同 List<T> 的 CompareTo / Func 比较器模型）。
@@ -104,6 +110,7 @@ public sealed class Array {
     public static void Sort<T>(T[] array) where T : IComparable {   // check-bare-type-param-member-access：`CompareTo` 由约束提供（此前靠松绑，裸 T 上零诊断）
         int n = array.Length;
         if (n < 2) return;
+        if (Array.SortPrimitives(array, n)) return;
         T[] scratch = new T[n];
         Array._mergeSort<T>(array, scratch, 0, n);
     }

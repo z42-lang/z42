@@ -279,4 +279,8 @@ pub(crate) const PART2: &[(&str, Native)] = &[
     // 而非新 opcode ⇒ 零 zbc 格式 bump、JIT 白送（Builtin 按名/id 通用派发）。
     ("__class_type_arg",    Native::Val(reflection::builtin_class_type_arg)),
     ("__class_default",     Native::Val(reflection::builtin_class_default)),
+
+    // ── perf-collections-sort — appended to preserve existing BuiltinIds ──
+    // `List<T>.Sort()` / `Array.Sort<T>(T[])` 的基元快路径：元素全是同一种基元时原生稳定排序。
+    ("__array_sort_prims",  Native::Val(array::builtin_array_sort_prims)),
 ];

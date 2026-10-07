@@ -1,0 +1,28 @@
+// Test: 类级 `new T[n]`（T 为值类型）在 JIT 编译后的函数里仍按 T 的零值初始化。
+// 构造函数调用越过 JIT 阈值后由编译码执行（`jit_array_zero_class_tp` 读 reg 0 接收者的
+// type_args）；解释器与 JIT 两个后端对未写槽必须给同一个答案（零值 / null）。
+
+class Box<T> {
+    T[] buf;
+    public Box(int n) { this.buf = new T[n]; }
+    public T Get(int i) { return this.buf[i]; }
+    // 实例方法里扩容：同一路径，非构造函数。
+    public void Grow(int n) { this.buf = new T[n]; }
+}
+
+void Main() {
+    int k = 0;
+    while (k < 6) {
+        Box<int> b = new Box<int>(2);
+        Assert.Equal(0, b.Get(1));
+        b.Grow(3);
+        Assert.Equal(0, b.Get(2));
+        Box<double> d = new Box<double>(1);
+        Assert.Equal(0.0, d.Get(0));
+        Box<bool> f = new Box<bool>(1);
+        Assert.False(f.Get(0));
+        Box<string> s = new Box<string>(1);
+        Assert.True(s.Get(0) == null);
+        k = k + 1;
+    }
+}

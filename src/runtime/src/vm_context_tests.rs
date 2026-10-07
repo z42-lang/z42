@@ -233,3 +233,27 @@ fn vm_context_new_with_core_shares_static_fields() {
     ctx1.static_set("Shared", Value::I64(7));
     assert!(matches!(ctx2.static_get("Shared"), Value::I64(7)));
 }
+
+// ── intern_fn_name (MkClos name per site) ─────────────────────────────────────
+
+#[test]
+fn intern_fn_name_reuses_one_block_per_site() {
+    let ctx = VmContext::new();
+    let name = String::from("Demo.Main$lambda0");
+    let a = ctx.intern_fn_name(&name);
+    let b = ctx.intern_fn_name(&name);
+    assert_eq!(&*a, "Demo.Main$lambda0");
+    assert_eq!(a.as_ptr(), b.as_ptr(), "same site → same interned GC string");
+}
+
+#[test]
+fn intern_fn_name_never_returns_a_stale_name_for_a_reused_address() {
+    let ctx = VmContext::new();
+    let mut buf = String::from("Demo.A$lambda0");
+    let a = ctx.intern_fn_name(&buf);
+    // Same address + length, different bytes (what a freed-and-reused name buffer looks like).
+    buf.replace_range(5..6, "B");
+    let b = ctx.intern_fn_name(&buf);
+    assert_eq!(&*a, "Demo.A$lambda0");
+    assert_eq!(&*b, "Demo.B$lambda0");
+}
