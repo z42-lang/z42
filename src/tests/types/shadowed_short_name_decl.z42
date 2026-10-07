@@ -15,4 +15,22 @@ void Main() {
     Assert.True(o is Std.IDisposable);
     Assert.True(o is IDisposable);
     Assert.Equal(7, (o as IDisposable).Close());
+    CheckBase();
+}
+
+// 基类同理：写的是 `Std.Exception`，本包另有 `Exception` 时基类此前被绑成本包那个（`: base(m)` 报 E0426）。
+public class Exception { public int Local = 1; }
+
+public class MyErr : Std.Exception {
+    public MyErr(string m) : base(m) { }
+}
+
+void CheckBase() {
+    object e = new MyErr("x");
+    Assert.True(e is Std.Exception);
+    Assert.False(e is Exception);
+    bool caught = false;
+    try { throw new MyErr("boom"); }
+    catch (Std.Exception ex) { caught = ex.Message == "boom"; }
+    Assert.True(caught);
 }

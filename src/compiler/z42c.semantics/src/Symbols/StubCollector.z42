@@ -333,16 +333,14 @@ public sealed class StubCollector {
                         // 同包限定名（`Demo.ILocal`）一样中招 —— 这不是跨包问题，是拼写问题。
                         string ifaceKey = SymbolTable.InterfaceKeyOf(scoped, bnLookup);   // 按本 CU 作用域判（同发射端）
                         if (ifaceKey != "") { ifaces[ifc] = ifaceKey; ifc = ifc + 1; }
-                        // fix-generic-base-name（欠债表 bug B 真根因）：**基类**也必须存裸名。
-                        // `BaseName` 的每一个消费方都拿它当 `Classes` 的键用（IsSubclassOf /
-                        // InheritanceResolver / DeclBinder / EmitContext / AccessChecker /
-                        // ClassExtractor），而 `Classes` 的键是裸短名（或 `Name$N`）——存 `"Bag<T>"`
-                        // 就永远查不到，整条 base 链在泛型基类处**静默截断**：继承成员找不到、
-                        // IsSubclassOf 恒 false（⇒ `Bag<int> b = sub;` 报 E0402）。
-                        // 上面接口分支早已算出裸名，这里此前却用了带实参的 `bn`。
-                        // 遗留限制：同短名多 arity 的泛型基类（`Classes` 键带 `$N`）仍对不上——
-                        // 与接口侧（同样存裸名）一致，不在本次修复范围。
-                        else if (!hasBase) { hasBase = true; baseName = SymbolTable.ShortNameOf(bnLookup); baseRef = c.Bases[b]; }
+                        // fix-generic-base-name（欠债表 bug B 真根因）：**基类**名剥掉实参（存 `"Bag<T>"` 按名查不到，
+                        // 整条 base 链在泛型基类处静默截断）。
+                        // fqn-tables 5d：**保留写法里的限定**（`Std.Exception` 不剥成 `Exception`）。`BaseName` 的消费方都
+                        // 按作用域解析它（`GetClass`：外围 ns → FQN → using → prelude），FQN 在哪个作用域都精确命中；剥成
+                        // 短名后，本包另有同短名类时会解析到本包那个（实测 `class MyErr : Std.Exception` 遇本包 `Exception`
+                        // ⇒ 基类绑成本包类、`: base(m)` 报 E0426）。
+                        // 遗留限制：同短名多 arity 的泛型基类（键带 `$N`）仍对不上。
+                        else if (!hasBase) { hasBase = true; baseName = bnLookup; baseRef = c.Bases[b]; }
                         b = b + 1;
                     }
                     bool needsMangle = c.TypeParams.Count > 0 && multiArityMap.ContainsKey(c.Name);
