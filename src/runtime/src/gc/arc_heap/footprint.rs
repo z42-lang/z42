@@ -18,6 +18,30 @@ pub(super) fn array_payload(a: &ArrayObj) -> u64 {
     crate::gc::footprint::malloc_size(2 * std::mem::size_of::<usize>() + a.element_type.len())
 }
 
+/// Floor under the empty-chunk memory the pools keep committed (`pool_keep_bytes`).
+const POOL_KEEP_MIN: u64 = 64 * 1024 * 1024;
+
+// `mi_collect` is declared below rather than through the `mimalloc` crate (which exposes no
+// collect call); naming the crate is what links mimalloc's library into binaries that do not
+// install it as the global allocator (the library's own test binaries).
+#[cfg(feature = "mimalloc-alloc")]
+extern crate mimalloc as _;
+
+/// After a major: ask mimalloc (when it is the allocator) to return the memory it is caching —
+/// most of what a major frees is payload blocks (`ObjStorage`, extras) of dead objects whose
+/// slots were reused or decommitted, which mimalloc otherwise purges only lazily.
+fn release_allocator_cache() {
+    #[cfg(feature = "mimalloc-alloc")]
+    {
+        extern "C" {
+            fn mi_collect(force: bool);
+        }
+        let _t = crate::gc::phase_timer::PhaseTimer::start("mi_collect");
+        // SAFETY: `mi_collect` has no preconditions; it only works on mimalloc's own state.
+        unsafe { mi_collect(false) };
+    }
+}
+
 /// A soft cap in both units the policy needs: `footprint` is the cap as configured — judged
 /// against [`ArcMagrGC::occupied_bytes`]; `used` is the same cap restated in `used_bytes` units
 /// (scaled by the heap's current footprint-per-used-byte), which is what the allowance math is
@@ -74,8 +98,10 @@ impl crate::gc::arc_heap::ArcMagrGC {
     }
 
     /// The sweep tail every collection path shares: pool the fully-dead chunks of all three
-    /// regions, then re-measure their side tables (both `O(chunks)`).
-    pub(super) fn reclaim_dead_chunks_and_measure(&self) {
+    /// regions, re-measure their side tables (both `O(chunks)`), and decommit whatever the pools
+    /// hold beyond [`Self::pool_keep_bytes`]. After a major, also let the allocator hand back
+    /// what it has cached ([`release_allocator_cache`]).
+    pub(super) fn reclaim_dead_chunks_and_measure(&self, major: bool) {
         {
             let mut r = self.region_object.lock();
             r.reclaim_dead_chunks();
@@ -86,8 +112,48 @@ impl crate::gc::arc_heap::ArcMagrGC {
             r.reclaim_dead_chunks();
             r.refresh_side_tables();
         }
-        let mut r = self.region_var.lock();
-        r.reclaim_dead_var_chunks();
-        r.refresh_side_tables();
+        {
+            let mut r = self.region_var.lock();
+            r.reclaim_dead_var_chunks();
+            r.refresh_side_tables();
+        }
+        self.trim_chunk_pools();
+        if major {
+            release_allocator_cache();
+        }
+    }
+
+    /// How much empty-chunk memory the pools may keep committed: [`POOL_KEEP_MIN`] or a quarter
+    /// of the occupied footprint, whichever is larger — a pool that size is refilled within a
+    /// fraction of a nursery, so decommitting it would only buy page faults. Under a soft cap
+    /// it is also held to the headroom the cap leaves (the cap judges `occupied`; this keeps
+    /// the pool from carrying the real footprint past it).
+    fn pool_keep_bytes(&self) -> u64 {
+        let occupied = self.occupied_bytes();
+        let keep = POOL_KEEP_MIN.max(occupied / 4);
+        match self.soft_cap_bytes() {
+            Some(cap) => keep.min(cap.saturating_sub(occupied)),
+            None => keep,
+        }
+    }
+
+    /// Decommit pooled chunks beyond [`Self::pool_keep_bytes`] — the variable-length region
+    /// first (whole 64 KB chunks, the cheapest to recommit), then objects, then arrays.
+    fn trim_chunk_pools(&self) {
+        if !crate::gc::os_mem::CAN_DECOMMIT {
+            return;
+        }
+        let mut excess = self.footprint.pooled().saturating_sub(self.pool_keep_bytes());
+        if excess == 0 {
+            return;
+        }
+        let _t = crate::gc::phase_timer::PhaseTimer::start("chunk decommit");
+        excess = excess.saturating_sub(self.region_var.lock().decommit_pool(excess));
+        if excess > 0 {
+            excess = excess.saturating_sub(self.region_object.lock().decommit_pool(excess));
+        }
+        if excess > 0 {
+            self.region_array.lock().decommit_pool(excess);
+        }
     }
 }

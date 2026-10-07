@@ -15,8 +15,8 @@ use super::RegionEntry;
 /// re-absorbs the filled prefix at [`Region::retire_chunk`].
 ///
 /// # Safety / invariants
-/// - `slots` / `init_ptr` are raw pointers into `Region`-owned, `Box`-stable
-///   memory (chunk arrays + the chunk's `initialized` row, both fixed-size and
+/// - `slots` / `init_ptr` are raw pointers into `Region`-owned, never-moving
+///   memory (slab chunk arrays + the chunk's `initialized` row, both fixed-size and
 ///   never reallocated), valid for the region's lifetime.
 /// - The chunk is marked `borrowed` in the region while a claim is live, so
 ///   every region-lock iterate skips it → the owner thread is the **sole**
@@ -42,6 +42,11 @@ pub struct ChunkClaim<T> {
     /// Footprint change of the fills so far (new payloads minus the dead ones they replaced),
     /// handed to the region's `Footprint` at retire — the fill itself touches no shared state.
     pub(super) payload_delta: i64,
+    /// Generation a never-initialized slot starts at: `0` for a fresh chunk, above every
+    /// generation the chunk's slots ever reached for one that was decommitted (its slots were
+    /// dropped and un-initialized, so `fill` cannot read their tombstone generations — this
+    /// floor is the ABA guard instead; see `region/decommit.rs`).
+    pub(super) gen_floor: u32,
 }
 
 impl<T> ChunkClaim<T> {
@@ -81,8 +86,10 @@ impl<T> ChunkClaim<T> {
             unsafe { *slot.assume_init_mut() = ne };
             g
         } else {
-            slot.write(RegionEntry::new(value, (self.chunk_idx, ei)));
-            0
+            let ne = RegionEntry::new(value, (self.chunk_idx, ei));
+            ne.generation.store(self.gen_floor, Ordering::Release);
+            slot.write(ne);
+            self.gen_floor
         };
         self.next = ei + 1;
         // SAFETY: just wrote a valid entry into this slot.

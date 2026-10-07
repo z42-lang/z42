@@ -552,6 +552,7 @@ load，`HeapStats::committed_bytes` / `--stats` 的 `gc_committed_bytes` 就是�
 | 变长 chunk（bump 64K / dedicated 按分配器取整） | `push_chunk` | dedicated chunk `free_in_place` |
 | 槽外 payload（`ObjStorage` 字段块、extras、数组的元素类型名 `Arc<str>`，按分配器取整） | 槽被填（`Region::alloc` / TLAB `fill`） | **死对象的槽被复用时**（旧 entry 被 drop 那一刻） |
 | 变长侧表（`young_list`、free-slot 桶、`all_blocks`、size-class free list） | 每次 sweep 尾部重量（`refresh_side_tables`，O(chunks)） | 同左 |
+| 池中 chunk 被 decommit（[GC TLAB · 池中空 chunk 的 decommit](gc-tlab.md#池中空-chunk-的-decommit)） | 复用时重新记入 | decommit 时扣除（定长区连同 drop 掉的死 payload） |
 
 三个 region 共用同一个 `Arc<Footprint>`（建堆时 `attach_footprint` 挂上）。TLAB `fill` 不碰共享
 状态：payload 增减先攒在 `ChunkClaim::payload_delta`，`retire_chunk` 时一次记入，所以读数最多落后

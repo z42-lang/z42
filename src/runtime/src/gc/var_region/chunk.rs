@@ -406,7 +406,7 @@ impl VarRegion {
     pub fn borrow_chunk(&mut self) -> VarChunkClaim {
         let ci = match self.var_free_chunk_pool.pop() {
             Some(ci) => {
-                self.footprint.pool(CHUNK_BYTES as u64, false);
+                self.take_pooled(ci);
                 ci
             }
             None => self.push_chunk(CHUNK_BYTES),
@@ -664,5 +664,68 @@ impl VarRegion {
                 * std::mem::size_of::<usize>()) as u64;
         self.footprint.apply(now as i64 - self.side_accounted as i64);
         self.side_accounted = now;
+    }
+}
+
+/// Pooled-chunk decommit — the variable-length twin of `region/decommit.rs`. Simpler here: a
+/// pooled bump chunk holds no constructed values (every block is tombstoned and its drop glue has
+/// run), and it is re-bumped from offset 0 under a fresh `reuse_gen`, so its contents never
+/// matter again. A 64 KB chunk always contains at least three whole 16 KB pages wherever the
+/// allocator put it; only those are given back. Stale `VarGcRef`s may still read a header in it
+/// — a decommitted page reads as zeroes or its old bytes, a dead header either way.
+impl VarRegion {
+    /// The whole pages of chunk `ci` (`(addr, len)`), if any.
+    fn chunk_pages(&self, ci: usize) -> Option<(usize, usize)> {
+        let base = self.chunks[ci].base.as_ptr() as usize;
+        crate::gc::os_mem::inner_pages(base, base + self.chunks[ci].cap)
+    }
+
+    /// Decommit pooled chunks, oldest first, until about `budget` bytes have been given back.
+    /// Returns the bytes given back. Runs at the sweep tail (STW).
+    pub fn decommit_pool(&mut self, budget: u64) -> u64 {
+        if !crate::gc::os_mem::CAN_DECOMMIT {
+            return 0;
+        }
+        let mut freed = 0u64;
+        while freed < budget && self.pool_decommitted < self.var_free_chunk_pool.len() {
+            let ci = self.var_free_chunk_pool[self.pool_decommitted];
+            self.pool_decommitted += 1;
+            if let Some((addr, len)) = self.chunk_pages(ci) {
+                // SAFETY: whole pages inside a pooled chunk this region owns; nothing live in it.
+                unsafe { crate::gc::os_mem::decommit(addr, len) };
+                self.footprint.credit(len as u64);
+                self.footprint.pool(len as u64, false);
+                freed += len as u64;
+            }
+        }
+        freed
+    }
+
+    /// `borrow_chunk` just popped `ci` off the pool: account it as in use again, recommitting
+    /// it first if it was decommitted (it was iff the pool is now shorter than its decommitted
+    /// bottom).
+    fn take_pooled(&mut self, ci: usize) {
+        let mut pooled = CHUNK_BYTES as u64;
+        if self.pool_decommitted > self.var_free_chunk_pool.len() {
+            self.pool_decommitted -= 1;
+            if let Some((addr, len)) = self.chunk_pages(ci) {
+                // SAFETY: the same pages `decommit_pool` gave back.
+                unsafe { crate::gc::os_mem::recommit(addr, len) };
+                self.footprint.charge(len as u64);
+                pooled -= len as u64;
+            }
+        }
+        self.footprint.pool(pooled, false);
+    }
+
+    /// Before the chunks go back to the allocator: re-announce decommitted pages (macOS keeps
+    /// them out of the footprint until told), since the allocator will hand them out again.
+    pub(super) fn recommit_pool_for_drop(&mut self) {
+        for i in 0..self.pool_decommitted.min(self.var_free_chunk_pool.len()) {
+            if let Some((addr, len)) = self.chunk_pages(self.var_free_chunk_pool[i]) {
+                // SAFETY: pages `decommit_pool` gave back; the chunk is still allocated.
+                unsafe { crate::gc::os_mem::recommit(addr, len) };
+            }
+        }
     }
 }

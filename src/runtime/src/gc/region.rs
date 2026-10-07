@@ -2,8 +2,8 @@
 //!
 //! **add-custom-allocator P0 (2026-05-22)**: replaces the per-object
 //! `Arc<GcAllocation<T>>` storage. Each `Region<T>` owns
-//! `Vec<Box<[MaybeUninit<RegionEntry<T>>; CHUNK_SIZE]>>` — chunks are
-//! Box-owned and never relocate, so `RegionEntry` addresses remain
+//! fixed-size chunks of `MaybeUninit<RegionEntry<T>>` carved from page-aligned slabs
+//! (`region/slab.rs`) that never relocate, so `RegionEntry` addresses remain
 //! stable for `GcRef::as_ptr` (identity hashing) until the entry is
 //! tombstoned by sweep.
 //!
@@ -57,6 +57,10 @@ pub use claim::ChunkClaim;
 
 mod footprint;
 
+mod decommit;
+mod slab;
+pub(crate) use slab::{chunk_bytes, ChunkPtr, Slabs};
+
 pub(crate) mod generation;
 
 /// Opaque handle into a `Region<T>`. Encodes (chunk index, entry
@@ -74,10 +78,11 @@ pub struct RegionHandle {
 /// per-object GC metadata. See module-level docs for the allocation
 /// + sweep model.
 pub struct Region<T> {
-    /// Chunks of pre-reserved entries. Each chunk is a fixed-size
-    /// `Box<[MaybeUninit<RegionEntry<T>>; CHUNK_SIZE]>` so its
-    /// address is stable for the chunk's lifetime.
-    chunks: Vec<Box<[MaybeUninit<RegionEntry<T>>; CHUNK_SIZE]>>,
+    /// Chunks of pre-reserved entries, each a fixed-size slot array carved from `slabs`, so
+    /// its address is stable for the region's lifetime.
+    chunks: Vec<ChunkPtr<T>>,
+    /// The page-aligned slabs `chunks` are carved from (`region/slab.rs`).
+    slabs: Slabs<T>,
 
     /// **add-gc-tlab (2026-08-29)**: ambient (locked-path) bump cursor —
     /// `Some((chunk_idx, next_entry_idx))` of the chunk the ambient
@@ -216,6 +221,13 @@ pub struct Region<T> {
     footprint: std::sync::Arc<crate::gc::footprint::Footprint>,
     payload_of: fn(&T) -> u64,
     side_accounted: u64,
+    /// Pooled-chunk decommit (`region/decommit.rs`): per chunk, whether its pages are given
+    /// back and the generation its slots restart from; and how many chunks at the **front** of
+    /// `free_chunk_pool` are decommitted (`borrow_chunk` pops from the back, so committed
+    /// chunks are reused first).
+    decommitted: Vec<bool>,
+    gen_floor: Vec<u32>,
+    pool_decommitted: usize,
 
     _phantom: PhantomData<T>,
 }
@@ -224,6 +236,7 @@ impl<T> Default for Region<T> {
     fn default() -> Self {
         Self {
             chunks:      Vec::new(),
+            slabs:       Slabs::default(),
             ambient_cur: None,
             free_slots:  Vec::new(),
             free_chunks: Vec::new(),
@@ -244,6 +257,9 @@ impl<T> Default for Region<T> {
             footprint: Default::default(),
             payload_of: |_| 0,
             side_accounted: 0,
+            decommitted: Vec::new(),
+            gen_floor: Vec::new(),
+            pool_decommitted: 0,
             _phantom:    PhantomData,
         }
     }
@@ -356,12 +372,11 @@ impl<T> Region<T> {
     }
 
     fn grow_new_chunk(&mut self) -> u32 {
-        // SAFETY: MaybeUninit<RegionEntry<T>> is valid to leave uninit.
-        let chunk: Box<[MaybeUninit<RegionEntry<T>>; CHUNK_SIZE]> = Box::new(unsafe {
-            MaybeUninit::<[MaybeUninit<RegionEntry<T>>; CHUNK_SIZE]>::uninit().assume_init()
-        });
+        let chunk = self.slabs.carve();
         let ci = self.chunks.len() as u32;
         self.chunks.push(chunk);
+        self.decommitted.push(false);
+        self.gen_floor.push(0);
         self.free_slots.push(Vec::new());
         self.initialized.push(vec![false; CHUNK_SIZE]);
         self.init_per_chunk.push(0);
@@ -615,13 +630,13 @@ impl<T> Region<T> {
     /// false`, uninitialized slots). Marks the chunk `borrowed` so every
     /// region-lock iterate skips it until [`retire_chunk`]. The returned
     /// [`ChunkClaim`] carries a raw pointer to the chunk's slot array — stable
-    /// for the chunk's lifetime because chunks are `Box`-owned (never move when
-    /// `chunks` reallocs). Caller (owning thread) fills lock-free via
+    /// for the region's lifetime because chunks live in slabs (never moved or
+    /// unmapped while the region lives). Caller (owning thread) fills lock-free via
     /// [`ChunkClaim::fill`].
     pub fn borrow_chunk(&mut self) -> ChunkClaim<T> {
         let ci = match self.free_chunk_pool.pop() {
             Some(ci) => {
-                self.footprint.pool(Self::CHUNK_FOOTPRINT, false);
+                self.take_pooled(ci);
                 ci
             }
             None => self.grow_new_chunk(),
@@ -635,7 +650,7 @@ impl<T> Region<T> {
         let init_ptr = self.initialized[ci as usize].as_ptr();
         ChunkClaim {
             chunk_idx: ci, slots, init_ptr, next: 0, cap: CHUNK_SIZE as u16,
-            payload_of: self.payload_of, payload_delta: 0,
+            payload_of: self.payload_of, payload_delta: 0, gen_floor: self.gen_floor[ci as usize],
         }
     }
 

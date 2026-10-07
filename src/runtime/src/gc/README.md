@@ -12,6 +12,7 @@ observers / profiler / weak refs / finalizers / strict OOM / ...）。
 |------|------|
 | `heap.rs` | `trait MagrGC` —— GC 抽象接口（MMTk porting contract 形态，11 能力组） |
 | `mode.rs` | `GcMode`：`GenerationalMarkSweep`（默认）/ `StwMarkSweep` / `ConcurrentMarkSweep`，`Z42_GC_MODE` 选择 |
+| `os_mem.rs` | 页粒度内存：slab 的 `mmap`/`munmap`（非 unix 走分配器）、`decommit`/`recommit`（`madvise`），chunk 池 decommit 用。机制见 [book: GC TLAB · decommit](../../../../docs/internals/src/runtime/gc-tlab.md#池中空-chunk-的-decommit) |
 | `footprint.rs` | `Footprint`：堆的真实占用（committed / pooled / occupied），三个 region 共用一份、随变随记；`malloc_size` 分配器取整模型。机制见 [book: GC 调参 · 真实占用记账](../../../../docs/internals/src/runtime/gc-tuning.md#真实占用记账与软上限) |
 | `arc_heap.rs` | `ArcMagrGC` 协调器 —— struct/字段、句柄表、类型别名、`Default`/`Debug` + concern 子模块声明 |
 | `arc_heap/construct.rs` | `Default` 构造（`new()` 委托到它） |
@@ -28,7 +29,7 @@ observers / profiler / weak refs / finalizers / strict OOM / ...）。
 | `arc_heap/incremental.rs` | **增量 major**：切片状态机（Marking / Sweeping）、切片预算、pacer、`admit_resurrected`（弱读 / 堆遍历不交出待清扫的死对象）。机制见 [book: 增量 major](../../../../docs/internals/src/runtime/gc-incremental-major.md) |
 | `arc_heap/interface.rs` | `impl MagrGC for ArcMagrGC` —— 公共 trait 接口（薄委托层，重方法体下沉到上列 concern 模块）|
 | `arc_heap/debug.rs` | `#[cfg(test)]`/`#[cfg(debug_assertions)]` 辅助：test accessors + `debug_validate_invariants` |
-| `region.rs` + `region/` | 定长 `Region<T>` chunk 分配器（对象/数组）+ TLAB borrow/retire/reclaim；`claim.rs`（`ChunkClaim`：TLAB 的无锁填充）、`footprint.rs`（region 的占用记账：chunk 常量、挂接、侧表重量）、`entry.rs`（`RegionEntry`：值 + GC 元数据）、`generation.rs`（年轻代记账 / 晋升 / 卡表）、`invariants.rs`（debug 不变量） |
+| `region.rs` + `region/` | 定长 `Region<T>` chunk 分配器（对象/数组）+ TLAB borrow/retire/reclaim；`claim.rs`（`ChunkClaim`：TLAB 的无锁填充）、`footprint.rs`（region 的占用记账：chunk 常量、挂接、侧表重量）、`slab.rs`（chunk 从页对齐 slab 里切）、`decommit.rs`（池中空 chunk 交还物理页 + generation 下限）、`entry.rs`（`RegionEntry`：值 + GC 元数据）、`generation.rs`（年轻代记账 / 晋升 / 卡表）、`invariants.rs`（debug 不变量） |
 | `var_region.rs` + `var_region/` | 变长 `VarRegion` 字节 bump 分配器（字符串/闭包）：`block.rs`（`GcBlockHeader` 16 B 头 + payload）、`chunk.rs`（尺寸类 + `VarChunkClaim`）、`var_ref.rs`（`VarGcRef` 8 字节 tagged 句柄）、`generation.rs`（young list） |
 | `satb.rs` | **SATB 删除屏障**：进程级 `MARKING_HEAPS` 快路径 + 线程本地记录缓冲，`retire_thread_tlab` 时交给堆 |
 | `tlab.rs` | thread-local `Tlab{obj,arr,var}` + arm 门（仅 VmContext 线程走零锁 TLAB）。机制见 [book: GC TLAB](../../../../docs/internals/src/runtime/gc-tlab.md) |

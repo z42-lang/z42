@@ -531,7 +531,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
     fn close_incremental_cycle(&self, cycle: &mut Cycle) {
         {
             let _t = PhaseTimer::start("slice/chunk reclaim");
-            self.reclaim_dead_chunks_and_measure();
+            self.reclaim_dead_chunks_and_measure(true);
         }
         // Sweep has cleared no marks (the epoch whitens them next cycle), so a newborn of this
         // cycle simply leaves it carrying an epoch the next one has moved past.

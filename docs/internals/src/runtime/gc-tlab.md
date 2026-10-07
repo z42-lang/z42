@@ -302,8 +302,45 @@ double free）、`ChunkIndex` 不给它建地址区间、`partition_dead_chunks`
 把它 tombstone 了**（从任何根都不可达），且三个 region 的 sweep 都在 mutator 停住时跑。
 准确的代价表述：**一个标记 bug 在 oversized 块上的现场，从「一个 `Null`」变成「内存损坏」**。
 
-bump chunk 的回收仍只**还给池子**，不 `dealloc` 还给 OS。所以对小块而言 GC 压低的是 RSS 的
-**高水位**（靠复用少要新内存），不是「回收后把内存交回系统」；只有大对象堆这一路是真交回去。
+bump chunk 的回收只**还给池子**，不 `dealloc`。池子超过阈值的部分由下节的 decommit 把物理页
+交回 OS（地址仍映射着）；大对象堆这一路是真 `dealloc`。
+
+### 池中空 chunk 的 decommit
+
+池子是「马上还要用」的缓冲；程序过了高峰、堆缩下来以后，它就成了不再用的物理内存（实测
+`z42c` 自举构建后段三个池合计 330 MB）。每次 sweep 尾（`ArcMagrGC::trim_chunk_pools`，STW）：
+池里**已提交**的字节超过 `max(64 MB, occupied / 4)` 的部分被 decommit；设了软上限时阈值再压到
+`cap − occupied`，让池子不把真实占用带过上限（软上限本身不计池子，见
+[GC 调参 · 真实占用记账](gc-tuning.md#真实占用记账与软上限)）。先变长区（整块 64 KB），再对象、数组。
+
+| | 定长 `Region<T>`（`region/decommit.rs`） | 变长 `VarRegion`（`var_region/chunk.rs`） |
+|---|---|---|
+| decommit 前 | **drop 每个已构造的死 entry**（连带它的 payload），`initialized` 行清零，记 **generation 下限** | 什么都不用做：块全 tombstone，drop glue 已跑过，复用时从 offset 0 重新 bump、`reuse_gen` 已抬高 |
+| 交还哪些页 | 同一 slab 内**相邻已 decommit chunk 连成的 run** 里的整页 | chunk 内的整页（64 KB 无论落在哪，至少含 3 个 16 KB 页） |
+| 复用时 | `borrow_chunk` 弹到它 → `MADV_FREE_REUSE`（macOS）+ 记账；`fill` 把每槽 generation 起点设为下限 | 同左（无下限，`reuse_gen` 已是守卫） |
+
+池是栈（`borrow_chunk` 从顶弹），decommit 从**底**取（最老的），`pool_decommitted` 记底部有几块是
+decommit 过的 —— 弹到它们之前先用完已提交的，少吃缺页。
+
+**为什么定长区要 slab**（`region/slab.rs`）：对象 chunk 18 432 B、数组 26 624 B，都不是 16 KB 页的
+整数倍。逐块 `Box` 落在分配器给的任意地址上，大多数 chunk 里**一个完整页都没有**，decommit 什么也还
+不回去。改成从页对齐的 slab（32 个 chunk、整页大小，unix 上 `mmap`）里按下标顺序切，chunk `ci`
+的地址可算，相邻的空 chunk 连成 run 就能把 run 里的页全还掉；一个页只要还碰到在用的 chunk 就不动它。
+
+⚠️ **为什么要 drop 并记下限，而不是只 madvise**：池化 chunk 的槽是**构造好的死 entry**，`fill` 靠读
+它的 tombstone generation 做 ABA 守卫（上文 D7）。decommit 过的页再读可能是全零 —— 既不是可 drop
+的 `RegionEntry`，generation 也归零，指向前一个占用者的陈旧句柄（`gen16` 比较）就可能对上新对象。
+所以先把死 entry drop 掉（payload 顺带释放）、`initialized` 清零让所有读者跳过，再记下这个 chunk
+所有槽到过的最大 generation：陈旧句柄的 generation 必然**小于**它那个槽的当前值（tombstone 会 +1），
+于是小于下限；复用时每个槽从下限起步，新旧不会相等。下限只增不减，chunk 再次入池、再被填满也一直有效。
+
+弱引用安全靠「chunk 永不 unmap」：decommit 的页仍映射着，读到的是全零或旧字节，`alive` 都是 false。
+
+平台：macOS / iOS 用 `MADV_FREE_REUSABLE`（复用前 `MADV_FREE_REUSE`）—— 这一对才会立即把页移出
+进程的 footprint，普通 `MADV_FREE` 在 Darwin 上不会（mimalloc 的 purge 也是这么做的）；Linux / Android
+用 `MADV_FREE`，内核不支持时退到 `MADV_DONTNEED`；Windows / wasm 不 decommit（`os_mem::CAN_DECOMMIT`）。
+每次 major 之后还会调一次 `mi_collect(false)`（mimalloc 为全局分配器时，µs 级），让 mimalloc 把缓存
+的空闲页还掉 —— major 释放的大头是死对象的 payload 块。
 
 ## ⚠️ 变长块复用的 ABA：per-chunk `reuse_gen`
 

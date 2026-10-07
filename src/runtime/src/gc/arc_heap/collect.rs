@@ -201,7 +201,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         // free_list reuse). Runs under STW at the sweep tail, after tombstoning.
         {
             let _t = PhaseTimer::start("sweep/chunk reclaim");
-            self.reclaim_dead_chunks_and_measure();
+            self.reclaim_dead_chunks_and_measure(true);
         }
 
         #[cfg(debug_assertions)]

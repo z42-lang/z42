@@ -247,6 +247,9 @@ pub struct VarRegion {
     /// it — see `chunk::VarRegion::refresh_side_tables`.
     footprint: std::sync::Arc<crate::gc::footprint::Footprint>,
     side_accounted: u64,
+    /// How many chunks at the bottom of `var_free_chunk_pool` have their pages decommitted
+    /// (`chunk::VarRegion::decommit_pool`); `borrow_chunk` pops from the top.
+    pool_decommitted: usize,
 }
 
 // SAFETY: all state is reached only through a `Mutex<VarRegion>` (the heap wraps it exactly
@@ -281,6 +284,7 @@ impl Default for VarRegion {
             max_gen_per_chunk: Vec::new(),
             footprint: Default::default(),
             side_accounted: 0,
+            pool_decommitted: 0,
         }
     }
 }
@@ -341,6 +345,7 @@ impl VarRegion {
             max_gen_per_chunk: Vec::new(),
             footprint: Default::default(),
             side_accounted: 0,
+            pool_decommitted: 0,
         }
     }
 
@@ -770,6 +775,7 @@ impl Drop for VarRegion {
                 }
             }
         }
+        self.recommit_pool_for_drop();
         for chunk in &self.chunks {
             // fix-loh-never-freed: a tombstoned slot's memory is already back with the
             // allocator (`Chunk::free_in_place`) — freeing it again would be a double free.
