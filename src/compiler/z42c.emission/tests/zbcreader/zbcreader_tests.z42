@@ -4,7 +4,6 @@
 // writer 残留，走 cache meta 回填（design D5a），由集成级暴力对账器验收，不在本单测。
 namespace Z42cIrZbcReaderTests;
 
-using Z42.Semantics;
 using Z42.IR;
 using Z42.IR.BinaryFormat;
 using Z42.Emission;

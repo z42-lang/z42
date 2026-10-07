@@ -4,7 +4,6 @@
 // 这条路径与 class 收者路径（`MemberResolver.z42`）的关键差别：prim 类型本身是**无成员的轻量
 // 合成体**（`Z42ClassType.Builtin("string")`），成员要到 stdlib 包装类上按名查（"string"→"String"）。
 namespace Z42.Semantics;
-using Z42.IR;
 
 using Z42.Syntax;
 using Z42.Core;

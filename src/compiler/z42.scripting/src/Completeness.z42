@@ -14,7 +14,6 @@
 namespace Std.Scripting;
 
 using Z42.Syntax;
-using Z42.Core;
 
 public static class Completeness {
 

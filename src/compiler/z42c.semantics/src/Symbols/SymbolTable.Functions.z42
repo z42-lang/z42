@@ -8,7 +8,6 @@
 // 跨**包**的自由函数反而是好的（按源 ns 限定）——同包缺的正是这一套。现在两者走同一张 FQN 表、同一条解析规则，
 // 解析结果（ns）随 BoundCall / BoundFuncRef 带到发射端，发射端不再自己猜。
 namespace Z42.Semantics;
-using Z42.IR;
 
 // free-function-overloads：自由函数重载候选的增长列表（手卷，镜像 GenMethodList）。
 public sealed class MethodSymList {

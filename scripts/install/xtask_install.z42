@@ -23,7 +23,6 @@ namespace Z42Xtask;
 
 using Std.IO;
 using Std.Toml;
-using Std.Cli;
 
 // `setup [--os <platform>] [--force]`（default action，在 xtask_cli.z42 的 shim 里解析）。
 int _setupInstall(string platform, bool force) {

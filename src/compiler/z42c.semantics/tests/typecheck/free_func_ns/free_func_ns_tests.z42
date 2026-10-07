@@ -9,7 +9,6 @@
 // 每个阳性都做过退回对照（撤掉 BoundCall.FreeNs / 按 FQN 登记后必须变红）。
 namespace Z42cSemanticsFreeFuncNsTests;
 
-using Z42.Semantics;
 using Z42.IR;
 using Z42.Emission;
 

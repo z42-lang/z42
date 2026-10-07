@@ -26,7 +26,6 @@
 // 🔴 DRAFT 风险表那条「基元 wrapper 归一偏差 → `Dictionary<int,int>` 编不过 → 自举链断」正是在
 // 这一轮首次被真正触及（上一轮零误报只覆盖同包、不构成跨包证据）。
 namespace Z42.Semantics;
-using Z42.IR;
 
 using Z42.Syntax;
 using Z42.Core;

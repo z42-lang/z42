@@ -9,7 +9,6 @@
 // **本组用例是它唯一的门**。每条都做过退回对照（撤掉 `ClassNsAll` 累积后正例必须变 0）。
 namespace Z42cSemanticsBareNameAmbiguityTests;
 
-using Z42.Semantics;
 using Z42.Emission;
 
 // ⚠️ 辅助函数一律带 `amb` 前缀：同一测试单元（`typecheck` 工程 `include = ["**/*.z42"]`）里

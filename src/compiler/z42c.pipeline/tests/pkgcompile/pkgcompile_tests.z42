@@ -7,7 +7,6 @@ using Std.Reflection;   // Activator（PR4d VM 执行 golden：外部 generator 
 using Z42.Pipeline;
 using Z42.Semantics;
 using Z42.Package;
-using Z42.IR.BinaryFormat;
 using Z42.Emission;
 
 // 依赖目录 = `Z42_LIBS`（stdlib flat）+ 编译器目录（`CompilerDomain.Dirs()`，开发树里是 driver 的自包含 dist）。

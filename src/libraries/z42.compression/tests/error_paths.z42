@@ -5,7 +5,6 @@
 // surface as a catchable exception, and the library must still work afterwards.
 namespace Z42CompressionErrorPathTests;
 
-using Std.Text;
 using Std.Compression;
 using Std.Encoding;
 

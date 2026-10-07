@@ -5,7 +5,6 @@
 // 混在一起，delegate 先写者赢。全部用多 CU（单文件只有一个 ns，造不出这个形状）。
 namespace Z42cSemanticsEnumDelegateNsTests;
 
-using Z42.Semantics;
 using Z42.Emission;
 
 string[] ednDiags(string[] srcs) {

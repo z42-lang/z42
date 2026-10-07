@@ -6,7 +6,6 @@
 // 阴性对照：`A.T` / `A.M()`、Color Color（类名同时是当前类的静态字段）、枚举成员都照常。
 namespace Z42cSemanticsDerivedStaticAccessTests;
 
-using Z42.Semantics;
 using Z42.Emission;
 
 string[] dsDiags(string src) {

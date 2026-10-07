@@ -28,7 +28,6 @@
 // 调用方拿它做型参代换。只给 MethodSymbol 的话，父接口成员上的 `T` 换不掉 —— 返回位误报、
 // 形参位漏报，与 `_substIfaceArgs` 抬头记的那对症状同源，只是发生在继承链上。
 namespace Z42.Semantics;
-using Z42.IR;   // StrMap
 using Z42.Syntax;   // NamedType（父接口声明形态的实参判别）
 
 // 一次命中：方法符号 + 它**归属的接口**（沿继承链逐层代换实参后的形态）。

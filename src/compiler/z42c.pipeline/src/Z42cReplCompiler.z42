@@ -11,7 +11,6 @@ namespace Z42.Pipeline;
 using Std.Collections;
 using Z42.Syntax;           // CompilationUnit
 using Z42.IR;               // Exported* 世界枚举
-using Z42.IR.BinaryFormat;  // ZpkgWriterZ.WritePacked（packed zpkg 字节）
 using Z42.Package;          // ZpkgBuilder.SourceHashHex
 using Z42.Build;            // IReplCompiler / ReplCompileResult
 using Z42.Emission;

@@ -6,7 +6,6 @@
 // 「把 TSIG 里那一串名字变回类型」。
 namespace Z42.Semantics;
 
-using Z42.IR;
 
 public static partial class ImportedSymbolLoader {
     // add-argument-type-check R5/R7：委托类型名 → Z42FuncType；非委托名返回 null（调用方继续原流程）。

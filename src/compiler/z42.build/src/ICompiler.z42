@@ -1,5 +1,4 @@
 namespace Z42.Build;
-using Z42.Project;
 
 // 编译步骤的抽象接口 —— Compile 头相位经此调编译器库，**在进程内**，不 fork `z42c` 子进程。
 //

@@ -2,7 +2,6 @@
 // scripts/cli/xtask_cli_build.z42 头部。
 namespace Z42Xtask;
 
-using Std.IO;
 using Std.Cli;
 
 // 准备本机开发环境（实现在 scripts/install/）：

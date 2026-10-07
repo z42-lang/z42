@@ -1,7 +1,6 @@
 // complete-generic-instantiation S1：泛型体单调化的编译器侧门。
 namespace Z42cSemanticsGenericSpecializationTests;
 
-using Z42.Semantics;
 using Z42.Emission;
 
 // ── 单调化不得因递归泛型挂死 ──────────────────────────────────────────────

@@ -7,7 +7,6 @@
 // 拆分只为守 code-organization 的 886 行硬限。⚠️ 本文件抬头原先写着「z42 无 partial class → 抽独立类
 // 拆文件」——那句**已经过时**（`MemberResolver` 早就是 partial 的），照它去抽新类会白折腾。
 namespace Z42.Semantics;
-using Z42.IR;
 
 using Z42.Syntax;
 using Z42.Core;

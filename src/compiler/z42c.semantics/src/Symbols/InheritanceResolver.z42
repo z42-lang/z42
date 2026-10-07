@@ -1,7 +1,6 @@
 // 符号收集基链解析簇：从 SymbolCollector 分出。override regKey 对齐 + sealed 强制 + 继承字段合并
 // + impl-block 合并——均在成员填充后跑、依赖 base 链遍历。共享辅助 + 编排入口留 hub，经 _sc 委回。
 namespace Z42.Semantics;
-using Z42.IR;
 using Z42.Syntax;
 using Z42.Core;
 

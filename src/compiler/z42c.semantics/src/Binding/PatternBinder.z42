@@ -4,7 +4,6 @@
 // 持 TypeChecker 反向引用 _tc：_tc._expr._bindExpr（常量子表达式）、_tc._chkTypeRef（类型引用检查）、_tc._diags。
 namespace Z42.Semantics;
 
-using Z42.IR;
 using Z42.Syntax;
 using Z42.Core;
 
