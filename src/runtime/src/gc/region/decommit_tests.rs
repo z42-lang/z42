@@ -37,6 +37,7 @@ fn pooled_region() -> (Region<Arc<()>>, Arc<()>, Arc<Footprint>, Vec<RegionHandl
 /// Decommitting drops the dead entries (their payloads go), un-initializes the slots and moves
 /// the chunk out of the footprint; nothing is left for a later sweep or drop to touch.
 #[test]
+#[cfg_attr(not(any(target_os = "macos", target_os = "ios", target_os = "linux", target_os = "android")), ignore = "this target never decommits")]
 fn decommit_releases_the_dead_payloads_and_the_slot_memory() {
     let (mut r, token, fp, _) = pooled_region();
     assert_eq!(Arc::strong_count(&token), 1 + 3 * CHUNK_SIZE, "pooled dead entries still own their values");
@@ -55,6 +56,7 @@ fn decommit_releases_the_dead_payloads_and_the_slot_memory() {
 /// The ABA guard: a refilled decommitted chunk restarts its slots **above** every generation
 /// they reached, so a handle to a previous occupant can never match the new one.
 #[test]
+#[cfg_attr(not(any(target_os = "macos", target_os = "ios", target_os = "linux", target_os = "android")), ignore = "this target never decommits")]
 fn a_refilled_decommitted_chunk_starts_above_every_stale_generation() {
     let (mut r, token, fp, old) = pooled_region();
     // A weak reference to a previous occupant, taken while it was alive.
@@ -80,6 +82,7 @@ fn a_refilled_decommitted_chunk_starts_above_every_stale_generation() {
 /// Committed pooled chunks are reused before decommitted ones, and only the excess is given
 /// back.
 #[test]
+#[cfg_attr(not(any(target_os = "macos", target_os = "ios", target_os = "linux", target_os = "android")), ignore = "this target never decommits")]
 fn decommit_takes_the_oldest_pooled_chunks_and_reuse_takes_the_committed_ones() {
     let (mut r, token, _fp, _) = pooled_region();
     let pool: Vec<u32> = r.free_chunk_pool.clone();
@@ -126,6 +129,7 @@ use crate::gc::var_region::{class_for, BlockType, VarRegion};
 /// A decommitted var chunk gives its pages back, stale handles into it still resolve to
 /// nothing, and a TLAB refill takes it (recommitted) after the committed ones.
 #[test]
+#[cfg_attr(not(any(target_os = "macos", target_os = "ios", target_os = "linux", target_os = "android")), ignore = "this target never decommits")]
 fn var_pool_decommit_gives_back_pages_and_refills() {
     let fp = Arc::new(Footprint::default());
     let mut r = VarRegion::new();
