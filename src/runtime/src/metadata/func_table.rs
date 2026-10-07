@@ -11,17 +11,22 @@
 //! - Ids are never reused and slots never change, so a cached id stays valid
 //!   for the table's lifetime.
 //!
-//! Name lookup ([`FuncTable::id_of`]) is a cold path: the entry module's own
-//! `func_index` first, then `by_name` (lazy functions only — entry names are
-//! not copied into it, so boot adds no hashing). Duplicate lazy names are
-//! first-wins (no new id), matching `LazyLoader.function_table`. A lazy
+//! **The table is also the loader's function registry**: `by_name` (lazy
+//! functions only) is the one name → function map for lazily loaded code —
+//! `LazyLoader` keeps no map of its own and answers its probes from here
+//! ([`FuncTable::lazy_fn`]). Duplicate lazy names are first-wins (no new id).
+//! Entry names are not copied into `by_name`, so boot adds no hashing; a lazy
 //! function whose name is also an entry-module name still gets its own id
-//! (the loader's table holds it as a separate function); `id_of` answers
-//! with the entry one, the same precedence call resolution uses.
+//! (registered as a separate function), and [`FuncTable::id_of`] answers with
+//! the entry one — the same precedence call resolution uses.
 //!
-//! Current consumers: none — the table only registers. Call / VCall / JIT
-//! lookups still go through `Module.func_index` and the loader's
-//! `function_table`.
+//! Installing a lazy loader again (tests only) starts a fresh name space with
+//! [`FuncTable::reset_lazy_names`]: the new loader sees none of the old one's
+//! functions, as before the two maps were merged. The old slots stay (ids are
+//! never reused), so ids cached against them keep pointing at the old functions.
+//!
+//! Consumers: interp `Call` site tokens (`ResolvedTokens.method_tokens` hold
+//! `FnId`s, see `metadata::resolver`). VCall / JIT lookups still go by name.
 //!
 //! Memory ordering: a slot is published by [`SegVec`]'s Release store of its
 //! length; `Function.id` is set before that, inside the append. `FnSlot.func`
@@ -42,7 +47,6 @@ struct FnSlot {
     /// Never null. Points into `FuncTable.entry` (entry functions) or at `own`.
     func: AtomicPtr<Function>,
     /// Keeps a lazily loaded function alive; `None` for entry-module functions.
-    #[allow(dead_code)] // held for ownership only
     own: Option<Arc<Function>>,
 }
 
@@ -98,21 +102,44 @@ impl FuncTable {
         Some(unsafe { &*p })
     }
 
+    /// Is `module` this table's entry module (ids `0..entry_len` are its indices)?
+    #[inline]
+    pub fn is_entry(&self, module: &Module) -> bool {
+        self.entry.as_deref().is_some_and(|m| std::ptr::eq(m, module))
+    }
+
     /// Cold path: the id a call by `name` would resolve to (entry module first).
     pub fn id_of(&self, name: &str) -> Option<FnId> {
         if let Some(&i) = self.entry.as_ref().and_then(|m| m.func_index.get(name)) {
             return Some(FnId(i as u32));
         }
+        self.lazy_id(name)
+    }
+
+    /// The registered lazily loaded function named `name` (no entry lookup).
+    pub fn lazy_id(&self, name: &str) -> Option<FnId> {
         self.by_name.read().get(name).copied()
     }
 
-    /// Register a lazily loaded function and return its id. A name already
-    /// registered by an earlier lazy function keeps that id (first-wins; `f`
+    /// The registered lazily loaded function named `name`, as the owning `Arc`
+    /// (the loader's probes hand it out).
+    pub fn lazy_fn(&self, name: &str) -> Option<Arc<Function>> {
+        let id = self.lazy_id(name)?;
+        self.slots.get(id.0 as usize)?.own.clone()
+    }
+
+    /// Number of registered lazy names (the loader's registry size).
+    pub fn lazy_name_count(&self) -> usize {
+        self.by_name.read().len()
+    }
+
+    /// Register a lazily loaded function and return its id, or `None` when a
+    /// lazy function with the same name is already registered (first-wins: `f`
     /// stays unregistered). Sets `f.id` before the slot is published.
-    pub fn register_lazy(&self, f: &Arc<Function>) -> FnId {
+    pub fn register_lazy(&self, f: &Arc<Function>) -> Option<FnId> {
         let mut names = self.by_name.write();
-        if let Some(&id) = names.get(f.name.as_str()) {
-            return id;
+        if names.contains_key(f.name.as_str()) {
+            return None;
         }
         let pushed = self.slots.push_with(|i| {
             f.id.set(FnId(i as u32));
@@ -121,7 +148,13 @@ impl FuncTable {
         let Some(idx) = pushed else { panic!("FuncTable: FnId space exhausted") };
         let id = FnId(idx as u32);
         names.insert(f.name.as_str().into(), id);
-        id
+        Some(id)
+    }
+
+    /// A new lazy loader is being installed: forget the previous loader's names
+    /// (see the module doc). Slots and ids are untouched.
+    pub fn reset_lazy_names(&self) {
+        self.by_name.write().clear();
     }
 }
 

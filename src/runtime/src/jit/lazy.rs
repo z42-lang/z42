@@ -128,7 +128,8 @@ impl LazyCompiler {
         }
 
         let max_r = translate::max_reg(func);
-        translate::translate_function(&mut self.jit, &self.helper_ids, func, max_r, func_id, None)?;
+        let merged_len = unsafe { &*self.module }.functions.len();
+        translate::translate_function(&mut self.jit, &self.helper_ids, func, max_r, func_id, merged_len, None)?;
         // Finalize just this function's definition (relocations + mprotect).
         // Earlier finalized functions keep their code pages — cranelift-jit
         // allocates each function separately, so their pointers stay valid.
@@ -164,7 +165,8 @@ impl LazyCompiler {
         }
 
         let max_r = translate::max_reg(func);
-        translate::translate_function(&mut self.jit, &self.helper_ids, func, max_r, func_id, Some(k))?;
+        let merged_len = unsafe { &*self.module }.functions.len();
+        translate::translate_function(&mut self.jit, &self.helper_ids, func, max_r, func_id, merged_len, Some(k))?;
         self.jit.finalize_definitions()?;
 
         let ptr_raw = self.jit.get_finalized_function(func_id);
