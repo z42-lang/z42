@@ -167,13 +167,10 @@ pub fn exec_instr(
             // callee, so a downstream `throw` snapshot shows our call site.
             stamp_call_site(ctx, func, block_idx, instr_idx);
 
-            // Hot path: pre-resolved MethodId direct-indexes module.functions.
-            // Cross-zpkg cache (UNRESOLVED at load) backfills on first hit.
+            // Hot path: the site's `FnId` token (P1-2) names the callee directly —
+            // merged and lazily loaded alike; UNRESOLVED binds by name on first dispatch.
             let method_token = cached_token!(_site_idx, method_tokens);
-            // review.md C7: per-site cross-zpkg target cache (parallel to
-            // method_tokens). Borrowed on hit; backfilled on first cross-zpkg call.
-            let cross_cell = cached_token!(_site_idx, cross_module_targets);
-            if let Some(thrown) = exec_call::call(ctx, module, frame, *dst, fname, args, method_token, cross_cell, method_type_args)? {
+            if let Some(thrown) = exec_call::call(ctx, module, frame, *dst, fname, args, method_token, method_type_args)? {
                 return Ok(Some(thrown));
             }
             // add-gc-safepoint (2026-05-20): post-Call safepoint — long-running

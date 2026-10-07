@@ -98,12 +98,12 @@ impl LazyLoader {
             owned.note(&fn_.name);
             remap_const_str(&mut fn_, offset);
             let name = fn_.name.clone();
-            if let Some(prev) = self.function_table.get(&name) {
+            if let Some(prev) = self.registered_function(&name) {
                 // complete-generic-instantiation D4-fix：合成实例化产物的**第二次到达不是歧义**。
                 // 每个用到 `Std.ValueTuple2<Int32,String>` 的包都会各合成一份它的成员，两份是
                 // (定义, 类型实参) 的确定性函数。不区分的话，「库内部用了元组、主程序也用了」
                 // 就会被记成歧义，而歧义函数**一调用就抛**（`exec_call` 的 use-site 判定）。
-                if is_instantiation_artifact(&name) && same_function_shape(prev, &fn_) {
+                if is_instantiation_artifact(&name) && same_function_shape(&prev, &fn_) {
                     continue;
                 }
                 // runtime-ambiguous-use-site: 记下来，供**使用位**判定（见 note_ambiguous_function
@@ -117,7 +117,7 @@ impl LazyLoader {
                 );
                 continue;
             }
-            // cache-ctorless-objnew: the one funnel that grows `function_table`
+            // cache-ctorless-objnew: the one funnel that grows the function registry
             // (it bumps the shared registration counter every ObjNew site's
             // "this class has no ctor" cache is validated against).
             self.insert_function(name, Arc::new(fn_));

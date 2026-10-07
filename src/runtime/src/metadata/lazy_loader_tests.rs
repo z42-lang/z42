@@ -497,7 +497,7 @@ fn negative_cache_is_dropped_when_a_package_registers() {
          only valid while the append-only registries are unchanged",
     );
     // The stale entry may still sit in the set — `resolve_function` answered from
-    // `function_table` before ever probing it. Harmless by construction: the
+    // the function registry before ever probing it. Harmless by construction: the
     // positive table is checked first, and the next *miss* sees the moved
     // fingerprint and drops the whole set.
     assert!(loader.resolve_function("Still.Missing$0").is_none());

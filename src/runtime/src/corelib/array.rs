@@ -76,8 +76,9 @@ pub fn builtin_array_create(ctx: &VmContext, args: &[Value]) -> Result<Value> {
         .ok_or_else(|| anyhow::anyhow!("Array.CreateInstance: element type has no name"))?;
     let tag = elem_tag(&name);
     let default = default_value_for(tag);
-    let elems = vec![default; n];
-    Ok(ctx.heap().alloc_array_typed(tag, elems))
+    // perf-array-alloc-direct: default-fill straight into the GC block.
+    let heap = ctx.heap();
+    Ok(heap.alloc_array_obj(ArrayObj::typed_filled(heap, tag, n, default)))
 }
 
 /// `__array_get(arr: object, i: int) -> object` — read element `i` as an object.
@@ -260,6 +261,11 @@ fn barrier_copied_range(
 ) {
     let refs: Vec<(usize, Value)> = {
         let a = dst.borrow();
+        // perf-array-alloc-direct: a packed primitive array holds no references —
+        // skip the per-element `get_boxed` scan (List<int>/byte[] growth copies).
+        if a.prim_backing_kind().is_some() {
+            return;
+        }
         (0..n)
             .filter_map(|k| {
                 let v = a.get_boxed(di + k);
