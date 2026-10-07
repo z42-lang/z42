@@ -17,8 +17,8 @@ use super::{set_exception, vm_ctx_ref};
 
 /// `jit_vcall` after formalize-jit-method-token Phase 2.E (2026-05-08):
 /// the per-site `VCallIC` is threaded in (stable raw pointer baked into
-/// machine code by codegen). IC hit goes straight to
-/// `fn_entries_by_id[cached_fn_idx]`; miss runs the shared resolver, which
+/// machine code by codegen). IC hit goes straight to the
+/// cached method's JIT slot (tiered); miss runs the shared resolver, which
 /// writes the resolved (TypeId, vtable slot, MethodId) triple back to the IC.
 ///
 /// `ic_ptr` may be null when the resolver hasn't run (only happens in
@@ -86,9 +86,9 @@ pub unsafe extern "C" fn jit_vcall(
                 }
             },
         },
-        // Cross-zpkg / lazily-loaded: give the JIT a chance to register + compile a lazy
-        // slot for it (by name, tiered); otherwise interp the loaded function.
-        VCallTarget::Lazy(f) => match ctx_ref.resolve_fn_by_name_tiered(&f.name) {
+        // Lazily loaded: tiered by its `FnId` exactly like a module-local target;
+        // cold / untranslatable / no id → interp the loaded function.
+        VCallTarget::Lazy(f) => match ctx_ref.id_of_func(&f).and_then(|id| ctx_ref.resolve_fn_by_id_tiered(id)) {
             Some(entry) => invoke_entry(frame_ref, ctx, dst, entry, resolved.this, arg_regs),
             None => invoke_interp(frame_ref, ctx, dst, f.as_ref(), resolved.this, arg_regs),
         },

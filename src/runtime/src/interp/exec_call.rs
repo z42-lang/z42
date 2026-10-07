@@ -12,17 +12,18 @@ use std::sync::Arc;
 use super::ops::collect_args;
 use super::{ExecOutcome, Frame};
 
-/// runtime-jit-tiering Phase 1.5 (mixed-mode): if merged-module function `idx` has
-/// already-compiled native code, invoke it directly (mirroring `jit_call`) — set
-/// `frame.regs[dst]` from the result, or propagate a throw as `Ok(Some(val))`.
-/// Returns `None` when no JIT ctx is published (interp-only run) or the callee is
-/// cold / untranslatable (`resolve_fn_by_id_tiered` → None) → the caller then stays
-/// on the interpreter. This is what lets an interp frame (a JIT cold-tier callee /
-/// fallback) route a hot compiled callee back to native instead of interpreting the
-/// whole subtree.
+/// runtime-jit-tiering Phase 1.5 (mixed-mode): route the callee with JIT id `id`
+/// (its `FnId` — entry-module and lazily loaded functions alike) to native code,
+/// mirroring `jit_call`: the call is counted and the callee compiles at the tier
+/// threshold; a compiled callee runs natively — set `frame.regs[dst]` from the
+/// result, or propagate a throw as `Ok(Some(val))`. Returns `None` when no JIT ctx
+/// is published (interp-only run) or the callee is cold / untranslatable
+/// (`resolve_fn_by_id_tiered` → None) → the caller then stays on the interpreter.
+/// This is what lets an interp frame (a JIT cold-tier callee / fallback) route a hot
+/// compiled callee back to native instead of interpreting the whole subtree.
 #[cfg(feature = "jit")]
 fn try_native_static_call(
-    ctx: &VmContext, frame: &mut Frame, dst: u32, idx: usize, args: &[u32],
+    ctx: &VmContext, frame: &mut Frame, dst: u32, id: usize, args: &[u32],
 ) -> Option<Result<Option<Value>>> {
     let p = ctx.jit_ctx_ptr();
     if p == 0 { return None; }
@@ -43,7 +44,7 @@ fn try_native_static_call(
     // uses interior mutability (OnceLock/Mutex) and may compile-on-threshold — same
     // as `jit_call`.
     let (max_reg, ptr, callee_fn) = {
-        let entry = unsafe { (*jit_ctx).resolve_fn_by_id_tiered(idx) }?;
+        let entry = unsafe { (*jit_ctx).resolve_fn_by_id_tiered(id) }?;
         (entry.max_reg, entry.ptr, entry.func)
     };
     ctx.counters().jit_native_from_interp.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -68,7 +69,7 @@ pub(super) fn native_result_to_dst(
 #[cfg(not(feature = "jit"))]
 #[inline]
 fn try_native_static_call(
-    _ctx: &VmContext, _frame: &mut Frame, _dst: u32, _idx: usize, _args: &[u32],
+    _ctx: &VmContext, _frame: &mut Frame, _dst: u32, _id: usize, _args: &[u32],
 ) -> Option<Result<Option<Value>>> {
     None
 }
@@ -86,15 +87,28 @@ fn token_target<'m>(ctx: &'m VmContext, module: &'m Module, token: u32) -> Optio
     }
 }
 
+/// The callee's JIT id / `FnId` when the call path may cache it for `module`: a
+/// lazily loaded function only counts when `module` is the `FuncTable`'s entry
+/// module and the table holds exactly this function under the id (see
+/// `ResolvedTokens::method_tokens`).
+#[inline]
+pub(crate) fn lazy_call_id(ctx: &VmContext, module: &Module, f: &Function) -> Option<usize> {
+    let id = f.id.get()?;
+    let funcs = ctx.funcs();
+    (funcs.is_entry(module) && funcs.get(id).is_some_and(|g| std::ptr::eq(g, f))).then_some(id.0 as usize)
+}
+
 /// The cold half of [`call`]: bind `fname` by name — this module's `func_index` first,
 /// then the lazy loader (which may load the defining package) — check the signature,
-/// and store the binding into the site's token. `Err` carries the exception to throw.
+/// and store the binding into the site's token. Returns the callee and its JIT id
+/// (`None` only for a lazily loaded callee that has no id under `module`). `Err`
+/// carries the exception to throw. Shared with `jit_call`'s by-name tier.
 ///
 /// fix-call-arity-skew：首次绑定点。resolver 预填时已拒绝过签名对不上的站点，所以它们每次都会
 /// 走到这里 —— 判定在此抛，且**不写回**（写回就等于把错的绑定缓存下来）。判定先于 cctor 屏障
 /// （fix-crosspkg-static-call-cctor 的顺序）：签名对不上的调用本身非法，不应触发类型初始化。
 #[inline(never)]
-fn bind_callee<'a>(
+pub(crate) fn bind_callee<'a>(
     ctx: &'a VmContext, module: &'a Module, fname: &str, argc: usize,
     method_token: Option<&std::sync::atomic::AtomicU32>,
     holder: &'a mut Option<Arc<Function>>,
@@ -122,13 +136,11 @@ fn bind_callee<'a>(
     }
     // Cache the binding as the callee's `FnId` — only when tokens are `FnId`s for this
     // module, and only for the function the table actually holds under that id.
-    if let (Some(slot), Some(id)) = (method_token, lazy.id.get()) {
-        let funcs = ctx.funcs();
-        if funcs.is_entry(module) && funcs.get(id).is_some_and(|f| std::ptr::eq(f, Arc::as_ptr(&lazy))) {
-            slot.store(id.0, Ordering::Relaxed);
-        }
+    let id = lazy_call_id(ctx, module, &lazy);
+    if let (Some(slot), Some(id)) = (method_token, id) {
+        slot.store(id as u32, Ordering::Relaxed);
     }
-    Ok((&**holder.insert(lazy), None))
+    Ok((&**holder.insert(lazy), id))
 }
 
 pub(super) fn call(
@@ -161,13 +173,13 @@ pub(super) fn call(
 
     // Resolve the callee **before** the barriers below: the first call into a not-yet-loaded
     // package is what loads it, and loading is what registers its types' static constructors
-    // (`LazyLoader::insert_type`). `entry_idx` = the callee's index in `module.functions`
-    // when it has one (only those can route to JIT native code yet).
+    // (`LazyLoader::insert_type`). `callee_id` = the callee's JIT id (= the bound token),
+    // which routes it to native code when compiled.
     let token = method_token.map_or(crate::metadata::tokens::UNRESOLVED, |s| s.load(Ordering::Relaxed));
     let mut lazy_holder: Option<Arc<Function>> = None;
     let hit = if token != crate::metadata::tokens::UNRESOLVED { token_target(ctx, module, token) } else { None };
-    let (target, entry_idx): (&Function, Option<usize>) = match hit {
-        Some(f) => (f, ((token as usize) < module.functions.len()).then_some(token as usize)),
+    let (target, callee_id): (&Function, Option<usize>) = match hit {
+        Some(f) => (f, Some(token as usize)),
         None => match bind_callee(ctx, module, fname, args.len(), method_token, &mut lazy_holder) {
             Ok(bound) => bound,
             Err(exc) => return Ok(Some(exc)),
@@ -188,15 +200,16 @@ pub(super) fn call(
         return Ok(Some(crate::vm_context::cctor::make_type_init_exception(ctx, module, &msg)));
     }
 
-    // runtime-jit-tiering Phase 1.5 (mixed-mode): route an already-compiled callee
-    // to native code instead of interpreting the whole subtree. No-op when there is
-    // no published JIT ctx (interp-only run) or the callee is cold/untranslatable.
+    // runtime-jit-tiering Phase 1.5 (mixed-mode): count the callee toward its tier-up
+    // and route it to native code once compiled, instead of interpreting the whole
+    // subtree — lazily loaded callees exactly like entry-module ones. No-op when there
+    // is no published JIT ctx (interp-only run) or the callee is cold/untranslatable.
     // add-generic-methods: generic calls carry method_type_args that the native
     // JIT static-call fast path does not thread yet → stay on the interpreter so
     // the callee frame gets its type_args. (JIT generic support: jit_call path.)
     if method_type_args.is_empty() {
-        if let Some(idx) = entry_idx {
-            if let Some(res) = try_native_static_call(ctx, frame, dst, idx, args) {
+        if let Some(id) = callee_id {
+            if let Some(res) = try_native_static_call(ctx, frame, dst, id, args) {
                 return res;
             }
         }

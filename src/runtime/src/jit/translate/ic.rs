@@ -4,39 +4,32 @@
 
 use super::*;
 
-/// formalize-jit-method-token Phase 2.C helper: the merged-function id to bake
-/// into a `Call` site, or `UNRESOLVED` (= u32::MAX) — `jit_call` then binds by
-/// name (cross-zpkg lazy targets).
-///
-/// P1-2: `method_tokens` hold `FnId`s; below `merged_len` they equal the JIT's
-/// merged ids (`module.functions` indices), at or above it they are lazily loaded
-/// functions' `FnId`s, which would collide with the JIT's own synthetic lazy-slot
-/// ids (`merged_len + i`) — so those bake as `UNRESOLVED`.
-pub(super) fn method_id_at(func: &Function, block_idx: usize, instr_idx: usize, merged_len: usize) -> u32 {
-    func.resolved.get()
-        .and_then(|r| {
-            let site = *r.site_index.get(block_idx)?.get(instr_idx)?;
-            r.method_tokens.get(site as usize)
-        })
+/// The callee id to bake into a `Call` site: the site's `method_tokens` value at
+/// translate time — a JIT id (`FnId`, see `JitModuleCtx`) for entry-module and
+/// lazily loaded callees alike — or `UNRESOLVED` (= u32::MAX) when the site is
+/// not bound yet; `jit_call` then reads the token cell at run time
+/// ([`method_token_ptr_at`]) and binds by name on a miss.
+pub(super) fn method_id_at(func: &Function, block_idx: usize, instr_idx: usize) -> u32 {
+    method_token_at(func, block_idx, instr_idx)
         .map(|atom| atom.load(std::sync::atomic::Ordering::Relaxed))
-        .filter(|&id| (id as usize) < merged_len)
         .unwrap_or(crate::metadata::tokens::UNRESOLVED)
 }
 
-/// make-vm-loading-lazy helper: stable raw pointer to the per-Call-site
-/// `call_jit_ic` slot (an `AtomicU32` caching the resolved lazy/merged fn id)
-/// for the `Call` site at `(block_idx, instr_idx)`. Returns null when
-/// `Function.resolved` is unset (jit_call degrades to the by-name slow path).
-/// The IC lives inside `Function.resolved` (inside Module) → valid for the
-/// whole JitModule lifetime, like `vcall_ic_ptr_at`.
-pub(super) fn call_jit_ic_ptr_at(func: &Function, block_idx: usize, instr_idx: usize) -> *const std::sync::atomic::AtomicU32 {
-    func.resolved.get()
-        .and_then(|r| {
-            let site = *r.site_index.get(block_idx)?.get(instr_idx)?;
-            r.call_jit_ic.get(site as usize)
-        })
-        .map(|ic| ic as *const _)
+/// Stable raw pointer to the `Call` site's `method_tokens` cell — the per-site
+/// cache `jit_call` reads when the baked id is `UNRESOLVED`, and writes on first
+/// bind (the interpreter's `Call` shares it). Null when `Function.resolved` is
+/// unset (`jit_call` then binds by name every time). The cell lives inside
+/// `Function.resolved`, valid for the whole JitModule lifetime.
+pub(super) fn method_token_ptr_at(func: &Function, block_idx: usize, instr_idx: usize) -> *const std::sync::atomic::AtomicU32 {
+    method_token_at(func, block_idx, instr_idx)
+        .map(|c| c as *const _)
         .unwrap_or(std::ptr::null())
+}
+
+fn method_token_at(func: &Function, block_idx: usize, instr_idx: usize) -> Option<&std::sync::atomic::AtomicU32> {
+    let r = func.resolved.get()?;
+    let site = *r.site_index.get(block_idx)?.get(instr_idx)?;
+    r.method_tokens.get(site as usize)
 }
 
 /// formalize-jit-method-token Phase 2.E helper: stable raw pointer to

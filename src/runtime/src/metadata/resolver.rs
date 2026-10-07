@@ -46,21 +46,11 @@ pub struct ResolvedTokens {
     /// two readings agree whenever both exist. Filled here by name for every
     /// callee already registered (including calls inside a lazily loaded
     /// package into itself or into any package loaded so far); the rest are
-    /// bound on first dispatch (`interp::exec_call::call`).
+    /// bound on first dispatch (`interp::exec_call::bind_callee`, which both
+    /// backends use). The JIT shares the cells: the token is its slot id
+    /// (`JitModuleCtx`), baked into a compiled call site when already bound and
+    /// read from the cell at run time otherwise.
     pub method_tokens: Vec<AtomicU32>,
-    /// `Call` sites, JIT only (make-vm-loading-lazy): per-site inline cache of the
-    /// resolved **function id** for the JIT `resolve_fn_by_id` fast path. Parallel
-    /// to `method_tokens`. A merged-module target's id is baked as the `Call`'s
-    /// `method_id` constant at translate time, so this cell stays `UNRESOLVED` for
-    /// those; it caches only **lazily-loaded** targets (absent from `module.functions`
-    /// at translate time → baked `method_id = UNRESOLVED`). On first dispatch
-    /// `jit_call` resolves the name to a synthetic lazy-slot id, compiles the
-    /// function once, and stores the id here so subsequent calls skip the name hash
-    /// (the id the JIT `resolve_fn_by_id` consumes — a JIT-private id, not an
-    /// `FnId`; the JIT reads `method_tokens` only below its `merged_len`). `u32` (not the jit `FnEntry`) to avoid a
-    /// metadata→jit dependency cycle; the id maps to a per-run compiled entry in
-    /// `JitModuleCtx`'s lazy slot table.
-    pub call_jit_ic: Vec<AtomicU32>,
     /// `Builtin` sites: `BuiltinId` resolved at load (closed set —
     /// panic if a builtin name is unknown).
     pub builtin_tokens: Vec<u32>,
@@ -237,10 +227,6 @@ pub fn resolve_function_tokens(
             })
             .collect();
 
-        // make-vm-loading-lazy: per-Call-site JIT id cache (see field docs).
-        let call_jit_ic: Vec<AtomicU32> =
-            method_site_names.iter().map(|_| AtomicU32::new(UNRESOLVED)).collect();
-
         let builtin_tokens: Vec<u32> = builtin_site_names.iter()
             .map(|name| {
                 // Static `BUILTINS[]` first, then per-VM ext registry (a miss loads
@@ -305,7 +291,6 @@ pub fn resolve_function_tokens(
 
         let resolved = ResolvedTokens {
             method_tokens,
-            call_jit_ic,
             builtin_tokens,
             type_tokens,
             ctorless_marks,

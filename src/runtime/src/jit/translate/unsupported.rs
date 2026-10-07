@@ -14,8 +14,8 @@ use super::*;
 /// default and eager loading pulling the *whole* transitive dep closure into
 /// the module, the merged module routinely contains stdlib functions that use
 /// `out`/`ref` params (`LoadLocalAddr`) or native interop (`CallNative`). Those
-/// must degrade per-function to interp (jit_call misses `fn_entries` → the
-/// `cross_zpkg_via_interp` fallback runs the bytecode), not fail the program.
+/// must degrade per-function to interp (the slot is cached as Rejected and the
+/// calling helper runs the bytecode on the interpreter), not fail the program.
 pub(crate) fn jit_unsupported_reason(func: &Function) -> Option<&'static str> {
     for block in &func.blocks {
         for instr in &block.instructions {

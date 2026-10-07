@@ -170,8 +170,9 @@ fn tiering_cold_jit_call_callee_stays_interp() {
 
 #[test]
 fn tiering_rejected_marker_is_negative_cache() {
-    // The tri-state slot: a null-ptr FnEntry means Rejected (not JIT-translatable
-    // / compile-failed), cached so `jit_unsupported_reason` isn't re-run every call.
+    // The OSR entry cache's negative marker: a null-ptr FnEntry means "no OSR
+    // variant" (untranslatable / compile-failed), cached so it isn't re-attempted.
+    // (Per-function slots: see `lazy_load_tests::*_is_negative_cached`.)
     let r = crate::jit::frame::FnEntry::rejected();
     assert!(r.is_rejected(), "null-ptr FnEntry is the Rejected marker");
     assert!(r.ptr.is_null());

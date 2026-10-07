@@ -32,57 +32,73 @@
 ```
 JitModule
 ├── _lazy: Box<Mutex<LazyCompiler>>     // 拥有 cranelift JITModule，保活代码页
-│                └─ LazyCompiler { jit: JITModule, helper_ids, module: *const Module, profile }
+│                └─ LazyCompiler { jit: JITModule, helper_ids, profile }
 └── ctx: Box<JitModuleCtx>
-        ├── fn_entries_by_id: Vec<OnceLock<FnEntry>>   // 槽 i ↔ module.functions[i]
-        │                                              // == MethodId.0 == func_index[name]
+        ├── slots: SparseSegTable<JitSlot>             // 按 JIT id 索引
+        │        └─ JitSlot { entry: OnceLock<FnEntry>, count: AtomicU32, state: Untried | Rejected }
         ├── module: *const Module
         ├── lazy:   *const Mutex<LazyCompiler>         // 指向上面的 _lazy（Box 堆稳定）
-        └── vm_ctx: *mut VmContext
+        ├── vm_ctx: *mut VmContext
+        └── osr_entries: Mutex<HashMap<(id, K), FnEntry>>
 ```
 
-- **`fn_entries_by_id`** 在 `setup` 时**预分配到 `module.functions.len()` 并永不 resize** →
-  每个槽地址稳定，`OnceLock::get()` 交出的 `&FnEntry` 在整个 run 内有效、**热路径读取零锁**。
-- **无 by-name 表**：名字查表统一走 `module.func_index[name] → idx → 同一套 by-id 槽`。
-- **`Mutex<LazyCompiler>`** 只在**首次编译某函数**时加锁。
+- **JIT id = `FnId`**（`VmCore.funcs`，见 [vm-architecture.md](vm-architecture.md)「Call 站点 token：FnId」）：
+  入口模块的函数是 `0..n`（= `module.functions` 下标），惰性加载包的函数是之后的 id。interp `Call` 站点的
+  token 存的就是这个 id，所以 JIT 直接烘焙、直接缓存，不另起一套编号。`JitModuleCtx::fn_of(id)` 无锁取回
+  `&Function`（入口函数取模块，惰性函数取 FuncTable 槽，后者持有 `Arc` 保活）；`id_of_func(f)` 反查
+  （入口函数按地址，惰性函数按 `f.id`，均不哈希）。模块不是 FuncTable 的入口模块时（单测里的裸
+  `VmContext::new()`），只有模块下标算 JIT id，惰性函数没有 id、一律解释执行——与 interp 的 token 规则一致。
+- **`slots`** 是稀疏分段表：段在首次触达时 CAS 分配、永不移动，`get(id)` 无锁，`OnceLock::get()` 交出的
+  `&FnEntry` 在整个 run 内有效——**热路径读取零锁**。槽随 `JITModule` 存活（代码页的生命周期）；挪到 VmCore
+  是 P1-6 的事。
+- **by-name 只在冷路径**：`id_by_name(name)` = `func_index` → `funcs.lazy_id` → `try_lookup_function`（可能加载包）
+  → 同一套 by-id 槽。仍按名字进来的只有入口函数、`ToString`、闭包和构造器（后两者随 P1-2 的 PR 5 / 8 改存 id）。
+- **`Mutex<LazyCompiler>`** 只在**真正编译某函数**时加锁。
 
 ## 首次调用流程
 
 ```mermaid
 flowchart TD
-    A[jit_call / jit_vcall / ctor / closure / ToString<br/>统一调 resolve_fn_by_id/​by_name] --> B{slot.get&#40;&#41; 命中?}
+    A[jit_call / jit_vcall / ctor / closure / ToString / interp 路由<br/>resolve_fn_by_id&#40;id&#41;] --> B{slots.get&#40;id&#41;.entry 命中?}
     B -- 是（已编译） --> R[返回 &FnEntry，走 native]
-    B -- 否 --> C{module.functions&#91;idx&#93;<br/>jit_unsupported?}
-    C -- 是（interp-only 指令） --> I[返回 None → cross_zpkg_via_interp 解释执行]
+    B -- 否 --> S{state == Rejected?}
+    S -- 是 --> I[返回 None → 调用方解释执行]
+    S -- 否 --> T{tiered: ++count < 阈值?}
+    T -- 是（冷） --> I
+    T -- 否 --> C{fn_of&#40;id&#41;<br/>jit_unsupported?}
+    C -- 是（interp-only 指令） --> X[state = Rejected] --> I
     C -- 否 --> L[lock&#40;lazy&#41;]
-    L --> D{双重检查<br/>slot 仍空?}
-    D -- 他线程已编 --> U[unlock → slot.get&#40;&#41;]
-    D -- 仍空 --> E[compile_one&#58; declare+translate+finalize<br/>get_finalized_function → FnEntry]
-    E --> F[slot.set&#40;entry&#41; 发布<br/>计数器 += 1]
+    L --> D{双重检查<br/>entry 仍空?}
+    D -- 他线程已编 --> U[unlock → entry.get&#40;&#41;]
+    D -- 仍空 --> E[compile_fn&#58; declare+translate+finalize<br/>get_finalized_function → FnEntry]
+    E -- 失败 --> X
+    E --> F[entry.set&#40;e&#41; 发布<br/>计数器 += 1]
     F --> U
     U --> R
 ```
 
-伪代码（`JitModuleCtx::resolve_fn_by_id`，`frame.rs`）：
+伪代码（`JitModuleCtx::resolve_fn_by_id_thr`，`frame.rs`；`thr = 0` 即不分层、立刻编）：
 
 ```rust
-fn resolve_fn_by_id(&self, idx) -> Option<&FnEntry> {
-    let slot = self.fn_entries_by_id.get(idx)?;
-    if let Some(e) = slot.get() { return Some(e); }      // 热路径：零锁
-    let func = (&*self.module).functions.get(idx)?;
-    if jit_unsupported_reason(func).is_some() { return None; } // 退 interp
-    let mut guard = (&*self.lazy).lock();                 // 串行化编译
-    if slot.get().is_none() {                             // 双重检查
-        match guard.compile_one(idx) {
-            Ok(entry) => { slot.set(entry); counters.jit_methods_compiled += 1; }
-            Err(_)    => return None,                     // 编译失败 → interp
+fn resolve_fn_by_id_thr(&self, id, thr) -> Option<&FnEntry> {
+    if let Some(e) = self.slots.get(id)?.entry.get() { return Some(e); } // 热路径：零锁
+    let func = self.fn_of(id)?;                                // 无锁取函数
+    let slot = self.slots.get_or_init(id)?;
+    if slot.state == Rejected { return None; }                 // 负缓存
+    if thr > 0 && slot.count.fetch_add(1) + 1 < thr { return None; } // 冷 → interp
+    if jit_unsupported_reason(func).is_some() { slot.state = Rejected; return None; }
+    let mut guard = (&*self.lazy).lock();                      // 只有编译拿锁
+    if slot.entry.get().is_none() {                            // 双重检查
+        match guard.compile_fn(func) {
+            Ok(e)  => { slot.entry.set(e); counters.jit_methods_compiled += 1; }
+            Err(_) => { slot.state = Rejected; return None; }  // 编译确定性 → 不重试
         }
     }
-    slot.get()
+    slot.entry.get()
 }
 ```
 
-`resolve_fn_by_name(name)` = `func_index[name] → idx → resolve_fn_by_id(idx)`。
+`resolve_fn_by_name(name)` = `id_by_name(name) → resolve_fn_by_id(id)`。
 
 **入口函数**无调用者触发，故 `JitModule::run` 在执行前显式 `resolve_fn_by_name(entry)` 先编它。
 
@@ -100,8 +116,9 @@ fn resolve_fn_by_id(&self, idx) -> Option<&FnEntry> {
 
 - **编译**：`Mutex<LazyCompiler>` 串行化，`OnceLock` 双重检查 → 同一函数只 `define` 一次、
   无数据竞争。
-- **执行**：并发读 `OnceLock` 槽是安全发布。`LazyCompiler` 手动 `unsafe impl Send`（裸
-  `*const Module` 只读；非 `Sync` 的 `JITModule` 只在锁内触碰）。
+- **执行**：并发读 `OnceLock` 槽是安全发布；段指针 Acquire 读、CAS 发布（`SparseSegTable`）。
+  `LazyCompiler` 手动 `unsafe impl Send`（非 `Sync` 的 `JITModule` 只在锁内触碰）。
+- **负缓存**：`state` 用 Relaxed 读写；竞争中的读者偶尔没看到刚写下的 Rejected，只会把（确定性的）判定再做一遍。
 - 单测 `concurrent_first_call_compiles_exactly_once` 覆盖两线程竞争首调。
 
 ## 决策权衡
@@ -109,14 +126,15 @@ fn resolve_fn_by_id(&self, idx) -> Option<&FnEntry> {
 | 决策 | 选择 | 理由 |
 |------|------|------|
 | eager vs lazy | **彻底 lazy**，无 eager 全量循环 | 不留兼容路径；AOT 若需 eager，随 AOT 再引入策略分叉 |
-| 槽结构 | `Vec<OnceLock<FnEntry>>` 预分配不 resize | 热路径零锁 + 地址稳定（借用长期有效） |
-| by-name 表 | 无，经 `func_index` 路由回 by-id | 消除第二套内部可变结构 |
+| 槽结构 | `SparseSegTable<JitSlot>`，按 `FnId` 索引 | 入口函数与惰性函数一张表；热路径零锁 + 地址稳定（借用长期有效） |
+| id 空间 | 复用 FnId，不另编号 | interp token、JIT 烘焙常量、站点缓存三者同值；惰性函数也能烘焙 |
+| by-name 表 | 无，冷路径经 `id_by_name` 路由回 by-id | 消除第二套内部可变结构 |
 | 计数器 | `jit_methods_compiled` = **实际编译数** | 更真实；`JitModuleCompiled` 事件仍每模块一次（报模块规模 + setup 耗时） |
 
 ## 覆盖不变（与 interp 的关系）
 
 被调到的可翻译函数照常 JIT 原生执行；interp-only 指令的函数（`LoadLocalAddr` /
-`CallNative` 等，见 `jit_unsupported_reason`）仍走 `cross_zpkg_via_interp` 解释执行——
+`CallNative` 等，见 `jit_unsupported_reason`）槽位记为 Rejected，调用方解释执行——
 与「skip 后 interp」逐一对齐。golden 套件 `test e2e --mode jit` 全部输出与 interp
 参考逐字节一致，是「语义/覆盖不变」的最强回归保证。
 
@@ -132,11 +150,10 @@ fn resolve_fn_by_id(&self, idx) -> Option<&FnEntry> {
 未达阈值）留在解释器（省编译时间 + code 页，准则 2「只有热函数值得升级」）。
 
 **机制**（`jit/frame.rs`）：
-- **调用计数**：`JitModuleCtx.call_counts: Vec<AtomicU32>`（setup 预分配 `merged_len`，lock-free
-  `fetch_add`，零 per-call 堆分配）。
-- **三态槽**：`FnEntry.ptr==null` = **Rejected**（不可编/编译失败的负缓存）；`ptr≠null` = Compiled；
-  `OnceLock` 空 = Unknown。Rejected 一次判定后缓存 → **消除不可编函数每次调用重扫 `jit_unsupported_reason`**
-  （整函数指令走一遍）的浪费。两条 resolve 路径通用。
+- **调用计数**：`JitSlot.count`（lock-free `fetch_add`，零 per-call 堆分配），入口函数与惰性函数同一套。
+- **三态槽**：`entry` 已填 = Compiled；`state == Rejected` = 不可编 / 编译失败的负缓存；其余 = Untried。
+  Rejected 一次判定后缓存 → **不可编函数不再每次调用重扫 `jit_unsupported_reason`**（整函数指令走一遍），
+  编译失败的函数也不会每次调用重编。
 - **阈值**：`Z42_JIT_THRESHOLD`（默认 **2**，clamp≥1；N=1 = 首 call 即编）。第 N 次调用时编译，前 N-1 次解释。
   为什么默认是 2：阈值过高（如 1000）时 z42c 这类「每函数只调几次」的程序几乎全程解释；N=1 又会把每个进程里
   **只跑一次**的函数也全编了——短命 z42c 进程（每个 golden / stdlib 成员编译）hello-world 0.80 s 里 0.33 s 是
@@ -144,12 +161,15 @@ fn resolve_fn_by_id(&self, idx) -> Option<&FnEntry> {
   混合模式保证少数已编译的热 callee 即便被冷 interp 帧调到也走原生。
 
 **各调用点接入阈值**：阈值需要调用点的 `None`-臂能健壮 interp 任意冷 callee。
-- **`jit_call`（静态/自由）**：其 `cross_zpkg_via_interp` 冷兜底通用,直接 tiered。
+- **`jit_call`（静态/自由）**：按 id 取到被调函数，冷 / 不可编时直接从调用方寄存器填 interp 帧解释执行，直接 tiered。
+  id 依次来自：烘焙常量（翻译时站点 token 已绑定）→ 站点 `method_tokens` 单元（之后由任一后端绑定）→
+  按名绑定（`interp::bind_callee`：解析、签名判定、写回 token；只有这里解码名字）。包级 / 类型初始化屏障
+  用被调函数自己的名字（`FnEntry.func`），热路径不做 `from_utf8`。
 - **`jit_vcall`/`jit_call_indirect`/`jit_obj_new`（方法/闭包/构造）**：把**所有**冷函数→`None`
   要求这三者的兜底健壮。各自如下：
   - `jit_vcall`：vtable 路径 `None`-臂本已健壮 interp（receiver+args）→ PIC + vtable 两 resolve site 切
-    > `jit_vcall` 与 interp `vcall` 的**目标解析**合一为 `interp/vcall_resolve.rs`（接收者阶梯 / 候选名 / PIC 安装），两侧只剩调用侧；上述 tiering 语义不变（Local → by-id tiered，Lazy → by-name tiered，None → interp）。
-    `resolve_fn_by_id_tiered` / `resolve_fn_by_name_tiered`。
+    > `jit_vcall` 与 interp `vcall` 的**目标解析**合一为 `interp/vcall_resolve.rs`（接收者阶梯 / 候选名 / PIC 安装），两侧只剩调用侧；上述 tiering 语义不变（Local / Lazy 都按 id tiered——Lazy 取 `id_of_func`，None → interp）。
+    `resolve_fn_by_id_tiered`。
     - **primitive 接收者也进 IC（镜像 interp）**：
       IC 快路径的 `recv_type` 对 object 取 `TypeDesc.id`、对 primitive（string/int/…）取
       `value_synthetic_type_id` 的合成 `PRIM_TYPE_*`；primitive 慢路径解析成功后按合成 id 安装 PIC
@@ -164,28 +184,11 @@ fn resolve_fn_by_id(&self, idx) -> Option<&FnEntry> {
 **验证**：`Z42_JIT_PROFILE=1` 下，冷静态函数不出现在编译列表、热函数出现（阈值为 N 时，调用不足 N 次的
 冷函数留 interp；调试可 `Z42_JIT_THRESHOLD=1` 强制首调即编）；`test e2e --mode jit` 全绿（输出与 interp 逐字节一致）。
 
-### 阈值也管住 lazy 函数 + 一次性 static-init
+### 阈值对惰性函数同样生效
 
-阈值作用于**合并模块**函数（`resolve_merged_slot(tier=true)`），也须作用于 **lazy 加载的
-dep-zpkg 函数**（`resolve_lazy_slot`）：若后者**无条件首调即编**则绕过阈值——启动时 `force_load_all_declared`
-把每个 declared zpkg 的 `__static_init__` 全跑一遍，加上任何冷 dep 函数，全都会被编译。实测：**一个典型启动
-里 ~73% 的编译函数是一次性 `*.__static_init__`**（跑一次、编译纯浪费——付一次 cranelift 编译 + 一个原生
-code page 只为跑一遍函数体）。
-
-两处机制让阈值对**所有**函数一致生效：
-
-1. **lazy-slot 门控**：`LazySlot` 加 `count: AtomicU32`（合并路径 `call_counts` 的 lazy 版），
-   `resolve_lazy_slot(i, tier)` 加 `tier` 参数——tiered 调用者（`resolve_fn_by_id_tiered`）计数，
-   `n < jit_threshold` 即 `return None`（冷 → 走调用者的 lazy `None` 兜底 interp，与不可翻译 lazy 函数
-   **同一条已验证的兜底臂**）；非 tiered 调用者（entry）照旧首调即编。`resolve_id_by_name` 注册 slot 前已
-   验过可翻译，故冷返回只是**推迟一个确定可编的函数**，不掩盖错误。
-2. **static-init 走 interp**：`JitModule::run` 的 init 循环从 `run_fn`（非 tiered，会编译）改为
-   `run_static_init_interp`（经 `exec_function` 的 tiered 集中拦截 → 冷一次性 init 留 interp，同时仍把它
-   触达的**已编译** callee 路由原生）。静态字段落共享 `VmContext`，与原生路径一致。
-
-**效果**（阈值 1000，bench 场景实测）：编译函数数 **44→1 / 49→6 / 45→2 / 46→2（−88%…−98%）**，
-`jit_compile_us_total` **−83%…−94%**；A/B vs 基线**运行时零回归**（480 vs 486ms / 1633 vs 1624ms——
-只是不再编译那些浪费的一次性/冷函数）。
+惰性加载包的函数与入口模块函数共用一张 `slots` 表、同一个计数器和阈值：从 JIT 调用（`jit_call` /
+`jit_vcall`）和从解释器调用（`try_native_static_call` / `try_native_method_call`，见下节）都计数，到阈值
+编译。静态初始化器已并入每类型的类型初始化器、按首次使用触发，跑一次即止，阈值 2 下不会被编译。
 
 > **call-count 分层的固有局限（由 OSR 补足，见下节）**：阈值按**调用次数**分层，无法区分「一次性 init」与
 > 「只调一次但内部大循环」——二者都只被调 1 次。故任何**阈值 ≥ 2** 都会把 `SumSquares(10M 循环)` 这类
@@ -205,9 +208,10 @@ code page 只为跑一遍函数体）。
 经 `(*jit_ctx).vm_ctx` 够到 VmContext）。
 
 **分发 hook**（`interp/exec_call.rs::try_native_static_call` / `exec_vcall.rs::try_native_method_call`）：解析出
-callee 的 merged 索引后，若 `jit_ctx` 已发布且 `resolve_fn_by_id_tiered(idx)` 返回已编译 entry → 建 `JitFrame`
+callee 的 JIT id（`Call` 的 token；VCall 的 PIC 下标，或惰性目标的 `FnId`——`lazy_call_id`）后，若 `jit_ctx`
+已发布且 `resolve_fn_by_id_tiered(id)` 返回已编译 entry → 建 `JitFrame`
 （`new_args_from` / `new_method_args_from`）调原生、marshal 结果（照搬 `jit_call`/`jit_vcall`）；否则(冷/不可编)
-返回 None → 原样走 interp。GC 统一帧链类型无关（interp `Frame` 与 `JitFrame` 都暴露 `regs`/`env_arena`），
+返回 None → 原样走 interp。这一步也计数：从解释器调的函数（入口与惰性一样）照样到阈值升层。GC 统一帧链类型无关（interp `Frame` 与 `JitFrame` 都暴露 `regs`/`env_arena`），
 push/pop_frame 复制即安全。
 
 > **`Ref(Stack)` 边界不变量（必须）**：路由前若 **arg 或 receiver 寄存器持有 `Ref(Stack)`**（out/ref
@@ -231,14 +235,14 @@ IC 虚 VCall 热路径**。「interp 会执行函数体」的入口里还有多�
 
 只靠逐点补全，「已编译函数永不被 interp 执行」这条前提**不成立**——任何新增调用点都可能重开缺口。
 解法是**单一 choke point**：三个入口变体（`exec_function` / `exec_function_from_regs` /
-`exec_function_from_receiver_regs`）都汇到 `exec_function_body`，且每个 `&Function` 带 `.name` +
-已有 `resolve_fn_by_name_tiered`。故在 `exec_function` 入口加 `try_native_exec`（name-based
-resolve → Compiled 即建 `JitFrame::new` 调原生、marshal 成 `ExecOutcome`），**一拦对所有路径成立**。
+`exec_function_from_receiver_regs`）都汇到 `exec_function_body`。故在 `exec_function` 入口加
+`try_native_exec`（`id_of_func` → `peek_fn_by_id`，已编译即建 `JitFrame::new` 调原生、marshal 成
+`ExecOutcome`；只看不计数，计数归各主调用点），**一拦对所有路径成立**。
 两 `_from_regs` 变体只被已 hook 的热路径以**冷 callee** 调用（compiled 的先被 per-site hook 拦走），故
 backstop 完备。同样带 `Ref(Stack)` 守卫（arg 为 Ref → 不路由）。
 
-- **代价**：每次经 `exec_function` 进入函数体多一次 `func_index` 名查（相对解释整个函数体可忽略）。
-- **分工**：per-site idx hook = 热路径快车道（无名查）；`exec_function` name backstop = 其余全部路径 +
+- **代价**：每次经 `exec_function` 进入函数体多一次地址比较 / `FnId` 读和一次槽读，不哈希。
+- **分工**：per-site hook = 热路径快车道；`exec_function` backstop = 其余全部路径 +
   不变量保证。二者对同一调用互斥（hook 命中即 return，不到 `exec_function`），无重复执行。
 
 > **意义**：有了 backstop，「已编译函数永不被 interp 执行」对**全部** interp 路径成立 →
@@ -280,7 +284,7 @@ flowchart TD
     C --> D{count == osr_threshold?<br/>恰好一次}
     D -- 否 --> E[block_idx = target; 继续解释]
     D -- 是 --> F[resolve_osr_entry&#40;id, target&#41;<br/>编译/复用 OSR 变体]
-    F -- None&#40;不可翻译/lazy&#41; --> E
+    F -- None&#40;不可翻译&#41; --> E
     F -- Some&#40;entry&#41; --> G[JitFrame::from_interp_regs&#40;frame.regs&#41;<br/>push_frame → native → pop_frame]
     G --> H[marshal ExecOutcome<br/>return 出 exec_function_body]
 ```
@@ -295,8 +299,8 @@ flowchart TD
 - **跳过 prologue 的正确性**：带 `ref` 形参的帧（`Frame.ref_writebacks` 非空）**不 OSR**——解释器在
   出口跑 `run_ref_writebacks` 把形参终值写回调用方，OSR 原生帧直接返回会越过它，调用方就看到调用前的旧值。
   其余帧无入口 ref copy-in、无出口 copy-out 要补；safepoint 刚在回边点查过。golden：`osr/ref_param_writeback`。
-- **缓存**：`JitModuleCtx.osr_entries: Mutex<HashMap<(id, K), FnEntry>>`——按 `(函数 id, 循环头 K)`
-  键（一函数两循环可在不同 K OSR）。OSR 是稀有事件，用普通 Mutex（非热路径 lock-free 槽表）够。
+- **缓存**：`JitModuleCtx.osr_entries: Mutex<HashMap<(id, K), FnEntry>>`——按 `(JIT id, 循环头 K)`
+  键（一函数两循环可在不同 K OSR）。入口函数与惰性函数都能 OSR（id 由 `id_of_func` 取得）。OSR 是稀有事件，用普通 Mutex（非热路径 lock-free 槽表）够。
 - **v1 简化**：交接时解释器自身的 VmFrame 仍在栈上，OSR 原生帧再 push 一个——GC 双扫（interp regs
   是 OSR regs 的克隆，同一批 heap 引用，保守正确）；崩溃 trace 该函数出现两次（仅美观）。
 

@@ -35,13 +35,12 @@ JIT 只在执行 `run_fn` 的那个线程上运行。VM 创建的其他线程用
 
 | 字段 | 作用 |
 |---|---|
-| `fn_entries_by_id: Vec<OnceLock<FnEntry>>` | 已编译函数表，下标 = 合并模块里的函数 id；空槽 = 未编译或不可翻译 |
-| `lazy_table` | 惰性加载（尚未合并进模块）的函数的编译槽，id ≥ `merged_len` |
+| `slots: SparseSegTable<JitSlot>` | 每函数的 JIT 状态，按 JIT id（= `FnId`：入口函数 `0..n`、惰性函数其后）索引：`entry`（已编译）、`count`（tier-up 计数）、`state`（Rejected 负缓存）；读无锁 |
 | `module` | 指回字节码 `Module`（类描述、函数体、`func_index`） |
 | `lazy` | `Mutex<LazyCompiler>`：首编串行化，热路径只读 `OnceLock` |
 | `vm_ctx` | 本次运行的 `VmContext`；helper 经它访问可变 VM 状态 |
-| `call_counts` / `jit_threshold` | 调用计数 tier-up |
-| `osr_entries` / `osr_threshold` | OSR 入口缓存（按「函数 id, 循环头块」）与阈值 |
+| `jit_threshold` | tier-up 阈值（计数在 `JitSlot.count`） |
+| `osr_entries` / `osr_threshold` | OSR 入口缓存（按「JIT id, 循环头块」，入口与惰性函数都支持）与阈值 |
 | `stack_limit` | 函数序言做栈深检查用的下限 |
 
 `vm_ctx` 和 `stack_limit` 的偏移由 `offset_of!` 导出给生成码，内联 safepoint 检查和栈检查直接 load。
@@ -112,8 +111,8 @@ brif v, exc_block, next
 ```
 src/runtime/src/jit/
 ├── mod.rs           JitModule（setup / run_fn）、jit::run
-├── lazy.rs          LazyCompiler：持 cranelift JITModule，compile_one 按需编译单函数
-├── frame.rs         JitFrame、JitModuleCtx、FnEntry、resolve_fn_by_* / OSR 入口解析
+├── lazy.rs          LazyCompiler：持 cranelift JITModule，compile_fn / compile_fn_osr 按需编译单函数
+├── frame.rs         JitFrame、JitModuleCtx（JitSlot 表、fn_of / id_of_func / id_by_name）、FnEntry、resolve_fn_by_* / OSR 入口解析
 ├── reg_access.rs    frame.regs 槽位读写的唯一出口
 ├── vm_interface.rs  编译期读取 VM 元数据的只读接口
 ├── translate/       z42 指令 → Cranelift IR（按指令类别拆分；unsupported.rs 为不可翻译表）
