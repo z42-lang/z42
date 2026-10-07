@@ -1,7 +1,7 @@
 use crate::metadata::Value;
 use crate::vm_context::VmContext;
 use anyhow::{anyhow, bail, Result};
-use super::convert::{arg_str, arg_usize};
+use super::convert::{arg_usize, this_str};
 
 /// string.ToCharArray() — bulk materialise the whole `char[]` in ONE native
 /// call (vs the per-char `CharAt` loop, which pays a builtin dispatch per
@@ -12,7 +12,7 @@ use super::convert::{arg_str, arg_usize};
 /// SCRIPT over `arr[i]` (the `ArrayGet` opcode) instead of `CharAt` (a builtin
 /// call) — the C# "string ops in managed code over a char buffer" model.
 pub fn builtin_str_to_chars(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let s = arg_str(args, 0, "__str_to_chars")?;
+    let s = this_str(args, "ToCharArray")?;
     // unify-gc-heap PR-3: region-alloc the `char[]` (packed `Chars` block in the GC heap)
     // via the heap, not the leaking `GcRef::new` path. perf-array-alloc-direct: decode
     // straight into the packed block (no staging `Vec<Value>`).
@@ -32,7 +32,7 @@ pub fn builtin_str_length(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
     match args.first() {
         Some(Value::Str(s)) => Ok(Value::I64(super::str_meta::char_len(s) as i64)),
         _ => {
-            let s = arg_str(args, 0, "__str_length")?;
+            let s = this_str(args, "get_Length")?;
             Ok(Value::I64(s.chars().count() as i64))
         }
     }
@@ -47,7 +47,7 @@ pub fn builtin_str_length(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
 /// need O(1) size queries (allocation sizing, network framing, hashing).
 /// args: [this: str]
 pub fn builtin_str_byte_length(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let s = arg_str(args, 0, "__str_byte_length")?;
+    let s = this_str(args, "get_ByteLength")?;
     Ok(Value::I64(s.len() as i64))
 }
 
@@ -73,7 +73,7 @@ pub fn builtin_str_char_at(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
                 i, super::str_meta::char_len(s))),
         };
     }
-    let s = arg_str(args, 0, "__str_char_at")?;
+    let s = this_str(args, "CharAt")?;
     let mut last_seen = 0usize;
     for (idx, c) in s.chars().enumerate() {
         if idx == i {
@@ -98,8 +98,8 @@ pub fn builtin_str_substring(ctx: &VmContext, args: &[Value]) -> Result<Value> {
             None => bail!("__str_substring: range [{}, {}) out of bounds (length {})",
                           start, start + len, super::str_meta::char_len(s)),
         },
-        Some(other) => bail!("__str_substring: expected string receiver, got {:?}", other),
-        None => bail!("__str_substring: missing receiver"),
+        // null → NullReferenceException; anything else is an internal error from `this_str`.
+        _ => { this_str(args, "Substring")?; bail!("__str_substring: expected a string receiver") }
     }
 }
 
@@ -219,7 +219,7 @@ pub fn builtin_str_from_chars(_ctx: &VmContext, args: &[Value]) -> Result<Value>
 /// string.Equals(other) — value equality.
 /// args: [this: str, other: str | null]
 pub fn builtin_str_equals(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let a = arg_str(args, 0, "__str_equals")?;
+    let a = this_str(args, "Equals")?;
     let result = match args.get(1) {
         Some(Value::Str(b)) => a == &**b,
         Some(Value::Null) | None => false,
@@ -231,7 +231,7 @@ pub fn builtin_str_equals(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
 /// string.GetHashCode() — FNV-1a hash of the UTF-8 bytes.
 /// args: [this: str]
 pub fn builtin_str_hash_code(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let s = arg_str(args, 0, "__str_hash_code")?;
+    let s = this_str(args, "GetHashCode")?;
     let mut hash: u32 = 2_166_136_261;
     for byte in s.bytes() {
         hash ^= byte as u32;

@@ -24,10 +24,11 @@ class _CorpusCase {
     public string leaf;        // leaf name for safe-name / emit (unit base, dir-unit subdir)
     public string dir;         // case dir (golden dir-mode / dir-unit / lib-golden)
     public bool interpOnly;    // golden has an `interp_only` sidecar → no jit run
+    public bool optAll;        // golden has an `opt_all` sidecar → compiled with `--opt-all` (same as the host gate)
     public _CorpusCase() {
         this.name = ""; this.bucket = ""; this.kind = "";
         this.src = ""; this.exp = ""; this.lib = "";
-        this.leaf = ""; this.dir = ""; this.interpOnly = false;
+        this.leaf = ""; this.dir = ""; this.interpOnly = false; this.optAll = false;
     }
 }
 
@@ -62,7 +63,7 @@ _CorpusCase[] _enumerateCorpus(string root, string filter) {
             _CorpusCase c = new _CorpusCase();
             c.name = caseName; c.bucket = cat; c.kind = "golden";
             c.src = e.src; c.exp = _readExpected(e.expected); c.dir = e.dir;
-            c.interpOnly = e.interpOnly;
+            c.interpOnly = e.interpOnly; c.optAll = e.optAll;
             cs[n] = c; n = n + 1;
         }
     }
@@ -98,7 +99,7 @@ _CorpusCase[] _enumerateCorpus(string root, string filter) {
             c.name = caseName; c.bucket = lib; c.kind = "golden";
             c.src = e.src; c.exp = _readExpected(e.expected);
             c.lib = lib; c.leaf = e.name; c.dir = e.dir;
-            c.interpOnly = e.interpOnly;
+            c.interpOnly = e.interpOnly; c.optAll = e.optAll;
             cs[n] = c; n = n + 1;
         }
     }
@@ -246,7 +247,7 @@ string _buildTestBundle(string root, string filter, string rid, int shardK, int 
         string entry = "";
         if (c.kind == "unit") {
             string safe = _bundleSafeName(c.name);
-            string zbc = _emitUnitZbc(root, c.src, safe, bundleDir);
+            string zbc = _emitUnitZbc(root, c.src, safe, bundleDir, false);
             if (zbc.Length == 0) { ConsoleError.WriteLine("  ✗ unit " + c.name); si = si + 1; continue; }
             entry = "    {\"name\": \"" + c.name + "\", \"zbc\": \"" + safe + ".zbc\"}";
         } else if (c.kind == "dir-unit") {
@@ -255,7 +256,7 @@ string _buildTestBundle(string root, string filter, string rid, int shardK, int 
             if (zbc.Length == 0) { ConsoleError.WriteLine("  ✗ dir-unit " + c.name); si = si + 1; continue; }
             entry = "    {\"name\": \"" + c.name + "\", \"zbc\": \"" + safe + ".zpkg\"}";
         } else {   // golden
-            entry = _goldenEntry(root, c.name, c.src, c.exp, bundleDir);
+            entry = _goldenEntry(root, c.name, c.src, c.exp, bundleDir, c.optAll);
             if (entry.Length == 0) { ConsoleError.WriteLine("  ✗ golden " + c.name); si = si + 1; continue; }
         }
         entry = _withRequires(entry, _caseRequires(c));

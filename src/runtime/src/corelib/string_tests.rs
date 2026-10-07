@@ -73,3 +73,30 @@ fn join_interleaves_and_rejects_non_strings() {
     let bad = ctx.heap().alloc_array_typed("string", vec![Value::Str("a".into()), Value::Null]);
     assert!(join(",", bad).is_err());
 }
+
+/// null 字符串接收者 → `NullReferenceException`（消息与 `VCall` 撞上 null 时同一条），不是内部错误；
+/// null 实参同类。引擎的 builtin 错误出口按 `Throw` 构造异常（`corelib::builtin_error_exception`）。
+#[test]
+fn null_string_receiver_is_a_null_reference() {
+    use crate::objops::Throw;
+    let ctx = VmContext::new();
+    let nre = |e: anyhow::Error| {
+        let t = e.downcast::<Throw>().expect("typed throw");
+        assert_eq!(t.class, "Std.NullReferenceException");
+        t.msg
+    };
+    assert_eq!(nre(builtin_str_length(&ctx, &[Value::Null]).unwrap_err()),
+        "cannot read property `Length` of a null reference");
+    assert_eq!(nre(builtin_str_char_at(&ctx, &[Value::Null, Value::I64(0)]).unwrap_err()),
+        "cannot call method `CharAt` on a null reference");
+    assert_eq!(nre(builtin_str_to_chars(&ctx, &[Value::Null]).unwrap_err()),
+        "cannot call method `ToCharArray` on a null reference");
+    assert_eq!(nre(builtin_str_substring(&ctx, &[Value::Null, Value::I64(0), Value::I64(0)]).unwrap_err()),
+        "cannot call method `Substring` on a null reference");
+    assert_eq!(nre(super::super::convert::builtin_str_compare_to(&ctx, &[Value::Str("a".into()), Value::Null]).unwrap_err()),
+        "cannot pass null as argument 1 of `String.CompareTo`");
+    // `Equals` 的实参 null 是合法输入（false），只有接收者 null 才抛。
+    assert_eq!(builtin_str_equals(&ctx, &[Value::Str("a".into()), Value::Null]).unwrap(), Value::Bool(false));
+    assert_eq!(nre(builtin_str_equals(&ctx, &[Value::Null, Value::Str("a".into())]).unwrap_err()),
+        "cannot call method `Equals` on a null reference");
+}

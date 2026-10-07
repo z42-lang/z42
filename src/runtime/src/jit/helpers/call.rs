@@ -212,18 +212,12 @@ pub(crate) unsafe fn builtin_error_into_exception(
         set_exception(vm, thrown);
         return 1;
     }
-    // make-corelib-errors-catchable parity (this path was interp-only;
-    // jit_builtin previously set a raw `Value::Str`). Wrap the builtin
-    // error in a `Std.Exception` so JIT-compiled code can catch it with
-    // `catch (Exception e)` — a raw string never matches the catch type.
-    // Falls back to the raw string if `Std.Exception` isn't loaded.
+    // Same exception as interp `exec_call::builtin` (one shared mapping): a typed
+    // throw (null receiver → NullReferenceException) or a `Std.Exception`, so
+    // JIT-compiled code can `catch` it. Raw string only when the class isn't loaded.
     let module = unsafe { &*(*ctx).module };
-    let exc = match crate::exception::make_stdlib_exception(
-        vm, module, "Std.Exception", e.to_string(),
-    ) {
-        Ok(exc) => exc,
-        Err(_)  => Value::Str(e.to_string().into()),
-    };
+    let exc = crate::corelib::builtin_error_exception(vm, module, e)
+        .unwrap_or_else(|e| Value::Str(e.to_string().into()));
     set_exception(vm, exc);
     1
 }

@@ -250,3 +250,32 @@ fn materialization_without_stdlib_is_one_text() {
     assert_eq!(OpError::index_out_of_range(5, 2).into_anyhow().to_string(),
         "Std.IndexOutOfRangeException: index 5 is out of range for an array of length 2");
 }
+
+// ── 调用的 null 接收者 ─────────────────────────────────────────────────────────
+
+/// `VCall` 的方法名带编译器附加的重载键 / 特化后缀，消息里只留源码名；访问器报成属性读写。
+#[test]
+fn null_call_names_the_source_member() {
+    let t = thrown(OpError::null_call("Speak"));
+    assert_eq!(t.class, "Std.NullReferenceException");
+    assert_eq!(t.msg, "cannot call method `Speak` on a null reference");
+    assert_eq!(thrown(OpError::null_call("Substring$2$int$int")).msg,
+        "cannot call method `Substring` on a null reference");
+    assert_eq!(thrown(OpError::null_call("Second:P2")).msg,
+        "cannot call method `Second` on a null reference");
+    assert_eq!(thrown(OpError::null_call("get_Length")).msg,
+        "cannot read property `Length` of a null reference");
+    assert_eq!(thrown(OpError::null_call("set_Name")).msg,
+        "cannot write property `Name` of a null reference");
+}
+
+/// builtin 经 `anyhow` 抛出的 `Throw` 原样取得回来（引擎据此按类构造），文本与 `into_anyhow` 同一条。
+#[test]
+fn builtin_error_keeps_the_throw() {
+    let e = OpError::null_call("CharAt").into_builtin_error();
+    assert_eq!(e.to_string(), "Std.NullReferenceException: cannot call method `CharAt` on a null reference");
+    let t = e.downcast::<Throw>().expect("typed throw survives anyhow");
+    assert_eq!(t.class, "Std.NullReferenceException");
+    // 内部错误照旧是内部错误。
+    assert!(OpError::internal("boom".into()).into_builtin_error().downcast::<Throw>().is_err());
+}
