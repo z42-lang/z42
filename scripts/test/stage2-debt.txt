@@ -6,5 +6,6 @@
 # 重生成：`xtask check stage2 --update`（已有条目**保留原挂账日**，不会把时钟拨回今天）。
 # 推期限 = **手改本文件的日期**（`--update` 不会替你判断前提到没到）；
 # 而**理由写进源码那条 `STAGE2-DEBT` 标记**——本文件的注释会被 `--update` 重写掉。
+src/compiler/z42.project/src/ManifestKeys.z42#manifest-key-rename 2026-10-07 含本改名的 nightly 发布后：删 RenamedTo 两条与 ManifestLoader 读旧名的两处（无其他改名则连 DeprecatedKeys / KnobResult.Warnings / driver _warnDeprecatedWsKeys 通道一起删）；仓内两份 z42.workspace.toml 与夹具 analyzer-diag-survives-cache、compile-libs-flag 切新名，xtask _stdlibList / _compilerMembers 同提交改读 default_members；manifest-renamed-key-warns / ws-renamed-key-warns 改断言旧名报未知键
 src/compiler/z42c.driver/src/BuildPaths.z42#compile-libs-knob 2026-11-10 改名迁移做完后重估：只剩自举在用就把旗标撤掉（保留内部区分）。2026-09-30 推到 11-10：前提确实未到 —— 等 add-package-roles 批 3 大重命名，那件事跨 nightly、要先出 DRAFT
 .github/workflows/bench-pr.yml#bench-pr-libdir-probe 2026-10-27 旧名/旧位置彻底退役后删掉后两档。2026-09-30 推到 10-27：后两档是给 **base 树**兜底的，base 若早于 #921（09-27 把该库挪进 src/compiler/）就仍在 src/libraries/ ⇒ 现在删会让「从 09-27 前的 main 分出来的 PR」本门红。等 relocate 满一个月

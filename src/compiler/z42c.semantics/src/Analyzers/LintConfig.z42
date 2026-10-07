@@ -4,7 +4,7 @@
 // 解释成每条 DiagRule 的最终 severity。对齐 Roslyn `.editorconfig` 的 severity 决策链：
 //   1. [lints] 显式覆盖（精确 rule Id 优先于 `pkg.*` 前缀通配）；`"none"` → 抑制。
 //   2. 无覆盖时，规则的 `EnabledByDefault` 决定基线（默认禁用 + 无覆盖 → 抑制；否则用 DefaultSeverity）。
-//   3. `warnings-as-errors = true` → 最终为 Warning 的规则升级为 Error（Info/Hidden 不动）。
+//   3. `warnings_as_errors = true` → 最终为 Warning 的规则升级为 Error（Info/Hidden 不动）。
 //
 // 契约类型（DiagRule / AnalyzerSeverity）在 z42c.syntax；本决策器与 AnalyzerDriver 同处 z42c.semantics
 // （编译器侧驱动）。设计 SoT：docs/spec/changes/attribute-handler-registry/design.md §诊断/severity/开关。

@@ -164,7 +164,7 @@ CatchClause=1  TryCatchStmt=2  ClassDecl=3  MethodDecl=4  WhileStmt=5  ForStmt=6
 [lints]
 DEMO001 = "error"           # warning → error，编译失败、不产产物
 "webgen.*" = "none"         # 支持通配前缀
-warnings-as-errors = true   # 特殊布尔键
+warnings_as_errors = true   # 特殊布尔键
 ```
 
 `DiagRule.EnabledByDefault` 为 `false` 的规则默认不报，要在 `[lints]` 里显式打开。

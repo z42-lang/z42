@@ -15,6 +15,10 @@ public sealed class WorkspaceManifest {
     public string     CacheDir;
     public DepEntry[] WorkspaceDeps;
     public int        WorkspaceDepCount;
+    // 不认识的键 / 改过名的旧键（ManifestKeys.AuditWorkspace；每项一行文本）。构造后填，
+    // 消费方分别报错 / 警告。
+    public string[]   UnknownKeys;
+    public string[]   DeprecatedKeys;
     public WorkspaceManifest(string[] members, int memberCount, string[] exclude, int excludeCount,
                              string[] defMembers, int defCount,
                              bool hasOut, string outDir, bool hasCache, string cacheDir,
@@ -25,5 +29,7 @@ public sealed class WorkspaceManifest {
         this.HasOutputDir = hasOut; this.OutputDir = outDir;
         this.HasCacheDir = hasCache; this.CacheDir = cacheDir;
         this.WorkspaceDeps = wdeps; this.WorkspaceDepCount = wdepCount;
+        this.UnknownKeys = new string[0];
+        this.DeprecatedKeys = new string[0];
     }
 }

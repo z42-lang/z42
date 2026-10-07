@@ -358,48 +358,6 @@ string _pubResolveZpkg(string tomlPath, TomlValue toml, string name) {
     return Path.Join(_pubLayout(tomlPath).DistDir, name + ".zpkg");
 }
 
-// ── project-kind (workspace-sibling) dependency bundling (add-package-layout-config) ──
-//
-// z42.toml `[dependencies]` mixes stdlib deps ("z42.io") and, inside a workspace,
-// sibling project deps ("z42c.core") using identical syntax. There is no `Kind`
-// field distinguishing them (confirmed: DepScan / DepEntry have none). We derive
-// "is this a project dep" by cross-referencing against the enclosing workspace's
-// `z42.workspace.toml` `default-members` list — the same source `_compilerMembers`
-// (xtask) already reads. z42b must stay stdlib-only (test-runner build context),
-// so this is hand-rolled TOML walking, NOT a dependency on z42c.project/pipeline.
-
-// Walk up from `tomlPath`'s directory looking for a sibling `z42.workspace.toml`.
-// "" if this project isn't inside a workspace (all its deps are then stdlib).
-string _pubFindWorkspaceRoot(string tomlPath) {
-    string dir = Path.GetDirectoryName(tomlPath);
-    while (dir.Length > 0) {
-        if (File.Exists(Path.Join(dir, "z42.workspace.toml"))) { return dir; }
-        string parent = Path.GetDirectoryName(dir);
-        if (parent.Length == 0 || parent == dir) { return ""; }
-        dir = parent;
-    }
-    return "";
-}
-
-// `[workspace] default-members` list from `<wsRoot>/z42.workspace.toml`.
-string[] _pubWorkspaceMembers(string wsRoot) {
-    string wsToml = Path.Join(wsRoot, "z42.workspace.toml");
-    if (!File.Exists(wsToml)) { return new string[0]; }
-    TomlValue toml = TomlValue.Parse(File.ReadAllText(wsToml));
-    TomlValue ws = null;
-    TomlValue arr = null;
-    if (!toml.TryGet("workspace", ref ws))          { return new string[0]; }
-    if (!ws.TryGet("default-members", ref arr))     { return new string[0]; }
-    string[] xs = new string[arr.Count()];
-    int i = 0;
-    while (i < arr.Count()) {
-        TomlValue v = arr.At(i);
-        xs[i] = v.IsString() ? v.AsString() : "";
-        i = i + 1;
-    }
-    return xs;
-}
-
 // This project's own `[dependencies]` key names ("" if the section is missing).
 string[] _pubDepNames(TomlValue toml) {
     TomlValue deps = null;

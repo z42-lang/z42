@@ -11,10 +11,15 @@ public sealed class ProjectInfo {
     public bool   Pack;        // [project].pack；仅 HasPack 有效，否则 isPacked = isRelease
     // （此处原注释写着「[profile.*].pack 最低优先级回退」——那个回退**从未实现**，
     //  `Profile.Pack` 解析后从无人读；restructure-profile-sections 已删该死字段。）
+    // 纯元数据（不参与构建，只供展示 / 打包描述）。构造后赋值：ctor 签名是种子 ABI，不动。
+    public string   Description;
+    public string[] Authors;
+    public string   License;
     public ProjectInfo(string name, string version, string kind,
                        bool hasEntry, string entry, bool hasPack, bool pack) {
         this.Name = name; this.Version = version; this.Kind = kind;
         this.HasEntry = hasEntry; this.Entry = entry;
         this.HasPack = hasPack; this.Pack = pack;
+        this.Description = ""; this.Authors = new string[0]; this.License = "";
     }
 }

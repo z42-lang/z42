@@ -4,6 +4,7 @@
 项目清单 `z42.toml` 的**类型化模型**（全 z42）。作为 z42c（编译器）与 z42.build（发布管线）共同依赖的单一真相：一处定义 schema，多处复用，避免模型重复与漂移。
 
 工程配置是**确定的**——字段固定、不开放任意自定义键（含 `[platform.*]` 也用 typed 固定字段，不用开放 map）。
+合法键表在 `ManifestKeys`；写了不认识的键由 loader 收集进 `UnknownKeys`（改过名的旧键进 `DeprecatedKeys`），消费方报错 / 警告。
 受限自举子集写法：sealed class + 构造函数、`bool HasX` 替 nullable、`array + count` 替泛型。
 schema 以 [z42-toml.md](../../../docs/reference/src/toolchain/z42-toml.md) 为准。
 
@@ -14,6 +15,7 @@ schema 以 [z42-toml.md](../../../docs/reference/src/toolchain/z42-toml.md) 为�
 |------|------|
 | 加载单项目清单 | `ManifestLoader.Load(path)` / `ParseText(text)`（fs-free，REPL / playground 可复用）|
 | 加载 workspace 清单 | `ManifestLoader.LoadWorkspace(path)` / `ParseWorkspaceText(text)` |
+| 清单键审计 | `ManifestKeys.AuditProject(root)` / `AuditWorkspace(root)` → `KeyAudit`（`Unknown()` / `Deprecated()`）|
 | 源文件 glob 发现 | `SourceDiscovery.Discover(projectDir, includes, count)` |
 | 路径模板展开 | `PathTemplate.Expand(template, ctx)` |
 | 清单定位 | `ManifestLocator.FindUp` / `FindIn` |
@@ -34,6 +36,7 @@ schema 以 [z42-toml.md](../../../docs/reference/src/toolchain/z42-toml.md) 为�
 | 文件 | 职责 |
 |------|------|
 | `src/ManifestLoader.z42` | TOML → 模型 加载器；解析全段含 `[profile.*]`/`[[exe]]`/`[platform.*]`/`[optimize]`/`[analyzers]`/`[lints]`/`[native.*]`/`[tests]`·`[benches]`·`[examples]`/`[[test]]`·`[[bench]]`·`[[example]]` |
+| `src/ManifestKeys.z42` | 各段合法键表（清单契约的唯一真相源）+ 改名表 `RenamedTo` + `KeyAudit` 审计；loader 构造后调用，结果挂到 `UnknownKeys` / `DeprecatedKeys` |
 | `src/ManifestLocator.z42` | 清单定位：`FindUp`（从目录向上找 `z42.toml` → 唯一 `*.z42.toml` → `z42.workspace.toml`）/ `FindIn`（只看一层）/ `ErrorText`；launcher / z42b / z42c 共用 |
 | `src/SourceDiscovery.z42` | `[sources].include` glob → 绝对路径列表（递归/单层，排除 dist/.cache，去重 + Ordinal 排序；`exclude` 走 `PathGlob`）|
 | `src/PathGlob.z42` | 按路径段的 glob 匹配（`**` 跨段、`*`/`?` 段内），`[sources].exclude` 与 `[workspace] members/exclude` 共用 |
@@ -50,7 +53,7 @@ schema 以 [z42-toml.md](../../../docs/reference/src/toolchain/z42-toml.md) 为�
 | 文件 | 段 | 职责 |
 |------|----|------|
 | `src/ProjectManifest.z42` | 根 | 聚合各段的完整清单（单项目）；同文件还承载 `[optimize]`（`OptimizeNames`/`Values`/`Count`：逐 pass 具名开关的中性 name/value 对，消费方按名映射编译器 `Opt` 位）、`[analyzers]`（`Analyzers`/`AnalyzerCount`：编译期 handler zpkg 引用，加载进编译器、不链入目标程序）、`[lints]`（`LintNames`/`LintSeverities`/`LintCount`/`LintWarningsAsErrors`：严重级覆盖的中性 name/severity 串对，规则语义由消费方 z42c `LintConfig` 解释）|
-| `src/ProjectInfo.z42` | `[project]` | name / version / kind / entry / pack |
+| `src/ProjectInfo.z42` | `[project]` | name / version / kind / entry / pack；纯元数据 description / authors / license |
 | `src/Sources.z42` | `[sources]` | include / exclude glob（array + count） |
 | `src/BuildConfig.z42` | `[build]` | output_dir / cache_dir / dist_dir / incremental |
 | `src/Profile.z42` | `[profile.*]` | pack / strip / mode / optimize / debug |
@@ -62,7 +65,7 @@ schema 以 [z42-toml.md](../../../docs/reference/src/toolchain/z42-toml.md) 为�
 | `src/PlatformSet.z42` | `[platform]` | 四平台 typed 配置集合（HasX 标志） |
 | `src/iOSConfig.z42` | `[platform.ios]` | bundle_id / 能力 / team_id / device_families |
 | `src/AndroidConfig.z42` | `[platform.android]` | app_id / version_code / sdk / permissions |
-| `src/DesktopConfig.z42` | `[platform.desktop]` | publish_dir / icon / bundle_id |
+| `src/DesktopConfig.z42` | `[platform.desktop]` | publish_dir / icon / bundle_id / bin / payload / link |
 | `src/WasmConfig.z42` | `[platform.wasm]` | title |
 | `src/WorkspaceManifest.z42` | `[workspace]` | monorepo 成员（单独解析） |
 

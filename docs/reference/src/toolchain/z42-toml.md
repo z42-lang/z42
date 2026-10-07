@@ -20,6 +20,23 @@ z42 使用 **`<name>.z42.toml`** 作为工程配置文件，格式为 TOML。
 | L5 | 依赖管理 | 引用外部库 |
 | L6 | 工作区 | monorepo |
 
+### 键校验：本页没列的键一律报错
+
+工程清单与工作区清单里**本页没列出的键都是错误**，不会被静默忽略（拼错的 `[build] output-dir`
+不会「配了以为生效、实际走默认」）。报错是构建工具的错误行，**不是诊断码**：
+
+| 情况 | 实际输出 | 结果 |
+|---|---|---|
+| 工程清单有未知键 | ``z42c: <清单>: unknown key `<键>` in [<段>] (known: a, b, c)`` | 逐条报出，exit 2（用法错误），什么都不构建 |
+| 工作区清单有未知键 | ``z42c build --workspace: <z42.workspace.toml>: unknown key `<键>` in [workspace] (known: …)`` | 规划阶段失败（exit 1），不构建任何成员 |
+| 用了改过名的旧键 | ``z42c: <清单>: warning: key `warnings-as-errors` in [lints] is deprecated, rename it to `warnings_as_errors` (the old spelling will be rejected in a future release)`` | 仅警告，构建继续 |
+
+键名本身就是用户数据、因而**不按本页审计**的位置：`[dependencies]` / `[analyzers]` / `[native]` 下的
+包名 / 子表名、`[lints]` 的规则名、`[properties]` 与 `[profile.<n>.properties]` 的键、
+`[profile.<n>.runtime]` 的旋钮名（按 VM 登记表校验，未知名仅警告，见
+[运行时设置](runtime-settings.md#更早一层构建期的名字校验)）、`[optimize]` / `[syntax]` 的名字
+（由各自的名表校验，未知名报错，见 [L5d](#l5d--optimize--syntax逐项具名旋钮)）。
+
 ---
 
 ## L1 — 包身份（最小工程）
@@ -42,6 +59,8 @@ entry   = "Hello.Main" # 可选；省略时由 PackageCompiler 自动发现 Main
 | `version` | string | ✅ | SemVer，如 `"0.1.0"` |
 | `kind` | `"exe"` \| `"lib"` \| `"analyzer"` | 单目标必填；多目标用 `[[exe]]` 时省略 | 可执行程序 / 类库 / 编译期扩展（analyzer、generator 都用这个 kind）。写其它值 → 构建报用法错误 `unknown kind` |
 | `entry` | string | ❌ 可选 | 完全限定入口函数。**省略时**`PackageCompiler` 自动从编译后的 module 查找 `Main`（优先 `<Namespace>.Main` 再 `<Namespace>.main` 再裸 `Main` / `main`）；找不到则**编译期报错** |
+| `pack` | bool | ❌ 可选 | packed / indexed 布局，见 [L3](#l3--构建产物配置) |
+| `description` / `authors` / `license` | string / string[] / string | ❌ 可选 | 纯元数据（`authors` 是字符串数组，`license` 建议写 SPDX 标识）；构建不使用 |
 
 ### 包名命名规则
 
@@ -141,7 +160,7 @@ include = ["src/tool/**/*.z42"] # 可选：覆盖共享 [sources]
 |------|------|------|------|
 | `name` | string | ✅ | exe 名，同时作为产物文件基名 |
 | `entry` | string | ❌ 可选 | 完全限定入口函数；省略时走 `PackageCompiler` 的 `Main` 自动发现路径 |
-| `src` | string[] | ❌ | 独立 glob，覆盖 `[sources]`；省略则继承 `[sources]` |
+| `include` | string[] | ❌ | 独立 glob，覆盖 `[sources]`；省略则继承 `[sources]` |
 
 ```bash
 z42c build               # 构建所有 [[exe]]
@@ -214,7 +233,7 @@ include = ["src/**/*.z42", "vendor/included/**/*.z42"]
 include = ["src/**/*.z42"]
 exclude = ["src/internal/**", "src/**/_*.z42"]
 
-# D) per-target 覆盖（[[exe]] 内的 src 字段独立 glob，无视顶层 [sources]）
+# D) per-target 覆盖（[[exe]] 内的 include 字段独立 glob，无视顶层 [sources]）
 [[exe]]
 name  = "tool"
 entry = "Tool.Main"
@@ -255,23 +274,15 @@ name = "myapp"
 version = "0.1.0"
 kind = "exe"
 entry = "MyApp.main"
-pack = false           # 工程级 pack 默认值（最低优先级）
+pack = false           # 可选；省略 → debug 为 indexed、release 为 packed
 
 [build]
-# 四件套字段（output_dir / cache_dir / dist_dir / publish_dir）都是可选的，未设走级联默认。
+# 三个目录字段（output_dir / cache_dir / dist_dir）都是可选的，未设走级联默认。
 # output_dir  = "/build/myproj"      # 顶层根目录（单工程默认 <清单目录>/artifacts/<profile>；workspace 成员见下表）
 # cache_dir   = "/dev/shm/cache"     # 中间产物（默认 ${output_dir}/.cache）
 # dist_dir    = "/build/dist"        # 最终产物（默认见下表：单工程未配 output_dir 时是 <清单目录>/dist）
 # （发布目录是 [platform.desktop].publish_dir，默认 ${output_dir}/publish）
 incremental = true     # 启用增量编译，默认 true
-
-[profile.debug]
-pack  = false          # debug build → indexed zpkg（.cache/*.zbc + dist/<name>.zpkg）
-strip = false          # 默认保留 DBUG 内嵌主 zpkg / cache zbc
-
-[profile.release]
-pack  = true           # release build → packed zpkg（单文件，dist/<name>.zpkg）
-strip = true           # 默认剥离 DBUG → 配套 <name>.zsym sidecar
 ```
 
 **`[build]` 字段说明：**
@@ -282,10 +293,10 @@ strip = true           # 默认剥离 DBUG → 配套 <name>.zsym sidecar
 | `cache_dir` | string? | `${output_dir}/.cache` | `[workspace.build].cache_dir` ?? `${output_dir}/.cache`（模板不含成员名时追加成员子目录防碰撞） | 中间产物（`.zbc` / 索引 / 增量元数据）。 |
 | `dist_dir` | string? | 未配 `output_dir` 时 **`<清单目录>/dist`**；配了则 `${output_dir}/dist` | `${output_dir}/dist` | 最终分发产物（`.zpkg` + `.zsym`）。 |
 | `generated_dir` | string? | `${output_dir}/generated`（显式 `""` = 不落盘） | 同左 | generator 生成的源码。 |
-
-发布目录不在 `[build]`：它是 `[platform.desktop].publish_dir`（见下文 publish 一节），默认 `${output_dir}/publish`。
 | `incremental` | bool | `true` | `true` | 基于 source hash 跳过未改动文件。CLI `--no-incremental` 是一次性覆盖，**永远压过本键**；两者任一为「关」即关。 |
 | `hooks` | string? | （无） | （无） | **项目 build hook 源目录**（projDir 相对）。声明后 z42b 用注入的同一 `ICompiler` 编该目录 → 动态实例化 `Build.ProjectHooks : BuildHooks` → 注入 `Pipeline.Hooks`。hook 源须 `namespace Build;` + `class ProjectHooks : BuildHooks`。hook 目录里 stdlib 与 **SDK 库**（`z42.build` / `z42.project` 等编译器域包）**自动可见**、免声明，且不拷贝——hook 加载进 z42b 进程，用的就是宿主那份。**z42c 不消费此键**（仅 z42b 编排读），与 `[platform.*]` 同为编排/发布侧配置。用途见下文 publish 一节（`z42 publish` 经 hook 免装 workload 产 apphost）；编排实现属内部细节，本书不展开。 |
+
+发布目录不在 `[build]`：它是 `[platform.desktop].publish_dir`（见下文 publish 一节），默认 `${output_dir}/publish`。
 
 **模板变量（`${...}`）**：
 
@@ -340,31 +351,14 @@ dist_dir   = "/c"
 | `z42c build --no-publish` | 同上（不复制） | 只编译到 `dist_dir`，跳过 publish 步骤 |
 | `z42c publish` | 编译 + 复制产物到 `publish_dir` | 编译 + 复制产物 + 非 stdlib 依赖到 `publish_dir` |
 
-**从 0.1.x `out_dir` 迁移**：直接把 `out_dir = "..."` 改成 `dist_dir = "..."`；若值就是 `"dist"`（默认），整行可以删除。pre-1.0 不留 alias —— 老字段触发 WS008 警告 + Levenshtein 建议 `dist_dir`。
+**`pack`（packed / indexed 布局）**：`[project].pack` 显式值优先；未写时按 profile 取默认——
+`debug` → `false`（indexed），`release` → `true`（packed）。`pack` 只能写在 `[project]`。
 
-**`pack` 字段说明（三层优先级，高→低）：**
-
-| 层次 | 位置 | 说明 |
-|------|------|------|
-| 最高 | `[profile.debug/release].pack` | 当前 profile 覆盖 |
-| 中 | `[[exe]].pack` | 单个可执行目标覆盖 |
-| 最低 | `[project].pack` | 工程级全局默认 |
-
-**内置默认值（未显式配置时）：** `debug` → `false`（indexed），`release` → `true`（packed）
-
-**`strip` 字段说明：**
-
-控制 DBUG section 的产出位置。strip=true 时主 `<name>.zpkg` 不含 DBUG body，配套产出 `<name>.zsym` sidecar（zpkg 0.4 `SymOnly` flag，含 MDBG + BLID）。runtime 加载主 zpkg 后自动探测同目录 sidecar 并按 build_id 配对合并，缺失或不匹配时静默退化（trace 维持函数名 + 签名）。
-
-| 层次 | 位置 | 说明 |
-|------|------|------|
-| 最高 | `--strip-symbols=true\|false` | CLI override |
-| 中 | `[profile.debug/release].strip` | toml profile 覆盖 |
-| 最低 | 内置默认 | `debug` → `false`，`release` → `true` |
+**strip（剥离调试信息）**：没有独立的键或 CLI flag，**strip ≡ `--release`**。strip 时主 `<name>.zpkg` 不含 DBUG body，配套产出 `<name>.zsym` sidecar（zpkg 0.4 `SymOnly` flag，含 MDBG + BLID）。runtime 加载主 zpkg 后自动探测同目录 sidecar 并按 build_id 配对合并，缺失或不匹配时静默退化（trace 维持函数名 + 签名）。
 
 **产物输出：**
 
-| pack 值 | strip 值 | 产物 | 说明 |
+| pack 值 | strip（`--release`） | 产物 | 说明 |
 |---------|---------|------|------|
 | `false` | `false` | `dist/<name>.zpkg`（indexed 主文件）+ `dist/<rel>.zbc` 散装 + `.cache/` | 开发态（debug 默认），DBUG 内嵌散装 zbc；未变文件 zbc 字节稳定 → 最小 patch |
 | `false` | `true`  | ——（构建报错）| indexed 为开发态，与 `--release` strip 不兼容 |
@@ -374,10 +368,6 @@ dist_dir   = "/c"
 > **flat workspace 一律 packed**：`z42c build --workspace --output-dir <dir>` 让全部成员共用一个 dist，
 > indexed 的散装 `<rel>.zbc` 会在成员之间按同名相对路径互相覆盖。所以这种构建下成员**总是** packed
 > （debug 也一样）；成员显式写了 `pack = false` 则报错。per-member 布局（不带 `--output-dir`）不受影响。
-
-> **z42c 实现现状**：`pack` 三层中 `[project].pack` + 内置默认已生效；
-> `[profile.*].pack` / `[[exe]].pack` 随 profiles 解析延后线（z42c 尚未解析 profile 段）。
-> z42c 的 strip ≡ `--release`（无独立 `--strip-symbols` flag）。
 
 **增量编译工作方式：**
 
@@ -486,56 +476,25 @@ my-app/
 
 ## L4 — 运行时 Profile
 
-区分开发和发布构建，覆盖执行模式和优化级别。
+`z42c build` 用 `debug` profile，`z42c build --release` 用 `release` profile。`[profile.<n>]` 本身
+**不接受任何直接写的键**，内容只能放进两个子表：
 
 ```toml
-[project]
-name  = "myapp"
-version = "0.1.0"
-kind  = "exe"
-entry = "MyApp.main"
+[profile.release.runtime]      # 运行时旋钮 → 烤进 dist/<name>.runtimeconfig.toml 的 [runtime]
+mode = "interp"
 
-[build]
-mode = "interp"        # 全局默认执行模式
-
-[profile.debug]        # z42c build（默认）
-mode     = "interp"
-optimize = 0
-debug    = true        # 保留调试信息（zbc META section）
-
-[profile.release]      # z42c build --release
-mode     = "jit"
-optimize = 3
-strip    = true        # 剥除 META section
+[profile.debug.properties]     # 应用自定义配置 → 侧车 [properties]，逐 key 浅覆盖顶层 [properties]
+api-endpoint = "http://localhost:8080"
 ```
 
-**Profile 字段说明：**
-
-| 字段 | 类型 | 说明 |
+| 子表 | 内容 | 详见 |
 |------|------|------|
-| `mode` | `interp\|jit\|aot` | 执行模式，覆盖 `[build].mode` |
-| `optimize` | 0–3 | 优化级别（0=无，3=最激进）|
-| `debug` | bool | 生成调试信息，默认 debug=true / release=false |
-| `strip` | bool | 剥除调试信息，默认 false |
-| `pack` | bool | 覆盖 `[[exe]]` 和 `[project].pack`；null = 不覆盖 |
+| `[profile.<n>.runtime]` | VM 运行时旋钮；构建期按 VM 登记表校验名字，未知名只警告 | [运行时设置 · 应用侧车](runtime-settings.md#应用侧车) |
+| `[profile.<n>.properties]` | 应用属性，运行时经 `Std.Runtime.AppProperties` 只读 | [AppProperties](../stdlib/app-properties.md) |
 
-**执行模式三级优先级（高→低）：**
-
-```
-源码注解 @interp / @jit / @aot   ← 最高，作用于单个命名空间
-  ↓
-profile 中的 mode 字段
-  ↓
-[build].mode 全局默认             ← 最低
-```
-
-**构建命令：**
-
-```bash
-z42c build              # 使用 profile.debug
-z42c build --release    # 使用 profile.release
-z42c build --profile staging   # 使用自定义 profile（如有）
-```
+在 `[profile.<n>]` 下直接写键（`mode` / `optimize` / `debug` / `strip` / `pack` …）是**致命的构建错误**，
+报错会指向该放进哪个子表。优化开关写 [`[optimize]`](#l5d--optimize--syntax逐项具名旋钮)；`pack` 写
+`[project]`；strip 随 `--release`（见 [L3](#l3--构建产物配置)）。
 
 ---
 
@@ -676,7 +635,7 @@ entry   = "MyApp.main"
 
 由此确立的约定：
 
-- **`[dependencies]` / `[tests.dependencies]` / `[bench.dependencies]` 只用于第三方依赖。** stdlib（`z42.*`）出现在其中纯属冗余。
+- **`[dependencies]` / `[tests.dependencies]` / `[benches.dependencies]` 只用于第三方依赖。** stdlib（`z42.*`）出现在其中纯属冗余。
 - **声明 `z42.*` 不报错也不警告**，只是冗余。
 - **第三方包漏写会报 [`E0497`](../appendix/error-codes.md)**（编译期）——这是本节约定里
   真正有执行的那一半。
@@ -718,14 +677,8 @@ include = ["src/**/*.z42"]
 [dependencies]
 "my-utils" = "*"
 
-[profile.debug]
-mode  = "interp"
-debug = true
-
-[profile.release]
-mode     = "jit"
-optimize = 3
-strip    = true
+[profile.release.runtime]
+mode = "interp"
 ```
 
 ### 依赖必须无环（No Circular Dependencies）
@@ -738,7 +691,6 @@ strip    = true
 |------|------|----------|
 | zpkg `[dependencies]` 之间 | A 依赖 B → B 不得（直接或传递）依赖 A | 🔄 编译期解析时检测（错误码待 RFC，建议 `E0610 CircularPackageDependency`） |
 | Workspace member 之间 | 同上，DFS 三色检测 | ✅ `WS006 CircularDependency`（见 [error-codes.md](../appendix/error-codes.md)） |
-| Preset `include` 链 | 同上 | ✅ `WS020 CircularInclude` |
 | stdlib 包之间 | 同上，且 `z42.core` 在所有库之下 | ✅ 约定（无固定层级，只要求无环） |
 
 **为什么禁止循环依赖**：
@@ -1027,11 +979,12 @@ artifacts/build/libraries/<lib>/<profile>/
 [lints]
 DEMO001            = "error"     # warning → error：编译失败、不产产物
 "webgen.*"         = "none"      # 支持通配前缀
-warnings-as-errors = true        # 特殊布尔键（不是规则名）
+warnings_as_errors = true        # 特殊布尔键（不是规则名）
 ```
 
 键是规则 ID，值是 severity 串。**精确 ID 优先于 `pkg.*` 前缀通配**。
-`warnings-as-errors` 是**保留的布尔键**，不当规则名解析。
+`warnings_as_errors` 是**保留的布尔键**，不当规则名解析。
+旧拼写 `warnings-as-errors` 目前仍生效，但会报弃用警告提示改名；后续版本将按未知键报错。
 `DiagRule.EnabledByDefault` 为 `false` 的规则默认不报，要在这里显式打开。
 
 接受的 severity 串只有五个：
@@ -1103,18 +1056,17 @@ using_stmt    = false     # 关掉 `using` **语句**（import / 别名**指令*
 
 ## L6 — 工作区（Workspace）
 
-管理多工程 monorepo，统一构建、版本与共享元数据。
+管理多工程 monorepo，统一构建与产物布局。
 
 ### L6.1 文件名与角色
 
 | 文件 | 数量 | 角色 |
 |---|---|---|
-| `z42.workspace.toml` | workspace 根目录唯一一份 | virtual manifest：协调 + 共享配置 |
-| `<name>.z42.toml` | 每个 member 一份 | member 自身配置 |
+| `z42.workspace.toml` | workspace 根目录唯一一份 | virtual manifest：成员清单 + 产物布局 |
+| `<name>.z42.toml` | 每个 member 一份 | member 自身配置（普通工程清单） |
 
-`z42.workspace.toml` 是 **virtual manifest**：仅含 `[workspace.*]` / `[profile.*]` /
-`[policy]` 段，**不允许**有 `[project]` 段（违反报 `WS036`）。`[workspace]` 段也只能
-出现在文件名为 `z42.workspace.toml` 的文件中（违反报 `WS030`）。
+`z42.workspace.toml` 是 **virtual manifest**：顶层只认 `[workspace]`（及其子表 `build` / `dependencies`）。
+写 `[project]`、`[profile.*]` 或其它任何段都按[未知键](#键校验本页没列的键一律报错)报错。
 
 ### L6.2 顶层结构
 
@@ -1124,40 +1076,22 @@ using_stmt    = false     # 关掉 `using` **语句**（import / 别名**指令*
 [workspace]
 members         = ["libs/*", "apps/*"]   # glob 与显式路径混用
 exclude         = ["libs/sandbox-*"]     # 从 glob 结果排除
-default-members = ["apps/hello"]         # 不带 -p 时的默认编译子集
-resolver        = "1"
+default_members = ["apps/hello"]         # 默认成员子集
 
-[workspace.project]                      # 共享元数据（D5：仅以下 4 个字段可共享）
-version     = "0.1.0"
-authors     = ["z42 team"]
-license     = "MIT"
-description = "..."
-
-[workspace.dependencies]                 # 中央版本声明
+[workspace.dependencies]                 # 表形式只认 version / path / deploy
 "my-utils" = { path = "libs/my-utils", version = "0.1.0" }
 
-[workspace.build]                        # 集中产物
-# 四件套；unset = 级联默认。
-# 默认等价于：
-#   output_dir  = "artifacts/${project_name}/${profile}"
-#   cache_dir   = "${output_dir}/.cache"
-#   dist_dir    = "${output_dir}/dist"
-#   publish_dir = "${output_dir}/publish"
-# 整段可以省略，留这里只为展示语法。
-dist_dir = "dist/${profile}"
-
-[policy]                                 # 强制策略
-"build.dist_dir" = "dist"
-
-[profile.debug]                          # 集中 profile（成员不可覆盖）
-mode  = "interp"
-debug = true
-
-[profile.release]
-mode     = "jit"
-optimize = 3
-strip    = true
+[workspace.build]                        # 集中产物（见 L6.5）；整段可省略
+output_dir = "artifacts/${project_name}/${profile}"
 ```
+
+| 键 | 说明 |
+|---|---|
+| `members` | 成员目录（glob / 显式路径），缺省 `["*"]` |
+| `exclude` | 从展开结果中剔除的成员路径 |
+| `default_members` | 默认成员子集。旧拼写 `default-members` 目前仍生效，但会报弃用警告提示改名；后续版本将按未知键报错 |
+| `dependencies` | 中央依赖声明，条目写法同 `[dependencies]`。当前只解析与校验键名，构建不消费——成员仍在自己的 `[dependencies]` 里声明依赖 |
+| `build` | 只接受 `output_dir` / `cache_dir`，见 [L6.5](#l65-workspacebuild-集中产物) |
 
 **成员发现规则**（z42c `build --workspace`）：
 
@@ -1169,37 +1103,7 @@ strip    = true
 - `exclude` 按成员相对根的路径做段级 glob（`**` 跨段，`*` / `?` 段内），从展开结果里剔除。
 - 成员间依赖成环直接报错。
 
-### L6.3 Member 引用 workspace 共享
-
-```toml
-# apps/hello/hello.z42.toml
-
-[project]
-name              = "hello"              # 身份字段必须 member 自己声明
-kind              = "exe"
-entry             = "Hello.main"
-version.workspace = true                 # ← Cargo 风格：引用 workspace.project.version
-license.workspace = true
-
-[sources]
-include = ["src/**/*.z42"]
-
-[dependencies]
-"my-utils".workspace = true              # ← 引用 workspace.dependencies."my-utils"
-"my-http"  = { workspace = true, optional = true }   # 局部修饰
-```
-
-**身份字段 vs 共享字段（D5）：**
-
-| 字段 | 共享 | 备注 |
-|---|---|---|
-| `name` / `kind` / `entry` | ❌ | member 必须自己声明（防止意外冲突） |
-| `version` / `authors` / `license` / `description` | ✅ | 可用 `xxx.workspace = true` 引用 |
-
-**禁用旧语法：** `version = "workspace"` 不再支持（报 `WS035`），改为 key 层面
-`xxx.workspace = true` 或 `{ workspace = true }`。
-
-### L6.4 Members 展开
+### L6.3 Members 展开
 
 ```toml
 members = ["libs/*", "apps/main", "experiments/foo"]
@@ -1209,87 +1113,10 @@ exclude = ["libs/sandbox-*"]
 - glob 仅匹配**目录**，目录内必须恰好一份 `*.z42.toml`（多份 → `WS005`）
 - 显式路径与 glob 可混用
 - exclude 优先于 members
-- `default-members` 必须是展开结果的子集（否则 `WS031`）
-
-orphan member（子树有 manifest 但未被 `members` 命中）→ `WS007`（warning，不阻塞构建）。
-
-### L6.5 include 机制
-
-Member 与 preset 文件可通过 `include` 字段拉入**子树/分组共享配置**（如 "libs/* 都用 lib defaults"），位置自由、不依赖目录层级。
-
-```toml
-# libs/foo/foo.z42.toml
-include = [
-    "${workspace_dir}/presets/lib-defaults.toml",
-    "${workspace_dir}/presets/strict-lints.toml",
-]
-
-[project]
-name              = "foo"
-version.workspace = true
-```
-
-#### 合并语义
-
-| 字段类型 | 合并规则 |
-|---|---|
-| 标量（`kind` / `license` / `version`） | 后写者覆盖前写者；自身（声明 include 的文件）覆盖所有 preset |
-| 表（如 `[project]`） | 字段级合并；同名字段后者覆盖 |
-| 数组（如 `[sources].include`） | **整体覆盖**（不连接，避免菱形依赖时列表难推测） |
-| `[dependencies]` | 按 `name` 字典合并；同名后者整体替换 |
-
-#### 路径规则
-
-- 路径相对于声明 include 的文件
-- 支持 `${workspace_dir}` / `${member_dir}` 模板变量
-- **不允许**：绝对系统路径 / URL / glob 模式（违反报 `WS024`）
-
-#### Preset 文件段限制（WS021）
-
-Preset 不允许：
-- `[workspace.*]`、`[policy]`、`[profile.*]` —— 治理一致性，必须从 workspace 根下发
-- `[project].name`、`[project].entry` —— 身份字段，member 必须自己声明
-
-Preset **允许**：`[project] kind / license / authors / description / pack`、`[sources]`、`[build]`、`[dependencies]`。
-
-#### 嵌套 / 循环 / 菱形
-
-- preset 内可再写 `include` 拉入其他 preset
-- 嵌套深度上限 8 层（超过 → `WS022`）
-- 循环 include（A→A 或 A→B→A）→ `WS020`，错误信息列完整环
-- 菱形 include（同一文件被多次拉入）→ 去重，仅合并一次（不报错）
-
-#### 配置生效顺序
-
-```
-1. workspace 根 [workspace.project] / [workspace.dependencies]   （默认）
-2. member 的 include 链按声明顺序展开 + 合并
-3. member 自身字段                                              （member 覆盖）
-4. workspace 根 [policy]                                        （强制）
-5. CLI flag                                                     （最终）
-```
-
-#### 错误码
-
-| 码 | 含义 | 级别 |
-|---|---|---|
-| WS020 | 循环 include | error |
-| WS021 | preset 含禁用段 | error |
-| WS022 | include 嵌套深度超过 8 层 | error |
-| WS023 | include 路径不存在 | error |
-| WS024 | include 路径不允许（绝对路径 / URL / glob） | error |
-
-#### 示例
-
-可解析示例（`z42.project` 单测夹具）见 `src/compiler/z42.project/tests/`；形态如下：
-- `presets/lib-defaults.toml` 提供 `kind=lib` + `[sources]` 默认
-- `presets/strict-lints.toml` 提供 `[build].mode = "interp"`
-- `libs/foo/` include lib-defaults
-- `libs/bar/` include lib-defaults + strict-lints（后者覆盖前者重叠字段）
 
 ---
 
-### L6.6 z42c workspace 模式
+### L6.4 z42c workspace 模式
 
 z42c 在执行命令前先尝试发现 workspace 根：从 CWD 向上找 `z42.workspace.toml`。
 
@@ -1297,13 +1124,13 @@ z42c 在执行命令前先尝试发现 workspace 根：从 CWD 向上找 `z42.wo
 |---|---|
 | CWD 在 workspace 内（无显式 path / `--no-workspace`） | workspace 模式：调 `WorkspaceBuildOrchestrator` 编译 |
 | CWD 在 member 子目录 + 无 `-p` / `--workspace` | 自动 `-p <当前 member>`，编译该 member 与依赖闭包 |
-| CWD 在 workspace 根 + 无 `-p` / `--workspace` | 编译 `default-members`（无则全部） |
+| CWD 在 workspace 根 + 无 `-p` / `--workspace` | 编译 `default_members`（无则全部） |
 | 给出显式 path / `--no-workspace` / 不在 workspace 内 | 单工程模式 / 单文件模式（行为不变） |
 
 #### 命令矩阵
 
 ```bash
-z42c build                      # 自动发现 workspace；按 default-members 或当前 member 编译
+z42c build                      # 自动发现 workspace；按 default_members 或当前 member 编译
 z42c build --workspace          # 编译所有 members
 z42c build -p hello             # 仅编译 hello 与依赖闭包
 z42c build -p foo -p bar        # 多选
@@ -1339,7 +1166,6 @@ core ← utils ← hello
 ```bash
 z42c info                       # 列出 workspace 概览（members/kinds/默认 profile）
 z42c info --resolved -p hello   # hello 的最终生效配置 + 每字段来源标注
-z42c info --include-graph -p X  # 显示 member X 的 include 链（preset 展开树）
 z42c metadata --format json     # 机读 JSON（含 schema_version: "1" + dependency_graph）
 z42c tree                       # ASCII 显示跨 member 依赖树
 z42c lint-manifest              # 静态校验所有 manifest（不编译；返回 WSxxx 报告）
@@ -1370,20 +1196,15 @@ z42b clean <dir>                      # 删 <dir>/dist + <dir>/cache
 
 ```
 mymonorepo/
-├── z42.workspace.toml      （[workspace] / [workspace.project] / [workspace.build]）
+├── z42.workspace.toml      （[workspace] / [workspace.build]）
 ├── .gitignore              （dist/ + .cache/）
-├── presets/
-│   ├── lib-defaults.toml
-│   └── exe-defaults.toml
 ├── libs/
 └── apps/
 ```
 
 ---
 
-### L6.7 Policy 与集中产物
-
-#### `[workspace.build]` 集中产物布局
+### L6.5 `[workspace.build]` 集中产物
 
 workspace 模式下，所有 member 产物**集中**到 workspace 根下的 `artifacts/` 子树：
 
@@ -1415,159 +1236,46 @@ workspace 模式下，所有 member 产物**集中**到 workspace 根下的 `art
 # cache_dir   = "${output_dir}/.cache"    (+ member 子目录防碰撞)
 # 成员 dist = ${output_dir}/dist；成员 publish = ${output_dir}/publish（[platform.desktop].publish_dir 未配时）
 
-# 若要按 profile 做顶层区分，显式设置：
-# output_dir = "artifacts/${project_name}/${profile}"
-dist_dir = "dist/${profile}"   # ${profile} 模板示例：debug/release 各自分流
+output_dir = "out/${project_name}/${profile}"   # 模板示例：按成员名 + profile 分流
 ```
 
-#### `[policy]` 强制策略
-
-`[policy]` 段锁定字段值，member 不可覆盖（违反报 `WS010`）：
-
-```toml
-[policy]
-"profile.release.strip" = true        # release 产物必须 strip
-"build.mode"            = "interp"    # 全 workspace 仅用 interp 模式
-```
-
-**字段路径表达式**（D3.1）：用点分隔的扁平字符串 key。
-
-**默认锁定字段**（D3.2，四件套）：
-
-| 字段路径 | 默认锁定值 |
-|---|---|
-| `build.output_dir` | `[workspace.build].output_dir` |
-| `build.cache_dir` | `[workspace.build].cache_dir` |
-| `build.dist_dir` | `[workspace.build].dist_dir` |
-| `build.publish_dir` | `[workspace.build].publish_dir` |
-
-无需在 `[policy]` 显式声明；自动生效。member 若试图覆盖产物路径 → `WS010`。
-
-#### Policy 检测语义
-
-`PolicyEnforcer` 仅检查 member **显式声明**的字段。例：
-
-- Member 不写 `[build]` → 无冲突，使用 workspace cascade 默认（`${output_dir}/dist`）
-- Member 写 `[build] dist_dir = "dist"`（与 workspace 锁定值相同）→ 不冲突，origin 标 PolicyLocked
-- Member 写 `[build] dist_dir = "custom"` → `WS010`
-
-#### 字段路径不存在（WS011）
-
-```toml
-[policy]
-"build.outdir" = "dist"   # 拼写错误（应为 build.dist_dir）
-```
-
-报 `WS011 PolicyFieldPathNotFound`，附 fuzzy 建议（编辑距离 ≤ 3）：`did you mean 'build.dist_dir'?`
-
-#### ResolvedManifest 集中产物字段
-
-`ResolvedManifest` 上的 effective 路径字段（workspace 和单工程**两种模式都填充**）：
-
-| 字段 | 含义 |
-|---|---|
-| `IsCentralized` | true = workspace 集中布局；false = 单工程 |
-| `EffectiveOutputDir` | 顶层输出根目录绝对路径（`${output_dir}` 模板变量解析为此） |
-| `EffectiveCacheDir` | 该 member 的 cache 目录绝对路径（workspace 模式下含 member 子目录） |
-| `EffectiveDistDir` | 该 member 的 dist 目录绝对路径 |
-| `EffectiveProductPath` | 该 member 产物完整路径 (`<EffectiveDistDir>/<name>.zpkg`) |
-
-`WorkspaceBuildOrchestrator` 直接消费 `EffectiveProductPath` 写产物；
-单工程 `PackageCompiler.Run` 也走同一字段。
-
-#### 错误码
-
-| 码 | 含义 | 级别 |
-|---|---|---|
-| WS010 | Policy 冲突：member 字段值与 workspace 锁定值不一致 | error |
-| WS011 | Policy 字段路径不存在（含 fuzzy 建议） | error |
-
-> WS004 已归并入 WS010，编号不再使用。
-
-#### 示例
-
-形态如下：含 `[workspace.build] dist_dir = "dist/${profile}"` + `[policy] "profile.release.strip" = true`。
+`[workspace.build]` 只接受 `output_dir` / `cache_dir`；成员的 dist / publish 目录跟随 `${output_dir}`，
+不能在 workspace 层单独设置（写 `dist_dir` / `publish_dir` 报未知键）。
 
 ---
 
-### L6.8 Member 段限制
+### L6.6 Member 清单
 
-Member `<name>.z42.toml` **不允许**以下段（违反报 `WS003`）：
+Member 清单就是普通工程清单（L1–L5 的全部键都可用，包括 `[profile.<n>.runtime]` /
+`[profile.<n>.properties]`）。工作区专属的 `[workspace]` 写在 member 清单里按未知键报错。
 
-- `[workspace]` / `[workspace.*]` —— 全仓共享必须从根下发
-- `[policy]` —— 治理一致性
-- `[profile.*]` —— profile 集中在 workspace 根
+### L6.7 路径模板变量
 
-### L6.9 路径模板变量（D8）
-
-路径字段允许 4 个内置只读变量：
-
-| 变量 | 含义 |
-|---|---|
-| `${workspace_dir}` | workspace 根绝对路径 |
-| `${member_dir}` | 当前 member 目录绝对路径 |
-| `${member_name}` | 当前 member `[project].name` |
-| `${profile}` | 当前激活 profile 名 |
-
-**语法**：
-- 占位 `${name}`；字面量 `$` 写 `$$`
-- 嵌套 / 未闭合 / 非法字符 → `WS038`
-- 未知变量（含 `${env:NAME}` 暂不支持）→ `WS037`
-
-**允许字段白名单**（其他字段出现 `${...}` 报 `WS039`）：
-
-- `include` 数组各元素
-- `[build] output_dir / cache_dir / dist_dir`
-- `[workspace.build] output_dir / cache_dir / dist_dir`（同上）
-- `[workspace.dependencies] xxx.path` / `[dependencies] xxx.path`
-- `[sources] include / exclude`
-
-**禁止字段**：标量元数据（`version` / `name` / `kind` / `entry` / `description` /
-`license` / `authors`）以及 `members` glob 模式。
+`[build]` 与 `[workspace.build]` 的目录字段（`output_dir` / `cache_dir` / `dist_dir` / `generated_dir`）
+支持 `${...}` 模板，变量表见 [L3](#l3--构建产物配置)。`$$` 写字面 `$`；未知变量与未闭合的 `${`
+原样保留、不报错。其它字段不展开模板。
 
 ```toml
-# 合法
 [workspace.build]
-dist_dir = "dist/${profile}"              # 展开 → dist/release
-
-# 非法（WS039）
-[project]
-version = "${profile}"                    # 标量字段不允许变量
+output_dir = "artifacts/${project_name}/${profile}"   # 展开 → artifacts/hello/release
 ```
 
-### L6.10 配置生效顺序
+### L6.8 配置生效顺序
 
 ```
-最终 member 配置 = 以下层按顺序合并：
+最终 member 配置：
 
-1. workspace 根 [workspace.project] / [workspace.build] / [workspace.dependencies]   (默认)
-2. member 的 include 链按声明顺序展开 + 合并
-3. member 自身 *.z42.toml 字段                                                       (member 覆盖)
-4. workspace 根 [policy] 段                                                          (强制覆盖)
-5. CLI flag（--release / --profile X / --no-incremental 等）                          (最终覆盖)
+1. member 自身 *.z42.toml 字段
+2. 产物目录：member 未配 output_dir / dist_dir 时取 [workspace.build]（见 L3「workspace 成员继承规则」）
+3. CLI flag（--release / --no-incremental 等）                                         (最终覆盖)
 ```
 
-### L6.11 错误码索引
+### L6.9 错误码
 
-| 码 | 含义 | 级别 |
-|---|---|---|
-| WS003 | Member 内出现禁用段（`[workspace.*]` / `[policy]` / `[profile.*]`） | error |
-| WS005 | 同目录两份 `*.z42.toml` 引发歧义 | error |
-| WS007 | Manifest 在 workspace 子树内但未被 members 命中 | warning |
-| WS030 | `[workspace]` 段出现在非 `z42.workspace.toml` 文件 | error |
-| WS031 | `default-members` 含未匹配项 | error |
-| WS032 | Member 引用 workspace 共享字段，但根未声明 | error |
-| WS033 | `[workspace.project]` 字段类型错误 / 不可共享字段被声明 | error |
-| WS034 | Member 引用未声明的 workspace 依赖 | error |
-| WS035 | 出现已废弃的 `version = "workspace"` 语法 | error |
-| WS036 | Workspace 根 manifest 同时含 `[workspace]` 与 `[project]` | error |
-| WS037 | 路径模板含未知变量 | error |
-| WS038 | 路径模板语法非法 | error |
-| WS039 | 模板变量出现在不允许的字段 | error |
+WSxxx 码见[错误码全表](../appendix/error-codes.md)（该组目前整体未接线）；清单键错误不走诊断码，
+见[键校验](#键校验本页没列的键一律报错)。
 
-> WS020-024 属 include，WS010/011 属 policy，WS001/002/006 属编译运行时。WS004 已归并入 WS010，编号不再使用。
-
-### L6.12 目录结构样板
+### L6.10 目录结构样板
 
 ```
 monorepo/
@@ -1601,90 +1309,109 @@ monorepo/
 
 ## 完整字段速查
 
+下面是清单里**能写的全部键**；没列出的键报错（见[键校验](#键校验本页没列的键一律报错)）。
+
 ```toml
+# ── 工程清单 <name>.z42.toml ───────────────────────────────────────────────
 [project]
 name        = "my-app"          # 必填
 version     = "0.1.0"           # 必填，SemVer
-kind        = "exe"             # 必填，exe | lib
+kind        = "exe"             # exe | lib | analyzer；多目标用 [[exe]] 时省略
 entry       = "MyApp.Main"      # 可选；省略时自动发现 Main
-description = ""                # 可选
-authors     = []                # 可选
-license     = "MIT"             # 可选，SPDX
-pack        = false             # 可选，工程级 pack 默认值
+pack        = false             # 可选；省略 → debug indexed / release packed
+description = ""                # 可选，纯元数据
+authors     = []                # 可选，纯元数据
+license     = "MIT"             # 可选，纯元数据（SPDX）
 
 [sources]
 include = ["src/**/*.z42"]      # 默认值
 exclude = []                    # 默认值
 
-[build]
-# 三件套字段全 optional；
-# 不设走级联默认（output_dir 默认 = <toml 所在目录>/artifacts/<profile>；cache_dir 默认
-# ${output_dir}/.cache；未配 output_dir 时 dist 默认 <toml 所在目录>/dist，配了则 ${output_dir}/dist）。
-# output_dir = "/build/myproj"    # 顶层
-# cache_dir  = "/dev/shm/myproj"  # 中间产物（可独立放 tmpfs）
-# dist_dir   = "/build/myproj/dist"  # 最终产物
+[build]                          # 全部可选，未设走级联默认（见 L3）
+# output_dir    = "/build/myproj"
+# cache_dir     = "/dev/shm/myproj"
+# dist_dir      = "/build/myproj/dist"
+# generated_dir = "${output_dir}/generated"
+# hooks         = "build"         # z42b 编排读，z42c 不消费
 incremental = true              # 默认 true
-mode        = "interp"          # 全局默认执行模式
+
+[[exe]]                          # 多可执行目标；与 [project] kind = "exe" 二选一
+name    = "tool"
+entry   = "Tool.Main"
+include = ["src/tool/**/*.z42"] # 可选，覆盖 [sources]
 
 [dependencies]
-# "pkg-name" = "*"              # zpkg 包名（匹配 zpkg manifest 的 [project] name）
-# "pkg-name" = "1.2.0"         # 版本约束（目前仅做存在性校验）
-# stdlib 无需声明，由 VM 自动加载
+# "pkg-name" = "*"                                       # 按名：zpkg 包名
+# "pkg-name" = { version = "1.0", path = "...", deploy = "copy" }   # 表形式只认这三个键
+# stdlib 无需声明
 
-[analyzers]                      # 编译期扩展 zpkg（analyzer / generator）；加载进编译器、不链入产物
-"demo.noemptycatch" = "0.1.0"   # 值同 [dependencies]，但**不支持 path**
+[analyzers]                      # 编译期扩展 zpkg；写法同 [dependencies]，不接受 deploy
+"demo.noemptycatch" = "0.1.0"
 
-[lints]                          # 逐规则 severity 覆盖：none|hidden|info|warning|error
-DEMO001            = "error"    # 精确 ID 优先于 `pkg.*` 通配；写错的串被静默忽略
-warnings-as-errors = true       # 保留布尔键，不当规则名解析
+[lints]                          # 键是规则 ID，值是 severity：none|hidden|info|warning|error
+DEMO001            = "error"
+warnings_as_errors = true       # 保留布尔键（旧拼写 warnings-as-errors 弃用）
 
-[profile.debug]
-mode     = "interp"
-optimize = 0
-debug    = true
-pack     = false                # → indexed zpkg（默认）
+[optimize]                       # 逐 pass 开关，名字见 L5d
+inline = true
 
-[profile.release]
-mode     = "jit"
-optimize = 3
-strip    = true
-pack     = true                 # → packed zpkg（默认）
+[syntax]                         # 语法特性开关，名字见 L5d
+exceptions = false
 
-# ── workspace 模式（仅 z42.workspace.toml 中合法） ─────────────────────────
+[properties]                     # 应用自定义配置（键自由）
+app-name = "demo"
+
+[profile.release.runtime]        # 运行时旋钮（见 L4）
+mode = "interp"
+[profile.debug.properties]       # 按 profile 覆盖 [properties]
+app-name = "demo-dev"
+
+[tests]                          # [benches] / [examples] 同形（见 L5b）
+include = ["tests/*.z42"]
+exclude = []
+auto    = true
+[tests.dependencies]
+"z42.test" = "0.1.0"
+
+[[test]]                         # [[bench]] / [[example]] 同形（见 L5b）
+name    = "compile_perf"
+harness = false
+entry   = "Perf.Runner.Main"
+include = ["tests/perf/*.z42"]
+test    = false                 # 仅 example 有意义
+[test.dependencies]
+"z42.compression" = "0.1.0"
+
+[native.mylib]                   # 本包携带的私有 native 库（逻辑名 mylib）
+dir = "native"                  # 预编译库基目录（相对清单），按 <dir>/<rid>/ 定位
+
+[platform.desktop]               # 及 ios / android / wasm，见下节
+apphost = true
+
+# ── 工作区清单 z42.workspace.toml（顶层只认 [workspace]）──────────────────────
 [workspace]
 members         = ["libs/*", "apps/*"]
 exclude         = []
-default-members = []
-resolver        = "1"
+default_members = []            # 旧拼写 default-members 弃用
 
-[workspace.project]              # 共享元数据；成员用 xxx.workspace = true 引用
-version     = "0.1.0"
-authors     = []
-license     = "MIT"
-description = ""
-
-[workspace.dependencies]         # 中央版本声明；成员用 dep.workspace = true 引用
+[workspace.dependencies]         # 表形式只认 version / path / deploy
 # "pkg-name" = { path = "...", version = "0.1.0" }
 
-[workspace.build]                # 集中产物
-# 三件套同 [build]；不设
-# 走 ${workspace_root}/.cache 和 ${workspace_root}/dist 的默认。
-# output_dir = "/build/${workspace_dir}"
-# cache_dir  = ".cache"
-# dist_dir   = "dist/${profile}"
-
-[policy]                         # 强制策略
-# "build.dist_dir" = "dist"
-
-[workspace]                     # L6，与 [project] 可共存
-members = []
-[workspace.dependencies]
-# name = { path = "...", version = "..." }
+[workspace.build]                # 只认这两个键
+# output_dir = "artifacts/${project_name}/${profile}"
+# cache_dir  = "${output_dir}/.cache"
 ```
 
 ## `[platform.*]` 平台配置段
 
-`z42c` **不读取**这些段；由 `z42 export` 命令消费。注册到 `ProjectManifest.KnownTopLevelKeys` 以避免 WS008 告警。
+`z42c` 只校验这些段的键名、不消费；由 `z42 export` / `z42 publish` 消费。各子表接受的键：
+
+| 段 | 键 |
+|---|---|
+| `[platform.desktop]` | `apphost` / `publish_dir` / `icon` / `bundle_id` / `bin` / `payload` / `link` |
+| `[platform.ios]` | `bundle_id` / `display_name` / `version` / `min_ios` / `team_id` / `device_families` / `capabilities` |
+| `[platform.android]` | `app_id` / `display_name` / `version_code` / `version_name` / `min_sdk` / `target_sdk` / `permissions` |
+| `[platform.wasm]` | `title` |
 
 ### `[platform.ios]`
 
@@ -1724,7 +1451,7 @@ title = "My App"   # optional: HTML &lt;title&gt;（默认 = project name）
 apphost     = true   # GATE：唯有 apphost = true，`z42 publish <toml> --rid <desktop-rid>` 才产 apphost。
                      # 缺省 / false → publish 报 "not configured to publish a desktop apphost" 并退出。
 publish_dir = ".."   # 仅输出位置（部署根，相对 toml 所在目录，同 [build].output_dir 基准）。
-                     # 不充当 gate；缺省 = ${output_dir}/publish（对齐 [build] 四件套默认，
+                     # 不充当 gate；缺省 = ${output_dir}/publish（对齐 [build] 目录默认，
                      # output_dir 未设→workspace 继承→<项目目录>/publish）。
                      # --output 可覆盖。
 # 部署布局（可选）：apphost 二进制与 payload zpkg 在
@@ -1764,46 +1491,6 @@ z42 publish <project.z42.toml>                             [--output <publish_di
 ```
 
 工程生成的实现细节本书不展开。
-
-## 条件配置：类型化轴子表（前瞻设计，未实施）
-
-> ⚠️ 前瞻设计（未实施）。该字段的取舍属实现决策，本书不展开。
-
-z42.toml **不引入 csproj 式 `Condition` 表达式求值**。沿已知变化轴（profile / platform / rid）
-的条件内容，用**类型化轴子表 + 确定性合并**表达，而非字符串布尔表达式——"条件"靠表键匹配，
-不靠表达式求值：
-
-```toml
-[dependencies]                      # 公共依赖
-http = "1.0"
-
-[platform.ios.dependencies]         # 仅 ios 目标合入
-swift-bridge = "0.3"
-
-[profile.release.defines]           # 仅 release profile
-NDEBUG = true
-```
-
-**合并优先级**（低 → 高，后者覆盖前者；按 key 合并，dep/define 同名取高优先级值）：
-
-```
-base（[dependencies] / [build] / 顶层）
-  → [profile.<profile>].*           # 当前 profile（debug/release）
-  → [platform.<family>].*           # 当前目标平台族（由 --rid 分类）
-  → CLI 标志                         # 最高
-```
-
-**为什么不引入 condition 表达式引擎**：
-
-- 类型化 + 可校验（轴段字段有 schema）；condition 的 `'$(X)'=='true'` 是字符串，拼错静默变 false。
-- **顺序无关**；MSBuild condition 依赖 property 自上而下求值的状态（"为什么这值不对"调试地狱）。
-- 无需解析器 / 求值器 / property 作用域引擎。
-
-**组合条件**（如 windows ∧ release）多轴嵌套若过于啰嗦，可后续评估 cargo 式**有界 `cfg()` 谓词**
-（封闭 key 集 + `all()`/`any()`/`not()`，仍可校验，**非**任意表达式）——见 build-orchestrator.md Deferred。
-
-**任意逻辑**（超出已知轴的条件判断 / 计算）→ 归 [`build/` hooks](#build-构建扩展目录z42b-自定义流程build-orchestrator)
-（z42 代码里 `if` 判断），**不进 config**。即「声明式变化用封闭类型化轴 + 确定性合并；任意逻辑用代码」。
 
 ## `build/` 构建扩展目录（z42b 自定义流程，build-orchestrator）
 

@@ -175,7 +175,7 @@ void test_lints_none_suppresses() {
 
 [Test]
 void test_lints_warnings_as_errors() {
-    // warnings-as-errors + 无逐规则覆盖 → 默认 Warning 规则升为 Error
+    // warnings_as_errors + 无逐规则覆盖 → 默认 Warning 规则升为 Error
     LintConfig cfg = new LintConfig(new string[0], new string[0], 0, true);
     var bag = _runCfg(new NoEmptyCatchAnalyzer(), _emptyCatchSrc(), cfg);
     Assert.Equal(DiagnosticSeverity.Error, _sevOf(bag, "Z9002"));
