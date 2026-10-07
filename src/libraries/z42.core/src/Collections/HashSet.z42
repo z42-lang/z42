@@ -1,166 +1,187 @@
 namespace Std.Collections;
 
-// `HashSet<T>` — 开放寻址哈希集合（augment-corelib-parity backlog #4）。
-//
-// 与 `Dictionary<TKey, TValue>` 同款线性探测 + 掩码 hash 短路实现，但只存元素、
-// 不存值：摊还 O(1) 平均 Add / Remove / Contains，负载因子 > 0.75 时 2 倍扩容。
+// `HashSet<T>` — 插入有序的紧凑哈希集合（与 `Dictionary<TKey, TValue>` 同一布局，共用操作见
+// `HashIndex.z42`），只存元素、不存值：摊还 O(1) 平均 Add / Remove / Contains。
+// `ToArray()` 按**插入顺序**产出；已存在元素再 `Add` 不改变位置；`Remove` 后再加入排到末尾。
 // 约束：T 必须 hashable + equatable（primitive 走 VM builtin，用户类型实现
 // IEquatable），与 Dictionary 的 TKey 约束一致。
 //
 // 迭代：用 `ToArray()` 取快照后 foreach（专用 enumerator 见 Deferred）。
 public class HashSet<T> where T: IEquatable {
-    T[] elems;
-    bool[] occupied;
-    // 每槽存其元素的掩码 hash（`GetHashCode() & 0x7FFFFFFF`），探测时先比 int
-    // hash，不等即跳过 `.Equals()` 派发；Grow 复用免重算。见 Dictionary 同款注释。
-    int[] hashes;
+    int[] _index;       // 索引表：0 = 空，-1 = 已删，否则 entry 下标 + 1；长度 = entries 容量 × 2
+    int[] _hashes;      // entries：规整后的 hash（≥ 0）；-1 = tombstone
+    T[] _elems;
+    int _used;          // entries 已用槽数（含 tombstone）
     public int Count;
-    int capacity;
 
-    public HashSet() {
-        this.capacity = 8;
-        this.elems = new T[8];
-        this.occupied = new bool[8];
-        this.hashes = new int[8];
+    public HashSet() { this._alloc(8); }
+
+    void _alloc(int cap) {
+        this._index = new int[cap * 2];
+        this._hashes = new int[cap];
+        this._elems = new T[cap];
+        this._used = 0;
         this.Count = 0;
     }
 
     public bool IsEmpty() { return this.Count == 0; }
 
-    // 加入元素；已存在返回 false（不重复），新增返回 true。语义同 C# HashSet<T>.Add。
+    // 加入元素；已存在返回 false（不重复、位置不变），新增返回 true 并追加到末尾。语义同 C# HashSet<T>.Add。
     public bool Add(T item) {
-        if (this.Count * 4 > this.capacity * 3) this.Grow();
-        int h = item.GetHashCode() & 0x7FFFFFFF;
-        int slot = this._findSlotH(item, h);
-        if (this.occupied[slot]) return false;
-        this.occupied[slot] = true;
-        this.elems[slot] = item;
-        this.hashes[slot] = h;
+        long hl = (long)item.GetHashCode();
+        int h = (int)((hl ^ (hl >> 31)) & 0x7FFFFFFFL);
+        // 探测循环就地展开（同 `_slotOf`），省一次调用。
+        int[] index = this._index;
+        int[] hs = this._hashes;
+        int mask = index.Length - 1;
+        int s = h & mask;
+        int perturb = h;
+        int e = index[s];
+        while (e != 0) {
+            if (e > 0 && hs[e - 1] == h && this._elems[e - 1].Equals(item)) return false;
+            perturb = perturb >> 5;
+            s = (s * 5 + perturb + 1) & mask;
+            e = index[s];
+        }
+        int i = this._used;
+        if (i == hs.Length) {
+            this._resize(HashIndex.NextCapacity(this.Count, i));
+            index = this._index;
+            hs = this._hashes;
+            i = this._used;
+            s = HashIndex.FreeSlot(index, h);
+        }
+        hs[i] = h;
+        this._elems[i] = item;
+        index[s] = i + 1;
+        this._used = i + 1;
         this.Count = this.Count + 1;
         return true;
     }
 
     public bool Contains(T item) {
-        int slot = this._findSlotH(item, item.GetHashCode() & 0x7FFFFFFF);
-        return this.occupied[slot];
+        long hl = (long)item.GetHashCode();
+        int h = (int)((hl ^ (hl >> 31)) & 0x7FFFFFFFL);
+        int[] index = this._index;
+        int[] hs = this._hashes;
+        int mask = index.Length - 1;
+        int s = h & mask;
+        int perturb = h;
+        int e = index[s];
+        while (e != 0) {
+            if (e > 0 && hs[e - 1] == h && this._elems[e - 1].Equals(item)) return true;
+            perturb = perturb >> 5;
+            s = (s * 5 + perturb + 1) & mask;
+            e = index[s];
+        }
+        return false;
     }
 
+    // 删除：索引槽改成 dummy（-1），entry 置 tombstone（其余元素原位不动，相对顺序不变）。
     public bool Remove(T item) {
-        int slot = this._findSlotH(item, item.GetHashCode() & 0x7FFFFFFF);
-        if (!this.occupied[slot]) return false;
-        this.occupied[slot] = false;
+        int s = this._slotOf(item, HashIndex.Mix(item.GetHashCode()));
+        int e = this._index[s];
+        if (e == 0) return false;
+        int i = e - 1;
+        this._index[s] = -1;
+        this._hashes[i] = -1;
+        this._elems[i] = default(T);
         this.Count = this.Count - 1;
-        // 重新插入探测链剩余项以填空洞（复用存储 hash，免重算 GetHashCode）。
-        int mask = this.capacity - 1;
-        int j = (slot + 1) & mask;
-        while (this.occupied[j]) {
-            int h = this.hashes[j];
-            T e = this.elems[j];
-            this.occupied[j] = false;
-            int s = h & mask;
-            while (this.occupied[s]) s = (s + 1) & mask;
-            this.occupied[s] = true;
-            this.elems[s] = e;
-            this.hashes[s] = h;
-            j = (j + 1) & mask;
-        }
         return true;
     }
 
-    public void Clear() {
-        int i = 0;
-        while (i < this.capacity) {
-            this.occupied[i] = false;
-            i = i + 1;
-        }
-        this.Count = 0;
-    }
+    // 保留容量：换一组同容量的新数组（VM 原生零初始化）。
+    public void Clear() { this._alloc(this._hashes.Length); }
 
-    // 元素快照数组（顺序由 capacity 扫描决定，不保证稳定）。
+    // 元素快照数组，按插入顺序。
     public T[] ToArray() {
         T[] result = new T[this.Count];
-        int idx = 0;
-        int i = 0;
-        while (i < this.capacity) {
-            if (this.occupied[i]) {
-                result[idx] = this.elems[i];
-                idx = idx + 1;
+        int[] hs = this._hashes;
+        int used = this._used;
+        if (this.Count == used) {
+            Array.CopyRange(this._elems, 0, result, 0, used);
+            return result;
+        }
+        int w = 0;
+        for (int i = 0; i < used; i++) {
+            if (hs[i] >= 0) {
+                result[w] = this._elems[i];
+                w++;
             }
-            i = i + 1;
         }
         return result;
     }
 
     // ── Set 运算（C# HashSet<T> 常用变体；接收数组，见 Deferred 关于 IEnumerable）──
 
-    // 并入 items 的全部元素（等价 C# UnionWith）。
+    // 并入 items 的全部元素（等价 C# UnionWith）：新元素按 items 顺序追加。
     public void UnionWith(T[] items) {
-        int i = 0;
-        while (i < items.Length) {
-            this.Add(items[i]);
-            i = i + 1;
-        }
+        for (int i = 0; i < items.Length; i++) this.Add(items[i]);
     }
 
-    // 只保留同时存在于 items 的元素（等价 C# IntersectWith）。
+    // 只保留同时存在于 items 的元素（等价 C# IntersectWith）；保留下来的元素顺序不变。
     public void IntersectWith(T[] items) {
         HashSet<T> other = new HashSet<T>();
         other.UnionWith(items);
         T[] current = this.ToArray();
-        this.Clear();
-        int i = 0;
-        while (i < current.Length) {
-            if (other.Contains(current[i])) this.Add(current[i]);
-            i = i + 1;
+        for (int i = 0; i < current.Length; i++) {
+            if (!other.Contains(current[i])) this.Remove(current[i]);
         }
     }
 
     // 移除 items 中出现的元素（等价 C# ExceptWith）。
     public void ExceptWith(T[] items) {
-        int i = 0;
-        while (i < items.Length) {
-            this.Remove(items[i]);
-            i = i + 1;
-        }
+        for (int i = 0; i < items.Length; i++) this.Remove(items[i]);
     }
 
-    // 掩码探测 + 存储 hash 短路：capacity 恒为 2 的幂，`slot & (capacity-1)`
-    // 等价取模。命中要求存储 hash 相等 *且* elem.Equals。
-    int _findSlotH(T item, int h) {
-        int mask = this.capacity - 1;
-        int slot = h & mask;
-        while (this.occupied[slot] && (this.hashes[slot] != h || !this.elems[slot].Equals(item))) {
-            slot = (slot + 1) & mask;
+    int _slotOf(T item, int h) {
+        int[] index = this._index;
+        int[] hs = this._hashes;
+        int mask = index.Length - 1;
+        int s = h & mask;
+        int perturb = h;
+        int e = index[s];
+        while (e != 0 && (e < 0 || hs[e - 1] != h || !this._elems[e - 1].Equals(item))) {
+            perturb = perturb >> 5;
+            s = (s * 5 + perturb + 1) & mask;
+            e = index[s];
         }
-        return slot;
+        return s;
     }
 
-    void Grow() {
-        int newCap = this.capacity * 2;
-        T[] newElems = new T[newCap];
-        bool[] newOccupied = new bool[newCap];
-        int[] newHashes = new int[newCap];
-        T[] oldElems = this.elems;
-        bool[] oldOccupied = this.occupied;
-        int[] oldHashes = this.hashes;
-        int oldCap = this.capacity;
-        this.elems = newElems;
-        this.occupied = newOccupied;
-        this.hashes = newHashes;
-        this.capacity = newCap;
-        int mask = newCap - 1;
-        int i = 0;
-        while (i < oldCap) {
-            if (oldOccupied[i]) {
-                // 元素必唯一、新表全空 → 直接线性探测首个空槽，免 Equals / 重算 hash。
-                int h = oldHashes[i];
-                int slot = h & mask;
-                while (this.occupied[slot]) slot = (slot + 1) & mask;
-                this.occupied[slot] = true;
-                this.elems[slot] = oldElems[i];
-                this.hashes[slot] = h;
+    // 把 entries 换到容量 newCap 并压实（去 tombstone、保留相对顺序），重建索引表。
+    void _resize(int newCap) {
+        int used = this._used;
+        int[] oh = this._hashes;
+        T[] oe = this._elems;
+        bool inPlace = newCap == oh.Length;
+        int[] nh = oh;
+        T[] ne = oe;
+        if (!inPlace) {
+            nh = new int[newCap];
+            ne = new T[newCap];
+        }
+        int live = used;
+        if (this.Count == used && !inPlace) {
+            Array.CopyRange(oh, 0, nh, 0, used);
+            Array.CopyRange(oe, 0, ne, 0, used);
+        } else {
+            live = 0;
+            for (int i = 0; i < used; i++) {
+                int h = oh[i];
+                if (h >= 0) {
+                    nh[live] = h;
+                    ne[live] = oe[i];
+                    live++;
+                }
             }
-            i = i + 1;
+            if (inPlace) {
+                for (int j = live; j < used; j++) ne[j] = default(T);
+            }
         }
+        this._hashes = nh;
+        this._elems = ne;
+        this._used = live;
+        this._index = HashIndex.Build(nh, live, newCap * 2);
     }
 }

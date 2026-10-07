@@ -86,8 +86,8 @@
 {{#include ../../../../examples/basics/control-flow/foreach/run.console:chars}}
 ```
 
-> `Dictionary` 也可以直接 `foreach`，每一轮拿到一个键值对（`kv.Key` / `kv.Value`）；
-> 顺序不作保证。
+> `Dictionary` 也可以直接 `foreach`，每一轮拿到一个键值对（`kv.Key` / `kv.Value`），
+> 按键放进去的先后。
 > 完整规则（`foreach` 到底按什么顺序挑遍历方式）见参考手册的
 > [迭代](https://z42-lang.github.io/z42/reference/language/iteration.html)。
 

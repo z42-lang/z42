@@ -4,8 +4,8 @@
 // chain (Set/Get/ContainsKey/Remove) is covered by dictionary_hash_edge.z42 +
 // list_sort.z42; this file fills the enumeration + snapshot APIs.
 //
-// Keys()/Values()/Entries() order is NOT guaranteed (capacity scan order, hash
-// dependent), so every assertion here is order-independent (sums / membership).
+// Assertions here are order-independent (sums / membership); the insertion-order
+// guarantee of Keys()/Values()/Entries() is covered by the dictionary_order golden.
 namespace Z42CoreDictOpsTests;
 
 using Std.Collections;

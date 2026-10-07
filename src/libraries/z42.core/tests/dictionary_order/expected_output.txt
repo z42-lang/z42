@@ -1,0 +1,17 @@
+insert:    pear apple zebra mango 
+overwrite: pear apple zebra mango 
+tryadd:    pear apple zebra mango kiwi 
+remove:    pear zebra mango kiwi 
+reinsert:  pear zebra mango kiwi apple 
+values:    10 3 4 5 2 
+entries:   pear=10 zebra=3 mango=4 kiwi=5 apple=2 
+foreach:   pear=10 zebra=3 mango=4 kiwi=5 apple=2 
+movenext:  pear zebra mango kiwi apple 
+grown:     0 17 34 10 27 3 20 37 13 30 6 23 40 16 33 9 26 2 19 36 12 29 5 22 39 15 32 8 25 1 18 35 11 28 4 21 38 14 31 7 
+thinned:   17 34 27 3 37 13 6 23 16 33 26 2 36 12 5 22 15 32 25 1 35 11 4 21 14 31 
+count:     66
+compacted: 17 34 27 3 37 13 6 23 16 33 26 2 ... 139
+churn:     1 2 3 count=3
+cleared:   b a 
+overwrite+remove while iterating: x z | x z 
+add while iterating: Collection was modified; enumeration operation may not execute.

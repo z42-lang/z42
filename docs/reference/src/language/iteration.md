@@ -105,8 +105,10 @@ try {
 foreach (var kv in dict) { /* kv.Key / kv.Value */ }
 ```
 
-**遍历顺序不作保证**。只要键或只要值时，`Keys()` / `Entries()` 仍然可用，但它们返回的是
-**快照数组**（每次调用分配一次），逐项遍历用 `foreach (var kv in dict)` 更省。
+遍历按**插入顺序**：覆盖已有键不改变位置，删除后再插入的键排到末尾；遍历期间新增键会让下一次
+`MoveNext` 抛 `InvalidOperationException`。完整规则见[基础泛型集合](../stdlib/collections-core.md#遍历顺序)。
+只要键或只要值时，`Keys()` / `Entries()` 仍然可用，但它们返回的是**快照数组**（每次调用分配一次），
+逐项遍历用 `foreach (var kv in dict)` 更省。
 
 ## 已知陷阱
 

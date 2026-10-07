@@ -1,0 +1,111 @@
+// Dictionary<K,V> iterates in insertion order: foreach / GetEnumerator / Keys() /
+// Values() / Entries() all follow it. Overwriting a key keeps its position; a key
+// removed and inserted again goes to the end; growth and tombstone compaction keep
+// the relative order of the surviving entries. Adding a key while enumerating makes
+// the next MoveNext throw; overwriting and removing do not.
+using Std;
+using Std.IO;
+using Std.Collections;
+
+string KeysLine(Dictionary<string, int> d) {
+    string s = "";
+    foreach (var k in d.Keys()) { s = s + k + " "; }
+    return s;
+}
+
+string IntKeysLine(Dictionary<int, int> d) {
+    string s = "";
+    foreach (var k in d.Keys()) { s = s + k.ToString() + " "; }
+    return s;
+}
+
+void Main() {
+    // ── insertion order, not hash order ──
+    var d = new Dictionary<string, int>();
+    d["pear"] = 1;
+    d["apple"] = 2;
+    d["zebra"] = 3;
+    d["mango"] = 4;
+    Console.WriteLine("insert:    " + KeysLine(d));
+
+    // overwrite keeps the position
+    d["apple"] = 20;
+    d.Set("pear", 10);
+    Console.WriteLine("overwrite: " + KeysLine(d));
+
+    // TryAdd on an existing key changes nothing; on a new key appends
+    d.TryAdd("zebra", 99);
+    d.TryAdd("kiwi", 5);
+    Console.WriteLine("tryadd:    " + KeysLine(d));
+
+    // remove keeps the others in order; re-insert goes to the end
+    d.Remove("apple");
+    Console.WriteLine("remove:    " + KeysLine(d));
+    d["apple"] = 2;
+    Console.WriteLine("reinsert:  " + KeysLine(d));
+
+    // Keys / Values / Entries / enumerator / foreach agree
+    string vs = "";
+    foreach (var v in d.Values()) { vs = vs + v.ToString() + " "; }
+    Console.WriteLine("values:    " + vs);
+    string es = "";
+    foreach (var kv in d.Entries()) { es = es + kv.Key + "=" + kv.Value.ToString() + " "; }
+    Console.WriteLine("entries:   " + es);
+    string fs = "";
+    foreach (var kv in d) { fs = fs + kv.Key + "=" + kv.Value.ToString() + " "; }
+    Console.WriteLine("foreach:   " + fs);
+    string ms = "";
+    var it = d.GetEnumerator();
+    while (it.MoveNext()) { ms = ms + it.Current.Key + " "; }
+    Console.WriteLine("movenext:  " + ms);
+
+    // ── growth: many keys in a scrambled order, then remove every third ──
+    var g = new Dictionary<int, int>();
+    for (int i = 0; i < 40; i++) { g[(i * 17) % 41] = i; }
+    Console.WriteLine("grown:     " + IntKeysLine(g));
+    for (int i = 0; i < 40; i = i + 3) { g.Remove((i * 17) % 41); }
+    Console.WriteLine("thinned:   " + IntKeysLine(g));
+    // keep inserting past the capacity so the tombstones are compacted away
+    for (int i = 100; i < 140; i++) { g[i] = i; }
+    Console.WriteLine("count:     " + g.Count.ToString());
+    string head = "";
+    var gk = g.Keys();
+    for (int i = 0; i < 12; i++) { head = head + gk[i].ToString() + " "; }
+    Console.WriteLine("compacted: " + head + "... " + gk[gk.Length - 1].ToString());
+
+    // churn: insert/remove the same few keys many times (exercises compaction in place)
+    var c = new Dictionary<int, int>();
+    c[1] = 1;
+    c[2] = 2;
+    for (int i = 0; i < 1000; i++) {
+        c[1000 + i] = i;
+        c.Remove(1000 + i);
+    }
+    c[3] = 3;
+    Console.WriteLine("churn:     " + IntKeysLine(c) + "count=" + c.Count.ToString());
+
+    // Clear then refill starts a fresh order
+    d.Clear();
+    d["b"] = 1;
+    d["a"] = 2;
+    Console.WriteLine("cleared:   " + KeysLine(d));
+
+    // ── mutation during enumeration ──
+    var m = new Dictionary<string, int>();
+    m["x"] = 1;
+    m["y"] = 2;
+    m["z"] = 3;
+    string seen = "";
+    foreach (var kv in m) {
+        m[kv.Key] = kv.Value * 10;          // overwrite: allowed
+        if (kv.Key == "x") m.Remove("y");   // remove: allowed, y is not produced
+        seen = seen + kv.Key + " ";
+    }
+    Console.WriteLine("overwrite+remove while iterating: " + seen + "| " + KeysLine(m));
+    try {
+        foreach (var kv in m) { m["new"] = 0; }
+        Console.WriteLine("no exception");
+    } catch (InvalidOperationException e) {
+        Console.WriteLine("add while iterating: " + e.Message);
+    }
+}

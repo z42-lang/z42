@@ -1,0 +1,65 @@
+// Clustered integer keys (all multiples of a large power of two, negative strides,
+// a dense run that wraps the index table) must stay O(1) per operation: the probe
+// sequence mixes the high hash bits in after the first collision, so keys sharing
+// their low bits do not pile up into one long probe chain. Each case does 50k
+// inserts + 50k hits + 50k misses; a degenerate table makes these quadratic
+// (minutes) instead of milliseconds.
+namespace Z42CoreDictClusteredKeysTests;
+
+using Std.Collections;
+
+void _checkDict(int n, int stride, int offset) {
+    var d = new Dictionary<int, int>();
+    for (int i = 0; i < n; i++) { d[offset + i * stride] = i; }
+    Assert.Equal(n, d.Count);
+    long sum = 0L;
+    for (int i = 0; i < n; i++) { sum = sum + (long)d[offset + i * stride]; }
+    Assert.Equal((long)n * (long)(n - 1) / 2L, sum);
+    int misses = 0;
+    for (int i = n; i < 2 * n; i++) {
+        if (!d.ContainsKey(offset + i * stride)) misses = misses + 1;
+    }
+    Assert.Equal(n, misses);
+    // insertion order survives the clustering
+    int[] ks = d.Keys();
+    Assert.Equal(offset, ks[0]);
+    Assert.Equal(offset + (n - 1) * stride, ks[n - 1]);
+}
+
+[Test]
+void test_power_of_two_stride_keys() {
+    _checkDict(50000, 4096, 0);
+}
+
+[Test]
+void test_large_power_of_two_stride_keys() {
+    _checkDict(20000, 65536, 0);
+}
+
+[Test]
+void test_negative_stride_keys() {
+    _checkDict(50000, -1024, -1);
+}
+
+[Test]
+void test_even_keys_past_capacity() {
+    // keys 0, 2, 4, … run past the index-table size, so the upper half wraps onto
+    // the slots of the lower half.
+    _checkDict(50000, 2, 0);
+}
+
+[Test]
+void test_hashset_power_of_two_stride() {
+    var s = new HashSet<int>();
+    int n = 50000;
+    for (int i = 0; i < n; i++) { s.Add(i * 8192); }
+    Assert.Equal(n, s.Count);
+    int hits = 0;
+    for (int i = 0; i < 2 * n; i++) {
+        if (s.Contains(i * 8192)) hits = hits + 1;
+    }
+    Assert.Equal(n, hits);
+    for (int i = 0; i < n; i = i + 2) { s.Remove(i * 8192); }
+    Assert.Equal(n / 2, s.Count);
+    Assert.Equal(8192, s.ToArray()[0]);
+}

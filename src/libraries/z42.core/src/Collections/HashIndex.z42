@@ -1,0 +1,68 @@
+namespace Std.Collections;
+
+// `HashIndex` — `Dictionary<K,V>` 与 `HashSet<T>` 共用的「插入有序紧凑哈希表」骨架。
+//
+// 布局（CPython 3.7+ 同款）：
+//   * 稠密 entries：并行数组 `hashes[i]` / `keys[i]`（/ `values[i]`），按插入顺序追加；
+//     `[0, used)` 为已用槽，删除只把该槽 `hashes[i]` 置 -1（tombstone）并清空引用。
+//   * 索引表 `index`：`int[]`，长度为 2 的幂且 = entries 容量 × 2（负载 ≤ 0.5）。
+//     槽值 `0` = 空，`-1` = 已删（dummy），否则 = entry 下标 + 1。
+// 迭代 = 顺序扫 entries 跳过 tombstone ⇒ 天然按插入顺序；entries 满时压实（保留相对顺序）、
+// 重建索引表（dummy 随之清空）。dummy 不复用、entries 槽也不复用，故索引表占用（存活 + dummy）
+// 恒 ≤ used ≤ 容量 = 索引表长度 / 2，探测必遇空槽。
+//
+// 探测序列（CPython 同款）：首槽 `h & mask`，之后 `perturb >>= 5; s = (s*5 + perturb + 1) & mask`。
+// 首槽直接用 hash 低位 ⇒ 连续整数键落在连续槽，访存局部性好；冲突后 perturb 把 hash 高位
+// 逐步混进来，步长 / 聚簇键（如全是 1024 的倍数）在一两步内即散开，不会形成线性探测的长簇；
+// perturb 归零后 `s*5 + 1 (mod 2^k)` 遍历全部槽。
+//
+// 本类只放与元素类型无关的部分（hash 规整、索引表探测空槽 / 重建、容量策略），全是非泛型方法。
+// 含 `Equals` 的探测循环、追加与扩容 / 压实（要搬 key / value）都留在各容器里：
+//   * 热路径就地展开探测与追加——z42 的每层调用都要建帧 / 回收，比探测本身还贵；
+//   * 不写成本类的泛型方法（如 `Resize<TKey, TValue>(…)`）：带方法型参的调用会让**调用方整个函数**
+//     退回解释器执行（JIT 帧没有方法型参载体），泛型方法体本身也只能解释执行。
+static class HashIndex {
+    // GetHashCode() → 31 位非负 hash。z42 的 int 不按 32 位回绕，GetHashCode() 可能带 31 位以上的
+    // 高位：先把它们异或折进低位（只差高位的键不至于全撞一个首槽），再去掉符号位。
+    // 对 [0, 2^31) 内的值是恒等映射，保留连续键的局部性。热路径把同一表达式就地展开。
+    internal static int Mix(int hc) {
+        long l = (long)hc;
+        return (int)((l ^ (l >> 31)) & 0x7FFFFFFFL);
+    }
+
+    // 返回 h 的探测序列上第一个空槽（调用方已确认 key 不在表中；dummy 不复用）。
+    internal static int FreeSlot(int[] index, int h) {
+        int mask = index.Length - 1;
+        int s = h & mask;
+        int perturb = h;
+        while (index[s] != 0) {
+            perturb = perturb >> 5;
+            s = (s * 5 + perturb + 1) & mask;
+        }
+        return s;
+    }
+
+    // 按 entries `[0, count)`（全部存活、无 tombstone）重建大小为 size 的索引表。
+    internal static int[] Build(int[] hashes, int count, int size) {
+        int[] index = new int[size];
+        int mask = size - 1;
+        for (int i = 0; i < count; i++) {
+            int h = hashes[i];
+            int s = h & mask;
+            int perturb = h;
+            while (index[s] != 0) {
+                perturb = perturb >> 5;
+                s = (s * 5 + perturb + 1) & mask;
+            }
+            index[s] = i + 1;
+        }
+        return index;
+    }
+
+    // entries 已用槽满时的新容量：存活数 ≥ 一半 → 翻倍；否则 tombstone 过半，同容量压实即可
+    //（每次压实至少腾出一半槽，摊还 O(1)）。
+    internal static int NextCapacity(int count, int cap) {
+        if (count * 2 >= cap) return cap * 2;
+        return cap;
+    }
+}

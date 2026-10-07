@@ -143,7 +143,7 @@ list.Exists(IsFour);                 // ✓ 命名方法也可以
 
 ## `Dictionary<TKey, TValue>`
 
-泛型哈希映射，平均摊还 O(1) 读写。
+泛型哈希映射，平均摊还 O(1) 读写，**按插入顺序遍历**（见下「遍历顺序」）。
 
 ```z42
 public class Dictionary<TKey, TValue> where TKey: IEquatable {
@@ -179,7 +179,7 @@ public class Dictionary<TKey, TValue> where TKey: IEquatable {
 | `GetValueOrDefault(key, defaultValue)` | 键不存在返回调用方给的 `defaultValue` |
 | `ContainsKey(key)` | 键是否存在 |
 | `Remove(key)` | 删掉返回 `true`，键本就不存在返回 `false` |
-| `Keys()` / `Values()` / `Entries()` | 返回长度为 `Count` 的**快照数组**。**顺序不保证**，也不保证多次调用之间一致 |
+| `Keys()` / `Values()` / `Entries()` | 返回长度为 `Count` 的**快照数组**（每次调用新建），按插入顺序 |
 
 ### 注意：取不存在的键不报错
 
@@ -191,6 +191,28 @@ string s = ds["nope"];       // → null（引用类型的 default）
 
 `d["zzz"]` 与 `d["a"]`（若值恰好是 `0`）无法区分。要区分「没有这个键」和「值是零值」，
 先 `ContainsKey`；要取带回退值的结果，用 `GetValueOrDefault(key, fallback)`。
+
+### 遍历顺序
+
+`foreach (var kv in d)`、`GetEnumerator()`、`Keys()` / `Values()` / `Entries()` 都按**插入顺序**产出，
+彼此一致：
+
+- 新键排在末尾；给已有键赋值（索引器 / `Set`）**不改变**它的位置；`TryAdd` 遇到已有键什么也不做。
+- `Remove(key)` 不影响其余键的相对顺序；**删掉之后再插入同一个键，它排到末尾**（与 Python `dict` 相同）。
+- `Clear()` 之后从头计序。
+
+```z42
+Dictionary<string, int> d = { "b": 1, "a": 2 };
+d["c"] = 3;
+d["b"] = 10;       // 覆盖：b 仍在第一位
+d.Remove("a");
+d["a"] = 4;        // 删除后重新插入：排到末尾
+foreach (var kv in d) { Console.WriteLine(kv.Key); }   // b  c  a
+```
+
+**遍历期间修改**：`foreach` / 手动 `MoveNext` 的过程中**新增键**或 `Clear()`，下一次 `MoveNext` 抛
+`InvalidOperationException`；覆盖已有键的值、`Remove` 都允许（被删的键不会再被产出）。快照数组
+（`Keys()` 等）不受之后修改的影响。
 
 ### 键类型约束
 
@@ -242,8 +264,8 @@ public class HashSet<T> where T: IEquatable {
 |---|---|
 | `Add(item)` | 新元素返回 `true`；**已存在返回 `false` 且不改变集合** |
 | `Contains` / `Remove` | 判定 / 删除；`Remove` 删掉返回 `true`，本就不在返回 `false` |
-| `ToArray()` | 元素快照数组，**顺序不保证** |
-| `UnionWith` / `IntersectWith` / `ExceptWith` | 并 / 交 / 差，原地修改本集合。**三者都只接受 `T[]`**，不接受另一个 `HashSet<T>`——传 `other.ToArray()` |
+| `ToArray()` | 元素快照数组，按插入顺序：再 `Add` 已有元素不改变其位置；`Remove` 后再加入的元素排到末尾 |
+| `UnionWith` / `IntersectWith` / `ExceptWith` | 并 / 交 / 差，原地修改本集合。**三者都只接受 `T[]`**，不接受另一个 `HashSet<T>`——传 `other.ToArray()`。新元素按参数数组的顺序追加到末尾，留下来的元素顺序不变 |
 
 「相同」由 `GetHashCode()` + `Equals` 决定，是**值相等**而非引用相等：两个字段相同的 `Box`
 实例只会存进去一个。
@@ -334,10 +356,9 @@ var it = list.GetEnumerator();
 while (it.MoveNext()) { Console.WriteLine(it.Current); }
 ```
 
-`DictionaryEnumerator` 需要手动驱动或经泛型约束使用——`Dictionary<K,V>` 同时有 `Count`
-字段和索引器，`foreach` 会命中索引路径而不是枚举器路径，详见
-[迭代（foreach）](../language/iteration.md)。遍历字典的常规写法是
-`foreach (var kv in dict.Entries())`。
+`foreach (var kv in dict)` 走的就是 `DictionaryEnumerator`（`Dictionary` 的索引器以 `TKey` 为下标，
+不命中索引路径，详见[迭代（foreach）](../language/iteration.md)）：按插入顺序、迭代时不分配堆对象；
+遍历期间修改字典的规则见上文「遍历顺序」。
 
 ## 用法
 

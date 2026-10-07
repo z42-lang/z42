@@ -1,0 +1,58 @@
+// HashSet<T>.ToArray() follows insertion order: adding an existing element keeps
+// its position, an element removed and added again goes to the end, growth and
+// compaction keep the relative order, and the set operations keep the surviving
+// elements in place (UnionWith appends new elements in argument order).
+using Std.IO;
+using Std.Collections;
+
+string Line(HashSet<string> s) {
+    string r = "";
+    foreach (var x in s.ToArray()) { r = r + x + " "; }
+    return r;
+}
+
+string IntLine(HashSet<int> s) {
+    string r = "";
+    foreach (var x in s.ToArray()) { r = r + x.ToString() + " "; }
+    return r;
+}
+
+void Main() {
+    var s = new HashSet<string>();
+    s.Add("pear");
+    s.Add("apple");
+    s.Add("zebra");
+    s.Add("mango");
+    Console.WriteLine("add:       " + Line(s));
+    s.Add("apple");
+    Console.WriteLine("re-add:    " + Line(s));
+    s.Remove("apple");
+    Console.WriteLine("remove:    " + Line(s));
+    s.Add("apple");
+    Console.WriteLine("reinsert:  " + Line(s));
+
+    s.UnionWith(new string[] { "kiwi", "pear", "fig" });
+    Console.WriteLine("union:     " + Line(s));
+    s.IntersectWith(new string[] { "fig", "apple", "zebra", "pear", "nope" });
+    Console.WriteLine("intersect: " + Line(s));
+    s.ExceptWith(new string[] { "zebra" });
+    Console.WriteLine("except:    " + Line(s));
+
+    // growth with a scrambled insertion order, then thinning
+    var g = new HashSet<int>();
+    for (int i = 0; i < 30; i++) { g.Add((i * 7) % 31); }
+    Console.WriteLine("grown:     " + IntLine(g));
+    for (int i = 0; i < 30; i = i + 2) { g.Remove((i * 7) % 31); }
+    Console.WriteLine("thinned:   " + IntLine(g));
+    for (int i = 0; i < 1000; i++) {
+        g.Add(500 + i);
+        g.Remove(500 + i);
+    }
+    g.Add(-1);
+    Console.WriteLine("churn:     " + IntLine(g) + "count=" + g.Count.ToString());
+
+    g.Clear();
+    g.Add(3);
+    g.Add(1);
+    Console.WriteLine("cleared:   " + IntLine(g));
+}
