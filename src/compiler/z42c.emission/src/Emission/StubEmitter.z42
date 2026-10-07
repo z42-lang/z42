@@ -258,11 +258,8 @@ public sealed class StubEmitter {
         return fq != "" ? fq : nt.Name;
     }
 
-    // 已解析类型 → 签名拼写：用户声明类 / 接口取 FQN，其余（基元包装名、void、型参…）照 `Name()`。
-    private string _resolvedSpell(Z42Type rt) {
-        string fq = this._fqnOf(rt);
-        return fq != "" ? fq : rt.Name();
-    }
+    // 已解析类型 → 签名拼写（同方法签名，见 `SigTypeNames`）。
+    private string _resolvedSpell(Z42Type rt) { return SigTypeNames.OfResolved(rt); }
 
     private string _fqnOf(Z42Type rt) {
         if (rt is Z42ClassType) {

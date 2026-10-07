@@ -71,6 +71,7 @@
 | `src/Compilation/CuCompile.z42` | **单 CU / partial 编译内核**：per-file typecheck+codegen（`_compileCu`）+ partial 碎片合并（`_buildMergedPartial`/`_mergeFragments`，主碎片发合并 TYPE record）+ 有错不生成的唯一闸口 `GenerateIfClean`。内核 `internal`，仅 IrDump 门面同包内调用 |
 | `src/Compilation/CuPreprocess.z42` | **CU 预处理 + 命名空间遮蔽/作用域解析辅助**：global using 注入（`_injectGlobalUsings`）、file-scoped using 强制（`_enforceFileScope`→E0436）、活跃 ns 集（`_activeNamespaces`，static call using-scoped 消歧）、local-wins 遮蔽剔除（`_filterShadowed`/`_filterShadowedFuncs`）、包内类名/ns 图（`_pkgLocalClasses`/`_pkgClassNs`）、文件 stem（`_stem`） |
 | `src/Exports/CompiledModuleZ.z42` | 带依赖编译的产物束：`Module`/`Exported`/诊断/`Namespace`/`Usings`/`UsedDepNs`/`ErrorCount`。独立数据文件，跨包消费透明 |
+| `src/Emission/SigTypeNames.z42` | 已解析类型 → SIGS 签名拼写（类 / 接口 / enum 写 FQN，构造泛型与实例化接口带实参）；方法签名与 extern / abstract 桩共用 |
 | `src/Emission/CallEmitter.z42` / `AccessEmitter.z42` / `StmtEmitter.z42` / `OperatorEmitter.z42` / `TypeOpEmitter.z42` / `StubEmitter.z42` | 调用 / 成员访问 / 语句 / 运算符（含 record `==` 拦截脱糖）/ is·as·cast / 桩函数 的 IR 发射 |
 | `src/Emission/ClassDescBuilder.z42`（+ `.GenericInst`）/ `ExprEmitter.GenericInst.z42` / `GenericBodySrc.z42` / `IrGenFacts.z42` | 类描述构建 / 泛型实例化发射 / 泛型体源 / 发射期 IR 助手（类型标签、方法标志、形参元数据）|
 | `src/Lowering/IfaceBridgeSynth.z42` / `ModuleInitSynth.z42` / `RecordSynth.z42` / `TestIndexBuilder.z42` | 接口桥合成 / 模块初始化合成 / record 值语义合成 / 测试索引（TIDX）|

@@ -257,7 +257,7 @@ public sealed class FunctionEmitter {
             // 走那条会只剩基名、丢实参）。
             if (resolved is Z42InstantiatedInterfaceType) {
                 Z42InstantiatedInterfaceType rii = resolved as Z42InstantiatedInterfaceType;
-                if (rii.Namespace != "") { return this._sigInstIface(rii); }
+                if (rii.Namespace != "") { return SigTypeNames.InstIface(rii); }
             }
             if (resolved is Z42InterfaceType) {
                 Z42InterfaceType rit = resolved as Z42InterfaceType;
@@ -273,7 +273,7 @@ public sealed class FunctionEmitter {
                     int ai = 0;
                     while (ai < rin.ArgCount) {
                         if (ai > 0) { acc = acc + ", "; }
-                        acc = acc + this._sigArgTypeName(rin.TypeArgs[ai]);
+                        acc = acc + SigTypeNames.OfResolved(rin.TypeArgs[ai]);
                         ai = ai + 1;
                     }
                     return acc + ">";
@@ -287,59 +287,6 @@ public sealed class FunctionEmitter {
         // object 逐字复刻 baseline Prim.Name()，非内建原样。
         return PrimModel.SurfaceName(resolved.Name());
     }
-    // unify-type-identity-fqn：**已解析类型** → 持久化文法串（泛型实参递归用；与 _sigTypeName 同口径，
-    // 但入参是 Z42Type 而非 TypeExpr——实参在 Z42InstantiatedType 里已是解析好的类型对象）。
-    private string _sigArgTypeName(Z42Type t) {
-        if (t == null) { return "unknown"; }
-        if (t is Z42UnknownType) { return "unknown"; }
-        if (t is Z42ArrayType) { return this._sigArgTypeName((t as Z42ArrayType).Elem) + "[]"; }
-        if (t is Z42ClassType) {
-            Z42ClassType ct = t as Z42ClassType;
-            if (ct.PrimCode() < 0 && ct.Namespace != "") { return ct.Fqn(); }
-        }
-        if (t is Z42InstantiatedInterfaceType) {   // 同 _sigTypeName：先于接口分支
-            Z42InstantiatedInterfaceType tii = t as Z42InstantiatedInterfaceType;
-            if (tii.Namespace != "") { return this._sigInstIface(tii); }
-        }
-        if (t is Z42InterfaceType) {
-            Z42InterfaceType it = t as Z42InterfaceType;
-            if (it.Namespace != "") { return it.Fqn(); }
-        }
-        if (t is Z42InstantiatedType) {
-            Z42InstantiatedType it2 = t as Z42InstantiatedType;
-            Z42ClassType d = it2.Def;
-            string bn = (d != null && d.PrimCode() < 0 && d.Namespace != "") ? d.Fqn() : t.Name();
-            if (d != null && d.PrimCode() < 0 && d.Namespace != "") {
-                string acc = bn + "<";
-                int ai = 0;
-                while (ai < it2.ArgCount) {
-                    if (ai > 0) { acc = acc + ", "; }
-                    acc = acc + this._sigArgTypeName(it2.TypeArgs[ai]);
-                    ai = ai + 1;
-                }
-                return acc + ">";
-            }
-        }
-        // ⚠️ **不能**用 PrimModel.SurfaceName —— 那会把实参从 `Int32` 改写成 `int`，等于顺手统一了
-        // SIGS 与 TYPE 的实参拼写差异，违反本 change 的裁决 D2「只 FQ 化类名成分、不动实参拼写」。
-        // 原路径 `Z42InstantiatedType.Name()` 用的就是 `Name()`，此处逐字保持。
-        // （实测破坏：ext 导出签名 `Kv<String, Int32>[]` 变成 `Kv<string, int>[]` ⇒
-        //  generic_struct_array_cross_pkg 的 main 整个导入失效。）
-        return t.Name();
-    }
-
-    // 实例化接口 → `<基名 FQN><实参…>`（实参同 _sigArgTypeName 文法）。
-    private string _sigInstIface(Z42InstantiatedInterfaceType ii) {
-        string acc = ii.Fqn() + "<";
-        int ai = 0;
-        while (ai < ii.ArgCount) {
-            if (ai > 0) { acc = acc + ", "; }
-            acc = acc + this._sigArgTypeName(ii.TypeArgs[ai]);
-            ai = ai + 1;
-        }
-        return acc + ">";
-    }
-
     // drop-short-primitive-aliases：`_isAliasPrim` 守卫已删 —— 它存在的唯一理由是「这些次要别名
     // 会被 Canon 规范化成 u8/i16/…，而 SIGS 要保源拼写」。canonical 收敛到关键字后，`SurfaceName`
     // 对 byte/short/… 返回的**就是**源拼写，两条路同结果，守卫成了纯噪音。
