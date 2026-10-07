@@ -306,39 +306,125 @@ impl ArrayObj {
     /// ⚠️ 每个「类型不符」的回落都先过 [`prim_value_mismatch`]（debug 响一声）——此前这里与
     /// `set_boxed` 一样是**静默存 0**（见那个函数的头注）。
     pub(super) fn pack_backing(heap: &dyn MagrGC, element_type: &str, elems: Vec<Value>) -> ArrayBacking {
-        match element_type {
+        let len = elems.len();
+        Self::pack_backing_iter(heap, element_type, len, elems.into_iter())
+    }
+
+    /// perf-array-alloc-direct: build the backing **directly in its GC block** from an
+    /// element iterator — no intermediate `Vec<Value>` (16 B/element) and, for packed
+    /// kinds, no intermediate `Vec<T>` either. `elems` must yield exactly `len` values
+    /// (debug-asserted; a short iterator leaves the allocator's zero in the tail slots,
+    /// which is a valid `I64(0)` / packed zero — never uninitialised memory).
+    ///
+    /// GC safety: the block is allocated and fully written here, before the caller
+    /// allocates the `ArrayObj` header (`alloc_array_obj` — the first point that can
+    /// trigger a collection). Nothing in between allocates on the GC heap, and a fresh
+    /// block is unreachable from any root until the header points at it.
+    pub(super) fn pack_backing_iter(
+        heap: &dyn MagrGC, element_type: &str, len: usize, elems: impl Iterator<Item = Value>,
+    ) -> ArrayBacking {
+        macro_rules! packed {
+            ($variant:ident, $ty:ty, $conv:expr) => {{
+                let block = heap.alloc_var_block(len * std::mem::size_of::<$ty>(), BlockType::ArrayPrim);
+                // SAFETY: fresh block sized for exactly `len` `$ty`s (8-aligned payload ≥
+                // align_of::<$ty>()), not yet reachable from anything — this `&mut` is unique.
+                let dst = unsafe { Self::slice_of_mut::<$ty>(&block, len) };
+                let mut n = 0usize;
+                for (slot, x) in dst.iter_mut().zip(elems) { *slot = $conv(&x); n += 1; }
+                debug_assert_eq!(n, len, "pack_backing_iter: iterator yielded {n} of {len} elements");
+                ArrayBacking::$variant { block, len }
+            }};
+        }
+        match ElemKind::of(element_type) {
             // byte[] → contiguous u8: the FFI zero-copy + 24× memory win.
-            "byte" | "u8" => {
-                let v: Vec<u8> = elems.iter().map(|x| if let Value::I64(n) = x { *n as u8 } else { prim_value_mismatch(x, "byte[]", "pack_backing"); 0 }).collect();
-                ArrayBacking::Bytes { block: Self::alloc_packed(heap, &v), len: v.len() }
-            }
-            "char" => {
-                let v: Vec<char> = elems.iter().map(|x| if let Value::Char(c) = x { *c } else { prim_value_mismatch(x, "char[]", "pack_backing"); '\0' }).collect();
-                ArrayBacking::Chars { block: Self::alloc_packed(heap, &v), len: v.len() }
-            }
-            "bool" => {
-                let v: Vec<bool> = elems.iter().map(|x| { if !matches!(x, Value::Bool(_)) { prim_value_mismatch(x, "bool[]", "pack_backing"); } matches!(x, Value::Bool(true)) }).collect();
-                ArrayBacking::Bool { block: Self::alloc_packed(heap, &v), len: v.len() }
-            }
-            // fits i32 signed range (i8/i16/i32 and u16 ≤ 65535).
-            "sbyte" | "i8" | "short" | "i16" | "int" | "i32" | "ushort" | "u16" => {
-                let v: Vec<i32> = elems.iter().map(|x| if let Value::I64(n) = x { *n as i32 } else { prim_value_mismatch(x, "int[]", "pack_backing"); 0 }).collect();
-                ArrayBacking::I32 { block: Self::alloc_packed(heap, &v), len: v.len() }
-            }
-            // 64-bit (uint/u32 fit i64; u64 keeps existing i64-store semantics).
-            "long" | "i64" | "uint" | "u32" | "ulong" | "u64" | "isize" | "usize" => {
-                let v: Vec<i64> = elems.iter().map(|x| if let Value::I64(n) = x { *n } else { prim_value_mismatch(x, "long[]", "pack_backing"); 0 }).collect();
-                ArrayBacking::I64 { block: Self::alloc_packed(heap, &v), len: v.len() }
-            }
-            "double" | "float" | "f32" | "f64" => {
-                let v: Vec<f64> = elems.iter().map(|x| if let Value::F64(f) = x { *f } else { prim_value_mismatch(x, "double[]", "pack_backing"); 0.0 }).collect();
-                ArrayBacking::F64 { block: Self::alloc_packed(heap, &v), len: v.len() }
-            }
+            ElemKind::Bytes => packed!(Bytes, u8, |x: &Value| if let Value::I64(n) = x { *n as u8 } else { prim_value_mismatch(x, "byte[]", "pack_backing"); 0 }),
+            ElemKind::Chars => packed!(Chars, char, |x: &Value| if let Value::Char(c) = x { *c } else { prim_value_mismatch(x, "char[]", "pack_backing"); '\0' }),
+            ElemKind::Bool => packed!(Bool, bool, |x: &Value| { if !matches!(x, Value::Bool(_)) { prim_value_mismatch(x, "bool[]", "pack_backing"); } matches!(x, Value::Bool(true)) }),
+            ElemKind::I32 => packed!(I32, i32, |x: &Value| if let Value::I64(n) = x { *n as i32 } else { prim_value_mismatch(x, "int[]", "pack_backing"); 0 }),
+            ElemKind::I64 => packed!(I64, i64, |x: &Value| if let Value::I64(n) = x { *n } else { prim_value_mismatch(x, "long[]", "pack_backing"); 0 }),
+            ElemKind::F64 => packed!(F64, f64, |x: &Value| if let Value::F64(f) = x { *f } else { prim_value_mismatch(x, "double[]", "pack_backing"); 0.0 }),
             // object / string / nested arrays / structs / unknown FQN → reference array.
-            _ => {
-                let (block, len) = Self::alloc_boxed(heap, elems);
+            ElemKind::Boxed => {
+                let block = heap.alloc_var_block(len * std::mem::size_of::<Value>(), BlockType::ArrayValue);
+                // SAFETY: fresh block sized for `len` Values (allocator zero = POD `I64(0)`).
+                let base = unsafe { block.payload_as_ptr::<Value>() };
+                let mut n = 0usize;
+                for v in elems.take(len) {
+                    // SAFETY: slot `n` < `len`; `write` moves without dropping the POD zero.
+                    unsafe { base.add(n).write(v); }
+                    n += 1;
+                }
+                debug_assert_eq!(n, len, "pack_backing_iter: iterator yielded {n} of {len} elements");
                 ArrayBacking::Boxed { block, len }
             }
+        }
+    }
+
+    /// perf-array-alloc-direct: an `element_type[len]` whose every element is `fill`
+    /// (`ArrayNew` / `Array.CreateInstance` — `fill` is the element type's default).
+    /// When `fill` is bitwise the allocator's zero for the selected backing (packed `0` /
+    /// `'\0'` / `false` / `+0.0`, or `I64(0)` in a `Boxed` block — `Value`'s
+    /// `#[repr(C, u8)]` puts discriminant 0 = `I64` at offset 0) the freshly zeroed block
+    /// **is** the array: no per-element pass at all. Otherwise (`Null` for reference
+    /// arrays, …) each slot is written once in place. Never materialises `vec![fill; len]`.
+    pub fn typed_filled(heap: &dyn MagrGC, element_type: &str, len: usize, fill: Value) -> Self {
+        let kind = ElemKind::of(element_type);
+        let zero = match (kind, &fill) {
+            (ElemKind::Bytes | ElemKind::I32 | ElemKind::I64 | ElemKind::Boxed, Value::I64(0)) => true,
+            (ElemKind::Chars, Value::Char('\0')) => true,
+            (ElemKind::Bool, Value::Bool(false)) => true,
+            (ElemKind::F64, Value::F64(f)) => f.to_bits() == 0,
+            _ => false,
+        };
+        let backing = if zero {
+            let (bytes, bt) = match kind {
+                ElemKind::Bytes | ElemKind::Bool => (len, BlockType::ArrayPrim),
+                ElemKind::I32 | ElemKind::Chars => (len * 4, BlockType::ArrayPrim),
+                ElemKind::I64 | ElemKind::F64 => (len * 8, BlockType::ArrayPrim),
+                ElemKind::Boxed => (len * std::mem::size_of::<Value>(), BlockType::ArrayValue),
+            };
+            let block = heap.alloc_var_block(bytes, bt);
+            match kind {
+                ElemKind::Bytes => ArrayBacking::Bytes { block, len },
+                ElemKind::Bool => ArrayBacking::Bool { block, len },
+                ElemKind::I32 => ArrayBacking::I32 { block, len },
+                ElemKind::Chars => ArrayBacking::Chars { block, len },
+                ElemKind::I64 => ArrayBacking::I64 { block, len },
+                ElemKind::F64 => ArrayBacking::F64 { block, len },
+                ElemKind::Boxed => ArrayBacking::Boxed { block, len },
+            }
+        } else {
+            Self::pack_backing_iter(heap, element_type, len, std::iter::repeat_n(fill, len))
+        };
+        Self { element_type: Arc::from(element_type), backing }
+    }
+
+    /// perf-array-alloc-direct: [`Self::typed`] over an element iterator of known
+    /// length (array literals read straight from their source registers).
+    pub fn typed_iter(heap: &dyn MagrGC, element_type: &str, len: usize, elems: impl Iterator<Item = Value>) -> Self {
+        Self { element_type: Arc::from(element_type), backing: Self::pack_backing_iter(heap, element_type, len, elems) }
+    }
+}
+
+/// perf-array-alloc-direct: which backing an element-type name selects — the single
+/// key `pack_backing_iter` / `typed_filled` dispatch on. Conservative + sign-safe:
+/// only widths that round-trip losslessly through `get_boxed`/`set_boxed` are packed.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum ElemKind { Bool, Bytes, I32, I64, Chars, F64, Boxed }
+
+impl ElemKind {
+    #[inline]
+    pub(crate) fn of(element_type: &str) -> Self {
+        match element_type {
+            "byte" | "u8" => Self::Bytes,
+            "char" => Self::Chars,
+            "bool" => Self::Bool,
+            // fits i32 signed range (i8/i16/i32 and u16 ≤ 65535).
+            "sbyte" | "i8" | "short" | "i16" | "int" | "i32" | "ushort" | "u16" => Self::I32,
+            // 64-bit (uint/u32 fit i64; u64 keeps existing i64-store semantics).
+            "long" | "i64" | "uint" | "u32" | "ulong" | "u64" | "isize" | "usize" => Self::I64,
+            "double" | "float" | "f32" | "f64" => Self::F64,
+            _ => Self::Boxed,
         }
     }
 }
