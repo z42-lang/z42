@@ -86,9 +86,6 @@ pub struct LazyLoader {
     /// transitive) but have not yet been loaded. Lookup candidates.
     pub(crate) declared_zpkgs: FxHashMap<String, ZpkgCandidate>,
 
-    /// Functions loaded from lazily-resolved zpkgs, indexed by FQ name.
-    /// ConstStr indices have been remapped to absolute indices.
-    function_table: FxHashMap<String, Arc<Function>>,
     /// Type descriptors from lazily-resolved zpkgs.
     type_registry:  FxHashMap<String, Arc<TypeDesc>>,
     /// add-crosspkg-impl-reflection (unify P1-e): `target_fq → [trait_fq]`
@@ -148,11 +145,14 @@ pub struct LazyLoader {
     /// Simple name → the unique recorded full name with that short name (`None` once two
     /// differ). Lets reflection resolve a dotless type name without force-loading everything.
     short_symbols: FxHashMap<String, Option<String>>,
-    /// The VM's [`FuncTable`](crate::metadata::func_table::FuncTable): every function that
-    /// enters `function_table` is also registered there (gets its `FnId`) in
-    /// [`Self::insert_function`]. Attached the same way as `cctors`; `None` only for
-    /// loaders built directly in unit tests.
-    funcs: Option<Arc<crate::metadata::func_table::FuncTable>>,
+    /// The VM's [`FuncTable`](crate::metadata::func_table::FuncTable), which is also this
+    /// loader's **function registry**: functions loaded from lazily resolved zpkgs (ConstStr
+    /// indices already remapped to absolute) are registered there by
+    /// [`Self::insert_function`] — getting their `FnId` — and looked up by name from there
+    /// (`FuncTable::lazy_fn`); the loader keeps no name map of its own. Attached by
+    /// `VmContext::install_lazy_loader_with_deps`; a loader built directly (unit tests) starts
+    /// with a private empty table.
+    funcs: Arc<crate::metadata::func_table::FuncTable>,
 }
 
 /// runtime-ambiguous-use-site: the two ambiguity sets, behind one `Box` so
@@ -296,7 +296,6 @@ impl LazyLoader {
             loaded_zpkgs,
             newly_loaded:   Vec::new(),
             declared_zpkgs,
-            function_table: FxHashMap::default(),
             type_registry:  FxHashMap::default(),
             impls:          FxHashMap::default(),
             negative: None,
@@ -304,7 +303,7 @@ impl LazyLoader {
             cctors: None,
             symbol_owners: FxHashMap::default(),
             short_symbols: FxHashMap::default(),
-            funcs: None,
+            funcs: Arc::new(crate::metadata::func_table::FuncTable::new(None)),
         }
     }
 
@@ -318,10 +317,6 @@ impl LazyLoader {
         }
     }
 
-    /// cache-ctorless-objnew: **the single funnel** for growing `function_table`.
-    /// Every insert bumps the global registration mark, which is what makes
-    /// "no function has been registered since" a sound guard for a cached negative
-    /// answer. Returns `false` when the name was already present (first-wins).
     /// runtime-ambiguous-use-site: remember that `name` was declared by more than
     /// one loaded zpkg. Append-only (the registries it shadows are append-only too,
     /// which `registry_fingerprint` relies on — nothing is ever removed here either).
@@ -347,9 +342,11 @@ impl LazyLoader {
         match &self.ambiguous { None => false, Some(a) => a.types.contains(name) }
     }
 
-    /// Attach the VM's function table (see the `funcs` field doc).
+    /// Attach the VM's function table (see the `funcs` field doc). Must precede any
+    /// registration — functions already in the private table would be dropped.
     pub(crate) fn set_func_table(&mut self, table: Arc<crate::metadata::func_table::FuncTable>) {
-        self.funcs = Some(table);
+        debug_assert_eq!(self.funcs.lazy_name_count(), 0, "set_func_table after registration");
+        self.funcs = table;
     }
 
     /// fix-crosspkg-static-call-cctor: attach the context's cctor registry (see the field doc).
@@ -386,29 +383,36 @@ impl LazyLoader {
         self.type_registry.insert(name, desc);
     }
 
+    /// cache-ctorless-objnew: **the single funnel** for growing the function registry (`funcs`).
+    /// Every insert bumps the global registration mark, which is what makes
+    /// "no function has been registered since" a sound guard for a cached negative
+    /// answer. Returns `false` when the name was already present (first-wins).
     pub(crate) fn insert_function(&mut self, name: String, f: Arc<Function>) -> bool {
-        if self.function_table.contains_key(&name) {
+        debug_assert_eq!(name, f.name, "a function registers under its own name");
+        // First-wins is the table's: it assigns the function its `FnId`, or refuses a
+        // taken name (lock order: loader write lock → table name lock).
+        if self.funcs.register_lazy(&f).is_none() {
             return false;
         }
-        // First-wins is decided above, so the table sees each name once; it assigns
-        // the function its `FnId` (lock order: loader write lock → table name lock).
-        if let Some(table) = self.funcs.as_ref() {
-            table.register_lazy(&f);
-        }
-        self.function_table.insert(name, f);
         crate::metadata::resolver::note_fn_registration();
         true
     }
 
+    /// The registered function named `name` (no loading).
+    #[inline]
+    pub(crate) fn registered_function(&self, name: &str) -> Option<Arc<Function>> {
+        self.funcs.lazy_fn(name)
+    }
+
     /// cache-failed-name-resolution: cheap staleness key for the negative cache.
-    /// `loaded_zpkgs` / `declared_zpkgs` / `function_table` / `type_registry` are
+    /// `loaded_zpkgs` / `declared_zpkgs` / the function registry / `type_registry` are
     /// **append-only** (grep: no `remove` / `clear` / `retain` on any of them), so
     /// an unchanged length tuple proves no name that previously failed to resolve
     /// could have become resolvable.
     #[inline]
     fn registry_fingerprint(&self) -> (usize, usize, usize, usize) {
         (self.loaded_zpkgs.len(), self.declared_zpkgs.len(),
-         self.function_table.len(), self.type_registry.len())
+         self.funcs.lazy_name_count(), self.type_registry.len())
     }
 
     /// The live negative cache, or `None` when nothing has ever been recorded
@@ -572,7 +576,7 @@ impl LazyLoader {
         out
     }
 
-    /// Force-load every declared zpkg into `function_table` / `type_registry`.
+    /// Force-load every declared zpkg into the function registry / `type_registry`.
     /// Used by `init_static_fields` to enumerate all `*.__static_init__`
     /// functions before running them. fix-multi-file-static-init (2026-05-15).
     ///
@@ -594,11 +598,6 @@ impl LazyLoader {
                 let _ = self.load_zpkg_file(&zpkg);
             }
         }
-    }
-
-    /// Iterator over all currently-loaded function names.
-    pub fn iter_function_names(&self) -> impl Iterator<Item = &String> + '_ {
-        self.function_table.keys()
     }
 
     /// Iterator over all currently-loaded type names (add-nested-types: used by

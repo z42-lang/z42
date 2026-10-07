@@ -6,8 +6,8 @@
 //!
 //! Only **load-time-knowable** references are resolved here:
 //!
-//!   • `Call.func`            → `MethodId` (intra-module hits; cross-zpkg
-//!                              left UNRESOLVED, filled on first dispatch)
+//!   • `Call.func`            → `FnId` (every callee already registered in the
+//!                              VM's `FuncTable`; the rest filled on first dispatch)
 //!   • `Builtin.name`         → `BuiltinId` (closed set — panic on miss)
 //!   • `ObjNew.class_name`    → `TypeId` (intra-module; cross-zpkg lazy)
 //!   • `StaticGet/Set.field`  → `StaticFieldId` (lazy global ID via
@@ -25,7 +25,6 @@
 use crate::metadata::tokens::UNRESOLVED;
 use crate::metadata::Function;
 use std::sync::atomic::AtomicU32;
-use std::sync::{Arc, OnceLock};
 
 /// Per-function lazy-init cache populated by `resolve_module`. Stored on
 /// `Function.resolved: OnceLock<ResolvedTokens>`.
@@ -36,18 +35,19 @@ use std::sync::{Arc, OnceLock};
 /// to the appropriate site index for that kind.
 #[derive(Debug, Default)]
 pub struct ResolvedTokens {
-    /// `Call` sites: cached `MethodId` (UNRESOLVED until first dispatch
-    /// resolves it via `module.func_index` or lazy loader).
+    /// `Call` sites: the callee's `FnId` (P1-2), or `UNRESOLVED` until the first
+    /// dispatch binds it. When the function runs against the VM's entry module
+    /// (`FuncTable::is_entry` — every production run) the token is an id in
+    /// `VmCore.funcs`: entry functions are `0..n` (= their `Module.functions`
+    /// index), callees in lazily loaded packages the ids after that. Against
+    /// any other module (unit tests with a bare `VmContext::new()`), only that
+    /// module's own indices are ever stored — the interp reads a token as
+    /// `module.functions[t]` when `t` is in range, else `funcs.get(t)`, and the
+    /// two readings agree whenever both exist. Filled here by name for every
+    /// callee already registered (including calls inside a lazily loaded
+    /// package into itself or into any package loaded so far); the rest are
+    /// bound on first dispatch (`interp::exec_call::call`).
     pub method_tokens: Vec<AtomicU32>,
-    /// `Call` sites: cached **cross-zpkg** target (review.md C7,
-    /// cache-cross-zpkg-call-target). Parallel to `method_tokens` (same site
-    /// index). A cross-zpkg target lives in the lazy loader's `function_table`,
-    /// not `module.functions`, so a `u32` index can't reach it — the resolved
-    /// `Arc<Function>` is cached here on first dispatch and borrowed thereafter
-    /// (`OnceLock::get`), eliminating the per-call `try_lookup_function` hash.
-    /// Empty cell for intra-module-only sites. `OnceLock` (write-once) because
-    /// FQ-name → target is stable within a run; `Sync`-safe for future MT.
-    pub cross_module_targets: Vec<OnceLock<Arc<Function>>>,
     /// `Call` sites, JIT only (make-vm-loading-lazy): per-site inline cache of the
     /// resolved **function id** for the JIT `resolve_fn_by_id` fast path. Parallel
     /// to `method_tokens`. A merged-module target's id is baked as the `Call`'s
@@ -56,8 +56,8 @@ pub struct ResolvedTokens {
     /// at translate time → baked `method_id = UNRESOLVED`). On first dispatch
     /// `jit_call` resolves the name to a synthetic lazy-slot id, compiles the
     /// function once, and stores the id here so subsequent calls skip the name hash
-    /// (mirrors `cross_module_targets` for interp, but caches the id the JIT
-    /// `resolve_fn_by_id` consumes). `u32` (not the jit `FnEntry`) to avoid a
+    /// (the id the JIT `resolve_fn_by_id` consumes — a JIT-private id, not an
+    /// `FnId`; the JIT reads `method_tokens` only below its `merged_len`). `u32` (not the jit `FnEntry`) to avoid a
     /// metadata→jit dependency cycle; the id maps to a per-run compiled entry in
     /// `JitModuleCtx`'s lazy slot table.
     pub call_jit_ic: Vec<AtomicU32>,
@@ -71,7 +71,7 @@ pub struct ResolvedTokens {
     /// **no constructor** (`0` = never proved). A class without an explicit ctor
     /// still makes the compiler emit `<Class>..ctor$N`, a name that resolves
     /// nowhere; without this the runtime re-ran that failed resolve on **every**
-    /// allocation. Valid while the mark is unchanged: `function_table` only grows,
+    /// allocation. Valid while the mark is unchanged: the loader's function registry only grows,
     /// and an absent ctor can only appear by being inserted there.
     pub ctorless_marks: Vec<std::sync::atomic::AtomicUsize>,
     /// `VCall` sites: monomorphic inline cache (TypeId, vtable slot, MethodId).
@@ -123,11 +123,10 @@ pub fn resolve_module(module: &crate::metadata::Module, ctx: &crate::vm_context:
 /// **Module identity invariant**: `module` MUST be the same `Module` the
 /// function will execute against at runtime (always the entry module — lazy
 /// callees are invoked with the caller's `module`, which threads down from the
-/// entry). `method_tokens` / `type_tokens` are indices into `module.functions`
-/// / `module.type_registry`; resolving them against a *different* module would
-/// mint wrong indices. Cross-module targets (absent from the entry module)
-/// correctly resolve to `UNRESOLVED` here and are cached per-site on first
-/// dispatch via `cross_module_targets`.
+/// entry). `type_tokens` are `module.type_registry` ids and `method_tokens` are
+/// read against `module` (see the field doc); resolving against a *different*
+/// module would mint wrong targets. Callees in packages not loaded yet resolve
+/// to `UNRESOLVED` here and are bound on first dispatch.
 ///
 /// Idempotent: `OnceLock::set` no-ops if another path (or a concurrent thread)
 /// already populated this function.
@@ -214,21 +213,30 @@ pub fn resolve_function_tokens(
         // silently. Leaving it `UNRESOLVED` sends both backends (JIT tier 1 reads these
         // same tokens) to the cold path, which re-resolves and throws there. A load-time
         // pass over every site, once — the per-call hot path is untouched.
+        //
+        // P1-2: names resolve through the VM's `FuncTable` when `module` is its entry module —
+        // entry module first, then every lazily loaded function registered so far (`id_of`, the
+        // same precedence as the call path's cold resolve). That is what lets a lazily loaded
+        // package's calls into itself start out bound. Same signature check as the call path's
+        // first binding (`exec_call::call`): a callee that cannot take this site's argument count
+        // stays `UNRESOLVED` so the call path raises there. Lookups only — nothing is loaded here.
+        let funcs = ctx.funcs();
+        let by_fn_id = funcs.is_entry(module);
         let method_tokens: Vec<AtomicU32> = method_site_names.iter().zip(method_site_argc.iter())
-            .map(|(name, &argc)| AtomicU32::new(
-                module.func_index.get(name).copied()
-                    .filter(|&idx| module.functions.get(idx)
-                        .map_or(true, |f| crate::vm_context::symres::call_arity(f).accepts(argc)))
-                    .map(|idx| idx as u32)
-                    .unwrap_or(UNRESOLVED)
-            ))
+            .map(|(name, &argc)| {
+                let bound = if by_fn_id {
+                    funcs.id_of(name).and_then(|id| Some((id.0, funcs.get(id)?)))
+                } else {
+                    module.func_index.get(name)
+                        .and_then(|&idx| Some((idx as u32, module.functions.get(idx)?)))
+                };
+                AtomicU32::new(match bound {
+                    Some((tok, f)) if crate::vm_context::symres::call_arity(f).accepts(argc) => tok,
+                    _ => UNRESOLVED,
+                })
+            })
             .collect();
 
-        // Parallel cross-zpkg target cache: one empty cell per Call site,
-        // filled on first cross-zpkg dispatch (review.md C7). Intra-module
-        // sites resolve via `method_tokens` and leave their cell untouched.
-        let cross_module_targets: Vec<OnceLock<Arc<Function>>> =
-            method_site_names.iter().map(|_| OnceLock::new()).collect();
         // make-vm-loading-lazy: per-Call-site JIT id cache (see field docs).
         let call_jit_ic: Vec<AtomicU32> =
             method_site_names.iter().map(|_| AtomicU32::new(UNRESOLVED)).collect();
@@ -297,7 +305,6 @@ pub fn resolve_function_tokens(
 
         let resolved = ResolvedTokens {
             method_tokens,
-            cross_module_targets,
             call_jit_ic,
             builtin_tokens,
             type_tokens,

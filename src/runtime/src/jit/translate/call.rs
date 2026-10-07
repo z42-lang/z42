@@ -16,7 +16,7 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                     let d = self.ri(*dst);
                     let (np, nl) = self.str_val(fname);
                     let (ap, al) = self.regs_val(args);
-                    let mid = method_id_at(self.func, self.block_idx, self.instr_idx);
+                    let mid = method_id_at(self.func, self.block_idx, self.instr_idx, self.merged_len);
                     let mid_val = self.builder.ins().iconst(types::I32, mid as i64);
                     // make-vm-loading-lazy: per-site IC caching the resolved
                     // lazy/merged fn id, so a cross-zpkg call resolves the name

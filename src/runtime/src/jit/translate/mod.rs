@@ -89,6 +89,10 @@ pub fn translate_function(
     z42_func:     &Function,
     _func_max_reg: usize,
     func_id:      FuncId,
+    // P1-2: number of merged (entry-module) functions — the JIT's own id space below
+    // it. `Call` tokens at or above it are `FnId`s of lazily loaded functions, which the
+    // JIT does not number the same way yet (`ic::method_id_at`).
+    merged_len:   usize,
     // add-osr-loop-tiering: `Some(K)` compiles an **OSR variant** whose entry runs
     // the normal prologue (safepoint + cached `frame.regs` ptr + hoisted array
     // ptrs — all SSA values that must dominate the loop) and then jumps straight to
@@ -353,7 +357,7 @@ pub fn translate_function(
         let mut cx = TxCtx {
             builder: &mut builder, cache: &mut cache, func: z42_func,
             promoted: &promoted, cl_blocks: &cl_blocks,
-            regs_base, frame_val, ctx_val, ptr, block_idx, instr_idx: 0,
+            regs_base, frame_val, ctx_val, ptr, block_idx, instr_idx: 0, merged_len,
             catch_info, catch_chain: &catch_chain,
             hoisted_arrays: &hoisted_arrays, hoisted_fields: &hoisted_fields,
             hoisted_ref_fields: &hoisted_ref_fields,

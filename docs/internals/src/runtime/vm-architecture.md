@@ -46,7 +46,7 @@ vm.run(&ctx, hint)?;
 - `processes: ResourceRegistry<ProcessSlot>` — `Std.IO.Process` 子进程注册表
 - `heap: Box<dyn MagrGC>` — GC 子系统接口（后端 `ArcMagrGC`）
 - `module: Option<Arc<Module>>` — 用户编译后的 Module，跨线程共享；测试路径 `None`，生产路径 `Some(Arc::new(module))`
-- `funcs: Arc<FuncTable>` — VM 级函数身份表（`metadata/func_table.rs`）：每个函数一个 `FnId`（u32，本 VmCore 内稠密、永不复用、只存在于运行期），`get(id)` 无锁。入口模块的函数在构造 VmCore 时整块登记为 `0..n`，**等于 `module.functions` 下标**（槽位借用 `module`，表里持有同一个 `Arc`）；惰性包的函数在 `LazyLoader::insert_function` 入表时逐个追加（槽位持有 `Arc<Function>`），重名 first-wins、不分配新 id。`Function.id` 记录登记得到的 id。名字反查 `id_of` 是冷路径：先查入口模块的 `func_index`，再查惰性函数的 `by_name`。底层是 `metadata/seg_vec.rs` 的 `SegVec`：倍增分段（首段 1024 项）、段永不移动，追加持写者锁并以 Release 发布长度，读侧 Acquire 读长度。**FuncTable 目前只登记，所有查找仍走 `Module.func_index` / `LazyLoader.function_table` / JIT `LazyTable`。**
+- `funcs: Arc<FuncTable>` — VM 级函数身份表（`metadata/func_table.rs`）：每个函数一个 `FnId`（u32，本 VmCore 内稠密、永不复用、只存在于运行期），`get(id)` 无锁。入口模块的函数在构造 VmCore 时整块登记为 `0..n`，**等于 `module.functions` 下标**（槽位借用 `module`，表里持有同一个 `Arc`）；惰性包的函数在 `LazyLoader::insert_function` 入表时逐个追加（槽位持有 `Arc<Function>`），重名 first-wins、不分配新 id。`Function.id` 记录登记得到的 id。名字反查 `id_of` 是冷路径：先查入口模块的 `func_index`，再查惰性函数的 `by_name`。`by_name` 同时就是 lazy loader 的函数名表（加载器自己不另存一份，`probe_function` / `resolve_function` 都经 `FuncTable::lazy_fn` 读它）；惰性函数与入口函数同名时仍各有 id，`id_of` 答入口那个。再次安装 lazy loader（只有测试会）用 `reset_lazy_names` 清空名字空间，槽位与 id 保留。底层是 `metadata/seg_vec.rs` 的 `SegVec`：倍增分段（首段 1024 项）、段永不移动，追加持写者锁并以 Release 发布长度，读侧 Acquire 读长度。消费方：interp `Call` 站点 token（见下文「Call 站点 token：FnId」）；VCall / ObjNew / CallIndirect 与 JIT 的槽位仍按名字或各自的 id。
 - `threads: ResourceRegistry<JoinHandle<Result<()>>>` — `Std.Threading.Thread` 的 JoinHandle slot table；`__thread_spawn` 插入，`__thread_join` take-out 后 join
 - `file_handles: ResourceRegistry<FileHandleSlot>` + `tcp_sockets` / `tcp_listeners` / `tls_sockets` / `udp_sockets`（后四者 `#[cfg(not(target_arch="wasm32"))]`）— `Std.IO.FileStream` 句柄 + `Std.Net.Sockets` 各类 socket slot table
 - `vm_contexts: Mutex<Vec<VmContextPtr>>` — 本 core 上所有存活 `VmContext` 的注册表（见下「Send-safety 与 GC scanner 设计」）
@@ -459,13 +459,13 @@ struct LazyLoader {
     loaded_zpkgs: FxHashSet<String>,                  // 已加载 zpkg 文件名
     declared_zpkgs: FxHashMap<String, ZpkgCandidate>, // 声明但未加载
 
-    function_table: FxHashMap<String, Arc<Function>>, // FQ name → Function
     type_registry: FxHashMap<String, Arc<TypeDesc>>,  // FQ name → TypeDesc
     impls: FxHashMap<String, Vec<String>>,            // target FQ → [trait FQ]（各包 IMPL 段汇总）
     symbol_owners: FxHashMap<String, String>,         // 符号键 → 定义它的 zpkg 文件（各包 DEPS 符号表汇总）
     short_symbols: FxHashMap<String, Option<String>>, // 短名 → 唯一全名（反射短名查找用）
     // …另有 newly_loaded 暂存区、「确定解析不出」的负缓存、歧义名登记，
-    //   以及 VmCore 的 cctor registry / FuncTable 的 Arc（类型、函数入表时顺带登记）
+    //   以及 VmCore 的 cctor registry 与 FuncTable 的 Arc —— 后者就是函数注册表
+    //   （FQ name → FnId → Function，见上文 `funcs`），类型入表时顺带登记 cctor
 }
 
 struct ZpkgCandidate {
@@ -486,7 +486,7 @@ struct ZpkgCandidate {
 
 ```
 try_lookup_function(func_name):        # VmContext 先查 per-context fn_lookup_cache，再取 lazy_loader 读锁探测
-  if function_table has func_name → return hit
+  if 函数注册表（FuncTable.by_name）has func_name → return hit
   if 负缓存命中 → return None
 
   # 引用表精确路由（lazy_loader/symbols.rs）：引用方的 DEPS 记着「这个名字由哪个包定义」
@@ -495,7 +495,7 @@ try_lookup_function(func_name):        # VmContext 先查 per-context fn_lookup_
        或 symbol_owners[key 去掉末段]、[再去一段]（成员名 → 所属类型，非精确）
   if owner:
     load_zpkg_file(owner)
-    if function_table has func_name → return hit
+    if 函数注册表（FuncTable.by_name）has func_name → return hit
     if 精确: 记负缓存; return None     # 定义包里没有 = 真缺符号，不再加载别的包
 
   # 策略 C：按 namespace 前缀筛选候选 zpkg（静态引用之外的名字：反射、运行期拼出的名字）
@@ -504,13 +504,13 @@ try_lookup_function(func_name):        # VmContext 先查 per-context fn_lookup_
     if zpkg_file not in loaded_zpkgs
        and zpkg.namespaces 含 ns 或以 ns. 开头:
       load_zpkg_file(zpkg_file)
-      if function_table has func_name → return hit
+      if 函数注册表（FuncTable.by_name）has func_name → return hit
 
   # 策略 B 回退：若策略 C 无匹配，遍历所有剩余 declared-but-not-loaded，
   # 并迭代到不动点（加载一个包会把它自己的依赖登记成新候选）
   loop over declared_zpkgs - loaded_zpkgs:
     load_zpkg_file(zpkg_file)
-    if function_table has func_name → return hit
+    if 函数注册表（FuncTable.by_name）has func_name → return hit
 
   记入「确定解析不出」负缓存; return None  # 真正 undefined
 ```
@@ -533,42 +533,45 @@ try_lookup_function(func_name):        # VmContext 先查 per-context fn_lookup_
 策略 B 是安全网，处理 zpkg 元数据不完整 / 用户 zbc 的 import_namespaces
 不全等边界情况。
 
-### Per-site cross-zpkg Call 目标缓存
+### Call 站点 token：FnId
 
-`try_lookup_function` 即使命中（function_table 已有），也是一次
-`HashMap<String, Arc<Function>>` 探测（String hash + compare）。本模块 Call 有
-`ResolvedTokens.method_tokens[site]`（`AtomicU32`）缓存 `module.functions` 下标，
-第二次起纯整数索引；但 **cross-zpkg 目标不在 `module.functions`**（在 lazy loader
-的 `function_table`），u32 下标够不着 → 这类 site 的 token slot 永远 `UNRESOLVED`，
-**每次调用都重跑** `try_lookup_function`（上面的策略 C/B，至少一次 String hash）。
+`ResolvedTokens.method_tokens[site]`（`AtomicU32`）存被调函数的 `FnId`。入口函数的 `FnId` 等于
+`module.functions` 下标，惰性包函数的 `FnId` 排在其后，所以一个 u32 就够得着所有已登记的函数。
 
-做法：`ResolvedTokens` 有一条与 `method_tokens` 平行、同 site 索引的
-`cross_module_targets: Vec<OnceLock<Arc<Function>>>`。dispatch（[exec_call.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/interp/exec_call.rs)）在
-**本模块两级 miss 之后**：
+- **解析期按名填**（[resolver.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/resolver.rs)）：
+  `module` 是 FuncTable 的入口模块时（`FuncTable::is_entry`，生产路径恒成立），名字经 `FuncTable::id_of` 解析——
+  先入口模块、再已登记的惰性函数，与调用路径冷解析同一优先级。惰性包里的函数首执解析时自己的包已登记，
+  **包内调用一开始就绑好**；调入尚未加载的包的站点留 `UNRESOLVED`。只查不加载。签名容不下本站点实参数的目标
+  不填（与首次绑定同一判定，见 [missing-symbol.md](missing-symbol.md)）。
+- **调用**（[exec_call.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/interp/exec_call.rs)）：
 
 ```
-if let Some(cell) = cross_cell:
-  match cell.get():
-    Some(arc) => 借用 arc            # 命中：零 hash、零 atomic-RMW（仅一次 acquire load）
-    None      => arc = try_lookup_function(fname)?   # 首次：解析一次
-                 cell.set(arc)        # 写一次（OnceLock 幂等：并发双填取胜者，同函数无害）
-                 borrow
+token 已绑定:
+  t < module.functions.len() → module.functions[t]       # 入口函数（= FnId）
+  否则                        → ctx.funcs().get(FnId(t))  # 惰性函数，无锁
+token = UNRESOLVED（bind_callee，冷路径）:
+  module.func_index 命中 → 签名判定 → 写回下标
+  否则 try_lookup_function（可能加载包）→ 签名判定 → 写回 Function.id
+  都没有 → MissingSymbolException
+然后：包初始化屏障 → cctor 屏障 → （入口函数且已编译时）转 JIT 原生码 → 歧义判定 → 执行
 ```
 
-设计要点（对照 CoreCLR：cross-assembly call 首次 prestub 解析后 patch call site，
-第二次直接跳）：
-
-- **per-site cell，不建全局整数寻址表**：避免全局可变注册表 + 并发 append 协议
-  （runtime 热子系统返工高发区）；每个 `OnceLock` 独立、天然 `Sync`。
-- **`OnceLock`（write-once）而非可失效缓存**：一次运行内 FQ-name → 目标函数稳定
-  （function_table 装入后 `Arc<Function>` 不变；hot-reload 是独立失效路径，不经此 site 缓存）。
-- **只在本模块 miss 后介入**：本模块命中路径一条多余指令都不加（`cross_cell` 仅在
-  既有 cross-zpkg 慢路径处取用）。
-- **仅 interp**：JIT 的 cross-zpkg 走 `jit_call` helper（站点缓存是 `ResolvedTokens.call_jit_ic`，见下），本机制不动它。
+- **对非入口模块**（单元测试里 `VmContext::new()` 配一个手搭模块）：token 只会是该模块自己的下标——
+  解析期不按 FuncTable 填，冷路径也不缓存惰性目标（它的 `FnId` 可能与模块下标同号）。上面「t 在模块范围内取
+  模块函数」的读法对两种情形都对。
+- **写回是 `Relaxed`**：token 指向的槽位在写回之前已由 `SegVec` 的 Release 发布，读者 `get` 用 Acquire。
+- **静态初始化排空**：命中 token 不经过 `try_lookup_function`，也就不顺带排空待加载类型队列。
+  这与已绑定的入口函数调用一样：队列只由函数解析（resolver 在发布 `resolved` 前排空）和包加载（加载它的
+  `try_lookup_*` 在释放锁后排空）填入，到执行调用时已排空。golden `static_init_concurrent`（cross-zpkg）守这一点。
+- **JIT** 读同一组 token 烘焙 `Call` 的 `method_id`，但只认 `< merged_len` 的值（`translate/ic.rs`
+  `method_id_at`）：惰性函数的 `FnId` 会与 JIT 自己的合成惰性槽 id（`merged_len + i`）撞号，所以按
+  `UNRESOLVED` 烘焙，交给 `jit_call` 按名解析（见下文「JIT cross-zpkg 调用解析」）。
+- **待办**：惰性目标还不能从解释器转到 JIT 原生码、也不计调用次数（JIT 槽位改按 FnId 之后）；
+  `CallIndirect` / `LoadFn` / `MkClos` 仍按名字。
 
 ### 惰性加载函数的 token 首执解析
 
-上面所有 per-site 缓存（`method_tokens` / `cross_module_targets` / `vcall_ic` /
+上面所有 per-site 缓存（`method_tokens` / `vcall_ic` /
 `field_ic` / `builtin_tokens` / `static_field_tokens` / `type_tokens` / `site_index`）
 都挂在 `Function.resolved: OnceLock<ResolvedTokens>`，由
 [`resolver::resolve_module`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/resolver.rs) 一次性填充。
@@ -576,7 +579,7 @@ if let Some(cell) = cross_cell:
 interp/JIT 模式下依赖是**纯惰性加载**（[app.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/app.rs)
 `is_eager = matches!(mode, Aot)`，非 AOT 全 false）：除用户 artifact 外，
 **所有依赖 zpkg**（自编译时即 z42c.core / z42c.syntax / z42c.semantics /
-z42c.emission / z42c.pipeline 全部）经 `LazyLoader::load_zpkg_file` 进 `function_table`，其
+z42c.emission / z42c.pipeline 全部）经 `LazyLoader::load_zpkg_file` 进函数注册表，其
 `Function.resolved` **永不被 set**。
 
 若不做首执解析，后果是：**整个自编译工作负载（跑在惰性加载的 z42c.* 里）dispatch 时所有 per-site
@@ -593,10 +596,9 @@ profile 里 `get_inner`+`memcmp`+`try_lookup_*` 的大头即源于此。
 
 **模块身份不变式（关键正确性约束）**：填充用的 `module` 必须是该函数**运行期实际
 dispatch 所对的 Module**——始终是 entry module（惰性 callee 由调用方的 `module`
-一路透传，根在 entry）。`method_tokens` / `type_tokens` 是 `module.functions` /
-`module.type_registry` 的下标；对**别的** module 解析会铸出错下标。跨模块目标
-（不在 entry module）在此正确解析为 `UNRESOLVED`，交由 `cross_module_targets`
-per-site 首执缓存兜住（见上一节）。**`field_ic`（运行期首派填充，载荷是类内字段下标）、
+一路透传，根在 entry）。`method_tokens` 按 `module` 解读（见上一节），`type_tokens` 是
+`module.type_registry` 的 id；对**别的** module 解析会铸出错目标。尚未加载的包里的目标
+在此解析为 `UNRESOLVED`，首次调用时绑定（见上一节）。**`field_ic`（运行期首派填充，载荷是类内字段下标）、
 `builtin_tokens`（全局闭集）、`static_field_tokens`（全局 `ctx.resolve_static_field_id`，
 锁保护幂等）** 与 module 下标无关；**`vcall_ic`** 的载荷 `fn_idx` 是 `module.functions` 的下标，
 但它在运行期首派时才按实际 dispatch 的 `module` 填写，且只缓存 module-local 目标（跨 zpkg 的惰性目标不进 PIC），
@@ -662,7 +664,7 @@ load_zpkg_file(file_name):
   loaded_zpkgs.insert(file_name)           # ★ 着色：先标记后加载
 
   artifact = load_artifact(file_path)
-  remap ConstStr indices + 合并 function_table / type_registry（first-wins）
+  remap ConstStr indices + 并入函数注册表 / type_registry（first-wins）
 
   # 递归展开该 zpkg 自己的 ZpkgDep 进 declared 集合
   for dep in artifact.dependencies:
@@ -675,7 +677,7 @@ load_zpkg_file(file_name):
 
 ### 函数 / 类型冲突（first-wins）
 
-合并 function_table / type_registry 时若遇同名 entry：保留先加载者 +
+并入函数注册表 / type_registry 时若遇同名 entry：保留先加载者 +
 `tracing::warn`。预期同名冲突不应发生（编译期类型检查捕获）；若发生，稳定
 的行为（不随加载顺序变化）比"最后加载者覆盖"更安全，和 C# CLR 一致。
 
@@ -1188,9 +1190,10 @@ mixed-type sites 调用，删除会让那些 sites 慢一档。
 ### 数据结构
 
 ```rust
-// metadata/tokens.rs — 6 个 newtype + UNRESOLVED sentinel
+// metadata/tokens.rs — 7 个 newtype + UNRESOLVED sentinel
 pub const UNRESOLVED: u32 = u32::MAX;
 pub struct MethodId(pub u32);     // → Module.functions[id]
+pub struct FnId(pub u32);         // → VmCore.funcs（FuncTable）；入口函数 = Module.functions 下标
 pub struct TypeId(pub u32);       // → 进程内全局唯一（见下「TypeId 的作用域」）
 pub struct BuiltinId(pub u32);    // → BUILTINS[id] 全局静态表
 pub struct FieldId(pub u32);      // → TypeDesc.fields[id]
@@ -1199,8 +1202,7 @@ pub struct VTableSlot(pub u32);   // → TypeDesc.vtable[id]
 
 // metadata/resolver.rs — Function.resolved 内容
 pub struct ResolvedTokens {
-    pub method_tokens:        Vec<AtomicU32>,   // Call 站点（cross-zpkg 留 UNRESOLVED）
-    pub cross_module_targets: Vec<OnceLock<Arc<Function>>>, // Call 站点的 cross-zpkg 目标缓存（interp）
+    pub method_tokens:        Vec<AtomicU32>,   // Call 站点：被调函数的 FnId（未加载的包留 UNRESOLVED）
     pub call_jit_ic:          Vec<AtomicU32>,   // Call 站点的 lazy 目标函数 id 缓存（JIT）
     pub builtin_tokens:       Vec<u32>,         // Builtin 站点（100% 命中）
     pub type_tokens:          Vec<AtomicU32>,   // ObjNew 站点
@@ -1219,7 +1221,7 @@ pub struct ResolvedTokens {
    - 走每个 Function 的每个 (block, instr) 元组
    - 对每个 token-bearing instruction 分配 per-kind site_idx
    - 解析能解析的 token：
-     - `Call.func` → `module.func_index` 命中 → `MethodId`，否则 `UNRESOLVED`
+     - `Call.func` → `FuncTable::id_of`（入口模块、再已登记的惰性函数）命中且签名容得下 → `FnId`，否则 `UNRESOLVED`
      - `Builtin.name` → `corelib::builtin_id_of`（再查 per-VM ext 注册表）命中 → `BuiltinId`，否则 `UNRESOLVED`（ext 库此时可能还没加载）
      - `ObjNew.class_name` → `module.type_registry` → `TypeId`
      - `StaticGet/Set.field` → `ctx.resolve_static_field_id(name)` 懒分配
@@ -1230,7 +1232,7 @@ pub struct ResolvedTokens {
 
 每条 token-bearing 指令在 `interp::exec_instr` 入口查 `resolved.site_index[block_idx][instr_idx] → site_idx`，传给对应 helper：
 
-- **Call**: 命中 → `module.functions[cached]`；UNRESOLVED → `func_index` 查找 + 写回 cache；cross-zpkg 目标走 `cross_module_targets`（见上）
+- **Call**: 命中 → 入口函数 `module.functions[t]` / 惰性函数 `funcs.get(t)`；UNRESOLVED → 按名绑定 + 写回（见上文「Call 站点 token：FnId」）
 - **Builtin**: 命中 → `exec_builtin_by_id`（`BUILTINS[id]` 或 ext 表）；`UNRESOLVED` → 按名 `corelib::exec_builtin`（调用时重查 ext 注册表）
 - **ObjNew**: 仍走 `type_registry`（HashMap by name）；TypeId cache 用作 cross-zpkg observability
 - **StaticGet/Set**: 命中 → `static_fields[id]`；UNRESOLVED → name lookup + 回填
@@ -1270,7 +1272,7 @@ pub struct ResolvedTokens {
 ### 跨 zpkg 时序
 
 - **Intra-module**：`build_type_registry` + `resolve_module` 都在同一 module 加载完成后跑，所有 intra-module ID 立即可用。
-- **Cross-zpkg lazy load**：lazy_loader 触发的 zpkg 加载后，对方模块的 `func_index` / `type_registry` 才填充。caller 模块的 `Function.resolved` 中的 cross-zpkg 引用初始为 `UNRESOLVED`；首次 dispatch 通过 string lookup 命中后**写回 cache**，单点回填。
+- **Cross-zpkg lazy load**：lazy_loader 触发的 zpkg 加载后，对方模块的函数 / 类型才登记。调用方解析时对方包已登记的 `Call` 直接填 `FnId`；还没登记的初始为 `UNRESOLVED`，首次 dispatch 通过 string lookup 命中后**写回 cache**，单点回填。
 - **StaticFieldId 全局 lazy 增量**：`VmContext::resolve_static_field_id(name)` idempotent — 任何模块在加载期或 dispatch 期遇到新的 static field name，立即分配新 id 并 resize Vec。已分配的 id 不变（resolver-populated cache 跨 module reload 仍有效）。
 
 ### JIT 与 wire 形态

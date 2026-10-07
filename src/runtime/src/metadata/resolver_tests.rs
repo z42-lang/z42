@@ -10,63 +10,12 @@ use super::*;
 fn resolved_tokens_default_is_empty() {
     let r = ResolvedTokens::default();
     assert!(r.method_tokens.is_empty());
-    assert!(r.cross_module_targets.is_empty());
     assert!(r.builtin_tokens.is_empty());
     assert!(r.type_tokens.is_empty());
     assert!(r.vcall_ic.is_empty());
     assert!(r.field_ic.is_empty());
     assert!(r.static_field_tokens.is_empty());
     assert!(r.site_index.is_empty());
-}
-
-/// review.md C7 / cache-cross-zpkg-call-target: the per-site cross-zpkg
-/// cell contract that `exec_call::call` relies on — empty until first
-/// dispatch, write-once fill, borrow-after returns the same `Arc`, and a
-/// concurrent/repeat `set` is ignored (so a winner's target stays stable).
-#[test]
-fn cross_module_target_cell_fill_once_then_borrow() {
-    use crate::metadata::bytecode::{BasicBlock, Terminator};
-    use crate::metadata::types::ExecMode;
-
-    let mk = |name: &str| {
-        Arc::new(Function {
-            name: name.to_string(),
-            param_count: 0,
-            ret_type: "void".to_string(),
-            exec_mode: ExecMode::Interp,
-            blocks: vec![BasicBlock {
-                label: "entry".to_string(),
-                instructions: Vec::new(),
-                terminator: Terminator::Ret { reg: None },
-            }],
-            is_static: false,
-            visibility: 0,
-            method_flags: 0, min_arg: 0, params_from: 0xFF,
-            max_reg: 0,
-            cold: None,
-            reg_types: Box::new([]),
-            block_index: std::collections::HashMap::new(),
-            branch_targets: Vec::new(),
-            fused_tails: Vec::new(),
-            frame_meta: None,
-            resolved: OnceLock::new(),
-            owner_init: Default::default(),
-            id: Default::default(),
-        })
-    };
-
-    let cell: OnceLock<Arc<Function>> = OnceLock::new();
-    assert!(cell.get().is_none(), "fresh cell must be empty (forces first-dispatch resolve)");
-
-    let first = mk("Other.zpkg.fn");
-    assert!(cell.set(Arc::clone(&first)).is_ok(), "first fill succeeds");
-    assert!(Arc::ptr_eq(cell.get().unwrap(), &first), "borrow returns the cached Arc, no re-resolve");
-
-    // A second resolve (e.g. concurrent double-fill) must not replace the
-    // cached target — set() returns Err and the original Arc stays.
-    let second = mk("Other.zpkg.fn");
-    assert!(cell.set(Arc::clone(&second)).is_err(), "repeat fill is rejected (write-once)");
-    assert!(Arc::ptr_eq(cell.get().unwrap(), &first), "cached target unchanged after rejected fill");
 }
 
 #[test]
