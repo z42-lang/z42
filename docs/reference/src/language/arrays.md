@@ -104,14 +104,21 @@ xs.GetType().FullName;                   // "Std.Int32[]"，与 typeof 一致
 | `SetValue` | `void SetValue(Object value, int index)` —— 形参就是 `Object` |
 | `CopyRange` | `void CopyRange(Array source, int, Array destination, int, int)` —— 两侧元素类型可不同 |
 
-**口径是严格的：值的种类必须与元素类型同种，否则抛 `Std.Exception`，且目标元素保持原值。**
+**口径是严格的：值的种类必须与元素类型同种，否则抛，且目标数组保持原样。** 抛哪个异常与 C# 相同：
+
+| 情形 | 异常 |
+|---|---|
+| 某个**值 / 元素**存不进元素类型（`SetValue` 的值；`CopyRange` 里 `object[]` 混着一个不是目标类型的元素，含 null 进值 struct 数组） | `InvalidCastException` |
+| `CopyRange` 两侧的**数组类型**本身就不兼容（`int[]` ↔ `Point[]`、`Point[]` → `Vector[]`、`Point[]` → `string[]`） | `ArrayTypeMismatchException` |
+| `CopyRange` 的区间越出任一数组 | `ArgumentException` |
+
 不做隐式拓宽 —— `double[]` **不收整数**（`d.SetValue(42, 0)` 抛；要存就传 `42.0`）。
 
 ```z42
 int[] a = new int[1];
 a[0] = 9;
 object v = null;
-a.SetValue(v, 0);          // ❌ 抛；a[0] 仍是 9
+a.SetValue(v, 0);          // ❌ InvalidCastException；a[0] 仍是 9
 
 object n = 42;
 a.SetValue(n, 0);          // ✅ 42（整数进 int[] 是正常路径）
@@ -122,12 +129,42 @@ s.SetValue(none, 0);       // ✅ 引用元素写 null 完全合法
 
 int[] dst = new int[1];
 string[] src = new string[1];
-Array.CopyRange(src, 0, dst, 0, 1);   // ❌ 抛；dst 不被改动
+Array.CopyRange(src, 0, dst, 0, 1);   // ❌ InvalidCastException；dst 不被改动
 ```
 
 > 不静默写入 0：`0` 是程序**完全无法与合法写入区分**的答案，所以类型不符一律抛。
 >
 > **严格而不拓宽是刻意选择**：判据无歧义，且严格版随时可以放宽、反过来不行。
+
+### 值 struct 数组
+
+`Point[]`（`Point` 是 struct）的元素按值内联存放。这些原生入口对它的行为与 C# 一致：
+
+| 入口 | 行为 |
+|---|---|
+| `Array.Copy` / `CopyRange` | 同类型数组之间按值拷贝（引用类型的字段浅拷贝），同一数组内区间重叠按 memmove 处理 |
+| `CopyRange(Point[] → object[] / 接口数组)` | 逐元素装箱 |
+| `CopyRange(object[] → Point[])` | 逐元素拆箱；有一个元素不是 `Point` 的装箱（含 null）就抛 `InvalidCastException`，目标数组不动 |
+| `GetValue(i)` | 返回元素的**装箱副本**，改它不影响数组 |
+| `SetValue(value, i)` | 只收 `Point` 的装箱，按值写进元素 |
+| `Array.CreateInstance(typeof(Point), n)` | 一个真正的 `Point[]`，元素为默认值 |
+| `Clone()` | 按值的浅拷贝 |
+
+```z42
+Point[] src = new Point[] { new Point(1, 2), new Point(3, 4) };
+Point[] dst = new Point[2];
+Array.Copy<Point>(src, dst, 2);
+dst[0].X = 99;             // src[0].X 仍是 1
+
+object[] boxes = new object[2];
+Array.CopyRange(src, 0, boxes, 0, 2);   // 两个装箱的 Point
+Point p = (Point)boxes[1];              // (3, 4)
+```
+
+**还不支持**：`Fill`、`Clear`、`Reverse`、`Resize`、`Sort`、`IndexOf` / `Contains` / `LastIndexOf`、
+`Find` 系列、`BinarySearch` 这些**泛型算法**在值 struct 数组上暂不可用（读写元素出错或得到错误结果）——
+需要时先用循环按下标逐个处理，或放进 `List<Point>`。只读元素的 `ForEach`、`Exists`、`TrueForAll`、
+`FindIndex` / `FindLastIndex`，以及把元素投影成非 struct 类型的 `ConvertAll` 可用。
 
 ## 相关
 

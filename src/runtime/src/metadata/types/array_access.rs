@@ -273,11 +273,16 @@ impl ArrayObj {
     }
 
     /// perf-bulk-array-copy: bulk element move `src[si..si+n]` → `self[di..di+n]`.
-    /// Generic path via `get_boxed`/`set_boxed` so every backing (packed / boxed /
-    /// struct) works and element-type conversions stay exactly as the single-element
-    /// path defines them. The win is not the inner loop — it is paying **one** native
-    /// call instead of `n` interpreted `ArrayGet`/`ArraySet` round trips.
-    /// Caller bounds-checks both ranges.
+    /// Same-backing pairs are one slice copy; mixed packed / boxed pairs go element-wise via
+    /// `get_boxed`/`set_boxed`, so element-type conversions stay exactly as the
+    /// single-element path defines them. The win is not the inner loop — it is paying
+    /// **one** native call instead of `n` interpreted `ArrayGet`/`ArraySet` round trips.
+    ///
+    /// Two `struct[]` (`StructBytes`) arrays of the **same element layout** copy their byte
+    /// range and their reference-leaf range. A `struct[]` paired with any other backing needs
+    /// boxing / unboxing (heap allocation, type checks) and is `objops::array_bulk::copy_range`'s
+    /// job — it never reaches here (debug-asserted; release leaves the destination untouched).
+    /// Caller bounds-checks both ranges and fires the write barrier over the written range.
     pub fn copy_elems_from(&mut self, src: &ArrayObj, si: usize, di: usize, n: usize) {
         // Fast path: two arrays with the **same** packed backing are just a `memcpy`
         // of the element range (`copy_from_slice`). This is what makes the primitive
@@ -316,9 +321,33 @@ impl ArrayObj {
                 crate::gc::satb::record_overwrite_all(&d[di..di + n]);
                 bulk!(Value, sb, *sl, db, *dl, clone_from_slice)
             }
+            (ArrayBacking::StructBytes { len: sl, bytes: sb, refs: sr, layout: sly },
+             ArrayBacking::StructBytes { len: dl, bytes: db, refs: dr, layout: dly })
+                if sly.size == dly.size && sly.ref_count() == dly.ref_count() =>
+            {
+                let (size, rc) = (dly.size, dly.ref_count());
+                // SAFETY: live `ArrayStruct` blocks of `len*size` bytes; ranges caller-checked;
+                // `src`/`self` are distinct arrays (same-array moves use `copy_elems_within`).
+                let sbytes = unsafe { Self::slice_of::<u8>(sb, *sl * size) };
+                let dbytes = unsafe { Self::slice_of_mut::<u8>(db, *dl * size) };
+                dbytes[di * size..(di + n) * size].copy_from_slice(&sbytes[si * size..(si + n) * size]);
+                // SAFETY: live `ArrayValue` reference side-tables of `len*rc` Values.
+                let srefs = unsafe { Self::slice_of::<Value>(sr, *sl * rc) };
+                let drefs = unsafe { Self::slice_of_mut::<Value>(dr, *dl * rc) };
+                // The copy overwrites live reference leaves: SATB-record them, as `set_struct_ref` does.
+                crate::gc::satb::record_overwrite_all(&drefs[di * rc..(di + n) * rc]);
+                drefs[di * rc..(di + n) * rc].copy_from_slice(&srefs[si * rc..(si + n) * rc]);
+                true
+            }
+            (ArrayBacking::StructBytes { .. }, _) | (_, ArrayBacking::StructBytes { .. }) => {
+                debug_assert!(false,
+                    "copy_elems_from: struct[] paired with a different backing / layout must go through \
+                     objops::array_bulk::copy_range (boxing / unboxing / type checks)");
+                return;
+            }
             _ => false,
         };
-        // Mixed / struct / stack backings: element-wise, so every conversion stays
+        // Mixed packed / boxed / stack backings: element-wise, so every conversion stays
         // exactly what the single-element path defines.
         if !done {
             for k in 0..n {
@@ -351,10 +380,23 @@ impl ArrayObj {
             ArrayBacking::Chars { block, len } => within!(char, block, *len),
             ArrayBacking::F64 { block, len } => within!(f64, block, *len),
             ArrayBacking::Bool { block, len } => within!(bool, block, *len),
+            // struct[]: the byte range and the reference-leaf range are each one `memmove`.
+            ArrayBacking::StructBytes { len, bytes, refs, layout } => {
+                let (size, rc) = (layout.size, layout.ref_count());
+                // SAFETY: exclusive borrow of live blocks of `len*size` bytes / `len*rc` Values.
+                let b = unsafe { Self::slice_of_mut::<u8>(bytes, *len * size) };
+                b.copy_within(si * size..(si + n) * size, di * size);
+                let r = unsafe { Self::slice_of_mut::<Value>(refs, *len * rc) };
+                // Every destination leaf is overwritten (its old value may be one the source range
+                // still holds — recording it anyway is harmless): SATB-record before the move.
+                crate::gc::satb::record_overwrite_all(&r[di * rc..(di + n) * rc]);
+                r.copy_within(si * rc..(si + n) * rc, di * rc);
+                true
+            }
             _ => false,
         };
-        // `Value` is not `Copy`, so the boxed/struct backings walk the range in the
-        // direction that does not clobber elements it has yet to read.
+        // Boxed / stack backings walk the range in the direction that does not clobber
+        // elements it has yet to read (`set_boxed` SATB-records each overwrite).
         if !done {
             if di > si {
                 for k in (0..n).rev() {
@@ -579,6 +621,33 @@ impl ArrayObj {
                 len * layout.size + len * layout.ref_count() * size_of::<Value>(),
             ArrayBacking::StackVec(v) => v.len() * size_of::<Value>(),
         }
+    }
+}
+
+// ── 元素区间的引用槽 / struct 元素视图（`objops::array_bulk` 的批量拷贝与写屏障用）──
+impl ArrayObj {
+    /// The reference slots elements `[i, i+n)` own, plus how many slots each element has:
+    /// `Boxed` / stack → the elements themselves (1 each); `StructBytes` → the elements'
+    /// reference leaves (`ref_count` each, possibly 0); packed primitives → none.
+    /// Caller bounds-checks the range.
+    pub fn elem_ref_slots(&self, i: usize, n: usize) -> (&[Value], usize) {
+        match &self.backing {
+            ArrayBacking::StructBytes { layout, .. } => {
+                let rc = layout.ref_count();
+                (&self.gc_refs()[i * rc..(i + n) * rc], rc)
+            }
+            ArrayBacking::Boxed { .. } | ArrayBacking::StackVec(_) => (&self.gc_refs()[i..i + n], 1),
+            _ => (&[], 1),
+        }
+    }
+
+    /// Element `i` of a `struct[]` as its raw `(bytes, reference leaves)`; `None` for any other
+    /// backing. Caller bounds-checks `i`.
+    pub fn struct_elem(&self, i: usize) -> Option<(&[u8], &[Value])> {
+        let ArrayBacking::StructBytes { layout, .. } = &self.backing else { return None };
+        let (size, rc) = (layout.size, layout.ref_count());
+        let bytes = self.struct_bytes()?;
+        Some((&bytes[i * size..(i + 1) * size], &self.gc_refs()[i * rc..(i + 1) * rc]))
     }
 }
 

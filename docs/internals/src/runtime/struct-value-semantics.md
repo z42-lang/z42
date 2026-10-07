@@ -530,6 +530,13 @@ writer 侧 `ClassDescBuilder` 用 `StructLayout.InlineLayoutOf`（`BuildFromSymb
   + `FieldInfo.GetValue/SetValue` 反射装箱 struct 字段（见下「装箱引用身份 + struct 字段反射」节）。
 - **对象内联 struct 字段反射**：反射 `GetValue/SetValue` 读写
   `class C { Point pt; }` 的内联 struct 字段（复刻类级内联布局，见下同名节）。
+- **`Std.Array` 的无类型 / 批量原生**（`objops/array_bulk.rs`）：`get_boxed` / `set_boxed` 没有堆、对
+  `StructBytes` 只有断言，所以这几个原生按两侧 backing 选路——同一 struct 的两个数组之间 `CopyRange` 拷字节区间 +
+  引用叶子区间（同数组按 memmove）；struct[] → 引用数组逐元素 `box_struct_blob`；引用数组 → struct[] 先整段校验是该
+  struct 的装箱再逐元素拷入；`GetValue` 装箱元素快照；`SetValue` 只收该 struct 的装箱；`CreateInstance` 走
+  `try_struct_backed`。类型不符照 C#：数组类型不兼容 `ArrayTypeMismatchException`、元素转不过去
+  `InvalidCastException`，目的数组不动。写入后对区间里每个引用叶子发 `write_barrier_array_elem`
+  （`barrier_after_range_store`）。golden `types/struct_array_natives.z42`。
 
 ## 基元装箱统一到 `BoxedStruct`
 
@@ -1029,4 +1036,11 @@ InstNeedsOwnBody(inst) = Layouts.InstDiffersFromDef(inst)      // ① 布局不�
 
 ## 待办
 
+**`Std.Array` 的泛型算法在 struct[] 上**：`Fill` / `Clear` / `Reverse` / `Resize` / `Sort` / `IndexOf` / `Find` 等是
+z42.core 里的脚本泛型，跨包不特化，擦除体里 `a[i]` 拿到的是 `StructRefHeap` **元素句柄**（别名、帧作用域）而不是值：
+`T t = a[lo]` 之后改 `a[lo]` 会改到 `t`、`return a[i]` 让句柄逃出帧、`a[i].Equals(x)` 对句柄 VCall 失败，
+`a[i] = default(T)` / `a[i] = <StructRef>` 进 `StructBytes` 也没有对应的写入臂；`new T[n]`（方法级型参）仍造擦除的引用数组。
+单补写入臂只会把今天的断言 / 报错换成静默错值（`Reverse` 的交换会复制出重复元素），所以要整体解决：擦除代码读 `T[]`
+元素时取值副本（编译器在擦除读点装箱，或 VM 侧给擦除帧另一种读法），再配写入臂与 struct 型参的 `new T[n]`。
+只读元素的谓词算法（`ForEach` / `Exists` / `TrueForAll` / `FindIndex` / `ConvertAll` 到非 struct）今天可用。
 **单标量叶子 struct 塌缩**（`GCHandle`）、**JIT 原生内联字节访问**（现 helper 桥接=interp 速度）、**反射合成方法可见**、**static struct 字段反射**、**ToString 字段 dump**、**E0438 自引用诊断**（现 `Size==0` 兜底防崩）、**`(P)o` 拆箱失败报错**（对 blob struct 目标发 `AsCast`，类型不符 / `o` 为 null 时得 `Null`，不抛 `InvalidCastException` / `NullReferenceException`；基元拆箱已抛，见 [object-abi](object-abi.md)）尚未实施。

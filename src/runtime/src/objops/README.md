@@ -18,6 +18,7 @@
 | `ArrayGet` / `ArraySet` / `ArrayLen`（堆 / 栈数组、struct 数组元素句柄、写屏障） | `array.rs` 的 `array_get` / `array_set` / `array_len` |
 | `ArrayNew` / `ArrayNewLit`（struct 数组、栈分配、OOM） | `array.rs` 的 `array_new` / `array_new_lit` |
 | JIT 打包数组快路取数（不抛） | `array.rs` 的 `packed_data` |
+| `Std.Array` 无类型 / 批量原生：`CopyRange`（任意 backing 间，含 struct[] 的装箱 / 拆箱 / 类型检查）、`GetValue` 的元素装箱、`SetValue` 的校验、批量写入后的逐引用槽写屏障 | `array_bulk.rs` 的 `copy_range` / `elem_get_boxed` / `check_untyped_store` / `barrier_after_range_store` |
 | `ref arr[i]` 的检查与经 ref 读写 | `array.rs` 的 `check_elem_addr` / `elem_load` / `elem_store` |
 | `StaticGet` / `StaticSet`（初始化屏障、惰性零值、缺符号确证） | `statics.rs` 的 `static_get` / `static_set` |
 | `StructFieldGetPrim` / `StructFieldSetPrim` 的核心与 struct 快照 | `struct_leaf.rs` 的 `struct_field_get_val` / `struct_field_set_val` / `snapshot_box` / `snapshot_elem` |
@@ -55,7 +56,9 @@ match objops::field::field_get(vm_ctx_ref(ctx), recv, name, ic) {
 ## 待办
 
 - 栈数组 / 栈对象、struct 数组元素句柄仍依赖 `interp` 下的 arena（`stack_alloc` / `transient_arena`）。
-- `obj_new`、闭包环境数组、`corelib` 的数组 / 反射 builtin（`Array.Copy`、`GetValue` / `SetValue` 等）还没经过本模块。
+- `obj_new`、闭包环境数组、反射 builtin（`FieldInfo.GetValue` / `SetValue` 等）还没经过本模块。
+- `Std.Array` 的脚本泛型算法（`Fill` / `Reverse` / `IndexOf` …）在 struct[] 上不可用：擦除体里 `ArrayGet` 给的是元素句柄
+  （别名），见 internals `struct-value-semantics.md` 的「待办」。
 
 ## 核心文件
 
@@ -65,6 +68,8 @@ match objops::field::field_get(vm_ctx_ref(ctx), recv, name, ic) {
 | `error.rs` | `OpError` / `Throw` / `ArrayOp`、消息文本、物化 |
 | `field.rs` | 实例字段 |
 | `array.rs` | 数组 |
+| `array_bulk.rs` | `Std.Array` 的无类型 / 批量原生 |
 | `statics.rs` | 静态字段 |
 | `struct_leaf.rs` | 值 struct 叶子与快照 |
 | `objops_tests.rs` | 单测 |
+| `array_bulk_tests.rs` | `array_bulk` 单测（含老 struct[] 收年轻叶子的 minor 存活对照） |

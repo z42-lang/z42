@@ -143,8 +143,11 @@ JIT helpers/* (extern C) ┘                       └ Err(OpError) → 引擎�
 > `borrow()` 字段槽、`get_boxed` / `set_boxed`、`field_value` 之类的直接存储访问；新增对象 / 数组操作时先在
 > objops 写实现，再给两个引擎各加一个适配。
 >
-> 尚未进入本层的：对象分配（`interp/obj_new_resolve.rs`）、闭包环境数组、`corelib` 的数组 / 反射 builtin
-> （`Array.Copy`、`FieldInfo.GetValue` / `SetValue` 等），以及 `VCall` 的 null 接收者（仍是
+> `Std.Array` 的无类型 / 批量原生（`CopyRange`、`GetValue`、`SetValue`）经 `objops::array_bulk`，corelib 只解析参数、
+> 用 `corelib::raise_op` 把 `OpError` 以原异常类抛出。
+>
+> 尚未进入本层的：对象分配（`interp/obj_new_resolve.rs`）、闭包环境数组、反射 builtin
+> （`FieldInfo.GetValue` / `SetValue` 等），以及 `VCall` 的 null 接收者（仍是
 > `VCall: expected object, got Null` 内部错误）。
 
 端到端对照：`src/tests/exceptions/objops_errors.z42` 在 interp 与 `--mode jit` 下各跑一遍，逐条断言异常类与

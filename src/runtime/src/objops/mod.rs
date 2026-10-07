@@ -8,6 +8,7 @@
 //! 机制见 `docs/internals/src/runtime/interp-jit-semantics.md`「对象操作：objops」。
 
 pub mod array;
+pub mod array_bulk;
 pub mod error;
 pub mod field;
 pub mod statics;

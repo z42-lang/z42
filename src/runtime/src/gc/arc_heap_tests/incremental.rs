@@ -277,6 +277,59 @@ fn without_satb_a_bulk_array_copy_loses_the_overwritten_reference() {
     assert!(!run_bulk_copy_over_live_element(false), "control");
 }
 
+/// The same for a value-struct array (`StructBytes`): a bulk copy overwrites the destination
+/// elements' **reference leaves**, which must be recorded — between two arrays (`copy_elems_from`)
+/// and within one (`copy_elems_within`, the overlapping `Array.Copy`).
+fn run_struct_copy_over_live_leaf(barrier_on: bool, within: bool) -> bool {
+    use crate::metadata::types::{ArrayObj, ElemType, StructTypeLayout, STRUCT_REF_GCREF};
+    let heap = ArcMagrGC::new();
+    heap.set_mode(GcMode::StwMarkSweep);
+    let _bound = Bound::to(&heap);
+    crate::gc::satb::set_disabled_for_test(!barrier_on);
+
+    // struct S { int N; object O; } — one reference leaf at byte offset 8.
+    let layout = std::sync::Arc::new(StructTypeLayout {
+        size: 16, ref_offsets: Box::new([8]), ref_kinds: Box::new([STRUCT_REF_GCREF]), fields: Box::new([]),
+    });
+    let new_arr = |len| heap.alloc_array_obj(ArrayObj::struct_backed(&heap, ElemType::intern("Demo.S"), len, layout.clone()));
+    let x = heap.alloc_object(dummy_type_desc("X"), vec![], NativeData::None);
+    let dst = new_arr(2);
+    let src = new_arr(2);
+    let (Value::Array(dst_gc), Value::Array(src_gc)) = (&dst, &src) else { panic!() };
+    dst_gc.borrow_mut().write_struct_elem(0, &[0u8; 16], &[x.clone()]);   // dst[0].O = x
+    let _root = heap.pin_root(dst.clone());
+    let _src_root = heap.pin_root(src.clone());
+    let weak_x = heap.make_weak(&x).expect("object");
+
+    heap.open_major_cycle();
+    heap.snapshot_roots_into_mark_queue();
+    let held = x;
+    if within {
+        dst_gc.borrow_mut().copy_elems_within(1, 0, 1);   // dst[0] = dst[1] (O = null)
+    } else {
+        dst_gc.borrow_mut().copy_elems_from(&src_gc.borrow(), 0, 0, 2);
+    }
+    heap.drain_mark_queue();
+    heap.close_major_marking();
+    heap.sweep_phase();
+
+    let alive = is_alive(&heap, &weak_x);
+    std::mem::forget(held);
+    alive
+}
+
+#[test]
+fn satb_records_reference_leaves_overwritten_by_a_struct_array_copy() {
+    assert!(run_struct_copy_over_live_leaf(true, false));
+    assert!(run_struct_copy_over_live_leaf(true, true));
+}
+
+#[test]
+fn without_satb_a_struct_array_copy_loses_the_overwritten_leaf() {
+    assert!(!run_struct_copy_over_live_leaf(false, false), "control");
+    assert!(!run_struct_copy_over_live_leaf(false, true), "control");
+}
+
 // ── add-incremental-major-gc M2b: the slice scheduler ─────────────────────────────────────────────
 //
 // Slices are driven by hand with a **work-unit** budget (`run_major_slice_for_test(units)`: one unit

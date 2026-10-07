@@ -12,6 +12,8 @@ pub const INVALID_CAST_EXC: &str = crate::semantics::INVALID_CAST_EXC;
 pub const INDEX_OOR_EXC: &str = "Std.IndexOutOfRangeException";
 pub const OVERFLOW_EXC: &str = "Std.OverflowException";
 pub const OOM_EXC: &str = "Std.OutOfMemoryException";
+pub const ARRAY_TYPE_MISMATCH_EXC: &str = "Std.ArrayTypeMismatchException";
+pub const ARGUMENT_EXC: &str = "Std.ArgumentException";
 
 pub type OpResult<T> = Result<T, OpError>;
 
@@ -116,6 +118,32 @@ impl OpError {
         }
     }
 
+    /// 无类型批量拷贝（`Array.CopyRange`）的两侧数组元素类型互不兼容（与 C# 同：整段拒绝，目的地不动）。
+    #[cold]
+    pub fn array_type_mismatch(src_elem: &str, dst_elem: &str) -> Self {
+        Self::throw(ARRAY_TYPE_MISMATCH_EXC, format!(
+            "cannot copy {}[] elements into a {}[] array", elem_label(src_elem), elem_label(dst_elem)))
+    }
+
+    /// 无类型写入（`Array.CopyRange` 拆箱 / `Array.SetValue`）的值不是值 struct 数组元素类型的装箱
+    /// （含 null）。拆箱失败与 C# 一样是 `InvalidCastException`，目的地不动。
+    #[cold]
+    pub fn struct_elem_store_rejected(elem: &str, v: &Value) -> Self {
+        let what = match v {
+            Value::BoxedStruct(b) => format!("a boxed {}", b.borrow().type_desc.name),
+            other => crate::semantics::value_kind_name(other).to_string(),
+        };
+        Self::throw(INVALID_CAST_EXC, format!("cannot store {what} into a {}[] element", elem_label(elem)))
+    }
+
+    /// `Array.CopyRange` 的区间越出数组。
+    #[cold]
+    pub fn copy_range_out_of_bounds(src_len: usize, si: usize, dst_len: usize, di: usize, n: usize) -> Self {
+        Self::throw(ARGUMENT_EXC, format!(
+            "copy range out of bounds (source length {src_len}, source {si}+{n}; \
+             destination length {dst_len}, destination {di}+{n})"))
+    }
+
     /// 分配失败（严格 OOM 模式下堆满）。
     #[cold]
     pub fn oom(what: String) -> Self {
@@ -155,6 +183,11 @@ impl OpError {
             OpError::Thrown(v) => anyhow::anyhow!("exception: {v:?}"),
         }
     }
+}
+
+/// 数组元素类型在消息里的写法：未知（Rust 合成的数组）写 `object`。
+fn elem_label(elem: &str) -> &str {
+    if elem.is_empty() { "object" } else { elem }
 }
 
 impl From<anyhow::Error> for OpError {

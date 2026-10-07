@@ -1,0 +1,280 @@
+// 值 struct 数组（`StructBytes` backing：元素基元字节紧凑打包 + 引用叶子侧表）上的 `Std.Array` 原生与算法。
+//
+// `Array.Copy` 落到原生 `__array_copy`，它此前按「逐元素 get_boxed / set_boxed」搬运 —— 那两个泛型
+// 访问器不认 `StructBytes`：debug VM 当场断言失败，release 静默把元素读成 Null（整段拷贝变成空操作或清零）。
+// 本用例覆盖三种元素形态（纯基元 / 含 string·object 引用叶子 / 嵌套 struct），跨数组、同数组重叠
+// （memmove 语义，两个方向）、部分区间；以及其余数组原生（Clone / GetValue / SetValue / CreateInstance）
+// 与走 Array.Copy 的 List<T> 扩容。
+// 末尾是类型不符的拷贝：与 C# 一致，抛 ArrayTypeMismatchException / InvalidCastException，而不是崩。
+//
+// ⚠️ 不在这里：`Array.Fill / Clear / Reverse / Resize / Sort / IndexOf / Find…` 这些**脚本泛型算法**
+// 在值 struct 数组上仍不可用——z42.core 的泛型体跨包不特化，擦除代码里 `a[i]` 读出的是元素句柄（别名，
+// 不是值拷贝），写回 / 返回 / 虚调用都会出错。那是泛型擦除边界的问题，不是数组原生的问题。
+namespace Demo;
+
+using Std.Collections;
+
+struct P {
+    public int X;
+    public int Y;
+    public P(int x, int y) { X = x; Y = y; }
+}
+
+struct Q {
+    public int X;
+    public int Y;
+    public Q(int x, int y) { X = x; Y = y; }
+}
+
+class Box {
+    public int V;
+    public Box(int v) { V = v; }
+}
+
+struct Tagged {
+    public int N;
+    public string S;
+    public Box O;
+    public Tagged(int n, string s, Box o) { N = n; S = s; O = o; }
+}
+
+struct Outer {
+    public P A;
+    public Tagged T;
+    public long Z;
+    public Outer(P a, Tagged t, long z) { A = a; T = t; Z = z; }
+}
+
+P[] Ps(int n) {
+    P[] a = new P[n];
+    for (int i = 0; i < n; i++) { a[i] = new P(i, i * 10); }
+    return a;
+}
+
+Tagged[] Ts(int n) {
+    Tagged[] a = new Tagged[n];
+    for (int i = 0; i < n; i++) { a[i] = new Tagged(i, "s" + i.ToString(), new Box(i * 100)); }
+    return a;
+}
+
+Outer[] Os(int n) {
+    Outer[] a = new Outer[n];
+    for (int i = 0; i < n; i++) {
+        a[i] = new Outer(new P(i, -i), new Tagged(i * 2, "o" + i.ToString(), new Box(i + 1000)), (long)i * 7);
+    }
+    return a;
+}
+
+void CheckP(P p, int x, int y) { Assert.Equal(x, p.X); Assert.Equal(y, p.Y); }
+
+void CheckT(Tagged t, int i) {
+    Assert.Equal(i, t.N);
+    Assert.Equal("s" + i.ToString(), t.S);
+    Assert.Equal(i * 100, t.O.V);
+}
+
+void CheckO(Outer o, int i) {
+    Assert.Equal(i, o.A.X);
+    Assert.Equal(-i, o.A.Y);
+    Assert.Equal(i * 2, o.T.N);
+    Assert.Equal("o" + i.ToString(), o.T.S);
+    Assert.Equal(i + 1000, o.T.O.V);
+    Assert.Equal((long)i * 7, o.Z);
+}
+
+// ── Array.Copy：跨数组 / 部分区间 ───────────────────────────────────────────────
+void CopyAcross() {
+    P[] ps = Ps(5);
+    P[] pd = new P[6];
+    Array.Copy<P>(ps, 1, pd, 2, 3);          // pd[2..5) = ps[1..4)
+    CheckP(pd[0], 0, 0);
+    CheckP(pd[1], 0, 0);
+    CheckP(pd[2], 1, 10);
+    CheckP(pd[3], 2, 20);
+    CheckP(pd[4], 3, 30);
+    CheckP(pd[5], 0, 0);
+    pd[2].X = 99;                            // 拷贝是值拷贝：不回写源
+    CheckP(ps[1], 1, 10);
+
+    Array.Copy<P>(ps, pd, 2);                // (src, dst, len) 重载
+    CheckP(pd[0], 0, 0);
+    CheckP(pd[1], 1, 10);
+
+    Tagged[] ts = Ts(4);
+    Tagged[] td = new Tagged[4];
+    Array.Copy<Tagged>(ts, 0, td, 0, 4);
+    for (int i = 0; i < 4; i++) { CheckT(td[i], i); }
+    td[0].S = "changed";                     // 引用叶子独立
+    Assert.Equal("s0", ts[0].S);
+    Assert.True(ts[3].O == td[3].O);   // 引用叶子是浅拷贝：同一个 Box
+
+    Tagged[] tp = Ts(4);
+    Array.Copy<Tagged>(ts, 2, tp, 0, 1);     // 部分：只覆盖 tp[0]
+    CheckT(tp[0], 2);
+    CheckT(tp[1], 1);
+
+    Outer[] os = Os(4);
+    Outer[] od = new Outer[5];
+    Array.Copy<Outer>(os, 1, od, 1, 3);
+    Assert.Equal(0, od[0].Z);
+    Assert.Null(od[0].T.O);
+    CheckO(od[1], 1);
+    CheckO(od[2], 2);
+    CheckO(od[3], 3);
+    Assert.Null(od[4].T.S);
+
+    // 零长度：什么都不做
+    Array.Copy<Outer>(os, 0, od, 0, 0);
+    Assert.Null(od[0].T.O);
+}
+
+// ── Array.Copy：同一数组内重叠（memmove 语义，两个方向）──────────────────────────
+void CopyOverlap() {
+    P[] a = Ps(5);
+    Array.Copy<P>(a, 0, a, 1, 4);            // 向高处挪：a = [0,0,1,2,3]
+    CheckP(a[0], 0, 0);
+    CheckP(a[1], 0, 0);
+    CheckP(a[2], 1, 10);
+    CheckP(a[3], 2, 20);
+    CheckP(a[4], 3, 30);
+
+    P[] b = Ps(5);
+    Array.Copy<P>(b, 1, b, 0, 4);            // 向低处挪：b = [1,2,3,4,4]
+    CheckP(b[0], 1, 10);
+    CheckP(b[3], 4, 40);
+    CheckP(b[4], 4, 40);
+
+    Tagged[] t = Ts(5);
+    Array.Copy<Tagged>(t, 0, t, 2, 3);       // t = [0,1,0,1,2]
+    CheckT(t[0], 0);
+    CheckT(t[1], 1);
+    CheckT(t[2], 0);
+    CheckT(t[3], 1);
+    CheckT(t[4], 2);
+    Array.Copy<Tagged>(t, 2, t, 1, 3);       // t = [0,0,1,2,2]
+    CheckT(t[1], 0);
+    CheckT(t[2], 1);
+    CheckT(t[3], 2);
+    CheckT(t[4], 2);
+
+    Outer[] o = Os(4);
+    Array.Copy<Outer>(o, 0, o, 1, 3);        // o = [0,0,1,2]
+    CheckO(o[0], 0);
+    CheckO(o[1], 0);
+    CheckO(o[2], 1);
+    CheckO(o[3], 2);
+    Array.Copy<Outer>(o, 1, o, 1, 3);        // 自拷贝：不变
+    CheckO(o[3], 2);
+}
+
+// ── 其余数组原生 ─────────────────────────────────────────────────────────────────
+void OtherNatives() {
+    // Clone
+    Tagged[] t = Ts(3);
+    Tagged[] c = (Tagged[])t.Clone();
+    CheckT(c[2], 2);
+    c[2].N = 77;
+    Assert.Equal(2, t[2].N);
+
+    // GetValue：元素装箱成该 struct 的快照
+    Outer[] o = Os(3);
+    object g = o.GetValue(2);
+    Assert.True(g is Outer);
+    Outer og = (Outer)g;
+    CheckO(og, 2);
+    og.Z = 1;
+    Assert.Equal(14, o[2].Z);
+    P[] ps = Ps(3);
+    P gp = (P)ps.GetValue(1);
+    CheckP(gp, 1, 10);
+
+    // SetValue：装箱的同类 struct 写进元素（字节 + 引用叶子）
+    object boxed = new P(5, 6);
+    ps.SetValue(boxed, 0);
+    CheckP(ps[0], 5, 6);
+    object ob = Os(2)[1];
+    o.SetValue(ob, 0);
+    CheckO(o[0], 1);
+
+    // CreateInstance：值 struct 元素类型 → 真正的 struct[]（元素零初始化，可原地改叶子）
+    Tagged[] made = (Tagged[])Array.CreateInstance(typeof(Tagged), 3);
+    Assert.Equal(3, made.Length);
+    Assert.Equal(0, made[2].N);
+    Assert.Null(made[2].S);
+    made[1].S = "x";
+    Assert.Equal("x", made[1].S);
+    Array.Copy<Tagged>(Ts(3), made, 3);
+    CheckT(made[1], 1);
+
+    // 只读元素的泛型算法（参考页写明可用的那几个）
+    int[] xs = Array.ConvertAll<Outer, int>(Os(3), (Outer x) => x.A.X + x.T.N);
+    Assert.Equal(6, xs[2]);
+    Tagged[] rs = Ts(4);
+    int[] acc = new int[1];
+    Array.ForEach<Tagged>(rs, (Tagged x) => { acc[0] = acc[0] + x.O.V; });
+    Assert.Equal(600, acc[0]);
+    Assert.True(Array.Exists<Tagged>(rs, (Tagged x) => x.S == "s2"));
+    Assert.True(Array.TrueForAll<Tagged>(rs, (Tagged x) => x.N >= 0));
+    Assert.Equal(3, Array.FindIndex<Tagged>(rs, (Tagged x) => x.O.V == 300));
+    Assert.Equal(1, Array.FindLastIndex<Tagged>(rs, (Tagged x) => x.S == "s1"));
+
+    // List<T> 扩容 / Insert / RemoveAt（内部走 Array.Copy）
+    var list = new List<Tagged>();
+    for (int i = 0; i < 20; i++) { list.Add(new Tagged(i, "s" + i.ToString(), new Box(i * 100))); }
+    list.Insert(0, new Tagged(-1, "s-1", new Box(-100)));
+    CheckT(list[0], -1);
+    CheckT(list[20], 19);
+    list.RemoveAt(0);
+    for (int i = 0; i < 20; i++) { CheckT(list[i], i); }
+}
+
+// ── 类型不符的拷贝：与 C# 一致地抛，而不是崩 ─────────────────────────────────────
+void Mismatch() {
+    P[] p = Ps(3);
+    Q[] q = new Q[3];
+    int[] ints = new int[]{ 1, 2, 3 };
+    object[] objs = new object[3];
+
+    // 不同 struct / 基元 ↔ struct：ArrayTypeMismatchException，目的地不动
+    Assert.Throws("ArrayTypeMismatchException", () => Array.CopyRange(p, 0, q, 0, 3));
+    Assert.Equal(0, q[2].X);
+    Assert.Throws("ArrayTypeMismatchException", () => Array.CopyRange(ints, 0, p, 0, 3));
+    Assert.Throws("ArrayTypeMismatchException", () => Array.CopyRange(p, 0, ints, 0, 3));
+    CheckP(p[1], 1, 10);
+    Assert.Throws("ArrayTypeMismatchException", () => Array.CopyRange(p, 0, new string[3], 0, 3));
+
+    // struct[] → object[]：逐元素装箱（C# 允许）
+    Array.CopyRange(p, 0, objs, 0, 3);
+    P back = (P)objs[2];
+    CheckP(back, 2, 20);
+    Assert.True(objs[0] is P);
+    Tagged[] ts = Ts(2);
+    object[] tobjs = new object[2];
+    Array.CopyRange(ts, 0, tobjs, 0, 2);
+    CheckT((Tagged)tobjs[1], 1);
+
+    // object[] → struct[]：逐元素拆箱（C# 允许）；元素不是该 struct（含 null）→ InvalidCastException
+    P[] p2 = new P[3];
+    Array.CopyRange(objs, 0, p2, 0, 3);
+    CheckP(p2[2], 2, 20);
+    object[] bad = new object[]{ new P(1, 1), "nope", new P(3, 3) };
+    Assert.Throws("InvalidCastException", () => Array.CopyRange(bad, 0, p2, 0, 3));
+    CheckP(p2[1], 1, 10);                    // 拆箱失败时目的地不动
+    object[] withNull = new object[]{ new P(1, 1), null };
+    Assert.Throws("InvalidCastException", () => Array.CopyRange(withNull, 0, p2, 0, 2));
+    object[] wrongStruct = new object[]{ new Q(1, 1) };
+    Assert.Throws("InvalidCastException", () => Array.CopyRange(wrongStruct, 0, p2, 0, 1));
+
+    // SetValue 塞错类型：InvalidCastException（C# 同款）
+    Assert.Throws("InvalidCastException", () => p.SetValue("x", 0));
+    Assert.Throws("InvalidCastException", () => p.SetValue(new Q(1, 2), 0));
+    Assert.Throws("InvalidCastException", () => p.SetValue(null, 0));
+    CheckP(p[0], 0, 0);
+}
+
+void Main() {
+    CopyAcross();
+    CopyOverlap();
+    OtherNatives();
+    Mismatch();
+}

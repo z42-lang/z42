@@ -41,7 +41,8 @@ sweep  ：X 被回收，而 r 还攥着它
 | `ScriptObject::set_ref_slot` | 直接写侧表引用叶子（`StructFieldSetPrim`、反射 `SetValue`） |
 | `ArrayObj::set_boxed` | 引用数组元素；struct[] 元素的引用叶子 |
 | `ArrayObj::write_struct_elem` / `set_struct_ref` | struct[] 元素整体 / 单个引用叶子 |
-| `ArrayObj::copy_elems_from` | `Array.Copy` 的批量快路径（Boxed→Boxed 一次 `clone_from_slice`，先整段 `record_overwrite_all`）—— 第一轮审计漏掉，增量 major 的 `Z42_GC_SLICE_MS=0.05` 压测以编译器 SIGSEGV 抓到 |
+| `ArrayObj::copy_elems_from` | `Array.Copy` 的批量快路径（Boxed→Boxed 一次 `clone_from_slice`；struct[]→struct[] 的引用叶子区间一次拷贝；都先整段 `record_overwrite_all`）—— 第一轮审计漏掉，增量 major 的 `Z42_GC_SLICE_MS=0.05` 压测以编译器 SIGSEGV 抓到 |
+| `ArrayObj::copy_elems_within` | 同一数组内的 `Array.Copy`（struct[] 的引用叶子区间 `copy_within`，先整段 `record_overwrite_all`；Boxed 走 `set_boxed`） |
 
 `refs_mut_raw()` 不带屏障，只给**刚分配的对象**（旧值全是 `Null`）和 **GC 自己断边**（记录死对象会把悬空句柄
 塞进标记队列）。规则写在 `../../../agent/rules/runtime-rust.md`。
