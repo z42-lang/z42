@@ -7,6 +7,7 @@
 namespace Z42.Semantics;
 
 
+
 public static partial class ImportedSymbolLoader {
     // add-argument-type-check R5/R7：委托类型名 → Z42FuncType；非委托名返回 null（调用方继续原流程）。
     // 名字形态与 `Z42FuncType.Name()` 的产物**互逆**（Action / Action<A,…> / Func<A,…,Ret> / Predicate<A>），
@@ -134,12 +135,10 @@ public static partial class ImportedSymbolLoader {
             int _fqg = -1;
             if (baseN.IndexOf('.') >= 0) { _fqg = r.ClassesByFqn.Find(baseN); }
             if (_fqg >= 0) { gdef = r.ClassesByFqn.ValAt(_fqg) as Z42ClassType; }
-            else {
-            int _sl2 = r.Classes.Find(baseN); if (_sl2 >= 0) { gdef = r.Classes.ValAt(_sl2) as Z42ClassType; }
-            else {
-                string gbs = ImportedSymbolLoader._shortName(baseN);
-                if (gbs != baseN && r.Classes.ContainsKey(gbs)) { gdef = r.Classes.Get(gbs) as Z42ClassType; }
-            }
+            // 裸基名（TSIG 里写的就是短名，如 `ISubscription<T>`）才查短名表；限定名在 FQN 视图里没有就是没有
+            // —— 不再剥成短名去撞别的 ns 的同名类（fqn-tables 3b：全量 GREEN 实测该回落 0 命中）。
+            else if (baseN.IndexOf('.') < 0) {
+                int _sl2 = r.Classes.Find(baseN); if (_sl2 >= 0) { gdef = r.Classes.ValAt(_sl2) as Z42ClassType; }
             }
             // **接口同样可以泛型实例化**（`IEnumerator<T>` / `IEnumerable<int>`）——上面只查了
             // `r.Classes`，而接口在 `r.Interfaces` 里 ⇒ 此前一律落到末尾 fallback，变成一个
@@ -153,11 +152,9 @@ public static partial class ImportedSymbolLoader {
                 if (baseN.IndexOf('.') >= 0) { _fqi = r.InterfacesByFqn.Find(baseN); }
                 if (_fqi >= 0) { idef = r.InterfacesByFqn.ValAt(_fqi) as Z42InterfaceType; }
                 else {
-                    int _sl5 = r.Interfaces.Find(baseN);
-                    if (_sl5 >= 0) { idef = r.Interfaces.ValAt(_sl5) as Z42InterfaceType; }
-                    else {
-                        string ibs = ImportedSymbolLoader._shortName(baseN);
-                        if (ibs != baseN && r.Interfaces.ContainsKey(ibs)) { idef = r.Interfaces.Get(ibs) as Z42InterfaceType; }
+                    if (baseN.IndexOf('.') < 0) {   // 同上：只有裸基名查短名表
+                        int _sl5 = r.Interfaces.Find(baseN);
+                        if (_sl5 >= 0) { idef = r.Interfaces.ValAt(_sl5) as Z42InterfaceType; }
                     }
                 }
             }
@@ -173,16 +170,6 @@ public static partial class ImportedSymbolLoader {
                 if (gdef != null) { return new Z42InstantiatedType(gdef, targs, argStrs.Length); }
                 return new Z42InstantiatedInterfaceType(idef, targs, argStrs.Length);
             }
-        }
-        // 根因修复（fix-crosspkg-fq-type-resolution）：跨命名空间、全限定书写的导入类型名
-        // （如返回类型 `Std.Reflection.FieldInfo[]` 的元素 `Std.Reflection.FieldInfo`）——
-        // Classes/Interfaces 以短名为键，FQ 名直接查会 miss、降级成 Z42PrimType 哨兵，导致消费包
-        // 对反射对象类型（FieldInfo/PropertyInfo/MethodInfo，均在 Std.Reflection 跨命名空间）
-        // 成员访问报 "member access on non-class"。FQ miss 后按短名回退，解析为真类型。
-        string shortN = ImportedSymbolLoader._shortName(name);
-        if (shortN != name) {
-            int _sl3 = r.Classes.Find(shortN); if (_sl3 >= 0) { return r.Classes.ValAt(_sl3) as Z42ClassType; }
-            int _sl4 = r.Interfaces.Find(shortN); if (_sl4 >= 0) { return r.Interfaces.ValAt(_sl4) as Z42InterfaceType; }
         }
         // GS6: 泛型型参（T/K/V 等）→ Z42GenericParamType，避免降级为 Z42PrimType
         int tp = 0;
