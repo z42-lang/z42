@@ -119,6 +119,9 @@ public sealed class StructLayout {
     private StrMap _objectCache;       // className → StructLayoutInfo（对象全字段布局，8B 引用）
     private StrMap _objStructCache;    // structName → StructLayoutInfo（8B 引用 struct 展平布局）
     private StrMap _objStructInProgress; // 8B struct 布局环检测在途集
+    // fqn-tables 5d：布局键（Canon 短名键）→ 算出这份布局的那个类。发射端按它的声明 ns 限定布局名（`OwnerOf`），
+    // 与布局本身同源——同短名跨 ns 时布局取的是哪一份，名字就限定到哪一份。手搭的布局（测试）为 null。
+    private StrMap _owners;
     public string  ErrorType;    // 非 "" → 检测到递归自含（诊断码 E0416 由持 DiagnosticBag 的调用方发）
     public string  ErrorCycle;   // 环路径描述（诊断信息用）
 
@@ -134,6 +137,13 @@ public sealed class StructLayout {
         this._objStructInProgress = new StrMap();
         this.ErrorType = "";
         this.ErrorCycle = "";
+        this._owners = null;
+    }
+
+    // 布局名（短名键 / `Name$N` / 实例化名 `Pair<P2,int>`）→ 算出该布局的类；不认识返回 null。
+    public Z42ClassType OwnerOf(string layoutName) {
+        if (this._owners == null || layoutName == null) { return null; }
+        return this._owners.Get(PrimModel.Canon(StructLayout.BaseNameOf(layoutName))) as Z42ClassType;
     }
 
     // 从符号表构建：抽取所有 struct（Z42ClassType.IsStruct）的字段定义（OwnFieldNames=名、
@@ -181,6 +191,11 @@ public sealed class StructLayout {
             i = i + 1;
         }
         StructLayout sl = new StructLayout(defs);
+        StrMap owners = new StrMap();
+        string[] oks = owner.Keys();
+        int ok2 = 0;
+        while (ok2 < oks.Length) { owners.Put(PrimModel.Canon(oks[ok2]), owner.Get(oks[ok2])); ok2 = ok2 + 1; }
+        sl._owners = owners;
         // unify-object-byte-layout PR-3 chunk 2a：先设 _classDefs（object 类型集），供 `_kindOf` 在
         // **struct 布局** LayoutOf 期就能把 object 字段判成 GcRef（否则 _classDefs 尚 null → 落 GcRefClosure）。
         sl._classDefs = classDefs;

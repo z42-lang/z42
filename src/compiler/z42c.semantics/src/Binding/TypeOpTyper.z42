@@ -44,7 +44,7 @@ public sealed class TypeOpTyper {
             // 数值/引用 cast（非用户转换）维持 BoundConvert，codegen 不变。
             ConvResult ur = Conversion.Classify(operand.Type(), target, env.Symbols);
             if ((ur.Kind == ConvKind.UserImplicit || ur.Kind == ConvKind.UserExplicit) && ur.Method != null) {
-                return TypeChecker._lowerUserConv(operand, ur.Method);
+                return TypeChecker._lowerUserConv(operand, ur);
             }
             // add-user-conversions ③：无任何转换但存在中间类型 A→B→C → 提示写 (C)(B)x（仅存在用户转换时才可能触发）。
             if (ur.Kind == ConvKind.None) {

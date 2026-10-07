@@ -237,6 +237,13 @@ public sealed class IrGen {
         return this._q(name);
     }
 
+    // 按类型对象限定（同 EmitContext.QualifyType）：ns 取类型自己的声明 ns，无 ns 回落 _qClass。
+    public string _qType(Z42Type t, string name) {
+        if (EmitContext.BaseHasDot(name)) { return name; }   // 已是限定名
+        string ns = EmitContext.DeclNsOf(t);
+        return ns != "" ? ns + "." + name : this._qClass(name);
+    }
+
     public IrModule Generate(CompilationUnit cu, SemanticModel model, int optSet) {
         this._symbols = model.Symbols;
         this.OptSet = optSet;   // add-sealed-devirt：供 emit 时 devirt 门控（EmitContext.Gen.OptSet）

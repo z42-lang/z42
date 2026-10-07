@@ -398,8 +398,8 @@ public sealed class OperatorEmitter {
                 int irt = this._ee._tagToIrType(tag);
                 TypedReg la = this._ctx.Alloc(irt);
                 TypedReg lc = this._ctx.Alloc(irt);
-                this._ctx.Emit(new StructFieldGetPrimInstr(la, a, this._ctx.QualifyClass(rootType), lp, tag));
-                this._ctx.Emit(new StructFieldGetPrimInstr(lc, c, this._ctx.QualifyClass(rootType), lp, tag));
+                this._ctx.Emit(new StructFieldGetPrimInstr(la, a, this._ctx.QualifyLayout(rootType), lp, tag));
+                this._ctx.Emit(new StructFieldGetPrimInstr(lc, c, this._ctx.QualifyLayout(rootType), lp, tag));
                 TypedReg cmp = this._ctx.Alloc(IrType.Bool);
                 this._ctx.Emit(new EqInstr(cmp, la, lc));
                 string contL = this._ctx.Fresh("seq_cont");
@@ -415,7 +415,7 @@ public sealed class OperatorEmitter {
     // 或 static Call 传 boxed）→ 内部 AsCast 拆箱到 **callee 帧** arena StructRef（避开 JIT 帧无 frame_id），
     // 再复用 PR1 `_emitStructEquality` 逐叶子比较。result-reg 在两分支汇合（镜像三目）。
     internal TypedReg EmitSynthEqualsResult(string structName, TypedReg thisReg, TypedReg otherReg) {
-        string fq = this._ctx.QualifyClass(structName);
+        string fq = this._ctx.QualifyLayout(structName);
         TypedReg result = this._ctx.Alloc(IrType.Bool);
         TypedReg isP = this._ctx.Alloc(IrType.Bool);
         this._ctx.Emit(new IsInstanceInstr(isP, otherReg, fq));
