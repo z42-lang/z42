@@ -564,7 +564,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
                     + data.env.borrow().elem_storage_bytes()
                     + data.fn_name.len()   // unify-gc-heap PR-5: fn_name is a GC `Str` (bytes in its block)
             }
-            // make-value-copy: `StackClosure` / `Ref` / `StructRefHeap` are now
+            // make-value-copy: `Ref` / `StructRefHeap` are now
             // transient-arena handles (payload owned by the per-context arena, freed by
             // frame-exit truncation, not the GC heap) — the handle in a Value is just an
             // (idx, frame_id) pair, exactly like the stack / struct-arena handles below.
@@ -576,7 +576,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
             // add-struct-value-semantics: struct blob lives in the per-context struct arena.
             Value::StackObject { .. } | Value::StackArray { .. }
             | Value::StructRef { .. }
-            | Value::StackClosure { .. } | Value::Ref { .. }
+            | Value::Ref { .. }
             | Value::PinnedView { .. } | Value::StructRefHeap { .. } => size_of::<Value>(),
             // add-boxed-struct-identity (P4b, 路 B2): boxed struct 现是共享 `ScriptObject`——按对象
             // 计其 struct_bytes/struct_refs（与 Object 臂同）。对象本体在 region_object，alloc 时已计一次；

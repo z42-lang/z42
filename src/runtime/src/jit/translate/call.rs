@@ -69,13 +69,12 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                     let ret  = self.builder.inst_results(inst)[0]; self.check(ret);
                 }
                 Instruction::MkClos(insn) => {
-                    let MkClosInsn { dst, fn_name, captures, stack_alloc } = &**insn;
+                    let MkClosInsn { dst, fn_name, captures } = &**insn;
                     let d = self.ri(*dst);
                     let (np, nl) = self.str_val(fn_name);
                     let (cp, cl) = self.regs_val(captures);
-                    let sa = self.builder.ins().iconst(types::I8, if *stack_alloc { 1 } else { 0 });
                     let inst = self.builder.ins().call(self.hr_mk_clos,
-                        &[self.frame_val, self.ctx_val, d, np, nl, cp, cl, sa]);
+                        &[self.frame_val, self.ctx_val, d, np, nl, cp, cl]);
                     let ret  = self.builder.inst_results(inst)[0]; self.check(ret);
                 }
                 Instruction::CallIndirect { dst, callee, args } => {

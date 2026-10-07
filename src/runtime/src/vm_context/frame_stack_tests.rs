@@ -3,7 +3,7 @@ use crate::exception::VmFrame;
 use crate::vm_context::VmContext;
 
 fn frame() -> VmFrame {
-    VmFrame::new(std::ptr::null(), std::ptr::null(), std::ptr::null())
+    VmFrame::new(std::ptr::null(), std::ptr::null())
 }
 
 #[test]
@@ -30,7 +30,7 @@ fn push_pop_publish_depth_and_owner() {
 fn regs_at_copies_the_frame_register_pointer() {
     let regs: Vec<crate::metadata::Value> = Vec::new();
     let s = FrameStack::default();
-    s.push(VmFrame::new(std::ptr::null(), &regs, std::ptr::null()));
+    s.push(VmFrame::new(std::ptr::null(), &regs));
     assert_eq!(s.regs_at(0), Some(&regs as *const _));
     assert_eq!(s.regs_at(1), None);
     s.pop();

@@ -234,7 +234,7 @@ dst       u16    目标寄存器；无目标 = 0xFFFF
 | 0x53 | CallNative | `u32 module, u32 type, u32 symbol` + args |
 | 0x55 | LoadFn | `u32 method_token` |
 | 0x56 | CallIndirect | `u16 callee` + args |
-| 0x57 | MkClos | `u32 method_token, u8 stack_alloc` + args（捕获） |
+| 0x57 | MkClos | `u32 method_token, u8 reserved` + args（捕获）。`reserved` 原为 `stack_alloc`：writer 恒写 0，VM 读后丢弃、一律堆分配；下次 bump 删除 |
 | 0x60 | FieldGet | `u16 obj, u32 field_idx` |
 | 0x61 | FieldSet | `u16 obj, u32 field_idx, u16 val` |
 | 0x62 | StaticGet | `u32 field_idx` |

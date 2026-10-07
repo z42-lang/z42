@@ -367,12 +367,6 @@ fn is_heap_ref_false_for_pinned_view() {
 }
 
 #[test]
-fn is_heap_ref_false_for_stack_closure() {
-    let v = Value::StackClosure { idx: 0, frame_id: 1 };
-    assert!(!v.is_heap_ref());
-}
-
-#[test]
 fn is_heap_ref_false_for_ref_stack() {
     let v = Value::Ref { idx: 0, frame_id: 1 };
     assert!(!v.is_heap_ref(), "stack ref points to stack location, not heap");
@@ -458,7 +452,7 @@ fn value_discriminants_pinned() {
     assert_eq!(tag(&Value::PinnedView { idx: 0, frame_id: 1 }), 8, "PinnedView tag");
     assert_eq!(tag(&Value::FuncRef("".into())),                9, "FuncRef tag");
     // Closure tag 10 — needs GcRef, skip.
-    assert_eq!(tag(&Value::StackClosure { idx: 0, frame_id: 1 }), 11, "StackClosure tag");
+    // 11 retired (was StackClosure).
     assert_eq!(tag(&Value::Ref { idx: 0, frame_id: 1 }), 12, "Ref tag");
 }
 

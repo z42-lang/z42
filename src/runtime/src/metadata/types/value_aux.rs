@@ -58,16 +58,6 @@ pub struct PinnedViewData {
     pub kind: PinSourceKind,
 }
 
-/// Payload of [`Value::StackClosure`] — boxed (review.md C1 chunk 3,
-/// 2026-05-27) so the inline `Value` doesn't pay for the env-idx + fn
-/// name pair. `MkClos` with stack-alloc=1 constructs one; `CallIndirect`
-/// is the sole consumer.
-#[derive(Debug, Clone)]
-pub struct StackClosureData {
-    pub env_idx: u32,
-    pub fn_name: String,
-}
-
 /// Payload of [`Value::Closure`] — lives in the GC variable-length region
 /// (`region_var`, `BlockType::Closure`). `MkClos` (heap-alloc path) constructs
 /// one; `CallIndirect`, `__delegate_target`, `__delegate_fn_name`,

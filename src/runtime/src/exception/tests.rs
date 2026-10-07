@@ -38,8 +38,8 @@ pub(crate) fn test_function(name: &str, param_types: &[&str], line_table: Vec<Li
 
 #[test]
 fn vm_frame_stays_thin() {
-    // One VmFrame is pushed per call: func + regs + env_arena + pc + 4 u32 bases.
-    assert!(std::mem::size_of::<VmFrame>() <= 48, "VmFrame is {} B", std::mem::size_of::<VmFrame>());
+    // One VmFrame is pushed per call: func + regs + pc + 4 u32 bases.
+    assert!(std::mem::size_of::<VmFrame>() <= 40, "VmFrame is {} B", std::mem::size_of::<VmFrame>());
 }
 
 #[test]
@@ -49,7 +49,7 @@ fn snapshot_resolves_position_from_pc() {
         line(0, 4, 7, 13, Some("f.z42")),
         line(1, 0, 9, 2, Some("f.z42")),
     ]);
-    let f = VmFrame::new(&func, std::ptr::null(), std::ptr::null());
+    let f = VmFrame::new(&func, std::ptr::null());
     f.pc.set(func.linear_offset(0, 6)); // inside the entry starting at (0, 4)
     let snap = f.snapshot();
     f.pc.set(func.linear_offset(1, 0)); // mutates after snapshot
@@ -63,7 +63,7 @@ fn snapshot_resolves_position_from_pc() {
 #[test]
 fn snapshot_of_unstamped_frame_has_no_position() {
     let func = test_function("Init", &[], vec![line(0, 0, 3, 5, Some("f.z42"))]);
-    let snap = VmFrame::new(&func, std::ptr::null(), std::ptr::null()).snapshot();
+    let snap = VmFrame::new(&func, std::ptr::null()).snapshot();
     assert_eq!((snap.line, snap.column, snap.offset), (0, 0, PC_UNSET));
     assert_eq!(format_stack_trace(&[snap]), "  at Init() (f.z42)");
 }
@@ -72,7 +72,7 @@ fn snapshot_of_unstamped_frame_has_no_position() {
 fn snapshot_of_stripped_frame_keeps_offset() {
     // No line table (release-stripped): only the offset survives → `+0x<offset>`.
     let func = test_function("Std.List.Add", &["?"], Vec::new());
-    let f = VmFrame::new(&func, std::ptr::null(), std::ptr::null());
+    let f = VmFrame::new(&func, std::ptr::null());
     f.pc.set(func.linear_offset(0, 0x2c));
     assert_eq!(format_stack_trace(&[f.snapshot()]), "  at Std.List.Add(?) +0x2c");
 }

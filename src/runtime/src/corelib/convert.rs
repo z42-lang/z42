@@ -341,12 +341,11 @@ pub fn value_to_str(v: &Value) -> String {
         Value::Object(rc) => format!("{}{{...}}", rc.type_desc().name),
         Value::FuncRef(name) => format!("<fn {name}>"),
         Value::Closure(c)                   => format!("<closure {}>", crate::metadata::types::closure_data_of(c).fn_name),
-        // make-value-copy: PinnedView / StackClosure / Ref are transient-arena handles
+        // make-value-copy: PinnedView / Ref are transient-arena handles
         // and `value_to_str` has no `ctx` to resolve the arena payload — placeholders
         // (same as StackObject / StructRef below). These never reach the user-visible
         // stringify path (ToString is an escape sink → the heap form is what materializes).
         Value::PinnedView { .. } => "<pinned view>".to_string(),
-        Value::StackClosure { .. } => "<closure>".to_string(),
         Value::Ref { .. } => "<ref>".to_string(),
         // add-escape-analysis-stack-alloc: stack objects/arrays never reach the
         // user-visible stringify path (ToStr is an escape sink → such objects are

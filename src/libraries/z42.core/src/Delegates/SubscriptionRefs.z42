@@ -7,7 +7,7 @@ namespace Std;
 // 关键设计：weak 路径**不**强持原 handler（那会反向锁住 receiver，因为
 // Closure 强持 env=[receiver]），而是拆解为 (WeakHandle to receiver, fnName)，
 // Get 时通过 `DelegateOps.MakeClosure(fnName, [upgradedReceiver])` 重建 Closure。
-// FuncRef / StackClosure / 无捕获 lambda 的 target 是 null → 退化为 strong。
+// FuncRef / 无捕获 lambda 的 target 是 null → 退化为 strong。
 
 // Mode flags for CompositeRef. v1 Once；2026-05-04 D-1b 激活 Weak。
 // 用 int 常量 + 位运算（z42 enum 暂不支持 [Flags] | 操作）；future enum 升级
@@ -147,7 +147,7 @@ public sealed class CompositeRef<TD> : ISubscription<TD> {
 // Get 时若 target 还活：用 MakeClosure(fnName, [target]) 重建一个新 Closure；
 // 若 target 已死：返回 null，IsAlive=false。
 //
-// 退化策略（per design line 191）：FuncRef / StackClosure / 无捕获 lambda
+// 退化策略（per design line 191）：FuncRef / 无捕获 lambda
 // 的 target 是 null → 退化 strong（持 degradedHandler，weak 无效但行为合法）。
 //
 // MulticastAction.Invoke loop 已经 per-iteration 检查 IsSubscriptionAlive，

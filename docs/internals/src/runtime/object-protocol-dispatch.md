@@ -71,7 +71,7 @@ z42 函数才能渲染的变体，它只能给占位符。
 | `FuncRef(n)` | `<fn n>` |
 | `Closure(c)` | `<closure 被提升函数名>` |
 | `BoxedStruct` | ① `boxed_enum_name()` 命中 → **enum 成员名**；② 否则 `boxed_prim_i64()` 命中 → 裸标量；③ 否则 `类型名{...}` |
-| `PinnedView` / `StackClosure` / `Ref` / `StackObject` / `StackArray` / `StructRef` / `StructRefHeap` | `<pinned view>` / `<closure>` / `<ref>` / `<stack object>` / `<stack array>` / `<struct value>` —— 都是 arena 句柄，**无 `ctx` 可解** |
+| `PinnedView` / `Ref` / `StackObject` / `StackArray` / `StructRef` / `StructRefHeap` | `<pinned view>` / `<ref>` / `<stack object>` / `<stack array>` / `<struct value>` —— 都是 arena 句柄，**无 `ctx` 可解** |
 
 占位符臂不是死代码：栈句柄理论上到不了这里（`ToStr` 是逃逸汇点 ⇒ 被它读到的对象一定堆分配，
 见 [逃逸分析](escape-analysis.md)），留着是为了逃逸分析误判时能在输出里一眼认出来，而不是

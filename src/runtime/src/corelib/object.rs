@@ -94,7 +94,6 @@ pub fn builtin_obj_make_weak(ctx: &VmContext, args: &[Value]) -> Result<Value> {
 /// - `Closure { env: [first, ...] }` 当 `first is Object` → 返回该 Object
 ///   （instance method 组转换的 thunk 把 receiver 放在 env[0]，D-1b Phase 1）
 /// - `Closure { env: [] }` / `env[0]` 非 Object（如基础类型 / Null）→ Null
-/// - `StackClosure` → Null（stack 上不能 weak hold；用户场景退化 strong）
 /// - `FuncRef` → Null（free function 无 receiver）
 /// - 非 delegate / Null → Null
 pub fn builtin_delegate_target(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
@@ -118,18 +117,12 @@ pub fn builtin_delegate_target(_ctx: &VmContext, args: &[Value]) -> Result<Value
 ///
 /// 语义：
 /// - `Closure { fn_name }` → 返回 fn_name 字符串
-/// - `StackClosure { fn_name }` → 返回 fn_name 字符串
 /// - `FuncRef(name)` → 返回 name
 /// - 其他 → Null
-pub fn builtin_delegate_fn_name(ctx: &VmContext, args: &[Value]) -> Result<Value> {
+pub fn builtin_delegate_fn_name(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
     match args.first() {
         // unify-gc-heap PR-5: fn_name is a GC `Str` (Copy) — reuse the handle directly.
         Some(Value::Closure(c)) => Ok(Value::Str(crate::metadata::types::closure_data_of(c).fn_name)),
-        // make-value-copy: resolve the StackClosure handle → fn_name via the transient arena.
-        Some(&Value::StackClosure { idx, frame_id }) => {
-            let sc = ctx.transient_arena.lock().stack_closure(idx, frame_id)?;
-            Ok(Value::Str(sc.fn_name.into()))
-        }
         Some(Value::FuncRef(name)) => Ok(Value::Str(name.clone().into())),
         _ => Ok(Value::Null),
     }
@@ -205,29 +198,19 @@ fn weak_handle_type_desc() -> Arc<TypeDesc> {
 }
 
 /// 2026-05-03 fix-delegate-reference-equality (D-5)：delegate reference
-/// equality —— 三个 `Value` 变体（FuncRef / Closure / StackClosure）按
+/// equality —— 两个 `Value` 变体（FuncRef / Closure）按
 /// 各自身份语义比较。跨变体不等，非 delegate 值返回 false 不报错。
 ///
 /// 语义参见 `delegates-events.md` 与本 spec design.md：
 /// - `FuncRef(name)` —— fn name 字符串相等
 /// - `Closure { env, fn_name }` —— fn_name 相等且 env GcRef::ptr_eq
-/// - `StackClosure { env_idx, fn_name }` —— fn_name 相等且 env_idx 相等
-pub fn builtin_delegate_eq(ctx: &VmContext, args: &[Value]) -> Result<Value> {
+pub fn builtin_delegate_eq(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let result = match (args.first(), args.get(1)) {
         // fix-delegate-equality-operator: FuncRef / Closure identity now lives in
         // `Value`'s `PartialEq` (the `==` operator reaches the same rule), so defer to it
-        // rather than keeping a second copy here. StackClosure stays below — it needs the
-        // transient arena, which `PartialEq` has no access to.
+        // rather than keeping a second copy here.
         (Some(a @ Value::FuncRef(_)), Some(b @ Value::FuncRef(_))) => a == b,
         (Some(a @ Value::Closure(_)), Some(b @ Value::Closure(_))) => a == b,
-        // make-value-copy: resolve both StackClosure handles → StackClosureData via arena.
-        (Some(&Value::StackClosure { idx: ia, frame_id: fa }),
-         Some(&Value::StackClosure { idx: ib, frame_id: fb })) => {
-            let arena = ctx.transient_arena.lock();
-            let a = arena.stack_closure(ia, fa)?;
-            let b = arena.stack_closure(ib, fb)?;
-            a.fn_name == b.fn_name && a.env_idx == b.env_idx
-        }
         (Some(Value::Null), Some(Value::Null))           => true,
         (Some(Value::Null), _) | (_, Some(Value::Null)) => false,
         _                                                => false,

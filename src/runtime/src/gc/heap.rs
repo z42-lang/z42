@@ -266,7 +266,7 @@ pub trait MagrGC: std::fmt::Debug + Send + Sync {
     /// **Caller 契约 (add-write-barriers, 2026-05-21)**: callers (interp /
     /// JIT FieldSet path) MUST invoke this exactly when `new.is_heap_ref()
     /// == true`. Primitive writes (`I64 / F64 / Bool / Char / Str / Null /
-    /// FuncRef / PinnedView / StackClosure / Ref::Stack`) skip the call —
+    /// FuncRef / PinnedView / Ref::Stack`) skip the call —
     /// they neither create cross-region nor cross-generation references.
     /// Caller also drops any held inner-`Mutex` lock before calling
     /// (`borrow_mut` on `owner.slots`), so a future override that needs

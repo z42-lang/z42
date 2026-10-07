@@ -79,19 +79,10 @@ pub enum Value {
     /// reachability, like `GcRef`). Cloning a closure `Value` now shares the same heap closure
     /// (handle copy) instead of deep-cloning the box. See `Value::closure_data`.
     Closure(VarGcRef) = 10,
-    /// 2026-05-02 impl-closure-l3-escape-stack: 栈分配的 capturing closure 值。
-    /// `env_idx` 索引创建该 closure 的 frame 的 `env_arena: Vec<Vec<Value>>`；
-    /// CallIndirect 时由 dispatch 端通过当前帧的 arena 解 env。compiler 经
-    /// escape 分析证明 closure 不离开创建 frame 时才发射该 variant；逃逸
-    /// 场景仍走 `Value::Closure`。详见
-    /// `docs/spec/archive/2026-05-02-impl-closure-l3-escape-stack/`。
-    ///
-    /// review.md C1 chunk 3 (2026-05-27): payload boxed to shrink the
-    /// inline `Value` size — StackClosure is created on the rare
-    /// non-escaping closure path and only consumed by the next
-    /// `CallIndirect` before the creating frame returns.
-    /// make-value-copy: 8B handle into `VmContext::transient_arena` (payload `StackClosureData`).
-    StackClosure { idx: u32, frame_id: u32 } = 11,
+    // discriminant 11 retired (runtime-audit D6, 2026-10-07): `StackClosure` — the
+    // frame-arena closure form for `MkClos` with its stack-alloc byte set — is gone.
+    // z42c never set that byte (its escape analysis covers objects / arrays only), so
+    // every closure is a heap `Closure`. 11 stays unused (no renumbering of 12+).
     /// Spec impl-ref-out-in-runtime: `ref` / `out` / `in` 参数运行时表达。
     /// 持有该 Value 的寄存器在 frame.get/set 时被透明 deref（单点 dispatch，
     /// 见 `interp/mod.rs::Frame::get`）。引用永远不离开调用栈帧（前置 spec
@@ -208,7 +199,7 @@ impl Value {
     /// `GcRef<Vec<Value>>`) / `Ref` with `RefKind::Array` or `RefKind::Field`
     /// (the inner `gc_ref` is a real heap edge). All primitives, plus
     /// `FuncRef` (string-keyed func table) / `PinnedView` (raw ptr) /
-    /// `StackClosure` (stack arena env) / `Ref::Stack` (stack location)
+    /// `Ref::Stack` (stack location)
     /// return `false` — none of them create a strong heap → heap edge
     /// that card-marking or SATB collectors would care about.
     ///
@@ -311,8 +302,7 @@ impl Value {
             // add-escape-analysis-stack-alloc: StackObject / StackArray are
             // leaves for the child-traversal — their slots/elems live in the
             // frame arena and are scanned directly as GC roots by the external
-            // root scanner (mirrors StackClosure's env_arena handling), so
-            // walking them here would double-count. A stack handle appearing in
+            // root scanner, so walking them here would double-count. A stack handle appearing in
             // a heap object's slot would be an escape-analysis bug; the debug
             // asserts in the store paths (FieldSet/ArraySet/StaticSet) catch it.
             // add-struct-value-semantics: StructRef is a leaf here — its blob's
@@ -320,7 +310,7 @@ impl Value {
             // scanner (mirrors StackObject), so walking here would double-count.
             Value::I64(_) | Value::F64(_) | Value::Bool(_) | Value::Char(_)
             | Value::Str(_) | Value::Null | Value::FuncRef(_)
-            | Value::PinnedView { .. } | Value::StackClosure { .. }
+            | Value::PinnedView { .. }
             | Value::Ref { .. } | Value::StructRefHeap { .. }
             | Value::StackObject { .. } | Value::StackArray { .. }
             | Value::StructRef { .. } => {}
@@ -353,11 +343,8 @@ impl PartialEq for Value {
             // and `f == f` answered **false** (a silently wrong answer, not an error).
             // Identity semantics are the ones `DelegateOps.ReferenceEquals` already
             // defines: a FuncRef is its function name; a closure is its function plus its
-            // captured env. That builtin now defers here for these two variants, so the
-            // rule has one spelling (it keeps its own `StackClosure` arm, which needs the
-            // transient arena this impl has no access to — the handle-identity arm below
-            // covers the same-value case, and is only stricter for two distinct handles
-            // over one closure).
+            // captured env. That builtin defers here for these two variants, so the
+            // rule has one spelling.
             (Value::FuncRef(a), Value::FuncRef(b)) => a == b,
             (Value::Closure(a), Value::Closure(b)) => {
                 if a.ptr_eq(b) {
@@ -367,7 +354,7 @@ impl PartialEq for Value {
                     da.fn_name == db.fn_name && GcRef::ptr_eq(&da.env, &db.env)
                 }
             }
-            // make-value-copy: `PinnedView` / `Ref` (and `StructRefHeap` / `StackClosure`)
+            // make-value-copy: `PinnedView` / `Ref` (and `StructRefHeap`)
             // are now transient-arena handles — compare by `{idx, frame_id}` handle
             // identity (same as `StackObject`). These are internal transient values; user
             // code has no by-value-equality dependency on them (they never reach a
@@ -376,8 +363,6 @@ impl PartialEq for Value {
              Value::PinnedView { idx: i2, frame_id: g2 }) => i1 == i2 && g1 == g2,
             (Value::Ref { idx: i1, frame_id: g1 },
              Value::Ref { idx: i2, frame_id: g2 }) => i1 == i2 && g1 == g2,
-            (Value::StackClosure { idx: i1, frame_id: g1 },
-             Value::StackClosure { idx: i2, frame_id: g2 }) => i1 == i2 && g1 == g2,
             (Value::StructRefHeap { idx: i1, frame_id: g1 },
              Value::StructRefHeap { idx: i2, frame_id: g2 }) => i1 == i2 && g1 == g2,
             // add-primitive-value-boxing → unify Phase 2 R3: 装箱整数 vs 裸整数 —— 透明拆箱按值比较

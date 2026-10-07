@@ -106,8 +106,8 @@ pub enum ArrayBacking {
     /// add-escape-analysis-stack-alloc / unify-gc-heap PR-3: an **escape-analysis
     /// stack array** — a non-escaping array whose storage lives in the per-frame
     /// stack arena (`ctx.stack_arena`), **not** the GC heap. Boxed `Value`s inline
-    /// in an arena-owned `Vec` (mirrors `StackObject`'s off-GC `Box` backing +
-    /// `StackClosure`'s arena env — escape-analysis products deliberately bypass GC).
+    /// in an arena-owned `Vec` (mirrors `StackObject`'s off-GC `Box` backing —
+    /// escape-analysis products deliberately bypass GC).
     /// Its elements are scanned directly as GC roots by the stack-arena root scanner,
     /// so no GC block / `mark_backing` is needed. Only the stack-alloc construction
     /// path (`ArrayObj::stack_typed`) produces this; heap arrays never carry it.

@@ -73,7 +73,7 @@ delegate 类型自身在 IR 里由 `StubEmitter._emitDelegateInvoke`
 
 ⭐ **那个 `<FQ>.Invoke` 桩不是、也不能是 `.Invoke` 的派发目标** —— 这是最容易走错的一步：
 桩是 virtual（`method_flags` bit0）且**体为 `ret null`**，而 VCall 按**接收者运行期类型的
-TypeDesc** 索引 vtable；委托值在 VM 里是 `FuncRef` / `Closure` / `StackClosure`，**根本没有
+TypeDesc** 索引 vtable；委托值在 VM 里是 `FuncRef` / `Closure`，**根本没有
 TypeDesc**（`interp/vcall_resolve.rs` 直接 bail）。所以桩永远派发不到，它只服务**反射签名
 与跨包元数据重建**。
 
@@ -143,10 +143,10 @@ emit `MkClos(thunk, [recv])`；thunk 体内对 `env[0]` 做 vcall。合成点在
 
 | builtin | stdlib 入口（`Std.DelegateOps`）| 语义 |
 |---|---|---|
-| `__delegate_target` | `GetTarget(object) -> object` | 从 Closure 取 `env[0]`；`StackClosure` / `FuncRef` / 非 delegate 返回 null |
+| `__delegate_target` | `GetTarget(object) -> object` | 从 Closure 取 `env[0]`；`FuncRef` / 非 delegate 返回 null |
 | `__delegate_fn_name` | `GetFnName(object) -> string` | 取 Closure 的 `fn_name` |
 | `__make_closure` | `MakeClosure(string, object[]) -> object` | 用 `(fn_name, env)` 重建 Closure |
-| `__delegate_eq` | `ReferenceEquals(a, b) -> bool` | 按 `FuncRef` / `Closure` / `StackClosure` 三变体各自的身份语义比较；跨变体不等；非 delegate 返回 false 不报错 |
+| `__delegate_eq` | `ReferenceEquals(a, b) -> bool` | 按 `FuncRef` / `Closure` 两变体各自的身份语义比较；跨变体不等；非 delegate 返回 false 不报错 |
 
 `GetTarget` 返回 null 就是"无 receiver 可弱化" → 包装类退化为 strong。
 
@@ -279,6 +279,6 @@ per-arity 特殊路径，加 5–16 是纯机械重复。
 
 ## 关联文档
 
-- [对象与值表示 ABI](object-abi.md) —— `Value::Closure` / `FuncRef` / `StackClosure` 的表示
+- [对象与值表示 ABI](object-abi.md) —— `Value::Closure` / `FuncRef` 的表示
 - [源代码编译流程](../compiler/source-compile.md) —— 嵌套类型展平与命名键纪律
 - [IR 格式](../formats/ir.md) —— `MkClos` / `LoadFn` / `CallIndirect` 指令

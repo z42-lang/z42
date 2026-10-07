@@ -89,7 +89,6 @@ pub struct MkClosInsn {
     pub dst: Reg,
     pub fn_name: String,
     pub captures: Box<[Reg]>,
-    pub stack_alloc: bool,
 }
 
 /// Payload for [`Instruction::ObjNew`].

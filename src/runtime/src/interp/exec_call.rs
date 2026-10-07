@@ -313,9 +313,7 @@ pub(super) fn call_indirect(
     ctx: &VmContext, module: &Module, frame: &mut Frame,
     dst: u32, callee: u32, args: &[u32],
 ) -> Result<Option<Value>> {
-    // env 解码：FuncRef → 无 env；Closure → 复用已有 heap GcRef；StackClosure
-    // → 从当前 frame.env_arena 物化出新 GcRef（arena 持裸 Vec，非 GcRef；且 callee
-    //   lifetime 需独立于 caller frame，避免 caller 弹出 arena 后 use-after-free）。
+    // env 解码：FuncRef → 无 env；Closure → 复用已有 heap GcRef。
     //
     // S3 (perf-interp-hot-paths): `Value::Closure` 直接把已有 `c.env` GcRef 交给
     // callee（Arc 引用计数 +1），不再 `elems.clone()` 深拷 + `alloc_array` 重分配。
@@ -329,25 +327,6 @@ pub(super) fn call_indirect(
             // unify-gc-heap PR-5: fn_name is a GC `Str`; materialize an owned `String` for `fname`.
             (data.fn_name.to_string(), Some(Value::Array(data.env.clone())))
         }
-        &Value::StackClosure { idx: hidx, frame_id } => {
-            // make-value-copy: resolve the StackClosure handle → StackClosureData via arena.
-            let sc = ctx.transient_arena.lock().stack_closure(hidx, frame_id)?;
-            let idx = sc.env_idx as usize;
-            if idx >= frame.env_arena.len() {
-                bail!("CallIndirect: stack closure env_idx {} out of bounds (arena_len={})",
-                      idx, frame.env_arena.len());
-            }
-            // 升格为 heap GcRef 给 callee 用 —— callee 不区分 stack/heap closure。
-            let env_val = ctx.heap().alloc_array(frame.env_arena[idx].clone());
-            // add-gc-oom-exception: alloc_array returns Null only under strict OOM
-            if matches!(env_val, Value::Null) {
-                return Ok(Some(crate::exception::make_oom_exception(
-                    ctx, module,
-                    "cannot allocate closure env: heap limit exceeded".to_string(),
-                )));
-            }
-            (sc.fn_name.clone(), Some(env_val))
-        }
         // fix-null-delegate-invoke: a *null* callee is the one case here that ordinary
         // user code reaches — a single-cast `event` field defaults to null, and the
         // reference manual's own trigger pattern is "snapshot, check null, invoke". Hand
@@ -358,7 +337,7 @@ pub(super) fn call_indirect(
                 ctx, module, crate::semantics::NULL_REF_EXC, crate::semantics::null_invoke_msg(),
             )?));
         }
-        other => bail!("CallIndirect: expected FuncRef / Closure / StackClosure, got {:?}", other),
+        other => bail!("CallIndirect: expected FuncRef / Closure, got {:?}", other),
     };
     let mut arg_vals = collect_args(&frame.regs, args)?;
     if let Some(env_val) = env_val_opt {
@@ -382,52 +361,39 @@ pub(super) fn call_indirect(
     }
 }
 
-/// L3 closure construction. `stack_alloc=true` 走 frame-local arena
-///（impl-closure-l3-escape-stack）；否则 heap 路径（原 Tier C）。
+/// L3 closure construction: the env is a heap array, the closure a heap
+/// `Value::Closure` (the zbc stack-alloc byte is decoded and dropped — see
+/// `zbc_reader::instr_decode` `OP_MK_CLOS`).
 ///
 /// add-gc-oom-exception: returns `Ok(Some(exc))` when heap alloc_array fails
 /// under strict OOM mode, propagating Std.OutOfMemoryException to the caller.
 pub(super) fn mk_clos(
     ctx: &VmContext, module: &Module, frame: &mut Frame,
-    dst: u32, fn_name: &str, captures: &[u32], stack_alloc: bool,
+    dst: u32, fn_name: &str, captures: &[u32],
 ) -> Result<Option<Value>> {
     let mut env_vec: Vec<Value> = Vec::with_capacity(captures.len());
     for r in captures {
         env_vec.push(frame.get(*r)?.clone());
     }
-    let value = if stack_alloc {
-        let env_idx = frame.env_arena.len() as u32;
-        frame.env_arena.push(env_vec);
-        // make-value-copy: StackClosure payload → transient arena; Value holds an 8B handle.
-        let fid = frame.frame_id(ctx);
-        let hidx = ctx.transient_alloc(
-            fid,
-            crate::interp::transient_arena::TransientPayload::StackClos(
-                crate::metadata::StackClosureData { env_idx, fn_name: fn_name.to_string() },
-            ),
-        );
-        Value::StackClosure { idx: hidx, frame_id: fid }
-    } else {
-        let env_val = ctx.heap().alloc_array(env_vec);
-        // add-gc-oom-exception: alloc_array returns Null only under strict OOM
-        if matches!(env_val, Value::Null) {
-            return Ok(Some(crate::exception::make_oom_exception(
-                ctx, module,
-                format!("cannot allocate closure `{fn_name}` env: heap limit exceeded"),
-            )));
-        }
-        let env = match env_val {
-            Value::Array(rc) => rc,
-            _ => bail!("mk_clos: alloc_array returned unexpected value"),
-        };
-        // unify-gc-heap PR-2: ClosureData into the GC variable-length region.
-        // PR-5: fn_name is a GC `Str` from the same heap as `env` — interned per site.
-        let fn_name = ctx.intern_fn_name(fn_name);
-        ctx.heap().alloc_closure(crate::metadata::ClosureData {
-            env,
-            fn_name,
-        })
+    let env_val = ctx.heap().alloc_array(env_vec);
+    // add-gc-oom-exception: alloc_array returns Null only under strict OOM
+    if matches!(env_val, Value::Null) {
+        return Ok(Some(crate::exception::make_oom_exception(
+            ctx, module,
+            format!("cannot allocate closure `{fn_name}` env: heap limit exceeded"),
+        )));
+    }
+    let env = match env_val {
+        Value::Array(rc) => rc,
+        _ => bail!("mk_clos: alloc_array returned unexpected value"),
     };
+    // unify-gc-heap PR-2: ClosureData into the GC variable-length region.
+    // PR-5: fn_name is a GC `Str` from the same heap as `env` — interned per site.
+    let fn_name = ctx.intern_fn_name(fn_name);
+    let value = ctx.heap().alloc_closure(crate::metadata::ClosureData {
+        env,
+        fn_name,
+    });
     frame.set(dst, value);
     Ok(None)
 }

@@ -11,10 +11,6 @@ use std::collections::HashMap;
 
 pub(crate) struct Frame {
     pub regs: Vec<Value>,
-    /// 2026-05-02 impl-closure-l3-escape-stack: frame-local arena 持有不逃逸
-    /// closure 的 env。`Value::StackClosure { env_idx }` 索引这里。frame drop
-    /// 时整个 arena 一并释放（内嵌的 Value 走 normal Drop / GcRef 减引用计数）。
-    pub env_arena: Vec<Vec<Value>>,
     /// Spec impl-ref-out-in-runtime (Decision R2 architecture E):
     /// `(param_reg, original_ref_kind)` pairs. When the function was called
     /// with a `ref`/`out`/`in` argument, the entry path deref'd the Ref
@@ -33,8 +29,8 @@ pub(crate) struct Frame {
     /// loops a little" does not (that's the call-count path's job).
     pub back_edge_count: u32,
     /// This activation's id, taken lazily (see [`Frame::frame_id`]); `0` until
-    /// then. `ObjNew`/`ArrayNew` with `stack_alloc`, `Ref`s, `PinnedView`s,
-    /// struct values and stack closures tag their arena slots with it, and the
+    /// then. `ObjNew`/`ArrayNew` with `stack_alloc`, `Ref`s, `PinnedView`s
+    /// and struct values tag their arena slots with it, and the
     /// handle carries it, so a stale access (after this frame truncated the
     /// arena) is caught by the id mismatch. Most frames never allocate there and
     /// never take one.
@@ -62,7 +58,6 @@ impl Frame {
         }
         Frame {
             regs,
-            env_arena: Vec::new(),
             ref_writebacks: Vec::new(),
             back_edge_count: 0,
             id: std::cell::Cell::new(0),
@@ -88,7 +83,6 @@ impl Frame {
         }
         Ok(Frame {
             regs,
-            env_arena: Vec::new(),
             ref_writebacks: Vec::new(),
             back_edge_count: 0,
             id: std::cell::Cell::new(0),
@@ -117,7 +111,6 @@ impl Frame {
         }
         Ok(Frame {
             regs,
-            env_arena: Vec::new(),
             ref_writebacks: Vec::new(),
             back_edge_count: 0,
             id: std::cell::Cell::new(0),

@@ -33,7 +33,7 @@ Ruby / RustPython 的事实标准 GC 抽象）。trait 在单文件内按"能力
 ## Safepoint 协议
 
 多线程下，GC scanner 通过 `vm_contexts` 注册表
-对每个 VmContext 走 raw `frame.regs` / `frame.env_arena` 指针扫 root —— 但 worker
+对每个 VmContext 走 raw `frame.regs` 指针扫 root —— 但 worker
 线程同时在跑 interp 指令、改写 regs，构成 Rust 内存模型层 data race。Safepoint
 协议引入 stop-the-world 屏障：
 
@@ -382,7 +382,7 @@ card-marking / shade 真实逻辑。**call-site wiring + 调用契约**与模式
 
 1. **Filter at call site**: 只在 `new.is_heap_ref()` 时 invoke barrier。
    Primitive (`I64 / F64 / Bool / Char / Str / Null / FuncRef / PinnedView /
-   StackClosure / Ref::Stack`) 写入 skip — 这些既不参与 cross-region 引用
+   Ref::Stack`) 写入 skip — 这些既不参与 cross-region 引用
    也不参与 cross-generation 引用，barrier dispatch 是纯浪费。`is_heap_ref()`
    是 `Value` 上 inherent 方法，与 `trace_children` 平行：一个判定，一个遍历。
 2. **Post-write order**: barrier 在 slot/elem 写之后调用。card-marking
