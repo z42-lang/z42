@@ -28,8 +28,8 @@ jobs:
   # 按改动路径给重 job 开关；schedule / dispatch 下各 filter 恒 false，相应 job 的 if: 另有放行。
   changes:
     name: detect-changes
-    # 含 PR 闸门的排队时间（pr-gate.sh 最多等 90 分钟后放行）。
-    timeout-minutes: 100
+    # 含 PR 闸门的排队时间（pr-gate.sh 最多等 240 分钟后放行；GitHub 单 job 上限 360）。
+    timeout-minutes: 250
     runs-on: ubuntu-latest
     permissions:
       actions: write        # main-supersede：取消被替换的 main push 运行
@@ -147,7 +147,8 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          CAP: "3"
+          CAP: "2"
+          MAX_WAIT_MIN: "240"
         run: .github/ci/pr-gate.sh
 
   # ── 纯文档改动的全部门禁：死链 + gate 清单对账、诊断码文档对账。不需要 SDK，xtask 用种子 z42c 编出即可。
