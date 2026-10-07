@@ -34,9 +34,11 @@ public sealed class KnobResult {
     public bool             Strip;
     public string[]         Errors;      // 用法错误（未知键 / kind / 旋钮名 / pack 冲突）；非空 ⇒ 不得继续编译
     public int              ErrorCount;
+    public string[]         Warnings;    // 恒为空，只为种子 driver 留着（见 Z42.Project.ProjectManifest.DeprecatedKeys）
     public KnobResult() {
         this.OptSet = 0; this.Features = null; this.Lints = null; this.Packed = true; this.Strip = false;
         this.Errors = new string[0]; this.ErrorCount = 0;
+        this.Warnings = new string[0];
     }
     public void AddError(string line) {
         if (this.ErrorCount == this.Errors.Length) {

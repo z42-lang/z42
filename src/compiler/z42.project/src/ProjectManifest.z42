@@ -66,6 +66,10 @@ public sealed class ProjectManifest {
     // 每项一行现成的文本（不含清单路径）。z42.project 只收集，消费方（ManifestKnobs.Resolve）报错。
     // 可变公字段（默认空，ManifestLoader 构造后填）。
     public string[] UnknownKeys;
+    // 恒为空：旧名警告通道已删，字段只为**种子 driver** 留着——自建时种子 driver（仍读它）加载的是刚建出的
+    // z42.project，字段一删就读到 null 崩（bootstrap-seed：删公开 API 同样跨 nightly）。
+    // STAGE2-DEBT(manifest-rename-fields): 含 manifest-keys-2 的 nightly 发布后删 ProjectManifest.DeprecatedKeys / WorkspaceManifest.DeprecatedKeys / KnobResult.Warnings 三个恒空字段
+    public string[] DeprecatedKeys;
     public ProjectManifest(ProjectInfo project, Sources sources, BuildConfig build,
                            Profile[] profiles, int profileCount,
                            DepEntry[] deps, int depCount,
@@ -94,5 +98,6 @@ public sealed class ProjectManifest {
         this.Natives = new NativeSpec[0]; this.NativeCount = 0;
         this.Properties = TomlValue.OfTable();
         this.UnknownKeys = new string[0];
+        this.DeprecatedKeys = new string[0];
     }
 }

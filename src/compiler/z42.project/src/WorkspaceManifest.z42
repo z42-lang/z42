@@ -17,6 +17,7 @@ public sealed class WorkspaceManifest {
     public int        WorkspaceDepCount;
     // 不认识的键（ManifestKeys.AuditWorkspace；每项一行文本）。构造后填，消费方报错。
     public string[]   UnknownKeys;
+    public string[]   DeprecatedKeys;   // 恒为空，只为种子 driver 留着（见 ProjectManifest.DeprecatedKeys）
     public WorkspaceManifest(string[] members, int memberCount, string[] exclude, int excludeCount,
                              string[] defMembers, int defCount,
                              bool hasOut, string outDir, bool hasCache, string cacheDir,
@@ -28,5 +29,6 @@ public sealed class WorkspaceManifest {
         this.HasCacheDir = hasCache; this.CacheDir = cacheDir;
         this.WorkspaceDeps = wdeps; this.WorkspaceDepCount = wdepCount;
         this.UnknownKeys = new string[0];
+        this.DeprecatedKeys = new string[0];
     }
 }
