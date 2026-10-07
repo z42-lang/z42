@@ -375,7 +375,7 @@ public sealed partial class ClassDescBuilder {
             SymbolTable st = this._g._symbols;
             ConstraintSet cs = null;
             if (st != null) {
-                string ck = st.ConstraintKey(c.Name, c.TypeParams.Count);
+                string ck = st.ClassConstraintKey(this._g.Ns, c.Name, c.TypeParams.Count);
                 if (st.HasConstraints(ck)) { cs = st.GetConstraints(ck); }
             }
             cd2.TypeParamConstraints = this._constraintDescs(cs, c.TypeParams.Count);
@@ -457,10 +457,11 @@ public sealed partial class ClassDescBuilder {
             cd.TypeParamCount = c.TypeParams.Count;
             // add-associated-types PR-1：接口的 where 此前恒建**全空** bundle —— 不是「接口没有约束」，
             // 而是 ConstraintChecker.Resolve 当时压根不处理接口（条件只认 class/struct），这里无从取值。
-            // Resolve 放宽后接口约束存在 InterfaceConstraints（独立表，键恒裸名），此处按同一 ClassDecl.Name 取回。
+            // Resolve 放宽后接口约束存在 InterfaceConstraints（独立表，键 = 接口 FQN），此处按同一键取回。
             SymbolTable st = this._g._symbols;
             ConstraintSet cs = null;
-            if (st != null && st.HasIfaceConstraints(c.Name)) { cs = st.GetIfaceConstraints(c.Name); }
+            string ick = SymbolTable.IfaceConstraintKey(this._g.Ns, c.Name);
+            if (st != null && st.HasIfaceConstraints(ick)) { cs = st.GetIfaceConstraints(ick); }
             cd.TypeParamConstraints = this._constraintDescs(cs, c.TypeParams.Count);
         }
         // 关联类型名单（zbc 1.42，assoc-type-crosspkg）：接口声明的 `type Item;` → TYPE 统一 assoc 块，

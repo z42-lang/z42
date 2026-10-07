@@ -186,7 +186,7 @@ List<Opaque> ys;  ys.Add(o);   // ✅ —— 类级无约束，构造与其余�
 源码 where 子句
    │  ConstraintChecker.Resolve（包级 hoist，早于 per-file 并行段）
    ▼
-SymbolTable.ClassConstraints          ← 键统一经 SymbolTable.ConstraintKey()
+SymbolTable.ClassConstraints          ← 键 = 类的 FQN（SymbolTable.ClassConstraintKey() / Fqn()）
    │  ClassDescBuilder 直接复用这份分类（不从 AST 重推 → writer 与 checker 不会漂移）
    ▼
 IrConstraintDesc[]  ──ZbcWriter──▶  zbc TYPE 段 bundle
@@ -207,10 +207,9 @@ SymbolTable.ClassConstraints（导入侧 seed，local-wins）→ 与本包**同�
 - **bit0–bit6 的 wire 布局早已规约**，reader（Rust `type_reader.rs`，以及 z42 侧 `.zbc` / `.zpkg` /
   `.zsym` 三个读者共用的 `ConstraintCodec.Read`）一直按完整布局消费。所以接通跨包**没有格式 bump**——
   只是写端从「仅置 bit3」改成置全位。
-- **键规则只有一处**：`SymbolTable.ConstraintKey(bareName, tpCount)`，规则与 `Classes` 相同
-  （同短名多 arity 才带 `$N`）。写入 / 查询 / 导入三处都调它，否则 `Foo<T>` 与 `Foo<T,U>`
-  的约束会互相覆盖。
-- **local-wins 有守卫**：导入约束只在该键上的赢家确实是导入类时才 seed，避免本地同名类
+- **键是类的 FQN**：`ns.Name`，同短名多 arity 时带 `$N`（与 `Z42ClassType.Fqn()` 同形）。写入 / 查询 /
+  导入三处都按它取，否则 `Foo<T>` 与 `Foo<T,U>`、`A.Box<T>` 与 `B.Box<T>` 的约束会互相覆盖。
+- **local-wins 有守卫**：导入约束只在该 FQN 上登记的确实是导入类时才 seed，避免本地同 FQN 的类
   （可能压根没有 `where`）被别的包的约束污染。
 
 ## `Self` 类型（仅接口）

@@ -76,23 +76,23 @@ public sealed class ExhaustChecker {
             while (i < op.Count) { this._collect(op.Alts[i], covered); i = i + 1; }
             return;
         }
-        // add-internal-hierarchy-exhaustiveness：类型模式覆盖一个类名（`case Circle c:` / `case Circle(r):`
-        // / `case Circle{R:r}:`）→ 以 "t:"+名 入 covered，供封闭层次穷尽判定。`case Base b:` 命中基类名
-        // → 经 IsSubclassOf 吞整棵子树（_isTypeCovered 处理）。前缀 "t:" 与常量键 "b:"/"i:" 天然隔离。
+        // add-internal-hierarchy-exhaustiveness：类型模式覆盖一个类（`case Circle c:` / `case Circle(r):`
+        // / `case Circle{R:r}:`）→ 以 "t:"+类型键 入 covered，供封闭层次穷尽判定。`case Base b:` 命中基类
+        // → 吞整棵子树（_isTypeCovered 处理）。前缀 "t:" 与常量键 "b:"/"i:" 天然隔离。
         if (pat is BoundTypePattern) {
-            string tn = this._patTypeName((pat as BoundTypePattern).BoundType, (pat as BoundTypePattern).TypeName);
+            string tn = this._patTypeKey((pat as BoundTypePattern).BoundType, (pat as BoundTypePattern).TypeName);
             if (tn != "") { covered.TryAdd("t:" + tn, tn); }
             return;
         }
         if (pat is BoundPositionalPattern) {
-            string tn = this._patTypeName((pat as BoundPositionalPattern).Type, (pat as BoundPositionalPattern).TypeName);
+            string tn = this._patTypeKey((pat as BoundPositionalPattern).Type, (pat as BoundPositionalPattern).TypeName);
             if (tn != "") { covered.TryAdd("t:" + tn, tn); }
             return;
         }
         if (pat is BoundPropertyPattern) {
             BoundPropertyPattern pp = pat as BoundPropertyPattern;
             if (pp.HasType) {
-                string tn = this._patTypeName(pp.Type, pp.TypeName);
+                string tn = this._patTypeKey(pp.Type, pp.TypeName);
                 if (tn != "") { covered.TryAdd("t:" + tn, tn); }
             }
             return;
@@ -100,8 +100,10 @@ public sealed class ExhaustChecker {
         // 其它 pattern（范围 / 关系 …）不覆盖单一常量值/类名 → 忽略（保守，可能过报）。
     }
 
-    // 类型模式的类名：优先 resolved Z42Type.Name()（与 Classes 键一致），回落语法 TypeName。
-    private string _patTypeName(Z42Type t, string fallback) {
+    // 类型模式的类型键：解析到类时用它的 FQN（同包不同 ns 的同短名类是两个类，按短名记会把两者都算「已覆盖」）；
+    // 其它解析结果用 Name()，没解析出来回落语法 TypeName（由 _isTypeCovered 按作用域再解析）。
+    private string _patTypeKey(Z42Type t, string fallback) {
+        if (t is Z42ClassType) { return (t as Z42ClassType).Fqn(); }
         if (t != null) { return t.Name(); }
         return fallback;
     }
@@ -173,24 +175,26 @@ public sealed class ExhaustChecker {
         if (baseCt.IsStruct) { return; }                       // struct 值类型无继承层次
         if (baseCt.GenericParamCount > 0 || baseCt.HasArityMangle) { return; }  // 泛型封闭层次 defer
 
-        string[] names = env.Symbols.Classes.Keys();
+        // 遍历全部类（FQN 视图，按 FQN 排序 ⇒ 缺失名单的先后确定）；子类关系按对象判（`IsSubclassOfType`），
+        // 不按短名再解析一遍 —— 同包别的 ns 里的子类不在本 CU 作用域内，按名字查不到。
+        Z42ClassType[] all = env.Symbols.SortedClasses();
         int subCount = 0;              // 严格子类数（判定是否真为层次，非孤立类）
         int missing = 0;
         string missNames = "";
         int i = 0;
-        while (i < names.Length) {
-            string cn = names[i];
-            Z42ClassType ct = env.Symbols.Classes.Get(cn) as Z42ClassType;   // 遍历的就是本表的键 ⇒ 直接取值，不走作用域解析
+        while (i < all.Length) {
+            Z42ClassType ct = all[i];
             if (ct != null && !ct.IsImported) {
-                bool isStrictSub = (cn != tn) && env.Symbols.IsSubclassOf(cn, tn);
+                bool isStrictSub = ct != baseCt && env.Symbols.IsSubclassOfType(ct, baseCt);
                 if (isStrictSub) { subCount = subCount + 1; }
-                bool inSubtree = (cn == tn) || isStrictSub;
+                bool inSubtree = ct == baseCt || isStrictSub;
                 // 必须覆盖集 = subtree 里的具体（可实例化）类；abstract 类恒无运行期实例 → 排除。
                 if (inSubtree && !ct.IsAbstract) {
-                    if (!this._isTypeCovered(cn, covered, env)) {
+                    if (!this._isTypeCovered(ct, covered, env)) {
                         missing = missing + 1;
                         if (missNames != "") { missNames = missNames + ", "; }
-                        missNames = missNames + cn;
+                        // 名单写短名；子类不在基类的 ns 里时写全名 —— 那个短名在 switch 处可能指别的类。
+                        missNames = missNames + (ct.Namespace == baseCt.Namespace ? ct.Name() : ct.Fqn());
                     }
                 }
             }
@@ -204,15 +208,18 @@ public sealed class ExhaustChecker {
 
     // 具体类 concrete 是否被某类型模式覆盖：直接命中 "t:"+concrete，或被某祖先类型模式吞（`case Base b:`
     // / `case AbstractMid:` 覆盖整棵子树 → concrete IsSubclassOf 该模式类型）。
-    private bool _isTypeCovered(string concrete, StrMap covered, TypeEnv env) {
-        if (covered.ContainsKey("t:" + concrete)) { return true; }
+    // 模式的类型键先按 FQN 取类、取不到再按本 CU 作用域解析，然后按对象判子类关系（`concrete` 本身就是对象）。
+    private bool _isTypeCovered(Z42ClassType concrete, StrMap covered, TypeEnv env) {
+        if (covered.ContainsKey("t:" + concrete.Fqn())) { return true; }
         string[] ks = covered.Keys();
         int i = 0;
         while (i < ks.Length) {
             string k = ks[i];
             if (this._startsWith(k, "t:")) {
-                string tname = k.Substring(2, k.Length - 2);
-                if (env.Symbols.IsSubclassOf(concrete, tname)) { return true; }
+                string tkey = k.Substring(2, k.Length - 2);
+                Z42ClassType pt = env.Symbols.ClassesByFqn.Get(tkey) as Z42ClassType;
+                if (pt == null) { pt = env.Symbols.GetClass(tkey); }
+                if (env.Symbols.IsSubclassOfType(concrete, pt)) { return true; }
             }
             i = i + 1;
         }

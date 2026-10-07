@@ -52,8 +52,8 @@ public sealed class ImportedSymbols {
     public StrMap EnumTypeNames;    // 枚举类型短名 → "enum"（镜像 SymbolTable.EnumTypes；imported 枚举常量解析用）
     public StrMap EnumConsts;       // "EnumFqn.Member" → StrBox(long 值)（镜像 SymbolTable.EnumConsts，键同为 FQN）
     public StrMap DelegatesByFqn;   // FQN → Z42FuncType（导入的用户 delegate；SymbolCollector 并进 SymbolTable.Delegates）
-    // add-associated-types PR-1：导入类的 where 约束（键与 Classes 同一 clKey，即条件 arity-mangle，
-    // 与 SymbolTable.ConstraintKey 口径一致）→ ConstraintSet。修前此表不存在，跨包约束全程无载体。
+    // add-associated-types PR-1：导入类的 where 约束（键 = 类的 FQN 键，即 ClassesByFqn 的键，
+    // 与 SymbolTable.ClassConstraintKey 口径一致）→ ConstraintSet。
     public StrMap Constraints;
     // fix-crosspkg-ns-reachability：依赖契约三件套的**搬运载体**。放在这里而不是给
     // `BuildPackageCus` 加参：本类已经是「跨包信息进符号表」的唯一通道（ClassPkgAll 就走这条），
@@ -276,14 +276,10 @@ public static partial class ImportedSymbolLoader {
                             r.ClassNamespaces.Put(clKey, new StrBox(em.Namespace));
                         }
                         r.ClassesByFqn.Put(fqnKey, nct);
-                        // add-associated-types PR-1：跨包 where 约束。键与 Classes 同为 clKey，
-                        // 与 SymbolTable.ConstraintKey 的条件 arity-mangle 口径一致。
-                        // 键是 clKey（裸名）⇒ 与 r.Classes 同受 first-wins 约束，否则同短名的第二份
-                        // 会把赢家的约束覆盖掉（守卫收窄后这里必须显式跟上）。
-                        if (bareFree) {
-                            ConstraintSet ics = ImportedSymbolLoader._constraintSetOf(cl);
-                            if (ics != null) { r.Constraints.Put(clKey, ics); }
-                        }
+                        // add-associated-types PR-1：跨包 where 约束，键与 FQN 视图同为 fqnKey —— 每个 FQN 各挂各的，
+                        // 同短名不同 ns 的类不再互相覆盖、也不再只有短名赢家才有约束。
+                        ConstraintSet ics = ImportedSymbolLoader._constraintSetOf(cl);
+                        if (ics != null) { r.Constraints.Put(fqnKey, ics); }
                     }
                     c = c + 1;
                 }
@@ -387,7 +383,6 @@ public static partial class ImportedSymbolLoader {
         // 类与类之间互不依赖 ⇒ 按「类」分组并行（同一个类的多份——partial 跨模块——同组、保原序，由一个任务
         // 独占）。先收集再一次 ParallelFor；收集序 = 原逐模块序，所以每个类拿到的成员与登记顺序和串行逐字节一致。
         // 委托 / 自由函数 / 接口方法不依赖已填的类成员（`_resolve` 只查骨架表），仍在下面逐模块串行。
-        StrMap filledByFqn = new StrMap();
         ClassFillTask fill = new ClassFillTask(r);
         oi = 0;
         while (oi < orderN) {
@@ -399,19 +394,10 @@ public static partial class ImportedSymbolLoader {
                 bool needsMangle = cl.TpCount > 0 && (tier0[i] ? impMultiArity : impMultiAll).ContainsKey(cl.Name);
                 string clKey = needsMangle ? (cl.Name + "$" + cl.TpCount.ToString()) : cl.Name;
                 string fqnKey = fem.Namespace == "" ? clKey : fem.Namespace + "." + clKey;
-                Z42ClassType ct = r.Classes.Get(clKey) as Z42ClassType;
-                StrBox owner = r.ClassNamespaces.Get(clKey) as StrBox;
-                if (ct != null && owner != null && owner.Value == fem.Namespace) {
-                    fill.Add(fqnKey, ct, cl);
-                } else {
-                    // 短名被别的 ns 占了的类只活在 FQN 视图里 —— 此前从不填成员，限定名引用到它是个空壳
-                    // （「no method」/「no field」）。同 FQN 多份时只填 Phase1 建型的那一份（first-wins）。
-                    Z42ClassType fct = r.ClassesByFqn.Get(fqnKey) as Z42ClassType;
-                    if (fct != null && fct != ct && !filledByFqn.ContainsKey(fqnKey)) {
-                        filledByFqn.Put(fqnKey, "1");
-                        fill.Add(fqnKey, fct, cl);
-                    }
-                }
+                // 填进 Phase1 为这个 FQN 建的那一份（同 FQN 多份时 first-wins 只建一份）。同一个类的多份
+                // （partial 跨模块）按 fqnKey 分进同一组、保原序。不看短名表的赢家是谁。
+                Z42ClassType ct = r.ClassesByFqn.Get(fqnKey) as Z42ClassType;
+                if (ct != null) { fill.Add(fqnKey, ct, cl); }
                 c = c + 1;
             }
             oi = oi + 1;

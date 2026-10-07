@@ -34,10 +34,12 @@ public sealed class ResolvedTypeExpr : TypeExpr {
 public sealed class CtorInheritance {
     private SymbolCollector _sc;
     private SymbolTable _table;
-    private StrMap _declByKey;   // 类注册键 → 首个 ClassDecl（partial 取首碎片承载合成成员）
-    private StrMap _hasInit;     // 类注册键 → "1"：任一碎片有实例初始化器
-    private StrMap _done;        // 类注册键 → "1"：已处理（含处理中，防继承环重入）
-    // A5b-2d：类注册键 → 首碎片所在 CU。合成 / 继承构造器时要按**声明方**作用域解析类型名（基类实参、
+    // 以下几张表的键都是类在 FQN 视图里的键（`ns.Name` / `ns.Name$N`，即 `Z42ClassType.Fqn()`）：
+    // 同包不同 ns 的同短名类是两个类，各自继承 / 合成各自的构造器。
+    private StrMap _declByKey;   // 类 FQN 键 → 首个 ClassDecl（partial 取首碎片承载合成成员）
+    private StrMap _hasInit;     // 类 FQN 键 → "1"：任一碎片有实例初始化器
+    private StrMap _done;        // 类 FQN 键 → "1"：已处理（含处理中，防继承环重入）
+    // A5b-2d：类 FQN 键 → 首碎片所在 CU。合成 / 继承构造器时要按**声明方**作用域解析类型名（基类实参、
     // 形参类型）—— 此前用根表，`class IntBox : Box<int>`（Box 经 using 引入）只能靠短名表兜。
     private StrMap _cuByKey;
     private SymbolTable _cur;    // 当前在处理的类的声明方视图（`_process` 设）
@@ -58,7 +60,7 @@ public sealed class CtorInheritance {
                 if (d is ClassDecl) {
                     ClassDecl c = d as ClassDecl;
                     if (c.Kind == "class" || c.Kind == "struct") {
-                        string key = this._key(c);
+                        string key = this._key(cu, c);
                         if (!this._declByKey.ContainsKey(key)) { this._declByKey.Put(key, c); this._cuByKey.Put(key, cu); }
                         if (CtorInheritance._hasInstanceInitializer(this._sc, c)) { this._hasInit.Put(key, "1"); }
                     }
@@ -75,7 +77,7 @@ public sealed class CtorInheritance {
                 Decl d = this._sc._unwrap(cu.Decls[dj]);
                 if (d is ClassDecl) {
                     ClassDecl c = d as ClassDecl;
-                    if (c.Kind == "class" || c.Kind == "struct") { this._process(c); }
+                    if (c.Kind == "class" || c.Kind == "struct") { this._process(this._key(cu, c), c); }
                 }
                 dj = dj + 1;
             }
@@ -83,32 +85,31 @@ public sealed class CtorInheritance {
         }
     }
 
-    private string _key(ClassDecl c) {
-        string key = c.Name;
-        if (c.TypeParams.Count > 0) {
-            string mk = c.Name + "$" + c.TypeParams.Count.ToString();
-            if (this._table.Classes.ContainsKey(mk)) { key = mk; }
-        }
-        return key;
+    // 本 CU 声明的类 `c` 的 FQN 键（与 `ClassesByFqn` 同键）。
+    private string _key(CompilationUnit cu, ClassDecl c) {
+        string ns = cu.HasNamespace ? cu.Namespace : "";
+        return SymbolTable.QualOf(ns, this._table.LocalClassKey(ns, c));
     }
 
-    private void _process(ClassDecl c0) {
-        string key = this._key(c0);
+    private void _process(string key, ClassDecl c0) {
         if (this._done.ContainsKey(key)) { return; }
         this._done.Put(key, "1");
         ClassDecl c = this._declByKey.Get(key) as ClassDecl;
         if (c == null) { c = c0; }
         if (Mod.Has(c.ModFlags, Mod.Static)) { return; }
-        Z42ClassType ct = this._table.Classes.Get(key) as Z42ClassType;
+        Z42ClassType ct = this._table.ClassesByFqn.Get(key) as Z42ClassType;
         if (ct == null || ct.IsImported) { return; }
         if (ct.InstanceCtors().Length > 0) { return; }   // 写了构造器：不继承、不合成
 
         Z42ClassType bt = null;
         if (c.Kind == "class" && ct.HasBase && ct.BaseName != "" && ct.BaseName != "Object") {
-            if (this._declByKey.ContainsKey(ct.BaseName)) {
-                this._process(this._declByKey.Get(ct.BaseName) as ClassDecl);
-            }
             bt = this._table.BaseOf(ct);   // A5b-2b-3：走唯一出口（句柄按声明方作用域绑定），不按短名撞赢家
+            // 本包基类先处理（它可能还要继承 / 合成自己的构造器）。按基类对象的 FQN 键找它的声明 —— 此前按
+            // `BaseName`（短名）找，同短名的别的类会被当成基类先处理，真正的基类反而可能还没处理。
+            string bkey = bt == null ? "" : bt.Fqn();
+            if (bkey != "" && this._declByKey.ContainsKey(bkey)) {
+                this._process(bkey, this._declByKey.Get(bkey) as ClassDecl);
+            }
         }
         // 基类递归处理完之后再设（递归会覆写它）。
         CompilationUnit dcu = this._cuByKey.Get(key) as CompilationUnit;

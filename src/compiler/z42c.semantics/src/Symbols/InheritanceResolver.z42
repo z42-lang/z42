@@ -378,8 +378,9 @@ public sealed class InheritanceResolver {
     // 此前它挂在 `_passSealedEnforce(table, cu)` 末尾 ⇒ 包级收集每个 CU 都把**整张表**（含全部导入类）跑一遍
     // 不动点 ⇒ O(CU × 类 × 方法)，实测占 z42c.semantics 全量编译约 5%。只跑一次结果相同：⑥ 无条件写、
     // 本函数只写空位，两者都单调，最终不动点与中途穿插无关。
+    // 遍历 FQN 视图（`SortedClasses`）：短名表同短名只留一份，被遮住的类此前拿不到下推的标记。
     internal void _propagateBridgeMarks(SymbolTable table) {
-        string[] keys = table.Classes.Keys();
+        Z42ClassType[] all = table.SortedClasses();
         bool changed = true;
         // 迭代到不动点：一次遍历的类序不保证自上而下，A→B→C 三层可能要两轮才推到底。
         // 不设轮数上限：每轮至少把一个空位填上（只写空位、单调）⇒ 轮数不超过方法总数；层数也不设上限
@@ -387,8 +388,8 @@ public sealed class InheritanceResolver {
         while (changed) {
             changed = false;
             int i = 0;
-            while (i < keys.Length) {
-                Z42ClassType ct = table.Classes.Get(keys[i]) as Z42ClassType;
+            while (i < all.Length) {
+                Z42ClassType ct = all[i];
                 if (ct != null && table.BaseOf(ct) != null) {
                     Z42ClassType b = table.BaseOf(ct);
                     if (b != null) {

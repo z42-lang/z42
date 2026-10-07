@@ -1,0 +1,134 @@
+// fqn-tables 4：同一个包里不同命名空间的同短名类型各是各的。按短名键的表（约束表）与遍历短名表的
+// 消费者（封闭层次穷尽检查）只看得到其中一份 —— 键换成 FQN、遍历换成 FQN 视图后两份都在。
+//
+// 全部用多 CU 整包编译：单文件只有一个 ns，造不出「同包两个 ns 同短名」的形状。
+namespace Z42cSemanticsFqnTablesTests;
+
+using Z42.Emission;
+using Z42.IR;
+
+CompiledModuleZ[] fqnBuild(string[] srcs) {
+    string[] files = new string[srcs.Length];
+    int f = 0;
+    while (f < srcs.Length) { files[f] = "f" + f.ToString() + ".z42"; f = f + 1; }
+    return IrDump.BuildPackage(srcs, files, srcs.Length, null, null, false);
+}
+
+string[] fqnDiags(string[] srcs) {
+    CompiledModuleZ[] cms = fqnBuild(srcs);
+    int n = 0;
+    int i = 0;
+    while (i < cms.Length) { n = n + cms[i].DiagCount; i = i + 1; }
+    string[] r = new string[n];
+    int k = 0;
+    i = 0;
+    while (i < cms.Length) {
+        int j = 0;
+        while (j < cms[i].DiagCount) { r[k] = cms[i].DiagMsgs[j]; k = k + 1; j = j + 1; }
+        i = i + 1;
+    }
+    return r;
+}
+
+int fqnCount(string[] msgs, string needle) {
+    int n = 0;
+    int i = 0;
+    while (i < msgs.Length) { if (msgs[i].Contains(needle)) { n = n + 1; } i = i + 1; }
+    return n;
+}
+
+// 整包编译产物里名为 `fqn` 的类描述（找不到 → null）。
+IrClassDesc fqnClassDesc(CompiledModuleZ[] cms, string fqn) {
+    int i = 0;
+    while (i < cms.Length) {
+        IrModule m = cms[i].Module;
+        if (m != null) {
+            int c = 0;
+            while (c < m.ClassCount) { if (m.Classes[c].Name == fqn) { return m.Classes[c]; } c = c + 1; }
+        }
+        i = i + 1;
+    }
+    return null;
+}
+
+// A、B 两个 ns 各有一个 `Box<T>`，约束不同。
+string[] fqnTwoBoxes(string use) {
+    string[] s = new string[3];
+    s[0] = "namespace A;\npublic interface IA { }\npublic class Box<T> where T : IA { }\n";
+    s[1] = "namespace B;\npublic interface IB { }\npublic class Box<T> where T : IB { }\n";
+    s[2] = use;
+    return s;
+}
+
+// ── 约束表按 FQN 键：`A.Box<W>` 按 A.Box 自己的约束校验 ──────────────────────
+// 此前键是短名 `Box`，后解析的 B.Box 覆盖了 A.Box 的约束 ⇒ 满足 `IA` 的 W 被拿去校验 `IB`，误报 E0402。
+[Test]
+void test_constraint_of_same_short_name_class_in_other_ns_is_not_used() {
+    string[] s = fqnTwoBoxes("namespace C;\nusing A;\nclass W : IA { }\nclass U { public Box<W> F; }\n");
+    Assert.Equal(0, fqnCount(fqnDiags(s), "E0402"));
+}
+
+// 阳性对照：真不满足 A.Box 的约束照样报。
+[Test]
+void test_constraint_violation_on_own_box_still_reported() {
+    string[] s = fqnTwoBoxes("namespace C;\nusing A;\nclass V { }\nclass U { public Box<V> F; }\n");
+    Assert.Equal(true, fqnCount(fqnDiags(s), "E0402") >= 1);
+}
+
+// 发射端按同一个 FQN 键取约束：A.Box 的 TYPE 记录写的是 `IA`，不是 B.Box 的 `IB`。
+[Test]
+void test_emitted_constraints_belong_to_own_class() {
+    CompiledModuleZ[] cms = fqnBuild(fqnTwoBoxes("namespace C;\nclass U { }\n"));
+    IrClassDesc a = fqnClassDesc(cms, "A.Box");
+    IrClassDesc b = fqnClassDesc(cms, "B.Box");
+    Assert.Equal(true, a != null && b != null);
+    Assert.Equal(1, a.TypeParamConstraints[0].InterfaceCount);
+    Assert.Equal(true, a.TypeParamConstraints[0].Interfaces[0].EndsWith("IA"));
+    Assert.Equal(true, b.TypeParamConstraints[0].Interfaces[0].EndsWith("IB"));
+}
+
+// ── 封闭层次穷尽检查：遍历 FQN 视图、覆盖集按 FQN 记 ─────────────────────────────
+// A、B 各有一个继承 Shape 的 `Circle`。此前遍历短名表只看得到其中一个，覆盖集又按短名记 ⇒
+// `case Circle`（A.Circle）把两个都算成已覆盖，B.Circle 漏报。
+[Test]
+void test_closed_hierarchy_same_short_name_subclasses_are_two_cases() {
+    string[] s = new string[2];
+    s[0] = "namespace A;\nabstract class Shape { }\nclass Circle : Shape { }\n"
+         + "int F(Shape x) { return x switch { Circle => 1 }; }\n";
+    s[1] = "namespace B;\nusing A;\nclass Circle : Shape { }\n";
+    string[] d = fqnDiags(s);
+    Assert.Equal(1, fqnCount(d, "W0700"));
+    Assert.Equal(1, fqnCount(d, "missing B.Circle"));
+}
+
+// 子类在同包的另一个 ns 里（switch 所在 CU 没 using 它）。此前按名字在 switch 所在作用域判子类 ⇒ 查不到、不计入。
+// 名单里写全名：短名在 switch 处不一定指它。
+[Test]
+void test_closed_hierarchy_counts_subclass_in_other_ns() {
+    string[] s = new string[2];
+    s[0] = "namespace A;\nabstract class Shape { }\nclass Circle : Shape { }\n"
+         + "int F(Shape x) { return x switch { Circle => 1 }; }\n";
+    s[1] = "namespace B;\nusing A;\nclass Tri : Shape { }\n";
+    string[] d = fqnDiags(s);
+    Assert.Equal(1, fqnCount(d, "missing B.Tri"));
+}
+
+// 同 ns 的子类照旧写短名（既有文案不变）。
+[Test]
+void test_closed_hierarchy_same_ns_subclass_listed_by_short_name() {
+    string[] s = new string[1];
+    s[0] = "namespace A;\nabstract class Shape { }\nclass Circle : Shape { }\nclass Square : Shape { }\n"
+         + "int F(Shape x) { return x switch { Square => 1 }; }\n";
+    string[] d = fqnDiags(s);
+    Assert.Equal(1, fqnCount(d, "missing Circle ("));
+}
+
+// 阴性对照：全部覆盖 ⇒ 不报（被遮住的同短名无关类不算进层次）。
+[Test]
+void test_closed_hierarchy_full_cover_with_shadowing_class_no_warn() {
+    string[] s = new string[2];
+    s[0] = "namespace A;\nabstract class Shape { }\nclass Circle : Shape { }\nclass Square : Shape { }\n"
+         + "int F(Shape x) { return x switch { Circle => 1, Square => 2 }; }\n";
+    s[1] = "namespace B;\nclass Circle { }\n";
+    Assert.Equal(0, fqnCount(fqnDiags(s), "W0700"));
+}
