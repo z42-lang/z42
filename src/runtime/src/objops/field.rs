@@ -180,6 +180,21 @@ pub fn store_named(ctx: &VmContext, gc: &GcRef<ScriptObject>, name: &str, v: &Va
     Ok(())
 }
 
+/// 按**槽位**写堆对象的字段，与 `FieldSet` 同一条写入 + 写屏障规则。
+///
+/// 给不经 `FieldSet` 指令、由 VM 自己往**已存在**对象里写字段的地方用：throw 点补
+/// `Exception.StackTrace`、反射 `FieldInfo.SetValue`、反射 `Type` 对象补 `__typeArgs` /
+/// `__fullName`。这些站点以前直接调 `try_set_field_value` / `set_field_value`——SATB 删除屏障在
+/// 写原语里、照样记了，但**卡表 / 并发 shade 那一半在调用点**，它们一个都没发：老对象收到
+/// 年轻引用却没染脏卡，下一次 minor 就把还被引用着的年轻对象扫掉（use-after-free）。
+///
+/// 基元槽类型不符照 `try_set_field_value` 报错（错误留给调用方按自己的语义包装）。
+pub fn store_slot(ctx: &VmContext, gc: &GcRef<ScriptObject>, slot: usize, v: &Value) -> anyhow::Result<()> {
+    let w = gc.borrow_mut().try_set_field_value(slot, v)?;
+    barrier(ctx, &Value::Object(*gc), v, Some((slot, w)));
+    Ok(())
+}
+
 /// JIT 循环不变量提升：堆对象接收者的**内联基元**字段 → `(bytes 基址, 字节偏移, 宽度, tag)`。
 /// 其它一切（非对象 / null / 字段不存在 / 引用 / struct 根 / string）→ `None`，内联码回落到
 /// `field_get` / `field_set`，异常在真实访问点抛出。

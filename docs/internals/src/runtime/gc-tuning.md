@@ -1,7 +1,7 @@
 # GC 调参与自动回收 / safepoint 协议
 
 > 代码：`src/runtime/src/config.rs`（knob）、`gc/arc_heap/auto_collect.rs`（自动回收策略）、
-> `gc/trace.rs` + `gc/phase_timer.rs`（两个诊断旋钮）、
+> `gc/trace.rs` + `gc/phase_timer.rs` + `gc/arc_heap/card_verify.rs`（诊断旋钮）、
 > `gc/arc_heap/alloc.rs`（压力事件），
 > `gc/safepoint.rs`（协作式 safepoint）、`gc/heap.rs`（`MagrGC` trait 协议文档）、
 > `interp/exec_support.rs` + `interp/mod.rs`（被调函数入口 safepoint 的插桩点）。
@@ -40,14 +40,15 @@ GC 的「何时自动回收」由几个**比率魔数**决定（near-limit 90%�
 | `Z42_GC_SLICE_MS` | **2** | 一个增量 major 切片的时间预算（ms），clamp 到 `[0.01, 1000]`。极小值（如 `0.05`）是压力配方：让 mutator / minor 最大程度地插进周期中间 | `arc_heap/incremental.rs` |
 | `Z42_GC_MODE` | **`generational-mark-sweep`** | GC 算法：`stw` / `generational`。默认 `generational`（见下「为什么分代是默认」） | `gc/mode.rs` |
 
-## 诊断旋钮（`Z42_GC_TRACE` / `Z42_GC_PHASES`）
+## 诊断旋钮（`Z42_GC_TRACE` / `Z42_GC_PHASES` / `Z42_GC_VERIFY_CARDS`）
 
-调参旋钮改的是行为，这两个只**看**行为，默认全关、关掉零成本。
+调参旋钮改的是行为，这几个只**看**行为，默认全关、关掉零成本。
 
 | Knob | 语义 | 消费点 |
 |------|------|--------|
 | `Z42_GC_TRACE` | 每次回收一行：种类（这次停顿**实际做的工作**：`Minor` / `Slice`（增量 major 的一个切片）/ `Major`（整堆回收做完：STW、一次性 major、或同步做完的增量周期）——不按入口命名，分代下的 `GC.Collect()` 通常就是 `Minor`）、堆 used 前后、回收字节、停顿 ms、第几个周期；外加近上限 / 超预算两条边沿。关掉时连 observer 都不装 | `gc/trace.rs` |
 | `Z42_GC_PHASES` | 把那一行停顿**拆开**：每个阶段一行耗时 + 处理条目数，外加一行「这次回收是被哪个闸门触发的」 | `gc/phase_timer.rs` |
+| `Z42_GC_VERIFY_CARDS` | **分代专用**：每次 minor 开始前从头核对卡表不变量（老对象持有年轻引用 ⇒ 所在卡必脏），不成立就 panic 并报出属主——漏写屏障在第一次 minor 就现形，而不是几次回收后的 UAF。O(老年代)/次，只用于排障与压力测试。见 [GC · 卡表不变量核对](gc.md#卡表不变量核对z42_gc_verify_cards) | `gc/arc_heap/card_verify.rs` |
 
 `Z42_GC_PHASES=1` 的一次 minor、和随后被年轻代策略换成的一次 tenure，长这样（`z42c` 工作区构建）：
 

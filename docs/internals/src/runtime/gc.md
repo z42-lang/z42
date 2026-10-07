@@ -330,27 +330,65 @@ trait 默认实现（含 `ArcMagrGC` STW mark-sweep）是 no-op；分代模式 o
 card-marking 真实逻辑。**call-site wiring + 调用契约**与模式无关（no-op 实现下仅
 `#[cfg(test)]` 时 dispatch 到 test-only `BarrierObserver`）。
 
-**Caller 契约**（interp `field_set` / `array_set`、JIT `jit_field_set` /
-`jit_array_set`）:
+**Caller 契约**。引擎（interp / JIT）的写入全部经 `objops`（`field_set` / `store_named` /
+`array_set` / `elem_store` / `struct_field_set_val`），卡表那一半屏障就在那里发，一处实现、两个引擎共用：
 
-1. **Filter at call site**: 只在 `new.is_heap_ref()` 时 invoke barrier。
-   Primitive (`I64 / F64 / Bool / Char / Str / Null / FuncRef / PinnedView /
-   Ref::Stack`) 写入 skip — 这些既不参与 cross-region 引用
-   也不参与 cross-generation 引用，barrier dispatch 是纯浪费。`is_heap_ref()`
-   是 `Value` 上 inherent 方法，与 `trace_children` 平行：一个判定，一个遍历。
+1. **Filter at call site**: 只在 `new.is_heap_ref()` 时 invoke barrier。堆引用是
+   `Object / Array / Closure / Str / FuncRef / BoxedStruct`（字符串与函数引用是 var 块，有真实年龄，
+   年轻字符串存进老对象同样要染卡）；基元、`Null`、`PinnedView`、arena 句柄
+   （`Ref` / `StructRef` / `StructRefHeap` / `StackObject` …）skip——它们不是堆边，靠 arena 根扫描保活。
+   `is_heap_ref()` 是 `Value` 上 inherent 方法，与 `trace_children` 平行：一个判定，一个遍历。
 2. **Post-write order**: barrier 在 slot/elem 写之后调用。card-marking
    自然 fit；需要看 *旧* 值的 SATB 删除屏障不走这两个钩子，放在写原语里
    （见 [增量 major](gc-incremental-major.md)）。
 3. **Lock released before call**: 调用前 `drop(borrowed)` 释放
-   `owner.slots` / `arr` 的 inner-`Mutex` lock，让未来 override 可以
+   `owner.slots` / `arr` 的 inner-`Mutex` lock，让 override 可以
    re-borrow `owner` 而不死锁。
-4. **IC fast path 也 dispatch**: FieldSet 的 inline cache 命中路径也必须
-   走 barrier，否则分代模式在 hot code 漏记卡 → minor 漏掉老→新的边
-   → UAF。这条规则在 `interp::field_set` /
-   `jit_field_set` 内 inline 多个写入点都加了 dispatch；六个写入点对应六个
-   `write_barrier_field` call（fast + slow + 无-IC，interp 和 JIT 各一套）。
+4. **IC fast path 也 dispatch**: FieldSet 的 inline cache 命中路径与未命中路径共用
+   `objops::field` 里同一个写后屏障（`barrier`，按 `FieldWrite` 发：装箱时屏障看的是盒子）——快路漏一次就是 hot code 里的 UAF。
 5. **StaticSet 不 dispatch**: static fields 是 GC root，"old → new"
    写永远在 root，不存在 cross-region/cross-generation 关心的场景。
+6. **引用叶子被拷进别处时，按叶子发**：装箱 struct 写进 `struct[]`（`StructBytes` backing）时
+   `set_boxed` 把盒子的引用叶子**拷进**数组，数组持有的是叶子而不是盒子 ⇒ 屏障按每个叶子发
+   （`objops::array::barrier_after_elem_store`），不能拿盒子判龄（老盒子、年轻叶子就漏卡）。
+
+#### VM 自己的写入点
+
+不经 `FieldSet` / `ArraySet` 指令、由 VM 往**已存在**对象里写引用的地方，规则同上：一律经 objops
+的写入 + 屏障原语，不直接调 `set_field_value` / `try_set_field_value` / `set_boxed`
+（那只覆盖 SATB 那一半）。
+
+| 写入点 | 经由 |
+|---|---|
+| throw 点补 `Exception.StackTrace` | `objops::field::store_slot` |
+| 反射 `FieldInfo.SetValue`（普通字段） | `objops::field::store_slot` |
+| 反射 `FieldInfo.SetValue`（装箱 struct 字段 / 对象内联 struct 叶子） | `set_ref_slot` + 逐叶子 `write_barrier_field` |
+| 反射构造泛型 `Type`（`__typeArgs` / `__fullName`） | `objops::field::store_slot` |
+| `Std.Array.SetValue` | `try_set_boxed` + `objops::array::barrier_after_elem_store` |
+| `Std.Array.Copy`（`__array_copy`） | `objops::array_bulk::copy_range` + `barrier_after_range_store`（对写入区间每个引用槽，含 struct 元素的引用叶子） |
+| `PropertyInfo.SetValue` | 调 setter ⇒ 走 `FieldSet` |
+
+**免屏障的写入点**——只有下面几类，新增一处必须能归进其中之一，并在调用点写清是哪一类：
+
+| 类别 | 例子 | 为什么安全 |
+|---|---|---|
+| **分配时初始化** | `alloc_object` 的初始槽值、`ArrayObj::new` / `typed_iter` / `struct_backed` 的元素、`pack_struct_elem`（数组还没进堆）、`box_struct_blob` 的 `refs_mut_raw`、`obj_new` 的泛型零值覆盖 | 对象出生年龄 0、旧值全是 `Null`（SATB 无可记）；从分配到这次写入之间没有 safepoint，minor 插不进来，对象不可能已老；增量周期里它是 allocate-black，而 SATB 的论证本就不需要插入屏障 |
+| **根** | 静态字段（`StaticSet`）、帧寄存器、`struct_arena` / `stack_arena` / `transient_arena` 的槽 | 每次回收都当根扫 |
+| **同一容器内重排** | `__array_sort_prims`（`sort_prims_prefix`） | 只置换数组里已有的引用，不引入新边；卡属于同一个数组 |
+| **GC 自己** | 清扫 / 终结时给死对象断边（`refs_mut_raw`、`clear_inline_refs`） | 见 SATB 一节 |
+
+「分配时初始化」的论证依赖两条事实，改动它们的人必须回来重审这张表：**新对象一律出生在年轻代**
+（没有预晋升 / 直接分配进老年代的路径——大块只是独占 chunk，年龄照样从 0 起）；
+**单条指令 / builtin 的 Rust 执行中途不跑 GC**（见上「临时 string 落寄存器前天然安全」）。
+
+#### 卡表不变量核对（`Z42_GC_VERIFY_CARDS`）
+
+漏一个写屏障不会当场出事：年轻对象在之后某次 minor 被扫掉，症状是隔了几次回收的 UAF。
+`ArcMagrGC::verify_card_invariant`（`gc/arc_heap/card_verify.rs`）从头重算卡表不变量——遍历两个有卡的
+region 里每个活着的老条目，持有年轻引用而所在卡是干净的就报出来（带属主类型名）。代价 O(老年代)，
+所以是开关：`Z42_GC_VERIFY_CARDS=1` 时每次 minor 开始前核对一次、不成立就 panic；单测直接调它
+（经 `MagrGC::verify_card_invariant`）。`region_var`（字符串、闭包）没有卡也不需要：字符串是叶子，
+闭包的引用在构造时定死，老了以后不会再长出年轻孩子。
 
 **Override 契约**:
 

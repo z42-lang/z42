@@ -142,6 +142,10 @@ pub(crate) fn box_struct_blob(
                 let n = bytes.len().min(o.bytes().len());
                 o.bytes_mut()[..n].copy_from_slice(&bytes[..n]);
                 let rn = refs.len().min(o.refs().len());
+                // `refs_mut_raw` (no SATB record, no card) is sound here only because this is
+                // the **freshly allocated** box: every old value is `Null` (nothing to record), and
+                // the box is young (born at age 0, no safepoint since `alloc_object`), so no
+                // old→young edge can arise. See gc.md「免屏障的写入点」.
                 o.refs_mut_raw()[..rn].clone_from_slice(&refs[..rn]);
             }
             Ok(Value::BoxedStruct(gc))

@@ -1,0 +1,61 @@
+// A reference written by the VM itself — here reflection `FieldInfo.SetValue` — is a heap
+// store like any `FieldSet` and must fire the GC write barrier.
+//
+// Shape: `h.T` is promoted into the old generation (it survives several collections while
+// reachable only through `h`; a minor traces an old root but not the old objects behind it),
+// then a fresh `Leaf` is written into it by reflection, then one more collection. Without the
+// barrier the leaf sits in an old object on a clean card: the minor never reaches it and sweeps
+// it — the weak handle comes back null, and reading `h.T.Child` would be a use-after-free.
+namespace Demo;
+using Std;
+using Std.Reflection;
+
+class Leaf {
+    public int V;
+    public Leaf(int v) { this.V = v; }
+}
+
+class Target { public Leaf Child; }
+
+class Holder { public Target T; }
+
+FieldInfo field(Type t, string name) {
+    FieldInfo[] fs = t.GetFields();
+    int i = 0;
+    while (i < fs.Length) { if (fs[i].Name == name) { return fs[i]; } i = i + 1; }
+    return null;
+}
+
+// Built in its own frame so only `h` sits in Main's registers: a register is a root, and an
+// old root is traced one level — had `h.T` itself been left in a temporary register, the minor
+// would reach the leaf through it and the test would prove nothing.
+Holder setup() {
+    Holder h = new Holder();
+    h.T = new Target();
+    return h;
+}
+
+// Own frame for the same reason: the fresh leaf never sits in Main's registers, where it would
+// stay alive whether or not the barrier fired.
+WeakHandle storeFresh(Holder h) {
+    Leaf leaf = new Leaf(42);
+    field(typeof(Target), "Child").SetValue(h.T, leaf);
+    return WeakHandle.MakeWeak(leaf);
+}
+
+bool isAlive(WeakHandle w) {
+    object o = WeakHandle.Upgrade(w);
+    return o != null;
+}
+
+void Main() {
+    Holder h = setup();
+    int i = 0;
+    while (i < 8) { GC.ForceCollect(); i = i + 1; }   // h and h.T are old now
+
+    WeakHandle w = storeFresh(h);
+    GC.ForceCollect();
+
+    Assert.True(isAlive(w));
+    Assert.Equal(42, h.T.Child.V);
+}

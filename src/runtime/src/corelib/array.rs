@@ -165,9 +165,8 @@ pub fn builtin_array_set(ctx: &VmContext, args: &[Value]) -> Result<()> {
     // heap write like any other, and an **old** array receiving a **young** element must mark
     // its card or the next minor will not re-root it. The interpreter's `ArraySet` and the
     // JIT's array-store helper both fire this; these `Std.Array` builtins never did.
-    if raw.is_heap_ref() {
-        ctx.heap().write_barrier_array_elem(&Value::Array(rc), i, &raw);
-    }
+    // Same helper as `ArraySet` — it also covers a boxed struct copied into a `struct[]`.
+    crate::objops::array::barrier_after_elem_store(ctx, &rc, i, &raw);
     Ok(())
 }
 

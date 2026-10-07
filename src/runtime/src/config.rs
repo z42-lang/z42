@@ -159,6 +159,12 @@ pub struct RuntimeConfig {
     /// bytes reclaimed and pause µs. Any non-empty value except `0`/`false`
     /// turns it on. Off = zero cost (no observer installed).
     pub gc_trace: bool,
+    /// `Z42_GC_VERIFY_CARDS` — debug knob (fix-missing-write-barriers, 2026-10-07): at the start
+    /// of every minor, re-derive the card-table invariant from scratch (every old entry holding
+    /// a young reference sits on a dirty card) and panic naming the owner if it does not hold.
+    /// That is exactly what a missing write barrier breaks — a clean miss here, instead of a
+    /// use-after-free several collections later. O(old heap) per minor; off by default.
+    pub gc_verify_cards: bool,
     /// `Z42_GC_NEAR_LIMIT_RATIO` (0.0–1.0) — heap-used fraction of the
     /// max-bytes limit at/above which the allocator trips an auto-collect
     /// and fires `NearHeapLimit`. Falls back to 0.90; clamped to `[0,1]`.
@@ -293,6 +299,7 @@ impl Default for RuntimeConfig {
             gc_slice_ms: 2.0,
             gc_phases: false,
             gc_trace: false,
+            gc_verify_cards: false,
             gc_near_limit_ratio: 0.90,
             gc_pressure_ratio: 0.75,
             gc_throttle_ratio: 0.10,
@@ -446,6 +453,7 @@ impl RuntimeConfig {
             gc_pause_target_ms:  parse_gc_pause_target_ms(&get),
             gc_phases:           parse_bool_knob(&get, "Z42_GC_PHASES"),
             gc_trace:            parse_bool_knob(&get, "Z42_GC_TRACE"),
+            gc_verify_cards:     parse_bool_knob(&get, "Z42_GC_VERIFY_CARDS"),
             jit_profile:         parse_bool_knob(&get, "Z42_JIT_PROFILE"),
             mode:                get("Z42_MODE"),
             sample_hz:           parse_sample_hz(&get),

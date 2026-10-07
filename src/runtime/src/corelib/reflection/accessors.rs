@@ -212,10 +212,12 @@ pub fn builtin_field_set_value(ctx: &VmContext, args: &[Value]) -> Result<()> {
                     // ⇒ `SetValue(obj, null)` 打在 `int` 字段上**静默无效还报成功**。兄弟路径
                     // （装箱 struct / 对象内联 struct 叶子，见下方 `encode_prim(..)?`）一直是抛的，
                     // 这里只是把唯一的异类对齐。引用字段写 `null` 仍然合法（走 ref 槽，不到 encode）。
-                    // A reference store is a heap edge like `FieldSet`'s: the barrier sees the
-                    // value that landed in the cell (a box when a primitive went into `object`).
-                    let wrote = rc.borrow_mut().try_set_field_value(i, &value)?;
-                    wrote.with_barrier_value(&value, |stored| ctx.heap().write_barrier_field(&target, i, stored));
+                    //
+                    // fix-missing-write-barriers：经 objops 写，写屏障才会发。此前直接
+                    // `try_set_field_value` —— SATB 那一半在写原语里照记，卡表那一半却一个都没发：
+                    // 反射往**老**对象里写一个**年轻**引用（反序列化填字段的常态），下一次 minor
+                    // 就把它扫掉。
+                    crate::objops::field::store_slot(ctx, rc, i, &value)?;
                     Ok(())
                 }
                 None => bail!("FieldInfo.SetValue: field `{name}` not present on target instance"),

@@ -218,6 +218,10 @@ impl MagrGC for ArcMagrGC {
         self.region_array.lock().is_card_dirty(chunk_idx)
     }
 
+    fn verify_card_invariant(&self) -> Result<(), String> {
+        ArcMagrGC::verify_card_invariant(self)
+    }
+
     // ── 4. Object Model ──────────────────────────────────────────────────────
 
     fn object_size_bytes(&self, value: &Value) -> usize {

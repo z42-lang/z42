@@ -269,10 +269,15 @@ pub fn populate_stack_trace(value: &Value, ctx: &VmContext, module: &Module) {
     let frames = ctx.snapshot_call_stack();
     let trace  = format_stack_trace(&frames);
 
-    // Step 3: write-only borrow to set the field.
-    let mut bm = rc.borrow_mut();
-    if matches!(bm.field_value(slot), Value::Null) {
-        bm.set_field_value(slot, &Value::Str(trace.into()));
+    // Step 3: write the field — through objops, so the write barrier fires. The exception is
+    // usually old news by the time it is thrown (built, stored, promoted, thrown later), and the
+    // trace string is brand new: an old→young store. Writing it with a bare `set_field_value`
+    // left the card clean, so the next minor swept the trace while the exception still held it.
+    if matches!(rc.borrow().field_value(slot), Value::Null) {
+        let trace = Value::Str(trace.into());
+        // A `str` field always takes a `Str`; the only rejection `store_slot` has is a primitive
+        // slot type mismatch, which cannot happen here.
+        let _ = crate::objops::field::store_slot(ctx, rc, slot, &trace);
     }
 }
 

@@ -22,6 +22,7 @@ observers / profiler / weak refs / finalizers / strict OOM / ...）。
 | `arc_heap/collect.rs` | mark-sweep 原语：mark/sweep 阶段 + soft-ref 复活 + live 快照 |
 | `arc_heap/control.rs` | 环回收编排与控制 API：`run_cycle_collection(_stw)` + `collect_cycles`/`force_collect` + finalize + soft-ref |
 | `arc_heap/generational.rs` / `barrier.rs` | 分代 GC：minor/major/promotion/card + `gen_age`；分代写屏障 |
+| `arc_heap/card_verify.rs` | 卡表不变量的从头核对（`verify_card_invariant`；`Z42_GC_VERIFY_CARDS` 每次 minor 前跑）——抓漏掉的写屏障。见 [book: GC · 卡表不变量核对](../../../../docs/internals/src/runtime/gc.md#卡表不变量核对z42_gc_verify_cards) |
 | `arc_heap/promotion_policy.rs` / `pause_budget.rs` | 自适应晋升判定 / 停顿预算化 nursery |
 | `arc_heap/young_policy.rs` | 年轻代策略：按回收收益（对比上一次 major）判定 minor，不划算时把 minor 换成 **tenure**（年轻代整体晋升、不标记）。机制见 [book: GC 调参 · 年轻代策略](../../../../docs/internals/src/runtime/gc-tuning.md#年轻代策略按收益判定-minor不划算就-tenure) |
 | `arc_heap/roots.rs` | roots/retention 扫描：root 快照 + marked-context 扫描 + 反向引用图 |
@@ -56,7 +57,7 @@ observers / profiler / weak refs / finalizers / strict OOM / ...）。
 |---|--------|---------|
 | 1 | Allocation | `alloc_object` / `alloc_array` |
 | 2 | Roots | `pin_root` / `unpin_root` / `enter_frame` / `leave_frame` / `for_each_root` |
-| 3 | Write barriers | `write_barrier_field` / `write_barrier_array_elem`（默认 no-op，generational / 自定义堆 backend 时可重载）|
+| 3 | Write barriers | `write_barrier_field` / `write_barrier_array_elem`（默认 no-op，generational / 自定义堆 backend 时可重载）；`verify_card_invariant`（核对卡表不变量）|
 | 4 | Object Model | `object_size_bytes` / `scan_object_refs` |
 | 5 | Collection | `collect` / `collect_cycles` / `force_collect` / `pause` / `resume` |
 | 6 | Heap config | `set_max_heap_bytes` / `used_bytes` / `set_strict_oom` |
