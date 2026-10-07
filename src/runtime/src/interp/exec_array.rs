@@ -142,7 +142,10 @@ pub(super) fn array_new(
     }
     // add-reflection-array-element-type: carry the element type for non-erased
     // `arr.GetType().GetElementType()`.
-    let arr = ctx.heap().alloc_array_typed(element_type, vec![default; n]);
+    // perf-array-alloc-direct: zero/default-fill straight into the GC block — no
+    // `vec![default; n]` (16 B × n) staging buffer.
+    let heap = ctx.heap();
+    let arr = heap.alloc_array_obj(crate::metadata::types::ArrayObj::typed_filled(heap, element_type, n, default));
     if matches!(arr, Value::Null) {
         return Ok(Some(crate::exception::make_oom_exception(
             ctx, module,
@@ -157,21 +160,24 @@ pub(super) fn array_new_lit(
     ctx: &VmContext, module: &Module, frame: &mut Frame,
     dst: u32, elems: &[u32], element_type: &str, stack_alloc: bool,
 ) -> Result<Option<Value>> {
-    let vals: Vec<Value> = elems.iter()
-        .map(|r| frame.get(*r).map(|v| v.clone()))
-        .collect::<Result<_>>()?;
-    let n = vals.len();
-    // add-escape-analysis-stack-alloc (diagnostic #2): ArrayNewLit.Elems is an
-    // escape sink — a stored element must never be a stack handle (would outlive
-    // its frame). Assert the analysis kept that invariant.
-    debug_assert!(
-        !vals.iter().any(|v| matches!(v, Value::StackObject { .. } | Value::StackArray { .. })),
-        "stack-alloc handle stored into an array literal — escape analysis unsound"
-    );
+    // Validate every source register up front (the error a bad register raises), so
+    // the build below can read them infallibly.
+    for r in elems {
+        let v = frame.get(*r)?;
+        // add-escape-analysis-stack-alloc (diagnostic #2): ArrayNewLit.Elems is an
+        // escape sink — a stored element must never be a stack handle (would outlive
+        // its frame). Assert the analysis kept that invariant.
+        debug_assert!(
+            !matches!(v, Value::StackObject { .. } | Value::StackArray { .. }),
+            "stack-alloc handle stored into an array literal — escape analysis unsound"
+        );
+    }
+    let n = elems.len();
+    let elem = |r: &u32| frame.get(*r).map(|v| v.clone()).unwrap_or(Value::Null);
     // add-struct-array-codegen: blob value-struct literal → StructBytes backing, packing
     // each element's bytes + reference leaves (skips stack-alloc; heap-only for v1).
     if let Some(mut sb) = try_struct_backed(ctx, element_type, n) {
-        for (i, v) in vals.iter().enumerate() { pack_struct_elem(ctx, &mut sb, i, v)?; }
+        for (i, r) in elems.iter().enumerate() { pack_struct_elem(ctx, &mut sb, i, &elem(r))?; }
         let arr = ctx.heap().alloc_array_obj(sb);
         if matches!(arr, Value::Null) {
             return Ok(Some(crate::exception::make_oom_exception(
@@ -183,13 +189,16 @@ pub(super) fn array_new_lit(
         return Ok(None);
     }
     if stack_alloc && crate::interp::stack_alloc::stack_alloc_enabled() {
-        let arr = crate::metadata::types::ArrayObj::stack_typed(element_type, vals);
+        let arr = crate::metadata::types::ArrayObj::stack_typed(element_type, elems.iter().map(elem).collect());
         let frame_id = frame.frame_id(ctx);
         let idx = ctx.stack_alloc_arr(frame_id, arr);
         frame.set(dst, Value::StackArray { idx, frame_id });
         return Ok(None);
     }
-    let arr = ctx.heap().alloc_array_typed(element_type, vals);
+    // perf-array-alloc-direct: pack the source registers straight into the GC block —
+    // no staging `Vec<Value>`.
+    let heap = ctx.heap();
+    let arr = heap.alloc_array_obj(crate::metadata::types::ArrayObj::typed_iter(heap, element_type, n, elems.iter().map(elem)));
     if matches!(arr, Value::Null) {
         return Ok(Some(crate::exception::make_oom_exception(
             ctx, module,
