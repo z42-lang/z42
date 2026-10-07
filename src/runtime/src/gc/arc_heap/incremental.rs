@@ -456,7 +456,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
     }
 
     fn revive_soft_refs_into(&self, stack: &mut Vec<Value>, kind: MarkKind) {
-        let used = self.used_bytes_atomic();
+        let used = self.occupied_bytes(); // pressure against the cap: true footprint
         let (entries, max_bytes) = {
             let inner = self.inner.lock();
             (inner.soft_registry.snapshot_entries(), inner.stats.max_bytes.unwrap_or(0))
@@ -531,9 +531,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
     fn close_incremental_cycle(&self, cycle: &mut Cycle) {
         {
             let _t = PhaseTimer::start("slice/chunk reclaim");
-            self.region_object.lock().reclaim_dead_chunks();
-            self.region_array.lock().reclaim_dead_chunks();
-            self.region_var.lock().reclaim_dead_var_chunks();
+            self.reclaim_dead_chunks_and_measure();
         }
         // Sweep has cleared no marks (the epoch whitens them next cycle), so a newborn of this
         // cycle simply leaves it carrying an epoch the next one has moved past.

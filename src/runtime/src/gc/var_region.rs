@@ -243,6 +243,10 @@ pub struct VarRegion {
     blocks_per_chunk: Vec<u32>,
     live_per_chunk: Vec<u32>,
     max_gen_per_chunk: Vec<u32>,
+    /// The owning heap's footprint (`gc::footprint`) and the last side-table reading charged to
+    /// it — see `chunk::VarRegion::refresh_side_tables`.
+    footprint: std::sync::Arc<crate::gc::footprint::Footprint>,
+    side_accounted: u64,
 }
 
 // SAFETY: all state is reached only through a `Mutex<VarRegion>` (the heap wraps it exactly
@@ -275,6 +279,8 @@ impl Default for VarRegion {
             blocks_per_chunk: Vec::new(),
             live_per_chunk: Vec::new(),
             max_gen_per_chunk: Vec::new(),
+            footprint: Default::default(),
+            side_accounted: 0,
         }
     }
 }
@@ -333,6 +339,8 @@ impl VarRegion {
             blocks_per_chunk: Vec::new(),
             live_per_chunk: Vec::new(),
             max_gen_per_chunk: Vec::new(),
+            footprint: Default::default(),
+            side_accounted: 0,
         }
     }
 
@@ -714,13 +722,6 @@ impl VarRegion {
     #[inline]
     pub fn live_count(&self) -> usize {
         self.live_count
-    }
-
-    /// Bytes of chunk memory this region currently holds from the allocator — bump chunks
-    /// (pooled ones included: they are never handed back) and dedicated oversized chunks not yet
-    /// freed. The committed view of `HeapStats::committed_bytes`; O(chunks).
-    pub fn committed_bytes(&self) -> u64 {
-        self.chunks.iter().map(|c| c.cap as u64).sum()
     }
 
     /// Count of chunks that currently own memory (tests / diagnostics). Slots tombstoned by

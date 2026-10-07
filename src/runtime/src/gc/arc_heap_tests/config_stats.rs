@@ -106,5 +106,32 @@ fn committed_bytes_counts_the_chunks_the_regions_hold() {
     heap.force_collect();
     let after = heap.stats();
     assert!(after.used_bytes < full.used_bytes, "the objects are gone from the live estimate");
-    assert_eq!(after.committed_bytes, full.committed_bytes, "but their chunks are still held");
+    // The side tables are re-measured at the sweep tail (free-slot buckets fill up as the dead
+    // are tombstoned), so the reading moves by a few hundred bytes; the chunks themselves stay.
+    assert!(after.committed_bytes + 4096 >= full.committed_bytes,
+        "but their chunks are still held ({} → {})", full.committed_bytes, after.committed_bytes);
+}
+
+/// `committed_bytes` is the true footprint: an object's out-of-slot payload is charged with it
+/// and credited only when its dead slot is reused — not when the sweep tombstones it.
+#[test]
+fn committed_bytes_charges_payloads_until_the_slot_is_reused() {
+    let heap = ArcMagrGC::new();
+    heap.set_mode(crate::gc::GcMode::StwMarkSweep);
+    heap.set_nursery_bytes_for_test(1 << 40);
+    let one = heap.alloc_object(dummy_type_desc("C"), vec![], NativeData::None);
+    let _p = heap.pin_root(one);
+    let base = heap.stats().committed_bytes;
+    // Fill more of the same chunk without growing it: what moves is payload only — four
+    // reference fields, one 64-byte block per object.
+    let pins: Vec<_> = (0..100)
+        .map(|_| heap.pin_root(heap.alloc_object(dummy_type_desc("C"), vec![], NativeData::None)))
+        .collect();
+    let full = heap.stats().committed_bytes;
+    assert!(full >= base + 100 * 64, "100 four-field payloads are charged ({base} → {full})");
+    for p in pins {
+        heap.unpin_root(p);
+    }
+    heap.force_collect();
+    assert!(heap.stats().committed_bytes + 4096 >= full, "a sweep does not free the dead payloads");
 }

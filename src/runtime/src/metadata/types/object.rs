@@ -133,6 +133,21 @@ impl ScriptObject {
         self.extras.get_or_insert_with(Default::default).type_args = type_args;
     }
 
+    /// What this object holds from the allocator **outside** its GC slot: the field payload
+    /// block and, when present, the cold extras box with its type-argument strings — each
+    /// rounded to the allocator's size class. The GC charges it to the heap footprint when the
+    /// object is born and credits it when the dead object's slot is reused.
+    pub fn heap_payload_bytes(&self) -> u64 {
+        use crate::gc::footprint::malloc_size;
+        let mut n = malloc_size(self.storage.alloc_bytes());
+        if let Some(e) = &self.extras {
+            n += malloc_size(std::mem::size_of::<ObjExtras>())
+                + malloc_size(e.type_args.len() * std::mem::size_of::<String>())
+                + e.type_args.iter().map(|a| malloc_size(a.len())).sum::<u64>();
+        }
+        n
+    }
+
     /// Construct with no extras — the common case.
     #[inline]
     pub fn new(type_desc: std::sync::Arc<TypeDesc>, storage: ObjStorage) -> Self {

@@ -678,7 +678,7 @@ Write>` 流式直写 `BufWriter<File>`，无中间 `String` 内存分配。
 - 用于缓存场景（"内存够则保留，紧张则丢弃"），无需手动 weak + 重建
 - **实现要点**：
   - `SoftRegistry`（`gc/soft_registry.rs`）：类型擦除的 `Vec<ErasedSoftEntry>`（region entry 指针 + generation 快照）；mark 之后、sweep 之前跑 revive pass
-  - 压力判定：`used_bytes / max_heap_bytes >= soft_threshold` 时不复活、软目标按普通对象被回收；低于阈值则复活。`Z42_GC_SOFT_THRESHOLD` 控制阈值（默认 0.80）；`max_heap_bytes == 0`（无限）时软引用永不清除
+  - 压力判定：`occupied / max_heap_bytes >= soft_threshold` 时不复活（`occupied` = 堆的真实占用，见 [GC 调参 · 真实占用记账](gc-tuning.md#真实占用记账与软上限)）、软目标按普通对象被回收；低于阈值则复活。`Z42_GC_SOFT_THRESHOLD` 控制阈值（默认 0.80）；`max_heap_bytes == 0`（无限）时软引用永不清除
   - 2 个 builtin：`__soft_handle_create(target: object) -> SoftHandle`；`__soft_handle_get(self) -> object`
   - `Std.SoftHandle` 类（`z42.core/GC/SoftHandle.z42`）暴露给 z42 脚本
   - 原子值（int / string / bool）无法被软引用；`Create(atomicVal)` 返回 `Get()` 始终 null 的句柄

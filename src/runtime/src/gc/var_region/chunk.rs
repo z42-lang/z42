@@ -368,6 +368,7 @@ impl VarRegion {
     /// growth point so `chunks` / `borrowed` / `reuse_gen` stay length-consistent.
     fn push_chunk(&mut self, cap: usize) -> usize {
         let chunk = Chunk::new(cap);
+        self.footprint.charge(crate::gc::footprint::malloc_size(cap));
         // fix-loh-never-freed: reuse a slot left behind by a freed dedicated chunk first.
         // Without this, a workload that churns large objects grows `chunks` / `borrowed` /
         // `reuse_gen` forever (~29 B per dead oversized block) — RSS would still creep up,
@@ -386,6 +387,7 @@ impl VarRegion {
             return ci;
         }
         self.chunks.push(chunk);
+        self.footprint.charge(crate::gc::footprint::VAR_CHUNK_TABLES);
         self.borrowed.push(false);
         self.reuse_gen.push(0);
         self.pool_epoch.push(0);
@@ -403,7 +405,10 @@ impl VarRegion {
     /// memory never moves) and the generation to stamp on filled blocks.
     pub fn borrow_chunk(&mut self) -> VarChunkClaim {
         let ci = match self.var_free_chunk_pool.pop() {
-            Some(ci) => ci,
+            Some(ci) => {
+                self.footprint.pool(CHUNK_BYTES as u64, false);
+                ci
+            }
             None => self.push_chunk(CHUNK_BYTES),
         };
         self.borrowed[ci] = true;
@@ -494,10 +499,12 @@ impl VarRegion {
             self.blocks_per_chunk[ci] = 0;
             self.live_per_chunk[ci] = 0;
             self.var_free_chunk_pool.push(ci);
+            self.footprint.pool(CHUNK_BYTES as u64, true);
         }
         let mut freed_bytes = 0u64;
         for &ci in &free {
             freed_bytes += self.chunks[ci].cap as u64;
+            self.footprint.credit(crate::gc::footprint::malloc_size(self.chunks[ci].cap));
             self.chunks[ci].free_in_place();
             self.blocks_per_chunk[ci] = 0;
             self.live_per_chunk[ci] = 0;
@@ -635,3 +642,27 @@ pub struct VarChunkReclaim {
     pub freed_bytes: u64,
 }
 
+impl VarRegion {
+    /// Account into the heap's `footprint` from now on (`gc::footprint`). Must run before the
+    /// first allocation — the heap calls it at construction.
+    pub fn attach_footprint(&mut self, footprint: std::sync::Arc<crate::gc::footprint::Footprint>) {
+        debug_assert!(self.chunks.is_empty(), "attach the footprint before allocating");
+        self.footprint = footprint;
+    }
+
+    /// Re-measure the variable-size side tables — the `all_blocks` buckets, the size-class
+    /// free lists, `young_list` and the chunk lists — and charge the difference since the last
+    /// reading. `O(chunks + classes)`; runs at the sweep tail beside
+    /// [`Self::reclaim_dead_var_chunks`].
+    pub fn refresh_side_tables(&mut self) {
+        let ptr = std::mem::size_of::<NonNull<GcBlockHeader>>();
+        let blocks: usize = self.all_blocks.iter().map(|b| b.capacity()).sum();
+        let free: usize = self.free_lists.iter().map(|l| l.capacity()).sum();
+        let now = ((blocks + self.young_list.capacity()) * ptr
+            + free * std::mem::size_of::<FreeEntry>()
+            + (self.var_free_chunk_pool.capacity() + self.free_chunk_slots.capacity())
+                * std::mem::size_of::<usize>()) as u64;
+        self.footprint.apply(now as i64 - self.side_accounted as i64);
+        self.side_accounted = now;
+    }
+}

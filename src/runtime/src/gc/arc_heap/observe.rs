@@ -148,9 +148,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         let mut s = self.inner.lock().stats.clone();
         // add-gc-tlab (option B): live counters live on the atomics now, not inner.stats.
         s.used_bytes = self.used_bytes_atomic();
-        s.committed_bytes = self.region_object.lock().committed_bytes()
-            + self.region_array.lock().committed_bytes()
-            + self.region_var.lock().committed_bytes();
+        s.committed_bytes = self.committed_bytes();
         s.allocations = self.allocations.load(std::sync::atomic::Ordering::Relaxed);
         s.finalizers_pending = pending;
         s.pause_histogram = self.pause_histogram.lock().clone();

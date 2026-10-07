@@ -39,6 +39,7 @@ pub mod ambient;
 pub mod heap;
 pub mod arc_heap;
 pub mod mode;
+pub mod footprint;
 pub mod phase_timer;
 pub mod refs;
 pub mod satb;
