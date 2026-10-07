@@ -173,6 +173,7 @@
 - [GREEN gate](devinfra/test-gate.md)
 - [测试流水线（两层模型）](devinfra/test-pipeline.md)
 - [性能基准与回归门禁](devinfra/benchmarking.md)
+- [跨语言对标](devinfra/benchmark-compare.md)
 - [CI 拓扑](devinfra/ci.md)
 
 # 开发基础设施 · 发布
