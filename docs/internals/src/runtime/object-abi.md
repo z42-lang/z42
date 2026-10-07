@@ -195,7 +195,7 @@ ObjectHeader {
 |---|---|---|
 | 基元值字段（int/bool/char/double/long…） | 字节零 ⇒ `0` / `false` / `'\0'` / `0.0` | 值落在 bytes 区 |
 | 引用字段 | `Value::Null` | `null` 本就是引用类型的零值 |
-| 数组元素 | `default_value_for_tag(elem_tag)` | `ArrayNew`（interp + JIT 两份）按元素 tag 取 |
+| 数组元素 | `default_value_for_tag(elem_tag)` | `ArrayNew`（interp + JIT 两份）按元素 tag 取；`ArrayObj::typed_filled` 直接写进 GC 块（是该 backing 的零就不逐元素写）|
 | **型参字段**（`class GBox<T> { T V; }`） | 按**实例化**取：`default_value_for(type_args[i])` | 见下 |
 
 **型参字段要单独一条**，因为布局是**按声明**算的：声明里 `T` 不是基元 ⇒ 该槽被分类成
@@ -282,6 +282,8 @@ ObjectHeader {
   Object/Array 临时值同一不变式（分配器 `maybe_auto_collect` 只置标志、延到 safepoint）。
 - 代价:纳入 GC → 多点 GC 压力(换掉 Arc 确定性释放，string-heavy 的 z42c 自编译最敏感);收益:统一一套堆 + 为可移动/压缩/去重铺路。架构统一优先于短期性能。
 - **闭包与访问器**：`ClosureData.fn_name` 是 GC `Str`（8B），闭包块全 POD（region_var 仅 `ArrayValue` 需 finalizer）；
+  这个名字串按 `MkClos` 站点在每个 `VmContext` 里驻留一次（`VmContext::intern_fn_name`，复用 `interned_cache` 这个 GC 根，
+  命中按内容复核），循环里建闭包不再每次新分配一个名字块；闭包改为在创建时绑定函数 id 之后，这层驻留随之删除；
   mark 与枚举共用单一访问器 `Value::visit_gc_children(for_marking, …)`。
 - **不迁移的 `Arc<str>`**：栈帧名/文件名（`Function.frame_meta`）**保留 `Arc<str>`**——它们是
   **诊断/栈回溯元数据、非 `Value::Str` GC payload**，加载时算一次，生成栈回溯时 O(1) clone

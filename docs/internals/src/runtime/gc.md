@@ -295,6 +295,17 @@ VarRegion 变长块（16B 对齐原始 chunk + 四分之一八度 size-class fre
 | `ArrayPrim` / `ArrayStruct` | 紧凑 `[T;n]`（packed 基元 / struct[] 字节区）| `ArrayObj` backing | POD，无 |
 | `ArrayValue` | inline `[Value;n]`（Boxed 数组 / struct[] refs 侧表）| `ArrayObj` backing | **唯一需 finalizer**：drop 每个 `Value` |
 
+**数组直接在块里构造**（[`metadata/types/array.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/types/array.rs)）：
+`ArrayNew`（interp + JIT `jit_array_new`）/ `Array.CreateInstance` 走 `ArrayObj::typed_filled(heap, elem_type, n, default)`，
+`ArrayNewLit`（interp + JIT `jit_array_new_lit`）/ `ToCharArray` 走 `ArrayObj::typed_iter`（从源寄存器 / 迭代器直写）。
+两者都按元素类型选好 backing 后直接分配目标块，中间没有 `Vec<Value>` 暂存——峰值内存 = 目标块本身
+（扩容 `List<T>.EnsureCapacity` = `new T[2n]` + `Array.Copy` 时 = 旧块 + 新块）。
+分配器本就把 payload 清零，所以默认值恰为该 backing 的零（packed `0`/`'\0'`/`false`/`+0.0`，或 Boxed 块里的
+`I64(0)`——`Value` 是 `#[repr(C, u8)]`、判别式 0 = `I64`）时**新块即数组**，零逐元素写；否则（引用数组的
+`Null` 等）逐槽原地写一次。GC 安全：块在 `alloc_array_obj` 分配数组头（第一个可能触发回收的点）之前就已写完，
+新块在头指向它之前不可达。同类 backing 之间的 `__array_copy` 是块到块 `memcpy`；packed 目的数组不持引用，
+跳过写屏障的逐元素扫描。
+
 **分配落地 = ambient 堆**（[`gc/ambient.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/gc/ambient.rs)）：`current_heap()` +
 `HeapGuard` 在引擎入口设 thread-local（ctx 栈底帧 push 时、宿主 invoke、`jit::run_fn`；见
 [vm-architecture.md](vm-architecture.md#寄存器池引擎入口-guardframe_id)），

@@ -17,6 +17,7 @@
 // `partial` 而非静态辅助类的理由同 `SymbolTable.Origins.z42` 抬头（零调用点改动、零额外帧）。
 namespace Z42.Semantics;
 using Z42.IR;
+using Z42.Syntax;   // ClassDecl（LocalClassKey）
 
 
 public sealed partial class SymbolTable {
@@ -351,6 +352,22 @@ public sealed partial class SymbolTable {
     // 写入与查询恰好都用裸名，故本包能跑；但同短名多 arity 的泛型类（`Foo<T>` / `Foo<T,U>`）其约束在
     // ClassConstraints 里**last-wins 互相覆盖** —— `Foo<Widget>` 可能被拿去校验 `Foo<T,U>` 的约束。
     // 且导入侧一旦接进来，`Name$N` 与裸名直接对不上，跨包约束全部落空。
+    // fqn-tables：**本 CU 声明的**类 `c`（声明在命名空间 `ns`）在 FQN 视图里的键 / 对象。
+    // 泛型类若被 arity-mangle（同包里同短名还有别的 arity）就是 `Name$N`，否则是裸名 —— 判据只看**本命名空间**
+    // 的 FQN 视图。旧写法拿全局短名表 `Classes.ContainsKey("Name$N")` 判，导入包里恰好有同名 `Name$N`
+    // 时本地的 `Name<T>`（未 mangle）会取到导入那份。
+    public string LocalClassKey(string ns, ClassDecl c) {
+        if (c.TypeParams.Count > 0) {
+            string mk = c.Name + "$" + c.TypeParams.Count.ToString();
+            if (this.ClassesByFqn.ContainsKey(SymbolTable.QualOf(ns, mk))) { return mk; }
+        }
+        return c.Name;
+    }
+
+    public Z42ClassType LocalClassOf(string ns, ClassDecl c) {
+        return this.ClassesByFqn.Get(SymbolTable.QualOf(ns, this.LocalClassKey(ns, c))) as Z42ClassType;
+    }
+
     public string ConstraintKey(string bareName, int tpCount) {
         if (tpCount > 0) {
             string mangled = bareName + "$" + tpCount.ToString();

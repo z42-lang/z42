@@ -35,7 +35,10 @@ pub unsafe extern "C" fn jit_array_new(
         return 0;
     }
     let default = default_value_for_tag(elem_tag);
-    (*frame).regs[dst as usize] = vm_ctx_ref(ctx).heap().alloc_array_typed(element_type, vec![default; n]);
+    // perf-array-alloc-direct: fill straight into the GC block (no `vec![default; n]`).
+    let heap = vm_ctx_ref(ctx).heap();
+    (*frame).regs[dst as usize] = heap.alloc_array_obj(
+        crate::metadata::types::ArrayObj::typed_filled(heap, element_type, n, default));
     0
 }
 
@@ -46,26 +49,31 @@ pub unsafe extern "C" fn jit_array_new_lit(
     et_ptr: *const u8, et_len: usize,
 ) -> u8 {
     let elems = std::slice::from_raw_parts(elems_ptr, elem_cnt);
-    let vals: Vec<Value> = elems.iter().map(|&r| (*frame).regs[r as usize].clone()).collect();
+    let regs = &(*frame).regs;
+    let elem = |&r: &u32| regs[r as usize].clone();
     let element_type = std::str::from_utf8(std::slice::from_raw_parts(et_ptr, et_len)).unwrap_or("");
     // add-struct-jit-value-path (P5): value-struct literal → StructBytes backing,
     // packing each element's bytes + reference leaves (mirrors interp array_new_lit).
-    if let Some(mut sb) = crate::interp::exec_array::try_struct_backed(vm_ctx_ref(ctx), element_type, vals.len()) {
-        for (i, v) in vals.iter().enumerate() {
-            if let Err(e) = crate::interp::exec_array::pack_struct_elem(vm_ctx_ref(ctx), &mut sb, i, v) {
+    if let Some(mut sb) = crate::interp::exec_array::try_struct_backed(vm_ctx_ref(ctx), element_type, elem_cnt) {
+        for (i, r) in elems.iter().enumerate() {
+            if let Err(e) = crate::interp::exec_array::pack_struct_elem(vm_ctx_ref(ctx), &mut sb, i, &elem(r)) {
                 set_exception(vm_ctx_ref(ctx), Value::Str(format!("{e}").into()));
                 return 1;
             }
         }
         let arr = vm_ctx_ref(ctx).heap().alloc_array_obj(sb);
         if matches!(arr, Value::Null) {
-            set_exception(vm_ctx_ref(ctx), Value::Str(format!("cannot allocate struct array literal[{}]: heap limit exceeded", vals.len()).into()));
+            set_exception(vm_ctx_ref(ctx), Value::Str(format!("cannot allocate struct array literal[{elem_cnt}]: heap limit exceeded").into()));
             return 1;
         }
         (*frame).regs[dst as usize] = arr;
         return 0;
     }
-    (*frame).regs[dst as usize] = vm_ctx_ref(ctx).heap().alloc_array_typed(element_type, vals);
+    // perf-array-alloc-direct: pack the source registers straight into the GC block.
+    let heap = vm_ctx_ref(ctx).heap();
+    let arr = heap.alloc_array_obj(
+        crate::metadata::types::ArrayObj::typed_iter(heap, element_type, elem_cnt, elems.iter().map(elem)));
+    (*frame).regs[dst as usize] = arr;
     0
 }
 
@@ -320,6 +328,33 @@ pub unsafe extern "C" fn jit_array_len(
             set_exception(vm_ctx_ref(ctx), Value::Str(format!("ArrayLen: expected array, got {:?}", other).into()));
             1
         }
+    }
+}
+
+/// `new T[n]` on a **class-level** type param, after `jit_array_new` built the erased
+/// array (Null slots): when the receiver's (reg 0) concrete `type_args[param_index]` is
+/// a primitive value type, give every slot that primitive's zero — the per-slot default
+/// interp `array_new` uses (fix-generic-array-value-zero-init). Reference / struct type
+/// args and a non-object reg 0 leave the array as built. Non-throwing: the array is
+/// fresh, so overwriting its Null/zero slots owes no barrier.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn jit_array_zero_class_tp(
+    frame: *mut JitFrame, _ctx: *const JitModuleCtx,
+    arr: u32, param_index: u32,
+) {
+    let regs = &(*frame).regs;
+    let zero = match regs.first() {
+        Some(Value::Object(rc)) => match rc.borrow().type_args().get(param_index as usize) {
+            Some(name) => crate::metadata::types::default_value_for(name),
+            None => return,
+        },
+        _ => return,
+    };
+    if matches!(zero, Value::Null) { return; }
+    if let Some(Value::Array(rc)) = regs.get(arr as usize) {
+        let mut a = rc.borrow_mut();
+        if !matches!(a.backing, crate::metadata::types::ArrayBacking::Boxed { .. }) { return; }
+        for i in 0..a.len() { a.set_boxed(i, zero.clone()); }
     }
 }
 

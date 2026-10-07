@@ -8,6 +8,12 @@ impl VmContext {
         self.core.module.as_ref()
     }
 
+    /// The VM's function table (process-level `FnId`s; see `metadata::func_table`).
+    #[inline]
+    pub(crate) fn funcs(&self) -> &crate::metadata::func_table::FuncTable {
+        &self.core.funcs
+    }
+
     /// Clone the shared `Arc<VmCore>` — needed by external integration
     /// tests / embedders that spawn raw OS threads and want to construct
     /// a child VmContext via [`new_with_core`](Self::new_with_core). The

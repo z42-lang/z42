@@ -89,6 +89,10 @@ pub fn translate_function(
     z42_func:     &Function,
     _func_max_reg: usize,
     func_id:      FuncId,
+    // P1-2: number of merged (entry-module) functions — the JIT's own id space below
+    // it. `Call` tokens at or above it are `FnId`s of lazily loaded functions, which the
+    // JIT does not number the same way yet (`ic::method_id_at`).
+    merged_len:   usize,
     // add-osr-loop-tiering: `Some(K)` compiles an **OSR variant** whose entry runs
     // the normal prologue (safepoint + cached `frame.regs` ptr + hoisted array
     // ptrs — all SSA values that must dominate the loop) and then jumps straight to
@@ -175,6 +179,7 @@ pub fn translate_function(
     let hr_array_data_opt = imp!(helper_ids.array_data_opt);
     let hr_array_set     = imp!(helper_ids.array_set);
     let hr_array_len     = imp!(helper_ids.array_len);
+    let hr_array_zero_class_tp = imp!(helper_ids.array_zero_class_tp);
     let hr_obj_new       = imp!(helper_ids.obj_new);
     let hr_typeof        = imp!(helper_ids.typeof_op);
     let hr_field_get     = imp!(helper_ids.field_get);
@@ -350,11 +355,11 @@ pub fn translate_function(
         let mut cx = TxCtx {
             builder: &mut builder, cache: &mut cache, func: z42_func,
             promoted: &promoted, cl_blocks: &cl_blocks,
-            regs_base, frame_val, ctx_val, ptr, block_idx, instr_idx: 0,
+            regs_base, frame_val, ctx_val, ptr, block_idx, instr_idx: 0, merged_len,
             catch_info, catch_chain: &catch_chain,
             hoisted_arrays: &hoisted_arrays, hoisted_fields: &hoisted_fields,
             hoisted_ref_fields: &hoisted_ref_fields,
-            hr_const_i32, hr_const_i64, hr_const_f64, hr_const_bool, hr_const_char, hr_const_null, hr_const_str, hr_copy, hr_add, hr_sub, hr_mul, hr_div, hr_rem, hr_eq, hr_ne, hr_lt, hr_le, hr_gt, hr_ge, hr_and, hr_or, hr_not, hr_neg, hr_bit_and, hr_bit_or, hr_bit_xor, hr_bit_not, hr_shl, hr_shr, hr_str_concat, hr_to_str, hr_call, hr_builtin, hr_array_new, hr_array_new_lit, hr_array_get, hr_array_data, hr_array_set, hr_array_len, hr_obj_new, hr_typeof, hr_field_get, hr_field_set, hr_vcall, hr_is_instance, hr_as_cast, hr_static_get, hr_static_set, hr_struct_alloc, hr_struct_copy, hr_struct_field_get_prim, hr_struct_field_set_prim, hr_get_bool, hr_throw, hr_install_catch, hr_match_catch_type, hr_load_fn, hr_mk_clos, hr_call_indirect, hr_default_of, hr_convert, hr_check_safepoint_slow, hr_fatal_pending,
+            hr_const_i32, hr_const_i64, hr_const_f64, hr_const_bool, hr_const_char, hr_const_null, hr_const_str, hr_copy, hr_add, hr_sub, hr_mul, hr_div, hr_rem, hr_eq, hr_ne, hr_lt, hr_le, hr_gt, hr_ge, hr_and, hr_or, hr_not, hr_neg, hr_bit_and, hr_bit_or, hr_bit_xor, hr_bit_not, hr_shl, hr_shr, hr_str_concat, hr_to_str, hr_call, hr_builtin, hr_array_new, hr_array_new_lit, hr_array_get, hr_array_data, hr_array_set, hr_array_len, hr_array_zero_class_tp, hr_obj_new, hr_typeof, hr_field_get, hr_field_set, hr_vcall, hr_is_instance, hr_as_cast, hr_static_get, hr_static_set, hr_struct_alloc, hr_struct_copy, hr_struct_field_get_prim, hr_struct_field_set_prim, hr_get_bool, hr_throw, hr_install_catch, hr_match_catch_type, hr_load_fn, hr_mk_clos, hr_call_indirect, hr_default_of, hr_convert, hr_check_safepoint_slow, hr_fatal_pending,
         };
         for (instr_idx, instr) in z42_block.instructions.iter().enumerate() {
             cx.instr_idx = instr_idx;

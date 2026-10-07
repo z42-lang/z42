@@ -24,7 +24,9 @@ public sealed class IrGenAuxEmitter {
             if (di is ClassDecl) {
                 ClassDecl ic = di as ClassDecl;
                 if (ic.Kind == "interface") {
-                    Z42InterfaceType ifOwn = this._model.Symbols.Interfaces.Get(ic.Name) as Z42InterfaceType;
+                    // 本 CU 声明的接口：按本命名空间的 FQN 取（短名表只留同名接口里的一份）。
+                    Z42InterfaceType ifOwn = this._model.Symbols.InterfacesByFqn.Get(
+                        SymbolTable.QualOf(cu.HasNamespace ? cu.Namespace : "", ic.Name)) as Z42InterfaceType;
                     bool ifPartial = ifOwn != null && ifOwn.IsPartial;
                     bool ifMain = !ifPartial || ifOwn.PartialMainFile == g.SourceFile;
                     if (ifPartial && ifMain && emittedPartial.ContainsKey(ic.Name)) { ifMain = false; }   // 同文件多碎片：只发一次

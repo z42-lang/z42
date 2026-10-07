@@ -33,6 +33,8 @@ pub(super) struct TxCtx<'a, 'b> {
     pub(super) ptr: cranelift_codegen::ir::Type,
     pub(super) block_idx: usize,
     pub(super) instr_idx: usize,
+    /// See `translate_function`'s `merged_len`.
+    pub(super) merged_len: usize,
     /// Wildcard single-covering-entry shortcut (unconditional jump on throw).
     pub(super) catch_info: Option<(Block, u32)>,
     /// All covering exception-table entries for this block, in source order.
@@ -84,6 +86,7 @@ pub(super) struct TxCtx<'a, 'b> {
     pub(super) hr_array_data: FuncRef,
     pub(super) hr_array_set: FuncRef,
     pub(super) hr_array_len: FuncRef,
+    pub(super) hr_array_zero_class_tp: FuncRef,
     pub(super) hr_obj_new: FuncRef,
     pub(super) hr_typeof: FuncRef,
     pub(super) hr_field_get: FuncRef,

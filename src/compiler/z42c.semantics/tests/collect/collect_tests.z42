@@ -842,6 +842,43 @@ void test_short_name_tables_are_subsets_of_fqn_views() {
     Assert.Equal("", t.FirstUnboundIfaceRef());
 }
 
+// fqn-tables 2：本 CU 声明的类 / 接口一律按**本命名空间的 FQN** 取，不看短名表的赢家。
+// ① 同包里不同 ns 的同名 partial 类是两个类，不并成一个（此前碰撞判据看短名表 ⇒ 并了）。
+[Test]
+void test_same_short_name_partials_in_two_namespaces_stay_separate() {
+    var t = pmergeTable(
+        "namespace A;\npublic partial class Foo { public int X() { return 1; } }",
+        "namespace B;\npublic partial class Foo { public int Y() { return 2; } }");
+    var a = t.GetClass("A.Foo");
+    var b = t.GetClass("B.Foo");
+    Assert.Equal(true, a != b);
+    Assert.Equal(true, a.Methods.ContainsKey("X"));
+    Assert.Equal(false, a.Methods.ContainsKey("Y"));
+    Assert.Equal(true, b.Methods.ContainsKey("Y"));
+}
+
+// ② 不同 ns 的同名接口各自拿到自己的方法（此前 `_fillInterface` 只取短名表赢家 ⇒ 输家一个方法都没有）。
+[Test]
+void test_same_short_name_interfaces_each_get_their_methods() {
+    var t = pmergeTable(
+        "namespace A;\npublic interface IFoo { int Ma(); }",
+        "namespace B;\npublic interface IFoo { int Mb(); }");
+    var a = t.GetInterface("A.IFoo");
+    var b = t.GetInterface("B.IFoo");
+    Assert.Equal(true, a.Methods.ContainsKey("Ma"));
+    Assert.Equal(false, a.Methods.ContainsKey("Mb"));
+    Assert.Equal(true, b.Methods.ContainsKey("Mb"));
+}
+
+// ③ 用户自己的 `Int32` 劫持不了基元关键字 `int`（`BuiltinType` 按 prelude FQN 取包装类型）。
+[Test]
+void test_local_int32_does_not_hijack_int() {
+    var t = collect("namespace Demo; class Int32 { }");
+    var mine = t.GetClass("Demo.Int32");
+    Assert.Equal(true, mine != null);
+    Assert.Equal(true, t.BuiltinType("int") != mine);
+}
+
 // id 稠密且从 1 开始（0 保留给「未登记」—— z42 字段默认 0，让 0 当合法 id 的话
 // 任何漏登记都会静默地"看起来像 id 0 那个类型"）。
 [Test]

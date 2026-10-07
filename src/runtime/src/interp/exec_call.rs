@@ -7,7 +7,7 @@
 use crate::metadata::{Function, Module, Value};
 use crate::vm_context::VmContext;
 use anyhow::{bail, Result};
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 
 use super::ops::collect_args;
 use super::{ExecOutcome, Frame};
@@ -73,30 +73,72 @@ fn try_native_static_call(
     None
 }
 
-/// fix-call-arity-skew：模块内目标 `module.functions[idx]` 的签名容不下 `phys` 个实参 ⇒ 异常。
-/// 只在首次绑定（token 未命中）时调用，命中缓存的热路径不经过这里。
+/// P1-2: the callee a bound `Call` token names. In range of `module.functions` it is
+/// that index (for the entry module that *is* the `FnId`); past it, a lazily loaded
+/// function's `FnId` (only ever stored when `module` is the `FuncTable`'s entry module,
+/// see `ResolvedTokens::method_tokens`). Lock-free either way. `None` cannot happen
+/// for a token the call path stored; the caller then re-binds by name.
 #[inline]
-fn arity_mismatch(ctx: &VmContext, module: &Module, fname: &str, idx: usize, phys: usize) -> Option<Value> {
-    let f = module.functions.get(idx)?;
-    crate::vm_context::symres::wrong_arity_exception(
-        ctx, module, fname, crate::vm_context::symres::call_arity(f), phys)
+fn token_target<'m>(ctx: &'m VmContext, module: &'m Module, token: u32) -> Option<&'m Function> {
+    match module.functions.get(token as usize) {
+        Some(f) => Some(f),
+        None => ctx.funcs().get(crate::metadata::tokens::FnId(token)),
+    }
+}
+
+/// The cold half of [`call`]: bind `fname` by name — this module's `func_index` first,
+/// then the lazy loader (which may load the defining package) — check the signature,
+/// and store the binding into the site's token. `Err` carries the exception to throw.
+///
+/// fix-call-arity-skew：首次绑定点。resolver 预填时已拒绝过签名对不上的站点，所以它们每次都会
+/// 走到这里 —— 判定在此抛，且**不写回**（写回就等于把错的绑定缓存下来）。判定先于 cctor 屏障
+/// （fix-crosspkg-static-call-cctor 的顺序）：签名对不上的调用本身非法，不应触发类型初始化。
+#[inline(never)]
+fn bind_callee<'a>(
+    ctx: &'a VmContext, module: &'a Module, fname: &str, argc: usize,
+    method_token: Option<&std::sync::atomic::AtomicU32>,
+    holder: &'a mut Option<Arc<Function>>,
+) -> Result<(&'a Function, Option<usize>), Value> {
+    use crate::vm_context::symres::{call_arity, wrong_arity_exception};
+    use std::sync::atomic::Ordering;
+    if let Some(&idx) = module.func_index.get(fname) {
+        if let Some(f) = module.functions.get(idx) {
+            if let Some(exc) = wrong_arity_exception(ctx, module, fname, call_arity(f), argc) {
+                return Err(exc);
+            }
+            if let Some(slot) = method_token { slot.store(idx as u32, Ordering::Relaxed); }
+            return Ok((f, Some(idx)));
+        }
+    }
+    // fix-silent-symbol-resolution：所有回落（本模块 func_index → 惰性加载器）都穷尽了 ⇒
+    // **确定不存在**，抛可 catch 的类型化 MissingSymbolException（不是 `bail!`——那条走
+    // anyhow Err，不经 find_handler，用户 `catch` 抓不到）。与 JIT 侧同一场景统一。
+    let Some(lazy) = ctx.try_lookup_function(fname) else {
+        return Err(crate::exception::make_missing_symbol_exception(
+            ctx, module, format!("undefined function `{fname}`")));
+    };
+    if let Some(exc) = wrong_arity_exception(ctx, module, fname, call_arity(lazy.as_ref()), argc) {
+        return Err(exc);
+    }
+    // Cache the binding as the callee's `FnId` — only when tokens are `FnId`s for this
+    // module, and only for the function the table actually holds under that id.
+    if let (Some(slot), Some(id)) = (method_token, lazy.id.get()) {
+        let funcs = ctx.funcs();
+        if funcs.is_entry(module) && funcs.get(id).is_some_and(|f| std::ptr::eq(f, Arc::as_ptr(&lazy))) {
+            slot.store(id.0, Ordering::Relaxed);
+        }
+    }
+    Ok((&**holder.insert(lazy), None))
 }
 
 pub(super) fn call(
     ctx: &VmContext, module: &Module, frame: &mut Frame,
     dst: u32, fname: &str, args: &[u32],
-    // method_token: Pre-resolved cache from Function.resolved.method_tokens[site_idx].
-    // Some(slot): hot path checks slot for resolved MethodId; on UNRESOLVED (cross-zpkg),
-    // falls back to string lookup + lazy loader, then writes the resolved id back into
-    // the slot. None: pure string lookup (back-compat).
+    // method_token: this site's `ResolvedTokens.method_tokens` slot. Bound ⇒ the callee
+    // directly (`token_target`, no hashing — merged and lazily loaded callees alike);
+    // `UNRESOLVED` ⇒ bind by name and store it (`bind_callee`). None: pure name lookup
+    // (back-compat, nothing cached).
     method_token: Option<&std::sync::atomic::AtomicU32>,
-    // cross_cell: Pre-resolved cross-zpkg target cache from
-    // Function.resolved.cross_module_targets[site_idx] (review.md C7). Only
-    // consulted *after* the intra-module fast path misses — a cross-zpkg target
-    // lives in the lazy loader, not `module.functions`, so it can't be an
-    // index. First cross-zpkg hit stores the resolved `Arc<Function>`; later
-    // calls borrow it (no `try_lookup_function` hash). None: back-compat.
-    cross_cell: Option<&OnceLock<Arc<Function>>>,
     // add-generic-methods: resolved FQ type-arg names for a generic call (empty for
     // non-generic). Threaded into the callee frame's method_type_args slot.
     method_type_args: &[String],
@@ -117,94 +159,19 @@ pub(super) fn call(
         method_type_args
     };
 
-    // Hot path: resolve the intra-module callee's index into module.functions.
-    let callee_idx: Option<usize> = if let Some(slot) = method_token {
-        let cached = slot.load(Ordering::Relaxed);
-        if cached != crate::metadata::tokens::UNRESOLVED {
-            Some(cached as usize)
-        } else {
-            // Miss: resolve via func_index + write back.
-            match module.func_index.get(fname).copied() {
-                Some(idx) => {
-                    // fix-call-arity-skew：首次绑定点。resolver 预填时已拒绝过签名对不上的站点，
-                    // 所以它们每次都会走到这里 —— 判定在此抛，且**不写回**（写回就等于把错的绑定缓存下来）。
-                    if let Some(exc) = arity_mismatch(ctx, module, fname, idx, args.len()) {
-                        return Ok(Some(exc));
-                    }
-                    slot.store(idx as u32, Ordering::Relaxed);
-                    Some(idx)
-                }
-                None => None,
-            }
-        }
-    } else {
-        // No token (back-compat): old path.
-        match module.func_index.get(fname).copied() {
-            Some(idx) => {
-                if let Some(exc) = arity_mismatch(ctx, module, fname, idx, args.len()) {
-                    return Ok(Some(exc));
-                }
-                Some(idx)
-            }
-            None => None,
-        }
-    };
-
-    let callee_fn = callee_idx.and_then(|idx| module.functions.get(idx));
-
-    // The callee: this module's function, else a cross-zpkg one. Resolved **before** the cctor
-    // barrier below: the first call into a not-yet-loaded package is what loads it, and loading
-    // is what registers its types' static constructors (`LazyLoader::insert_type`).
+    // Resolve the callee **before** the barriers below: the first call into a not-yet-loaded
+    // package is what loads it, and loading is what registers its types' static constructors
+    // (`LazyLoader::insert_type`). `entry_idx` = the callee's index in `module.functions`
+    // when it has one (only those can route to JIT native code yet).
+    let token = method_token.map_or(crate::metadata::tokens::UNRESOLVED, |s| s.load(Ordering::Relaxed));
     let mut lazy_holder: Option<Arc<Function>> = None;
-    let target: &Function = if let Some(callee) = callee_fn {
-        callee
-    } else if let Some(cell) = cross_cell {
-        // Cross-zpkg: borrow the cached Arc<Function> on hit (zero hash);
-        // resolve via the lazy loader once on first miss and backfill the cell.
-        match cell.get() {
-            Some(arc) => arc.as_ref(),
-            None => {
-                // fix-silent-symbol-resolution：这是 cross-cell 路径**自己的**解析失败点，
-                // 与下面 else 分支那个是两处。只改一处会留下「JIT 可 catch、interp 仍是
-                // 不可 catch 的 abort」的不对称——实测踩过。
-                let Some(resolved) = ctx.try_lookup_function(fname) else {
-                    return Ok(Some(crate::exception::make_missing_symbol_exception(
-                        ctx, module, format!("undefined function `{fname}`"))));
-                };
-                // fix-call-arity-skew：跨包目标的首次绑定点（之后借用 cell，不再查）。
-                // 签名对不上 ⇒ 抛且**不填 cell**，否则错的绑定会被永久缓存。
-                // 与 fix-crosspkg-static-call-cctor 的顺序：判定在下面的 cctor 屏障**之前**——
-                // 签名对不上的调用本身非法，不应触发类型初始化（与 token 未命中那一处一致）。
-                if let Some(exc) = crate::vm_context::symres::wrong_arity_exception(
-                    ctx, module, fname, crate::vm_context::symres::call_arity(resolved.as_ref()), args.len(),
-                ) {
-                    return Ok(Some(exc));
-                }
-                // set() is idempotent: a concurrent double-fill resolves to the
-                // same function, so either winner is correct; get() then returns
-                // the stored Arc.
-                let _ = cell.set(resolved);
-                cell.get().expect("cell was just set").as_ref()
-            }
-        }
-    } else if let Some(lazy_fn) = ctx.try_lookup_function(fname) {
-        // No cross cell (back-compat): pure lazy-loader lookup, uncached.
-        // fix-call-arity-skew：签名对不上 ⇒ 抛（同上，先于 cctor 屏障）。
-        if let Some(exc) = crate::vm_context::symres::wrong_arity_exception(
-            ctx, module, fname, crate::vm_context::symres::call_arity(lazy_fn.as_ref()), args.len(),
-        ) {
-            return Ok(Some(exc));
-        }
-        &**lazy_holder.insert(lazy_fn)
-    } else {
-        // fix-silent-symbol-resolution：所有回落（本模块 func_index → per-site 缓存 →
-        // 惰性加载器）都穷尽了 ⇒ **确定不存在**，抛可 catch 的类型化异常。
-        //
-        // 此前是 `bail!`，那条走 anyhow Err，**不经 find_handler** ⇒ 用户 `catch` 抓不到，
-        // 直接变成 VM abort；而 JIT 侧同一场景抛的是裸 Value::Str（只能被无类型
-        // `catch {}` 捕获）。两个后端对同一件事给出两种都不好用的行为，现统一。
-        return Ok(Some(crate::exception::make_missing_symbol_exception(
-            ctx, module, format!("undefined function `{fname}`"))));
+    let hit = if token != crate::metadata::tokens::UNRESOLVED { token_target(ctx, module, token) } else { None };
+    let (target, entry_idx): (&Function, Option<usize>) = match hit {
+        Some(f) => (f, ((token as usize) < module.functions.len()).then_some(token as usize)),
+        None => match bind_callee(ctx, module, fname, args.len(), method_token, &mut lazy_holder) {
+            Ok(bound) => bound,
+            Err(exc) => return Ok(Some(exc)),
+        },
     };
 
     // add-static-constructors：调用该类型的静态方法也是 C# 的类型初始化触发点。
@@ -228,15 +195,15 @@ pub(super) fn call(
     // JIT static-call fast path does not thread yet → stay on the interpreter so
     // the callee frame gets its type_args. (JIT generic support: jit_call path.)
     if method_type_args.is_empty() {
-        if let Some(idx) = callee_idx {
+        if let Some(idx) = entry_idx {
             if let Some(res) = try_native_static_call(ctx, frame, dst, idx, args) {
                 return res;
             }
         }
     }
     // runtime-ambiguous-use-site：**调用**一个被两个已加载 zpkg 各自声明的函数 → 报错。
-    // 放在派发前的这一处即可覆盖上面解析出的三条路（模块内直查 / cross-cell / 惰性回落）——
-    // 前者不可能歧义（同模块），后两者都由这道判定挡住。
+    // 放在派发前的这一处即可覆盖上面解析出的每条路（token 命中 / 模块内直查 / 惰性回落）——
+    // token 可能是解析期按名填好的惰性目标，所以每次调用都判，不能只在绑定时判。
     // 常态代价 = 一次 relaxed 原子读（进程内从没碰撞过时恒 false）。
     if let Some(exc) = crate::vm_context::symres::ambiguous_function_exception(ctx, module, fname) {
         return Ok(Some(exc));
@@ -440,8 +407,8 @@ pub(super) fn mk_clos(
             _ => bail!("mk_clos: alloc_array returned unexpected value"),
         };
         // unify-gc-heap PR-2: ClosureData into the GC variable-length region.
-        // PR-5: fn_name is a GC `Str`, allocated from the same heap as `env`.
-        let fn_name = ctx.heap().alloc_str(fn_name);
+        // PR-5: fn_name is a GC `Str` from the same heap as `env` — interned per site.
+        let fn_name = ctx.intern_fn_name(fn_name);
         ctx.heap().alloc_closure(crate::metadata::ClosureData {
             env,
             fn_name,
@@ -450,3 +417,7 @@ pub(super) fn mk_clos(
     frame.set(dst, value);
     Ok(None)
 }
+
+#[cfg(test)]
+#[path = "exec_call_tests.rs"]
+mod exec_call_tests;

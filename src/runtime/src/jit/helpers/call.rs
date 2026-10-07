@@ -118,8 +118,9 @@ pub unsafe extern "C" fn jit_call(
         let vm = vm_ctx_ref(ctx);
         // fix-module-init-failure-scope：名字提到屏障之前 —— 包级屏障要靠它判定
         // 「这次触达的是不是那个初始化失败的包」。两道屏障共用同一份解码。
-        let name = std::str::from_utf8(
-            std::slice::from_raw_parts(fn_name_ptr, fn_name_len)).unwrap_or("");
+        // Every call passes here: `baked_str` (no UTF-8 re-validation) — the bytes are a
+        // codegen-baked module `String`, valid by construction.
+        let name = super::baked_str(fn_name_ptr, fn_name_len);
         // add-module-init-hook：与 interp 的 exec_call 屏障对称（门在函数内短路）。
         if let Err(msg) = vm.ensure_module_inits(Some(name)) {
             let module = &*(*ctx).module;

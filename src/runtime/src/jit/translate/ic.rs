@@ -4,16 +4,22 @@
 
 use super::*;
 
-/// formalize-jit-method-token Phase 2.C helper: look up the resolved
-/// `MethodId.0` for a `Call` site. Returns `UNRESOLVED` (= u32::MAX)
-/// for cross-zpkg lazy targets — `jit_call` falls back to name lookup.
-pub(super) fn method_id_at(func: &Function, block_idx: usize, instr_idx: usize) -> u32 {
+/// formalize-jit-method-token Phase 2.C helper: the merged-function id to bake
+/// into a `Call` site, or `UNRESOLVED` (= u32::MAX) — `jit_call` then binds by
+/// name (cross-zpkg lazy targets).
+///
+/// P1-2: `method_tokens` hold `FnId`s; below `merged_len` they equal the JIT's
+/// merged ids (`module.functions` indices), at or above it they are lazily loaded
+/// functions' `FnId`s, which would collide with the JIT's own synthetic lazy-slot
+/// ids (`merged_len + i`) — so those bake as `UNRESOLVED`.
+pub(super) fn method_id_at(func: &Function, block_idx: usize, instr_idx: usize, merged_len: usize) -> u32 {
     func.resolved.get()
         .and_then(|r| {
             let site = *r.site_index.get(block_idx)?.get(instr_idx)?;
             r.method_tokens.get(site as usize)
         })
         .map(|atom| atom.load(std::sync::atomic::Ordering::Relaxed))
+        .filter(|&id| (id as usize) < merged_len)
         .unwrap_or(crate::metadata::tokens::UNRESOLVED)
 }
 
@@ -100,3 +106,7 @@ pub(super) fn static_field_id_at(func: &Function, block_idx: usize, instr_idx: u
         .filter(|&id| id != crate::metadata::tokens::UNRESOLVED)
         .unwrap_or(crate::metadata::tokens::UNRESOLVED)
 }
+
+#[cfg(test)]
+#[path = "ic_tests.rs"]
+mod ic_tests;

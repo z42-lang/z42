@@ -23,23 +23,31 @@ impl VmContext {
         let mut loader = LazyLoader::new(search_dirs, main_pool_len, declared, initially_loaded);
         // fix-crosspkg-static-call-cctor：加载器在类型入表时登记 cctor，须持有同一份 registry。
         loader.set_cctor_registry(Arc::clone(&self.core.cctors));
-        // 惰性包的函数在登记进 `function_table` 时同时在 FuncTable 里分配 FnId。
+        // 惰性包的函数登记在 VmCore 的 FuncTable 里（分配 FnId；它也是加载器的函数名表）。
         loader.set_func_table(Arc::clone(&self.core.funcs));
-        *self.core.lazy_loader.write() = Some(loader);
+        let mut state = self.core.lazy_loader.write();
+        // 再次安装（只有测试会）= 新的名字空间：旧加载器登记的名字不再可见，与两张表合并前一致。
+        // 旧槽位与 id 保留（id 永不复用），已缓存的 id 仍指向旧函数。
+        self.core.funcs.reset_lazy_names();
+        *state = Some(loader);
+        drop(state);
         // cache-ctorless-objnew: a loader swap can make an absent ctor present.
         crate::metadata::resolver::note_fn_registration();
     }
 
     /// Clear the lazy loader (used in tests).
     pub fn uninstall_lazy_loader(&self) {
-        *self.core.lazy_loader.write() = None;
+        let mut state = self.core.lazy_loader.write();
+        self.core.funcs.reset_lazy_names();
+        *state = None;
+        drop(state);
         crate::metadata::resolver::note_fn_registration();
     }
 
     /// cache-ctorless-objnew: the current function-registration count. An `ObjNew`
     /// site that proved "this class has no constructor" at value `n` may reuse that
-    /// answer while this still reads `n` — `function_table` only ever grows, and a
-    /// ctor can only appear by being inserted there.
+    /// answer while this still reads `n` — the loader's function registry only ever
+    /// grows, and a ctor can only appear by being inserted there.
     #[inline]
     pub fn fn_registration_mark(&self) -> usize {
         crate::metadata::resolver::fn_registration_mark()
@@ -462,6 +470,24 @@ impl VmContext {
         let s = self.heap().alloc_str(raw);
         self.interned_cache.lock().insert(key, s);
         Some(s)
+    }
+
+    /// The GC string for a `MkClos` site's function name, interned per context so a
+    /// closure created in a loop does not allocate (and later collect) a fresh name
+    /// block every time. Keyed by the name's address + length — the name is the
+    /// instruction's module-lifetime `String` — with the high bit of the second key
+    /// half set, a range the string-pool keys above (`idx: u32` pool index) never use.
+    /// A hit is confirmed by content, so a reused address can never hand back a stale
+    /// name. The cache is a GC root (see `intern_const_str`).
+    #[inline]
+    pub fn intern_fn_name(&self, name: &str) -> crate::metadata::vstr::Str {
+        let key = (name.as_ptr() as usize, (name.len() as u32) | 0x8000_0000);
+        if let Some(s) = self.interned_cache.lock().get(&key) {
+            if &**s == name { return *s; }
+        }
+        let s = self.heap().alloc_str(name);
+        self.interned_cache.lock().insert(key, s);
+        s
     }
 
     /// Resolve an "overflow" ConstStr index past the main module's pool.
