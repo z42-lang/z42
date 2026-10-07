@@ -415,6 +415,7 @@ class XpkgJobZ {
     // 与 Live=false 的区别是关键：Live=false 兼指「spawn 失败」，await 波会判红；
     // Skipped 则明确表示「不该跑，也不该红」。
     public bool Skipped { get; set; }
+    public string Dir { get; set; }    // 本次 build 的工程目录（失败时随输出一起打印）
     // report-crosspkg-duplicate-type：非空 = 本次 build **期望失败**，且 stderr 须含此子串。
     // 空串 = 常规（期望成功）。只有 main 波会置它。
     public string ExpectErr { get; set; }
@@ -437,7 +438,10 @@ XpkgJobZ _spawnBuildPkgE(string vmBin, string driverZpkg, string stdlibDist, str
     j.Live = false;
     j.ExpectErr = expectErr;
     j.ExpectWarn = expectWarn;
-    bool capture = expectErr.Length > 0 || expectWarn.Length > 0;
+    // 一律接管输出：期望失败 / 告警的要拿它比对；常规 build 失败时把尾部打印出来（此前只报
+    // 「(target build)」，CI 上偶发失败无从诊断）。
+    bool capture = true;
+    j.Dir = pkgDir;
     string outDir = _fixtureDist(pkgDir);
     // 🔴 **重置**而不是只 Create。（isolate-xtask-fixture-builds 起夹具整棵在 build/ 镜像的拷贝里编、
     // 每轮重建，下面这种残留已无从产生；重置保留作防御。原注：）这个目录曾在**源码树内**
@@ -478,12 +482,16 @@ bool _awaitBuildPkg(XpkgJobZ j) {
     if (!j.Live) { return false; }
     bool ok = false;
     string outp = "";
+    int code = 0;
     try {
         ProcessResult r = j.H.Wait();
-        ok = (r.ExitCode == 0);
-        if ((j.ExpectErr != null && j.ExpectErr.Length > 0)
-            || (j.ExpectWarn != null && j.ExpectWarn.Length > 0)) { outp = r.Stdout + r.Stderr; }
-    } catch (Exception e) { ok = false; }
+        code = r.ExitCode;
+        ok = (code == 0);
+        outp = r.Stdout + r.Stderr;
+    } catch (Exception e) { ok = false; outp = "(wait failed: " + e.Message + ")"; }
+    bool expectsSomething = (j.ExpectErr != null && j.ExpectErr.Length > 0)
+        || (j.ExpectWarn != null && j.ExpectWarn.Length > 0);
+    if (!ok && !expectsSomething) { _crossPrintFailure(j.Dir, code, outp); }
     Directory.Delete(j.Libs, true);
     // report-crosspkg-duplicate-type：期望失败的负例 —— 编过了是**失败**（诊断没响 = 门坏了），
     // 编不过还要求错误文本命中，否则「随便哪种编译失败都算过」= 没有判别力的门。
@@ -498,6 +506,18 @@ bool _awaitBuildPkg(XpkgJobZ j) {
         return outp.Contains(j.ExpectWarn);
     }
     return ok;
+}
+
+// 常规 build 失败：打印工程目录、退出码与输出末尾若干行（stdout + stderr）。
+void _crossPrintFailure(string dir, int code, string outp) {
+    ConsoleError.WriteLine("    ✗ build failed (exit " + code.ToString() + "): " + dir);
+    string[] lines = outp.Split("\n");
+    int from = lines.Length > 20 ? lines.Length - 20 : 0;
+    int i = from;
+    while (i < lines.Length) {
+        if (lines[i].Length > 0) { ConsoleError.WriteLine("      | " + lines[i]); }
+        i = i + 1;
+    }
 }
 
 // report-crosspkg-duplicate-type：读 fixture 的 `expected_build_error.txt`（trim；不存在 → ""）。
