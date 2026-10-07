@@ -59,7 +59,7 @@ paths:
 
    > 🔒 **CI 有门（`refresh-format-fixtures`）**：`test-host` 的三条非 Windows 腿在
    > `test`（其 build wave 就地 regen）之后跑 `git diff --quiet -- src/compiler/z42.package/tests/fixtures/zbc-format`，**有差异即红**。
-   > （该门在 `test-host`：三个架构都覆盖，且 `test-host` 是 required check。）
+   > （该门在 `test-host`：三个架构都覆盖，失败经 `ci-ok`——main 唯一的必需检查——挡合并。）
    >
    > 为什么需要这道门：regen 在所有消费者
    > **之前**就地覆写，于是 `zbc_compat` 校验的永远是刚重生的字节、**从不是 committed 的那份** ——
