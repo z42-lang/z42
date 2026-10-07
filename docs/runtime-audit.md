@@ -261,7 +261,7 @@ JIT 的每次调用 = 4 次 native→Rust helper（vcall/call、`jit_regs_ptr`�
 **改法**：
 1. FieldIC 载荷改成 `TypeId | offset:16 | kind:8`；`field_access` 挪到 TypeDesc 热区（≤64 B）。
 2. JIT：原生单态站点 IC，生成序列为 tag 检查 → load `type_desc` → 比较 → load 字段；hoist 只用于循环内的不变接收者。
-3. **内存模型决策**（需要过 spec）：去掉每对象 Mutex，按 CLR/JVM 做法让字宽字段 relaxed 原子读写，lock 语义交给 Monitor 侧表。
+3. **内存模型决策**（已定，见 §7「对象模型（M10 + M11）已定方案」）：去掉每对象 Mutex，字段改为同宽原子读写（原始类型 relaxed，引用 release 写 / acquire 读），lock 语义交给 Monitor 侧表。
 4. 实现 `object-abi.md` §3 已设计但未实施的 16 B 统一头；string 字段内联为 8 B；负载并入 GC 槽，一次分配；引用数组元素 8 B；TypeDesc 由 arena 持有，对象存裸指针。
 
 **收益**【推断】：字段访问 15–25 ns → 1–3 ns；小对象 104 B → 32–40 B。
@@ -525,9 +525,29 @@ z42vm 继续静态链接 VM，不改为动态链接 `native/libz42`（结论与�
   - A4：decommit（定长区按页对齐，记录 generation 下限）。
   - A5：committed 计数、`stats()` 降为 O(1)、软上限按 footprint。
 
+**对象模型（M10 + M11）已定方案**（User，2026-10-07）
+- 目标：堆上每个可变单元 ≤ 8 B、用同宽原子读写，去掉每对象 Mutex 后不会读到「一半标签 + 一半指针」；16 B `Value` 只留在寄存器。
+  - 原始类型字段保持原宽度；引用字段改为 8 B 自描述指针（低 3 位记种类，0 = null），顺带去掉字符串 / 闭包字段的 16 B 侧表；泛型 `T` 字段仍是 16 B，但标签在分配时按实例化类型写死，之后只原子地改 8 B 负载。
+  - 对象搬进变长区（16 B 紧凑头 + 按大小分档的空闲表，顺带解决空洞复用）；`lock` 语义移到 Monitor 侧表（首次加锁才膨胀，GC 停世界时清理）；identity hash 仍按地址。
+  - 不改字节码格式（编译器的对象布局已给每个引用字段留了 8 B）。
+- 决定：
+  - 内存序：引用字段 release 写 / acquire 读，原始类型字段 relaxed。用户可见的变化写进文档：没有同步的跨线程读写不再按对象串行化。
+  - ConcurrentMarkSweep 在 R4 之前删除。
+  - `Volatile`、`Interlocked`、`lock(obj)` 以后再对语言暴露（Monitor 侧表做好之后）。
+  - 编译期不知道 `T` 的擦除泛型数组（MIXED 模式）先用全局分片锁兜底，M13 之后去掉。
+  - M13（泛型 `T[]` 按原始类型打包）排在 M10 / M11 之后。
+- 序列（每步单独过 GREEN；小对象现约 104 B）：
+  - R0：P1-3 先行，把两个引擎的字段 / 数组 / 静态字段读写收进 `objops`（`src/runtime/src/objops/`）。
+  - R1–R3：字段与数组元素改用同宽原子；引用改为 8 B 自描述指针；数组分 REF / PRIM / MIXED 三种模式（每个字符串字段 −16 B，`object[]` 每元素 −8 B）。
+  - R4：删掉每对象 Mutex（88 B），顺带修掉 D4（JIT 绕过锁）与 `Array.Copy` 的 ABBA 死锁面。
+  - R5：Monitor 侧表。
+  - R6：对象搬进变长区（56 B；最大、风险最高的一步）。
+  - R7：侧表换成位图（即 M8，40 B）。
+  - R8：对象头 24 → 16 B（32 B，与 .NET 持平）。
+  - R9：数组头与元素合成一块（`long[8]` 250 → 约 96 B）。
+
 **需 User 决策**（⏸）：
 - 删除 ConcurrentMarkSweep：会去掉 `gc-mode=concurrent` 这个用户可见取值。
-- 去掉每对象 Mutex：涉及字段访问的内存模型（D4 的根治）。
 - 可 catch 的栈溢出（当前是致命错误；前置条件见 vm-architecture.md「原生栈预算」）。
 - `int` 等窄整数的算术溢出不回绕到本宽度：`int.MaxValue + 1`、`int.MinValue / -1` 两路都得 `2147483648`，值仍按 i64 存、运算后不截断。要不要按声明宽度回绕、在哪一层截断（编译器插 Convert，还是 VM 按类型运算），属于语言语义决策。
 - 栈闭包（D6）：z42c 的逃逸分析从不给 `MkClos` 标栈分配，运行时的栈闭包路径（`Value::StackClosure`、帧 `env_arena`、OSR 搬运）整条不可达。删掉运行时支持，还是让编译器重新产出？
@@ -551,9 +571,9 @@ z42vm 继续静态链接 VM，不改为动态链接 `native/libz42`（结论与�
 | M8 | 用位图 / 区间替代 young_list、all_blocks、var young 等侧表 | 分代模式每对象 −8 B、每串 −16 B | — | ⬜ |
 | M9 | 年轻集合增长加上限（futility 时提前晋升或转 major，而非放大 nursery） | 流失场景 RSS −13%，最大停顿 94 → 18 ms | 09_alloc_ctorless 吞吐退化（⏸） | ⏸ |
 | M10 | 字段 payload 内联进 GC 槽 | 每对象 −16~−24 B；死 payload 随槽一起释放 | — | ⬜ |
-| M11 | 对象头 72 → 约 24 B：去掉每对象 Mutex，标记 / 存活 / 年龄 / 代号合成一个字，稀有字段移到侧表 | 每对象 −40~−48 B | 每对象 Mutex 的内存模型（⏸） | ⏸ |
+| M11 | 对象头 72 → 约 24 B：去掉每对象 Mutex，标记 / 存活 / 年龄 / 代号合成一个字，稀有字段移到侧表 | 每对象 −40~−48 B | 内存模型已定（见「对象模型（M10 + M11）已定方案」），按 R0–R9 推进 | ⏸ |
 | M12 | 空洞复用（TLAB 认领半活 chunk） | 流失场景 RSS 降 2–4× | M10 | ⬜ |
-| M13 | 泛型 `T[]` 的实参为原始类型时按类型打包 | `List<int>` / Dictionary 值每元素 16 → 4 B | 编译器配合（⏸） | ⏸ |
+| M13 | 泛型 `T[]` 的实参为原始类型时按类型打包 | `List<int>` / Dictionary 值每元素 16 → 4 B | 已定排在 M10 / M11 之后；编译器配合 | ⏸ |
 
 预期：M1–M8 落地后，对象约 85 B、数组约 190 B、`List<int>` 约 50 B；M10 + M11 之后，对象约 35–40 B（约 .NET 的 1.3×）；再加 M12，流失场景的 RSS / 活集从约 8× 降到 2–3×。
 
@@ -586,7 +606,7 @@ z42vm 继续静态链接 VM，不改为动态链接 `native/libz42`（结论与�
 
 1. 解释器预链接紧凑码（u16 寄存器 / 16 B op / 偏移跳转 / 内嵌 IC 槽 / quickening / 尾调用分发）。
 2. 每线程连续 VM 栈，interp 与 JIT 共用；JIT→JIT 直接调用；JIT 代码 arena；批量或后台编译；类型化 SSA 寄存器。
-3. 对象模型：去掉每对象 Mutex（需先过 spec 的内存模型决策）、16 B 统一头、string 内联、单次分配、8 B 引用数组元素。
+3. 对象模型：去掉每对象 Mutex（内存模型已定，按 §7 的 R0–R9 推进）、16 B 统一头、string 内联、单次分配、8 B 引用数组元素。
 4. `PackageImage` + `LinkState`；metadata 分层；TierApi 注册槽解开 interp↔jit 环；GC 改为编译期具体类型。
 5. 拆 crate：core / stdlib-os / stdlib-net（rustls 可选）/ z42vm-cli。
 
