@@ -34,30 +34,38 @@ public class Dictionary<TKey, TValue> where TKey: IEquatable {
     internal TKey _slotKey(int i) { return this.keys[i]; }
     internal TValue _slotValue(int i) { return this.values[i]; }
 
+    // 热路径（索引器读写、ContainsKey）把探测循环就地展开，不再经 Get → FindSlot →
+    // _findSlotH 层层调用：每层调用的建帧 / 回收成本比探测本身还贵。探测语义与
+    // `_findSlotH` 逐字相同（掩码 hash、存储 hash 短路、线性探测）。
     public TValue this[TKey key] {
-        get { return this.Get(key); }
-        set { this.Set(key, value); }
-    }
-
-    public void Set(TKey key, TValue value) {
-        // 负载因子 > 0.75 即扩容（count * 4 > capacity * 3）
-        if (this.Count * 4 > this.capacity * 3) this.Grow();
-        int h = key.GetHashCode() & 0x7FFFFFFF;
-        int slot = this._findSlotH(key, h);
-        if (!this.occupied[slot]) {
-            this.occupied[slot] = true;
-            this.Count = this.Count + 1;
+        get {
+            // 不存在时返回 default (null)；调用方应先 ContainsKey。
+            int h = key.GetHashCode() & 0x7FFFFFFF;
+            int mask = this.capacity - 1;
+            int slot = h & mask;
+            while (this.occupied[slot] && (this.hashes[slot] != h || !this.keys[slot].Equals(key))) slot = (slot + 1) & mask;
+            return this.values[slot];
         }
-        this.keys[slot] = key;
-        this.values[slot] = value;
-        this.hashes[slot] = h;
+        set {
+            // 负载因子 > 0.75 即扩容（count * 4 > capacity * 3）
+            if (this.Count * 4 > this.capacity * 3) this.Grow();
+            int h = key.GetHashCode() & 0x7FFFFFFF;
+            int mask = this.capacity - 1;
+            int slot = h & mask;
+            while (this.occupied[slot] && (this.hashes[slot] != h || !this.keys[slot].Equals(key))) slot = (slot + 1) & mask;
+            if (!this.occupied[slot]) {
+                this.occupied[slot] = true;
+                this.Count = this.Count + 1;
+            }
+            this.keys[slot] = key;
+            this.values[slot] = value;
+            this.hashes[slot] = h;
+        }
     }
 
-    public TValue Get(TKey key) {
-        int slot = this.FindSlot(key);
-        // 不存在时返回 default (null)；调用方应先 ContainsKey。
-        return this.values[slot];
-    }
+    public void Set(TKey key, TValue value) { this[key] = value; }
+
+    public TValue Get(TKey key) { return this[key]; }
 
     // add-list-dict-lookup-family (2026-09-02): C#-parity 查找族。
     // 注：TryGetValue 依赖 `out`，而 out→tuple 迁移正在进行（ref-borrow 程序），
@@ -95,7 +103,10 @@ public class Dictionary<TKey, TValue> where TKey: IEquatable {
     }
 
     public bool ContainsKey(TKey key) {
-        int slot = this.FindSlot(key);
+        int h = key.GetHashCode() & 0x7FFFFFFF;
+        int mask = this.capacity - 1;
+        int slot = h & mask;
+        while (this.occupied[slot] && (this.hashes[slot] != h || !this.keys[slot].Equals(key))) slot = (slot + 1) & mask;
         return this.occupied[slot];
     }
 
