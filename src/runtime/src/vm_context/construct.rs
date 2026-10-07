@@ -14,6 +14,12 @@ impl VmContext {
         &self.core.funcs
     }
 
+    /// The VM's type table (process-global `TypeId`s; see `metadata::type_table`).
+    #[inline]
+    pub(crate) fn types(&self) -> &crate::metadata::type_table::TypeTable {
+        &self.core.types
+    }
+
     /// Clone the shared `Arc<VmCore>` — needed by external integration
     /// tests / embedders that spawn raw OS threads and want to construct
     /// a child VmContext via [`new_with_core`](Self::new_with_core). The
@@ -210,6 +216,7 @@ impl VmContext {
             heap:                 Box::new(ArcMagrGC::new()),
             vm_contexts:          Mutex::new(Vec::new()),
             funcs:                Arc::new(crate::metadata::func_table::FuncTable::new(module.clone())),
+            types:                Arc::new(crate::metadata::type_table::TypeTable::new(module.as_deref())),
             module,
             threads:              ResourceRegistry::new(),
             gc_phase:             Mutex::new(crate::gc::safepoint::GcPhase::Idle),

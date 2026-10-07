@@ -111,6 +111,9 @@ define_token!(
     /// **Invariant: globally unique within the process** — allocated by
     /// [`alloc_type_id_block`], never per-module from 0. See that function for
     /// why; violating this silently dispatches to another zpkg's method.
+    /// Never reused, so it is also a safe cache key across load / unload (unlike
+    /// a descriptor address). Each VM's [`TypeTable`](crate::metadata::type_table::TypeTable)
+    /// maps the ids it has registered back to their descriptor.
     TypeId
 );
 
@@ -178,6 +181,44 @@ impl FnIdCell {
     #[inline]
     pub(crate) fn set(&self, id: FnId) {
         self.0.store(id.0, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+/// P1-2 PR 6: per-site cell holding a **type-test target key** — the `is` / `as` /
+/// typed-`catch` target's identity in the `TypeId` space, resolved on first use
+/// (`interp::dispatch::isa_td`) and read back with one relaxed load afterwards.
+///
+/// The key is the target's `TypeId` when the name denotes a type already
+/// registered at first use, otherwise an id reserved for the *name*
+/// ([`TypeTable::name_key`](crate::metadata::type_table::TypeTable::name_key)).
+/// Both come from [`alloc_type_id_block`], so a key is process-unique, never
+/// reused, and denotes exactly one target name — which is all the `isa_cache`
+/// key needs (the verdict is a function of the receiver type and the target
+/// name). The cell can therefore live in shared metadata (an instruction, an
+/// exception-table row, a `static`) regardless of which VM resolves it.
+#[derive(Debug)]
+#[repr(transparent)]
+pub struct TypeKeyCell(std::sync::atomic::AtomicU32);
+
+impl Default for TypeKeyCell {
+    fn default() -> Self { Self::new() }
+}
+
+impl TypeKeyCell {
+    pub const fn new() -> Self { Self(std::sync::atomic::AtomicU32::new(UNRESOLVED)) }
+
+    /// The resolved key, or `None` before first use.
+    #[inline]
+    pub fn get(&self) -> Option<u32> {
+        let v = self.0.load(std::sync::atomic::Ordering::Relaxed);
+        (v != UNRESOLVED).then_some(v)
+    }
+
+    /// Record the key. Racing resolvers may store different (equally valid) keys
+    /// for the same name; any of them is correct.
+    #[inline]
+    pub fn set(&self, key: u32) {
+        self.0.store(key, std::sync::atomic::Ordering::Relaxed);
     }
 }
 

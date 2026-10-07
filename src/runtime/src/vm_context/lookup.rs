@@ -25,6 +25,8 @@ impl VmContext {
         loader.set_cctor_registry(Arc::clone(&self.core.cctors));
         // 惰性包的函数登记在 VmCore 的 FuncTable 里（分配 FnId；它也是加载器的函数名表）。
         loader.set_func_table(Arc::clone(&self.core.funcs));
+        // 惰性包的类型描述符发布到 VmCore 的 TypeTable（TypeId → 描述符）。
+        loader.set_type_table(Arc::clone(&self.core.types));
         let mut state = self.core.lazy_loader.write();
         // 再次安装（只有测试会）= 新的名字空间：旧加载器登记的名字不再可见，与两张表合并前一致。
         // 旧槽位与 id 保留（id 永不复用），已缓存的 id 仍指向旧函数。
@@ -229,6 +231,15 @@ impl VmContext {
     pub fn is_ambiguous_type(&self, name: &str) -> bool {
         let state = self.core.lazy_loader.read();
         match state.as_ref() { Some(l) => l.is_ambiguous_type(name), None => false }
+    }
+
+    /// The `TypeId` of the type the lazy loader has registered under `class_name`, without
+    /// loading anything (`None` if no loader / not registered / no id). Type-test target keys
+    /// (`interp::dispatch::target_key`) use it.
+    pub(crate) fn loaded_type_id(&self, class_name: &str) -> Option<crate::metadata::tokens::TypeId> {
+        let state = self.core.lazy_loader.read();
+        let id = state.as_ref()?.loaded_type(class_name)?.id;
+        id.is_resolved().then_some(id)
     }
 
     /// Look up a class TypeDesc by FQ name; triggers lazy load if needed.

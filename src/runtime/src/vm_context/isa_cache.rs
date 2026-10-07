@@ -1,47 +1,40 @@
 //! `IsaCache` — per-`VmContext` direct-mapped cache for type tests (`is` / `as` / typed
-//! `catch`). perf-vm-isa-cache (2026-09-03, 三面评审 V-6).
+//! `catch`), in front of the `subclass_memo` map and the chain walk (`interp::dispatch`).
 //!
-//! `dispatch::is_subclass_or_eq_td` already memoises the (derived, target) verdict in a
-//! `Mutex<FxHashMap<String, FxHashMap<String, bool>>>` — correct, but every hit still costs a
-//! lock + two string hashes over FQ class names (~60 ns). z42c's serializer dispatches each
-//! IR instruction through a ~60-way `is`-chain, so that is the dominant per-instruction cost.
+//! Keyed by **ids**, never by addresses:
+//!   * `recv`   — the receiver descriptor's `TypeId`. Process-global and never reused, so a
+//!                key cannot alias another type after a descriptor is freed (a collectible
+//!                load context, a REPL round). All versions of one type (the fixup's merged
+//!                copy, the eager own-only copy) share the id and the name chain the verdict
+//!                is computed from. Descriptors without an id (`UNRESOLVED`: transient
+//!                fallbacks, native-handle singletons) are never cached — the caller skips.
+//!   * `target` — the target's key (`tokens::TypeKeyCell`): its `TypeId`, or an id reserved
+//!                for the target *name* (`TypeTable::name_key`). Same allocator, so it is
+//!                unique process-wide and denotes exactly one name.
 //!
-//! This cache sits in front of the memo and keys on **identity**, not content:
-//!   * `td`     — the receiver's `*const TypeDesc`. Registry / lazy-loader descriptors are
-//!                immortal for the VM's lifetime, so the address is a stable identity.
-//!                Transient fallback descriptors (`make_fallback_type_desc`, `id == UNRESOLVED`)
-//!                are allocated per object and may be freed → **never cached** (caller skips).
-//!   * `target` — the address of the class-name string. Callers pass only names that live in
-//!                immortal metadata (`IsInstanceInsn.class_name` / `AsCastInsn.class_name` /
-//!                exception-table `catch_type` / the same strings baked into JIT code) — never
-//!                a heap string built at runtime (reflection paths keep using the memo).
-//!
-//! Hit = two relaxed loads + two compares; no hashing, no lock. Direct-mapped with overwrite
-//! on collision (no chaining): a miss just re-asks the memo and re-installs. Verdicts are
-//! monotonic facts (a loaded type's chain never changes; lazy loading only adds types) — the
-//! same invariant the memo relies on — and the cache is cleared with the memo on explicit
-//! module (re)load (REPL redefinition, see `vm_context::lookup`).
-//!
-//! Single writer: a `VmContext` is owned by one mutator thread; atomics only make the type
-//! `Sync` for the shared `&VmContext`, they are not a cross-thread protocol.
+//! Both ids are below `IMPORT_BASE` (`alloc_type_id_block` asserts it), so a slot is **one**
+//! `AtomicU64`: `recv << 32 | verdict << 31 | target`. One store installs, one load reads —
+//! the triple can never tear, and an empty slot (`u64::MAX`, receiver `UNRESOLVED`) never
+//! matches. Hit = one relaxed load + one compare; no hashing, no lock. Direct-mapped with
+//! overwrite on collision: a miss re-asks the memo and re-installs. Verdicts are monotonic
+//! facts (a loaded type's chain never changes; lazy loading only adds types) — the same
+//! invariant the memo relies on — and the cache is cleared with the memo on explicit module
+//! (re)load (REPL redefinition, see `vm_context::lookup`).
 
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering::Relaxed};
+use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
 
-/// Slot count — power of two so the index is a mask. 1024 × 16 B = 16 KiB per context.
+/// Slot count — power of two. 1024 × 8 B = 8 KiB per context.
 const SLOTS: usize = 1024;
-/// `tgt` word layout: bit 63 = verdict, bits 0..63 = target-name address (never 0 when set).
-const VERDICT_BIT: u64 = 1 << 63;
-
-struct Slot {
-    td:  AtomicUsize,
-    tgt: AtomicU64,
-}
+const SLOT_BITS: u32 = SLOTS.trailing_zeros();
+/// Bit 31 of the slot word: the verdict (ids stay below `IMPORT_BASE` = `1 << 31`).
+const VERDICT_BIT: u64 = 1 << 31;
+const EMPTY: u64 = u64::MAX;
 
 pub(crate) struct IsaCache {
-    /// Allocated on the first `put` (16 KiB): a `VmContext` that never runs a type test —
+    /// Allocated on the first `put` (8 KiB): a `VmContext` that never runs a type test —
     /// worker / embedding / test contexts — pays nothing and keeps `VmContext::new()`'s
     /// allocation profile unchanged.
-    slots: std::sync::OnceLock<Box<[Slot]>>,
+    slots: std::sync::OnceLock<Box<[AtomicU64]>>,
 }
 
 impl std::fmt::Debug for IsaCache {
@@ -50,60 +43,52 @@ impl std::fmt::Debug for IsaCache {
     }
 }
 
+/// The `(recv, target)` pair as one word (verdict bit clear). Also the memo key.
+#[inline]
+pub(crate) fn pair_key(recv: u32, target: u32) -> u64 {
+    debug_assert!(target < VERDICT_BIT as u32 && recv < VERDICT_BIT as u32, "isa key out of the TypeId band");
+    (u64::from(recv) << 32) | u64::from(target)
+}
+
 impl IsaCache {
     pub(crate) fn new() -> Self {
         Self { slots: std::sync::OnceLock::new() }
     }
 
-    fn alloc_slots() -> Box<[Slot]> {
-        (0..SLOTS)
-            .map(|_| Slot { td: AtomicUsize::new(0), tgt: AtomicU64::new(0) })
-            .collect::<Vec<_>>()
-            .into_boxed_slice()
+    fn alloc_slots() -> Box<[AtomicU64]> {
+        (0..SLOTS).map(|_| AtomicU64::new(EMPTY)).collect::<Vec<_>>().into_boxed_slice()
     }
 
+    /// Multiplicative hash of the packed pair; the top bits pick the slot.
     #[inline]
-    pub(crate) fn index(td: usize, target: usize) -> usize {
-        // Both keys are pointers (16-byte aligned heap allocations → low bits are zero);
-        // fold the informative bits of each before masking. Mix in u64 so the constant is
-        // valid on 32-bit targets too (wasm32: `usize` is 32 bits).
-        let h = ((td as u64) >> 4).wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ ((target as u64) >> 3);
-        ((h ^ (h >> 17)) as usize) & (SLOTS - 1)
+    pub(crate) fn index(key: u64) -> usize {
+        (key.wrapping_mul(0x9E37_79B9_7F4A_7C15) >> (64 - SLOT_BITS)) as usize
     }
 
-    /// Cached verdict for (`td`, `target`), if this exact pair was installed.
+    /// Cached verdict for (`recv`, `target`), if this exact pair was installed.
     #[inline]
-    pub(crate) fn get(&self, td: *const crate::metadata::TypeDesc, target: &str) -> Option<bool> {
+    pub(crate) fn get(&self, recv: u32, target: u32) -> Option<bool> {
         let slots = self.slots.get()?;
-        let td = td as usize;
-        let tgt = target.as_ptr() as usize as u64;
-        let slot = &slots[Self::index(td, tgt as usize)];
-        if slot.td.load(Relaxed) != td { return None; }
-        let w = slot.tgt.load(Relaxed);
-        if (w & !VERDICT_BIT) != tgt { return None; }
+        let key = pair_key(recv, target);
+        let w = slots[Self::index(key)].load(Relaxed);
+        if w & !VERDICT_BIT != key { return None; }
         Some(w & VERDICT_BIT != 0)
     }
 
     /// Install (overwrite on collision).
     #[inline]
-    pub(crate) fn put(&self, td: *const crate::metadata::TypeDesc, target: &str, verdict: bool) {
+    pub(crate) fn put(&self, recv: u32, target: u32, verdict: bool) {
         let slots = self.slots.get_or_init(Self::alloc_slots);
-        let td = td as usize;
-        let tgt = target.as_ptr() as usize as u64;
-        let slot = &slots[Self::index(td, tgt as usize)];
-        // Publish the target word first so a stale `td` never pairs with a fresh verdict.
-        slot.tgt.store(tgt | if verdict { VERDICT_BIT } else { 0 }, Relaxed);
-        slot.td.store(td, Relaxed);
+        let key = pair_key(recv, target);
+        slots[Self::index(key)].store(key | if verdict { VERDICT_BIT } else { 0 }, Relaxed);
     }
 
     /// Forget everything (explicit module reload may redefine a type).
     pub(crate) fn clear(&self) {
         if let Some(slots) = self.slots.get() {
             for s in slots.iter() {
-                s.td.store(0, Relaxed);
-                s.tgt.store(0, Relaxed);
+                s.store(EMPTY, Relaxed);
             }
         }
     }
 }
-

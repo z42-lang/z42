@@ -296,8 +296,8 @@ pub fn exec_instr(
                 return Ok(Some(thrown));
             }
         }
-        Instruction::IsInstance(insn) => exec_object::is_instance(ctx, module, frame, insn.dst, insn.obj, &insn.class_name)?,
-        Instruction::AsCast(insn) => exec_object::as_cast(ctx, module, frame, insn.dst, insn.obj, &insn.class_name)?,
+        Instruction::IsInstance(insn) => exec_object::is_instance(ctx, module, frame, insn.dst, insn.obj, &insn.class_name, &insn.target)?,
+        Instruction::AsCast(insn) => exec_object::as_cast(ctx, module, frame, insn.dst, insn.obj, &insn.class_name, &insn.target)?,
         Instruction::StaticGet(insn) => {
             let StaticGetInsn { dst, field } = &**insn;
             let _site_idx = site_idx!();

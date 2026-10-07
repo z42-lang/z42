@@ -157,6 +157,7 @@ impl LazyLoader {
                 break;
             }
         }
+        self.publish_types();
     }
 
     /// 纯查找 + 按需加载，**不**补基类链（避免与 `ensure_base_chain_loaded` 互递归）。
