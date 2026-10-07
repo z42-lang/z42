@@ -56,8 +56,9 @@
 //!
 //! [`FULL`] — the young generation belongs to the minor: a young entry survives a minor only if
 //! the minor itself reaches it, and the cycle epoch a newborn carries is only a "born in this
-//! cycle" label — is green on both safety and reclaim. [`KEEP_MAJOR`] (a minor keeps whatever the
-//! open cycle has marked) is green on safety and fails reclaim. Turning **any one** invariant off
+//! cycle" label — is the runtime's policy and green on both safety and reclaim. [`KEEP_MAJOR`] (a
+//! minor keeps whatever the open cycle has marked; the runtime's policy before P1-7) is green on
+//! safety and fails reclaim. Turning **any one** invariant off
 //! produces a counterexample:
 //!
 //! | off / on | counterexample |
@@ -122,6 +123,7 @@ struct Policy {
     promote_marks_without_grey: bool,
 }
 
+/// The runtime's policy: the young generation belongs to the minor (P1-7).
 const FULL: Policy = Policy {
     satb: true,
     alloc_black: true,
@@ -134,8 +136,8 @@ const FULL: Policy = Policy {
     promote_marks_without_grey: false,
 };
 
-/// The runtime's policy today: a minor inside an open cycle keeps every young entry carrying the
-/// cycle epoch.
+/// Control — the runtime's policy before P1-7: a minor inside an open cycle keeps every young entry
+/// carrying the cycle epoch.
 const KEEP_MAJOR: Policy = Policy { minor_honors_cycle_marks: true, ..FULL };
 
 /// What `explore` asserts. Safety is always checked.
