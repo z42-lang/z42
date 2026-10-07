@@ -1,6 +1,6 @@
 # 解释器 / JIT 标量语义的单一真相源
 
-> 代码：`src/runtime/src/semantics.rs`（真相源）、`src/runtime/src/interp/ops.rs` +
+> 代码：`src/runtime/src/semantics.rs`（标量真相源）、`src/runtime/src/objops/`（对象操作真相源）、`src/runtime/src/interp/ops.rs` +
 > `interp/exec_value.rs`（interp 消费）、`src/runtime/src/jit/helpers/arith.rs` +
 > `jit/helpers/object.rs`（JIT helper 消费）、`src/runtime/src/jit/translate/emit_int.rs` +
 > `emit_fc.rs`（JIT 内联镜像）。
@@ -91,6 +91,64 @@ PIC 的命中点各设一道常驻断言（`vcall_resolve::assert_pic_target` �
 > **可迁移的判据**：任何「在作用域 S 内发号、却拿到 S 之外做相等比较」的 id 都是这个形状的
 > bug。要么把发号范围提升到比较范围（本系统的选择），要么改用天然全局的身份（指针，`IsaCache`
 > 的做法）。
+
+### 对象操作：objops
+
+字段、数组、静态字段、值 struct 叶子的**读写语义**收在 `src/runtime/src/objops/`，两个引擎都只做适配：
+
+```
+interp exec_*            ┐                       ┌ Ok(v)  → 写 dst 寄存器
+                         ├─ objops::<op>(&Value) ┤
+JIT helpers/* (extern C) ┘                       └ Err(OpError) → 引擎的异常通道
+```
+
+| 指令 | objops 入口 | interp 适配 | JIT 适配 |
+|------|------------|------------|---------|
+| `FieldGet` / `FieldSet` | `field::field_get` / `field_set` | `exec_object.rs` | `helpers/object_field.rs` |
+| `ArrayGet` / `ArraySet` / `ArrayLen` / `ArrayNew` / `ArrayNewLit` | `array::*` | `exec_array.rs` | `helpers/array.rs` |
+| `StaticGet` / `StaticSet` | `statics::static_get` / `static_set` | `exec_object.rs` | `helpers/object.rs` |
+| `StructFieldGetPrim` / `SetPrim` | `struct_leaf::struct_field_{get,set}_val` | `exec_struct.rs` | `helpers/struct_ops.rs` |
+| `LoadElemAddr` / `LoadFieldAddr` 与经 `ref` 读写 | `array::check_elem_addr` / `elem_{load,store}`、`field::check_field_addr` / `{load,store}_named` | `exec_address.rs`、`frame.rs` | （JIT 不翻译，见 `unsupported_reason`） |
+
+**错误通道只有一个**：`objops::OpError`。
+
+- `Throw { class, msg }`：用户可 `catch` 的异常。类与消息**只在 `objops/error.rs` 里写**：
+
+  | 情形 | 异常类 | 消息 |
+  |------|-------|------|
+  | 字段读 / 写的接收者为 null | `Std.NullReferenceException` | ``cannot read field `N` of a null reference`` / ``cannot write field …`` |
+  | 数组读 / 写 / 取长的数组为 null | `Std.NullReferenceException` | `cannot read an element of a null array` 等 |
+  | 下标越界（含负数） | `Std.IndexOutOfRangeException` | `index 3 is out of range for an array of length 3` |
+  | 数组长度为负 | `Std.OverflowException` | `array size cannot be negative (got -2)` |
+  | 基元字段写 null / 错类型 | `NullReferenceException` / `InvalidCastException` | ``cannot store null into primitive field `N` `` |
+  | 严格 OOM 下分配失败 | `Std.OutOfMemoryException` | `cannot allocate array[n]: heap limit exceeded` |
+
+  null 检查先于下标检查（`null[-1]` 抛 NRE）。`.Length` 经 `FieldGet` 到达，null 接收者报的是字段读。
+- `Thrown(Value)`：已经构造好的异常（类型初始化失败、缺符号）。
+- `Internal(anyhow)`：编译器发错码、栈句柄失效之类的 VM 内部错误，文本两侧同样相同。
+
+`OpError::into_exception(ctx, module)` 把它物化成异常值，两个引擎共用：interp 的 `ops::raise` 返回
+`Ok(Some(exc))`（进 `find_handler`）或 `Err`；JIT 的 `helpers::raise` 把它塞进 pending 槽并返回 1，内部错误
+退化为字符串异常（helper 没有别的出口）。stdlib 异常类没加载时（裸模块的 Rust 单测）两侧都得到同一条
+`<类名>: <消息>` 文本。
+
+**快路不自带语义**。JIT 的循环不变量提升（`jit_obj_field_slot` / `jit_obj_ref_field_slot` /
+`jit_array_data_opt`）只向 objops 要「存储地址」（`field::inline_prim_slot` / `inline_ref_slot`、
+`array::packed_data`），**从不抛**：拿不到快路（null、非打包数组、栈数组、引用字段……）就回落到慢路 helper，
+异常在真实访问点由 objops 给出。逐访问取打包数组数据也用同一个不抛的 helper。interp 的 FieldIC 命中路径
+同样在 objops 里（`field::slot_of`），两引擎共用同一个站点 IC。
+
+> **改存储表示只改 objops**。对象模型改造（`docs/runtime-audit.md` §7「对象模型（M10 + M11）已定方案」，
+> R1–R9：原子单元格、8 B 自描述引用、数组模式、去掉每对象 Mutex……）以本层为前提：引擎里不得再出现
+> `borrow()` 字段槽、`get_boxed` / `set_boxed`、`field_value` 之类的直接存储访问；新增对象 / 数组操作时先在
+> objops 写实现，再给两个引擎各加一个适配。
+>
+> 尚未进入本层的：对象分配（`interp/obj_new_resolve.rs`）、闭包环境数组、`corelib` 的数组 / 反射 builtin
+> （`Array.Copy`、`FieldInfo.GetValue` / `SetValue` 等），以及 `VCall` 的 null 接收者（仍是
+> `VCall: expected object, got Null` 内部错误）。
+
+端到端对照：`src/tests/exceptions/objops_errors.z42` 在 interp 与 `--mode jit` 下各跑一遍，逐条断言异常类与
+`Message`；每个出错的访问放在独立函数里，保证 JIT 档的异常确实出自 JIT helper。
 
 ### 路径 3：注释锚定 + 差分测试（无法运行期调 Rust）
 

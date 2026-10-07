@@ -4,7 +4,7 @@
 
 use crate::metadata::{Module, NativeData, ScriptObject, Value};
 use crate::vm_context::VmContext;
-use anyhow::{bail, Result};
+use anyhow::Result;
 
 use super::dispatch::{isa_td, make_fallback_type_desc};
 use super::exec_vcall::is_array_isa;
@@ -252,225 +252,37 @@ pub(super) fn obj_new(
     Ok(None)
 }
 
-/// `FieldGet` dispatch with monomorphic inline cache. When `field_ic`
-/// is provided and the receiver type matches the cached `TypeId`, the
-/// field slot is fetched directly from `obj.slots[cached_slot]` (no hash).
-/// On cache miss / first hit, walks `field_index` then writes back the
-/// (TypeId, slot) pair so subsequent hits with the same receiver type
-/// are fast. Polymorphic sites overwrite the slot each time (Phase 1
-/// mono IC; Phase X may add poly).
-///
-/// Non-Object receivers (Str / Array / PinnedView) bypass the IC since
-/// their field set is hardcoded (`Length` / `ptr` / `len`).
+/// `FieldGet` — adapter over [`crate::objops::field::field_get`] (the single
+/// implementation shared with the JIT: FieldIC fast path, stack objects, `Length`
+/// pseudo-fields, boxed structs; a null receiver throws `NullReferenceException`).
+#[inline]
 pub(super) fn field_get(
-    ctx: &VmContext, frame: &mut Frame, dst: u32, obj: u32, field_name: &str,
+    ctx: &VmContext, module: &Module, frame: &mut Frame, dst: u32, obj: u32, field_name: &str,
     field_ic: Option<&crate::metadata::resolver::FieldIC>,
-) -> Result<()> {
-    use crate::metadata::resolver::{field_ic_lookup, field_ic_install};
-    let val = match frame.get(obj)? {
-        // add-escape-analysis-stack-alloc: stack object — resolve via the
-        // per-context arena (validated: idx in range + frame_id matches, else a
-        // clear stale-handle diagnostic).
-        // add-stack-field-ic: reuse the same monomorphic FieldIC as the heap path.
-        // Stack objects carry a resolved `type_desc.id`, and `field_index` is
-        // per-type — so the cached `(TypeId → slot)` is identical whether the
-        // receiver is heap or stack. Skipping the per-access `field_index` hashmap
-        // lookup is the win: heavy cross-frame field access (object passed to a
-        // callee that reads its fields many times) was dominated by that lookup,
-        // which made escape/cross-proc stack-alloc lose to heap (heap had the IC).
-        Value::StackObject { idx, frame_id } => {
-            let (idx, frame_id) = (*idx, *frame_id);
-            ctx.stack_arena.lock().with_obj(idx, frame_id, |obj| {
-                if let Some(ic) = field_ic {
-                    let recv_type = obj.type_desc.id.0;
-                    if let Some(slot) = field_ic_lookup(ic, recv_type) {
-                        crate::metadata::resolver::assert_field_ic_slot(&obj.type_desc, field_name, slot);
-                        return obj.field_value(slot as usize);
-                    }
-                    if let Some(&slot) = obj.type_desc.field_index.get(field_name) {
-                        field_ic_install(ic, recv_type, slot as u32);
-                        return obj.field_value(slot);
-                    }
-                    return Value::Null;
-                }
-                match obj.type_desc.field_index.get(field_name) {
-                    Some(&slot) => obj.field_value(slot),
-                    None => Value::Null,
-                }
-            })?
-        }
-        Value::Object(rc) => {
-            let borrowed = rc.borrow();
-            // PIC fast path: 4-slot linear scan with UNRESOLVED early-exit.
-            if let Some(ic) = field_ic {
-                let recv_type = borrowed.type_desc.id.0;
-                if let Some(slot) = field_ic_lookup(ic, recv_type) {
-                    crate::metadata::resolver::assert_field_ic_slot(&borrowed.type_desc, field_name, slot);
-                    let v = borrowed.field_value(slot as usize);
-                    drop(borrowed);
-                    frame.set(dst, v);
-                    return Ok(());
-                }
-                // Miss: walk field_index + install in PIC.
-                if let Some(&slot) = borrowed.type_desc.field_index.get(field_name) {
-                    field_ic_install(ic, recv_type, slot as u32);
-                    borrowed.field_value(slot)
-                } else {
-                    Value::Null
-                }
-            } else if let Some(&slot) = borrowed.type_desc.field_index.get(field_name) {
-                borrowed.field_value(slot)
-            } else {
-                Value::Null
-            }
-        }
-        Value::Str(s) => match field_name {
-            "Length"     => Value::I64(crate::corelib::str_meta::char_len(s) as i64),
-            "ByteLength" => Value::I64(s.len() as i64),
-            other        => bail!("string has no field `{}`", other),
-        },
-        Value::Array(rc) => match field_name {
-            "Length" | "Count" => Value::I64(rc.borrow().len() as i64),
-            other => bail!("array has no field `{}`", other),
-        },
-        // add-escape-analysis-stack-alloc: a stack array's `.Length`/`.Count`
-        // routes through FieldGet (a neutral use in the escape rules), so it can
-        // reach here — resolve the length via the arena.
-        Value::StackArray { idx, frame_id } => {
-            let (idx, frame_id) = (*idx, *frame_id);
-            let len = ctx.stack_arena.lock().with_arr(idx, frame_id, |a| a.len())?;
-            match field_name {
-                "Length" | "Count" => Value::I64(len as i64),
-                other => bail!("array has no field `{}`", other),
-            }
-        }
-        // make-value-copy: PinnedView is a transient-arena handle — resolve ptr/len via arena.
-        Value::PinnedView { idx, frame_id } => {
-            let (idx, frame_id) = (*idx, *frame_id);
-            let (ptr, len) = ctx.transient_arena.lock().with(idx, frame_id, |p| match p {
-                crate::interp::transient_arena::TransientPayload::PinView(pv) => (pv.ptr, pv.len),
-                _ => (0u64, 0u64),
-            })?;
-            match field_name {
-                // Spec C4 — only `ptr` / `len` are exposed; element type (kind) stays internal.
-                "ptr" => Value::I64(ptr as i64),
-                "len" => Value::I64(len as i64),
-                other => bail!("PinnedView has no field `{}` (only `ptr` / `len`)", other),
-            }
-        }
-        // accept-boxed-struct-field-get: 值 struct 经**擦除的返回位**流出泛型函数时，运行期的值是
-        // 带完整 `TypeDesc` + `struct_layout` 的堆盒。调用点的静态类型是裸 `T`（`--dump-bound`
-        // 实测 `(call id … :T)`）⇒ `AccessEmitter` 的 blob 分支判假 ⇒ 落到这条通用 `field_get`。
-        // 而 `vcall` / `struct_fget_prim` / `is` / `as_cast` / 数组元素整读 / 反射 `GetValue`
-        // 全都认这个盒，**只有 `field_get` 不认** ⇒ `id(v).Sum()` 好、`id(v).X` 崩，规律不自解释。
-        // 语义与反射那条完全同一件事（按名定位叶子：基元 decode / 引用侧表 / 嵌套拷新盒），
-        // 故直接复用 `boxed_struct_field_get`，不另写一份布局复刻。
-        // ⚠️ `field_set` 刻意**不**跟着加：那会把「写进擦除返回位流出的临时盒」变成静默丢弃写，
-        // 正解是编译期拒绝（C# 同）⇒ 独立登记 `reject-assign-to-erased-call-result`。
-        Value::BoxedStruct(gc) => {
-            crate::corelib::reflection::accessors::boxed_struct_field_get(ctx, gc, field_name)?
-        }
-        other => bail!("FieldGet: not an object or known value type, got {:?} (field `{}`)", other, field_name),
-    };
-    frame.set(dst, val);
-    Ok(())
+) -> Result<Option<Value>> {
+    match crate::objops::field::field_get(ctx, frame.get(obj)?, field_name, field_ic) {
+        Ok(v) => { frame.set(dst, v); Ok(None) }
+        Err(e) => super::ops::raise(ctx, module, e),
+    }
 }
 
-/// `FieldSet` dispatch — mirror of `field_get` IC pattern.
-///
-/// **add-write-barriers (2026-05-21)**: dispatches `write_barrier_field`
-/// to the GC after each successful slot write *iff* the new value is a
-/// heap reference (`v.is_heap_ref()`). Primitive writes skip the
-/// dispatch (Decision 1 of the spec). Both IC fast and slow paths must
-/// fire the barrier (Decision 5) — otherwise concurrent / generational
-/// backends would miss writes on hot code.
+/// `FieldSet` — adapter over [`crate::objops::field::field_set`] (write barrier,
+/// primitive-slot type check, null receiver → `NullReferenceException`).
+#[inline]
 pub(super) fn field_set(
-    ctx: &VmContext, frame: &mut Frame, obj: u32, field_name: &str, val: u32,
+    ctx: &VmContext, module: &Module, frame: &mut Frame, obj: u32, field_name: &str, val: u32,
     field_ic: Option<&crate::metadata::resolver::FieldIC>,
-) -> Result<()> {
-    use crate::metadata::resolver::{field_ic_lookup, field_ic_install};
-    let v = frame.get(val)?.clone();
+) -> Result<Option<Value>> {
+    let v = frame.get(val)?;
     // add-escape-analysis-stack-alloc (diagnostic #2): FieldSet.val is an escape
-    // sink — the compiler must never let a stack handle be stored into a field
-    // (it would outlive its frame). Assert the analysis kept that invariant.
+    // sink — a stack handle stored into a field would outlive its frame.
     debug_assert!(
         !matches!(v, Value::StackObject { .. } | Value::StackArray { .. }),
         "stack-alloc handle stored into a field — escape analysis unsound (FieldSet.val)"
     );
-    let owner = frame.get(obj)?.clone();
-    match &owner {
-        // add-escape-analysis-stack-alloc: stack object — write the slot in the
-        // arena (validated). No GC write barrier: the stack object is not a heap
-        // slot; its heap-ref fields are kept live by root-scanning the arena.
-        Value::StackObject { idx, frame_id } => {
-            let (idx, frame_id) = (*idx, *frame_id);
-            ctx.stack_arena.lock().with_obj_mut(idx, frame_id, |obj| {
-                // add-stack-field-ic: IC on the stack write path (same cache as heap;
-                // no write barrier — stack slots aren't heap slots, heap-ref fields
-                // are kept live by root-scanning the arena). Resolve the slot first
-                // (releases the `field_index` borrow) before the mutable slot write.
-                let slot_opt: Option<usize> = if let Some(ic) = field_ic {
-                    let recv_type = obj.type_desc.id.0;
-                    if let Some(slot) = field_ic_lookup(ic, recv_type) {
-                        crate::metadata::resolver::assert_field_ic_slot(&obj.type_desc, field_name, slot);
-                        Some(slot as usize)
-                    } else if let Some(&slot) = obj.type_desc.field_index.get(field_name) {
-                        field_ic_install(ic, recv_type, slot as u32);
-                        Some(slot)
-                    } else {
-                        None
-                    }
-                } else {
-                    obj.type_desc.field_index.get(field_name).copied()
-                };
-                if let Some(slot) = slot_opt {
-                    // unify-object-byte-layout (PR-2): encode into bytes / refs. No
-                    // write barrier — stack slots aren't heap slots (arena root-scanned).
-                    // fix-silent-prim-field-write: propagate a rejected primitive encode
-                    // (e.g. `Null` into an `int` field) instead of dropping it.
-                    obj.try_set_field_value(slot, &v)?;
-                }
-                anyhow::Ok(())
-            })??;
-            Ok(())
-        }
-        Value::Object(rc) => {
-            let mut borrowed = rc.borrow_mut();
-            // PIC fast path
-            if let Some(ic) = field_ic {
-                let recv_type = borrowed.type_desc.id.0;
-                if let Some(slot) = field_ic_lookup(ic, recv_type) {
-                    crate::metadata::resolver::assert_field_ic_slot(&borrowed.type_desc, field_name, slot);
-                    let slot = slot as usize;
-                    // unify-object-byte-layout (PR-2): `set_field_value` returns whether
-                    // a reference slot was written — fire the barrier only for a heap ref.
-                    let wrote_ref = borrowed.try_set_field_value(slot, &v)?;
-                    drop(borrowed);
-                    if wrote_ref && v.is_heap_ref() {
-                        ctx.heap().write_barrier_field(&owner, slot, &v);
-                    }
-                    return Ok(());
-                }
-                // Miss: walk + install in PIC
-                let slot_opt = borrowed.type_desc.field_index.get(field_name).copied();
-                if let Some(slot) = slot_opt {
-                    field_ic_install(ic, recv_type, slot as u32);
-                    let wrote_ref = borrowed.try_set_field_value(slot, &v)?;
-                    drop(borrowed);
-                    if wrote_ref && v.is_heap_ref() {
-                        ctx.heap().write_barrier_field(&owner, slot, &v);
-                    }
-                }
-            } else if let Some(&slot) = borrowed.type_desc.field_index.get(field_name) {
-                let wrote_ref = borrowed.try_set_field_value(slot, &v)?;
-                drop(borrowed);
-                if wrote_ref && v.is_heap_ref() {
-                    ctx.heap().write_barrier_field(&owner, slot, &v);
-                }
-            }
-            Ok(())
-        }
-        other => bail!("FieldSet: expected object, got {:?}", other),
+    match crate::objops::field::field_set(ctx, frame.get(obj)?, field_name, v, field_ic) {
+        Ok(()) => Ok(None),
+        Err(e) => super::ops::raise(ctx, module, e),
     }
 }
 
@@ -498,57 +310,16 @@ mod isa;
 pub(super) use isa::{as_cast, is_instance};
 use isa::is_integer_class;
 
-/// `StaticGet` hot path. Resolver populates `static_field_tokens[site_idx]`
-/// with the lazy-allocated `StaticFieldId` at module load (always succeeds).
-/// `field_id` Some → direct Vec index (no hash); None → name fallback.
+/// `StaticGet` — adapter over [`crate::objops::statics::static_get`] (init barrier,
+/// lazy zero-init of never-assigned value-type statics, missing-symbol check).
+/// `field_id` = resolver-populated `StaticFieldId` (None → by-name fallback).
 pub(super) fn static_get(
     ctx: &VmContext, module: &Module, frame: &mut Frame, dst: u32, field: &str,
     field_id: Option<u32>,
 ) -> Result<Option<Value>> {
-    if let Some(exc) = ensure_owner_type_init(ctx, module, field, field_id) { return Ok(Some(exc)); }
-    let v = match field_id {
-        Some(id) => ctx.static_get_by_id(crate::metadata::tokens::StaticFieldId(id)),
-        None     => ctx.static_get(field),
-    };
-    // fix-silent-symbol-resolution（站点 ①）：读到 Null 才确证该字段是否真的声明过。
-    // 不能用「读到 Null 就报错」——Null 本身是合法值（未赋值的引用型静态字段就是 Null）。
-    let mut v = v;
-    if matches!(v, Value::Null) {
-        use crate::vm_context::symres::StaticNullVerdict as V;
-        match crate::vm_context::symres::verify_static_field(ctx, module, field) {
-            V::Ok => {}
-            V::Missing(exc) => return Ok(Some(exc)),
-            // 惰性零初始化：回写槽位，后续读不再走这条确证路径。
-            V::Default(d) => {
-                match field_id {
-                    Some(id) => ctx.static_set_by_id(
-                        crate::metadata::tokens::StaticFieldId(id), d.clone()),
-                    None => ctx.static_set(field, d.clone()),
-                }
-                v = d;
-            }
-        }
-    }
-    frame.set(dst, v);
-    Ok(None)
-}
-
-/// add-static-constructors：静态字段读写前的 cctor 屏障。实现在
-/// `VmContext::ensure_static_owner_init`，**与 JIT 侧共用同一份**（两后端语义一致
-/// 是本特性最易错处，各写一份迟早漂移）。
-/// 失败时返回**可 catch 的**类型化异常值（`Ok(Some(exc))` 是 interp 的 throw 通道）。
-/// 用 `bail!` 会变成 anyhow Err —— 那条路不经 find_handler，用户 `catch` 抓不到。
-fn ensure_owner_type_init(
-    ctx: &VmContext, module: &Module, field: &str, field_id: Option<u32>,
-) -> Option<Value> {
-    // add-module-init-hook：读/写一个跨包静态字段同样可能刚把那个包拉进来 —— 包初始化器
-    // 先于类型初始化器。这一处同时覆盖 static_get 与 static_set（两者共用本入口）。
-    if let Err(msg) = ctx.ensure_module_inits(Some(field)) {
-        return Some(crate::vm_context::cctor::make_type_init_exception(ctx, module, &msg));
-    }
-    match ctx.ensure_static_owner_init(field, field_id) {
-        Ok(()) => None,
-        Err(msg) => Some(crate::vm_context::cctor::make_type_init_exception(ctx, module, &msg)),
+    match crate::objops::statics::static_get(ctx, module, field, field_id) {
+        Ok(v) => { frame.set(dst, v); Ok(None) }
+        Err(e) => super::ops::raise(ctx, module, e),
     }
 }
 
@@ -556,17 +327,15 @@ pub(super) fn static_set(
     ctx: &VmContext, module: &Module, frame: &Frame, field: &str, val: u32,
     field_id: Option<u32>,
 ) -> Result<Option<Value>> {
-    if let Some(exc) = ensure_owner_type_init(ctx, module, field, field_id) { return Ok(Some(exc)); }
-    let v = frame.get(val)?.clone();
+    let v = *frame.get(val)?;
     // add-escape-analysis-stack-alloc (diagnostic #2): StaticSet.val is an escape
     // sink — a stack handle stored into a static would outlive its frame.
     debug_assert!(
         !matches!(v, Value::StackObject { .. } | Value::StackArray { .. }),
         "stack-alloc handle stored into a static field — escape analysis unsound (StaticSet.val)"
     );
-    match field_id {
-        Some(id) => ctx.static_set_by_id(crate::metadata::tokens::StaticFieldId(id), v),
-        None     => ctx.static_set(field, v),
+    match crate::objops::statics::static_set(ctx, module, field, field_id, v) {
+        Ok(()) => Ok(None),
+        Err(e) => super::ops::raise(ctx, module, e),
     }
-    Ok(None)
 }

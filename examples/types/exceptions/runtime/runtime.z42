@@ -1,0 +1,19 @@
+using Std.IO;
+
+class Node {
+    public int Value;
+}
+
+Node find(bool hit) {
+    if (hit) { return new Node(); }
+    return null;
+}
+
+void Main() {
+    int[] a = new int[3];
+    try { Console.WriteLine(a[5]); }
+    catch (IndexOutOfRangeException e) { Console.WriteLine("越界：" + e.Message); }
+
+    try { Console.WriteLine(find(false).Value); }
+    catch (NullReferenceException e) { Console.WriteLine("空引用：" + e.Message); }
+}

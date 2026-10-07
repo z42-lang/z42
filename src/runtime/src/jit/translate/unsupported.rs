@@ -58,7 +58,7 @@ pub(crate) fn unsupported_reason(instr: &Instruction) -> Option<&'static str> {
         // parameter needs the runtime method_type_args to zero-init value-type slots — the
         // carrier the JIT frame lacks — so it runs interp (consistent with MethodDefault
         // above). Non-generic (kind 0) and class-level (kind 2: type args ride on the
-        // receiver in reg 0, `jit_array_zero_class_tp`) ArrayNew JIT.
+        // receiver in reg 0; `jit_array_new` takes the param index) ArrayNew JIT.
         Instruction::ArrayNew(insn) if insn.type_param_kind != 0 && insn.type_param_kind != 2
             => "method-type-param ArrayNew",
         _ => return None,

@@ -347,10 +347,10 @@ blob 值 struct 元素不走这条下沉（整元素写要经句柄拷贝），�
 receiver 变成 `Value::StackArray { idx, frame_id }`，同四条指令走 `ctx.stack_arena` 解析。
 布局细节见 [对象与值表示 ABI](../runtime/object-abi.md)。
 
-**越界不是异常**：`array_get` / `array_set` 越界直接
-`bail!("array index {} out of bounds (len={})")`（`interp/exec_array.rs:196`）—— VM abort，
-用户侧 `catch` 接不住。面向用户的规则见
-[数组](https://z42-lang.github.io/z42/reference/language/arrays.html)。
+**错误**：四条指令的语义（含错误）只在 `objops::array` 实现一次，interp 与 JIT 共用：数组为 null 抛
+`NullReferenceException`，下标越界（含负数）抛 `IndexOutOfRangeException`，`array_new` 长度为负抛
+`OverflowException`，都可 `catch`。机制见 [interp / JIT 语义 · 对象操作：objops](../runtime/interp-jit-semantics.md#对象操作objops)；
+面向用户的规则见 [数组](https://z42-lang.github.io/z42/reference/language/arrays.html)。
 
 **交错数组**：`T[][]` 无专门指令——外层就是元素类型为 `T[]` 的普通数组，逐层 `array_get` 即可。
 多维 `T[,]` 没有 IR 支持，也没有对应的类型语法。
@@ -419,6 +419,11 @@ access). Virtual fields are also dispatched by `field_get` for built-in primitiv
 - `Value::Str` — `"Length"` returns `I64` (Unicode scalar count, not byte length)
 - `Value::Array` — `"Length"` / `"Count"` returns `I64`
 - `Value::Map` — `"Length"` / `"Count"` returns `I64`
+
+A null receiver throws `NullReferenceException` (both instructions, including the virtual
+`Length`); a value rejected by a primitive field (`null` / wrong kind) throws
+`NullReferenceException` / `InvalidCastException`. The semantics live once in `objops::field`
+(see [对象操作：objops](../runtime/interp-jit-semantics.md#对象操作objops)).
 
 `v_call` dispatches via the pre-computed vtable in `TypeDesc` (O(1)). The vtable is flattened
 at load time: base class methods appear first, derived overrides replace the corresponding slot.

@@ -135,3 +135,20 @@ fn type_mismatch_into_primitive_field_also_raises() {
     assert_eq!(set(&mut frame, &ctx, "n"), 1, "字符串写进 int 槽必须报异常");
     assert!(take_exception(&vm).is_some());
 }
+
+/// P1-3 / objops：null 接收者读字段 → 置异常、返回 1；无 stdlib 时退化成字符串异常，文本与
+/// interp 的同一条（`<类名>: <消息>`，见 `objops_tests::materialization_without_stdlib_is_one_text`）。
+#[test]
+fn null_receiver_field_get_raises_the_shared_text() {
+    let vm = VmContext::new();
+    let ctx = make_jit_ctx(&vm);
+    let mut frame = JitFrame::new(&vm, 4, &[]);
+    frame.regs[0] = Value::Null;
+    let rc = unsafe { jit_field_get(&mut frame, &ctx, 1, 0, "n".as_ptr(), 1, std::ptr::null()) };
+    assert_eq!(rc, 1);
+    match take_exception(&vm) {
+        Some(Value::Str(s)) => assert_eq!(&*s,
+            "Std.NullReferenceException: cannot read field `n` of a null reference"),
+        other => panic!("expected a string exception, got {other:?}"),
+    }
+}

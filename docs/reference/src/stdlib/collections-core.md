@@ -97,11 +97,11 @@ public partial class List<T> : IEnumerable<T> {
 List<int> l = new List<int>(8);   // capacity 8
 l.Add(1); l.Add(2);               // Count 2
 int a = l[5];                     // → 0，静默返回 default(T)，不报错
-int b = l[100];                   // → VM 终止：array index 100 out of bounds (len=8)
+int b = l[100];                   // → IndexOutOfRangeException：index 100 is out of range for an array of length 8
 ```
 
-越界读越过容量时是 **VM abort，不是可 `catch` 的异常**
-（`src/runtime/src/interp/exec_array.rs:196`），与 [数组](../language/arrays.md) 的越界行为一致。
+越过容量时抛的是底层数组的 `IndexOutOfRangeException`，与 [数组](../language/arrays.md) 的越界行为一致；
+`Count` 与容量之间的下标不报错。
 调用方自己保证 `0 <= i < Count`。
 
 ### 注意：`Count` 是可写字段
@@ -318,7 +318,7 @@ public sealed class ReadOnlyCollection<T> {
 - **包装的是引用，不是副本**：改动被包装的数组，通过视图能看到新值。要真正的防御性副本用 `ToArray()`。
 - 有 `Count` + 只读索引器 ⇒ 直接支持 `foreach`。
 - `Contains` / `IndexOf` 用 `Object.Equals` 线性查找；`IndexOf` 未命中返回 `-1`。
-- 越界由底层数组负责（VM abort）。
+- 越界由底层数组负责（抛 `IndexOutOfRangeException`）。
 - 也可由 `Array.AsReadOnly<T>(arr)` 构造。
 
 ```z42
@@ -401,7 +401,7 @@ void Main() {
 - **没有自定义比较器**：所有相等判定固定走元素自己的 `Equals` / `GetHashCode`，
   容器构造器不接受 `IEqualityComparer<T>` / `IComparer<T>`。排序是唯一例外
   （`List<T>.Sort(Func<T, T, int>)`）。
-- **索引器不做 `Count` 边界检查**（见上）；也没有 `IndexOutOfRangeException` 可接。
+- **索引器不做 `Count` 边界检查**（见上）：`Count` 与容量之间的下标静默读到默认值，越过容量才抛 `IndexOutOfRangeException`。
 - `Grow()`（`List` / `Dictionary`）与 `Dictionary.FindSlot(key)` 虽然是 `public`，
   属于容量 / 槽位管理入口，正常使用不需要调用。
 

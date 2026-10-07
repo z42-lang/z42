@@ -1,0 +1,133 @@
+// P1-3 / objops：字段与数组访问的错误通道，interp 与 JIT 逐条一致（含消息文本）。
+//
+// 两个引擎的 FieldGet / FieldSet / ArrayGet / ArraySet / ArrayLen / ArrayNew 都只是 objops 的薄适配，
+// 本用例在 interp 与 `--mode jit` 下各跑一遍，断言同一组用例抛出**同一个异常类、同一条消息**：
+//   - 空引用（字段读写、数组读写取长）→ NullReferenceException
+//   - 下标越界（含负数）→ IndexOutOfRangeException
+//   - 负长度 → OverflowException
+// 以及正常读写照旧（含 JIT 的打包数组快路与提升字段快路）。
+//
+// ⚠️ 每个出错的访问都放在**独立的非泛型函数**里、由 Main 直接调用，并且**先正常调用一次**：
+// JIT 档下函数在第二次调用时才编译（`Z42_JIT_PROFILE=1` 实测），出错的那次调用因此确实跑在
+// JIT helper 上，而不是解释器（`--mode jit` 跑通不等于 JIT 验过）。
+namespace Demo;
+
+class Box {
+    public int N;
+    public string S;
+    public Box Next;
+}
+
+int readN(Box b) { return b.N; }
+void writeN(Box b, int v) { b.N = v; }
+string readS(Box b) { return b.S; }
+int readNextN(Box b) { return b.Next.N; }
+int elemI(int[] a, int i) { return a[i]; }
+void setI(int[] a, int i, int v) { a[i] = v; }
+long elemL(long[] a, int i) { return a[i]; }
+string elemS(string[] a, int i) { return a[i]; }
+void setS(string[] a, int i, string v) { a[i] = v; }
+int lenI(int[] a) { return a.Length; }
+int[] makeI(int n) { return new int[n]; }
+
+// 循环里反复读同一个接收者：JIT 的循环不变量提升快路（字段 / 打包数组）。
+long sumLoop(Box b, int[] a) {
+    long s = 0;
+    int i = 0;
+    while (i < a.Length) { s = s + a[i] + b.N; i = i + 1; }
+    return s;
+}
+
+Box nullBox() { return null; }
+int[] nullInts() { return null; }
+string[] nullStrs() { return null; }
+
+void Main() {
+    // ── 正常读写 ──────────────────────────────────────────────────────────
+    Box b = new Box();
+    writeN(b, 7);
+    Assert.Equal(7, readN(b));
+    int[] xs = makeI(3);
+    setI(xs, 2, 5);
+    Assert.Equal(5, elemI(xs, 2));
+    Assert.Equal(3, lenI(xs));
+    Assert.Equal(36L, sumLoop(b, new int[] { 5, 5, 5 }));
+    Assert.Equal(36L, sumLoop(b, new int[] { 5, 5, 5 }));
+    b.S = "s";
+    Assert.Equal("s", readS(b));
+    b.Next = new Box();
+    Assert.Equal(0, readNextN(b));
+    b.Next = null;
+    long[] ls = new long[] { 10L, 20L };
+    Assert.Equal(20L, elemL(ls, 1));
+    string[] ss = new string[2];
+    setS(ss, 0, "a");
+    Assert.Equal("a", elemS(ss, 0));
+
+    // ── 空引用 ───────────────────────────────────────────────────────────
+    string m = "";
+    try { readN(nullBox()); } catch (NullReferenceException e) { m = e.Message; }
+    Assert.Equal("cannot read field `N` of a null reference", m);
+
+    m = "";
+    try { writeN(nullBox(), 1); } catch (NullReferenceException e) { m = e.Message; }
+    Assert.Equal("cannot write field `N` of a null reference", m);
+
+    m = "";
+    try { readS(nullBox()); } catch (NullReferenceException e) { m = e.Message; }
+    Assert.Equal("cannot read field `S` of a null reference", m);
+
+    m = "";
+    try { readNextN(b); } catch (NullReferenceException e) { m = e.Message; }
+    Assert.Equal("cannot read field `N` of a null reference", m);
+
+    m = "";
+    try { elemI(nullInts(), 0); } catch (NullReferenceException e) { m = e.Message; }
+    Assert.Equal("cannot read an element of a null array", m);
+
+    m = "";
+    try { setI(nullInts(), 0, 1); } catch (NullReferenceException e) { m = e.Message; }
+    Assert.Equal("cannot write an element of a null array", m);
+
+    m = "";
+    try { setS(nullStrs(), 0, "x"); } catch (NullReferenceException e) { m = e.Message; }
+    Assert.Equal("cannot write an element of a null array", m);
+
+    m = "";
+    try { lenI(nullInts()); } catch (NullReferenceException e) { m = e.Message; }
+    Assert.Equal("cannot read field `Length` of a null reference", m);
+
+    // ── 越界 ─────────────────────────────────────────────────────────────
+    m = "";
+    try { elemI(xs, 3); } catch (IndexOutOfRangeException e) { m = e.Message; }
+    Assert.Equal("index 3 is out of range for an array of length 3", m);
+
+    m = "";
+    try { elemI(xs, -1); } catch (IndexOutOfRangeException e) { m = e.Message; }
+    Assert.Equal("index -1 is out of range for an array of length 3", m);
+
+    m = "";
+    try { setI(xs, 9, 1); } catch (IndexOutOfRangeException e) { m = e.Message; }
+    Assert.Equal("index 9 is out of range for an array of length 3", m);
+
+    m = "";
+    try { elemL(ls, 2); } catch (IndexOutOfRangeException e) { m = e.Message; }
+    Assert.Equal("index 2 is out of range for an array of length 2", m);
+
+    m = "";
+    try { elemS(ss, 5); } catch (IndexOutOfRangeException e) { m = e.Message; }
+    Assert.Equal("index 5 is out of range for an array of length 2", m);
+
+    // 越界的写不改动数组。
+    Assert.Equal(5, elemI(xs, 2));
+
+    // ── 负长度 ───────────────────────────────────────────────────────────
+    m = "";
+    try { makeI(-2); } catch (OverflowException e) { m = e.Message; }
+    Assert.Equal("array size cannot be negative (got -2)", m);
+
+    // ── 都是 Exception，通配 catch 同样接得住 ─────────────────────────────
+    bool caught = false;
+    try { readN(nullBox()); } catch (Exception e) { caught = true; }
+    Assert.True(caught);
+}

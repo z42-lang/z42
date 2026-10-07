@@ -19,10 +19,9 @@
 - **下标从 `0` 开始**，`a.Length` 是长度。
 - `new int[3]` 只给长度时元素是**零值**：数字 `0`、`bool` 是 `false`、引用类型是 `null`。
 
-### 🔴 下标越界会直接终止程序
+### 🔴 下标越界会抛异常
 
-越界抛出的东西**不是 `Exception` 的实例**，所以 `catch (Exception e)` 认不出它，
-程序就停在那里：
+越界读写抛 `IndexOutOfRangeException`；没人接住，程序就停在那里：
 
 ```z42
 // examples/basics/collections/arrays/oob.z42
@@ -33,9 +32,7 @@
 {{#include ../../../../examples/basics/collections/arrays/run.console:oob}}
 ```
 
-**访问下标前自己确认范围**——这是唯一正确的做法。
-（什么都接的 `catch { }` 技术上能拦下它，但那会连你没预料到的问题一起吞掉；
-细节见异常处理一章。）
+**访问下标前自己确认范围**——这是正确的做法。用 `try` / `catch` 接住它的写法见异常处理一章。
 
 ### 方括号字面量
 
@@ -136,7 +133,7 @@
 
 ## 小结
 
-- **数组 `T[]` 定长**，`Length` 是长度，下标**越界直接终止程序**，`catch` 接不住。
+- **数组 `T[]` 定长**，`Length` 是长度，下标**越界抛 `IndexOutOfRangeException`**。
 - `[1,2,3]` 列元素、`[0; n]` 重复填充（**`v` 只求值一次**）、`[..a, x, ..b]` 展开拼接。
 - **方括号是数组，花括号是 `List` / `Dictionary`**；空字面量必须让编译器知道类型。
 - `List<T>` 能增删，数量叫 **`Count`**；`Dictionary<K,V>` 用 `d[key]` 读写。

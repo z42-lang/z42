@@ -426,86 +426,37 @@ pub unsafe extern "C" fn jit_as_cast(
 
 // ── Static fields ────────────────────────────────────────────────────────────
 
-/// `jit_static_get` after formalize-jit-method-token Phase 2 (2026-05-08):
-/// receives pre-resolved `StaticFieldId` directly. make-vm-loading-lazy: a
-/// lazily-loaded function is JIT-compiled without its resolved token table, so
-/// `field_id` may be `UNRESOLVED` — then resolve the field by NAME
-/// (`field_ptr`/`field_len`) at runtime, mirroring interp's `exec_object`
-/// `field_id: None` fallback (`ctx.static_get(name)` allocates the id lazily).
+/// `StaticGet` helper — adapter over [`crate::objops::statics::static_get`] (init
+/// barrier, lazy zero-init, missing-symbol check; shared with the interpreter).
+/// `field_id` = pre-resolved `StaticFieldId`, or `UNRESOLVED` for a lazily-loaded
+/// function compiled without its token table — then the field resolves by NAME
+/// (`field_ptr`/`field_len`, always passed).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_static_get(
-    frame: *mut JitFrame, _ctx: *const JitModuleCtx,
+    frame: *mut JitFrame, ctx: *const JitModuleCtx,
     dst: u32, field_id: u32,
     field_ptr: *const u8, field_len: usize,
 ) -> i32 {
-    let vm = vm_ctx_ref(_ctx);
-    // add-static-constructors：cctor 屏障。与 interp 共用 `ensure_static_owner_init`。
-    // 字段名恒可用（field_ptr/len 两条路径都传），故 id 已解析时也能取到属主类。
-    if let Some(code) = cctor_barrier(vm, _ctx, field_id, field_ptr, field_len) { return code; }
-    let v = if field_id != crate::metadata::tokens::UNRESOLVED {
-        vm.static_get_by_id(crate::metadata::tokens::StaticFieldId(field_id))
-    } else {
-        let field = std::str::from_utf8(std::slice::from_raw_parts(field_ptr, field_len))
-            .unwrap_or("<invalid>");
-        vm.static_get(field)
-    };
-    // fix-silent-symbol-resolution（站点 ①）：与 interp 对称——读到 Null 才确证。
-    let mut v = v;
-    if matches!(v, crate::metadata::Value::Null) {
-        let field = std::str::from_utf8(std::slice::from_raw_parts(field_ptr, field_len))
-            .unwrap_or("");
-        let module = &*(*_ctx).module;
-        use crate::vm_context::symres::StaticNullVerdict as V;
-        match crate::vm_context::symres::verify_static_field(vm, module, field) {
-            V::Ok => {}
-            V::Missing(exc) => { set_exception(vm, exc); return 1; }
-            V::Default(d) => {
-                if field_id != crate::metadata::tokens::UNRESOLVED {
-                    vm.static_set_by_id(
-                        crate::metadata::tokens::StaticFieldId(field_id), d.clone());
-                } else {
-                    vm.static_set(field, d.clone());
-                }
-                v = d;
-            }
-        }
-    }
-    (*frame).regs[dst as usize] = v;
-    0
-}
-
-/// cctor 屏障的 JIT 侧薄封装：失败时把异常塞进 pending 槽并返回 1（translate 端
-/// `self.check(ret)` 会据此跳异常分支）。包成 `Std.Exception` 而非裸字符串——
-/// 裸字符串只能被无类型 `catch {}` 捕获，永远匹配不上 `catch (Exception e)`。
-unsafe fn cctor_barrier(
-    vm: &crate::vm_context::VmContext, ctx: *const JitModuleCtx,
-    field_id: u32, field_ptr: *const u8, field_len: usize,
-) -> Option<i32> {
-    if !vm.any_cctor_pending() { return None; }
     let field = super::baked_str(field_ptr, field_len);
     let id = (field_id != crate::metadata::tokens::UNRESOLVED).then_some(field_id);
-    let msg = vm.ensure_static_owner_init(field, id).err()?;
-    let module = &*(*ctx).module;
-    let exc = crate::vm_context::cctor::make_type_init_exception(vm, module, &msg);
-    set_exception(vm, exc);
-    Some(1)
+    match crate::objops::statics::static_get(vm_ctx_ref(ctx), &*(*ctx).module, field, id) {
+        Ok(v) => { (*frame).regs[dst as usize] = v; 0 }
+        Err(e) => super::raise(ctx, e) as i32,
+    }
 }
 
+/// `StaticSet` helper — adapter over [`crate::objops::statics::static_set`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_static_set(
     frame: *mut JitFrame, ctx: *const JitModuleCtx,
     field_id: u32, val: u32,
     field_ptr: *const u8, field_len: usize,
 ) -> i32 {
-    let vm = vm_ctx_ref(ctx);
-    if let Some(code) = cctor_barrier(vm, ctx, field_id, field_ptr, field_len) { return code; }
-    let v = (*frame).regs[val as usize].clone();
-    if field_id != crate::metadata::tokens::UNRESOLVED {
-        vm.static_set_by_id(crate::metadata::tokens::StaticFieldId(field_id), v);
-    } else {
-        let field = std::str::from_utf8(std::slice::from_raw_parts(field_ptr, field_len))
-            .unwrap_or("<invalid>");
-        vm.static_set(field, v);
+    let field = super::baked_str(field_ptr, field_len);
+    let id = (field_id != crate::metadata::tokens::UNRESOLVED).then_some(field_id);
+    let v = (*frame).regs[val as usize];
+    match crate::objops::statics::static_set(vm_ctx_ref(ctx), &*(*ctx).module, field, id, v) {
+        Ok(()) => 0,
+        Err(e) => super::raise(ctx, e) as i32,
     }
-    0
 }

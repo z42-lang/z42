@@ -122,3 +122,14 @@ pub(super) fn to_usize(v: &Value, ctx: &str) -> Result<usize> {
         other => bail!("{}: expected non-negative integer, got {:?}", ctx, other),
     }
 }
+
+/// objops 错误 → interp 的抛出通道：用户异常走 `Ok(Some(exc))`（被 `find_handler` 匹配），
+/// 内部错误走 `Err`。JIT 侧的对应映射是 `jit::helpers::raise`，两侧物化逻辑同一份
+/// （`OpError::into_exception`），异常类与消息逐字一致。
+#[cold]
+#[inline(never)]
+pub(super) fn raise(
+    ctx: &crate::vm_context::VmContext, module: &crate::metadata::Module, e: crate::objops::OpError,
+) -> Result<Option<Value>> {
+    e.into_exception(ctx, Some(module)).map(Some)
+}

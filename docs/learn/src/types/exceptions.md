@@ -97,6 +97,20 @@ class Exception {
 完整清单见
 [异常](https://z42-lang.github.io/z42/reference/language/exceptions.html)。
 
+有两种错误不用你自己抛，运行时会替你抛：数组**下标越界**抛 `IndexOutOfRangeException`，
+**读写 null 的字段或数组元素**抛 `NullReferenceException`。它们和别的异常一样能按类型接：
+
+```z42
+// examples/types/exceptions/runtime/runtime.z42
+{{#include ../../../../examples/types/exceptions/runtime/runtime.z42}}
+```
+
+```console
+{{#include ../../../../examples/types/exceptions/runtime/run.console:runtime}}
+```
+
+接住它们只是兜底；正确的做法还是**访问前自己确认**下标范围、引用非空。
+
 ## 写自己的异常类型
 
 继承 `Exception`，用 `: base(...)` 把消息交给基类；想带额外信息就自己加字段：
@@ -160,30 +174,10 @@ class Exception {
 
 ## 🔴 当前实现的边界
 
-### 数组越界：只有 `catch { }` 接得住
+### 不是异常对象的抛出物：只有 `catch { }` 接得住
 
-```z42
-// examples/types/exceptions/gaps/oob.z42
-{{#include ../../../../examples/types/exceptions/gaps/oob.z42}}
-```
-
-```z42
-// examples/types/exceptions/gaps/oob2.z42
-{{#include ../../../../examples/types/exceptions/gaps/oob2.z42}}
-```
-
-```console
-{{#include ../../../../examples/types/exceptions/gaps/run.console:oob}}
-```
-
-下标越界时抛出的东西**不是 `Exception` 的实例**，所以 `catch (Exception e)` 认不出它，
-程序照样终止；只有什么都接的 `catch { }` 能拦下来。
-
-⚠️ 别把 `catch { }` 当成解决办法 —— 它会把**所有**意外都吞掉，包括你没预料到的。
-正确做法还是**访问下标前自己确认范围**。
-
-> 同样的规则适用于 `throw "一个字符串"` / `throw 42` 这类**不是异常对象**的抛出
-> （语法上还允许，但新代码别这么写）：它们也只有 `catch { }` 接得住。
+`throw "一个字符串"` / `throw 42` 这类**不是异常对象**的抛出语法上还允许（新代码别这么写）：
+它们不是 `Exception` 的实例，`catch (Exception e)` 认不出，只有什么都接的 `catch { }` 能拦下来。
 
 ### 没有裸 `throw;` 重抛
 
@@ -229,7 +223,8 @@ class Exception {
 - 自定义异常 = 继承 `Exception` + `: base(消息)` + **自己加字段**（字段才是价值所在）。
 - 包装用 `new Exception(消息, 原始异常)`，顺 `InnerException` 链能找到最初的原因。
 - `StackTrace` 自动填，最里层在最上面；重抛同一对象不会覆盖它。
-- 🔴 记住四个边界：数组越界与非对象抛出**只有 `catch { }` 接得住**、没有裸 `throw;`、
+- 下标越界抛 `IndexOutOfRangeException`，读写 null 的字段 / 数组抛 `NullReferenceException`，都能按类型接。
+- 🔴 记住四个边界：非对象抛出**只有 `catch { }` 接得住**、没有裸 `throw;`、
   没有异常过滤器 `when`、`catch (e)` 不是合法写法。
 
 下一章讲**组织代码**——`namespace`、`using`、访问控制与 `partial`。

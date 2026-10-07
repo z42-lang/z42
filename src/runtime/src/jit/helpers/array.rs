@@ -1,45 +1,38 @@
 #![allow(dangerous_implicit_autorefs)]
-//! Array allocation, element access, length.
+//! Array allocation, element access, length — thin adapters over
+//! [`crate::objops::array`] (shared with the interpreter): register read/write plus
+//! mapping `OpError` to the pending-exception channel ([`super::raise`]).
 
-use crate::metadata::types::{default_value_for_tag, ElemType, ElemTypeInfo};
+use crate::metadata::types::{ElemType, ElemTypeInfo};
 use crate::metadata::Value;
 use super::super::frame::{JitFrame, JitModuleCtx};
-use super::{set_exception, vm_ctx_ref};
+use super::{raise, vm_ctx_ref};
 
+/// `class_tp`: for `new T[n]` on a **class-level** type parameter, its index (else -1).
+/// The receiver (reg 0) carries the concrete type args, so a primitive `T` gets its zero
+/// per slot — resolved by the same `objops::array::class_type_param_zero` interp uses.
+/// (A method-level `T` has no JIT carrier → `unsupported_reason`.) The JIT never
+/// stack-allocates, so no frame id.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_array_new(
     frame: *mut JitFrame, ctx: *const JitModuleCtx,
     dst: u32, size: u32, elem_tag: u8,
-    // add-reflection-array-element-type: the instruction's interned element-type
-    // handle (`ElemType::as_raw`) — non-erased array reflection, no name allocation.
+    // the instruction's interned element-type handle (`ElemType::as_raw`) —
+    // non-erased array reflection, no name allocation.
     et: *const ElemTypeInfo,
+    class_tp: i32,
 ) -> u8 {
-    let n = match &(*frame).regs[size as usize] {
-        Value::I64(n) if *n >= 0 => *n as usize,
-        other => {
-            set_exception(vm_ctx_ref(ctx), Value::Str(format!("ArrayNew: expected non-negative int, got {:?}", other).into()));
-            return 1;
-        }
-    };
     let element_type = ElemType::from_raw(et);
-    // add-struct-jit-value-path (P5): value-struct element → StructBytes heap backing
-    // (mirrors interp `array_new`); otherwise `arr[i]` can't materialize a
-    // StructRefHeap and the struct field access on it would see a Null base.
-    if let Some(sb) = crate::interp::exec_array::try_struct_backed(vm_ctx_ref(ctx), element_type, n) {
-        let arr = vm_ctx_ref(ctx).heap().alloc_array_obj(sb);
-        if matches!(arr, Value::Null) {
-            set_exception(vm_ctx_ref(ctx), Value::Str(format!("cannot allocate struct array[{n}]: heap limit exceeded").into()));
-            return 1;
-        }
-        (*frame).regs[dst as usize] = arr;
-        return 0;
+    let len = (*frame).regs[size as usize];
+    let prim_zero = if class_tp >= 0 {
+        crate::objops::array::class_type_param_zero((*frame).regs.first(), class_tp as usize)
+    } else { None };
+    let r = crate::objops::array::array_new(
+        vm_ctx_ref(ctx), &len, elem_tag, element_type, prim_zero, None::<fn() -> u32>);
+    match r {
+        Ok(arr) => { (*frame).regs[dst as usize] = arr; 0 }
+        Err(e) => raise(ctx, e),
     }
-    let default = default_value_for_tag(elem_tag);
-    // perf-array-alloc-direct: fill straight into the GC block (no `vec![default; n]`).
-    let heap = vm_ctx_ref(ctx).heap();
-    (*frame).regs[dst as usize] = heap.alloc_array_obj(
-        crate::metadata::types::ArrayObj::typed_filled(heap, element_type, n, default));
-    0
 }
 
 #[unsafe(no_mangle)]
@@ -50,109 +43,31 @@ pub unsafe extern "C" fn jit_array_new_lit(
 ) -> u8 {
     let elems = std::slice::from_raw_parts(elems_ptr, elem_cnt);
     let regs = &(*frame).regs;
-    let elem = |&r: &u32| regs[r as usize].clone();
+    let vals = elems.iter().map(|&r| regs[r as usize]);
     let element_type = ElemType::from_raw(et);
-    // add-struct-jit-value-path (P5): value-struct literal → StructBytes backing,
-    // packing each element's bytes + reference leaves (mirrors interp array_new_lit).
-    if let Some(mut sb) = crate::interp::exec_array::try_struct_backed(vm_ctx_ref(ctx), element_type, elem_cnt) {
-        for (i, r) in elems.iter().enumerate() {
-            if let Err(e) = crate::interp::exec_array::pack_struct_elem(vm_ctx_ref(ctx), &mut sb, i, &elem(r)) {
-                set_exception(vm_ctx_ref(ctx), Value::Str(format!("{e}").into()));
-                return 1;
-            }
-        }
-        let arr = vm_ctx_ref(ctx).heap().alloc_array_obj(sb);
-        if matches!(arr, Value::Null) {
-            set_exception(vm_ctx_ref(ctx), Value::Str(format!("cannot allocate struct array literal[{elem_cnt}]: heap limit exceeded").into()));
-            return 1;
-        }
-        (*frame).regs[dst as usize] = arr;
-        return 0;
-    }
-    // perf-array-alloc-direct: pack the source registers straight into the GC block.
-    let heap = vm_ctx_ref(ctx).heap();
-    let arr = heap.alloc_array_obj(
-        crate::metadata::types::ArrayObj::typed_iter(heap, element_type, elem_cnt, elems.iter().map(elem)));
-    (*frame).regs[dst as usize] = arr;
-    0
-}
-
-/// Phase 4a (jit-inline-fastpaths): expose the array's element data pointer +
-/// length so the JIT can do a **native** bounds-check + element load, instead of
-/// the full `jit_array_get` round-trip through a boxed `Value`. Safe: uses real
-/// types; the returned `*const Value` points into the array's `Vec` heap buffer,
-/// which stays put for the duration of the calling instruction (single-threaded
-/// read; the array isn't reallocated mid-read). Returns 0 + writes
-/// `*out_ptr`/`*out_len` on success; 1 (exception set) if the reg isn't an array.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn jit_array_data(
-    frame: *mut JitFrame, ctx: *const JitModuleCtx,
-    arr: u32, out_ptr: *mut *const Value, out_len: *mut i64, out_width: *mut i64,
-) -> u8 {
-    match &(*frame).regs[arr as usize] {
-        Value::Array(rc) => {
-            let borrowed = rc.borrow();
-            // jit-inline-i32-arrays: hand back the packed buffer base (`int[]`/
-            // `long[]`/`double[]`) plus the runtime slot width (4/8; 0 if the
-            // backing isn't packed-numeric). The ArrayGet inline uses the
-            // compile-time element width; the ArraySet inline consults
-            // `out_width` so a narrowing store writes the right slot size.
-            *out_ptr = borrowed.packed_num_ptr().unwrap_or(std::ptr::null()) as *const Value;
-            *out_len = borrowed.len() as i64;
-            *out_width = borrowed.packed_elem_width();
-            0
-        }
-        // fix-jit-array-data-stackarray: 逃逸分析的栈上数组（`Value::StackArray`）会走到这里——
-        // OSR 下解释器段先建了它、JIT 接手后 frame.regs 里仍是栈句柄。此前这里直接 bail，
-        // 于是「解释器能跑、一 tier-up 就崩」：`ArrayGet: expected array, got StackArray`。
-        // 解释器 `exec_array::array_get` 与慢路 helper `jit_array_get` 都有 StackArray 分支
-        // （后者由 fix-jit-osr-stackarray 补），唯独本快路遗漏 —— 典型的 interp/JIT 分叉。
-        //
-        // 修法与同文件的 `jit_array_data_opt` 一致：报「无快路」而非抛异常。写
-        // `width = 0` 会让内联走 `width_zero → helper_blk → jit_array_get`
-        // （见 `jit/translate/array.rs`），由慢路按 arena 解析栈数组，语义与解释器一致。
-        Value::StackArray { .. } => {
-            *out_ptr = std::ptr::null();
-            *out_len = 0;
-            *out_width = 0;
-            0
-        }
-        other => {
-            set_exception(vm_ctx_ref(ctx), Value::Str(
-                format!("ArrayGet: expected array, got {:?}", other).into()));
-            1
-        }
+    let r = crate::objops::array::array_new_lit(vm_ctx_ref(ctx), vals, element_type, None::<fn() -> u32>);
+    match r {
+        Ok(arr) => { (*frame).regs[dst as usize] = arr; 0 }
+        Err(e) => raise(ctx, e),
     }
 }
 
-/// Phase 4b (jit-inline-fastpaths 方案 B): **non-throwing** array-data fetch for
-/// the loop-invariant hoist. Emitted ONCE in the JIT entry block for array
-/// registers proven never-reassigned. On success writes ptr+len; if the reg
-/// isn't an array (incl. null) it writes `*out_ptr = null` and **does not throw**
-/// — the per-`ArrayGet` inline detects the null ptr and falls back to
-/// `jit_array_get`, so the exception fires at the real access point (no
-/// spurious throw when the array is never actually indexed / loop runs 0 times).
-/// GC-safe: z42 arrays are fixed-length (no realloc) and the collector is
-/// non-moving, so the returned buffer ptr stays valid for the function's life.
+/// Packed-array fast path data (`int[]` / `long[]` / `double[]`): writes the element
+/// buffer base, length and slot width (4/8). Anything else — non-packed backing,
+/// stack array, non-array, null — writes width 0 = "no fast path", and the inline
+/// code falls back to `jit_array_get` / `jit_array_set`, which raise the same
+/// exception the interpreter does. **Never throws**; used both by the loop-invariant
+/// hoist (once in the entry block) and per access. GC-safe: arrays are fixed-length
+/// and the collector is non-moving, so the buffer stays put for the frame.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_array_data_opt(
     frame: *mut JitFrame, _ctx: *const JitModuleCtx,
     arr: u32, out_ptr: *mut *const Value, out_len: *mut i64, out_width: *mut i64,
 ) {
-    match &(*frame).regs[arr as usize] {
-        Value::Array(rc) => {
-            let borrowed = rc.borrow();
-            // jit-inline-i32-arrays: packed buffer base + runtime slot width.
-            *out_ptr = borrowed.packed_num_ptr().unwrap_or(std::ptr::null()) as *const Value;
-            *out_len = borrowed.len() as i64;
-            *out_width = borrowed.packed_elem_width();
-        }
-        _ => {
-            *out_ptr = std::ptr::null();
-            *out_len = 0;
-            *out_width = 0;
-        }
-    }
+    let (ptr, len, width) = crate::objops::array::packed_data(&(*frame).regs[arr as usize]);
+    *out_ptr = ptr as *const Value;
+    *out_len = len;
+    *out_width = width;
 }
 
 #[unsafe(no_mangle)]
@@ -160,147 +75,28 @@ pub unsafe extern "C" fn jit_array_get(
     frame: *mut JitFrame, ctx: *const JitModuleCtx,
     dst: u32, arr: u32, idx: u32,
 ) -> u8 {
-    let arr_val = (*frame).regs[arr as usize].clone();
-    let idx_val = (*frame).regs[idx as usize].clone();
-    let result = match &arr_val {
-        // fix-jit-osr-stackarray: under OSR the interp portion may have created a
-        // stack-allocated array (escape analysis) that is live in `frame.regs`
-        // when the JIT takes over. Mirror interp `exec_array::array_get` — resolve
-        // via the per-context stack arena. (Non-OSR JIT never produces a
-        // StackArray, so this arm only fires on the OSR entry path.)
-        Value::StackArray { idx: aidx, frame_id } => {
-            let (aidx, frame_id) = (*aidx, *frame_id);
-            let i = match &idx_val {
-                Value::I64(n) if *n >= 0 => *n as usize,
-                other => {
-                    set_exception(vm_ctx_ref(ctx), Value::Str(format!("ArrayGet: bad index {:?}", other).into()));
-                    return 1;
-                }
-            };
-            let res = vm_ctx_ref(ctx).stack_arena.lock().with_arr(aidx, frame_id, |a| {
-                if i >= a.len() {
-                    return Err(format!("array index {} out of bounds (len={})", i, a.len()));
-                }
-                Ok(a.get_boxed(i))
-            });
-            match res {
-                Ok(Ok(v)) => v,
-                Ok(Err(msg)) => { set_exception(vm_ctx_ref(ctx), Value::Str(msg.into())); return 1; }
-                Err(e) => { set_exception(vm_ctx_ref(ctx), Value::Str(e.to_string().into())); return 1; }
-            }
-        }
-        Value::Array(rc) => {
-            let i = match &idx_val {
-                Value::I64(n) if *n >= 0 => *n as usize,
-                Value::I64(n) if *n >= 0 => *n as usize,
-                other => {
-                    set_exception(vm_ctx_ref(ctx), Value::Str(format!("ArrayGet: bad index {:?}", other).into()));
-                    return 1;
-                }
-            };
-            let borrowed = rc.borrow();
-            if i >= borrowed.len() {
-                set_exception(vm_ctx_ref(ctx), Value::Str(format!("array index {} out of bounds (len={})", i, borrowed.len()).into()));
-                return 1;
-            }
-            // add-struct-jit-value-path (P5): a value-struct array element is a
-            // `StructRefHeap` handle into the array's byte backing (for in-place
-            // `arr[i].x` / value-copy at consumers), mirroring interp `array_get`
-            // (add-struct-array-codegen). Without this the element would degrade to
-            // a `get_boxed` BoxedStruct snapshot and the following StructFieldGetPrim
-            // (base = StructRefHeap/StructRef) would mismatch.
-            if matches!(&borrowed.backing, crate::metadata::types::ArrayBacking::StructBytes { .. }) {
-                let arr_gc = *rc;
-                drop(borrowed);
-                // make-value-copy: StructRefHeap payload → transient arena (JIT uses the
-                // same per-context arena + lazily-assigned frame_id as struct_arena handles).
-                let fid = super::struct_ops::frame_id_of(frame, ctx);
-                let hidx = vm_ctx_ref(ctx).transient_alloc(
-                    fid,
-                    crate::interp::transient_arena::TransientPayload::StructElem(
-                        crate::metadata::types::StructArrayElem { arr: arr_gc, index: i as u32 },
-                    ),
-                );
-                Value::StructRefHeap { idx: hidx, frame_id: fid }
-            } else {
-                borrowed.get_boxed(i)
-            }
-        }
-        other => {
-            set_exception(vm_ctx_ref(ctx), Value::Str(format!("ArrayGet: expected array, got {:?}", other).into()));
-            return 1;
-        }
-    };
-    (*frame).regs[dst as usize] = result;
-    0
+    let (a, i) = ((*frame).regs[arr as usize], (*frame).regs[idx as usize]);
+    // A value-struct element becomes a `StructRefHeap` handle in the transient arena,
+    // stamped with this frame's (lazily assigned) id.
+    match crate::objops::array::array_get(vm_ctx_ref(ctx), &a, &i, || super::struct_ops::frame_id_of(frame, ctx)) {
+        Ok(v) => { (*frame).regs[dst as usize] = v; 0 }
+        Err(e) => raise(ctx, e),
+    }
 }
 
-/// JIT ArraySet helper.
-///
-/// **add-write-barriers (2026-05-21)**: dispatches `write_barrier_array_elem`
-/// after a successful element write *iff* `v.is_heap_ref()`.
-/// Mirrors `interp::exec_array::array_set`.
+/// `ArraySet` helper (write barrier inside objops).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_array_set(
     frame: *mut JitFrame, ctx: *const JitModuleCtx,
     arr: u32, idx: u32, val: u32,
 ) -> u8 {
-    let arr_val = (*frame).regs[arr as usize].clone();
-    let idx_val = (*frame).regs[idx as usize].clone();
-    let v       = (*frame).regs[val as usize].clone();
-    match &arr_val {
-        // fix-jit-osr-stackarray: OSR-entry stack array — write via the arena,
-        // mirroring interp `exec_array::array_set`. No GC write barrier (not a
-        // heap slot; stack-array heap-ref elems are kept live by the arena root
-        // scan). See `jit_array_get`.
-        Value::StackArray { idx: aidx, frame_id } => {
-            let (aidx, frame_id) = (*aidx, *frame_id);
-            let i = match &idx_val {
-                Value::I64(n) if *n >= 0 => *n as usize,
-                other => {
-                    set_exception(vm_ctx_ref(ctx), Value::Str(format!("ArraySet: bad index {:?}", other).into()));
-                    return 1;
-                }
-            };
-            let res = vm_ctx_ref(ctx).stack_arena.lock().with_arr_mut(aidx, frame_id, |a| {
-                if i >= a.len() {
-                    return Err(format!("array index {} out of bounds (len={})", i, a.len()));
-                }
-                a.set_boxed(i, v.clone());
-                Ok(())
-            });
-            match res {
-                Ok(Ok(())) => {}
-                Ok(Err(msg)) => { set_exception(vm_ctx_ref(ctx), Value::Str(msg.into())); return 1; }
-                Err(e) => { set_exception(vm_ctx_ref(ctx), Value::Str(e.to_string().into())); return 1; }
-            }
-        }
-        Value::Array(rc) => {
-            let i = match &idx_val {
-                Value::I64(n) if *n >= 0 => *n as usize,
-                Value::I64(n) if *n >= 0 => *n as usize,
-                other => {
-                    set_exception(vm_ctx_ref(ctx), Value::Str(format!("ArraySet: bad index {:?}", other).into()));
-                    return 1;
-                }
-            };
-            let mut borrowed = rc.borrow_mut();
-            if i >= borrowed.len() {
-                set_exception(vm_ctx_ref(ctx), Value::Str(format!("array index {} out of bounds (len={})", i, borrowed.len()).into()));
-                return 1;
-            }
-            borrowed.set_boxed(i, v.clone());
-            drop(borrowed);
-            if v.is_heap_ref() {
-                vm_ctx_ref(ctx).heap().write_barrier_array_elem(&arr_val, i, &v);
-            }
-        }
-        other => {
-            set_exception(vm_ctx_ref(ctx), Value::Str(format!("ArraySet: expected array, got {:?}", other).into()));
-            return 1;
-        }
+    let regs = &(*frame).regs;
+    match crate::objops::array::array_set(
+        vm_ctx_ref(ctx), &regs[arr as usize], &regs[idx as usize], &regs[val as usize],
+    ) {
+        Ok(()) => 0,
+        Err(e) => raise(ctx, e),
     }
-    0
 }
 
 #[unsafe(no_mangle)]
@@ -308,53 +104,10 @@ pub unsafe extern "C" fn jit_array_len(
     frame: *mut JitFrame, ctx: *const JitModuleCtx,
     dst: u32, arr: u32,
 ) -> u8 {
-    // fix-jit-osr-stackarray: clone the handle so we can drop the `frame.regs`
-    // borrow before locking the arena (arena ops may run GC root scans).
-    let arr_val = (*frame).regs[arr as usize].clone();
-    match &arr_val {
-        // OSR-entry stack array — length via arena, mirroring interp array_len.
-        Value::StackArray { idx: aidx, frame_id } => {
-            let (aidx, frame_id) = (*aidx, *frame_id);
-            match vm_ctx_ref(ctx).stack_arena.lock().with_arr(aidx, frame_id, |a| a.len() as i64) {
-                Ok(len) => { (*frame).regs[dst as usize] = Value::I64(len); 0 }
-                Err(e) => {
-                    set_exception(vm_ctx_ref(ctx), Value::Str(e.to_string().into()));
-                    1
-                }
-            }
-        }
-        Value::Array(rc) => { (*frame).regs[dst as usize] = Value::I64(rc.borrow().len() as i64); 0 }
-        other => {
-            set_exception(vm_ctx_ref(ctx), Value::Str(format!("ArrayLen: expected array, got {:?}", other).into()));
-            1
-        }
-    }
-}
-
-/// `new T[n]` on a **class-level** type param, after `jit_array_new` built the erased
-/// array (Null slots): when the receiver's (reg 0) concrete `type_args[param_index]` is
-/// a primitive value type, give every slot that primitive's zero — the per-slot default
-/// interp `array_new` uses (fix-generic-array-value-zero-init). Reference / struct type
-/// args and a non-object reg 0 leave the array as built. Non-throwing: the array is
-/// fresh, so overwriting its Null/zero slots owes no barrier.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn jit_array_zero_class_tp(
-    frame: *mut JitFrame, _ctx: *const JitModuleCtx,
-    arr: u32, param_index: u32,
-) {
-    let regs = &(*frame).regs;
-    let zero = match regs.first() {
-        Some(Value::Object(rc)) => match rc.borrow().type_args().get(param_index as usize) {
-            Some(name) => crate::metadata::types::default_value_for(name),
-            None => return,
-        },
-        _ => return,
-    };
-    if matches!(zero, Value::Null) { return; }
-    if let Some(Value::Array(rc)) = regs.get(arr as usize) {
-        let mut a = rc.borrow_mut();
-        if !matches!(a.backing, crate::metadata::types::ArrayBacking::Boxed { .. }) { return; }
-        for i in 0..a.len() { a.set_boxed(i, zero.clone()); }
+    let a = (*frame).regs[arr as usize];
+    match crate::objops::array::array_len(vm_ctx_ref(ctx), &a) {
+        Ok(n) => { (*frame).regs[dst as usize] = Value::I64(n); 0 }
+        Err(e) => raise(ctx, e),
     }
 }
 

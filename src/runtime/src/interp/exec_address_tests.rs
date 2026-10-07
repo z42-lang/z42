@@ -18,6 +18,17 @@ use crate::metadata::Value;
 use crate::vm_context::VmContext;
 use std::sync::Arc;
 
+fn m() -> crate::metadata::Module {
+    crate::metadata::Module {
+        name: "test".to_owned(),
+        string_pool: vec![],
+        classes: vec![],
+        functions: vec![],
+        type_registry: rustc_hash::FxHashMap::default(),
+        func_index: rustc_hash::FxHashMap::default(),
+    }
+}
+
 /// A minimal heap object with one field `f` at slot 0.
 fn obj_with_field_f(ctx: &VmContext, init: Value) -> Value {
     let mut field_index = NameIndex::new();
@@ -50,7 +61,7 @@ fn load_elem_addr_produces_array_ref_kind() {
     frame.set(0, arr);
     frame.set(1, Value::I64(1)); // index
 
-    load_elem_addr(&ctx, &mut frame, 2, 0, 1).unwrap();
+    load_elem_addr(&ctx, &m(), &mut frame, 2, 0, 1).unwrap();
 
     match frame.get(2).unwrap() {
         Value::Ref { idx, frame_id } => {
@@ -75,7 +86,7 @@ fn store_through_elem_ref_writes_back_to_the_array() {
     frame.set(0, arr.clone());
     frame.set(1, Value::I64(0));
 
-    load_elem_addr(&ctx, &mut frame, 2, 0, 1).unwrap();
+    load_elem_addr(&ctx, &m(), &mut frame, 2, 0, 1).unwrap();
     let Value::Ref { idx, frame_id } = frame.get(2).unwrap().clone() else {
         panic!("expected a Ref");
     };
@@ -96,7 +107,7 @@ fn load_elem_addr_rejects_non_array() {
     frame.set(0, Value::I64(7)); // not an array
     frame.set(1, Value::I64(0));
 
-    let err = load_elem_addr(&ctx, &mut frame, 2, 0, 1).unwrap_err();
+    let err = load_elem_addr(&ctx, &m(), &mut frame, 2, 0, 1).unwrap_err();
     assert!(
         err.to_string().contains("expected array"),
         "unexpected error: {err}"
@@ -112,7 +123,7 @@ fn load_elem_addr_rejects_stack_array() {
     frame.set(0, Value::StackArray { idx: 0, frame_id: frame.frame_id(&ctx) });
     frame.set(1, Value::I64(0));
 
-    assert!(load_elem_addr(&ctx, &mut frame, 2, 0, 1).is_err());
+    assert!(load_elem_addr(&ctx, &m(), &mut frame, 2, 0, 1).is_err());
 }
 
 /// `ref obj.f` → `Value::Ref` whose arena payload is `RefKind::Field { field_name: "f" }`.
@@ -122,7 +133,7 @@ fn load_field_addr_produces_field_ref_kind() {
     let mut frame = Frame::new(&ctx, &[], 8);
     frame.set(0, obj_with_field_f(&ctx, Value::I64(20)));
 
-    load_field_addr(&ctx, &mut frame, 1, 0, "f").unwrap();
+    load_field_addr(&ctx, &m(), &mut frame, 1, 0, "f").unwrap();
 
     match frame.get(1).unwrap() {
         Value::Ref { idx, frame_id } => {
@@ -144,7 +155,7 @@ fn store_through_field_ref_writes_back_to_the_object() {
     let obj = obj_with_field_f(&ctx, Value::I64(20));
     frame.set(0, obj.clone());
 
-    load_field_addr(&ctx, &mut frame, 1, 0, "f").unwrap();
+    load_field_addr(&ctx, &m(), &mut frame, 1, 0, "f").unwrap();
     let Value::Ref { idx, frame_id } = frame.get(1).unwrap().clone() else {
         panic!("expected a Ref");
     };
@@ -165,7 +176,7 @@ fn store_through_unknown_field_bails() {
     let mut frame = Frame::new(&ctx, &[], 8);
     frame.set(0, obj_with_field_f(&ctx, Value::I64(1)));
 
-    load_field_addr(&ctx, &mut frame, 1, 0, "nope").unwrap();
+    load_field_addr(&ctx, &m(), &mut frame, 1, 0, "nope").unwrap();
     let Value::Ref { idx, frame_id } = frame.get(1).unwrap().clone() else {
         panic!("expected a Ref");
     };
@@ -181,6 +192,6 @@ fn load_field_addr_rejects_non_object() {
     let mut frame = Frame::new(&ctx, &[], 8);
     frame.set(0, Value::I64(7));
 
-    let err = load_field_addr(&ctx, &mut frame, 1, 0, "f").unwrap_err();
+    let err = load_field_addr(&ctx, &m(), &mut frame, 1, 0, "f").unwrap_err();
     assert!(err.to_string().contains("expected object"), "unexpected error: {err}");
 }
