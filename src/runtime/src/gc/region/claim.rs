@@ -15,9 +15,9 @@ use super::RegionEntry;
 /// re-absorbs the filled prefix at [`Region::retire_chunk`].
 ///
 /// # Safety / invariants
-/// - `slots` / `init_ptr` are raw pointers into `Region`-owned, never-moving
-///   memory (slab chunk arrays + the chunk's `initialized` row, both fixed-size and
-///   never reallocated), valid for the region's lifetime.
+/// - `slots` is a raw pointer into `Region`-owned, never-moving memory (a slab chunk
+///   array), valid for the region's lifetime; `init` is a copy of the chunk's
+///   constructed-slot bits, which nothing changes while the chunk is borrowed.
 /// - The chunk is marked `borrowed` in the region while a claim is live, so
 ///   every region-lock iterate skips it → the owner thread is the **sole**
 ///   accessor of these slots. That single-writer/no-reader discipline is what
@@ -29,10 +29,9 @@ pub struct ChunkClaim<T> {
     pub(crate) chunk_idx: u32,
     /// Raw pointer to the chunk's `[MaybeUninit<RegionEntry<T>>; CHUNK_SIZE]`.
     pub(super) slots: *mut MaybeUninit<RegionEntry<T>>,
-    /// Raw pointer to the chunk's `initialized` row (`[bool; CHUNK_SIZE]`
-    /// buffer). Read per slot in `fill` to choose write mode; only the region
-    /// (owner thread) writes it, and never while filling.
-    pub(super) init_ptr: *const bool,
+    /// The chunk's constructed-slot bits as of the borrow. Read per slot in `fill` to choose
+    /// the write mode.
+    pub(super) init: super::SlotBits,
     /// Next free slot index within the chunk (bump cursor / high-water mark).
     pub(super) next: u16,
     /// Chunk capacity (`CHUNK_SIZE`).
@@ -54,7 +53,7 @@ impl<T> ChunkClaim<T> {
     /// Returns `(entry_ptr, generation)` for `GcRef` construction, or `None`
     /// when the chunk is full (caller retires + borrows a fresh one).
     ///
-    /// Per-slot write mode (via `init_ptr`):
+    /// Per-slot write mode (via `init`):
     /// - **uninitialized** slot (fresh-grown chunk): `ptr::write` a new
     ///   `RegionEntry` at generation 0.
     /// - **initialized** slot (pooled chunk's dead entry): read the tombstone
@@ -70,10 +69,10 @@ impl<T> ChunkClaim<T> {
             return None;
         }
         let ei = self.next;
-        // SAFETY: ei < cap == CHUNK_SIZE; `slots`/`init_ptr` point at the
-        // chunk's fixed-size arrays; owner-exclusive access.
+        // SAFETY: ei < cap == CHUNK_SIZE; `slots` points at the chunk's fixed-size array;
+        // owner-exclusive access.
         let slot = unsafe { &mut *self.slots.add(ei as usize) };
-        let was_init = unsafe { *self.init_ptr.add(ei as usize) };
+        let was_init = crate::gc::side_bits::test(&self.init, ei as usize);
         self.payload_delta += (self.payload_of)(&value) as i64;
         let generation = if was_init {
             // SAFETY: initialized ⇒ constructed (dead) entry.

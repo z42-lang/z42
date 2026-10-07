@@ -7,7 +7,7 @@
 //! 1. **Drop every constructed slot.** A pooled chunk's slots are dead entries that still own
 //!    their payloads (`ObjStorage`, extras) — freeing them is half the point, and a decommitted
 //!    page may read back as zeroes, which is not a valid `RegionEntry` to drop later. The
-//!    `initialized` row is cleared, so every later reader skips the slots (`iterate_alive`,
+//!    constructed-slot bits are cleared, so every later reader skips the slots (`iterate_alive`,
 //!    sweeps, `ChunkClaim::fill`'s write mode).
 //! 2. **Record a generation floor.** `fill` preserves a constructed slot's tombstone generation
 //!    — the ABA guard against a stale handle to the slot's previous occupant. Dropped slots have
@@ -59,8 +59,9 @@ impl<T> Region<T> {
         debug_assert!(!self.decommitted[ci] && !self.borrowed[ci], "only a committed pooled chunk");
         let mut floor = self.gen_floor[ci];
         let mut payload = 0u64;
+        let init = std::mem::take(&mut self.init_bits[ci]);
         for ei in 0..CHUNK_SIZE {
-            if !std::mem::replace(&mut self.initialized[ci][ei], false) {
+            if !side_bits::test(&init, ei) {
                 continue;
             }
             let slot = &mut self.chunks[ci][ei];
@@ -70,7 +71,7 @@ impl<T> Region<T> {
             debug_assert!(!entry.alive.load(Ordering::Relaxed), "pooled chunks hold only the dead");
             floor = floor.max(entry.generation.load(Ordering::Acquire));
             payload += (self.payload_of)(entry.value.get_mut());
-            // SAFETY: constructed, and `initialized` now says it is not — dropped exactly once.
+            // SAFETY: constructed, and `init_bits` now says it is not — dropped exactly once.
             unsafe { slot.assume_init_drop() };
         }
         self.gen_floor[ci] = floor;

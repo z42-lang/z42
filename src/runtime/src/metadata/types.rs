@@ -5,9 +5,10 @@
 //! |---|---|
 //! | `field` | FieldSlot、TAG_* 类型标签、默认值 |
 //! | `type_desc` | TypeDesc / TypeDescCold（≈ CoreCLR MethodTable，Arc 共享） |
-//! | `layout` | StructTypeLayout / ObjectLayout / InlineRef、compose / synthesize 布局 |
-//! | `codec` | inline ref 与基元字节编解码 |
-//! | `object` | NativeData / ScriptObject + GcRef<ScriptObject> 访问 |
+//! | `layout` | StructTypeLayout / ObjectLayout / FieldAccess、compose / synthesize 布局（对象字段的单元归属） |
+//! | `codec` | 基元字节 / 位编解码 |
+//! | `ref_word` | 对象引用字段的 8 B 自描述字（种类 + 句柄）与 `Value` 互转 |
+//! | `object` / `object_fields` | NativeData / ScriptObject + GcRef<ScriptObject> 访问；实例字段单元的读写、GC 遍历 |
 //! | `array` / `array_access` | ArrayObj / ArrayBacking：构造与 backing 分配 / 元素访问·视图·GC·深拷贝 |
 //! | `array_sort` | 基元元素前缀的原生稳定排序（`List<T>.Sort()` 快路径） |
 //! | `elem_type` | ElemType：数组元素类型名的进程级驻留句柄（8 B，建数组零分配） |
@@ -17,8 +18,10 @@ mod field;
 mod type_desc;
 mod layout;
 mod codec;
+pub mod ref_word;
 mod obj_storage;
 mod object;
+mod object_fields;
 mod array;
 mod array_access;
 mod array_sort;
@@ -32,6 +35,7 @@ pub use layout::*;
 pub use codec::*;
 pub use obj_storage::*;
 pub use object::*;
+pub use object_fields::FieldWrite;
 pub use array::*;
 pub use array_access::*;
 pub use elem_type::*;

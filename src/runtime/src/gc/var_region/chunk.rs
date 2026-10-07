@@ -109,6 +109,27 @@ pub(crate) fn class_for_with_limit(payload: usize, loh_bytes: usize) -> (usize, 
     (footprint, ((oct << SUB_LOG2) | sub as u32) as u8)
 }
 
+/// The footprint of size class `sc` — the inverse of [`class_for_with_limit`] for in-chunk
+/// classes (`octave << SUB_LOG2 | sub` → `2^octave + sub · 2^octave / 2^SUB_LOG2`). A block's
+/// header names its class, so this is how a chunk walk finds the next block.
+#[inline]
+pub(super) fn class_footprint(sc: u8) -> usize {
+    let oct = (sc >> SUB_LOG2) as u32;
+    let sub = (sc & ((1 << SUB_LOG2) - 1)) as usize;
+    (1usize << oct) + sub * ((1usize << oct) >> SUB_LOG2)
+}
+
+/// Words of a chunk's young bitmap: one bit per 8-byte granule, over the part of the chunk a
+/// block can start in (all of a bump chunk; only offset 0 of a dedicated one, but a dedicated
+/// chunk smaller than a bump chunk is sized by its length so a tiny one stays tiny).
+#[inline]
+pub(super) fn young_words(cap: usize) -> usize {
+    cap.min(CHUNK_BYTES).div_ceil(8 * 64)
+}
+
+/// Young-bitmap words of a bump chunk.
+pub(super) const CHUNK_WORDS: usize = CHUNK_BYTES / (8 * 64);
+
 /// **perf-free-slot-encoding (2026-09-13)**: a free-list entry — the `(chunk index, in-chunk
 /// byte offset)` of one tombstoned slot, packed into four bytes.
 ///
@@ -254,14 +275,14 @@ impl Chunk {
 /// **add-gc-tlab stage 3 (2026-08-29)**: a mutator thread's exclusive write claim on one
 /// `VarRegion` bump chunk (design D4). Produced by [`VarRegion::borrow_chunk`] (under the
 /// region lock), then filled **lock-free** by the owning thread via [`VarChunkClaim::fill`]
-/// until a block doesn't fit (`fill` returns `None`); [`VarRegion::retire_chunk`] then appends
-/// the filled blocks into `all_blocks`.
+/// until a block doesn't fit (`fill` returns `None`); [`VarRegion::retire_chunk`] then publishes
+/// the filled prefix (high-water mark, census, young bits).
 ///
 /// # Safety / invariants
 /// - `base` is the raw pointer to `Region`-owned chunk memory (a separate `malloc`, never moved
 ///   until the region drops), valid for the region's lifetime.
 /// - The chunk is `borrowed` while a claim is live, so only the owning thread touches it; its
-///   blocks are absent from `all_blocks` until retire, so no GC scan reads them. That single
+///   high-water mark stays `0` until retire, so no GC walk reads its blocks. That single
 ///   writer / no reader discipline makes the un-synchronized `fill` writes sound.
 /// - Only non-oversized blocks (`footprint ≤ CHUNK_BYTES`) go through the TLAB; oversized and
 ///   free-list reuse stay on the locked `VarRegion::alloc` path.
@@ -274,8 +295,11 @@ pub struct VarChunkClaim {
     /// borrow time). Fresh chunks → 0; recycled chunks → a value above every prior occupant's
     /// generation (ABA guard).
     base_gen: u32,
-    /// Blocks filled from this claim, appended to `all_blocks` at retire.
-    local_blocks: Vec<NonNull<GcBlockHeader>>,
+    /// Start bits of the blocks filled from this claim (one bit per 8-byte granule) — merged
+    /// into the region's young set at retire.
+    starts: [u64; CHUNK_WORDS],
+    /// Blocks filled from this claim.
+    filled: u32,
 }
 
 impl VarChunkClaim {
@@ -304,7 +328,7 @@ impl VarChunkClaim {
                 size: payload as u32,
                 marked: AtomicU8::new(0),
                 alive: AtomicBool::new(true),
-                type_tag: AtomicU8::new(GcBlockHeader::pack_tag(block_type, 0, true)),
+                type_tag: AtomicU8::new(GcBlockHeader::pack_tag(block_type, 0)),
                 size_class,
                 chunk_idx: self.chunk_idx as u32,
             });
@@ -312,7 +336,8 @@ impl VarChunkClaim {
             std::ptr::write_bytes(data, 0, payload);
         }
         self.off += footprint;
-        self.local_blocks.push(header_ptr);
+        self.starts[off >> 9] |= 1u64 << ((off >> 3) & 63);
+        self.filled += 1;
         Some(VarGcRef::pack(header_ptr, self.base_gen))
     }
 
@@ -332,11 +357,6 @@ impl VarRegion {
             Some(ci) => self.bump_off + footprint > self.chunks[ci].cap,
         };
         if need_new {
-            // The outgoing ambient bump chunk is finished — shrink its bucket (see the note in
-            // `retire_chunk`). TLAB chunks take the same haircut when they retire.
-            if let Some(prev) = self.bump_chunk {
-                self.all_blocks[prev].shrink_to_fit();
-            }
             let ci = self.push_chunk(CHUNK_BYTES);
             self.bump_chunk = Some(ci);
             self.bump_off = 0;
@@ -347,6 +367,7 @@ impl VarRegion {
         // 16-aligned, so `base + off` stays at least 8-aligned.
         debug_assert_eq!(off % 8, 0, "bump offset must stay 8-aligned");
         self.bump_off += footprint;
+        self.hwm[ci] = self.bump_off as u32;
         // SAFETY: `off + footprint <= cap` (ensured above), so `base + off` is in-bounds and
         // has room for the whole block.
         let raw = unsafe { self.chunks[ci].base.as_ptr().add(off) };
@@ -358,6 +379,7 @@ impl VarRegion {
     /// ptr at the chunk base.
     pub(super) fn alloc_dedicated(&mut self, footprint: usize) -> (NonNull<GcBlockHeader>, u32) {
         let ci = self.push_chunk(footprint);
+        self.hwm[ci] = footprint as u32;
         let base = self.chunks[ci].base;
         // SAFETY: chunk base is 16-aligned (≥ header align 8) and non-null.
         (unsafe { NonNull::new_unchecked(base.as_ptr() as *mut GcBlockHeader) }, ci as u32)
@@ -383,7 +405,9 @@ impl VarRegion {
             self.blocks_per_chunk[ci] = 0;
             self.live_per_chunk[ci] = 0;
             self.max_gen_per_chunk[ci] = 0;
-            self.all_blocks[ci] = Vec::new();
+            self.hwm[ci] = 0;
+            debug_assert_eq!(self.young_per_chunk[ci], 0, "a freed chunk holds nothing young");
+            self.young_bits[ci] = self.new_young_row(cap);
             return ci;
         }
         self.chunks.push(chunk);
@@ -394,7 +418,13 @@ impl VarRegion {
         self.blocks_per_chunk.push(0);
         self.live_per_chunk.push(0);
         self.max_gen_per_chunk.push(0);
-        self.all_blocks.push(Vec::new());
+        self.hwm.push(0);
+        let row = self.new_young_row(cap);
+        self.young_bits.push(row);
+        self.young_per_chunk.push(0);
+        if self.chunks.len() > self.young_chunks.len() * 64 {
+            self.young_chunks.push(0);
+        }
         self.chunks.len() - 1
     }
 
@@ -418,37 +448,41 @@ impl VarRegion {
             cap: self.chunks[ci].cap,
             off: 0,
             base_gen: self.reuse_gen[ci],
-            local_blocks: Vec::new(),
+            starts: [0; CHUNK_WORDS],
+            filled: 0,
         }
     }
 
     /// **add-gc-tlab stage 3**: merge a TLAB's filled blocks back into the region (design D4):
-    /// append them to `all_blocks`, bump `live_count`, and clear the chunk's `borrowed` flag so
+    /// publish the chunk's high-water mark (which is what makes its blocks visible to every
+    /// walk), add them to the census and the young set, and clear the chunk's `borrowed` flag so
     /// it rejoins sweep/reclaim. The chunk's unused tail is abandoned until the whole chunk dies
     /// and is reclaimed (bounded ≤ CHUNK_BYTES per safepoint retire).
     pub fn retire_chunk(&mut self, claim: &mut VarChunkClaim) {
-        let n = claim.local_blocks.len();
-        // fix-minor-gc-skips-var-region: TLAB-filled blocks are freshly allocated, so they
-        // are young by definition (`fill` stamps `gen_age = 0` and the young bit). They join
-        // `young_list` here for the same reason they join `all_blocks` here — until retire,
-        // the region cannot see them at all.
-        if self.generational {
-            self.young_list.extend(claim.local_blocks.iter().copied());
+        let ci = claim.chunk_idx;
+        let n = claim.filled;
+        self.hwm[ci] = claim.off as u32;
+        // TLAB-filled blocks are freshly allocated, so they are young by definition (`fill`
+        // stamps `gen_age = 0`); they join the young set here because until retire the region
+        // cannot see them at all. The chunk came fresh or out of the pool (every block dead,
+        // so no bit set), hence the bits are all new.
+        if self.generational && n > 0 {
+            for (w, s) in self.young_bits[ci].iter_mut().zip(claim.starts.iter()) {
+                debug_assert_eq!(*w & s, 0, "a borrowed chunk's young bits start clear");
+                *w |= s;
+            }
+            self.young_per_chunk[ci] += n;
+            self.young_len += n as usize;
+            crate::gc::side_bits::set(&mut self.young_chunks, ci);
         }
-        let bucket = &mut self.all_blocks[claim.chunk_idx];
-        bucket.extend(claim.local_blocks.drain(..));
-        // perf-bucket-all-blocks-by-chunk: a retired chunk is finished — it is never bumped
-        // again (a recycled one is `clear()`ed first). One `Vec` per chunk otherwise carries
-        // `Vec`'s doubling slack, up to 2x, on **every** chunk: measured +20 MB of RSS on
-        // `z42c.semantics` before this line. Shrinking at the one point a bucket stops growing
-        // costs a single realloc per chunk and gives all of it back.
-        bucket.shrink_to_fit();
-        self.live_count += n;
+        claim.filled = 0;
+        claim.starts = [0; CHUNK_WORDS];
+        self.live_count += n as usize;
         // add-incremental-chunk-reclaim: the TLAB carved these slots lock-free; the region
         // only learns of them here, so this is where its per-chunk census picks them up.
-        self.blocks_per_chunk[claim.chunk_idx] += n as u32;
-        self.live_per_chunk[claim.chunk_idx] += n as u32;
-        self.borrowed[claim.chunk_idx] = false;
+        self.blocks_per_chunk[ci] += n;
+        self.live_per_chunk[ci] += n;
+        self.borrowed[ci] = false;
     }
 
     /// **add-gc-tlab stage 3 (D7 for var)** + **fix-loh-never-freed (2026-09-08)**: after a
@@ -466,9 +500,9 @@ impl VarRegion {
     ///   function skipped `cap != CHUNK_BYTES`, so **a dead large object held its memory until
     ///   the VM exited**.
     ///
-    /// Either way the chunk's blocks are purged from `all_blocks`, `free_lists` and
-    /// `young_list` first — for a pooled chunk because the memory is about to be re-bumped
-    /// under a fresh generation, for a freed one because the memory is about to stop existing.
+    /// Either way the chunk's blocks stop existing to the region first (high-water mark reset,
+    /// free-list entries counted stale) — for a pooled chunk because the memory is about to be
+    /// re-bumped under a fresh generation, for a freed one because it is about to stop existing.
     /// Skips borrowed chunks, the current ambient bump chunk, and already-pooled chunks.
     /// Runs under STW at the sweep tail.
     ///
@@ -521,8 +555,7 @@ impl VarRegion {
     ///
     /// **add-incremental-chunk-reclaim (2026-09-10)**: both questions are answered from the
     /// per-chunk census (`VarRegion::blocks_per_chunk` / `live_per_chunk`), which alloc,
-    /// retire and tombstone keep current. This used to be a survey pass over `all_blocks` —
-    /// one binary search per block, 2.7 M blocks, **45 ms of a 54 ms minor sweep**.
+    /// retire and tombstone keep current — `O(chunks)`, never a walk over blocks.
     pub(super) fn partition_dead_chunks(&self) -> (Vec<usize>, Vec<usize>) {
         let ambient = self.bump_chunk;
         let already: std::collections::HashSet<usize> =
@@ -560,72 +593,67 @@ impl VarRegion {
         })
     }
 
-    /// Drop every block that lives in a chunk being pooled or freed from the three lists that
-    /// hold raw block pointers.
+    /// Make every block of the chunks being pooled or freed stop existing to the region: count
+    /// the free-list entries they leave stale (per size class) and reset the chunks' high-water
+    /// marks. Their young bits are already clear — every block in them was tombstoned, and
+    /// tombstoning takes a block out of the young set.
     ///
-    /// **add-incremental-chunk-reclaim (2026-09-10)**: the membership test is now the block
-    /// header's own `chunk_idx` — `O(1)` instead of a binary search over the chunk address
-    /// table. The retain still walks each list once, which is the remaining `O(heap)` term,
-    /// but at roughly a twelfth of the cost per element.
+    /// **lazy-var-free-list (2026-09-12)**: `free_lists` is deliberately **not** scanned here —
+    /// that was `O(heap)` work (one header dereference per entry, up to 1.24 M entries, every
+    /// collection) to evict a handful. Entries are invalidated lazily at pop instead; see
+    /// `VarRegion::free_lists` for why that cannot hand out a dangling pointer, and
+    /// `pop_free_slot` for the guard that keeps it from handing out a re-bumped one.
     ///
-    /// `young_list` is purged for the same reason as the other two: a pooled chunk is
-    /// re-bumped from offset 0, so a surviving entry would dangle onto whatever lands at that
-    /// address next — and the minor sweep would happily age or tombstone the new occupant.
+    /// The stale count is exact: every block in a chunk that reaches here is tombstoned, and
+    /// every non-oversized tombstone pushed a free-list entry. The walk is `O(blocks in the
+    /// chunks being reclaimed)` — proportional to the work being done — and linear in address.
     pub(super) fn purge_blocks(&mut self, pool: &[usize], free: &[usize]) {
-        let mut is_reclaimed = vec![false; self.chunks.len()];
         for &ci in pool.iter().chain(free) {
-            is_reclaimed[ci] = true;
-        }
-        let in_reclaimed = |p: &NonNull<GcBlockHeader>| {
-            // SAFETY: every pointer in these lists is a chunk-owned header, valid until the
-            // chunk is actually reclaimed — which happens after this purge, not before.
-            let ci = unsafe { p.as_ref() }.chunk_idx as usize;
-            ci < is_reclaimed.len() && is_reclaimed[ci]
-        };
-        // perf-bucket-all-blocks-by-chunk: O(reclaimed chunks) instead of a `retain` with one
-        // header dereference per block in the whole region. `free_lists` / `young_list` still
-        // scan — they are not chunk-partitioned — but they are the smaller half.
-        // **lazy-var-free-list (2026-09-12)**: before dropping a reclaimed chunk's block list,
-        // count what it just staled, **per size class**. Every block in a chunk that reaches
-        // here is tombstoned (that is the condition for reclaiming it) and every non-oversized
-        // tombstone pushed a free-list entry, so this bucket *is* the set of entries that just
-        // went stale — the count is exact, not an estimate.
-        //
-        // This walk is `O(blocks in the chunks being reclaimed)` — proportional to the work
-        // being done, which is the whole point of the change. The blocks are address
-        // contiguous within their chunk, so it is a linear scan, not the scattered chase the
-        // removed `free_lists` retain was.
-        for &ci in pool.iter().chain(free) {
-            for &p in &self.all_blocks[ci] {
+            self.for_each_block_in_mut(ci, |r, p| {
                 // SAFETY: the chunk is still owned here — `purge_blocks` runs before anything
                 // is pooled or freed.
                 let sc = unsafe { p.as_ref() }.size_class as usize;
-                if sc < self.stale_per_class.len() {
-                    self.stale_per_class[sc] += 1;
-                    self.stale_free += 1;
+                if sc < r.stale_per_class.len() {
+                    r.stale_per_class[sc] += 1;
+                    r.stale_free += 1;
                 }
-            }
+            });
+            self.hwm[ci] = 0;
+            debug_assert_eq!(self.young_per_chunk[ci], 0, "a dead chunk holds nothing young");
         }
-        for &ci in pool.iter().chain(free) {
-            // `clear()` would keep the bucket's capacity — and a reclaimed chunk's bucket is
-            // ~256 pointers (2 KB). At ~600 chunks reclaimed per minor that slack accumulates
-            // into the region forever: measured +18 MB of RSS on `z42c.semantics`. Dropping the
-            // Vec hands the memory back; a pooled chunk reallocates its bucket when refilled,
-            // which is one malloc per chunk reuse.
-            self.all_blocks[ci] = Vec::new();
+    }
+
+    /// Visit every block carved in chunk `ci` (`[0, hwm)`), in address order. Each header
+    /// names its size class, which gives the next block's offset; a dedicated chunk holds one
+    /// block. Nothing for a pooled, freed or borrowed chunk (its mark is `0`).
+    #[inline]
+    pub(super) fn for_each_block_in(&self, ci: usize, mut f: impl FnMut(NonNull<GcBlockHeader>)) {
+        let (base, end, cap) = (self.chunks[ci].base.as_ptr(), self.hwm[ci] as usize, self.chunks[ci].cap);
+        let mut off = 0usize;
+        while off < end {
+            // SAFETY: `[0, hwm)` is a run of carved blocks, each starting with a written header
+            // (see `VarRegion::hwm`); `off` is one of their starts, so in bounds and 8-aligned.
+            let p = unsafe { NonNull::new_unchecked(base.add(off) as *mut GcBlockHeader) };
+            let sc = unsafe { p.as_ref() }.size_class;
+            off += if sc == OVERSIZED_CLASS { cap } else { class_footprint(sc) };
+            f(p);
         }
-        // **lazy-var-free-list (2026-09-12)**: `free_lists` is deliberately **not** scanned
-        // here. It was the last `O(heap)` term in this function — 142.5 ms of a 513 ms total
-        // pause on `z42c.semantics`, one header dereference per entry across up to 1.24 M
-        // entries, every collection, to evict the handful belonging to the chunks being
-        // reclaimed. Entries are invalidated lazily at pop instead; see `VarRegion::free_lists`
-        // for why that cannot hand out a dangling pointer, and `pop_free_slot` for the guard
-        // that keeps it from handing out a re-bumped one.
-        //
-        // `young_list` keeps its retain: it is an order of magnitude smaller (measured 2.7 ms
-        // against the free lists' 142.5 ms over the same run) and it has no pop path to hang a
-        // lazy check on — the minor sweep walks it whole.
-        self.young_list.retain(|p| !in_reclaimed(p));
+    }
+
+    /// [`Self::for_each_block_in`] handing `&mut self` to the callback, for walks that tombstone
+    /// or re-label as they go (neither moves a block or changes its size class, so the walk's
+    /// own state stays valid).
+    #[inline]
+    pub(super) fn for_each_block_in_mut(&mut self, ci: usize, mut f: impl FnMut(&mut Self, NonNull<GcBlockHeader>)) {
+        let (base, end, cap) = (self.chunks[ci].base.as_ptr(), self.hwm[ci] as usize, self.chunks[ci].cap);
+        let mut off = 0usize;
+        while off < end {
+            // SAFETY: as in `for_each_block_in`.
+            let p = unsafe { NonNull::new_unchecked(base.add(off) as *mut GcBlockHeader) };
+            let sc = unsafe { p.as_ref() }.size_class;
+            off += if sc == OVERSIZED_CLASS { cap } else { class_footprint(sc) };
+            f(self, p);
+        }
     }
 }
 
@@ -650,15 +678,13 @@ impl VarRegion {
         self.footprint = footprint;
     }
 
-    /// Re-measure the variable-size side tables — the `all_blocks` buckets, the size-class
-    /// free lists, `young_list` and the chunk lists — and charge the difference since the last
-    /// reading. `O(chunks + classes)`; runs at the sweep tail beside
-    /// [`Self::reclaim_dead_var_chunks`].
+    /// Re-measure the variable-size side tables — the young bitmaps, the size-class free lists
+    /// and the chunk lists — and charge the difference since the last reading.
+    /// `O(chunks + classes)`; runs at the sweep tail beside [`Self::reclaim_dead_var_chunks`].
     pub fn refresh_side_tables(&mut self) {
-        let ptr = std::mem::size_of::<NonNull<GcBlockHeader>>();
-        let blocks: usize = self.all_blocks.iter().map(|b| b.capacity()).sum();
+        let young: usize = self.young_bits.iter().map(|b| crate::gc::footprint::malloc_size(b.len() * 8) as usize).sum();
         let free: usize = self.free_lists.iter().map(|l| l.capacity()).sum();
-        let now = ((blocks + self.young_list.capacity()) * ptr
+        let now = (young
             + free * std::mem::size_of::<FreeEntry>()
             + (self.var_free_chunk_pool.capacity() + self.free_chunk_slots.capacity())
                 * std::mem::size_of::<usize>()) as u64;

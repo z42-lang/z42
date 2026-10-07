@@ -630,8 +630,8 @@ fn validate_detects_old_in_young_list() {
 fn validate_detects_young_not_in_list() {
     let mut r: Region<u64> = Region::new();
     let h = r.alloc(10);
-    // Manually corrupt: remove from young_list without changing gen_age.
-    r.young_list.clear();
+    // Manually corrupt: empty the young set without changing gen_age.
+    r.clear_young_set_for_test();
 
     match r.validate() {
         Err(Violation::YoungEntryNotInList { chunk_idx, entry_idx }) => {
@@ -642,16 +642,32 @@ fn validate_detects_young_not_in_list() {
 }
 
 #[test]
-fn validate_detects_duplicate_in_young_list() {
+fn validate_detects_dead_slot_in_young_set() {
     let mut r: Region<u64> = Region::new();
     let h = r.alloc(1);
-    r.young_list.push((h.chunk_idx, h.entry_idx)); // duplicate
+    assert!(r.tombstone(h));
+    // Manually corrupt: put the dead slot back into the young set.
+    r.push_young(h.chunk_idx, h.entry_idx);
 
     match r.validate() {
-        Err(Violation::DuplicateInYoungList { chunk_idx, entry_idx }) => {
+        Err(Violation::DeadSlotInYoungSet { chunk_idx, entry_idx }) => {
             assert_eq!((chunk_idx, entry_idx), (h.chunk_idx, h.entry_idx));
         }
-        other => panic!("expected DuplicateInYoungList, got {:?}", other),
+        other => panic!("expected DeadSlotInYoungSet, got {:?}", other),
+    }
+}
+
+#[test]
+fn validate_detects_a_stale_young_summary() {
+    let mut r: Region<u64> = Region::new();
+    let h = r.alloc(1);
+    // Manually corrupt: drop the chunk's summary bit while its young bit stays — a minor would
+    // never visit the chunk.
+    r.young_chunks[0] = 0;
+
+    match r.validate() {
+        Err(Violation::YoungSummaryDrift { chunk_idx }) => assert_eq!(chunk_idx, h.chunk_idx),
+        other => panic!("expected YoungSummaryDrift, got {:?}", other),
     }
 }
 
@@ -679,7 +695,8 @@ fn validate_detects_location_mismatch() {
     // allocating + manually setting via unsafe field write.
     let entry_ptr = r.resolve(h) as *const RegionEntry<u64> as *mut RegionEntry<u64>;
     unsafe {
-        (*entry_ptr).location = (99, 99);
+        (*entry_ptr).loc_chunk = 99;
+        (*entry_ptr).loc_entry = 99;
     }
 
     match r.validate() {
@@ -782,10 +799,12 @@ fn region_drop_after_slot_reuse_drops_each_value_exactly_once() {
 fn region_entry_stays_lean_for_script_objects() {
     use std::mem::size_of;
     // The whole point of P1: a `RegionEntry` header must not carry a 24-byte
-    // mutex-wrapped finalizer for a capability nothing registers. `T + 40`.
+    // mutex-wrapped finalizer for a capability nothing registers, nor a young-list back-index
+    // (M8: young-set membership is a bit in the region). `T + 32`: the value's mutex word plus
+    // 24 bytes of GC metadata.
     assert_eq!(
         size_of::<RegionEntry<crate::metadata::ScriptObject>>(),
-        size_of::<crate::metadata::ScriptObject>() + 40,
+        size_of::<crate::metadata::ScriptObject>() + 32,
         "RegionEntry header grew — check what was added before updating this number",
     );
 }

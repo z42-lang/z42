@@ -195,7 +195,7 @@ pub fn build_type_registry(module: &mut Module) {
                         .and_then(|b| registry.get(b))
                         .and_then(|b| b.composed_object_layout());
                     Some(std::sync::Arc::new(crate::metadata::types::compose_object_layout(
-                        base_composed.as_deref(), own, &fields,
+                        base_composed.as_deref(), own, &fields, &desc.type_params,
                     )))
                 }
                 // unify-object-byte-layout (PR-2): a normal reference class with fields
@@ -467,7 +467,7 @@ pub fn try_fixup_inheritance(
                     .and_then(|b| b.composed_object_layout());
                 // `layout.0` = freshly merged fields (base ++ own) for the access table.
                 Some(Arc::new(crate::metadata::types::compose_object_layout(
-                    base_composed.as_deref(), own, &layout.0,
+                    base_composed.as_deref(), own, &layout.0, td.type_params(),
                 )))
             }
             // No zbc object block — synthesize over the full merged fields (mirrors the

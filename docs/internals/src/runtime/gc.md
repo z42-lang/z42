@@ -166,10 +166,11 @@ slot 被复用后会静默读到**另一个对象**（type confusion）——见
 - `region_object: Mutex<Region<ScriptObject>>` —— `Value::Object` 后端
 - `region_array: Mutex<Region<ArrayObj>>` —— `Value::Array` 后端
 
-`Region<T>` 内部 `Vec<Box<[MaybeUninit<RegionEntry<T>>; 256]>>` chunked
-storage —— chunks 是 `Box` 单位故 entry 地址在 chunk 生命周期内**绝对稳定**
-（`GcRef::as_ptr` 身份哈希契约的物理基础）。Alloc 走 free-list pop 优先
-（reuse tombstoned slot，preserve bumped generation）+ bump pointer。
+`Region<T>` 内部是 256 槽一个的 chunk（`[MaybeUninit<RegionEntry<T>>; 256]`，从页对齐 slab
+里按下标切出、永不移动）—— entry 地址在 region 生命周期内**绝对稳定**
+（`GcRef::as_ptr` 身份哈希契约的物理基础）。Alloc 走空闲槽复用优先
+（reuse tombstoned slot，preserve bumped generation）+ bump pointer。槽之外的每槽信息
+（构造过 / 年轻 / 空闲）是每 chunk 一张位图，见 [侧表：位图与高水位](gc-tlab.md#侧表位图与高水位)。
 
 `GcRef<T>` 是 8B 的标记指针 handle（64 位：低 48 位 `RegionEntry<T>` 地址 + 高 16 位 generation 快照；32 位：`{ptr, gen}`）：
 - Clone = memcpy 8 字节，**零原子 op**（相对 `Arc::clone` 每次
@@ -370,7 +371,7 @@ card-marking 真实逻辑。**call-site wiring + 调用契约**与模式无关�
 ### Debug invariants
 
 多个 GC 算法叠加带来大量数据结构 invariant
-（young_list ⇔ gen_age 一致、free_list ⇔ alive=false、card_dirty 长度
+（年轻位图 ⇔ gen_age 一致、空闲位图 ⇔ alive=false、card_dirty 长度
 与 chunks 一致、mark_queue 在 cycle 外为空、sweep 后无 stale mark
 bit、entry.location 与实际位置吻合等）。这些 invariant 由 debug-
 only 验证器在每次 collect 末尾检查；release 构建完全编译掉。
@@ -384,19 +385,20 @@ only 验证器在每次 collect 末尾检查；release 构建完全编译掉。
   —— panicking wrapper，由 collect 路径在 cycle 完成后调用；任何
   violation 立即 panic + 详细消息
 
-**9 个 Region 级 Violation 变种**：
+**10 个 Region 级 Violation 变种**（侧表的形状见 [侧表：位图与高水位](gc-tlab.md#侧表位图与高水位)）：
 
 | Variant | 触发条件 |
 |---------|---------|
-| `OldEntryInYoungList` | young_list 含 gen_age ≥ 晋升年龄的 entry |
-| `YoungEntryNotInList` | alive young entry 未出现在 young_list |
-| `DuplicateInYoungList` | young_list 同一 (ci, ei) 出现多次 |
-| `AliveSlotInFreeList` | free_list 含 alive=true 的 slot |
-| `FreeChunkIndexDrift` | `free_chunks` 与 `free_slots` 不一致（chunk 重复登记 / 空桶仍登记 / 非空桶未登记）|
-| `FreeSlotCountDrift` | `free_len` 与各桶实际数量漂移 |
-| `LocationMismatch` | `entry.location` 不等于实际 (ci, ei) |
+| `OldEntryInYoungList` | 年轻集合含 gen_age ≥ 晋升年龄的 entry |
+| `YoungEntryNotInList` | alive young entry 不在年轻集合里 |
+| `DeadSlotInYoungSet` | 年轻集合含未构造或已死的槽（tombstone 漏摘年轻位） |
+| `YoungSummaryDrift` | chunk 摘要位与该 chunk 的年轻位图不一致（漏置会让 minor 跳过年轻对象）|
+| `YoungCountDrift` | `young_len` 与年轻位图的置位数漂移 |
+| `AliveSlotInFreeList` | 空闲位图含 alive 或未构造的槽 |
+| `FreeChunkIndexDrift` | `free_chunks` 与 `free_bits` 不一致（chunk 重复登记 / 无空闲槽仍登记 / 有空闲槽未登记）|
+| `FreeSlotCountDrift` | `free_len` 与空闲位图的置位数漂移 |
+| `LocationMismatch` | `entry.location()` 不等于实际 (ci, ei) |
 | `CardDirtyLengthMismatch` | `card_dirty.len() != chunks.len()` |
-| `YoungIndexMismatch` | `young_list[i]` 指向的 entry 自记的 `young_idx` 不等于 `i` |
 
 **2 个 heap 级检查**（panic-only，无 Violation enum）：
 

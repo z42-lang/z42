@@ -131,7 +131,7 @@ ScriptObject::new(dummy_type_desc("Owner"), {
 //    read/write/GC path end-to-end (the compose tests only check the layout metadata). ──
 #[test]
 fn inline_object_field_roundtrips_and_is_traced() {
-    use crate::metadata::types::{ObjectLayout, InlineRef, FieldAccess, TypeDescCold, TAG_OBJECT};
+    use crate::metadata::types::{ObjectLayout, FieldAccess, TypeDescCold, TAG_OBJECT};
 
     // `class Holder { object child; }` — one direct object field inlined at byte offset 0.
     let layout = Arc::new(ObjectLayout {
@@ -141,7 +141,7 @@ fn inline_object_field_roundtrips_and_is_traced() {
         field_kinds:   Box::new([STRUCT_LEAF_GCREF]),
         ref_offsets:   Box::new([]),   // inlined → NOT in the side-table
         ref_kinds:     Box::new([]),
-        inline_refs:   Box::new([InlineRef { offset: 0, is_array: false }]),
+        ref_cells:     Box::new([0]),
         field_access:  Box::new([FieldAccess { offset: 0, width: 8, tag: TAG_OBJECT, ref_slot: -1 }]),
     });
     let holder_td = Arc::new(TypeDesc {
@@ -183,9 +183,9 @@ fn inline_object_field_roundtrips_and_is_traced() {
     assert_eq!(visited, 1, "trace_children visits the byte-inlined object ref");
 }
 
-/// The sweep's edge-breaking half, at the unit level. `clear_inline_refs` is what stops a
-/// dead object from holding its `bytes`-inlined children — the side-table `refs` are nulled
-/// by the caller, but an inlined pointer lives in `bytes` and needs its own erase.
+/// The sweep's edge-breaking half, at the unit level. `clear_refs_for_sweep` is what stops a
+/// dead object from holding its children — the 16 B side table AND the 8 B reference words
+/// in `bytes`.
 ///
 /// **perf-cheap-dead-edge-break (2026-09-12)**: this used to `collect()` the offsets into a
 /// `Vec<u32>` before writing, on the stated grounds of releasing a borrow — `type_desc` and
@@ -193,8 +193,8 @@ fn inline_object_field_roundtrips_and_is_traced() {
 /// a malloc/free for every dead object (710 080 per `z42c.semantics` build, **51.0 ms → 18.5
 /// ms** of `minor/tomb objects` once removed). The rewrite has to keep answering this test.
 #[test]
-fn clear_inline_refs_erases_every_inlined_pointer() {
-    use crate::metadata::types::{ObjectLayout, InlineRef, FieldAccess, TypeDescCold, TAG_OBJECT};
+fn clear_refs_for_sweep_erases_every_reference_word() {
+    use crate::metadata::types::{ObjectLayout, FieldAccess, TypeDescCold, TAG_OBJECT};
 
     // `class Holder { object child; }` — the same shape as the round-trip test above.
     let layout = Arc::new(ObjectLayout {
@@ -204,7 +204,7 @@ fn clear_inline_refs_erases_every_inlined_pointer() {
         field_kinds:   Box::new([STRUCT_LEAF_GCREF]),
         ref_offsets:   Box::new([]),
         ref_kinds:     Box::new([]),
-        inline_refs:   Box::new([InlineRef { offset: 0, is_array: false }]),
+        ref_cells:     Box::new([0]),
         field_access:  Box::new([FieldAccess { offset: 0, width: 8, tag: TAG_OBJECT, ref_slot: -1 }]),
     });
     let holder_td = Arc::new(TypeDesc {
@@ -229,21 +229,21 @@ fn clear_inline_refs_erases_every_inlined_pointer() {
     hv.trace_children(crate::gc::refs::MarkKind::Major(1), &mut |v: &Value| if matches!(v, Value::Object(_)) { before += 1; });
     assert_eq!(before, 1, "the edge exists before the erase");
 
-    holder.borrow_mut().clear_inline_refs();
+    holder.borrow_mut().clear_refs_for_sweep();
 
     let mut after = 0usize;
     hv.trace_children(crate::gc::refs::MarkKind::Major(1), &mut |v: &Value| if matches!(v, Value::Object(_)) { after += 1; });
-    assert_eq!(after, 0, "clear_inline_refs breaks the byte-inlined edge");
+    assert_eq!(after, 0, "clear_refs_for_sweep breaks the reference-word edge");
     assert!(matches!(holder.borrow().field_value(0), Value::Null), "the window reads back Null");
 }
 
-/// An inline-ref offset that does not fit in `bytes` is **skipped, not panicked on**. The
+/// A reference-word offset that does not fit in `bytes` is **skipped, not panicked on**. The
 /// bound belongs to the erase itself: a `TypeDesc` can outlive the storage shape it was
 /// composed for (a synthesized / Rust-constructed instance with a shorter `bytes`), and the
 /// sweep runs this on every dead object of the type.
 #[test]
-fn clear_inline_refs_skips_an_offset_past_the_payload() {
-    use crate::metadata::types::{ObjectLayout, InlineRef, FieldAccess, TypeDescCold, TAG_OBJECT};
+fn clear_refs_for_sweep_skips_an_offset_past_the_payload() {
+    use crate::metadata::types::{ObjectLayout, FieldAccess, TypeDescCold, TAG_OBJECT};
 
     let layout = Arc::new(ObjectLayout {
         size: 8,
@@ -253,7 +253,7 @@ fn clear_inline_refs_skips_an_offset_past_the_payload() {
         ref_offsets:   Box::new([]),
         ref_kinds:     Box::new([]),
         // Offset 64 against a 8-byte payload: out of range on purpose.
-        inline_refs:   Box::new([InlineRef { offset: 64, is_array: false }]),
+        ref_cells:     Box::new([64]),
         field_access:  Box::new([FieldAccess { offset: 0, width: 8, tag: TAG_OBJECT, ref_slot: -1 }]),
     });
     let td = Arc::new(TypeDesc {
@@ -270,7 +270,7 @@ fn clear_inline_refs_skips_an_offset_past_the_payload() {
     });
 
     let obj = GcRef::new(ScriptObject::new(td, crate::metadata::types::ObjStorage::new(8, 0)));
-    obj.borrow_mut().clear_inline_refs(); // must not panic
+    obj.borrow_mut().clear_refs_for_sweep(); // must not panic
     assert_eq!(obj.borrow().bytes().len(), 8, "payload untouched");
 }
 
@@ -540,17 +540,40 @@ fn compose_object_layout_root_is_identity() {
         ref_offsets:   Box::new([8, 16]),
         ref_kinds:     Box::new([1, 2]),
     };
-    let composed = compose_object_layout(None, &own, &[]);
+    let composed = compose_object_layout(None, &own, &[], &[]);
     // No base → identity (base_shift 0).
     assert_eq!(composed.size, 24);
     assert_eq!(&*composed.field_offsets, &[0, 8, 16]);
-    // PR-3 chunk 2b: the string leaf @8 stays in the side-table; the direct object
-    // (GcRef) leaf @16 is byte-inlined and removed from `ref_offsets`.
-    assert_eq!(&*composed.ref_offsets, &[8], "only the string ref stays side-table");
-    assert_eq!(composed.ref_count(), 1);
-    assert_eq!(composed.inline_refs.len(), 1, "the object ref @16 inlined");
-    assert_eq!(composed.inline_refs[0].offset, 16);
-    assert!(!composed.inline_refs[0].is_array);
+    // Both direct reference fields — the string @8 and the object @16 — are 8 B reference
+    // words in `bytes`; nothing is left for the 16 B side table.
+    assert!(composed.ref_offsets.is_empty(), "no side-table leaves");
+    assert_eq!(composed.ref_count(), 0);
+    assert_eq!(&*composed.ref_cells, &[8, 16]);
+}
+
+/// Which direct reference fields stay in the 16 B side table: exactly the type-parameter
+/// fields (`T`, `T?`) — any `Value`, a raw `I64` under erasure. `object` / string / delegate
+/// fields of the same compiler kind get 8 B reference words. Inline-struct interior leaves
+/// (not a direct field's offset) stay in the side table too.
+#[test]
+fn compose_object_layout_keeps_type_parameter_fields_in_the_side_table() {
+    let own = crate::metadata::bytecode::ObjectLayoutDesc {
+        size: 48,
+        field_offsets: Box::new([0, 8, 16, 24, 32]),
+        field_sizes:   Box::new([8, 8, 8, 8, 16]),
+        // T, object, T?, string, inline struct {int, string}
+        field_kinds:   Box::new([5, 5, 5, 1, 3]),
+        ref_offsets:   Box::new([0, 8, 16, 24, 40]),
+        ref_kinds:     Box::new([2, 2, 2, 1, 1]),
+    };
+    let fields: Vec<FieldSlot> = [("v", "T"), ("o", "object"), ("n", "T?"), ("s", "string"), ("p", "Demo.P")]
+        .iter().map(|(n, t)| FieldSlot { name: (*n).into(), type_tag: (*t).into(), visibility: 0 }).collect();
+    let composed = compose_object_layout(None, &own, &fields, &["T".to_string()]);
+    assert_eq!(&*composed.ref_cells, &[8, 24], "object + string fields are reference words");
+    assert_eq!(&*composed.ref_offsets, &[0, 16, 40], "T, T? and the struct's interior leaf stay 16 B");
+    let cells: Vec<FieldCell> = composed.field_access.iter().map(|f| f.cell()).collect();
+    assert_eq!(cells, [FieldCell::Value, FieldCell::Ref, FieldCell::Value, FieldCell::Ref, FieldCell::Struct]);
+    assert_eq!(composed.field_access[2].ref_slot, 1, "T? → side-table slot 1");
 }
 
 #[test]
@@ -564,7 +587,7 @@ fn compose_object_layout_pads_base_to_8() {
         field_kinds:   Box::new([0]),
         ref_offsets:   Box::new([]),
         ref_kinds:     Box::new([]),
-        inline_refs:   Box::new([]),
+        ref_cells:     Box::new([]),
         field_access: Box::new([]),
     };
     let own = crate::metadata::bytecode::ObjectLayoutDesc {
@@ -575,18 +598,14 @@ fn compose_object_layout_pads_base_to_8() {
         ref_offsets:   Box::new([0]),
         ref_kinds:     Box::new([2]),
     };
-    let composed = compose_object_layout(Some(&base), &own, &[]);
+    let composed = compose_object_layout(Some(&base), &own, &[], &[]);
     // base_shift = align_up(1, 8) = 8.
     assert_eq!(composed.size, 16, "8 (padded base) + 8 (own)");
     assert_eq!(&*composed.field_offsets, &[0, 8], "own field shifted to 8, not 1");
-    // PR-3 chunk 2b: the own direct object field is byte-inlined at the shifted offset 8
-    // (pulled out of the side-table ref bitmap), so `ref_offsets` is empty and the leaf
-    // shows up in `inline_refs` instead.
-    assert!(composed.ref_offsets.is_empty(), "own GCREF field inlined, not in side-table");
-    assert_eq!(composed.ref_index(8), None, "inlined ref has no side-table slot");
-    assert_eq!(composed.inline_refs.len(), 1, "one inlined direct object ref");
-    assert_eq!(composed.inline_refs[0].offset, 8, "inlined at the shifted offset 8");
-    assert!(!composed.inline_refs[0].is_array, "object field → Value::Object, not Array");
+    // The own direct object field is an 8 B reference word at the shifted offset 8.
+    assert!(composed.ref_offsets.is_empty(), "own GCREF field is a reference word, not side-table");
+    assert_eq!(composed.ref_index(8), None, "a reference word has no side-table slot");
+    assert_eq!(&*composed.ref_cells, &[8], "reference word at the shifted offset 8");
 }
 
 #[test]
@@ -598,7 +617,7 @@ fn compose_object_layout_already_aligned_base_no_extra_pad() {
         field_kinds:   Box::new([0, 0]),
         ref_offsets:   Box::new([]),
         ref_kinds:     Box::new([]),
-        inline_refs:   Box::new([]),
+        ref_cells:     Box::new([]),
         field_access: Box::new([]),
     };
     let own = crate::metadata::bytecode::ObjectLayoutDesc {
@@ -609,7 +628,7 @@ fn compose_object_layout_already_aligned_base_no_extra_pad() {
         ref_offsets:   Box::new([]),
         ref_kinds:     Box::new([]),
     };
-    let composed = compose_object_layout(Some(&base), &own, &[]);
+    let composed = compose_object_layout(Some(&base), &own, &[], &[]);
     // align_up(16, 8) == 16 — no extra padding.
     assert_eq!(composed.size, 20);
     assert_eq!(&*composed.field_offsets, &[0, 8, 16]);

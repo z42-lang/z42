@@ -92,18 +92,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
                 let self_ptr = entry.value.data_ptr() as usize;
                 let obj = entry.value.lock();
                 let type_name = obj.type_desc.name.clone();
-                for slot in obj.refs().iter() {
-                    if let Some(child) = value_heap_ptr(slot) {
-                        g.add_edge(
-                            child,
-                            RetainerInfo { kind: RetainerKind::Object, type_name: type_name.clone(), id: self_ptr },
-                        );
-                    }
-                }
-                // PR-3 chunk 2b: direct object/array fields are byte-inlined in `bytes`
-                // (not `refs`) — walk them too, else the retainer graph
-                // (`Heap.DirectReferrers`) misses references through inlined fields.
-                obj.trace_inline_refs(&mut |slot: &Value| {
+                obj.visit_refs(&mut |slot: &Value| {
                     if let Some(child) = value_heap_ptr(slot) {
                         g.add_edge(
                             child,

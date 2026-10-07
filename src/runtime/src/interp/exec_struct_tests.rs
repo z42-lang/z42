@@ -133,7 +133,7 @@ fn heap_object_inline_struct_field_roundtrips() {
         field_kinds: Box::new([]),
         ref_offsets: Box::new([8]),
         ref_kinds: Box::new([crate::metadata::types::STRUCT_REF_ARC_STRING]),
-        inline_refs: Box::new([]), // string leaf stays in the side-table (not inlined)
+        ref_cells: Box::new([]), // string leaf stays in the side-table (not inlined)
         field_access: Box::new([]),
     });
     let td = Arc::new(TypeDesc {
@@ -291,7 +291,7 @@ fn stack_object_inline_struct_field_roundtrips() {
         field_kinds: Box::new([]),
         ref_offsets: Box::new([8]),
         ref_kinds: Box::new([crate::metadata::types::STRUCT_REF_ARC_STRING]),
-        inline_refs: Box::new([]),
+        ref_cells: Box::new([]),
         field_access: Box::new([]),
     });
     let td = Arc::new(TypeDesc {

@@ -38,6 +38,7 @@ use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU32, AtomicU8, Ordering};
 
 use parking_lot::Mutex;
 
+use super::side_bits;
 use super::types::FinalizerFn;
 
 /// Chunk capacity (entries per chunk). 256 balances:
@@ -45,6 +46,9 @@ use super::types::FinalizerFn;
 /// - Cache locality for sweep traversal (chunk fits in ~16-64 KB depending on T)
 /// - Granularity for future per-thread arenas (256 is a reasonable batch)
 pub(crate) const CHUNK_SIZE: usize = 256;
+
+/// One bit per slot of a chunk — the shape of every per-slot side table (`gc::side_bits`).
+pub(crate) type SlotBits = [u64; CHUNK_SIZE / 64];
 
 mod entry;
 pub use entry::*;
@@ -98,52 +102,40 @@ pub struct Region<T> {
     /// `free_list` and grows fresh chunks otherwise.
     ambient_cur: Option<(u32, u16)>,
 
-    /// Tombstoned slots reusable by fresh allocs, **bucketed by owning chunk** —
-    /// `free_slots[ci]` holds the slot indices tombstoned out of `chunks[ci]`, LIFO.
-    ///
-    /// **perf-bucket-region-free-list (2026-09-13)**: this was one flat `Vec<(u32, u16)>`, and
-    /// [`Self::reclaim_dead_chunks`] had to `retain` over the whole thing to drop the slots of
-    /// the chunks it was pooling — `O(free list)` work to evict `O(chunks reclaimed)` entries,
-    /// on every collection. Measured on `z42c.semantics --release --no-incremental`:
-    /// **19 239 026 entry visits over 52 calls, 9.5 ms**, i.e. all of what the object and array
-    /// regions spend in `minor/chunk reclaim`. The per-element cost was already floor
-    /// (0.5 ns — a linear scan of an 8-byte tuple); only the element *count* could go.
-    /// Bucketed, the eviction is one `Vec` drop per reclaimed chunk. Same medicine
-    /// `perf-bucket-all-blocks-by-chunk` applied to `VarRegion::all_blocks`.
-    ///
-    /// Entries are `u16` slot indices: the chunk is the bucket, so it no longer needs storing.
-    free_slots: Vec<Vec<u16>>,
+    /// Tombstoned slots reusable by fresh allocs, one bit per slot per chunk (M8) —
+    /// `free_bits[ci]` has bit `ei` set when slot `(ci, ei)` is dead and may be refilled.
+    /// A fixed 32 bytes a chunk, whatever the number of dead slots; reclaiming a chunk drops its
+    /// slots from the set by zeroing its four words.
+    free_bits: Vec<SlotBits>,
     /// Chunks with at least one free slot. The invariant this file keeps is
-    /// `ci ∈ free_chunks ⟺ !free_slots[ci].is_empty()` (no duplicates), which is what lets
-    /// [`Self::pop_free_slot`] find a reusable slot in `O(1)` instead of scanning buckets.
+    /// `ci ∈ free_chunks ⟺ free_bits[ci] ≠ 0` (no duplicates), which is what lets
+    /// [`Self::pop_free_slot`] find a reusable slot in `O(1)` instead of scanning chunks.
     free_chunks: Vec<u32>,
-    /// Total entries across `free_slots`. Kept incrementally because [`Self::free_capacity`] is
-    /// on the allocation path and summing the buckets would be `O(chunks)`.
+    /// Total set bits across `free_bits`. Kept incrementally because [`Self::free_slot_count`]
+    /// would otherwise be `O(chunks)`.
     free_len: usize,
 
-    /// Track initialized vs uninitialized slots. Bit `(ci, ei)` is
-    /// set if the slot is initialized (was alloc'd at least once).
-    /// Sweep uses this to skip never-allocated slots in the last
-    /// chunk (where bump hasn't reached the end).
-    ///
-    /// One bool per slot — could compress to bitmap later; v1
-    /// favors clarity.
-    initialized: Vec<Vec<bool>>,
+    /// Constructed slots, one bit per slot per chunk: bit `(ci, ei)` is set once the slot holds
+    /// a `RegionEntry` (alive or dead). Sweeps and walks visit only these, which also skips the
+    /// never-filled tail of a chunk.
+    init_bits: Vec<SlotBits>,
 
-    /// **add-generational-gc P0 (2026-05-22)**: track young entries
-    /// (gen_age < PROMOTION_THRESHOLD). Updated on alloc (push),
-    /// promote (swap_remove once threshold reached), and tombstone
-    /// (swap_remove if was young). Minor GC iterates this list for
-    /// O(young) cost instead of walking all chunks.
+    /// The young set (M8): bit `(ci, ei)` is set while slot `(ci, ei)` holds an alive entry
+    /// younger than [`Self::promotion_age`]. Set on alloc / retire, cleared on promotion and on
+    /// tombstone, so it is exact at every point — a minor walks only these bits.
     ///
-    /// **fix-young-list-only-when-generational (2026-09-07)**: maintained only
-    /// while [`Self::generational`] is set — see that field.
-    young_list: Vec<(u32, u16)>,
+    /// Maintained only while [`Self::generational`] is set (no other mode reads it).
+    young_bits: Vec<SlotBits>,
+    /// One bit per chunk: whether `young_bits[ci]` has any bit set. A minor walks the chunks
+    /// named here, so its cost follows the young set, not the heap — 64 chunks per word of
+    /// summary.
+    young_chunks: Vec<u64>,
+    /// Set bits across `young_bits` ([`Self::young_count`]).
+    young_len: usize,
 
-    /// **fix-young-list-only-when-generational (2026-09-07)**: whether this
-    /// region maintains [`Self::young_list`] at all.
+    /// Whether this region maintains the young set ([`Self::young_bits`]) at all.
     ///
-    /// `young_list` is read by exactly one consumer — minor GC, which runs only
+    /// The young set is read by exactly one consumer — minor GC, which runs only
     /// under `GcMode::GenerationalMarkSweep` — the production default since
     /// flip-gc-default-to-generational (2026-09-10). Under `StwMarkSweep`
     /// `promote` is never called, so nothing ever leaves the
@@ -175,7 +167,7 @@ pub struct Region<T> {
     /// **add-gc-tlab (2026-08-29)**: per-chunk "currently borrowed by a TLAB"
     /// flag (one bool per chunk, parallel to `chunks`). A borrowed chunk is
     /// being lock-free bump-filled by its owning mutator thread, so every
-    /// region-lock iteration (`iterate_alive`/`iterate_young`/
+    /// region-lock iteration (`iterate_alive`/
     /// `iterate_dirty_cards`/`validate`/reclaim) **skips it wholesale** — its
     /// in-flight objects are invisible to GC until [`retire_chunk`] merges the
     /// filled prefix back (flips this to `false`). Under STW every TLAB is
@@ -238,11 +230,13 @@ impl<T> Default for Region<T> {
             chunks:      Vec::new(),
             slabs:       Slabs::default(),
             ambient_cur: None,
-            free_slots:  Vec::new(),
+            free_bits:   Vec::new(),
             free_chunks: Vec::new(),
             free_len:    0,
-            initialized: Vec::new(),
-            young_list:  Vec::new(),
+            init_bits:   Vec::new(),
+            young_bits:  Vec::new(),
+            young_chunks: Vec::new(),
+            young_len:   0,
             // fix-young-list-only-when-generational: `Default` (and therefore
             // `new()`) keeps the pre-2026-09-07 behaviour — maintain the list.
             // The heap passes the resolved mode via `new_for_mode`; only tests
@@ -319,7 +313,7 @@ impl<T> Region<T> {
         self.footprint.charge((self.payload_of)(&value));
         let chunk = &mut self.chunks[ci as usize];
         chunk[ei as usize] = MaybeUninit::new(RegionEntry::new(value, (ci, ei)));
-        if !std::mem::replace(&mut self.initialized[ci as usize][ei as usize], true) {
+        if side_bits::set(&mut self.init_bits[ci as usize], ei as usize) {
             self.init_per_chunk[ci as usize] += 1;
         }
         self.live_per_chunk[ci as usize] += 1;
@@ -331,54 +325,57 @@ impl<T> Region<T> {
         RegionHandle { chunk_idx: ci, entry_idx: ei, generation: 0 }
     }
 
-    /// **add-gc-tlab (2026-08-29)**: append a brand-new, fully-uninitialized
-    /// chunk to `chunks` and grow every parallel per-chunk table
-    /// (`initialized` all-false, `card_dirty` 0, `borrowed` false). Returns
-    /// the new chunk index. Shared by the ambient bump grow and
-    /// [`borrow_chunk`]'s pool-miss path — the single point where `chunks`
-    /// grows, so all per-chunk tables stay length-consistent (validated by
-    /// `CardDirtyLengthMismatch`).
-    /// **perf-bucket-region-free-list (2026-09-13)**: record slot `(ci, ei)` as reusable.
+    /// Record slot `(ci, ei)` as reusable.
     ///
-    /// The `is_empty` test is what maintains `ci ∈ free_chunks ⟺ bucket non-empty`: the chunk
-    /// is listed exactly when its bucket goes empty → non-empty, and delisted in
-    /// [`Self::pop_free_slot`] / [`Self::reclaim_dead_chunks`] when it goes back.
+    /// The empty test is what maintains `ci ∈ free_chunks ⟺ free_bits[ci] ≠ 0`: the chunk is
+    /// listed exactly when its bits go empty → non-empty, and delisted in
+    /// [`Self::pop_free_slot`] / [`Self::reclaim_dead_chunks`] when they go back.
     #[inline]
     fn push_free_slot(&mut self, ci: u32, ei: u16) {
-        let bucket = &mut self.free_slots[ci as usize];
-        if bucket.is_empty() {
+        let bits = &mut self.free_bits[ci as usize];
+        if side_bits::is_empty(bits) {
             self.free_chunks.push(ci);
         }
-        bucket.push(ei);
-        self.free_len += 1;
+        if side_bits::set(bits, ei as usize) {
+            self.free_len += 1;
+        }
     }
 
-    /// **perf-bucket-region-free-list (2026-09-13)**: take a reusable slot, or `None`.
+    /// Take a reusable slot, or `None`.
     ///
-    /// Drains one chunk's bucket before moving to the next, where the flat list interleaved
-    /// chunks. That is not a regression on either axis it could be: reuse stays inside one
-    /// chunk (better locality), and concentrating it there leaves the *other* dead chunks
-    /// wholly dead, which is exactly the condition [`Self::reclaim_dead_chunks`] pools on.
+    /// Drains one chunk before moving to the next: reuse stays inside one chunk (better
+    /// locality), and concentrating it there leaves the *other* dead chunks wholly dead, which
+    /// is exactly the condition [`Self::reclaim_dead_chunks`] pools on.
     #[inline]
     fn pop_free_slot(&mut self) -> Option<(u32, u16)> {
         let ci = *self.free_chunks.last()?;
-        let bucket = &mut self.free_slots[ci as usize];
-        let ei = bucket.pop().expect("free_chunks only lists non-empty buckets");
-        if bucket.is_empty() {
+        let bits = &mut self.free_bits[ci as usize];
+        let ei = side_bits::first(bits).expect("free_chunks only lists chunks with a free slot");
+        side_bits::clear(bits, ei);
+        if side_bits::is_empty(bits) {
             self.free_chunks.pop();
         }
         self.free_len -= 1;
-        Some((ci, ei))
+        Some((ci, ei as u16))
     }
 
+    /// Append a brand-new, fully-uninitialized chunk to `chunks` and grow every parallel
+    /// per-chunk table (bitmaps empty, `card_dirty` 0, `borrowed` false). Returns the new chunk
+    /// index. Shared by the ambient bump grow and [`Self::borrow_chunk`]'s pool-miss path — the
+    /// single point where `chunks` grows, so all per-chunk tables stay length-consistent
+    /// (validated by `CardDirtyLengthMismatch`).
     fn grow_new_chunk(&mut self) -> u32 {
         let chunk = self.slabs.carve();
         let ci = self.chunks.len() as u32;
         self.chunks.push(chunk);
         self.decommitted.push(false);
         self.gen_floor.push(0);
-        self.free_slots.push(Vec::new());
-        self.initialized.push(vec![false; CHUNK_SIZE]);
+        self.free_bits.push(SlotBits::default());
+        self.init_bits.push(SlotBits::default());
+        self.young_bits.push(SlotBits::default());
+        if self.chunks.len() > self.young_chunks.len() * 64 {
+            self.young_chunks.push(0);
+        }
         self.init_per_chunk.push(0);
         self.live_per_chunk.push(0);
         self.card_dirty.push(0);
@@ -398,7 +395,7 @@ impl<T> Region<T> {
         let chunk = &self.chunks[handle.chunk_idx as usize];
         let slot = &chunk[handle.entry_idx as usize];
         // SAFETY: the handle was constructed via `alloc`, which sets
-        // initialized[ci][ei] = true. As long as the handle came
+        // the slot's `init_bits` bit. As long as the handle came
         // from this Region (typestate), the slot is init.
         unsafe { slot.assume_init_ref() }
     }
@@ -412,11 +409,7 @@ impl<T> Region<T> {
     /// (slot was already tombstoned + reused — stale handle). In that
     /// case the call is a no-op.
     ///
-    /// **add-generational-gc P0 (2026-05-22)**: also removes the
-    /// (chunk_idx, entry_idx) from `young_list` if the tombstoned
-    /// entry was still young (gen_age < PROMOTION_THRESHOLD). Old
-    /// entries weren't in young_list, so the lookup is a no-op for
-    /// them.
+    /// Also clears the slot's young bit — `O(1)`, so the young set never holds the dead.
     pub fn tombstone(&mut self, handle: RegionHandle) -> bool {
         let entry = self.resolve(handle);
         if entry.generation.load(Ordering::Acquire) != handle.generation {
@@ -425,60 +418,25 @@ impl<T> Region<T> {
         if !entry.alive.load(Ordering::Acquire) {
             return false;
         }
-        let was_young = entry.gen_age() < self.promotion_age;
         entry.alive.store(false, Ordering::Release);
         entry.generation.fetch_add(1, Ordering::AcqRel);
         // add-incremental-chunk-reclaim: O(1) — the handle already names the chunk.
         self.live_per_chunk[handle.chunk_idx as usize] -= 1;
         self.push_free_slot(handle.chunk_idx, handle.entry_idx);
-        if was_young {
-            self.remove_from_young_list(handle.chunk_idx, handle.entry_idx);
-        }
-        true
-    }
-
-    /// **one-pass-minor-sweep (2026-09-12)**: [`Self::tombstone`] for a caller that is
-    /// rebuilding `young_list` itself, so the young-list removal must not happen here.
-    ///
-    /// The back-pointer is still cleared: the entry is leaving the young generation either
-    /// way, and `validate`'s `YoungIndexMismatch` holds every entry with a live `young_idx`
-    /// to actually being at that index.
-    fn tombstone_during_sweep(&mut self, handle: RegionHandle) -> bool {
-        let entry = self.resolve(handle);
-        if entry.generation.load(Ordering::Acquire) != handle.generation {
-            return false;
-        }
-        if !entry.alive.load(Ordering::Acquire) {
-            return false;
-        }
-        entry.alive.store(false, Ordering::Release);
-        entry.generation.fetch_add(1, Ordering::AcqRel);
-        entry.clear_young_idx();
-        // add-incremental-chunk-reclaim: O(1) — the handle already names the chunk.
-        self.live_per_chunk[handle.chunk_idx as usize] -= 1;
-        self.push_free_slot(handle.chunk_idx, handle.entry_idx);
+        self.remove_young(handle.chunk_idx, handle.entry_idx);
         true
     }
 
     /// **one-pass-major-sweep (2026-09-13)**: the major's whole sweep of this region, in
-    /// **one** walk. The `iterate_alive` + staging-`Vec` + tombstone-loop shape it replaces
-    /// was the same one #597 removed from the minor, only worse: the tombstone loop re-took
-    /// the region lock **twice** per dead entry (once to break its reference edges, once to
-    /// tombstone), which is exactly what #591 measured at 67.7 ns an entry on the minor side.
-    ///
-    /// `prepare_dead` is the caller's business with a dying entry — size estimate, breaking
-    /// its edges, taking its finalizer — and runs with the entry still readable. The
-    /// finalizer runs after it, then the tombstone, as before.
-    ///
-    /// Uses [`Self::tombstone_during_sweep`]: a major is always followed by
-    /// `age_young_survivors`, which drops the dead from `young_list` as it walks it, so
-    /// paying a `swap_remove` per dead entry here would be doing that work twice.
+    /// **one** walk. `prepare_dead` is the caller's business with a dying entry — size
+    /// estimate, breaking its edges, taking its finalizer — and runs with the entry still
+    /// readable. The finalizer runs after it, then the tombstone.
     pub fn sweep_all_in_one_pass(
         &mut self,
         major: crate::gc::refs::MarkKind,
         prepare_dead: impl FnMut(&RegionEntry<T>) -> (Option<crate::gc::types::FinalizerFn>, u64),
     ) -> (u64, usize) {
-        let (freed_bytes, reclaimed, _) = self.sweep_chunks(major, 0, usize::MAX, false, prepare_dead);
+        let (freed_bytes, reclaimed, _) = self.sweep_chunks(major, 0, usize::MAX, prepare_dead);
         (freed_bytes, reclaimed)
     }
 
@@ -495,18 +453,14 @@ impl<T> Region<T> {
     /// allocate during a cycle is born with the cycle's epoch, so the rest of the walk keeps it.
     /// Every mutator has retired its TLAB before a slice runs, so no chunk here is borrowed.
     ///
-    /// `delist_young`: take each dead entry out of `young_list` as it is tombstoned. The one-shot
-    /// major passes `false` because `age_young_survivors` follows in the same pause and drops the
-    /// dead as it walks the list. An incremental sweep must pass `true`: minors run between its
-    /// slices, and a dead entry left listed would be listed **twice** once its slot is reused —
-    /// the minor sweep would keep the new object on the first visit (clearing its mark) and
-    /// reclaim it on the second.
+    ///
+    /// Each dead entry leaves the young set as it is tombstoned: minors run between the slices
+    /// of an incremental sweep, and they walk the young set.
     pub fn sweep_chunks(
         &mut self,
         major: crate::gc::refs::MarkKind,
         from: usize,
         max_chunks: usize,
-        delist_young: bool,
         mut prepare_dead: impl FnMut(&RegionEntry<T>) -> (Option<crate::gc::types::FinalizerFn>, u64),
     ) -> (u64, usize, usize) {
         let mut freed_bytes: u64 = 0;
@@ -514,20 +468,20 @@ impl<T> Region<T> {
         let end = from.saturating_add(max_chunks).min(self.chunks.len());
         for ci in from.min(end)..end {
             debug_assert!(!self.borrowed[ci], "major sweep over a TLAB-borrowed chunk {ci}");
-            for ei in 0..CHUNK_SIZE {
-                if !self.initialized[ci][ei] {
-                    continue;
-                }
+            // A copy: tombstoning below does not touch `init_bits`, but the walk must not
+            // hold a borrow of `self` across it.
+            let init = self.init_bits[ci];
+            side_bits::for_each(&init, |ei| {
                 // SAFETY: an initialized slot holds a constructed entry.
                 let entry = unsafe { self.chunks[ci][ei].assume_init_ref() };
                 if !entry.alive.load(Ordering::Acquire) {
-                    continue;
+                    return;
                 }
                 if entry.is_marked(major) {
                     // add-incremental-major-gc M1: the epoch stays (it is what makes this
                     // survivor white again next cycle); only a stray minor bit is cleared.
                     entry.clear_minor_mark();
-                    continue;
+                    return;
                 }
                 let (fin, size) = prepare_dead(entry);
                 let h = RegionHandle {
@@ -538,19 +492,17 @@ impl<T> Region<T> {
                 if let Some(f) = fin {
                     f();
                 }
-                let tombstoned = if delist_young { self.tombstone(h) } else { self.tombstone_during_sweep(h) };
-                if tombstoned {
+                if self.tombstone(h) {
                     freed_bytes += size;
                     reclaimed += 1;
                 }
-            }
+            });
         }
         (freed_bytes, reclaimed, end.max(from.min(self.chunks.len())))
     }
 
-    /// Iterate every currently-alive entry. Skips uninit slots in
-    /// the last chunk (bump hasn't reached the end) and tombstoned
-    /// slots. Order: chunk 0 → chunk N, entry 0 → CHUNK_SIZE-1 within.
+    /// Iterate every currently-alive entry. Skips never-filled and tombstoned slots. Order:
+    /// chunk 0 → chunk N, entry 0 → CHUNK_SIZE-1 within.
     pub fn iterate_alive(&self, mut visit: impl FnMut(RegionHandle, &RegionEntry<T>)) {
         for (ci, chunk) in self.chunks.iter().enumerate() {
             // add-gc-tlab: a borrowed chunk is being lock-free filled by its
@@ -559,14 +511,11 @@ impl<T> Region<T> {
             if self.borrowed[ci] {
                 continue;
             }
-            for ei in 0..CHUNK_SIZE {
-                if !self.initialized[ci][ei] {
-                    continue;
-                }
-                let slot = &chunk[ei];
-                let entry = unsafe { slot.assume_init_ref() };
+            side_bits::for_each(&self.init_bits[ci], |ei| {
+                // SAFETY: an initialized slot holds a constructed entry.
+                let entry = unsafe { chunk[ei].assume_init_ref() };
                 if !entry.alive.load(Ordering::Acquire) {
-                    continue;
+                    return;
                 }
                 let h = RegionHandle {
                     chunk_idx:  ci as u32,
@@ -574,7 +523,7 @@ impl<T> Region<T> {
                     generation: entry.generation.load(Ordering::Acquire),
                 };
                 visit(h, entry);
-            }
+            });
         }
     }
 
@@ -584,24 +533,21 @@ impl<T> Region<T> {
     /// free list. Idempotent: if alive is already false, no-op.
     /// Returns `true` if this call actually tombstoned (alive 1→0).
     ///
-    /// The `(u16::MAX, u16::MAX)` sentinel (test-only entries from
+    /// The `u32::MAX` chunk sentinel (test-only entries from
     /// `GcRef::new` Box::leak) skips the free-list push — those
     /// entries aren't in any Region, just leaked.
     ///
-    /// Also removes the entry from `young_list` if it was young.
+    /// Also takes the entry out of the young set.
     pub fn tombstone_via_entry(&mut self, entry: &RegionEntry<T>) -> bool {
         if !entry.alive.swap(false, Ordering::Release) {
             return false;
         }
-        let was_young = entry.gen_age() < self.promotion_age;
         entry.generation.fetch_add(1, Ordering::AcqRel);
-        let (ci, ei) = entry.location;
+        let (ci, ei) = entry.location();
         if ci != u32::MAX {
             self.live_per_chunk[ci as usize] -= 1;
             self.push_free_slot(ci, ei);
-            if was_young {
-                self.remove_from_young_list(ci, ei);
-            }
+            self.remove_young(ci, ei);
         }
         true
     }
@@ -643,21 +589,20 @@ impl<T> Region<T> {
         };
         self.borrowed[ci as usize] = true;
         let slots = self.chunks[ci as usize].as_mut_ptr();
-        // `init_ptr` points at the chunk's `initialized` row buffer (fixed
-        // CHUNK_SIZE, never resized → stable). `fill` reads it per slot to pick
-        // fresh-write (uninit) vs generation-preserving overwrite (constructed
-        // dead entry from a pooled chunk).
-        let init_ptr = self.initialized[ci as usize].as_ptr();
+        // A copy of the chunk's constructed-slot bits: `fill` reads it per slot to pick
+        // fresh-write (uninit) vs generation-preserving overwrite (constructed dead entry from
+        // a pooled chunk). Nothing changes a borrowed chunk's bits until `retire_chunk`.
+        let init = self.init_bits[ci as usize];
         ChunkClaim {
-            chunk_idx: ci, slots, init_ptr, next: 0, cap: CHUNK_SIZE as u16,
+            chunk_idx: ci, slots, init, next: 0, cap: CHUNK_SIZE as u16,
             payload_of: self.payload_of, payload_delta: 0, gen_floor: self.gen_floor[ci as usize],
         }
     }
 
     /// **add-gc-tlab**: merge a TLAB's filled chunk prefix `[0, claim.next)`
     /// back into the shared region (design D2). Marks those slots
-    /// `initialized` (idempotent for a reused chunk) and pushes them onto
-    /// `young_list` (every fresh alloc is young, gen_age 0), then clears the
+    /// constructed (idempotent for a reused chunk) and young (every fresh
+    /// alloc is young, gen_age 0) — two word-wide ORs — then clears the
     /// `borrowed` flag so the chunk rejoins GC iteration as ordinary populated
     /// slots. A partially-filled chunk's tail `[claim.next, cap)` stays as it
     /// was (uninitialized for a fresh chunk, old dead entries for a reused
@@ -668,23 +613,18 @@ impl<T> Region<T> {
     pub fn retire_chunk(&mut self, claim: &ChunkClaim<T>) {
         let ci = claim.chunk_idx;
         let hw = claim.next as usize;
-        let init_row = &mut self.initialized[ci as usize];
+        let filled: SlotBits = side_bits::prefix(hw);
+        let init_row = &mut self.init_bits[ci as usize];
         let mut newly_init = 0u32;
-        for ei in 0..hw {
-            if !std::mem::replace(&mut init_row[ei], true) {
-                newly_init += 1;
-            }
+        for (w, f) in init_row.iter_mut().zip(filled) {
+            newly_init += (f & !*w).count_ones();
+            *w |= f;
         }
         // add-incremental-chunk-reclaim: the TLAB filled these lock-free; the region only
         // learns of them here, so this is where its per-chunk census picks them up.
         self.init_per_chunk[ci as usize] += newly_init;
         self.live_per_chunk[ci as usize] += hw as u32;
-        // fix-young-list-quadratic-sweep: separate loop so `push_young` (which
-        // takes `&mut self` to record each entry's back-index) doesn't collide
-        // with the `init_row` borrow.
-        for ei in 0..hw {
-            self.push_young(ci, ei as u16);
-        }
+        self.push_young_bits(ci, &filled);
         self.footprint.apply(claim.payload_delta);
         self.borrowed[ci as usize] = false;
     }
@@ -698,7 +638,7 @@ impl<T> Region<T> {
     /// so no stale handle can alias them). This lets [`ChunkClaim::fill`] use a
     /// single uniform "reused" write mode across the whole chunk while
     /// preserving each slot's tombstone generation (ABA guard). Purges the
-    /// pooled chunk's slots from `free_list` (else the ambient slot-reuse path
+    /// pooled chunk's slots from the free set (else the ambient slot-reuse path
     /// could hand out a slot inside a soon-to-be-borrowed chunk). Skips the
     /// ambient cursor chunk and any already-borrowed/pooled chunk. Runs under
     /// STW at the sweep tail.
@@ -743,25 +683,19 @@ impl<T> Region<T> {
         for &ci in &reclaimed {
             is_reclaimed[ci as usize] = true;
         }
-        // Purge the free lists of any slot inside a reclaimed chunk (else the ambient
-        // slot-reuse path could hand out a slot inside a borrowed chunk).
-        //
-        // perf-bucket-region-free-list: `O(chunks reclaimed)`, not `O(free list)`. Dropping the
-        // bucket rather than `clear()`ing it also hands its capacity back — a reclaimed chunk's
-        // bucket can hold a whole `CHUNK_SIZE` of indices, and at hundreds of chunks reclaimed
-        // per minor that slack would otherwise accumulate in the region forever (the mistake
-        // `perf-bucket-all-blocks-by-chunk` measured at +18 MB on its own bucket list).
+        // Take a reclaimed chunk's slots out of the free set (else the ambient slot-reuse path
+        // could hand out a slot inside a borrowed chunk): four words per chunk reclaimed.
         for &ci in &reclaimed {
-            let bucket = &mut self.free_slots[ci as usize];
-            self.free_len -= bucket.len();
-            *bucket = Vec::new();
+            let bits = &mut self.free_bits[ci as usize];
+            self.free_len -= side_bits::count(bits);
+            *bits = SlotBits::default();
         }
-        // Keeps `ci ∈ free_chunks ⟺ bucket non-empty`. `free_chunks` holds at most one entry
+        // Keeps `ci ∈ free_chunks ⟺ free_bits[ci] ≠ 0`. `free_chunks` holds at most one entry
         // per chunk, so this is the same `O(chunks)` the reclaim scan above already pays.
         self.free_chunks.retain(|&ci| !is_reclaimed[ci as usize]);
         // No normalization: a reclaimed chunk may be mixed (initialized dead
         // slots + a never-initialized tail). `ChunkClaim::fill` consults the
-        // chunk's `initialized` row per slot — preserving the tombstone
+        // chunk's constructed-slot bits per slot — preserving the tombstone
         // generation for constructed slots (ABA guard) and writing fresh gen-0
         // entries into never-initialized ones (safe: never handed out).
         for &ci in &reclaimed {
@@ -813,13 +747,10 @@ impl<T> Drop for Region<T> {
     /// is appropriate.
     fn drop(&mut self) {
         for (ci, chunk) in self.chunks.iter_mut().enumerate() {
-            for ei in 0..CHUNK_SIZE {
-                if !self.initialized[ci][ei] {
-                    continue;
-                }
+            side_bits::for_each(&self.init_bits[ci], |ei| {
                 // SAFETY: initialized slot. Drop in place.
                 unsafe { chunk[ei].assume_init_drop(); }
-            }
+            });
         }
     }
 }

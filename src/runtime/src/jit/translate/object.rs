@@ -90,20 +90,19 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                         store_tagged(self.builder, dst_addr, tag_c, payload);
                         self.builder.ins().jump(cont_blk, &[]);
                         self.builder.switch_to_block(cont_blk);
-                    } else if let Some((bytes_ptr, off, tag)) =
+                    } else if let Some((bytes_ptr, off)) =
                         self.hoisted_ref_fields.get(&(*obj, field_name.clone())).copied()
                     {
-                        // T1-B: byte-inlined reference field of a hoisted (never-
-                        // reassigned) object → native 8B tagged-pointer load, then
-                        // `raw==0 ? Value::Null : Value::Object/Array{tag, raw}` — byte-
-                        // identical to `read_inline_ref` + the helper's register store.
-                        // No write barrier (read only). `off < 0` (non-object receiver /
-                        // null / field-not-found / side-table ref / struct root) → helper.
+                        // T1-B: reference-word field of a hoisted (never-reassigned) object →
+                        // acquire-load the 8 B self-describing word, look its kind up in
+                        // `ref_word::KIND_TO_VALUE_TAG` and store `{tag, word & !7}` — the same
+                        // `Value` `ref_word::decode` builds (a `null` word is kind 0 → `Null`).
+                        // Kind 7 (a boxed primitive) and `off < 0` (non-object receiver / null /
+                        // field-not-found / side-table field / struct root) → helper.
                         use cranelift_codegen::ir::condcodes::IntCC;
                         let bad = self.builder.ins().icmp_imm_s(IntCC::SignedLessThan, off, 0);
                         let fb_blk = self.builder.create_block();
                         let native_blk = self.builder.create_block();
-                        let null_blk = self.builder.create_block();
                         let store_blk = self.builder.create_block();
                         let cont_blk = self.builder.create_block();
                         self.builder.ins().brif(bad, fb_blk, &[], native_blk, &[]);
@@ -117,21 +116,23 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                         let ret = self.builder.inst_results(inst)[0];
                         self.check(ret);
                         self.builder.ins().jump(cont_blk, &[]);
-                        // native: load the 8B tagged pointer at bytes_ptr+off.
+                        // native: acquire-load the word, decode the kind.
                         self.builder.switch_to_block(native_blk);
-                        let dst_addr = reg_addr(self.builder, self.regs_base, *dst);
                         let elem_addr = self.builder.ins().iadd(bytes_ptr, off);
-                        let raw = self.builder.ins().load(types::I64, MemFlagsData::trusted(), elem_addr, 0);
-                        let is_null = self.builder.ins().icmp_imm_s(IntCC::Equal, raw, 0);
-                        self.builder.ins().brif(is_null, null_blk, &[], store_blk, &[]);
-                        // 0 sentinel → Value::Null (tag alone; prior slot is Drop-free Ref).
-                        self.builder.switch_to_block(null_blk);
-                        store_tag_const(self.builder, dst_addr, TAG_NULL);
-                        self.builder.ins().jump(cont_blk, &[]);
-                        // non-null → Value::Object(7)/Array(6) with the raw pointer payload.
+                        let raw = self.builder.ins().atomic_load(types::I64, MemFlagsData::trusted(), elem_addr);
+                        let kind = self.builder.ins().band_imm_u(raw, crate::metadata::types::ref_word::KIND_MASK as i64);
+                        let table = self.builder.ins().iconst(
+                            self.ptr, crate::metadata::types::ref_word::KIND_TO_VALUE_TAG.as_ptr() as i64);
+                        let tag_addr = self.builder.ins().iadd(table, kind);
+                        let tag_i8 = self.builder.ins().load(types::I8, MemFlagsData::trusted(), tag_addr, 0);
+                        let tag_w = self.builder.ins().uextend(types::I32, tag_i8);
+                        let slow = self.builder.ins().icmp_imm_u(
+                            IntCC::Equal, tag_w, crate::metadata::types::ref_word::SLOW_PATH_TAG as i64);
+                        self.builder.ins().brif(slow, fb_blk, &[], store_blk, &[]);
                         self.builder.switch_to_block(store_blk);
-                        let tag_i8 = self.builder.ins().ireduce(types::I8, tag);
-                        store_tagged(self.builder, dst_addr, tag_i8, raw);
+                        let payload = self.builder.ins().band_imm_s(raw, !(crate::metadata::types::ref_word::KIND_MASK as i64));
+                        let dst_addr = reg_addr(self.builder, self.regs_base, *dst);
+                        store_tagged(self.builder, dst_addr, tag_i8, payload);
                         self.builder.ins().jump(cont_blk, &[]);
                         self.builder.switch_to_block(cont_blk);
                     } else {

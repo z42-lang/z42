@@ -505,6 +505,33 @@ fn ascii_str_bit_survives_aging_and_starts_clear() {
     assert_eq!(header.gen_age(), PROMOTION_THRESHOLD);
 }
 
+/// M8: the young set lives in the region's bitmap, so the minor sweep, tenure and slot reuse
+/// touch the header only through the age updates — the ASCII bit must come through all three,
+/// and a recycled slot must not inherit it.
+#[test]
+fn ascii_str_bit_survives_the_young_set_paths() {
+    let mut region = VarRegion::new();
+    let h = region.alloc(16, BlockType::Str);
+    let t = region.alloc(16, BlockType::Str);
+    // SAFETY: freshly allocated, region alive.
+    let (hh, th) = unsafe { (h.header_ptr().as_ref(), t.header_ptr().as_ref()) };
+    hh.set_ascii_str();
+    th.set_ascii_str();
+    region.tenure_young(None);
+    for _ in 0..PROMOTION_THRESHOLD {
+        h.mark(MarkKind::Minor);
+        region.sweep_young(None);
+    }
+    assert_eq!(region.young_count(), 0, "both left the young set");
+    assert!(hh.is_ascii_str() && th.is_ascii_str(), "promotion and tenure keep the bit");
+    assert_eq!(hh.block_type(), BlockType::Str);
+    region.tombstone(t);
+    let reused = region.alloc(16, BlockType::Str);
+    assert_eq!(reused.header_ptr(), t.header_ptr());
+    // SAFETY: freshly allocated.
+    assert!(!unsafe { reused.header_ptr().as_ref() }.is_ascii_str(), "a reused slot starts clear");
+}
+
 #[test]
 fn fresh_blocks_are_young_and_listed() {
     let mut region = VarRegion::new();
@@ -512,7 +539,7 @@ fn fresh_blocks_are_young_and_listed() {
     for i in 0..5 {
         region.alloc(8 * (i + 1), BlockType::Str);
     }
-    assert_eq!(region.young_count(), 5, "every fresh block joins the young list");
+    assert_eq!(region.young_count(), 5, "every fresh block joins the young set");
     let mut seen = 0;
     region.iterate_young(|_, h| {
         assert_eq!(h.gen_age(), 0);
@@ -534,7 +561,7 @@ fn sweep_young_reclaims_unmarked_and_keeps_marked() {
     assert!(unsafe { keep.payload() }.is_some(), "marked block survives");
     // SAFETY: the region outlives this borrow; the slot is chunk-owned either way.
     assert!(!unsafe { drop_me.header_ptr().as_ref() }.is_alive());
-    assert_eq!(region.young_count(), 1, "the dead block leaves the young list");
+    assert_eq!(region.young_count(), 1, "the dead block leaves the young set");
 }
 
 /// The mark bit must be cleared by the minor sweep. Leaving it set is what let a closure
@@ -559,37 +586,35 @@ fn sweep_young_promotes_after_threshold_survivals() {
         // SAFETY: block still alive (it was marked each round).
         assert_eq!(unsafe { h.header_ptr().as_ref() }.gen_age(), i);
     }
-    assert_eq!(region.young_count(), 0, "promoted block leaves the young list");
+    assert_eq!(region.young_count(), 0, "promoted block leaves the young set");
     // Still alive — promotion is a label change, never a move or a free.
     // SAFETY: survived every sweep above; the region is still borrowed here.
     assert!(unsafe { h.payload() }.is_some());
 }
 
-/// Regression: the young list uses lazy deletion, so a slot that dies and is then handed
-/// back out by the free list before the next sweep would be listed twice — aged twice per
-/// minor, with the list growing without bound. The header's young bit is what prevents it.
+/// A slot that dies and is handed back out by the free list must be in the young set exactly
+/// once: the tombstone takes it out, the reuse puts it back.
 #[test]
-fn recycled_slot_is_not_listed_twice() {
+fn recycled_slot_is_young_once() {
     let mut region = VarRegion::new();
     let h = region.alloc(16, BlockType::Str);
     assert_eq!(region.young_count(), 1);
     region.tombstone(h);
-    // Still listed (lazy deletion) — the entry is stale, not removed.
-    assert_eq!(region.young_count(), 1);
-    // Same size class → reuses the very slot that is still sitting in the young list.
+    assert_eq!(region.young_count(), 0, "a tombstone leaves the young set at once");
+    // Same size class → reuses the very slot.
     let reused = region.alloc(16, BlockType::Str);
-    assert_eq!(region.young_count(), 1, "recycled slot must not be pushed a second time");
+    assert_eq!(reused.header_ptr(), h.header_ptr(), "the free list hands back the same slot");
+    assert_eq!(region.young_count(), 1, "the recycled slot is young again, once");
     // SAFETY: freshly allocated.
     assert_eq!(unsafe { reused.header_ptr().as_ref() }.gen_age(), 0);
 }
 
 #[test]
-fn reclaimed_chunk_purges_young_list() {
-    // A recycled chunk is re-bumped from offset 0, so any young-list entry pointing into it
-    // would dangle onto whatever lands at that address next — and the minor sweep would
-    // happily age or tombstone the new occupant. `young_list` must be purged by the same
-    // retain that already purges `all_blocks`. (`free_lists` is **not** purged there any
-    // more — lazy-var-free-list moved it to a check at pop; see the tests below.)
+fn a_reclaimed_chunk_carries_no_young_block() {
+    // A recycled chunk is re-bumped from offset 0, so a young bit left inside it would point
+    // at whatever lands at that address next — and the minor sweep would happily age or
+    // tombstone the new occupant. Tombstoning takes a block out of the young set, so a chunk
+    // that is reclaimable (every block dead) has no young bit left by construction.
     let mut region = VarRegion::new();
     // Enough blocks to fill several bump chunks, so some are not the ambient one (the
     // ambient chunk is never reclaimed).
@@ -599,23 +624,20 @@ fn reclaimed_chunk_purges_young_list() {
     assert!(region.chunk_count() > 2, "expected several bump chunks");
     assert_eq!(region.young_count(), 384);
 
-    // Nothing is marked → every block dies, so whole chunks become reclaimable.
+    // Nothing is marked → every block dies, and leaves the young set as it does.
     region.sweep(MAJOR);
-    // Tombstone alone does not shrink the list — deletion is lazy by design.
-    assert_eq!(region.young_count(), 384);
+    assert_eq!(region.young_count(), 0);
 
     let pooled = region.reclaim_dead_var_chunks().pooled;
     assert!(pooled > 0, "fully-dead bump chunks must be pooled");
-    assert!(
-        region.young_count() < 384,
-        "young list must shed the blocks whose chunks were recycled"
-    );
-    // The invariant that actually matters: nothing in the young list points at memory the
-    // region no longer tracks. `all_blocks` and `young_list` are purged by the same pass, so
-    // a missed purge shows up as an entry here that `all_blocks` has already dropped.
-    let tracked: std::collections::HashSet<_> = region.all_blocks.iter().flatten().copied().collect();
-    for p in &region.young_list {
-        assert!(tracked.contains(p), "young list holds a pointer into a recycled chunk");
+    // Refill: the young set must hold exactly the new blocks, all inside tracked chunks.
+    for _ in 0..200 {
+        region.alloc(1024, BlockType::Str);
+    }
+    assert_eq!(region.young_count(), 200);
+    let tracked: std::collections::HashSet<_> = region.tracked_blocks_for_test().into_iter().collect();
+    for p in region.young_blocks_for_test() {
+        assert!(tracked.contains(&p), "young set holds a block the region does not track");
     }
 }
 
@@ -675,7 +697,7 @@ fn pooling_records_the_entries_it_staled() {
     }
     r.sweep(MAJOR);
     let (pool, free) = r.partition_dead_chunks();
-    let expected: usize = pool.iter().map(|&ci| r.all_blocks[ci].len()).sum();
+    let expected: usize = pool.iter().map(|&ci| r.blocks_per_chunk[ci] as usize).sum();
     assert!(expected > 0);
     let before: usize = r.free_lists.iter().map(|f| f.len()).sum();
 
@@ -775,14 +797,10 @@ fn dead_oversized_chunk_is_freed_and_its_slot_reused() {
     assert_eq!(r.chunk_count(), 0, "the chunk's memory is back with the allocator");
     assert_eq!(r.chunk_slot_count(), slots, "the slot stays as a tombstone (indices are ids)");
 
-    // The freed block must be gone from every list that holds raw pointers — each one is a
-    // use-after-free waiting for the next sweep / minor / alloc.
-    // perf-bucket-all-blocks-by-chunk: `all_blocks` is bucketed per chunk now, so the outer
-    // Vec keeps one (emptied) bucket per chunk slot — the invariant is that no block pointer
-    // survives, not that the outer Vec is empty.
-    assert!(r.all_blocks.iter().all(|b| b.is_empty()),
-        "all_blocks still points into freed memory");
-    assert!(r.young_list.is_empty(), "young_list still points into freed memory");
+    // The freed block must be gone from every walk and set — each one is a use-after-free
+    // waiting for the next sweep / minor / alloc.
+    assert!(r.tracked_blocks_for_test().is_empty(), "a walk still reaches freed memory");
+    assert!(r.young_blocks_for_test().is_empty(), "the young set still points into freed memory");
     assert!(r.free_lists.iter().all(|fl| fl.is_empty()));
 
     // The tombstoned slot is reused rather than leaked.
@@ -866,7 +884,7 @@ fn freeing_a_dedicated_chunk_leaves_bump_chunk_indices_valid() {
     // SAFETY: alive, exclusive access via `&mut r` being released above.
     unsafe { survivor.payload_mut().expect("survivor resolves")[0] = 0x11 };
     // Every pointer still tracked must live in a chunk the region still owns.
-    for p in r.all_blocks.iter().flatten().chain(r.young_list.iter()) {
+    for p in r.tracked_blocks_for_test().iter().chain(r.young_blocks_for_test().iter()) {
         assert!(
             r.owns_addr(p.as_ptr() as usize),
             "tracked block points outside every owned chunk"
@@ -946,7 +964,7 @@ fn every_block_carries_its_owning_chunk() {
     assert_ne!(big_ci, small_ci, "an oversized block owns its chunk alone");
 }
 
-/// The census is what the reclaim pass reads instead of walking `all_blocks`. If it ever
+/// The census is what the reclaim pass reads instead of walking the blocks. If it ever
 /// drifted from the truth the pass would reclaim a chunk that still has live blocks — far
 /// worse than being slow — so reconcile it against a full scan after a churn workload.
 #[test]
@@ -962,8 +980,8 @@ fn the_per_chunk_census_matches_a_full_scan() {
 
     let mut truth_live = vec![0u32; r.chunk_slot_count()];
     let mut truth_blocks = vec![0u32; r.chunk_slot_count()];
-    for &p in r.all_blocks.iter().flatten() {
-        // SAFETY: `all_blocks` holds chunk-owned headers for the region's lifetime.
+    for p in r.tracked_blocks_for_test() {
+        // SAFETY: carved headers of chunks the region owns.
         let h = unsafe { p.as_ref() };
         truth_blocks[h.chunk_idx as usize] += 1;
         if h.is_alive() {
@@ -1027,4 +1045,40 @@ fn a_recycled_slot_comes_back_at_its_own_address() {
         .map(|_| unsafe { r.alloc(1024, BlockType::Str).header_ptr() }.as_ptr() as usize)
         .collect();
     assert_eq!(reused, addrs, "recycling must hand back exactly the slots it took");
+}
+
+/// M8: a chunk walk steps from block to block by the footprint of each header's size class, so
+/// `class_footprint` must invert `class_for` exactly for every in-chunk class.
+#[test]
+fn class_footprint_inverts_class_for() {
+    use super::chunk::{class_footprint, class_for_with_limit, CHUNK_BYTES};
+    for payload in 0..CHUNK_BYTES {
+        let (footprint, class) = class_for_with_limit(payload, CHUNK_BYTES);
+        if class != OVERSIZED_CLASS {
+            assert_eq!(class_footprint(class), footprint, "payload {payload} class {class}");
+        }
+    }
+}
+
+/// M8: the region keeps no per-block index — a walk of each chunk's carved prefix must find
+/// every block, live and dead, across mixed size classes, slot reuse and TLAB-style retire.
+#[test]
+fn chunk_walk_finds_every_block() {
+    let mut r = VarRegion::new();
+    let mut all: Vec<_> = (0..3000).map(|i| r.alloc(i % 700, BlockType::Str)).collect();
+    for h in all.iter().step_by(3) {
+        r.tombstone(*h);
+    }
+    // Reuse some slots, and add one dedicated block.
+    let reused: Vec<_> = (0..500).map(|i| r.alloc((i * 3) % 700, BlockType::Str)).collect();
+    all.push(r.alloc(OVERSIZED_PAYLOAD, BlockType::ArrayPrim));
+    let walked: std::collections::HashSet<_> = r.tracked_blocks_for_test().into_iter().collect();
+    for h in all.iter().chain(reused.iter()) {
+        assert!(walked.contains(&h.header_ptr()), "a carved block is missing from the walk");
+    }
+    let alive = all.iter().chain(reused.iter()).filter(|h| r.resolve(**h).is_some()).count();
+    let mut counted = 0;
+    r.iterate_alive(|_, _| counted += 1);
+    assert_eq!(counted, alive);
+    assert_eq!(r.young_count(), alive, "every alive block is still young");
 }
