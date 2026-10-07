@@ -1090,7 +1090,7 @@ output_dir = "artifacts/${project_name}/${profile}"
 |---|---|
 | `members` | 成员目录（glob / 显式路径），缺省 `["*"]` |
 | `exclude` | 从展开结果中剔除的成员路径 |
-| `default_members` | 默认成员子集。旧拼写 `default-members` 已删除，写了按未知键报错 |
+| `default_members` | 默认成员子集。**z42c 目前不消费它**（`z42c build` / `--workspace` 都编全部成员）；仓内 xtask 用它推导成员列表。旧拼写 `default-members` 已删除，写了按未知键报错 |
 | `dependencies` | 中央依赖声明，条目写法同 `[dependencies]`。当前只解析与校验键名，构建不消费——成员仍在自己的 `[dependencies]` 里声明依赖 |
 | `build` | 只接受 `output_dir` / `cache_dir`，见 [L6.5](#l65-workspacebuild-集中产物) |
 
@@ -1119,26 +1119,20 @@ exclude = ["libs/sandbox-*"]
 
 ### L6.4 z42c workspace 模式
 
-z42c 在执行命令前先尝试发现 workspace 根：从 CWD 向上找 `z42.workspace.toml`。
+`z42c build` 只有两种入口形态（全部选项见 `z42c build --help`）：
 
-| 情况 | z42c 行为 |
+| 写法 | 行为 |
 |---|---|
-| CWD 在 workspace 内（无显式 path / `--no-workspace`） | workspace 模式：调 `WorkspaceBuildOrchestrator` 编译 |
-| CWD 在 member 子目录 + 无 `-p` / `--workspace` | 自动 `-p <当前 member>`，编译该 member 与依赖闭包 |
-| CWD 在 workspace 根 + 无 `-p` / `--workspace` | 编译 `default_members`（无则全部） |
-| 给出显式 path / `--no-workspace` / 不在 workspace 内 | 单工程模式 / 单文件模式（行为不变） |
-
-#### 命令矩阵
+| `z42c build <manifest>` | 单工程：只编这一个清单（依赖按 `[dependencies]` 解析，path 依赖闭包先建） |
+| `z42c build`（不给清单） | 从 CWD 向上找**最近的** `z42.toml` 或 `z42.workspace.toml`：找到工程清单 → 同上；找到 workspace 清单 → 同 `--workspace` |
+| `z42c build --workspace` | 按拓扑序编**全部**成员（`members` 展开结果；`default_members` 不参与，见 L6.2） |
 
 ```bash
-z42c build                      # 自动发现 workspace；按 default_members 或当前 member 编译
-z42c build --workspace          # 编译所有 members
-z42c build -p hello             # 仅编译 hello 与依赖闭包
-z42c build -p foo -p bar        # 多选
-z42c build --exclude experiments  # 配合 --workspace 排除
-z42c build --release            # 切到 release profile
-z42c build --no-workspace       # 强制单工程模式
-z42c check ...                  # 同 build，但仅类型检查（不写产物）
+z42c build                      # 最近的清单（工程 → 单工程；workspace → 全部成员）
+z42c build --workspace          # 全部成员，拓扑序
+z42c build libs/core/core.z42.toml   # 只编一个成员（及其 path 依赖闭包）
+z42c build --release            # release profile
+z42c build --workspace --output-dir out   # flat 产物：全部成员写进同一个目录
 ```
 
 #### 拓扑编译顺序
@@ -1147,61 +1141,35 @@ z42c check ...                  # 同 build，但仅类型检查（不写产物�
 core ← utils ← hello
 ```
 
-`z42c build --workspace` 编译顺序：先 `core`，后 `utils`，最后 `hello`（串行，并行 future）。
-任一 member 失败 → 其传递下游被标记为 `blocked`（不编译）；姐妹分支不受影响。
+`z42c build --workspace` 编译顺序：先 `core`，后 `utils`，最后 `hello`（成员之间串行；成员内部按 `--jobs` 并行）。
+**任一成员失败即停止**（打印 `z42c build --workspace: member build failed: <清单>`，返回该成员的退出码），后面的成员不再编译。
 
-#### 错误码
+#### 规划期错误
 
-| 码 | 含义 | 级别 |
-|---|---|---|
-| WS001 | 两个 members 声明同一 `[project] name` | error |
-| WS002 | `-p` 与 `--exclude` 同时指定同一 member | error |
-| WS006 | Member 间依赖图含环 | error |
+规划期（还没编任何成员）发现的问题一律报错退出、一个成员都不建：
 
-#### 示例
+| 情况 | 输出 |
+|---|---|
+| workspace 清单有不认识的键 | `<z42.workspace.toml>: unknown key …`（见[键校验](#键校验本页没列的键一律报错)） |
+| 显式成员目录不存在 | `workspace: member \`<pat>\` does not exist under <dir>` |
+| 成员目录里有多份清单 | `… has more than one manifest (WS005): …` |
+| 成员间依赖成环 | `z42c build --workspace: circular member dependency` |
+
+> ⚠️ **两个成员声明同一个 `[project] name` 目前不报错**（文档曾列的 WS001 未实现）——产物按包名落盘，后建的覆盖先建的。
 
 跨 member 依赖的构建拓扑由 `src/compiler/z42c.pipeline/tests/workspace_topo/` 覆盖。
 
-#### 查询命令
+#### 新建 / 清理（编排器 `z42` / `z42b`，不是 z42c）
 
 ```bash
-z42c info                       # 列出 workspace 概览（members/kinds/默认 profile）
-z42c info --resolved -p hello   # hello 的最终生效配置 + 每字段来源标注
-z42c metadata --format json     # 机读 JSON（含 schema_version: "1" + dependency_graph）
-z42c tree                       # ASCII 显示跨 member 依赖树
-z42c lint-manifest              # 静态校验所有 manifest（不编译；返回 WSxxx 报告）
+z42 new hello                   # 在当前目录（或 --path 指定的目录）下建 hello/：z42.toml + .gitignore + README + src/；--lib 建库
+z42 clean [<manifest|dir>]      # 删工程构建产物（debug + release 的 dist / cache / generated；
+                                # output_dir 未显式配置时整个 <工程>/artifacts/）
 ```
 
-错误输出（含 WSxxx 前缀）经 `CliOutputFormatter` 格式化：
-- 默认彩色（red error / yellow warning / dim help|note）
-- 检测到 `NO_COLOR` 环境变量或 stderr 重定向时自动禁用
-- ManifestException 原 message 内容完整保留
-
-#### 脚手架 + 清理
-
-```bash
-z42c new --workspace mymonorepo       # 生成新 workspace 完整骨架
-z42c new -p foo --kind lib            # 在当前 workspace 加 lib member（libs/foo/）
-z42c new -p hello --kind exe          # 加 exe member（apps/hello/，src 含 Hello.Main 由 BuildTarget 自动定位）
-z42c init                             # 把当前单 manifest 升级为 workspace
-z42c fmt                              # 格式化所有 *.z42.toml（Tomlyn round-trip）
-
-z42b clean                            # 删当前目录 dist/ + cache/（clean 已从 z42c 移到 z42b）
-z42b clean <dir>                      # 删 <dir>/dist + <dir>/cache
-```
-
-> **clean 归 z42b**：z42c 是纯编译器（只 build / --emit-zbc / --dump-*）；产物生命周期
-> （clean）与 test / bench 一样归编排器 z42b。`z42b clean [<dir>]` 删 `<dir>/{dist,cache}`。
-
-`z42c new --workspace` 默认布局：
-
-```
-mymonorepo/
-├── z42.workspace.toml      （[workspace] / [workspace.build]）
-├── .gitignore              （dist/ + .cache/）
-├── libs/
-└── apps/
-```
+> z42c 是纯编译器（`build` / `--emit-zbc` / `--dump-*`）；产物生命周期（clean）与 test / bench 一样归编排器。
+> 文档曾列的 `-p` / `--exclude` / `--no-workspace`、`z42c check` / `info` / `metadata` / `tree` / `lint-manifest` /
+> `new --workspace` / `init` / `fmt` 均**未实现**，已从本页删除。
 
 ---
 
