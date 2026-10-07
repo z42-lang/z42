@@ -360,7 +360,7 @@ pub(super) fn struct_field_get_prim(
 ///
 /// Arena base: no write barrier (the arena is a GC root, re-scanned every cycle).
 /// Heap-object base (P3b): a reference-leaf write into `struct_refs` **does** need a
-/// write barrier — the heap object is not re-scanned as a root, so a concurrent /
+/// write barrier — the heap object is not re-scanned as a root, so a
 /// generational collector must observe the store (routed through `write_barrier_field`).
 pub(super) fn struct_field_set_prim(
     ctx: &VmContext, frame: &mut Frame,

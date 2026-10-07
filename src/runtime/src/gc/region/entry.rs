@@ -21,8 +21,8 @@ pub struct RegionEntry<T> {
     /// `entry.value.lock()` from `GcRef::borrow` / `borrow_mut`.
     pub(crate) value: Mutex<T>,
 
-    /// Mark bit (add-mark-sweep-collector + add-concurrent-gc). CAS
-    /// from 0 to 1 by mark phase / write barrier. Sweep resets to 0
+    /// Mark bit (add-mark-sweep-collector). CAS
+    /// from 0 to 1 by the mark phase. Sweep resets to 0
     /// on survivors. `Relaxed` ordering — visibility sync via the
     /// gc_phase Mutex / mark_queue Mutex established at sweep / drain
     /// boundaries.
@@ -81,7 +81,7 @@ pub struct RegionEntry<T> {
     /// when heap pressure is below the soft threshold. Incremented by
     /// `SoftGcRef::new`, decremented by `SoftGcRef::drop`. Uses
     /// `SeqCst` ordering to keep soft-ref count visible across threads
-    /// (GC and mutator run concurrently in `ConcurrentMarkSweep`).
+    /// (the handles are created and dropped on mutator threads).
     pub(crate) soft_ref_count: AtomicU32,
 
     /// **fix-young-list-quadratic-sweep (2026-09-06)**: this entry's own index

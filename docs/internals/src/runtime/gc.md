@@ -12,7 +12,7 @@ Ruby / RustPython 的事实标准 GC 抽象）。trait 在单文件内按"能力
 |-------|---------|------|
 | 1. Allocation | `alloc_object` / `alloc_array` | 脚本驱动堆分配 |
 | 2. Roots | `pin_root` / `unpin_root` / `enter_frame` / `leave_frame` / `for_each_root` | host pin + frame scope + GC scan |
-| 3. Write barriers | `write_barrier_field` / `write_barrier_array_elem` | 分代 / 并发模式用，默认 no-op |
+| 3. Write barriers | `write_barrier_field` / `write_barrier_array_elem` | 分代模式用（卡表），默认 no-op |
 | 4. Object Model | `object_size_bytes` / `scan_object_refs` | trace / snapshot 基础设施 |
 | 5. Collection | `collect` / `collect_cycles` / `force_collect` / `pause` / `resume` | GC 控制 |
 | 6. Heap config | `set_max_heap_bytes` / `used_bytes` | 堆上限 / 用量 |
@@ -39,12 +39,12 @@ Ruby / RustPython 的事实标准 GC 抽象）。trait 在单文件内按"能力
 
 ```
 VmCore {
-    gc_phase:     Mutex<GcPhase>,     // Idle / Requested / Marking / ConcurrentMarking
+    gc_phase:     Mutex<GcPhase>,     // Idle / Requested / Marking
     gc_phase_cv:  Condvar,
     parked_count: AtomicUsize,        // mutator parked 数（不含 collector）
 }
 
-enum GcPhase { Idle, Requested, Marking, ConcurrentMarking }
+enum GcPhase { Idle, Requested, Marking }
 ```
 
 **Mutator 侧**：interp dispatch loop 在三类位置调 `crate::gc::safepoint::check_safepoint(ctx)`：
@@ -91,12 +91,13 @@ RAII guard：
 ### GC mode selection
 
 `ArcMagrGC` 支持运行时选择 GC 算法（默认模式与分代模式的旋钮见 [GC 调参](gc-tuning.md)）；
-默认模式是 `GenerationalMarkSweep`；`StwMarkSweep` / `ConcurrentMarkSweep` 为可选 opt-in。
+默认模式是 `GenerationalMarkSweep`；`StwMarkSweep` 为可选 opt-in。
 
 **切换方式：**
 
-- **Env var**：进程启动前设 `Z42_GC_MODE=concurrent`（或 `=stw` / `=generational`）。无法识别的值回退到默认模式（generational）并 stderr 警告。
-- **API**：运行期调 `heap.set_mode(GcMode::ConcurrentMarkSweep)`。下次
+- **Env var**：进程启动前设 `Z42_GC_MODE=stw`（或 `=generational`；取值与非法值的处理见
+  [运行时设置](https://z42-lang.github.io/z42/reference/toolchain/runtime-settings.html)）。
+- **API**：运行期调 `heap.set_mode(GcMode::StwMarkSweep)`。下次
   `collect_cycles_with_context` 起生效；进行中的 collect 完成时仍按原
   模式（per spec scenario）。
 - **生产入口**：`safepoint::check_safepoint_slow` 的 auto-collect 路径
@@ -109,79 +110,30 @@ RAII guard：
 |------|------|--------|
 | `GenerationalMarkSweep`（默认）| 年轻代 minor（O(young) 停顿）+ major；major 默认拆成增量切片，见 [增量 major](gc-incremental-major.md) | 所有 workload |
 | `StwMarkSweep` | 一次性停世界跑 mark + sweep | 单线程、对 throughput 敏感 |
-| `ConcurrentMarkSweep` | STW root 快照 → mutator 继续跑 + barrier shade → 终止 handshake STW → STW sweep | 多线程 + 对 pause time 敏感 |
 
-**遇到 bug 的回退路径**：`Z42_GC_MODE=stw` 强制走最简单的稳定路径（一代、无分代屏障）。生产报
-错优先 fallback STW 看是否复现，把 bug 定位到 concurrent 路径还是更
+两种模式的每次停顿都是 STW（collector 与 mutator 从不同时运行）；对停顿敏感的场景靠分代模式的
+增量 major 切片，而不是并发标记。
+
+**遇到 bug 的回退路径**：`Z42_GC_MODE=stw` 强制走最简单的稳定路径（一代、无分代屏障、无增量切片）。
+生产报错优先 fallback STW 看是否复现，把 bug 定位到分代路径（minor / 卡表 / 增量切片）还是更
 底层（trait / barrier / safepoint）。
 
 ### 自动回收的运行时旋钮
 
 自动回收的 `Z42_GC_*` 旋钮、增长闸门、徒劳退避与 safepoint 三态协议见 [GC 调参与自动回收 / safepoint 协议](gc-tuning.md)。
 
-### Concurrent mark protocol
+### Mark bit 的内存序
 
-ConcurrentMarkSweep 模式下 `collect_cycles_with_context` 跑下列阶段：
+mark bit 用 `Relaxed` 原子仍然安全：
 
-```text
-1. request_gc_pause                    [STW]   collector_active=true, phase=Marking
-   ↓
-2. snapshot_roots_into_mark_queue       [STW]   pinned_roots + external_scanner → mark + enqueue
-   ↓
-3. yield_to_concurrent_marking          [STW]   phase=ConcurrentMarking, mutators wake
-   ↓
-4. drain_mark_queue (collector thread)  [concurrent]   BFS through gray queue;
-                                                       mutators run; barriers push gray
-   ↓
-5. request_handshake_pause              [STW]   phase=Marking, wait for re-park
-   ↓
-6. drain_mark_queue (residual)          [STW]   catch barrier pushes during handshake race window;
-   + close_major_marking                         把各线程 SATB 缓冲里记下的旧值染灰
-   ↓
-7. sweep_phase                          [STW]   walk registry, free unmarked
-   ↓
-8. GcPauseGuard::drop                   [STW]   phase=Idle, collector_active=false, mutators resume
-```
+- 每个 mark 操作是 CAS（atomic + idempotent）—— 只有一次 0→1 transition 成功，其余返回
+  false 跳过 enqueue（不会重复 trace）
+- 一个 cycle 内 mark 单调（epoch 戳只会被写成本周期的值）
+- 标记只在 collector 持有停顿时进行；跨线程可见性来自停顿边界上 `gc_phase` Mutex 的
+  Acquire/Release，以及 `mark_queue` 的 `parking_lot::Mutex`
 
-**Tricolor 不变量**：incremental update（Dijkstra）+ SATB 删除屏障 + allocate-black。
-Barrier override（上述 call site）只在 ConcurrentMarkSweep 模式下
-shade：写入 heap-ref 时 `mark_if_unmarked(new)`，CAS 成功则 push 到
-`mark_queue`。保证 "no black-to-white edge" —— 任何 mutator 写入的
-new 都至少是 gray，最终被 collector traced。被覆盖的旧值由写原语里的
-SATB 屏障记录（不走 `write_barrier_*` 钩子，见 [增量 major](gc-incremental-major.md)），
-周期内新分配的对象直接标黑。
-
-**Termination invariant**：drain 当 queue 空。但 barrier 可能在 STW
-handshake 触发**前的瞬间**push 新 gray —— 阶段 5/6 的 handshake →
-residual drain 安全捕获。`request_handshake_pause` 等待 mutators
-park（同 `request_gc_pause` 模式），park 后所有 mutator 已观察到 phase
-= Marking，不会再写 → 此时 queue 空 = 真终止。
-
-**为什么 Relaxed atomic 对 marked bit 仍然安全**：
-
-- 每个 mark 操作是 CAS（atomic + idempotent）—— 多 thread race 时只有
-  一个 transitions 0→1，其它返回 false 跳过 enqueue（不会重复 trace）
-- BFS 是单调的（一个 cycle 内 mark bit 只从 0 → 1，永远不反向）
-- 跨 thread 可见性通过 (a) `parking_lot::Mutex` on mark_queue 的
-  Acquire/Release，(b) STW handshake 转换时 `gc_phase` Mutex 的
-  Acquire/Release。这两个 sync point 足以建立 happens-before
-
-未来 audit 若移除其中任一 sync point（比如改用 lock-free queue），
-必须重新评估 Acquire/Release ordering。
-
-**Phase 状态机**：
-
-```text
-STW path (mode = StwMarkSweep):
-  Idle → Requested → Marking → Idle
-
-Concurrent path (mode = ConcurrentMarkSweep):
-  Idle → Requested → Marking (snapshot) → ConcurrentMarking (drain) →
-  Marking (handshake + sweep) → Idle
-```
-
-`park_until_idle` 的等待条件从 `!Idle` 改为 `Requested | Marking`
-—— ConcurrentMarking 不让 mutator park。
+若未来让标记与 mutator 同时运行（并发标记），或把 `mark_queue` 换成 lock-free 队列，必须重新
+评估这里的 ordering。
 
 ### Finalizer contract
 
@@ -344,7 +296,7 @@ mark 阶段与 heapsnapshot/retention 枚举的**单一来源**，二者仅在�
 
 ```mermaid
 flowchart TD
-  MARK["mark_phase BFS<br/>(STW / minor / concurrent 同源)"] -->|"mark_if_unmarked(v)"| M{"v 是堆引用?"}
+  MARK["mark_phase BFS<br/>(STW / minor / 增量切片同源)"] -->|"mark_if_unmarked(v)"| M{"v 是堆引用?"}
   M -->|"Object/Array"| RO["GcRef::mark → region_object/array 置位"]
   M -->|"Closure/Str/FuncRef"| RV["VarGcRef::mark → region_var 块置位"]
   RO --> TC["v.visit_gc_children(true, push child)"]
@@ -373,8 +325,8 @@ fn write_barrier_field(&self, owner: &Value, slot: usize, new: &Value);
 fn write_barrier_array_elem(&self, arr: &Value, idx: usize, new: &Value);
 ```
 
-trait 默认实现（含 `ArcMagrGC` STW mark-sweep）是 no-op；分代 / 并发模式 override 为
-card-marking / shade 真实逻辑。**call-site wiring + 调用契约**与模式无关（no-op 实现下仅
+trait 默认实现（含 `ArcMagrGC` STW mark-sweep）是 no-op；分代模式 override 为
+card-marking 真实逻辑。**call-site wiring + 调用契约**与模式无关（no-op 实现下仅
 `#[cfg(test)]` 时 dispatch 到 test-only `BarrierObserver`）。
 
 **Caller 契约**（interp `field_set` / `array_set`、JIT `jit_field_set` /
@@ -392,8 +344,8 @@ card-marking / shade 真实逻辑。**call-site wiring + 调用契约**与模式
    `owner.slots` / `arr` 的 inner-`Mutex` lock，让未来 override 可以
    re-borrow `owner` 而不死锁。
 4. **IC fast path 也 dispatch**: FieldSet 的 inline cache 命中路径也必须
-   走 barrier，否则未来 generational/concurrent 在 hot code 漏写 → mark
-   queue 不完整 → UAF。这条规则在 `interp::field_set` /
+   走 barrier，否则分代模式在 hot code 漏记卡 → minor 漏掉老→新的边
+   → UAF。这条规则在 `interp::field_set` /
    `jit_field_set` 内 inline 多个写入点都加了 dispatch；六个写入点对应六个
    `write_barrier_field` call（fast + slow + 无-IC，interp 和 JIT 各一套）。
 5. **StaticSet 不 dispatch**: static fields 是 GC root，"old → new"
@@ -447,14 +399,12 @@ only 验证器在每次 collect 末尾检查；release 构建完全编译掉。
 
 **2 个 heap 级检查**（panic-only，无 Violation enum）：
 
-- mark_queue 必须在 cycle 外为空（concurrent mark drain 必须完整；
-  非 concurrent mode 该 queue 从不写）
+- mark_queue 必须在 cycle 外为空（major 的 mark 必须 drain 完整；增量周期进行中不查）
 - 没有 alive entry 携带 marked=1（sweep 必须清 survivors 的 mark）
 
 **触发时机**：
 
 - `collect_cycles` 尾部（StwMarkSweep + GenerationalMarkSweep default）
-- `collect_cycles_with_context` 的 ConcurrentMarkSweep 分支末（pause Drop 后）
 - `collect_cycles_with_context` 的 GenerationalMarkSweep 分支末
 
 每次都包在 `#[cfg(debug_assertions)]` 里 —— release 构建（cargo build
@@ -488,12 +438,11 @@ xorshift64 PRNG（self-contained, no crate dep），每个 test 用固定 seed
 + 2000 iters 默认。每次 `force_collect` op 后 C1 invariant 自动验证。
 失败的 panic message 嵌入 seed + iter index + op，便于复现。
 
-**4 个 tests** (in `arc_heap_tests/stress.rs`):
+**3 个 tests** (in `arc_heap_tests/stress.rs`，其中 mode-switching 那条目前 `#[ignore]`):
 
 | Test | Mode | Seed | 默认 iters |
 |------|------|------|-----------|
 | `stress_seeded_stw_short` | StwMarkSweep | 42 | 2000 |
-| `stress_seeded_concurrent_short` | ConcurrentMarkSweep | 0x1234 | 2000 |
 | `stress_seeded_generational_short` | GenerationalMarkSweep | 0xC0DE | 2000 |
 | `stress_seeded_mode_switching_short` | 全部循环 | 0xBEEF | 3000 |
 
@@ -521,23 +470,22 @@ Z42_STRESS_ITERS=20000 cargo test --lib gc::arc_heap::arc_heap_tests::stress
 ≥100 writes, ≥50 pins, ≥50 collects)，防止 op weights drift 导致
 silent regression。
 
-**价值**：stress 能抓到 concurrent 的 no-VmContext `force_collect` 路径下，barrier
-留下的 mark 状态破坏 STW mark_phase 的 "clean slate" 假设一类缺陷（trace_children 漏 mark
-子节点 → 子节点被 swept → 下次 collect 经过 slot 触发 use-after-finalize panic）；
-STW 入口因此防御性清空 `mark_queue`。
+**价值**：stress 能抓到周期外残留的 mark 状态破坏 STW mark_phase 的 "clean slate" 假设一类缺陷
+（trace_children 漏 mark 子节点 → 子节点被 swept → 下次 collect 经过 slot 触发
+use-after-finalize panic）；STW 入口因此开新 epoch 并防御性清空 `mark_queue`。
 
-**cost 实测**：4 个 stress tests 总耗时 < 1s in debug (cargo test)。
+**cost 实测**：stress tests 总耗时 < 1s in debug (cargo test)。
 2000 iters × O(几十次 collect with O(N) validator) × O(state ops) =
 几十毫秒。可接受。
 
 ### Pause histogram
 
 每次 collect 测量的 `pause_us` 逐事件只对挂了 `GcObserver` 的 host
-可见；为提供"过去 10000 次 collect 的 p95 是多少 / concurrent
+可见；为提供"过去 10000 次 collect 的 p95 是多少 / generational
 比 stw 是不是真的更短"这种聚合视角，`ArcMagrGC` 自维护一个
 **固定 8 桶对数直方图** + min / max / total / count，每次
-`collect_cycles` / `collect_cycles_with_context` (concurrent +
-generational arms) / `force_collect` 末尾、`AfterCollect` event 前
+`collect_cycles` / `collect_cycles_with_context`（generational
+arm）/ `force_collect` 末尾、`AfterCollect` event 前
 调一次 `record(pause_us)`。
 
 桶边界（半开区间 `[lower, upper)`，微秒）：

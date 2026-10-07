@@ -74,24 +74,13 @@ pub fn throttle_n() -> u32 {
 
 /// Current GC phase observed by mutators at safepoint checks.
 ///
-/// **add-concurrent-gc P1 (2026-05-22)**: extended with `ConcurrentMarking`.
-///
-/// State machines:
+/// Every pause — a STW collect, a minor, one slice of an incremental major —
+/// has the same shape:
 ///
 /// ```text
-/// STW path (GcMode::StwMarkSweep; also the shape a generational major takes):
 ///   Idle ─►Requested─►Marking─►Idle
 ///                       ▲
 ///                       │ (mutators parked throughout Marking)
-///
-/// Concurrent path (GcMode::ConcurrentMarkSweep, opt-in):
-///   Idle ─►Requested─►ConcurrentMarking─►Marking─►Idle
-///                            ▲              ▲
-///                            │              │ (short STW handshake
-///                            │              │  for queue drain + sweep)
-///                            │
-///                       (mutators RUN; write barriers
-///                        push gray refs to mark queue)
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GcPhase {
@@ -99,20 +88,8 @@ pub enum GcPhase {
     Idle,
     /// Collector has requested a pause; mutators must park at the next safepoint.
     Requested,
-    /// STW phase — collector is doing mark+sweep (default path) or the
-    /// termination handshake + sweep (concurrent path); mutators parked.
+    /// The collector holds the pause and does its work; mutators parked.
     Marking,
-    /// **add-concurrent-gc P1 (2026-05-22)**: concurrent mark phase —
-    /// only set under `GcMode::ConcurrentMarkSweep`. Mutators continue
-    /// executing during this phase (the write-barrier override is
-    /// responsible for shading gray new refs). Transitions to `Marking`
-    /// when the collector requests the final STW handshake.
-    ///
-    /// `check_safepoint_slow` explicitly does NOT park mutators when
-    /// this phase is observed — that's the entire point of the
-    /// concurrent path. Other phases (Requested / Marking) keep their
-    /// STW parking semantics.
-    ConcurrentMarking,
 }
 
 /// Fast-path safepoint check called from interp hot path.
@@ -166,10 +143,6 @@ pub fn check_safepoint(ctx: &VmContext) {
 #[inline(never)]
 pub(crate) fn check_safepoint_slow(ctx: &VmContext) {
     let phase = *ctx.core.gc_phase.lock();
-    // add-concurrent-gc P1: `ConcurrentMarking` is observable but mutators
-    // do NOT park — concurrent mark requires mutators to keep running so
-    // the background mark thread isn't the only one making progress. The
-    // write-barrier override (P3) handles tricolor shading on writes.
     if matches!(phase, GcPhase::Requested | GcPhase::Marking) {
         park_until_idle(ctx);
         return;
@@ -179,12 +152,8 @@ pub(crate) fn check_safepoint_slow(ctx: &VmContext) {
     // thread that loses the collector role below leaves it set for the next safepoint instead of
     // consuming it.
     if ctx.core.needs_auto_collect.load(Ordering::Acquire) {
-        // add-concurrent-gc P4b (2026-05-22): use collect_cycles_with_context
-        // so the heap can pick STW vs concurrent path internally. The STW
-        // default impl does the same `request_gc_pause` + `collect_cycles`
-        // dance as before; ArcMagrGC's override routes ConcurrentMarkSweep
-        // mode through the multi-phase flow (snapshot → yield → drain →
-        // handshake → sweep).
+        // collect_cycles_with_context takes the pause (`request_gc_pause`)
+        // and lets the heap pick the work for its mode.
         ctx.heap().collect_cycles_with_context(ctx);
     }
 
@@ -201,10 +170,7 @@ pub(crate) fn check_safepoint_slow(ctx: &VmContext) {
 }
 
 /// Slow path — the mutator parks on the Condvar until the collector
-/// releases the world. Releases on `Idle` *or* `ConcurrentMarking`
-/// (add-concurrent-gc P1): the concurrent path transitions
-/// `Requested → ConcurrentMarking` to signal mutators may resume; only
-/// the final STW handshake (`Marking`) re-parks them.
+/// releases the world (phase back to `Idle`).
 fn park_until_idle(ctx: &VmContext) {
     // add-concurrency-probes (2026-08-23, script-profiling P1b): time how long
     // this mutator stays parked (STW stall as seen by the stopped thread). This
@@ -243,12 +209,12 @@ fn park_until_idle(ctx: &VmContext) {
     while matches!(*phase, GcPhase::Requested | GcPhase::Marking) {
         ctx.core.gc_phase_cv.wait(&mut phase);
     }
-    // Decrement BEFORE releasing the phase lock. This closes a second race
-    // with request_handshake_pause: decrementing after drop(phase) lets the
-    // collector observe a stale elevated parked_count and break out of its
-    // wait loop while this thread is still resuming (between drop and
-    // fetch_sub). Decrementing under the lock serializes the count update
-    // against the collector's next re-check.
+    // Decrement BEFORE releasing the phase lock. Decrementing after
+    // drop(phase) would let the next collector's `request_gc_pause` observe
+    // a stale elevated parked_count and break out of its wait loop while
+    // this thread is still resuming (between drop and fetch_sub).
+    // Decrementing under the lock serializes the count update against the
+    // collector's next re-check.
     ctx.core.parked_count.fetch_sub(1, Ordering::AcqRel);
     drop(phase);
     // Record park duration AFTER releasing the phase lock (park_histogram is a
@@ -342,7 +308,7 @@ fn native_park_incr(ctx: &VmContext) {
 /// Leave the parked state. If a STW window is in progress, wait it out BEFORE
 /// resuming mutation (else we'd race the collector scanning our roots), then
 /// drop our parked count. Decrement under the phase lock closes the same
-/// `request_handshake_pause` race documented in `park_until_idle`.
+/// stale-count race documented in `park_until_idle`.
 fn native_park_decr(ctx: &VmContext) {
     let mut phase = ctx.core.gc_phase.lock();
     while matches!(*phase, GcPhase::Requested | GcPhase::Marking) {
@@ -482,67 +448,6 @@ impl Drop for GcPauseGuard<'_> {
         // exclusive collector claim. Release ordering so the next
         // collector's compare_exchange Acquire sees our final heap state.
         self.ctx.core.collector_active.store(false, Ordering::Release);
-    }
-}
-
-// ── add-concurrent-gc P4b (2026-05-22) ────────────────────────────────────
-//
-// Phase transition methods on the held guard. Used by the concurrent
-// collect loop:
-//   1. request_gc_pause → guard in Marking phase, mutators parked
-//   2. yield_to_concurrent_marking → guard in ConcurrentMarking phase,
-//      mutators wake from park_until_idle and resume (write barriers
-//      shade gray writes per add-concurrent-gc P3)
-//   3. background mark drain by collector thread (this thread)
-//   4. request_handshake_pause → guard back to Marking phase, waits
-//      for all other VmContexts to re-park at their next safepoint
-//   5. (collector drains residual gray, runs STW sweep)
-//   6. drop → release everyone
-
-impl GcPauseGuard<'_> {
-    /// Transition `Marking → ConcurrentMarking`. Mutators waiting on
-    /// `gc_phase_cv` wake (their wait predicate `Requested | Marking`
-    /// no longer matches) and resume execution. The collector retains
-    /// its `collector_active` claim — no other collector can preempt.
-    ///
-    /// Caller must currently be in `Marking` phase (asserted in
-    /// debug builds); typical caller acquired guard via
-    /// `request_gc_pause`.
-    pub fn yield_to_concurrent_marking(&self) {
-        let mut phase = self.ctx.core.gc_phase.lock();
-        debug_assert_eq!(*phase, GcPhase::Marking,
-            "yield_to_concurrent_marking expects current phase Marking");
-        *phase = GcPhase::ConcurrentMarking;
-        drop(phase);
-        self.ctx.core.gc_phase_cv.notify_all();
-    }
-
-    /// Transition `ConcurrentMarking → Marking`. Waits for all other
-    /// VmContexts to park at their next safepoint check (same wait
-    /// pattern as `request_gc_pause`). After return, the world is
-    /// STW-stopped exactly as after `request_gc_pause` (mutators
-    /// parked, mark queue safe to drain without race).
-    pub fn request_handshake_pause(&self) {
-        let mut phase = self.ctx.core.gc_phase.lock();
-        debug_assert_eq!(*phase, GcPhase::ConcurrentMarking,
-            "request_handshake_pause expects current phase ConcurrentMarking");
-        *phase = GcPhase::Marking;
-        // Wake mutators currently in safepoint slow-path checks so they
-        // observe the new phase + park. New ones hitting safepoint will
-        // see Marking and park directly.
-        self.ctx.core.gc_phase_cv.notify_all();
-        // Wait for everyone-but-self to park. Re-read vm_contexts.len()
-        // on each wakeup so a freshly-registered VmContext doesn't
-        // strand us.
-        loop {
-            let total = self.ctx.core.vm_contexts.lock().len();
-            let need  = total.saturating_sub(1);
-            if self.ctx.core.parked_count.load(Ordering::Acquire) >= need {
-                break;
-            }
-            poke_safepoints(&self.ctx.core); // see `request_gc_pause`
-            self.ctx.core.gc_phase_cv.wait_for(&mut phase, REPOKE_INTERVAL);
-        }
     }
 }
 

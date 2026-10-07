@@ -355,7 +355,7 @@ fn is_heap_ref_false_for_primitives() {
 fn is_heap_ref_true_for_string_and_func_ref() {
     // unify-gc-heap PR-4: strings are GC blocks now — `Value::Str` / `Value::FuncRef`
     // (which carries a `Str`) are heap refs, so a write into a heap slot fires the
-    // barrier (generational card / concurrent mark-queue) that keeps the block marked.
+    // barrier (generational card) that keeps the block found by a minor.
     assert!(Value::Str("hello".to_string().into()).is_heap_ref());
     assert!(Value::FuncRef("Foo.bar".into()).is_heap_ref());
 }

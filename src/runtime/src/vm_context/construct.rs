@@ -544,7 +544,7 @@ impl Drop for VmContext {
             self.core.counters.absorb(&self.counters);
             registry.retain(|p| p.0 != ptr);
         }
-        // Wake any collector sleeping in request_handshake_pause so it
+        // Wake any collector sleeping in request_gc_pause so it
         // re-evaluates the required park count. Our removal from vm_contexts
         // may lower vm_contexts.len()-1 below the current parked_count,
         // satisfying the wait condition. Must hold gc_phase lock to prevent

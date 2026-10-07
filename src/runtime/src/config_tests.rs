@@ -144,8 +144,6 @@ fn from_getter_default_values_match_documented_defaults() {
 #[test]
 fn from_getter_gc_mode_recognised_aliases() {
     for (input, expected) in [
-        ("concurrent",                 GcMode::ConcurrentMarkSweep),
-        ("concurrent-mark-sweep",      GcMode::ConcurrentMarkSweep),
         ("generational",               GcMode::GenerationalMarkSweep),
         ("generational-mark-sweep",    GcMode::GenerationalMarkSweep),
         ("stw",                        GcMode::StwMarkSweep),
@@ -325,7 +323,7 @@ fn write_temp(name: &str, content: &str) -> std::path::PathBuf {
 fn resolve_none_equals_from_getter_nonbreaking() {
     // The non-breaking guarantee: with no config-file layer, resolve is
     // byte-for-byte the old env-only behaviour.
-    let env = &[("Z42_LIBS", "/l"), ("Z42_GC_MODE", "concurrent"), ("Z42_JIT_PROFILE", "1")];
+    let env = &[("Z42_LIBS", "/l"), ("Z42_GC_MODE", "stw"), ("Z42_JIT_PROFILE", "1")];
     let a = RuntimeConfig::resolve(fake_env(env), None);
     let b = RuntimeConfig::from_getter(fake_env(env));
     assert_eq!(a.libs_dir, b.libs_dir);
@@ -337,8 +335,8 @@ fn resolve_none_equals_from_getter_nonbreaking() {
 #[test]
 fn resolve_env_wins_over_table() {
     let t = rt_table("gc-mode = \"stw\"\ngc-minor-threshold = 0.5");
-    let cfg = RuntimeConfig::resolve(fake_env(&[("Z42_GC_MODE", "concurrent")]), Some(&t));
-    assert_eq!(cfg.gc_mode, GcMode::ConcurrentMarkSweep, "env beats table");
+    let cfg = RuntimeConfig::resolve(fake_env(&[("Z42_GC_MODE", "generational")]), Some(&t));
+    assert_eq!(cfg.gc_mode, GcMode::GenerationalMarkSweep, "env beats table");
     assert_eq!(cfg.gc_minor_threshold, 0.5, "table used where env absent");
 }
 
@@ -411,13 +409,13 @@ fn load_runtime_toml_missing_file_is_none_not_panic() {
 
 #[test]
 fn load_runtime_toml_reads_runtime_section() {
-    let p = write_temp("reads", "[runtime]\ngc-mode = \"concurrent\"\n[other]\nx = 1\n");
+    let p = write_temp("reads", "[runtime]\ngc-mode = \"stw\"\n[other]\nx = 1\n");
     let pstr = p.to_string_lossy().into_owned();
     let table = load_runtime_toml(fake_env(&[("Z42_CONFIG", &pstr)])).unwrap().unwrap();
-    assert_eq!(table.get("gc-mode").and_then(|v| v.as_str()), Some("concurrent"));
+    assert_eq!(table.get("gc-mode").and_then(|v| v.as_str()), Some("stw"));
     // end-to-end through resolve
     let cfg = RuntimeConfig::resolve(fake_env(&[]), Some(&table));
-    assert_eq!(cfg.gc_mode, GcMode::ConcurrentMarkSweep);
+    assert_eq!(cfg.gc_mode, GcMode::StwMarkSweep);
     let _ = std::fs::remove_file(&p);
 }
 
@@ -587,11 +585,10 @@ fn enum_value_kinds_list_every_parser_arm() {
     let ValueKind::Enum(modes) = spec_named("Z42_GC_MODE").value else {
         panic!("Z42_GC_MODE must be an Enum knob")
     };
-    for m in ["stw", "stw-mark-sweep", "concurrent", "concurrent-mark-sweep",
-              "generational", "generational-mark-sweep"] {
+    for m in ["stw", "stw-mark-sweep", "generational", "generational-mark-sweep"] {
         assert!(modes.contains(&m), "GC_MODES missing parser arm `{m}`");
     }
-    assert_eq!(modes.len(), 6, "GC_MODES has an arm parse_gc_mode does not handle");
+    assert_eq!(modes.len(), 4, "GC_MODES has an arm parse_gc_mode does not handle");
 
     let ValueKind::Enum(exec) = spec_named("Z42_MODE").value else {
         panic!("Z42_MODE must be an Enum knob")
@@ -904,21 +901,21 @@ fn full_ctx() -> BuildCtx {
 fn provenance_records_the_winning_layer() {
     let user = rt_table("gc-mode = \"generational\"");
     let (cfg, res) = resolve_all(
-        &[("Z42_GC_MODE", "concurrent")],
         &[("Z42_GC_MODE", "stw")],
+        &[("Z42_GC_MODE", "generational")],
         Some(&user),
         None,
         &full_ctx(),
     );
-    assert_eq!(cfg.gc_mode, GcMode::ConcurrentMarkSweep, "cli wins");
+    assert_eq!(cfg.gc_mode, GcMode::StwMarkSweep, "cli wins");
     let k = res.get("Z42_GC_MODE").unwrap();
     assert_eq!(k.source, Layer::Cli);
-    assert_eq!(k.raw.as_deref(), Some("concurrent"));
+    assert_eq!(k.raw.as_deref(), Some("stw"));
     // Both lower layers are recorded as overridden, in priority order.
     assert_eq!(
         k.ignored,
         vec![
-            IgnoredValue { layer: Layer::Env, value: "stw".into(), reason: IgnoreReason::Overridden },
+            IgnoredValue { layer: Layer::Env, value: "generational".into(), reason: IgnoreReason::Overridden },
             IgnoredValue { layer: Layer::UserConfig, value: "generational".into(), reason: IgnoreReason::Overridden },
         ]
     );
@@ -931,8 +928,8 @@ fn full_five_layer_priority_chain() {
     let app = rt_table("gc-mode = \"stw\"");
     let c = full_ctx();
     let cases: [(&[(&'static str, &str)], &[(&str, &str)], bool, bool, GcMode, Layer); 5] = [
-        (&[("Z42_GC_MODE", "concurrent")], &[("Z42_GC_MODE", "stw")], true, true, GcMode::ConcurrentMarkSweep, Layer::Cli),
-        (&[],                              &[("Z42_GC_MODE", "concurrent")], true, true, GcMode::ConcurrentMarkSweep, Layer::Env),
+        (&[("Z42_GC_MODE", "stw")],        &[("Z42_GC_MODE", "generational")], true, true, GcMode::StwMarkSweep, Layer::Cli),
+        (&[],                              &[("Z42_GC_MODE", "stw")], true, true, GcMode::StwMarkSweep, Layer::Env),
         (&[],                              &[],  true,  true, GcMode::GenerationalMarkSweep, Layer::UserConfig),
         (&[],                              &[],  false, true, GcMode::StwMarkSweep,          Layer::AppConfig),
         (&[],                              &[],  false, false, GcMode::GenerationalMarkSweep, Layer::Default),
@@ -954,11 +951,11 @@ fn user_config_and_app_config_merge_per_key() {
     // The bug this guards: the launcher used to hand the app sidecar through
     // Z42_CONFIG, so setting Z42_CONFIG yourself dropped the sidecar wholesale.
     // Two independent layers must merge key by key instead.
-    let user = rt_table("gc-mode = \"concurrent\"");
+    let user = rt_table("gc-mode = \"generational\"");
     let app = rt_table("gc-mode = \"stw\"\nsafepoint-throttle = 64\nlog = \"z42=trace\"");
     let (cfg, res) = resolve_all(&[], &[], Some(&user), Some(&app), &full_ctx());
 
-    assert_eq!(cfg.gc_mode, GcMode::ConcurrentMarkSweep, "same key -> user wins");
+    assert_eq!(cfg.gc_mode, GcMode::GenerationalMarkSweep, "same key -> user wins");
     assert_eq!(cfg.safepoint_throttle, 64, "app-only key still applies");
     assert_eq!(cfg.log_filter.as_deref(), Some("z42=trace"), "app-only key still applies");
     assert_eq!(res.get("Z42_SAFEPOINT_THROTTLE").unwrap().source, Layer::AppConfig);
@@ -969,10 +966,10 @@ fn user_config_and_app_config_merge_per_key() {
 fn cli_empty_value_clears_and_falls_through() {
     let (cfg, res) = resolve_all(
         &[("Z42_GC_MODE", "")],
-        &[("Z42_GC_MODE", "concurrent")],
+        &[("Z42_GC_MODE", "stw")],
         None, None, &full_ctx(),
     );
-    assert_eq!(cfg.gc_mode, GcMode::ConcurrentMarkSweep);
+    assert_eq!(cfg.gc_mode, GcMode::StwMarkSweep);
     assert_eq!(res.get("Z42_GC_MODE").unwrap().source, Layer::Env);
 }
 
@@ -1010,7 +1007,7 @@ fn a_value_overridden_by_a_higher_layer_is_never_diagnosed() {
     // Being overridden is the chain working, not a problem.
     let c = full_ctx();
     let app = rt_table("gc-mode = \"stw\"");
-    let (_, res) = resolve_all(&[], &[("Z42_GC_MODE", "concurrent")], None, Some(&app), &c);
+    let (_, res) = resolve_all(&[], &[("Z42_GC_MODE", "generational")], None, Some(&app), &c);
     assert!(res.diagnostics.is_empty());
     assert_eq!(res.get("Z42_GC_MODE").unwrap().ignored[0].reason, IgnoreReason::Overridden);
 }
@@ -1022,6 +1019,24 @@ fn invalid_typed_value_is_rejected_with_a_diagnostic() {
     let k = res.get("Z42_GC_MODE").unwrap();
     assert!(matches!(k.ignored[0].reason, IgnoreReason::Invalid(_)));
     assert!(res.diagnostics[0].message.contains("expected one of"), "{:?}", res.diagnostics[0]);
+}
+
+/// `concurrent` is not a GC mode: it gets the generic invalid-enum treatment — a warning that
+/// lists the valid values (fatal from `--set` or under strict mode), then the default. Never a
+/// silent alias for another mode.
+#[test]
+fn concurrent_is_not_a_gc_mode() {
+    for v in ["concurrent", "concurrent-mark-sweep"] {
+        let (cfg, res) = resolve_all(&[], &[("Z42_GC_MODE", v)], None, None, &full_ctx());
+        assert_eq!(cfg.gc_mode, GcMode::default(), "{v}: falls back to the default");
+        let msg = &res.diagnostics[0].message;
+        assert!(msg.contains("expected one of: stw, stw-mark-sweep, generational, generational-mark-sweep"),
+                "{v}: {msg}");
+        assert!(res.into_result(false).is_ok(), "{v}: env layer only warns");
+
+        let (_, from_cli) = resolve_all(&[("Z42_GC_MODE", v)], &[], None, None, &full_ctx());
+        assert!(from_cli.into_result(false).is_err(), "{v}: --set gc-mode={v} is fatal");
+    }
 }
 
 #[test]
@@ -1131,8 +1146,8 @@ fn set_args(a: &[&str]) -> Vec<String> {
 
 #[test]
 fn set_parses_key_value_pairs() {
-    let m = parse_set_args(&set_args(&["gc-mode=concurrent", "safepoint-throttle=64"])).unwrap();
-    assert_eq!(m.get("Z42_GC_MODE").map(String::as_str), Some("concurrent"));
+    let m = parse_set_args(&set_args(&["gc-mode=stw", "safepoint-throttle=64"])).unwrap();
+    assert_eq!(m.get("Z42_GC_MODE").map(String::as_str), Some("stw"));
     assert_eq!(m.get("Z42_SAFEPOINT_THROTTLE").map(String::as_str), Some("64"));
 }
 
@@ -1174,8 +1189,8 @@ fn set_rejects_the_env_var_spelling() {
 
 #[test]
 fn set_last_occurrence_wins() {
-    let m = parse_set_args(&set_args(&["gc-mode=stw", "gc-mode=concurrent"])).unwrap();
-    assert_eq!(m.get("Z42_GC_MODE").map(String::as_str), Some("concurrent"));
+    let m = parse_set_args(&set_args(&["gc-mode=stw", "gc-mode=generational"])).unwrap();
+    assert_eq!(m.get("Z42_GC_MODE").map(String::as_str), Some("generational"));
 }
 
 #[test]
@@ -1251,12 +1266,12 @@ fn show_config_explains_why_a_value_did_not_take_effect() {
     let c = ctx(true, &["native-interop"], "linux"); // no jit
     let user = rt_table("gc-mode = \"stw\"");
     let (_, res) = resolve_all(
-        &[("Z42_GC_MODE", "concurrent")],
+        &[("Z42_GC_MODE", "generational")],
         &[("Z42_JIT_PROFILE", "1")],
         Some(&user), None, &c,
     );
     let text = show_config_text(&res, true);
-    assert!(text.contains("gc-mode = concurrent  [cli]"), "{text}");
+    assert!(text.contains("gc-mode = generational  [cli]"), "{text}");
     assert!(text.contains("ignored [user-config] \"stw\"  (overridden by a higher layer)"), "{text}");
     assert!(text.contains("ignored [env] \"1\"  (unavailable in this build)"), "{text}");
 }
@@ -1274,12 +1289,12 @@ fn show_config_default_view_still_surfaces_ignored_values() {
 
 #[test]
 fn show_config_json_is_valid() {
-    let (_, res) = resolve_all(&[("Z42_GC_MODE", "concurrent")], &[], None, None, &full_ctx());
+    let (_, res) = resolve_all(&[("Z42_GC_MODE", "stw")], &[], None, None, &full_ctx());
     let v: serde_json::Value =
         serde_json::from_str(&show_config_json(&res, true)).expect("valid JSON");
     let gc = v["knobs"].as_array().unwrap().iter()
         .find(|k| k["env"] == "Z42_GC_MODE").unwrap();
-    assert_eq!(gc["value"], "concurrent");
+    assert_eq!(gc["value"], "stw");
     assert_eq!(gc["source"], "cli");
     assert!(gc["ignored"].as_array().unwrap().is_empty());
 }
@@ -1323,7 +1338,7 @@ fn missing_config_file_is_not_fatal_but_bad_toml_is() {
 
 #[test]
 fn both_file_layers_load_from_their_own_env_var() {
-    let user = write_cfg("user", "[runtime]\ngc-mode = \"concurrent\"\n");
+    let user = write_cfg("user", "[runtime]\ngc-mode = \"stw\"\n");
     let app = write_cfg("app", "[runtime]\nsafepoint-throttle = 64\n");
     let get = fake_env(&[
         ("Z42_CONFIG", user.to_str().unwrap()),
@@ -1331,7 +1346,7 @@ fn both_file_layers_load_from_their_own_env_var() {
     ]);
     let u = load_runtime_toml(&get).unwrap().expect("user layer");
     let a = load_app_config(&get).unwrap().expect("app layer");
-    assert_eq!(u.get("gc-mode").and_then(|v| v.as_str()), Some("concurrent"));
+    assert_eq!(u.get("gc-mode").and_then(|v| v.as_str()), Some("stw"));
     assert_eq!(a.get("safepoint-throttle").and_then(|v| v.as_integer()), Some(64));
 
     // And nothing about setting Z42_CONFIG suppresses the app layer.
@@ -1340,7 +1355,7 @@ fn both_file_layers_load_from_their_own_env_var() {
         &Inputs { user_config: Some(&u), app_config: Some(&a), ..Default::default() },
         &full_ctx(),
     );
-    assert_eq!(cfg.gc_mode, GcMode::ConcurrentMarkSweep);
+    assert_eq!(cfg.gc_mode, GcMode::StwMarkSweep);
     assert_eq!(cfg.safepoint_throttle, 64);
     for p in [user, app] { let _ = std::fs::remove_file(p); }
 }
@@ -1648,10 +1663,10 @@ fn with_env<R>(pairs: &[(&str, Option<&str>)], f: impl FnOnce() -> R) -> R {
     // The process-wide `runtime_config()` is a lazy `OnceLock` read **from the real env**, and
     // every other test in this binary (on other threads) may be the one that first touches it.
     // `ENV_LOCK` only serialises these config tests with each other — if that first read lands
-    // while the env below points `Z42_CONFIG` at a file saying `gc-mode = "concurrent"`, the
+    // while the env below points `Z42_CONFIG` at a file saying `gc-mode = "stw"`, the
     // **whole test process** keeps that mode: every later `ArcMagrGC::new()` comes up
-    // concurrent, and `mode_selection` / `barrier_mode_switch_*` / `tlab_concurrent_shared_heap_stress`
-    // fail at random (3 runs in 10, measured). Pin the global to the pristine env first.
+    // in it, and `mode_selection` / `tlab_concurrent_shared_heap_stress` fail at random
+    // (3 runs in 10, measured). Pin the global to the pristine env first.
     let _ = crate::config::runtime_config();
     let saved: Vec<(String, Option<String>)> =
         pairs.iter().map(|(k, _)| ((*k).to_string(), std::env::var(k).ok())).collect();
@@ -1674,12 +1689,12 @@ fn with_env<R>(pairs: &[(&str, Option<&str>)], f: impl FnOnce() -> R) -> R {
 
 #[test]
 fn from_env_reads_the_user_config_layer() {
-    let f = write_cfg("fromenv-user", "[runtime]\ngc-mode = \"concurrent\"\n");
+    let f = write_cfg("fromenv-user", "[runtime]\ngc-mode = \"stw\"\n");
     let got = with_env(
         &[("Z42_CONFIG", f.to_str()), ("Z42_APP_CONFIG", None), ("Z42_GC_MODE", None)],
         RuntimeConfig::from_env,
     );
-    assert_eq!(got.gc_mode, GcMode::ConcurrentMarkSweep, "embedders must see Z42_CONFIG");
+    assert_eq!(got.gc_mode, GcMode::StwMarkSweep, "embedders must see Z42_CONFIG");
     assert_eq!(got.resolved.iter().find(|r| r.name == "Z42_GC_MODE").unwrap().source,
                Layer::UserConfig);
     let _ = std::fs::remove_file(f);
@@ -1726,10 +1741,10 @@ fn from_env_downgrades_a_broken_config_file_instead_of_dying() {
     // over a config typo. Malformed TOML -> that layer is gone, everything else works.
     let bad = write_cfg("fromenv-bad", "[runtime\ngc-mode = ");
     let got = with_env(
-        &[("Z42_CONFIG", bad.to_str()), ("Z42_APP_CONFIG", None), ("Z42_GC_MODE", Some("concurrent"))],
+        &[("Z42_CONFIG", bad.to_str()), ("Z42_APP_CONFIG", None), ("Z42_GC_MODE", Some("stw"))],
         RuntimeConfig::from_env,
     );
-    assert_eq!(got.gc_mode, GcMode::ConcurrentMarkSweep, "env layer must still apply");
+    assert_eq!(got.gc_mode, GcMode::StwMarkSweep, "env layer must still apply");
     let _ = std::fs::remove_file(bad);
 
     // Same for the JSON migration error — a hint, not a hard stop.
@@ -1792,14 +1807,14 @@ fn a_derived_sidecar_lands_in_the_app_config_layer_and_loses_to_the_user() {
 
     let derived = sidecar_for(&app).expect("derived");
     let app_table = load_config_file(&derived, "app sidecar").unwrap().expect("[runtime]");
-    let user = rt_table("gc-mode = \"concurrent\"");
+    let user = rt_table("gc-mode = \"generational\"");
 
     let (cfg, res) = RuntimeConfig::resolve_with(
         &fake_env(&[]),
         &Inputs { user_config: Some(&user), app_config: Some(&app_table), ..Default::default() },
         &full_ctx(),
     );
-    assert_eq!(cfg.gc_mode, GcMode::ConcurrentMarkSweep, "user config still wins per key");
+    assert_eq!(cfg.gc_mode, GcMode::GenerationalMarkSweep, "user config still wins per key");
     assert_eq!(cfg.safepoint_throttle, 64, "sidecar-only key applies");
     assert_eq!(res.get("Z42_SAFEPOINT_THROTTLE").unwrap().source, Layer::AppConfig);
 
@@ -1810,12 +1825,12 @@ fn a_derived_sidecar_lands_in_the_app_config_layer_and_loses_to_the_user() {
 
 #[test]
 fn properties_are_read_alongside_runtime_but_kept_separate() {
-    let f = write_cfg("props", "[runtime]\ngc-mode = \"concurrent\"\n\n\
+    let f = write_cfg("props", "[runtime]\ngc-mode = \"stw\"\n\n\
         [properties]\napi = \"https://x\"\nretries = 3\nflags = [\"a\", \"b\"]\n\
         [properties.limits]\nmax = 9\n");
     let (rt, props) = load_config_tables(&f, "Z42_APP_CONFIG").unwrap();
     assert_eq!(rt.as_ref().and_then(|t| t.get("gc-mode")).and_then(|v| v.as_str()),
-               Some("concurrent"));
+               Some("stw"));
     let props = props.expect("[properties] parsed");
     assert_eq!(props.get("api").and_then(|v| v.as_str()), Some("https://x"));
     assert_eq!(props.get("retries").and_then(|v| v.as_integer()), Some(3));
@@ -1954,7 +1969,7 @@ fn pathlist_empty_array_reads_as_unset() {
 // 数组只对 PathList 合法 —— 否则 `gc-mode = ["a","b"]` 会被悄悄摊成一个字符串再去解析。
 #[test]
 fn array_is_still_invalid_for_non_pathlist_knobs() {
-    let table: toml::Table = toml::from_str("gc-mode = [\"concurrent\", \"stw\"]").unwrap();
+    let table: toml::Table = toml::from_str("gc-mode = [\"generational\", \"stw\"]").unwrap();
     let v = table.get("gc-mode").unwrap();
     assert_eq!(
         crate::config::parse::toml_value_to_string(v, ValueKind::Str),

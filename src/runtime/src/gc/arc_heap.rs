@@ -336,7 +336,7 @@ pub struct ArcMagrGC {
     /// **add-heap-retention-diagnostics**: categorized root scanner for the
     /// on-demand retention query. `None` until wired by `VmCore`.
     categorized_root_scanner: Mutex<Option<CategorizedRootScanner>>,
-    /// **add-concurrent-gc P0 (2026-05-22)**: selectable GC algorithm.
+    /// Selectable GC algorithm.
     /// Encoded as `u8` (`GcMode::from_u8` for round-trip). Read on the
     /// barrier-override hot path and at the entrance of
     /// `run_cycle_collection`. `Relaxed` ordering is sufficient — mode
@@ -344,8 +344,8 @@ pub struct ArcMagrGC {
     /// completes with its original mode, next collect picks up new
     /// mode (per spec scenario "Mode switch is observable but cannot
     /// interrupt a running collect"). Initialized from
-    /// `GcMode::from_env()` so `Z42_GC_MODE=concurrent` selects
-    /// concurrent path at process start.
+    /// `GcMode::from_env()` so `Z42_GC_MODE` selects the mode at
+    /// process start.
     mode: std::sync::atomic::AtomicU8,
     /// **add-custom-allocator P1 (2026-05-22)**: chunked region for
     /// `Value::Object` script-object storage. Replaces the previous
@@ -366,22 +366,17 @@ pub struct ArcMagrGC {
     /// per minor from the survival rate of the tier it would skip — see
     /// [`promotion_policy`](super::arc_heap::promotion_policy) for the measurements.
     promotion_policy: promotion_policy::PromotionPolicy,
-    /// **add-concurrent-gc P2 (2026-05-22)**: gray-object queue for the
-    /// concurrent mark path. Populated by (1) the STW root snapshot at
-    /// the start of a concurrent collect, (2) the write-barrier
-    /// override (P3) when mutators write heap-ref values into slots,
-    /// and (3) the mark thread (P4) when tracing children discovers
-    /// newly-reachable objects. Drained by the mark thread + the
-    /// termination handshake. `parking_lot::Mutex` is sufficient v1
-    /// (z42 typical 1-2 mutators); lock-free upgrade is a deferred
-    /// perf spec. Stays empty when mode == StwMarkSweep.
+    /// Gray-object queue of a major mark. Populated by the root snapshot
+    /// (`snapshot_roots_into_mark_queue`), by the SATB hand-over in
+    /// `close_major_marking`, and by tracing when children turn out to be
+    /// newly reachable; drained by `drain_mark_queue` / the incremental mark
+    /// slices. Only the collector touches it, always inside a pause, so it is
+    /// empty outside a cycle.
     mark_queue: Mutex<Vec<Value>>,
-    /// **investigate-concurrent-gc-stale-mark-race 3.2a (2026-09-04)**:
-    /// marking-period allocate-black. True for exactly the span of a
-    /// `ConcurrentMarkSweep` cycle in which mutators can be running; every
-    /// allocation made while it is set is born `marked = 1`. See
-    /// [`super::arc_heap::alloc_black`] for why this exists, why the span must
-    /// include `Marking`, and what it costs.
+    /// Marking-period allocate-black. True for exactly the span of an
+    /// incremental major cycle in which mutators can run between slices; every
+    /// allocation made while it is set is born with the cycle's mark. See
+    /// [`super::arc_heap::alloc_black`] for why this exists and what it costs.
     alloc_black: std::sync::atomic::AtomicBool,
     /// **add-incremental-major-gc M1 (2026-09-15)**: this heap's current major mark epoch
     /// (1..=127; starts at 1, so the first major opens 2). Per heap, not per process: another heap advancing a
@@ -419,8 +414,6 @@ pub struct ArcMagrGC {
     /// `write_barrier_array_elem` collapses to a true no-op.
     #[cfg(test)]
     barrier_observer: Mutex<Option<std::sync::Arc<BarrierObserver>>>,
-    #[cfg(debug_assertions)]
-    debug_stw_no_push: std::sync::atomic::AtomicBool,
     /// **fix-wasm-string-ops**: process-unique, monotonically-increasing epoch for this heap's
     /// address space (see [`MagrGC::heap_epoch`]). Assigned once at construction from
     /// [`NEXT_HEAP_EPOCH`] and never reused, so an address-keyed cache outliving a torn-down

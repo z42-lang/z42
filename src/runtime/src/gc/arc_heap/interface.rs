@@ -198,17 +198,12 @@ impl MagrGC for ArcMagrGC {
     // baseline); `#[cfg(test)]` always fires the test observer regardless
     // of mode.
     //
-    // **add-concurrent-gc P3 (2026-05-22)**: under `ConcurrentMarkSweep`
-    // mode, the override implements tricolor incremental update —
-    // shade new heap-ref writes gray (mark + enqueue). Mark thread (P4)
-    // drains the queue.
+    // Under `GenerationalMarkSweep` the override records old→young writes
+    // in the card table (`barrier.rs`).
     //
     // Caller contract: invoke ONLY when `new.is_heap_ref() == true`
-    // (Decision 1 of add-write-barriers). Override `debug_assert!`s the
-    // contract under concurrent mode (where the assertion is load-bearing
-    // for correctness — a primitive write incorrectly dispatched here
-    // would silently no-op since `mark_if_unmarked` returns false on
-    // primitives, but the contract violation should be caught).
+    // (Decision 1 of add-write-barriers). The generational arm
+    // `debug_assert!`s the contract.
 
     fn write_barrier_field(&self, owner: &Value, slot: usize, new: &Value) {
         ArcMagrGC::write_barrier_field(self, owner, slot, new)
@@ -238,7 +233,7 @@ impl MagrGC for ArcMagrGC {
 
     // ── 5. Collection control ────────────────────────────────────────────────
 
-    /// **add-concurrent-gc P0 (2026-05-22)**: current GC mode. Read on
+    /// Current GC mode. Read on
     /// the barrier hot path + `run_cycle_collection` entry. `Relaxed`
     /// ordering — mode changes are observed at the next collect / next
     /// write, not synchronized with anything else.
@@ -246,7 +241,7 @@ impl MagrGC for ArcMagrGC {
         crate::gc::GcMode::from_u8(self.mode.load(std::sync::atomic::Ordering::Relaxed))
     }
 
-    /// **add-concurrent-gc P0 (2026-05-22)**: switch GC mode at runtime.
+    /// Switch GC mode at runtime.
     /// Takes effect at the next collect; in-progress collects complete
     /// with their original mode. Lock-free `store(Relaxed)` — fast path
     /// on the rare config call.
@@ -274,7 +269,7 @@ impl MagrGC for ArcMagrGC {
         ArcMagrGC::finalize_now(self, value)
     }
 
-    /// **add-concurrent-gc P4b**: VmContext-aware collect; impl in `ArcMagrGC::collect_cycles_with_context`.
+    /// VmContext-aware collect; impl in `ArcMagrGC::collect_cycles_with_context`.
     fn collect_cycles_with_context(&self, ctx: &crate::vm_context::VmContext) {
         ArcMagrGC::collect_cycles_with_context(self, ctx)
     }

@@ -77,7 +77,6 @@ where F: Fn(&str) -> Option<String> {
         return GcMode::default();
     };
     match s.as_str() {
-        "concurrent" | "concurrent-mark-sweep"     => GcMode::ConcurrentMarkSweep,
         "generational" | "generational-mark-sweep" => GcMode::GenerationalMarkSweep,
         "stw" | "stw-mark-sweep"                   => GcMode::StwMarkSweep,
         other => {

@@ -64,7 +64,7 @@ public static class RuntimeConfig {
 
 ### `Dump` 的切分约定
 
-每条形如 `"gc-mode=concurrent|env"`；取默认时 value 段为空（`"gc-mode=|default"`）。
+每条形如 `"gc-mode=stw|env"`；取默认时 value 段为空（`"gc-mode=|default"`）。
 按**第一个** `=` 和**最后一个** `|` 切分——value 本身可能含 `=`（如 `log` 的
 `z42::jit=debug,z42=warn`）。
 

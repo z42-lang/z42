@@ -90,21 +90,6 @@ impl crate::gc::arc_heap::ArcMagrGC {
 
         match self.mode() {
             crate::gc::GcMode::StwMarkSweep => {} // no-op (one generation → no cross-gen edge)
-            crate::gc::GcMode::ConcurrentMarkSweep => {
-                debug_assert!(
-                    new.is_heap_ref(),
-                    "write_barrier_field caller must filter primitives via Value::is_heap_ref"
-                );
-                if Self::mark_if_unmarked(new, self.major_mark()) {
-                    #[cfg(debug_assertions)]
-                    debug_assert!(
-                        !self.debug_stw_no_push.load(std::sync::atomic::Ordering::SeqCst),
-                        "BUG: write_barrier_field pushing to mark_queue while debug_stw_no_push=true (STW sweep is active!) — thread {:?}",
-                        std::thread::current().id()
-                    );
-                    self.mark_queue.lock().push(new.clone());
-                }
-            }
             crate::gc::GcMode::GenerationalMarkSweep => {
                 debug_assert!(
                     new.is_heap_ref(),
@@ -128,15 +113,6 @@ impl crate::gc::arc_heap::ArcMagrGC {
 
         match self.mode() {
             crate::gc::GcMode::StwMarkSweep => {}
-            crate::gc::GcMode::ConcurrentMarkSweep => {
-                debug_assert!(
-                    new.is_heap_ref(),
-                    "write_barrier_array_elem caller must filter primitives via Value::is_heap_ref"
-                );
-                if Self::mark_if_unmarked(new, self.major_mark()) {
-                    self.mark_queue.lock().push(new.clone());
-                }
-            }
             crate::gc::GcMode::GenerationalMarkSweep => {
                 debug_assert!(
                     new.is_heap_ref(),

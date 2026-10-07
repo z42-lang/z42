@@ -39,7 +39,7 @@ GC 的「何时自动回收」由几个**比率魔数**决定（near-limit 90%�
 | `Z42_SAFEPOINT_THROTTLE` | 1024 | 每线程 safepoint 快路径计数；每 N 次才走真 Mutex 轮询。`1` = 禁节流 | `gc/safepoint.rs` |
 | `Z42_GC_INCREMENTAL` | **on** | **分代专用**：major 拆成有界 STW 切片、切片之间 mutator 与 minor 照常运行（最大停顿与堆大小脱钩）；`0` = 一次性 major（A/B 与排障开关）。见 [增量 major](gc-incremental-major.md) | `arc_heap/incremental.rs` |
 | `Z42_GC_SLICE_MS` | **2** | 一个增量 major 切片的时间预算（ms），clamp 到 `[0.01, 1000]`。极小值（如 `0.05`）是压力配方：让 mutator / minor 最大程度地插进周期中间 | `arc_heap/incremental.rs` |
-| `Z42_GC_MODE` | **`generational-mark-sweep`** | GC 算法：`stw` / `concurrent` / `generational`。默认 `generational`（见下「为什么分代是默认」） | `gc/mode.rs` |
+| `Z42_GC_MODE` | **`generational-mark-sweep`** | GC 算法：`stw` / `generational`。默认 `generational`（见下「为什么分代是默认」） | `gc/mode.rs` |
 
 ## 诊断旋钮（`Z42_GC_TRACE` / `Z42_GC_PHASES`）
 
@@ -288,8 +288,7 @@ allocator 判定「该回收了」后**不在分配线程就地回收**（那会
 递减覆盖——那时退回到节流上界，flag 仍在。该三态协议集中文档在 `MagrGC::set_external_needs_collect_flag`
 的 doc（`gc/heap.rs`）。
 
-safepoint 本身的相位状态机（`Idle → Requested → Marking`，concurrent 模式多一个 `ConcurrentMarking`）
-见 `gc/safepoint.rs` 顶注 + `GcPhase` 文档。
+safepoint 本身的相位状态机（`Idle → Requested → Marking`）见 `gc/safepoint.rs` 顶注 + `GcPhase` 文档。
 
 ### ⚠️ safepoint 只能放在「活值已经是根」的位置
 
@@ -410,8 +409,8 @@ epoch 两者都不是（127 之后回绕到 1，同样成立）。
 两条易错点（都有测试守着）：
 
 1. **epoch 按堆、且初值是 1。** 进程级计数器会被别的堆推着回绕到本堆上一轮的值。初值若是 0 再「读作 1」，
-   就会与第一个周期的 epoch 撞车：并发模式的屏障在第一次回收前给新对象打的标记会被当成「本轮已标记」，
-   子节点不追、活数组的 backing 被扫掉 —— `stress_seeded_concurrent_short` 抓到的正是这个。
+   就会与第一个周期的 epoch 撞车：第一次回收前打下的标记会被当成「本轮已标记」，子节点不追、
+   活数组的 backing 被扫掉。
 2. **minor 穿透老对象时不许顺手标记。** `trace_children(kind, …)` 会给数组的 backing 打同种标记；minor 穿透老
    对象（见上一节）必须用不标记的 `visit_gc_children(None, …)`，否则老数组的（同样老的）backing 被置上 minor 位，
    而 major 周期不再有逐条 reset 替它擦掉。`refers_to_young` 只做检查，同样用 `None`。major sweep 对幸存者顺带清

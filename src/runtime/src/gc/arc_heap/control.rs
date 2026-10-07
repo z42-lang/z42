@@ -28,18 +28,10 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// `Value` strong refs are NOT roots — embedders must `pin_root`
     /// anything they want preserved across collect.
     ///
-    /// **add-concurrent-gc P0 (2026-05-22)**: dispatches on `self.mode()`.
-    /// Both arms currently route to the STW path; P4 fills in the
-    /// concurrent arm with `run_cycle_collection_concurrent`.
+    /// Dispatches on `self.mode()`.
     pub(super) fn run_cycle_collection(&self) -> u64 {
         match self.mode() {
             crate::gc::GcMode::StwMarkSweep => self.run_cycle_collection_stw(),
-            crate::gc::GcMode::ConcurrentMarkSweep => {
-                // P0 stub: concurrent arm currently routes to STW path —
-                // proves dispatch wiring without changing behavior. P4
-                // replaces this with `run_cycle_collection_concurrent`.
-                self.run_cycle_collection_stw()
-            }
             crate::gc::GcMode::GenerationalMarkSweep => {
                 // add-generational-gc P2: minor GC by default. Major
                 // GC requires the VmContext-aware entry
@@ -53,22 +45,12 @@ impl crate::gc::arc_heap::ArcMagrGC {
         }
     }
 
-    /// STW mark-sweep collect — the proven path. Called directly when
-    /// `mode() == StwMarkSweep`, or as a fallback by the concurrent path.
+    /// STW mark-sweep collect — the one-shot whole-heap path. Called when
+    /// `mode() == StwMarkSweep`.
     ///
-    /// **add-gc-stress-test (2026-05-22)**: defensive cleanup at the
-    /// boundaries. The concurrent barrier override (under
-    /// `GcMode::ConcurrentMarkSweep`) leaves `marked = 1` on shaded
-    /// objects + entries on `mark_queue`. The no-context `force_collect`
-    /// path falls back to STW, which assumes a clean slate at start
-    /// (all marks 0, queue empty). Without clearing, mark_phase
-    /// observes pre-marked entries — CAS fails → `just_marked == false`
-    /// → children NOT traced. Sweep then retains those entries
-    /// (marked=1) even though they may be unreachable, AND their
-    /// children (pointed to via slots) may be unmarked and swept,
-    /// leaving stale Values inside slots → next collect's mark BFS
-    /// hits entry_ref panic (use-after-finalize). Caught by stress
-    /// test + C1 validator.
+    /// Assumes a clean slate at start: a fresh epoch (every slot white) and an
+    /// empty `mark_queue`. A pre-marked entry would fail the mark CAS, so its
+    /// children would go untraced and could be swept while still referenced.
     pub(super) fn run_cycle_collection_stw(&self) -> u64 {
         // add-gc-tlab (stage 2, D5): retire the collecting thread's own TLAB
         // before marking, so its just-allocated (still-borrowed) chunk is merged
@@ -81,7 +63,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         // (both would own the epoch and the SATB registration) — only reachable across a mode change.
         self.finish_major_cycle("one-shot major requested");
         // add-incremental-major-gc M1: no reset pass — a new epoch whitens every slot, including
-        // anything an aborted concurrent cycle left marked (see `MarkKind`).
+        // anything marked outside a cycle (see `MarkKind`).
         self.open_major_cycle();
         self.mark_queue.lock().clear();
         let _newly_marked = {
@@ -200,99 +182,6 @@ impl crate::gc::arc_heap::ArcMagrGC {
                     self.take_collect_request();
                     self.collect_cycles();
                 }
-            }
-            crate::gc::GcMode::ConcurrentMarkSweep => {
-                let pause = match crate::gc::safepoint::request_gc_pause(ctx) {
-                    Some(p) => p,
-                    None => return, // another collector active; park-as-mutator done
-                };
-                self.take_collect_request();
-                if self.inner.lock().pause_count > 0 { return; }
-                let start = Self::now_us();
-                let used_before = self.used_bytes_atomic(); // add-gc-tlab (option B)
-                self.fire_event(GcEvent::BeforeCollect {
-                    kind: GcKind::Major, used_bytes: used_before,
-                });
-
-                // investigate-concurrent-gc-stale-mark-race 3.2: open the
-                // allocate-black window for the whole span in which a mutator
-                // can be running — from here (mutators are parked, but resume
-                // at Phase 2) through the end of sweep. Objects born inside it
-                // are marked, so the Phase 6 sweep cannot reclaim one that
-                // became reachable after the Phase 1 root snapshot.
-                // add-incremental-major-gc M2b: see `run_cycle_collection_stw` (mode changed mid-cycle).
-                self.finish_major_cycle("mode change");
-                self.begin_alloc_black();
-
-                // Phase 1: STW root snapshot (still holding initial pause).
-                self.open_major_cycle();
-                self.snapshot_roots_into_mark_queue();
-
-                // Phase 2: Yield to ConcurrentMarking — mutators resume.
-                pause.yield_to_concurrent_marking();
-
-                // Phase 3: Background mark (this thread = collector; barrier
-                // writes from mutators land in mark_queue concurrently).
-                self.drain_mark_queue();
-
-                // Phase 4: STW handshake — re-park mutators for final drain.
-                pause.request_handshake_pause();
-
-                // Phase 5: Residual drain — any barrier writes between
-                // drain-empty-check and handshake-acquire are now safely
-                // captured in mark_queue.
-                self.drain_mark_queue();
-                // add-incremental-major-gc M2a: mutators are parked (and have handed over their
-                // SATB buffers); grey what they recorded while marking ran concurrently. This is
-                // what closes the "white object moved into a register" hole the insertion barrier
-                // alone leaves open (the roots are not rescanned).
-                self.close_major_marking();
-                #[cfg(debug_assertions)]
-                {
-                    let after_p5 = self.mark_queue.lock().len();
-                    assert_eq!(after_p5, 0, "BUG: mark_queue not empty after Phase 5 drain ({after_p5} items)");
-                }
-
-                // Phase 6: STW sweep (mutators still parked).
-                let freed_bytes = self.sweep_phase();
-                // 3.2: close the allocate-black window. Safe here and not
-                // earlier: sweep clears the mark on every survivor, so a
-                // newborn shaded during the window leaves this cycle white and
-                // is collectible by the next one. Mutators are still parked, so
-                // no allocation can slip between the sweep and this store.
-                self.end_alloc_black();
-                #[cfg(debug_assertions)]
-                {
-                    let post_sweep = self.mark_queue.lock().len();
-                    assert_eq!(post_sweep, 0,
-                        "BUG: mark_queue non-empty after sweep ({post_sweep} items) — something during sweep pushed to queue");
-                }
-                {
-                    let mut i = self.inner.lock();
-                    Self::count_collection(&mut i.stats, GcKind::Major, false);
-                    i.stats.reclaimed_bytes = i.stats.reclaimed_bytes.saturating_add(freed_bytes);
-                    self.sub_used_bytes(freed_bytes); // add-gc-tlab (option B): atomic used_bytes
-                }
-                self.maybe_reset_near_limit_warned();
-                let pause_us = Self::now_us().saturating_sub(start);
-                self.pause_histogram.lock().record(pause_us);
-                self.fire_event(GcEvent::AfterCollect {
-                    kind: GcKind::Major, freed_bytes, pause_us,
-                });
-                #[cfg(debug_assertions)]
-                {
-                    let post_events = self.mark_queue.lock().len();
-                    assert_eq!(post_events, 0,
-                        "BUG: mark_queue non-empty after fire_event ({post_events} items) — observer pushed to queue");
-                }
-
-                // Validate heap invariants while world is still stopped
-                // (before pause Drop wakes workers and write-barriers resume).
-                #[cfg(debug_assertions)]
-                self.debug_validate_invariants();
-
-                // pause Drop releases the world.
-                drop(pause);
             }
             crate::gc::GcMode::GenerationalMarkSweep => {
                 // add-generational-gc P3 (2026-05-22): minor + escalation.

@@ -1,5 +1,5 @@
 //! add-gc-stress-test P0 (2026-05-22): random-workload stress under
-//! all 3 GcMode variants. Builds on C1's `debug_validate_invariants`
+//! both GcMode variants. Builds on C1's `debug_validate_invariants`
 //! which auto-runs after every collect — stress just drives random
 //! ops at the heap and trips the validator on subtle bugs.
 //!
@@ -241,9 +241,8 @@ fn apply(op: Op, heap: &ArcMagrGC, state: &mut State, rng: &mut Rng) {
             });
         }
         Op::SetModeRandom => {
-            let new_mode = match rng.gen_range(0, 3) {
+            let new_mode = match rng.gen_range(0, 2) {
                 0 => GcMode::StwMarkSweep,
-                1 => GcMode::ConcurrentMarkSweep,
                 _ => GcMode::GenerationalMarkSweep,
             };
             heap.set_mode(new_mode);
@@ -338,20 +337,13 @@ fn gc_stress_run_seeded(seed: u64, iters: usize, mode: GcMode, allow_mode_switch
     assert_coverage(&state, iters, allow_mode_switch);
 }
 
-// ── 4 tests ────────────────────────────────────────────────────────────────
+// ── 3 tests ────────────────────────────────────────────────────────────────
 
 #[test]
 fn stress_seeded_stw_short() {
     let seed = resolve_seed(42);
     let iters = resolve_iters();
     gc_stress_run_seeded(seed, iters, GcMode::StwMarkSweep, false);
-}
-
-#[test]
-fn stress_seeded_concurrent_short() {
-    let seed = resolve_seed(0x1234);
-    let iters = resolve_iters();
-    gc_stress_run_seeded(seed, iters, GcMode::ConcurrentMarkSweep, false);
 }
 
 #[test]
@@ -362,17 +354,14 @@ fn stress_seeded_generational_short() {
 }
 
 #[test]
-#[ignore = "concurrent GC stale-mark race under mode-switching: the `GcRef::entry_ref` \
-            generation guard (refs.rs) flakily fires cross-platform (windows / linux-arm64 / \
-            macos-arm64 all seen on CI; passes locally 5/5). Pre-existing (origin/main炸), \
-            NOT introduced by unify-object-byte-layout — the single-mode stress variants \
-            (stw / concurrent / generational) are stable and stay gated. Re-enable once the \
-            loom-validated fix lands: tracked in \
-            docs/spec/changes/investigate-concurrent-gc-stale-mark-race."]
+#[ignore = "stale-mark race under mode-switching: the `GcRef::entry_ref` generation guard \
+            (refs.rs) flakily fired on CI (windows / linux-arm64 / macos-arm64; passes locally) \
+            while the mode set still had a concurrent-mark mode. Not re-validated on CI runners \
+            since; the single-mode variants (stw / generational) are stable and stay gated."]
 fn stress_seeded_mode_switching_short() {
     let seed = resolve_seed(0xBEEF);
-    // Mode-switching test uses larger iters by default so each of the
-    // 3 modes gets meaningful coverage between switches.
+    // Mode-switching test uses larger iters by default so each mode
+    // gets meaningful coverage between switches.
     let iters = match std::env::var("Z42_STRESS_ITERS") {
         Ok(_) => resolve_iters(),
         Err(_) => 3000,

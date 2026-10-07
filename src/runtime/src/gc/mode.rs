@@ -1,9 +1,9 @@
-//! GC mode selection (add-concurrent-gc P0, 2026-05-22).
+//! GC mode selection.
 //!
 //! [`GcMode`] selects which collection algorithm `ArcMagrGC` uses. The default is
 //! **`GenerationalMarkSweep`** (`flip-gc-default-to-generational`, 2026-09-10);
-//! `StwMarkSweep` and `ConcurrentMarkSweep` are opt-in via [`ArcMagrGC::set_mode`] or
-//! `Z42_GC_MODE=stw` / `Z42_GC_MODE=concurrent`.
+//! `StwMarkSweep` is opt-in via [`ArcMagrGC::set_mode`] or `Z42_GC_MODE=stw`.
+//! Both run their majors incrementally (`arc_heap/incremental.rs`) when sliced.
 //!
 //! **Why generational is the default now.** It was not for a long time, and the reason was
 //! not caution — it genuinely lost on both axes. Four changes turned that around:
@@ -31,12 +31,6 @@ pub enum GcMode {
     /// unreachable objects are freed. Mark + sweep both pause all
     /// mutators. Landed in `add-mark-sweep-collector` (2026-05-21).
     StwMarkSweep = 0,
-    /// Concurrent mark + STW sweep. STW root snapshot → background
-    /// mark BFS while mutators run → short STW handshake to drain
-    /// final-burst → STW sweep. Tricolor incremental update; barrier
-    /// shades new heap-ref writes gray. Landing across
-    /// `add-concurrent-gc` P0–P7.
-    ConcurrentMarkSweep = 1,
     /// **Default.** Generational mark-sweep. Heap split into young / old
     /// generations via per-entry `gen_age`; minor GC scans only
     /// `young_list` + cross-gen dirty cards (O(young) pause); major
@@ -49,9 +43,8 @@ pub enum GcMode {
     /// `GcBlockHeader::type_tag` and keep their own young list; they need no card table of
     /// their own (they are never the source of a cross-generation write — see
     /// `docs/internals/src/runtime/gc-tlab.md`).
-    /// Mutually exclusive with `ConcurrentMarkSweep` in v1.
     /// Landing across `add-generational-gc` P0–P4.
-    GenerationalMarkSweep = 2,
+    GenerationalMarkSweep = 1,
 }
 
 impl Default for GcMode {
@@ -62,9 +55,9 @@ impl Default for GcMode {
 
 impl GcMode {
     /// Resolve the GC mode from the process-wide `RuntimeConfig`.
-    /// Unset / invalid `Z42_GC_MODE` → `StwMarkSweep` (default) — the
-    /// warning lands once in `crate::config::parse_gc_mode` at first
-    /// access, not per-callsite (runtime-config-phase2 2026-06-03).
+    /// Unset / invalid `Z42_GC_MODE` → the default mode — the warning
+    /// lands once in `crate::config::parse_gc_mode` at first access, not
+    /// per-callsite (runtime-config-phase2 2026-06-03).
     pub fn from_env() -> Self {
         crate::config::runtime_config().gc_mode
     }
@@ -76,8 +69,7 @@ impl GcMode {
     pub fn from_u8(v: u8) -> Self {
         match v {
             0 => GcMode::StwMarkSweep,
-            1 => GcMode::ConcurrentMarkSweep,
-            2 => GcMode::GenerationalMarkSweep,
+            1 => GcMode::GenerationalMarkSweep,
             _ => GcMode::StwMarkSweep,
         }
     }
@@ -95,7 +87,6 @@ mod mode_tests {
     #[test]
     fn from_u8_roundtrips_known_variants() {
         assert_eq!(GcMode::from_u8(GcMode::StwMarkSweep as u8), GcMode::StwMarkSweep);
-        assert_eq!(GcMode::from_u8(GcMode::ConcurrentMarkSweep as u8), GcMode::ConcurrentMarkSweep);
         assert_eq!(GcMode::from_u8(GcMode::GenerationalMarkSweep as u8), GcMode::GenerationalMarkSweep);
     }
 
@@ -107,7 +98,6 @@ mod mode_tests {
 
     // Note: from_env() tests cannot reliably set env vars in a unit test
     // (Rust test harness shares process state across parallel tests). The
-    // env-var path is exercised by the integration test in P0.9 (running
-    // `Z42_GC_MODE=concurrent z42 xtask.zpkg test`) and verified via
+    // env-var path is covered by `config_tests` (parsing) and by
     // ArcMagrGC::new() construction in `arc_heap_tests::mode_selection`.
 }

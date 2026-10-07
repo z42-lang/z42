@@ -51,13 +51,12 @@ impl crate::gc::arc_heap::ArcMagrGC {
         newly_marked
     }
 
-    /// **add-concurrent-gc P2 (2026-05-22)**: attempt to mark `v` via
-    /// CAS. Returns `true` iff this call transitioned the allocation
-    /// from unmarked to marked (i.e. caller is responsible for tracing
-    /// children). Returns `false` for primitives + already-marked +
-    /// non-heap refs (Stack ref kinds). Single source of truth for
-    /// "mark this value" — used by both `mark_phase` (when refactored
-    /// in P4) and the concurrent path (P3 barrier, P4 mark loop).
+    /// Attempt to mark `v` via CAS. Returns `true` iff this call
+    /// transitioned the allocation from unmarked to marked (i.e. caller is
+    /// responsible for tracing children). Returns `false` for primitives +
+    /// already-marked + non-heap refs (Stack ref kinds). Single source of
+    /// truth for "mark this value" — used by `mark_phase`, the minor mark,
+    /// the root snapshot and the incremental mark slices.
     pub(super) fn mark_if_unmarked(v: &Value, kind: MarkKind) -> bool {
         match v {
             Value::Object(gc) => GcRef::mark(gc, kind),
@@ -75,18 +74,10 @@ impl crate::gc::arc_heap::ArcMagrGC {
         }
     }
 
-    /// **add-concurrent-gc P4a (2026-05-22)**: drain the gray-set
-    /// (`mark_queue`) until empty. Trace each popped value's children
-    /// and shade newly-discovered heap refs gray (mark + enqueue).
-    ///
-    /// **Termination invariant**: caller must ensure no new entries
-    /// can be pushed concurrently before checking emptiness. In the
-    /// concurrent path that means either:
-    /// 1. Run during `ConcurrentMarking` phase — barriers + this drain
-    ///    race; loop until both empty AND a final STW handshake
-    ///    confirms no more writes can occur (P4b orchestrates this).
-    /// 2. Run during `Marking` phase (handshake) — mutators parked,
-    ///    no new barrier pushes possible, so emptiness is final.
+    /// Drain the gray-set (`mark_queue`) until empty. Trace each popped
+    /// value's children and shade newly-discovered heap refs gray (mark +
+    /// enqueue). Runs inside a pause (mutators parked), so emptiness is
+    /// final.
     ///
     /// Returns the count of objects marked during this drain (useful
     /// for tests + diagnostics). 0 on already-empty queue.
@@ -94,9 +85,8 @@ impl crate::gc::arc_heap::ArcMagrGC {
         let kind = self.major_mark();
         let mut traced = 0usize;
         loop {
-            // Take ownership of the current queue contents in one swap.
-            // Mutators may push concurrently via barrier (under
-            // ConcurrentMarking); we'll see those on the next iteration.
+            // Take ownership of the current queue contents in one swap;
+            // tracing below pushes newly-marked children for the next round.
             let local: Vec<Value> = std::mem::take(&mut *self.mark_queue.lock());
             if local.is_empty() {
                 break;
@@ -137,11 +127,9 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// path for prompt resource release outside sweep.
     pub(super) fn sweep_phase(&self) -> u64 {
         #[cfg(debug_assertions)]
-        self.debug_stw_no_push.store(true, std::sync::atomic::Ordering::SeqCst);
-        #[cfg(debug_assertions)]
         {
             let q = self.mark_queue.lock().len();
-            assert_eq!(q, 0, "BUG: sweep_phase entered with non-empty mark_queue ({q} items) — push happened between P5 drain and sweep start");
+            assert_eq!(q, 0, "BUG: sweep_phase entered with non-empty mark_queue ({q} items) — marking was not drained");
         }
         let mut freed_bytes: u64 = 0;
         let major = self.major_mark();
@@ -204,8 +192,6 @@ impl crate::gc::arc_heap::ArcMagrGC {
             self.reclaim_dead_chunks_and_measure(true);
         }
 
-        #[cfg(debug_assertions)]
-        self.debug_stw_no_push.store(false, std::sync::atomic::Ordering::SeqCst);
         freed_bytes
     }
 
@@ -297,7 +283,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
     }
 
     /// **add-incremental-major-gc M2a**: open a major cycle — a new epoch, and the SATB barrier
-    /// starts recording for it. Callers: the STW cycle and the concurrent cycle's Phase 1.
+    /// starts recording for it. Callers: the STW cycle and the incremental cycle's first slice.
     pub(super) fn open_major_cycle(&self) -> MarkKind {
         let kind = self.begin_major_mark();
         if let MarkKind::Major(epoch) = kind {
@@ -356,13 +342,12 @@ impl crate::gc::arc_heap::ArcMagrGC {
 
     /// The major kind of the cycle in progress (or of the last one).
     ///
-    /// Marks can be placed with it **between** cycles — the concurrent-mode barrier shades
-    /// outside a cycle, and a test may mark by hand. That is harmless precisely because the next
-    /// `begin_major_mark` moves past it. The one way it could bite is if a stamp matched the
-    /// *next* epoch: this is why the epoch starts at 1 rather than 0 (an initial 0 read as 1
-    /// would equal the first cycle's epoch, and every object the barrier shaded before the first
-    /// collection would count as already marked — children untraced, a live array's backing
-    /// swept; `stress_seeded_concurrent_short` caught exactly that).
+    /// Marks can be placed with it **between** cycles — a test may mark by hand. That is harmless
+    /// precisely because the next `begin_major_mark` moves past it. The one way it could bite is
+    /// if a stamp matched the *next* epoch: this is why the epoch starts at 1 rather than 0 (an
+    /// initial 0 read as 1 would equal the first cycle's epoch, and every object marked before
+    /// the first collection would count as already marked — children untraced, a live array's
+    /// backing swept).
     #[inline]
     pub(super) fn major_mark(&self) -> MarkKind {
         MarkKind::Major(self.mark_epoch.load(std::sync::atomic::Ordering::Relaxed))

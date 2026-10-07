@@ -11,13 +11,13 @@ observers / profiler / weak refs / finalizers / strict OOM / ...）。
 | 文件 | 职责 |
 |------|------|
 | `heap.rs` | `trait MagrGC` —— GC 抽象接口（MMTk porting contract 形态，11 能力组） |
-| `mode.rs` | `GcMode`：`GenerationalMarkSweep`（默认）/ `StwMarkSweep` / `ConcurrentMarkSweep`，`Z42_GC_MODE` 选择 |
+| `mode.rs` | `GcMode`：`GenerationalMarkSweep`（默认）/ `StwMarkSweep`，`Z42_GC_MODE` 选择 |
 | `os_mem.rs` | 页粒度内存：slab 的 `mmap`/`munmap`（非 unix 走分配器）、`decommit`/`recommit`（`madvise`），chunk 池 decommit 用。机制见 [book: GC TLAB · decommit](../../../../docs/internals/src/runtime/gc-tlab.md#池中空-chunk-的-decommit) |
 | `footprint.rs` | `Footprint`：堆的真实占用（committed / pooled / occupied），三个 region 共用一份、随变随记；`malloc_size` 分配器取整模型。机制见 [book: GC 调参 · 真实占用记账](../../../../docs/internals/src/runtime/gc-tuning.md#真实占用记账与软上限) |
 | `arc_heap.rs` | `ArcMagrGC` 协调器 —— struct/字段、句柄表、类型别名、`Default`/`Debug` + concern 子模块声明 |
 | `arc_heap/construct.rs` | `Default` 构造（`new()` 委托到它） |
 | `arc_heap/alloc.rs` | region 分配尾部 + OOM 兜底 + 内存压力检查 + size 估算/查询（`object_size_bytes`）|
-| `arc_heap/alloc_black.rs` | 标记期间 allocate-black |
+| `arc_heap/alloc_black.rs` | 增量 major 周期内的 allocate-black |
 | `arc_heap/auto_collect.rs` | 自动 collect 触发策略（分配压力） |
 | `arc_heap/collect.rs` | mark-sweep 原语：mark/sweep 阶段 + soft-ref 复活 + live 快照 |
 | `arc_heap/control.rs` | 环回收编排与控制 API：`run_cycle_collection(_stw)` + `collect_cycles`/`force_collect` + finalize + soft-ref |
@@ -40,7 +40,7 @@ observers / profiler / weak refs / finalizers / strict OOM / ...）。
 | `retention.rs` / `snapshot.rs` | 堆保留诊断（反向引用图 + `whyRetained`）/ V8 `.heapsnapshot` 导出 |
 | `soft_registry.rs` | soft-reference 注册表（堆压力下可被清除的引用） |
 | `sampler.rs` / `phase_timer.rs` / `trace.rs` | safepoint 采样 profiler / `Z42_GC_PHASES` 分阶段停顿计时 / `Z42_GC_TRACE` 每次 collect 的 stderr trace |
-| `heap_tests.rs` / `arc_heap_tests/` / `*_tests.rs` | trait 默认方法契约测试 / `ArcMagrGC` 行为单测（分配 / 收集 / 并发标记 / 分代 / 增量 / finalizer / 不变量等）/ 各模块单测 |
+| `heap_tests.rs` / `arc_heap_tests/` / `*_tests.rs` | trait 默认方法契约测试 / `ArcMagrGC` 行为单测（分配 / 收集 / 标记队列 / 分代 / 增量 / finalizer / 不变量等）/ 各模块单测 |
 
 ## 入口点
 
@@ -100,7 +100,7 @@ z42 脚本端可调 `Std.GC.Collect()` / `UsedBytes()` / `ForceCollect()`（见
 
 设计与机制见 [`docs/internals/src/runtime/gc.md`](../../../../docs/internals/src/runtime/gc.md)（含「GC 后续迭代规划」），
 句柄见 [`gc-handle.md`](../../../../docs/internals/src/runtime/gc-handle.md)。
-三种 `GcMode`（分代 / STW / 并发标记）均可用，默认分代。
+两种 `GcMode`（分代 / STW）均可用，默认分代；每次停顿都是 STW，分代模式的 major 默认拆成增量切片。
 
 ## 命名
 

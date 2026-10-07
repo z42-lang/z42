@@ -125,8 +125,8 @@ regs+env_arena，interp `RefKind::Stack` 跨帧 deref 通过 `frame.regs`。
   扫描因此先于它下一次 push / pop。
 - `Marking` 期间新线程不能注册（`VmContext::new_with_core` 在 `gc_phase` 锁下等），scanner 不会遇到没 park 的新来者。
 
-所有调用 scanner 的路径都持停顿：`collect_cycles_with_context` 的 STW / 分代 / 并发三条分支都先
-`request_gc_pause`（并发模式只在第 1 阶段 STW 快照根，并发标记期不再扫栈），`GC.ForceCollect` 同样；
+所有调用 scanner 的路径都持停顿：`collect_cycles_with_context` 的 STW / 分代两条分支都先
+`request_gc_pause`（增量 major 只在开周期的切片里快照根，之后的切片不再扫栈），`GC.ForceCollect` 同样；
 `maybe_auto_collect` 在接了 VmCore 时只置 safepoint 请求、由 safepoint 上的 collector 执行。
 `scan_frames_parked` 的 debug 断言检查「深度为 0 / 本线程拥有 / `collector_active`」三者之一。
 
@@ -1361,7 +1361,7 @@ ConstStr 索引相对自己 pool。合并时若不重映射，懒加载函数里
 
 ## GC 子系统 —— MagrGC
 
-详细 GC 设计（接口形状、phase 路线、`GcMode` opt-in 模式、并发标记、自定义
+详细 GC 设计（接口形状、phase 路线、`GcMode` opt-in 模式、增量 major、自定义
 allocator、分代 GC、card marking、finalizer 契约、迭代规划等）已抽取到独立文档：
 
 - 📄 [`docs/internals/src/runtime/gc.md`](gc.md)
@@ -1372,15 +1372,13 @@ allocator、分代 GC、card marking、finalizer 契约、迭代规划等）已�
   对齐 [MMTk](https://www.mmtk.io/) `VMBinding` porting contract
 - **Backing**：[`Region<T>`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/gc/region.rs) chunked
   allocator + 8B `GcRef` 句柄（标记指针指向 `RegionEntry`）
-- **三种 mode 可选**（`GcMode` enum + `Z42_GC_MODE` / `--set gc-mode=`）:
+- **两种 mode 可选**（`GcMode` enum + `Z42_GC_MODE` / `--set gc-mode=`）:
   - `GenerationalMarkSweep` (default) — minor GC 扫 young + dirty cards
-    (~4× faster minor pause vs full STW)；major GC 全堆扫描
+    (~4× faster minor pause vs full STW)；major GC 全堆扫描，默认拆成增量切片
   - `StwMarkSweep` (opt-in，`stw`) — stop-the-world mark + sweep
-  - `ConcurrentMarkSweep` (opt-in) — STW root snapshot → 后台并发 mark →
-    短 STW handshake → STW sweep
 - **Write barriers**：interp + JIT 5 个 FieldSet / ArraySet 写入点全 wired；
   call-site 通过 `Value::is_heap_ref()` 过滤 primitive；trait override 由
-  各 mode 实现（concurrent: tricolor shading；generational: cross-gen card marking）
+  generational 模式实现（cross-gen card marking）；SATB 删除屏障在写原语里
 - **Finalizer**：sweep 时触发 + `Std.GC.Finalize(x)` 显式 API
   
 - **Safepoint**：counter-throttled fast path + multi-collector arbitration

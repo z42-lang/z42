@@ -52,7 +52,7 @@ pub enum GcKind {
     /// One bounded slice of an incremental major cycle (`Z42_GC_SLICE_MS`) — including the slice
     /// that opens the cycle and the one that completes it.
     Slice,
-    /// A whole-heap collection completed in this pause: STW / concurrent mark-sweep, a one-shot
+    /// A whole-heap collection completed in this pause: STW mark-sweep, a one-shot
     /// generational major, or an open incremental cycle finished synchronously.
     Major,
 }
@@ -303,7 +303,7 @@ pub struct HeapStats {
     /// `gc_cycles`: a slice that does not complete its cycle counts as neither,
     /// and a generational `force_collect` that finishes an open cycle counts as both.
     pub minor_collections:  u64,
-    /// **Major** (whole-heap) collections *completed*: STW / concurrent
+    /// **Major** (whole-heap) collections *completed*: STW
     /// mark-sweep, a one-shot generational major, an incremental cycle's last
     /// slice or synchronous finish.
     pub major_collections:  u64,

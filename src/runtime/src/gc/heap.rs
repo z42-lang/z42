@@ -275,8 +275,7 @@ pub trait MagrGC: std::fmt::Debug + Send + Sync {
     ///
     /// **Override 契约**: implementations may `debug_assert!(new.is_heap_ref())`
     /// to detect contract violations. Phase 1 STW mark-sweep default is
-    /// no-op. Future `add-generational-gc` / `add-concurrent-gc` will
-    /// override with card-marking / SATB logic.
+    /// no-op; `ArcMagrGC` overrides it with generational card-marking.
     #[allow(unused_variables)]
     fn write_barrier_field(&self, owner: &Value, slot: usize, new: &Value) {}
 
@@ -303,14 +302,13 @@ pub trait MagrGC: std::fmt::Debug + Send + Sync {
 
     // ── 5. Collection control ────────────────────────────────────────────────
 
-    /// **add-concurrent-gc P0 (2026-05-22)**: 读取当前 GC 模式
-    /// (STW mark-sweep / concurrent mark-sweep)。
+    /// 读取当前 GC 模式（STW mark-sweep / generational mark-sweep）。
     ///
     /// 默认实现返回 `GcMode::StwMarkSweep` —— 非 Arc backing 的 heap impl
     /// 不必支持模式切换，trait 默认让它们自动落到 STW（兼容）。
     fn mode(&self) -> super::GcMode { super::GcMode::StwMarkSweep }
 
-    /// **add-concurrent-gc P0 (2026-05-22)**: 设置 GC 模式。
+    /// 设置 GC 模式。
     ///
     /// 默认实现 panic —— 只有支持多模式的 backing（当前仅 `ArcMagrGC`）
     /// 真实重载。模式切换在 collect 进行中不生效（下次 collect 才采用
@@ -342,17 +340,11 @@ pub trait MagrGC: std::fmt::Debug + Send + Sync {
     /// 与发 GcEvent）。
     fn collect_cycles(&self) {}
 
-    /// **add-concurrent-gc P4b (2026-05-22)**: VmContext-aware collect
-    /// entry point. Production callers (safepoint slow-path + the
-    /// `Std.GC.Collect()` builtin) call this so the heap can choose its
-    /// own pause-coordination strategy:
-    ///
-    /// - `GcMode::StwMarkSweep` impls take `request_gc_pause` themselves
-    ///   and call `collect_cycles()` STW (current default).
-    /// - `GcMode::ConcurrentMarkSweep` impls take the initial pause,
-    ///   snapshot roots, transition to `ConcurrentMarking`, drain the
-    ///   gray queue concurrently with mutators, then call
-    ///   `request_handshake_pause` for final drain + STW sweep.
+    /// VmContext-aware collect entry point. Production callers (safepoint
+    /// slow-path + the `Std.GC.Collect()` builtin) call this so the heap
+    /// takes the pause (`request_gc_pause`) itself and decides what the
+    /// pause does — a one-shot STW major, or (generational) a minor, an
+    /// incremental major slice or a one-shot major.
     ///
     /// Default implementation falls back to the STW path: caller
     /// acquires its own pause (via `request_gc_pause`) and calls

@@ -17,8 +17,8 @@ z42vm 的行为由一组**旋钮**控制：GC 算法、执行模式、日志过�
 
 | 层 | 怎么写 |
 |---|---|
-| 命令行 | `z42vm --set gc-mode=concurrent`（也可经 `z42 run --set` / `z42 repl --set` 透传） |
-| 环境变量 | `Z42_GC_MODE=concurrent`（每个旋钮的环境变量名见下表） |
+| 命令行 | `z42vm --set gc-mode=stw`（也可经 `z42 run --set` / `z42 repl --set` 透传） |
+| 环境变量 | `Z42_GC_MODE=stw`（每个旋钮的环境变量名见下表） |
 | 用户配置文件 | `Z42_CONFIG` 或 `z42 run --config <file>` 指向的 TOML，写在 `[runtime]` 表里 |
 | 应用侧车 | `<app>.runtimeconfig.toml` 的 `[runtime]` 表，由 `z42c build` 从清单的 `[profile.<n>.runtime]` 烤出、随产物分发 |
 
@@ -112,8 +112,8 @@ runtime knobs (47 of 47)
 `--show-config` 的输出每行是 `key = 值  [来源层]`，被压过的层缩进列在下面：
 
 ```console
-$ Z42_GC_MODE=stw z42vm --set gc-mode=concurrent --show-config
-gc-mode = concurrent  [cli]
+$ Z42_GC_MODE=stw z42vm --set gc-mode=generational --show-config
+gc-mode = generational  [cli]
   ignored [env] "stw"  (overridden by a higher layer)
 ```
 
@@ -231,9 +231,9 @@ probing 路径 ${Z42_HOME}/programs/z42c 无法解析 —— 是否没有安装 
   （它们都是 apphost）。`Z42_PORTABLE_VM` 只改 apphost 强制成哪个 libs，不影响 `Z42_LIBS` 的优先级。
 - **`native-path`** — native `.dylib` / `.so` / `.dll` 模块的搜索路径，平台分隔符分隔。
 - **`crash-dir`** — panic / 信号崩溃报告文件的落盘目录。
-- **`gc-mode`** — GC 算法，六个取值：`stw` / `concurrent` / `generational`，以及三者各自的
-  `-mark-sweep` 别名（`stw-mark-sweep` / `concurrent-mark-sweep` /
-  `generational-mark-sweep`）。
+- **`gc-mode`** — GC 算法，四个取值：`stw` / `generational`，以及两者各自的
+  `-mark-sweep` 别名（`stw-mark-sweep` / `generational-mark-sweep`）。表外的值按类型非法处理
+  （见上面的严重度表：命令行致命，其余层警告并回落默认 `generational`）。
 - **`gc-max-bytes`** — 软堆上限。接受纯字节数，或带 `K` / `KB` / `M` / `MB` / `G` / `GB`
   后缀（`512MB`、`2G`）。它**不是**回收器的开关——回收器的阈值是相对增长量，不设上限
   照样工作；设了则同时收紧回收配额并加一道近上限跳闸。上限按堆的**真实内存占用**判定：
