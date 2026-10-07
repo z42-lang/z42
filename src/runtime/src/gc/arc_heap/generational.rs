@@ -112,6 +112,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// dirty-card roots. This bounds minor mark work at O(young +
     /// |dirty-card entries|).
     pub(super) fn mark_phase_minor(&self) -> usize {
+        self.maybe_verify_cards_before_minor();
         let threshold = self.promotion_age();
         let mut queue: Vec<Value> = Vec::new();
 

@@ -344,6 +344,13 @@ impl<T> Region<T> {
         }
     }
 
+    /// Whether the one card covering entry `(chunk_idx, entry_idx)` is dirty — the exact
+    /// question the card-table invariant asks of an old entry (`ArcMagrGC::verify_card_invariant`).
+    pub fn is_entry_card_dirty(&self, chunk_idx: u32, entry_idx: u16) -> bool {
+        let ci = chunk_idx as usize;
+        ci < self.card_dirty.len() && self.card_dirty[ci] & (1u32 << card_of(entry_idx)) != 0
+    }
+
     /// **add-generational-gc P0 (2026-05-22)**: whether any card in this chunk is dirty.
     /// Mostly for tests; minor GC iterates via [`Self::iterate_dirty_cards`].
     pub fn is_card_dirty(&self, chunk_idx: u32) -> bool {

@@ -19,3 +19,7 @@ pub use error::{ArrayOp, OpError, OpResult, Throw};
 #[cfg(test)]
 #[path = "objops_tests.rs"]
 mod objops_tests;
+
+#[cfg(test)]
+#[path = "write_barrier_tests.rs"]
+mod write_barrier_tests;
