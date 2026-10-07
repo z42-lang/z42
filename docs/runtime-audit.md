@@ -571,7 +571,7 @@ z42vm 继续静态链接 VM，不改为动态链接 `native/libz42`（结论与�
 | M5 | chunk 大小贴合分配器档位 | 每对象、每数组 −8 B | — | 🟡 |
 | M6 | 按真实占用记账，软上限 / `Z42_GC_MAX_BYTES` 按真实占用判定（即 P1-7 A5） | 上限真正约束 RSS | — | 🟡 |
 | M7 | 池中空 chunk 超阈值 decommit（即 P1-7 A4） | 稳态 RSS 下降 | — | 🟡 |
-| M8 | 用位图 / 区间替代 young_list、all_blocks、var young 等侧表 | 分代模式每对象 −8 B、每串 −16 B | — | ⬜ |
+| M8 | 用位图 / 区间替代 young_list、all_blocks、var young 等侧表 | 分代模式每对象 −8 B、每串 −16 B；实测（分代）每对象 98 → 81 B、每串 115 → 89 B，槽头 72 → 64 B，z42c 构建 RSS 788 → 754 MB、墙钟持平；09 STW full mark +10%（64 B 步长，待查） | — | 🟡 |
 | M9 | 年轻集合增长加上限（futility 时提前晋升或转 major，而非放大 nursery） | 流失场景 RSS −13%，最大停顿 94 → 18 ms | 09_alloc_ctorless 吞吐退化（⏸） | ⏸ |
 | M10 | 字段 payload 内联进 GC 槽 | 每对象 −16~−24 B；死 payload 随槽一起释放 | — | ⬜ |
 | M11 | 对象头 72 → 约 24 B：去掉每对象 Mutex，标记 / 存活 / 年龄 / 代号合成一个字，稀有字段移到侧表 | 每对象 −40~−48 B | 内存模型已定（见「对象模型（M10 + M11）已定方案」），按 R0–R9 推进 | ⏸ |

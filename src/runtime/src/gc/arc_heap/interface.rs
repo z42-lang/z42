@@ -247,17 +247,16 @@ impl MagrGC for ArcMagrGC {
     /// on the rare config call.
     fn set_mode(&self, mode: crate::gc::GcMode) {
         self.mode.store(mode as u8, std::sync::atomic::Ordering::Relaxed);
-        // fix-young-list-only-when-generational: `Region::young_list` is minor
+        // fix-young-list-only-when-generational: the regions' young set is minor
         // GC's index, and minor GC runs only in this mode — so the regions'
         // maintenance flag is part of the mode, set here in the same breath as
-        // the store. Switching *to* generational rebuilds the list from the
+        // the store. Switching *to* generational rebuilds the set from the
         // live entries, so a heap that has already allocated collects correctly.
         let generational = mode == crate::gc::GcMode::GenerationalMarkSweep;
         self.region_object.lock().set_generational(generational);
         self.region_array.lock().set_generational(generational);
-        // fix-minor-gc-skips-var-region: the var region keeps a young list now too, and it
-        // is the largest of the three — leaving it maintained under non-generational modes
-        // cost +48 MB of RSS on a `z42c.semantics` build.
+        // fix-minor-gc-skips-var-region: the var region keeps a young set too (its bitmaps are
+        // only allocated while generational).
         self.region_var.lock().set_generational(generational);
         // arm-gc-by-default: the two modes size their growth gate differently (a nursery vs
         // a full allowance), so the cached trip point has to be recomputed.

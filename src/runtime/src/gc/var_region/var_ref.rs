@@ -306,7 +306,7 @@ impl VarGcRef {
                 size: payload as u32,
                 marked: AtomicU8::new(0),
                 alive: AtomicBool::new(true),
-                type_tag: AtomicU8::new(GcBlockHeader::pack_tag(block_type, 0, false)),
+                type_tag: AtomicU8::new(GcBlockHeader::pack_tag(block_type, 0)),
                 size_class,
                 // Leaked / test blocks belong to no region chunk.
                 chunk_idx: u32::MAX,
@@ -336,7 +336,7 @@ impl VarGcRef {
                 size: payload as u32,
                 marked: AtomicU8::new(0),
                 alive: AtomicBool::new(true),
-                type_tag: AtomicU8::new(GcBlockHeader::pack_tag(block_type, 0, false)),
+                type_tag: AtomicU8::new(GcBlockHeader::pack_tag(block_type, 0)),
                 size_class,
                 // Leaked / test blocks belong to no region chunk.
                 chunk_idx: u32::MAX,

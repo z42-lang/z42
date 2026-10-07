@@ -628,18 +628,18 @@ helper 发；下面三处也必须发：
 
 ## 真实占用记账与软上限
 
-`used_bytes` 是逐对象的**活字节估算**：不含每个对象外面那层 `RegionEntry`（对象 72 B、数组头
-104 B）、分配器的尺寸级取整、等着槽位被复用的死对象 payload、整块空出的 chunk、以及 GC 自己的侧表。
+`used_bytes` 是逐对象的**活字节估算**：不含每个对象外面那层 `RegionEntry`（对象 64 B、数组头
+96 B）、分配器的尺寸级取整、等着槽位被复用的死对象 payload、整块空出的 chunk、以及 GC 自己的侧表。
 实测稠密负载 RSS 是它的 1.7–2 倍，流失负载 8 倍 —— 拿它判软上限，`gc-max-bytes=256M` 根本框不住
 RSS。所以软上限按 `gc::footprint::Footprint` 判，这是一份**随变随记**的真实占用（读一次 = 一次原子
 load，`HeapStats::committed_bytes` / `--stats` 的 `gc_committed_bytes` 就是它）：
 
 | 记什么 | 何时记入 | 何时扣除 |
 |---|---|---|
-| region chunk（槽数组 + `initialized` 行 + 逐 chunk 表头，`Region::CHUNK_FOOTPRINT`） | chunk 增长 | 不扣（chunk 不释放） |
+| region chunk（槽数组 + 三张槽位图 + 逐 chunk 表项，`Region::CHUNK_FOOTPRINT`） | chunk 增长 | 不扣（chunk 不释放） |
 | 变长 chunk（bump 64K / dedicated 按分配器取整） | `push_chunk` | dedicated chunk `free_in_place` |
 | 槽外 payload（`ObjStorage` 字段块、extras、数组的元素类型名 `Arc<str>`，按分配器取整） | 槽被填（`Region::alloc` / TLAB `fill`） | **死对象的槽被复用时**（旧 entry 被 drop 那一刻） |
-| 变长侧表（`young_list`、free-slot 桶、`all_blocks`、size-class free list） | 每次 sweep 尾部重量（`refresh_side_tables`，O(chunks)） | 同左 |
+| 变长侧表（chunk 列表、变长区的年轻位图与 size-class free list；[侧表的形状](gc-tlab.md#侧表位图与高水位)） | 每次 sweep 尾部重量（`refresh_side_tables`，O(chunks)） | 同左 |
 | 池中 chunk 被 decommit（[GC TLAB · 池中空 chunk 的 decommit](gc-tlab.md#池中空-chunk-的-decommit)） | 复用时重新记入 | decommit 时扣除（定长区连同 drop 掉的死 payload） |
 
 三个 region 共用同一个 `Arc<Footprint>`（建堆时 `attach_footprint` 挂上）。TLAB `fill` 不碰共享
@@ -708,25 +708,15 @@ nursery（默认 32M 绝对值，刻意与预算无关），于是一个远小�
 nursery，`min` 恒等于 nursery，**默认路径逐字节不变**。
 STW 那侧的闸门本来就是 allowance，所以这个洞只在分代下出现。
 
-### chunk 回收：`all_blocks` 按 chunk 分桶
+### chunk 回收：只做 `O(被回收的 chunk)` 的事
 
-`reclaim_dead_var_chunks` 要把被回收 chunk 的块从三张表里摘掉。若对 `all_blocks` 做
-`retain`，**每个元素要解引用一次 header 读 `chunk_idx`** —— 一次随机访存。实测：为摘掉
-~600 个 chunk 扫了 **187 万**个块，**8.1 ms / 9.5 ms 的 minor 停顿**（obj / arr 两个定长区
-各只要 0.22 ms —— 成本全在变长区这一趟）。
+`reclaim_dead_var_chunks` 回收一个 chunk 时要让它的块从区里消失。变长区没有块表（块靠
+`hwm[ci]` 以内的顺序遍历找到，见 [侧表：位图与高水位](gc-tlab.md#侧表位图与高水位)），所以这一步
+是：沿被回收 chunk 走一遍（按 size class 记下它留在 free list 里的陈旧条目数），再把 `hwm[ci]` 归零。
+年轻位此时已全清（块都 tombstone 过）。工作量正比于被回收的块，与堆大小无关。
 
-所以 `all_blocks` 按 chunk 分桶（`all_blocks[ci]` = 第 ci 个 chunk 的块），这一步是 `all_blocks[ci] = Vec::new()`，
-O(被回收的 chunk 数)。遍历的元素总数不变、局部性反而更好（同 chunk 的块地址连续）。
-中位停顿 22.1 → **18.3 ms**，最大停顿 −9%，RSS 中性。
-
-⚠️ **分桶会以两种方式把 RSS 吃回去，两个都得堵**（否则净亏）：
-
-| 坑 | 代价 | 修法 |
-|---|---|---|
-| `Vec` 的翻倍空闲容量 **×每个 chunk 一份** | +20 MB | chunk 填满不再增长时 `shrink_to_fit()`（`retire_chunk` / `bump()` 换 chunk） |
-| **`clear()` 保留容量** | +18 MB | `= Vec::new()` —— 每次 minor 回收 ~600 个 chunk，各握 2 KB 不放会永久累积 |
-
-只修第一个，RSS 从 811.8 **只降到 809.8 MB**；主因是第二个。
+⚠️ 这里的历史教训仍然成立：任何「为摘掉少数元素而对整张按对象增长的表做 `retain`」的写法，
+都是把 `O(堆)` 塞进每次停顿（曾实测为一次 minor 停顿的 85%）。
 
 `free_lists` 按 size class 组织、不按 chunk 分区，所以不在 `purge_blocks` 里扫，
 而是 pop 时惰性校验（见 [gc-tlab-chunk-exclusive.md](gc-tlab.md)）。
@@ -989,9 +979,9 @@ root 后面，直接 pin owner 的测试是空转的。**
 - 值**在堆的生命周期内不可变** —— 这正是三份缓存副本能安全存在的原因。
 
 **范围**：`1..=MAX_GEN_AGE`（当前 3）。上界是硬的 —— 年龄打包在
-`GcBlockHeader::type_tag` 的两个空闲位里，3 是能表示的最大值（同一字节剩下的位：bit 5 是年轻代链表成员位，
+`GcBlockHeader::type_tag` 的两个空闲位里，3 是能表示的最大值（同一字节剩下的位：
 bit 6 是字符串块的「全 ASCII」位——字符串分配时写入，`Length` / `CharAt` / `Substring` 据此直接按字节下标、
-不查每字符串元数据缓存；年龄的 STW 读改写都保留它，只剩 bit 7 空闲）。0 会让一切在第一次 minor
+不查每字符串元数据缓存；年龄的 STW 读改写都保留它；bit 5、bit 7 空闲——年轻集合成员关系在 region 的位图里）。0 会让一切在第一次 minor
 就晋升（等于没有年轻代）。越界**警告并 clamp**，不是饱和：一个饱和的年龄永远
 「到不了」，于是什么都不会被晋升。
 

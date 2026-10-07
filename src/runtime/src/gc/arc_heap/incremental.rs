@@ -34,8 +34,8 @@
 //!   card is otherwise traced *through*, straight into a slot that may hold a new object by now;
 //! - the debug validator does not look at epochs or the grey queue while a cycle is open.
 //!
-//! The fixed regions' sweep also has to delist the dead from `young_list` as it goes
-//! (`Region::sweep_chunks(delist_young = true)`) — see there.
+//! Every region's sweep takes the dead out of its young set as it tombstones them, so the minors
+//! that run between slices never meet a reclaimed (or reused) slot in it.
 //!
 //! ## Scheduling
 //!
@@ -496,7 +496,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
             let (units, done) = match cycle.stage {
                 SweepStage::Objects => {
                     let mut region = self.region_object.lock();
-                    let (f, r, next) = region.sweep_chunks(kind, cycle.cursor, 1, true, Self::prepare_dead_object);
+                    let (f, r, next) = region.sweep_chunks(kind, cycle.cursor, 1, Self::prepare_dead_object);
                     freed += f;
                     cycle.reclaimed += r;
                     cycle.cursor = next;
@@ -504,7 +504,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
                 }
                 SweepStage::Arrays => {
                     let mut region = self.region_array.lock();
-                    let (f, r, next) = region.sweep_chunks(kind, cycle.cursor, 1, true, Self::prepare_dead_array);
+                    let (f, r, next) = region.sweep_chunks(kind, cycle.cursor, 1, Self::prepare_dead_array);
                     freed += f;
                     cycle.reclaimed += r;
                     cycle.cursor = next;

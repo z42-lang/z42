@@ -92,10 +92,10 @@ close_major_marking ── loop { retire 自己；取 satb_queue；标记入 mar
 
 两条支撑它的前提，改动前必须先确认它们还成立：
 
-1. **minor 永不回收「按年龄算已老」的条目**。`Region::sweep_young_in_one_pass` 只走 `young_list`，
+1. **minor 永不回收「按年龄算已老」的条目**。`Region::sweep_young_in_one_pass` 只走年轻集合（年轻位图），
    而自适应晋升只在「mark 已用旧线跑完、紧接着的升龄趟会把新线判老的全部排空」那个窗口里降线
    （`Region::set_promotion_age`）。`VarRegion::sweep_young` 另有**显式**跳过
-   （`age_backing_with_owner` 会在不摘表的情况下抬高 backing 年龄）。
+   （`age_backing_with_owner` 会在不摘出年轻集合的情况下抬高 backing 年龄）。
 2. **`region_var` 没有卡表**（`maybe_mark_cross_gen_card` 的 `_ => {}` 臂），所以上面那条论证对 var 条目
    要逐个变体核查：`Str` / `FuncRef` 是叶子；闭包的 `env` 在构造时固定、此后与闭包同步升龄
    （每次够得着闭包的 minor 都会标记 env 表头）⇒ 老闭包的 env 必老，而 env 是**数组**、有卡；

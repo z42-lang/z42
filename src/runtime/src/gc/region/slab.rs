@@ -1,8 +1,8 @@
 //! Chunk storage for `Region<T>`: chunks carved back to back out of page-aligned slabs.
 //!
 //! The point is **page-granular decommit** (`region/decommit.rs`): a chunk is
-//! `CHUNK_SIZE × size_of::<RegionEntry<T>>()` bytes — 18 432 for objects, 26 624 for arrays —
-//! which is not a whole number of 16 KB pages. Boxed one by one at allocator-chosen addresses,
+//! `CHUNK_SIZE × size_of::<RegionEntry<T>>()` bytes — 16 384 for objects, 24 576 for arrays —
+//! which in general is not a whole number of 16 KB pages (the slot size follows `T`). Boxed one by one at allocator-chosen addresses,
 //! most chunks contain no complete page at all, so handing an empty one back to the OS freed
 //! nothing. In a slab, chunk `ci` sits at a known offset, and a run of adjacent empty chunks
 //! gives back every page inside the run.
