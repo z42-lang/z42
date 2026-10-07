@@ -304,6 +304,22 @@ pub(crate) fn debug_assert_not_native_parked() {
     });
 }
 
+/// Debug-build tripwire for the other half of that rule: a parked thread's frame stack is
+/// read by the collector without synchronization (`FrameStack::scan_parked`), so the thread
+/// must not push or pop frames until the park ends. Called by `FrameStack::push` / `pop`.
+#[inline]
+pub(crate) fn debug_assert_frame_change_not_parked() {
+    #[cfg(debug_assertions)]
+    NATIVE_PARK_DEPTH.with(|d| {
+        assert!(
+            d.get() == 0,
+            "z42 frame pushed / popped inside a NativeParkGuard region: a collector may be \
+             scanning this thread's frame stack. End the park (or use NativeUnparkGuard) \
+             before running z42 code — see gc/safepoint.rs"
+        );
+    });
+}
+
 /// Enter the parked state: count this ctx toward `parked_count` and wake any
 /// collector waiting for its target. Caller must NOT mutate z42 roots or
 /// allocate until the matching [`native_park_decr`] — enforced in debug builds by

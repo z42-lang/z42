@@ -70,6 +70,8 @@ fn test_something() { ... }
 1. **包 `NativeParkGuard`**，只包阻塞的那几行。
 2. **park 区间内不许分配**：parked 线程造的对象不是任何根，并发回收会收掉它（debug 构建由
    `debug_assert_not_native_parked` 当场炸）。错误先收成 Rust `String`，出 park 再造结果元组。
+   同理**不许跑 z42 代码**：collector 会无锁读 parked 线程的帧栈，park 期间压 / 弹帧就是数据竞争
+   （debug 构建由 `debug_assert_frame_change_not_parked` 炸）；确需回调 z42 先 `NativeUnparkGuard`。
 3. **不许攥着共享锁阻塞**：别的线程排在这把锁上时是**不 park** 的 —— 只 park 阻塞者本身，GC 照样等排队者。
    做法：锁下只取出/克隆句柄（`Arc`），放锁，再 park 着做 I/O（参照 `corelib/process.rs` 的 `ProcessSlot`、`corelib/network/tcp.rs` 的取出-放回）。
 

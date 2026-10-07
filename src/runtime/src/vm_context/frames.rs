@@ -71,22 +71,21 @@ impl VmContext {
         frame.stack_arr_base = arena_base(self.stack_arr_len.load(Relaxed));
         frame.struct_base = arena_base(self.struct_len.load(Relaxed));
         frame.transient_base = arena_base(self.transient_len.load(Relaxed));
-        self.call_stack.lock().push(frame);
+        self.call_stack.push(frame);
     }
 
     /// Pop the most recently pushed frame. No-op when empty (defensive).
     pub(crate) fn pop_frame(&self) {
         use std::sync::atomic::Ordering::Relaxed;
-        // Pop the call_stack first (release its lock) before touching the arenas.
-        let popped = self.call_stack.lock().pop();
+        let popped = self.call_stack.pop();
         if let Some(f) = popped {
             let (obj_base, arr_base) = (f.stack_obj_base as usize, f.stack_arr_base as usize);
             let (struct_base, transient_base) = (f.struct_base as usize, f.transient_base as usize);
             // perf interp-frame-lock-slim: for each arena, lock + truncate ONLY when
             // this frame actually grew it (published len ≠ stamped base). The
             // call-heavy common case allocates nothing on these arenas, so all three
-            // comparisons short-circuit and pop_frame takes just the one call_stack
-            // lock above. Re-publish the post-truncate length under the arena lock.
+            // comparisons short-circuit and pop_frame takes no lock at all.
+            // Re-publish the post-truncate length under the arena lock.
             if self.stack_obj_len.load(Relaxed) != obj_base
                 || self.stack_arr_len.load(Relaxed) != arr_base
             {
@@ -122,23 +121,14 @@ impl VmContext {
     /// resolved from it only when a stack trace is built.
     #[inline]
     pub(crate) fn set_top_frame_pc(&self, pc: u32) {
-        if let Some(top) = self.call_stack.lock().last() {
-            top.pc.set(pc);
-        }
+        self.call_stack.set_top_pc(pc);
     }
 
     /// Snapshot the entire call stack for stack-trace formatting at a
     /// `throw` site — names, files and line/column are resolved here.
     /// Only invoked on the throw / fatal-report path.
     pub(crate) fn snapshot_call_stack(&self) -> Vec<crate::exception::FrameSnapshot> {
-        self.call_stack.lock().iter().map(|f| f.snapshot()).collect()
-    }
-
-    /// Current depth of the call stack — debugging / tests.
-    #[cfg(test)]
-    #[allow(dead_code)]
-    pub(crate) fn call_stack_depth(&self) -> usize {
-        self.call_stack.lock().len()
+        self.call_stack.with_frames(|frames| frames.iter().map(|f| f.snapshot()).collect())
     }
 
     /// Spec impl-ref-out-in-runtime (Decision R1): index into the frame
@@ -147,15 +137,12 @@ impl VmContext {
     /// transparent deref in `Frame::get/set`.
     ///
     /// # Safety
-    /// Caller must:
-    ///   1. Use the returned pointer only while the corresponding frame is
-    ///      still alive (guaranteed by spec design Decision 9: refs never
-    ///      escape the call stack — popped frames cannot be referenced).
-    ///   2. Not race with concurrent push/pop on the same VmContext (single
-    ///      RefCell borrow boundary; deref is synchronous within a frame).
+    /// Caller must use the returned pointer only while the corresponding frame
+    /// is still alive (guaranteed by spec design Decision 9: refs never
+    /// escape the call stack — popped frames cannot be referenced). Like every
+    /// frame-stack accessor here, it runs on the context's owner thread.
     pub(crate) fn frame_state_at(&self, idx: usize) -> Option<*const Vec<Value>> {
-        let stack = self.call_stack.lock();
-        stack.get(idx).map(|f| f.regs)
+        self.call_stack.regs_at(idx)
     }
 
     /// Current depth of the frame chain. `frame_state_at(depth - 1)` is
@@ -163,7 +150,27 @@ impl VmContext {
     /// to produce a `RefKind::Stack { frame_idx }` referencing the
     /// current frame at emission time.
     pub(crate) fn frame_stack_depth(&self) -> usize {
-        self.call_stack.lock().len()
+        self.call_stack.depth()
+    }
+
+    /// Read this context's frames from the GC root scanners. Panics in debug
+    /// builds when the scan is neither on the owner thread nor inside a
+    /// collection (`collector_active`).
+    ///
+    /// # Safety
+    /// As [`super::frame_stack::FrameStack::scan_parked`]: the caller is the
+    /// owner thread, or the owner is parked for the whole call.
+    pub(crate) unsafe fn scan_frames_parked<R>(
+        &self, f: impl FnOnce(&[crate::exception::VmFrame]) -> R,
+    ) -> R {
+        debug_assert!(
+            self.call_stack.published_depth() == 0
+                || self.call_stack.owned_by_current_thread()
+                || self.core.collector_active.load(std::sync::atomic::Ordering::Acquire),
+            "another thread's frame stack scanned outside a GC pause"
+        );
+        // SAFETY: the caller's contract.
+        unsafe { self.call_stack.scan_parked(f) }
     }
 }
 

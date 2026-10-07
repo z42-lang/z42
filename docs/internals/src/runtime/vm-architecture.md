@@ -29,7 +29,7 @@ vm.run(&ctx, hint)?;
 | `VmContext::new() -> Pin<Box<Self>>` | 测试入口；构造新 VmCore + `module = None` | 单测大量用（heap / static_fields / corelib 单测均不需要真 Module） |
 | `VmContext::new_with_core(core: Arc<VmCore>) -> Pin<Box<Self>>` | spawn 入口；**复用现有 VmCore**，仅构造 per-thread 字段 + register self 到 `vm_contexts` | `__thread_spawn` worker 通过此构造，让 worker 看见父 VmCore 的 static_fields / heap / lazy_loader / native_libs |
 
-`__thread_spawn`（[corelib/threading.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/corelib/threading.rs)）流程：拿到调用者 `ctx.core` 的 `Arc::clone` → `std::thread::spawn` → worker 内 `VmContext::new_with_core(core)` 构造 worker ctx → `interp::exec_function` dispatch。worker 的 per-thread 字段（pending_exception / call_stack / func_ref_slots）私有；通过 `vm_contexts` 注册让 GC scanner 看见 worker 自己的 roots。
+`__thread_spawn`（[corelib/threading.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/corelib/threading.rs)）流程：拿到调用者 `ctx.core` 的 `Arc::clone` → `std::thread::spawn` → worker 内 `VmContext::new_with_core(core)` 构造 worker ctx → `interp::exec_function` dispatch。worker 的 per-thread 字段（pending_exception / call_stack）私有；通过 `vm_contexts` 注册让 GC scanner 看见 worker 自己的 roots。
 
 ### VmCore：跨线程共享状态
 
@@ -64,7 +64,7 @@ vm.run(&ctx, hint)?;
 > socket/handle 表一样 per-core 唯一。
 > **模块布局**：`vm_context/`：`mod.rs`（hub：VM_CORES / snapshot /
 > `VmContextPtr` / `CoreContextReclaimer`）+ `resource_registry.rs` + `types.rs`（VmCore/VmContext struct）+
-> `construct.rs`（构造 + Drop）+ `resources.rs` / `native.rs` / `frames.rs` / `statics.rs` / `lookup.rs`
+> `construct.rs`（构造 + Drop）+ `frame_stack.rs`（`FrameStack`，见下「帧栈的归属」）+ `resources.rs` / `native.rs` / `frames.rs` / `statics.rs` / `lookup.rs`
 > （各 concern 的 `impl VmContext` 块，inherent impl 可跨文件）+ `cctor.rs`（静态构造器状态机）/ `isa_cache.rs`（`is`/`as`/`catch` 前置缓存）/ `symres.rs`（「确定不存在」判定）。
 
 `VmCore` 满足 `Send + Sync`（编译期 assertion 在 `src/runtime/src/gc/arc_heap_tests/send_sync.rs`）。
@@ -76,7 +76,7 @@ vm.run(&ctx, hint)?;
 - `core: Arc<VmCore>` — 指向 VmCore 共享状态
 - `pending_exception: Arc<Mutex<Option<Value>>>` — JIT extern "C" 边界异常槽位
 - `pending_thrown: Mutex<Option<Value>>` — callback 型 builtin（反射 `MethodInfo.Invoke`）把原异常值带出 builtin 边界的槽位；每线程一份，GC 根
-- `call_stack: Arc<Mutex<Vec<VmFrame>>>` — 当前线程帧栈
+- `call_stack: FrameStack` — 当前线程帧栈，只由所属线程无锁读写（见下「帧栈的归属」）
 - `stack_arena` / `struct_arena` / `transient_arena`（及其发布长度原子，见下一节）、`next_frame_id`、`safepoint_skip`（safepoint 节流计数，JIT 内联读写）、`jit_ctx`（混合模式下指向当前 `JitModuleCtx`）
 - `interned_cache`（`ConstStr` 字面量的 per-context 驻留缓存，GC root）、`subclass_memo` + `isa_cache`（`is`/`as`/`catch` 子类判定缓存）、`type_lookup_cache` + `fn_lookup_cache`（`try_lookup_type/function` 命中的前置缓存，免去共享 `lazy_loader` 锁）
 
@@ -96,7 +96,40 @@ regs+env_arena，interp `RefKind::Stack` 跨帧 deref 通过 `frame.regs`。
   合并模块里的函数归模块所有，惰性加载的函数由它的 `LazySlot` 持 `Arc<Function>` 保活，与 `FnEntry` 同寿。
 - **读帧的地方**：异常 `StackTrace`、栈溢出致命报告（`stack_guard`）、采样器（只取名字）、
   崩溃信号转储（`signal_handler::write_frame`：直接写 `frame_meta` 的字节，没有时用
-  `for_each_frame_name_piece` 分段写，行列号是一次二分——全程不分配）。
+  `for_each_frame_name_piece` 分段写，行列号是一次二分——全程不分配）。前三者都在所属线程上；
+  跨线程的读者只有 GC root scanner，见下一节。
+
+### 帧栈的归属：所属线程独占，别的线程只在它 park 时读
+
+`call_stack` 是 `FrameStack`（`vm_context/frame_stack.rs`）：`UnsafeCell<Vec<VmFrame>>` 加两个原子
+（发布深度 `depth`、栈底帧压栈线程 `owner`）。**谁能碰、什么时候碰**：
+
+| 读写者 | 线程 | 入口 | 条件 |
+|---|---|---|---|
+| 调用序列（`enter_frame` / `call_native`）、`set_top_frame_pc` | 所属线程 | `push` / `pop` / `set_top_pc` | 无锁 |
+| 异常回溯、栈溢出报告、采样器、`RefKind::Stack` deref、`LoadLocalAddr` | 所属线程 | `with_frames` / `regs_at` / `depth` | 无锁；闭包里不许 push / pop |
+| GC root scanner（标记用的、retention 诊断用的分类版） | collector | `VmContext::scan_frames_parked`（`unsafe`） | 调用方是所属线程，或所属线程已 park |
+| 崩溃信号处理器 | 崩溃线程 | 自己的栈：`scan_parked`；别的线程：`published_depth` | 只读自己拥有的帧；别的线程只读深度原子 |
+
+**跨线程读为什么安全**（`scan_parked` 的前提，全部在 `gc/safepoint.rs` 与 `vm_context/construct.rs`）：
+
+- mutator park 时先 `parked_count.fetch_add(AcqRel)`，再拿 `gc_phase` 锁（`park_until_idle`；阻塞型
+  native 调用的 `native_park_incr` 同理）。park 期间不 push / pop：safepoint park 本身阻塞在条件变量上；
+  `NativeParkGuard` 区间由 debug 断言 `debug_assert_frame_change_not_parked` 把守（`FrameStack::push` / `pop` 调用）。
+- collector 在 `request_gc_pause` 里以 `Acquire` 读到 `parked_count` 达标后才切到 `Marking`。
+  `parked_count` 只经 RMW 改变，这次读与此前每个 park 的 `fetch_add` 都同步，所属线程最后一次 push / pop
+  因此先于扫描。
+- 恢复时 mutator 等 phase 回到 `Idle`（collector 放手后、在锁内设置）才在锁内 `fetch_sub`、继续执行，
+  扫描因此先于它下一次 push / pop。
+- `Marking` 期间新线程不能注册（`VmContext::new_with_core` 在 `gc_phase` 锁下等），scanner 不会遇到没 park 的新来者。
+
+所有调用 scanner 的路径都持停顿：`collect_cycles_with_context` 的 STW / 分代 / 并发三条分支都先
+`request_gc_pause`（并发模式只在第 1 阶段 STW 快照根，并发标记期不再扫栈），`GC.ForceCollect` 同样；
+`maybe_auto_collect` 在接了 VmCore 时只置 safepoint 请求、由 safepoint 上的 collector 执行。
+`scan_frames_parked` 的 debug 断言检查「深度为 0 / 本线程拥有 / `collector_active`」三者之一。
+
+`owner` 在压入栈底帧（深度 0→1）时写、随后以 `Release` 发布深度 1，于是读到深度 > 0（`Acquire`）的线程
+也看得到对应的 `owner`；同一个 `VmContext` 先后被不同线程驱动（宿主 invoke）时，所有权随新的栈底帧转移。
 
 **帧的登记只有两处**，改帧布局 / 登记方式只动这两处：
 
@@ -114,11 +147,11 @@ regs+env_arena，interp `RefKind::Stack` 跨帧 deref 通过 `frame.regs`。
 
 ### Send-safety 与 GC scanner 设计
 
-`MagrGC` trait 要求 `Send + Sync`。GC scanner closure（mark 阶段被调用）也要求 `Send + Sync`，进而所有 closure 捕获都必须 Send + Sync —— 这是 per-thread 字段用 `Arc<Mutex<>>` 而非 `Rc<RefCell<>>` 的根因。
+`MagrGC` trait 要求 `Send + Sync`。GC scanner closure（mark 阶段被调用）也要求 `Send + Sync`，进而所有 closure 捕获都必须 Send + Sync —— 这是 per-thread 字段用 `Arc<Mutex<>>` 而非 `Rc<RefCell<>>` 的根因。帧栈例外：它在调用热路径上，靠「别的线程只在所属线程 park 时读」的协议免锁（`FrameStack` 为此 `unsafe impl Sync`，见上「帧栈的归属」）。
 
 Scanner closure 通过 `Weak<VmCore>` 捕获 VmCore（避免 `VmCore → heap → scanner → Arc<VmCore>` 循环引用），upgrade 失败时 silent skip。
 
-**VmContext 注册表**：VmCore 持 `vm_contexts: Mutex<Vec<VmContextPtr>>` 注册表。`VmContext::new()` 返回 `Pin<Box<VmContext>>` 以保证地址稳定（`PhantomPinned` 标 !Unpin 防 move-out），构造时 push 自身到注册表，Drop 时 retain 移除。GC scanner 改为：**1**) 上锁 vm_contexts → **2**) 遍历每个 VmContext ptr → **3**) `unsafe { &*ptr }` 扫其 `pending_exception` / `pending_thrown` / `call_stack` 帧 / `func_ref_slots`。所有 VmContext 的 per-thread roots 在 mark 阶段都被看见 —— multi-thread 安全。Lock 持有期间 Drop 阻塞，无 use-after-free。
+**VmContext 注册表**：VmCore 持 `vm_contexts: Mutex<Vec<VmContextPtr>>` 注册表。`VmContext::new()` 返回 `Pin<Box<VmContext>>` 以保证地址稳定（`PhantomPinned` 标 !Unpin 防 move-out），构造时 push 自身到注册表，Drop 时 retain 移除。GC scanner 改为：**1**) 上锁 vm_contexts → **2**) 遍历每个 VmContext ptr → **3**) `unsafe { &*ptr }` 扫其 `pending_exception` / `pending_thrown` / `call_stack` 帧（经 `scan_frames_parked`）。所有 VmContext 的 per-thread roots 在 mark 阶段都被看见 —— multi-thread 安全。Lock 持有期间 Drop 阻塞，无 use-after-free。
 
 API 方法都用 `&self`（内部 Mutex/RwLock）。详见 [`object-protocol-dispatch.md`](object-protocol-dispatch.md)、[`native-abi.md`](native-abi.md)、[`concurrency.md`](concurrency.md)。
 
@@ -127,7 +160,7 @@ API 方法都用 `&self`（内部 Mutex/RwLock）。详见 [`object-protocol-dis
 `VmContext` 持三个 per-thread arena —— `stack_arena`（逃逸对象/数组）、`struct_arena`（值 struct
 blob）、`transient_arena`（`Ref`/`PinnedView`/`StackClosure`/`StructRefHeap` 的 payload）——均 `Arc<Mutex<>>`，
 因为 **GC scanner 跨线程读它们**（见上「Send-safety」：不能退成 `Rc<RefCell<>>`）。每个函数调用的
-`push_frame` 要戳记三个 arena 的当前长度作 truncation base，`pop_frame` 要 LIFO-truncate 回去 —— 若朴素实现则是**每调用 8 把锁**（push 4 + pop 4，含 `call_stack`）。call-heavy workload（z42c 自编译）下这是
+`push_frame` 要戳记三个 arena 的当前长度作 truncation base，`pop_frame` 要 LIFO-truncate 回去 —— 若朴素实现则是**每调用 6 把 arena 锁**（push 3 + pop 3）。call-heavy workload（z42c 自编译）下这是
 仅次于 dispatch 的第二大桶，纯锁开销（实测跳过全部 6 个 arena 锁 = 3.9% faster）。
 
 **关键观察：这三个 arena 只有 mutator 线程写，GC 线程只读。** 于是给每个 arena 加一个**发布长度**
@@ -136,9 +169,9 @@ blob）、`transient_arena`（`Ref`/`PinnedView`/`StackClosure`/`StructRefHeap` 
 - **单写者**：mutator 在 arena 锁内、于每个 alloc（经 `stack_alloc_obj`/`stack_alloc_arr`/`struct_alloc`/
   `transient_alloc` 四个包装）与 `pop_frame` 的 truncate 后 `store(len, Relaxed)`。GC 从不碰这些原子
   （它在 `Mutex` 下读 arena **数据**）。⇒ `Relaxed` 足够（线程观察自己的写按程序序）。
-- **push_frame** 从原子 `Relaxed` load 取 base（**无锁**），不再锁三个 arena → 4 把锁降到 1 把（`call_stack`）。
+- **push_frame** 从原子 `Relaxed` load 取 base（**无锁**），不锁三个 arena；`call_stack` 本身是所属线程独占的，也不加锁。
 - **pop_frame** 对每个 arena **仅当本帧确实增长过**（发布长度 ≠ 戳记 base）才加锁 truncate + 重发布；
-  常态帧在这三个 arena 上分配为零 → 三个比较全短路 → 只剩 `call_stack` 一把锁。
+  常态帧在这三个 arena 上分配为零 → 三个比较全短路 → 一次调用不加任何锁。
 
 **alloc 漏斗铁律**：所有 arena 分配必须经四个包装之一。绕过的裸 `arena.lock().alloc(..)` 会让原子失准 →
 `pop_frame` 误跳 truncate → arena **泄漏**（非崩溃——`frame_id` staleness 守卫仍保护读；失败模式是内存
