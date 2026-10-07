@@ -41,14 +41,13 @@ impl Drop for FrameGuard<'_> {
 /// Must not reach a safepoint before the push: until then the callee's
 /// arguments are reachable only from `frame` (see `exec_function_body`).
 ///
-/// SAFETY of the raw pointers: `frame.regs` / `frame.env_arena` live in the
-/// caller's `Frame` on the Rust call stack, and `func` is borrowed by the
-/// caller for the whole activation — both outlive the guard.
+/// SAFETY of the raw pointers: `frame.regs` lives in the caller's `Frame` on
+/// the Rust call stack, and `func` is borrowed by the caller for the whole
+/// activation — both outlive the guard.
 pub(super) fn enter_frame<'a>(ctx: &'a VmContext, func: &Function, frame: &mut Frame) -> Result<FrameGuard<'a>> {
     ctx.push_frame(crate::exception::VmFrame::new(
         func as *const Function,
         &frame.regs as *const Vec<Value>,
-        &frame.env_arena as *const Vec<Vec<Value>>,
     ));
     let guard = FrameGuard { ctx, regs: &mut frame.regs as *mut Vec<Value> };
     // runtime-audit P0-4: stack overflow is fatal — checked once the frame is

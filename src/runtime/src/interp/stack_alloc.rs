@@ -12,8 +12,7 @@
 //! `new Foo(a,b)` runs its ctor in a **child frame** with `this` passed as a Value.
 //! A per-frame arena index would be meaningless in the ctor's frame. A per-context
 //! arena is reachable from every frame via `ctx`, so the ctor resolves `this`
-//! trivially — no cross-frame handle machinery. (Stack closures use a per-frame
-//! `env_arena` because closures have no ctor sub-call; objects differ.)
+//! trivially — no cross-frame handle machinery.
 //!
 //! ## Lifetime — LIFO truncation
 //! Frames nest (LIFO), so their stack allocations nest too. Each frame records the
@@ -132,7 +131,7 @@ impl StackArena {
 
     /// GC root scan: visit every heap `Value` reachable from live stack objects /
     /// arrays (their slots/elements may hold `GcRef`s to heap objects that must
-    /// stay marked). Mirrors the frame `env_arena` root scan.
+    /// stay marked).
     pub fn scan_roots(&self, visit: &mut dyn FnMut(&Value)) {
         for s in &self.objs {
             // unify-object-byte-layout (PR-2): the side-table reference leaves —

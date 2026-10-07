@@ -53,7 +53,6 @@ JIT 只在执行 `run_fn` 的那个线程上运行。VM 创建的其他线程用
 | `ret: Value` | 返回值。`Ret %r` 把寄存器槽的 16 B 原样拷进来（`Value` 是 `Copy`，无引用计数、无写屏障）；寄存器驻留在 SSA 里时直接写 tag + payload |
 | `has_ret: u8` | `Ret %r` 置 1；无值的 `Ret` 不碰它，保持 0。`call_native` 据此给出 `Returned(Some(ret))` 或 `Returned(None)`，void 与返回 `null` 由此区分 |
 | `regs: Vec<Value>` | 寄存器文件，按 SSA 寄存器号索引，长度 `max_reg + 1` |
-| `env_arena` | 不逃逸闭包的帧内环境 |
 | `frame_id` | 帧 id，供 struct 值的悬垂检查；OSR 时继承 interp 帧的 id |
 
 `regs_ptr` 能一直有效，靠的是寄存器文件在帧存活期间从不改变长度：构造时从寄存器池取定长 `max_reg + 1`，
@@ -61,7 +60,7 @@ JIT 只在执行 `run_fn` 的那个线程上运行。VM 创建的其他线程用
 不进 JIT，且槽号总 `<= max_reg`）。`JitFrame` 本身被 move 不影响堆上的缓冲区。`ret` 不是 GC 根：
 从写入到 `call_native` 取走之间没有 safepoint。
 
-每次进入原生函数都经 `invoke::call_native`：把 `FnEntry.func` 与 `regs` / `env_arena` 登记成一个 `VmFrame` 压进 `VmContext` 的调用栈（GC 从那里扫描根，栈回溯从 `func` 现算名字与行号），运行后弹出并回收 `JitFrame`。调用类 helper 与 `jit_throw` 只收位点的代码偏移（`linear_offset` 常量），戳到调用方帧的 `pc` 上。
+每次进入原生函数都经 `invoke::call_native`：把 `FnEntry.func` 与 `regs` 登记成一个 `VmFrame` 压进 `VmContext` 的调用栈（GC 从那里扫描根，栈回溯从 `func` 现算名字与行号），运行后弹出并回收 `JitFrame`。调用类 helper 与 `jit_throw` 只收位点的代码偏移（`linear_offset` 常量），戳到调用方帧的 `pc` 上。
 
 ## 原生函数 ABI
 

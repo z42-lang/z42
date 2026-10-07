@@ -328,7 +328,7 @@ pub struct VmContext {
     /// no cross-thread contention). Totals: `VmContext::counters_snapshot`.
     pub(crate) counters: crate::counters::RuntimeCounters,
     /// Active script frames, one [`crate::exception::VmFrame`] per interp /
-    /// JIT activation: GC roots (raw `regs` / `env_arena` pointers) and
+    /// JIT activation: GC roots (raw `regs` pointer) and
     /// stack-trace rows (`func` + `pc`) in one entry.
     ///
     /// Owner-thread only, no lock — another thread reads it only while this
@@ -357,8 +357,8 @@ pub struct VmContext {
     /// (`Value::StructRef` indexes it). Same lifetime model as `stack_arena`
     /// (LIFO-truncated by `pop_frame`, GC-scanned at safepoint).
     pub(crate) struct_arena:      Arc<Mutex<crate::interp::struct_arena::StructArena>>,
-    /// make-value-copy: per-thread arena holding the payloads of the four transient,
-    /// frame-scoped `Value` variants (`Ref`/`PinnedView`/`StackClosure`/`StructRefHeap`,
+    /// make-value-copy: per-thread arena holding the payloads of the three transient,
+    /// frame-scoped `Value` variants (`Ref`/`PinnedView`/`StructRefHeap`,
     /// which now carry only an 8B `{idx,frame_id}` handle so `Value` is `Copy`). Same
     /// lifetime model as `stack_arena` (LIFO-truncated by `pop_frame`, GC-scanned at safepoint).
     pub(crate) transient_arena:   Arc<Mutex<crate::interp::transient_arena::TransientArena>>,

@@ -1,16 +1,15 @@
 # 逃逸分析与栈上分配
 
 > 待办：JIT 消费（JIT 忽略 `StackAlloc` 标志照常堆分配）、字段敏感 / 标量替换等精度扩展尚未实施。
-> **闭包**一支只有运行时表示，编译期不置标志（见末节）。
+> **闭包**不在本机制内：一律堆分配（见末节）。
 
 z42 的分配（`new Foo(...)` / `new T[n]` / `[a,b,c]`）默认走 GC 堆——region 分配锁 + 标记/清扫追踪
 （profile 实测 interp 热路径 ~7% 在对象/数组分配）。其中相当一部分是**不逃逸的临时对象/数组**：只在
 创建它的函数帧内被读写、从不流出。**逃逸分析**在编译期证明这一点，把这类分配改到**帧局部 arena** 上分配、
 随帧退出即释放、完全绕过 GC。
 
-这条范式也有**闭包**一支（`Value::StackClosure` + `Frame::env_arena`）——只有运行时那一半，
-**编译期不置标志**，所以闭包全部堆分配（见末节「闭包栈分配：运行时还在，编译期已停」）。
-本机制把同一范式用于对象与数组，编译期分析是一个**可扩展规则**的 pass，以 `OptSet` 位独立开关。
+本机制只覆盖对象与数组；**闭包一律堆分配**（见末节「闭包：一律堆分配」）。编译期分析是一个**可扩展规则**的
+pass，以 `OptSet` 位独立开关。
 
 ## 总览
 
@@ -185,14 +184,14 @@ toml `[optimize] stack-alloc`。**dump/golden 路径排除**（`Opt.All - Opt.In
 
 ### IR / 格式
 
-三个分配指令加 `bool StackAlloc`（照 `MkClosInstr.StackAlloc` 先例）+ zbc 编码尾 `u8`。**bump zbc 1.28→1.29
+三个分配指令加 `bool StackAlloc` + zbc 编码尾 `u8`。**bump zbc 1.28→1.29
 / zpkg 0.33→0.34**（version-bumping.md checklist）。
 
 ### 运行时：per-context 栈 arena（interp）
 
 **为什么 per-context 而非 per-frame**：`new Foo` 的 ctor 在**子帧**执行、`this` 作 `Value` 传入；per-frame
 arena 索引在子帧里无意义。**per-thread（per-`VmContext`）arena** 任何帧都能经 `ctx` 直取 → ctor 子帧天然
-可解 `this`，无需跨帧机制（闭包用 per-frame `env_arena` 因其无 ctor 子调用，对象不同）。
+可解 `this`，无需跨帧机制。
 
 - **句柄**：`Value::StackObject { idx, frame_id }` / `Value::StackArray { idx, frame_id }`（各 8B 内联，
   不撑大 24B `Value`）。`idx` 索引 `VmContext::stack_arena`（`Mutex<StackArena>`：owner 无竞争、GC 扫描在
@@ -263,65 +262,23 @@ arena 索引在子帧里无意义。**per-thread（per-`VmContext`）arena** 任
 3. **越界永远显式**：arena 索引一律 bounds-check。
 4. **`Z42_STACKALLOC=off`**：运行期一键旁路（全堆分配，免重编 triage）；`=stats` 打印命中计数。
 
-## 闭包栈分配：运行时还在，编译期已停
+## 闭包：一律堆分配
 
-闭包是这条范式的**先例**。它的现状与对象/数组
-那一半很不一样，必须写清楚，否则读代码会得出相反的结论。
+`MkClos` 恒在 GC 堆上分配 env 数组与 `Value::Closure`。运行时没有栈闭包表示：`Value` 没有栈闭包变体，
+interp `Frame` / `JitFrame` / `VmFrame` 没有闭包 env arena，`CallIndirect` 只认 `FuncRef` / `Closure`。
 
-### 三档策略（设计意图）
+- **编译器**：`MkClosInstr.StackAlloc`（`z42.package/src/IrInstrCall.z42`）三个发射点
+  （`FunctionEmitter` 局部函数闭包、`ExprEmitter` lambda 字面量、`CallEmitter` 合成 thunk）都传常量 `false`；
+  `IrEscapeAnalysis` 只给 `ObjNew` / `ArrayNew` / `ArrayNewLit` 置标志，不碰 `MkClos`。
+- **格式**：zbc 的 `MkClos` 仍带一个 `u8` 尾字节（原 `stack_alloc`）。VM 读出后丢弃
+  （`zbc_reader/instr_decode.rs`），下次 zbc bump 时删除（登记在
+  [version-bumping.md](https://github.com/z42-lang/z42/blob/main/docs/agent/rules/version-bumping.md)「下次 zbc bump 时顺带删除」）。
+- **为什么不做栈闭包**（runtime-audit D6 决策）：它只覆盖「创建后当场调用」这一种用法；把 lambda 传给别的
+  函数（`list.Where(x => …)`）本来就逃逸。维护两套闭包表示要让调用协议、对象模型、OSR、GC 根扫描每次都改两条
+  路径，收益却很窄。以后真要消掉不逃逸闭包的分配，做法是 JIT 里的**标量替换**（把 env 拆进寄存器），不需要
+  新的值变体。
 
-用户**永远只写一种代码**（`x => x + 1`），编译器按闭包出现的位置选实现档：
-
-| 维度 | 档 A 栈分配 | 档 B 单态化 + 内联 | 档 C 堆擦除 |
-|---|---|---|---|
-| env 位置 | 调用方栈帧 | 不存在（内联展开）| GC 堆 |
-| 堆分配 | 0 | 0 | 1（每次 `MkClos`）|
-| 调用方式 | 直接 call | 内联 | 间接调用 |
-| 代码膨胀 | 无 | 有（每闭包类型一份）| 无 |
-| 跨线程 | ❌ | ❌ | ✅ |
-| 典型位置 | 传给 `[no_escape]` 形参 | 泛型形参 `<F: (T)->R>` 的单态 call site | 存字段 / 入集合 / 作返回值 / 跨线程 |
-
-设计上的决策算法是：泛型形参 → 档 B；具体函数类型形参且不逃逸 → 档 A；字段赋值 / 集合插入 / 返回值
-→ 档 C；`var` 绑定 → 分析后递归归类；判不出来 → 档 C（保守）。
-
-**只有档 C 是活的。** 档 A、档 B 的编译器侧都不在仓库里（见下）。
-这意味着上表除了最后一列，全部是**意图**而非现状。
-
-### 编译器侧：三个发射点全部写死 `false`
-
-`MkClosInstr` 至今带着 `StackAlloc` 字段（`z42.package/src/IrInstrCall.z42:206`，zbc 有对应的尾字节），
-但**全部三个发射点都传常量 `false`**：
-
-- `FunctionEmitter.z42:490`（局部函数升级成的闭包）
-- `ExprEmitter.z42:356`（lambda 字面量）
-- `CallEmitter.z42:504`（合成 thunk）
-
-没有置位闭包 `StackAlloc` 的 pass（`ClosureEscapeAnalyzer`、`SemanticModel.StackAllocClosures`
-在 `src/` 里零命中）。所以 `Value::StackClosure` 在今天的编译产物里**永不出现**。
-
-档 B 的 alias 折叠也不存在（`TypeEnv._funcAliases` 零命中）。`var f = Helper;` 走的是 `ExprTyper.z42:104` 的 `BoundFuncRef` →
-`ExprEmitter.z42:194-199` 的 `LoadFn`，是一个**函数指针值**，调用点仍是 `CallIndirect`——不是别名折叠。
-
-> 闭包栈分配只有**运行时**那一半。要启用它，正确的做法
-> 不是重写 `ClosureEscapeAnalyzer`，而是把闭包接进本页的 `IrEscapeAnalysis`——`MkClos` 已经在规则表里
-> （「所有捕获 reg 入种子」），缺的只是「`MkClos` 的**结果** reg 不逃逸时置 `StackAlloc`」这一条消费规则。
-
-### 运行时侧：完整保留，随时可用
-
-- **句柄**：`Value::StackClosure { idx: u32, frame_id: u32 } = 11`（`metadata/types/value.rs:94`）。
-  8B 内联，载荷 `StackClosureData { env_idx, fn_name }` 在 `VmContext::transient_arena`
-  （`value_aux.rs:66-69`）——与 `PinnedView` / `Ref` 同一套 make-value-copy 句柄化处理。
-- **env 存放**：`env_idx` 索引**创建帧**的 `Frame::env_arena: Vec<Vec<Value>>`（`interp/frame.rs:17`）。
-  `MkClos(stack_alloc=true)` 把捕获值 push 进 arena 并返回句柄（`exec_call.rs:415-416`）。
-- **调用**：`CallIndirect` 从当前帧的 `env_arena` **物化出一个新的 GcRef** 交给 callee
-  （`exec_call.rs:356-361`）——arena 里是裸 `Vec`，而 callee 的生命周期必须独立于 caller 帧，
-  否则 caller 弹栈后就是 use-after-free。callee 因此完全不区分栈闭包与堆闭包。
-  （对比 `Value::Closure`：堆闭包直接把已有的 env `GcRef` 交给 callee，引用计数 +1，零拷贝。）
-- **GC 根**：⚠️ **不存在** `VmContext::env_arena_stack`：
-  `exec_stack` / `env_arena_stack` / `call_stack` 三个栈是单一的 `Vec<VmFrame>`
-  （`exception/mod.rs:43`），push/pop 同步、没人能「只忘一半」。根扫描经 `VmFrame.env_arena`
-  裸指针遍历每个 env 的每个 `Value`（`vm_context/construct.rs:318-324` 与 `394-400` 两处，
-  分别对应两种 visitor 签名）。
+`IrEscapeAnalysis` 的规则表里 `MkClos` 只作为**逃逸汇点**出现：被捕获的 reg 一律视为逃逸（「所有捕获 reg 入种子」）。
 
 ### 与「每次迭代新绑定」的关系
 
@@ -332,9 +289,7 @@ reference 那条「循环变量每次迭代是新绑定」的语义**由值快�
 
 ### 未做 / 待定
 
-- **`[no_escape]` 形参标注**：档 A 的关键依赖——stdlib 高阶 API 的形参必须显式标注，否则分析只能把
-  传进去的闭包保守归到档 C。这是结构性属性，不是用户级断言。语法与属性都尚未引入。
-- **`--warn-closure-alloc`**：一个「报告每个落到档 C 的闭包字面量及其原因」的编译选项，**从未实现**，
+- **`--warn-closure-alloc`**：一个「报告每个堆分配的闭包字面量及其原因」的编译选项，**从未实现**，
   CLI 里没有这个 flag。
 - **无捕获 lambda 的降级**：无捕获闭包在 IR 层降成函数引用（`FuncRef`），但用户视角统一是 `(T) -> R`
   ——z42 **不引入**独立的函数指针类型。

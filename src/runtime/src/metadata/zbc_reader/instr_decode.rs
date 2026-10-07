@@ -109,10 +109,13 @@ pub(super) fn decode_instr(op: u8, typ: u8, dst: u32, c: &mut Cursor, pool: &[St
         }
         OP_MK_CLOS => {
             let fn_name     = id_map.resolve_method(c.read_u32()?)?;
-            // 2026-05-02 impl-closure-l3-escape-stack: 1 byte flag
-            let stack_alloc = c.read_u8()? != 0;
+            // Reserved byte (was the stack-alloc flag): read and ignored — every closure
+            // is heap-allocated (runtime-audit D6; z42c always writes 0). Dropped from the
+            // encoding at the next zbc format bump (docs/agent/rules/version-bumping.md
+            // 「下次 zbc bump 时顺带删除」).
+            let _reserved   = c.read_u8()?;
             let captures    = read_args(c)?;
-            Instruction::MkClos(Box::new(MkClosInsn { dst, fn_name, captures, stack_alloc }))
+            Instruction::MkClos(Box::new(MkClosInsn { dst, fn_name, captures }))
         }
         OP_BUILTIN => {
             let name = pool_str_owned(pool, c.read_u32()?)?;

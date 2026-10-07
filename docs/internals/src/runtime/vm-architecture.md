@@ -82,9 +82,9 @@ vm.run(&ctx, hint)?;
 - `stack_arena` / `struct_arena` / `transient_arena`（及其发布长度原子，见下一节）、`next_frame_id`（frame id 来源，帧惰性取号）、`safepoint_skip`（safepoint 节流计数，JIT 内联读写）、`jit_ctx`（混合模式下指向当前 `JitModuleCtx`）
 - `interned_cache`（`ConstStr` 字面量的 per-context 驻留缓存，GC root）、`subclass_memo` + `isa_cache`（`is`/`as`/`catch` 子类判定缓存）、`type_lookup_cache` + `fn_lookup_cache`（`try_lookup_type/function` 命中的前置缓存，免去共享 `lazy_loader` 锁）
 
-每个 `VmFrame` 只有 48 B：`func`（`*const Function`）、`regs` / `env_arena` 指针、`pc: Cell<u32>`，
+每个 `VmFrame` 只有 40 B：`func`（`*const Function`）、`regs` 指针、`pc: Cell<u32>`，
 以及四个 arena（stack 对象 / stack 数组 / struct / transient）的截断 base（`u32`）。GC root scanner 扫
-regs+env_arena，interp `RefKind::Stack` 跨帧 deref 通过 `frame.regs`。
+regs，interp `RefKind::Stack` 跨帧 deref 通过 `frame.regs`。
 
 - **`pc`** 只存当前位点的打包代码偏移 `Function::linear_offset(block, instr)` = `block << 16 | instr`，
   `u32::MAX` = 尚未戳过。两个后端在 Call / VCall / CallIndirect 之前、以及 throw 时把它戳到栈顶帧
@@ -169,7 +169,7 @@ regs+env_arena，interp `RefKind::Stack` 跨帧 deref 通过 `frame.regs`。
     每个 guard 恢复它进来时看到的值（已是同一 VM 时为 no-op），嵌套按序退栈。
   - `JitModule::run_fn` 在入口 push 之前另装一个堆 guard，覆盖入口函数的惰性编译。
 - **frame_id 惰性分配**：帧的 id 只用来给它在 arena 里分配的槽打标签（栈分配对象 / 数组、`Ref`、`PinnedView`、
-  值 struct、栈闭包），句柄带着它，帧 truncate 后的悬垂访问由 id 不符拦下。interp `Frame::frame_id(ctx)` 与 JIT
+  值 struct），句柄带着它，帧 truncate 后的悬垂访问由 id 不符拦下。interp `Frame::frame_id(ctx)` 与 JIT
   `struct_ops::frame_id_of` 都在**第一次用到**时取号，`0` 表示尚未取；大多数帧从不取。`next_frame_id` 只由所属
   线程读写（load + store，不是 RMW），跳过 `0`。OSR 原样继承 interp 帧的 id（含 `0`）。
 
@@ -186,7 +186,7 @@ API 方法都用 `&self`（内部 Mutex/RwLock）。详见 [`object-protocol-dis
 ### 帧 arena 的锁瘦身：发布长度原子
 
 `VmContext` 持三个 per-thread arena —— `stack_arena`（逃逸对象/数组）、`struct_arena`（值 struct
-blob）、`transient_arena`（`Ref`/`PinnedView`/`StackClosure`/`StructRefHeap` 的 payload）——均 `Arc<Mutex<>>`，
+blob）、`transient_arena`（`Ref`/`PinnedView`/`StructRefHeap` 的 payload）——均 `Arc<Mutex<>>`，
 因为 **GC scanner 跨线程读它们**（见上「Send-safety」：不能退成 `Rc<RefCell<>>`）。每个函数调用的
 `push_frame` 要戳记三个 arena 的当前长度作 truncation base，`pop_frame` 要 LIFO-truncate 回去 —— 若朴素实现则是**每调用 6 把 arena 锁**（push 3 + pop 3）。call-heavy workload（z42c 自编译）下这是
 仅次于 dispatch 的第二大桶，纯锁开销（实测跳过全部 6 个 arena 锁 = 3.9% faster）。
@@ -931,30 +931,20 @@ Char → Std.Char   Str → Std.String   Array → Std.Array
 
 ---
 
-## 闭包 dispatch（Closure / StackClosure / FuncRef）
+## 闭包 dispatch（Closure / FuncRef）
 
-`Value` 三种 callable variant（`FuncRef(Str)` / `Closure(VarGcRef)` / `StackClosure`）的 CallIndirect 路径：
+`Value` 两种 callable variant（`FuncRef(Str)` / `Closure(VarGcRef)`）的 CallIndirect 路径：
 
 ```
 match callee_value {
-  FuncRef(name)               → 直接 call name；无 env
-  Closure(VarGcRef)           → ClosureData { env, fn_name }（在 GC var region）；env 作 implicit first arg → call fn_name
-  StackClosure { env_idx, fn_name } → 从 caller frame.env_arena[env_idx] clone Vec<Value>
-                                       → 升格为临时 GcRef → 作 implicit first arg → call fn_name
+  FuncRef(name)      → 直接 call name；无 env
+  Closure(VarGcRef)  → ClosureData { env, fn_name }（在 GC var region）；env 作 implicit first arg → call fn_name
+  Null               → Std.NullReferenceException（可 catch）
 }
 ```
 
-**StackClosure**：env 在 caller frame 的 `env_arena: Vec<Vec<Value>>` 中，零堆分配。`Value` 侧是 8B 句柄
-`{ idx, frame_id }`，载荷 `StackClosureData { env_idx, fn_name }` 在 `transient_arena`；CallIndirect 时从
-`frame.env_arena[env_idx]` 复制内容**物化出独立 GcRef**，callee 不区分 stack/heap 来源。
-
-**GC root**：每个 `VmFrame` 内嵌 `regs` + `env_arena` 指针，GC scanner 单循环遍历 `call_stack` 即可同时 mark frame regs 和 stack closure env 中的 Object/Array refs，确保不被回收。
-
-> ⚠️ **这条路径当前是死的**：置位 `MkClosInstr.StackAlloc` 的编译期 pass（`ClosureEscapeAnalyzer`）
-> 已从 `src/` 消失，三个发射点全部传常量 `false` ⇒ 编译产物里**永不出现** `Value::StackClosure`，
-> 闭包一律走 `Value::Closure` 堆路径。运行时这一半完整保留、随时可用。
-> lifetime 安全原本由那个分析器在编译期保证（closure value 永不离开创建帧），要复活得先重建编译期
-> 一侧——细节与复活路线见[逃逸分析](escape-analysis.md)末节。
+`MkClos` 恒堆分配：env 是 GC 数组，`ClosureData` 在 GC var region。callee 直接拿到已有的 env `GcRef`
+（不拷贝）。没有栈闭包变体，帧里也没有闭包 env arena——见[逃逸分析](escape-analysis.md)末节「闭包：一律堆分配」。
 
 ## interp vs JIT 分发
 
@@ -1306,7 +1296,7 @@ builtin 按功能分 submodule：`string.rs` / `io.rs` / `math.rs` / `fs.rs` 等
 - **GC 模型**：z42 是 GC 语言，对象/数组/字符串/闭包都在自有 GC 堆（`gc/`）里；`Value` 里只放 8B 句柄
   （`GcRef<T>` 标记指针、`Str` 细指针、`VarGcRef`），无引用计数、无运行时 borrow check。
 - **`Value` 是 `Copy` 的 16B POD**（`#[repr(C, u8)]`，tag + 8B payload，`size_of::<Value>() == 16` 编译期断言）：
-  clone = memcpy，`Vec<Value>` 无 Drop glue。瞬态变体（`Ref` / `PinnedView` / `StackClosure` / `StructRefHeap`）
+  clone = memcpy，`Vec<Value>` 无 Drop glue。瞬态变体（`Ref` / `PinnedView` / `StructRefHeap`）
   只带 `{idx, frame_id}` 句柄，载荷在 per-thread `transient_arena`。
 - **跨线程**：`Value` 与 `VmCore` 满足 `Send + Sync`（`gc/arc_heap_tests/send_sync.rs` 编译期断言）。
 

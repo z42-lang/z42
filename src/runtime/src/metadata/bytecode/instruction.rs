@@ -300,9 +300,8 @@ pub enum Instruction {
         args: Box<[Reg]>,
     },
     /// L3 closure tier-C: allocate an env from `captures`, build a closure
-    /// value and write it to `dst`. See docs/internals/src/runtime/escape-analysis.md.
-    /// `stack_alloc=true` (impl-closure-l3-escape-stack): VM 走 frame-local
-    /// arena → `Value::StackClosure`；否则 heap → `Value::Closure`。
+    /// value (`Value::Closure`, always heap) and write it to `dst`. The zbc
+    /// encoding still carries a stack-alloc byte; the decoder drops it.
     MkClos(Box<MkClosInsn>),
     // Arrays
     /// Allocate a zero-initialised array of `size` elements. Each slot is

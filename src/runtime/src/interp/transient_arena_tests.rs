@@ -1,5 +1,5 @@
 use super::*;
-use crate::metadata::types::{PinSourceKind, PinnedViewData, RefKind, StackClosureData};
+use crate::metadata::types::{PinSourceKind, PinnedViewData, RefKind};
 
 fn stack_ref(slot: u32) -> TransientPayload {
     TransientPayload::Ref(RefKind::Stack { frame_idx: 0, slot })
@@ -68,9 +68,8 @@ fn scan_roots_skips_leafless_payloads() {
     let mut a = TransientArena::default();
     a.alloc(1, stack_ref(0));
     a.alloc(1, TransientPayload::PinView(PinnedViewData { ptr: 0xdead, len: 4, kind: PinSourceKind::Str }));
-    a.alloc(1, TransientPayload::StackClos(StackClosureData { env_idx: 0, fn_name: "f".into() }));
     let mut n = 0usize;
     a.scan_roots(&mut |_v| n += 1);
-    // Stack ref / PinView / StackClosure hold no GC leaves → nothing visited.
+    // Stack ref / PinView hold no GC leaves → nothing visited.
     assert_eq!(n, 0);
 }

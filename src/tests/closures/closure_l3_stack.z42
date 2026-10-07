@@ -1,25 +1,25 @@
-// 2026-05-02 impl-closure-l3-escape-stack regression golden.
-// 端到端验证：
-//   1) capturing closure 仅作 callee 立即调用 → stack-alloc，结果正确
-//   2) 重赋值后混合 stack/heap closure 用同一 var 调用，正确性保留
-//   3) 嵌套作用域内的 stack closure 与外部 var 捕获，retval 正确
+// 「创建后当场调用」形态的 capturing closure golden（这种形态曾走栈闭包；运行时支持
+// 已删除（runtime-audit D6），闭包恒堆分配）。端到端验证：
+//   1) capturing closure 仅作 callee 立即调用，结果正确
+//   2) 重赋值后同一 var 调用不同闭包，正确性保留
+//   3) 嵌套作用域内创建的闭包与外部 var 捕获，retval 正确
 namespace Demo;
 
 void Main() {
     int n = 10;
 
-    // Stack-alloc 路径：add 仅在下行被立即调用
+    // add 仅在下行被立即调用
     var add = (int x) => x + n;
     Assert.Equal(15, add(5));
 
-    // 嵌套 if 内创建 stack closure，立即调用
+    // 嵌套 if 内创建闭包，立即调用
     int m = 100;
     if (n > 0) {
         var bump = (int x) => x + m;
         Assert.Equal(107, bump(7));
     }
 
-    // 多次调用同一 stack closure（应每次成功，env 在 frame 内稳定）
+    // 多次调用同一闭包（应每次成功，env 稳定）
     int base_n = 1;
     var bump1 = (int x) => x + base_n;
     Assert.Equal(11, bump1(10));

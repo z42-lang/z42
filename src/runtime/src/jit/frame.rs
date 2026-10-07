@@ -42,13 +42,8 @@ pub struct JitFrame {
     pub has_ret: u8,
     /// Register file indexed by SSA register number.
     pub regs: Vec<Value>,
-    /// 2026-05-02 impl-closure-l3-escape-stack: frame-local arena for
-    /// non-escaping closure envs. `Value::StackClosure { env_idx }` indexes
-    /// here. Released as part of `JitFrame::recycle` (envs hold normal Drop
-    /// semantics — GcRef contents inside env Vec follow their own RC chains).
-    pub env_arena: Vec<Vec<Value>>,
-    /// This activation's id for arena slots it allocates (struct values, stack
-    /// closures), `0` until taken: `struct_ops::frame_id_of` takes one from
+    /// This activation's id for arena slots it allocates (struct values),
+    /// `0` until taken: `struct_ops::frame_id_of` takes one from
     /// `VmContext::next_frame_id()` on first use, and an OSR hand-off inherits
     /// the interp frame's (taken or `0`). The id keys the arena staleness guard
     /// exactly like an interp frame's; the arena's LIFO truncation is driven by
@@ -132,7 +127,7 @@ impl JitFrame {
     fn with_regs(mut regs: Vec<Value>) -> Self {
         JitFrame {
             regs_ptr: regs.as_mut_ptr(), ret: Value::Null, has_ret: 0,
-            regs, env_arena: Vec::new(), frame_id: 0,
+            regs, frame_id: 0,
         }
     }
 
@@ -143,7 +138,6 @@ impl JitFrame {
     }
 
     /// Hand the register file back to `vm`'s pool once the frame is popped.
-    /// `env_arena` just drops (closure envs are rare; not pooled).
     pub fn recycle(self, vm: &VmContext) {
         vm.reg_pool.give(self.regs);
     }

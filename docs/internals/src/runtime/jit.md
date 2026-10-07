@@ -211,7 +211,7 @@ fn resolve_fn_by_id_thr(&self, id, thr) -> Option<&FnEntry> {
 callee 的 JIT id（`Call` 的 token；VCall 的 PIC 下标，或惰性目标的 `FnId`——`lazy_call_id`）后，若 `jit_ctx`
 已发布且 `resolve_fn_by_id_tiered(id)` 返回已编译 entry → 建 `JitFrame`
 （`new_args_from` / `new_method_args_from`）调原生、marshal 结果（照搬 `jit_call`/`jit_vcall`）；否则(冷/不可编)
-返回 None → 原样走 interp。这一步也计数：从解释器调的函数（入口与惰性一样）照样到阈值升层。GC 统一帧链类型无关（interp `Frame` 与 `JitFrame` 都暴露 `regs`/`env_arena`），
+返回 None → 原样走 interp。这一步也计数：从解释器调的函数（入口与惰性一样）照样到阈值升层。GC 统一帧链类型无关（interp `Frame` 与 `JitFrame` 都暴露 `regs`），
 push/pop_frame 复制即安全。
 
 > **`Ref(Stack)` 边界不变量（必须）**：路由前若 **arg 或 receiver 寄存器持有 `Ref(Stack)`**（out/ref
@@ -272,7 +272,8 @@ OSR（On-Stack Replacement）按**循环回边数**分层：解释器执行热�
    block `0..K` 计算的中间值**已在 `frame.regs` 内存里**（解释器写的），原生码直接读——无需把
    SSA 值重建。
 2. **interp 与 JIT 寄存器模型同构**：都是 `Vec<Value>` 按 IR reg 号索引、同一 `Value` 类型。状态
-   交接就是 `JitFrame::from_interp_regs(&interp.regs, max_reg)` 一次拷贝。
+   交接就是 `JitFrame::from_interp_regs(&interp.regs, max_reg)` 一次拷贝。帧里寄存器之外没有别的
+   值状态（闭包恒堆分配，帧内没有闭包 env arena），所以这次拷贝就是全部交接。
 
 ### 机制
 

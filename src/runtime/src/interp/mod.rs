@@ -31,7 +31,7 @@ pub(crate) mod vcall_resolve;   // unify-vcall-resolution: shared with jit/helpe
 mod ops;
 pub(crate) mod stack_alloc;   // add-escape-analysis-stack-alloc: per-context stack arena
 pub(crate) mod struct_arena;  // add-struct-value-semantics: per-context byte arena for value structs
-pub(crate) mod transient_arena; // make-value-copy: per-context arena for Ref/PinnedView/StackClosure/StructRefHeap
+pub(crate) mod transient_arena; // make-value-copy: per-context arena for Ref/PinnedView/StructRefHeap
 
 // Re-export for cross-module callers (notably jit/helpers_object.rs).
 pub(crate) use exec_vcall::primitive_class_name;

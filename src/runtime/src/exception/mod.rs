@@ -44,15 +44,15 @@ use crate::vm_context::VmContext;
 /// `Vec<VmFrame>`. Push and pop happen in lockstep — no caller can
 /// "forget half" and leak a partial frame.
 ///
-/// The frame is kept thin (48 B, no refcounted fields) because one is pushed
+/// The frame is kept thin (40 B, no refcounted fields) because one is pushed
 /// per call: it records only *which* function runs and *where* it is (`pc`).
 /// The display name, file and line/column are derived from `func` when a
 /// stack trace is built ([`VmFrame::snapshot`]), never on the call path.
 ///
 /// # Safety / lifetime
 ///
-/// `func` / `regs` / `env_arena` are raw pointers. `regs` / `env_arena`
-/// point into a `JitFrame` or interp `Frame` on the Rust call stack; `func`
+/// `func` / `regs` are raw pointers. `regs` points into a `JitFrame` or
+/// interp `Frame` on the Rust call stack; `func`
 /// points at the executing `Function`, which the caller (interp) or the
 /// `JitModuleCtx` (JIT, merged module or a lazily-loaded function kept
 /// alive by its lazy slot) holds for at least the activation. All are valid
@@ -70,9 +70,6 @@ pub struct VmFrame {
     /// Pointer to the frame's register file. The Vec content is the
     /// canonical place where this frame's z42 values live.
     pub regs:      *const Vec<Value>,
-    /// Pointer to the frame's stack-closure env arena (or null when the
-    /// frame does not host any stack closures).
-    pub env_arena: *const Vec<Vec<Value>>,
     /// add-offline-symbolication: packed code offset of the frame's current
     /// site, `Function::linear_offset(block, instr)` = `block << 16 | instr`.
     /// Stamped by the Call / VCall / CallIndirect sites and the throw path
@@ -93,8 +90,8 @@ pub struct VmFrame {
     /// Stamped by `push_frame`.
     pub struct_base: u32,
     /// make-value-copy: transient-arena length when this frame was pushed; `pop_frame`
-    /// truncates back to it (LIFO-frees this frame's Ref/PinnedView/StackClosure/
-    /// StructRefHeap payloads). Stamped by `push_frame`.
+    /// truncates back to it (LIFO-frees this frame's Ref/PinnedView/StructRefHeap
+    /// payloads). Stamped by `push_frame`.
     pub transient_base: u32,
 }
 
@@ -102,7 +99,7 @@ pub struct VmFrame {
 pub const PC_UNSET: u32 = u32::MAX;
 
 // SAFETY (add-multithreading-foundation Phase 3, 2026-05-20):
-// `VmFrame` holds raw pointers (`func` / `regs` / `env_arena`) valid for the
+// `VmFrame` holds raw pointers (`func` / `regs`) valid for the
 // frame's lifetime, which is enclosed by `FrameGuard` RAII / `call_native`.
 // The GC scanner is the only cross-thread reader (mark phase invoked from a
 // possible GC worker thread); it only ever reads these pointers while the
@@ -112,12 +109,9 @@ unsafe impl Send for VmFrame {}
 unsafe impl Sync for VmFrame {}
 
 impl VmFrame {
-    pub fn new(
-        func: *const Function,
-        regs: *const Vec<Value>, env_arena: *const Vec<Vec<Value>>,
-    ) -> Self {
+    pub fn new(func: *const Function, regs: *const Vec<Value>) -> Self {
         Self {
-            func, regs, env_arena,
+            func, regs,
             pc: Cell::new(PC_UNSET),
             // Arena bases are overwritten by push_frame.
             stack_obj_base: 0, stack_arr_base: 0,

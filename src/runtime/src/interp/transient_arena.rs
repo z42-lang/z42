@@ -1,9 +1,9 @@
-//! make-value-copy: per-`VmContext` arena for the four **transient, frame-scoped,
+//! make-value-copy: per-`VmContext` arena for the **transient, frame-scoped,
 //! immutable-after-creation** `Value` payloads that used to be boxed —
-//! `Ref` / `PinnedView` / `StackClosure` / `StructRefHeap`.
+//! `Ref` / `PinnedView` / `StructRefHeap`.
 //!
 //! # Why
-//! Those four were the only `Box` variants left in `Value`; together with `GcRef`'s
+//! Those were the only `Box` variants left in `Value`; together with `GcRef`'s
 //! explicit no-op `Drop` they forced `Value: !Copy`, which made `Value::clone` a
 //! discriminant-dispatched deep clone (profile #1 leaf, 11.4%) and `Vec<Value>`
 //! drop a per-element drop-glue loop (`drop_in_place<Frame>`, 6.0%). Moving each
@@ -15,7 +15,7 @@
 //! Mirrors [`super::struct_arena::StructArena`] / [`super::stack_alloc::StackArena`]:
 //! a per-`VmContext` `Vec` guarded by a `Mutex`, `frame_id` staleness guard,
 //! LIFO-truncated at `pop_frame` (base stamped by `push_frame`), scanned as a GC
-//! root every collection. All four payloads share **one** arena (one context field,
+//! root every collection. All payloads share **one** arena (one context field,
 //! one frame base, one `scan_roots`) since they share the same LIFO lifetime; the
 //! payload enum is only touched on the cold construct/consume paths, never on the
 //! hot register-copy path (which just moves the 8B handle).
@@ -29,19 +29,17 @@
 //! arena is re-scanned as a root each collection.
 
 use crate::metadata::types::{
-    PinnedViewData, RefKind, StackClosureData, StructArrayElem, Value,
+    PinnedViewData, RefKind, StructArrayElem, Value,
 };
 use anyhow::Result;
 
-/// One transient payload. All four are immutable after creation, so a `Value`
+/// One transient payload. All are immutable after creation, so a `Value`
 /// handle sharing an entry (a cheap 8B copy) never observes a mutation.
 pub(crate) enum TransientPayload {
     /// `Value::Ref` target descriptor (spec impl-ref-out-in-runtime).
     Ref(RefKind),
     /// `Value::PinnedView` FFI view (raw ptr + len; no GC leaf).
     PinView(PinnedViewData),
-    /// `Value::StackClosure` (env_idx into the frame's `env_arena` + fn name; no GC leaf).
-    StackClos(StackClosureData),
     /// `Value::StructRefHeap` — a `struct[]` element identity (holds the backing array `GcRef`).
     StructElem(StructArrayElem),
 }
@@ -114,17 +112,9 @@ impl TransientArena {
         })?
     }
 
-    /// Clone the `StackClosureData` behind a `Value::StackClosure` handle.
-    pub fn stack_closure(&self, idx: u32, frame_id: u32) -> Result<StackClosureData> {
-        self.with(idx, frame_id, |p| match p {
-            TransientPayload::StackClos(sc) => Ok(sc.clone()),
-            _ => Err(stale_err(idx, frame_id)),
-        })?
-    }
-
     /// GC root scan: visit every heap `Value` reachable from a live transient
     /// payload (a `Ref`'s Array/Field target, a `StructRefHeap`'s backing array).
-    /// `Ref::Stack` / `PinView` / `StackClos` hold no GC leaves.
+    /// `Ref::Stack` / `PinView` hold no GC leaves.
     pub fn scan_roots(&self, visit: &mut dyn FnMut(&Value)) {
         for slot in &self.slots {
             match &slot.payload {
@@ -138,8 +128,7 @@ impl TransientArena {
                     visit(&Value::Array(e.arr));
                 }
                 TransientPayload::Ref(RefKind::Stack { .. })
-                | TransientPayload::PinView(_)
-                | TransientPayload::StackClos(_) => {}
+                | TransientPayload::PinView(_) => {}
             }
         }
     }
@@ -150,7 +139,7 @@ impl TransientArena {
 fn stale_err(idx: u32, frame_id: u32) -> anyhow::Error {
     anyhow::anyhow!(
         "transient-value handle used after its creating frame exited \
-         (idx={idx}, frame_id={frame_id}) — Ref/PinnedView/StackClosure/StructRefHeap \
+         (idx={idx}, frame_id={frame_id}) — Ref/PinnedView/StructRefHeap \
          lifetime unsound"
     )
 }

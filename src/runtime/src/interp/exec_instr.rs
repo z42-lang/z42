@@ -201,8 +201,8 @@ pub fn exec_instr(
             crate::gc::safepoint::check_safepoint(ctx);
         }
         Instruction::MkClos(insn) => {
-            let MkClosInsn { dst, fn_name, captures, stack_alloc } = &**insn;
-            if let Some(thrown) = exec_call::mk_clos(ctx, module, frame, *dst, fn_name, captures, *stack_alloc)? {
+            let MkClosInsn { dst, fn_name, captures } = &**insn;
+            if let Some(thrown) = exec_call::mk_clos(ctx, module, frame, *dst, fn_name, captures)? {
                 return Ok(Some(thrown));
             }
         }

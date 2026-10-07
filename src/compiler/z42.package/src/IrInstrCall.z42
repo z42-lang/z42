@@ -240,7 +240,7 @@ public sealed class CallIndirectInstr : IrInstr {
 public sealed class MkClosInstr : IrInstr {
     public TypedReg Dst; public string Func;
     public TypedReg[] Captures; public int CaptureCount;
-    public bool StackAlloc;
+    public bool StackAlloc;   // zbc 保留字节：恒 false，VM 读后丢弃（闭包恒堆分配，runtime-audit D6）；下次 zbc bump 删（version-bumping.md）
     public MkClosInstr(TypedReg dst, string func, TypedReg[] captures, int captureCount, bool stackAlloc) {
         this.Dst = dst; this.Func = func; this.Captures = captures; this.CaptureCount = captureCount;
         this.StackAlloc = stackAlloc;

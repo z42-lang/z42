@@ -46,9 +46,7 @@ const JOIN_UNKNOWN_SLOT: i64 = 2;
 /// `__thread_spawn(action) -> i64` — spawn an OS thread executing `action`.
 ///
 /// `action` must be a callable z42 value (`Value::FuncRef` for zero-capture
-/// lambdas, `Value::Closure` for capturing lambdas). `StackClosure` cannot
-/// be spawned — its env lives in the calling frame's arena and is freed when
-/// the caller returns, which would be a use-after-free on the worker thread.
+/// lambdas, `Value::Closure` for capturing lambdas).
 pub fn builtin_thread_spawn(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let callable = args.first()
         .ok_or_else(|| anyhow!("__thread_spawn: missing action argument"))?;
@@ -61,10 +59,6 @@ pub fn builtin_thread_spawn(ctx: &VmContext, args: &[Value]) -> Result<Value> {
             // materialize an owned `String` so it can cross to the worker thread safely.
             (data.fn_name.to_string(), Some(data.env.borrow().to_boxed_vec()))
         }
-        Value::StackClosure { .. } => bail!(
-            "__thread_spawn: stack-allocated closure cannot escape to a worker thread \
-             (compiler should have promoted it to a heap Closure for cross-thread use)"
-        ),
         other => bail!(
             "__thread_spawn: expected callable (Action / FuncRef / Closure), got {:?}",
             other

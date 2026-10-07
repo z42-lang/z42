@@ -200,7 +200,7 @@ z42vm `__text` 构成（macOS arm64，共 4.97 MB），是拆 crate（阶段 2�
 | D3 | `is_exception_subclass` 只查入口模块 | 【确认】`exception/mod.rs:234-245` 只走 `module.type_registry` | | 惰性包里的异常层级会丢 StackTrace/Message【推断】；改调 `isa_td` |
 | D4 | 每对象 Mutex 被 JIT 绕过 | 【确认】JIT 在 hoist 时取出 bytes 指针即释放锁，之后裸写 | | 按 Rust 语义是数据竞争（UB）；`__array_copy` 先锁 src 再锁 dst，存在 ABBA 死锁面【推断】。根治要过内存模型决策（⏸） |
 | D5 | `isa_cache` / `subclass_memo` 以地址为 key | 【确认】`vm_context/isa_cache.rs` 以 `*const TypeDesc` 与类名字符串地址为 key，依据是"元数据在 VM 生命周期内不朽" | | 可回收 load context 被回收后不失效，地址复用可能误判【推断】；随 TypeId（P1-2）改为按 id 做 key |
-| D6 | OSR 后栈闭包 env 丢失 | 【确认代码；尚无复现】`from_interp_regs` 把 `env_arena` 置空（`jit/frame.rs`） | | 先写出走到栈闭包的 OSR 用例；OSR 时搬运 env_arena，或含栈闭包的帧拒绝 OSR |
+| D6 | OSR 后栈闭包 env 丢失（已随栈闭包删除而消除） | 【确认】z42c 从不给 `MkClos` 置栈分配标志，栈闭包路径不可达 | — | 已决（User，2026-10-07）：删除运行时栈闭包支持。`Value` 不再有栈闭包变体，interp `Frame` / `JitFrame` / `VmFrame` 不再有 `env_arena`，闭包恒堆分配；OSR 交接只有寄存器，无可丢的 env。zbc `MkClos` 的尾字节保留、VM 读后丢弃，下次 zbc bump 删除 |
 
 ---
 
@@ -530,7 +530,7 @@ z42vm 继续静态链接 VM，不改为动态链接 `native/libz42`（结论与�
 - 去掉每对象 Mutex：涉及字段访问的内存模型（D4 的根治）。
 - 可 catch 的栈溢出（当前是致命错误；前置条件见 vm-architecture.md「原生栈预算」）。
 - `int` 等窄整数的算术溢出不回绕到本宽度：`int.MaxValue + 1`、`int.MinValue / -1` 两路都得 `2147483648`，值仍按 i64 存、运算后不截断。要不要按声明宽度回绕、在哪一层截断（编译器插 Convert，还是 VM 按类型运算），属于语言语义决策。
-- 栈闭包（D6）：z42c 的逃逸分析从不给 `MkClos` 标栈分配，运行时的栈闭包路径（`Value::StackClosure`、帧 `env_arena`、OSR 搬运）整条不可达。删掉运行时支持，还是让编译器重新产出？
+- 栈闭包（D6）——**已决（User，2026-10-07）：删除运行时支持**。z42c 的逃逸分析从不给 `MkClos` 标栈分配，栈闭包路径整条不可达；`Value` 的栈闭包变体、帧 `env_arena`、GC 对它的扫描、`CallIndirect` 分支都已删除，闭包恒堆分配。以后要消掉不逃逸闭包的分配，走 JIT 标量替换，不再加值变体。
 - GC 退避上限与「周期内的 minor 不判徒劳」（B1 落地后先重测，可能不再需要）：吞吐换停顿。13_gc_large_heap 分代模式下最大停顿 73.5→50 ms、p99 58.5→24 ms、不再出现 x64，代价是墙钟慢约 30%（`--large` 2.4 倍）。
 
 **阶段 1 预期**【推断】：z42c 构建再快 1.3–1.5 倍（字段约 10%、帧约 10%、跨包 VCall，加上并行阶段吃到 JIT）。

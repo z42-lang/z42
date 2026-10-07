@@ -60,7 +60,7 @@ pub use name_index::NameIndex;
 pub use ir_type::IrType;
 
 // Re-exports: runtime value types
-pub use types::{default_value_for, ClosureData, ExecMode, FieldSlot, NativeData, PinSourceKind, PinnedViewData, ScriptObject, StackClosureData, TypeDesc, Value};
+pub use types::{default_value_for, ClosureData, ExecMode, FieldSlot, NativeData, PinSourceKind, PinnedViewData, ScriptObject, TypeDesc, Value};
 #[allow(deprecated)]
 pub use types::ObjectData;
 

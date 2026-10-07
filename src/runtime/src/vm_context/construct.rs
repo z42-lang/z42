@@ -308,7 +308,7 @@ impl VmContext {
         // External GC root scanner — invoked by the cycle collector during
         // mark phase. Walks all out-of-heap Value sources so cycles whose
         // only roots are static fields / pending exceptions / live frame
-        // regs / stack closure envs stay alive.
+        // regs / per-context arenas stay alive.
         //
         // **add-vmcontext-registry (2026-05-20)**: scanner walks the
         // `vm_contexts` registry to find every live VmContext on this
@@ -347,7 +347,7 @@ impl VmContext {
                     // pause (`request_gc_pause` → `Marking`), where every
                     // other registered context is parked and this one is the
                     // collector's own — `scan_frames_parked`'s contract.
-                    // SAFETY (frame.regs / env_arena): raw ptrs valid for the
+                    // SAFETY (frame.regs): raw ptr valid for the
                     // lifetime of the owning Rust frame (FrameGuard RAII for
                     // interp; `call_native` for JIT), which outlives the park.
                     unsafe {
@@ -355,13 +355,6 @@ impl VmContext {
                             for frame in frames {
                                 for v in (*frame.regs).iter() {
                                     visit(v);
-                                }
-                                if !frame.env_arena.is_null() {
-                                    for env in (*frame.env_arena).iter() {
-                                        for v in env.iter() {
-                                            visit(v);
-                                        }
-                                    }
                                 }
                             }
                         });
@@ -434,13 +427,6 @@ impl VmContext {
                             for frame in frames {
                                 for v in (*frame.regs).iter() {
                                     visit(v, RootKind::StackFrame);
-                                }
-                                if !frame.env_arena.is_null() {
-                                    for env in (*frame.env_arena).iter() {
-                                        for v in env.iter() {
-                                            visit(v, RootKind::StackFrame);
-                                        }
-                                    }
                                 }
                             }
                         });

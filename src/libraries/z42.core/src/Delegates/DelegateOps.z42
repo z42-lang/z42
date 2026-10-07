@@ -4,14 +4,14 @@ namespace Std;
 //
 // z42 类型系统中 `Action<T>` / `Func<T,R>` / `Predicate<T>` 等 delegate
 // 类型在运行时是 `Z42FuncType` 值（VM `Value::FuncRef` / `Value::Closure`
-// / `Value::StackClosure`）。本类暴露 reference equality 判断，用于
+// 二者之一）。本类暴露 reference equality 判断，用于
 // `MulticastAction.Unsubscribe(handler)` 等 by-handler 场景以及未来
 // `event` 关键字 `-=` desugar。
 //
-// 三个 Value 变体按各自身份语义比较：
+// 两个 Value 变体按各自身份语义比较：
 //   FuncRef(name)            —— fn name 字符串相等
 //   Closure(env, fn_name)    —— fn_name 相等 + env GC ptr_eq
-//   StackClosure(idx, name)  —— fn_name 相等 + env_idx 相等
+//   （闭包恒堆分配，没有第三种变体）
 // 跨变体不等；非 delegate 值返回 false 不报错。
 //
 // 命名独立于 `Std.Object` —— SymbolTable.cs:111 跳过 Object 跨 CU 导出
@@ -25,7 +25,7 @@ public static class DelegateOps {
     //
     // - Closure with env=[obj, ...] where obj is Object/Array → 返回 obj
     // - Closure with env=[] / env[0] 非 Object → null
-    // - StackClosure / FuncRef / 非 delegate → null（lenient）
+    // - FuncRef / 非 delegate → null（lenient）
     [Native("__delegate_target")]
     public static extern object GetTarget(object delegateValue);
 

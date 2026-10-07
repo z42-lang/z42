@@ -33,56 +33,37 @@ pub unsafe extern "C" fn jit_load_fn(
 
 // ── MkClos ────────────────────────────────────────────────────────────────────
 
-/// Allocate an env from `captures` registers and write a closure value
-/// to `frame.regs[dst]`. `stack_alloc` 决定走 frame-local arena
-/// (`Value::StackClosure`) 还是 heap (`Value::Closure`)。详见 closure.md §6
-/// + impl-closure-l3-escape-stack。
+/// Allocate a heap env from `captures` registers and write a heap
+/// `Value::Closure` to `frame.regs[dst]`. Mirrors `interp::exec_call::mk_clos`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_mk_clos(
     frame: *mut JitFrame, ctx: *const JitModuleCtx,
     dst: u32,
     name_ptr: *const u8, name_len: usize,
     caps_ptr: *const u32, caps_len: usize,
-    stack_alloc: u8,
 ) -> u8 {
     // Codegen-baked module string (`TxCtx::str_val`): no per-closure UTF-8 re-check,
     // and no intermediate `String` — the heap path copies it straight into a GC `Str`.
     let name = super::baked_str(name_ptr, name_len);
-    // make-value-copy: stamp this JIT frame's id for a transient-arena StackClosure handle
-    // *before* taking the `&mut *frame` borrow below (frame_id_of writes `(*frame).frame_id`).
-    let stack_fid = if stack_alloc != 0 { super::struct_ops::frame_id_of(frame, ctx) } else { 0 };
     let frame_ref = &mut *frame;
     let cap_regs  = std::slice::from_raw_parts(caps_ptr, caps_len);
     let env_vec: Vec<Value> = cap_regs.iter()
         .map(|&r| frame_ref.regs[r as usize].clone())
         .collect();
 
-    let value = if stack_alloc != 0 {
-        let env_idx = frame_ref.env_arena.len() as u32;
-        frame_ref.env_arena.push(env_vec);
-        // make-value-copy: StackClosure payload → transient arena (frame_id stamped above).
-        let hidx = vm_ctx_ref(ctx).transient_alloc(
-            stack_fid,
-            crate::interp::transient_arena::TransientPayload::StackClos(
-                crate::metadata::StackClosureData { env_idx, fn_name: name.to_string() },
-            ),
-        );
-        Value::StackClosure { idx: hidx, frame_id: stack_fid }
-    } else {
-        // Allocate env via the GC heap so it's tracked as a managed array.
-        let env_val = vm_ctx_ref(ctx).heap().alloc_array(env_vec);
-        let env = match env_val {
-            Value::Array(rc) => rc,
-            _ => unreachable!("alloc_array must return Value::Array"),
-        };
-        // unify-gc-heap PR-2: ClosureData into the GC variable-length region.
-        // PR-5: fn_name is a GC `Str`, allocated from the same heap as `env`.
-        let fn_name = vm_ctx_ref(ctx).intern_fn_name(name);
-        vm_ctx_ref(ctx).heap().alloc_closure(crate::metadata::ClosureData {
-            env,
-            fn_name,
-        })
+    // Allocate env via the GC heap so it's tracked as a managed array.
+    let env_val = vm_ctx_ref(ctx).heap().alloc_array(env_vec);
+    let env = match env_val {
+        Value::Array(rc) => rc,
+        _ => unreachable!("alloc_array must return Value::Array"),
     };
+    // unify-gc-heap PR-2: ClosureData into the GC variable-length region.
+    // PR-5: fn_name is a GC `Str`, allocated from the same heap as `env`.
+    let fn_name = vm_ctx_ref(ctx).intern_fn_name(name);
+    let value = vm_ctx_ref(ctx).heap().alloc_closure(crate::metadata::ClosureData {
+        env,
+        fn_name,
+    });
     frame_ref.regs[dst as usize] = value;
     0
 }
@@ -105,36 +86,18 @@ pub unsafe extern "C" fn jit_call_indirect(
     let vm_ctx    = vm_ctx_ref(ctx);
 
     // 1) Resolve callee Value → (fn_name, optional env-as-Vec).
-    //    Stack closure 从 caller frame.env_arena 复制内容；callee 内统一拿到
-    //    一个新 GcRef Array（避免 callee 持有指向 caller arena 的 lifetime）。
     // JIT-S3 (perf, mirrors interp exec_call S3): `Value::Closure` 直接复用已有
     // env GcRef（Arc +1），不再 `to_boxed_vec()` 深拷 + `alloc_array` 重分配。
     // 安全性同 interp S3：env 数组 MkClos 时写一次、体内只 array_get 读（编译器
     // _emitAssign 无 BoundCapturedIdent 写回分支）→ 跨调用共享 GcRef 字节等价。
-    // StackClosure 仍需物化（arena 持裸 Vec，callee lifetime 需独立）。
     // The name is borrowed from the callee value (a `Str` handle copy, no `String`
     // alloc per call): the closure stays rooted in the caller's `callee` register for
     // the whole call, so its name block outlives every use below.
-    let (fn_name, env_val_opt): (CalleeName, Option<Value>) = match &frame_ref.regs[callee as usize] {
-        Value::FuncRef(n) => (CalleeName::Gc(*n), None),
+    let (fn_name, env_val_opt): (crate::metadata::vstr::Str, Option<Value>) = match &frame_ref.regs[callee as usize] {
+        Value::FuncRef(n) => (*n, None),
         Value::Closure(c) => {
             let data = crate::metadata::types::closure_data_of(c);
-            (CalleeName::Gc(data.fn_name), Some(Value::Array(data.env.clone())))
-        }
-        &Value::StackClosure { idx: hidx, frame_id } => {
-            // make-value-copy: resolve the StackClosure handle → StackClosureData via arena.
-            let sc = match vm_ctx.transient_arena.lock().stack_closure(hidx, frame_id) {
-                Ok(sc) => sc,
-                Err(e) => { set_exception(vm_ctx, Value::Str(e.to_string().into())); return 1; }
-            };
-            let idx = sc.env_idx as usize;
-            if idx >= frame_ref.env_arena.len() {
-                set_exception(vm_ctx, Value::Str(format!(
-                    "CallIndirect: stack closure env_idx {} out of bounds (arena_len={})",
-                    idx, frame_ref.env_arena.len()).into()));
-                return 1;
-            }
-            (CalleeName::Owned(sc.fn_name.clone()), Some(vm_ctx.heap().alloc_array(frame_ref.env_arena[idx].clone())))
+            (data.fn_name, Some(Value::Array(data.env.clone())))
         }
         // fix-null-delegate-invoke: same as interp's `call_indirect` — a null callee is
         // reachable from ordinary code (an unassigned single-cast `event` field), so it
@@ -151,12 +114,12 @@ pub unsafe extern "C" fn jit_call_indirect(
         }
         other => {
             set_exception(vm_ctx, Value::Str(format!(
-                "CallIndirect: expected FuncRef / Closure / StackClosure, got {:?}", other).into()));
+                "CallIndirect: expected FuncRef / Closure, got {:?}", other).into()));
             return 1;
         }
     };
 
-    let fn_name: &str = fn_name.as_str();
+    let fn_name: &str = &fn_name;
     let user_regs = std::slice::from_raw_parts(args_ptr, args_len);
 
     // 2) Resolve the callee. runtime-jit-tiering Phase 1b: tiered — a cold
@@ -203,21 +166,4 @@ pub unsafe extern "C" fn jit_call_indirect(
     };
     vm_ctx.set_top_frame_pc(caller_offset);
     call_entry(vm_ctx, ctx, entry, callee_frame).store_into(&mut frame_ref.regs, dst)
-}
-
-/// A `CallIndirect` target name: borrowed from the callee's GC `Str` (FuncRef /
-/// heap closure — the hot case, no allocation) or owned (stack closure, whose arena
-/// payload hands out a clone).
-enum CalleeName {
-    Gc(crate::metadata::vstr::Str),
-    Owned(String),
-}
-
-impl CalleeName {
-    fn as_str(&self) -> &str {
-        match self {
-            CalleeName::Gc(s) => s,
-            CalleeName::Owned(s) => s.as_str(),
-        }
-    }
 }

@@ -3,7 +3,7 @@ use crate::gc::ambient::current_heap_epoch;
 use crate::vm_context::VmContext;
 
 fn frame() -> VmFrame {
-    VmFrame::new(std::ptr::null(), std::ptr::null(), std::ptr::null())
+    VmFrame::new(std::ptr::null(), std::ptr::null())
 }
 
 #[cfg(feature = "native-interop")]

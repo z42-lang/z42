@@ -96,6 +96,15 @@ xtask test compiler    # z42c golden hex 单测
 
 > 只修 reader / writer 的非格式 bug（不改 wire layout）— **不要** bump minor；strict-pin 仍通过。
 
+### 下次 zbc bump 时顺带删除
+
+已废弃、但为了不单独 bump 一次而暂留在 wire 上的字段。做下一次 zbc bump 时把下列条目一并删掉（writer、两端 reader、
+`zbc.md` 指令表都要改），删完把条目从这里移除：
+
+- **`MkClos` 的 `u8` 尾字节**（原 `stack_alloc`）。运行时的栈闭包支持已删除（runtime-audit D6）：Rust reader
+  读出后丢弃（`zbc_reader/instr_decode.rs` `OP_MK_CLOS`），一律堆分配；z42c 恒写 `0`。删除时同步
+  `IrInstrCall.z42` `MkClosInstr.StackAlloc`（字段 + `e.Flag`）、`ZbcReaderInstr.z42` 对应的读取、三个发射点的 `false` 实参。
+
 ---
 
 ## zpkg 联动规则（强耦合）
