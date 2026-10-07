@@ -1,0 +1,21 @@
+// dict_ops: Dictionary<int,int> — n inserts, then 2n lookups (half miss), then
+// n/2 overwrites. Checksum = Σ found values + final count.
+namespace Compare.DictOps;
+
+using Std;
+using Std.IO;
+using Std.Collections;
+
+void Main() {
+    string[] args = Environment.GetCommandLineArgs();
+    int n = int.Parse(args[0]);
+    var d = new Dictionary<int, int>();
+    for (int i = 0; i < n; i = i + 1) { d[i * 2] = i; }
+    long acc = 0L;
+    for (int i = 0; i < 2 * n; i = i + 1) {
+        if (d.ContainsKey(i)) { acc = acc + (long)d[i]; }
+    }
+    for (int i = 0; i < n; i = i + 2) { d[i * 2] = 1; }
+    acc = acc + (long)d.Count + (long)d[0] + (long)d[6];
+    Console.WriteLine("RESULT " + acc.ToString());
+}

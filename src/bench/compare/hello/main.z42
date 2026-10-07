@@ -1,0 +1,9 @@
+// hello: process startup + runtime init + one line of output.
+namespace Compare.Hello;
+
+using Std.IO;
+
+void Main() {
+    Console.WriteLine("Hello, World!");
+    Console.WriteLine("RESULT 42");
+}

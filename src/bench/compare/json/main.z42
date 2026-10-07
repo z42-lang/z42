@@ -1,0 +1,39 @@
+// json: build n records as a JSON DOM, serialize to a compact string, parse it back,
+// walk the parsed tree. Checksum = text length + Σ id + Σ pos.y + #active.
+namespace Compare.Json;
+
+using Std;
+using Std.IO;
+using Std.Json;
+
+JsonValue Record(int i) {
+    var r = JsonValue.OfObject();
+    r.Set("id", JsonValue.OfLong((long)i));
+    r.Set("name", JsonValue.OfString("user" + i.ToString()));
+    r.Set("active", JsonValue.OfBool(i % 3 == 0));
+    var tags = JsonValue.OfArray();
+    tags.Add(JsonValue.OfString("t" + (i % 10).ToString()));
+    tags.Add(JsonValue.OfString("x"));
+    r.Set("tags", tags);
+    var pos = JsonValue.OfObject();
+    pos.Set("x", JsonValue.OfLong((long)(i % 100)));
+    pos.Set("y", JsonValue.OfLong((long)(i % 37)));
+    r.Set("pos", pos);
+    return r;
+}
+
+void Main() {
+    string[] args = Environment.GetCommandLineArgs();
+    int n = int.Parse(args[0]);
+    var root = JsonValue.OfArray();
+    for (int i = 0; i < n; i = i + 1) { root.Add(Record(i)); }
+    string text = JsonValue.Stringify(root);
+    JsonValue back = JsonValue.Parse(text);
+    long acc = (long)text.Length;
+    for (int i = 0; i < back.Length(); i = i + 1) {
+        JsonValue r = back.At(i);
+        acc = acc + r.Get("id").AsLong() + r.Get("pos").Get("y").AsLong();
+        if (r.Get("active").AsBool()) { acc = acc + 1L; }
+    }
+    Console.WriteLine("RESULT " + acc.ToString());
+}

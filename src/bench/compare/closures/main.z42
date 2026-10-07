@@ -1,0 +1,20 @@
+// closures: allocate a capturing lambda per iteration and invoke it through a
+// higher-order function — closure creation + indirect call. Checksum = Σ Apply(x => x*3 + i, i).
+namespace Compare.Closures;
+
+using Std;
+using Std.IO;
+
+long Apply((long) -> long f, long x) { return f(x); }
+
+void Main() {
+    string[] args = Environment.GetCommandLineArgs();
+    long n = long.Parse(args[0]);
+    long acc = 0L;
+    for (long i = 0L; i < n; i = i + 1L) {
+        long k = i % 7L;
+        (long) -> long f = (long x) => x * 3L + k;
+        acc = acc + Apply(f, i);
+    }
+    Console.WriteLine("RESULT " + acc.ToString());
+}

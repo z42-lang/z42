@@ -1,0 +1,413 @@
+// xtask — `bench compare`: cross-language comparison suite (src/bench/compare/).
+//
+// Reads src/bench/compare/workloads.toml, builds what each runtime needs (z42 → .zbc,
+// C# → one dll, Java → one class dir), then runs every workload × available runtime
+// `--runs` times. Runtimes are interleaved inside each repetition so drift on a busy
+// machine hits all of them alike. Every run is wrapped in `/usr/bin/time` for peak RSS;
+// wall time is measured here. Each program prints `RESULT <checksum>`, verified against
+// the manifest. Output: artifacts/reports/bench/compare.{json,md} (report side in
+// xtask_bench_compare_report.z42). External runtimes are optional — found on PATH or
+// skipped with a note; nothing here becomes a build dependency of the repo.
+namespace Z42Xtask;
+
+using Std.IO;
+using Std.Cli;
+using Std.Toml;
+using Std.Time;
+using Std.Collections;
+
+class CmpWorkload {
+    public string Name;
+    public string Category;
+    public string Metric;     // time | startup | density
+    public string Unit;       // density only
+    public string[] Args;
+    public string Checksum;
+    public string Note;
+    public bool Stw;          // also run z42 with gc-mode=stw
+}
+
+class CmpRuntime {
+    public string Label;      // column name: z42 / z42-stw / z42-interp / python / node / ruby / dotnet / java
+    public string Kind;       // z42 | python | node | ruby | dotnet | java
+    public string Exe;
+    public string Version;
+    public string Mode;       // z42: jit | interp
+    public string Gc;         // z42: generational | stw
+    public CmpRuntime(string label, string kind, string exe) {
+        this.Label = label; this.Kind = kind; this.Exe = exe;
+        this.Version = ""; this.Mode = "jit"; this.Gc = "generational";
+    }
+}
+
+// One process run.
+class CmpSample {
+    public double WallMs;
+    public long Rss;          // peak RSS in bytes; -1 = unavailable
+    public string Status;     // ok | checksum <got> | exit <n> | start-failed
+    public string Got;        // the RESULT value printed
+    public long PauseMaxUs;   // z42 only (`PAUSE max_us=` line); -1 otherwise
+}
+
+// All runs of one workload × runtime.
+class CmpCell {
+    public string Runtime;
+    public string Status;     // ok | <failure> | skipped: <why>
+    public List<CmpSample> Runs;
+    public List<CmpSample> BaseRuns;   // density: the N = 0 runs
+    public CmpCell(string rt) {
+        this.Runtime = rt; this.Status = "ok";
+        this.Runs = new List<CmpSample>(); this.BaseRuns = new List<CmpSample>();
+    }
+}
+
+// Paths + toolchain the runs share.
+class CmpEnv {
+    public string Root;
+    public string SrcDir;     // src/bench/compare
+    public string OutDir;     // artifacts/build/bench/compare
+    public string Vm;
+    public string Libs;
+    public string Driver;
+    public string DotnetDll;
+    public string JavaDir;
+    public string TimeFlag;   // "-l" (macOS) | "-v" (Linux) | "" (no /usr/bin/time)
+    public bool Quick;
+}
+
+ArgParser _benchCompareParser() {
+    ArgParser p = new ArgParser("xtask bench compare",
+        "cross-language comparison suite (src/bench/compare): z42 vs python/node/ruby/dotnet/java");
+    p.AddFlag("quick", "", "smoke run: quick_args from the manifest, 1 run (all checksums still verified)");
+    p.AddOption("runs", "", "runs per workload × runtime, median reported (default 3; --quick: 1)", "");
+    p.AddOption("only", "", "comma-separated workload names (default: all)", "");
+    p.AddOption("runtimes", "", "comma-separated runtime labels (default: z42,z42-stw,python,node,ruby,dotnet,java; also z42-interp)", "");
+    p.AddFlag("no-build", "", "reuse the z42 toolchain and the built .zbc / dll / classes as they are");
+    return p;
+}
+
+int _benchCompare(ParseResult r) {
+    CmpEnv env = _cmpEnv(r.GetFlag("quick"));
+    CmpWorkload[] all = _cmpLoadManifest(Path.Join(env.SrcDir, "workloads.toml"));
+    CmpWorkload[] wls = _cmpSelectWorkloads(all, r.GetOption("only"));
+    if (wls.Length == 0) { ConsoleError.WriteLine("xtask bench compare: no workload matches --only"); return 2; }
+    if (env.Quick) { _cmpApplyQuick(Path.Join(env.SrcDir, "workloads.toml"), wls); }
+    int runs = env.Quick ? 1 : 3;
+    if (r.GetOption("runs").Length > 0) { runs = int.Parse(r.GetOption("runs")); }
+    if (!r.GetFlag("no-build")) {
+        int dep = _ensureToolchainDeps(env.Root); if (dep != 0) { return dep; }
+    }
+    CmpRuntime[] rts = _cmpRuntimes(env, r.GetOption("runtimes"));
+    if (!_cmpBuild(env, wls, rts, r.GetFlag("no-build"))) { return 1; }
+    string loadStart = _cmpLoadAvg();
+    Console.WriteLine("→ bench compare: " + wls.Length.ToString() + " workloads × "
+        + rts.Length.ToString() + " runtimes, runs=" + runs.ToString() + (env.Quick ? " (quick)" : "")
+        + ", " + loadStart);
+    List<CmpCell[]> cells = new List<CmpCell[]>();
+    int bad = 0;
+    for (int wi = 0; wi < wls.Length; wi = wi + 1) {
+        cells.Add(_cmpRunWorkload(env, wls[wi], rts, runs));
+        bad = bad + _cmpPrintWorkload(wls[wi], cells[wi]);
+    }
+    string loadEnd = _cmpLoadAvg();
+    _cmpWriteReports(env, wls, rts, cells, runs, loadStart, loadEnd);
+    if (bad > 0) {
+        ConsoleError.WriteLine("✗ bench compare: " + bad.ToString() + " cell(s) failed or printed a wrong checksum");
+        return 1;
+    }
+    return 0;
+}
+
+CmpEnv _cmpEnv(bool quick) {
+    CmpEnv e = new CmpEnv();
+    e.Root = _root();
+    e.SrcDir = Path.Join(e.Root, "src/bench/compare");
+    e.OutDir = _buildMirror(e.Root, e.SrcDir);
+    e.Vm = _builtVm(e.Root, "release");
+    e.Libs = _libsDir(e.Root);
+    e.Driver = _driverZpkg(e.Root, "release");
+    e.DotnetDll = Path.Join(e.OutDir, "dotnet/bin/compare/release/compare.dll");
+    e.JavaDir = Path.Join(e.OutDir, "java");
+    e.Quick = quick;
+    e.TimeFlag = "";
+    if (File.Exists("/usr/bin/time")) { e.TimeFlag = Platform.IsMacOS() ? "-l" : "-v"; }
+    return e;
+}
+
+// ── manifest ─────────────────────────────────────────────────────────────────
+
+CmpWorkload[] _cmpLoadManifest(string path) {
+    TomlValue doc = TomlValue.Parse(File.ReadAllText(path));
+    TomlValue arr = doc.Get("workload");
+    CmpWorkload[] res = new CmpWorkload[arr.Length()];
+    for (int i = 0; i < arr.Length(); i = i + 1) {
+        TomlValue t = arr.At(i);
+        CmpWorkload w = new CmpWorkload();
+        w.Name = t.Get("name").AsString();
+        w.Category = t.Get("category").AsString();
+        w.Metric = t.Get("metric").AsString();
+        w.Unit = t.ContainsKey("unit") ? t.Get("unit").AsString() : "";
+        w.Note = t.ContainsKey("note") ? t.Get("note").AsString() : "";
+        w.Stw = t.ContainsKey("z42_stw") && t.Get("z42_stw").AsBool();
+        w.Args = _cmpTomlStrings(t.Get("args"));
+        w.Checksum = t.Get("checksum").AsString();
+        res[i] = w;
+    }
+    return res;
+}
+
+string[] _cmpTomlStrings(TomlValue a) {
+    string[] s = new string[a.Length()];
+    for (int i = 0; i < a.Length(); i = i + 1) { s[i] = a.At(i).AsString(); }
+    return s;
+}
+
+CmpWorkload[] _cmpSelectWorkloads(CmpWorkload[] all, string only) {
+    List<CmpWorkload> sel = new List<CmpWorkload>();
+    for (int i = 0; i < all.Length; i = i + 1) {
+        if (only.Length == 0 || _cmpListHas(only, all[i].Name)) { sel.Add(all[i]); }
+    }
+    return sel.ToArray();
+}
+
+bool _cmpListHas(string csv, string name) {
+    foreach (var x in csv.Split(",")) { if (x.Trim() == name) { return true; } }
+    return false;
+}
+
+// --quick swaps in quick_args / quick_checksum.
+void _cmpApplyQuick(string manifest, CmpWorkload[] wls) {
+    TomlValue arr = TomlValue.Parse(File.ReadAllText(manifest)).Get("workload");
+    for (int i = 0; i < arr.Length(); i = i + 1) {
+        TomlValue t = arr.At(i);
+        for (int j = 0; j < wls.Length; j = j + 1) {
+            if (wls[j].Name != t.Get("name").AsString()) { continue; }
+            wls[j].Args = _cmpTomlStrings(t.Get("quick_args"));
+            wls[j].Checksum = t.Get("quick_checksum").AsString();
+        }
+    }
+}
+
+// ── runtimes ─────────────────────────────────────────────────────────────────
+
+CmpRuntime[] _cmpRuntimes(CmpEnv env, string want) {
+    string sel = want.Length > 0 ? want : "z42,z42-stw,python,node,ruby,dotnet,java";
+    List<CmpRuntime> rts = new List<CmpRuntime>();
+    foreach (var raw in sel.Split(",")) {
+        string label = raw.Trim();
+        CmpRuntime rt = _cmpRuntimeFor(env, label);
+        if (rt == null) { ConsoleError.WriteLine("  ⊘ unknown runtime '" + label + "' (ignored)"); continue; }
+        if (rt.Exe.Length == 0) { Console.WriteLine("  ⊘ skip runtime " + label + ": not found on PATH"); continue; }
+        rt.Version = _cmpVersion(env, rt);
+        rts.Add(rt);
+    }
+    return rts.ToArray();
+}
+
+CmpRuntime _cmpRuntimeFor(CmpEnv env, string label) {
+    if (label == "z42" || label == "z42-stw" || label == "z42-interp") {
+        CmpRuntime z = new CmpRuntime(label, "z42", env.Vm);
+        if (label == "z42-stw") { z.Gc = "stw"; }
+        if (label == "z42-interp") { z.Mode = "interp"; }
+        return z;
+    }
+    string exe = "";
+    if (label == "python") { exe = "python3"; }
+    else if (label == "node" || label == "ruby" || label == "dotnet" || label == "java") { exe = label; }
+    else { return null; }
+    string? found = Process.Which(exe);
+    if (label == "java" && Process.Which("javac") == null) { found = null; }
+    return new CmpRuntime(label, label, found == null ? "" : exe);
+}
+
+// One version line per runtime (java prints its banner on stderr).
+string _cmpVersion(CmpEnv env, CmpRuntime rt) {
+    if (rt.Kind == "z42") { return _epVmVersion(env.Vm) + " (" + _gitOut(env.Root, "rev-parse", "--short", "HEAD") + ")"; }
+    try {
+        ProcessResult r = new Process(rt.Exe).Arg(rt.Kind == "java" ? "-version" : "--version").Run();
+        string txt = (r.Stdout + "\n" + r.Stderr).Trim();
+        string first = txt.Split("\n")[0].Trim();
+        return first;
+    } catch (Exception e) { return "?"; }
+}
+
+// z42-stw only measures the workloads that declare `z42_stw = true`; a program file
+// that does not exist for a runtime means "no idiomatic standard facility" (see note).
+bool _cmpApplies(CmpEnv env, CmpWorkload w, CmpRuntime rt) {
+    if (rt.Label == "z42-stw" && !w.Stw) { return false; }
+    return File.Exists(_cmpSource(env, w, rt));
+}
+
+string _cmpSource(CmpEnv env, CmpWorkload w, CmpRuntime rt) {
+    string dir = Path.Join(env.SrcDir, w.Name);
+    if (rt.Kind == "z42") { return Path.Join(dir, "main.z42"); }
+    if (rt.Kind == "python") { return Path.Join(dir, "main.py"); }
+    if (rt.Kind == "node") { return Path.Join(dir, "main.js"); }
+    if (rt.Kind == "ruby") { return Path.Join(dir, "main.rb"); }
+    if (rt.Kind == "dotnet") { return Path.Join(dir, "Main.cs"); }
+    return Path.Join(dir, "Main.java");
+}
+
+// ── build ────────────────────────────────────────────────────────────────────
+
+bool _cmpBuild(CmpEnv env, CmpWorkload[] wls, CmpRuntime[] rts, bool noBuild) {
+    Directory.Create(env.OutDir);
+    for (int i = 0; i < rts.Length; i = i + 1) {
+        CmpRuntime rt = rts[i];
+        if (rt.Label == "z42" || (rt.Kind == "z42" && !_cmpHasLabel(rts, "z42", i))) {
+            if (!_cmpBuildZ42(env, wls, noBuild)) { return false; }
+        }
+        if (noBuild) { continue; }
+        if (rt.Kind == "dotnet" && !_cmpBuildDotnet(env)) { rt.Exe = ""; }
+        if (rt.Kind == "java" && !_cmpBuildJava(env, wls)) { rt.Exe = ""; }
+    }
+    return true;
+}
+
+// true when an earlier runtime in the list already has `label` (so its build ran).
+bool _cmpHasLabel(CmpRuntime[] rts, string label, int before) {
+    for (int i = 0; i < before; i = i + 1) { if (rts[i].Label == label) { return true; } }
+    return false;
+}
+
+bool _cmpBuildZ42(CmpEnv env, CmpWorkload[] wls, bool noBuild) {
+    string dir = Path.Join(env.OutDir, "z42");
+    Directory.Create(dir);
+    for (int i = 0; i < wls.Length; i = i + 1) {
+        string zbc = Path.Join(dir, wls[i].Name + ".zbc");
+        if (noBuild && File.Exists(zbc)) { continue; }
+        string src = Path.Join(Path.Join(env.SrcDir, wls[i].Name), "main.z42");
+        int cc = _exec(_z42cProc(env.Vm, env.Libs, env.Driver).Arg("--emit-zbc").Arg(src).Arg(zbc).Arg("--opt-all"));
+        if (cc != 0) { ConsoleError.WriteLine("error: z42c failed on " + src); return false; }
+    }
+    return true;
+}
+
+bool _cmpBuildDotnet(CmpEnv env) {
+    Console.WriteLine("→ dotnet build (one dll for every workload)");
+    ProcessResult r = new Process("dotnet").Arg("build")
+        .Arg(Path.Join(env.SrcDir, "_dotnet/compare.csproj")).Arg("-c").Arg("Release")
+        .Arg("--artifacts-path").Arg(Path.Join(env.OutDir, "dotnet")).Arg("-nologo").Arg("-v").Arg("q")
+        .Env("DOTNET_CLI_TELEMETRY_OPTOUT", "1").Env("DOTNET_NOLOGO", "1").Run();
+    if (r.ExitCode == 0 && File.Exists(env.DotnetDll)) { return true; }
+    Console.WriteLine("  ⊘ skip runtime dotnet: build failed\n" + r.Stdout + r.Stderr);
+    return false;
+}
+
+bool _cmpBuildJava(CmpEnv env, CmpWorkload[] wls) {
+    Console.WriteLine("→ javac (one class dir for every workload)");
+    Process p = new Process("javac").Arg("-d").Arg(env.JavaDir);
+    int n = 0;
+    for (int i = 0; i < wls.Length; i = i + 1) {
+        string src = Path.Join(Path.Join(env.SrcDir, wls[i].Name), "Main.java");
+        if (File.Exists(src)) { p = p.Arg(src); n = n + 1; }
+    }
+    if (n == 0) { return true; }
+    ProcessResult r = p.Run();
+    if (r.ExitCode == 0) { return true; }
+    Console.WriteLine("  ⊘ skip runtime java: javac failed\n" + r.Stdout + r.Stderr);
+    return false;
+}
+
+// ── run ──────────────────────────────────────────────────────────────────────
+
+CmpCell[] _cmpRunWorkload(CmpEnv env, CmpWorkload w, CmpRuntime[] rts, int runs) {
+    Console.WriteLine("→ " + w.Name + " [" + w.Category + "] " + String.Join(" ", w.Args));
+    CmpCell[] cells = new CmpCell[rts.Length];
+    for (int i = 0; i < rts.Length; i = i + 1) {
+        cells[i] = new CmpCell(rts[i].Label);
+        if (rts[i].Exe.Length == 0) { cells[i].Status = "skipped: unavailable"; }
+        else if (!_cmpApplies(env, w, rts[i])) { cells[i].Status = "skipped: n/a"; }
+    }
+    for (int rep = 0; rep < runs; rep = rep + 1) {
+        for (int i = 0; i < rts.Length; i = i + 1) {
+            if (cells[i].Status != "ok") { continue; }
+            if (w.Metric == "density") {
+                string[] zero = new string[1]; zero[0] = "0";
+                cells[i].BaseRuns.Add(_cmpRunOnce(env, w, rts[i], zero, ""));
+            }
+            CmpSample s = _cmpRunOnce(env, w, rts[i], w.Args, w.Checksum);
+            cells[i].Runs.Add(s);
+            if (s.Status != "ok") { cells[i].Status = s.Status; }
+        }
+    }
+    return cells;
+}
+
+// argv for one run, before the /usr/bin/time wrapper.
+string[] _cmpArgv(CmpEnv env, CmpWorkload w, CmpRuntime rt, string[] args) {
+    List<string> a = new List<string>();
+    if (rt.Kind == "z42") {
+        a.Add(env.Vm); a.Add("--mode"); a.Add(rt.Mode); a.Add("--set"); a.Add("gc-mode=" + rt.Gc);
+        a.Add(Path.Join(Path.Join(env.OutDir, "z42"), w.Name + ".zbc"));
+        a.Add(_extractNamespace(File.ReadAllText(_cmpSource(env, w, rt))) + ".Main"); a.Add("--");
+    } else if (rt.Kind == "dotnet") {
+        a.Add("dotnet"); a.Add(env.DotnetDll); a.Add(w.Name);
+    } else if (rt.Kind == "java") {
+        a.Add("java"); a.Add("-cp"); a.Add(env.JavaDir); a.Add(w.Name + ".Main");
+    } else {
+        a.Add(rt.Exe); a.Add(_cmpSource(env, w, rt));
+    }
+    for (int i = 0; i < args.Length; i = i + 1) { a.Add(args[i]); }
+    return a.ToArray();
+}
+
+// One timed run. expect == "" ⇒ density baseline (N = 0): output not verified.
+CmpSample _cmpRunOnce(CmpEnv env, CmpWorkload w, CmpRuntime rt, string[] args, string expect) {
+    string[] argv = _cmpArgv(env, w, rt, args);
+    // Every runtime gets Z42_LIBS (harmless for the non-z42 ones) so one Process shape serves all.
+    Process p = env.TimeFlag.Length > 0
+        ? _z42Proc("/usr/bin/time", env.Libs).Arg(env.TimeFlag).Args(argv)
+        : _z42Proc(argv[0], env.Libs).Args(_sliceFrom(argv, 1));
+    // No Process.Timeout: with a timeout the wait is a 20 ms poll loop, which would quantise
+    // every wall time to 20 ms steps (startup-sized runs become meaningless).
+    p = p.Env("DOTNET_CLI_TELEMETRY_OPTOUT", "1");
+    CmpSample s = new CmpSample();
+    s.Rss = -1L; s.PauseMaxUs = -1L; s.Got = ""; s.Status = "ok";
+    Stopwatch sw = Stopwatch.StartNew();
+    ProcessResult r;
+    try { r = p.Run(); }
+    catch (Exception e) { s.Status = "start-failed"; return s; }
+    s.WallMs = (double)sw.Elapsed().TotalNanoseconds() / 1000000.0;
+    s.Rss = _cmpParseRss(r.Stderr);
+    s.Got = _cmpLineValue(r.Stdout, "RESULT ");
+    string pause = _cmpLineValue(r.Stdout, "PAUSE max_us=");
+    if (pause.Length > 0) { s.PauseMaxUs = long.Parse(pause); }
+    if (r.ExitCode != 0) { s.Status = "exit " + r.ExitCode.ToString(); }
+    else if (expect.Length > 0 && s.Got != expect) { s.Status = "checksum " + s.Got; }
+    return s;
+}
+
+// First token after `prefix` on the first line that starts with it; "" if none.
+string _cmpLineValue(string text, string prefix) {
+    foreach (var raw in text.Split("\n")) {
+        string ln = raw.Trim();
+        if (!ln.StartsWith(prefix)) { continue; }
+        string rest = ln.Substring(prefix.Length).Trim();
+        int sp = rest.IndexOf(" ");
+        return sp >= 0 ? rest.Substring(0, sp) : rest;
+    }
+    return "";
+}
+
+// macOS `time -l`: "<bytes>  maximum resident set size"; Linux `time -v`:
+// "Maximum resident set size (kbytes): <kb>".
+long _cmpParseRss(string err) {
+    foreach (var raw in err.Split("\n")) {
+        string ln = raw.Trim();
+        if (ln.EndsWith("maximum resident set size")) {
+            return long.Parse(ln.Substring(0, ln.IndexOf(" ")).Trim());
+        }
+        if (ln.StartsWith("Maximum resident set size (kbytes):")) {
+            return long.Parse(ln.Substring(ln.IndexOf(":") + 1).Trim()) * 1024L;
+        }
+    }
+    return -1L;
+}
+
+string _cmpLoadAvg() {
+    ProcessResult r = new Process("uptime").Run();
+    string t = r.Stdout.Trim();
+    int i = t.IndexOf("load average");
+    return i >= 0 ? t.Substring(i) : t;
+}

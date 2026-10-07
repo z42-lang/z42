@@ -355,6 +355,7 @@ verbosity ≥ 4 才输出，而 CI 跑的是默认 verbosity——于是 `xtask 
 | `src/compiler/z42c.pipeline/tests/fixtures/multi-exe/` | `test e2e --dir multi-exe` | `multi-exe` |
 | `src/toolchain/builder/tests/fixtures/` | `test toolchain builder` | `toolchain`、`targets` |
 | 其余 `src/tests/` | `test e2e` + `check layout` | —（goldens 与 layout 恒跑）|
+| `src/bench/compare/` | `bench compare --quick` | —（gate 里没有它）|
 | `src/bench/` | `bench --quick` | —（gate 里没有它）|
 | `src/compiler/` | `test compiler` + `test e2e` | 全集 |
 | `src/toolchain/launcher/`、`src/toolchain/builder/` | `test stdlib` + `test toolchain` + `test docs examples`（命令行输出一变，手册里的会话脚本就失配）| `stdlib`、`toolchain`、`bench`、`targets`、`examples`（z42b 是这几种用例的执行器）|

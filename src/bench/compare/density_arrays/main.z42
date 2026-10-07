@@ -1,0 +1,23 @@
+// density_arrays: n live long[8] arrays — bytes/array.
+namespace Compare.DensityArrays;
+
+using Std;
+using Std.IO;
+
+void Main() {
+    string[] args = Environment.GetCommandLineArgs();
+    int n = int.Parse(args[0]);
+    object[] all = new object[n];
+    int i = 0;
+    while (i < n) {
+        long[] a = new long[8];
+        a[0] = (long)i;
+        a[7] = (long)i * 3L;
+        all[i] = a;
+        i = i + 1;
+    }
+    long s = 0L;
+    i = 0;
+    while (i < n) { long[] a = (long[])all[i]; s = s + a[0] + a[7]; i = i + 1; }
+    Console.WriteLine("RESULT " + s.ToString());
+}

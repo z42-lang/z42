@@ -1,0 +1,242 @@
+// xtask — `bench compare` report side: per-cell statistics (median wall / peak RSS /
+// density), the console summary, and artifacts/reports/bench/compare.{json,md}.
+// The runner is xtask_bench_compare.z42.
+namespace Z42Xtask;
+
+using Std.IO;
+using Std.Collections;
+
+// ── statistics ───────────────────────────────────────────────────────────────
+
+double _cmpMedianWall(List<CmpSample> xs) {
+    double[] v = new double[xs.Count];
+    for (int i = 0; i < xs.Count; i = i + 1) { v[i] = xs[i].WallMs; }
+    return v.Length == 0 ? -1.0 : _benchMedian(v);
+}
+
+double _cmpMedianRss(List<CmpSample> xs) {
+    double[] v = new double[xs.Count];
+    for (int i = 0; i < xs.Count; i = i + 1) { v[i] = (double)xs[i].Rss; }
+    return v.Length == 0 ? -1.0 : _benchMedian(v);
+}
+
+// The number a cell is ranked by: bytes per unit for density workloads, median wall
+// time (ms) otherwise. NaN = no valid measurement (a density can legitimately come out
+// ≤ 0 when N is too small for RSS to move — that stays a number, it just ranks nothing).
+double _cmpValue(CmpWorkload w, CmpCell c) {
+    if (c.Status != "ok" || c.Runs.Count == 0) { return Double.NaN; }
+    if (w.Metric != "density") { return _cmpMedianWall(c.Runs); }
+    double hi = _cmpMedianRss(c.Runs);
+    double lo = _cmpMedianRss(c.BaseRuns);
+    if (hi < 0.0 || lo < 0.0) { return Double.NaN; }
+    return (hi - lo) / (double)long.Parse(w.Args[0]);
+}
+
+bool _cmpRanked(double v) { return !Double.IsNaN(v) && v > 0.0; }
+
+long _cmpMaxPause(CmpCell c) {
+    long m = -1L;
+    for (int i = 0; i < c.Runs.Count; i = i + 1) { if (c.Runs[i].PauseMaxUs > m) { m = c.Runs[i].PauseMaxUs; } }
+    return m;
+}
+
+// Index of the best (smallest) value among the non-z42 runtimes; -1 when none measured.
+int _cmpBestOther(CmpWorkload w, CmpRuntime[] rts, CmpCell[] cells) {
+    int best = -1;
+    for (int i = 0; i < rts.Length; i = i + 1) {
+        if (rts[i].Kind == "z42") { continue; }
+        double v = _cmpValue(w, cells[i]);
+        if (!_cmpRanked(v)) { continue; }
+        if (best < 0 || v < _cmpValue(w, cells[best])) { best = i; }
+    }
+    return best;
+}
+
+// z42 / <label> ratio as text ("" when either side is missing).
+string _cmpRatio(CmpWorkload w, CmpRuntime[] rts, CmpCell[] cells, int other) {
+    int z = _cmpIndexOf(rts, "z42");
+    if (z < 0 || other < 0) { return ""; }
+    double a = _cmpValue(w, cells[z]);
+    double b = _cmpValue(w, cells[other]);
+    if (!_cmpRanked(a) || !_cmpRanked(b)) { return ""; }
+    double q = a / b;
+    return _cmpFixed(q, q >= 10.0 ? 0 : (q >= 0.1 ? 1 : 2)) + "×";
+}
+
+int _cmpIndexOf(CmpRuntime[] rts, string label) {
+    for (int i = 0; i < rts.Length; i = i + 1) { if (rts[i].Label == label) { return i; } }
+    return -1;
+}
+
+// ── formatting ───────────────────────────────────────────────────────────────
+
+// Fixed-point decimal text (round half away from zero).
+string _cmpFixed(double v, int digits) {
+    long scale = 1L;
+    for (int i = 0; i < digits; i = i + 1) { scale = scale * 10L; }
+    bool neg = v < 0.0;
+    long n = (long)((neg ? -v : v) * (double)scale + 0.5);
+    string ip = (n / scale).ToString();
+    if (digits == 0) { return (neg ? "-" : "") + ip; }
+    string fp = (n % scale).ToString();
+    while (fp.Length < digits) { fp = "0" + fp; }
+    return (neg ? "-" : "") + ip + "." + fp;
+}
+
+// A cell as shown in the tables: ms for time / startup, B/unit for density.
+string _cmpCellText(CmpWorkload w, CmpCell c) {
+    if (c.Status.StartsWith("skipped")) { return "—"; }
+    if (c.Status != "ok") { return "✗ " + c.Status; }
+    double v = _cmpValue(w, c);
+    if (Double.IsNaN(v)) { return "?"; }
+    if (w.Metric == "density") { return _cmpFixed(v, 0); }
+    return _cmpFixed(v, v < 100.0 ? 1 : 0);
+}
+
+string _cmpRssText(CmpCell c) {
+    if (c.Status != "ok") { return "—"; }
+    double rss = _cmpMedianRss(c.Runs);
+    return rss < 0.0 ? "?" : _cmpFixed(rss / 1048576.0, 1);
+}
+
+string _cmpMetricText(CmpWorkload w) {
+    if (w.Metric == "density") { return "B/" + w.Unit; }
+    return "ms";
+}
+
+// Prints one workload's cells; returns how many failed (skips do not count).
+int _cmpPrintWorkload(CmpWorkload w, CmpCell[] cells) {
+    int bad = 0;
+    for (int i = 0; i < cells.Length; i = i + 1) {
+        CmpCell c = cells[i];
+        string line = "    " + c.Runtime + ": " + _cmpCellText(w, c);
+        if (c.Status == "ok") { line = line + " " + _cmpMetricText(w) + "  (peak " + _cmpRssText(c) + " MB)"; }
+        else if (c.Status.StartsWith("skipped")) { line = line + " (" + c.Status + ")"; }
+        Console.WriteLine(line);
+        if (c.Status != "ok" && !c.Status.StartsWith("skipped")) { bad = bad + 1; }
+    }
+    return bad;
+}
+
+string _cmpJsonNum(double v) { return Double.IsNaN(v) ? "null" : _cmpFixed(v, 3); }
+
+string _cmpJsonStr(string s) {
+    return "\"" + s.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
+}
+
+// ── environment description ──────────────────────────────────────────────────
+
+string _cmpCpuName() {
+    if (Platform.IsMacOS()) { return _cmdOut("sysctl", new string[]{ "-n", "machdep.cpu.brand_string" }); }
+    if (File.Exists("/proc/cpuinfo")) {
+        foreach (var ln in File.ReadAllText("/proc/cpuinfo").Split("\n")) {
+            if (ln.StartsWith("model name")) { return ln.Substring(ln.IndexOf(":") + 1).Trim(); }
+        }
+    }
+    return "?";
+}
+
+string _cmpMachine() {
+    return _cmdOut("uname", new string[]{ "-sm" }) + ", " + _cmpCpuName() + ", "
+        + OperatingSystem.CpuCount().ToString() + " CPUs";
+}
+
+// ── reports ──────────────────────────────────────────────────────────────────
+
+void _cmpWriteReports(CmpEnv env, CmpWorkload[] wls, CmpRuntime[] rts, List<CmpCell[]> cells,
+                      int runs, string loadStart, string loadEnd) {
+    string dir = _benchDir(env.Root);
+    Directory.Create(dir);
+    string commit = _gitOut(env.Root, "rev-parse", "--short", "HEAD");
+    string when = _utcNow();
+    string machine = _cmpMachine();
+    string head = "{\n  \"schema\": \"bench-compare-v1\",\n  \"timestamp\": " + _cmpJsonStr(when)
+        + ",\n  \"commit\": " + _cmpJsonStr(commit) + ",\n  \"machine\": " + _cmpJsonStr(machine)
+        + ",\n  \"load_start\": " + _cmpJsonStr(loadStart) + ",\n  \"load_end\": " + _cmpJsonStr(loadEnd)
+        + ",\n  \"runs\": " + runs.ToString() + ",\n  \"quick\": " + (env.Quick ? "true" : "false")
+        + ",\n  \"runtimes\": [" + _cmpRuntimesJson(rts) + "\n  ],\n  \"workloads\": [";
+    string body = "";
+    for (int i = 0; i < wls.Length; i = i + 1) {
+        body = body + (i > 0 ? "," : "") + _cmpWorkloadJson(wls[i], rts, cells[i]);
+    }
+    string jsonPath = Path.Join(dir, "compare.json");
+    File.WriteAllText(jsonPath, head + body + "\n  ]\n}\n");
+    string md = "# bench compare\n\n- date: " + when + "\n- z42 commit: " + commit + "\n- machine: " + machine
+        + "\n- load average: start `" + loadStart + "`, end `" + loadEnd + "`\n- runs: " + runs.ToString()
+        + " per cell, median" + (env.Quick ? " (--quick: smoke parameters)" : "") + "\n- runtimes:"
+        + _cmpRuntimesMd(rts) + "\n\n" + _cmpMdTable(wls, rts, cells) + "\n" + _cmpMdRssTable(wls, rts, cells);
+    string mdPath = Path.Join(dir, "compare.md");
+    File.WriteAllText(mdPath, md);
+    Console.WriteLine("✅ bench compare: " + jsonPath + "\n                  " + mdPath);
+}
+
+string _cmpRuntimesJson(CmpRuntime[] rts) {
+    string s = "";
+    for (int i = 0; i < rts.Length; i = i + 1) {
+        s = s + (i > 0 ? "," : "") + "\n    {\"label\": " + _cmpJsonStr(rts[i].Label)
+            + ", \"version\": " + _cmpJsonStr(rts[i].Version) + "}";
+    }
+    return s;
+}
+
+string _cmpRuntimesMd(CmpRuntime[] rts) {
+    string s = "";
+    for (int i = 0; i < rts.Length; i = i + 1) { s = s + "\n  - " + rts[i].Label + ": " + rts[i].Version; }
+    return s;
+}
+
+string _cmpWorkloadJson(CmpWorkload w, CmpRuntime[] rts, CmpCell[] cells) {
+    int best = _cmpBestOther(w, rts, cells);
+    string s = "\n    {\"name\": " + _cmpJsonStr(w.Name) + ", \"category\": " + _cmpJsonStr(w.Category)
+        + ", \"metric\": " + _cmpJsonStr(w.Metric) + ", \"unit\": " + _cmpJsonStr(_cmpMetricText(w))
+        + ", \"args\": " + _cmpJsonStr(String.Join(" ", w.Args)) + ", \"checksum\": " + _cmpJsonStr(w.Checksum)
+        + ", \"best_other\": " + _cmpJsonStr(best >= 0 ? rts[best].Label : "")
+        + ", \"z42_vs_best\": " + _cmpJsonStr(_cmpRatio(w, rts, cells, best))
+        + ", \"z42_vs_python\": " + _cmpJsonStr(_cmpRatio(w, rts, cells, _cmpIndexOf(rts, "python")))
+        + ", \"z42_vs_node\": " + _cmpJsonStr(_cmpRatio(w, rts, cells, _cmpIndexOf(rts, "node")))
+        + ",\n     \"results\": [";
+    for (int i = 0; i < cells.Length; i = i + 1) {
+        CmpCell c = cells[i];
+        s = s + (i > 0 ? "," : "") + "\n      {\"runtime\": " + _cmpJsonStr(c.Runtime)
+            + ", \"status\": " + _cmpJsonStr(c.Status) + ", \"value\": " + _cmpJsonNum(_cmpValue(w, c))
+            + ", \"wall_ms\": " + _cmpFixed(_cmpMedianWall(c.Runs), 3)
+            + ", \"peak_rss_bytes\": " + _cmpFixed(_cmpMedianRss(c.Runs), 0)
+            + ", \"samples\": " + c.Runs.Count.ToString()
+            + ", \"gc_pause_max_us\": " + _cmpMaxPause(c).ToString() + "}";
+    }
+    return s + "\n    ]}";
+}
+
+string _cmpMdHeader(CmpRuntime[] rts, string tail) {
+    string h = "| workload | unit |";
+    string sep = "|---|---|";
+    for (int i = 0; i < rts.Length; i = i + 1) { h = h + " " + rts[i].Label + " |"; sep = sep + "---:|"; }
+    if (tail.Length > 0) { h = h + tail; sep = sep + "---:|---:|---:|"; }
+    return h + "\n" + sep + "\n";
+}
+
+string _cmpMdTable(CmpWorkload[] wls, CmpRuntime[] rts, List<CmpCell[]> cells) {
+    string s = "## Time / density (lower is better)\n\n"
+        + _cmpMdHeader(rts, " z42 / best | z42 / python | z42 / node |");
+    for (int wi = 0; wi < wls.Length; wi = wi + 1) {
+        CmpWorkload w = wls[wi];
+        int best = _cmpBestOther(w, rts, cells[wi]);
+        string row = "| " + w.Name + " | " + _cmpMetricText(w) + " |";
+        for (int i = 0; i < rts.Length; i = i + 1) { row = row + " " + _cmpCellText(w, cells[wi][i]) + " |"; }
+        string bestTxt = best >= 0 ? _cmpRatio(w, rts, cells[wi], best) + " (" + rts[best].Label + ")" : "";
+        row = row + " " + bestTxt + " | " + _cmpRatio(w, rts, cells[wi], _cmpIndexOf(rts, "python"))
+            + " | " + _cmpRatio(w, rts, cells[wi], _cmpIndexOf(rts, "node")) + " |";
+        s = s + row + "\n";
+    }
+    return s;
+}
+
+string _cmpMdRssTable(CmpWorkload[] wls, CmpRuntime[] rts, List<CmpCell[]> cells) {
+    string s = "## Peak RSS (MB, median)\n\n" + _cmpMdHeader(rts, "");
+    for (int wi = 0; wi < wls.Length; wi = wi + 1) {
+        string row = "| " + wls[wi].Name + " | MB |";
+        for (int i = 0; i < rts.Length; i = i + 1) { row = row + " " + _cmpRssText(cells[wi][i]) + " |"; }
+        s = s + row + "\n";
+    }
+    return s;
+}

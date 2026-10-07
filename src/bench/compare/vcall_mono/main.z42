@@ -1,0 +1,26 @@
+// vcall_mono: one receiver type behind a virtual call site — call overhead with a
+// monomorphic inline cache. Checksum = Σ Step(i).
+namespace Compare.VcallMono;
+
+using Std;
+using Std.IO;
+
+class Op {
+    public virtual long Step(long x) { return x; }
+}
+
+class AddOne : Op {
+    public override long Step(long x) { return x + 1L; }
+}
+
+long Drive(Op op, long n) {
+    long acc = 0L;
+    for (long i = 0L; i < n; i = i + 1L) { acc = acc + op.Step(i); }
+    return acc;
+}
+
+void Main() {
+    string[] args = Environment.GetCommandLineArgs();
+    long n = long.Parse(args[0]);
+    Console.WriteLine("RESULT " + Drive(new AddOne(), n).ToString());
+}

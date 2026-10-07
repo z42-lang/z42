@@ -1,0 +1,28 @@
+// density_objects: n small objects (int + next ref) in a live linked chain — bytes/object.
+namespace Compare.DensityObjects;
+
+using Std;
+using Std.IO;
+
+class Node {
+    public int V;
+    public Node Next;
+}
+
+void Main() {
+    string[] args = Environment.GetCommandLineArgs();
+    int n = int.Parse(args[0]);
+    Node head = null;
+    int i = 0;
+    while (i < n) {
+        Node x = new Node();
+        x.V = i;
+        x.Next = head;
+        head = x;
+        i = i + 1;
+    }
+    long s = 0L;
+    Node p = head;
+    while (p != null) { s = s + (long)p.V; p = p.Next; }
+    Console.WriteLine("RESULT " + s.ToString());
+}

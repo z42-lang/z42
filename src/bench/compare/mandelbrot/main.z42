@@ -1,0 +1,30 @@
+// mandelbrot: size×size escape-time grid (50 iterations, |z|² > 4) — double arithmetic in
+// a branchy inner loop. Checksum = number of points inside the set.
+namespace Compare.Mandelbrot;
+
+using Std;
+using Std.IO;
+
+void Main() {
+    string[] args = Environment.GetCommandLineArgs();
+    int size = int.Parse(args[0]);
+    long inside = 0L;
+    for (int y = 0; y < size; y = y + 1) {
+        double ci = 2.0 * (double)y / (double)size - 1.0;
+        for (int x = 0; x < size; x = x + 1) {
+            double cr = 2.0 * (double)x / (double)size - 1.5;
+            double zr = 0.0; double zi = 0.0;
+            int it = 0;
+            bool escaped = false;
+            while (it < 50) {
+                double tr = zr * zr - zi * zi + cr;
+                zi = 2.0 * zr * zi + ci;
+                zr = tr;
+                if (zr * zr + zi * zi > 4.0) { escaped = true; break; }
+                it = it + 1;
+            }
+            if (!escaped) { inside = inside + 1L; }
+        }
+    }
+    Console.WriteLine("RESULT " + inside.ToString());
+}

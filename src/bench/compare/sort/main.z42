@@ -1,0 +1,22 @@
+// sort: sort n pseudo-random ints (LCG) with the standard library's list sort.
+// Checksum = Σ a[i] * (i % 1000) after sorting.
+namespace Compare.Sort;
+
+using Std;
+using Std.IO;
+using Std.Collections;
+
+void Main() {
+    string[] args = Environment.GetCommandLineArgs();
+    int n = int.Parse(args[0]);
+    var a = new List<int>();
+    long seed = 42L;
+    for (int i = 0; i < n; i = i + 1) {
+        seed = (seed * 1103515245L + 12345L) % 2147483648L;
+        a.Add((int)(seed % 1000000L));
+    }
+    a.Sort();
+    long acc = 0L;
+    for (int i = 0; i < n; i = i + 1) { acc = acc + (long)a[i] * (long)(i % 1000); }
+    Console.WriteLine("RESULT " + acc.ToString());
+}

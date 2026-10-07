@@ -1,0 +1,19 @@
+// list_ops: grow a List<int> by push, then index-iterate it `passes` times.
+// Checksum = Σ over passes of Σ (list[i] ^ pass).
+namespace Compare.ListOps;
+
+using Std;
+using Std.IO;
+using Std.Collections;
+
+void Main() {
+    string[] args = Environment.GetCommandLineArgs();
+    int n = int.Parse(args[0]);
+    var list = new List<int>();
+    for (int i = 0; i < n; i = i + 1) { list.Add(i % 1000); }
+    long acc = 0L;
+    for (int pass = 0; pass < 10; pass = pass + 1) {
+        for (int i = 0; i < list.Count; i = i + 1) { acc = acc + (long)(list[i] ^ pass); }
+    }
+    Console.WriteLine("RESULT " + acc.ToString());
+}

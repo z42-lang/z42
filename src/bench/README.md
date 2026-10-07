@@ -14,6 +14,7 @@
 | 能力探针：报告被测 VM 的 `Capabilities()` / `ExecModes()` | `probe/capabilities.z42` |
 | 结果 JSON 的 schema（`xtask bench` 产出、`--diff` / `--ab` 消费） | `baseline-schema.json` |
 | 判红逻辑自检 fixture（`bench-pr.yml` 在测量前先跑） | `testdata/*.json` |
+| 跨语言对标工作负载（`xtask bench compare`，不判红） | `compare/`（见 [compare/README.md](compare/README.md)） |
 
 ## 基础用法
 
@@ -34,5 +35,6 @@ xtask bench --quick         # 场景还能编、能跑：每条打印 mean ± σ
 ## 关联文档
 
 - 判红语义与 CI 门禁：[性能基准与回归门禁](../../docs/internals/src/devinfra/benchmarking.md)
+- z42 与其它语言的对标结果：[跨语言对标](../../docs/internals/src/devinfra/benchmark-compare.md)
 - 能力探针与 profile 矩阵：[执行 profile 矩阵](../../docs/internals/src/testing/exec-profile-matrix.md)
 - 放在这里而不是 `src/tests/` 或 `src/runtime/` 的理由：[测试用例组织规范](../../docs/internals/src/devinfra/test-layout.md)

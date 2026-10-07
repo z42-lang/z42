@@ -1,0 +1,26 @@
+// str_split_join: split a 200-field CSV line and join it back with another
+// separator, `rounds` times. Checksum = Σ (joined length + field count).
+namespace Compare.StrSplitJoin;
+
+using Std;
+using Std.IO;
+using Std.Text;
+
+void Main() {
+    string[] args = Environment.GetCommandLineArgs();
+    int rounds = int.Parse(args[0]);
+    var sb = new StringBuilder();
+    for (int i = 0; i < 200; i = i + 1) {
+        if (i > 0) { sb.Append(","); }
+        sb.Append("f");
+        sb.Append((i * 37).ToString());
+    }
+    string line = sb.ToString();
+    long acc = 0L;
+    for (int r = 0; r < rounds; r = r + 1) {
+        string[] parts = line.Split(",");
+        string joined = String.Join(";", parts);
+        acc = acc + (long)joined.Length + (long)parts.Length;
+    }
+    Console.WriteLine("RESULT " + acc.ToString());
+}

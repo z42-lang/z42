@@ -327,6 +327,10 @@ _MapResult _mapFile(string f) {
     if (f.StartsWith("src/compiler/z42c.pipeline/tests/fixtures/cross-zpkg/")) { return _mapCmds(new string[]{ "xtask test e2e --dir cross-zpkg" }, new string[]{ "cross-zpkg" }); }
     if (f.StartsWith("src/compiler/z42c.pipeline/tests/fixtures/multi-exe/"))  { return _mapCmds(new string[]{ "xtask test e2e --dir multi-exe" }, new string[]{ "multi-exe" }); }
     if (f.StartsWith("src/toolchain/builder/tests/fixtures/"))                 { return _mapCmds(new string[]{ "xtask test toolchain builder" }, new string[]{ "toolchain", "targets" }); }
+    // src/bench/compare/ — the cross-language suite. Its quick run compiles every z42
+    // program and checks every runtime's checksum (runtimes missing from PATH are skipped),
+    // which `bench --quick` (scenarios only) would not touch.
+    if (f.StartsWith("src/bench/compare/"))    { return _mapCmds(new string[]{ "xtask bench compare --quick" }, new string[0]); }
     // src/bench/ — whole-program timing scenarios, probe, schema, verdict fixtures.
     // Not `test e2e` (they're not goldens) and not _mapSkip: a scenario broken by an
     // edit (won't compile, Main moved) would otherwise stay invisible until bench-pr.yml

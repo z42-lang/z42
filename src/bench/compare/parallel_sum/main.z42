@@ -1,0 +1,40 @@
+// parallel_sum: split Σ_{i<n} (i*i % 7) over 4 OS threads, combine the partials —
+// thread spawn/join + parallel CPU scaling. Checksum = the total.
+namespace Compare.ParallelSum;
+
+using Std;
+using Std.IO;
+using Std.Threading;
+
+// Workers read their inputs from statics: a thread body may capture locals
+// only by value, so shared state lives here.
+public static class Shared {
+    public static long N;
+    public static int Threads;
+    public static Channel<long> Out;
+}
+
+long Partial(int t) {
+    long chunk = Shared.N / (long)Shared.Threads;
+    long lo = (long)t * chunk;
+    long hi = t == Shared.Threads - 1 ? Shared.N : lo + chunk;
+    long acc = 0L;
+    for (long i = lo; i < hi; i = i + 1L) { acc = acc + (i * i) % 7L; }
+    return acc;
+}
+
+void Main() {
+    string[] args = Environment.GetCommandLineArgs();
+    Shared.N = long.Parse(args[0]);
+    Shared.Threads = 4;
+    Shared.Out = new Channel<long>(Shared.Threads);
+    Thread[] ts = new Thread[Shared.Threads];
+    for (int t = 0; t < Shared.Threads; t = t + 1) {
+        int id = t;
+        ts[t] = Thread.Start(() => { Shared.Out.Send(Partial(id)); });
+    }
+    for (int t = 0; t < Shared.Threads; t = t + 1) { ts[t].Join(); }
+    long total = 0L;
+    for (int t = 0; t < Shared.Threads; t = t + 1) { total = total + Shared.Out.Recv(); }
+    Console.WriteLine("RESULT " + total.ToString());
+}

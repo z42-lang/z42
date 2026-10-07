@@ -1,0 +1,16 @@
+// fib: naive doubly-recursive Fibonacci — call overhead + int arithmetic.
+namespace Compare.Fib;
+
+using Std;
+using Std.IO;
+
+int Fib(int n) {
+    if (n < 2) { return n; }
+    return Fib(n - 1) + Fib(n - 2);
+}
+
+void Main() {
+    string[] args = Environment.GetCommandLineArgs();
+    int n = int.Parse(args[0]);
+    Console.WriteLine("RESULT " + Fib(n).ToString());
+}

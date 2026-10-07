@@ -1,0 +1,20 @@
+// density_strings: n distinct short strings "k"+i kept live — bytes/string.
+namespace Compare.DensityStrings;
+
+using Std;
+using Std.IO;
+
+void Main() {
+    string[] args = Environment.GetCommandLineArgs();
+    int n = int.Parse(args[0]);
+    string[] all = new string[n];
+    int i = 0;
+    while (i < n) {
+        all[i] = "k" + i.ToString();
+        i = i + 1;
+    }
+    long s = 0L;
+    i = 0;
+    while (i < n) { s = s + (long)all[i].Length; i = i + 1; }
+    Console.WriteLine("RESULT " + s.ToString());
+}

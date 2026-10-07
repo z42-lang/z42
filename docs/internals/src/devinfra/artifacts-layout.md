@@ -16,7 +16,7 @@
 | `packages/` | 组装好的发行包（`z42-<...>-<rid>-<profile>/`），与之并排的发布归档（`z42-{sdk,runtime,workload}-<label>-….{tar.gz,zip}`，打包命令带 `--archive` 时出）及 `SHA256SUMS` / `release-index.json`（`package finalize`）| `xtask package *` |
 | `xtask/` | xtask 自己的 zpkg / zsym / cache —— **不在 `build/` 里面**（它的自检工作目录在 `intermediate/xtask/`）| `z42 publish scripts/xtask.z42.toml` |
 | `tools/` | 构建**下载**的第三方工具（`node`、`android-sdk`、`playwright-browsers`）| `xtask setup` 与按需自动安装 |
-| `reports/` | 给人与 CI 看的**结果**，按种类分子目录：`tests/<platform>/junit.xml`（平台测试）、`bench/`（`e2e.json` / `ab.json` / `micro-*.json`）、`profile/<script>/`（火焰图、dhat 报告、counter 摘要、`report.md`）| `xtask test app *` / z42b 设备驱动、`xtask bench`、`xtask profile` |
+| `reports/` | 给人与 CI 看的**结果**，按种类分子目录：`tests/<platform>/junit.xml`（平台测试）、`bench/`（`e2e.json` / `ab.json` / `micro-*.json` / `compare.{json,md}`）、`profile/<script>/`（火焰图、dhat 报告、counter 摘要、`report.md`）| `xtask test app *` / z42b 设备驱动、`xtask bench`、`xtask profile` |
 | `.z42` | `xtask package dev-sdk` 默认组装出的 SDK 布局（`programs/` + `libs/` + `bin/`）| `xtask package dev-sdk` |
 
 划分的判据只有一句：`build/` = 「我们**编**出来的」，`packages/` = 「我们要**发**的」，
@@ -125,6 +125,7 @@ z42c 写产物同样是就地写 ⇒ 穿透到 `libraries/z42.core/release/dist/
 | `build/{libraries,compiler}/<m>/debug/{tests,bench}`、`build/toolchain/<rel>/debug/{tests,bench}` | z42b（`--out-root`，`_devTargetOutRoot`）| `[Test]` / `[Benchmark]` 目标的父包与产物 |
 | `build/compiler/<m>/release/tests/<unit>` | `test compiler` | 编译器 `[Test]` 单元的构建输出（单元清单的 `output_dir` 带 `${profile}`） |
 | `build/bench/probe` | `bench` / `profile` | 执行画像能力探针的 `.zbc` |
+| `build/bench/compare` | `bench compare` | 跨语言对标的构建产物：`z42/<name>.zbc`、`dotnet/`（bin/obj）、`java/`（class 文件） |
 | `build/runtime/tests/trybuild` | cargo（trybuild）| cargo 自己管的测试编译目录 |
 
 **`intermediate/`（其余一切）**

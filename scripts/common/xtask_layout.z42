@@ -296,7 +296,7 @@ string _reportsDir(string root) { return Path.Join(_artifactsDir(root), "reports
 // artifacts/reports/tests — 平台测试的 junit（每个平台一个子目录：<platform>/junit.xml）。
 string _testReportsDir(string root) { return Path.Join(_reportsDir(root), "tests"); }
 
-// artifacts/reports/bench — benchmark 结果 JSON（e2e.json / ab.json / micro-*.json）。
+// artifacts/reports/bench — benchmark 结果 JSON（e2e.json / ab.json / micro-*.json / compare.{json,md}）。
 string _benchDir(string root) { return Path.Join(_reportsDir(root), "bench"); }
 
 // artifacts/reports/profile — `xtask profile` 报告（每个被测脚本一个子目录）。

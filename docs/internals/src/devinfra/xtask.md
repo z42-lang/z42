@@ -19,7 +19,7 @@
 | `package` | **组装**（只把已编好的产物摆成某种布局，缺产物即报错并点名该跑的 `build`）：发行包 `sdk` / `runtime` / `workload`（都可带 `--archive [--label L]` 同时出发布归档）、开发态 `dev-sdk`（`.z42` SDK 布局）/ `ci`（已建好构建树的 zpkg 快照，CI 的 `toolchain-<os>` artifact）、发布汇总 `finalize`（见[打包引擎](packaging.md)）|
 | `test` | 跑用例，按「契约属于谁」分：`e2e` / `stdlib` / `compiler` / `toolchain` / `runtime` / `app` / `docs` / `package`（打包出的发行版），外加 `changed`、`list`；裸 `test [--no-build] [--skip …]` = 完整 GREEN gate（见[怎么跑测试](testing.md)、[测试门禁](test-gate.md)）|
 | `check` | 不编译、不跑用例的静态检查：`vscode-syntax` / `lines` / `walkers` / `diagcodes` / `stage2` / `ci-shell` / `proc-env` / `layout` / `versions`；不带名字 = 全跑并汇总（`--update` 重写 lines / diagcodes / stage2 的棘轮基线）。另有按需单跑的 `packages`（packages.toml 自检，要碰构建产物，不在全跑里）|
-| `bench` | 基准；裸 `bench` = e2e 场景（见[性能基准与回归门禁](benchmarking.md)）|
+| `bench` | 基准；裸 `bench` = e2e 场景（见[性能基准与回归门禁](benchmarking.md)），`bench compare` = 跨语言对标（见[跨语言对标](benchmark-compare.md)）|
 | `setup` | 准备本机：裸 `setup [--os android\|ios\|wasm] [--force]` = 安装，`setup vscode` = 编辑器扩展，`setup check` = 只读在场校验（见 §6）|
 | `profile` | 对单个 `.z42` 脚本做 cpu / heap / threads / e2e 剖析 |
 | `clean` | 删构建产物（`tests` / `bench` / `intermediate` / `all`，默认删生产 cache/dist；各自删什么见[产物目录布局](artifacts-layout.md) §4）|

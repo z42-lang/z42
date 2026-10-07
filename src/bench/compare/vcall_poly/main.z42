@@ -1,0 +1,30 @@
+// vcall_poly: four receiver types rotating through one virtual call site —
+// polymorphic dispatch. Checksum = Σ shapes[i % 4].Area(i).
+namespace Compare.VcallPoly;
+
+using Std;
+using Std.IO;
+
+class Shape {
+    public virtual long Area(long k) { return 0L; }
+}
+class Square : Shape { public override long Area(long k) { return k * k; } }
+class Rect : Shape { public override long Area(long k) { return k * 2L; } }
+class Tri : Shape { public override long Area(long k) { return k / 2L; } }
+class Dot : Shape { public override long Area(long k) { return 1L; } }
+
+long Drive(Shape[] shapes, long n) {
+    long acc = 0L;
+    for (long i = 0L; i < n; i = i + 1L) {
+        acc = acc + shapes[(int)(i % 4L)].Area(i % 1000L);
+    }
+    return acc;
+}
+
+void Main() {
+    string[] args = Environment.GetCommandLineArgs();
+    long n = long.Parse(args[0]);
+    Shape[] shapes = new Shape[4];
+    shapes[0] = new Square(); shapes[1] = new Rect(); shapes[2] = new Tri(); shapes[3] = new Dot();
+    Console.WriteLine("RESULT " + Drive(shapes, n).ToString());
+}

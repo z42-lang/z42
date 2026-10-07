@@ -1,0 +1,244 @@
+# Cross-language comparison workloads — the single table `xtask bench compare` reads.
+#
+# Each [[workload]] names a directory next to this file holding the same algorithm in
+# main.z42 / main.py / main.js / main.rb / Main.cs / Main.java. A missing file means that
+# runtime has no idiomatic standard facility for the workload (`note` says why).
+#
+#   category  startup | cpu | calls | strings | collections | json | memory | gc | concurrency
+#   metric    time     — whole-process wall time (startup included), median of the runs
+#             startup  — same measurement; reported with peak RSS as the headline
+#             density  — bytes per unit = (peak RSS(N) − peak RSS(0)) / N, N = args[0]
+#   args / checksum              full run: every program must print `RESULT <checksum>`
+#   quick_args / quick_checksum  `--quick` smoke run (same verification, seconds total)
+#   z42_stw   also run z42 under `--set gc-mode=stw` (memory / GC workloads)
+#   unit      density only: what N counts
+
+[[workload]]
+name = "hello"
+category = "startup"
+metric = "startup"
+args = []
+checksum = "42"
+quick_args = []
+quick_checksum = "42"
+
+[[workload]]
+name = "fib"
+category = "cpu"
+metric = "time"
+args = ["32"]
+checksum = "2178309"
+quick_args = ["20"]
+quick_checksum = "6765"
+
+[[workload]]
+name = "nbody"
+category = "cpu"
+metric = "time"
+args = ["500000"]
+checksum = "-169096566"
+quick_args = ["1000"]
+quick_checksum = "-169087605"
+
+[[workload]]
+name = "spectral_norm"
+category = "cpu"
+metric = "time"
+args = ["800"]
+checksum = "1274224143"
+quick_args = ["100"]
+quick_checksum = "1274219991"
+
+[[workload]]
+name = "mandelbrot"
+category = "cpu"
+metric = "time"
+args = ["800"]
+checksum = "254099"
+quick_args = ["100"]
+quick_checksum = "3959"
+
+[[workload]]
+name = "fannkuch"
+category = "cpu"
+metric = "time"
+args = ["9"]
+checksum = "8629:30"
+quick_args = ["7"]
+quick_checksum = "228:16"
+
+[[workload]]
+name = "vcall_mono"
+category = "calls"
+metric = "time"
+args = ["20000000"]
+checksum = "200000010000000"
+quick_args = ["100000"]
+quick_checksum = "5000050000"
+
+[[workload]]
+name = "vcall_poly"
+category = "calls"
+metric = "time"
+args = ["20000000"]
+checksum = "1662925000000"
+quick_args = ["100000"]
+quick_checksum = "8314625000"
+
+[[workload]]
+name = "closures"
+category = "calls"
+metric = "time"
+args = ["2000000"]
+checksum = "6000002999995"
+quick_args = ["10000"]
+quick_checksum = "150014994"
+
+[[workload]]
+name = "str_builder"
+category = "strings"
+metric = "time"
+args = ["1000000"]
+checksum = "11488890"
+quick_args = ["10000"]
+quick_checksum = "92890"
+
+[[workload]]
+name = "str_split_join"
+category = "strings"
+metric = "time"
+args = ["20000"]
+checksum = "27340000"
+quick_args = ["100"]
+quick_checksum = "136700"
+
+[[workload]]
+name = "num_format"
+category = "strings"
+metric = "time"
+args = ["2000000"]
+checksum = "26596897"
+quick_args = ["10000"]
+quick_checksum = "108589"
+
+[[workload]]
+name = "list_ops"
+category = "collections"
+metric = "time"
+args = ["2000000"]
+checksum = "9990256000"
+quick_args = ["10000"]
+quick_checksum = "49951280"
+
+[[workload]]
+name = "dict_ops"
+category = "collections"
+metric = "time"
+args = ["1000000"]
+checksum = "500000500004"
+quick_args = ["10000"]
+quick_checksum = "50005004"
+
+[[workload]]
+name = "sort"
+category = "collections"
+metric = "time"
+args = ["1000000"]
+checksum = "250030089465863"
+quick_args = ["10000"]
+quick_checksum = "2586603455744"
+
+[[workload]]
+name = "json"
+category = "json"
+metric = "time"
+args = ["10000"]
+checksum = "51018936"
+quick_args = ["100"]
+quick_checksum = "14648"
+note = "java: the JDK has no standard JSON API"
+
+[[workload]]
+name = "density_objects"
+category = "memory"
+metric = "density"
+unit = "object"
+args = ["1000000"]
+checksum = "499999500000"
+quick_args = ["10000"]
+quick_checksum = "49995000"
+z42_stw = true
+
+[[workload]]
+name = "density_arrays"
+category = "memory"
+metric = "density"
+unit = "long[8]"
+args = ["200000"]
+checksum = "79999600000"
+quick_args = ["10000"]
+quick_checksum = "199980000"
+z42_stw = true
+
+[[workload]]
+name = "density_strings"
+category = "memory"
+metric = "density"
+unit = "string"
+args = ["1000000"]
+checksum = "6888890"
+quick_args = ["10000"]
+quick_checksum = "48890"
+z42_stw = true
+
+[[workload]]
+name = "density_intlist"
+category = "memory"
+metric = "density"
+unit = "element"
+args = ["10000000"]
+checksum = "49999995000000"
+quick_args = ["100000"]
+quick_checksum = "4999950000"
+z42_stw = true
+
+[[workload]]
+name = "density_map"
+category = "memory"
+metric = "density"
+unit = "entry"
+args = ["1000000"]
+checksum = "64359919"
+quick_args = ["10000"]
+quick_checksum = "17919"
+z42_stw = true
+
+[[workload]]
+name = "binary_trees"
+category = "gc"
+metric = "time"
+args = ["16"]
+checksum = "14723759"
+quick_args = ["10"]
+quick_checksum = "131759"
+z42_stw = true
+
+[[workload]]
+name = "large_heap"
+category = "gc"
+metric = "time"
+args = ["50000"]
+checksum = "25919994799997"
+quick_args = ["1000"]
+quick_checksum = "10367895997"
+z42_stw = true
+
+[[workload]]
+name = "parallel_sum"
+category = "concurrency"
+metric = "time"
+args = ["40000000"]
+checksum = "79999999"
+quick_args = ["100000"]
+quick_checksum = "199999"
+note = "python / ruby: threads are serialised by the GIL / GVL; node: worker_threads"

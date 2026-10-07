@@ -1,0 +1,49 @@
+// binary_trees: Benchmarks Game binary-trees (single-threaded) — young-gen allocation + GC throughput.
+namespace Compare.BinaryTrees;
+
+using Std;
+using Std.IO;
+
+class TreeNode {
+    public TreeNode Left;
+    public TreeNode Right;
+}
+
+TreeNode Bottom(int depth) {
+    TreeNode t = new TreeNode();
+    if (depth > 0) {
+        t.Left = Bottom(depth - 1);
+        t.Right = Bottom(depth - 1);
+    }
+    return t;
+}
+
+int Check(TreeNode t) {
+    if (t.Left == null) { return 1; }
+    return 1 + Check(t.Left) + Check(t.Right);
+}
+
+void Main() {
+    string[] args = Environment.GetCommandLineArgs();
+    int maxDepth = int.Parse(args[0]);
+    if (maxDepth < 6) { maxDepth = 6; }
+    int stretch = maxDepth + 1;
+    Console.WriteLine("stretch tree of depth " + stretch.ToString() + "\t check: " + Check(Bottom(stretch)).ToString());
+    TreeNode longLived = Bottom(maxDepth);
+    long total = 0L;
+    int d = 4;
+    while (d <= maxDepth) {
+        int iters = 1 << (maxDepth - d + 4);
+        int check = 0;
+        int i = 0;
+        while (i < iters) { check = check + Check(Bottom(d)); i = i + 1; }
+        Console.WriteLine(iters.ToString() + "\t trees of depth " + d.ToString() + "\t check: " + check.ToString());
+        total = total + (long)check;
+        d = d + 2;
+    }
+    int ll = Check(longLived);
+    Console.WriteLine("long lived tree of depth " + maxDepth.ToString() + "\t check: " + ll.ToString());
+    Console.WriteLine("RESULT " + (total + (long)ll).ToString());
+    long[] st = GC.PauseStatsRaw();
+    Console.WriteLine("PAUSE max_us=" + st[1].ToString() + " total_us=" + st[2].ToString() + " count=" + st[3].ToString());
+}

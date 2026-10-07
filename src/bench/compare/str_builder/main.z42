@@ -1,0 +1,24 @@
+// str_builder: build one large string from many small pieces with the language's
+// idiomatic builder (StringBuilder). Checksum = final length + count of '7'.
+namespace Compare.StrBuilder;
+
+using Std;
+using Std.IO;
+using Std.Text;
+
+void Main() {
+    string[] args = Environment.GetCommandLineArgs();
+    int n = int.Parse(args[0]);
+    var sb = new StringBuilder();
+    for (int i = 0; i < n; i = i + 1) {
+        sb.Append("item");
+        sb.Append(i.ToString());
+        sb.Append(";");
+    }
+    string s = sb.ToString();
+    long sevens = 0L;
+    for (int i = 0; i < s.Length; i = i + 1) {
+        if (s[i] == '7') { sevens = sevens + 1L; }
+    }
+    Console.WriteLine("RESULT " + ((long)s.Length + sevens).ToString());
+}

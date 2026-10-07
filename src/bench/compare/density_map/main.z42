@@ -1,0 +1,21 @@
+// density_map: Dictionary<string,int> with n entries ("k"+i -> i) — bytes/entry.
+namespace Compare.DensityMap;
+
+using Std;
+using Std.IO;
+using Std.Collections;
+
+void Main() {
+    string[] args = Environment.GetCommandLineArgs();
+    int n = int.Parse(args[0]);
+    var d = new Dictionary<string, int>();
+    int i = 0;
+    while (i < n) {
+        d.Set("k" + i.ToString(), i);
+        i = i + 1;
+    }
+    long s = (long)d.Count;
+    i = 0;
+    while (i < n) { s = s + (long)d.Get("k" + i.ToString()); i = i + 7919; }
+    Console.WriteLine("RESULT " + s.ToString());
+}

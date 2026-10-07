@@ -1,0 +1,18 @@
+// num_format: integer → decimal string → integer round trip (ToString + Parse).
+// Checksum = Σ (len(str(v)) + parse(str(v)) % 7).
+namespace Compare.NumFormat;
+
+using Std;
+using Std.IO;
+
+void Main() {
+    string[] args = Environment.GetCommandLineArgs();
+    long n = long.Parse(args[0]);
+    long acc = 0L;
+    for (long i = 0L; i < n; i = i + 1L) {
+        long v = i * 7919L + 1L;
+        string s = v.ToString();
+        acc = acc + (long)s.Length + long.Parse(s) % 7L;
+    }
+    Console.WriteLine("RESULT " + acc.ToString());
+}

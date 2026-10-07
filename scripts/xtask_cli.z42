@@ -66,8 +66,8 @@ int _runCli(string[] argvIn) {
             return 2;
         }
     }
-    // default-action shim: `bench` (anything but the `stdlib`/`targets` subcommands) → e2e.
-    if (c0 == "bench" && c1 != "stdlib" && c1 != "targets") {
+    // default-action shim: `bench` (anything but the `stdlib`/`targets`/`compare` subcommands) → e2e.
+    if (c0 == "bench" && c1 != "stdlib" && c1 != "targets" && c1 != "compare") {
         return _benchE2e(argv);
     }
     // `run` is a raw passthrough to the launcher (forwards `<app> [-- args]`

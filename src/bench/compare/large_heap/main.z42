@@ -1,0 +1,82 @@
+// large_heap: large live old generation (slots × 8-node chains, each node with long[8]) under churn —
+// slots chains x 8 nodes, each node with a long[8] payload, all live;
+// churn = slots*8 iterations, each replacing one random chain + a young temp.
+namespace Compare.LargeHeap;
+
+using Std;
+using Std.IO;
+
+class Node {
+    public long Id;
+    public long[] Data;
+    public Node Next;
+}
+
+Node MakeChain(long firstId, int chain) {
+    Node head = null;
+    int k = 0;
+    while (k < chain) {
+        Node n = new Node();
+        n.Id = firstId + (long)k;
+        long[] d = new long[8];
+        d[0] = n.Id;
+        d[7] = n.Id * 3L;
+        n.Data = d;
+        n.Next = head;
+        head = n;
+        k = k + 1;
+    }
+    return head;
+}
+
+long ChainSum(Node head) {
+    long s = 0L;
+    Node n = head;
+    while (n != null) {
+        s = s + n.Data[0] + n.Data[7];
+        n = n.Next;
+    }
+    return s;
+}
+
+long Drive(int slots, int chain, long churn) {
+    Node[] table = new Node[slots];
+    long nextId = 0L;
+    int s = 0;
+    while (s < slots) {
+        table[s] = MakeChain(nextId, chain);
+        nextId = nextId + (long)chain;
+        s = s + 1;
+    }
+    long seed = 12345L;
+    long acc = 0L;
+    long i = 0L;
+    while (i < churn) {
+        seed = (seed * 1103515245L + 12345L) % 2147483648L;
+        int slot = (int)(seed % (long)slots);
+        acc = acc + ChainSum(table[slot]);
+        table[slot] = MakeChain(nextId, chain);
+        nextId = nextId + (long)chain;
+        Node t = new Node();
+        t.Id = i;
+        long[] tmp = new long[4];
+        tmp[1] = i;
+        acc = acc + tmp[1] % 7L + t.Id % 5L;
+        i = i + 1L;
+    }
+    s = 0;
+    while (s < slots) {
+        acc = acc + ChainSum(table[s]);
+        s = s + 1;
+    }
+    return acc;
+}
+
+void Main() {
+    string[] args = Environment.GetCommandLineArgs();
+    int slots = int.Parse(args[0]);
+    long result = Drive(slots, 8, (long)slots * 8L);
+    Console.WriteLine("RESULT " + result.ToString());
+    long[] st = GC.PauseStatsRaw();
+    Console.WriteLine("PAUSE max_us=" + st[1].ToString() + " total_us=" + st[2].ToString() + " count=" + st[3].ToString());
+}

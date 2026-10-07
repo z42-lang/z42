@@ -91,6 +91,7 @@ xtask 是独立的 z42 应用——它不是通用 `z42` launcher 的一部分�
 | 上面三条带 `--archive [--label L]` | 同时出发布归档（CI 各 package job / 本地发布；只限 release profile） | 本次产出的包目录 | 包目录旁的 `artifacts/packages/z42-{sdk,runtime,workload}-<L>-….{tar.gz,zip}` |
 | `package finalize <label> [--dir D] …` | 发布汇总：合并 desktop workload → SHA256SUMS → index | 9 个 RID 的归档（默认在 `artifacts/packages/`） | `SHA256SUMS` + `release-index.json` + 合并后的 desktop workload |
 | `bench [--tier T] [--diff\|--ab]` | 性能基准 / 回归对比（场景在 `src/bench/`） | z42c + hyperfine | 各场景编译/执行耗时；`--diff` 比对两组结果，`--ab` 同 runner A/B 判红 |
+| `bench compare [--quick] [--only W] [--runtimes R]` | 跨语言对标（z42 vs python/node/ruby/dotnet/java，工作负载在 `src/bench/compare/`） | z42c + `/usr/bin/time`；各外部 runtime 可选（PATH 上没有即跳过） | `artifacts/reports/bench/compare.{json,md}`：每格中位 wall / 峰值 RSS / 内存密度，checksum 核对 |
 | `profile <script> [--cpu\|--heap\|--threads\|--e2e\|--all]` | 深挖某个 `.z42` 脚本的性能 | z42c +（可选）samply/dhat/hyperfine | `artifacts/reports/profile/<name>/`：CPU 火焰图 / dhat 堆报告 / peak-RSS / counter 摘要 + `report.md` |
 | `test` | **每次 commit / 合并前必跑** | 下面各 stage | 串联全部验证 stage（清单见 internals/devinfra/test-gate.md；不含 runtime——见下） |
 | `test runtime` | 改了 Rust VM (`src/runtime/`) | `cargo` | Rust VM 单测/集成（`cargo test --test-threads=1`；含 zbc/zpkg format 基线）。**不在 `test` gate 内**（signal 测试在受限沙箱会挂）；CI 每腿单独一步 + 按需本地跑 |
@@ -243,6 +244,8 @@ scripts/
 ├── xtask.z42.toml       工程清单（glob include；output → artifacts/xtask/）
 ├── xtask_cli.z42        CLI **核心**：全局选项剥离 + 根命令树 + 顶层 dispatch 分流（每层 -h 自动生成）
 ├── xtask_bench.z42      bench 基准 / --diff / --ab 回归对比
+├── xtask_bench_compare.z42         bench compare：跨语言对标的构建与运行（src/bench/compare）
+├── xtask_bench_compare_report.z42  bench compare：中位数 / 密度统计与 compare.{json,md} 报告
 ├── xtask_profile.z42    profile 单脚本性能（cpu/heap/threads/e2e；samply/dhat/hyperfine + counter JSON）
 ├── cli/                每个命令族的 router（叶子的 flag/option 声明）+ dispatch（→ handler）
 │   │                   ——两者成对出现、族间零耦合，故按族分文件，而非「router 一段 / dispatch 一段」
