@@ -29,10 +29,10 @@ z42 使用 **`<name>.z42.toml`** 作为工程配置文件，格式为 TOML。
 |---|---|---|
 | 工程清单有未知键 | ``z42c: <清单>: unknown key `<键>` in [<段>] (known: a, b, c)`` | 逐条报出，exit 2（用法错误），什么都不构建 |
 | 工作区清单有未知键 | ``z42c build --workspace: <z42.workspace.toml>: unknown key `<键>` in [workspace] (known: …)`` | 规划阶段失败（exit 1），不构建任何成员 |
-| 用了改过名的旧键 | ``z42c: <清单>: warning: key `warnings-as-errors` in [lints] is deprecated, rename it to `warnings_as_errors` (the old spelling will be rejected in a future release)`` | 仅警告，构建继续 |
+| `[lints]` 的值不对 | ``z42c: <清单>: [lints] `<规则>`: unknown severity "<值>" (known: none, hidden, info, warning, error)``；非串值报 ``unknown key `<键>` in [lints] (…)`` | 同工程清单未知键 |
 
 键名本身就是用户数据、因而**不按本页审计**的位置：`[dependencies]` / `[analyzers]` / `[native]` 下的
-包名 / 子表名、`[lints]` 的规则名、`[properties]` 与 `[profile.<n>.properties]` 的键、
+包名 / 子表名、`[lints]` 的规则名（值照样校验，见 [L5c](#lints--逐规则-severity-覆盖)）、`[properties]` 与 `[profile.<n>.properties]` 的键、
 `[profile.<n>.runtime]` 的旋钮名（按 VM 登记表校验，未知名仅警告，见
 [运行时设置](runtime-settings.md#更早一层构建期的名字校验)）、`[optimize]` / `[syntax]` 的名字
 （由各自的名表校验，未知名报错，见 [L5d](#l5d--optimize--syntax逐项具名旋钮)）。
@@ -984,7 +984,7 @@ warnings_as_errors = true        # 特殊布尔键（不是规则名）
 
 键是规则 ID，值是 severity 串。**精确 ID 优先于 `pkg.*` 前缀通配**。
 `warnings_as_errors` 是**保留的布尔键**，不当规则名解析。
-旧拼写 `warnings-as-errors` 目前仍生效，但会报弃用警告提示改名；后续版本将按未知键报错。
+旧拼写 `warnings-as-errors` 已删除，写了按未知键报错。
 `DiagRule.EnabledByDefault` 为 `false` 的规则默认不报，要在这里显式打开。
 
 接受的 severity 串只有五个：
@@ -997,8 +997,9 @@ warnings_as_errors = true        # 特殊布尔键（不是规则名）
 | `"warning"` | 警告 |
 | `"error"` | 编译失败、不产产物 |
 
-> ⚠️ **写错的 severity 串不报错，会被静默当成「无覆盖」**（`LintConfig._parseSevToken` 未知
-> 值返回 `NoOverride`，回落该规则的默认级别）。即 `DEMO001 = "eror"` 看起来配了、实际没配。
+写错的 severity 串（`DEMO001 = "eror"`）、规则键写成非串值、`warnings_as_errors` 写成非布尔，都按清单错误
+报出（与未知键同一通道，exit 2），不会被静默当成「无覆盖」。规则**名**不校验——analyzer 的规则表在编译期
+才加载，写一个没有任何 analyzer 声明的规则名不报错。
 
 ---
 
@@ -1089,7 +1090,7 @@ output_dir = "artifacts/${project_name}/${profile}"
 |---|---|
 | `members` | 成员目录（glob / 显式路径），缺省 `["*"]` |
 | `exclude` | 从展开结果中剔除的成员路径 |
-| `default_members` | 默认成员子集。旧拼写 `default-members` 目前仍生效，但会报弃用警告提示改名；后续版本将按未知键报错 |
+| `default_members` | 默认成员子集。旧拼写 `default-members` 已删除，写了按未知键报错 |
 | `dependencies` | 中央依赖声明，条目写法同 `[dependencies]`。当前只解析与校验键名，构建不消费——成员仍在自己的 `[dependencies]` 里声明依赖 |
 | `build` | 只接受 `output_dir` / `cache_dir`，见 [L6.5](#l65-workspacebuild-集中产物) |
 
@@ -1350,7 +1351,7 @@ include = ["src/tool/**/*.z42"] # 可选，覆盖 [sources]
 
 [lints]                          # 键是规则 ID，值是 severity：none|hidden|info|warning|error
 DEMO001            = "error"
-warnings_as_errors = true       # 保留布尔键（旧拼写 warnings-as-errors 弃用）
+warnings_as_errors = true       # 保留布尔键
 
 [optimize]                       # 逐 pass 开关，名字见 L5d
 inline = true
@@ -1392,7 +1393,7 @@ apphost = true
 [workspace]
 members         = ["libs/*", "apps/*"]
 exclude         = []
-default_members = []            # 旧拼写 default-members 弃用
+default_members = []
 
 [workspace.dependencies]         # 表形式只认 version / path / deploy
 # "pkg-name" = { path = "...", version = "0.1.0" }

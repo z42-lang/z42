@@ -130,9 +130,9 @@ z42c / xtask 读，而它们跑的是**种子那一代**的 z42.project——不
 - **加一个清单键**：阶段 1 只给 z42.project 加解析 + 进 `ManifestKeys` 键表，仓内清单**不写**它
   → nightly 发布 → 阶段 2 才在仓内清单（`src/compiler/`、`src/libraries/`、`scripts/` 下的工程与 workspace
   清单，以及种子会构建的任何清单）里用它。只由**刚建出的**编译器构建的测试夹具不受此限，但拿不准就按种子算。
-- **改一个键名**：阶段 1 新旧两个都认（新名优先），旧名进 `DeprecatedKeys` 只报**警告**、仓内清单保持旧名；
+- **改一个键名**：阶段 1 新旧两个都认（新名优先），旧名只报**警告**（警告通道随上一次改名删了，需要时加回）、仓内清单保持旧名；
   阶段 2（nightly 之后）仓内清单切新名 + 删掉旧名支持（旧名回落成未知键 = 错误）。挂一条 `STAGE2-DEBT` 提醒。
-- xtask 直接按原始 TOML 读的键（如 `_stdlibList` 读 `workspace.default-members`）与仓内清单**同一个提交**一起切。
+- xtask 直接按原始 TOML 读的键（如 `_stdlibList` 读 `workspace.default_members`）与仓内清单**同一个提交**一起切。
 
 ### 边界的第二根轴：stdlib API 面
 

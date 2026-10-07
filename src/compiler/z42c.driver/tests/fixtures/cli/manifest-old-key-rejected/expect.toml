@@ -1,0 +1,5 @@
+desc = "改过名的清单键旧拼写（阶段 2 已删）：`warnings-as-errors` 落回未知键 → 报错 exit 2，不再生效"
+args = ["build", "check.knob.z42.toml"]
+exit = 2
+stderr_contains = ["z42c: check.knob.z42.toml: unknown key `warnings-as-errors` in [lints] (rule keys take a severity string; the only boolean key is warnings_as_errors)"]
+stderr_not_contains = ["deprecated", "uncaught exception"]
