@@ -50,7 +50,7 @@ public sealed class AccessChecker {
         string scope = env.CurrentClass();
         while (scope != "") {
             if (this._derivesFrom(scope, declClass, symbols)) { return true; }
-            int lp = scope.LastIndexOf("+");
+            int lp = scope.LastIndexOf('+');
             scope = lp < 0 ? "" : scope.Substring(0, lp);
         }
         return false;

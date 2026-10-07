@@ -28,35 +28,38 @@ public static class DepRef {
 
     // 运行期与编译期共用的符号键：去掉泛型实参（`<…>`）与重载 / arity 后缀（`$…`）。
     // 运行期 `LazyLoader` 对查找名做同样的归一（见 runtime `symbol_key`）。
+    // 每次依赖记录都走这里（热路径）：一次 `ToCharArray` 单遍扫，不用两次 `IndexOf(string)`（各自物化一遍）。
     public static string SymKey(string name) {
-        int cut = name.Length;
-        int lt = name.IndexOf("<");
-        if (lt >= 0 && lt < cut) { cut = lt; }
-        int ds = name.IndexOf("$");
-        if (ds >= 0 && ds < cut) { cut = ds; }
-        return cut == name.Length ? name : name.Substring(0, cut);
+        char[] cs = name.ToCharArray();
+        int i = 0;
+        while (i < cs.Length) {
+            char c = cs[i];
+            if (c == '<' || c == '$') { return name.Substring(0, i); }
+            i = i + 1;
+        }
+        return name;
     }
 
     public static string NsOf(string entry) {
-        int h = entry.IndexOf("#");
+        int h = entry.IndexOf('#');
         return h < 0 ? entry : entry.Substring(0, h);
     }
 
     // "" = 归属不明。
     public static string PkgOf(string entry) {
-        int h = entry.IndexOf("#");
+        int h = entry.IndexOf('#');
         if (h < 0) { return ""; }
         string rest = entry.Substring(h + 1, entry.Length - h - 1);
-        int h2 = rest.IndexOf("#");
+        int h2 = rest.IndexOf('#');
         return h2 < 0 ? rest : rest.Substring(0, h2);
     }
 
     // "" = 条目不带符号（只到 ns / 包）。
     public static string SymOf(string entry) {
-        int h = entry.IndexOf("#");
+        int h = entry.IndexOf('#');
         if (h < 0) { return ""; }
         string rest = entry.Substring(h + 1, entry.Length - h - 1);
-        int h2 = rest.IndexOf("#");
+        int h2 = rest.IndexOf('#');
         return h2 < 0 ? "" : rest.Substring(h2 + 1, rest.Length - h2 - 1);
     }
 }

@@ -253,7 +253,7 @@ public sealed class StructLayout {
 
     // 实例化名 → 基名（`Pair<P2,int>` → `Pair`）；无 `<` 原样返回。
     public static string BaseNameOf(string typeName) {
-        int lt = typeName.IndexOf("<");
+        int lt = typeName.IndexOf('<');   // char 重载：needle 不必物化（热路径，布局 / 实例化名判定）
         if (lt < 0) { return typeName; }
         return typeName.Substring(0, lt);
     }
@@ -276,7 +276,7 @@ public sealed class StructLayout {
     // 实例化名 → 实参名数组（`Pair<P2,int>` → ["P2","int"]）。顶层逗号切分，**跟踪嵌套深度**
     // 以正确处理 `Pair<Pair<P2,int>,int>`（内层逗号不是分隔符）。无 `<` → 空数组。
     public static string[] InstArgsOf(string typeName) {
-        int lt = typeName.IndexOf("<");
+        int lt = typeName.IndexOf('<');
         if (lt < 0) { return new string[0]; }
         // 去掉外层 `<` 与末尾 `>`
         int inner = typeName.Length - lt - 2;
@@ -665,7 +665,7 @@ public sealed class StructLayout {
     // 不在表里且无 `<` ⇒ 原样返回（非型参的具体类型名，本就不该动）。
     private static string _substFieldTypeName(string ftype, StrMap subst) {
         if (subst.ContainsKey(ftype)) { return (subst.Get(ftype) as StrBox).Value; }
-        if (ftype.IndexOf("<") < 0) { return ftype; }
+        if (ftype.IndexOf('<') < 0) { return ftype; }
         string[] args = StructLayout.InstArgsOf(ftype);
         if (args.Length == 0) { return ftype; }
         bool changed = false;
@@ -776,7 +776,7 @@ public sealed class StructLayout {
     // 泛型类型的 base 名（`List<int>` → `List`）+ Canon。非泛型原样 Canon。用于查 _classDefs（键为类名 Canon）。
     // 注：泛型类在 _classDefs 若以 `Name$N` 存则不匹配 → 该泛型 object 字段落 GcRefClosure（侧表，安全次优）。
     private static string _baseName(string canonName) {
-        int lt = canonName.IndexOf("<");
+        int lt = canonName.IndexOf('<');
         if (lt >= 0) { return PrimModel.Canon(canonName.Substring(0, lt)); }
         return canonName;
     }

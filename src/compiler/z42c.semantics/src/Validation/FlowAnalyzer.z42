@@ -616,7 +616,7 @@ public sealed partial class FlowAnalyzer {
     // 这条在跨包路径打通之前一直照不出来：本包非重载方法的键恰好就是裸名，蒙对了。
     private static string _displayName(string regKey) {
         if (regKey == null) { return ""; }
-        int d = regKey.IndexOf("$");
+        int d = regKey.IndexOf('$');
         if (d <= 0) { return regKey; }
         return regKey.Substring(0, d);
     }

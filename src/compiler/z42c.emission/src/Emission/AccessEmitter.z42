@@ -208,7 +208,7 @@ public sealed class AccessEmitter {
                 // 否则 getter 体按定义偏移读（`GBox<int>` 定义 tag@8、实例化 tag@4、blob 只有 8B）
                 // ⇒ `struct field read out of blob bounds (off=8, w=4, len=8)`。
                 string gname = this._ee._blobStructName(m.Target.Type());
-                string fqGetter = (gname.IndexOf("<") >= 0 ? this._ee._qualifyInstName(gname)
+                string fqGetter = (gname.IndexOf('<') >= 0 ? this._ee._qualifyInstName(gname)
                                                            : this._ctx.QualifyClass(sct.Name()))
                                   + ".get_" + m.MemberName;
                 return this._ee._emitStructPropGet(fqGetter, sobj, m.Type());
@@ -359,7 +359,7 @@ public sealed class AccessEmitter {
     // 去掉 arity mangle（`GBox$1` → `GBox`）：`SpecOwnerName` 取的是符号表键、可能带 `$N`，
     // 而 `BoundStaticGet.ClassName` 是源码短名。比之前先归一，否则恒不相等（静默退回擦除键）。
     private static string _bareOf(string n) {
-        int d = n.LastIndexOf("$");
+        int d = n.LastIndexOf('$');
         if (d <= 0) { return n; }
         int i = d + 1;
         if (i >= n.Length) { return n; }

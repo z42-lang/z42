@@ -381,15 +381,15 @@ public sealed class CallEmitter {
         // 体查找键：静态方法 = `OwnerKey.RegKey`；自由函数 = `RegKey`（= FQ 名去掉 ns 前缀）。
         string lookup = "";
         if (c.Kind == "static") {
-            int d1 = func.LastIndexOf(".");
+            int d1 = func.LastIndexOf('.');
             if (d1 < 0) { return func; }
             string ownerFq = func.Substring(0, d1);
             string mkey = func.Substring(d1 + 1, func.Length - d1 - 1);
-            int d2 = ownerFq.LastIndexOf(".");
+            int d2 = ownerFq.LastIndexOf('.');
             string ownerBare = d2 < 0 ? ownerFq : ownerFq.Substring(d2 + 1, ownerFq.Length - d2 - 1);
             lookup = ownerBare + "." + mkey;
         } else {
-            int d3 = func.LastIndexOf(".");
+            int d3 = func.LastIndexOf('.');
             lookup = d3 < 0 ? func : func.Substring(d3 + 1, func.Length - d3 - 1);
         }
         if (!g.GenericBodies.ContainsKey(lookup)) { return func; }
@@ -408,7 +408,7 @@ public sealed class CallEmitter {
 
     private bool _isObjectVirtualName(string callKey) {
         string m = MethodSymbol.StripCallKey(callKey);
-        int d = m.IndexOf("$");
+        int d = m.IndexOf('$');
         if (d >= 0) { m = m.Substring(0, d); }
         return m == "ToString" || m == "Equals" || m == "GetHashCode" || m == "GetType";
     }
@@ -581,7 +581,7 @@ public sealed class CallEmitter {
             //    （共享体按定义偏移烘焙，布局既相同则偏移对得上）。
             string identN = this._ee._instIdentityName(n.Type());
             string qualAlloc = identN != "" ? this._ee._qualifyInstName(identN) : qualCls;
-            string ctorOwner = sname.IndexOf("<") >= 0 ? this._ee._qualifyInstName(sname) : qualCls;
+            string ctorOwner = sname.IndexOf('<') >= 0 ? this._ee._qualifyInstName(sname) : qualCls;
             TypedReg handle = this._ctx.Alloc(IrType.Ref);   // StructRef 句柄（Ref tag）
             this._ctx.Emit(new StructAllocInstr(handle, qualAlloc, size));
             fqCtor = ctorOwner + "." + n.CtorName;

@@ -557,7 +557,7 @@ public static class PackageCompile {
             if (k.Length > pfx.Length && k.StartsWith(pfx)) { return true; }   // ②
             i = i + 1;
         }
-        int dot = ns.LastIndexOf(".");                                     // ③
+        int dot = ns.LastIndexOf('.');                                     // ③
         if (dot > 0) {
             string head = ns.Substring(0, dot);
             int j = 0;

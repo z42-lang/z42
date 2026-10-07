@@ -383,33 +383,45 @@ public static partial class ImportedSymbolLoader {
             oi = oi + 1;
         }
         // ── Phase2：成员填充（骨架齐备后解析类型可互指）──
+        // 类成员先填（perf-parallel-import-fill）：`_fillClass` 只读 Phase1 建好的表、只写它自己那个类对象，
+        // 类与类之间互不依赖 ⇒ 按「类」分组并行（同一个类的多份——partial 跨模块——同组、保原序，由一个任务
+        // 独占）。先收集再一次 ParallelFor；收集序 = 原逐模块序，所以每个类拿到的成员与登记顺序和串行逐字节一致。
+        // 委托 / 自由函数 / 接口方法不依赖已填的类成员（`_resolve` 只查骨架表），仍在下面逐模块串行。
         StrMap filledByFqn = new StrMap();
+        ClassFillTask fill = new ClassFillTask(r);
+        oi = 0;
+        while (oi < orderN) {
+            i = order[oi];
+            ExportedModuleZ fem = exported[i];
+            int c = 0;
+            while (c < fem.ClassCount) {
+                ExportedClassZ cl = fem.Classes[c];
+                bool needsMangle = cl.TpCount > 0 && (tier0[i] ? impMultiArity : impMultiAll).ContainsKey(cl.Name);
+                string clKey = needsMangle ? (cl.Name + "$" + cl.TpCount.ToString()) : cl.Name;
+                string fqnKey = fem.Namespace == "" ? clKey : fem.Namespace + "." + clKey;
+                Z42ClassType ct = r.Classes.Get(clKey) as Z42ClassType;
+                StrBox owner = r.ClassNamespaces.Get(clKey) as StrBox;
+                if (ct != null && owner != null && owner.Value == fem.Namespace) {
+                    fill.Add(fqnKey, ct, cl);
+                } else {
+                    // 短名被别的 ns 占了的类只活在 FQN 视图里 —— 此前从不填成员，限定名引用到它是个空壳
+                    // （「no method」/「no field」）。同 FQN 多份时只填 Phase1 建型的那一份（first-wins）。
+                    Z42ClassType fct = r.ClassesByFqn.Get(fqnKey) as Z42ClassType;
+                    if (fct != null && fct != ct && !filledByFqn.ContainsKey(fqnKey)) {
+                        filledByFqn.Put(fqnKey, "1");
+                        fill.Add(fqnKey, fct, cl);
+                    }
+                }
+                c = c + 1;
+            }
+            oi = oi + 1;
+        }
+        ParallelFor.Run(fill.GroupCount, ParallelConfig.Jobs(fill.GroupCount), fill);
         oi = 0;
         while (oi < orderN) {
             i = order[oi];
             {
                 ExportedModuleZ em = exported[i];
-                int c = 0;
-                while (c < em.ClassCount) {
-                    ExportedClassZ cl = em.Classes[c];
-                    bool needsMangle = cl.TpCount > 0 && (tier0[i] ? impMultiArity : impMultiAll).ContainsKey(cl.Name);
-                    string clKey = needsMangle ? (cl.Name + "$" + cl.TpCount.ToString()) : cl.Name;
-                    Z42ClassType ct = r.Classes.Get(clKey) as Z42ClassType;
-                    StrBox owner = r.ClassNamespaces.Get(clKey) as StrBox;
-                    if (ct != null && owner != null && owner.Value == em.Namespace) {
-                        ImportedSymbolLoader._fillClass(r, ct, cl);
-                    } else {
-                        // 短名被别的 ns 占了的类只活在 FQN 视图里 —— 此前从不填成员，限定名引用到它是个空壳
-                        // （「no method」/「no field」）。同 FQN 多份时只填 Phase1 建型的那一份（first-wins）。
-                        string fqnKey = em.Namespace == "" ? clKey : em.Namespace + "." + clKey;
-                        Z42ClassType fct = r.ClassesByFqn.Get(fqnKey) as Z42ClassType;
-                        if (fct != null && fct != ct && !filledByFqn.ContainsKey(fqnKey)) {
-                            filledByFqn.Put(fqnKey, "1");
-                            ImportedSymbolLoader._fillClass(r, fct, cl);
-                        }
-                    }
-                    c = c + 1;
-                }
                 // 用户 delegate → 函数类型（与本包 `StubCollector._passDelegates` 同形：形参 / 返回按 delegate 的型参解析）。
                 // 骨架齐了才解析：签名可能引用同包后面模块的类。同 FQN 跨包 first-wins（同 enum / 类）。
                 int dg = 0;
@@ -435,7 +447,7 @@ public static partial class ImportedSymbolLoader {
                     // free-function-overloads：TSIG 里 fz.Name = **RegKey**（primary=裸名 / 非-primary=`name$arity$T`）。
                     // 基名（源名）= 剥首个 `$`（标识符不含 `$`）。FuncOriginAll / 裸名歧义按**基名**记；
                     // FunctionsByFqn 键与符号 RegKey 用完整 RegKey。Phase 1 无重载 ⇒ fz.Name 无 `$` ⇒ 基名==全名，字节稳定。
-                    int fzDollar = fz.Name.IndexOf("$");
+                    int fzDollar = fz.Name.IndexOf('$');
                     string fzBase = fzDollar < 0 ? fz.Name : fz.Name.Substring(0, fzDollar);
                     // report-crosspkg-duplicate-function：**守卫之外**记来源（ns + 包名）。
                     // 守卫之内只有赢家能进，而「这个名字有几个来源」正是守卫塌掉的那个信息。
@@ -625,7 +637,7 @@ public static partial class ImportedSymbolLoader {
     // （`Std.IComparable<Std.String>` → `String>`）。现在不剥短名了，这条只剩「先截」一半，
     // 但别把 `Substring` 的边界改掉。
     private static string _fqTrimTypeArgs(string fq) {
-        int lt = fq.IndexOf("<");
+        int lt = fq.IndexOf('<');
         if (lt < 0) { return fq; }
         return fq.Substring(0, lt);
     }
@@ -659,7 +671,7 @@ public static partial class ImportedSymbolLoader {
         return merged;
     }
 
-    private static void _fillClass(ImportedSymbols r, Z42ClassType ct, ExportedClassZ cl) {
+    internal static void _fillClass(ImportedSymbols r, Z42ClassType ct, ExportedClassZ cl) {
         string[] tps = cl.TypeParams;
         int tpc = cl.TpCount;
         int i = 0;

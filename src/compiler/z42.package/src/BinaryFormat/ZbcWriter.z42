@@ -243,7 +243,7 @@ public static class ZbcWriter {
     // 按 ASCII `.`（scalar 46）切分为段（空段保留；无点串→单段；空串→单空段）。
     // 切/拼在 `.` 上严格互逆 → reader join(".") 双向无损（不依赖「串是 FQ 名」）。
     public static string[] _splitDots(string str) {
-        if (str.IndexOf(".") < 0) { string[] one = new string[1]; one[0] = str; return one; }   // 无点串（池里多数）：不物化字符数组
+        if (str.IndexOf('.') < 0) { string[] one = new string[1]; one[0] = str; return one; }   // 无点串（池里多数）：不物化字符数组
         char[] cs = str.ToCharArray(); int len = cs.Length;   // 两趟逐字符 CharAt（每次一次 builtin 分发）→ 一次 bulk 物化
         int dots = 0;
         int i = 0;

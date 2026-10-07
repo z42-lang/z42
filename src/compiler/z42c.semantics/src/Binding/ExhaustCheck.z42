@@ -138,7 +138,7 @@ public sealed class ExhaustChecker {
             while (i < keys.Length) {
                 string key = keys[i];
                 // 余下部分不含 `.`：ns `A.Color` 里的 enum `X`（键 `A.Color.X.M`）不是 enum `A.Color` 的成员
-                if (this._startsWith(key, prefix) && key.Substring(prefix.Length, key.Length - prefix.Length).IndexOf(".") < 0) {
+                if (this._startsWith(key, prefix) && key.Substring(prefix.Length, key.Length - prefix.Length).IndexOf('.') < 0) {
                     StrBox vb = env.Symbols.EnumConsts.Get(key) as StrBox;
                     if (vb != null) {
                         string vk = "i:" + vb.Value;

@@ -1,0 +1,66 @@
+// 导入类成员的并行填充（perf-parallel-import-fill）：`ImportedSymbolLoader.Load` Phase2 的类成员一段。
+// 按「类」分组：同一个类对象（partial 跨模块会出现多份 ExportedClassZ）的全部条目同组、保收集序，
+// 一组由一个任务独占 —— `_fillClass` 只写该类对象，只读 Phase1 的骨架表，组间无共享写。
+namespace Z42.Semantics;
+
+using Z42.IR;   // StrIndex / ExportedClassZ
+
+public sealed class ClassFillTask : IParallelBody {
+    private ImportedSymbols _r;
+    private StrIndex _groupOf;          // 组键（类的 FQN 键）→ 组号
+    private Z42ClassType[] _groupCt;
+    private int[] _groupHead;
+    private int[] _groupTail;
+    public int GroupCount;
+    private ExportedClassZ[] _pairCl;   // 条目：导出类 + 同组下一条（-1 = 无）
+    private int[] _pairNext;
+    private int _pairCount;
+
+    public ClassFillTask(ImportedSymbols r) {
+        this._r = r;
+        this._groupOf = new StrIndex();
+        this._groupCt = new Z42ClassType[16]; this._groupHead = new int[16]; this._groupTail = new int[16];
+        this.GroupCount = 0;
+        this._pairCl = new ExportedClassZ[16]; this._pairNext = new int[16];
+        this._pairCount = 0;
+    }
+
+    public void Add(string key, Z42ClassType ct, ExportedClassZ cl) {
+        if (this._pairCount == this._pairCl.Length) {
+            ExportedClassZ[] pc = new ExportedClassZ[this._pairCount * 2];
+            int[] pn = new int[this._pairCount * 2];
+            int k = 0; while (k < this._pairCount) { pc[k] = this._pairCl[k]; pn[k] = this._pairNext[k]; k = k + 1; }
+            this._pairCl = pc; this._pairNext = pn;
+        }
+        int p = this._pairCount;
+        this._pairCl[p] = cl; this._pairNext[p] = -1;
+        this._pairCount = p + 1;
+        int g = this._groupOf.Get(key);
+        if (g >= 0) {
+            this._pairNext[this._groupTail[g]] = p;
+            this._groupTail[g] = p;
+            return;
+        }
+        if (this.GroupCount == this._groupCt.Length) {
+            Z42ClassType[] gc = new Z42ClassType[this.GroupCount * 2];
+            int[] gh = new int[this.GroupCount * 2];
+            int[] gt = new int[this.GroupCount * 2];
+            int k = 0;
+            while (k < this.GroupCount) { gc[k] = this._groupCt[k]; gh[k] = this._groupHead[k]; gt[k] = this._groupTail[k]; k = k + 1; }
+            this._groupCt = gc; this._groupHead = gh; this._groupTail = gt;
+        }
+        int ng = this.GroupCount;
+        this._groupCt[ng] = ct; this._groupHead[ng] = p; this._groupTail[ng] = p;
+        this._groupOf.Put(key, ng);
+        this.GroupCount = ng + 1;
+    }
+
+    public void Run(int g) {
+        Z42ClassType ct = this._groupCt[g];
+        int p = this._groupHead[g];
+        while (p >= 0) {
+            ImportedSymbolLoader._fillClass(this._r, ct, this._pairCl[p]);
+            p = this._pairNext[p];
+        }
+    }
+}

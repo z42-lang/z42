@@ -187,7 +187,7 @@ public sealed class TypeChecker {
     // 同一作用域已有 ⇒ E0467；外层（同一函数体内，含形参）已有 ⇒ E0491。合成名（含 `$`）与丢弃符 `_` 不查不记。
     // 报错后照常 Define（不叠级联）。
     public void DefineLocal(TypeEnv env, string name, Z42Type type, Span sp) {
-        if (name != "" && name != "_" && name.IndexOf("$") < 0) {
+        if (name != "" && name != "_" && name.IndexOf('$') < 0) {
             TypeEnv hit = env.LocalConflictEnv(name);
             if (hit != null) {
                 Span first = hit.DeclSpans.Get(name) as Span;

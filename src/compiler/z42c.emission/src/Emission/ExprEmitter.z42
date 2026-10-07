@@ -606,7 +606,7 @@ public sealed partial class ExprEmitter {
     // ns → 跨包泛型 struct 数组绑错 ns → try_struct_backed miss → 退化引用数组 → StructFieldSetPrim 崩。
     // 裸名（无 `<`）走 else 分支，与旧 QualifyClass 调用逐字节等价。
     private string _qualifyElemName(string elemName) {
-        int lt = elemName.IndexOf("<");
+        int lt = elemName.IndexOf('<');
         if (lt >= 0) {
             return this._ctx.QualifyClass(elemName.Substring(0, lt))
                  + elemName.Substring(lt, elemName.Length - lt);

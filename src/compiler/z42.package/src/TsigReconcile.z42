@@ -257,7 +257,7 @@ public static class TsigReconcile {
             while (fi < fms.FuncCount) {
                 IrFunction f = fms.Functions[fi];
                 string rest = TsigReconcile._stripNs(f.Name, fms.Namespace);
-                if (rest.IndexOf(".") < 0 && !TsigReconcile._hasNativeAttr(f) && rest.IndexOf("__lambda") < 0 && rest.IndexOf("__local_") < 0) {
+                if (rest.IndexOf('.') < 0 && !TsigReconcile._hasNativeAttr(f) && rest.IndexOf("__lambda") < 0 && rest.IndexOf("__local_") < 0) {
                     ExportedParamZ[] ps = TsigReconcile._params(f, false);
                     ExportedFuncZ ef = new ExportedFuncZ(rest, f.RetType, f.MinArg, ps, ps.Length);
                     ef.RefInfoKnown = TsigReconcile.RefInfoKnown(f);   // record-ref-in-signature
@@ -348,7 +348,7 @@ public static class TsigReconcile {
                 if (inv != null) {
                     ExportedParamZ[] dps = TsigReconcile._params(inv, true);
                     string dbare = TsigReconcile._bare(cd.Name, ns);
-                    int plus = dbare.LastIndexOf("+");
+                    int plus = dbare.LastIndexOf('+');
                     string[] dtp = cd.TypeParams != null ? cd.TypeParams : new string[0];
                     if (dc == dels.Length) { ExportedDelegateZ[] b = new ExportedDelegateZ[dels.Length * 2]; int k = 0; while (k < dc) { b[k] = dels[k]; k = k + 1; } dels = b; }
                     dels[dc] = new ExportedDelegateZ(dbare, inv.RetType, dps, dps.Length, dtp, cd.TypeParamCount,
@@ -730,7 +730,7 @@ public static class TsigReconcile {
     // 类显示名：剥 ns + 尾部 arity-mangle（Name$N，oracle 用裸 c.Name）。仅当 $ 后全是数字到末尾。
     private static string _bare(string fq, string ns) {
         string r = TsigReconcile._stripNs(fq, ns);
-        int d = r.IndexOf("$");
+        int d = r.IndexOf('$');
         if (d > 0) {
             bool allDigit = d + 1 < r.Length;
             int k = d + 1;

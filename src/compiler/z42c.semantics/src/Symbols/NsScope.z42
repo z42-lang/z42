@@ -24,7 +24,7 @@ public static class NsScope {
         int k = 0;
         while (k < n) {
             r[k] = cur;
-            int dot = cur.LastIndexOf(".");
+            int dot = cur.LastIndexOf('.');
             if (dot > 0) { cur = cur.Substring(0, dot); }
             k = k + 1;
         }

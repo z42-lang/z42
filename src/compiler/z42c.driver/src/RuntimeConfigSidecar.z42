@@ -65,7 +65,7 @@ int _writeRuntimeConfigSidecar(ProjectManifest pm, string distDir, string name, 
         TomlValue rt = TomlValue.OfTable();
         int i = 0;
         while (i < knobs.Length) {
-            int eq = knobs[i].IndexOf("=");
+            int eq = knobs[i].IndexOf('=');
             if (eq > 0) {
                 string k = knobs[i].Substring(0, eq);
                 string v = knobs[i].Substring(eq + 1, knobs[i].Length - eq - 1);

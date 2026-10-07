@@ -143,7 +143,7 @@ public sealed class SymbolCollector {
             if (!table.EnumTypes.ContainsKey(efq[i])) {
                 table.EnumTypes.Put(efq[i], "enum");
                 table.NoteEnumKey(efq[i]);
-                int dot = efq[i].LastIndexOf(".");
+                int dot = efq[i].LastIndexOf('.');
                 table.EnumTypeNs.Put(efq[i], new StrBox(dot > 0 ? efq[i].Substring(0, dot) : ""));
             }
             i = i + 1;
@@ -167,7 +167,7 @@ public sealed class SymbolCollector {
         while (i < dks.Length) {
             if (!table.Delegates.ContainsKey(dks[i])) {
                 table.Delegates.Put(dks[i], imported.DelegatesByFqn.Get(dks[i]));
-                int dot = dks[i].LastIndexOf(".");
+                int dot = dks[i].LastIndexOf('.');
                 table.DelegateNs.Put(dks[i], new StrBox(dot > 0 ? dks[i].Substring(0, dot) : ""));
                 table.NoteDelegateKey(dks[i]);
             }
@@ -273,7 +273,7 @@ public sealed class SymbolCollector {
         i = 0;
         while (i < fns.Length) {
             MethodSymbol ifsym = imported.FunctionsByFqn.Get(fns[i]) as MethodSymbol;
-            int dot = fns[i].LastIndexOf(".");
+            int dot = fns[i].LastIndexOf('.');
             string fnNs = dot < 0 ? "" : fns[i].Substring(0, dot);
             table.AddFunc(fnNs, ifsym.Name, ifsym, false);
             i = i + 1;

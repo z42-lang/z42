@@ -121,7 +121,7 @@ public sealed partial class ClassDescBuilder {
             string name = queue[qh]; qh = qh + 1;
             // 裸名（去泛型实参）查 IfaceDecls + 去重
             string bare = name;
-            int lt = name.IndexOf("<");
+            int lt = name.IndexOf('<');
             if (lt >= 0) { bare = name.Substring(0, lt); }
             // `IfaceDecls` 的键是**裸短名**（`IrGen` 按 `cfd.Name` 登记）。名字带 ns 时必须先剥，
             // 否则查不中 ⇒ 父接口不展开 ⇒ **TYPE 段的接口表静默变短** ⇒ 跨包 `is IFace` 失配。
@@ -168,7 +168,7 @@ public sealed partial class ClassDescBuilder {
             string bn = c.Bases[bi2].Dump();
             // HasInterface map 存裸名（无泛型实参）；去掉 <...> 再查。
             string barebn = bn;
-            int ltIdx = bn.IndexOf("<");
+            int ltIdx = bn.IndexOf('<');
             if (ltIdx >= 0) { barebn = bn.Substring(0, ltIdx); }
             // 🔴 判定走 `SymbolTable.InterfaceKeyOf`（与符号层 `_passClassStubs` **同一份**），
             // 不再自己 `HasInterface(源码原样串)` —— 那样限定名查不中 ⇒ `Std.IDisposable` 被当成
@@ -318,7 +318,7 @@ public sealed partial class ClassDescBuilder {
         //   `[Record]`（hasRecord，由 IrGen 从原始 AttributedDecl.Attrs 判）触发 is-record。N+1 已删 `record`
         //   关键字，Kind 不再有 "record"，唯一来源即 [Record] attribute。格式位不变、__type_is_record 读法不变。）
         cd2.Flags = flags;
-        cd2.Visibility = DeclFacts.classVisCode(c.ModFlags, c.Name.IndexOf("+") >= 0);   // enforce-class-access（zbc 1.33）：类可见性进 TYPE 记录（跨包 internal 强制载体）
+        cd2.Visibility = DeclFacts.classVisCode(c.ModFlags, c.Name.IndexOf('+') >= 0);   // enforce-class-access（zbc 1.33）：类可见性进 TYPE 记录（跨包 internal 强制载体）
         // add-struct-value-semantics A-use（zbc 1.31）：值 struct 的字节+引用布局随 TYPE 尾部 emit。
         // 布局键 = 符号表短名（_classIrShortName，与 StructLayout.BuildFromSymbols 的 Classes 键一致——
         // 那是短名 Name/Name$N，非 FQ；用 cd2.Name(FQ) 查会 miss）。含引用叶子（string/object/array 字段）
@@ -439,7 +439,7 @@ public sealed partial class ClassDescBuilder {
         IrFieldDesc[] empty = new IrFieldDesc[0];
         IrClassDesc cd = new IrClassDesc(this._g._q(c.Name), false, "", empty, 0);
         cd.Flags = 17;
-        cd.Visibility = DeclFacts.classVisCode(c.ModFlags, c.Name.IndexOf("+") >= 0);   // complete-class-access-control ④：接口可见性入 TYPE 记录（复用 #184 已在线字节，无 bump；此前恒 0=public）
+        cd.Visibility = DeclFacts.classVisCode(c.ModFlags, c.Name.IndexOf('+') >= 0);   // complete-class-access-control ④：接口可见性入 TYPE 记录（复用 #184 已在线字节，无 bump；此前恒 0=public）
         // 传递基接口（add-reflection-transitive-interfaces）：typeof(IB).GetInterfaces() 含 IA。
         if (c.BaseCount > 0) {
             string[] directBases = new string[c.BaseCount];
@@ -581,7 +581,7 @@ public sealed partial class ClassDescBuilder {
         // （`Pair<P2,int>`）恰好照常工作，有引用叶子的（`Pair<P2,string>`）才在写 string 那一刻崩
         // （`struct ref leaf at byte offset 8 not in type layout`）。**「能跑」曾经掩盖了它。**
         // 只限定基名、实参原样，与 `ExprEmitter._qualifyInstName` 同一约定。
-        int ltq = instName.IndexOf("<");
+        int ltq = instName.IndexOf('<');
         string fqInst = ltq < 0 ? this._g._q(instName)
                                 : this._g._q(instName.Substring(0, ltq)) + instName.Substring(ltq, instName.Length - ltq);
         IrClassDesc cd = new IrClassDesc(fqInst, false, "", fs, n);

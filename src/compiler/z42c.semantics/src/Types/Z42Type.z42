@@ -350,7 +350,7 @@ public sealed class Z42ClassType : Z42Type {
     // 「ctor 真实存在才 Call」判据下**静默不发 Call**（构造体从不执行、字段留零值、零诊断）、
     // **带参那格**发出 `Outer+Inner.Outer+Inner` ⇒ 运行期 `MissingSymbolException`。
     public string CtorMemberName() {
-        int plus = this._name.LastIndexOf("+");
+        int plus = this._name.LastIndexOf('+');
         if (plus < 0) { return this._name; }
         return this._name.Substring(plus + 1);
     }

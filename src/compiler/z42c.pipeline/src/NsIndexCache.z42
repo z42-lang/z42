@@ -107,7 +107,7 @@ public static class NsIndexCache {
             int k = 2;
             while (k < f.Length) {
                 string fld = f[k];
-                int eq = fld.IndexOf("=");
+                int eq = fld.IndexOf('=');
                 if (eq < 0) { nss[k - 2] = fld; nsTypes[k - 2] = ""; }   // 兜底（不含 `=` 的旧式字段）
                 else { nss[k - 2] = fld.Substring(0, eq); nsTypes[k - 2] = fld.Substring(eq + 1, fld.Length - eq - 1); }
                 k = k + 1;

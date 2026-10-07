@@ -214,7 +214,7 @@ public sealed class CtorInheritance {
     // 而调用点按短名找 `Outer+Inner.Inner` ⇒ 运行期找不到构造器、按「无构造器」直接分配 ⇒ 字段初始化器静默不执行
     // （`public int V = 3;` 读出 0）。
     private static string _ctorName(ClassDecl c) {
-        int p = c.Name.LastIndexOf("+");
+        int p = c.Name.LastIndexOf('+');
         return p < 0 ? c.Name : c.Name.Substring(p + 1);
     }
 

@@ -244,7 +244,7 @@ public sealed partial class ExprEmitter {
     // 实例化短名 → FQ 名：**只限定基名、实参原样**（`Pair<P2,int>` → `Demo.Pair<P2,int>`）。
     // 与 `_qualifyElemName`（数组元素名）同一约定，也与合成描述符的注册键（ns + 短实例化名）对齐。
     internal string _qualifyInstName(string instName) {
-        int lt = instName.IndexOf("<");
+        int lt = instName.IndexOf('<');
         if (lt < 0) { return this._ctx.QualifyClass(instName); }
         return this._ctx.QualifyClass(instName.Substring(0, lt))
              + instName.Substring(lt, instName.Length - lt);

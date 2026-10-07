@@ -125,9 +125,9 @@ public sealed partial class SymbolTable {
         return box.Value.Split("|");
     }
 
-    private static string _origNs(string o) { int h = o.IndexOf("#"); return h < 0 ? o : o.Substring(0, h); }
+    private static string _origNs(string o) { int h = o.IndexOf('#'); return h < 0 ? o : o.Substring(0, h); }
 
-    private static string _origPkg(string o) { int h = o.IndexOf("#"); return h < 0 ? "" : o.Substring(h + 1, o.Length - h - 1); }
+    private static string _origPkg(string o) { int h = o.IndexOf('#'); return h < 0 ? "" : o.Substring(h + 1, o.Length - h - 1); }
 
     // 该来源的 ns 在本 CU 可见吗（全局 ns 视为可见——与 AmbiguousBareNameMsg 同口径）。
     private bool _origVisible(string o) {
@@ -224,7 +224,7 @@ public sealed partial class SymbolTable {
     // deterministic-zpkg-deps：导入自由函数 → 声明它的那一个依赖包名（同 ImportedPkgOf 的口径）。
     // name 可带重载 mangle（`f$2`），按 `$` 前的裸名查 FuncOriginAll。
     public string ImportedFuncPkgOf(string name, string ns) {
-        int dollar = name.IndexOf("$");
+        int dollar = name.IndexOf('$');
         string bare = dollar < 0 ? name : name.Substring(0, dollar);
         string[] os = this.FuncOriginsOf(bare);
         string hit = "";
@@ -330,7 +330,7 @@ public sealed partial class SymbolTable {
     //
     // ⚠️ 判据只此一份：`TypeChecker.ChkAmbiguousBareName`（E0456）复用本方法，别再写第二套口径。
     public bool IsBareNameAmbiguous(string name) {
-        if (name.IndexOf(".") >= 0) { return false; }   // 限定名 = 已消歧
+        if (name.IndexOf('.') >= 0) { return false; }   // 限定名 = 已消歧
         StrBox nsBox = this._nsBoxOf(name);
         if (nsBox == null) { return false; }
         if (nsBox.Count < 2) { return false; }
@@ -658,7 +658,7 @@ public sealed partial class SymbolTable {
     // ⚠️ 阶段 3 两表合一时这两个方法要**一起塌成一个** —— 别让它们各自漂移，
     // 「同一判据两份实现」在本仓已经反复出事（只修一份比都不修更糟）。
     public bool IsBareIfaceNameAmbiguous(string name) {
-        if (name.IndexOf(".") >= 0) { return false; }   // 限定名 = 已消歧
+        if (name.IndexOf('.') >= 0) { return false; }   // 限定名 = 已消歧
         int at = this.IfaceNsAll.Find(name);
         if (at < 0) { return false; }
         StrBox nsBox = this.IfaceNsAll.ValAt(at) as StrBox;
