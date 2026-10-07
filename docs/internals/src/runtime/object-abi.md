@@ -10,7 +10,12 @@
 
 ## 1. 现状（已成形，但隐式且脆弱）
 - **Value = Rust tagged enum**（[metadata/types/value.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/types/value.rs)），`#[repr(C, u8)]` + 显式判别值：`I64=0/F64=1/Bool=2/Char=3`（内联值）、`Str(Str)=4`、`Null=5`、`Array(GcRef<ArrayObj>)=6`、`Object(GcRef<ScriptObject>)=7`、`PinnedView=8`、`FuncRef(FnId)=9`、`Closure(VarGcRef)=10`、`Ref=12`、`StackObject=14`、`StackArray=15`、`StructRef=16`、`BoxedStruct(GcRef<ScriptObject>)=17`、`StructRefHeap=18`（11、13 空号）。`{idx, frame_id}` 形的变体都是 8B arena 句柄（瞬态的 3 个见 §2.2）。**`Value` 是 `Copy`（16B POD，无 `Drop` glue）**。
-- **ScriptObject** = `{ type_desc: Arc<TypeDesc>, storage: ObjStorage, extras: Option<Box<ObjExtras>> }`（[metadata/types/object.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/types/object.rs)）。`storage` 是单次分配的 `[refs: Value × n_refs][bytes: u8 × n_bytes]` 块（[obj_storage.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/types/obj_storage.rs)）：`bytes` 放基元字段、8 B 引用字与型参字段的 16 B 单元，`refs` 只剩内联 struct 的引用叶子（以及合成布局的引用字段），布局见 §3「字段存储布局」；`extras` 装冷字段 `native: NativeData`（WeakRef / Type / LoadContext / Assembly / Monitor 句柄）与泛型实参 `type_args`，两者都空时不分配。
+- **ScriptObject** = `{ type_desc: Arc<TypeDesc>, storage: ObjStorage, meta: ObjMeta }`（32 B）（[metadata/types/object.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/types/object.rs)）。`storage` 是单次分配的 `[refs: Value × n_refs][bytes: u8 × n_bytes]` 块（[obj_storage.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/types/obj_storage.rs)）：`bytes` 放基元字段、8 B 引用字与型参字段的 16 B 单元，`refs` 只剩内联 struct 的引用叶子（以及合成布局的引用字段），布局见 §3「字段存储布局」；`meta` 是一个 8 B 字，装两样冷数据：
+  - 泛型实参 `type_args`：按实例化**进程级驻留**的 `TypeArgs`（[type_args.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/types/type_args.rs)，同 `ElemType` 的套路：8 B 细指针、同内容同址、永不释放）。同一实例化的所有实例指向同一个条目，每个对象不为实参分配任何东西。驻留发生在解码 / 注册期：`ObjNewInsn::type_args` 解码时驻留，实例化描述符（`Demo.Box<int>`）名字里解析出的实参在 `build_type_registry` 驻留进 `TypeDescCold::type_args`；`ObjNew`（interp 堆 / 栈两支、JIT `jit_obj_new`）只拷句柄：两引擎共用 `interp/obj_new_resolve.rs::instance_type_args` 挑出实参（站点自己的，否则描述符的），再经 `ScriptObject::install_type_args` 一处写入并改写型参字段零值。进程级而非 VM 级，因为包惰性加载、多个 VM 可并存。
+  - 原生底座 `native: NativeData`（WeakRef / Type / LoadContext / Assembly / Monitor 句柄）：只有这类对象才分配一个 `ObjExtras` 盒子；带原生底座的泛型对象（如 `Mutex<T>`）把实参句柄也放进盒子。
+  - 编码：`0` = 非泛型且无原生底座（绝大多数对象）；偶指针 = 驻留的 `TypeArgs` 条目；奇指针（低位标签）= `Box<ObjExtras>`。
+  - 读者（`DefaultOf`、`__class_type_arg` / `__class_default`、`GetType().GetGenericArguments()`、数组 `T` 零值、型参字段零值）拿到的是 `&'static [String]`。擦除代码里的 `new Box<T>()` 以开放实例化名 `Box<T>` 分配，实参是字面 `["T"]`，同样驻留成一个共享条目。
+  - 已知边界：擦除分配的实例只知道 `T`，于是 `GetGenericArguments()` 报 `T`、`default(T)` 得 `null`、`is Box<int>` 为 `false`。真实实参要从分配时所在方法的泛型上下文（接收者的 `type_args` 或帧的 `method_type_args`）按型参名解析，目前没有做。
 - **GcRef** = 8B 标记指针（低 48 位 `RegionEntry` 地址、高 16 位窄 generation 快照，见 §2.1）。`RegionEntry` = `{ value: Mutex<T>, marked, alive, gen_age, generation, finalizer, … }`：mark 位和代龄在 entry 上，对象本身没有 GC 字；每个对象带一把 `Mutex`；chunk 是 Box-owned、永不重定位 → **当前非移动堆**。
 - **JIT 与 interp 共享内存 Value 表示**：JIT 直接 `store tag`+payload 到帧的 Value 寄存器数组，**硬编码 tag 值 + 偏移**。
 - 内存管理：`Value` 能到达的堆数据全在 GC 堆（`GcRef`：Object / Array / BoxedStruct；`VarGcRef` 变长块：Str / Closure / 数组元素）；`Arc` 只留给内部元数据（`TypeDesc`、帧名等，§5、§7）；瞬态句柄的 payload 在 per-`VmContext` arena（§2.2）。
@@ -292,9 +297,9 @@ ObjectHeader {
 
 **型参字段要单独一条**，因为布局是**按声明**算的：声明里 `T` 不是基元 ⇒ 该槽是型参单元 ⇒
 整块零初始化给它的是标签字 `0` = `Null`，而不是 `GBox<int>` 该有的 `0`。
-实例自己带着实参（`ObjNew` 写入 `set_type_args`），所以真正的零值在**分配点**可以还原：
+实例自己带着实参（`ObjNew` 经 `install_type_args` 写入驻留句柄），所以真正的零值在**分配点**可以还原：
 把字段的 `type_tag` 按名字映射到 `TypeDesc::type_params()` 的下标，再取该实参的零值
-（`metadata/types/field.rs::generic_field_zero_overrides`，interp 的堆/栈两支 + JIT 三处共用）。
+（`metadata/types/field.rs::generic_field_zero_overrides`，由 `ScriptObject::install_type_args` 调用，interp 的堆/栈两支 + JIT 三处共用这一个入口）。
 这次写入同时定下型参单元的基元种类（见上「型参单元」）。
 
 口径**刻意窄**，与 `ArrayNew` 同一条线：**只有基元值实参**才改写。解析出的 *struct* 实参

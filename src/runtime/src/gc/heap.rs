@@ -56,8 +56,8 @@ pub trait MagrGC: std::fmt::Debug + Send + Sync {
     // ── 1. Allocation ────────────────────────────────────────────────────────
 
     /// 分配一个 `ScriptObject` 并以 `Value::Object` 返回。
-    /// 调用方负责通过 `type_args` 字段（默认 `vec![]`）后续 set 运行时泛型类型
-    /// 参数（D-8b-3 Phase 2）；本接口保持向后兼容，不强制每个调用点都传 type_args。
+    /// 泛型实例的类型实参由调用方随后经 `ScriptObject::install_type_args` 写入（驻留句柄，
+    /// 见 `metadata/types/type_args.rs`）；本接口不带实参。
     fn alloc_object(
         &self,
         type_desc: Arc<TypeDesc>,

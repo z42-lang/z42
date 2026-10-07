@@ -253,6 +253,28 @@ fn fixup_inherits_base_fields_from_separate_module() {
     assert_eq!(sub_after.field_index.get("flag"), Some(&2), "own.flag at slot 2");
 }
 
+/// Interned type-arguments: two packages that each register the instantiation
+/// `Demo.Box<Std.Int32>` get one shared handle, and it is the same handle an `ObjNew` site
+/// carrying `["Std.Int32"]` decodes to — so every instance shares one entry, whichever path
+/// supplied its arguments.
+#[test]
+fn instantiation_type_args_are_one_handle_across_modules() {
+    let mut mod_a = module_with_one_class("Demo.Box<Std.Int32>", None, vec![]);
+    let mut mod_b = module_with_one_class("Demo.Box<Std.Int32>", None, vec![]);
+    crate::metadata::loader::build_type_registry(&mut mod_a);
+    crate::metadata::loader::build_type_registry(&mut mod_b);
+    let a = mod_a.type_registry.get("Demo.Box<Std.Int32>").expect("registered").type_args_handle();
+    let b = mod_b.type_registry.get("Demo.Box<Std.Int32>").expect("registered").type_args_handle();
+    assert_eq!(a.as_slice(), &["Std.Int32".to_string()][..]);
+    assert!(std::ptr::eq(a.as_raw(), b.as_raw()));
+    let site = crate::metadata::types::TypeArgs::intern(&["Std.Int32".to_string()]);
+    assert!(std::ptr::eq(a.as_raw(), site.as_raw()));
+    // A non-generic class carries the empty handle.
+    let mut plain = module_with_one_class("Demo.Plain", None, vec![]);
+    crate::metadata::loader::build_type_registry(&mut plain);
+    assert!(plain.type_registry.get("Demo.Plain").expect("registered").type_args_handle().is_empty());
+}
+
 /// Three-level cross-zpkg chain: A.Base → B.Mid → C.Leaf. Leaf must
 /// inherit fields from both Mid and Base after fixup converges.
 #[test]

@@ -138,7 +138,7 @@ fn interp_obj_new_hits_the_site_cache() {
     let run = |ctx: &VmContext| {
         let mut frame = Frame::new(ctx, &[], 4);
         let thrown = super::super::exec_object::obj_new(
-            ctx, &entry, &mut frame, 1, "Pkg.Foo", "Pkg.Foo..ctor$0", &[], &[], Some(&site), false, true,
+            ctx, &entry, &mut frame, 1, "Pkg.Foo", "Pkg.Foo..ctor$0", &[], crate::metadata::types::TypeArgs::empty(), Some(&site), false, true,
         ).unwrap();
         assert!(thrown.is_none());
         match frame.get(1).unwrap() {
@@ -255,7 +255,7 @@ fn non_entry_module_never_uses_the_cache() {
 fn resolver_prefills_registered_class_and_ctor() {
     let new_foo = Instruction::ObjNew(Box::new(ObjNewInsn {
         dst: 1, class_name: "Entry.Foo".to_string(), ctor_name: "Pkg.Foo..ctor$0".to_string(),
-        args: Box::new([]), type_args: Box::new([]), stack_alloc: false, ctor_known: true,
+        args: Box::new([]), type_args: crate::metadata::types::TypeArgs::empty(), stack_alloc: false, ctor_known: true,
     }));
     let td = class("Entry.Foo", false);
     let ctx = VmContext::with_module(module(
