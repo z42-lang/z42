@@ -10,6 +10,8 @@
 //! (interp frame vs. native `FnEntry`, with the engine-specific cold / cross-zpkg fallbacks).
 //!
 //! Resolution ladder (order is semantic — earlier rungs win):
+//!   0. **Null receiver**: `objops::OpError::null_call` → catchable `NullReferenceException`
+//!      (`VCallTarget::Thrown`). Null never has a PIC key, so this only runs after a miss.
 //!   1. **Boxed primitive** (`BoxedStruct` whose payload is a scalar): `GetType` with no args is
 //!      answered natively (the box keeps the precise wrapper class); anything else unboxes `this`
 //!      to the scalar and resolves `{wrapper}.{m}` / `Std.Object.{m}` candidates.
@@ -146,6 +148,12 @@ pub(crate) fn resolve_vcall<'a>(
     ctx: &'a VmContext, module: &'a Module, obj_val: &Value, method: &str, arity: usize,
     ic: Option<&VCallIC>,
 ) -> Result<ResolvedVCall<'a>> {
+    // Null receiver: never cached (`receiver_type_id(Null)` is `None`, so the PIC check above
+    // this call already missed on the existing tag match) ⇒ the check costs the hit path
+    // nothing. Catchable `NullReferenceException`, same text in both engines.
+    if matches!(obj_val, Value::Null) {
+        return null_receiver(ctx, module, method);
+    }
     let resolved = resolve_vcall_unchecked(ctx, module, obj_val, method, arity, ic)?;
     let phys = arity + 1;   // + receiver
     let (name, sig) = match &resolved.target {
@@ -157,6 +165,16 @@ pub(crate) fn resolve_vcall<'a>(
         return Ok(ResolvedVCall { target: VCallTarget::Thrown(exc), this: resolved.this });
     }
     Ok(resolved)
+}
+
+/// `VCall` on a null receiver → `objops::OpError::null_call`, materialised as the target's
+/// `Thrown` (both engines already propagate that arm as a catchable throw). Without the stdlib
+/// exception classes (bare-module unit tests) it is the shared `<class>: <msg>` internal error.
+#[cold]
+#[inline(never)]
+fn null_receiver<'a>(ctx: &VmContext, module: &Module, method: &str) -> Result<ResolvedVCall<'a>> {
+    let exc = crate::objops::OpError::null_call(method).into_exception(ctx, Some(module))?;
+    Ok(ResolvedVCall { target: VCallTarget::Thrown(exc), this: Value::Null })
 }
 
 fn resolve_vcall_unchecked<'a>(

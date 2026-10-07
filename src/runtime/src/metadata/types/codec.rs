@@ -1,4 +1,4 @@
-//! inline ref 与基元字节编解码（read/write_inline_ref、decode/encode_prim）。refactor-split-metadata-types（2026-09-03）：从 2436 行的 `types.rs` 按职责拆出，
+//! 基元字节编解码（decode/encode_prim、prim_to/from_bits）。refactor-split-metadata-types（2026-09-03）：从 2436 行的 `types.rs` 按职责拆出，
 //! 对外路径不变（`metadata::types::*` 经 hub 的 `pub use` 全量再导出）。
 
 #![allow(unused_imports)]
@@ -8,60 +8,6 @@ use crate::metadata::vstr::Str;
 use crate::gc::GcRef;
 use crate::gc::var_region::{BlockType, VarGcRef};
 use crate::gc::heap::MagrGC;
-
-/// unify-object-byte-layout (PR-3 chunk 2b): read a byte-inlined direct object/array
-/// reference — the 8B tagged `GcRef` pointer at `off` in an object's `bytes` — back into
-/// a `Value`. `0` (the zero-initialized default / an explicit `Null` store) → `Value::Null`.
-/// `is_array` picks the variant (`Value::Array` vs `Value::Object`); the raw pointer has
-/// no object-vs-array discriminant, so the kind must come from the layout's `field_kinds`.
-#[inline]
-pub(crate) fn read_inline_ref(bytes: &[u8], off: usize, is_array: bool) -> Value {
-    if off + 8 > bytes.len() {
-        return Value::Null;
-    }
-    let mut b = [0u8; 8];
-    b.copy_from_slice(&bytes[off..off + 8]);
-    let bits = u64::from_le_bytes(b);
-    if is_array {
-        // SAFETY: `bits` was written by `write_inline_ref` from a live `GcRef<ArrayObj>`
-        // whose backing Region outlives this object (a field reference is a strong root
-        // kept alive by GC tracing of `inline_refs`); `0` → `None` → `Null`.
-        match unsafe { GcRef::<ArrayObj>::from_tagged_bits(bits) } {
-            Some(r) => Value::Array(r),
-            None => Value::Null,
-        }
-    } else {
-        // SAFETY: as above, `bits` came from a live `GcRef<ScriptObject>`.
-        match unsafe { GcRef::<ScriptObject>::from_tagged_bits(bits) } {
-            Some(r) => Value::Object(r),
-            None => Value::Null,
-        }
-    }
-}
-
-/// unify-object-byte-layout (PR-3 chunk 2b): write a `Value` into a byte-inlined direct
-/// object/array reference slot (`off` in `bytes`). Heap `Object`/`Array` → their 8B tagged
-/// pointer; `Null` → `0`. Any other value (including a stack-escaped `StackObject`/
-/// `StackArray`, which must have been heap-promoted before reaching a field — see
-/// `exec_object::field_set`'s debug_assert) defensively stores `0` rather than a bogus
-/// pointer. The write barrier is fired separately by the caller.
-#[inline]
-pub(crate) fn write_inline_ref(bytes: &mut [u8], off: usize, v: &Value) {
-    let bits: u64 = match v {
-        Value::Object(r) => r.to_tagged_bits(),
-        Value::Array(r) => r.to_tagged_bits(),
-        _ => {
-            debug_assert!(
-                matches!(v, Value::Null),
-                "inlined object/array field only holds a heap Object/Array or Null, got {v:?}"
-            );
-            0
-        }
-    };
-    if off + 8 <= bytes.len() {
-        bytes[off..off + 8].copy_from_slice(&bits.to_le_bytes());
-    }
-}
 
 // ── Value ↔ byte codec (unify-object-byte-layout PR-2) ───────────────────────
 //
@@ -140,6 +86,39 @@ pub fn encode_prim(bytes: &mut [u8], off: usize, w: usize, kind: u8, val: &Value
     Ok(())
 }
 
+/// A primitive leaf's raw little-endian bits (low `prim_width(kind)` bytes significant) —
+/// the value an object's same-width atomic cell stores (`ObjStorage::store_prim`). Same
+/// conversions and rejections as [`encode_prim`].
+#[inline]
+pub fn prim_to_bits(kind: u8, val: &Value) -> anyhow::Result<u64> {
+    Ok(match kind {
+        TAG_BOOL => codec_as_bool(val)? as u64,
+        TAG_I8 | TAG_U8 | TAG_I16 | TAG_U16 | TAG_I32 | TAG_U32 | TAG_I64 | TAG_U64 => codec_as_i64(val)? as u64,
+        TAG_F32 => (codec_as_f64(val)? as f32).to_bits() as u64,
+        TAG_F64 => codec_as_f64(val)?.to_bits(),
+        TAG_CHAR => codec_as_char_u32(val)? as u64,
+        other => anyhow::bail!("struct field: unsupported primitive tag {other:#x}"),
+    })
+}
+
+/// Inverse of [`prim_to_bits`]: `bits` holds the cell's `prim_width(kind)` bytes, zero-extended.
+/// Mirrors [`decode_prim`] (sign extension for signed narrow ints, f32 widened to f64).
+#[inline]
+pub fn prim_from_bits(kind: u8, bits: u64) -> Value {
+    match kind {
+        TAG_BOOL => Value::Bool(bits as u8 != 0),
+        TAG_I8 => Value::I64(bits as u8 as i8 as i64),
+        TAG_I16 => Value::I64(bits as u16 as i16 as i64),
+        TAG_I32 => Value::I64(bits as u32 as i32 as i64),
+        TAG_U8 | TAG_U16 | TAG_U32 | TAG_I64 | TAG_U64 => Value::I64(bits as i64),
+        TAG_F32 => Value::F64(f32::from_bits(bits as u32) as f64),
+        TAG_F64 => Value::F64(f64::from_bits(bits)),
+        TAG_CHAR => Value::Char(char::from_u32(bits as u32).unwrap_or('\0')),
+        _ => Value::Null,
+    }
+}
+
+#[inline]
 fn codec_as_i64(v: &Value) -> anyhow::Result<i64> {
     match v {
         Value::I64(n) => Ok(*n),
@@ -149,6 +128,7 @@ fn codec_as_i64(v: &Value) -> anyhow::Result<i64> {
     }
 }
 
+#[inline]
 fn codec_as_f64(v: &Value) -> anyhow::Result<f64> {
     match v {
         Value::F64(f) => Ok(*f),
@@ -157,6 +137,7 @@ fn codec_as_f64(v: &Value) -> anyhow::Result<f64> {
     }
 }
 
+#[inline]
 fn codec_as_bool(v: &Value) -> anyhow::Result<bool> {
     match v {
         Value::Bool(b) => Ok(*b),
@@ -165,6 +146,7 @@ fn codec_as_bool(v: &Value) -> anyhow::Result<bool> {
     }
 }
 
+#[inline]
 fn codec_as_char_u32(v: &Value) -> anyhow::Result<u32> {
     match v {
         Value::Char(c) => Ok(*c as u32),

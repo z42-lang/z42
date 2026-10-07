@@ -76,14 +76,16 @@ fn without_satb_the_same_interleaving_sweeps_a_live_object() {
     assert!(!run_moved_into_register(false), "control: the test must be able to lose the object");
 }
 
-/// The byte-inlined reference path (`write_inline_ref` inside `set_field_value`) records too.
+/// The 8 B reference-word path (`set_field_value` on a composed layout) records too: during a
+/// mark the store is a `swap` whose old word goes to the barrier.
 #[test]
 fn satb_records_through_set_field_value() {
     let heap = ArcMagrGC::new();
     heap.set_mode(GcMode::StwMarkSweep);
     let _bound = Bound::to(&heap);
 
-    let holder = heap.alloc_object(dummy_type_desc("Holder"), vec![Value::Null], NativeData::None);
+    let holder = heap.alloc_object(
+        crate::metadata::types::ref_word::ref_word_tests::ref_cell_td(1), vec![], NativeData::None);
     let x = heap.alloc_object(dummy_type_desc("X"), vec![], NativeData::None);
     let Value::Object(holder_gc) = &holder else { panic!() };
     holder_gc.borrow_mut().set_field_value(0, &x);
@@ -100,6 +102,55 @@ fn satb_records_through_set_field_value() {
 
     assert!(is_alive(&heap, &weak_x));
     std::mem::forget(held);
+}
+
+/// A type-parameter cell (`T F;`, object model R2) whose tag word holds `x` is overwritten
+/// during a mark — by `null` (a CAS on a cell that never held a primitive) or by a primitive
+/// once its variant is fixed (a boxed value is replaced through `publish`). Returns whether `x`
+/// survived the cycle.
+fn run_type_param_overwrite(barrier_on: bool, claimed: bool) -> bool {
+    let heap = ArcMagrGC::new();
+    heap.set_mode(GcMode::StwMarkSweep);
+    let _bound = Bound::to(&heap);
+    let _ambient = crate::gc::ambient::HeapGuard::enter(&heap);
+    crate::gc::satb::set_disabled_for_test(!barrier_on);
+
+    let td = crate::metadata::types::tparam_cell::tparam_cell_tests::tparam_td(1);
+    let holder = heap.alloc_object(td, vec![], NativeData::None);
+    let x = heap.alloc_object(dummy_type_desc("X"), vec![], NativeData::None);
+    let Value::Object(holder_gc) = &holder else { panic!() };
+    if claimed {
+        holder_gc.borrow_mut().set_field_value(1, &Value::I64(1)); // fix the variant: `int`
+    }
+    holder_gc.borrow_mut().set_field_value(1, &x); // direct tag word, or a box when claimed
+    let _root = heap.pin_root(holder.clone());
+    let weak_x = heap.make_weak(&x).expect("object");
+
+    heap.open_major_cycle();
+    heap.snapshot_roots_into_mark_queue();
+    let held = x;
+    let next = if claimed { Value::I64(2) } else { Value::Null };
+    holder_gc.borrow_mut().set_field_value(1, &next);
+    heap.drain_mark_queue();
+    heap.close_major_marking();
+    heap.sweep_phase();
+
+    let alive = is_alive(&heap, &weak_x);
+    std::mem::forget(held);
+    alive
+}
+
+#[test]
+fn satb_records_an_overwritten_type_parameter_cell() {
+    assert!(run_type_param_overwrite(true, false), "reference in the tag word, overwritten by null");
+    assert!(run_type_param_overwrite(true, true), "box in the tag word, overwritten by the fixed variant");
+}
+
+/// Negative control for the pair above.
+#[test]
+fn without_satb_an_overwritten_type_parameter_cell_loses_its_referent() {
+    assert!(!run_type_param_overwrite(false, false));
+    assert!(!run_type_param_overwrite(false, true));
 }
 
 /// Array elements go through `ArrayObj::set_boxed`.

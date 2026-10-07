@@ -30,6 +30,7 @@
 
 use std::alloc::{alloc_zeroed, dealloc, Layout};
 use std::ptr::NonNull;
+use std::sync::atomic::{AtomicU16, AtomicU32, AtomicU64, AtomicU8, Ordering};
 
 use super::Value;
 
@@ -160,6 +161,194 @@ impl ObjStorage {
         unsafe {
             self.ptr.as_ptr().add(self.n_refs as usize * std::mem::size_of::<Value>())
         }
+    }
+}
+
+// ── Field cells (object model R1) ───────────────────────────────────────────────
+//
+// Every mutable field cell in the byte region is at most 8 B and is read and written with
+// one same-width atomic access: primitives `Relaxed` at their natural width, reference words
+// `Release` stores / `Acquire` loads (so publishing a constructed object through a field is
+// safe). The compiler aligns every leaf to its own width, so the accesses are aligned; the
+// bounds checks keep a malformed layout from touching memory outside the block.
+//
+// Loads take `&self` and go through the raw block pointer, never through a `&[u8]` view.
+// Stores still take `&mut self` while the per-object lock exists and `bytes()` hands out
+// slices of the same memory; removing the lock (R4) flips them to `&self` together with
+// retiring those slice views.
+impl ObjStorage {
+    #[inline(always)]
+    fn cell(&self, off: usize, width: usize) -> Option<*mut u8> {
+        if off + width > self.n_bytes as usize {
+            return None;
+        }
+        debug_assert_eq!(off % width, 0, "field cell at {off} is not {width}-aligned");
+        // SAFETY: in bounds of the byte region (checked above).
+        Some(unsafe { self.bytes_ptr().add(off) })
+    }
+
+    /// Acquire-load the 8 B reference word at byte `off` (`0` when out of bounds = `null`).
+    #[inline(always)]
+    pub fn load_ref_word(&self, off: usize) -> u64 {
+        match self.cell(off, 8) {
+            // SAFETY: aligned (`cell`), in bounds, and only ever accessed atomically or under
+            // the owner's exclusive borrow.
+            Some(p) => unsafe { AtomicU64::from_ptr(p.cast()) }.load(Ordering::Acquire),
+            None => 0,
+        }
+    }
+
+    /// Release-store the 8 B reference word at byte `off`. While a major mark is running the
+    /// store is a `swap` and returns the word it replaced (the SATB barrier must record the
+    /// true old value even under racing writers); otherwise it is a plain release store and
+    /// returns `0` — there is nothing to record.
+    #[inline(always)]
+    pub fn store_ref_word(&mut self, off: usize, w: u64) -> u64 {
+        let Some(p) = self.cell(off, 8) else { return 0 };
+        // SAFETY: see `load_ref_word`.
+        let a = unsafe { AtomicU64::from_ptr(p.cast()) };
+        if crate::gc::satb::marking_any() {
+            return a.swap(w, Ordering::AcqRel);
+        }
+        a.store(w, Ordering::Release);
+        0
+    }
+
+    /// The two words of a type-parameter cell: tag word at `w0`, payload word at `w1`. The
+    /// payload word always lies past the tag word (it is appended after the compiler's
+    /// layout), so one bounds check covers both.
+    #[inline(always)]
+    fn tparam_words(&self, w0: usize, w1: usize) -> Option<(*mut u8, *mut u8)> {
+        if w0 >= w1 || w1 + 8 > self.n_bytes as usize {
+            return None;
+        }
+        debug_assert!(w0 % 8 == 0 && w1 % 8 == 0, "type-parameter cell at {w0}/{w1} is not 8-aligned");
+        let base = self.bytes_ptr();
+        // SAFETY: both words are in bounds of the byte region (checked above).
+        Some(unsafe { (base.add(w0), base.add(w1)) })
+    }
+
+    /// Load a type-parameter cell: the tag word (acquire), then the payload word (relaxed) —
+    /// the payload is only meaningful when the tag word says so (`tparam_cell`). `(0, 0)` =
+    /// `null` when out of bounds.
+    #[inline(always)]
+    pub fn load_tparam(&self, w0: usize, w1: usize) -> (u64, u64) {
+        match self.tparam_words(w0, w1) {
+            // SAFETY: aligned, in bounds, only ever accessed atomically or under the owner's
+            // exclusive borrow.
+            Some((p0, p1)) => unsafe {
+                let tag = AtomicU64::from_ptr(p0.cast()).load(Ordering::Acquire);
+                (tag, AtomicU64::from_ptr(p1.cast()).load(Ordering::Relaxed))
+            },
+            None => (0, 0),
+        }
+    }
+
+    /// Fast-path store into a type-parameter cell: when the tag word is `tag`, relaxed-store
+    /// `bits` into the payload word and return `true`; otherwise touch nothing.
+    #[inline(always)]
+    pub fn store_tparam_payload_if(&mut self, w0: usize, w1: usize, tag: u64, bits: u64) -> bool {
+        let Some((p0, p1)) = self.tparam_words(w0, w1) else { return false };
+        // SAFETY: see `load_tparam`.
+        unsafe {
+            if AtomicU64::from_ptr(p0.cast()).load(Ordering::Relaxed) != tag {
+                return false;
+            }
+            AtomicU64::from_ptr(p1.cast()).store(bits, Ordering::Relaxed);
+        }
+        true
+    }
+
+    /// Load the 8 B word at `off` with ordering `ord` (`0` when out of bounds). The raw form
+    /// behind the type-parameter cells (`tparam_cell`), whose tag word is acquire-loaded and
+    /// whose payload word is relaxed.
+    #[inline(always)]
+    pub fn load_word(&self, off: usize, ord: Ordering) -> u64 {
+        match self.cell(off, 8) {
+            // SAFETY: see `load_ref_word`.
+            Some(p) => unsafe { AtomicU64::from_ptr(p.cast()) }.load(ord),
+            None => 0,
+        }
+    }
+
+    /// Store the 8 B word at `off` with ordering `ord` (no-op when out of bounds).
+    #[inline(always)]
+    pub fn store_word(&mut self, off: usize, w: u64, ord: Ordering) {
+        if let Some(p) = self.cell(off, 8) {
+            // SAFETY: see `load_ref_word`.
+            unsafe { AtomicU64::from_ptr(p.cast()) }.store(w, ord);
+        }
+    }
+
+    /// Swap the 8 B word at `off` (`AcqRel`), returning the word it replaced (`0` when out of
+    /// bounds).
+    #[inline(always)]
+    pub fn swap_word(&mut self, off: usize, w: u64) -> u64 {
+        match self.cell(off, 8) {
+            // SAFETY: see `load_ref_word`.
+            Some(p) => unsafe { AtomicU64::from_ptr(p.cast()) }.swap(w, Ordering::AcqRel),
+            None => 0,
+        }
+    }
+
+    /// Compare-and-swap the 8 B word at `off` from `cur` to `new` (`AcqRel` / `Acquire`):
+    /// `Err(actual)` when the word was not `cur`. Out of bounds it is a no-op that reports
+    /// success, so a caller's retry loop always terminates.
+    #[inline(always)]
+    pub fn cas_word(&mut self, off: usize, cur: u64, new: u64) -> Result<u64, u64> {
+        let Some(p) = self.cell(off, 8) else { return Ok(cur) };
+        // SAFETY: see `load_ref_word`.
+        unsafe { AtomicU64::from_ptr(p.cast()) }
+            .compare_exchange(cur, new, Ordering::AcqRel, Ordering::Acquire)
+    }
+
+    /// Zero the reference word at `off` (GC breaking a dead object's edges — no barrier).
+    #[inline]
+    pub fn clear_ref_word(&mut self, off: usize) {
+        if let Some(p) = self.cell(off, 8) {
+            // SAFETY: see `load_ref_word`.
+            unsafe { AtomicU64::from_ptr(p.cast()) }.store(0, Ordering::Relaxed);
+        }
+    }
+
+    /// Relaxed-load the primitive leaf at `off` (width `w`, `ty::TAG_*` `kind`).
+    #[inline(always)]
+    pub fn load_prim(&self, off: usize, w: usize, kind: u8) -> anyhow::Result<Value> {
+        let Some(p) = self.cell(off, w) else {
+            anyhow::bail!("field read out of bounds (off={off}, w={w}, len={})", self.n_bytes)
+        };
+        // SAFETY: aligned + in bounds (`cell`).
+        let bits = unsafe {
+            match w {
+                1 => AtomicU8::from_ptr(p).load(Ordering::Relaxed) as u64,
+                2 => AtomicU16::from_ptr(p.cast()).load(Ordering::Relaxed) as u64,
+                4 => AtomicU32::from_ptr(p.cast()).load(Ordering::Relaxed) as u64,
+                8 => AtomicU64::from_ptr(p.cast()).load(Ordering::Relaxed),
+                _ => anyhow::bail!("field read: unsupported width {w}"),
+            }
+        };
+        Ok(super::prim_from_bits(kind, bits))
+    }
+
+    /// Relaxed-store `v` into the primitive leaf at `off`. Rejects a value that does not fit
+    /// the leaf's kind (e.g. `null` into an `int`), like `encode_prim`.
+    #[inline(always)]
+    pub fn store_prim(&mut self, off: usize, w: usize, kind: u8, v: &Value) -> anyhow::Result<()> {
+        let bits = super::prim_to_bits(kind, v)?;
+        let Some(p) = self.cell(off, w) else {
+            anyhow::bail!("field write out of bounds (off={off}, w={w}, len={})", self.n_bytes)
+        };
+        // SAFETY: aligned + in bounds (`cell`).
+        unsafe {
+            match w {
+                1 => AtomicU8::from_ptr(p).store(bits as u8, Ordering::Relaxed),
+                2 => AtomicU16::from_ptr(p.cast()).store(bits as u16, Ordering::Relaxed),
+                4 => AtomicU32::from_ptr(p.cast()).store(bits as u32, Ordering::Relaxed),
+                8 => AtomicU64::from_ptr(p.cast()).store(bits, Ordering::Relaxed),
+                _ => anyhow::bail!("field write: unsupported width {w}"),
+            }
+        }
+        Ok(())
     }
 }
 

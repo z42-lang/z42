@@ -9,33 +9,6 @@ using Z42.IR;
 // CU 预处理 + 命名空间遮蔽/作用域解析辅助（从 IrDump 分出，irdump-pipeline-split）：global using 注入、
 // file-scoped using 强制、活跃 ns 集、local-wins 遮蔽剔除、包内类名/ns 图、文件 stem。叶子（不调兄弟簇）。
 public static class CuPreprocess {
-    // G17b：构建「短类名 → 声明 ns」图（跨-zpkg imported + 包内每个有 ns 的类/接口）。
-    // 镜像 C# QualifyClassName 经 ImportedClassNamespaces 把 using 引入的同包跨-ns 类限定到
-    // 其声明 ns；同 ns 类 declNs==currentNs，QualifyClass 结果与 Qualify(currentNs) 一致（无回归）。
-    // 全包共用一张图（类 FQ 名恒为 declNs.name，与引用方 CU 无关，无需按 CU using 过滤）。
-    private static StrMap _pkgClassNs(CompilationUnit[] cus, int count, ImportedSymbols imported) {
-        StrMap m = new StrMap();
-        if (imported != null && imported.ClassNamespaces != null) {
-            string[] ks = imported.ClassNamespaces.Keys();
-            int j = 0;
-            while (j < ks.Length) { m.Put(ks[j], imported.ClassNamespaces.Get(ks[j])); j = j + 1; }
-        }
-        int i = 0;
-        while (i < count) {
-            CompilationUnit cu = cus[i];
-            if (cu.HasNamespace && cu.Namespace != "") {
-                int d = 0;
-                while (d < cu.DeclCount) {
-                    Decl dd = cu.Decls[d];
-                    if (dd is AttributedDecl) { dd = (dd as AttributedDecl).Inner; }
-                    if (dd is ClassDecl) { m.Put((dd as ClassDecl).Name, new StrBox(cu.Namespace)); }
-                    d = d + 1;
-                }
-            }
-            i = i + 1;
-        }
-        return m;
-    }
     // 本包**自有声明**类名集（G18：ChainHasMethod 反劫持守卫仅认本地类，镜像 C# ClassRegistry 仅本地）。
     // 含所有 ns / 无 ns 的本包 class·struct（不含 imported）。值=占位 StrBox（仅用 ContainsKey）。
     internal static StrMap _pkgLocalClasses(CompilationUnit[] cus, int count) {

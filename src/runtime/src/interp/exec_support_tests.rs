@@ -15,6 +15,7 @@ fn entry(try_start: &str, try_end: &str, catch_label: &str) -> ExceptionEntry {
         catch_label: catch_label.to_string(),
         catch_type: None,
         catch_reg: 0,
+        catch_key: Default::default(),
     }
 }
 

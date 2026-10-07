@@ -503,7 +503,7 @@ z42vm 继续静态链接 VM，不改为动态链接 `native/libz42`（结论与�
   - 3：JIT 槽位按 FnId 建、带负缓存；惰性目标也路由到 native；OSR 支持惰性函数。
   - 4：VCall PIC 改存 FnId。
   - 5：ObjNew 站点缓存。🟡 已实现、待合并（分支 `vm/objnew-site-cache`）：站点存类描述符 `Arc<TypeDesc>` + ctor 的 FnId，interp 与 JIT 共用 `interp/obj_new_resolve.rs`；命中不哈希、不拿锁。仍按名：回落描述符的本地类（每次现建描述符）。
-  - 6：TypeTable 与 `isa_cache` 改 key（顺带修 D5）。
+  - 6：TypeTable 与 `isa_cache` 改 key（顺带修 D5）。🟡 已实现、待合并（分支 `vm/type-table`）：VmCore 上 `TypeTable`（进程级 TypeId → 最新版本描述符，稀疏分段、读无锁；入口模块构造时登记，惰性包在加载 / fixup 后发布）；`isa_cache` / `subclass_memo` 改按 `(接收者 TypeId, 目标键)` 做键，目标键缓存在指令 / 异常表行的 `TypeKeyCell`（已登记类型取其 TypeId，否则为名字保留一个 id）。未做：两张类型名字表（`Module.type_registry` / 加载器 `type_registry`）并入 TypeTable；回落描述符与 corelib 原生句柄单例仍无 id、不缓存。
   - 7：ConstStr 改为每 ctx 一张无锁表。
   - 8：FuncRef / Closure 改存 FnId。
   - 9：清理。
@@ -539,6 +539,10 @@ z42vm 继续静态链接 VM，不改为动态链接 `native/libz42`（结论与�
 - 序列（每步单独过 GREEN；小对象现约 104 B）：
   - R0：P1-3 先行，把两个引擎的字段 / 数组 / 静态字段读写收进 `objops`（`src/runtime/src/objops/`）。
   - R1–R3：字段与数组元素改用同宽原子；引用改为 8 B 自描述指针；数组分 REF / PRIM / MIXED 三种模式（每个字符串字段 −16 B，`object[]` 每元素 −8 B）。
+    - R1 🟡：对象字段单元。基元同宽 relaxed；直接引用字段（含 `string` / `object` / 接口 / 委托）一律 8 B 自描述字（低 3 位种类，0 = null，release 写 / acquire 读，标记期写改 swap 供 SATB）；擦除泛型把基元写进 `object` 字段时装进单元素盒子（种类 7）；GC 只经 `visit_refs`；JIT 引用读改为 acquire load + 种类查表，`string` 字段也走内联。型参字段、内联 struct 引用叶子、合成布局仍在 16 B 侧表。实测（100 万个活对象，含 `object[]` 容器）：1 个 string 字段 GC 用量 88 → 72 B/个、RSS 160 → 122 B/个；2 个引用字段 112 → 80 B、168 → 153 B；z42c 工作区构建峰值 RSS 829 → 805 MB，墙钟持平。
+    - R2 🟡：型参字段（`T F;` / `T? F;`）出侧表，改为对象自己的 16 B 单元（`metadata/types/tparam_cell.rs`）：自描述标签字在编译器给的 8 B 槽位，基元负载字追加在编译器布局之后（编译器偏移、子类 base_shift 都不动）。标签字 = `0`（null）/ 直接引用字 / 种类 7 盒子 / `PRIM(k)` / `NULL(k)`；引用与 null 不用负载字。**负载字一生只装一种基元**：种类由唯一一次 CAS 认领定下（已知基元实参在 `ObjNew` 零值初始化时即认领；字面 `T` / 无实参的实例在第一次存基元时认领），之后标签字不再回到「从未存过基元」的状态，读者 acquire 到 `PRIM(k)` 再 relaxed 读负载字不会撕裂。不符写入对用户透明：`T = int` 收到 null → `NULL(k)`，不分配；已定种类后来了引用或别种基元、直接引用后来了基元、栈句柄 → 装箱进标签字，之后留在标签字。**种类不在分配时按实参写死、改为首次基元写认领**：擦除代码里的 `new Node<T>()`（`LinkedList<int>` 的节点）实参是字面 `T`，按引用编码会每次存 int 都装箱；运行期解析开放实参又会改变反射 / `default(T)` 的可见行为。慢路频率（临时计数器）：z42c 工作区构建型参单元写入 0 次；e2e 全量（interp + jit）写入 36 次、装箱 2 次（`generic_class_returns_blob` 把值 struct 句柄存进 `T` 字段）。GC 仍只经 `visit_refs`；SATB 经 CAS / 标记期 swap 拿旧字。合成布局的引用字段与内联 struct 引用叶子仍在侧表（R3）；JIT 型参字段读写仍走 helper（标记字按引用字查表会读成 null）。实测（100 万个活对象，含 `object[]` 容器，GC 用量 / RSS 密度，分代）：擦除分配的 `Box<int>` 88 / 223.8 → 80 / 223.2 B，`Pair<int,string>` 112 / 282.9 → 96 / 247.5 B，`LinkedList<int>` 每节点 104 / 221.0 → 96 / 213.4 B（STW：235.0 → 205.5 B）；闭合实例化（本包描述符的 `Box<int>`）本就不用型参单元，不变。z42c 工作区构建墙钟 / 峰值 RSS 持平（14.91 / 14.92 s，811 / 810 MB），产物逐字节一致；bench 05 / 10 / 12 / 08 / dict_ops 持平（±1.5%），型参字段 get/set 微基准 jit +1–2%、interp ±1%，`LinkedList<int>` 建表 + 遍历 jit +1–3%、interp 持平（每节点多一次认领 CAS）。
+      - 另见：每个带实参的泛型实例都有一个 `ObjExtras` 盒子装 `type_args: Box<[String]>`（闭合 `Box<int>` RSS 210 B/个，非泛型同形类 155 B/个），按实例化驻留实参可再省约 55 B/个。
+    - R3：数组元素模式 REF（8 B 引用字）/ PRIM（打包基元）/ MIXED（擦除 `T[]`，16 B + 分片锁）；struct blob 的引用叶子同步改 8 B，对象内联 struct 的叶子随之出侧表。
   - R4：删掉每对象 Mutex（88 B），顺带修掉 D4（JIT 绕过锁）与 `Array.Copy` 的 ABBA 死锁面。
   - R5：Monitor 侧表。
   - R6：对象搬进变长区（56 B；最大、风险最高的一步）。
@@ -568,7 +572,7 @@ z42vm 继续静态链接 VM，不改为动态链接 `native/libz42`（结论与�
 | M5 | chunk 大小贴合分配器档位 | 每对象、每数组 −8 B | — | 🟡 |
 | M6 | 按真实占用记账，软上限 / `Z42_GC_MAX_BYTES` 按真实占用判定（即 P1-7 A5） | 上限真正约束 RSS | — | 🟡 |
 | M7 | 池中空 chunk 超阈值 decommit（即 P1-7 A4） | 稳态 RSS 下降 | — | 🟡 |
-| M8 | 用位图 / 区间替代 young_list、all_blocks、var young 等侧表 | 分代模式每对象 −8 B、每串 −16 B | — | ⬜ |
+| M8 | 用位图 / 区间替代 young_list、all_blocks、var young 等侧表 | 分代模式每对象 −8 B、每串 −16 B；实测（分代）每对象 98 → 81 B、每串 115 → 89 B，槽头 72 → 64 B，z42c 构建 RSS 788 → 754 MB、墙钟持平；09 STW full mark +10%（64 B 步长，待查） | — | 🟡 |
 | M9 | 年轻集合增长加上限（futility 时提前晋升或转 major，而非放大 nursery） | 流失场景 RSS −13%，最大停顿 94 → 18 ms | 09_alloc_ctorless 吞吐退化（⏸） | ⏸ |
 | M10 | 字段 payload 内联进 GC 槽 | 每对象 −16~−24 B；死 payload 随槽一起释放 | — | ⬜ |
 | M11 | 对象头 72 → 约 24 B：去掉每对象 Mutex，标记 / 存活 / 年龄 / 代号合成一个字，稀有字段移到侧表 | 每对象 −40~−48 B | 内存模型已定（见「对象模型（M10 + M11）已定方案」），按 R0–R9 推进 | ⏸ |

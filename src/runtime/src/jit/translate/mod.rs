@@ -16,6 +16,7 @@ use cranelift_codegen::ir::{AbiParam, InstBuilder, MemFlagsData};
 use cranelift_codegen::ir::types;
 use cranelift_codegen::ir::condcodes::IntCC;
 use crate::metadata::IrType;
+use crate::metadata::tokens::TypeKeyCell;
 use cranelift_codegen::Context;
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Variable};
 use cranelift_module::{FuncId, Module as CraneliftModule};
@@ -326,14 +327,14 @@ pub fn translate_function(
         // The legacy single-entry shortcut is preserved as `catch_info` for the
         // wildcard-only case so the unconditional jump path stays identical to
         // pre-fix behaviour. Typed / multi-catch goes through `catch_chain`.
-        let catch_chain: Vec<(cranelift_codegen::ir::Block, u32, Option<&str>)> =
+        let catch_chain: Vec<(cranelift_codegen::ir::Block, u32, Option<(&str, &TypeKeyCell)>)> =
             find_handler_entries(z42_func, block_idx).into_iter().map(|ei| {
                 let entry      = &z42_func.exception_table()[ei];
                 let catch_idx  = z42_func.blocks.iter().position(|b| b.label == entry.catch_label)
                     .expect("catch_label block must exist");
-                let ty: Option<&str> = match entry.catch_type.as_deref() {
+                let ty = match entry.catch_type.as_deref() {
                     None | Some("*") => None,
-                    Some(t)          => Some(t),
+                    Some(t)          => Some((t, &entry.catch_key)),
                 };
                 (cl_blocks[catch_idx], entry.catch_reg, ty)
             }).collect();

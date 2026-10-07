@@ -144,18 +144,18 @@ bool _isHarnessZpkg(string name) {
     return false;
 }
 
-// Stdlib member list — derived from the workspace manifest's `default-members`
+// Stdlib member list — derived from the workspace manifest's `default_members`
 // (single source of truth; no hand-maintained duplicate that could drift, cf.
 // the old index.json). Order is irrelevant here: z42c `build --workspace`
 // topo-sorts; this list only drives the verify + hard-link loops.
 string[] _stdlibList(string root) {
-    return _vgetListFromFile(root, "src/libraries/z42.workspace.toml", "workspace.default-members");
+    return _vgetListFromFile(root, "src/libraries/z42.workspace.toml", "workspace.default_members");
 }
 
-// z42c 编译器成员列表 — 同样派生自 compiler workspace 的 `default-members`（单一真相源，
+// z42c 编译器成员列表 — 同样派生自 compiler workspace 的 `default_members`（单一真相源，
 // 对称 _stdlibList）。compiler/test/bench/package/bootstrap-check 都用同一份，避免字面量散落。
 string[] _compilerMembers(string root) {
-    return _vgetListFromFile(root, "src/compiler/z42.workspace.toml", "workspace.default-members");
+    return _vgetListFromFile(root, "src/compiler/z42.workspace.toml", "workspace.default_members");
 }
 
 // ── 编译器包的运行期 probing（drop-alllibs，2026-10-01）──────────────────────────────────────────

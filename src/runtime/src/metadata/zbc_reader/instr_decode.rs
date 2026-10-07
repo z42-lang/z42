@@ -215,12 +215,12 @@ pub(super) fn decode_instr(op: u8, typ: u8, dst: u32, c: &mut Cursor, pool: &[St
         OP_IS_INSTANCE => {
             let obj        = c.read_u16()? as u32;
             let class_name = id_map.resolve_type(c.read_u32()?)?;
-            Instruction::IsInstance(Box::new(IsInstanceInsn { dst, obj, class_name }))
+            Instruction::IsInstance(Box::new(IsInstanceInsn { dst, obj, class_name, target: Default::default() }))
         }
         OP_AS_CAST => {
             let obj        = c.read_u16()? as u32;
             let class_name = id_map.resolve_type(c.read_u32()?)?;
-            Instruction::AsCast(Box::new(AsCastInsn { dst, obj, class_name }))
+            Instruction::AsCast(Box::new(AsCastInsn { dst, obj, class_name, target: Default::default() }))
         }
         OP_ARRAY_NEW     => {
             let size = c.read_u16()? as u32;

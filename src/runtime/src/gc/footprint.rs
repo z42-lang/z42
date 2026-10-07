@@ -8,10 +8,10 @@
 //!
 //! | what | charged | credited |
 //! |---|---|---|
-//! | region chunk (slot array + `initialized` row + per-chunk tables) | chunk grow | never (chunks are not freed) |
+//! | region chunk (slot array + per-chunk tables and slot bitmaps) | chunk grow | never (chunks are not freed) |
 //! | var-region chunk (bump or dedicated) | chunk push | dedicated chunk freed |
 //! | object / array payload outside the slot (`ObjStorage`, extras, element-type name) | slot filled | slot's dead entry dropped (slot reuse) |
-//! | variable-size side tables (`young_list`, free lists, `all_blocks`) | re-measured at every sweep tail | same |
+//! | variable-size side tables (chunk lists, var free lists, var young bitmaps) | re-measured at every sweep tail | same |
 //!
 //! `pooled` is the part of `committed` sitting in fully-dead chunks in a region's chunk pool:
 //! memory the heap holds but can refill without growing. The soft cap is judged against
@@ -103,14 +103,15 @@ pub(crate) fn malloc_size(n: usize) -> u64 {
     n.next_multiple_of(step) as u64
 }
 
-/// Per-chunk side tables a region grows alongside every chunk: the chunk's `initialized`
-/// row is charged at its real length; this covers the `Vec` headers and per-chunk words of
-/// the parallel tables (free-slot bucket, census, card word, borrowed flag), rounded up.
-pub(crate) const REGION_CHUNK_TABLES: u64 = 64;
+/// Per-chunk side tables a region grows alongside every chunk: the three slot bitmaps
+/// (constructed / young / free, 32 B each) and the per-chunk words of the parallel tables
+/// (chunk pointer, census, card word, generation floor, flags, young-summary bit), rounded up.
+pub(crate) const REGION_CHUNK_TABLES: u64 = 128;
 
-/// The same for a var-region chunk: `Chunk` itself, the `all_blocks` bucket header and the
-/// five per-chunk words (borrowed / reuse_gen / pool_epoch / census).
-pub(crate) const VAR_CHUNK_TABLES: u64 = 64;
+/// The same for a var-region chunk: `Chunk` itself, its young-bitmap box header and the
+/// per-chunk words (borrowed / reuse_gen / pool_epoch / census / high-water mark / young
+/// count). The young bitmap's words are re-measured with the other variable-size tables.
+pub(crate) const VAR_CHUNK_TABLES: u64 = 80;
 
 #[cfg(test)]
 mod tests {

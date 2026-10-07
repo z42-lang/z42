@@ -43,7 +43,7 @@
 ### src/metadata/ — IR 元数据与加载层
 | 文件 | 职责 |
 |------|------|
-| `types.rs` + `types/` | 运行时值类型与对象模型：`field`（FieldSlot / TAG_*）、`type_desc`（TypeDesc / Cold）、`layout` / `codec`（字节布局与编解码）、`object` / `obj_storage`（ScriptObject / NativeData）、`array` / `array_access`（ArrayObj）、`value` / `value_aux`（Value / ExecMode / Closure 数据）；hub 全量 `pub use` |
+| `types.rs` + `types/` | 运行时值类型与对象模型：`field`（FieldSlot / TAG_*）、`type_desc`（TypeDesc / Cold）、`layout` / `codec`（字节布局、字段单元归属与编解码）、`ref_word`（对象引用字段的 8 B 自描述字）、`tparam_cell`（型参字段的 16 B 单元：自描述标签字 + 基元负载字）、`object` / `object_fields` / `obj_storage`（ScriptObject / NativeData；字段单元的原子读写与 GC 遍历）、`array` / `array_access`（ArrayObj）、`value` / `value_aux`（Value / ExecMode / Closure 数据）；hub 全量 `pub use` |
 | `bytecode.rs` + `bytecode/` | zbc IR 数据结构：`module`（Module）、`class`（ClassDesc / FieldDesc / 布局描述 / CLASS_FLAG_*）、`function`（Function / BasicBlock / 异常表）、`insn`（*Insn 载荷）、`instruction`（Instruction / Terminator）；`bytecode_serde.rs` 为 TypedReg 兼容 serde |
 | `formats.rs` | `.zbc` / `.zpkg` magic 常量 + 依赖记录 `ZpkgDep` |
 | `zbc_reader/` | zbc / zpkg 二进制读取：`cursor` / `opcodes` / `instr_decode` / `func_reader` / `type_reader` / `zpkg` / `zpkg_index` / `sidecar` / `versions` |
@@ -52,8 +52,9 @@
 | `merge.rs` | 多模块合并：字符串池重映射 + 函数拼接 |
 | `resolver.rs` + `resolver/` | 加载期 token 解析（预填每函数 `ResolvedTokens`）+ 内联缓存（`ic.rs`） |
 | `context.rs` | 加载上下文模型（`AssemblyLoadContext` 对等的代码边界抽象） |
-| `tokens.rs` / `name_index.rs` / `namespace_index.rs` / `vstr.rs` | 热路径 token 新类型（含运行期 `FnId` / `FnIdCell`） / 字段·vtable 名称索引 / namespace→zpkg 索引 / GC 堆内不可变字符串句柄 |
+| `tokens.rs` / `name_index.rs` / `namespace_index.rs` / `vstr.rs` | 热路径 token 新类型（含运行期 `FnId` / `FnIdCell` / 类型判定目标键 `TypeKeyCell`） / 字段·vtable 名称索引 / namespace→zpkg 索引 / GC 堆内不可变字符串句柄 |
 | `func_table.rs` | `FuncTable`：VM 级函数身份（`FnId` → `Function`，读无锁）；入口模块函数 + 惰性包函数统一编号 |
+| `type_table.rs` | `TypeTable`：VM 级类型身份（进程级 `TypeId` → 最新版本 `TypeDesc`，读无锁，稀疏分段）；入口模块类型 + 惰性包发布的类型；类型判定目标名的保留键 |
 | `seg_vec.rs` | `SegVec`（只追加、读无锁的分段向量）/ `SparseSegTable`（按 id 索引、段首次触达才分配的侧表） |
 | `superinstr.rs` | 超级指令融合框架 |
 | `test_index.rs` / `build_id.rs` / `well_known_names.rs` / `ir_type.rs` | 编译期测试发现 TIDX 段 / 分离调试符号的 build id / 常用限定名常量 / 寄存器类型 tag |

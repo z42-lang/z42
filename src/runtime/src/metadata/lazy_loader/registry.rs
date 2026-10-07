@@ -174,6 +174,7 @@ impl LazyLoader {
                 break;
             }
         }
+        self.publish_types();
 
         // Transitively expand `ZpkgDep` list into the declared set. Each dep is
         // resolved across all `search_dirs` (entry-zpkg dir + stdlib libs), so a
@@ -417,6 +418,7 @@ impl LazyLoader {
                 break;
             }
         }
+        self.publish_types();
 
         Ok(entries)
     }

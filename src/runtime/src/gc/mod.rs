@@ -45,6 +45,7 @@ pub mod phase_timer;
 pub mod refs;
 pub mod satb;
 pub mod region;
+pub(crate) mod side_bits;
 pub mod tlab;
 pub mod var_region;
 pub mod retention;

@@ -236,7 +236,7 @@ pub unsafe extern "C" fn jit_convert(
 //
 // perf-vm-isa-cache (2026-09-03): the JIT-private `is_subclass_or_eq` walk (+ its
 // `iface_reaches_mod` mirror) is gone — both helpers now call the interpreter's single
-// `dispatch::isa_td` (identity-keyed `IsaCache` → shared string memo → chain walk), so
+// `dispatch::isa_td` (id-keyed `IsaCache` → shared memo → chain walk), so
 // there is exactly one type-test implementation for interp, JIT and typed `catch`.
 // 2026-05-07 add-array-base-class: T[] is-a Std.Array is-a Std.Object.
 // Mirror the interp `is_array_isa` hardcoded chain.
@@ -248,17 +248,20 @@ pub(super) fn is_array_isa(class_name: &str) -> bool {
 pub unsafe extern "C" fn jit_is_instance(
     frame: *mut JitFrame, ctx: *const JitModuleCtx,
     dst: u32, obj: u32, cls_ptr: *const u8, cls_len: usize,
+    key: *const crate::metadata::tokens::TypeKeyCell,
 ) {
     let class_name = super::baked_str(cls_ptr, cls_len);
+    // The instruction's own key cell, baked at translate time (lives as long as the code).
+    let key = &*key;
     let module = &*(*ctx).module;
     let result = match &(*frame).regs[obj as usize] {
-        Value::Object(rc) => isa_td(vm_ctx_ref(ctx), &module.type_registry, rc.type_desc(), class_name),
+        Value::Object(rc) => isa_td(vm_ctx_ref(ctx), &module.type_registry, rc.type_desc(), class_name, key),
         Value::Array(_)   => is_array_isa(class_name),
         // add-struct-object-boxing → unify Phase 2 R3: 装箱值类型（struct 或基元）is-a 精确类型 /
         // object（镜像 interp is_instance；基元盒 type_desc.name 即精确 wrapper）。
         Value::BoxedStruct(b) => class_name == "Std.Object" || class_name == "Object"
             || &*b.type_desc().name == class_name
-            || isa_td(vm_ctx_ref(ctx), &module.type_registry, b.type_desc(), class_name),
+            || isa_td(vm_ctx_ref(ctx), &module.type_registry, b.type_desc(), class_name, key),
         // fix-boxed-primitive-is-as: 未装箱裸基元按其 stdlib 类名匹配（Null → None → false）。
         other => crate::interp::prim_isa(other, class_name),
     };
@@ -269,8 +272,11 @@ pub unsafe extern "C" fn jit_is_instance(
 pub unsafe extern "C" fn jit_as_cast(
     frame: *mut JitFrame, ctx: *const JitModuleCtx,
     dst: u32, obj: u32, cls_ptr: *const u8, cls_len: usize,
+    key: *const crate::metadata::tokens::TypeKeyCell,
 ) {
     let class_name = super::baked_str(cls_ptr, cls_len);
+    // The instruction's own key cell, baked at translate time (lives as long as the code).
+    let key = &*key;
     let module = &*(*ctx).module;
     let val    = (*frame).regs[obj as usize].clone();
     // add-struct-object-boxing → unify Phase 2 R3: BoxedStruct 特判（struct 或基元装箱统一，镜像
@@ -289,7 +295,7 @@ pub unsafe extern "C" fn jit_as_cast(
                         .unwrap_or(Value::Null)
                 }
             }
-        } else if is_obj || isa_td(vm_ctx_ref(ctx), &module.type_registry, b.type_desc(), class_name) {
+        } else if is_obj || isa_td(vm_ctx_ref(ctx), &module.type_registry, b.type_desc(), class_name, key) {
             val.clone()
         } else {
             Value::Null
@@ -317,7 +323,7 @@ pub unsafe extern "C" fn jit_as_cast(
         return;
     }
     let is_match = match &val {
-        Value::Object(rc) => isa_td(vm_ctx_ref(ctx), &module.type_registry, rc.type_desc(), class_name),
+        Value::Object(rc) => isa_td(vm_ctx_ref(ctx), &module.type_registry, rc.type_desc(), class_name, key),
         Value::Array(_)   => is_array_isa(class_name),
         Value::Null => true,
         // fix-boxed-primitive-is-as: 未装箱裸基元按其 stdlib 类名匹配。

@@ -135,7 +135,9 @@ public sealed partial class ExprEmitter {
         Z42InstantiatedType inst = t as Z42InstantiatedType;
         if (inst.Def == null || inst.ArgCount <= 0) { return ""; }
         if (this._ctx.Gen.Layouts == null) { return ""; }
-        if (!this._ctx.Gen.LocalClasses.ContainsKey(inst.Def.Name())) { return ""; }
+        // 本包泛型定义才有实例化描述符。`LocalClasses` 是**短名**集 ⇒ 导入的同短名泛型（本包有个 `List`、
+        // 引用的是 `Std.Collections.List<int>`）也会命中，先按类型对象排除导入的（fqn-tables 5d 实测）。
+        if (inst.Def.IsImported || !this._ctx.Gen.LocalClasses.ContainsKey(inst.Def.Name())) { return ""; }
         int c0 = 0;
         while (c0 < inst.ArgCount) {
             if (!this._isConcreteTypeArg(inst.TypeArgs[c0])) { return ""; }   // 含未代换型参 → 不是真实例化
@@ -235,6 +237,11 @@ public sealed partial class ExprEmitter {
             string idn = this._instIdentityName(resolved);
             if (idn != "") { return this._qualifyInstName(idn); }
         }
+        // fqn-tables 5d：非泛型类 / 接口目标按其类型对象的声明 ns 限定（不按短名查图）。
+        if (resolved != null && astName.IndexOf('<') < 0 && EmitContext.DeclNsOf(resolved) != ""
+            && !(resolved is Z42InstantiatedType) && !(resolved is Z42InstantiatedInterfaceType)) {
+            return this._ctx.QualifyType(resolved, resolved.Name());   // 用类型自己的名字（源码可能写的是别名）
+        }
         string qn = this._ctx.QualifyTypeName(astName);   // 基元别名 → FQ 包装类（fix-boxed-primitive-is-as）
         if (qn == "Array") { return "Std.Array"; }        // 内建根类（VM 硬编码 Std.Array/Std.Object）
         if (qn == "Object") { return "Std.Object"; }
@@ -243,11 +250,9 @@ public sealed partial class ExprEmitter {
 
     // 实例化短名 → FQ 名：**只限定基名、实参原样**（`Pair<P2,int>` → `Demo.Pair<P2,int>`）。
     // 与 `_qualifyElemName`（数组元素名）同一约定，也与合成描述符的注册键（ns + 短实例化名）对齐。
+    // fqn-tables 5d：实例化名都是布局名（本包泛型定义的实例化）⇒ ns 取算出该布局的定义类（`QualifyLayout`）。
     internal string _qualifyInstName(string instName) {
-        int lt = instName.IndexOf('<');
-        if (lt < 0) { return this._ctx.QualifyClass(instName); }
-        return this._ctx.QualifyClass(instName.Substring(0, lt))
-             + instName.Substring(lt, instName.Length - lt);
+        return this._ctx.QualifyLayout(instName);
     }
 
     // 登记（幂等）。

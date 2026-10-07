@@ -1,54 +1,59 @@
-use super::isa_cache::IsaCache;
-use crate::metadata::TypeDesc;
-
-fn td(n: usize) -> *const TypeDesc {
-    // Distinct, 16-byte-aligned fake addresses — the cache only ever compares them.
-    (0x1000 + n * 64) as *const TypeDesc
-}
+use super::isa_cache::{pair_key, IsaCache};
 
 #[test]
 fn miss_then_hit_and_verdict_roundtrip() {
     let c = IsaCache::new();
-    let target = String::from("Std.Exception");
-    assert_eq!(c.get(td(1), &target), None);
-    c.put(td(1), &target, true);
-    assert_eq!(c.get(td(1), &target), Some(true));
-    c.put(td(1), &target, false);
-    assert_eq!(c.get(td(1), &target), Some(false));
+    assert_eq!(c.get(1, 7), None);
+    c.put(1, 7, true);
+    assert_eq!(c.get(1, 7), Some(true));
+    c.put(1, 7, false);
+    assert_eq!(c.get(1, 7), Some(false));
 }
 
 #[test]
-fn keyed_on_identity_not_content() {
+fn keyed_on_both_ids() {
     let c = IsaCache::new();
-    let a = String::from("Std.Object");
-    let b = String::from("Std.Object"); // equal content, different address
-    c.put(td(2), &a, true);
-    assert_eq!(c.get(td(2), &a), Some(true));
-    assert_eq!(c.get(td(2), &b), None, "a different string address must not hit");
-    assert_eq!(c.get(td(3), &a), None, "a different TypeDesc must not hit");
+    c.put(2, 9, true);
+    assert_eq!(c.get(2, 9), Some(true));
+    assert_eq!(c.get(2, 10), None, "a different target key must not hit");
+    assert_eq!(c.get(3, 9), None, "a different receiver id must not hit");
+    assert_eq!(c.get(9, 2), None, "the pair is ordered");
+}
+
+#[test]
+fn id_zero_is_a_real_key_not_the_empty_slot() {
+    let c = IsaCache::new();
+    c.put(5, 5, false); // allocate the slots
+    assert_eq!(c.get(0, 0), None, "an empty slot never answers");
+    c.put(0, 0, true);
+    assert_eq!(c.get(0, 0), Some(true));
 }
 
 #[test]
 fn collision_overwrites_without_false_hit() {
     let c = IsaCache::new();
-    let t = String::from("T");
-    // Find two TypeDesc addresses that map to the same slot for this target.
-    let base = td(10);
-    let tgt = t.as_ptr() as usize;
-    let i0 = IsaCache::index(base as usize, tgt);
-    let other = (11..100_000usize).map(td).find(|p| IsaCache::index(*p as usize, tgt) == i0)
-        .expect("some address collides within the probe range");
-    c.put(base, &t, true);
-    c.put(other, &t, false);
-    assert_eq!(c.get(other, &t), Some(false));
-    assert_eq!(c.get(base, &t), None, "evicted entry must miss, never answer with the other's verdict");
+    let i0 = IsaCache::index(pair_key(10, 3));
+    let other = (11..1_000_000u32).find(|r| IsaCache::index(pair_key(*r, 3)) == i0)
+        .expect("some receiver id collides within the probe range");
+    c.put(10, 3, true);
+    c.put(other, 3, false);
+    assert_eq!(c.get(other, 3), Some(false));
+    assert_eq!(c.get(10, 3), None, "evicted entry must miss, never answer with the other's verdict");
+}
+
+#[test]
+fn verdict_bit_does_not_leak_into_the_key() {
+    let c = IsaCache::new();
+    // `target | VERDICT_BIT` must not read back as another target's entry.
+    c.put(4, 1, true);
+    assert_eq!(c.get(4, 1), Some(true));
+    assert_eq!(c.get(4, 1 | (1 << 30)), None);
 }
 
 #[test]
 fn clear_forgets_everything() {
     let c = IsaCache::new();
-    let t = String::from("X");
-    c.put(td(4), &t, true);
+    c.put(4, 8, true);
     c.clear();
-    assert_eq!(c.get(td(4), &t), None);
+    assert_eq!(c.get(4, 8), None);
 }

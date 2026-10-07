@@ -124,7 +124,6 @@ public sealed class StubCollector {
                             itw.Visibility = DeclFacts.classVis(c.ModFlags, c.Name.IndexOf('+') >= 0);   // complete-class-access-control ④
                             StubCollector._setIfaceTypeParams(itw, c);   // add-associated-types PR-3
                             this._addIfaceBases(itw, c);
-                            table.Interfaces.Put(c.Name, itw);
                             table.InterfacesByFqn.Put(itw.Fqn(), itw);   // unify-type-identity-fqn
                             table.NoteIfaceNs(c.Name, itw.Namespace);    // enforce-fqn-name-identity 阶段 2
                         }
@@ -135,7 +134,6 @@ public sealed class StubCollector {
                         it.Visibility = DeclFacts.classVis(c.ModFlags, c.Name.IndexOf('+') >= 0);   // complete-class-access-control ④
                         StubCollector._setIfaceTypeParams(it, c);   // add-associated-types PR-3
                         this._addIfaceBases(it, c);
-                        table.Interfaces.Put(c.Name, it);
                         table.InterfacesByFqn.Put(it.Fqn(), it);   // unify-type-identity-fqn
                         table.NoteIfaceNs(c.Name, it.Namespace);   // enforce-fqn-name-identity 阶段 2
                     }
@@ -452,10 +450,8 @@ public sealed class StubCollector {
         if (c.TypeParams.Count > 0) { ct.GenericParamNames = c.TypeParams.Names; ct.GenericParamCount = c.TypeParams.Count; }
         if (needsMangle) { ct.HasArityMangle = true; ct.ArityMangleCount = c.TypeParams.Count; }
         if (c.IsPartial) { ct.IsPartial = true; ct.PartialMainFile = file; }
-        table.Classes.Put(key, ct);
         table.NoteClassNs(key, ns);   // add-bare-name-ambiguity-diagnostic：裸名 → 全部声明 ns（判歧义用）
-        // fix-type-ref-ns-collision：同时按 FQN 键登记（`ns.key`；全局 ns 用裸 key）。裸名 Classes 会被同短名
-        // 跨 ns 后来者覆盖，此 FQN 视图保留每一份 → `new A.Foo` 的限定名解析命中 ns==A 的那份，不再撞赢家。
+        // 按 FQN 键登记（`ns.key`；全局 ns 用裸 key）：同短名跨 ns 各留一份 → `new A.Foo` 的限定名解析命中 ns==A 的那份。
         string fqn = ns == "" ? key : ns + "." + key;
         table.ClassesByFqn.Put(fqn, ct);
     }

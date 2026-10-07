@@ -199,7 +199,7 @@ mod write_barriers {
     fn card_dirty(ctx: &VmContext, arr: &Value) -> bool {
         let Value::Array(gc) = arr else { panic!() };
         // SAFETY: live handle from this heap.
-        let (ci, _) = unsafe { gc.entry_ptr().as_ref() }.location;
+        let (ci, _) = unsafe { gc.entry_ptr().as_ref() }.location();
         ctx.heap().array_card_dirty_for_test(ci)
     }
 

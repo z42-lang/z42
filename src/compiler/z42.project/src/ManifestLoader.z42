@@ -62,10 +62,8 @@ public static class ManifestLoader {
         // 只搬运、不解释——z42.project 与 VM 都不理解它的含义。
         TomlValue bp = null;
         if (root.TryGet("properties", ref bp) && bp.IsTable()) { pm.Properties = bp; }
-        // 不认识的键 / 改过名的旧键：只收集，消费方报错 / 警告（见 ManifestKeys）。
-        KeyAudit ka = ManifestKeys.AuditProject(root);
-        pm.UnknownKeys = ka.Unknown();
-        pm.DeprecatedKeys = ka.Deprecated();
+        // 不认识的键：只收集，消费方报错（见 ManifestKeys）。
+        pm.UnknownKeys = ManifestKeys.AuditProject(root).Unknown();
         return pm;
     }
 
@@ -118,23 +116,21 @@ public static class ManifestLoader {
         string[] names = new string[keys.Length];   // 逐规则键（可含通配 `pkg.*`）
         string[] sevs  = new string[keys.Length];   // 对应 severity 串（"warning"/"error"/"none"/…）
         int n = 0;
-        bool hasNew = false; bool waeNew = false;   // `warnings_as_errors`
-        bool hasOld = false; bool waeOld = false;   // 旧名 `warnings-as-errors`（阶段 1 仍生效，ManifestKeys 报警告）
+        bool wae = false;   // `warnings_as_errors`
         int i = 0;
         while (i < keys.Length) {
+            TomlValue v = o.Get(keys[i]);
             if (keys[i] == "warnings_as_errors") {
-                hasNew = true; waeNew = o.Get(keys[i]).AsBool();
-            } else if (keys[i] == "warnings-as-errors") {
-                hasOld = true; waeOld = o.Get(keys[i]).AsBool();
-            } else {
+                if (v.IsBool()) { wae = v.AsBool(); }
+            } else if (v.IsString()) {   // 非串值不是 severity：ManifestKeys 审计报错，这里跳过
                 names[n] = keys[i];
-                sevs[n]  = o.Get(keys[i]).AsString();
+                sevs[n]  = v.AsString();
                 n = n + 1;
             }
             i = i + 1;
         }
         pm.LintNames = names; pm.LintSeverities = sevs; pm.LintCount = n;
-        pm.LintWarningsAsErrors = hasNew ? waeNew : (hasOld && waeOld);   // 两个都写 → 新名优先
+        pm.LintWarningsAsErrors = wae;
     }
 
     // ── [optimize] ───────────────────────────────────────────────────────────
@@ -200,9 +196,7 @@ public static class ManifestLoader {
         if (root.TryGet("workspace", ref w)) {
             if (w.TryGet("members", ref tv))         { members = ManifestLoader._strArray(tv); }
             if (w.TryGet("exclude", ref tv))         { exclude = ManifestLoader._strArray(tv); }
-            // 新名优先；旧名 `default-members` 阶段 1 仍生效（ManifestKeys 报警告）。
-            if (w.TryGet("default_members", ref tv))      { defMembers = ManifestLoader._strArray(tv); }
-            else if (w.TryGet("default-members", ref tv)) { defMembers = ManifestLoader._strArray(tv); }
+            if (w.TryGet("default_members", ref tv)) { defMembers = ManifestLoader._strArray(tv); }
             TomlValue wb = null;
             if (w.TryGet("build", ref wb)) {
                 hasOut   = wb.TryGetValue<string>("output_dir", ref outDir);
@@ -214,9 +208,7 @@ public static class ManifestLoader {
                                      defMembers, defMembers.Length,
                                      hasOut, outDir, hasCache, cacheDir,
                                      wdeps, wdeps.Length);
-        KeyAudit ka = ManifestKeys.AuditWorkspace(root);
-        wm.UnknownKeys = ka.Unknown();
-        wm.DeprecatedKeys = ka.Deprecated();
+        wm.UnknownKeys = ManifestKeys.AuditWorkspace(root).Unknown();
         return wm;
     }
 

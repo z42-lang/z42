@@ -1,6 +1,6 @@
 # 对象与值表示 ABI（Object & Value ABI）
 
-> 待办：Value ABI 版本化规范、统一对象头（`gc_word`）、GcRef 可重定位、card table、移动/分代 GC 尚未实施（值/对象表示本身已实现）。
+> 待办：Value ABI 版本化规范、统一对象头（`gc_word`）、GcRef 可重定位、card table、移动/分代 GC 尚未实施（值/对象表示本身已实现）；去掉每对象 `Mutex` 之前的剩余项见 §3「字段单元的内存序」。
 >
 > 把当前**隐式**的跨引擎值/对象表示固化成**显式、版本化的 ABI**（组件化的"共享契约"本体），并为**移动/分代 GC**预留空间、**统一所有堆对象**（含字符串）到一个对象头。
 >
@@ -10,7 +10,7 @@
 
 ## 1. 现状（已成形，但隐式且脆弱）
 - **Value = Rust tagged enum**（[metadata/types/value.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/types/value.rs)），`#[repr(C, u8)]` + 显式判别值：`I64=0/F64=1/Bool=2/Char=3`（内联值）、`Str(Str)=4`、`Null=5`、`Array(GcRef<ArrayObj>)=6`、`Object(GcRef<ScriptObject>)=7`、`PinnedView=8`、`FuncRef(Str)=9`、`Closure(VarGcRef)=10`、`Ref=12`、`StackObject=14`、`StackArray=15`、`StructRef=16`、`BoxedStruct(GcRef<ScriptObject>)=17`、`StructRefHeap=18`（11、13 空号）。`{idx, frame_id}` 形的变体都是 8B arena 句柄（瞬态的 3 个见 §2.2）。**`Value` 是 `Copy`（16B POD，无 `Drop` glue）**。
-- **ScriptObject** = `{ type_desc: Arc<TypeDesc>, storage: ObjStorage, extras: Option<Box<ObjExtras>> }`（[metadata/types/object.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/types/object.rs)）。`storage` 是单次分配的 `[refs: Value × n_refs][bytes: u8 × n_bytes]` 块（[obj_storage.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/types/obj_storage.rs)），布局见 §3「字段存储布局」；`extras` 装冷字段 `native: NativeData`（WeakRef / Type / LoadContext / Assembly / Monitor 句柄）与泛型实参 `type_args`，两者都空时不分配。
+- **ScriptObject** = `{ type_desc: Arc<TypeDesc>, storage: ObjStorage, extras: Option<Box<ObjExtras>> }`（[metadata/types/object.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/types/object.rs)）。`storage` 是单次分配的 `[refs: Value × n_refs][bytes: u8 × n_bytes]` 块（[obj_storage.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/types/obj_storage.rs)）：`bytes` 放基元字段、8 B 引用字与型参字段的 16 B 单元，`refs` 只剩内联 struct 的引用叶子（以及合成布局的引用字段），布局见 §3「字段存储布局」；`extras` 装冷字段 `native: NativeData`（WeakRef / Type / LoadContext / Assembly / Monitor 句柄）与泛型实参 `type_args`，两者都空时不分配。
 - **GcRef** = 8B 标记指针（低 48 位 `RegionEntry` 地址、高 16 位窄 generation 快照，见 §2.1）。`RegionEntry` = `{ value: Mutex<T>, marked, alive, gen_age, generation, finalizer, … }`：mark 位和代龄在 entry 上，对象本身没有 GC 字；每个对象带一把 `Mutex`；chunk 是 Box-owned、永不重定位 → **当前非移动堆**。
 - **JIT 与 interp 共享内存 Value 表示**：JIT 直接 `store tag`+payload 到帧的 Value 寄存器数组，**硬编码 tag 值 + 偏移**。
 - 内存管理：`Value` 能到达的堆数据全在 GC 堆（`GcRef`：Object / Array / BoxedStruct；`VarGcRef` 变长块：Str / Closure / 数组元素）；`Arc` 只留给内部元数据（`TypeDesc`、帧名等，§5、§7）；瞬态句柄的 payload 在 per-`VmContext` arena（§2.2）。
@@ -163,7 +163,7 @@ ObjectHeader {
 ### 对象种类
 | kind | payload | 精确 GC 扫描 |
 |---|---|---|
-| 普通 ref 对象（用户类） | `slots: Value[]` | 逐 slot 看 tag（`Array`/`Object` 才 trace） |
+| 普通 ref 对象（用户类） | 字段单元（见下「字段存储布局」） | 侧表 `Value` + 每个非零引用字 + 型参单元标签字里的引用 |
 | **字符串（改 GC，§5）** | len + UTF-8 字节 | 无内部 ref，跳过 |
 | 字节/原始缓冲 | 原始字节 | 无内部 ref，跳过 |
 | ref 数组 | element_type + 元素 Value[] | 扫元素 |
@@ -174,12 +174,104 @@ ObjectHeader {
 → `ScriptObject.native: NativeData` ad-hoc 字段**消除**；`WeakRef`/`TypeHandle`/未来 `FileHandle` 变成上述 kind。
 
 ### 字段存储布局（= 对象内存布局本体，跨引擎 ABI）
-- 实例字段按**字节布局**存放在 `ScriptObject.storage`（`[refs][bytes]` 单块），布局由加载期组合出的 `ObjectLayout`（[metadata/types/layout.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/types/layout.rs) 的 `compose_object_layout`）决定，`alloc` 时定长：
-  - **基元字段**（含内联 struct 内部的基元叶子）按声明宽度打包在 `bytes` 的组合偏移处；
-  - **直接的 object / array 引用字段**以 8B 标记指针内联在 `bytes` 里（`ObjectLayout.inline_refs`，GC 读这 8B 重建 `Value::Object` / `Value::Array`；全 0 = `null`）；
-  - **其余引用叶子**（string / closure / func 字段、内联 struct 内部的引用叶子）放 `refs` 侧表，按 `ref_offsets` 位图顺序排列，GC 直接扫这些 `Value`。
-- 名→字段下标由 `TypeDesc.field_index`（类级共享）。**继承：基类字段在前、子类追加**（基类偏移父子稳定）。
-- 访问 `obj.f` = 按字段下标查 `ObjectLayout.field_access[i]`（`{offset, width, tag, ref_slot}`，加载期算好），基元按 `offset/width` 解码、`ref_slot ≥ 0` 时读 `refs[ref_slot]`。JIT 对基元字段的读写、对 object / array 引用字段的读，直接按字节偏移生成原生 load/store（见 [jit.md](jit.md)）→ **字段偏移、宽度与 Value 大小是 ABI 一部分，须固化**。
+
+实例字段按**字节布局**存放在 `ScriptObject.storage`，布局由加载期组合出的 `ObjectLayout`
+（[metadata/types/layout.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/types/layout.rs) 的 `compose_object_layout`）决定，`alloc` 时定长。
+编译器的对象布局给每个引用字段留 8 B、每个基元字段按自身宽度对齐（`StructLayout._alignOf`），运行时照单使用，**不改字节码格式**。
+每个直接字段落在一种**单元**里（`FieldAccess::cell()` → `FieldCell`）：
+
+| 单元 | 哪些字段 | 位置与宽度 | 读 / 写 |
+|---|---|---|---|
+| 基元 `Prim` | `int` / `long` / `double` / `bool` / `char` … | `bytes` 的组合偏移，声明宽度 | 同宽 relaxed 原子 |
+| 引用字 `Ref` | `string`、类、数组、接口、`object`、委托 | `bytes` 的组合偏移，8 B（`ObjectLayout.ref_cells`） | release 写 / acquire 读 |
+| 型参 `TypeParam` | 型参字段（`T F;`、`T? F;`） | 标签字在组合偏移（`ObjectLayout.tparam_cells`），负载字追加在编译器布局之后，各 8 B | 标签字 release 写 / acquire 读，负载字 relaxed |
+| 侧表 `Value` | 合成布局（没有编译器对象块的类型）的引用字段 | `refs[aux]`，16 B `Value` | 持对象锁读写 |
+| struct 根 `Struct` | 内联值 struct 字段 | 叶子摊在 `bytes`（基元）与 `refs`（引用） | `StructFieldGetPrim` / `SetPrim` |
+
+**引用字**（[metadata/types/ref_word.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/types/ref_word.rs)）是自描述的：
+低 3 位记种类，其余位是句柄原始位（`GcRef::to_tagged_bits` / `VarGcRef::to_bits`，`RegionEntry` 与变长块头都 8 字节对齐，低 3 位恒为 0），
+整字为 0 = `null`（零初始化即正确的默认值）。
+
+| 种类 | `Value` | 句柄 |
+|---|---|---|
+| 0（整字 0） | `Null` | — |
+| 1 / 6 | `Object` / `BoxedStruct` | `GcRef<ScriptObject>` |
+| 2 | `Array` | `GcRef<ArrayObj>` |
+| 3 / 5 | `Str` / `FuncRef` | `VarGcRef`（GC 字符串块） |
+| 4 | `Closure` | `VarGcRef`（闭包块） |
+| 7 | 装箱的任意 `Value` | `GcRef<ArrayObj>`，单元素只读数组 |
+
+- **种类 7 是逃生口**：`object` / 接口字段能经擦除泛型收到裸 `I64` / `F64` / `Bool` / `Char`（`void Set<T>(H h, T t) { h.O = t; }` 以 `T = int` 调用），
+  这些值装不进 8 B。写入时装进单元素数组，读出时取回原值——对用户代码透明。z42c 工作区整套构建一次也不走这条路。
+  写屏障拿到的是盒子（`try_set_field_value` 返回 `FieldWrite::Boxed`，调用方经 `with_barrier_value` 发屏障），GC 追踪经 `decode_for_trace` 也看到盒子。
+- **型参字段是 16 B 单元**（[metadata/types/tparam_cell.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/types/tparam_cell.rs)）：它们的值在擦除下可以是任何 `Value`。
+  判据在 `compose_object_layout`：编译器种类为 `GCREF_CLOSURE`、声明类型是本类的型参名（含 `T?`）。
+  闭合实例化（`Box<int>` 的描述符，见 [compiler/generics.md](../compiler/generics.md)）的字段类型已代换，`int` 落基元单元、`string` 落引用字，不是型参单元；
+  型参单元出现在没有实例化描述符的实例上：跨包泛型（`LinkedListNode<int>`、`Lazy<int>`）与擦除代码里的分配（`new Node<T>()`，实参是字面的 `T`）。见下「型参单元」。
+- **内联 struct 的引用叶子留在侧表**：struct blob（帧 arena、装箱 struct、`struct[]` 元素）的引用叶子还是 16 B，对象里内联的 struct 与独立 blob 逐字节同布局，
+  整块拷进拷出（`snapshot_box`、反射）不做转换；数组改 8 B 单元时一起改。
+- **合成布局**（没有编译器对象块的类型：Rust 构造的类型、单测）保守地把每个引用放侧表（分不出哪个是型参字段）。
+- 名→字段下标由 `TypeDesc.field_index`（类级共享）。**继承：基类字段在前、子类追加**，子类区从 `align_up(base.size, 8)` 开始，
+  基类部分的单元归属原样继承。
+- 访问 `obj.f` = 按字段下标查 `ObjectLayout.field_access[i]`（`{offset, width, tag, cell, aux}`，加载期算好），按单元读写
+  （`metadata/types/object_fields.rs`：`field_value` / `try_set_field_value`）。`Value` ↔ 单元的转换只在这里、`ref_word` 与 `tparam_cell`；
+  两个引擎经 [objops](interp-jit-semantics.md#对象操作objops) 调到它们。JIT 对基元字段的读写、对引用字的读直接按字节偏移生成原生
+  load/store（见 [jit.md](jit.md)）→ **字段偏移、宽度、引用字编码与 Value 大小是 ABI 一部分，须固化**。
+- GC 只经 `ScriptObject::visit_refs`（侧表 + 每个非零引用字 + 型参单元标签字里的引用）遍历一个对象的出边，标记、栈对象根扫描、保留图共用；
+  清扫断边用 `clear_refs_for_sweep`。
+
+#### 型参单元
+
+两个 8 B 字：**标签字**在编译器布局里该字段自己的 8 B 槽位，**负载字**追加在编译器布局（`ObjectLayout.size`，8 对齐）之后，
+第 i 个型参单元在 `size + 8i`（`tparam_payload_offset`）。负载字放在编译器区之外，所以编译器烘焙的偏移
+（内联 struct 叶子、子类的 own 区从 `align_up(base.size, 8)` 起）都不动；子类组合时把继承来的型参单元的负载字
+重新排到自己的布局之后。`bytes` 的长度是 `ObjectLayout::bytes_len()`。
+
+| 标签字 | 值 | 负载字 |
+|---|---|---|
+| `0` | `null` | 从未用过 |
+| 引用字，种类 1–6 | 这个引用 | 从未用过 |
+| 引用字，种类 7 | 盒子里的值；裸 `7`（空句柄）= `null` | 不再读 |
+| `PRIM(k)` = `k << 4` | 种类 `k` 的基元（1 `I64` / 2 `F64` / 3 `Bool` / 4 `Char`） | 原始位 |
+| `NULL(k)` = `k << 4 \| 8` | `null`，种类已定为 `k` | 保留 `k` 种位 |
+
+- **种类一生只定一次**，定下的方式是标签字 CAS `0 → NULL(k)`（「认领」）。实参是已知基元时，`ObjNew` 写零值
+  （`generic_field_zero_overrides`）就是第一次基元写，分配时即定下；实参是引用或未知（字面的 `T`、没带实参）时，
+  种类等到第一次存基元才定。分配点常常不知道实参，若这种实例一律按引用编码，`LinkedList<int>` 的每个节点都要装箱。
+- **负载字一生只装一种基元的位**：`0` 与直接引用字表示「从未存过基元」，从它们出发的改写一律 CAS；一旦认领，
+  标签字只在 `PRIM(k)` / `NULL(k)` / 种类 7 之间变。所以读者 acquire 到 `PRIM(k)` 后 relaxed 读负载字，
+  读到的一定是某次写入的 `k` 种位，不会撕裂；负载字从不装引用，GC 也不看它。
+- **写**：`k` 种基元写进 `PRIM(k)` 的单元只改负载字（快路）；`NULL(k)` → 先写负载字再 release 写 `PRIM(k)`。
+  `null` 与引用不用负载字：从未存过基元的单元里引用就是标签字本身、`null` 是 `0`，已定种类的单元里 `null` 是 `NULL(k)`。
+- **慢路（装箱，种类 7）**：已定种类后来了引用或别种基元、直接引用状态下来了基元、栈句柄。这是擦除泛型下
+  「同一个 `T` 字段先后放不同类型的值」才走的路，读出原值对用户透明；进入种类 7 后单元留在标签字里
+  （它存过哪种基元已不可知，不能再回负载字）。z42c 工作区整套构建一次也不走这条路，e2e 全量只有把值 struct 句柄存进 `T` 字段的用例会走。
+- **屏障**：每次改写标签字都拿到旧字（CAS，或标记期的 swap），旧字是引用就交给 SATB；新落进标签字的引用
+  （或盒子）经 `FieldWrite` 交给调用方的 `write_barrier_field`。
+
+### 字段单元的内存序
+
+堆上每个可变单元 ≤ 8 B、用同宽原子访问，这是为去掉每对象 `Mutex` 铺路：16 B `Value` 只留在寄存器，
+堆上不会出现「写到一半」的单元，任何时刻读到的都是某次完整写入的值。
+
+- **基元**：relaxed。x86-64 / AArch64 上就是普通对齐 load / store，JIT 内联码直接用普通 load / store。
+- **引用字**：release 写、acquire 读（AArch64 上 `stlr` / `ldar`，JIT 内联读用 Cranelift `atomic_load`）。
+  于是「在一个线程里构造对象、经字段交给另一线程」是安全的：读到引用的线程一定看得到构造期写入的字段。
+- **SATB 删除屏障**要的是被覆盖的真旧值：major 标记进行中（`satb::marking_any()`），引用字的写是 `swap`，
+  旧字交给 `record_overwrite`；不在标记期就是普通 release store。这样屏障不依赖对象锁，并发写也不会漏记。
+- **跨字段没有一致性**：两个字段之间、读改写之间都没有原子性，用户侧需要组合一致时用 `Mutex<T>` / `Channel<T>`
+  （参考手册 threading 页「线程之间怎么传值」写了这份契约）。
+
+- **型参单元**：标签字 release 写 / acquire 读，负载字 relaxed；负载字只在标签字为 `PRIM(k)` 时才被读，
+  而它一生只装 `k` 种位（见上「型参单元」），所以两个字分开读写也不会读到「一半标签 + 一半负载」。
+
+现状与后续（对象模型 R2 之后）：
+
+- 每对象 `Mutex` 还在（`GcRef::borrow` / `borrow_mut`），解释器与 JIT helper 的字段读写仍持锁；JIT 内联快路本来就不持锁。
+  去掉它（R4）之前还要处理的单元：内联 struct 引用叶子与合成布局引用字段的 16 B 侧表（struct 叶子随数组改造，R3）、
+  `bytes()` / `refs()` 的切片视图（整块拷贝要改逐单元原子拷贝，写原语改为 `&self`）、`try_set_field_value` 里的 `BoxedStruct` 拆箱读。
+- JIT 的引用字内联读不覆盖型参单元（标记字按引用字查表会读成 `null`），型参字段读写仍走 helper。
+- 数组元素仍是 16 B `Value` 或打包基元，由数组锁保护（R3：REF / PRIM / MIXED 三种模式）。
 
 ### 槽位零初始化
 
@@ -194,15 +286,16 @@ ObjectHeader {
 | 槽的种类 | 零值 | 为什么对 |
 |---|---|---|
 | 基元值字段（int/bool/char/double/long…） | 字节零 ⇒ `0` / `false` / `'\0'` / `0.0` | 值落在 bytes 区 |
-| 引用字段 | `Value::Null` | `null` 本就是引用类型的零值 |
+| 引用字段 | 引用字为 0（侧表单元为 `Value::Null`） | `null` 本就是引用类型的零值；整字 0 就是 `null` 的编码 |
 | 数组元素 | `default_value_for_tag(elem_tag)` | `ArrayNew`（interp + JIT 两份）按元素 tag 取；`ArrayObj::typed_filled` 直接写进 GC 块（是该 backing 的零就不逐元素写）|
 | **型参字段**（`class GBox<T> { T V; }`） | 按**实例化**取：`default_value_for(type_args[i])` | 见下 |
 
-**型参字段要单独一条**，因为布局是**按声明**算的：声明里 `T` 不是基元 ⇒ 该槽被分类成
-**引用槽** ⇒ 整块零初始化给它的零值是 `Null`，而不是 `GBox<int>` 该有的 `0`。
+**型参字段要单独一条**，因为布局是**按声明**算的：声明里 `T` 不是基元 ⇒ 该槽是型参单元 ⇒
+整块零初始化给它的是标签字 `0` = `Null`，而不是 `GBox<int>` 该有的 `0`。
 实例自己带着实参（`ObjNew` 写入 `set_type_args`），所以真正的零值在**分配点**可以还原：
 把字段的 `type_tag` 按名字映射到 `TypeDesc::type_params()` 的下标，再取该实参的零值
 （`metadata/types/field.rs::generic_field_zero_overrides`，interp 的堆/栈两支 + JIT 三处共用）。
+这次写入同时定下型参单元的基元种类（见上「型参单元」）。
 
 口径**刻意窄**，与 `ArrayNew` 同一条线：**只有基元值实参**才改写。解析出的 *struct* 实参
 不能在这里强推 struct backing（泛型容器按引用存 struct，会炸

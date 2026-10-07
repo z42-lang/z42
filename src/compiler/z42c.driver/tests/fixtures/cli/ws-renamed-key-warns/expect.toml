@@ -1,6 +1,0 @@
-desc = "workspace 清单改过名的键（阶段 1）：旧名 `default-members` 仍生效，只报警告并指出新名，构建 exit 0"
-args = ["build", "--workspace"]
-exit = 0
-stderr_contains = ["z42.workspace.toml: warning: key `default-members` in [workspace] is deprecated, rename it to `default_members`"]
-stderr_not_contains = ["unknown key"]
-exists = ["artifacts/wsrcore/debug/dist/wsrcore.zpkg"]

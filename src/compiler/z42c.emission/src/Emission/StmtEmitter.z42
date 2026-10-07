@@ -44,7 +44,7 @@ public sealed class StmtEmitter {
                     } else {
                         int sz = this._fe._gen.Layouts.StructSize(bsn);
                         TypedReg bdst = this._fe._ctx.Alloc(IrType.Ref);
-                        this._fe._ctx.Emit(new StructAllocInstr(bdst, this._fe._ctx.QualifyClass(bsn), sz));
+                        this._fe._ctx.Emit(new StructAllocInstr(bdst, this._fe._ctx.QualifyLayout(bsn), sz));
                         this._fe._ctx.Emit(new StructCopyInstr(bdst, r, sz));
                         this._fe._ctx.Locals.Put(v.Name, bdst);
                     }
@@ -337,7 +337,7 @@ public sealed class StmtEmitter {
         else if (feT is Z42InstantiatedType) { feCt = (feT as Z42InstantiatedType).Def; }
         if (feCt != null && feCt.IsStruct) {
             TypedReg ubReg = this._fe._ctx.Alloc(IrType.Ref);
-            this._fe._ctx.Emit(new AsCastInstr(ubReg, elemReg, this._fe._ctx.QualifyClass(feCt.Name())));
+            this._fe._ctx.Emit(new AsCastInstr(ubReg, elemReg, this._fe._ctx.QualifyType(feCt, feCt.Name())));
             elemReg = ubReg;
         }
         this._writeBack(fe.VarName, elemReg);
@@ -427,7 +427,7 @@ public sealed class StmtEmitter {
             bool hasType = cc.HasType;
             string typeName = "";
             if (hasType) {
-                typeName = this._fe._ctx.QualifyClass(cc.ExTypeName);
+                typeName = cc.ExType != null ? this._fe._ctx.QualifyType(cc.ExType, cc.ExTypeName) : this._fe._ctx.QualifyClass(cc.ExTypeName);
                 // imported 泛型异常 → arity-mangled（Std.MulticastException$1）；local 泛型不加后缀。
                 if (cc.ExArity > 0
                     && (this._fe._ctx.LocalClasses == null || !this._fe._ctx.LocalClasses.ContainsKey(cc.ExTypeName))) {

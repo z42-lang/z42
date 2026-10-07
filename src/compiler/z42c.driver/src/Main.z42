@@ -384,8 +384,6 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
     // pack 用上面 driver 自己的判断（有 flat workspace / 闭包子建两种角色，且已先行拦截）⇒ 这里 forcePacked=false，
     // Resolve 的 pack 报错不会再触发。⚠️ 必须解在 `depsId` **之前** —— 优化集要并进包级缓存身份，见下。
     KnobResult kn = ManifestKnobs.Resolve(pm, tomlPath, isRelease, cliAdd, cliRemove, false);
-    int kw = 0;
-    while (kw < kn.Warnings.Length) { ConsoleError.WriteLine("z42c: " + kn.Warnings[kw]); kw = kw + 1; }
     if (kn.ErrorCount > 0) {
         int ke = 0;
         while (ke < kn.ErrorCount) { ConsoleError.WriteLine("z42c: " + kn.Errors[ke]); ke = ke + 1; }

@@ -145,7 +145,7 @@ fn validation_detects_region_object_corruption() {
     // young → not in list → YoungEntryNotInList violation.
     {
         let mut r = heap.region_object_for_test().lock();
-        r.clear_young_list_for_test();
+        r.clear_young_set_for_test();
     }
 
     heap.debug_validate_invariants();  // expected panic

@@ -115,7 +115,7 @@ pub(super) fn read_func(sec: &[u8], pool: &[String], id_map: &IdMap) -> Result<V
             let catch_type  = if ct == u32::MAX { None } else {
                 pool.get(ct as usize).map(|s| s.clone())
             };
-            ExceptionEntry { try_start, try_end, catch_label, catch_type, catch_reg: cr as u32 }
+            ExceptionEntry { try_start, try_end, catch_label, catch_type, catch_reg: cr as u32, catch_key: Default::default() }
         }).collect();
 
         bodies.push(FuncBody { blocks, exception_table });

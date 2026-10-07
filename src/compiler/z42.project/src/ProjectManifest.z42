@@ -62,11 +62,13 @@ public sealed class ProjectManifest {
     // `[properties]` 段，运行时经 `Std.Runtime.AppProperties` 只读。原样保留 TomlValue
     // 以支持完整 TOML 类型（数组 / 嵌套表）。可变公字段（默认空表，ManifestLoader 填）。
     public TomlValue Properties;
-    // ── 未知键 / 旧名键（ManifestKeys.AuditProject）─────────────────────────────
-    // 每项一行现成的文本（不含清单路径）。z42.project 只收集，消费方（ManifestKnobs.Resolve）呈现：
-    // UnknownKeys 报错；DeprecatedKeys（改过名、旧名仍生效的键）报警告。
+    // ── 未知键（ManifestKeys.AuditProject）────────────────────────────────────────
+    // 每项一行现成的文本（不含清单路径）。z42.project 只收集，消费方（ManifestKnobs.Resolve）报错。
     // 可变公字段（默认空，ManifestLoader 构造后填）。
     public string[] UnknownKeys;
+    // 恒为空：旧名警告通道已删，字段只为**种子 driver** 留着——自建时种子 driver（仍读它）加载的是刚建出的
+    // z42.project，字段一删就读到 null 崩（bootstrap-seed：删公开 API 同样跨 nightly）。
+    // STAGE2-DEBT(manifest-rename-fields): 含 manifest-keys-2 的 nightly 发布后删 ProjectManifest.DeprecatedKeys / WorkspaceManifest.DeprecatedKeys / KnobResult.Warnings 三个恒空字段
     public string[] DeprecatedKeys;
     public ProjectManifest(ProjectInfo project, Sources sources, BuildConfig build,
                            Profile[] profiles, int profileCount,

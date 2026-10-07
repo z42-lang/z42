@@ -382,7 +382,8 @@ public sealed class DeclBinder {
                 FieldSymbol psym = ct.Fields.Get(spd.Name) as FieldSymbol;
                 if (spd.HasInit && psym != null && psym.IsStatic && psym.PropBackingName != "") {
                     BoundExpr pv = this._tc._expr.BindInitValue(spd.Init, psym.FieldType, env);
-                    BoundExpr pt = new BoundStaticGet(c.Name, psym.PropBackingName, psym.FieldType, spd.Span);
+                    BoundStaticGet pt = new BoundStaticGet(c.Name, psym.PropBackingName, psym.FieldType, spd.Span);
+                    pt.OwnerCt = ct;
                     inits[ic] = new BoundExprStmt(new BoundAssign(pt, pv, psym.FieldType, spd.Span), spd.Span);
                     ic = ic + 1;
                 }
@@ -574,8 +575,8 @@ public sealed class DeclBinder {
                     callArgs[0] = new BoundIdent("this", thisType, md.Span);
                     int ba = 0;
                     while (ba < ca.Args.Length) { callArgs[ba + 1] = ca.Args[ba]; ba = ba + 1; }
-                    BoundCall baseCall = new BoundCall("base_ctor", false, null, targetName, ca.Key,
-                                                        callArgs, ca.Args.Length + 1, new Z42VoidType(), md.Span);
+                    BoundCall baseCall = BoundCall.WithOwner(new BoundCall("base_ctor", false, null, targetName, ca.Key,
+                                                        callArgs, ca.Args.Length + 1, new Z42VoidType(), md.Span), targetCls);
                     BoundExprStmt baseStmt = new BoundExprStmt(baseCall, md.Span);
                     BoundStmt[] stmts = null;
                     int sc = 0;

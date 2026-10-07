@@ -24,7 +24,7 @@
 
 ## 2. 成员清单没有第二份副本
 
-两个 workspace 的成员列表都**派生自各自 `z42.workspace.toml` 的 `default-members`**
+两个 workspace 的成员列表都**派生自各自 `z42.workspace.toml` 的 `default_members`**
 （`_compilerMembers` / `_stdlibList`），不存在手维护的重复清单：
 
 | workspace | 成员 |
@@ -33,7 +33,7 @@
 | `src/libraries/` | 只放用户 stdlib（`Std.*`）全部成员 |
 
 编译器域各包之间经同 workspace 拓扑序 + 兄弟 dist 发现解析。「编译器有几个包」这个数是算出来的，
-别在文档或代码里写死——以 `default-members` 为准。
+别在文档或代码里写死——以 `default_members` 为准。
 
 产物路径同理不是硬编码：`scripts/common/xtask_layout.z42` 读 `[workspace.build].output_dir`
 模板（正是 z42c 的 `WorkspaceBuild.PlanLayout` 消费的那一份）再展开，改 toml 模板 xtask 自动跟上。

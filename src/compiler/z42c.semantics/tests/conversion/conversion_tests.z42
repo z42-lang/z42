@@ -77,9 +77,7 @@ void test_class_ref_conversions() {
     var syms = new SymbolTable();
     var foo = new Z42ClassType("Foo", false, "");
     var bar = new Z42ClassType("Bar", true, "Foo");   // Bar : Foo
-    syms.Classes.Put("Foo", foo);
-    syms.Classes.Put("Bar", bar);
-    // A5b-2c：按名解析只走 FQN 视图（短名表不再参与）⇒ 手搭表两张都要登记（全局 ns 的 FQN 就是短名）。
+    // 类表按 FQN 键（全局 ns 的 FQN 就是短名）。
     syms.ClassesByFqn.Put("Foo", foo);
     syms.ClassesByFqn.Put("Bar", bar);
     // 🔴 手搭符号表**必须**补这两步（enforce-fqn-name-identity B5 起）：名义关系判定
@@ -102,9 +100,7 @@ void test_class_interface_conversion() {
     var iface = new Z42InterfaceType("IShape");
     var circle = new Z42ClassType("Circle", false, "");
     circle.AddInterfaceName("IShape");
-    syms.Interfaces.Put("IShape", iface);
-    syms.Classes.Put("Circle", circle);
-    syms.InterfacesByFqn.Put("IShape", iface);   // A5b-2c：同上
+    syms.InterfacesByFqn.Put("IShape", iface);
     syms.ClassesByFqn.Put("Circle", circle);
     Assert.Equal(ConvKind.ImplicitRef, Conversion.Classify(circle, iface, syms).Kind); // 类→接口 上转
 }

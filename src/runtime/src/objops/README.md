@@ -4,7 +4,7 @@
 
 字段、数组、静态字段、值 struct 叶子的读写语义只在这里实现一次；interp（`interp/exec_*`）与 JIT（`jit/helpers/*`）
 都是薄适配层：从寄存器取 `&Value`、调本模块、写回寄存器，再把 `OpError` 映射到各自的异常通道。
-对象与数组单元格的存储表示（字节布局、引用侧表、打包基元、写屏障）对引擎不可见。
+对象与数组单元格的存储表示（字节布局、8 B 引用字、型参字段的 16 B 单元、打包基元、写屏障）对引擎不可见；对象字段单元的读写本身在 `metadata/types/object_fields.rs`。
 不管对象分配与构造器解析（`interp/obj_new_resolve.rs`）、虚调用解析（`interp/vcall_resolve.rs`）、类型判定（`interp/dispatch.rs::isa_td`）。
 
 ## 功能索引
@@ -12,14 +12,18 @@
 | 功能 | 入口 |
 |------|------|
 | 错误通道：异常类 + 消息文本的唯一定义，物化成异常值 | `error.rs` 的 `OpError`、`OpError::into_exception` |
+| 调用的 null 接收者（`VCall` 解析、string builtin 的接收者）、builtin 的 null 实参 | `error.rs` 的 `OpError::null_call` / `null_arg` |
+| builtin（返回 `anyhow`）里抛用户异常：`Throw` 原样装进 `anyhow::Error` | `error.rs` 的 `OpError::into_builtin_error`（两引擎出口：`corelib::builtin_error_exception`） |
 | `FieldGet` / `FieldSet`（FieldIC、栈对象、`Length` 伪字段、`PinnedView`、装箱 struct、写屏障） | `field.rs` 的 `field_get` / `field_set` |
 | JIT 提升快路的字段槽解析（不抛） | `field.rs` 的 `inline_prim_slot` / `inline_ref_slot` |
 | `ref obj.f` 的接收者检查与经 ref 读写 | `field.rs` 的 `check_field_addr` / `load_named` / `store_named` |
+| VM 自己按槽位写已存在对象的字段（throw 点 `StackTrace`、反射 `SetValue`、反射 `Type`），带写屏障 | `field.rs` 的 `store_slot` |
 | `ArrayGet` / `ArraySet` / `ArrayLen`（堆 / 栈数组、struct 数组元素句柄、写屏障） | `array.rs` 的 `array_get` / `array_set` / `array_len` |
 | `ArrayNew` / `ArrayNewLit`（struct 数组、栈分配、OOM） | `array.rs` 的 `array_new` / `array_new_lit` |
 | JIT 打包数组快路取数（不抛） | `array.rs` 的 `packed_data` |
 | `Std.Array` 无类型 / 批量原生：`CopyRange`（任意 backing 间，含 struct[] 的装箱 / 拆箱 / 类型检查）、`GetValue` 的元素装箱、`SetValue` 的校验、批量写入后的逐引用槽写屏障 | `array_bulk.rs` 的 `copy_range` / `elem_get_boxed` / `check_untyped_store` / `barrier_after_range_store` |
 | `ref arr[i]` 的检查与经 ref 读写 | `array.rs` 的 `check_elem_addr` / `elem_load` / `elem_store` |
+| 元素写入后的写屏障（`ArraySet` / 经 ref 写 / `Std.Array.SetValue` 共用；装箱 struct 拷进 `struct[]` 按叶子发） | `array.rs` 的 `barrier_after_elem_store` |
 | `StaticGet` / `StaticSet`（初始化屏障、惰性零值、缺符号确证） | `statics.rs` 的 `static_get` / `static_set` |
 | `StructFieldGetPrim` / `StructFieldSetPrim` 的核心与 struct 快照 | `struct_leaf.rs` 的 `struct_field_get_val` / `struct_field_set_val` / `snapshot_box` / `snapshot_elem` |
 
@@ -44,7 +48,7 @@ match objops::field::field_get(vm_ctx_ref(ctx), recv, name, ic) {
 
 ```bash
 (cd src/runtime && cargo test --features z42-test-fixtures --lib objops)   # 本模块单测
-./xtask test e2e --dir exceptions        # objops_errors.z42：interp 与 JIT 逐条对照异常类与消息
+./xtask test e2e --dir exceptions        # objops_errors.z42 / null_receiver_call.z42：interp 与 JIT 逐条对照异常类与消息
 ./xtask test runtime                     # 含两侧适配层的映射单测
 ```
 
@@ -56,7 +60,7 @@ match objops::field::field_get(vm_ctx_ref(ctx), recv, name, ic) {
 ## 待办
 
 - 栈数组 / 栈对象、struct 数组元素句柄仍依赖 `interp` 下的 arena（`stack_alloc` / `transient_arena`）。
-- `obj_new`、闭包环境数组、反射 builtin（`FieldInfo.GetValue` / `SetValue` 等）还没经过本模块。
+- `obj_new`、闭包环境数组、反射 builtin（`FieldInfo.GetValue` 等）的读写还没经过本模块；写屏障已统一（`SetValue` 走 `store_slot` / `barrier_after_elem_store`，批量拷贝走 `barrier_after_range_store`）。
 - `Std.Array` 的脚本泛型算法（`Fill` / `Reverse` / `IndexOf` …）在 struct[] 上不可用：擦除体里 `ArrayGet` 给的是元素句柄
   （别名），见 internals `struct-value-semantics.md` 的「待办」。
 
@@ -73,3 +77,4 @@ match objops::field::field_get(vm_ctx_ref(ctx), recv, name, ic) {
 | `struct_leaf.rs` | 值 struct 叶子与快照 |
 | `objops_tests.rs` | 单测 |
 | `array_bulk_tests.rs` | `array_bulk` 单测（含老 struct[] 收年轻叶子的 minor 存活对照） |
+| `write_barrier_tests.rs` | VM 自己的写入点（throw 点 `StackTrace`、反射 `SetValue`、装箱 struct 拷进 `struct[]`）往老对象写年轻引用后卡表不变量成立、年轻对象熬过 minor |

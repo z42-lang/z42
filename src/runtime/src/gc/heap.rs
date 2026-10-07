@@ -288,6 +288,12 @@ pub trait MagrGC: std::fmt::Debug + Send + Sync {
     #[cfg(test)]
     fn array_card_dirty_for_test(&self, _chunk_idx: u32) -> bool { false }
 
+    /// Re-derive the card-table invariant (every old entry holding a young reference sits on a
+    /// dirty card) and report the owners that break it — i.e. reference stores that skipped the
+    /// write barrier. `Ok` for backends without cards. O(old heap): for tests and the
+    /// `Z42_GC_VERIFY_CARDS` debug knob, never a hot path.
+    fn verify_card_invariant(&self) -> Result<(), String> { Ok(()) }
+
     // ── 4. Object Model ──────────────────────────────────────────────────────
 
     /// 估计对象的浅尺寸（不递归 nested values）。Phase 1 实现给出 enum tag +
