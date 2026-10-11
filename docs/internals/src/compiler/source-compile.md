@@ -42,7 +42,7 @@ flowchart TD
   TAIL --> ASM["⑧ 组装：CtorKnownFixup → ZbcFileZ → ZpkgBuilder → 内存 ZpkgFileZ"]
 ```
 
-**前置线与主编译线**：①–④ 是「源码层」——解析、脱糖、generator 改写源码、analyzer 检查源码，都只操作 AST；⑤ 起才是「编译层」，
+**前置线与主编译线**（③④ 的实现集中在 `z42c.pipeline` 的 `FrontLine`，`PackageCompile.Compile` 只剩顺序骨架）：①–④ 是「源码层」——解析、脱糖、generator 改写源码、analyzer 检查源码，都只操作 AST；⑤ 起才是「编译层」，
 对**最终的 union CU 只跑一遍**。generator 与 analyzer 都不碰 IR，也不参与优化。（对标 Roslyn：generator 产出的语法树并入最终
 `Compilation`，analyzer 在其上运行。）
 
