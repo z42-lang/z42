@@ -4,9 +4,9 @@
 // 「不加载」是这道门的要点：在没有 native interop 的 VM 上，光是加载一个 [Native] facade
 // 就会在 resolver 里 panic，所以判定必须先于加载。这里让用例指向一个不存在的 zbc ——
 // runner 若先加载再判定，这条测试会直接炸掉而不是拿到 skipped。
-namespace Z42TestBundleRunnerCapsTests;
+namespace Z42HarnessBundleRunnerCapsTests;
 
-using Std.Test;
+using Std.Harness;
 
 [Test]
 void test_case_missing_a_cap_is_skipped_without_loading() {

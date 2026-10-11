@@ -1,6 +1,6 @@
 # 测试流水线：两层模型（z42b 执行器 + xtask 编排器）
 
-> 代码：`src/toolchain/builder/core/builder_test.z42`、`builder_device*.z42`、`src/libraries/z42.test/src/BundleRunner.z42`、`scripts/test/xtask_test_embedded.z42`、`src/toolchain/workload/test/`
+> 代码：`src/toolchain/builder/core/builder_test.z42`、`builder_device*.z42`、`src/libraries/z42.harness/src/BundleRunner.z42`、`scripts/test/xtask_test_embedded.z42`、`src/toolchain/workload/test/`
 >
 > gate 由哪些 stage 组成 → [测试门禁](test-gate.md)；各层怎么单跑、用例放哪 →
 > [测试怎么跑](testing.md)。本页写**架构**：一份 test-bundle 是怎么从仓库语料走到设备上的。
@@ -30,7 +30,7 @@ xtask 组装 bundle，交 z42b 执行（host）或组装设备 deployable（devi
         （Playwright / xcodebuild-sim / gradle）
 ```
 
-## 1. 共享执行核：`Std.Test.BundleRunner`
+## 1. 共享执行核：`Std.Harness.BundleRunner`
 
 一份 test-bundle 的**执行算法**沉在 stdlib 的 `z42.test`，被两个宿主共用：on-device agent
 （`Z42.TestHost.Agent`，嵌入式 z42vm，每个平台同一段字节码）与 host 上的 z42b（in-process，

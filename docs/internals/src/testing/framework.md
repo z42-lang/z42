@@ -5,15 +5,15 @@
 > `src/runtime/src/corelib/reflection/module_load.rs` + `src/runtime/src/corelib/builtin_table.rs`
 > （`__load_module` / `__invoke_static` / `__run_goldens_isolated` 三个 builtin）、
 > `src/libraries/z42.core/src/Runtime/ModuleLoader.z42`（通用加载 / 调用）、
-> `src/libraries/z42.test/src/`（`TestModule` · `Runner` · `BundleRunner` · `TestReport` ·
-> `BenchStats` · `Bencher` · `TestIO`）、`src/toolchain/builder/core/builder_test.z42`（z42b test/bench）、
+> `src/libraries/z42.harness/src/`（执行器：`TestModule` · `Runner` · `BundleRunner` · `TestReport`）、
+> `src/libraries/z42.test/src/`（作者侧：`BenchStats` · `Bencher` · `TestIO`）、`src/toolchain/builder/core/builder_test.z42`（z42b test/bench）、
 > `scripts/test/xtask_test.z42`（GREEN gate）、`scripts/test/xtask_test_lib.z42`（stdlib 单元编排）。
 >
 > 要查 `[Test]` / `[Benchmark]` / `[Skip]` **怎么写**、`z42 test` **怎么用**、以及
 > `Assert` 方法全表 → 看 reference，不在本页。本页只写这套东西**怎么实现的**。
 
 z42 的测试发现是**编译期**的：编译器把带 `z42.test.*` attribute 的函数写进 zbc 的 `TIDX` section，
-运行期**不扫** method table。运行器本身是用 z42 写的（`Std.Test.Runner`），靠三个反射 builtin
+运行期**不扫** method table。运行器本身是用 z42 写的（`Std.Harness.Runner`），靠三个反射 builtin
 把一个已编译模块加载进活 VM 再按 FQN 调用。读这页的时机：要改运行器行为、加一个
 attribute 的运行期语义、调 GREEN gate 的组成，或者搞清楚一条测试失败到底是哪一层报的。
 
@@ -22,7 +22,7 @@ attribute 的运行期语义、调 GREEN gate 的组成，或者搞清楚一条�
 | 层 | 是什么 | 在哪 |
 |---|---|---|
 | **发现** | 编译期写入的 `TIDX` section（method_id + kind + flags + skip/throw/timeout 槽） | 编译器 → `.zbc`；读端 `src/runtime/src/metadata/test_index.rs` |
-| **执行** | z42 写的反射 runner：加载模块 → 按 FQN 调用 → 归类 pass/fail/skip | `src/libraries/z42.test/src/Runner.z42` |
+| **执行** | z42 写的反射 runner：加载模块 → 按 FQN 调用 → 归类 pass/fail/skip | `src/libraries/z42.harness/src/Runner.z42` |
 | **编排** | 谁决定「跑哪些模块、怎么并行、结果怎么聚合」 | z42b（单目标）/ xtask（语料级），见 §5 |
 
 三层之间只有两个契约：TIDX 的字段语义（§2）与 runner 的 JSON 报告形状（§4）。
@@ -38,7 +38,7 @@ attribute 的运行期语义、调 GREEN gate 的组成，或者搞清楚一条�
 读端有两个：
 
 - Rust 侧 `read_test_index()` 解出 `Vec<TestEntry>`，挂到 `LoadedArtifact.test_index`；
-- z42 侧经 `__load_module` builtin（`Std.Test.TestModule.Load`）拿到扁平化后的 `Std.Test.TestEntry[]`（§3.1）。
+- z42 侧经 `__load_module` builtin（`Std.Harness.TestModule.Load`）拿到扁平化后的 `Std.Harness.TestEntry[]`（§3.1）。
 
 `kind` 是 `1=Test / 2=Benchmark / 3=Setup / 4=Teardown / 5=Doctest`（Doctest 是预留槽，
 当前没有产生它的路径）。`flags` 位是 `SKIPPED / IGNORED / SHOULD_THROW / DOCTEST`，
@@ -88,7 +88,7 @@ runner 是普通 z42 代码，它能"加载并调用别的模块"全靠这三个
 
 ### 3.2 单条 `[Test]` 的生命周期
 
-`Runner._runOne`（`src/libraries/z42.test/src/Runner.z42`）：
+`Runner._runOne`（`src/libraries/z42.harness/src/Runner.z42`）：
 
 ```
 [Ignore]?                      → skipped("ignored")，不调 body
@@ -174,7 +174,7 @@ failed   >  0 → 1
 
 三处约束值得记住：
 
-1. **z42.test 不依赖 z42.json**——它是基础库，JSON 是手搓的（`TestReport.esc` 只转义
+1. **z42.harness 不依赖 z42.json**——执行核要随设备端 agent 走，依赖面保持最小，JSON 是手搓的（`TestReport.esc` 只转义
    `" \ \n \r \t`，够这份报告携带的字符串用）。
 2. **`module` 是 z42 保留字**，所以那个参数在源码里叫 `artifact`。曾经把它命名为 `module`
    一次就把 parser 弄崩、且当时诊断被丢弃导致**静默误编译了这个文件本身**。
@@ -290,9 +290,9 @@ build wave 也算一个 stage：它同样走 `_stageStart` 打 banner、同样�
 | 要改什么 | 改哪 |
 |---|---|
 | TIDX 加字段 / 改语义 | `src/runtime/src/metadata/test_index.rs` + 编译器 emit 侧 + [zbc 格式](../formats/zbc.md)（**要 bump section version**） |
-| 一个 attribute 的运行期行为 | `src/libraries/z42.test/src/Runner.z42` |
+| 一个 attribute 的运行期行为 | `src/libraries/z42.harness/src/Runner.z42` |
 | 一个 attribute 的编译期校验 | `src/compiler/z42c.semantics/src/Validation/DeclEnforcer.z42` |
-| 报告字段 | `src/libraries/z42.test/src/TestReport.z42`（json）+ `Runner._runOne`（pretty） |
+| 报告字段 | `src/libraries/z42.harness/src/TestReport.z42`（json）+ `Runner._runOne`（pretty） |
 | benchmark 统计形状 | `Bencher.printSummary` **和** `BenchStats._parseLine`，同一个 commit |
 | 加载/调用能力 | `src/runtime/src/corelib/reflection/module_load.rs` + `builtin_table.rs` 登记 |
 | gate 组成 | `_gateStageNames()` **和** test-gate 文档的 gate-stages 区 |

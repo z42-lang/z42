@@ -249,7 +249,7 @@ xtask test app <desktop|wasm|ios|android|all> [stage|build|assets|bundle|run] [-
 
 desktop 也是一个嵌入宿主（C ABI 宿主），与三个设备平台同一条流水线：R1–R7（分片时只在第 1 片）→ 嵌入
 bundle → 宿主构建 → 运行，最后给一张汇总表。desktop 的语料在 z42b 进程内跑（`--rid host`，与设备上 agent
-内嵌的是同一个 `Std.Test.BundleRunner`）；设备平台先把 test agent 装进 z42b 会去找的 SDK（构建树的
+内嵌的是同一个 `Std.Harness.BundleRunner`）；设备平台先把 test agent 装进 z42b 会去找的 SDK（构建树的
 `artifacts/build/runtime/runtimes/dev/workloads/test/`；xtask 调 z42b 时总把 `Z42_PORTABLE_VM` 设成跑 z42b 的那个
 VM，所以本地经 `.z42/z42` 启动也找得到）。
 

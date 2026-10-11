@@ -5,7 +5,7 @@
 // returns its compile-time TIDX entries (`[Test]`/`[Benchmark]`/`[Setup]`/
 // `[Teardown]` methods, with skip / ShouldThrow metadata). The runner then uses
 // `Type.GetType` + `Activator.CreateInstance` + `MethodInfo.Invoke` to run them.
-namespace Std.Test;
+namespace Std.Harness;
 
 
 // One TIDX entry of a loaded test module, in z42-facing form (VM-written slots).

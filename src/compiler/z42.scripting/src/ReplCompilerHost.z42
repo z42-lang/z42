@@ -8,7 +8,6 @@
 namespace Std.Scripting;
 
 using Std.IO;
-using Std.Runtime;     // ModuleLoader（按路径把组件 zpkg + 依赖闭包加载进 live VM，再按 FQN 实例化）
 using Z42.Build;       // IReplCompiler / NoReplCompiler
 
 public static class ReplCompilerHost {

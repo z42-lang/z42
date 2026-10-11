@@ -36,7 +36,7 @@ public static class ModuleLoader {
     }
 
     // VM 的 `__load_module` 同时返回被加载模块的测试索引（TIDX 条目）；通用加载用不到，丢弃。
-    // 测试运行器读 TIDX 走 `Std.Test.TestModule.Load`。
+    // 测试运行器读 TIDX 走 `Std.Harness.TestModule.Load`。
     [Native("__load_module")]
     private static extern object _load(string path);
 }

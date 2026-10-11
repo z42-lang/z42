@@ -3,7 +3,7 @@
 // Mirrors the desktop testhost.c flow, but in a browser: mount every asset
 // (agent app.zpkg + stdlib zpkgs + test-bundle manifest/zbcs) into the wasm
 // in-memory VFS, run the shared z42 test-agent through `runTestApp`
-// (→ z42::app::run → Std.Test.Runner), then read the JSON report back out of
+// (→ z42::app::run → Std.Harness.Runner), then read the JSON report back out of
 // the VFS. The agent + bundle are byte-identical to the desktop run — only the
 // host (this file) differs per platform.
 //

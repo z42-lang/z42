@@ -5,7 +5,7 @@
 // test-bundle (manifest.json + case zbcs) and, per RID, hands that bundle to z42b
 // (the single-bundle EXECUTOR):
 //   • host (desktop)  → z42b test <manifest> --rid host   → runs it in-process via
-//                       Std.Test.BundleRunner (no testhost/agent spawn on the host).
+//                       Std.Harness.BundleRunner (no testhost/agent spawn on the host).
 //   • device (wasm/   → z42b test <manifest> --rid <dev> --out <dir> [--stage-only|--run]
 //     ios/android)      → z42b owns the full device pipeline: native platform build
 //                       (wasm-pack / xcframework / cargo-ndk) + deploy + device RUN
@@ -299,7 +299,7 @@ int _runAndroidTesthost(string root, string rid) {
 }
 
 // desktop 嵌入运行（`xtask test app desktop` 的语料段）：组 bundle（或用给定的单个 `.zbc` / golden 用例目录），
-// 交给 z42b 在本进程里跑（`--rid host`，共享的 Std.Test.BundleRunner —— 设备上 agent 内嵌的是同一个核心）。
+// 交给 z42b 在本进程里跑（`--rid host`，共享的 Std.Harness.BundleRunner —— 设备上 agent 内嵌的是同一个核心）。
 //   target 为空 → 按 filter / 分片组 bundle，逐例跑、汇总成一份报告（G2/G3/G4）；
 //   golden 用例目录（有 source.z42）→ 包成 [Test] 的 .zbc（G1）；
 //   其它路径 → 当作 .zbc 直接跑。

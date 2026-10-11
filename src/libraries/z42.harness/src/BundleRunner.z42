@@ -11,11 +11,13 @@
 // shared by both callers of a bundle:
 //   • the on-device test-agent (Z42.TestHost.Agent — embedded VM, every platform)
 //   • z42b test --rid host    (in-process host executor)
-// The manifest is JSON, but z42.test stays JSON-free (TestReport hand-rolls JSON to
+// The manifest is JSON, but z42.harness stays JSON-free (TestReport hand-rolls JSON to
 // avoid a z42.json dependency); so callers parse manifest.json → BundleCase[] with
 // their own z42.json, and hand the parsed cases here. z42 has no jagged arrays →
 // result arrays grow manually.
-namespace Std.Test;
+namespace Std.Harness;
+
+using Std.Test;   // 作者侧：TestIO（捕获输出）/ BenchStats（解析 bench 摘要）
 
 using Std.IO;
 

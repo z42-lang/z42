@@ -15,10 +15,11 @@
 //   "pretty" (default) — human-readable PASS/FAIL/SKIP lines + Result summary;
 //   "json"             — a single structured `TestReport` object (with per-benchmark
 //                        `bench_stats` parsed from the benchmark's captured stdout).
-namespace Std.Test;
+namespace Std.Harness;
+
+using Std.Test;   // 作者侧：TestIO（捕获输出）/ BenchStats（解析 bench 摘要）
 
 using Std.IO;
-using Std.Runtime;   // ModuleLoader.Invoke（按 FQN 调测试函数）
 
 // Internal invoke outcome (z42 has no out-params). Carries thrown state + the
 // benchmark's captured stdout (json mode only; "" otherwise / on throw).
