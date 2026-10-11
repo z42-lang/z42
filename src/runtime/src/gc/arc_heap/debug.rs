@@ -156,14 +156,14 @@ impl crate::gc::arc_heap::ArcMagrGC {
             if stale(e.is_marked(crate::gc::refs::MarkKind::Minor), e.major_epoch()) {
                 let obj = e.value.lock();
                 let ty = obj.type_desc.name.clone();
-                let nslots = obj.refs().len(); // unify-object-byte-layout (PR-2): ref-slot count (diagnostic)
+                let nslots = obj.bytes().len(); // payload bytes (diagnostic)
                 stale_obj = Some((h.chunk_idx as u32, h.entry_idx as u32, ty, nslots));
             }
         });
         drop(region_object);
         if let Some((c, i, ty, n)) = stale_obj {
             panic!(
-                "stale mark bit in region_object after sweep: chunk={c}, entry={i}, type={ty}, slots={n}"
+                "stale mark bit in region_object after sweep: chunk={c}, entry={i}, type={ty}, payload={n} B"
             );
         }
         let region_array = self.region_array.lock();

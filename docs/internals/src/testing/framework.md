@@ -4,7 +4,8 @@
 > `src/runtime/src/metadata/test_index.rs`（TIDX 类型 + decoder）、
 > `src/runtime/src/corelib/reflection/module_load.rs` + `src/runtime/src/corelib/builtin_table.rs`
 > （`__load_module` / `__invoke_static` / `__run_goldens_isolated` 三个 builtin）、
-> `src/libraries/z42.test/src/`（`ModuleLoader` · `Runner` · `BundleRunner` · `TestReport` ·
+> `src/libraries/z42.core/src/Runtime/ModuleLoader.z42`（通用加载 / 调用）、
+> `src/libraries/z42.test/src/`（`TestModule` · `Runner` · `BundleRunner` · `TestReport` ·
 > `BenchStats` · `Bencher` · `TestIO`）、`src/toolchain/builder/core/builder_test.z42`（z42b test/bench）、
 > `scripts/test/xtask_test.z42`（GREEN gate）、`scripts/test/xtask_test_lib.z42`（stdlib 单元编排）。
 >
@@ -37,7 +38,7 @@ attribute 的运行期语义、调 GREEN gate 的组成，或者搞清楚一条�
 读端有两个：
 
 - Rust 侧 `read_test_index()` 解出 `Vec<TestEntry>`，挂到 `LoadedArtifact.test_index`；
-- z42 侧经 `__load_module` builtin 拿到扁平化后的 `Std.Test.TestEntry[]`（§3.1）。
+- z42 侧经 `__load_module` builtin（`Std.Test.TestModule.Load`）拿到扁平化后的 `Std.Test.TestEntry[]`（§3.1）。
 
 `kind` 是 `1=Test / 2=Benchmark / 3=Setup / 4=Teardown / 5=Doctest`（Doctest 是预留槽，
 当前没有产生它的路径）。`flags` 位是 `SKIPPED / IGNORED / SHOULD_THROW / DOCTEST`，
@@ -73,9 +74,9 @@ runner 是普通 z42 代码，它能"加载并调用别的模块"全靠这三个
 
 | builtin | z42 门面 | 作用 |
 |---|---|---|
-| `__load_module` | `ModuleLoader.Load(path) -> TestEntry[]` | 把 `.zbc` / `.zpkg` 加载进**活 VM**（函数与类型变得可反射、可 Invoke），并返回它的 TIDX 条目。按模块名幂等 |
-| `__invoke_static` | `ModuleLoader.Invoke(fqn) -> object` | 按**完全限定名**零参调用一个 free/static 函数。内部抛出的异常按原类型透传，调用方可 catch |
-| `__run_goldens_isolated` | `ModuleLoader.RunGoldensIsolated(paths, entries, libsDir, jobs) -> string[]` | 每个 golden 程序在**全新隔离 VM**（各自 VmContext：堆 + 静态字段 + 函数表）里跑，返回各自捕获的 stdout。`jobs<=0` = 按核数并行 |
+| `__load_module` | `TestModule.Load(path) -> TestEntry[]`（通用加载 `Std.Runtime.ModuleLoader.Load` 也绑它、丢弃返回值） | 把 `.zbc` / `.zpkg` 加载进**活 VM**（函数与类型变得可反射、可 Invoke），并返回它的 TIDX 条目。按模块名幂等 |
+| `__invoke_static` | `Std.Runtime.ModuleLoader.Invoke(fqn) -> object` | 按**完全限定名**零参调用一个 free/static 函数。内部抛出的异常按原类型透传，调用方可 catch |
+| `__run_goldens_isolated` | `TestModule.RunGoldensIsolated(paths, entries, libsDir, jobs) -> string[]` | 每个 golden 程序在**全新隔离 VM**（各自 VmContext：堆 + 静态字段 + 函数表）里跑，返回各自捕获的 stdout。`jobs<=0` = 按核数并行 |
 
 **为什么 Invoke 走 FQN 而不是 `Type.GetType` + `MethodInfo`**：z42 的
 `[Test]`/`[Benchmark]`/`[Setup]`/`[Teardown]` 编译产物是**零参 free function**

@@ -18,6 +18,7 @@ use super::Frame;
 // unify-object-byte-layout (PR-2): the primitive byte<->Value codec moved to
 // `metadata::types` (both object byte-storage and struct blobs consume it). Re-export
 // so existing call sites here + in `corelib::reflection` keep the same path.
+#[cfg_attr(not(test), allow(unused_imports))]
 pub(crate) use crate::metadata::types::{decode_prim, encode_prim, prim_width};
 // 叶子读写的引擎无关核心在 objops（interp 与 JIT 共用）。
 use crate::objops::struct_leaf::{as_struct_ref, struct_field_get_val, struct_field_set_val};

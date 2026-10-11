@@ -104,16 +104,12 @@ pub(super) fn object_inline_struct_field_get(
         anyhow::anyhow!("FieldInfo.GetValue: field `{name}` slot {slot} not in object layout")
     })?;
     let nested = crate::corelib::struct_reflect::compute(&resolve, &struct_type)?;
-    let composed_base = fa.offset as usize;
-    let o = rc.borrow();
-    let bytes = o.bytes()[composed_base..composed_base + fa.width as usize].to_vec();
-    let mut refs = Vec::with_capacity(nested.ref_offsets.len());
-    for &nro in &nested.ref_offsets {
-        let ri = col.ref_index(fa.offset + nro).ok_or_else(|| {
-            anyhow::anyhow!("object inline struct ref leaf offset not in composed bitmap")
-        })?;
-        refs.push(o.refs()[ri].clone());
+    // The inline struct keeps its standalone blob layout: reference leaves are reference words
+    // at `fa.offset + nested.ref_offsets` (all of them in the composed `ref_cells`).
+    if let Some(&nro) = nested.ref_offsets.iter().find(|&&nro| !col.is_ref_cell(fa.offset + nro)) {
+        bail!("object inline struct ref leaf offset {} not in composed layout", fa.offset + nro);
     }
+    let (bytes, refs) = rc.borrow().read_blob(fa.offset as usize, fa.width as usize, &nested.ref_offsets);
     Ok(Some(crate::corelib::convert::box_struct_blob(ctx, &struct_type, &bytes, &refs)?))
 }
 
@@ -130,17 +126,11 @@ pub(super) fn snapshot_struct_leaf(
     leaf: &crate::corelib::struct_reflect::FieldLeaf,
 ) -> Result<Value> {
     let resolve = |n: &str| ctx.try_lookup_type(n);
-    let start = leaf.byte_off as usize;
-    let size = leaf.size as usize;
     let nested = crate::corelib::struct_reflect::compute(&resolve, &leaf.type_name)?;
-    let bytes = o.bytes()[start..start + size].to_vec();
-    let mut refs = Vec::with_capacity(nested.ref_offsets.len());
-    for &nro in &nested.ref_offsets {
-        let ri = parent.ref_index(leaf.byte_off + nro).ok_or_else(|| {
-            anyhow::anyhow!("struct field reflection: nested ref leaf offset not in parent bitmap")
-        })?;
-        refs.push(o.refs()[ri].clone());
+    if nested.ref_offsets.iter().any(|&nro| parent.ref_index(leaf.byte_off + nro).is_none()) {
+        bail!("struct field reflection: nested ref leaf offset not in parent bitmap");
     }
+    let (bytes, refs) = o.read_blob(leaf.byte_off as usize, leaf.size as usize, &nested.ref_offsets);
     crate::corelib::convert::box_struct_blob(ctx, &leaf.type_name, &bytes, &refs)
 }
 
@@ -171,10 +161,7 @@ pub(crate) fn boxed_struct_field_get(
         let o = gc.borrow();
         snapshot_struct_leaf(ctx, &o, &comp, leaf)
     } else if leaf.is_ref {
-        let ri = comp.ref_index(leaf.byte_off).ok_or_else(|| {
-            anyhow::anyhow!("FieldInfo.GetValue: reference leaf offset not in bitmap")
-        })?;
-        Ok(gc.borrow().refs().get(ri).cloned().unwrap_or(Value::Null))
+        gc.borrow().struct_ref_leaf(leaf.byte_off)
     } else {
         let w = prim_width(leaf.tag)?;
         decode_prim(&gc.borrow().bytes(), leaf.byte_off as usize, w, leaf.tag)
@@ -272,8 +259,8 @@ pub(super) fn object_inline_struct_field_set(
     }
     // unify-object-byte-layout (PR-2): copy the boxed struct into the object's `bytes`
     // at the field's composed offset, in place (visible to every holder — C# reference
-    // identity); interior reference leaves write into `refs` via the composed bitmap,
-    // each with a write barrier.
+    // identity); interior reference leaves are reference words at the composed offsets,
+    // each stored reference followed by a write barrier.
     let slot = rc.type_desc().field_index.get(name).copied().ok_or_else(|| {
         anyhow::anyhow!("FieldInfo.SetValue: inline struct field `{name}` not on `{class_name}`")
     })?;
@@ -284,35 +271,24 @@ pub(super) fn object_inline_struct_field_set(
         anyhow::anyhow!("FieldInfo.SetValue: field `{name}` slot {slot} not in object layout")
     })?;
     let nested = crate::corelib::struct_reflect::compute(&resolve, &struct_type)?;
-    let composed_base = fa.offset as usize;
-    let size = fa.width as usize;
-    let (src_bytes, src_refs): (Vec<u8>, Vec<Value>) = {
-        let so = src.borrow();
-        (so.bytes()[..size.min(so.bytes().len())].to_vec(), so.refs().to_vec())
-    };
-    let mut ref_writes: Vec<(usize, Value)> = Vec::new();
-    for (k, &nro) in nested.ref_offsets.iter().enumerate() {
-        if let Some(ri) = col.ref_index(fa.offset + nro) {
-            if let Some(v) = src_refs.get(k) { ref_writes.push((ri, v.clone())); }
-        }
+    if nested.ref_offsets.iter().any(|&nro| !col.is_ref_cell(fa.offset + nro)) {
+        bail!("FieldInfo.SetValue: inline struct `{name}` ref leaf not in the composed layout");
     }
-    {
-        let mut o = rc.borrow_mut();
-        let n = size.min(src_bytes.len());
-        o.bytes_mut()[composed_base..composed_base + n].copy_from_slice(&src_bytes[..n]);
-        for (ri, v) in &ref_writes { o.set_ref_slot(*ri, v); }
-    }
-    for (ri, v) in &ref_writes {
-        if v.is_heap_ref() {
-            ctx.heap().write_barrier_field(target, *ri, v);
-        }
+    let (src_bytes, src_refs) = src.borrow().boxed_blob();
+    let mut stored: Vec<Value> = Vec::new();
+    rc.borrow_mut().write_blob(
+        fa.offset as usize, fa.width as usize, &src_bytes, &src_refs, &nested.ref_offsets,
+        &mut |v| stored.push(*v),
+    )?;
+    for v in &stored {
+        ctx.heap().write_barrier_field(target, slot, v);
     }
     Ok(Some(()))
 }
 
 /// Copy a boxed value-struct `src` into a heap object's nested/inline struct field region
 /// (`parent` layout, struct `leaf`). Primitive bytes copy verbatim; each reference leaf is
-/// written into the object's `struct_refs` side-table **with a write barrier** (a reference
+/// written as a reference word **with a write barrier** (a reference
 /// stored into a heap node must be tracked for cross-gen GC). Shared by the
 /// boxed-struct nested-field write (P4b) and the object-inline struct-field write (P4b-B).
 pub(super) fn write_struct_leaf(
@@ -324,33 +300,19 @@ pub(super) fn write_struct_leaf(
 ) -> Result<()> {
     let resolve = |n: &str| ctx.try_lookup_type(n);
     let nested = crate::corelib::struct_reflect::compute(&resolve, &leaf.type_name)?;
-    let start = leaf.byte_off as usize;
-    let size = leaf.size as usize;
+    if nested.ref_offsets.iter().any(|&nro| parent.ref_index(leaf.byte_off + nro).is_none()) {
+        bail!("struct field reflection: nested ref leaf offset not in parent bitmap");
+    }
     // Snapshot the source blob first (avoid holding two borrows).
-    let (src_bytes, src_refs): (Vec<u8>, Vec<Value>) = {
-        let so = src.borrow();
-        (so.bytes()[..size.min(so.bytes().len())].to_vec(), so.refs().to_vec())
-    };
-    // Map nested ref leaves → the object's `struct_refs` indices (object-relative offset).
-    let mut ref_writes: Vec<(usize, Value)> = Vec::new();
-    for (k, &nro) in nested.ref_offsets.iter().enumerate() {
-        if let Some(ri) = parent.ref_index(leaf.byte_off + nro) {
-            if let Some(v) = src_refs.get(k) { ref_writes.push((ri, v.clone())); }
-        }
-    }
-    {
-        let mut o = gc.borrow_mut();
-        let n = size.min(src_bytes.len());
-        o.bytes_mut()[start..start + n].copy_from_slice(&src_bytes[..n]);
-        for (ri, v) in &ref_writes {
-            o.set_ref_slot(*ri, v);
-        }
-    }
+    let (src_bytes, src_refs) = src.borrow().boxed_blob();
+    let mut stored: Vec<Value> = Vec::new();
+    gc.borrow_mut().write_blob(
+        leaf.byte_off as usize, leaf.size as usize, &src_bytes, &src_refs, &nested.ref_offsets,
+        &mut |v| stored.push(*v),
+    )?;
     // Write barriers after releasing the mutable borrow.
-    for (ri, v) in &ref_writes {
-        if v.is_heap_ref() {
-            ctx.heap().write_barrier_field(base_val, *ri, v);
-        }
+    for v in &stored {
+        ctx.heap().write_barrier_field(base_val, leaf.byte_off as usize, v);
     }
     Ok(())
 }
@@ -363,7 +325,7 @@ pub(super) fn boxed_struct_field_set(
     ctx: &VmContext, base_val: &Value,
     gc: &crate::gc::GcRef<crate::metadata::types::ScriptObject>, name: &str, value: &Value,
 ) -> Result<Value> {
-    use crate::interp::exec_struct::{encode_prim, prim_width};
+    use crate::interp::exec_struct::prim_width;
     let type_name = gc.type_desc().name.to_string();
     let resolve = |n: &str| ctx.try_lookup_type(n);
     let comp = crate::corelib::struct_reflect::compute(&resolve, &type_name)?;
@@ -402,14 +364,9 @@ pub(super) fn boxed_struct_field_set(
         write_struct_leaf(ctx, base_val, gc, &comp, &leaf, src)?;
         Ok(Value::Null)
     } else if leaf.is_ref {
-        let ri = comp.ref_index(leaf.byte_off).ok_or_else(|| {
-            anyhow::anyhow!("FieldInfo.SetValue: reference leaf offset not in bitmap")
-        })?;
-        gc.borrow_mut().set_ref_slot(ri, value);
+        let wrote = gc.borrow_mut().set_struct_ref_leaf(leaf.byte_off, value)?;
         // Write barrier: a reference stored into a heap object (the shared box).
-        if value.is_heap_ref() {
-            ctx.heap().write_barrier_field(base_val, ri, value);
-        }
+        wrote.with_barrier_value(value, |s| ctx.heap().write_barrier_field(base_val, leaf.byte_off as usize, s));
         Ok(Value::Null)
     } else {
         // The `object value` arg arrives boxed for value-type primitives (int → Std.Int32
@@ -426,7 +383,7 @@ pub(super) fn boxed_struct_field_set(
         };
         let w = prim_width(leaf.tag)?;
         let mut o = gc.borrow_mut();
-        encode_prim(&mut o.bytes_mut(), leaf.byte_off as usize, w, leaf.tag, raw)?;
+        o.set_prim_leaf(leaf.byte_off as usize, w, leaf.tag, raw)?;
         Ok(Value::Null)
     }
 }

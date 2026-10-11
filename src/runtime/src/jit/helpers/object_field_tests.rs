@@ -30,20 +30,18 @@ fn make_jit_ctx(vm_ctx: &VmContext) -> JitModuleCtx {
 
 /// `class Holder { int n; string s; }`
 /// —— `n` 是字节打包的基元叶子（offset 0, 4B, TAG_I32）；
-///    `s` 是 refs 侧表里的引用叶子（ref_slot 0）。
+///    `s` 是 offset 8 的 8 B 引用字。
 fn holder() -> Value {
     let layout = Arc::new(ObjectLayout {
-        size: 4,
-        field_offsets: Box::new([0, 0]),
+        size: 16,
+        field_offsets: Box::new([0, 8]),
         field_sizes:   Box::new([4, 8]),
         field_kinds:   Box::new([STRUCT_LEAF_PRIM, STRUCT_LEAF_PRIM]),
-        ref_offsets:   Box::new([0]),
-        ref_kinds:     Box::new([TAG_STR]),
-        ref_cells:     Box::new([]),
+        ref_cells:     Box::new([8]),
         tparam_cells:  Box::new([]),
         field_access:  Box::new([
             FieldAccess::prim(0, 4, TAG_I32),
-            FieldAccess::side(0, TAG_STR, 0),
+            FieldAccess::ref_word(8, TAG_STR),
         ]),
     });
     let mut field_index = crate::metadata::NameIndex::new();
@@ -64,7 +62,7 @@ fn holder() -> Value {
         })),
         id: crate::metadata::tokens::TypeId::UNRESOLVED,
     });
-    Value::Object(GcRef::new(ScriptObject::new(td, ObjStorage::new(4, 1))))
+    Value::Object(GcRef::new(ScriptObject::new(td, ObjStorage::new(16))))
 }
 
 /// 读回字段（`n` 是基元 ⇒ 从 bytes 解码）。

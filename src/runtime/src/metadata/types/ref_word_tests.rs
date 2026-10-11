@@ -36,8 +36,6 @@ pub(crate) fn ref_cell_td(n: usize) -> Arc<TypeDesc> {
         field_offsets: offs.clone().into(),
         field_sizes: vec![8; n].into(),
         field_kinds: vec![STRUCT_LEAF_GCREF_CLOSURE; n].into(),
-        ref_offsets: Box::new([]),
-        ref_kinds: Box::new([]),
         ref_cells: offs.clone().into(),
         tparam_cells: Box::new([]),
         field_access: offs.iter().map(|&o| FieldAccess::ref_word(o, TAG_OBJECT)).collect(),
@@ -72,8 +70,8 @@ fn payload(v: &Value) -> u64 {
 
 /// One live handle of every encodable kind.
 fn one_of_each(heap: &ArcMagrGC) -> Vec<(Value, u64)> {
-    let obj = GcRef::new(ScriptObject::new(plain_td("O"), ObjStorage::new(0, 0)));
-    let boxed = GcRef::new(ScriptObject::new(plain_td("S"), ObjStorage::new(0, 0)));
+    let obj = GcRef::new(ScriptObject::new(plain_td("O"), ObjStorage::new(0)));
+    let boxed = GcRef::new(ScriptObject::new(plain_td("S"), ObjStorage::new(0)));
     let Value::Array(arr) = heap.alloc_array(vec![]) else { panic!() };
     let s = Str::new_leaked("text");
     let clo = VarGcRef::leak_block_for_test(16, BlockType::Closure);
@@ -214,8 +212,8 @@ fn gc_traces_through_reference_words() {
 /// `clear_refs_for_sweep` zeroes every word (the sweep breaking a dead object's edges).
 #[test]
 fn clear_refs_for_sweep_zeroes_every_word() {
-    let leaf = Value::Object(GcRef::new(ScriptObject::new(plain_td("Leaf"), ObjStorage::new(0, 0))));
-    let holder = GcRef::new(ScriptObject::new(ref_cell_td(2), ObjStorage::new(16, 0)));
+    let leaf = Value::Object(GcRef::new(ScriptObject::new(plain_td("Leaf"), ObjStorage::new(0))));
+    let holder = GcRef::new(ScriptObject::new(ref_cell_td(2), ObjStorage::new(16)));
     holder.borrow_mut().set_field_value(0, &leaf);
     holder.borrow_mut().set_field_value(1, &leaf);
     holder.borrow_mut().clear_refs_for_sweep();

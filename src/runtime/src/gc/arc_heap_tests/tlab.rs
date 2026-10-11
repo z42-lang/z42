@@ -134,7 +134,7 @@ fn tlab_object_field_values_roundtrip() {
     if let Value::Object(gc) = &holder {
         let obj = gc.borrow();
         assert!(
-            obj.refs().iter().any(|r| matches!(r, Value::Object(_))),
+            { let mut any = false; obj.visit_refs(&mut |r| any |= matches!(r, Value::Object(_))); any },
             "holder retains its object-typed field after TLAB fill"
         );
     } else {

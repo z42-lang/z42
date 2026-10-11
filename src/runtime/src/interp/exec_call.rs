@@ -483,7 +483,7 @@ pub(super) fn mk_clos(
     for r in captures {
         env_vec.push(frame.get(*r)?.clone());
     }
-    let env_val = ctx.heap().alloc_array(env_vec);
+    let env_val = crate::metadata::types::ArrayObj::alloc_frozen_value(ctx.heap(), env_vec);
     // add-gc-oom-exception: alloc_array returns Null only under strict OOM
     if matches!(env_val, Value::Null) {
         return Ok(Some(crate::exception::make_oom_exception(

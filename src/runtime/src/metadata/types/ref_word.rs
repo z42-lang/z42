@@ -23,7 +23,7 @@
 //!
 //! GC 追踪用 [`decode_for_trace`]：种类 7 交出盒子本身（`Value::Array`），盒子再交出里面的值。
 
-use super::{ArrayObj, ScriptObject, Value};
+use super::{ArrayObj, Cells, CellsMut, FieldWrite, ScriptObject, Value};
 use crate::gc::var_region::VarGcRef;
 use crate::gc::GcRef;
 use crate::metadata::vstr::Str;
@@ -77,14 +77,17 @@ pub fn encode_boxed(boxed: &GcRef<ArrayObj>) -> u64 {
     tag(boxed.to_tagged_bits(), RK_BOXED_VALUE)
 }
 
-/// 用当前线程的环境堆（`gc::ambient`）分配逃生盒子。没有活动堆（不带 VM 的单测）时报内部错误。
+/// 用当前线程的环境堆（`gc::ambient`）分配逃生盒子：只读的单元素数组，元素是原样的 16 B `Value`
+/// （`ArrayBacking::Frozen` —— 盒子里可以是栈句柄，不能再按单元编码，否则会无限装箱）。
+/// 没有活动堆（不带 VM 的单测）时报内部错误。
 pub fn alloc_box_ambient(v: &Value) -> anyhow::Result<GcRef<ArrayObj>> {
     let heap = crate::gc::ambient::current_heap().ok_or_else(|| {
-        anyhow::anyhow!("cannot store {v:?} into a reference field: no active heap to box it")
+        anyhow::anyhow!("cannot store {v:?} into a reference cell: no active heap to box it")
     })?;
-    match heap.alloc_array(vec![*v]) {
+    let boxed = ArrayObj::frozen(heap, vec![*v]);
+    match heap.alloc_array_obj(boxed) {
         Value::Array(r) => Ok(r),
-        other => anyhow::bail!("boxing a field value: heap returned {other:?}"),
+        other => anyhow::bail!("boxing a cell value: heap returned {other:?}"),
     }
 }
 
@@ -139,6 +142,64 @@ unsafe fn unbox(w: u64) -> Value {
         Some(b) => b.borrow().get(0).unwrap_or(Value::Null),
         None => Value::Null,
     }
+}
+
+// ── 引用单元：对象字段、struct 引用叶子、REF 数组元素共用 ────────────────────────────
+
+/// 读 `off` 处的引用单元（种类 7 取出盒子里的原值）。
+#[inline(always)]
+pub fn load(c: &Cells, off: usize) -> Value {
+    // SAFETY: the word was written by `store` (or is the zero-initialised `null`); its referent is
+    // kept alive by the owner, which the caller holds.
+    unsafe { decode(c.load_ref_word(off)) }
+}
+
+/// 写 `off` 处的引用单元：能编码就写引用字，否则装箱（种类 7）。被覆盖的旧字交给 SATB；返回值告诉
+/// 调用方该给写屏障哪个引用（[`FieldWrite::with_barrier_value`]）。
+#[inline(always)]
+pub fn store(c: &CellsMut, off: usize, v: &Value) -> anyhow::Result<FieldWrite> {
+    match encode(v) {
+        Some(w) => {
+            store_word_recorded(c, off, w);
+            Ok(FieldWrite::Ref)
+        }
+        None => store_boxed(c, off, v),
+    }
+}
+
+#[cold]
+#[inline(never)]
+fn store_boxed(c: &CellsMut, off: usize, v: &Value) -> anyhow::Result<FieldWrite> {
+    let b = alloc_box_ambient(v)?;
+    store_word_recorded(c, off, encode_boxed(&b));
+    Ok(FieldWrite::Boxed(b))
+}
+
+/// 写引用字，把它替换掉的字交给 SATB 删除屏障（进行中的 major 标记必须仍看得见被切断的对象）。
+#[inline(always)]
+pub fn store_word_recorded(c: &CellsMut, off: usize, w: u64) {
+    let old = c.store_ref_word(off, w);
+    if old != 0 {
+        // SAFETY: `old` was this cell's word an instant ago, so its referent is still live (no
+        // safepoint in between).
+        crate::gc::satb::record_overwrite(&unsafe { decode_for_trace(old) });
+    }
+}
+
+/// GC 追踪：`off` 处的引用单元若非 null，交出它（种类 7 交出盒子）。
+#[inline(always)]
+pub fn visit(c: &Cells, off: usize, visit: &mut dyn FnMut(&Value)) {
+    let w = c.load_ref_word(off);
+    if w != 0 {
+        // SAFETY: a reference word of a reachable owner names a live referent.
+        visit(&unsafe { decode_for_trace(w) });
+    }
+}
+
+/// 断开 `off` 处的引用（GC 清扫死对象，不过屏障）。
+#[inline(always)]
+pub fn clear(c: &CellsMut, off: usize) {
+    c.store_word(off, 0, std::sync::atomic::Ordering::Relaxed);
 }
 
 #[cfg(test)]

@@ -18,6 +18,7 @@
 namespace Std.Test;
 
 using Std.IO;
+using Std.Runtime;   // ModuleLoader.Invoke（按 FQN 调测试函数）
 
 // Internal invoke outcome (z42 has no out-params). Carries thrown state + the
 // benchmark's captured stdout (json mode only; "" otherwise / on throw).
@@ -37,7 +38,7 @@ public static class Runner {
     // code (0 = no failures, 1 = at least one failure).
     public static int RunModule(string path, string format) {
         bool json = (format == "json");
-        TestEntry[] entries = ModuleLoader.Load(path);
+        TestEntry[] entries = TestModule.Load(path);
 
         int runnable = 0;
         int c = 0;
@@ -104,7 +105,7 @@ public static class Runner {
     // test-host, wire-embedded-testhost): the caller collects results from many
     // modules and renders one combined TestReport.
     public static TestResult[] RunModuleResults(string path) {
-        TestEntry[] entries = ModuleLoader.Load(path);
+        TestEntry[] entries = TestModule.Load(path);
         int runnable = 0;
         int c = 0;
         while (c < entries.Length) {

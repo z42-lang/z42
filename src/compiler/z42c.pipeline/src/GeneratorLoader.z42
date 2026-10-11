@@ -8,7 +8,7 @@
 //   · Path-A 发现（reflect-only）：AssemblyLoadContext.Default().Load(path) → Assembly.GetTypes()
 //     → 过滤 GetInterface("Generator")/GetInterface("ModuleGenerator")。root 的 AssemblyEntry 类型
 //     **可枚举**，但函数**不并入 live module → 不可调**。仅用它拿类型 FQN 清单。
-//   · Path-B 可调用：__load_module(path)（flat-merge）→ 函数/类型并入 live VM，可 Type.GetType +
+//   · Path-B 可调用：ModuleLoader.Load(path)（flat-merge）→ 函数/类型并入 live VM，可 Type.GetType +
 //     Activator.CreateInstance + 虚调用。仅用它让实例可执行。
 //   · 实例化：用 Path-A 拿到的 FullName 走 Type.GetType（解析到 Path-B 合并后的 live TypeDesc，避免
 //     ALC 投影副本的 vtable 指向未合并函数）→ Activator.CreateInstance → as Generator / as ModuleGenerator。
@@ -30,6 +30,7 @@
 namespace Z42.Pipeline;
 
 using Std.Reflection;  // Assembly / Activator
+using Std.Runtime;     // ModuleLoader（Path-B）/ AssemblyLoadContext（Path-A）
 using Z42.Semantics;   // Generator / ModuleGenerator（上一 nightly 已有 → 跨成员引用安全）
 
 // 一遍加载的产物：applied generator 与 module generator 各归其数组（一个 zpkg 可混含两类）。
@@ -43,11 +44,6 @@ public sealed class LoadedGenerators {
 }
 
 public static class GeneratorLoader {
-    // Path-B：把 zpkg 的函数/类型并入 live VM（可 Type.GetType + Activator + 虚调用）。native 是 VM
-    // builtin（种子里恒在 → 无两-nightly 越界）；返回 TIDX，忽略——只要其加载副作用。同 AnalyzerLoader。
-    [Native("__load_module")]
-    private static extern object _makeCallable(string path);
-
     // 发现 + 实例化给定 zpkg 路径里所有 `: Generator` / `: ModuleGenerator` 类型。路径先按 Ordinal 排序
     // （common-pitfalls §1，确定序）。返回按发现序（同一 zpkg 内按 Assembly.GetTypes 的 FQ 名序）的实例。
     public static LoadedGenerators Load(string[] zpkgPaths, int count) {
@@ -59,7 +55,7 @@ public static class GeneratorLoader {
         int i = 0;
         while (i < count) {
             string path = sorted[i];
-            GeneratorLoader._makeCallable(path);                       // Path-B（先，供实例可执行）
+            ModuleLoader.Load(path);                                   // Path-B（先，供实例可执行）
             Assembly asm = AssemblyLoadContext.Default().Load(path);   // Path-A（反射投影，仅枚举）
             Type[] types = asm.GetTypes();
             int j = 0;

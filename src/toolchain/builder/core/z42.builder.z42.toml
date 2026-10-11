@@ -39,7 +39,7 @@ include = ["builder_cli.z42", "builder_test.z42", "builder_device.z42", "builder
 "z42.io"      = "0.1.0"   # Console / File / Directory / Path / Process / Environment
 "z42.threading" = "0.1.0"   # Thread.Sleep — poll the Android emulator boot (device driver)
 "z42.cli"     = "0.1.0"   # Std.Cli nested router + ArgParser
-"z42.test"    = "0.1.0"   # Std.Test.Runner + ModuleLoader + BundleRunner（反射 runner + bundle 执行）
+"z42.test"    = "0.1.0"   # Std.Test.Runner + BundleRunner（反射 runner + bundle 执行）
 "z42.json"    = "0.1.0"   # JsonValue.Parse — read a test-bundle manifest in `z42b test --rid host`
 "z42.toml"    = "0.1.0"   # TomlValue.Parse — read [platform.desktop] in `z42b publish`
 "z42.build"   = { version = "0.1.0", deploy = "shared" }   # ICompiler 接口 + Pipeline 八相位（编排；接口经动态注入绑定实现）

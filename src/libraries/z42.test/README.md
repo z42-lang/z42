@@ -14,7 +14,7 @@ z42 标准测试库：给 stdlib 自身和用户脚本提供 `TestIO`（console 
 | 捕获 console 输出 | `TestIO.captureStdout` / `captureStderr` / `captureBoth`（`src/TestIO.z42`） |
 | 基准测量 | `Bencher.iter(Action)` / `printSummary` / `Min·Max·Median·Mean·StdDev·Total·Samples`；`BenchHelpers.blackBox`（`src/Bencher.z42`） |
 | 命令式 runner（无 lambda） | `TestRunner.Begin` / `Fail` / `Summary`（`src/TestRunner.z42`） |
-| `[Test]` / `[Benchmark]` 发现与调度 | `Runner` / `ModuleLoader` / `BundleRunner`；`[Benchmark] void f()` 或 `void f(Bencher b)`（后者编译期 desugar 成前者），与 `[Test]` 同执行路径 |
+| `[Test]` / `[Benchmark]` 发现与调度 | `Runner` / `TestModule` / `BundleRunner`；`[Benchmark] void f()` 或 `void f(Bencher b)`（后者编译期 desugar 成前者），与 `[Test]` 同执行路径 |
 | 报告 | 默认 pretty（`PASS` / `FAIL` / `SKIP` + `Result:` 汇总）；`z42b {test,bench} --format json` 产 `TestReport`（含 `failure_location` / `stack_trace`，benchmark 条目带 `is_benchmark` + `bench_stats`） |
 | 集合契约测试 | `BasicCollectionContract`（`src/Contracts/`） |
 
@@ -97,7 +97,7 @@ xtask test stdlib --jobs 0 mylib    # 并行：0 = available_parallelism；N>1 �
 | `src/BenchStats.z42` | `BenchStats` | benchmark 统计（含 `parse`，供 runner 解析 benchmark stdout） |
 | `src/TestRunner.z42` | `TestRunner` | 命令式 runner |
 | `src/Runner.z42` | `static class Runner` + `InvokeOutcome` | `[Test]` / `[Benchmark]` 调度执行 |
-| `src/ModuleLoader.z42` | `static class ModuleLoader` + `TestEntry` | 加载模块并发现测试入口 |
+| `src/TestModule.z42` | `static class TestModule` + `TestEntry` | 加载测试模块并取回 TIDX 条目；按 FQN 调用走 `Std.Runtime.ModuleLoader.Invoke` |
 | `src/BundleRunner.z42` | `static class BundleRunner` + `BundleCase` | 嵌入式 test-agent 的 bundle 运行 |
 | `src/TestReport.z42` | `static class TestReport` + `TestResult` | pretty / JSON 报告 |
 | `src/Contracts/BasicCollectionContract.z42` | `static class` | `IBasicCollection` 契约测试 |

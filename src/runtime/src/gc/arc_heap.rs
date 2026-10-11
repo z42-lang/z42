@@ -321,8 +321,10 @@ unsafe fn var_drop_glue(bt: BlockType, payload: *mut u8, size: usize) {
                 unsafe { std::ptr::drop_in_place(base.add(i)) }
             }
         }
-        // Str / ArrayPrim / ArrayStruct (packed bytes) / Closure (POD since PR-5): nothing to drop.
-        BlockType::Str | BlockType::ArrayPrim | BlockType::ArrayStruct | BlockType::Closure => {}
+        // Str / ArrayPrim / ArrayStruct (packed bytes) / Closure (POD since PR-5) / ArrayRef /
+        // ArrayCell (raw words): nothing to drop.
+        BlockType::Str | BlockType::ArrayPrim | BlockType::ArrayStruct | BlockType::Closure
+        | BlockType::ArrayRef | BlockType::ArrayCell => {}
     }
 }
 

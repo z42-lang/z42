@@ -282,6 +282,10 @@ impl TypeDesc {
     #[inline] pub fn struct_layout(&self) -> Option<std::sync::Arc<StructTypeLayout>> {
         self.cold.as_ref().and_then(|c| c.struct_layout.clone())
     }
+    /// The same layout **borrowed** — no `Arc` clone (GC walks of boxed structs).
+    #[inline] pub fn struct_layout_ref(&self) -> Option<&StructTypeLayout> {
+        self.cold.as_ref().and_then(|c| c.struct_layout.as_deref())
+    }
     /// add-struct-heap-inline (P3b, D1-a): the composed inline-struct layout of this
     /// class's instances (object-relative byte size + reference bitmap). `None`
     /// unless the class declares inline struct fields. Cloned `Arc` (cheap).
@@ -302,52 +306,32 @@ impl TypeDesc {
     #[inline] pub fn composed_object_layout_ref(&self) -> Option<&ObjectLayout> {
         self.cold.as_ref().and_then(|c| c.composed_object_layout.as_deref())
     }
-    /// add-struct-heap-inline (P3b, D1-a): total `(struct_bytes_len, struct_refs_len)`
-    /// for an instance of this class — the size of the inline value-struct byte
-    /// region + the reference side-table `ScriptObject` must allocate. `(0, 0)`
-    /// unless the class declares inline struct fields.
+    /// Byte length of a fresh instance's payload (`ObjStorage`) — every field cell, references
+    /// included (object model R3: no reference side table).
     ///
-    /// Reads the composed `inline_layout` on `TypeDescCold` (`size`, `ref_count`).
-    /// `(0, 0)` until the zbc 1.32 inline-field table (stage 3) populates it — so
-    /// every existing object stays byte-identical while the loader still delivers
-    /// `None`.
-    /// unify-object-byte-layout (PR-2): `(bytes_len, refs_len)` for a fresh instance —
-    /// the whole object's byte region + reference side-table (replaces P3b's
-    /// inline-only `inline_region_sizes`).
-    ///
-    /// - **Boxed value struct** (`is_struct`): the payload IS the struct blob — size
-    ///   from the type's own `struct_layout` (blob byte size + reference-leaf count).
-    ///   (add-boxed-struct-identity P4b: only boxes hit `alloc_object`; frame-arena
-    ///   value structs never do.)
-    /// - **Normal reference class**: the composed object layout (`base.composed ++ own`)
-    ///   — `bytes_len()` bytes (the compiler's `size` plus one payload word per
-    ///   type-parameter cell) + `ref_count` reference slots.
-    /// - **No layout** (synthetic / Rust-constructed / fallback): synthesize from
-    ///   `fields`; `(0, 0)` for a field-less type.
+    /// - **Boxed value struct** (`is_struct`): the payload IS the struct blob — the struct
+    ///   layout's `size` (reference leaves are 8 B words inside it).
+    /// - **Normal reference class**: the composed object layout's `bytes_len()` (the compiler's
+    ///   `size` plus one payload word per type-parameter cell).
+    /// - **No layout** (synthetic / Rust-constructed / fallback): the synthesized layout's
+    ///   `bytes_len()`; `0` for a field-less type.
     #[inline]
-    pub fn object_region_sizes(&self) -> (usize, usize) {
+    pub fn object_bytes_len(&self) -> usize {
         if self.is_struct() {
-            return match self.struct_layout() {
-                Some(sl) => (sl.size, sl.ref_count()),
-                None => (0, 0),
-            };
+            return self.struct_layout_ref().map_or(0, |sl| sl.size);
         }
         if let Some(col) = self.composed_object_layout_ref() {
-            return (col.bytes_len(), col.ref_count());
+            return col.bytes_len();
         }
-        if self.fields.is_empty() { return (0, 0); }
-        let l = synthesize_object_layout(&self.fields);
-        (l.size, l.ref_count())
+        if self.fields.is_empty() { return 0; }
+        synthesize_object_layout(&self.fields).bytes_len()
     }
 
-    /// shrink-object-footprint P2: allocate a fresh instance's payload — the
-    /// zero-initialized byte region and the `Null`-filled reference leaves, in
-    /// **one** block. Zero bytes = every primitive field's default (0 / false /
-    /// '\0'). Single sizing site for every `ScriptObject` construction.
+    /// Allocate a fresh instance's payload: one zeroed byte block (zero = every field's default,
+    /// `null` included). Single sizing site for every `ScriptObject` construction.
     #[inline]
     pub fn object_storage(&self) -> crate::metadata::types::ObjStorage {
-        let (nb, nr) = self.object_region_sizes();
-        crate::metadata::types::ObjStorage::new(nb, nr)
+        crate::metadata::types::ObjStorage::new(self.object_bytes_len())
     }
 
     /// add-struct-value-semantics: whether this type is a value struct (Type.IsValueType).

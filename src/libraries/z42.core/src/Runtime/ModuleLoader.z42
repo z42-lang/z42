@@ -1,0 +1,42 @@
+// Std.Runtime.ModuleLoader — 把已编译的 zpkg / zbc 并入**当前 VM**（函数与类型变得可调用、可反射），
+// 以及按全限定名调用 / 实例化其中的成员。
+//
+// 这是运行期组件注入的唯一入口：z42b 注入编译器（`Z42cCompiler : ICompiler`）、z42b 加载项目 hooks、
+// REPL 注入编译器（`Z42cReplCompiler`）与内存加载每轮产物、z42c 加载 `[analyzers]` 声明的 analyzer /
+// generator zpkg，都走这里。与 `AssemblyLoadContext.Load`（反射投影、只读枚举）的区别：本类加载的
+// 代码并入 root 上下文，**可执行**。
+//
+// 加载按模块名幂等（first-wins）；被加载 zpkg 自身所在目录会并入 VM 搜索目录，所以与它同目录的依赖闭包
+// 自然解析。加载后立即补跑新模块的静态初始化。
+namespace Std.Runtime;
+
+using Std.Reflection;   // Activator
+
+public static class ModuleLoader {
+    // 按路径加载 .zpkg / .zbc（含依赖闭包）。加载失败（文件缺失 / 格式代差 / indexed zpkg 缺散装 zbc）抛异常。
+    public static void Load(string path) {
+        ModuleLoader._load(path);
+    }
+
+    // 从内存字节加载（packed zpkg 或裸 zbc，按 magic 区分），零落盘。成功返回 true；畸形字节抛异常。
+    [Native("__load_bytecode_in_memory")]
+    public static extern bool LoadBytes(byte[] bytes);
+
+    // 按全限定名调用一个**零参**静态 / 自由函数，返回其（装箱的）结果（void → null）。
+    // 被调函数里抛出的异常保持原类型向外传播。
+    [Native("__invoke_static")]
+    public static extern object Invoke(string fqn);
+
+    // 按全限定类型名实例化（无参构造）。类型解析不到返回 null —— 调用方据此给出带上下文的诊断，
+    // 再用 `as <接口>` 做契约校验（接口对不上同样得到 null）。
+    public static object Create(string typeFqn) {
+        Type t = Type.GetType(typeFqn);
+        if (t == null) { return null; }
+        return Activator.CreateInstance(t);
+    }
+
+    // VM 的 `__load_module` 同时返回被加载模块的测试索引（TIDX 条目）；通用加载用不到，丢弃。
+    // 测试运行器读 TIDX 走 `Std.Test.TestModule.Load`。
+    [Native("__load_module")]
+    private static extern object _load(string path);
+}

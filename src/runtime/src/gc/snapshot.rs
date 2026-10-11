@@ -268,12 +268,12 @@ pub fn build_graph_snapshot(heap: &dyn MagrGC) -> GraphSnapshot {
                 let arr = gc.borrow();
                 // The array's reference slots (elements / struct[] reference leaves); packed
                 // primitives hold none.
-                let elems: Vec<Value> = arr.gc_refs().to_vec();
+                let (elems, per) = arr.elem_ref_slots(0, arr.len());
                 drop(arr);
                 for (i, child) in elems.iter().enumerate() {
                     if let Some(ptr) = value_ptr(child) {
                         if let Some(&to_id) = id_map.get(&ptr) {
-                            snap.push_edge(from_idx, EdgeType::Element, i as u32, to_id);
+                            snap.push_edge(from_idx, EdgeType::Element, (i / per.max(1)) as u32, to_id);
                         }
                     }
                 }

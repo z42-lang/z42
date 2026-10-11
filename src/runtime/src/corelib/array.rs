@@ -80,12 +80,11 @@ pub fn builtin_array_create(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let default = default_value_for(tag);
     let heap = ctx.heap();
     let et = crate::metadata::types::ElemType::intern(tag);
-    // 值 struct 元素类型 → 真正的 struct[]（`StructBytes`，元素零初始化），与 `new P[n]` 同一个闸门。
-    if let Some(sb) = objops::array::try_struct_backed(ctx, et, n) {
-        return Ok(heap.alloc_array_obj(sb));
+    // Same mode choice as `ArrayNew` (REF for a class / interface element type, …).
+    match crate::objops::array::elem_mode(ctx, et, false, n) {
+        crate::objops::array::ElemMode::Struct(a) => Ok(heap.alloc_array_obj(a)),
+        crate::objops::array::ElemMode::Kind(kind) => Ok(heap.alloc_array_obj(ArrayObj::filled(heap, et, kind, n, default))),
     }
-    // perf-array-alloc-direct: default-fill straight into the GC block.
-    Ok(heap.alloc_array_obj(ArrayObj::typed_filled(heap, et, n, default)))
 }
 
 /// `__array_get(arr: object, i: int) -> object` — read element `i` as an object.
@@ -143,7 +142,7 @@ pub fn builtin_array_set(ctx: &VmContext, args: &[Value]) -> Result<()> {
         },
         other => other,
     };
-    {
+    let wrote = {
         let mut a = rc.borrow_mut();
         if i >= a.len() {
             bail!("Array.SetValue: index {i} out of bounds (len {})", a.len());
@@ -159,14 +158,12 @@ pub fn builtin_array_set(ctx: &VmContext, args: &[Value]) -> Result<()> {
         // 形参声明是 `Object` ⇒ 没有编译器站点能先转换，值是**用户**给的
         // （与 IR `ArraySet` 那条路不同，那里 debug-only 的原策略依然正确）。
         a.try_set_boxed(i, raw.clone())
-            .map_err(|e| anyhow::anyhow!("Array.SetValue: {e}"))?;
-    }
+            .map_err(|e| anyhow::anyhow!("Array.SetValue: {e}"))?
+    };
     // fix-missing-array-write-barriers (2026-09-10): storing a reference into an array is a
     // heap write like any other, and an **old** array receiving a **young** element must mark
-    // its card or the next minor will not re-root it. The interpreter's `ArraySet` and the
-    // JIT's array-store helper both fire this; these `Std.Array` builtins never did.
-    // Same helper as `ArraySet` — it also covers a boxed struct copied into a `struct[]`.
-    crate::objops::array::barrier_after_elem_store(ctx, &rc, i, &raw);
+    // its card or the next minor will not re-root it. Same rule as `ArraySet`.
+    crate::objops::array::barrier_elem(ctx, &rc, i, wrote, &raw);
     Ok(())
 }
 
@@ -206,15 +203,23 @@ pub fn builtin_array_copy(ctx: &VmContext, args: &[Value]) -> Result<()> {
 /// when every element there is one primitive kind (int-like / double / char / string),
 /// in exactly the order the elements' own `CompareTo` gives (see
 /// `ArrayObj::sort_prims_prefix`). `false` = declined, array untouched: the caller's
-/// script merge sort runs instead. Only reorders references already in the array, so
-/// no write barrier is owed (the card belongs to this same array).
-pub fn builtin_array_sort_prims(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
+/// script merge sort runs instead. A permutation only moves references the array already
+/// holds; the one new reference a store can produce (a box, when a MIXED cell had fixed another
+/// primitive kind) goes to the write barrier.
+pub fn builtin_array_sort_prims(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let n = match args.get(1) {
         Some(Value::I64(n)) if *n >= 0 => *n as usize,
         _ => bail!("__array_sort_prims: count must be a non-negative int"),
     };
     match args.first() {
-        Some(Value::Array(rc)) => Ok(Value::Bool(rc.borrow_mut().sort_prims_prefix(n))),
+        Some(Value::Array(rc)) => {
+            let sorted = rc.borrow_mut().sort_prims_prefix(n);
+            let owner = Value::Array(*rc);
+            for b in sorted.iter().flatten() {
+                ctx.heap().write_barrier_array_elem(&owner, 0, b);
+            }
+            Ok(Value::Bool(sorted.is_some()))
+        }
         Some(Value::Null) => bail!("__array_sort_prims: null array reference"),
         other => bail!("__array_sort_prims: expected an array, got {other:?}"),
     }

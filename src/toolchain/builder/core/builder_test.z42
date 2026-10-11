@@ -1,7 +1,7 @@
 // z42b test / bench — reflective [Test]/[Benchmark] runner (retire-test-runner).
 //
 // Replaces the Rust z42-test-runner. A compiled test/bench module (.zbc / .zpkg)
-// is loaded into the live VM by Std.Test.ModuleLoader and its TIDX
+// is loaded into the live VM by Std.Test.TestModule and its TIDX
 // [Test] / [Benchmark] free functions are run by reflection via
 // Std.Test.Runner.RunModule, which exits 0 (all passed) / 1 (any failure).
 //
