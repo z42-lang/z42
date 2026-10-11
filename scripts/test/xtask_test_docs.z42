@@ -239,18 +239,40 @@ string _stripFences(string text) {
     return outText;
 }
 
-// 去掉一行里成对反引号之间的内容（保留反引号本身，不影响列位判断）。
+// 去掉一行里成对的 code span（`…` / ``…`` / ```…```）。
+//
+// markdown 的规则是：**定界符是一串 N 个反引号，span 以「恰好 N 个」的下一个反引号串收尾**。
+// 早先按「每个反引号都翻转一次 inSpan」实现，遇到**双反引号定界**就错：``[文字](`Sym`)`` 里那对
+// 单反引号把状态翻了回去，span 的**后半截被当成正文** —— `docs/z42-doc.md` 讲链接写法的那行因此
+// 被误报成死链（`-> ``` `，基线里没有 → 判新死链 → main 红）。
+//
+// 未闭合的反引号串按 markdown 语义是**普通文本**，此时整行原样返回（宁可多查，不可漏报死链）。
 string _stripCodeSpans(string line) {
     string outLine = "";
-    bool inSpan = false;
     int i = 0;
     while (i < line.Length) {
         char c = line.CharAt(i);
-        if (c == '`') { inSpan = !inSpan; outLine = outLine + "`"; }
-        else if (!inSpan) { outLine = outLine + c.ToString(); }
-        i = i + 1;
+        if (c != '`') { outLine = outLine + c.ToString(); i = i + 1; continue; }
+        int j = i;
+        while (j < line.Length && line.CharAt(j) == '`') { j = j + 1; }
+        int close = _findTickRun(line, j, j - i);
+        if (close < 0) { return line; }
+        i = close + (j - i);        // 跳过 span 内容与收尾定界符
     }
     return outLine;
+}
+
+// 从 from 起找「恰好 run 个反引号」的串，返回其起始下标；找不到返回 -1。
+int _findTickRun(string line, int from, int run) {
+    int i = from;
+    while (i < line.Length) {
+        if (line.CharAt(i) != '`') { i = i + 1; continue; }
+        int j = i;
+        while (j < line.Length && line.CharAt(j) == '`') { j = j + 1; }
+        if (j - i == run) { return i; }
+        i = j;
+    }
+    return -1;
 }
 
 // 一行里的所有 `](target)` 目标。返回可能为空数组。
