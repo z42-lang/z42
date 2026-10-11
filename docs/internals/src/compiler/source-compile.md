@@ -70,8 +70,7 @@ AST → Bound 树 + `SemanticModel`。分两步：先由 `SymbolCollector` 遍�
 `SymbolTable.Classes` 以**裸类名**为键（`Foo`），同短名不同命名空间的类（`namespace A { class Foo }` 与
 `namespace B { class Foo }`）会在该表里 first/last-wins 只留一份。仅靠裸名表，限定引用 `new A.Foo` 会被剥成
 `Foo` 再查裸名表 → 撞见碰巧赢的那份（B.Foo），致对象身份、`is`/`as`、`GetType().FullName` 全错
-（与静态调用侧同源，见
-[common-pitfalls §1](https://github.com/z42-lang/z42/blob/main/docs/agent/rules/common-pitfalls.md)）。
+（与静态调用侧同源）。
 
 解法是**并存的 FQN 视图**：
 
@@ -568,7 +567,7 @@ getter 是真实函数体。
 
 **VM 侧无需改动**：基元接收者 VCall 的运行期派发（`src/runtime/src/interp/exec_vcall.rs:321-379`）按 `<class>.<method名>` 拼函数名直查——即它**本就以完整 mangle RegKey 为派发键**。只要绑定 emit 出正确的 `Split$1$string`，VM 就命中 `Std.String.Split$1$string`，跨包一样生效。
 
-> 阶段纪律（[bootstrap-seed.md](https://github.com/z42-lang/z42/blob/main/docs/agent/rules/bootstrap-seed.md)）：z42c / stdlib 源自身**不使用** prim 类同 arity 重载；待办：往 `Std.String` 加 `Split(char[])` 等实际重载，晚一个 nightly。
+> 阶段纪律（见[编译器自举](self-hosting.md)）：z42c / stdlib 源自身**不使用** prim 类同 arity 重载；待办：往 `Std.String` 加 `Split(char[])` 等实际重载，晚一个 nightly。
 
 #### 重载决议：默认值形参、命名实参、params 两种形态
 

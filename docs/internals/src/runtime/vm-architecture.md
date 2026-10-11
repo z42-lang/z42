@@ -1444,4 +1444,4 @@ allocator、分代 GC、card marking、finalizer 契约、迭代规划等）已�
 - `docs/internals/src/runtime/jit-design.md` — Cranelift JIT 后端设计
 - `docs/internals/src/runtime/execution-model.md` — ExecMode 注解、interp/JIT/AOT 切换语义
 - `docs/internals/src/stdlib/architecture.md` — stdlib 三层架构（intrinsics / HAL / script BCL）
-- `docs/agent/rules/runtime-rust.md` — Rust VM 开发规范（错误处理、测试组织、Value 类型约定）
+

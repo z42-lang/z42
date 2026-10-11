@@ -44,7 +44,7 @@ sweep  ：X 被回收，而 r 还攥着它
 | `ArrayObj::copy_elems_within` | 同一数组内的 `Array.Copy`（struct[] 的引用叶子区间 `copy_within`，先整段 `record_overwrite_all`；Boxed 走 `set_boxed`） |
 
 `refs_mut_raw()` 不带屏障，只给**刚分配的对象**（旧值全是 `Null`）和 **GC 自己断边**（记录死对象会把悬空句柄
-塞进标记队列）。规则写在 `../../../agent/rules/runtime-rust.md`。
+塞进标记队列）。
 
 ### 原语手里没有堆 —— 线程本地记录
 

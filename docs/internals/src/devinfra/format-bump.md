@@ -1,7 +1,10 @@
-# 格式 bump 期的本地验证与 fixture 重生
+# 格式 bump：清单与本地验证
 
 > 代码：`src/compiler/z42.package/src/BinaryFormat/`、`src/runtime/src/metadata/`
 > 相关：[zbc 格式](../formats/zbc.md) · [zpkg 格式](../formats/zpkg.md) · [CI 拓扑](ci.md) · [测试怎么跑](testing.md)
+>
+> §一 是**改哪些文件**的同步清单（唯一 SoT）；§二 是 bump 后**在本地怎么重建工具链、重生 fixture、跑门**
+> （新格式本地建不动时的 overlay 配方）。
 
 zbc / zpkg minor bump 后，本地有一个死结：**`cargo build` 出来的 z42vm 是新格式 reader，而本地唯一的种子
 （`.z42/` 下的 nightly、或 warm `artifacts/`）还是旧格式 writer**——新 VM 读旧种子 zpkg 直接撞墙：
@@ -17,9 +20,83 @@ warm 建 / 测 / fixture 重生全部走通，两代自举彻底不需要。
 > zpkg 是可移植字节码——linux 建出的 `z42c.driver.zpkg` 也能在 macOS 的 cargo VM 上跑（CI 的 macOS /
 > Windows job 一直这么用），所以只需 linux 一份 artifact。
 
-## 配方
+## 一、bump 清单（唯一 SoT）
 
-前置：bump 各步已改完源码与版本常量（清单见 [version-bumping.md](https://github.com/z42-lang/z42/blob/main/docs/agent/rules/version-bumping.md)）。
+改 `.zbc` / `.zpkg` wire 格式（新 opcode / 新 section / 已定义 section 字段语义变化）时，**单次 commit 必须同步以下各处**，
+否则 Rust reader 的 strict-pin 校验、`zbc_compat` 字节基线、或 z42c golden hex 单测任一会 fail。
+
+### Bumping `.zbc` minor version —— 5 步
+
+1. **`src/compiler/z42.package/src/BinaryFormat/ZbcFormat.z42`** — `ZbcVersion.Minor++`，常量旁注释本次 bump 内容
+   （参考已有行格式）。若 bump 改了指令 / section 布局，`ZbcInstr.z42`（编码）+ `ZbcReaderInstr.z42`（解码）或
+   `ZbcWriter.z42` 的对应 `Build*` / `_assemble` 逻辑同步。
+2. **`src/runtime/src/metadata/zbc_reader/versions.rs`** — `ZBC_VERSION_MINOR` 同步，**同时改钉值单测**
+   `zbc_reader_tests.rs` 的 `zbc_version_constants_pinned` / `zpkg_version_constants_pinned`；并在常量上方 changelog
+   注释块追加一行（日期 / PR / 字段变化）；reader 解码逻辑（`read_*_section`）同步新格式。
+3. **[zbc.md](../formats/zbc.md)** — 该页的 "Minor changelog" 表加一行（minor / 日期 / 触发变更 / 引入内容）。
+4. **regen zbc-format fixture** — 跑 `xtask build test`（前置 `build compiler` + `build stdlib` 已用新格式重建），
+   原地覆写 `src/compiler/z42.package/tests/fixtures/zbc-format/*/source.zbc`（6 个 committed 字节基线：`empty` /
+   `strp-func-minimal` / `multi-method` / `with-tidx` / `cross-import-token` / `with-frcs`）；`git diff` 应显示格式
+   delta，**必须连同 bump 一起提交**。
+
+   > 🔒 **CI 有门（`refresh-format-fixtures`）**：`test-host` 的三条非 Windows 腿在 `test`（其 build wave 就地 regen）
+   > 之后跑 `git diff --quiet -- src/compiler/z42.package/tests/fixtures/zbc-format`，**有差异即红**。
+   > 为什么需要这道门：regen 在所有消费者**之前**就地覆写，于是 `zbc_compat` 校验的永远是刚重生的字节、
+   > **从不是 committed 的那份** —— 陈旧基线因此可以一直绿着，同时把每个人的工作树弄脏。
+5. **z42c golden hex 单测 —— `zbc_tests.z42` 里有 *三* 个逐字节断言，不是一个**（三个都要改）：
+
+   | 测试 | 内嵌什么 |
+   |---|---|
+   | `test_zbc_empty_byte_identical` | `empty/source.zbc` 全量 hex（231B）|
+   | `test_zbc_f5_with_dbug_byte_identical` | `int F(){return 5;}` 的全量 hex（含 DBUG 行表）|
+   | `test_zbc_selfcheck_program_header` | 自检程序 header 前 10 字节 `5a4243 0001 <minor> 0200` |
+
+   ⭐ **改之前先逐字节 diff，把「为什么只有这些字节变」写进注释** —— 那句推理才是 golden 的价值所在
+   （例：1.46 那次三个用例都**一条 struct 指令都不发** ⇒ 只有 header 的 minor 那一个字节变）。
+   第一个从 regen 后的 fixture 重截：
+   ```bash
+   xxd -p src/compiler/z42.package/tests/fixtures/zbc-format/empty/source.zbc | tr -d '\n'
+   ```
+   验证：`xtask test compiler`（z42c zbc 单元须绿）。
+
+### zpkg 联动（强耦合）—— 4 步
+
+**zbc minor bump 必须同步 bump zpkg minor**（zpkg 内嵌 zbc，见 [zpkg.md](../formats/zpkg.md)）。在上述 5 步外加：
+
+6. **`src/compiler/z42.package/src/ZpkgWriter.z42`** — `ZpkgWriterZ.Minor++`，注释更新内嵌 zbc 版本。
+7. **`zbc_reader/versions.rs`** — `ZPKG_VERSION_MINOR` 同步；上方 zpkg changelog 注释块追加一行（指明耦合的 inner zbc minor）。
+8. **[zpkg.md](../formats/zpkg.md)** — 更新页首「状态」与 `## 版本` 段的**当前配对**（`当前 0.NN ↔ 1.MM`，两处）。
+   ⚠️ 本页没有 Minor changelog 表：zpkg 的逐 minor 历史写在写端常量旁（步骤 6 已覆盖）。
+9. **regen zpkg-format fixture** — 覆写 `src/compiler/z42.package/tests/fixtures/zpkg-format/*/source.zpkg`
+   （4 个 committed 基线：`packed-minimal` / `packed-multi-module` / `indexed-minimal` / `sym-only-sidecar`）。
+   每个 fixture 目录自带 **committed 构建配方 `<fixture>.z42.toml`**：`[project].pack` 决定 packed / indexed，
+   是否带 `--release` 决定 strip / sidecar。完整重生命令见
+   [zpkg-format fixture README](../../../../src/compiler/z42.package/tests/fixtures/zpkg-format/README.md)「维护流程」。
+
+   > 🔒 **有防腐门**：`cargo test --test format_fixture_versions` 读 committed 字节、断言 header 版本 == 当前常量，
+   > **陈旧即红**（zbc 与 zpkg 两套一起覆盖）。
+
+**仅改 zpkg outer（不动 zbc）时**：只触步骤 6–9，跳过 1–5。实际工作中很罕见（现有 minor bump 都耦合 zbc）。
+
+### 提交前自检
+
+```bash
+xtask build compiler && xtask build stdlib   # 用新格式重建 z42c + stdlib（fixture 须由新 writer emit）
+xtask build test                             # zbc-format 6 fixture 原地重生 + run-golden zbc 重生
+cargo test --test zbc_compat                 # Rust reader 读 committed zbc 字节基线
+cargo test lazy_loader                       # Rust reader 读 committed zpkg 字节基线
+xtask test compiler                          # z42c golden hex 单测
+```
+
+> 只修 reader / writer 的非格式 bug（不改 wire layout）— **不要** bump minor；strict-pin 仍通过。
+> **下次 zbc bump 时顺带要删的 wire 残留**（`MkClos` 的 `u8` 尾字节等）登记在
+> [zbc.md 的 `## Deferred` 节](../formats/zbc.md)，bump 时一并删掉。
+
+---
+
+## 二、本地重建与 fixture 重生
+
+前置：bump 清单（§一）各步已改完源码与版本常量。
 
 ### 1. 先推一个 PR，拿工具链 artifact
 

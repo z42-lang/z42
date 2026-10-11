@@ -1,6 +1,6 @@
 # 《z42 学习手册》目录规划
 
-> 活的写作计划（`src/SUMMARY.md` 只收已写完的章）。写作规范见 [book-writing.md 第二部分](../agent/rules/book-writing.md)。
+> 活的写作计划（`src/SUMMARY.md` 只收已写完的章）。
 > 每章一行：页面路径（= `src/<路径>.md` = `examples/<路径>/`）｜要点｜状态。
 > 状态：🟢 已写 ｜ ✅ 可写 ｜ 🧪 动笔前需核实特性完成度 ｜ ⏸ 暂缓（特性未落地）
 

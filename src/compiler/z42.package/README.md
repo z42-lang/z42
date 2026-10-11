@@ -25,10 +25,10 @@ IR 由 `z42c.emission` 的 IrGen 构建；本库只提供模型 + 序列化。
 `tests/fixtures/{zbc-format,zpkg-format}/` 是两个 writer 的**签入字节基线**（不是 `[Test]` 单元）：
 `.zbc` 一组由 `xtask build test` 就地重生，`git diff` 非空即格式漂移；`.zpkg` 一组按
 [zpkg-format/README.md](tests/fixtures/zpkg-format/README.md) 的配方重生。格式 bump 的完整步骤见
-[version-bumping.md](../../../docs/agent/rules/version-bumping.md)。
+[格式 bump 清单](../../../docs/internals/src/devinfra/format-bump.md)。
 
 ## 关联文档
-- 格式 bump 流程：[version-bumping.md](../../../docs/agent/rules/version-bumping.md)
+- 格式 bump 流程：[格式 bump 清单](../../../docs/internals/src/devinfra/format-bump.md)
 - 设计 / 机制：[self-hosting.md](../../../docs/internals/src/compiler/self-hosting.md)
 
 ## 核心文件

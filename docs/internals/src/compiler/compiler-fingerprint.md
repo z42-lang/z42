@@ -1,8 +1,7 @@
 # 编译器语义指纹（`CompilerFingerprint`）
 
 > 页型：机制页 ｜ 代码：`src/compiler/z42c.pipeline/src/CompilerFingerprint.z42`
-> 追加纪律见本页 [什么时候要追加一条](#什么时候要追加一条)；格式 bump 清单见
-> [version-bumping.md](https://github.com/z42-lang/z42/blob/main/docs/agent/rules/version-bumping.md)。
+> 追加纪律见本页 [什么时候要追加一条](#什么时候要追加一条)。
 
 ## 它是什么
 

@@ -272,7 +272,7 @@ base 默认 `HEAD`，也可以给 ref 或用 `Z42_TEST_CHANGED_BASE`；收集范
 | **VM `src/runtime/`** | `xtask test runtime` + `test e2e` | — | `test-host`、`test-vm-jit`、`test-stdlib-*`、`package-*`（feature 组合）|
 | **只改用例 `src/tests/`** | `test e2e` | — | `test-host`（`test-vm-jit` / `stdlib-*` 不跑） |
 | **xtask 源 `scripts/`** | `z42 publish scripts/xtask.z42.toml` 重建后随便跑条命令冒烟 | changed 映射对 `scripts/**` = 全套 | 每腿 `ci-bootstrap` 的种子编 xtask 步 |
-| **新语法 / zbc·zpkg 格式** | 阶段一只落 support（仓库源码不用）→ `test compiler bootstrap` | 格式 bump 另跑 `docs/agent/rules/version-bumping.md` 的清单；等 nightly 发布后才 use | 全腿 `ci-bootstrap`（种子编当前源）+ `compiler-checks` |
+| **新语法 / zbc·zpkg 格式** | 阶段一只落 support（仓库源码不用）→ `test compiler bootstrap` | 格式 bump 另跑 [格式 bump 清单](format-bump.md)；等 nightly 发布后才 use | 全腿 `ci-bootstrap`（种子编当前源）+ `compiler-checks` |
 | **打包 `scripts/package/` / `packages.toml`** | `xtask package sdk --verify` | 同左 | `package-host` + `package-{ios,android,wasm}` |
 | **codegen / 优化 / typecheck / IR writer（会改产物字节）** | `test compiler` | 同步 `CacheStore.CompilerFingerprint` +1；自查 `test compiler fingerprint` | `bench-regression` 的 fingerprint guard |
 | **增量编译（IncrementalBuild / CacheStore / ZbcReader）** | `test compiler` | `test compiler incremental`（逐文件 touch 对账，增量 == 全量逐字节） | `compiler-checks` |

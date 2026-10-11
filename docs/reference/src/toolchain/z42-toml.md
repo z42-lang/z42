@@ -402,8 +402,7 @@ pin：源 hash、ns、usedDepNs、模块池原序（hex）、每函数块 label 
 不携带、但参与 STRS 字节的 writer 残留）+ 包级 `package.meta`（上次源清单 + **`deps` 依赖身份**：编译扫描到的
 全部依赖 zpkg 的 BLID/内容哈希，任一变化 ⇒ 整包全量；依赖重编但输出不变时 BLID 不变 ⇒ 下游照常命中）。任何 pin 不符/损坏
 → 条目作废按 fresh 处理（宁 fresh 不误命中）。`z42c-fp`（`CacheStore.CompilerFingerprint`）堵住
-「源没变 + 格式没 bump 但编译器 codegen/优化/typecheck 变了」的误命中漏洞（bump 纪律见
-[version-bumping.md](https://github.com/z42-lang/z42/blob/main/docs/agent/rules/version-bumping.md#编译器语义指纹非格式失效次元)）。cache 可整目录删除。
+「源没变 + 格式没 bump 但编译器 codegen/优化/typecheck 变了」的误命中漏洞（bump 纪律见格式 bump 清单）。cache 可整目录删除。
 indexed 模式（stripped zbc = `<dist>/<rel>.zbc`）自举重写未实现，见
 self-hosting.md Deferred。
 
@@ -714,7 +713,7 @@ mode = "interp"
 
 - ❌ 运行时延迟 import / 函数体内 import（Python 风格） —— z42 不提供此后门
 - ❌ "源码引用"打洞（Haskell `{-# SOURCE #-}` 风格） —— z42 不引入此机制
-- ❌ 新旧 zpkg 共存 + 灰度迁移以"绕开"循环 —— pre-1.0 不留兼容（见 [philosophy.md "不为旧版本提供兼容"](https://github.com/z42-lang/z42/blob/main/docs/agent/rules/philosophy.md#不为旧版本提供兼容)）
+- ❌ 新旧 zpkg 共存 + 灰度迁移以"绕开"循环 —— pre-1.0 不留兼容
 
 **编译器报错要求**（待实现时遵守）：
 
@@ -779,7 +778,7 @@ mode = "interp"
 3. `benches/*` 与 `examples/*` → 同 1/2 规则（默认发现 dir 分别为 `benches/` `examples/`）
 4. 子目录内非 `.z42` 文件（fixture / data）随产物打包，运行时 cwd 切到 `<dir>`，相对路径读取
 5. `_` 前缀的 `.z42` 文件是 dir-mode 内的辅助；不是目标入口
-6. **发现循环必须先按稳定键 sort** 再注册（[common-pitfalls §1](https://github.com/z42-lang/z42/blob/main/docs/agent/rules/common-pitfalls.md)——
+6. **发现循环必须先按稳定键 sort** 再注册（——
    first-wins 禁止依赖 FS 枚举序）
 7. `tests/fixtures/`（`benches/`、`examples/` 下同名目录同理）是**保留目录**：约定发现不从里面认领目标，
    「目录里有 `.z42` 源却一个目标都没解析出来」的检查也跳过它。放由外部脚本驱动、先构建再比对的

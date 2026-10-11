@@ -392,7 +392,7 @@ JSON wire format (tag = `"op"`):
   调用（默认无参 ctor 语义）
 
 `obj_new` 分配 `ScriptObject`（slot-indexed 字段）后用 `[this, ...args]`
-调用。`ctor_name` 字段必备（不为旧版本提供兼容，见 [`../../agent/rules/philosophy.md "不为旧版本提供兼容"`](https://github.com/z42-lang/z42/blob/main/docs/agent/rules/philosophy.md#不为旧版本提供兼容)）。
+调用。`ctor_name` 字段必备（不为旧版本提供兼容）。
 
 `obj_new` 携带 **resolved
 type-args 列表**（如 `new Foo<int>()` → `["int"]`），VM 在分配实例后写入

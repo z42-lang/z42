@@ -1,6 +1,6 @@
 # z42-doc 设计与推进底稿
 
-> 临时迭代底稿（[doc-system.md](agent/rules/doc-system.md) §1）：一轮多 PR 迭代的设计、决策与进度。
+> 临时迭代底稿（协作规范的文档总纲 §1）：一轮多 PR 迭代的设计、决策与进度。
 > 迭代完成后：语法规则上浮 `reference/src/language/doc-comments.md`，工具用法上浮
 > `reference/src/toolchain/`，实现机制上浮 `internals/src/toolchain/doc.md`，写法约束进
 > `agent/rules/doc-comments.md`，然后删除本文件。

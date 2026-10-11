@@ -102,7 +102,7 @@ main push 上 `publish-nightly` 也随之不跑（纯文档本来就不影响 SD
 
 PR 上新 push 照常取消旧运行；**push to main 每个 commit 单独一个 concurrency group**，GitHub 不自动取消。
 否则连续合并时每个 main 运行都被下一个取消，一个都跑不完 ⇒ nightly 发不出来，而「support 先行、晚一个
-nightly 再 use」（[bootstrap-seed.md](../../../agent/rules/bootstrap-seed.md)）的后续提交等的正是那份 nightly。
+nightly 再 use」（见[编译器自举](../compiler/self-hosting.md)）的后续提交等的正是那份 nightly。
 
 取消改由每个 main 运行在 `detect-changes` 里自己做（`.github/ci/main-supersede.sh supersede`）：
 
@@ -304,7 +304,7 @@ main 上最近 5 次成功 CI 运行的 release-host-<rid> artifact（回退，�
 报错退出（错误信息带人工恢复指引）
 ```
 
-**回退为什么是安全的**：自举纪律（[bootstrap-seed.md](https://github.com/z42-lang/z42/blob/main/docs/agent/rules/bootstrap-seed.md)）
+**回退为什么是安全的**：自举纪律（[编译器自举](../compiler/self-hosting.md)）
 保证「上一版 z42c 永远能编当前源码」——新语法与格式 bump 都是 support 先行、晚一个
 nightly 再 use。成功 CI 运行的产物顶多落后一两个 commit，牢牢在这条**单向递推**的纪律内。
 
