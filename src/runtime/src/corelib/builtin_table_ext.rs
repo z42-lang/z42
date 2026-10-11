@@ -291,4 +291,7 @@ pub(crate) const PART2: &[(&str, Native)] = &[
     // ── harness-stage2 — appended to preserve existing BuiltinIds ──
     // `Std.Harness.TestModule.Load`：加载测试 / bench 产物并取回 TIDX 条目（`__load_module` 归通用加载）。
     ("__test_module_load",  Native::Val(reflection::builtin_test_module_load)),
+    // ── assembly-get-functions — appended to preserve existing BuiltinIds ──
+    // `Assembly.GetFunctions()`：一个 zpkg 的自由（顶层）函数 → MethodInfo[]。
+    ("__asm_get_functions", Native::Val(assemblyloadcontext::builtin_asm_get_functions)),
 ];

@@ -124,11 +124,9 @@ foreach (PropertyInfo p in t.GetProperties()) { p.GetCustomAttributes(); }
 > 脱糖出来的那个私有 backing 字段上的 attribute；**计算属性**（写了 `get { ... }` 体、没有
 > backing 字段）永远返回空数组。
 
-> ⚠️ **顶层（自由）函数上的 attribute 写得进产物，但反射拿不到**。贴在顶层函数上的 attribute
-> 会随它进 zbc（编译期消费它的东西照常工作——`[Deprecated]` 的调用点告警、`[Test]` 的用例发现
-> 都是这一路），但**没有任何 API 能交给你一个自由函数的 `MethodInfo`**：`GetMethods()` 要先有
-> 一个 `Type`，而 [`methodof`](methodof.md) 语法上强制带 owner 类型。要反射就把函数挪进
-> 某个类当 `static` 方法。
+> 顶层（自由）函数上的 attribute 经 [`Assembly.GetFunctions()`](../stdlib/reflection.md#stdreflectionassembly)
+> 读回：它列出一个包的自由函数（`MethodInfo`），在其上 `GetCustomAttributes()` / `Invoke` 照常可用。
+> [`methodof`](methodof.md) 语法上强制带 owner 类型，拿不到自由函数。
 
 ## 对 C# 的改进
 

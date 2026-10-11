@@ -431,12 +431,28 @@ public sealed class Assembly {
     public extern bool   IsCollectible { get; }
     public extern Std.Runtime.AssemblyLoadContext LoadContext { get; }
     public extern Std.Type[] GetTypes();     // 按 FQ 名有序
+    public extern Std.Reflection.MethodInfo[] GetFunctions();   // 自由（顶层）函数，按全限定名有序
 }
 ```
 
 一个 zpkg 的运行时投影。不可用户构造——由 `Type.Assembly` /
 `AssemblyLoadContext.Load` / `AssemblyLoadContext.GetAssemblies()` 产出。常驻 root
 上下文的类型报告合成的 root assembly（`Name` 为 `"root"`，`GetTypes()` 返回空数组）。
+
+`GetFunctions()` 列出包里的**自由函数**（类的静态方法在 `GetTypes()` 那边；编译器合成的函数——
+lambda、attribute 工厂等——不在内）。返回的 `MethodInfo` 是 `IsStatic`，按全限定名在当前程序里解析：
+要读 attribute、签名或 `Invoke`，这个包得先用 `ModuleLoader.Load` 并入。典型用法：
+
+```z42
+using Std.Runtime;
+using Std.Reflection;
+
+ModuleLoader.Load("plugins/tasks.zpkg");                                  // 并入，可执行
+Assembly asm = AssemblyLoadContext.Default().Load("plugins/tasks.zpkg");  // 拿到包的反射视图
+foreach (MethodInfo f in asm.GetFunctions()) {
+    if (f.GetCustomAttributes().Length > 0) { f.Invoke(null, new object[0]); }
+}
+```
 
 ## `Std.Runtime.ModuleLoader`
 

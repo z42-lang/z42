@@ -243,6 +243,22 @@ pub fn builtin_asm_get_types(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     Ok(ctx.heap().alloc_array(out))
 }
 
+/// `Assembly.GetFunctions()` → the assembly's free (top-level) functions as `MethodInfo[]`
+/// (sorted by qualified name). Each `MethodInfo` is resolved by qualified name against the
+/// live VM, so its attributes / signature / `Invoke` are available once the module is also
+/// loaded executable (`Std.Runtime.ModuleLoader.Load`); a reflect-only projection still
+/// lists the names.
+pub fn builtin_asm_get_functions(ctx: &VmContext, args: &[Value]) -> Result<Value> {
+    let aid = asm_handle(args)?;
+    let names = ctx.core.context_registry.lock().assembly_function_names(aid);
+    let mut out = Vec::with_capacity(names.len());
+    for q in &names {
+        let simple = q.rsplit('.').next().unwrap_or(q);
+        out.push(super::reflection::build_method_info(ctx, simple, q, false)?);
+    }
+    Ok(ctx.heap().alloc_array(out))
+}
+
 // ── Type collectibility builtins ─────────────────────────────────────────────
 
 /// `Type.IsCollectible` (instance getter).

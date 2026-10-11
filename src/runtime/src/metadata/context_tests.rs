@@ -148,3 +148,54 @@ fn reflection_handles_are_retention_edges() {
         None
     );
 }
+
+fn stub_function(name: &str) -> crate::metadata::bytecode::Function {
+    use crate::metadata::bytecode::{BasicBlock, Function, Terminator};
+    use crate::metadata::types::ExecMode;
+    Function {
+        name: name.to_string(),
+        param_count: 0,
+        ret_type: "void".to_string(),
+        exec_mode: ExecMode::Interp,
+        blocks: vec![BasicBlock {
+            label: "entry".to_string(),
+            instructions: Vec::new(),
+            terminator: Terminator::Ret { reg: None },
+        }],
+        is_static: true,
+        visibility: 0,
+        method_flags: 0, min_arg: 0, params_from: 0xFF,
+        max_reg: 0,
+        cold: None,
+        reg_types: Box::new([]),
+        block_index: std::collections::HashMap::new(),
+        branch_targets: Vec::new(),
+        fused_tails: Vec::new(),
+        frame_meta: None,
+        resolved: std::sync::OnceLock::new(),
+        owner_init: Default::default(),
+        id: Default::default(),
+    }
+}
+
+#[test]
+fn assembly_function_names_lists_free_functions_only() {
+    let mut m = mk_module(&["Ns.C"]);
+    for n in [
+        "Ns.zeta",                       // free
+        "Ns.alpha",                      // free
+        "top",                           // free, global namespace
+        "Ns.C.Method",                   // static method of a type → not free
+        "Ns.alpha$impl",                 // synthesized body
+        "Ns.__attr$fn$alpha$0",          // attribute factory
+        "Ns.lambda$0",                   // lifted lambda
+        "Ns.generic:int",                // generic specialization
+        "Ns.C.__static_init__",          // static initializer
+    ] {
+        m.functions.push(stub_function(n));
+    }
+    let mut r = ContextRegistry::new();
+    let c = r.create_collectible("x");
+    let aid = r.load_into(c, "dep", m);
+    assert_eq!(r.assembly_function_names(aid), vec!["Ns.alpha", "Ns.zeta", "top"]);
+}

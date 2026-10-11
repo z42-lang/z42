@@ -919,3 +919,40 @@ void test_analyzer_sees_generated_code() {
     Assert.Equal(true, cArt.GenCount > 0);                // generator 确实产出了 CU（GenCount 是 union 计数）
     Assert.Equal(true, _cmsHasCode(cArt, "Z9003"));       // analyzer 看到了生成 CU 里的 catch
 }
+
+// ── Assembly.GetFunctions()：自由函数可枚举、可读 attribute、可 Invoke ─────────────────
+// 这是测试 runner 改为运行期反射发现的基础路径：ModuleLoader.Load（并入、可执行）+
+// AssemblyLoadContext 投影（枚举）→ GetFunctions → GetCustomAttributes / Invoke。
+[Test]
+void test_assembly_get_functions_reflects_free_functions() {
+    string src = "namespace FnReflectDemo;\nusing Std;\n"
+        + "public class MarkAttribute : Attribute { public string Tag; public MarkAttribute(string tag) { this.Tag = tag; } }\n"
+        + "[Mark(\"answer\")] public int answer() { return 42; }\n"
+        + "public int helper() { return 1; }\n"
+        + "public static class Holder { public static int Method() { return 2; } }\n";
+    CompileInputs cin = _inputs(src, "lib");
+    cin.Name = "demo.fnreflect";
+    string libs = Environment.GetEnvironmentVariable("Z42_LIBS", "");
+    if (libs != "") { string[] dirs = _depDirs(libs); cin.LibsDirs = dirs; cin.LibsDirsN = dirs.Length; }
+    CompileArtifacts art = PackageCompile.Compile(cin);
+    Assert.Equal(0, art.ErrorCount);
+    string tmp = _tmpRoot();
+    Directory.Create(tmp);
+    string zp = Path.Join(tmp, "demo.fnreflect.zpkg");
+    File.WriteAllBytes(zp, ZpkgWriterZ.WritePacked(art.Z, false).ToBytes());
+
+    ModuleLoader.Load(zp);                                        // 并入 live VM（可执行）
+    Assembly asm = AssemblyLoadContext.Default().Load(zp);        // 反射投影（枚举）
+    MethodInfo[] fs = asm.GetFunctions();
+    // 只有自由函数：类的静态方法、attribute 工厂（__attr$…）都不在内；按全限定名有序。
+    Assert.Equal(2, fs.Length);
+    Assert.Equal("answer", fs[0].Name);
+    Assert.Equal("helper", fs[1].Name);
+
+    Attribute[] attrs = fs[0].GetCustomAttributes();
+    Assert.Equal(1, attrs.Length);
+    Assert.Equal("MarkAttribute", attrs[0].GetType().Name);
+    Assert.Equal(true, fs[0].IsStatic);
+    object r = fs[0].Invoke(null, new object[0]);
+    Assert.Equal(42, (int)r);
+}

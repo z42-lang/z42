@@ -212,7 +212,7 @@ pub(super) fn build_param_infos(
 
 /// Build a `MethodInfo` by resolving the backing `Function` for its signature.
 /// Missing Function (extern/native or unresolved) → name-only MethodInfo.
-pub(super) fn build_method_info(
+pub(crate) fn build_method_info(
     ctx: &VmContext,
     simple: &str,
     qualified: &str,

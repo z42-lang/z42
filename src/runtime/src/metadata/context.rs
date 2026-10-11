@@ -361,6 +361,33 @@ impl ContextRegistry {
         types.sort_by(|a, b| a.name.cmp(&b.name));
         types
     }
+
+    /// Fully-qualified names of the **free (top-level) functions** this assembly declares,
+    /// sorted. A function is free when its owner prefix (everything before the last `.`) is
+    /// not a type of this assembly. Compiler-synthesized functions are left out: lifted
+    /// lambdas / attribute factories / `f$impl` bodies (`$` in the name), generic
+    /// specializations (`:`), and static initializers.
+    pub fn assembly_function_names(&self, aid: AssemblyId) -> Vec<String> {
+        let Some(entry) = self.assemblies.get(aid.0 as usize) else {
+            return Vec::new();
+        };
+        let Some(module) = entry.module.as_ref() else {
+            return Vec::new();
+        };
+        let mut out: Vec<String> = module
+            .functions
+            .iter()
+            .map(|f| f.name.as_str())
+            .filter(|n| !n.contains('$') && !n.contains(':') && !n.ends_with("__static_init__"))
+            .filter(|n| match n.rfind('.') {
+                Some(i) => !module.type_registry.contains_key(&n[..i]),
+                None => true,
+            })
+            .map(|n| n.to_string())
+            .collect();
+        out.sort();
+        out
+    }
 }
 
 #[cfg(test)]
