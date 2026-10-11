@@ -682,7 +682,7 @@ impl VarRegion {
     ///
     /// - `Str` / `Closure` — `alloc_str_in_region` / `alloc_closure_in_region` charge
     ///   `DATA_OFFSET + payload`, so that is what comes back.
-    /// - `ArrayValue` / `ArrayPrim` / `ArrayStruct` — **zero**. `alloc_var_block` records
+    /// - `ArrayValue` / `ArrayPrim` / `ArrayStruct` / `ArrayRef` / `ArrayCell` — **zero**. `alloc_var_block` records
     ///   no stats at all (by design); the owning array header charged the element storage
     ///   through `object_size_bytes`, and `array_size_estimate` credits it back when the
     ///   header is tombstoned. Crediting the block here as well would refund it twice.
@@ -692,7 +692,8 @@ impl VarRegion {
             BlockType::Str | BlockType::Closure => {
                 (GcBlockHeader::DATA_OFFSET + header.size()) as u64
             }
-            BlockType::ArrayValue | BlockType::ArrayPrim | BlockType::ArrayStruct => 0,
+            BlockType::ArrayValue | BlockType::ArrayPrim | BlockType::ArrayStruct
+            | BlockType::ArrayRef | BlockType::ArrayCell => 0,
         }
     }
 

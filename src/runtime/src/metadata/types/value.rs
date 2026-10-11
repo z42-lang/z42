@@ -270,13 +270,13 @@ impl Value {
     pub fn visit_gc_children(&self, marking: Option<crate::gc::refs::MarkKind>, visit: &mut dyn FnMut(&Value)) {
         match self {
             Value::Object(rc) => {
-                // The 16 B side table plus every 8 B reference word.
+                // Every 8 B reference word plus the type-parameter cells' tag words.
                 rc.borrow().visit_refs(visit);
             }
             Value::Array(rc) => {
                 let arr = rc.borrow();
-                if let Some(kind) = marking { arr.mark_backing(kind); }  // unify-gc-heap PR-3: keep the element block(s) alive
-                for elem in arr.gc_refs() { visit(elem); }  // add-struct-heap-inline (P3b): incl struct[] refs
+                if let Some(kind) = marking { arr.mark_backing(kind); }  // keep the element block alive
+                arr.visit_refs(visit);  // every mode: REF words, MIXED cells, struct[] leaves, …
             }
             Value::Closure(vref) => {
                 // unify-gc-heap PR-2/PR-5: the closure's `ClosureData` is a GC block in region_var.
@@ -290,13 +290,12 @@ impl Value {
                 } else {
                     // Enumeration: descend into the captured refs directly — the env header is
                     // the closure's internal, not a distinct graph node.
-                    let arr = data.env.borrow();
-                    for elem in arr.gc_refs() { visit(elem); }
+                    data.env.borrow().visit_refs(visit);
                 }
             }
             // add-boxed-struct-identity (P4b, 路 B2): 装箱 struct 是共享 `ScriptObject` → 与 Object
-            // 同路追踪其 struct_refs 引用叶子（slots 空）。对象本身由 mark 循环的 BoxedStruct 臂标记。
-            Value::BoxedStruct(gc) => { let obj = gc.borrow(); for r in obj.refs() { visit(r); } }
+            // 同路追踪其 blob 的引用叶子（按 struct 布局）。对象本身由 mark 循环的 BoxedStruct 臂标记。
+            Value::BoxedStruct(gc) => gc.borrow().visit_refs(visit),
             // make-value-copy: `Ref` / `StructRefHeap` are transient-arena handles — leaves
             // here, exactly like `StructRef` / `StackObject`. Their payload's GcRefs (a
             // Ref's Array/Field target, a StructRefHeap's backing array) are scanned
@@ -386,10 +385,10 @@ impl PartialEq for Value {
                 if GcRef::ptr_eq(a, b) {
                     true
                 } else {
+                    // Reference leaves are reference words inside the blob: compare the bytes
+                    // with those slots zeroed, and the decoded leaves by `Value` equality.
                     let (ao, bo) = (a.borrow(), b.borrow());
-                    ao.type_desc.name == bo.type_desc.name
-                        && ao.bytes() == bo.bytes()
-                        && ao.refs() == bo.refs()
+                    ao.type_desc.name == bo.type_desc.name && ao.boxed_blob() == bo.boxed_blob()
                 }
             }
             // add-escape-analysis-stack-alloc: 栈句柄引用相等 —— 同 (frame_idx, idx,

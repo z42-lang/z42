@@ -86,7 +86,7 @@ pub unsafe extern "C" fn jit_mk_clos(
         .collect();
 
     // Allocate env via the GC heap so it's tracked as a managed array.
-    let env_val = vm_ctx_ref(ctx).heap().alloc_array(env_vec);
+    let env_val = crate::metadata::types::ArrayObj::alloc_frozen_value(vm_ctx_ref(ctx).heap(), env_vec);
     let env = match env_val {
         Value::Array(rc) => rc,
         _ => unreachable!("alloc_array must return Value::Array"),

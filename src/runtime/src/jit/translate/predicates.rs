@@ -194,6 +194,13 @@ pub(super) fn arr_prim_elem(func: &Function, reg: u32) -> Option<(i64, i64)> {
     }
 }
 
+/// R3 reference-read gate: an `ArrayGet` whose `dst` holds a whole `Value` (a reference,
+/// a string, or an erased `T`) — the REF / MIXED inline read writes the decoded tagged `Value`.
+pub(super) fn arr_ref_elem(func: &Function, reg: u32) -> bool {
+    matches!(func.reg_types.get(reg as usize).copied(),
+        Some(IrType::Ref) | Some(IrType::Str) | Some(IrType::Unknown))
+}
+
 /// Index-register gate for the array inline fast path: accept `I32` (`int i`)
 /// as well as `I64` (`long i`). Both are stored as a `Value::I64` payload in the
 /// register, so reading the index as an i64 is correct regardless.

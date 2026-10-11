@@ -266,8 +266,12 @@ int _testE2eCore(string modes, bool rebuild, bool noBuild, string jobs, string s
 // **Why these settings** — collections over one `z42c.semantics` build, and what each buys:
 //
 //   default (generational), nursery 1M   ~440 collections  ← catches #557 (which needed ~128)
-//   Z42_GC_MODE=stw, budget 32M           ~67 collections  ← the knee: 8M is ~700 but 2x the
-//                                                             wall time for the same shape
+//   Z42_GC_MODE=stw, budget 16M           ~70 collections  ← the knee: 8M is several hundred but
+//                                                             much longer wall time for the same shape
+//
+// The stw budget tracks the live set: when object model R3 shrank reference arrays to 8 B per
+// element, 32M dropped from 40 to 35 collections (under the floor) — the collector was firing
+// less because the heap got smaller, not because a policy broke.
 //
 // The floors below are set well under the observed counts — their job is to catch a *collapse*
 // (a flipped default, a policy change that stops the collector firing), not to pin an exact
@@ -337,7 +341,7 @@ int _testGcModes() {
     // The default leg: mode UNSET on purpose — see the note above.
     int c = _testGcModeWorkload("default mode, nursery 1M", "", "1M", "", 200, 1);
     if (c != 0) { return c; }
-    c = _testGcModeWorkload("Z42_GC_MODE=stw, budget 32M", "stw", "", "32M", 40, 1);
+    c = _testGcModeWorkload("Z42_GC_MODE=stw, budget 16M", "stw", "", "16M", 40, 1);
     if (c != 0) { return c; }
     // fix-gc-stress-jobs：多线程编译腿。#1053 的分代写屏障漏洞（年轻字符串写进老对象不标脏卡）只在
     // `--jobs 4` + 小年轻代下才稳定复现 —— 串行腿从来没撞上过。回收次数在多线程下不确定（多个线程同时越过

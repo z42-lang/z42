@@ -697,7 +697,6 @@ fn object_layout_composed_local_inheritance() {
     let bl = base.composed_object_layout().expect("Base has composed layout");
     assert_eq!(bl.size, 16, "Base composed size = 16");
     assert_eq!(&*bl.field_offsets, &[0, 8]);
-    assert!(bl.ref_offsets.is_empty());
     assert_eq!(&*bl.ref_cells, &[8], "Base's string field is a reference word");
 
     let sub = module.type_registry.get("Sub").expect("Sub");
@@ -708,12 +707,10 @@ fn object_layout_composed_local_inheritance() {
     assert_eq!(&*sl.field_sizes, &[8, 8, 1, 8]);
     assert_eq!(&*sl.field_kinds, &[0, STRUCT_REF_ARC_STRING, 0, STRUCT_REF_GCREF]);
     // Every direct reference field is an 8 B reference word: the base string @8 and Sub's
-    // own object field @8→24. Nothing is left for the 16 B side table.
-    assert!(sl.ref_offsets.is_empty(), "no side-table leaves");
+    // own object field @8→24.
     assert_eq!(&*sl.ref_cells, &[8, 24], "base string + own object (shifted to 24)");
-    assert_eq!(sl.ref_index(8), None, "a reference word has no side-table slot");
-    assert_eq!(sl.ref_index(24), None);
-    assert_eq!(sl.ref_index(16), None, "non-ref field offset not in bitmap");
+    assert!(sl.is_ref_cell(8) && sl.is_ref_cell(24));
+    assert!(!sl.is_ref_cell(16), "non-ref field offset is not a reference cell");
 
     // Field-index parity with the merged `fields` (offsets align by slot).
     assert_eq!(sub.field_index.get("age"),  Some(&0));
@@ -787,7 +784,6 @@ fn object_layout_composed_crosspkg_fixup() {
     assert_eq!(sub_after.size, 16, "recomposed size = base(8) + own(8)");
     assert_eq!(&*sub_after.field_offsets, &[0, 8], "base ref field @0, own @8");
     assert_eq!(&*sub_after.field_kinds, &[STRUCT_REF_ARC_STRING, 0]);
-    assert!(sub_after.ref_offsets.is_empty(), "no side-table leaves");
     assert_eq!(&*sub_after.ref_cells, &[0], "the base's string field @0 is a reference word");
 }
 

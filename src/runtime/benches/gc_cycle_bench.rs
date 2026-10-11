@@ -46,19 +46,17 @@ fn make_type_desc(name: &str) -> Arc<TypeDesc> {
 fn build_cycle_heavy(heap: &dyn MagrGC, num_cycles: usize) {
     // unify-object-byte-layout (PR-2/PR-3): `ScriptObject` has no `slots`; a field is
     // written via `set_field_value` against the type's composed layout. Give `Cycle` one
-    // reference field (slot 0, side-table) so `a ⇄ b` forms a real traced cycle.
+    // reference field (slot 0, an 8 B reference word) so `a ⇄ b` forms a real traced cycle.
     let td = {
-        use z42::metadata::types::{ObjectLayout, FieldAccess, TypeDescCold, STRUCT_REF_GCREF, TAG_OBJECT};
+        use z42::metadata::types::{ObjectLayout, FieldAccess, TypeDescCold, TAG_OBJECT};
         let layout = Arc::new(ObjectLayout {
             size: 8,
             field_offsets: Box::new([0]),
             field_sizes:   Box::new([8]),
             field_kinds:   Box::new([2]), // StructLeafKind::GcRef
-            ref_offsets:   Box::new([0]),
-            ref_kinds:     Box::new([STRUCT_REF_GCREF]),
-            ref_cells:     Box::new([]),
+            ref_cells:     Box::new([0]),
             tparam_cells:  Box::new([]),
-            field_access:  Box::new([FieldAccess::side(0, TAG_OBJECT, 0)]),
+            field_access:  Box::new([FieldAccess::ref_word(0, TAG_OBJECT)]),
         });
         Arc::new(TypeDesc {
             name: "Cycle".to_string(),

@@ -1,354 +1,79 @@
-//! ArrayObj 元素访问 / 视图 / GC 标记 / 深拷贝。refactor-split-metadata-types（2026-09-03）：从 2436 行的 `types.rs` 按职责拆出，
-//! 对外路径不变（`metadata::types::*` 经 hub 的 `pub use` 全量再导出）。
+//! ArrayObj 视图 / GC 遍历 / 批量拷贝 / 深拷贝 / JIT 快路数据（构造在 `array.rs`，元素读写在
+//! `array_elems.rs`）。
 
 #![allow(unused_imports)]
 use super::*;
 use std::sync::Arc;
-use crate::metadata::vstr::Str;
 use crate::gc::GcRef;
 use crate::gc::var_region::{BlockType, VarGcRef};
 use crate::gc::heap::MagrGC;
 
-// ── 元素访问（ArrayObj 的 impl 续：构造 / backing 分配在 array.rs）──
+// ── 批量拷贝 ──
 impl ArrayObj {
-    #[inline]
-    pub fn len(&self) -> usize {
-        match &self.backing {
-            ArrayBacking::Boxed { len, .. }
-            | ArrayBacking::Bool { len, .. }
-            | ArrayBacking::Bytes { len, .. }
-            | ArrayBacking::I32 { len, .. }
-            | ArrayBacking::I64 { len, .. }
-            | ArrayBacking::Chars { len, .. }
-            | ArrayBacking::F64 { len, .. }
-            | ArrayBacking::StructBytes { len, .. } => *len,
-            ArrayBacking::StackVec(v) => v.len(),
-        }
-    }
-    #[inline]
-    pub fn is_empty(&self) -> bool { self.len() == 0 }
-    /// Bounds-checked read as owned `Value` (packed-safe `Vec::get` analogue).
-    #[inline]
-    pub fn get(&self, i: usize) -> Option<Value> {
-        if i < self.len() { Some(self.get_boxed(i)) } else { None }
-    }
-    #[inline]
-    pub fn first(&self) -> Option<Value> { self.get(0) }
-
-    /// Read element `i` as a `Value` (boxes packed primitives). Caller ensures
-    /// `i < len()`. SAFETY of block reads: see [`Self::slice_of`] (held under `&self`
-    /// = shared region lock).
-    #[inline]
-    pub fn get_boxed(&self, i: usize) -> Value {
-        match &self.backing {
-            // SAFETY (each arm): shared borrow of a live block of exactly `len` `T`s.
-            ArrayBacking::Boxed { block, len } => (unsafe { Self::slice_of::<Value>(block, *len) })[i].clone(),
-            ArrayBacking::Bool { block, len }  => Value::Bool((unsafe { Self::slice_of::<bool>(block, *len) })[i]),
-            ArrayBacking::Bytes { block, len } => Value::I64((unsafe { Self::slice_of::<u8>(block, *len) })[i] as i64),
-            ArrayBacking::I32 { block, len }   => Value::I64((unsafe { Self::slice_of::<i32>(block, *len) })[i] as i64),
-            ArrayBacking::I64 { block, len }   => Value::I64((unsafe { Self::slice_of::<i64>(block, *len) })[i]),
-            ArrayBacking::Chars { block, len } => Value::Char((unsafe { Self::slice_of::<char>(block, *len) })[i]),
-            ArrayBacking::F64 { block, len }   => Value::F64((unsafe { Self::slice_of::<f64>(block, *len) })[i]),
-            // Escape-analysis stack array: boxed Values inline in the arena Vec.
-            ArrayBacking::StackVec(v) => v[i].clone(),
-            // add-struct-heap-inline (P3b): reading a struct[] element as a generic
-            // `Value` yields a **boxed copy** (value semantics — the read is a snapshot;
-            // mutating the box does not touch the array). In-place `arr[i].x = v` /
-            // `arr[i].x` leaf access instead goes through a `Value::StructRefHeap`
-            // handle at the exec layer (it has the array `GcRef`; `get_boxed` does not).
-            // add-boxed-struct-identity (P4b): boxing a struct[] element now requires a
-            // heap allocation (the box is a shared `ScriptObject`), which this
-            // `&self` accessor cannot do. The value path never reaches here — interp
-            // `array_get` + jit array-get materialize a `StructRefHeap` handle for
-            // `StructBytes` backing (see exec_array.rs / jit/helpers/array.rs), and any
-            // real struct→object boxing goes through `__box_struct` (heap-aware). This
-            // arm is an invariant guard; if a materialization path ever needs a boxed
-            // struct[] element, route it through a `ctx`-carrying helper, not `get_boxed`.
-            ArrayBacking::StructBytes { .. } => {
-                debug_assert!(false,
-                    "get_boxed on a StructBytes backing: struct[] element boxing needs a heap-aware path, not get_boxed");
-                Value::Null
-            }
-        }
-    }
-    /// 转发到 [`prim_value_mismatch`]（判据只有一份，见那里的头注）。
-    #[inline]
-    fn prim_store_mismatch(val: &Value, backing: &str) {
-        prim_value_mismatch(val, backing, "set_boxed");
-    }
-
-    /// 基元 backing 的**种类标签**（`None` = 非基元 backing：`Boxed` / `StackVec` /
-    /// `StructBytes` —— 它们存的是 `Value` 本身或整块 struct，不做基元种类限制）。
-    /// 标签文本同时用于错误消息。
-    #[inline]
-    pub fn prim_backing_kind(&self) -> Option<&'static str> {
-        match &self.backing {
-            ArrayBacking::Bool  { .. } => Some("bool[]"),
-            ArrayBacking::Bytes { .. } => Some("byte[]"),
-            ArrayBacking::I32   { .. } => Some("int[]"),
-            ArrayBacking::I64   { .. } => Some("long[]"),
-            ArrayBacking::Chars { .. } => Some("char[]"),
-            ArrayBacking::F64   { .. } => Some("double[]"),
-            _ => None,
-        }
-    }
-
-    /// 「这个 `Value` 能**原样**存进本 backing 吗」——**严格同种**，不做拓宽
-    /// （`double[]` 不收 `I64`；change `fix-silent-array-elem-zero` 的裁决）。
-    ///
-    /// 🔴 **这是该问题的唯一判据**，`set_boxed` 每个臂里的 `if let Value::X` 必须与它一致 ——
-    /// 由 `prim_backing_accepts_agrees_with_set_boxed` 那条单测逐格钉住（判据复制是本仓
-    /// 反复出问题的形状，见结构审计 R2）。
-    ///
-    /// ⚠️ `int[]` 收 `I64` 是**正常路径**、不是不符：z42 的整数在 IR 里一律 i64、`int[]` 存 i32
-    /// （已知陷阱），存入时按 `as i32` 截断。
-    #[inline]
-    pub fn prim_backing_accepts(&self, val: &Value) -> bool {
-        match &self.backing {
-            ArrayBacking::Bool  { .. } => matches!(val, Value::Bool(_)),
-            ArrayBacking::Bytes { .. } => matches!(val, Value::I64(_)),
-            ArrayBacking::I32   { .. } => matches!(val, Value::I64(_)),
-            ArrayBacking::I64   { .. } => matches!(val, Value::I64(_)),
-            ArrayBacking::Chars { .. } => matches!(val, Value::Char(_)),
-            ArrayBacking::F64   { .. } => matches!(val, Value::F64(_)),
-            _ => true,   // 非基元 backing：存 Value 本身
-        }
-    }
-
-    /// 与 [`Self::set_boxed`] 同语义，但**类型不符时报错**而不是静默存 0。
-    ///
-    /// 🔴 **为什么需要它**（`fix-silent-array-elem-zero`，2026-09-27）：`set_boxed` 的基元臂
-    /// 在类型不符时走 `prim_store_mismatch` —— **debug 响一声、release 静默存 0**。那条策略
-    /// 是为 **IR 的 `ArraySet`** 写的，那里编译器该先转换，值到得了就说明编译器有 bug、
-    /// 「不是用户的错」⇒ release 放行成立。
-    ///
-    /// 但 `Std.Array` 的**无类型 setter**（`SetValue(Object value, int index)`）与
-    /// `CopyRange` 是另一类调用方：形参声明就是 `Object`、元素类型可不同，**没有任何编译器
-    /// 站点能转换它**，值是用户给的。实测 `int[0]=9` 后 `a.SetValue(objNull, 0)` 在 release
-    /// 下静默把它变成 **0** —— 而 `0` 与合法写入**完全无法区分**。故那两条路改走本方法。
-    #[inline]
-    pub fn try_set_boxed(&mut self, i: usize, val: Value) -> anyhow::Result<()> {
-        if !self.prim_backing_accepts(&val) {
-            let kind = self.prim_backing_kind().unwrap_or("<non-primitive>");
-            anyhow::bail!(
-                "cannot store {} into a {kind} element: the value's kind does not match the \
-                 array's element type (a silent zero would be indistinguishable from a \
-                 legitimate write)",
-                crate::semantics::value_kind_name(&val)
-            );
-        }
-        self.set_boxed(i, val);
-        Ok(())
-    }
-
-    /// Write `Value` into element `i` (unboxes into packed primitives). Caller
-    /// ensures `i < len()`. SAFETY of block writes: [`Self::slice_of_mut`] (held under
-    /// `&mut self` = exclusive region lock).
-    #[inline]
-    pub fn set_boxed(&mut self, i: usize, val: Value) {
-        match &mut self.backing {
-            // SAFETY (each arm): exclusive borrow of a live block of exactly `len` `T`s.
-            ArrayBacking::Boxed { block, len } => {
-                let s = unsafe { Self::slice_of_mut::<Value>(block, *len) };
-                crate::gc::satb::record_overwrite(&s[i]); // add-incremental-major-gc M2a
-                s[i] = val;
-            }
-            // 类型不符的 else 分支一律先过 `prim_store_mismatch`（debug 响一声）——此前这六个臂
-            // debug 与 release **都不响**，直接存 `0` / `'\0'` / `false` / `0.0`。见该函数头注。
-            ArrayBacking::Bool { block, len }  => { let s = unsafe { Self::slice_of_mut::<bool>(block, *len) }; if !matches!(val, Value::Bool(_)) { Self::prim_store_mismatch(&val, "bool[]"); } s[i] = matches!(val, Value::Bool(true)); }
-            ArrayBacking::Bytes { block, len } => { let s = unsafe { Self::slice_of_mut::<u8>(block, *len) }; s[i] = if let Value::I64(n) = val { n as u8 } else { Self::prim_store_mismatch(&val, "byte[]"); 0 }; }
-            ArrayBacking::I32 { block, len }   => { let s = unsafe { Self::slice_of_mut::<i32>(block, *len) }; s[i] = if let Value::I64(n) = val { n as i32 } else { Self::prim_store_mismatch(&val, "int[]"); 0 }; }
-            ArrayBacking::I64 { block, len }   => { let s = unsafe { Self::slice_of_mut::<i64>(block, *len) }; s[i] = if let Value::I64(n) = val { n } else { Self::prim_store_mismatch(&val, "long[]"); 0 }; }
-            ArrayBacking::Chars { block, len } => { let s = unsafe { Self::slice_of_mut::<char>(block, *len) }; s[i] = if let Value::Char(c) = val { c } else { Self::prim_store_mismatch(&val, "char[]"); '\0' }; }
-            ArrayBacking::F64 { block, len }   => { let s = unsafe { Self::slice_of_mut::<f64>(block, *len) }; s[i] = if let Value::F64(f) = val { f } else { Self::prim_store_mismatch(&val, "double[]"); 0.0 }; }
-            // Escape-analysis stack array: store the boxed Value directly in the arena Vec.
-            ArrayBacking::StackVec(v) => v[i] = val,
-            // add-struct-heap-inline (P3b): writing a whole struct[] element from a
-            // **boxed** source copies its bytes + reference leaves into the element slot.
-            // A frame-scoped `StructRef` source needs `ctx.struct_arena` → handled at the
-            // exec-layer `ArraySet` (this generic setter only sees `&mut self`).
-            ArrayBacking::StructBytes { len, bytes, refs, layout } => {
-                let elem_size = &layout.size;
-                if let Value::BoxedStruct(b) = &val {
-                    // add-boxed-struct-identity (P4b): read the source box's blob out of
-                    // its shared `ScriptObject` (borrow needs no `ctx`).
-                    let bo = b.borrow();
-                    let rc = layout.ref_count();
-                    let bstart = i * *elem_size;
-                    let n = bo.bytes().len().min(*elem_size);
-                    // SAFETY: exclusive block payloads: `bytes` holds `len*elem_size` u8,
-                    // `refs` holds `len*rc` Values.
-                    let bslice = unsafe { Self::slice_of_mut::<u8>(bytes, *len * *elem_size) };
-                    bslice[bstart..bstart + n].copy_from_slice(&bo.bytes()[..n]);
-                    let rslice = unsafe { Self::slice_of_mut::<Value>(refs, *len * rc) };
-                    let rn = bo.refs().len().min(rc);
-                    crate::gc::satb::record_overwrite_all(&rslice[i * rc..i * rc + rn]); // M2a
-                    for k in 0..rn { rslice[i * rc + k] = bo.refs()[k].clone(); }
-                } else {
-                    debug_assert!(false,
-                        "struct[] set_boxed needs a BoxedStruct source (StructRef → exec-level ArraySet), got {val:?}");
-                }
-            }
-        }
-    }
-
-    /// unify-gc-heap PR-3: copy one `struct[]` element's packed bytes + reference leaves
-    /// into slot `i` of a `StructBytes` backing. Used by the exec-layer struct-array literal
-    /// packer (`pack_struct_elem`), which resolves `BoxedStruct` / `StructRef` sources into
-    /// `(bytes, refs)` first (it can't reach the private block accessors). No-op on other
-    /// backings. Caller holds `&mut self` = exclusive block access.
-    pub fn write_struct_elem(&mut self, i: usize, src_bytes: &[u8], src_refs: &[Value]) {
-        if let ArrayBacking::StructBytes { len, bytes, refs, layout } = &mut self.backing {
-            let elem_size = &layout.size;
-            let rc = layout.ref_count();
-            let bstart = i * *elem_size;
-            let n = src_bytes.len().min(*elem_size);
-            // SAFETY: exclusive block payloads: `bytes` = `len*elem_size` u8, `refs` = `len*rc` Values.
-            let bslice = unsafe { Self::slice_of_mut::<u8>(bytes, *len * *elem_size) };
-            bslice[bstart..bstart + n].copy_from_slice(&src_bytes[..n]);
-            let rslice = unsafe { Self::slice_of_mut::<Value>(refs, *len * rc) };
-            let rn = src_refs.len().min(rc);
-            crate::gc::satb::record_overwrite_all(&rslice[i * rc..i * rc + rn]); // M2a
-            for k in 0..rn { rslice[i * rc + k] = src_refs[k].clone(); }
-        }
-    }
-
-    /// unify-gc-heap PR-3: the `StructBytes` element type layout (element `elem_size`
-    /// = `layout.size`, `ref_count`, `ref_index`). `None` for non-struct[] backings.
-    /// Returns a cloned `Arc` so the caller can drop the shared borrow before taking a
-    /// `&mut` block slice (`struct_bytes_mut` / `struct_refs_mut`).
-    #[inline]
-    pub fn struct_layout(&self) -> Option<std::sync::Arc<StructTypeLayout>> {
-        match &self.backing {
-            ArrayBacking::StructBytes { layout, .. } => Some(layout.clone()),
-            _ => None,
-        }
-    }
-    /// unify-gc-heap PR-3: the whole packed-bytes region of a `StructBytes` array
-    /// (`len*elem_size` bytes) for struct[] leaf prim decode. `None` otherwise.
-    #[inline]
-    pub fn struct_bytes(&self) -> Option<&[u8]> {
-        match &self.backing {
-            // SAFETY: shared borrow of a live ArrayStruct block of `len*elem_size` bytes.
-            ArrayBacking::StructBytes { bytes, len, layout, .. } =>
-                Some(unsafe { Self::slice_of::<u8>(bytes, *len * layout.size) }),
-            _ => None,
-        }
-    }
-    /// Mutable packed-bytes region of a `StructBytes` array (struct[] leaf prim encode).
-    #[inline]
-    pub fn struct_bytes_mut(&mut self) -> Option<&mut [u8]> {
-        match &mut self.backing {
-            // SAFETY: exclusive borrow of a live ArrayStruct block of `len*elem_size` bytes.
-            ArrayBacking::StructBytes { bytes, len, layout, .. } =>
-                Some(unsafe { Self::slice_of_mut::<u8>(bytes, *len * layout.size) }),
-            _ => None,
-        }
-    }
-    /// Store `v` into reference leaf `flat` (`elem * ref_count + leaf`) of a `StructBytes` array,
-    /// recording the overwritten value for the SATB barrier (add-incremental-major-gc M2a). Returns
-    /// `false` for any other backing or an out-of-range index. (Reads use `gc_refs()`.)
-    #[inline]
-    pub fn set_struct_ref(&mut self, flat: usize, v: &Value) -> bool {
-        match &mut self.backing {
-            // SAFETY: exclusive borrow of a live ArrayValue block of `len*ref_count` Values.
-            ArrayBacking::StructBytes { refs, len, layout, .. } => {
-                let s = unsafe { Self::slice_of_mut::<Value>(refs, *len * layout.ref_count()) };
-                match s.get_mut(flat) {
-                    Some(cell) => { crate::gc::satb::record_overwrite(cell); *cell = v.clone(); true }
-                    None => false,
-                }
-            }
-            _ => false,
-        }
-    }
-}
-
-// ── 视图 / GC / 深拷贝（第二个 impl 块：code-organization 200 行类型限制）──
-impl ArrayObj {
-    /// Materialise all elements as a `Vec<Value>` (for sites needing a boxed
-    /// snapshot — reflection, conversions). Boxes packed primitives.
+    /// Materialise all elements as a `Vec<Value>` (reflection, conversions).
     pub fn to_boxed_vec(&self) -> Vec<Value> {
         (0..self.len()).map(|i| self.get_boxed(i)).collect()
     }
 
-    /// perf-bulk-array-copy: bulk element move `src[si..si+n]` → `self[di..di+n]`.
-    /// Same-backing pairs are one slice copy; mixed packed / boxed pairs go element-wise via
-    /// `get_boxed`/`set_boxed`, so element-type conversions stay exactly as the
-    /// single-element path defines them. The win is not the inner loop — it is paying
-    /// **one** native call instead of `n` interpreted `ArrayGet`/`ArraySet` round trips.
-    ///
-    /// Two `struct[]` (`StructBytes`) arrays of the **same element layout** copy their byte
-    /// range and their reference-leaf range. A `struct[]` paired with any other backing needs
-    /// boxing / unboxing (heap allocation, type checks) and is `objops::array_bulk::copy_range`'s
-    /// job — it never reaches here (debug-asserted; release leaves the destination untouched).
-    /// Caller bounds-checks both ranges and fires the write barrier over the written range.
+    /// Iterate all elements as owned `Value`s.
+    #[inline]
+    pub fn iter_boxed(&self) -> impl Iterator<Item = Value> + '_ {
+        (0..self.len()).map(move |i| self.get_boxed(i))
+    }
+
+    /// Bulk element move `src[si..si+n]` → `self[di..di+n]` (`src` is another array). Same
+    /// packed backing → one slice copy; REF → REF → word by word (SATB on each overwritten
+    /// word); two `struct[]` of the same element layout → blob by blob; any other pair →
+    /// element-wise through `get_boxed` / `set_boxed`, so conversions stay exactly what the
+    /// single-element path defines. A `struct[]` paired with a different backing needs boxing /
+    /// unboxing and type checks — the heap-aware bulk path's job (debug-asserted here).
+    /// Caller bounds-checks both ranges and fires the write barrier over the written range
+    /// (`elem_ref_slots`).
     pub fn copy_elems_from(&mut self, src: &ArrayObj, si: usize, di: usize, n: usize) {
-        // Fast path: two arrays with the **same** packed backing are just a `memcpy`
-        // of the element range (`copy_from_slice`). This is what makes the primitive
-        // pay off for the big `int[]` / `byte[]` buffers (ByteWriter grow + append).
-        // `Boxed` uses `clone_from_slice` — still one pass, no per-element re-dispatch.
         macro_rules! bulk {
-            ($ty:ty, $sb:expr, $sl:expr, $db:expr, $dl:expr, $copy:ident) => {{
-                // SAFETY (both): live blocks of exactly `len` `$ty`s; ranges are
-                // caller-bounds-checked, and `src`/`self` are distinct arrays here.
+            ($ty:ty, $sb:expr, $sl:expr, $db:expr, $dl:expr) => {{
+                // SAFETY (both): live blocks of exactly `len` `$ty`s; ranges caller-checked;
+                // `src` / `self` are distinct arrays. A plain copy under both array locks (R4:
+                // per-element relaxed atomics).
                 let s = unsafe { Self::slice_of::<$ty>($sb, $sl) };
                 let d = unsafe { Self::slice_of_mut::<$ty>($db, $dl) };
-                d[di..di + n].$copy(&s[si..si + n]);
+                d[di..di + n].copy_from_slice(&s[si..si + n]);
                 true
             }};
         }
-        let done = match (&src.backing, &mut self.backing) {
-            (ArrayBacking::Bytes { block: sb, len: sl }, ArrayBacking::Bytes { block: db, len: dl }) =>
-                bulk!(u8, sb, *sl, db, *dl, copy_from_slice),
-            (ArrayBacking::I32 { block: sb, len: sl }, ArrayBacking::I32 { block: db, len: dl }) =>
-                bulk!(i32, sb, *sl, db, *dl, copy_from_slice),
-            (ArrayBacking::I64 { block: sb, len: sl }, ArrayBacking::I64 { block: db, len: dl }) =>
-                bulk!(i64, sb, *sl, db, *dl, copy_from_slice),
-            (ArrayBacking::Chars { block: sb, len: sl }, ArrayBacking::Chars { block: db, len: dl }) =>
-                bulk!(char, sb, *sl, db, *dl, copy_from_slice),
-            (ArrayBacking::F64 { block: sb, len: sl }, ArrayBacking::F64 { block: db, len: dl }) =>
-                bulk!(f64, sb, *sl, db, *dl, copy_from_slice),
-            (ArrayBacking::Bool { block: sb, len: sl }, ArrayBacking::Bool { block: db, len: dl }) =>
-                bulk!(bool, sb, *sl, db, *dl, copy_from_slice),
-            (ArrayBacking::Boxed { block: sb, len: sl }, ArrayBacking::Boxed { block: db, len: dl }) => {
-                // add-incremental-major-gc M2a: the bulk clone overwrites live references, so it
-                // records them for the SATB barrier exactly as `set_boxed` does per element.
-                // Found by the `Z42_GC_SLICE_MS=0.05` stress run: `Array.Copy` into an existing
-                // array dropped a string a register still held (SIGSEGV in `String.Substring`).
-                // SAFETY: as in `bulk!`.
-                let d = unsafe { Self::slice_of::<Value>(db, *dl) };
-                crate::gc::satb::record_overwrite_all(&d[di..di + n]);
-                bulk!(Value, sb, *sl, db, *dl, clone_from_slice)
+        let done = match (&src.backing, &self.backing) {
+            (ArrayBacking::Bytes { block: sb, len: sl }, ArrayBacking::Bytes { block: db, len: dl }) => bulk!(u8, sb, *sl, db, *dl),
+            (ArrayBacking::I32 { block: sb, len: sl }, ArrayBacking::I32 { block: db, len: dl }) => bulk!(i32, sb, *sl, db, *dl),
+            (ArrayBacking::I64 { block: sb, len: sl }, ArrayBacking::I64 { block: db, len: dl }) => bulk!(i64, sb, *sl, db, *dl),
+            (ArrayBacking::Chars { block: sb, len: sl }, ArrayBacking::Chars { block: db, len: dl }) => bulk!(char, sb, *sl, db, *dl),
+            (ArrayBacking::F64 { block: sb, len: sl }, ArrayBacking::F64 { block: db, len: dl }) => bulk!(f64, sb, *sl, db, *dl),
+            (ArrayBacking::Bool { block: sb, len: sl }, ArrayBacking::Bool { block: db, len: dl }) => bulk!(bool, sb, *sl, db, *dl),
+            (ArrayBacking::Refs { block: sb, len: sl }, ArrayBacking::Refs { block: db, len: dl }) => {
+                let s = Self::cells_of(sb, *sl * REF_STRIDE);
+                let d = Self::cells_mut_of(db, *dl * REF_STRIDE);
+                for k in 0..n {
+                    ref_word::store_word_recorded(&d, (di + k) * REF_STRIDE, s.load_ref_word((si + k) * REF_STRIDE));
+                }
+                true
             }
-            (ArrayBacking::StructBytes { len: sl, bytes: sb, refs: sr, layout: sly },
-             ArrayBacking::StructBytes { len: dl, bytes: db, refs: dr, layout: dly })
-                if sly.size == dly.size && sly.ref_count() == dly.ref_count() =>
+            (ArrayBacking::StructBytes { layout: sly, .. }, ArrayBacking::StructBytes { layout: dly, .. })
+                if sly.size == dly.size && sly.ref_offsets == dly.ref_offsets =>
             {
-                let (size, rc) = (dly.size, dly.ref_count());
-                // SAFETY: live `ArrayStruct` blocks of `len*size` bytes; ranges caller-checked;
-                // `src`/`self` are distinct arrays (same-array moves use `copy_elems_within`).
-                let sbytes = unsafe { Self::slice_of::<u8>(sb, *sl * size) };
-                let dbytes = unsafe { Self::slice_of_mut::<u8>(db, *dl * size) };
-                dbytes[di * size..(di + n) * size].copy_from_slice(&sbytes[si * size..(si + n) * size]);
-                // SAFETY: live `ArrayValue` reference side-tables of `len*rc` Values.
-                let srefs = unsafe { Self::slice_of::<Value>(sr, *sl * rc) };
-                let drefs = unsafe { Self::slice_of_mut::<Value>(dr, *dl * rc) };
-                // The copy overwrites live reference leaves: SATB-record them, as `set_struct_ref` does.
-                crate::gc::satb::record_overwrite_all(&drefs[di * rc..(di + n) * rc]);
-                drefs[di * rc..(di + n) * rc].copy_from_slice(&srefs[si * rc..(si + n) * rc]);
+                for k in 0..n {
+                    if let Some((b, r)) = src.struct_elem(si + k) {
+                        let _ = self.write_struct_elem(di + k, &b, &r, &mut |_| {});
+                    }
+                }
                 true
             }
             (ArrayBacking::StructBytes { .. }, _) | (_, ArrayBacking::StructBytes { .. }) => {
                 debug_assert!(false,
-                    "copy_elems_from: struct[] paired with a different backing / layout must go through \
-                     objops::array_bulk::copy_range (boxing / unboxing / type checks)");
+                    "copy_elems_from: struct[] paired with a different backing / layout needs the \
+                     heap-aware bulk path (boxing / unboxing / type checks)");
                 return;
             }
             _ => false,
         };
-        // Mixed packed / boxed / stack backings: element-wise, so every conversion stays
-        // exactly what the single-element path defines.
         if !done {
             for k in 0..n {
                 self.set_boxed(di + k, src.get_boxed(si + k));
@@ -356,193 +81,224 @@ impl ArrayObj {
         }
     }
 
-    /// Same-array bulk move with `memmove` semantics: copies backward when the
-    /// destination range starts above the source range, so overlapping moves do not
-    /// clobber elements they have yet to read. `di == si` is a no-op.
+    /// Same-array bulk move with `memmove` semantics: copies backward when the destination
+    /// range starts above the source range. `di == si` is a no-op.
     pub fn copy_elems_within(&mut self, si: usize, di: usize, n: usize) {
         if di == si || n == 0 {
             return;
         }
-        // Packed backings: `slice::copy_within` is a `memmove` and already handles
-        // overlap in both directions.
         macro_rules! within {
             ($ty:ty, $b:expr, $l:expr) => {{
-                // SAFETY: live block of exactly `len` `$ty`s; range caller-checked.
+                // SAFETY: live block of exactly `len` `$ty`s; range caller-checked. A plain
+                // `memmove` under the array lock (R4: per-element relaxed atomics).
                 let d = unsafe { Self::slice_of_mut::<$ty>($b, $l) };
                 d.copy_within(si..si + n, di);
                 true
             }};
         }
-        let done = match &mut self.backing {
+        let done = match &self.backing {
             ArrayBacking::Bytes { block, len } => within!(u8, block, *len),
             ArrayBacking::I32 { block, len } => within!(i32, block, *len),
             ArrayBacking::I64 { block, len } => within!(i64, block, *len),
             ArrayBacking::Chars { block, len } => within!(char, block, *len),
             ArrayBacking::F64 { block, len } => within!(f64, block, *len),
             ArrayBacking::Bool { block, len } => within!(bool, block, *len),
-            // struct[]: the byte range and the reference-leaf range are each one `memmove`.
-            ArrayBacking::StructBytes { len, bytes, refs, layout } => {
-                let (size, rc) = (layout.size, layout.ref_count());
-                // SAFETY: exclusive borrow of live blocks of `len*size` bytes / `len*rc` Values.
-                let b = unsafe { Self::slice_of_mut::<u8>(bytes, *len * size) };
-                b.copy_within(si * size..(si + n) * size, di * size);
-                let r = unsafe { Self::slice_of_mut::<Value>(refs, *len * rc) };
-                // Every destination leaf is overwritten (its old value may be one the source range
-                // still holds — recording it anyway is harmless): SATB-record before the move.
-                crate::gc::satb::record_overwrite_all(&r[di * rc..(di + n) * rc]);
-                r.copy_within(si * rc..(si + n) * rc, di * rc);
+            ArrayBacking::Refs { block, len } => {
+                let c = Self::cells_mut_of(block, *len * REF_STRIDE);
+                let mv = |k: usize| ref_word::store_word_recorded(
+                    &c, (di + k) * REF_STRIDE, c.load_ref_word((si + k) * REF_STRIDE));
+                if di > si { (0..n).rev().for_each(mv) } else { (0..n).for_each(mv) }
+                true
+            }
+            ArrayBacking::StructBytes { .. } => {
+                let mut mv = |k: usize| {
+                    if let Some((b, r)) = self.struct_elem(si + k) {
+                        let _ = self.write_struct_elem(di + k, &b, &r, &mut |_| {});
+                    }
+                };
+                if di > si { (0..n).rev().for_each(&mut mv) } else { (0..n).for_each(&mut mv) }
                 true
             }
             _ => false,
         };
-        // Boxed / stack backings walk the range in the direction that does not clobber
-        // elements it has yet to read (`set_boxed` SATB-records each overwrite).
+        // MIXED / FROZEN / stack backings walk element-wise in the direction that does not
+        // clobber elements yet to be read (`set_boxed` SATB-records each overwrite).
         if !done {
-            if di > si {
-                for k in (0..n).rev() {
-                    let v = self.get_boxed(si + k);
-                    self.set_boxed(di + k, v);
-                }
-            } else {
-                for k in 0..n {
-                    let v = self.get_boxed(si + k);
-                    self.set_boxed(di + k, v);
-                }
+            let mut mv = |k: usize| { let v = self.get_boxed(si + k); self.set_boxed(di + k, v); };
+            if di > si { (0..n).rev().for_each(&mut mv) } else { (0..n).for_each(&mut mv) }
+        }
+    }
+}
+
+// ── GC：引用遍历、backing 块的标记与年龄 ──
+impl ArrayObj {
+    /// Visit every reference edge this array holds (decoded for tracing — a boxed value yields
+    /// its box): REF words, MIXED tag words holding a reference, FROZEN / stack `Value`s, and each
+    /// `struct[]` element's reference leaves. The one traversal GC marking, stack-array root
+    /// scanning and the retention graph share.
+    pub fn visit_refs(&self, visit: &mut dyn FnMut(&Value)) {
+        match &self.backing {
+            ArrayBacking::Refs { block, len } => {
+                let c = Self::cells_of(block, *len * REF_STRIDE);
+                for i in 0..*len { ref_word::visit(&c, i * REF_STRIDE, visit); }
             }
+            ArrayBacking::Cells { block, len, .. } => {
+                let c = Self::cells_of(block, *len * CELL_STRIDE);
+                for i in 0..*len { tparam_cell::visit(&c, i * CELL_STRIDE, visit); }
+            }
+            // SAFETY: a live FROZEN block of `len` Values.
+            ArrayBacking::Frozen { block, len } =>
+                for v in unsafe { Self::slice_of::<Value>(block, *len) } { visit(v); },
+            ArrayBacking::StackVec(v) => for e in v { visit(e); },
+            ArrayBacking::StructBytes { block, len, layout } => {
+                if layout.ref_offsets.is_empty() { return; }
+                let c = Self::cells_of(block, *len * layout.size);
+                for i in 0..*len { struct_blob::visit(&c, i * layout.size, &layout.ref_offsets, visit); }
+            }
+            _ => {}
         }
     }
 
-    /// add-struct-heap-inline (P3b): every heap reference this array holds, for the
-    /// GC mark traversal. A `Boxed` array's elements are all refs; a `StructBytes`
-    /// (value-struct) array's refs are the inline elements' reference leaves in the
-    /// side-table (packed primitives in `bytes` hold none). Packed-primitive arrays
-    /// return `&[]`. The returned slice borrows the backing block for `&self`'s
-    /// lifetime (block outlives the header).
+    /// The reference slots elements `[i, i+n)` own — each slot's current content decoded for
+    /// tracing (a box shows as the box) — plus how many slots each element has: REF / MIXED /
+    /// FROZEN / stack → 1 each; `struct[]` → the element's reference leaves (`ref_count`, possibly
+    /// 0); packed primitives → none. What a bulk store's write barrier walks. Caller bounds-checks.
+    pub fn elem_ref_slots(&self, i: usize, n: usize) -> (Vec<Value>, usize) {
+        use std::sync::atomic::Ordering;
+        let trace = |w: u64| if w & ref_word::KIND_MASK != 0 {
+            // SAFETY: a reference word of a live array names a live referent.
+            unsafe { ref_word::decode_for_trace(w) }
+        } else { Value::Null };
+        match &self.backing {
+            ArrayBacking::Refs { block, len } => {
+                let c = Self::cells_of(block, *len * REF_STRIDE);
+                ((i..i + n).map(|k| trace(c.load_ref_word(k * REF_STRIDE))).collect(), 1)
+            }
+            ArrayBacking::Cells { block, len, .. } => {
+                let c = Self::cells_of(block, *len * CELL_STRIDE);
+                ((i..i + n).map(|k| trace(c.load_word(k * CELL_STRIDE, Ordering::Acquire))).collect(), 1)
+            }
+            ArrayBacking::Frozen { .. } | ArrayBacking::StackVec(_) =>
+                ((i..i + n).map(|k| self.get_boxed(k)).collect(), 1),
+            ArrayBacking::StructBytes { block, len, layout } => {
+                let c = Self::cells_of(block, *len * layout.size);
+                let mut out = Vec::with_capacity(n * layout.ref_offsets.len());
+                for k in i..i + n {
+                    for &ro in layout.ref_offsets.iter() {
+                        out.push(trace(c.load_ref_word(k * layout.size + ro as usize)));
+                    }
+                }
+                (out, layout.ref_offsets.len())
+            }
+            _ => (Vec::new(), 1),
+        }
+    }
+
+    /// Visit the references held in elements `[i, i+n)` — `(element index, reference decoded for
+    /// tracing)`, skipping `null` and primitives — without materialising the slots (what a bulk
+    /// store's write barrier walks; a `List<int>` growth copy visits nothing and allocates nothing).
+    pub fn visit_elem_refs(&self, i: usize, n: usize, mut f: impl FnMut(usize, &Value)) {
+        use std::sync::atomic::Ordering;
+        let mut word = |k: usize, w: u64| if w & ref_word::KIND_MASK != 0 && ref_word::handle_bits(w) != 0 {
+            // SAFETY: a reference word of a live array names a live referent.
+            f(k, &unsafe { ref_word::decode_for_trace(w) });
+        };
+        match &self.backing {
+            ArrayBacking::Refs { block, len } => {
+                let c = Self::cells_of(block, *len * REF_STRIDE);
+                for k in i..i + n { word(k, c.load_ref_word(k * REF_STRIDE)); }
+            }
+            ArrayBacking::Cells { block, len, .. } => {
+                let c = Self::cells_of(block, *len * CELL_STRIDE);
+                for k in i..i + n { word(k, c.load_word(k * CELL_STRIDE, Ordering::Acquire)); }
+            }
+            ArrayBacking::StructBytes { block, len, layout } => {
+                let c = Self::cells_of(block, *len * layout.size);
+                for k in i..i + n {
+                    for &ro in layout.ref_offsets.iter() { word(k, c.load_ref_word(k * layout.size + ro as usize)); }
+                }
+            }
+            ArrayBacking::Frozen { .. } | ArrayBacking::StackVec(_) => {
+                for k in i..i + n {
+                    let v = self.get_boxed(k);
+                    if v.is_heap_ref() { f(k, &v); }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// The single GC block behind this array (`None` for a stack array).
     #[inline]
-    pub fn gc_refs(&self) -> &[Value] {
+    fn backing_block(&self) -> Option<&VarGcRef> {
         match &self.backing {
-            // SAFETY: shared borrow of a live ArrayValue block of `len` Values.
-            ArrayBacking::Boxed { block, len } => unsafe { Self::slice_of::<Value>(block, *len) },
-            // SAFETY: shared borrow of a live ArrayValue block of `len*ref_count` Values.
-            ArrayBacking::StructBytes { refs, len, layout, .. } =>
-                unsafe { Self::slice_of::<Value>(refs, *len * layout.ref_count()) },
-            // Stack array: elements are boxed Values in the arena Vec, scanned as roots.
-            ArrayBacking::StackVec(v) => v,
-            _ => &[],
+            ArrayBacking::Refs { block, .. }
+            | ArrayBacking::Cells { block, .. }
+            | ArrayBacking::Frozen { block, .. }
+            | ArrayBacking::Bool { block, .. }
+            | ArrayBacking::Bytes { block, .. }
+            | ArrayBacking::I32 { block, .. }
+            | ArrayBacking::I64 { block, .. }
+            | ArrayBacking::Chars { block, .. }
+            | ArrayBacking::F64 { block, .. }
+            | ArrayBacking::StructBytes { block, .. } => Some(block),
+            ArrayBacking::StackVec(_) => None,
         }
     }
 
-    /// Test-only: the youngest `gen_age` among the backing block(s) (`u8::MAX` for a stack
-    /// array, which has none). Pins the "backing ages with its owner" invariant.
+    /// Test-only: the backing block's `gen_age` (`u8::MAX` for a stack array). Pins the "backing
+    /// ages with its owner" invariant.
     pub fn min_backing_gen_age_for_test(&self) -> u8 {
-        match &self.backing {
-            ArrayBacking::Boxed { block, .. }
-            | ArrayBacking::Bool { block, .. }
-            | ArrayBacking::Bytes { block, .. }
-            | ArrayBacking::I32 { block, .. }
-            | ArrayBacking::I64 { block, .. }
-            | ArrayBacking::Chars { block, .. }
-            | ArrayBacking::F64 { block, .. } => block.gen_age(),
-            ArrayBacking::StructBytes { bytes, refs, .. } => bytes.gen_age().min(refs.gen_age()),
-            ArrayBacking::StackVec(_) => u8::MAX,
-        }
+        self.backing_block().map_or(u8::MAX, |b| b.gen_age())
     }
 
-    /// **fix-primitives-count-as-young (2026-09-11)**: raise this array's backing block(s) to
-    /// at least `age`. Called when the **array header** is promoted, so the element storage is
-    /// never younger than the header that exclusively owns it.
-    ///
-    /// Why that invariant has to be maintained explicitly: the backing is a `region_var` block
-    /// kept alive *only* by [`Self::mark_backing`], a side effect of tracing the array — it is
-    /// not one of the array's `Value` children, so no walk over those children can tell that it
-    /// is young. A minor only traces an old array when its card is dirty, so an old array with
-    /// a young backing loses that backing. Keeping the two ages in lockstep removes the case
-    /// rather than papering over it with a card.
+    /// Raise the backing block to at least `age` — called when the **array header** is promoted,
+    /// so the element storage is never younger than the header that exclusively owns it (the
+    /// block is kept alive only by [`Self::mark_backing`], not as a traced child, so a minor that
+    /// skips a clean old array would otherwise lose a young block).
     pub fn raise_backing_gen_age(&self, age: u8) {
-        match &self.backing {
-            ArrayBacking::Boxed { block, .. }
-            | ArrayBacking::Bool { block, .. }
-            | ArrayBacking::Bytes { block, .. }
-            | ArrayBacking::I32 { block, .. }
-            | ArrayBacking::I64 { block, .. }
-            | ArrayBacking::Chars { block, .. }
-            | ArrayBacking::F64 { block, .. } => block.raise_gen_age_to(age),
-            ArrayBacking::StructBytes { bytes, refs, .. } => {
-                bytes.raise_gen_age_to(age);
-                refs.raise_gen_age_to(age);
-            }
-            ArrayBacking::StackVec(_) => {}
-        }
+        if let Some(b) = self.backing_block() { b.raise_gen_age_to(age); }
     }
 
-    /// unify-gc-heap PR-3: mark this array's backing block(s) live during the GC
-    /// mark phase. Called from `Value::trace_children`'s array-borrowing arms right
-    /// after the `ArrayObj` header (region_array) is marked — without this the
-    /// element blocks in `region_var` would be swept out from under a live array.
+    /// Mark the backing block live during the GC mark phase (called right after the header is
+    /// marked — without it the element block in `region_var` would be swept from under a live
+    /// array).
     #[inline]
     pub fn mark_backing(&self, kind: crate::gc::refs::MarkKind) {
-        match &self.backing {
-            ArrayBacking::Boxed { block, .. }
-            | ArrayBacking::Bool { block, .. }
-            | ArrayBacking::Bytes { block, .. }
-            | ArrayBacking::I32 { block, .. }
-            | ArrayBacking::I64 { block, .. }
-            | ArrayBacking::Chars { block, .. }
-            | ArrayBacking::F64 { block, .. } => { block.mark(kind); }
-            ArrayBacking::StructBytes { bytes, refs, .. } => { bytes.mark(kind); refs.mark(kind); }
-            // Stack array: no GC block — the arena Vec is scanned as a root, nothing to mark.
-            ArrayBacking::StackVec(_) => {}
-        }
+        if let Some(b) = self.backing_block() { b.mark(kind); }
     }
+}
 
-    /// unify-gc-heap PR-3: an independent heap-allocated copy (value-semantic array
-    /// clone — `__array_clone`). Allocates fresh backing block(s) in `heap` and copies
-    /// element data in (cloning `Value`s), so the copy shares nothing mutable with the
-    /// original. Replaces the removed `#[derive(Clone)]` (which would have aliased the
-    /// backing block).
+// ── 深拷贝 / JIT 快路数据 / 统计 ──
+impl ArrayObj {
+    /// An independent heap copy (`__array_clone`): a fresh block with the same bytes —
+    /// reference words copied verbatim share their referents, exactly a shallow element copy.
+    /// The copy is unreachable until its header exists, so no barrier is owed.
     pub fn deep_copy(&self, heap: &dyn MagrGC) -> Self {
+        let copy = |b: &VarGcRef, bytes: usize, bt: BlockType| Self::alloc_block_copy(heap, b, bytes, bt);
         let backing = match &self.backing {
-            ArrayBacking::Boxed { block, len } => {
-                let src = unsafe { Self::slice_of::<Value>(block, *len) };
-                ArrayBacking::Boxed { block: Self::alloc_values_clone(heap, src), len: *len }
-            }
-            ArrayBacking::Bool { block, len } =>
-                ArrayBacking::Bool { block: Self::alloc_packed(heap, unsafe { Self::slice_of::<bool>(block, *len) }), len: *len },
-            ArrayBacking::Bytes { block, len } =>
-                ArrayBacking::Bytes { block: Self::alloc_packed(heap, unsafe { Self::slice_of::<u8>(block, *len) }), len: *len },
-            ArrayBacking::I32 { block, len } =>
-                ArrayBacking::I32 { block: Self::alloc_packed(heap, unsafe { Self::slice_of::<i32>(block, *len) }), len: *len },
-            ArrayBacking::I64 { block, len } =>
-                ArrayBacking::I64 { block: Self::alloc_packed(heap, unsafe { Self::slice_of::<i64>(block, *len) }), len: *len },
-            ArrayBacking::Chars { block, len } =>
-                ArrayBacking::Chars { block: Self::alloc_packed(heap, unsafe { Self::slice_of::<char>(block, *len) }), len: *len },
-            ArrayBacking::F64 { block, len } =>
-                ArrayBacking::F64 { block: Self::alloc_packed(heap, unsafe { Self::slice_of::<f64>(block, *len) }), len: *len },
-            ArrayBacking::StructBytes { len, bytes, refs, layout } => {
-                let elem_size = &layout.size;
-                let rc = layout.ref_count();
-                let bsrc = unsafe { Self::slice_of::<u8>(bytes, *len * *elem_size) };
-                let rsrc = unsafe { Self::slice_of::<Value>(refs, *len * rc) };
-                ArrayBacking::StructBytes {
-                    len: *len,
-                    bytes: Self::alloc_packed(heap, bsrc),
-                    refs: Self::alloc_values_clone(heap, rsrc),
-                    layout: layout.clone(),
-                }
-            }
-            // A stack array being deep-copied escapes into the heap → materialize its boxed
-            // elements into a fresh GC `Boxed` block (never hit in practice: `__array_clone`
-            // only sees heap `Value::Array`, but keep the copy heap-correct if it ever does).
-            ArrayBacking::StackVec(v) => {
-                let (block, len) = Self::alloc_boxed(heap, v.clone());
-                ArrayBacking::Boxed { block, len }
-            }
+            ArrayBacking::Refs { block, len } => ArrayBacking::Refs { block: copy(block, len * REF_STRIDE, BlockType::ArrayRef), len: *len },
+            ArrayBacking::Cells { block, len, zero } =>
+                ArrayBacking::Cells { block: copy(block, len * CELL_STRIDE, BlockType::ArrayCell), len: *len, zero: *zero },
+            ArrayBacking::Frozen { block, len } =>
+                ArrayBacking::Frozen { block: copy(block, len * std::mem::size_of::<Value>(), BlockType::ArrayValue), len: *len },
+            ArrayBacking::Bool { block, len } => ArrayBacking::Bool { block: copy(block, *len, BlockType::ArrayPrim), len: *len },
+            ArrayBacking::Bytes { block, len } => ArrayBacking::Bytes { block: copy(block, *len, BlockType::ArrayPrim), len: *len },
+            ArrayBacking::I32 { block, len } => ArrayBacking::I32 { block: copy(block, len * 4, BlockType::ArrayPrim), len: *len },
+            ArrayBacking::Chars { block, len } => ArrayBacking::Chars { block: copy(block, len * 4, BlockType::ArrayPrim), len: *len },
+            ArrayBacking::I64 { block, len } => ArrayBacking::I64 { block: copy(block, len * 8, BlockType::ArrayPrim), len: *len },
+            ArrayBacking::F64 { block, len } => ArrayBacking::F64 { block: copy(block, len * 8, BlockType::ArrayPrim), len: *len },
+            ArrayBacking::StructBytes { block, len, layout } => ArrayBacking::StructBytes {
+                block: copy(block, len * layout.size, BlockType::ArrayStruct), len: *len, layout: layout.clone(),
+            },
+            // A stack array escaping through a copy becomes a MIXED heap array.
+            ArrayBacking::StackVec(v) => Self::pack_backing_iter(heap, ElemKind::Mixed, v.len(), v.iter().copied()),
         };
-        Self { element_type: self.element_type, backing }
+        Self { element_type: self.element_type, backing: backing }
     }
 
-    /// Zero-copy packed byte slice for FFI (`Some` iff `byte[]`). Step 3 uses
-    /// this to hand native code a contiguous `&[u8]` — no per-byte marshal.
+    /// Zero-copy packed byte slice for FFI (`Some` iff `byte[]`). A plain view, taken under the
+    /// array lock.
     #[inline]
     pub fn as_bytes(&self) -> Option<&[u8]> {
         match &self.backing {
@@ -552,40 +308,25 @@ impl ArrayObj {
         }
     }
 
-    /// JIT packed-numeric fast path: `I32`/`I64`/`F64` backings are contiguous
-    /// fixed-width slots (4 / 8 / 8 bytes) the JIT can index with a native
-    /// stride-N load/store — no 24-byte `Value` round-trip, no per-element tag.
-    /// Pairs with [`Self::packed_elem_width`]: the ptr is the buffer base, the
-    /// width tells the JIT the slot size (4 → `int[]` sign-extends into the i64
-    /// payload; 8 → raw `long[]`/`double[]` copy). `None` for `Boxed`/`Bytes`/
-    /// `Bool`/`Chars` — the JIT set-path detects width 0 and falls back to the
-    /// `jit_array_set` helper, so those backings never index off this ptr.
-    ///
-    /// unify-gc-heap PR-3: the ptr is now the GC block's inline payload (non-moving,
-    /// fixed-size) instead of a `Vec` buffer — the JIT may cache it across the
-    /// function (blocks don't relocate; A' is a non-moving allocator).
+    /// JIT packed-numeric fast path: the element buffer of an `I32` / `I64` / `F64` / `Chars`
+    /// backing (paired with [`Self::packed_elem_width`]). `None` for every other backing — the
+    /// JIT set path sees width 0 and falls back to the helper. The block is fixed-size and
+    /// non-moving, so the JIT may cache the pointer across the function.
     #[inline]
     pub fn packed_num_ptr(&self) -> Option<*const u8> {
         match &self.backing {
-            // SAFETY: block payload ptr from the raw header (D8); JIT reads `len` slots only.
-            ArrayBacking::I32 { block, .. }
-            | ArrayBacking::I64 { block, .. }
-            | ArrayBacking::F64 { block, .. }
-            // jit-inline-char-arrays: `char` is a 4-byte scalar (Rust `char` == u32);
-            // the JIT loads it width-4 and boxes into `Value::Char`.
-            | ArrayBacking::Chars { block, .. } => {
-                debug_assert!(block.is_live(), "unify-gc-heap PR-3: packed_num_ptr on a stale/tombstoned block");
+            ArrayBacking::I32 { block, .. } | ArrayBacking::I64 { block, .. }
+            | ArrayBacking::F64 { block, .. } | ArrayBacking::Chars { block, .. } => {
+                debug_assert!(block.is_live(), "packed_num_ptr on a stale/tombstoned block");
+                // SAFETY: payload ptr from the raw header (D8); the JIT reads `len` slots only.
                 Some(unsafe { block.payload_as_ptr::<u8>() } as *const u8)
             }
             _ => None,
         }
     }
 
-    /// Packed slot width in bytes for the JIT fast path: 4 (`I32`/`Chars`), 8
-    /// (`I64`/`F64`), or 0 for a non-packed backing (`Boxed`/`Bytes`/`Bool`).
-    /// The **runtime** authority the JIT ArraySet inline consults so a narrowing
-    /// store (`int[i] = <i64 value>`) writes the right slot size rather than
-    /// trusting the value register's width. Width 0 → route to the helper.
+    /// Packed slot width in bytes for the JIT fast path: 4 (`I32` / `Chars`), 8 (`I64` / `F64`),
+    /// or 0 for any other backing (route to the helper).
     #[inline]
     pub fn packed_elem_width(&self) -> i64 {
         match &self.backing {
@@ -595,87 +336,58 @@ impl ArrayObj {
         }
     }
 
-    /// Iterate all elements as owned `Value`s (boxes packed primitives).
-    /// Packed-safe replacement for the old `Deref`→`Vec<Value>` `.iter()`.
+    /// JIT reference-read fast path: the element buffer, stride and zero kind of a REF (8 — one
+    /// reference word per element, zero kind 0) or MIXED (16 — the tag word first; `zero` = the
+    /// primitive kind a never-written cell reads as) backing. The inline code acquire-loads the
+    /// (tag) word at `ptr + i * stride` and decodes it: a reference word through
+    /// `ref_word::KIND_TO_VALUE_TAG`, a MIXED primitive marker through
+    /// `tparam_cell::PRIM_KIND_TO_VALUE_TAG` plus the payload word; a box (kind 7) falls back to the
+    /// helper. `None` for every other backing.
     #[inline]
-    pub fn iter_boxed(&self) -> impl Iterator<Item = Value> + '_ {
-        (0..self.len()).map(move |i| self.get_boxed(i))
+    pub fn ref_elem_data(&self) -> Option<(*const u8, i64, u8)> {
+        let (block, stride, zero) = match &self.backing {
+            ArrayBacking::Refs { block, .. } => (block, REF_STRIDE, 0),
+            ArrayBacking::Cells { block, zero, .. } => (block, CELL_STRIDE, *zero),
+            _ => return None,
+        };
+        debug_assert!(block.is_live(), "ref_elem_data on a stale/tombstoned block");
+        // SAFETY: payload ptr from the raw header (D8); the JIT reads `len` elements only.
+        Some((unsafe { block.payload_as_ptr::<u8>() } as *const u8, stride as i64, zero))
     }
 
-    /// Heap bytes for element storage (`len × sizeof(element)`) — the packed-array
-    /// memory win shows up here (byte[] 1B vs Boxed 24B/elem). unify-gc-heap PR-3:
-    /// counts the GC block payload(s); arrays are fixed-size so `len == capacity`.
+    /// Heap bytes for element storage (`len × element size`).
     #[inline]
     pub fn elem_storage_bytes(&self) -> usize {
         use std::mem::size_of;
         match &self.backing {
-            ArrayBacking::Boxed { len, .. } => len * size_of::<Value>(),
-            ArrayBacking::Bool { len, .. }  => *len,
-            ArrayBacking::Bytes { len, .. } => *len,
-            ArrayBacking::I32 { len, .. }   => len * 4,
-            ArrayBacking::I64 { len, .. }   => len * 8,
-            ArrayBacking::Chars { len, .. } => len * 4,
-            ArrayBacking::F64 { len, .. }   => len * 8,
-            // Packed struct bytes + the reference side-table (16B/handle in a Value).
-            ArrayBacking::StructBytes { len, layout, .. } =>
-                len * layout.size + len * layout.ref_count() * size_of::<Value>(),
+            ArrayBacking::Refs { len, .. } => len * REF_STRIDE,
+            ArrayBacking::Cells { len, .. } => len * CELL_STRIDE,
+            ArrayBacking::Frozen { len, .. } => len * size_of::<Value>(),
+            ArrayBacking::Bool { len, .. } | ArrayBacking::Bytes { len, .. } => *len,
+            ArrayBacking::I32 { len, .. } | ArrayBacking::Chars { len, .. } => len * 4,
+            ArrayBacking::I64 { len, .. } | ArrayBacking::F64 { len, .. } => len * 8,
+            ArrayBacking::StructBytes { len, layout, .. } => len * layout.size,
             ArrayBacking::StackVec(v) => v.len() * size_of::<Value>(),
         }
     }
 }
 
-// ── 元素区间的引用槽 / struct 元素视图（`objops::array_bulk` 的批量拷贝与写屏障用）──
-impl ArrayObj {
-    /// The reference slots elements `[i, i+n)` own, plus how many slots each element has:
-    /// `Boxed` / stack → the elements themselves (1 each); `StructBytes` → the elements'
-    /// reference leaves (`ref_count` each, possibly 0); packed primitives → none.
-    /// Caller bounds-checks the range.
-    pub fn elem_ref_slots(&self, i: usize, n: usize) -> (&[Value], usize) {
-        match &self.backing {
-            ArrayBacking::StructBytes { layout, .. } => {
-                let rc = layout.ref_count();
-                (&self.gc_refs()[i * rc..(i + n) * rc], rc)
-            }
-            ArrayBacking::Boxed { .. } | ArrayBacking::StackVec(_) => (&self.gc_refs()[i..i + n], 1),
-            _ => (&[], 1),
-        }
-    }
-
-    /// Element `i` of a `struct[]` as its raw `(bytes, reference leaves)`; `None` for any other
-    /// backing. Caller bounds-checks `i`.
-    pub fn struct_elem(&self, i: usize) -> Option<(&[u8], &[Value])> {
-        let ArrayBacking::StructBytes { layout, .. } = &self.backing else { return None };
-        let (size, rc) = (layout.size, layout.ref_count());
-        let bytes = self.struct_bytes()?;
-        Some((&bytes[i * size..(i + 1) * size], &self.gc_refs()[i * rc..(i + 1) * rc]))
-    }
-}
-
 #[cfg(test)]
 impl ArrayObj {
-    /// Test-only: a `Boxed` array whose element block is a **leaked** standalone GC block
-    /// (never in a region, never swept) — for heap-less unit tests that need a heap-backed
-    /// array without wiring an `ArcMagrGC`. Mirrors `VarGcRef::leak_for_test` (used by these
-    /// same tests for closures). Never run under Miri's leak checker.
+    /// Test-only: a MIXED array whose element block is a **leaked** standalone GC block (never
+    /// in a region, never swept) — for heap-less unit tests.
     pub(crate) fn new_leaked(elems: Vec<Value>) -> Self {
         let len = elems.len();
-        let block = VarGcRef::leak_block_for_test(len * std::mem::size_of::<Value>(), BlockType::ArrayValue);
-        // SAFETY: fresh leaked block sized for `len` Values; move each in over the POD zero.
-        let base = unsafe { block.payload_as_ptr::<Value>() };
-        for (i, v) in elems.into_iter().enumerate() { unsafe { base.add(i).write(v); } }
-        Self { element_type: ElemType::empty(), backing: ArrayBacking::Boxed { block, len } }
+        let block = VarGcRef::leak_block_for_test(len * CELL_STRIDE, BlockType::ArrayCell);
+        let mut a = Self { element_type: ElemType::empty(), backing: ArrayBacking::Cells { block, len, zero: 0 } };
+        for (i, v) in elems.into_iter().enumerate() { a.set_boxed(i, v); }
+        a
     }
 
-    /// Test-only: a zero-/`Null`-initialized `StructBytes` array with **leaked** byte + ref
-    /// blocks (elements written via `write_struct_elem`). For heap-less struct[] unit tests.
+    /// Test-only: a zeroed `StructBytes` array on a **leaked** block (elements written via
+    /// `write_struct_elem`). For heap-less struct[] unit tests.
     pub(crate) fn struct_backed_leaked(element_type: &str, len: usize, layout: std::sync::Arc<StructTypeLayout>) -> Self {
-        let elem_size = layout.size;
-        let rc = layout.ref_count();
-        let bytes = VarGcRef::leak_block_for_test(len * elem_size, BlockType::ArrayStruct);
-        let refs = VarGcRef::leak_block_for_test(len * rc * std::mem::size_of::<Value>(), BlockType::ArrayValue);
-        // SAFETY: fresh leaked ref block sized for `len*rc` Values; Null-init each slot.
-        let rbase = unsafe { refs.payload_as_ptr::<Value>() };
-        for i in 0..len * rc { unsafe { rbase.add(i).write(Value::Null); } }
-        Self { element_type: ElemType::intern(element_type), backing: ArrayBacking::StructBytes { len, bytes, refs, layout } }
+        let block = VarGcRef::leak_block_for_test(len * layout.size, BlockType::ArrayStruct);
+        Self { element_type: ElemType::intern(element_type), backing: ArrayBacking::StructBytes { len, block, layout } }
     }
 }

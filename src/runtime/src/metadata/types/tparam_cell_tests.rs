@@ -83,11 +83,11 @@ fn cell(o: &ScriptObject, slot: usize) -> (u32, u32) {
 }
 
 fn tag_word(o: &ScriptObject, slot: usize) -> u64 {
-    o.storage.load_word(cell(o, slot).0 as usize, Ordering::Relaxed)
+    o.storage.cells().load_word(cell(o, slot).0 as usize, Ordering::Relaxed)
 }
 
 fn payload_word(o: &ScriptObject, slot: usize) -> u64 {
-    o.storage.load_word(cell(o, slot).1 as usize, Ordering::Relaxed)
+    o.storage.cells().load_word(cell(o, slot).1 as usize, Ordering::Relaxed)
 }
 
 fn heap() -> ArcMagrGC {
@@ -102,11 +102,11 @@ fn the_cell_is_the_fields_own_slot_plus_a_payload_word_past_the_compiler_layout(
     let l = td.composed_object_layout_ref().unwrap();
     assert_eq!(l.size, 24, "the compiler's size is kept (a subclass's region starts there)");
     assert_eq!(&*l.tparam_cells, &[8, 16]);
-    assert!(l.ref_offsets.is_empty() && l.ref_cells.is_empty(), "no side table, no plain reference words");
+    assert!(l.ref_cells.is_empty(), "no plain reference words");
     assert_eq!((l.field_access[1].offset, l.field_access[1].aux), (8, 24));
     assert_eq!((l.field_access[2].offset, l.field_access[2].aux), (16, 32));
     assert_eq!(l.bytes_len(), 40);
-    assert_eq!(td.object_region_sizes(), (40, 0), "16 B per type-parameter field, no side-table slot");
+    assert_eq!(td.object_bytes_len(), 40, "16 B per type-parameter field");
 }
 
 /// The instantiation's zero value fixes the cell's variant at allocation; a reference or unknown
@@ -346,4 +346,19 @@ fn a_subclass_moves_inherited_payload_words_past_its_own_fields() {
     assert_eq!(sub.field_access[1].aux, 24, "inherited cell's payload past the subclass layout");
     assert_eq!(sub.field_access[2].aux, 32);
     assert_eq!(sub.bytes_len(), 40);
+}
+
+#[test]
+fn the_jit_prim_table_matches_decode() {
+    use crate::metadata::types::Value;
+    let disc = |v: &Value| unsafe { *(v as *const Value as *const u8) };
+    assert_eq!(PRIM_KIND_TO_VALUE_TAG[0], disc(&Value::Null));
+    for v in [Value::I64(1), Value::F64(1.0), Value::Bool(true), Value::Char('x')] {
+        let (k, _) = prim_parts(&v).unwrap();
+        assert_eq!(PRIM_KIND_TO_VALUE_TAG[k as usize], disc(&v), "{v:?}");
+        assert_eq!(prim_value(k, 0), match v {
+            Value::I64(_) => Value::I64(0), Value::F64(_) => Value::F64(0.0),
+            Value::Bool(_) => Value::Bool(false), _ => Value::Char('\0'),
+        });
+    }
 }

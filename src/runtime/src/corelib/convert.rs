@@ -120,9 +120,9 @@ pub fn builtin_box_struct(ctx: &VmContext, args: &[Value]) -> Result<Value> {
 
 /// add-boxed-struct-identity (P4b, 路 B2): box a value-struct blob into a **shared**
 /// `ScriptObject` (`type_desc` = the struct type, `is_struct()` true), storing the
-/// primitive leaves in the object's `struct_bytes` and the reference leaves in
-/// `struct_refs` (`alloc_object` pre-sizes both via `inline_region_sizes`, which reads
-/// the struct's own `struct_layout` for struct-typed objects). Returns a
+/// blob in the object's payload — primitive leaves plus 8 B reference words at the struct
+/// layout's reference offsets (`struct_blob`; `alloc_object` sizes the payload from the
+/// struct's own `struct_layout`). Returns a
 /// `Value::BoxedStruct(gc)` — a shared, GC-managed, reference-identity box (C# semantics:
 /// `object b = a` aliases the same box, reflective `SetValue` writes through).
 ///
@@ -139,14 +139,10 @@ pub(crate) fn box_struct_blob(
         Value::Object(gc) => {
             {
                 let mut o = gc.borrow_mut();
-                let n = bytes.len().min(o.bytes().len());
-                o.bytes_mut()[..n].copy_from_slice(&bytes[..n]);
-                let rn = refs.len().min(o.refs().len());
-                // `refs_mut_raw` (no SATB record, no card) is sound here only because this is
-                // the **freshly allocated** box: every old value is `Null` (nothing to record), and
-                // the box is young (born at age 0, no safepoint since `alloc_object`), so no
-                // old→young edge can arise. See gc.md「免屏障的写入点」.
-                o.refs_mut_raw()[..rn].clone_from_slice(&refs[..rn]);
+                let size = o.bytes().len();
+                // A fresh box (young, unreachable until returned): no barrier owed.
+                let offs = o.type_desc.struct_layout().map(|sl| sl.ref_offsets.clone()).unwrap_or_default();
+                o.write_blob(0, size, bytes, refs, &offs, &mut |_| {})?;
             }
             Ok(Value::BoxedStruct(gc))
         }
@@ -166,10 +162,11 @@ pub fn builtin_struct_hash_code(_ctx: &VmContext, args: &[Value]) -> Result<Valu
         _ => bail!("__struct_hash_code: expected a boxed struct"),
     };
     // add-boxed-struct-identity (P4b): read the blob out of the shared box object.
-    let b = gc.borrow();
+    // The blob's reference slots hold reference words — hash the bytes with them zeroed.
+    let (bytes, refs) = gc.borrow().boxed_blob();
     let mut h: u32 = 2_166_136_261;
-    for &byte in b.bytes().iter() { h ^= byte as u32; h = h.wrapping_mul(16_777_619); }
-    for r in b.refs().iter() {
+    for &byte in bytes.iter() { h ^= byte as u32; h = h.wrapping_mul(16_777_619); }
+    for r in refs.iter() {
         let rh: u32 = match r {
             Value::Str(s) => {
                 let mut sh: u32 = 2_166_136_261;

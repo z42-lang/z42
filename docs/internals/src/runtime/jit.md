@@ -438,9 +438,20 @@ interp==jit；且 **z42c 自举 5/5 gen1==gen2 逐字节**（z42c 海量字段�
 ### 边界（必留 helper，回落即等价改前）
 
 `off=-1` 回落 `jit_field_get`：**非 `Value::Object` receiver**（含 OSR 下的 `StackObject`）、
-型参字段（`T F;` 的 16 B 型参单元：标签字可能是基元标记，按引用字查表会读成 `null`）、合成布局的侧表字段、struct 根、字段未找到/null-throw、`Str.Length`/`Array.Length`；种类 7 回落同一 helper。
+型参字段（`T F;` 的 16 B 型参单元：标签字可能是基元标记，按引用字查表会读成 `null`；合成布局的引用字段也是型参单元）、struct 根、字段未找到/null-throw、`Str.Length`/`Array.Length`；种类 7 回落同一 helper。
 **无 FieldSet 对偶**——引用 store 要 GC write barrier（与装箱逃生口），故引用 SET 仍走 helper。原语 XOR 引用，故
 本 hoist 与原语字段的 `hoisted_fields` 永不重叠。
+
+### 数组元素的引用读（REF / MIXED 数组）
+
+同一套「acquire-load + 查表」用于 `ArrayGet`：`dst` 是整 `Value` 寄存器（`IrType::Ref` / `Str` / `Unknown`，即擦除的 `T`）
+且数组寄存器从不被重赋值时，入口块调一次 `jit_array_ref_data_opt` 给出 `(基址, 长度, 步长)`（`hoisted_ref_arrays`）——
+REF 数组步长 8（每元素一个引用字）、MIXED 数组步长 16（型参单元，标签字在前）、其它数组（含按基元实参零值分配的
+MIXED 数组）步长 0。不 hoist 的访问（`List<T>` 里每次重新取的 `this.items`）直接走 `jit_array_get`：每次访问再调一次
+取数 helper 不比 `jit_array_get` 便宜，数组装的是基元时还要再调一次（实测 `List<int>` 遍历慢 12%）。内联码：步长 0 或越界 → `jit_array_get`（同一异常）；否则
+`raw = atomic_load(基址 + i·步长)`，按 `KIND_TO_VALUE_TAG[raw & 7]` 打 tag；种类 7 盒子与 MIXED 的基元标记字
+（低 3 位 0、整字非 0：`PRIM(k)` / `NULL(k)`）回落同一 helper。数组元素写一律走 `jit_array_set`（要写屏障），
+PRIM 数组的读写内联（`packed_data`）不变。
 
 ### 正确性靠的不变式
 

@@ -21,6 +21,8 @@ pub unsafe extern "C" fn jit_array_new(
     // non-erased array reflection, no name allocation.
     et: *const ElemTypeInfo,
     class_tp: i32,
+    // the instruction's `type_param_kind` (non-zero = element is a type parameter → MIXED).
+    tp_kind: u8,
 ) -> u8 {
     let element_type = ElemType::from_raw(et);
     let len = (*frame).regs[size as usize];
@@ -28,7 +30,7 @@ pub unsafe extern "C" fn jit_array_new(
         crate::objops::array::class_type_param_zero((*frame).regs.first(), class_tp as usize)
     } else { None };
     let r = crate::objops::array::array_new(
-        vm_ctx_ref(ctx), &len, elem_tag, element_type, prim_zero, None::<fn() -> u32>);
+        vm_ctx_ref(ctx), &len, elem_tag, element_type, tp_kind != 0, prim_zero, None::<fn() -> u32>);
     match r {
         Ok(arr) => { (*frame).regs[dst as usize] = arr; 0 }
         Err(e) => raise(ctx, e),
@@ -68,6 +70,21 @@ pub unsafe extern "C" fn jit_array_data_opt(
     *out_ptr = ptr as *const Value;
     *out_len = len;
     *out_width = width;
+}
+
+/// Reference-read fast path data (REF / MIXED arrays, object model R3): writes the element
+/// buffer base, length and stride (8 = REF words, 16 = MIXED cells, tag word first). Anything
+/// else — packed / struct / frozen / stack arrays, non-array, null — writes stride 0 = "no fast
+/// path" and the inline code calls `jit_array_get`. **Never throws** (hoist + per access).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn jit_array_ref_data_opt(
+    frame: *mut JitFrame, _ctx: *const JitModuleCtx,
+    arr: u32, out_ptr: *mut *const u8, out_len: *mut i64, out_stride: *mut i64,
+) {
+    let (ptr, len, stride) = crate::objops::array::ref_data(&(*frame).regs[arr as usize]);
+    *out_ptr = ptr;
+    *out_len = len;
+    *out_stride = stride;
 }
 
 #[unsafe(no_mangle)]

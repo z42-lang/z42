@@ -4,6 +4,7 @@ namespace Z42cPipelinePkgCompileTests;
 
 using Std.IO;
 using Std.Reflection;   // Activator（PR4d VM 执行 golden：外部 generator 产物真跑）
+using Std.Runtime;      // ModuleLoader（把编好的 consumer zpkg 并入 live VM）
 using Z42.Pipeline;
 using Z42.Semantics;
 using Z42.Package;
@@ -24,12 +25,6 @@ string[] _depDirs(string libs) {
     return r;
 }
 
-// PR4d VM 执行 golden 用：把编好的 consumer zpkg 并入 live VM（可 Type.GetType + Activator + 虚调用）。
-// native 是 VM builtin（种子恒在），返回值忽略——只要加载副作用。同 GeneratorLoader/AnalyzerLoader Path-B。
-static class _VmLoad {
-    [Native("__load_module")]
-    public static extern object load(string path);
-}
 
 // ── attribute-handler-registry PR3a-load：外部 analyzer zpkg 编译期加载端到端 ─────────────────
 // 编译一个实现 Z42.Syntax.Analyzer 的 fixture → 临时 zpkg → 经 CompileInputs.AnalyzerZpkgs 喂给
@@ -588,7 +583,7 @@ string _loadAndToString(CompileArtifacts cArt, string zpkgName, string typeFqn) 
     Directory.Create(tmp);
     string czPath = Path.Join(tmp, zpkgName);
     File.WriteAllBytes(czPath, ZpkgWriterZ.WritePacked(cArt.Z, false).ToBytes());
-    _VmLoad.load(czPath);                       // Path-B：并入 live VM
+    ModuleLoader.Load(czPath);                  // Path-B：并入 live VM
     Type t = Type.GetType(typeFqn);
     Assert.Equal(true, t != null);
     object o = Activator.CreateInstance(t);

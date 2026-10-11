@@ -245,20 +245,22 @@ VarRegion 变长块（16B 对齐原始 chunk + 四分之一八度 size-class fre
 |-----------|---------|--------|-----------|
 | `Str` | inline UTF-8 | `Value::Str`（8B 细指针，**不可变叶子**，trace 无出边）| POD，无 |
 | `Closure` | 一个 `ClosureData{env: GcRef, fn_id: FnId}` | `Value::Closure` | **POD，无**（目标是函数 id，闭包全 POD）|
-| `ArrayPrim` / `ArrayStruct` | 紧凑 `[T;n]`（packed 基元 / struct[] 字节区）| `ArrayObj` backing | POD，无 |
-| `ArrayValue` | inline `[Value;n]`（Boxed 数组 / struct[] refs 侧表）| `ArrayObj` backing | **唯一需 finalizer**：drop 每个 `Value` |
+| `ArrayPrim` / `ArrayStruct` | 紧凑 `[T;n]`（PRIM 数组 / `struct[]` blob，引用叶子是 8 B 引用字）| `ArrayObj` backing | POD，无 |
+| `ArrayRef` | `[u64;n]` 8 B 引用字（REF 数组）| `ArrayObj` backing | POD，无 |
+| `ArrayCell` | `[u64;2n]` 16 B 型参单元（MIXED 数组）| `ArrayObj` backing | POD，无 |
+| `ArrayValue` | inline `[Value;n]`（FROZEN 数组：闭包环境、种类 7 值盒子）| `ArrayObj` backing | `Value` 有 drop glue 时才需 finalizer（当前 `Value: Copy`，无）|
 
 **数组直接在块里构造**（[`metadata/types/array.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/types/array.rs)）：
-`ArrayNew`（interp + JIT `jit_array_new`）/ `Array.CreateInstance` 走 `ArrayObj::typed_filled(heap, elem_type, n, default)`，
-`ArrayNewLit`（interp + JIT `jit_array_new_lit`）/ `ToCharArray` 走 `ArrayObj::typed_iter`（从源寄存器 / 迭代器直写）。
+`ArrayNew`（interp + JIT `jit_array_new`）/ `Array.CreateInstance` 走 `ArrayObj::filled(heap, elem_type, mode, n, default)`，
+`ArrayNewLit`（interp + JIT `jit_array_new_lit`）/ `ToCharArray` 走 `ArrayObj::from_iter_kind` / `typed_iter`（从源寄存器 / 迭代器直写）。
+模式（PRIM / REF / MIXED / STRUCT / FROZEN）见 [object-abi.md](object-abi.md)「数组元素」。
 两者都按元素类型选好 backing 后直接分配目标块，中间没有 `Vec<Value>` 暂存——峰值内存 = 目标块本身
 （扩容 `List<T>.EnsureCapacity` = `new T[2n]` + `Array.Copy` 时 = 旧块 + 新块）。
-分配器本就把 payload 清零，所以默认值恰为该 backing 的零（packed `0`/`'\0'`/`false`/`+0.0`，或 Boxed 块里的
-`I64(0)`——`Value` 是 `#[repr(C, u8)]`、判别式 0 = `I64`）时**新块即数组**，零逐元素写；否则（引用数组的
-`Null` 等）逐槽原地写一次。GC 安全：块在 `alloc_array_obj` 分配数组头（第一个可能触发回收的点）之前就已写完，
-新块在头指向它之前不可达。同类 backing 之间的 `__array_copy` 是块到块 `memcpy`（同一 struct 的 struct[] 是字节块 +
-引用侧表各拷一段）；拷完对写入区间的每个引用槽发写屏障（`objops::array_bulk::barrier_after_range_store`：引用数组
-是元素本身，struct[] 是元素的每个引用叶子），packed 目的数组不持引用、没有可扫的槽。
+分配器本就把 payload 清零，所以默认值恰为该 backing 的零（packed `0`/`'\0'`/`false`/`+0.0`，REF / MIXED 的整字 0
+= `null`，MIXED 的基元 `T` 记作数组的零种类）时**新块即数组**，零逐元素写；否则逐槽原地写一次。GC 安全：块在 `alloc_array_obj` 分配数组头（第一个可能触发回收的点）之前就已写完，
+新块在头指向它之前不可达。同种 PRIM backing 之间的 `__array_copy` 是块到块 `memcpy`（REF → REF 逐字、同一 struct 的
+struct[] 逐元素拷 blob，都经引用字写原语记 SATB）；拷完对写入区间的每个引用槽发写屏障（`objops::array_bulk::barrier_after_range_store`：
+REF / MIXED / FROZEN 是元素本身，struct[] 是元素的每个引用叶子，只对真正的堆引用发、不分配），packed 目的数组不持引用、没有可扫的槽。
 
 **分配落地 = ambient 堆**（[`gc/ambient.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/gc/ambient.rs)）：`current_heap()` +
 `HeapGuard` 在引擎入口设 thread-local（ctx 栈底帧 push 时、宿主 invoke、`jit::run_fn`；见
@@ -304,7 +306,7 @@ flowchart TD
   M -->|"Closure/Str"| RV["VarGcRef::mark → region_var 块置位"]
   RO --> TC["v.visit_gc_children(true, push child)"]
   RV --> TC
-  TC -->|"Array"| MB["mark_backing() 标元素块 + 推 gc_refs"]
+  TC -->|"Array"| MB["mark_backing() 标元素块 + visit_refs 推出边"]
   TC -->|"Closure"| CE["推 env 数组头"]
   TC --> Q["子节点入队 → 循环"]
   SWEEP["sweep_phase (mark 后, STW)"] --> S3["region_object/array/var 各自 sweep<br/>未标块 → drop-glue(仅 ArrayValue) → tombstone/回收"]
@@ -351,8 +353,8 @@ card-marking 真实逻辑。**call-site wiring + 调用契约**与模式无关�
 5. **StaticSet 不 dispatch**: static fields 是 GC root，"old → new"
    写永远在 root，不存在 cross-region/cross-generation 关心的场景。
 6. **引用叶子被拷进别处时，按叶子发**：装箱 struct 写进 `struct[]`（`StructBytes` backing）时
-   `set_boxed` 把盒子的引用叶子**拷进**数组，数组持有的是叶子而不是盒子 ⇒ 屏障按每个叶子发
-   （`objops::array::barrier_after_elem_store`），不能拿盒子判龄（老盒子、年轻叶子就漏卡）。
+   写入把盒子的 blob（含引用叶子）**拷进**数组，数组持有的是叶子而不是盒子 ⇒ 屏障按每个叶子发
+   （`objops::array::barrier_elem`），不能拿盒子判龄（老盒子、年轻叶子就漏卡）。
 
 #### VM 自己的写入点
 
@@ -364,9 +366,9 @@ card-marking 真实逻辑。**call-site wiring + 调用契约**与模式无关�
 |---|---|
 | throw 点补 `Exception.StackTrace` | `objops::field::store_slot` |
 | 反射 `FieldInfo.SetValue`（普通字段） | `objops::field::store_slot` |
-| 反射 `FieldInfo.SetValue`（装箱 struct 字段 / 对象内联 struct 叶子） | `set_ref_slot` + 逐叶子 `write_barrier_field` |
+| 反射 `FieldInfo.SetValue`（装箱 struct 字段 / 对象内联 struct 叶子） | `write_blob` / `set_struct_ref_leaf`，落下的每个引用发 `write_barrier_field` |
 | 反射构造泛型 `Type`（`__typeArgs` / `__fullName`） | `objops::field::store_slot` |
-| `Std.Array.SetValue` | `try_set_boxed` + `objops::array::barrier_after_elem_store` |
+| `Std.Array.SetValue` | `try_set_boxed` + `objops::array::barrier_elem` |
 | `Std.Array.Copy`（`__array_copy`） | `objops::array_bulk::copy_range` + `barrier_after_range_store`（对写入区间每个引用槽，含 struct 元素的引用叶子） |
 | `PropertyInfo.SetValue` | 调 setter ⇒ 走 `FieldSet` |
 
