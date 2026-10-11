@@ -257,9 +257,11 @@ public sealed partial class ClassDescBuilder {
                 string tn = this._typeFieldName(fd.Type);   // G18g：TYPE 段字段类型用源拼写（byte[]，非规范 u8[]）
                 // infer-var-field-types：var 字段源拼写「var」丢类型 → 用推断后的 fs.FieldType
                 // （VarFieldInfer 已回写）；非 var 字段保留源拼写不动（byte[] 语义）。
+                // fqn-tables 5c：推断出的类型按签名文法拼（`SigTypeNames`：类 / 接口 / enum 写 FQN）——此前 `Name()` 是短名
+                // （`List<Int32>`），消费端只能靠已删的裸名回落去猜（cross-zpkg generic_field_carry 实测）。
                 if (fsy != null && (fd.Type is NamedType) && ((fd.Type as NamedType).Name == "var")
                         && !(fsy.FieldType is Z42UnknownType)) {
-                    tn = fsy.FieldType.Name();
+                    tn = SigTypeNames.OfResolved(fsy.FieldType);
                 }
                 bool isStatic = fsy != null && fsy.IsStatic;
                 if (isStatic) {
