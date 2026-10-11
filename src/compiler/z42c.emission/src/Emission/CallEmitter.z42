@@ -364,7 +364,8 @@ public sealed class CallEmitter {
         if (c.MethodTypeArgCount <= 0) { return c.MethodName; }
         IrGen g = this._ctx.Gen;
         if (g == null || g.GenericBodies == null) { return c.MethodName; }
-        string lookup = c.OwnerClass + "." + c.MethodName;
+        // 体登记表按方法的 IR 名建键（`IrGen.ScanGenericBodies`）：接收者类型的声明 ns + 类名 + 方法键。
+        string lookup = SymbolTable.QualOf(EmitContext.DeclNsOf(c.Receiver.Type()), c.OwnerClass) + "." + c.MethodName;
         if (!g.GenericBodies.ContainsKey(lookup)) { return c.MethodName; }   // 非本包 / 虚方法（刻意排除）
         string suffix = "";
         int i = 0;
@@ -397,21 +398,9 @@ public sealed class CallEmitter {
         if (c.MethodTypeArgCount <= 0) { return func; }
         IrGen g = this._ctx.Gen;
         if (g == null || g.GenericBodies == null) { return func; }
-        // 体查找键：静态方法 = `OwnerKey.RegKey`；自由函数 = `RegKey`（= FQ 名去掉 ns 前缀）。
-        string lookup = "";
-        if (c.Kind == "static") {
-            int d1 = func.LastIndexOf('.');
-            if (d1 < 0) { return func; }
-            string ownerFq = func.Substring(0, d1);
-            string mkey = func.Substring(d1 + 1, func.Length - d1 - 1);
-            int d2 = ownerFq.LastIndexOf('.');
-            string ownerBare = d2 < 0 ? ownerFq : ownerFq.Substring(d2 + 1, ownerFq.Length - d2 - 1);
-            lookup = ownerBare + "." + mkey;
-        } else {
-            int d3 = func.LastIndexOf('.');
-            lookup = d3 < 0 ? func : func.Substring(d3 + 1, func.Length - d3 - 1);
-        }
-        if (!g.GenericBodies.ContainsKey(lookup)) { return func; }
+        // 体登记表按 IR 名建键（静态方法 `ns.Owner.RegKey` / 自由函数 `ns.RegKey`），`func` 就是它。
+        // 跨 ns 同名（`A.Util.Tag<T>` / `B.Util.Tag<T>`）各取各的体。
+        if (!g.GenericBodies.ContainsKey(func)) { return func; }
         string spec = func;
         int i = 0;
         while (i < c.MethodTypeArgCount) {
@@ -421,7 +410,7 @@ public sealed class CallEmitter {
             spec = spec + ":" + an;
             i = i + 1;
         }
-        if (!g.GenericFnInsts.ContainsKey(spec)) { g.GenericFnInsts.Put(spec, new StrBox(lookup)); }
+        if (!g.GenericFnInsts.ContainsKey(spec)) { g.GenericFnInsts.Put(spec, new StrBox(func)); }
         return spec;
     }
 

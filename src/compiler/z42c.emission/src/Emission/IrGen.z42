@@ -63,8 +63,9 @@ public sealed class IrGen {
     public bool SpecDiverged;
     // 工作表里第一个类型实参嵌套超过 `SpecializationGuard.DepthCap` 的项；"" = 尚无。
     public string SpecDeepKey;
-    // 本包**泛型体**的登记表：体查找键 → `GenericBodySrc`（AST + **其所属 CU 的 model** + ownerKey）。
-    // 自由函数键 = `RegKey`；方法键 = `OwnerKey.RegKey`（与 `SemanticModel.HasBody` 同一口径）。
+    // 本包**泛型体**的登记表：IR 名 → `GenericBodySrc`（AST + **其所属 CU 的 model** + 属主 FQN + model 体键）。
+    // 自由函数键 = `ns.RegKey`；方法键 = `ns.Owner.RegKey`（= 发射出的函数名）。键带 ns：同包跨 ns 同名的
+    // 泛型体（`A.Util.Tag<T>` / `B.Util.Tag<T>`）各登记各的，调用点按自己的目标名取体。
     public StrMap GenericBodies;
     // 本包**泛型类型**声明：裸名 → `GenericBodySrc`。`EmitInstantiation` 靠它重发实例化的成员。
     public StrMap GenericTypeDecls;
@@ -445,30 +446,29 @@ public sealed class IrGen {
         while (ci < count) {
             CompilationUnit cu = cus[ci];
             SemanticModel mdl = models == null ? null : models[ci];
+            string cuNs = cu.HasNamespace ? cu.Namespace : "";
             int gi = 0;
             while (gi < cu.DeclCount) {
                 Decl gd = DeclFacts._unwrap(cu.Decls[gi]);
                 if (gd is MethodDecl) {
                     MethodDecl gmd = gd as MethodDecl;
-                    if (gmd.TypeParams.Count > 0 && gmd.HasBody && !bodies.ContainsKey(gmd.RegKey)) {
-                        bodies.Put(gmd.RegKey, new GenericBodySrc(cu.Decls[gi], mdl, "", ""));
+                    string fk = SymbolTable.QualOf(cuNs, gmd.RegKey);   // = 自由函数的 IR 名
+                    if (gmd.TypeParams.Count > 0 && gmd.HasBody && !bodies.ContainsKey(fk)) {
+                        bodies.Put(fk, new GenericBodySrc(cu.Decls[gi], mdl, "", "", gmd.RegKey));
                     }
                 } else if (gd is ClassDecl) {
                     ClassDecl gc = gd as ClassDecl;
-                    string gownerKey = gc.Name;
-                    if (gc.TypeParams.Count > 0) {
-                        string gom = gc.Name + "$" + gc.TypeParams.Count.ToString();
-                        if (symbols.HasClass(gom)) { gownerKey = gom; }
-                    }
+                    string gownerKey = symbols.LocalClassKey(cuNs, gc);
+                    string gownerFq = SymbolTable.QualOf(cuNs, gownerKey);
                     // 泛型**类型**声明：`EmitInstantiation` / `_instClassDesc` 要靠它重发实例化的
                     // 成员与描述符。**两个拼写都登记**：实例化名的基名是 arity-mangled 的
                     // `Pair$2`（见 `ExprEmitter._instBaseName` —— 不 mangle 的话擦除前缀会撞上同名
                     // 非泛型类），而别的调用点仍按裸名 `Pair` 查。同一份声明，两把钥匙。
                     if (gc.TypeParams.Count > 0 && !types.ContainsKey(gc.Name)) {
-                        types.Put(gc.Name, new GenericBodySrc(cu.Decls[gi], mdl, "", ""));
+                        types.Put(gc.Name, new GenericBodySrc(cu.Decls[gi], mdl, "", "", ""));
                     }
                     if (gc.TypeParams.Count > 0 && !types.ContainsKey(gownerKey)) {
-                        types.Put(gownerKey, new GenericBodySrc(cu.Decls[gi], mdl, "", ""));
+                        types.Put(gownerKey, new GenericBodySrc(cu.Decls[gi], mdl, "", "", ""));
                     }
                     int gmi = 0;
                     while (gmi < gc.MemberCount) {
@@ -478,10 +478,10 @@ public sealed class IrGen {
                             // S1-d：**虚/override 也登记**。安全性靠两条：① 运行期「特化名不沿基类链
                             // 继承」（`vcall_resolve`）；② 闭包扩到该方法的全部覆写（`_noteSpecOverrides`）。
                             if (gm.TypeParams.Count > 0 && gm.HasBody) {
-                                string lk = gownerKey + "." + gm.RegKey;
+                                string lk = gownerFq + "." + gm.RegKey;   // = 方法的 IR 名
                                 if (!bodies.ContainsKey(lk)) {
                                     string rk = Mod.Has(gm.ModFlags, Mod.Static) ? "" : gm.RegKey;
-                                    bodies.Put(lk, new GenericBodySrc(gc.Members[gmi], mdl, gownerKey, rk));
+                                    bodies.Put(lk, new GenericBodySrc(gc.Members[gmi], mdl, gownerFq, rk, gownerKey + "." + gm.RegKey));
                                 }
                             }
                         }
@@ -501,8 +501,8 @@ public sealed class IrGen {
         int i = 0;
         while (i < keys.Length) {
             GenericBodySrc src = this.GenericBodies.Get(keys[i]) as GenericBodySrc;
-            if (src != null && src.RegKey == regKey && src.OwnerKey != "") {
-                string fq = this._q(src.OwnerKey) + "." + regKey + suffix;
+            if (src != null && src.RegKey == regKey && src.OwnerFq != "") {
+                string fq = src.OwnerFq + "." + regKey + suffix;
                 if (!this.GenericFnInsts.ContainsKey(fq)) { this.GenericFnInsts.Put(fq, new StrBox(keys[i])); }
             }
             i = i + 1;
@@ -530,10 +530,10 @@ public sealed class IrGen {
         // S1-f：体查找必须用**声明所属 CU** 的 model —— 泛型常声明在别的文件里，用当前 CU 的
         // `HasBody` 恒假 ⇒ 静默什么都不发，而调用点已派发到特化名 ⇒ 运行期 MissingSymbol。
         SemanticModel bm = src.Model != null ? src.Model : model;
-        if (!bm.HasBody(rk.Value)) { return; }
+        if (!bm.HasBody(src.BodyKey)) { return; }
         string[] targs = IrGen.SpecArgsOf(specName, md.TypeParams.Count);
         if (targs.Length != md.TypeParams.Count) { return; }   // 形状对不上 ⇒ 宁可不发，也不发错的
-        Z42ClassType owner = src.OwnerKey == "" ? null : model.Symbols.GetClass(src.OwnerKey) as Z42ClassType;
+        Z42ClassType owner = src.OwnerFq == "" ? null : model.Symbols.ClassesByFqn.Get(src.OwnerFq) as Z42ClassType;
 
         StrMap saved = this.SpecTypeArgs;
         StrMap m = new StrMap();
@@ -543,10 +543,10 @@ public sealed class IrGen {
 
         var fe = new FunctionEmitter(model.Symbols, this);
         // 三种形态：自由函数（无 owner、无 this）/ 静态方法（有 owner、无 this）/ 实例方法（两者皆有）。
-        bool isMember = src.OwnerKey != "";
+        bool isMember = src.OwnerFq != "";
         bool isStaticMethod = isMember && Mod.Has(md.ModFlags, Mod.Static);
         bool isInstance = isMember && !isStaticMethod;
-        IrFunction irf = fe.EmitFunction(specName, md, bm.GetBody(rk.Value), isInstance, isStaticMethod,
+        IrFunction irf = fe.EmitFunction(specName, md, bm.GetBody(src.BodyKey), isInstance, isStaticMethod,
                                          owner, new string[0], 0);
         irf.Visibility = DeclFacts._visCode(md.ModFlags, isMember ? 1 : 3);
         irf.MethodFlags = irf.MethodFlags | IrGenFacts._methodFlags(md.ModFlags);

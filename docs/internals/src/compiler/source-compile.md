@@ -1168,5 +1168,11 @@ z42 的 IR 把**字节偏移烘焙进指令**（`struct_fget_prim %0 @8`）。�
 `Generate` 仅在未注入时按本 CU 自扫（单文件 dump / 测试路径），两条路共用
 `IrGen.ScanGenericBodies`，判据只有一份。
 
+登记表的键是**发射出的函数名**（自由函数 `ns.RegKey`、方法 `ns.Owner.RegKey`），调用点拿自己的目标名
+（`_specializeGenericBody` 的 `func`；实例方法用接收者类型的声明 ns 拼）去查。键必须带 ns：包里两个
+命名空间各有一个 `Util.Tag<T>` 时，短键 first-wins 会让另一份的调用**静默特化出前一份的体**
+（cross-zpkg `generic_body_crossns_collision`）。`GenericBodySrc.BodyKey` 另存 model 里的短体键——
+`SemanticModel` 按 CU 建、一个 CU 一个 ns，短键在其内唯一。
+
 > 🔴 **待办**：`SemanticModel` 也按 CU 建（`TypeChecker.Infer(cu, …)`），所以**泛型声明与
 > 实例化跨文件**时拿不到绑定后的体 —— 登记表提到包级**不足以**解决它。
