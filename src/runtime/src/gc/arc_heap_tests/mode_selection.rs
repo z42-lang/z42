@@ -34,8 +34,8 @@ fn set_mode_then_collect_uses_the_new_mode() {
     {
         let Value::Object(a_gc) = &a else { panic!() };
         let Value::Object(b_gc) = &b else { panic!() };
-        a_gc.borrow_mut().set_ref_raw_for_test(0, &b.clone());
-        b_gc.borrow_mut().set_ref_raw_for_test(0, &a.clone());
+        a_gc.borrow().set_ref_raw_for_test(0, &b.clone());
+        b_gc.borrow().set_ref_raw_for_test(0, &a.clone());
     }
     drop(a); drop(b);
 

@@ -28,8 +28,8 @@
 //! 2. **离开 park 之前必须先释放内部 `state` 锁。** park 的退出可能要等 STW 结束；若此时还攥着
 //!    `state`，另一个正在 `exit` 里抢 `state` 的线程（它既不在 safepoint 也没 park）就会让
 //!    GC 等它、它等我、我等 GC。代码里靠**声明顺序**保证：`_park` 先声明（后 drop），`st` 后声明（先 drop）。
-//! 3. 阻塞前先把 `Arc<Monitor>` 从句柄对象里克隆出来、释放对象借用（[`monitor_arg`]）——
-//!    带着对象借用阻塞会挡住 GC 对该对象的处理。
+//! 3. 阻塞前先把 `Arc<Monitor>` 从句柄对象里克隆出来（[`monitor_arg`]）——阻塞期间 park 的线程
+//!    不得再碰堆（collector 可能正在处理这个对象），手里只留原生的 `Arc`。
 //!
 //! 快路径（无争用）不 park：park 的进出要拿全局 phase 锁并 `notify_all`，不能每次加锁都付。
 //! `state` 只在 O(1) 临界区里被持有，短暂等它不需要 park。
@@ -195,7 +195,7 @@ pub fn builtin_monitor_wait(ctx: &VmContext, args: &[Value]) -> Result<()> {
     Ok(())
 }
 
-/// 从句柄对象里克隆出 `Arc<Monitor>`，**并在返回前释放对象借用**（D4 第 3 条）。
+/// 从句柄对象里克隆出 `Arc<Monitor>`（D4 第 3 条：阻塞时只持有原生句柄）。
 fn monitor_arg(args: &[Value], name: &str) -> Result<Arc<Monitor>> {
     match args.first() {
         Some(Value::Object(rc)) => {

@@ -144,7 +144,7 @@ pub(super) fn snapshot_struct_leaf(
 pub(crate) fn boxed_struct_field_get(
     ctx: &VmContext, gc: &crate::gc::GcRef<crate::metadata::types::ScriptObject>, name: &str,
 ) -> Result<Value> {
-    use crate::interp::exec_struct::{decode_prim, prim_width};
+    use crate::interp::exec_struct::prim_width;
     let type_name = gc.type_desc().name.to_string();
     let resolve = |n: &str| ctx.try_lookup_type(n);
     let comp = crate::corelib::struct_reflect::compute(&resolve, &type_name)?;
@@ -164,7 +164,7 @@ pub(crate) fn boxed_struct_field_get(
         gc.borrow().struct_ref_leaf(leaf.byte_off)
     } else {
         let w = prim_width(leaf.tag)?;
-        decode_prim(&gc.borrow().bytes(), leaf.byte_off as usize, w, leaf.tag)
+        gc.borrow().prim_leaf(leaf.byte_off as usize, w, leaf.tag)
     }
 }
 
@@ -276,7 +276,7 @@ pub(super) fn object_inline_struct_field_set(
     }
     let (src_bytes, src_refs) = src.borrow().boxed_blob();
     let mut stored: Vec<Value> = Vec::new();
-    rc.borrow_mut().write_blob(
+    rc.borrow().write_blob(
         fa.offset as usize, fa.width as usize, &src_bytes, &src_refs, &nested.ref_offsets,
         &mut |v| stored.push(*v),
     )?;
@@ -306,7 +306,7 @@ pub(super) fn write_struct_leaf(
     // Snapshot the source blob first (avoid holding two borrows).
     let (src_bytes, src_refs) = src.borrow().boxed_blob();
     let mut stored: Vec<Value> = Vec::new();
-    gc.borrow_mut().write_blob(
+    gc.borrow().write_blob(
         leaf.byte_off as usize, leaf.size as usize, &src_bytes, &src_refs, &nested.ref_offsets,
         &mut |v| stored.push(*v),
     )?;
@@ -364,7 +364,7 @@ pub(super) fn boxed_struct_field_set(
         write_struct_leaf(ctx, base_val, gc, &comp, &leaf, src)?;
         Ok(Value::Null)
     } else if leaf.is_ref {
-        let wrote = gc.borrow_mut().set_struct_ref_leaf(leaf.byte_off, value)?;
+        let wrote = gc.borrow().set_struct_ref_leaf(leaf.byte_off, value)?;
         // Write barrier: a reference stored into a heap object (the shared box).
         wrote.with_barrier_value(value, |s| ctx.heap().write_barrier_field(base_val, leaf.byte_off as usize, s));
         Ok(Value::Null)
@@ -382,7 +382,7 @@ pub(super) fn boxed_struct_field_set(
             other => other,
         };
         let w = prim_width(leaf.tag)?;
-        let mut o = gc.borrow_mut();
+        let o = gc.borrow();
         o.set_prim_leaf(leaf.byte_off as usize, w, leaf.tag, raw)?;
         Ok(Value::Null)
     }

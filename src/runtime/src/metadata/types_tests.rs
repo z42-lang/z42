@@ -123,7 +123,7 @@ fn trace_children_visits_inline_struct_refs() {
         cold: Some(Box::new(TypeDescCold { composed_object_layout: Some(layout), ..Default::default() })),
         ..(*dummy_type_desc("Owner")).clone()
     });
-    let mut obj = ScriptObject::new(td.clone(), td.object_storage());
+    let obj = ScriptObject::new(td.clone(), td.object_storage());
     obj.set_struct_ref_leaf(8, &leaf).unwrap();
     assert!(obj.set_struct_ref_leaf(0, &leaf).is_err(), "offset 0 is not a reference leaf");
     let owner = Value::Object(GcRef::new(obj));
@@ -174,7 +174,7 @@ fn inline_object_field_roundtrips_and_is_traced() {
     assert!(matches!(holder.borrow().field_value(0), Value::Null), "zeroed inline field = Null");
     // Writing an object inlines its 8B tagged pointer AND reports a reference write
     // (so the caller still fires `write_barrier_field`).
-    let wrote_ref = holder.borrow_mut().set_field_value(0, &leaf);
+    let wrote_ref = holder.borrow().set_field_value(0, &leaf);
     assert!(wrote_ref, "inlined object field is a reference slot");
     // Reads back by reference identity (address + generation preserved through bytes).
     match holder.borrow().field_value(0) {
@@ -229,14 +229,14 @@ fn clear_refs_for_sweep_erases_every_reference_word() {
 
     let leaf = Value::Object(GcRef::new(ScriptObject::new(dummy_type_desc("Leaf"), crate::metadata::types::ObjStorage::new(0))));
     let holder = GcRef::new(ScriptObject::new(holder_td, crate::metadata::types::ObjStorage::new(8)));
-    holder.borrow_mut().set_field_value(0, &leaf);
+    holder.borrow().set_field_value(0, &leaf);
 
     let hv = Value::Object(holder.clone());
     let mut before = 0usize;
     hv.trace_children(crate::gc::refs::MarkKind::Major(1), &mut |v: &Value| if matches!(v, Value::Object(_)) { before += 1; });
     assert_eq!(before, 1, "the edge exists before the erase");
 
-    holder.borrow_mut().clear_refs_for_sweep();
+    holder.borrow().clear_refs_for_sweep();
 
     let mut after = 0usize;
     hv.trace_children(crate::gc::refs::MarkKind::Major(1), &mut |v: &Value| if matches!(v, Value::Object(_)) { after += 1; });
@@ -276,8 +276,8 @@ fn clear_refs_for_sweep_skips_an_offset_past_the_payload() {
     });
 
     let obj = GcRef::new(ScriptObject::new(td, crate::metadata::types::ObjStorage::new(8)));
-    obj.borrow_mut().clear_refs_for_sweep(); // must not panic
-    assert_eq!(obj.borrow().bytes().len(), 8, "payload untouched");
+    obj.borrow().clear_refs_for_sweep(); // must not panic
+    assert_eq!(obj.borrow().payload_len(), 8, "payload untouched");
 }
 
 /// The borrowed layout accessor and the `Arc`-cloning one must never drift apart — the
@@ -342,7 +342,7 @@ fn object_storage_empty_for_fieldless_type() {
     // layout has an empty payload — and allocates nothing for it.
     let td = dummy_type_desc("Plain");
     let storage = td.object_storage();
-    assert!(storage.bytes().is_empty());
+    assert!(storage.is_empty());
     assert_eq!(td.object_bytes_len(), 0);
 }
 

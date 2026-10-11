@@ -86,7 +86,7 @@ fn type_asm_id(args: &[Value]) -> AssemblyId {
 /// `IsCollectible` / `Assembly` resolve to this assembly.
 fn set_type_asm_id(tv: &Value, aid: AssemblyId) {
     if let Value::Object(rc) = tv {
-        let mut o = rc.borrow_mut();
+        let o = rc.borrow();
         let idx = o.type_desc.field_index.get(ASM_ID_SLOT).copied();
         if let Some(i) = idx {
             o.set_field_value(i, &Value::I64(aid.0 as i64));

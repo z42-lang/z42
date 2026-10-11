@@ -120,9 +120,10 @@ pub(super) fn prim_value_mismatch(val: &Value, backing: &str, site: &str) {
 
 impl ArrayObj {
     // ── block payload accessors ───────────────────────────────────────────────
-    // SAFETY (shared): the caller holds the `ArrayObj` under a `borrow()`, so the block is alive;
-    // the block stores exactly `len` `T`s (8-aligned payload, `align_of::<T>() <= 8`). The
-    // returned slice's lifetime is tied to `&self`, and the block outlives the header.
+    // SAFETY (shared): the block is alive while the caller holds the `ArrayObj`; it stores exactly
+    // `len` `T`s (8-aligned payload, `align_of::<T>() <= 8`). The returned slice's lifetime is tied
+    // to the borrow, and the block outlives the header. A plain slice: only for memory nobody
+    // writes after publication — FROZEN blocks (written once before the array is published).
     #[inline]
     pub(super) unsafe fn slice_of<T>(block: &VarGcRef, len: usize) -> &[T] {
         Self::debug_block_bounds::<T>(block, len, "slice_of");
@@ -141,8 +142,9 @@ impl ArrayObj {
             "{ctx}<{}> OOB — len={len} elems > block payload {}", std::any::type_name::<T>(), block.payload_size());
     }
 
-    // SAFETY (exclusive): additionally the caller holds `borrow_mut()`, so this `&mut [T]`
-    // uniquely aliases the block payload. Only for fresh blocks and the FROZEN / stack paths.
+    // SAFETY (exclusive): additionally the block is **fresh** — allocated by the caller and not yet
+    // reachable from any published array — so this `&mut [T]` uniquely aliases the payload.
+    // Construction only: a published array is shared without a lock (object model R4).
     #[inline]
     #[allow(clippy::mut_from_ref)]
     pub(super) unsafe fn slice_of_mut<T>(block: &VarGcRef, len: usize) -> &mut [T] {
@@ -151,21 +153,13 @@ impl ArrayObj {
         unsafe { std::slice::from_raw_parts_mut(block.payload_as_ptr::<T>(), len) }
     }
 
-    /// Atomic loads over `bytes` bytes of a backing block.
+    /// Atomic loads and stores over `bytes` bytes of a backing block.
     #[inline(always)]
     pub(super) fn cells_of(block: &VarGcRef, bytes: usize) -> Cells<'_> {
         Self::debug_block_bounds::<u8>(block, bytes, "cells_of");
         // SAFETY: a live, 8-aligned block payload of at least `bytes` bytes, owned by the array
         // the caller borrows; every concurrent access is an atomic cell access.
         unsafe { Cells::from_raw(block.payload_as_ptr::<u8>(), bytes) }
-    }
-
-    /// Atomic loads and stores over `bytes` bytes of a backing block (caller holds `&mut self`).
-    #[inline(always)]
-    pub(super) fn cells_mut_of(block: &VarGcRef, bytes: usize) -> CellsMut<'_> {
-        Self::debug_block_bounds::<u8>(block, bytes, "cells_mut_of");
-        // SAFETY: as `cells_of`; the caller's exclusive borrow of the array is `CellsMut`'s.
-        unsafe { CellsMut::from_raw(block.payload_as_ptr::<u8>(), bytes) }
     }
 
     /// Allocate a FROZEN block and move `elems` into it.
@@ -192,13 +186,15 @@ impl ArrayObj {
     }
 
     /// Allocate a block of `bytes` bytes of `bt` and copy the first `bytes` of `src`'s payload
-    /// into it (deep copy of a block-backed array).
+    /// into it (deep copy of a block-backed array). The source is read with atomic chunked loads
+    /// ([`Cells::copy_out`]) — another thread may be writing it; the fresh block is written plainly
+    /// (nothing can see it yet).
     pub(super) fn alloc_block_copy(heap: &dyn MagrGC, src: &VarGcRef, bytes: usize, bt: BlockType) -> VarGcRef {
         let block = heap.alloc_var_block(bytes, bt);
         if bytes > 0 {
-            Self::debug_block_bounds::<u8>(src, bytes, "alloc_block_copy");
-            // SAFETY: both payloads hold at least `bytes` bytes; distinct blocks.
-            unsafe { std::ptr::copy_nonoverlapping(src.payload_as_ptr::<u8>(), block.payload_as_ptr::<u8>(), bytes); }
+            // SAFETY: a fresh block of `bytes` bytes, reachable from nothing yet.
+            let dst = unsafe { Self::slice_of_mut::<u8>(&block, bytes) };
+            Self::cells_of(src, bytes).copy_out(0, dst);
         }
         block
     }
@@ -295,7 +291,7 @@ impl ArrayObj {
         let block = heap.alloc_var_block(len * REF_STRIDE, BlockType::ArrayRef);
         let mut pending: Vec<(usize, Value)> = Vec::new();
         {
-            let c = Self::cells_mut_of(&block, len * REF_STRIDE);
+            let c = Self::cells_of(&block, len * REF_STRIDE);
             let mut n = 0usize;
             for v in elems.take(len) {
                 match ref_word::encode(&v) {
@@ -317,7 +313,7 @@ impl ArrayObj {
         let block = heap.alloc_var_block(len * CELL_STRIDE, BlockType::ArrayCell);
         let mut pending: Vec<(usize, Value)> = Vec::new();
         {
-            let c = Self::cells_mut_of(&block, len * CELL_STRIDE);
+            let c = Self::cells_of(&block, len * CELL_STRIDE);
             let mut n = 0usize;
             for v in elems.take(len) {
                 match tparam_cell::init_words(&v) {
@@ -342,7 +338,7 @@ impl ArrayObj {
     #[cold]
     fn init_boxed(block: &VarGcRef, bytes: usize, off: usize, v: &Value) {
         match ref_word::alloc_box_ambient(v) {
-            Ok(b) => Self::cells_mut_of(block, bytes)
+            Ok(b) => Self::cells_of(block, bytes)
                 .store_word(off, ref_word::encode_boxed(&b), std::sync::atomic::Ordering::Release),
             Err(e) => debug_assert!(false, "array element {v:?} needs a box: {e}"),
         }

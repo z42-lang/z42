@@ -46,7 +46,7 @@ fn run_moved_into_register(barrier_on: bool) -> bool {
     let holder = heap.alloc_object(dummy_type_desc("Holder"), vec![Value::Null], NativeData::None);
     let x = heap.alloc_object(dummy_type_desc("X"), vec![], NativeData::None);
     let Value::Object(holder_gc) = &holder else { panic!() };
-    holder_gc.borrow_mut().set_ref_raw_for_test(0, &x.clone());
+    holder_gc.borrow().set_ref_raw_for_test(0, &x.clone());
     let _root = heap.pin_root(holder.clone());
     let weak_x = heap.make_weak(&x).expect("object");
 
@@ -54,7 +54,7 @@ fn run_moved_into_register(barrier_on: bool) -> bool {
     heap.snapshot_roots_into_mark_queue(); // holder is grey, not yet traced
     // The mutator: `x` stays in a local, the only edge to it is cut.
     let held = x;
-    holder_gc.borrow_mut().set_field_value(0, &Value::Null);
+    holder_gc.borrow().set_field_value(0, &Value::Null);
     heap.drain_mark_queue(); // traces holder — its field is Null now
     heap.close_major_marking();
     heap.sweep_phase();
@@ -88,14 +88,14 @@ fn satb_records_through_set_field_value() {
         crate::metadata::types::ref_word::ref_word_tests::ref_cell_td(1), vec![], NativeData::None);
     let x = heap.alloc_object(dummy_type_desc("X"), vec![], NativeData::None);
     let Value::Object(holder_gc) = &holder else { panic!() };
-    holder_gc.borrow_mut().set_field_value(0, &x);
+    holder_gc.borrow().set_field_value(0, &x);
     let _root = heap.pin_root(holder.clone());
     let weak_x = heap.make_weak(&x).expect("object");
 
     heap.open_major_cycle();
     heap.snapshot_roots_into_mark_queue();
     let held = x;
-    holder_gc.borrow_mut().set_field_value(0, &Value::Null);
+    holder_gc.borrow().set_field_value(0, &Value::Null);
     heap.drain_mark_queue();
     heap.close_major_marking();
     heap.sweep_phase();
@@ -120,9 +120,9 @@ fn run_type_param_overwrite(barrier_on: bool, claimed: bool) -> bool {
     let x = heap.alloc_object(dummy_type_desc("X"), vec![], NativeData::None);
     let Value::Object(holder_gc) = &holder else { panic!() };
     if claimed {
-        holder_gc.borrow_mut().set_field_value(1, &Value::I64(1)); // fix the variant: `int`
+        holder_gc.borrow().set_field_value(1, &Value::I64(1)); // fix the variant: `int`
     }
-    holder_gc.borrow_mut().set_field_value(1, &x); // direct tag word, or a box when claimed
+    holder_gc.borrow().set_field_value(1, &x); // direct tag word, or a box when claimed
     let _root = heap.pin_root(holder.clone());
     let weak_x = heap.make_weak(&x).expect("object");
 
@@ -130,7 +130,7 @@ fn run_type_param_overwrite(barrier_on: bool, claimed: bool) -> bool {
     heap.snapshot_roots_into_mark_queue();
     let held = x;
     let next = if claimed { Value::I64(2) } else { Value::Null };
-    holder_gc.borrow_mut().set_field_value(1, &next);
+    holder_gc.borrow().set_field_value(1, &next);
     heap.drain_mark_queue();
     heap.close_major_marking();
     heap.sweep_phase();
@@ -169,7 +169,7 @@ fn satb_records_an_overwritten_array_element() {
     heap.snapshot_roots_into_mark_queue();
     let held = x;
     let Value::Array(arr_gc) = &arr else { panic!() };
-    arr_gc.borrow_mut().set_boxed(0, Value::Null);
+    arr_gc.borrow().set_boxed(0, Value::Null);
     heap.drain_mark_queue();
     heap.close_major_marking();
     heap.sweep_phase();
@@ -188,8 +188,8 @@ fn satb_records_nothing_outside_a_mark() {
     let holder = heap.alloc_object(dummy_type_desc("Holder"), vec![Value::Null], NativeData::None);
     let x = heap.alloc_object(dummy_type_desc("X"), vec![], NativeData::None);
     let Value::Object(holder_gc) = &holder else { panic!() };
-    holder_gc.borrow_mut().set_field_value(0, &x);
-    holder_gc.borrow_mut().set_field_value(0, &Value::Null);
+    holder_gc.borrow().set_field_value(0, &x);
+    holder_gc.borrow().set_field_value(0, &Value::Null);
     heap.retire_thread_tlab();
     assert!(heap.satb_queue.lock().is_empty());
 }
@@ -205,10 +205,10 @@ fn satb_records_stay_with_the_writing_threads_heap() {
     let holder = mine.alloc_object(dummy_type_desc("Holder"), vec![Value::Null], NativeData::None);
     let x = mine.alloc_object(dummy_type_desc("X"), vec![], NativeData::None);
     let Value::Object(holder_gc) = &holder else { panic!() };
-    holder_gc.borrow_mut().set_field_value(0, &x);
+    holder_gc.borrow().set_field_value(0, &x);
 
     other.open_major_cycle(); // only the other heap is marking
-    holder_gc.borrow_mut().set_field_value(0, &Value::Null);
+    holder_gc.borrow().set_field_value(0, &Value::Null);
     other.retire_thread_tlab();
     mine.retire_thread_tlab();
     assert!(other.satb_queue.lock().is_empty(), "the other heap must not receive this thread's record");
@@ -308,7 +308,7 @@ fn run_bulk_copy_over_live_element(barrier_on: bool) -> bool {
     heap.snapshot_roots_into_mark_queue();
     let held = x;
     let (Value::Array(dst_gc), Value::Array(src_gc)) = (&dst, &src) else { panic!() };
-    dst_gc.borrow_mut().copy_elems_from(&src_gc.borrow(), 0, 0, 2);
+    dst_gc.borrow().copy_elems_from(&src_gc.borrow(), 0, 0, 2);
     heap.drain_mark_queue();
     heap.close_major_marking();
     heap.sweep_phase();
@@ -347,7 +347,7 @@ fn run_struct_copy_over_live_leaf(barrier_on: bool, within: bool) -> bool {
     let dst = new_arr(2);
     let src = new_arr(2);
     let (Value::Array(dst_gc), Value::Array(src_gc)) = (&dst, &src) else { panic!() };
-    dst_gc.borrow_mut().write_struct_elem(0, &[0u8; 16], &[x], &mut |_| {}).unwrap();   // dst[0].O = x
+    dst_gc.borrow().write_struct_elem(0, &[0u8; 16], &[x], &mut |_| {}).unwrap();   // dst[0].O = x
     let _root = heap.pin_root(dst.clone());
     let _src_root = heap.pin_root(src.clone());
     let weak_x = heap.make_weak(&x).expect("object");
@@ -356,9 +356,9 @@ fn run_struct_copy_over_live_leaf(barrier_on: bool, within: bool) -> bool {
     heap.snapshot_roots_into_mark_queue();
     let held = x;
     if within {
-        dst_gc.borrow_mut().copy_elems_within(1, 0, 1);   // dst[0] = dst[1] (O = null)
+        dst_gc.borrow().copy_elems_within(1, 0, 1);   // dst[0] = dst[1] (O = null)
     } else {
-        dst_gc.borrow_mut().copy_elems_from(&src_gc.borrow(), 0, 0, 2);
+        dst_gc.borrow().copy_elems_from(&src_gc.borrow(), 0, 0, 2);
     }
     heap.drain_mark_queue();
     heap.close_major_marking();
@@ -419,7 +419,7 @@ fn an_incremental_cycle_spans_several_slices_and_collects_garbage() {
     for _ in 0..50 {
         let next = obj(&heap, "Node");
         let Value::Object(t) = &tail else { panic!() };
-        t.borrow_mut().set_field_value(0, &next);
+        t.borrow().set_field_value(0, &next);
         chain.push(heap.make_weak(&next).unwrap());
         tail = next;
     }
@@ -448,14 +448,14 @@ fn run_satb_across_slices(barrier_on: bool) -> bool {
     let holder = obj(&heap, "Holder");
     let x = obj(&heap, "X");
     let (Value::Object(root_gc), Value::Object(holder_gc)) = (&root, &holder) else { panic!() };
-    root_gc.borrow_mut().set_field_value(0, &holder);
-    holder_gc.borrow_mut().set_field_value(0, &x);
+    root_gc.borrow().set_field_value(0, &holder);
+    holder_gc.borrow().set_field_value(0, &x);
     let _pin = heap.pin_root(root.clone());
     let weak_x = heap.make_weak(&x).unwrap();
 
     assert!(!heap.run_major_slice_for_test(1), "one unit: root traced, holder still grey");
     let held = x;
-    holder_gc.borrow_mut().set_field_value(0, &Value::Null);
+    holder_gc.borrow().set_field_value(0, &Value::Null);
     drop(holder);
     while !heap.run_major_slice_for_test(1) {}
     let alive = raw_alive(&weak_x);
@@ -527,14 +527,14 @@ fn run_minor_between_slices(barrier_on: bool) -> bool {
     let holder = obj(&heap, "Holder");
     let y = obj(&heap, "Young");
     let (Value::Object(root_gc), Value::Object(holder_gc)) = (&root, &holder) else { panic!() };
-    root_gc.borrow_mut().set_field_value(0, &holder);
-    holder_gc.borrow_mut().set_field_value(0, &y);
+    root_gc.borrow().set_field_value(0, &holder);
+    holder_gc.borrow().set_field_value(0, &y);
     let _pin = heap.pin_root(root.clone());
     let weak_y = heap.make_weak(&y).unwrap();
 
     assert!(!heap.run_major_slice_for_test(1));
     let held = y;
-    holder_gc.borrow_mut().set_field_value(0, &Value::Null);
+    holder_gc.borrow().set_field_value(0, &Value::Null);
     heap.run_cycle_collection_minor();
     let after_minor = raw_alive(&weak_y);
     while !heap.run_major_slice_for_test(1) {}
@@ -640,13 +640,13 @@ fn incremental_cycles_interleaved_with_writes_and_minors_keep_the_graph_intact()
         match r % 16 {
             0..=5 => {
                 let o = heap.alloc_object(dummy_type_desc("N"), vec![pick.clone(), Value::Null], NativeData::None);
-                roots_gc.borrow_mut().set_boxed(slot, o.clone());
+                roots_gc.borrow().set_boxed(slot, o.clone());
                 heap.write_barrier_array_elem(&roots, slot, &o);
             }
             6..=8 => {
                 if let Value::Object(target) = roots_gc.borrow().get_boxed(slot) {
                     let field = (r >> 32) as usize % 2;
-                    target.borrow_mut().set_field_value(field, &pick);
+                    target.borrow().set_field_value(field, &pick);
                     if pick.is_heap_ref() {
                         heap.write_barrier_field(&Value::Object(target.clone()), field, &pick);
                     }
@@ -659,7 +659,7 @@ fn incremental_cycles_interleaved_with_writes_and_minors_keep_the_graph_intact()
                     if v.is_heap_ref() {
                         registers.push((v.clone(), heap.pin_root(v)));
                     }
-                    target.borrow_mut().set_field_value(0, &Value::Null);
+                    target.borrow().set_field_value(0, &Value::Null);
                 }
             }
             10 => {
@@ -723,7 +723,7 @@ fn a_minor_during_the_sweep_does_not_trace_through_a_doomed_card_entry() {
     // `y` reuses a filler slot in chunk 0; `d.f0 = y` dirties d's card.
     let y = obj(&heap, "Young");
     let Value::Object(d_gc) = &d else { panic!() };
-    d_gc.borrow_mut().set_field_value(0, &y);
+    d_gc.borrow().set_field_value(0, &y);
     heap.write_barrier_field(&d, 0, &y);
     drop(y);
     heap.unpin_root(d_pin);
@@ -784,8 +784,8 @@ fn run_grey_subtree(seeded: bool) -> bool {
     let g = obj(&heap, "Grey");
     let c = obj(&heap, "Child");
     let (Value::Object(root_gc), Value::Object(g_gc)) = (&root, &g) else { panic!() };
-    root_gc.borrow_mut().set_field_value(0, &g);
-    g_gc.borrow_mut().set_field_value(0, &c);
+    root_gc.borrow().set_field_value(0, &g);
+    g_gc.borrow().set_field_value(0, &c);
     let _pin = heap.pin_root(root.clone());
     let weak_c = heap.make_weak(&c).expect("object");
     drop(c);
@@ -799,7 +799,7 @@ fn run_grey_subtree(seeded: bool) -> bool {
     }
 
     crate::gc::satb::set_disabled_for_test(true);
-    root_gc.borrow_mut().set_field_value(0, &Value::Null);
+    root_gc.borrow().set_field_value(0, &Value::Null);
     heap.run_cycle_collection_minor();
     let alive = raw_alive(&weak_c);
     std::mem::forget(g);
@@ -835,7 +835,7 @@ fn run_old_grey_entry_child(dirty_card: bool) -> bool {
     let root = obj(&heap, "Root");
     let holder = obj(&heap, "OldHolder");
     let (Value::Object(root_gc), Value::Object(holder_gc)) = (&root, &holder) else { panic!() };
-    root_gc.borrow_mut().set_field_value(0, &holder);
+    root_gc.borrow().set_field_value(0, &holder);
     let _pin = heap.pin_root(root.clone());
     for _ in 0..4 {
         heap.run_cycle_collection_minor();
@@ -845,7 +845,7 @@ fn run_old_grey_entry_child(dirty_card: bool) -> bool {
     // The young child, and the old→young edge — with or without the card that records it.
     let y = obj(&heap, "Young");
     let weak_y = heap.make_weak(&y).expect("object");
-    holder_gc.borrow_mut().set_field_value(0, &y);
+    holder_gc.borrow().set_field_value(0, &y);
     if dirty_card {
         heap.write_barrier_field(&holder, 0, &y);
     }
@@ -859,7 +859,7 @@ fn run_old_grey_entry_child(dirty_card: bool) -> bool {
         "holder must be grey after a budget-1 slice");
 
     crate::gc::satb::set_disabled_for_test(true);
-    root_gc.borrow_mut().set_field_value(0, &Value::Null);
+    root_gc.borrow().set_field_value(0, &Value::Null);
     heap.run_cycle_collection_minor();
     let alive = raw_alive(&weak_y);
     if !alive {
@@ -867,7 +867,7 @@ fn run_old_grey_entry_child(dirty_card: bool) -> bool {
         // no card — so the edge is now dangling. Cut it before letting the marker trace `holder`,
         // or the cycle finishes by dereferencing it. That panic *is* the finding, but a control
         // should report it, not crash on it.
-        holder_gc.borrow_mut().set_field_value(0, &Value::Null);
+        holder_gc.borrow().set_field_value(0, &Value::Null);
     }
     std::mem::forget(holder);
     heap.finish_major_cycle_for_test();

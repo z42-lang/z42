@@ -212,7 +212,9 @@ impl ScriptObject {
         self.meta.type_args()
     }
 
-    /// Install the native backing, allocating the cold extras box on first use.
+    /// Install the native backing, allocating the cold extras box on first use. Construction
+    /// only (`&mut self`): a published object is shared without a lock, so its extras never
+    /// change — build the object completely, then allocate it (`MagrGC::alloc_script_object`).
     #[inline]
     pub fn set_native(&mut self, native: NativeData) {
         if matches!(native, NativeData::None) && self.meta.extras_ptr().is_none() {
@@ -223,6 +225,7 @@ impl ScriptObject {
 
     /// Install the per-instance type-arguments handle (an interned instantiation; empty
     /// for a non-generic `new`). Never allocates unless the object is native-backed.
+    /// Construction only, like [`Self::set_native`].
     #[inline]
     pub fn set_type_args(&mut self, type_args: TypeArgs) {
         self.meta.set_type_args(type_args);
@@ -264,6 +267,17 @@ impl ScriptObject {
         Self { type_desc, storage, meta: ObjMeta::NONE }
     }
 
+    /// A fresh instance of `type_desc` for `ObjNew` (interp heap and stack branches, JIT): zeroed
+    /// fields plus the instance's generic step ([`Self::install_type_args`] with the handle
+    /// `obj_new_resolve::instance_type_args` picked). Built completely before allocation: a
+    /// published object never changes its meta word (object model R4).
+    pub fn new_instance(type_desc: Arc<TypeDesc>, type_args: TypeArgs) -> Self {
+        let storage = type_desc.object_storage();
+        let mut obj = Self::new(type_desc, storage);
+        obj.install_type_args(type_args);
+        obj
+    }
+
     /// Construct with a native backing (built-in boxes).
     #[inline]
     pub fn with_native(
@@ -274,10 +288,8 @@ impl ScriptObject {
         o
     }
 
-    /// The plain byte view of the payload (boxed-primitive scalars, snapshots under the lock).
-    #[inline] pub fn bytes(&self) -> &[u8] { self.storage.bytes() }
-    /// Mutable plain byte view — primitive bytes only (see [`ObjStorage::bytes_mut`]).
-    #[inline] pub fn bytes_mut(&mut self) -> &mut [u8] { self.storage.bytes_mut() }
+    /// Payload length in bytes (a boxed primitive's scalar width, a boxed struct's blob size).
+    #[inline] pub fn payload_len(&self) -> usize { self.storage.len() }
 
     /// unify Phase 2 R3（装箱统一）：若本对象是**整数基元装箱盒**（`type_desc` 是整数 wrapper、
     /// 标量 LE 字节存 `struct_bytes`，见 `corelib::convert::box_prim_to_heap`），读回其 i64 标量；
@@ -297,12 +309,12 @@ impl ScriptObject {
         } else {
             crate::metadata::well_known_names::int_wrapper_scalar_spec(&self.type_desc.name)?
         };
-        if self.bytes().len() < width {
+        if self.storage.len() < width {
             return None;
         }
-        let mut buf = [0u8; 8];
-        buf[..width].copy_from_slice(&self.bytes()[..width]);
-        let mut v = i64::from_le_bytes(buf);
+        // One relaxed load of the scalar cell (the scalar is stored little-endian at offset 0 by
+        // `box_prim_to_heap`; the VM's targets are all little-endian).
+        let mut v = self.storage.cells().load_bits(0, width)? as i64;
         if signed && width < 8 {
             let shift = (8 - width) * 8;
             v = (v << shift) >> shift; // 符号扩展窄整数
@@ -313,31 +325,19 @@ impl ScriptObject {
     /// make-enum-distinct-type 1.5: if this object is an **enum box**, the declared
     /// member name for the value it carries — C# `Enum.ToString()`; `None` for every
     /// other box, so callers keep their existing behaviour. Convenience for code that
-    /// already holds the `borrow()` guard; the real lookup is
-    /// [`TypeDesc::enum_member_name`], which lock-free callers use directly.
+    /// already holds the object; the real lookup is [`TypeDesc::enum_member_name`].
     pub fn boxed_enum_name(&self) -> Option<String> {
         self.type_desc.enum_member_name(self.boxed_prim_i64()?)
     }
 }
 
 impl crate::gc::GcRef<ScriptObject> {
-    /// **extract-typedesc-from-mutex (2026-05-31)**: lockless read of
-    /// the object's `type_desc`. type_desc is set by `alloc_object` and
-    /// never mutated for the object's lifetime — there's no concurrent
-    /// writer, so bypassing the per-entry Mutex is sound. Used by
-    /// hot-path IC scans (VCallIC, FieldIC, IsInstance) and the GC mark
-    /// traversal.
-    ///
-    /// Returns a `&TypeDesc` borrowed for the GcRef's lifetime. The
-    /// Arc itself stays alive through the entry's storage; the borrow
-    /// is to the inner TypeDesc directly (one fewer deref at the call
-    /// site than returning `&Arc<TypeDesc>`).
+    /// The object's `type_desc` (set at construction, never changed). Used by hot-path IC
+    /// scans (VCallIC, FieldIC, IsInstance) and the GC mark traversal. Returns the inner
+    /// `&TypeDesc` (one fewer deref at the call site than `&Arc<TypeDesc>`).
     #[inline]
     pub fn type_desc(&self) -> &TypeDesc {
-        // SAFETY: type_desc is write-once-at-alloc. Verified 0 mutation
-        // sites in the runtime via `grep -rn '.type_desc *=' src/`.
-        let obj_ptr: *const ScriptObject = self.data_ptr_unlocked();
-        unsafe { &(*obj_ptr).type_desc }
+        &self.borrow().type_desc
     }
 
     /// Lockless read of the object's `type_desc` as `&Arc<TypeDesc>`.
@@ -347,9 +347,7 @@ impl crate::gc::GcRef<ScriptObject> {
     /// `&TypeDesc`) which saves one deref.
     #[inline]
     pub fn type_desc_arc(&self) -> &Arc<TypeDesc> {
-        // SAFETY: see type_desc() — write-once invariant.
-        let obj_ptr: *const ScriptObject = self.data_ptr_unlocked();
-        unsafe { &(*obj_ptr).type_desc }
+        &self.borrow().type_desc
     }
 
     /// Lockless read of the object's `type_args` (generic type arguments at construction).
@@ -357,9 +355,7 @@ impl crate::gc::GcRef<ScriptObject> {
     /// escapes, never mutated after; the slice itself is an interned `'static` entry.
     #[inline]
     pub fn type_args(&self) -> &[String] {
-        // SAFETY: type_args is write-once-at-alloc; see type_desc().
-        let obj_ptr: *const ScriptObject = self.data_ptr_unlocked();
-        unsafe { &(*obj_ptr).type_args() }
+        self.borrow().type_args()
     }
 }
 

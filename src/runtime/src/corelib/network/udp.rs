@@ -57,8 +57,8 @@ pub fn builtin_net_udp_send(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     {
         let borrowed = buf_arr.borrow();
         // packed-primitive-arrays Step 3: packed `Bytes` → one memcpy.
-        if let Some(b) = borrowed.as_bytes() {
-            tmp.copy_from_slice(&b[offset..offset + count]);
+        if let Some(b) = borrowed.byte_range(offset, count) {
+            tmp = b;
         } else {
             for i in 0..count {
                 match borrowed.get_boxed(offset + i) {
@@ -298,7 +298,7 @@ pub fn builtin_net_udp_recv_into(ctx: &VmContext, args: &[Value]) -> Result<Valu
         Ok((n, peer)) => {
             // Copy received bytes (clamped to count, matching socket
             // truncation behaviour) into the caller's array.
-            let mut borrowed = buf_arr.borrow_mut();
+            let borrowed = buf_arr.borrow();
             let written = n.min(count);
             for i in 0..written {
                 borrowed.set_boxed(offset + i, Value::I64(tmp[i] as i64));

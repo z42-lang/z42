@@ -23,7 +23,7 @@
 //!
 //! GC 追踪用 [`decode_for_trace`]：种类 7 交出盒子本身（`Value::Array`），盒子再交出里面的值。
 
-use super::{ArrayObj, Cells, CellsMut, FieldWrite, ScriptObject, Value};
+use super::{ArrayObj, Cells, FieldWrite, ScriptObject, Value};
 use crate::gc::var_region::VarGcRef;
 use crate::gc::GcRef;
 use crate::metadata::vstr::Str;
@@ -100,8 +100,8 @@ pub fn handle_bits(w: u64) -> u64 {
 /// 字 → 追踪用的 `Value`：引用原样，种类 7 交出盒子（`Value::Array`）。
 ///
 /// # Safety
-/// `w` 是 [`encode`] / [`encode_boxed`] 写下、且所指对象仍活着的字（GC 追踪与持有对象锁的
-/// 读者都满足：字里的引用是对象的强边）。
+/// `w` 是 [`encode`] / [`encode_boxed`] 写下、且所指对象仍活着的字（GC 追踪与刚从活对象里读出
+/// 这个字、中间没过 safepoint 的读者都满足：字里的引用是对象的强边）。
 #[inline(always)]
 pub unsafe fn decode_for_trace(w: u64) -> Value {
     let h = handle_bits(w);
@@ -157,7 +157,7 @@ pub fn load(c: &Cells, off: usize) -> Value {
 /// 写 `off` 处的引用单元：能编码就写引用字，否则装箱（种类 7）。被覆盖的旧字交给 SATB；返回值告诉
 /// 调用方该给写屏障哪个引用（[`FieldWrite::with_barrier_value`]）。
 #[inline(always)]
-pub fn store(c: &CellsMut, off: usize, v: &Value) -> anyhow::Result<FieldWrite> {
+pub fn store(c: &Cells, off: usize, v: &Value) -> anyhow::Result<FieldWrite> {
     match encode(v) {
         Some(w) => {
             store_word_recorded(c, off, w);
@@ -169,7 +169,7 @@ pub fn store(c: &CellsMut, off: usize, v: &Value) -> anyhow::Result<FieldWrite> 
 
 #[cold]
 #[inline(never)]
-fn store_boxed(c: &CellsMut, off: usize, v: &Value) -> anyhow::Result<FieldWrite> {
+fn store_boxed(c: &Cells, off: usize, v: &Value) -> anyhow::Result<FieldWrite> {
     let b = alloc_box_ambient(v)?;
     store_word_recorded(c, off, encode_boxed(&b));
     Ok(FieldWrite::Boxed(b))
@@ -177,7 +177,7 @@ fn store_boxed(c: &CellsMut, off: usize, v: &Value) -> anyhow::Result<FieldWrite
 
 /// 写引用字，把它替换掉的字交给 SATB 删除屏障（进行中的 major 标记必须仍看得见被切断的对象）。
 #[inline(always)]
-pub fn store_word_recorded(c: &CellsMut, off: usize, w: u64) {
+pub fn store_word_recorded(c: &Cells, off: usize, w: u64) {
     let old = c.store_ref_word(off, w);
     if old != 0 {
         // SAFETY: `old` was this cell's word an instant ago, so its referent is still live (no
@@ -198,7 +198,7 @@ pub fn visit(c: &Cells, off: usize, visit: &mut dyn FnMut(&Value)) {
 
 /// 断开 `off` 处的引用（GC 清扫死对象，不过屏障）。
 #[inline(always)]
-pub fn clear(c: &CellsMut, off: usize) {
+pub fn clear(c: &Cells, off: usize) {
     c.store_word(off, 0, std::sync::atomic::Ordering::Relaxed);
 }
 

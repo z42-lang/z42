@@ -81,12 +81,12 @@ pub(crate) fn struct_field_set_val(
     match base_val {
         Value::Object(gc) | Value::BoxedStruct(gc) => {
             if is_ref_tag(kind) {
-                let wrote = gc.borrow_mut().set_struct_ref_leaf(byte_off, v)?;
+                let wrote = gc.borrow().set_struct_ref_leaf(byte_off, v)?;
                 // The slot argument is informational (card / diagnostics).
                 wrote.with_barrier_value(v, |s| ctx.heap().write_barrier_field(base_val, byte_off as usize, s));
                 Ok(())
             } else {
-                gc.borrow_mut().set_prim_leaf(byte_off as usize, prim_width(kind)?, kind, v)
+                gc.borrow().set_prim_leaf(byte_off as usize, prim_width(kind)?, kind, v)
             }
         }
         // 🔴 **No write barrier** for a stack object, mirroring `field_set`: it is not a heap
@@ -105,12 +105,12 @@ pub(crate) fn struct_field_set_val(
             let e = ctx.transient_arena.lock().struct_elem(*idx, *frame_id)?;
             let i = e.index as usize;
             if is_ref_tag(kind) {
-                let wrote = e.arr.borrow_mut().set_struct_elem_ref(i, byte_off, v)?;
+                let wrote = e.arr.borrow().set_struct_elem_ref(i, byte_off, v)?;
                 let owner = Value::Array(e.arr);
                 wrote.with_barrier_value(v, |s| ctx.heap().write_barrier_array_elem(&owner, i, s));
                 Ok(())
             } else {
-                e.arr.borrow_mut().set_struct_elem_prim(i, byte_off, prim_width(kind)?, kind, v)
+                e.arr.borrow().set_struct_elem_prim(i, byte_off, prim_width(kind)?, kind, v)
             }
         }
         _ => {

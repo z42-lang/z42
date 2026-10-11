@@ -4,7 +4,7 @@
 
 use crate::interp::dispatch::isa_td;
 use crate::metadata::resolver::ObjNewSite;
-use crate::metadata::{NativeData, Value};
+use crate::metadata::Value;
 
 use super::super::frame::{JitFrame, JitModuleCtx};
 use super::super::invoke::{call_entry, NativeOutcome};
@@ -68,21 +68,15 @@ pub unsafe extern "C" fn jit_obj_new(
         Err(exc) => { set_exception(vm, exc); return 1; }
     };
 
-    // unify-object-byte-layout (PR-2): fields default to zero-initialized bytes +
-    // `Null` refs (= the old per-field defaults), produced inside `alloc_object` from
-    // the composed layout; pass no initial values (mirrors interp `obj_new`).
-    let obj_val = vm.heap().alloc_object(type_desc, Vec::new(), NativeData::None);
-
-    // expand-jit-type-args: record the instance's type-arguments BEFORE the ctor call so its
-    // `default(T)` resolves (mirrors interp `obj_new`, through the same shared pick and the
-    // same `ScriptObject::install_type_args`).
+    // The instance — zeroed fields, generic arguments, type-parameter field zeros — is built
+    // completely before allocation (`ScriptObject::new_instance`, shared with interp `obj_new`
+    // so the two engines agree; a published object never changes its meta word, object model
+    // R4). The arguments are set before the ctor runs so its `default(T)` resolves correctly.
     // SAFETY: `type_args` was baked from `TypeArgs::as_raw` at translate time.
     let site_args = unsafe { crate::metadata::types::TypeArgs::from_raw(type_args) };
-    if let Value::Object(ref rc) = obj_val {
-        let mut o = rc.borrow_mut();
-        let inst_args = instance_type_args(site_args, &o.type_desc);
-        o.install_type_args(inst_args);
-    }
+    let inst_args = instance_type_args(site_args, &type_desc);
+    let obj_val = vm.heap().alloc_script_object(
+        crate::metadata::types::ScriptObject::new_instance(type_desc, inst_args));
 
     // runtime-jit-tiering Phase 1b: tiered ctor. Compiled (or compiling at the threshold) →
     // native, `this` in reg 0 and args straight from the caller's registers; cold /

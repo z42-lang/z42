@@ -43,11 +43,13 @@ impl ArrayObj {
     /// Stable-sort elements `[0, n)` in place when they are all one primitive kind
     /// (int-like / double / char / string), ordering exactly as their `CompareTo`.
     /// `None` — array untouched — when it declines (see module doc) or `n` exceeds the length;
-    /// the caller then runs the script sort. `Some(refs)`: sorted; `refs` are the references the
+    /// the caller then runs the script sort. Like the script sort it replaces, it is not atomic
+    /// with respect to other threads writing the array (each element store is one atomic cell
+    /// write). `Some(refs)`: sorted; `refs` are the references the
     /// stores produced that the caller must hand to the write barrier (a box, when a cell of a
     /// MIXED array had fixed another primitive kind — the permutation itself only moves
     /// references the array already held).
-    pub fn sort_prims_prefix(&mut self, n: usize) -> Option<Vec<Value>> {
+    pub fn sort_prims_prefix(&self, n: usize) -> Option<Vec<Value>> {
         if !matches!(self.backing, ArrayBacking::Refs { .. } | ArrayBacking::Cells { .. }) || n > self.len() {
             return None;
         }

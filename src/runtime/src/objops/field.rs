@@ -41,7 +41,7 @@ fn load(o: &ScriptObject, name: &str, ic: Option<&FieldIC>) -> Value {
 
 /// 写入（不含写屏障）。返回 `Some((slot, 写了什么))`；调用方据此发屏障。
 #[inline(always)]
-fn store(o: &mut ScriptObject, name: &str, v: &Value, ic: Option<&FieldIC>) -> OpResult<Option<(usize, FieldWrite)>> {
+fn store(o: &ScriptObject, name: &str, v: &Value, ic: Option<&FieldIC>) -> OpResult<Option<(usize, FieldWrite)>> {
     let Some(slot) = slot_of(&o.type_desc, name, ic) else { return Ok(None) };
     match o.try_set_field_value(slot, v) {
         Ok(w) => Ok(Some((slot, w))),
@@ -129,7 +129,7 @@ fn array_len_field(name: &str, len: usize) -> OpResult<Value> {
 #[inline(always)]
 pub fn field_set(ctx: &VmContext, recv: &Value, name: &str, v: &Value, ic: Option<&FieldIC>) -> OpResult<()> {
     if let Value::Object(rc) = recv {
-        let wrote = store(&mut rc.borrow_mut(), name, v, ic)?;
+        let wrote = store(rc.borrow(), name, v, ic)?;
         barrier(ctx, recv, v, wrote);
         return Ok(());
     }
@@ -169,12 +169,12 @@ pub fn load_named(gc: &GcRef<ScriptObject>, name: &str) -> OpResult<Value> {
 /// 经 `ref` 写字段：与 `FieldSet` 同一条写入 + 写屏障规则。
 pub fn store_named(ctx: &VmContext, gc: &GcRef<ScriptObject>, name: &str, v: &Value) -> OpResult<()> {
     let wrote = {
-        let mut o = gc.borrow_mut();
+        let o = gc.borrow();
         if !o.type_desc.field_index.contains_key(name) {
             return Err(OpError::internal(format!(
                 "ref field `{name}` not found on type `{}`", o.type_desc.name)));
         }
-        store(&mut o, name, v, None)?
+        store(o, name, v, None)?
     };
     barrier(ctx, &Value::Object(*gc), v, wrote);
     Ok(())
@@ -190,7 +190,7 @@ pub fn store_named(ctx: &VmContext, gc: &GcRef<ScriptObject>, name: &str, v: &Va
 ///
 /// 基元槽类型不符照 `try_set_field_value` 报错（错误留给调用方按自己的语义包装）。
 pub fn store_slot(ctx: &VmContext, gc: &GcRef<ScriptObject>, slot: usize, v: &Value) -> anyhow::Result<()> {
-    let w = gc.borrow_mut().try_set_field_value(slot, v)?;
+    let w = gc.borrow().try_set_field_value(slot, v)?;
     barrier(ctx, &Value::Object(*gc), v, Some((slot, w)));
     Ok(())
 }

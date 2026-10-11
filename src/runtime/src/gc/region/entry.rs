@@ -6,8 +6,6 @@
 
 use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU32, AtomicU8, Ordering};
 
-use parking_lot::Mutex;
-
 use super::super::types::FinalizerFn;
 
 /// Per-object slot inside a `Region<T>`. Holds the user data plus GC
@@ -22,10 +20,15 @@ use super::super::types::FinalizerFn;
 /// from the pointer-sized fields; 32-bit targets need the attribute.
 #[cfg_attr(not(target_pointer_width = "64"), repr(align(8)))]
 pub struct RegionEntry<T> {
-    /// User value. `Mutex` provides per-entry locking (preserves the
-    /// multi-threading concurrency model). Access via
-    /// `entry.value.lock()` from `GcRef::borrow` / `borrow_mut`.
-    pub(crate) value: Mutex<T>,
+    /// User value, shared between threads as `&T` (`GcRef::borrow`).
+    ///
+    /// Object model R4 removed the per-entry `Mutex<T>` (8 B on every slot, plus a lock /
+    /// unlock on every field and element access): a heap object's or array's mutable state is
+    /// atomic cells written through `&self` (`metadata::types::Cells`). Exclusive access is
+    /// only ever taken where nothing else can see the value — construction (before the entry
+    /// exists), slot reuse / decommit / region drop (the entry is dead and the region lock or
+    /// STW is held), and GC sweep of the dead.
+    pub(crate) value: T,
 
     /// Mark bit (add-mark-sweep-collector). CAS
     /// from 0 to 1 by the mark phase. Sweep resets to 0
@@ -151,7 +154,7 @@ impl<T> RegionEntry<T> {
     /// still calls it internally.
     pub(crate) fn new(value: T, location: (u32, u16)) -> Self {
         Self {
-            value:          Mutex::new(value),
+            value,
             marked:         AtomicU8::new(0),
             alive:          AtomicBool::new(true),
             gen_age:        AtomicU8::new(0),

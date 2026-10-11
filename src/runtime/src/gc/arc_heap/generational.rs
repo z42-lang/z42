@@ -473,7 +473,7 @@ grey {grey_n} (skipped old {grey_old})"));
         if handles.is_empty() { return; }
         let region = self.region_array.lock();
         for &h in handles {
-            region.resolve(h).value.lock().raise_backing_gen_age(self.promotion_age());
+            region.resolve(h).value.raise_backing_gen_age(self.promotion_age());
         }
     }
 
@@ -547,7 +547,7 @@ grey {grey_n} (skipped old {grey_old})"));
                 promote_black,
                 |marked| self.promotion_policy.observe(marked),
                 |entry| {
-                    let mut o = entry.value.lock();
+                    let o = &entry.value;
                     let size = Self::script_object_size_estimate(&o);
                     // Break every strong reference edge — the 16 B side table and the 8 B
                     // reference words — so no tombstoned entry is left holding a handle into
@@ -560,7 +560,6 @@ grey {grey_n} (skipped old {grey_old})"));
                     // handle for it. That loop cost 67.7 ns an entry against the array
                     // twin's 10.8; it is now 10.6.
                     o.clear_refs_for_sweep();
-                    drop(o);
                     (entry.take_finalizer(), size)
                 },
             )
@@ -583,7 +582,7 @@ grey {grey_n} (skipped old {grey_old})"));
                 promote_black,
                 |marked| self.promotion_policy.observe(marked),
                 |entry| {
-                    let size = Self::array_size_estimate(&entry.value.lock());
+                    let size = Self::array_size_estimate(&entry.value);
                     // unify-gc-heap PR-3: no eager element drop here — the array's element
                     // storage lives in a `region_var` block (uniquely owned by this header),
                     // reclaimed by `region_var.sweep_young()` (drop-glue drops the boxed
@@ -656,7 +655,7 @@ grey {grey_n} (skipped old {grey_old})"));
         let region = self.region_object.lock();
         handles.iter().map(|&h| {
             let entry = region.resolve(h);
-            Self::script_object_size_estimate(&entry.value.lock())
+            Self::script_object_size_estimate(&entry.value)
         }).sum()
     }
 
@@ -666,7 +665,7 @@ grey {grey_n} (skipped old {grey_old})"));
         let region = self.region_array.lock();
         handles.iter().map(|&h| {
             let entry = region.resolve(h);
-            Self::array_size_estimate(&entry.value.lock())
+            Self::array_size_estimate(&entry.value)
         }).sum()
     }
 

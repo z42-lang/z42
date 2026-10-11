@@ -260,10 +260,8 @@ impl TypeDesc {
     /// as the enum test too. An undefined value (out-of-range cast) renders as the
     /// number, same as C#.
     ///
-    /// Lives on `TypeDesc`, not `ScriptObject`, so the hot callers can reach it via
-    /// the **lockless** `GcRef::type_desc()`: taking a second `borrow()` while an
-    /// outer `borrow()` guard is alive deadlocks (the entry `Mutex` is not
-    /// reentrant) — which is exactly how the first cut of this hung.
+    /// Lives on `TypeDesc`, not `ScriptObject`, so the hot callers reach it straight
+    /// through `GcRef::type_desc()`.
     pub fn enum_member_name(&self, raw: i64) -> Option<String> {
         if self.class_flags & crate::metadata::bytecode::CLASS_FLAG_ENUM == 0 {
             return None;

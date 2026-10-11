@@ -199,7 +199,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
     pub(super) fn prepare_dead_object(
         entry: &crate::gc::region::RegionEntry<crate::metadata::ScriptObject>,
     ) -> (Option<FinalizerFn>, u64) {
-        let mut obj = entry.value.lock();
+        let obj = &entry.value;
         let size = Self::script_object_size_estimate(&obj);
         // Break every strong reference edge — the 16 B side table and the 8 B reference
         // words — so no tombstoned entry is left holding a handle into the region.
@@ -207,7 +207,6 @@ impl crate::gc::arc_heap::ArcMagrGC {
         // Ahead of the finalizer, as on the minor side (#591): [`FinalizerFn`] takes no
         // arguments, so it has no way to read the object whose edges these are.
         obj.clear_refs_for_sweep();
-        drop(obj);
         (entry.take_finalizer(), size)
     }
 
@@ -215,7 +214,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
     pub(super) fn prepare_dead_array(
         entry: &crate::gc::region::RegionEntry<crate::metadata::types::ArrayObj>,
     ) -> (Option<FinalizerFn>, u64) {
-        let size = Self::array_size_estimate(&entry.value.lock());
+        let size = Self::array_size_estimate(&entry.value);
         // unify-gc-heap PR-3: no eager element drop here — the array's element storage lives
         // in a `region_var` block (uniquely owned by this header), reclaimed by the var sweep
         // (drop-glue drops the boxed Values) in the same cycle. Tombstoning the header just

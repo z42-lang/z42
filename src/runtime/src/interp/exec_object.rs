@@ -2,7 +2,7 @@
 /// to its size). Covers: ObjNew (allocate + ctor), FieldGet / FieldSet,
 /// IsInstance / AsCast (runtime type checks), StaticGet / StaticSet.
 
-use crate::metadata::{Module, NativeData, ScriptObject, Value};
+use crate::metadata::{Module, ScriptObject, Value};
 use crate::vm_context::VmContext;
 use anyhow::Result;
 
@@ -74,19 +74,19 @@ pub(super) fn obj_new(
     // `Value::StackObject { idx, frame_id }` handle that FieldGet/FieldSet resolve
     // through `ctx.stack_arena`, so the ctor's child frame reaches it fine.
     // `Z42_STACKALLOC=off` bypasses this at runtime (heap) for triage.
+    // The instance is built completely — generic arguments, type-parameter field zeros
+    // (`ScriptObject::new_instance`) — before it is placed: a published heap object never
+    // changes its extras (object model R4), and the stack branch must stay in lockstep with the
+    // heap one, or flipping `Z42_STACKALLOC` changes observable values.
     let obj_val = if stack_alloc && crate::interp::stack_alloc::stack_alloc_enabled() {
-        let storage = type_desc.object_storage();
-        let mut obj = ScriptObject::new(type_desc.clone(), storage);
-        // Same generic step as the heap branch below (one implementation, so flipping
-        // `Z42_STACKALLOC` cannot change observable values).
-        obj.install_type_args(inst_args);
+        let obj = ScriptObject::new_instance(type_desc.clone(), inst_args);
         let frame_id = frame.frame_id(ctx);
         let idx = ctx.stack_alloc_obj(frame_id, obj);
         Value::StackObject { idx, frame_id }
     } else {
-        let obj_val = ctx.heap().alloc_object(type_desc, Vec::new(), NativeData::None);
+        let obj_val = ctx.heap().alloc_script_object(ScriptObject::new_instance(type_desc, inst_args));
 
-        // add-gc-oom-exception: alloc_object returns Null only under strict OOM.
+        // add-gc-oom-exception: the allocation returns Null only under strict OOM.
         // make_oom_exception toggles strict OOM off while building the exception
         // object (which itself allocates) and restores it after.
         if matches!(obj_val, Value::Null) {
@@ -94,15 +94,6 @@ pub(super) fn obj_new(
                 ctx, module,
                 format!("cannot allocate `{class_name}`: heap limit exceeded"),
             )));
-        }
-
-        // add-default-generic-typeparam: record the instance's type-arguments (read by
-        // `DefaultOf`, reflection, `__class_type_arg`) and zero its primitive type-parameter
-        // fields — before the ctor runs, so its `default(T)` already sees them.
-        if !inst_args.is_empty() {
-            if let Value::Object(ref rc) = obj_val {
-                rc.borrow_mut().install_type_args(inst_args);
-            }
         }
         obj_val
     };

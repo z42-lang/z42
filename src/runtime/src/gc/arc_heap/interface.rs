@@ -82,11 +82,15 @@ impl MagrGC for ArcMagrGC {
         // that pass `Vec::new()` (e.g. `obj_new`, which relies on defaults) skip the
         // loop entirely — zero-init already equals the old per-field defaults.
         let storage = type_desc.object_storage();
-        let mut obj = ScriptObject::with_native(type_desc, storage, native);
+        let obj = ScriptObject::with_native(type_desc, storage, native);
         for (i, v) in slots.into_iter().enumerate() {
             obj.set_field_value(i, &v);
         }
 
+        self.finish_alloc(obj)
+    }
+
+    fn alloc_script_object(&self, obj: ScriptObject) -> Value {
         self.finish_alloc(obj)
     }
 

@@ -24,7 +24,7 @@ fn alloc_into_empty_region_creates_first_chunk_and_entry() {
 
     assert_eq!(r.alive_count(), 1);
     let e = r.resolve(h);
-    assert_eq!(*e.value.lock(), 42);
+    assert_eq!(e.value, 42);
     assert!(e.alive.load(Ordering::Acquire));
 }
 
@@ -50,7 +50,7 @@ fn alloc_grows_chunk_when_full() {
 
 #[test]
 fn alloc_pointer_stability_across_growth() {
-    // CRITICAL: `GcRef::as_ptr` returns &Mutex<T> inside RegionEntry.
+    // CRITICAL: `GcRef::as_ptr` returns the address of `value: T` inside RegionEntry.
     // That address MUST remain stable as the region grows past chunk
     // boundaries. Verified by recording an address pre-grow and
     // checking equality post-grow.
@@ -70,7 +70,7 @@ fn alloc_pointer_stability_across_growth() {
 
     // Inner value also intact.
     let e = r.resolve(h0);
-    assert_eq!(*e.value.lock(), 100);
+    assert_eq!(e.value, 100);
 }
 
 #[test]
@@ -104,8 +104,8 @@ fn free_list_reuses_tombstoned_slot() {
     // But generation bumped, so h1 (stale) != h3.
     assert_ne!(h3.generation, h1.generation);
     // h2 untouched.
-    assert_eq!(*r.resolve(h2).value.lock(), 20);
-    assert_eq!(*r.resolve(h3).value.lock(), 30);
+    assert_eq!(r.resolve(h2).value, 20);
+    assert_eq!(r.resolve(h3).value, 30);
 }
 
 #[test]
@@ -135,7 +135,7 @@ fn tombstone_stale_handle_is_noop() {
     assert!(!ok, "stale tombstone is no-op (generation mismatch)");
     // h2 still alive.
     assert!(r.resolve(h2).alive.load(Ordering::Acquire));
-    assert_eq!(*r.resolve(h2).value.lock(), 2);
+    assert_eq!(r.resolve(h2).value, 2);
 }
 
 #[test]
@@ -148,7 +148,7 @@ fn iterate_alive_visits_in_alloc_order_skipping_tombstoned() {
 
     let mut seen = Vec::new();
     r.iterate_alive(|_h, e| {
-        seen.push(*e.value.lock());
+        seen.push(e.value);
     });
     assert_eq!(seen, vec![100, 300],
         "iterate skips tombstoned entry (h1=200)");
@@ -370,7 +370,7 @@ fn non_generational_region_skips_young_list_until_switched_on() {
     // survivors are listed; the tombstoned one is not.
     assert_eq!(r.young_count(), 2, "rebuild lists exactly the live young entries");
     let mut seen: Vec<i32> = Vec::new();
-    r.iterate_young(|_h, e| seen.push(*e.value.lock()));
+    r.iterate_young(|_h, e| seen.push(e.value));
     seen.sort();
     assert_eq!(seen, vec![10, 20]);
     let _ = b;
@@ -395,7 +395,7 @@ fn iterate_young_yields_only_young_entries() {
 
     let mut seen = Vec::new();
     r.iterate_young(|h, e| {
-        seen.push((h.entry_idx, *e.value.lock()));
+        seen.push((h.entry_idx, e.value));
     });
     assert_eq!(seen.len(), 1);
     assert_eq!(seen[0], (h_young.entry_idx, 10),
@@ -411,7 +411,7 @@ fn iterate_young_skips_tombstoned_young_entries() {
 
     let mut seen = Vec::new();
     r.iterate_young(|_h, e| {
-        seen.push(*e.value.lock());
+        seen.push(e.value);
     });
     assert_eq!(seen, vec![100], "tombstoned entry removed from young_list");
     assert_eq!(r.young_count(), 1);
@@ -533,7 +533,7 @@ fn iterate_dirty_cards_yields_all_entries_in_the_dirty_card() {
 
     let mut seen = Vec::new();
     r.iterate_dirty_cards(|_h, e, _card| {
-        seen.push(*e.value.lock());
+        seen.push(e.value);
     });
     // Chunk 0 had 4 alloc'd + (CHUNK_SIZE-4) dummies = CHUNK_SIZE entries.
     assert_eq!(seen.len(), CHUNK_SIZE,
@@ -800,13 +800,16 @@ fn region_entry_stays_lean_for_script_objects() {
     use std::mem::size_of;
     // The whole point of P1: a `RegionEntry` header must not carry a 24-byte
     // mutex-wrapped finalizer for a capability nothing registers, nor a young-list back-index
-    // (M8: young-set membership is a bit in the region). `T + 32`: the value's mutex word plus
-    // 24 bytes of GC metadata.
+    // (M8: young-set membership is a bit in the region). Object model R4 removed the per-entry
+    // `Mutex<T>` (8 B with padding): `T + 24` bytes of GC metadata.
     assert_eq!(
         size_of::<RegionEntry<crate::metadata::ScriptObject>>(),
-        size_of::<crate::metadata::ScriptObject>() + 32,
+        size_of::<crate::metadata::ScriptObject>() + 24,
         "RegionEntry header grew — check what was added before updating this number",
     );
+    assert_eq!(size_of::<crate::metadata::ScriptObject>(), 32);
+    assert_eq!(size_of::<RegionEntry<crate::metadata::ScriptObject>>(), 56);
+    assert_eq!(size_of::<RegionEntry<crate::metadata::types::ArrayObj>>(), 64);
 }
 
 #[test]
@@ -911,7 +914,7 @@ fn young_list_back_pointers_survive_alloc_tombstone_promote_churn() {
     let mut live: Vec<RegionHandle> = Vec::new();
     // Deterministic LCG — a fixed sequence so a failure is reproducible.
     let mut rng: u64 = 0x2545_F491_4F6C_DD1D;
-    let mut next = |rng: &mut u64| {
+    let next = |rng: &mut u64| {
         *rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
         (*rng >> 33) as usize
     };

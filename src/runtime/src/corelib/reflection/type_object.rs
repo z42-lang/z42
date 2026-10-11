@@ -387,8 +387,6 @@ pub(super) fn simple_method_name(qualified: &str) -> &str {
 /// Types have these slots written by `build_type`).
 pub(super) fn read_type_str_slot(args: &[Value], field: &str) -> Value {
     if let Some(Value::Object(rc)) = args.first() {
-        // `type_desc()` is the lockless accessor on the GcRef; slots come from
-        // the locked guard.
         if let Some(i) = rc.type_desc().field_index.get(field).copied() {
             let obj = rc.borrow();
             return obj.field_value(i);

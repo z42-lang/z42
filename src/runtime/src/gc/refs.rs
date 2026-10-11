@@ -14,6 +14,7 @@
 //! ## Phase 历史
 //! - Phase 1（旧）：`Rc<GcAllocation<T>>` + `RefCell<T>`（单线程语义）
 //! - Phase 3（旧）：`Arc<GcAllocation<T>>` + `Mutex<T>`（add-multithreading-foundation）
+//! - 对象模型 R4（2026-10-08）：去掉 `RegionEntry` 里的每对象 `Mutex<T>`，`borrow()` 直接给 `&T`
 //! - P1（旧）：`NonNull<RegionEntry<T>>`(8B) + `generation: u32`(4B) = 16B
 //! - **PR-3 当前**：单个 8B **标记指针**（`unify-object-byte-layout` 路 A）——
 //!   低 48 位是 RegionEntry 地址，高 16 位是窄 generation 快照。见下 `GcRef` 类型文档。
@@ -30,10 +31,12 @@
 //! # API 契约
 //!
 //! - `clone()` 是 cheap operation（8 字节 memcpy；零 atomic op）
-//! - `borrow()` / `borrow_mut()` 走 RegionEntry 内置 `Mutex<T>`，
-//!   **blocking lock**（同 Phase 3 / mutator contention 行为）
+//! - `borrow()` 给 `&T`，**不加锁**（对象模型 R4）：对象与数组跨线程共享，字段 / 元素的每次读写
+//!   都是同宽原子单元访问（`metadata::types::Cells`），所以只读借用就够；没有 `borrow_mut`。
+//!   需要独占的场合各有各的机制：构造在分配之前（对象建好再进 region）、GC 清扫与 finalize 在
+//!   停顿或对象已死时、原生数据（`NativeData`）自带同步（如 `Monitor` 的内部锁）
 //! - `ptr_eq(a, b)` 比较 NonNull 是否指向同一 RegionEntry
-//! - `as_ptr(this)` 返回 RegionEntry 内 `value: Mutex<T>` 的稳定地址
+//! - `as_ptr(this)` 返回 RegionEntry 内 `value: T` 的稳定地址
 //!   （身份哈希 / dedup key；契约：地址在 entry 生命周期内不变）
 //! - `mark` / `is_marked` / `clear_mark`：操作 RegionEntry 的 `marked` 字段
 //! - `downgrade(this)` 创建 weak handle（同 NonNull + generation；upgrade
@@ -43,8 +46,6 @@
 use std::marker::PhantomData;
 use std::ptr::NonNull;
 use std::sync::atomic::Ordering;
-
-use parking_lot::{Mutex, MutexGuard};
 
 use super::region::RegionEntry;
 
@@ -127,12 +128,6 @@ pub(crate) fn major_epoch_of_cell(cell: &std::sync::atomic::AtomicU8) -> u8 {
 }
 use super::types::FinalizerFn;
 
-/// `Ref<'a, T>` —— immutable borrow guard alias.
-/// 等价于 `MutexGuard<'a, T>`（parking_lot Mutex 无 read/write 区分）。
-pub type Ref<'a, T> = MutexGuard<'a, T>;
-
-/// `RefMut<'a, T>` —— mutable borrow guard alias. 与 `Ref` 同。
-pub type RefMut<'a, T> = MutexGuard<'a, T>;
 
 /// Number of low bits of a 64-bit pointer that hold the actual virtual
 /// address; the top `64 - ADDR_BITS` bits are free for tagging on
@@ -338,11 +333,11 @@ pub struct GcRef<T> {
 const _: () = assert!(std::mem::size_of::<GcRef<u8>>() == 8);
 const _: () = assert!(std::mem::size_of::<Option<GcRef<u8>>>() == 8);
 
-// SAFETY: GcRef<T> is conceptually a shared reference into a
-// thread-safe storage region. The backing RegionEntry<T> contains
-// Mutex<T> (Send+Sync via parking_lot for any T: Send) + atomics
-// (Send+Sync). All field accesses go through synchronized primitives.
-// Caller upholds the lifetime contract (no use-after-region-free).
+// SAFETY: GcRef<T> is conceptually a shared reference (`&T`) into a
+// thread-safe storage region: the backing RegionEntry<T> holds `T`
+// (shared across threads, hence `T: Sync` — every mutation of a heap
+// object goes through atomic cells) + atomics. Caller upholds the
+// lifetime contract (no use-after-region-free).
 unsafe impl<T: Send + Sync> Send for GcRef<T> {}
 unsafe impl<T: Send + Sync> Sync for GcRef<T> {}
 
@@ -422,8 +417,7 @@ impl<T> GcRef<T> {
     /// this out in release (the old `debug_assert!`) contradicted the two API-doc
     /// promises above and at the module header ("`borrow` panics on generation
     /// mismatch") and left release builds with a silent-UAF hole. Cost is two
-    /// `Acquire` loads ahead of the blocking `Mutex` lock in `borrow*` — negligible
-    /// beside the lock itself.
+    /// `Acquire` loads per `borrow()`.
     fn entry_ref(&self) -> &RegionEntry<T> {
         // SAFETY: entry pointer is stable for the entry's lifetime;
         // caller upholds the GcRef-not-outlive-Region contract.
@@ -436,34 +430,12 @@ impl<T> GcRef<T> {
         e
     }
 
-    /// Immutably borrow the inner value (blocking lock on the
-    /// `RegionEntry`'s `Mutex<T>`).
-    pub fn borrow(&self) -> Ref<'_, T> {
-        self.entry_ref().value.lock()
-    }
-
-    /// Mutably borrow the inner value (blocking lock).
-    pub fn borrow_mut(&self) -> RefMut<'_, T> {
-        self.entry_ref().value.lock()
-    }
-
-    /// **extract-typedesc-from-mutex (2026-05-31)**: lockless raw
-    /// pointer to the inner value. Used by typed accessor wrappers
-    /// (e.g. `ScriptObject::type_desc_unlocked`) for fields that are
-    /// write-once-at-alloc and never mutated — reading them through
-    /// the Mutex would pay the lock cost for no benefit.
-    ///
-    /// # Safety
-    ///
-    /// Caller must guarantee the read targets a field that is **never
-    /// mutated after `alloc_object` returns the GcRef**. Currently
-    /// applies to `ScriptObject::type_desc` and `ScriptObject::type_args`
-    /// (write-once verified by `grep -rn '.type_desc *=' src/runtime/`).
-    /// Reading mutable fields (slots / native) this way is undefined
-    /// behavior — use `borrow()` / `borrow_mut()` for those.
+    /// Borrow the inner value (object model R4: no lock — a plain `&T` after the
+    /// generation / alive check). Heap objects and arrays are shared between threads;
+    /// their mutable state is atomic cells written through `&self` methods.
     #[inline]
-    pub fn data_ptr_unlocked(&self) -> *mut T {
-        self.entry_ref().value.data_ptr()
+    pub fn borrow(&self) -> &T {
+        &self.entry_ref().value
     }
 
     /// True iff `a` and `b` point to the same `RegionEntry`. Both
@@ -476,13 +448,13 @@ impl<T> GcRef<T> {
         a.tagged == b.tagged
     }
 
-    /// Stable pointer to the inner `Mutex<T>` — used for identity
+    /// Stable pointer to the inner `T` — used for identity
     /// hashing / dedup keying. Address stable for entry lifetime.
-    pub fn as_ptr(this: &Self) -> *const Mutex<T> {
+    pub fn as_ptr(this: &Self) -> *const T {
         // SAFETY: entry pointer stable for lifetime; field access is
-        // a direct offset, no atomic. Returned pointer is the
-        // identity key for the entry.
-        unsafe { &(*this.entry_addr().as_ptr()).value as *const Mutex<T> }
+        // a direct offset (no dereference of `T`). Returned pointer is
+        // the identity key for the entry.
+        unsafe { std::ptr::addr_of!((*this.entry_addr().as_ptr()).value) }
     }
 
     /// unify-object-byte-layout (PR-3 chunk 2b): serialize the 8-byte tagged
@@ -613,10 +585,7 @@ impl<T: std::fmt::Debug> std::fmt::Debug for GcRef<T> {
         if e.generation.load(Ordering::Acquire) as u16 != self.gen16() {
             return f.debug_tuple("GcRef").field(&"<stale generation>").finish();
         }
-        match e.value.try_lock() {
-            Some(b) => f.debug_tuple("GcRef").field(&*b).finish(),
-            None    => f.debug_tuple("GcRef").field(&"<borrowed>").finish(),
-        }
+        f.debug_tuple("GcRef").field(&e.value).finish()
     }
 }
 

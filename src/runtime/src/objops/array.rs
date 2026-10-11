@@ -43,7 +43,6 @@ pub fn array_get<F: FnOnce() -> u32>(ctx: &VmContext, arr: &Value, idx: &Value, 
         if !matches!(&a.backing, ArrayBacking::StructBytes { .. }) {
             return Ok(a.get_boxed(i));   // 打包基元在这里装回 Value
         }
-        drop(a);
         return Ok(struct_elem_handle(ctx, *rc, i, frame_id()));
     }
     array_get_rare(ctx, arr, idx)
@@ -74,7 +73,7 @@ fn array_get_rare(ctx: &VmContext, arr: &Value, idx: &Value) -> OpResult<Value> 
 pub fn array_set(ctx: &VmContext, arr: &Value, idx: &Value, v: &Value) -> OpResult<()> {
     if let Value::Array(rc) = arr {
         let (i, wrote) = {
-            let mut a = rc.borrow_mut();
+            let a = rc.borrow();
             let i = checked_index(ArrayOp::Set, idx, a.len())?;
             (i, a.set_boxed(i, *v))   // 打包基元在这里拆箱；引用编成引用字 / 型参单元
         };
@@ -89,7 +88,7 @@ fn array_set_rare(ctx: &VmContext, arr: &Value, idx: &Value, v: &Value) -> OpRes
     match arr {
         Value::StackArray { idx: aidx, frame_id } => {
             ctx.stack_arena.lock().with_arr_mut(*aidx, *frame_id, |a| {
-                checked_index(ArrayOp::Set, idx, a.len()).map(|i| { a.set_boxed(i, *v); })
+                checked_index(ArrayOp::Set, idx, a.len()).map(|i| { a.set_boxed_exclusive(i, *v); })
             })?
         }
         other => Err(not_an_array(ArrayOp::Set, other)),
@@ -162,7 +161,7 @@ pub fn elem_load(gc: &GcRef<ArrayObj>, i: usize) -> OpResult<Value> {
 /// 经 `ref` 写元素：与 `ArraySet` 同一条写入 + 写屏障规则。
 pub fn elem_store(ctx: &VmContext, gc: &GcRef<ArrayObj>, i: usize, v: &Value) -> OpResult<()> {
     let wrote = {
-        let mut a = gc.borrow_mut();
+        let a = gc.borrow();
         if i >= a.len() { return Err(OpError::index_out_of_range(i as i64, a.len())); }
         a.set_boxed(i, *v)
     };

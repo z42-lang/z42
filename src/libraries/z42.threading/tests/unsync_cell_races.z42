@@ -1,0 +1,225 @@
+// requires-caps: threads
+// object model R4 (2026-10-08): objects and arrays carry no per-object lock any more. Every
+// field and element is an atomic cell of at most 8 B (16 B type-parameter cells use the
+// claim-once protocol), so **unsynchronised** cross-thread writes race value by value but a
+// read always sees one complete value some thread stored — never half of one and half of
+// another, never a dangling reference. These tests hammer the same cells from several threads
+// with values whose every byte is the writer's id (a torn read would mix ids) and check each
+// read. They also run `Array.Copy` in both directions between two arrays at once — under the
+// old per-object locks that was an ABBA deadlock surface (lock src, then dst).
+namespace Z42ThreadingUnsyncCellRaceTests;
+
+using Std.Threading;
+
+public class Leaf {
+    public long Id;
+    public Leaf(long id) { Id = id; }
+}
+
+public class Cells {
+    public long L;
+    public int I;
+    public double D;
+    public string S;
+    public Leaf O;
+}
+
+public class Holder<T> {
+    public T V;
+}
+
+public static class K {
+    // 0x0101010101010101 / 0x01010101: `k * B8` has every byte equal to `k`.
+    public static long B8 = 72340172838076673L;
+    public static int B4 = 16843009;
+    public static int Rounds = 20000;
+}
+
+bool WholeLong(long v) { return v % K.B8 == 0; }
+bool WholeInt(int v) { return v % K.B4 == 0; }
+bool KnownDouble(double d) { return d == 0.0 || d == 1.5 || d == -2.25e300; }
+bool KnownString(string s) { return s == null || s == "first-writer" || s == "second-writer-longer"; }
+bool KnownLeaf(Leaf o) { return o == null || o.Id == 1L || o.Id == 2L; }
+
+void WriteFields(Cells c, Leaf leaf, long k, string s, double d) {
+    int n = 0;
+    while (n < K.Rounds) {
+        c.L = k * K.B8;
+        c.I = (int)k * K.B4;
+        c.D = d;
+        c.S = s;
+        c.O = leaf;
+        n = n + 1;
+    }
+}
+
+[Test]
+void test_unsynchronised_field_writes_never_tear() {
+    Cells c = new Cells();
+    Leaf one = new Leaf(1L);
+    Leaf two = new Leaf(2L);
+    Thread w1 = Thread.Start(() => { WriteFields(c, one, 1L, "first-writer", 1.5); });
+    Thread w2 = Thread.Start(() => { WriteFields(c, two, 2L, "second-writer-longer", -2.25e300); });
+    int bad = 0;
+    int n = 0;
+    while (n < K.Rounds) {
+        if (!WholeLong(c.L)) { bad = bad + 1; }
+        if (!WholeInt(c.I)) { bad = bad + 1; }
+        if (!KnownDouble(c.D)) { bad = bad + 1; }
+        if (!KnownString(c.S)) { bad = bad + 1; }
+        if (!KnownLeaf(c.O)) { bad = bad + 1; }
+        n = n + 1;
+    }
+    w1.Join();
+    w2.Join();
+    Assert.Equal(0, bad);
+    Assert.True(WholeLong(c.L));
+    Assert.True(KnownLeaf(c.O));
+}
+
+void WriteArrays(long[] la, int[] ia, object[] oa, Leaf leaf, long k) {
+    int n = 0;
+    while (n < K.Rounds) {
+        int i = n % la.Length;
+        la[i] = k * K.B8;
+        ia[i] = (int)k * K.B4;
+        oa[i] = leaf;
+        n = n + 1;
+    }
+}
+
+[Test]
+void test_unsynchronised_array_writes_never_tear() {
+    long[] la = new long[64];
+    int[] ia = new int[64];
+    object[] oa = new object[64];
+    Leaf one = new Leaf(1L);
+    Leaf two = new Leaf(2L);
+    Thread w1 = Thread.Start(() => { WriteArrays(la, ia, oa, one, 1L); });
+    Thread w2 = Thread.Start(() => { WriteArrays(la, ia, oa, two, 2L); });
+    int bad = 0;
+    int n = 0;
+    while (n < K.Rounds) {
+        int i = n % 64;
+        if (!WholeLong(la[i])) { bad = bad + 1; }
+        if (!WholeInt(ia[i])) { bad = bad + 1; }
+        object o = oa[i];
+        if (o != null && !KnownLeaf((Leaf)o)) { bad = bad + 1; }
+        n = n + 1;
+    }
+    w1.Join();
+    w2.Join();
+    Assert.Equal(0, bad);
+}
+
+void WriteGeneric(Holder<long> hl, Holder<object> ho, long k) {
+    int n = 0;
+    while (n < K.Rounds) {
+        hl.V = k * K.B8;
+        // Alternate a primitive and a reference through the same erased `T` cell: the cell
+        // moves between its claimed primitive and boxed states while the reader watches.
+        if (n % 2 == 0) { ho.V = k * K.B8; } else { ho.V = "boxed-string"; }
+        n = n + 1;
+    }
+}
+
+[Test]
+void test_unsynchronised_type_parameter_cells_never_tear() {
+    Holder<long> hl = new Holder<long>();
+    Holder<object> ho = new Holder<object>();
+    Thread w1 = Thread.Start(() => { WriteGeneric(hl, ho, 1L); });
+    Thread w2 = Thread.Start(() => { WriteGeneric(hl, ho, 3L); });
+    int bad = 0;
+    int n = 0;
+    while (n < K.Rounds) {
+        if (!WholeLong(hl.V)) { bad = bad + 1; }
+        object o = ho.V;
+        if (o != null) {
+            if (o is long) {
+                if (!WholeLong((long)o)) { bad = bad + 1; }
+            } else if (o is string) {
+                if ((string)o != "boxed-string") { bad = bad + 1; }
+            } else {
+                bad = bad + 1;
+            }
+        }
+        n = n + 1;
+    }
+    w1.Join();
+    w2.Join();
+    Assert.Equal(0, bad);
+}
+
+void CopyBackAndForth(long[] from, long[] to, string[] sfrom, string[] sto) {
+    int n = 0;
+    while (n < K.Rounds / 10) {
+        Array.Copy(from, 0, to, 0, from.Length);
+        Array.Copy(sfrom, 0, sto, 0, sfrom.Length);
+        // Same-array overlapping move (memmove direction) racing the cross copies.
+        Array.Copy(to, 0, to, 1, to.Length - 1);
+        n = n + 1;
+    }
+}
+
+[Test]
+void test_crosswise_array_copies_complete_and_never_tear() {
+    long[] a = new long[256];
+    long[] b = new long[256];
+    string[] sa = new string[256];
+    string[] sb = new string[256];
+    int i = 0;
+    while (i < 256) {
+        a[i] = 1L * K.B8;
+        b[i] = 2L * K.B8;
+        sa[i] = "first-writer";
+        sb[i] = "second-writer-longer";
+        i = i + 1;
+    }
+    // a → b and b → a at the same time: with per-object locks taken src-then-dst this was the
+    // ABBA shape; now the copies just race element by element.
+    Thread t1 = Thread.Start(() => { CopyBackAndForth(a, b, sa, sb); });
+    Thread t2 = Thread.Start(() => { CopyBackAndForth(b, a, sb, sa); });
+    t1.Join();
+    t2.Join();
+    int bad = 0;
+    i = 0;
+    while (i < 256) {
+        if (!WholeLong(a[i]) || a[i] == 0L) { bad = bad + 1; }
+        if (!WholeLong(b[i]) || b[i] == 0L) { bad = bad + 1; }
+        if (!KnownString(sa[i]) || !KnownString(sb[i])) { bad = bad + 1; }
+        i = i + 1;
+    }
+    Assert.Equal(0, bad);
+}
+
+void Churn(Cells c, long k) {
+    int n = 0;
+    while (n < K.Rounds / 4) {
+        // Fresh objects published through a shared field while other threads read it and the
+        // allocation pressure drives collections.
+        Leaf fresh = new Leaf(k);
+        c.O = fresh;
+        c.S = "churn-" + k.ToString();
+        n = n + 1;
+    }
+}
+
+[Test]
+void test_publication_through_unsynchronised_field_survives_gc() {
+    Cells c = new Cells();
+    Thread w1 = Thread.Start(() => { Churn(c, 1L); });
+    Thread w2 = Thread.Start(() => { Churn(c, 2L); });
+    int bad = 0;
+    int n = 0;
+    while (n < K.Rounds / 4) {
+        Leaf o = c.O;
+        if (o != null && o.Id != 1L && o.Id != 2L) { bad = bad + 1; }
+        string s = c.S;
+        if (s != null && s != "churn-1" && s != "churn-2") { bad = bad + 1; }
+        if (n % 1000 == 0) { GC.ForceCollect(); }
+        n = n + 1;
+    }
+    w1.Join();
+    w2.Join();
+    Assert.Equal(0, bad);
+}

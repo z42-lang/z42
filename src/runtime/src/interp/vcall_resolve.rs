@@ -198,8 +198,6 @@ fn resolve_vcall_unchecked<'a>(
             // `Color.ToString`, falls back to `Std.Object.ToString` with `this = I64` and
             // dies in `__obj_to_str: expected an object`. Undefined value → the number,
             // same as C#.
-            // NB: `type_desc()` is the lockless accessor — `gc.borrow()` here would
-            // deadlock against the guard still held by the `if let` above.
             if method == "ToString" && arity == 0 {
                 if let Some(name) = gc.type_desc().enum_member_name(scalar) {
                     return Ok(ResolvedVCall {

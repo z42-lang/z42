@@ -254,7 +254,6 @@ pub fn build_graph_snapshot(heap: &dyn MagrGC) -> GraphSnapshot {
                 // (primitives decode; reference fields yield the `refs` cell). Only
                 // reference children matter to the snapshot graph (`value_ptr`).
                 let slots: Vec<Value> = (0..nfields).map(|i| obj.field_value(i)).collect();
-                drop(obj);
                 for (i, child) in slots.iter().enumerate() {
                     if let Some(ptr) = value_ptr(child) {
                         if let Some(&to_id) = id_map.get(&ptr) {
@@ -269,7 +268,6 @@ pub fn build_graph_snapshot(heap: &dyn MagrGC) -> GraphSnapshot {
                 // The array's reference slots (elements / struct[] reference leaves); packed
                 // primitives hold none.
                 let (elems, per) = arr.elem_ref_slots(0, arr.len());
-                drop(arr);
                 for (i, child) in elems.iter().enumerate() {
                     if let Some(ptr) = value_ptr(child) {
                         if let Some(&to_id) = id_map.get(&ptr) {

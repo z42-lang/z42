@@ -77,7 +77,7 @@ impl<T> ChunkClaim<T> {
         let generation = if was_init {
             // SAFETY: initialized ⇒ constructed (dead) entry.
             let old = unsafe { slot.assume_init_mut() };
-            self.payload_delta -= (self.payload_of)(old.value.get_mut()) as i64;
+            self.payload_delta -= (self.payload_of)(&old.value) as i64;
             let g = old.generation.load(Ordering::Acquire);
             let ne = RegionEntry::new(value, (self.chunk_idx, ei));
             ne.generation.store(g, Ordering::Release);
