@@ -1,16 +1,12 @@
 # docs/agent/rules/ — 开发规范
 
-AI 与协作者干活的**行为约束**。这里不写任何系统知识——那是三本书的事
-（[doc-system.md](doc-system.md)）。
+AI 与协作者干活的**行为约束**。这里不写任何系统知识——那是三本书的事（[doc-system.md](doc-system.md)）。
 
-按**什么时候读**组织：
+**本文件是规则的唯一索引**：[`docs/agent/README.md`](../README.md) 只做入口、不复述，
+各 rules 文件是每条规则的唯一归属地。
 
-## 每次会话
-
-| 文件 | 管什么 |
-|------|--------|
-| [workflow.md](workflow.md) | 协作流程主线（以 PR 为单位）：阶段 0–6、变更分类、Scope、GREEN 门禁、合并 |
-| [philosophy.md](philosophy.md) | 做选择时的判准：最终方案优先 / 根因修复 / 不做兼容 / 设计完整性 / 规范冲突检测 / 事实校正 / 延后管理 |
+**每次会话先读**：[workflow.md](workflow.md)（流程主线）· [philosophy.md](philosophy.md)（判断准则）·
+[doc-system.md](doc-system.md)（文档总纲）。其余按「什么时候读」进：
 
 ## 推进一次变更时
 
@@ -33,7 +29,7 @@ AI 与协作者干活的**行为约束**。这里不写任何系统知识——�
 | 文件 | 管什么 |
 |------|--------|
 | [code-organization.md](code-organization.md) | 哪层目录要 README + 文件/函数/类型的行数限制（`xtask check lines` 棘轮） |
-| [common-pitfalls.md](common-pitfalls.md) | 跨语言共同陷阱：加载顺序非确定性、id 作用域 |
+| [common-pitfalls.md](common-pitfalls.md) | 跨语言共同陷阱：加载顺序非确定性、id 作用域、局部变量无块级 shadow |
 | [compiler-z42c.md](compiler-z42c.md) | z42c（编译器，用 z42 写）：子包结构、Lexer / Parser / AST 约定 |
 | [runtime-rust.md](runtime-rust.md) | Rust VM 代码约定 |
 | [dependencies.md](dependencies.md) | 加新依赖前先查：已采用 / 推荐的 Rust 库 + 子系统参考实现 |
@@ -43,10 +39,14 @@ AI 与协作者干活的**行为约束**。这里不写任何系统知识——�
 | 文件 | 管什么 |
 |------|--------|
 | [bootstrap-seed.md](bootstrap-seed.md) | 种子鸡蛋问题；**新语法/格式 support 先行、晚一个 nightly 再 use** |
-| [version-bumping.md](version-bumping.md) | zbc / zpkg 格式 version bump 的同步 checklist |
+| [version-bumping.md](version-bumping.md) | zbc / zpkg 格式 version bump 的同步 checklist + 编译器语义指纹 |
+
+## 任务操作清单
+
+一类重复出现、步骤多且易漏的任务的逐步清单（「这件事要改哪些文件、按什么顺序」）见
+[../playbooks/](../playbooks/README.md)——与上面的「怎么做事」互补。
 
 ---
 
-> 总入口是 [`docs/agent/README.md`](../README.md)；各 AI 工具的入口文件（如 Claude Code 的
-> [`.claude/CLAUDE.md`](../../../.claude/CLAUDE.md)）只做引用，实质规范都在 `docs/agent/`。
-> 按任务查「改哪些文件」的操作清单见 [../playbooks/](../playbooks/README.md)。
+> 各 AI 工具的入口文件（如 Claude Code 的 [`.claude/CLAUDE.md`](../../../.claude/CLAUDE.md)）只做引用，
+> 不放规则；实质规范都在 `docs/agent/`。

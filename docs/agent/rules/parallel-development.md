@@ -15,7 +15,7 @@
 
 worktree 把并行流物理隔离，git 负责文本冲突，GREEN gate 负责语义正确。
 
-> **§0 worktree 隔离铁律（必须遵守）**：**每一次改动都必须在自己专属的 worktree 里做，
+> **worktree 隔离铁律（必须遵守）**：**每一次改动都必须在自己专属的 worktree 里做，
 > 一 change 一 worktree 一分支，绝不共用分支 / worktree、绝不在主树（`z42-test`）上直接改。** 无论改动
 > 大小（feature / refactor / fix / 甚至纯文档规范）一律如此——主树只作 seed 供体与 origin/main 参照，不
 > 承载在制品。理由：① 主树常被并发会话共享，在其上改动会互相踩踏；② 共用分支会让两条独立改动的历史 /
@@ -38,22 +38,16 @@ worktree 把并行流物理隔离，git 负责文本冲突，GREEN gate 负责�
 > 拿不准算不算"很小" → 按走 PR 处理。开 PR 的成本远低于直推 main 后发现要回滚。
 
 **分支命名**：kebab-case、动词开头、≤ 5 词（见 [workflow.md「PR 即在制品账本」](workflow.md)），如
-`add-for-loop`、`fix-type-check-crash`。**所有改动一律在专属 worktree 里开分支（§0 铁律），不在主树原地
-开分支、不共用他人分支**——即便是"很小的改动"直推 main，也从自己的独立 worktree 走完整 GREEN 后再推。
+`add-for-loop`、`fix-type-check-crash`——一律在自己的独立 worktree 里开（铁律见上）。
 
 ### §1.1 PR body 约定（必须遵守）
 
-PR 描述就是这次变更的方案与记录，**按变更模式分模板**——完整模式（lang / ir / vm）与最小模式（fix / refactor）的小节
-见 [workflow.md 阶段 2](workflow.md)（模板的唯一 SoT，不在此复制）。无论哪种模式，都必须含：
+小节模板以 [workflow.md 阶段 2](workflow.md) 为唯一 SoT，标题 / 页脚格式以
+[commit-log.md](commit-log.md) 为唯一 SoT——本节不复列，只强调两条硬性要求：
 
-- **What / Why**：一句话，本 PR 做什么、为什么
-- **验证**：首行 `base: <本轮 GREEN 基于的 main sha>`（§3.1 强制：没有它，审阅者无从判断绿灯还算不算数），
-  随后是 GREEN 状态——`xtask test` 全绿，或关键 stage 结果 / 对账证据（如自举字节不动点 gen1==gen2）
-- 末尾页脚：`🤖 Generated with [Claude Code](https://claude.com/claude-code)`
-
-- **标题**沿用 commit summary 格式 `type(scope): 描述`（见 [commit-log.md](commit-log.md)），与首个 / 主 commit 一致。
-- **页脚必附**（与 commit 的 `Co-Authored-By` 对称）：格式见 [commit-log.md「页脚」](commit-log.md)。
-- 多 commit 的 PR，body 的 What/Why 概述整条 PR，不复述每个 commit。
+- **验证段首行写 `base: <本轮 GREEN 基于的 main sha>`**（为什么必须写见 §3.1）：没写 sha，
+  审阅者无从判断那个绿灯还算不算数
+- **多 commit 的 PR，body 的 What / Why 概述整条 PR**，不复述每个 commit
 
 ---
 
@@ -141,16 +135,11 @@ PR 里同时含「runner 改成按包编译」+「某源文件补 `using`」时�
 > 或共享基础设施文件如 `PackageCompiler` / `WorkspaceBuildOrchestrator`）。
 
 worktree + PR 解决**物理隔离**和**文本冲突**，但**解决不了语义耦合**：两个 PR 改 runtime 的不同文件、
-行不重叠、各自都能 clean merge，合在一起逻辑却可能坏——git 测不出来。
+行不重叠、各自都能 clean merge，合在一起逻辑却可能坏——git 测不出来。**唯一的兜底就是 §3 那条**
+（rebase 到已合并的之上 + 重跑完整 GREEN），语义冲突才会以**红测试**的形式挡在合并前。
 
-**兜底机制 = §3 的强制 rebase + 完整 GREEN**：后合并的 PR 必须 rebase 到已合并的那个之上、重跑全套
-测试，语义冲突就会变成**红测试**挡在合并前。
-
-**这是用「返工换并行度」的权衡，不是「冲突消失了」**：
-
-- PR 隔离：放开并行度，把返工**推到合并前**（后者 rebase 时才发现要改）——在合并前重跑测试时暴露、就地修。
-
-pre-1.0 快速迭代期这个权衡通常值：并行度更高，返工由 GREEN gate 自动兜住、不会静默进 main。
+**这是用「返工换并行度」的权衡，不是「冲突消失了」**：PR 隔离放开并行度，把返工**推到合并前**就地修。
+pre-1.0 快速迭代期通常值——返工由 GREEN gate 自动兜住、不会静默进 main。
 **但若某两个同子系统 change 明显深度耦合（如都在动 GC safepoint 语义），开工前主动在 PR 描述里
 互相知会一声，能省掉一轮 rebase 返工**——这是建议，不是强制。
 

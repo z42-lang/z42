@@ -141,12 +141,35 @@ site: body.Run(i)              // IParallelBody 接口调用，位于 z42c.seman
 
 ---
 
+## 3. 局部变量不做块级 shadow（z42 语言语义）
+
+**z42 的局部变量**没有**块级 shadow**：在内层 `while` / `if` 块里写 `string name = ""`，
+**复用**外层同名的那个 `name`，不是新建影子变量。编译不报错，静默覆盖外层值。
+
+### 现场案例
+
+z42c 的 `ZpkgReader.Open` 内层 STRS 解码循环用 `name` 逐串拼接，污染了外层 META 包名 `name`：
+`z.Name` 变成池里最后一个串 → `_isPrelude(z.Name)` 恒 false → prelude 包（`z42.core`）永不激活 →
+所有 no-`using` / 裸名（`Assert` 等）解析回 null → **136 个无 using 的 golden 全红**。
+
+症状离根因很远（报错全落在 golden 的名字解析上，肇事代码在一段字符串解码循环里），而且
+**自举不动点抓不到**：z42c 源码全用显式 `using`，不走 prelude 路径。
+
+### 强制规则
+
+**函数内嵌套块里的局部变量，名字不得与外层已声明的局部同名。** 需要区分时另起语义不同的名字
+（`innerName` / `rawName`），不要依赖「块作用域会隔离」这个在 z42 不成立的假设。
+
+---
+
 ## 添加新规则的标准
 
 新规则进 `common-pitfalls.md` 要满足**全部**三条：
 
-1. 这个坑可以在 z42 / Rust / bash 任一种语言里出现（不是某语言独有 idiom）
+1. 这个坑能在 z42 / Rust / bash **写的代码**里出现——可以是这三种语言的**语义差异**（如 z42 不做块级
+   shadow），而不是「换个库就好」的 idiom 偏好
 2. 至少出过一次实际 bug（不是预防性脑补）
 3. 修复方式是"模式而非具体 API"（"避免 X 类型行为"，不是"换用 Y 库"）
 
-否则该规则属于 [compiler-z42c.md](compiler-z42c.md) / [runtime-rust.md](runtime-rust.md) / 具体设计 doc。
+否则该规则属于 [compiler-z42c.md](compiler-z42c.md) / [runtime-rust.md](runtime-rust.md) /
+`docs/internals/` 对应机制页。

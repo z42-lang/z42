@@ -37,10 +37,8 @@ fn test_something() { ... }
 
 ## 指令集扩展
 
-每次新增 `Instruction` variant，必须同时更新：
-1. `metadata/bytecode/instruction.rs` — 枚举定义
-2. `interp/exec_*.rs`（`exec_instr` 分派）— match 分支（不允许有 `_` 通配兜底）
-3. `docs/internals/src/formats/ir.md` — 指令文档
+新增 `Instruction` variant / IR 指令的完整改动清单（编译侧 + 运行时侧 + 格式 bump + 文档，约 20 处）见
+[add-ir-op.md](../playbooks/add-ir-op.md)。
 
 ## Value 类型
 
@@ -119,6 +117,7 @@ nightly `test-wasm-browser` 能照出来。典型场景：time builtins、GC `no
 - `ExecMode` 决定函数级别的分发路径
 - 模块级默认模式 → `Vm::default_mode`；函数级注解优先
 - JIT/AOT 后端在实现完成前**必须**返回 `bail!("... not yet implemented")`，不允许部分实现
+- **实现顺序严格 interp ✅ → JIT → AOT**：interp 未全绿不得开始填 JIT / AOT（见 [workflow.md](workflow.md) 阶段 5）
 
 ## 序列化
 

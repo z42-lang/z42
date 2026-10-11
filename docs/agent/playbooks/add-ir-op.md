@@ -39,21 +39,17 @@
 13. `src/runtime/src/jit/translate/*.rs` — **要么翻译，要么**登记进
     `src/runtime/src/jit/translate/unsupported.rs` 的 `unsupported_reason`（单一真相表）
 
-### 格式 bump（强制链，9 步）
+### 格式 bump（强制链）
 
-完整 checklist 见 [`version-bumping.md`](../rules/version-bumping.md)。要点：
-
-14. `ZbcFormat.z42` 的 `ZbcVersion.Minor++` + 常量旁 changelog
-15. `src/runtime/src/metadata/zbc_reader/versions.rs` 的 `ZBC_VERSION_MINOR` + changelog
-16. zbc 格式页的 Minor changelog 表加行（`docs/internals/src/formats/zbc.md`）
-17. regen `src/compiler/z42.package/tests/fixtures/zbc-format/*/source.zbc`（`xtask build test`）
-18. `src/compiler/z42c.emission/tests/zbc/zbc_tests.z42` 内嵌 hex 串重截
-19. **联动 zpkg**：`ZpkgWriter.z42` 的 `Minor++` + Rust `ZPKG_VERSION_MINOR` + `zpkg.md` changelog
-    + **手工** regen `src/compiler/z42.package/tests/fixtures/zpkg-format/*`（无一键 regen）
+新增 opcode **必然** bump zbc + zpkg（strict-pin：minor 不等直接 bail）。9 步同步清单（writer / reader 常量、
+两个格式页 changelog、两组 fixture regen、golden hex 重截）以
+[`version-bumping.md`](../rules/version-bumping.md) 为唯一 SoT——**本清单不复列**。
+bump 后在本地怎么重建工具链、重生 fixture 见
+[格式 bump 期的本地验证](../../internals/src/devinfra/format-bump.md)。
 
 ### 文档
 
-20. IR 参考页（`docs/internals/src/formats/ir.md`）、`src/compiler/z42.package/README.md`、`src/runtime/src/interp/README.md`
+- IR 参考页（`docs/internals/src/formats/ir.md`）、`src/compiler/z42.package/README.md`、`src/runtime/src/interp/README.md`
 
 ## 自举纪律
 

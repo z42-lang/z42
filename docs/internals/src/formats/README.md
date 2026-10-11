@@ -14,6 +14,7 @@ zbc（字节码）、zpkg（包）、IR —— **编译器与运行时之间的�
 **z42vm 精确匹配 writer 的 major + minor**，不匹配直接拒读——没有 fallback、没有兼容层。
 残留旧产物用 `xtask build test` 重生。
 
-> 格式 bump 的完整 checklist（改哪些文件、commit 前自检命令、两代自举怎么过）见
-> [version-bumping.md](https://github.com/z42-lang/z42/blob/main/docs/agent/rules/version-bumping.md)。
+> 格式 bump 的完整 checklist（改哪些文件、commit 前自检命令）见
+> [version-bumping.md](https://github.com/z42-lang/z42/blob/main/docs/agent/rules/version-bumping.md)；
+> bump 后本地怎么重建工具链、重生 fixture 见[格式 bump 期的本地验证](../devinfra/format-bump.md)。
 > **每次 bump 必须在 [zbc.md](zbc.md) 的 Minor changelog 表加一行。**

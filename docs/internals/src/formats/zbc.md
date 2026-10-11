@@ -376,3 +376,16 @@ v0.x 的 namespace 提取语义（用于 lazy zpkg 路由）。
 ---
 
 > **每次格式 bump 必须在此加一行** —— 见 [version-bumping.md](https://github.com/z42-lang/z42/blob/main/docs/agent/rules/version-bumping.md) 第 3 步。
+
+## Deferred
+
+### bump-future-drop-mkclos-stack-alloc
+
+- **当前形态**：`MkClos` 仍带一个 `u8` 尾字节（原 `stack_alloc`）。运行时的栈闭包支持已删除，Rust reader
+  读出后丢弃（`zbc_reader/instr_decode.rs` 的 `OP_MK_CLOS`）、一律堆分配，z42c 恒写 `0`。
+- **触发条件**：做下一次 zbc minor bump 时一并删除——writer、两端 reader 与本页指令表同步改。
+- **连带改动**：`IrInstrCall.z42` 的 `MkClosInstr.StackAlloc`（字段 + `e.Flag`）、`ZbcReaderInstr.z42`
+  对应的读取、三个发射点的 `false` 实参（`FunctionEmitter` 局部函数闭包 / `ExprEmitter` lambda 字面量 /
+  `CallEmitter` 合成 thunk）。
+
+> 横向索引见 [`roadmap.md` Deferred Backlog Index](../../../roadmap.md)。

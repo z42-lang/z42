@@ -12,7 +12,7 @@ paths:
 ## 核心模型
 
 **一次迭代 = 一个 PR。PR 描述是这次变更的合同与记录**——开工前是方案（User 审批的对象），实施中是进度，
-合并后是永久档案。不再有独立的「变更目录」：原来的 proposal / spec / design / tasks 合并成 PR 描述的几个小节。
+合并后是永久档案。方案、设计、任务清单就是它的几个小节，不另立文档。
 
 ```
 Think First → Plan in PR → Build → Verify → Merge
@@ -24,7 +24,7 @@ Think First → Plan in PR → Build → Verify → Merge
 | **User** | 定方向、审批 PR 描述里的方案、裁决分歧 |
 | **PR 描述** | 这次变更的人机合同，实现的唯一依据；合并后即档案 |
 | **三本书** | 长期规范：用户能看见的规则落 `docs/reference/`，实现机制与决策落 `docs/internals/`（判据见 [doc-system 三问](doc-system.md)） |
-| **Claude** | 自驱执行各阶段；不超 Scope；不猜测歧义 |
+| **AI** | 自驱执行各阶段；不超 Scope；不猜测歧义 |
 
 **User 介入点只有两个：** ① 方案审批（PR 描述）；② 方案分歧裁决。其余全部 AI 自驱。
 
@@ -192,10 +192,11 @@ base: <sha>
 [GREEN 状态]
 ```
 
-**Scope 表的硬性约束（完整模式必备，最小模式建议）：**
+**Scope 表的两条硬性约束（完整模式必备，最小模式建议）：**
 - 必须是项目内可解析的**具体文件路径**，不允许 `src/compiler/*` 通配，也不允许「相关测试文件」这种模糊描述
 - 每条 NEW / MODIFY / DELETE 必须能被至少一项任务命中；反过来，任务触及的所有文件必须**全部**列入 Scope
-- 实施中发现需要改 Scope 外文件 → **立即停下**，更新 PR 描述的 Scope，**User 重新确认**后才继续（批量授权下也是）
+
+> 实施中需要改 Scope 外文件时的处置（立即停下 → 更新 Scope → User 重新确认）见[越界防护](#越界防护)。
 
 **并行冲突**：开工前 `gh pr list` 看是否有 in-flight PR 改同一文件 / 子系统。**不预先串行、不排队**：先就绪的先合，
 文本冲突在 rebase 时暴露，语义冲突由合并前的完整 GREEN 兜底——见 [parallel-development.md §2–§4](parallel-development.md)。
@@ -232,7 +233,7 @@ PR #N 的方案已就绪，请确认是否有问题：
 「自动推进，不用每次问」等。
 
 1. 一次性展示**所有受授权 PR 的摘要**（每个一段：Why / 场景数 / 关键决策 / 任务数）
-2. User 明确说「全部开始 / 没问题 / 批量授权」→ 这些 PR 进入待实施队列，Claude 记录授权范围（PR 名单 + 确认时间）
+2. User 明确说「全部开始 / 没问题 / 批量授权」→ 这些 PR 进入待实施队列，AI 记录授权范围（PR 名单 + 确认时间）
 3. 之后按依赖顺序逐个实施 → 验证 → 合并；每个合并后**自动开始下一个**，只汇报状态切换：
    ```
    ✅ C1 已合并（#N），1/4 完成
@@ -277,8 +278,7 @@ PR #N 的方案已就绪，请确认是否有问题：
 
 **实施过程中的验证要求：**
 - 每个 refactor / fix / feature 实施后，立即在本地运行编译 + 测试
-- 测试失败：当前变更导致 → 立即修复；pre-existing 失败 → 本迭代修复，或说明原因后 User 确认；与当前 Scope 无关 →
-  记入 PR 描述「Out of Scope」并另开 PR
+- 测试失败的处置按阶段 5 的[测试失败处理表](#阶段-5验证verify)，不在本阶段另立口径
 - 不得跳过任何测试失败继续下一个任务；整个阶段 4 完成后，进阶段 5 前必须全绿
 
 ## 阶段 5：验证（Verify）
@@ -286,7 +286,7 @@ PR #N 的方案已就绪，请确认是否有问题：
 **全绿（GREEN）标准**——进阶段 6 前必须通过全部验证，且**所有测试全部通过**。统一入口：
 
 ```bash
-xtask test          # 默认串联所有必跑 stage（完整 GREEN gate）
+cargo build && xtask test          # 默认串联所有必跑 stage（完整 GREEN gate）
 ```
 
 **iteration 期加速**：dev 期可用 `xtask test changed`（按改动文件挑 stage）或单跑某 stage（`xtask test e2e --dir/--file` /
@@ -308,7 +308,7 @@ xtask test e2e --dir cross-zpkg     # 跨 zpkg 端到端
 xtask test stdlib                   # stdlib [Test] dogfood
 xtask test compiler                 # z42c 自举字节不动点
 xtask test docs                     # 文档死链
-xtask test docs examples                 # 学习手册 ↔ examples 重放
+xtask test docs examples            # 学习手册 ↔ examples 重放
 ```
 
 > **不要漏跑 cross-zpkg / lib / compiler**：它们不在默认 GREEN 路径之外，漏跑会让对应层的回归长期不被发现。
@@ -316,7 +316,7 @@ xtask test docs examples                 # 学习手册 ↔ examples 重放
 
 发行版变更（xtask package / 跨平台 / 嵌入接口）追加跑 `xtask package sdk --verify`（先 `xtask package sdk` 产 host-RID 包）。
 
-**测试失败处理：**
+**测试失败处理（唯一口径）：**
 
 | 情况 | 处理方式 |
 |------|---------|
@@ -343,18 +343,15 @@ Spec 覆盖：| 场景 | 实现位置 | 验证方式 | ✅ |             # 完�
 > **铁律：文档同步与方案定稿都在 PR 内完成，合并后只做清理，不补内容。** 禁止「代码先合、文档后补」，
 > 禁止合并后再单独推一个文档提交到 main。
 
-1. **文档同步**：判据是 **[doc-system.md 的三问](doc-system.md)**（唯一 SoT，此处不复列），逐问过一遍，命中的全部落实：
-   1. 用户能看见吗？→ `docs/reference/` 对应页必改；已被 learn 覆盖 → `examples/<章节>/` + learn 章一并改
-   2. 下一个接手的人不读文档能看懂吗？→ `docs/internals/` 对应机制页必改
-   3. 目录的结构、对外入口或依赖变了吗？→ 该目录 `README.md` 必改（写法见 [readme-writing.md](readme-writing.md)）
-
-   三问全否 = 纯内部重构，不补文档——**也不许顺手改文档制造漂移**。另有三处与三问正交、命中就得改：根 `README.md`
-   （影响仓库门面时）、`docs/roadmap.md`（延后项被消化 / 新增，或阶段进度变化时）、`docs/agent/rules/`（改的是协作规则 /
-   流程本身时）。**合并前 doc-check 清单**见 [doc-system.md「三道门」](doc-system.md)的门③，不在此复列。
+1. **文档同步**：判据是 **[doc-system.md 的三问](doc-system.md)**（唯一 SoT，落点与「三问全否」的处置都在
+   那里，本阶段不复列）——逐问过一遍，命中的按该处落点更新。另有三处与三问正交、命中就得改：根 `README.md`
+   （影响仓库门面时）、`docs/roadmap.md`（延后项被消化 / 新增，或阶段进度变化时）、`docs/agent/rules/`
+   （改的是协作规则 / 流程本身时）。**合并前 doc-check 清单**见
+   [doc-system.md「三道门」](doc-system.md)的门③，不在此复列。
 2. **PR 描述定稿**：把描述更新成**最终状态**——实施中偏离方案的决策、实际 Scope、产生的 Deferred 项、验证结论。
    合并后它就是档案，不再改写。
 3. **提交**（无需 User 确认）：`git add <本变更 Scope 内的路径>`（不是 `git add -A`），`git commit -m "type(scope): 描述"`；
-   每个逻辑单元单独提交。
+   每个逻辑单元单独提交（判据见 [commit-log.md](commit-log.md)）。
 4. **落地到 main**——策略见 [parallel-development.md](parallel-development.md)：
    ```bash
    git push origin <branch>
@@ -384,7 +381,7 @@ User 说「继续」时，自动执行：
 
 1. `gh pr list --author @me`（含 draft）与当前分支对应的 PR（`gh pr view`）
 2. 读该 PR 描述的任务清单，找到第一个未勾选任务
-3. 读 [docs/agent/README.md](../README.md) → 规范入口与当前阶段约束；读 memory → 跨会话决策
+3. 读 [rules/README.md](README.md) → 规范索引与当前阶段约束；读 memory → 跨会话决策
 4. 汇报：
 
 ```
@@ -399,7 +396,9 @@ User 说「继续」时，自动执行：
 ## 越界防护
 
 **必须停下询问（不得擅自决定）：**
-- 需要改动 Scope 外的文件（**即使在批量授权模式下也必须停**）
+- **需要改动 Scope 外的文件**（**即使在批量授权模式下也必须停**）。PR 描述的 Scope 表是实施时**唯一允许触及的
+  文件清单**：需改 Scope 外文件 → 立即停下更新 Scope → User 重新确认后才继续。「顺手改一下」「反正在附近」
+  「应该没人在意」都是违规，无例外；实施中发现需要新增 PR 或调整既定决策同样必须停下
 - 发现 Scope 外的 Bug → 记入 PR 描述 Out of Scope，另开 PR，不顺手修
   - **例外**：若它就是本变更要解决的问题的**根因**，按 [philosophy.md「系统性修复 vs Scope 控制」](philosophy.md)
     停下报告 + 请求 Scope 扩展，User 批准后从根因修——别在症状层打补丁
@@ -408,14 +407,11 @@ User 说「继续」时，自动执行：
 
 **自主决定（无需询问）：** 算法细节、数据结构选择、代码风格、变量命名。
 
-**Scope 表的强约束：** PR 描述的 Scope 表是实施时**唯一允许触及的文件清单**。需改 Scope 外文件 → 立即停下更新 Scope，
-更新后必须 User 重新确认（批量授权下也是）。「顺手改一下」「反正在附近」「应该没人在意」都是违规，无例外。
-
 ## 实现哲学 / 设计完整性 / 延后管理
 
-以下规则不属于流程主线，独立沉淀在 [philosophy.md](philosophy.md)：实现方案原则（优先最终方案 / 不为破坏性顾虑而牺牲 /
-修复必须从根因出发 / 不为旧版本提供兼容）、设计完整性原则（设计无法承载需求时停下讨论，禁止打补丁）、规范冲突检测与事实校正、
-延后特性管理。`.zbc` / `.zpkg` 格式 version bump 的同步 checklist 见 [version-bumping.md](version-bumping.md)。
+以下规则不属于流程主线，独立沉淀在 [philosophy.md](philosophy.md)：实现方案原则（最终方案优先 / 最本质解 /
+不为破坏性顾虑而牺牲 / 修复必须从根因出发 / 不为旧版本提供兼容）、设计完整性原则（设计无法承载需求时停下讨论，
+禁止打补丁）、规范冲突检测与事实校正责任、延后特性管理。
 
 ---
 
@@ -435,26 +431,3 @@ User 说「继续」时，自动执行：
 - z42c 编译器：`src/compiler/<member>/tests/<name>/`（如 `z42c.semantics/tests/`、`z42c.syntax/tests/`）
 - Rust VM：`src/tests/<category>/<name>/`（VM e2e）或 `src/runtime/src/*_tests.rs`（Rust 单测）；stdlib-bound 用例放 `src/libraries/<lib>/tests/<name>/`
 - 跨语言端到端：golden test（source.z42 + expected_output.txt）
-
----
-
-## 禁止行为
-
-**必须遵守，违反即为严重工作流缺陷：**
-
-- **方案未经 User 确认前写实现代码**：lang / ir / vm 变更必须先有 PR 描述（Why / Spec / Design / Scope / 任务）并经 User 批准；
-  参见上文 **🔴 Spec-First Self-Check**。把聊天中的逐步确认当作方案审批也算违规——审批对象是 PR 描述
-- **验证未全绿时 commit / push 到 ready 的 PR**：任何测试失败都不得进入合并；包括 pre-existing 失败（修复，或另开 issue + 说明）；
-  验证命令必须完整运行：`cargo build && xtask test`
-- **顺手修复 Scope 外问题**：Scope 内改动优先完成 + 验证；外部问题记入 Out of Scope，另开 PR
-- **用「我理解你的意思是…」绕过歧义**：存在歧义时停下来询问，而不是主观推断
-- **interp 未全绿时填 JIT / AOT 实现**：VM 实现严格按顺序 interp ✅ → JIT → AOT
-- **跨阶段混入**：检查 `docs/roadmap.md`，确认当前阶段限制，后续阶段的特性不得混入
-- **单个 PR 积压多个逻辑单元**：一个 PR = 一个逻辑单元；拆分（refactor）与功能变更分开成 PR
-- **合并后补内容**：文档同步、方案定稿类改动不得在合并后另推到 main
-- **未经 User 确认擅自采用临时方案**：存在「临时」与「最终」方案时默认实施最终方案；条件不允许（依赖未就绪、工作量超出 Scope）
-  必须先向 User 说明并得到确认
-- **批量授权下扩张授权范围**：授权对象是**当时展示的 PR 名单**，不是「所有相关工作」；实施中发现需要新增 PR、改动 Scope 外文件、
-  调整既定决策 → 必须停下询问
-- **Scope 表使用模糊描述**：❌「src/compiler/* 相关测试」「涉及的辅助函数」「对应的文档」；✅ 具体文件路径，每条对应至少一个任务，
-  与任务清单双向对齐

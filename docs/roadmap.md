@@ -510,7 +510,7 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 
 ### 实施期延后（D-* 系列）
 
-| ID | 标题 | Design doc 条目 |
+| ID | 标题 | 正文条目 |
 |------|------|------|
 | **D-2** | ISubscription chain `.AsOnce()` / `.AsWeak()` 跨 generic interface impl | [language/delegates-events.md](reference/src/language/delegates-events.md#d-2-isubscription-chain-asonce--asweak-跨-generic-interface-impl) |
 | **D-3** | N>4 arity Action / Func（自举后用 z42 写生成器）| [language/delegates-events.md](reference/src/language/delegates-events.md#d-3-n4-arity-action--func) |
@@ -530,6 +530,8 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 | `packaging-future-selector` | `packages.toml` 自动发现（组件自报 `packages=[...]`，中央零编辑）；牺牲显式 include 的可见性，apphost 数量多时再评估 | [internals: packaging.md](internals/src/devinfra/packaging.md)（同上，正文暂只在本行） |
 | `packaging-future-artifact-naming` | `packages.toml` 的 `[package.*].artifact` 模板未被 xtask 消费，包目录命名仍是既有硬编码拼接（与模板字面值不一致）；改成真读字段会变更包目录名（外部可见），Phase 1 不做 | [internals: packaging.md](internals/src/devinfra/packaging.md)（同上，正文暂只在本行） |
 | `packaging-future-byte-identical-verification` | sdk/runtime 包树端到端逐字节一致验证被并行会话的 zpkg 格式升级（minor 22→0.23）环境问题阻塞；重构逻辑本身已通过单元+部分 e2e 独立验证 | [internals: packaging.md](internals/src/devinfra/packaging.md)（同上，正文暂只在本行） |
+
+| `bump-future-drop-mkclos-stack-alloc` | `MkClos` 的 `u8` 尾字节（原 `stack_alloc`）已无消费者：栈闭包支持删除后 Rust reader 读出即丢、z42c 恒写 `0`。做下一次 zbc bump 时连同字段与三个发射点一并删 | [formats/zbc.md](internals/src/formats/zbc.md#deferred) |
 
 ### 代码内临时绕过（in-code stopgaps，待正解）
 

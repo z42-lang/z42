@@ -87,6 +87,14 @@ z42c / stdlib / xtask (z42)  ──互为前置──►  自举环
 
 格式轴不需要纪律；真正靠纪律约束的只有语法 / API 轴。
 
+> **两代自举与 `DepScanCache`**：gen0→gen1(stdlib) / gen1→gen2(compiler) **就地覆写同一
+> `artifacts/build/{libraries,compiler}`**；`DepScanCache.Get` 按 **path + (size, mtime_ms)** 作答，
+> 命中但文件被覆写过即重读重解、并作废该条目的 Tsig/Mods/Types，于是「进程内覆写 zpkg 后重扫」不会返回
+> 陈旧 null，两代自举不依赖外部清理。回归测试 `src/compiler/z42c.pipeline/tests/depscancache/` 按真实
+> 形状复现（旧 minor 头 → 缓存 null → 就地覆写成当前 minor → 必须重解）。
+> ⚠️ 残余窗口：mtime 只有毫秒粒度，「同毫秒内覆写成同样大小的另一份内容」测不出来（make / ninja / rustc
+> 同款取舍）；两代自举之间隔着整轮构建，不在这个窗口里。
+
 ### 轴 ④ 的破环预建
 
 `_ensureBootstrapSelfDepLibs`（`xtask_compiler.z42`）在 workspace 自建**前**，用当前 driver（冷启动 = 上一 nightly 种子）把**当前源**的 `z42.core` → `z42.project` → `z42.build` → `z42.package` → `z42c.core` → `z42c.syntax` 依次编进 flat（顺序即依赖序，先于其消费者）。理由：z42c 源若消费这些库的新 API 而 flat 里是种子带来的旧版，自建会 `unknown type` / `no field`；若 fresh z42c emit 的调用钉在旧库上，运行期加载真库时解析不到（`undefined function`）。
@@ -97,6 +105,54 @@ z42c / stdlib / xtask (z42)  ──互为前置──►  自举环
 - 预建前先 `_breakHardLink`：flat 由硬链接装配，就地写会穿透到规范 dist。
 - 自建完成后 `_purgeBootstrapPrebuildsFromFlat` 把非 stdlib 成员从 flat 清走（规范产物在各成员 dist），使 flat 保持「只有 stdlib」，否则开发树的 `Z42_LIBS` 里会出现 `z42.project` 等包被误判为框架包。
 - 自建首遍失败（跨成员新增符号：driver 自包含的是旧兄弟包）时，用本轮 fresh 成员 dist 重新自包含 driver 并重试一遍。
+
+### 改名：编译期与运行期是两个解析面
+
+**重命名 / 删除一个 driver 运行期要调的符号不是增量**：预建用**当前源**重建自依赖库，加 API 时旧 FQN 还在、
+上一版 driver 运行期照旧解析得到；但**改名或删除会抹掉旧 FQN**，而跑这轮 bootstrap 的正是那个 driver ⇒
+它在中途就死。实测（想把 `Z42.Build.Project` ↔ `Z42.Package` 互换）：
+
+```
+Std.MissingSymbolException: undefined function `Z42.Build.Project.ManifestLoader.Load$1$string`
+  at Z42.Driver._build (Main.z42:166)
+```
+
+⇒ 动自依赖库里「driver 运行期会调」的符号的**名字或存在性**，是跨 nightly 的两 / 三阶段改动。
+
+要让两代并存就得有兼容物，**而兼容物形态选错就是白干一轮**。判据只有一条：
+
+> **编译期与运行期是两个独立的解析面，一件兼容物通常只盖住其中一个。**
+
+| 面 | 按什么解析 | 依据 |
+|---|---|---|
+| 编译期 | 命名空间（`using` + FQN），**不看包文件名** | z42c 语义层的 using-scoped 解析 |
+| 运行期 | **zpkg 文件名**（消费者 `DEPS` 段记的名字），**不看命名空间** | `runtime/src/metadata/loader/namespace.rs` 的 `resolve_dependency` |
+
+于是别名形态跟着「改的是哪一面」走：
+
+| 改的是 | 别名形态 | 先例 |
+|---|---|---|
+| **包名（文件名）**，命名空间没动 | 同内容**两个文件名** | `z42.ir` → `z42.package` |
+| **命名空间**，文件名没动 | 只能**旁置**一份到消费者的 entry 目录 | — |
+
+这两条已实测否证，别再试：
+
+- ❌ **另立一个兼容包**（旧名副本换个包名）：编译期够用，**运行期是空气**——没有任何 `DEPS` 指向那个新
+  文件名，它永不被加载。
+- ❌ **同一个包里同时声明两套命名空间**：同包内两套**同短名类**会串味（`E0401: no field … on <Class>`，
+  短名键混同），**且种子 z42c 一样如此** ⇒ 阶段 1 的源码根本编不出来。
+
+✅ **可行形态 = 编译期 overlay + 运行期旁置**：用种子 z42c 把**当前源**那个库编出来、覆盖进一份种子 libs
+的副本供编译期用；再把这份新名产物 `cp` 到消费者 zpkg 旁边（搜索序 `[entry-dir, Z42_LIBS, probing]`，
+entry-dir 最优先）供运行期用。两件齐了，改名就能**一步落**，不必拆成跨 nightly 的三步。
+
+> ⭐ **消掉这一整类危险的思路**：把旧 `<pkg>.zpkg` 拷进 driver **自己的 dist**（同样靠 entry-dir 最优先），
+> 带改名的 stdlib 重建就过去了——即「让编译器对它运行期要用的 stdlib 库自包含」。注意
+> `xtask_stdlib.z42` 步骤 4 的注释本就写着要给 driver「稳定 stdlib 快照」，而
+> 「fresh member 从 workspace dist 解析、优先于快照」恰好把那个意图吃掉了。
+
+⚠️ 验这类接线的对照实验，**命令必须真的会触碰那个符号**：懒加载没走到，撤掉兼容物也照样绿——那是空门
+（实测踩过：`xtask check stage2` 不读清单 ⇒ 对照无效，换 `package ci` 才红）。
 
 ### 运行期 libs 与编译期 libs 分离
 

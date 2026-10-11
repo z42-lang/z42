@@ -130,7 +130,7 @@ learn  ──链──▶  reference          internals  ──链──▶  lea
 **合并前 doc-check 清单**（全部勾上才能合并）：
 
 - [ ] 三问逐条过一遍，命中的文档均已更新
-- [ ] 所改目录的 README 六段齐全（六段制见 [code-organization.md](code-organization.md)）
+- [ ] 所改目录的 README 六段齐全（六段模板见 [readme-writing.md](readme-writing.md)）
 - [ ] 所改 / 新写的书页：页面描述的是当前状态、代码路径可解析、已挂入所属书的 `SUMMARY.md`
 - [ ] 本次触及文档中的相对链接均可解析（`xtask test docs` 绿）
 - [ ] **删 / 改 / 重命名任何命令面**（xtask 子命令、CLI verb、工程文件字段、脚本入口）时，
@@ -143,7 +143,7 @@ learn  ──链──▶  reference          internals  ──链──▶  lea
    按[规范冲突检测](philosophy.md#规范冲突检测必须遵守)停下，留一处、另一处改链接。
 2. **单向链接**：见 §2.1。
 3. **不写历史**：文档只描述**当前状态**。三类一律剥离——
-   - 考古注记（`（2026-05-20 add-threading-stdlib）` 这类来源 / 起始日期标注；演进史归 git blame 与 spec archive）
+   - 考古注记（`（2026-05-20 add-threading-stdlib）` 这类来源 / 起始日期标注；演进史归 git blame 与 PR 历史）
    - 过程叙述（「落实于 B 阶段」「迁移状态（✅ 完成）」「取代旧方案」「后续阶段落地」）
    - 对已消失事物的对照（说「是什么」，不说「不再是什么」）
 
