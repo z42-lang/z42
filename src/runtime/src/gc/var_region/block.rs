@@ -62,7 +62,7 @@ const AGE_MASK: u8 = 0b11;
 /// (`set_ascii_str`) before the handle escapes; clear means *unknown*, never "not ASCII",
 /// so a path that does not set it only loses the fast path. The STW age updates below
 /// preserve it.
-const ASCII_STR_BIT: u8 = 1 << 6;
+pub(crate) const ASCII_STR_BIT: u8 = 1 << 6;
 
 /// Largest `gen_age` a block header can represent (see [`AGE_MASK`]).
 ///
@@ -128,6 +128,16 @@ pub struct GcBlockHeader {
 // thin-Arc string have identical payload offsets, easing the PR-2 migration.
 const _: () = assert!(std::mem::size_of::<GcBlockHeader>() == 16);
 const _: () = assert!(std::mem::align_of::<GcBlockHeader>() == 8);
+
+/// Byte offset of [`GcBlockHeader::size`] (the payload byte length, `u32`) — read by
+/// JIT-emitted code that inspects a string block without a helper call
+/// (`metadata::vstr::jit_layout`).
+#[cfg(feature = "jit")]
+pub(crate) const HEADER_SIZE_OFFSET: usize = std::mem::offset_of!(GcBlockHeader, size);
+/// Byte offset of [`GcBlockHeader::type_tag`] (holds [`ASCII_STR_BIT`]) — see
+/// [`HEADER_SIZE_OFFSET`].
+#[cfg(feature = "jit")]
+pub(crate) const HEADER_TYPE_TAG_OFFSET: usize = std::mem::offset_of!(GcBlockHeader, type_tag);
 
 impl GcBlockHeader {
     /// Byte offset of the inline payload within the allocation = the (padded) header size.

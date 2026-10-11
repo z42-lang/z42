@@ -46,6 +46,8 @@ pub(super) struct TxCtx<'a, 'b> {
     /// R3: loop-invariant REF / MIXED array (data_ptr, len, stride).
     pub(super) hoisted_ref_arrays: &'a std::collections::HashMap<u32, (Value, Value, Value)>,
     pub(super) hr_array_ref_data: FuncRef,
+    /// perf-str-jit-intrinsics: translate-time view of call targets (`str_intrinsics`).
+    pub(super) callees: &'a dyn crate::jit::forward::ForwardLookup,
     // ── imported helper FuncRefs (per-function; named identically to the
     //    `let hr_x = imp!(..)` locals so mod.rs constructs via field shorthand) ──
     pub(super) hr_const_i32: FuncRef,

@@ -14,6 +14,11 @@ const ADDR_BITS: u32 = 48;
 #[cfg(target_pointer_width = "64")]
 const ADDR_MASK: usize = (1usize << ADDR_BITS) - 1;
 
+/// [`ADDR_MASK`] for native code: AND a handle's bits with it to get the
+/// [`GcBlockHeader`] address (JIT string intrinsics, `metadata::vstr::jit_layout`).
+#[cfg(all(feature = "jit", target_pointer_width = "64"))]
+pub(crate) const HANDLE_ADDR_MASK: u64 = ADDR_MASK as u64;
+
 /// An 8-byte, type-erased handle to a variable-length GC block. The low 48 bits are the
 /// [`GcBlockHeader`] address, the high 16 bits are a narrow generation snapshot (path-A
 /// tagged pointer, same scheme as `GcRef` in `refs.rs`). "Type-erased" because a `VarRegion`

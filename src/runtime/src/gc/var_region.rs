@@ -78,6 +78,10 @@ mod var_ref;
 
 pub use block::{BlockType, GcBlockHeader, PayloadDropGlue};
 pub(crate) use block::payload_ptr_of;
+#[cfg(feature = "jit")]
+pub(crate) use block::{ASCII_STR_BIT, HEADER_SIZE_OFFSET, HEADER_TYPE_TAG_OFFSET};
+#[cfg(all(feature = "jit", target_pointer_width = "64"))]
+pub(crate) use var_ref::HANDLE_ADDR_MASK;
 pub(crate) use chunk::{class_for, class_for_with_limit, OVERSIZED_CLASS};
 pub use chunk::{loh_bytes, set_loh_bytes};
 pub use chunk::{VarChunkClaim, VarChunkReclaim};

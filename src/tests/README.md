@@ -56,7 +56,7 @@
 | `structs/` | struct 的 ToString 路径等 |
 | `tuples/` | 元组 |
 | `user-conversions/` | 用户定义 `implicit` / `explicit` 转换 |
-| `strings/` | **语言侧**的字符串字面量：raw string `"""…"""` / 插值 / 拼接。String 的**库行为**（Length·Trim·Split·Join·Format…）归 [z42.core](../libraries/z42.core/tests/string_methods.z42) |
+| `strings/` | **语言侧**的字符串字面量：raw string `"""…"""` / 插值 / 拼接。另有 VM 侧的 JIT 内联 `Length` / 字符访问与解释器一致性（`str_intrinsics_jit`）。String 的**库行为**（Length·Trim·Split·Join·Format…）归 [z42.core](../libraries/z42.core/tests/string_methods.z42) |
 
 > **仓库根 `examples/`** 不是测试语料：它是学习手册的配套工程，由 `./xtask test docs examples`
 > 按会话脚本逐条运行校验（见 [test-gate](https://github.com/z42-lang/z42/blob/main/docs/internals/src/devinfra/test-gate.md)）。

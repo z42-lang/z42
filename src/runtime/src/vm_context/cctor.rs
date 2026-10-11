@@ -205,6 +205,13 @@ impl Default for CctorRegistry {
 }
 
 impl CctorRegistry {
+    /// `module_pending` / `module_failed` 的字节偏移：JIT 内联字符串原语（`jit::translate::str_intrinsics`）
+    /// 在快路径上直接读这两个计数，代替 `jit_call` 的包级屏障门（[`VmContext::module_init_gate_open`]）。
+    #[cfg(feature = "jit")]
+    pub(crate) const MODULE_PENDING_OFFSET: usize = std::mem::offset_of!(CctorRegistry, module_pending);
+    #[cfg(feature = "jit")]
+    pub(crate) const MODULE_FAILED_OFFSET: usize = std::mem::offset_of!(CctorRegistry, module_failed);
+
     /// 当前初始化代际。快路比对用；一次 relaxed load。
     #[inline(always)]
     pub fn generation(&self) -> u32 { self.generation.load(Ordering::Relaxed) }
@@ -509,6 +516,20 @@ impl crate::vm_context::VmContext {
     pub fn module_init_gate_open(&self) -> bool {
         let cc = &self.core.cctors;
         cc.any_module_init_pending() || cc.any_module_init_failed()
+    }
+
+    /// 本 VM 的 cctor 登记表地址（`VmCore` 持有的 `Arc`，地址在 VM 存活期内不变）。JIT 内联门读它的
+    /// [`CctorRegistry::MODULE_PENDING_OFFSET`] / [`CctorRegistry::MODULE_FAILED_OFFSET`]。
+    #[cfg(feature = "jit")]
+    pub(crate) fn cctor_registry_ptr(&self) -> *const CctorRegistry { Arc::as_ptr(&self.core.cctors) }
+
+    /// 编译期判定：静态调用 `func_fq` 的类型初始化屏障（[`Self::ensure_callee_owner_init`]）恒为空操作——
+    /// 属主类型已加载且没有静态构造器。属主未加载 / 自由函数一律答 `false`（保守）。
+    #[cfg(feature = "jit")]
+    pub(crate) fn callee_owner_init_free(&self, func_fq: &str) -> bool {
+        owner_class_of_static_func(func_fq)
+            .and_then(|o| self.loaded_type(o))
+            .is_some_and(|td| td.cctor_func().is_none())
     }
 
     /// **静态字段访问的 cctor 屏障**（interp 与 JIT **共用同一实现**）。
