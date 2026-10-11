@@ -429,7 +429,7 @@ User 说「继续」时，自动执行：
 
 1. `gh pr list --author @me`（含 draft）与当前分支对应的 PR（`gh pr view`）
 2. 读该 PR 描述的任务清单，找到第一个未勾选任务
-3. 读 [rules/README.md](README.md) → 规范索引与当前阶段约束；读 memory → 跨会话决策
+3. 读 [docs/agent/README.md](../README.md) → 规范索引与当前阶段约束；读 memory → 跨会话决策
 4. 汇报：
 
 ```

@@ -12,7 +12,7 @@ docs/
 ├── learn/          学习手册    —— 用 z42 写程序的人（学）
 ├── reference/      语言与库参考 —— 用 z42 写程序的人（查）
 ├── internals/      实现内幕    —— 改 z42 本身的人 / AI
-├── agent/          AI 协作规范 —— rules/ 行为约束 + playbooks/ 任务清单
+├── agent/          AI 协作规范 —— README.md 是唯一索引 + rules/ 行为约束
 ├── roadmap.md      项目计划与 Deferred 索引
 └── <主题>.md       临时迭代底稿 —— 一轮多 PR 迭代的工作文档，迭代完删除
 

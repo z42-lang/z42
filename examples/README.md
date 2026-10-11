@@ -20,4 +20,4 @@ z42 run greet.z42 -- 小明
 - 书里的代码和终端输出全部 include 自这里；`*.console` 是会话脚本，记录命令与期望输出。
 - 这里只放手册配套内容；语言与库特性的测试写在 `src/tests/` 或各库的 `tests/`。
 - 校验：`xtask test examples`（需要先 `xtask build toolchain` + `xtask package dev-sdk`）。写法与规则见
-  [`docs/agent/rules/learn-writing.md`](../docs/agent/rules/learn-writing.md)。
+  [`docs/agent/rules/book-writing.md` 第二部分](../docs/agent/rules/book-writing.md)。

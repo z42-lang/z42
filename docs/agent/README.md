@@ -8,15 +8,48 @@ AI 与协作者干活的**行为约束与操作手册**，与具体 AI 工具无
 > 构建 / 测试 / 打包命令见 [docs/internals/src/devinfra/](../internals/src/devinfra/)，
 > 实现计划见 [docs/roadmap.md](../roadmap.md)（**当前焦点不在别处复制**——焦点变化快，复制必过时）。
 
-## 从哪进
+## 怎么用
 
-| 位置 | 管什么 | 怎么进 |
-|------|--------|--------|
-| [rules/](rules/README.md) | **行为约束**：协作流程、判断准则、提交与并行、文档写法、代码组织、自举与格式 bump | 按[「什么时候读」索引](rules/README.md)进；每次会话先读其中的 workflow / philosophy / doc-system |
-| [playbooks/](playbooks/README.md) | 一类任务的操作清单（如「加一条 IR 指令」） | 任务命中时按需读 |
+**本文件是全部规范的唯一索引**：每条规则只在唯一归属文件里定义，其余位置只留「触发条件 + 一行结论 + 链接」。
+任务型操作清单（「这件事要改哪些文件、按什么顺序」）不另立目录，它跟对应规范放在一起。
 
-**本文件不复述任何规则。** 每条规则只在唯一归属文件里定义，索引只在 [`rules/README.md`](rules/README.md)；
-这里只回答「我是谁、从哪个门进」——多一份摘要就多一处会漂的真相。
+**每次会话先读**：[workflow.md](rules/workflow.md)（流程主线）· [philosophy.md](rules/philosophy.md)（判断准则）·
+[doc-system.md](rules/doc-system.md)（文档总纲）。其余按「什么时候读」进：
+
+## 推进一次变更时
+
+| 文件 | 管什么 |
+|------|--------|
+| [workflow.md](rules/workflow.md) | 流程主线（以 PR 为单位）：隔离铁律与 worktree 供种、阶段 0–6、变更分类、Spec-First、Scope、批量授权、GREEN 门禁、并行与合并顺序、越界防护、测试要求 |
+| [commit-log.md](rules/commit-log.md) | 提交信息格式 `type(scope): 描述`、scope 子系统表、页脚 |
+| [philosophy.md](rules/philosophy.md) | 做选择时的判准：最终方案优先 / 根因修复 / 不做兼容 / 设计完整性 / 规范冲突检测 / 事实校正 / 延后管理 |
+
+## 写文档时
+
+| 文件 | 管什么 |
+|------|--------|
+| [doc-system.md](rules/doc-system.md) | **总纲**：三本书各自的角色与「明确不写什么」、三问、三道门、单向链接、知识上浮、语种 |
+| [book-writing.md](rules/book-writing.md) | 三本书的页型与写法：`reference` / `internals` 的页头、机制页骨架、图表、检索，以及 `learn` 的章节写法与 `examples/` 的会话脚本、门禁码 |
+| [readme-writing.md](rules/readme-writing.md) | 根 README 与目录 README 的写法（**六段模板的唯一 SoT**） |
+
+## 写代码时
+
+| 文件 | 管什么 |
+|------|--------|
+| [code-organization.md](rules/code-organization.md) | 哪层目录要 README + 文件/函数/类型的行数限制（`xtask check lines` 棘轮） |
+| [common-pitfalls.md](rules/common-pitfalls.md) | 跨语言共同陷阱：加载顺序非确定性、id 作用域、局部变量无块级 shadow |
+| [compiler-z42c.md](rules/compiler-z42c.md) | z42c（编译器，用 z42 写）：子包结构、Lexer / Parser / AST 约定，**新增词法元素 / 语法 / IR 指令（opcode）的改动清单** |
+| [runtime-rust.md](rules/runtime-rust.md) | Rust VM 代码约定 + 推荐依赖与参考实现 |
+
+> 编译器调试面（`--dump-tokens` / `--dump-ast` 等）见
+> [dev-setup.md](../internals/src/devinfra/dev-setup.md)。
+
+## 碰自举链 / 改格式时
+
+| 文件 | 管什么 |
+|------|--------|
+| [bootstrap-seed.md](rules/bootstrap-seed.md) | 种子鸡蛋问题；**新语法 / 格式 support 先行、晚一个 nightly 再 use** |
+| [version-bumping.md](rules/version-bumping.md) | zbc / zpkg 格式 version bump 的同步 checklist + 编译器语义指纹 |
 
 ## 各 AI 工具的入口
 
@@ -24,5 +57,5 @@ AI 与协作者干活的**行为约束与操作手册**，与具体 AI 工具无
 
 | 工具 | 入口 | 说明 |
 |------|------|------|
-| Claude Code | [`.claude/CLAUDE.md`](../../.claude/CLAUDE.md) | 引用本文件；`.claude/skills/` 是 [playbooks/](playbooks/README.md) 的薄包装；`.claude/settings.json` 是团队共享权限 |
+| Claude Code | [`.claude/CLAUDE.md`](../../.claude/CLAUDE.md) | 引用本文件；`.claude/skills/` 是任务清单（如「新增 IR 指令」）的斜杠命令薄包装，清单本体在对应规则文件里；`.claude/settings.json` 是团队共享权限 |
 | 其他工具 | 本文件 | 在该工具的指令文件里指向 `docs/agent/README.md` 即可 |
