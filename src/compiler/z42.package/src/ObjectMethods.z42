@@ -12,8 +12,8 @@ public static class ObjectMethods {
         m[0] = ObjectMethods._m0("ToString", "string", true);
         m[1] = ObjectMethods._m1("Equals", "bool", "p0", "object", true);
         m[2] = ObjectMethods._m0("GetHashCode", "int", true);
-        // GetType ret = "Type"（反射类，prelude 可见；C# Object stub 同）；非 virtual。
-        m[3] = ObjectMethods._m0("GetType", "Type", false);
+        // GetType ret = `Std.Type`（反射类；写 FQN，消费端按 FQN 精确解析，不走裸名回落）；非 virtual。
+        m[3] = ObjectMethods._m0("GetType", "Std.Type", false);
         return m;
     }
     private static ExportedMethodZ _m0(string name, string ret, bool virt) {

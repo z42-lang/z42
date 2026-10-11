@@ -115,11 +115,19 @@ public static partial class ImportedSymbolLoader {
         // `ISubscription<T>` …，导出端改写 FQN 之前的产物）。取**加载序上最先声明它的那个 ns**（`*NsAll` 第一段）
         // 再按 FQN 查 —— 与此前按短名键的 first-wins 表逐一等价，只是不再维护一张短名表。全局 ns 的类型
         // （键即裸名）也走这条（第一段为 ""）。
+        // 探针实测（fqn-tables 5b-2 之后）：本树新建的包 0 命中，剩余命中全来自种子 SDK 里 5b 之前的包。
+        // STAGE2-DEBT(fqn-bare-fallback): 含 #1202 与 fqn-tsig-2 的 nightly 发布后：删 enum / 类 / 接口的裸名回落（_firstNs / _bareClass / _bareIface 与 ImportedSymbols.EnumNsAll；全局 ns 类型改按 FQN 表直查），先用探针确认全量构建 0 命中
         string _ens = ImportedSymbolLoader._firstNs(r.EnumNsAll, name);
         if (_ens != null) {
             Z42ClassType iect = Z42ClassType.Enum(name);
             iect.Namespace = _ens;   // unify-type-identity-fqn：缺它则 imported enum 的 Fqn() 退化成短名
             return iect;
+        }
+        // 基元包装类名（`Int32` / `String` …，泛型实参与委托成分里按裁决 D2 保留的拼写）：恒在 prelude 根 ns。
+        // 这是基元规则，不是裸名猜测——不走下面的回落。
+        if (PrimModel.Wrapper(name) == name && PrimModel.Code(PrimModel.Canon(name)) >= 0) {
+            Z42ClassType _pw = r.ClassesByFqn.Get(PreludeNs.Root() + "." + name) as Z42ClassType;
+            if (_pw != null) { return _pw; }
         }
         Z42ClassType _bc = ImportedSymbolLoader._bareClass(r, name);
         if (_bc != null) { return _bc; }
