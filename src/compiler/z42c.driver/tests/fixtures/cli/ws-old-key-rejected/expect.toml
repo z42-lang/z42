@@ -1,0 +1,6 @@
+desc = "workspace 清单改过名的键旧拼写（阶段 2 已删）：`default-members` 落回未知键 → 规划阶段报错、不建任何成员"
+args = ["build", "--workspace"]
+exit = 1
+stderr_contains = ["z42.workspace.toml: unknown key `default-members` in [workspace] (known: members, exclude, default_members, "]
+stderr_not_contains = ["deprecated", "uncaught exception"]
+absent = ["artifacts"]

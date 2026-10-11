@@ -236,13 +236,17 @@ pub fn make_constructed_type(ctx: &VmContext, type_name: &str, type_args: &[Stri
             Value::Str(s) => s.to_string(),
             _ => type_name.to_string(),
         };
-        let composed = format!("{}<{}>", base_full, arg_fulls.join(","));
-        let mut obj = rc.borrow_mut();
+        let composed = Value::Str(format!("{}<{}>", base_full, arg_fulls.join(",")).into());
+        // Through objops, so both reference stores fire the write barrier. `base` is fresh from
+        // `make_type_from_name` today, which would make the barrier redundant — but that is a
+        // property of a different function (a cached / interned `Type` would silently break it),
+        // and the store-after-construction shape is exactly the one the barrier contract covers.
+        // `__typeArgs` / `__fullName` are reference fields: `store_slot` cannot reject them.
         if let Some(i) = ti {
-            obj.set_field_value(i, &args_array);
+            let _ = crate::objops::field::store_slot(ctx, rc, i, &args_array);
         }
         if let Some(i) = fi {
-            obj.set_field_value(i, &Value::Str(composed.into()));
+            let _ = crate::objops::field::store_slot(ctx, rc, i, &composed);
         }
     }
     base

@@ -51,15 +51,6 @@ const AGE_SHIFT: u32 = TAG_BITS;
 /// Mask (post-shift) selecting the `gen_age` bits. **Two bits — ages above 3 do not fit.**
 const AGE_MASK: u8 = 0b11;
 
-/// Bit marking "this block is currently listed in `VarRegion::young_list`".
-///
-/// The young list uses **lazy deletion** — a tombstoned block stays in it until the next
-/// minor sweep filters it out. Without this flag, a slot that dies and is then handed back
-/// out by the free list before that sweep would be pushed a second time, so one block would
-/// sit in the list twice: aged twice per minor, and the list would grow without bound.
-/// `alloc` consults the flag and only pushes when it is clear.
-const IN_YOUNG_BIT: u8 = 1 << 5;
-
 /// `BlockType::Str` only: the string's bytes are all ASCII (so char index == byte index
 /// and the char count is the byte length). Set once on a freshly written string block
 /// (`set_ascii_str`) before the handle escapes; clear means *unknown*, never "not ASCII",
@@ -93,9 +84,10 @@ pub struct GcBlockHeader {
     pub(super) marked: AtomicU8,
     /// Tombstone flag: `true` while live, `false` after sweep reclaims the slot.
     pub(super) alive: AtomicBool,
-    /// Packed payload kind + generation age + young-list membership. Low [`TAG_BITS`] hold
-    /// the [`BlockType`] (tells the tracer how to scan the payload); the next two bits hold
-    /// `gen_age`; bit 5 is [`IN_YOUNG_BIT`]; bit 6 is [`ASCII_STR_BIT`] (string blocks only). Bit 7 is unused (always 0).
+    /// Packed payload kind + generation age + string flag. Low [`TAG_BITS`] hold the
+    /// [`BlockType`] (tells the tracer how to scan the payload); the next two bits hold
+    /// `gen_age`; bit 6 is [`ASCII_STR_BIT`] (string blocks only). Bits 5 and 7 are unused
+    /// (always 0) — young-set membership lives in the region's bitmap.
     ///
     /// **fix-minor-gc-skips-var-region (2026-09-08)**: the age had to live *inside* an
     /// existing byte — the header is pinned at 16 by the assert below, and growing it to 24
@@ -144,11 +136,9 @@ impl GcBlockHeader {
     /// Pack a [`BlockType`] and a `gen_age` into the `type_tag` byte. The single place the
     /// layout is encoded — every header construction site goes through it.
     #[inline]
-    pub(super) fn pack_tag(block_type: BlockType, gen_age: u8, in_young: bool) -> u8 {
+    pub(super) fn pack_tag(block_type: BlockType, gen_age: u8) -> u8 {
         debug_assert!(gen_age <= MAX_GEN_AGE, "gen_age {gen_age} exceeds the 2 bits available");
-        (block_type as u8)
-            | ((gen_age & AGE_MASK) << AGE_SHIFT)
-            | if in_young { IN_YOUNG_BIT } else { 0 }
+        (block_type as u8) | ((gen_age & AGE_MASK) << AGE_SHIFT)
     }
 
     /// Payload kind.
@@ -176,7 +166,7 @@ impl GcBlockHeader {
     pub(super) fn bump_gen_age(&self) -> u8 {
         let cur = self.type_tag.load(Ordering::Relaxed);
         let age = ((cur >> AGE_SHIFT) & AGE_MASK).saturating_add(1).min(MAX_GEN_AGE);
-        let keep = cur & (TAG_MASK | IN_YOUNG_BIT | ASCII_STR_BIT);
+        let keep = cur & (TAG_MASK | ASCII_STR_BIT);
         self.type_tag.store(keep | (age << AGE_SHIFT), Ordering::Relaxed);
         age
     }
@@ -194,25 +184,8 @@ impl GcBlockHeader {
         if now >= want {
             return;
         }
-        let keep = cur & (TAG_MASK | IN_YOUNG_BIT | ASCII_STR_BIT);
+        let keep = cur & (TAG_MASK | ASCII_STR_BIT);
         self.type_tag.store(keep | (want << AGE_SHIFT), Ordering::Relaxed);
-    }
-
-    /// Whether this block is currently listed in `VarRegion::young_list`. See
-    /// [`IN_YOUNG_BIT`] for why membership is tracked on the header rather than by
-    /// searching the list.
-    #[inline]
-    pub(super) fn is_in_young(&self) -> bool {
-        self.type_tag.load(Ordering::Relaxed) & IN_YOUNG_BIT != 0
-    }
-
-    /// Set / clear the young-list membership bit. **STW only** (alloc holds the region lock;
-    /// the minor sweep runs stopped-the-world), so no CAS is needed.
-    #[inline]
-    pub(super) fn set_in_young(&self, yes: bool) {
-        let cur = self.type_tag.load(Ordering::Relaxed);
-        let next = if yes { cur | IN_YOUNG_BIT } else { cur & !IN_YOUNG_BIT };
-        self.type_tag.store(next, Ordering::Relaxed);
     }
 
     /// Mark a freshly written string block as all-ASCII (see [`ASCII_STR_BIT`]). An atomic

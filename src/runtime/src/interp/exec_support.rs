@@ -375,7 +375,7 @@ pub(super) fn find_handler(
 ) -> Option<usize> {
     // A fatal VM error (stack overflow) unwinds past every handler.
     if crate::stack_guard::is_fatal(ctx) { return None; }
-    // perf-vm-isa-cache: match on the thrown object's descriptor (identity-cached), no
+    // perf-vm-isa-cache: match on the thrown object's descriptor (cached by TypeId), no
     // per-throw `String` clone of its class name.
     let thrown_td: Option<&crate::metadata::TypeDesc> = match thrown {
         Value::Object(rc) => Some(rc.type_desc()),
@@ -396,7 +396,7 @@ pub(super) fn find_handler(
             Some("*") => return Some(i),                   // synthetic finally fallthrough
             Some(target) => {
                 if let Some(td) = thrown_td {
-                    if super::dispatch::isa_td(ctx, type_registry, td, target) {
+                    if super::dispatch::isa_td(ctx, type_registry, td, target, &entry.catch_key) {
                         return Some(i);
                     }
                 }

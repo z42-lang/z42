@@ -15,10 +15,9 @@ public sealed class WorkspaceManifest {
     public string     CacheDir;
     public DepEntry[] WorkspaceDeps;
     public int        WorkspaceDepCount;
-    // 不认识的键 / 改过名的旧键（ManifestKeys.AuditWorkspace；每项一行文本）。构造后填，
-    // 消费方分别报错 / 警告。
+    // 不认识的键（ManifestKeys.AuditWorkspace；每项一行文本）。构造后填，消费方报错。
     public string[]   UnknownKeys;
-    public string[]   DeprecatedKeys;
+    public string[]   DeprecatedKeys;   // 恒为空，只为种子 driver 留着（见 ProjectManifest.DeprecatedKeys）
     public WorkspaceManifest(string[] members, int memberCount, string[] exclude, int excludeCount,
                              string[] defMembers, int defCount,
                              bool hasOut, string outDir, bool hasCache, string cacheDir,

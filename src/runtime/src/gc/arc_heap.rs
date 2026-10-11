@@ -592,6 +592,7 @@ impl std::fmt::Debug for ArcMagrGC {
 mod alloc;
 mod alloc_black;
 mod barrier;
+mod card_verify;
 mod construct;
 mod auto_collect;
 mod collect;

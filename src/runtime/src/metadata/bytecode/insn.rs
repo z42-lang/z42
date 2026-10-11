@@ -162,6 +162,9 @@ pub struct IsInstanceInsn {
     pub dst: Reg,
     pub obj: Reg,
     pub class_name: String,
+    /// Runtime-only: `class_name`'s type-test key, resolved on first use
+    /// (see [`TypeKeyCell`](crate::metadata::tokens::TypeKeyCell)).
+    pub target: crate::metadata::tokens::TypeKeyCell,
 }
 
 /// Payload for [`Instruction::AsCast`].
@@ -170,6 +173,9 @@ pub struct AsCastInsn {
     pub dst: Reg,
     pub obj: Reg,
     pub class_name: String,
+    /// Runtime-only: `class_name`'s type-test key, resolved on first use
+    /// (see [`TypeKeyCell`](crate::metadata::tokens::TypeKeyCell)).
+    pub target: crate::metadata::tokens::TypeKeyCell,
 }
 
 /// Payload for [`Instruction::StaticGet`].

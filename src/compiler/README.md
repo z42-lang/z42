@@ -1,7 +1,7 @@
 # z42c — z42 自举编译器
 
 ## 职责
-用 z42 编写的自举编译器：源码全 z42，端到端 `build` 跑通、自编译为 zpkg。z42c 是唯一编译器。编译器域的全部包都在 `src/compiler/` 这一个 workspace 里（`z42.workspace.toml` 为准，`default-members` 即全部十一个包）。不放用户 stdlib（`Std.*`，在 `src/libraries/`）。
+用 z42 编写的自举编译器：源码全 z42，端到端 `build` 跑通、自编译为 zpkg。z42c 是唯一编译器。编译器域的全部包都在 `src/compiler/` 这一个 workspace 里（`z42.workspace.toml` 为准，`default_members` 即全部十一个包）。不放用户 stdlib（`Std.*`，在 `src/libraries/`）。
 
 物理位置即「这是编译器域」的声明：普通工程的解析域只有 shipped `libs/`，看不到本 workspace 的包；要用得在 `[dependencies]` 里按名声明。
 
@@ -44,7 +44,7 @@
 ## 核心文件
 | 路径 | 职责 |
 |------|------|
-| `z42.workspace.toml` | workspace 清单：members / default-members / `[workspace.build]` 产物布局 |
+| `z42.workspace.toml` | workspace 清单：members / default_members / `[workspace.build]` 产物布局 |
 | `<pkg>/README.md` | 各子包自己的职责、功能索引与核心文件 |
 
 ## 依赖关系

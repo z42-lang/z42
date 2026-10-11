@@ -63,13 +63,6 @@ pub struct LazyLoader {
     /// colocated package deps resolve alongside the stdlib
     /// (support-colocated-zpkg-deps, 2026-06-20).
     search_dirs:    Vec<PathBuf>,
-    /// Length of the main (user) module's string pool.
-    /// ConstStr indices < `main_pool_len` resolve against the main module's
-    /// pool; indices >= `main_pool_len` resolve against `string_pool` below
-    /// at relative offset `idx - main_pool_len`.
-    main_pool_len:  usize,
-    /// Aggregated string pool from all lazy-loaded zpkgs.
-    string_pool:    Vec<String>,
 
     /// zpkg file names that have been loaded (either eagerly at startup or
     /// by a previous lazy-load). Used for de-duplication and cycle-cutting
@@ -153,6 +146,19 @@ pub struct LazyLoader {
     /// `VmContext::install_lazy_loader_with_deps`; a loader built directly (unit tests) starts
     /// with a private empty table.
     funcs: Arc<crate::metadata::func_table::FuncTable>,
+    /// The VM's [`TypeTable`](crate::metadata::type_table::TypeTable) (`TypeId` → descriptor).
+    /// `type_registry` stays the loader's name map; every step that changes it ends with
+    /// [`Self::publish_types`], which registers new descriptors there and repoints fixed-up
+    /// ones. Attached by `VmContext::install_lazy_loader_with_deps`; a loader built directly
+    /// (unit tests) starts with a private empty table.
+    types: Arc<crate::metadata::type_table::TypeTable>,
+    /// The VM's [`StrTable`](crate::metadata::str_table::StrTable): each loaded package's
+    /// string pool is appended there and its `ConstStr` operands are shifted by the returned
+    /// first id (`remap_const_str`), so every operand is an id in the VM's one string id
+    /// space (entry-module pool first). Attached by `VmContext::install_lazy_loader_with_deps`;
+    /// a loader built directly (unit tests) starts with a private table whose ids below
+    /// `main_pool_len` are reserved.
+    strings: Arc<crate::metadata::str_table::StrTable>,
 }
 
 /// runtime-ambiguous-use-site: the two ambiguity sets, behind one `Box` so
@@ -245,6 +251,7 @@ impl LazyLoader {
                 self.type_registry.insert(name.clone(), Arc::clone(td));
             }
         }
+        self.publish_types();
         if !module_descs.is_empty() {
             if let Some(reg) = self.cctors.as_ref() {
                 let owned: rustc_hash::FxHashSet<String> = types
@@ -289,10 +296,10 @@ impl LazyLoader {
             .into_iter()
             .filter(|(k, _)| !loaded_zpkgs.contains(k))
             .collect();
+        let strings = crate::metadata::str_table::StrTable::new(None);
+        strings.reserve(main_pool_len);
         Self {
             search_dirs,
-            main_pool_len,
-            string_pool:    Vec::new(),
             loaded_zpkgs,
             newly_loaded:   Vec::new(),
             declared_zpkgs,
@@ -304,6 +311,8 @@ impl LazyLoader {
             symbol_owners: FxHashMap::default(),
             short_symbols: FxHashMap::default(),
             funcs: Arc::new(crate::metadata::func_table::FuncTable::new(None)),
+            types: Arc::new(crate::metadata::type_table::TypeTable::default()),
+            strings: Arc::new(strings),
         }
     }
 
@@ -347,6 +356,30 @@ impl LazyLoader {
     pub(crate) fn set_func_table(&mut self, table: Arc<crate::metadata::func_table::FuncTable>) {
         debug_assert_eq!(self.funcs.lazy_name_count(), 0, "set_func_table after registration");
         self.funcs = table;
+    }
+
+    /// Attach the VM's string table (see the `strings` field doc). Carries over the id
+    /// space reserved so far (`main_pool_len`); call before any package registers.
+    pub(crate) fn set_str_table(&mut self, table: Arc<crate::metadata::str_table::StrTable>) {
+        table.reserve(self.strings.len());
+        self.strings = table;
+    }
+
+    /// Attach the VM's type table (see the `types` field doc).
+    pub(crate) fn set_type_table(&mut self, table: Arc<crate::metadata::type_table::TypeTable>) {
+        self.types = table;
+        self.publish_types();
+    }
+
+    /// Publish the whole type registry to the `TypeTable`: new descriptors get registered,
+    /// ones the inheritance fixup replaced (clone-on-write, same id) get their slot repointed;
+    /// unchanged entries cost one pointer compare. Call after every step that changes
+    /// `type_registry` — after the fixup pass, so a fresh descriptor is still uniquely owned
+    /// while the fixup mutates it.
+    pub(crate) fn publish_types(&self) {
+        for td in self.type_registry.values() {
+            self.types.publish(td);
+        }
     }
 
     /// fix-crosspkg-static-call-cctor: attach the context's cctor registry (see the field doc).
@@ -501,21 +534,6 @@ pub(crate) use resolve::namespace_prefix;
 use resolve::is_primitive_keyword_name;
 
 impl LazyLoader {
-    /// Resolve an "overflow" ConstStr index — one that falls past the main
-    /// module's string pool. Returns the merged lazy-pool string if available.
-    ///
-    /// review.md C3 / Part 5 P3 Phase 1 (2026-06-03,
-    /// add-string-literal-interning-phase1): returns `Arc<str>` instead of
-    /// `String` so callers (interp / JIT ConstStr) can wrap directly into
-    /// `Value::Str` without a second `.into::<Arc<str>>()` allocation. The
-    /// underlying `String` is converted on each call; overflow-pool literals
-    /// are (unlike main-pool literals) not per-context interned, so this
-    /// re-allocates a fresh GC string each time (cold path).
-    pub fn try_lookup_string(&self, absolute_idx: usize) -> Option<crate::metadata::vstr::Str> {
-        let rel = absolute_idx.checked_sub(self.main_pool_len)?;
-        self.string_pool.get(rel).map(|s| crate::metadata::vstr::Str::from(s.as_str()))
-    }
-
     /// Returns all namespaces declared by lazy-loadable zpkgs (both already
     /// loaded and not-yet-loaded). Used by `run_with_static_init` to discover
     /// `<ns>.__static_init__` functions in imported stdlib modules.
@@ -611,3 +629,11 @@ impl LazyLoader {
 #[cfg(test)]
 #[path = "lazy_loader_tests.rs"]
 mod lazy_loader_tests;
+
+#[cfg(test)]
+#[path = "lazy_loader_types_tests.rs"]
+mod lazy_loader_types_tests;
+
+#[cfg(test)]
+#[path = "lazy_loader_strings_tests.rs"]
+mod lazy_loader_strings_tests;

@@ -46,7 +46,7 @@ fn decommit_releases_the_dead_payloads_and_the_slot_memory() {
     let freed = r.decommit_pool(u64::MAX);
     assert_eq!(freed, 3 * Region::<Arc<()>>::SLOT_BYTES);
     assert_eq!(Arc::strong_count(&token), 1, "every dead entry was dropped");
-    assert!((0..3).all(|ci| r.decommitted[ci] && r.initialized[ci].iter().all(|&i| !i)));
+    assert!((0..3).all(|ci| r.decommitted[ci] && r.init_bits[ci].iter().all(|&w| w == 0)));
     assert_eq!(fp.committed(), committed - freed - 3 * CHUNK_SIZE as u64 * 100, "slots and payloads credited");
     assert_eq!(fp.pooled(), pooled - freed);
     assert_eq!(r.validate(), Ok(()));

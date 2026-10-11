@@ -202,16 +202,12 @@ impl crate::gc::arc_heap::ArcMagrGC {
     ) -> (Option<FinalizerFn>, u64) {
         let mut obj = entry.value.lock();
         let size = Self::script_object_size_estimate(&obj);
-        // unify-object-byte-layout: break every strong reference edge — the side-table `refs`
-        // AND (PR-3 chunk 2b) the object/array pointers byte-inlined in `bytes` — so no
-        // tombstoned entry is left holding a handle into the region.
+        // Break every strong reference edge — the 16 B side table and the 8 B reference
+        // words — so no tombstoned entry is left holding a handle into the region.
         //
         // Ahead of the finalizer, as on the minor side (#591): [`FinalizerFn`] takes no
         // arguments, so it has no way to read the object whose edges these are.
-        for r in obj.refs_mut_raw().iter_mut() {
-            *r = Value::Null;
-        }
-        obj.clear_inline_refs();
+        obj.clear_refs_for_sweep();
         drop(obj);
         (entry.take_finalizer(), size)
     }

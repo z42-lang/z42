@@ -22,7 +22,7 @@
 | `obj_new_resolve.rs` | **`ObjNew` 类 / 构造器解析单一实现** + 站点缓存（`ObjNewSite`：类描述符 + ctor `FnId` + ctorless 标记，命中不哈希、不拿锁），interp `exec_object::obj_new` 与 JIT `helpers/object.rs::jit_obj_new` 共用 |
 | `exec_vcall.rs` | `VCall` 的 interp 调用侧（PIC 命中 / 解析结果 → 帧执行、mixed-mode 原生分流）+ `primitive_class_name` + `is_array_isa` |
 | `exec_native.rs` | `CallNative` / `CallNativeVtable` / `PinPtr` / `UnpinPtr` |
-| `dispatch.rs` | 对象分发辅助：vtable 解析、ToString 协议、**类型判定单一入口 `isa_td`**（`is` / `as` / 带类型 `catch`，interp 与 JIT 共用；前置身份键 `vm_context::isa_cache`，后置字符串 memo + 基链/接口遍历）、静态字段、fallback TypeDesc |
+| `dispatch.rs` | 对象分发辅助：vtable 解析、ToString 协议、**类型判定单一入口 `isa_td`**（`is` / `as` / 带类型 `catch`，interp 与 JIT 共用；前置 `vm_context::isa_cache`（键 `(接收者 TypeId, 目标键)`，目标键缓存在站点的 `TypeKeyCell`），后置同键 memo + 基链/接口遍历）、静态字段、fallback TypeDesc |
 | `ops.rs` | 寄存器级辅助：`int_binop`、`collect_args`、`bool_val`、`str_val` |
 | `stack_alloc.rs` / `struct_arena.rs` / `transient_arena.rs` | per-`VmContext` arena：逃逸对象/数组、值 struct blob、以及 `Ref`/`PinnedView`/`StructRefHeap` 瞬态 payload（`Value` 里只留 8B `{idx,frame_id}` 句柄 → `Value: Copy`，见 `docs/internals/src/runtime/object-abi.md` §2.2）。均 LIFO 随帧 truncate + GC root 扫描 |
 

@@ -112,6 +112,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// dirty-card roots. This bounds minor mark work at O(young +
     /// |dirty-card entries|).
     pub(super) fn mark_phase_minor(&self) -> usize {
+        self.maybe_verify_cards_before_minor();
         let threshold = self.promotion_age();
         let mut queue: Vec<Value> = Vec::new();
 
@@ -235,7 +236,7 @@ grey {grey_n} (skipped old {grey_old})"));
     /// never enqueued. Two premises it rests on, both load-bearing:
     ///
     /// 1. *A minor never reclaims an entry that is old by age.* `Region::sweep_young_in_one_pass`
-    ///    walks `young_list` only, and adaptive promotion may lower the line only in the window
+    ///    walks the young set only, and adaptive promotion may lower the line only in the window
     ///    where the following aging pass drains everything the new line makes old
     ///    (`Region::set_promotion_age`). `VarRegion::sweep_young` guards the remaining case
     ///    explicitly (`fix-old-block-left-in-young-list`), since `age_backing_with_owner` raises a
@@ -264,12 +265,11 @@ grey {grey_n} (skipped old {grey_old})"));
 
     /// **add-generational-gc P2 (2026-05-22)**: sweep phase for minor GC.
     ///
-    /// Walks `young_list` in both regions; for each entry:
+    /// Walks the young set of every region; for each entry:
     /// - `is_marked == true` → clear mark, increment gen_age (promote
-    ///   to next age tier); if reaches threshold, region.promote()
-    ///   removes from young_list.
+    ///   to next age tier); if it reaches the threshold it leaves the young set.
     /// - `is_marked == false` → fire finalizer, tombstone (alive=false,
-    ///   generation++, push to free_list AND remove from young_list).
+    ///   generation++, slot freed AND taken out of the young set).
     ///
     /// Old entries are NOT visited — major GC handles them.
     /// card_dirty is NOT cleared by minor (stable old→young refs need
@@ -548,21 +548,17 @@ grey {grey_n} (skipped old {grey_old})"));
                 |entry| {
                     let mut o = entry.value.lock();
                     let size = Self::script_object_size_estimate(&o);
-                    // Break every strong reference edge — the side-table `refs` AND
-                    // (unify-object-byte-layout PR-3 chunk 2b) the object/array pointers
-                    // byte-inlined in `bytes` — so no tombstoned entry is left holding a
-                    // handle into the region (`iterate_live_objects` and any later traversal
-                    // would otherwise meet a stale generation).
+                    // Break every strong reference edge — the 16 B side table and the 8 B
+                    // reference words — so no tombstoned entry is left holding a handle into
+                    // the region (`iterate_live_objects` and any later traversal would
+                    // otherwise meet a stale generation).
                     //
                     // **perf-cheap-dead-edge-break (2026-09-12)**: done here, under the value
                     // lock this size estimate already holds, rather than in a separate
                     // tombstone loop that re-took the region lock and re-`resolve`d the
                     // handle for it. That loop cost 67.7 ns an entry against the array
                     // twin's 10.8; it is now 10.6.
-                    for r in o.refs_mut_raw().iter_mut() {
-                        *r = Value::Null;
-                    }
-                    o.clear_inline_refs();
+                    o.clear_refs_for_sweep();
                     drop(o);
                     (entry.take_finalizer(), size)
                 },

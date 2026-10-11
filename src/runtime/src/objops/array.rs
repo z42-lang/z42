@@ -77,12 +77,32 @@ pub fn array_set(ctx: &VmContext, arr: &Value, idx: &Value, v: &Value) -> OpResu
             a.set_boxed(i, *v);   // 打包基元在这里拆箱
             i
         };
-        if v.is_heap_ref() {
-            ctx.heap().write_barrier_array_elem(arr, i, v);
-        }
+        barrier_after_elem_store(ctx, rc, i, v);
         return Ok(());
     }
     array_set_rare(ctx, arr, idx, v)
+}
+
+/// 元素写入**之后**的写屏障（卡表 / 并发 shade；SATB 删除屏障在 `set_boxed` 里）。新值不是堆引用不发；
+/// 调用时数组的借用必须已经放掉。`ArraySet`、经 `ref` 写元素、`Std.Array.SetValue` 共用这一份。
+///
+/// **装箱 struct 写进 `struct[]`（`StructBytes` backing）是例外**：`set_boxed` 把盒子的引用叶子
+/// **拷进**数组，数组持有的是那些叶子、不是盒子。屏障若照常拿盒子判龄，盒子是老的、叶子是年轻的
+/// 时就漏了卡——叶子此后只靠数组可达，下一次 minor 把它扫掉。所以这种写入逐个叶子发屏障。
+#[inline(always)]
+pub fn barrier_after_elem_store(ctx: &VmContext, arr: &GcRef<ArrayObj>, i: usize, v: &Value) {
+    if !v.is_heap_ref() { return; }
+    let owner = Value::Array(*arr);
+    if let Value::BoxedStruct(b) = v {
+        if arr.borrow().struct_bytes().is_some() {
+            let leaves: Vec<Value> = b.borrow().refs().iter().filter(|r| r.is_heap_ref()).cloned().collect();
+            for leaf in &leaves {
+                ctx.heap().write_barrier_array_elem(&owner, i, leaf);
+            }
+            return;
+        }
+    }
+    ctx.heap().write_barrier_array_elem(&owner, i, v);
 }
 
 #[inline(never)]
@@ -150,9 +170,7 @@ pub fn elem_store(ctx: &VmContext, gc: &GcRef<ArrayObj>, i: usize, v: &Value) ->
         if i >= a.len() { return Err(OpError::index_out_of_range(i as i64, a.len())); }
         a.set_boxed(i, *v);
     }
-    if v.is_heap_ref() {
-        ctx.heap().write_barrier_array_elem(&Value::Array(*gc), i, v);
-    }
+    barrier_after_elem_store(ctx, gc, i, v);
     Ok(())
 }
 

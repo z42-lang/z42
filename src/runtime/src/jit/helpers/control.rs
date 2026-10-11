@@ -42,6 +42,7 @@ pub unsafe extern "C" fn jit_install_catch(
 pub unsafe extern "C" fn jit_match_catch_type(
     _frame: *mut JitFrame, ctx: *const JitModuleCtx,
     target_ptr: *const u8, target_len: i64,
+    key: *const crate::metadata::tokens::TypeKeyCell,
 ) -> i8 {
     let target = match std::str::from_utf8(
         std::slice::from_raw_parts(target_ptr, target_len as usize)) {
@@ -58,9 +59,8 @@ pub unsafe extern "C" fn jit_match_catch_type(
         _                 => return 0, // primitives / null don't match typed catches
     };
     let module = &*(*ctx).module;
-    // perf-vm-isa-cache: identity-cached type test (`target` is the exception-table string
-    // baked into the JIT code — immortal metadata, as the cache contract requires).
-    if crate::interp::dispatch::isa_td(vm_ctx, &module.type_registry, td, target) {
+    // `key` is the exception-table row's key cell, baked into the JIT code with `target`.
+    if crate::interp::dispatch::isa_td(vm_ctx, &module.type_registry, td, target, &*key) {
         1
     } else {
         0

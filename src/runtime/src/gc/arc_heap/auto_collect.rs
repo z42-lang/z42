@@ -39,7 +39,7 @@
 //!
 //! A live set that genuinely exceeds its cap makes every collection reclaim ~nothing while the
 //! heap keeps growing, so a gate that only asks for growth re-arms forever. Measured on
-//! `src/bench/scenarios/09_alloc_ctorless` with a 64MB budget: a 0.29s run had not finished
+//! `src/benches/scenarios/09_alloc_ctorless` with a 64MB budget: a 0.29s run had not finished
 //! after 9 minutes, doing a 0-byte 75ms mark-sweep every ~6MB.
 //!
 //! A relative allowance already blunts this — the gate grows with the live set, making the
@@ -352,7 +352,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
     ///
     /// - **Genuinely futile**: the live set is not producing garbage at all, so the next
     ///   collection marks a whole extra gate's worth of objects for the same zero return.
-    ///   `src/bench/scenarios/09_alloc_ctorless` is this shape exactly — measured
+    ///   `src/benches/scenarios/09_alloc_ctorless` is this shape exactly — measured
     ///   **384 B and then 0 B** reclaimed against a 32 MB gate. Backing off is right, and
     ///   costs nothing: that heap is 100% live, so not collecting it does not even grow RSS
     ///   (measured 243 MB backed off vs 257 MB collecting anyway).

@@ -64,7 +64,7 @@ string _vReadOr(string root, string dotted, string fallback) {
 
 // Parse an arbitrary toml file (relative to root) → array of strings at a dotted
 // path. Used to derive the stdlib member list from z42.workspace.toml's
-// default-members (single source of truth — no hand-maintained duplicate).
+// default_members (single source of truth — no hand-maintained duplicate).
 string[] _vgetListFromFile(string root, string relPath, string dotted) {
     TomlValue toml = TomlValue.Parse(File.ReadAllText(Path.Join(root, relPath)));
     return _vgetList(toml, dotted);

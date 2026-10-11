@@ -92,20 +92,20 @@ z42c build: warning: [profile.release.runtime] 未知运行时旋钮 `gc-mdoe`�
 
 ### 默认只看得到 14 个
 
-`--list-knobs` 默认**只列 `public` 档的 14 个**，`--all` 才列出全部 46 个：
+`--list-knobs` 默认**只列 `public` 档的 14 个**，`--all` 才列出全部 47 个：
 
 ```console
 $ z42vm --list-knobs
-runtime knobs (14 of 46; pass --all for unsupported + internal knobs)
+runtime knobs (14 of 47; pass --all for unsupported + internal knobs)
 …
 $ z42vm --list-knobs --all
-runtime knobs (46 of 46)
+runtime knobs (47 of 47)
 ```
 
-`--show-config` 同样默认 14 行、`--all` 46 行。从 z42 代码里调
-`Std.Runtime.RuntimeConfig.Names()` 拿到的是**全部 46 个**——脚本侧不分档。
+`--show-config` 同样默认 14 行、`--all` 47 行。从 z42 代码里调
+`Std.Runtime.RuntimeConfig.Names()` 拿到的是**全部 47 个**——脚本侧不分档。
 
-那 46 个里有 5 个是**元旋钮**（`Z42_CONFIG` / `Z42_APP_CONFIG` / `Z42_STRICT_CONFIG` /
+那 47 个里有 5 个是**元旋钮**（`Z42_CONFIG` / `Z42_APP_CONFIG` / `Z42_STRICT_CONFIG` /
 `Z42_HOME` / `Z42_PORTABLE_VM`）：它们决定读哪个文件、诊断多严格、SDK 装在哪，只收命令行与
 环境变量，写进配置文件会自指（或者根本不是「这个应用的」设置），所以没有 kebab 形式的 key。
 
@@ -275,8 +275,8 @@ probing 路径 ${Z42_HOME}/programs/z42c 无法解析 —— 是否没有安装 
   `gc-slice-ms`、`gc-soft-threshold`、`gc-throttle-ratio`、`jit-interp-tierup`、
   `jit-threshold`、`osr-threshold`、`safepoint-throttle`、`stackalloc`。
   它们能设、会生效，但默认值随版本调整，不承诺稳定。
-- **`internal`**（14 个）——机制内部件、保留位与五个元旋钮：`fusion-debug`、`no-fusion`、
-  `no-typed-fusion`、`jit-debug-promote`、`gc-phases`、`repl-native`、
+- **`internal`**（15 个）——机制内部件、保留位与五个元旋钮：`fusion-debug`、`no-fusion`、
+  `no-typed-fusion`、`jit-debug-promote`、`gc-phases`、`gc-verify-cards`、`repl-native`、
   `spawn-env-delay-ms`、`stress-iters`（只在 debug build 存在，且只收环境变量）、
   `target`（保留，尚未实现），以及 `Z42_CONFIG` / `Z42_APP_CONFIG` / `Z42_STRICT_CONFIG` /
   `Z42_HOME` / `Z42_PORTABLE_VM`。

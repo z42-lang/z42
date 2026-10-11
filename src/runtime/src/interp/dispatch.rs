@@ -12,18 +12,14 @@ use anyhow::{bail, Result};
 /// Returns true if `derived` equals `target`, is a subclass, or (when `target`
 /// is an interface) implements it — checked against the TypeDesc registry.
 ///
-/// Walks the base-class chain via the main module's `type_registry` first;
-/// when a link is missing there falls back to `ctx.try_lookup_type` so
-/// classes loaded lazily from imported zpkgs (e.g. `Std.TestFailure` in
-/// z42.test) participate in cross-zpkg subclass checks. Without the
-/// fallback `catch (Exception e)` failed to match a `TestFailure` thrown
-/// across the z42.core → z42.test boundary.
+/// Name-only entry (reflection, debug assertions): finds `derived`'s descriptor (main module's
+/// `type_registry` first, then `ctx.try_lookup_type`, so lazily loaded classes such as
+/// `Std.TestFailure` in z42.test participate) and answers through the same id-keyed caches as
+/// [`isa_td`]; the target's key is looked up by name each call (cold path).
 ///
-/// add-reflection-assignable-from: at each level the type's declared interfaces
-/// (now FQ-named, zbc 1.20) are compared against `target` — so `circle is IShape`
-/// / `as IShape` / `IsAssignableFrom` work for interfaces (previously the chain
-/// only followed `base_name`, so interface targets never matched). Transitive
-/// interfaces (interface-extends-interface) are not yet covered.
+/// add-reflection-assignable-from: at each level the type's declared interfaces (FQ-named) are
+/// compared against `target` — so `circle is IShape` / `as IShape` / `IsAssignableFrom` work for
+/// interfaces; transitive interfaces too (`iface_reaches_td`).
 pub fn is_subclass_or_eq_td(
     ctx: &VmContext,
     registry: &rustc_hash::FxHashMap<String, std::sync::Arc<TypeDesc>>,
@@ -33,57 +29,104 @@ pub fn is_subclass_or_eq_td(
     if derived == target {
         return true;
     }
-    // optimize-subclass-check: memo the (derived, target) verdict. The relationship is a
-    // global, monotonic fact — a loaded type's base/interface chain never changes, and lazy
-    // loading only ADDs types — so it is cacheable across calls. Nested map ⇒ a hit resolves
-    // by `&str` with zero allocation (the pre-fix path did `derived.to_string()` +
-    // `base.clone()` per level and fell through to the `lazy_loader`-locked `try_lookup_type`
-    // for cross-zpkg types on every call — the top interp hotspot in z42c zpkg serialization,
-    // which dispatches each instruction through a ~60-way `is`-chain). Cleared on explicit
-    // module (re)load (REPL) — see `load_module_*`.
-    if let Some(v) = ctx
-        .subclass_memo
-        .lock()
-        .get(derived)
-        .and_then(|m| m.get(target))
-        .copied()
-    {
-        return v;
+    let Some(td) = registry.get(derived).cloned().or_else(|| ctx.try_lookup_type(derived)) else {
+        return false;
+    };
+    if !td.id.is_resolved() {
+        return is_subclass_or_eq_td_walk(ctx, registry, derived, target);
     }
-    let result = is_subclass_or_eq_td_walk(ctx, registry, derived, target);
-    ctx.subclass_memo
-        .lock()
-        .entry(derived.to_string())
-        .or_default()
-        .insert(target.to_string(), result);
-    result
+    let key = target_key(ctx, registry, target);
+    isa_keyed(ctx, registry, &td, target, key)
 }
 
-/// perf-vm-isa-cache: type test for a **receiver descriptor** — the single entry used by
-/// interp `is` / `as` / typed `catch` and their JIT helpers. Front-cached in the identity-keyed
-/// `ctx.isa_cache` (two loads on a hit), then the string-keyed memo / chain walk above.
+/// Type test for a **receiver descriptor** — the single entry used by interp `is` / `as` /
+/// typed `catch` and their JIT helpers. `key` is the site's cached target key
+/// ([`TypeKeyCell`](crate::metadata::tokens::TypeKeyCell): instruction / exception-table row /
+/// a `static`), resolved here on first use. Then: `ctx.isa_cache` keyed by
+/// `(td.id, key)` (one load on a hit) → `subclass_memo` → base/interface chain walk.
 ///
-/// Contract: `target` must be an immortal metadata string (instruction / exception-table /
-/// JIT-baked class name) — see `vm_context::isa_cache`. Transient fallback descriptors
-/// (`id == UNRESOLVED`, allocated per object) are answered but never cached.
+/// Descriptors without an id (`UNRESOLVED`: transient fallbacks, native-handle singletons)
+/// are answered by the walk and never cached.
 #[inline]
 pub fn isa_td(
     ctx: &VmContext,
     registry: &rustc_hash::FxHashMap<String, std::sync::Arc<TypeDesc>>,
     td: &TypeDesc,
     target: &str,
+    key: &crate::metadata::tokens::TypeKeyCell,
 ) -> bool {
-    let cacheable = td.id != crate::metadata::tokens::TypeId::UNRESOLVED;
-    if cacheable {
-        if let Some(v) = ctx.isa_cache.get(td as *const TypeDesc, target) {
-            return v;
+    if !td.id.is_resolved() {
+        return td.name == target || is_subclass_or_eq_td_walk(ctx, registry, &td.name, target);
+    }
+    let k = match key.get() {
+        Some(k) => k,
+        None => {
+            let k = target_key(ctx, registry, target);
+            key.set(k);
+            k
         }
+    };
+    isa_keyed(ctx, registry, td, target, k)
+}
+
+/// Front cache, then the memo / walk. `td.id` is resolved; `key` is `target`'s key.
+#[inline]
+fn isa_keyed(
+    ctx: &VmContext,
+    registry: &rustc_hash::FxHashMap<String, std::sync::Arc<TypeDesc>>,
+    td: &TypeDesc,
+    target: &str,
+    key: u32,
+) -> bool {
+    match ctx.isa_cache.get(td.id.0, key) {
+        Some(v) => v,
+        None => isa_slow(ctx, registry, td, target, key),
     }
-    let v = is_subclass_or_eq_td(ctx, registry, &td.name, target);
-    if cacheable {
-        ctx.isa_cache.put(td as *const TypeDesc, target, v);
-    }
+}
+
+#[inline(never)]
+fn isa_slow(
+    ctx: &VmContext,
+    registry: &rustc_hash::FxHashMap<String, std::sync::Arc<TypeDesc>>,
+    td: &TypeDesc,
+    target: &str,
+    key: u32,
+) -> bool {
+    let recv = td.id.0;
+    let pair = crate::vm_context::isa_cache::pair_key(recv, key);
+    // optimize-subclass-check: the (type, target) verdict is a global, monotonic fact — a
+    // loaded type's base/interface chain never changes and lazy loading only ADDs types — so it
+    // is memoised. Cleared on explicit module (re)load (REPL) — see `load_module_*`.
+    let memo = ctx.subclass_memo.lock().get(&pair).copied();
+    let v = match memo {
+        Some(v) => v,
+        None => {
+            // `recv == key`: the key is the target's own TypeId and `td` is (a version of) it.
+            let v = recv == key || td.name == target
+                || is_subclass_or_eq_td_walk(ctx, registry, &td.name, target);
+            ctx.subclass_memo.lock().insert(pair, v);
+            v
+        }
+    };
+    ctx.isa_cache.put(recv, key, v);
     v
+}
+
+/// The type-test key for target name `target` (cold: once per site, see `TypeKeyCell`): the
+/// `TypeId` of the type it names if one is registered (main module first, then the lazy
+/// loader — without loading anything), else the id the VM's `TypeTable` reserves for the name.
+pub(crate) fn target_key(
+    ctx: &VmContext,
+    registry: &rustc_hash::FxHashMap<String, std::sync::Arc<TypeDesc>>,
+    target: &str,
+) -> u32 {
+    if let Some(td) = registry.get(target).filter(|td| td.id.is_resolved()) {
+        return td.id.0;
+    }
+    if let Some(id) = ctx.loaded_type_id(target) {
+        return id.0;
+    }
+    ctx.types().name_key(target)
 }
 
 /// complete-generic-class-identity P2: does the instantiated type name `full` match a test
@@ -140,8 +183,8 @@ fn top_level_arg_count(args: &str) -> usize {
     n
 }
 
-/// Alloc-free base+interface chain walk backing [`is_subclass_or_eq_td`]. Caller has already
-/// handled `derived == target` and the memo. Holds the current `Arc<TypeDesc>` across
+/// Alloc-free base+interface chain walk backing [`isa_td`] / [`is_subclass_or_eq_td`]. Caller
+/// has already handled `derived == target` and the caches. Holds the current `Arc<TypeDesc>` across
 /// iterations and follows `base_name` by `&str` (no per-level `String` allocation).
 fn is_subclass_or_eq_td_walk(
     ctx: &VmContext,
@@ -435,3 +478,7 @@ pub fn make_fallback_type_desc(module: &Module, class_name: &str) -> TypeDesc {
         id: crate::metadata::tokens::TypeId::UNRESOLVED,
     }
 }
+
+#[cfg(test)]
+#[path = "dispatch_isa_tests.rs"]
+mod dispatch_isa_tests;

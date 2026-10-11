@@ -33,7 +33,7 @@ pub enum GcMode {
     StwMarkSweep = 0,
     /// **Default.** Generational mark-sweep. Heap split into young / old
     /// generations via per-entry `gen_age`; minor GC scans only
-    /// `young_list` + cross-gen dirty cards (O(young) pause); major
+    /// the young set (per-chunk bitmaps) + cross-gen dirty cards (O(young) pause); major
     /// GC scans whole heap. Write barrier records old→young writes
     /// via per-chunk dirty bitmap. Promotion threshold N=2.
     ///

@@ -56,7 +56,9 @@ typed `catch (Exception e)` 不会捕获它们。新代码请一律 `throw new <
 
 | 情形 | 异常 | `Message` 示例 |
 |---|---|---|
-| 读 / 写 null 引用的字段（含 `.Length`） | `NullReferenceException` | ``cannot read field `N` of a null reference`` |
+| 读 / 写 null 引用的字段（含数组的 `.Length`） | `NullReferenceException` | ``cannot read field `N` of a null reference`` |
+| 在 null 上调用实例方法 | `NullReferenceException` | ``cannot call method `Speak` on a null reference`` |
+| 在 null 上读 / 写属性（含 `string` 的 `.Length`） | `NullReferenceException` | ``cannot read property `Length` of a null reference`` |
 | 读 / 写 null 数组的元素 | `NullReferenceException` | `cannot read an element of a null array` |
 | 数组下标越界（含负数） | `IndexOutOfRangeException` | `index 5 is out of range for an array of length 1` |
 | `new T[n]` 的 `n` 为负 | `OverflowException` | `array size cannot be negative (got -2)` |
@@ -64,6 +66,10 @@ typed `catch (Exception e)` 不会捕获它们。新代码请一律 `throw new <
 | 硬转换失败 | `InvalidCastException` / `NullReferenceException` | 见[类型转换](conversions.md) |
 
 null 检查先于下标检查：`a[-1]` 在 `a` 为 null 时抛 `NullReferenceException`。
+
+⚠️ **已知边界**：sealed 类的方法、以及别的包里声明的非虚方法（如 `string` 的 `Substring`）不在调用点判空——
+null 在方法体**第一次用到 `this`** 时才抛，`Message` 指向那一步（`s.Substring(1)` 报
+``cannot read property `Length` of a null reference``）；方法体完全不用 `this` 时不抛。调用前自己查空。
 
 ## `Exception` 基类
 
@@ -119,7 +125,7 @@ outer.InnerException.Message;      // "cause"
 | `ArgumentException` | `Exception` | 参数非法（值或组合不符合契约） |
 | `ArgumentNullException` | `ArgumentException` | 参数为 null 但要求非空 |
 | `InvalidOperationException` | `Exception` | 对象当前状态不允许此操作（如空 Queue 出队） |
-| `NullReferenceException` | `Exception` | 解引用 null（字段 / 数组访问由运行期自动抛） |
+| `NullReferenceException` | `Exception` | 解引用 null（字段 / 数组访问、在 null 上调方法由运行期自动抛） |
 | `IndexOutOfRangeException` | `Exception` | 索引越界（数组下标越界由运行期自动抛） |
 | `KeyNotFoundException` | `Exception` | 字典 / Map 找不到键 |
 | `FormatException` | `Exception` | 字符串解析 / 格式化失败 |

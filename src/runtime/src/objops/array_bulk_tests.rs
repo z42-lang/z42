@@ -201,7 +201,7 @@ fn a_struct_copy_within_an_old_array_dirties_its_card() {
     put(&dst, 0, 1, young);   // raw write: no card yet
     let Value::Array(owner) = Value::Array(dst) else { unreachable!() };
     // SAFETY: live handle from this heap.
-    let (ci, _) = unsafe { owner.entry_ptr().as_ref() }.location;
+    let (ci, _) = unsafe { owner.entry_ptr().as_ref() }.location();
     assert!(!ctx.heap().array_card_dirty_for_test(ci), "setup: card starts clean");
     copy_range(&ctx, &dst, 0, &dst, 2, 1).expect("copy");
     assert!(ctx.heap().array_card_dirty_for_test(ci), "the moved young leaf must dirty the card");

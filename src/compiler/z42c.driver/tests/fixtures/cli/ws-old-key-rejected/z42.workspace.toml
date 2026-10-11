@@ -1,0 +1,4 @@
+[workspace]
+members = ["libs/*"]
+# 旧拼写（2026-10 改名，阶段 2 已删）：未知键 → 报错。
+default-members = ["wsrcore"]

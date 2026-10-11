@@ -142,6 +142,10 @@ pub(crate) fn box_struct_blob(
                 let n = bytes.len().min(o.bytes().len());
                 o.bytes_mut()[..n].copy_from_slice(&bytes[..n]);
                 let rn = refs.len().min(o.refs().len());
+                // `refs_mut_raw` (no SATB record, no card) is sound here only because this is
+                // the **freshly allocated** box: every old value is `Null` (nothing to record), and
+                // the box is young (born at age 0, no safepoint since `alloc_object`), so no
+                // old→young edge can arise. See gc.md「免屏障的写入点」.
                 o.refs_mut_raw()[..rn].clone_from_slice(&refs[..rn]);
             }
             Ok(Value::BoxedStruct(gc))
@@ -193,12 +197,31 @@ pub fn builtin_struct_hash_code(_ctx: &VmContext, args: &[Value]) -> Result<Valu
 //
 // 所有 corelib 已 migrate 完，旧 `require_*` 已删（pre-1.0 不留兼容包袱）。
 
+//
+// null 是**用户能触发**的（null 字符串传进 / 调到 builtin），走 objops 的 `NullReferenceException`，
+// 不是内部错误：`arg_str` 报「第 N 个实参是 null」，`this_str` 报「在 null 上调用某成员」
+// （接收者，消息与 `VCall` 的 null 接收者同一条）。只在既有的 tag match 失配臂里构造，命中路径不变。
+
 #[inline]
 pub fn arg_str<'a>(args: &'a [Value], idx: usize, ctx: &str) -> Result<&'a str> {
     match args.get(idx) {
         Some(Value::Str(s)) => Ok(&s),
+        Some(Value::Null) => Err(crate::objops::OpError::null_arg(ctx, idx).into_builtin_error()),
         Some(other) => bail!("{}: arg {} expected string, got {:?}", ctx, idx, other),
         None => bail!("{}: missing arg {}", ctx, idx),
+    }
+}
+
+/// 字符串**接收者**（`[Native]` 实例成员的 `this`，即 `args[0]`）。`member` 是该 builtin 所实现的
+/// `Std.String` 成员在 IR 里的名字（属性访问器写 `get_X`）：null 接收者 →
+/// `OpError::null_call(member)`，与 `s.Member` 经 `VCall` 撞上 null 时同一条消息。
+#[inline]
+pub fn this_str<'a>(args: &'a [Value], member: &str) -> Result<&'a str> {
+    match args.first() {
+        Some(Value::Str(s)) => Ok(&s),
+        Some(Value::Null) => Err(crate::objops::OpError::null_call(member).into_builtin_error()),
+        Some(other) => bail!("String.{}: expected a string receiver, got {:?}", member, other),
+        None => bail!("String.{}: missing receiver", member),
     }
 }
 
@@ -538,7 +561,7 @@ pub fn builtin_char_to_string(_ctx: &VmContext, args: &[Value]) -> Result<Value>
 }
 
 pub fn builtin_str_compare_to(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let a = arg_str(args, 0, "String.CompareTo")?;
+    let a = this_str(args, "CompareTo")?;
     let b = arg_str(args, 1, "String.CompareTo")?;
     Ok(Value::I64(a.cmp(&b) as i64))
 }

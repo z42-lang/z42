@@ -29,7 +29,7 @@ members = ["*"]
 # （relocate-compiler-domain-libs，2026-09-27）——**物理位置就是「这是编译器域」的声明**，
 # 普通工程的解析域只有 shipped `libs/`，结构上就看不到它们；要用得在 `[dependencies]` 里显式引用。
 # 挪动不改包名/命名空间 ⇒ zpkg 文件名不变 ⇒ 不涉及种子纪律。
-default-members = [
+default_members = [
     "z42.core",
     "z42.collections",
     "z42.encoding",

@@ -99,8 +99,9 @@ string _buildGoldenCase(string root, string caseDir) {
     string vm = _builtVm(root, "release");
     string driver = _driverZpkg(root, "release");
     string flat = _libsDir(root);   // 纯 stdlib flat：被编的东西只用 stdlib，driver 自包含（不需要 alllibs）
-    int c = _exec(_z42cProc(vm, flat, driver)
-        .Arg("--emit-zbc").Arg(wrappedSrc).Arg(zbc));
+    Process proc = _z42cProc(vm, flat, driver).Arg("--emit-zbc").Arg(wrappedSrc).Arg(zbc);
+    if (File.Exists(Path.Join(caseDir, "opt_all"))) { proc = proc.Arg("--opt-all"); }   // same as the host gate
+    int c = _exec(proc);
     if (c != 0) { return ""; }
     return zbc;
 }
@@ -116,14 +117,18 @@ string _bundleSafeName(string name) {
     return name.Replace("/", "__").Replace(".", "_");
 }
 
-// Emit a stdlib [Test] unit (single .z42) → .zbc in `bundleDir`. Returns "" on fail.
-string _emitUnitZbc(string root, string unitSrc, string safe, string bundleDir) {
+// Emit a single .z42 (stdlib [Test] unit / golden) → .zbc in `bundleDir`. Returns "" on fail.
+// `optAll`: the golden's `opt_all` sidecar → `--opt-all`, exactly as the host golden gate
+// compiles it — otherwise the bundle silently runs opt_all cases unoptimized (and any
+// assertion that depends on an optimization's observable effect diverges).
+string _emitUnitZbc(string root, string unitSrc, string safe, string bundleDir, bool optAll) {
     string vm = _builtVm(root, "release");
     string driver = _driverZpkg(root, "release");
     string flat = _libsDir(root);   // 纯 stdlib flat：被编的东西只用 stdlib，driver 自包含（不需要 alllibs）
     string zbc = Path.Join(bundleDir, safe + ".zbc");
-    int c = _exec(_z42cProc(vm, flat, driver)
-        .Arg("--emit-zbc").Arg(unitSrc).Arg(zbc));
+    Process proc = _z42cProc(vm, flat, driver).Arg("--emit-zbc").Arg(unitSrc).Arg(zbc);
+    if (optAll) { proc = proc.Arg("--opt-all"); }
+    int c = _exec(proc);
     if (c != 0) { return ""; }
     return zbc;
 }
@@ -165,9 +170,9 @@ string _readExpected(string path) {
 // sibling; return its manifest JSON entry, or "" on compile failure (e.g.
 // compile-fail goldens — skipped, they aren't runnable-in-embed). Shared by the
 // dir / flat / lib golden enumerations. Direct-run: agent runs it isolated.
-string _goldenEntry(string root, string caseName, string src, string expTxt, string bundleDir) {
+string _goldenEntry(string root, string caseName, string src, string expTxt, string bundleDir, bool optAll) {
     string safe = _bundleSafeName(caseName);
-    string zbc = _emitUnitZbc(root, src, safe, bundleDir);
+    string zbc = _emitUnitZbc(root, src, safe, bundleDir, optAll);
     if (zbc.Length == 0) { return ""; }
     string entry = _deriveEntry(src);
     File.WriteAllText(Path.Join(bundleDir, safe + ".expected"), expTxt);

@@ -44,25 +44,23 @@ pub unsafe extern "C" fn jit_obj_field_slot(
     }
 }
 
-/// Hoisted **byte-inlined reference** field resolver (T1-B): the reference twin of
-/// [`jit_obj_field_slot`]. `out_tag` = the `Value` discriminant to stamp on a non-null
-/// load (`7` = `Value::Object`, `6` = `Value::Array`; pinned by
-/// `value_discriminants_pinned` in `metadata/types_tests.rs`). Read-only (no barrier).
+/// Hoisted **reference-word** field resolver (T1-B): the reference twin of
+/// [`jit_obj_field_slot`]. On success writes the object's `bytes` base and the field's byte
+/// offset; the per-access inline acquire-loads the 8 B word and decodes its kind through
+/// `ref_word::KIND_TO_VALUE_TAG` (kind 7 = a boxed primitive → `jit_field_get`). Read-only.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_obj_ref_field_slot(
     frame: *mut JitFrame, _ctx: *const JitModuleCtx,
     obj: u32, field_name_ptr: *const u8, field_name_len: usize,
-    out_bytes_ptr: *mut *const u8, out_off: *mut i64, out_tag: *mut i32,
+    out_bytes_ptr: *mut *const u8, out_off: *mut i64,
 ) {
     *out_bytes_ptr = std::ptr::null();
     *out_off = -1;
-    *out_tag = 0;
     let field_name = super::baked_str(field_name_ptr, field_name_len);
     let recv = &(*frame).regs[obj as usize];
-    if let Some((ptr, off, is_array)) = crate::objops::field::inline_ref_slot(recv, field_name) {
+    if let Some((ptr, off)) = crate::objops::field::inline_ref_slot(recv, field_name) {
         *out_bytes_ptr = ptr;
         *out_off = off as i64;
-        *out_tag = if is_array { 6 } else { 7 };
     }
 }
 

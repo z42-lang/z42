@@ -675,7 +675,8 @@ fn object_layout_composed_local_inheritance() {
     let bl = base.composed_object_layout().expect("Base has composed layout");
     assert_eq!(bl.size, 16, "Base composed size = 16");
     assert_eq!(&*bl.field_offsets, &[0, 8]);
-    assert_eq!(&*bl.ref_offsets, &[8]);
+    assert!(bl.ref_offsets.is_empty());
+    assert_eq!(&*bl.ref_cells, &[8], "Base's string field is a reference word");
 
     let sub = module.type_registry.get("Sub").expect("Sub");
     let sl = sub.composed_object_layout().expect("Sub has composed layout");
@@ -684,17 +685,12 @@ fn object_layout_composed_local_inheritance() {
     assert_eq!(&*sl.field_offsets, &[0, 8, 16, 24], "base fields kept, own shifted +16");
     assert_eq!(&*sl.field_sizes, &[8, 8, 1, 8]);
     assert_eq!(&*sl.field_kinds, &[0, STRUCT_REF_ARC_STRING, 0, STRUCT_REF_GCREF]);
-    // PR-3 chunk 2b: the base string leaf @8 stays in the side-table; Sub's own direct
-    // object (GcRef) field @8→24 is byte-inlined, so it drops out of `ref_offsets` and
-    // shows up in `inline_refs` instead.
-    assert_eq!(&*sl.ref_offsets, &[8], "only base's string ref stays side-table");
-    assert_eq!(&*sl.ref_kinds, &[STRUCT_REF_ARC_STRING]);
-    assert_eq!(sl.inline_refs.len(), 1, "Sub's own object field inlined");
-    assert_eq!(sl.inline_refs[0].offset, 24, "own object ref shifted to 24 and inlined");
-    assert!(!sl.inline_refs[0].is_array);
-    // ref_index maps composed offsets to side-table slots (inlined refs are absent).
-    assert_eq!(sl.ref_index(8), Some(0));
-    assert_eq!(sl.ref_index(24), None, "inlined object ref has no side-table slot");
+    // Every direct reference field is an 8 B reference word: the base string @8 and Sub's
+    // own object field @8→24. Nothing is left for the 16 B side table.
+    assert!(sl.ref_offsets.is_empty(), "no side-table leaves");
+    assert_eq!(&*sl.ref_cells, &[8, 24], "base string + own object (shifted to 24)");
+    assert_eq!(sl.ref_index(8), None, "a reference word has no side-table slot");
+    assert_eq!(sl.ref_index(24), None);
     assert_eq!(sl.ref_index(16), None, "non-ref field offset not in bitmap");
 
     // Field-index parity with the merged `fields` (offsets align by slot).
@@ -704,19 +700,18 @@ fn object_layout_composed_local_inheritance() {
     assert_eq!(sub.field_index.get("other"), Some(&3));
 
     // D12: per-field access table resolves exact tags + refs slots from type_tag.
-    use crate::metadata::types::{TAG_I64, TAG_STR, TAG_OBJECT};
+    use crate::metadata::types::{FieldCell, TAG_I64, TAG_STR, TAG_OBJECT};
     let fa = &sl.field_access;
     assert_eq!(fa.len(), 4, "one FieldAccess per merged field");
     // age: i64 primitive @ 0, not a ref.
-    assert_eq!((fa[0].offset, fa[0].tag, fa[0].ref_slot), (0, TAG_I64, -1));
-    // name: str ref @ 8 → refs slot 0 (strings stay in the side-table).
-    assert_eq!((fa[1].offset, fa[1].tag, fa[1].ref_slot), (8, TAG_STR, 0));
+    assert_eq!((fa[0].offset, fa[0].tag, fa[0].cell()), (0, TAG_I64, FieldCell::Prim));
+    // name: str ref @ 8 → an 8 B reference word (no side-table slot).
+    assert_eq!((fa[1].offset, fa[1].tag, fa[1].cell()), (8, TAG_STR, FieldCell::Ref));
     // flag: bool primitive @ 16 (shifted), not a ref.
     assert_eq!(fa[2].offset, 16);
-    assert_eq!(fa[2].ref_slot, -1);
-    // other: object ref @ 24 → PR-3 chunk 2b byte-inlined (ref_slot -1, read as an 8B
-    // pointer from `bytes`), so it has no side-table slot.
-    assert_eq!((fa[3].offset, fa[3].tag, fa[3].ref_slot), (24, TAG_OBJECT, -1));
+    assert_eq!(fa[2].cell(), FieldCell::Prim);
+    // other: object ref @ 24 → an 8 B reference word too.
+    assert_eq!((fa[3].offset, fa[3].tag, fa[3].cell()), (24, TAG_OBJECT, FieldCell::Ref));
 }
 
 /// Cross-zpkg base→derived: the base is unresolvable at the derived module's
@@ -770,8 +765,8 @@ fn object_layout_composed_crosspkg_fixup() {
     assert_eq!(sub_after.size, 16, "recomposed size = base(8) + own(8)");
     assert_eq!(&*sub_after.field_offsets, &[0, 8], "base ref field @0, own @8");
     assert_eq!(&*sub_after.field_kinds, &[STRUCT_REF_ARC_STRING, 0]);
-    assert_eq!(&*sub_after.ref_offsets, &[0], "only the base's ref leaf @0");
-    assert_eq!(&*sub_after.ref_kinds, &[STRUCT_REF_ARC_STRING]);
+    assert!(sub_after.ref_offsets.is_empty(), "no side-table leaves");
+    assert_eq!(&*sub_after.ref_cells, &[0], "the base's string field @0 is a reference word");
 }
 
 // ── TypeId global uniqueness (fix-crosspkg-typeid-collision, 2026-09-08) ──────

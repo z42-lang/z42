@@ -234,7 +234,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
                 // by design, so the survivors simply age on the next one; nothing is promoted
                 // merely because a major happened, which is the more defensible rule anyway.
                 //
-                // Measured on `src/bench/scenarios/09_alloc_ctorless` (a 100%-survival
+                // Measured on `src/benches/scenarios/09_alloc_ctorless` (a 100%-survival
                 // allocation loop, where escalation fires on *every* cycle): each cycle was
                 // `minor 156.7 ms + major 188.5 ms` — 370 ms of pause to free 0 bytes.
                 // add-incremental-major-gc M2b: a major is a sequence of bounded slices now; the

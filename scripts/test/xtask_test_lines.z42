@@ -121,7 +121,7 @@ bool _lineLintExcluded(string p) {
     int i = 0;
     while (i < segs.Length - 1) {
         string s = segs[i];
-        if (s == "tests" || s == "bench" || s == "target" || s == "artifacts" || s.EndsWith("_tests")) { return true; }
+        if (s == "tests" || s == "bench" || s == "benches" || s == "target" || s == "artifacts" || s.EndsWith("_tests")) { return true; }
         i = i + 1;
     }
     return false;

@@ -184,6 +184,39 @@ impl VarGcRef {
         self.ptr == other.ptr && self.generation == other.generation
     }
 
+    /// Serialize to raw bits for storing in an object's 8 B reference cell
+    /// (`metadata::types::ref_word`). Exposes provenance, like `GcRef::to_tagged_bits`.
+    /// Never zero, and the low 3 bits are always clear (the header is 8-aligned).
+    #[cfg(target_pointer_width = "64")]
+    #[inline]
+    pub fn to_bits(&self) -> u64 {
+        self.0.as_ptr().expose_provenance() as u64
+    }
+
+    #[cfg(not(target_pointer_width = "64"))]
+    #[inline]
+    pub fn to_bits(&self) -> u64 {
+        (self.ptr.as_ptr().expose_provenance() as u64) | ((self.generation as u64) << 32)
+    }
+
+    /// Reconstruct from [`to_bits`](Self::to_bits). `0` → `None`.
+    ///
+    /// # Safety
+    /// `bits` is `0` or came from `to_bits` on a handle whose region still outlives the result.
+    #[cfg(target_pointer_width = "64")]
+    #[inline]
+    pub unsafe fn from_bits(bits: u64) -> Option<Self> {
+        let ptr = std::ptr::with_exposed_provenance_mut::<GcBlockHeader>(bits as usize);
+        NonNull::new(ptr).map(Self)
+    }
+
+    #[cfg(not(target_pointer_width = "64"))]
+    #[inline]
+    pub unsafe fn from_bits(bits: u64) -> Option<Self> {
+        let ptr = std::ptr::with_exposed_provenance_mut::<GcBlockHeader>((bits & 0xFFFF_FFFF) as usize);
+        NonNull::new(ptr).map(|ptr| Self { ptr, generation: (bits >> 32) as u32 })
+    }
+
     /// Raw payload bytes (shared). Returns `None` if the handle is stale/dead.
     ///
     /// # Safety
@@ -273,7 +306,7 @@ impl VarGcRef {
                 size: payload as u32,
                 marked: AtomicU8::new(0),
                 alive: AtomicBool::new(true),
-                type_tag: AtomicU8::new(GcBlockHeader::pack_tag(block_type, 0, false)),
+                type_tag: AtomicU8::new(GcBlockHeader::pack_tag(block_type, 0)),
                 size_class,
                 // Leaked / test blocks belong to no region chunk.
                 chunk_idx: u32::MAX,
@@ -303,7 +336,7 @@ impl VarGcRef {
                 size: payload as u32,
                 marked: AtomicU8::new(0),
                 alive: AtomicBool::new(true),
-                type_tag: AtomicU8::new(GcBlockHeader::pack_tag(block_type, 0, false)),
+                type_tag: AtomicU8::new(GcBlockHeader::pack_tag(block_type, 0)),
                 size_class,
                 // Leaked / test blocks belong to no region chunk.
                 chunk_idx: u32::MAX,

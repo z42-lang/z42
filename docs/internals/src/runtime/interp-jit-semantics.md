@@ -53,22 +53,36 @@ is_int_div_by_zero(divisor)  DIV_BY_ZERO_EXC  div_by_zero_msg(op)  SHIFT_MASK
 | 判定 | 单一实现 | 缓存 | interp 调用侧 | JIT 调用侧 |
 |------|---------|------|--------------|-----------|
 | 虚调用目标（`VCall`） | `interp/vcall_resolve.rs::resolve_vcall` | 站点 PIC（`VCallIC`） | `exec_vcall.rs` | `helpers/vcall.rs` |
-| 类型判定（`is` / `as` / 带类型 `catch`） | `interp/dispatch.rs::isa_td` | `vm_context/isa_cache.rs`（身份键直接映射）→ `subclass_memo`（字符串 memo）→ 基链/接口遍历 | `exec_object.rs`、`find_handler` | `helpers/object.rs`、`helpers/control.rs` |
+| 类型判定（`is` / `as` / 带类型 `catch`） | `interp/dispatch.rs::isa_td` | `vm_context/isa_cache.rs`（id 键直接映射）→ `subclass_memo`（同键 memo）→ 基链/接口遍历 | `exec_object.rs`、`find_handler` | `helpers/object.rs`、`helpers/control.rs` |
 
-`IsaCache` 键的是**身份**而非内容：接收者 `*const TypeDesc`（注册表 / 惰性加载器持有的
-描述符在 VM 生命周期内不朽；`id == UNRESOLVED` 的临时 fallback 描述符按对象分配，**不缓存**）+ 目标类名串的地址
-（只接受指令 / 异常表 / JIT 烘焙的同一串这类不朽元数据；反射路径仍走字符串 memo）。命中 = 两次 relaxed load，
-无锁无哈希；直接映射、冲突覆盖；与 memo 一起在显式模块 (re)load（REPL 重定义）时清空。JIT 侧不自带子类遍历，同样调 `isa_td`。
+#### 类型判定的缓存键
 
-#### PIC 的键必须是**全局**类型身份
+`IsaCache` 与 `subclass_memo` 的键都是 `(接收者 TypeId, 目标键)` 这一对 u32，**不用任何地址**：
 
-上表两行的缓存键取向不同，这个差别很关键：
+- **接收者**：`TypeDesc.id`。进程级发号、永不复用（见 [vm-architecture.md](vm-architecture.md)「TypeId 的作用域」），
+  描述符被释放、地址被别的类型复用（可回收的 load context、REPL 轮次）也不会让键误命中。同一类型的几个描述符版本
+  （主模块里只含自身字段的那份、加载器 fixup 出的合并副本）同 id、同名、同基类链，判定相同。没有 id 的描述符
+  （`UNRESOLVED`：按对象现建的回落描述符、corelib 原生句柄单例）照常走遍历作答，**不进缓存**。
+- **目标键**：站点上的 `TypeKeyCell`（`IsInstanceInsn.target` / `AsCastInsn.target` / `ExceptionEntry.catch_key`；
+  `is_exception_subclass` 用一个 `static`）。首次判定时由 `dispatch::target_key` 按名解析一次：名字是已登记类型
+  （主模块注册表，再查惰性加载器——只查不加载）→ 取它的 `TypeId`；否则（擦除名 `Demo.GBox`、arity 形 `GBox$1`、
+  所在包尚未加载的接口）→ `TypeTable::name_key` 为这个**名字**保留一个 id（同一发号器，不会分给描述符）。
+  两种键都进程唯一、各自只代表一个目标名，而判定只取决于「接收者类型的名字链 + 目标名」，所以键可以放在
+  共享元数据里，不论哪个 VM 解析的都对；目标类型后来才加载、键仍是先前保留的那个，判定照旧正确。
+  反射等只有名字的调用方（`is_subclass_or_eq_td`）每次按名求键，走同一份 memo。
 
-- `IsaCache` 键的是**指针身份**（`*const TypeDesc`）——天然全局唯一。
-- 两条 PIC（`VCallIC` / `FieldIC`）为了「命中 = 两次 relaxed load」，键的是
-  `TypeDesc.id` 这个裸 `u32`。
+`IsaCache` 每槽是**一个** `AtomicU64`：`recv << 32 | verdict << 31 | target`（两个 id 都在 `IMPORT_BASE = 1<<31`
+以下，第 31 位空出来放判定），一次 store 安装、一次 load 读出，三者不可能撕裂；空槽是 `u64::MAX`（接收者
+`UNRESOLVED`，永不匹配）。命中 = 一次 relaxed load + 一次比较，无锁无哈希；直接映射、冲突覆盖，未命中回 memo
+（`Mutex<FxHashMap<u64, bool>>`，键同一个打包值）再回填。两者在显式模块 (re)load（REPL 重定义）时一起清空。
+JIT 侧不自带子类遍历：`jit_is_instance` / `jit_as_cast` / `jit_match_catch_type` 多收一个烘焙的 `TypeKeyCell`
+指针（指令 / 异常表行里的那个，与代码同寿），同样调 `isa_td`。
 
-于是 PIC 的正确性完全押在**「`TypeId` 在比较发生的范围内唯一」**上。若 `TypeId` 每个 `Module` 从 0 重开（per module），跨 zpkg 的 `TypeDesc`
+#### 缓存键必须是**全局**类型身份
+
+`IsaCache` 与两条 PIC（`VCallIC` / `FieldIC`）都以 `TypeDesc.id` 这个裸 `u32` 做键（命中 = relaxed load + 比较）。
+
+于是它们的正确性完全押在**「`TypeId` 在比较发生的范围内唯一」**上。若 `TypeId` 每个 `Module` 从 0 重开（per module），跨 zpkg 的 `TypeDesc`
 由惰性加载器**原样返回**、保留外来模块的号，任何**跨 zpkg 多态**的站点就会把后到的
 receiver 误命中先到者的条目：
 
@@ -89,8 +103,8 @@ PIC 的命中点各设一道常驻断言（`vcall_resolve::assert_pic_target` �
 热路径不变。
 
 > **可迁移的判据**：任何「在作用域 S 内发号、却拿到 S 之外做相等比较」的 id 都是这个形状的
-> bug。要么把发号范围提升到比较范围（本系统的选择），要么改用天然全局的身份（指针，`IsaCache`
-> 的做法）。
+> bug。要么把发号范围提升到比较范围（本系统的选择），要么改用天然全局的身份。指针看似天然全局，
+> 但对象释放后地址会被复用，只在「元数据永不释放」的前提下成立——可回收 load context 正好打破它。
 
 ### 对象操作：objops
 
@@ -117,6 +131,8 @@ JIT helpers/* (extern C) ┘                       └ Err(OpError) → 引擎�
   | 情形 | 异常类 | 消息 |
   |------|-------|------|
   | 字段读 / 写的接收者为 null | `Std.NullReferenceException` | ``cannot read field `N` of a null reference`` / ``cannot write field …`` |
+  | 方法调用 / 属性访问的接收者为 null（`null_call`） | `Std.NullReferenceException` | ``cannot call method `Speak` on a null reference`` / ``cannot read property `Length` of a null reference`` |
+  | builtin 收到 null 字符串实参（`null_arg`） | `Std.NullReferenceException` | ``cannot pass null as argument 1 of `String.CompareTo` `` |
   | 数组读 / 写 / 取长的数组为 null | `Std.NullReferenceException` | `cannot read an element of a null array` 等 |
   | 下标越界（含负数） | `Std.IndexOutOfRangeException` | `index 3 is out of range for an array of length 3` |
   | 数组长度为负 | `Std.OverflowException` | `array size cannot be negative (got -2)` |
@@ -147,11 +163,33 @@ JIT helpers/* (extern C) ┘                       └ Err(OpError) → 引擎�
 > 用 `corelib::raise_op` 把 `OpError` 以原异常类抛出。
 >
 > 尚未进入本层的：对象分配（`interp/obj_new_resolve.rs`）、闭包环境数组、反射 builtin
-> （`FieldInfo.GetValue` / `SetValue` 等），以及 `VCall` 的 null 接收者（仍是
-> `VCall: expected object, got Null` 内部错误）。
+> （`FieldInfo.GetValue` / `SetValue` 等）。
 
-端到端对照：`src/tests/exceptions/objops_errors.z42` 在 interp 与 `--mode jit` 下各跑一遍，逐条断言异常类与
-`Message`；每个出错的访问放在独立函数里，保证 JIT 档的异常确实出自 JIT helper。
+#### 调用的 null 接收者
+
+同一个 `OpError::null_call(方法名)` 从三处出口发出，两个引擎拿到同一个异常类与同一条消息
+（方法名去掉编译器附加的 `$arity$types` / `:特化` 后缀；`get_X` / `set_X` 报成属性读写）：
+
+| 调用形态（编译器发什么） | 判空落在哪 | 热路径代价 |
+|------|-----------|-----------|
+| `VCall`（虚 / 接口 / 本包非虚方法、属性访问器、`s.Length`） | `vcall_resolve::resolve_vcall` 开头，产出 `VCallTarget::Thrown`，两个引擎沿用既有的 `Thrown` 臂 | 零：PIC 键 `receiver_type_id(Null)` 本就是 `None`，null 只会走到未命中的慢路 |
+| 直接 `Call` 到 `[Native]` 转发桩（`s.CharAt(i)`、`s.ToCharArray()`……） | builtin 的接收者取值 `corelib::convert::this_str(args, 成员名)`；非接收者实参走 `arg_str` → `null_arg` | 零：只在既有 tag match 的失配臂里构造 |
+| `CallIndirect`（null 委托） | `semantics::null_invoke_msg`（不经 objops，见 [委托与事件](delegates-events.md)） | — |
+
+builtin 签名返回 `anyhow::Result`，所以用户异常经 `OpError::into_builtin_error` 把 `objops::Throw`
+**原样装进** `anyhow::Error`；interp `exec_call::builtin` 与 JIT `jit_builtin` 的错误出口共用
+`corelib::builtin_error_exception`：能 downcast 回 `Throw` 就按它的类构造，否则照旧包成 `Std.Exception`。
+`Throw` 的 `Display` 与 `into_anyhow` 同为 `<类名>: <消息>`，被别的路径折成字符串时文本也一致。
+
+**已知边界：直接 `Call` 的实例方法不在调用点判空。** 编译器静态绑定的实例调用（其他包里的非虚方法、
+sealed 类去虚化后的调用）发的是 `Call`，接收者只是第 0 个实参；在调用点判空要给每个 `Call` 加一次取 tag
+比较，故不做。null 从被调方法**第一次用到 `this`** 的地方抛出，消息指向那一步（`s.Substring(1)` 的方法体先读
+`this.Length`，报 ``cannot read property `Length` ``）；方法体完全不碰 `this` 时不抛。要对齐 C# `callvirt`
+的调用点语义，可由编译器对这类调用改发 `VCall`（代价是每次经 PIC，且失去 `IrInline` 内联），尚未做。
+
+端到端对照：`src/tests/exceptions/objops_errors.z42`（字段 / 数组）与 `null_receiver_call.z42`（调用的 null
+接收者）在 interp 与 `--mode jit` 下各跑一遍，逐条断言异常类与 `Message`；每个出错的访问放在独立函数里，
+保证 JIT 档的异常确实出自 JIT helper。
 
 ### 路径 3：注释锚定 + 差分测试（无法运行期调 Rust）
 

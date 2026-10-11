@@ -41,10 +41,11 @@
 //!
 //! # Sweep model
 //!
-//! `iterate_alive` walks the stable block list skipping tombstoned entries. Mark/sweep is
-//! driven by the heap (`ArcMagrGC`): mark survivors, `sweep` tombstones the unmarked
-//! (alive=false + generation bump + push to the size-class free list). **v1 = STW only**
-//! (no generational young-list/card-table yet — deferred to a later PR per the 6.5 gate).
+//! `iterate_alive` walks each chunk's carved prefix `[0, hwm)` header by header (every header
+//! names its size class, hence the next block's offset), skipping tombstoned blocks. Mark/sweep
+//! is driven by the heap (`ArcMagrGC`): mark survivors, `sweep` tombstones the unmarked
+//! (alive=false + generation bump + push to the size-class free list). The young set is a
+//! per-chunk bitmap of block starts (`generation.rs`).
 //!
 //! # PR-1 scope (inert)
 //!
@@ -105,20 +106,12 @@ pub struct VarRegion {
     bump_chunk: Option<usize>,
     /// Byte offset of the next bump allocation within `chunks[bump_chunk]`.
     bump_off: usize,
-    /// Every distinct block slot ever bump-allocated (stable header pointers), **bucketed by
-    /// owning chunk** — `all_blocks[ci]` holds the slots carved out of `chunks[ci]`. Reused
-    /// slots stay in their bucket; a bucket only grows until its chunk is reclaimed.
-    /// `iterate_alive` / `sweep` walk it via [`Self::all_blocks_iter`].
-    ///
-    /// **perf-bucket-all-blocks-by-chunk (2026-09-11)**: this was one flat `Vec`, and
-    /// [`Self::reclaim_dead_var_chunks`] had to `retain` over the whole thing to drop the
-    /// blocks of the chunks it was reclaiming — **one header dereference per block**, i.e. a
-    /// random memory access each, over every block in the region. Measured on
-    /// `z42c.semantics`: 1.87 M blocks scanned to evict ~600 chunks' worth, **8.1 ms of a
-    /// 9.5 ms minor pause**. Bucketed, that eviction is `all_blocks[ci].clear()` per reclaimed
-    /// chunk. Walking is unchanged in element count and strictly better in locality — blocks
-    /// within a chunk are address-contiguous.
-    all_blocks: Vec<Vec<NonNull<GcBlockHeader>>>,
+    /// Per chunk, how many bytes from its base are carved into blocks (the bump high-water
+    /// mark; `0` for a pooled, freed or still-borrowed chunk). Blocks are carved back to back
+    /// and a reused slot keeps its size class, so `[0, hwm)` is a run of headers each followed
+    /// by its class footprint — [`Self::for_each_block_in`] walks it. This is the region's whole
+    /// index of its blocks (M8): four bytes per chunk instead of a pointer per block.
+    hwm: Vec<u32>,
     /// Per-size-class free lists of tombstoned slots available for reuse (LIFO).
     ///
     /// **lazy-var-free-list (2026-09-12)**: entries are **not** removed when their chunk is
@@ -149,7 +142,7 @@ pub struct VarRegion {
     /// **lazy-var-free-list (2026-09-12)**: how many entries across [`Self::free_lists`] are
     /// known-stale. Exact, not an estimate: a chunk only gets pooled when **every** block in
     /// it is tombstoned, and every non-oversized tombstone pushes a free-list entry, so
-    /// pooling chunk `ci` staled exactly `all_blocks[ci].len()` entries.
+    /// pooling chunk `ci` staled exactly as many entries as it had blocks.
     ///
     /// Bounds the memory the lazy scheme can waste. Without it a cold size class would hold
     /// its stale entries forever — nothing pops them, so nothing discovers them.
@@ -159,28 +152,23 @@ pub struct VarRegion {
     /// globally cost 17–25 ms a go, which forced the threshold so loose that stale entries
     /// piled up into ~40 MB of RSS; per class it is cheap enough to run tight.
     stale_per_class: Vec<usize>,
-    /// **fix-minor-gc-skips-var-region (2026-09-08)**: blocks the minor GC must visit —
-    /// everything with `gen_age < PROMOTION_THRESHOLD`. Minor scans this instead of
-    /// `all_blocks`, which is what makes its cost O(young) rather than O(heap).
-    ///
-    /// Maintained by **rebuild, not incremental removal**: `alloc` pushes, and
-    /// [`Self::sweep_young`] — which has to walk the whole list anyway — writes back only
-    /// the entries that are still both alive and young. Tombstone leaves stale entries
-    /// behind on purpose; they cost one `is_alive()` check at the next sweep. The
-    /// alternative (a `young_idx` per block for O(1) `swap_remove`, as `Region<T>` does) has
-    /// nowhere to live: the block header is full. Rebuilding is also strictly cheaper —
-    /// #524 had to gate `Region<T>`'s incremental maintenance behind generational mode
-    /// because it cost measurable instructions on every alloc.
-    ///
-    /// Duplicate protection is the header's `IN_YOUNG_BIT`, not a search of this list.
-    ///
-    /// Maintained **only while [`Self::generational`] is set** — see that field.
-    young_list: Vec<NonNull<GcBlockHeader>>,
-    /// Whether [`Self::young_list`] is maintained. Minor GC is the list's only consumer and
-    /// runs only under `GcMode::GenerationalMarkSweep`, so under any other mode the list is
-    /// pure overhead — and not cheap overhead: this region sees ~2.7 M live blocks on a
-    /// `z42c.semantics` build, so an unconsumed list costs 20 MB+ of RSS and a push per
-    /// alloc. Measured at +48 MB of RSS under `stw-mark-sweep` before this gate existed.
+    /// The young set (M8): one bit per 8-byte granule of a chunk, set at a block's start while
+    /// the block is alive and younger than [`Self::promotion_age`] — `young_bits[ci]` covers
+    /// chunk `ci` (128 words for a bump chunk, a few for a dedicated one, none while the region
+    /// is not generational). Set at alloc / retire, cleared on promotion and on tombstone, so it
+    /// is exact at every point. A minor walks only these bits, which is what makes its cost
+    /// `O(young)` rather than `O(heap)`.
+    young_bits: Vec<Box<[u64]>>,
+    /// Per chunk, set bits in `young_bits[ci]` — so taking a chunk's last young block out also
+    /// clears its summary bit in `O(1)`.
+    young_per_chunk: Vec<u32>,
+    /// One bit per chunk: whether it holds any young block. A minor visits only these chunks.
+    young_chunks: Vec<u64>,
+    /// Set bits across `young_bits` ([`Self::young_count`]).
+    young_len: usize,
+    /// Whether the young set is maintained. Minor GC is its only consumer and runs only under
+    /// `GcMode::GenerationalMarkSweep`, so under any other mode the bitmaps are not allocated
+    /// and alloc / tombstone skip them.
     ///
     /// Same shape and same reason as `Region<T>::generational` (#524) — flipped by
     /// [`Self::set_generational`], which `ArcMagrGC::set_mode` calls alongside the fixed
@@ -195,14 +183,15 @@ pub struct VarRegion {
 
     // ── add-gc-tlab stage 3 (2026-08-29): per-thread chunk-exclusive var alloc ──
     /// Per-chunk "borrowed by a TLAB" flag (parallel to `chunks`). A borrowed chunk is being
-    /// lock-free bump-filled by its owning mutator; its blocks are NOT yet in `all_blocks`
-    /// (retire appends them), so `iterate_alive`/`sweep` — which walk `all_blocks` — never see
-    /// them. The flag only gates [`reclaim_dead_var_chunks`] (skip borrowed) and prevents the
-    /// pool from handing out a chunk twice.
+    /// lock-free bump-filled by its owning mutator; its high-water mark stays `0` until retire
+    /// publishes it, so `iterate_alive`/`sweep` — which walk `[0, hwm)` — never see its blocks.
+    /// The flag only gates [`reclaim_dead_var_chunks`] (skip borrowed) and prevents the pool
+    /// from handing out a chunk twice.
     borrowed: Vec<bool>,
     /// Chunk-level free pool (D7): indices of **bump** chunks that became fully dead at a sweep,
-    /// available for [`borrow_chunk`] to recycle. Their blocks were purged from `all_blocks` /
-    /// `free_lists`; the chunk memory is re-bumped from offset 0 with a bumped `reuse_gen`.
+    /// available for [`borrow_chunk`] to recycle. Their high-water mark is reset (their blocks
+    /// stop existing to every walk); the chunk memory is re-bumped from offset 0 with a bumped
+    /// `reuse_gen`.
     var_free_chunk_pool: Vec<usize>,
     /// Per-chunk generation base for TLAB-bumped blocks (parallel to `chunks`). Fresh chunks
     /// start at 0. On reclaim, bumped **above every generation any block in the chunk reached**,
@@ -230,7 +219,7 @@ pub struct VarRegion {
     /// and lands here for [`Self::push_chunk`] to reuse.
     free_chunk_slots: Vec<usize>,
     /// **add-incremental-chunk-reclaim (2026-09-10)**: per-chunk census, maintained
-    /// incrementally so [`Self::reclaim_dead_var_chunks`] never has to walk `all_blocks`.
+    /// incrementally so [`Self::reclaim_dead_var_chunks`] never has to walk the blocks.
     ///
     /// That walk — one binary search per block over 2.7 M blocks — was **45 ms of a 54 ms
     /// minor sweep**: 85% of the sweep and 60% of the whole pause, and `O(heap)` rather than
@@ -263,13 +252,16 @@ impl Default for VarRegion {
             chunks: Vec::new(),
             bump_chunk: None,
             bump_off: 0,
-            all_blocks: Vec::new(),
+            hwm: Vec::new(),
             free_lists: (0..NUM_CLASSES).map(|_| Vec::new()).collect(),
             stale_free: 0,
             stale_per_class: vec![0; NUM_CLASSES],
-            young_list: Vec::new(),
+            young_bits: Vec::new(),
+            young_per_chunk: Vec::new(),
+            young_chunks: Vec::new(),
+            young_len: 0,
             // Matches `Region<T>`'s default: a bare `VarRegion::new()` (unit tests, mock
-            // heaps) maintains the list; the heap narrows it via `set_generational`.
+            // heaps) maintains the young set; the heap narrows it via `set_generational`.
             generational: true,
             live_count: 0,
             drop_glue: None,
@@ -324,13 +316,16 @@ impl VarRegion {
             chunks: Vec::new(),
             bump_chunk: None,
             bump_off: 0,
-            all_blocks: Vec::new(),
+            hwm: Vec::new(),
             free_lists: (0..NUM_CLASSES).map(|_| Vec::new()).collect(),
             stale_free: 0,
             stale_per_class: vec![0; NUM_CLASSES],
-            young_list: Vec::new(),
+            young_bits: Vec::new(),
+            young_per_chunk: Vec::new(),
+            young_chunks: Vec::new(),
+            young_len: 0,
             // Matches `Region<T>`'s default: a bare `VarRegion::new()` (unit tests, mock
-            // heaps) maintains the list; the heap narrows it via `set_generational`.
+            // heaps) maintains the young set; the heap narrows it via `set_generational`.
             generational: true,
             live_count: 0,
             drop_glue: Some(glue),
@@ -401,13 +396,8 @@ impl VarRegion {
         } else {
             self.bump(footprint)
         };
-        self.write_fresh_header(
-            header_ptr, payload, block_type, size_class, 0, self.generational, chunk_idx,
-        );
-        self.all_blocks[chunk_idx as usize].push(header_ptr);
-        if self.generational {
-            self.young_list.push(header_ptr);
-        }
+        self.write_fresh_header(header_ptr, payload, block_type, size_class, 0, chunk_idx);
+        self.add_young(header_ptr, chunk_idx as usize);
         self.live_count += 1;
         self.blocks_per_chunk[chunk_idx as usize] += 1;
         self.live_per_chunk[chunk_idx as usize] += 1;
@@ -514,20 +504,14 @@ impl VarRegion {
     ) -> VarGcRef {
         // SAFETY: `slot` came from this region's free list → it points at a valid, chunk-
         // owned, tombstoned header whose generation was bumped at tombstone time.
-        let (generation, already_listed, chunk_idx) = {
+        let (generation, chunk_idx) = {
             let h = unsafe { slot.as_ref() };
-            (h.generation(), h.is_in_young(), h.chunk_idx)
+            (h.generation(), h.chunk_idx)
         };
-        // The recycled block is young again (gen_age 0), but the young list uses lazy
-        // deletion: if this slot died *after* the last minor sweep it is still listed, and
-        // pushing it a second time would age it twice per minor and grow the list without
-        // bound. `already_listed` is the header's own `IN_YOUNG_BIT`, so the check is O(1).
-        self.write_fresh_header(
-            slot, payload, block_type, size_class, generation, self.generational, chunk_idx,
-        );
-        if self.generational && !already_listed {
-            self.young_list.push(slot);
-        }
+        // The recycled block is young again (gen_age 0); its tombstone took it out of the
+        // young set, so it goes back in exactly once.
+        self.write_fresh_header(slot, payload, block_type, size_class, generation, chunk_idx);
+        self.add_young(slot, chunk_idx as usize);
         self.live_count += 1;
         // A recycled slot never moves, so only the live count changes.
         self.live_per_chunk[chunk_idx as usize] += 1;
@@ -543,7 +527,6 @@ impl VarRegion {
         block_type: BlockType,
         size_class: u8,
         generation: u32,
-        in_young: bool,
         chunk_idx: u32,
     ) {
         // SAFETY: `ptr` addresses freshly-carved (bump) or recycled (free-list) space large
@@ -554,7 +537,7 @@ impl VarRegion {
                 size: payload as u32,
                 marked: AtomicU8::new(0),
                 alive: AtomicBool::new(true),
-                type_tag: AtomicU8::new(GcBlockHeader::pack_tag(block_type, 0, in_young)),
+                type_tag: AtomicU8::new(GcBlockHeader::pack_tag(block_type, 0)),
                 size_class,
                 chunk_idx,
             });
@@ -585,8 +568,9 @@ impl VarRegion {
         Some(header)
     }
 
-    /// Tombstone the block behind `handle`: alive=false, bump generation, push its slot to
-    /// the size-class free list. No-op (returns `false`) on a stale/already-dead handle.
+    /// Tombstone the block behind `handle`: alive=false, bump generation, take it out of the
+    /// young set, push its slot to the size-class free list. No-op (returns `false`) on a
+    /// stale/already-dead handle.
     pub fn tombstone(&mut self, handle: VarGcRef) -> bool {
         let ptr = handle.header_ptr();
         // SAFETY: handle from this region → valid chunk-owned header.
@@ -614,6 +598,9 @@ impl VarRegion {
             }
         }
         let sc = header.size_class;
+        if ci < self.chunks.len() {
+            self.remove_young(ptr, ci);
+        }
         if sc != OVERSIZED_CLASS && ci < self.chunks.len() {
             // lazy-var-free-list: stamp the chunk's pooling count so a pop after the chunk is
             // recycled can tell this entry is stale.
@@ -627,24 +614,17 @@ impl VarRegion {
         true
     }
 
-    /// Every block slot in the region, in chunk order. The flat view over the per-chunk
-    /// buckets — see [`Self::all_blocks`] for why they are bucketed.
-    fn all_blocks_iter(&self) -> impl Iterator<Item = NonNull<GcBlockHeader>> + '_ {
-        self.all_blocks.iter().flat_map(|b| b.iter().copied())
-    }
-
     /// Iterate every currently-alive block, passing its handle + header to `visit`. Skips
-    /// tombstoned slots. Order: allocation order.
+    /// tombstoned slots. Order: chunk order, address order within a chunk.
     pub fn iterate_alive(&self, mut visit: impl FnMut(VarGcRef, &GcBlockHeader)) {
-        for ptr in self.all_blocks_iter() {
-            // SAFETY: every pointer in `all_blocks` is a live chunk-owned slot for the
-            // region's lifetime (chunks never move / free before Drop).
-            let header = unsafe { ptr.as_ref() };
-            if !header.is_alive() {
-                continue;
-            }
-            let h = VarGcRef::pack(ptr, header.generation());
-            visit(h, header);
+        for ci in 0..self.chunks.len() {
+            self.for_each_block_in(ci, |ptr| {
+                // SAFETY: `for_each_block_in` yields carved headers of a chunk this region owns.
+                let header = unsafe { ptr.as_ref() };
+                if header.is_alive() {
+                    visit(VarGcRef::pack(ptr, header.generation()), header);
+                }
+            });
         }
     }
 
@@ -660,48 +640,41 @@ impl VarRegion {
         (reclaimed, credited)
     }
 
-    /// **add-incremental-major-gc M2b**: [`Self::sweep`] over at most `max_buckets` chunk buckets
-    /// starting at `from`. Returns `(reclaimed, credited bytes, next bucket)`; `next ==
-    /// all_blocks.len()` means done. Resumable across STW slices for the same reason as
+    /// **add-incremental-major-gc M2b**: [`Self::sweep`] over at most `max_buckets` chunks
+    /// starting at chunk `from`. Returns `(reclaimed, credited bytes, next chunk)`; `next ==
+    /// bucket_count()` means done. Resumable across STW slices for the same reason as
     /// `Region::sweep_chunks`: blocks allocated between slices carry the cycle's epoch.
     pub fn sweep_buckets(&mut self, major: crate::gc::refs::MarkKind, from: usize, max_buckets: usize) -> (usize, u64, usize) {
         let mut reclaimed = 0;
         let mut credited: u64 = 0;
-        // **one-pass-major-sweep (2026-09-13)**: own the block index (`mem::take`) rather
-        // than borrow it, so `&mut self` is free inside the loop and the dead are tombstoned
-        // where they are judged. The `to_reclaim` staging `Vec` that used to carry them there
-        // is what made this pass cost **56.4 ns a block against the minor sweep's 14.4**
-        // (`tombstone` touches `free_lists` / `live_count`, none of which is `all_blocks`).
-        // Same move as #592 made for `sweep_young`.
-        let all = std::mem::take(&mut self.all_blocks);
-        let end = from.saturating_add(max_buckets).min(all.len());
-        let start = from.min(end);
-        for bucket in &all[start..end] {
-            for &ptr in bucket {
-                // SAFETY: see `iterate_alive`.
+        let end = from.saturating_add(max_buckets).min(self.chunks.len());
+        for ci in from.min(end)..end {
+            // `for_each_block_in_mut` hands `&mut self` to the callback, so the dead are
+            // tombstoned where they are judged — no staging list.
+            self.for_each_block_in_mut(ci, |r, ptr| {
+                // SAFETY: a carved header of a chunk this region owns.
                 let header = unsafe { ptr.as_ref() };
                 if !header.is_alive() {
-                    continue;
+                    return;
                 }
                 if header.is_marked(major) {
                     header.clear_minor_mark();
-                    continue;
+                    return;
                 }
                 let charge = Self::alloc_charge_bytes(header);
-                if self.tombstone(VarGcRef::pack(ptr, header.generation())) {
+                if r.tombstone(VarGcRef::pack(ptr, header.generation())) {
                     reclaimed += 1;
                     credited += charge;
                 }
-            }
+            });
         }
-        self.all_blocks = all;
-        (reclaimed, credited, end)
+        (reclaimed, credited, end.max(from.min(self.chunks.len())))
     }
 
-    /// Number of chunk buckets a major sweep walks ([`Self::sweep_buckets`] cursor bound).
+    /// Number of chunks a major sweep walks ([`Self::sweep_buckets`] cursor bound).
     #[inline]
     pub fn bucket_count(&self) -> usize {
-        self.all_blocks.len()
+        self.chunks.len()
     }
 
     /// The number of `used_bytes` a block of this kind added when it was allocated — the
@@ -742,10 +715,28 @@ impl VarRegion {
         self.chunks.len()
     }
 
-    /// The per-chunk census (tests: reconciled against a full scan of `all_blocks`).
+    /// The per-chunk census (tests: reconciled against a full walk of the blocks).
     #[cfg(test)]
     pub(crate) fn live_per_chunk_for_test(&self) -> Vec<u32> {
         self.live_per_chunk.clone()
+    }
+
+    /// Every carved block, live or dead (tests: what the region still tracks).
+    #[cfg(test)]
+    pub(crate) fn tracked_blocks_for_test(&self) -> Vec<NonNull<GcBlockHeader>> {
+        let mut out = Vec::new();
+        for ci in 0..self.chunks.len() {
+            self.for_each_block_in(ci, |p| out.push(p));
+        }
+        out
+    }
+
+    /// Every block of the young set (tests).
+    #[cfg(test)]
+    pub(crate) fn young_blocks_for_test(&self) -> Vec<NonNull<GcBlockHeader>> {
+        let mut out = Vec::new();
+        self.iterate_young(|h, _| out.push(h.header_ptr()));
+        out
     }
 
     /// See [`Self::live_per_chunk_for_test`].
@@ -766,13 +757,15 @@ impl Drop for VarRegion {
     /// every owned chunk. Reclaimed (tombstoned) blocks were already finalized at tombstone.
     fn drop(&mut self) {
         if self.drop_glue.is_some() {
-            for ptr in self.all_blocks_iter() {
-                // SAFETY: chunk-owned header valid until the dealloc below.
-                let alive = unsafe { ptr.as_ref() }.is_alive();
-                if alive {
-                    // SAFETY: alive block still owns its initialized payload; finalize once.
-                    unsafe { self.finalize_payload(ptr) };
-                }
+            for ci in 0..self.chunks.len() {
+                self.for_each_block_in(ci, |ptr| {
+                    // SAFETY: chunk-owned header valid until the dealloc below.
+                    let alive = unsafe { ptr.as_ref() }.is_alive();
+                    if alive {
+                        // SAFETY: alive block still owns its initialized payload; finalize once.
+                        unsafe { self.finalize_payload(ptr) };
+                    }
+                });
             }
         }
         self.recommit_pool_for_drop();

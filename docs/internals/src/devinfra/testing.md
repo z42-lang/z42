@@ -181,7 +181,7 @@ cp -R <warm>/.z42 $BASE/.z42 && cp <warm>/xtask $BASE/xtask      # 种子 + apph
 | `src/tests/<category>/<name>/` | `source.z42` + `expected_output.txt` | `xtask test e2e` |
 | `src/compiler/z42c.pipeline/tests/fixtures/cross-zpkg/<name>/` | target / ext / main 三个 toml 工程 | `xtask test e2e --dir cross-zpkg` |
 | `src/tests/{zbc,zpkg}-format/<name>/` | 入库的 `.zbc` / `.zpkg` 字节基线 | `xtask test runtime`（`git diff` 即格式漂移探针） |
-| `src/bench/` | 计时场景 | `xtask bench` |
+| `src/benches/` | 计时场景 | `xtask bench` |
 | `src/compiler/z42c.<member>/tests/` | 按阶段分（lexer / parser / decl / stmt / dump…） | `xtask test compiler` |
 | `src/libraries/<lib>/tests/` | 顶层 `*.z42` 是 `[Test]`；`<name>/source.z42` 是 golden | `test stdlib` / `test e2e` |
 | `src/runtime/src/<mod>_tests.rs` | Rust 单元 | `xtask test runtime` |

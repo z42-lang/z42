@@ -10,4 +10,4 @@ include = ["*.z42"]
 "e2e.lint" = { path = "../lintpkg" }
 
 [lints]
-warnings-as-errors = true
+warnings_as_errors = true

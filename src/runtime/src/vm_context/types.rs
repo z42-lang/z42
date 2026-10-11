@@ -134,6 +134,16 @@ pub struct VmCore {
     /// functions as they register. Only registers today — no lookup path reads
     /// it yet. See `metadata::func_table`.
     pub(crate) funcs:              Arc<crate::metadata::func_table::FuncTable>,
+    /// Process-level type identity (`TypeId` → latest `TypeDesc` version, lock-free reads).
+    /// Entry-module types are registered at construction; the lazy loader publishes its
+    /// registry after every change. Also reserves type-test keys for target names that
+    /// name no registered type. See `metadata::type_table`.
+    pub(crate) types:              Arc<crate::metadata::type_table::TypeTable>,
+    /// String-literal identity (`ConstStr` id → text + interned GC string, lock-free reads
+    /// once interned). Entry-module pool = ids `0..n`; the lazy loader appends each package's
+    /// pool. Per VM because the strings live in this VM's heap; its interned strings are GC
+    /// roots. See `metadata::str_table`.
+    pub(crate) strings:            Arc<crate::metadata::str_table::StrTable>,
     /// **add-threading-stdlib (2026-05-20)**: live `Std.Threading.Thread`
     /// instances keyed by monotonic u64 slot id. `__thread_spawn` inserts;
     /// `__thread_join` takes-out + joins. Pattern mirrors
@@ -392,33 +402,22 @@ pub struct VmContext {
     /// Lets an interp frame (running as a JIT cold-tier / fallback) route an
     /// already-compiled callee to its native code instead of re-interpreting.
     pub(crate) jit_ctx:           std::sync::atomic::AtomicUsize,
-    /// **unify-gc-heap PR-4**: per-context lazy interning cache for `ConstStr` pool
-    /// literals. The `Str` bytes moved into the GC heap, but the interned pool is
-    /// built at module *load* time when no heap exists — so instead of an eager
-    /// load-time interned pool, the first `ConstStr(idx)` allocates a GC
-    /// string from the live heap and caches it here (keyed by `(module ptr, idx)`).
-    /// Cached entries are **GC roots** (scanned by the external root scanner), so the
-    /// interned strings survive collection while this context is alive; subsequent
-    /// hits copy the 8-byte handle (no re-alloc). Per-context (not shared) so no
-    /// module mutation / cross-thread interning — a thread re-interns its own literals
-    /// (negligible for z42's 1–2 threads). See `interp::exec_value::const_str`.
-    pub(crate) interned_cache:    Arc<Mutex<FxHashMap<(usize, u32), crate::metadata::vstr::Str>>>,
-    /// **optimize-subclass-check**: memoizes `is_subclass_or_eq_td(derived, target) → bool`
-    /// (interp `is`/`as`/`catch`/vcall dispatch). Without it, every `x is T` check walks the
-    /// derived type's whole base+interface chain and — because the module's `type_registry`
-    /// rarely holds cross-zpkg types (e.g. `z42.package`'s `IrInstr` subclasses while z42c
-    /// serializes) — falls through to `try_lookup_type` (the `lazy_loader` lock) per level.
-    /// z42c's zpkg serialization dispatches each instruction through a ~60-way `is`-chain,
-    /// making this the top interp hotspot (profiled). The relationship is a global,
-    /// monotonic fact (a loaded type's bases/interfaces never change; lazy-load only ADDS
-    /// types), so the result is cacheable; nested `String→String→bool` map so a hit resolves
-    /// by `&str` with zero allocation. Per-context (not shared) → no lock contention under
+    /// `MkClos` function-name strings, interned per site (`intern_fn_name`): key = the
+    /// instruction's name `(address, length)`, hit confirmed by content. GC roots (scanned
+    /// with this context's other roots). Per thread, so the lock is uncontended. Goes away
+    /// once closures bind their function id at creation.
+    pub(crate) fn_name_cache:     Mutex<FxHashMap<(usize, usize), crate::metadata::vstr::Str>>,
+    /// **optimize-subclass-check**: memoizes the type-test verdict, keyed by
+    /// `(receiver TypeId, target key)` packed into a `u64` (`dispatch::isa_key`). Backs the
+    /// direct-mapped `isa_cache` (its misses and collisions) and the name-only callers
+    /// (reflection, debug assertions). The relationship is a global, monotonic fact (a loaded
+    /// type's bases/interfaces never change; lazy-load only ADDS types) and ids are never
+    /// reused, so the result is cacheable. Per-context (not shared) → no lock contention under
     /// parallel `--jobs` compile. Cleared on explicit module (re)load (REPL redefinition).
-    pub(crate) subclass_memo:     Mutex<FxHashMap<String, FxHashMap<String, bool>>>,
-    /// perf-vm-isa-cache (2026-09-03): identity-keyed direct-mapped front cache for
-    /// `is` / `as` / typed `catch` in front of `subclass_memo` — a hit is two relaxed loads,
-    /// no lock, no string hashing. See `isa_cache.rs` for the key/lifetime contract; cleared
-    /// together with the memo on explicit module (re)load.
+    pub(crate) subclass_memo:     Mutex<FxHashMap<u64, bool>>,
+    /// perf-vm-isa-cache: direct-mapped front cache for `is` / `as` / typed `catch` in front of
+    /// `subclass_memo`, keyed by `(receiver TypeId, target key)` — a hit is one relaxed load,
+    /// no lock, no hashing. See `isa_cache.rs` for the key contract; cleared with the memo.
     pub(crate) isa_cache:         super::isa_cache::IsaCache,
     /// parallel-parse-and-cache (2026-10-02): per-context front caches for
     /// `try_lookup_type` / `try_lookup_function` hits. The shared `lazy_loader`

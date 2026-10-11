@@ -173,7 +173,6 @@ void test_known_keys_audit_clean() {
                 + "[profile.release.runtime]\ngc-mode = \"x\"\n[properties]\nanything = 1\n";
     ProjectManifest m = ManifestLoader.ParseText(toml);
     Assert.Equal(0, m.UnknownKeys.Length);
-    Assert.Equal(0, m.DeprecatedKeys.Length);
     Assert.Equal("d", m.Project.Description);
     Assert.Equal(2, m.Project.Authors.Length);
     Assert.Equal("MIT", m.Project.License);
@@ -202,43 +201,34 @@ void test_unknown_keys_collected_per_section() {
     Assert.True(all.Contains("unknown key `icno` in [platform.desktop]"));
 }
 
-// 改过名的键（阶段 1）：旧名仍生效，只进 DeprecatedKeys（警告），不进 UnknownKeys（错误）。
+// 2026-10 改过名的两个键：旧拼写已删（阶段 2），落回普通未知键（错误），且不再生效。
 [Test]
-void test_renamed_keys_still_honored_and_deprecated() {
-    string toml = "[project]\nname = \"k\"\nversion = \"0.1.0\"\n[lints]\nwarnings-as-errors = true\n";
-    ProjectManifest m = ManifestLoader.ParseText(toml);
-    Assert.Equal(0, m.UnknownKeys.Length);
-    Assert.Equal(1, m.DeprecatedKeys.Length);
-    Assert.Equal("key `warnings-as-errors` in [lints] is deprecated, rename it to `warnings_as_errors`"
-        + " (the old spelling will be rejected in a future release)", m.DeprecatedKeys[0]);
-    Assert.Equal(0, m.LintCount);   // 旧键不被当成规则名
-    Assert.True(m.LintWarningsAsErrors);
+void test_old_key_spellings_rejected() {
+    ProjectManifest m = ManifestLoader.ParseText("[project]\nname = \"k\"\nversion = \"0.1.0\"\n[lints]\nwarnings-as-errors = true\n");
+    Assert.Equal(1, m.UnknownKeys.Length);
+    Assert.Equal("unknown key `warnings-as-errors` in [lints] (rule keys take a severity string;"
+        + " the only boolean key is warnings_as_errors)", m.UnknownKeys[0]);
+    Assert.Equal(0, m.LintCount);   // 非串值不被当成规则
+    Assert.Equal(false, m.LintWarningsAsErrors);
     WorkspaceManifest w = ManifestLoader.ParseWorkspaceText("[workspace]\nmembers = [\"*\"]\ndefault-members = [\"a\"]\n");
-    Assert.Equal(0, w.UnknownKeys.Length);
-    Assert.Equal(1, w.DeprecatedKeys.Length);
-    Assert.Equal("key `default-members` in [workspace] is deprecated, rename it to `default_members`"
-        + " (the old spelling will be rejected in a future release)", w.DeprecatedKeys[0]);
-    Assert.Equal(1, w.DefaultCount);
-    Assert.Equal("a", w.DefaultMembers[0]);
+    Assert.Equal(1, w.UnknownKeys.Length);
+    Assert.True(w.UnknownKeys[0].StartsWith("unknown key `default-members` in [workspace] (known: members, exclude, default_members, "));
+    Assert.Equal(0, w.DefaultCount);
 }
 
+// [lints] 的值：规则键只收 severity 串，warnings_as_errors 只收布尔。
 [Test]
-void test_renamed_keys_new_spelling_wins() {
-    // 新旧两个都写 → 新名的值生效（与键的先后无关），旧名仍报警告。
-    string toml = "[project]\nname = \"k\"\nversion = \"0.1.0\"\n[lints]\nwarnings_as_errors = false\nwarnings-as-errors = true\n";
+void test_lint_values_validated() {
+    string toml = "[project]\nname = \"k\"\nversion = \"0.1.0\"\n[lints]\n"
+                + "Z9002 = \"warn\"\n\"webgen.*\" = \"none\"\nZ9100 = 1\nwarnings_as_errors = \"yes\"\n";
     ProjectManifest m = ManifestLoader.ParseText(toml);
+    Assert.Equal(3, m.UnknownKeys.Length);
+    Assert.Equal("[lints] `Z9002`: unknown severity \"warn\" (known: none, hidden, info, warning, error)", m.UnknownKeys[0]);
+    Assert.Equal("unknown key `Z9100` in [lints] (rule keys take a severity string;"
+        + " the only boolean key is warnings_as_errors)", m.UnknownKeys[1]);
+    Assert.Equal("[lints] `warnings_as_errors` must be a boolean", m.UnknownKeys[2]);
+    Assert.Equal(2, m.LintCount);   // Z9002 / webgen.*（坏 severity 照搬，审计已报错）
     Assert.Equal(false, m.LintWarningsAsErrors);
-    Assert.Equal(0, m.UnknownKeys.Length);
-    Assert.Equal(1, m.DeprecatedKeys.Length);
-    WorkspaceManifest w = ManifestLoader.ParseWorkspaceText(
-        "[workspace]\nmembers = [\"*\"]\ndefault-members = [\"old\"]\ndefault_members = [\"new1\", \"new2\"]\n");
-    Assert.Equal(2, w.DefaultCount);
-    Assert.Equal("new1", w.DefaultMembers[0]);
-    Assert.Equal(1, w.DeprecatedKeys.Length);
-    // 只写新名：不警告。
-    ProjectManifest n = ManifestLoader.ParseText("[project]\nname = \"k\"\nversion = \"0.1.0\"\n[lints]\nwarnings_as_errors = true\n");
-    Assert.Equal(0, n.DeprecatedKeys.Length);
-    Assert.True(n.LintWarningsAsErrors);
 }
 
 [Test]

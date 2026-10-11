@@ -77,9 +77,9 @@ on:
       - 'src/runtime/**'
       - 'src/libraries/**'
       - 'src/compiler/**'
-      # src/bench/：整程序性能场景 / 能力探针 / 判红 fixture / 结果 schema。
+      # src/benches/：整程序性能场景 / 能力探针 / 判红 fixture / 结果 schema。
       # src/tests/ 是正确性 golden，动它们不影响性能测量，所以不列。
-      - 'src/bench/**'
+      - 'src/benches/**'
       - 'scripts/**/*.z42'
       - 'scripts/xtask.z42.toml'
       - '.github/workflows/bench-pr.yml'
@@ -328,7 +328,7 @@ jobs:
         shell: bash
         run: |
           set -uo pipefail
-          T="src/bench/testdata"
+          T="src/benches/testdata"
           fail=0
           xt() {
             xtask "$@" >/dev/null 2>&1
@@ -569,7 +569,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          xtask bench stdlib --json "$PWD/artifacts/reports/bench/micro-pr.json" --no-build --mode interp
+          xtask bench stdlib --json "$PWD/artifacts/reports/benches/micro-pr.json" --no-build --mode interp
 
       - name: Capture base micro baseline (base tree, same runner)
         if: steps.fmtgap.outputs.gap != '1'
@@ -585,7 +585,7 @@ jobs:
           # in-tree rebuild, no reliance on base-src's assembled-libs layout.
           # `xtask` 垫片按**自己所在位置**定位 `.z42` 与 PR 树的 xtask.zpkg，不看 cwd ⇒ cd 进 base-src 照样是 PR 的 xtask。
           ( cd base-src && \
-            xtask bench stdlib --json "$ROOT/artifacts/reports/bench/micro-base.json" --no-build --mode interp \
+            xtask bench stdlib --json "$ROOT/artifacts/reports/benches/micro-base.json" --no-build --mode interp \
               --vm     "${{ steps.base.outputs.base_vm }}" \
               --driver "${{ steps.base.outputs.base_driver }}" \
               --libs   "${{ steps.base.outputs.base_libs }}" )
@@ -612,7 +612,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          A="$PWD/artifacts/reports/bench"
+          A="$PWD/artifacts/reports/benches"
           ROOT="$PWD"
           xt() { xtask "$@"; }
           # 一轮 base 侧捕获：跑 PR 的 xtask，但 cwd=base-src 且**显式**传 base 工具链
@@ -753,10 +753,10 @@ jobs:
         with:
           name: bench-ab-results
           path: |
-            artifacts/reports/bench/ab.json
-            artifacts/reports/bench/micro-pr.json
-            artifacts/reports/bench/micro-base.json
-            artifacts/reports/bench/micro-pr-r*.json
-            artifacts/reports/bench/micro-base-r*.json
-            artifacts/reports/bench/micro-suspects.txt
+            artifacts/reports/benches/ab.json
+            artifacts/reports/benches/micro-pr.json
+            artifacts/reports/benches/micro-base.json
+            artifacts/reports/benches/micro-pr-r*.json
+            artifacts/reports/benches/micro-base-r*.json
+            artifacts/reports/benches/micro-suspects.txt
           if-no-files-found: ignore

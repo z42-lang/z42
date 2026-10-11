@@ -9,7 +9,7 @@
 //! - `Null` → `NullReferenceException`。
 
 use crate::metadata::resolver::{assert_field_ic_slot, field_ic_install, field_ic_lookup, FieldIC};
-use crate::metadata::types::{ScriptObject, TypeDesc};
+use crate::metadata::types::{FieldWrite, ScriptObject, TypeDesc};
 use crate::metadata::Value;
 use crate::gc::GcRef;
 use crate::vm_context::VmContext;
@@ -39,13 +39,21 @@ fn load(o: &ScriptObject, name: &str, ic: Option<&FieldIC>) -> Value {
     }
 }
 
-/// 写入（不含写屏障）。返回 `Some(slot)` 当且仅当写进的是引用槽——调用方据此决定是否发屏障。
+/// 写入（不含写屏障）。返回 `Some((slot, 写了什么))`；调用方据此发屏障。
 #[inline(always)]
-fn store(o: &mut ScriptObject, name: &str, v: &Value, ic: Option<&FieldIC>) -> OpResult<Option<usize>> {
+fn store(o: &mut ScriptObject, name: &str, v: &Value, ic: Option<&FieldIC>) -> OpResult<Option<(usize, FieldWrite)>> {
     let Some(slot) = slot_of(&o.type_desc, name, ic) else { return Ok(None) };
     match o.try_set_field_value(slot, v) {
-        Ok(wrote_ref) => Ok(wrote_ref.then_some(slot)),
+        Ok(w) => Ok(Some((slot, w))),
         Err(_) => Err(OpError::field_store_rejected(name, v)),
+    }
+}
+
+/// 引用单元写入后的屏障：只对落进单元的堆引用发（基元经擦除写进 `object` 字段时是装它的盒子）。
+#[inline(always)]
+fn barrier(ctx: &VmContext, owner: &Value, v: &Value, wrote: Option<(usize, FieldWrite)>) {
+    if let Some((slot, w)) = wrote {
+        w.with_barrier_value(v, |stored| ctx.heap().write_barrier_field(owner, slot, stored));
     }
 }
 
@@ -122,11 +130,7 @@ fn array_len_field(name: &str, len: usize) -> OpResult<Value> {
 pub fn field_set(ctx: &VmContext, recv: &Value, name: &str, v: &Value, ic: Option<&FieldIC>) -> OpResult<()> {
     if let Value::Object(rc) = recv {
         let wrote = store(&mut rc.borrow_mut(), name, v, ic)?;
-        if let Some(slot) = wrote {
-            if v.is_heap_ref() {
-                ctx.heap().write_barrier_field(recv, slot, v);
-            }
-        }
+        barrier(ctx, recv, v, wrote);
         return Ok(());
     }
     field_set_rare(ctx, recv, name, v, ic)
@@ -172,9 +176,22 @@ pub fn store_named(ctx: &VmContext, gc: &GcRef<ScriptObject>, name: &str, v: &Va
         }
         store(&mut o, name, v, None)?
     };
-    if let (Some(slot), true) = (wrote, v.is_heap_ref()) {
-        ctx.heap().write_barrier_field(&Value::Object(*gc), slot, v);
-    }
+    barrier(ctx, &Value::Object(*gc), v, wrote);
+    Ok(())
+}
+
+/// 按**槽位**写堆对象的字段，与 `FieldSet` 同一条写入 + 写屏障规则。
+///
+/// 给不经 `FieldSet` 指令、由 VM 自己往**已存在**对象里写字段的地方用：throw 点补
+/// `Exception.StackTrace`、反射 `FieldInfo.SetValue`、反射 `Type` 对象补 `__typeArgs` /
+/// `__fullName`。这些站点以前直接调 `try_set_field_value` / `set_field_value`——SATB 删除屏障在
+/// 写原语里、照样记了，但**卡表 / 并发 shade 那一半在调用点**，它们一个都没发：老对象收到
+/// 年轻引用却没染脏卡，下一次 minor 就把还被引用着的年轻对象扫掉（use-after-free）。
+///
+/// 基元槽类型不符照 `try_set_field_value` 报错（错误留给调用方按自己的语义包装）。
+pub fn store_slot(ctx: &VmContext, gc: &GcRef<ScriptObject>, slot: usize, v: &Value) -> anyhow::Result<()> {
+    let w = gc.borrow_mut().try_set_field_value(slot, v)?;
+    barrier(ctx, &Value::Object(*gc), v, Some((slot, w)));
     Ok(())
 }
 
@@ -187,10 +204,10 @@ pub fn inline_prim_slot(recv: &Value, name: &str) -> Option<(*const u8, u32, u32
     rc.borrow().inline_prim_field(name)
 }
 
-/// JIT 循环不变量提升：堆对象接收者的**字节内联引用**字段（类实例 / 数组的 8B 指针）
-/// → `(bytes 基址, 字节偏移, 是否数组)`。其它 → `None`（回落 `field_get`）。
+/// JIT 循环不变量提升：堆对象接收者的**引用字**字段（8 B 自描述字，`ref_word`）
+/// → `(bytes 基址, 字节偏移)`。其它 → `None`（回落 `field_get`）。
 #[inline]
-pub fn inline_ref_slot(recv: &Value, name: &str) -> Option<(*const u8, u32, bool)> {
+pub fn inline_ref_slot(recv: &Value, name: &str) -> Option<(*const u8, u32)> {
     let Value::Object(rc) = recv else { return None };
     rc.borrow().inline_ref_field(name)
 }

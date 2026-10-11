@@ -186,3 +186,20 @@ fn non_entry_module_never_caches_a_lazy_target() {
     assert!(matches!(frame.get(1).unwrap(), Value::I64(7)));
     assert_eq!(vcall_ic_hit(Some(&ic), &frame.get(0).unwrap().clone()), None);
 }
+
+/// A null receiver resolves to the objops `NullReferenceException` (never an internal
+/// "expected object" error) and is never cached. Without the stdlib exception classes (bare
+/// module) both engines get the same `<class>: <msg>` text.
+#[test]
+fn null_receiver_is_a_null_reference_and_not_cached() {
+    let ctx = VmContext::with_module(module("Entry", vec![method("Entry.Foo.Run$0", 1)]));
+    let entry = Arc::clone(ctx.module().unwrap());
+    let ic = VCallIC::default();
+    let err = match resolve_vcall(&ctx, &entry, &Value::Null, "get_Name", 0, Some(&ic)) {
+        Err(e) => e,
+        Ok(_) => panic!("a null receiver must not resolve"),
+    };
+    assert_eq!(err.to_string(),
+        "Std.NullReferenceException: cannot read property `Name` of a null reference");
+    assert_eq!(vcall_ic_hit(Some(&ic), &Value::Null), None);
+}

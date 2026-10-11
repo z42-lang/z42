@@ -69,7 +69,7 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 | 0.2.1 | `.zpkg` indexed/packed 格式冻结（strict-pin + 4 fixture 字节 golden + 0.5 → 0.6 catch-up bump）；`z42c disasm` 完整化作为另一半（视实施 — follow-up spec）| 1 周 |
 | 0.2.2 | Benchmark 套件骨架（`cargo bench` + BenchmarkDotNet）+ 初始基线 | 1.5 周 |
 | 0.2.3 | ✅ Perf CI + 性能预算 (`.github/workflows/bench-pr.yml`, 2026-06-05) — PR-side workflow fetches baseline from `bench-baselines` branch, runs `xtask bench --diff --threshold-time 0.10`, fails on >10% time regression | 1 周 |
-| 0.2.4 | 🟡 部分 — ✅ `lint-manifest` WS008/WS009 (2026-06-04 `2c5a1881`); ❌ `z42c new/init/fmt/clean` + 独立 `z42-fmt` binary 推 0.4.x | 1 周 |
+| 0.2.4 | 🟡 部分 — `lint-manifest` WS008/WS009 曾在 C# 编译器落地（2026-06-04 `2c5a1881`），随其移除、z42c 未移植（2026-10 核实）；`new` / `clean` 已归编排器（`z42 new` / `z42 clean`）；❌ `init` / `fmt` + 独立 `z42-fmt` binary 推 0.4.x | 1 周 |
 | 0.2.5 | ✅ 多平台 CI matrix（[ci.yml](../.github/workflows/ci.yml) 5 平台 build/test）+ CI 模板 | 1.5 周 |
 | 0.2.6 | ✅ Release 自动化（[release.yml](../.github/workflows/release.yml) tag → 跨平台 binary + zpkg）| 1 周 |
 

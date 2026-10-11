@@ -299,14 +299,14 @@ pub fn declare_imports(jit: &mut JITModule) -> Result<HelperIds> {
         field_get:     decl!("jit_field_get",  [ptr, ptr, i32t, i32t, ptr, i64t, ptr],    [i8t]),
         // P5-B: jit_obj_field_slot(frame, ctx, obj, name_ptr, name_len, exp_width, exp_tag, out_bytes_ptr, out_off) -> ()
         obj_field_slot: decl!("jit_obj_field_slot", [ptr, ptr, i32t, ptr, i64t, i32t, i32t, ptr, ptr], []),
-        // T1-B: jit_obj_ref_field_slot(frame, ctx, obj, name_ptr, name_len, out_bytes_ptr, out_off, out_tag) -> ()
-        obj_ref_field_slot: decl!("jit_obj_ref_field_slot", [ptr, ptr, i32t, ptr, i64t, ptr, ptr, ptr], []),
+        // T1-B: jit_obj_ref_field_slot(frame, ctx, obj, name_ptr, name_len, out_bytes_ptr, out_off) -> ()
+        obj_ref_field_slot: decl!("jit_obj_ref_field_slot", [ptr, ptr, i32t, ptr, i64t, ptr, ptr], []),
         field_set:     decl!("jit_field_set",  [ptr, ptr, i32t, ptr, i64t, i32t, ptr],    [i8t]),
         // jit_vcall(frame, ctx, dst, obj, method_ptr, method_len, args_ptr, argc, ic_ptr, caller_offset) -> u8
         // Phase 2.E: `ic_ptr` = `*const VCallIC`.
         vcall:         decl!("jit_vcall",      [ptr, ptr, i32t, i32t, ptr, i64t, ptr, i64t, ptr, i32t], [i8t]),
-        is_instance:   decl!("jit_is_instance",[ptr, ptr, i32t, i32t, ptr, i64t],         []),
-        as_cast:       decl!("jit_as_cast",    [ptr, ptr, i32t, i32t, ptr, i64t],         []),
+        is_instance:   decl!("jit_is_instance",[ptr, ptr, i32t, i32t, ptr, i64t, ptr],    []),
+        as_cast:       decl!("jit_as_cast",    [ptr, ptr, i32t, i32t, ptr, i64t, ptr],    []),
         // formalize-jit-method-token Phase 2 (2026-05-08): id-based
         // make-vm-loading-lazy: trailing (field_ptr, field_len) for by-name
         // fallback when field_id is UNRESOLVED (lazily-loaded fn, no resolved table).
@@ -318,8 +318,8 @@ pub fn declare_imports(jit: &mut JITModule) -> Result<HelperIds> {
         // jit_throw(frame, ctx, reg, throw_offset)
         throw:         decl!("jit_throw",         [ptr, ptr, i32t, i32t],                 []),
         install_catch: decl!("jit_install_catch", [ptr, ptr, i32t],                       []),
-        // jit_match_catch_type(frame, ctx, target_ptr, target_len) -> i8
-        match_catch_type: decl!("jit_match_catch_type", [ptr, ptr, ptr, i64t],            [i8t]),
+        // jit_match_catch_type(frame, ctx, target_ptr, target_len, key) -> i8
+        match_catch_type: decl!("jit_match_catch_type", [ptr, ptr, ptr, i64t, ptr],       [i8t]),
         // add-gc-safepoint-jit (2026-05-21): jit_check_safepoint(frame, ctx) -> void
         check_safepoint:  decl!("jit_check_safepoint",  [ptr, ptr],                       []),
         // inline-jit-safepoint-check (2026-08-01): jit_check_safepoint_slow(frame, ctx) -> void

@@ -12,7 +12,7 @@
 |--------|------|
 | harness=true 反射（[Test]） | `basic/tests/unit_ok.z42`（显式）+ `basic/tests/auto_conv.z42`（约定） |
 | harness=false 退出码 | `basic/tests/exit_ok.z42`（`entry=MtExit.Main`） |
-| [[bench]] 反射（[Benchmark]） | `basic/bench/micro.z42` |
+| [[bench]] 反射（[Benchmark]） | `basic/benches/micro.z42` |
 | [[example]] 编译门禁 + test=true 执行 | `basic/examples/hello.z42` |
 | 显式覆盖同名 auto | `unit_ok` / `exit_ok` 目标名 == 文件 stem → 覆盖 auto 单元 |
 | compile-then-test（`z42b test <toml>`） | `compile-then-test/`——纯 test 工程（**不**声明 `[[test]]`，故被清单引擎跳过），由 fixtures stage 的 `_smokeCompileThenTest` 单独驱动，验证 toml→build→反射跑|
@@ -31,7 +31,7 @@
 |------|------|
 | `basic/z42.toml` | 声明四类目标 + 依赖，驱动发现 |
 | `basic/tests/*.z42` | harness 两态 + 约定 auto 单元 |
-| `basic/bench/micro.z42` | [Benchmark] 反射目标 |
+| `basic/benches/micro.z42` | [Benchmark] 反射目标 |
 | `basic/examples/hello.z42` | example（编译门禁 + test=true 执行） |
 | `bundle-host/pass_unit.z42` | bundle 宿主执行用的 [Test] 单元 |
 | `compile-then-test/{z42.toml, src/Tests.z42}` | z42b compile-then-test 冒烟夹具（自由函数 `[Test]`；由 `_smokeCompileThenTest` 经 `z42b test <toml>` 驱动） |

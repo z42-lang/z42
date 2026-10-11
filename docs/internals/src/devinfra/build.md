@@ -24,7 +24,7 @@
 
 ## 2. 成员清单没有第二份副本
 
-两个 workspace 的成员列表都**派生自各自 `z42.workspace.toml` 的 `default-members`**
+两个 workspace 的成员列表都**派生自各自 `z42.workspace.toml` 的 `default_members`**
 （`_compilerMembers` / `_stdlibList`），不存在手维护的重复清单：
 
 | workspace | 成员 |
@@ -33,7 +33,7 @@
 | `src/libraries/` | 只放用户 stdlib（`Std.*`）全部成员 |
 
 编译器域各包之间经同 workspace 拓扑序 + 兄弟 dist 发现解析。「编译器有几个包」这个数是算出来的，
-别在文档或代码里写死——以 `default-members` 为准。
+别在文档或代码里写死——以 `default_members` 为准。
 
 产物路径同理不是硬编码：`scripts/common/xtask_layout.z42` 读 `[workspace.build].output_dir`
 模板（正是 z42c 的 `WorkspaceBuild.PlanLayout` 消费的那一份）再展开，改 toml 模板 xtask 自动跟上。
@@ -59,7 +59,7 @@ graph TD
 阶段三用 hard-link（零拷贝）把各成员 dist 汇聚成单目录。
 
 收尾是 **release guard**（`_releaseGuard`）：各库的 `<lib>/<profile>/dist/` 与扁平视图里不得出现测试 / 基准的
-合成包（`<lib>.test.<unit>.zpkg` / `<lib>.bench.<unit>.zpkg`）——它们只该在 `<lib>/<profile>/{tests,bench}/…`
+合成包（`<lib>.test.<unit>.zpkg` / `<lib>.bench.<unit>.zpkg`）——它们只该在 `<lib>/<profile>/{tests,benches}/…`
 下，生产目录里的东西会随 SDK 发给用户。某处 output_dir 漏改时这是唯一会响的地方，所以每次 `build stdlib` 都扫。
 
 ### warm 判据带代际校验（「在不在」不等于「能用」）
@@ -288,7 +288,7 @@ golden 语料被 4 条命令消费。遍历只有一次——`_walkGoldenCorpus(
 | `test app desktop` / `test list` | — | `_isExcludedDirName` |
 
 `src/tests/` 的每个类别都是可运行的语言 golden（[测试用例组织规范](test-layout.md)），runner 不需要按类别排除；
-多包 / 多目标夹具、字节基线、性能场景都在各自 owner 的 `tests/fixtures/` 或 `src/bench/`，不在这次遍历里。
+多包 / 多目标夹具、字节基线、性能场景都在各自 owner 的 `tests/fixtures/` 或 `src/benches/`，不在这次遍历里。
 库测试目录里带 `[Test]` / `[Benchmark]` 的没有 `Main`，归 `test stdlib` 跑，四路都跳过。
 
 > `test app desktop` / `test list` 的**发射顺序是 load-bearing 的**（分片切片与 `_sampleCorpus`

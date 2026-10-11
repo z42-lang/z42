@@ -28,7 +28,7 @@
 |---|---|---|
 | 组件的测试放在组件内还是集中放 | **放组件内** `<component>/tests/` | 集中目录会混进不同 owner 的用例：改一个组件时既不知道该跑哪些，也不知道该看哪些 |
 | 语言 / VM 特性测试放哪 | **保留 `src/tests/`，只放语言 / VM 特性** | 它们同时测编译器与 VM，没有单一 owner；对标 dotnet/runtime 的 `src/tests/` |
-| 整程序性能场景放哪 | **`src/bench/`** | 不是测试（不判对错，只计时），也不属于 runtime（测的是编译器 + VM + stdlib 全链路）。微基准仍跟着代码走（各库 `bench/`、`src/runtime/benches/`），与 Rust / Go 的惯例一致；整程序套件做成与 `src/tests` 并列的独立目录，与 Swift / Node 顶层 `benchmark/` 同理 |
+| 整程序性能场景放哪 | **`src/benches/`** | 不是测试（不判对错，只计时），也不属于 runtime（测的是编译器 + VM + stdlib 全链路）。微基准仍跟着代码走（各库 `benches/`、`src/runtime/benches/`），与 Rust / Go 的惯例一致；整程序套件做成与 `src/tests` 并列的独立目录，与 Swift / Node 顶层 `benchmark/` 同理 |
 | 平台过滤用什么表达 | **能力名**（`// requires-caps:` / `[Skip(feature:)]`）；只有能力表达不了的 OS 差异才用 `[Skip(platform:)]` | 按用例名维护的排除表说不清每条为什么在那里，而且只增不减；按 rid 写死的能力表必然与运行期漂移 |
 | golden 的能力声明用 marker 文件还是源码头注释 | **头注释 `// requires-caps: a, b`** | 与 bench 场景已有的写法、解析函数共用；flat 模式用例不必为此多建一个 sidecar |
 | harness 驱动的工程树放在 `tests/` 的哪里 | **保留子目录 `tests/fixtures/<suite>/`** | 直接放 `tests/<suite>/` 会被 z42b 的单元发现与孤儿源守卫当成「没人认领的源」判红；保留名同 Go 的 `testdata/`，规则一条、不需要名单 |
@@ -47,7 +47,7 @@
 | 编译器某成员（含**期望编译报错**：写成 `[Test]` + `SemanticDump`） | `src/compiler/<member>/tests/` | `xtask test compiler` |
 | 工具链某组件（launcher / builder / interactive / workload …） | `src/toolchain/<comp>/tests/` | `xtask test toolchain [<comp>]` |
 | VM 内部（Rust） | 同模块 `*_tests.rs`；集成测试在 `src/runtime/tests/` | `xtask test runtime` |
-| 整程序性能场景 | `src/bench/scenarios/` | `xtask bench` |
+| 整程序性能场景 | `src/benches/scenarios/` | `xtask bench` |
 
 拿不准时的三个常见误判：
 
@@ -205,7 +205,7 @@ Rust 侧的 `*_tests.rs` 与 `tests/*.rs` 按 cargo 惯例，不在此列。
 | 测试输出 | 位置 |
 |---|---|
 | golden `.zbc` | `build/tests/<rel>`；库的在 `build/libraries/<lib>/release/tests/<rel>` |
-| z42b 的 `[Test]` / `[Benchmark]` 目标（库、编译器成员、工具链工程） | `build/<rel>/debug/tests`、`build/<rel>/debug/bench` |
+| z42b 的 `[Test]` / `[Benchmark]` 目标（库、编译器成员、工具链工程） | `build/<rel>/debug/tests`、`build/<rel>/debug/benches` |
 | 编译器测试单元（`tests/<unit>/*.z42.toml`） | `build/compiler/<member>/release/tests/<unit>` |
 | 夹具暂存拷贝（在拷贝上编 / 跑，源码树零写入） | 与源码同路径：`intermediate/<组件>/tests/fixtures/<suite>/` |
 | harness 工作目录 | `intermediate/<组件>/<name>`，如 `intermediate/compiler/z42c.pipeline/incremental` |
@@ -213,7 +213,7 @@ Rust 侧的 `*_tests.rs` 与 `tests/*.rs` 按 cargo 惯例，不在此列。
 
 没有共享的 scratch 目录：不属于某个成员的中间物（编译器自举快照等）落 `intermediate/<area>/<name>`；
 xtask 自检的工作目录在 `intermediate/xtask/`。给 CI 消费的报告不进 `build/`：`artifacts/reports/tests/<platform>/`
-与 `artifacts/reports/bench/`。完整清单见[产物目录布局 §3](artifacts-layout.md)；路径只在
+与 `artifacts/reports/benches/`。完整清单见[产物目录布局 §3](artifacts-layout.md)；路径只在
 `scripts/common/xtask_layout.z42` 里定义（`_buildMirror` / `_workOut` / `_workRootOf` / `_devTargetOutRoot`）。
 
 ### 6. 在 app 里跑

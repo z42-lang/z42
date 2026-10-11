@@ -260,13 +260,8 @@ impl Value {
     pub fn visit_gc_children(&self, marking: Option<crate::gc::refs::MarkKind>, visit: &mut dyn FnMut(&Value)) {
         match self {
             Value::Object(rc) => {
-                let obj = rc.borrow();
-                // unify-object-byte-layout: side-table reference leaves (closure/func/
-                // string + inline-struct interior refs) live in `refs`; PR-3 chunk 2b
-                // additionally inlines direct object/array refs as 8B pointers in `bytes`,
-                // scanned via `trace_inline_refs`.
-                for r in obj.refs() { visit(r); }
-                obj.trace_inline_refs(visit);
+                // The 16 B side table plus every 8 B reference word.
+                rc.borrow().visit_refs(visit);
             }
             Value::Array(rc) => {
                 let arr = rc.borrow();

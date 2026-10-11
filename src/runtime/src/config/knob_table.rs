@@ -233,6 +233,15 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         ..PUBLIC
     },
     KnobSpec {
+        name: "Z42_GC_VERIFY_CARDS",
+        toml_key: "gc-verify-cards",
+        value: ValueKind::Bool,
+        description: "generational only: before every minor, check from scratch that every old object holding a young reference sits on a dirty card, and panic naming the owner if not — a missing write barrier caught at the store's first minor instead of as a later use-after-free. O(old heap) per minor",
+        default_hint: "unset; off",
+        consumed_by: "gc/arc_heap/card_verify.rs, at the start of each minor",
+        ..DEBUG_KNOB
+    },
+    KnobSpec {
         name: "Z42_HOME",
         value: ValueKind::Path,
         // SDK 安装根，由 launcher / installer 设。VM 只在一处读它：把 probing-paths 里的

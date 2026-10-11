@@ -3,7 +3,7 @@
 // _builtBin/_buildStdlib/_buildRuntime/_libsDir/_compilerMembers/
 // _cleanGlob/_linkAll/_sortedStrings/_parseShard etc. cross-file (same namespace).
 //
-// `test stdlib|bench [lib]`: discover each src/libraries/<lib>/tests|bench/*,
+// `test stdlib|bench [lib]`: discover each src/libraries/<lib>/tests|benches/*,
 // compile to zpkg via z42c, run through z42b; results aggregated.
 // Single-file tests (tests/foo.z42) go through emit-zbc; dir-mode tests
 // (tests/<name>/source.z42) synthesise a mini-manifest + `z42c build`.
@@ -137,7 +137,7 @@ int _testLib(ParseResult r, string kind) {
                             r.GetOption("vm"), r.GetOption("driver"), r.GetOption("libs"));
     if (agg != null) {
         string outPath = _absUnder(_root(), jsonOut);
-        Directory.Create(Path.GetDirectoryName(outPath));   // 结果目录（reports/bench）可能还不存在
+        Directory.Create(Path.GetDirectoryName(outPath));   // 结果目录（reports/benches）可能还不存在
         File.WriteAllText(outPath, agg.toSchemaV2(_root()));
         Console.WriteLine("wrote baseline -> " + jsonOut + " (" + agg.count().ToString() + " benchmarks)");
     }
@@ -148,8 +148,8 @@ int _testLib(ParseResult r, string kind) {
 int _testLibCore(string kind, string[] reqLibsIn, bool noBuild, string filter, string jobs, string mode, MicroBenchAgg agg,
                  string ovVm, string ovDriver, string ovLibs) {
     // kind = "test" → discover <lib>/tests/, merge [tests.dependencies], emit
-    // <lib>.test.<unit> to <lib>/release/tests/. "bench" → <lib>/bench/,
-    // [bench.dependencies], <lib>.bench.<unit> to <lib>/release/bench/. The
+    // <lib>.test.<unit> to <lib>/release/tests/. "bench" → <lib>/benches/,
+    // [bench.dependencies], <lib>.bench.<unit> to <lib>/release/benches/. The
     // z42b runs both [Test] and [Benchmark] regardless.
     //
     // extend-ab-bench-micro-criterion Part B: ovVm/ovDriver/ovLibs (empty = derive

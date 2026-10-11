@@ -297,7 +297,7 @@ int _copyNativeLibs(string cargoOut, string pkgDir, bool withEmbed) {
 //
 // 门（`_testPackagesInstall` 那条断言，原 staging 自检）读的是**同一份可变状态**，所以它只在「恰好撞上脏
 // flat」时才红 —— 能抓到，但抓不住（同 relocate 第 2 轮那条教训：本地绿是命令顺序的巧合）。
-// ⇒ 改成按 `default-members` 逐个拷：**flat 里多出什么都进不来**，与命令顺序无关。
+// ⇒ 改成按 `default_members` 逐个拷：**flat 里多出什么都进不来**，与命令顺序无关。
 int _pkgCopyLibs(string libsDir, string pkgDir) {
     return _pkgCopyLibsOf(_root(), libsDir, pkgDir);
 }
@@ -310,7 +310,7 @@ int _pkgCopyLibsOf(string root, string libsDir, string pkgDir) {
     Directory.Create(Path.Join(pkgDir, "libs"));   // 谁写谁建（见 _pkgSetupDir 注释）
     string[] members = _stdlibList(root);
     if (members.Length == 0) {
-        ConsoleError.WriteLine("error: 读不到 src/libraries/z42.workspace.toml 的 default-members"
+        ConsoleError.WriteLine("error: 读不到 src/libraries/z42.workspace.toml 的 default_members"
             + " —— 拒绝回落到「整目录拷」，那会把编译器域的包一起打进 libs/");
         return 1;
     }
@@ -330,7 +330,7 @@ int _pkgCopyLibsOf(string root, string libsDir, string pkgDir) {
         string zs = Path.Join(libsDir, m + ".zsym");
         if (File.Exists(zs)) { File.Copy(zs, Path.Join(pkgDir, "libs/" + m + ".zsym")); }
     }
-    _vDetailed("  stdlib: staged " + n.ToString() + " member(s) by default-members");
+    _vDetailed("  stdlib: staged " + n.ToString() + " member(s) by default_members");
     return 0;
 }
 

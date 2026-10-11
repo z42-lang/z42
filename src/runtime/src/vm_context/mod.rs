@@ -15,7 +15,7 @@
 //!   payloads behind `{idx, frame_id}` handles
 //! - **`counters`** — this thread's `RuntimeCounters` shard
 //! - **`jit_ctx`** — the active `JitModuleCtx` (0 when this thread runs no JIT)
-//! - lookup / isa / interning caches, the safepoint throttle counter
+//! - lookup / isa caches, the safepoint throttle counter
 //!
 //! # Lifecycle
 //!
@@ -67,7 +67,7 @@ mod reg_pool;
 mod engine_guards;
 mod statics;
 mod lookup;
-mod isa_cache;
+pub(crate) mod isa_cache;
 // add-static-constructors：cctor 的按类型初始化状态机（含无锁 pending 门）。
 pub(crate) mod cctor;
 // fix-silent-symbol-resolution：「确定不存在」的判定（两后端共用）。

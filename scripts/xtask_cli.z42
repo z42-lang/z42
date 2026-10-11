@@ -215,7 +215,7 @@ SubcommandRouter _cliRoot() {
 
     // centralize-xtask-layout: 产物布局的查询口（CI / 脚本按 key 取路径，不再各自写死）。
     ArgParser layout = new ArgParser("xtask layout", "print the artifacts/ tree (no path) or one entry's absolute path");
-    layout.AddOptionalPositional("path", "an entry's path relative to artifacts/, e.g. intermediate/libraries/flat/release or reports/bench (see `xtask layout`)");
+    layout.AddOptionalPositional("path", "an entry's path relative to artifacts/, e.g. intermediate/libraries/flat/release or reports/benches (see `xtask layout`)");
     root.Add("layout", "print the artifacts/ tree (no path) or one entry's absolute path", layout);
 
     ArgParser clean = new ArgParser("xtask clean", "remove build artifacts");

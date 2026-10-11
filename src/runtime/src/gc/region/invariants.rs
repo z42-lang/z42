@@ -5,7 +5,7 @@
 
 use std::sync::atomic::Ordering;
 
-use super::{Region, CHUNK_SIZE};
+use super::{side_bits, Region, CHUNK_SIZE};
 
 // ── add-gc-debug-invariants P0 (2026-05-22) ─────────────────────────────────
 
@@ -15,33 +15,29 @@ use super::{Region, CHUNK_SIZE};
 #[cfg(debug_assertions)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Violation {
-    /// young_list 中找到 gen_age >= PROMOTION_THRESHOLD 的 entry
-    /// (generational invariant).
+    /// 年轻集合里有 gen_age >= 晋升线的 entry（generational invariant）。
     OldEntryInYoungList { chunk_idx: u32, entry_idx: u16, gen_age: u8 },
-    /// alive young entry (gen_age < threshold) 不在 young_list 中
-    /// (generational invariant).
+    /// alive 的年轻 entry（gen_age < 晋升线）不在年轻集合里（generational invariant）。
     YoungEntryNotInList { chunk_idx: u32, entry_idx: u16 },
-    /// young_list 中同一 (ci, ei) 出现多次（违反 swap_remove 契约）.
-    DuplicateInYoungList { chunk_idx: u32, entry_idx: u16 },
-    /// free_list 中找到 alive=true 的 slot（违反 tombstone 契约 —
-    /// custom-allocator invariant）.
+    /// 年轻集合里有未构造或已死的槽（tombstone 必须同步摘掉年轻位）。
+    DeadSlotInYoungSet { chunk_idx: u32, entry_idx: u16 },
+    /// chunk 摘要位与该 chunk 的年轻位图不一致（摘要漏置会让 minor 跳过年轻对象）。
+    YoungSummaryDrift { chunk_idx: u32 },
+    /// `young_len` 与年轻位图的置位总数不一致。
+    YoungCountDrift { counted: usize, tracked: usize },
+    /// 空闲集合里有 alive 或未构造的槽（违反 tombstone 契约 — custom-allocator invariant）。
     AliveSlotInFreeList { chunk_idx: u32, entry_idx: u16 },
-    /// **perf-bucket-region-free-list (2026-09-13)**: `free_chunks` disagrees with
-    /// `free_slots` — a chunk listed twice, listed with an empty bucket, or unlisted with a
-    /// non-empty one.
+    /// `free_chunks` 与 `free_bits` 不一致 — 一个 chunk 被列了两次、列着却没有空闲槽、
+    /// 或有空闲槽却没列。
     FreeChunkIndexDrift { chunk_idx: u32 },
-    /// **perf-bucket-region-free-list (2026-09-13)**: `free_len` drifted from the buckets.
+    /// `free_len` 与空闲位图的置位总数不一致。
     FreeSlotCountDrift { counted: usize, tracked: usize },
-    /// `entry.location` 不等于实际 (chunk_idx, entry_idx)（自定位错乱 —
+    /// `entry.location()` 不等于实际 (chunk_idx, entry_idx)（自定位错乱 —
     /// custom-allocator invariant）.
     LocationMismatch { chunk_idx: u32, entry_idx: u16, recorded: (u32, u16) },
     /// `card_dirty.len()` 与 `chunks.len()` 不一致（generational invariant；
     /// alloc-time grow 应保持一一对应）.
     CardDirtyLengthMismatch { expected: usize, actual: usize },
-    /// **fix-young-list-quadratic-sweep (2026-09-06)**: `young_list[i]` 指向的
-    /// entry 自记的 `young_idx` 不等于 `i`（O(1) 移除的 back-pointer 失同步 —
-    /// 说明有 push 绕过了 `push_young`，或某处直接改了 `young_list`）.
-    YoungIndexMismatch { chunk_idx: u32, entry_idx: u16, expected: usize, recorded: Option<usize> },
 }
 
 #[cfg(debug_assertions)]
@@ -49,20 +45,24 @@ impl std::fmt::Display for Violation {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::OldEntryInYoungList { chunk_idx, entry_idx, gen_age } =>
-                write!(f, "young_list contains old entry (chunk={}, entry={}, gen_age={})",
+                write!(f, "young set contains old entry (chunk={}, entry={}, gen_age={})",
                     chunk_idx, entry_idx, gen_age),
             Self::YoungEntryNotInList { chunk_idx, entry_idx } =>
-                write!(f, "alive young entry not in young_list (chunk={}, entry={})",
+                write!(f, "alive young entry not in the young set (chunk={}, entry={})",
                     chunk_idx, entry_idx),
-            Self::DuplicateInYoungList { chunk_idx, entry_idx } =>
-                write!(f, "duplicate in young_list (chunk={}, entry={})",
+            Self::DeadSlotInYoungSet { chunk_idx, entry_idx } =>
+                write!(f, "young set contains a dead or unconstructed slot (chunk={}, entry={})",
                     chunk_idx, entry_idx),
+            Self::YoungSummaryDrift { chunk_idx } =>
+                write!(f, "young chunk summary disagrees with young_bits[{chunk_idx}]"),
+            Self::YoungCountDrift { counted, tracked } =>
+                write!(f, "young_len {tracked} but the young bits hold {counted}"),
             Self::FreeChunkIndexDrift { chunk_idx } =>
-                write!(f, "free_chunks disagrees with free_slots[{chunk_idx}]"),
+                write!(f, "free_chunks disagrees with free_bits[{chunk_idx}]"),
             Self::FreeSlotCountDrift { counted, tracked } =>
-                write!(f, "free_len {tracked} but buckets hold {counted}"),
+                write!(f, "free_len {tracked} but the free bits hold {counted}"),
             Self::AliveSlotInFreeList { chunk_idx, entry_idx } =>
-                write!(f, "free_list contains alive slot (chunk={}, entry={})",
+                write!(f, "free set contains alive slot (chunk={}, entry={})",
                     chunk_idx, entry_idx),
             Self::LocationMismatch { chunk_idx, entry_idx, recorded } =>
                 write!(f, "location mismatch at ({}, {}): entry.location = ({}, {})",
@@ -70,9 +70,6 @@ impl std::fmt::Display for Violation {
             Self::CardDirtyLengthMismatch { expected, actual } =>
                 write!(f, "card_dirty length mismatch: expected {}, actual {}",
                     expected, actual),
-            Self::YoungIndexMismatch { chunk_idx, entry_idx, expected, recorded } =>
-                write!(f, "young_idx back-pointer mismatch at ({}, {}): young_list[{}] but entry records {:?}",
-                    chunk_idx, entry_idx, expected, recorded),
         }
     }
 }
@@ -83,8 +80,7 @@ impl<T> Region<T> {
     /// first violation found is returned as `Err(Violation)` so test
     /// fixtures can pattern-match a specific variant.
     ///
-    /// Cost: O(chunks * CHUNK_SIZE + young_list + free_list) =
-    /// O(total slots). Acceptable on collect timescale (µs-ms);
+    /// Cost: O(chunks * CHUNK_SIZE) = O(total slots). Acceptable on collect timescale (µs-ms);
     /// would be too slow per-alloc.
     #[cfg(debug_assertions)]
     pub fn validate(&self) -> Result<(), Violation> {
@@ -96,106 +92,84 @@ impl<T> Region<T> {
             });
         }
 
-        // 2. young_list: no duplicates, all gen_age < threshold,
-        //    location matches.
-        let mut in_young: std::collections::HashSet<(u32, u16)> =
-            std::collections::HashSet::with_capacity(self.young_list.len());
-        for (idx, &(ci, ei)) in self.young_list.iter().enumerate() {
-            if !in_young.insert((ci, ei)) {
-                return Err(Violation::DuplicateInYoungList { chunk_idx: ci, entry_idx: ei });
+        // 2. The young set and the free set, slot by slot, against the entries.
+        let (mut young_counted, mut free_counted) = (0usize, 0usize);
+        for ci in 0..self.chunks.len() {
+            let young = &self.young_bits[ci];
+            let free = &self.free_bits[ci];
+            young_counted += side_bits::count(young);
+            free_counted += side_bits::count(free);
+            if side_bits::test(&self.young_chunks, ci) == side_bits::is_empty(young) {
+                return Err(Violation::YoungSummaryDrift { chunk_idx: ci as u32 });
             }
-            // SAFETY: presence in young_list implies the slot was
-            // initialized at alloc; we just read metadata.
-            let entry = unsafe {
-                self.chunks[ci as usize][ei as usize].assume_init_ref()
-            };
-            // fix-young-list-quadratic-sweep: the entry's back-index must name
-            // its own slot, or O(1) removal would silently no-op (or evict the
-            // wrong entry — that one is caught defensively at removal time).
-            if entry.young_idx() != Some(idx) {
-                return Err(Violation::YoungIndexMismatch {
-                    chunk_idx: ci, entry_idx: ei,
-                    expected: idx, recorded: entry.young_idx(),
-                });
-            }
-            // The line in force, not the configured constant: adaptive promotion lowers it on top
-            // of a major, after which an entry at the old line's last tier is correctly old.
-            if entry.gen_age() >= self.promotion_age {
-                return Err(Violation::OldEntryInYoungList {
-                    chunk_idx: ci, entry_idx: ei, gen_age: entry.gen_age(),
-                });
-            }
-        }
-
-        // 3. Walk every initialized entry: alive young must be in
-        //    young_list; location must match.
-        for (ci, chunk) in self.chunks.iter().enumerate() {
-            // add-gc-tlab: borrowed chunks are mid-fill; skip (STW validate
-            // never runs with a chunk borrowed, but stay defensive).
+            // add-gc-tlab: borrowed chunks are mid-fill; skip (STW validate never runs with a
+            // chunk borrowed, but stay defensive).
             if self.borrowed[ci] {
                 continue;
             }
             for ei in 0..CHUNK_SIZE {
-                if !self.initialized[ci][ei] {
+                let (c, e) = (ci as u32, ei as u16);
+                let init = side_bits::test(&self.init_bits[ci], ei);
+                let in_young = side_bits::test(young, ei);
+                if !init {
+                    if in_young {
+                        return Err(Violation::DeadSlotInYoungSet { chunk_idx: c, entry_idx: e });
+                    }
+                    if side_bits::test(free, ei) {
+                        return Err(Violation::AliveSlotInFreeList { chunk_idx: c, entry_idx: e });
+                    }
                     continue;
                 }
-                let entry = unsafe { chunk[ei].assume_init_ref() };
-                // Location self-consistency.
-                if entry.location != (ci as u32, ei as u16) {
+                // SAFETY: the bit says the slot holds a constructed entry.
+                let entry = unsafe { self.chunks[ci][ei].assume_init_ref() };
+                if entry.location() != (c, e) {
                     return Err(Violation::LocationMismatch {
-                        chunk_idx: ci as u32, entry_idx: ei as u16,
-                        recorded: entry.location,
+                        chunk_idx: c, entry_idx: e, recorded: entry.location(),
                     });
                 }
-                // Alive young entries must be in young_list — but only when the
-                // region maintains one (fix-young-list-only-when-generational).
-                if self.generational
-                    && entry.alive.load(Ordering::Acquire)
-                    && entry.gen_age() < self.promotion_age
-                    && !in_young.contains(&(ci as u32, ei as u16))
-                {
-                    return Err(Violation::YoungEntryNotInList {
-                        chunk_idx: ci as u32, entry_idx: ei as u16,
+                let alive = entry.alive.load(Ordering::Acquire);
+                if alive && side_bits::test(free, ei) {
+                    return Err(Violation::AliveSlotInFreeList { chunk_idx: c, entry_idx: e });
+                }
+                if in_young && !alive {
+                    return Err(Violation::DeadSlotInYoungSet { chunk_idx: c, entry_idx: e });
+                }
+                // The line in force, not the configured constant: adaptive promotion lowers it
+                // on top of a major, after which an entry at the old line's last tier is old.
+                if in_young && entry.gen_age() >= self.promotion_age {
+                    return Err(Violation::OldEntryInYoungList {
+                        chunk_idx: c, entry_idx: e, gen_age: entry.gen_age(),
                     });
                 }
-            }
-        }
-
-        // 4. free slots all alive=false.
-        for (ci, bucket) in self.free_slots.iter().enumerate() {
-            for &ei in bucket {
-                let entry = unsafe {
-                    self.chunks[ci][ei as usize].assume_init_ref()
-                };
-                if entry.alive.load(Ordering::Acquire) {
-                    return Err(Violation::AliveSlotInFreeList {
-                        chunk_idx: ci as u32, entry_idx: ei,
-                    });
+                // Alive young entries must be in the set — but only when the region keeps one.
+                if self.generational && alive && entry.gen_age() < self.promotion_age && !in_young {
+                    return Err(Violation::YoungEntryNotInList { chunk_idx: c, entry_idx: e });
                 }
             }
         }
+        if young_counted != self.young_len {
+            return Err(Violation::YoungCountDrift { counted: young_counted, tracked: self.young_len });
+        }
 
-        // 4b. perf-bucket-region-free-list: the index that makes the pop path `O(1)` —
-        // `ci ∈ free_chunks ⟺ bucket non-empty`, with no duplicates. A drifted index is
-        // silent otherwise: a missing entry strands reusable slots (the region grows chunks
-        // it does not need), a stale one makes `pop_free_slot` panic on an empty bucket.
-        let mut listed = vec![false; self.free_slots.len()];
+        // 3. The index that makes the free-slot pop `O(1)` — `ci ∈ free_chunks ⟺
+        // free_bits[ci] ≠ 0`, with no duplicates. A drifted index is silent otherwise: a
+        // missing entry strands reusable slots (the region grows chunks it does not need), a
+        // stale one makes `pop_free_slot` panic on an empty chunk.
+        let mut listed = vec![false; self.free_bits.len()];
         for &ci in &self.free_chunks {
             if ci as usize >= listed.len() || listed[ci as usize] {
                 return Err(Violation::FreeChunkIndexDrift { chunk_idx: ci });
             }
             listed[ci as usize] = true;
         }
-        let mut counted = 0usize;
-        for (ci, bucket) in self.free_slots.iter().enumerate() {
-            counted += bucket.len();
-            if bucket.is_empty() == listed[ci] {
+        for (ci, bits) in self.free_bits.iter().enumerate() {
+            if side_bits::is_empty(bits) == listed[ci] {
                 return Err(Violation::FreeChunkIndexDrift { chunk_idx: ci as u32 });
             }
         }
-        if counted != self.free_len {
+        if free_counted != self.free_len {
             return Err(Violation::FreeSlotCountDrift {
-                counted, tracked: self.free_len,
+                counted: free_counted, tracked: self.free_len,
             });
         }
 

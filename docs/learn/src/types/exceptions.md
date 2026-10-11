@@ -98,7 +98,7 @@ class Exception {
 [异常](https://z42-lang.github.io/z42/reference/language/exceptions.html)。
 
 有两种错误不用你自己抛，运行时会替你抛：数组**下标越界**抛 `IndexOutOfRangeException`，
-**读写 null 的字段或数组元素**抛 `NullReferenceException`。它们和别的异常一样能按类型接：
+**读写 null 的字段、数组元素，或在 null 上调方法**抛 `NullReferenceException`。它们和别的异常一样能按类型接：
 
 ```z42
 // examples/types/exceptions/runtime/runtime.z42
@@ -223,7 +223,7 @@ class Exception {
 - 自定义异常 = 继承 `Exception` + `: base(消息)` + **自己加字段**（字段才是价值所在）。
 - 包装用 `new Exception(消息, 原始异常)`，顺 `InnerException` 链能找到最初的原因。
 - `StackTrace` 自动填，最里层在最上面；重抛同一对象不会覆盖它。
-- 下标越界抛 `IndexOutOfRangeException`，读写 null 的字段 / 数组抛 `NullReferenceException`，都能按类型接。
+- 下标越界抛 `IndexOutOfRangeException`，读写 null 的字段 / 数组、在 null 上调方法抛 `NullReferenceException`，都能按类型接。
 - 🔴 记住四个边界：非对象抛出**只有 `catch { }` 接得住**、没有裸 `throw;`、
   没有异常过滤器 `when`、`catch (e)` 不是合法写法。
 

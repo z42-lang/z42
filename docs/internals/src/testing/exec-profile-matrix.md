@@ -5,7 +5,7 @@
 > `_epModeLabel` / `_epProfileJson` / `_epScenarioRequiredCaps` / `_epCapsMissing`）、
 > `src/runtime/src/corelib/platform.rs`（`__platform_caps` / `__platform_exec_modes` builtin）、
 > `src/libraries/z42.core/src/Platform.z42`（`Capabilities()` / `ExecModes()` 门面）、
-> `src/bench/probe/capabilities.z42`（探针）、`src/bench/baseline-schema.json`（schema v2）、
+> `src/benches/probe/capabilities.z42`（探针）、`src/benches/baseline-schema.json`（schema v2）、
 > `scripts/xtask_bench.z42`（消费方）。
 
 「这次运行是在什么执行画像下测的」这句话，test 与 bench 两侧需要**同一套词汇**。
@@ -90,7 +90,7 @@ mode = { tiers: [...], aot_pkgs: [...] }
 
 ```mermaid
 flowchart LR
-  probe["src/bench/probe/capabilities.z42<br/>调 Capabilities() / ExecModes()"]
+  probe["src/benches/probe/capabilities.z42<br/>调 Capabilities() / ExecModes()"]
   vm["被测 VM 二进制<br/>__platform_caps builtin"]
   mod["xtask_exec_profile.z42<br/>_epProbe → VmCaps<br/>_epCellStatus / _epModeLabel / _epProfileJson"]
   bench["xtask bench（e2e / micro）<br/>--mode 扫描 → 每格 hyperfine + profile 打标"]
@@ -110,7 +110,7 @@ harness 对**要测量的那个 VM 二进制**跑一次探针，缓存 `VmCaps`�
 
 ## 5. schema v2
 
-`src/bench/baseline-schema.json`（`schema_version: 2`）：顶层去掉扁平的 `os` 串、
+`src/benches/baseline-schema.json`（`schema_version: 2`）：顶层去掉扁平的 `os` 串、
 加 `z42vm_version`；每条 benchmark 必带
 
 ```json
@@ -161,5 +161,5 @@ harness 对**要测量的那个 VM 二进制**跑一次探针，缓存 `VmCaps`�
 | 加一种 cap | `corelib/platform.rs::builtin_platform_caps`（cfg 分支）；消费侧自动跟随 |
 | 加一种 exec mode | `builtin_platform_exec_modes` + `_epCellStatus` 的策略覆盖分支 |
 | mode_label 拼法 | `_epModeLabel`（**它是 diff 键，改了等于让历史基线对不上**） |
-| profile 进结果的形状 | `_epProfileJson` + `src/bench/baseline-schema.json`（要 bump `schema_version`） |
+| profile 进结果的形状 | `_epProfileJson` + `src/benches/baseline-schema.json`（要 bump `schema_version`） |
 | 场景的能力要求 / 门禁分层 | 场景源码顶部的 `// requires-caps:` / `// tier:` 注释 |

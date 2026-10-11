@@ -53,5 +53,5 @@ Z42_JIT_PROFILE=1 <z42vm> <artifact> <entry> --mode jit             # 打印每�
 ## 依赖关系
 - 依赖 `corelib` 的 `exec_builtin` 和 `value_to_str`
 - 依赖 `metadata` 的 `Module`、`Function`、`Instruction`、`Value` 等类型
-- 依赖 `interp::vcall_resolve`（vcall 目标解析单一实现）+ `interp::obj_new_resolve`（ObjNew 类 / 构造器解析与站点缓存）+ `interp::primitive_class_name`（is/as 共享判定）+ `interp::dispatch::isa_td`（is / as / catch 类型判定单一实现，含 `IsaCache`；helpers/object.rs 与 control.rs 共享，JIT 不自带基链遍历）
+- 依赖 `interp::vcall_resolve`（vcall 目标解析单一实现）+ `interp::obj_new_resolve`（ObjNew 类 / 构造器解析与站点缓存）+ `interp::primitive_class_name`（is/as 共享判定）+ `interp::dispatch::isa_td`（is / as / catch 类型判定单一实现，含 `IsaCache`；helpers/object.rs 与 control.rs 共享，JIT 不自带基链遍历；翻译时烘焙指令 / 异常表行的 `TypeKeyCell` 指针）
 - 外部依赖：`cranelift-codegen`、`cranelift-frontend`、`cranelift-jit`、`cranelift-module`

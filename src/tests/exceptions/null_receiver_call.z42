@@ -1,0 +1,123 @@
+// 空接收者上的方法调用 → 可 catch 的 NullReferenceException，interp 与 JIT 逐条一致（含消息文本）。
+//
+// 覆盖派发的几条路：
+//   - 虚方法 / 接口方法 / 本包非虚实例方法 / 属性 getter：编译器发 `VCall`，null 接收者在解析时抛
+//     （`cannot call method …` / `cannot read property …`）；
+//   - string 的成员：`s.Length` 发 `VCall`；`s.CharAt(0)` 直接 `Call` 到 `[Native]` 转发桩，null 由
+//     builtin 报成同一条消息；
+//   - 编译器静态绑定的实例调用（跨包非虚方法 `s.Substring(…)`、sealed 类去虚化）**不在调用点判空**：
+//     null 从被调方法第一次用到 `this` 的地方抛出，消息指向那一步（Substring 先读 `this.Length`）；
+//   - null 委托调用（CallIndirect）。
+//
+// ⚠️ 与 objops_errors.z42 同款：每个出错的调用放在**独立的非泛型函数**里、由 Main 直接调用，
+// 并且**先正常调用一次**——JIT 档下函数在第二次调用时才编译，出错的那次调用因此确实跑在
+// JIT helper 上，而不是解释器。
+namespace Demo;
+
+interface IShape {
+    int Sides();
+}
+
+class Animal {
+    public string Name;
+    public Animal(string n) { this.Name = n; }
+    public virtual string Speak() { return "..."; }
+    public string Greet() { return "hi " + this.Name; }
+    public int Legs { get { return 4; } }
+}
+
+class Dog : Animal {
+    public Dog() : base("dog") {}
+    public override string Speak() { return "woof"; }
+}
+
+sealed class Tagged {
+    public string Name;
+    public string Tag() { return "#" + this.Name; }
+}
+
+class Square : IShape {
+    public int Sides() { return 4; }
+}
+
+string speak(Animal a) { return a.Speak(); }
+string greet(Animal a) { return a.Greet(); }
+int legs(Animal a) { return a.Legs; }
+int sides(IShape s) { return s.Sides(); }
+int strLen(string s) { return s.Length; }
+string strSub(string s) { return s.Substring(1); }
+string strSub2(string s) { return s.Substring(1, 2); }
+char strAt(string s) { return s.CharAt(0); }
+string tag(Tagged t) { return t.Tag(); }
+void fire(Action<int> f) { f(1); }
+
+Animal nullAnimal() { return null; }
+IShape nullShape() { return null; }
+string nullStr() { return null; }
+Tagged nullTagged() { return null; }
+Action<int> nullAction() { return null; }
+
+void Main() {
+    // ── 正常调用（顺带让 JIT 编译这些函数）──────────────────────────────────
+    Assert.Equal("woof", speak(new Dog()));
+    Assert.Equal("hi dog", greet(new Dog()));
+    Assert.Equal(4, legs(new Dog()));
+    Assert.Equal(4, sides(new Square()));
+    Assert.Equal(5, strLen("hello"));
+    Assert.Equal("ello", strSub("hello"));
+    Assert.Equal("el", strSub2("hello"));
+    Assert.Equal('h', strAt("hello"));
+    Tagged tg = new Tagged();
+    tg.Name = "x";
+    Assert.Equal("#x", tag(tg));
+    int[] hits = new int[1];
+    fire((int n) => { hits[0] = hits[0] + n; });
+    Assert.Equal(1, hits[0]);
+
+    // ── 空接收者 ─────────────────────────────────────────────────────────
+    string m = "";
+    try { speak(nullAnimal()); } catch (NullReferenceException e) { m = e.Message; }
+    Assert.Equal("cannot call method `Speak` on a null reference", m);
+
+    m = "";
+    try { greet(nullAnimal()); } catch (NullReferenceException e) { m = e.Message; }
+    Assert.Equal("cannot call method `Greet` on a null reference", m);
+
+    m = "";
+    try { legs(nullAnimal()); } catch (NullReferenceException e) { m = e.Message; }
+    Assert.Equal("cannot read property `Legs` of a null reference", m);
+
+    m = "";
+    try { sides(nullShape()); } catch (NullReferenceException e) { m = e.Message; }
+    Assert.Equal("cannot call method `Sides` on a null reference", m);
+
+    m = "";
+    try { strLen(nullStr()); } catch (NullReferenceException e) { m = e.Message; }
+    Assert.Equal("cannot read property `Length` of a null reference", m);
+
+    m = "";
+    try { strAt(nullStr()); } catch (NullReferenceException e) { m = e.Message; }
+    Assert.Equal("cannot call method `CharAt` on a null reference", m);
+
+    m = "";
+    try { strSub(nullStr()); } catch (NullReferenceException e) { m = e.Message; }
+    Assert.Equal("cannot read property `Length` of a null reference", m);
+
+    m = "";
+    try { strSub2(nullStr()); } catch (NullReferenceException e) { m = e.Message; }
+    Assert.Equal("cannot read property `Length` of a null reference", m);
+
+    m = "";
+    try { tag(nullTagged()); } catch (NullReferenceException e) { m = e.Message; }
+    Assert.Equal("cannot read field `Name` of a null reference", m);
+
+    m = "";
+    try { fire(nullAction()); } catch (NullReferenceException e) { m = e.Message; }
+    Assert.Equal("cannot invoke a null function value (an unassigned delegate / event field)", m);
+
+    // ── 都是 Exception，通配 catch 同样接得住；抛完照常继续 ───────────────────
+    bool caught = false;
+    try { speak(nullAnimal()); } catch (Exception e) { caught = true; }
+    Assert.True(caught);
+    Assert.Equal("woof", speak(new Dog()));
+}

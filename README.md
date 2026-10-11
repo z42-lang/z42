@@ -86,7 +86,7 @@ z42/
 │   ├── runtime/           # Rust VM (interp / JIT)
 │   ├── libraries/         # Standard library (.z42 source)
 │   ├── tests/             # End-to-end golden tests
-│   ├── bench/             # Whole-program performance scenarios
+│   ├── benches/           # Whole-program performance scenarios
 │   └── toolchain/         # Launcher (z42), builder (z42b), REPL, workloads, devtools
 ├── scripts/               # xtask dev CLI (build / test / package) + install primers
 ├── .github/               # CI workflows and composite actions

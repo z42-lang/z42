@@ -1,6 +1,6 @@
 //! Loop-invariant hoists computed once in the entry block: array data
-//! ptr/len/width, primitive field bytes-ptr/offset, reference field
-//! bytes-ptr/offset/tag. Split out of `translate/mod.rs` (H2).
+//! ptr/len/width, primitive field bytes-ptr/offset, reference-word field
+//! bytes-ptr/offset. Split out of `translate/mod.rs` (H2).
 
 use super::*;
 use cranelift_codegen::ir::{FuncRef, Value};
@@ -18,7 +18,7 @@ pub(super) fn compute_hoists(
 ) -> (
     HashMap<u32, (Value, Value, Value)>,
     HashMap<(u32, String), (Value, Value)>,
-    HashMap<(u32, String), (Value, Value, Value)>,
+    HashMap<(u32, String), (Value, Value)>,
 ) {
     let written: std::collections::HashSet<u32> = {
         let mut w = std::collections::HashSet::new();
@@ -127,31 +127,22 @@ pub(super) fn compute_hoists(
         map
     };
 
-    // ── FieldGet T1-B: hoist (bytes_ptr, byte_offset, tag) for byte-inlined ──────
-    // ── reference (class-instance / array) fields of never-reassigned objects ────
-    // Twin of the P5-B primitive hoist above: for a `FieldGet` whose `dst` is a heap
-    // reference (`IrType::Ref`) on a never-reassigned object, resolve
-    // (bytes_ptr, offset, tag) ONCE via the non-throwing `jit_obj_ref_field_slot`.
-    // `tag` is the `Value` discriminant to stamp on a non-null load (7=Object/6=Array,
-    // hoisted since `IrType::Ref` does not distinguish the two). The per-access inline
-    // then does a native 8B tagged-pointer load + `raw==0 ? Null : tagged store`;
-    // `offset < 0` (non-object receiver / null / field-not-found / side-table ref =
-    // closure·func·string / struct root) routes to `jit_field_get`. There is no
-    // FieldSet twin — a reference store needs the GC write barrier, so it stays on the
-    // helper. A field is primitive XOR reference, so this never overlaps `hoisted_fields`.
-    let hoisted_ref_fields: std::collections::HashMap<(u32, String), (cranelift_codegen::ir::Value, cranelift_codegen::ir::Value, cranelift_codegen::ir::Value)> = {
+    // ── FieldGet T1-B: hoist (bytes_ptr, byte_offset) for reference-word fields ──
+    // Twin of the P5-B primitive hoist above: for a `FieldGet` whose `dst` is statically a
+    // reference (`IrType::Ref` / `IrType::Str`) on a never-reassigned object, resolve
+    // (bytes_ptr, offset) ONCE via the non-throwing `jit_obj_ref_field_slot`. The per-access
+    // inline acquire-loads the 8 B self-describing word and decodes its kind (`ref_word`);
+    // `offset < 0` (non-object receiver / null / field-not-found / side-table field / struct
+    // root) and a boxed primitive (kind 7) route to `jit_field_get`. There is no FieldSet
+    // twin — a reference store needs the GC write barrier, so it stays on the helper. A
+    // field is primitive XOR reference, so this never overlaps `hoisted_fields`.
+    let hoisted_ref_fields: std::collections::HashMap<(u32, String), (cranelift_codegen::ir::Value, cranelift_codegen::ir::Value)> = {
         let mut cands: Vec<(u32, &str)> = Vec::new();
         for b in &func.blocks {
             for ins in &b.instructions {
                 if let Instruction::FieldGet(insn) = ins {
-                    // Only inline a reference read whose static dst type is `Ref` (any
-                    // heap object — object/array/list/dict/null). This gates OUT
-                    // `IrType::Str` (side-table string GcRef → helper) and primitives
-                    // (handled by the P5-B path), and guarantees the dst's prior value
-                    // is Drop-free {Object,Array,Null,StackObject,StackArray} so the
-                    // native `store_tagged` may overwrite it without a drop.
                     if field_prim_kind(func, insn.dst).is_none()
-                        && is_typed(func, insn.dst, IrType::Ref)
+                        && (is_typed(func, insn.dst, IrType::Ref) || is_typed(func, insn.dst, IrType::Str))
                         && !written.contains(&insn.obj)
                         && !cands.iter().any(|(o, f)| *o == insn.obj && *f == insn.field_name.as_str())
                     {
@@ -168,20 +159,16 @@ pub(super) fn compute_hoists(
                 StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
             let ss_off = builder.create_sized_stack_slot(
                 StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
-            let ss_tag = builder.create_sized_stack_slot(
-                StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
             let ptr_addr = builder.ins().stack_addr(ptr, ss_ptr, 0);
             let off_addr = builder.ins().stack_addr(ptr, ss_off, 0);
-            let tag_addr = builder.ins().stack_addr(ptr, ss_tag, 0);
             let o_c = builder.ins().iconst(types::I32, obj as i64);
             let fp = builder.ins().iconst(ptr, fname.as_ptr() as i64);
             let fl = builder.ins().iconst(types::I64, fname.len() as i64);
             builder.ins().call(hr_obj_ref_field_slot,
-                &[frame_val, ctx_val, o_c, fp, fl, ptr_addr, off_addr, tag_addr]);
+                &[frame_val, ctx_val, o_c, fp, fl, ptr_addr, off_addr]);
             let bptr = builder.ins().stack_load(ptr, ptr, ss_ptr, 0);
             let off = builder.ins().stack_load(ptr, types::I64, ss_off, 0);
-            let tag = builder.ins().stack_load(ptr, types::I32, ss_tag, 0);
-            map.insert((obj, fname.to_string()), (bptr, off, tag));
+            map.insert((obj, fname.to_string()), (bptr, off));
         }
         map
     };

@@ -1,12 +1,14 @@
-//! **adaptive-promotion / refactor (2026-09-12)**: `VarRegion`'s generational half — the
-//! young list and everything that walks it. Split out of `var_region.rs` for the same
-//! reason (and into the same shape as) `region/generation.rs` holds `Region<T>`'s: the
-//! generational logic is a distinct concern from the allocator, and the parent file had
-//! reached the 886-line limit.
+//! `VarRegion`'s generational half — the young set and everything that walks it. Split out of
+//! `var_region.rs` into the same shape as `region/generation.rs` holds `Region<T>`'s: the
+//! generational logic is a distinct concern from the allocator.
 //!
-//! Nothing here changed in the move except [`VarRegion::set_promotion_age`], which is new.
+//! The young set is a bitmap per chunk with one bit per 8-byte granule, set at a block's start
+//! (see `VarRegion::young_bits`), plus a per-chunk count and a one-bit-per-chunk summary so a
+//! walk visits only chunks that hold something young.
 
+use super::chunk::young_words;
 use super::*;
+use crate::gc::side_bits;
 
 impl VarRegion {
     /// **adaptive-promotion (2026-09-12)**: re-point the region at a new promotion age.
@@ -15,12 +17,22 @@ impl VarRegion {
         self.promotion_age = age;
     }
 
-    /// **fix-minor-gc-skips-var-region (2026-09-08)**: flip young-list maintenance, bringing
-    /// the list in line with the new setting. Mirrors `Region<T>::set_generational` (#524).
+    /// A chunk's young-bitmap row: sized for a chunk of `cap` bytes while generational, empty
+    /// (no allocation) otherwise.
+    pub(super) fn new_young_row(&self, cap: usize) -> Box<[u64]> {
+        if self.generational {
+            vec![0u64; young_words(cap)].into_boxed_slice()
+        } else {
+            Box::default()
+        }
+    }
+
+    /// Flip young-set maintenance, bringing the set in line with the new setting. Mirrors
+    /// `Region<T>::set_generational` (#524).
     ///
-    /// Turning it **on** rebuilds the list from every live young block, so a heap switched to
-    /// `GenerationalMarkSweep` after it has already allocated still sees a complete young
-    /// set. Turning it **off** drops the list and clears every block's membership bit.
+    /// Turning it **on** allocates the bitmaps and rebuilds the set from every live young
+    /// block, so a heap switched to `GenerationalMarkSweep` after it has already allocated still
+    /// sees a complete young set. Turning it **off** frees the bitmaps.
     ///
     /// No-op when already in the requested state.
     pub fn set_generational(&mut self, generational: bool) {
@@ -28,63 +40,120 @@ impl VarRegion {
             return;
         }
         self.generational = generational;
+        for ci in 0..self.chunks.len() {
+            let cap = self.chunks[ci].cap;
+            self.young_bits[ci] = self.new_young_row(cap);
+            self.young_per_chunk[ci] = 0;
+        }
+        self.young_chunks.iter_mut().for_each(|w| *w = 0);
+        self.young_len = 0;
         if !generational {
-            for &ptr in &self.young_list {
-                // SAFETY: young_list only holds chunk-owned block pointers.
-                unsafe { ptr.as_ref() }.set_in_young(false);
-            }
-            self.young_list.clear();
-            self.young_list.shrink_to_fit();
             return;
         }
         let threshold = self.promotion_age;
-        let mut rebuilt = Vec::new();
-        for ptr in self.all_blocks_iter() {
-            // SAFETY: see `iterate_alive`.
-            let header = unsafe { ptr.as_ref() };
-            if header.is_alive() && header.gen_age() < threshold {
-                header.set_in_young(true);
-                rebuilt.push(ptr);
-            }
+        for ci in 0..self.chunks.len() {
+            self.for_each_block_in_mut(ci, |r, ptr| {
+                // SAFETY: a carved header of a chunk this region owns.
+                let header = unsafe { ptr.as_ref() };
+                if header.is_alive() && header.gen_age() < threshold {
+                    r.add_young(ptr, ci);
+                }
+            });
         }
-        self.young_list = rebuilt;
     }
 
-    /// Visit every block currently listed as young, skipping ones already tombstoned (the
-    /// young list uses lazy deletion — see the field docs). Read-only; ordering is
-    /// allocation order within the list.
+    /// The young-bitmap bit of the block at `ptr` in chunk `ci`.
+    #[inline]
+    fn granule(&self, ptr: NonNull<GcBlockHeader>, ci: usize) -> usize {
+        (ptr.as_ptr() as usize - self.chunks[ci].base.as_ptr() as usize) >> 3
+    }
+
+    /// Put the block at `ptr` (in chunk `ci`) into the young set. No-op outside generational
+    /// mode or when it is already in.
+    #[inline]
+    pub(super) fn add_young(&mut self, ptr: NonNull<GcBlockHeader>, ci: usize) {
+        if !self.generational {
+            return;
+        }
+        let g = self.granule(ptr, ci);
+        if side_bits::set(&mut self.young_bits[ci], g) {
+            self.young_per_chunk[ci] += 1;
+            self.young_len += 1;
+            side_bits::set(&mut self.young_chunks, ci);
+        }
+    }
+
+    /// Take the block at `ptr` (in chunk `ci`) out of the young set — `O(1)`; a no-op for a
+    /// block that is not in it.
+    #[inline]
+    pub(super) fn remove_young(&mut self, ptr: NonNull<GcBlockHeader>, ci: usize) {
+        if !self.generational {
+            return;
+        }
+        let g = self.granule(ptr, ci);
+        if side_bits::clear(&mut self.young_bits[ci], g) {
+            self.young_len -= 1;
+            self.young_per_chunk[ci] -= 1;
+            if self.young_per_chunk[ci] == 0 {
+                side_bits::clear(&mut self.young_chunks, ci);
+            }
+        }
+    }
+
+    /// Visit every block of the young set with `&mut self`, chunk by chunk, address order
+    /// within a chunk. The summary and each bitmap word are read once and visited from the copy,
+    /// so `visit` may take blocks out of the set (every caller only ever clears the bit of the
+    /// block it is visiting, which the copy already covers).
+    fn for_each_young(&mut self, mut visit: impl FnMut(&mut Self, NonNull<GcBlockHeader>, usize)) {
+        for wi in 0..self.young_chunks.len() {
+            let mut cw = self.young_chunks[wi];
+            while cw != 0 {
+                let ci = wi * 64 + cw.trailing_zeros() as usize;
+                cw &= cw - 1;
+                let base = self.chunks[ci].base.as_ptr();
+                for k in 0..self.young_bits[ci].len() {
+                    let mut w = self.young_bits[ci][k];
+                    while w != 0 {
+                        let g = k * 64 + w.trailing_zeros() as usize;
+                        w &= w - 1;
+                        // SAFETY: a young bit marks the start of a carved, alive block in chunk `ci`.
+                        let ptr = unsafe { NonNull::new_unchecked(base.add(g << 3) as *mut GcBlockHeader) };
+                        visit(self, ptr, ci);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Visit every block currently in the young set. Read-only; chunk order, address order
+    /// within a chunk.
     pub fn iterate_young(&self, mut visit: impl FnMut(VarGcRef, &GcBlockHeader)) {
-        for &ptr in &self.young_list {
-            // SAFETY: young_list only ever holds chunk-owned block pointers, and chunks
-            // outlive the region; reclaimed chunks purge their blocks from this list.
-            let header = unsafe { ptr.as_ref() };
-            if !header.is_alive() {
-                continue;
-            }
-            visit(VarGcRef::pack(ptr, header.generation()), header);
+        for (wi, &cw) in self.young_chunks.iter().enumerate() {
+            side_bits::for_each(&[cw], |b| {
+                let ci = wi * 64 + b;
+                let base = self.chunks[ci].base.as_ptr();
+                side_bits::for_each(&self.young_bits[ci], |g| {
+                    // SAFETY: a young bit marks the start of a carved, alive block in chunk `ci`.
+                    let ptr = unsafe { NonNull::new_unchecked(base.add(g << 3) as *mut GcBlockHeader) };
+                    let header = unsafe { ptr.as_ref() };
+                    visit(VarGcRef::pack(ptr, header.generation()), header);
+                });
+            });
         }
     }
 
-    /// How many blocks the next minor GC would visit. Includes stale (tombstoned) entries
-    /// that the next sweep will drop, so it is an upper bound on real young blocks — the
-    /// same shape as `Region<T>::young_count`, and it is only used as the denominator of the
-    /// minor-survival heuristic.
+    /// How many blocks the next minor GC will visit — exact (the set never holds the dead).
     pub fn young_count(&self) -> usize {
-        self.young_list.len()
+        self.young_len
     }
 
-    /// **fix-minor-gc-skips-var-region (2026-09-08)**: minor sweep. Walks only `young_list`
-    /// (not `all_blocks`), which is what bounds minor cost at O(young):
+    /// Minor sweep. Walks only the young set, which is what bounds minor cost at O(young):
     ///
-    /// - marked → clear the mark and age it; on reaching `PROMOTION_THRESHOLD` it leaves the
-    ///   young list (promotion is a label change — var blocks never move, see
-    ///   `VarGcRef`'s address-as-identity contract);
-    /// - unmarked → finalize + tombstone, crediting the bytes it was charged at alloc;
-    /// - already tombstoned → a stale entry from lazy deletion; just drop it.
-    ///
-    /// The list is **compacted in place** to the survivors (`one-pass-var-sweep`, 2026-09-12),
-    /// and the header's `IN_YOUNG_BIT` is cleared for everything that leaves, so a recycled
-    /// slot knows to re-list itself.
+    /// - marked → clear the mark and age it; on reaching the promotion age it leaves the young
+    ///   set (promotion is a label change — var blocks never move, see `VarGcRef`'s
+    ///   address-as-identity contract);
+    /// - unmarked → finalize + tombstone (which takes it out of the set), crediting the bytes
+    ///   it was charged at alloc.
     ///
     /// Old blocks are never visited — that is the definition of a minor collection. They are
     /// reachable as minor roots only through the dirty-card set.
@@ -94,41 +163,28 @@ impl VarRegion {
         let threshold = self.promotion_age;
         let mut reclaimed = 0usize;
         let mut credited: u64 = 0;
-        // **one-pass-var-sweep (2026-09-12)**: own the list (`mem::take`) rather than borrow
-        // it — `&mut self` is then free inside the loop, so the dead are tombstoned where the
-        // decision is made, without the `to_reclaim` staging `Vec` that used to carry them
-        // there (2.26 M pushes + read-backs and an un-reserved growth per minor) and without
-        // the per-minor `Vec::with_capacity`.
-        let mut young = std::mem::take(&mut self.young_list);
-        let mut w = 0usize;
-
-        for i in 0..young.len() {
-            let ptr = young[i];
-            // SAFETY: see `iterate_young`.
+        self.for_each_young(|r, ptr, ci| {
+            // SAFETY: see `for_each_young`.
             let header = unsafe { ptr.as_ref() };
-            if !header.is_alive() {
-                header.set_in_young(false);
-                continue;
-            }
-            // **fix-old-block-left-in-young-list (2026-09-12)**: a listed block can already
+            debug_assert!(header.is_alive(), "the young set holds only the alive");
+            // **fix-old-block-left-in-young-list (2026-09-12)**: a young-set block can already
             // be past the line, and a minor must never reclaim an old block.
             //
-            // Two things age a block without delisting it: `age_backing_with_owner` raises
-            // an array's element storage to its owner's age (the invariant that the backing
-            // is never younger than what owns it), and `adaptive-promotion` can lower the
-            // line itself. Such a block is then old — the mark phase skips it as old — while
-            // still sitting here, so the next sweep would find it unmarked and tombstone
+            // Two things age a block without taking it out of the set: `age_backing_with_owner`
+            // raises an array's element storage to its owner's age (the invariant that the
+            // backing is never younger than what owns it), and `adaptive-promotion` can lower
+            // the line itself. Such a block is then old — the mark phase skips it as old —
+            // while still in the set, so the next sweep would find it unmarked and tombstone
             // storage that is very much alive.
             //
-            // It has to be this check rather than a delist at the raise site: this region
-            // has no card table, so a raised backing's only claim to being marked is its
-            // owner being traced, and the owner stops being traced the moment its card is
-            // cleaned — which is exactly what happens when owner and elements go old
-            // together. Measured, that is a live `Stream`'s method table vanishing mid-build.
+            // It has to be this check rather than a removal at the raise site: this region has
+            // no card table, so a raised backing's only claim to being marked is its owner being
+            // traced, and the owner stops being traced the moment its card is cleaned — which is
+            // exactly what happens when owner and elements go old together.
             if header.gen_age() >= threshold {
                 header.clear_minor_mark();
-                header.set_in_young(false);
-                continue;
+                r.remove_young(ptr, ci);
+                return;
             }
             if header.is_marked(crate::gc::refs::MarkKind::Minor) {
                 header.clear_minor_mark();
@@ -137,57 +193,36 @@ impl VarRegion {
                         promote_black.is_none_or(|k| header.is_marked(k)),
                         "var block promoted while the cycle sweeps, without its epoch"
                     );
-                    header.set_in_young(false);
-                } else {
-                    young[w] = ptr;
-                    w += 1;
+                    r.remove_young(ptr, ci);
                 }
             } else {
-                header.set_in_young(false);
                 let charge = Self::alloc_charge_bytes(header);
-                if self.tombstone(VarGcRef::pack(ptr, header.generation())) {
+                if r.tombstone(VarGcRef::pack(ptr, header.generation())) {
                     reclaimed += 1;
                     credited += charge;
                 }
             }
-        }
-        young.truncate(w);
-        // In-place compaction keeps the allocation, so the capacity would otherwise stay at
-        // the historical peak (426 212 slots = 3.25 MB, against a typical ~100 k length).
-        if young.capacity() > 4 * young.len() && young.capacity() - young.len() > 65_536 {
-            young.shrink_to(2 * young.len());
-        }
-        self.young_list = young;
+        });
         (reclaimed, credited)
     }
 
-    /// **Tenure** — the var-region twin of `Region::tenure_young`: every listed block leaves the
-    /// young list at the promotion age, without a mark. While the open cycle sweeps, a block
-    /// without its epoch is garbage the sweep has not reached yet and stays listed. Returns how
-    /// many blocks left.
+    /// **Tenure** — the var-region twin of `Region::tenure_young`: every young block leaves the
+    /// set at the promotion age, without a mark. While the open cycle sweeps, a block without
+    /// its epoch is garbage the sweep has not reached yet and stays young. Returns how many
+    /// blocks left.
     pub fn tenure_young(&mut self, doomed_unless: Option<crate::gc::refs::MarkKind>) -> usize {
         let threshold = self.promotion_age;
-        let mut young = std::mem::take(&mut self.young_list);
-        let (mut w, mut tenured) = (0usize, 0usize);
-        for i in 0..young.len() {
-            let ptr = young[i];
-            // SAFETY: see `iterate_young`.
+        let mut tenured = 0usize;
+        self.for_each_young(|r, ptr, ci| {
+            // SAFETY: see `for_each_young`.
             let header = unsafe { ptr.as_ref() };
-            if !header.is_alive() {
-                header.set_in_young(false);
-                continue;
-            }
             if doomed_unless.is_some_and(|k| !header.is_marked(k)) {
-                young[w] = ptr;
-                w += 1;
-                continue;
+                return;
             }
             header.raise_gen_age_to(threshold);
-            header.set_in_young(false);
+            r.remove_young(ptr, ci);
             tenured += 1;
-        }
-        young.truncate(w);
-        self.young_list = young;
+        });
         tenured
     }
 
@@ -196,26 +231,18 @@ impl VarRegion {
     ///
     /// A major is a superset collection — it marks from the roots and sweeps every region — so
     /// surviving a major is exactly as much evidence of longevity as surviving a minor, and
-    /// aging is what drains the young list. Without this a major leaves every live block young,
-    /// and the *next* minor re-marks the entire heap (measured: 1.5 M blocks, 192 ms, on
-    /// `09_alloc_ctorless`). The blocks were already swept by [`Self::sweep`]; this only walks
-    /// the survivors' ages.
+    /// aging is what drains the young set. Without this a major leaves every live block young,
+    /// and the *next* minor re-marks the entire heap. The blocks were already swept by
+    /// [`Self::sweep`] (which took the dead out of the set); this only walks the survivors' ages.
     pub fn age_young_survivors(&mut self) {
         let threshold = self.promotion_age;
-        let mut survivors: Vec<NonNull<GcBlockHeader>> = Vec::with_capacity(self.young_list.len());
-        for &ptr in &self.young_list {
-            // SAFETY: see `iterate_young` — young_list only holds chunk-owned block pointers.
+        self.for_each_young(|r, ptr, ci| {
+            // SAFETY: see `for_each_young`.
             let header = unsafe { ptr.as_ref() };
-            if !header.is_alive() {
-                header.set_in_young(false);
-                continue;
-            }
+            debug_assert!(header.is_alive(), "the young set holds only the alive");
             if header.bump_gen_age() >= threshold {
-                header.set_in_young(false);
-            } else {
-                survivors.push(ptr);
+                r.remove_young(ptr, ci);
             }
-        }
-        self.young_list = survivors;
+        });
     }
 }

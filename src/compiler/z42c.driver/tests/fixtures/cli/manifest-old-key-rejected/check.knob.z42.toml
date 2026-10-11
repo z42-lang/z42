@@ -6,6 +6,6 @@ kind    = "lib"
 [sources]
 include = ["k.z42"]
 
-# 旧名（阶段 1 仍生效）：只警告，不拦构建。
+# 旧拼写（2026-10 改名，阶段 2 已删）：未知键 → 报错。
 [lints]
 warnings-as-errors = true

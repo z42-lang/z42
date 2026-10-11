@@ -122,9 +122,9 @@ z42c 写产物同样是就地写 ⇒ 穿透到 `libraries/z42.core/release/dist/
 |---|---|---|
 | `build/tests/<rel>` | `build test`（regen）| `src/tests` golden 的 `.zbc` |
 | `build/libraries/<lib>/release/tests/<rel>` | `build test` | 库 golden 的 `.zbc`（release driver 编） |
-| `build/{libraries,compiler}/<m>/debug/{tests,bench}`、`build/toolchain/<rel>/debug/{tests,bench}` | z42b（`--out-root`，`_devTargetOutRoot`）| `[Test]` / `[Benchmark]` 目标的父包与产物 |
+| `build/{libraries,compiler}/<m>/debug/{tests,benches}`、`build/toolchain/<rel>/debug/{tests,benches}` | z42b（`--out-root`，`_devTargetOutRoot`）| `[Test]` / `[Benchmark]` 目标的父包与产物 |
 | `build/compiler/<m>/release/tests/<unit>` | `test compiler` | 编译器 `[Test]` 单元的构建输出（单元清单的 `output_dir` 带 `${profile}`） |
-| `build/bench/probe` | `bench` / `profile` | 执行画像能力探针的 `.zbc` |
+| `build/benches/probe` | `bench` / `profile` | 执行画像能力探针的 `.zbc` |
 | `build/runtime/tests/trybuild` | cargo（trybuild）| cargo 自己管的测试编译目录 |
 
 **`intermediate/`（其余一切）**
@@ -178,7 +178,7 @@ z42c 写产物同样是就地写 ⇒ 穿透到 `libraries/z42.core/release/dist/
 |---|---|
 | `xtask clean` | 生产 cache/dist：各 stdlib 成员的 `<lib>/<profile>/{cache,dist}` + 扁平视图 `intermediate/libraries/flat/` |
 | `xtask clean tests` | `build/` 下所有 `tests/`（§3 里测试的编译产物；不进入 `dist` / `cache` 与 cargo target）+ 旧位置 `<工程目录>/artifacts/test-targets` |
-| `xtask clean bench` | z42b 的 bench 目标输出（`<m>/<profile>/bench`；旧位置 `<工程目录>/artifacts/bench-targets`）|
+| `xtask clean bench` | z42b 的 bench 目标输出（`<m>/<profile>/benches`；旧位置 `<工程目录>/artifacts/bench-targets`）|
 | `xtask clean intermediate` | 整个 `intermediate/` |
 | `xtask clean all` | `build/` + `intermediate/` + 旧布局残留（`tmp/`、`.scratch/`、`publish/`、`release/`、`packages/archives/`）+ **源码树里**各 z42 工程旁的 `artifacts/`、`dist/`（+ cross-zpkg 用例的 `libs/`）|
 

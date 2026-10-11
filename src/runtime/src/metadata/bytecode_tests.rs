@@ -52,6 +52,7 @@ fn fn_for_reg_len(param_count: usize, dsts: &[u32], catch_regs: &[u32]) -> Funct
             catch_label: "b0".to_string(),
             catch_type:  None,
             catch_reg:   r,
+            catch_key:   Default::default(),
         }).collect();
         f.cold = Some(Box::new(FunctionCold {
             exception_table: et.into_boxed_slice(),

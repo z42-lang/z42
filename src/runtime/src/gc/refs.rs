@@ -417,7 +417,7 @@ impl<T> GcRef<T> {
     /// it is the sole backstop against dereferencing a tombstoned slot that has
     /// since been reused for a *different* object (silent type confusion). Every
     /// tombstone path bumps `generation` and clears `alive` together
-    /// (`region.rs` `tombstone` / `tombstone_during_sweep` / `tombstone_via_entry`),
+    /// (`region.rs` `tombstone` / `tombstone_via_entry`),
     /// so a stale handle's 16-bit `gen16()` snapshot no longer matches. Compiling
     /// this out in release (the old `debug_assert!`) contradicted the two API-doc
     /// promises above and at the module header ("`borrow` panics on generation

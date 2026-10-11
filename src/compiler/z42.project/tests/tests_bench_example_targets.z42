@@ -16,7 +16,7 @@ void test_target_sections_default_when_absent() {
     Assert.Equal("tests/*.z42", m.TestsSection.Include[0]);
     Assert.Equal(true, m.TestsSection.Auto);
     Assert.Equal(0, m.TestsSection.DepCount);
-    Assert.Equal("bench/*.z42", m.BenchSection.Include[0]);
+    Assert.Equal("benches/*.z42", m.BenchSection.Include[0]);
     Assert.Equal("examples/*.z42", m.ExampleSection.Include[0]);
     Assert.Equal(0, m.TestCount);
     Assert.Equal(0, m.BenchCount);
