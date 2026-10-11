@@ -334,7 +334,7 @@ C# 不会这样：它只在 `Main` 体**直接**引用依赖模块的类型时�
 | 函数 | 做什么 | 谁调 |
 |---|---|---|
 | `boot_context` | `available!` 折叠 → `VmContext::with_module` → 登记静态构造器 → 装 lazy loader + 种类型 / impl | `app::run`、宿主 `build_host_module` |
-| `prepare_execution` | 预分配 FuncRef 槽 + `resolve_module` | `Vm::run`、宿主 `build_host_module` |
+| `prepare_execution` | `resolve_module`（各站点 token 预填）| `Vm::run`、宿主 `build_host_module` |
 
 **静态字段初始化本身仍由调用方决定时机**，因为两边的「程序」形状不同：
 

@@ -367,8 +367,11 @@ pub fn value_to_str(v: &Value) -> String {
             format!("[{}]", inner.join(", "))
         }
         Value::Object(rc) => format!("{}{{...}}", rc.type_desc().name),
-        Value::FuncRef(name) => format!("<fn {name}>"),
-        Value::Closure(c)                   => format!("<closure {}>", crate::metadata::types::closure_data_of(c).fn_name),
+        // P1-2 PR 8: callables hold a `FnId`; without a `ctx` the name is not reachable, so
+        // the id is shown. The ctx-aware display (`interp::dispatch::with_obj_str`, which
+        // string interpolation / `Console.WriteLine` / `ToStr` use) prints the name.
+        Value::FuncRef(id) => format!("<fn #{}>", id.0),
+        Value::Closure(c)                   => format!("<closure #{}>", crate::metadata::types::closure_data_of(c).fn_id.0),
         // make-value-copy: PinnedView / Ref are transient-arena handles
         // and `value_to_str` has no `ctx` to resolve the arena payload — placeholders
         // (same as StackObject / StructRef below). These never reach the user-visible

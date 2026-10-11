@@ -82,7 +82,7 @@ fn is_heap_ref_true_for_closure() {
     let v = Value::Closure(crate::gc::var_region::VarGcRef::leak_for_test(
         ClosureData {
             env:     GcRef::new(crate::metadata::types::ArrayObj::new_leaked(vec![Value::I64(42)])),
-            fn_name: crate::metadata::vstr::Str::new_leaked("lambda$0"),
+            fn_id:   crate::metadata::tokens::FnId(0),
         },
         crate::gc::var_region::BlockType::Closure,
     ));
@@ -355,12 +355,12 @@ fn is_heap_ref_false_for_primitives() {
 }
 
 #[test]
-fn is_heap_ref_true_for_string_and_func_ref() {
-    // unify-gc-heap PR-4: strings are GC blocks now — `Value::Str` / `Value::FuncRef`
-    // (which carries a `Str`) are heap refs, so a write into a heap slot fires the
-    // barrier (generational card) that keeps the block found by a minor.
+fn is_heap_ref_true_for_string_false_for_func_ref() {
+    // unify-gc-heap PR-4: strings are GC blocks now — `Value::Str` is a heap ref, so a
+    // write into a heap slot fires the barrier (generational card) that keeps the block
+    // found by a minor. P1-2 PR 8: `Value::FuncRef` holds a `FnId` — no heap edge.
     assert!(Value::Str("hello".to_string().into()).is_heap_ref());
-    assert!(Value::FuncRef("Foo.bar".into()).is_heap_ref());
+    assert!(!Value::FuncRef(crate::metadata::tokens::FnId(3)).is_heap_ref());
 }
 
 #[test]
@@ -453,7 +453,7 @@ fn value_discriminants_pinned() {
     assert_eq!(tag(&Value::Null),                              5, "Null tag");
     // Heap variants (Array/Object tags 6/7) need a GcRef — skip cheap test.
     assert_eq!(tag(&Value::PinnedView { idx: 0, frame_id: 1 }), 8, "PinnedView tag");
-    assert_eq!(tag(&Value::FuncRef("".into())),                9, "FuncRef tag");
+    assert_eq!(tag(&Value::FuncRef(crate::metadata::tokens::FnId(0))), 9, "FuncRef tag");
     // Closure tag 10 — needs GcRef, skip.
     // 11 retired (was StackClosure).
     assert_eq!(tag(&Value::Ref { idx: 0, frame_id: 1 }), 12, "Ref tag");

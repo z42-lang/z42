@@ -63,9 +63,8 @@ impl crate::gc::arc_heap::ArcMagrGC {
             Value::Array(gc)  => GcRef::mark(gc, kind),
             // unify-gc-heap PR-2: mark the closure block (region_var); env marked via trace.
             Value::Closure(c) => c.mark(kind),
-            // unify-gc-heap PR-4: mark the string block (leaf). `FuncRef` carries a `Str`.
+            // unify-gc-heap PR-4: mark the string block (leaf).
             Value::Str(s) => s.mark(kind),
-            Value::FuncRef(s) => s.mark(kind),
             // add-boxed-struct-identity (P4b, 路 B2): mark the boxed struct's shared ScriptObject.
             Value::BoxedStruct(gc) => GcRef::mark(gc, kind),
             // make-value-copy: `Ref` / `StructRefHeap` handles mark nothing here — their
@@ -164,7 +163,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
 
         // Variable-length region (unify-gc-heap PR-2: closures). `VarRegion::sweep` mark-checks
         // + tombstones every unmarked live block internally, running the injected drop-glue
-        // (drops each reclaimed closure's `fn_name: String`). MUST run after the mark phase —
+        // (closure blocks are POD leaves, so nothing runs for them). MUST run after the mark phase —
         // it does (sweep_phase is invoked post-mark). v1 is STW-only: the generational minor
         // sweep does not touch region_var, so closures are reclaimed at full GC (never freed
         // prematurely — safe).
@@ -273,7 +272,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
             Value::Object(gc) | Value::BoxedStruct(gc) => GcRef::is_marked(gc, kind),
             Value::Array(gc) => GcRef::is_marked(gc, kind),
             Value::Closure(c) => c.is_marked(kind),
-            Value::Str(s) | Value::FuncRef(s) => s.is_marked(kind),
+            Value::Str(s) => s.is_marked(kind),
             _ => true,
         }
     }

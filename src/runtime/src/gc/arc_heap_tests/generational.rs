@@ -919,7 +919,7 @@ fn closure_env_survives_repeated_minors() {
     };
     let closure = heap.alloc_closure(ClosureData {
         env: env_ref.clone(),
-        fn_name: heap.alloc_str("captures_env"),
+        fn_id: crate::metadata::tokens::FnId(0),
     });
     let _pin = heap.pin_root(closure.clone());
     // Only the closure is rooted — the env is reachable *solely* through the closure block.

@@ -45,7 +45,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
             // re-scan the old owner, the string went unmarked and was swept while still
             // referenced (use-after-free → garbage strings / failed map lookups). Seen as
             // intermittent failures of the nursery-1M compiler build under `--jobs 4`.
-            Value::Str(s) | Value::FuncRef(s) => s.gen_age(),
+            Value::Str(s) => s.gen_age(),
             // make-value-copy: a `Ref` handle never escapes into a heap slot (is_heap_ref
             // = false), so a write barrier here is unreachable for it; its target's age is
             // handled via the transient-arena root scan.

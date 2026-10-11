@@ -46,24 +46,23 @@ pub enum Value {
     /// call, so the heap-alloc cost is dominated by the FFI it enables.
     /// make-value-copy: 8B handle into `VmContext::transient_arena` (payload `PinnedViewData`).
     PinnedView { idx: u32, frame_id: u32 } = 8,
-    /// Function reference value. Currently used by L2 no-capture lambda
-    /// literals (see docs/internals/src/runtime/escape-analysis.md). Indirect call dispatches
-    /// to the named function in the loaded module.
+    /// Function reference value: a no-capture lambda or a method group bound to a free
+    /// function (`LoadFn`). `CallIndirect` dispatches to the function it names.
     ///
-    /// review.md C1 chunk 2 (2026-05-27): `Box<str>` instead of `String`.
-    /// Saves 8 B/instance (Box<str> = 16 B vs String = 24 B; no `cap` word).
-    /// FuncRef names are write-once at creation and read-only thereafter
-    /// (immutable identity → no append/grow operation needed).
-    ///
-    /// unify-object-byte-layout PR-5 (2026-08-15): `Str` (8 B thin pointer)
-    /// instead of `Box<str>` (16 B fat pointer). `Box<str>` was the *last*
-    /// 16 B payload keeping `Value` at 24 B; swapping it for the vstr thin
-    /// pointer drops the max payload to 8 B → `Value` = 16 B (see the
-    /// `size_of::<Value>() == 16` static assert below). Length is read from
-    /// the `StrHeader`, so `name.len()` stays O(1).
-    FuncRef(Str) = 9,
+    /// P1-2 PR 8 (2026-10-07): the payload is the target's [`FnId`](crate::metadata::tokens::FnId),
+    /// bound once when the value is created (`LoadFn` — the per-site token makes later
+    /// executions of the same site a single load), instead of the function's name as a GC
+    /// string resolved again by every `CallIndirect`. The id lives in the space `Call`
+    /// tokens use (`interp::exec_call::fn_by_id`): in every production run the VM's
+    /// `FuncTable` id (entry functions `0..n`, lazily loaded ones after); against a module
+    /// that is not the `FuncTable`'s entry module (unit tests on a bare `VmContext`), only
+    /// that module's indices. Not a heap reference — no GC edge, no write barrier. Equal
+    /// ids ⇔ the same function, so delegate equality is id equality; the name for
+    /// reflection / display comes from the `Function` the id names.
+    FuncRef(crate::metadata::tokens::FnId) = 9,
     /// L3 capturing closure value: pairs a heap-allocated env (Vec<Value>)
-    /// with the lifted function's qualified name. CallIndirect on a Closure
+    /// with the lifted function's id (P1-2 PR 8: [`ClosureData::fn_id`], bound at `MkClos`;
+    /// previously its qualified name). CallIndirect on a Closure
     /// passes `env` as the callee's first implicit parameter and copies user
     /// args after it. See docs/internals/src/runtime/escape-analysis.md + impl-closure-l3-core.
     ///
@@ -146,7 +145,7 @@ pub enum Value {
 // register-file cell and the JIT strides its register file by
 // `size_of::<Value>()` (`jit/translate.rs` `VALUE_STRIDE`/`STRIDE`), so its
 // size is an ABI contract, not an incidental detail. After PR-3 (GcRef 8 B) +
-// PR-4 (Str 8 B) + this PR (FuncRef → Str 8 B), every payload is ≤ 8 B, so
+// PR-4 (Str 8 B) + this PR (FuncRef → Str 8 B; P1-2 PR 8: FnId 4 B), every payload is ≤ 8 B, so
 // `#[repr(C, u8)]` gives tag(1 B, padded to 8) + 8 B payload = 16 B. This
 // assert fails to compile the moment a payload grows past 8 B (e.g. a new
 // fat-pointer / two-word variant), forcing it to be boxed before it can
@@ -198,7 +197,7 @@ impl Value {
     /// Heap-ref variants: `Object` / `Array` / `Closure` (Closure.env is a
     /// `GcRef<Vec<Value>>`) / `Ref` with `RefKind::Array` or `RefKind::Field`
     /// (the inner `gc_ref` is a real heap edge). All primitives, plus
-    /// `FuncRef` (string-keyed func table) / `PinnedView` (raw ptr) /
+    /// `FuncRef` (a `FnId`, P1-2 PR 8) / `PinnedView` (raw ptr) /
     /// `Ref::Stack` (stack location)
     /// return `false` — none of them create a strong heap → heap edge
     /// that card-marking or SATB collectors would care about.
@@ -219,6 +218,17 @@ impl Value {
         }
     }
 
+    /// P1-2 PR 8: the bound target of a callable value — a `FuncRef`'s id or a closure's
+    /// `fn_id` (same id space, see [`Value::FuncRef`]); `None` for anything else.
+    #[inline]
+    pub fn callable_id(&self) -> Option<crate::metadata::tokens::FnId> {
+        match self {
+            Value::FuncRef(id) => Some(*id),
+            Value::Closure(_) => self.closure_data().map(|d| d.fn_id),
+            _ => None,
+        }
+    }
+
     #[inline]
     pub fn is_heap_ref(&self) -> bool {
         match self {
@@ -226,8 +236,9 @@ impl Value {
             // unify-gc-heap PR-4: strings are GC blocks now — storing one into a heap
             // slot (object ref field / array element / struct ref leaf) is a heap edge
             // that needs a write barrier (generational card),
-            // so the string block is found + kept marked. `FuncRef` carries a `Str`.
-            Value::Str(_) | Value::FuncRef(_) => true,
+            // so the string block is found + kept marked. (`FuncRef` holds a `FnId` since
+            // P1-2 PR 8 — not a heap edge.)
+            Value::Str(_) => true,
             // add-boxed-struct-identity (P4b, 路 B2): 装箱 struct 现是共享 `ScriptObject` 句柄 →
             // 与 `Value::Object` 同为强堆边（存进堆槽需写屏障）。
             Value::BoxedStruct(_) => true,
@@ -247,11 +258,10 @@ impl Value {
     /// - **`for_marking = true`** (mark phase, from `arc_heap`'s mark loop): additionally
     ///   marks the variable-length element backings in place (`mark_backing`, so the
     ///   `region_var` element block stays live this cycle), and surfaces a closure's env
-    ///   *array header* (`Value::Array`) + its `fn_name` GC string as children so the mark
-    ///   loop marks those blocks too.
+    ///   *array header* (`Value::Array`) as a child so the mark loop marks it too.
     /// - **`for_marking = false`** (enumeration, via `ArcMagrGC::scan_object_refs`): a pure
     ///   read — no mark side effects; descends **directly** into a closure's captured refs
-    ///   (the env header and `fn_name` string are internal, not surfaced as graph nodes).
+    ///   (the env header is internal, not surfaced as a graph node).
     ///
     /// Primitives / stack-arena handles / struct-blob refs yield no children (their storage
     /// is scanned directly by the external root scanner, so walking here would double-count).
@@ -274,13 +284,12 @@ impl Value {
                 let data = unsafe { &*vref.payload_as_ptr::<ClosureData>() };
                 if marking.is_some() {
                     // Push the env array *header* (so the mark loop marks its region_array entry
-                    // and re-traces its elements — one indirection past the pre-PR-2 behaviour)
-                    // and the `fn_name` GC string (PR-5, a leaf), so both blocks stay live.
+                    // and re-traces its elements — one indirection past the pre-PR-2 behaviour).
+                    // The target is a `FnId` (P1-2 PR 8), not a GC edge.
                     visit(&Value::Array(data.env.clone()));
-                    visit(&Value::Str(data.fn_name));
                 } else {
-                    // Enumeration: descend into the captured refs directly — the env header and
-                    // fn_name string are the closure's internals, not distinct graph nodes.
+                    // Enumeration: descend into the captured refs directly — the env header is
+                    // the closure's internal, not a distinct graph node.
                     let arr = data.env.borrow();
                     for elem in arr.gc_refs() { visit(elem); }
                 }
@@ -337,8 +346,9 @@ impl PartialEq for Value {
             // these two arms were simply MISSING — so `==` fell through to `_ => false`
             // and `f == f` answered **false** (a silently wrong answer, not an error).
             // Identity semantics are the ones `DelegateOps.ReferenceEquals` already
-            // defines: a FuncRef is its function name; a closure is its function plus its
-            // captured env. That builtin defers here for these two variants, so the
+            // defines: a FuncRef is its function; a closure is its function plus its
+            // captured env. P1-2 PR 8: "its function" = the bound `FnId` (one id per
+            // function, so equal ids ⇔ the same function — what equal names meant before). That builtin defers here for these two variants, so the
             // rule has one spelling.
             (Value::FuncRef(a), Value::FuncRef(b)) => a == b,
             (Value::Closure(a), Value::Closure(b)) => {
@@ -346,7 +356,7 @@ impl PartialEq for Value {
                     true
                 } else {
                     let (da, db) = (super::closure_data_of(a), super::closure_data_of(b));
-                    da.fn_name == db.fn_name && GcRef::ptr_eq(&da.env, &db.env)
+                    da.fn_id == db.fn_id && GcRef::ptr_eq(&da.env, &db.env)
                 }
             }
             // make-value-copy: `PinnedView` / `Ref` (and `StructRefHeap`)

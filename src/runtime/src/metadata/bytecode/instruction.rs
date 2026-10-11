@@ -288,9 +288,11 @@ pub enum Instruction {
     // Calls
     Call(Box<CallInsn>),
     Builtin(Box<BuiltinInsn>),
-    /// Push a function-reference value onto a register. The runtime resolves
-    /// `func` at call site (current usage: L2 no-capture lambda lifted as a
-    /// module-level function). See docs/internals/src/runtime/escape-analysis.md.
+    /// Push a function-reference value onto a register. The runtime binds
+    /// `func` to its `FnId` when the value is created (P1-2 PR 8; the per-site
+    /// token makes it once per site) — current usage: L2 no-capture lambda lifted
+    /// as a module-level function, free-function method groups.
+    /// See docs/internals/src/runtime/escape-analysis.md.
     LoadFn(Box<LoadFnInsn>),
     /// Indirect call via a register holding a `FuncRef` value. See
     /// docs/internals/src/runtime/escape-analysis.md.

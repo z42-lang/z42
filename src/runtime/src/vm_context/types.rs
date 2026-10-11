@@ -402,11 +402,6 @@ pub struct VmContext {
     /// Lets an interp frame (running as a JIT cold-tier / fallback) route an
     /// already-compiled callee to its native code instead of re-interpreting.
     pub(crate) jit_ctx:           std::sync::atomic::AtomicUsize,
-    /// `MkClos` function-name strings, interned per site (`intern_fn_name`): key = the
-    /// instruction's name `(address, length)`, hit confirmed by content. GC roots (scanned
-    /// with this context's other roots). Per thread, so the lock is uncontended. Goes away
-    /// once closures bind their function id at creation.
-    pub(crate) fn_name_cache:     Mutex<FxHashMap<(usize, usize), crate::metadata::vstr::Str>>,
     /// **optimize-subclass-check**: memoizes the type-test verdict, keyed by
     /// `(receiver TypeId, target key)` packed into a `u64` (`dispatch::isa_key`). Backs the
     /// direct-mapped `isa_cache` (its misses and collisions) and the name-only callers

@@ -51,13 +51,13 @@ pub fn builtin_thread_spawn(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let callable = args.first()
         .ok_or_else(|| anyhow!("__thread_spawn: missing action argument"))?;
 
-    let (fn_name, env_vec): (String, Option<Vec<Value>>) = match callable {
-        Value::FuncRef(name) => (name.to_string(), None),
+    // P1-2 PR 8: the target is the value's bound `FnId` — a plain integer that crosses to
+    // the worker as is (the worker shares this VM's `FuncTable`).
+    let (fn_id, env_vec): (crate::metadata::tokens::FnId, Option<Vec<Value>>) = match callable {
+        Value::FuncRef(id) => (*id, None),
         Value::Closure(c) => {
             let data = crate::metadata::types::closure_data_of(c);
-            // unify-gc-heap PR-5: fn_name is a GC `Str` (a handle into *this* context's heap);
-            // materialize an owned `String` so it can cross to the worker thread safely.
-            (data.fn_name.to_string(), Some(data.env.borrow().to_boxed_vec()))
+            (data.fn_id, Some(data.env.borrow().to_boxed_vec()))
         }
         other => bail!(
             "__thread_spawn: expected callable (Action / FuncRef / Closure), got {:?}",
@@ -126,7 +126,7 @@ pub fn builtin_thread_spawn(ctx: &VmContext, args: &[Value]) -> Result<Value> {
         }
         let unwind = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Result<()> {
             let thread_ctx = VmContext::new_with_core(core_for_thread);
-            run_spawned_action(&thread_ctx, &fn_name, env_vec)
+            run_spawned_action(&thread_ctx, fn_id, env_vec)
         }));
         match unwind {
             Ok(r)    => r,
@@ -209,7 +209,7 @@ pub fn builtin_thread_join(ctx: &VmContext, args: &[Value]) -> Result<Value> {
 
 fn run_spawned_action(
     thread_ctx: &VmContext,
-    fn_name:    &str,
+    fn_id:      crate::metadata::tokens::FnId,
     env_vec:    Option<Vec<Value>>,
 ) -> Result<()> {
     let module_arc = thread_ctx.core.module.as_ref()
@@ -225,19 +225,10 @@ fn run_spawned_action(
         }
     };
 
-    let outcome = match module.func_index.get(fn_name) {
-        Some(&idx) => crate::interp::exec_function(
-            thread_ctx, module, &module.functions[idx], &arg_vals,
-        )?,
-        None => {
-            let lazy_fn = thread_ctx.try_lookup_function(fn_name)
-                .ok_or_else(|| anyhow!(
-                    "spawned action: function `{}` not found in module or lazy loader",
-                    fn_name
-                ))?;
-            crate::interp::exec_function(thread_ctx, module, lazy_fn.as_ref(), &arg_vals)?
-        }
-    };
+    let target = thread_ctx.callable_fn(fn_id).ok_or_else(|| anyhow!(
+        "spawned action: function id {} is not registered in this VM", fn_id.0
+    ))?;
+    let outcome = crate::interp::exec_function(thread_ctx, module, target, &arg_vals)?;
 
     match outcome {
         ExecOutcome::Returned(_) => Ok(()),

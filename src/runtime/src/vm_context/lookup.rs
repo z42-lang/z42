@@ -474,22 +474,14 @@ impl VmContext {
         self.const_str_foreign(module, idx)
     }
 
-    /// The GC string for a `MkClos` site's function name, interned per context so a
-    /// closure created in a loop does not allocate (and later collect) a fresh name
-    /// block every time. Keyed by the name's address + length — the name is the
-    /// instruction's module-lifetime `String` — and confirmed by content, so a reused
-    /// address can never hand back a stale name. The cache (`fn_name_cache`) is
-    /// per thread, so its lock is uncontended, and a GC root.
-    #[inline]
-    pub fn intern_fn_name(&self, name: &str) -> crate::metadata::vstr::Str {
-        let key = (name.as_ptr() as usize, name.len());
-        if let Some(s) = self.fn_name_cache.lock().get(&key) {
-            if &**s == name { return *s; }
-        }
-        // Allocate outside the lock: the root scanner takes it from inside a collection.
-        let s = self.heap().alloc_str(name);
-        self.fn_name_cache.lock().insert(key, s);
-        s
+    /// P1-2 PR 8: the function a `FuncRef` / closure target id names, for paths that have
+    /// no executing module at hand (reflection builtins, thread spawn, display). Needs the
+    /// VM's entry module: there the id is a `FuncTable` id. Without one (a bare test
+    /// context) ids are indices of whatever module created the value, which this context
+    /// does not know — `None`.
+    pub(crate) fn callable_fn(&self, id: crate::metadata::tokens::FnId) -> Option<&crate::metadata::Function> {
+        self.core.module.as_ref()?;
+        self.funcs().get(id)
     }
 
     /// `const_str` against a module that is not the VM's entry module (unit tests running

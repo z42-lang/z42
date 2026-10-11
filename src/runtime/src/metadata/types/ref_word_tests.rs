@@ -76,14 +76,12 @@ fn one_of_each(heap: &ArcMagrGC) -> Vec<(Value, u64)> {
     let boxed = GcRef::new(ScriptObject::new(plain_td("S"), ObjStorage::new(0, 0)));
     let Value::Array(arr) = heap.alloc_array(vec![]) else { panic!() };
     let s = Str::new_leaked("text");
-    let f = Str::new_leaked("Demo.F");
     let clo = VarGcRef::leak_block_for_test(16, BlockType::Closure);
     vec![
         (Value::Object(obj), RK_OBJECT),
         (Value::Array(arr), RK_ARRAY),
         (Value::Str(s), RK_STR),
         (Value::Closure(clo), RK_CLOSURE),
-        (Value::FuncRef(f), RK_FUNC_REF),
         (Value::BoxedStruct(boxed), RK_BOXED_STRUCT),
     ]
 }
@@ -101,6 +99,22 @@ fn every_kind_round_trips_with_its_tag_in_the_low_bits() {
         let traced = unsafe { decode_for_trace(w) };
         assert_eq!(payload(&traced), payload(&v), "{v:?}: tracing sees the same handle");
     }
+}
+
+/// `FuncRef` is not a heap handle: the word is `FnId << 3 | kind`, round-trips for every id
+/// (including 0, which must not collide with the null word), and the JIT reads it via the slow path.
+#[test]
+fn func_ref_word_carries_the_fn_id_inline() {
+    use crate::metadata::tokens::FnId;
+    for id in [0u32, 1, 7, 123_456, (1 << 28) - 1] {
+        let w = encode(&Value::FuncRef(FnId(id))).expect("a FuncRef encodes");
+        assert_eq!(w & KIND_MASK, RK_FUNC_REF);
+        assert_ne!(w, 0);
+        for back in [unsafe { decode(w) }, unsafe { decode_for_trace(w) }] {
+            assert!(matches!(back, Value::FuncRef(f) if f == FnId(id)), "{id}");
+        }
+    }
+    assert_eq!(KIND_TO_VALUE_TAG[RK_FUNC_REF as usize], SLOW_PATH_TAG);
 }
 
 #[test]
