@@ -2,7 +2,6 @@
 name    = "demo.dupapp"
 version = "0.1.0"
 kind    = "exe"
-entry   = "Demo.DupApp.Main"
 pack    = true
 
 [dependencies]

@@ -2,7 +2,6 @@
 name = "pnapp"
 version = "0.1.0"
 kind = "exe"
-entry = "Pn.App.Main"
 pack = true
 [sources]
 include = ["*.z42"]

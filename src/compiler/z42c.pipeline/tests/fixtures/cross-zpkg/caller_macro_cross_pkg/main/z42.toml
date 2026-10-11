@@ -2,7 +2,6 @@
 name    = "demo.cmapp"
 version = "0.1.0"
 kind    = "exe"
-entry   = "Demo.CmApp.Main"
 pack    = true
 
 [dependencies]
