@@ -1,0 +1,11 @@
+[project]
+name    = "cfapp"
+version = "0.1.0"
+kind    = "exe"
+pack    = true
+
+[sources]
+include = ["*.z42"]
+
+[dependencies]
+"cfdep" = { path = "../dep" }

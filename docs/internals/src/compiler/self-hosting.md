@@ -110,7 +110,8 @@ z42c / stdlib / xtask (z42)  ──互为前置──►  自举环
 自建步骤是 `Z42_LIBS=<种子代 run-libs>` + `--compile-libs=<flat>`；driver 换代后的步骤两者都用 flat。
 
 - **旗标探测**：早于 `--compile-libs` 的种子 driver 会静默忽略未知旗标，故先 `_driverSupportsCompileLibs` 跑 `build --help` 认关键字，不认则退回共用 flat。driver 加载不到自己那代 stdlib 会直接崩（输出无旗标名，易被误判为「不支持」），所以做两次尝试取第一个真打出 `usage:` 的；两次都没有 = 探测失败，要出声（`_helpRan`）。
-- **种子代 run-libs 不能取自 flat**：flat 正是要被预建覆盖的目录，快照晚于覆盖会拿到新代，种子 driver 即 `MissingSymbolException`。锚取 driver 自己 dist 里的 colocated 闭包（与 driver 同代是构造保证），**搬**进 `artifacts/build/compiler/seed-run-libs/<profile>/`（`_relocateSeedRunLibs`）；判据是「齐了吗」而非「搬到了吗」，缺口从 SDK libs 补（`_topUpSeedRunLibs`）。搬（而非拷）同时清掉成员 dist 里的外部包副本，避免它遮蔽 flat 里的新版。
+- **种子代 run-libs 不能取自 flat**：flat 正是要被预建覆盖的目录，快照晚于覆盖会拿到新代，种子 driver 即 `MissingSymbolException`。锚是**上一次自建成功那一刻**的 flat stdlib——新 driver 正是对着它编译的（与 driver 同代是构造保证）：`_snapshotDriverGenLibs` 记进 driver dist 的兄弟目录 `z42c.driver/<profile>/gen-libs/`（不进 dist ⇒ 不随 publish 进 SDK；`package ci` 单独带上），下一次自建由 `_relocateSeedRunLibs` 拷进 `intermediate/compiler/seed-run-libs/<profile>/`；判据是「齐了吗」而非「搬到了吗」，缺口从 SDK libs 补（`_topUpSeedRunLibs`）。冷启动从 SDK 供种时旧锚作废（它与种子不同代）。成员 dist 里若还有外部包副本（老 driver 建的）同样搬走，避免它遮蔽 flat 里的新版。
+- **driver dist 不带 stdlib**：exe 复制判据的「框架目录」与解析面的外部档是同一份（`CompileLibsOpt.ExtDirs()`：`--compile-libs`，否则 `Z42_LIBS`）。自建时 stdlib 从 `--compile-libs` 的 flat 解析到 ⇒ 判框架、不复制，所以锚只能由 xtask 自己记。
 - 该旗标自身也受种子纪律；`WsTier` 分档生效后，「搬」可退回「拷」。
 
 ## 分阶段流程与不变量
