@@ -42,7 +42,7 @@ fn run(cut: Cut, barrier_on: bool) -> bool {
             ArrayObj::from_iter_kind(&heap, ElemType::intern("object"), ElemKind::Ref, 1, [x].into_iter()),
         Cut::MixedElem => ArrayObj::new(&heap, vec![x]),
         Cut::StructLeaf => {
-            let mut a = ArrayObj::struct_backed(&heap, ElemType::intern("P"), 1, layout);
+            let a = ArrayObj::struct_backed(&heap, ElemType::intern("P"), 1, layout);
             a.write_struct_elem(0, &[0u8; 16], &[x], &mut |_| {}).unwrap();
             a
         }
@@ -59,9 +59,9 @@ fn run(cut: Cut, barrier_on: bool) -> bool {
     heap.snapshot_roots_into_mark_queue();
     let held = x;
     match cut {
-        Cut::RefElem | Cut::MixedElem => { arr_gc.borrow_mut().set_boxed(0, Value::Null); }
-        Cut::StructLeaf => { arr_gc.borrow_mut().set_struct_elem_ref(0, 8, &Value::Null).unwrap(); }
-        Cut::BulkCopy => arr_gc.borrow_mut().copy_elems_from(&empty_gc.borrow(), 0, 0, 1),
+        Cut::RefElem | Cut::MixedElem => { arr_gc.borrow().set_boxed(0, Value::Null); }
+        Cut::StructLeaf => { arr_gc.borrow().set_struct_elem_ref(0, 8, &Value::Null).unwrap(); }
+        Cut::BulkCopy => arr_gc.borrow().copy_elems_from(&empty_gc.borrow(), 0, 0, 1),
     }
     heap.drain_mark_queue();
     heap.close_major_marking();

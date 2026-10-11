@@ -7,9 +7,10 @@
 //! default (`0` / `false` / `'\0'` / `null`).
 //!
 //! The block is 8-aligned, so the composed layout's 8-aligned `i64` / `f64` / reference cells
-//! are aligned. Cells are read and written through [`Cells`] / [`CellsMut`] (same-width atomic
-//! accesses); [`ObjStorage::bytes`] is the plain byte view for whole-blob snapshots taken under
-//! the object lock.
+//! are aligned. Every access after construction goes through [`Cells`] (same-width atomic loads
+//! and stores, `&self`; whole-blob snapshots are atomic chunked copies). There is no plain byte
+//! view: objects are shared between threads without a lock (object model R4), so a plain slice
+//! over the block would race with concurrent cell stores.
 //!
 //! # Safety
 //!
@@ -19,7 +20,7 @@
 use std::alloc::{alloc_zeroed, dealloc, Layout};
 use std::ptr::NonNull;
 
-use super::{Cells, CellsMut};
+use super::Cells;
 
 /// Alignment of the block: 8, for the composed layout's 8-aligned cells.
 const BLOCK_ALIGN: usize = 8;
@@ -49,8 +50,12 @@ impl ObjStorage {
     /// (`corelib::convert::box_prim_to_heap`), whose scalar bytes are already laid out by the
     /// caller.
     pub fn from_bytes(bytes: &[u8]) -> Self {
-        let mut this = Self::new(bytes.len());
-        this.bytes_mut().copy_from_slice(bytes);
+        let this = Self::new(bytes.len());
+        if !bytes.is_empty() {
+            // SAFETY: a fresh block of exactly `bytes.len()` bytes that nothing else can see yet
+            // (construction, before the object is published); `bytes` is a distinct allocation.
+            unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr(), this.ptr.as_ptr(), bytes.len()) };
+        }
         this
     }
 
@@ -77,35 +82,32 @@ impl ObjStorage {
         self.n_bytes as usize
     }
 
-    /// The plain byte view (whole-blob snapshots under the object lock; field cells go through
-    /// [`Self::cells`]).
+    /// Payload length in bytes (the composed layout's `bytes_len`, or a boxed primitive's width).
     #[inline]
-    pub fn bytes(&self) -> &[u8] {
-        // SAFETY: the block holds `n_bytes` zero-initialised bytes for its whole life.
-        unsafe { std::slice::from_raw_parts(self.ptr.as_ptr(), self.n_bytes as usize) }
+    pub fn len(&self) -> usize {
+        self.n_bytes as usize
     }
 
-    /// Mutable plain byte view — **primitive bytes only**: overwriting a reference word through
-    /// it bypasses the SATB barrier. Fresh objects and the boxed-primitive path use it.
+    /// Whether the object has no payload at all.
     #[inline]
-    pub fn bytes_mut(&mut self) -> &mut [u8] {
-        // SAFETY: see `bytes`; `&mut self` gives exclusive access.
-        unsafe { std::slice::from_raw_parts_mut(self.ptr.as_ptr(), self.n_bytes as usize) }
-    }
-
-    /// Atomic loads of the field cells.
-    #[inline(always)]
-    pub fn cells(&self) -> Cells<'_> {
-        // SAFETY: the block is 8-aligned, `n_bytes` long and owned by `self`; every concurrent
-        // access to it is an atomic cell access (JIT inline loads included).
-        unsafe { Cells::from_raw(self.ptr.as_ptr(), self.n_bytes as usize) }
+    pub fn is_empty(&self) -> bool {
+        self.n_bytes == 0
     }
 
     /// Atomic loads and stores of the field cells.
     #[inline(always)]
-    pub fn cells_mut(&mut self) -> CellsMut<'_> {
-        // SAFETY: as `cells`, and `&mut self` is the exclusive borrow `CellsMut` asks for.
-        unsafe { CellsMut::from_raw(self.ptr.as_ptr(), self.n_bytes as usize) }
+    pub fn cells(&self) -> Cells<'_> {
+        // SAFETY: the block is 8-aligned, `n_bytes` long and owned by `self`; every access to it
+        // after construction is an atomic cell access (JIT inline loads / stores are plain
+        // same-width accesses, the relaxed atomics of x86-64 / AArch64).
+        unsafe { Cells::from_raw(self.ptr.as_ptr(), self.n_bytes as usize) }
+    }
+
+    /// An atomic snapshot of the whole payload ([`Cells::copy_out`]).
+    pub fn snapshot(&self) -> Vec<u8> {
+        let mut out = vec![0u8; self.len()];
+        self.cells().copy_out(0, &mut out);
+        out
     }
 }
 
@@ -118,13 +120,13 @@ impl Drop for ObjStorage {
 }
 
 // SAFETY: `ObjStorage` owns its allocation exclusively (like a `Box<[u8]>`) and hands it out
-// only through `&self` / `&mut self` views.
+// only through atomic [`Cells`] views, so shared access from several threads is race-free.
 unsafe impl Send for ObjStorage {}
 unsafe impl Sync for ObjStorage {}
 
 impl std::fmt::Debug for ObjStorage {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ObjStorage").field("bytes", &self.bytes()).finish()
+        f.debug_struct("ObjStorage").field("len", &self.n_bytes).finish()
     }
 }
 

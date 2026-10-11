@@ -203,17 +203,18 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                 }
                 // Phase 2.E: emit VCallIC pointer as trailing helper arg.
                 Instruction::VCall(insn) => {
-                    // add-generic-methods: generic VCall sites filtered by jit_unsupported_reason.
-                    let VCallInsn { dst, obj, method, args, .. } = &**insn;
-                    let d = self.ri(*dst); let o = self.ri(*obj);
-                    let (mp, ml) = self.str_val(method);
-                    let (ap, al) = self.regs_val(args);
-                    let ic_ptr = vcall_ic_ptr_at(self.func, self.block_idx, self.instr_idx);
-                    let ic_val = self.builder.ins().iconst(self.ptr, ic_ptr as i64);
-                    // jit-stack-trace: call-site code offset.
-                    let off_val = self.builder.ins().iconst(types::I32, self.func.linear_offset(self.block_idx as u32, self.instr_idx as u32) as i64);
-                    let inst = self.builder.ins().call(self.hr_vcall, &[self.frame_val, self.ctx_val, d, o, mp, ml, ap, al, ic_val, off_val]);
-                    let ret  = self.builder.inst_results(inst)[0]; self.check(ret);
+                    // perf-str-jit-intrinsics: `s.Length` on a string receiver lowers to
+                    // `vcall get_Length` — inline it, the helper sequence is the slow path.
+                    match self.str_intrinsic_of_vcall(insn) {
+                        Some(k) => {
+                            let mut recv_args: Vec<u32> = Vec::with_capacity(insn.args.len() + 1);
+                            recv_args.push(insn.obj);
+                            recv_args.extend_from_slice(&insn.args);
+                            self.emit_str_intrinsic(k, insn.dst, &recv_args, false,
+                                |cx| cx.emit_vcall_helper(insn));
+                        }
+                        None => self.emit_vcall_helper(insn),
+                    }
                 }
                 Instruction::IsInstance(insn) => {
                     let IsInstanceInsn { dst, obj, class_name, target } = &**insn;
@@ -268,5 +269,21 @@ impl<'a, 'b> TxCtx<'a, 'b> {
             _ => anyhow::bail!("tr_object: unexpected opcode in category dispatch"),
         }
         Ok(())
+    }
+
+    /// The `jit_vcall` helper sequence for a `VCall` site. Also the slow path of an
+    /// inlined string intrinsic.
+    pub(super) fn emit_vcall_helper(&mut self, insn: &VCallInsn) {
+        // add-generic-methods: generic VCall sites filtered by jit_unsupported_reason.
+        let VCallInsn { dst, obj, method, args, .. } = insn;
+        let d = self.ri(*dst); let o = self.ri(*obj);
+        let (mp, ml) = self.str_val(method);
+        let (ap, al) = self.regs_val(args);
+        let ic_ptr = vcall_ic_ptr_at(self.func, self.block_idx, self.instr_idx);
+        let ic_val = self.builder.ins().iconst(self.ptr, ic_ptr as i64);
+        // jit-stack-trace: call-site code offset.
+        let off_val = self.builder.ins().iconst(types::I32, self.func.linear_offset(self.block_idx as u32, self.instr_idx as u32) as i64);
+        let inst = self.builder.ins().call(self.hr_vcall, &[self.frame_val, self.ctx_val, d, o, mp, ml, ap, al, ic_val, off_val]);
+        let ret  = self.builder.inst_results(inst)[0]; self.check(ret);
     }
 }

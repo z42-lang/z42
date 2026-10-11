@@ -64,7 +64,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         let region = self.region_object.lock();
         region.iterate_alive(|_h, entry| {
             if entry.is_marked(major) {
-                let obj = entry.value.lock();
+                let obj = &entry.value;
                 let td_ptr = std::sync::Arc::as_ptr(&obj.type_desc) as usize;
                 if let Some(cid) = snap.retained_context(td_ptr, &obj.native()) {
                     live.insert(cid);
@@ -89,8 +89,8 @@ impl crate::gc::arc_heap::ArcMagrGC {
         {
             let region = self.region_object.lock();
             region.iterate_alive(|_h, entry| {
-                let self_ptr = entry.value.data_ptr() as usize;
-                let obj = entry.value.lock();
+                let self_ptr = &entry.value as *const _ as usize;
+                let obj = &entry.value;
                 let type_name = obj.type_desc.name.clone();
                 obj.visit_refs(&mut |slot: &Value| {
                     if let Some(child) = value_heap_ptr(slot) {
@@ -106,8 +106,8 @@ impl crate::gc::arc_heap::ArcMagrGC {
         {
             let region = self.region_array.lock();
             region.iterate_alive(|_h, entry| {
-                let self_ptr = entry.value.data_ptr() as usize;
-                let arr = entry.value.lock();
+                let self_ptr = &entry.value as *const _ as usize;
+                let arr = &entry.value;
                 let type_name = format!("{}[]", &*arr.element_type);
                 // `visit_refs`: the array's reference edges (elements / struct[] reference leaves).
                 arr.visit_refs(&mut |elem: &Value| {

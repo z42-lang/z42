@@ -169,6 +169,66 @@ fn resolve_fn_by_id_thr(&self, id, thr) -> Option<&FnEntry> {
 - **可观察差异只有一处**：builtin 内抛出的异常，栈轨迹里少了 extern 包装函数自己那一行。
   只有 JIT 走这条路；解释器仍按普通调用执行包装函数。
 
+## 字符串原语内联
+
+> `jit/translate/str_intrinsics.rs`（识别 + 发射）、`jit/forward.rs`（`StrIntrinsic` / `ForwardLookup`）、
+> `metadata/vstr.rs::jit_layout`（生成码读字符串块的唯一布局出口）。
+
+上一节的短路之后，`s.Length` / `s[i]` / `s.CharAt(i)` 每次仍是一次 helper 调用：把实参克隆进
+`SmallVec`、按 id 派发 builtin、把结果装回 `Value`。字符串处理循环（逐字符扫描、`StringBuilder`
+每次 `Append` 读 `value.Length`）里这就是全部成本。而对一个块头带「全 ASCII」位（[gc-tuning.md](gc-tuning.md)）
+的字符串，答案只是两三次 load——翻译器直接把它们发出来。
+
+**哪些调用点**（按被调方**转发到的 builtin** 识别，不按名字）：
+
+| 成员 | z42c 发出的形状 | builtin |
+|---|---|---|
+| `s.Length` | `vcall %s.get_Length()` | `__str_length` |
+| `s[i]`（含 `foreach (char c in s)`） | `call @Std.String.get_Item(%s, %i)`（形状 2 转发） | `__str_char_at` |
+| `s.CharAt(i)` | `call @Std.String.CharAt(%s, %i)` | `__str_char_at` |
+
+- **静态 `Call`**：调用点的 token 在翻译时已绑定（经过解释器的调用点都已绑定；没绑定的照常发 helper），
+  被调方是 `__str_length` / `__str_char_at` 的转发包装（形状 1 或 2），且其属主类型已加载、没有静态构造器。
+- **`VCall`**：接收者静态类型是 `string`，且 `Std.String.<method>`——`resolve_vcall` 对字符串接收者探的
+  第一个候选——是上述转发包装。查找只读已登记的函数（`probe_loaded_function`），翻译期不加载包、不跑初始化器。
+- 索引实参的静态类型须是整数（读它的 i64 载荷）。
+
+**快路径条件**（任何一条不满足 → 跳到该调用点原封不动的 helper 序列）：
+
+```text
+tag(recv) == Str                          // null / 别的值 → helper（同一条异常）
+[仅静态 Call] 包初始化门关闭               // ctx.cctors 的 module_pending | module_failed == 0
+hdr = payload(recv) & HANDLE_ADDR_MASK
+hdr.type_tag & ASCII_BIT                  // 非 ASCII 或「未知」→ helper
+len = hdr.size
+Length → dst = I64(len)
+CharAt → (u64)i < len ? dst = Char(hdr.data[i]) : helper   // 负下标按无符号比较也落 helper
+```
+
+- **回落即等价改前**：慢路径就是原来的 `jit_call` / `jit_vcall` 序列，所以 null 接收者、非 ASCII、越界、
+  负下标的结果与异常文本都和改前、和解释器逐字相同。
+- **屏障**：`jit_vcall` 不跑屏障，`VCall` 形无需门。`jit_call` 先跑包初始化屏障、再跑被调方类型的
+  cctor 屏障。后者对无静态构造器的属主恒为空操作（翻译期 `callee_owner_init_free` 判定）；前者当且仅当
+  没有待跑或失败的包初始化器时为空操作——快路径直接读这两个计数（`JitModuleCtx::cctors` 指向运行中 VM 的
+  `CctorRegistry`，与 `vm_ctx` 同步设置 / 清空；为空则一律走 helper）。注意不能用 `any_cctor_pending`
+  作门：程序里只要有一个没被触达的静态构造器它就恒真，快路径会形同虚设。
+- **GC**：快路径不分配、不经 safepoint，接收者句柄一直在帧寄存器里（根），非移动堆 ⇒ 块在这几次 load
+  之间不会被回收或移走。快路径也不盖调用点偏移、不做 `Call` 之后的 safepoint：没有进入任何 z42 帧，也不会抛。
+- 目标寄存器总是写内存（`TAG_I64` / `TAG_CHAR` + 载荷）。`Call` / `VCall` 不参与块内整数缓存与跨迭代驻留，
+  翻译前缓存已 flush，所以与 `RegCache` 无交互；代价是循环下标仍走内存，是下一步可挖的地方。
+- 只在 64 位目标发射（`jit_layout` 按 8 B tagged 句柄写死）。解释器没有对应快路径：它只跑冷代码。
+- **配套：`char` 比较原生化**（`translate/compare.rs::emit_char_cmp`）。取出来的字符紧接着就是
+  `c == '7'` / `c >= '0'`，两侧静态类型都是 `char` 时按码点无符号比较（即 `semantics::numeric_{eq,lt}`
+  对两个 `Value::Char` 的语义），运行期两侧 tag 都是 `Char` 才走快路径，否则仍调 `jit_eq` … `jit_ge`。
+
+**效果**（release，5–7 次交错取中位，load 4–10）：微基准（1000 万次）`s.Length` 143 → 40 ms、`s.CharAt(i)`
+330 → 95 ms、`s[i]` 327 → 94 ms；`str_builder`（100 万次 Append ×3 + 逐字符扫描）1012 → 547 ms，其中扫描段
+493 → 63 ms，拼接段 537 → 480 ms（`Append` 读 `value.Length`）；采样里字符串成员的派发从 34% 降到 4%。
+z42c 自举整工作区构建（`--jobs 1`）13.38 → 13.01 s，产物逐字节相同。剩下的成本在 `Append` 本身——脚本方法调用的
+帧、入口处的字段 hoist、`string[]` 的写屏障与扩容拷贝——以及 GC，不在字符串原语里。
+单测 `jit/translate/str_intrinsics_tests.rs` 逐例比对 interp / jit 并断言走了哪条路径；
+golden `src/tests/strings/str_intrinsics_jit` 覆盖真实编译器与标准库下的同一组成员。
+
 ## 分层：热度阈值 + 三态负缓存（准则 2）
 
 惰性逐函数编译是「首次调用即编译」；分层把它推进为「**热函数才编译**」——冷函数（调用次数

@@ -148,6 +148,15 @@ public static class IrDump {
                                                     CompilationUnit[] cus,
                                                     DependencyIndex deps, ImportedSymbols imported,
                                                     bool isRelease, IrModule[] cachedModules, int optSet) {
+        return IrDump.BuildPackageCusGated(srcs, files, count, cus, deps, imported, isRelease, cachedModules, optSet, false);
+    }
+    // `upstreamErrors`：前置线（generator 护栏 / analyzer）已经报了 error ⇒ 这次编译注定不产出，
+    // 各文件照常收集 + 类型检查（诊断一次报全），但都不进代码生成与优化——与包级收集期错误同一道门。
+    public static CompiledModuleZ[] BuildPackageCusGated(string[] srcs, string[] files, int count,
+                                                         CompilationUnit[] cus,
+                                                         DependencyIndex deps, ImportedSymbols imported,
+                                                         bool isRelease, IrModule[] cachedModules, int optSet,
+                                                         bool upstreamErrors) {
         int i = 0;
         CuPreprocess._injectGlobalUsings(cus, count);   // add-global-using：包级 using 注入每个 CU（须在符号收集前）
         SymbolCollector coll = new SymbolCollector();
@@ -255,7 +264,7 @@ public static class IrDump {
         CompileCuTask _task = new CompileCuTask(cus, files, symbols, deps, imported,
             localClasses, isRelease, partialMerged, optSet, cachedModules, allFuncs, afc, pkgClassMap,
             layouts, pkgGenerics, pkgGenericTypes, r);
-        _task.PkgHasErrors = coll.Diags.ErrorCount() > 0;
+        _task.PkgHasErrors = upstreamErrors || coll.Diags.ErrorCount() > 0;
         ParallelFor.Run(count, ParallelConfig.Jobs(count), _task);
         // add-partial-types：分发 partial 合并的包级诊断到对应文件的 CompiledModuleZ（按 Span.File 匹配；无匹配落 0 号）。
         // 这些诊断在 CollectAll（包级）产生，不属于任一 _compileCu 的 per-file bag，故此处并入使 PackageCompile 诊断门捕获。

@@ -12,7 +12,7 @@ fn alloc_object_returns_value_object_with_given_fields() {
     assert_eq!(borrow.type_desc.name, "Foo");
     // The dummy type has 4 reference fields and no compiler layout → 4 type-parameter cells
     // (16 B each); the two initial values land in fields 0 and 1.
-    assert_eq!(borrow.bytes().len(), 4 * 16);
+    assert_eq!(borrow.payload_len(), 4 * 16);
     assert_eq!(borrow.field_value(0), Value::I64(1));
     assert_eq!(borrow.field_value(1), Value::I64(2));
 }

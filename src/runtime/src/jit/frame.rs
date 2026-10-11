@@ -279,11 +279,21 @@ pub struct JitModuleCtx {
     /// (`stack_guard::limit()` of the thread running `JitModule::run_fn`; JIT code
     /// runs on that thread only). Read by every function prologue. `0` = no check.
     pub stack_limit: usize,
+    /// perf-str-jit-intrinsics: the running VM's cctor registry, set / cleared in
+    /// lockstep with `vm_ctx`. The inline string intrinsics on a static `Call`
+    /// (`translate::str_intrinsics`) read its package-init gate counters
+    /// (`CctorRegistry::MODULE_{PENDING,FAILED}_OFFSET`) in place of `jit_call`'s
+    /// barrier; null ⇒ the gate counts as open and they take the helper path.
+    pub cctors: *const crate::vm_context::cctor::CctorRegistry,
 }
 
 /// Byte offset of [`JitModuleCtx::stack_limit`] (read by the inlined prologue check).
 pub const JIT_MODULE_CTX_STACK_LIMIT_OFFSET: usize =
     std::mem::offset_of!(JitModuleCtx, stack_limit);
+
+/// Byte offset of [`JitModuleCtx::cctors`] (read by the inline string intrinsics).
+pub const JIT_MODULE_CTX_CCTORS_OFFSET: usize =
+    std::mem::offset_of!(JitModuleCtx, cctors);
 
 /// Byte offset of [`JitModuleCtx::vm_ctx`] within `JitModuleCtx`.
 ///
@@ -310,6 +320,7 @@ impl JitModuleCtx {
             osr_entries: Mutex::new(HashMap::new()),
             osr_threshold,
             stack_limit: 0,
+            cctors: std::ptr::null(),
         }
     }
 
@@ -441,7 +452,7 @@ impl JitModuleCtx {
         if slot.entry.get().is_none() {
             if slot.state.load(Ordering::Relaxed) == SLOT_REJECTED { return None; }
             let t0 = std::time::Instant::now();
-            match guard.compile_fn(func) {
+            match guard.compile_fn(func, self) {
                 Ok(mut entry) => {
                     if entry.forward.is_none() { entry.forward = self.chained_forward(func); }
                     let _ = slot.entry.set(entry);
@@ -520,7 +531,7 @@ impl JitModuleCtx {
             FnEntry::rejected()
         } else {
             let mut guard = match (*self.lazy).lock() { Ok(g) => g, Err(p) => p.into_inner() };
-            match guard.compile_fn_osr(func, k) {
+            match guard.compile_fn_osr(func, k, self) {
                 Ok(e) => {
                     if !self.vm_ctx.is_null() {
                         (*self.vm_ctx).counters().jit_methods_compiled

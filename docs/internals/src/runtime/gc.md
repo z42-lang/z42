@@ -176,33 +176,17 @@ slot 被复用后会静默读到**另一个对象**（type confusion）——见
 - Clone = memcpy 8 字节，**零原子 op**（相对 `Arc::clone` 每次
   `fetch_add` 2-4 ns）
 
-#### type_desc / type_args 免锁读取
+#### 访问：`borrow()` 给 `&T`，没有锁
 
-`ScriptObject.type_desc` 和 `type_args` 是 write-once-at-alloc 字段
-（`alloc_object` 写入 type_desc；`ObjNew` 写 type_args 都发生在 GcRef
-escape 之前），运行时其余地方**不可变**。读取它们走的是 `GcRef<ScriptObject>`
-上新增的 lockless accessor：
+`RegionEntry` 直接装 `T`，没有每对象锁：`GcRef::borrow()` 校验 generation / alive 后给 `&T`。
+对象与数组跨线程共享，字段 / 元素读写都是 `&self` 上的同宽原子单元访问（机制与内存序见
+[object-abi.md](object-abi.md) §3「字段单元的内存序」）。`type_desc` / `type_args` / `NativeData`
+在分配之前定好、之后不变，`GcRef::type_desc()` / `type_desc_arc()` / `type_args()` 只是 `borrow()` 上的便捷读。
+需要独占的只有 GC 自己：清扫死对象、槽位复用 / decommit / region drop 时 drop `T`（条目已死，持 region 锁或在停顿里）。
 
-- `GcRef::type_desc(&self) -> &TypeDesc`
-- `GcRef::type_desc_arc(&self) -> &Arc<TypeDesc>`（需要 clone Arc 时用）
-- `GcRef::type_args(&self) -> &[String]`
-
-实现原理是 `parking_lot::Mutex::data_ptr()` 暴露的 `*mut T`：跳过 `lock()`
-直读 UnsafeCell 内部。Safety 锚定在 "type_desc / type_args 永不 mutate"
-的全局 invariant（`grep -rn '.type_desc *=' src/runtime/` 0 命中验证）。
-
-为什么值：每次 PIC / IsInstance / IcCall 都要读 type_id，Mutex lock 即使
-uncontended 也是 ~5–10 ns 的 atomic CAS。lockless 后变成 3 条 native load。
-对照 CoreCLR `MethodTable*` 在 `ObjHeader` 固定偏移 / HotSpot `klass*` 在
-`oopDesc` 头部——属于业界成熟模式。
-
-`borrow()` / `borrow_mut()` 路径不变：slots / native 仍 mutable，必须
-走 Mutex。仅 type_desc / type_args 这两个 immutable 字段走 lockless。
 - Drop = no-op（无 refcount）
-- borrow / borrow_mut 走 `RegionEntry.value: Mutex<T>` 阻塞 lock
-  （同并发模型）
 - `ptr_eq` 比 NonNull + generation（stale-vs-fresh 区分）
-- `as_ptr` 返回 entry 内 `Mutex<T>` 稳定地址
+- `as_ptr` 返回 entry 内 `value: T` 的稳定地址
 
 **WeakGcRef** 同 handle shape + generation snapshot。`upgrade` 检查
 `alive && generation matches` —— ABA-safe：被 tombstone 后即使槽位
@@ -397,8 +381,7 @@ region 里每个活着的老条目，持有年轻引用而所在卡是干净的�
 **Override 契约**:
 
 - 实现可以 `debug_assert!(new.is_heap_ref())` 检测 caller 是否漏 filter
-- 不能假设 `owner` 持有 inner-`Mutex` lock；可以自由 `owner.borrow()` /
-  `owner.borrow_mut()`（caller 已 drop）
+- 可以自由 `owner.borrow()`（对象没有锁，读字段不会与 caller 冲突）
 - default no-op 不修改 `HeapStats`；这条契约保留下来意味着
   pure-tracing / generational override 也不应改 `HeapStats`（stats 反映
   alloc/free，不反映 barrier dispatch 次数）

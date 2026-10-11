@@ -1,0 +1,267 @@
+// Reflective test runner v2 (retire-test-runner). Replaces the Rust z42-test-runner:
+// loads a compiled test module and runs each [Test] / [Benchmark] it declares,
+// classifying pass / fail / skip — including [Skip] gating and [ShouldThrow<E>]
+// matching.
+//
+// z42 [Test]/[Benchmark]/[Setup]/[Teardown] are emitted as zero-arg FREE
+// functions (`<Namespace>.<func>`), so the runner invokes them by their TIDX
+// fully-qualified name (ModuleLoader.Invoke) — not via instance + MethodInfo.
+//
+// Lifecycle per [Test]: same-namespace [Setup] → the test → same-namespace
+// [Teardown] (teardown always runs). Exit code: 0 = all passed (failures=0),
+// 1 = any failure.
+//
+// Output format (rebuild-bench-structured-output): `format` selects
+//   "pretty" (default) — human-readable PASS/FAIL/SKIP lines + Result summary;
+//   "json"             — a single structured `TestReport` object (with per-benchmark
+//                        `bench_stats` parsed from the benchmark's captured stdout).
+namespace Std.Harness;
+
+using Std.Test;   // 作者侧：TestIO（捕获输出）/ BenchStats（解析 bench 摘要）
+
+using Std.IO;
+
+// Internal invoke outcome (z42 has no out-params). Carries thrown state + the
+// benchmark's captured stdout (json mode only; "" otherwise / on throw).
+public class InvokeOutcome {
+    public bool Threw;
+    public string ErrType;
+    public string ErrMsg;
+    public string Captured;
+    public InvokeOutcome() {
+        this.Threw = false; this.ErrType = ""; this.ErrMsg = ""; this.Captured = "";
+    }
+}
+
+public static class Runner {
+    // Load + run every [Test] / [Benchmark] in the compiled module at `path`,
+    // rendering output in `format` ("pretty" | "json"). Returns a process exit
+    // code (0 = no failures, 1 = at least one failure).
+    public static int RunModule(string path, string format) {
+        bool json = (format == "json");
+        TestEntry[] entries = TestModule.Load(path);
+
+        int runnable = 0;
+        int c = 0;
+        while (c < entries.Length) {
+            if (entries[c].IsTest() || entries[c].IsBenchmark()) { runnable = runnable + 1; }
+            c = c + 1;
+        }
+        TestResult[] results = new TestResult[runnable];
+
+        int passed = 0; int failed = 0; int skipped = 0;
+        int ri = 0;
+        int i = 0;
+        while (i < entries.Length) {
+            TestEntry e = entries[i];
+            // [Test] and [Benchmark] are dispatched identically (zero-arg
+            // invocation); the benchmark body constructs its own Bencher and
+            // self-reports — mirrors the retired Rust runner, which ran both.
+            if (e.IsTest() || e.IsBenchmark()) {
+                TestResult tr = Runner._runOne(e, entries, json);
+                results[ri] = tr;
+                ri = ri + 1;
+                if (tr.Status == "passed")      { passed = passed + 1; }
+                else if (tr.Status == "failed") { failed = failed + 1; }
+                else                            { skipped = skipped + 1; }
+            }
+            i = i + 1;
+        }
+
+        if (json) {
+            Console.WriteLine(TestReport.toJson(path, results));
+        } else {
+            Console.WriteLine("");
+            Console.WriteLine("  Result: " + passed.ToString() + " passed, "
+                + failed.ToString() + " failed, " + skipped.ToString() + " skipped");
+        }
+        // error-on-zero-discovered-tests：被要求跑一个**一条 [Test]/[Benchmark] 都没发现**的产物，
+        // 此前打印 `0 passed, 0 failed, 0 skipped` 后 **exit 0** —— 「我的测试没跑」与「我的测试全过」
+        // 在退出码上不可区分。能触发它的都是真事故：attribute 拼错（[Tests]/[test]）、[sources] glob
+        // 漏掉文件、测试函数被改名/误删、或调用方把一个根本没有测试的目录当成了测试单元。
+        // 报告照常打印（json 消费方不受影响），错误另走 stderr，退出码非零。
+        if (runnable == 0) {
+            ConsoleError.WriteLine("error: no [Test] or [Benchmark] found in `" + path + "`");
+            ConsoleError.WriteLine("  a test artifact with zero discovered tests is treated as a failure —");
+            ConsoleError.WriteLine("  check the attribute spelling, the package's [sources] globs, and that");
+            ConsoleError.WriteLine("  the test functions still exist in the compiled artifact.");
+        }
+        return Runner.ExitCodeFor(runnable, failed);
+    }
+
+    // 退出码决策（抽成纯函数以便直接单测；RunModule 里那段是 I/O，决策在这里）。
+    //   runnable == 0 → 1：**「测试没跑」不得与「测试全过」在退出码上等价**。
+    //     能触发它的都是真事故：attribute 拼错（[Tests]/[test]）、[sources] glob 漏掉文件、
+    //     测试函数被改名/误删、或调用方把一个根本没有测试的目录当成了测试单元。
+    //   failed > 0  → 1：有失败。
+    //   否则        → 0。
+    public static int ExitCodeFor(int runnable, int failed) {
+        if (runnable == 0) { return 1; }
+        if (failed > 0) { return 1; }
+        return 0;
+    }
+
+    // Run every [Test]/[Benchmark] in the module at `path`, RETURNING the results
+    // without printing. For aggregating across a bundle of modules (embedded
+    // test-host, wire-embedded-testhost): the caller collects results from many
+    // modules and renders one combined TestReport.
+    public static TestResult[] RunModuleResults(string path) {
+        TestEntry[] entries = TestModule.Load(path);
+        int runnable = 0;
+        int c = 0;
+        while (c < entries.Length) {
+            if (entries[c].IsTest() || entries[c].IsBenchmark()) { runnable = runnable + 1; }
+            c = c + 1;
+        }
+        TestResult[] results = new TestResult[runnable];
+        int ri = 0;
+        int i = 0;
+        while (i < entries.Length) {
+            TestEntry e = entries[i];
+            if (e.IsTest() || e.IsBenchmark()) {
+                results[ri] = Runner._runOne(e, entries, true);   // json=true → no pretty print
+                ri = ri + 1;
+            }
+            i = i + 1;
+        }
+        return results;
+    }
+
+    // Run one [Test]/[Benchmark]. Returns its TestResult; prints pretty lines only
+    // when `!json` (pretty output stays byte-identical to pre-structured-output).
+    static TestResult _runOne(TestEntry e, TestEntry[] all, bool json) {
+        bool isBench = e.IsBenchmark();
+        if (e.IsIgnored()) {
+            if (!json) { Console.WriteLine("  SKIP " + e.Qualified + " (ignored)"); }
+            return new TestResult(e.Qualified, "skipped", isBench, "ignored", null);
+        }
+        if (e.IsSkipped() && Runner._skipApplies(e)) {
+            string why = (e.SkipReason != null) ? (" (" + e.SkipReason + ")") : "";
+            if (!json) { Console.WriteLine("  SKIP " + e.Qualified + why); }
+            string sreason = (e.SkipReason != null) ? e.SkipReason : "skipped";
+            return new TestResult(e.Qualified, "skipped", isBench, sreason, null);
+        }
+
+        string ns = e.DeclaringType();
+        Runner._runLifecycle(all, ns, 3);   // [Setup]
+        InvokeOutcome o = Runner._invoke(e, json);
+        Runner._runLifecycle(all, ns, 4);   // [Teardown] (always)
+
+        if (e.HasShouldThrow()) {
+            if (o.Threw && Runner._typeMatches(o.ErrType, e.ShouldThrow)) {
+                if (!json) { Console.WriteLine("  PASS " + e.Qualified); }
+                return Runner._pass(e, isBench, o.Captured, json);
+            }
+            string got = o.Threw ? o.ErrType : "no throw";
+            string freason = "expected throw " + e.ShouldThrow + ", got " + got;
+            if (!json) { Console.WriteLine("  FAIL " + e.Qualified + " (" + freason + ")"); }
+            return new TestResult(e.Qualified, "failed", isBench, freason, null);
+        }
+        if (o.Threw) {
+            string treason = o.ErrType + ": " + o.ErrMsg;
+            if (!json) { Console.WriteLine("  FAIL " + e.Qualified + ": " + treason); }
+            return new TestResult(e.Qualified, "failed", isBench, treason, null);
+        }
+        if (!json) { Console.WriteLine("  PASS " + e.Qualified); }
+        return Runner._pass(e, isBench, o.Captured, json);
+    }
+
+    // Invoke the entry. In json mode, capture its stdout (so the benchmark's
+    // `bench[...]` line can be parsed and is not echoed into the JSON stream).
+    static InvokeOutcome _invoke(TestEntry e, bool json) {
+        InvokeOutcome o = new InvokeOutcome();
+        if (json) {
+            try {
+                o.Captured = TestIO.captureStdout(() => { ModuleLoader.Invoke(e.Qualified); });
+            } catch (Exception ex) {
+                o.Threw = true; o.ErrMsg = ex.Message; o.ErrType = ex.GetType().FullName;
+            }
+        } else {
+            try {
+                ModuleLoader.Invoke(e.Qualified);
+            } catch (Exception ex) {
+                o.Threw = true; o.ErrMsg = ex.Message; o.ErrType = ex.GetType().FullName;
+            }
+        }
+        return o;
+    }
+
+    // Build a passed TestResult; for a benchmark in json mode, parse its captured
+    // summary line into bench_stats (null if the line is absent/malformed).
+    static TestResult _pass(TestEntry e, bool isBench, string captured, bool json) {
+        BenchStats stats = null;
+        if (json && isBench) { stats = BenchStats.parse(captured); }
+        return new TestResult(e.Qualified, "passed", isBench, null, stats);
+    }
+
+    // Run all [Setup] (kind 3) or [Teardown] (kind 4) functions declared in the
+    // same namespace `ns` as the test. (z42 free-function fixtures have no shared
+    // instance; same-namespace grouping preserves locality.)
+    static void _runLifecycle(TestEntry[] all, string ns, int kind) {
+        int i = 0;
+        while (i < all.Length) {
+            TestEntry e = all[i];
+            if (e.Kind == kind && e.DeclaringType() == ns) {
+                try { ModuleLoader.Invoke(e.Qualified); } catch (Exception ex) { }
+            }
+            i = i + 1;
+        }
+    }
+
+    // Does this [Skip] apply on the current host? Unconditional skip → yes.
+    // Platform skip → yes iff host OS matches. Feature skip → yes iff the running
+    // VM lacks that capability (fix-wasm-corpus-capability-gate): `[Skip(feature:
+    // X)]` reads as "this test requires capability X; skip where it's absent" —
+    // so it runs where X is present (e.g. threads/socket on native) and skips
+    // where it isn't (wasm). Deny-by-default preserved: an unknown feature is not
+    // in Capabilities() → absent → skip.
+    static bool _skipApplies(TestEntry e) {
+        if (e.SkipPlatform != null) { return Platform.OS() == e.SkipPlatform; }
+        if (e.SkipFeature != null) { return !Runner._capsHas(e.SkipFeature); }
+        return true;
+    }
+
+    // Does the running VM report capability `feature` (Std.Platform.Capabilities())?
+    static bool _capsHas(string feature) {
+        string[] caps = Platform.Capabilities();
+        int i = 0;
+        while (i < caps.Length) {
+            if (caps[i] == feature) { return true; }
+            i = i + 1;
+        }
+        return false;
+    }
+
+    // Match the thrown type against the [ShouldThrow<E>] expectation. `expected`
+    // is z42c's chain "E;descendant…" (the declared type + every visible subtype
+    // reaching it) — any segment matching the thrown type's FullName (exact or by
+    // simple name) is a hit, mirroring the retired Rust runner. Null-safe: a
+    // missing expected chain or thrown-type name → no match (reported as a fail).
+    static bool _typeMatches(string actualFullName, string expected) {
+        if (actualFullName == null || expected == null) { return false; }
+        int start = 0;
+        int i = 0;
+        while (i <= expected.Length) {
+            bool atEnd = (i == expected.Length);
+            if (atEnd || expected.Substring(i, 1) == ";") {
+                string seg = expected.Substring(start, i - start);
+                if (seg.Length > 0) {
+                    if (actualFullName == seg) { return true; }
+                    if (Runner._simpleName(actualFullName) == Runner._simpleName(seg)) { return true; }
+                }
+                start = i + 1;
+            }
+            i = i + 1;
+        }
+        return false;
+    }
+
+    static string _simpleName(string fqn) {
+        int i = fqn.Length - 1;
+        while (i >= 0) {
+            if (fqn.Substring(i, 1) == ".") { return fqn.Substring(i + 1, fqn.Length - (i + 1)); }
+            i = i - 1;
+        }
+        return fqn;
+    }
+}

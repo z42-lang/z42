@@ -16,7 +16,7 @@
 ## Runtime foundation 现状
 
 - **VmCore / VmContext 类型层划分**：共享 8 字段 (`Arc<VmCore>`) + per-thread 4 字段（VmContext 持 `Arc<VmCore>` 加自己的 Arc<Mutex<>> 字段）
-- **GcRef 以 Arc 为 backing**：`Arc<GcAllocation>`，内部 `parking_lot::Mutex<T>`
+- **GcRef 是 8 B 标记指针**：指向 region 里的 `RegionEntry<T>`，`borrow()` 给 `&T`、不加锁（对象跨线程共享，字段 / 元素是原子单元，见 [object-abi.md](object-abi.md) §3）
 - **MagrGC trait 带 Send + Sync 边界**：实施 backend `ArcMagrGC` 满足
 - **6 个编译期 Send+Sync assertion**（[src/runtime/src/gc/arc_heap_tests/send_sync.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/gc/arc_heap_tests/send_sync.rs)）+ 3 个 cross-thread 集成测试（[src/runtime/tests/cross_thread_smoke.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/tests/cross_thread_smoke.rs)）钉死不可回归
 
@@ -26,7 +26,7 @@
 | ✅ 跨线程 read 共享 GC | `Arc<VmCore>` 可跨线程；GcRef 可跨线程 move / clone / borrow |
 | ✅ 多 VmContext 共享 GC heap | VmCore `vm_contexts` 注册表 + `Pin<Box<VmContext>>` 地址稳定 + scanner walk registry |
 | ✅ 用户层线程 API | `Std.Threading.Thread.Start(Action)` / `.Join()` + `Std.Threading.ThreadException`。底层 `__thread_spawn` / `__thread_join` builtin 接 `VmCore.threads: Mutex<HashMap<u64, JoinHandle>>` slot table。worker 走 `VmContext::new_with_core(Arc::clone(core))` 共享父 VmCore |
-| ✅ 同步原语 | `Std.Threading.Mutex<T>` / `Channel<T>` + `Std.Threading.ChannelDisconnectedException`。Mutex 走 `parking_lot::Mutex<Value>` + thread-local guard parking（`__mutex_lock_acquire` / `__mutex_store` / `__mutex_unlock`，z42 facade 暴露 RAII `Lock(Func<T,T>)`）；Channel 走 `std::sync::mpsc` unbounded MPSC（`__channel_send` / `__channel_recv` / `__channel_try_recv` / `__channel_close`）。GcRef::borrow 用 blocking `lock`（多线程下两 worker 并发 field_get 同一 object 不 panic）|
+| ✅ 同步原语 | `Std.Threading.Mutex<T>` / `Channel<T>` + `Std.Threading.ChannelDisconnectedException`。Mutex 走 `parking_lot::Mutex<Value>` + thread-local guard parking（`__mutex_lock_acquire` / `__mutex_store` / `__mutex_unlock`，z42 facade 暴露 RAII `Lock(Func<T,T>)`）；Channel 走 `std::sync::mpsc` unbounded MPSC（`__channel_send` / `__channel_recv` / `__channel_try_recv` / `__channel_close`）。两 worker 并发读写同一对象的字段是逐单元原子访问，不加锁 |
 | ✅ 并发 GC (safepoint) | interp dispatch loop 在 function entry / backward branch / Call return 三处 `check_safepoint(ctx)`；JIT translate 在对应 4 个 site emit `jit_check_safepoint` helper call，与 interp 对齐。script-driven `__gc_collect` / `__gc_force_collect` 由 `request_gc_pause` RAII guard 包成 stop-the-world。auto-threshold 路径 `maybe_auto_collect` 也走 safepoint：trip 时 set `VmCore.needs_auto_collect` AtomicBool flag → 下个 `check_safepoint(ctx)` swap claim → safepoint-wrapped collect。所有 mutator VmContext park 在 `gc_phase_cv` Condvar 上等 phase 回 Idle。**单线程 mark+sweep**：collector 独自在停顿里标记 / 清扫，不并行、也不与 mutator 并发 |
 | ❌ `spawn` / `task scope` 语法 | L3 阶段引入（本文档 §3.5） |
 

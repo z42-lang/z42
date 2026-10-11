@@ -1,5 +1,5 @@
-// rebuild-bench-structured-output — unit coverage for `BenchStats.parse` and
-// `TestReport.toJson`. These inputs are deterministic strings (not timings), so
+// rebuild-bench-structured-output — unit coverage for `BenchStats.parse`（`TestReport`
+// 的 JSON 形状在 z42.harness/tests/test_report.z42）. These inputs are deterministic strings (not timings), so
 // the tests are stable. Mirrors the retired Rust runner's `bench_stats_*` tests.
 
 namespace Z42TestBenchStats;
@@ -65,61 +65,4 @@ void test_parse_leading_indent() {
         .Expect("leading indent is tolerated");
     Assert.Equal("y", s.Label);
     Assert.Equal("8", s.Samples.ToString());
-}
-
-// ── TestReport.toJson ───────────────────────────────────────────────────────
-
-[Test]
-void test_result_json_benchmark_shape() {
-    BenchStats b = BenchStats.parse(
-        "bench[add] min=10ns median=20ns max=30ns mean=22ns stddev=4ns samples=50");
-    TestResult r = new TestResult("M.bench_add", "passed", true, null, b);
-    string j = TestReport.resultJson(r);
-    Assert.Contains("\"name\":\"M.bench_add\"", j);
-    Assert.Contains("\"status\":\"passed\"", j);
-    Assert.Contains("\"is_benchmark\":true", j);
-    Assert.Contains("\"bench_stats\":{\"label\":\"add\",\"min_ns\":10,\"median_ns\":20,\"max_ns\":30,\"mean_ns\":22,\"stddev_ns\":4,\"samples\":50}", j);
-}
-
-[Test]
-void test_report_envelope_shape() {
-    // toJson(artifact, TestResult[]) 全量 envelope（自然 API——fix-parse-diags-dropped
-    // 修好 parser 后从 Runner 内联装配收敛回来；数组参数与多参方法均正常）。
-    BenchStats b = BenchStats.parse("bench[add] min=10ns median=20ns max=30ns samples=50");
-    TestResult[] rs = new TestResult[2];
-    rs[0] = new TestResult("M.test_ok", "passed", false, null, null);
-    rs[1] = new TestResult("M.bench_add", "passed", true, null, b);
-    string j = TestReport.toJson("demo.zpkg", rs);
-    Assert.Contains("\"tool\":\"z42b\"", j);
-    Assert.Contains("\"module\":\"demo.zpkg\"", j);
-    Assert.Contains("\"summary\":{\"total\":2,\"passed\":2,\"failed\":0,\"skipped\":0}", j);
-    Assert.Contains("\"results\":[{", j);
-}
-
-[Test]
-void test_result_json_plain_test_no_stats() {
-    TestResult r = new TestResult("M.test_ok", "passed", false, null, null);
-    string j = TestReport.resultJson(r);
-    Assert.Contains("\"is_benchmark\":false", j);
-    // no bench_stats / reason keys on a plain passing test
-    Assert.True(!j.Contains("bench_stats"));
-    Assert.True(!j.Contains("reason"));
-}
-
-[Test]
-void test_result_json_escapes_reason() {
-    TestResult r = new TestResult("M.test_fail", "failed", false, "boom: got \"x\"\nline2", null);
-    string j = TestReport.resultJson(r);
-    Assert.Contains("\"status\":\"failed\"", j);
-    // quote and newline in the reason are JSON-escaped
-    Assert.Contains("\\\"x\\\"", j);
-    Assert.Contains("\\n", j);
-    Assert.Contains("line2", j);
-}
-
-[Test]
-void test_esc_escapes_specials() {
-    Assert.Equal("a\\\"b", TestReport.esc("a\"b"));
-    Assert.Equal("a\\\\b", TestReport.esc("a\\b"));
-    Assert.Equal("a\\nb", TestReport.esc("a\nb"));
 }

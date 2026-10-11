@@ -12,7 +12,7 @@
 | 解析表达式 / 语句 / 编译单元 | `new Parser(src, file)`：`ParseExpression()` → `Expr` / `ParseStatement()` → `Stmt` / `ParseCompilationUnit()` → `CompilationUnit`（均 `.Dump()` 出 s-expression）|
 | 前端 dump | `DumpTool.DumpTokens` / `DumpAst`（driver 的 `--dump-tokens` / `--dump-ast` 调用）|
 | 输入不完整判定 | Parser 的 `IncompleteAtEof`（REPL 续读依据）|
-| 编译期分析器契约 | `Analysis.z42`（Analyzer 公共 API 面）|
+| 诊断局部抑制 | `SuppressionSet`（`#suppress` 字节区间 + `[Suppress]` 声明活跃栈；analyzer 与语义层共用）|
 
 ## 如何测试验证
 ```bash
@@ -64,7 +64,7 @@
 | 文件 | 职责 |
 |------|------|
 | `src/DumpTool.z42` | 前端 dump 纯函数（`DumpTokens`/`DumpAst`：源码 → token 流 / AST s-expr）|
-| `src/Analysis.z42` | Analyzer 契约（编译期诊断分析框架的公共 API 面）；放在 AST 所在处，被 `z42c.semantics` 依赖 |
+| `src/SuppressionSet.z42` | 诊断局部抑制集：`AddRegion`（`#suppress` 区间，来自 `CompilationUnit.SuppressRegions`）/ `PushActive`·`PopActive`（`[Suppress]` 声明活跃栈）/ `IsSuppressed`；`Directive` = 指令 attribute 名。`z42c.analyzers`（analyzer 诊断）与 `z42c.semantics`（`[Deprecated]` 告警）共用 |
 
 ## 依赖关系
 `z42c.core`。stdlib 自动可用。

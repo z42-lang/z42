@@ -58,14 +58,14 @@ test-agent 与一份 app-run 代码全平台共享；而且这条嵌入路径同
 
 `out-path` 这一个参数就是全部的平台差异：desktop 不传 → 报告走 stdout（harness 捕获进程 stdout）；
 **没有进程 stdout 的宿主**（wasm / iOS / Android）传一个 VFS 或 temp 路径，再读回来。
-一份 agent、同一个 `Std.Test.Runner`，只是取报告的通道不同。
+一份 agent、同一个 `Std.Harness.Runner`，只是取报告的通道不同。
 
 **归属**：test-agent 住在按需下载的**能力 workload** `workload/test/agent`（平台无关），
 不是某个平台的东西、也不常驻 SDK 核心。平台专属的嵌入 host 壳仍住各 `workload/<plat>/`。
 边界：共享 agent 随 test workload 下载，平台 host 随平台 workload 下载。
 
-> z42b 是**构建**工具，test-agent 是**运行**工具，两者共用同一个 `Std.Test.Runner` /
-> `Std.Test.BundleRunner`。
+> z42b 是**构建**工具，test-agent 是**运行**工具，两者共用同一个 `Std.Harness.Runner` /
+> `Std.Harness.BundleRunner`。
 
 ## 3. 静态 / 动态链接
 
@@ -224,7 +224,7 @@ z42 解释器**在原生调用栈上递归**——每次 z42 调用一层原生�
 | 启动序列 / 加载顺序 | `src/runtime/src/app.rs` |
 | 嵌入入口（所有原生壳共用） | `src/runtime/src/host/mod.rs` 的 C 符号 + `src/runtime/include/z42_host.h` |
 | agent 的命令面 / 报告通道 | `src/toolchain/workload/test/agent/src/agent.z42` |
-| bundle 的跑法（golden 隔离 / unit 共享） | `src/libraries/z42.test/src/BundleRunner.z42` |
+| bundle 的跑法（golden 隔离 / unit 共享） | `src/libraries/z42.harness/src/BundleRunner.z42` |
 | 语料枚举 / 采样 / 分片 | `scripts/test/xtask_test_embedded_corpus.z42` |
 | wasm 宿主面 | `src/toolchain/workload/wasm/platform/src/lib.rs` + `wasm/testhost/` |
 | 栈预算 | mobile：`host/mod.rs` 的 `EMBED_STACK`；wasm：`src/runtime/.cargo/config.toml` 的 `-zstack-size` |

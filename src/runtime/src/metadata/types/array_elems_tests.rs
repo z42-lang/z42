@@ -50,7 +50,7 @@ fn ref_array_is_eight_bytes_per_element_and_round_trips_every_reference_kind() {
     assert!(matches!(a.borrow().backing, ArrayBacking::Refs { .. }));
     assert_eq!(a.borrow().elem_storage_bytes(), 4 * 8);
     for (i, v) in [o, s, inner, Value::Null].into_iter().enumerate() {
-        let w = a.borrow_mut().set_boxed(i, v);
+        let w = a.borrow().set_boxed(i, v);
         assert!(matches!(w, FieldWrite::Ref), "a reference fits the word");
         assert_eq!(a.borrow().get_boxed(i), v);
     }
@@ -61,7 +61,7 @@ fn a_primitive_reaching_a_ref_array_is_boxed_transparently() {
     let h = heap();
     let _g = HeapGuard::enter(&h);
     let a = arr(&h, ArrayObj::filled(&h, ElemType::intern("object"), ElemKind::Ref, 2, Value::Null));
-    let w = a.borrow_mut().set_boxed(0, Value::I64(42));
+    let w = a.borrow().set_boxed(0, Value::I64(42));
     let FieldWrite::Boxed(b) = w else { panic!("a primitive needs the kind-7 box, got {w:?}") };
     assert_eq!(a.borrow().get_boxed(0), Value::I64(42), "reading unboxes");
     // The barrier / GC see the box itself.
@@ -83,24 +83,24 @@ fn mixed_array_claims_a_primitive_kind_and_keeps_references_in_the_tag_word() {
     assert_eq!(ints.borrow().elem_storage_bytes(), 3 * 16);
     assert_eq!(ints.borrow().get_boxed(1), Value::I64(0));
     assert_eq!(ints.borrow().get_boxed(2), Value::I64(0));
-    assert!(matches!(ints.borrow_mut().set_boxed(1, Value::I64(-7)), FieldWrite::NotRef));
+    assert!(matches!(ints.borrow().set_boxed(1, Value::I64(-7)), FieldWrite::NotRef));
     assert_eq!(ints.borrow().get_boxed(1), Value::I64(-7));
-    assert!(matches!(ints.borrow_mut().set_boxed(1, Value::Null), FieldWrite::NotRef), "null keeps the claim");
+    assert!(matches!(ints.borrow().set_boxed(1, Value::Null), FieldWrite::NotRef), "null keeps the claim");
     assert_eq!(ints.borrow().get_boxed(1), Value::Null);
     // Another primitive kind into a never-written cell of a zero-kind array: the cell counts as
     // claimed for the array's kind, so the value is boxed (no claim CAS on the hot path).
-    let mut zs = ArrayObj::filled(&h, ElemType::intern("T"), ElemKind::Mixed, 1, Value::I64(0));
+    let zs = ArrayObj::filled(&h, ElemType::intern("T"), ElemKind::Mixed, 1, Value::I64(0));
     assert!(matches!(zs.set_boxed(0, Value::F64(2.5)), FieldWrite::Boxed(_)));
     assert_eq!(zs.get_boxed(0), Value::F64(2.5));
     // Another primitive kind into a claimed cell: boxed, read back unchanged.
-    ints.borrow_mut().set_boxed(2, Value::I64(9));
-    assert!(matches!(ints.borrow_mut().set_boxed(2, Value::F64(1.5)), FieldWrite::Boxed(_)));
+    ints.borrow().set_boxed(2, Value::I64(9));
+    assert!(matches!(ints.borrow().set_boxed(2, Value::F64(1.5)), FieldWrite::Boxed(_)));
     assert_eq!(ints.borrow().get_boxed(2), Value::F64(1.5));
 
     // `new T[2]` with T = string: references live in the tag word, never boxed.
     let strs = arr(&h, ArrayObj::filled(&h, ElemType::intern("T"), ElemKind::Mixed, 2, Value::Null));
     let s = Value::Str(h.alloc_str("x"));
-    assert!(matches!(strs.borrow_mut().set_boxed(0, s), FieldWrite::Ref));
+    assert!(matches!(strs.borrow().set_boxed(0, s), FieldWrite::Ref));
     assert_eq!(strs.borrow().get_boxed(0), s);
     let mut seen = 0;
     strs.borrow().visit_refs(&mut |v| { assert_eq!(*v, s); seen += 1; });
@@ -112,7 +112,7 @@ fn prim_arrays_use_same_width_cells() {
     let h = heap();
     let a = arr(&h, ArrayObj::typed(&h, "int", vec![Value::I64(1), Value::I64(-2)]));
     assert_eq!(a.borrow().elem_storage_bytes(), 8);
-    a.borrow_mut().set_boxed(1, Value::I64(i32::MIN as i64));
+    a.borrow().set_boxed(1, Value::I64(i32::MIN as i64));
     assert_eq!(a.borrow().get_boxed(1), Value::I64(i32::MIN as i64));
     let c = arr(&h, ArrayObj::typed(&h, "char", vec![Value::Char('é')]));
     assert_eq!(c.borrow().get_boxed(0), Value::Char('é'));
@@ -128,14 +128,14 @@ fn bulk_copies_keep_every_mode_intact() {
     let src = arr(&h, ArrayObj::from_iter_kind(&h, ElemType::intern("object"), ElemKind::Ref, 3,
         [o1, Value::Null, o2].into_iter()));
     let dst = arr(&h, ArrayObj::filled(&h, ElemType::intern("object"), ElemKind::Ref, 4, Value::Null));
-    dst.borrow_mut().copy_elems_from(&src.borrow(), 0, 1, 3);
+    dst.borrow().copy_elems_from(&src.borrow(), 0, 1, 3);
     assert_eq!(dst.borrow().to_boxed_vec(), vec![Value::Null, o1, Value::Null, o2]);
     // memmove within: shift right by one.
-    dst.borrow_mut().copy_elems_within(1, 0, 3);
+    dst.borrow().copy_elems_within(1, 0, 3);
     assert_eq!(dst.borrow().to_boxed_vec(), vec![o1, Value::Null, o2, o2]);
     // MIXED → REF: element-wise.
     let mixed = arr(&h, ArrayObj::new(&h, vec![o2, Value::I64(5)]));
-    dst.borrow_mut().copy_elems_from(&mixed.borrow(), 0, 0, 2);
+    dst.borrow().copy_elems_from(&mixed.borrow(), 0, 0, 2);
     assert_eq!(dst.borrow().get_boxed(0), o2);
     assert_eq!(dst.borrow().get_boxed(1), Value::I64(5));
     // deep copy shares the referents.
@@ -150,11 +150,11 @@ fn struct_array_copies_blob_by_blob() {
         size: 16, ref_offsets: Box::new([8]), ref_kinds: Box::new([STRUCT_REF_GCREF]), fields: Box::new([]),
     });
     let o = obj(&h);
-    let mut src = ArrayObj::struct_backed(&h, ElemType::intern("P"), 2, layout.clone());
+    let src = ArrayObj::struct_backed(&h, ElemType::intern("P"), 2, layout.clone());
     let mut b = [0u8; 16];
     b[0..4].copy_from_slice(&7i32.to_le_bytes());
     src.write_struct_elem(1, &b, &[o], &mut |_| {}).unwrap();
-    let mut dst = ArrayObj::struct_backed(&h, ElemType::intern("P"), 3, layout);
+    let dst = ArrayObj::struct_backed(&h, ElemType::intern("P"), 3, layout);
     dst.copy_elems_from(&src, 0, 1, 2);
     let (bytes, refs) = dst.struct_elem(2).unwrap();
     assert_eq!(&bytes[0..4], &7i32.to_le_bytes());
@@ -182,7 +182,7 @@ fn a_fresh_mixed_cell_encodes_like_one_store() {
     let built = arr(&h, ArrayObj::new(&h, vec![Value::I64(3), o, Value::Null, Value::Char('z')]));
     let stored = arr(&h, ArrayObj::filled(&h, ElemType::empty(), ElemKind::Mixed, 4, Value::Null));
     for (i, v) in built.borrow().to_boxed_vec().into_iter().enumerate() {
-        stored.borrow_mut().set_boxed(i, v);
+        stored.borrow().set_boxed(i, v);
     }
     let words = |a: &crate::gc::GcRef<ArrayObj>| {
         let g = a.borrow();

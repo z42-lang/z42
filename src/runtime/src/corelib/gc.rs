@@ -194,7 +194,7 @@ fn extract_gc_handle_slot(ctx: &VmContext, arg: &Value) -> u64 {
             .lock()
             .with(*idx, *frame_id, |s| first_i64(&s.bytes))
             .unwrap_or(0),
-        Value::BoxedStruct(gc) => first_i64(gc.borrow().bytes()),
+        Value::BoxedStruct(gc) => first_i64(&gc.borrow().storage.snapshot()),
         Value::Object(rc) => match rc.borrow().field_value(0) {
             Value::I64(i) => i.max(0) as u64,
             _ => 0,

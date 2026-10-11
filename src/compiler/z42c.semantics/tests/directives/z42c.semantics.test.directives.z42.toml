@@ -1,0 +1,17 @@
+# z42c.semantics 指令 / 宏诊断单测：[Deprecated] use-site 告警 + #suppress、caller 宏 E0450、available!(X)。
+[project]
+name    = "z42c.semantics.test.directives"
+version = "0.1.0"
+kind    = "lib"
+
+[sources]
+include = ["**/*.z42"]
+
+[dependencies]
+"z42c.semantics" = "0.1.0"
+"z42c.syntax"    = "0.1.0"
+"z42c.core"      = "0.1.0"
+
+[build]
+# Build output → artifacts mirror (mirror-build-output-per-component)。
+output_dir = "../../../../../artifacts/build/compiler/z42c.semantics/${profile}/tests/directives"

@@ -24,6 +24,7 @@ members = ["*"]
 #   z42.io         → (needs z42.time for Std.Process.Timeout/TimeSpan)
 #   z42.json       → (needs z42.text for StringBuilder)
 #   z42.test       → (needs z42.io for Bencher.Std.IO.Console)
+#   z42.harness    → (needs z42.test: TestIO / BenchStats)
 # 🔴 **本 workspace 只放用户 stdlib（`Std.*`）**。工具链/编译器域的包（`z42c.core` / `z42c.syntax` /
 # `z42.package` / `z42.project` / `z42.build` / `z42.scripting`）已挪去 `src/compiler/`
 # （relocate-compiler-domain-libs，2026-09-27）——**物理位置就是「这是编译器域」的声明**，
@@ -49,6 +50,7 @@ default_members = [
     "z42.net",
     "z42.numerics",
     "z42.test",
+    "z42.harness",
 ]
 
 [workspace.build]

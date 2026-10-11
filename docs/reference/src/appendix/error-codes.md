@@ -162,12 +162,12 @@ E0442 / E0457 / E0462 除外（见上一节）。**E0402 另有一处语法层�
 | E0427 | 继承 `sealed` 类 | ✅ `InheritanceResolver.z42:251` | `class D : SealedBase { }` |
 | E0428 | `override` 一个已 `sealed` 的 override 方法 | ✅ `InheritanceResolver.z42:292` | — |
 | E0429 | 方法级 `sealed` 没有 override 基类的任何 `virtual` 方法 | ✅ `InheritanceResolver.z42:287` | — |
-| E0430 | 同名类型的某个声明没标 `partial`（必须全部标） | ✅ `DeclEnforcer.z42:139` | `partial class C {} class C {}` |
-| E0431 | 各碎片的 Kind（class / struct / interface）不一致 | ✅ `DeclEnforcer.z42:143` | `partial class C {} partial struct C {}` |
+| E0430 | 同名类型的某个声明没标 `partial`（必须全部标） | ✅ `DeclEnforcer.z42:194` | `partial class C {} class C {}` |
+| E0431 | 各碎片的 Kind（class / struct / interface）不一致 | ✅ `DeclEnforcer.z42:198` | `partial class C {} partial struct C {}` |
 | E0432 | 基类被多个碎片声明（至多一个碎片可写基类） | ✅ `StubCollector.z42:199` | — |
 | E0433 | 碎片之间重复成员（同名字段 / 同签名方法） | ✅ `MemberCollector.z42:176,323` | — |
-| E0434 | `partial` 方法：实现找不到匹配的声明，或声明与实现签名不一致 | ✅ `DeclEnforcer.z42:476` | — |
-| E0435 | 嵌套类型自身标 `partial`（v1 不支持） | ✅ `DeclEnforcer.z42:160` | — |
+| E0434 | `partial` 方法：实现找不到匹配的声明，或声明与实现签名不一致 | ✅ `DeclEnforcer.z42:231` | — |
+| E0435 | 嵌套类型自身标 `partial`（v1 不支持） | ✅ `DeclEnforcer.z42:215` | — |
 | E0451 | `static` 类含实例成员（方法 / 字段 / 属性 / 构造器）、声明了基类、或实现了接口（对标 C# CS0708/0710/0713/0714） | ✅ `InheritanceResolver.z42:262,266,554,557,563,568` | `static class U { public int V; }` |
 | E0469 | 实例构造器没写初始化子句（⇒ 隐式 `: base()`），而基类有实例构造器却**无一可零实参调用** ⇒ 须显式 `: base(...)`（对标 C# CS7036）。派生类**没写任何构造器**时不报 | ✅ `DeclBinder.z42:516` | `class B { public B(int x){} } class D : B { public D(){} }` |
 | E0470 | `ref` 实参不是可取址的左值（属性 / 索引器 / 静态字段 / 值 struct 的字段 / 字面量 / 调用结果 / 数组虚成员）。这些形态若放行会**写回静默丢失**——取的是承载读出值的临时寄存器的地址 | ✅ `ExprTyper.z42`（`_chkRefArgLvalue`）| `void Inc(ref int x){} ... Inc(ref h.P)` |
@@ -227,9 +227,9 @@ E0442 / E0457 / E0462 除外（见上一节）。**E0402 另有一处语法层�
 
 | 码 | 含义 | 状态 | 触发示例 |
 |---|---|---|---|
-| E0444 | `: Attribute` 的类名必须以 `Attribute` 结尾 | ✅ `DeclEnforcer.z42:26` | `class My : Attribute { }` |
-| E0445 | `: Analyzer` 的类名必须以 `Analyzer` 结尾 | ✅ `DeclEnforcer.z42:52` | — |
-| E0447 | `: Generator` 的类名必须以 `Generator` 结尾 | ✅ `DeclEnforcer.z42:73` | — |
+| E0444 | `: Attribute` 的类名必须以 `Attribute` 结尾 | ✅ `DeclEnforcer.z42:25` | `class My : Attribute { }` |
+| E0445 | `: Analyzer` 的类名必须以 `Analyzer` 结尾 | ✅ `DeclEnforcer.z42:107` | — |
+| E0447 | `: Generator` 的类名必须以 `Generator` 结尾 | ✅ `DeclEnforcer.z42:128` | — |
 | E0448 | generator 只能改它 trigger 命中的声明（Augment / Replace 越界） | ✅ `GeneratorDriver.z42:273,281,319,327,496` | — |
 | E0449 | generator 的 consumes / produces 依赖成环，拓扑分层无法定序 | ✅ `GeneratorDriver.z42:531` | — |
 | E0450 | 编译期宏 `name!()` 误用：未知宏名 / 参数类型不符 / 出现在非参数默认值位 | ✅ `DeclBinder.z42:566,569,577,579,586`、`ExprTyper.z42:88,417` | 形参默认值写 `nope!()` |
@@ -246,7 +246,7 @@ E0442 / E0457 / E0462 除外（见上一节）。**E0402 另有一处语法层�
 `DiagnosticCodes.z42` 里 `ForwardTargetNotFound = E0464` / `ForwardNotRenderable = E0465` /
 `ForwardAmbiguous = E0466` 这组**常量名与实际发射不一致**（`ForwardSkipped` 的值是 I0466）。
 实际发出来的是下面四个，含义取自
-[`ForwardGenerator.z42`](https://github.com/z42-lang/z42/blob/main/src/compiler/z42c.semantics/src/Generators/ForwardGenerator.z42)
+[`ForwardGenerator.z42`](https://github.com/z42-lang/z42/blob/main/src/compiler/z42c.generators/src/ForwardGenerator.z42)
 的诊断文本：
 
 | 码 | 实际含义（按发射点消息） | 状态 |
@@ -325,7 +325,7 @@ E0442 / E0457 / E0462 除外（见上一节）。**E0402 另有一处语法层�
 ### E0911–E0917 测试框架
 
 发射点全在
-[`DeclEnforcer.z42`](https://github.com/z42-lang/z42/blob/main/src/compiler/z42c.semantics/src/Validation/DeclEnforcer.z42)
+[`TestAttrEnforcer.z42`](https://github.com/z42-lang/z42/blob/main/src/compiler/z42c.semantics/src/Testing/TestAttrEnforcer.z42)
 的 `_passTestAttrEnforce`（纯语法检查，不依赖符号表）与相邻的 `_passTestAttrSemantic`。
 
 强制五条规则：**零接收者**（顶层自由函数或 `static` 方法）、**返回 `void`**、**无参数**、
@@ -333,12 +333,12 @@ E0442 / E0457 / E0462 除外（见上一节）。**E0402 另有一处语法层�
 
 | 码 | 含义 | 状态 | 触发示例 |
 |---|---|---|---|
-| E0911 | `[Test]` 违反五条规则之一 | ✅ `DeclEnforcer.z42:371` | `[Test] int t() { return 0; }` |
-| E0912 | `[Benchmark]` 违反同五条规则（**脱糖后**判定：form-2 `void f(Bencher b)` 合法） | ✅ `DeclEnforcer.z42:369` | — |
-| E0913 | `[ShouldThrow]` 缺类型实参，或该类型**可解析但基类链到不了 `Exception`**。⚠️ 类型解析不到时**刻意不报**（跨包 / 符号表不完整会误伤） | ✅ `DeclEnforcer.z42:427,432` | `[ShouldThrow(typeof(int))]` |
-| E0914 | `[Skip]` 缺 `reason` 或 reason 为空串；或 `[Skip]`/`[Ignore]` **孤儿使用**（同声明上没有 `[Test]`/`[Benchmark]`） | ✅ `DeclEnforcer.z42:270,303` | `[Skip] void t() {}` |
-| E0915 | `[Setup]` / `[Teardown]` 违反同五条规则 | ✅ `DeclEnforcer.z42:370` | — |
-| E0917 | `[Timeout]` 缺 `milliseconds`（或该实参非整数字面量），或其值 ≤ 0 | ✅ `DeclEnforcer.z42:278,284` | `[Timeout(0)] [Test] void t() {}` |
+| E0911 | `[Test]` 违反五条规则之一 | ✅ `TestAttrEnforcer.z42:220` | `[Test] int t() { return 0; }` |
+| E0912 | `[Benchmark]` 违反同五条规则（**脱糖后**判定：form-2 `void f(Bencher b)` 合法） | ✅ `TestAttrEnforcer.z42:218` | — |
+| E0913 | `[ShouldThrow]` 缺类型实参，或该类型**可解析但基类链到不了 `Exception`**。⚠️ 类型解析不到时**刻意不报**（跨包 / 符号表不完整会误伤） | ✅ `TestAttrEnforcer.z42:277,282` | `[ShouldThrow(typeof(int))]` |
+| E0914 | `[Skip]` 缺 `reason` 或 reason 为空串；或 `[Skip]`/`[Ignore]` **孤儿使用**（同声明上没有 `[Test]`/`[Benchmark]`） | ✅ `TestAttrEnforcer.z42:119,152` | `[Skip] void t() {}` |
+| E0915 | `[Setup]` / `[Teardown]` 违反同五条规则 | ✅ `TestAttrEnforcer.z42:219` | — |
+| E0917 | `[Timeout]` 缺 `milliseconds`（或该实参非整数字面量），或其值 ≤ 0 | ✅ `TestAttrEnforcer.z42:127,133` | `[Timeout(0)] [Test] void t() {}` |
 
 > E0913 / E0914 / E0917 防的是**静默降级**——编译器读不到合法实参若取默认值继续走
 > （skip 没理由、超时静默失效、抛出类型永不匹配），会把问题全推到运行期且症状指不回病灶。

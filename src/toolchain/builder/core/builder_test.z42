@@ -1,9 +1,9 @@
 // z42b test / bench — reflective [Test]/[Benchmark] runner (retire-test-runner).
 //
 // Replaces the Rust z42-test-runner. A compiled test/bench module (.zbc / .zpkg)
-// is loaded into the live VM by Std.Test.TestModule and its TIDX
+// is loaded into the live VM by Std.Harness.TestModule and its TIDX
 // [Test] / [Benchmark] free functions are run by reflection via
-// Std.Test.Runner.RunModule, which exits 0 (all passed) / 1 (any failure).
+// Std.Harness.Runner.RunModule, which exits 0 (all passed) / 1 (any failure).
 //
 // Execution mode (interp / jit) is inherited from the z42vm hosting this program
 // (`z42vm --mode <mode> z42.builder.zbc -- test <artifact>`): the loaded test
@@ -12,7 +12,7 @@ namespace Z42Builder;
 
 using Std.IO;
 using Std.Cli;
-using Std.Test;
+using Std.Harness;   // Runner / BundleRunner / TestReport（测试执行器）
 using Std.Json;
 using Z42.Build;
 using Z42.Project;   // ProjectManifest / ManifestLoader（z42b-owns-test-targets：按目标建/跑）
@@ -46,7 +46,7 @@ int _runModule(ParseResult r, string verb) {
     // A `.json` target = a test-bundle manifest (assembled by the fleet
     // orchestrator xtask). z42b is the single-bundle EXECUTOR
     // (unify-test-pipeline ②b): host runs it in-process, sharing the same
-    // Std.Test.BundleRunner core the on-device agent uses.
+    // Std.Harness.BundleRunner core the on-device agent uses.
     //   --rid host (or empty) → run the bundle in-process (Slice 1).
     //   --rid <device>        → build + deploy + run on the device (Slice 3,
     //                           builder_device._runDevice); --stage-only keeps the
@@ -294,10 +294,10 @@ int _runOneDevTarget(ParseResult r, ProjectManifest m, DevTarget t, string kind,
 }
 
 // Slice 1 (host): run a test-bundle manifest IN-PROCESS. Parse manifest.json →
-// BundleCase[] (z42.test stays JSON-free, so the parse lives here), run via the
-// shared Std.Test.BundleRunner (goldens isolated + compared, units shared-VM),
+// BundleCase[] (z42.harness stays JSON-free, so the parse lives here), run via the
+// shared Std.Harness.BundleRunner (goldens isolated + compared, units shared-VM),
 // render in `format`, and return an exit code. No desktop testhost / agent spawn
-// on the host — z42b already runs on a z42vm and calls z42.test directly.
+// on the host — z42b already runs on a z42vm and calls z42.harness directly.
 int _runBundleHost(string manifestPath, string format) {
     if (!File.Exists(manifestPath)) {
         ConsoleError.WriteLine("z42b test: bundle manifest not found: " + manifestPath);

@@ -70,7 +70,7 @@ impl<T> Region<T> {
             let entry = unsafe { slot.assume_init_mut() };
             debug_assert!(!entry.alive.load(Ordering::Relaxed), "pooled chunks hold only the dead");
             floor = floor.max(entry.generation.load(Ordering::Acquire));
-            payload += (self.payload_of)(entry.value.get_mut());
+            payload += (self.payload_of)(&entry.value);
             // SAFETY: constructed, and `init_bits` now says it is not — dropped exactly once.
             unsafe { slot.assume_init_drop() };
         }

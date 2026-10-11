@@ -65,6 +65,11 @@ pub trait MagrGC: std::fmt::Debug + Send + Sync {
         native: NativeData,
     ) -> Value;
 
+    /// 分配一个**已经建好**的 `ScriptObject`（对象模型 R4）：发布之后对象只经 `&self` 访问、
+    /// 不再能改 `NativeData` / 泛型实参（没有每对象锁），所以 `ObjNew` 这类要设实参、写型参零值的
+    /// 路径先在本地建好整个对象，再交给 heap。
+    fn alloc_script_object(&self, obj: crate::metadata::types::ScriptObject) -> Value;
+
     /// unify Phase 2 R3（装箱统一）：装箱一个基元（整数）成堆 `ScriptObject` + 引用身份。
     /// 裸标量 LE 字节存 `struct_bytes`（宽度由调用方按 wrapper 标量宽度定尺，与 struct 装箱完全同构），
     /// **不**走 `type_desc.inline_regions()` 定尺——wrapper 是 phantom struct（零字段/size 0），其
@@ -268,10 +273,6 @@ pub trait MagrGC: std::fmt::Debug + Send + Sync {
     /// == true`. Primitive writes (`I64 / F64 / Bool / Char / Str / Null /
     /// FuncRef / PinnedView / Ref::Stack`) skip the call —
     /// they neither create cross-region nor cross-generation references.
-    /// Caller also drops any held inner-`Mutex` lock before calling
-    /// (`borrow_mut` on `owner.slots`), so a future override that needs
-    /// to re-borrow `owner` (e.g. card-marking that inspects all slots)
-    /// does not deadlock.
     ///
     /// **Override 契约**: implementations may `debug_assert!(new.is_heap_ref())`
     /// to detect contract violations. Phase 1 STW mark-sweep default is

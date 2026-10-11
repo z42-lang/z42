@@ -21,7 +21,7 @@ fn obj(heap: &ArcMagrGC, name: &str) -> Value {
 
 fn link(from: &Value, to: &Value) {
     let Value::Object(f) = from else { panic!("object") };
-    f.borrow_mut().set_field_value(0, to);
+    f.borrow().set_field_value(0, to);
 }
 
 fn raw_alive(weak: &crate::gc::WeakRef) -> bool {

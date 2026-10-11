@@ -2,7 +2,7 @@
 
 ## 职责
 
-z42 标准测试库：给 stdlib 自身和用户脚本提供 `TestIO`（console 捕获）+ `Bencher`（基准测量）+ `TestRunner`（命令式 runner）+ `Runner` / `BundleRunner`（`[Test]` / `[Benchmark]` 发现与调度、`TestReport` 报告），配合 [z42b](../../toolchain/builder/)（`z42b test` / `z42b bench`）运行。
+z42 标准测试库的**作者侧**：写测试 / bench 时用到的 `TestIO`（console 捕获）+ `Bencher`（基准测量）+ `TestRunner`（命令式 runner）+ 集合契约测试。**执行**（加载编好的测试产物、按 TIDX 发现并调度、出报告）在 [z42.harness](../z42.harness/)，由 [z42b](../../toolchain/builder/)（`z42b test` / `z42b bench`）调用——写测试的工程只依赖本包。
 `[Test]` / `[Skip]` / `[Ignore]` / `[Setup]` / `[Teardown]` / `[Benchmark]` / `[ShouldThrow<E>]` / `[Timeout]` 等 attribute 的语法见 `docs/reference/`。
 
 **`Assert` 不在本包**：全仓唯一的 `Std.Assert`（及 `TestFailure` / `SkipSignal`）位于 **z42.core**（`src/Assert.z42` + `src/Failure.z42`），因为断言必须 prelude 可见。本包不提供 Assert 类。
@@ -14,8 +14,7 @@ z42 标准测试库：给 stdlib 自身和用户脚本提供 `TestIO`（console 
 | 捕获 console 输出 | `TestIO.captureStdout` / `captureStderr` / `captureBoth`（`src/TestIO.z42`） |
 | 基准测量 | `Bencher.iter(Action)` / `printSummary` / `Min·Max·Median·Mean·StdDev·Total·Samples`；`BenchHelpers.blackBox`（`src/Bencher.z42`） |
 | 命令式 runner（无 lambda） | `TestRunner.Begin` / `Fail` / `Summary`（`src/TestRunner.z42`） |
-| `[Test]` / `[Benchmark]` 发现与调度 | `Runner` / `TestModule` / `BundleRunner`；`[Benchmark] void f()` 或 `void f(Bencher b)`（后者编译期 desugar 成前者），与 `[Test]` 同执行路径 |
-| 报告 | 默认 pretty（`PASS` / `FAIL` / `SKIP` + `Result:` 汇总）；`z42b {test,bench} --format json` 产 `TestReport`（含 `failure_location` / `stack_trace`，benchmark 条目带 `is_benchmark` + `bench_stats`） |
+| bench 摘要解析 | `BenchStats.parse`（`Bencher.printSummary` 输出行的反向解析；执行器据此写 `bench_stats`） |
 | 集合契约测试 | `BasicCollectionContract`（`src/Contracts/`） |
 
 ## 基础用法
@@ -83,7 +82,7 @@ void Main() {
 ## 如何测试验证
 
 ```bash
-xtask test stdlib z42.test          # 本包 [Test]（单元 + runner 行为）
+xtask test stdlib z42.test          # 本包 [Test]（执行器行为在 z42.harness）
 xtask test stdlib mylib             # 跑某个库的 [Test]（默认 in-process VM，保留 [Setup]/[Teardown]）
 xtask test stdlib --jobs 0 mylib    # 并行：0 = available_parallelism；N>1 走 subprocess，[Setup]/[Teardown] 不运行
 ```
@@ -94,12 +93,8 @@ xtask test stdlib --jobs 0 mylib    # 并行：0 = available_parallelism；N>1 �
 |------|------|------|
 | `src/TestIO.z42` | `static class TestIO` + `CaptureResult` | console 捕获 |
 | `src/Bencher.z42` | `Bencher` / `static class BenchHelpers` | 基准测量与防优化 |
-| `src/BenchStats.z42` | `BenchStats` | benchmark 统计（含 `parse`，供 runner 解析 benchmark stdout） |
+| `src/BenchStats.z42` | `BenchStats` | benchmark 统计（含 `parse`，供执行器解析 benchmark stdout） |
 | `src/TestRunner.z42` | `TestRunner` | 命令式 runner |
-| `src/Runner.z42` | `static class Runner` + `InvokeOutcome` | `[Test]` / `[Benchmark]` 调度执行 |
-| `src/TestModule.z42` | `static class TestModule` + `TestEntry` | 加载测试模块并取回 TIDX 条目；按 FQN 调用走 `Std.Runtime.ModuleLoader.Invoke` |
-| `src/BundleRunner.z42` | `static class BundleRunner` + `BundleCase` | 嵌入式 test-agent 的 bundle 运行 |
-| `src/TestReport.z42` | `static class TestReport` + `TestResult` | pretty / JSON 报告 |
 | `src/Contracts/BasicCollectionContract.z42` | `static class` | `IBasicCollection` 契约测试 |
 
 ## 依赖关系

@@ -190,6 +190,28 @@ impl Str {
     }
 }
 
+/// How native code reads a `Str` without a helper call (perf-str-jit-intrinsics: the
+/// JIT's inline `String.Length` / `CharAt`). A `Value::Str` payload is the handle's
+/// 8 bytes; `handle & HANDLE_ADDR_MASK` is the block header, which holds the byte
+/// length (`u32` at [`LEN_OFFSET`]) and the all-ASCII flag ([`ASCII_BIT`] of the byte
+/// at [`FLAGS_OFFSET`], see [`Str::is_known_ascii`]); the UTF-8 bytes start at
+/// [`DATA_OFFSET`]. The single place this layout is spelled for generated code —
+/// pinned against the Rust accessors by `jit::translate::str_intrinsics_tests`.
+#[cfg(all(feature = "jit", target_pointer_width = "64"))]
+pub(crate) mod jit_layout {
+    use crate::gc::var_region as vr;
+    /// Mask turning a handle's bits into its block-header address.
+    pub(crate) const HANDLE_ADDR_MASK: u64 = vr::HANDLE_ADDR_MASK;
+    /// Header offset of the payload byte length (`u32`).
+    pub(crate) const LEN_OFFSET: i32 = vr::HEADER_SIZE_OFFSET as i32;
+    /// Header offset of the flag byte carrying [`ASCII_BIT`].
+    pub(crate) const FLAGS_OFFSET: i32 = vr::HEADER_TYPE_TAG_OFFSET as i32;
+    /// Set ⇔ every byte is ASCII (char index == byte index). Clear = unknown.
+    pub(crate) const ASCII_BIT: u8 = vr::ASCII_STR_BIT;
+    /// Header offset of the first UTF-8 byte.
+    pub(crate) const DATA_OFFSET: i32 = vr::GcBlockHeader::DATA_OFFSET as i32;
+}
+
 impl std::ops::Deref for Str {
     type Target = str;
     #[inline]

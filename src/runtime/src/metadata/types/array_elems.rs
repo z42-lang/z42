@@ -80,7 +80,7 @@ impl ArrayObj {
         }
     }
 
-    /// Atomic loads over a PRIM backing's block.
+    /// Atomic loads and stores over a PRIM backing's block.
     #[inline(always)]
     pub(super) fn prim_cells(b: &ArrayBacking) -> Option<Cells<'_>> {
         let w = prim_width_of(b)?;
@@ -89,19 +89,6 @@ impl ArrayObj {
             | ArrayBacking::I32 { block, len } | ArrayBacking::I64 { block, len }
             | ArrayBacking::Chars { block, len } | ArrayBacking::F64 { block, len } =>
                 Some(Self::cells_of(block, len * w)),
-            _ => None,
-        }
-    }
-
-    /// Atomic loads and stores over a PRIM backing's block.
-    #[inline(always)]
-    pub(super) fn prim_cells_mut(b: &ArrayBacking) -> Option<CellsMut<'_>> {
-        let w = prim_width_of(b)?;
-        match b {
-            ArrayBacking::Bool { block, len } | ArrayBacking::Bytes { block, len }
-            | ArrayBacking::I32 { block, len } | ArrayBacking::I64 { block, len }
-            | ArrayBacking::Chars { block, len } | ArrayBacking::F64 { block, len } =>
-                Some(Self::cells_mut_of(block, len * w)),
             _ => None,
         }
     }
@@ -139,7 +126,7 @@ impl ArrayObj {
     /// （`Std.Array.SetValue(Object, int)`、跨元素类型的 `CopyRange`）用它：值是用户给的，没有编译器
     /// 站点能先转换（`fix-silent-array-elem-zero`）。
     #[inline]
-    pub fn try_set_boxed(&mut self, i: usize, val: Value) -> anyhow::Result<FieldWrite> {
+    pub fn try_set_boxed(&self, i: usize, val: Value) -> anyhow::Result<FieldWrite> {
         if !self.prim_backing_accepts(&val) {
             let kind = self.prim_backing_kind().unwrap_or("<non-primitive>");
             anyhow::bail!(
@@ -163,7 +150,7 @@ impl ArrayObj {
     /// ([`prim_value_mismatch`]); a box that cannot be allocated (no heap) leaves the element
     /// untouched after a debug assert. Untyped APIs use [`Self::try_set_boxed`].
     #[inline]
-    pub fn set_boxed(&mut self, i: usize, val: Value) -> FieldWrite {
+    pub fn set_boxed(&self, i: usize, val: Value) -> FieldWrite {
         match self.store_elem(i, &val) {
             Ok(w) => w,
             Err(e) => {
@@ -173,26 +160,33 @@ impl ArrayObj {
         }
     }
 
-    /// The element store behind [`Self::set_boxed`] / [`Self::try_set_boxed`].
-    pub fn store_elem(&mut self, i: usize, val: &Value) -> anyhow::Result<FieldWrite> {
+    /// [`Self::set_boxed`] through an exclusive borrow — the one store a **stack array**
+    /// (`StackVec`, owned by the per-context stack arena and reached only under its lock) takes;
+    /// every other backing forwards to [`Self::set_boxed`].
+    #[inline]
+    pub fn set_boxed_exclusive(&mut self, i: usize, val: Value) -> FieldWrite {
+        if let ArrayBacking::StackVec(v) = &mut self.backing {
+            v[i] = val;
+            return FieldWrite::NotRef;
+        }
+        self.set_boxed(i, val)
+    }
+
+    /// The element store behind [`Self::set_boxed`] / [`Self::try_set_boxed`]. `&self`: a heap
+    /// array is shared between threads without a lock, every store is one atomic cell write
+    /// (object model R4). A FROZEN array refuses (written once, before publication); a stack
+    /// array needs the arena's exclusive borrow ([`Self::set_boxed_exclusive`]).
+    pub fn store_elem(&self, i: usize, val: &Value) -> anyhow::Result<FieldWrite> {
         match &self.backing {
             ArrayBacking::Refs { block, len } =>
-                ref_word::store(&Self::cells_mut_of(block, *len * REF_STRIDE), i * REF_STRIDE, val),
+                ref_word::store(&Self::cells_of(block, *len * REF_STRIDE), i * REF_STRIDE, val),
             ArrayBacking::Cells { block, len, zero } => tparam_cell::store_or_zero(
-                &Self::cells_mut_of(block, *len * CELL_STRIDE), i * CELL_STRIDE, i * CELL_STRIDE + 8, val, *zero),
-            ArrayBacking::Frozen { block, len } => {
-                // Never written after publication in practice (environments, value boxes); kept
-                // correct for the lock-held case: the SATB barrier sees the overwritten value.
-                // SAFETY: exclusive borrow (`&mut self`) of a live block of `len` Values.
-                let s = unsafe { Self::slice_of_mut::<Value>(block, *len) };
-                crate::gc::satb::record_overwrite(&s[i]);
-                s[i] = *val;
-                Ok(FieldWrite::Ref)
-            }
-            ArrayBacking::StackVec(_) => {
-                if let ArrayBacking::StackVec(v) = &mut self.backing { v[i] = *val; }
-                Ok(FieldWrite::NotRef)
-            }
+                &Self::cells_of(block, *len * CELL_STRIDE), i * CELL_STRIDE, i * CELL_STRIDE + 8, val, *zero),
+            // A 16 B `Value` cannot be stored atomically: FROZEN blocks are written once, before
+            // the array is published (closure environments, `ref_word` kind-7 boxes), and are
+            // read-only afterwards.
+            ArrayBacking::Frozen { .. } => anyhow::bail!("cannot store into a frozen array (closure environment / value box)"),
+            ArrayBacking::StackVec(_) => anyhow::bail!("stack array store needs the stack arena's exclusive borrow"),
             ArrayBacking::StructBytes { .. } => self.store_struct_elem_boxed(i, val),
             b => {
                 let w = prim_width_of(b).unwrap_or(8);
@@ -206,7 +200,7 @@ impl ArrayObj {
                         0
                     }
                 };
-                if let Some(c) = Self::prim_cells_mut(b) {
+                if let Some(c) = Self::prim_cells(b) {
                     c.store_bits(i * w, w, bits);
                 }
                 Ok(FieldWrite::NotRef)
@@ -248,10 +242,10 @@ impl ArrayObj {
     /// Copy an arena-form struct `(bytes, refs)` into element `i` of a `struct[]` (no-op on any
     /// other backing). Every reference that landed goes to `barrier`.
     pub fn write_struct_elem(
-        &mut self, i: usize, src_bytes: &[u8], src_refs: &[Value], barrier: &mut dyn FnMut(&Value),
+        &self, i: usize, src_bytes: &[u8], src_refs: &[Value], barrier: &mut dyn FnMut(&Value),
     ) -> anyhow::Result<()> {
         if let ArrayBacking::StructBytes { block, len, layout } = &self.backing {
-            let c = Self::cells_mut_of(block, *len * layout.size);
+            let c = Self::cells_of(block, *len * layout.size);
             struct_blob::write(&c, i * layout.size, layout.size, src_bytes, src_refs, &layout.ref_offsets, barrier)?;
         }
         Ok(())
@@ -259,7 +253,7 @@ impl ArrayObj {
 
     /// Whole-element store from a `BoxedStruct` source (the box's blob is the element's layout).
     /// A frame-scoped `StructRef` source needs the struct arena and is handled at the exec layer.
-    fn store_struct_elem_boxed(&mut self, i: usize, val: &Value) -> anyhow::Result<FieldWrite> {
+    fn store_struct_elem_boxed(&self, i: usize, val: &Value) -> anyhow::Result<FieldWrite> {
         let Value::BoxedStruct(b) = val else {
             anyhow::bail!("struct[] element store needs a boxed struct, got {val:?}");
         };
@@ -279,14 +273,14 @@ impl ArrayObj {
     }
 
     /// Write the reference leaf at blob offset `off` of element `i` (SATB on the old word).
-    pub fn set_struct_elem_ref(&mut self, i: usize, off: u32, v: &Value) -> anyhow::Result<FieldWrite> {
+    pub fn set_struct_elem_ref(&self, i: usize, off: u32, v: &Value) -> anyhow::Result<FieldWrite> {
         let ArrayBacking::StructBytes { block, len, layout } = &self.backing else {
             anyhow::bail!("struct[] leaf write on a non-value-struct array");
         };
         if layout.ref_index(off).is_none() || i >= *len {
             anyhow::bail!("struct[] ref leaf at byte offset {off} of element {i} not in element layout");
         }
-        ref_word::store(&Self::cells_mut_of(block, *len * layout.size), i * layout.size + off as usize, v)
+        ref_word::store(&Self::cells_of(block, *len * layout.size), i * layout.size + off as usize, v)
     }
 
     /// Read the primitive leaf at blob offset `off` (width `w`, tag `kind`) of element `i`.
@@ -297,12 +291,12 @@ impl ArrayObj {
     }
 
     /// Write the primitive leaf at blob offset `off` of element `i`.
-    pub fn set_struct_elem_prim(&mut self, i: usize, off: u32, w: usize, kind: u8, v: &Value) -> anyhow::Result<()> {
+    pub fn set_struct_elem_prim(&self, i: usize, off: u32, w: usize, kind: u8, v: &Value) -> anyhow::Result<()> {
         let ArrayBacking::StructBytes { block, len, layout } = &self.backing else {
             anyhow::bail!("struct[] leaf write on a non-value-struct array");
         };
         debug_assert!(layout.ref_index(off & !7).is_none(), "primitive store over a struct[] reference leaf");
-        Self::cells_mut_of(block, *len * layout.size).store_prim(i * layout.size + off as usize, w, kind, v)
+        Self::cells_of(block, *len * layout.size).store_prim(i * layout.size + off as usize, w, kind, v)
     }
 }
 

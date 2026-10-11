@@ -17,6 +17,7 @@ use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{Linkage, Module as CraneliftModule};
 
 use super::frame::FnEntry;
+use super::forward::ForwardLookup;
 use super::helpers::{self, HelperIds};
 use super::translate;
 use crate::metadata::bytecode::Function;
@@ -94,7 +95,7 @@ impl LazyCompiler {
     /// verified the function is JIT-translatable and its slot is empty. The
     /// returned entry's `func` points at `func`, which outlives the entry (the
     /// module owns entry functions, the `FuncTable` slot lazily loaded ones).
-    pub fn compile_fn(&mut self, func: &Function) -> Result<FnEntry> {
+    pub fn compile_fn(&mut self, func: &Function, callees: &dyn ForwardLookup) -> Result<FnEntry> {
         let ptr = self.jit.target_config().pointer_type();
         let mut sig = self.jit.make_signature();
         sig.params.push(AbiParam::new(ptr));        // frame *mut JitFrame
@@ -107,7 +108,7 @@ impl LazyCompiler {
         }
 
         let max_r = translate::max_reg(func);
-        translate::translate_function(&mut self.jit, &self.helper_ids, func, max_r, func_id, None)?;
+        translate::translate_function(&mut self.jit, &self.helper_ids, func, max_r, func_id, None, callees)?;
         // Finalize just this function's definition (relocations + mprotect).
         // Earlier finalized functions keep their code pages — cranelift-jit
         // allocates each function separately, so their pointers stay valid.
@@ -129,7 +130,7 @@ impl LazyCompiler {
     /// entry. Called at most once per (function, header) — the interpreter hands the
     /// running activation over to the returned native code (register state inherited
     /// via `frame.regs` memory). Structurally mirrors `compile_fn`.
-    pub fn compile_fn_osr(&mut self, func: &Function, k: usize) -> Result<FnEntry> {
+    pub fn compile_fn_osr(&mut self, func: &Function, k: usize, callees: &dyn ForwardLookup) -> Result<FnEntry> {
         let ptr = self.jit.target_config().pointer_type();
         let mut sig = self.jit.make_signature();
         sig.params.push(AbiParam::new(ptr));        // frame *mut JitFrame
@@ -143,7 +144,7 @@ impl LazyCompiler {
         }
 
         let max_r = translate::max_reg(func);
-        translate::translate_function(&mut self.jit, &self.helper_ids, func, max_r, func_id, Some(k))?;
+        translate::translate_function(&mut self.jit, &self.helper_ids, func, max_r, func_id, Some(k), callees)?;
         self.jit.finalize_definitions()?;
 
         let ptr_raw = self.jit.get_finalized_function(func_id);

@@ -95,7 +95,7 @@ impl ScriptObject {
     pub fn inline_prim_field(&self, name: &str) -> Option<(*const u8, u32, u32, u8)> {
         let slot = *self.type_desc.field_index.get(name)?;
         let fa = self.field_access_of(slot)?;
-        (fa.cell() == FieldCell::Prim).then(|| (self.bytes().as_ptr(), fa.offset, fa.width, fa.tag))
+        (fa.cell() == FieldCell::Prim).then(|| (self.storage.cells().base_ptr(), fa.offset, fa.width, fa.tag))
     }
 
     /// JIT hoist: if `name` is a direct field held in an 8 B **reference word**, `(bytes base
@@ -105,7 +105,7 @@ impl ScriptObject {
     pub fn inline_ref_field(&self, name: &str) -> Option<(*const u8, u32)> {
         let slot = *self.type_desc.field_index.get(name)?;
         let fa = self.field_access_of(slot)?;
-        (fa.cell() == FieldCell::Ref).then(|| (self.bytes().as_ptr(), fa.offset))
+        (fa.cell() == FieldCell::Ref).then(|| (self.storage.cells().base_ptr(), fa.offset))
     }
 
     /// Write direct field `slot` from `v`; `true` iff the target is a reference cell.
@@ -116,7 +116,7 @@ impl ScriptObject {
     /// receive a value chosen by user code — reflection, `FieldSet` — must call
     /// `try_set_field_value` and propagate.
     #[inline]
-    pub fn set_field_value(&mut self, slot: usize, v: &Value) -> bool {
+    pub fn set_field_value(&self, slot: usize, v: &Value) -> bool {
         matches!(self.try_set_field_value(slot, v), Ok(w) if w.is_ref())
     }
 
@@ -128,9 +128,9 @@ impl ScriptObject {
     /// A rejected primitive store (`null` into an `int`, a wrong-typed value) is an error,
     /// never silently dropped: reflection's `SetValue` reaches this.
     #[inline]
-    pub fn try_set_field_value(&mut self, slot: usize, v: &Value) -> anyhow::Result<FieldWrite> {
+    pub fn try_set_field_value(&self, slot: usize, v: &Value) -> anyhow::Result<FieldWrite> {
         let Some(fa) = self.field_access_of(slot) else { return Ok(FieldWrite::NotRef) };
-        let c = self.storage.cells_mut();
+        let c = self.storage.cells();
         match fa.cell() {
             FieldCell::Ref => ref_word::store(&c, fa.offset as usize, v),
             FieldCell::Prim => {
@@ -150,15 +150,17 @@ impl ScriptObject {
         }
     }
 
-    /// A boxed primitive's bytes ARE its raw scalar: decode them with the field's tag / width.
-    /// Anything else (not a same-width primitive box) passes through and `store_prim` rejects it.
+    /// A boxed primitive's bytes ARE its raw scalar: decode them with the field's tag / width
+    /// (one relaxed load of the box's leading cell — the box is shared without a lock like every
+    /// object). Anything else (not a same-width primitive box) passes through and `store_prim`
+    /// rejects it.
     #[cold]
     #[inline(never)]
     fn unbox_for_prim(v: &Value, fa: FieldAccess) -> Value {
         let Value::BoxedStruct(gc) = v else { return *v };
         let b = gc.borrow();
-        if b.bytes().len() >= fa.width as usize {
-            decode_prim(b.bytes(), 0, fa.width as usize, fa.tag).unwrap_or(Value::Null)
+        if b.storage.len() >= fa.width as usize {
+            b.prim_leaf(0, fa.width as usize, fa.tag).unwrap_or(Value::Null)
         } else {
             *v
         }
@@ -179,10 +181,10 @@ impl ScriptObject {
 
     /// Break every strong reference edge of a dead object so no tombstoned entry keeps a handle
     /// into the region. GC-only: no barrier.
-    pub fn clear_refs_for_sweep(&mut self) {
+    pub fn clear_refs_for_sweep(&self) {
         // `type_desc` and `storage` are disjoint fields: the layout stays borrowed across the
         // writes (this runs once per dead object).
-        let c = self.storage.cells_mut();
+        let c = self.storage.cells();
         for_each_ref_cell(&self.type_desc, |cell| match cell {
             RefCell::Word(off) => ref_word::clear(&c, off),
             RefCell::TypeParam(off) => tparam_cell::clear(&c, off),
@@ -219,11 +221,11 @@ impl ScriptObject {
 
     /// Write the struct reference leaf at byte `off` (see [`Self::struct_ref_leaf`]). The result
     /// tells the caller which reference to hand to its write barrier.
-    pub fn set_struct_ref_leaf(&mut self, off: u32, v: &Value) -> anyhow::Result<FieldWrite> {
+    pub fn set_struct_ref_leaf(&self, off: u32, v: &Value) -> anyhow::Result<FieldWrite> {
         if !self.is_struct_ref_leaf(off) {
             return Err(self.not_a_ref_leaf(off));
         }
-        ref_word::store(&self.storage.cells_mut(), off as usize, v)
+        ref_word::store(&self.storage.cells(), off as usize, v)
     }
 
     /// Read the primitive leaf at byte `off` (width `w`, `ty::TAG_*` `kind`).
@@ -235,10 +237,10 @@ impl ScriptObject {
     /// Write the primitive leaf at byte `off`. Never a reference cell (that would plant raw bits
     /// where GC expects a reference word).
     #[inline]
-    pub fn set_prim_leaf(&mut self, off: usize, w: usize, kind: u8, v: &Value) -> anyhow::Result<()> {
+    pub fn set_prim_leaf(&self, off: usize, w: usize, kind: u8, v: &Value) -> anyhow::Result<()> {
         debug_assert!(!self.is_struct_ref_leaf((off & !7) as u32),
             "primitive store over a reference cell at {off} of `{}`", self.type_desc.name);
-        self.storage.cells_mut().store_prim(off, w, kind, v)
+        self.storage.cells().store_prim(off, w, kind, v)
     }
 
     /// Snapshot the value struct of `size` bytes at `base` (an inline field; `0` for a boxed
@@ -251,10 +253,10 @@ impl ScriptObject {
     /// Copy an arena-form value struct into the blob at `base` (`struct_blob::write`); each stored
     /// reference (a box, for a value that did not fit) goes to `barrier`.
     pub fn write_blob(
-        &mut self, base: usize, size: usize, bytes: &[u8], refs: &[Value], ref_offsets: &[u32],
+        &self, base: usize, size: usize, bytes: &[u8], refs: &[Value], ref_offsets: &[u32],
         barrier: &mut dyn FnMut(&Value),
     ) -> anyhow::Result<()> {
-        struct_blob::write(&self.storage.cells_mut(), base, size, bytes, refs, ref_offsets, barrier)
+        struct_blob::write(&self.storage.cells(), base, size, bytes, refs, ref_offsets, barrier)
     }
 
     /// A boxed struct's whole blob in the arena form (bytes with the reference slots zeroed + the
@@ -262,8 +264,8 @@ impl ScriptObject {
     /// primitive) yields its bytes and no references.
     pub fn boxed_blob(&self) -> (Vec<u8>, Vec<Value>) {
         match self.type_desc.struct_layout_ref() {
-            Some(sl) => self.read_blob(0, self.storage.bytes().len(), &sl.ref_offsets),
-            None => (self.storage.bytes().to_vec(), Vec::new()),
+            Some(sl) => self.read_blob(0, self.storage.len(), &sl.ref_offsets),
+            None => (self.storage.snapshot(), Vec::new()),
         }
     }
 }
@@ -308,10 +310,10 @@ fn synthesized_ref_cells(td: &TypeDesc, f: &mut dyn FnMut(RefCell)) {
 impl ScriptObject {
     /// Test-only: write field `slot` **without** the SATB record — the raw store GC unit tests use
     /// to wire object graphs (and to simulate a mutator that bypassed the barrier).
-    pub(crate) fn set_ref_raw_for_test(&mut self, slot: usize, v: &Value) {
+    pub(crate) fn set_ref_raw_for_test(&self, slot: usize, v: &Value) {
         use std::sync::atomic::Ordering;
         let Some(fa) = self.field_access_of(slot) else { return };
-        let c = self.storage.cells_mut();
+        let c = self.storage.cells();
         match fa.cell() {
             FieldCell::Ref => {
                 let w = ref_word::encode(v).expect("test value fits a reference word");

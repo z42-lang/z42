@@ -113,6 +113,93 @@ pub(crate) unsafe fn call_forward(
     }
 }
 
+// ── Translate-time view (perf-str-jit-intrinsics) ────────────────────────────
+
+/// A string builtin the JIT emits inline at a call site instead of dispatching
+/// (`translate::str_intrinsics`). Recognised by the builtin the call target
+/// forwards to — the same identification as [`builtin_forward`] /
+/// [`chained_forward`] — never by the callee's name alone.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum StrIntrinsic {
+    /// `__str_length` — `string.Length` (receiver only).
+    Length,
+    /// `__str_char_at` — `string.CharAt(i)` and the indexer `s[i]` (receiver + index).
+    CharAt,
+}
+
+impl StrIntrinsic {
+    /// The intrinsic builtin `id` implements, if any.
+    pub(crate) fn of_builtin(id: u32) -> Option<Self> {
+        let is = |name| crate::corelib::builtin_id_of(name).is_some_and(|b| b.0 == id);
+        if is("__str_length") { Some(Self::Length) }
+        else if is("__str_char_at") { Some(Self::CharAt) }
+        else { None }
+    }
+
+    /// Argument count of the forwarded builtin, receiver included.
+    pub(crate) fn argc(self) -> usize {
+        match self { Self::Length => 1, Self::CharAt => 2 }
+    }
+}
+
+/// What the translator may ask about a call target while compiling a caller.
+/// Implemented by [`JitModuleCtx`]; never loads a package or binds a site.
+pub(crate) trait ForwardLookup {
+    /// The builtin the function under JIT id `id` forwards to (shape 1 or 2),
+    /// provided a static call of it needs no type-init barrier (its owner type is
+    /// loaded and has no static constructor).
+    fn forward_of_id(&self, id: u32) -> Option<u32>;
+    /// The same for the function registered under key `name`, looked up the way
+    /// `resolve_vcall`'s candidate walk does (merged module, then loaded packages) —
+    /// but without loading anything.
+    fn forward_of_name(&self, name: &str) -> Option<u32>;
+}
+
+impl JitModuleCtx {
+    /// Builtin id `func` forwards to (shape 1, or shape 2 over an already-registered
+    /// target), gated on its static-call barrier being a no-op.
+    ///
+    /// # Safety
+    /// `module` valid; `vm_ctx` valid or null.
+    unsafe fn barrier_free_forward(&self, func: &Function) -> Option<u32> {
+        if self.vm_ctx.is_null() || !unsafe { (*self.vm_ctx).callee_owner_init_free(&func.name) } {
+            return None;
+        }
+        builtin_forward(func).or_else(|| chained_forward(func, |name| {
+            unsafe { self.probe_fn(name, |f| builtin_forward(f)) }
+        }))
+    }
+
+    /// Apply `f` to the function registered under `name` — merged module first, then
+    /// the packages loaded so far (the order `resolve_vcall` probes). Read-only: the
+    /// translator runs under the compile lock and must not load or initialise anything.
+    ///
+    /// # Safety
+    /// As [`Self::barrier_free_forward`].
+    unsafe fn probe_fn<R>(&self, name: &str, f: impl FnOnce(&Function) -> Option<R>) -> Option<R> {
+        let module = unsafe { &*self.module };
+        if let Some(func) = module.func_index.get(name).and_then(|&i| module.functions.get(i)) {
+            return f(func);
+        }
+        if self.vm_ctx.is_null() { return None; }
+        let func = unsafe { (*self.vm_ctx).probe_loaded_function(name) }?;
+        f(&func)
+    }
+}
+
+impl ForwardLookup for JitModuleCtx {
+    fn forward_of_id(&self, id: u32) -> Option<u32> {
+        // SAFETY: `module` / `vm_ctx` are valid while compiling (the compile lock is
+        // taken inside a `run_fn`, or by a test that set them up).
+        unsafe { self.barrier_free_forward(self.fn_of(id as usize)?) }
+    }
+
+    fn forward_of_name(&self, name: &str) -> Option<u32> {
+        // SAFETY: as above.
+        unsafe { self.probe_fn(name, |f| self.barrier_free_forward(f)) }
+    }
+}
+
 #[cfg(test)]
 #[path = "forward_tests.rs"]
 mod forward_tests;

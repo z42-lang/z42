@@ -109,7 +109,7 @@ impl VmContext {
     /// see lazy-load activity (not just boot-time eager loads).
     /// Load a compiled artifact at `path` into the live registries (functions +
     /// types become callable / reflectable) and return its TIDX test entries.
-    /// Backs `Std.Test.ModuleLoader.Load` for the reflective test runner.
+    /// Backs `Std.Runtime.ModuleLoader.Load` / `Std.Harness.TestModule.Load`.
     /// Errors if no lazy loader is installed (a bare VM with no dep resolution).
     pub fn load_module_into_vm(
         &self, path: &str,
@@ -160,6 +160,14 @@ impl VmContext {
         // 同上（REPL 每轮的字节码加载路径）。
         self.run_pending_static_inits();
         r
+    }
+
+    /// An already-registered function, or `None` — **never loads a package and never
+    /// runs initializers** (unlike [`Self::try_lookup_function`]). For callers that
+    /// must not re-enter the VM, such as the JIT translator recognising intrinsics.
+    #[cfg(feature = "jit")]
+    pub(crate) fn probe_loaded_function(&self, func_name: &str) -> Option<Arc<Function>> {
+        self.core.lazy_loader.read().as_ref()?.probe_function(func_name)
     }
 
     pub fn try_lookup_function(&self, func_name: &str) -> Option<Arc<Function>> {

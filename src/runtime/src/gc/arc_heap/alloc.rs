@@ -275,14 +275,14 @@ impl crate::gc::arc_heap::ArcMagrGC {
         });
     }
 
-    /// Size estimate helpers for sweep_phase — operate on already-
-    /// locked inner data (avoids re-locking via object_size_bytes path).
+    /// Size estimate helpers for sweep_phase — operate on the borrowed value
+    /// (the `RegionEntry` slot header is not part of the estimate).
     pub(super) fn script_object_size_estimate(obj: &ScriptObject) -> u64 {
         use std::mem::size_of;
         // slots is `Box<[Value]>` — len == actual allocation (no excess
         // capacity to charge separately).
         (size_of::<Value>() + size_of::<ScriptObject>()
-            + obj.bytes().len()) as u64
+            + obj.payload_len()) as u64
     }
 
     pub(super) fn array_size_estimate(arr: &crate::metadata::types::ArrayObj) -> u64 {
@@ -551,7 +551,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
                 // slots is `Box<[Value]>` — len == actual allocation.
                 // add-struct-heap-inline (P3b): + inline struct byte region + ref side-table.
                 size_of::<Value>() + size_of::<ScriptObject>()
-                    + obj.bytes().len()
+                    + obj.payload_len()
             }
             // impl-lambda-l2 / P1-2 PR 8: FuncRef holds a `FnId` — no heap allocation.
             Value::FuncRef(_) => size_of::<Value>(),
@@ -584,7 +584,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
             Value::BoxedStruct(gc) => {
                 let obj = gc.borrow();
                 size_of::<Value>() + size_of::<ScriptObject>()
-                    + obj.bytes().len()
+                    + obj.payload_len()
             }
         }
     }

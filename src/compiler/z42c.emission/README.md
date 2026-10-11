@@ -30,7 +30,8 @@
 | 目录 | 内容 |
 |------|------|
 | `src/Emission/` | Bound → IR：`IrGen*`、`EmitContext`、各 `*Emitter`、`ClassDescBuilder`、`SpecializationGuard` |
-| `src/Lowering/` | IR 级合成：record / 模块初始化 / 接口桥合成、测试索引 |
+| `src/Lowering/` | IR 级合成：record / 模块初始化 / 接口桥合成 |
+| `src/Testing/` | 测试索引（TIDX）构建：`[Test]` 家族 → `IrModule.TestIndex`（编译侧 test 链见 [framework.md](../../../docs/internals/src/testing/framework.md) §2.3）|
 | `src/Exports/` | 编译产物束 `CompiledModuleZ` |
 | `src/Compilation/` | 单 CU / 包编译编排：`CuCompile`、`CuPreprocess`、`IrDump` 门面、包级 `global using` 告警 |
 
@@ -75,7 +76,8 @@
 | `src/Emission/SigTypeNames.z42` | 已解析类型 → SIGS 签名拼写（类 / 接口 / enum 写 FQN，构造泛型与实例化接口带实参）；方法签名与 extern / abstract 桩共用 |
 | `src/Emission/CallEmitter.z42` / `AccessEmitter.z42` / `StmtEmitter.z42` / `OperatorEmitter.z42` / `TypeOpEmitter.z42` / `StubEmitter.z42` | 调用 / 成员访问 / 语句 / 运算符（含 record `==` 拦截脱糖）/ is·as·cast / 桩函数 的 IR 发射 |
 | `src/Emission/ClassDescBuilder.z42`（+ `.GenericInst`）/ `ExprEmitter.GenericInst.z42` / `GenericBodySrc.z42` / `IrGenFacts.z42` | 类描述构建 / 泛型实例化发射 / 泛型体源 / 发射期 IR 助手（类型标签、方法标志、形参元数据）|
-| `src/Lowering/IfaceBridgeSynth.z42` / `ModuleInitSynth.z42` / `RecordSynth.z42` / `TestIndexBuilder.z42` | 接口桥合成 / 模块初始化合成 / record 值语义合成 / 测试索引（TIDX）|
+| `src/Lowering/IfaceBridgeSynth.z42` / `ModuleInitSynth.z42` / `RecordSynth.z42` | 接口桥合成 / 模块初始化合成 / record 值语义合成 |
+| `src/Testing/TestIndexBuilder.z42` | 测试索引（TIDX）：扫 CU 的 `[Test]` 家族，按函数下标写 kind / flags / skip / throw / timeout；在 `IrOptPipeline` 之前建 |
 | `src/Compilation/GlobalUsingLint.z42` | 包级告警：全包没有文件用到的 `global using X;` ⇒ W0607（作用于编译产物，与 `CuPreprocess._enforceFileScope` 同层）|
 
 ## 依赖关系

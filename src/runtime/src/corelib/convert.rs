@@ -138,8 +138,8 @@ pub(crate) fn box_struct_blob(
     match obj_val {
         Value::Object(gc) => {
             {
-                let mut o = gc.borrow_mut();
-                let size = o.bytes().len();
+                let o = gc.borrow();
+                let size = o.payload_len();
                 // A fresh box (young, unreachable until returned): no barrier owed.
                 let offs = o.type_desc.struct_layout().map(|sl| sl.ref_offsets.clone()).unwrap_or_default();
                 o.write_blob(0, size, bytes, refs, &offs, &mut |_| {})?;

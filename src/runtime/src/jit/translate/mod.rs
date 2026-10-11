@@ -41,6 +41,7 @@ mod array;
 mod object;
 mod structs;
 mod term;
+mod str_intrinsics;
 
 // refactor-jit-translate-split (H2): leaf emit/predicate/analysis helpers
 mod unsupported;
@@ -98,6 +99,9 @@ pub fn translate_function(
     // `None` = normal entry at block 0 (unchanged). The dedicated OSR entry block is
     // created only in the `Some` case, so the non-OSR path is byte-for-byte identical.
     osr_entry:    Option<usize>,
+    // perf-str-jit-intrinsics: what a call site's target forwards to (string
+    // `Length` / `CharAt` are emitted inline — see `str_intrinsics`).
+    callees:      &dyn super::forward::ForwardLookup,
 ) -> Result<()> {
     let ptr     = jit.target_config().pointer_type();
 
@@ -359,6 +363,7 @@ pub fn translate_function(
             hoisted_ref_fields: &hoisted_ref_fields,
             hoisted_ref_arrays: &hoisted_ref_arrays,
             hr_array_ref_data,
+            callees,
             hr_const_i32, hr_const_i64, hr_const_f64, hr_const_bool, hr_const_char, hr_const_null, hr_const_str, hr_copy, hr_add, hr_sub, hr_mul, hr_div, hr_rem, hr_eq, hr_ne, hr_lt, hr_le, hr_gt, hr_ge, hr_and, hr_or, hr_not, hr_neg, hr_bit_and, hr_bit_or, hr_bit_xor, hr_bit_not, hr_shl, hr_shr, hr_str_concat, hr_to_str, hr_call, hr_builtin, hr_array_new, hr_array_new_lit, hr_array_get, hr_array_data, hr_array_set, hr_array_len, hr_obj_new, hr_typeof, hr_field_get, hr_field_set, hr_vcall, hr_is_instance, hr_as_cast, hr_static_get, hr_static_set, hr_struct_alloc, hr_struct_copy, hr_struct_field_get_prim, hr_struct_field_set_prim, hr_get_bool, hr_throw, hr_install_catch, hr_match_catch_type, hr_load_fn, hr_mk_clos, hr_call_indirect, hr_default_of, hr_convert, hr_check_safepoint_slow, hr_fatal_pending,
         };
         for (instr_idx, instr) in z42_block.instructions.iter().enumerate() {

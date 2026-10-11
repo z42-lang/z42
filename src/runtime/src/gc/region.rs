@@ -286,7 +286,7 @@ impl<T> Region<T> {
             // its Mutex / AtomicU8 / etc. Drop impls — all safe.
             let slot = unsafe { chunk[ei as usize].assume_init_mut() };
             let generation = slot.generation.load(Ordering::Acquire);
-            let freed = (self.payload_of)(slot.value.get_mut());
+            let freed = (self.payload_of)(&slot.value);
             self.footprint.apply((self.payload_of)(&value) as i64 - freed as i64);
             // Replace the entry in place. Drop the old, write new.
             let new_entry = RegionEntry::new(value, (ci, ei));
