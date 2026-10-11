@@ -12,15 +12,14 @@
 //   · 实例化：用 Path-A 拿到的 FullName 走 Type.GetType（解析到 Path-B 合并后的 live TypeDesc，
 //     避免 ALC 投影副本的 vtable 指向未合并函数）→ Activator.CreateInstance → as Analyzer。
 //
-// 接口同一性：analyzer 实现的 Z42.Syntax.Analyzer == 本编译器进程已驻留的同一接口（z42c 由
+// 接口同一性：analyzer 实现的 Z42.Analyzers.Analyzer == 本编译器进程已驻留的同一接口（z42c 由
 // z42c.syntax 构成，运行时它已加载）→ as Analyzer + AnalyzerDriver.Run 直接可用。
 //
 // 范式 = z42b builder.z42 _hostCompiler（Load→GetType→CreateInstance→as，已生产验证；那里 FQN
 // 硬编码，这里靠 Path-A 发现）。设计 SoT：docs/spec/changes/attribute-handler-registry/design.md D9。
-namespace Z42.Semantics;
+namespace Z42.Analyzers;
 
 using Std.Reflection;  // Assembly / Activator
-using Z42.Syntax;      // Analyzer
 
 public static class AnalyzerLoader {
     // 发现 + 实例化给定 zpkg 路径里所有 `: Analyzer` 类型。路径先按 Ordinal 排序（common-pitfalls §1，

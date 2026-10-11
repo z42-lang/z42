@@ -18,7 +18,7 @@
 // zpkg 丢失 FQ 名**（Bound.z42/ExprEmitter.z42：delegate 塌成结构化 Z42FuncType）→ 契约里的命名
 // delegate 无法跨包解析。visitor 模型全走接口派发（跨包已验证）+ 纯虚调用，driver 侧零 delegate/零闭包，
 // analyzer 侧也无需 lambda。design.md 已同步此偏离（§Analyzer 接口 决策注）。
-namespace Z42.Syntax;
+namespace Z42.Analyzers;
 
 using Z42.Core;   // Span
 

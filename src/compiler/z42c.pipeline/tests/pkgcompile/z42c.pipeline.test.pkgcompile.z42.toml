@@ -12,6 +12,7 @@ include = ["**/*.z42"]
 "z42c.pipeline"  = "0.1.0"
 "z42.package"        = "0.1.0"   # converge-z42c-ir-metadata: IR+zbc+zpkg 后端
 "z42c.semantics" = "0.1.0"
+"z42c.analyzers" = "0.1.0"   # LintConfig
 "z42c.core"      = "0.1.0"
 
 [build]

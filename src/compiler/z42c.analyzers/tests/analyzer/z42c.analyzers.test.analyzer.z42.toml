@@ -1,0 +1,19 @@
+# z42c.analyzers 单测：测试内 analyzer 经 AnalyzerDriver.Run 遍历 CU → 命中回调 → 诊断经 LintConfig /
+# SuppressionSet 决策后汇入 DiagnosticBag；`--fix` 就地重写。外部 zpkg 加载端到端见 z42c.pipeline/tests/pkgcompile。
+[project]
+name    = "z42c.analyzers.test.analyzer"
+version = "0.1.0"
+kind    = "lib"
+
+[sources]
+include = ["**/*.z42"]
+
+[dependencies]
+"z42c.analyzers" = "0.1.0"
+"z42c.syntax"    = "0.1.0"
+"z42c.core"      = "0.1.0"
+"z42.io"         = "0.1.0"   # File/Environment/Directory/Path —— --fix 就地重写单测（temp 文件）
+
+[build]
+# Build output → artifacts mirror (mirror-build-output-per-component)。
+output_dir = "../../../../../artifacts/build/compiler/z42c.analyzers/${profile}/tests/analyzer"

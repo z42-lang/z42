@@ -1,7 +1,7 @@
 # attribute 管线（store-meta 一支）
 
 > 代码：`z42c.semantics/src/Generators/AttributeSynth.z42`、`Symbols/HandlerRegistry.z42`、
-> `MacroRegistry.z42`、`AnalyzerDriver.z42`
+> `MacroRegistry.z42`、`z42c.analyzers/src/AnalyzerDriver.z42`、`z42c.syntax/src/SuppressionSet.z42`
 
 用户面的写法（后缀约定、五个反射载体、`#suppress`、caller 宏）见 reference 的
 [自定义 Attribute 与反射](https://z42-lang.github.io/z42/reference/language/attributes.html)。本页写**编译器怎么把

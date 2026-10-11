@@ -8,9 +8,7 @@
 //
 // 契约类型（DiagRule / AnalyzerSeverity）在 z42c.syntax；本决策器与 AnalyzerDriver 同处 z42c.semantics
 // （编译器侧驱动）。设计 SoT：docs/spec/changes/attribute-handler-registry/design.md §诊断/severity/开关。
-namespace Z42.Semantics;
-
-using Z42.Syntax;   // AnalyzerSeverity / DiagRule
+namespace Z42.Analyzers;
 
 public sealed class LintConfig {
     // _lookup / _parseSevToken 的哨兵（severity 合法值为 0..3，哨兵取负避免碰撞）。
