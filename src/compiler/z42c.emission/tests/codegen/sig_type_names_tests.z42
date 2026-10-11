@@ -13,8 +13,8 @@ string _hdr(string src, string fn) {
 [Test]
 void test_instantiated_interface_ret_is_fqn_with_args() {
     // 5b 之前：实例化接口漏拷 Namespace ⇒ `IBox`（连实参都丢了）。
-    string src = "namespace Demo.Sig;\npublic interface IBox<T> { }\npublic class H { public IBox<int> Get() { return null; } }";
-    Assert.Equal("fn @Demo.Sig.H.Get(1) -> Demo.Sig.IBox<Int32> {", _hdr(src, "Demo.Sig.H.Get"));
+    string src = "namespace Demo.Sig;\npublic interface IBox<T> { }\npublic class Ctx { }\npublic class H { public IBox<Ctx> Get() { return null; } }";
+    Assert.Equal("fn @Demo.Sig.H.Get(1) -> Demo.Sig.IBox<Demo.Sig.Ctx> {", _hdr(src, "Demo.Sig.H.Get"));
 }
 
 [Test]
@@ -25,14 +25,14 @@ void test_delegate_ret_args_are_fqn() {
 }
 
 [Test]
-void test_func_delegate_keeps_prim_wrapper_spelling() {
-    // 基元成分保持包装类名（裁决 D2，与构造泛型实参一致）；返回位在最后。
-    string src = "namespace Demo.Sig;\npublic class Ctx { }\npublic class H { public Func<Ctx, int> Get() { return null; } }";
-    Assert.Equal("fn @Demo.Sig.H.Get(1) -> Func<Demo.Sig.Ctx, Int32> {", _hdr(src, "Demo.Sig.H.Get"));
+void test_func_delegate_ret_component_is_fqn() {
+    // 返回位在最后，同样写 FQN。（基元成分保持包装类名 `Int32`——裁决 D2；本 helper 不加载 stdlib，不在此断言。）
+    string src = "namespace Demo.Sig;\npublic class Ctx { }\npublic class Res { }\npublic class H { public Func<Ctx, Res> Get() { return null; } }";
+    Assert.Equal("fn @Demo.Sig.H.Get(1) -> Func<Demo.Sig.Ctx, Demo.Sig.Res> {", _hdr(src, "Demo.Sig.H.Get"));
 }
 
 [Test]
 void test_abstract_stub_ret_is_fqn_with_args() {
-    string src = "namespace Demo.Sig;\npublic interface IBox<T> { }\npublic abstract class A { public abstract IBox<string> Make(); }";
-    Assert.Equal("fn @Demo.Sig.A.Make(1) -> Demo.Sig.IBox<String> {", _hdr(src, "Demo.Sig.A.Make"));
+    string src = "namespace Demo.Sig;\npublic interface IBox<T> { }\npublic class Ctx { }\npublic abstract class A { public abstract IBox<Ctx> Make(); }";
+    Assert.Equal("fn @Demo.Sig.A.Make(1) -> Demo.Sig.IBox<Demo.Sig.Ctx> {", _hdr(src, "Demo.Sig.A.Make"));
 }
