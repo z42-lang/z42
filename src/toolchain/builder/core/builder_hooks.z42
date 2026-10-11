@@ -1,8 +1,8 @@
 // z42b — 项目 build hook 动态注入（wire-z42b：build-hook 终章）。
 //
 // manifest `[build] hooks = "<dir>"`（projDir 相对）→ 用注入的同一 ICompiler 把该目录
-// 编成 <name>.hooks.zpkg → ModuleLoader.Load → Type.GetType("Build.ProjectHooks")
-// → Activator → as BuildHooks。约定：hook 源声明 `namespace Build;` + `class
+// 编成 <name>.hooks.zpkg → ModuleLoader.Load → ModuleLoader.Create("Build.ProjectHooks")
+// → as BuildHooks。约定：hook 源声明 `namespace Build;` + `class
 // ProjectHooks : BuildHooks`，override 需要的钩子（BeforeAssets 等）。
 //
 // 复用 dynamic-component-registration 的组件注入模式（_hostCompiler 同款三段：
@@ -16,8 +16,7 @@
 namespace Z42Builder;
 
 using Std.IO;
-using Std.Reflection;
-using Std.Test;
+using Std.Runtime;   // ModuleLoader（组件注入：加载 + 按 FQN 实例化）
 using Z42.Build;
 using Z42.Project;   // ManifestLoader：hooks 的合成清单
 
@@ -79,12 +78,11 @@ BuildHooks _loadProjectHooks(string hooksDir, string interDir, string pkgName) {
 
     try {
         ModuleLoader.Load(res.Zpkg);
-        Type t = Type.GetType("Build.ProjectHooks");
-        if (t == null) {
+        object o = ModuleLoader.Create("Build.ProjectHooks");
+        if (o == null) {
             ConsoleError.WriteLine("z42b: hooks loaded but Build.ProjectHooks not found — hook source must declare `namespace Build;` + `class ProjectHooks : BuildHooks`");
             return null;
         }
-        object o = Activator.CreateInstance(t);
         BuildHooks h = o as BuildHooks;
         if (h == null) {
             ConsoleError.WriteLine("z42b: Build.ProjectHooks does not extend Z42.Build.BuildHooks");

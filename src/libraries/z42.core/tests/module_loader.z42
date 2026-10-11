@@ -1,0 +1,39 @@
+// Std.Runtime.ModuleLoader：按 FQN 实例化 / 调用，以及加载失败的形状。
+// 真实的跨包加载（编译器组件、hooks、analyzer zpkg）由 z42b / REPL / z42c.pipeline 的用例覆盖。
+namespace Z42CoreModuleLoaderTests;
+
+using Std.Runtime;
+
+public class Probe {
+    public int V;
+    public Probe() { this.V = 7; }
+}
+
+int answer() { return 42; }
+
+[Test]
+void test_create_known_type() {
+    object o = ModuleLoader.Create("Z42CoreModuleLoaderTests.Probe");
+    Assert.NotNull(o);
+    Probe p = o as Probe;
+    Assert.NotNull(p);
+    Assert.Equal(7, p.V);
+}
+
+[Test]
+void test_create_unknown_type_is_null() {
+    Assert.Null(ModuleLoader.Create("No.Such.Namespace.NoSuchType"));
+}
+
+[Test]
+void test_invoke_free_function_by_fqn() {
+    object r = ModuleLoader.Invoke("Z42CoreModuleLoaderTests.answer");
+    Assert.Equal(42, (int)r);
+}
+
+[Test]
+void test_load_missing_path_throws() {
+    bool threw = false;
+    try { ModuleLoader.Load("/no/such/dir/no_such_module.zpkg"); } catch (Exception e) { threw = true; }
+    Assert.True(threw);
+}

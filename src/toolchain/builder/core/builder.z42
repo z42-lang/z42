@@ -14,8 +14,7 @@
 namespace Z42Builder;
 
 using Std.IO;
-using Std.Test;
-using Std.Reflection;
+using Std.Runtime;   // ModuleLoader（组件注入：加载 + 按 FQN 实例化）
 using Z42.Build;
 using Z42.Project;
 
@@ -93,12 +92,11 @@ ICompiler _hostCompiler() {
     }
     try {
         ModuleLoader.Load(zpkg);
-        Type t = Type.GetType("Z42.Pipeline.Z42cCompiler");
-        if (t == null) {
+        object o = ModuleLoader.Create("Z42.Pipeline.Z42cCompiler");
+        if (o == null) {
             ConsoleError.WriteLine("z42b: Z42cCompiler type not resolvable after loading " + zpkg);
             return new NoCompiler();
         }
-        object o = Activator.CreateInstance(t);
         ICompiler c = o as ICompiler;
         if (c == null) {
             ConsoleError.WriteLine("z42b: loaded Z42cCompiler does not satisfy ICompiler (component/interface version mismatch?)");

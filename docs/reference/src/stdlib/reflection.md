@@ -438,6 +438,34 @@ public sealed class Assembly {
 `AssemblyLoadContext.Load` / `AssemblyLoadContext.GetAssemblies()` 产出。常驻 root
 上下文的类型报告合成的 root assembly（`Name` 为 `"root"`，`GetTypes()` 返回空数组）。
 
+## `Std.Runtime.ModuleLoader`
+
+```z42
+public static class ModuleLoader {
+    public static void   Load(string path);          // .zpkg / .zbc（含依赖闭包）并入当前 VM
+    public static bool   LoadBytes(byte[] bytes);    // 同上，从内存字节加载（packed zpkg 或裸 zbc）
+    public static object Invoke(string fqn);         // 按全限定名调用零参静态 / 自由函数
+    public static object Create(string typeFqn);     // 按全限定类型名无参构造；解析不到返回 null
+}
+```
+
+把另一个已编译的包**并入当前程序**，之后它的类型和函数可直接调用——插件、运行期注入组件都用它：
+
+```z42
+using Std.Runtime;
+
+ModuleLoader.Load("plugins/my.plugin.zpkg");
+IPlugin p = ModuleLoader.Create("My.Plugin.Entry") as IPlugin;
+if (p == null) { /* 类型不存在，或没实现 IPlugin */ }
+```
+
+- 与 `AssemblyLoadContext.Load` 的区别：后者只给出**反射投影**（能枚举类型，不能执行）；`ModuleLoader` 加载的代码可以执行。
+- 加载按包名幂等，重复加载同一个包不报错也不重复初始化。
+- 被加载包所在的目录会加入依赖查找路径，与它放在同一目录的依赖包自动可见。
+- 加载失败（文件缺失、格式版本不符、开发态的 indexed zpkg 被单独拷走）抛异常。
+- `Invoke` 只调**零参**函数；被调函数里抛出的异常按原类型传出，可 `catch`。
+- `Create` 返回 `null` 有两种原因：类型名解析不到，或者（配合 `as`）类型没实现目标接口——调用方据此给出自己的诊断。
+
 ## `Std.Enum`
 
 ```z42

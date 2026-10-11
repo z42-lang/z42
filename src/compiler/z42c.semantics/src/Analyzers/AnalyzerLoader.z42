@@ -7,7 +7,7 @@
 //   · Path-A 发现（reflect-only）：AssemblyLoadContext.Default().Load(path) → Assembly.GetTypes()
 //     → 过滤 GetInterface("Analyzer")。__lctx_load 进 root 的 AssemblyEntry 类型**可枚举**，但函数
 //     **不并入 live module → 不可调**（runtime context.rs:load_into）。仅用它拿类型 FQN 清单。
-//   · Path-B 可调用：__load_module(path)（load_module_into_vm flat-merge）→ 函数/类型并入 live VM，
+//   · Path-B 可调用：ModuleLoader.Load(path)（load_module_into_vm flat-merge）→ 函数/类型并入 live VM，
 //     可 Type.GetType + Activator.CreateInstance + 虚调用。仅用它让实例可执行。
 //   · 实例化：用 Path-A 拿到的 FullName 走 Type.GetType（解析到 Path-B 合并后的 live TypeDesc，
 //     避免 ALC 投影副本的 vtable 指向未合并函数）→ Activator.CreateInstance → as Analyzer。
@@ -20,16 +20,10 @@
 namespace Z42.Semantics;
 
 using Std.Reflection;  // Assembly / Activator
+using Std.Runtime;     // ModuleLoader（Path-B）/ AssemblyLoadContext（Path-A）
 using Z42.Syntax;      // Analyzer
 
 public static class AnalyzerLoader {
-    // Path-B：把 zpkg 的函数/类型并入 live VM（可 Type.GetType + Activator + 虚调用）。z42c **不**
-    // 依赖 z42.test（那里有 public 包装 Std.Test.ModuleLoader.Load），故此处**自绑** VM builtin。
-    // native 是 VM builtin（种子里恒在 → 无两-nightly 越界）；返回 TIDX（Std.Test.TestEntry[]），忽略——
-    // 只要其加载副作用。
-    [Native("__load_module")]
-    private static extern object _makeCallable(string path);
-
     // 发现 + 实例化给定 zpkg 路径里所有 `: Analyzer` 类型。路径先按 Ordinal 排序（common-pitfalls §1，
     // 确定序）。返回按发现序（同一 zpkg 内按 Assembly.GetTypes 的 FQ 名序）的 Analyzer 实例数组。
     public static Analyzer[] Load(string[] zpkgPaths, int count) {
@@ -39,7 +33,7 @@ public static class AnalyzerLoader {
         int i = 0;
         while (i < count) {
             string path = sorted[i];
-            AnalyzerLoader._makeCallable(path);                        // Path-B（先，供实例可执行）
+            ModuleLoader.Load(path);                                   // Path-B（先，供实例可执行）
             Assembly asm = AssemblyLoadContext.Default().Load(path);   // Path-A（反射投影，仅枚举）
             Type[] types = asm.GetTypes();
             int j = 0;
