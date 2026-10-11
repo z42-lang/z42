@@ -161,7 +161,7 @@ public static class IrDump {
         // 彼此无数据依赖，同序遍历 cus[]，每张 map 的写序不变 → 字节不动。本地类集由 `LocalClassSet.Build`
         // 单独建（FQN 键，单文件 emit 路径共用）。
         LocalClassSet localClasses = LocalClassSet.Build(cus, count, symbols);   // G18：反劫持守卫仅认本地类
-        StrMap pkgClassMap = new StrMap();            // 跨文件 base 类方法继承（shortName / Name$N → ClassDecl）
+        StrMap pkgClassMap = new StrMap();            // 跨文件 base 类方法继承（类 FQN → ClassDecl，同 `Z42ClassType.Fqn()`）
         ExportedFuncZ[] allFuncs = new ExportedFuncZ[4];   // 全包自由函数（文件序+声明序，C# sem.Funcs 兄弟泄漏镜像）
         int afc = 0;
         i = 0;
@@ -174,11 +174,9 @@ public static class IrDump {
                 if (dd is ClassDecl) {
                     ClassDecl cd = dd as ClassDecl;
                     if (cd.Kind == "class" || cd.Kind == "struct") {
-                        if (!pkgClassMap.ContainsKey(cd.Name)) { pkgClassMap.Put(cd.Name, cd); }
-                        if (cd.TypeParams.Count > 0) {
-                            string pcmk = cd.Name + "$" + cd.TypeParams.Count.ToString();
-                            if (!pkgClassMap.ContainsKey(pcmk)) { pkgClassMap.Put(pcmk, cd); }
-                        }
+                        string fns = fcu.HasNamespace ? fcu.Namespace : "";
+                        string pcmk = SymbolTable.QualOf(fns, symbols.LocalClassKey(fns, cd));
+                        if (!pkgClassMap.ContainsKey(pcmk)) { pkgClassMap.Put(pcmk, cd); }
                     }
                 }
                 d = d + 1;
