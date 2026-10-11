@@ -259,8 +259,7 @@ public sealed class TypeChecker {
         // 见 tasks 1.5：改前 enum 成员按 int 静态类型装成 Std.Int32，同样错）。
         // 擦除面**与整数基元逐字一致**（object/接口，**不含**泛型形参）——泛型形参位今天对 `List<int>`
         // 就不装箱（存裸 i64），enum 跟着走同一条路，容器里外表示不变、无需拆箱对偶。
-        // PrimFQ 存 enum **短名**，FQ 化留给 codegen 的 `QualifyClass`（同 `CallEmitter` 的 GetType 折叠：
-        // enum 名在语义期未必带 ns，限定得在 emit 期按 using/ImportedClassNs 做）。
+        // PrimFQ 存 enum **短名**，FQ 化留给 codegen（`TypeOpEmitter._emitBox` 按 enum 类型对象的声明 ns 限定）。
         if ((vt is Z42ClassType) && (vt as Z42ClassType).IsEnum) {
             bool erasesE = (target is Z42InterfaceType) || TypeChecker._isObjectName(target.Name());
             if (!erasesE) { return value; }

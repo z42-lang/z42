@@ -45,38 +45,6 @@ public static class CuPreprocess {
         if (base2.EndsWith(".z42")) { base2 = base2.Substring(0, base2.Length - 4); }
         return base2;
     }
-    // 剔除被**本 CU 声明类**遮蔽的 imported 名（local-wins shadowing，ns-aware）。仅当本 CU 声明的类
-    // 名在 ImportedClassNs 中映射到**不同于本 CU ns** 的 ns 时才剔除（= 真 import 遮蔽，如用户
-    // `class Stack`@Demo 遮蔽 Std.Collections.Stack）。本包跨-ns 自有类（声明在别的 CU/ns）不在本 CU
-    // decls 中 → 不剔除 → 保留其 cross-ns 限定（避免误删致自举 emit 崩溃）。返回过滤副本，不改原表。
-    internal static StrMap _filterShadowed(StrMap imported, CompilationUnit cu) {
-        if (imported == null) { return imported; }
-        string myNs = "";
-        if (cu.HasNamespace) { myNs = cu.Namespace; }
-        StrMap exclude = new StrMap();
-        int di = 0;
-        while (di < cu.DeclCount) {
-            Decl dd = cu.Decls[di];
-            if (dd is AttributedDecl) { dd = (dd as AttributedDecl).Inner; }
-            if (dd is ClassDecl) {
-                string cn = (dd as ClassDecl).Name;
-                if (imported.ContainsKey(cn)) {
-                    StrBox b = imported.Get(cn) as StrBox;
-                    if (b != null && b.Value != myNs) { exclude.Put(cn, "1"); }
-                }
-            }
-            di = di + 1;
-        }
-        if (exclude.Count() == 0) { return imported; }
-        StrMap r = new StrMap();
-        string[] ks = imported.Keys();
-        int i = 0;
-        while (i < ks.Length) {
-            if (!exclude.ContainsKey(ks[i])) { r.Put(ks[i], imported.Get(ks[i])); }
-            i = i + 1;
-        }
-        return r;
-    }
     // path C：本 CU 的活跃命名空间集 = 全部 `using` 名 + 本 CU 命名空间（若有）+ **prelude 命名空间**。
     // 静态调用 using-scoped 消歧用：只在这些 ns 内解析短类名，跨 ns 同短名（未 using 的那份）不参与。
     // **prelude（z42.core，namespace Std / Std.Runtime）必须纳入**——它免 `using` 恒可见；漏掉会让

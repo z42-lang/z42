@@ -86,12 +86,8 @@ public sealed partial class ClassDescBuilder {
         return true;
     }
 
-    // 短名 → FQ，实例化名只限定基名（与 `ExprEmitter._qualifyInstName` / 本文件 `fqInst` 同约定）。
-    private string _qInst(string name) {
-        int lt = name.IndexOf('<');
-        if (lt < 0) { return this._g._qClass(name); }
-        return this._g._qClass(name.Substring(0, lt)) + name.Substring(lt, name.Length - lt);
-    }
+    // 声明里写的（代换后的）基 / 接口名 → FQ，实例化名只限定基名（同 `_qDecl`）。
+    private string _qInst(string name) { return this._qDecl(name); }
 
     // 泛型 class 实例化的合成描述符。
     //
@@ -120,11 +116,19 @@ public sealed partial class ClassDescBuilder {
         Decl rawDef = this._genericRawOf(bareDef);
         ClassDecl cdef = this._genericDeclOf(bareDef);
         if (cdef == null) { return null; }              // 非本包泛型（闸门已拦，这里兜底）
+        // 定义在别的 CU：它声明里写的名字（基 / 接口 / 约束）按**那个 CU** 的作用域解析（fqn-tables 5d）。
+        SymbolTable prevDecl = this._declSyms;
+        GenericBodySrc dsrc = this._g.GenericDecls.ContainsKey(bareDef) ? null : this._g.GenericTypeDecls.Get(bareDef) as GenericBodySrc;
+        if (dsrc != null && dsrc.Model != null) { this._declSyms = dsrc.Model.Symbols; }
+        IrClassDesc r = this._instClassDescIn(instName, bareDef, rawDef, cdef, ly);
+        this._declSyms = prevDecl;
+        return r;
+    }
+
+    private IrClassDesc _instClassDescIn(string instName, string bareDef, Decl rawDef, ClassDecl cdef, StructLayout ly) {
         StructLayoutInfo ol = ly.ObjectLayoutOf(instName);
         StructLayoutInfo il = ly.InlineLayoutOf(instName);
-        int ltq = instName.IndexOf('<');
-        string fqInst = ltq < 0 ? this._g._q(instName)
-                                : this._g._q(instName.Substring(0, ltq)) + instName.Substring(ltq, instName.Length - ltq);
+        string fqInst = this._qDecl(instName);   // 定义所在 ns（与发射端 `_qualifyInstName` 的 QualifyLayout 同源）
         StrMap subst = ClassDescBuilder._instSubstOf(cdef, instName);
         // ── 定义那条描述符（字段集合与顺序的唯一来源）──────────────────────────
         IrClassDesc cd = this._classDesc(cdef, HandlerRegistry.HasRecord(rawDef));
@@ -176,7 +180,7 @@ public sealed partial class ClassDescBuilder {
             string bare = sn;
             int lt2 = sn.IndexOf('<');
             if (lt2 >= 0) { bare = sn.Substring(0, lt2); }
-            if (this._g._symbols.HasInterface(bare)) {
+            if (this._scope().HasInterface(bare)) {
                 if (ifc == ifs.Length) {
                     string[] b2 = new string[ifs.Length * 2];
                     int z = 0; while (z < ifc) { b2[z] = ifs[z]; z = z + 1; }

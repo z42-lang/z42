@@ -51,7 +51,6 @@ public sealed class EmitContext {
     private string _tlPath; private string _tlBase;   // TrackLine 的文件名缓存：同一函数的语句几乎都来自同一文件
     public string Ns;   // 根命名空间（""=无；名字限定 BP-0，镜像 C# QualifyName）
     public DependencyIndex Deps;       // 跨包调用索引（CI-4；null=无依赖）
-    public StrMap ImportedClassNs;     // imported 短类名 → ns（StrBox；IC-1：VCall 依赖追踪 + ObjNew FQ；**含本包跨-ns 自有类**，G17b）
     public string[] ActiveNs; public int ActiveNsCount;  // path C：本 CU 活跃命名空间集（usings + 本 ns，prelude-first）→ 静态调用 using-scoped 消歧
     public StrMap LocalClasses;        // 本包**自有声明**类名集（G18 修正：ChainHasMethod 反劫持守卫须仅认本地类，镜像 C# ClassRegistry）
     public IrExcEntry[] ExcTable; public int ExcCount;       // 异常表（port-z42c-try）
@@ -79,7 +78,6 @@ public sealed class EmitContext {
         this.Lines = new IrLineEntry[8]; this.LineCount = 0; this.LastLine = 0;
         this.Ns = "";
         this.Deps = null;
-        this.ImportedClassNs = null;
         this.ActiveNs = null; this.ActiveNsCount = 0;
         this.ExcTable = new IrExcEntry[2]; this.ExcCount = 0;
         this.CurFnName = ""; this.LambdaIdx = 0; this.InLambdaEnv = false;
@@ -98,14 +96,9 @@ public sealed class EmitContext {
     }
 
 
-    // 类名限定（镜像 C# QualifyClassName）：imported 类 → 其原 ns 前缀；否则按模块 ns 限定。
-    public string QualifyClass(string name) {
-        if (this.ImportedClassNs != null && this.ImportedClassNs.ContainsKey(name)) {
-            StrBox b = this.ImportedClassNs.Get(name) as StrBox;
-            if (b != null) { return b.Value + "." + name; }
-        }
-        return this.Qualify(name);
-    }
+    // **没有类型对象**时的兜底：按当前模块 ns 限定（基名已带 ns 原样）。fqn-tables 5d 起发射端限定类名一律
+    // 走类型对象（`QualifyType` / `QualifyLayout` / `QualifySource`），这里不再查「短名 → ns」图（已删）。
+    public string QualifyClass(string name) { return this.Qualify(name); }
 
     // fqn-tables 5d：按**类型对象**限定 —— `name` 是该类型在 IR 里的名字（短名 / `Name$N` / 实例化布局名，
     // 由调用方给，原样保留），ns 取类型自己的声明 ns。发射端拿到的短名大多来自已解析类型（导入成员签名里的接收者
@@ -113,6 +106,7 @@ public sealed class EmitContext {
     // `Std.Json` 里 `Object` 被限定成 `Std.Json.Object`）。类型没有 ns（全局 ns 类型、兜底合成类型）时回落 QualifyClass。
     public string QualifyType(Z42Type t, string name) {
         if (EmitContext.BaseHasDot(name)) { return name; }   // 调用方给的已是限定名（源码写的 `Std.Exception` 等）
+        if (PrimModel.Wrapper(name) != name) { return this.QualifyClass(name); }   // 关键字拼写（`int`）不是类名，不拼 ns
         string ns = EmitContext.DeclNsOf(t);
         return ns != "" ? ns + "." + name : this.QualifyClass(name);
     }
@@ -150,17 +144,14 @@ public sealed class EmitContext {
         return dot >= 0 && (lt < 0 || dot < lt);
     }
 
-    // 类型的声明 ns（类 / 构造泛型的定义 / 接口 / 实例化接口 / enum）；其余（基元、型参、数组、未知）为 ""。
+    // 类型的声明 ns（类 / 构造泛型的定义 / 接口 / 实例化接口 / enum / 基元包装类）；其余（型参、数组、未知、兜底合成类型）为 ""。
     public static string DeclNsOf(Z42Type t) {
         if (t == null) { return ""; }
         if (t is Z42InstantiatedType) {
             Z42ClassType d = (t as Z42InstantiatedType).Def;
             return d == null ? "" : d.Namespace;
         }
-        if (t is Z42ClassType) {
-            Z42ClassType ct = t as Z42ClassType;
-            return ct.PrimCode() >= 0 ? "" : ct.Namespace;
-        }
+        if (t is Z42ClassType) { return (t as Z42ClassType).Namespace; }   // 基元包装类（Std.Int32…）也有 ns；兜底的 Builtin 没有
         if (t is Z42InterfaceType) { return (t as Z42InterfaceType).Namespace; }
         return "";
     }
@@ -181,7 +172,7 @@ public sealed class EmitContext {
     // 非本地类（imported / 外部，不在 LocalClasses）→ 停止返回 false，交由 DepIndex instance 捷径
     // 走 FQ Call（`Ns.Class.Method`）：①imported receiver（z42c.syntax `_diags.Error` → `Z42.Core.
     // DiagnosticBag.Error`）。本地类（含本包跨-ns 自有类如 z42c.ir BinaryFormat 段）→ 认 vtable-owned
-    // → VCall，不误劫持到同名外部方法（G18 修正：原误用含自有跨-ns 类的 ImportedClassNs → ByteWriter.
+    // → VCall，不误劫持到同名外部方法（G18 修正：原误用含自有跨-ns 类的短名 → ns 图 → ByteWriter.
     // ToHex 被劫持到 Std.Numerics.BigInt.ToHex 等虚假 DEPS）。
     public bool ChainHasMethod(string clsName, string method0) {
         // add-iface-return-bridge：调用点传进来的是 `MethodSymbol.CallKey()`，被桥接的方法带
@@ -287,8 +278,7 @@ public sealed class EmitContext {
             if (it != null) { ct = it.Def; }
         }
         if (ct == null) { return null; }
-        // extend-sealed-devirt-imported：本地（QualifyClass=当前 ns）或 imported（QualifyClass 经
-        // ImportedClassNs=源 ns）——两者 QualifyClass 都能给出与发射一致的 FQ；两者皆非则不去虚化。
+        // extend-sealed-devirt-imported：本地或带 ns 的导入类才能构造出与发射一致的 FQ；否则不去虚化。
         if (!this._devirtQualifiable(ct)) { return null; }
         return ct;
     }
@@ -303,7 +293,7 @@ public sealed class EmitContext {
     }
 
     // 类的 IR 短名（镜像 IrGen._classIrShortName）：泛型类若以 `Name$N` 键注册（同名多 arity 重载）→ 返回
-    // `Name$N`，否则裸 `Name`。去虚化目标名 + ImportedClassNs 查键都用它，逐字节匹配 IrGen 发射。
+    // `Name$N`，否则裸 `Name`。去虚化目标名用它，逐字节匹配 IrGen 发射。
     private string _classShortName(Z42ClassType ct) {
         if (ct.GenericParamCount > 0) {
             string mk = ct.Name() + "$" + ct.GenericParamCount.ToString();
@@ -312,14 +302,11 @@ public sealed class EmitContext {
         return ct.Name();
     }
 
-    // 去虚化目标名可否用 `QualifyClass(shortName)+"."+RegKey` 精确构造：本地声明类（LocalClasses 裸名键，
-    // QualifyClass=当前 ns）或 imported 类（ImportedClassNs 条件 mangle 短名键，QualifyClass=源 ns）。
-    // 两者皆非 → QualifyClass 会误加当前 ns → 不可去虚化（回落 VCall）。非泛型下 `_classShortName==Name` →
-    // 与旧 `_devirtQualifiable(name)` 逐字节等价（零回归）。
+    // 去虚化目标名可否精确构造（`QualifyType(ct, shortName)+"."+RegKey`）：本地声明类，或带声明 ns 的导入类。
+    // 两者皆非（无 ns 的兜底类型）→ 不可去虚化（回落 VCall）。
     private bool _devirtQualifiable(Z42ClassType ct) {
         if (this.LocalClasses != null && this.LocalClasses.ContainsKey(ct.Name())) { return true; }
-        if (this.ImportedClassNs != null && this.ImportedClassNs.ContainsKey(this._classShortName(ct))) { return true; }
-        return false;
+        return ct.IsImported && ct.Namespace != "";
     }
 
     // 全限定名 fq 是否为**依赖包已发射的真实函数**（DependencyIndex.AddModule 把每个跨包函数按其
@@ -372,7 +359,7 @@ public sealed class EmitContext {
         if (!EmitContext.IsRuntimeAmbiguousPrim(canon)) { return ""; }
         string wrapper = PrimModel.Wrapper(canon);
         if (wrapper == "" || wrapper == canon) { return ""; }
-        string fq = this.QualifyClass(wrapper) + "." + methodKey;
+        string fq = PreludeNs.Root() + "." + wrapper + "." + methodKey;   // 基元包装类恒在 prelude 根 ns（Std）
         // 必须校验「确为已发射函数」：查不到就回落 VCall（= 今天的行为），**永不 miscall**。
         // 本地 prim 类（编 z42.core 自身时）不在 Deps 里，用 LocalClasses 判。
         if (this.LocalClasses != null && this.LocalClasses.ContainsKey(wrapper)) { return fq; }
@@ -442,8 +429,7 @@ public sealed class EmitContext {
         Z42ClassType ct = startCt;
         int hops = 0;
         while (ct != null) {
-            // 只在**可限定**类上构造目标名（QualifyClass 给出与 IrGen 发射一致的 FQ——本地=当前 ns、
-            // imported=ImportedClassNs 源 ns；泛型经 _classShortName 的 $N 条件 mangle）。
+            // 只在**可限定**类上构造目标名（按类型对象的声明 ns；泛型经 _classShortName 的 $N 条件 mangle）。
             if (!this._devirtQualifiable(ct)) { return ""; }
             if (ct.Methods.ContainsKey(methodKey)) {
                 MethodSymbol ms = ct.Methods.Get(methodKey) as MethodSymbol;
@@ -500,15 +486,6 @@ public sealed class EmitContext {
     // `object` 收者查 `LocalClasses["object"]` 必然落空。
     private static string _primWrapper(string n) {
         return PrimModel.Wrapper(n);
-    }
-
-    // 类的声明 ns 是否异于当前模块 ns（跨-ns，含 imported）。G18i：`as`-cast 到跨-ns 类后字段读
-    // 结果 tag → Unknown（镜像 C#：cast-to-cross-ns-class 不加载目标类字段；param/var 已声明类型则加载）。
-    public bool IsCrossNs(string clsName) {
-        if (this.ImportedClassNs == null || !this.ImportedClassNs.ContainsKey(clsName)) { return false; }
-        StrBox b = this.ImportedClassNs.Get(clsName) as StrBox;
-        if (b == null) { return false; }
-        return b.Value != this.Ns;
     }
 
     // 类的归属包（本包 / 归属不明 → ""）：跨包 devirt 门用。
@@ -705,4 +682,5 @@ public sealed class EmitContext {
         return IrType.Ref;   // object / 未知 → ref
     }
 }
+
 

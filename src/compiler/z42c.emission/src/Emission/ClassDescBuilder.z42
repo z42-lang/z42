@@ -9,7 +9,46 @@ using Z42.IR;
 
 public sealed partial class ClassDescBuilder {
     private IrGen _g;
-    public ClassDescBuilder(IrGen g) { this._g = g; }
+    // 正在描述的声明**所属 CU** 的作用域视图：null = 本 CU（`_g._symbols`）；描述别的 CU 里的泛型定义的
+    // 实例化时（`_instClassDesc`）是那个 CU 的 model.Symbols —— 声明里写的名字要按声明方的作用域解析。
+    private SymbolTable _declSyms;
+    public ClassDescBuilder(IrGen g) { this._g = g; this._declSyms = null; }
+
+    private SymbolTable _scope() { return this._declSyms != null ? this._declSyms : this._g._symbols; }
+
+    // fqn-tables 5d：**声明里写的**类型名（基类 / 接口 / 约束基类 / attribute 类）→ FQ。按声明方 CU 的作用域解析
+    // （外围 ns → FQN → using → prelude），ns 取解析到的类型；只限定基名、实参原样；基名已带 ns 原样返回。
+    // 解析不到回落按短名限定。此前一律按「短名 → ns」图（同短名本包覆盖导入）。
+    private string _qDecl(string name) {
+        if (EmitContext.BaseHasDot(name)) { return name; }
+        int lt = name.IndexOf('<');
+        string baseN = lt < 0 ? name : name.Substring(0, lt);
+        string suffix = lt < 0 ? "" : name.Substring(lt, name.Length - lt);
+        SymbolTable st = this._scope();
+        Z42ClassType ct = null;
+        if (lt >= 0) { ct = st.GetClass(baseN + "$" + ClassDescBuilder._topArgCount(suffix).ToString()); }
+        if (ct == null) { ct = st.GetClass(baseN); }
+        if (ct != null && ct.Namespace != "") { return ct.Namespace + "." + baseN + suffix; }
+        Z42InterfaceType it = st.GetInterface(baseN);
+        if (it != null && it.Namespace != "") { return it.Namespace + "." + baseN + suffix; }
+        string ek = st.EnumKey(baseN);
+        if (ek != null) { return ek + suffix; }
+        return this._g._qClass(baseN) + suffix;
+    }
+
+    // `<A, B<C, D>>` 的顶层实参个数。
+    private static int _topArgCount(string suffix) {
+        int depth = 0; int n = 1;
+        int i = 0;
+        while (i < suffix.Length) {
+            char ch = suffix.CharAt(i);
+            if (ch == '<') { depth = depth + 1; }
+            else if (ch == '>') { depth = depth - 1; }
+            else if (ch == ',' && depth == 1) { n = n + 1; }
+            i = i + 1;
+        }
+        return n;
+    }
 
     internal string _typeFieldName(TypeExpr te) {
         if (te is ArrayType) { return this._typeFieldName((te as ArrayType).Elem) + "[]"; }
@@ -79,8 +118,8 @@ public sealed partial class ClassDescBuilder {
         // 解析结果只是 Classes first/last-wins 撞出来的赢家 —— 把它写成 FQN 就是「自信的错答案」。
         // 退回短名 = 与本 change 之前一致的诚实降级（运行期 resolve_dotless_simple 见歧义会给
         // 无句柄合成类型，不乱绑）。判据见 SymbolTable.IsBareNameAmbiguous。
-        if (this._g._symbols.IsBareNameAmbiguous(nt.Name)) { return ""; }
-        Z42Type rt = this._g._symbols.ResolveType(nt);
+        if (this._scope().IsBareNameAmbiguous(nt.Name)) { return ""; }
+        Z42Type rt = this._scope().ResolveType(nt);
         if (rt is Z42ClassType) {
             Z42ClassType ct = rt as Z42ClassType;
             if (ct.PrimCode() < 0 && ct.Namespace != "") { return ct.Fqn(); }
@@ -119,15 +158,14 @@ public sealed partial class ClassDescBuilder {
         while (i < count) { queue[qt] = direct[i]; qt = qt + 1; i = i + 1; }
         while (qh < qt) {
             string name = queue[qh]; qh = qh + 1;
-            // 裸名（去泛型实参）查 IfaceDecls + 去重
+            // 去泛型实参后按声明方作用域解析出接口，以其 **FQN** 去重、查本 CU 的 `IfaceDecls`（FQN 键）。
+            // fqn-tables 5d：此前按短名去重 / 查表 ⇒ 同短名不同 ns 的两个接口塌成一个，导入的同短名接口
+            // 被当成本 CU 那个展开。解析不到的名字按短名兜底去重（不展开）。
             string bare = name;
             int lt = name.IndexOf('<');
             if (lt >= 0) { bare = name.Substring(0, lt); }
-            // `IfaceDecls` 的键是**裸短名**（`IrGen` 按 `cfd.Name` 登记）。名字带 ns 时必须先剥，
-            // 否则查不中 ⇒ 父接口不展开 ⇒ **TYPE 段的接口表静默变短** ⇒ 跨包 `is IFace` 失配。
-            // 今天的输入还都是短名（本条恒等），但 `InterfaceNames` 正在往 FQN 迁（fqn-symbol-key），
-            // 先把这道门修好，免得迁移那一刀在这里静默掉一截闭包。
-            bare = SymbolTable.ShortNameOf(bare);
+            Z42InterfaceType xit = this._scope().GetInterface(bare);
+            bare = xit != null ? xit.Fqn() : SymbolTable.ShortNameOf(bare);
             if (seen.ContainsKey(bare)) { continue; }
             seen.Put(bare, "1");
             if (rc == result.Length) {
@@ -175,7 +213,7 @@ public sealed partial class ClassDescBuilder {
             // 基类，而循环紧接着 `bi2 = c.BaseCount` 提前结束 ⇒ **真基类根本没被看到**。
             // 实测：符号层修好而这里没修时，`class E : Std.IDisposable, Base` 编译通过、
             // 运行期 `VCall: Demo.E.Tag not found`。
-            if (SymbolTable.InterfaceKeyOf(this._g._symbols, barebn) == "") {
+            if (SymbolTable.InterfaceKeyOf(this._scope(), barebn) == "") {
                 // fix-generic-base-name：泛型基名此前一律剥成裸名。理由是「写 `Ns.Bag<T>` 进元数据，
                 // VM 建 vtable 时按该名找不到任何类 ⇒ 继承来的方法运行期 `VCall: … not found`」。
                 //
@@ -194,7 +232,7 @@ public sealed partial class ClassDescBuilder {
                     this._g.NoteInstName(cn);   // 基也要有描述符，否则运行期基链断在这里
                 } else {
                     baseName = barebn;
-                    if (!this._hasDot(baseName)) { baseName = this._g._qClass(baseName); }   // 镜像 QualifyClassName
+                    baseName = this._qDecl(baseName);
                 }
                 hasBase = true;
                 bi2 = c.BaseCount;        // 取首个类即止
@@ -207,8 +245,8 @@ public sealed partial class ClassDescBuilder {
         int sfcount = 0;
         // Arity-mangle：泛型类以 Name$N 键注册时从 Name$N 取 CT。
         string ctdKey = c.Name;
-        if (c.TypeParams.Count > 0) { string ctdm = c.Name + "$" + c.TypeParams.Count.ToString(); if (this._g._symbols.HasClass(ctdm)) { ctdKey = ctdm; } }
-        Z42ClassType ctd = this._g._symbols.GetClass(ctdKey) as Z42ClassType;
+        if (c.TypeParams.Count > 0) { string ctdm = c.Name + "$" + c.TypeParams.Count.ToString(); if (this._scope().HasClass(ctdm)) { ctdKey = ctdm; } }
+        Z42ClassType ctd = this._scope().GetClass(ctdKey) as Z42ClassType;
         int j = 0;
         while (j < c.MemberCount) {
             Decl mem = DeclFacts._unwrap(c.Members[j]);
@@ -302,7 +340,7 @@ public sealed partial class ClassDescBuilder {
             // 运行期反射与 golden 字节照样暴露。
             while (ifi < expanded.Length) {
                 string ifn = expanded[ifi];
-                if (!this._hasDot(ifn)) { ifn = this._g._qClass(ifn); }
+                ifn = this._qDecl(ifn);
                 ifqs[ifi] = ifn;
                 ifi = ifi + 1;
             }
@@ -372,7 +410,7 @@ public sealed partial class ClassDescBuilder {
         if (c.TypeParams.Count > 0) {
             cd2.TypeParams = c.TypeParams.Names;
             cd2.TypeParamCount = c.TypeParams.Count;
-            SymbolTable st = this._g._symbols;
+            SymbolTable st = this._scope();
             ConstraintSet cs = null;
             if (st != null) {
                 string ck = st.ClassConstraintKey(this._g.Ns, c.Name, c.TypeParams.Count);
@@ -418,7 +456,7 @@ public sealed partial class ClassDescBuilder {
             // 从没暴露这点，是因为 check_one 有一条「`I` + 大写开头就放行」的启发式兜住了它们
             // （见该文件注释：registry 目前只装类，接口 soft-allow）——基类没有这层豁免。
             // 与类级 cd.Interfaces 的既有约定一致：TYPE 段存 FQ，读端（TsigReconcile）剥回裸名。
-            if (b.HasBaseClass)    { d.BaseClass = this._g._qClass(b.BaseClassName); }   // bit2
+            if (b.HasBaseClass)    { d.BaseClass = this._qDecl(b.BaseClassName); }   // bit2
             if (b.HasTypeParamRef) { d.TypeParamConstraint = b.TypeParamRef; }   // bit3
             d.RequiresCtor = b.RequiresCtor;         // bit4
             d.RequiresEnum = b.RequiresEnum;         // bit5
@@ -448,7 +486,7 @@ public sealed partial class ClassDescBuilder {
             string[] expanded = this._expandIfaces(directBases, c.BaseCount);
             string[] ifqs = new string[expanded.Length];
             int ei = 0;
-            while (ei < expanded.Length) { ifqs[ei] = this._g._qClass(expanded[ei]); ei = ei + 1; }
+            while (ei < expanded.Length) { ifqs[ei] = this._qDecl(expanded[ei]); ei = ei + 1; }
             cd.Interfaces = ifqs;
             cd.InterfaceCount = expanded.Length;
         }
@@ -458,7 +496,7 @@ public sealed partial class ClassDescBuilder {
             // add-associated-types PR-1：接口的 where 此前恒建**全空** bundle —— 不是「接口没有约束」，
             // 而是 ConstraintChecker.Resolve 当时压根不处理接口（条件只认 class/struct），这里无从取值。
             // Resolve 放宽后接口约束存在 InterfaceConstraints（独立表，键 = 接口 FQN），此处按同一键取回。
-            SymbolTable st = this._g._symbols;
+            SymbolTable st = this._scope();
             ConstraintSet cs = null;
             string ick = SymbolTable.IfaceConstraintKey(this._g.Ns, c.Name);
             if (st != null && st.HasIfaceConstraints(ick)) { cs = st.GetIfaceConstraints(ick); }
@@ -467,7 +505,7 @@ public sealed partial class ClassDescBuilder {
         // 关联类型名单（zbc 1.42，assoc-type-crosspkg）：接口声明的 `type Item;` → TYPE 统一 assoc 块，
         // 接口写 (Item, "")。从语义 Z42InterfaceType 取（MemberCollector._fillInterface 已填），供跨包
         // ImportedSymbolLoader 恢复 AssocTypeNames、删 ConstraintChecker/InheritanceResolver 的 IsImported 守卫。
-        SymbolTable stI = this._g._symbols;
+        SymbolTable stI = this._scope();
         if (stI != null) {
             Z42InterfaceType itSym = stI.GetInterface(c.Name);
             if (itSym != null && itSym.AssocTypeCount > 0) {
@@ -698,7 +736,7 @@ public sealed partial class ClassDescBuilder {
             if (at.FactoryFunc != "") {
                 // D8：持久化的 attribute 类型名 = 后缀展开后的真实类名（`[Route]` → `RouteAttribute`），
                 // 与 AttributeSynth 合成工厂 `new RouteAttribute()` 及 typeof(RouteAttribute) 反射对齐。
-                r[n] = new IrAttrRef(this._g._qClass(HandlerRegistry.StoreMetaClassName(at.Name)), this._g._q(at.FactoryFunc)); n = n + 1;
+                r[n] = new IrAttrRef(this._qDecl(HandlerRegistry.StoreMetaClassName(at.Name)), this._g._q(at.FactoryFunc)); n = n + 1;
             }
             a = a + 1;
         }
@@ -732,7 +770,7 @@ public sealed partial class ClassDescBuilder {
                         pa = pc;
                     }
                 } else {
-                    string blob = ConstBlob.Encode(pd, this._constEnv(), this._g._symbols);
+                    string blob = ConstBlob.Encode(pd, this._constEnv(), this._scope());
                     if (blob != null) {
                         IrAttrRef[] pd2 = new IrAttrRef[pa.Length + 1];
                         int t = 0; while (t < pa.Length) { pd2[t] = pa[t]; t = t + 1; }

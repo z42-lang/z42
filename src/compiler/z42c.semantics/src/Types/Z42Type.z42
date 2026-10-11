@@ -385,8 +385,7 @@ public sealed class Z42ClassType : Z42Type {
         return this._name;
     }
     // fix-type-ref-ns-collision：运行期全限定名（ns + IrName）。ns 为空（全局类）→ 退回 IrName（=裸名，
-    // 其 runtime FQN 本就是裸名）。emit 端（ObjNew 等）对已解析到的正确类型用它发射，绕开 QualifyClass
-    // 按短名走 ImportedClassNs first-wins 的撞名歧义。
+    // 其 runtime FQN 本就是裸名）。emit 端（ObjNew 等）对已解析到的正确类型用它发射，不按短名猜 ns。
     public string Fqn() {
         if (this.Namespace == "") { return this.IrName(); }
         return this.Namespace + "." + this.IrName();

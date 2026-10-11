@@ -136,7 +136,7 @@ public static class CuCompile {
 
     // perf-layouts-once：`layouts` = 包级预计算的 StructLayout（BuildPackageCus 算一次；此前每 CU
     // 各建一份 = 整包符号表重建 count 次）。预计算后只读 → 跨 CU / 跨 worker 共享安全。null=自行计算。
-    internal static CompiledModuleZ _compileCu(CompilationUnit cu, string file, SymbolTable symbols, DependencyIndex deps, ImportedSymbols imported, StrMap classNs, StrMap localClasses, bool isRelease, StrMap partialMerged, int optSet, StructLayout layouts, StrMap pkgGenerics, StrMap pkgGenericTypes, bool pkgHasErrors) {
+    internal static CompiledModuleZ _compileCu(CompilationUnit cu, string file, SymbolTable symbols, DependencyIndex deps, ImportedSymbols imported, StrMap localClasses, bool isRelease, StrMap partialMerged, int optSet, StructLayout layouts, StrMap pkgGenerics, StrMap pkgGenericTypes, bool pkgHasErrors) {
         var diags = new DiagnosticBag();
         cu.MergeParseDiags(diags);   // fix-parse-diags-dropped：parse 错误计入编译错误
         // parallelize-package-compile：约束已由 BuildPackageCus 循环前 hoist 到 symbols.ClassConstraints
@@ -154,10 +154,6 @@ public static class CuCompile {
         gen.SourceStem = CuPreprocess._stem(cu);
         gen.SourceFile = file;           // add-partial-types：主碎片判定（对 Z42ClassType.PartialMainFile）
         gen.PartialMerged = partialMerged;   // add-partial-types：partial 类型 → 合并 ClassDecl（主碎片发 TYPE record）
-        // 本地声明类遮蔽同名 imported（shadowing：用户 `class Stack<T>` 遮蔽 stdlib Std.Collections.Stack）
-        // —— 在 ImportedClassNs 填充处剔除被本地遮蔽的名（而非 emit 期 QualifyClass 查 LocalClasses；
-        // 后者会触发 C# 对 z42c.semantics 的 codegen 扰动致自举 emit 半量崩溃，bootstrap-unsafe）。
-        gen.ImportedClassNs = CuPreprocess._filterShadowed(classNs, cu);
         gen.LocalClasses = localClasses; // G18：ChainHasMethod 反劫持守卫仅认本地类
         string[] actNs = CuPreprocess._activeNamespaces(cu);   // path C：static call using-scoped 消歧
         gen.ActiveNs = actNs; gen.ActiveNsCount = actNs.Length;

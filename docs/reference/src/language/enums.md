@@ -167,8 +167,8 @@ enum 类型名后面只能跟它自己的成员，写错成员名报 `E0401`。
 只接第一条会漏掉第二条——签名里的 enum 落到末尾的 prim fallback、丢掉标志，于是
 `t.Visibility == TypeVisibility.Public` 报「enum 比非 enum」。
 
-另外，导入的 enum 必须把**源命名空间**登记进 `ClassNamespaces`：类名限定
-（`EmitContext.QualifyClass`）查的是那张表。缺了它，消费方发出的是
+另外，导入的 enum 必须带上**源命名空间**（`Z42ClassType.Namespace`）：发射端限定 enum 名取的是类型对象的
+声明 ns（`EmitContext.QualifyType`）。缺了它，消费方发出的是
 `<消费方ns>.Color` 这种不存在的 FQ 名——在没人拿它查运行期类型的年代这**是个静默错误**
 （`typeof` 只拿到查不到 handle 的合成 `Type`），装箱会真的去查，于是当场炸。
 
