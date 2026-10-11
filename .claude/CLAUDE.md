@@ -8,6 +8,6 @@
 
 ## Claude Code 专属
 
-- `.claude/skills/`：任务清单（如「新增 IR 指令」）的斜杠命令薄包装，清单本体在 [docs/agent/rules/](../docs/agent/rules/) 对应文件里（见 [docs/agent/README.md](../docs/agent/README.md) 的索引）。
+- `.claude/skills/`：任务清单（如「新增 IR 指令」）的斜杠命令薄包装；清单本体在 docs/agent（规范）或三本书（操作）的对应位置——见 [docs/agent/README.md](../docs/agent/README.md) 的索引。
 - `.claude/settings.json`：团队共享的工具权限白名单。个人覆盖写 `.claude/settings.local.json`（已 gitignore）。
 - 跨会话记忆用 Claude Code 自带的 auto-memory（本机 `~/.claude/`），**不入库**。

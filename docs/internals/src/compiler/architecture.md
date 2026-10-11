@@ -20,6 +20,20 @@ graph LR
 
 z42c 按依赖顺序分成九个逻辑包；`driver` 是唯一的可执行程序，也就是 `z42c` 命令。**物理布局**：全部在 `src/compiler/` 这一个 workspace 里——后端五包 `z42c.optimization` / `z42c.semantics` / `z42c.emission` / `z42c.pipeline` / `z42c.driver`，可移植前端 `z42c.core` / `z42c.syntax`，IR·后端库 `z42.package`（含 zbc/zpkg 后端），清单模型 `z42.project`。依赖单向无环，各包细节见后续各章。语义层（`semantics`：符号收集 / 绑定 / 类型检查）零引用代码生成层（`emission`：Bound → IR + 编译编排），代码生成只对无错误的程序运行。
 
+| 包 | 职责 | 关键文件 |
+|------|------|---------|
+| `z42c.core` | 基础设施：`Span` / `Diagnostic` / `DiagnosticBag` / `DiagnosticCodes` / `LanguageFeatures` | `Span.z42`、`Diagnostic*.z42`、`LanguageFeatures.z42` |
+| `z42c.syntax` | **语法层**：Lexer + Parser + AST | `TokenKind.z42`、`Lexer.z42`、`Parser.z42`、`Ast.z42`、`Stmt.z42`、`Decl.z42`、`TypeExpr.z42` |
+| `z42c.semantics` | 语义分析（符号收集 + 绑定 + TypeCheck + 校验），不含代码生成；**不得引用** `z42c.emission` | `SymbolCollector.z42`、`TypeChecker.z42`、`BoundExpr.z42`、`FrontEnd.z42` |
+| `z42c.emission` | Codegen（Bound → IR，用 `z42.package` 的模型）+ 单文件 / 包编译编排；只对无错误的程序生成 | `IrGen.z42`、`ExprEmitter.z42`、`IrDump.z42`、`CuCompile.z42` |
+| `z42c.optimization` | IR → IR 优化管线（只依赖 `z42.package`）+ `Opt` 开关 | `IrOptPipeline.z42`、`IrOptInfo.z42`、`OptSet.z42`、`IrInline.z42` |
+| `z42c.pipeline` | 编译管线编排 + 依赖扫描 + workspace 构建 + `CacheStore`（增量缓存） | `BuildSession.z42`、`DepScan.z42`、`WorkspaceBuild.z42`、`CacheStore.z42` |
+| `z42c.driver` | CLI 入口（exe） | `Main.z42` |
+
+> IR / zpkg 后端（`IrModule` / `IrInstr` / `ZbcWriter` / `ZpkgWriter` / `ZpkgBuilder` / `TsigReconcile` /
+> `DependencyIndex` 等）在 `src/compiler/z42.package/`——见其 README。清单模型 `.z42.toml` 解析在
+> `src/compiler/z42.project`。
+
 ```mermaid
 graph TD
     core[core·基础设施]

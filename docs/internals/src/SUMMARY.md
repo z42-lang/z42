@@ -25,6 +25,7 @@
   - [工程模型、依赖解析与工作区编译](compiler/project-model.md)
     - [编译器语义指纹（CompilerFingerprint）](compiler/compiler-fingerprint.md)
   - [自举与种子](compiler/self-hosting.md)
+  - [扩展语言与 IR：新增词法元素 / 语法 / IR 指令](compiler/extending-language.md)
 
 # 编译器 · 设计已定（未实施）
 

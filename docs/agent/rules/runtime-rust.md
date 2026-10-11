@@ -33,7 +33,7 @@ fn test_something() { ... }
 ## 指令集扩展
 
 新增 `Instruction` variant / IR 指令的完整改动清单（编译侧 + 运行时侧 + 格式 bump + 文档，约 20 处）见
-[compiler-z42c.md「新增 IR 指令（opcode）」](compiler-z42c.md)。
+[扩展语言与 IR：新增 IR 指令](../../internals/src/compiler/extending-language.md)。
 
 ## Value 类型
 

@@ -38,7 +38,7 @@ AI 与协作者干活的**行为约束与操作手册**，与具体 AI 工具无
 |------|--------|
 | [code-organization.md](rules/code-organization.md) | 哪层目录要 README + 文件/函数/类型的行数限制（`xtask check lines` 棘轮） |
 | [common-pitfalls.md](rules/common-pitfalls.md) | 跨语言共同陷阱：加载顺序非确定性、id 作用域、局部变量无块级 shadow |
-| [compiler-z42c.md](rules/compiler-z42c.md) | z42c（编译器，用 z42 写）：子包结构、Lexer / Parser / AST 约定，**新增词法元素 / 语法 / IR 指令（opcode）的改动清单** |
+| [compiler-z42c.md](rules/compiler-z42c.md) | z42c 写代码的约定：受限写法、Parser 错误处理、自举纪律（机制与**「新增词法 / 语法 / IR 指令」清单**见书里 [extending-language.md](../internals/src/compiler/extending-language.md)） |
 | [runtime-rust.md](rules/runtime-rust.md) | Rust VM 代码约定 + 推荐依赖与参考实现 |
 
 > 编译器调试面（`--dump-tokens` / `--dump-ast` 等）见
