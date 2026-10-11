@@ -1,10 +1,11 @@
 //! 数组：分配、元素读写、长度的唯一实现，外加 ref 解引用与 JIT 打包快路用的原语。
 //!
-//! 数组形态：堆数组 `Array`（`Boxed` / 打包基元 / `StructBytes`）、栈数组 `StackArray`
-//! （逃逸分析，经 per-context 栈 arena）。`Null` → `NullReferenceException`；
+//! 数组形态：堆数组 `Array`（REF / MIXED / PRIM / STRUCT / FROZEN，见 `metadata::types::array`）、
+//! 栈数组 `StackArray`（逃逸分析，经 per-context 栈 arena）。模式在分配时由元素类型定
+//! （[`elem_mode`]）。`Null` → `NullReferenceException`；
 //! 下标越界（含负数）→ `IndexOutOfRangeException`；长度为负 → `OverflowException`。
 
-use crate::metadata::types::{default_value_for_tag, ArrayBacking, ArrayObj, ElemType, StructArrayElem};
+use crate::metadata::types::{default_value_for_tag, ArrayBacking, ArrayObj, ElemKind, ElemType, FieldWrite, StructArrayElem};
 use crate::metadata::Value;
 use crate::gc::GcRef;
 use crate::interp::transient_arena::TransientPayload;
@@ -67,42 +68,20 @@ fn array_get_rare(ctx: &VmContext, arr: &Value, idx: &Value) -> OpResult<Value> 
     }
 }
 
-/// `ArraySet`。堆数组写入堆引用时发 `write_barrier_array_elem`（基元不发）；栈数组不发。
+/// `ArraySet`。堆数组写入堆引用时发 `write_barrier_array_elem`（基元不发；写进单元的是盒子时给盒子）；
+/// 栈数组不发。
 #[inline(always)]
 pub fn array_set(ctx: &VmContext, arr: &Value, idx: &Value, v: &Value) -> OpResult<()> {
     if let Value::Array(rc) = arr {
-        let i = {
+        let (i, wrote) = {
             let mut a = rc.borrow_mut();
             let i = checked_index(ArrayOp::Set, idx, a.len())?;
-            a.set_boxed(i, *v);   // 打包基元在这里拆箱
-            i
+            (i, a.set_boxed(i, *v))   // 打包基元在这里拆箱；引用编成引用字 / 型参单元
         };
-        barrier_after_elem_store(ctx, rc, i, v);
+        barrier_elem(ctx, rc, i, wrote, v);
         return Ok(());
     }
     array_set_rare(ctx, arr, idx, v)
-}
-
-/// 元素写入**之后**的写屏障（卡表 / 并发 shade；SATB 删除屏障在 `set_boxed` 里）。新值不是堆引用不发；
-/// 调用时数组的借用必须已经放掉。`ArraySet`、经 `ref` 写元素、`Std.Array.SetValue` 共用这一份。
-///
-/// **装箱 struct 写进 `struct[]`（`StructBytes` backing）是例外**：`set_boxed` 把盒子的引用叶子
-/// **拷进**数组，数组持有的是那些叶子、不是盒子。屏障若照常拿盒子判龄，盒子是老的、叶子是年轻的
-/// 时就漏了卡——叶子此后只靠数组可达，下一次 minor 把它扫掉。所以这种写入逐个叶子发屏障。
-#[inline(always)]
-pub fn barrier_after_elem_store(ctx: &VmContext, arr: &GcRef<ArrayObj>, i: usize, v: &Value) {
-    if !v.is_heap_ref() { return; }
-    let owner = Value::Array(*arr);
-    if let Value::BoxedStruct(b) = v {
-        if arr.borrow().struct_bytes().is_some() {
-            let leaves: Vec<Value> = b.borrow().refs().iter().filter(|r| r.is_heap_ref()).cloned().collect();
-            for leaf in &leaves {
-                ctx.heap().write_barrier_array_elem(&owner, i, leaf);
-            }
-            return;
-        }
-    }
-    ctx.heap().write_barrier_array_elem(&owner, i, v);
 }
 
 #[inline(never)]
@@ -110,7 +89,7 @@ fn array_set_rare(ctx: &VmContext, arr: &Value, idx: &Value, v: &Value) -> OpRes
     match arr {
         Value::StackArray { idx: aidx, frame_id } => {
             ctx.stack_arena.lock().with_arr_mut(*aidx, *frame_id, |a| {
-                checked_index(ArrayOp::Set, idx, a.len()).map(|i| a.set_boxed(i, *v))
+                checked_index(ArrayOp::Set, idx, a.len()).map(|i| { a.set_boxed(i, *v); })
             })?
         }
         other => Err(not_an_array(ArrayOp::Set, other)),
@@ -145,6 +124,23 @@ pub fn packed_data(arr: &Value) -> (*const u8, i64, i64) {
     }
 }
 
+/// JIT 引用读快路：REF / MIXED 数组的 `(元素基址, 长度, 步长 | zero << 8)`（步长 8|16，`zero` 是 MIXED 数组
+/// 未写过的单元读作的基元种类）；其它一切 → 0 = 「无快路」，内联码回落到 `array_get`。不抛。
+/// 指针在帧内有效（同 [`packed_data`]）。
+#[inline]
+pub fn ref_data(arr: &Value) -> (*const u8, i64, i64) {
+    match arr {
+        Value::Array(rc) => {
+            let a = rc.borrow();
+            match a.ref_elem_data() {
+                Some((p, stride, zero)) => (p, a.len() as i64, stride | (zero as i64) << 8),
+                None => (std::ptr::null(), 0, 0),
+            }
+        }
+        _ => (std::ptr::null(), 0, 0),
+    }
+}
+
 /// `LoadElemAddr` 的检查：只有堆数组能取元素地址，下标此刻就校验（与读写同一规则）。
 pub fn check_elem_addr(arr: &Value, idx: &Value) -> OpResult<(GcRef<ArrayObj>, usize)> {
     match arr {
@@ -165,13 +161,28 @@ pub fn elem_load(gc: &GcRef<ArrayObj>, i: usize) -> OpResult<Value> {
 
 /// 经 `ref` 写元素：与 `ArraySet` 同一条写入 + 写屏障规则。
 pub fn elem_store(ctx: &VmContext, gc: &GcRef<ArrayObj>, i: usize, v: &Value) -> OpResult<()> {
-    {
+    let wrote = {
         let mut a = gc.borrow_mut();
         if i >= a.len() { return Err(OpError::index_out_of_range(i as i64, a.len())); }
-        a.set_boxed(i, *v);
-    }
-    barrier_after_elem_store(ctx, gc, i, v);
+        a.set_boxed(i, *v)
+    };
+    barrier_elem(ctx, gc, i, wrote, v);
     Ok(())
+}
+
+/// 元素写入**之后**的写屏障（卡表 / 并发 shade；SATB 删除屏障在写原语里）：落进单元的引用
+/// （`wrote`——装不进 8 B 的值是它的盒子）。`ArraySet`、经 `ref` 写元素、`Std.Array.SetValue` 共用这一份。
+/// 调用时数组的借用必须已经放掉。
+///
+/// **装箱 struct 写进 `struct[]` 是例外**：写入把盒子的 blob **拷进**数组，数组持有的是那些引用叶子、
+/// 不是盒子。拿盒子判龄的话，老盒子、年轻叶子就漏了卡（叶子此后只靠数组可达，下一次 minor 把它扫掉），
+/// 所以这种写入对元素的每个引用叶子发屏障（`array_bulk::barrier_after_range_store`）。
+#[inline]
+pub fn barrier_elem(ctx: &VmContext, arr: &GcRef<ArrayObj>, i: usize, wrote: FieldWrite, v: &Value) {
+    if matches!(v, Value::BoxedStruct(_)) && arr.borrow().struct_layout().is_some() {
+        return super::array_bulk::barrier_after_range_store(ctx, arr, i, 1);
+    }
+    wrote.with_barrier_value(v, |s| ctx.heap().write_barrier_array_elem(&Value::Array(*arr), i, s));
 }
 
 // ── 分配 ─────────────────────────────────────────────────────────────────────
@@ -194,19 +205,20 @@ pub fn array_size(len: &Value) -> OpResult<usize> {
 /// - `stack`：编译器证明不逃逸且运行期允许时给出栈帧号，数组进栈 arena。
 pub fn array_new<F: FnOnce() -> u32>(
     ctx: &VmContext, len: &Value, elem_tag: u8, element_type: ElemType,
-    prim_zero: Option<Value>, stack: Option<F>,
+    type_param: bool, prim_zero: Option<Value>, stack: Option<F>,
 ) -> OpResult<Value> {
     let n = array_size(len)?;
-    if let Some(sb) = try_struct_backed(ctx, element_type, n) {
-        return alloc(ctx, sb, || format!("struct array[{n}]"));
-    }
+    let kind = match elem_mode(ctx, element_type, type_param, n) {
+        ElemMode::Struct(sb) => return alloc(ctx, sb, || format!("struct array[{n}]")),
+        ElemMode::Kind(k) => k,
+    };
     let default = prim_zero.unwrap_or_else(|| default_value_for_tag(elem_tag));
     if let Some(frame_id) = stack {
         return Ok(stack_array(ctx, frame_id(), element_type, vec![default; n]));
     }
     // 默认值直接填进 GC 块，不经 `vec![default; n]` 中转。
     let heap = ctx.heap();
-    alloc(ctx, ArrayObj::typed_filled(heap, element_type, n, default), || format!("array[{n}]"))
+    alloc(ctx, ArrayObj::filled(heap, element_type, kind, n, default), || format!("array[{n}]"))
 }
 
 /// `ArrayNewLit`：由 `elems` 构成的数组（blob 值 struct 字面量逐个打包进 `StructBytes`）。
@@ -215,15 +227,18 @@ pub fn array_new_lit<F: FnOnce() -> u32>(
     ctx: &VmContext, elems: impl ExactSizeIterator<Item = Value>, element_type: ElemType, stack: Option<F>,
 ) -> OpResult<Value> {
     let n = elems.len();
-    if let Some(mut sb) = try_struct_backed(ctx, element_type, n) {
-        for (i, v) in elems.enumerate() { pack_struct_elem(ctx, &mut sb, i, &v)?; }
-        return alloc(ctx, sb, || format!("struct array literal[{n}]"));
-    }
+    let kind = match elem_mode(ctx, element_type, false, n) {
+        ElemMode::Struct(mut sb) => {
+            for (i, v) in elems.enumerate() { pack_struct_elem(ctx, &mut sb, i, &v)?; }
+            return alloc(ctx, sb, || format!("struct array literal[{n}]"));
+        }
+        ElemMode::Kind(k) => k,
+    };
     if let Some(frame_id) = stack {
         return Ok(stack_array(ctx, frame_id(), element_type, elems.collect()));
     }
     let heap = ctx.heap();
-    alloc(ctx, ArrayObj::typed_iter(heap, element_type, n, elems), || format!("array literal[{n}]"))
+    alloc(ctx, ArrayObj::from_iter_kind(heap, element_type, kind, n, elems), || format!("array literal[{n}]"))
 }
 
 /// 类级泛型型参 `T`（`new T[n]`，`T` 是接收者类的型参）：接收者（reg 0）的实例型参解析成基元值类型时，
@@ -246,38 +261,70 @@ fn stack_array(ctx: &VmContext, frame_id: u32, element_type: ElemType, elems: Ve
     Value::StackArray { idx, frame_id }
 }
 
-/// 元素类型是 **blob 值 struct**（≥1 个字段且交付了字节布局，与编译器 `IsBlobStruct` 同一判据）时，
-/// 建 `len` 个零初始化元素的 `StructBytes` 数组；基元 / 引用 / 未交付布局 → `None`。
+/// 数组的模式：STRUCT（已建好的 `struct[]`），或交给构造器的 [`ElemKind`]。
+pub enum ElemMode {
+    Struct(ArrayObj),
+    Kind(ElemKind),
+}
+
+/// 按元素类型定数组模式——分配时一次定下，之后不变：
 ///
-/// 泛型值 struct 先按完整实例名查（编译器为特化实例交付的合成描述符，布局内联了 struct 实参），
-/// 再按擦除基名查；`element_type`（驻留的 8 B 句柄）仍原样传给 backing，反射拿到的是实例化后的元素类型。
-pub fn try_struct_backed(ctx: &VmContext, element_type: ElemType, len: usize) -> Option<ArrayObj> {
+/// - 名字就能定的（[`ElemKind::of`]）：基元 → PRIM；`string` / `object` / 数组类型 → REF。
+/// - 型参元素（`new T[n]`，`type_param`）→ MIXED（擦除的 `T[]`，M13 之前元素种类编译期不知道）。
+/// - 其余查类型表：**blob 值 struct** → STRUCT；类 / 接口 / 委托 → REF；enum（值是裸整数）、
+///   非 blob 的 struct、查不到的名字 → MIXED（什么都装得下）。
+///
+/// 泛型类型先按完整实例名查（编译器为特化实例交付的合成描述符），再按擦除基名查；`element_type`
+/// 原样传给 backing，反射拿到的是实例化后的元素类型。这次查表本来就在建数组的路上（判 struct）。
+pub fn elem_mode(ctx: &VmContext, element_type: ElemType, type_param: bool, len: usize) -> ElemMode {
+    let kind = element_type.kind();
+    if kind != ElemKind::Mixed || type_param {
+        return ElemMode::Kind(kind);
+    }
     let name: &str = &element_type;
     let td = match ctx.try_lookup_type(name) {
         Some(td) => td,
-        None => {
-            let erased = name.split('<').next().unwrap_or(name);
-            ctx.try_lookup_type(erased)?
-        }
+        None => match ctx.try_lookup_type(name.split('<').next().unwrap_or(name)) {
+            Some(td) => td,
+            None => return ElemMode::Kind(ElemKind::Mixed),
+        },
     };
-    // 闸门与编译器 `StructLayout.IsBlobStruct` 必须逐字一致（FieldCount >= 1）；这是全 VM 唯一一份镜像。
-    if td.fields.is_empty() { return None; }
-    let layout = td.struct_layout()?;
-    if layout.size == 0 { return None; }      // self-referential / empty guard
-    Some(ArrayObj::struct_backed(ctx.heap(), element_type, len, layout))
+    if td.is_struct() {
+        // 闸门与编译器 `StructLayout.IsBlobStruct` 必须逐字一致（FieldCount >= 1）；全 VM 唯一一份镜像。
+        if let (false, Some(layout)) = (td.fields.is_empty(), td.struct_layout()) {
+            if layout.size != 0 {
+                return ElemMode::Struct(ArrayObj::struct_backed(ctx.heap(), element_type, len, layout));
+            }
+        }
+        return ElemMode::Kind(ElemKind::Mixed);
+    }
+    if td.is_enum() {
+        return ElemMode::Kind(ElemKind::Mixed);
+    }
+    ElemMode::Kind(ElemKind::Ref)
+}
+
+/// 元素类型是 blob 值 struct 时建 `len` 个零初始化元素的 `StructBytes` 数组；否则 `None`
+/// （[`elem_mode`] 的 STRUCT 分支）。
+pub fn try_struct_backed(ctx: &VmContext, element_type: ElemType, len: usize) -> Option<ArrayObj> {
+    match elem_mode(ctx, element_type, false, len) {
+        ElemMode::Struct(a) => Some(a),
+        ElemMode::Kind(_) => None,
+    }
 }
 
 /// 把一个 struct 值打包进 `StructBytes` 数组的第 `i` 个元素（`new P[]{ p1, p2 }`）。
 /// 源是 arena `StructRef` 或装箱 `BoxedStruct`；`Null` = 默认值（元素保持零初始化）。
 pub fn pack_struct_elem(ctx: &VmContext, arr: &mut ArrayObj, i: usize, v: &Value) -> OpResult<()> {
     let (src_bytes, src_refs): (Vec<u8>, Vec<Value>) = match v {
-        Value::BoxedStruct(b) => { let o = b.borrow(); (o.bytes().to_vec(), o.refs().to_vec()) }
+        Value::BoxedStruct(b) => b.borrow().boxed_blob(),
         Value::StructRef { idx, frame_id } =>
             ctx.struct_arena.lock().with(*idx, *frame_id, |s| (s.bytes.to_vec(), s.refs.to_vec()))?,
         Value::Null => return Ok(()),
         other => return Err(OpError::internal(format!(
             "struct array literal element must be a struct value, got {other:?}"))),
     };
-    arr.write_struct_elem(i, &src_bytes, &src_refs);
+    // A fresh array (unreachable until its header exists): no barrier owed.
+    arr.write_struct_elem(i, &src_bytes, &src_refs, &mut |_| {})?;
     Ok(())
 }

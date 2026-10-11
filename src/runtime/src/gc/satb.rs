@@ -21,10 +21,11 @@
 //!
 //! # Where the barrier sits
 //!
-//! Inside the **write primitives** (`ScriptObject::set_field_value` / `set_ref_slot`,
-//! `ArrayObj::set_boxed` / `write_struct_elem` / `set_struct_ref`), not at the ~40 call sites. The
-//! primitives have no heap in hand, which is why this module is keyed off thread-local state
-//! rather than a `&ArcMagrGC`. The raw accessors (`refs_mut_raw`, …) skip it and are reserved for
+//! Inside the **write primitives** (`ref_word::store` / `tparam_cell::store`, reached through
+//! `ScriptObject::try_set_field_value` / `set_struct_ref_leaf` / `write_blob` and
+//! `ArrayObj::set_boxed` / `write_struct_elem` / `set_struct_elem_ref`), not at the ~40 call sites.
+//! The primitives have no heap in hand, which is why this module is keyed off thread-local state
+//! rather than a `&ArcMagrGC`. The raw stores (test-only `set_ref_raw_for_test`, …) skip it and are reserved for
 //! objects that were just allocated (their old values are all `Null`) and for the GC itself
 //! (breaking edges of dead objects must not record them).
 //!

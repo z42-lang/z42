@@ -36,15 +36,14 @@ sweep  ：X 被回收，而 r 还攥着它
 
 | 原语 | 覆盖的写入 |
 |---|---|
-| `ScriptObject::set_field_value` / `try_set_field_value` | 8 B 引用字（标记期间写是 `swap`，旧字交给屏障）；型参单元的标签字（CAS 或标记期 `swap`，旧字是引用就交给屏障）；侧表引用叶子 |
-| `ScriptObject::set_ref_slot` | 直接写侧表引用叶子（`StructFieldSetPrim`、反射 `SetValue`） |
-| `ArrayObj::set_boxed` | 引用数组元素；struct[] 元素的引用叶子 |
-| `ArrayObj::write_struct_elem` / `set_struct_ref` | struct[] 元素整体 / 单个引用叶子 |
-| `ArrayObj::copy_elems_from` | `Array.Copy` 的批量快路径（Boxed→Boxed 一次 `clone_from_slice`；struct[]→struct[] 的引用叶子区间一次拷贝；都先整段 `record_overwrite_all`）—— 第一轮审计漏掉，增量 major 的 `Z42_GC_SLICE_MS=0.05` 压测以编译器 SIGSEGV 抓到 |
-| `ArrayObj::copy_elems_within` | 同一数组内的 `Array.Copy`（struct[] 的引用叶子区间 `copy_within`，先整段 `record_overwrite_all`；Boxed 走 `set_boxed`） |
+| `ref_word::store` / `store_word_recorded` | 每个 8 B 引用字：对象引用字段、内联 struct 与装箱 struct 的引用叶子、REF 数组元素、`struct[]` 元素的引用叶子（标记期间写是 `swap`，旧字交给屏障） |
+| `tparam_cell::store` | 型参单元的标签字：型参字段、合成布局的引用字段、MIXED 数组元素（CAS 或标记期 `swap`，旧字是引用就交给屏障） |
+| `ScriptObject::try_set_field_value` / `set_struct_ref_leaf` / `write_blob` | 经上两者写对象字段、struct 叶子与整块 blob |
+| `ArrayObj::set_boxed` / `store_elem` / `write_struct_elem` / `set_struct_elem_ref` | 经上两者写数组元素 / struct[] 元素整体与单个叶子；FROZEN 元素直接 `record_overwrite` |
+| `ArrayObj::copy_elems_from` / `copy_elems_within` | `Array.Copy` 的批量路径：REF→REF 逐字 `store_word_recorded`，其余逐元素 —— 第一轮审计漏掉批量路径，增量 major 的 `Z42_GC_SLICE_MS=0.05` 压测以编译器 SIGSEGV 抓到 |
 
-`refs_mut_raw()` 不带屏障，只给**刚分配的对象**（旧值全是 `Null`）和 **GC 自己断边**（记录死对象会把悬空句柄
-塞进标记队列）。规则写在 `../../../agent/rules/runtime-rust.md`。
+不带屏障的写只有两种：**刚分配、还不可达的块**（构造期直接写字 / 单元，旧值全是 0）和 **GC 自己断边**
+（`clear_refs_for_sweep`，记录死对象会把悬空句柄塞进标记队列）。规则写在 `../../../agent/rules/runtime-rust.md`。
 
 ### 原语手里没有堆 —— 线程本地记录
 

@@ -109,15 +109,15 @@ impl crate::gc::arc_heap::ArcMagrGC {
                 let self_ptr = entry.value.data_ptr() as usize;
                 let arr = entry.value.lock();
                 let type_name = format!("{}[]", &*arr.element_type);
-                // `gc_refs`: the array's reference slots (elements / struct[] reference leaves).
-                for elem in arr.gc_refs() {
+                // `visit_refs`: the array's reference edges (elements / struct[] reference leaves).
+                arr.visit_refs(&mut |elem: &Value| {
                     if let Some(child) = value_heap_ptr(elem) {
                         g.add_edge(
                             child,
                             RetainerInfo { kind: RetainerKind::Array, type_name: type_name.clone(), id: self_ptr },
                         );
                     }
-                }
+                });
             });
         }
         // Pinned roots (GC-internal host pins / frame pins) + strong GC handles.

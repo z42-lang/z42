@@ -144,10 +144,7 @@ impl StackArena {
             s.obj.visit_refs(visit);
         }
         for s in &self.arrs {
-            // add-struct-heap-inline (P3b): gc_refs covers Boxed elements + struct[] refs.
-            for e in s.arr.gc_refs() {
-                visit(e);
-            }
+            s.arr.visit_refs(visit);
         }
     }
 }

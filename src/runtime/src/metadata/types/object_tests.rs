@@ -19,7 +19,7 @@ fn td(name: &str) -> Arc<TypeDesc> {
 }
 
 fn obj(name: &str) -> ScriptObject {
-    ScriptObject::new(td(name), ObjStorage::new(0, 0))
+    ScriptObject::new(td(name), ObjStorage::new(0))
 }
 
 fn names(xs: &[&str]) -> Vec<String> {

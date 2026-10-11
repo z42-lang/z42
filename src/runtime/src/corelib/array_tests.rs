@@ -361,6 +361,8 @@ fn copy_same_element_type_is_unaffected() {
 #[test]
 fn prim_backing_accepts_agrees_with_set_boxed() {
     let ctx = ctx();
+    // A primitive stored into `string[]` (REF) is boxed (`ref_word` kind 7) from the ambient heap.
+    let _g = crate::gc::ambient::HeapGuard::enter(ctx.heap());
     let probes = [
         Value::I64(7), Value::F64(2.5), Value::Bool(true),
         Value::Char('q'), Value::Str("s".into()), Value::Null,
