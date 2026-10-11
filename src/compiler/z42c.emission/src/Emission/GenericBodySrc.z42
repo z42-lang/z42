@@ -27,10 +27,11 @@ using Z42.Syntax;
 public sealed class GenericBodySrc {
     public Decl          Raw;        // 带 attribute 包装的声明（`HandlerRegistry.HasRecord` 要认 `[Record]`）
     public SemanticModel Model;      // **该声明所属 CU** 的 model —— 体查找必须用它，不能用当前 CU 的
-    public string        OwnerKey;   // 成员：所属类的符号键（arity-mangle 时为 `Name$N`）；自由函数为 ""
+    public string        OwnerFq;    // 成员：所属类的 FQN（= `Z42ClassType.Fqn()`，arity-mangle 时 `ns.Name$N`）；自由函数为 ""
     public string        RegKey;     // 成员的注册键（用于「同名覆写」闭包）；非实例方法为 ""
+    public string        BodyKey;    // `Model` 里的体键（`SemanticModel` 按 CU 建，一个 CU 一个 ns ⇒ 短键：`RegKey` / `Owner.RegKey`）
 
-    public GenericBodySrc(Decl raw, SemanticModel model, string ownerKey, string regKey) {
-        this.Raw = raw; this.Model = model; this.OwnerKey = ownerKey; this.RegKey = regKey;
+    public GenericBodySrc(Decl raw, SemanticModel model, string ownerFq, string regKey, string bodyKey) {
+        this.Raw = raw; this.Model = model; this.OwnerFq = ownerFq; this.RegKey = regKey; this.BodyKey = bodyKey;
     }
 }
