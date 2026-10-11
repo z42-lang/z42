@@ -71,7 +71,7 @@
 > **无参数**、**非泛型**、**有方法体**。由
 > [`DeclEnforcer._passTestAttrEnforce`](https://github.com/z42-lang/z42/blob/main/src/compiler/z42c.semantics/src/Validation/DeclEnforcer.z42)
 > 强制（纯语法，挂在 `SymbolCollector.CollectAll`，与 D8 后缀 pass 并列）。规则来源是 runner 的调用
-> 契约——`Std.Test.Runner` 按 TIDX 全限定名**无参**调用，实例方法的 receiver 对不上。
+> 契约——`Std.Harness.Runner` 按 TIDX 全限定名**无参**调用，实例方法的 receiver 对不上。
 > **实参语义**：`E0914`（`[Skip]` 的 `reason` 必填非空；`[Skip]`/`[Ignore]` 须与 kind attr 同贴）、
 > `E0917`（`[Timeout]` 的 `milliseconds` 必填且为正）与位置/签名同 pass；`E0913`
 > （`[ShouldThrow<E>]` 的 `E` 须派生 `Exception`）需符号表走基类链，落在相邻的语义相 pass

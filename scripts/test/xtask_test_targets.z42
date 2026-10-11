@@ -527,7 +527,7 @@ int _smokeHarnessFalse(string root, TargetTooling tt) {
 // bundle-host smoke (wire-z42b-embedded-test ②b): compile a trivial [Test] unit →
 // .zbc, wrap it in a 1-case manifest, and run it through the single
 // `z42b test <manifest.json> --rid host` entry — exercising the in-process
-// Std.Test.BundleRunner path (the host half of the embedded flow xtask delegates
+// Std.Harness.BundleRunner path (the host half of the embedded flow xtask delegates
 // to z42b), which the default gate would otherwise not cover (`test app desktop` is a
 // separate stage). Returns 0 pass / 1 fail; skips cleanly (0) if the fixture is absent.
 int _smokeBundleHost(string root, TargetTooling tt) {

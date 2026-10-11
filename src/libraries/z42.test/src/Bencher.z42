@@ -159,7 +159,7 @@ public class Bencher {
 
     // Human-readable single-line summary.
     //
-    // **The output format is part of the runner contract** — `Std.Test.Runner`
+    // **The output format is part of the runner contract** — `Std.Harness.Runner`
     // (json mode) captures this line out of a benchmark's stdout and parses it
     // via `BenchStats.parse` into `TestResult.bench_stats`
     // (rebuild-bench-structured-output; the z42-native successor to the retired

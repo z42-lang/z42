@@ -570,7 +570,7 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 > bundle manifest 为缝。**①（2026-08-29）**：on-device test-agent 迁入按需下载能力 workload
 > `workload/test/`（取消独立 testhost 目录）。**②a（2026-08-29 PR #331）**：`z42b test <toml>`
 > compile-then-test。**②b（wire-z42b-embedded-test，2026-08-29）**：`z42b test <manifest> --rid host`
-> in-process 跑 bundle（共享核 `Std.Test.BundleRunner`，agent 与 z42b 共用）+ `--rid <device>` 组装
+> in-process 跑 bundle（共享核 `Std.Harness.BundleRunner`，agent 与 z42b 共用）+ `--rid <device>` 组装
 > `{app,libs,bundle}` deployable；`xtask test app desktop` 委托 z42b。机制 SoT =
 > [test-pipeline.md](internals/src/devinfra/test-pipeline.md)。剩余：
 

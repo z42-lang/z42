@@ -1,6 +1,6 @@
 # z42.testagent — the shared on-device test-agent app (add-embedded-app-run).
 # Built to an app.zpkg, embedded via z42-host::run_app into every platform's
-# test host. One runner (Std.Test.Runner), all platforms.
+# test host. One runner (Std.Harness.Runner), all platforms.
 [project]
 name    = "z42.testagent"
 version = "0.1.0"
@@ -14,7 +14,7 @@ include = ["src/**/*.z42"]
 [dependencies]
 "z42.core" = "0.1.0"   # prelude / String / Platform
 "z42.io"   = "0.1.0"   # Console / Environment (GetCommandLineArgs) / Path / File
-"z42.test" = "0.1.0"   # Std.Test.Runner.RunModule / RunModuleResults / TestReport
+"z42.harness" = "0.1.0"   # Std.Harness.Runner.RunModule / RunModuleResults / TestReport
 "z42.json" = "0.1.0"   # Std.Json — parse the test-bundle manifest
 
 [build]
