@@ -86,7 +86,7 @@ sealed 类不可被继承 → 静态类型是 sealed 类 `A` 的 receiver，运�
 - **目标解析**：`EmitContext.ResolveSealedTarget` 沿 sealed 类基链找**最近声明该方法且非 abstract 的可限定非泛型类**
   `C`，产出 `QualifyClass(C) + "." + RegKey`——逐字节匹配 IrGen 的函数命名。`BoundCall.MethodName` 已是
   MemberResolver 解析后的 `ms.RegKey`（重载已消歧），故无需重解析。「可限定」= `_devirtQualifiable(ct)`：
-  在 `LocalClasses`（本地）**或**是带声明 ns 的导入类；目标名按类型对象的声明 ns 限定（`QualifyType`）。
+  是本包声明的类，**或**是带声明 ns 的导入类；目标名按类型对象的声明 ns 限定（`QualifyType`）。
 
 ### imported sealed 去虚化的坑：TSIG 展平继承方法
 
@@ -98,7 +98,7 @@ imported 类的符号 `Methods` 由 `ImportedSymbolLoader` 从 TSIG 重建，而
 
 **解法**：imported 定义类候选返回前，用 `Deps.Statics.ContainsKey(FQ)`（`_depHasFunction`）**校验该 FQ 确为
 真实发射函数**——`DependencyIndex.AddModule` 把每个跨包函数按完整 FQ 注册进 `Statics`。命中 → 本类真声明 → 去
-虚化；未命中 → 本类仅继承 → **沿基链继续上溯**到真声明类（其 FQ 命中）。本地类走 `LocalClasses` 分支**先行短
+虚化；未命中 → 本类仅继承 → **沿基链继续上溯**到真声明类（其 FQ 命中）。本地类分支**先行短
 路返回**（本包函数不入 Deps，不能也不需校验）——本地路径零改动、零回归。从 receiver 精确 sealed 类型向上、
 第一个 FQ 命中即「最近声明」= 对该精确类型对象动态派发的唯一目标。
 

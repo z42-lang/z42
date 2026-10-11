@@ -1,0 +1,49 @@
+namespace Z42.Emission;
+
+using Z42.Semantics;
+using Z42.Syntax;
+using Z42.IR;
+
+// 本包**自有声明**的类（class / struct / record，不含接口与导入类）集合，键 = 类的 FQN
+// （与 `Z42ClassType.Fqn()` 同形：`ns.Name`，同包同短名多 arity 时 `ns.Name$N`）。
+//
+// 发射端的 G18 反劫持守卫（`ChainHasMethod`）、local-wins（本包类恒不查 DepIndex）、去虚化可限定性、
+// 泛型特化闸门都问同一个问题：「这个类是不是本包声明的」。按类型对象的 FQN 判，跨 ns 同短名
+// （本包 `A.List` 与导入的 `Std.Collections.List`）各归各的。
+public sealed class LocalClassSet {
+    private StrMap _fqns;
+
+    public LocalClassSet() { this._fqns = new StrMap(); }
+
+    // 全包 CU 的顶层类声明（每个 CU 一个文件级 ns）。键推导与符号收集同一口径（`LocalClassKey`）。
+    public static LocalClassSet Build(CompilationUnit[] cus, int count, SymbolTable symbols) {
+        LocalClassSet s = new LocalClassSet();
+        int i = 0;
+        while (i < count) {
+            CompilationUnit cu = cus[i];
+            string ns = cu.HasNamespace ? cu.Namespace : "";
+            int d = 0;
+            while (d < cu.DeclCount) {
+                Decl dd = cu.Decls[d];
+                if (dd is AttributedDecl) { dd = (dd as AttributedDecl).Inner; }
+                if (dd is ClassDecl) {
+                    ClassDecl cd = dd as ClassDecl;
+                    if (cd.Kind == "class" || cd.Kind == "struct") {
+                        string fqn = SymbolTable.QualOf(ns, symbols.LocalClassKey(ns, cd));
+                        s._fqns.Put(fqn, new StrBox(fqn));
+                    }
+                }
+                d = d + 1;
+            }
+            i = i + 1;
+        }
+        return s;
+    }
+
+    public bool HasFqn(string fqn) { return this._fqns.ContainsKey(fqn); }
+
+    public bool Has(Z42ClassType ct) {
+        if (ct == null || ct.IsImported) { return false; }
+        return this._fqns.ContainsKey(ct.Fqn());
+    }
+}

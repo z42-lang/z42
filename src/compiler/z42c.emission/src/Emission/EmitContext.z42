@@ -52,7 +52,7 @@ public sealed class EmitContext {
     public string Ns;   // 根命名空间（""=无；名字限定 BP-0，镜像 C# QualifyName）
     public DependencyIndex Deps;       // 跨包调用索引（CI-4；null=无依赖）
     public string[] ActiveNs; public int ActiveNsCount;  // path C：本 CU 活跃命名空间集（usings + 本 ns，prelude-first）→ 静态调用 using-scoped 消歧
-    public StrMap LocalClasses;        // 本包**自有声明**类名集（G18 修正：ChainHasMethod 反劫持守卫须仅认本地类，镜像 C# ClassRegistry）
+    public LocalClassSet LocalClasses;        // 本包**自有声明**类（FQN 键，见 `LocalClassSet`；G18 修正：ChainHasMethod 反劫持守卫须仅认本地类，镜像 C# ClassRegistry）
     public IrExcEntry[] ExcTable; public int ExcCount;       // 异常表（port-z42c-try）
     public string CurFnName;                                  // lift 命名用（port-z42c-closures）
     public int LambdaIdx;                                     // 本函数 lambda 计数（镜像 NextLambdaIndex）
@@ -179,7 +179,7 @@ public sealed class EmitContext {
         // `$struct` 后缀；而 `Methods` 映射键仍是 `RegKey`（裸名）⇒ 必须先剥回来，否则本该
         // 「自有」的方法查不到、IC-1 反劫持守卫（调用方的 `owns`）静默失效。
         string method = MethodSymbol.StripCallKey(method0);
-        // 泛型实例化名（List<string>）→ 裸名（List）查 LocalClasses/SymbolTable。
+        // 泛型实例化名（List<string>）→ 裸名（List）查 SymbolTable，之后按类型对象判本地。
         string bare = clsName;
         int bi = 0;
         bool foundAngle = false;
@@ -187,9 +187,8 @@ public sealed class EmitContext {
             if (bare.CharAt(bi) == '<') { bare = bare.Substring(0, bi); foundAngle = true; }
             bi = bi + 1;
         }
-        // IC-3 prim→wrapper：prim 别名（"string"）→ 包装类名（"String"）再查 LocalClasses
-        // 镜像 C# ReceiverChainHasMethod 经 QualifyClassName 把 prim 映射到 "Std.String" 等
-        // FQ 类名在 ClassRegistry 查找；z42c 用短名 LocalClasses，故只需 bare→wrapper 映射。
+        // IC-3 prim→wrapper：prim 别名（"string"）→ 包装类名（"String"）再查类
+        // （镜像 C# ReceiverChainHasMethod 经 QualifyClassName 把 prim 映射到 "Std.String"）。
         string lookup = EmitContext._primWrapper(bare);
         if (!this.Symbols.HasClass(lookup)) { return false; }
         Z42ClassType ct = this.Symbols.GetClass(lookup);
@@ -197,7 +196,7 @@ public sealed class EmitContext {
         // 跨 ns 同短名（`A.Foo : B.Foo`）会查回自己，靠 32 跳上限才停下。
         int hops = 0;
         while (ct != null) {
-            if (this.LocalClasses == null || !this.LocalClasses.ContainsKey(ct.Name())) { return false; }   // 非本地声明类 → 不算 vtable-owned
+            if (!this.IsLocalClass(ct)) { return false; }   // 非本地声明类 → 不算 vtable-owned
             if (ct.Methods.ContainsKey(method)) { return true; }
             if (!ct.HasBase || ct.BaseName == "") { return false; }
             ct = this._nextBase(ct);
@@ -305,7 +304,7 @@ public sealed class EmitContext {
     // 去虚化目标名可否精确构造（`QualifyType(ct, shortName)+"."+RegKey`）：本地声明类，或带声明 ns 的导入类。
     // 两者皆非（无 ns 的兜底类型）→ 不可去虚化（回落 VCall）。
     private bool _devirtQualifiable(Z42ClassType ct) {
-        if (this.LocalClasses != null && this.LocalClasses.ContainsKey(ct.Name())) { return true; }
+        if (this.IsLocalClass(ct)) { return true; }
         return ct.IsImported && ct.Namespace != "";
     }
 
@@ -361,8 +360,8 @@ public sealed class EmitContext {
         if (wrapper == "" || wrapper == canon) { return ""; }
         string fq = PreludeNs.Root() + "." + wrapper + "." + methodKey;   // 基元包装类恒在 prelude 根 ns（Std）
         // 必须校验「确为已发射函数」：查不到就回落 VCall（= 今天的行为），**永不 miscall**。
-        // 本地 prim 类（编 z42.core 自身时）不在 Deps 里，用 LocalClasses 判。
-        if (this.LocalClasses != null && this.LocalClasses.ContainsKey(wrapper)) { return fq; }
+        // 本地 prim 类（编 z42.core 自身时）不在 Deps 里，按包装类 FQN 查本地类集。
+        if (this.LocalClasses != null && this.LocalClasses.HasFqn(PreludeNs.Root() + "." + wrapper)) { return fq; }
         if (this._depHasFunction(fq)) { return fq; }
         return "";
     }
@@ -394,7 +393,7 @@ public sealed class EmitContext {
         while (ct != null) {
             if (ct.Methods.ContainsKey(methodKey)) {
                 string fq = ct.Fqn() + "." + methodKey;
-                if (this.LocalClasses != null && this.LocalClasses.ContainsKey(ct.Name())) { return fq; }
+                if (this.IsLocalClass(ct)) { return fq; }
                 if (this._depHasFunction(fq)) { return fq; }
                 // imported 且 Deps 无此 FQ ⇒ 本类只是继承、并未声明 → 继续沿基链上溯。
             }
@@ -442,7 +441,7 @@ public sealed class EmitContext {
                 string fq = this.QualifyType(ct, this._classShortName(ct)) + "." + methodKey;
                 // 本地类：SymbolCollector 只填**声明于本类**的方法 → Methods 命中即「本类声明」=declClass，
                 // 目标就是本类发射的函数（Deps 不含本包函数，不能拿 Deps 校验）。sealed 判据成立才去虚化。
-                if (this.LocalClasses != null && this.LocalClasses.ContainsKey(ct.Name())) {
+                if (this.IsLocalClass(ct)) {
                     if (!sealedHere) { return ""; }   // declClass 非 sealed → 可再 override → 回落
                     return fq;
                 }
@@ -483,14 +482,29 @@ public sealed class EmitContext {
     // 三份旧实现已经不一致（详见 `TypeFactsTc._primWrapper` 的注释）；本份独有的错是
     // **缺 `object` 分支** ⇒ `_primWrapper("object")` 返回 `object`。它在 `QualifyTypeName`
     // 里被前置的 `if (name == "object")` 挡住了，但 `ChainHasMethod` 没有那层挡 ⇒
-    // `object` 收者查 `LocalClasses["object"]` 必然落空。
+    // `object` 收者查不到 `Object` 类。
     private static string _primWrapper(string n) {
         return PrimModel.Wrapper(n);
     }
 
+    // 本包自有声明类（按类型对象的 FQN 判，见 `LocalClassSet`）。
+    public bool IsLocalClass(Z42ClassType ct) { return this.LocalClasses != null && this.LocalClasses.Has(ct); }
+
+    // 实例调用的接收者类型是否本包类（`BoundCall.OwnerClass` 就是接收者类型名）：实例化类型看定义，
+    // 基元（`int` / `object`…）看它在 prelude 根 ns 的包装类（编 z42.core 自身时是本包类）。
+    public bool IsLocalReceiver(Z42Type t) {
+        if (this.LocalClasses == null) { return false; }
+        if (t is Z42InstantiatedType) { return this.LocalClasses.Has((t as Z42InstantiatedType).Def); }
+        Z42ClassType ct = t as Z42ClassType;
+        if (ct == null) { return false; }
+        string w = PrimModel.Wrapper(ct.Name());
+        if (w != ct.Name()) { return this.LocalClasses.HasFqn(PreludeNs.Root() + "." + w); }
+        return this.LocalClasses.Has(ct);
+    }
+
     // 类的归属包（本包 / 归属不明 → ""）：跨包 devirt 门用。
     private string _pkgOfClass(Z42ClassType ct) {
-        if (this.LocalClasses != null && this.LocalClasses.ContainsKey(ct.Name())) { return ""; }
+        if (this.IsLocalClass(ct)) { return ""; }
         return this.Symbols.ImportedPkgOf(ct.Fqn());
     }
 

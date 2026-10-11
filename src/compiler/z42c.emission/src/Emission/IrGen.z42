@@ -142,7 +142,7 @@ public sealed class IrGen {
                         // 供 emit 时 devirt 门控（Opt.Devirt）。默认 0=None（未走 Generate 的 dump 路径不 devirt，安全）。
     public DependencyIndex Deps;       // 跨包索引（CI-4；调用方 Generate 前设置，null=无）
     public string[] ActiveNs; public int ActiveNsCount;  // path C：本 CU 活跃命名空间集（usings + 本 ns，prelude-first）→ 静态调用 using-scoped 消歧
-    public StrMap LocalClasses;        // 本包自有声明类名集（G18：ChainHasMethod 反劫持守卫仅认本地类）
+    public LocalClassSet LocalClasses;        // 本包自有声明类（FQN 键；G18：ChainHasMethod 反劫持守卫仅认本地类）
     public bool IsRelease;   // release 模式：strip debug info（不 emit .locals/.linetable），镜像 C# stripSymbols=true
     public IrFunction[] Lifted; public int LiftedCount;   // lambda lift（port-z42c-closures；模块尾追加）
     public StrMap IfaceDecls;   // 本 CU 接口 FQN → 其 ClassDecl（add-reflection-transitive-interfaces：接口传递闭包展开）
@@ -157,10 +157,16 @@ public sealed class IrGen {
     // **非表达式**的引用——基表里的 `class DInt : GBox<int>`——只有名串，走这里。
     // 两者写的是**同一张表**，所以「有身份 ⇒ 有描述符」这条不变式不会因为多一个入口而破。
     // 嵌套实参（`GBox<Pair<int,long>>` 的内层）一并登记：运行期解析基链/字段时要查它们。
+    // 实例化名的泛型定义是否本包声明：布局表知道算出这份布局的类（`OwnerOf`），按它的 FQN 判。
+    private bool _isLocalInstDef(string instName) {
+        Z42ClassType owner = this.Layouts != null ? this.Layouts.OwnerOf(instName) : null;
+        return this.LocalClasses.Has(owner);
+    }
+
     public void NoteInstName(string instName) {
         if (instName.IndexOf('<') < 0) { return; }           // 非实例化名
         if (this.InstLayouts.ContainsKey(instName)) { return; }   // 兼作递归终止
-        if (this.LocalClasses != null && !this.LocalClasses.ContainsKey(StructLayout.BaseNameOf(instName))) {
+        if (this.LocalClasses != null && !this._isLocalInstDef(instName)) {
             return;   // 闸门之二：只登记**本包**泛型（跨包拿不到体，两侧都不特化才自洽）
         }
         this.InstLayouts.Put(instName, "1");

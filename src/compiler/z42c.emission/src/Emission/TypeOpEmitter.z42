@@ -244,8 +244,7 @@ public sealed class TypeOpEmitter {
         if (s.Kind == "t") {
             key = "t:" + this._ctx.QualifySource(s.Owner);
         } else {
-            bool ownerIsLocal = this._ctx.LocalClasses != null
-                                && this._ctx.LocalClasses.ContainsKey(s.Owner);
+            bool ownerIsLocal = this._ctx.IsLocalClass(s.OwnerCt);
             string q = "";
             if (this._ctx.Deps != null && !ownerIsLocal) {
                 // s.Member 已是**注册键**（可能含 `$N` mangle），故只查该键，不做 arity→bare 回落。

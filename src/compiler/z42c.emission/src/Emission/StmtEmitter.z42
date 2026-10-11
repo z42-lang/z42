@@ -430,7 +430,7 @@ public sealed class StmtEmitter {
                 typeName = cc.ExType != null ? this._fe._ctx.QualifyType(cc.ExType, cc.ExTypeName) : this._fe._ctx.QualifyClass(cc.ExTypeName);
                 // imported 泛型异常 → arity-mangled（Std.MulticastException$1）；local 泛型不加后缀。
                 if (cc.ExArity > 0
-                    && (this._fe._ctx.LocalClasses == null || !this._fe._ctx.LocalClasses.ContainsKey(cc.ExTypeName))) {
+                    && !this._fe._ctx.IsLocalClass(cc.ExType as Z42ClassType)) {
                     typeName = typeName + "$" + cc.ExArity.ToString();
                 }
             }
