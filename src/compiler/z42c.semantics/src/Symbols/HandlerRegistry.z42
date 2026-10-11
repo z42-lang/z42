@@ -86,7 +86,7 @@ public static class HandlerRegistry {
     // PR3c：`[Suppress("Id","reason")]` directive 识别（AnalyzerDriver 读，不持久化）。保留名，用户不可
     // 再定义同名 store-meta 类（同 Native）。
     public static bool IsSuppressDirective(string name) {
-        return name == "Suppress";
+        return name == SuppressionSet.Directive;
     }
 
     // PR5：`[Deprecated]` / `[Deprecated("msg")]` directive 识别（D2）。归 directive 使 KindOf≠StoreMeta

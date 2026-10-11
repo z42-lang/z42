@@ -10,6 +10,7 @@ kind    = "lib"
 "z42c.core"      = "0.1.0"
 "z42c.syntax"    = "0.1.0"
 "z42c.semantics" = "0.1.0"
+"z42c.analyzers" = "0.1.0"   # 前置线 ④：analyzer 契约 + 加载 + 驱动 + [lints] 决策（Z42.Analyzers）
 "z42c.emission"  = "0.1.0"   # 代码生成 + 编译编排（Z42.Emission：IrDump / CompiledModuleZ / CuCompile）
 "z42.package"         = "0.1.0"   # IR 模型 + zbc/zpkg 后端（converge-z42c-ir-metadata：取代 z42c.ir + z42c.project）
 "z42c.optimization" = "0.1.0"   # IR 优化管线 + Opt/OptSet 优化开关（Z42.Optimization）

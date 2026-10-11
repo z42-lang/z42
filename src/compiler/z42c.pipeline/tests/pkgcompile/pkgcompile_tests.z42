@@ -6,6 +6,7 @@ using Std.IO;
 using Std.Reflection;   // Activator（PR4d VM 执行 golden：外部 generator 产物真跑）
 using Z42.Pipeline;
 using Z42.Semantics;
+using Z42.Analyzers;   // LintConfig
 using Z42.Package;
 using Z42.Emission;
 
@@ -26,7 +27,7 @@ string[] _depDirs(string libs) {
 
 
 // ── attribute-handler-registry PR3a-load：外部 analyzer zpkg 编译期加载端到端 ─────────────────
-// 编译一个实现 Z42.Syntax.Analyzer 的 fixture → 临时 zpkg → 经 CompileInputs.AnalyzerZpkgs 喂给
+// 编译一个实现 Z42.Analyzers.Analyzer 的 fixture → 临时 zpkg → 经 CompileInputs.AnalyzerZpkgs 喂给
 // PackageCompile → 断言 analyzer 的 Z9002 诊断合入 consumer 的 per-file Cms。**非提交二进制**（fixture
 // 现编 → 免格式-bump 脆性），走真实 AnalyzerLoader（两路加载 + 反射实例化）+ AnalyzerDriver 全链。
 
@@ -200,11 +201,12 @@ void test_extend_with_package_adds_namespace() {
 
 // ── PR3a-load 外部 analyzer 加载端到端 ──────────────────────────────────────────
 
-// fixture analyzer 源：实现 Z42.Syntax.Analyzer，报告空 catch（Z9002）。类名带 Analyzer 后缀（E0445）；
+// fixture analyzer 源：实现 Z42.Analyzers.Analyzer，报告空 catch（Z9002）。类名带 Analyzer 后缀（E0445）；
 // 独立命名空间/类名（避免与 z42c.semantics 测试模块里 NoEmptyCatchAnalyzer 在 live VM 撞名）。
 string _fixtureAnalyzerSrc() {
     return "namespace AnalyzerLoadFixture;\n"
         + "using Z42.Syntax;\n"
+        + "using Z42.Analyzers;\n"
         + "using Z42.Core;\n"
         + "public class FixtureNoEmptyCatchAnalyzer : Analyzer {\n"
         + "    public DiagRule[] SupportedRules() { DiagRule[] r = new DiagRule[1]; r[0] = FixtureNoEmptyCatchAnalyzer._rule(); return r; }\n"
@@ -232,8 +234,8 @@ CompileInputs _fixtureAnalyzerInputs(string[] dirs) {
     cin.HasEntry = false; cin.Entry = "";
     cin.IsRelease = false;
     cin.LibsDirs = dirs; cin.LibsDirsN = dirs.Length;
-    string[] deps = new string[2]; deps[0] = "z42c.syntax"; deps[1] = "z42c.core";
-    cin.DeclaredDeps = deps; cin.DepCount = 2;
+    string[] deps = new string[3]; deps[0] = "z42c.syntax"; deps[1] = "z42c.core"; deps[2] = "z42c.analyzers";
+    cin.DeclaredDeps = deps; cin.DepCount = 3;
     return cin;
 }
 
@@ -395,6 +397,7 @@ void test_suppress_attr_end_to_end() {
 string _fixtureFixSrc() {
     return "namespace AnalyzerFixFixture;\n"
         + "using Z42.Syntax;\n"
+        + "using Z42.Analyzers;\n"
         + "using Z42.Core;\n"
         + "public class FixtureFixEmptyCatchAnalyzer : Analyzer {\n"
         + "    public DiagRule[] SupportedRules() { DiagRule[] r = new DiagRule[1]; r[0] = FixtureFixEmptyCatchAnalyzer._rule(); return r; }\n"
@@ -428,8 +431,8 @@ string _writeFixtureFixZpkg(string[] dirs) {
     cin.HasEntry = false; cin.Entry = "";
     cin.IsRelease = false;
     cin.LibsDirs = dirs; cin.LibsDirsN = dirs.Length;
-    string[] deps = new string[2]; deps[0] = "z42c.syntax"; deps[1] = "z42c.core";
-    cin.DeclaredDeps = deps; cin.DepCount = 2;
+    string[] deps = new string[3]; deps[0] = "z42c.syntax"; deps[1] = "z42c.core"; deps[2] = "z42c.analyzers";
+    cin.DeclaredDeps = deps; cin.DepCount = 3;
     CompileArtifacts aArt = PackageCompile.Compile(cin);
     Assert.Equal(0, aArt.ErrorCount);
     string tmp = _tmpRoot();
@@ -849,6 +852,7 @@ void test_no_analyzer_zpkgs_no_nohandler_error() {
 string _fixtureGenAndAnalyzerSrc() {
     return "namespace GenAnalyzeFixture;\n"
         + "using Z42.Syntax;\n"
+        + "using Z42.Analyzers;\n"
         + "using Z42.Core;\n"
         + "using Z42.Semantics;\n"
         + "public class EmitCatchGenerator : ModuleGenerator {\n"
@@ -884,8 +888,8 @@ void test_analyzer_sees_generated_code() {
     fin.Name = "demo.genanalyzefixture"; fin.Version = "0.1.0"; fin.Kind = "lib";
     fin.HasEntry = false; fin.Entry = ""; fin.IsRelease = false;
     fin.LibsDirs = dirs; fin.LibsDirsN = dirs.Length;
-    string[] deps = new string[3]; deps[0] = "z42c.syntax"; deps[1] = "z42c.core"; deps[2] = "z42c.semantics";
-    fin.DeclaredDeps = deps; fin.DepCount = 3;
+    string[] deps = new string[4]; deps[0] = "z42c.syntax"; deps[1] = "z42c.core"; deps[2] = "z42c.semantics"; deps[3] = "z42c.analyzers";
+    fin.DeclaredDeps = deps; fin.DepCount = 4;
     CompileArtifacts fArt = PackageCompile.Compile(fin);
     Assert.Equal(0, fArt.ErrorCount);
     string tmp = _tmpRoot();

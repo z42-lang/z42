@@ -12,7 +12,7 @@ z42 允许把**你自己的代码加载进编译器**，在编译期跑：
 [解析域](#解析域编译期扩展自动看得见-sdk-库)），并声明「我是编译期扩展」——`[analyzers]` 的
 path 条目据此校验，`[dependencies]` 据此拒收。
 
-> 契约包（`z42c.syntax` / `z42c.core` / `z42c.semantics`）是 **SDK 库**：住在 `programs/z42c/`、
+> 契约包（`z42c.analyzers` / `z42c.syntax` / `z42c.core` / `z42c.semantics`）是 **SDK 库**：住在 `programs/z42c/`、
 > 不在 `libs/`。`kind = "analyzer"` 自动看得见它们；普通工程（`kind = "lib"` / `"exe"`）要在
 > `[dependencies]` 里**按名声明**才可见。
 
@@ -82,7 +82,7 @@ zpkg **格式**代差（handler 由另一代工具链编出、wire 格式已经 
 
 ## 写一个 Analyzer
 
-契约在 **`z42c.syntax`**（命名空间 `Z42.Syntax`），依赖 `z42c.core` + `z42c.syntax` 即可：
+契约在 **`z42c.analyzers`**（命名空间 `Z42.Analyzers`）；AST 节点类型（`CatchClause` 等）在 `z42c.syntax`（命名空间 `Z42.Syntax`）。依赖这三个包即可：
 
 ```toml
 [project]
@@ -93,9 +93,10 @@ kind    = "analyzer"
 [dependencies]
 "z42c.core"   = "0.1.0"
 "z42c.syntax" = "0.1.0"
+"z42c.analyzers" = "0.1.0"
 ```
 
-> 这两个契约包住在 `programs/z42c/`、**不在 `libs/`**。`kind = "analyzer"` 下它们自动可见，上面的
+> 这些契约包住在 `programs/z42c/`、**不在 `libs/`**。`kind = "analyzer"` 下它们自动可见，上面的
 > `[dependencies]` 可以省略（写上也无妨）。这个字段同时也是「我是编译期扩展」的声明——`[analyzers]` 的
 > **path 条目**只接受它。
 
@@ -105,7 +106,8 @@ kind    = "analyzer"
 namespace Demo.Lint;
 
 using Z42.Core;
-using Z42.Syntax;
+using Z42.Syntax;      // AST 节点
+using Z42.Analyzers;   // Analyzer / DiagRule / DiagSink / SyntaxKind / AnalyzerSeverity
 
 public sealed class NoEmptyCatchAnalyzer : Analyzer {
     public DiagRule[] SupportedRules() {

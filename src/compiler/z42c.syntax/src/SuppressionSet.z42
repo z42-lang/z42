@@ -1,4 +1,5 @@
-// attribute-handler-registry PR3c —— analyzer 诊断的局部抑制集（编译期本地，不持久化）。
+// 诊断的局部抑制集（编译期本地，不持久化）——analyzer 诊断与语义层的可抑制警告（如 `[Deprecated]`）共用。
+// 住 syntax：两个来源都是源码结构（`#suppress` 区间 + `[Suppress]` 声明），语义层与 analyzer 层都只读它。
 //
 // 两来源合一（AnalyzerDriver.Run 构建、DiagSinkImpl.Report 查询）：
 //   ① `#suppress <Id> "reason"` / `#restore <Id>` —— **字节区间**（精确 token 偏移，来自
@@ -9,9 +10,12 @@
 //      按 AST 结构精确圈定「当前在某 [Suppress] 声明子树内」，规避 span-end 缺失。
 //
 // 纯编译期：本集只在编译该 CU 时存在，不写 zpkg（设计 SoT：design.md §诊断/severity/开关 PR3c 落地）。
-namespace Z42.Semantics;
+namespace Z42.Syntax;
 
 public sealed class SuppressionSet {
+    // `[Suppress("Id", "reason")]` 指令的 attribute 名（保留名，豁免 D8 后缀；HandlerRegistry 据此归 directive）。
+    public static string Directive = "Suppress";
+
     // ① `#suppress` 字节区间（平行数组）。
     private string[] _rIds; private int[] _rStarts; private int[] _rEnds; private int _rCount;
     // ② `[Suppress]` 声明级活跃栈（walk 期间平衡 push/pop，退出声明即弹出）。
