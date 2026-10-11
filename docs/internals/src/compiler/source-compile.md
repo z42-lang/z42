@@ -16,6 +16,56 @@ graph LR
     M --> E[写出] --> O[.zbc / .zpkg]
 ```
 
+## 包级编译流程（逐步）
+
+上图是**单文件**的抽象链。真实的包编译（`z42c build` / z42b 的 `Compile` 阶段 / REPL 每一轮）都走
+`PackageCompile.Compile`（`z42c.pipeline`），它在「前端」之外还夹着依赖解析、两类编译期扩展（generator / analyzer）
+和收尾组装。下图标出每一步**由哪个包提供**、**哪些步骤是条件门控的**：
+
+```mermaid
+flowchart TD
+  subgraph S0["① 解析 + 内建 AST 脱糖（调用方逐文件做，z42c.syntax / z42c.semantics）"]
+    P0[Lexer → Parser → CompilationUnit] --> RA["HandlerRegistry.RunAst<br/>BenchmarkDesugar → AttributeSynth"]
+  end
+  RA --> DEP["② 依赖解析（z42c.pipeline）<br/>DepScan.ScanDirs → DepScanResult<br/>ImportedSymbolLoader → ImportedSymbols<br/>REPL：复用缓存的 CachedScan 跳过"]
+  DEP --> GATE{"③ 有 generator？<br/>[analyzers] zpkg 里发现 : Generator / : ModuleGenerator<br/>或源里用了 [Forward]（内建 ForwardGenerator）"}
+  GATE -->|否（z42c 自建 / REPL / 大多数包）| BIND
+  GATE -->|是| GEN["GeneratorDriver.RunRounds（z42c.semantics/Generators）<br/>provisional CollectAll → applied/module generator 按 consumes/produces 拓扑分层<br/>→ Add / Replace / Augment → union CU（缓存失效，全量重编）"]
+  GEN --> BIND
+  subgraph BIND["④ 包级编译 IrDump.BuildPackageCus（z42c.emission 编排 + z42c.semantics）"]
+    B1["global using 注入"] --> B2["SymbolCollector.CollectAll（Pass 0）<br/>Stub → Member → Inheritance → DeclEnforcer 各 pass<br/>D8 后缀 · test attr E0911–15 · Native · ModuleInit"]
+    B2 --> B3["VarFieldInfer · partial 合并 · 泛型体扫描"]
+    B3 --> B4["逐 CU 并行：TypeChecker.Infer → Bound 树<br/>（FlowAnalyzer 在方法体绑定后跑）"]
+    B4 --> B5["IrGen：ModuleInitSynth · RecordSynth ·<br/>TestIndexBuilder（TIDX）→ z42c.optimization"]
+  end
+  BIND --> POST["⑤ 回填缓存元数据（UsedDepNs / 诊断）→ E0436 文件级 using → exe 入口检查"]
+  POST --> AGATE{"⑥ 有 analyzer？<br/>[analyzers] 非空"}
+  AGATE -->|否| TAIL
+  AGATE -->|是| AN["_runAnalyzers：AnalyzerLoader 反射加载 → AnalyzerDriver<br/>AST 级遍历（**在代码生成之后**），诊断经 LintConfig 决策后并入各 CU"]
+  AN --> TAIL["⑦ 未知 using 检查 → 错误门（有错误则不产出）"]
+  TAIL --> ASM["⑧ 组装：CtorKnownFixup → ZbcFileZ → ZpkgBuilder → 内存 ZpkgFileZ"]
+```
+
+要点：
+
+- **③ 与 ⑥ 是仅有的两处条件扩展**，门控条件都是「没有就整块不进」，所以没有 generator / analyzer 的包（含 z42c 自建）的输出与不存在这套机制时逐字节相同。
+- **generator 在绑定之前、analyzer 在代码生成之后**：generator 要改写 AST，必须赶在真绑定之前（所以先做一次 provisional 绑定让它能解析符号，再对 union 重绑）；analyzer 只读 AST、只产诊断，所以不必干预编译主线。
+- **诊断是分相位并入的**：parse → 收集 → 类型检查 → generator 护栏 → E0436 → analyzer → using 检查，缓存命中的文件从 meta 回填前三者（`snap` 在 E0436 / analyzer 之前取，避免缓存后重复打印）。
+- 单文件入口（`--dump-bound` / `--emit-zbc` / `ExtractExports`）走 `FrontEnd.Check/Collect`，是 ①④ 的单 CU 缩影，不含 ②③⑥⑦⑧。
+
+### 编译期与构建期的四类「扩展」
+
+名字相近、机制与时机完全不同，不要混为一谈：
+
+| 机制 | 何时跑 | 看到什么 | 产出 | 加载方式 |
+|---|---|---|---|---|
+| **内建 handler**（`BenchmarkDesugar` / `AttributeSynth` / test 与 `[ModuleInit]` 校验 / `TestIndexBuilder`） | ①④ | AST / 符号表 | 改写 AST；合成工厂；TIDX | 编译器内建，永远开启 |
+| **Generator**（`: Generator` / `: ModuleGenerator`，内建 `[Forward]`） | ③ | AST + 已解析符号（provisional 绑定） | 新源码 / 替换声明 / 增补 partial | `[analyzers]` zpkg，`GeneratorLoader` 反射加载 |
+| **Analyzer**（`: Analyzer`） | ⑥ | AST（不含 Bound） | 诊断（可带 `--fix` 重写源） | 同上，`AnalyzerLoader` |
+| **BuildHooks**（`class ProjectHooks : BuildHooks`） | **z42b** 构建阶段（不在 z42c 里） | 构建上下文 | 构建副作用 | `[build] hooks` 目录由 z42b 编成 zpkg，`ModuleLoader` 加载 |
+
+前三类属于编译器，后一类属于构建编排（见 [z42b](../toolchain/z42b.md)）。generator / analyzer 共用一段 `[analyzers]` 清单，同一批 zpkg 由两个 loader 各按接口过滤。
+
 ## 机制
 
 各阶段单向推进，前一阶段的产物是后一阶段的唯一输入。每个阶段都有对应的 `--dump-*` 命令可单独观察其产物（见 [CLI 与诊断工具](https://z42-lang.github.io/z42/reference/toolchain/cli-z42c-z42b.html)）。
