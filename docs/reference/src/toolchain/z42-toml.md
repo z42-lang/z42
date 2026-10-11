@@ -48,7 +48,6 @@ z42 使用 **`<name>.z42.toml`** 作为工程配置文件，格式为 TOML。
 name    = "hello"      # 包名，全小写（见下「包名命名规则」）
 version = "0.1.0"      # SemVer
 kind    = "exe"        # exe | lib | analyzer
-entry   = "Hello.Main" # 可选；省略时由 PackageCompiler 自动发现 Main
 ```
 
 **字段说明：**
@@ -58,9 +57,12 @@ entry   = "Hello.Main" # 可选；省略时由 PackageCompiler 自动发现 Main
 | `name` | string | ✅ | 全小写；作为输出文件基名和依赖引用键。命名规则见下节 |
 | `version` | string | ✅ | SemVer，如 `"0.1.0"` |
 | `kind` | `"exe"` \| `"lib"` \| `"analyzer"` | 单目标必填；多目标用 `[[exe]]` 时省略 | 可执行程序 / 类库 / 编译期扩展（analyzer、generator 都用这个 kind）。写其它值 → 构建报用法错误 `unknown kind` |
-| `entry` | string | ❌ 可选 | 完全限定入口函数。**省略时**`PackageCompiler` 自动从编译后的 module 查找 `Main`（优先 `<Namespace>.Main` 再 `<Namespace>.main` 再裸 `Main` / `main`）；找不到则**编译期报错** |
 | `pack` | bool | ❌ 可选 | packed / indexed 布局，见 [L3](#l3--构建产物配置) |
 | `description` / `authors` / `license` | string / string[] / string | ❌ 可选 | 纯元数据（`authors` 是字符串数组，`license` 建议写 SPDX 标识）；构建不使用 |
+
+**入口不在清单里配**：`kind = "exe"` 的入口由编译器从编译后的 module 里找 `Main`（优先 `<Namespace>.Main` 再
+`<Namespace>.main` 再裸 `Main` / `main`），找不到或不止一个都是**编译期报错**。`[project]` 里写 `entry` 是清单错误；
+同一工程要多个入口，用下文的 `[[exe]]`（那里的 `entry` 必填，用来在共享的源里挑 Main）。
 
 ### 包名命名规则
 
@@ -159,7 +161,7 @@ include = ["src/tool/**/*.z42"] # 可选：覆盖共享 [sources]
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
 | `name` | string | ✅ | exe 名，同时作为产物文件基名 |
-| `entry` | string | ❌ 可选 | 完全限定入口函数；省略时走 `PackageCompiler` 的 `Main` 自动发现路径 |
+| `entry` | string | ✅ | 完全限定入口函数——各 exe 共享源，靠它挑各自的 Main |
 | `include` | string[] | ❌ | 独立 glob，覆盖 `[sources]`；省略则继承 `[sources]` |
 
 ```bash
@@ -273,7 +275,6 @@ my-app/
 name = "myapp"
 version = "0.1.0"
 kind = "exe"
-entry = "MyApp.main"
 pack = false           # 可选；省略 → debug 为 indexed、release 为 packed
 
 [build]
@@ -507,12 +508,14 @@ api-endpoint = "http://localhost:8080"
 name    = "myapp"
 version = "0.1.0"
 kind    = "exe"
-entry   = "MyApp.main"
 
 [dependencies]
 "my-utils" = "*"         # 在 libs/ 中找 name="my-utils" 的 .zpkg
 "my-http"  = "*"         # 版本约束目前只做存在性校验，不做 semver 比较
 ```
+
+**标准库不用声明**：`z42.core` / `z42.io` / `z42.text` 等随 SDK 分发（`libs/`），总是可用。在 `[dependencies]` 里写它们
+会报 [W0610](../appendix/error-codes.md)（照常构建）；例外是要用下文的 `deploy = "copy"` 把它复制进 exe 自包含的。
 
 **`path` 的两种形态**（对标 C# 的两种引用）：
 
@@ -663,7 +666,6 @@ entry   = "MyApp.main"
 name    = "hello"
 version = "0.1.0"
 kind    = "exe"
-entry   = "Hello.main"
 
 [sources]
 include = ["src/**/*.z42"]
@@ -804,12 +806,12 @@ mode = "interp"
 # golden 用例（`main()` + `expected_output.txt`），**两者都长成 `<name>/source.z42`，glob 分不开**
 # （要分得靠扫目录里有没有 `[Test]` 标注，那不是 glob 能表达的）。猜错的代价是把 golden 目录
 # 当测试目标编，编不过或跑出零用例 —— 所以不猜。
-[tests.dependencies]
-"z42.test" = "0.1.0"      # 仅测试合入；release zpkg 元数据不含
+[tests.dependencies]       # 仅测试合入；release zpkg 元数据不含（z42.test 等标准库不用写，总是可用）
+"test-fixtures" = { path = "../test-fixtures" }
 
 [benches]
 [benches.dependencies]
-"z42.test" = "0.1.0"      # Bencher 在 z42.test 包内
+"bench-data" = { path = "../bench-data" }
 
 [examples]
 # 默认发现 examples/*.z42（同上：目录单元显式配）
@@ -1286,7 +1288,6 @@ monorepo/
 name        = "my-app"          # 必填
 version     = "0.1.0"           # 必填，SemVer
 kind        = "exe"             # exe | lib | analyzer；多目标用 [[exe]] 时省略
-entry       = "MyApp.Main"      # 可选；省略时自动发现 Main
 pack        = false             # 可选；省略 → debug indexed / release packed
 description = ""                # 可选，纯元数据
 authors     = []                # 可选，纯元数据
@@ -1339,8 +1340,8 @@ app-name = "demo-dev"
 include = ["tests/*.z42"]
 exclude = []
 auto    = true
-[tests.dependencies]
-"z42.test" = "0.1.0"
+[tests.dependencies]            # 测试专用依赖（标准库不用写）
+"test-fixtures" = { path = "../test-fixtures" }
 
 [[test]]                         # [[bench]] / [[example]] 同形（见 L5b）
 name    = "compile_perf"

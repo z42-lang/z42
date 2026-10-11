@@ -17,8 +17,6 @@ version = "0.1.0"
 kind    = "lib"
 
 [dependencies]
-"z42.core" = "0.1.0"
-"z42.test" = "0.1.0"
 
 # harness defaults true → reflective [Test] run via z42b.
 [[test]]

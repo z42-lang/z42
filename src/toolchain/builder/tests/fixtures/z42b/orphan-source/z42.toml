@@ -10,7 +10,3 @@ kind    = "lib"
 
 [sources]
 include = ["src/**/*.z42"]
-
-[dependencies]
-"z42.core" = "0.1.0"
-"z42.test" = "0.1.0"

@@ -19,11 +19,8 @@ pack    = true
 include = ["interactive_main.z42"]
 
 [dependencies]
-"z42.core" = "0.1.0"   # String / core
-"z42.io"   = "0.1.0"   # Console / Environment
 "z42.scripting" = { version = "0.1.0", deploy = "shared" }   # Script.Eval / Completeness / Completer（REPL eval-core）
 "z42.repl" = { path = "../repl" }   # Std.Repl.Repl 行编辑 + ReplEditing 键位（tty 交互）。私有组件 = path 依赖（add-path-dependencies）：z42c 建闭包 + colocate z42.repl.zpkg 进 z42i payload，不入 <sdk>/libs
-"z42.threading" = "0.1.0"   # Thread（add-repl-prewarm：启动即 spawn 预热 worker）
 "z42.package" = { version = "0.1.0", deploy = "shared" }   # ZbcVersion / ZpkgWriterZ 格式版本常量（`.version` 元指令）——add-package-roles 批 0 自 z42.scripting 迁入
 # 编译器域（SDK 库）一律 `deploy = "shared"`：不复制，运行期经下面的 `probing-paths = "../z42c"` 解析（drop-alllibs）。
 # 下面四个本工程不直接用，是 `z42.repl`（私有 path 依赖，会被复制进 payload）DEPS 段里的 SDK 库——复制 z42.repl 时

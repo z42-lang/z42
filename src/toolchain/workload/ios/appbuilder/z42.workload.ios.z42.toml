@@ -10,11 +10,6 @@ kind    = "lib"
 # Only the export logic. iOSWorkload.z42 (future z42.build pipeline handler) is
 # parked — it imports the not-yet-compiled z42.build — so it is excluded here.
 include = ["export.z42"]
-
-[dependencies]
-"z42.core" = "0.1.0"
-"z42.io"   = "0.1.0"
-
 [build]
 # Emit the .zpkg into the shared libs dir (== launcher build's Z42_LIBS).
 # cache-dir-layout：显式 output_dir，让 cache（${output_dir}/.cache）与 z42b 中间产物也落进 artifacts，

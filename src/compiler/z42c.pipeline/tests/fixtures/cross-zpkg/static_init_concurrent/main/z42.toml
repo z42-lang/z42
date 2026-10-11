@@ -4,6 +4,5 @@ version = "0.1.0"
 kind = "exe"
 pack = true
 [dependencies]
-"z42.threading" = "0.1.0"
 "demo.sctarget" = "0.1.0"
 "demo.scext" = "0.1.0"

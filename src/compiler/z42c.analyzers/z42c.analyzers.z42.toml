@@ -9,4 +9,3 @@ kind    = "lib"
 [dependencies]
 "z42c.core"   = "0.1.0"   # Span / Diagnostic / DiagnosticBag
 "z42c.syntax" = "0.1.0"   # AST 节点 / CompilationUnit / SuppressionSet
-"z42.io"      = "0.1.0"   # File —— `--fix` 就地重写源

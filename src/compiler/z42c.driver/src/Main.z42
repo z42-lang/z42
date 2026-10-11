@@ -293,6 +293,8 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
             libsDirs = withZ; libsDirsN = libsDirsN + zn;
         }
     }
+    // 声明了 stdlib ⇒ W0610（DepDecls.z42）。此刻 libsDirs = path 闭包 / vendored zpkg + 外部档，正是判「从哪解析到」的那一份。
+    _warnStdlibDeps(pm, tomlPath, libsDirs, libsDirsN, tier);
     // ── SDK 库的可见性（add-sdk-libs；规则与实现见 z42c.pipeline 的 SdkLibs.z42）────────────────────
     // exe / lib：按名声明的 SDK 库（+ 传递闭包）可见；analyzer：编译器目录里的 SDK 库全部可见（编译期扩展的
     // 契约包在那里）。不放行的并入扫描 tier 的 Hidden。放行集为空（绝大多数工程，含 z42c 自建）⇒ 不追加目录、

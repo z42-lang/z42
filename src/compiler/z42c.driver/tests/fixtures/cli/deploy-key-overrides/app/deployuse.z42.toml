@@ -5,6 +5,3 @@ kind    = "exe"
 
 [sources]
 include = ["*.z42"]
-
-[dependencies]
-"z42.io" = "0.1.0"
