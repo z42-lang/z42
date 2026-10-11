@@ -20,7 +20,7 @@ using Z42.Optimization;
 sealed class CompileCuTask : IParallelBody {
     CompilationUnit[] _cus; string[] _files; SymbolTable _symbols;
     DependencyIndex _deps; ImportedSymbols _imported;
-    StrMap _localClasses; bool _isRelease;
+    LocalClassSet _localClasses; bool _isRelease;
     StrMap _partialMerged; int _optSet; IrModule[] _cached;
     ExportedFuncZ[] _allFuncs; int _afc; StrMap _pkgClassMap;
     StructLayout _layouts;   // perf-layouts-once：包级预计算布局表（并行段只读共享）
@@ -32,7 +32,7 @@ sealed class CompileCuTask : IParallelBody {
     public bool PkgHasErrors;
     public CompileCuTask(CompilationUnit[] cus, string[] files, SymbolTable symbols,
                          DependencyIndex deps, ImportedSymbols imported,
-                         StrMap localClasses, bool isRelease,
+                         LocalClassSet localClasses, bool isRelease,
                          StrMap partialMerged, int optSet, IrModule[] cached,
                          ExportedFuncZ[] allFuncs, int afc, StrMap pkgClassMap,
                          StructLayout layouts, StrMap pkgGenerics,
@@ -158,9 +158,9 @@ public static class IrDump {
         StrMap partialMerged = CuCompile._buildMergedPartial(cus, count, symbols);   // add-partial-types：partial 类型名 → 合并 ClassDecl
         // F4+F12：符号收集后的独立全 CU 扫融成一趟——
         // localClasses（G18 本地类集）/ pkgClassMap（跨文件基类 map）/ allFuncs（全包自由函数聚合）
-        // 彼此无数据依赖，同序遍历 cus[]，每张 map 的写序不变 → 字节不动。单文件 emit 路径仍用
-        // _pkgLocalClasses 辅助（1-CU 场景），故辅助函数保留。
-        StrMap localClasses = new StrMap();          // G18：反劫持守卫仅认本地类
+        // 彼此无数据依赖，同序遍历 cus[]，每张 map 的写序不变 → 字节不动。本地类集由 `LocalClassSet.Build`
+        // 单独建（FQN 键，单文件 emit 路径共用）。
+        LocalClassSet localClasses = LocalClassSet.Build(cus, count, symbols);   // G18：反劫持守卫仅认本地类
         StrMap pkgClassMap = new StrMap();            // 跨文件 base 类方法继承（shortName / Name$N → ClassDecl）
         ExportedFuncZ[] allFuncs = new ExportedFuncZ[4];   // 全包自由函数（文件序+声明序，C# sem.Funcs 兄弟泄漏镜像）
         int afc = 0;
@@ -174,7 +174,6 @@ public static class IrDump {
                 if (dd is ClassDecl) {
                     ClassDecl cd = dd as ClassDecl;
                     if (cd.Kind == "class" || cd.Kind == "struct") {
-                        localClasses.Put(cd.Name, new StrBox(cd.Name));
                         if (!pkgClassMap.ContainsKey(cd.Name)) { pkgClassMap.Put(cd.Name, cd); }
                         if (cd.TypeParams.Count > 0) {
                             string pcmk = cd.Name + "$" + cd.TypeParams.Count.ToString();
@@ -304,7 +303,7 @@ public static class IrDump {
         gen.SourceStem = CuPreprocess._stem(cu);
         gen.SourceFile = file;                                        // add-partial-types：主碎片判定
         gen.PartialMerged = CuCompile._buildMergedPartial(one, 1, symbols);   // add-partial-types：合并 ClassDecl
-        gen.LocalClasses = CuPreprocess._pkgLocalClasses(one, 1);   // G18：反劫持守卫仅认本地类
+        gen.LocalClasses = LocalClassSet.Build(one, 1, symbols);   // G18：反劫持守卫仅认本地类
         string[] actNs2 = CuPreprocess._activeNamespaces(cu);   // path C：static call using-scoped 消歧
         gen.ActiveNs = actNs2; gen.ActiveNsCount = actNs2.Length;
         gen.HasTypeErrors = diags.ErrorCount() > 0;   // S1：类型错误下不做特化（见 IrGen.HasTypeErrors）

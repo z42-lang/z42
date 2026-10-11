@@ -43,7 +43,7 @@ public sealed partial class ExprEmitter {
         // （按实例化布局烘焙偏移），而消费方编译时只读依赖的**签名**（DepReconcile 走 ReadModuleSigs），
         // 拿不到生产方的方法体 ⇒ 跨包实例化无法特化。收窄到本包后两侧都不特化、行为与今天逐字不变
         // （不是「修了一半更坏」）。跨包覆盖需另一条 change（泛型体随包投送 + 消费方重发）。
-        if (!this._ctx.Gen.LocalClasses.ContainsKey(inst.Def.Name())) { return ""; }
+        if (!this._ctx.Gen.LocalClasses.Has(inst.Def)) { return ""; }
         // 闸门之三：实参必须**全是具体类型**。与 `_instIdentityName` 同一道闸门 —— 此前只有身份
         // 路径有，布局路径没有，两条对**伪实例化**（实参里还有未代换型参）给出不同答案。
         //
@@ -135,9 +135,8 @@ public sealed partial class ExprEmitter {
         Z42InstantiatedType inst = t as Z42InstantiatedType;
         if (inst.Def == null || inst.ArgCount <= 0) { return ""; }
         if (this._ctx.Gen.Layouts == null) { return ""; }
-        // 本包泛型定义才有实例化描述符。`LocalClasses` 是**短名**集 ⇒ 导入的同短名泛型（本包有个 `List`、
-        // 引用的是 `Std.Collections.List<int>`）也会命中，先按类型对象排除导入的（fqn-tables 5d 实测）。
-        if (inst.Def.IsImported || !this._ctx.Gen.LocalClasses.ContainsKey(inst.Def.Name())) { return ""; }
+        // 本包泛型定义才有实例化描述符（按类型对象的 FQN 判：导入的同短名泛型不算）。
+        if (!this._ctx.Gen.LocalClasses.Has(inst.Def)) { return ""; }
         int c0 = 0;
         while (c0 < inst.ArgCount) {
             if (!this._isConcreteTypeArg(inst.TypeArgs[c0])) { return ""; }   // 含未代换型参 → 不是真实例化

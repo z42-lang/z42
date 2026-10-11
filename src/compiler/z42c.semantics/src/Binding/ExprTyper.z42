@@ -546,7 +546,7 @@ public sealed partial class ExprTyper {
             }
             // 落**实际注册键**而非源码写法：唯一重载也可能被登记成 mangled 形式（`Foo$2`），
             // emit 期若拿裸名去 Deps/本地查会落空。键的口径必须与注册口径一致。
-            return new BoundSymAvailable("m", cn, ExprTyper._uniqueMethodKey(ct, me.Name), bt, call.Span);
+            return BoundSymAvailable.WithOwner(new BoundSymAvailable("m", cn, ExprTyper._uniqueMethodKey(ct, me.Name), bt, call.Span), ct);
         }
 
         this._tc._diags.Error(DiagnosticCodes.AvailableBadArgument,

@@ -452,10 +452,12 @@ public sealed class BoundSymAvailable : BoundExpr {
     public string Kind;     // "t" = 类型；"m" = 方法
     public string Owner;    // 类型名（Kind=="t"）或方法的属主类名（Kind=="m"），源码里的书写形式
     public string Member;   // 方法名（Kind=="m"）；Kind=="t" 时为 ""
+    public Z42ClassType OwnerCt;   // Kind=="m"：解析后的属主类（发射端按它判本包类）；Kind=="t" 为 null
     private Z42Type _t;
     public BoundSymAvailable(string kind, string owner, string member, Z42Type t, Span span) {
-        this.Span = span; this.Kind = kind; this.Owner = owner; this.Member = member; this._t = t;
+        this.Span = span; this.Kind = kind; this.Owner = owner; this.Member = member; this._t = t; this.OwnerCt = null;
     }
+    public static BoundSymAvailable WithOwner(BoundSymAvailable s, Z42ClassType owner) { s.OwnerCt = owner; return s; }
     public override Z42Type Type() { return this._t; }
     public override string Dump() {
         string s = "(sym-available " + this.Kind + ":" + this.Owner;

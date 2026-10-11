@@ -673,7 +673,7 @@ getter 是真实函数体。
 
 - **同 arity 候选 < 2**（单方法 / 纯 arity 重载——今天所有 prim 实例方法）：走原 `_overloadKey`/`_findMethod` 快路径，`wms!=null` 即用其键。**字节中性**。
 - **同 arity 候选 ≥ 2**：**跳过快路径**，直接 `_resolveOverload`（与 class 接收者路径 `MemberResolver.z42:57` 同款类型决议）取命中符号的 `RegKey`（mangle 键）产 `BoundCall`。这样跨包也无视裸别名、按实参类型命中正确重载。
-- 对称守卫：`CallEmitter.z42:160` 的实例 DepIndex 捷径加 `ownerIsLocalInst`（`LocalClasses.ContainsKey(TypeFactsTc._primWrapper(c.OwnerClass))`），本地 prim 类即便 `owns` 因故为 false 也不进捷径、不被下游同名劫持（对称静态路径 `:201-202` 的 `ownerIsLocal`）。
+- 对称守卫：`CallEmitter.z42:160` 的实例 DepIndex 捷径加 `ownerIsLocalInst`（`EmitContext.IsLocalReceiver(c.Receiver.Type())`：基元接收者按 prelude 根 ns 的包装类 FQN 查本包类集），本地 prim 类即便 `owns` 因故为 false 也不进捷径、不被下游同名劫持（对称静态路径 `:201-202` 的 `ownerIsLocal`）。
 
 **VM 侧无需改动**：基元接收者 VCall 的运行期派发（`src/runtime/src/interp/exec_vcall.rs:321-379`）按 `<class>.<method名>` 拼函数名直查——即它**本就以完整 mangle RegKey 为派发键**。只要绑定 emit 出正确的 `Split$1$string`，VM 就命中 `Std.String.Split$1$string`，跨包一样生效。
 
@@ -1156,7 +1156,7 @@ z42 的 IR 把**字节偏移烘焙进指令**（`struct_fget_prim %0 @8`）。�
 
 ### 登记表的粒度陷阱
 
-`IrGen` 由 `CuCompile._compileCu` **按编译单元**创建，而闸门用的 `LocalClasses` 是**包级**的。
+`IrGen` 由 `CuCompile._compileCu` **按编译单元**创建，而闸门用的本包类集 `LocalClassSet`（FQN 键，按类型对象判）是**包级**的。
 **凡是「包级判据 + 按 CU 的数据」就是一处 bug**。故泛型体登记表由
 `IrDump.BuildPackageCus` 扫全包 CU 建好后注入，与 `layouts` 同为并行段**只读**共享；
 `Generate` 仅在未注入时按本 CU 自扫（单文件 dump / 测试路径），两条路共用
