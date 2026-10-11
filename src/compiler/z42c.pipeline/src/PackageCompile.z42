@@ -300,8 +300,17 @@ public static class PackageCompile {
         // add-compiler-inlining：OptSet -1（未设）→ 取 profile 默认（release=All / debug=None）。
         int optSet = inp.OptSet;
         if (optSet < 0) { optSet = Opt.ProfileDefault(inp.IsRelease); }
-        CompiledModuleZ[] cms = IrDump.BuildPackageCus(texts, files, srcCount, cus,
-                                                       depIndex, imported, inp.IsRelease, cachedMods, optSet);
+        // 前置线（③ generator 护栏 E0448 / ④ analyzer）已有 error ⇒ 主编译线照常收集 + 类型检查（诊断一次报全），
+        // 但跳过代码生成与优化：这次编译不会产出，白做的那段恰是最贵的。
+        bool frontErrors = genDiags.ErrorCount() > 0;
+        int fb = 0;
+        while (fb < anaBags.Length) {
+            if (anaBags[fb] != null && anaBags[fb].ErrorCount() > 0) { frontErrors = true; }
+            fb = fb + 1;
+        }
+        CompiledModuleZ[] cms = IrDump.BuildPackageCusGated(texts, files, srcCount, cus,
+                                                            depIndex, imported, inp.IsRelease, cachedMods, optSet,
+                                                            frontErrors);
         // cached 的 UsedDepNs 是 typecheck 产物（本轮跳过）→ 从 meta 回填（源不变即不变）。
         // 诊断同理（warnings-survive-cache）：`CompileCuTask.Run` 的 cached 分支把 `DiagMsgs`
         // 置空，此前无人回填 ⇒ **警告只在冷构建那一次可见**（实测 W0700：第 ① 次打印，第 ②
