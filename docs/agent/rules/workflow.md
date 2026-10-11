@@ -1,8 +1,3 @@
----
-paths:
-  - "**/*"
----
-
 # z42 人机协作工作流（以 Pull Request 为单位）
 
 > 不依赖任何外部工具：状态存在 git 与 GitHub PR 里。
@@ -122,8 +117,20 @@ PR 描述只记「这次为什么这么做、做了什么、验证了什么」�
 
 ## 阶段 2：开工——分支、worktree、PR 描述
 
-1. **隔离**：按 [parallel-development.md §0](parallel-development.md) 在专属 worktree 里基于最新 `origin/main` 开同名分支。
-   很小的改动可直推 main 的例外见该文件 §1。
+> **隔离铁律（必须遵守）：每一次改动都在自己专属的 worktree 里做，一 change 一 worktree 一分支；绝不共用
+> 分支 / worktree、绝不在主树上直接改——没有「改动很小可以直推 main」的例外。** 主树只作 seed 供体与
+> `origin/main` 参照，不承载在制品。理由：① 主树常被并发会话共享，在其上改动会互相踩踏；② 共用分支会让
+> 两条独立改动的历史 / GREEN 互相污染，无法按 PR 先来后到独立合并。worktree 把并行流物理隔离，git 负责
+> 文本冲突，GREEN gate 负责语义正确。
+
+1. **建 worktree**：先 `git fetch`，基于**最新 `origin/main`**（别基于滞后的本地 ref）开同名分支——
+   `git worktree add -b <branch> ../wt/<branch> origin/main`；分支命名见[「PR 即在制品账本」](#pr-即在制品账本)。
+   **供种**：从一个 warm 树拷 `.z42` / `xtask` / `artifacts/xtask`，然后**必须按当前源码重建 `xtask`**：
+   ```bash
+   ./.z42/z42 publish scripts/xtask.z42.toml
+   ```
+   门禁逻辑本身就编在 `xtask.zpkg` 里——拿供体树那份旧的去查本树的新文档 / 新测试 = **保证假红**。
+   （要跑依赖自建产物的 stage 时，再 `./xtask build all` 备齐 z42c / stdlib / launcher。）
 2. **完整模式：先开 draft PR，再写代码。** PR 需要至少一个提交，用空提交承载（squash 合并时它会消失）：
    ```bash
    git commit --allow-empty -m "chore: 开工 <name>"
@@ -199,7 +206,7 @@ base: <sha>
 > 实施中需要改 Scope 外文件时的处置（立即停下 → 更新 Scope → User 重新确认）见[越界防护](#越界防护)。
 
 **并行冲突**：开工前 `gh pr list` 看是否有 in-flight PR 改同一文件 / 子系统。**不预先串行、不排队**：先就绪的先合，
-文本冲突在 rebase 时暴露，语义冲突由合并前的完整 GREEN 兜底——见 [parallel-development.md §2–§4](parallel-development.md)。
+文本冲突在 rebase 时暴露，语义冲突由合并前的完整 GREEN 兜底（见[阶段 6「并行与合并顺序」](#并行与合并顺序多-pr-in-flight)）。
 明显深度耦合的（如都在动 GC safepoint 语义），在两边 PR 描述里互相知会。
 
 ## 阶段 3：实施前确认（Gate）
@@ -352,7 +359,7 @@ Spec 覆盖：| 场景 | 实现位置 | 验证方式 | ✅ |             # 完�
    合并后它就是档案，不再改写。
 3. **提交**（无需 User 确认）：`git add <本变更 Scope 内的路径>`（不是 `git add -A`），`git commit -m "type(scope): 描述"`；
    每个逻辑单元单独提交（判据见 [commit-log.md](commit-log.md)）。
-4. **落地到 main**——策略见 [parallel-development.md](parallel-development.md)：
+4. **落地到 main**——**合并前置：必须先把 main 最新改动并进来并重跑完整 GREEN，全绿才能合。**
    ```bash
    git push origin <branch>
    gh pr ready                              # draft → ready
@@ -360,8 +367,17 @@ Spec 覆盖：| 场景 | 实现位置 | 验证方式 | ✅ |             # 完�
    xtask test                               # 并入最新 main 后必须全绿才合；base sha 写进描述
    gh pr merge --squash --delete-branch     # squash：main 上一个 PR 一个提交
    ```
+   **为什么强制**：① 防版本落后——分支开出去后 main 可能已合入其它 PR（尤其自举链的格式 / 种子 /
+   stdlib API 变更），不并入就合 = 拿旧 main 的假设合进新 main；② 这是**语义耦合的唯一兜底**（见下）。
+   **跳过 rebase-后-GREEN 直接合 = 违规**，等同于阶段 5「未全绿即 commit」。
    **squash 提交正文**写 Why + What 摘要（≤ 10 行）和关键决策；完整方案留在 PR 描述，靠提交标题的 `(#N)` 找回。
-5. **合并后清理（必做，默认授权）**：删本地分支 + worktree（远程分支由 `--delete-branch` 删）。force-push / 删他人分支仍需单独确认。
+5. **合并后清理（必做，默认授权）**：删该 change 的远程 + 本地分支 + worktree，不留残枝。
+   ```bash
+   git worktree remove <worktree-path>      # 有未提交改动时会拒绝——先确认没漏东西
+   git branch -d <branch>                   # 本地分支
+   git push origin --delete <branch>        # 远程分支（用 --delete-branch 合并时已删）
+   ```
+   删自己这条已合并 PR 的分支 / worktree 属**默认授权**；force-push / 删他人分支仍需单独确认（阶段 3 边界）。
 6. **提供续推口令（必做）**：任何任务合并或提交落地后，若还有后续任务（同一程序的下一 PR、Deferred 项、阶梯下一阶段等），
    必须主动给出一个「续推口令」，让 User 可以清理上下文（`/clear`）以减少 token 消耗，之后凭口令在新会话无缝续推。具体动作：
    1. **把后续任务写进 memory**（`memory/<slug>.md`）——需求说明与前因后果必须写透，至少覆盖：**需求 / 目标**（解决什么问题、
@@ -372,6 +388,38 @@ Spec 覆盖：| 场景 | 实现位置 | 验证方式 | ✅ |             # 完�
    2. **定义口令**：一句简短无歧义的中文触发语（如「推进 struct P3」），在 memory 文件 `description` 和 `MEMORY.md`
       置顶指针行标注「🔑 口令『…』→ 读本文件续推」。
    3. **回复 User 时明确给出口令**，并附一句当前落地状态。没有后续任务时无需口令。
+
+### 并行与合并顺序（多 PR in-flight）
+
+- **先来后到，不排队**：谁先 GREEN + 就绪谁先合，无需声明占用。改不同子系统的天然无关、各自合；改同一子系统
+  甚至同一文件的，文本冲突在 rebase 时暴露、语义冲突由「并入 main + 重跑完整 GREEN」兜底——**不预先串行、不排队**，
+  让先就绪的先合，后者 rebase 上去再跑。
+- **GREEN 结论会过期**：「绿了」不是一个属性，而是对**某个 main sha** 的断言——main 一动断言就可能失效，而绿灯
+  不会自己熄灭。合并前若 main 已前进到你跑 GREEN 的 sha 之外，**必须重跑再合**；PR 描述里写明本轮 GREEN 基于哪个
+  sha，否则审阅者无从判断那个绿灯还算不算数。验证与按下 merge 之间的窗口里落地的 PR 会让结论过期。
+- **本地 GREEN 可能被热产物掩盖**：夹具产物是热的（缓存命中就不重编），编译错误可能只在冷构建出现 ⇒ 改动会影响
+  编译产物时（编译器 / 清单解析 / 发现规则），合并前至少跑一轮**冷**的：
+  ```bash
+  rm -rf src/compiler/*/dist src/toolchain/builder/tests/fixtures/z42b/*/artifacts
+  xtask test
+  ```
+  > 两条同一个形状：**绿灯的前提变了，绿灯却不会自己失效**——前提是 base sha，或是产物状态。
+- **语义耦合的代价要认清**：worktree + PR 解决物理隔离与文本冲突，**解决不了语义耦合**——两个 PR 改 `runtime`
+  的不同文件、行不重叠、各自 clean merge，合起来逻辑却可能坏，git 测不出来（高发区：GC / JIT / safepoint 边界，
+  以及共享基础设施文件）。兜底就是上面那条 rebase + 完整 GREEN。**这是用「返工换并行度」的权衡**——把返工推到
+  合并前就地修，而不是「冲突消失了」；pre-1.0 快速迭代期通常值。明显深度耦合的两个 change，开工前在 PR 描述里
+  互相知会一声能省一轮返工（建议，非强制）。
+- **改「跑测试的工具」时，它依赖的源码修复必须先落地**：当一次变更让 gate 用**更严格的方式**编译 / 运行既有源码时
+  （如 `bench-regression` 故意用 **PR 的 runner** 去跑 **base 树**），那些源码的配套修复必须是**独立的、先合并的** PR——
+  放同一个 PR 里，base 树没有那条修复 ⇒ 新 runner 一编就红，而 PR 本身没有任何问题。**本地 GREEN 永远测不出这一类**
+  （本地只跑当前树，不会拿新工具跑旧树），「这次没红」不等于可以合并。
+- **抢同一个「全局唯一编号」时按合并顺序让号**：两个 PR 各自从一张登记表里挑了同一个没人用的编号（诊断码号最典型）
+  ——各自合法，**合起来才错**。裁决规则：**先合进 main 的保留编号，后合的让号**；不用「谁先想到」「谁引用得少」
+  「谁改动小」之类的判断（那些每次都要重吵，而合并顺序是 git 里的客观事实）。诊断码的完整流程以
+  [错误码全表](../../reference/src/appendix/error-codes.md)的「新增一个码」一节为唯一 SoT，**不要在别处复制**。
+  配套：占号必须落在**唯一的登记表**里（那样抢号会变成文本冲突，而不是欢快合并）。`test-host(linux-x64)` 末尾会把
+  最新 main 并进来重跑 `xtask check diagcodes`，所以抢号这一维会在 CI 里红出来——但它只覆盖码号这**一个**维度、
+  且有窗口，**不能替代**上面的 rebase + 完整 GREEN。
 
 ---
 

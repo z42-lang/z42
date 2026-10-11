@@ -12,8 +12,10 @@ AI 与协作者干活的**行为约束**。这里不写任何系统知识——�
 
 | 文件 | 管什么 |
 |------|--------|
-| [parallel-development.md](parallel-development.md) | PR 隔离模型：一 change 一 worktree 一分支、先来后到合并、合并前并入 main + 重跑 GREEN |
-| [commit-log.md](commit-log.md) | 提交信息格式 `type(scope): 描述`、页脚 |
+| [commit-log.md](commit-log.md) | 提交信息格式 `type(scope): 描述`、scope 子系统表、页脚 |
+
+> worktree 隔离、PR 描述约定、合并前置与多 PR 并行策略都并在流程主线里——
+> 见 [workflow.md](workflow.md) 阶段 2（开工）与阶段 6（合并），不另立文件。
 
 ## 写文档时
 

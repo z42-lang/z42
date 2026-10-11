@@ -1,8 +1,3 @@
----
-paths:
-  - "**/*"
----
-
 # 实现哲学与设计完整性
 
 > 流程主线（阶段 / Scope / commit / 合并）见 [workflow.md](workflow.md)。

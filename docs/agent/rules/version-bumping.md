@@ -1,13 +1,3 @@
----
-paths:
-  - "src/compiler/z42.package/src/**"
-  - "src/runtime/src/metadata/**"
-  - "docs/internals/src/formats/zbc.md"
-  - "docs/internals/src/formats/zpkg.md"
-  - "src/compiler/z42.package/tests/fixtures/zbc-format/**"
-  - "src/compiler/z42.package/tests/fixtures/zpkg-format/**"
----
-
 # `.zbc` / `.zpkg` minor version bump checklist
 
 > z42 pre-1.0 **strict-pin** 政策：Rust reader 精确匹配 writer 的 major + minor，无兼容回退。

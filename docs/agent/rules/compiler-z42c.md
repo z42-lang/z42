@@ -1,8 +1,3 @@
----
-paths:
-  - "src/compiler/**/*.z42"
----
-
 # z42c 自举编译器开发规范
 
 > z42 的编译器 z42c **用 z42 语言自身写**（`src/compiler/z42c.*`，编译为 zpkg）。

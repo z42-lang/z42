@@ -34,8 +34,16 @@ type(scope): 描述
 
 ## scope（子系统）
 
-沿用[子系统划分](parallel-development.md)：`compiler` / `runtime` / `stdlib` / `toolchain` / `docs`。
-跨子系统时取主要那个，或省略 scope。
+| scope | 范围 |
+|-------|------|
+| `compiler` | `src/compiler/`（z42c 自举编译器源码，用 z42 写） |
+| `runtime` | `src/runtime/`（Rust VM：interp / jit / aot / gc） |
+| `stdlib` | `src/libraries/`（.z42 标准库） |
+| `toolchain` | `src/toolchain/` + xtask dispatch |
+| `docs` | `docs/` |
+
+跨子系统时取主要那个，或省略 scope。这张表同时用来判断「两个 in-flight PR 是否同子系统、要不要互相知会」
+（见 [workflow.md 阶段 6](workflow.md)）。
 
 ## 一个 commit = 一个逻辑单元
 

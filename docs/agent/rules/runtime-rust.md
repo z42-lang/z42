@@ -1,8 +1,3 @@
----
-paths:
-  - "src/runtime/**/*.rs"
----
-
 # Rust VM 开发规范
 
 ## 错误处理
