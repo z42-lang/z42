@@ -9,7 +9,7 @@
 `Std.IO` 这个命名空间跨两个包：本页是 `z42.core` 那一半。同命名空间下的流体系
 （`Stream` / `FileStream` / `MemoryStream` / 字符读写器）在 `z42.io`，见[流](io-stream.md)；
 子进程与终端着色（`Process` / `Ansi`）也在 `z42.io`，见[子进程与终端](process.md)。
-`z42.io` 的类型在**单文件 `z42 run` 下同样可用**（`new FileStream(path)` 直接能写）——随 SDK 发布的库都解析得到。工程里按常规在清单 `[dependencies]` 声明依赖。
+`z42.io` 的类型在**单文件 `z42 run` 下同样可用**（`new FileStream(path)` 直接能写）——随 SDK 发布的库都解析得到。工程里同样自动可用，清单 `[dependencies]` 不需要声明（声明了会报 [W0610](../appendix/error-codes.md)）。
 
 失败行为有一条贯穿全页的规则：**这里没有 `IOException` 类型**。文件 / 目录 / 环境类的底层
 失败一律抛基类 `Std.Exception`，`Message` 是 OS 原文（`No such file or directory (os error 2)`

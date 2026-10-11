@@ -72,7 +72,7 @@ vtable fixup 触发假警报）。这条策略经 workspace 两条构建路径�
 
 ```toml
 [dependencies]
-"z42.core" = "0.1.0"                 # 名字依赖：按名在 Z42_LIBS 解析 <name>.zpkg
+"my-utils" = "0.1.0"                 # 名字依赖：按名在解析面（vendored / 外部档）里找 <name>.zpkg
 "z42.repl" = { path = "../repl" }    # 本地 path 依赖：源在相对本 manifest 目录的 ../repl
 "foo"      = { version = "0.1.0", path = "../foo" }  # path 依赖可并带 version（path 优先，version 供将来校验）
 ```

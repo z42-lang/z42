@@ -7,8 +7,6 @@ version = "0.1.0"
 kind    = "lib"
 
 [dependencies]
-"z42.core"    = "0.1.0"
-"z42.io"      = "0.1.0"
 # 🔴 **path 依赖，不是名字依赖**（relocate-compiler-domain-libs，2026-09-27）：
 # 名字依赖对 `PathDepPlan` 的图**不可见** ⇒ 仓库外/仓库内的 path-闭包消费者（如 xtask）拓扑序会
 # 把 `z42.build` 排在 `z42.project` **前面**，于是 z42.build 自建时报

@@ -45,6 +45,7 @@ z42vm <out.zbc> Main        # 执行产物
 | `src/BuildCommand.z42` | `z42c build` 参数解析：未知选项报错、`-h`、`--quiet`；不给清单时 `ManifestLocator.FindUp` 定位（工作区 → `--workspace`）→ `_build` / `_buildWorkspace` |
 | `src/WorkspaceBuild.z42` | workspace 构建编排（`_buildWorkspace*` / `_findWorkspaceToml`）：按 `[workspace.build].output_dir` 展开成员布局，成员产物落各自 dist，兄弟解析扫全成员 dist + Z42_LIBS |
 | `src/ExeDeps.z42` | exe 产物的兄弟包依赖 bundling（`_bundleExeDeps`）：非框架依赖的已构建 zpkg（+ `.zsym`）复制进 exe dist |
+| `src/DepDecls.z42` | `[dependencies]` 声明 lint：声明了框架包（stdlib）报 W0610（判据与 `_bundleExeDeps` 同源：从外部档解析到） |
 | `src/BuildCache.z42` | 构建 cache 落盘：逐文件写 fullMode `.zbc` + meta + 包级源清单（单产物与多 exe 共用）|
 | `src/BuildLog.z42` | 进度行开关（`--quiet` 抑制 `cached:` / `wrote ->` / `cache ->`；诊断不受影响）|
 | `src/PathDepBuild.z42` | path 依赖闭包代建（`_buildPathDepClosure`）：`PathDepPlan.Resolve` 叶子在前的闭包 → 逐个 `_build` + 累积 libsDirs，结果经 `PathClosureOut` 回给调用方 |

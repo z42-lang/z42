@@ -1,0 +1,75 @@
+// z42c driver —— `[dependencies]` 声明的 lint：声明了框架包（stdlib）报 W0610。
+namespace Z42.Driver;
+
+using Std.IO;
+using Z42.Project;
+using Z42.Pipeline;    // WsTier
+using Z42.Package;     // ZpkgReader / ZpkgInfo
+using Z42.Semantics;   // PreludeNs
+
+// stdlib 不用声明：它在框架目录（编译期外部档 = `CompileLibsOpt.ExtDirs()`）里，解析面本来就看得见
+// （`z42.*` 包的 DepIndex 准入不看声明），运行期也从 shipped `libs/` 解析。声明它不改变任何结果，
+// 只会让读清单的人以为「不写就用不了」。
+//
+// 判据与 `_bundleExeDeps` 的框架判据同源：**它是从哪个目录解析到的**。libsDirs 里第一个有它的目录是外部档
+// ⇒ 框架包 ⇒ warn。不按名字（`z42.` 前缀）猜：编译器域的 `z42.project` 等也叫 `z42.*`，却必须按名声明
+// （SDK 库，见 SdkLibs.z42）；用户自己的库叫 `z42.foo` 也不该被当成 stdlib。
+//
+// 不 warn 的：
+//   · `path` 依赖（显式指定了那一份）；
+//   · `deploy = "copy"`（要把框架包复制进 exe 的 dist 自包含，声明是有意义的）；
+//   · workspace 成员（stdlib 自己的 workspace 里，`z42.io` 依赖 `z42.core` 决定拓扑序，必须声明）。
+// 外部档里的包还得**是 stdlib**：提供 `Std` / `Std.*` 命名空间（`Std` 是保留命名空间，只有标准库声明它）。
+// 外部档里能出现非 stdlib：自举的破环预建把当前源的 `z42c.core` / `z42.project` 等临时写进 flat 再单包编下一个，
+// 它们是 SDK 库（`Z42.*` 命名空间），必须按名声明。
+// ⚠️ 不拿「编译器目录里也有它」当 SDK 库的判据：老版本 SDK 的 `programs/z42c/` 带着整套 stdlib 副本。
+// ⚠️ 不把编译器成员之间的依赖改成 path 依赖来躲：z42b（BuildSession）不解析 path 依赖，它的测试目标会编不过。
+// 只 warn、不报错：照常构建。
+void _warnStdlibDeps(ProjectManifest pm, string tomlPath, string[] libsDirs, int libsDirsN, WsTier tier) {
+    string[] fw = CompileLibsOpt.ExtDirs();
+    if (fw.Length == 0) { return; }
+    int i = 0;
+    while (i < pm.DepCount) {
+        DepEntry d = pm.Deps[i];
+        i = i + 1;
+        if (d.Path.Length > 0 || d.Deploy == "copy") { continue; }
+        if (tier != null && tier.IsMember(d.Name)) { continue; }
+        string found = _firstDirHaving(libsDirs, libsDirsN, d.Name + ".zpkg");
+        if (found.Length == 0 || !_inDirs(fw, found)) { continue; }
+        if (!_providesStdNs(Path.Join(found, d.Name + ".zpkg"))) { continue; }
+        // ⚠️ 码用字面量：常量 `StdlibDepDeclared` 与本发射点同 PR 新增，上一版 z42c 的 z42c.core 里还没有它
+        // （bootstrap-seed.md 分阶段引入纪律）；随 nightly 进种子后切回常量（diag-literal-emitters.txt 记着这笔账）。
+        string code = "W0610";
+        ConsoleError.WriteLine(tomlPath + "(" + _tomlKeyLine(tomlPath, d.Name).ToString() + ",1): " + code
+            + ": [dependencies] `" + d.Name + "` 是标准库包，不需要声明（总是可用，解析自 " + found + "）—— 删掉这一行。");
+    }
+}
+
+// zpkg 是否提供 `Std` 根命名空间或其下的命名空间（读 NSPC 段）；读不出 ⇒ false（宁可漏报，不误报）。
+bool _providesStdNs(string zpkgPath) {
+    string root = PreludeNs.Root();
+    try {
+        ZpkgInfo zi = ZpkgReader.Open(File.ReadAllBytes(zpkgPath), zpkgPath);
+        if (zi == null) { return false; }
+        string[] nss = ZpkgReader.ReadNamespaces(zi);
+        int i = 0;
+        while (i < nss.Length) {
+            if (nss[i] == root || nss[i].StartsWith(root + ".")) { return true; }
+            i = i + 1;
+        }
+    } catch (Exception e) { return false; }
+    return false;
+}
+
+// 清单里 `key =` / `"key" =` 首次出现的行号（1 起）；读不到或找不到 → 1。只用来给诊断定位，不参与语义。
+int _tomlKeyLine(string tomlPath, string key) {
+    if (!File.Exists(tomlPath)) { return 1; }
+    string[] lines = File.ReadAllText(tomlPath).Split("\n");
+    int i = 0;
+    while (i < lines.Length) {
+        string t = lines[i].Trim();
+        if (t.StartsWith("\"" + key + "\"") || t.StartsWith(key + " ") || t.StartsWith(key + "=")) { return i + 1; }
+        i = i + 1;
+    }
+    return 1;
+}

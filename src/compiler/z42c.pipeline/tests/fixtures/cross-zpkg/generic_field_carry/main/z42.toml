@@ -5,6 +5,5 @@ version = "0.1.0"
 kind = "exe"
 pack = true
 [dependencies]
-"z42.collections" = "0.1.0"
 "demo.gtarget" = "0.1.0"
 "demo.gext" = "0.1.0"

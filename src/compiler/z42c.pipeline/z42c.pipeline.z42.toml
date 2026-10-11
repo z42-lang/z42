@@ -17,5 +17,3 @@ kind    = "lib"
 "z42c.optimization" = "0.1.0"   # IR 优化管线 + Opt/OptSet 优化开关（Z42.Optimization）
 "z42.project"    = "0.1.0"   # 组合式 manifest 模型（converge）
 "z42.build"      = "0.1.0"   # ICompiler 接口（wire-z42b：Z42cCompiler 实现之）——仅接口，无环
-"z42.io"         = "0.1.0"   # CacheStore（本包新迁入，用 File/Path）
-"z42.encoding"   = "0.1.0"   # CacheStore（Utf8）

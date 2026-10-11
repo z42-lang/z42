@@ -34,13 +34,6 @@ include = ["builder_cli.z42", "builder_test.z42", "builder_device.z42", "builder
 # `probing-paths = "../z42c"`（与 z42i 同形态）。此前不写 deploy、靠构建时 Z42_LIBS 是 alllibs 把它们当「框架」
 # 才不复制——是否复制取决于构建环境，drop-alllibs（2026-10-01）起改由这里显式声明。
 # ⇒ 这段注释原话是「z42.build/z42.project 均为 stdlib → 不破 stdlib-only」，挪动后已不成立。
-"z42.core"    = "0.1.0"   # String / core / Platform / Std.Reflection (Activator/Type)
-"z42.io"      = "0.1.0"   # Console / File / Directory / Path / Process / Environment
-"z42.threading" = "0.1.0"   # Thread.Sleep — poll the Android emulator boot (device driver)
-"z42.cli"     = "0.1.0"   # Std.Cli nested router + ArgParser
-"z42.harness" = "0.1.0"   # Std.Harness.Runner + BundleRunner（反射 runner + bundle 执行）
-"z42.json"    = "0.1.0"   # JsonValue.Parse — read a test-bundle manifest in `z42b test --rid host`
-"z42.toml"    = "0.1.0"   # TomlValue.Parse — read [platform.desktop] in `z42b publish`
 "z42.build"   = { version = "0.1.0", deploy = "shared" }   # ICompiler 接口 + Pipeline 八相位（编排；接口经动态注入绑定实现）
 "z42.project" = { version = "0.1.0", deploy = "shared" }   # ProjectManifest / ManifestLoader（build/new/export 动词读清单）
 

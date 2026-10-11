@@ -10,15 +10,7 @@ pack    = true
 include = ["*.z42"]
 
 [dependencies]
-"z42.core"        = "0.1.0"   # String / Console-adjacent core
-"z42.io"          = "0.1.0"   # Environment / Directory / Path / File / Process / Console / Platform
-"z42.json"        = "0.1.0"   # parse network manifests (nightly / workload)
-"z42.net"         = "0.1.0"   # HttpClient — download release assets
-"z42.compression" = "0.1.0"   # Gzip + Tar — unpack .tar.gz
-"z42.crypto"      = "0.1.0"   # Sha256 — verify against SHA256SUMS
-"z42.toml"        = "0.1.0"   # read [platform.desktop].publish_dir in `publish <toml>`
 "z42.project"     = { version = "0.1.0", deploy = "shared" }   # ManifestLocator / ManifestLoader / BuildLayout: `z42 run` / publish / export（SDK 库：不复制，运行期经 probing-paths "../z42c"）
-"z42.cli"         = "0.1.0"   # Std.Cli nested router + ArgParser (command parsing)
 # 🔴 三个 workload 包走 **path 依赖**（2026-09-28）：它们不在任何 `libs/` 里。
 # 原先靠「把 workload 的 dist_dir 指向 stdlib flat」让这里的名字依赖解析得到，代价是它们
 # 随整目录被打进 SDK 的 `libs/`（用户面的标准库表面，workload 不属于那里）。

@@ -10,12 +10,7 @@
 这是 z42 唯一的并发设施：**没有 async / await、没有 Task、没有线程池**。每次 `Thread.Start`
 都真的开一条 OS 线程，成本按 OS 线程算。
 
-用之前要在工程清单里声明依赖：
-
-```toml
-[dependencies]
-"z42.threading" = "0.1.0"
-```
+本包随工具链分发、自动可用，工程清单里**不需要**声明依赖（声明了会报 [W0610](../appendix/error-codes.md)）。
 
 ## `Thread`
 

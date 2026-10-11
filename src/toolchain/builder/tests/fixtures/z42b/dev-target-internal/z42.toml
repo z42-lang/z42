@@ -10,7 +10,6 @@ kind    = "lib"
 include = ["src/**/*.z42"]
 
 [dependencies]
-"z42.core" = "0.1.0"
 
 # 显式目标：只编 tests/ 下这一个文件 —— 顺带锁住「按目标隔离源」
 # （此前 in-process 路径把 include 硬编码成 `**/*.z42`，会把整个工程都编进去）。
@@ -25,6 +24,3 @@ include = ["tests/internals_tests.z42"]
 #   ② 目录单元同样享有「父包测试目标」身份 → 看得见 internal。
 [tests]
 include = ["tests/*.z42", "tests/dirunit/**/*.z42"]
-
-[tests.dependencies]
-"z42.test" = "0.1.0"
