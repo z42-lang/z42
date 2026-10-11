@@ -5,7 +5,6 @@
 // 三者组合 = 「编译一轮会话 → 加载 → 求值 / 内省」的运行期骨架。
 namespace Std.Scripting;
 
-using Std.Runtime;   // ModuleLoader：加载 / 调用的唯一入口，本类只是 REPL 语境下的薄门面
 
 public static class Engine {
     public static bool LoadBytes(byte[] bytes) { return ModuleLoader.LoadBytes(bytes); }

@@ -30,7 +30,6 @@
 namespace Z42.Pipeline;
 
 using Std.Reflection;  // Assembly / Activator
-using Std.Runtime;     // ModuleLoader（Path-B）/ AssemblyLoadContext（Path-A）
 using Z42.Semantics;   // Generator / ModuleGenerator（上一 nightly 已有 → 跨成员引用安全）
 
 // 一遍加载的产物：applied generator 与 module generator 各归其数组（一个 zpkg 可混含两类）。

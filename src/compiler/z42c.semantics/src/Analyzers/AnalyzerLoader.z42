@@ -20,7 +20,6 @@
 namespace Z42.Semantics;
 
 using Std.Reflection;  // Assembly / Activator
-using Std.Runtime;     // ModuleLoader（Path-B）/ AssemblyLoadContext（Path-A）
 using Z42.Syntax;      // Analyzer
 
 public static class AnalyzerLoader {
