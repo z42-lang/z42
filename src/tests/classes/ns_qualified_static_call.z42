@@ -46,4 +46,4 @@ void Main() {
 // 那条路今天是坏的（`ResolveTypeP` 的 FQN 视图 `ClassesByFqn` 只登记本地类 ⇒ 限定名引用
 // imported 类解析成 Unknown → 运行期 `VCall: function <ns>.<unknown>.Append not found`）。
 // 那是与 B3-产出端 / imported 类缺 `Namespace` 同根的独立缺口，见
-// docs/spec/changes/fix-binder-emitter-gaps-batch2/tasks.md「后续」。本文件只管**静态调用**。
+// 变更 fix-binder-emitter-gaps-batch2。本文件只管**静态调用**。

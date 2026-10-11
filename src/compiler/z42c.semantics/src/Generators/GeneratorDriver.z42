@@ -1,6 +1,6 @@
 // attribute-handler-registry PR4a —— applied generator 引擎（方案 B post-bind splice/merge，参考 Roslyn）。
 //
-// 设计 SoT：docs/spec/changes/attribute-handler-registry/design.md §Generator 引擎实现落法（PR4a）。
+// 设计 SoT：变更 attribute-handler-registry §Generator 引擎实现落法（PR4a）。
 //
 // 时机：接进 IrDump.BuildPackageCus，在 provisional CollectAll（symbols 就绪）之后跑。对每个已实例化
 // generator（本 PR 由测试注入 CompileInputs.Generators；外部 zpkg 加载留 PR4d）：

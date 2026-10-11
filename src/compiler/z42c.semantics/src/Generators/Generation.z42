@@ -4,7 +4,7 @@
 // 裁决）的 GenTarget 须暴露被贴类型的**解析后 Z42ClassType**（PR4c 的 GenContext.TypesWith<T> 更返回
 // TypeSymbol），这些是语义层类型，syntax（下层）引用不到。与 design 原稿契约含 TypeSymbol/SymbolKind
 // 一致、且贴 Roslyn（source generator 依赖完整 CodeAnalysis 语义 API，非仅语法）。外部 generator（PR4d）
-// 依赖 z42c.semantics，同 Roslyn 模型。设计 SoT：docs/spec/changes/attribute-handler-registry/design.md
+// 依赖 z42c.semantics，同 Roslyn 模型。设计 SoT：变更 attribute-handler-registry
 // §Generator 引擎实现落法（PR4a，方案 B）。
 //
 // 参考 C# Roslyn source generator 执行模型：generator 跑在 bind 之后（拿到 semantic model / 符号）→ 只能

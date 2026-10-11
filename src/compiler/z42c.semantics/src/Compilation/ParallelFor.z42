@@ -26,7 +26,7 @@ public interface IParallelBody {
 // 并行度全局配置（set-once：driver 启动解析 --jobs 后设置；编译期只读，非并行段可变态）。
 //
 // ⚠️ **默认串行**。最初（parallelize-package-compile，归档于
-// docs/spec/archive/2026-08-29-parallelize-package-compile/design.md）实测并行净负：每次分配都抢
+// 变更 parallelize-package-compile
 // 全局锁。TLAB（#342，2026-08-30）已消掉分配锁；2026-10-02 在 main 上编 z42c.semantics（24 核）
 // 重测：--jobs 2/4/8 比串行快约 16% / 19% / 13%，16 线程以上反而慢 30%+。这里的默认值保持串行：
 // **z42c 命令行**不写 `--jobs` 时由 driver 设成 min(4, 核数)（BuildCommand `_defaultBuildJobs`）；

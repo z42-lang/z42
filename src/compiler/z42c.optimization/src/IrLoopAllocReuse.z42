@@ -2,7 +2,7 @@
 //
 // 目标：循环体内每迭代 `new` 的临时对象 / 数组，若**迭代内可复用**，把分配 hoist 到 pre-header
 // （只分配一次），循环体改为重初始化 → 消除累积 + per-迭代分配。设计见
-// docs/spec/changes/add-loop-alloc-hoist-reuse/design.md（D1–D6）。
+// 变更 add-loop-alloc-hoist-reuse。
 //
 // ── 资格（5 条全满足才变换，任一不足即跳过，安全兜底）──────────────────────────────────
 //   C1 非逃逸：alloc.StackAlloc==true（逃逸分析已证；对象另含「ctor 不泄漏 this」）。可复用 ⟹ 不逃逸。

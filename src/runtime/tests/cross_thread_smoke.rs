@@ -1,5 +1,5 @@
 //! Cross-thread smoke tests for the Phase 5.2 multi-threading foundation
-//! (`docs/spec/archive/2026-05-20-add-multithreading-foundation/`).
+//! (`变更 add-multithreading-foundation`).
 //!
 //! These integration tests don't run any z42 code — they just verify the
 //! Rust type tree (`VmContext` / `VmCore` / `GcRef` / `MagrGC`) crosses an

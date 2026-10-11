@@ -1,6 +1,6 @@
 // attribute-handler-registry PR4e —— 有界多轮拓扑分层辅助（自 GeneratorDriver.z42 拆出守 500 行硬限）。
 //
-// 设计 SoT：docs/spec/changes/attribute-handler-registry/design.md §有界多轮实现落法（PR4e）。
+// 设计 SoT：变更 attribute-handler-registry §有界多轮实现落法（PR4e）。
 //
 // 纯 semantics-内部辅助（只被同包 GeneratorDriver.RunRounds 调用——**不引入新的跨成员符号**，避免
 // PR4d 踩过的 F2 冷启动 stale-cache 陷阱）：把 applied + module generator 建成统一拓扑节点表、按

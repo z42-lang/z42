@@ -5,7 +5,7 @@
 // PR1b（IR-phase）：把 IR 级两个子构建器（TestIndexBuilder / StubEmitter）的 attribute **名字识别**
 // 也收敛进本注册表——它们的 emit **逻辑不变**，只是「哪个名字算 directive / 算 test handler」这项知识
 // 从 `_isTestAttrName` / 散落的 `== "Native"` 字面量上移到这里（design §Implementation Notes：
-// 「逻辑不变，识别改注册表」）。设计 SoT：docs/spec/changes/attribute-handler-registry/design.md。
+// 「逻辑不变，识别改注册表」）。设计 SoT：变更 attribute-handler-registry。
 //
 // 三路 kind（design §消费模型）：
 //   · store-meta —— 普通 `: Attribute` 类 → 反射 blob（IrAttrRef）。由 AttributeSynth 合成工厂。

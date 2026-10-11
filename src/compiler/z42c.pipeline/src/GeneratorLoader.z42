@@ -17,7 +17,7 @@
 // 接口（z42c 由 z42c.semantics 构成，运行时它已加载）→ cast + GeneratorDriver.Run/RunModules 直接可用。
 //
 // 一个 zpkg 可含 applied generator + module generator 混合（单段 D9）——本加载器一遍扫出两类，各归其数组。
-// 设计 SoT：docs/spec/changes/attribute-handler-registry/design.md D9 + §Generator 引擎实现落法（PR4d）。
+// 设计 SoT：变更 attribute-handler-registry D9 + §Generator 引擎实现落法（PR4d）。
 //
 // **放 z42c.pipeline（非 z42c.semantics，与 AnalyzerLoader 不同）的原因（bootstrap 硬约束，必守）**：本
 // 加载器由 PackageCompile（pipeline）独家消费。若放 semantics，pipeline 就新增一个「跨成员引用刚加进

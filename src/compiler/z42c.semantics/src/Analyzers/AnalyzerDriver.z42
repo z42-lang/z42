@@ -9,7 +9,7 @@
 // analyzer 侧也无需 lambda。发现 / 加载外部 analyzer zpkg 见 [analyzers] 段（后续增量）；本增量的驱动
 // 机制由单测（tests/analyzer）直接喂 analyzer 实例验证。
 //
-// 设计 SoT：docs/spec/changes/attribute-handler-registry/design.md §Analyzer 接口 / §Pipeline。
+// 设计 SoT：变更 attribute-handler-registry §Analyzer 接口 / §Pipeline。
 namespace Z42.Semantics;
 
 using Z42.Core;     // Diagnostic / DiagnosticBag / DiagnosticSeverity / Span

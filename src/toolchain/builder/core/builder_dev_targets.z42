@@ -10,7 +10,7 @@
 // （CompileInputs.ParentPkg → ImportedSymbolLoader 不设 IsImported ⇒ internal 可见）。
 //
 // 这是 unify-test-pipeline 案上写着的阶段 ③（见 docs/design/testing/cross-platform-testing.md:24-29），
-// 不是新方向。设计 SoT：docs/spec/changes/z42b-owns-test-targets/design.md。
+// 不是新方向。设计 SoT：变更 z42b-owns-test-targets。
 namespace Z42Builder;
 
 using Std.IO;

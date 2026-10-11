@@ -1,7 +1,7 @@
 //! OS signal handler — z42 call stack capture on hard crash.
 //!
 //! Phase 2 of the panic-hook story (Phase 1 = Rust panic hook in main.rs).
-//! Spec: `docs/spec/changes/add-os-signal-handler/` (2026-05-25).
+//! Spec: `变更 add-os-signal-handler` (2026-05-25).
 //!
 //! Covers POSIX fatal signals only:
 //! `SIGSEGV` / `SIGABRT` / `SIGFPE` / `SIGILL` / `SIGBUS`. Windows VEH is

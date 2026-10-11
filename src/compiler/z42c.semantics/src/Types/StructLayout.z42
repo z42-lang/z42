@@ -4,7 +4,7 @@
 // 以及**带种类的引用叶子表**（供 GC 根扫描 + StructCopy/析构按种类分流：Arc 计数 / GcRef 屏障 / 纯基元 memcpy）。
 //
 // 纯计算模块（不耦合 AST/符号表）：输入是 name→StructFieldsDef（struct 类型的字段名+声明类型名，声明序），
-// 由 IrGen 从 ClassDecls 抽取、单测直接构造。ABI 约定见 docs/spec/changes/add-struct-value-semantics/design.md
+// 由 IrGen 从 ClassDecls 抽取、单测直接构造。ABI 约定见 变更 add-struct-value-semantics
 // 子决策 #2：基元字节精确（char=4B Unicode 标量）、引用叶子=16B 托管句柄（object/array/string/interface/func）。
 namespace Z42.Semantics;
 using Z42.IR;   // StrMap

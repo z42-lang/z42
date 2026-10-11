@@ -15,7 +15,7 @@ use super::convert::value_to_str;
 //
 // Stack semantics let nested TestIO.captureStdout calls work intuitively
 // (inner capture sees inner output only; outer sees outer pre + post but
-// not inner). See docs/spec/archive/2026-05-XX-extend-z42-test-library scenario 5.
+// not inner). See 变更 archive scenario 5.
 
 thread_local! {
     static STDOUT_SINKS: RefCell<Vec<Vec<u8>>> = const { RefCell::new(Vec::new()) };

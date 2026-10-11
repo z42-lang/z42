@@ -16,7 +16,7 @@
 //! flow / calls are native — so a function that *touches* a struct is no longer
 //! forced back to the interpreter wholesale. Emitting the leaf byte load/store as
 //! native cranelift code (skipping the helper call) is Deferred (P5-B) — see
-//! `docs/spec/.../add-struct-jit-value-path/design.md` Decision D1.
+//! `变更 add-struct-jit-value-path` Decision D1.
 //!
 //! # frame_id
 //! A `Value::StructRef` carries the id of the frame that allocated it, used by the

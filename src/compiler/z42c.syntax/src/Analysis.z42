@@ -4,7 +4,7 @@
 // 语法 API（Microsoft.CodeAnalysis），而非纯运行时库（stdlib 不能反依赖编译器）。外部 analyzer
 // zpkg 经 [dependencies] 依赖 z42c.syntax + z42c.core 来编写，用 z42.toml `[analyzers]` 段声明被
 // 编译器加载执行（D9：独立编译期 zpkg 类别，编译期运行、不链入目标程序、不入消费产物）。设计 SoT：
-// docs/spec/changes/attribute-handler-registry/design.md §Analyzer 接口 / §Decisions D8·D9。
+// 变更 attribute-handler-registry §Analyzer 接口 / §Decisions D8·D9。
 //
 // 契约 = 纯抽象 + 数据：Analyzer / DiagSink 是接口（驱动在 z42c.semantics 提供具体实现）；DiagRule
 // 是数据类；SyntaxKind / AnalyzerSeverity 是 int 常量（z42 无 enum → static class + int，同 TokenKind）。

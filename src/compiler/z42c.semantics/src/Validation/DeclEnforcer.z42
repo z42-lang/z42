@@ -237,7 +237,7 @@ public sealed partial class DeclEnforcer {
     //    天然满足）。RunAst 里的 BenchmarkDesugar 会把**合法**的 form-2 `[Benchmark] void f(Bencher b)`
     //    改写成 `f$impl(Bencher b)` + 零参 wrapper `[Benchmark] void f()`；在它之前查 R3 会让全仓
     //    66 处 benchmark 全红。移动本 pass 位置前先读
-    //    docs/spec/changes/add-attribute-usage/design.md §3.2。
+    //    变更 add-attribute-usage §3.2。
     internal void _passTestAttrEnforce(CompilationUnit cu) {
         int i = 0;
         while (i < cu.DeclCount) {
