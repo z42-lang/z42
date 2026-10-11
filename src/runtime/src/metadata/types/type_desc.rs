@@ -119,8 +119,9 @@ pub struct TypeDescCold {
     /// Generic type parameter names: ["T"], ["K", "V"]. Empty for non-generic classes.
     pub type_params: Box<[String]>,
     /// Concrete type arguments for an instantiated generic class: ["int"], ["string", "int"].
-    /// Empty for non-generic classes and uninstantiated generic definitions.
-    pub type_args: Box<[String]>,
+    /// Empty for non-generic classes and uninstantiated generic definitions. Interned, so
+    /// `ObjNew` hands the same handle to every instance without hashing.
+    pub type_args: super::TypeArgs,
     /// L3-G3a: constraint bundle per type parameter (aligned by index with `type_params`).
     /// Empty for non-generic classes; inner bundle may be empty for unconstrained params.
     pub type_param_constraints: Box<[crate::metadata::bytecode::ConstraintBundle]>,
@@ -217,7 +218,9 @@ impl TypeDesc {
     #[inline] pub fn own_methods(&self)            -> &[Box<str>]                               { self.cold_slice(|c| &c.own_methods) }
     #[inline] pub fn own_static_flags(&self)       -> &[bool]                                   { self.cold_slice(|c| &c.own_static_flags) }
     #[inline] pub fn type_params(&self)            -> &[String]                                 { self.cold_slice(|c| &c.type_params) }
-    #[inline] pub fn type_args(&self)              -> &[String]                                 { self.cold_slice(|c| &c.type_args) }
+    #[inline] pub fn type_args(&self)              -> &[String]                                 { self.cold_slice(|c| c.type_args.as_slice()) }
+    /// The instantiation's interned type-arguments (empty handle for non-generic / open).
+    #[inline] pub fn type_args_handle(&self) -> super::TypeArgs { self.cold.as_ref().map_or_else(super::TypeArgs::empty, |c| c.type_args) }
     #[inline] pub fn type_param_constraints(&self) -> &[crate::metadata::bytecode::ConstraintBundle]      { self.cold_slice(|c| &c.type_param_constraints) }
     /// C3 add-attribute-reflection: user attributes applied to this class.
     #[inline] pub fn custom_attributes(&self)      -> &[crate::metadata::bytecode::AttributeRef]          { self.cold_slice(|c| &c.custom_attributes) }

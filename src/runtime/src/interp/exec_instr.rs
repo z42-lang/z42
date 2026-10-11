@@ -264,7 +264,7 @@ pub fn exec_instr(
             // propagate user `throw` from the ctor body to the enclosing
             // try/catch instead of silently dropping it.
             if let Some(thrown) = exec_object::obj_new(
-                ctx, module, frame, *dst, class_name, ctor_name, args, type_args, site,
+                ctx, module, frame, *dst, class_name, ctor_name, args, *type_args, site,
                 *stack_alloc, *ctor_known,
             )? {
                 return Ok(Some(thrown));

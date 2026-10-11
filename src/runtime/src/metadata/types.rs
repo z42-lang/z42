@@ -28,6 +28,7 @@ mod array;
 mod array_access;
 mod array_sort;
 mod elem_type;
+mod type_args;
 mod value;
 mod value_aux;
 
@@ -41,5 +42,6 @@ pub use object_fields::FieldWrite;
 pub use array::*;
 pub use array_access::*;
 pub use elem_type::*;
+pub use type_args::{TypeArgs, TypeArgsInfo};
 pub use value::*;
 pub use value_aux::*;

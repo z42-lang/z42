@@ -101,7 +101,8 @@ pub fn build_type_registry(module: &mut Module) {
             // copy alongside it. Parse it here — `build_type_registry` is the one funnel all
             // modules (eager + cross-zpkg lazy) go through, so every consumer of
             // `type_args()` sees them without a second source of truth.
-            type_args:              crate::metadata::types::type_args_from_name(class_name),
+            type_args:              crate::metadata::types::TypeArgs::intern(
+                &crate::metadata::types::type_args_from_name(class_name)),
             type_param_constraints: desc.type_param_constraints.clone(),
             // C3 add-attribute-reflection: carry the class's user attributes.
             custom_attributes:      desc.attributes.clone(),
@@ -214,6 +215,8 @@ pub fn build_type_registry(module: &mut Module) {
         let cold = if cold_inner.own_fields.is_empty()
             && cold_inner.own_methods.is_empty()
             && cold_inner.type_params.is_empty()
+            // An instantiation's interned arguments live here too (`type_args_handle`).
+            && cold_inner.type_args.is_empty()
             && cold_inner.type_param_constraints.is_empty()
             && cold_inner.custom_attributes.is_empty()
             && cold_inner.static_fields.is_empty()

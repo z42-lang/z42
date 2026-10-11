@@ -24,18 +24,17 @@ pub unsafe extern "C" fn jit_obj_new(
     cls_name_ptr: *const u8, cls_name_len: usize,
     ctor_name_ptr: *const u8, ctor_name_len: usize,
     args_ptr: *const u32, argc: usize,
-    // 2026-05-07 expand-jit-type-args: per-instance generic type-args (D-8b-3
-    // Phase 2 JIT path). `type_args_ptr` is a `*const String` directly into the
-    // IR `Instruction::ObjNew { type_args: Vec<String> }` storage, valid for
-    // module lifetime. Non-generic ObjNew passes count = 0.
-    type_args_ptr: *const String, type_args_count: usize,
+    // expand-jit-type-args: the site's interned type-arguments handle
+    // (`ObjNewInsn::type_args.as_raw()`, a leaked process-lifetime entry; the empty
+    // handle for a non-generic `new`).
+    type_args: *const crate::metadata::types::TypeArgsInfo,
     // P1-2 PR 5: this site's `ResolvedTokens::obj_new` cache (null when the function was
     // compiled without a resolved token table).
     site_ptr: *const ObjNewSite,
     // encode-ctorless-objnew: compile-time positive ctor marker; see `missing_ctor_exception`.
     ctor_known: u8,
 ) -> u8 {
-    use crate::interp::obj_new_resolve::{resolve_class, resolve_ctor, site_for};
+    use crate::interp::obj_new_resolve::{instance_type_args, resolve_class, resolve_ctor, site_for};
     // Baked by `TxCtx::str_val` from the IR: valid UTF-8, no re-validation per `new`.
     let class_name = super::baked_str(cls_name_ptr, cls_name_len);
     let ctor_name = super::baked_str(ctor_name_ptr, ctor_name_len);
@@ -74,41 +73,15 @@ pub unsafe extern "C" fn jit_obj_new(
     // the composed layout; pass no initial values (mirrors interp `obj_new`).
     let obj_val = vm.heap().alloc_object(type_desc, Vec::new(), NativeData::None);
 
-    // 2026-05-07 expand-jit-type-args: populate per-instance type_args BEFORE
-    // ctor call so the ctor body's `default(T)` resolves correctly (mirrors
-    // interp ObjNew handler order).
-    // complete-generic-class-identity P1: an instantiation's class name already carries its
-    // arguments, so the compiler ships no separate copy on the instruction. Fall back to the
-    // ones the registry parsed off the name — must mirror interp `obj_new` exactly (a
-    // one-sided pair here is what made `GBox<int>().V == 0` disagree between the two engines).
-    let name_args: Box<[String]> = if type_args_count > 0 {
-        Box::new([])
-    } else if let Value::Object(ref rc) = obj_val {
-        Box::<[String]>::from(rc.borrow().type_desc.type_args())
-    } else {
-        Box::new([])
-    };
-    if type_args_count > 0 || !name_args.is_empty() {
-        if let Value::Object(ref rc) = obj_val {
-            let slice: &[String] = if type_args_count > 0 {
-                std::slice::from_raw_parts(type_args_ptr, type_args_count)
-            } else {
-                &name_args
-            };
-            let mut o = rc.borrow_mut();
-            o.set_type_args(Box::<[String]>::from(slice));
-            // fix-generic-typeparam-field-zero: a `T`-typed field is laid out as a
-            // *reference* slot (layout comes from the declaration), so layout zero-init
-            // leaves it `Null` instead of the instantiation's zero. Must mirror the interp
-            // `obj_new` handler exactly — this pair being one-sided is what made
-            // `GBox<int>().V == 0` answer `false` under interp and `true` under JIT.
-            let overrides = crate::metadata::types::generic_field_zero_overrides(
-                &o.type_desc, slice,
-            );
-            for (slot, zero) in overrides {
-                o.set_field_value(slot, &zero);
-            }
-        }
+    // expand-jit-type-args: record the instance's type-arguments BEFORE the ctor call so its
+    // `default(T)` resolves (mirrors interp `obj_new`, through the same shared pick and the
+    // same `ScriptObject::install_type_args`).
+    // SAFETY: `type_args` was baked from `TypeArgs::as_raw` at translate time.
+    let site_args = unsafe { crate::metadata::types::TypeArgs::from_raw(type_args) };
+    if let Value::Object(ref rc) = obj_val {
+        let mut o = rc.borrow_mut();
+        let inst_args = instance_type_args(site_args, &o.type_desc);
+        o.install_type_args(inst_args);
     }
 
     // runtime-jit-tiering Phase 1b: tiered ctor. Compiled (or compiling at the threshold) →

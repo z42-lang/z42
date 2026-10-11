@@ -99,8 +99,11 @@ pub struct ObjNewInsn {
     pub ctor_name: String,
     pub args: Box<[Reg]>,
     /// Resolved generic type-arguments for this allocation (e.g. `["int"]` for
-    /// `new Foo<int>()`); empty for non-generic. `Box<[String]>` (immutable IR).
-    pub type_args: Box<[String]>,
+    /// `new Foo<int>()`, the literal `["T"]` in erased generic code); empty for non-generic
+    /// and for an instantiation whose class name already carries them (`Demo.Box<int>`).
+    /// Interned at decode ([`TypeArgs`](crate::metadata::types::TypeArgs)): every instance
+    /// the site creates shares the one handle.
+    pub type_args: crate::metadata::types::TypeArgs,
     /// add-escape-analysis-stack-alloc (zbc 1.29): escape analysis proved this
     /// object does not escape AND its ctor does not leak `this` → interp allocates
     /// it in the frame arena (GC-skipped). JIT ignores this flag (heap) in v1.

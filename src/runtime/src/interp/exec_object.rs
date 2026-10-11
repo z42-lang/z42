@@ -22,14 +22,16 @@ use super::Frame;
 /// partially constructed object into `dst`.
 pub(super) fn obj_new(
     ctx: &VmContext, module: &Module, frame: &mut Frame,
-    dst: u32, class_name: &str, ctor_name: &str, args: &[u32], type_args: &[String],
+    dst: u32, class_name: &str, ctor_name: &str, args: &[u32],
+    // The site's interned type-arguments (`ObjNewInsn::type_args`).
+    type_args: crate::metadata::types::TypeArgs,
     // This site's `ResolvedTokens::obj_new` cache (None when the resolver hasn't run).
     site: Option<&crate::metadata::resolver::ObjNewSite>,
     stack_alloc: bool,
     // encode-ctorless-objnew: compile-time positive marker; see `missing_ctor_exception`.
     ctor_known: bool,
 ) -> Result<Option<Value>> {
-    use super::obj_new_resolve::{resolve_class, resolve_ctor, site_for};
+    use super::obj_new_resolve::{instance_type_args, resolve_class, resolve_ctor, site_for};
     let site = site_for(ctx, module, site);
     let type_desc = match resolve_class(ctx, module, class_name, site) {
         Ok(td) => td,
@@ -63,6 +65,8 @@ pub(super) fn obj_new(
     // defaults), produced by `object_regions()`. Explicit initializers are written by
     // `FieldSet` at the ctor entry.
 
+    let inst_args = instance_type_args(type_args, &type_desc);
+
     // add-escape-analysis-stack-alloc: when the compiler proved this `new` does
     // not escape its frame AND the ctor does not leak `this`, allocate in the
     // per-context stack arena (no GC region lock / tracking / sweep). The ctor
@@ -73,23 +77,9 @@ pub(super) fn obj_new(
     let obj_val = if stack_alloc && crate::interp::stack_alloc::stack_alloc_enabled() {
         let storage = type_desc.object_storage();
         let mut obj = ScriptObject::new(type_desc.clone(), storage);
-        // complete-generic-class-identity P1: an instantiation's class name already carries
-        // its arguments (`Demo.Box<int>`), so the compiler stops shipping a second copy on
-        // the instruction. Fall back to the ones the registry parsed off the name.
-        obj.set_type_args(if type_args.is_empty() {
-            Box::<[String]>::from(type_desc.type_args())
-        } else {
-            Box::<[String]>::from(type_args)
-        });
-        // fix-generic-typeparam-field-zero: a `T`-typed field is a *reference* slot (the
-        // layout is computed from the declaration), so layout zero-init leaves it `Null`.
-        // Rewrite it to the instantiation's real zero. Must stay in lockstep with the heap
-        // branch below — otherwise flipping `Z42_STACKALLOC` changes observable values.
-        for (slot, zero) in crate::metadata::types::generic_field_zero_overrides(
-            &type_desc, obj.type_args(),
-        ) {
-            obj.set_field_value(slot, &zero);
-        }
+        // Same generic step as the heap branch below (one implementation, so flipping
+        // `Z42_STACKALLOC` cannot change observable values).
+        obj.install_type_args(inst_args);
         let frame_id = frame.frame_id(ctx);
         let idx = ctx.stack_alloc_obj(frame_id, obj);
         Value::StackObject { idx, frame_id }
@@ -106,30 +96,12 @@ pub(super) fn obj_new(
             )));
         }
 
-        // 2026-05-07 add-default-generic-typeparam (D-8b-3 Phase 2): populate
-        // per-instance type_args from the IR instruction. Read by `DefaultOf`.
-        // complete-generic-class-identity P1: fall back to the arguments the registry parsed
-        // off the instantiation's own name (see the stack branch).
-        let name_args: Box<[String]> = if type_args.is_empty() {
-            if let Value::Object(ref rc) = obj_val {
-                Box::<[String]>::from(rc.borrow().type_desc.type_args())
-            } else { Box::new([]) }
-        } else { Box::new([]) };
-        let inst_args: &[String] =
-            if type_args.is_empty() { &name_args } else { type_args };
+        // add-default-generic-typeparam: record the instance's type-arguments (read by
+        // `DefaultOf`, reflection, `__class_type_arg`) and zero its primitive type-parameter
+        // fields — before the ctor runs, so its `default(T)` already sees them.
         if !inst_args.is_empty() {
             if let Value::Object(ref rc) = obj_val {
-                let mut o = rc.borrow_mut();
-                o.set_type_args(Box::<[String]>::from(inst_args));
-                // fix-generic-typeparam-field-zero: see the stack branch above. Kept in the
-                // same `!inst_args.is_empty()` block because a non-generic instance can
-                // never need an override.
-                let overrides = crate::metadata::types::generic_field_zero_overrides(
-                    &o.type_desc, inst_args,
-                );
-                for (slot, zero) in overrides {
-                    o.set_field_value(slot, &zero);
-                }
+                rc.borrow_mut().install_type_args(inst_args);
             }
         }
         obj_val
