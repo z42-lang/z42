@@ -13,16 +13,14 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                     // add-escape-analysis-stack-alloc: JIT ignores stack_alloc in v1
                     // (heap-allocates); the optimization targets interp (interp-first).
                     let ObjNewInsn { dst, class_name, ctor_name, args, type_args, stack_alloc: _, ctor_known } = &**insn;
-                    // 2026-05-07 expand-jit-type-args: marshal `Vec<String>` as a
-                    // `*const String` + count to `jit_obj_new`. The IR storage
-                    // lives for the module lifetime, so the raw pointer is valid
-                    // for the duration of all JIT-compiled calls.
+                    // expand-jit-type-args: bake the site's interned type-arguments
+                    // handle (`TypeArgs::as_raw`, a leaked process-lifetime entry) as a
+                    // pointer constant for `jit_obj_new`.
                     let d = self.ri(*dst);
                     let (cp, cl) = self.str_val(class_name);
                     let (kp, kl) = self.str_val(ctor_name);
                     let (ap, al) = self.regs_val(args);
-                    let tap = self.builder.ins().iconst(self.ptr, type_args.as_ptr() as i64);
-                    let tac = self.builder.ins().iconst(types::I64, type_args.len() as i64);
+                    let tap = self.builder.ins().iconst(self.ptr, type_args.as_raw() as i64);
                     // P1-2 PR 5: bake the site cache's address (class + ctor FnId + ctorless
                     // mark; stable through `Function.resolved`, like the FieldIC pointer below).
                     let cm = obj_new_site_ptr_at(self.func, self.block_idx, self.instr_idx);
@@ -30,7 +28,7 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                     // encode-ctorless-objnew: compile-time positive ctor marker (i8).
                     let ckv = self.builder.ins().iconst(types::I8, *ctor_known as i64);
                     let inst = self.builder.ins().call(self.hr_obj_new,
-                        &[self.frame_val, self.ctx_val, d, cp, cl, kp, kl, ap, al, tap, tac, cmv, ckv]);
+                        &[self.frame_val, self.ctx_val, d, cp, cl, kp, kl, ap, al, tap, cmv, ckv]);
                     let ret  = self.builder.inst_results(inst)[0]; self.check(ret);
                 }
                 Instruction::Typeof(insn) => {

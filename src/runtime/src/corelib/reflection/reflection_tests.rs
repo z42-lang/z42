@@ -370,8 +370,8 @@ fn obj_with_type_args(ctx: &VmContext, name: &str, targs: &[&str]) -> Value {
         .heap()
         .alloc_object(bare_td(name), Vec::new(), NativeData::None);
     if let Value::Object(ref rc) = v {
-        let boxed: Box<[String]> = targs.iter().map(|s| s.to_string()).collect();
-        rc.borrow_mut().set_type_args(boxed);
+        let names: Vec<String> = targs.iter().map(|s| s.to_string()).collect();
+        rc.borrow_mut().set_type_args(crate::metadata::types::TypeArgs::intern(&names));
     }
     v
 }
