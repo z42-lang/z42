@@ -69,7 +69,7 @@
 > **`E0911` / `E0912` / `E0915`（测试 attribute 强制）**：`[Test]` / `[Benchmark]` /
 > `[Setup]` / `[Teardown]` 必须是**零接收者**（顶层自由函数或 `static` 方法）、**返回 `void`**、
 > **无参数**、**非泛型**、**有方法体**。由
-> [`DeclEnforcer._passTestAttrEnforce`](https://github.com/z42-lang/z42/blob/main/src/compiler/z42c.semantics/src/Validation/DeclEnforcer.z42)
+> [`TestAttrEnforcer._passTestAttrEnforce`](https://github.com/z42-lang/z42/blob/main/src/compiler/z42c.semantics/src/Testing/TestAttrEnforcer.z42)
 > 强制（纯语法，挂在 `SymbolCollector.CollectAll`，与 D8 后缀 pass 并列）。规则来源是 runner 的调用
 > 契约——`Std.Harness.Runner` 按 TIDX 全限定名**无参**调用，实例方法的 receiver 对不上。
 > **实参语义**：`E0914`（`[Skip]` 的 `reason` 必填非空；`[Skip]`/`[Ignore]` 须与 kind attr 同贴）、

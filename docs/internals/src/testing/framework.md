@@ -57,13 +57,32 @@ TIDX 独有的字符串（skip reason、platform 名、ShouldThrow 类型链）�
 > **改 runner 代码时读 `*_resolved` 字段，别读 `*_str_idx`**。索引只为跨语言契约测试的
 > round-trip 留着；在解析之后它们指向的池已经不是原来那个了。
 
-### 2.3 编译期校验
+### 2.3 编译侧：从 attribute 到 TIDX
 
-位置与签名（`[Test]` 必须是零参 / 非泛型 / 有 body 的 free function 或 static 方法）、
-以及实参语义（`[Skip]` 的 reason、`[Timeout]` 的 milliseconds、`[ShouldThrow]` 的类型实参）
-由 `z42c.semantics` 的 `DeclEnforcer` 在符号收集期强制，发射 E0911–E0917。
-**具体每个码的触发条件与发射点** 见 [错误码参考](https://z42-lang.github.io/z42/reference/appendix/error-codes.html)
-的「E0911–E0917 测试框架」一节——那里逐条带 `DeclEnforcer.z42:<line>`，本页不复制。
+一条 `[Test]` / `[Benchmark]` 在编译器里经过四个点，每个点只做一件事，代码都在各包的 `Testing/` 目录
+（名字表除外——它是全部 attribute 的分流表）：
+
+```mermaid
+flowchart LR
+  N["名字表<br/>HandlerRegistry.IsTestHandlerAttr / IsTestKindAttr<br/>（z42c.semantics/Symbols）"] --> D
+  D["① 脱糖（parse 后）<br/>BenchmarkDesugar：form-2 <code>void f(Bencher b)</code><br/>→ <code>f$impl(b)</code> + 零参 wrapper<br/>（z42c.semantics/Testing）"] --> V
+  V["② 校验（符号收集期）<br/>TestAttrEnforcer：位置 / 签名 E0911·E0912·E0915，<br/>实参 E0913·E0914·E0917<br/>（z42c.semantics/Testing）"] --> T
+  T["③ 发现表（IrGen 末尾、优化之前）<br/>TestIndexBuilder → IrModule.TestIndex<br/>（z42c.emission/Testing）"] --> W
+  W["④ 写出<br/>zbc TIDX section<br/>（z42.package）"]
+```
+
+| 点 | 负责什么 | 不变量 |
+|---|---|---|
+| 名字表 | 哪些 attribute 属测试家族（8 名触发集 / 4 名 kind 子集）；它们归 `AttrKind.Handler` ⇒ 豁免 `Attribute` 后缀、不合成反射工厂 | 名字只在这里写一次，脱糖 / 校验 / 发现表都来问它 |
+| ① 脱糖 | 把带 `Bencher` 形参的 benchmark 改写成 runner 能调的零参形状 | 是 `HandlerRegistry.RunAst` 的第一步（先于 `AttributeSynth`），REPL 与单文件入口也走 |
+| ② 校验 | 形状校验纯语法（零接收者 / 返回 void / 无参 / 非泛型 / 有体）；`[ShouldThrow]` 查符号表看异常类型链 | **必须在脱糖之后**：合法的 form-2 benchmark 在脱糖前有参数，先查会全红 |
+| ③ 发现表 | 扫 CU 的 `[Test]` 家族，按函数下标写 kind / flags / skip / throw / timeout 槽 | 建在 `IrOptPipeline` **之前**；优化不增删函数，所以下标稳定 |
+
+各码的触发条件与发射行见 [错误码参考](https://z42-lang.github.io/z42/reference/appendix/error-codes.html)
+的「E0911–E0917 测试框架」一节。
+
+运行侧（加载 → 执行 → 报告）从 §3 起；契约只有两个：TIDX 的字段语义（§2）与 JSON 报告形状（§4）。
+编译侧与运行侧之间**不共享代码**——runner（`z42.harness`）只读 TIDX，不认识任何编译器类型。
 
 ## 3. Runner 协议
 
@@ -291,7 +310,9 @@ build wave 也算一个 stage：它同样走 `_stageStart` 打 banner、同样�
 |---|---|
 | TIDX 加字段 / 改语义 | `src/runtime/src/metadata/test_index.rs` + 编译器 emit 侧 + [zbc 格式](../formats/zbc.md)（**要 bump section version**） |
 | 一个 attribute 的运行期行为 | `src/libraries/z42.harness/src/Runner.z42` |
-| 一个 attribute 的编译期校验 | `src/compiler/z42c.semantics/src/Validation/DeclEnforcer.z42` |
+| 一个 attribute 的编译期校验 | `src/compiler/z42c.semantics/src/Testing/TestAttrEnforcer.z42`（名字表在 `Symbols/HandlerRegistry.z42`） |
+| benchmark 的 form-2 脱糖 | `src/compiler/z42c.semantics/src/Testing/BenchmarkDesugar.z42` |
+| TIDX 的编译期写入 | `src/compiler/z42c.emission/src/Testing/TestIndexBuilder.z42` |
 | 报告字段 | `src/libraries/z42.harness/src/TestReport.z42`（json）+ `Runner._runOne`（pretty） |
 | benchmark 统计形状 | `Bencher.printSummary` **和** `BenchStats._parseLine`，同一个 commit |
 | 加载/调用能力 | `src/runtime/src/corelib/reflection/module_load.rs` + `builtin_table.rs` 登记 |

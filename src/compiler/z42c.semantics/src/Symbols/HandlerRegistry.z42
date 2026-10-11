@@ -186,7 +186,7 @@ public static class HandlerRegistry {
     }
 
     // 上面 8 名触发集里的 **kind 子集**（4 名）——决定 TIDX entry 的 Kind，也决定
-    // DeclEnforcer._passTestAttrEnforce 的诊断码（Test→E0911 / Benchmark→E0912 /
+    // TestAttrEnforcer._passTestAttrEnforce 的诊断码（Test→E0911 / Benchmark→E0912 /
     // Setup·Teardown→E0915）。修饰类 attr（Skip/Ignore/ShouldThrow/Timeout）不在其中：
     // 它们骑在同一声明上，位置/签名由所修饰的 kind attr 的检查覆盖。
     // 名字知识留在注册表（PR1b 原则：逻辑不变，识别改注册表），不散到消费方。
