@@ -29,19 +29,24 @@ flowchart TD
   end
   RA --> DEP["② 依赖解析（z42c.pipeline）<br/>DepScan → DepScanResult → ImportedSymbols<br/>REPL：复用缓存的 CachedScan"]
   DEP --> GATE{"③ 有 generator？<br/>[analyzers] zpkg 里的 : Generator / : ModuleGenerator<br/>或源里用了 [Forward]"}
-  GATE -->|否| BIND
+  GATE -->|否| AGATE
   GATE -->|是| GEN["GeneratorDriver.RunRounds<br/>provisional 绑定 → 产出 union CU<br/>（见下「generator 怎么参与」）"]
-  GEN --> BIND
-  BIND["④ 包级编译 IrDump.BuildPackageCus<br/>收集 → 类型检查 → IR 生成 → IR 优化<br/>（见下「④ 展开」）"]
-  BIND --> POST["⑤ 回填缓存元数据 → E0436 文件级 using → exe 入口检查"]
-  POST --> AGATE{"⑥ 有 analyzer？<br/>[analyzers] 非空"}
-  AGATE -->|否| TAIL
-  AGATE -->|是| AN["_runAnalyzers<br/>AnalyzerLoader 加载 → AnalyzerDriver 遍历<br/>**原始 CU 的 AST**（见下「analyzer 怎么参与」）"]
-  AN --> TAIL["⑦ 未知 using 检查 → 错误门：任一 CU 有错误则不产出"]
+  GEN --> AGATE
+  AGATE{"④ 有 analyzer？<br/>[analyzers] 非空"}
+  AGATE -->|否| BIND
+  AGATE -->|是| AN["_runAnalyzers：AnalyzerLoader 加载 → AnalyzerDriver 遍历<br/>**union CU 的 AST（含生成代码）**，诊断先按 CU 暂存<br/>（见下「analyzer 怎么参与」）"]
+  AN --> BIND
+  BIND["⑤ 包级编译 IrDump.BuildPackageCus<br/>收集 → 类型检查 → IR 生成 → IR 优化<br/>（见下「⑤ 展开」）"]
+  BIND --> POST["⑥ 回填缓存元数据 → E0436 文件级 using → exe 入口检查<br/>→ 并入 ④ 暂存的 analyzer 诊断"]
+  POST --> TAIL["⑦ 未知 using 检查 → 错误门：任一 CU 有错误则不产出"]
   TAIL --> ASM["⑧ 组装：CtorKnownFixup → ZbcFileZ → ZpkgBuilder → 内存 ZpkgFileZ"]
 ```
 
-### ④ 展开：收集、类型检查、代码生成、优化
+**前置线与主编译线**：①–④ 是「源码层」——解析、脱糖、generator 改写源码、analyzer 检查源码，都只操作 AST；⑤ 起才是「编译层」，
+对**最终的 union CU 只跑一遍**。generator 与 analyzer 都不碰 IR，也不参与优化。（对标 Roslyn：generator 产出的语法树并入最终
+`Compilation`，analyzer 在其上运行。）
+
+### ⑤ 展开：收集、类型检查、代码生成、优化
 
 `IrDump.BuildPackageCus` 内部是「包级串行 → 逐 CU 并行」两段（`ParallelFor`）。**代码生成与优化都在逐 CU 并行段里，
 优化是 IR 生成的最后一步，不是独立的包级阶段**：
@@ -89,27 +94,28 @@ flowchart LR
   S --> N{"还有依赖本层产出的下一层？<br/>（consumes / produces 拓扑，Kahn；成环 E0449）"}
   N -->|是| L1["对 union CU 再 provisional CollectAll，跑下一层"] --> R
   N -->|否| U["union CU（原始 + 生成）"]
-  U --> RB["④ 对 union **全量重编**（缓存失效）<br/>= 真绑定：生成的代码和手写代码走同一条 收集 → 类型检查 → 生成 → 优化"]
+  U --> RB["⑤ 对 union **全量重编**（缓存失效）<br/>= 真绑定：生成的代码和手写代码走同一条 收集 → 类型检查 → 生成 → 优化"]
 ```
 
 - 生成物最终是**普通 CU**，所以它们**照常经过代码生成与优化**；generator 自己不碰 IR。
 - 护栏（E0448：applied 只许改触发它的声明，module 只许 `AddSource`）的诊断并入首个 CU，拦住编译。
 - 产出的文件名 / 文本经 `CompileArtifacts.GenFiles/GenTexts` 带给调用方（driver 按 `[build] generated_dir` 落盘，便于调试）。
 
-### analyzer 怎么参与（⑥，在代码生成之后）
+### analyzer 怎么参与（④，在 generator 之后、包级编译之前）
 
 analyzer **只读、只产诊断**，不参与编译主线：
 
-- 在 ④ 全部完成、⑤ 之后才跑；遍历的是 `inp.Cus`——**原始解析出的 CU 的 AST**（不是 Bound 树，也**不含 generator 生成的 CU**）。所以 analyzer 看不到生成代码，也不依赖类型检查结果。
-- `AnalyzerDriver.Run` 对每个 CU 遍历 AST，只对命中 `ObservedKinds` 的节点回调 `OnSyntaxNode`；诊断经 `DiagSinkImpl` 过 `LintConfig`（`[lints]`：默认启用门 → 精确 Id / `pkg.*` 通配覆盖 → `"none"` 抑制 → `warnings_as_errors` 升级）和 `SuppressionSet`（`#suppress` 区间 + `[Suppress]` 活跃栈）后，**并入对应 CU 的诊断**，之后 ⑦ 的错误门统一判定。
-- `--fix` 模式下 analyzer 携带的修复会就地重写源文件。
-- 因为诊断在缓存快照**之后**才合并，缓存命中的文件每次构建仍会重新跑 analyzer，不会重复打印。
+- 遍历的是 **union CU 的 AST**（原始 CU + generator 产出的 CU）——**生成代码同样被检查**；不是 Bound 树，不依赖类型检查结果，所以放在前置线，不必等代码生成。
+- 此时 `CompiledModuleZ` 还不存在，诊断**按 CU 暂存**（`DiagnosticBag[]`），到 ⑥ 与 E0436 / exe 入口检查同一位置并入对应 CU，再由 ⑦ 的错误门统一判定（并入点没变，所以缓存快照仍在 analyzer 诊断之前取，缓存命中的文件每次构建重跑 analyzer 也不会重复打印）。
+- `AnalyzerDriver.Run` 对每个 CU 遍历 AST，只对命中 `ObservedKinds` 的节点回调 `OnSyntaxNode`；诊断经 `DiagSinkImpl` 过 `LintConfig`（`[lints]`：默认启用门 → 精确 Id / `pkg.*` 通配覆盖 → `"none"` 抑制 → `warnings_as_errors` 升级）和 `SuppressionSet`（`#suppress` 区间 + `[Suppress]` 活跃栈）。
+- `--fix` 只作用于**原始 CU**：generator 产出的 CU 没有对应的真实源文件，不重写。
+- analyzer 的加载失败（E0493）落到与 generator 同一个诊断袋，并入首个 CU。
 
 ### 其余约定
 
-- **诊断是分相位并入的**：parse → 收集 → 类型检查 → generator 护栏 → E0436 → analyzer → using 检查；缓存命中的文件从 meta 回填前三者（快照点在 E0436 / analyzer 之前）。
-- **没有 generator / analyzer 的包（含 z42c 自建、REPL）不进 ③ 与 ⑥**，输出与不存在这套机制时逐字节相同。
-- 单文件入口（`--dump-bound` / `--emit-zbc` / `ExtractExports`）走 `FrontEnd.Check/Collect`，是 ①④ 的单 CU 缩影，不含 ②③⑥⑦⑧。
+- **诊断是分相位并入的**：parse → 收集 → 类型检查 → generator 护栏 → E0436 → analyzer（并入点）→ using 检查；缓存命中的文件从 meta 回填前三者（快照点在 E0436 / analyzer 并入之前）。
+- **没有 generator / analyzer 的包（含 z42c 自建、REPL）不进 ③ 与 ④**，输出与不存在这套机制时逐字节相同。
+- 单文件入口（`--dump-bound` / `--emit-zbc` / `ExtractExports`）走 `FrontEnd.Check/Collect`，是 ①⑤ 的单 CU 缩影，不含 ②③④⑥⑦⑧。
 
 ### 编译期与构建期的四类「扩展」
 
@@ -117,9 +123,9 @@ analyzer **只读、只产诊断**，不参与编译主线：
 
 | 机制 | 何时跑 | 看到什么 | 产出 | 加载方式 |
 |---|---|---|---|---|
-| **内建 handler**（`BenchmarkDesugar` / `AttributeSynth` / test 与 `[ModuleInit]` 校验 / `TestIndexBuilder`） | ①④ | AST / 符号表 | 改写 AST；合成工厂；TIDX | 编译器内建，永远开启 |
+| **内建 handler**（`BenchmarkDesugar` / `AttributeSynth` / test 与 `[ModuleInit]` 校验 / `TestIndexBuilder`） | ①⑤ | AST / 符号表 | 改写 AST；合成工厂；TIDX | 编译器内建，永远开启 |
 | **Generator**（`: Generator` / `: ModuleGenerator`，内建 `[Forward]`） | ③ | AST + 已解析符号（provisional 绑定） | 新源码 / 替换声明 / 增补 partial | `[analyzers]` zpkg，`GeneratorLoader` 反射加载 |
-| **Analyzer**（`: Analyzer`） | ⑥ | AST（不含 Bound） | 诊断（可带 `--fix` 重写源） | 同上，`AnalyzerLoader` |
+| **Analyzer**（`: Analyzer`） | ④（generator 之后、包级编译之前） | union CU 的 AST（含生成代码；不含 Bound） | 诊断（可带 `--fix` 重写源） | 同上，`AnalyzerLoader` |
 | **BuildHooks**（`class ProjectHooks : BuildHooks`） | **z42b** 构建阶段（不在 z42c 里） | 构建上下文 | 构建副作用 | `[build] hooks` 目录由 z42b 编成 zpkg，`ModuleLoader` 加载 |
 
 前三类属于编译器，后一类属于构建编排（见 [z42b](../toolchain/z42b.md)）。generator / analyzer 共用一段 `[analyzers]` 清单，同一批 zpkg 由两个 loader 各按接口过滤。

@@ -1152,10 +1152,10 @@ core ← utils ← hello
 |---|---|
 | workspace 清单有不认识的键 | `<z42.workspace.toml>: unknown key …`（见[键校验](#键校验本页没列的键一律报错)） |
 | 显式成员目录不存在 | `workspace: member \`<pat>\` does not exist under <dir>` |
+| 两个成员声明同一 `[project] name` | `workspace: duplicate member name \`<name>\` (WS001): <清单 A>, <清单 B>` |
 | 成员目录里有多份清单 | `… has more than one manifest (WS005): …` |
 | 成员间依赖成环 | `z42c build --workspace: circular member dependency` |
 
-> ⚠️ **两个成员声明同一个 `[project] name` 目前不报错**（文档曾列的 WS001 未实现）——产物按包名落盘，后建的覆盖先建的。
 
 跨 member 依赖的构建拓扑由 `src/compiler/z42c.pipeline/tests/workspace_topo/` 覆盖。
 

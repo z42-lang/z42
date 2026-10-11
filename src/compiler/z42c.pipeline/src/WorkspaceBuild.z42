@@ -183,6 +183,7 @@ public static class WorkspaceBuild {
             names[count] = pm.Project.Name;
             count = count + 1;
         }
+        WorkspaceBuild.CheckUniqueNames(tomls, names, count);
         // 第二遍：每 member 的 workspace 内依赖（flat）。
         string[] depFlat = new string[count * count];   // 上界：每对一条边
         int[]    depOff  = new int[count];
@@ -208,6 +209,19 @@ public static class WorkspaceBuild {
             i = i + 1;
         }
         return new WsMembers(tomls, names, depFlat, depOff, depLen, count);
+    }
+
+    // WS001：成员逻辑名 = [project].name，产物按包名落盘——重名成员会静默互相覆盖，必须拦下。
+    public static void CheckUniqueNames(string[] tomls, string[] names, int count) {
+        int i = 1;
+        while (i < count) {
+            int j = WorkspaceBuild.IndexOfName(names, i, names[i]);   // 只在 [0, i) 里找
+            if (j >= 0) {
+                throw new Exception("workspace: duplicate member name `" + names[i] + "` (WS001): "
+                    + tomls[j] + ", " + tomls[i]);
+            }
+            i = i + 1;
+        }
     }
 
     // 一条 members 模式 → 命中的成员目录（相对 wsDir，`/` 分隔）。逐段扩张：字面段直接拼（存在才留），

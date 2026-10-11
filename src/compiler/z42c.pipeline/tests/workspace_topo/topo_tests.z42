@@ -55,3 +55,19 @@ void test_topo_cycle_throws() {
     }
     Assert.True(threw);
 }
+
+// WS001：两个成员同名 [project] name → 抛，消息含两份清单路径；无重名则放行。
+[Test]
+void test_duplicate_member_name_throws() {
+    string[] tomls = new string[]{ "a/a.z42.toml", "b/b.z42.toml", "c/x.z42.toml" };
+    string[] names = new string[]{ "lib", "app", "lib" };
+    string msg = "";
+    try {
+        WorkspaceBuild.CheckUniqueNames(tomls, names, 3);
+    } catch (Exception e) {
+        msg = e.Message;
+    }
+    Assert.Equal(true, msg.Contains("WS001"));
+    Assert.Equal(true, msg.Contains("a/a.z42.toml") && msg.Contains("c/x.z42.toml"));
+    WorkspaceBuild.CheckUniqueNames(tomls, names, 2);   // 前两项不重名 → 不抛
+}
