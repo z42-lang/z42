@@ -199,6 +199,18 @@ INV-2（测试全绿）由 `test-host` 的 `xtask test` 守。
 
 ## Deferred / Future Work
 
+### self-hosting-future-seed-syntax-capability
+
+- **当前形态**：种子的校验只有**格式**维度——`ci-bootstrap` 的版本差 gate 比种子 `z42c.driver.zpkg` 的
+  zpkg minor 与当前 writer minor（不等则走两代自举），strict-pin 也天然拒读旧格式。
+  **语法能力维度没有校验**：种子 z42c 若不懂当前源码用的新语法，只会在编译期以普通编译错误暴露，
+  而不是"种子太旧"这类明确诊断。
+- **触发原因**：没有 z42c 自举能力版本号这类常量，也没有对种子的能力校验；按纪律
+  （support 先行、晚一个 nightly 再 use）人为克制，把这个问题挡在前面。
+- **前置依赖**：给 z42c 引入自举能力版本号（新增语法 / 新格式时 +1）并写进种子元数据，供下载侧比对。
+- **触发条件**：纪律被实际违反并造成一次"莫名编译失败"的排障成本时。
+- **当前 workaround**：靠 `xtask test compiler bootstrap` 在开发期判定"上一 nightly 能否编当前源"。
+
 ### self-hosting-future-remote-deps
 
 - **触发原因**：现无整体包管理；workspace 兄弟解析只支持「从当前 workspace 找本地项目」

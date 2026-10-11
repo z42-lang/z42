@@ -172,14 +172,6 @@ z42c / xtask 读，而它们跑的是**种子那一代**的 z42.project——不
 - **教训**：**新增 / 收敛「z42c 自依赖的 stdlib 库」的 change，冷启动路径本地必验**（下载上一 nightly
   作种子跑一遍 cold `build compiler` + `build stdlib`），别只验 warm 就推 main。
 
-### z42c 自举能力版本号 + 种子校验
-
-- z42c 带一个**自举能力版本号**（bump 时机：新增语法 / 新增 zbc·zpkg 格式即 +1）。
-- bootstrap 下载 nightly 种子时，校验种子 z42c 版本 **≥ 当前源码要求的最低版本**；不符 → 明确报错
-  「种子太旧，等新 nightly 发布后再用新语法」，而非莫名编译失败。
-- zbc·zpkg 的 strict-pin（z42vm 精确匹配 writer 的 major+minor）已是**格式**维度的天然校验；本版本号补的是
-  **语法能力**维度。
-
 ### 边界检查（每次改完编译器 / 语言 / 格式相关代码必跑）
 
 **`xtask test compiler bootstrap [rid]`**：用**已发布 nightly 的 z42c**（下载）和**仓库当前 z42c** 分别编译当前

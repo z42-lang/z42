@@ -45,7 +45,7 @@ PR 描述只记「这次为什么这么做、做了什么、验证了什么」�
 
 | 类型 | 触发条件 | 模式 |
 |------|---------|------|
-| `lang` | 新语法、关键字、类型规则 | **完整模式**（阶段 0–7） |
+| `lang` | 新语法、关键字、类型规则 | **完整模式**（阶段 0–6） |
 | `ir` | 新 IR 指令、zbc 格式变更 | 完整模式 |
 | `vm` | VM 执行语义变更 | 完整模式 |
 | `fix` | Bug 修复，不改语义 | **最小模式**（PR 描述写变更说明 + 任务） |
@@ -318,8 +318,8 @@ xtask test docs                     # 文档死链
 xtask test docs examples            # 学习手册 ↔ examples 重放
 ```
 
-> **不要漏跑 cross-zpkg / lib / compiler**：它们不在默认 GREEN 路径之外，漏跑会让对应层的回归长期不被发现。
-> 编译器正确性由 z42c 自举 stage 保证。
+> **不要漏跑 cross-zpkg / lib / compiler**：它们**都在**默认 GREEN 路径里（不是"额外才跑"），
+> 调试期可以用单 stage 缩窄——漏跑会让对应层的回归长期不被发现。编译器正确性由 z42c 自举 stage 保证。
 
 发行版变更（xtask package / 跨平台 / 嵌入接口）追加跑 `xtask package sdk --verify`（先 `xtask package sdk` 产 host-RID 包）。
 
