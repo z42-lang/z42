@@ -38,7 +38,7 @@ z42b 本就跑在 z42vm 上、依赖 `z42.test`）。
 
 ```
 BundleRunner.RunBundle(BundleCase[] cases, string bundleDir, string libsDir) → TestResult[]
-    ├── golden case（Entry != null） → ModuleLoader.RunGoldensIsolated（每例独立 VM）+ 比对 stdout/expected
+    ├── golden case（Entry != null） → TestModule.RunGoldensIsolated（每例独立 VM）+ 比对 stdout/expected
     └── unit case  （Entry == null） → Runner.RunModuleResults（共享 VM）
     → 聚合成一份 TestResult[]（golden 先、unit 后）
 ```

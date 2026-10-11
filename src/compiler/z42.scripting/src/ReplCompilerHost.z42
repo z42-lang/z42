@@ -8,8 +8,7 @@
 namespace Std.Scripting;
 
 using Std.IO;
-using Std.Reflection;  // Type / Activator
-using Std.Test;        // ModuleLoader（__load_module：按路径把组件 zpkg + 依赖闭包加载进 live VM）
+using Std.Runtime;     // ModuleLoader（按路径把组件 zpkg + 依赖闭包加载进 live VM，再按 FQN 实例化）
 using Z42.Build;       // IReplCompiler / NoReplCompiler
 
 public static class ReplCompilerHost {
@@ -30,13 +29,12 @@ public static class ReplCompilerHost {
             return new NoReplCompiler();
         }
         try {
-            ModuleLoader.Load(zpkg);   // 加载组件 + 依赖闭包（TestEntry[] 返回值 REPL 不用，忽略）
-            Type t = Type.GetType("Z42.Pipeline.Z42cReplCompiler");
-            if (t == null) {
+            ModuleLoader.Load(zpkg);   // 加载组件 + 依赖闭包
+            object o = ModuleLoader.Create("Z42.Pipeline.Z42cReplCompiler");
+            if (o == null) {
                 ConsoleError.WriteLine("z42i: Z42cReplCompiler type not resolvable after loading " + zpkg);
                 return new NoReplCompiler();
             }
-            object o = Activator.CreateInstance(t);
             IReplCompiler c = o as IReplCompiler;
             if (c == null) {
                 ConsoleError.WriteLine("z42i: loaded Z42cReplCompiler does not satisfy IReplCompiler (component/interface version mismatch?)");
