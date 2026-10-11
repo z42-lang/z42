@@ -285,3 +285,13 @@ void test_generic_decl_without_init() {
     Assert.Equal("(decl Dict<string,List<int>> m _)", parseStmt("Dict<string, List<int>> m;"));
     Assert.Equal("(decl List<int>[] a _)", parseStmt("List<int>[] a;"));
 }
+
+// 限定名泛型局部声明：`Ns.Type<T> x = …` / `Ns.Type<A,B>[]? x;` 须判为 var-decl，
+// 而 `a.b < c > d;`（非声明）与比较表达式保持表达式。
+[Test]
+void test_qualified_generic_local() {
+    Assert.Equal("(decl Std.Collections.List<int> xs null)", parseStmt("Std.Collections.List<int> xs = null;"));
+    Assert.Equal("(decl Std.Collections.List<List<int>> xs null)", parseStmt("Std.Collections.List<List<int>> xs = null;"));
+    Assert.Equal(true, parseStmt("Std.Collections.Dict<int, string> d;").StartsWith("(decl "));
+    Assert.Equal(true, parseStmt("a.b < c;").StartsWith("(expr "));
+}

@@ -399,11 +399,10 @@ E0442 / E0457 / E0462 除外（见上一节）。**E0402 另有一处语法层�
 
 ---
 
-## WSxxx — 工作区清单（⚠️ 整组未接线）
+## WSxxx — 工作区清单（⚠️ 大部分未接线）
 
-> 🔴 这一组码由已删除的 C# `Z42.Package.ManifestErrors` 抛出。自举后的 z42c 里**没有任何发射点**
-> （`WorkspaceBuild.z42:136` 只在注释里提了一句 WS005「暂跳过」）。
-> 下表保留编号登记，**这些校验当前不生效**：重复 member 名、循环依赖、policy 冲突、
+> 🔴 这一组码由已删除的 C# `Z42.Package.ManifestErrors` 抛出。自举后的 z42c 里只有 WS001 / WS005 有发射点。
+> 下表保留编号登记。WS001 / WS005 已由工作区构建以错误行报出；其余**当前不生效**：循环依赖（另有无码的 `circular member dependency` 错误）、policy 冲突、
 > include 环 / 超深 / 路径越界、模板变量错误，工作区构建都不会拦。
 >
 > 📌 **另有 `WS012` / `WS040`–`WS043` 不在下表**（dev-target 清单校验：缺 `name`、`harness=false`
@@ -414,10 +413,10 @@ E0442 / E0457 / E0462 除外（见上一节）。**E0402 另有一处语法层�
 
 | 码 | 原含义 | 状态 |
 |---|---|---|
-| WS001 | 两个 member 声明同一 `[project] name` | ⚠️ 零发射点 |
+| WS001 | 两个 member 声明同一 `[project] name` | ✅ 由工作区构建以错误行报出（`WorkspaceBuild.CheckUniqueNames`，不走诊断码） |
 | WS002 | `-p` 与 `--exclude` 同时指定同一 member | ⚠️ 零发射点 |
 | WS003 | Member `<name>.z42.toml` 含 `[workspace.*]` / `[policy]` / `[profile.*]` 段 | ⚠️ 零发射点 |
-| WS005 | 同一 member 目录有两份 `*.z42.toml` | ⚠️ 零发射点 |
+| WS005 | 同一 member 目录有两份 `*.z42.toml` | ✅ 由工作区构建以错误行报出（`WorkspaceBuild.DiscoverMembers`，不走诊断码） |
 | WS006 | Member 间依赖图含环 | ⚠️ 零发射点 |
 | WS007 | Manifest 在 workspace 子树内但未被 `members` 命中（原为 warning） | ⚠️ 零发射点 |
 | WS010 | Member 显式声明的字段值与 workspace `[policy]` 锁定值冲突 | ⚠️ 零发射点 |
