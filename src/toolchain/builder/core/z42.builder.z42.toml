@@ -16,7 +16,6 @@
 name    = "z42.builder"
 version = "0.1.0"
 kind    = "exe"
-entry   = "Z42Builder.Main"
 pack    = true
 
 [sources]

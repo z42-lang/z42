@@ -2,7 +2,6 @@
 name    = "ncapp"
 version = "0.1.0"
 kind    = "exe"
-entry   = "NcApp.Main"
 pack    = true
 
 [sources]

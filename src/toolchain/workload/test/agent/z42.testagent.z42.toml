@@ -5,7 +5,6 @@
 name    = "z42.testagent"
 version = "0.1.0"
 kind    = "exe"
-entry   = "Z42.TestHost.Agent.Main"
 pack    = true
 
 [sources]

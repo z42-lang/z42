@@ -5,7 +5,6 @@
 name    = "demo.undeclaredapp"
 version = "0.1.0"
 kind    = "exe"
-entry   = "Demo.UndeclaredApp.Main"
 pack    = true
 
 [sources]

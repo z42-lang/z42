@@ -5,7 +5,6 @@
 name    = "z42c.driver"
 version = "0.1.0"
 kind    = "exe"
-# entry 省略 —— z42c 自动检测唯一 Main()（Z42.Driver.Main）。
 pack    = true
 
 [dependencies]

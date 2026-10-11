@@ -106,12 +106,9 @@ void _cmdExportWasm(ParseResult r) {
     string sdkVer = r.GetOption("sdk-ver");
     if (sdkVer.Length == 0) { sdkVer = "nightly"; }
 
+    // 清单里没有入口键（`[project] entry` 报错，z42c 自动检测唯一 Main）⇒ `--entry` 或按约定 `<name>.Main`。
     string entryOpt = r.GetOption("entry");
-    string tomlEntry = _expTomlStr(toml, "project", "entry", "");
-    string entryPoint;
-    if (entryOpt.Length > 0) { entryPoint = entryOpt; }
-    else if (tomlEntry.Length > 0) { entryPoint = tomlEntry; }
-    else { entryPoint = projName + ".Main"; }
+    string entryPoint = entryOpt.Length > 0 ? entryOpt : projName + ".Main";
 
     string outputDir = r.GetOption("output");
     if (outputDir.Length == 0) { outputDir = _expDefaultOutputDir(tomlPath, projName, "-wasm"); }

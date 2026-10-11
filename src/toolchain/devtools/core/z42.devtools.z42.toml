@@ -12,7 +12,6 @@
 name    = "z42.devtools"
 version = "0.1.0"
 kind    = "exe"
-entry   = "Z42Devtools.Main"
 pack    = true
 
 [sources]

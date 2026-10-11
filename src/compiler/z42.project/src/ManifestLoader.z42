@@ -215,17 +215,16 @@ public static class ManifestLoader {
     // ── [project] ──────────────────────────────────────────────────────────
     private static ProjectInfo _parseProject(TomlValue root) {
         string name = ""; string version = ""; string kind = "lib";
-        bool hasEntry = false; string entry = "";
         bool hasPack = false; bool pack = false;
         TomlValue p = null;
         if (root.TryGet("project", ref p)) {
             p.TryGetValue<string>("name",    ref name);
             p.TryGetValue<string>("version", ref version);
             p.TryGetValue<string>("kind",    ref kind);      // 未命中保留默认 "lib"；合法性由 ManifestKnobs.Resolve 判
-            hasEntry = p.TryGetValue<string>("entry", ref entry);
             hasPack  = p.TryGetValue<bool>("pack",    ref pack);
         }
-        ProjectInfo pi = new ProjectInfo(name, version, kind, hasEntry, entry, hasPack, pack);
+        // `[project] entry` 不是清单键（入口由 z42c 自动检测唯一的 `Main()`）；写了由 ManifestKeys 报错。
+        ProjectInfo pi = new ProjectInfo(name, version, kind, false, "", hasPack, pack);
         if (p != null) {
             string meta = "";
             if (p.TryGetValue<string>("description", ref meta)) { pi.Description = meta; }

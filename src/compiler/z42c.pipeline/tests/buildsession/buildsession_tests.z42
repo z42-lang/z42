@@ -89,16 +89,16 @@ void test_pack_false_rejected_on_packed_only_path() {
     Assert.Equal(true, rep.ErrorsText().Contains("pack=false"));
 }
 
-// 清单 entry 生效：没有 `Main` 但声明了 entry 的 exe 照常编过（旧路径恒找 Main ⇒ 判 missing）。
+// `[project] entry` 不是清单键：z42b 路径与 `z42c build` 同一份键审计，当场报错并说清怎么改（不静默忽略）。
 [Test]
-void test_manifest_entry_honored() {
+void test_manifest_entry_rejected() {
     string toml = "[project]\nname = \"bs.entry\"\nversion = \"0.1.0\"\nkind = \"exe\"\nentry = \"App.Start\"\n";
     string dir = _mkProj("entry", toml, "app.z42",
-        "namespace App;\nint Start() { return 0; }\n");
+        "namespace App;\nvoid Main() { }\n");
     CollectingReporter rep = new CollectingReporter();
     BuildResult r = _run(dir, false, rep);
-    Assert.Equal("", rep.ErrorsText());
-    Assert.Equal(BuildExit.Ok, r.Code);
+    Assert.Equal(true, r.Code != BuildExit.Ok);
+    Assert.Equal(true, rep.ErrorsText().Contains("[project] `entry` is not a manifest key"));
 }
 
 // release ⇒ strip：主包剥 DBUG、旁挂 .zsym（此前 z42b 写死 strip=false）。

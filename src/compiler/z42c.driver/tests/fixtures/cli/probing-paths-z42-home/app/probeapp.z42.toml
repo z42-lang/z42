@@ -2,7 +2,6 @@
 name    = "probeapp"
 version = "0.1.0"
 kind    = "exe"
-entry   = "ProbeApp.Main"
 
 [sources]
 include = ["*.z42"]

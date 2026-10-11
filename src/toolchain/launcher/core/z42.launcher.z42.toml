@@ -4,7 +4,6 @@
 name    = "z42.launcher"
 version = "0.1.0"
 kind    = "exe"
-entry   = "Z42Launcher.Main"
 pack    = true
 
 [sources]

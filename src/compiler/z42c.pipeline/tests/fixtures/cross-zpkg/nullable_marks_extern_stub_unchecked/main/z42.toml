@@ -2,7 +2,6 @@
 name    = "demo.externnullapp"
 version = "0.1.0"
 kind    = "exe"
-entry   = "Demo.ExternNullApp.Main"
 pack    = true
 
 [dependencies]

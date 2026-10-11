@@ -13,7 +13,6 @@
 name    = "z42.interactive"
 version = "0.1.0"
 kind    = "exe"
-entry   = "Z42Interactive.Main"
 pack    = true
 
 [sources]

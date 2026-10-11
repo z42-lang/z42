@@ -31,7 +31,7 @@ public static class ManifestKeys {
         return "project/sources/build/dependencies/profile/exe/platform/tests/benches/examples/test/bench/example"
             + "/optimize/syntax/analyzers/lints/native/properties";
     }
-    public static string ProjectKeys()   { return "name/version/kind/entry/pack/description/authors/license"; }
+    public static string ProjectKeys()   { return "name/version/kind/pack/description/authors/license"; }
     public static string SourcesKeys()   { return "include/exclude"; }
     public static string BuildKeys()     { return "output_dir/cache_dir/dist_dir/incremental/hooks/generated_dir"; }
     public static string DepKeys()       { return "version/path/deploy"; }
@@ -52,7 +52,7 @@ public static class ManifestKeys {
     public static KeyAudit AuditProject(TomlValue root) {
         KeyAudit a = new KeyAudit();
         a.Check(root, "top level", ManifestKeys.RootKeys());
-        a.CheckSub(root, "project", ManifestKeys.ProjectKeys());
+        ManifestKeys._project(a, root);
         a.CheckSub(root, "sources", ManifestKeys.SourcesKeys());
         a.CheckSub(root, "build",   ManifestKeys.BuildKeys());
         ManifestKeys._deps(a, root, "dependencies", "dependencies");
@@ -113,6 +113,19 @@ public static class ManifestKeys {
             }
             i = i + 1;
         }
+    }
+
+    // `[project]`：`entry` 不是键 —— 入口由 z42c 自动检测唯一的 `Main()`；一个工程要多个入口用 `[[exe]]`（那里的
+    // `entry` 是必填的，用来在共享的源里挑 Main）。单独给一句说清怎么改，不落成泛泛的「unknown key」。
+    private static void _project(KeyAudit a, TomlValue root) {
+        TomlValue p = null;
+        if (!root.TryGet("project", ref p) || !p.IsTable()) { return; }
+        TomlValue ev = null;
+        if (p.TryGet("entry", ref ev)) {
+            a.Add("[project] `entry` is not a manifest key: z42c detects the entry point (the single `Main()`)."
+                + " Delete it; for several entry points in one project use [[exe]] tables (name + entry).");
+        }
+        a.Check(p, "[project]", ManifestKeys.ProjectKeys() + "/entry");   // entry 上面已单独报过，不再重复成 unknown key
     }
 
     // `[<key>.<name>]` 依赖子表：字符串简写不审计，表形式只认 version/path/deploy。

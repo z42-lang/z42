@@ -2,7 +2,6 @@
 name    = "demo.frapp"
 version = "0.1.0"
 kind    = "exe"
-entry   = "Demo.FrApp.Main"
 pack    = true
 
 [dependencies]

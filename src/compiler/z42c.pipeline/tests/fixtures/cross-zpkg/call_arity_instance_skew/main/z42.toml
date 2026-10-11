@@ -2,7 +2,6 @@
 name    = "demo.ciapp"
 version = "0.1.0"
 kind    = "exe"
-entry   = "Demo.CiApp.Main"
 pack    = true
 
 [dependencies]

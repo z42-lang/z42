@@ -2,7 +2,6 @@
 name    = "demo.inullapp"
 version = "0.1.0"
 kind    = "exe"
-entry   = "Demo.INullApp.Main"
 pack    = true
 
 [dependencies]
