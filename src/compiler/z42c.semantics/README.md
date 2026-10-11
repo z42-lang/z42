@@ -29,7 +29,8 @@
 | `src/Binding/` | 绑定 + 类型检查：`TypeChecker`、各 `*Typer`、`MemberResolver`（8 碎片）、重载决议、语句 / 声明 / 模式绑定、访问检查、穷尽检查、常量求值与常量 blob、编译期宏 |
 | `src/Validation/` | 声明期约束（`DeclEnforcer`）、流分析（`FlowAnalyzer`）、声明位类型引用补录、跨包依赖收集（`DepUseCollector`）、多余 `using` 告警、`[ModuleInit]` 校验 |
 | `src/Exports/` | 导出签名（TSIG）提取 |
-| `src/Desugar/` | 内建、永远开启的 AST 级脱糖（parse 后、收集前，由 `HandlerRegistry.RunAst` 调）：attribute 工厂合成、`[Benchmark]` 脱糖 |
+| `src/Desugar/` | 内建、永远开启的 AST 级脱糖（parse 后、收集前，由 `HandlerRegistry.RunAst` 调）：attribute 工厂合成 |
+| `src/Testing/` | 编译侧 test / bench：`[Benchmark]` form-2 脱糖（`RunAst` 第一步）+ 测试 attribute 校验 E0911–E0917（`TestAttrEnforcer`，符号收集期）；整条链见 [framework.md](../../../docs/internals/src/testing/framework.md) §2.3 |
 | `src/Compilation/` | 单文件前端 `FrontEnd`、`SemanticDump` 门面、`ParallelFor` |
 
 **分层**：本包**不得引用** `z42c.emission`（`Z42.Emission`）——依赖只能是 `z42c.emission` → 本包单向。代码生成用到的
@@ -95,7 +96,8 @@
 | `src/Symbols/CtorInheritance.z42` / `NestedFlatten.z42` / `PreludeNs.z42` | 构造器继承 / 嵌套类型展平 / prelude 命名空间集 |
 | `src/Validation/FlowAnalyzer.z42`（+ `.Reachability`） / `DeclEnforcer.AttrArgs.z42` | 流分析（可达性 / definite assignment）/ attribute 实参校验 |
 | `src/Binding/ConstBlob.z42` | 常量 blob 编解码（`ConstBlobReader`，重载决议 / 构造器继承读默认值）|
-| `src/Desugar/AttributeSynth.z42` / `BenchmarkDesugar.z42` | parse 后、收集前的 AST 级脱糖：attribute 工厂合成 / benchmark 脱糖 |
+| `src/Desugar/AttributeSynth.z42` | parse 后、收集前的 AST 级脱糖：attribute 工厂合成 |
+| `src/Testing/BenchmarkDesugar.z42` / `TestAttrEnforcer.z42` | `[Benchmark] void f(Bencher b)` → `f$impl` + 零参 wrapper / 测试 attribute 的位置·签名·实参校验（E0911–E0917；必须在脱糖之后）|
 | `src/Symbols/HandlerRegistry.z42` | attribute handler 注册表（`AttrKind` 三路判定、`DeclId`；`RunAst` = 内建脱糖入口：`[Benchmark]` 脱糖先于 store-meta 合成） |
 | `src/Symbols/DeclFacts.z42` | 可见性（`_visCode` / `classVis*`，入参是 `ModFlags`）/ 字面量文本助手——只看 AST 与字符串，语义层与代码生成共用 |
 | `src/Validation/ModuleInitScan.z42` | `[ModuleInit]` 合法性校验（E0485 包内第二个 / E0486 标注目标非法）与站点扫描 |

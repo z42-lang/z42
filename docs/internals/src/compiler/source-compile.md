@@ -25,7 +25,7 @@ graph LR
 ```mermaid
 flowchart TD
   subgraph S0["① 解析 + 内建 AST 脱糖（调用方逐文件做；z42c.syntax / z42c.semantics）"]
-    P0[Lexer → Parser → CompilationUnit] --> RA["HandlerRegistry.RunAst（z42c.semantics/Desugar）<br/>BenchmarkDesugar → AttributeSynth"]
+    P0[Lexer → Parser → CompilationUnit] --> RA["HandlerRegistry.RunAst（z42c.semantics）<br/>BenchmarkDesugar（Testing/）→ AttributeSynth（Desugar/）"]
   end
   RA --> DEP["② 依赖解析（z42c.pipeline）<br/>DepScan → DepScanResult → ImportedSymbols<br/>REPL：复用缓存的 CachedScan"]
   DEP --> GATE{"③ 有 generator？<br/>[analyzers] zpkg 里的 : Generator / : ModuleGenerator<br/>或源里用了 [Forward]"}
@@ -54,7 +54,7 @@ flowchart TD
 ```mermaid
 flowchart TD
   subgraph SER["包级串行（所有 CU 一起）"]
-    A1["global using 注入"] --> A2["SymbolCollector.CollectAll（Pass 0）<br/>Stub → Member → Inheritance → DeclEnforcer 各 pass<br/>D8 后缀 · test attr E0911–15 · Native · ModuleInit"]
+    A1["global using 注入"] --> A2["SymbolCollector.CollectAll（Pass 0）<br/>Stub → Member → Inheritance → DeclEnforcer 各 pass<br/>D8 后缀 · Native · ModuleInit；TestAttrEnforcer E0911–17"]
     A2 --> A3["VarFieldInfer · partial 合并 · StructLayout 布局表<br/>泛型体扫描（pkgGenerics）"]
   end
   A3 --> PAR
