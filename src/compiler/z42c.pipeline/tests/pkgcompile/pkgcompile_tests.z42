@@ -847,3 +847,64 @@ void test_no_analyzer_zpkgs_no_nohandler_error() {
     Assert.Equal(false, _cmsHasCode(art, "E0496"));
     Assert.Equal(0, art.ErrorCount);
 }
+
+// ── analyzer 在 generator 之后跑：生成代码也被检查 ─────────────────────────────────
+//
+// 一个 zpkg 里同时有 module generator（AddSource 一个含空 catch 的新 CU）与 analyzer（报空 catch，Z9003）。
+// consumer 自己没有任何 catch ⇒ Z9003 只可能来自**生成的 CU**。此前 analyzer 只遍历原始 CU ⇒ 本断言不成立。
+string _fixtureGenAndAnalyzerSrc() {
+    return "namespace GenAnalyzeFixture;\n"
+        + "using Z42.Syntax;\n"
+        + "using Z42.Core;\n"
+        + "using Z42.Semantics;\n"
+        + "public class EmitCatchGenerator : ModuleGenerator {\n"
+        + "    public string[] Consumes() { return new string[0]; }\n"
+        + "    public string[] Produces() { return new string[0]; }\n"
+        + "    public void Generate(GenContext ctx, GenSink sink) {\n"
+        + "        sink.AddSource(\"gen_catch.z42\", \"namespace GenAnalyzeOut; class GenCatch { public int M() { int r = 0; try { r = 1; } catch { } return r; } }\");\n"
+        + "    }\n"
+        + "}\n"
+        + "public class GenSeesCatchAnalyzer : Analyzer {\n"
+        + "    public DiagRule[] SupportedRules() { DiagRule[] r = new DiagRule[1]; r[0] = GenSeesCatchAnalyzer._rule(); return r; }\n"
+        + "    public int[] ObservedKinds() { int[] k = new int[1]; k[0] = SyntaxKind.CatchClause; return k; }\n"
+        + "    public void OnSyntaxNode(int kind, object node, DiagSink diags) {\n"
+        + "        CatchClause c = node as CatchClause;\n"
+        + "        diags.Report(GenSeesCatchAnalyzer._rule(), c.Span);\n"
+        + "    }\n"
+        + "    static DiagRule _rule() { return new DiagRule(\"Z9003\", \"any catch\", \"catch seen\", \"Correctness\", AnalyzerSeverity.Warning, true); }\n"
+        + "}\n";
+}
+
+[Test]
+void test_analyzer_sees_generated_code() {
+    string libs = Environment.GetEnvironmentVariable("Z42_LIBS", "");
+    if (libs == "") { return; }
+    string[] dirs = _depDirs(libs);
+    string[] texts = new string[1]; texts[0] = _fixtureGenAndAnalyzerSrc();
+    string[] files = new string[1]; files[0] = "fixture_gen_analyze.z42";
+    string[] hashes = new string[1]; hashes[0] = "FIXTUREGA";
+    CompileInputs fin = new CompileInputs();
+    fin.Texts = texts; fin.Files = files; fin.SrcHashes = hashes; fin.SrcCount = 1;
+    fin.Cus = IrDump.ParseAll(texts, files, 1);
+    fin.CachedMods = null; fin.CachedMetas = null;
+    fin.Name = "demo.genanalyzefixture"; fin.Version = "0.1.0"; fin.Kind = "lib";
+    fin.HasEntry = false; fin.Entry = ""; fin.IsRelease = false;
+    fin.LibsDirs = dirs; fin.LibsDirsN = dirs.Length;
+    string[] deps = new string[3]; deps[0] = "z42c.syntax"; deps[1] = "z42c.core"; deps[2] = "z42c.semantics";
+    fin.DeclaredDeps = deps; fin.DepCount = 3;
+    CompileArtifacts fArt = PackageCompile.Compile(fin);
+    Assert.Equal(0, fArt.ErrorCount);
+    string tmp = _tmpRoot();
+    Directory.Create(tmp);
+    string zp = Path.Join(tmp, "demo.genanalyzefixture.zpkg");
+    File.WriteAllBytes(zp, ZpkgWriterZ.WritePacked(fArt.Z, false).ToBytes());
+
+    CompileInputs cin = _inputs("namespace GenAnalyzeConsumer;\nint M() { return 1; }\n", "lib");
+    cin.Name = "demo.genanalyzeconsumer";
+    string[] az = new string[1]; az[0] = zp;
+    cin.AnalyzerZpkgs = az; cin.AnalyzerZpkgCount = 1;
+    CompileArtifacts cArt = PackageCompile.Compile(cin);
+    Assert.Equal(0, cArt.ErrorCount);
+    Assert.Equal(true, cArt.GenCount > 0);                // generator 确实产出了 CU（GenCount 是 union 计数）
+    Assert.Equal(true, _cmsHasCode(cArt, "Z9003"));       // analyzer 看到了生成 CU 里的 catch
+}

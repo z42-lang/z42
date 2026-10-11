@@ -282,6 +282,18 @@ public static class PackageCompile {
             }
         }
 
+        // ── ⑥ analyzer：在 generator 之后、包级编译**之前**跑（对标 Roslyn：analyzer 看最终 Compilation，含生成树）──
+        // analyzer 只读 AST、只产诊断、不依赖类型检查，所以放在前置线：遍历的是 union CU（原始 + generator 产出），
+        // 生成代码也被检查；**诊断先按 CU 暂存**（此时 `cms` 还不存在），下面在 E0436 / exe 入口检查之后并入对应 CU，
+        // 与旧版同一并入点 → 诊断序不变。`--fix` 只作用于原始 CU（索引 < inp.SrcCount）：生成 CU 没有可改写的源文件。
+        // gated 于 [analyzers] 非空 → z42c 自建 / REPL 不进 → 逐字节不动。
+        DiagnosticBag[] anaBags = new DiagnosticBag[0];
+        int anaFound = 0;
+        if (inp.AnalyzerZpkgCount > 0 && handlersLoadable) {
+            anaBags = new DiagnosticBag[srcCount];
+            anaFound = PackageCompile._runAnalyzers(inp, cus, srcCount, anaBags, genDiags);
+        }
+
         // ── ⑧ 包级编译（全文件先 parse 合并收集符号，再逐文件产物；cached 跳过 typecheck/codegen）──
         // add-compiler-inlining：OptSet -1（未设）→ 取 profile 默认（release=All / debug=None）。
         int optSet = inp.OptSet;
@@ -347,7 +359,14 @@ public static class PackageCompile {
         // Cms（默认 Warning 级不增 ErrorCount → 不 fail 编译，但对调用方可见）。放在错误门**前**，让
         // analyzer 报的 Error 级也能拦编译。
         if (inp.AnalyzerZpkgCount > 0 && handlersLoadable) {
-            externHandlers = externHandlers + PackageCompile._runAnalyzers(inp, cms);
+            // analyzer 已在前面跑完（见 ⑥）；此处只把暂存的诊断并入各 CU。放在错误门**前**，让 analyzer
+            // 报的 Error 级也能拦编译。
+            int ab = 0;
+            while (ab < anaBags.Length) {
+                if (anaBags[ab] != null && ab < cms.Length) { PackageCompile._mergeDiags(cms[ab], anaBags[ab]); }
+                ab = ab + 1;
+            }
+            externHandlers = externHandlers + anaFound;
             // 🔴 **零发现此前是静默空转**：声明的 zpkg 加载成功、里面一个 `: Analyzer` /
             // `: Generator` / `: ModuleGenerator` 都没有 ⇒ 两个 loader 各返回空数组 ⇒ 提前 return
             // ⇒ **编译退出码 0、零诊断**，用户的扩展干脆不跑，而他有充分理由以为跑了。
@@ -569,33 +588,31 @@ public static class PackageCompile {
         return false;
     }
 
-    // 返回**发现的 analyzer 个数**（零发现判定要它；加载失败返回 0）。
-    private static int _runAnalyzers(CompileInputs inp, CompiledModuleZ[] cms) {
+    // 返回**发现的 analyzer 个数**（零发现判定要它；加载失败返回 0）。诊断写进 `bags[i]`（按 CU 暂存，
+    // 无诊断的 CU 保持 null）；加载失败落到 `loadDiags`（调用方稍后并入首个 CU）。
+    private static int _runAnalyzers(CompileInputs inp, CompilationUnit[] cus, int srcCount,
+                                     DiagnosticBag[] bags, DiagnosticBag loadDiags) {
         // 同 generator 侧：加载失败落 E0493 诊断，不让异常穿出成 uncaught。两处都要 —— 走到这里
         // 时 generator 侧可能已经成功（只含 analyzer 的 zpkg 发现 0 个 generator 也算成功返回）。
         Analyzer[] analyzers = null;
         try {
             analyzers = AnalyzerLoader.Load(inp.AnalyzerZpkgs, inp.AnalyzerZpkgCount);
         } catch (Exception e) {
-            if (cms.Length > 0) {
-                DiagnosticBag lbag = new DiagnosticBag();
-                lbag.Error(DiagnosticCodes.HandlerZpkgLoadFailed,
-                           PackageCompile._handlerLoadFailMessage(inp, e.Message),
-                           new Span(0, 0, 1, 1, inp.AnalyzerZpkgs[0]));
-                PackageCompile._mergeDiags(cms[0], lbag);
-            }
+            loadDiags.Error(DiagnosticCodes.HandlerZpkgLoadFailed,
+                            PackageCompile._handlerLoadFailMessage(inp, e.Message),
+                            new Span(0, 0, 1, 1, inp.AnalyzerZpkgs[0]));
             return 0;
         }
         if (analyzers.Length == 0) { return 0; }
         int i = 0;
-        while (i < inp.SrcCount) {
-            CompilationUnit cu = inp.Cus[i];
+        while (i < srcCount) {
+            CompilationUnit cu = cus[i];
             if (cu != null) {
                 DiagnosticBag bag = new DiagnosticBag();
-                // PR7-wire：传 inp.Fix 调 6-参 Run——true（`z42c build --fix`）→ analyzer 携修复就地重写
-                // cu 的源文件（TextEdit.At.File）。z42c 自建无 [analyzers] → analyzers 空、提前 return → 不触发。
-                AnalyzerDriver.Run(analyzers, analyzers.Length, cu, bag, inp.Lints, inp.Fix);
-                if (bag.Count() > 0) { PackageCompile._mergeDiags(cms[i], bag); }
+                // PR7-wire：`inp.Fix`（`z42c build --fix`）→ analyzer 携修复就地重写 cu 的源文件。
+                // 只对原始 CU 生效：generator 产出的 CU（索引 ≥ inp.SrcCount）没有真实源文件可改。
+                AnalyzerDriver.Run(analyzers, analyzers.Length, cu, bag, inp.Lints, inp.Fix && i < inp.SrcCount);
+                if (bag.Count() > 0) { bags[i] = bag; }
             }
             i = i + 1;
         }
