@@ -24,8 +24,8 @@ public sealed class StrBox {
 // 加载产物（镜像 C# ImportedSymbols 子集）。
 public sealed class ImportedSymbols {
     public StrMap FunctionsByFqn;   // `ns.name` → MethodSymbol（自由函数；resolve-free-functions-by-namespace：此前按裸名、同名跨 ns 塌成一份）
-    // add-bare-name-ambiguity-diagnostic：短名 → **全部**声明 ns（"|" 连接，**加载序**）。每个 active 模块都记一笔，
-    // 于是第一段就是加载序上最先声明它的那个 ns —— 裸名回落（`_bareClass`）据此取 first-wins 的那一份。
+    // add-bare-name-ambiguity-diagnostic：短名 → **全部**声明 ns（"|" 连接，加载序）。每个 active 模块都记一笔
+    // （歧义判据 / 诊断指路用）。
     public StrMap ClassNsAll;
     // enforce-fqn-name-identity 阶段 2：接口短名 → **全部**声明 ns（对称 ClassNsAll，同样在
     // first-wins/last-wins 之外累积）。见 SymbolTable.IfaceNsAll 抬头。
@@ -44,7 +44,6 @@ public sealed class ImportedSymbols {
     public StrMap FuncOriginAll;
     public StrMap InterfacesByFqn;
     public StrMap EnumTypeNamesByFqn;   // FQN → "enum"
-    public StrMap EnumNsAll;        // enum 短名 → 全部声明 ns（"|" 连接，加载序；同 ClassNsAll）
     public StrMap EnumConsts;       // "EnumFqn.Member" → StrBox(long 值)（镜像 SymbolTable.EnumConsts，键同为 FQN）
     public StrMap DelegatesByFqn;   // FQN → Z42FuncType（导入的用户 delegate；SymbolCollector 并进 SymbolTable.Delegates）
     // add-associated-types PR-1：导入类的 where 约束（键 = 类的 FQN 键，即 ClassesByFqn 的键，
@@ -69,7 +68,6 @@ public sealed class ImportedSymbols {
         this.FuncOriginAll = new StrMap();         // report-crosspkg-duplicate-function
         this.InterfacesByFqn = new StrMap();       // unify-type-identity-fqn
         this.EnumTypeNamesByFqn = new StrMap();    // unify-type-identity-fqn
-        this.EnumNsAll = new StrMap();
         this.EnumConsts = new StrMap();
         this.DelegatesByFqn = new StrMap();
     }
@@ -335,9 +333,6 @@ public static partial class ImportedSymbolLoader {
                             emi = emi + 1;
                         }
                     }
-                    // 短名 → 全部声明 ns（`_resolve` 的裸名回落取第一段）。发射端限定 enum 名按类型对象的声明 ns
-                    // （fqn-tables 5d），不再需要「短名 → ns」图。
-                    SymbolTable.NoteNsInto(r.EnumNsAll, ez.Name, em.Namespace);
                     ec = ec + 1;
                 }
             }
