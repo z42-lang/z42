@@ -7,4 +7,4 @@ kind    = "lib"
 include = ["*.z42"]
 
 [dependencies]
-"z42c.semantics" = "0.1.0"
+"z42c.generators" = "0.1.0"

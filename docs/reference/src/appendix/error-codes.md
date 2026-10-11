@@ -246,7 +246,7 @@ E0442 / E0457 / E0462 除外（见上一节）。**E0402 另有一处语法层�
 `DiagnosticCodes.z42` 里 `ForwardTargetNotFound = E0464` / `ForwardNotRenderable = E0465` /
 `ForwardAmbiguous = E0466` 这组**常量名与实际发射不一致**（`ForwardSkipped` 的值是 I0466）。
 实际发出来的是下面四个，含义取自
-[`ForwardGenerator.z42`](https://github.com/z42-lang/z42/blob/main/src/compiler/z42c.semantics/src/Generators/ForwardGenerator.z42)
+[`ForwardGenerator.z42`](https://github.com/z42-lang/z42/blob/main/src/compiler/z42c.generators/src/ForwardGenerator.z42)
 的诊断文本：
 
 | 码 | 实际含义（按发射点消息） | 状态 |

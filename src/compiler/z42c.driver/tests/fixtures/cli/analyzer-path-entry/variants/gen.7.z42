@@ -1,7 +1,7 @@
 namespace E2ePathGen;
 
 using Std;
-using Z42.Semantics;
+using Z42.Generators;
 
 public sealed class E2ePathGenerator : ModuleGenerator {
     public void Generate(GenContext ctx, GenSink sink) {

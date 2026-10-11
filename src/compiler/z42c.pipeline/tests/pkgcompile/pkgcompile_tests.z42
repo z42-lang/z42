@@ -510,7 +510,7 @@ void test_external_analyzer_fix_off_leaves_consumer() {
 string _fixtureGeneratorSrc() {
     return "namespace GeneratorLoadFixture;\n"
         + "using Std;\n"
-        + "using Z42.Semantics;\n"
+        + "using Z42.Generators;\n"
         + "public class EntityAttribute : Attribute { public EntityAttribute() { } }\n"
         // applied：Augment 被贴类 override ToString → (40+2).ToString() == \"42\"（无嵌套字符串字面量）。
         + "public class StringifyGenerator : Generator {\n"
@@ -555,7 +555,7 @@ string _fixtureGeneratorSrc() {
         + "}\n";
 }
 
-// 编 fixture generator（依赖 z42c.semantics；Std=prelude 提供 Attribute）→ 临时 zpkg，返回其路径。
+// 编 fixture generator（依赖 z42c.generators；Std=prelude 提供 Attribute）→ 临时 zpkg，返回其路径。
 string _writeFixtureGeneratorZpkg(string[] dirs) {
     string[] texts = new string[1]; texts[0] = _fixtureGeneratorSrc();
     string[] files = new string[1]; files[0] = "fixture_generator.z42";
@@ -568,7 +568,7 @@ string _writeFixtureGeneratorZpkg(string[] dirs) {
     cin.HasEntry = false; cin.Entry = "";
     cin.IsRelease = false;
     cin.LibsDirs = dirs; cin.LibsDirsN = dirs.Length;
-    string[] deps = new string[1]; deps[0] = "z42c.semantics";
+    string[] deps = new string[1]; deps[0] = "z42c.generators";
     cin.DeclaredDeps = deps; cin.DepCount = 1;
     CompileArtifacts aArt = PackageCompile.Compile(cin);
     Assert.Equal(0, aArt.ErrorCount);
@@ -854,7 +854,7 @@ string _fixtureGenAndAnalyzerSrc() {
         + "using Z42.Syntax;\n"
         + "using Z42.Analyzers;\n"
         + "using Z42.Core;\n"
-        + "using Z42.Semantics;\n"
+        + "using Z42.Generators;\n"
         + "public class EmitCatchGenerator : ModuleGenerator {\n"
         + "    public string[] Consumes() { return new string[0]; }\n"
         + "    public string[] Produces() { return new string[0]; }\n"
@@ -888,7 +888,7 @@ void test_analyzer_sees_generated_code() {
     fin.Name = "demo.genanalyzefixture"; fin.Version = "0.1.0"; fin.Kind = "lib";
     fin.HasEntry = false; fin.Entry = ""; fin.IsRelease = false;
     fin.LibsDirs = dirs; fin.LibsDirsN = dirs.Length;
-    string[] deps = new string[4]; deps[0] = "z42c.syntax"; deps[1] = "z42c.core"; deps[2] = "z42c.semantics"; deps[3] = "z42c.analyzers";
+    string[] deps = new string[4]; deps[0] = "z42c.syntax"; deps[1] = "z42c.core"; deps[2] = "z42c.generators"; deps[3] = "z42c.analyzers";
     fin.DeclaredDeps = deps; fin.DepCount = 4;
     CompileArtifacts fArt = PackageCompile.Compile(fin);
     Assert.Equal(0, fArt.ErrorCount);

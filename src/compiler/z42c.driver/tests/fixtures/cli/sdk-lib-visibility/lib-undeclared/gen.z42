@@ -1,7 +1,7 @@
 namespace E2eGen;
 
 using Std;
-using Z42.Semantics;
+using Z42.Generators;
 
 public sealed class E2eProbeGenerator : ModuleGenerator {
     public void Generate(GenContext ctx, GenSink sink) {

@@ -27,10 +27,9 @@
 // 只引用 semantics 里**已在上一 nightly** 的 Generator/ModuleGenerator，规避新跨成员符号。
 // （DepScanCache 的 path-only 缓存冷启动失效是 F2 的独立缺陷；治本的 size/mtime 守卫会改变跨编译器版本的
 // dep 解析、破 self-host 字节不动点，须单独 change 谨慎处理——见 design.md「§Generator 外部加载」，本 PR 不带。）
-namespace Z42.Pipeline;
+namespace Z42.Generators;
 
 using Std.Reflection;  // Assembly / Activator
-using Z42.Semantics;   // Generator / ModuleGenerator（上一 nightly 已有 → 跨成员引用安全）
 
 // 一遍加载的产物：applied generator 与 module generator 各归其数组（一个 zpkg 可混含两类）。
 public sealed class LoadedGenerators {
