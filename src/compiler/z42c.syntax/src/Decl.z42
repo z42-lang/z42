@@ -43,9 +43,19 @@ public sealed class Attr {
     public Expr[] Args;
     public int    ArgCount;
     public string FactoryFunc;   // add-attribute-reflection：合成工厂函数名（AttributeFactorySynthesizer 填；"" = 无/builtin）
-    public string TypeArg;       // 泛型类型实参 `[Attr<E>]`（解析器填；"" = 无）。镜像 C# Attr.TypeArg；[ShouldThrow<E>] 用。
+    // 泛型 attribute 的类型实参 `[Attr<A, B<int>>]`（解析器填；空 = 非泛型）。工厂合成按它构造 `new AttrAttribute<A, B<int>>()`。
+    public TypeExpr[] TypeArgs;
+    public int TypeArgCount;
+    // 首个类型实参的名字（无 = ""）：测试发现表（TIDX）的 `[ShouldThrow<E>]` 仍按名字取 E。
+    public string TypeArg;
     public Attr(string name, Expr[] args, int argCount, Span span) { this.Span = span;
         this.Name = name; this.Args = args; this.ArgCount = argCount; this.FactoryFunc = ""; this.TypeArg = "";
+        this.TypeArgs = new TypeExpr[0]; this.TypeArgCount = 0;
+    }
+    public void SetTypeArgs(TypeExpr[] typeArgs) {
+        this.TypeArgs = typeArgs; this.TypeArgCount = typeArgs.Length;
+        if (typeArgs.Length > 0 && typeArgs[0] is NamedType) { this.TypeArg = (typeArgs[0] as NamedType).Name; }
+        else if (typeArgs.Length > 0) { this.TypeArg = typeArgs[0].Dump(); }
     }
     public string Dump() {
         string s = "[" + this.Name;

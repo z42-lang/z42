@@ -66,6 +66,32 @@ void Demo() {
 - 反射查询用**真实类名**（`typeof(RouteAttribute)`）。`GetAttribute(Type)` 按实例的运行期类型
   （`FullName`）比较，所以**子类 attribute 也会匹配**。
 
+### 泛型 attribute
+
+attribute 类可以是泛型的，应用时写类型实参（剥后缀规则不变）：
+
+```z42
+class ExpectsAttribute<T> : Attribute {
+    public Type Expected() { return typeof(T); }
+}
+
+class PairAttribute<K, V> : Attribute { }
+
+[Expects<InvalidOperationException>]
+[Pair<string, List<int>>]
+class Holder { }
+
+void Demo() {
+    Attribute[] all = typeof(Holder).GetCustomAttributes();
+    ExpectsAttribute<InvalidOperationException> e = all[0] as ExpectsAttribute<InvalidOperationException>;
+    Console.WriteLine(e.Expected().Name);   // "InvalidOperationException"
+}
+```
+
+- 类型实参可以是任意类型表达式（多个实参、嵌套泛型）；读回的是**真正的实例化**，类里的
+  `typeof(T)` 给出应用时写的类型。
+- 类型实参解析不到、个数与类声明不符，按普通 `new` 的规则在**应用处**报错。
+
 ## 可以贴在哪、怎么读回来
 
 五种反射载体都有同一对 API：
@@ -118,7 +144,7 @@ foreach (PropertyInfo p in t.GetProperties()) { p.GetCustomAttributes(); }
 attribute 是被动的——它只是数据，不会主动改写被注解的声明。
 
 **暂未提供**：`AttributeUsage` 式的 target / 重复性限制（attribute 可以贴在任何支持的位置）；
-泛型 attribute 类与 `GetAttribute<T>()` 泛型糖（用 `GetAttribute(typeof(T))`）；
+`GetAttribute<T>()` 泛型糖（用 `GetAttribute(typeof(T))`）；
 C# `CustomAttributeData` 那种「不实例化就读原始 ctor 实参」的视图。
 
 ## 局部抑制诊断：`#suppress` / `[Suppress]`
