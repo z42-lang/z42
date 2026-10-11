@@ -169,8 +169,8 @@ string[] _compilerMembers(string root) {
 // 遮蔽成旧的（#955，只能靠拷贝顺序 + 事后逐字节对账兜住）；② 工具链程序在它下面编译时，编译器包被当成「框架」⇒
 // 是否复制进发布包取决于构建环境而不是清单。现在 `Z42_LIBS` 只是 stdlib flat，编译器包走 probing。
 //
-// 🔴 **不含 `z42c.driver`**：它的 dist 是自包含闭包，带整套 stdlib 副本；probing 排在 `Z42_LIBS` **之前**，放进来就是
-// #955 原样复发。其余成员的 dist 只有自己（下方逐目录断言，违反即抛——不靠约定）。
+// 🔴 **不含 `z42c.driver`**：它的 dist 是自包含闭包（带全部编译器兄弟包；老 driver 建的还带 stdlib 副本）；probing 排在
+// `Z42_LIBS` **之前**，放进来就是 #955 原样复发。其余成员的 dist 只有自己（下方逐目录断言，违反即抛——不靠约定）。
 // ⚠️ 只给**这些进程**设，不往 xtask 自身环境里放：`Z42_PROBING_PATHS` 会**覆盖**程序侧车的 `probing-paths`，全局一设，
 // 测 probing / `deploy = "sdk"` 的那些用例就被干扰了。
 string _compilerProbingPaths(string root) {

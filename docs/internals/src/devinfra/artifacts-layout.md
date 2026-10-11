@@ -124,6 +124,7 @@ z42c 写产物同样是就地写 ⇒ 穿透到 `libraries/z42.core/release/dist/
 | `build/libraries/<lib>/release/tests/<rel>` | `build test` | 库 golden 的 `.zbc`（release driver 编） |
 | `build/{libraries,compiler}/<m>/debug/{tests,benches}`、`build/toolchain/<rel>/debug/{tests,benches}` | z42b（`--out-root`，`_devTargetOutRoot`）| `[Test]` / `[Benchmark]` 目标的父包与产物 |
 | `build/compiler/<m>/release/tests/<unit>` | `test compiler` | 编译器 `[Test]` 单元的构建输出（单元清单的 `output_dir` 带 `${profile}`） |
+| `build/compiler/z42c.driver/<profile>/gen-libs` | `build compiler`（`_snapshotDriverGenLibs`）| 当前 driver 编译时对着的 stdlib 快照 = 下次自建时种子 run-libs 的代际锚（见编译器自举页）；故意不放 dist，免得随 publish 进 SDK |
 | `build/benches/probe` | `bench` / `profile` | 执行画像能力探针的 `.zbc` |
 | `build/runtime/tests/trybuild` | cargo（trybuild）| cargo 自己管的测试编译目录 |
 

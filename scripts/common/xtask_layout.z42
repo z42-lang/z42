@@ -127,10 +127,15 @@ string _compilerMemberZpkg(string root, string member, string profile) {
 // z42c driver dist / zpkg (the self-host seed entry). Just the compiler member
 // "z42c.driver" — named for its many call sites.
 string _driverDist(string root, string profile) { return _compilerMemberDist(root, "z42c.driver", profile); }
+// driver 那一代的 stdlib 快照（代际锚，`_snapshotDriverGenLibs` 写、`_relocateSeedRunLibs` 读）：dist 的兄弟目录，
+// 不进 dist ⇒ 不会经 publish 进 SDK。
+string _driverGenLibs(string root, string profile) {
+    return Path.Join(Path.GetDirectoryName(_driverDist(root, profile)), "gen-libs");
+}
 string _driverZpkg(string root, string profile) { return _compilerMemberZpkg(root, "z42c.driver", profile); }
 
-// z42c driver 的「home」= 它自己 release dist 的目录：自包含（z42c.driver.zpkg + z42c.* 兄弟 + 它那一代的
-// stdlib 闭包），z42vm 从入口 zpkg 所在目录解析依赖，被编译代码的 stdlib 另走 Z42_LIBS。driver 未构建返回 ""。
+// z42c driver 的「home」= 它自己 release dist 的目录：自包含（z42c.driver.zpkg + 编译器兄弟包），z42vm 从入口
+// zpkg 所在目录解析兄弟包，stdlib 走 Z42_LIBS。driver 未构建返回 ""。
 string _driverHome(string root) {
     string d = _driverZpkg(root, "release");
     return File.Exists(d) ? Path.GetDirectoryName(d) : "";

@@ -502,10 +502,9 @@ string _seedRunLibs(string root, string profile) {
     return _compilerWsWork(root, Path.Join("seed-run-libs", profile));
 }
 
-// 注：曾有一个 `_snapshotSeedRunLibs`（从 flat 快照出种子代运行期面）——**已删**。
-// flat 会被 `_ensureBootstrapSelfDepLibs` 覆盖成当前源，当不了「代」的锚（快照晚于覆盖、
-// 或上一轮跑到一半，拿到的就是新代 ⇒ 种子 driver `MissingSymbolException`）。现在锚是
-// driver 自己 dist 里的 colocated 闭包，见 `_relocateSeedRunLibs`。
+// 注：锚不能是「自建**开始前**的 flat 快照」—— flat 会被 `_ensureBootstrapSelfDepLibs` 覆盖成当前源（快照晚于覆盖、
+// 或上一轮跑到一半，拿到的就是新代 ⇒ 种子 driver `MissingSymbolException`）。锚是**上一次自建成功时**的 flat
+// stdlib（`_snapshotDriverGenLibs`），那一刻它正是新 driver 编译时对着的那一代，见 `_relocateSeedRunLibs`。
 
 // Ensure an in-tree z42c + stdlib seed exists so the self-build (and its gen2
 // byte-identical fixpoint) can run. No-op when the in-tree seed is already present
@@ -588,6 +587,9 @@ int _ensureSeed(string root) {
     _vNormal("  seed: stdlib ← " + stdlibDir);
     // 记下出处：种子 driver 的运行期 libs 就该是它那一代，见 `_seedLibsSource` ①。
     SeedStage.NoteStdlibFrom(stdlibDir);
+    // 本树上一个 driver 的代际锚与种子不同代 ⇒ 作废（否则 `_relocateSeedRunLibs` 拿它压过种子 stdlib）。
+    string staleAnchor = _driverGenLibs(root, profile);
+    if (Directory.Exists(staleAnchor)) { Directory.Delete(staleAnchor, true); }
 
     // 种子本身也可能落后一代（刚 bump 完格式、新 nightly 还没发）。这里**只告警不失败**：
     // 「上一版 z42c 能编当前源」是 bootstrap-seed.md 的纪律，落后一代未必不能用；
