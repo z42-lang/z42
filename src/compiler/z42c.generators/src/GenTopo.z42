@@ -10,7 +10,7 @@
 // GeneratorDriver.RunRounds 发（既有文件、既有 core 链接）。新文件 + 新 core 符号引用会撞 F2 冷启动
 // stale-cache（`undefined: DiagnosticCodes`，见 GeneratorDriver.RunRounds 头注）。GenTopo 全用同命名空间
 // （Generator/ModuleGenerator/GenNode，Z42.Semantics）+ 内建数组，零跨包符号。
-namespace Z42.Semantics;
+namespace Z42.Generators;
 
 public static class GenTopo {
     // 建统一节点表：applied 空 consumes → 默认 [AppliedName()]（只依赖自身触发名）；module 空 → 空。

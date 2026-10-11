@@ -25,16 +25,16 @@ graph LR
 ```mermaid
 flowchart TD
   subgraph S0["① 解析 + 内建 AST 脱糖（调用方逐文件做；z42c.syntax / z42c.semantics）"]
-    P0[Lexer → Parser → CompilationUnit] --> RA["HandlerRegistry.RunAst<br/>BenchmarkDesugar → AttributeSynth"]
+    P0[Lexer → Parser → CompilationUnit] --> RA["HandlerRegistry.RunAst（z42c.semantics/Desugar）<br/>BenchmarkDesugar → AttributeSynth"]
   end
   RA --> DEP["② 依赖解析（z42c.pipeline）<br/>DepScan → DepScanResult → ImportedSymbols<br/>REPL：复用缓存的 CachedScan"]
   DEP --> GATE{"③ 有 generator？<br/>[analyzers] zpkg 里的 : Generator / : ModuleGenerator<br/>或源里用了 [Forward]"}
   GATE -->|否| AGATE
-  GATE -->|是| GEN["GeneratorDriver.RunRounds<br/>provisional 绑定 → 产出 union CU<br/>（见下「generator 怎么参与」）"]
+  GATE -->|是| GEN["GeneratorDriver.RunRounds（z42c.generators）<br/>provisional 绑定 → 产出 union CU<br/>（见下「generator 怎么参与」）"]
   GEN --> AGATE
   AGATE{"④ 有 analyzer？<br/>[analyzers] 非空"}
   AGATE -->|否| BIND
-  AGATE -->|是| AN["_runAnalyzers：AnalyzerLoader 加载 → AnalyzerDriver 遍历<br/>**union CU 的 AST（含生成代码）**，诊断先按 CU 暂存<br/>（见下「analyzer 怎么参与」）"]
+  AGATE -->|是| AN["_runAnalyzers：AnalyzerLoader 加载 → AnalyzerDriver 遍历（z42c.analyzers）<br/>**union CU 的 AST（含生成代码）**，诊断先按 CU 暂存<br/>（见下「analyzer 怎么参与」）"]
   AN --> BIND
   BIND["⑤ 包级编译 IrDump.BuildPackageCus<br/>收集 → 类型检查 → IR 生成 → IR 优化<br/>（见下「⑤ 展开」）"]
   BIND --> POST["⑥ 回填缓存元数据 → E0436 文件级 using → exe 入口检查<br/>→ 并入 ④ 暂存的 analyzer 诊断"]

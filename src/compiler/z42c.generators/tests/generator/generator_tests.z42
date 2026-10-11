@@ -5,10 +5,11 @@
 // 解析符号）→ GeneratorDriver.Run（三 sink：Augment=脱糖 partial / Replace=AST 替换 / AddSource=新 CU；
 // + ordering fixup：剥触发 attr + 删 AttributeSynth 预合成的 store-meta 工厂）→ merged CollectAll →
 // TypeChecker.Infer，断言合并结构 + **合并后 typecheck 通过**（外部 zpkg 加载 + VM 执行 golden 见 PR4d）。
-namespace Z42cSemanticsGeneratorTests;
+namespace Z42cGeneratorsTests;
 
 using Z42.Syntax;
 using Z42.Semantics;
+using Z42.Generators;
 using Z42.Core;
 
 // ── 测试用 generator（实现 Z42.Semantics.Generator；类名带 Generator 后缀 D8/E0447；触发名=剥后缀）──

@@ -12,7 +12,7 @@ z42 允许把**你自己的代码加载进编译器**，在编译期跑：
 [解析域](#解析域编译期扩展自动看得见-sdk-库)），并声明「我是编译期扩展」——`[analyzers]` 的
 path 条目据此校验，`[dependencies]` 据此拒收。
 
-> 契约包（`z42c.analyzers` / `z42c.syntax` / `z42c.core` / `z42c.semantics`）是 **SDK 库**：住在 `programs/z42c/`、
+> 契约包（`z42c.analyzers` / `z42c.generators` / `z42c.syntax` / `z42c.core` / `z42c.semantics`）是 **SDK 库**：住在 `programs/z42c/`、
 > 不在 `libs/`。`kind = "analyzer"` 自动看得见它们；普通工程（`kind = "lib"` / `"exe"`）要在
 > `[dependencies]` 里**按名声明**才可见。
 
@@ -194,8 +194,9 @@ analyzer 可以在报诊断的同时给出修复：把 `diags` 下转成 `FixSin
 ## 写一个 Generator
 
 Generator 契约（`Generator` / `ModuleGenerator` / `GenTarget` / `GenSink` / `GenContext`）住在
-**`z42c.semantics`**，命名空间 `Z42.Semantics`。它比 analyzer 契约深一层，因为
-generator 跑在 bind **之后**，拿得到解析后的符号（`Z42ClassType` / `SymbolTable`）。
+**`z42c.generators`**，命名空间 `Z42.Generators`。它比 analyzer 契约深一层：generator 在一次
+预备绑定**之后**运行，拿得到解析后的符号（`Z42ClassType` / `SymbolTable`，命名空间 `Z42.Semantics`，
+由 `z42c.generators` 传递引入）。
 
 两种形态：
 
@@ -217,7 +218,7 @@ generator 跑在 bind **之后**，拿得到解析后的符号（`Z42ClassType` 
 
 ### 解析域：编译期扩展自动看得见 SDK 库
 
-契约包（`z42c.semantics` / `z42c.syntax` / `z42c.core`）是 **SDK 库**——不在 SDK 的 `libs/` 里，而在
+契约包（`z42c.generators` / `z42c.analyzers` / `z42c.semantics` / `z42c.syntax` / `z42c.core`）是 **SDK 库**——不在 SDK 的 `libs/` 里，而在
 **`programs/z42c/`**，与 z42c 自己的 zpkg 同址（规则全文见 [z42-toml.md](z42-toml.md) 的「SDK 库」）：
 
 | 工程 | SDK 库可见吗 | 部署 |
@@ -237,7 +238,7 @@ version = "0.1.0"
 kind    = "analyzer"
 
 [dependencies]
-"z42c.semantics" = "0.1.0"
+"z42c.generators" = "0.1.0"
 ```
 
 消费方用 path 挂上它，全程不需要手工拷 zpkg：

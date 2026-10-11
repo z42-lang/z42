@@ -1,6 +1,6 @@
 # attribute 管线（store-meta 一支）
 
-> 代码：`z42c.semantics/src/Generators/AttributeSynth.z42`、`Symbols/HandlerRegistry.z42`、
+> 代码：`z42c.semantics/src/Desugar/AttributeSynth.z42`、`Symbols/HandlerRegistry.z42`、
 > `MacroRegistry.z42`、`z42c.analyzers/src/AnalyzerDriver.z42`、`z42c.syntax/src/SuppressionSet.z42`
 
 用户面的写法（后缀约定、五个反射载体、`#suppress`、caller 宏）见 reference 的

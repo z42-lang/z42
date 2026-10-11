@@ -1,7 +1,7 @@
 # z42c.semantics
 
 ## 职责
-语义分析：`SymbolCollector`（Pass 0 符号收集）→ `TypeChecker`（Pass 1 绑定 + 类型检查）→ `Bound` 树（每节点携解析后 `Z42Type`）+ 声明期校验 / 流分析、源码生成器、TSIG 导出面提取。单文件前端口径收在 `FrontEnd`。后端最大的子系统，dogfood 缺口高发段。
+语义分析：`SymbolCollector`（Pass 0 符号收集）→ `TypeChecker`（Pass 1 绑定 + 类型检查）→ `Bound` 树（每节点携解析后 `Z42Type`）+ 声明期校验 / 流分析、内建 AST 脱糖、TSIG 导出面提取。单文件前端口径收在 `FrontEnd`。后端最大的子系统，dogfood 缺口高发段。
 
 **不做**：代码生成与编译编排（Bound → IR、`IrDump` / `CuCompile`、`CompiledModuleZ`）——在 [`z42c.emission`](../z42c.emission/README.md)；IR 优化在 [`z42c.optimization`](../z42c.optimization/README.md)。
 
@@ -29,7 +29,7 @@
 | `src/Binding/` | 绑定 + 类型检查：`TypeChecker`、各 `*Typer`、`MemberResolver`（8 碎片）、重载决议、语句 / 声明 / 模式绑定、访问检查、穷尽检查、常量求值与常量 blob、编译期宏 |
 | `src/Validation/` | 声明期约束（`DeclEnforcer`）、流分析（`FlowAnalyzer`）、声明位类型引用补录、跨包依赖收集（`DepUseCollector`）、多余 `using` 告警、`[ModuleInit]` 校验 |
 | `src/Exports/` | 导出签名（TSIG）提取 |
-| `src/Generators/` | 源码生成器与 AST 级脱糖：契约、驱动、多轮拓扑、生成上下文、内建 `[Forward]`、attribute 工厂合成、benchmark 脱糖 |
+| `src/Desugar/` | 内建、永远开启的 AST 级脱糖（parse 后、收集前，由 `HandlerRegistry.RunAst` 调）：attribute 工厂合成、`[Benchmark]` 脱糖 |
 | `src/Compilation/` | 单文件前端 `FrontEnd`、`SemanticDump` 门面、`ParallelFor` |
 
 **分层**：本包**不得引用** `z42c.emission`（`Z42.Emission`）——依赖只能是 `z42c.emission` → 本包单向。代码生成用到的
@@ -39,7 +39,7 @@
 ```bash
 ./xtask test compiler        # tests/<unit>/ 全部 [Test] 单元 + 自举不动点；全部 PASS 即通过
 ```
-`tests/` 按子系统分单元目录（typecheck / collect / overload / pattern / generator / directives / conversion 等；analyzer 单元在 [`z42c.analyzers/tests/`](../z42c.analyzers/tests/)），每个单元自带 `*.z42.toml`。codegen / zbc / zbcreader 单元在 [`z42c.emission/tests/`](../z42c.emission/tests/)。
+`tests/` 按子系统分单元目录（typecheck / collect / overload / pattern / desugar / directives / conversion 等；analyzer / generator 单元在 [`z42c.analyzers/tests/`](../z42c.analyzers/tests/) / [`z42c.generators/tests/`](../z42c.generators/tests/)），每个单元自带 `*.z42.toml`。codegen / zbc / zbcreader 单元在 [`z42c.emission/tests/`](../z42c.emission/tests/)。
 
 ## 关联文档
 - 设计 / 机制：[architecture.md](../../../docs/internals/src/compiler/architecture.md)、[binder-hierarchy.md](../../../docs/internals/src/compiler/binder-hierarchy.md)、[generics.md](../../../docs/internals/src/compiler/generics.md)、[access-control.md](../../../docs/internals/src/compiler/access-control.md)、[self-hosting.md](../../../docs/internals/src/compiler/self-hosting.md)
@@ -48,8 +48,6 @@
 | 文件 | 职责 |
 |------|------|
 | `src/Types/Z42Type.z42` | 语义类型层次（Prim/Class/Func/Void/Error/Unknown）+ 数值拓宽 IsAssignableTo |
-| `src/Generators/Generation.z42` | **generator 契约**：`Generator`（applied：`AppliedName()` 触发名 + `Generate(GenTarget,GenSink)`）/ `ModuleGenerator`（module：`Generate(GenContext,GenSink)`）/ `GenSink`（`AddSource`/`Replace`/`Augment`）/ `GenTarget`（被贴声明 AST + 解析 `Z42ClassType` + 触发 `Attr`）/ `GenContext`（module 用：`TypesWith<T>()`/`MethodsWith<T>()` 强类型查询 + `Resolve(fqn)`）/ 结果类 `GenType`·`GenMethod`。放 semantics（非 syntax）——GenTarget/GenContext 暴露解析符号；无 delegate。类名须 `*Generator`（E0447，覆盖 `Generator`+`ModuleGenerator`） |
-| `src/Generators/GeneratorDriver.z42` | **generator 引擎**：`Run(...)→GenOutcome`（applied）——按 `AppliedName()` 找 `[X]@类型` → `Generate` → 三 sink 落地（**Augment=脱糖 synthetic partial + 自动标原类型 partial** / **Replace=AST 按 DeclId 替换** / **AddSource=新 CU**）+ **ordering fixup**（剥触发 attr + 删 AttributeSynth 预合成 store-meta 工厂）。`RunModules(...)→GenOutcome`——建 `GenContextImpl`（`TypesWith<T>`/`MethodsWith<T>` 靠 `typeof(T)` + 剥 `Attribute` 后缀扫 AST）→ 每 module gen 跑一次 → AddSource 聚合 CU。护栏 E0448（applied 只改 trigger 命中 decl / module 仅可 AddSource）。gated（无 generator→原样）→ z42c 自举不动点不变。PackageCompile 内 double-bind（provisional CollectAll→driver→union 重编，applied+module 同 gated 块） |
 | `src/Types/Conversion.z42` | **统一类型转换分类器**：`Classify(from,to,symbols)→ConvResult{Kind,Method}` 把转换分类为 Identity/ImplicitNumeric/ExplicitNumeric/Boxing/Unboxing/ImplicitRef/ExplicitRef/**UserImplicit·UserExplicit**/… 内建 None 时回退 `_classifyUser`（查 op_Implicit/op_Explicit，精确 (源,目标) 匹配）。隐式数值矩阵较严 + 用户自定义转换（`(T)x` 走用户转换 + ② 声明期冲突检测 E0440 + ③ 走中间类型诊断）。机制见 [book 类型转换](../../../docs/reference/src/language/conversions.md) |
 | `src/Types/BinaryTypeTable.z42` | 运算类型规则表：OperandKind/ResultKind（int tag 替代 Func 委托）+ TypeFacts 数值谓词 + BinaryRule + Lookup/LookupUnary/ResultType |
 | `src/Symbols/Symbol.z42` | 符号模型（MethodSymbol / FieldSymbol）+ Z42FuncType 签名 |
@@ -97,9 +95,8 @@
 | `src/Symbols/CtorInheritance.z42` / `NestedFlatten.z42` / `PreludeNs.z42` | 构造器继承 / 嵌套类型展平 / prelude 命名空间集 |
 | `src/Validation/FlowAnalyzer.z42`（+ `.Reachability`） / `DeclEnforcer.AttrArgs.z42` | 流分析（可达性 / definite assignment）/ attribute 实参校验 |
 | `src/Binding/ConstBlob.z42` | 常量 blob 编解码（`ConstBlobReader`，重载决议 / 构造器继承读默认值）|
-| `src/Generators/ForwardGenerator.z42` / `GenTopo.z42` | 内建 `[Forward]` 生成器 / 多轮 generator 拓扑序 |
-| `src/Generators/AttributeSynth.z42` / `BenchmarkDesugar.z42` / `GenContext.z42` | parse 后、typecheck 前的 AST 级脱糖：attribute 工厂合成 / benchmark 脱糖；generator 上下文 |
-| `src/Symbols/HandlerRegistry.z42` | attribute handler 注册表（`AttrKind` 三路判定、`DeclId`、内建 generator 先于 store-meta 合成） |
+| `src/Desugar/AttributeSynth.z42` / `BenchmarkDesugar.z42` | parse 后、收集前的 AST 级脱糖：attribute 工厂合成 / benchmark 脱糖 |
+| `src/Symbols/HandlerRegistry.z42` | attribute handler 注册表（`AttrKind` 三路判定、`DeclId`；`RunAst` = 内建脱糖入口：`[Benchmark]` 脱糖先于 store-meta 合成） |
 | `src/Symbols/DeclFacts.z42` | 可见性（`_visCode` / `classVis*`，入参是 `ModFlags`）/ 字面量文本助手——只看 AST 与字符串，语义层与代码生成共用 |
 | `src/Validation/ModuleInitScan.z42` | `[ModuleInit]` 合法性校验（E0485 包内第二个 / E0486 标注目标非法）与站点扫描 |
 | `src/Compilation/ParallelFor.z42` | 包内文件级并行编译的 `ParallelFor` 机件 |
