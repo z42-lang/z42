@@ -22,12 +22,16 @@ pub enum BlockType {
     ArrayStruct = 3,
     /// `ClosureData` fields (env edge + target `FnId`, P1-2 PR 8). PR-3.
     Closure = 4,
+    /// REF array elements: 8 B self-describing reference words (`ref_word`). Object model R3.
+    ArrayRef = 5,
+    /// MIXED array elements: 16 B type-parameter cells (`tparam_cell`). Object model R3.
+    ArrayCell = 6,
 }
 
 impl BlockType {
     /// Reconstruct from the tag bits of a header's `type_tag` byte. Returns `None` on an
     /// unknown tag (corruption guard — a valid block always carries one of the variants
-    /// above). Callers pass the already-masked low [`TAG_BITS`]; values 5..=7 are unused
+    /// above). Callers pass the already-masked low [`TAG_BITS`]; value 7 is unused
     /// and reaching one means the byte is corrupt.
     #[inline]
     pub(super) fn from_u8(v: u8) -> Option<Self> {
@@ -37,6 +41,8 @@ impl BlockType {
             2 => Some(Self::ArrayPrim),
             3 => Some(Self::ArrayStruct),
             4 => Some(Self::Closure),
+            5 => Some(Self::ArrayRef),
+            6 => Some(Self::ArrayCell),
             _ => None,
         }
     }

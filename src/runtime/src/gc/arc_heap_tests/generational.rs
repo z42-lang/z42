@@ -432,7 +432,7 @@ fn cross_gen_write_target_survives_minor_via_dirty_card() {
     let child2 = alloc_obj(&heap, "Child2");  // fresh young
     {
         let Value::Object(owner_gc) = &owner else { panic!() };
-        owner_gc.borrow_mut().refs_mut_raw()[0] = child2.clone();
+        owner_gc.borrow_mut().set_ref_raw_for_test(0, &child2.clone());
     }
     // Manually fire the barrier (in production, interp/JIT would).
     heap.write_barrier_field(&owner, 0, &child2);
@@ -451,7 +451,7 @@ fn cross_gen_write_target_survives_minor_via_dirty_card() {
     {
         let Value::Object(owner_gc) = &owner else { panic!() };
         let owner_borrow = owner_gc.borrow();
-        assert!(matches!(owner_borrow.refs()[0], Value::Object(_)),
+        assert!(matches!(owner_borrow.field_value(0), Value::Object(_)),
             "child2 still in owner.slot[0]");
     }
 }
@@ -474,7 +474,7 @@ fn minor_gc_does_not_clear_card_dirty_bits() {
     let _pin_child = heap.pin_root(child.clone());
     {
         let Value::Object(owner_gc) = &owner else { panic!() };
-        owner_gc.borrow_mut().refs_mut_raw()[0] = child.clone();
+        owner_gc.borrow_mut().set_ref_raw_for_test(0, &child.clone());
     }
     heap.write_barrier_field(&owner, 0, &child);
 
@@ -522,7 +522,7 @@ fn major_collect_via_context_clears_card_dirty() {
     let _pin_child = heap_dyn.pin_root(child.clone());
     {
         let Value::Object(owner_gc) = &owner else { panic!() };
-        owner_gc.borrow_mut().refs_mut_raw()[0] = child.clone();
+        owner_gc.borrow_mut().set_ref_raw_for_test(0, &child.clone());
     }
     heap_dyn.write_barrier_field(&owner, 0, &child);
 
@@ -823,8 +823,8 @@ fn cycle_collection_under_generational_mode_still_frees_garbage() {
     {
         let Value::Object(a_gc) = &a else { panic!() };
         let Value::Object(b_gc) = &b else { panic!() };
-        a_gc.borrow_mut().refs_mut_raw()[0] = b.clone();
-        b_gc.borrow_mut().refs_mut_raw()[0] = a.clone();
+        a_gc.borrow_mut().set_ref_raw_for_test(0, &b.clone());
+        b_gc.borrow_mut().set_ref_raw_for_test(0, &a.clone());
     }
     drop(a);
     drop(b);
@@ -1026,7 +1026,7 @@ fn old_root_traces_its_young_children_at_every_minor() {
     let child = alloc_obj(&heap, "Child");
     {
         let Value::Object(owner_gc) = &owner else { panic!() };
-        owner_gc.borrow_mut().refs_mut_raw()[0] = child.clone();
+        owner_gc.borrow_mut().set_ref_raw_for_test(0, &child.clone());
     }
     heap.write_barrier_field(&owner, 0, &child); // interp/JIT fires this in production
     drop(child); // owner.refs[0] is now the child's only reference
@@ -1036,7 +1036,7 @@ fn old_root_traces_its_young_children_at_every_minor() {
         heap.force_collect();
         let Value::Object(owner_gc) = &owner else { panic!() };
         let borrow = owner_gc.borrow();
-        let Value::Object(child_gc) = &borrow.refs()[0] else {
+        let Value::Object(child_gc) = borrow.field_value(0) else {
             panic!("minor {round}: owner.refs[0] is no longer an object");
         };
         assert!(
@@ -1065,7 +1065,7 @@ fn minor_leaves_no_mark_on_any_entry() {
     let _pin_young = heap.pin_root(young.clone());
     {
         let Value::Object(g) = &old_owner else { panic!() };
-        g.borrow_mut().refs_mut_raw()[0] = young.clone();
+        g.borrow_mut().set_ref_raw_for_test(0, &young.clone());
     }
     heap.write_barrier_field(&old_owner, 0, &young);
 
@@ -1105,7 +1105,7 @@ fn generational_minors_keep_old_to_young_graphs_intact() {
         for (i, o) in owners.iter().enumerate() {
             let child = alloc_obj(&heap, "Child");
             let Value::Object(owner_gc) = o else { panic!() };
-            owner_gc.borrow_mut().refs_mut_raw()[0] = child.clone();
+            owner_gc.borrow_mut().set_ref_raw_for_test(0, &child.clone());
             heap.write_barrier_field(o, 0, &child);
             let _ = i;
         }
@@ -1113,7 +1113,7 @@ fn generational_minors_keep_old_to_young_graphs_intact() {
         for (i, o) in owners.iter().enumerate() {
             let Value::Object(owner_gc) = o else { panic!() };
             let borrow = owner_gc.borrow();
-            let Value::Object(child_gc) = &borrow.refs()[0] else {
+            let Value::Object(child_gc) = borrow.field_value(0) else {
                 panic!("round {round}, owner {i}: slot no longer holds an object");
             };
             assert_eq!(
@@ -1154,7 +1154,7 @@ fn promoted_owner_keeps_the_young_child_it_was_holding() {
     let _pin_root = heap.pin_root(root.clone());
     {
         let Value::Object(g) = &root else { panic!() };
-        g.borrow_mut().refs_mut_raw()[0] = owner.clone();
+        g.borrow_mut().set_ref_raw_for_test(0, &owner.clone());
     }
     heap.write_barrier_field(&root, 0, &owner); // young → young: no card, correctly
 
@@ -1165,7 +1165,7 @@ fn promoted_owner_keeps_the_young_child_it_was_holding() {
     let child = alloc_obj(&heap, "Child");
     {
         let Value::Object(g) = &owner else { panic!() };
-        g.borrow_mut().refs_mut_raw()[0] = child.clone();
+        g.borrow_mut().set_ref_raw_for_test(0, &child.clone());
     }
     heap.write_barrier_field(&owner, 0, &child); // young owner → young child: no card
     drop(child); // owner.refs[0] is the child's only reference
@@ -1182,7 +1182,7 @@ fn promoted_owner_keeps_the_young_child_it_was_holding() {
     heap.force_collect();
     let Value::Object(owner_gc) = &owner else { panic!() };
     let borrow = owner_gc.borrow();
-    let Value::Object(child_gc) = &borrow.refs()[0] else {
+    let Value::Object(child_gc) = borrow.field_value(0) else {
         panic!("owner.refs[0] is no longer an object");
     };
     assert_eq!(
@@ -1202,7 +1202,7 @@ fn promoted_array_keeps_the_young_element_it_was_holding() {
     let _pin_root = heap.pin_root(root.clone());
     {
         let Value::Object(g) = &root else { panic!() };
-        g.borrow_mut().refs_mut_raw()[0] = arr.clone();
+        g.borrow_mut().set_ref_raw_for_test(0, &arr.clone());
     }
     heap.write_barrier_field(&root, 0, &arr);
 
@@ -1251,7 +1251,7 @@ fn major_rebuilds_cards_for_surviving_cross_gen_edges() {
     let _pin_root = heap.pin_root(root.clone());
     {
         let Value::Object(g) = &root else { panic!() };
-        g.borrow_mut().refs_mut_raw()[0] = owner.clone();
+        g.borrow_mut().set_ref_raw_for_test(0, &owner.clone());
     }
     heap.write_barrier_field(&root, 0, &owner);
     for _ in 0..PROMOTION_THRESHOLD { heap.force_collect(); }
@@ -1261,7 +1261,7 @@ fn major_rebuilds_cards_for_surviving_cross_gen_edges() {
     let child = alloc_obj(&heap, "Child");
     {
         let Value::Object(g) = &owner else { panic!() };
-        g.borrow_mut().refs_mut_raw()[0] = child.clone();
+        g.borrow_mut().set_ref_raw_for_test(0, &child.clone());
     }
     heap.write_barrier_field(&owner, 0, &child); // old -> young: card dirtied
     drop(child);
@@ -1271,7 +1271,7 @@ fn major_rebuilds_cards_for_surviving_cross_gen_edges() {
 
     let Value::Object(owner_gc) = &owner else { panic!() };
     let b = owner_gc.borrow();
-    let Value::Object(child_gc) = &b.refs()[0] else { panic!("slot no longer an object") };
+    let Value::Object(child_gc) = b.field_value(0) else { panic!("slot no longer an object") };
     assert_eq!(child_gc.borrow().type_desc.name, "Child",
         "major cleared the card while the old->young edge was still there");
 }

@@ -472,6 +472,11 @@ pub fn make_fallback_type_desc(module: &Module, class_name: &str) -> TypeDesc {
     // all fields as own (cross-zpkg fixup won't re-process this entry since
     // base resolution above is already complete).
     let own_fields = fields.clone();
+    // Like the loader's fallback for a class without an object block: a synthesized layout
+    // (references in type-parameter cells), so field access and GC walks read a stored layout
+    // instead of synthesizing one per access.
+    let composed = (!fields.is_empty())
+        .then(|| std::sync::Arc::new(crate::metadata::types::synthesize_object_layout(&fields)));
     TypeDesc {
         name: class_name.to_string(),
         base_name,
@@ -482,6 +487,7 @@ pub fn make_fallback_type_desc(module: &Module, class_name: &str) -> TypeDesc {
         vtable: Vec::new(),
         vtable_index: crate::metadata::NameIndex::new(),
         cold: Some(Box::new(crate::metadata::types::TypeDescCold {
+            composed_object_layout: composed,
             own_fields: own_fields.into(),
             ..Default::default()
         })),

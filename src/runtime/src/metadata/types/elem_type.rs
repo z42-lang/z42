@@ -146,7 +146,7 @@ mod tests {
         let b = ElemType::intern(&String::from("geometry.Point"));
         assert!(std::ptr::eq(a.as_raw(), b.as_raw()), "same name ⇒ same entry");
         assert_eq!(&*a, "geometry.Point");
-        assert_eq!(a.kind(), ElemKind::Boxed);
+        assert_eq!(a.kind(), ElemKind::Mixed);
         assert_eq!(ElemType::intern("int").kind(), ElemKind::I32);
         assert_eq!(ElemType::byte().kind(), ElemKind::Bytes);
         assert_eq!(&*ElemType::empty(), "");

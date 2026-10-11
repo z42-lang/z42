@@ -125,8 +125,6 @@ fn scan_roots_visits_object_inlined_refs() {
         field_offsets: Box::new([0]),
         field_sizes:   Box::new([8]),
         field_kinds:   Box::new([STRUCT_LEAF_GCREF]),
-        ref_offsets:   Box::new([]),
-        ref_kinds:     Box::new([]),
         ref_cells:     Box::new([0]),
         tparam_cells:  Box::new([]),
         field_access:  Box::new([FieldAccess::ref_word(0, TAG_OBJECT)]),
@@ -149,11 +147,10 @@ fn scan_roots_visits_object_inlined_refs() {
         vtable_index: crate::metadata::NameIndex::new(), cold: None,
         class_flags: 0, visibility: 0, id: crate::metadata::tokens::TypeId::UNRESOLVED,
     });
-    let leaf = Value::Object(GcRef::new(ScriptObject::new(leafless, ObjStorage::new(0, 0))));
+    let leaf = Value::Object(GcRef::new(ScriptObject::new(leafless, ObjStorage::new(0))));
 
-    let mut holder = ScriptObject::new(holder_td, ObjStorage::new(8, 0));
+    let mut holder = ScriptObject::new(holder_td, ObjStorage::new(8));
     assert!(holder.set_field_value(0, &leaf), "the inlined field is a reference slot");
-    assert!(holder.refs().is_empty(), "precondition: the edge lives ONLY in `bytes`");
 
     let mut a = StackArena::default();
     a.alloc_obj(1, holder);

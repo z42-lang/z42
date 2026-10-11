@@ -181,17 +181,16 @@ impl std::fmt::Debug for ObjMeta {
 pub struct ScriptObject {
     /// Type descriptor shared across all instances of this class.
     pub type_desc: Arc<TypeDesc>,
-    /// The object's field payload — primitive leaves, 8 B reference words, type-parameter
-    /// cells and the 16 B reference side table — in ONE allocation (see [`ObjStorage`]).
+    /// The object's field payload — one zeroed byte block (see [`ObjStorage`]).
     ///
     /// Every primitive leaf (incl. inline-struct interior primitive leaves) lives at its
-    /// composed byte offset in `storage.bytes()`, and so does every direct reference field,
-    /// as an 8 B self-describing reference word (`ref_word`, `ObjectLayout::ref_cells`).
-    /// A type-parameter field's tag word sits at its own offset too, its payload word past
-    /// the compiler's layout (`tparam_cell`, `ObjectLayout::tparam_cells`). Only
-    /// inline-struct interior reference leaves (and the references of a synthesized layout)
-    /// are 16 B `Value`s in `storage.refs()`, ordered by `ObjectLayout::ref_offsets`. Field
-    /// access goes through the methods in `object_fields.rs`.
+    /// composed byte offset, and so does every reference: a direct reference field or an
+    /// inline-struct reference leaf is an 8 B self-describing reference word (`ref_word`,
+    /// `ObjectLayout::ref_cells`); a type-parameter field (and every reference field of a
+    /// synthesized layout) is a 16 B cell whose tag word sits at its own offset and whose payload
+    /// word sits past the compiler's layout (`tparam_cell`, `ObjectLayout::tparam_cells`). A boxed
+    /// struct's payload is its struct blob. Field access goes through the methods in
+    /// `object_fields.rs`.
     pub storage: ObjStorage,
     /// The two cold per-instance side-fields — generic type-arguments and native backing —
     /// in one 8 B word (see [`ObjMeta`]): a generic instance points at its instantiation's
@@ -275,15 +274,10 @@ impl ScriptObject {
         o
     }
 
-    /// shrink-object-footprint P2: the byte-packed primitive leaves.
+    /// The plain byte view of the payload (boxed-primitive scalars, snapshots under the lock).
     #[inline] pub fn bytes(&self) -> &[u8] { self.storage.bytes() }
-    /// Mutable view of the primitive leaves.
+    /// Mutable plain byte view — primitive bytes only (see [`ObjStorage::bytes_mut`]).
     #[inline] pub fn bytes_mut(&mut self) -> &mut [u8] { self.storage.bytes_mut() }
-    /// The reference leaves, in composed reference-bitmap order.
-    #[inline] pub fn refs(&self) -> &[Value] { self.storage.refs() }
-    /// Mutable view of the reference leaves (GC scan / field store).
-    /// Reference leaves **without the SATB barrier** — see [`ObjStorage::refs_mut_raw`].
-    #[inline] pub fn refs_mut_raw(&mut self) -> &mut [Value] { self.storage.refs_mut_raw() }
 
     /// unify Phase 2 R3（装箱统一）：若本对象是**整数基元装箱盒**（`type_desc` 是整数 wrapper、
     /// 标量 LE 字节存 `struct_bytes`，见 `corelib::convert::box_prim_to_heap`），读回其 i64 标量；
