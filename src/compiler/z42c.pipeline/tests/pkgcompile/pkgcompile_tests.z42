@@ -332,6 +332,19 @@ void test_lints_warnings_as_errors_fails_compile() {
     CompileArtifacts cArt = PackageCompile.Compile(_consumerWithAnalyzer(azPath, cfg));
     Assert.Equal(true, cArt.ErrorCount > 0);
     Assert.Equal(true, _cmsHasCode(cArt, "Z9002"));
+    // 前置线有 error ⇒ 主编译线只做到类型检查：consumer 的函数一个都没进代码生成。
+    Assert.Equal(0, cArt.Cms[0].Module.FuncCount);
+}
+
+[Test]
+void test_analyzer_warning_still_generates_code() {
+    // 对照：同一 analyzer 只报 Warning ⇒ 不拦代码生成。
+    string libs = Environment.GetEnvironmentVariable("Z42_LIBS", "");
+    if (libs == "") { return; }
+    string azPath = _writeFixtureZpkg(_depDirs(libs));
+    CompileArtifacts cArt = PackageCompile.Compile(_consumerWithAnalyzer(azPath, LintConfig.Empty()));
+    Assert.Equal(0, cArt.ErrorCount);
+    Assert.Equal(true, cArt.Cms[0].Module.FuncCount > 0);
 }
 
 [Test]
