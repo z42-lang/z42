@@ -39,15 +39,9 @@
 规则管的是「first-wins + 非确定迭代序」这个**模式**，不是某一对类。任何新加的同短名对都会立刻把它带回来，
 而下一次未必有 CI 帮你在另一个 OS 上炸出来。
 
-> **根治**：「同短类名跨 ns → 短键 first-wins 串味」的**根因**由 z42c 的 `DependencyIndex.GetStaticScoped`
-> 解决——按调用方**活跃命名空间集**（usings + 本 ns）解析静态调用，只命中调用方 `using` 到的那份 FQN，
-> 不靠排序碰巧选对。sort 仍是**必要的兜底**（活跃集内仍歧义时、以及任何非静态调用的 first-wins 注册仍需确定序），故本
-> §1 的排序规则**继续遵守**；根治只是让「跨包静态调用绑错 ns」这一具体症状不依赖排序侥幸。
->
-> **类型引用同款**：上面是**静态调用**；**类型引用**（`new`/`is`/`as`/字段·参数类型）同样有此坑——
-> `SymbolTable.Classes` 按裸类名 first/last-wins，`new A.Foo` 被剥短名撞赢家 → 对象身份 emit 成 `B.Foo`。
-> 根治：`Z42ClassType` 带 `Namespace` + `SymbolTable.ClassesByFqn`
-> 并存 FQN 视图，限定名按 FQN 精确解析、发射端用已解析类型的 `Fqn()`。机制见
+> **根治**：「同短类名跨 ns → 短键 first-wins 串味」的**根因**已由命名空间限定解析解决（静态调用按调用方
+> 活跃 ns 集解析、类型引用按 FQN 精确解析）。但**排序规则 §1 仍继续遵守**——它是活跃集内仍有歧义时、
+> 以及一切非静态 first-wins 注册的兜底。机制与两个根治点见
 > [source-compile.md「同短名跨命名空间的类型解析」](../../internals/src/compiler/source-compile.md)。
 
 ### 强制规则
@@ -101,24 +95,15 @@ let cache: BTreeMap<String, Value> = ...;  // 迭代时按 key 字母序
 
 ### 现场案例
 
-z42 VM 的 `TypeId` 每个 `Module`（≈每个 zpkg）从 0 重开——文档契约写着「per module」，
-本身没错。错在两条派发内联缓存（`VCallIC` / `FieldIC`）拿这个裸 `u32` 当**全局**类型身份：
+z42 VM 的 `TypeId` 每个 `Module`（≈每个 zpkg）从 0 重开——契约写着「per module」本身没错，错在两条派发
+内联缓存（`VCallIC` / `FieldIC`）拿这个裸 `u32` 当**全局**类型身份：两个不同包里的类拿到同一个号即**误命中**，
+跑错方法、或**静默读写错字段槽**（不崩不报错）。触发条件荒谬到没人会怀疑——**从 z42.core 删掉一个无关的类**，
+把两边的号对齐就够了；不常炸只因绝大多数派发站点是单态的（这是运气，不是设计保证）。
+完整案例（调用点、两个包的号、症状）见
+[内联缓存的发布与撕裂](../../internals/src/runtime/inline-cache-publication.md)。
 
-```
-site: body.Run(i)              // IParallelBody 接口调用，位于 z42c.semantics
-  第一次 receiver = SrcReadHashTask (z42c.driver,   TypeId 139) → 装入 PIC
-  第二次 receiver = CompileCuTask   (z42c.emission, TypeId 139) → 误命中
-      ⇒ 跑了 SrcReadHashTask.Run，this._srcs[i] 读到 CompileCuTask 槽 0 的 _cus[i]
-```
-
-- 症状离根因十万八千里：`__file_read_text: arg 0 expected string, got CompilationUnit`。
-- 触发条件荒谬到没人会怀疑：**从 z42.core 删掉一个无关的类**，把两边的号对齐了而已。
-- `FieldIC` 那条更糟：撞键 = 拿到**错误的字段槽**，不崩不报错，**静默读写错数据**。
-- 之所以不常炸，只是因为绝大多数派发站点是**单态**的——撞键要求同一站点先后见到
-  两个同号的类。这是运气，不是设计保证。
-
-> 与 §1「加载顺序非确定性」同族：都是**拿一个不保证唯一/稳定的东西当身份用**。
-> §1 是顺序不稳，本条是范围不够。
+> 与 §1「加载顺序非确定性」同族：都是**拿一个不保证唯一 / 稳定的东西当身份用**——§1 是顺序不稳，
+> 本条是范围不够。
 
 ### 强制规则
 

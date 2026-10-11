@@ -89,74 +89,49 @@ xtask / build 基础设施驱动；stdlib 又被两者依赖。任何「从源�
 **铁律**：当前 main 的源码，**任何时刻都不得使用比「上一个已发布 nightly 的 z42c」更新的语法 / 格式**。
 违反 = 跨版本自举断链。
 
-**「新 nightly 发布了」怎么确认**：nightly 必须**包含**阶段 1 的提交，不是「发布时间晚于合并时间」——
-`gh api repos/z42-lang/z42/compare/<阶段1 的 main 提交>...$(gh api repos/z42-lang/z42/git/ref/tags/nightly -q .object.sha) -q .status`
-为 `ahead` 或 `identical` 才算。阶段 1 合并后不必盯着它的 main 运行：改到 SDK 路径的 main 运行不会被后来的
-合并取消，一定跑完发布（机制见 [ci.md](../../internals/src/devinfra/ci.md)「main 上的运行不互相打断」）。
-
-> 🔴 那条保护按路径判「影响 SDK」：文档、`*.md`、`tests/` / `bench/` 下的测试源码与夹具、`examples/`、
-> `scripts/test/` 等算**不影响**，会被后来的运行替换。**决定 SDK 内容的逻辑不要放进这些路径**；新增一类
-> 不进 SDK 的路径时，同步改 `.github/ci/main-supersede.sh` 的 `non_sdk_re` 与 ci.md 的那张表。
+**「新 nightly 发布了」怎么确认**：nightly 必须**包含**阶段 1 的提交（不是「发布时间晚于合并时间」）。
+确认命令，以及「哪些路径不影响 SDK、会被后来的 main 运行替换」的判定表与 `non_sdk_re` SoT，见
+[CI 拓扑](../../internals/src/devinfra/ci.md)「main 上的运行不互相打断」——**决定 SDK 内容的逻辑不要放进
+那些不进 SDK 的路径**。
 
 ### 清单键同样 support-then-use（`z42.toml` / `z42.workspace.toml`）
 
-清单里不认识的键是**错误**（`Z42.Project.ManifestKeys` 是合法键的唯一真相源）。但仓内清单由**种子**
-z42c / xtask 读，而它们跑的是**种子那一代**的 z42.project——不认识的键在审计前的种子里被**静默忽略**
-（配了不生效），在审计后的种子里被**拒掉**。两种结局都是错的，所以：
-
-- **加一个清单键**：阶段 1 只给 z42.project 加解析 + 进 `ManifestKeys` 键表，仓内清单**不写**它
-  → nightly 发布 → 阶段 2 才在仓内清单（`src/compiler/`、`src/libraries/`、`scripts/` 下的工程与 workspace
-  清单，以及种子会构建的任何清单）里用它。只由**刚建出的**编译器构建的测试夹具不受此限，但拿不准就按种子算。
-- **改一个键名**：阶段 1 新旧两个都认（新名优先），旧名只报**警告**（警告通道随上一次改名删了，需要时加回）、仓内清单保持旧名；
-  阶段 2（nightly 之后）仓内清单切新名 + 删掉旧名支持（旧名回落成未知键 = 错误）。挂一条 `STAGE2-DEBT` 提醒。
-- xtask 直接按原始 TOML 读的键（如 `_stdlibList` 读 `workspace.default_members`）与仓内清单**同一个提交**一起切。
+清单里不认识的键是**错误**（`Z42.Project.ManifestKeys` 是合法键的唯一真相源），而仓内清单由**种子那一代**的
+z42c / xtask 读——不认识的键在旧种子里被静默忽略、在新种子里被拒掉，两种结局都是错的。所以**加键与改键名
+都必须跨两个 nightly 分两阶段**；两种情形的具体步骤见
+[工程模型 · 清单键审计](../../internals/src/compiler/project-model.md)。
 
 ### 轴③：stdlib API 面
 
-种子约束不止语法 / 格式——CI 冷启动（`.github/actions/ci-bootstrap` step 2/3）用**种子 z42c +
-种子 stdlib** 编当前 xtask 源与 z42c 源，因此这两个源码域**引用的 stdlib API 也被上一 nightly 钉死**：
+CI 冷启动用**种子 z42c + 种子 stdlib** 编当前 xtask 源与 z42c 源，因此这两个源码域**引用的 stdlib API
+也被上一 nightly 钉死**（为什么 xtask 最受约束，见[编译器自举](../../internals/src/compiler/self-hosting.md)）：
 
 - **xtask / z42c 源新用一个 stdlib API**：该 API 必须已随某个 nightly 发布（加 API 本身随时可做，
   用它要晚一个 nightly——与语法同款纪律）。
 - **删 / 改 xtask / z42c 在用的 API**：两阶段跨两个 nightly——阶段 1 加新 API、**旧 API 暂留**
   （种子例外，非兼容层）、调用点不动 → nightly 发布 → 阶段 2 切全部调用点 + **同一提交删旧 API**。
+- **xtask 用到的编译器域 API（`Z42.Project` / `Z42.Build`）同属此轴**：加 API 随时可做，用它要晚一个
+  nightly；删 / 改走上面的两阶段。（另一个后果：改布局规则的那次合入里，CI 上的 xtask 仍按上一 nightly
+  的规则算路径——xtask 侧的跟进放到下一个 PR。）
 - stdlib 源自身不受此轴约束（它由自建的当前 z42c 编译）。
-- **xtask 用到的编译器域 API（`Z42.Project` / `Z42.Build`）同属此轴**：
-  `scripts/xtask.z42.toml` 把它们声明为 SDK 库（`deploy = "sdk"`，add-sdk-libs），编译与运行都用**编出 xtask 的那份
-  SDK**（本地与 CI 都是仓库根 `.z42/` = 上一 nightly）的 `programs/z42c/`，不从源码代建。⇒ 给这两个包**加** API 随时可做，xtask
-  **用**它要晚一个 nightly；**删 / 改** xtask 在用的 API 走上面的两阶段。另一个后果：改布局规则
-  （`BuildLayout` / `WorkspaceLayout`）的那次合入里，CI 上的 xtask 仍按上一 nightly 的规则算路径 ——
-  xtask 侧的跟进放到下一个 PR。
 
-> 🔴 **阶段 2 最容易被忘掉——因为忘了不会红。** 阶段 1 的过渡形态（字面量 / 旧 API 并存）能一直跑下去，
-> 没有任何东西提醒你回来收尾，于是过渡形态**沉淀成常态**（例：诊断码用字面量发码绕开 `DiagnosticCodes`
-> 登记表，长出一码两义）。`xtask check diagcodes` 的**规则 ⑥**给每条过渡项挂了到期日（挂账超
-> 3 天即红），把「阶段 2 该做了」变成一个会自己响的信号，而不是靠谁记得
-> （见 [test-gate.md](../../internals/src/devinfra/test-gate.md)）。
-> **新开一个分阶段引入时，先想好阶段 2 由什么来提醒你**——没有提醒就等于没打算做。
->
-> ✅ 在过渡形态所在文件写一行
-> `// STAGE2-DEBT(<tag>): <阶段 2 要做的那件事>`，`xtask check stage2 --update` 记进
-> `scripts/test/stage2-debt.txt`；门做双向棘轮（源里多一条 / 清单多一条都红）+ 挂账超 7 天即红。
-> ⚠️ **它只看得见带标记的债** —— 这个边界写在门的头注里。
->
-> 🔴 **阶段 2 的收尾不止于代码：过渡形态也写在散文里，而散文不会跟着切回。** 登记表注释里若写着
-> 「XX 层用字面量 `E04xx` 发码」，代码切回后它们一夜之间全成假话，而没有门盯着散文。
-> **规则 ⑦**因此禁止在登记表里断言发射形态：形态的唯一 SoT 是那份由实扫重生成的清单。
+> 🔴 **阶段 2 最容易被忘掉——因为忘了不会红。** 过渡形态（字面量 / 旧 API 并存）能一直跑下去，于是
+> **沉淀成常态**。**新开一个分阶段引入时，先想好阶段 2 由什么来提醒你**——没有提醒就等于没打算做。
+> 本仓的做法是挂 `STAGE2-DEBT(<tag>)` 标记，由 `xtask check stage2` 做双向棘轮 + 挂账到期即红
+> （边界见[GREEN gate](../../internals/src/devinfra/test-gate.md)）。
+> 🔴 **收尾不止于代码**：过渡形态也写在散文里，而散文不会跟着切回。
 > **收尾时问一句：我刚消灭的那个过渡形态，还被写在哪里当成现状？**
 
 可操作的完整提交剧本（判定 grep / 两个 commit / 等 nightly 的检查命令）见
-[`docs/internals/src/devinfra/testing.md`](../../internals/src/devinfra/testing.md)
-「stdlib 破坏性 API 变更」。
+[testing.md](../../internals/src/devinfra/testing.md)「stdlib 破坏性 API 变更」。
 
 ### 轴④：z42c 运行期自依赖的 stdlib 库
 
 **判据**：本次改动是否让 z42c 的**源**新 `using` 一个「z42c 运行期就要加载」的 stdlib 库，而该库
 **上一 nightly 种子里不以同名 zpkg 存在**？
 
-断环靠 `_ensureBootstrapSelfDepLibs`（`scripts/build/xtask_compiler.z42`）：在建 z42c **前**用当前 driver
-把当前源的 6 个自依赖库（`z42.core` → `z42.project` → `z42.build` → `z42.package` → `z42c.core` →
-`z42c.syntax`）逐个编进 build-libs，**不 warm-skip**。由此有两条与纪律不同的结论：
+断环机制（`_ensureBootstrapSelfDepLibs` 的预建顺序、不 warm-skip、flat 装配细节）见
+[编译器自举 · 轴 ④ 的破环预建](../../internals/src/compiler/self-hosting.md)。由此有两条与纪律不同的结论：
 
 - 对这 6 个库，「**加**一个新 API 并同 commit 用它」**无需等一个 nightly**——预建用当前源重建它们，
   新 API 加上了、旧的还在，上一版 driver 运行期照旧解析得到

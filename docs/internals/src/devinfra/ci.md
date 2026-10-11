@@ -125,6 +125,15 @@ install、`ci.yml`、`.github/actions/`——它们决定 SDK 里装什么或怎
 
 SoT 是脚本里的 `non_sdk_re`，这张表随它改。
 
+**怎么确认 nightly 已包含某个提交**（阶段 1 落地后判断"能不能开始用"）：
+
+```bash
+gh api repos/z42-lang/z42/compare/<阶段1 的 main 提交>...$(gh api repos/z42-lang/z42/git/ref/tags/nightly -q .object.sha) -q .status
+```
+
+返回 `ahead` 或 `identical` 才算包含——**不是**「发布时间晚于合并时间」。阶段 1 合并后不必盯着它的 main 运行：
+改到 SDK 路径的 main 运行不会被后来的合并取消，一定跑完发布（见上节）。
+
 `publish-nightly` 自身仍是全局串行（job 级 `cancel-in-progress: false`）。main 运行不再互相取消后，较早的运行
 可能排在较新的之后才发布，所以它先查一次：**nightly 已指向本 commit 的后代** ⇒ 跳过，不拿旧 commit 覆盖新 nightly。
 
