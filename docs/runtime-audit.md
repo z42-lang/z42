@@ -464,14 +464,14 @@ z42vm 继续静态链接 VM，不改为动态链接 `native/libz42`（结论与�
 
 | ID | 类型 | 内容 | 验证要点 | 状态 |
 |---|---|---|---|---|
-| P1-0 | docs | 当前代码重测基线：z42c 构建剖面、§1.1 微基准、13_gc_large_heap 两种模式、hello 启动；写进 §1.5，据此复核下面的排序 | — | ⬜ |
-| P1-1 | fix | 缺陷批（§3 D1、D2、D3、D6，各一个 PR）：<br>• D1 cctor 等待改 Condvar + park<br>• D2 socket 改 `Arc<TcpStream>` + closed 标志（UDP / TLS 同构）<br>• D3 `is_exception_subclass` 改调 `isa_td`<br>• D6 先写出复现，再修 | 每项先写失败测试 | ⬜ |
-| P1-2 | vm | **进程级函数 / 类型身份**（§4.1，先出方案）：<br>• VmCore 上 append-only `FuncTable` / `TypeTable`，读无锁；惰性加载的函数逐个追加 FnId<br>• PIC、`method_tokens`、ObjNew / CallIndirect / FuncRef / ConstStr 站点缓存改存 FnId / TypeId，IC 能缓存 Lazy 目标<br>• 三套函数注册表、两套类型注册表合一<br>• D5：`isa_cache` 按 TypeId 做 key | 跨包 VCall 微基准；z42c 剖面里 `try_lookup_function` / `LazyTable` 消失；lazy 与 merged 函数行为一致 | ⬜ |
-| P1-3 | refactor | **引擎无关的 `objops` 层**（§5.2）：field get/set、array、obj_new 先行；两引擎只做寄存器适配与异常通道映射；统一错误通道，空引用抛 `NullReferenceException` | interp 与 JIT 对同一组用例逐条一致（含错误文本）；删掉对应的双写实现 | ⬜ |
+| P1-0 | docs | 当前代码重测基线：z42c 构建剖面、§1.1 微基准、13_gc_large_heap 两种模式、hello 启动；写进 §1.5，据此复核下面的排序 | — | ✅ #1133 |
+| P1-1 | fix | 缺陷批（§3 D1、D2、D3、D6，各一个 PR）：<br>• D1 cctor 等待改 Condvar + park<br>• D2 socket 改 `Arc<TcpStream>` + closed 标志（UDP / TLS 同构）<br>• D3 `is_exception_subclass` 改调 `isa_td`<br>• D6 先写出复现，再修 | 每项先写失败测试 | ✅ D1 #1138、D2 #1142、D3 #1136、D6 #1188（删栈闭包） |
+| P1-2 | vm | **进程级函数 / 类型身份**（§4.1，先出方案）：<br>• VmCore 上 append-only `FuncTable` / `TypeTable`，读无锁；惰性加载的函数逐个追加 FnId<br>• PIC、`method_tokens`、ObjNew / CallIndirect / FuncRef / ConstStr 站点缓存改存 FnId / TypeId，IC 能缓存 Lazy 目标<br>• 三套函数注册表、两套类型注册表合一<br>• D5：`isa_cache` 按 TypeId 做 key | 跨包 VCall 微基准；z42c 剖面里 `try_lookup_function` / `LazyTable` 消失；lazy 与 merged 函数行为一致 | ✅ PR 1–8：#1158 #1175 #1181 #1187 #1194 #1200 #1207 #1211 |
+| P1-3 | refactor | **引擎无关的 `objops` 层**（§5.2）：field get/set、array、obj_new 先行；两引擎只做寄存器适配与异常通道映射；统一错误通道，空引用抛 `NullReferenceException` | interp 与 JIT 对同一组用例逐条一致（含错误文本）；删掉对应的双写实现 | ✅ #1184（即对象模型 R0） |
 | P1-4 | perf | **字段访问**（§4.3，依赖 P1-2、P1-3）：<br>• FieldIC 载荷 `TypeId \| offset \| kind`，`field_access` 挪进 TypeDesc 热区<br>• 静态字段改为稳定地址的 cell + seqlock，去掉 VmCore 全局 `Mutex<Vec<Value>>`<br>• JIT 原生单态字段 IC；hoist 只用于循环内的不变接收者 | 字段微基准；z42c 剖面里 JIT 字段 helper 下降 | ⬜ |
-| P1-5 | vm | **调用协议 v1**（§4.2，先出方案）：瘦 `VmFrame{*const Function, regs, pc, base}`，名字 / 行号在生成栈回溯时懒算；`call_stack` owner-only；寄存器池进 VmContext；guard 只在引擎入口安装；JIT `regs_ptr` 按偏移 load、`Ret` 直写 `frame.ret` | 栈回溯与异常栈文本不变；10_mono_vcall / fib 微基准；跨线程 GC 扫栈测试 | ⬜ |
+| P1-5 | vm | **调用协议 v1**（§4.2，先出方案）：瘦 `VmFrame{*const Function, regs, pc, base}`，名字 / 行号在生成栈回溯时懒算；`call_stack` owner-only；寄存器池进 VmContext；guard 只在引擎入口安装；JIT `regs_ptr` 按偏移 load、`Ret` 直写 `frame.ret` | 栈回溯与异常栈文本不变；10_mono_vcall / fib 微基准；跨线程 GC 扫栈测试 | ✅ PR-0–5：#1143 #1145 #1152 #1156 #1161 #1171 |
 | P1-6 | vm | **JIT 每线程上下文，worker 线程跑 JIT**（§4.5 第 1 条，先出方案）：每线程状态放进 JitFrame 或作为参数传入，`JitModuleCtx` 挂到 VmCore | z42c `--jobs 4` 墙钟；cross-thread 测试在 JIT 下全绿 | ⬜ |
-| P1-7 | fix | **GC 内存复用与年轻代根治**（§4.4，先过模型 D）：TLAB 复用半活 chunk 的死槽、sweep 时就地释放 payload；年轻代归 minor 管、晋升时 promote-black | `tests/gc_incremental_model.rs` 模型 D 穷举；13_gc_large_heap 分代不劣于 STW；RSS 下降 | ⬜ |
+| P1-7 | fix | **GC 内存复用与年轻代根治**（§4.4，先过模型 D）：TLAB 复用半活 chunk 的死槽、sweep 时就地释放 payload；年轻代归 minor 管、晋升时 promote-black | `tests/gc_incremental_model.rs` 模型 D 穷举；13_gc_large_heap 分代不劣于 STW；RSS 下降 | 🟡 B1 #1146 #1154；A4 / A5 #1177；A2 / A3 并入 M12（等 R6） |
 | P1-8 | vm | **Builtin ABI v2**（§5.3，先出方案）：`#[builtin]` 宏 + manifest、类型化 `BuiltinError`（`Int32.Parse` 抛 FormatException）、`blocking` 标志自动 park、实参不经 Vec、`[Native]` 桩折叠 | 编译器用 manifest 校验 `[Native]` 声明；错误类型测试 | ⬜ |
 
 **依赖与顺序**：P1-0、P1-1 先做；P1-2 是 P1-4、P1-6 的前置；P1-3 在 P1-4 之前（字段语义先收成一份再改载荷）；P1-5 不依赖 FnId（帧里存 `*const Function` 即可），帧管理是当前最大单项（§1.5），可与 P1-2 并行；P1-7、P1-8 与其余项独立。
@@ -565,19 +565,19 @@ z42vm 继续静态链接 VM，不改为动态链接 `native/libz42`（结论与�
 
 | ID | 杠杆 | 预期 | 依赖 | 状态 |
 |---|---|---|---|---|
-| M1 | 数组直接在 GC 块里零初始化，去掉临时 `vec![Value; n]` | 每元素峰值 −16 B；`List<int>` 77.6 → 约 50 B | — | 🟡 |
-| M2 | 数组元素类型名不再每个数组一份 `Arc<str>`；压缩 ArrayBacking | 每数组 −24~−40 B | — | 🟡 |
-| M3 | `"k" + i` 直接格式化，不产生 ToStr 临时串 | 每次拼接少 40 B 垃圾 | — | 🟡 |
-| M4 | `stats()` 不再收集全部活对象 | 观测不再额外占用 16–32 B/对象 | — | 🟡 |
-| M5 | chunk 大小贴合分配器档位 | 每对象、每数组 −8 B | — | 🟡 |
-| M6 | 按真实占用记账，软上限 / `Z42_GC_MAX_BYTES` 按真实占用判定（即 P1-7 A5） | 上限真正约束 RSS | — | 🟡 |
-| M7 | 池中空 chunk 超阈值 decommit（即 P1-7 A4） | 稳态 RSS 下降 | — | 🟡 |
-| M8 | 用位图 / 区间替代 young_list、all_blocks、var young 等侧表 | 分代模式每对象 −8 B、每串 −16 B；实测（分代）每对象 98 → 81 B、每串 115 → 89 B，槽头 72 → 64 B，z42c 构建 RSS 788 → 754 MB、墙钟持平；09 STW full mark +10%（64 B 步长，待查） | — | 🟡 |
-| M9 | 年轻集合增长加上限（futility 时提前晋升或转 major，而非放大 nursery） | 流失场景 RSS −13%，最大停顿 94 → 18 ms | 09_alloc_ctorless 吞吐退化（⏸） | ⏸ |
-| M10 | 字段 payload 内联进 GC 槽 | 每对象 −16~−24 B；死 payload 随槽一起释放 | — | ⬜ |
-| M11 | 对象头 72 → 约 24 B：去掉每对象 Mutex，标记 / 存活 / 年龄 / 代号合成一个字，稀有字段移到侧表 | 每对象 −40~−48 B | 内存模型已定（见「对象模型（M10 + M11）已定方案」），按 R0–R9 推进 | ⏸ |
-| M12 | 空洞复用（TLAB 认领半活 chunk） | 流失场景 RSS 降 2–4× | M10 | ⬜ |
-| M13 | 泛型 `T[]` 的实参为原始类型时按类型打包 | `List<int>` / Dictionary 值每元素 16 → 4 B | 已定排在 M10 / M11 之后；编译器配合 | ⏸ |
+| M1 | 数组直接在 GC 块里零初始化，去掉临时 `vec![Value; n]` | 每元素峰值 −16 B；`List<int>` 77.6 → 约 50 B | — | ✅ #1166 |
+| M2 | 数组元素类型名不再每个数组一份 `Arc<str>`；压缩 ArrayBacking | 每数组 −24~−40 B | — | ✅ #1179 |
+| M3 | `"k" + i` 直接格式化，不产生 ToStr 临时串 | 每次拼接少 40 B 垃圾 | — | ✅ #1180 |
+| M4 | `stats()` 不再收集全部活对象 | 观测不再额外占用 16–32 B/对象 | — | ✅ #1172 |
+| M5 | chunk 大小贴合分配器档位 | 每对象、每数组 −8 B | — | ✅ #1177（chunk 从页对齐 slab 切） |
+| M6 | 按真实占用记账，软上限 / `Z42_GC_MAX_BYTES` 按真实占用判定（即 P1-7 A5） | 上限真正约束 RSS | — | ✅ #1177 |
+| M7 | 池中空 chunk 超阈值 decommit（即 P1-7 A4） | 稳态 RSS 下降 | — | ✅ #1177 |
+| M8 | 用位图 / 区间替代 young_list、all_blocks、var young 等侧表 | 分代模式每对象 −8 B、每串 −16 B；实测（分代）每对象 98 → 81 B、每串 115 → 89 B，槽头 72 → 64 B，z42c 构建 RSS 788 → 754 MB、墙钟持平；09 STW full mark +10%（64 B 步长，待查） | — | ✅ #1198 |
+| M9 | 年轻集合增长加上限（futility 时提前晋升或转 major，而非放大 nursery） | 流失场景 RSS −13%，最大停顿 94 → 18 ms | 09_alloc_ctorless 吞吐退化（⏸） | ✅ #1190（按回收收益判定） |
+| M10 | 字段 payload 内联进 GC 槽 | 每对象 −16~−24 B；死 payload 随槽一起释放 | — | 🟡 对象模型 R1–R4 已合（#1192 #1203 #1214 #1225）；R6 进行中 |
+| M11 | 对象头 72 → 约 24 B：去掉每对象 Mutex，标记 / 存活 / 年龄 / 代号合成一个字，稀有字段移到侧表 | 每对象 −40~−48 B | 内存模型已定（见「对象模型（M10 + M11）已定方案」），按 R0–R9 推进 | 🟡 R4 #1225 去掉每对象 Mutex（槽 64 → 56 B）；R5 Monitor 侧表暂无消费方（语言没有 `lock(obj)`，锁都在 `NativeData::Monitor`），随 `lock` / `Volatile` 暴露再做；R7 即 M8（#1198）；R8 头 16 B 待做 |
+| M12 | 空洞复用（TLAB 认领半活 chunk） | 流失场景 RSS 降 2–4× | M10 | ⬜ 等 R6 |
+| M13 | 泛型 `T[]` 的实参为原始类型时按类型打包 | `List<int>` / Dictionary 值每元素 16 → 4 B | 已定排在 M10 / M11 之后；编译器配合 | ⬜ 已定排在 M10 / M11 之后 |
 | M14 | 泛型实例的类型实参按实例化进程级驻留（`TypeArgs`，8 B 细指针，同 M2 套路），对象的冷元信息合成一个 8 B 标签字，只有带原生底座的对象才分配 `ObjExtras` 盒子 | 每个带实参的泛型实例 −55~−105 B RSS（实测：闭合 `Box<int>` 210 → 155 B、`Pair<int,string>` 258 → 153 B、`LinkedList<int>` 节点 214 → 158 B）；泛型分配密集负载快 30–40%，`LinkedList<int>` 建表快 7–10%；z42c 工作区构建墙钟 / RSS 持平、产物逐字节一致。已知边界：擦除分配（`new Node<T>()`）的实参仍是字面 `T` | — | 🟡 |
 
 预期：M1–M8 落地后，对象约 85 B、数组约 190 B、`List<int>` 约 50 B；M10 + M11 之后，对象约 35–40 B（约 .NET 的 1.3×）；再加 M12，流失场景的 RSS / 活集从约 8× 降到 2–3×。
@@ -588,11 +588,11 @@ z42vm 继续静态链接 VM，不改为动态链接 `native/libz42`（结论与�
 
 | ID | 负载 | z42 / Python | z42 / Node | 初步判断 | 状态 |
 |---|---|---|---|---|---|
-| T1 | json | 28× | 40× | 待剖析 | 🟡 |
-| T2 | str_builder / str_split_join | 7.9× / 13× | 11× / 10× | StringBuilder 是纯脚本实现，每次 Append 生成一个 GC 字符串。JIT 已内联 `s.Length` / `s[i]` / `CharAt`（全 ASCII 串直接 load，[jit.md](internals/src/runtime/jit.md#字符串原语内联)）：`char` 比较也已原生：str_builder 1012 → 547 ms（Python 242，≈ 2.3×），逐字符扫描段 493 → 63 ms；剩余在 `Append` 的方法调用帧 / 入口字段 hoist / `string[]` 写屏障与扩容，以及 GC | 🟡 |
-| T3 | dict_ops / sort | 4.8× / 3.7× | 7.3× / 7.4× | 待剖析（泛型装箱、比较器调用、哈希路径）。**Dictionary / HashSet 按插入顺序遍历（User 2026-10-07）**：改为 CPython 式插入有序紧凑哈希表（稠密 entries + `int[]` 索引表，首槽取 hash 低位、冲突后 perturb 探测）；dict_ops n=2M 2.02 → 1.75 s、RSS 286 → 165 MB，n=5M 超过 240 s → 4.7 s；sort 未动 | 🟡 |
-| T4 | large_heap | 1.6× | 5.9× | GC 策略与内存复用（P1-7 / M 系列） | 🟡 |
-| T5 | closures | 1.3× | 8.3× | 闭包调用按名（P1-2 PR 8）。**PR 8 后重测**（2026-10-08，n=2M，jit，7 次交错中位，负载 12–37）：z42 365 → 330 ms（−9%），Python 392 ms、Node 61 ms ⇒ 约 **0.84× Python / 5.4× Node**（同机同轮的 PR 8 之前：0.93× / 6.0×）。调用路径上已无名字哈希；剩下的大头是每次迭代的 env 数组 + 闭包块分配与 minor GC、以及原生调用的建帧 | 🟡 |
+| T1 | json | 28× | 40× | 待剖析 | ✅ #1186（json 1881 → 669 ms） |
+| T2 | str_builder / str_split_join | 7.9× / 13× | 11× / 10× | StringBuilder 是纯脚本实现，每次 Append 生成一个 GC 字符串。JIT 已内联 `s.Length` / `s[i]` / `CharAt`（全 ASCII 串直接 load，[jit.md](internals/src/runtime/jit.md#字符串原语内联)）：`char` 比较也已原生：str_builder 1012 → 547 ms（Python 242，≈ 2.3×），逐字符扫描段 493 → 63 ms；剩余在 `Append` 的方法调用帧 / 入口字段 hoist / `string[]` 写屏障与扩容，以及 GC | ✅ #1186 #1226（原生 Split / Join；JIT 内联 Length / 字符访问） |
+| T3 | dict_ops / sort | 4.8× / 3.7× | 7.3× / 7.4× | 待剖析（泛型装箱、比较器调用、哈希路径）。**Dictionary / HashSet 按插入顺序遍历（User 2026-10-07）**：改为 CPython 式插入有序紧凑哈希表（稠密 entries + `int[]` 索引表，首槽取 hash 低位、冲突后 perturb 探测）；dict_ops n=2M 2.02 → 1.75 s、RSS 286 → 165 MB，n=5M 超过 240 s → 4.7 s；sort 未动 | ✅ #1176 #1183（基元原生排序 sort 1883 → 180 ms；插入有序紧凑字典） |
+| T4 | large_heap | 1.6× | 5.9× | GC 策略与内存复用（P1-7 / M 系列） | 🟡 随 P1-7 / M 系列 |
+| T5 | closures | 1.3× | 8.3× | 闭包调用按名（P1-2 PR 8）。**PR 8 后重测**（2026-10-08，n=2M，jit，7 次交错中位，负载 12–37）：z42 365 → 330 ms（−9%），Python 392 ms、Node 61 ms ⇒ 约 **0.84× Python / 5.4× Node**（同机同轮的 PR 8 之前：0.93× / 6.0×）。调用路径上已无名字哈希；剩下的大头是每次迭代的 env 数组 + 闭包块分配与 minor GC、以及原生调用的建帧 | ✅ #1211（P1-2 PR 8） |
 
 其余负载：
 - 启动是所有运行时里最快的（11 ms、12 MB），4 线程能真正并行。
