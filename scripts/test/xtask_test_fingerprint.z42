@@ -1,7 +1,7 @@
 // xtask — `test compiler fingerprint`：编译器输出变了，版本号必须累加（guard-compiler-fingerprint）。
 //
 // 增量缓存的键里，编译器身份 = `CacheStore.CompilerFingerprint` + zbc/zpkg 格式 Minor（见
-// version-bumping.md「编译器语义指纹」）。规则是「凡是影响输出的编译器改动都要累加」，此前全靠自觉。
+// docs/internals/src/compiler/compiler-fingerprint.md）。规则是「凡是影响输出的编译器改动都要累加」，此前全靠自觉。
 // #654 之后产物可复现（同源 + 同编译器 ⇒ 逐字节相同），于是可以机械地判：
 //
 //   同一份 base stdlib 源码，base 编译器编一遍、本树编译器编一遍，逐包比 zpkg 字节。
@@ -358,6 +358,6 @@ int _testFingerprint(ParseResult r) {
     }
     ConsoleError.WriteLine("  ✗ 编译器输出变了，但编译器身份没变 —— 增量缓存会把旧编译器的产物当成新的。");
     ConsoleError.WriteLine("    请在 src/compiler/z42c.pipeline/src/CompilerFingerprint.z42 的 `Entries` 末尾");
-    ConsoleError.WriteLine("    追加一行本次变更的 slug（规则见 version-bumping.md「编译器语义指纹」）。");
+    ConsoleError.WriteLine("    追加一行本次变更的 slug（规则见 docs/internals/src/compiler/compiler-fingerprint.md）。");
     return 1;
 }

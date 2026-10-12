@@ -85,7 +85,7 @@ public interface Analyzer {
 // AST 节点，产修复零额外定位成本。第三方 analyzer zpkg 经 `[analyzers]` 加载，**分析+修复捆绑**一同
 // 扩展（谁报诊断谁产修复，满足 litmus B 第三方可扩展）。
 //
-// **staged-bootstrap（PR4e/PR4e-wire 同款，bootstrap-seed.md 轴②/③）**：本文件（z42c.syntax）新增的
+// **staged-bootstrap（PR4e/PR4e-wire 同款，self-hosting.md 轴②/③）**：本文件（z42c.syntax）新增的
 // TextEdit/CodeFix/FixSink 被 z42c.semantics 消费 = syntax→semantics 新跨成员符号，post-F2 冷启动
 // stale-cache 单 PR 过不了（[[two-gen-bootstrap-regressed-blocks-format-bumps]]，无 sentinel 逃生通道）。
 // 故分两阶段：

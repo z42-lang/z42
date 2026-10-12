@@ -96,7 +96,7 @@ public static class CacheStore {
     // 编译器语义指纹 —— **已改为内容派生**（change `fingerprint-content-derived`）：
     // 值 = `CompilerFingerprint.Entries` 列表的内容哈希，来源见 `CompilerFingerprint.z42`。
     // 手工 +1 的计数器时代（1–41）的逐条理由搬到
-    // `docs/internals/src/compiler/compiler-fingerprint.md`；bump 纪律见 version-bumping.md。
+    // `docs/internals/src/compiler/compiler-fingerprint.md`；格式 bump 清单见 docs/internals/src/devinfra/format-bump.md。
     //
     // ⚠️ 这里**不再有可改的数**。要让缓存失效，去 `CompilerFingerprint.Entries` 末尾追加一行 slug。
     public static string Fingerprint() { return CompilerFingerprint.Value(); }

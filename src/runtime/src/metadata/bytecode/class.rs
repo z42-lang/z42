@@ -114,7 +114,7 @@ pub struct ClassDesc {
     ///
     /// ⚠️ **Dormant in this change**: parsed and stored, consumed by nobody yet — same
     /// discipline as `object_layout_desc` ("PR-1 dormant metadata"): support first, use one
-    /// nightly later (`bootstrap-seed.md`).
+    /// nightly later (`self-hosting.md`).
     pub struct_field_table: Box<[StructFieldEntry]>,
     /// add-reflection-static-fields (zbc 1.13): the class's static fields
     /// (separate from `fields`, which is the instance layout). Threaded into

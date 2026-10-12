@@ -2,8 +2,8 @@
 ///
 /// This file is a thin dispatcher: each `Instruction` variant matches one arm
 /// that delegates to a per-category helper (see sibling `exec_*.rs` modules).
-/// The match is **exhaustive** ([runtime-rust.md](../../../../docs/agent/rules/runtime-rust.md)
-/// "不允许有 `_` 通配兜底"); adding a new `Instruction` variant produces a
+/// The match is **exhaustive** (deliberately no `_` catch-all arm);
+/// adding a new `Instruction` variant produces a
 /// compile error here, forcing the matching helper / category decision.
 ///
 /// Helpers that may propagate a callee user exception return

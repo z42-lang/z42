@@ -73,7 +73,7 @@ int _testDocs(string root, bool update) {
 // 豁免两处（doc-system §2.1）：① agent 自己；② 仓库门面 `README.md` 与 `docs/README.md` 的分流导航
 // —— 它们本身就是「文档与代码的总入口」，不指路会让贡献者找不到规范。
 int _checkAgentRefs(string root) {
-    Console.WriteLine("③ 分层链接：书 / README 不引用 agent");
+    Console.WriteLine("③ 分层链接：书 / README / 代码不引用 agent");
     string[] files = _docMarkdownFiles(root);
     int bad = 0;
     int i = 0;
@@ -99,11 +99,12 @@ int _checkAgentRefs(string root) {
         }
         i = i + 1;
     }
+    bad = bad + _checkCodeAgentRefs(root);
     if (bad > 0) {
         Console.WriteLine("");
-        ConsoleError.WriteLine("  ❌ docs: " + bad.ToString() + " 处书 / README 引用了 docs/agent（规则见 doc-system §2.1）");
-        ConsoleError.WriteLine("     规范在 docs/agent/；书与 README 只能链三本书。需要引用某条规范时，");
-        ConsoleError.WriteLine("     改写为不带链接的散文陈述事实。");
+        ConsoleError.WriteLine("  ❌ docs: " + bad.ToString() + " 处书 / README / 代码引用了 docs/agent（规则见 doc-system §2.1）");
+        ConsoleError.WriteLine("     规范在 docs/agent/；书、README、代码注释只能指向三本书。需要引用某条规范时，");
+        ConsoleError.WriteLine("     改写为不带链接的散文陈述事实，或指向书里讲这件事的页。");
         return 1;
     }
     Console.WriteLine("  ✓ 无越层引用");
@@ -284,6 +285,68 @@ string _stripFences(string text) {
         j = j + 1;
     }
     return outText;
+}
+
+// ③ 的代码侧：`src/` / `scripts/` / `.github/` 下的代码、脚本与 CI 配置同样不以路径引用 `docs/agent/`。
+// 代码注释是写给下一个改它的人看的，事实与操作在书里；agent 的文件随时会改名、删并，指过去迟早变成死指针，
+// 而注释里的路径不是 markdown 链接，死链检查照不到。门本身（本文件）要提到这个路径，豁免。
+int _checkCodeAgentRefs(string root) {
+    string[] dirs = new string[3];
+    dirs[0] = "src";
+    dirs[1] = "scripts";
+    dirs[2] = ".github";
+    int bad = 0;
+    int d = 0;
+    while (d < dirs.Length) {
+        string top = Path.Join(root, dirs[d]);
+        if (Directory.Exists(top)) {
+            string[] all = Directory.EnumerateRecursive(top);
+            int i = 0;
+            while (i < all.Length) {
+                string rel = dirs[d] + "/" + all[i].Replace("\\", "/");
+                if (_isScannedCode(rel)) {
+                    string full = Path.Join(root, rel);
+                    if (File.Exists(full) && !Directory.Exists(full) && File.ReadAllText(full).Contains("docs/agent/")) {
+                        ConsoleError.WriteLine("  ✗ " + rel);
+                        bad = bad + 1;
+                    }
+                }
+                i = i + 1;
+            }
+        }
+        d = d + 1;
+    }
+    return bad;
+}
+
+// 只扫入库的文本源：跳过构建产物目录，按扩展名白名单取文件（markdown 由上面的链接检查负责）。
+// 白名单按名字匹配，目录也可能撞上（`src/libraries/z42.toml`），读之前调用方另判是不是目录。
+bool _isScannedCode(string rel) {
+    if (rel == "scripts/test/xtask_test_docs.z42") { return false; }
+    string[] skipDirs = new string[6];
+    skipDirs[0] = "/node_modules/";
+    skipDirs[1] = "/target/";
+    skipDirs[2] = "/dist/";
+    skipDirs[3] = "/artifacts/";
+    skipDirs[4] = "/build/";
+    skipDirs[5] = "/.gradle/";
+    int k = 0;
+    while (k < skipDirs.Length) {
+        if (rel.Contains(skipDirs[k])) { return false; }
+        k = k + 1;
+    }
+    string[] exts = new string[17];
+    exts[0] = ".rs";    exts[1] = ".z42";   exts[2] = ".toml";  exts[3] = ".yml";
+    exts[4] = ".yaml";  exts[5] = ".sh";    exts[6] = ".ps1";   exts[7] = ".bat";
+    exts[8] = ".h";     exts[9] = ".c";     exts[10] = ".kt";   exts[11] = ".kts";
+    exts[12] = ".swift"; exts[13] = ".js";  exts[14] = ".ts";   exts[15] = ".py";
+    exts[16] = ".txt";
+    int e = 0;
+    while (e < exts.Length) {
+        if (rel.EndsWith(exts[e])) { return true; }
+        e = e + 1;
+    }
+    return false;
 }
 
 // 去掉一行里成对的 code span（`…` / ``…`` / ```…```）。

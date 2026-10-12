@@ -27,7 +27,7 @@ namespace Z42.Build;
     int      ExcludesCount)  // 如 `hooks/**` / `[sources] exclude`），传给 SourceDiscovery.
                               // DiscoverWithExclude。**阶段4.1 additive**：字段先行、z42c 先不读
                               // （让 z42b/publish in-process 编译路径的产物也排除 hooks 死类），
-                              // 因为 bootstrap-seed 轴②要求 z42c 源引用新 stdlib API 晚一个 nightly。
+                              // 因为 self-hosting 轴②要求 z42c 源引用新 stdlib API 晚一个 nightly。
                               // ✅ **阶段4.2 已落地**：`Z42cCompiler` 现在读它
                               // （`DiscoverWithExclude(req.SourceDir, …, req.Excludes, req.ExcludesCount)`）。
                               // 原注写着「z42c 尚不读…阶段4.2 才让它读」，消费落地后没跟着改。
@@ -37,7 +37,7 @@ namespace Z42.Build;
     /// `""` = 普通编译（现状）。
     /// ⚠️ **body 字段、不进 ctor 签名** —— `z42.build` 是 z42c 的自依赖库之一，给其既有导出类型
     ///    加字段必须 ctor 内给默认值 + 消费方构造后赋值，否则旧种子的构造调用元数对不上
-    ///    （bootstrap-seed.md「残余真约束」）。
+    ///    （self-hosting.md 轴④「种子 ABI 残余约束」）。
     public string ParentPkg = "";
 
     /// z42b-owns-test-targets：源发现的 **include glob**（相对 SourceDir）。
