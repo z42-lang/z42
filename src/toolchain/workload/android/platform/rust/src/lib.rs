@@ -5,7 +5,7 @@
 //! (`z42vm/src/main/cpp/z42vm_jni.c`) can dlopen it and call straight
 //! through to the runtime's embedding ABI.
 //!
-//! Spec: docs/spec/archive/2026-05-12-add-platform-android/
+//! Spec: 变更 add-platform-android/
 
 // Re-export the entire host C ABI surface. `#[no_mangle]` on the
 // original `extern "C"` declarations keeps the linker symbols intact;

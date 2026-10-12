@@ -55,7 +55,7 @@ pub fn load_artifact(path: &str) -> Result<LoadedArtifact> {
 /// the same registry / verification / index passes run.
 ///
 /// Spec: docs/internals/src/runtime/embedding.md §4.4 (z42_host_load_zbc),
-///       docs/spec/archive/2026-05-10-add-embedding-api/.
+///       变更 add-embedding-api/.
 pub fn load_artifact_from_bytes(raw: &[u8]) -> Result<LoadedArtifact> {
     if raw.len() < 4 {
         bail!("artifact byte buffer is too short ({} bytes); expected at least 4 magic bytes", raw.len());

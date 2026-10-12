@@ -28,7 +28,7 @@ pub mod aot;
 #[cfg(feature = "native-interop")]
 pub mod native;
 // Embedding API (Tier 1 C ABI for host applications). Spec:
-// docs/internals/src/runtime/embedding.md, docs/spec/archive/2026-05-10-add-embedding-api/.
+// docs/internals/src/runtime/embedding.md, 变更 add-embedding-api/.
 pub mod host;
 pub mod vm;
 pub mod vm_context;
@@ -66,6 +66,6 @@ pub mod observer;
 // POSIX signal handler — captures z42 call stack on hard crashes
 // (SIGSEGV / SIGABRT / SIGFPE / SIGILL / SIGBUS). Phase 2 of D4 panic-hook
 // story (Phase 1 = main.rs install_panic_hook). Windows VEH = Phase 2.1.
-// Spec: docs/spec/changes/add-os-signal-handler/.
+// Spec: 变更 add-os-signal-handler/.
 #[cfg(unix)]
 pub mod signal_handler;

@@ -18,7 +18,7 @@ pub type Z42WriteSink =
 
 /// `Z42ZpkgResolverFn` C ABI signature: hit returns non-zero, miss returns 0.
 /// Bytes need only stay valid until the callback returns. Spec:
-/// `docs/spec/archive/2026-05-12-add-zpkg-resolver-hook/`.
+/// `变更 add-zpkg-resolver-hook/`.
 pub type Z42ZpkgResolverFn = Option<
     unsafe extern "C" fn(
         namespace_name: *const c_char,

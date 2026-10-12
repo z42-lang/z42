@@ -5,7 +5,7 @@ import Z42VMC
 /// `z42_host::Host` Rust API. Construct with an optional
 /// `ZpkgResolver`; `deinit` runs `z42_host_shutdown` automatically.
 ///
-/// Spec: docs/spec/archive/2026-05-12-add-platform-ios/
+/// Spec: 变更 add-platform-ios/
 ///       docs/design/runtime/embedding.md §6.2 (Tier 3 iOS)
 ///
 /// **Thread safety**: v0.1 the runtime is a process singleton and

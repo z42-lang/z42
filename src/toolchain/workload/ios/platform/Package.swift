@@ -1,8 +1,8 @@
 // swift-tools-version: 6.0
 //
 // Z42VM — SwiftPM package for embedding the z42 VM into iOS / macOS
-// apps. Spec: docs/spec/archive/2026-05-12-add-platform-ios/
-//             docs/spec/changes/add-ios-tests/
+// apps. Spec: 变更 add-platform-ios/
+//             变更 add-ios-tests/
 
 import PackageDescription
 
@@ -48,7 +48,7 @@ let package = Package(
         ),
 
         // XCTest target. R1–R7 implementation per platform-test-contract:
-        //   docs/spec/archive/2026-05-12-define-platform-test-contract/specs/platform-test-contract/spec.md
+        //   变更 define-platform-test-contract/specs/platform-test-contract/spec.md
         //
         // Resources are produced by build.sh:
         //   Tests/Z42VMTests/Resources/test-fixtures/{hello,multi_line}.zbc

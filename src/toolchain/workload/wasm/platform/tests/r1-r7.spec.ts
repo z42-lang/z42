@@ -2,7 +2,7 @@
 // R1–R7. Page setup + actual VM driving lives in host.js; this file just
 // invokes window.__test.runRn and asserts on the returned value.
 //
-// Spec: docs/spec/archive/2026-05-12-add-wasm-tests/
+// Spec: 变更 add-wasm-tests/
 
 import { test, expect } from '@playwright/test';
 

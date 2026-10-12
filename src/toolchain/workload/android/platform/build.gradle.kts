@@ -1,7 +1,7 @@
 // Root project — only declares Android Gradle Plugin + Kotlin classpath
 // so the `z42vm` subproject can apply them.
 //
-// Spec: docs/spec/archive/2026-05-12-add-platform-android/
+// Spec: 变更 add-platform-android/
 
 // AGP 9 compiles Kotlin itself (built-in Kotlin) — the `org.jetbrains.kotlin.android`
 // plugin must NOT be applied anymore. AGP only depends on KGP 2.2.10 as a floor; this

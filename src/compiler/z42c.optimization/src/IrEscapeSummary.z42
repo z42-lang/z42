@@ -4,7 +4,7 @@
 // （被存字段/静态/数组、返回、throw、传给会让它逃逸的调用、闭包捕获）。摘要互相依赖
 // （f 调 g）→ 模块单调不动点。IrEscapeAnalysis._markEscaping 消费它，把「传进静态调用的实参」
 // 从「一律逃逸」精确成「按 callee 摘要逐个判」。设计见
-// docs/spec/changes/add-crossproc-escape-summary/design.md（D1/D4）。
+// 变更 add-crossproc-escape-summary/design.md（D1/D4）。
 //
 // 参数槽↔寄存器：IrFunction.ParamCount **含 this**；参数槽 i = 寄存器 i（实例方法 reg0=this）。
 // 故 esc[i]（reg i 是否逃逸）= 参数槽 i 是否逃逸（FunctionEmitter 形参 reg 分配 0..ParamCount-1）。

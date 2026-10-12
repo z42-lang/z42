@@ -240,7 +240,7 @@ unexpected_cfgs = { level = "warn", check-cfg = ['cfg(loom)'] }
 # line; unpatched, the cursor homes to column 0 after the replace (breaking `} else {`).
 # One-commit fork of kkawakam/rustyline v18.0.1 (the same commit earlier sat on v14.0.0;
 # upstream 18.0.1 still lacks it); also filed upstream — drop this patch once it merges.
-# See docs/spec/changes/add-repl-rbrace-floor/design.md Decision 2.
+# See 变更 add-repl-rbrace-floor/design.md Decision 2.
 [patch.crates-io]
 rustyline = { git = "https://github.com/z42-lang/rustyline", branch = "z42-edit-insert-text-cursor-v18" }
 

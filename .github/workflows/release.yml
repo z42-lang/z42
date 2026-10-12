@@ -6,8 +6,7 @@ name: Release
 # Pre-1.0 versions and tags containing '-' are published as GitHub prereleases.
 #
 # Pipeline: verify (tag ↔ versions.toml) → package × 9 RIDs → publish (with SHA256SUMS).
-# See docs/spec/changes/add-release-automation/ (until archived) or
-# docs/spec/archive/<date>-add-release-automation/.
+# See 变更 add-release-automation/.
 
 on:
   push:

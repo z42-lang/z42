@@ -18,7 +18,7 @@ public protocol ZpkgResolver {
 /// `z42.core.zpkg` provides `z42.core` + `Std` + `Std.Exceptions`) maps
 /// all of them, which a `namespace == filename` guess could not.
 ///
-/// Spec: docs/spec/archive/2026-06-06-drop-index-json-self-describing/
+/// Spec: 变更 drop-index-json-self-describing/
 public struct BundleZpkgResolver: ZpkgResolver {
     public let bundle: Bundle
     public let subdirectory: String?

@@ -23,7 +23,7 @@
 //!
 //! v0 scope: interp only. JIT-compiled code lacks the Rust-level instrumentation
 //! point — covered by follow-up `add-gc-safepoint-jit` (see Decision 5 in
-//! `docs/spec/archive/2026-05-20-add-gc-safepoint/design.md`).
+//! `变更 add-gc-safepoint/design.md`).
 
 use crate::vm_context::{VmContext, VmCore};
 use std::sync::atomic::Ordering;

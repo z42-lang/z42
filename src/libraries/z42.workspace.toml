@@ -12,7 +12,7 @@
 # 自动发现：BuildLibsDirs 在 artifacts/build/libraries/ 下搜索每个 member
 # 的 dist 子目录，stdlib 编译时各 member 能找到先前编译的产物。
 #
-# Spec: docs/spec/archive/2026-05-12-redesign-artifact-layout/
+# Spec: 变更 redesign-artifact-layout/
 
 [workspace]
 members = ["*"]

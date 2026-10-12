@@ -16,7 +16,7 @@
 // z42c.syntax 构成，运行时它已加载）→ as Analyzer + AnalyzerDriver.Run 直接可用。
 //
 // 范式 = z42b builder.z42 _hostCompiler（Load→GetType→CreateInstance→as，已生产验证；那里 FQN
-// 硬编码，这里靠 Path-A 发现）。设计 SoT：docs/spec/changes/attribute-handler-registry/design.md D9。
+// 硬编码，这里靠 Path-A 发现）。设计 SoT：变更 attribute-handler-registry/design.md D9。
 namespace Z42.Analyzers;
 
 using Std.Reflection;  // Assembly / Activator

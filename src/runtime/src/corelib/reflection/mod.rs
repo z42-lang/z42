@@ -2,7 +2,7 @@
 //! `Std.Reflection.{FieldInfo,MethodInfo,ParameterInfo}` (add-reflection-mvp,
 //! 2026-06-08).
 //!
-//! Design (see docs/spec/.../add-reflection-mvp/design.md):
+//! Design (see 变更 add-reflection-mvp/design.md):
 //!   - `Std.Type` objects carry the real `Arc<TypeDesc>` in
 //!     `NativeData::TypeHandle` (set by `__obj_get_type`). Reflection builtins
 //!     read it to enumerate members.

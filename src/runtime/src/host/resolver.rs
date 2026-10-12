@@ -1,6 +1,6 @@
 //! ZpkgResolver trait + C hook adapter for the embedding API.
 //!
-//! Spec: docs/spec/archive/2026-05-12-add-zpkg-resolver-hook/
+//! Spec: 变更 add-zpkg-resolver-hook/
 //!       docs/internals/src/runtime/embedding.md §11
 //!
 //! The runtime accepts two resolver shapes:

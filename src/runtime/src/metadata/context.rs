@@ -17,7 +17,7 @@
 //! handles), and a post-sweep reclaim pass drops the arena of any `Unloading`
 //! context with no live references (Erlang current/old — no tombstone).
 //!
-//! Design: `docs/spec/changes/add-lazy-context-unload/design.md` (D1–D5).
+//! Design: `变更 add-lazy-context-unload/design.md` (D1–D5).
 //! Context↔type association lives HERE (registry `td_to_ctx` reverse map),
 //! never mutating `TypeDesc` (Phase 1 D5).
 

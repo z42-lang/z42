@@ -3,8 +3,8 @@
 // platform-test-contract R1–R7 scenarios. Each returns a value that the
 // playwright spec.ts file asserts on.
 //
-// Spec: docs/spec/changes/add-wasm-tests/specs/wasm-tests/spec.md
-//       docs/spec/archive/2026-05-12-define-platform-test-contract/specs/platform-test-contract/spec.md
+// Spec: 变更 add-wasm-tests/specs/wasm-tests/spec.md
+//       变更 define-platform-test-contract/specs/platform-test-contract/spec.md
 
 import init, { Z42VM, readNamespaces } from '../pkg-web/z42_wasm.js';
 import { mapResolver, bundleStdlibBrowser } from '../js/stdlib-resolver.js';

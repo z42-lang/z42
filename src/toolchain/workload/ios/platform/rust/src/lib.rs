@@ -5,7 +5,7 @@
 //! `Z42VMC` clang module. There is no logic here; all real code lives in
 //! [`z42::host`] and [`z42_host`].
 //!
-//! Spec: docs/spec/archive/2026-05-12-add-platform-ios/
+//! Spec: 变更 add-platform-ios/
 
 // Re-export the entire host C ABI surface. `#[no_mangle]` on the original
 // `extern "C"` declarations means linker symbols stay intact; we just need

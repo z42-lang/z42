@@ -1,6 +1,6 @@
 /* JNI bridge — `io.z42.vm.Z42VM` Kotlin facade → z42_host_* C ABI.
  *
- * Spec: docs/spec/archive/2026-05-12-add-platform-android/
+ * Spec: 变更 add-platform-android/
  *       docs/design/runtime/embedding.md §6.2 (Tier 3 Android)
  *
  * Threading model: v0.1 the runtime is a process singleton; Kotlin

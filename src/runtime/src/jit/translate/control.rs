@@ -24,7 +24,7 @@ pub(super) fn find_handler_entries(func: &Function, block_idx: usize) -> Vec<usi
 /// inline-jit-safepoint-check (2026-08-01): emit the cooperative-GC safepoint
 /// **fast path** inline as native load/store + branch, replacing a
 /// `jit_check_safepoint` helper call (~10ns) on the hot path. See
-/// `docs/spec/changes/inline-jit-safepoint-check/design.md`.
+/// `变更 inline-jit-safepoint-check/design.md`.
 ///
 /// Mirrors `gc::safepoint::check_safepoint`:
 /// ```text

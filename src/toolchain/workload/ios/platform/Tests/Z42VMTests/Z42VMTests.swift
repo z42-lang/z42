@@ -1,7 +1,7 @@
 // Z42VMTests.swift — XCTest implementation of platform-test-contract R1–R7.
 //
-// Spec: docs/spec/changes/add-ios-tests/specs/ios-tests/spec.md
-//       docs/spec/archive/2026-05-12-define-platform-test-contract/specs/platform-test-contract/spec.md
+// Spec: 变更 add-ios-tests/specs/ios-tests/spec.md
+//       变更 define-platform-test-contract/specs/platform-test-contract/spec.md
 //
 // Resources (produced by build.sh, exposed via Bundle.module):
 //   test-fixtures/hello.zbc        — single line "hello, world"

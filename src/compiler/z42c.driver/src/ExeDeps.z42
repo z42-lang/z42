@@ -225,7 +225,7 @@ int _bundleExeDeps(ProjectManifest pm, string[] closureNames, int closureN, stri
 // 的做法，而那条路**在 repo 外整个失效**（`srcRoot == ""` ⇒ 每个依赖都 continue，零复制零递归）
 // —— 把它搬过来等于把一个更大的毛病也搬过来。
 // ⇒ 正解是先给 z42 侧补 zpkg DEPS 解码（support 先行、卡一个 nightly）。
-// 见 `docs/spec/changes/add-deployment-model/tasks.md` 批 2。
+// 见 `变更 add-deployment-model/tasks.md` 批 2。
 
 // `z42c build --workspace [--output-dir <flat>] [--release]`：从 CWD 向上找
 // z42.workspace.toml → 成员拓扑序 → 逐成员 build。

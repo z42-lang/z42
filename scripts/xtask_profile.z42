@@ -16,7 +16,7 @@
 // scraped off stderr). P2 (add-sampling-profiler) adds z42-source-function
 // attribution: `--cpu` now also runs the VM under Z42_SAMPLE_HZ → folded stacks
 // (inferno flamegraph) + a perfetto sample-trace. The design lives in
-// docs/spec/changes/{plan-script-profiling,add-sampling-profiler}/. Same Z42Xtask
+// 变更 {plan-script-profiling,add-sampling-profiler}/. Same Z42Xtask
 // namespace; reuses _root/_exec/_have/_builtVm/_libsDir/_driverZpkg/
 // _ensureToolchainDeps/_extractNamespace from xtask_common /
 // xtask_toolchain / xtask_bench.
